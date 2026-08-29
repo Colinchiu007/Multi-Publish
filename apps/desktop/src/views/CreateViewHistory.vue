@@ -393,7 +393,16 @@ export default {
       return this.detailEditable(item)
     },
     detailEditable (item) {
-      return Boolean(item && item.projectId && item.startedPipeline !== false && item.status !== 'running')
+      // 只有「已创建可识别项目」的终态任务可编辑（spec：只有 runId 的纯 run 记录不得制造项目卡片）。
+      // run-only 记录的 projectId 会被主进程回退为 runId（pipeline-engine 快照 projectId || id），
+      // 仅凭 projectId 存在会误判为可编辑，点击后结果页加载项目必然失败。必须用 historyType 区分。
+      return Boolean(
+        item
+        && item.historyType === 'story2video-project'
+        && item.projectId
+        && item.startedPipeline !== false
+        && item.status !== 'running'
+      )
     },
     openDetail (item) {
       if (!this.historyItemOpenable(item)) return
@@ -486,7 +495,9 @@ export default {
       return cached !== undefined ? cached : this.policyResumeBlockedText(item)
     },
     policyEditTarget (item) {
-      if (!item || item.status !== 'failed' || !item.projectId) return false
+      // 与 detailEditable 一致：仅真实 story2video 项目可编辑，run-only 记录（historyType=pipeline-run）
+      // 的 projectId 是主进程回退的 runId，项目不存在，进入结果页必然加载失败。
+      if (!item || item.status !== 'failed' || item.historyType !== 'story2video-project' || !item.projectId) return false
       return RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))
     },
     policyResumeBlockedText (item) {

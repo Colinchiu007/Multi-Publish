@@ -116,10 +116,10 @@ describe('CreateViewHistory', () => {
     expect(wrapper.find('[data-history-id="missing-video-duration"]').text()).toContain('create.history.notGenerated')
   })
 
-  it('仅非 running 且有 projectId 的卡片点击进入编辑页，running 不可进入而 cancelled 可编辑', async () => {
+  it('仅非 running 且有真实项目（historyType=story2video-project）的卡片点击进入编辑页，running 不可进入而 cancelled 可编辑', async () => {
     const wrapper = mountHistory([
-      { id: 'running', projectId: 'proj-r', status: 'running', updatedAt: '2026-08-15T12:00:00Z' },
-      { id: 'cancelled', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' },
+      { id: 'running', historyType: 'story2video-project', projectId: 'proj-r', status: 'running', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'cancelled', historyType: 'story2video-project', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' },
     ])
     const bodies = wrapper.findAll('.history-item-body')
     expect(bodies[0].attributes('role')).toBeUndefined()
@@ -132,7 +132,27 @@ describe('CreateViewHistory', () => {
     expect(bodies[1].attributes('tabindex')).toBe('0')
     expect(wrapper.find('[data-history-id="cancelled"]').classes()).toContain('is-interactive')
     await bodies[1].trigger('click')
-    expect(wrapper.emitted('open-result')?.[0]).toEqual([{ id: 'cancelled', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' }])
+    expect(wrapper.emitted('open-result')?.[0]).toEqual([{ id: 'cancelled', historyType: 'story2video-project', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' }])
+  })
+
+  it('run-only 记录（historyType=pipeline-run）即使带 projectId 也不可编辑，避免结果页加载失败', async () => {
+    // 复现 run_1787423794598_86az：cancelled 的 run-only 记录 projectId 被主进程回退为 runId，
+    // 项目实际不存在，点击编辑会进入结果页加载失败。必须用 historyType 区分真实项目。
+    const wrapper = mountHistory([
+      { id: 'run-only-cancelled', historyType: 'pipeline-run', projectId: 'run-only-cancelled', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' },
+      { id: 'run-only-failed', historyType: 'pipeline-run', projectId: 'run-only-failed', status: 'failed', updatedAt: '2026-08-15T10:00:00Z' },
+    ])
+    const bodies = wrapper.findAll('.history-item-body')
+    for (const body of bodies) {
+      expect(body.attributes('role')).toBeUndefined()
+      expect(body.attributes('tabindex')).toBeUndefined()
+      await body.trigger('click')
+    }
+    expect(wrapper.emitted('open-result')).toBeUndefined()
+    expect(wrapper.emitted('resume-history')).toBeUndefined()
+    // 编辑按钮也不显示
+    expect(wrapper.find('[data-testid="history-edit-recompose-button"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="history-policy-edit-button"]').exists()).toBe(false)
   })
 
   it('已中断卡片显示中断环节与提示并可断点继续；已暂停标签只显示手动暂停任务', async () => {
@@ -224,7 +244,7 @@ describe('CreateViewHistory', () => {
   })
 
   it('已取消卡片允许删除，也可以进入编辑页但不会自动恢复', async () => {
-    const wrapper = mountHistory([{ id: 'cancelled-1', projectId: 'proj-c', status: 'cancelled' }])
+    const wrapper = mountHistory([{ id: 'cancelled-1', historyType: 'story2video-project', projectId: 'proj-c', status: 'cancelled' }])
     const body = wrapper.find('.history-item-body')
     expect(body.attributes('role')).toBe('button')
     await body.trigger('click')
@@ -263,7 +283,7 @@ describe('CreateViewHistory', () => {
 
   it('completed+projectId 卡片显示编辑与重新合成按钮并发出 open-result', async () => {
     const wrapper = mountHistory([
-      { id: 'done-1', projectId: 'proj-1', status: 'completed', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'done-1', historyType: 'story2video-project', projectId: 'proj-1', status: 'completed', updatedAt: '2026-08-15T12:00:00Z' },
       { id: 'no-proj', status: 'completed', updatedAt: '2026-08-15T11:00:00Z' },
     ])
     const buttons = wrapper.findAll('[data-testid="history-edit-recompose-button"]')
@@ -276,7 +296,7 @@ describe('CreateViewHistory', () => {
   it('completed+projectId 卡片标题回退原文案前 60 字，编辑按钮发出 open-result', async () => {
     const wrapper = mountHistory([
       {
-        id: 'done-1', projectId: 'proj-1', pipeline: 'story2video-compose', status: 'completed',
+        id: 'done-1', historyType: 'story2video-project', projectId: 'proj-1', pipeline: 'story2video-compose', status: 'completed',
         segments: [
           { id: 's1', text: '场景一文案', prompt: '图词一' },
           { id: 's2', text: '', prompt: '图词二' },
@@ -366,7 +386,7 @@ describe('CreateViewHistory', () => {
   it('政策失败且有项目时卡片显示修改并重新生成按钮，点击发出 open-result', async () => {
     const wrapper = mountHistory([
       {
-        id: 'policy-edit-1', projectId: 'proj-p1', status: 'failed',
+        id: 'policy-edit-1', historyType: 'story2video-project', projectId: 'proj-p1', status: 'failed',
         error: 'Image #49: Image generation requires user input after content-policy review',
       },
     ])
@@ -398,7 +418,7 @@ describe('CreateViewHistory', () => {
   it('政策失败且有项目时卡片内联修改按钮发出 open-result', async () => {
     const wrapper = mountHistory([
       {
-        id: 'policy-detail-edit', projectId: 'proj-p9', status: 'failed',
+        id: 'policy-detail-edit', historyType: 'story2video-project', projectId: 'proj-p9', status: 'failed',
         error: 'Image #73: Image generation requires user input after content-policy review',
       },
     ])
