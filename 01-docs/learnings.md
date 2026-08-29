@@ -14009,3 +14009,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **能力语义容易错估**：localization-dub 需要 llm（显式 voiceProvider）但视频模型非必需；film-engineering 需 llmEnabled 开启才要求 llm；podcast-repurpose 无 transcript 时才要求 speech_recognition。映射回归必须覆盖「未配置任何模型 → 预检拦截并列出缺失能力」「逐项配置 → 精确放行并断言必需能力集合」双向用例。
 - **OpenSpec apply 缺失时的合入路径**：openspec apply 无法直接落盘时，按 change 工件把 specs 变更手工合入 openspec/specs/ 主规格文件，随后 openspec validate 全量通过后再归档，归档记录与主 specs 保持一致。
 - **CJK 基线行号漂移处理**：locale-cjk-baseline.json 按 file:line 记录，新增代码行会造成基线行号整体漂移；用 --update-baseline 更新后必须人工核验「去掉行号后旧集合与新集合一致」，避免把新增中文字符串字面量混入基线放行。
+
+## 2026-08-30 上游瞬时故障未纳入重试致整线失败（image-retry-transient，mtelxg9v_v5d6）
+
+- **现象**：视频创作 38 场景，TTS 38/38 全部成功，但第 38 张图片生成失败导致整条流水线失败。首次 MiniMax 返回 `system error`，用户切换 agnes-image 后返回 `fetch failed`，两次都单次失败即整体失败。
+- **第一性原因**：`classifyProviderFailure`（provider-error.js）把 `system error`（上游服务端 500 类错误）和 `fetch failed`（传输层网络错误）归为 `'other'`（不重试）。`withAssetTransientRetry` / `runContentPolicyImageRetry` 对非 transient 错误**单次失败即返回**，不做任何退避重试。上游一次瞬时抖动直接击穿整条流水线。
+- **逃逸链**：单元测试只覆盖了 rate/quota/timeout/network error/content_policy 分类，**从未覆盖 `system error` / `fetch failed` / HTTP 5xx 这类上游服务端瞬时错误**；`TRANSIENT_PATTERN`（story2video-stages.js）只匹配 `network\s*error`，不匹配 `fetch failed`，抛错路径与返回结果路径判定不一致。
+- **修复**：
+  1. `provider-error.js` 新增 `TRANSIENT_MESSAGE_PATTERN`（覆盖 timed out/ETIMEDOUT/ECONNRESET/ECONNREFUSED/ENOTFOUND/network error/fetch failed/socket hang up/aborted/system|server|internal|gateway error/5xx 等），`classifyProviderFailure` 命中即归 `'transient'`；HTTP 5xx（500-599）状态码直接归 `'transient'`。
+  2. `story2video-stages.js` 的 `TRANSIENT_PATTERN` 复用 `TRANSIENT_MESSAGE_PATTERN`，保证抛错路径（classifyProviderFailure）与返回结果路径（isTransientOutcomeLike）判定一致。
+  3. 认证（401/403）、额度（402/quota）、限流（429/rate）仍保持不重试或按各自语义处理，不被 5xx/瞬时模式误判。
+- **回归保护**：provider-error.test.js 新增 `system error`/`fetch failed`/HTTP 500/503/socket hang up → transient，及 auth/quota/rate 不被误判共 8 用例；story2video-stages.test.js 新增 `system error`/`fetch failed` 抛错型 + 结果对象型各重试后恢复共 4 用例。
+- **预防**：新增「上游瞬时故障」类错误（5xx、system error、fetch failed、socket hang up 等）必须纳入 `TRANSIENT_MESSAGE_PATTERN` 并补分类回归测试；抛错路径与返回结果路径的瞬时判定必须复用同一模式，避免两处漂移。任何 provider 错误分类修改后，必须跑 provider-error.test.js + story2video-stages.test.js + api-usage-governor.test.js + provider-run-context.test.js。
