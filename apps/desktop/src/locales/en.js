@@ -164,6 +164,7 @@ export default {
       // 2026-08-19 Pipeline auto-background run: running starts and resumes continue in the main process
       backgroundRun: 'Run in background',
       backgroundResumeToast: 'Pipeline resumed and is tracking progress live; it keeps running in the background after you leave this page and remains visible in History.',
+      resumeUsesCurrentModels: 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.',
       startForegroundToast: 'Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page and remains visible in History (still occupies a run slot).',
       backgroundDetachedToast: 'The task is now running in the background. You can view it in History.',
       backgroundStartedWithoutTracking: 'The task started and is running in the background, but live progress is unavailable. View it in History.',

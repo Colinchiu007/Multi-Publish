@@ -164,6 +164,7 @@ export default {
       // 2026-08-19 流水线自动后台运行：启动/续跑进入 running 后由主进程继续执行，历史记录显示进度
       backgroundRun: '后台运行',
       backgroundResumeToast: '流水线已从断点继续，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看。',
+      resumeUsesCurrentModels: '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。',
       startForegroundToast: '流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。',
       backgroundDetachedToast: '任务已转入后台运行，在历史记录中可查看',
       backgroundStartedWithoutTracking: '任务已启动并在后台运行，但当前无法实时跟踪进度，请在历史记录中查看。',
