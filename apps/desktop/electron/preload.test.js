@@ -190,10 +190,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 106 个键', () => {
+  it('publish 模块应导出 110 个键（含流水线保存配置 4 方法）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(106)
+    expect(Object.keys(r).length).toBe(110)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -210,8 +210,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(144)
   })
 
-  it('合并后 api 总键数应为 299（含 videoClone 与 filmEngineering 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(299)
+  it('合并后 api 总键数应为 303（含 videoClone/filmEngineering 命名空间与保存配置 4 方法）', () => {
+    expect(Object.keys(api).length).toBe(303)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -403,6 +403,17 @@ describe('Story2Video 媒体导入桥接', () => {
     expect(requiredLevelForChannel('story2video:list-projects')).toBe('public')
     expect(requiredLevelForChannel('story2video:get-project')).toBe('public')
     expect(requiredLevelForChannel('story2video:get-thumbnail')).toBe('public')
+  })
+
+  it('流水线「保存配置」为公开方法且主进程通道公开（设备级本地配置库）', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+    for (const method of ['story2videoConfigProfileList', 'story2videoConfigProfileCreate', 'story2videoConfigProfileRename', 'story2videoConfigProfileDelete']) {
+      expect(PUBLIC_METHODS).toContain(method)
+    }
+    for (const channel of ['story2video:config-profile-list', 'story2video:config-profile-create', 'story2video:config-profile-rename', 'story2video:config-profile-delete']) {
+      expect(requiredLevelForChannel(channel)).toBe('public')
+    }
   })
 })
 

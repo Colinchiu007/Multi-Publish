@@ -55,6 +55,13 @@
 | 失败原因 | Failure reason | create.history.errorSummary |
 | 音色 | Voice | story2video.sceneMaterial.voiceIdLabel |
 | 返回 | Back | story2video.sceneMaterial.backToHistory |
+| 保存配置 | Save configuration | create.story2video.configProfile.saveButton |
+| 我的配置 | My configurations | create.story2video.configProfile.manageButton |
+| 应用配置 | Apply configuration | create.story2video.configProfile.applyTitle |
+| 配置已保存 | Configuration saved | create.story2video.configProfile.saved |
+| 已应用配置 | Configuration applied | create.story2video.configProfile.applied |
+| 配置已重命名 | Configuration renamed | create.story2video.configProfile.renamed |
+| 配置已删除 | Configuration deleted | create.story2video.configProfile.deleted |
 
 ## 维护规则
 

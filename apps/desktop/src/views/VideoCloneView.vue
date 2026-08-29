@@ -1,51 +1,64 @@
 <template>
   <div class="video-clone-view">
-    <h1 class="vc-title">视频克隆 · 对标拆解与再创作</h1>
+    <h1 class="vc-title">{{ t('videoClone.title') }} · {{ t('pipelines.descriptions.video-clone') }}</h1>
+
+    <ConfigProfileManager
+      pipeline-id="video-clone"
+      :pipeline-label="t('pipelines.names.video-clone')"
+      :snapshot="videoCloneProfileSnapshot"
+      :dirty="videoCloneProfileDirty"
+      test-id-prefix="video-clone-config-profile"
+      :on-list="loadConfigProfiles"
+      :on-save="saveConfigProfile"
+      :on-apply="applyVideoCloneProfile"
+      :on-rename="renameConfigProfile"
+      :on-delete="deleteVideoCloneProfile"
+    />
 
     <!-- 输入区（PRD §13.2） -->
     <el-card class="vc-card" shadow="never">
       <el-radio-group v-model="sourceType" class="vc-source-type">
-        <el-radio-button value="url">链接</el-radio-button>
-        <el-radio-button value="local">本地文件</el-radio-button>
+        <el-radio-button value="url">{{ t('videoClone.sourceUrl') }}</el-radio-button>
+        <el-radio-button value="local">{{ t('videoClone.sourceLocal') }}</el-radio-button>
       </el-radio-group>
 
       <el-input
         v-if="sourceType === 'url'"
         v-model="linkUrl"
-        placeholder="粘贴视频链接（抖音/小红书/快手/B站/视频号/YouTube/TikTok/Ins）"
+        :placeholder="t('videoClone.linkPlaceholder')"
         class="vc-input"
       />
       <el-input
         v-else
         v-model="filePath"
-        placeholder="选择本地视频文件（mp4/mov/webm，≤500MB，≤30分钟）"
+        :placeholder="t('videoClone.filePlaceholder')"
         class="vc-input"
       >
         <template #append>
-          <el-button @click="pickFile">选择文件</el-button>
+          <el-button data-testid="video-clone-pick-file" @click="pickFile">{{ t('videoClone.pickFile') }}</el-button>
         </template>
       </el-input>
 
       <div class="vc-options">
-        <el-select v-model="mode" placeholder="复刻模式" class="vc-option">
-          <el-option label="结构" value="structure" />
-          <el-option label="风格" value="style" />
-          <el-option label="灵感" value="inspiration" />
+        <el-select v-model="mode" :placeholder="t('videoClone.modePlaceholder')" class="vc-option" data-testid="video-clone-mode">
+          <el-option :label="t('videoClone.mode.structure')" value="structure" />
+          <el-option :label="t('videoClone.mode.style')" value="style" />
+          <el-option :label="t('videoClone.mode.inspiration')" value="inspiration" />
         </el-select>
-        <el-checkbox v-model="rewriteScript">改写文案</el-checkbox>
+        <el-checkbox v-model="rewriteScript" data-testid="video-clone-rewrite-script">{{ t('videoClone.rewriteScript') }}</el-checkbox>
       </div>
 
       <div class="vc-actions">
-        <el-button type="primary" :loading="running" @click="start" :disabled="running">
-          开始分析
+        <el-button type="primary" data-testid="video-clone-start" :loading="running" @click="start" :disabled="running">
+          {{ t('videoClone.start') }}
         </el-button>
-        <el-button v-if="running" @click="cancel">取消</el-button>
+        <el-button v-if="running" data-testid="video-clone-cancel" @click="cancel">{{ t('videoClone.cancel') }}</el-button>
       </div>
     </el-card>
 
     <!-- 进度区（PRD §13.3） -->
     <el-card v-if="running || Object.values(stageStatus).some((s) => s !== 'idle')" class="vc-card" shadow="never">
-      <template #header>分析进度</template>
+      <template #header>{{ t('videoClone.progress') }}</template>
       <div class="vc-stages">
         <div v-for="s in STAGE_LABELS" :key="s" class="vc-stage" :class="'is-' + stageStatus[s]">
           <span class="vc-stage-dot" />
@@ -57,56 +70,77 @@
 
     <!-- 报告编辑（PRD §13.4 简化：文案 + 复刻层级） -->
     <el-card v-if="report" class="vc-card" shadow="never">
-      <template #header>拆解报告（可编辑）</template>
+      <template #header>{{ t('videoClone.report') }}</template>
       <el-input
         type="textarea"
         :rows="6"
         :model-value="report.script.fullText"
-        placeholder="文案全文"
+        :placeholder="t('videoClone.scriptPlaceholder')"
+        data-testid="video-clone-report-script"
         @change="(v) => editReport('script.fullText', v)"
       />
       <div class="vc-meta">
-        时长 {{ report.meta.durationSec }}s · 分辨率 {{ report.meta.resolution || '未知' }} · 画幅 {{ report.platformParams.aspect }} ·
-        目标层级 {{ report.replication?.level || '-' }}（{{ report.replication?.auto?.determined ? '自动' : '固定' }}）
+        {{ t('videoClone.meta.duration') }} {{ report.meta.durationSec }}s · {{ t('videoClone.meta.resolution') }} {{ report.meta.resolution || t('videoClone.meta.unknown') }} · {{ t('videoClone.meta.aspect') }} {{ report.platformParams.aspect }} ·
+        {{ t('videoClone.meta.targetLevel') }} {{ report.replication?.level || '-' }}（{{ report.replication?.auto?.determined ? t('videoClone.meta.auto') : t('videoClone.meta.fixed') }}）
       </div>
     </el-card>
 
     <!-- 结果（PRD §13.5） -->
     <el-card v-if="similarity" class="vc-card" shadow="never">
-      <template #header>相似度自检（F4）</template>
-      <div class="vc-sim">综合分 <b>{{ similarity.score }}</b> · 判定 <b>{{ similarity.verdict }}</b></div>
+      <template #header>{{ t('videoClone.similarity') }}</template>
+      <div class="vc-sim">{{ t('videoClone.meta.score') }} <b>{{ similarity.score }}</b> · {{ t('videoClone.meta.verdict') }} <b>{{ similarity.verdict }}</b></div>
       <div class="vc-level">
-        自动目标层级 <b>{{ report.replication?.level || '-' }}</b> → 达成 <b>{{ similarity.grade || '-' }}</b>
-        <span class="vc-level-note">（F4 按 {{ similarity.level || 'L1' }} 验收）</span>
+        {{ t('videoClone.meta.autoTarget') }} <b>{{ report.replication?.level || '-' }}</b> → {{ t('videoClone.meta.achieved') }} <b>{{ similarity.grade || '-' }}</b>
+        <span class="vc-level-note">（F4 {{ t('videoClone.meta.acceptedAt') }} {{ similarity.level || 'L1' }}）</span>
       </div>
       <div class="vc-sim-metrics">
-        结构 {{ similarity.metrics.structure.toFixed(2) }} · 文案 {{ similarity.metrics.script.toFixed(2) }} ·
-        风格 {{ similarity.metrics.style.toFixed(2) }} · 时长偏差 {{ (similarity.metrics.durationDeviation * 100).toFixed(1) }}%
+        {{ t('videoClone.metrics.structure') }} {{ similarity.metrics.structure.toFixed(2) }} · {{ t('videoClone.metrics.script') }} {{ similarity.metrics.script.toFixed(2) }} ·
+        {{ t('videoClone.metrics.style') }} {{ similarity.metrics.style.toFixed(2) }} · {{ t('videoClone.metrics.durationDeviation') }} {{ (similarity.metrics.durationDeviation * 100).toFixed(1) }}%
       </div>
       <el-tag v-if="similarity.warnings && similarity.warnings.verbatimScript" type="warning">
-        文案近乎照抄，建议改写后再发布
+        {{ t('videoClone.verbatimWarn') }}
       </el-tag>
       <div class="vc-actions">
-        <el-button :loading="running" @click="regenerate" :disabled="!runId || running">重新生成</el-button>
+        <el-button data-testid="video-clone-regenerate" :loading="running" @click="regenerate" :disabled="!runId || running">{{ t('videoClone.regenerate') }}</el-button>
       </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useVideoClone } from '@/composables/useVideoClone'
+import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
 
+const { t } = useI18n()
 const {
   sourceType, linkUrl, filePath, mode, rewriteScript,
   running, stageStatus, report, similarity, STAGE_LABELS,
   start, cancel, editReport, pickFile, regenerate, runId,
+  buildConfigProfileSnapshot, applyConfigProfileSnapshot,
+  loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
 } = useVideoClone()
 
+const videoCloneProfileSnapshot = computed(() => buildConfigProfileSnapshot())
+const videoCloneProfileDirty = computed(() => {
+  const config = videoCloneProfileSnapshot.value.videoClone
+  return config.sourceType !== 'url' || config.mode !== 'structure' || config.rewriteScript !== false
+})
+
+function applyVideoCloneProfile (profile) {
+  return applyConfigProfileSnapshot(profile?.snapshot)
+}
+
+function deleteVideoCloneProfile (profile) {
+  return deleteConfigProfile(profile?.id)
+}
+
 function stageLabel(s) {
-  return { ingest: '下载/校验', analyze: '拆解分析', plan: '方案确认', generate: '素材生成', compose: '合成', publish: '发布' }[s] || s
+  return t('videoClone.stage.' + s)
 }
 function stageStatusText(s) {
-  return { idle: '等待', running: '进行中', success: '成功', failed: '失败' }[stageStatus[s]] || ''
+  return t('videoClone.status.' + (stageStatus[s] || 'idle'))
 }
 </script>
 

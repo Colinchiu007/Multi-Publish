@@ -55,6 +55,9 @@ const PUBLIC_METHODS = [
   // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
   'story2videoBgmLibraryList', 'story2videoBgmLibraryAdd',
   'story2videoBgmLibraryRename', 'story2videoBgmLibraryDelete',
+  // 流水线「保存配置」（与主进程 story2video:config-profile-* 对齐）：设备级本地配置管理，未登录可用。
+  'story2videoConfigProfileList', 'story2videoConfigProfileCreate',
+  'story2videoConfigProfileRename', 'story2videoConfigProfileDelete',
   'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
   // 视频克隆：本地分析流水线（未登录可用）；发布经 PublisherRouter 外部验收边界
   'videoClone',

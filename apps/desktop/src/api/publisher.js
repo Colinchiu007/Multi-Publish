@@ -416,6 +416,19 @@ export async function story2videoBgmLibraryRename(id, name) {
 export async function story2videoBgmLibraryDelete(id) {
   return invokeWithFallback("story2videoBgmLibraryDelete", { code: -1, message: 'electronAPI not available' }, id)
 }
+// ─── 流水线「保存配置」API（openspec s2v-pipeline-config-profiles） ───
+export async function story2videoConfigProfileList() {
+  return invokeWithFallback("story2videoConfigProfileList", { code: -1, message: 'electronAPI not available', data: [] })
+}
+export async function story2videoConfigProfileCreate(request) {
+  return invokeWithFallback("story2videoConfigProfileCreate", { code: -1, message: 'electronAPI not available' }, request)
+}
+export async function story2videoConfigProfileRename(id, name) {
+  return invokeWithFallback("story2videoConfigProfileRename", { code: -1, message: 'electronAPI not available' }, id, name)
+}
+export async function story2videoConfigProfileDelete(id) {
+  return invokeWithFallback("story2videoConfigProfileDelete", { code: -1, message: 'electronAPI not available' }, id)
+}
 // ─── Story2Video 批量创作 API（openspec story2video-batch-create） ───
 export async function story2videoBatchCreate(payload) {
   return invokeWithFallback("story2videoBatchCreate", { code: -1, message: 'electronAPI not available' }, payload)

@@ -169,6 +169,12 @@ function createPublishApi(ipcRenderer, options = {}) {
     },
     story2videoBgmLibraryRename: (id, name) => ipcRenderer.invoke('story2video:bgm-library-rename', { id, name }),
     story2videoBgmLibraryDelete: (id) => ipcRenderer.invoke('story2video:bgm-library-delete', { id }),
+    // 流水线「保存配置」（与主进程 PUBLIC_CHANNELS 的 story2video:config-profile-* 对齐）：
+    // 设备级命名组合配置管理（列表/保存/改名/删除），未登录可用。
+    story2videoConfigProfileList: () => ipcRenderer.invoke('story2video:config-profile-list'),
+    story2videoConfigProfileCreate: (request) => ipcRenderer.invoke('story2video:config-profile-create', request),
+    story2videoConfigProfileRename: (id, name) => ipcRenderer.invoke('story2video:config-profile-rename', { id, name }),
+    story2videoConfigProfileDelete: (id) => ipcRenderer.invoke('story2video:config-profile-delete', { id }),
     story2videoExportZip: (files, destinationPath) => ipcRenderer.invoke('story2video:export-zip', { files, destinationPath }),
     story2videoCreateShareUrl: (filePath, previousUrl) => ipcRenderer.invoke('story2video:create-share-url', filePath, previousUrl),
     story2videoCopyPath: (filePath) => ipcRenderer.invoke('story2video:copy-path', filePath),

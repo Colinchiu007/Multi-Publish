@@ -18,6 +18,14 @@ function installMockApi({ ok = true } = {}) {
   return { api, state }
 }
 
+function installProfileApi (api, profiles = []) {
+  api.story2videoConfigProfileList = vi.fn(async () => ({ code: 0, data: profiles }))
+  api.story2videoConfigProfileCreate = vi.fn(async (request) => ({ code: 0, data: { id: 'profile-000000000001', ...request } }))
+  api.story2videoConfigProfileRename = vi.fn(async (id, name) => ({ code: 0, data: { id, name } }))
+  api.story2videoConfigProfileDelete = vi.fn(async (id) => ({ code: 0, data: { deleted: true, id } }))
+  return api
+}
+
 describe('useVideoClone', () => {
   beforeEach(() => {
     vi.stubGlobal('window', { electronAPI: { videoClone: installMockApi().api } })
@@ -95,5 +103,58 @@ describe('useVideoClone', () => {
     c.runId.value = 'vc-9'
     await c.cancel()
     expect(c.running.value).toBe(false)
+  })
+
+  it('buildConfigProfileSnapshot 只保存可复用选项，不保存链接、本地路径或运行态', () => {
+    const c = useVideoClone()
+    c.sourceType.value = 'local'
+    c.linkUrl.value = 'https://private.example/video'
+    c.filePath.value = 'C:/Users/demo/secret.mp4'
+    c.mode.value = 'style'
+    c.rewriteScript.value = true
+    c.runId.value = 'run-secret'
+    c.report.value = { secret: 'runtime' }
+    const snapshot = c.buildConfigProfileSnapshot()
+    expect(snapshot).toMatchObject({ schemaVersion: 1, kind: 'video-clone', videoClone: { sourceType: 'local', mode: 'style', rewriteScript: true } })
+    expect(snapshot.videoClone).not.toHaveProperty('linkUrl')
+    expect(snapshot.videoClone).not.toHaveProperty('filePath')
+    expect(snapshot).not.toHaveProperty('runId')
+    expect(() => structuredClone(snapshot)).not.toThrow()
+  })
+
+  it('applyConfigProfileSnapshot 只回填白名单并拒绝非法枚举，不覆盖当前素材输入', () => {
+    const c = useVideoClone()
+    c.sourceType.value = 'url'
+    c.linkUrl.value = 'https://keep.example/video'
+    c.filePath.value = 'C:/keep.mp4'
+    expect(c.applyConfigProfileSnapshot({ kind: 'video-clone', videoClone: { sourceType: 'local', mode: 'style', rewriteScript: true, linkUrl: 'https://overwrite.example' } })).toBe(true)
+    expect(c.sourceType.value).toBe('local')
+    expect(c.mode.value).toBe('style')
+    expect(c.rewriteScript.value).toBe(true)
+    expect(c.linkUrl.value).toBe('https://keep.example/video')
+    expect(c.filePath.value).toBe('C:/keep.mp4')
+    expect(c.applyConfigProfileSnapshot({ kind: 'video-clone', videoClone: { mode: 'invalid', rewriteScript: 'yes' } })).toBe(false)
+    expect(c.mode.value).toBe('style')
+    expect(c.rewriteScript.value).toBe(true)
+  })
+
+  it('config profile CRUD 使用独立 publisher API，并固定 video-clone pipelineId', async () => {
+    const api = installProfileApi(installMockApi(), [
+      { id: 'p1', name: 'clone', pipelineId: 'video-clone', updatedAt: 2 },
+      { id: 'p2', name: 'other', pipelineId: 'film-engineering', updatedAt: 3 },
+    ])
+    vi.stubGlobal('window', { electronAPI: api })
+    const c = useVideoClone()
+    c.mode.value = 'inspiration'
+    const list = await c.loadConfigProfiles()
+    expect(list).toHaveLength(2)
+    expect(list.find((item) => item.pipelineId === 'video-clone')).toBeTruthy()
+    expect(list.find((item) => item.pipelineId === 'film-engineering')).toBeTruthy()
+    await c.saveConfigProfile('复刻配置', { overwrite: true })
+    expect(api.story2videoConfigProfileCreate).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'video-clone', name: '复刻配置', overwrite: true }))
+    await c.renameConfigProfile('p1', '新名')
+    await c.deleteConfigProfile('p1')
+    expect(api.story2videoConfigProfileRename).toHaveBeenCalledWith('p1', '新名')
+    expect(api.story2videoConfigProfileDelete).toHaveBeenCalledWith('p1')
   })
 })
