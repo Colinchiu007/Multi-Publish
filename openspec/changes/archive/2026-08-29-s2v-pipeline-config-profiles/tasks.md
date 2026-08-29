@@ -10,4 +10,4 @@
 - [x] 双模型审查（opencode + Claude 并行）并产出 review.md，Critical 修复后重审；Claude 因外部 429 无 bounded 正文
 - [x] PRD / DEVELOPMENT_REPORT / CHANGELOG / i18n-glossary 文档补充（详细含校验/流程/交互/文案）
 - [x] OpenSpec validate（strict 通过；远程合并后归档 change）
-- [ ] 提交推送、创建 PR、CI 通过后合并、核对远程 main、CCG 任务归档与记忆回写
+- [x] 提交推送、创建 PR、CI 通过后合并、核对远程 main、CCG 任务归档与记忆回写（PR #1219，merge SHA 252901500664d662ece2c2c2e8cd39c4416d2c68；OpenSpec/CCG task 已归档）
