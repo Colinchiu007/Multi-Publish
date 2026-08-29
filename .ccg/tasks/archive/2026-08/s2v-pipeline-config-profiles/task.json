@@ -1,14 +1,19 @@
 {
   "id": "s2v-pipeline-config-profiles",
   "title": "视频创作所有流水线新增可管理的保存配置组合",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "frontend-electron",
-  "currentPhase": "review",
-  "nextAction": "完成提交前质量门禁，提交并推送分支后创建 PR，等待 CI 并实际合并",
+  "currentPhase": "completed",
+  "nextAction": "已完成远程合并与归档闭环",
   "createdAt": "2026-08-28T00:00:00+08:00",
   "branch": "codex/s2v-pipeline-config-profiles",
   "worktree": "D:/Data/projects/mp-worktrees/mp-s2v-pipeline-config-profiles",
-  "openspecChange": "s2v-pipeline-config-profiles"
+  "openspecChange": "s2v-pipeline-config-profiles",
+  "remoteStatus": "merged_verified",
+  "pr": 1219,
+  "mergeSha": "252901500664d662ece2c2c2e8cd39c4416d2c68",
+  "originMainVerified": true,
+  "qualityGateStatus": "passed_remote_ci"
 }

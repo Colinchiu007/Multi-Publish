@@ -22,6 +22,12 @@
 - 门禁：OpenSpec proposal/design/delta-spec/tasks 严格校验通过；locale zh/en 成对检查通过，CJK 当前仅剩 CreateView 历史行号漂移，确认无新增硬编码后再更新基线；tsc/eslint/preload/vite/打包门禁与全量测试按交付阶段记录。
 - OpenSpec：proposal/design/delta-spec/tasks 齐全并已严格校验；正式 spec 与实现统一使用 userData/story2video-config-profiles/config-profiles.json，明确不可解析索引可重建、可解析非法索引写保护的区别。
 
+### 最终交付状态（2026-08-29）
+- 功能 PR #1219 已 squash 合并，merge SHA 为 252901500664d662ece2c2c2e8cd39c4416d2c68；QG Static/Autonomous/Browser E2E/Coverage/Desktop Shards×2/Unit Tests/Visual、Ubuntu/Windows build、electron-tests、gui-test、文档同步、Lint、Agent Judge、Gate Result 均通过，并已验证该 SHA 位于 origin/main。
+- OpenSpec 主规格已同步，change 归档于 openspec/changes/archive/2026-08-29-s2v-pipeline-config-profiles/；CCG 任务已归档于 .ccg/tasks/archive/2026-08/s2v-pipeline-config-profiles/。归档过程中的文档同步门禁要求显式包含产品文档，因此本节作为最终状态补充，不改变已实现功能逻辑。
+- 本地全量 desktop Vitest 保留两类既有环境/基线失败（asset-generator 的 spawn mock 与 Windows symlink EPERM）；打包应用虽通过 builder、ASAR 和入口检查，但未取得非零 MainWindowHandle/窗口标题，因此不可宣称可见窗口验证通过；.playwright-browsers 缺失也使完整 Chromium 捆绑未被宣称。
+- 真实第三方登录、provider 调用、素材上传、发布、云同步和跨设备同步仍属于外部验收边界，本次实现与 CI 证据不覆盖这些结论。
+
 ## 2026-08-08（第二轮）：多模态模型类别 + MiniMax TTS 真实链路修复
 
 ### 交付范围（PR #411、#413、#414）
