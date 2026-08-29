@@ -6,7 +6,6 @@
  * P0: 进程守护 — 崩溃自动重启 + 端口冲突处理
  */
 const { spawn, spawnSync } = require('child_process')
-const path = require('path')
 const log = require('./logger')
 const http = require('http')
 const { config } = require('../config/app-config')
@@ -14,7 +13,7 @@ const { config } = require('../config/app-config')
 const BACKEND_PORT = config.pythonBridge.port
 const BACKEND_HOST = config.pythonBridge.host
 const HEALTH_CHECK_INTERVAL = 500   // 启动时健康检查间隔 (ms)
-const HEALTH_CHECK_TIMEOUT = 10000  // 启动时最长等待 (ms)
+const HEALTH_CHECK_TIMEOUT = 30000  // 冷启动最长等待 (ms；覆盖依赖加载与 FastAPI 初始化)
 const WATCHDOG_INTERVAL = 30000     // 守护检查间隔 30s
 const MAX_RESTARTS = 3              // 最大重启次数
 const PORT_FALLBACK_COUNT = 5       // 端口冲突时尝试后续端口的次数
@@ -28,6 +27,12 @@ let restartCount = 0
 let watchdogTimer = null
 /** @type {NodeJS.Timeout | null} */
 let _restartTimer = null
+/** @type {Promise<void> | null} */
+let _startingPromise = null
+// 主动停止时不应由 exit 事件触发自动重启；下一次显式 start 会清除此标记。
+let _intentionalStop = false
+/** @type {WeakSet<import('child_process').ChildProcess>} */
+const _intentionallyStoppedProcesses = new WeakSet()
 /** @type {{ getAccessToken?: Function } | null} */
 let authService = null
 
@@ -61,6 +66,24 @@ function launchProcess (port) {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true
     })
+    let settled = false
+    let spawned = false
+    /** @type {NodeJS.Timeout | null} */
+    let spawnTimeout = null
+
+    function settleResolve () {
+      if (settled) return
+      settled = true
+      if (spawnTimeout) clearTimeout(spawnTimeout)
+      resolve(proc)
+    }
+
+    function settleReject (error) {
+      if (settled) return
+      settled = true
+      if (spawnTimeout) clearTimeout(spawnTimeout)
+      reject(error)
+    }
 
     proc.stdout.on('data', (data) => {
       log.info('PythonBackend', data.toString().trim())
@@ -74,34 +97,44 @@ function launchProcess (port) {
       log.error('PythonBridge', `Failed to start: ${err.message}`)
       if (err.message.includes('EADDRINUSE') || err.message.includes('port')) {
         // 端口冲突，不要 resolve/reject，上层会尝试下一个端口
-        reject(new Error('PORT_IN_USE'))
+        settleReject(new Error('PORT_IN_USE'))
       } else {
-        reject(err)
+        settleReject(err)
       }
     })
 
     proc.on('exit', (code, signal) => {
       log.info('PythonBridge', `Process exited (code=${code}, signal=${signal})`)
-      isRunning = false
-      pythonProcess = null
+      // 延迟退出的旧进程不能清空已经接管的新进程句柄。
+      const isCurrentProcess = pythonProcess === proc
+      const wasRunning = isRunning
+      const wasIntentionallyStopped = _intentionallyStoppedProcesses.has(proc)
+      if (isCurrentProcess) {
+        isRunning = false
+        pythonProcess = null
+      }
+      if (!spawned) {
+        settleReject(new Error('Python process exited before spawn'))
+        return
+      }
       // 非正常退出时自动重启
-      if (code !== 0 && code !== null && restartCount < MAX_RESTARTS) {
+      if (isCurrentProcess && wasRunning && !wasIntentionallyStopped && !_intentionalStop && !_startingPromise && code !== 0 && code !== null && restartCount < MAX_RESTARTS) {
         scheduleRestart()
       }
     })
 
     // 监听 'spawn' 事件再 resolve（修复竞态：原同步 resolve 后 'error' 事件的 reject 变空操作）
-    // 加 30s 超时保护（大于健康检查超时），防止 spawn 事件永不触发导致 Promise 永久泄漏
-    const spawnTimeout = setTimeout(() => {
+    // 加不小于健康检查预算的超时保护，防止 spawn 事件永不触发导致 Promise 永久泄漏
+    spawnTimeout = setTimeout(() => {
       // 超时后必须 kill 子进程，否则进程泄漏（spawn 未触发但子进程可能已启动）
-      try { proc.kill('SIGKILL') } catch (_) { /* already exited */ }
-      reject(new Error('Python process spawn timeout'))
+      settleReject(new Error('Python process spawn timeout'))
+      forceTerminateProcess(proc)
     }, 30000)
     // R28 修复：unref 让定时器不阻止进程退出
     if (spawnTimeout && spawnTimeout.unref) spawnTimeout.unref()
     proc.once('spawn', () => {
-      clearTimeout(spawnTimeout)
-      resolve(proc)
+      spawned = true
+      settleResolve()
     })
   })
 }
@@ -112,20 +145,56 @@ function launchProcess (port) {
 async function startPythonBackend () {
   if (isRunning) return
 
+  // 启动过程可能跨越多个调用方；共享同一个 Promise，避免重复 spawn。
+  if (_startingPromise) return _startingPromise
+
+  _intentionalStop = false
+  const startPromise = startPythonBackendInternal()
+  _startingPromise = startPromise
+  try {
+    return await startPromise
+  } finally {
+    if (_startingPromise === startPromise) {
+      _startingPromise = null
+      _intentionalStop = false
+    }
+  }
+}
+
+/**
+ * 执行一次带端口回退的启动流程。
+ * @returns {Promise<void>}
+ */
+async function startPythonBackendInternal () {
+  if (isRunning) return
+
   let lastErr = null
   for (let i = 0; i < PORT_FALLBACK_COUNT; i++) {
     const port = BACKEND_PORT + i
+    /** @type {import('child_process').ChildProcess | null} */
+    let proc = null
     try {
-      pythonProcess = await launchProcess(port)
+      proc = await launchProcess(port)
+      if (_intentionalStop) throw new Error('Python backend start cancelled')
+      pythonProcess = proc
       currentPort = port
       // 轮询健康检查
-      await waitForHealthy()
+      await waitForHealthy(proc)
+      if (pythonProcess !== proc || _intentionalStop) {
+        throw new Error('Python backend stopped during startup')
+      }
       isRunning = true
       restartCount = 0
       startWatchdog()
       log.info('PythonBridge', `Backend ready on port ${port}`)
       return
     } catch (e) {
+      if (pythonProcess === proc) {
+        pythonProcess = null
+        isRunning = false
+      }
+      // 启动失败或健康检查超时都必须回收子进程，避免留下孤儿占用端口。
+      if (proc && !hasProcessExited(proc)) forceTerminateProcess(proc)
       if (e instanceof Error && e.message === 'PORT_IN_USE') {
         log.warn('PythonBridge', `Port ${port} in use, trying ${port + 1}`)
         lastErr = e
@@ -142,24 +211,67 @@ async function startPythonBackend () {
  * 等待后端就绪
  * @returns {Promise<void>}
  */
-function waitForHealthy () {
+function waitForHealthy (proc) {
   /** @type {Promise<void>} */
   const p = new Promise((resolve, reject) => {
-    const startTime = Date.now()
+    let settled = false
+    let checking = false
     const interval = setInterval(async () => {
-      const healthy = await _healthCheck()
-      if (healthy) {
-        clearInterval(interval)
-        resolve()
-      } else if (Date.now() - startTime > HEALTH_CHECK_TIMEOUT) {
-        clearInterval(interval)
-        reject(new Error('Python backend health check timed out'))
+      if (settled || checking) return
+      checking = true
+      try {
+        if (await _healthCheck()) finish()
+      } finally {
+        checking = false
       }
     }, HEALTH_CHECK_INTERVAL)
+    const timeout = setTimeout(() => finish(new Error('Python backend health check timed out')), HEALTH_CHECK_TIMEOUT)
+    const onExit = () => finish(new Error('Python backend process exited before becoming healthy'))
+    if (proc && typeof proc.once === 'function') proc.once('exit', onExit)
+
+    function finish (error) {
+      if (settled) return
+      settled = true
+      clearInterval(interval)
+      clearTimeout(timeout)
+      if (proc && typeof proc.removeListener === 'function') proc.removeListener('exit', onExit)
+      if (error) reject(error)
+      else resolve()
+    }
+
     // R28 修复：unref 让定时器不阻止进程退出
     if (interval && interval.unref) interval.unref()
+    if (timeout && timeout.unref) timeout.unref()
   })
   return p
+}
+
+/**
+ * 强制回收启动失败或健康检查超时的子进程。
+ * @param {import('child_process').ChildProcess | null} proc
+ */
+function forceTerminateProcess (proc) {
+  if (!proc) return
+  _intentionallyStoppedProcesses.add(proc)
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/PID', String(proc.pid), '/F', '/T'], { timeout: 5000 })
+    } catch (e) {
+      log.warn('PythonBridge', 'taskkill failed: ' + (e instanceof Error ? e.message : String(e)))
+    }
+    return
+  }
+  try { proc.kill('SIGKILL') } catch (_) { /* already exited */ }
+}
+
+/**
+ * ChildProcess 在 exit 事件之后会填充 exitCode/signalCode；已结束的进程不应再次 kill。
+ * @param {import('child_process').ChildProcess} proc
+ * @returns {boolean}
+ */
+function hasProcessExited (proc) {
+  return (proc.exitCode !== null && proc.exitCode !== undefined) ||
+    (proc.signalCode !== null && proc.signalCode !== undefined)
 }
 
 /**
@@ -251,21 +363,33 @@ function _healthCheck () {
  */
 async function stopPythonBackend () {
   stopWatchdog()
-  if (!pythonProcess) return
+  _intentionalStop = true
+  // 关闭流程可能与冷启动并发：先让当前启动流程收敛，再读取句柄并执行停止。
+  // 否则 spawn 尚未返回时会误以为“没有进程”，启动完成后留下孤儿后端。
+  const startingPromise = _startingPromise
+  if (startingPromise && !pythonProcess) {
+    try { await startingPromise } catch (_) { /* 启动失败时下面无需再停止 */ }
+  }
+  const proc = pythonProcess
+  if (!proc) {
+    isRunning = false
+    return
+  }
 
   log.info('PythonBridge', 'Stopping Python backend...')
+  _intentionallyStoppedProcesses.add(proc)
 
   if (process.platform === 'win32') {
     // R50 修复：spawnSync 增加 timeout 防止 taskkill 挂起阻塞退出
-    try { spawnSync('taskkill', ['/PID', String(pythonProcess.pid), '/F', '/T'], { timeout: 5000 }) } catch (e) { log.warn('PythonBridge', 'taskkill failed: ' + e.message) }
+    try { spawnSync('taskkill', ['/PID', String(proc.pid), '/F', '/T'], { timeout: 5000 }) } catch (e) { log.warn('PythonBridge', 'taskkill failed: ' + e.message) }
   } else {
-    try { pythonProcess.kill('SIGTERM') } catch (e) { log.warn('PythonBridge', 'SIGTERM failed: ' + e.message) }
+    try { proc.kill('SIGTERM') } catch (e) { log.warn('PythonBridge', 'SIGTERM failed: ' + e.message) }
     await new Promise(r => setTimeout(r, 3000))
     // R50 修复：kill('SIGKILL') 包入 try/catch 处理 ESRCH（进程已退出但 exit 事件尚未触发）
-    try { if (pythonProcess) pythonProcess.kill('SIGKILL') } catch (e) { /* already exited */ }
+    try { proc.kill('SIGKILL') } catch (_) { /* already exited */ }
   }
 
-  pythonProcess = null
+  if (pythonProcess === proc) pythonProcess = null
   isRunning = false
   log.info('PythonBridge', 'Backend stopped')
 }
@@ -330,6 +454,9 @@ function _requestBackendOnce (method, path, body, timeout, accessToken) {
 }
 
 async function requestBackend (method, path, body = null, timeout = 30000) {
+  // Renderer 可能在窗口创建后立刻发起请求；若启动仍在进行，复用同一 Promise
+  // 等待健康检查完成，避免把“正在启动”误报为“未运行”。
+  if (!isRunning && _startingPromise) await _startingPromise
   if (!isRunning) throw new Error('Python backend is not running')
   let accessToken = await _getBackendAccessToken(false)
   let response = await _requestBackendOnce(method, path, body, timeout, accessToken)

@@ -1,3 +1,10 @@
+## [未发布] fix(desktop): Python 后端进程生命周期竞态修复（并发启动/启动中停止/孤儿回收）
+
+- 背景：python-bridge 启动与停止存在竞态——并发 startPythonBackend 可能重复 spawn；启动未完成时 stopPythonBackend 误判“无进程”导致启动完成后留下孤儿后端；健康检查严格 10s 上限对冷启动过紧；启动失败/超时未回收子进程可能占用端口。
+- 修复：launchProcess 改用 spawn 事件后才 settle（带 30s 超时保护并强制回收超时进程）；startPythonBackend 引入 _startingPromise 共享同一启动流程，并发调用只启动一次；stopPythonBackend 在启动进行中先等待启动收敛再停止，_intentionalStop/_intentionallyStoppedProcesses 标记避免主动停止触发自动重启；waitForHealthy 提升到 30s 预算并监听进程提前退出；启动失败或健康检查超时统一 forceTerminateProcess 回收（Win taskkill /T、POSIX SIGKILL）；requestBackend 在启动中复用同一启动 Promise。
+- 回归保护：python-bridge.integration.test.js 新增 8 用例至 16/16 全绿（并发合并、启动中停止、12.5s 慢启动接管、启动期崩溃单次尝试、spawn error 端口回退、真实端口占用走 exit 拒绝、spawn 前退出、requestBackend 等待启动）；rpa-view-platforms/rpa-view-helpers 20/20 通过；eslint 0 error；QM-1 打包启动验证通过（新产物含新逻辑、config 完整、主窗口显示、stderr 干净）。
+- 双模型审查：Claude 有界审查无 Critical（W1 端口回退测试真实性已补真实抢占 exit 回归；W2 理论窗口判定 Info）；OpenCode 本轮不可消费按机制降级记录。
+
 ## [未发布] fix(story2video): 历史记录已完成任务缩略图误显示「未生成」与打开报错（跨 profile 项目媒体回退）
 
 - 根因：story2video_projects_v1（settings 表）持久化任务创建时刻的媒体绝对路径；当前设备媒体根白名单 = 项目目录。本次 profile 的数据库自调试 profile 合并而来，历史任务索引全部指向旧 profile 路径（D:\tmp\Multi-Publish-debug-profile\story2video-projects\...），任务实际成功（video.mp4 存在），但缩略图/预览 URL/导出全部被白名单拒绝，UI 误显示「未生成」、打开报「未找到可预览的视频」。
