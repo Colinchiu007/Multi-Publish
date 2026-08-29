@@ -26,5 +26,5 @@
 - [x] 4.1 运行受影响单测、集成测试和 CJK locale 检查
 - [x] 4.2 Electron QM-1 打包与启动验证
 - [x] 4.3 双模型审查：Claude 有界审查完成（2026-08-29，无 Critical；W1 端口回退测试真实性已补真实 exit 回归、W2 理论窗口判定 Info）；OpenCode 本轮复跑仍不可消费报告（首轮 300s 超时、隔离轮被回收，再次确认模型参数 opencode-go/deepseek-v4-flash 真实解析但无产出），按机制降级记录，未阻塞交付
-- [ ] 4.4 推送分支并创建 PR，记录 remoteStatus
-- [ ] 4.5 OpenSpec、CCG task、质量节拍三同步归档
+- [x] 4.4 推送分支并创建 PR：codex/real-publish-e2e-followup → main（PR #1224，head ee66c3961，mergeStateStatus=CLEAN，CI 全绿）
+- [x] 4.5 OpenSpec tasks（4.3/4.4/4.5 已勾选）、CCG task.json（分支/工作树/remoteStatus 已更新）、质量节拍同步完成；快手真实发布（2.3）仍待用户明确确认后单独推进
