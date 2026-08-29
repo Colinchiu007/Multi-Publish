@@ -214,4 +214,7 @@ deploy-temp/
 # Session-local branch guard state (written by scripts/session-guard.ps1)
 .agent_context/
 
+# E2E runtime artifacts (reports/screenshots, never committed)
+apps/desktop/tests/e2e-output/
+
 

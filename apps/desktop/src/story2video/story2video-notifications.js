@@ -7,6 +7,8 @@ export const MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000
 export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
   MODEL_API_KEY_REQUIRED: 'story2video.model_api_key_required',
+  // 流水线启动前置校验：模型能力缺失清单（errorCode=PIPELINE_MODEL_REQUIREMENTS_MISSING）
+  MODELS_REQUIRED: 'story2video.models_required',
   BGM_SKIPPED: 'story2video.bgm_skipped',
   ACCESS_DENIED: 'story2video.access_denied',
   ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
@@ -173,6 +175,7 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
     resume: read('resume'),
     resuming: read('resuming'),
     resumeHint: read('resumeHint'),
+    goToModelSettings: read('goToModelSettings'),
   }
 }
 function extractSceneNumber (rawError) {
@@ -266,6 +269,23 @@ function normalizeParams (value, locale, messageKey, rawError) {
     if (Number.isFinite(Number(supplied.max))) params.max = Number(supplied.max)
   }
 
+  // 启动前置校验：缺失能力 → 本地化标签列表（附显式 provider 标识），供 models_required 模板插值
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED && Array.isArray(supplied.missing)) {
+    const labelTree = LOCALE_TREES[locale].story2video.modelCapabilityLabels || {}
+    const providers = supplied.providers && typeof supplied.providers === 'object' ? supplied.providers : {}
+    const separator = locale === 'en' ? ', ' : '、'
+    params.missingLabels = supplied.missing
+      .filter((capability) => typeof capability === 'string' && capability)
+      .map((capability) => {
+        let label = labelTree[capability] || capability
+        if (providers[capability]) {
+          label += locale === 'en' ? ' (' + providers[capability] + ')' : '（' + providers[capability] + '）'
+        }
+        return label
+      })
+      .join(separator)
+  }
+
   // 历史记录批量删除（2026-08-26）：{count}/{success}/{failed} 插值
   if (
     messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM ||
@@ -331,6 +351,10 @@ function resolveMessageKey (notification, fallbackKey) {
   if (isKnownMessageKey(suppliedKey)) return suppliedKey
 
   const raw = String(notification?.error || notification?.message || '').trim()
+  // 流水线启动前置校验（主进程契约 errorCode）：缺失能力清单 → models_required
+  if (notification?.errorCode === 'PIPELINE_MODEL_REQUIREMENTS_MISSING') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED
+  }
   if (Number(notification?.code) === -3 || Number(notification?.errorCode) === -3) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   // 明确的用量窗口耗尽优先于 429；仅凭普通 429 仍走 RATE_LIMITED。

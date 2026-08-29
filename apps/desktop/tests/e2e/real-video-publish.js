@@ -119,15 +119,23 @@ async function run() {
     const hasSelector = await page.evaluate(() => Boolean(document.querySelector('[data-testid="publish-target-selector"]')))
     check('发布页渲染', hasSelector, 'url=' + pageUrl)
 
-    // 切换到视频模式
+    // 切换到视频模式：精确点击发布页模式 tab（.publish-mode-tab 第一个即视频），
+    // 避免误点侧栏/其他含「视频」文本的元素导致仍停留在图文模式。
     const videoModeClicked = await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button, [class*="mode"]')).find((el) => (el.innerText || '').includes('视频'))
-      if (!btn) return false
-      btn.click()
+      const tab = document.querySelector('.publish-mode-tab')
+      if (!tab) return false
+      tab.click()
       return true
     })
     check('切换到视频模式', videoModeClicked)
     await sleep(1500)
+    // 断言模式真正激活（视频上传区可见），防止后续步骤静默跑在图文模式
+    const videoModeActive = await page.evaluate(() => {
+      if (document.querySelector('.video-upload-zone')) return true
+      const activeTab = document.querySelector('.publish-mode-tab.active')
+      return Boolean(activeTab && /视频/.test(activeTab.textContent || ''))
+    })
+    check('视频模式已激活（video-upload-zone 可见）', videoModeActive)
 
     // 上传视频：DOM 层构造带 path 的 File 并派发 change（Electron 渲染进程支持 File.path）
     const videoPath = VIDEO.replace(/\\\\/g, "/")
@@ -160,10 +168,20 @@ async function run() {
       return true
     })
     check('点击提取封面', extractClicked)
-    await sleep(5000)
+    // 等待提取结果写入 article.cover_path（cover-state 隐藏元素携带真实路径）
+    const coverPath = await waitFor(async () => {
+      const value = await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="cover-state"]')
+        return el ? el.getAttribute('data-cover-path') || '' : ''
+      }).catch(() => '')
+      return value || false
+    }, 15000, 500)
+    check('封面首帧提取（cover_path 已写入）', Boolean(coverPath), 'path=' + coverPath)
     await page.screenshot({ path: path.join(OUTPUT_DIR, '02-cover-extracted.png'), fullPage: true })
+    report.coverPath = coverPath || ''
 
-    // 选平台账号
+    // 选平台账号（记录勾选账号的真实 id，替代硬编码）
+    const selectedAccountIds = {}
     for (const platform of TARGET_PLATFORMS) {
       const sel = '[data-testid="platform-' + platform + '"]'
       const platformEl = page.locator(sel).first()
@@ -174,37 +192,82 @@ async function run() {
       }
       await platformEl.click()
       await sleep(1000)
-      // 勾选第一个账号
+      // 勾选账号：优先选择本地存在加密凭证的账号（避免选中无凭证的模板账号）
       const accountSel = '[data-testid^="account-' + platform + '-"]'
-      const accountBox = page.locator(accountSel + ' input[type="checkbox"], ' + accountSel).first()
-      const checked = await accountBox.isChecked().catch(() => false)
-      if (!checked) {
-        await accountBox.click().catch(() => {})
-        await sleep(800)
+      const allIds = await page.evaluate((p) => {
+        const prefix = 'account-' + p + '-'
+        return Array.from(document.querySelectorAll('input[data-testid^="' + prefix + '"]'))
+          .map((el) => el.getAttribute('data-testid').slice(prefix.length))
+          .filter(Boolean)
+      }, platform).catch(() => [])
+      // 凭证可能位于 credentials/ 或其 owners/<hash>/ 命名空间下（Logto 身份隔离）
+      const listCredentialIds = (root) => {
+        const out = []
+        const walk = (dir) => {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name)
+            if (entry.isDirectory()) walk(full)
+            else if (/\.json\.enc$/.test(entry.name)) out.push(entry.name.split('.')[0])
+          }
+        }
+        walk(root)
+        return out
       }
-      check('勾选 ' + platform + ' 账号', await page.locator(accountSel).first().isChecked().catch(() => true))
+      const credIds = fs.existsSync(PROFILE) && fs.existsSync(path.join(PROFILE, 'credentials'))
+        ? listCredentialIds(path.join(PROFILE, 'credentials'))
+        : []
+      if (allIds.length === 0) {
+        check('勾选 ' + platform + ' 账号', false, '账号列表为空（页面提示请先添加账号）')
+        selectedAccountIds[platform] = []
+        continue
+      }
+      const preferred = allIds.find((id) => credIds.includes(id))
+      if (!preferred) {
+        check('勾选 ' + platform + ' 账号', false, '无凭证账号可选 页面=' + allIds.join(',') + ' 凭证=' + credIds.join(','))
+        selectedAccountIds[platform] = []
+        continue
+      }
+      const targetBox = page.locator('[data-testid="account-' + platform + '-' + preferred + '"]').first()
+      const checked = await targetBox.isChecked().catch(() => false)
+      if (!checked) await targetBox.click()
+      await sleep(500)
+      const nowChecked = await targetBox.isChecked().catch(() => false)
+      check('勾选 ' + platform + ' 账号', nowChecked, 'id=' + preferred + ' (凭证=' + credIds.join(',') + ')')
+      selectedAccountIds[platform] = nowChecked ? [preferred] : []
+      console.log('平台 ' + platform + ' 账号勾选: ' + preferred + ' checked=' + nowChecked)
     }
 
-    // 填写标题
-    const titleInput = page.locator('[data-testid="publish-title"] input, [data-testid="publish-title"]').first()
+    // 填写标题/描述（视频模式输入框）
+    const titleInput = page.locator('[data-testid="publish-title"] input').first()
     const titleOk = await titleInput.count().then((n) => n > 0).catch(() => false)
-    if (titleOk) {
-      await titleInput.fill('真实发布E2E-短视频-' + Date.now().toString(36)).catch(() => {})
-    }
+    const titleValue = '真实发布E2E-短视频-' + Date.now().toString(36)
+    if (titleOk) await titleInput.fill(titleValue).catch(() => {})
     check('填写标题', titleOk)
+    const descInput = page.locator('[data-testid="publish-desc"] textarea').first()
+    const descOk = await descInput.count().then((n) => n > 0).catch(() => false)
+    if (descOk) await descInput.fill(titleValue + ' 自动验证').catch(() => {})
+    check('填写视频描述', descOk)
     await page.screenshot({ path: path.join(OUTPUT_DIR, '03-ready.png'), fullPage: true })
 
     // 真实发布：IPC 直调 publish:batch（Playwright 无法模拟 Electron 文件选择，
     // 视频路径直接传入；发布链路本身是真实 RPA + Cookie 恢复）
+    const allTargetsReady = TARGET_PLATFORMS.every((p) => (selectedAccountIds[p] || []).length > 0)
     const articlePayload = {
-      title: "真实发布E2E-短视频-" + Date.now().toString(36),
-      content: "真实发布 E2E 验证视频（自动生成）",
+      title: titleValue,
+      content: titleValue + " 自动验证",
       video_path: VIDEO,
+      // 百家号 API 发布链使用平台视频首帧封面（video/process 处理），
+      // 自定义封面上传链路存在时会显式拒绝；封面提取路径仅在报告中留证。
       cover_path: "",
       tags: ["E2E"],
       accountId: "",
     }
-    const targets = TARGET_PLATFORMS.map((p) => ({ platform: p, accountId: p === "baijiahao" ? "d39af89b" : (p === "kuaishou" ? "9d5ef9b7" : "") }))
+    const targets = TARGET_PLATFORMS.map((p) => {
+      const ids = selectedAccountIds[p] || []
+      return { platform: p, accountId: ids[0] || "" }
+    })
+    check('发布目标账号就绪（每个平台均有凭证账号）', allTargetsReady, JSON.stringify(targets))
+    if (!allTargetsReady) throw new Error('账号就绪失败：无法继续真实发布')
     const batchResult = await page.evaluate(async (payload) => {
       const api = window.electronAPI || null
       if (!api || typeof api.publishBatch !== "function") return { ok: false, reason: "no publishBatch api" }
@@ -217,10 +280,20 @@ async function run() {
 
     // 监听进度到终态（最长 3 分钟）
     const progressObserved = await waitFor(async () => {
-      const txt = await page.evaluate(() => (document.body.innerText || '').replace(/\s+/g, ' '))
-      if (/发布成功|发布完成|publish.*success|已发布|完成/i.test(txt)) return 'success'
-      if (/发布失败|失败|错误|error/i.test(txt)) return 'failed'
-      return null
+      // 终态判定收紧（审查意见 C1）：先看进度面板，再回退整页；
+      // 显式排除「上传完成/处理完成」等中间态，避免「完成」单字误判成功。
+      const state = await page.evaluate(() => {
+        const panel = document.querySelector('[data-testid="publish-progress"]')
+        const src = panel ? panel.innerText || '' : document.body.innerText || ''
+        const txt = src.replace(/\s+/g, ' ')
+        if (/上传完成|处理完成|初始化完成|提取完成|任务已完成|排队中|发布中|上传中|处理中/.test(txt)) return null
+        const success = /发布成功|发布完成|已发布|publish\s*成功|已完成发布/.test(txt)
+        const failed = /发布失败|发布出错|publish.*failed|平台.*失败|执行.*失败/.test(txt)
+        if (success && !failed) return 'success'
+        if (failed || /错误|failed|error/i.test(txt)) return 'failed'
+        return null
+      })
+      return state
     }, 180000, 1000)
     check('发布进度到终态', progressObserved === 'success', '终态=' + progressObserved)
     await sleep(2000)

@@ -353,6 +353,63 @@ function firstSceneThumbnailCandidates (project) {
   return { images, videos }
 }
 
+const MAX_PROJECT_MANIFEST_BYTES = 5 * 1024 * 1024
+
+/**
+ * 校验并读取「项目清单目录」：目录必须真实存在（非符号链接/联接）、目录名与 projectId
+ * 同形（安全字符）、目录内存在可解析的 project.json 且 manifest.projectId 与目录名一致。
+ * 返回解析后的 manifest，不满足任何条件返回 null。
+ */
+function readProjectManifestDir (candidate) {
+  if (typeof candidate !== 'string' || !candidate.trim()) return null
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(path.basename(candidate))) return null
+  try {
+    const stat = fs.lstatSync(candidate)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return null
+  } catch { return null }
+  const manifestPath = path.join(candidate, 'project.json')
+  let manifest
+  try {
+    const stat = fs.lstatSync(manifestPath)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > MAX_PROJECT_MANIFEST_BYTES) return null
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  } catch { return null }
+  if (!manifest || manifest.projectId !== path.basename(candidate)) return null
+  return manifest
+}
+
+/** 收集 manifest 中引用的全部媒体绝对路径（含 options/textConfig 的 BGM 路径）。 */
+function projectFileReferencePaths (manifest) {
+  const refs = []
+  const push = (value) => { if (typeof value === 'string' && value.trim()) refs.push(value.trim()) }
+  push(manifest.videoPath)
+  push(manifest.audioPath)
+  push(manifest.bgmPath)
+  const segments = Array.isArray(manifest.segments) ? manifest.segments : []
+  for (const segment of segments) {
+    if (!segment || typeof segment !== 'object') continue
+    push(segment.imagePath)
+    push(segment.audioPath)
+    push(segment.videoPath)
+    const alternates = Array.isArray(segment.alternateImages) ? segment.alternateImages : []
+    for (const item of alternates) if (item && typeof item === 'object') push(item.path)
+    // AI 场景视频只存在 videoMeta.sceneVideoPath / altSceneVideoPath（videoPath 为空）：
+    // firstSceneThumbnailCandidates 会优先尝试它们，清单引用校验漏掉会导致回退无效（审查 W2）。
+    const videoMeta = segment.videoMeta
+    if (videoMeta && typeof videoMeta === 'object') {
+      push(videoMeta.sceneVideoPath)
+      push(videoMeta.altSceneVideoPath)
+    }
+  }
+  const options = manifest.options
+  if (options && typeof options === 'object') push(options.bgmPath)
+  const textConfig = manifest.story2videoTextConfig
+  const bgm = textConfig && typeof textConfig === 'object' && textConfig.config &&
+    typeof textConfig.config === 'object' ? textConfig.config.bgm : null
+  if (bgm && typeof bgm === 'object') push(bgm.path)
+  return refs.map(value => path.resolve(value))
+}
+
 function thumbnailTemporaryPath (destination) {
   return destination + '.tmp-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + path.extname(destination)
 }
@@ -587,6 +644,61 @@ class Story2VideoProjectService {
     return resolveReadableFile(candidate, { allowedRoots, maxBytes: MAX_VIDEO_BYTES })
   }
 
+  /**
+   * 返回「项目清单目录」作为该项目的只读媒体根（跨 profile 迁移 / 设置库合并后，
+   * 项目清单可能仍指向旧数据目录）。
+   * 放行前提（全部满足）：
+   *   - 目录为真实目录（非符号链接/联接），目录名与 projectId 同形；
+   *   - 目录内 project.json 存在、可解析且 manifest.projectId 与目录名一致；
+   *   - 清单明确引用该文件（videoPath/audioPath/bgmPath/分段媒体/备选图等）。
+   * 避免任意目录伪造 project.json 后越权读取未被清单引用的文件。
+   * @param {string} filePath
+   * @returns {string|null} 规范化的项目目录绝对路径
+   */
+  getProjectMediaRoot (filePath) {
+    if (typeof filePath !== 'string' || !filePath.trim()) return null
+    const requested = path.resolve(filePath)
+    // realpath 归一失败（路径不存在）时保留原串，比较自然不相等 -> fail-closed
+    const canonicalOrRaw = (value) => {
+      try { return fs.realpathSync.native(value) } catch { return value }
+    }
+    const requestedCanonical = canonicalOrRaw(requested)
+    const requestedDir = path.dirname(requested)
+    // 媒体文件通常位于 <ownerHash|__legacy__>/<projectId>/ 两层内；放宽到两层目录。
+    const candidates = [requestedDir, path.dirname(requestedDir)]
+    for (const candidate of new Set(candidates)) {
+      const manifest = readProjectManifestDir(candidate)
+      if (!manifest) continue
+      const refs = projectFileReferencePaths(manifest)
+      // Windows/NTFS 路径大小写不敏感：IPC 二次校验传入的是 realpath 规范化路径，
+      // 与清单存储串可能只有大小写差异，字符串相等会误拒合法文件（审查 W3）。
+      // 8.3 短名（如 C:\\Users\\RUNNER~1）与 realpath 长名指向同一文件但字面串不同：
+      // 两侧各自 realpath 归一后再比较，别名（含联接通路）拼写同样放行。
+      const referenced = process.platform === 'win32'
+        ? refs.some(ref => canonicalOrRaw(ref).toLowerCase() === requestedCanonical.toLowerCase())
+        : refs.some(ref => canonicalOrRaw(ref) === requestedCanonical)
+      if (!referenced) continue
+      return path.resolve(candidate)
+    }
+    return null
+  }
+
+  /**
+   * 把文件解析为「项目清单目录」内的只读媒体；解析与安全校验统一走 resolveReadableFile
+   * （canonical 边界、拒绝符号链接、大小上限）。
+   * @param {string} filePath
+   * @param {{ maxBytes?: number }} [options]
+   * @returns {string|null} canonical 文件路径
+   */
+  resolveProjectMedia (filePath, options = {}) {
+    const root = this.getProjectMediaRoot(filePath)
+    if (!root) return null
+    const maxBytes = Number.isFinite(Number(options.maxBytes)) && Number(options.maxBytes) > 0
+      ? Number(options.maxBytes)
+      : MAX_VIDEO_BYTES
+    return resolveReadableFile(filePath, { allowedRoots: [root], maxBytes })
+  }
+
   _thumbnailCachePaths (projectId) {
     const projectDir = this._projectDir(projectId)
     return {
@@ -620,6 +732,14 @@ class Story2VideoProjectService {
 
     const ffmpeg = this.findFfmpeg()
     if (!ffmpeg) throw new Error('FFmpeg 不可用')
+    // 跨 profile 项目（清单目录在当前数据目录之外）当前数据目录中可能还没有该项目目录，
+    // 首帧缩略图缓存需要先落目录；路径来自受控 _projectDir，递归创建安全。
+    try {
+      fs.mkdirSync(path.dirname(thumbnailPath), { recursive: true })
+    } catch (mkdirError) {
+      throw new Error('缩略图缓存目录不可写: ' + (mkdirError?.message || String(mkdirError)))
+    }
+
     const temporary = thumbnailTemporaryPath(thumbnailPath)
     const metadataTemporary = thumbnailTemporaryPath(metadataPath)
     const transactionId = process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
@@ -733,11 +853,15 @@ class Story2VideoProjectService {
         const candidates = firstSceneThumbnailCandidates(project)
         let videoFailure = null
         for (const candidate of candidates.images) {
-          const resolved = this._resolveSource(candidate, 'image')
+          // 跨 profile 迁移/设置库合并后清单可能仍指向旧数据目录：先按当前根解析，
+          // 失败时回退到「项目清单目录」只读根（清单必须引用该文件）。
+          const resolved = this._resolveSource(candidate, 'image') ||
+            this.resolveProjectMedia(candidate, { maxBytes: MAX_IMAGE_FILE_BYTES })
           if (resolved) return { status: 'ready', kind: 'image', path: resolved }
         }
         for (const candidate of candidates.videos) {
-          const resolved = this._resolveSource(candidate, 'video')
+          const resolved = this._resolveSource(candidate, 'video') ||
+            this.resolveProjectMedia(candidate, { maxBytes: MAX_VIDEO_BYTES })
           if (!resolved) continue
           try {
             const thumbnailPath = await this._ensureVideoThumbnail(projectId, resolved)

@@ -1055,6 +1055,12 @@
       <p v-if="canResumeStory2Video" class="story2video-error-dialog-hint">{{ story2videoErrorDialogUiText.resumeHint }}</p>
       <p v-else class="story2video-error-dialog-hint">如问题持续出现，请检查日志或重新启动流水线。</p>
       <template #footer>
+        <UiButton
+          v-if="canGoToModelSettings"
+          variant="primary"
+          data-testid="go-to-model-settings"
+          @click="goToModelSettings"
+        >{{ story2videoErrorDialogUiText.goToModelSettings }}</UiButton>
         <UiButton v-if="canResumeStory2Video" variant="primary" :disabled="story2videoResuming" @click="resumeStory2Video">{{ story2videoResuming ? story2videoErrorDialogUiText.resuming : story2videoErrorDialogUiText.resume }}</UiButton>
         <UiButton @click="closeStory2VideoErrorDialog">{{ story2videoErrorDialogUiText.acknowledge }}</UiButton>
       </template>
@@ -2390,6 +2396,11 @@ export default {
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
+    },
+    // 启动前置校验（models_required）：提供「去模型设置」直达入口
+    canGoToModelSettings() {
+      return Boolean(this.story2videoErrorDialog.visible) &&
+        this.story2videoErrorDialog.messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED
     },
     canResumeStory2Video() {
       if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoResuming) return false
@@ -3749,9 +3760,31 @@ export default {
       this.s2vBatchLoading = true
       try {
         const res = await story2videoBatchStatus()
-        if (res?.code === 0 && Array.isArray(res.data)) this.s2vBatches = res.data
+        if (res?.code === 0 && Array.isArray(res.data)) {
+          this.s2vBatches = res.data
+          this.surfaceS2VBatchModelRequirementErrors()
+        }
       } catch (_) { /* 轮询失败静默，下个周期重试 */ } finally {
         this.s2vBatchLoading = false
+      }
+    },
+    // 批量项启动前置校验失败（PIPELINE_MODEL_REQUIREMENTS_MISSING）→ 弹「去模型设置」提示
+    // 每 itemId 只弹一次，避免轮询周期重复打扰；用户补齐模型后再启动的批次不受影响。
+    surfaceS2VBatchModelRequirementErrors() {
+      if (!Array.isArray(this.s2vBatches)) return
+      if (!this._s2vModelsRequiredShownItemIds) this._s2vModelsRequiredShownItemIds = new Set()
+      for (const batch of this.s2vBatches) {
+        if (!batch || !Array.isArray(batch.items)) continue
+        const item = batch.items.find((it) => it && it.status === 'failed' && it.errorCode === 'PIPELINE_MODEL_REQUIREMENTS_MISSING' && it.itemId)
+        if (!item || this._s2vModelsRequiredShownItemIds.has(item.itemId)) continue
+        this._s2vModelsRequiredShownItemIds.add(item.itemId)
+        const errorParams = item.errorParams && typeof item.errorParams === 'object' ? item.errorParams : {}
+        this.showStory2VideoErrorDialog({
+          errorCode: 'PIPELINE_MODEL_REQUIREMENTS_MISSING',
+          errorParams,
+          error: typeof item.error === 'string' ? item.error : '',
+        })
+        return
       }
     },
     async cancelS2VBatchItem(batchId, itemId) {
@@ -4459,6 +4492,12 @@ export default {
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
+    },
+    goToModelSettings() {
+      this.story2videoErrorDialog.visible = false
+      if (this.$router && typeof this.$router.push === 'function') {
+        this.$router.push({ name: 'ModelProviders' })
+      }
     },
     async resumeStory2Video() {
       const runId = this.orchestrationRunId

@@ -24,6 +24,7 @@ const {
   STORY2VIDEO_PIPELINE,
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config');
+const { checkPipelineModelRequirements } = require('./pipeline-model-preflight');
 const { buildRunDiagnostics, captureEnvSnapshot } = require('./diagnostics/run-diagnostics');
 
 /**
@@ -710,6 +711,8 @@ class PipelineEngine {
     this.serviceBus = deps.serviceBus || null;
     this.container = deps.container || null;
     this.log = deps.log || require('./logger');
+    // 启动前模型能力前置校验依赖（生产由 phase1-context 注入 ModelProviderManager 实例）
+    this.modelProviderManager = deps.modelProviderManager || null;
     this.aiGenerator = deps.aiGenerator || null;
     this.story2videoProjectService = deps.story2videoProjectService || null;
     this.runStateStore = deps.runStateStore || null;
@@ -1346,6 +1349,24 @@ class PipelineEngine {
       serializedContext = JSON.parse(JSON.stringify(initialContext));
     } catch (e) {
       return { success: false, error: 'Invalid initialContext: ' + e.message };
+    }
+
+    // 启动前模型能力前置校验（2026-08-28）：按「流水线 → 所需模型能力」映射统一拦截，
+    // 模型缺失时在创建 run 之前返回结构化错误（手动/批量同一入口，story2video 参数已归一化）。
+    // 断点续跑（resumeOrchestration）不做前置拦截，保持恢复语义。
+    const modelPreflight = checkPipelineModelRequirements(
+      this.modelProviderManager,
+      pipelineName,
+      params,
+      this.log,
+    )
+    if (!modelPreflight.success) {
+      return {
+        success: false,
+        error: modelPreflight.error,
+        errorCode: modelPreflight.errorCode,
+        errorParams: modelPreflight.errorParams,
+      };
     }
 
     // 后台并行上限：超过 maxConcurrentRuns 拒绝启动（资源保护）。

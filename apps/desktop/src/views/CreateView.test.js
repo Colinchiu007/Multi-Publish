@@ -5959,3 +5959,75 @@ describe("CreateView 流水线「保存配置」（s2v-pipeline-config-profiles�
     w.unmount();
   });
 });
+
+describe("CreateView 启动前置校验弹窗（models_required + 去模型设置）", () => {
+  const mountCreateView = () => mount(CreateView, {
+    global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+  })
+
+  it("缺失模型错误显示「去模型设置」按钮，点击跳转 ModelProviders 并关闭弹窗", async () => {
+    const w = mountCreateView()
+    await nextTick()
+    w.vm.showStory2VideoErrorDialog({
+      errorCode: "PIPELINE_MODEL_REQUIREMENTS_MISSING",
+      errorParams: { missing: ["video"], providers: {} },
+      error: "启动被拦截：缺少模型能力 视频模型。请到「模型设置」中添加对应模型后重试。",
+    })
+    await nextTick()
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.models_required")
+    expect(w.vm.canGoToModelSettings).toBe(true)
+    const btn = w.find('[data-testid="go-to-model-settings"]')
+    expect(btn.exists()).toBe(true)
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue()
+    await btn.trigger("click")
+    expect(pushSpy).toHaveBeenCalledWith({ name: "ModelProviders" })
+    expect(w.vm.story2videoErrorDialog.visible).toBe(false)
+    pushSpy.mockRestore()
+    w.unmount()
+  })
+
+  it("非 models_required 错误不显示「去模型设置」按钮", async () => {
+    const w = mountCreateView()
+    await nextTick()
+    w.vm.showStory2VideoErrorDialog({
+      messageKey: "story2video.model_configuration_required",
+      error: "Story2Video 默认 LLM 不可用，请先完成模型设置",
+    })
+    await nextTick()
+    expect(w.vm.canGoToModelSettings).toBe(false)
+    expect(w.find('[data-testid="go-to-model-settings"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it("批量项启动前置校验失败（errorCode）→ 轮询刷新弹出提示，且同一 itemId 不重复弹", async () => {
+    const mocks = await import("@/api/publisher")
+    const failedBatch = {
+      id: "batch_models_1",
+      createdAt: "2026-08-28T00:00:00.000Z",
+      mode: "text",
+      items: [{
+        itemId: "batch_models_1_i0",
+        label: "文案 1",
+        status: "failed",
+        errorCode: "PIPELINE_MODEL_REQUIREMENTS_MISSING",
+        errorParams: { missing: ["image"], providers: {} },
+        error: "启动被拦截：缺少模型能力 图片生成。请到「模型设置」中添加对应模型后重试。",
+      }],
+    }
+    mocks.story2videoBatchStatus.mockResolvedValue({ code: 0, data: [failedBatch] })
+    const w = mountCreateView()
+    await nextTick()
+
+    await w.vm.refreshS2VBatches()
+    expect(w.vm.story2videoErrorDialog.visible).toBe(true)
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.models_required")
+    expect(w.vm.story2videoErrorDialog.messageParams.missingLabels).toContain("图片生成")
+
+    // 再次轮询：同一 itemId 不重复弹窗（dialog 内容保持不变，且 showStory2VideoErrorDialog 未被再次调用）
+    const showSpy = vi.spyOn(w.vm, "showStory2VideoErrorDialog")
+    await w.vm.refreshS2VBatches()
+    expect(showSpy).not.toHaveBeenCalled()
+    showSpy.mockRestore()
+    w.unmount()
+  })
+});

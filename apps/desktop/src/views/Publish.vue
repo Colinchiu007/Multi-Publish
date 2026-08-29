@@ -203,11 +203,11 @@
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">{{ t('publishPage.title') }}</label>
-                  <UiInput v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
+                  <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">{{ t('publishPage.videoDescLabel') }}</label>
-                  <UiInput type="textarea" v-model="article.content" :placeholder="t('publishPage.videoDescPlaceholder')" :rows="4" />
+                  <UiInput data-testid="publish-desc" type="textarea" v-model="article.content" :placeholder="t('publishPage.videoDescPlaceholder')" :rows="4" />
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">{{ t('publishPage.cover') }}</label>
@@ -225,11 +225,17 @@
                       <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                     </el-upload>
 <UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
-                      ?? {{ t('publishPage.extractCover') }}
+                      {{ t('publishPage.extractCover') }}
                     </UiButton>
                     <UiButton v-if="article.cover_path" variant="ghost" size="sm" @click="openCoverCrop">
-                      ?? {{ t('publishPage.coverCrop.title') }}
+                      {{ t('publishPage.coverCrop.title') }}
                     </UiButton>
+                    <div
+                      data-testid="cover-state"
+                      :data-cover-path="article.cover_path || ''"
+                      :data-cover-url="article.cover_url || ''"
+                      hidden
+                    ></div>
                   </div>
                   <UiInput v-model="article.cover_url" :placeholder="t('publishPage.coverUrlPlaceholder')" class="stack-gap-top" />
                 </div>

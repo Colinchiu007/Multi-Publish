@@ -226,4 +226,25 @@ describe("Story2VideoBatchQueue", async () => {
     expect(result.items[0].progress).toBe(50)
     expect(result.items[0].currentStage).toBe("compose")
   })
+
+  it("启动前置校验失败：item 标记 failed 并透传 PIPELINE_MODEL_REQUIREMENTS_MISSING 与 errorCode", async () => {
+    const requireMissing = createEngineStub({
+      startOrchestrated: vi.fn(async () => ({
+        success: false,
+        error: "启动被拦截：缺少模型能力 视频模型。请到「模型设置」中添加对应模型后重试。",
+        errorCode: "PIPELINE_MODEL_REQUIREMENTS_MISSING",
+        errorParams: { missing: ["video"], providers: {} },
+      })),
+    })
+    const q = new Story2VideoBatchQueue({ pipelineEngine: requireMissing, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const result = await q.createBatch({ mode: "text", texts: ["a"], story2videoTextConfigTemplate: TEMPLATE })
+    await flush()
+    const status = q.getBatches()[0]
+    expect(status.items[0]).toMatchObject({
+      status: "failed",
+      errorCode: "PIPELINE_MODEL_REQUIREMENTS_MISSING",
+    })
+    expect(status.items[0].error).toContain("缺少模型能力")
+    q.dispose()
+  })
 })

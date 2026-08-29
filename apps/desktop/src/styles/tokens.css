@@ -4,7 +4,7 @@
  * 规则（docs/frontend-interaction-spec.md §1）：
  * - 颜色/字号/间距/圆角变量一律从这里取值；禁止在组件/视图重定义同语义变量
  * - 主色定标 #5048E5（用户决策 2026-08-24）；暗色模式不降级为低对比灰
- * - 阶梯基准沿用 cohere-design-system 既有值（--space-*/--r-*），保证零视觉回归迁移
+ * - 阶梯基准沿用 cohere-design-system 既有值（--space-* 与 --r-*），保证零视觉回归迁移
  *
  * 导入顺序：必须在 element-plus 与所有旧 token 文件之前（main.js）。
  */

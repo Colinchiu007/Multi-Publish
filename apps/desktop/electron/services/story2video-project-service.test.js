@@ -293,6 +293,169 @@ describe('Story2VideoProjectService', () => {
       expect(updated.status).toBe('cancelled')
     })
 
+    describe('跨 profile 项目清单目录只读媒体回退（历史缩略图修复）', () => {
+      // 每个 fixture 目录都建在 os.tmpdir() 下、但不在默认媒体根（tmpdir/story2video）内，
+      // 模拟「项目清单仍指向旧数据目录」的真实场景。
+      function createForeignProjectDir () {
+        return fs.mkdtempSync(path.join(os.tmpdir(), 's2v-foreign-project-'))
+      }
+      function writeManifest (projectDir, projectId, segments) {
+        writeFile(path.join(projectDir, 'project.json'), JSON.stringify({ projectId, segments }))
+      }
+
+      it('resolveProjectMedia 放行清单引用的文件并返回 canonical 路径', () => {
+        const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_foreign_1')
+        const image = writeFile(path.join(projectDir, 'segment_0000_image.png'), 'image')
+        writeManifest(projectDir, 'run_foreign_1', [{ imagePath: image }])
+
+        expect(service.getProjectMediaRoot(image)).toBe(path.resolve(projectDir))
+        expect(service.resolveProjectMedia(image, { maxBytes: 1024 * 1024 })).toBe(fs.realpathSync.native(image))
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
+      it('无 project.json / projectId 不匹配 / 清单未引用该文件 / 符号链接目录时全部拒绝', () => {
+        const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_a')
+        const file = writeFile(path.join(projectDir, 'media.png'), 'image')
+
+        // 无 manifest：拒绝
+        expect(service.resolveProjectMedia(file)).toBeNull()
+        // manifest.projectId 与目录名不一致：拒绝
+        writeManifest(projectDir, 'run_other', [{ imagePath: file }])
+        expect(service.resolveProjectMedia(file)).toBeNull()
+        // 清单未引用该文件：拒绝
+        writeManifest(projectDir, 'run_a', [{ imagePath: path.join(projectDir, 'other.png') }])
+        expect(service.resolveProjectMedia(file)).toBeNull()
+
+        // 清单合法后再验证符号链接目录被拒绝
+        const linkDir = path.join(foreign, 'run_link')
+        let linkOk = true
+        try {
+          fs.symlinkSync(projectDir, linkDir, 'junction')
+        } catch (_) {
+          linkOk = false
+        }
+        if (linkOk) {
+          expect(service.resolveProjectMedia(path.join(linkDir, 'media.png'))).toBeNull()
+        }
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
+      it('清单引用为 realpath 等价别名（联接通路/8.3 短名）时按 canonical 比较放行', () => {
+        const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_alias_ref')
+        const video = writeFile(path.join(projectDir, 'video.mp4'), 'video')
+        // CI 上 os.tmpdir() 可能是 8.3 短名（C:\\Users\\RUNNER~1\\...）而 IPC 侧
+        // realpath 归一为长名（runneradmin）：同一文件两种字面串。联接通路别名等价
+        // 模拟该差异——manifest 持久化别名拼写、请求侧是真实拼写，须按 canonical 比较放行。
+        const alias = path.join(foreign, 'run_alias_link')
+        let aliasOk = true
+        try {
+          fs.symlinkSync(projectDir, alias, process.platform === 'win32' ? 'junction' : 'dir')
+        } catch (_) {
+          aliasOk = false
+        }
+        if (aliasOk) {
+          writeManifest(projectDir, 'run_alias_ref', [{ videoPath: path.join(alias, 'video.mp4') }])
+          expect(service.getProjectMediaRoot(video)).toBe(path.resolve(projectDir))
+          expect(service.resolveProjectMedia(video, { maxBytes: 1024 * 1024 })).toBe(fs.realpathSync.native(video))
+          // 反向：请求走联接目录——目录名与 manifest.projectId 不同形，fail-closed
+          expect(service.resolveProjectMedia(path.join(alias, 'video.mp4'))).toBeNull()
+        }
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
+      it('getThumbnail 对清单目录（当前根外）中的图片素材直接出图', async () => {
+        const service = new Story2VideoProjectService({
+          store,
+          projectsDir: path.join(root, 'projects'),
+          findFfmpeg: vi.fn(() => 'ffmpeg'),
+          thumbnailRunner: vi.fn(),
+        })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_foreign_image')
+        const image = writeFile(path.join(projectDir, 'segment_0000_image.jpg'), 'image')
+        writeManifest(projectDir, 'run_foreign_image', [{ imagePath: image }])
+        writeProject(service, 'run_foreign_image', [{ imagePath: image }])
+
+        await expect(service.getThumbnail('run_foreign_image')).resolves.toMatchObject({
+          status: 'ready',
+          kind: 'image',
+          path: fs.realpathSync.native(image),
+        })
+        expect(service.thumbnailRunner).not.toHaveBeenCalled()
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
+      it('getThumbnail 对清单目录（当前根外）中的视频生成首帧并缓存到当前项目目录', async () => {
+        const runner = vi.fn(async (_binary, args) => {
+          // 真实 ffmpeg 不会自动创建输出目录：跨 profile 项目当前目录不存在时，
+          // 必须由服务先 mkdir。这里断言目录已被创建，再用 raw 写入模拟 ffmpeg。
+          expect(fs.existsSync(path.dirname(args.at(-1)))).toBe(true)
+          fs.writeFileSync(args.at(-1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+        })
+        const service = new Story2VideoProjectService({
+          store,
+          projectsDir: path.join(root, 'projects'),
+          findFfmpeg: vi.fn(() => 'ffmpeg'),
+          thumbnailRunner: runner,
+        })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_foreign_video')
+        const video = writeFile(path.join(projectDir, 'segment_0000_video.mp4'), 'video')
+        writeManifest(projectDir, 'run_foreign_video', [{ videoPath: video }])
+        writeProject(service, 'run_foreign_video', [{ videoPath: video }])
+        // 当前数据目录下没有该项目目录（只有 foreign 清单目录）——修复前 ffmpeg 会因输出目录缺失失败
+        expect(fs.existsSync(service._projectDir('run_foreign_video'))).toBe(false)
+
+        const result = await service.getThumbnail('run_foreign_video')
+        expect(result).toMatchObject({ status: 'ready', kind: 'video-frame' })
+        expect(fs.existsSync(result.path)).toBe(true)
+        // 首帧缓存写入当前项目目录而非外部清单目录
+        expect(result.path).toContain(path.join(service._projectDir('run_foreign_video')))
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+      it('getThumbnail 对只有 videoMeta.sceneVideoPath 的清单目录视频生成首帧（审查 W2）', async () => {
+        const runner = vi.fn(async (_binary, args) => {
+          expect(fs.existsSync(path.dirname(args.at(-1)))).toBe(true)
+          fs.writeFileSync(args.at(-1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+        })
+        const service = new Story2VideoProjectService({
+          store,
+          projectsDir: path.join(root, 'projects'),
+          findFfmpeg: vi.fn(() => 'ffmpeg'),
+          thumbnailRunner: runner,
+        })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_foreign_scene_video')
+        const video = writeFile(path.join(projectDir, 'segment_0000_scene.mp4'), 'video')
+        writeManifest(projectDir, 'run_foreign_scene_video', [{ videoMeta: { sceneVideoPath: video } }])
+        writeProject(service, 'run_foreign_scene_video', [{ videoMeta: { sceneVideoPath: video } }])
+        expect(fs.existsSync(service._projectDir('run_foreign_scene_video'))).toBe(false)
+
+        const result = await service.getThumbnail('run_foreign_scene_video')
+        expect(result).toMatchObject({ status: 'ready', kind: 'video-frame' })
+        expect(fs.existsSync(result.path)).toBe(true)
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
+      it.runIf(process.platform === 'win32')('清单引用路径与请求仅大小写不同时仍放行（NTFS 大小写不敏感，审查 W3）', () => {
+        const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_case_proj')
+        const video = writeFile(path.join(projectDir, 'Video.MP4'), 'video')
+        writeManifest(projectDir, 'run_case_proj', [{ videoPath: video }])
+        const caseShifted = path.join(projectDir, 'video.mp4')
+        expect(service.getProjectMediaRoot(caseShifted)).toBe(path.resolve(projectDir))
+        expect(service.resolveProjectMedia(caseShifted)).toBe(fs.realpathSync.native(video))
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+    })
+
     it('video1 使用 sceneVideoPath 时回填到 compose videoPath，并拒绝不受控视频路径', () => {
       const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
       const projectDir = service._projectDir('video-slot-contract')
