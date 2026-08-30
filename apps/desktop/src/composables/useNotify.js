@@ -28,7 +28,10 @@ import { notifyText, reportNotify } from '@/utils/notifyCore'
 export function useNotify () {
   function notify (messageKey, options = {}) {
     const level = options.level || 'info'
-    const text = notifyText(messageKey, options)
+    // 支持直接传文案（options.message 优先于 messageKey 解析），用于动态/运行时拼接文案
+    const text = typeof options.message === 'string' && options.message
+      ? options.message
+      : notifyText(messageKey, options)
     if (!text) {
       // 未命中 key：error 级用 fallback 兜底，其余静默
       if (level === 'error' && options.fallback) {
@@ -78,7 +81,10 @@ export function useNotify () {
    * @returns {Promise<boolean>} 用户确认返回 true，取消返回 false
    */
   async function notifyConfirm (messageKey, options = {}) {
-    const text = notifyText(messageKey, options)
+    // options.message 直接传文案（动态/运行时拼接），否则用 messageKey 解析
+    const text = typeof options.message === 'string' && options.message
+      ? options.message
+      : notifyText(messageKey, options)
     if (!text) return false
     reportNotify(messageKey, { ...options, level: 'confirm' })
     try {

@@ -14,6 +14,14 @@ export default {
     pageLoadFailed: '页面加载失败',
     pageLoadFailedMessage: '页面资源仍未加载成功，请重试或刷新应用。',
   },
+  loginGate: {
+    defaultMessage: '该功能需要登录后使用，是否立即登录？',
+    disabledMessage: '当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。',
+    title: '需要登录',
+    confirmButton: '立即登录',
+    cancelButton: '暂不',
+    loginIncomplete: '登录未完成，操作已取消',
+  },
   nav: {
     home: '首页',
     accounts: '账号管理',

@@ -14,6 +14,14 @@ export default {
     pageLoadFailed: 'Failed to load page',
     pageLoadFailedMessage: 'Page resources failed to load. Please retry or refresh the app.',
   },
+  loginGate: {
+    defaultMessage: 'This feature requires login. Sign in now?',
+    disabledMessage: 'Identity service is not configured, cannot sign in. Please configure the identity service in the main process and retry.',
+    title: 'Sign In Required',
+    confirmButton: 'Sign In Now',
+    cancelButton: 'Not Now',
+    loginIncomplete: 'Sign-in incomplete, operation cancelled',
+  },
   nav: {
     home: 'Home',
     accounts: 'Accounts',

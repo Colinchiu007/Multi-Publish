@@ -72,6 +72,12 @@ describe('useNotify — 通知展示', () => {
     expect(text).toBe('')
     expect(ElMessage.info).not.toHaveBeenCalled()
   })
+
+  it('options.message 直接传文案（绕过 messageKey 解析）', () => {
+    const text = n.notifyWarning('nonexistent.key', { message: '动态拼接的警告文案' })
+    expect(text).toBe('动态拼接的警告文案')
+    expect(ElMessage.warning).toHaveBeenCalledWith('动态拼接的警告文案')
+  })
 })
 
 describe('useNotify — 确认弹窗', () => {
@@ -102,5 +108,12 @@ describe('useNotify — 确认弹窗', () => {
     const ok = await n.notifyConfirm('nonexistent.key')
     expect(ok).toBe(false)
     expect(ElMessageBox.confirm).not.toHaveBeenCalled()
+  })
+
+  it('notifyConfirm options.message 直接传文案', async () => {
+    ElMessageBox.confirm.mockResolvedValue('confirm')
+    const ok = await n.notifyConfirm('nonexistent.key', { message: '动态确认文案', title: '需要登录' })
+    expect(ok).toBe(true)
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith('动态确认文案', '需要登录', expect.any(Object))
   })
 })
