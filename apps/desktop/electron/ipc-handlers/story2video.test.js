@@ -1005,4 +1005,73 @@ describe('Story2Video BGM 素材库 IPC', () => {
     expect(configProfiles.rename).not.toHaveBeenCalled()
     expect(configProfiles.delete).not.toHaveBeenCalled()
   })
+
+  it('删除项目时级联清理持久化 run-state 快照（已中断任务不再残留）', async () => {
+    const { RunStateStore } = require('../services/run-state-store')
+    const runStateDir = path.join(root, 'run-state')
+    const runStateStore = new RunStateStore({ dir: runStateDir, log: { warn() {}, info() {} } })
+
+    // 真实项目服务 + 真实 run-state 快照：模拟「已中断」任务（running 快照在应用重启后被归一化为 interrupted）
+    const projectService = new Story2VideoProjectService({
+      store: { _resolveOwnerSubject: () => 'user-a', getUserSetting: () => [], setUserSetting: () => {} },
+      projectsDir: root,
+    })
+    const projectId = 'project-interrupted-1'
+    // 先写入一个项目（deleteProject 依赖索引中存在才真正移除；不存在也幂等返回 deleted:true）
+    projectService._writeProjects([{ projectId, runId: projectId, pipeline: 'story2video-compose', status: 'interrupted', title: '已中断任务' }])
+    // 写入与项目同 runId 的 running 快照（重启后归一化为 interrupted，历史页会重新加载）
+    runStateStore.saveRunning({
+      id: projectId,
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+    })
+
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: projectService, runStateStore })
+
+    // 删除前：快照存在（历史页会重新加载该已中断任务）
+    expect(runStateStore.load(projectId)).not.toBeNull()
+
+    const result = await ipcMain.get('story2video:delete-project')(TRUSTED_EVENT, projectId)
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual({ projectId, deleted: true })
+
+    // 删除后：快照被级联清理，重进历史页不再出现该已中断任务
+    expect(runStateStore.load(projectId)).toBeNull()
+    expect(runStateStore.listRunning()).toEqual([])
+    expect(runStateStore.listFailed()).toEqual([])
+  })
+
+  it('删除项目时 run-state 快照清理失败不阻断项目删除', async () => {
+    const runStateStore = { remove: vi.fn(() => { throw new Error('disk locked') }) }
+    const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
+      deleteProject: vi.fn(() => ({ projectId: 'project-1', deleted: true })),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service, runStateStore })
+
+    const result = await ipcMain.get('story2video:delete-project')(TRUSTED_EVENT, 'project-1')
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual({ projectId: 'project-1', deleted: true })
+    expect(runStateStore.remove).toHaveBeenCalledWith('project-1')
+  })
+
+  it('未注入 runStateStore 时删除项目仍成功（向后兼容）', async () => {
+    const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
+      deleteProject: vi.fn(() => ({ projectId: 'project-1', deleted: true })),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:delete-project')(TRUSTED_EVENT, 'project-1')
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual({ projectId: 'project-1', deleted: true })
+  })
 })

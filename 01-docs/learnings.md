@@ -1,4 +1,13 @@
-## 场景上下文朝代误判：现代题材引用历史人物被整篇判为古代（fix-s2v-context-modern-signal，2026-08-30）
+## 批量删除「已中断」历史任务后重进仍残留（fix-history-delete-interrupted，2026-08-30）
+
+- **现象**：视频创作-历史记录「已中断」列表批量删除几个任务时提示删除成功、被删项也消失，但再次进入历史记录后那几条任务仍在，并未删除。
+- **第一性原因**：有 `projectId` 的「已中断」任务走 `story2video:delete-project`（`story2video.js` delete handler → `story2videoProjectService.deleteProject`），只移除项目索引并尽力清理项目目录，**未级联清理该 run 的持久化 run-state 快照**（`RunStateStore`，`userData/run-state/<runId>.json`）。而 `pipelineHistory()` → `pipeline-engine.getHistory()` 会从 `runStateStore.listFailed()/listRunning()` 重新合并持久化快照，running 快照在重启后被归一化为 interrupted。于是删除项目后，该 run 的快照仍残留，重进历史页又从快照重新加载 → 表现为「删除后又回来了」。runId 与 projectId 同源（`saveRun`/`saveEditableRun` 均以 `run.id` 作为 projectId，快照 `runId` 即项目 projectId），因此快照键可直接用 projectId。
+- **逃逸链**：`story2video.test.js` 的 delete-project 用例全部用 mock 服务（`deleteProject: vi.fn()`），只断言 handler 调用了 `deleteProject`，从未验证「删除项目后 run-state 快照是否被清理」；`pipeline-engine.test.js` 的 deleteRun 用例覆盖了 `deleteRun` 自身清快照，但**没有**「删除项目 → 级联清快照」的集成场景。两层测试都未把 `story2video:delete-project` 与 `runStateStore` 关联起来，导致该缺口逃逸。
+- **系统性漏洞**：测试场景缺失——「项目删除」与「run-state 快照生命周期」是两个独立模块，但缺少跨模块的集成测试断言「删除项目必须同步清理关联快照」；且 delete handler 的依赖注入（`deps`）此前根本没有 `runStateStore`，从接线层就切断了级联清理的可能性。
+- **修复 + 回归保护**：在 `story2video:delete-project` handler 中，项目删除成功后级联调用 `runStateStore.remove(projectId)`（幂等，快照不存在返回 true）；快照清理失败仅告警不阻断项目删除（与 `deleteProject` 目录清理尽力而为语义一致）。接线层把 `runStateStore` 从 container 经 `phase1-context` → `phase5-ipc` 注入 handler deps。回归测试（`story2video.test.js`）用真实 `Story2VideoProjectService` + 真实 `RunStateStore`（os.tmpdir 隔离目录）覆盖：删除项目后 `runStateStore.load(projectId)` 为 null、`listRunning()/listFailed()` 为空；另覆盖快照清理失败不阻断删除、未注入 runStateStore 时向后兼容。
+- **预防**：新增 AGENTS.md QM-2 检查项「删除 story2video 项目必须级联清理关联 run-state 快照，回归测试须用真实 RunStateStore 断言删除后快照消失」；后续任何「删除某实体」的改动须检查该实体是否还有持久化快照/索引/目录等多处残留，逐一级联清理。
+
+---## 场景上下文朝代误判：现代题材引用历史人物被整篇判为古代（fix-s2v-context-modern-signal，2026-08-30）
 
 - **现象**：现代题材全文只要出现一个朝代关键词（如"秦始皇""诸葛亮"），无论它是主题、举例、引用还是背景提及，整篇都会被判定为属于该朝代（`era=ancient, strong:true`），注入朝代视觉风格 + 全量古代负面锚点，污染所有场景。
 - **第一性原因**：`detectDynasty` 只取第一个命中的朝代（`filtered[0]`），**不区分**关键词是"主题"还是"举例/引用/背景"，也不看全文是否有现代信号中和；`detectEra` 里 `if (dynasty) return { era: dynasty.era, strong: true }` —— 朝代存在即一票否决，era 强制 ancient strong，且根本不计算 modernCount，现代信号完全被忽略。
