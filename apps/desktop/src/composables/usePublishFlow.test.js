@@ -222,14 +222,14 @@ describe('usePublishFlow — composable setup', () => {
 
   it('失败通知发送异常不会覆盖发布失败结果', async () => {
     mockPublishBatch.mockResolvedValueOnce({ code: 1, message: 'API 错误' })
-    mockShowNotification.mockRejectedValueOnce(new Error('系统通知不可用'))
     const r = createFlow()
     article.title = 'Test'
     article.content = 'Content'
 
     await expect(r.handlePublish()).resolves.toBeUndefined()
 
-    expect(mockShowNotification).toHaveBeenCalledWith({ title: '发布失败', body: 'API 错误' })
+    // 统一通知通道：失败 toast 经 useNotify.notifyError 展示（替代 showNotification 死通道）
+    expect(mockElMessage.error).toHaveBeenCalledWith('API 错误')
     expect(r.result.value).toEqual({ success: false, message: 'API 错误' })
   })
 
