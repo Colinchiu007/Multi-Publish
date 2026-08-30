@@ -317,6 +317,35 @@ function detectByRules (text, rules, keyName) {
 }
 
 // ---------------------------------------------------------------------------
+// 成语/多义词误判守卫（2026-08-30，任务 mtfdxj8d_x694 场景11被"事后诸葛亮"误判三国）
+// 朝代关键词用裸子串匹配，成语"事后诸葛亮"含"诸葛亮"、"说曹操曹操到"含"曹操"，
+// 会把非三国题材整篇误判为三国并污染所有场景（era strong + 视觉风格 + 负面锚点）。
+// 映射：朝代关键词 → 包含它的成语列表；文本命中成语时，该关键词不作为朝代证据。
+// 仅作用于 detectDynasty（朝代误判影响最大），不影响道具/时代/东亚意象等其它检测。
+// ---------------------------------------------------------------------------
+const IDIOM_EXCLUSIONS = Object.freeze({
+  诸葛亮: Object.freeze(['事后诸葛亮']),
+  曹操: Object.freeze(['说曹操曹操到', '曹操到']),
+})
+
+/**
+ * 过滤被成语包含的朝代关键词命中。
+ * 若命中词出现在 IDIOM_EXCLUSIONS 中，且文本包含对应成语，则剔除该命中。
+ * @param {string} text
+ * @param {string[]} hits 已命中的朝代关键词
+ * @returns {string[]} 过滤后的命中
+ */
+function filterIdiomHits (text, hits) {
+  if (!hits || hits.length === 0) return hits
+  return hits.filter(keyword => {
+    const idioms = IDIOM_EXCLUSIONS[keyword]
+    if (!idioms) return true
+    // 命中词是成语的一部分：若文本包含任一成语，则该命中视为成语误判，剔除
+    return !idioms.some(idiom => text.includes(idiom))
+  })
+}
+
+// ---------------------------------------------------------------------------
 // 配置归一
 // ---------------------------------------------------------------------------
 
@@ -360,7 +389,15 @@ function normalizeSceneContextOptions (options = {}) {
 function detectDynasty (text) {
   const found = detectByRules(text, DYNASTY_RULES, 'name')
   if (found.length === 0) return null
-  const top = found[0]
+  // 成语/多义词守卫（2026-08-30）：剔除被成语包含的关键词命中（如"事后诸葛亮"→诸葛亮）
+  const filtered = found
+    .map(item => {
+      const cleanHits = filterIdiomHits(text, item.hits)
+      return { ...item, hits: cleanHits, evidence: cleanHits }
+    })
+    .filter(item => item.hits.length > 0)
+  if (filtered.length === 0) return null
+  const top = filtered[0]
   const rule = top.rule
   return {
     name: rule.name,
