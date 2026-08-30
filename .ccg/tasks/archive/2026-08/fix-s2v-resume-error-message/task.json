@@ -1,0 +1,1 @@
+{"id":"fix-s2v-resume-error-message","title":"Story2Video 断点恢复失败提示不具体：错误码未映射回退 operation_failed","status":"completed","complexity":"M","risk":"low","domain":"frontend","currentPhase":"completed","nextAction":"PR #1244 已创建，待 CI 通过后合并","createdAt":"2026-08-31T01:50:00Z","branch":"codex/fix-s2v-resume-error-message","remoteStatus":"PR #1244 OPEN (MERGEABLE)，CI 运行中，待合并"}
