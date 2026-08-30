@@ -268,6 +268,33 @@ describe('scene_context 审查修复回归（2026-08-11 双模型审查 C1/W2/W3
     const ctx = buildPromptEngineSceneContext(scene, story, longText)
     expect(Array.from(ctx.full_text).length).toBeLessThanOrEqual(2000)
   })
+
+  // 回归：成语/多义词误判（2026-08-30，任务 mtfdxj8d_x694 场景11被"事后诸葛亮"误判三国）
+  it('成语误判：全文含"事后诸葛亮"不识别为三国（成语非人物）', () => {
+    const story = extractStoryContext('学的这些教材全是西方编的，管理学、营销学有用吗？屁用没有，都是事后诸葛亮，美国不是靠这些学问成功的，而是靠科技技术发展生产力。')
+    expect(story.dynasty).toBeNull()
+    expect(story.anchors).not.toContain('三国')
+    expect(story.anchors).not.toContain('诸葛亮')
+  })
+
+  it('成语误判：全文含"说曹操曹操到"不识别为三国', () => {
+    const story = extractStoryContext('真是说曹操曹操到，刚提到他就来了。')
+    expect(story.dynasty).toBeNull()
+    expect(story.anchors).not.toContain('三国')
+    expect(story.anchors).not.toContain('曹操')
+  })
+
+  it('成语守卫不误伤：真实三国题材仍识别为三国', () => {
+    const story = extractStoryContext('诸葛亮辅佐刘备，为兴复汉室鞠躬尽瘁，赤壁之战后三分天下。')
+    expect(story.dynasty).toMatchObject({ name: '三国' })
+    expect(story.anchors).toContain('三国')
+  })
+
+  it('成语守卫不误伤：朝代名关键词本身仍正常识别', () => {
+    const story = extractStoryContext('唐朝长安城一片繁华，市井百姓安居乐业。')
+    expect(story.dynasty).toMatchObject({ name: '唐朝' })
+    expect(story.anchors).toContain('唐朝')
+  })
 })
 
 describe('规则数据化与打磨修复（2026-08-12）', () => {

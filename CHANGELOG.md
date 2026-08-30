@@ -1,3 +1,11 @@
+## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
+
+- 现象：任务 `mtfdxj8d_x694`（原文讲"中国人种单一/引进外国人"，非三国题材）场景 11 的 `storyContext` 被注入"中国三国（220-280）时期"，`anchors: ["三国","诸葛亮","中国"]`，所有场景被污染成汉末城寨/战袍旌旗画面，用户误以为程序串了另一个三国任务。
+- 根因：`story-context-engine.js` 的 `detectDynasty` 用裸子串匹配（`text.includes(keyword)`），三国规则关键词含"诸葛亮"；任务原文场景 5 有成语"事后诸葛亮"，子串"诸葛亮"命中 → 整篇误判为三国（`era=ancient, strong=true`），全局锚点注入所有场景。引入点 `74bdca844`（2026-08-11 场景上下文中间层）。
+- 修复：新增 `IDIOM_EXCLUSIONS` 成语守卫表 + `filterIdiomHits`，`detectDynasty` 剔除被成语包含的关键词命中（仅作用于朝代检测，不影响道具/时代/东亚意象检测）。覆盖"事后诸葛亮"→诸葛亮、"说曹操曹操到"→曹操。
+- 回归保护：`story-context-engine.test.js` 新增 4 用例（成语不误判三国×2、真实三国仍识别、朝代名关键词不受影响）；全量 53 用例 + story2video-stages 148 用例全绿。真实任务全文验证：修复前 dynasty=三国/anchors=[三国,诸葛亮,中国]/era strong，修复后 dynasty=null/anchors=[中国]/era 非 strong。
+- 预防：AGENTS.md 新增「Story2Video 场景上下文朝代成语守卫」QM 规则；learnings.md 记录根因与教训。
+
 ## [未发布] fix(desktop): Python 后端进程生命周期竞态修复（并发启动/启动中停止/孤儿回收）
 
 - 背景：python-bridge 启动与停止存在竞态——并发 startPythonBackend 可能重复 spawn；启动未完成时 stopPythonBackend 误判“无进程”导致启动完成后留下孤儿后端；健康检查严格 10s 上限对冷启动过紧；启动失败/超时未回收子进程可能占用端口。
