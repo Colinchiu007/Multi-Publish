@@ -140,9 +140,27 @@ if (-not $NoSync) {
   if ($counts) {
     $parts = ($counts.Trim() -split '\s+')
     if ($parts.Count -eq 2 -and [int]$parts[1] -gt 0) {
-      Write-Line 'sync     : 落后 origin/main，执行 merge --ff-only ...'
-      git -C $repoRoot merge --ff-only origin/main 2>&1 | ForEach-Object { Write-Line "  $_" }
-      if ($LASTEXITCODE -ne 0) { Fail 'merge --ff-only 失败（可能脏文件冲突），请先处理未提交修改' }
+      $behind = [int]$parts[1]
+      $ahead = [int]$parts[0]
+      if ($ahead -gt 0) {
+        # 分叉状态（本地领先 + 落后）：--ff-only 必然失败，fallback 到普通 merge
+        Write-Line "sync     : 分叉状态（领先 $ahead / 落后 $behind），执行 merge origin/main ..."
+        git -C $repoRoot merge origin/main 2>&1 | ForEach-Object { Write-Line "  $_" }
+        if ($LASTEXITCODE -ne 0) { Fail 'merge origin/main 失败（可能脏文件冲突），请先处理未提交修改' }
+      } else {
+        # 仅落后：可 fast-forward
+        Write-Line 'sync     : 落后 origin/main，执行 merge --ff-only ...'
+        git -C $repoRoot merge --ff-only origin/main 2>&1 | ForEach-Object { Write-Line "  $_" }
+        if ($LASTEXITCODE -ne 0) { Fail 'merge --ff-only 失败（可能脏文件冲突），请先处理未提交修改' }
+      }
+    }
+  }
+  # 合并后验证落后数必须为 0，否则 Fail（防旧代码启动）
+  $after = git -C $repoRoot rev-list --left-right --count HEAD...origin/main 2>$null
+  if ($after) {
+    $ap = ($after.Trim() -split '\s+')
+    if ($ap.Count -eq 2 -and [int]$ap[1] -gt 0) {
+      Fail "同步后仍落后 origin/main（$after），拒绝启动——避免用旧代码启动。请先处理同步问题"
     }
   }
   $evidence.head = git -C $repoRoot log -1 --format='%h %s'
