@@ -5266,6 +5266,31 @@ describe("pipeline:update 实时推送（openspec pipeline-progress-real-time-pu
     w.unmount();
   });
 
+  it("检测到内容安全改写重试时触发一次底部 toast（2026-08-30 复盘 mtequszp_enqn）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await new Promise(r => setTimeout(r, 100));
+    await nextTick();
+    w.vm.orchestrationRunId = "run-1";
+    w.vm.orchestrationStages = [{ name: "generate_assets", status: "running" }];
+    w.vm.pipelineRunStatus = { status: "running", progress: 50, stages: [{ name: "generate_assets", status: "running" }] };
+    w.vm._s2vContentRewriteToastShown = false;
+
+    const rewritingStage = { name: "generate_assets", status: "running", progress: { percent: 50, messageKey: "stageProgress.assetsImageRewriting", messageParams: { images: 69, imagesTotal: 70 } } };
+    w.vm.handlePipelinePush({ runId: "run-1", status: { status: "running", currentStage: 4, progress: 50 }, stages: [rewritingStage], progressOnly: true });
+    await nextTick();
+    expect(w.vm.s2vOptionsToast).toContain("检测到敏感内容");
+    expect(w.vm._s2vContentRewriteToastShown).toBe(true);
+
+    // 再次收到改写事件不重复弹 toast
+    w.vm.s2vOptionsToast = "";
+    w.vm.handlePipelinePush({ runId: "run-1", status: { status: "running", currentStage: 4, progress: 55 }, stages: [rewritingStage], progressOnly: true });
+    await nextTick();
+    expect(w.vm.s2vOptionsToast).toBe("");
+    w.unmount();
+  });
+
   it("cleanups 注册 onPipelineUpdate 订阅（卸载时清理）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.onPipelineUpdate.mockClear();

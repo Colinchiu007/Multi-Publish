@@ -576,6 +576,7 @@ class AssetGenerator {
       const retryResult = await runContentPolicyImageRetry({
         prompt,
         sceneIndex: opts?.index,
+        onRewrite: opts?.onContentPolicyRewrite,
         generate: async ({ prompt: attemptPrompt }) => {
           const imageParams = {
             prompt: attemptPrompt,

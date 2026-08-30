@@ -56,6 +56,47 @@ describe('Story2Video image content-policy retry', () => {
     expect(isContentPolicyRejection(new Error('Please review our safety guidelines.'))).toBe(false)
   })
 
+  it('treats MiniMax input new_sensitive as a content-policy rejection and rewrites+retries (2026-08-30 复盘 mtequszp_enqn)', async () => {
+    const rawPrompt = '含敏感表述的原始场景描述'
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'input new_sensitive'))
+      .mockResolvedValueOnce({ image: 'accepted' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: rawPrompt,
+      sceneIndex: 0,
+      generate,
+    })
+
+    expect(result.status).toBe('success')
+    expect(generate).toHaveBeenCalledTimes(2)
+    // 第一次用原始提示词；第二次切内容安全改写
+    expect(generate.mock.calls[0][0].promptStrategy).toBe('original')
+    expect(generate.mock.calls[1][0].promptStrategy).toBe('content_policy_safe_rewrite')
+    expect(generate.mock.calls[1][0].prompt).toBe(buildContentPolicySafePrompt(rawPrompt, { sceneIndex: 0 }))
+    expect(result.attempts[0]).toMatchObject({ attempt: 1, outcome: 'content_policy_rejected', category: 'content_policy' })
+    expect(result.attempts[1]).toMatchObject({ attempt: 2, outcome: 'success' })
+    expect(JSON.stringify(result.attempts)).not.toContain(rawPrompt)
+  })
+
+  it('MiniMax input new_sensitive repeated → needs_user_input content_policy checkpoint', async () => {
+    const generate = vi.fn(async () => {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'input new_sensitive')
+    })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '含敏感表述的场景',
+      sceneIndex: 3,
+      generate,
+    })
+
+    expect(generate).toHaveBeenCalledTimes(MAX_IMAGE_GENERATION_ATTEMPTS)
+    expect(result).toMatchObject({
+      status: 'needs_user_input',
+      checkpoint: { type: 'needs_user_input', reason: 'content_policy', sceneIndex: 3, sceneNumber: 4 },
+    })
+  })
+
   it('uses a scene-specific safety rewrite after a policy rejection without retaining raw prompt text in audit metadata', async () => {
     const rawPrompt = '敏感场景原始描述，只能用于供应商生成请求'
     const generate = vi.fn()

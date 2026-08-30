@@ -2721,24 +2721,30 @@ function registerStory2VideoStages(pipelineEngine) {
       const videosTotal = videoGenerator ? videoSceneSet.size : 0;
       // 图片目标数：视频生成通过后，成功视频场景不再生成图片；失败回退图片的场景计入。
       let imageTargetCount = optimizedPrompts.length - videosTotal;
-      const emitAssetsProgress = (kind = 'resource', final = false) => {
+      // 内容安全改写重试进行中标志：某张图片被供应商判定为敏感内容后，程序自动改写提示词并重试。
+      // 置位后进度提示从「正在生成图片 x/y」切换为「正在改写敏感提示词并重试…」，供前端展示。
+      let contentPolicyRewriteActive = false;
+      const emitAssetsProgress = (kind = 'resource', final = false, rewriting = false) => {
          // 每个场景只占一个工作单元：视频成功或回退图片二选一；TTS 另占一个工作单元。
          // 分母保持稳定，避免视频失败后补图时进度倒退或短暂显示 100%。
          const resourceTotal = optimizedPrompts.length + sentences.length
         const resourceDone = imagesDone + videosDone + ttsDone
+        if (rewriting) contentPolicyRewriteActive = true
         if (typeof onProgress === 'function') {
           const messageKey = final
             ? 'stageProgress.assetsComplete'
-            : kind === 'image'
-              ? 'stageProgress.assetsImage'
-              : kind === 'video'
-                ? 'stageProgress.assetsVideo'
-                : kind === 'tts'
-                  ? 'stageProgress.assetsTts'
-                  : 'stageProgress.assetsStarting'
+            : rewriting
+              ? 'stageProgress.assetsImageRewriting'
+              : kind === 'image'
+                ? 'stageProgress.assetsImage'
+                : kind === 'video'
+                  ? 'stageProgress.assetsVideo'
+                  : kind === 'tts'
+                    ? 'stageProgress.assetsTts'
+                    : 'stageProgress.assetsStarting'
           onProgress({
             percent: final ? 100 : (resourceTotal > 0 ? Math.round((resourceDone / resourceTotal) * 100) : 0),
-            message: final ? 'All assets are ready.' : 'Generating assets…',
+            message: final ? 'All assets are ready.' : (rewriting ? 'Rewriting sensitive prompt and retrying…' : 'Generating assets…'),
             messageKey,
             messageParams: {
               images: imagesDone,
@@ -2766,9 +2772,11 @@ function registerStory2VideoStages(pipelineEngine) {
             videosTotal,
             ttsDone,
             ttsTotal: sentences.length,
+            // 内容安全改写重试进行中标志（供前端 StageProgress 展示提示文字）
+            ...(contentPolicyRewriteActive ? { rewriting: true } : {}),
           };
         }
-        emitAssetsProgress(kind)
+        emitAssetsProgress(kind, false, contentPolicyRewriteActive)
       };
       const markImageDone = () => { imagesDone += 1; writeAssetsProgress('image'); };
       const markVideoDone = () => { videosDone += 1; writeAssetsProgress('video'); };
@@ -2941,6 +2949,12 @@ function registerStory2VideoStages(pipelineEngine) {
               return { index, success: true, path: suppliedPath, meta: { supplied: true } };
             }
             let result;
+            // 内容安全改写重试回调：某张图片被供应商判定为敏感内容后，程序自动改写提示词并重试。
+            // 置位改写标志 → 更新进度提示（messageKey 切为 assetsImageRewriting）→ 触发 toast 信号。
+            const onContentPolicyRewrite = () => {
+              contentPolicyRewriteActive = true;
+              emitAssetsProgress('image', false, true);
+            };
             if (assetGenerator) {
               // 瞬时错误（限流/超时/网络）有界重试；内容政策检查点等失败原样返回
               result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
@@ -2951,6 +2965,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 aspect_ratio: aspectRatio,
                 runId,
                 providerRunContext,
+                onContentPolicyRewrite,
                 ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
               }));
             } else {
@@ -2958,6 +2973,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 prompt: promptText,
                 sceneIndex: index,
                 maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+                onRewrite: onContentPolicyRewrite,
                 generate: async ({ prompt: attemptPrompt }) => {
                   providerRunContext.assertAvailable(resolvedImageProvider)
                   const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {

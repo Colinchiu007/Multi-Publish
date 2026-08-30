@@ -36,6 +36,7 @@ const tStub = (key, params = {}) => {
     "stageProgress.timeGuidanceRef6min": getAppLocale() === "en" ? "6-minute video: 35–45 min" : "6 分钟视频：合成时长 35–45 分钟",
     "stageProgress.timeGuidanceNote": getAppLocale() === "en" ? "The above composition times are all within the normal range." : "以上合成时长均属正常范围。",
     "stageProgress.assetsImage": "正在生成图片 · {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
+    "stageProgress.assetsImageRewriting": "正在生成图片 · {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal} · 正在改写敏感提示词并重试",
     "stageProgress.assetsSummary": "已生成 {done}/{total} 项素材",
     "stageProgress.stageWorking": "正在处理…",
     "stageProgress.stageComplete": "阶段处理完成",
@@ -221,6 +222,24 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     });
     expect(fallback.find(".stage-detail").text()).toBe("raw fallback");
     fallback.unmount();
+  });
+
+  it("内容安全改写重试进行中：展示「正在改写敏感提示词并重试」提示（2026-08-30 复盘 mtequszp_enqn）", () => {
+    const w = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "running",
+        progress: {
+          percent: 50,
+          message: "Rewriting sensitive prompt and retrying…",
+          messageKey: "stageProgress.assetsImageRewriting",
+          messageParams: { images: 69, imagesTotal: 70, videos: 0, videosTotal: 0, tts: 70, ttsTotal: 70 },
+        },
+      })],
+    });
+    expect(w.find(".stage-detail").text()).toContain("正在生成图片 · 69/70");
+    expect(w.find(".stage-detail").text()).toContain("正在改写敏感提示词并重试");
+    w.unmount();
   });
 
   it("完成态结构化 summary key 优先于旧 summary", () => {
