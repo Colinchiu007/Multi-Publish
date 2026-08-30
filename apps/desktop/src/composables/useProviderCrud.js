@@ -14,7 +14,8 @@
 import { ref, computed } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { formatUserError } from '@/utils/user-facing-error'
-import { ElMessage } from 'element-plus'
+import { useNotify } from './useNotify'
+import { resolveNotifyText } from '@/utils/notifyCore'
 import {
   providerList,
   providerCreate,
@@ -30,6 +31,15 @@ import { filterProviders, enabledCount as countEnabled } from './useProviderFilt
  * @returns {object} 响应式状态 + 方法
  */
 export function useProviderCrud() {
+  // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
+  const { notifyError, notifySuccess, notifyWarning } = useNotify()
+
+  // 进度条/内联文案解析（非 toast，组件展示；文案统一进 locales）
+  function progressText (messageKey, params, fallback) {
+    const { text, resolved } = resolveNotifyText(messageKey, params)
+    return resolved ? text : (fallback || '')
+  }
+
   // ─── 数据状态 ─────────────────────────────────
   const providers = ref([])
   const loading = ref(true)
@@ -72,10 +82,10 @@ export function useProviderCrud() {
       if (res.code === 0 && Array.isArray(res.data)) {
         providers.value = res.data
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '加载失败' }).message)
+        notifyError('providerCrud.loadFailed', { message: formatUserError(res, { fallback: progressText('providerCrud.loadFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '加载失败' }).message)
+      notifyError('providerCrud.loadFailed', { message: formatUserError(e, { fallback: progressText('providerCrud.loadFailed') }).message })
     } finally {
       loading.value = false
     }
@@ -110,14 +120,14 @@ export function useProviderCrud() {
       }
 
       if (res.code === 0) {
-        ElMessage.success(isEditing.value ? '更新成功' : '创建成功')
+        notifySuccess('providerCrud.updateSuccess', { message: progressText(isEditing.value ? 'providerCrud.updateSuccess' : 'providerCrud.createSuccess') })
         showFormDialog.value = false
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '保存失败' }).message)
+        notifyError('providerCrud.saveFailed', { message: formatUserError(res, { fallback: progressText('providerCrud.saveFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '保存失败' }).message)
+      notifyError('providerCrud.saveFailed', { message: formatUserError(e, { fallback: progressText('providerCrud.saveFailed') }).message })
     } finally {
       submitting.value = false
     }
@@ -135,15 +145,15 @@ export function useProviderCrud() {
     try {
       const res = await providerDelete(deleteTarget.value.name)
       if (res.code === 0) {
-        ElMessage.success('已删除')
+        notifySuccess('providerCrud.deleted', { message: progressText('providerCrud.deleted') })
         showDeleteDialog.value = false
         deleteTarget.value = null
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '删除失败' }).message)
+        notifyError('providerCrud.deleteFailed', { message: formatUserError(res, { fallback: progressText('providerCrud.deleteFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '删除失败' }).message)
+      notifyError('providerCrud.deleteFailed', { message: formatUserError(e, { fallback: progressText('providerCrud.deleteFailed') }).message })
     } finally {
       submitting.value = false
     }
@@ -158,10 +168,10 @@ export function useProviderCrud() {
       if (res.code === 0) {
         testResults.value[name] = { success: true, message: res.message || 'ok' }
       } else {
-        testResults.value[name] = { success: false, message: formatUserError(res, { fallback: '连接失败' }).message }
+        testResults.value[name] = { success: false, message: formatUserError(res, { fallback: progressText('providerCrud.connectionFailed') }).message }
       }
     } catch (e) {
-      testResults.value[name] = { success: false, message: formatUserError(e, { fallback: '连接失败' }).message }
+      testResults.value[name] = { success: false, message: formatUserError(e, { fallback: progressText('providerCrud.connectionFailed') }).message }
     } finally {
       testingName.value = ''
       // 5 秒后自动清除结果
@@ -181,10 +191,10 @@ export function useProviderCrud() {
     try {
       const api = getApi()
       await api.providerSetUserKey(userKeyTarget.value.name, userKeyForm.value.apiKey, userKeyForm.value.baseUrl)
-      ElMessage.success('用户 Key 已保存')
+      notifySuccess('providerCrud.userKeySaved', { message: progressText('providerCrud.userKeySaved') })
       showUserKeyDialog.value = false
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '保存用户 Key 失败' }).message)
+      notifyError('providerCrud.saveUserKeyFailed', { message: formatUserError(e, { fallback: progressText('providerCrud.saveUserKeyFailed') }).message })
     }
   }
 

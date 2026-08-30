@@ -22,6 +22,17 @@ export default {
     cancelButton: '暂不',
     loginIncomplete: '登录未完成，操作已取消',
   },
+  providerCrud: {
+    loadFailed: '加载失败',
+    updateSuccess: '更新成功',
+    createSuccess: '创建成功',
+    saveFailed: '保存失败',
+    deleted: '已删除',
+    deleteFailed: '删除失败',
+    connectionFailed: '连接失败',
+    userKeySaved: '用户 Key 已保存',
+    saveUserKeyFailed: '保存用户 Key 失败',
+  },
   nav: {
     home: '首页',
     accounts: '账号管理',

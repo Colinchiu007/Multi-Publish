@@ -22,6 +22,17 @@ export default {
     cancelButton: 'Not Now',
     loginIncomplete: 'Sign-in incomplete, operation cancelled',
   },
+  providerCrud: {
+    loadFailed: 'Failed to load',
+    updateSuccess: 'Updated successfully',
+    createSuccess: 'Created successfully',
+    saveFailed: 'Failed to save',
+    deleted: 'Deleted',
+    deleteFailed: 'Failed to delete',
+    connectionFailed: 'Connection failed',
+    userKeySaved: 'User key saved',
+    saveUserKeyFailed: 'Failed to save user key',
+  },
   nav: {
     home: 'Home',
     accounts: 'Accounts',
