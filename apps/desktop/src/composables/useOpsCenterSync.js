@@ -8,13 +8,15 @@
  */
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
 import { getAppLocale } from '@/i18n'
 import { opsCenterSyncGet, opsCenterSyncSave, opsCenterSyncNow } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
+import { useNotify } from './useNotify'
 
 export function useOpsCenterSync () {
   const { t } = useI18n()
+  // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
+  const { notifyError, notifySuccess } = useNotify()
   // ─── 状态 ─────────────────────────────────────
   const syncUrl = ref('')
   const syncApiKey = ref('')
@@ -62,11 +64,11 @@ export function useOpsCenterSync () {
       autoSync: syncAutoSync.value,
     })
     if (res.code === 0) {
-      ElMessage.success(t('modelProviders.syncConfigSaved'))
+      notifySuccess('modelProviders.syncConfigSaved', { message: t('modelProviders.syncConfigSaved') })
       syncApiKey.value = ''
       applyConfig(res.config)
     } else {
-      ElMessage.error(formatUserError(res, { fallback: t('modelProviders.saveSyncConfigFailed') }).message)
+      notifyError('modelProviders.saveSyncConfigFailed', { message: formatUserError(res, { fallback: t('modelProviders.saveSyncConfigFailed') }).message })
     }
     return res
   }
@@ -86,7 +88,7 @@ export function useOpsCenterSync () {
       })
       if (saved.code !== 0) {
         syncError.value = formatUserError(saved, { fallback: t('modelProviders.syncUnavailable') }).message
-        ElMessage.error(syncError.value)
+        notifyError('modelProviders.syncUnavailable', { message: syncError.value })
         return saved
       }
       syncApiKey.value = ''
@@ -96,15 +98,15 @@ export function useOpsCenterSync () {
       if (res.code === 0) {
         syncStatus.value = t('modelProviders.syncSuccess', { count: res.updated || 0, time: formatLastSync(res.syncedAt) })
         lastSyncedAt.value = res.syncedAt || ''
-        ElMessage.success(syncStatus.value)
+        notifySuccess('modelProviders.syncSuccess', { message: syncStatus.value })
       } else {
         syncError.value = formatUserError(res, { fallback: t('modelProviders.syncFailed') }).message
-        ElMessage.error(syncError.value)
+        notifyError('modelProviders.syncFailed', { message: syncError.value })
       }
       return res
     } catch (e) {
       syncError.value = formatUserError(e, { fallback: t('modelProviders.syncError') }).message
-      ElMessage.error(syncError.value)
+      notifyError('modelProviders.syncError', { message: syncError.value })
       return { code: -1, message: syncError.value }
     } finally {
       syncing.value = false

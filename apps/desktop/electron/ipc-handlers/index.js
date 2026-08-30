@@ -30,6 +30,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./video')(ipcMain, deps)
   require('./video-clone')(ipcMain, deps)
   require('./misc')(ipcMain, deps)
+  require('./notify')(ipcMain, deps)
   require('./onboarding')(ipcMain, deps)
   require('./model-provider')(ipcMain, deps)
   require('./ops-center-sync').registerHandlers(ipcMain, deps)

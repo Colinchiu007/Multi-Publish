@@ -504,7 +504,7 @@ import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { getApi } from '@/api/electron-bridge'
-import { ElMessage } from 'element-plus'
+import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
@@ -540,6 +540,7 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const { notifySuccess, notifyWarning } = useNotify()
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
 const publishType = computed(() => {
   const value = String(route.query?.type || '').toLowerCase()
@@ -651,7 +652,7 @@ async function handleVideoFileChange (file) {
   const path = await resolveUploadFilePath(file)
   if (!path) {
     article.video_path = ''
-    ElMessage.warning(t('story2video.media_path_unresolved', { kindLabel: t('publishPage.videoFile') }))
+    notifyWarning('story2video.media_path_unresolved', { params: { kindLabel: t('publishPage.videoFile') } })
     return
   }
   article.video_path = path
@@ -663,7 +664,7 @@ async function handleCoverFileChange (file) {
     article.cover_file = null
     article.cover_path = ''
     coverFileList.value = []
-    ElMessage.warning(t('story2video.media_path_unresolved', { kindLabel: t('publishPage.cover') }))
+    notifyWarning('story2video.media_path_unresolved', { params: { kindLabel: t('publishPage.cover') } })
     return
   }
   article.cover_file = descriptor
@@ -692,12 +693,12 @@ function onCoverCropSuccess (data) {
     article.cover_path = data.path
     article.cover_file = { path: data.path, name: 'video-cover-crop.jpg' }
     coverFileList.value = [{ name: 'video-cover-crop.jpg', url: data.path, path: data.path }]
-    ElMessage.success(t('publishPage.coverExtracted'))
+    notifySuccess('publishPage.coverExtracted')
   }
 }
 
 function onCoverCropError (message) {
-  ElMessage.warning(message || t('publishPage.coverCrop.cropFailed'))
+  notifyWarning('publishPage.coverCrop.cropFailed', { message: message || t('publishPage.coverCrop.cropFailed') })
 }
 
 async function handleExtractVideoCover () {
@@ -709,18 +710,18 @@ async function handleExtractVideoCover () {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'video-cover.jpg' }
       coverFileList.value = [{ name: 'video-cover.jpg', url: coverPath, path: coverPath }]
-      ElMessage.success(t('publishPage.coverExtracted'))
+      notifySuccess('publishPage.coverExtracted')
     } else {
-      ElMessage.warning(t('publishPage.coverExtractFailed', {
-        message: result?.message || t('publishPage.coverExtractUnknownError'),
-      }))
+      notifyWarning('publishPage.coverExtractFailed', {
+        params: { message: result?.message || t('publishPage.coverExtractUnknownError') },
+      })
     }
   } catch (e) {
-    ElMessage.warning(t('publishPage.coverExtractFailed', {
-      message: typeof e?.message === 'string' && e.message.trim()
+    notifyWarning('publishPage.coverExtractFailed', {
+      params: { message: typeof e?.message === 'string' && e.message.trim()
         ? e.message
-        : t('publishPage.coverExtractUnknownError'),
-    }))
+        : t('publishPage.coverExtractUnknownError') },
+    })
   }
 }
 

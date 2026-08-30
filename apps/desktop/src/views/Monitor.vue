@@ -63,7 +63,8 @@ import { getApi } from '@/api/electron-bridge'
 import UiButton from "../components/UiButton.vue";
 import UiSelect from "../components/UiSelect.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useNotify } from '@/composables/useNotify'
+import { resolveNotifyText } from '@/utils/notifyCore'
 import { formatUserError } from '@/utils/user-facing-error'
 
 const layouts = [
@@ -92,6 +93,7 @@ const tabs = ref([])
 const showDialog = ref(false)
 const newPlatform = ref('')
 const adding = ref(false)
+const { notifyError, notifySuccess, notifyWarning } = useNotify()
 
 const layoutLabel = computed(() => {
   const l = layouts.find(x => x.count === currentLayout.value)
@@ -163,22 +165,22 @@ function openAccountDialog () {
 }
 
 async function confirmAdd () {
-  if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
+  if (!newPlatform.value) { notifyWarning('monitor.selectPlatform'); return }
   adding.value = true
   try {
     const api = getApi()
     if (api && api.webviewOpenTab) {
       const res = await api.webviewOpenTab({ platform: newPlatform.value })
       if (res.code === 0) {
-        ElMessage.success(`已添加 ${platformLabel(newPlatform.value)} 监控`)
+        notifySuccess('monitor.addedMonitor', { params: { platform: platformLabel(newPlatform.value) } })
         showDialog.value = false
         newPlatform.value = ''
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '添加失败' }).message)
+        notifyError('monitor.addFailed', { message: formatUserError(res, { fallback: resolveNotifyText('monitor.addFailed').text }).message })
       }
     }
   } catch (e) {
-    ElMessage.error(formatUserError(e, { fallback: '添加失败' }).message)
+    notifyError('monitor.addFailed', { message: formatUserError(e, { fallback: resolveNotifyText('monitor.addFailed').text }).message })
   } finally {
     adding.value = false
   }
@@ -189,7 +191,7 @@ async function closeAllTabs () {
   if (api && api.webviewCloseAll) {
     await api.webviewCloseAll()
     tabs.value = []
-    ElMessage.success('已关闭所有监控')
+    notifySuccess('monitor.closedAll')
   }
 }
 </script>

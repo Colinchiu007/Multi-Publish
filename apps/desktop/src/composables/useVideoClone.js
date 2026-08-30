@@ -13,9 +13,9 @@
  */
 import { ref, reactive } from 'vue'
 import { getApi } from '@/api/electron-bridge'
-import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import i18n from '@/i18n'
+import { useNotify } from './useNotify'
 import {
   story2videoConfigProfileList,
   story2videoConfigProfileCreate,
@@ -35,6 +35,8 @@ function cloneJson (value) {
 }
 
 export function useVideoClone() {
+  // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
+  const { notifyError, notifySuccess, notifyWarning } = useNotify()
   const sourceType = ref('url')
   const linkUrl = ref('')
   const filePath = ref('')
@@ -125,7 +127,7 @@ export function useVideoClone() {
 
   async function start() {
     const a = api()
-    if (!a) { ElMessage.warning(t('videoClone.noDesktopWarning')); return }
+    if (!a) { notifyWarning('videoClone.noDesktopWarning', { message: t('videoClone.noDesktopWarning') }); return }
     error.value = null
     running.value = true
     resetStages()
@@ -140,17 +142,17 @@ export function useVideoClone() {
         publishResult.value = d.publishResult || null
         if (!d.ok && d.error) {
           error.value = { code: d.error.code, phase: d.error.phase, userMessageKey: d.error.userMessageKey, params: d.error.params }
-          ElMessage.error(formatUserError({ message: d.error.code }, { fallback: t('videoClone.error.internal') }).message)
+          notifyError('videoClone.error.internal', { message: formatUserError({ message: d.error.code }, { fallback: t('videoClone.error.internal') }).message })
         } else if (d.ok) {
-          ElMessage.success(t('videoClone.done'))
+          notifySuccess('videoClone.done', { message: t('videoClone.done') })
         }
       } else {
         error.value = { code: (resp && resp.errorCode) || 'UNKNOWN' }
-        ElMessage.error(formatUserError({ message: (resp && resp.errorCode) || t('videoClone.error.internal') }, { fallback: t('videoClone.error.internal') }).message)
+        notifyError('videoClone.error.internal', { message: formatUserError({ message: (resp && resp.errorCode) || t('videoClone.error.internal') }, { fallback: t('videoClone.error.internal') }).message })
       }
     } catch (e) {
       error.value = { code: 'UNKNOWN', message: String(e && e.message) }
-      ElMessage.error(formatUserError(e, {}))
+      notifyError('videoClone.error.internal', { message: formatUserError(e, {}).message })
     } finally {
       running.value = false
       if (offProgress) { offProgress(); offProgress = null }
@@ -183,11 +185,11 @@ export function useVideoClone() {
 
   async function pickFile() {
     const a = api()
-    if (!a || typeof a.pickFile !== 'function') { ElMessage.warning(t('videoClone.noDesktopWarning')); return }
+    if (!a || typeof a.pickFile !== 'function') { notifyWarning('videoClone.noDesktopWarning', { message: t('videoClone.noDesktopWarning') }); return }
     try {
       const resp = await a.pickFile()
       if (resp && resp.code === 0 && resp.data && resp.data.path) filePath.value = resp.data.path
-    } catch (e) { ElMessage.error(formatUserError(e, {})) }
+    } catch (e) { notifyError('videoClone.error.internal', { message: formatUserError(e, {}).message }) }
   }
 
   async function editReport(path, value) {
@@ -199,10 +201,10 @@ export function useVideoClone() {
         report.value = resp.data
         return resp.data
       }
-      ElMessage.error(formatUserError({ message: 'VIDEOCLONE_REPORT_EDIT_INVALID' }, {}))
+      notifyError('videoClone.error.reportEditInvalid', { message: formatUserError({ message: 'VIDEOCLONE_REPORT_EDIT_INVALID' }, { fallback: t('videoClone.error.reportEditInvalid') }).message })
       return null
     } catch (e) {
-      ElMessage.error(formatUserError(e, {}))
+      notifyError('videoClone.error.internal', { message: formatUserError(e, {}).message })
       return null
     }
   }

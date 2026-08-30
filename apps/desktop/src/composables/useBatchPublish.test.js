@@ -351,6 +351,7 @@ describe('useBatchPublish — composable setup', () => {
     const firstPublish = r.handleBatchPublish()
     // 主动操作登录门为异步：等待登录门通过并进入 batchPublishing 锁后再断言
     await Promise.resolve()
+    await Promise.resolve()
     expect(r.batchPublishing.value).toBe(true)
     const secondPublish = r.handleBatchPublish()
     await secondPublish
