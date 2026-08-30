@@ -240,6 +240,18 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | ④ `aggregateContentPolicyStats` 数据驱动统计 | 从审计数组聚合 `total`/`successRate`/`avgSemanticRetention`/`byType`（count/ratio/successRate/needsUserInputRate/avgSemanticRetention，按 count 降序），反哺信号词库与改写模板。 |
 | ⑤ 改写模板按 provider 定制 + 中文指令 | 新增 `CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER`（minimax 简洁版 / stable-diffusion 详细版）与 `CONTENT_POLICY_REWRITE_STRATEGIES_ZH`（中文指令）；指令优先级：zh 语言→中文，否则 provider 定制→通用→unknown。 |
 | ⑥ 场景上下文保留角色/风格 | 改写时注入 `Keep the same character` / `Keep the visual style`；`resolveSceneContextForRewrite` 从 `scene.context` 提取 `character` 与 `setting`（映射 `style`），仅在非空时返回。 |
+**敏感改写优化点 7-8 与增强（2026-08-30 优化点 1-8 全量）**：在既有优化点 1-6 基础上，新增 2 项并增强既有项：
+
+| 优化点 | 合同要求 |
+|--------|---------|
+| ① 增强：语义保留度算法 | `estimateSemanticRetention` 升级：中文用双字 n-gram（bigram）、英文用词干化（剥离 -ing/-ed/-es/-s 后缀），提升中文/同义词场景保留度估算准确性；保留原关键词重叠兜底。 |
+| ② 增强：改写预检闭环 | 新增 `preflightRewriteSafety` + `EXTENDED_SENSITIVE_WORDS` 扩展敏感词库，改写版发送前本地预检；仍含高危词则弃用并触发下一轮改写，减少无效重试。 |
+| ③ 增强：敏感类型识别映射表 | `classifyContentPolicyType(signal, provider)` 新增可选 provider 参数，先查 `SENSITIVE_TYPE_SIGNAL_MAP`（minimax-image/openai-image/stable-diffusion 维度）映射表，未命中回退文本分类，降低 unknown 兜底率。 |
+| ④ 增强：negative_prompt 联动 | 新增 `buildNegativePrompt(sensitiveType)` 按敏感类型生成 negative_prompt（violence→no blood/no weapons 等），正向保留原文语义、负向排除敏感内容。 |
+| ⑤ 增强：LLM 改写成本预算 | 新增 `LLM_REWRITE_MAX_CALLS_PER_SCENE`（默认 2）每场景调用上限 + 模块级哈希缓存（key 绑定 rewriteWithLLM 引用），同 prompt 复用避免无谓消耗 LLM 额度；超过上限回退模板改写。 |
+| ⑥ 增强：审计统计反哺 | `aggregateContentPolicyStats` 新增 `suggestions` 字段：低成功率类型（count≥2 且 successRate<0.5）生成改写指令增强建议；高频 unknown（count≥3）生成信号词补充建议；反哺为可选建议，不改审计数据。 |
+| ⑦ 新增：改写指令语言匹配 | `buildContentPolicySafePrompt` 未显式指定 `language` 时，按原文自动检测（`detectPromptLanguage`，中文占比>0.4 判 zh）；中文原文用中文指令、英文原文用英文指令。 |
+| ⑧ 新增：严重度差异化改写强度 | `buildContentPolicySafePrompt` 依据 `CONTENT_POLICY_SEVERITY`：severe 类型（political/minor/selfharm）追加更强改写指令（严格排除敏感元素），mild 类型保守改写保留更多语义。 |
 
 **数据约束**：改写前后 prompt 仍只存 SHA-256 哈希，严禁明文；`semanticRetention` 仅记录数值不记录 prompt。**回归测试**：`story2video-image-retry.test.js` 优化点 1-6 各 1 例 + `story2video-stages.test.js` sceneContext 透传断言。
 

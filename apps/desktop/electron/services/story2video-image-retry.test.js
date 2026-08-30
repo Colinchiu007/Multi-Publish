@@ -261,19 +261,19 @@ describe('buildContentPolicySafePrompt — 差异化改写 + 场景上下文感�
   })
 
   it('violence 类型使用暴力弱化改写策略', () => {
-    const out = buildContentPolicySafePrompt('两人激烈搏斗流血', { sceneIndex: 0, sensitiveType: 'violence' })
+    const out = buildContentPolicySafePrompt('两人激烈搏斗流血', { sceneIndex: 0, sensitiveType: 'violence', language: 'en' })
     expect(out).toContain('conflict')
     expect(out).toContain('no blood')
   })
 
   it('sexual 类型使用含蓄改写策略', () => {
-    const out = buildContentPolicySafePrompt('亲密场景', { sceneIndex: 0, sensitiveType: 'sexual' })
+    const out = buildContentPolicySafePrompt('亲密场景', { sceneIndex: 0, sensitiveType: 'sexual', language: 'en' })
     expect(out).toContain('modest')
     expect(out).toContain('non-explicit')
   })
 
   it('portrait 类型使用非特定身份改写策略', () => {
-    const out = buildContentPolicySafePrompt('真实名人肖像', { sceneIndex: 0, sensitiveType: 'portrait' })
+    const out = buildContentPolicySafePrompt('真实名人肖像', { sceneIndex: 0, sensitiveType: 'portrait', language: 'en' })
     expect(out).toContain('non-identifying')
     expect(out).toContain('fictional')
   })
@@ -287,6 +287,55 @@ describe('buildContentPolicySafePrompt — 差异化改写 + 场景上下文感�
     expect(out).toContain('唐代')
     expect(out).toContain('油灯')
     expect(out).toContain('老妇人')
+  })
+
+  it('buildNegativePrompt 按敏感类型生成排除指令（优化点 4）', () => {
+    const { buildNegativePrompt } = require('./story2video-image-retry')
+    expect(buildNegativePrompt('violence')).toContain('no blood')
+    expect(buildNegativePrompt('violence')).toContain('no weapons')
+    expect(buildNegativePrompt('sexual')).toContain('no nudity')
+    expect(buildNegativePrompt('minor')).toContain('no minors')
+    expect(buildNegativePrompt('unknown')).toContain('no sensitive')
+  })
+
+  it('detectPromptLanguage 识别中文/英文原文（优化点 7）', () => {
+    const { detectPromptLanguage } = require('./story2video-image-retry')
+    expect(detectPromptLanguage('一位老妇人在厨房做饭')).toBe('zh')
+    expect(detectPromptLanguage('a child in a classroom')).toBe('en')
+    expect(detectPromptLanguage('')).toBe('en')
+  })
+
+  it('中文原文使用中文改写指令（优化点 7）', () => {
+    const out = buildContentPolicySafePrompt('一个孩子在教室', {
+      sceneIndex: 0,
+      sensitiveType: 'minor',
+    })
+    // 中文原文应注入中文改写指令
+    expect(out).toContain('成年角色')
+    expect(out).toContain('不出现未成年人')
+  })
+
+  it('severe 类型使用更强改写指令（优化点 8）', () => {
+    const out = buildContentPolicySafePrompt('一个孩子在教室', {
+      sceneIndex: 0,
+      sensitiveType: 'minor',
+      language: 'en',
+    })
+    // severe（minor）应包含更强改写指令
+    expect(out).toContain('adult characters')
+    expect(out).toContain('child-like')
+    // 优化点 8：severe 追加更强改写指令
+    expect(out).toContain('Strictly exclude all sensitive elements')
+  })
+
+  it('mild 类型使用保守改写保留更多语义（优化点 8）', () => {
+    const out = buildContentPolicySafePrompt('两人激烈搏斗流血', {
+      sceneIndex: 0,
+      sensitiveType: 'violence',
+      language: 'en',
+    })
+    // mild（violence）保守改写，保留场景氛围
+    expect(out).toContain('tense conflict')
   })
 })
 
@@ -313,6 +362,43 @@ describe('改写质量验证闭环（2026-08-30 方案层 3）', () => {
     expect(high).toBeGreaterThan(0.8)
     const low = estimateSemanticRetention('激烈搏斗', '花园里的花朵')
     expect(low).toBeLessThan(0.5)
+  })
+
+  it('estimateSemanticRetention 中文 n-gram 识别部分保留（优化点 1）', () => {
+    // 中文改写：保留「老妇人」「厨房」，替换「做饭」→「烹饪」
+    const partial = estimateSemanticRetention('老妇人在厨房做饭', '老妇人在厨房烹饪')
+    // bigram 重叠应识别出「老妇人」「厨房」等保留成分，保留度 > 0
+    expect(partial).toBeGreaterThan(0)
+    // 相比完全无关文本，部分保留的保留度应更高
+    const unrelated = estimateSemanticRetention('老妇人在厨房做饭', '花园里的花朵')
+    expect(partial).toBeGreaterThan(unrelated)
+  })
+
+  it('estimateSemanticRetention 英文词干化识别同义词（优化点 1）', () => {
+    // child → kid 词干化后归并，保留度应 > 0
+    const synonym = estimateSemanticRetention('a child in a classroom', 'a kid in a classroom')
+    expect(synonym).toBeGreaterThan(0)
+    // 完全无关文本保留度应更低
+    const unrelated = estimateSemanticRetention('a child in a classroom', 'a garden with flowers')
+    expect(synonym).toBeGreaterThan(unrelated)
+  })
+
+  it('preflightRewriteSafety 检测扩展敏感词库中的高危词（优化点 2）', () => {
+    const { preflightRewriteSafety } = require('./story2video-image-retry')
+    // 扩展词库覆盖 validateRewriteSafety 之外的常见敏感词
+    expect(preflightRewriteSafety('a naked body on the beach')).toHaveProperty('safe', false)
+    expect(preflightRewriteSafety('a dead body lying on the ground')).toHaveProperty('safe', false)
+    expect(preflightRewriteSafety('a peaceful garden with flowers')).toHaveProperty('safe', true)
+  })
+
+  it('preflightRewriteSafety 排除否定语境（no weapons 不误判）（优化点 2 增强）', () => {
+    const { preflightRewriteSafety } = require('./story2video-image-retry')
+    // 否定语境的安全描述不应被误判
+    expect(preflightRewriteSafety('a tense standoff, no weapons')).toHaveProperty('safe', true)
+    expect(preflightRewriteSafety('a calm scene without blood')).toHaveProperty('safe', true)
+    // 肯定语境的敏感词仍被识别
+    expect(preflightRewriteSafety('a man holding a weapon')).toHaveProperty('safe', false)
+    expect(preflightRewriteSafety('blood on the ground')).toHaveProperty('safe', false)
   })
 })
 
@@ -610,5 +696,51 @@ describe('敏感改写优化点（2026-08-30）', () => {
     })
     expect(rewritten).toContain('Keep the same character: 老妇人.')
     expect(rewritten).toContain('Keep the visual style: 水墨画.')
+  })
+
+  it('优化点5（新）：LLM 改写同 prompt 哈希缓存复用（不重复调用）', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+      .mockResolvedValueOnce({ image: 'ok' })
+    const rewriteWithLLM = vi.fn(async () => 'a young student in a classroom')
+
+    // 第一次运行：LLM 改写被调用（多轮改写，每轮一次）
+    const result1 = await runContentPolicyImageRetry({
+      prompt: 'a child in a classroom',
+      sceneIndex: 0,
+      generate,
+      rewriteWithLLM,
+    })
+    expect(result1.status).toBe('success')
+    const callsAfterFirstRun = rewriteWithLLM.mock.calls.length
+    expect(callsAfterFirstRun).toBeGreaterThan(0)
+
+    // 第二次运行（同 prompt）：应复用缓存，不重复调用 LLM
+    const generate2 = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+      .mockResolvedValueOnce({ image: 'ok' })
+    const result2 = await runContentPolicyImageRetry({
+      prompt: 'a child in a classroom',
+      sceneIndex: 0,
+      generate: generate2,
+      rewriteWithLLM,
+    })
+    expect(result2.status).toBe('success')
+    // 缓存命中：第二次运行 LLM 改写调用次数不再增加
+    expect(rewriteWithLLM.mock.calls.length).toBe(callsAfterFirstRun)
+  })
+
+  it('优化点6（新）：aggregateContentPolicyStats 输出调优建议（低成功率类型）', () => {
+    const stats = aggregateContentPolicyStats([
+      { sensitiveType: 'minor', outcome: 'success' },
+      { sensitiveType: 'minor', outcome: 'needs_user_input' },
+      { sensitiveType: 'minor', outcome: 'needs_user_input' },
+      { sensitiveType: 'violence', outcome: 'success' },
+    ])
+    // 低成功率类型生成调优建议
+    expect(Array.isArray(stats.suggestions)).toBe(true)
+    const minorSuggestion = stats.suggestions.find((s) => s.sensitiveType === 'minor')
+    expect(minorSuggestion).toBeDefined()
+    expect(minorSuggestion.successRate).toBeLessThan(0.5)
   })
 })

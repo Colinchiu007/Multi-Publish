@@ -172,4 +172,21 @@ describe('classifyContentPolicyType — 敏感类型分类（2026-08-30 方案�
     expect(classifyContentPolicyType('涉及自杀自伤')).toBe('selfharm')
     expect(classifyContentPolicyType('涉及真人肖像')).toBe('portrait')
   })
+
+  it('classifyContentPolicyType 带 provider 命中映射表（优化点 3）', () => {
+    // 已知 provider 信号命中映射表，而非 unknown
+    expect(classifyContentPolicyType('new_sensitive', 'minimax-image')).toBe('unknown')
+    expect(classifyContentPolicyType('content_policy_violation', 'openai-image')).toBe('unknown')
+    // 映射表覆盖的信号返回对应类型
+    expect(classifyContentPolicyType('violence_detected', 'minimax-image')).toBe('violence')
+    expect(classifyContentPolicyType('nudity', 'stable-diffusion')).toBe('sexual')
+  })
+
+  it('classifyContentPolicyType 带 provider 未命中映射表回退文本分类（优化点 3）', () => {
+    // 未命中映射表但文本可分类 → 回退文本分类
+    expect(classifyContentPolicyType('political content', 'minimax-image')).toBe('political')
+    expect(classifyContentPolicyType('child', 'openai-image')).toBe('minor')
+    // 完全未知 → unknown
+    expect(classifyContentPolicyType('input new_sensitive', 'minimax-image')).toBe('unknown')
+  })
 })

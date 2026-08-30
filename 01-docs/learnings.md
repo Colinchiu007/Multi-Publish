@@ -1,3 +1,21 @@
+## 图片内容政策敏感改写优化点 7-8 与既有项增强（codex/s2v-sensitive-rewrite-opt2，2026-08-30）
+
+- **背景**：在既有优化点 1-6 基础上，补齐敏感改写策略的 8 项增强：语义保留度算法对中文/同义词失真、改写后缺预检闭环、敏感类型识别依赖错误文本、改写未联动 negative_prompt、LLM 改写无成本预算、审计统计未反哺、改写指令语言与原文不匹配、严重度未差异化改写强度。
+- **方案**：8 项增强全部落地在 `story2video-image-retry.js` / `provider-error.js`：
+  - **① 语义保留度算法增强**：`estimateSemanticRetention` 中文双字 n-gram（bigram）+ 英文词干化（剥离 -ing/-ed/-es/-s 后缀），提升中文/同义词场景保留度估算准确性；保留原关键词重叠兜底。
+  - **② 改写预检闭环**：`preflightRewriteSafety` + `EXTENDED_SENSITIVE_WORDS` 扩展敏感词库，改写版发送前本地预检，仍含高危词弃用并触发下一轮改写。
+  - **③ 敏感类型识别映射表**：`classifyContentPolicyType(signal, provider)` 新增可选 provider 参数 + `SENSITIVE_TYPE_SIGNAL_MAP` 映射表（minimax/openai/stable-diffusion 维度），未命中回退文本分类，降低 unknown 兜底率。
+  - **④ negative_prompt 联动**：`buildNegativePrompt(sensitiveType)` 按敏感类型生成 negative_prompt，正向保留原文语义、负向排除敏感内容。
+  - **⑤ LLM 改写成本预算**：`LLM_REWRITE_MAX_CALLS_PER_SCENE`（默认 2）每场景调用上限 + 模块级哈希缓存（key 绑定 rewriteWithLLM 引用避免测试间污染），同 prompt 复用避免无谓消耗 LLM 额度。
+  - **⑥ 审计统计反哺**：`aggregateContentPolicyStats` 新增 `suggestions` 字段（低成功率类型改写增强建议 + 高频 unknown 信号词补充建议），反哺为可选建议不改审计数据。
+  - **⑦ 改写指令语言匹配**：`buildContentPolicySafePrompt` 未显式指定 `language` 时按原文自动检测（`detectPromptLanguage`，中文占比>0.4 判 zh），中文原文用中文指令、英文原文用英文指令。
+  - **⑧ 严重度差异化改写强度**：`buildContentPolicySafePrompt` 依据 `CONTENT_POLICY_SEVERITY` 严重度差异化改写强度：severe 类型（political/minor/selfharm）追加更强改写指令，mild 类型保守改写保留更多语义。
+- **教训 1（语义保留度算法须考虑语言特性）**：纯关键词重叠对中文（无空格分词）与英文同义词失真。中文用 bigram、英文用词干化后，保留度估算更贴近真实语义保留。
+- **教训 2（改写指令语言应与原文匹配）**：中文原文用英文改写指令会中英混杂、改写不精准。自动检测原文语言（中文占比>0.4 判 zh）选择对应语言指令，兼顾改写质量与语义保留。
+- **教训 3（LLM 改写须有成本预算）**：无上限的 LLM 改写可能无谓消耗额度。每场景调用上限 + 同 prompt 哈希缓存（key 绑定 rewriteWithLLM 引用避免测试间污染）控制成本。
+- **预防**：新增优化点 7-8 与增强回归测试（`story2video-image-retry.test.js` 48 例 + `provider-error.test.js` 29 例 + `story2video-stages.test.js` 149 例，合计 226 全绿）；改写前后 prompt 仍只存 SHA-256 哈希，严禁明文；`semanticRetention` 仅记录数值不记录 prompt。
+
+---
 ## 图片内容政策敏感改写优化点 1-6（codex/s2v-sensitive-rewrite-opt，2026-08-30）
 
 - **背景**：既有敏感改写策略（`ARCH-SENSITIVE-REWRITE-STRATEGY-2026-08-30.md`）已实现「信号识别 → 模板改写 → LLM 升级 → 验证闭环 → 结构化审计」四层机制，但存在 6 项待优化：改写质量无量化、模板改写无效时反复浪费尝试、LLM 改写单轮失败即放弃、无数据驱动统计、改写指令不区分供应商/语言、改写不保留角色/风格。
