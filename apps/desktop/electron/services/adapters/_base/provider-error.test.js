@@ -119,3 +119,47 @@ describe('classifyProviderFailure — 上游服务端/网络瞬时错误按 tran
     expect(classifyProviderFailure(error)).toBe('rate')
   })
 })
+
+describe('classifyContentPolicyType — 敏感类型分类（2026-08-30 方案层 1）', () => {
+  const { classifyContentPolicyType, normalizeContentPolicySignal } = require('./provider-error')
+
+  it('normalizeContentPolicySignal 归一化供应商原始信号为统一枚举', () => {
+    expect(normalizeContentPolicySignal('input new_sensitive')).toBe('input_new_sensitive')
+    expect(normalizeContentPolicySignal('content_policy_violation')).toBe('content_policy_violation')
+    expect(normalizeContentPolicySignal('Content Policy Violation')).toBe('content_policy_violation')
+    expect(normalizeContentPolicySignal('  moderation_flagged  ')).toBe('moderation_flagged')
+  })
+
+  it('classifyContentPolicyType 识别暴力类信号', () => {
+    expect(classifyContentPolicyType('violent content')).toBe('violence')
+    expect(classifyContentPolicyType('graphic violence')).toBe('violence')
+    expect(classifyContentPolicyType('gore')).toBe('violence')
+  })
+
+  it('classifyContentPolicyType 识别色情/裸露类信号', () => {
+    expect(classifyContentPolicyType('sexual content')).toBe('sexual')
+    expect(classifyContentPolicyType('nudity')).toBe('sexual')
+    expect(classifyContentPolicyType('explicit sexual')).toBe('sexual')
+  })
+
+  it('classifyContentPolicyType 识别人物肖像类信号', () => {
+    expect(classifyContentPolicyType('real person likeness')).toBe('portrait')
+    expect(classifyContentPolicyType('celebrity likeness')).toBe('portrait')
+    expect(classifyContentPolicyType('public figure')).toBe('portrait')
+  })
+
+  it('classifyContentPolicyType 识别政治/未成年人/自伤类信号', () => {
+    expect(classifyContentPolicyType('political content')).toBe('political')
+    expect(classifyContentPolicyType('minor')).toBe('minor')
+    expect(classifyContentPolicyType('child')).toBe('minor')
+    expect(classifyContentPolicyType('self-harm')).toBe('selfharm')
+    expect(classifyContentPolicyType('self harm')).toBe('selfharm')
+  })
+
+  it('classifyContentPolicyType 对未知信号返回 unknown（保守兜底）', () => {
+    expect(classifyContentPolicyType('input new_sensitive')).toBe('unknown')
+    expect(classifyContentPolicyType('content_policy_violation')).toBe('unknown')
+    expect(classifyContentPolicyType('')).toBe('unknown')
+    expect(classifyContentPolicyType(null)).toBe('unknown')
+  })
+})

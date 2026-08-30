@@ -577,6 +577,7 @@ class AssetGenerator {
         prompt,
         sceneIndex: opts?.index,
         onRewrite: opts?.onContentPolicyRewrite,
+        sceneContext: opts?.sceneContext,
         generate: async ({ prompt: attemptPrompt }) => {
           const imageParams = {
             prompt: attemptPrompt,

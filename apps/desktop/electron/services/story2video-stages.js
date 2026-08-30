@@ -970,6 +970,17 @@ async function buildManualSceneCandidates (ctx) {
       : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
     if (!promptText) return { success: false, index, error: '场景缺少提示词' }
     const negativePrompt = resolveSceneNegativePrompt(context, stage, index)
+    // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景（避免背景漂移）
+    const sceneContext = (() => {
+      const sceneCtx = context?.scene_context
+      const scenes = sceneCtx && Array.isArray(sceneCtx.scenes) ? sceneCtx.scenes : null
+      const scene = scenes && scenes[index] ? scenes[index] : null
+      if (!scene) return undefined
+      const contextBlock = typeof scene.storyContext === 'string' ? scene.storyContext : ''
+      const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
+      if (!contextBlock && anchors.length === 0) return undefined
+      return { contextBlock, anchors }
+    })()
     let result
     if (assetGenerator) {
       result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
@@ -980,6 +991,7 @@ async function buildManualSceneCandidates (ctx) {
         aspect_ratio: aspectRatio,
         runId,
         providerRunContext,
+        sceneContext,
         ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
       }))
     } else {
@@ -987,6 +999,7 @@ async function buildManualSceneCandidates (ctx) {
         prompt: promptText,
         sceneIndex: index,
         maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+        sceneContext,
         generate: async ({ prompt: attemptPrompt }) => {
           providerRunContext.assertAvailable(imageProvider)
           const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {

@@ -94,6 +94,43 @@ function hasStrictContentPolicySignal(value) {
     /\bnew[_\s-]+sensitive\b/i.test(signal)
 }
 
+/**
+ * 归一化供应商内容安全信号为统一枚举（小写 + 下划线）。
+ * 用于把不同供应商的专有信号（如 MiniMax `input new_sensitive`、OpenAI `content_policy_violation`）
+ * 归一到同一命名空间，供敏感类型分类与审计使用。
+ * @param {*} signal 原始信号字符串
+ * @returns {string} 归一化后的信号（空输入返回空字符串）
+ */
+function normalizeContentPolicySignal (signal) {
+  return String(signal || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+}
+
+/**
+ * 敏感类型分类（方案层 1，2026-08-30）。
+ * 把归一化后的内容安全信号归类为可操作的敏感类型，供差异化改写模板与审计使用。
+ * 返回枚举：violence / sexual / portrait / political / minor / selfharm / unknown。
+ * 无法识别的信号返回 'unknown'（保守兜底，不阻断改写重试路径）。
+ * @param {*} signal 原始信号字符串
+ * @returns {'violence'|'sexual'|'portrait'|'political'|'minor'|'selfharm'|'unknown'}
+ */
+function classifyContentPolicyType (signal) {
+  const normalized = normalizeContentPolicySignal(signal)
+  if (!normalized) return 'unknown'
+  // 把下划线还原为空格，使 \b 词边界在单词间正确生效（下划线是 \w 字符，会破坏 \b）。
+  const text = normalized.replace(/_/g, ' ')
+
+  if (/\b(?:violent|violence|gore|graphic|blood|bloodshed|brutal)\b/.test(text)) return 'violence'
+  if (/\b(?:sexual|sex|nudit|nude|nudity|explicit|porn|erotic|intimate)\b/.test(text)) return 'sexual'
+  if (/\b(?:real\s?person|celebrity|public\s?figure|likeness|portrait|identifiable\s?individual)\b/.test(text)) return 'portrait'
+  if (/\b(?:political|politic|election|campaign|government|party)\b/.test(text)) return 'political'
+  if (/\b(?:minor|child|children|underage|kid)\b/.test(text)) return 'minor'
+  if (/\b(?:self\s?harm|suicide|self\s?injur)\b/.test(text)) return 'selfharm'
+  return 'unknown'
+}
+
 function hasContentPolicyContextSignal(context) {
   if (!context || typeof context !== 'object') return false
   if (context.contentPolicy === true || context.content_policy === true) return true
@@ -214,4 +251,4 @@ function classifyProviderFailure(error) {
   return 'other'
 }
 
-module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN, TRANSIENT_MESSAGE_PATTERN }
+module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyContentPolicyType, normalizeContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN, TRANSIENT_MESSAGE_PATTERN }
