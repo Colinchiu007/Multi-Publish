@@ -2100,7 +2100,11 @@ describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
         optimize: ['一个场景描述'],
         scene_context: {
           scenes: [
-            { storyContext: '唐代，中国，老妇人，厨房，油灯', anchors: ['唐代', '油灯'] },
+            {
+              storyContext: '唐代，中国，老妇人，厨房，油灯',
+              anchors: ['唐代', '油灯'],
+              context: { character: '老妇人', setting: '水墨画' },
+            },
           ],
         },
       },
@@ -2114,6 +2118,9 @@ describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
     expect(assetGenerator.generateImage.mock.calls[0][1].sceneContext).toEqual({
       contextBlock: '唐代，中国，老妇人，厨房，油灯',
       anchors: ['唐代', '油灯'],
+      // 优化点 6：透传角色一致性与视觉风格
+      character: '老妇人',
+      style: '水墨画',
     })
   })
 })

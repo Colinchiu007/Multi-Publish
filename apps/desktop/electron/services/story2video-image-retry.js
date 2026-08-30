@@ -109,6 +109,47 @@ const CONTENT_POLICY_REWRITE_STRATEGIES = Object.freeze({
 })
 
 /**
+ * 优化点 5：按图片模型（provider）定制的改写指令（2026-08-30）。
+ * 不同供应商对改写指令的解析能力不同：MiniMax 等偏简洁，SD 系偏详细。
+ * 未列出的 provider 回退到通用 CONTENT_POLICY_REWRITE_STRATEGIES。
+ * @type {Object<string, Object<string, string>>}
+ */
+const CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER = Object.freeze({
+  minimax: Object.freeze({
+    violence: 'tense conflict atmosphere, no blood, no weapons, no graphic detail',
+    sexual: 'modest non-explicit age-appropriate, no nudity',
+    portrait: 'fictional non-identifying character only',
+    political: 'no political figures or symbols',
+    minor: 'adult characters only',
+    selfharm: 'calm hopeful scene, no self-harm or distress',
+    unknown: 'symbolic non-identifying alternatives',
+  }),
+  'stable-diffusion': Object.freeze({
+    violence: 'A tense standoff between two figures, dramatic lighting, no blood, no visible wounds, no weapons, cinematic composition',
+    sexual: 'Elegant modest attire, soft lighting, tasteful and age-appropriate, no nudity, no suggestive poses',
+    portrait: 'A fictional character with no resemblance to any real person, generic features, studio portrait',
+    political: 'A crowd in a neutral public square, no flags, no political symbols, no identifiable leaders',
+    minor: 'Adult characters only, mature figures, no child-like features',
+    selfharm: 'A serene hopeful scene, warm light, calm posture, no injury, no distress',
+    unknown: 'Symbolic and abstract representation, non-identifying figures',
+  }),
+})
+
+/**
+ * 优化点 5：中文改写指令（2026-08-30）。当 language='zh' 时使用，避免中英混杂。
+ * @type {Object<string, string>}
+ */
+const CONTENT_POLICY_REWRITE_STRATEGIES_ZH = Object.freeze({
+  violence: '将场景表现为紧张对峙的氛围，无血腥、无伤口、无武器、无暴力细节。',
+  sexual: '以含蓄、非露骨、适龄的方式表现场景，无裸露、无色情内容。',
+  portrait: '只表现虚构、非特定身份的角色，不还原任何真实人物形象。',
+  political: '场景中不出现任何政治人物、政治符号或政治指涉。',
+  minor: '只表现成年角色，不出现未成年人或儿童形象。',
+  selfharm: '表现平静、充满希望的场景，无自伤、无受伤、无痛苦。',
+  unknown: '用象征性、非特定身份的替代物替换敏感人物、动作与细节。',
+})
+
+/**
  * 敏感类型分级（方案层 1 增强，2026-08-30）。
  * 标注各敏感类型的严重度，供改写指令强度参考（severe 需更强改写）。
  * 注意：severe 不用于「直接交用户」决策——所有敏感类型都走自动改写（模板→LLM 升级），
@@ -128,21 +169,41 @@ const CONTENT_POLICY_SEVERITY = Object.freeze({
 /**
  * 生成发送给供应商的按场景安全化改写；调用方不得把返回的 prompt 写入审计数据。
  * 支持按敏感类型差异化改写，并注入 scene_context 锚点（contextBlock/anchors）保留原文背景。
+ * 优化点 5：支持按 provider 定制改写指令 + 中文改写指令（language='zh'）。
+ * 优化点 6：支持保留角色一致性（character）与视觉风格（style）。
  * @param {string} prompt 原始提示词
  * @param {object} [options]
  * @param {number} [options.sceneIndex] 场景索引
  * @param {string} [options.sensitiveType] 敏感类型（violence/sexual/portrait/political/minor/selfharm/unknown）
  * @param {string} [options.contextBlock] scene_context 上下文块（时代/地域/角色/视觉风格）
  * @param {string[]} [options.anchors] scene_context 一致性锚点
+ * @param {string} [options.provider] 图片供应商（优化点 5，用于选择定制改写指令）
+ * @param {string} [options.language] 改写指令语言（'zh' 用中文，默认英文）（优化点 5）
+ * @param {string} [options.character] 角色一致性描述（优化点 6，改写时保留角色）
+ * @param {string} [options.style] 视觉风格描述（优化点 6，改写时保留风格）
  */
 function buildContentPolicySafePrompt (prompt, options = {}) {
   const sceneIndex = normalizeSceneIndex(options.sceneIndex)
   const source = String(prompt || '').trim().slice(0, 4000)
   const sceneNumber = sceneIndex + 1
   const sensitiveType = options.sensitiveType || 'unknown'
-  const strategy = CONTENT_POLICY_REWRITE_STRATEGIES[sensitiveType] || CONTENT_POLICY_REWRITE_STRATEGIES.unknown
+  const provider = String(options.provider || '').toLowerCase()
+  const language = String(options.language || 'en').toLowerCase()
   const contextBlock = String(options.contextBlock || '').trim()
   const anchors = Array.isArray(options.anchors) ? options.anchors.filter(Boolean) : []
+  const character = String(options.character || '').trim()
+  const style = String(options.style || '').trim()
+
+  // 优化点 5：按 provider 选择改写指令（优先 provider 定制，其次通用，最后中文）
+  let strategy
+  if (language === 'zh') {
+    strategy = CONTENT_POLICY_REWRITE_STRATEGIES_ZH[sensitiveType] || CONTENT_POLICY_REWRITE_STRATEGIES_ZH.unknown
+  } else {
+    const providerMap = CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER[provider]
+    strategy = (providerMap && providerMap[sensitiveType]) ||
+      CONTENT_POLICY_REWRITE_STRATEGIES[sensitiveType] ||
+      CONTENT_POLICY_REWRITE_STRATEGIES.unknown
+  }
 
   const lines = [
     'Generate a policy-compliant, age-appropriate visual interpretation for scene ' + sceneNumber + '.',
@@ -152,6 +213,9 @@ function buildContentPolicySafePrompt (prompt, options = {}) {
   // 注入 scene_context 锚点，保留原文背景（避免改写后背景漂移）
   if (contextBlock) lines.push('Preserve this scene background: ' + contextBlock + '.')
   if (anchors.length > 0) lines.push('Keep these visual anchors: ' + anchors.join(', ') + '.')
+  // 优化点 6：保留角色一致性与视觉风格（避免改写后角色/风格漂移）
+  if (character) lines.push('Keep the same character: ' + character + '.')
+  if (style) lines.push('Keep the visual style: ' + style + '.')
   lines.push('Scene source to adapt:', source)
   return lines.join('\n')
 }
@@ -274,7 +338,7 @@ function createEmptyResultCheckpoint (sceneIndex, attempts) {
  *   签名：async ({ prompt, sensitiveType, sceneIndex, contextBlock, anchors }) => string（改写后的安全提示词）。
  *   未提供时，模板改写自检失败则直接交用户（兜底）。
  */
-async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite, sceneContext, rewriteWithLLM }) {
+async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite, sceneContext, rewriteWithLLM, provider }) {
   if (typeof generate !== 'function') throw new TypeError('generate must be a function')
 
   const normalizedSceneIndex = normalizeSceneIndex(sceneIndex)
@@ -286,8 +350,17 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
   // scene_context 上下文（方案层 2）：改写时注入，保留原文背景避免漂移
   const contextBlock = sceneContext && typeof sceneContext === 'object' ? String(sceneContext.contextBlock || '') : ''
   const anchors = sceneContext && Array.isArray(sceneContext.anchors) ? sceneContext.anchors : []
+  // 优化点 6：从 sceneContext 提取角色一致性与视觉风格（改写时保留，避免漂移）
+  const character = sceneContext && typeof sceneContext === 'object' ? String(sceneContext.character || '') : ''
+  const style = sceneContext && typeof sceneContext === 'object' ? String(sceneContext.style || '') : ''
+  // 优化点 5：图片供应商（用于选择定制改写指令）
+  const imageProvider = String(provider || '').toLowerCase()
   // 最近一次内容政策拒绝的敏感类型（方案层 1），用于差异化改写
   let sensitiveType = 'unknown'
+  // 优化点 2：敏感类型连续拒绝计数。同一敏感类型连续拒绝 2 次说明模板改写无效，
+  // 升级到 LLM 改写（若可用），避免反复用无效模板浪费尝试次数。
+  let sensitiveTypeRejections = 0
+  let lastSensitiveType = 'unknown'
 
   const notifyRewrite = () => {
     if (typeof onRewrite === 'function') {
@@ -303,6 +376,9 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       contextBlock,
       anchors,
       sensitiveType,
+      provider: imageProvider,
+      character,
+      style,
     })
     promptStrategy = 'content_policy_safe_rewrite'
   }
@@ -311,22 +387,46 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
    * 方案层 3 增强：模板改写自检失败（原文含高危敏感词，改写版必然仍含）时，
    * 优先升级 LLM 改写（真正替换敏感内容、保留原意），避免直接交用户。
    * 未提供 LLM 改写回调则返回 null（调用方交用户兜底）。
-   * @returns {Promise<string|null>} 改写后的安全提示词，或 null（无 LLM 改写能力）
+   *
+   * 优化点 3（2026-08-30）：多轮改写降级。每轮传不同 round 改写指令，
+   * 直到拿到安全结果；用语义保留度（优化点 1）在多轮安全结果中选保留度最高的。
+   * 优化点 2：改写结果二次校验——每轮结果都过 validateRewriteSafety，仍含高危词则弃用。
+   *
+   * @returns {Promise<{prompt: string, retention: number}|null>} 改写后的安全提示词及保留度，或 null
    */
   const rewriteWithLLMFallback = async () => {
     if (typeof rewriteWithLLM !== 'function') return null
-    const llmPrompt = await rewriteWithLLM({
-      prompt: originalPrompt,
-      sensitiveType,
-      sceneIndex: normalizedSceneIndex,
-      contextBlock,
-      anchors,
-    })
-    const safe = typeof llmPrompt === 'string' && llmPrompt.trim()
-    if (!safe) return null
-    // LLM 改写结果仍需安全校验，仍含高危词则视为失败（不发送给供应商）
-    if (!validateRewriteSafety(llmPrompt).safe) return null
-    return llmPrompt.trim()
+    // 多轮改写指令（优化点 3）：从「替换敏感词」到「抽象化」到「最小改写」，逐级降级。
+    const ROUNDS = ['safe_rewrite', 'abstract_rewrite', 'minimal_rewrite']
+    let best = null
+    let bestRetention = -1
+    for (const round of ROUNDS) {
+      let llmPrompt
+      try {
+        llmPrompt = await rewriteWithLLM({
+          prompt: originalPrompt,
+          sensitiveType,
+          sceneIndex: normalizedSceneIndex,
+          contextBlock,
+          anchors,
+          round,
+        })
+      } catch (_) {
+        // 单轮 LLM 改写异常不阻断后续轮次
+        continue
+      }
+      const safe = typeof llmPrompt === 'string' && llmPrompt.trim()
+      if (!safe) continue
+      // 优化点 2：改写结果二次校验——仍含高危词则弃用该轮
+      if (!validateRewriteSafety(llmPrompt).safe) continue
+      // 优化点 1：语义保留度，选保留度最高的安全结果
+      const retention = estimateSemanticRetention(originalPrompt, llmPrompt)
+      if (retention > bestRetention) {
+        best = llmPrompt.trim()
+        bestRetention = retention
+      }
+    }
+    return best ? { prompt: best, retention: bestRetention } : null
   }
 
   for (let attempt = 1; attempt <= attemptLimit; attempt++) {
@@ -389,6 +489,13 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       sensitiveType = classifyContentPolicyType(
         error?.message || error?.status_msg || error?.context?.status_msg || ''
       )
+      // 优化点 2：更新敏感类型连续拒绝计数（同一类型连续拒绝才累计）
+      if (sensitiveType === lastSensitiveType) {
+        sensitiveTypeRejections++
+      } else {
+        sensitiveTypeRejections = 1
+        lastSensitiveType = sensitiveType
+      }
 
       if (attempt === attemptLimit) {
         return {
@@ -402,10 +509,14 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       // 模板改写版会把原文拼入（Scene source to adapt）必然仍含高危词，模板改写无意义。
       // 此时优先升级 LLM 改写（真正替换敏感内容、保留原意）；无 LLM 能力则交用户兜底。
       if (!validateRewriteSafety(originalPrompt).safe) {
-        const llmPrompt = await rewriteWithLLMFallback()
-        if (llmPrompt) {
-          currentPrompt = llmPrompt
+        const llmResult = await rewriteWithLLMFallback()
+        if (llmResult) {
+          currentPrompt = llmResult.prompt
           promptStrategy = 'llm_safe_rewrite'
+          // 优化点 1：记录语义保留度到审计（供后续数据驱动优化）
+          if (Number.isFinite(llmResult.retention)) {
+            attempts[attempts.length - 1].semanticRetention = Number(llmResult.retention.toFixed(3))
+          }
           notifyRewrite()
           continue
         }
@@ -413,6 +524,20 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
           status: 'needs_user_input',
           attempts,
           checkpoint: createContentPolicyCheckpoint(normalizedSceneIndex, attempt, sensitiveType),
+        }
+      }
+
+      // 优化点 2：同一敏感类型连续拒绝 ≥2 次说明模板改写无效，升级到 LLM 改写（若可用）。
+      if (sensitiveTypeRejections >= 2 && typeof rewriteWithLLM === 'function') {
+        const llmResult = await rewriteWithLLMFallback()
+        if (llmResult) {
+          currentPrompt = llmResult.prompt
+          promptStrategy = 'llm_safe_rewrite'
+          if (Number.isFinite(llmResult.retention)) {
+            attempts[attempts.length - 1].semanticRetention = Number(llmResult.retention.toFixed(3))
+          }
+          notifyRewrite()
+          continue
         }
       }
 
@@ -435,10 +560,67 @@ function needsUserInputMessage (checkpoint) {
     : 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account'
 }
 
+/**
+ * 优化点 4：敏感词库数据驱动优化（2026-08-30）。
+ * 从审计记录数组聚合各敏感类型占比、改写成功率、平均语义保留度，反哺信号词库和改写模板。
+ * 输入为 createContentPolicyAudit 产出的审计记录数组（只含哈希与元数据，不含明文 prompt）。
+ * @param {Array<object>} audits 审计记录数组
+ * @returns {object} 聚合统计
+ */
+function aggregateContentPolicyStats (audits) {
+  const list = Array.isArray(audits) ? audits : []
+  const byType = {}
+  let total = 0
+  let successCount = 0
+  let retentionSum = 0
+  let retentionCount = 0
+
+  for (const audit of list) {
+    const type = audit?.sensitiveType || 'unknown'
+    if (!byType[type]) byType[type] = { count: 0, success: 0, needsUserInput: 0, retentionSum: 0, retentionCount: 0 }
+    byType[type].count++
+    total++
+    if (audit?.outcome === 'success') {
+      successCount++
+      byType[type].success++
+    } else if (audit?.outcome === 'needs_user_input') {
+      byType[type].needsUserInput++
+    }
+    if (Number.isFinite(audit?.semanticRetention)) {
+      byType[type].retentionSum += audit.semanticRetention
+      byType[type].retentionCount++
+      retentionSum += audit.semanticRetention
+      retentionCount++
+    }
+  }
+
+  const types = Object.keys(byType).map((type) => {
+    const t = byType[type]
+    return {
+      sensitiveType: type,
+      count: t.count,
+      ratio: total ? Number((t.count / total).toFixed(3)) : 0,
+      successRate: t.count ? Number((t.success / t.count).toFixed(3)) : 0,
+      needsUserInputRate: t.count ? Number((t.needsUserInput / t.count).toFixed(3)) : 0,
+      avgSemanticRetention: t.retentionCount ? Number((t.retentionSum / t.retentionCount).toFixed(3)) : 0,
+    }
+  }).sort((a, b) => b.count - a.count)
+
+  return {
+    total,
+    successRate: total ? Number((successCount / total).toFixed(3)) : 0,
+    avgSemanticRetention: retentionCount ? Number((retentionSum / retentionCount).toFixed(3)) : 0,
+    byType: types,
+  }
+}
+
 module.exports = {
   MAX_IMAGE_GENERATION_ATTEMPTS,
   CONTENT_POLICY_REWRITE_STRATEGIES,
+  CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER,
+  CONTENT_POLICY_REWRITE_STRATEGIES_ZH,
   CONTENT_POLICY_SEVERITY,
+  aggregateContentPolicyStats,
   buildContentPolicySafePrompt,
   createContentPolicyAudit,
   createContentPolicyCheckpoint,

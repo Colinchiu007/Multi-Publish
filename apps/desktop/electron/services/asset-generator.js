@@ -574,14 +574,23 @@ class AssetGenerator {
     const runtimeOptions = opts && opts.providerRunContext ? { providerRunContext: opts.providerRunContext } : undefined
     // 方案层 3：LLM 改写回调。优先用调用方注入的；否则用默认 LLM 构造（真正替换敏感内容、保留原意）。
     // 仅当模板改写自检失败（原文含高危敏感词）时才会被调用，避免无谓消耗 LLM 额度。
-    const rewriteWithLLM = opts?.rewriteWithLLM || (async ({ prompt, sensitiveType, _sceneIndex, contextBlock, anchors }) => {
+    const rewriteWithLLM = opts?.rewriteWithLLM || (async ({ prompt, sensitiveType, _sceneIndex, contextBlock, anchors, round }) => {
       if (!this.aiGenerator || typeof this.aiGenerator.generateWithDefault !== 'function') return null
+      // 优化点 3：按改写轮次（round）调整改写指令，实现多轮降级。
+      // safe_rewrite → 替换敏感词；abstract_rewrite → 抽象化；minimal_rewrite → 最小改写。
+      const ROUND_PROMPTS = {
+        safe_rewrite: '替换敏感人物/动作/细节为象征性、非特定身份的替代，保留场景背景、时代、地域、角色与视觉风格等非敏感信息。',
+        abstract_rewrite: '将整个场景抽象化为隐喻或象征性表达，完全移除任何可能被判定为敏感的具体人物、动作或细节，仅保留氛围与视觉基调。',
+        minimal_rewrite: '仅做最小必要改写：只替换触发内容安全判定的敏感词，其余内容原样保留，尽量贴近原文。',
+      }
+      const roundPrompt = ROUND_PROMPTS[round] || ROUND_PROMPTS.safe_rewrite
       const systemPrompt = '你是图片提示词安全改写助手。将用户提供的图片提示词改写为符合内容安全政策的安全版本：' +
-        '替换敏感人物/动作/细节为象征性、非特定身份的替代，保留场景背景、时代、地域、角色与视觉风格等非敏感信息。' +
+        roundPrompt +
         '只输出改写后的提示词本身，不要任何解释、引号或前缀。'
       const userContent = '敏感类型：' + (sensitiveType || 'unknown') +
         (contextBlock ? '\n场景背景（保留）：' + contextBlock : '') +
         (anchors && anchors.length ? '\n一致性锚点（保留）：' + anchors.join('、') : '') +
+        (round ? '\n改写轮次：' + round : '') +
         '\n原始提示词：' + prompt
       try {
         const result = await this.aiGenerator.generateWithDefault('llm', {
@@ -607,6 +616,7 @@ class AssetGenerator {
         onRewrite: opts?.onContentPolicyRewrite,
         sceneContext: opts?.sceneContext,
         rewriteWithLLM,
+        provider,
         generate: async ({ prompt: attemptPrompt }) => {
           const imageParams = {
             prompt: attemptPrompt,

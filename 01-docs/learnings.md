@@ -1,3 +1,22 @@
+## 图片内容政策敏感改写优化点 1-6（codex/s2v-sensitive-rewrite-opt，2026-08-30）
+
+- **背景**：既有敏感改写策略（`ARCH-SENSITIVE-REWRITE-STRATEGY-2026-08-30.md`）已实现「信号识别 → 模板改写 → LLM 升级 → 验证闭环 → 结构化审计」四层机制，但存在 6 项待优化：改写质量无量化、模板改写无效时反复浪费尝试、LLM 改写单轮失败即放弃、无数据驱动统计、改写指令不区分供应商/语言、改写不保留角色/风格。
+- **方案**：6 项优化全部落地在 `story2video-image-retry.js` / `asset-generator.js` / `story2video-stages.js`：
+  - **① 语义保留度接入重试循环**：LLM 改写结果计算 `estimateSemanticRetention`，记录到该次尝试审计（`attempts[i].semanticRetention`，仅 `Number.isFinite` 写入）；多轮改写选保留度最高的安全结果。
+  - **② 敏感类型连续拒绝升级 LLM**：`sensitiveTypeRejections` 计数，同一类型连续拒绝 ≥2 次直接升级 LLM 改写；每轮 LLM 结果二次过 `validateRewriteSafety`。
+  - **③ LLM 多轮改写降级**：`safe_rewrite`→`abstract_rewrite`→`minimal_rewrite` 三轮，`round` 参数传给 LLM 调整改写指令；单轮异常不阻断后续。
+  - **④ `aggregateContentPolicyStats` 数据驱动统计**：从审计数组聚合 `total`/`successRate`/`avgSemanticRetention`/`byType`（按 count 降序），反哺信号词库与改写模板。
+  - **⑤ 改写模板按 provider 定制 + 中文指令**：`CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER`（minimax 简洁 / stable-diffusion 详细）+ `CONTENT_POLICY_REWRITE_STRATEGIES_ZH`（中文）；指令优先级：zh→中文，否则 provider 定制→通用→unknown。
+  - **⑥ 场景上下文保留角色/风格**：改写注入 `Keep the same character` / `Keep the visual style`；`resolveSceneContextForRewrite` 从 `scene.context` 提取 `character` 与 `setting`（映射 `style`），仅在非空时返回。
+- **教训 1（改写质量必须量化并接入重试循环）**：改写是否偏离原文此前无量化指标。语义保留度（关键词重叠率）接入重试循环后，可在多轮安全结果中选保留度最高的，避免改写偏离。
+- **教训 2（模板改写无效时须及时升级而非反复重试）**：同一敏感类型连续被拒说明该类型模板改写无效（如原文含高危词、模板指令不被供应商解析），应计数并升级 LLM 改写，避免浪费尝试次数。
+- **教训 3（改写指令应区分供应商与语言）**：不同供应商对改写指令的解析能力不同（MiniMax 偏简洁、SD 系偏详细）；中文场景用中文指令避免中英混杂。改写指令应数据驱动（按 provider/语言定制），而非一刀切。
+- **预防**：新增优化点 1-6 回归测试（`story2video-image-retry.test.js` 6 例 + `story2video-stages.test.js` sceneContext 透传断言）；改写前后 prompt 仍只存 SHA-256 哈希，严禁明文；`semanticRetention` 仅记录数值不记录 prompt。
+
+---
+
+---
+
 ## 批量删除「已中断」历史任务后重进仍残留（fix-history-delete-interrupted，2026-08-30）
 
 - **现象**：视频创作-历史记录「已中断」列表批量删除几个任务时提示删除成功、被删项也消失，但再次进入历史记录后那几条任务仍在，并未删除。
@@ -7,7 +26,8 @@
 - **修复 + 回归保护**：在 `story2video:delete-project` handler 中，项目删除成功后级联调用 `runStateStore.remove(projectId)`（幂等，快照不存在返回 true）；快照清理失败仅告警不阻断项目删除（与 `deleteProject` 目录清理尽力而为语义一致）。接线层把 `runStateStore` 从 container 经 `phase1-context` → `phase5-ipc` 注入 handler deps。回归测试（`story2video.test.js`）用真实 `Story2VideoProjectService` + 真实 `RunStateStore`（os.tmpdir 隔离目录）覆盖：删除项目后 `runStateStore.load(projectId)` 为 null、`listRunning()/listFailed()` 为空；另覆盖快照清理失败不阻断删除、未注入 runStateStore 时向后兼容。
 - **预防**：新增 AGENTS.md QM-2 检查项「删除 story2video 项目必须级联清理关联 run-state 快照，回归测试须用真实 RunStateStore 断言删除后快照消失」；后续任何「删除某实体」的改动须检查该实体是否还有持久化快照/索引/目录等多处残留，逐一级联清理。
 
----## 场景上下文朝代误判：现代题材引用历史人物被整篇判为古代（fix-s2v-context-modern-signal，2026-08-30）
+
+## 场景上下文朝代误判：现代题材引用历史人物被整篇判为古代（fix-s2v-context-modern-signal，2026-08-30）
 
 - **现象**：现代题材全文只要出现一个朝代关键词（如"秦始皇""诸葛亮"），无论它是主题、举例、引用还是背景提及，整篇都会被判定为属于该朝代（`era=ancient, strong:true`），注入朝代视觉风格 + 全量古代负面锚点，污染所有场景。
 - **第一性原因**：`detectDynasty` 只取第一个命中的朝代（`filtered[0]`），**不区分**关键词是"主题"还是"举例/引用/背景"，也不看全文是否有现代信号中和；`detectEra` 里 `if (dynasty) return { era: dynasty.era, strong: true }` —— 朝代存在即一票否决，era 强制 ancient strong，且根本不计算 modernCount，现代信号完全被忽略。
