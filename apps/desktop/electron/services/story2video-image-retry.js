@@ -165,8 +165,12 @@ function buildContentPolicySafePrompt (prompt, options = {}) {
 function validateRewriteSafety (prompt) {
   const text = String(prompt || '').toLowerCase()
   const HIGH_RISK_PATTERN = /\b(?:child|minor|underage|self[_\s-]?harm|suicide|gore|nudit|nude|porn|explicit\s+sexual|graphic\s+violence|violent)\b/
+  // 中文高危词（2026-08-30 调优）：供应商/用户可能用中文描述敏感内容，
+  // 仅英文正则会漏判，导致模板改写版拼入中文原文仍被图片模型拒绝。
+  const HIGH_RISK_CN_PATTERN = /(?:儿童|孩子|未成年人|未成年|自杀|自伤|血腥|裸露|色情|淫秽|性爱|暴力)/
   const flagged = []
   if (HIGH_RISK_PATTERN.test(text)) flagged.push('high_risk_sensitive_term')
+  if (HIGH_RISK_CN_PATTERN.test(text)) flagged.push('high_risk_sensitive_cn_term')
   return { safe: flagged.length === 0, flagged }
 }
 
