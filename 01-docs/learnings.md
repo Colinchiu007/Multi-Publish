@@ -1,3 +1,10 @@
+﻿## 已取消任务编辑按钮误显示导致结果页加载失败（fix-history-cancelled-edit，2026-08-30）
+
+- **现象**：视频创作历史记录「已取消」列表中的任务点击「编辑」跳转到结果页后弹「当前操作未能完成，请稍后再试。」。复现 ID `run_1787423794598_86az` 在用户数据目录（projects/、run-state/、story2video-projects/、multi-publish.db）中均不存在任何数据。
+- **第一性原因**：两个提交叠加。(1) `7923d7edc`（2026-08-20）把 cancelled 任务从「不可编辑」改为「可编辑」，spec 明确要求「已创建可识别项目」的终态任务才可编辑、且「只有 runId 的纯 run 记录不得制造项目卡片」；(2) `1fe891468`（2026-08-20）在 pipeline-engine.js 快照用 `projectId: snapshot.projectId || id` 把 runId 回退成 projectId，使 run-only 记录被误判为「有项目」。前端 detailEditable/openHistoryResult/policyEditTarget 只检查 projectId 字段存在（= runId），不检查 historyType，导致 run-only 的 cancelled 记录误显示编辑按钮，点击后 loadProject 加载失败。
+- **教训 1（判断可编辑性必须用数据语义而非字段存在性）**：projectId 字段存在 ≠ 有真实项目。主进程对 run-only 记录会把 projectId 回退为 runId，前端必须用 historyType === 'story2video-project'（真实项目）而非 projectId 存在性判断可编辑性。
+- **教训 2（测试不得固化「字段存在即可编辑」的错误假设）**：既有测试用 projectId: 'proj-c' 假设项目真实存在，未覆盖 run-only 记录（projectId 是 runId 回退的假 ID）的 cancelled 卡片编辑路径，导致逃逸。
+- **预防**：detailEditable/openHistoryResult/policyEditTarget 统一要求 historyType === 'story2video-project'；新增回归测试覆盖 run-only 记录（historyType=pipeline-run）即使带 projectId 也不可编辑、不跳转结果页。
 ## OpenViking 在 Windows 安装的四个关键坑（openviking-install-windows，2026-08-29）
 
 - **背景**：为 AI Agent 安装 OpenViking（开源上下文数据库，viking:// 协议，L0 摘要/L1 概览/L2 详情三级内容）。最终方案：Embedding 用 Ollama 本地 nomic-embed-text（768 维），VLM 用天翼云 OpenAI 兼容端点 deepseek-v4-flash-0731-oc。服务跑在 127.0.0.1:1933，端到端验证通过（添加资源 → VLM 生成摘要 → embedding 向量化 → 语义检索命中）。
