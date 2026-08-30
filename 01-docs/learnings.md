@@ -1,4 +1,11 @@
-﻿## 已取消任务编辑按钮误显示导致结果页加载失败（fix-history-cancelled-edit，2026-08-30）
+﻿## 图片输入敏感时自动改写提示词重试（fix-s2v-content-policy-rewrite，2026-08-30）
+
+- **现象**：Story2Video 流水线在 generate_assets 阶段失败：Image #67 提示词被 MiniMax 内容安全审核判定为 `input new_sensitive`，程序未自动改写提示词重试，导致整条流水线失败（69/70 场景有图有音频仍整体失败）。
+- **第一性原因**：`hasStrictContentPolicySignal`（provider-error.js）只识别 `content_policy`、`moderation_*` 等英文标准信号词，不识别 MiniMax 的 `input new_sensitive`。该错误被归为普通 `PROVIDER_ERROR` 立即失败，不触发内容安全改写重试路径。
+- **教训 1（内容安全信号识别必须覆盖供应商专有信号词）**：不同供应商对内容安全拒绝返回的信号词差异极大（MiniMax 用 `input new_sensitive`，不含 `content_policy`/`moderation` 等标准词）。`hasStrictContentPolicySignal` 必须持续补充供应商专有信号词，否则单张图被拒会导致整条流水线失败。
+- **教训 2（改写重试必须有用户可见反馈）**：内容安全改写重试是自动行为，用户无感知时会把「正在生成图片」误认为卡住。改写发生时进度提示应切换为「正在改写敏感提示词并重试」，并触发一次 toast 提示（仅首次，避免重复弹窗）。
+- **预防**：`hasStrictContentPolicySignal` 新增 `input new_sensitive` / `new_sensitive` 识别；改写时进度切换 `stageProgress.assetsImageRewriting` + 首次 toast `contentPolicyRewriteToast`；新增回归测试（provider-error 识别 / image-retry 改写重试 / minimax-image 分类 / stages 进度上报 / StageProgress 文案 / CreateView toast）。
+## 已取消任务编辑按钮误显示导致结果页加载失败（fix-history-cancelled-edit，2026-08-30）
 
 - **现象**：视频创作历史记录「已取消」列表中的任务点击「编辑」跳转到结果页后弹「当前操作未能完成，请稍后再试。」。复现 ID `run_1787423794598_86az` 在用户数据目录（projects/、run-state/、story2video-projects/、multi-publish.db）中均不存在任何数据。
 - **第一性原因**：两个提交叠加。(1) `7923d7edc`（2026-08-20）把 cancelled 任务从「不可编辑」改为「可编辑」，spec 明确要求「已创建可识别项目」的终态任务才可编辑、且「只有 runId 的纯 run 记录不得制造项目卡片」；(2) `1fe891468`（2026-08-20）在 pipeline-engine.js 快照用 `projectId: snapshot.projectId || id` 把 runId 回退成 projectId，使 run-only 记录被误判为「有项目」。前端 detailEditable/openHistoryResult/policyEditTarget 只检查 projectId 字段存在（= runId），不检查 historyType，导致 run-only 的 cancelled 记录误显示编辑按钮，点击后 loadProject 加载失败。
