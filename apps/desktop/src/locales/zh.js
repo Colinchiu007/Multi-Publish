@@ -1217,6 +1217,7 @@ export default {
     disabledCount: (ctx) => '已禁用 ' + ctx.named('count') + ' 个账号',
     statusPartial: (ctx) => '已' + (ctx.named('action') === 'enable' ? '启用' : '禁用') + ' ' + ctx.named('success') + ' 个账号，' + ctx.named('failed') + ' 个失败',
     statusFailed: (ctx) => '批量' + (ctx.named('action') === 'enable' ? '启用' : '禁用') + '失败',
+    loadFailed: '账号加载失败',
     ownerField: '负责人',
     publisherField: '发布人',
   },
@@ -1891,6 +1892,32 @@ export default {
     "copyBatchFailed": "批量复制失败",
     "exportFailed": "导出失败",
     "generateFailedMsg": "生成失败",
+  },
+
+  collection: {
+    clipboardEmpty: '剪贴板为空',
+    importedLines: '已导入 {count} 行内容',
+    openedPlatform: '已打开 {platform} 采集页面',
+    switchToMonitor: '请先切换到分屏监控页查看',
+    confirmDeleteDraft: '确定删除这篇草稿吗？',
+    confirmTitle: '确认',
+    deleted: '已删除',
+    collectUnavailable: '采集功能不可用',
+    enterLink: '请输入链接',
+    collectFailed: '采集失败',
+    collectSuccess: '内容采集成功',
+    collectRequestFailed: '采集请求失败',
+    clipboardReadFailed: '剪贴板读取失败',
+    draftCreated: '草稿已创建',
+  },
+  monitor: {
+    selectPlatform: '请选择平台',
+    addedMonitor: '已添加 {platform} 监控',
+    addFailed: '添加失败',
+    closedAll: '已关闭所有监控',
+  },
+  intelligence: {
+    insertedRef: '已插入引用: {title}',
   },
 
   memberCenter: {

@@ -261,7 +261,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Cellphone, Close, Delete, FolderOpened, Monitor, Plus, Search, UserFilled } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
 import AccountGroupsPanel from '@/features/accounts/components/AccountGroupsPanel.vue'
@@ -300,6 +300,7 @@ const accountStore = useAccountStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
 const accountActions = useAccountActions()
 const loading = ref(false)
 const showAddDialog = ref(false)
@@ -335,15 +336,15 @@ const accountEvents = useAccountEvents({
       ? t('accountsPage.reloginSuccess')
       : mode === 'qrcode' ? t('accountsPage.qrcodeSuccess') : t('accountsPage.addSuccess')
     pendingAuthAction.value = null
-    ElMessage.success(message)
+    notifySuccess('accountsPage.addSuccess', { message: message })
     await refresh()
   },
   onStatusChanged: async data => {
     await refresh()
-    if (Number(data?.expiredCount) > 0) ElMessage.warning(t('accountsPage.expiredWarning', { count: data.expiredCount }))
+    if (Number(data?.expiredCount) > 0) notifyWarning('accountsPage.expiredWarning', { params: { count: data.expiredCount } })
   },
   onError: error => {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.eventFailed') }).message)
+    notifyError('accountsPage.eventFailed', { message: formatUserError(error, { fallback: t('accountsPage.eventFailed') }).message })
   },
 })
 const {
@@ -587,15 +588,15 @@ function toggleFavorite (id) {
 
 function createNewGroup (name, platformFilter = '') {
   accountStore.createGroup(name.trim(), platformFilter)
-  ElMessage.success(t('accountsPage.groupCreated'))
+  notifySuccess('accountsPage.groupCreated')
 }
 
 function renameGroup (groupId, name) {
   if (!accountStore.renameGroup(groupId, name)) {
-    ElMessage.error(t('accountsPage.groupNameInvalid'))
+    notifyError('accountsPage.groupNameInvalid')
     return
   }
-  ElMessage.success(t('accountsPage.groupRenamed'))
+  notifySuccess('accountsPage.groupRenamed')
 }
 
 function setGroupPlatform (groupId, platformFilter) {
@@ -603,11 +604,10 @@ function setGroupPlatform (groupId, platformFilter) {
 }
 
 async function deleteGroup (groupId) {
-  try {
-    await ElMessageBox.confirm(t('accountsPage.confirmDeleteGroup'), t('accountsPage.confirmTitle'), { type: 'warning' })
-    accountStore.deleteGroup(groupId)
-    ElMessage.success(t('accountsPage.groupDeleted'))
-  } catch (_) { /* 用户取消 */ }
+  const confirmed = await notifyConfirm('accountsPage.confirmDeleteGroup', { title: t('accountsPage.confirmTitle') })
+  if (!confirmed) return
+  accountStore.deleteGroup(groupId)
+  notifySuccess('accountsPage.groupDeleted')
 }
 
 function toggleAccountInGroup (groupId, accountId) {
@@ -623,7 +623,7 @@ async function refresh () {
   loading.value = true
   try {
     await accountStore.load()
-    if (accountStore.error) ElMessage.error(accountStore.error)
+    if (accountStore.error) notifyError('accountsPage.loadFailed', { message: accountStore.error })
   } finally {
     loading.value = false
   }
@@ -631,7 +631,7 @@ async function refresh () {
 
 async function addAccount () {
   if (!newPlatform.value) {
-    ElMessage.warning(t('accountsPage.selectPlatform'))
+    notifyWarning('accountsPage.selectPlatform')
     return
   }
   const platform = newPlatform.value
@@ -649,13 +649,13 @@ async function addAccount () {
     } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.addFailed') }).message)
+      notifyError('accountsPage.addFailed', { message: formatUserError(result, { fallback: t('accountsPage.addFailed') }).message })
     }
     if (result?.code === 0) newPlatform.value = ''
   } catch (error) {
     loginVisible.value = false
     pendingAuthAction.value = null
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.addAccountFailed') }).message)
+    notifyError('accountsPage.addAccountFailed', { message: formatUserError(error, { fallback: t('accountsPage.addAccountFailed') }).message })
   } finally {
     adding.value = false
   }
@@ -663,7 +663,7 @@ async function addAccount () {
 
 async function reloginAccount (account) {
   if (!account?.platform) {
-    ElMessage.error(t('accountsPage.accountIncompleteRelogin'))
+    notifyError('accountsPage.accountIncompleteRelogin')
     return
   }
   pendingAuthAction.value = 'relogin'
@@ -673,16 +673,16 @@ async function reloginAccount (account) {
     if (result?.cancelled) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.info(t('accountsPage.reloginCancelled'))
+      notifyInfo('accountsPage.reloginCancelled')
     } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.reloginFailed') }).message)
+      notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: t('accountsPage.reloginFailed') }).message })
     }
   } catch (error) {
     loginVisible.value = false
     pendingAuthAction.value = null
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message)
+    notifyError('accountsPage.reloginFailed', { message: formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message })
   }
 }
 
@@ -690,10 +690,10 @@ async function completeAuthView () {
   completingLogin.value = true
   try {
     const result = await accountActions.completeLogin(loginMode.value)
-    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: t('accountsPage.saveFailed') }).message)
-    else ElMessage.info(t('accountsPage.savingAccount'))
+    if (result?.code !== 0) notifyError('accountsPage.saveFailed', { message: formatUserError(result, { fallback: t('accountsPage.saveFailed') }).message })
+    else notifyInfo('accountsPage.savingAccount')
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.saveFailed') }).message)
+    notifyError('accountsPage.saveFailed', { message: formatUserError(error, { fallback: t('accountsPage.saveFailed') }).message })
   } finally {
     completingLogin.value = false
   }
@@ -717,10 +717,10 @@ async function closeAuthView () {
 async function setDefault (account) {
   try {
     const result = await accountStore.setDefault(account.id, account.platform)
-    if (result?.code === 0) ElMessage.success(t('accountsPage.setDefaultSuccess', { platform: platformLabel(account.platform) }))
-    else ElMessage.error(formatUserError(result, { fallback: t('accountsPage.setDefaultFailed') }).message)
+    if (result?.code === 0) notifySuccess('accountsPage.setDefaultSuccess', { params: { platform: platformLabel(account.platform) } })
+    else notifyError('accountsPage.setDefaultFailed', { message: formatUserError(result, { fallback: t('accountsPage.setDefaultFailed') }).message })
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.setDefaultFailed') }).message)
+    notifyError('accountsPage.setDefaultFailed', { message: formatUserError(error, { fallback: t('accountsPage.setDefaultFailed') }).message })
   }
 }
 
@@ -729,9 +729,9 @@ async function renameAccount (account, nextName) {
   if (!name || name === (account.account_name || account.name)) return
   try {
     const result = await accountStore.renameAccount(account.id, name)
-    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: t('accountsPage.renameFailed') }).message)
+    if (result?.code !== 0) notifyError('accountsPage.renameFailed', { message: formatUserError(result, { fallback: t('accountsPage.renameFailed') }).message })
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.renameFailed') }).message)
+    notifyError('accountsPage.renameFailed', { message: formatUserError(error, { fallback: t('accountsPage.renameFailed') }).message })
   }
 }
 
@@ -757,14 +757,14 @@ async function saveProxy (proxy) {
   try {
     const result = await accountActions.setProxy(proxyAccount.value, proxy)
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.saveProxyFailed') }).message)
+      notifyError('accountsPage.saveProxyFailed', { message: formatUserError(result, { fallback: t('accountsPage.saveProxyFailed') }).message })
       return
     }
-    ElMessage.success(t('accountsPage.proxySaved'))
+    notifySuccess('accountsPage.proxySaved')
     await refresh()
     closeProxyDialog()
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.saveProxyFailed') }).message)
+    notifyError('accountsPage.saveProxyFailed', { message: formatUserError(error, { fallback: t('accountsPage.saveProxyFailed') }).message })
   } finally {
     savingProxy.value = false
   }
@@ -776,27 +776,27 @@ async function clearProxy () {
   try {
     const result = await accountActions.setProxy(proxyAccount.value, null)
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.clearProxyFailed') }).message)
+      notifyError('accountsPage.clearProxyFailed', { message: formatUserError(result, { fallback: t('accountsPage.clearProxyFailed') }).message })
       return
     }
-    ElMessage.success(t('accountsPage.proxyCleared'))
+    notifySuccess('accountsPage.proxyCleared')
     await refresh()
     closeProxyDialog()
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.clearProxyFailed') }).message)
+    notifyError('accountsPage.clearProxyFailed', { message: formatUserError(error, { fallback: t('accountsPage.clearProxyFailed') }).message })
   } finally {
     savingProxy.value = false
   }
 }
 
 async function checkLogin (account) {
-  ElMessage.info(t('accountsPage.verifyingLogin', { platform: platformLabel(account.platform) }))
+  notifyInfo('accountsPage.verifyingLogin', { params: { platform: platformLabel(account.platform) } })
   try {
     const result = await accountActions.checkLogin(account)
-    if (result?.code === 0 && result.data?.valid) ElMessage.success(t('accountsPage.loginValid'))
-    else ElMessage.warning(result?.data?.message || t('accountsPage.loginExpired'))
+    if (result?.code === 0 && result.data?.valid) notifySuccess('accountsPage.loginValid')
+    else notifyWarning('accountsPage.loginExpired', { message: result?.data?.message || t('accountsPage.loginExpired') })
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.verifyFailed') }).message)
+    notifyError('accountsPage.verifyFailed', { message: formatUserError(error, { fallback: t('accountsPage.verifyFailed') }).message })
   }
 }
 
@@ -805,33 +805,33 @@ async function checkLogin (account) {
  */
 async function openCreatorCenter(account) {
   if (!account?.platform) {
-    ElMessage.error(t('accountsPage.accountIncomplete'))
+    notifyError('accountsPage.accountIncomplete')
     return
   }
   const url = PLATFORM_DASHBOARD_URLS[account.platform]
   if (!url) {
-    ElMessage.warning(t('accountsPage.creatorUnsupported'))
+    notifyWarning('accountsPage.creatorUnsupported')
     return
   }
   await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
 }
 
 async function removeAccount (account) {
+  const confirmed = await notifyConfirm('accountsPage.confirmDeleteAccount', {
+    title: t('accountsPage.confirmDeleteTitle'),
+    params: { platform: platformLabel(account.platform), name: account.account_name || account.name || '' },
+  })
+  if (!confirmed) return
   try {
-    await ElMessageBox.confirm(
-      t('accountsPage.confirmDeleteAccount', { platform: platformLabel(account.platform), name: account.account_name || account.name || '' }),
-      t('accountsPage.confirmDeleteTitle'),
-      { type: 'warning' },
-    )
     const result = await accountActions.remove(account.id)
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.deleteFailed') }).message)
+      notifyError('accountsPage.deleteFailed', { message: formatUserError(result, { fallback: t('accountsPage.deleteFailed') }).message })
       return
     }
-    ElMessage.success(t('accountsPage.accountDeleted'))
+    notifySuccess('accountsPage.accountDeleted')
     await refresh()
   } catch (error) {
-    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error(t('accountsPage.operationFailed') + formatUserError(error, { fallback: t('accountsPage.unknownError') }).message)
+    if (error !== 'cancel' && error?.message !== 'canceled') notifyError('accountsPage.operationFailed', { message: t('accountsPage.operationFailed') + formatUserError(error, { fallback: t('accountsPage.unknownError') }).message })
   }
 }
 
@@ -839,22 +839,24 @@ async function handleBatchDelete () {
   const ids = [...selectedVisibleIds.value]
   const count = ids.length
   if (count === 0) return
+  const confirmed = await notifyConfirm('accountsPage.confirmBatchDelete', {
+    title: t('accountsPage.confirmBatchDeleteTitle'),
+    params: { count },
+    confirmButtonText: t('accountsPage.confirmDeleteBtn'),
+    cancelButtonText: t('accountsPage.cancelBtn'),
+  })
+  if (!confirmed) return
   try {
-    await ElMessageBox.confirm(
-      t('accountsPage.confirmBatchDelete', { count }),
-      t('accountsPage.confirmBatchDeleteTitle'),
-      { type: 'warning', confirmButtonText: t('accountsPage.confirmDeleteBtn'), cancelButtonText: t('accountsPage.cancelBtn') },
-    )
     const result = await accountStore.batchDelete(ids)
     const { success, failed } = result || {}
     if (!Number.isInteger(success) || !Number.isInteger(failed) || success < 0 || failed < 0 || success + failed !== count) {
       throw new Error(t('accountsPage.batchDeleteInvalid'))
     }
-    if (failed === 0) ElMessage.success(t('accountsPage.deletedCount', { count: success }))
-    else if (success > 0) ElMessage.warning(t('accountsPage.deletedPartial', { success, failed }))
-    else ElMessage.error(t('accountsPage.deletedFailed', { count: failed }))
+    if (failed === 0) notifySuccess('accountsPage.deletedCount', { params: { count: success } })
+    else if (success > 0) notifyWarning('accountsPage.deletedPartial', { params: { success, failed } })
+    else notifyError('accountsPage.deletedFailed', { params: { count: failed } })
   } catch (error) {
-    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error(t('accountsPage.batchDeleteFailed') + formatUserError(error, { fallback: t('accountsPage.unknownError') }).message)
+    if (error !== 'cancel' && error?.message !== 'canceled') notifyError('accountsPage.batchDeleteFailed', { message: t('accountsPage.batchDeleteFailed') + formatUserError(error, { fallback: t('accountsPage.unknownError') }).message })
   }
 }
 
@@ -865,11 +867,11 @@ async function handleBatchStatus (status) {
   try {
     const result = await accountStore.batchSetStatus(status, ids)
     const { success = 0, failed = 0 } = result || {}
-    if (failed === 0) ElMessage.success(status === 'active' ? t('accountsPage.enabledCount', { count: success }) : t('accountsPage.disabledCount', { count: success }))
-    else if (success > 0) ElMessage.warning(t('accountsPage.statusPartial', { action: status === 'active' ? 'enable' : 'disable', success, failed }))
-    else ElMessage.error(t('accountsPage.statusFailed', { action: status === 'active' ? 'enable' : 'disable' }))
+    if (failed === 0) notifySuccess(status === 'active' ? 'accountsPage.enabledCount' : 'accountsPage.disabledCount', { params: { count: success } })
+    else if (success > 0) notifyWarning('accountsPage.statusPartial', { params: { action: status === 'active' ? 'enable' : 'disable', success, failed } })
+    else notifyError('accountsPage.statusFailed', { params: { action: status === 'active' ? 'enable' : 'disable' } })
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.statusFailed', { action: status === 'active' ? 'enable' : 'disable' }) }).message)
+    notifyError('accountsPage.statusFailed', { message: formatUserError(error, { fallback: t('accountsPage.statusFailed', { action: status === 'active' ? 'enable' : 'disable' }) }).message })
   } finally {
     batchStatusBusy.value = false
   }

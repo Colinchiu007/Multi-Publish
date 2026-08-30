@@ -1216,6 +1216,7 @@ export default {
     disabledCount: (ctx) => ctx.named('count') + ' accounts disabled',
     statusPartial: (ctx) => (ctx.named('action') === 'enable' ? 'Enabled' : 'Disabled') + ' ' + ctx.named('success') + ', ' + ctx.named('failed') + ' failed',
     statusFailed: (ctx) => 'Batch ' + (ctx.named('action') === 'enable' ? 'enable' : 'disable') + ' failed',
+    loadFailed: 'Failed to load accounts',
     ownerField: 'Owner',
     publisherField: 'Publisher',
   },
@@ -1890,6 +1891,32 @@ export default {
     "copyBatchFailed": "Batch copy failed",
     "exportFailed": "Export failed",
     "generateFailedMsg": "Generation failed",
+  },
+
+  collection: {
+    clipboardEmpty: 'Clipboard is empty',
+    importedLines: 'Imported {count} lines',
+    openedPlatform: 'Opened {platform} collection page',
+    switchToMonitor: 'Please switch to the split-screen monitor view',
+    confirmDeleteDraft: 'Delete this draft?',
+    confirmTitle: 'Confirm',
+    deleted: 'Deleted',
+    collectUnavailable: 'Collection is unavailable',
+    enterLink: 'Please enter a link',
+    collectFailed: 'Collection failed',
+    collectSuccess: 'Content collected',
+    collectRequestFailed: 'Collection request failed',
+    clipboardReadFailed: 'Clipboard read failed',
+    draftCreated: 'Draft created',
+  },
+  monitor: {
+    selectPlatform: 'Please select a platform',
+    addedMonitor: 'Added {platform} monitor',
+    addFailed: 'Failed to add',
+    closedAll: 'Closed all monitors',
+  },
+  intelligence: {
+    insertedRef: 'Inserted reference: {title}',
   },
 
   memberCenter: {
