@@ -377,7 +377,8 @@ describe('敏感类型分级（方案层 1 增强，2026-08-30）', () => {
     // 自动改写重试成功，不交用户
     expect(generate).toHaveBeenCalledTimes(2)
     expect(result.status).toBe('success')
-    expect(rewriteWithLLM).toHaveBeenCalledTimes(1)
+    // 优化点 3：多轮降级（safe/abstract/minimal 三轮）
+    expect(rewriteWithLLM).toHaveBeenCalledTimes(3)
     expect(generate.mock.calls[1][0].promptStrategy).toBe('llm_safe_rewrite')
   })
 
@@ -397,7 +398,8 @@ describe('敏感类型分级（方案层 1 增强，2026-08-30）', () => {
 
     expect(generate).toHaveBeenCalledTimes(2)
     expect(result.status).toBe('success')
-    expect(rewriteWithLLM).toHaveBeenCalledTimes(1)
+    // 优化点 3：多轮降级（safe/abstract/minimal 三轮）
+    expect(rewriteWithLLM).toHaveBeenCalledTimes(3)
   })
 
   it('mild 敏感类型（violence）走改写重试', async () => {
@@ -416,7 +418,8 @@ describe('敏感类型分级（方案层 1 增强，2026-08-30）', () => {
 
     expect(generate).toHaveBeenCalledTimes(2)
     expect(result.status).toBe('success')
-    expect(rewriteWithLLM).toHaveBeenCalledTimes(1)
+    // 优化点 3：多轮降级（safe/abstract/minimal 三轮）
+    expect(rewriteWithLLM).toHaveBeenCalledTimes(3)
     expect(generate.mock.calls[1][0].promptStrategy).toBe('llm_safe_rewrite')
   })
 
@@ -455,7 +458,8 @@ describe('改写自检与 LLM 改写升级（方案层 3 增强，2026-08-30）'
 
     // 模板改写自检失败 → 升级 LLM 改写 → 成功
     expect(result.status).toBe('success')
-    expect(rewriteWithLLM).toHaveBeenCalledTimes(1)
+    // 优化点 3：多轮降级（safe/abstract/minimal 三轮）
+    expect(rewriteWithLLM).toHaveBeenCalledTimes(3)
     expect(generate).toHaveBeenCalledTimes(2)
     // 第 2 次使用 LLM 改写结果
     expect(generate.mock.calls[1][0].prompt).toContain('young student')
@@ -510,5 +514,101 @@ describe('改写自检与 LLM 改写升级（方案层 3 增强，2026-08-30）'
     // LLM 改写结果仍含 child → 不发送，交用户
     expect(result.status).toBe('needs_user_input')
     expect(generate).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('敏感改写优化点（2026-08-30）', () => {
+  const {
+    runContentPolicyImageRetry,
+    buildContentPolicySafePrompt,
+    aggregateContentPolicyStats,
+    CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER,
+    CONTENT_POLICY_REWRITE_STRATEGIES_ZH,
+  } = require('./story2video-image-retry')
+  const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+
+  it('优化点1：LLM 改写后记录语义保留度到审计', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+      .mockResolvedValueOnce({ image: 'ok' })
+    const rewriteWithLLM = vi.fn(async () => 'a young student in a classroom')
+
+    const result = await runContentPolicyImageRetry({
+      prompt: 'a child in a classroom',
+      sceneIndex: 0,
+      generate,
+      rewriteWithLLM,
+    })
+
+    expect(result.status).toBe('success')
+    // 语义保留度记录在 LLM 改写那次尝试的审计中（被拒绝尝试，outcome=content_policy_rejected）
+    const llmAttempt = result.attempts.find((a) => a.semanticRetention !== undefined)
+    expect(llmAttempt).toBeDefined()
+    expect(llmAttempt).toHaveProperty('semanticRetention')
+    expect(llmAttempt.semanticRetention).toBeGreaterThan(0)
+  })
+
+  it('优化点2：同一敏感类型连续拒绝 2 次 → 模板改写无效，升级 LLM 改写', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation violence'))
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation violence'))
+      .mockResolvedValueOnce({ image: 'ok' })
+    const rewriteWithLLM = vi.fn(async () => 'a tense standoff, no weapons')
+
+    const result = await runContentPolicyImageRetry({
+      prompt: 'a violent fight scene',
+      sceneIndex: 0,
+      generate,
+      rewriteWithLLM,
+    })
+
+    expect(result.status).toBe('success')
+    expect(generate).toHaveBeenCalledTimes(3)
+    // 连续拒绝 2 次后升级 LLM 改写
+    expect(generate.mock.calls[2][0].promptStrategy).toBe('llm_safe_rewrite')
+  })
+
+  it('优化点4：aggregateContentPolicyStats 聚合敏感类型占比/成功率/保留度', () => {
+    const stats = aggregateContentPolicyStats([
+      { sensitiveType: 'minor', outcome: 'success', semanticRetention: 0.8 },
+      { sensitiveType: 'minor', outcome: 'needs_user_input' },
+      { sensitiveType: 'violence', outcome: 'success', semanticRetention: 0.9 },
+    ])
+
+    expect(stats.total).toBe(3)
+    expect(stats.successRate).toBeCloseTo(0.667, 2)
+    expect(stats.byType).toHaveLength(2)
+    const minor = stats.byType.find((t) => t.sensitiveType === 'minor')
+    expect(minor.count).toBe(2)
+    expect(minor.successRate).toBeCloseTo(0.5, 1)
+    expect(minor.avgSemanticRetention).toBeCloseTo(0.8, 1)
+  })
+
+  it('优化点5：按 provider 定制改写指令（minimax 简洁版）', () => {
+    const rewritten = buildContentPolicySafePrompt('a violent fight', {
+      sensitiveType: 'violence',
+      provider: 'minimax',
+    })
+    expect(rewritten).toContain('tense conflict atmosphere, no blood, no weapons, no graphic detail')
+    expect(CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER.minimax.violence).toContain('no blood')
+  })
+
+  it('优化点5：中文改写指令（language=zh）', () => {
+    const rewritten = buildContentPolicySafePrompt('a child in a classroom', {
+      sensitiveType: 'minor',
+      language: 'zh',
+    })
+    expect(rewritten).toContain('只表现成年角色，不出现未成年人或儿童形象')
+    expect(CONTENT_POLICY_REWRITE_STRATEGIES_ZH.minor).toContain('未成年')
+  })
+
+  it('优化点6：改写保留角色一致性与视觉风格（character/style）', () => {
+    const rewritten = buildContentPolicySafePrompt('a violent fight', {
+      sensitiveType: 'violence',
+      character: '老妇人',
+      style: '水墨画',
+    })
+    expect(rewritten).toContain('Keep the same character: 老妇人.')
+    expect(rewritten).toContain('Keep the visual style: 水墨画.')
   })
 })

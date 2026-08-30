@@ -1,3 +1,18 @@
+## [未发布] feat(story2video): 图片内容安全敏感改写优化点 1-6（语义保留度/连续拒绝升级/多轮降级/数据驱动统计/provider 定制/角色风格保留）
+
+- 背景：既有敏感改写策略已实现「信号识别 → 模板改写 → LLM 升级 → 验证闭环 → 结构化审计」四层机制，但存在 6 项待优化：改写质量无量化、模板改写无效时反复浪费尝试、LLM 改写单轮失败即放弃、无数据驱动统计、改写指令不区分供应商/语言、改写不保留角色/风格。
+- 优化点：
+  - ① 语义保留度接入重试循环：LLM 改写结果计算 `estimateSemanticRetention` 记录到审计（`attempts[i].semanticRetention`），多轮改写选保留度最高的安全结果。
+  - ② 敏感类型连续拒绝升级 LLM：同一敏感类型连续拒绝 ≥2 次直接升级 LLM 改写；每轮结果二次过 `validateRewriteSafety`。
+  - ③ LLM 多轮改写降级：`safe_rewrite`→`abstract_rewrite`→`minimal_rewrite` 三轮，`round` 参数传给 LLM 调整改写指令。
+  - ④ `aggregateContentPolicyStats` 数据驱动统计：聚合 `total`/`successRate`/`avgSemanticRetention`/`byType`（按 count 降序），反哺信号词库与改写模板。
+  - ⑤ 改写模板按 provider 定制 + 中文指令：`CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER`（minimax 简洁 / stable-diffusion 详细）+ `CONTENT_POLICY_REWRITE_STRATEGIES_ZH`（中文）。
+  - ⑥ 场景上下文保留角色/风格：改写注入 `Keep the same character` / `Keep the visual style`；`resolveSceneContextForRewrite` 提取 `character`/`setting`。
+- 回归保护：`story2video-image-retry.test.js` 38/38（新增优化点 1-6 用例）；`story2video-stages.test.js` 149/149（sceneContext character/style 透传断言）；`provider-error.test.js` 27/27；合计 214 全绿。`asset-generator.test.js` 5 个既有环境失败（TTS/python spawn）经 git stash 基线验证与本次无关。
+- 文档：PRD §7.1.5 新增「敏感改写优化点 1-6」合同表；`01-docs/ARCH-SENSITIVE-REWRITE-STRATEGY-2026-08-30.md` 新增 §八；`learnings.md` 新增复盘记录。
+
+---
+
 ## [未发布] fix(story2video): 场景上下文朝代误判——现代题材引用历史人物被整篇判为古代（现代信号中和）
 
 - 现象：现代题材全文只要出现一个朝代关键词（如"秦始皇""诸葛亮"），无论它是主题、举例、引用还是背景提及，整篇都会被判定为属于该朝代（`era=ancient, strong:true`），注入朝代视觉风格 + 全量古代负面锚点，污染所有场景。
