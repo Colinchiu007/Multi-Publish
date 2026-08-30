@@ -1181,7 +1181,7 @@ class PipelineEngine {
     if (activeCount >= this.maxConcurrentRuns) {
       return {
         success: false,
-        error: '当前已有 ' + activeCount + ' 条流水线正在运行，最多同时运行 ' + this.maxConcurrentRuns + ' 条，请等待其中一条完成后再启动。',
+        error: '根据当前设备的内存占用情况，流水线已满负荷运行，请等待其中一条完成后再启动。',
         errorCode: 'PIPELINE_CONCURRENCY_LIMIT',
         errorParams: { count: activeCount, max: this.maxConcurrentRuns },
       };

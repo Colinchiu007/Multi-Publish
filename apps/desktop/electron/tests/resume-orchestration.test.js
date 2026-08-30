@@ -353,7 +353,7 @@ describe('后台运行：历史含运行中 + 并发上限', () => {
     const r3 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
     expect(r3.success).toBe(false)
     expect(r3.errorCode).toBe('PIPELINE_CONCURRENCY_LIMIT')
-    expect(r3.error).toContain('最多同时运行 2 条')
+    expect(r3.error).toContain('满负荷运行')
     expect(r3.errorParams).toEqual({ count: 2, max: 2 })
   })
 
