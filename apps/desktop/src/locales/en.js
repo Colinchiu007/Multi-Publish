@@ -33,6 +33,16 @@ export default {
     userKeySaved: 'User key saved',
     saveUserKeyFailed: 'Failed to save user key',
   },
+  publishDrafts: {
+    loadFailed: 'Failed to load drafts',
+    emptyTitleContent: 'Title and content cannot both be empty',
+    saveFailed: 'Failed to save draft',
+    saved: 'Draft saved',
+    notFound: 'Draft not found or already deleted',
+    loaded: 'Draft loaded',
+    deleteFailed: 'Failed to delete draft',
+    deleted: 'Draft deleted',
+  },
   nav: {
     home: 'Home',
     accounts: 'Accounts',

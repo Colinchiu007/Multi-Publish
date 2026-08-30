@@ -15,9 +15,9 @@
  */
 import { ref, reactive } from 'vue'
 import { getApi } from '@/api/electron-bridge'
-import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import i18n from '@/i18n'
+import { useNotify } from './useNotify'
 import {
   story2videoConfigProfileList,
   story2videoConfigProfileCreate,
@@ -80,6 +80,8 @@ function unwrap (res) {
 }
 
 export function useFilmEngineering () {
+  // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
+  const { notifyError, notifySuccess, notifyWarning } = useNotify()
   const status = ref(null)
   const statusLoading = ref(false)
   const scenes = ref([])
@@ -142,9 +144,9 @@ export function useFilmEngineering () {
         }
         return
       }
-      ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.sceneLoadFailed') }).message)
+      notifyWarning('filmEngineering.sceneLoadFailed', { message: formatUserError(res, { fallback: t('filmEngineering.sceneLoadFailed') }).message })
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.sceneLoadFailed') }).message)
+      notifyWarning('filmEngineering.sceneLoadFailed', { message: formatUserError(e, { fallback: t('filmEngineering.sceneLoadFailed') }).message })
     } finally {
       scenesLoading.value = false
     }
@@ -160,9 +162,9 @@ export function useFilmEngineering () {
     try {
       const res = await a.listShots(sceneId)
       if (res && res.code === 0) shots.value = res.data || []
-      else ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.shotLoadFailed') }).message)
+      else notifyWarning('filmEngineering.shotLoadFailed', { message: formatUserError(res, { fallback: t('filmEngineering.shotLoadFailed') }).message })
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.shotLoadFailed') }).message)
+      notifyWarning('filmEngineering.shotLoadFailed', { message: formatUserError(e, { fallback: t('filmEngineering.shotLoadFailed') }).message })
     } finally {
       shotsLoading.value = false
     }
@@ -175,9 +177,9 @@ export function useFilmEngineering () {
     try {
       const res = await a.getShot(shotId)
       if (res && res.code === 0) shotDetail.value = res.data
-      else ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.detailLoadFailed') }).message)
+      else notifyWarning('filmEngineering.detailLoadFailed', { message: formatUserError(res, { fallback: t('filmEngineering.detailLoadFailed') }).message })
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.detailLoadFailed') }).message)
+      notifyWarning('filmEngineering.detailLoadFailed', { message: formatUserError(e, { fallback: t('filmEngineering.detailLoadFailed') }).message })
     } finally {
       detailLoading.value = false
     }
@@ -209,37 +211,37 @@ export function useFilmEngineering () {
 
   async function copyText (shotId, mode) {
     const a = api()
-    if (!a) { ElMessage.warning(t('filmEngineering.noDesktopWarning')); return false }
+    if (!a) { notifyWarning('filmEngineering.noDesktopWarning', { message: t('filmEngineering.noDesktopWarning') }); return false }
     try {
       const res = await a.copyText(shotId, mode)
       if (res && res.code === 0) {
         const ok = await writeClipboard(res.data.text)
-        ElMessage.success(ok ? t('filmEngineering.promptCopied') : t('filmEngineering.copyFailed'))
+        notifySuccess('filmEngineering.promptCopied', { message: ok ? t('filmEngineering.promptCopied') : t('filmEngineering.copyFailed') })
         return ok
       }
-      ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.copyFailed') }).message)
+      notifyWarning('filmEngineering.copyFailed', { message: formatUserError(res, { fallback: t('filmEngineering.copyFailed') }).message })
       return false
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.copyFailed') }).message)
+      notifyWarning('filmEngineering.copyFailed', { message: formatUserError(e, { fallback: t('filmEngineering.copyFailed') }).message })
       return false
     }
   }
 
   async function copySelected () {
     const a = api()
-    if (!a) { ElMessage.warning(t('filmEngineering.noDesktopWarning')); return false }
-    if (selectedShotIds.value.length === 0) { ElMessage.warning(t('filmEngineering.selectFirst')); return false }
+    if (!a) { notifyWarning('filmEngineering.noDesktopWarning', { message: t('filmEngineering.noDesktopWarning') }); return false }
+    if (selectedShotIds.value.length === 0) { notifyWarning('filmEngineering.selectFirst', { message: t('filmEngineering.selectFirst') }); return false }
     try {
       const res = await a.copyTexts(selectedShotIds.value.slice(), copyMode.value)
       if (res && res.code === 0) {
         const ok = await writeClipboard(res.data.text)
-        ElMessage.success(ok ? t('filmEngineering.copiedCount') + ' ' + res.data.count + ' ' + t('filmEngineering.shotsUnit') : t('filmEngineering.copyFailed'))
+        notifySuccess('filmEngineering.copiedCount', { message: ok ? t('filmEngineering.copiedCount') + ' ' + res.data.count + ' ' + t('filmEngineering.shotsUnit') : t('filmEngineering.copyFailed') })
         return ok
       }
-      ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.copyBatchFailed') }).message)
+      notifyWarning('filmEngineering.copyBatchFailed', { message: formatUserError(res, { fallback: t('filmEngineering.copyBatchFailed') }).message })
       return false
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.copyBatchFailed') }).message)
+      notifyWarning('filmEngineering.copyBatchFailed', { message: formatUserError(e, { fallback: t('filmEngineering.copyBatchFailed') }).message })
       return false
     }
   }
@@ -327,21 +329,21 @@ export function useFilmEngineering () {
 
   async function exportSelected (format) {
     const a = api()
-    if (!a) { ElMessage.warning(t('filmEngineering.noDesktopWarning')); return false }
-    if (selectedShotIds.value.length === 0) { ElMessage.warning(t('filmEngineering.selectFirst')); return false }
+    if (!a) { notifyWarning('filmEngineering.noDesktopWarning', { message: t('filmEngineering.noDesktopWarning') }); return false }
+    if (selectedShotIds.value.length === 0) { notifyWarning('filmEngineering.selectFirst', { message: t('filmEngineering.selectFirst') }); return false }
     exportLoading.value = true
     try {
       const res = await a.exportPrompts(selectedShotsPayload(), format)
       if (res && res.code === 0) {
         const text = res.data.export[format === 'markdown' ? 'markdown' : 'json']
         downloadText(text, res.data.fileName)
-        ElMessage.success(t('filmEngineering.exported') + ' ' + res.data.fileName)
+        notifySuccess('filmEngineering.exported', { message: t('filmEngineering.exported') + ' ' + res.data.fileName })
         return true
       }
-      ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.exportFailed') }).message)
+      notifyWarning('filmEngineering.exportFailed', { message: formatUserError(res, { fallback: t('filmEngineering.exportFailed') }).message })
       return false
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.exportFailed') }).message)
+      notifyWarning('filmEngineering.exportFailed', { message: formatUserError(e, { fallback: t('filmEngineering.exportFailed') }).message })
       return false
     } finally {
       exportLoading.value = false
@@ -350,25 +352,25 @@ export function useFilmEngineering () {
 
   async function generateSelected () {
     const a = api()
-    if (!a) { ElMessage.warning(t('filmEngineering.noDesktopWarning')); return false }
-    if (selectedShotIds.value.length === 0) { ElMessage.warning(t('filmEngineering.selectFirst')); return false }
-    if (selectedShotIds.value.length > 20) { ElMessage.warning(t('filmEngineering.maxGenerate')); return false }
+    if (!a) { notifyWarning('filmEngineering.noDesktopWarning', { message: t('filmEngineering.noDesktopWarning') }); return false }
+    if (selectedShotIds.value.length === 0) { notifyWarning('filmEngineering.selectFirst', { message: t('filmEngineering.selectFirst') }); return false }
+    if (selectedShotIds.value.length > 20) { notifyWarning('filmEngineering.maxGenerate', { message: t('filmEngineering.maxGenerate') }); return false }
     generating.value = true
     try {
       const res = await a.generateSelected(selectedShotsPayload(), { aspectRatio: '16:9' })
       if (res && res.code === 0) {
         const failed = (res.data.results || []).filter((r) => r.code !== 0)
         if (failed.length > 0) {
-          ElMessage.warning(t('filmEngineering.generatePartial') + ' ' + failed.length + ' ' + t('filmEngineering.generateFailed'))
+          notifyWarning('filmEngineering.generatePartial', { message: t('filmEngineering.generatePartial') + ' ' + failed.length + ' ' + t('filmEngineering.generateFailed') })
         } else {
-          ElMessage.success(t('filmEngineering.generateSubmitted') + ' ' + res.data.results.length + ' ' + t('filmEngineering.shotsUnit'))
+          notifySuccess('filmEngineering.generateSubmitted', { message: t('filmEngineering.generateSubmitted') + ' ' + res.data.results.length + ' ' + t('filmEngineering.shotsUnit') })
         }
         return res.data
       }
-      ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.generateFailedMsg') }).message)
+      notifyWarning('filmEngineering.generateFailedMsg', { message: formatUserError(res, { fallback: t('filmEngineering.generateFailedMsg') }).message })
       return null
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.generateFailedMsg') }).message)
+      notifyWarning('filmEngineering.generateFailedMsg', { message: formatUserError(e, { fallback: t('filmEngineering.generateFailedMsg') }).message })
       return null
     } finally {
       generating.value = false
@@ -377,7 +379,7 @@ export function useFilmEngineering () {
 
   async function adaptScript () {
     const a = api()
-    if (!a) { ElMessage.warning(t('filmEngineering.noDesktopWarning')); return false }
+    if (!a) { notifyWarning('filmEngineering.noDesktopWarning', { message: t('filmEngineering.noDesktopWarning') }); return false }
     const characterMap = {}
     for (const [k, v] of Object.entries(adapt.characterMap)) {
       if (typeof v === 'string' && v.trim()) characterMap[k] = v.trim()
@@ -390,13 +392,13 @@ export function useFilmEngineering () {
       if (res && res.code === 0) {
         adapt.adaptedShots = res.data.adaptedShots || []
         adapt.warnings = res.data.warnings || []
-        ElMessage.success(t('filmEngineering.adaptDone') + ' ' + adapt.adaptedShots.length + ' ' + t('filmEngineering.shotsUnit'))
+        notifySuccess('filmEngineering.adaptDone', { message: t('filmEngineering.adaptDone') + ' ' + adapt.adaptedShots.length + ' ' + t('filmEngineering.shotsUnit') })
         return true
       }
-      ElMessage.warning(formatUserError(res, { fallback: t('filmEngineering.adaptFailed') }).message)
+      notifyWarning('filmEngineering.adaptFailed', { message: formatUserError(res, { fallback: t('filmEngineering.adaptFailed') }).message })
       return false
     } catch (e) {
-      ElMessage.warning(formatUserError(e, { fallback: t('filmEngineering.adaptFailed') }).message)
+      notifyWarning('filmEngineering.adaptFailed', { message: formatUserError(e, { fallback: t('filmEngineering.adaptFailed') }).message })
       return false
     } finally {
       adapt.loading = false
@@ -406,7 +408,7 @@ export function useFilmEngineering () {
   async function copyAdaptedShot (shot, index) {
     // 套用分镜为前端本地产物（虚拟 shotId），不经过主进程 copy-texts，直接写剪贴板
     const ok = await writeClipboard(shot.prompt || '')
-    ElMessage.success(ok ? t('filmEngineering.copiedShot') + ' ' + (index + 1) + ' ' + t('filmEngineering.promptCopied') : t('filmEngineering.copyFailed'))
+    notifySuccess('filmEngineering.copiedShot', { message: ok ? t('filmEngineering.copiedShot') + ' ' + (index + 1) + ' ' + t('filmEngineering.promptCopied') : t('filmEngineering.copyFailed') })
     return ok
   }
 

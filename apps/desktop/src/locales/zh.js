@@ -33,6 +33,16 @@ export default {
     userKeySaved: '用户 Key 已保存',
     saveUserKeyFailed: '保存用户 Key 失败',
   },
+  publishDrafts: {
+    loadFailed: '草稿读取失败',
+    emptyTitleContent: '标题和内容不能都为空',
+    saveFailed: '草稿保存失败',
+    saved: '草稿已保存',
+    notFound: '草稿不存在或已被删除',
+    loaded: '已加载草稿',
+    deleteFailed: '草稿删除失败',
+    deleted: '草稿已删除',
+  },
   nav: {
     home: '首页',
     accounts: '账号管理',
