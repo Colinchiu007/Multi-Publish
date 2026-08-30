@@ -155,6 +155,74 @@ LLM 改写结果仍需 `validateRewriteSafety` 校验，仍含高危词则不发
 
 ---
 
+## 五·补、实际改写效果示例（用真实代码验证，2026-08-30）
+
+> 以下效果用真实代码 `buildContentPolicySafePrompt` / `validateRewriteSafety` 运行验证。
+> **重要**：`validateRewriteSafety` 只用于「原文」和「LLM 改写结果」，**不用于模板改写版**——模板改写版含否定句高危词（`Do not depict graphic violence...`）是指令而非内容，生产代码不经过自检。
+
+### 5.1 模板改写效果（按敏感类型 + 保留背景/锚点）
+
+以场景「唐代，中国，老妇人，厨房，油灯」（contextBlock + anchors）为例：
+
+| 敏感类型 | 改写指令（英文） | 保留背景/锚点 | 拼入原文 |
+|---------|----------------|--------------|---------|
+| violence | Depict the scene as a tense conflict atmosphere with no blood, wounds, weapons, or graphic detail. | 唐代，中国，老妇人，厨房，油灯 / 唐代、油灯 | 两人激烈搏斗，血流满地，手持利刃 |
+| sexual | Depict the scene in a modest, non-explicit, age-appropriate way with no nudity or sexual content. | 同上 | 一名女子穿着暴露，姿态挑逗 |
+| portrait | Depict only a fictional, non-identifying character; do not reproduce any real person likeness. | 同上 | 酷似某知名明星的年轻男子 |
+| political | Depict the scene without any political figures, symbols, or references. | 同上 | 广场上聚集人群，挥舞旗帜，背景是政府大楼 |
+| minor | Depict only adult characters; do not depict any minors or child-like figures. | 同上 | a child in a classroom |
+| selfharm | Depict a calm, hopeful scene with no self-harm, injury, or distress. | 同上 | 一个人独自在房间，手臂上有伤痕，神情绝望 |
+| unknown | Replace sensitive people, actions, and details with symbolic, non-identifying alternatives. | 同上 | 诡异的场景，无法描述的内容 |
+
+**模板改写完整结构**（以 violence 为例）：
+
+```
+Generate a policy-compliant, age-appropriate visual interpretation for scene 3.
+Depict the scene as a tense conflict atmosphere with no blood, wounds, weapons, or graphic detail.
+Do not depict graphic violence, nudity, sexual content, minors, self-harm, illegal activity, hate symbols, real-person likenesses, or readable text.
+Preserve this scene background: 唐代，中国，老妇人，厨房，油灯.
+Keep these visual anchors: 唐代, 油灯.
+Scene source to adapt:
+两人激烈搏斗，血流满地，手持利刃
+```
+
+### 5.2 改写前自检（针对原文）
+
+`validateRewriteSafety(原文)` 决定是否升级 LLM：
+
+| 原文 | 自检结果 | 决策 |
+|------|---------|------|
+| a child in a classroom | ⚠️ 含 child | 升级 LLM 改写 |
+| self-harm scene | ⚠️ 含 self-harm | 升级 LLM 改写 |
+| 两人激烈搏斗，血流满地（中文） | ✅ 安全（英文正则不命中中文） | 走模板改写 |
+| 一位老妇人在厨房里点油灯 | ✅ 安全 | 走模板改写 |
+
+### 5.3 LLM 改写结果自检（针对 LLM 输出）
+
+`validateRewriteSafety(LLM输出)` 决定是否发送给图片模型：
+
+| LLM 输出 | 自检结果 | 决策 |
+|---------|---------|------|
+| a young student in a classroom | ✅ 安全 | 发送 |
+| a child playing in a classroom | ⚠️ 仍含 child | 不发送，交用户 |
+| 两人紧张对峙（中文） | ✅ 安全 | 发送 |
+| a calm scene but self-harm implied | ⚠️ 仍含 self-harm | 不发送，交用户 |
+
+### 5.4 LLM 改写效果示例（应用内 `aiGenerator.generateWithDefault('llm')`）
+
+输入：敏感类型 + 场景背景/锚点 + 原始提示词；输出：替换敏感元素、保留背景的安全提示词。
+
+| 原始提示词 | LLM 改写结果 |
+|-----------|-------------|
+| a child in a classroom | a young student in a classroom |
+| 两人激烈搏斗，血流满地 | 两人紧张对峙，气氛凝重 |
+| 手臂上有伤痕，神情绝望 | 安静地坐在窗边，神情平静 |
+| 穿着暴露，姿态挑逗 | 穿着得体，姿态端庄 |
+
+**改写目标文字**：保留场景背景和视觉风格，把敏感元素替换为象征性、非特定身份、适龄、无血腥/裸露/政治/儿童/自伤的安全描述。
+
+---
+
 ## 六、涉及文件
 
 | 文件 | 职责 |
