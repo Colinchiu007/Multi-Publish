@@ -5275,13 +5275,13 @@ describe("pipeline:update 实时推送（openspec pipeline-progress-real-time-pu
     w.vm.orchestrationRunId = "run-1";
     w.vm.orchestrationStages = [{ name: "generate_assets", status: "running" }];
     w.vm.pipelineRunStatus = { status: "running", progress: 50, stages: [{ name: "generate_assets", status: "running" }] };
-    w.vm._s2vContentRewriteToastShown = false;
+    w.vm.s2vContentRewriteToastShown = false;
 
     const rewritingStage = { name: "generate_assets", status: "running", progress: { percent: 50, messageKey: "stageProgress.assetsImageRewriting", messageParams: { images: 69, imagesTotal: 70 } } };
     w.vm.handlePipelinePush({ runId: "run-1", status: { status: "running", currentStage: 4, progress: 50 }, stages: [rewritingStage], progressOnly: true });
     await nextTick();
     expect(w.vm.s2vOptionsToast).toContain("检测到敏感内容");
-    expect(w.vm._s2vContentRewriteToastShown).toBe(true);
+    expect(w.vm.s2vContentRewriteToastShown).toBe(true);
 
     // 再次收到改写事件不重复弹 toast
     w.vm.s2vOptionsToast = "";

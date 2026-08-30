@@ -2029,7 +2029,7 @@ export default {
       s2vOptionsToast: '',
       s2vCloneOpen: false,
       s2vOptionsToastTimer: null,
-      _s2vContentRewriteToastShown: false,
+      s2vContentRewriteToastShown: false,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoRunDeleteDialog: { visible: false, runId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
@@ -2058,7 +2058,7 @@ export default {
       s2vConfigProfileApplying: false,
       s2vConfigProfileDeleteDialogOpen: false,
       s2vConfigProfileDeleteTarget: null,
-      _s2vConfigProfileListRequestId: 0,
+      s2vConfigProfileListRequestId: 0,
       s2vConfigProfileError: '',
       // 批量创作（2026-08-15 story2video-batch-create）：弹窗状态 / 输入源 / 队列展示
       s2vBatchDialogOpen: false,
@@ -3083,24 +3083,24 @@ export default {
         JSON.stringify(this.outputConfig) !== JSON.stringify(legacy.outputConfig)
     },
     async loadS2VConfigProfiles({ quiet = false } = {}) {
-      const requestId = (this._s2vConfigProfileListRequestId || 0) + 1
-      this._s2vConfigProfileListRequestId = requestId
+      const requestId = (this.s2vConfigProfileListRequestId || 0) + 1
+      this.s2vConfigProfileListRequestId = requestId
       this.s2vConfigProfilesLoading = true
       this.s2vConfigProfileError = ''
       try {
         const result = await story2videoConfigProfileList()
-        if (requestId !== this._s2vConfigProfileListRequestId) return
+        if (requestId !== this.s2vConfigProfileListRequestId) return
         const data = result && result.code === 0 ? result.data : null
         if (!Array.isArray(data)) throw new Error(result?.message || '配置列表加载失败')
         this.s2vConfigProfiles = Array.isArray(data)
           ? data.slice().sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
           : data
       } catch (error) {
-        if (requestId !== this._s2vConfigProfileListRequestId) return
+        if (requestId !== this.s2vConfigProfileListRequestId) return
         this.s2vConfigProfileError = error?.message || '配置列表加载失败'
         if (!quiet) this.showS2VOptionsToast(this.s2vConfigProfileError, 2200)
       } finally {
-        if (requestId === this._s2vConfigProfileListRequestId) this.s2vConfigProfilesLoading = false
+        if (requestId === this.s2vConfigProfileListRequestId) this.s2vConfigProfilesLoading = false
       }
     },
     async openS2VConfigProfileSave() {
@@ -3112,7 +3112,7 @@ export default {
     },
     closeS2VConfigProfileSave() {
       this.s2vConfigProfileDialogOpen = false
-      this._s2vConfigProfileListRequestId = (this._s2vConfigProfileListRequestId || 0) + 1
+      this.s2vConfigProfileListRequestId = (this.s2vConfigProfileListRequestId || 0) + 1
       this.s2vConfigProfilesLoading = false
       this.s2vConfigProfileNameDraft = ''
       this.s2vConfigProfileOverwriteNeeded = false
@@ -3166,7 +3166,7 @@ export default {
     },
     closeS2VConfigProfileList() {
       this.s2vConfigProfileListOpen = false
-      this._s2vConfigProfileListRequestId = (this._s2vConfigProfileListRequestId || 0) + 1
+      this.s2vConfigProfileListRequestId = (this.s2vConfigProfileListRequestId || 0) + 1
       this.s2vConfigProfilesLoading = false
       this.s2vConfigProfileRenamingId = ''
     },
@@ -5126,8 +5126,8 @@ export default {
       const rewriting = Array.isArray(stages) && stages.some(stage =>
         stage && stage.progress && stage.progress.messageKey === 'stageProgress.assetsImageRewriting')
       if (!rewriting) return
-      if (this._s2vContentRewriteToastShown) return
-      this._s2vContentRewriteToastShown = true
+      if (this.s2vContentRewriteToastShown) return
+      this.s2vContentRewriteToastShown = true
       this.showS2VOptionsToast(this.$t('create.story2video.contentPolicyRewriteToast'), 3200)
     },
     restartOrchestrationPolling() {
@@ -5254,7 +5254,7 @@ export default {
     async resetPipelineToNewTaskState({ toastKey, fallbackZh, fallbackEn, durationMs = 4000 } = {}) {
       this.orchestrationStartRequestId += 1
       this.pipelineStatusRequestId += 1
-      this._s2vContentRewriteToastShown = false
+      this.s2vContentRewriteToastShown = false
       this.stopPipelinePolling()
       this.resetPipelineUiState()
       this.selectedPipeline = null
