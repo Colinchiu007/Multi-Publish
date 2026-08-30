@@ -12,6 +12,7 @@
  *   - element-plus：ElMessage / ElMessageBox 展示
  */
 import { ElMessage, ElMessageBox } from 'element-plus'
+import i18n from '@/i18n'
 import { notifyText, reportNotify } from '@/utils/notifyCore'
 
 /**
@@ -82,8 +83,8 @@ export function useNotify () {
     reportNotify(messageKey, { ...options, level: 'confirm' })
     try {
       await ElMessageBox.confirm(text, options.title || '', {
-        confirmButtonText: options.confirmButtonText || '确定',
-        cancelButtonText: options.cancelButtonText || '取消',
+        confirmButtonText: options.confirmButtonText || i18n.global.t('common.confirm'),
+        cancelButtonText: options.cancelButtonText || i18n.global.t('common.cancel'),
         type: options.type || 'warning',
       })
       return true
