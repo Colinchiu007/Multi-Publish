@@ -26,6 +26,17 @@ describe('notifyCore — 文案解析', () => {
     expect(result.text).toContain('30')
   })
 
+  it('支持 message function 叶子（(ctx) => ctx.named()）', () => {
+    const result = resolveNotifyText('publishPage.batchNotify.progressTaskSuccess', {
+      platform: 'wechat_mp',
+      title: '标题A',
+    }, 'zh')
+    expect(result.resolved).toBe(true)
+    expect(result.text).toContain('wechat_mp')
+    expect(result.text).toContain('标题A')
+    expect(result.text).toContain('发布成功')
+  })
+
   it('未知 messageKey → resolved=false，text 为空', () => {
     const result = resolveNotifyText('nonexistent.key', {}, 'zh')
     expect(result.resolved).toBe(false)

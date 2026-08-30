@@ -30,21 +30,32 @@ function defaultLocale () {
   }
 }
 
-/** 从 locales 树按点分路径取文案叶子。 */
+/** 从 locales 树按点分路径取文案叶子（string 或 message function）。 */
 function localeMessageSource (locale, key) {
   const tree = LOCALE_TREES[normalizeLocale(locale)] || LOCALE_TREES.zh
   const leaf = String(key || '').split('.').reduce(
     (acc, part) => (acc && typeof acc === 'object' ? acc[part] : undefined),
     tree,
   )
-  return typeof leaf === 'string' ? leaf : undefined
+  if (typeof leaf === 'string' || typeof leaf === 'function') return leaf
+  return undefined
 }
 
-/** 模板插值：{name} → params[name]（与 story2video-notifications 对齐）。 */
+/**
+ * 模板插值：
+ *  - message function 叶子（(ctx) => '...' + ctx.named('x') + '...'）→ 构造 ctx 调用
+ *  - 字符串叶子（含 {name} 占位符）→ 正则替换（与 story2video-notifications 对齐）
+ */
 function interpolateMessage (template, params) {
+  if (typeof template === 'function') {
+    return template({ named: (name) => {
+      const value = params && params[name]
+      return value == null ? '' : String(value)
+    } })
+  }
   return String(template || '').replace(/\{([^{}]+)\}/g, (_placeholder, name) => {
     const value = params && params[name]
-    return String(value ?? '')
+    return value == null ? '' : String(value)
   })
 }
 
