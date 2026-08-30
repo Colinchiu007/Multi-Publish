@@ -61,7 +61,51 @@ describe('classifyProviderFailure — 空响应/缺失数据按瞬时错误处�
     expect(classifyProviderFailure(error)).toBe('transient')
   })
 
-  it('普通 500/未知错误仍为 other，不重试', () => {
-    expect(classifyProviderFailure(new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'Internal error'))).toBe('other')
+  it('普通未知错误仍为 other，不重试', () => {
+    expect(classifyProviderFailure(new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'Unknown provider error'))).toBe('other')
+  })
+})
+
+describe('classifyProviderFailure — 上游服务端/网络瞬时错误按 transient 重试（2026-08-30 复盘 mtelxg9v_v5d6）', () => {
+  const { classifyProviderFailure } = require('./provider-error')
+
+  it('MiniMax 生图 "system error" → transient，可短退避重试', () => {
+    const error = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'system error', { providerId: 'minimax-multimodal' })
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('agnes-image "fetch failed" → transient，可短退避重试', () => {
+    const error = new ProviderError(ERROR_CODES.NETWORK_ERROR, 'fetch failed', { providerId: 'agnes-image' })
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('HTTP 500 服务端错误 → transient，可短退避重试', () => {
+    const error = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'server error', { providerId: 'openai-image', statusCode: 500 })
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('HTTP 503 网关不可用 → transient，可短退避重试', () => {
+    const error = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'Service Unavailable', { providerId: 'minimax-multimodal', statusCode: 503 })
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('socket hang up → transient，可短退避重试', () => {
+    const error = new ProviderError(ERROR_CODES.NETWORK_ERROR, 'socket hang up', { providerId: 'agnes-image' })
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('认证失败仍不重试（不被 5xx/瞬时模式误判）', () => {
+    const error = new ProviderError(ERROR_CODES.AUTH_FAILED, 'Invalid API key', { providerId: 'minimax', statusCode: 401 })
+    expect(classifyProviderFailure(error)).toBe('other')
+  })
+
+  it('额度耗尽仍不重试（不被 5xx/瞬时模式误判）', () => {
+    const error = new ProviderError(ERROR_CODES.QUOTA_EXCEEDED, 'Insufficient balance', { providerId: 'minimax', statusCode: 402 })
+    expect(classifyProviderFailure(error)).toBe('quota')
+  })
+
+  it('限流仍归为 rate（不被 5xx/瞬时模式误判）', () => {
+    const error = new ProviderError(ERROR_CODES.RATE_LIMITED, 'rate limit reached', { providerId: 'minimax', statusCode: 429 })
+    expect(classifyProviderFailure(error)).toBe('rate')
   })
 })

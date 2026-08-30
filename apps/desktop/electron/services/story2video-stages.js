@@ -35,7 +35,7 @@ const {
   needsUserInputMessage,
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
-const { classifyProviderFailure } = require('./adapters/_base/provider-error');
+const { classifyProviderFailure, TRANSIENT_MESSAGE_PATTERN } = require('./adapters/_base/provider-error');
 const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
@@ -1199,7 +1199,9 @@ function messageOf(value) {
 }
 
 const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|queue\s*(?:is\s+)?full|队列.*(?:满|饱和)/i;
-const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|aborted|超时|网络/i;
+// 复用 provider-error 的瞬时故障信号（含 fetch failed / system error / 5xx 等），
+// 保证抛错路径（classifyProviderFailure）与返回结果路径（isTransientOutcomeLike）判定一致。
+const TRANSIENT_PATTERN = TRANSIENT_MESSAGE_PATTERN;
 
 function outcomeTextOf(value) {
   if (value && typeof value === 'object') {

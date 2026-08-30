@@ -1406,6 +1406,62 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(calls).toHaveBeenCalledTimes(1)
   })
 
+  it('上游 "system error" 抛错型错误按瞬时重试后恢复（回归 mtelxg9v_v5d6）', async () => {
+    vi.useFakeTimers()
+    const calls = vi.fn()
+    const promise = withAssetTransientRetry(() => {
+      calls()
+      if (calls.mock.calls.length === 1) throw new Error('Image provider "minimax-multimodal" failed: system error')
+      return { code: 0, data: { path: 'img-0.png' } }
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const result = await promise
+    expect(result).toMatchObject({ code: 0 })
+    expect(calls).toHaveBeenCalledTimes(2)
+  })
+
+  it('上游 "fetch failed" 抛错型错误按瞬时重试后恢复（回归 mtelxg9v_v5d6）', async () => {
+    vi.useFakeTimers()
+    const calls = vi.fn()
+    const promise = withAssetTransientRetry(() => {
+      calls()
+      if (calls.mock.calls.length === 1) throw new Error('Image provider "agnes-image" failed: fetch failed')
+      return { code: 0, data: { path: 'img-0.png' } }
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const result = await promise
+    expect(result).toMatchObject({ code: 0 })
+    expect(calls).toHaveBeenCalledTimes(2)
+  })
+
+  it('上游 "system error" 结果对象按瞬时重试后恢复（回归 mtelxg9v_v5d6）', async () => {
+    vi.useFakeTimers()
+    const calls = vi.fn()
+    const promise = withAssetTransientRetry(() => {
+      calls()
+      if (calls.mock.calls.length === 1) return { code: -1, message: 'Image provider "minimax-multimodal" failed: system error' }
+      return { code: 0, data: { path: 'img-0.png' } }
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const result = await promise
+    expect(result).toMatchObject({ code: 0 })
+    expect(calls).toHaveBeenCalledTimes(2)
+  })
+
+  it('上游 "fetch failed" 结果对象按瞬时重试后恢复（回归 mtelxg9v_v5d6）', async () => {
+    vi.useFakeTimers()
+    const calls = vi.fn()
+    const promise = withAssetTransientRetry(() => {
+      calls()
+      if (calls.mock.calls.length === 1) return { code: -1, message: 'Image provider "agnes-image" failed: fetch failed' }
+      return { code: 0, data: { path: 'img-0.png' } }
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const result = await promise
+    expect(result).toMatchObject({ code: 0 })
+    expect(calls).toHaveBeenCalledTimes(2)
+  })
+
   it('提示词优化遇到限流时用更长退避重试并恢复', async () => {
     vi.useFakeTimers()
     const fn = makePipeline(null).optimizeExecutor

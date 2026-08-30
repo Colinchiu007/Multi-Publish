@@ -4518,6 +4518,7 @@ export default {
           this.closeStory2VideoErrorDialog()
           this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(res.data)
           this.pipelineRunStatus = { status: 'running', progress: 0, stages: this.orchestrationStages }
+          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.resumeUsesCurrentModels', '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。', 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.'), 3200)
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
             this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
@@ -5289,6 +5290,10 @@ export default {
         this.showS2VOptionsToast(
           this.translateWithLocaleFallback(toastKey, 'backgroundResumeToast', 'Pipeline resumed in the background. Tracking progress…'),
           3000
+        )
+        this.showS2VOptionsToast(
+          this.translateWithLocaleFallback('create.story2video.resumeUsesCurrentModels', '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。', 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.'),
+          3200
         )
       }
       await this.updateOrchestrationStatus()

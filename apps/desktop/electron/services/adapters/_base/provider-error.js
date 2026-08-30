@@ -141,6 +141,15 @@ const RATE_LIMIT_MESSAGE_PATTERN = /\brate[\s_-]?limit\b|too\s+many\s+requests|�
 const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[^\n]{0,40}\b(?:quota|balance|token|credit)s?\b|(?:quota|balance|token|credit)s?[^\n]{0,40}\b(?:exceeded|insufficient|exhausted)\b|(?:usage|token\s*plan)[^\n]{0,30}\blimit\b|(?:用量|额度|配额)[^\n]{0,16}(?:上限|不足|不够|超出|超限|耗尽)|达到额度上限|余额不足|insufficient\s+balance|billing|payment\s+required/i
 
 /**
+ * 上游瞬时故障信号（可短退避重试，非用户/配置/额度/内容问题）：
+ * - 传输层：超时、连接重置/拒绝、DNS、fetch failed、socket hang up、aborted
+ * - 服务端 5xx：system error / internal server error / server error / 网关 502/503/504
+ * 2026-08-30 复盘：MiniMax 生图返回 "system error"、agnes-image 返回 "fetch failed" 曾因
+ * 未命中本模式被归为 'other' 不重试，导致单次上游抖动整条流水线失败（mtelxg9v_v5d6）。
+ */
+const TRANSIENT_MESSAGE_PATTERN = /\btimed?\s*out\b|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|network\s*error|fetch\s+failed|socket\s+hang\s+up|aborted|超时|网络|(?:system|server|internal|gateway|upstream|bad\s+gateway)\s*(?:error|failure)|5\d\d\s*(?:error|server)|internal\s+server\s+error/i
+
+/**
  * 统一把 provider 失败归类为五类，供限流/排队/重试网关决策：
  * - 'rate'           → 触发频率限制（429 / RATE_LIMITED），可等待冷却后重试
  * - 'quota'          → 额度/余额/套餐配额耗尽（402 / QUOTA_EXCEEDED），不重试，需用户处理
@@ -186,10 +195,13 @@ function classifyProviderFailure(error) {
   if (statusCode === 402 || code === ERROR_CODES.QUOTA_EXCEEDED) return 'quota'
   if (code === ERROR_CODES.TIMEOUT || code === ERROR_CODES.NETWORK_ERROR) return 'transient'
   if (code === ERROR_CODES.CONTENT_POLICY) return 'content_policy'
+  // HTTP 5xx（500/502/503/504）：上游服务端瞬时故障，短退避重试（2026-08-30 复盘）。
+  // 认证/额度/限流已在上方拦截，此处 5xx 不会与用户/配置问题混淆。
+  if (statusCode >= 500 && statusCode <= 599) return 'transient'
 
   if (RATE_LIMIT_MESSAGE_PATTERN.test(message)) return 'rate'
   if (QUOTA_MESSAGE_PATTERN.test(message)) return 'quota'
-  if (/\btimed?\s*out\b|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i.test(message)) return 'transient'
+  if (TRANSIENT_MESSAGE_PATTERN.test(message)) return 'transient'
   // 空响应/缺失数据：供应商 200 但未返回可用内容（如 MiniMax TTS 缺 audio、生图空 image_urls），
   // 多为瞬时服务抖动，按 transient 短退避重试（E2E：11:56/12:05 TTS Missing audio data 曾致整线失败）。
   if (/missing\s+(?:audio\s+)?data\s+in\s+response|did\s+not\s+return\s+(?:a\s+)?supported|returned\s+no\s+(?:image|audio)\s+(?:result|data)|empty\s+response|empty\s+image_urls/i.test(message)) return 'transient'
@@ -197,4 +209,4 @@ function classifyProviderFailure(error) {
   return 'other'
 }
 
-module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN }
+module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN, TRANSIENT_MESSAGE_PATTERN }
