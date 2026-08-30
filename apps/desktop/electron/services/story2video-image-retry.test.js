@@ -336,3 +336,158 @@ describe('结构化审计（2026-08-30 方案层 4）', () => {
     expect(JSON.stringify(audit)).not.toContain('两人冲突氛围')
   })
 })
+
+describe('敏感类型分级（方案层 1 增强，2026-08-30）', () => {
+  const { CONTENT_POLICY_SEVERITY, runContentPolicyImageRetry } = require('./story2video-image-retry')
+  const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+
+  it('CONTENT_POLICY_SEVERITY 标注各敏感类型严重度（供改写指令强度参考，不用于直接交用户）', () => {
+    expect(CONTENT_POLICY_SEVERITY.minor).toBe('severe')
+    expect(CONTENT_POLICY_SEVERITY.selfharm).toBe('severe')
+    expect(CONTENT_POLICY_SEVERITY.political).toBe('severe')
+    expect(CONTENT_POLICY_SEVERITY.violence).toBe('mild')
+    expect(CONTENT_POLICY_SEVERITY.sexual).toBe('mild')
+    expect(CONTENT_POLICY_SEVERITY.portrait).toBe('mild')
+    expect(CONTENT_POLICY_SEVERITY.unknown).toBe('mild')
+  })
+
+  it('severe 敏感类型（minor）也走自动改写重试，不直接交用户（2026-08-30 用户决策：程序/LLM 自动解决）', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation child'))
+      .mockResolvedValueOnce({ image: 'ok' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '儿童场景',
+      sceneIndex: 0,
+      generate,
+    })
+
+    // 自动改写重试成功，不交用户
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(result.status).toBe('success')
+    expect(generate.mock.calls[1][0].promptStrategy).toBe('content_policy_safe_rewrite')
+  })
+
+  it('severe 敏感类型（selfharm）也走自动改写重试', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation self harm'))
+      .mockResolvedValueOnce({ image: 'ok' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '自伤场景',
+      sceneIndex: 1,
+      generate,
+    })
+
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(result.status).toBe('success')
+  })
+
+  it('mild 敏感类型（violence）走改写重试', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation violence'))
+      .mockResolvedValueOnce({ image: 'ok' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '暴力场景',
+      sceneIndex: 2,
+      generate,
+    })
+
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(result.status).toBe('success')
+    expect(generate.mock.calls[1][0].promptStrategy).toBe('content_policy_safe_rewrite')
+  })
+
+  it('unknown 类型走改写重试（保守策略，避免漏判整线失败）', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+      .mockResolvedValueOnce({ image: 'ok' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '未知敏感场景',
+      sceneIndex: 3,
+      generate,
+    })
+
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(result.status).toBe('success')
+  })
+})
+
+describe('改写自检与 LLM 改写升级（方案层 3 增强，2026-08-30）', () => {
+  const { runContentPolicyImageRetry } = require('./story2video-image-retry')
+  const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+
+  it('原文含高危敏感词时，模板改写版（拼入原文）仍含高危词 → 升级 LLM 改写（若提供），不直接交用户', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+      .mockResolvedValueOnce({ image: 'ok' })
+    const rewriteWithLLM = vi.fn(async () => 'a young student in a classroom')
+
+    const result = await runContentPolicyImageRetry({
+      prompt: 'a child in a classroom',
+      sceneIndex: 0,
+      generate,
+      rewriteWithLLM,
+    })
+
+    // 模板改写自检失败 → 升级 LLM 改写 → 成功
+    expect(result.status).toBe('success')
+    expect(rewriteWithLLM).toHaveBeenCalledTimes(1)
+    expect(generate).toHaveBeenCalledTimes(2)
+    // 第 2 次使用 LLM 改写结果
+    expect(generate.mock.calls[1][0].prompt).toContain('young student')
+    expect(generate.mock.calls[1][0].promptStrategy).toBe('llm_safe_rewrite')
+  })
+
+  it('未提供 rewriteWithLLM 时，模板改写自检失败 → 交用户（兜底）', async () => {
+    const generate = vi.fn(async () => {
+      throw new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation')
+    })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: 'a child in a classroom',
+      sceneIndex: 0,
+      generate,
+    })
+
+    expect(result.status).toBe('needs_user_input')
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(generate.mock.calls[0][0].promptStrategy).toBe('original')
+  })
+
+  it('模板改写自检通过时正常发送改写版并重试', async () => {
+    const generate = vi.fn()
+      .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+      .mockResolvedValueOnce({ image: 'ok' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '两人激烈搏斗流血',
+      sceneIndex: 0,
+      generate,
+    })
+
+    expect(result.status).toBe('success')
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[1][0].promptStrategy).toBe('content_policy_safe_rewrite')
+  })
+
+  it('LLM 改写结果仍含高危词时，不发送，交用户（安全兜底）', async () => {
+    const generate = vi.fn(async () => {
+      throw new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation')
+    })
+    const rewriteWithLLM = vi.fn(async () => 'a child playing')
+
+    const result = await runContentPolicyImageRetry({
+      prompt: 'a child in a classroom',
+      sceneIndex: 0,
+      generate,
+      rewriteWithLLM,
+    })
+
+    // LLM 改写结果仍含 child → 不发送，交用户
+    expect(result.status).toBe('needs_user_input')
+    expect(generate).toHaveBeenCalledTimes(1)
+  })
+})

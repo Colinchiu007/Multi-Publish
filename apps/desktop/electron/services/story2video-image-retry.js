@@ -109,6 +109,23 @@ const CONTENT_POLICY_REWRITE_STRATEGIES = Object.freeze({
 })
 
 /**
+ * 敏感类型分级（方案层 1 增强，2026-08-30）。
+ * 标注各敏感类型的严重度，供改写指令强度参考（severe 需更强改写）。
+ * 注意：severe 不用于「直接交用户」决策——所有敏感类型都走自动改写（模板→LLM 升级），
+ * 仅当自动改写全部失败才交用户（2026-08-30 用户决策：程序/LLM 自动解决）。
+ * @type {Object<string, 'mild'|'severe'>}
+ */
+const CONTENT_POLICY_SEVERITY = Object.freeze({
+  violence: 'mild',
+  sexual: 'mild',
+  portrait: 'mild',
+  political: 'severe',
+  minor: 'severe',
+  selfharm: 'severe',
+  unknown: 'mild',
+})
+
+/**
  * 生成发送给供应商的按场景安全化改写；调用方不得把返回的 prompt 写入审计数据。
  * 支持按敏感类型差异化改写，并注入 scene_context 锚点（contextBlock/anchors）保留原文背景。
  * @param {string} prompt 原始提示词
@@ -206,9 +223,9 @@ function createAttemptAudit (attempt, sceneIndex, promptStrategy, outcome, categ
   return audit
 }
 
-function createContentPolicyCheckpoint (sceneIndex, attempts) {
+function createContentPolicyCheckpoint (sceneIndex, attempts, sensitiveType) {
   const sceneNumber = sceneIndex + 1
-  return {
+  const checkpoint = {
     type: 'needs_user_input',
     status: 'needs_user_input',
     reason: 'content_policy',
@@ -218,6 +235,8 @@ function createContentPolicyCheckpoint (sceneIndex, attempts) {
     attempts,
     recommendation: '请将第 ' + sceneNumber + ' 个场景改为更抽象、非露骨且不含敏感人物或动作的描述后重试。',
   }
+  if (typeof sensitiveType === 'string' && sensitiveType) checkpoint.sensitiveType = sensitiveType
+  return checkpoint
 }
 
 function createEmptyResultCheckpoint (sceneIndex, attempts) {
@@ -246,8 +265,12 @@ function createEmptyResultCheckpoint (sceneIndex, attempts) {
  * @param {object} [opts.sceneContext] scene_context 上下文（方案层 2）：{ contextBlock, anchors }
  * @param {string} [opts.sceneContext.contextBlock] 场景上下文块（时代/地域/角色/视觉风格）
  * @param {string[]} [opts.sceneContext.anchors] 场景一致性锚点
+ * @param {Function} [opts.rewriteWithLLM] 可选 LLM 改写回调（方案层 3 增强）：模板改写自检失败
+ *   （原文含高危敏感词，改写版必然仍含）时，调用它做真正的语义改写（替换敏感内容、保留原意）。
+ *   签名：async ({ prompt, sensitiveType, sceneIndex, contextBlock, anchors }) => string（改写后的安全提示词）。
+ *   未提供时，模板改写自检失败则直接交用户（兜底）。
  */
-async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite, sceneContext }) {
+async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite, sceneContext, rewriteWithLLM }) {
   if (typeof generate !== 'function') throw new TypeError('generate must be a function')
 
   const normalizedSceneIndex = normalizeSceneIndex(sceneIndex)
@@ -278,6 +301,28 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       sensitiveType,
     })
     promptStrategy = 'content_policy_safe_rewrite'
+  }
+
+  /**
+   * 方案层 3 增强：模板改写自检失败（原文含高危敏感词，改写版必然仍含）时，
+   * 优先升级 LLM 改写（真正替换敏感内容、保留原意），避免直接交用户。
+   * 未提供 LLM 改写回调则返回 null（调用方交用户兜底）。
+   * @returns {Promise<string|null>} 改写后的安全提示词，或 null（无 LLM 改写能力）
+   */
+  const rewriteWithLLMFallback = async () => {
+    if (typeof rewriteWithLLM !== 'function') return null
+    const llmPrompt = await rewriteWithLLM({
+      prompt: originalPrompt,
+      sensitiveType,
+      sceneIndex: normalizedSceneIndex,
+      contextBlock,
+      anchors,
+    })
+    const safe = typeof llmPrompt === 'string' && llmPrompt.trim()
+    if (!safe) return null
+    // LLM 改写结果仍需安全校验，仍含高危词则视为失败（不发送给供应商）
+    if (!validateRewriteSafety(llmPrompt).safe) return null
+    return llmPrompt.trim()
   }
 
   for (let attempt = 1; attempt <= attemptLimit; attempt++) {
@@ -335,18 +380,38 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
         'content_policy_rejected',
         'content_policy',
       ))
-      if (attempt === attemptLimit) {
-        return {
-          status: 'needs_user_input',
-          attempts,
-          checkpoint: createContentPolicyCheckpoint(normalizedSceneIndex, attempt),
-        }
-      }
 
       // 提取敏感类型（方案层 1），用于差异化改写（方案层 2）
       sensitiveType = classifyContentPolicyType(
         error?.message || error?.status_msg || error?.context?.status_msg || ''
       )
+
+      if (attempt === attemptLimit) {
+        return {
+          status: 'needs_user_input',
+          attempts,
+          checkpoint: createContentPolicyCheckpoint(normalizedSceneIndex, attempt, sensitiveType),
+        }
+      }
+
+      // 方案层 3 增强：改写前自检原文。若原文本身含高危敏感词（child/minor/self-harm 等），
+      // 模板改写版会把原文拼入（Scene source to adapt）必然仍含高危词，模板改写无意义。
+      // 此时优先升级 LLM 改写（真正替换敏感内容、保留原意）；无 LLM 能力则交用户兜底。
+      if (!validateRewriteSafety(originalPrompt).safe) {
+        const llmPrompt = await rewriteWithLLMFallback()
+        if (llmPrompt) {
+          currentPrompt = llmPrompt
+          promptStrategy = 'llm_safe_rewrite'
+          notifyRewrite()
+          continue
+        }
+        return {
+          status: 'needs_user_input',
+          attempts,
+          checkpoint: createContentPolicyCheckpoint(normalizedSceneIndex, attempt, sensitiveType),
+        }
+      }
+
       rewritePrompt()
       notifyRewrite()
     }
@@ -369,6 +434,7 @@ function needsUserInputMessage (checkpoint) {
 module.exports = {
   MAX_IMAGE_GENERATION_ATTEMPTS,
   CONTENT_POLICY_REWRITE_STRATEGIES,
+  CONTENT_POLICY_SEVERITY,
   buildContentPolicySafePrompt,
   createContentPolicyAudit,
   createContentPolicyCheckpoint,
