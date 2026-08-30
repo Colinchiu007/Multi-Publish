@@ -182,7 +182,25 @@ function registerHandlers (ipcMain, deps = {}) {
 
   ipcMain.handle('story2video:delete-project', withSenderCheck(async (_event, projectId) => {
     if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
-    try { return { code: 0, data: await requireProjectService()._serializeProject(projectId, () => requireProjectService().deleteProject(projectId)) } }
+    try {
+      const result = await requireProjectService()._serializeProject(projectId, () => requireProjectService().deleteProject(projectId))
+      // 级联清理该项目的持久化 run-state 快照：已中断/失败/暂停的编排 run 以快照形式
+      // 由 pipelineHistory() 重新加载，若不清理，删除项目后重进历史页该 run 会再次出现
+      // （2026-08-30 Bug：批量删除「已中断」任务后仍残留）。
+      // runId 与 projectId 同源（saveRun/saveEditableRun 均以 run.id 作为 projectId），
+      // 直接以 projectId 作为快照键清理；快照不存在时 remove 幂等返回 true。
+      const runStateStore = deps.runStateStore || null
+      if (runStateStore && typeof runStateStore.remove === 'function') {
+        try {
+          runStateStore.remove(projectId)
+        } catch (cleanupError) {
+          // 快照清理失败不阻断项目删除：孤立快照为本地垃圾，记录告警而非抛错，
+          // 避免 UI 弹出误导性「项目未能删除」提示（与 deleteProject 目录清理语义一致）。
+          console.warn('[story2video] run-state snapshot cleanup failed: ' + (cleanupError && cleanupError.message ? cleanupError.message : String(cleanupError)) + ' projectId=' + projectId)
+        }
+      }
+      return { code: 0, data: result }
+    }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
