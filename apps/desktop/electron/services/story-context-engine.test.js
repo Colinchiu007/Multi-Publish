@@ -295,6 +295,43 @@ describe('scene_context 审查修复回归（2026-08-11 双模型审查 C1/W2/W3
     expect(story.dynasty).toMatchObject({ name: '唐朝' })
     expect(story.anchors).toContain('唐朝')
   })
+
+  // 回归：现代题材 + 历史引用（2026-08-30，现代信号中和）
+  it('现代信号中和：现代题材引用历史人物（"比如秦始皇"）不误判为秦朝', () => {
+    const story = extractStoryContext('这篇文章讨论现代企业管理，用电脑和互联网分析数据。比如古代秦始皇统一六国，用郡县制治理天下，这对今天的公司管理有启发。现代企业应该学习这种集中管理的思路，用手机和微信办公。')
+    expect(story.dynasty).toBeNull()
+    expect(story.era).toBe('mixed')
+    expect(story.eraStrong).toBe(false)
+    expect(story.anchors).not.toContain('秦朝')
+    expect(story.anchors).not.toContain('秦始皇')
+  })
+
+  it('现代信号中和：现代题材引用三国人物（"诸葛亮"）不误判为三国', () => {
+    const story = extractStoryContext('今天的市场竞争很激烈，我们用电脑和互联网做数据分析。就像三国时期诸葛亮运筹帷幄，现代企业也需要战略规划。但我们现在用的是手机和微信沟通。')
+    expect(story.dynasty).toBeNull()
+    expect(story.era).toBe('mixed')
+    expect(story.eraStrong).toBe(false)
+    expect(story.anchors).not.toContain('三国')
+  })
+
+  it('现代信号中和：纯历史题材仍识别为古代（不误伤）', () => {
+    const story = extractStoryContext('唐玄宗时期，长安城一片繁华，市井百姓安居乐业。')
+    expect(story.dynasty).toMatchObject({ name: '唐朝' })
+    expect(story.era).toBe('ancient')
+    expect(story.eraStrong).toBe(true)
+  })
+
+  it('现代信号中和：穿越剧（现代人穿越到唐朝）仍识别为古代（不误伤）', () => {
+    const story = extractStoryContext('一个现代程序员用手机穿越到唐朝长安，见到唐玄宗和李白，用互联网知识帮助朝廷治理。')
+    expect(story.dynasty).toMatchObject({ name: '唐朝' })
+    expect(story.era).toBe('ancient')
+  })
+
+  it('现代信号中和：纯现代题材不受影响', () => {
+    const story = extractStoryContext('小明在写字楼里用手机点外卖，晚上坐地铁回家，周末用电脑看视频。')
+    expect(story.dynasty).toBeNull()
+    expect(story.era).toBe('modern')
+  })
 })
 
 describe('规则数据化与打磨修复（2026-08-12）', () => {

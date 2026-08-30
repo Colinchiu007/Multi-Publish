@@ -1,4 +1,12 @@
-## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
+## [未发布] fix(story2video): 场景上下文朝代误判——现代题材引用历史人物被整篇判为古代（现代信号中和）
+
+- 现象：现代题材全文只要出现一个朝代关键词（如"秦始皇""诸葛亮"），无论它是主题、举例、引用还是背景提及，整篇都会被判定为属于该朝代（`era=ancient, strong:true`），注入朝代视觉风格 + 全量古代负面锚点，污染所有场景。
+- 根因：`detectDynasty` 只取第一个命中的朝代（`filtered[0]`），不区分关键词是"主题"还是"举例/引用/背景"，也不看全文是否有现代信号中和；`detectEra` 里 `if (dynasty) return { era: dynasty.era, strong: true }` —— 朝代存在即一票否决，era 强制 ancient strong，且根本不计算 modernCount，现代信号完全被忽略。
+- 修复：新增模块级 `MODERN_TERMS` 现代信号词表；`detectDynasty` 增加现代信号降级（现代信号 ≥2 且朝代命中 < 现代信号时返回 null）；`detectEra` 增加现代信号中和（双保险，era 降级 mixed）。
+- 回归保护：`story-context-engine.test.js` 新增 5 用例（现代+历史引用不误判朝代×2、纯历史仍识别、穿越剧不误伤、纯现代不受影响）；全量 58 用例 + story2video-stages 148 用例全绿。真实场景验证：现代+秦朝引用修复前 dynasty=秦朝/era ancient/负面锚17，修复后 dynasty=null/era mixed/负面锚0；纯历史与穿越剧不受影响。
+- 预防：AGENTS.md 新增「Story2Video 场景上下文现代信号中和」QM 规则；learnings.md 记录根因与教训；方案见 `01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-MODERN-SIGNAL-2026-08-30.md`。
+
+---## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
 
 - 现象：任务 `mtfdxj8d_x694`（原文讲"中国人种单一/引进外国人"，非三国题材）场景 11 的 `storyContext` 被注入"中国三国（220-280）时期"，`anchors: ["三国","诸葛亮","中国"]`，所有场景被污染成汉末城寨/战袍旌旗画面，用户误以为程序串了另一个三国任务。
 - 根因：`story-context-engine.js` 的 `detectDynasty` 用裸子串匹配（`text.includes(keyword)`），三国规则关键词含"诸葛亮"；任务原文场景 5 有成语"事后诸葛亮"，子串"诸葛亮"命中 → 整篇误判为三国（`era=ancient, strong=true`），全局锚点注入所有场景。引入点 `74bdca844`（2026-08-11 场景上下文中间层）。

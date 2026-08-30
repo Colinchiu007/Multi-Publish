@@ -397,6 +397,12 @@ function detectDynasty (text) {
     })
     .filter(item => item.hits.length > 0)
   if (filtered.length === 0) return null
+  // 现代信号中和（2026-08-30 modern-signal）：现代题材全文出现朝代关键词作举例/引用时，
+  // 若现代信号 ≥2 且朝代命中 < 现代信号，视为"引用/背景"而非"主题"，返回 null（不污染全局朝代/era/视觉风格）。
+  // 纯历史（现代信号 0）与穿越剧（朝代命中 ≥ 现代信号）不受影响。
+  const modernCount = keywordHits(text, MODERN_TERMS).length
+  const dynastyHits = filtered.reduce((sum, item) => sum + item.hits.length, 0)
+  if (modernCount >= 2 && dynastyHits < modernCount) return null
   const top = filtered[0]
   const rule = top.rule
   return {
@@ -516,6 +522,9 @@ const EAST_ASIAN_CUE_GENRES = new Set(['历史', '武侠', '仙侠', '宫廷'])
 // （希腊宫殿、维京长船同样存在），不得作为无文化 strong ancient 的东亚化线索，
 // 防止古希腊/维京/玛雅等无文化命中的古史被强制东亚化
 const EAST_ASIAN_CUE_TERMS = Object.freeze(['皇帝', '剑客', '朝廷', '城墙', '科举', '江湖', '武林', '丝绸之路'])
+// 现代信号词表（2026-08-30 modern-signal 中和）：从 detectEra 提升为模块级，供 detectDynasty/detectEra 复用。
+// 现代题材全文出现朝代关键词（如"秦始皇""诸葛亮"）作举例/引用时，用现代信号中和，避免整篇误判为古代。
+const MODERN_TERMS = Object.freeze(['手机', '电脑', '互联网', '微信', '抖音', '地铁', '高铁', '飞机', '汽车', '人工智能', '外卖', '快递', '电商', '写字楼', '电烤箱', '微波炉', '冰箱'])
 // W4：场景级非东亚人物意象守卫（胡人/波斯/西方使者/古希腊/维京/玛雅等），命中则跳过正锚并移除面孔负面锚
 const NON_EA_SCENE_CUE_TERMS = Object.freeze(['胡人', '波斯', '粟特', '大食', '色目', '金发', '蓝眼', '西方使者', '美国', '美军', '欧洲', '罗马', '伦敦', '巴黎', '白种', '希腊', '雅典', '斯巴达', '维京', '玛雅', '北欧'])
 
@@ -592,13 +601,19 @@ function buildDomainSeed (sceneText, story) {
  * @returns {{era: string, strong: boolean}}
  */
 function detectEra (text, dynasty, genre) {
-  if (dynasty) return { era: dynasty.era, strong: true }
+  if (dynasty) {
+    // 现代信号中和（2026-08-30 modern-signal，双保险）：朝代存在时，若现代信号 ≥2 且朝代命中 < 现代信号，
+    // era 降级为 mixed（不注入时代负面锚点）。detectDynasty 已优先降级，此处兜底。
+    const modernCount = keywordHits(text, MODERN_TERMS).length
+    const dynastyHits = (dynasty.evidence && dynasty.evidence.length) || 0
+    if (modernCount >= 2 && dynastyHits < modernCount) return { era: 'mixed', strong: false }
+    return { era: dynasty.era, strong: true }
+  }
   const ancientGenres = new Set(['历史', '武侠', '仙侠', '宫廷'])
   const modernGenres = new Set(['现代都市', '科幻'])
   const ancientTerms = ['朝廷', '皇帝', '王朝', '宫殿', '将军', '古代', '城墙', '科举', '丝绸之路', '江湖', '武林', '剑客', '寺庙', '油灯', '烛台', '马车', '轿子']
-  const modernTerms = ['手机', '电脑', '互联网', '微信', '抖音', '地铁', '高铁', '飞机', '汽车', '人工智能', '外卖', '快递', '电商', '写字楼', '电烤箱', '微波炉', '冰箱']
   const ancientCount = (ancientGenres.has(genre) ? 1 : 0) + keywordHits(text, ancientTerms).length
-  const modernCount = (modernGenres.has(genre) ? 1 : 0) + keywordHits(text, modernTerms).length
+  const modernCount = (modernGenres.has(genre) ? 1 : 0) + keywordHits(text, MODERN_TERMS).length
   if (ancientCount > 0 && modernCount === 0) return { era: 'ancient', strong: ancientCount >= 2 }
   if (modernCount > 0 && ancientCount === 0) return { era: 'modern', strong: modernCount >= 2 }
   if (ancientCount > 0 && modernCount > 0) return { era: 'mixed', strong: false }
