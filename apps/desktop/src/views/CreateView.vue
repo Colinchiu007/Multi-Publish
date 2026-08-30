@@ -2029,6 +2029,7 @@ export default {
       s2vOptionsToast: '',
       s2vCloneOpen: false,
       s2vOptionsToastTimer: null,
+      _s2vContentRewriteToastShown: false,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoRunDeleteDialog: { visible: false, runId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
@@ -5114,8 +5115,20 @@ export default {
       this.clearPipelineProgressStatusError()
       this.syncPipelineCheckpointState(normalized, this.orchestrationContext)
       this.openPipelineProgressModal()
+      // 检测内容安全改写重试进行中：某张图片被判定敏感后程序自动改写提示词重试。
+      // 通过 stage.progress.messageKey 识别（实时推送为 progressOnly 快照，不含 context），
+      // 触发一次底部非弹窗 toast 提示，避免重复弹。
+      this.maybeNotifyContentPolicyRewrite(normalized.stages)
       // 事件到达说明 run 活跃：重置 3s 轮询计时，压缩事件+轮询双写竞态窗口
       this.restartOrchestrationPolling()
+    },
+    maybeNotifyContentPolicyRewrite(stages) {
+      const rewriting = Array.isArray(stages) && stages.some(stage =>
+        stage && stage.progress && stage.progress.messageKey === 'stageProgress.assetsImageRewriting')
+      if (!rewriting) return
+      if (this._s2vContentRewriteToastShown) return
+      this._s2vContentRewriteToastShown = true
+      this.showS2VOptionsToast(this.$t('create.story2video.contentPolicyRewriteToast'), 3200)
     },
     restartOrchestrationPolling() {
       if (!this.orchestrationRunId || this._s2vAlive === false) return
@@ -5241,6 +5254,7 @@ export default {
     async resetPipelineToNewTaskState({ toastKey, fallbackZh, fallbackEn, durationMs = 4000 } = {}) {
       this.orchestrationStartRequestId += 1
       this.pipelineStatusRequestId += 1
+      this._s2vContentRewriteToastShown = false
       this.stopPipelinePolling()
       this.resetPipelineUiState()
       this.selectedPipeline = null

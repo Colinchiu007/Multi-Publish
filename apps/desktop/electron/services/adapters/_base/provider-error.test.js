@@ -26,6 +26,16 @@ describe('ProviderError content-policy classification', () => {
     expect(hasStrictContentPolicySignal('The prompt is invalid.')).toBe(false)
   })
 
+  it('recognizes MiniMax input new_sensitive as a strict content-policy signal (2026-08-30 复盘 mtequszp_enqn)', () => {
+    expect(hasStrictContentPolicySignal('input new_sensitive')).toBe(true)
+    expect(hasStrictContentPolicySignal('input new sensitive')).toBe(true)
+    expect(hasStrictContentPolicySignal('new_sensitive')).toBe(true)
+    expect(hasStrictContentPolicySignal('new sensitive')).toBe(true)
+    // 普通「sensitive」单独出现不得误判（避免把普通说明当内容拒绝）
+    expect(hasStrictContentPolicySignal('sensitive')).toBe(false)
+    expect(hasStrictContentPolicySignal('This data is sensitive.')).toBe(false)
+  })
+
   it('does not turn ordinary 400 and 403 responses into content-policy rejections', () => {
     expect(fromHttpStatus(400, 'Invalid image size').code).toBe(ERROR_CODES.PROVIDER_ERROR)
     expect(fromHttpStatus(403, 'Forbidden').code).toBe(ERROR_CODES.AUTH_FAILED)

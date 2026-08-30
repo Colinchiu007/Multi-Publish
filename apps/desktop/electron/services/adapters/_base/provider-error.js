@@ -86,7 +86,12 @@ function hasStrictContentPolicySignal(value) {
 
   return /\b(?:blocked|rejected|filtered)\b[^\n]{0,120}\bcontent(?:[_\s-]+)policy\b/i.test(signal) ||
     /\bcontent(?:[_\s-]+)policy\b[^\n]{0,120}\b(?:blocked|rejected|filtered)\b/i.test(signal) ||
-    /\brejected as a result of (?:our )?safety system\b/i.test(signal)
+    /\brejected as a result of (?:our )?safety system\b/i.test(signal) ||
+    // MiniMax 图片生成内容安全拒绝：base_resp.status_msg 返回 "input new_sensitive"（2026-08-30 复盘 mtequszp_enqn）。
+    // 该信号不含 content_policy/moderation 等标准词，但明确表示「输入含敏感内容」，必须进入内容安全改写重试路径，
+    // 否则整条 generate_assets 阶段因单张图被拒而失败（69/70 场景有图有音频仍整体失败）。
+    /\binput[_\s-]+new[_\s-]+sensitive\b/i.test(signal) ||
+    /\bnew[_\s-]+sensitive\b/i.test(signal)
 }
 
 function hasContentPolicyContextSignal(context) {

@@ -152,8 +152,14 @@ function createEmptyResultCheckpoint (sceneIndex, attempts) {
 /**
  * 仅针对明确的内容政策拒绝重写并重试图片生成。
  * 返回的 attempts 只包含非敏感审计元数据，绝不包含原始或重写后的 prompt。
+ * @param {object} opts
+ * @param {string} opts.prompt 原始提示词
+ * @param {number} [opts.sceneIndex] 场景索引
+ * @param {number} [opts.maxAttempts] 最大尝试次数
+ * @param {Function} opts.generate 单次生成函数
+ * @param {Function} [opts.onRewrite] 当发生内容政策拒绝并切换到安全改写时回调（用于实时进度提示）
  */
-async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate }) {
+async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite }) {
   if (typeof generate !== 'function') throw new TypeError('generate must be a function')
 
   const normalizedSceneIndex = normalizeSceneIndex(sceneIndex)
@@ -162,6 +168,14 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
   const originalPrompt = String(prompt || '').trim().slice(0, 4000)
   let currentPrompt = originalPrompt
   let promptStrategy = 'original'
+
+  const notifyRewrite = () => {
+    if (typeof onRewrite === 'function') {
+      try {
+        onRewrite({ sceneIndex: normalizedSceneIndex, sceneNumber: normalizedSceneIndex + 1 })
+      } catch (_) { /* 进度提示回调异常不得阻断重试 */ }
+    }
+  }
 
   for (let attempt = 1; attempt <= attemptLimit; attempt++) {
     try {
@@ -189,6 +203,7 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
         if (attempt >= 2 && attempt < attemptLimit) {
           currentPrompt = buildContentPolicySafePrompt(originalPrompt, { sceneIndex: normalizedSceneIndex })
           promptStrategy = 'content_policy_safe_rewrite'
+          notifyRewrite()
         }
         if (attempt === attemptLimit) {
           return {
@@ -228,6 +243,7 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
 
       currentPrompt = buildContentPolicySafePrompt(originalPrompt, { sceneIndex: normalizedSceneIndex })
       promptStrategy = 'content_policy_safe_rewrite'
+      notifyRewrite()
     }
   }
 

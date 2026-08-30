@@ -336,6 +336,22 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       }
     })
 
+    it('HTTP 200 + base_resp.status_msg 含 input new_sensitive → ProviderError(CONTENT_POLICY)（2026-08-30 复盘 mtequszp_enqn）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'input new_sensitive' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.CONTENT_POLICY)
+        expect(e.message).toContain('input new_sensitive')
+        expect(e.emptyResult).toBeUndefined()
+      }
+    })
+
     it('HTTP 200 + base_resp.status_code 非 0（额度用尽）→ ProviderError(QUOTA_EXCEEDED)', async () => {
       global.fetch = createFetchMock([
         createFetchResponse({ base_resp: { status_code: 2056, status_msg: '已达到 Token Plan 用量上限' }, data: {} }),

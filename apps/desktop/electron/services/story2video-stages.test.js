@@ -2044,6 +2044,42 @@ describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
       await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
     }
   })
+
+  it('generate_assets 内容安全改写重试：触发 onContentPolicyRewrite 时上报 assetsImageRewriting 进度（2026-08-30 复盘 mtequszp_enqn）', async () => {
+    const progressEvents = []
+    const assetGenerator = {
+      generateImage: vi.fn(async (prompt, opts) => {
+        // 模拟供应商判定输入敏感 → 触发改写回调 → 改写后成功
+        if (typeof opts.onContentPolicyRewrite === 'function') opts.onContentPolicyRewrite()
+        return { code: 0, data: { path: 'image-rewritten.png' } }
+      }),
+      generateTTS: vi.fn(async () => ({ code: 0, data: { path: 'audio-rewritten.mp3', duration: 1.5 } })),
+    }
+    const assetsExecutor = makePipeline(assetGenerator, { generate: vi.fn() })
+
+    const result = await assetsExecutor({
+      runId: 'run_content_policy_rewrite',
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: {
+        split: [{ text: '含敏感表述的旁白' }],
+        optimize: ['一个含敏感表述的场景描述'],
+      },
+      serviceBus: {},
+      onProgress: (update) => progressEvents.push(update),
+    })
+
+    expect(result.success, JSON.stringify(result)).toBe(true)
+    // 改写回调被透传到 assetGenerator.generateImage 的 opts
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
+    expect(assetGenerator.generateImage.mock.calls[0][1].onContentPolicyRewrite).toBeTypeOf('function')
+    // 进度上报中出现 assetsImageRewriting（改写重试进行中提示）
+    const rewritingEvent = progressEvents.find((e) => e.messageKey === 'stageProgress.assetsImageRewriting')
+    expect(rewritingEvent).toBeTruthy()
+    expect(rewritingEvent.message).toContain('Rewriting sensitive prompt')
+    // 改写提示保留图片计数（供前端「正在生成图片 · x/y」后追加提示）
+    expect(rewritingEvent.messageParams).toMatchObject({ images: 0, imagesTotal: 1 })
+  })
 })
 
 describe('story2video 生成并发按 provider 每分钟连接次数收敛', () => {
