@@ -551,8 +551,8 @@ function _normalizeNoSwapPairs (value) {
   if (!Array.isArray(value)) return undefined
   const pairs = []
   for (const pair of value) {
-    let first = ''
-    let second = ''
+    let first
+    let second
     if (Array.isArray(pair)) {
       if (pair.length !== 2) continue
       first = typeof pair[0] === 'string' ? pair[0].trim() : ''

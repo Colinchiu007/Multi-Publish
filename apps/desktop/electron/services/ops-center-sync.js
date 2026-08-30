@@ -64,7 +64,7 @@ class OpsCenterSync {
 
   /** 读取同步配置（apiKey 脱敏，不返回明文） */
   getConfig() {
-    let raw = ''
+    let raw
     try { raw = this._store?.getSetting ? String(this._store.getSetting(SETTING_KEY) || '') : '' } catch { raw = '' }
     let cfg = {}
     if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
@@ -104,7 +104,7 @@ class OpsCenterSync {
   }
 
   _readEncryptedKey() {
-    let raw = ''
+    let raw
     try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
     let cfg = {}
     if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
@@ -163,7 +163,7 @@ class OpsCenterSync {
   }
 
   _getStoredKeyEnc() {
-    let raw = ''
+    let raw
     try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
     let cfg = {}
     if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
@@ -173,7 +173,7 @@ class OpsCenterSync {
   // ─── 运行时策略（公告 / 版本发布 / 内容安全）────────────────
 
   _loadRuntimeState() {
-    let raw = ''
+    let raw
     try { raw = String(this._store?.getSetting ? this._store.getSetting(RUNTIME_SETTING_KEY) || '' : '') } catch { raw = '' }
     let state = {}
     if (raw) { try { state = JSON.parse(raw) } catch { state = {} } }
@@ -341,7 +341,7 @@ class OpsCenterSync {
       })
     } catch (e) {
       const isTimeout = e && (e.name === 'AbortError' || e.code === 'ABORT_ERR')
-      throw new Error(isTimeout ? '同步请求超时（10 秒）' : '无法连接 Ops Center: ' + (e.message || e.name))
+      throw new Error(isTimeout ? '同步请求超时（10 秒）' : '无法连接 Ops Center: ' + (e.message || e.name), { cause: e })
     } finally {
       if (timer) clearTimeout(timer)
     }

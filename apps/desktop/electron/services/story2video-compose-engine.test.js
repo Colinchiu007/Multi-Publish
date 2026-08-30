@@ -423,7 +423,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
         const filter = args[args.indexOf('-filter_complex') + 1]
         expect(args).not.toContain('-stream_loop')
         expect(filter).toContain('concat=n=2:v=1:a=0')
-        expect(filter).toContain('select=eq(n\,0)')
+        expect(filter).toContain('select=eq(n\\,0)')
         expect(filter).toContain('zoompan')
         expect(filter).toContain('1+0.25*min(1,on/72)')
         expect(args).toEqual(expect.arrayContaining(['-t', '4', '-shortest', '-map', '[videoOut]', '-map', '1:a:0']))
@@ -2556,7 +2556,7 @@ describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，202
     const n = Math.max(2, samples.length)
     const scored = candidates.map(freq => {
       const k = Math.round((n * freq) / sampleRate)
-      let s0 = 0
+      let s0
       let s1 = 0
       let s2 = 0
       const coeff = 2 * Math.cos((2 * Math.PI * k) / n)
@@ -2707,8 +2707,6 @@ describe('moving 水印后置烧录（成片级时间轴，跨镜头连续漂移
       // CI（SKIP_NATIVE_MEDIA_TOOL_TESTS=1）下模块级 FFMPEG 为 null，compose 成功路径必须注入实例级二进制
 
       ffmpegBinary: 'ffmpeg',
-
-      outputDir: root,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
     engine._runFfmpegStage = vi.fn(async (_args, _options, details) => {

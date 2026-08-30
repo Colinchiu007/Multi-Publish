@@ -29,7 +29,7 @@ function normalizePort(port) {
 
 function normalizeOptionalCredential(value, field) {
   if (value === undefined || value === null || value === '') return undefined
-  if (typeof value !== 'string' || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value)) {
+  if (typeof value !== 'string' || value.length > 512 || /[\p{Cc}]/u.test(value)) {
     throw new Error(`代理${field}无效`)
   }
   return value

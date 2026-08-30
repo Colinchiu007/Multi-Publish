@@ -110,7 +110,7 @@ function buildCropPage(imageDataUrl, rect, targetW, targetH) {
     + 'img.onerror=function(){rej("image load error")};'
     + 'img.src=' + JSON.stringify(imageDataUrl) + ';});}'
     + 'window.__cp=run();'
-    + 'window.__encode=' + encode + ';'
+    + 'window.__encode=encode;'
     + '</scr' + 'ipt></body></html>'
 }
 

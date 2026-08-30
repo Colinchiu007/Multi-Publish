@@ -79,9 +79,9 @@ class IdentityAuthWindow {
     this._permissionHandler = null
     if (!authSession) return
     if (denyDownload) {
-      try { authSession.removeListener('will-download', denyDownload) } catch {}
+      try { authSession.removeListener('will-download', denyDownload) } catch { /* ignore */ }
     }
-    try { authSession.setPermissionRequestHandler(null) } catch {}
+    try { authSession.setPermissionRequestHandler(null) } catch { /* ignore */ }
   }
 
   async open(url) {

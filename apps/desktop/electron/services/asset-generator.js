@@ -160,7 +160,7 @@ async function readFetchResponseBuffer (response, label, maxBytes, abort) {
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
       totalBytes += chunk.length
       if (totalBytes > maxBytes) {
-        try { await reader.cancel() } catch {}
+        try { await reader.cancel() } catch { /* ignore */ }
         abort?.()
         throw new Error(label + ' exceeds the allowed size')
       }

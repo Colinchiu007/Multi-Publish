@@ -50,7 +50,7 @@ function outputFileBytes (filePath) {
 function safeFfmpegDiagnostic (value) {
   const redactAbsolutePath = (line) => {
     const windowsIndex = line.search(/[A-Za-z]:[\\/]/)
-    const unixMatch = /(?:^|[\s'"\[({=:,])\//.exec(line)
+    const unixMatch = /(?:^|[\s'"[({=:,])\//.exec(line)
     const unixIndex = unixMatch ? unixMatch.index + unixMatch[0].length - 1 : -1
     const pathIndex = windowsIndex === -1
       ? unixIndex
@@ -2022,7 +2022,7 @@ class Story2VideoComposeEngine {
         '[0:v]' + commonFilters.join(',') + ',split=2[videoBodySrc][videoTailSrc]',
         '[videoBodySrc]trim=duration=' + sourceVideoDuration.toFixed(6) + ',setpts=PTS-STARTPTS[videoBody]',
         '[videoTailSrc]trim=start=' + tailStart.toFixed(6) + ':duration=' + (1 / fps).toFixed(6) +
-          ',select=eq(n\,0),setpts=PTS-STARTPTS,' + tailZoom + '[videoTail]',
+          ',select=eq(n\\,0),setpts=PTS-STARTPTS,' + tailZoom + '[videoTail]',
         '[videoBody][videoTail]concat=n=2:v=1:a=0,setpts=PTS-STARTPTS' +
           (overlayFilters.length > 0 ? ',' + overlayFilters.join(',') : '') + '[videoOut]',
       ].join(';')

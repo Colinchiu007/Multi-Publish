@@ -440,10 +440,6 @@ class Story2VideoBatchQueue {
     } finally {
       this._draining = false
     }
-    // 尾部补偿：循环退出后若仍有排队项且出现空闲槽（完成事件在循环期间被 _draining 挡下），再调度一轮。
-    if (this._collectPending().length > 0 && this._canStartNow()) {
-      void this._drain()
-    }
   }
 
   /** 按创建顺序收集全部 pending 任务（批次插入序 + 批内 item 序）。 */

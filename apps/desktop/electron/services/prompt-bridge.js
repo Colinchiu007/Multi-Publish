@@ -404,7 +404,7 @@ class PromptBridge extends BasePythonBridge {
         res.on('end', () => {
         if (res.statusCode >= 400) {
           let detail = data
-          try { const parsed = JSON.parse(data); detail = parsed.detail || parsed.message || data } catch (_) {}
+          try { const parsed = JSON.parse(data); detail = parsed.detail || parsed.message || data } catch (_) { /* ignore */ }
           reject(new Error('standalone video engine HTTP ' + res.statusCode + ': ' + detail))
           return
         }
