@@ -1,4 +1,17 @@
-﻿## 图片输入敏感时自动改写提示词重试（fix-s2v-content-policy-rewrite，2026-08-30）
+## 图片敏感内容处理机制分层优化（fix-s2v-image-content-policy，2026-08-30）
+
+- **背景**：PR #1228 修复了 MiniMax `input new_sensitive` 信号识别，但改写仍是"一刀切"固定英文模板：不区分敏感类型、不注入 scene_context 锚点、无改写质量验证、无结构化审计，遇到新供应商专有信号仍需逐个打补丁。
+- **方案**：四层机制（见 `01-docs/ARCH-STORY2VIDEO-IMAGE-CONTENT-POLICY-2026-08-30.md`）：
+  - **层 1 信号分级**：`normalizeContentPolicySignal` 归一化供应商原始信号；`classifyContentPolicyType` 分类为 violence/sexual/portrait/political/minor/selfharm/unknown。
+  - **层 2 上下文感知改写**：`buildContentPolicySafePrompt` 按敏感类型选择差异化改写策略，并注入 scene_context 的 `contextBlock`/`anchors` 保留原文背景，避免改写后背景漂移。
+  - **层 3 验证闭环**：`validateRewriteSafety` 扫描改写后是否仍含高危敏感词；`estimateSemanticRetention` 估算改写前后语义保留度。
+  - **层 4 结构化审计**：`createContentPolicyAudit` 记录敏感类型/改写前后 prompt 哈希/供应商/模型/尝试次数/结果，严禁保存原始 prompt 明文（遵循 PRD §7.1.5 合同）。
+- **教训 1**：内容安全改写必须"上下文感知"——固定模板改写会丢失原文背景（时代/地域/角色/视觉风格），导致改写后背景漂移。
+- **教训 2**：信号识别从"黑名单枚举"升级为"归一化 + 分类"，才能减少新供应商专有信号的漏判，并为差异化改写提供依据。
+- **预防**：新增 `classifyContentPolicyType`/`normalizeContentPolicySignal`（provider-error.test.js）与差异化改写/验证/审计（story2video-image-retry.test.js）回归测试；改写始终注入 scene_context 锚点。
+
+---
+## 图片输入敏感时自动改写提示词重试（fix-s2v-content-policy-rewrite，2026-08-30）
 
 - **现象**：Story2Video 流水线在 generate_assets 阶段失败：Image #67 提示词被 MiniMax 内容安全审核判定为 `input new_sensitive`，程序未自动改写提示词重试，导致整条流水线失败（69/70 场景有图有音频仍整体失败）。
 - **第一性原因**：`hasStrictContentPolicySignal`（provider-error.js）只识别 `content_policy`、`moderation_*` 等英文标准信号词，不识别 MiniMax 的 `input new_sensitive`。该错误被归为普通 `PROVIDER_ERROR` 立即失败，不触发内容安全改写重试路径。
