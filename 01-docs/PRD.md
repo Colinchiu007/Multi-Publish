@@ -1173,6 +1173,8 @@ platforms:
 
 接入范围：CreateHistory / PublishHistory / CreateView / useModelProviderCrud / useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
 
+**视图层接入（2026-08-30）**：Accounts / Publish / Collection / Monitor / Intelligence 五个视图的 `ElMessage` / `ElMessageBox` 已全部迁移到统一通知通道 `useNotify`（`notifyError/Success/Warning/Info/Confirm` + `resolveNotifyText`）。确认框（`notifyConfirm`）返回 boolean，取消语义从 try/catch 改为 `if (!confirmed) return`。所有用户可见文案入 locales（zh/en 成对），新增 `collection.*` / `monitor.*` / `intelligence.*` 命名空间。
+
 **5. 提示文字表（核心 errorCode → zh / en）**
 
 | errorCode | 中文（原因 + 建议） | English |
