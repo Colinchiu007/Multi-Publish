@@ -12,7 +12,7 @@
 function normalizeForAlign (text) {
   return String(text || '')
     .toLowerCase()
-    .replace(/[\s。！？；，、：“”‘’（）《》【】「」『』….,!?;:'"()\[\]<>\-—–_~@#$%^&*+=|/\\`]/g, '')
+    .replace(/[\s。！？；，、：“”‘’（）《》【】「」『』….,!?;:'"()\x5b\x5d<>\-—–_~@#$%^&*+=|/\\`]/g, '')
 }
 
 function round2HalfUp (x) {

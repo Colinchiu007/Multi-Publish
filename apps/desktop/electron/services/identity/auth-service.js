@@ -67,7 +67,7 @@ class AuthService {
     for (const listener of this._listeners) {
       try {
         listener(state)
-      } catch {}
+      } catch { /* ignore */ }
     }
   }
 
@@ -343,7 +343,7 @@ class AuthService {
     } finally {
       if (this._activeCallbackServer === callbackServer) this._activeCallbackServer = null
       if (typeof this._client.closeSignInWindow === 'function') {
-        try { await this._client.closeSignInWindow() } catch {}
+        try { await this._client.closeSignInWindow() } catch { /* ignore */ }
       }
       await callbackServer.stop()
     }
@@ -404,7 +404,7 @@ class AuthService {
     if (activeSignIn) {
       try {
         await activeSignIn
-      } catch {}
+      } catch { /* ignore */ }
     }
     this._listeners.clear()
     if (disposeError) throw toIdentityError(disposeError, 'IDENTITY_DISPOSE_FAILED')

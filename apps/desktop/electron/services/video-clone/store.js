@@ -25,7 +25,7 @@ function createVideoCloneStore({ baseDir }) {
   }
 
   function listRuns() {
-    let files = []
+    let files
     try { files = fs.readdirSync(runsDir) } catch { return [] }
     return files
       .filter((f) => f.endsWith('.json'))

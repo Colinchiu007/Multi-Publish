@@ -199,7 +199,7 @@ function handleMenuKeydown(event) {
   const items = Array.from(panel.value?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])
   if (items.length === 0) return
   const currentIndex = items.indexOf(document.activeElement)
-  let nextIndex = currentIndex
+  let nextIndex
   if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length
   else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length
   else if (event.key === 'Home') nextIndex = 0

@@ -737,7 +737,7 @@ class Story2VideoProjectService {
     try {
       fs.mkdirSync(path.dirname(thumbnailPath), { recursive: true })
     } catch (mkdirError) {
-      throw new Error('缩略图缓存目录不可写: ' + (mkdirError?.message || String(mkdirError)))
+      throw new Error('缩略图缓存目录不可写: ' + (mkdirError?.message || String(mkdirError)), { cause: mkdirError })
     }
 
     const temporary = thumbnailTemporaryPath(thumbnailPath)

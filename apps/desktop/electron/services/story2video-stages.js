@@ -941,7 +941,6 @@ async function buildManualSceneCandidates (ctx) {
             runDir: videoRunDir,
             pollIntervalMs: videoConfig.pollIntervalMs,
             providerRunContext,
-            providerRunContext,
           })),
         )
         videoResults.set(index, attachVideoContinuityMeta(
@@ -2184,14 +2183,13 @@ function registerStory2VideoStages(pipelineEngine) {
           maxScenes: videoConfig.maxScenes,
         })
         entries = null
-        let raw = ''
-        let lastError = ''
+        let raw
+        let lastError
         // 真实运行暴露（2026-08-11 W6）：deepseek-v4-flash 等推理型模型对 27 场景长任务偶发
         // 返回空 content（仅 reasoning_content）或非法 JSON，单次失败即整阶段失败。改为有界重试：
         // 空内容/解析失败均重试，最多 3 次，逐次记录 raw 便于诊断。
         const maxAttempts = 3
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          raw = ''
           try {
             // max_tokens 随场景数放大，避免长 reason JSON 被截断导致解析失败（2026-08-11 I4）
             const maxTokens = Math.min(5000, 800 + scenes.length * 140)
@@ -3512,9 +3510,9 @@ function registerStory2VideoStages(pipelineEngine) {
           const _resolveManager = () => {
             try {
               if (pipelineEngine && pipelineEngine.aiGenerator && typeof pipelineEngine.aiGenerator._modelProviderManager === 'object' && pipelineEngine.aiGenerator._modelProviderManager !== null) return pipelineEngine.aiGenerator._modelProviderManager
-            } catch (_) {}
+            } catch (_) { /* ignore */ }
             const c = pipelineEngine && pipelineEngine.container
-            if (c && typeof c.get === 'function') { try { const m = c.get('modelProviderManager'); if (m) return m } catch (_) {} }
+            if (c && typeof c.get === 'function') { try { const m = c.get('modelProviderManager'); if (m) return m } catch (_) { /* ignore */ } }
             return null
           }
           const _reCloneResult = await tryReCloneVoice({

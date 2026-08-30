@@ -400,7 +400,6 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const respMessage = String(createData?.base_resp?.status_msg || '')
     const paramErrorInBody = respStatus === 2013 || /invalid|param|argument|unknown field|unexpected/i.test(respMessage)
     if (usedSubtitle && !taskId && (isParamError(createError) || paramErrorInBody)) {
-      usedSubtitle = false
       const retryResp = await this._request('/t2a_async_v2', {
         method: 'POST',
         body: JSON.stringify(buildCreateBody(false)),

@@ -136,7 +136,7 @@ function shouldHideToTray(context, platform = process.platform) {
   const systemTray = context.systemTray
   if (!pipelineEngine || typeof pipelineEngine.hasRunningOrchestration !== 'function') return false
   if (!systemTray || typeof systemTray.isAvailable !== 'function') return false
-  let hasRunningPipeline = false
+  let hasRunningPipeline
   try {
     hasRunningPipeline = pipelineEngine.hasRunningOrchestration()
   } catch (error) {

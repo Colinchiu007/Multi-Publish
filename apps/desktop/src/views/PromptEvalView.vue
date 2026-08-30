@@ -207,7 +207,7 @@ function onPickImages(event) {
   const files = Array.from(event.target.files || [])
   for (const file of files) {
     const api = getApi()
-    let filePath = ''
+    let filePath
     try {
       filePath = api && typeof api.getPathForFile === 'function' ? String(api.getPathForFile(file) || '') : ''
     } catch (_) { filePath = '' }

@@ -95,8 +95,8 @@ function ensureLogPath() {
 // 敏感信息脱敏（对齐 api-publish-engine log-redact：Bearer / quoted+unquoted 键值 / sk- / 通用 JWT）
 const SECRET_PATTERNS = [
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ***'],
-  [/([\"']?(?:api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie)[\"']?\s*[:=]\s*[\"'])[^\"'\s,}]+/gi, '$1***'],
-  [/\b(api[_-]?key|access_token|refresh_token|password|secret|cookie)\s*=\s*[^&\s,;\"']+/gi, '$1=***'],
+  [/(["']?(?:api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie)["']?\s*[:=]\s*["'])[^"'\s,}]+/gi, '$1***'],
+  [/\b(api[_-]?key|access_token|refresh_token|password|secret|cookie)\s*=\s*[^&\s,;"']+/gi, '$1=***'],
   [/\b(sk-[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1***'],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b/g, 'eyJ***'],
 ]
