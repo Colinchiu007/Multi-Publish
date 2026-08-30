@@ -227,4 +227,49 @@ describe('logger 服务', () => {
     expect(content.length).toBeLessThan(5000)
     expect(content).toContain('…')
   })
+
+  describe('logger.notify() — 通知结构化日志行', () => {
+    it('写入 [NOTIFY] 结构化行，含 messageKey / errorCategory / 白名单 params', async () => {
+      logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
+      logger.notify('batchPublish', 'story2video.quota_exceeded', {
+        errorCategory: 'quota_exceeded',
+        level: 'warn',
+        params: { count: 2, max: 2 },
+      })
+      await logger.flush()
+      const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+      expect(content).toContain('[NOTIFY]')
+      expect(content).toContain('batchPublish')
+      expect(content).toContain('story2video.quota_exceeded')
+      expect(content).toContain('quota_exceeded')
+      expect(content).toContain('"count":2')
+    })
+
+    it('params 值级脱敏：secret 不落盘原文', async () => {
+      logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
+      logger.notify('batchPublish', 'story2video.quota_exceeded', {
+        errorCategory: 'quota_exceeded',
+        level: 'error',
+        params: { apiKey: 'sk-secret-xyz', count: 2 },
+      })
+      await logger.flush()
+      const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+      expect(content).not.toContain('sk-secret-xyz')
+      expect(content).toContain('***')
+    })
+
+    it('换行/控制符被消毒（log injection 防护）', async () => {
+      logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
+      logger.notify('batchPublish', 'story2video.quota_exceeded', {
+        errorCategory: 'quota_exceeded',
+        level: 'error',
+        params: { detail: 'line1\n[FAKE] injected\r\nline2' },
+      })
+      await logger.flush()
+      const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+      // 换行被转义为 \n 字面量，不产生真实换行注入
+      expect(content).not.toContain('line1\n[FAKE]')
+      expect(content).toContain('\\n')
+    })
+  })
 })

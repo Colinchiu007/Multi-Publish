@@ -185,6 +185,47 @@ const logger = {
   error: (...args) => log('ERROR', ...args),
   setLevel: (level) => { currentLevel = level },
 
+  /**
+   * 通知结构化日志行（notify:log IPC 落盘入口）。
+   * 格式：`[NOTIFY] [module] [messageKey] {meta}`
+   *   - meta 含 errorCategory + 白名单 params（值级脱敏 + 换行消毒 + JSON.stringify 进 meta 段）
+   *   - module 仅在前缀，meta 不重复
+   * @param {string} module
+   * @param {string} messageKey
+   * @param {{ errorCategory?: string, level?: string, params?: object, error?: string }} [meta]
+   */
+  notify(module, messageKey, meta = {}) {
+    const level = meta.level && LOG_LEVELS[String(meta.level).toUpperCase()] !== undefined
+      ? String(meta.level).toUpperCase()
+      : 'INFO'
+    if (LOG_LEVELS[level] < LOG_LEVELS[currentLevel]) return
+    const timestamp = new Date().toISOString()
+    const safeModule = redact(String(module ?? ''))
+    const safeKey = redact(String(messageKey ?? ''))
+    // meta 统一 JSON.stringify 进 meta 段（换行/控制符转义，杜绝 log injection）
+    const metaObj = {}
+    if (meta.errorCategory) metaObj.errorCategory = String(meta.errorCategory)
+    if (meta.params && typeof meta.params === 'object') {
+      for (const [k, v] of Object.entries(meta.params)) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          metaObj[k] = v
+        }
+      }
+    }
+    if (meta.error) metaObj.error = String(meta.error)
+    let metaJson = ''
+    try {
+      metaJson = ' ' + JSON.stringify(metaObj)
+    } catch {
+      metaJson = ' {}'
+    }
+    const redactedMeta = redact(metaJson)
+    const prefix = `[${timestamp}] [NOTIFY]`
+    const body = [safeModule, safeKey].filter((part) => part !== '').join(' ') + redactedMeta
+    console.log(prefix, body)
+    enqueueFileWrite(`${prefix} ${body}`)
+  },
+
   /** 等待已入队的文件写完成（测试/退出前调用） */
   flush() {
     return writeQueue
