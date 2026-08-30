@@ -119,6 +119,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/sensitive-rewrite-demo',
+    name: 'SensitiveRewriteDemo',
+    component: () => import('../views/SensitiveRewriteDemo.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/model-presets',
     name: 'ModelPresets',
     component: () => import('../views/ModelPresets.vue'),

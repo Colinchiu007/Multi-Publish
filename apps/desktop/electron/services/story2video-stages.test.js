@@ -2080,6 +2080,42 @@ describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
     // 改写提示保留图片计数（供前端「正在生成图片 · x/y」后追加提示）
     expect(rewritingEvent.messageParams).toMatchObject({ images: 0, imagesTotal: 1 })
   })
+
+  it('generate_assets auto 路径透传 sceneContext 供内容安全改写保留原文背景（方案层 2，2026-08-30）', async () => {
+    const assetGenerator = {
+      generateImage: vi.fn(async (prompt, opts) => {
+        if (typeof opts.onContentPolicyRewrite === 'function') opts.onContentPolicyRewrite()
+        return { code: 0, data: { path: 'image-scene-context.png' } }
+      }),
+      generateTTS: vi.fn(async () => ({ code: 0, data: { path: 'audio-scene-context.mp3', duration: 1.5 } })),
+    }
+    const assetsExecutor = makePipeline(assetGenerator, { generate: vi.fn() })
+
+    const result = await assetsExecutor({
+      runId: 'run_scene_context',
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: {
+        split: [{ text: '旁白' }],
+        optimize: ['一个场景描述'],
+        scene_context: {
+          scenes: [
+            { storyContext: '唐代，中国，老妇人，厨房，油灯', anchors: ['唐代', '油灯'] },
+          ],
+        },
+      },
+      serviceBus: {},
+      onProgress: () => {},
+    })
+
+    expect(result.success, JSON.stringify(result)).toBe(true)
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
+    // auto 路径必须把 sceneContext 透传给 generateImage，供改写保留背景锚点
+    expect(assetGenerator.generateImage.mock.calls[0][1].sceneContext).toEqual({
+      contextBlock: '唐代，中国，老妇人，厨房，油灯',
+      anchors: ['唐代', '油灯'],
+    })
+  })
 })
 
 describe('story2video 生成并发按 provider 每分钟连接次数收敛', () => {

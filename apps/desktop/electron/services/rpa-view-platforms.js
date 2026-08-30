@@ -435,9 +435,9 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     try {
       const image = await win.webContents.capturePage()
       if (image && !image.isEmpty()) {
-        const diagDir = path.join(require('os').tmpdir(), 'mp-rpa-diag')
+        const diagDir = require('path').join(require('os').tmpdir(), 'mp-rpa-diag')
         require('fs').mkdirSync(diagDir, { recursive: true })
-        const shotPath = path.join(diagDir, 'baijiahao-prep-' + Date.now() + '.png')
+        const shotPath = require('path').join(diagDir, 'baijiahao-prep-' + Date.now() + '.png')
         require('fs').writeFileSync(shotPath, image.toPNG())
         log.info('RpaView', '[baijiahao] prep screenshot saved: ' + shotPath)
       }
@@ -674,9 +674,9 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       try {
         const image = await win.webContents.capturePage()
         if (image && !image.isEmpty()) {
-          const diagDir = path.join(require('os').tmpdir(), 'mp-rpa-diag')
+          const diagDir = require('path').join(require('os').tmpdir(), 'mp-rpa-diag')
           require('fs').mkdirSync(diagDir, { recursive: true })
-          const shotPath = path.join(diagDir, platform + '-verify-' + Date.now() + '.png')
+          const shotPath = require('path').join(diagDir, platform + '-verify-' + Date.now() + '.png')
           require('fs').writeFileSync(shotPath, image.toPNG())
           log.warn('RpaView', '[' + platform + '] publish verify screenshot saved: ' + shotPath)
         }

@@ -162,4 +162,14 @@ describe('classifyContentPolicyType — 敏感类型分类（2026-08-30 方案�
     expect(classifyContentPolicyType('')).toBe('unknown')
     expect(classifyContentPolicyType(null)).toBe('unknown')
   })
+
+  it('classifyContentPolicyType 识别中文错误信号（2026-08-30 调优：供应商可能返回中文内容安全错误）', () => {
+    expect(classifyContentPolicyType('内容涉及未成年人')).toBe('minor')
+    expect(classifyContentPolicyType('包含暴力血腥内容')).toBe('violence')
+    expect(classifyContentPolicyType('涉及政治人物')).toBe('political')
+    expect(classifyContentPolicyType('含色情内容')).toBe('sexual')
+    expect(classifyContentPolicyType('含裸露画面')).toBe('sexual')
+    expect(classifyContentPolicyType('涉及自杀自伤')).toBe('selfharm')
+    expect(classifyContentPolicyType('涉及真人肖像')).toBe('portrait')
+  })
 })

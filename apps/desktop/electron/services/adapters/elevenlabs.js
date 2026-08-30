@@ -60,14 +60,14 @@ function hasOnlyAllowedKeys (value, allowedKeys) {
 function safeCloneName (value) {
   if (typeof value !== 'string') return null
   const normalized = value.trim()
-  if (!normalized || normalized.length > MAX_CLONE_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(normalized)) return null
+  if (!normalized || normalized.length > MAX_CLONE_NAME_LENGTH || /[\p{Cc}]/u.test(normalized)) return null
   return normalized
 }
 
 function safeFileName (value) {
   if (typeof value !== 'string') return null
   const normalized = value.trim()
-  if (!normalized || normalized.length > MAX_SAMPLE_FILE_NAME_LENGTH || /[\\/:\u0000-\u001f\u007f]/.test(normalized)) return null
+  if (!normalized || normalized.length > MAX_SAMPLE_FILE_NAME_LENGTH || /[\\/:\p{Cc}]/u.test(normalized)) return null
   if (normalized === '.' || normalized === '..') return null
   return normalized
 }

@@ -22,7 +22,7 @@ const https = require('https')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
-const { needsUserInputMessage, runContentPolicyImageRetry } = require('./story2video-image-retry')
+const { needsUserInputMessage, runContentPolicyImageRetry, createContentPolicyAudit } = require('./story2video-image-retry')
 const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 const execFileAsync = promisify(execFile)
@@ -160,7 +160,7 @@ async function readFetchResponseBuffer (response, label, maxBytes, abort) {
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
       totalBytes += chunk.length
       if (totalBytes > maxBytes) {
-        try { await reader.cancel() } catch {}
+        try { await reader.cancel() } catch { /* ignore */ }
         abort?.()
         throw new Error(label + ' exceeds the allowed size')
       }
@@ -572,12 +572,41 @@ class AssetGenerator {
 
     let generationAttempts = []
     const runtimeOptions = opts && opts.providerRunContext ? { providerRunContext: opts.providerRunContext } : undefined
+    // 方案层 3：LLM 改写回调。优先用调用方注入的；否则用默认 LLM 构造（真正替换敏感内容、保留原意）。
+    // 仅当模板改写自检失败（原文含高危敏感词）时才会被调用，避免无谓消耗 LLM 额度。
+    const rewriteWithLLM = opts?.rewriteWithLLM || (async ({ prompt, sensitiveType, _sceneIndex, contextBlock, anchors }) => {
+      if (!this.aiGenerator || typeof this.aiGenerator.generateWithDefault !== 'function') return null
+      const systemPrompt = '你是图片提示词安全改写助手。将用户提供的图片提示词改写为符合内容安全政策的安全版本：' +
+        '替换敏感人物/动作/细节为象征性、非特定身份的替代，保留场景背景、时代、地域、角色与视觉风格等非敏感信息。' +
+        '只输出改写后的提示词本身，不要任何解释、引号或前缀。'
+      const userContent = '敏感类型：' + (sensitiveType || 'unknown') +
+        (contextBlock ? '\n场景背景（保留）：' + contextBlock : '') +
+        (anchors && anchors.length ? '\n一致性锚点（保留）：' + anchors.join('、') : '') +
+        '\n原始提示词：' + prompt
+      try {
+        const result = await this.aiGenerator.generateWithDefault('llm', {
+          temperature: 0.3,
+          max_tokens: 800,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userContent },
+          ],
+        })
+        return result && typeof result.content === 'string' && result.content.trim()
+          ? result.content.trim()
+          : null
+      } catch (e) {
+        this.log.warn('AssetGenerator', 'LLM safe rewrite failed: ' + (e && e.message))
+        return null
+      }
+    })
     try {
       const retryResult = await runContentPolicyImageRetry({
         prompt,
         sceneIndex: opts?.index,
         onRewrite: opts?.onContentPolicyRewrite,
         sceneContext: opts?.sceneContext,
+        rewriteWithLLM,
         generate: async ({ prompt: attemptPrompt }) => {
           const imageParams = {
             prompt: attemptPrompt,
@@ -625,6 +654,20 @@ class AssetGenerator {
         // 不再一律笼统报「content-policy review」（2026-08-16 复盘：过期 Key 被误标为内容审查）。
         const isContentPolicy = checkpoint?.reason === 'content_policy'
         this.log.warn('AssetGenerator', 'Image provider ' + provider + ' requires user input after ' + (isContentPolicy ? 'content-policy' : 'empty-result') + ' retries')
+        // 方案层 4：结构化审计（敏感类型/尝试次数/provider/model/结果），改写前后只存哈希，严禁明文。
+        if (isContentPolicy) {
+          const audit = createContentPolicyAudit({
+            sceneIndex: checkpoint?.sceneIndex,
+            sensitiveType: checkpoint?.sensitiveType || 'unknown',
+            provider,
+            model: opts?.image_model || opts?.imageModel || '',
+            originalPrompt: prompt,
+            rewrittenPrompt: '',
+            attempts: checkpoint?.attempts || generationAttempts.length,
+            outcome: 'needs_user_input',
+          })
+          if (this.log && this.log.info) this.log.info('AssetGenerator', 'content-policy audit: ' + JSON.stringify(audit))
+        }
         return {
           code: -1,
           message: needsUserInputMessage(checkpoint),

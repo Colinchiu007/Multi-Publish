@@ -120,7 +120,7 @@ async function createIdentityService(options = {}) {
       if (!webContents || (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed())) return
       try {
         webContents.send('identity:state-changed', state)
-      } catch {}
+      } catch { /* ignore */ }
     })
   }
   await authService.restore()

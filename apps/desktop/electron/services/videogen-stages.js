@@ -583,7 +583,7 @@ function registerVideoGenStages (pipelineEngine) {
           entities,
           retryHint,
         })
-        let raw = ''
+        let raw
         try {
           // fidelity/hybrid 注入分段全文 + source_paras，输出体积显著大于 creative：显式放大输出预算
           const storyboardMaxTokens = mode === 'creative' ? undefined : 8000

@@ -341,7 +341,7 @@ async function deleteAccount (accountId, options = {}) {
     const deletedCredential = credentialStore.deleteCredential(...credentialArgs)
     if (hadCredential && !deletedCredential) throw new Error('加密凭据文件删除失败')
   } catch (e) {
-    throw new Error(`账号元数据已删除，但清理本地加密凭据失败: ${e.message}`)
+    throw new Error(`账号元数据已删除，但清理本地加密凭据失败: ${e.message}`, { cause: e })
   }
   try {
     if (ownerSubject !== undefined && platform && typeof accountStateRestorer.deleteAccountRecord === 'function') {

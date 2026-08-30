@@ -128,6 +128,14 @@ function classifyContentPolicyType (signal) {
   if (/\b(?:political|politic|election|campaign|government|party)\b/.test(text)) return 'political'
   if (/\b(?:minor|child|children|underage|kid)\b/.test(text)) return 'minor'
   if (/\b(?:self\s?harm|suicide|self\s?injur)\b/.test(text)) return 'selfharm'
+  // 中文错误信号（2026-08-30 调优）：供应商可能返回中文内容安全错误，
+  // 仅英文匹配会归为 unknown，改写指令不精准。
+  if (/(?:血腥|暴力|流血|武器)/.test(text)) return 'violence'
+  if (/(?:色情|裸露|淫秽|性爱|情色)/.test(text)) return 'sexual'
+  if (/(?:肖像|真人|明星|名人|公众人物)/.test(text)) return 'portrait'
+  if (/(?:政治|选举|政府|政党|领导人)/.test(text)) return 'political'
+  if (/(?:未成年|儿童|小孩|少年)/.test(text)) return 'minor'
+  if (/(?:自杀|自伤|自残)/.test(text)) return 'selfharm'
   return 'unknown'
 }
 

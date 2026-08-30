@@ -392,7 +392,7 @@ describe('selectVoice — MiniMax 系统音色 id（含空格/括号）', () => 
   it('拒绝含路径分隔符/遍历序列的 voiceId', async () => {
     const now = 1_700_000_000_000
     const service = new TtsVoiceService({ store: createUserStore(), modelProviderManager: createManager(), now: () => now, cacheTtlMs: 60_000 })
-    const result = await service.selectVoice({ providerId: 'openai-tts', model: 'tts-1', voiceId: '..\..\evil' })
+    const result = await service.selectVoice({ providerId: 'openai-tts', model: 'tts-1', voiceId: '..\\..\\evil' })
     expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_INVALID_ARGUMENTS' })
   })
 })

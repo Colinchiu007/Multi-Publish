@@ -58,7 +58,7 @@ class UsageReporter {
   }
 
   _getWatermark () {
-    let raw = ''
+    let raw
     try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
     let data = {}
     if (raw) { try { data = JSON.parse(raw) } catch { data = {} } }
@@ -148,7 +148,7 @@ class UsageReporter {
     }
 
     // P1：调度可观测性（governor 排队/冷却计数，按 provider 聚合）→ 独立 scheduler 聚合项（与调用桶分开计数）
-    let schedulerMetrics = {}
+    let schedulerMetrics
     try { schedulerMetrics = this._getSchedulerMetrics() || {} } catch { schedulerMetrics = {} }
     const clientId = this._getClientId()
     for (const [providerId, s] of Object.entries(schedulerMetrics)) {

@@ -858,6 +858,7 @@ var require_video_clone = __commonJS({
               try {
                 cb(evt);
               } catch {
+                /* ignore */
               }
             };
             ipcRendererRef.on("video-clone:progress", listener);

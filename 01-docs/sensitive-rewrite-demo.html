@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>敏感改写策略 · 交互演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f0f4f8; color: #1f2937; padding: 24px; line-height: 1.6; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .subtitle { color: #6b7280; font-size: 14px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 16px; margin-bottom: 14px; color: #111827; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 12px 0 4px; color: #374151; }
+  select, input, textarea { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
+  textarea { resize: vertical; min-height: 60px; }
+  .btn { margin-top: 16px; padding: 10px 18px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #1d4ed8; }
+  .btn.secondary { background: #6b7280; }
+  .btn.secondary:hover { background: #4b5563; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .preset { padding: 4px 10px; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 20px; font-size: 12px; cursor: pointer; }
+  .preset:hover { background: #e0e7ff; }
+  .result { margin-top: 14px; }
+  .result-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-top: 8px; white-space: pre-wrap; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .badge.safe { background: #d1fae5; color: #065f46; }
+  .badge.risk { background: #fee2e2; color: #991b1b; }
+  .badge.info { background: #dbeafe; color: #1e40af; }
+  .decision { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .decision.llm { background: #fef3c7; border: 1px solid #fde68a; }
+  .decision.template { background: #d1fae5; border: 1px solid #a7f3d0; }
+  .decision.user { background: #fee2e2; border: 1px solid #fecaca; }
+  .flow { margin-top: 16px; }
+  .flow-step { display: flex; align-items: center; gap: 8px; padding: 8px 0; font-size: 13px; }
+  .flow-arrow { color: #9ca3af; }
+  .legend { margin-top: 16px; font-size: 12px; color: #6b7280; }
+  .legend b { color: #374151; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎨 敏感改写策略 · 交互演示</h1>
+  <p class="subtitle">Story2Video 图片内容安全改写 — 用真实改写逻辑演示「模板改写 → LLM 升级 → 自检」</p>
+
+  <div class="grid">
+    <!-- 左侧：输入 -->
+    <div class="card">
+      <h2>① 输入</h2>
+      <label>敏感类型</label>
+      <select id="sensitiveType">
+        <option value="violence">violence 暴力</option>
+        <option value="sexual">sexual 性</option>
+        <option value="portrait">portrait 肖像</option>
+        <option value="political">political 政治</option>
+        <option value="minor">minor 未成年人</option>
+        <option value="selfharm">selfharm 自伤</option>
+        <option value="unknown">unknown 未知</option>
+      </select>
+
+      <label>原始提示词</label>
+      <textarea id="prompt" placeholder="输入图片提示词，例如：a child in a classroom">a child in a classroom</textarea>
+      <div class="presets" id="presets"></div>
+
+      <label>场景背景 contextBlock（可选，保留原文背景）</label>
+      <input id="contextBlock" placeholder="例如：唐代，中国，老妇人，厨房，油灯" value="唐代，中国，老妇人，厨房，油灯">
+
+      <label>一致性锚点 anchors（可选，逗号分隔）</label>
+      <input id="anchors" placeholder="例如：唐代, 油灯" value="唐代, 油灯">
+
+      <button class="btn" onclick="run()">🔄 运行改写</button>
+      <button class="btn secondary" onclick="reset()">清空</button>
+
+      <div class="legend">
+        <b>提示：</b>切换敏感类型 + 修改提示词，观察改写决策变化。
+        原文含 <b>child / minor / self-harm / suicide / gore / nude / porn / graphic violence / violent</b> 等英文高危词 → 升级 LLM 改写。
+      </div>
+    </div>
+
+    <!-- 右侧：结果 -->
+    <div class="card">
+      <h2>② 改写结果</h2>
+      <div id="result">
+        <p style="color:#9ca3af;font-size:13px;">点击「运行改写」查看结果…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 与生产代码一致的核心逻辑（story2video-image-retry.js）=====
+const CONTENT_POLICY_REWRITE_STRATEGIES = {
+  violence: 'Depict the scene as a tense conflict atmosphere with no blood, wounds, weapons, or graphic detail.',
+  sexual: 'Depict the scene in a modest, non-explicit, age-appropriate way with no nudity or sexual content.',
+  portrait: 'Depict only a fictional, non-identifying character; do not reproduce any real person likeness.',
+  political: 'Depict the scene without any political figures, symbols, or references.',
+  minor: 'Depict only adult characters; do not depict any minors or child-like figures.',
+  selfharm: 'Depict a calm, hopeful scene with no self-harm, injury, or distress.',
+  unknown: 'Replace sensitive people, actions, and details with symbolic, non-identifying alternatives.',
+}
+
+function buildContentPolicySafePrompt (prompt, options = {}) {
+  const sceneNumber = (options.sceneIndex || 0) + 1
+  const source = String(prompt || '').trim().slice(0, 4000)
+  const sensitiveType = options.sensitiveType || 'unknown'
+  const strategy = CONTENT_POLICY_REWRITE_STRATEGIES[sensitiveType] || CONTENT_POLICY_REWRITE_STRATEGIES.unknown
+  const contextBlock = String(options.contextBlock || '').trim()
+  const anchors = Array.isArray(options.anchors) ? options.anchors.filter(Boolean) : []
+  const lines = [
+    'Generate a policy-compliant, age-appropriate visual interpretation for scene ' + sceneNumber + '.',
+    strategy,
+    'Do not depict graphic violence, nudity, sexual content, minors, self-harm, illegal activity, hate symbols, real-person likenesses, or readable text.',
+  ]
+  if (contextBlock) lines.push('Preserve this scene background: ' + contextBlock + '.')
+  if (anchors.length > 0) lines.push('Keep these visual anchors: ' + anchors.join(', ') + '.')
+  lines.push('Scene source to adapt:', source)
+  return lines.join('\n')
+}
+
+function validateRewriteSafety (prompt) {
+  const text = String(prompt || '').toLowerCase()
+  const HIGH_RISK_PATTERN = /\b(?:child|minor|underage|self[_\s-]?harm|suicide|gore|nudit|nude|porn|explicit\s+sexual|graphic\s+violence|violent)\b/
+  const flagged = []
+  if (HIGH_RISK_PATTERN.test(text)) flagged.push('high_risk_sensitive_term')
+  return { safe: flagged.length === 0, flagged }
+}
+
+// ===== 模拟 LLM 改写（演示用；生产用 aiGenerator.generateWithDefault('llm')）=====
+const LLM_EXAMPLES = [
+  { from: 'a child in a classroom', to: 'a young student in a classroom' },
+  { from: 'a child playing', to: 'a young student playing' },
+  { from: '两人激烈搏斗，血流满地', to: '两人紧张对峙，气氛凝重' },
+  { from: '手臂上有伤痕，神情绝望', to: '安静地坐在窗边，神情平静' },
+  { from: '穿着暴露，姿态挑逗', to: '穿着得体，姿态端庄' },
+  { from: 'self-harm scene', to: 'a calm, hopeful scene' },
+  { from: '酷似某知名明星的年轻男子', to: '一位虚构的年轻男子' },
+  { from: '挥舞旗帜，背景是政府大楼', to: '广场上人群聚集，背景是普通建筑' },
+]
+function simulateLLMRewrite (prompt) {
+  const hit = LLM_EXAMPLES.find(e => prompt.includes(e.from))
+  if (hit) return hit.to
+  // 兜底：简单替换常见高危词
+  return String(prompt)
+    .replace(/child/gi, 'young student')
+    .replace(/self[_\s-]?harm/gi, 'a calm, hopeful moment')
+    .replace(/血流满地/gi, '气氛凝重')
+    .replace(/伤痕/gi, '平静的神情')
+    .replace(/暴露/gi, '得体')
+    .replace(/挑逗/gi, '端庄')
+}
+
+// ===== 预设 =====
+const PRESETS = [
+  { label: '儿童教室', type: 'minor', prompt: 'a child in a classroom', ctx: '现代教室', anchors: '课桌' },
+  { label: '暴力搏斗', type: 'violence', prompt: '两人激烈搏斗，血流满地，手持利刃', ctx: '唐代，中国，老妇人，厨房，油灯', anchors: '唐代, 油灯' },
+  { label: '自伤', type: 'selfharm', prompt: '一个人独自在房间，手臂上有伤痕，神情绝望', ctx: '昏暗的房间', anchors: '窗边' },
+  { label: '性暗示', type: 'sexual', prompt: '一名女子穿着暴露，姿态挑逗', ctx: '宴会厅', anchors: '烛光' },
+  { label: '政治', type: 'political', prompt: '广场上聚集人群，挥舞旗帜，背景是政府大楼', ctx: '城市广场', anchors: '广场' },
+  { label: '肖像', type: 'portrait', prompt: '酷似某知名明星的年轻男子', ctx: '红毯', anchors: '闪光灯' },
+  { label: '干净中文', type: 'violence', prompt: '一位老妇人在厨房里点油灯', ctx: '唐代，中国，老妇人，厨房，油灯', anchors: '唐代, 油灯' },
+]
+
+function renderPresets () {
+  const box = document.getElementById('presets')
+  box.innerHTML = ''
+  PRESETS.forEach((p, i) => {
+    const el = document.createElement('span')
+    el.className = 'preset'
+    el.textContent = p.label
+    el.onclick = () => {
+      document.getElementById('sensitiveType').value = p.type
+      document.getElementById('prompt').value = p.prompt
+      document.getElementById('contextBlock').value = p.ctx
+      document.getElementById('anchors').value = p.anchors
+      run()
+    }
+    box.appendChild(el)
+  })
+}
+
+function esc (s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+function run () {
+  const type = document.getElementById('sensitiveType').value
+  const prompt = document.getElementById('prompt').value.trim()
+  const contextBlock = document.getElementById('contextBlock').value.trim()
+  const anchors = document.getElementById('anchors').value.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+
+  const result = document.getElementById('result')
+  if (!prompt) { result.innerHTML = '<p style="color:#991b1b;">请输入原始提示词</p>'; return }
+
+  // 1. 改写前自检原文
+  const origCheck = validateRewriteSafety(prompt)
+  // 2. 模板改写
+  const template = buildContentPolicySafePrompt(prompt, { sceneIndex: 2, sensitiveType: type, contextBlock, anchors })
+  // 3. 决策
+  let decision, decisionClass, llmResult = null
+  if (!origCheck.safe) {
+    llmResult = simulateLLMRewrite(prompt)
+    const llmCheck = validateRewriteSafety(llmResult)
+    if (llmCheck.safe) {
+      decision = '原文含高危词 → 模板改写版拼入原文必然仍含 → 升级 LLM 改写（成功）'
+      decisionClass = 'llm'
+    } else {
+      decision = '原文含高危词 → LLM 改写结果仍含高危词 → 不发送，交用户'
+      decisionClass = 'user'
+    }
+  } else {
+    decision = '原文安全 → 走模板改写'
+    decisionClass = 'template'
+  }
+
+  // 模板改写版自检（仅展示，生产不用于决策）
+  const templateCheck = validateRewriteSafety(template)
+
+  let html = ''
+  // 决策
+  html += `<div class="decision ${decisionClass}"><b>改写决策：</b>${esc(decision)}</div>`
+
+  // 原文自检
+  html += `<div class="result-block" style="margin-top:12px;"><b>① 原文自检</b> ${origCheck.safe ? '<span class="badge safe">安全</span>' : '<span class="badge risk">含高危词</span>'}
+${esc(prompt)}</div>`
+
+  // 模板改写
+  html += `<div class="result-block"><b>② 模板改写版</b> ${templateCheck.safe ? '<span class="badge safe">自检安全</span>' : '<span class="badge info">含否定句高危词（指令，非内容）</span>'}
+${esc(template)}</div>`
+
+  // LLM 改写（若升级）
+  if (llmResult) {
+    const llmCheck = validateRewriteSafety(llmResult)
+    html += `<div class="result-block"><b>③ LLM 改写结果</b> ${llmCheck.safe ? '<span class="badge safe">安全 → 发送</span>' : '<span class="badge risk">仍含高危词 → 交用户</span>'}
+${esc(llmResult)}</div>`
+  }
+
+  // 流程
+  html += `<div class="flow"><b>改写流程：</b>`
+  html += `<div class="flow-step">图片模型拒绝 → 识别敏感类型 <span class="badge info">${esc(type)}</span></div>`
+  html += `<div class="flow-step"><span class="flow-arrow">↓</span> 改写前自检原文 ${origCheck.safe ? '✅' : '⚠️'}</div>`
+  if (!origCheck.safe) {
+    html += `<div class="flow-step"><span class="flow-arrow">↓</span> 升级 LLM 改写 ${llmResult ? '→ ' + esc(llmResult) : '（无 LLM → 交用户）'}</div>`
+  } else {
+    html += `<div class="flow-step"><span class="flow-arrow">↓</span> 模板改写（保留背景/锚点）</div>`
+  }
+  html += `<div class="flow-step"><span class="flow-arrow">↓</span> 发送给图片模型重试</div></div>`
+
+  result.innerHTML = html
+}
+
+function reset () {
+  document.getElementById('prompt').value = ''
+  document.getElementById('result').innerHTML = '<p style="color:#9ca3af;font-size:13px;">点击「运行改写」查看结果…</p>'
+}
+
+renderPresets()
+run()
+</script>
+</body>
+</html>

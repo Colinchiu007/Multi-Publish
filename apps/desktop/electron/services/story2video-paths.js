@@ -204,7 +204,7 @@ function importUserSelectedMedia (candidate, kind, options = {}) {
     if (!stat.isFile() || stat.size <= 0 || stat.size > rule.maxBytes) throw new Error('媒体文件超过大小上限')
   } catch (error) {
     if (error && /媒体/.test(error.message)) throw error
-    throw new Error('媒体文件不存在或不可读')
+    throw new Error('媒体文件不存在或不可读', { cause: error })
   }
 
   // 惰性老化回收：源文件校验通过后、复制前触发（gcEnabled 生产开启；与启动时回收互补）。

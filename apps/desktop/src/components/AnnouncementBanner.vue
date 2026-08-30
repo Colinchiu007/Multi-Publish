@@ -46,7 +46,7 @@ function dismissKey (a) {
 
 function dismiss (a) {
   dismissedKeys.value.add(dismissKey(a))
-  try { localStorage.setItem('announcement-banner-dismissed', JSON.stringify([...dismissedKeys.value])) } catch (_) {}
+  try { localStorage.setItem('announcement-banner-dismissed', JSON.stringify([...dismissedKeys.value])) } catch (_) { /* ignore */ }
 }
 
 onMounted(() => { loadRuntime() })

@@ -229,7 +229,7 @@ class BasePythonBridge {
   async _post (path, body, timeout, traceId) {
     const reqTimeout = timeout || this.requestTimeout
     if (!this.isRunning) {
-      try { await this.ensureRunning() } catch (e) { throw new Error(`${this.name} is not running and lazy-start failed: ${e instanceof Error ? e.message : String(e)}`) }
+      try { await this.ensureRunning() } catch (e) { throw new Error(`${this.name} is not running and lazy-start failed: ${e instanceof Error ? e.message : String(e)}`, { cause: e }) }
     }
     // 仅记录 path + traceId，绝不记录 body（body 为业务数据，无需入日志）。
     // traceId 必须为 header 安全 ASCII（允许字母/数字/._:-，≤64），否则跳过头发送——

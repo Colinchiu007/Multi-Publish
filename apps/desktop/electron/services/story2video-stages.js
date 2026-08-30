@@ -941,7 +941,6 @@ async function buildManualSceneCandidates (ctx) {
             runDir: videoRunDir,
             pollIntervalMs: videoConfig.pollIntervalMs,
             providerRunContext,
-            providerRunContext,
           })),
         )
         videoResults.set(index, attachVideoContinuityMeta(
@@ -971,16 +970,7 @@ async function buildManualSceneCandidates (ctx) {
     if (!promptText) return { success: false, index, error: '场景缺少提示词' }
     const negativePrompt = resolveSceneNegativePrompt(context, stage, index)
     // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景（避免背景漂移）
-    const sceneContext = (() => {
-      const sceneCtx = context?.scene_context
-      const scenes = sceneCtx && Array.isArray(sceneCtx.scenes) ? sceneCtx.scenes : null
-      const scene = scenes && scenes[index] ? scenes[index] : null
-      if (!scene) return undefined
-      const contextBlock = typeof scene.storyContext === 'string' ? scene.storyContext : ''
-      const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
-      if (!contextBlock && anchors.length === 0) return undefined
-      return { contextBlock, anchors }
-    })()
+    const sceneContext = resolveSceneContextForRewrite(context, index)
     let result
     if (assetGenerator) {
       result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
@@ -1585,6 +1575,25 @@ function resolveSceneNegativePrompt(context, stage, index) {
   return mergeNegativePrompt(base, anchors, 500);
 }
 
+/**
+ * 从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景（避免背景漂移）。
+ * 方案层 2：改写时注入 contextBlock（时代/地域/角色/视觉风格）与 anchors（一致性锚点），
+ * 使改写"在正确背景下替换敏感元素"。无可用上下文时返回 undefined（改写退化为纯模板）。
+ * @param {object} context 流水线上下文
+ * @param {number} index 场景索引
+ * @returns {{ contextBlock: string, anchors: string[] }|undefined}
+ */
+function resolveSceneContextForRewrite(context, index) {
+  const sceneCtx = context && context.scene_context
+  const scenes = sceneCtx && Array.isArray(sceneCtx.scenes) ? sceneCtx.scenes : null
+  const scene = scenes && scenes[index] ? scenes[index] : null
+  if (!scene) return undefined
+  const contextBlock = typeof scene.storyContext === 'string' ? scene.storyContext : ''
+  const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
+  if (!contextBlock && anchors.length === 0) return undefined
+  return { contextBlock, anchors }
+}
+
 function resumeFinalFrameOf(resumeEntry) {
   if (!resumeEntry || typeof resumeEntry !== 'object' || Array.isArray(resumeEntry)) return { value: '', source: null }
   const candidates = [
@@ -2184,14 +2193,13 @@ function registerStory2VideoStages(pipelineEngine) {
           maxScenes: videoConfig.maxScenes,
         })
         entries = null
-        let raw = ''
-        let lastError = ''
+        let raw
+        let lastError
         // 真实运行暴露（2026-08-11 W6）：deepseek-v4-flash 等推理型模型对 27 场景长任务偶发
         // 返回空 content（仅 reasoning_content）或非法 JSON，单次失败即整阶段失败。改为有界重试：
         // 空内容/解析失败均重试，最多 3 次，逐次记录 raw 便于诊断。
         const maxAttempts = 3
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          raw = ''
           try {
             // max_tokens 随场景数放大，避免长 reason JSON 被截断导致解析失败（2026-08-11 I4）
             const maxTokens = Math.min(5000, 800 + scenes.length * 140)
@@ -2953,6 +2961,8 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
             const negativePrompt = resolveSceneNegativePrompt(context, stage, index);
+            // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景
+            const sceneContext = resolveSceneContextForRewrite(context, index);
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
               if (!suppliedPath) {
@@ -2979,6 +2989,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 runId,
                 providerRunContext,
                 onContentPolicyRewrite,
+                sceneContext,
                 ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
               }));
             } else {
@@ -2987,6 +2998,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 sceneIndex: index,
                 maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
                 onRewrite: onContentPolicyRewrite,
+                sceneContext,
                 generate: async ({ prompt: attemptPrompt }) => {
                   providerRunContext.assertAvailable(resolvedImageProvider)
                   const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
@@ -3512,9 +3524,9 @@ function registerStory2VideoStages(pipelineEngine) {
           const _resolveManager = () => {
             try {
               if (pipelineEngine && pipelineEngine.aiGenerator && typeof pipelineEngine.aiGenerator._modelProviderManager === 'object' && pipelineEngine.aiGenerator._modelProviderManager !== null) return pipelineEngine.aiGenerator._modelProviderManager
-            } catch (_) {}
+            } catch (_) { /* ignore */ }
             const c = pipelineEngine && pipelineEngine.container
-            if (c && typeof c.get === 'function') { try { const m = c.get('modelProviderManager'); if (m) return m } catch (_) {} }
+            if (c && typeof c.get === 'function') { try { const m = c.get('modelProviderManager'); if (m) return m } catch (_) { /* ignore */ } }
             return null
           }
           const _reCloneResult = await tryReCloneVoice({
