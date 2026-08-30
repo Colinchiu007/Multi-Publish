@@ -244,9 +244,98 @@ Scene source to adapt:
 
 ---
 
-## 八、待优化方向
+## 八、优化点 1-6 实现（2026-08-30）
+
+> 本节记录对既有敏感改写策略的 6 项优化，全部已在 `story2video-image-retry.js` / `asset-generator.js` / `story2video-stages.js` 实现，并有对应回归测试。
+
+### 8.1 优化点 1：语义保留度接入重试循环
+
+**目标**：改写后语义保留度过低时提示，避免改写偏离原文。
+
+**实现**：
+- `estimateSemanticRetention(original, rewritten)` 用关键词重叠率估算改写前后语义保留度（0~1）。
+- 在 `runContentPolicyImageRetry` 的 LLM 改写路径中，对每一轮 LLM 改写结果计算保留度，并**记录到该次尝试的审计记录**（`attempts[i].semanticRetention`，保留 3 位小数）。
+- 多轮改写时，在「安全」的结果中**选保留度最高**的一轮作为最终改写（见 8.3）。
+
+**数据校验**：`semanticRetention` 仅在 `Number.isFinite` 时写入，避免 NaN/Infinity 污染审计。
+
+**回归测试**：`优化点1：LLM 改写后记录语义保留度到审计`——断言 LLM 改写那次尝试的审计含 `semanticRetention` 且 > 0。
+
+### 8.2 优化点 2：敏感类型连续拒绝升级 LLM
+
+**目标**：同一敏感类型连续被拒说明模板改写无效，及时升级 LLM 改写，避免反复用无效模板浪费尝试次数。
+
+**实现**：
+- `runContentPolicyImageRetry` 新增 `sensitiveTypeRejections` 计数与 `lastSensitiveType` 追踪。
+- 每次内容政策拒绝时，若敏感类型与上次相同则 `sensitiveTypeRejections++`，否则重置为 1。
+- 当 `sensitiveTypeRejections >= 2` 且提供 `rewriteWithLLM` 时，直接升级 LLM 改写（跳过模板改写）。
+- 改写结果二次校验：每轮 LLM 结果都过 `validateRewriteSafety`，仍含高危词则弃用该轮。
+
+**回归测试**：`优化点2：同一敏感类型连续拒绝 2 次 → 模板改写无效，升级 LLM 改写`——两次 violence 拒绝后第 3 次用 `llm_safe_rewrite` 策略。
+
+### 8.3 优化点 3：LLM 多轮改写降级
+
+**目标**：LLM 改写失败时，用不同改写指令多轮尝试，提高改写成功率。
+
+**实现**：
+- `rewriteWithLLMFallback` 定义三轮改写指令：`safe_rewrite`（替换敏感词）→ `abstract_rewrite`（抽象化）→ `minimal_rewrite`（最小改写）。
+- 每轮调用 `rewriteWithLLM({ prompt, sensitiveType, sceneIndex, contextBlock, anchors, round })`，`round` 参数传给 LLM 调整改写指令。
+- 单轮异常 `catch` 后 `continue`，不阻断后续轮次。
+- 在安全结果中选语义保留度最高的一轮（结合优化点 1）。
+
+**asset-generator.js 侧**：`rewriteWithLLM` 默认实现新增 `ROUND_PROMPTS` 映射，按 `round` 选择改写指令，并在 userContent 中注入「改写轮次：<round>」。
+
+**回归测试**：既有 3 处 `rewriteWithLLM` 调用次数断言从 1 改为 3（三轮降级）。
+
+### 8.4 优化点 4：`aggregateContentPolicyStats` 数据驱动统计
+
+**目标**：从审计记录聚合各敏感类型占比、改写成功率、平均语义保留度，反哺信号词库和改写模板。
+
+**实现**：`aggregateContentPolicyStats(audits)` 输入 `createContentPolicyAudit` 产出的审计记录数组（只含哈希与元数据，不含明文 prompt），输出：
+
+```
+{
+  total,                    // 审计记录总数
+  successRate,              // 整体成功率
+  avgSemanticRetention,     // 整体平均语义保留度
+  byType: [                 // 按敏感类型聚合，按 count 降序
+    { sensitiveType, count, ratio, successRate, needsUserInputRate, avgSemanticRetention }
+  ]
+}
+```
+
+**数据校验**：`semanticRetention` 仅在 `Number.isFinite` 时计入均值；`byType` 按 count 降序排序。
+
+**回归测试**：`优化点4：aggregateContentPolicyStats 聚合敏感类型占比/成功率/保留度`——断言 total/successRate/byType 各字段。
+
+### 8.5 优化点 5：改写模板按 provider 定制 + 中文指令
+
+**目标**：不同供应商对改写指令的解析能力不同（MiniMax 偏简洁、SD 系偏详细），且避免中英混杂。
+
+**实现**：
+- 新增 `CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER`：`minimax`（简洁版）、`stable-diffusion`（详细版）两套定制改写指令。
+- 新增 `CONTENT_POLICY_REWRITE_STRATEGIES_ZH`：中文改写指令（`language='zh'` 时使用）。
+- `buildContentPolicySafePrompt` 指令选择优先级：`zh` 语言 → 中文指令；否则 provider 定制 → 通用 → unknown 兜底。
+- `runContentPolicyImageRetry` 新增 `provider` 参数，透传给 `buildContentPolicySafePrompt`；`asset-generator.js` 调用时传入实际 `provider`。
+
+**回归测试**：`优化点5：按 provider 定制改写指令（minimax 简洁版）`、`优化点5：中文改写指令（language=zh）`。
+
+### 8.6 优化点 6：场景上下文保留角色/风格
+
+**目标**：改写时保留角色一致性与视觉风格，避免改写后角色/风格漂移。
+
+**实现**：
+- `buildContentPolicySafePrompt` 新增 `character` / `style` 选项，改写时注入 `Keep the same character: <character>.` / `Keep the visual style: <style>.`。
+- `runContentPolicyImageRetry` 从 `sceneContext` 提取 `character` / `style` 并透传。
+- `story2video-stages.js` 的 `resolveSceneContextForRewrite` 从 `scene.context` 提取 `character` 与 `setting`（映射为 `style`），仅在非空时返回，避免空字段污染下游断言。
+
+**回归测试**：`优化点6：改写保留角色一致性与视觉风格（character/style）`（image-retry）、`story2video-stages` 场景上下文透传断言（character/style）。
+
+---
+
+## 九、待优化方向
 
 1. **前置预过滤**：传给 prompt-engine 前用敏感词表粗过滤，减少拒绝概率（不能作为唯一手段，供应商策略动态）。
-2. **改写质量验证**：`estimateSemanticRetention` 接入重试循环，改写后语义保留度过低时提示。
-3. **数据驱动优化**：定期统计各供应商敏感拒绝分布、各敏感类型占比、改写成功率，反哺信号词库和改写模板。
-4. **LLM 改写降级**：LLM 改写失败时，可尝试多轮改写（不同改写指令）后再交用户。
+2. ~~**改写质量验证**：`estimateSemanticRetention` 接入重试循环，改写后语义保留度过低时提示。~~ ✅ 已实现（优化点 1）
+3. ~~**数据驱动优化**：定期统计各供应商敏感拒绝分布、各敏感类型占比、改写成功率，反哺信号词库和改写模板。~~ ✅ 已实现（优化点 4，`aggregateContentPolicyStats`）
+4. ~~**LLM 改写降级**：LLM 改写失败时，可尝试多轮改写（不同改写指令）后再交用户。~~ ✅ 已实现（优化点 3）
