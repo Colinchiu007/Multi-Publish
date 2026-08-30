@@ -1,3 +1,14 @@
+## OpenViking 在 Windows 安装的四个关键坑（openviking-install-windows，2026-08-29）
+
+- **背景**：为 AI Agent 安装 OpenViking（开源上下文数据库，viking:// 协议，L0 摘要/L1 概览/L2 详情三级内容）。最终方案：Embedding 用 Ollama 本地 nomic-embed-text（768 维），VLM 用天翼云 OpenAI 兼容端点 deepseek-v4-flash-0731-oc。服务跑在 127.0.0.1:1933，端到端验证通过（添加资源 → VLM 生成摘要 → embedding 向量化 → 语义检索命中）。
+- **坑 1（llama-cpp-python 在无 MSVC 的 Windows 上无法编译）**：OpenViking 默认本地 embedding 走 llama-cpp-python（GGUF 模型），但它在 Windows 无预编译 wheel，必须从源码编译，需要 MSVC C++ 工具链（nmake）。系统未装 Visual Studio Build Tools 时编译必然失败（CMAKE_C_COMPILER not set）。**教训**：Windows 上凡依赖 llama.cpp 的 Python 包，先确认有无预编译 wheel，否则优先改用 Ollama（官方安装包，免编译）。
+- **坑 2（Ollama 安装器忽略 /D= 参数，强制装 C 盘）**：OllamaSetup.exe /S /D=D:\... 静默安装时 /D= 目录参数被忽略，程序强制装到 %LOCALAPPDATA%\Programs\Ollama（NSIS 安装器限制）。**解法**：程序本体留在 C 盘，用用户级环境变量 OLLAMA_MODELS=D:\Data\OpenViking\models 把模型存储放到 D 盘（234GB 可用）。改环境变量后必须彻底停掉 ollama 进程再重启（ollama app.exe 会守护 ollama.exe serve，杀 serve 会自动重启，需先杀 app）。
+- **坑 3（C 盘空间不足导致模型下载失败）**：C 盘仅剩 1GB 时 ollama pull 报 There is not enough space on the disk，且 partial 文件写到了 C 盘 ~/.ollama/models（因为 OLLAMA_MODELS 未生效）。**解法**：把 ~/.ollama/models 迁移到 D 盘（注意 Move-Item 会嵌套成 models\models，需把 blobs/manifests 上移一层），清理 partial 残留，再重启 ollama。
+- **坑 4（CodeBuddy CN IDE 的 PYTHONPATH 污染导致 Python 服务启动失败）**：最隐蔽。CodeBuddy CN 把进程级 PYTHONPATH 设为 D:\Program Files\CodeBuddy CN\...\shim，其 sitecustomize.py 拦截 os.remove() 触发「批量删除保护」抛 SystemExit(1)，导致 openviking-server 启动时清理 stale lock 崩溃。**解法**：启动任何 Python 服务前先 Remove-Item Env:PYTHONPATH。**教训**：在 CodeBuddy/IDE 环境下跑 Python 守护进程，若莫名 SystemExit/文件操作被拦截，优先怀疑 PYTHONPATH 被 IDE 注入 shim。
+- **OpenViking 强制要求 embedding 才能启动**：即使不显式配置 embedding，服务默认回退到 local provider（需要 llama-cpp-python），queue 初始化时创建 embedding handler 失败即启动失败。**教训**：OpenViking 的语义检索是核心，embedding 是硬依赖，不能「先不配 embedding 跑通」。
+- **配置位置**：服务配置 C:\Users\邱领\.openviking\ov.conf（JSON，含 storage/embedding/vlm）；CLI 配置 ov config add custom --name local --url http://127.0.0.1:1933 --activate。启动服务需在 D:\Data\OpenViking 目录下（避免污染项目工作区）。常用命令：ov status / ov add-resource / ov find / ov tui。
+- **安全**：用户把天翼云 JWT API Key 粘贴进对话并写入 ov.conf，已提醒轮换该 Key。
+
 ## 水印「移动」漂移起点公式盲区：cos 初值使 t=0 落底（fix-watermark-drift-center，2026-08-27）
 
 - **现象**：故事讲述流水线水印位置选「移动（平滑漂移）」后，成片水印只在画面底部区域移动；期望从画面中心附近开始。

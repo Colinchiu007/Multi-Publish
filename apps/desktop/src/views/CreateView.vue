@@ -5530,7 +5530,9 @@ export default {
       await Promise.all(Array.from({ length: Math.min(4, records.length) }, () => worker()))
     },
     openHistoryResult(item) {
-      if (!item?.projectId || item.status === 'running') return
+      // 仅真实 story2video 项目可进入编辑页；run-only 记录（historyType=pipeline-run）的 projectId
+      // 是主进程回退的 runId，项目不存在，进入结果页必然加载失败（2026-08-30 修复）。
+      if (!item || item.historyType !== 'story2video-project' || !item?.projectId || item.status === 'running') return
       const query = { project: item.projectId }
       const runId = this.historyRunId(item)
       if (runId) query.runId = runId
