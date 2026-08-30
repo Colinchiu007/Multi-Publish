@@ -971,16 +971,7 @@ async function buildManualSceneCandidates (ctx) {
     if (!promptText) return { success: false, index, error: '场景缺少提示词' }
     const negativePrompt = resolveSceneNegativePrompt(context, stage, index)
     // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景（避免背景漂移）
-    const sceneContext = (() => {
-      const sceneCtx = context?.scene_context
-      const scenes = sceneCtx && Array.isArray(sceneCtx.scenes) ? sceneCtx.scenes : null
-      const scene = scenes && scenes[index] ? scenes[index] : null
-      if (!scene) return undefined
-      const contextBlock = typeof scene.storyContext === 'string' ? scene.storyContext : ''
-      const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
-      if (!contextBlock && anchors.length === 0) return undefined
-      return { contextBlock, anchors }
-    })()
+    const sceneContext = resolveSceneContextForRewrite(context, index)
     let result
     if (assetGenerator) {
       result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
@@ -1583,6 +1574,25 @@ function resolveSceneNegativePrompt(context, stage, index) {
   const base = stage && stage.options && typeof stage.options.negative_prompt === 'string' ? stage.options.negative_prompt : '';
   if (anchors.length === 0 && !base) return '';
   return mergeNegativePrompt(base, anchors, 500);
+}
+
+/**
+ * 从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景（避免背景漂移）。
+ * 方案层 2：改写时注入 contextBlock（时代/地域/角色/视觉风格）与 anchors（一致性锚点），
+ * 使改写"在正确背景下替换敏感元素"。无可用上下文时返回 undefined（改写退化为纯模板）。
+ * @param {object} context 流水线上下文
+ * @param {number} index 场景索引
+ * @returns {{ contextBlock: string, anchors: string[] }|undefined}
+ */
+function resolveSceneContextForRewrite(context, index) {
+  const sceneCtx = context && context.scene_context
+  const scenes = sceneCtx && Array.isArray(sceneCtx.scenes) ? sceneCtx.scenes : null
+  const scene = scenes && scenes[index] ? scenes[index] : null
+  if (!scene) return undefined
+  const contextBlock = typeof scene.storyContext === 'string' ? scene.storyContext : ''
+  const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
+  if (!contextBlock && anchors.length === 0) return undefined
+  return { contextBlock, anchors }
 }
 
 function resumeFinalFrameOf(resumeEntry) {
@@ -2953,6 +2963,8 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
             const negativePrompt = resolveSceneNegativePrompt(context, stage, index);
+            // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景
+            const sceneContext = resolveSceneContextForRewrite(context, index);
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
               if (!suppliedPath) {
@@ -2979,6 +2991,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 runId,
                 providerRunContext,
                 onContentPolicyRewrite,
+                sceneContext,
                 ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
               }));
             } else {
@@ -2987,6 +3000,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 sceneIndex: index,
                 maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
                 onRewrite: onContentPolicyRewrite,
+                sceneContext,
                 generate: async ({ prompt: attemptPrompt }) => {
                   providerRunContext.assertAvailable(resolvedImageProvider)
                   const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
