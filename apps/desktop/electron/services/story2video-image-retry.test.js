@@ -250,3 +250,89 @@ describe('Story2Video image content-policy retry', () => {
     expect(second.mock.calls[0][0].prompt).toBe('scene B')
   })
 })
+
+describe('buildContentPolicySafePrompt — 差异化改写 + 场景上下文感知（2026-08-30 方案层 2）', () => {
+  const { buildContentPolicySafePrompt } = require('./story2video-image-retry')
+
+  it('不传敏感类型/上下文时保持通用安全改写（向后兼容）', () => {
+    const out = buildContentPolicySafePrompt('一个场景', { sceneIndex: 0 })
+    expect(out).toContain('policy-compliant')
+    expect(out).toContain('一个场景')
+  })
+
+  it('violence 类型使用暴力弱化改写策略', () => {
+    const out = buildContentPolicySafePrompt('两人激烈搏斗流血', { sceneIndex: 0, sensitiveType: 'violence' })
+    expect(out).toContain('conflict')
+    expect(out).toContain('no blood')
+  })
+
+  it('sexual 类型使用含蓄改写策略', () => {
+    const out = buildContentPolicySafePrompt('亲密场景', { sceneIndex: 0, sensitiveType: 'sexual' })
+    expect(out).toContain('modest')
+    expect(out).toContain('non-explicit')
+  })
+
+  it('portrait 类型使用非特定身份改写策略', () => {
+    const out = buildContentPolicySafePrompt('真实名人肖像', { sceneIndex: 0, sensitiveType: 'portrait' })
+    expect(out).toContain('non-identifying')
+    expect(out).toContain('fictional')
+  })
+
+  it('注入 scene_context 锚点保留原文背景（避免背景漂移）', () => {
+    const out = buildContentPolicySafePrompt('一个老妇人在厨房做饭', {
+      sceneIndex: 0,
+      contextBlock: '唐代，中国，老妇人，厨房，油灯',
+      anchors: ['唐代', '油灯'],
+    })
+    expect(out).toContain('唐代')
+    expect(out).toContain('油灯')
+    expect(out).toContain('老妇人')
+  })
+})
+
+describe('改写质量验证闭环（2026-08-30 方案层 3）', () => {
+  const { validateRewriteSafety, estimateSemanticRetention } = require('./story2video-image-retry')
+
+  it('validateRewriteSafety 检测改写后仍含高危敏感词', () => {
+    expect(validateRewriteSafety('a child in a classroom')).toHaveProperty('safe', false)
+    expect(validateRewriteSafety('graphic violence scene')).toHaveProperty('safe', false)
+    expect(validateRewriteSafety('a peaceful garden with flowers')).toHaveProperty('safe', true)
+  })
+
+  it('estimateSemanticRetention 计算改写前后语义保留度', () => {
+    const high = estimateSemanticRetention('老妇人在厨房做饭', '老妇人在厨房做饭')
+    expect(high).toBeGreaterThan(0.8)
+    const low = estimateSemanticRetention('激烈搏斗', '花园里的花朵')
+    expect(low).toBeLessThan(0.5)
+  })
+})
+
+describe('结构化审计（2026-08-30 方案层 4）', () => {
+  const { createContentPolicyAudit } = require('./story2video-image-retry')
+
+  it('createContentPolicyAudit 记录敏感类型/改写前后哈希/供应商/结果，且不含原始 prompt', () => {
+    const audit = createContentPolicyAudit({
+      sceneIndex: 2,
+      sensitiveType: 'violence',
+      provider: 'minimax-image',
+      model: 'image-01',
+      originalPrompt: '两人激烈搏斗流血',
+      rewrittenPrompt: '两人冲突氛围',
+      attempts: 3,
+      outcome: 'success',
+    })
+    expect(audit).toMatchObject({
+      sceneIndex: 2,
+      sceneNumber: 3,
+      sensitiveType: 'violence',
+      provider: 'minimax-image',
+      model: 'image-01',
+      attempts: 3,
+      outcome: 'success',
+    })
+    expect(audit.originalPromptHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(audit.rewrittenPromptHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(JSON.stringify(audit)).not.toContain('两人激烈搏斗流血')
+    expect(JSON.stringify(audit)).not.toContain('两人冲突氛围')
+  })
+})

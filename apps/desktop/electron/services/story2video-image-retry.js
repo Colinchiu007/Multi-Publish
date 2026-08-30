@@ -3,6 +3,7 @@
 
 const {
   ERROR_CODES,
+  classifyContentPolicyType,
   hasStrictContentPolicySignal,
 } = require('./adapters/_base/provider-error')
 
@@ -93,20 +94,104 @@ function isContentPolicyRejection (error) {
 }
 
 /**
+ * 差异化改写策略（方案层 2，2026-08-30）。
+ * 按敏感类型选择改写指令，注入 scene_context 锚点保留原文背景，避免背景漂移。
+ * @type {Object<string, string>}
+ */
+const CONTENT_POLICY_REWRITE_STRATEGIES = Object.freeze({
+  violence: 'Depict the scene as a tense conflict atmosphere with no blood, wounds, weapons, or graphic detail.',
+  sexual: 'Depict the scene in a modest, non-explicit, age-appropriate way with no nudity or sexual content.',
+  portrait: 'Depict only a fictional, non-identifying character; do not reproduce any real person likeness.',
+  political: 'Depict the scene without any political figures, symbols, or references.',
+  minor: 'Depict only adult characters; do not depict any minors or child-like figures.',
+  selfharm: 'Depict a calm, hopeful scene with no self-harm, injury, or distress.',
+  unknown: 'Replace sensitive people, actions, and details with symbolic, non-identifying alternatives.',
+})
+
+/**
  * 生成发送给供应商的按场景安全化改写；调用方不得把返回的 prompt 写入审计数据。
+ * 支持按敏感类型差异化改写，并注入 scene_context 锚点（contextBlock/anchors）保留原文背景。
+ * @param {string} prompt 原始提示词
+ * @param {object} [options]
+ * @param {number} [options.sceneIndex] 场景索引
+ * @param {string} [options.sensitiveType] 敏感类型（violence/sexual/portrait/political/minor/selfharm/unknown）
+ * @param {string} [options.contextBlock] scene_context 上下文块（时代/地域/角色/视觉风格）
+ * @param {string[]} [options.anchors] scene_context 一致性锚点
  */
 function buildContentPolicySafePrompt (prompt, options = {}) {
   const sceneIndex = normalizeSceneIndex(options.sceneIndex)
   const source = String(prompt || '').trim().slice(0, 4000)
   const sceneNumber = sceneIndex + 1
+  const sensitiveType = options.sensitiveType || 'unknown'
+  const strategy = CONTENT_POLICY_REWRITE_STRATEGIES[sensitiveType] || CONTENT_POLICY_REWRITE_STRATEGIES.unknown
+  const contextBlock = String(options.contextBlock || '').trim()
+  const anchors = Array.isArray(options.anchors) ? options.anchors.filter(Boolean) : []
 
-  return [
+  const lines = [
     'Generate a policy-compliant, age-appropriate visual interpretation for scene ' + sceneNumber + '.',
-    'Preserve only neutral setting, time, lighting, and composition. Replace sensitive people, actions, and details with symbolic, non-identifying alternatives.',
+    strategy,
     'Do not depict graphic violence, nudity, sexual content, minors, self-harm, illegal activity, hate symbols, real-person likenesses, or readable text.',
-    'Scene source to adapt:',
-    source,
-  ].join('\n')
+  ]
+  // 注入 scene_context 锚点，保留原文背景（避免改写后背景漂移）
+  if (contextBlock) lines.push('Preserve this scene background: ' + contextBlock + '.')
+  if (anchors.length > 0) lines.push('Keep these visual anchors: ' + anchors.join(', ') + '.')
+  lines.push('Scene source to adapt:', source)
+  return lines.join('\n')
+}
+
+/**
+ * 改写质量验证（方案层 3，2026-08-30）。
+ * 扫描改写后的 prompt 是否仍含高危敏感词。
+ * @param {string} prompt 改写后的 prompt
+ * @returns {{safe: boolean, flagged: string[]}}
+ */
+function validateRewriteSafety (prompt) {
+  const text = String(prompt || '').toLowerCase()
+  const HIGH_RISK_PATTERN = /\b(?:child|minor|underage|self[_\s-]?harm|suicide|gore|nudit|nude|porn|explicit\s+sexual|graphic\s+violence|violent)\b/
+  const flagged = []
+  if (HIGH_RISK_PATTERN.test(text)) flagged.push('high_risk_sensitive_term')
+  return { safe: flagged.length === 0, flagged }
+}
+
+/**
+ * 改写前后语义保留度估算（方案层 3，2026-08-30）。
+ * 用关键词重叠率近似估算改写是否保留了原文语义。
+ * @param {string} original 原始 prompt
+ * @param {string} rewritten 改写后 prompt
+ * @returns {number} 0~1 的语义保留度
+ */
+function estimateSemanticRetention (original, rewritten) {
+  const tokenize = (value) => new Set(String(value || '').toLowerCase().split(/[\s,，。.!！?？;；:：、]+/).filter(Boolean))
+  const a = tokenize(original)
+  const b = tokenize(rewritten)
+  if (a.size === 0) return 0
+  let overlap = 0
+  for (const token of a) if (b.has(token)) overlap++
+  return overlap / a.size
+}
+
+/**
+ * 结构化审计记录（方案层 4，2026-08-30）。
+ * 记录敏感类型/改写前后 prompt 哈希/供应商/模型/尝试次数/结果。
+ * 严禁保存原始或改写后的 prompt 明文（遵循 PRD §7.1.5 合同）。
+ * @param {object} opts
+ * @returns {object} 审计记录
+ */
+function createContentPolicyAudit (opts = {}) {
+  const crypto = require('crypto')
+  const sha256 = (value) => crypto.createHash('sha256').update(String(value || '')).digest('hex')
+  const audit = {
+    sceneIndex: normalizeSceneIndex(opts.sceneIndex),
+    sceneNumber: normalizeSceneIndex(opts.sceneIndex) + 1,
+    sensitiveType: opts.sensitiveType || 'unknown',
+    provider: opts.provider || '',
+    model: opts.model || '',
+    attempts: Number(opts.attempts) || 1,
+    outcome: opts.outcome || '',
+    originalPromptHash: sha256(opts.originalPrompt),
+    rewrittenPromptHash: sha256(opts.rewrittenPrompt),
+  }
+  return audit
 }
 
 function createAttemptAudit (attempt, sceneIndex, promptStrategy, outcome, category) {
@@ -158,8 +243,11 @@ function createEmptyResultCheckpoint (sceneIndex, attempts) {
  * @param {number} [opts.maxAttempts] 最大尝试次数
  * @param {Function} opts.generate 单次生成函数
  * @param {Function} [opts.onRewrite] 当发生内容政策拒绝并切换到安全改写时回调（用于实时进度提示）
+ * @param {object} [opts.sceneContext] scene_context 上下文（方案层 2）：{ contextBlock, anchors }
+ * @param {string} [opts.sceneContext.contextBlock] 场景上下文块（时代/地域/角色/视觉风格）
+ * @param {string[]} [opts.sceneContext.anchors] 场景一致性锚点
  */
-async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite }) {
+async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, generate, onRewrite, sceneContext }) {
   if (typeof generate !== 'function') throw new TypeError('generate must be a function')
 
   const normalizedSceneIndex = normalizeSceneIndex(sceneIndex)
@@ -168,6 +256,11 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
   const originalPrompt = String(prompt || '').trim().slice(0, 4000)
   let currentPrompt = originalPrompt
   let promptStrategy = 'original'
+  // scene_context 上下文（方案层 2）：改写时注入，保留原文背景避免漂移
+  const contextBlock = sceneContext && typeof sceneContext === 'object' ? String(sceneContext.contextBlock || '') : ''
+  const anchors = sceneContext && Array.isArray(sceneContext.anchors) ? sceneContext.anchors : []
+  // 最近一次内容政策拒绝的敏感类型（方案层 1），用于差异化改写
+  let sensitiveType = 'unknown'
 
   const notifyRewrite = () => {
     if (typeof onRewrite === 'function') {
@@ -175,6 +268,16 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
         onRewrite({ sceneIndex: normalizedSceneIndex, sceneNumber: normalizedSceneIndex + 1 })
       } catch (_) { /* 进度提示回调异常不得阻断重试 */ }
     }
+  }
+
+  const rewritePrompt = () => {
+    currentPrompt = buildContentPolicySafePrompt(originalPrompt, {
+      sceneIndex: normalizedSceneIndex,
+      contextBlock,
+      anchors,
+      sensitiveType,
+    })
+    promptStrategy = 'content_policy_safe_rewrite'
   }
 
   for (let attempt = 1; attempt <= attemptLimit; attempt++) {
@@ -201,8 +304,7 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
         ))
         // 第 3 次调用起使用内容安全改写（本次失败后设置，下次 generate 生效）
         if (attempt >= 2 && attempt < attemptLimit) {
-          currentPrompt = buildContentPolicySafePrompt(originalPrompt, { sceneIndex: normalizedSceneIndex })
-          promptStrategy = 'content_policy_safe_rewrite'
+          rewritePrompt()
           notifyRewrite()
         }
         if (attempt === attemptLimit) {
@@ -241,8 +343,11 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
         }
       }
 
-      currentPrompt = buildContentPolicySafePrompt(originalPrompt, { sceneIndex: normalizedSceneIndex })
-      promptStrategy = 'content_policy_safe_rewrite'
+      // 提取敏感类型（方案层 1），用于差异化改写（方案层 2）
+      sensitiveType = classifyContentPolicyType(
+        error?.message || error?.status_msg || error?.context?.status_msg || ''
+      )
+      rewritePrompt()
       notifyRewrite()
     }
   }
@@ -263,10 +368,14 @@ function needsUserInputMessage (checkpoint) {
 
 module.exports = {
   MAX_IMAGE_GENERATION_ATTEMPTS,
+  CONTENT_POLICY_REWRITE_STRATEGIES,
   buildContentPolicySafePrompt,
+  createContentPolicyAudit,
   createContentPolicyCheckpoint,
   createEmptyResultCheckpoint,
+  estimateSemanticRetention,
   isContentPolicyRejection,
   needsUserInputMessage,
   runContentPolicyImageRetry,
+  validateRewriteSafety,
 }
