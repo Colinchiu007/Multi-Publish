@@ -1590,8 +1590,16 @@ function resolveSceneContextForRewrite(context, index) {
   if (!scene) return undefined
   const contextBlock = typeof scene.storyContext === 'string' ? scene.storyContext : ''
   const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
-  if (!contextBlock && anchors.length === 0) return undefined
-  return { contextBlock, anchors }
+  // 优化点 6：从 scene.context 提取角色一致性与视觉风格（scene_context 中间层产出）
+  const sceneCtxObj = scene && scene.context && typeof scene.context === 'object' ? scene.context : null
+  const character = sceneCtxObj && typeof sceneCtxObj.character === 'string' ? sceneCtxObj.character : ''
+  const setting = sceneCtxObj && typeof sceneCtxObj.setting === 'string' ? sceneCtxObj.setting : ''
+  if (!contextBlock && anchors.length === 0 && !character && !setting) return undefined
+  const result = { contextBlock, anchors }
+  // 优化点 6：仅在非空时返回角色一致性与视觉风格，避免空字段污染下游断言
+  if (character) result.character = character
+  if (setting) result.style = setting
+  return result
 }
 
 function resumeFinalFrameOf(resumeEntry) {
