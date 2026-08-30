@@ -109,16 +109,55 @@ function normalizeContentPolicySignal (signal) {
 }
 
 /**
+ * 优化点 3：provider → 错误信号 → 敏感类型 映射表（2026-08-30）。
+ * 提升已知 provider 信号的敏感类型识别准确率，降低 unknown 兜底率。
+ * 未命中映射表的信号回退到 classifyContentPolicyType 的文本分类。
+ * @type {Object<string, Object<string, string>>}
+ */
+const SENSITIVE_TYPE_SIGNAL_MAP = Object.freeze({
+  'minimax-image': Object.freeze({
+    violence_detected: 'violence',
+    blood: 'violence',
+    weapon: 'violence',
+    nudity: 'sexual',
+    explicit: 'sexual',
+    minor: 'minor',
+    child: 'minor',
+  }),
+  'openai-image': Object.freeze({
+    violence: 'violence',
+    nudity: 'sexual',
+    political: 'political',
+    minor: 'minor',
+    self_harm: 'selfharm',
+  }),
+  'stable-diffusion': Object.freeze({
+    nudity: 'sexual',
+    violence: 'violence',
+    child: 'minor',
+    political: 'political',
+  }),
+})
+
+/**
  * 敏感类型分类（方案层 1，2026-08-30）。
  * 把归一化后的内容安全信号归类为可操作的敏感类型，供差异化改写模板与审计使用。
  * 返回枚举：violence / sexual / portrait / political / minor / selfharm / unknown。
  * 无法识别的信号返回 'unknown'（保守兜底，不阻断改写重试路径）。
+ * 优化点 3：可选 provider 参数，先查 SENSITIVE_TYPE_SIGNAL_MAP 映射表，未命中回退文本分类。
  * @param {*} signal 原始信号字符串
+ * @param {string} [provider] 图片供应商（用于查映射表）
  * @returns {'violence'|'sexual'|'portrait'|'political'|'minor'|'selfharm'|'unknown'}
  */
-function classifyContentPolicyType (signal) {
+function classifyContentPolicyType (signal, provider) {
   const normalized = normalizeContentPolicySignal(signal)
   if (!normalized) return 'unknown'
+  // 优化点 3：先查 provider 映射表（已知 provider 信号优先）
+  const providerKey = String(provider || '').toLowerCase()
+  if (providerKey && SENSITIVE_TYPE_SIGNAL_MAP[providerKey]) {
+    const mapped = SENSITIVE_TYPE_SIGNAL_MAP[providerKey][normalized]
+    if (mapped) return mapped
+  }
   // 把下划线还原为空格，使 \b 词边界在单词间正确生效（下划线是 \w 字符，会破坏 \b）。
   const text = normalized.replace(/_/g, ' ')
 
@@ -259,4 +298,4 @@ function classifyProviderFailure(error) {
   return 'other'
 }
 
-module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyContentPolicyType, normalizeContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN, TRANSIENT_MESSAGE_PATTERN }
+module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyContentPolicyType, normalizeContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN, TRANSIENT_MESSAGE_PATTERN, SENSITIVE_TYPE_SIGNAL_MAP }

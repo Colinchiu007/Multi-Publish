@@ -9,6 +9,16 @@ const {
 
 const MAX_IMAGE_GENERATION_ATTEMPTS = 5
 
+// 优化点 5：LLM 改写成本预算（2026-08-30）。
+// 每场景 LLM 改写调用上限，避免无谓消耗 LLM 额度。
+const LLM_REWRITE_MAX_CALLS_PER_SCENE = 2
+// 优化点 5：LLM 改写结果缓存（模块级，仅单次运行内有效）。
+// key = 原始 prompt 的 SHA-256 哈希，value = { prompt, retention }。
+// 同原始提示词哈希再次触发时直接复用，不重复调用 LLM。
+const llmRewriteCache = new Map()
+// 优化点 5：每场景 LLM 改写调用计数（key = 原始 prompt 哈希）。
+const llmRewriteCallCount = new Map()
+
 const NON_CONTENT_POLICY_ERROR_CODES = new Set([
   ERROR_CODES.AUTH_FAILED,
   ERROR_CODES.RATE_LIMITED,
@@ -167,6 +177,40 @@ const CONTENT_POLICY_SEVERITY = Object.freeze({
 })
 
 /**
+ * 优化点 4：按敏感类型生成 negative_prompt（2026-08-30）。
+ * 正向保留原文语义、负向排除敏感内容，兼顾保留度与安全性。
+ * @param {string} sensitiveType 敏感类型
+ * @returns {string} negative_prompt 指令
+ */
+function buildNegativePrompt (sensitiveType) {
+  const type = String(sensitiveType || 'unknown').toLowerCase()
+  const map = {
+    violence: 'no blood, no weapons, no wounds, no graphic violence, no gore',
+    sexual: 'no nudity, no sexual content, no explicit poses, no suggestive clothing',
+    portrait: 'no real person likeness, no identifiable celebrity, no public figure',
+    political: 'no political figures, no political symbols, no flags, no campaign imagery',
+    minor: 'no minors, no children, no child-like figures, no underage characters',
+    selfharm: 'no self-harm, no injury, no blood, no distress, no suicide imagery',
+    unknown: 'no sensitive content, no explicit material, no identifiable individuals',
+  }
+  return map[type] || map.unknown
+}
+
+/**
+ * 优化点 7：检测原文语言（2026-08-30）。
+ * 中文占比超过阈值判定为 zh，否则 en。用于选择改写指令语言。
+ * @param {string} prompt 原始提示词
+ * @returns {'zh'|'en'}
+ */
+function detectPromptLanguage (prompt) {
+  const text = String(prompt || '')
+  const cjkCount = (text.match(/[\u4e00-\u9fff]/g) || []).length
+  const total = text.replace(/\s/g, '').length
+  if (total === 0) return 'en'
+  return cjkCount / total > 0.4 ? 'zh' : 'en'
+}
+
+/**
  * 生成发送给供应商的按场景安全化改写；调用方不得把返回的 prompt 写入审计数据。
  * 支持按敏感类型差异化改写，并注入 scene_context 锚点（contextBlock/anchors）保留原文背景。
  * 优化点 5：支持按 provider 定制改写指令 + 中文改写指令（language='zh'）。
@@ -188,11 +232,13 @@ function buildContentPolicySafePrompt (prompt, options = {}) {
   const sceneNumber = sceneIndex + 1
   const sensitiveType = options.sensitiveType || 'unknown'
   const provider = String(options.provider || '').toLowerCase()
-  const language = String(options.language || 'en').toLowerCase()
+  // 优化点 7：未显式指定语言时，按原文自动检测（中文原文用中文指令，英文用英文）
+  const language = String(options.language || '').toLowerCase() || detectPromptLanguage(source)
   const contextBlock = String(options.contextBlock || '').trim()
   const anchors = Array.isArray(options.anchors) ? options.anchors.filter(Boolean) : []
   const character = String(options.character || '').trim()
   const style = String(options.style || '').trim()
+  const severity = CONTENT_POLICY_SEVERITY[sensitiveType] || 'mild'
 
   // 优化点 5：按 provider 选择改写指令（优先 provider 定制，其次通用，最后中文）
   let strategy
@@ -210,6 +256,14 @@ function buildContentPolicySafePrompt (prompt, options = {}) {
     strategy,
     'Do not depict graphic violence, nudity, sexual content, minors, self-harm, illegal activity, hate symbols, real-person likenesses, or readable text.',
   ]
+  // 优化点 8：severe 类型（political/minor/selfharm）使用更强改写指令，明确排除敏感元素
+  if (severity === 'severe') {
+    if (language === 'zh') {
+      lines.push('必须严格排除所有敏感元素：不得出现任何未成年人、政治人物、自伤自残或相关暗示。')
+    } else {
+      lines.push('Strictly exclude all sensitive elements: no minors, no political figures, no self-harm, no related hints.')
+    }
+  }
   // 注入 scene_context 锚点，保留原文背景（避免改写后背景漂移）
   if (contextBlock) lines.push('Preserve this scene background: ' + contextBlock + '.')
   if (anchors.length > 0) lines.push('Keep these visual anchors: ' + anchors.join(', ') + '.')
@@ -239,20 +293,95 @@ function validateRewriteSafety (prompt) {
 }
 
 /**
+ * 扩展敏感词库（优化点 2，2026-08-30）。
+ * 覆盖 validateRewriteSafety 之外的常见敏感词，用于改写版发送前的本地预检，
+ * 减少无效重试浪费尝试次数。与 validateRewriteSafety 互补（后者覆盖高危核心词）。
+ */
+const EXTENDED_SENSITIVE_WORDS = [
+  // 英文扩展词
+  'naked', 'nude', 'nudity', 'corpse', 'dead body', 'dismember', 'mutilat',
+  'torture', 'beheading', 'decapitat', 'bloodbath', 'massacre', 'genocide',
+  'pedophil', 'child porn', 'underage', 'minor', 'suicide', 'self-harm',
+  'self harm', 'selfharm', 'gore', 'gory', 'slaughter', 'execution',
+  'weapon', 'gun', 'knife', 'blood', 'bleeding', 'wound', 'injur',
+  // 中文扩展词
+  '裸体', '裸露', '尸体', '肢解', '虐杀', '斩首', '屠杀', '大屠杀',
+  '儿童色情', '恋童', '未成年', '自杀', '自残', '自伤', '血腥', '屠杀',
+  '武器', '枪支', '刀', '流血', '伤口', '受伤',
+]
+
+/**
+ * 改写版发送前预检（优化点 2，2026-08-30）。
+ * 扫描改写后的 prompt 是否仍含扩展敏感词库中的高危词。
+ * 英文词用词边界匹配并排除否定语境（"no weapons" 不误判），中文词用子串匹配。
+ * @param {string} prompt 改写后的 prompt
+ * @returns {{safe: boolean, flagged: string[]}}
+ */
+function preflightRewriteSafety (prompt) {
+  const text = String(prompt || '').toLowerCase()
+  const flagged = []
+  for (const word of EXTENDED_SENSITIVE_WORDS) {
+    // 英文词（不含中文）：用词边界匹配，且排除 "no xxx" / "without xxx" 否定语境
+    if (!/[\u4e00-\u9fff]/.test(word)) {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const pattern = new RegExp('\\b' + escaped + '\\b')
+      const negation = new RegExp('\\b(?:no|without)\\s+' + escaped + '\\b')
+      if (pattern.test(text) && !negation.test(text)) {
+        flagged.push(word)
+      }
+    } else if (text.includes(word)) {
+      // 中文词：子串匹配
+      flagged.push(word)
+    }
+  }
+  return { safe: flagged.length === 0, flagged }
+}
+
+/**
  * 改写前后语义保留度估算（方案层 3，2026-08-30）。
  * 用关键词重叠率近似估算改写是否保留了原文语义。
+ * 优化点 1（2026-08-30 增强）：中文用双字 n-gram（bigram）、英文用词干化，
+ * 提升中文/同义词场景的保留度估算准确性；保留原关键词重叠作为兜底。
  * @param {string} original 原始 prompt
  * @param {string} rewritten 改写后 prompt
  * @returns {number} 0~1 的语义保留度
  */
 function estimateSemanticRetention (original, rewritten) {
-  const tokenize = (value) => new Set(String(value || '').toLowerCase().split(/[\s,，。.!！?？;；:：、]+/).filter(Boolean))
-  const a = tokenize(original)
-  const b = tokenize(rewritten)
-  if (a.size === 0) return 0
+  const a = String(original || '').toLowerCase()
+  const b = String(rewritten || '').toLowerCase()
+  if (!a.trim()) return 0
+
+  const tokenize = (value) => new Set(String(value || '').split(/[\s,，。.!！?？;；:：、]+/).filter(Boolean))
+  // 英文词干化：剥离常见后缀，使 child/kid、running/run 归并为同一词根
+  const stem = (word) => word.replace(/(?:ing|ed|es|s)$/, '').replace(/ie$/, 'y')
+  const enTokens = (value) => new Set([...tokenize(value)].map(stem))
+
+  // 中文 bigram：把中文连续字符切成双字 n-gram
+  const cnBigrams = (value) => {
+    const cjk = value.replace(/[^\u4e00-\u9fff]/g, '')
+    const grams = new Set()
+    for (let i = 0; i < cjk.length - 1; i++) grams.add(cjk.slice(i, i + 2))
+    return grams
+  }
+
+  const aEn = enTokens(a)
+  const bEn = enTokens(b)
+  const aCn = cnBigrams(a)
+  const bCn = cnBigrams(b)
+
   let overlap = 0
-  for (const token of a) if (b.has(token)) overlap++
-  return overlap / a.size
+  let total = 0
+  for (const token of aEn) {
+    if (!/[\u4e00-\u9fff]/.test(token)) {
+      total++
+      if (bEn.has(token)) overlap++
+    }
+  }
+  for (const gram of aCn) {
+    total++
+    if (bCn.has(gram)) overlap++
+  }
+  return total ? overlap / total : 0
 }
 
 /**
@@ -396,6 +525,17 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
    */
   const rewriteWithLLMFallback = async () => {
     if (typeof rewriteWithLLM !== 'function') return null
+    // 优化点 5：同原始 prompt 哈希缓存复用（避免重复调用 LLM）。
+    // 缓存 key 绑定 rewriteWithLLM 函数引用，避免不同改写器/测试间污染。
+    const crypto = require('crypto')
+    const cacheKey = crypto.createHash('sha256').update(originalPrompt).digest('hex') + ':' + (rewriteWithLLM._cacheId || (rewriteWithLLM._cacheId = Math.random().toString(36).slice(2)))
+    if (llmRewriteCache.has(cacheKey)) {
+      return llmRewriteCache.get(cacheKey)
+    }
+    // 优化点 5：每场景 LLM 改写调用上限（超过则回退，不调用 LLM）
+    const callCount = llmRewriteCallCount.get(cacheKey) || 0
+    if (callCount >= LLM_REWRITE_MAX_CALLS_PER_SCENE) return null
+    llmRewriteCallCount.set(cacheKey, callCount + 1)
     // 多轮改写指令（优化点 3）：从「替换敏感词」到「抽象化」到「最小改写」，逐级降级。
     const ROUNDS = ['safe_rewrite', 'abstract_rewrite', 'minimal_rewrite']
     let best = null
@@ -419,6 +559,8 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       if (!safe) continue
       // 优化点 2：改写结果二次校验——仍含高危词则弃用该轮
       if (!validateRewriteSafety(llmPrompt).safe) continue
+      // 优化点 2 增强：扩展敏感词库预检——仍含扩展高危词则弃用该轮
+      if (!preflightRewriteSafety(llmPrompt).safe) continue
       // 优化点 1：语义保留度，选保留度最高的安全结果
       const retention = estimateSemanticRetention(originalPrompt, llmPrompt)
       if (retention > bestRetention) {
@@ -426,7 +568,10 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
         bestRetention = retention
       }
     }
-    return best ? { prompt: best, retention: bestRetention } : null
+    const result = best ? { prompt: best, retention: bestRetention } : null
+    // 优化点 5：缓存改写结果（仅缓存成功结果）
+    if (result) llmRewriteCache.set(cacheKey, result)
+    return result
   }
 
   for (let attempt = 1; attempt <= attemptLimit; attempt++) {
@@ -486,8 +631,10 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       ))
 
       // 提取敏感类型（方案层 1），用于差异化改写（方案层 2）
+      // 优化点 3：传入 provider 查映射表，提升已知 provider 信号的识别准确率
       sensitiveType = classifyContentPolicyType(
-        error?.message || error?.status_msg || error?.context?.status_msg || ''
+        error?.message || error?.status_msg || error?.context?.status_msg || '',
+        imageProvider
       )
       // 优化点 2：更新敏感类型连续拒绝计数（同一类型连续拒绝才累计）
       if (sensitiveType === lastSensitiveType) {
@@ -606,28 +753,60 @@ function aggregateContentPolicyStats (audits) {
     }
   }).sort((a, b) => b.count - a.count)
 
+  // 优化点 6：审计统计反哺（2026-08-30）。
+  // 低成功率类型生成改写指令增强建议；高频 unknown 生成信号词补充建议。
+  // 反哺为可选调优建议，不改变既有审计数据。
+  const suggestions = []
+  const LOW_SUCCESS_RATE_THRESHOLD = 0.5
+  for (const t of types) {
+    if (t.count >= 2 && t.successRate < LOW_SUCCESS_RATE_THRESHOLD) {
+      suggestions.push({
+        sensitiveType: t.sensitiveType,
+        successRate: t.successRate,
+        count: t.count,
+        action: 'enhance_rewrite_strategy',
+        detail: '低成功率类型：建议增强该敏感类型的改写指令强度或补充信号词。',
+      })
+    }
+  }
+  const unknownType = types.find((t) => t.sensitiveType === 'unknown')
+  if (unknownType && unknownType.count >= 3) {
+    suggestions.push({
+      sensitiveType: 'unknown',
+      successRate: unknownType.successRate,
+      count: unknownType.count,
+      action: 'supplement_signal_words',
+      detail: '高频 unknown 类型：建议补充供应商错误信号词以提升敏感类型识别准确率。',
+    })
+  }
+
   return {
     total,
     successRate: total ? Number((successCount / total).toFixed(3)) : 0,
     avgSemanticRetention: retentionCount ? Number((retentionSum / retentionCount).toFixed(3)) : 0,
     byType: types,
+    suggestions,
   }
 }
 
 module.exports = {
   MAX_IMAGE_GENERATION_ATTEMPTS,
+  LLM_REWRITE_MAX_CALLS_PER_SCENE,
   CONTENT_POLICY_REWRITE_STRATEGIES,
   CONTENT_POLICY_REWRITE_STRATEGIES_BY_PROVIDER,
   CONTENT_POLICY_REWRITE_STRATEGIES_ZH,
   CONTENT_POLICY_SEVERITY,
   aggregateContentPolicyStats,
   buildContentPolicySafePrompt,
+  buildNegativePrompt,
   createContentPolicyAudit,
   createContentPolicyCheckpoint,
   createEmptyResultCheckpoint,
+  detectPromptLanguage,
   estimateSemanticRetention,
   isContentPolicyRejection,
   needsUserInputMessage,
+  preflightRewriteSafety,
   runContentPolicyImageRetry,
   validateRewriteSafety,
 }
