@@ -617,3 +617,26 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## 强制工具路由（Iron Rules）
+
+以下规则在 fastctx 引导块之上提供**不可协商的强制执行**。任何违反此规则的操作必须回退重做。
+
+### 文件操作强制路由
+
+| 操作类型 | 必须使用 | 严禁使用 |
+|---------|---------|---------|
+| 文本搜索 | mcp__fastctx__grep | 禁止 exec_command("rg ...")、exec_command("grep ...")、exec_command("findstr ...")、exec_command("Select-String ...") |
+| 文件读取 | mcp__fastctx__read | 禁止 exec_command("cat ...")、exec_command("Get-Content ...")、exec_command("type ...") |
+| 文件列表/查找 | mcp__fastctx__glob | 禁止 exec_command("ls ...")、exec_command("dir ...")、exec_command("Get-ChildItem ...") |
+| Shell 命令 | mcp__fastctx__run | 禁止 exec_command 直接执行 shell |
+| 批量文本替换 | mcp__fastctx__replace | 禁止 exec_command("sed ...")、exec_command("(Get-Content ...) -replace ...") |
+| 长时间任务（>2分钟） | mcp__fastctx__run_background | 禁止 exec_command |
+
+### 执行规则
+
+1. 收到用户请求后，Agent 必须先检查操作类型是否命中上表，命中则必须使用对应 FastCtx 工具。
+2. apply_patch 仅用于语义级代码修改，不用于机械文本替换。
+3. 上表未覆盖的轻量操作（如查询 git status、npm 版本等单行命令）可继续使用 exec_command。
+
+
