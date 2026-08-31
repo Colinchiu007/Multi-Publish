@@ -198,6 +198,9 @@ export function usePublishFlow(options) {
       precheck: precheckEnabled.value,
       platformOverrides: normalizePlatformOverrides(diffEdits),
     }
+    // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选。
+    // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
+    data.aiGenerated = article.aiGenerated !== false
     if (imageFiles.length > 0) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles

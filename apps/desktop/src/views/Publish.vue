@@ -259,6 +259,13 @@
                   <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
                 </div>
                 <div class="cohere-form-item">
+                  <label class="cohere-form-label">{{ t('publishPage.aiDeclaration') }}</label>
+                  <label class="ai-declaration-row" data-testid="ai-declaration">
+                    <input type="checkbox" v-model="article.aiGenerated" class="coral-check" data-testid="ai-declaration-checkbox" />
+                    <span>{{ t('publishPage.aiDeclarationHint') }}</span>
+                  </label>
+                </div>
+                <div class="cohere-form-item">
                   <button class="publish-section-toggle" type="button" @click="showDiffPanel = !showDiffPanel">
                     <span>{{ t('publishPage.diffContent') }}</span>
                     <span class="publish-section-toggle__state">{{ showDiffPanel ? t('publishPage.collapse') : t('publishPage.expand') }}</span>
@@ -367,6 +374,13 @@
                 <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
                 <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                 <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+              </div>
+              <div class="cohere-form-item">
+                <label class="cohere-form-label">{{ t('publishPage.aiDeclaration') }}</label>
+                <label class="ai-declaration-row" data-testid="ai-declaration">
+                  <input type="checkbox" v-model="article.aiGenerated" class="coral-check" data-testid="ai-declaration-checkbox" />
+                  <span>{{ t('publishPage.aiDeclarationHint') }}</span>
+                </label>
               </div>
               <div class="cohere-form-item">
                 <button class="publish-section-toggle" type="button" @click="showDiffPanel = !showDiffPanel">
@@ -589,6 +603,8 @@ const article = reactive({
   topics: [],
   mentions: [],
   publishTime: '',
+  // AI 生成内容声明：默认勾选（AI 生成内容）。各平台发布时如实声明内容创作方式。
+  aiGenerated: true,
 })
 const imageFileList = ref([])
 const coverFileList = ref([])
@@ -847,6 +863,31 @@ function editDraft (draft) {
   return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
 }
 
+// 历史视频/结果页跳转预填充：从 query 解码 video_path/title/content/tags 填充发布表单。
+// 跳转方（CreateViewHistory「发布」/ResultView「去发布」）已用 encodeURIComponent 编码，
+// 这里统一 decode 后写入 article；tags 为逗号分隔字符串。
+function applyHistoryVideoQuery () {
+  const query = route.query || {}
+  const decode = value => {
+    if (typeof value !== 'string' || !value) return ''
+    try { return decodeURIComponent(value) } catch { return value }
+  }
+  const videoPath = decode(query.video_path)
+  if (!videoPath) return
+  activeMode.value = 'video'
+  article.video_path = videoPath
+  const title = decode(query.title)
+  if (title) article.title = title
+  const content = decode(query.content)
+  if (content) article.content = content
+  const tags = decode(query.tags)
+  if (tags) article.tags = normalizePublishStringList(tags)
+  // 历史视频发布走视频首帧封面，不携带自定义封面（百家号 API 不支持）
+  article.cover_url = ''
+  article.cover_path = ''
+  article.cover_file = null
+}
+
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
   if (publishTab.value === 'drafts') {
@@ -860,6 +901,7 @@ onMounted(async () => {
     if (def) setSelectedAccountIds(pid, [def.id])
   }
   await loadPrecheckPreference()
+  applyHistoryVideoQuery()
   const draftId = route.query.draft
   if (!draftId) return
 
@@ -967,6 +1009,7 @@ defineExpose({
 .flex-side { flex: 1; min-width: 280px; }
 .coral-text { color: var(--coral); }
 .coral-check { accent-color: var(--coral); }
+.ai-declaration-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--muted); user-select: none; }
 .title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .no-margin-bottom { margin-bottom: 0; }
 .template-pick-button { font-size: 11px; padding: 2px 8px; border: none; background: none; cursor: pointer; color: var(--coral); }

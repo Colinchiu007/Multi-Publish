@@ -169,7 +169,8 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ─── 全局状态 ───────────────────────────────────────────────
-DATA_DIR = Path(__file__).parent / "data"
+_configured_data_dir = os.environ.get("MULTI_PUBLISH_DATA_DIR", "").strip()
+DATA_DIR = Path(_configured_data_dir).expanduser() if _configured_data_dir else Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _configured_log_dir = os.environ.get("MULTI_PUBLISH_LOG_DIR", "").strip()

@@ -256,7 +256,11 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     parts.push("vertical_cover=" + (verticalCover ? encodeURIComponent(verticalCover) : ""))
     // 常驻字段（蚁小二 buildPostData$r 尾部）
     parts.push("isBeautify=false")
-    parts.push("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status&activity_list%5B0%5D%5Bis_checked%5D=0")
+    // AI 生成内容声明（aigc_bjh_status）：默认勾选「AI 生成内容」。
+    // 平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
+    // taskData.aiGenerated === false 时显式不勾选（人工创作内容）。
+    const aiGenerated = taskData.aiGenerated !== false
+    parts.push("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status&activity_list%5B0%5D%5Bis_checked%5D=" + (aiGenerated ? 1 : 0))
     parts.push("fe_from=BJH_CMS_PC")
     parts.push("bjhtopic_info=&bjhtopic_id=")
     // 原创声明（蚁小二 original_status：original → 2）

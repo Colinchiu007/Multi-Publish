@@ -8,6 +8,7 @@
 const { spawn, spawnSync } = require('child_process')
 const log = require('./logger')
 const http = require('http')
+const path = require('path')
 const { config } = require('../config/app-config')
 
 const BACKEND_PORT = config.pythonBridge.port
@@ -45,6 +46,18 @@ function getBackendDir () {
 }
 
 /**
+ * 获取用户 profile 目录（用于将后端数据目录绑定到用户数据，跨 worktree 持久化）
+ */
+function resolveUserDataDir () {
+  if (process.env.ELECTRON_USER_DATA_DIR) return process.env.ELECTRON_USER_DATA_DIR
+  try {
+    const electron = require('electron')
+    if (electron?.app && typeof electron.app.getPath === 'function') return electron.app.getPath('userData')
+  } catch (_) { /* 非 Electron 环境不使用 profile 绑定 */ }
+  return null
+}
+
+/**
  * 启动 Python 后端子进程（含自动重试 + 端口回退）
  * @param {number} port
  * @returns {Promise<import('child_process').ChildProcess>}
@@ -53,6 +66,9 @@ function launchProcess (port) {
   return new Promise((resolve, reject) => {
     const backendDir = getBackendDir()
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
+    // 后端数据目录绑定到用户 profile（而非代码 checkout），保证账号等元数据跨 worktree 持久化
+    const userDataDir = resolveUserDataDir()
+    const backendDataDir = userDataDir ? path.join(userDataDir, 'backend-data') : undefined
 
     log.info('PythonBridge', `Starting Python backend: ${pythonCmd} server.py on port ${port}`)
 
@@ -61,7 +77,8 @@ function launchProcess (port) {
       env: {
         ...process.env,
         BACKEND_PORT: String(port),
-        PYTHONUNBUFFERED: '1'
+        PYTHONUNBUFFERED: '1',
+        ...(backendDataDir ? { MULTI_PUBLISH_DATA_DIR: backendDataDir } : {})
       },
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true

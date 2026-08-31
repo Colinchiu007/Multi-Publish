@@ -59,7 +59,7 @@
         <UiButton variant="secondary" @click="exportZip">导出 ZIP</UiButton>
         <UiButton variant="secondary" @click="copyLocalPath">复制路径</UiButton>
         <UiButton variant="secondary" @click="showInFolder">打开文件夹</UiButton>
-        <UiButton variant="secondary" @click="$router.push('/publish')">去发布</UiButton>
+        <UiButton variant="secondary" @click="goPublish">去发布</UiButton>
         <UiButton variant="ghost" @click="$router.push('/create')">重新创作</UiButton>
       </div>
     </div>
@@ -435,6 +435,7 @@
 <script>
 import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
+import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import { getTtsVoiceCatalog } from '@/api/tts-voice-catalog'
@@ -652,6 +653,15 @@ export default {
     },
   },
   methods: {
+    // 去发布：从当前项目提取发布数据并跳转发布页（视频模式预填充）。
+    // 有完整项目对象时走 buildPublishFromProject；仅文件路径模式（无 project）时只带视频路径。
+    goPublish() {
+      const data = this.project ? buildPublishFromProject(this.project) : null
+      const videoPath = (data && data.video_path) || (typeof this.videoPath === 'string' ? this.videoPath : '')
+      if (!videoPath) return
+      const query = data ? publishDataToQuery(data) : { type: 'video', video_path: encodeURIComponent(videoPath) }
+      this.$router.push({ path: '/publish', query })
+    },
     normalizeRunId(value) {
       if (typeof value !== 'string') return ''
       const normalized = value.trim()
