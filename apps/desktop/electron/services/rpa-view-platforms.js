@@ -347,7 +347,7 @@ const platformsMixin = {
 
     // 平台专用发布前准备（百家号：关闭引导弹窗 + 选择创作声明）
     if (platform === 'baijiahao') {
-      try { await this._prepBaijiahao(win) } catch (e) { log.warn('RpaView', 'baijiahao prep: ' + e.message) }
+      try { await this._prepBaijiahao(win, article) } catch (e) { log.warn('RpaView', 'baijiahao prep: ' + e.message) }
     }
 
     // publish button
@@ -395,14 +395,15 @@ const platformsMixin = {
   },
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
-  async _prepBaijiahao(win) {
+  async _prepBaijiahao(win, article) {
+      const aiGenerated = article && article.aiGenerated !== false // 默认 true：AI 生成内容
 this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // 关闭"视频创作一键填写引导弹窗"（宽松匹配：文本包含"我知道了"，优先最内层叶子元素）
     try {
       await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){var t=(e.innerText||"").trim();return t==="我知道了"&&e.children.length===0});if(els.length){els[els.length-1].click();return "CLICKED:"+els.length}var wrap=[...document.querySelectorAll("[class*=guide],[class*=Guide],[class*=mask],[class*=Mask],[class*=popup],[class*=Popup]")].filter(function(e){var t=(e.innerText||"").trim();return t.indexOf("我知道了")!==-1});if(wrap.length){var b=[...wrap[0].querySelectorAll("button,a,span")].filter(function(e){return (e.innerText||"").trim()==="我知道了"});if(b.length){b[b.length-1].click();return "WRAP:"+wrap.length}}return "NOT_FOUND"})()')
     } catch (e) { /* ignore */ }
     await this._sleep(1200)
-    // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
+    // 选择创作声明：点击输入框 → 弹窗根据 aiGenerated 选择声明选项 → 确定
     // 返回 { state: 'no-input'|'already'|'done'|'option-missing'|'confirm-missing', value } 供调用方与日志判定
     let state = 'unknown'
     let selectedValue = ''
@@ -414,7 +415,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         state = 'already'
       } else if (opened === 'OPENED') {
         await this._sleep(2500)
-        const optionClicked = await win.webContents.executeJavaScript('(function(){var opts=["无需声明","无声明","默认声明"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div,.cheetah-modal span,.cheetah-modal label,.cheetah-modal div,[class*=modal] span,[class*=modal] label,[class*=modal] div")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
+        const optionClicked = await win.webContents.executeJavaScript('(function(){var aiGenerated=' + (aiGenerated ? 'true' : 'false') + ';var opts=aiGenerated?["AI生成内容","AI生成","人工智能生成","AI创作","ChatGPT","AI"]:["无需声明","无声明","默认声明","个人原创"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div,.cheetah-modal span,.cheetah-modal label,.cheetah-modal div,[class*=modal] span,[class*=modal] label,[class*=modal] div")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
         if (optionClicked && optionClicked.ok) {
           selectedValue = optionClicked.option || ''
           state = 'option-selected'
@@ -430,7 +431,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       log.warn('RpaView', 'baijiahao declaration prep: ' + e.message)
       state = 'error'
     }
-    log.info('RpaView', '[baijiahao] declaration prep state=' + state + (selectedValue ? ' option=' + selectedValue : ''))
+    log.info('RpaView', '[baijiahao] declaration prep state=' + state + (selectedValue ? ' option=' + selectedValue : '') + ' aiGenerated=' + aiGenerated)
     // 诊断：prep 后立即截图（页面就绪态，含引导/声明状态）
     try {
       const image = await win.webContents.capturePage()
