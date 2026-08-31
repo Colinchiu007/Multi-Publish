@@ -12,5 +12,5 @@
   "branch": "codex/deep-architecture-refactor-plan",
   "baseRevision": "2e1b84fcf42245842ae09554a054a8d5f4b66b07",
   "openspecChange": "deep-architecture-refactor-plan",
-  "remoteStatus": "planning-only; local branch codex/deep-architecture-refactor-plan; not pushed; no PR; not merged"
+  "remoteStatus": "planning-only; commit 398f1f0fb77aeb87d081a3824f7a7ee38b0495c5 pushed to codex/deep-architecture-refactor-plan and fast-forwarded directly to origin/main; no PR; required checks bypassed and not run by explicit user request"
 }
