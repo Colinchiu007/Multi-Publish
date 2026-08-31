@@ -1,0 +1,16 @@
+{
+  "id": "deep-architecture-refactor-plan",
+  "title": "深入分析 Multi-Publish 全项目架构并生成技术重构方案",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "architecture",
+  "currentPhase": "completed",
+  "nextAction": "无；后续实施须逐项获得用户批准并创建独立 OpenSpec change",
+  "createdAt": "2026-08-30T18:28:19Z",
+  "completedAt": "2026-08-31T06:36:22Z",
+  "branch": "codex/deep-architecture-refactor-plan",
+  "baseRevision": "2e1b84fcf42245842ae09554a054a8d5f4b66b07",
+  "openspecChange": "deep-architecture-refactor-plan",
+  "remoteStatus": "planning-only; local branch codex/deep-architecture-refactor-plan; not pushed; no PR; not merged"
+}
