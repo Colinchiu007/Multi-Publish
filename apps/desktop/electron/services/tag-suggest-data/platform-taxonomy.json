@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "platforms": {
+    "zhihu": {
+      "categories": [
+        "科技",
+        "财经",
+        "职场",
+        "教育",
+        "生活",
+        "娱乐"
+      ],
+      "tagStyle": {
+        "prefix": "",
+        "max": 10,
+        "mode": "plain"
+      }
+    },
+    "weibo": {
+      "categories": [
+        "科技",
+        "社会",
+        "娱乐",
+        "体育",
+        "财经",
+        "生活"
+      ],
+      "tagStyle": {
+        "prefix": "#",
+        "max": 10,
+        "mode": "hash"
+      }
+    },
+    "xiaohongshu": {
+      "categories": [
+        "时尚",
+        "美妆",
+        "家居",
+        "美食",
+        "旅行",
+        "科技"
+      ],
+      "tagStyle": {
+        "prefix": "#",
+        "max": 10,
+        "mode": "hash"
+      }
+    },
+    "bilibili": {
+      "categories": [
+        "游戏",
+        "科技",
+        "知识",
+        "动画",
+        "生活",
+        "影视"
+      ],
+      "tagStyle": {
+        "prefix": "",
+        "max": 10,
+        "mode": "plain"
+      }
+    },
+    "toutiao": {
+      "categories": [
+        "科技",
+        "财经",
+        "时事",
+        "社会",
+        "健康",
+        "娱乐"
+      ],
+      "tagStyle": {
+        "prefix": "",
+        "max": 10,
+        "mode": "plain"
+      }
+    },
+    "douyin": {
+      "categories": [
+        "科技",
+        "生活",
+        "娱乐",
+        "美食",
+        "时尚",
+        "知识"
+      ],
+      "tagStyle": {
+        "prefix": "#",
+        "max": 10,
+        "mode": "hash"
+      }
+    },
+    "wechat_mp": {
+      "categories": [
+        "科技",
+        "财经",
+        "职场",
+        "教育",
+        "生活",
+        "娱乐"
+      ],
+      "tagStyle": {
+        "prefix": "",
+        "max": 10,
+        "mode": "plain"
+      }
+    }
+  }
+}

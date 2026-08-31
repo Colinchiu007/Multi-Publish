@@ -1,18 +1,18 @@
 <template>
   <div class="cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:14px"># 智能标签建议</span>
+      <span style="font-weight:600;font-size:14px">{{ t('tagSuggest.title') }}</span>
       <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
     </div>
 
     <!-- Loading -->
     <div v-if="loading" style="text-align:center;padding:20px 0;font-size:13px;color:var(--muted);animation:pulse 1.5s ease-in-out infinite">
-      分析内容中...
+      {{ loadingText }}
     </div>
 
     <!-- Empty / no content -->
     <div v-else-if="!content || content.trim().length < 3" style="padding:12px 0;font-size:12px;color:var(--muted);text-align:center">
-      输入内容后自动分析标签
+      {{ t('tagSuggest.emptyContent') }}
     </div>
 
     <!-- Error -->
@@ -47,24 +47,67 @@
         </div>
       </div>
 
-      <!-- Per-platform tags -->
+      <!-- Per-platform tags (grouped when byPlatformDetail exists, else single group) -->
       <div v-if="suggestions.byPlatform">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">各平台标签：</div>
-        <div v-for="(tags, platform) in suggestions.byPlatform" :key="platform" style="margin-bottom:var(--space-sm);padding:var(--space-sm);background:#f8f9fa;border-radius:6px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">{{ t('tagSuggest.platformTags') }}：</div>
+        <div v-for="g in platformGroups" :key="g.platform" style="margin-bottom:var(--space-sm);padding:var(--space-sm);background:#f8f9fa;border-radius:6px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-            <span style="font-size:12px;font-weight:600;color:var(--text)">{{ platformLabel(platform) }}</span>
-            <button class="cohere-btn-ghost" @click="copyPlatformTags(platform, tags)" style="font-size:11px;padding:2px 8px">
-              复制标签
+            <span style="font-size:12px;font-weight:600;color:var(--text)">{{ platformLabel(g.platform) }}</span>
+            <button class="cohere-btn-ghost" @click="copyPlatformTags(g.platform, allTags(g))" style="font-size:11px;padding:2px 8px">
+              {{ t('tagSuggest.copyTags') }}
             </button>
           </div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">
-            <span v-for="tag in tags" :key="tag"
-              class="cohere-tag"
-              :class="tag.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
-              style="font-size:11px;padding:2px 6px;border-radius:4px">
-              {{ tag }}
+
+          <!-- Grouped: content + traffic -->
+          <template v-if="g.detail">
+            <div style="font-size:11px;color:var(--muted);margin:4px 0 3px">📝 {{ t('tagSuggest.contentTags') }}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+              <span v-for="tag in g.detail.content" :key="'c-'+tag"
+                class="cohere-tag cohere-tag-info"
+                style="font-size:11px;padding:2px 6px;border-radius:4px">
+                {{ tag }}
+              </span>
+            </div>
+
+            <div style="font-size:11px;color:var(--muted);margin:4px 0 3px">🔥 {{ t('tagSuggest.trafficTags') }}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              <span v-for="tag in g.detail.traffic" :key="'t-'+tag"
+                class="cohere-tag cohere-tag-success"
+                :title="hotTitle(g.platform, tag)"
+                style="font-size:11px;padding:2px 6px;border-radius:4px">
+                {{ tag }}<sup v-if="hotHeat(g.platform, tag) != null" class="heat-badge">{{ hotHeat(g.platform, tag) }}</sup>
+              </span>
+            </div>
+          </template>
+
+          <!-- Fallback: single merged group (old structure) -->
+          <template v-else>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              <span v-for="tag in g.tags" :key="tag"
+                class="cohere-tag"
+                :class="tag.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
+                style="font-size:11px;padding:2px 6px;border-radius:4px">
+                {{ tag }}
+              </span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Source / calibration status -->
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <template v-if="suggestions.source === 'llm'">
+            <span>{{ t('tagSuggest.sourceAI') }}</span>
+            <span :class="suggestions.calibrated ? 'src-ok' : 'src-warn'">
+              {{ suggestions.calibrated ? t('tagSuggest.calibrated') : t('tagSuggest.notCalibrated') }}
             </span>
-          </div>
+          </template>
+          <template v-else-if="suggestions.source === 'extractor'">
+            <span>{{ t('tagSuggest.sourceLocal') }}</span>
+          </template>
+          <template v-else>
+            <span>{{ t('tagSuggest.aiNotConfigured') }}</span>
+          </template>
+          <span v-if="suggestions.fallback" class="src-warn">{{ t('tagSuggest.fallbackNotice') }}</span>
         </div>
       </div>
     </div>
@@ -72,17 +115,19 @@
 </template>
 
 <script setup>
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { ElMessage } from 'element-plus'
 import { intelligenceSuggestTags } from '@/api/publisher'
-import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   content: { type: String, required: true },
 })
 
 defineEmits(['close'])
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const error = ref(null)
@@ -92,6 +137,41 @@ platformStore.load()
 
 function platformLabel (key) {
   return platformStore.getLabel(key) || key
+}
+
+const loadingText = computed(() =>
+  suggestions.value?.source === 'extractor'
+    ? t('tagSuggest.loadingLocal')
+    : t('tagSuggest.loadingAI')
+)
+
+// Grouped view: prefer byPlatformDetail; fall back to single merged group (old structure)
+const platformGroups = computed(() => {
+  const s = suggestions.value
+  if (!s || !s.byPlatform) return []
+  const detail = s.byPlatformDetail || {}
+  return Object.keys(s.byPlatform).map((p) => ({
+    platform: p,
+    detail: detail[p] || null,
+    tags: s.byPlatform[p] || [],
+  }))
+})
+
+function allTags (g) {
+  return g.detail ? [...g.detail.content, ...g.detail.traffic] : g.tags
+}
+
+function hotHeat (platform, tag) {
+  const mt = suggestions.value?.matchedTopics?.[platform]
+  if (!mt) return null
+  const m = mt.find((x) => x.tag === tag)
+  return m ? m.heat : null
+}
+
+function hotTitle (platform, tag) {
+  const heat = hotHeat(platform, tag)
+  if (heat == null) return ''
+  return t('tagSuggest.hotMatch', { tag, heat })
 }
 
 let debounceTimer = null
@@ -118,7 +198,7 @@ watch(() => props.content, (newVal) => {
         suggestions.value = { keywords: [], relatedTerms: [], byPlatform: {} }
       }
     } catch (e) {
-      error.value = '标签分析失败: ' + formatUserError(e, { fallback: '未知错误' }).message
+      error.value = t('tagSuggest.analysisFailed')
       suggestions.value = null
     } finally {
       loading.value = false
@@ -148,4 +228,12 @@ async function copyPlatformTags (platform, tags) {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+.heat-badge {
+  margin-left: 2px;
+  font-size: 9px;
+  color: var(--coral);
+  vertical-align: super;
+}
+.src-ok { color: var(--success, #2e7d32); }
+.src-warn { color: var(--coral); }
 </style>

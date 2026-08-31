@@ -1,0 +1,829 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-25",
+  "platforms": {
+    "zhihu": [
+      {
+        "tag": "人工智能",
+        "category": "科技",
+        "heat": 92,
+        "trend": "rising",
+        "aliases": [
+          "AI",
+          "artificial intelligence"
+        ],
+        "subTopics": [
+          "大模型",
+          "AGI",
+          "深度学习"
+        ]
+      },
+      {
+        "tag": "大模型",
+        "category": "科技",
+        "heat": 95,
+        "trend": "rising",
+        "aliases": [
+          "LLM",
+          "大型语言模型"
+        ],
+        "subTopics": [
+          "GPT",
+          "文心一言",
+          "通义千问"
+        ]
+      },
+      {
+        "tag": "自动驾驶",
+        "category": "科技",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "无人驾驶",
+          "智能驾驶"
+        ]
+      },
+      {
+        "tag": "芯片",
+        "category": "科技",
+        "heat": 85,
+        "trend": "stable",
+        "aliases": [
+          "半导体"
+        ],
+        "subTopics": [
+          "国产芯片",
+          "光刻机"
+        ]
+      },
+      {
+        "tag": "量子计算",
+        "category": "科技",
+        "heat": 70,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "量子通信"
+        ]
+      },
+      {
+        "tag": "A股",
+        "category": "财经",
+        "heat": 88,
+        "trend": "rising",
+        "aliases": [
+          "股市"
+        ],
+        "subTopics": [
+          "上证指数",
+          "牛市"
+        ]
+      },
+      {
+        "tag": "基金",
+        "category": "财经",
+        "heat": 75,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "定投",
+          "指数基金"
+        ]
+      },
+      {
+        "tag": "宏观经济",
+        "category": "财经",
+        "heat": 70,
+        "trend": "rising",
+        "aliases": [
+          "经济政策"
+        ],
+        "subTopics": []
+      },
+      {
+        "tag": "房地产",
+        "category": "财经",
+        "heat": 72,
+        "trend": "declining",
+        "aliases": [
+          "楼市"
+        ],
+        "subTopics": [
+          "房价",
+          "限购"
+        ]
+      },
+      {
+        "tag": "职场焦虑",
+        "category": "职场",
+        "heat": 82,
+        "trend": "rising",
+        "aliases": [],
+        "subTopics": [
+          "内卷",
+          "35岁危机"
+        ]
+      },
+      {
+        "tag": "职业规划",
+        "category": "职场",
+        "heat": 68,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "转行",
+          "跳槽"
+        ]
+      },
+      {
+        "tag": "副业",
+        "category": "职场",
+        "heat": 78,
+        "trend": "rising",
+        "aliases": [
+          "搞钱"
+        ],
+        "subTopics": [
+          "兼职",
+          "自由职业"
+        ]
+      },
+      {
+        "tag": "考研",
+        "category": "教育",
+        "heat": 85,
+        "trend": "rising",
+        "aliases": [],
+        "subTopics": [
+          "研究生",
+          "备考"
+        ]
+      },
+      {
+        "tag": "高考",
+        "category": "教育",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "志愿填报"
+        ]
+      },
+      {
+        "tag": "在线教育",
+        "category": "教育",
+        "heat": 65,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "网课",
+          "MOOC"
+        ]
+      },
+      {
+        "tag": "健康饮食",
+        "category": "生活",
+        "heat": 70,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "减脂",
+          "营养"
+        ]
+      },
+      {
+        "tag": "睡眠质量",
+        "category": "生活",
+        "heat": 72,
+        "trend": "rising",
+        "aliases": [
+          "失眠"
+        ],
+        "subTopics": [
+          "助眠",
+          "睡眠障碍"
+        ]
+      },
+      {
+        "tag": "旅行攻略",
+        "category": "生活",
+        "heat": 75,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "自由行",
+          "穷游"
+        ]
+      },
+      {
+        "tag": "电影",
+        "category": "娱乐",
+        "heat": 74,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "院线",
+          "票房"
+        ]
+      },
+      {
+        "tag": "综艺",
+        "category": "娱乐",
+        "heat": 68,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "真人秀"
+        ]
+      },
+      {
+        "tag": "音乐",
+        "category": "娱乐",
+        "heat": 66,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "华语乐坛",
+          "演唱会"
+        ]
+      }
+    ],
+    "weibo": [
+      {
+        "tag": "#人工智能#",
+        "category": "科技",
+        "heat": 90,
+        "trend": "rising",
+        "aliases": [
+          "AI"
+        ],
+        "subTopics": [
+          "#AI新突破#",
+          "#大模型#"
+        ]
+      },
+      {
+        "tag": "#科技前沿#",
+        "category": "科技",
+        "heat": 82,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#硬核科技#"
+        ]
+      },
+      {
+        "tag": "#社会热点#",
+        "category": "社会",
+        "heat": 88,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#民生#"
+        ]
+      },
+      {
+        "tag": "#民生关注#",
+        "category": "社会",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": []
+      },
+      {
+        "tag": "#娱乐八卦#",
+        "category": "娱乐",
+        "heat": 86,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#明星#"
+        ]
+      },
+      {
+        "tag": "#影视热播#",
+        "category": "娱乐",
+        "heat": 78,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#热剧#"
+        ]
+      },
+      {
+        "tag": "#体育赛事#",
+        "category": "体育",
+        "heat": 84,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#世界杯#",
+          "#奥运#"
+        ]
+      },
+      {
+        "tag": "#健身打卡#",
+        "category": "体育",
+        "heat": 72,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": []
+      },
+      {
+        "tag": "#财经观察#",
+        "category": "财经",
+        "heat": 76,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#股市#"
+        ]
+      },
+      {
+        "tag": "#理财知识#",
+        "category": "财经",
+        "heat": 70,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": []
+      },
+      {
+        "tag": "#生活小妙招#",
+        "category": "生活",
+        "heat": 74,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#家居#"
+        ]
+      },
+      {
+        "tag": "#美食探店#",
+        "category": "生活",
+        "heat": 80,
+        "trend": "rising",
+        "aliases": [],
+        "subTopics": [
+          "#吃货#"
+        ]
+      },
+      {
+        "tag": "#健康养生#",
+        "category": "生活",
+        "heat": 72,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": []
+      },
+      {
+        "tag": "#职场干货#",
+        "category": "职场",
+        "heat": 70,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "#打工人#"
+        ]
+      }
+    ],
+    "xiaohongshu": [
+      {
+        "tag": "#穿搭分享#",
+        "category": "时尚",
+        "heat": 95,
+        "trend": "stable",
+        "aliases": [
+          "穿搭"
+        ],
+        "subTopics": [
+          "日常穿搭",
+          "通勤穿搭",
+          "秋冬穿搭"
+        ]
+      },
+      {
+        "tag": "#美妆教程#",
+        "category": "美妆",
+        "heat": 92,
+        "trend": "stable",
+        "aliases": [
+          "美妆"
+        ],
+        "subTopics": [
+          "新手化妆",
+          "口红试色"
+        ]
+      },
+      {
+        "tag": "#护肤心得#",
+        "category": "美妆",
+        "heat": 88,
+        "trend": "stable",
+        "aliases": [
+          "护肤"
+        ],
+        "subTopics": [
+          "敏感肌",
+          "抗初老"
+        ]
+      },
+      {
+        "tag": "#家居好物#",
+        "category": "家居",
+        "heat": 85,
+        "trend": "stable",
+        "aliases": [
+          "家居"
+        ],
+        "subTopics": [
+          "收纳",
+          "软装"
+        ]
+      },
+      {
+        "tag": "#装修灵感#",
+        "category": "家居",
+        "heat": 82,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "小户型",
+          "奶油风"
+        ]
+      },
+      {
+        "tag": "#美食教程#",
+        "category": "美食",
+        "heat": 90,
+        "trend": "stable",
+        "aliases": [
+          "美食"
+        ],
+        "subTopics": [
+          "家常菜",
+          "烘焙"
+        ]
+      },
+      {
+        "tag": "#探店打卡#",
+        "category": "美食",
+        "heat": 84,
+        "trend": "rising",
+        "aliases": [
+          "探店"
+        ],
+        "subTopics": [
+          "网红店",
+          "咖啡店"
+        ]
+      },
+      {
+        "tag": "#旅行攻略#",
+        "category": "旅行",
+        "heat": 86,
+        "trend": "stable",
+        "aliases": [
+          "旅行"
+        ],
+        "subTopics": [
+          "小众旅行",
+          "亲子游"
+        ]
+      },
+      {
+        "tag": "#酒店推荐#",
+        "category": "旅行",
+        "heat": 78,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "民宿",
+          "度假"
+        ]
+      },
+      {
+        "tag": "#数码测评#",
+        "category": "科技",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [
+          "数码"
+        ],
+        "subTopics": [
+          "手机",
+          "电脑"
+        ]
+      },
+      {
+        "tag": "#AI工具推荐#",
+        "category": "科技",
+        "heat": 88,
+        "trend": "rising",
+        "aliases": [
+          "AI工具"
+        ],
+        "subTopics": [
+          "效率工具",
+          "办公神器"
+        ]
+      },
+      {
+        "tag": "#效率神器#",
+        "category": "科技",
+        "heat": 76,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "时间管理",
+          "学习工具"
+        ]
+      }
+    ],
+    "bilibili": [
+      {
+        "tag": "原神",
+        "category": "游戏",
+        "heat": 88,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "原神攻略",
+          "原神角色",
+          "原神剧情"
+        ]
+      },
+      {
+        "tag": "英雄联盟",
+        "category": "游戏",
+        "heat": 82,
+        "trend": "stable",
+        "aliases": [
+          "LOL"
+        ],
+        "subTopics": [
+          "LPL",
+          "赛事"
+        ]
+      },
+      {
+        "tag": "王者荣耀",
+        "category": "游戏",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "KPL"
+        ]
+      },
+      {
+        "tag": "AI教程",
+        "category": "科技",
+        "heat": 90,
+        "trend": "rising",
+        "aliases": [
+          "AI教学"
+        ],
+        "subTopics": [
+          "机器学习",
+          "深度学习"
+        ]
+      },
+      {
+        "tag": "科技测评",
+        "category": "科技",
+        "heat": 84,
+        "trend": "stable",
+        "aliases": [
+          "数码测评"
+        ],
+        "subTopics": [
+          "手机评测",
+          "电脑装机"
+        ]
+      },
+      {
+        "tag": "知识科普",
+        "category": "知识",
+        "heat": 86,
+        "trend": "stable",
+        "aliases": [
+          "科普"
+        ],
+        "subTopics": [
+          "冷知识",
+          "科学"
+        ]
+      },
+      {
+        "tag": "历史讲解",
+        "category": "知识",
+        "heat": 78,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "历史科普"
+        ]
+      },
+      {
+        "tag": "动漫推荐",
+        "category": "动画",
+        "heat": 85,
+        "trend": "stable",
+        "aliases": [
+          "番剧"
+        ],
+        "subTopics": [
+          "新番",
+          "国漫"
+        ]
+      },
+      {
+        "tag": "动画解说",
+        "category": "动画",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "剧情解说"
+        ]
+      },
+      {
+        "tag": "生活vlog",
+        "category": "生活",
+        "heat": 76,
+        "trend": "stable",
+        "aliases": [
+          "vlog"
+        ],
+        "subTopics": [
+          "日常记录"
+        ]
+      },
+      {
+        "tag": "美食制作",
+        "category": "生活",
+        "heat": 78,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "烹饪"
+        ]
+      },
+      {
+        "tag": "影视解说",
+        "category": "影视",
+        "heat": 82,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "电影解说",
+          "剧评"
+        ]
+      }
+    ],
+    "toutiao": [
+      {
+        "tag": "人工智能",
+        "category": "科技",
+        "heat": 88,
+        "trend": "rising",
+        "aliases": [
+          "AI"
+        ],
+        "subTopics": [
+          "AI应用",
+          "智能科技"
+        ]
+      },
+      {
+        "tag": "科技产业",
+        "category": "科技",
+        "heat": 78,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "数字经济"
+        ]
+      },
+      {
+        "tag": "宏观经济",
+        "category": "财经",
+        "heat": 82,
+        "trend": "rising",
+        "aliases": [
+          "经济政策"
+        ],
+        "subTopics": [
+          "GDP",
+          "经济形势"
+        ]
+      },
+      {
+        "tag": "股市行情",
+        "category": "财经",
+        "heat": 85,
+        "trend": "rising",
+        "aliases": [
+          "股市"
+        ],
+        "subTopics": [
+          "A股",
+          "大盘"
+        ]
+      },
+      {
+        "tag": "时事热点",
+        "category": "时事",
+        "heat": 90,
+        "trend": "stable",
+        "aliases": [
+          "热点"
+        ],
+        "subTopics": [
+          "今日要闻"
+        ]
+      },
+      {
+        "tag": "政策解读",
+        "category": "时事",
+        "heat": 80,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "新规"
+        ]
+      },
+      {
+        "tag": "社会新闻",
+        "category": "社会",
+        "heat": 84,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "民生"
+        ]
+      },
+      {
+        "tag": "健康养生",
+        "category": "健康",
+        "heat": 76,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "养生知识"
+        ]
+      },
+      {
+        "tag": "医疗科普",
+        "category": "健康",
+        "heat": 72,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "疾病预防"
+        ]
+      },
+      {
+        "tag": "娱乐新闻",
+        "category": "娱乐",
+        "heat": 78,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "明星动态"
+        ]
+      },
+      {
+        "tag": "影视资讯",
+        "category": "娱乐",
+        "heat": 74,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "新剧"
+        ]
+      },
+      {
+        "tag": "体育新闻",
+        "category": "体育",
+        "heat": 76,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "赛事"
+        ]
+      },
+      {
+        "tag": "国际局势",
+        "category": "时事",
+        "heat": 86,
+        "trend": "stable",
+        "aliases": [],
+        "subTopics": [
+          "国际新闻"
+        ]
+      }
+    ]
+  }
+}
