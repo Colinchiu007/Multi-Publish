@@ -3295,6 +3295,24 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 3.1.11（running 快照→paused）、3.1.14（stale running→paused）、3.1.19（30 分钟无更新→paused）及 S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项中与本节冲突的条款以本节为准（各节顶部已加废弃警示）。
 
+
+### 3.1.34a 可恢复聚合筛选 tab（2026-08-31）
+
+展示层将已暂停和已中断归入同一个可恢复筛选 tab，筛选栏从 7 标签减少为 6 标签。底层状态值不变，卡片内仍通过图标和提示文字区分暂停原因。
+
+数据契约：
+
+- HISTORY_STATUSES 新增 recoverable 枚举值，RECOVERABLE_STATUSES = [paused, interrupted] 定义聚合关系。
+- filterHistoryByStatus 接受 recoverable 时返回 status 为 paused 或 interrupted 的所有记录，精确匹配 paused/interrupted 仍可用。
+- historyStatusCounts 新增 recoverable 计数，累加 paused 和 interrupted 的 count。
+- locale tabs: zh/en 中 paused/interrupted 合并为 recoverable（可恢复/Recoverable），statuses.interrupted 保留用于卡片内提示。
+
+不可合并底层状态的理由：
+
+- 已暂停（用户主动）和已中断（环境异常）的来源不同，恢复路径和 checkpoint 处理逻辑有差异。
+- 合并底层状态需修改 run-state-store、pipeline-engine 和 IPC 合同，风险高、收益低。
+- 展示层聚合即可同时满足降低认知负担和保留精确信息的双重目标。
+
 ### 3.1.35 流水线启动前台跟踪与离开转后台生命周期（2026-08-21）
 
 **背景**：2026-08-19 的 s2v-pipeline-always-background 把「启动」定义为纯后台（创作页不展示阶段进度），2026-08-20 的断点续跑修复（PR #1072 / 3.1.33 相关）让历史「继续/从断点继续」恢复时回到创作页前台跟踪，形成「新启动无前台进度、续跑有前台进度」的不对称。用户确认目标模型：**启动流水线后在创作页实时轮询展示进度；离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态，可在并发上限内再次启动。**

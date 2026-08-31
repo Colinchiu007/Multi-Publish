@@ -236,7 +236,7 @@ export default {
       return labels[s] || s || '已完成'
     },
     interruptedStatusLabel() {
-      const key = 'create.history.tabs.interrupted'
+      const key = 'create.history.statuses.interrupted'
       const translated = typeof this.$t === 'function' ? this.$t(key) : null
       return translated || 'Interrupted'
     },

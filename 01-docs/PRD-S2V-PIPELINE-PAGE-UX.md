@@ -78,7 +78,7 @@
 
 ### 3.1 统一卡片结构
 
-全部、进行中、已暂停、已中断、执行失败、已完成、已取消标签共用同一卡片 DOM 结构、宽度、内边距和操作区。状态差异只通过数据项和状态色体现，不复制状态专属 CSS。
+全部、进行中、可恢复、执行失败、已完成、已取消标签共用同一卡片 DOM 结构、宽度、内边距和操作区。状态差异只通过数据项和状态色体现，不复制状态专属 CSS。可恢复聚合已暂停和已中断两个子状态（2026-08-31 修订，见 5.1.1）。
 
 每张卡片统一显示：
 
@@ -96,8 +96,8 @@
 状态附加字段：
 
 - 进行中：当前阶段/阶段进度。
-- 已暂停：暂停环节、暂停环境/检查点（仅用户手动暂停与 scene_asset_selection 检查点）。
-- 已中断：中断环节（应用退出/崩溃/强杀后的 running 快照残留，或 >30 分钟无更新的 stale-running）。
+- 可恢复：聚合已暂停（用户手动暂停与 scene_asset_selection 检查点）和已中断（应用退出/崩溃/强杀或 >30 分钟无更新）两个子状态。卡片内仍通过图标和提示文字区分暂停原因，筛选栏统一为单一可恢复 tab。
+
 - 执行失败：失败环节、失败原因；失败原因统一使用“失败原因”标签，不使用“错误摘要”。
 - 已完成：编辑和预览入口。
 - 已取消：有有效 projectId 且流水线已经启动时可进入视频任务编辑页；可修改和保存，但不允许从断点继续。
@@ -249,7 +249,24 @@
 
 两个历史 UI（创作页内嵌历史记录 CreateViewHistory.vue 与独立历史页 CreateHistory.vue，2026-08-21 对齐）使用同一规则：仅当 `updatedAt` 存在且超过 30 分钟阈值才翻转；活跃 run 快照不带 updatedAt 时不得误判。
 
-暂停/中断后的历史卡片显示暂停/中断阶段与环境；可恢复记录显示继续动作。暂停保存失败必须恢复原状态、阶段和 checkpoint。
+可恢复记录（已暂停/已中断）显示暂停/中断阶段与环境；可恢复记录显示继续动作。暂停保存失败必须恢复原状态、阶段和 checkpoint。
+
+
+### 5.1.1 可恢复聚合筛选 tab（2026-08-31）
+
+展示层将已暂停和已中断归入同一个可恢复筛选 tab，降低筛选栏认知负担。底层 paused/interrupted 状态值不变，恢复链路、快照持久化、checkpoint 判定和卡片内图标（II/↯）、提示文字（暂停环节/中断环节）均保留差异化。
+
+数据契约：
+
+- HISTORY_STATUSES 新增 recoverable 枚举值，底层 RECOVERABLE_STATUSES = [paused, interrupted] 定义聚合关系。
+- filterHistoryByStatus 接受 recoverable 时返回 status 为 paused 或 interrupted 的所有记录，精确匹配 paused/interrupted 仍可用。
+- historyStatusCounts 新增 recoverable 计数，累加 paused 和 interrupted 的 count。
+- locale tabs: zh/en 中 paused/interrupted 改为 recoverable（可恢复/Recoverable），statuses.interrupted 保留用于卡片内提示。
+
+不可合并的理由：
+
+- 已暂停和已中断的来源不同（用户主动 vs 环境异常），恢复路径和 checkpoint 处理逻辑有差异，合并底层状态需修改 run-state-store、pipeline-engine 和 IPC 合同，风险高、收益低。
+- 展示层聚合即可同时满足降低认知负担和保留精确信息的双重目标。
 
 ### 5.2 历史进入编辑/恢复
 

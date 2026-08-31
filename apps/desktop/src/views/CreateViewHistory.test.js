@@ -30,9 +30,9 @@ describe('CreateViewHistory', () => {
     const tablist = wrapper.find('[role="tablist"]')
     expect(tablist.exists()).toBe(true)
     const tabs = wrapper.findAll('[role="tab"]')
-    // 7 个状态标签：含「已中断」（应用退出/崩溃中断，区别于手动暂停）
-    expect(tabs).toHaveLength(7)
-    expect(tabs.map(tab => tab.attributes('data-status'))).toEqual(['all', 'running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled'])
+    // 6 个状态标签：paused 与 interrupted 聚合为「可恢复」tab，卡片内仍区分
+    expect(tabs).toHaveLength(6)
+    expect(tabs.map(tab => tab.attributes('data-status'))).toEqual(['all', 'running', 'recoverable', 'failed', 'completed', 'cancelled'])
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     expect(tabs[0].attributes('tabindex')).toBe('0')
     expect(wrapper.find('select').exists()).toBe(false)
@@ -49,12 +49,12 @@ describe('CreateViewHistory', () => {
     expect(wrapper.emitted('update:historyFilter')?.at(-1)).toEqual(['all'])
   })
 
-  it('separates paused and failed and sorts every filtered result by effective time', async () => {
+  it('recoverable 聚合 paused 且与 failed 分离，并按有效时间排序', async () => {
     const wrapper = mountHistory([
       { id: 'failed', status: 'failed', updatedAt: '2026-08-15T12:00:00Z', pausedStage: 'compose', error: 'boom' },
       { id: 'paused', status: 'paused', updatedAt: '2026-08-15T11:00:00Z', pausedStage: 'compose' },
     ])
-    await wrapper.find('[role="tab"][data-status="paused"]').trigger('click')
+    await wrapper.find('[role="tab"][data-status="recoverable"]').trigger('click')
     expect(wrapper.findAll('.history-item')).toHaveLength(1)
     expect(wrapper.find('.history-item').attributes('data-history-id')).toBe('paused')
     await wrapper.find('[role="tab"][data-status="failed"]').trigger('click')
@@ -64,11 +64,11 @@ describe('CreateViewHistory', () => {
   })
 
   it('keeps the same card contract in every status tab, including title fallback, thumbnail slot and video duration', async () => {
-    const statuses = ['running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled']
+    const statuses = ['running', 'recoverable', 'failed', 'completed', 'cancelled']
     const wrapper = mountHistory(statuses.map((status, index) => ({
       id: 'task-' + status,
       projectId: 'project-' + status,
-      status,
+      status: status === 'recoverable' ? 'paused' : status,
       sourceText: '任务文案 ' + status,
       videoDuration: 61,
       duration: 900000,
@@ -155,7 +155,7 @@ describe('CreateViewHistory', () => {
     expect(wrapper.find('[data-testid="history-policy-edit-button"]').exists()).toBe(false)
   })
 
-  it('已中断卡片显示中断环节与提示并可断点继续；已暂停标签只显示手动暂停任务', async () => {
+  it('recoverable 聚合 tab 同时展示已暂停与已中断，卡片内仍用不同图标/提示区分', async () => {
     const wrapper = mountHistory([
       { id: 'interrupted-1', status: 'interrupted', pausedStage: 'generate_assets', updatedAt: '2026-08-15T12:00:00Z' },
       { id: 'manual-paused', status: 'paused', pausedStage: 'compose', updatedAt: '2026-08-15T11:00:00Z' },
@@ -167,13 +167,14 @@ describe('CreateViewHistory', () => {
     // 中断任务可断点继续（快照仍为 running，恢复链不变）
     expect(interrupted.find('.s2v-btn-resume').exists()).toBe(true)
 
-    // 「已暂停」标签精确过滤：只有手动暂停任务出现，中断任务不得混入
-    await wrapper.find('[role="tab"][data-status="paused"]').trigger('click')
-    expect(wrapper.findAll('.history-item')).toHaveLength(1)
-    expect(wrapper.find('.history-item').attributes('data-history-id')).toBe('manual-paused')
-    await wrapper.find('[role="tab"][data-status="interrupted"]').trigger('click')
-    expect(wrapper.findAll('.history-item')).toHaveLength(1)
-    expect(wrapper.find('.history-item').attributes('data-history-id')).toBe('interrupted-1')
+    // 「可恢复」聚合 tab 同时覆盖 paused 与 interrupted，按有效时间倒序
+    await wrapper.find('[role="tab"][data-status="recoverable"]').trigger('click')
+    const ids = wrapper.findAll('.history-item').map(item => item.attributes('data-history-id'))
+    expect(ids).toEqual(['interrupted-1', 'manual-paused'])
+    // 卡片内仍以底层状态区分：已暂停卡片显示暂停环节，无中断提示
+    const paused = wrapper.find('[data-history-id="manual-paused"]')
+    expect(paused.classes()).toContain('status-paused')
+    expect(paused.text()).toContain('create.history.pausedStage')
   })
 
   it('无项目匹配的 run 卡片用 params 回退标题与文案预览，不再显示流水线名词与「未生成」', () => {
