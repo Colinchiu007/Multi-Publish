@@ -1,3 +1,27 @@
+## [未发布] feat(story2video): 历史记录可恢复聚合筛选 tab
+
+- 展示层将已暂停和已中断归入同一个可恢复筛选 tab，筛选栏从 7 标签减少为 6 标签（全部/进行中/可恢复/执行失败/已完成/已取消）。
+- 底层 paused/interrupted 状态值不变，恢复链路、快照持久化、checkpoint 判定和卡片内图标（II/↯）、提示文字（暂停环节/中断环节）均保留差异化。
+- 新增 RECOVERABLE_STATUSES = [paused, interrupted] 聚合关系，filterHistoryByStatus 接受 recoverable 时返回两者；精确匹配 paused/interrupted 仍可用。
+- historyStatusCounts 新增 recoverable 计数。
+- locale: zh/en paused/interrupted 合并为 recoverable（可恢复/Recoverable），statuses.interrupted 保留用于卡片内提示。
+- 回归保护：history-utils.test.js 更新 HISTORY_STATUSES 断言 + recoverable 聚合测试；CreateViewHistory.test.js 更新 tab 数量和数据状态列表。
+- 文档：PRD-S2V-PIPELINE-PAGE-UX 3.1/5.1.1；PRD-video-creation 3.1.34a。
+
+---
+## [未发布] fix(account): 快手账号卡片登录态修复——Dashboard URL 修正 + 创作者中心登录后自动保存
+
+- 现象：点击已添加的快手账号卡片，期望打开已登录状态的快手创作者中心，实际打开的是未登录登录页；在登录页登录后再次点击卡片，打开的网页仍是未登录状态。
+- 根因：`PLATFORM_DASHBOARD_URLS.kuaishou` 误指向登录页 `https://passport.kuaishou.com/pc/account/login`（2026-08-22 commit aedfc7011 在修复 `PLATFORM_LOGIN_URLS.kuaishou` 时连带误改），导致点击卡片永远打开登录页；同时创作者中心标签页内登录后 cookies 只留在隔离分区（`persist:account-<id>`），未写回加密凭证库，应用重启后登录态丢失。
+- 修复：
+  - ① `PLATFORM_DASHBOARD_URLS.kuaishou` 修正为快手创作者中心 `https://cp.kuaishou.com/`；`PLATFORM_LOGIN_URLS.kuaishou` 保持登录页不变（登录页排除逻辑依赖它区分「登录页」与「登录成功页」）。
+  - ② `account-manager.js` 新增 `updateAccountCredentials(accountId, platform, captured, options)`：更新已有账号凭证（cookies/localStorage/indexedDB/accountInfo），过滤平台域、保留原 proxy、覆盖写回加密凭证库并同步账号状态记录；无有效凭证拒绝、加密写入失败报错且不写状态记录。
+  - ③ `webview-manager.js` 账号级标签页（`useAccountSession && platform`）监听 `did-navigate`/`did-navigate-in-page`，URL 匹配 `isPlatformLoginSuccessUrl` 时延迟 3 秒捕获分区 cookies，过滤平台域后调用 `updateAccountCredentials` 写回，成功后发送 `account:status-changed` 通知前端刷新卡片。
+- 回归保护：`platform-definitions.test.js` 8/8（快手 Dashboard URL、登录页/成功页判定）；`account-manager.test.js` 45/45（覆盖写回保留 proxy、owner 隔离、无凭证拒绝、非法参数纵深拒绝、加密失败）；`webview-manager.test.js` 27/27（登录成功自动保存并通知、登录页不触发、未捕获到 cookie 不写不通知）。
+- 文档：PRD §18.2.4 新增「快手账号卡片登录态修复」合同表（数据校验/流程/交互/显示项/提示文字）；CHANGELOG 本记录。
+- 预防：AGENTS.md 账号卡片/创作者中心相关 QM 规则补充（快手 Dashboard 与 Login URL 必须区分，登录页排除逻辑不得误判成功页）。
+
+---
 ## [未发布] feat(story2video): 图片内容安全敏感改写优化点 7-8 与既有项增强（语言匹配/严重度差异化/预检闭环/映射表/negative_prompt/成本预算/审计反哺/语义算法）
 ## [未发布] feat(publish): 历史视频一键发布到百家号 + AI 生成声明默认勾选 + 标题自动截断（真实 E2E 跑通）
 

@@ -398,8 +398,7 @@ export default {
       tabs: {
         all: '全部',
         running: '进行中',
-        paused: '已暂停',
-        interrupted: '已中断',
+        recoverable: '可恢复',
         failed: '执行失败',
         completed: '已完成',
         cancelled: '已取消',

@@ -398,8 +398,7 @@ export default {
       tabs: {
         all: 'All',
         running: 'Running',
-        paused: 'Paused',
-        interrupted: 'Interrupted',
+        recoverable: 'Recoverable',
         failed: 'Failed',
         completed: 'Completed',
         cancelled: 'Cancelled',

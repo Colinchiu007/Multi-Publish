@@ -16,9 +16,12 @@ export const HISTORY_TIME_KEYS = Object.freeze([
   'created_at',
 ])
 
-// 历史状态标签清单（tab 顺序即 UI 顺序）：interrupted = 应用退出/崩溃导致的运行中断，
-// 与 paused（用户手动暂停）语义分离，绝不互转（2026-08-20 状态语义修订）
-export const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled'])
+// 历史状态标签清单（tab 顺序即 UI 顺序）：
+//   recoverable = 聚合筛选 tab，同时覆盖 paused（用户手动暂停）与 interrupted（应用退出/崩溃中断），
+//   展示层弱化差异，但底层 item.status 仍保留 paused/interrupted 原值，卡片内图标与提示区分不变
+//   （2026-08-20 状态语义修订 + 2026-08-31 展示层聚合）
+export const HISTORY_STATUSES = Object.freeze(['all', 'running', 'recoverable', 'failed', 'completed', 'cancelled'])
+export const RECOVERABLE_STATUSES = Object.freeze(['paused', 'interrupted'])
 
 const CREATION_TIME_KEYS = Object.freeze(['createdAt', 'created_at'])
 const IDENTITY_KEYS = Object.freeze(['id', 'projectId', 'runId'])
@@ -103,15 +106,18 @@ export function filterHistoryByStatus (items, status = 'all') {
   const list = Array.isArray(items) ? items : []
   const filtered = status === 'all'
     ? list
+    : status === 'recoverable'
+      ? list.filter(item => item && RECOVERABLE_STATUSES.includes(item.status))
     : list.filter(item => item && item.status === status)
   return sortHistoryByEffectiveTime(filtered)
 }
 
 export function historyStatusCounts (items) {
-  const counts = { all: 0, running: 0, paused: 0, interrupted: 0, failed: 0, completed: 0, cancelled: 0 }
+  const counts = { all: 0, running: 0, recoverable: 0, paused: 0, interrupted: 0, failed: 0, completed: 0, cancelled: 0 }
   for (const item of Array.isArray(items) ? items : []) {
     counts.all += 1
     if (Object.prototype.hasOwnProperty.call(counts, item?.status)) counts[item.status] += 1
+    if (RECOVERABLE_STATUSES.includes(item?.status)) counts.recoverable += 1
   }
   return counts
 }
