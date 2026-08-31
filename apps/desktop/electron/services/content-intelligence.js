@@ -41,6 +41,15 @@ class ContentIntelligence {
     this._store = store             // Store instance for impact tracking persistence
   }
 
+  /**
+   * 注入 AIGenerator 实例（智能标签建议 LLM 生成使用）。
+   * 延迟注入避免与 AIGenerator 循环依赖。
+   * @param {object} aiGenerator
+   */
+  setAIGenerator (aiGenerator) {
+    this._aiGenerator = aiGenerator
+  }
+
   _getAxios () {
     if (!this._axios) {
       this._axios = require('axios')

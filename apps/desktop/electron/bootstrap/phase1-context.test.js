@@ -160,7 +160,29 @@ describe('phase1-context.extractContext', () => {
     expect(() => extractContext(container)).not.toThrow()
   })
 
-  it('BACKEND_PLATFORMS 是 Set 且包含 youtube/tiktok/twitter', () => {
+  it('contentIntelligence.setAIGenerator 被注入（方法存在时）', () => {
+    const container = makeMockContainer()
+    const setAIGenerator = vi.fn()
+    // 覆盖 contentIntelligence 返回值，含 setAIGenerator 方法
+    container.get.mockImplementation((key) => {
+      if (key === 'contentIntelligence') return { setAIGenerator }
+      if (key === 'aiGenerator') return { setModelProviderManager: vi.fn() }
+      if (key === 'templateManager') return { seedDefaults: vi.fn() }
+      if (key === 'store') return { getSetting: vi.fn(), setSetting: vi.fn() }
+      if (key === 'taskQueue') return { setExecutor: vi.fn(), on: vi.fn() }
+      return { __mockKey: key }
+    })
+    extractContext(container)
+    expect(setAIGenerator).toHaveBeenCalled()
+  })
+
+  it('contentIntelligence.setAIGenerator 不被调用（方法不存在时，不抛错）', () => {
+    const container = makeMockContainer()
+    // 默认 mock contentIntelligence 无 setAIGenerator 方法
+    expect(() => extractContext(container)).not.toThrow()
+  })
+
+ it('BACKEND_PLATFORMS 是 Set 且包含 youtube/tiktok/twitter', () => {
     const container = makeMockContainer()
     const ctx = extractContext(container)
     expect(ctx.BACKEND_PLATFORMS).toBeInstanceOf(Set)

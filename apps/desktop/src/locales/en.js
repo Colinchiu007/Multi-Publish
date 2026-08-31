@@ -1926,6 +1926,26 @@ export default {
     insertedRef: 'Inserted reference: {title}',
   },
 
+  tagSuggest: {
+    title: 'Smart Tag Suggestions',
+    contentTags: 'Content tags (describe the article topic)',
+    trafficTags: 'Traffic tags (related to trending topics)',
+    platformTags: 'Per-platform tags',
+    copyTags: 'Copy tags',
+    loadingAI: 'AI is analyzing tags...',
+    loadingLocal: 'Extracting keywords...',
+    sourceAI: 'AI generated',
+    sourceLocal: 'Local extraction',
+    calibrated: 'Calibrated with hot library ✓',
+    notCalibrated: 'Not calibrated',
+    aiNotConfigured: 'AI not configured',
+    fallbackNotice: 'AI generation failed, switched to local extraction',
+    hotMatch: 'Matched trending topic: {tag} (heat {heat})',
+    emptyContent: 'Tags are analyzed automatically after you enter content',
+    analysisFailed: 'Tag analysis failed',
+    tagsCopied: (ctx) => 'Copied ' + ctx.named('platform') + ' tags',
+  },
+
   memberCenter: {
     title: 'Member Center',
     menuEntry: 'Member Center',
@@ -1984,3 +2004,4 @@ export default {
   },
 
 }
+

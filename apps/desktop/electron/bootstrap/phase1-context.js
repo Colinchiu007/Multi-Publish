@@ -303,6 +303,10 @@ function extractContext(container) {
   if (aiGenerator && aiGenerator.setGovernor) {
     aiGenerator.setGovernor(container.get('apiUsageGovernor'))
   }
+  // 注入 AIGenerator 到 ContentIntelligence（智能标签建议 LLM 生成）
+  if (contentIntelligence && typeof contentIntelligence.setAIGenerator === 'function') {
+    contentIntelligence.setAIGenerator(aiGenerator)
+  }
   const story2videoProjectService = container.get('story2videoProjectService')
   story2videoProjectService.modelProviderManager = modelProviderManager
   const ttsVoiceCloneService = container.get('ttsVoiceCloneService')

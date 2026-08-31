@@ -11,6 +11,9 @@
  *      this._extractKeywords() — 本 mixin 内部方法
  */
 const { calculateStats } = require('./content-intelligence-utils')
+const { suggestTagsWithLLM } = require('./tag-suggest')
+const { suggestFallback } = require('./tag-suggest/fallback-extractor')
+const log = require('./logger')
 
 const analysisMixin = {
   _extractPatterns (results) {
@@ -124,70 +127,49 @@ const analysisMixin = {
     return sorted
   },
 
-  /**
-   * Map keywords to per-platform tag suggestions.
+ /**
+   * 智能标签建议编排入口：LLM 可用时调用 tag-suggest 编排（LLM 生成 + 热门库校准 + 合规过滤 + 平台裁剪），
+   * 否则回退到本地摘词（fallback-extractor）。
    * @param {string} content — Article content (title + body)
    * @param {object} [opts]
    * @param {string[]} [opts.platforms] — Platforms to suggest tags for
-   * @returns {object} { keywords, byPlatform }
-   */
+   * @returns {object} { keywords, trafficTags, relatedTerms, byPlatform, byPlatformDetail, source, calibrated, matchedTopics }
+  */
   async suggestTags (content, opts = {}) {
-    const platforms = opts.platforms || ['zhihu', 'weibo', 'xiaohongshu', 'bilibili', 'toutiao']
-    const keywords = this._extractKeywords(content, 12)
+    const platforms = (opts.platforms && opts.platforms.length > 0)
+      ? opts.platforms
+      : ['zhihu', 'weibo', 'xiaohongshu', 'bilibili', 'toutiao']
 
-    // Optionally enrich by searching trending discussions for each keyword
-    // (limit to first 3 keywords to manage API usage)
-    const enrichTargets = keywords.slice(0, 3)
-    const enrichResults = await Promise.allSettled(
-      enrichTargets.map(kw => this.search(kw, { limit: 3, sources: ['reddit', 'hackernews'] }))
-    )
-
-    // Collect related terms from search results
-    const relatedTerms = new Set()
-    for (const r of enrichResults) {
-      if (r.status !== 'fulfilled') continue
-      for (const item of r.value.results || []) {
-        const words = (item.title + ' ' + (item.snippet || '')).toLowerCase()
-                         .replace(/[^a-z0-9一-鿿\s-]/g, ' ')
-                         .split(/[\s,-]+/)
-                         .filter(w => w.length > 1)
-        for (const w of words.slice(0, 5)) relatedTerms.add(w)
+    // 空内容直接返回空结果
+    if (!content || String(content).trim().length < 3) {
+      return {
+        keywords: [],
+        trafficTags: [],
+        relatedTerms: [],
+        byPlatform: {},
+        byPlatformDetail: {},
+        source: 'extractor',
+        calibrated: false,
+        matchedTopics: {},
       }
     }
 
-    // Build per-platform tag suggestions
-    const platformTagStyle = {
-      zhihu: { prefix: '', max: 5, mode: 'topic' },
-      weibo: { prefix: '#', max: 4, mode: 'hashtag' },
-      xiaohongshu: { prefix: '#', max: 6, mode: 'hashtag' },
-      bilibili: { prefix: '', max: 5, mode: 'topic' },
-      toutiao: { prefix: '', max: 5, mode: 'topic' },
-      wechat_mp: { prefix: '', max: 3, mode: 'topic' },
-      douyin: { prefix: '#', max: 4, mode: 'hashtag' },
-    }
-
-    const byPlatform = {}
-    for (const p of platforms) {
-      const style = platformTagStyle[p] || { prefix: '', max: 5, mode: 'topic' }
-      const tags = keywords.slice(0, style.max + 1).map(k => style.prefix + k)
-      // Add related terms if there's space
-      if (tags.length < style.max) {
-        for (const term of relatedTerms) {
-          if (tags.length >= style.max) break
-          if (!tags.includes(style.prefix + term)) {
-            tags.push(style.prefix + term)
-          }
-        }
+    // LLM 可用 → 编排入口（LLM 生成 + 热门库校准 + 合规过滤 + 平台裁剪）
+    if (this._aiGenerator && typeof this._aiGenerator.generateWithDefault === 'function') {
+      try {
+        return await suggestTagsWithLLM({
+          content: String(content),
+          platforms,
+          aiGenerator: this._aiGenerator,
+        })
+      } catch (e) {
+        // 编排失败 → 回退本地摘词
+        log.warn('TagSuggest', 'suggestTags 编排失败，回退本地摘词: ' + (e && e.message ? e.message : String(e)))
       }
-      byPlatform[p] = tags.slice(0, style.max)
     }
 
-    return {
-      keywords,
-      relatedTerms: [...relatedTerms].slice(0, 8),
-      byPlatform,
-      source: 'last30days',
-    }
+    // LLM 不可用或失败 → 本地摘词回退
+    return suggestFallback(String(content), { platforms })
   },
 
   // ── External Reference Finder (方案 D.3) ────────────────────────
