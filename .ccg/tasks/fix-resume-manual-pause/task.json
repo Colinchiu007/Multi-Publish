@@ -1,0 +1,12 @@
+﻿{
+  "id": "fix-resume-manual-pause",
+  "title": "修复 Story2Video 手动暂停任务从断点继续报 RUN_NOT_FAILED",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "review",
+  "nextAction": "双模型审查通过后提交推送 PR",
+  "createdAt": "2026-08-31T10:00:00Z",
+  "branch": "codex/fix-resume-manual-pause"
+}

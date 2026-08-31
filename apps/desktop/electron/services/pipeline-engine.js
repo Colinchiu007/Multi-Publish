@@ -1462,7 +1462,7 @@ class PipelineEngine {
       if (!snapshot.error) {
         return { success: false, error: '只有失败或中断状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
       }
-    } else if (snapshot.status !== 'running') {
+    } else if (snapshot.status !== 'running' && !(snapshot.status === 'paused' && snapshot.checkpoint && snapshot.checkpoint.type === 'manual_pause')) {
       return { success: false, error: '只有失败或中断状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
     }
     if ((snapshot.orchestrationMode || 'state_machine') !== 'orchestrator') {
