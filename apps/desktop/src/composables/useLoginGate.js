@@ -12,13 +12,15 @@
  *
  * 单例防重入：并发多处触发时只弹一次登录，其余等待同一登录流程。
  */
-import { ElMessageBox, ElMessage } from 'element-plus'
 import { useIdentityStore } from '@/stores/identity'
+import { useNotify } from './useNotify'
+import i18n from '@/i18n'
 
 let activeSignIn = null
 
 export function useLoginGate () {
   const identityStore = useIdentityStore()
+  const { notifyWarning, notifyConfirm } = useNotify()
 
   async function openSignIn () {
     if (activeSignIn) return activeSignIn
@@ -34,26 +36,25 @@ export function useLoginGate () {
    * @returns {Promise<boolean>} 已登录 / 登录成功 = true；取消 / 失败 / 不可用 = false
    */
   async function ensureLogin (options = {}) {
-    const message = options.message || '该功能需要登录后使用，是否立即登录？'
-    const disabledMessage = options.disabledMessage || '当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。'
+    const message = options.message || i18n.global.t('loginGate.defaultMessage')
+    const disabledMessage = options.disabledMessage || i18n.global.t('loginGate.disabledMessage')
 
     if (identityStore.isAuthenticated) return true
     if (identityStore.status === 'disabled' || identityStore.status === 'error') {
-      ElMessage.warning(disabledMessage)
+      notifyWarning('loginGate.disabledMessage', { message: disabledMessage })
       return false
     }
-    try {
-      await ElMessageBox.confirm(message, '需要登录', {
-        confirmButtonText: '立即登录',
-        cancelButtonText: '暂不',
-        type: 'warning',
-      })
-    } catch {
-      return false // 用户取消
-    }
+    const confirmed = await notifyConfirm('loginGate.defaultMessage', {
+      message,
+      title: i18n.global.t('loginGate.title'),
+      confirmButtonText: i18n.global.t('loginGate.confirmButton'),
+      cancelButtonText: i18n.global.t('loginGate.cancelButton'),
+      type: 'warning',
+    })
+    if (!confirmed) return false // 用户取消
     const ok = await openSignIn()
     if (!ok || !identityStore.isAuthenticated) {
-      ElMessage.warning('登录未完成，操作已取消')
+      notifyWarning('loginGate.loginIncomplete', { message: i18n.global.t('loginGate.loginIncomplete') })
       return false
     }
     return true

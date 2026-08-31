@@ -94,11 +94,13 @@ import { getApi } from '@/api/electron-bridge'
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useNotify } from '@/composables/useNotify'
+import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 
 const router = useRouter()
+const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
 const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
@@ -135,7 +137,7 @@ function createDraft () {
 async function importFromClipboard () {
   try {
     const text = await navigator.clipboard.readText()
-    if (!text) { ElMessage.warning('剪贴板为空'); return }
+    if (!text) { notifyWarning('collection.clipboardEmpty'); return }
     const lines = text.split('\n').filter(Boolean)
     const title = lines[0].slice(0, 64)
     const content = lines.slice(1).join('\n').slice(0, 10000)
@@ -148,9 +150,9 @@ async function importFromClipboard () {
     }
     drafts.value.unshift(draft)
     saveDrafts()
-    ElMessage.success(`已导入 ${lines.length} 行内容`)
+    notifySuccess('collection.importedLines', { params: { count: lines.length } })
   } catch (e) {
-    ElMessage.error('剪贴板读取失败: ' + formatUserError(e, { fallback: '未知错误' }).message)
+    notifyError('collection.clipboardReadFailed', { message: resolveNotifyText('collection.clipboardReadFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.clipboardReadFailed').text }).message })
   }
 }
 
@@ -158,9 +160,9 @@ function openCollection (platform) {
   const api = getApi()
   if (api && api.webviewOpenTab) {
     api.webviewOpenTab({ platform })
-    ElMessage.success(`已打开 ${platform} 采集页面`)
+    notifySuccess('collection.openedPlatform', { params: { platform } })
   } else {
-    ElMessage.info('请先切换到分屏监控页查看')
+    notifyInfo('collection.switchToMonitor')
   }
 }
 
@@ -173,23 +175,21 @@ function goPublish (d) {
 }
 
 async function deleteDraft (d) {
-  try {
-    await ElMessageBox.confirm('确定删除这篇草稿吗？', '确认', { type: 'warning' })
-    drafts.value = drafts.value.filter(x => x.id !== d.id)
-    saveDrafts()
-    ElMessage.success('已删除')
-  // eslint-disable-next-line no-unused-vars
-  } catch (e) { /* 取消 */ }
+  const confirmed = await notifyConfirm('collection.confirmDeleteDraft', { title: resolveNotifyText('collection.confirmTitle').text })
+  if (!confirmed) return
+  drafts.value = drafts.value.filter(x => x.id !== d.id)
+  saveDrafts()
+  notifySuccess('collection.deleted')
 }
 
 async function collectUrl () {
   const api = getApi()
   if (!api || !api.urlCollectFetch) {
-    ElMessage.warning('采集功能不可用')
+    notifyWarning('collection.collectUnavailable')
     return
   }
   if (!linkUrl.value || !linkUrl.value.trim()) {
-    ElMessage.warning('请输入链接')
+    notifyWarning('collection.enterLink')
     return
   }
   collecting.value = true
@@ -197,13 +197,13 @@ async function collectUrl () {
   try {
     const result = await api.urlCollectFetch(linkUrl.value.trim())
     if (result.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: '采集失败' }).message)
+      notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
       return
     }
     collectedResult.value = result.data
-    ElMessage.success('内容采集成功')
+    notifySuccess('collection.collectSuccess')
   } catch (e) {
-    ElMessage.error('采集请求失败: ' + formatUserError(e, { fallback: '未知错误' }).message)
+    notifyError('collection.collectRequestFailed', { message: resolveNotifyText('collection.collectRequestFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
   } finally {
     collecting.value = false
   }
@@ -225,7 +225,7 @@ function createFromCollected () {
   saveDrafts()
   collectedResult.value = null
   linkUrl.value = ''
-  ElMessage.success('草稿已创建')
+  notifySuccess('collection.draftCreated')
   router.push('/publish?draft=' + draft.id)
 }
 </script>

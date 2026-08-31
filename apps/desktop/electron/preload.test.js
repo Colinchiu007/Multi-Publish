@@ -133,7 +133,7 @@ const SYSTEM_METHODS = [
   'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
-  'logsGetInfo', 'logsClear', 'logError',
+  'logsGetInfo', 'logsClear', 'logError', 'notifyLog',
 ]
 
 const IDENTITY_METHODS = [
@@ -207,11 +207,11 @@ describe('preload 子模块方法数', () => {
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime（运营后台同步 + 运行时策略）
     // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
-    expect(Object.keys(r).length).toBe(144)
+    expect(Object.keys(r).length).toBe(145)
   })
 
   it('合并后 api 总键数应为 303（含 videoClone/filmEngineering 命名空间与保存配置 4 方法）', () => {
-    expect(Object.keys(api).length).toBe(303)
+    expect(Object.keys(api).length).toBe(304)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -229,7 +229,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {
-    expect(SYSTEM_METHODS.length).toBe(136)
+    expect(SYSTEM_METHODS.length).toBe(137)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {

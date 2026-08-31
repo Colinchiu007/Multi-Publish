@@ -431,3 +431,92 @@ describe('Story2Video 启动前置校验（models_required）', () => {
     expect(getStory2VideoNotificationUiText('en').goToModelSettings).toBe('Go to Model Settings')
   })
 })
+
+describe('Story2Video 断点恢复失败（resumeOrchestration errorCode 契约）', () => {
+  it('RUN_SNAPSHOT_NOT_FOUND 映射到 resume_snapshot_not_found 具体文案', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'RUN_SNAPSHOT_NOT_FOUND',
+      error: '未找到可恢复的运行快照',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_SNAPSHOT_NOT_FOUND)
+    expect(notification.message).toContain('未找到可恢复的运行快照')
+    expect(notification.message).not.toContain('当前操作未能完成')
+  })
+
+  it('RUN_NOT_FAILED 映射到 resume_run_not_failed 具体文案', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'RUN_NOT_FAILED',
+      error: '只有失败或中断状态的运行可以恢复',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_RUN_NOT_FAILED)
+    expect(notification.message).toContain('只有失败或中断状态的运行可以恢复')
+  })
+
+  it('RUN_NOT_ORCHESTRATOR 映射到 resume_run_not_orchestrator 具体文案', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'RUN_NOT_ORCHESTRATOR',
+      error: '该运行不支持断点恢复',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_RUN_NOT_ORCHESTRATOR)
+    expect(notification.message).toContain('不支持断点恢复')
+  })
+
+  it('STAGE_NOT_FOUND 映射到 resume_stage_not_found 具体文案', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'STAGE_NOT_FOUND',
+      error: '未定位到失败阶段',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_STAGE_NOT_FOUND)
+    expect(notification.message).toContain('未定位到失败阶段')
+  })
+
+  it('英文界面渲染英文断点恢复文案', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'RUN_SNAPSHOT_NOT_FOUND',
+      error: 'No recoverable run snapshot was found',
+    }, 'en')
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_SNAPSHOT_NOT_FOUND)
+    expect(notification.message).toContain('No recoverable run snapshot was found')
+  })
+
+  it('resolveStory2VideoNotification 同样识别断点恢复错误码（供 showStory2VideoErrorDialog 使用）', () => {
+    const resolved = resolveStory2VideoNotification({
+      errorCode: 'RUN_SNAPSHOT_NOT_FOUND',
+      error: '未找到可恢复的运行快照',
+    })
+    expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_SNAPSHOT_NOT_FOUND)
+    expect(resolved.message).toContain('未找到可恢复的运行快照')
+  })
+
+  it('PIPELINE_USER_INPUT_REQUIRED 映射到 needs_user_input（内容政策类需改文案后重跑）', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'PIPELINE_USER_INPUT_REQUIRED',
+      error: '内容政策审核未通过，需要修改文案后重新生成',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+    expect(notification.message).not.toContain('当前操作未能完成')
+  })
+
+  it('其余断点恢复错误码英文界面渲染对应英文文案', () => {
+    const runNotFailed = formatStory2VideoNotification({
+      errorCode: 'RUN_NOT_FAILED',
+      error: 'Only failed or interrupted runs can be resumed',
+    }, 'en')
+    expect(runNotFailed.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_RUN_NOT_FAILED)
+    expect(runNotFailed.message).toContain('Only failed or interrupted runs can be resumed')
+
+    const notOrchestrator = formatStory2VideoNotification({
+      errorCode: 'RUN_NOT_ORCHESTRATOR',
+      error: 'This task does not support resuming from the breakpoint',
+    }, 'en')
+    expect(notOrchestrator.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_RUN_NOT_ORCHESTRATOR)
+    expect(notOrchestrator.message).toContain('does not support resuming')
+
+    const stageNotFound = formatStory2VideoNotification({
+      errorCode: 'STAGE_NOT_FOUND',
+      error: 'The failed stage could not be located',
+    }, 'en')
+    expect(stageNotFound.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RESUME_STAGE_NOT_FOUND)
+    expect(stageNotFound.message).toContain('failed stage could not be located')
+  })
+})

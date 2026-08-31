@@ -1,8 +1,11 @@
 // @ts-check
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { draftDelete, draftList, draftSave } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
+import i18n from '@/i18n'
+import { useNotify } from './useNotify'
+
+const t = (key) => i18n.global.t(key)
 
 const ARTICLE_FIELDS = [
   'title',
@@ -47,6 +50,8 @@ export function usePublishDrafts ({
   selectedAccounts,
   platformOverrides,
 }) {
+  // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
+  const { notifyError, notifySuccess, notifyWarning } = useNotify()
   const showDraftList = ref(false)
   const drafts = ref([])
   const loadingDrafts = ref(false)
@@ -87,7 +92,7 @@ export function usePublishDrafts ({
       return drafts.value
     } catch (error) {
       drafts.value = []
-      ElMessage.error(errorMessage(error, '草稿读取失败'))
+      notifyError('publishDrafts.loadFailed', { message: errorMessage(error, t('publishDrafts.loadFailed')) })
       return []
     } finally {
       loadingDrafts.value = false
@@ -96,19 +101,19 @@ export function usePublishDrafts ({
 
   async function saveDraft () {
     if (!String(article.title || '').trim() && !String(article.content || '').trim()) {
-      ElMessage.warning('标题和内容不能都为空')
+      notifyWarning('publishDrafts.emptyTitleContent', { message: t('publishDrafts.emptyTitleContent') })
       return false
     }
     try {
       const result = await draftSave(buildDraftSnapshot())
       if (!result || result.code !== 0) {
-        throw new Error((result && result.message) || '草稿保存失败')
+        throw new Error((result && result.message) || t('publishDrafts.saveFailed'))
       }
-      ElMessage.success('草稿已保存')
+      notifySuccess('publishDrafts.saved', { message: t('publishDrafts.saved') })
       await loadDrafts()
       return true
     } catch (error) {
-      ElMessage.error(errorMessage(error, '草稿保存失败'))
+      notifyError('publishDrafts.saveFailed', { message: errorMessage(error, t('publishDrafts.saveFailed')) })
       return false
     }
   }
@@ -116,11 +121,11 @@ export function usePublishDrafts ({
   async function loadDraft (draftId) {
     const draft = drafts.value.find(item => item && item.id === draftId)
     if (!draft) {
-      ElMessage.error('草稿不存在或已被删除')
+      notifyError('publishDrafts.notFound', { message: t('publishDrafts.notFound') })
       return false
     }
     applyDraft(draft)
-    ElMessage.success('已加载草稿')
+    notifySuccess('publishDrafts.loaded', { message: t('publishDrafts.loaded') })
     return true
   }
 
@@ -128,13 +133,13 @@ export function usePublishDrafts ({
     try {
       const result = await draftDelete(draftId)
       if (!result || result.code !== 0) {
-        throw new Error((result && result.message) || '草稿删除失败')
+        throw new Error((result && result.message) || t('publishDrafts.deleteFailed'))
       }
       await loadDrafts()
-      ElMessage.success('草稿已删除')
+      notifySuccess('publishDrafts.deleted', { message: t('publishDrafts.deleted') })
       return true
     } catch (error) {
-      ElMessage.error(errorMessage(error, '草稿删除失败'))
+      notifyError('publishDrafts.deleteFailed', { message: errorMessage(error, t('publishDrafts.deleteFailed')) })
       return false
     }
   }

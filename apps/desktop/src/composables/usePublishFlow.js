@@ -15,10 +15,11 @@
  *   - precheckEnabled: ref<boolean>
  */
 import { ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import i18n from '@/i18n'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from './useLoginGate'
+import { useNotify } from './useNotify'
+import { resolveNotifyText } from '@/utils/notifyCore'
 import {
   publishBatch,
   onProgress,
@@ -28,7 +29,6 @@ import {
   schedulerCreate,
   schedulerCancel,
   cancelTask,
-  showNotification,
   storeGetSetting,
   storeSetSetting,
 } from '@/api/publisher'
@@ -110,6 +110,14 @@ export function usePublishFlow(options) {
   const activeMode = options.activeMode || null
   // 主动操作登录门：发布前未登录 → 弹登录引导，登录成功后继续
   const { ensureLogin } = useLoginGate()
+  // 统一通知通道（D1 决策）：toast/确认框走 useNotify，进度条文案走 resolveNotifyText
+  const { notify, notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
+
+  // 进度条文案解析（非 toast，组件内展示；M6 路径：文案统一进 locales）
+  function progressText (messageKey, params, fallback) {
+    const { text, resolved } = resolveNotifyText(messageKey, params)
+    return resolved ? text : (fallback || '')
+  }
 
   const publishing = ref(false)
   const progress = ref([])
@@ -166,11 +174,8 @@ export function usePublishFlow(options) {
   }
 
   async function notifyFailure (title, body) {
-    try {
-      await showNotification({ title, body })
-    } catch (_) {
-      // 通知失败不应覆盖发布结果。
-    }
+    // 统一通知通道：错误级 toast + notify:log 上报（替代 showNotification 死通道）
+    notifyError('publishPage.publishFlow.publishFailed', { message: body, module: 'publishFlow' })
   }
 
   function getTargets () {
@@ -224,10 +229,10 @@ export function usePublishFlow(options) {
           article: { ...data, accountId: target.accountId },
         }))
         if (!res || res.code !== 0) {
-          throw new Error(formatUserError(res, { fallback: '定时任务创建失败' }).message)
+          throw new Error(formatUserError(res, { fallback: progressText('publishPage.publishFlow.scheduleCreateFailed') }).message)
         }
         const scheduleId = res.data && res.data.id
-        if (!scheduleId) throw new Error('定时任务创建成功但未返回任务 ID')
+        if (!scheduleId) throw new Error(progressText('publishPage.publishFlow.scheduleCreateNoId'))
         scheduleIds.push(scheduleId)
         activeScheduleIds.value = scheduleIds.slice()
       }
@@ -242,8 +247,8 @@ export function usePublishFlow(options) {
       })
       activeScheduleIds.value = rollbackFailedIds
       if (rollbackFailedIds.length > 0) {
-        const message = formatUserError(error, { fallback: '定时任务创建失败' }).message
-        throw new Error(message + '；' + rollbackFailedIds.length + ' 个定时任务回滚失败，请点击取消重试')
+        const message = formatUserError(error, { fallback: progressText('publishPage.publishFlow.scheduleCreateFailed') }).message
+        throw new Error(message + '；' + progressText('publishPage.publishFlow.scheduleRollbackFailed', { count: rollbackFailedIds.length }))
       }
       throw error
     }
@@ -252,22 +257,22 @@ export function usePublishFlow(options) {
   async function handlePublish() {
     if (publishing.value) return
     // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
-    if (!(await ensureLogin({ message: '发布功能需要登录后使用，是否立即登录？' }))) return
+    if (!(await ensureLogin())) return
     if (!article.title.trim()) {
-      ElMessage.warning(i18n.global.t('publishPage.titleRequired'))
+      notifyWarning('publishPage.titleRequired', { message: i18n.global.t('publishPage.titleRequired') })
       return
     }
     const isVideoMode = activeMode && activeMode.value === 'video'
     if (isVideoMode && !article.video_path) {
-      ElMessage.warning('请选择视频文件')
+      notifyWarning('publishPage.publishFlow.videoFileRequired', { message: progressText('publishPage.publishFlow.videoFileRequired') })
       return
     }
     if (!isVideoMode && !article.content.trim()) {
-      ElMessage.warning('请输入正文内容')
+      notifyWarning('publishPage.publishFlow.contentRequired', { message: progressText('publishPage.publishFlow.contentRequired') })
       return
     }
     if (!Array.isArray(selectedPlatforms.value) || selectedPlatforms.value.length === 0) {
-      ElMessage.warning('请选择至少一个发布平台')
+      notifyWarning('publishPage.publishFlow.platformRequired', { message: progressText('publishPage.publishFlow.platformRequired') })
       return
     }
 
@@ -276,17 +281,17 @@ export function usePublishFlow(options) {
       isAccountAvailable &&
       targets.some(target => target.accountId && !isAccountAvailable(target.platform, target.accountId))
     ) {
-      ElMessage.warning('所选账号已失效，请重新选择发布账号')
+      notifyWarning('publishPage.publishFlow.accountInvalid', { message: progressText('publishPage.publishFlow.accountInvalid') })
       return
     }
     const targetCheck = validatePublishTargets(targets)
     if (!targetCheck.valid) {
-      ElMessage.warning(targetCheck.message)
+      notifyWarning('publishPage.publishFlow.targetInvalid', { message: targetCheck.message })
       return
     }
     const metadataCheck = validatePublishMetadata(article)
     if (!metadataCheck.valid) {
-      ElMessage.warning(metadataCheck.message)
+      notifyWarning('publishPage.publishFlow.metadataInvalid', { message: metadataCheck.message })
       return
     }
     const contentCheck = validatePlatformContent({
@@ -295,7 +300,7 @@ export function usePublishFlow(options) {
       platformOverrides: diffEdits || {},
     })
     if (!contentCheck.valid) {
-      ElMessage.warning(contentCheck.message)
+      notifyWarning('publishPage.publishFlow.contentInvalid', { message: contentCheck.message })
       return
     }
 
@@ -318,15 +323,14 @@ export function usePublishFlow(options) {
         (contentResult.data && contentResult.data.words) || []
       )
         if (allWords.length > 0) {
-          try {
-          await ElMessageBox.confirm(
-            '发布内容包含敏感词：' + allWords.join('、') + '，是否仍然发布？',
-            '敏感词提示',
-            { confirmButtonText: '强制发布', cancelButtonText: '修改', type: 'warning' }
-          )
-          } catch (e) {
-            return
-          }
+          const confirmed = await notifyConfirm('publishPage.publishFlow.sensitiveMessage', {
+            params: { words: allWords.join('、') },
+            title: progressText('publishPage.publishFlow.sensitiveTitle'),
+            confirmButtonText: progressText('publishPage.publishFlow.sensitiveForcePublish'),
+            cancelButtonText: progressText('publishPage.publishFlow.sensitiveModify'),
+            type: 'warning',
+          })
+          if (!confirmed) return
         }
       }
 
@@ -336,7 +340,7 @@ export function usePublishFlow(options) {
           targets.map(target => ({ ...target, publishTime: article.publishTime })),
         )
         if (!scheduleCheck.valid) {
-          addProgress('✗ ' + scheduleCheck.message, 'danger')
+          addProgress(progressText('publishPage.publishFlow.scheduleInvalidProgress', { message: scheduleCheck.message }), 'danger')
           result.value = { success: false, message: scheduleCheck.message }
           return
         }
@@ -347,29 +351,29 @@ export function usePublishFlow(options) {
       if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
         const cacheRes = await offlineAddToCache(toPlainJson({ targets, data }))
         if (!cacheRes || cacheRes.code !== 0 || cacheRes.data === false) {
-          throw new Error((cacheRes && cacheRes.message) || '离线任务缓存失败')
+          throw new Error((cacheRes && cacheRes.message) || progressText('publishPage.publishFlow.offlineCacheFailed'))
         }
-        addProgress('📡 网络已断开，发布任务已缓存，网络恢复后自动重试', 'warning')
-        ElMessage.warning('网络已断开，任务已缓存')
+        addProgress(progressText('publishPage.publishFlow.offlineProgress'), 'warning')
+        notifyWarning('publishPage.publishFlow.offlineCached', { message: progressText('publishPage.publishFlow.offlineCached') })
         return
       }
 
       if (article.publishTime) {
         const scheduleIds = await scheduleTargets(targets, data)
-        addProgress('⏰ 已创建 ' + scheduleIds.length + ' 个定时任务', 'success')
-        result.value = { success: true, message: '定时任务已创建', scheduled: true }
+        addProgress(progressText('publishPage.publishFlow.scheduleCreated', { count: scheduleIds.length }), 'success')
+        result.value = { success: true, message: progressText('publishPage.publishFlow.scheduleCreatedResult'), scheduled: true }
         return
       }
 
       off = onProgress(function (data) {
-        addProgress('[' + data.platform + '] ' + data.stage)
+        addProgress(progressText('publishPage.batchNotify.progressStage', { platform: data.platform, stage: data.stage }))
         // 后台任务结果实时回填（task:success / task:failed），全部完成才注销监听
         if (!data.taskId || !data.stage) return
         const isFinal = data.stage.indexOf('✓') === 0 || data.stage.indexOf('✗') === 0
         if (!isFinal) return
         doneTaskIds.add(data.taskId)
         if (data.stage.indexOf('✓') === 0) {
-          result.value = { success: true, message: data.platform + ' 发布成功', url: (data.result && data.result.url) || '' }
+          result.value = { success: true, message: progressText('publishPage.publishFlow.publishSuccessMessage', { platform: data.platform }), url: (data.result && data.result.url) || '' }
         } else {
           result.value = { success: false, message: data.platform + ' ' + data.stage, url: '' }
         }
@@ -378,7 +382,7 @@ export function usePublishFlow(options) {
         }
       })
 
-      addProgress('发布到 ' + targets.length + ' 个目标（含多账号）...', 'info')
+      addProgress(progressText('publishPage.publishFlow.publishTargets', { count: targets.length }), 'info')
       const payload = toPlainJson({ targets, data })
       const res = await publishBatch(payload.targets, payload.data)
       if (res.code === 0) {
@@ -387,19 +391,19 @@ export function usePublishFlow(options) {
           : []
         taskTotal = activeTaskIds.value.length
         const count = taskTotal || ''
-        addProgress('✓ 已添加 ' + count + ' 个任务', 'success')
-        result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
+        addProgress(progressText('publishPage.publishFlow.taskAdded', { count }), 'success')
+        result.value = { success: true, message: res.message || progressText('publishPage.publishFlow.taskQueued'), url: '' }
       } else {
-        const message = formatUserError(res, { fallback: '发布失败' }).message
-        addProgress('✗ 发布失败: ' + message, 'danger')
+        const message = formatUserError(res, { fallback: progressText('publishPage.publishFlow.publishFailedTitle') }).message
+        addProgress(progressText('publishPage.publishFlow.publishFailedProgress', { message }), 'danger')
         result.value = { success: false, message }
-        await notifyFailure('发布失败', message)
+        await notifyFailure(progressText('publishPage.publishFlow.publishFailedTitle'), message)
       }
     } catch (e) {
-      const message = formatUserError(e, { fallback: '发布异常' }).message
-      addProgress('✗ 错误: ' + message, 'danger')
+      const message = formatUserError(e, { fallback: progressText('publishPage.publishFlow.publishErrorTitle') }).message
+      addProgress(progressText('publishPage.publishFlow.publishErrorProgress', { message }), 'danger')
       result.value = { success: false, message }
-      await notifyFailure('发布异常', message)
+      await notifyFailure(progressText('publishPage.publishFlow.publishErrorTitle'), message)
     } finally {
       publishing.value = false
       if (typeof off === 'function') off()
@@ -410,7 +414,7 @@ export function usePublishFlow(options) {
     const taskIds = activeTaskIds.value.slice()
     const scheduleIds = activeScheduleIds.value.slice()
     if (taskIds.length === 0 && scheduleIds.length === 0) {
-      ElMessage.info('当前没有可取消的任务')
+      notifyInfo('publishPage.noActiveTasks', { message: i18n.global.t('publishPage.noActiveTasks') })
       return { success: false, cancelled: 0 }
     }
     const results = await Promise.all([
@@ -420,8 +424,8 @@ export function usePublishFlow(options) {
     const cancelled = results.filter(item => item && item.code === 0 && item.data !== false).length
     activeTaskIds.value = []
     activeScheduleIds.value = []
-    addProgress('已取消 ' + cancelled + ' 个任务', 'warning')
-    result.value = { success: false, cancelled, message: '任务已取消' }
+    addProgress(progressText('publishPage.publishFlow.cancelledCount', { count: cancelled }), 'warning')
+    result.value = { success: false, cancelled, message: progressText('publishPage.publishFlow.taskCancelled') }
     return { success: cancelled > 0, cancelled }
   }
 
@@ -429,7 +433,7 @@ export function usePublishFlow(options) {
     const taskIds = activeTaskIds.value.slice()
     const scheduleIds = activeScheduleIds.value.slice()
     if (taskIds.length === 0 && scheduleIds.length === 0) {
-      ElMessage.info(i18n.global.t('publishPage.noActiveTasks'))
+      notifyInfo('publishPage.noActiveTasks', { message: i18n.global.t('publishPage.noActiveTasks') })
       return { success: false, cancelled: 0, pending: 0 }
     }
     const results = await Promise.allSettled([
@@ -475,7 +479,7 @@ export function usePublishFlow(options) {
 
   async function retryPublish () {
     if (!result.value || result.value.success) {
-      ElMessage.info(i18n.global.t('publishPage.noFailedPublish'))
+      notifyInfo('publishPage.noFailedPublish', { message: i18n.global.t('publishPage.noFailedPublish') })
       return
     }
     return handlePublish()

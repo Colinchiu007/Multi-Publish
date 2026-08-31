@@ -79,6 +79,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | 视频增强配置区 | 「单段视频短于分镜时长的处理」（循环播放/播放完停止） | 仅在视频增强模式（固定比例/AI 智能选择）下显示；默认循环播放 |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择）；**素材放大预览（2026-08-13 新增）**：点击图片/视频缩略图（`sas-preview-<scene>-<id>`，图片悬停显示放大镜遮罩）→ 打开 `UiModal` 大图预览/视频播放（图片 `max-width:100%`、`max-height:70vh`；视频 `controls autoplay playsinline`），标题按类型显示「图片预览/视频预览」，正文含「场景 n · 图片 m/视频」元信息与关闭提示；遮罩点击/× 关闭（`preview=null`）；**左右箭头循环切换（2026-08-13 新增）**：媒体两侧 ◀/▶ 按钮（data-testid `sas-preview-prev/next`，aria-label「上一个素材/下一个素材」），在全部素材（按场景 index 升序、场景内按候选顺序，图片+视频混合）间前后**跨场景循环**切换——第一条的上一条为最后一条、最后一条的下一条为第一条（`(idx±1+len)%len`）；元信息显示「第 N/M 个素材」；单候选时按钮禁用 | 缩略图点击 `openPreview(scene, candidate)` 打开预览（不改变单选，radio 选择独立）；`previewPrev()/previewNext()` 在全部素材有序列表 `allCandidates`（跨场景）中循环切换（切换后图片/视频元素随之更换，视频自动播放）；**选定状态切换（2026-08-13 新增）**：预览媒体下方按钮（data-testid `sas-preview-toggle`，aria-pressed 同步）显示当前素材「已选定/未选定」（`previewSelected = selected[scene.index] === candidate.id`）；点击切换：未选定→已选定（同场景原已选定素材自动取消，单值语义，与单选 radio 一致）、已选定→未选定（该场景变为无选定，确认按钮随 allSelected 禁用）；`closePreview()` 关闭；键盘 Enter 也可打开（图片缩略图 `role=button` + `tabindex=0`） |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
+| 断点恢复错误提示（2026-08-31） | 点击「从断点继续」失败时，resumeOrchestration 返回的错误码（RUN_SNAPSHOT_NOT_FOUND/RUN_NOT_FAILED/RUN_NOT_ORCHESTRATOR/STAGE_NOT_FOUND）必须经 resolveMessageKey 映射到具体本地化文案（zh/en 成对），PIPELINE_USER_INPUT_REQUIRED 回退「需要用户输入」；不得回退通用「当前操作未能完成」吞掉真实原因 | resumeOrchestration 返回 {success:false, error, errorCode} → 前端映射具体文案 |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 
 ##### 五、提示文字清单（zh / en）
@@ -339,6 +340,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | 视频增强配置区 | 「视频增强模式」（关闭/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择） | 单选切换；确认提交后进入 TTS+合成 |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
+| 断点恢复错误提示（2026-08-31） | 点击「从断点继续」失败时，resumeOrchestration 返回的错误码（RUN_SNAPSHOT_NOT_FOUND/RUN_NOT_FAILED/RUN_NOT_ORCHESTRATOR/STAGE_NOT_FOUND）必须经 resolveMessageKey 映射到具体本地化文案（zh/en 成对），PIPELINE_USER_INPUT_REQUIRED 回退「需要用户输入」；不得回退通用「当前操作未能完成」吞掉真实原因 | resumeOrchestration 返回 {success:false, error, errorCode} → 前端映射具体文案 |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 | 历史记录列表（CreateViewHistory） | 提示词预览行下方只读翻译块（.prompt-translation-readonly，🌐 图标 + 紫色斜体文字，最多2行截断120字符）；样式：color: #8b5cf6、background: rgba(139,92,246,0.06)、左侧2px紫色边框 | currentLocale() !== en 且首段存在 promptTranslation 时显示；只读不可修改；无翻译时隐藏 |
 
@@ -1210,6 +1212,8 @@ platforms:
 
 **视图层接入（2026-08-30）**：Accounts / Publish / Collection / Monitor / Intelligence 五个视图的 `ElMessage` / `ElMessageBox` 已全部迁移到统一通知通道 `useNotify`（`notifyError/Success/Warning/Info/Confirm` + `resolveNotifyText`）。确认框（`notifyConfirm`）返回 boolean，取消语义从 try/catch 改为 `if (!confirmed) return`。所有用户可见文案入 locales（zh/en 成对），新增 `collection.*` / `monitor.*` / `intelligence.*` 命名空间。
 
+**视图层接入（2026-08-30）**：Accounts / Publish / Collection / Monitor / Intelligence 五个视图的 `ElMessage` / `ElMessageBox` 已全部迁移到统一通知通道 `useNotify`（`notifyError/Success/Warning/Info/Confirm` + `resolveNotifyText`）。确认框（`notifyConfirm`）返回 boolean，取消语义从 try/catch 改为 `if (!confirmed) return`。所有用户可见文案入 locales（zh/en 成对），新增 `collection.*` / `monitor.*` / `intelligence.*` 命名空间。
+
 **5. 提示文字表（核心 errorCode → zh / en）**
 
 | errorCode | 中文（原因 + 建议） | English |
@@ -1687,6 +1691,7 @@ key，未知内部 ID 只能回退为原始 ID。
 | 视频增强配置区 | 「视频增强模式」（关闭/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择） | 单选切换；确认提交后进入 TTS+合成 |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
+| 断点恢复错误提示（2026-08-31） | 点击「从断点继续」失败时，resumeOrchestration 返回的错误码（RUN_SNAPSHOT_NOT_FOUND/RUN_NOT_FAILED/RUN_NOT_ORCHESTRATOR/STAGE_NOT_FOUND）必须经 resolveMessageKey 映射到具体本地化文案（zh/en 成对），PIPELINE_USER_INPUT_REQUIRED 回退「需要用户输入」；不得回退通用「当前操作未能完成」吞掉真实原因 | resumeOrchestration 返回 {success:false, error, errorCode} → 前端映射具体文案 |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 
 ##### 五、提示文字清单（zh / en）

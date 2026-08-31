@@ -83,6 +83,11 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   UNKNOWN_ERROR: 'story2video.unknown_error',
   PIPELINE_NOT_IMPLEMENTED: 'story2video.pipeline_not_implemented',
   PIPELINE_CONCURRENCY_LIMIT: 'story2video.pipeline_concurrency_limit',
+  // 断点恢复失败（pipeline-engine resumeOrchestration errorCode 契约）
+  RESUME_SNAPSHOT_NOT_FOUND: 'story2video.resume_snapshot_not_found',
+  RESUME_RUN_NOT_FAILED: 'story2video.resume_run_not_failed',
+  RESUME_RUN_NOT_ORCHESTRATOR: 'story2video.resume_run_not_orchestrator',
+  RESUME_STAGE_NOT_FOUND: 'story2video.resume_stage_not_found',
 })
 
 const notificationKeySet = new Set(Object.values(STORY2VIDEO_NOTIFICATION_KEYS))
@@ -354,6 +359,24 @@ function resolveMessageKey (notification, fallbackKey) {
   // 流水线启动前置校验（主进程契约 errorCode）：缺失能力清单 → models_required
   if (notification?.errorCode === 'PIPELINE_MODEL_REQUIREMENTS_MISSING') {
     return STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED
+  }
+  // 断点恢复失败（pipeline-engine resumeOrchestration errorCode 契约）：映射到具体文案，
+  // 避免回退到 operation_failed 兜底吞掉真实原因。
+  if (notification?.errorCode === 'RUN_SNAPSHOT_NOT_FOUND') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.RESUME_SNAPSHOT_NOT_FOUND
+  }
+  if (notification?.errorCode === 'RUN_NOT_FAILED') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.RESUME_RUN_NOT_FAILED
+  }
+  if (notification?.errorCode === 'RUN_NOT_ORCHESTRATOR') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.RESUME_RUN_NOT_ORCHESTRATOR
+  }
+  if (notification?.errorCode === 'STAGE_NOT_FOUND') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.RESUME_STAGE_NOT_FOUND
+  }
+  // 内容政策类失败需修改文案后重新启动（前端 historyItemResumable 已拦截，此处兜底防误恢复）
+  if (notification?.errorCode === 'PIPELINE_USER_INPUT_REQUIRED') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT
   }
   if (Number(notification?.code) === -3 || Number(notification?.errorCode) === -3) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
