@@ -158,3 +158,39 @@
 - 新增 `story2video-image-retry.test.js`：差异化改写模板、severe 直接交用户、改写后自检用例
 - 保持现有 510 个受影响测试全绿
 - 遵循 PRD §7.1.5 合同：审计只保存场景序号/尝试次数/provider/model/提示词版本哈希/非敏感摘要，严禁保存原始 prompt
+
+---
+
+## 七、检查点交互 UX 修复（2026-08-30 已实现）
+
+> 本小节记录针对「内容政策检查点交互不合理」的已落地修复，与上文 P0-P3 优化方案相互独立、可并行。
+
+### 问题
+
+1. **底部操作条只有【✕ 取消】**：内容政策检查点暂停时，用户可能误以为取消会丢弃任务，缺少「修改受影响场景文案后继续」的直接入口。
+2. **进度弹窗右上角关闭按钮被禁用**：`pipelineProgressCloseDisabled` 对人工检查点一律返回 true，用户无法关闭弹窗；而内容政策任务不能后台化（否则静默卡在 `needs_user_input`），导致关闭语义不明确。
+
+### 方案
+
+- **底部操作条新增【编辑场景】按钮**（`isContentPolicyCheckpoint === true` 时显示，`data-testid="s2v-edit-scenes-trigger"`）：点击 `editContentPolicyScenes()` → 先 `pipelineCancel()` 取消主进程 run（内容政策任务不能断点续跑，必须改文案后重新生成）→ `resetPipelineUiState()` 复位前端跟踪态 → 跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`，结果页自动定位并高亮受影响场景。
+- **进度弹窗右上角关闭按钮对内容政策可点击**：`pipelineProgressCloseDisabled` 对 `isContentPolicyCheckpoint` 返回 false；关闭走 `handlePipelineProgressClose()` → `cancelContentPolicyTask()`（调用 `pipelineCancel` 取消任务并关闭弹窗，作为已取消/失败处理），**不是**后台化。关闭按钮可访问名称改为「关闭并取消该任务」（`progressContentPolicyCloseLabel`）。
+- **其他人工检查点不变**：`scene_asset_selection`、`waiting_approval`、非内容政策的 `needs_user_input` 仍禁用关闭、不显示后台运行。
+
+### 数据来源与校验
+
+- `projectId`：来自 `getRunSnapshot` 透传的 `run.projectId`（`pipelineRunStatus.projectId`）。若为空（run-only 记录或项目未落盘），不跳转编辑页，仅 toast 提示「当前任务缺少可编辑项目，请在历史记录中查看并处理」。
+- 受影响场景号：来自 checkpoint 的 `scenes[].sceneNumber`（1-based）或 `sceneNumber` / `sceneIndex+1`，升序去重后拼成 `focusScenes` 逗号分隔串。
+- 取消失败（`pipelineCancel` 返回非 0 或抛错）：保留当前运行态并显示错误，不跳转，避免静默失败。
+
+### 涉及文件
+
+- `apps/desktop/src/views/CreateView.vue` — `isContentPolicyCheckpoint` / `contentPolicySceneNumbers` / `contentPolicyProjectId` 计算属性；`handlePipelineProgressClose` / `cancelContentPolicyTask` / `editContentPolicyScenes` 方法；模板新增编辑按钮与关闭接线。
+- `apps/desktop/src/locales/zh.js` / `en.js` — 新增 `editScenes` / `progressContentPolicyCloseLabel` / `contentPolicyNoProjectToast`（成对维护）。
+- `apps/desktop/src/views/CreateView.test.js` — 新增内容政策检查点交互回归用例。
+
+### 验收
+
+- 内容政策检查点：底部显示【编辑场景】，关闭按钮可点击（关闭=取消任务）。
+- 点击【编辑场景】：取消任务并跳转结果页，`focusScenes` 携带受影响场景号，结果页定位高亮。
+- 缺少可编辑项目：不跳转，仅提示到历史记录。
+- 取消失败：保留运行态并提示，不跳转。

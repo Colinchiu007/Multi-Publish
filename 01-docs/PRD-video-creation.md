@@ -577,6 +577,7 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 2. 重写器仅消除可能的暴力、性化、仇恨、违法、有害或可识别个人细节，不扩大主题，并保留安全的主题、时代、动作和构图；内容信号不明确或重写失败时立即停止自动尝试。
 3. 每次尝试只持久化场景序号、尝试序号、结果类别、provider/model、提示词版本哈希和非敏感安全审计摘要；UI 与持久化记录都不得展示原始 prompt、密钥或完整 provider 错误体。
 4. 第 5 次仍被明确拒绝时，阶段状态为 `needs_user_input`，显示“可能存在内容风险，请修改文案后重新启动”的友好建议。用户必须取消旧 run，以修改后的文案创建新 run；不得 `resume`/`advance` 原 run，不得生成 ffmpeg 占位图，`allowPartialAssets` 也不得把它静默视为成功。
+5. **编辑直达（2026-08-30）**：内容政策检查点暂停时，进度弹窗右上角关闭按钮可点击（关闭=取消任务并关闭弹窗，作为已取消/失败处理，不后台化）；底部操作条显示【编辑场景】按钮，点击后取消当前 run 并跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`，结果页自动定位并高亮受影响场景，用户可直接修改对应场景文案后重新生成。`projectId` 来自 `getRunSnapshot` 透传的 `run.projectId`；受影响场景号来自 checkpoint 的 `scenes[].sceneNumber`（1-based）或 `sceneNumber`/`sceneIndex+1`。若缺少可编辑项目（run-only 记录或项目未落盘），不跳转编辑页，仅提示用户到历史记录处理。
 
 ### 3.1.8 创作端简化、运营配置与需求来源边界（P1）
 

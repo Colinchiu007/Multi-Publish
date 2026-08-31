@@ -4756,12 +4756,12 @@ describe("流水线启动前台跟踪与离开转后台（2026-08-21）", () => 
     w.unmount();
   });
 
-  it.each(['waiting_approval', 'needs_user_input'])("%s 人工检查点不允许静默后台化", async (status) => {
+  it("waiting_approval 人工检查点不允许静默后台化", async () => {
     const w = await mountRunning();
     w.vm.pipelineRunStatus = {
       ...w.vm.pipelineRunStatus,
-      status,
-      checkpoint: status === 'needs_user_input' ? { type: 'needs_user_input', reason: 'content_policy' } : null,
+      status: 'waiting_approval',
+      checkpoint: null,
     };
     await nextTick();
     expect(w.find('[data-testid="s2v-background-trigger"]').exists()).toBe(false);
@@ -4770,6 +4770,146 @@ describe("流水线启动前台跟踪与离开转后台（2026-08-21）", () => 
     expect(w.vm.orchestrationRunId).toBe('run-bg-1');
     expect(w.vm.pipelineProgressModalOpen).toBe(true);
     expect(w.find('[data-testid="pipeline-progress-manual-hint"]').text()).not.toContain('旧版人工检查点');
+    w.unmount();
+  });
+
+  it("needs_user_input 非内容政策人工检查点不允许静默后台化", async () => {
+    const w = await mountRunning();
+    w.vm.pipelineRunStatus = {
+      ...w.vm.pipelineRunStatus,
+      status: 'needs_user_input',
+      checkpoint: { type: 'needs_user_input', reason: 'other' },
+    };
+    await nextTick();
+    expect(w.find('[data-testid="s2v-background-trigger"]').exists()).toBe(false);
+    expect(w.find('[data-testid="ui-modal-close"]').element.disabled).toBe(true);
+    expect(await w.vm.detachPipelineToBackground()).toBe(false);
+    expect(w.vm.orchestrationRunId).toBe('run-bg-1');
+    expect(w.vm.pipelineProgressModalOpen).toBe(true);
+    expect(w.find('[data-testid="pipeline-progress-manual-hint"]').text()).not.toContain('旧版人工检查点');
+    w.unmount();
+  });
+
+  it("内容政策检查点：底部操作条显示「编辑场景」按钮，关闭按钮可点击", async () => {
+    const w = await mountRunning();
+    w.vm.pipelineRunStatus = {
+      ...w.vm.pipelineRunStatus,
+      status: 'paused',
+      checkpoint: {
+        type: 'needs_user_input',
+        reason: 'content_policy',
+        sceneIndex: 66,
+        sceneNumber: 67,
+        scenes: [{ sceneIndex: 66, sceneNumber: 67 }, { sceneIndex: 68, sceneNumber: 69 }],
+      },
+      projectId: 'proj-cp-1',
+    };
+    await nextTick();
+
+    expect(w.vm.isContentPolicyCheckpoint).toBe(true);
+    expect(w.vm.contentPolicySceneNumbers).toEqual([67, 69]);
+    expect(w.vm.contentPolicyProjectId).toBe('proj-cp-1');
+    expect(w.find('[data-testid="s2v-edit-scenes-trigger"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-background-trigger"]').exists()).toBe(false);
+    // 内容政策检查点关闭按钮可点击（不 disabled）
+    expect(w.find('[data-testid="ui-modal-close"]').element.disabled).toBe(false);
+    expect(w.vm.pipelineProgressCloseDisabled).toBe(false);
+    w.unmount();
+  });
+
+  it("内容政策检查点：点击关闭按钮 = 取消任务并关闭弹窗（非后台化）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear();
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const w = await mountRunning();
+    w.vm.pipelineRunStatus = {
+      ...w.vm.pipelineRunStatus,
+      status: 'paused',
+      checkpoint: { type: 'needs_user_input', reason: 'content_policy', sceneIndex: 0, sceneNumber: 1 },
+    };
+    await nextTick();
+
+    await w.find('[data-testid="ui-modal-close"]').trigger('click');
+    await vi.waitFor(() => expect(mocks.pipelineCancel).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(w.vm.pipelineRunStatus).toBeNull());
+    expect(w.vm.orchestrationRunId).toBeNull();
+    expect(w.vm.pipelineProgressModalOpen).toBe(false);
+    w.unmount();
+  });
+
+  it("内容政策「编辑场景」：取消任务后跳转结果页并携带 focusScenes", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear();
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const pushSpy = vi.spyOn(router, 'push').mockResolvedValue();
+    const w = await mountRunning();
+    w.vm.pipelineRunStatus = {
+      ...w.vm.pipelineRunStatus,
+      status: 'paused',
+      checkpoint: {
+        type: 'needs_user_input',
+        reason: 'content_policy',
+        sceneIndex: 66,
+        sceneNumber: 67,
+        scenes: [{ sceneIndex: 66, sceneNumber: 67 }],
+      },
+      projectId: 'proj-cp-1',
+    };
+    await nextTick();
+
+    await w.find('[data-testid="s2v-edit-scenes-trigger"]').trigger('click');
+    await vi.waitFor(() => expect(mocks.pipelineCancel).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(pushSpy).toHaveBeenCalledWith({
+      path: '/create/result',
+      query: { project: 'proj-cp-1', focusScenes: '67' },
+    }));
+    expect(w.vm.orchestrationRunId).toBeNull();
+    pushSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("内容政策「编辑场景」：缺少可编辑项目时不跳转，仅提示到历史记录", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear();
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const pushSpy = vi.spyOn(router, 'push').mockResolvedValue();
+    const w = await mountRunning();
+    w.vm.pipelineRunStatus = {
+      ...w.vm.pipelineRunStatus,
+      status: 'paused',
+      checkpoint: { type: 'needs_user_input', reason: 'content_policy', sceneIndex: 0, sceneNumber: 1 },
+      projectId: '',
+    };
+    await nextTick();
+
+    await w.find('[data-testid="s2v-edit-scenes-trigger"]').trigger('click');
+    await vi.waitFor(() => expect(mocks.pipelineCancel).toHaveBeenCalledTimes(1));
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(w.vm.s2vOptionsToast).toContain('历史记录');
+    pushSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("内容政策「编辑场景」取消失败：保留运行态并显示错误，不跳转", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear();
+    mocks.pipelineCancel.mockResolvedValue({ code: -1, message: 'cancel failed' });
+    const pushSpy = vi.spyOn(router, 'push').mockResolvedValue();
+    const w = await mountRunning();
+    w.vm.pipelineRunStatus = {
+      ...w.vm.pipelineRunStatus,
+      status: 'paused',
+      checkpoint: { type: 'needs_user_input', reason: 'content_policy', sceneIndex: 0, sceneNumber: 1 },
+      projectId: 'proj-cp-1',
+    };
+    await nextTick();
+
+    await w.find('[data-testid="s2v-edit-scenes-trigger"]').trigger('click');
+    await vi.waitFor(() => expect(mocks.pipelineCancel).toHaveBeenCalledTimes(1));
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(w.vm.orchestrationRunId).toBe('run-bg-1');
+    expect(w.vm.pipelineProgressModalOpen).toBe(true);
+    pushSpy.mockRestore();
     w.unmount();
   });
 

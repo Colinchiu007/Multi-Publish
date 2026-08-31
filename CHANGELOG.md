@@ -77,6 +77,18 @@
 - 预防：AGENTS.md 新增「Story2Video 场景上下文现代信号中和」QM 规则；learnings.md 记录根因与教训；方案见 `01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-MODERN-SIGNAL-2026-08-30.md`。
 
 ---## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
+## [未发布] fix(story2video): 内容政策检查点交互优化——「编辑场景」直达 + 进度弹窗关闭可取消
+
+- 现象：图片提示词被判定敏感且重试耗尽进入内容政策检查点（`needs_user_input`/`content_policy`）时，底部操作条只有【✕ 取消】，进度弹窗右上角关闭按钮被禁用。用户无法直接跳转到受影响场景修改文案，且关闭语义不明确（内容政策任务不能后台化，否则静默卡在 `needs_user_input`）。
+- 修复：
+  1. 底部操作条新增【编辑场景】按钮（`isContentPolicyCheckpoint` 时显示）：点击后先 `pipelineCancel()` 取消当前 run（内容政策任务不能断点续跑，必须改文案后重新生成），再跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`，结果页自动定位并高亮受影响场景。
+  2. 进度弹窗右上角关闭按钮对内容政策检查点可点击：关闭走 `handlePipelineProgressClose` → `cancelContentPolicyTask`（调用 `pipelineCancel` 取消任务并关闭弹窗，作为已取消/失败处理），不后台化；关闭按钮可访问名称改为「关闭并取消该任务」。
+  3. 其他人工检查点（`scene_asset_selection`/`waiting_approval`/非内容政策 `needs_user_input`）保持禁用关闭、不显示后台运行。
+- 数据来源：`projectId` 来自 `getRunSnapshot` 透传的 `run.projectId`；受影响场景号来自 checkpoint 的 `scenes[].sceneNumber`（1-based）或 `sceneNumber`/`sceneIndex+1`。缺少可编辑项目时不跳转，仅提示到历史记录；取消失败保留运行态并提示。
+- 回归保护：`CreateView.test.js` 新增 5 用例（编辑按钮+关闭可点击、关闭=取消、编辑跳转携带 focusScenes、缺项目不跳转、取消失败不跳转）；全量 273 用例全绿。
+- 文档：PRD-S2V-PIPELINE-PAGE-UX.md §6.1、PRD-video-creation.md §3.1.7、ARCH-STORY2VIDEO-IMAGE-CONTENT-POLICY-2026-08-30.md §七。
+
+## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
 
 - 现象：任务 `mtfdxj8d_x694`（原文讲"中国人种单一/引进外国人"，非三国题材）场景 11 的 `storyContext` 被注入"中国三国（220-280）时期"，`anchors: ["三国","诸葛亮","中国"]`，所有场景被污染成汉末城寨/战袍旌旗画面，用户误以为程序串了另一个三国任务。
 - 根因：`story-context-engine.js` 的 `detectDynasty` 用裸子串匹配（`text.includes(keyword)`），三国规则关键词含"诸葛亮"；任务原文场景 5 有成语"事后诸葛亮"，子串"诸葛亮"命中 → 整篇误判为三国（`era=ancient, strong=true`），全局锚点注入所有场景。引入点 `74bdca844`（2026-08-11 场景上下文中间层）。

@@ -69,6 +69,16 @@
 - **预防**：新增模块级 `MODERN_TERMS` 现代信号词表；`detectDynasty` 增加现代信号降级（现代信号 ≥2 且朝代命中 < 现代信号时返回 null）；`detectEra` 增加现代信号中和（双保险，era 降级 mixed）。新增 5 个回归测试：现代+历史引用不误判朝代（秦/三国）、纯历史仍识别、穿越剧不误伤、纯现代不受影响。后续新增朝代关键词时须同步考虑现代信号中和。
 
 ---## 场景上下文朝代误判：成语"事后诸葛亮"被识别为三国（fix-s2v-context-idiom-guard，2026-08-30）
+## 内容政策检查点交互不合理：缺编辑入口 + 关闭按钮禁用（fix-s2v-content-policy-edit，2026-08-30）
+
+- **现象**：图片提示词被判定敏感且重试耗尽进入内容政策检查点（`needs_user_input`/`content_policy`）时，底部操作条只有【✕ 取消】，进度弹窗右上角关闭按钮被禁用。用户无法直接跳转到受影响场景修改文案，且关闭语义不明确（内容政策任务不能后台化，否则静默卡在 `needs_user_input` 无法继续）。
+- **第一性原因**：`pipelineProgressCloseDisabled` 对人工检查点一律返回 true（`isPipelineManualCheckpoint`），未区分内容政策；底部 running-controls 只渲染取消按钮，无「编辑场景」直达入口。内容政策任务不能断点续跑（`resumeOrchestration` 会拦截 `content_policy`），必须改文案后重新生成，但 UI 未提供直达受影响场景的路径。
+- **教训 1（人工检查点必须区分「可编辑」与「不可编辑」）**：`content_policy` 与 `scene_asset_selection` 虽都属人工检查点，但语义不同——内容政策任务不能后台化、不能断点续跑，只能「改文案重新生成」；因此关闭按钮语义应为「取消任务」，而非「转入后台」。统一禁用关闭会掩盖这一区别，让用户失去关闭/编辑入口。
+- **教训 2（可编辑项目 projectId 来自 getRunSnapshot 透传）**：内容政策检查点暂停时，`getRunSnapshot` 已透传 `run.projectId` 到 `pipelineRunStatus.projectId`，可直接用于跳转结果页；但 run-only 记录或项目未落盘时 `projectId` 为空，必须降级为「提示到历史记录」，不能硬跳转。
+- **预防**：新增 `isContentPolicyCheckpoint` 计算属性区分内容政策检查点；`pipelineProgressCloseDisabled` 对内容政策返回 false（关闭=取消）；底部新增【编辑场景】按钮（`editContentPolicyScenes`）取消后跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`；`CreateView.test.js` 新增 5 个回归用例覆盖编辑按钮/关闭=取消/跳转携带 focusScenes/缺项目降级/取消失败不跳转。
+
+---
+## 场景上下文朝代误判：成语"事后诸葛亮"被识别为三国（fix-s2v-context-idiom-guard，2026-08-30）
 
 - **现象**：任务 `mtfdxj8d_x694`（原文讲"中国人种单一/引进外国人"，非三国题材）场景 11 的 `storyContext` 前缀被注入"中国三国（220-280）时期"，`anchors: ["三国","诸葛亮","中国"]`，所有 22 个场景都被污染成汉末城寨/战袍旌旗画面。用户误以为程序串了另一个三国任务。
 - **第一性原因**：`story-context-engine.js` 的 `detectDynasty` 用 `keywordHits` 做裸子串匹配（`text.includes(keyword)`），三国规则关键词含"诸葛亮"。任务原文场景 5 有成语"**事后诸葛亮**"，子串"诸葛亮"命中 → 整篇误判为三国（`era=ancient, strong=true`），全局锚点注入所有场景。引入点 `74bdca844`（2026-08-11 场景上下文中间层）。
