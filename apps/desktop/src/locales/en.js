@@ -1042,6 +1042,7 @@ export default {
       scheduleCreateNoId: 'Scheduled task created but no task ID returned',
       scheduleRollbackFailed: (ctx) => ctx.named('count') + ' scheduled task(s) failed to roll back, please click cancel and retry',
       offlineCacheFailed: 'Failed to cache offline task',
+      baijiahaoTitleTruncated: 'Baijiahao title auto-truncated to the 149-byte limit',
       publishSuccessMessage: (ctx) => ctx.named('platform') + ' published successfully',
     },
     // Batch publish notifications (useBatchPublish pilot migration, 2026-08-30)

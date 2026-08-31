@@ -866,12 +866,27 @@ function editDraft (draft) {
 
 // 历史视频/结果页跳转预填充：从 query 解码 video_path/title/content/tags 填充发布表单。
 // 跳转方（CreateViewHistory「发布」/ResultView「去发布」）已用 encodeURIComponent 编码，
-// 这里统一 decode 后写入 article；tags 为逗号分隔字符串。
+// 而 vue-router 序列化 query 时会再编码一次，URL 中实际是双重编码（如 %253A）。
+// 因此这里循环解码直到值不再变化，确保单次/双重编码都能还原为真实路径与文案。
+// 解码后写入 article；tags 为逗号分隔字符串。
 function applyHistoryVideoQuery () {
   const query = route.query || {}
   const decode = value => {
     if (typeof value !== 'string' || !value) return ''
-    try { return decodeURIComponent(value) } catch { return value }
+    // 双重编码最多需 2 次解码（跳转方 encode + vue-router 序列化再 encode）。
+    // 上限取 2：再多解一层会把单次编码值里合法的 %XX 序列（如真实标题 A%41B）
+    // 过度解码成 AAB，损坏文案。相等即 break，天然终止，无死循环风险。
+    let result = value
+    for (let i = 0; i < 2; i++) {
+      try {
+        const next = decodeURIComponent(result)
+        if (next === result) break
+        result = next
+      } catch {
+        break
+      }
+    }
+    return result
   }
   const videoPath = decode(query.video_path)
   if (!videoPath) return

@@ -1043,6 +1043,7 @@ export default {
       scheduleCreateNoId: '定时任务创建成功但未返回任务 ID',
       scheduleRollbackFailed: (ctx) => ctx.named('count') + ' 个定时任务回滚失败，请点击取消重试',
       offlineCacheFailed: '离线任务缓存失败',
+      baijiahaoTitleTruncated: '百家号标题已按 149 字节上限自动截断',
       publishSuccessMessage: (ctx) => ctx.named('platform') + ' 发布成功',
     },
     // 批量发布通知（useBatchPublish 试点迁移，2026-08-30）

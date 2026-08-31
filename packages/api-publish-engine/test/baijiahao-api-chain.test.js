@@ -166,6 +166,30 @@ describe("BaijiahaoAdapter API 发布链", () => {
     expect(decoded).toContain("activity_list[0][is_checked]=1")
   })
 
+  it("buildVideoPostData 百家号标题按 UTF-8 字节截断到 149 字节", () => {
+    // 50 个中文字符 = 150 字节，超过 149 上限，应截断到 49 个中文字符（147 字节）
+    const pd = adapter.buildVideoPostData({
+      title: "外".repeat(50),
+      content: "C", video: { duration: 10 },
+    }, { mediaId: "M1" }, "", "01.mp4", "")
+    const decoded = decodeURIComponent(pd)
+    const titleMatch = /title=([^&]*)/.exec(decoded)
+    expect(titleMatch).toBeTruthy()
+    const title = titleMatch[1]
+    expect(Array.from(title).length).toBe(49)
+    expect(Buffer.byteLength(title, "utf8")).toBe(147)
+
+    // 混合字符：49 中文 + 1 英文 = 148 字节，未超限保留
+    const mixed = adapter.buildVideoPostData({
+      title: "外".repeat(49) + "a",
+      content: "C", video: { duration: 10 },
+    }, { mediaId: "M1" }, "", "01.mp4", "")
+    const mixedDecoded = decodeURIComponent(mixed)
+    const mixedTitle = /title=([^&]*)/.exec(mixedDecoded)[1]
+    expect(mixedTitle).toBe("外".repeat(49) + "a")
+    expect(Buffer.byteLength(mixedTitle, "utf8")).toBe(148)
+  })
+
   it("buildVideoPostData 显式 aiGenerated=false 时取消勾选 AI 声明（is_checked=0）", () => {
     const pd = adapter.buildVideoPostData({
       title: "T", content: "C", video: { duration: 10 }, aiGenerated: false,
