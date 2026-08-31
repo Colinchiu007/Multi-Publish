@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -108,6 +108,32 @@ const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
 
 const emit = defineEmits(['open-settings'])
+
+// ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──
+let _sidebarObserver = null
+onMounted(() => {
+  const el = document.querySelector('.yixiaoer-sidebar')
+  if (el) {
+    const syncWidth = () => {
+      const w = el.getBoundingClientRect().width
+      if (w > 0) {
+        const api = window.electronAPI?.pageManager
+        if (api && typeof api.setSidebarWidth === 'function') {
+          api.setSidebarWidth(Math.round(w))
+        }
+      }
+    }
+    syncWidth()
+    _sidebarObserver = new ResizeObserver(syncWidth)
+    _sidebarObserver.observe(el)
+  }
+})
+onUnmounted(() => {
+  if (_sidebarObserver) {
+    _sidebarObserver.disconnect()
+    _sidebarObserver = null
+  }
+})
 
 const primaryItems = [
   { key: 'home', label: '主页', to: '/', icon: HomeFilled },
