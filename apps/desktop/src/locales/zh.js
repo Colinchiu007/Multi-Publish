@@ -1941,6 +1941,7 @@ export default {
     hotMatch: '匹配热门话题: {tag}（热度 {heat}）',
     emptyContent: '输入内容后自动分析标签',
     analysisFailed: '标签分析失败',
+    tagsCopied: (ctx) => '已复制 ' + ctx.named('platform') + ' 标签',
   },
 
   memberCenter: {

@@ -1940,6 +1940,7 @@ export default {
     hotMatch: 'Matched trending topic: {tag} (heat {heat})',
     emptyContent: 'Tags are analyzed automatically after you enter content',
     analysisFailed: 'Tag analysis failed',
+    tagsCopied: (ctx) => 'Copied ' + ctx.named('platform') + ' tags',
   },
 
   memberCenter: {

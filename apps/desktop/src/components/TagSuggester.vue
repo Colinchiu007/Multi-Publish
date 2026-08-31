@@ -210,7 +210,7 @@ async function copyPlatformTags (platform, tags) {
   const text = tags.join(' ')
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success(`已复制 ${platformLabel(platform)} 标签`)
+    ElMessage.success(t('tagSuggest.tagsCopied', { platform: platformLabel(platform) }))
   } catch {
     const ta = document.createElement('textarea')
     ta.value = text
@@ -218,7 +218,7 @@ async function copyPlatformTags (platform, tags) {
     ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
-    ElMessage.success(`已复制 ${platformLabel(platform)} 标签`)
+    ElMessage.success(t('tagSuggest.tagsCopied', { platform: platformLabel(platform) }))
   }
 }
 </script>
