@@ -1,0 +1,13 @@
+{
+  "id": "merge-paused-interrupted-history",
+  "title": "历史记录可恢复聚合筛选 tab",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "remoteStatus": "merged",
+  "mergedPR": "1252",
+  "mergeCommit": "8bca605b6b43994fda65d12bfe99b94ef862bab8",
+  "mergedAt": "2026-08-31T10:50:09Z",
+  "archiveReason": "PR #1252 merged via squash"
+}
