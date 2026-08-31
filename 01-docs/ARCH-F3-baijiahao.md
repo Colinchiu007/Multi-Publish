@@ -107,6 +107,7 @@ getBaseToken(GET /?source=inner → BJH__INIT__AUTH__)
 - 位置 position_lat_lng 可选：无位置传空对象 `{}`（URL 编码 %7B%7D）。
 - 封面：无用户封面时由 video/process 返回首帧自动封面（cover_source=upload）。
 - 原创声明：original_status=2 + announce_id=0 + announce_info（first_publish/tp_author/tp_url）。
+- AI 生成内容声明（aigc_bjh_status）：默认勾选「AI 生成内容」。平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。taskData.aiGenerated === false 时显式不勾选（人工创作内容）。API 路径通过 activity_list[0][id]=aigc_bjh_status&activity_list[0][is_checked]=1 传递；RPA 回退路径在 _prepBaijiahao 中根据 article.aiGenerated 选择弹窗选项（AI生成内容 > AI生成 > 人工智能生成 > AI创作 > ChatGPT > AI）。
 - 凭证：credentialStore 加密凭证 + 平台域过滤；缺失/过期 → 明确错误信息（需重新扫码登录）。
 - 横版限定（width>=height）；竖版与封面上传图片链为后续迭代（当前 API 模式检测到用户自定义封面会显式拒绝发布并提示，不静默忽略）。
 

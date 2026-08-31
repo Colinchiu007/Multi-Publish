@@ -1,3 +1,13 @@
+## [Unreleased] - 2026-09-01 (百家号 RPA 发布路径 AI 生成声明修复)
+
+### 修复
+- 百家号 RPA 回退路径 `_prepBaijiahao` 现在根据 `article.aiGenerated` 选择创作声明选项（AI 生成内容 vs 无需声明），与 API 路径 `aigc_bjh_status` 字段和前端 AI 声明复选框保持一致。
+- 默认 `aiGenerated=true`（AI 生成内容），选项优先级：AI生成内容 > AI生成 > 人工智能生成 > AI创作 > ChatGPT > AI。非 AI 生成时：无需声明 > 无声明 > 默认声明 > 个人原创。
+- 日志增加 `aiGenerated` 状态输出，便于排查声明选择是否正确。
+
+### 文档
+- ARCH-F3-baijiahao.md §4.3 新增 AI 生成内容声明契约说明。
+
 ## [Unreleased] - 2026-08-28 (视频创作流水线「保存配置」)
 
 ### 新增

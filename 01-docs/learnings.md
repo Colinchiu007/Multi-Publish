@@ -1,3 +1,10 @@
+## 百家号 RPA 回退路径 AI 生成声明修复（codex/baijiahao-e2e-fix，2026-09-01）
+
+- **背景**：此前 E2E 测试（codex/e2e-baijiahao-publish，2026-08-31）验证了 API 路径的 AI 生成声明（aigc_bjh_status），但 RPA 回退路径 `_prepBaijiahao` 仍硬编码选择「无需声明」，与前端 AI 声明复选框和 API 路径不一致。
+- **方案**：`_prepBaijiahao(win, article)` 新增 `article` 参数，根据 `article.aiGenerated`（默认 true）决定弹窗选项：AI 生成时优先匹配「AI生成内容」等关键词，非 AI 生成时回退「无需声明」。
+- **教训（RPA 与 API 双路径必须同步数据契约）**：API 路径已在 `buildVideoPostData` 正确处理 `aigc_bjh_status`，但 RPA 回退路径的 `_prepBaijiahao` 独立维护创作声明选择逻辑，未与 API 路径同步。新增平台字段时，必须同时检查 API 和 RPA 两条路径的数据契约是否一致。
+- **预防措施**：`_prepBaijiahao` 日志增加 `aiGenerated` 状态输出，便于排查声明选择是否正确。
+
 ## 图片内容政策敏感改写优化点 7-8 与既有项增强（codex/s2v-sensitive-rewrite-opt2，2026-08-30）
 ## 历史视频一键发布到百家号：真实 E2E 跑通 + 标题截断 + AI 声明合规（codex/e2e-baijiahao-publish，2026-08-31）
 
