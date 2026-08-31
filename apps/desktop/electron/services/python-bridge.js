@@ -10,6 +10,7 @@ const log = require('./logger')
 const http = require('http')
 const path = require('path')
 const { config } = require('../config/app-config')
+const { loadIdentityRuntimeEnv } = require('./identity/identity-runtime-config')
 
 const BACKEND_PORT = config.pythonBridge.port
 const BACKEND_HOST = config.pythonBridge.host
@@ -58,6 +59,36 @@ function resolveUserDataDir () {
 }
 
 /**
+ * 解析身份运行时配置并映射为 Python 后端需要的环境变量。
+ *
+ * 账号归属校验（list_accounts 的 owner_subject 过滤）依赖 Python 后端启用身份认证，
+ * 否则 request.state.auth 不会被设置、所有账号被判定为不属于当前用户而返回空列表。
+ * 身份配置由主进程从 config/identity-public.json 加载（loadIdentityRuntimeEnv），
+ * 但 Python 后端子进程无法继承（配置不在 process.env 里），因此这里显式注入。
+ *
+ * @returns {Record<string, string>} 注入 Python 后端子进程的身份环境变量
+ */
+function resolveIdentityEnvForBackend () {
+  try {
+    const identityEnv = loadIdentityRuntimeEnv({ env: process.env })
+    const result = {}
+    for (const key of [
+      'IDENTITY_AUTH_ENABLED',
+      'IDENTITY_AUTH_REQUIRED',
+      'LOGTO_ENDPOINT',
+      'LOGTO_API_RESOURCE',
+    ]) {
+      if (identityEnv[key] !== undefined) result[key] = identityEnv[key]
+    }
+    return result
+  } catch (e) {
+    log.warn('PythonBridge', 'Identity runtime config unavailable, backend identity disabled: ' +
+      (e instanceof Error ? e.message : String(e)))
+    return {}
+  }
+}
+
+/**
  * 启动 Python 后端子进程（含自动重试 + 端口回退）
  * @param {number} port
  * @returns {Promise<import('child_process').ChildProcess>}
@@ -69,6 +100,7 @@ function launchProcess (port) {
     // 后端数据目录绑定到用户 profile（而非代码 checkout），保证账号等元数据跨 worktree 持久化
     const userDataDir = resolveUserDataDir()
     const backendDataDir = userDataDir ? path.join(userDataDir, 'backend-data') : undefined
+    const identityEnv = resolveIdentityEnvForBackend()
 
     log.info('PythonBridge', `Starting Python backend: ${pythonCmd} server.py on port ${port}`)
 
@@ -78,6 +110,7 @@ function launchProcess (port) {
         ...process.env,
         BACKEND_PORT: String(port),
         PYTHONUNBUFFERED: '1',
+        ...identityEnv,
         ...(backendDataDir ? { MULTI_PUBLISH_DATA_DIR: backendDataDir } : {})
       },
       stdio: ['pipe', 'pipe', 'pipe'],
