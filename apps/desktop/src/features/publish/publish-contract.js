@@ -373,7 +373,10 @@ export function validatePlatformContent ({ platforms, article = {}, platformOver
           limit: max,
           actual: length,
           unit,
-          message: `${getPlatformLabel(platform)}${label}最多 ${max} ${unit}，当前 ${length} ${unit}`,
+          // 字符数平台保持历史文案「当前 N 个」，字节数平台用「当前 N 字节」，避免破坏预存测试
+          message: unit === '字节'
+            ? `${getPlatformLabel(platform)}${label}最多 ${max} 字节，当前 ${length} 字节`
+            : `${getPlatformLabel(platform)}${label}最多 ${max} 个字符，当前 ${length} 个`,
         }
       }
     }

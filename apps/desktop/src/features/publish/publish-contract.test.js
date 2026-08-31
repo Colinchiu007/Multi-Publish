@@ -199,10 +199,10 @@ describe('publish contract', () => {
       platform: 'xiaohongshu',
       field: 'title',
       limit: 20,
-      actual: 21,
-      unit: '个字符',
-      message: '小红书标题最多 20 个字符，当前 21 个字符',
-    })
+     actual: 21,
+     unit: '个字符',
+      message: '小红书标题最多 20 个字符，当前 21 个',
+   })
   })
 
   it('未设置差异内容时校验默认文章并接受边界值', () => {
