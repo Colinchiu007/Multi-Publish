@@ -937,6 +937,7 @@
         @update:historyFilter="historyFilter = $event"
         @resume-history="resumeHistoryItem"
         @open-result="openHistoryResult"
+        @publish-history="publishHistoryItem"
         @delete-history="requestHistoryDeletion"
         :deleting="deleting"
         @delete-history-batch="requestHistoryBatchDeletion"
@@ -1449,6 +1450,7 @@ import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
+import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { PipelineSelector, StageProgress, SceneAssetSelection } from './video-creation'
 import { useLoginGate } from '@/composables/useLoginGate'
 import {
@@ -5554,6 +5556,14 @@ export default {
       const focusScenes = policySceneQuery(item.error)
       if (item.status === 'failed' && focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
       this.$router.push({ path: '/create/result', query })
+    },
+    // 历史视频一键发布：从已完成项目提取发布数据，跳转发布页并预填充（视频模式）。
+    // 仅 completed 且有成片路径的项目可发布；发布走视频首帧封面，不携带自定义封面。
+    publishHistoryItem(item) {
+      if (!item || item.status !== 'completed' || !item.projectId) return
+      const data = buildPublishFromProject(item)
+      if (!data.video_path) return
+      this.$router.push({ path: '/publish', query: publishDataToQuery(data) })
     },
     historyRunId(item) {
       const value = item?.runId || item?.id

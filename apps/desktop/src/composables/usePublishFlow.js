@@ -38,6 +38,7 @@ import {
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  truncateByUtf8Bytes,
   validatePlatformContent,
   validatePublishMetadata,
   validatePublishTargets,
@@ -203,6 +204,9 @@ export function usePublishFlow(options) {
       precheck: precheckEnabled.value,
       platformOverrides: normalizePlatformOverrides(diffEdits),
     }
+    // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选。
+    // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
+    data.aiGenerated = article.aiGenerated !== false
     if (imageFiles.length > 0) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
@@ -297,8 +301,38 @@ export function usePublishFlow(options) {
       platformOverrides: diffEdits || {},
     })
     if (!contentCheck.valid) {
-      notifyWarning('publishPage.publishFlow.contentInvalid', { message: contentCheck.message })
-      return
+      // 一键发布/历史视频预填场景：百家号标题按 UTF-8 字节数校验（上限 149 字节），
+      // 预填文案可能超长。若仅因百家号标题超长失败，自动按字节截断标题后继续，
+      // 避免阻断自动一站式流程；其他平台/字段超长仍提示并阻断，让用户手动调整。
+      const autoTruncatable = contentCheck.platform === 'baijiahao' && contentCheck.field === 'title'
+      if (autoTruncatable && Number.isFinite(contentCheck.limit) && contentCheck.limit > 0) {
+        // 截断来源：若差异化面板为 baijiahao 单独设置了覆盖标题，则截断覆盖标题；
+        // 否则截断全局标题。校验用 override.title || article.title，若只改 article.title
+        // 则 override 路径截断失效，buildArticleData 仍会发送超长覆盖标题。
+        const baijiahaoOverride = diffEdits && diffEdits.baijiahao && typeof diffEdits.baijiahao.title === 'string'
+          ? diffEdits.baijiahao
+          : null
+        if (baijiahaoOverride) {
+          baijiahaoOverride.title = truncateByUtf8Bytes(baijiahaoOverride.title, contentCheck.limit)
+        } else {
+          article.title = truncateByUtf8Bytes(article.title, contentCheck.limit)
+        }
+        addProgress(progressText('publishPage.publishFlow.baijiahaoTitleTruncated'), 'warning')
+        // 截断到 149 字节（约 49 中文字符）后重新校验剩余平台：可能仍超过
+        // xiaohongshu(20字)/toutiao(30字) 等更严格平台的上限，需重新校验并阻断。
+        const recheck = validatePlatformContent({
+          platforms: selectedPlatforms.value,
+          article,
+          platformOverrides: diffEdits || {},
+        })
+        if (!recheck.valid) {
+          notifyWarning('publishPage.publishFlow.contentInvalid', { message: recheck.message })
+          return
+        }
+      } else {
+        notifyWarning('publishPage.publishFlow.contentInvalid', { message: contentCheck.message })
+        return
+      }
     }
 
     publishing.value = true

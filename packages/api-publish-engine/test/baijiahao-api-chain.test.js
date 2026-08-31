@@ -157,6 +157,73 @@ describe("BaijiahaoAdapter API 发布链", () => {
     expect(decodeURIComponent(pd)).toContain("original_status=0")
   })
 
+  it("buildVideoPostData 默认勾选 AI 生成内容声明（is_checked=1）", () => {
+    const pd = adapter.buildVideoPostData({
+      title: "T", content: "C", video: { duration: 10 },
+    }, { mediaId: "M1" }, "", "01.mp4", "")
+    const decoded = decodeURIComponent(pd)
+    expect(decoded).toContain("activity_list[0][id]=aigc_bjh_status")
+    expect(decoded).toContain("activity_list[0][is_checked]=1")
+  })
+
+  it("buildVideoPostData 百家号标题按 UTF-8 字节截断到 149 字节", () => {
+    // 50 个中文字符 = 150 字节，超过 149 上限，应截断到 49 个中文字符（147 字节）
+    const pd = adapter.buildVideoPostData({
+      title: "外".repeat(50),
+      content: "C", video: { duration: 10 },
+    }, { mediaId: "M1" }, "", "01.mp4", "")
+    const decoded = decodeURIComponent(pd)
+    const titleMatch = /title=([^&]*)/.exec(decoded)
+    expect(titleMatch).toBeTruthy()
+    const title = titleMatch[1]
+    expect(Array.from(title).length).toBe(49)
+    expect(Buffer.byteLength(title, "utf8")).toBe(147)
+
+    // 混合字符：49 中文 + 1 英文 = 148 字节，未超限保留
+    const mixed = adapter.buildVideoPostData({
+      title: "外".repeat(49) + "a",
+      content: "C", video: { duration: 10 },
+    }, { mediaId: "M1" }, "", "01.mp4", "")
+    const mixedDecoded = decodeURIComponent(mixed)
+    const mixedTitle = /title=([^&]*)/.exec(mixedDecoded)[1]
+    expect(mixedTitle).toBe("外".repeat(49) + "a")
+    expect(Buffer.byteLength(mixedTitle, "utf8")).toBe(148)
+  })
+
+  it("buildVideoPostData 显式 aiGenerated=false 时取消勾选 AI 声明（is_checked=0）", () => {
+    const pd = adapter.buildVideoPostData({
+      title: "T", content: "C", video: { duration: 10 }, aiGenerated: false,
+    }, { mediaId: "M1" }, "", "01.mp4", "")
+    const decoded = decodeURIComponent(pd)
+    expect(decoded).toContain("activity_list[0][id]=aigc_bjh_status")
+    expect(decoded).toContain("activity_list[0][is_checked]=0")
+  })
+
+  it("execute 默认勾选 AI 生成声明（真实上传链 postData 含 is_checked=1）", async () => {
+    const tmpPath = path.join(os.tmpdir(), "bj-aigc-" + Date.now() + ".mp4")
+    fs.writeFileSync(tmpPath, Buffer.alloc(1024, 1))
+    let publishBody = ""
+    adapter.http.get = vi.fn(async (url) => {
+      if (url.includes("source=inner")) return { data: 'BJH__INIT__AUTH__ = "TOKEN_AIGC"' }
+      if (url.includes("appinfo")) return { data: { data: { user: { app_id: "APP_AIGC" } } } }
+      return { data: {} }
+    })
+    adapter.http.post = vi.fn(async (url, body) => {
+      if (url.includes("compuploadVideo")) return { data: { bos_url: "http://b/x", mediaId: "M_AIGC" } }
+      if (url.includes("preuploadVideo")) return { data: { upload_key: "K_AIGC" } }
+      if (url.includes("rsbjh.baidu.com")) return { data: { uploadId: "UP_AIGC" } }
+      if (url.includes("video/process")) return { data: { data: { editVideo: { coverImage: "http://c.jpg" } } } }
+      if (url.includes("article/publish")) { publishBody = String(body); return { data: { errno: 0, ret: { id: "ART_AIGC" } } } }
+      return { data: {} }
+    })
+    const result = await adapter.execute({
+      title: "AIGC 视频", content: "测试", video: { path: tmpPath, duration: 10, width: 1920, height: 1080 },
+    }, "cookie=abc", { timeout: 60000 })
+    fs.unlinkSync(tmpPath)
+    expect(result.success).toBe(true)
+    expect(decodeURIComponent(publishBody)).toContain("activity_list[0][is_checked]=1")
+  })
+
   it("publish 调用 pcui/article/publish 端点", async () => {
     mockHttp(adapter, {
       post: (url, body, opts) => {

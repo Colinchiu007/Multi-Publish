@@ -227,6 +227,13 @@
                 @click.stop="$emit('open-result', item)"
               >{{ tr('editAndRecompose') }}</button>
               <button
+                v-if="publishable(item)"
+                type="button"
+                class="s2v-btn-secondary s2v-btn-sm"
+                data-testid="history-publish-button"
+                @click.stop="$emit('publish-history', item)"
+              >{{ tr('publish') }}</button>
+              <button
                 type="button"
                 class="s2v-btn-danger s2v-btn-sm"
                 data-testid="history-delete-button"
@@ -261,7 +268,7 @@ export default {
     story2videoResuming: { type: Boolean, default: false },
     deleting: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch'],
+  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history'],
   data () {
     return {
       activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',
@@ -402,6 +409,18 @@ export default {
         && item.projectId
         && item.startedPipeline !== false
         && item.status !== 'running'
+      )
+    },
+    // 可发布历史视频：已完成合成且有成片路径（videoPath）的项目。
+    // 发布走视频首帧封面，不要求封面字段。
+    publishable (item) {
+      return Boolean(
+        item
+        && item.historyType === 'story2video-project'
+        && item.projectId
+        && item.status === 'completed'
+        && typeof item.videoPath === 'string'
+        && item.videoPath.trim()
       )
     },
     openDetail (item) {

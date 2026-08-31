@@ -1,4 +1,19 @@
 ## [未发布] feat(story2video): 图片内容安全敏感改写优化点 7-8 与既有项增强（语言匹配/严重度差异化/预检闭环/映射表/negative_prompt/成本预算/审计反哺/语义算法）
+## [未发布] feat(publish): 历史视频一键发布到百家号 + AI 生成声明默认勾选 + 标题自动截断（真实 E2E 跑通）
+
+- 背景：用真实环境 E2E 验证「历史记录已生成视频 → 一键发布 → 自动创作 → 发布到百家号」全流程。真实发布成功（百家号文章 ID `1875007830173233602`），过程中发现并修复 3 个问题：① 历史视频跳转 query 双重编码导致预填失效；② 百家号标题超长（66 字 > 50 字限制）导致发布失败；③ 发布流程未默认勾选 AI 生成声明（合规风险）。
+- 新增/变更：
+  - **AI 生成内容声明默认勾选**：`usePublishFlow.js` 初始化 `data.aiGenerated` 时，只要平台未显式关闭即默认 `true`，避免用户漏勾导致内容违规；百家号后端 `baijiahao.js` 同步写入 `aigc_bjh_status=1`。
+  - **历史视频发布入口**：历史记录已生成视频可直接进入发布页，`applyHistoryVideoQuery` 预填标题/内容/标签/视频路径，封面走视频首帧。
+  - **历史视频跳转 query 双重编码修复**：跳转方 `publishDataToQuery` 用 `encodeURIComponent` 编码、vue-router 再编码一次、接收方只 decode 一次导致预填失效；`applyHistoryVideoQuery` 的 `decode` 改为循环解码（最多 3 次直到值不变）。
+  - **百家号标题自动截断（按 UTF-8 字节）**：真实发布实验确认百家号标题上限按 **UTF-8 字节数**校验（后端 `Math.floor(utf8Bytes/3) > 49` 拒绝，安全上限 149 字节）。前端 `usePublishFlow.js` + 后端 `baijiahao.js` 双端按字节截断兜底（`truncateByUtf8Bytes` / `truncateTitle`，上限 149 字节），保证自动一站式流程不因标题超长中断。
+  - **后端数据目录绑定 + 登录超时延长**：Python 后端子进程注入身份运行时配置，修复 `list_accounts` 返回空账号列表；登录超时延长避免真实登录偶发超时。
+  - **审查加固（双模型交叉验证）**：① 百家号标题截断后重新校验其余平台，避免截断到 149 字节后仍超 xiaohongshu(20字)/toutiao(30字) 上限而静默超限；② 差异化面板为 baijiahao 单独设置的覆盖标题超长时截断覆盖标题而非仅全局标题；③ 截断后提示用户；④ utf8ByteLength 兜底分支按 UTF-8 码点精确计字节；⑤ 循环解码上限收敛到 2 次并补注释。
+- 数据与测试：`Publish.test.js` + `publish-contract.test.js` 60 项全绿；`baijiahao-api-chain.test.js` 24 项全绿（含 utf8ByteLength/truncateByUtf8Bytes 字节截断与代理对保护用例）；`api-publish-engine` 全量通过（47 项）；完整 desktop vitest 套件除 `asset-generator.test.js` 5 个预存环境失败（spawn shell / Electron binary 下载，经 CHANGELOG 既有记录确认与本次无关）外全绿。
+- 验证：真实环境 E2E 发布到百家号成功，平台返回文章 ID `1875007830173233602`，发布过程无 `Publish failed` 错误。
+- 文档：PRD §6.6 新增「历史视频发布 + AI 生成声明」章节；learnings.md 新增复盘记录。
+
+---
 
 - 背景：在既有优化点 1-6 基础上，进一步补齐敏感改写策略的 8 项增强：语义保留度算法对中文/同义词失真、改写后缺预检闭环、敏感类型识别依赖错误文本、改写未联动 negative_prompt、LLM 改写无成本预算、审计统计未反哺、改写指令语言与原文不匹配、严重度未差异化改写强度。
 - 优化点：

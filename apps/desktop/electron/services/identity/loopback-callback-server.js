@@ -18,7 +18,7 @@ class LoopbackCallbackServer {
     this._host = options.host || '127.0.0.1'
     this._port = options.port === undefined ? 16526 : options.port
     this._callbackPath = options.callbackPath || '/auth/callback'
-    this._timeoutMs = options.timeoutMs || 120000
+    this._timeoutMs = options.timeoutMs || 300000
     this._expectedState = options.expectedState
     if (!validState(this._expectedState)) {
       throw new IdentityError('IDENTITY_CALLBACK_STATE_INVALID', '登录回调 state 无效')

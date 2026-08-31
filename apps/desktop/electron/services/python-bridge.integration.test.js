@@ -10,6 +10,11 @@
 import { vi, test, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
 import { EventEmitter } from 'events'
 
+// mock 身份运行时配置加载器，验证 python-bridge 是否把身份环境变量注入 Python 后端子进程。
+// 主进程代码用 CJS require 加载，vi.mock 不生效，须用 test-setup 的 __registerMock 拦截 Module._load。
+const identityRuntimeMock = { loadIdentityRuntimeEnv: vi.fn(() => ({})) }
+__registerMock('./identity/identity-runtime-config', identityRuntimeMock)
+
 // 构造伪 ChildProcess：带 stdout/stderr/exit/on/kill/pid
 function createFakeProc (pid) {
   const proc = new EventEmitter()
@@ -447,4 +452,32 @@ test('stopPythonBackend 在未运行时直接返回不抛错', async () => {
   // 不 startPythonBackend，直接 stop，验证不抛错且 isRunning 保持 false
   await expect(bridge.stopPythonBackend()).resolves.toBeUndefined()
   expect(bridge.isRunning()).toBe(false)
+})
+
+test('startPythonBackend 把身份运行时配置注入 Python 后端子进程 env', async () => {
+  identityRuntimeMock.loadIdentityRuntimeEnv.mockReturnValue({
+    IDENTITY_AUTH_ENABLED: 'true',
+    IDENTITY_AUTH_REQUIRED: 'false',
+    LOGTO_ENDPOINT: 'https://auth.iart.work',
+    LOGTO_API_RESOURCE: 'https://api.multi-publish.com',
+    LOGTO_APP_ID: 'should-not-leak',
+  })
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  const [,, opts] = spawnSpy.mock.calls[0]
+  expect(opts.env.IDENTITY_AUTH_ENABLED).toBe('true')
+  expect(opts.env.IDENTITY_AUTH_REQUIRED).toBe('false')
+  expect(opts.env.LOGTO_ENDPOINT).toBe('https://auth.iart.work')
+  expect(opts.env.LOGTO_API_RESOURCE).toBe('https://api.multi-publish.com')
+  // 只注入 Python 后端需要的键，避免无关身份字段泄漏到子进程
+  expect(opts.env.LOGTO_APP_ID).toBeUndefined()
+  // 身份配置加载失败时不应阻断后端启动（容错）
+  identityRuntimeMock.loadIdentityRuntimeEnv.mockReset()
+  identityRuntimeMock.loadIdentityRuntimeEnv.mockImplementation(() => { throw new Error('IDENTITY_CONFIG_INVALID') })
+  await bridge.stopPythonBackend()
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  const [,, opts2] = spawnSpy.mock.calls[spawnSpy.mock.calls.length - 1]
+  expect(opts2.env.IDENTITY_AUTH_ENABLED).toBeUndefined()
+  expect(bridge.isRunning()).toBe(true)
 })
