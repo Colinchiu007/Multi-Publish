@@ -35,3 +35,10 @@ export async function opsCenterSyncRuntime () {
   if (!api || !api.opsCenterSyncRuntime) return { code: -1, message: 'electronAPI not available', data: null }
   return api.opsCenterSyncRuntime()
 }
+
+/** 视频创作流水线选项控制（2026-08-31）：运营中心下发的可见性与默认值 */
+export async function opsCenterSyncPipelineOptions () {
+  const api = getApi()
+  if (!api || !api.opsCenterSyncPipelineOptions) return { code: -1, message: 'electronAPI not available', data: null }
+  return api.opsCenterSyncPipelineOptions()
+}

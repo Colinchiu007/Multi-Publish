@@ -297,6 +297,12 @@ async def list_active_announcements(db: AsyncSession) -> list[dict]:
     return result
 
 
+
+async def _get_pipeline_options(db: AsyncSession) -> dict:
+    """视频创作流水线选项控制（2026-08-31）"""
+    from services import pipeline_option_service
+    return await pipeline_option_service.get_bootstrap_options(db)
+
 async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.feature_flag_service import list_runtime_feature_flags
     from services.platform_def_service import list_runtime_platform_defs
@@ -311,5 +317,6 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "platform_defs": await list_runtime_platform_defs(db),
         "content_templates": await list_runtime_content_templates(db),
         "keyword_watchlist": await list_runtime_watchlist(db),
+        "pipelineOptions": await _get_pipeline_options(db),
         "synced_at": _now(),
     }

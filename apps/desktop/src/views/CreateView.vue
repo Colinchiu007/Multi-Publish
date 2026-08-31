@@ -188,6 +188,10 @@
 
         <!-- Story2Video 配置：快速模式 + 五个折叠区 -->
         <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-config-sections" data-testid="story2video-config-sections">
+          <div v-if="s2vActiveConfigProfile" class="s2v-active-config" data-testid="s2v-active-config" role="status">
+            <span class="s2v-active-config-label">{{ translateWithLocaleFallback('create.story2video.configProfile.activeLabel', '当前配置', 'Active configuration') }}</span>
+            <span class="s2v-active-config-name">{{ s2vActiveConfigProfile }}</span>
+          </div>
           <details
             class="s2v-config-section"
             data-testid="s2v-section-basic"
@@ -199,26 +203,28 @@
               <span class="s2v-summary">{{ s2vSectionSummary('basic') }}</span>
             </summary>
             <div class="config-grid">
-              <div class="config-item">
-                <label>内容类型</label>
-                <select v-model="s2vConfig.contentType" class="form-select">
-                  <option value="general">通用内容</option>
-                  <option value="history">历史文章（自动识别时代与朝代）</option>
+              <div class="config-item" v-if="s2vOptionVisible('basic.resolution')">
+                <label>比例与分辨率</label>
+                <select v-model="activeOutputConfig.resolution" class="form-select">
+                  <option v-for="opt in outputResolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
-
-              <div class="config-item">
-                <label>图片生成器</label>
-                <select v-model="s2vConfig.imageProvider" class="form-select">
-                  <!-- 无可用图片生成器时下拉显示「无」，避免空白选中项（2026-08-12 Bug 修复） -->
-                  <option v-if="s2vImageProviders.length === 0" value="">无</option>
-                  <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
-                </select>
-                <p v-if="s2vImageProviders.length === 0" class="config-hint">未找到可用的图片生成器，请先在「模型服务商」中配置并启用支持图片生成的模型（含多模态模型）。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
+              <div class="config-item" v-if="s2vOptionVisible('basic.voiceSpeed')">
+                <label>旁白语速: {{ Number(s2vConfig.voiceSpeed).toFixed(1) }}x</label>
+                <input type="range" v-model.number="s2vConfig.voiceSpeed" min="0.5" max="2" step="0.1" class="form-range" />
+              </div>
+              <div class="config-item" v-if="s2vOptionVisible('basic.voiceVolume')">
+                <label>旁白音量: {{ Number(s2vConfig.voiceVolume).toFixed(2) }}</label>
+                <input type="range" v-model.number="s2vConfig.voiceVolume" min="0" max="2" step="0.05" class="form-range" />
+              </div>
+              <div class="config-item" v-if="s2vOptionVisible('basic.voicePreview')">
+                <label>旁白试听</label>
+                <button type="button" class="btn-secondary" data-testid="s2v-voice-preview" @click="previewS2VVoice">试听</button>
+                <span class="config-hint">按当前旁白语速与音量播放一段试听音频</span>
               </div>
               <div class="config-item config-span-2">
                 <label>基础说明</label>
-                <p class="config-hint">确认文案和基础参数后，点击“启动流水线”即可自动完成六个阶段；不需要逐步确认。</p>
+                <p class="config-hint">确认基础参数后，点击“启动流水线”即可进行流水线自动多个阶段，不需逐步确认。</p>
               </div>
             </div>
           </details>
@@ -234,7 +240,7 @@
               <span class="s2v-summary">{{ s2vSectionSummary('appearance') }}</span>
             </summary>
             <div class="config-grid">
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.imageStyle')">
                 <label>图片风格</label>
                 <select v-model="s2vConfig.imageStyle" class="form-select">
                   <option value="cinematic">电影感</option>
@@ -245,7 +251,7 @@
                 </select>
                 <span class="config-hint">{{ story2videoImageStyleHint }}</span>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.promptStyle')">
                 <label>提示词风格</label>
                 <select v-model="s2vConfig.promptStyle" class="form-select">
                   <option value="realistic">写实</option>
@@ -263,7 +269,7 @@
                 </select>
                 <span class="config-hint">{{ s2vMaxPromptLengthHint }}</span>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.imageEffect')">
                 <label>图片动效</label>
                 <select v-model="s2vConfig.imageEffect" class="form-select">
                   <option value="none">无效果</option>
@@ -278,7 +284,7 @@
                   <option value="blur-in">模糊渐入</option>
                 </select>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.transition')">
                 <label>转场</label>
                 <select v-model="s2vConfig.transition" class="form-select">
                   <option value="none">直接切换</option>
@@ -289,7 +295,7 @@
                   <option value="slide-down">下滑</option>
                 </select>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.subtitleSize')">
                 <label>字幕字号</label>
                 <select v-model="s2vConfig.subtitleSize" class="form-select">
                   <option value="size1">特小</option>
@@ -300,7 +306,7 @@
                   <option value="size6">超大</option>
                 </select>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.subtitleStyle')">
                 <label>字幕样式</label>
                 <select v-model="s2vConfig.subtitleStyleName" class="form-select">
                   <option value="style1">描边</option>
@@ -308,14 +314,14 @@
                   <option value="style3">粗描边</option>
                 </select>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.subtitleEnabled')">
                 <label>字幕</label>
                 <select v-model="s2vConfig.subtitleEnabled" class="form-select">
                   <option :value="true">启用</option>
                   <option :value="false">关闭</option>
                 </select>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('voice.bgm')">
                 <label>背景音乐</label>
                 <div class="inline-file-control">
                   <select v-model="s2vConfig.bgmPath" class="form-select" data-testid="s2v-bgm-select">
@@ -327,15 +333,15 @@
                 </div>
                 <p class="config-hint">{{ mediaRequirementsBgmText }}</p>
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('voice.bgmVolume')">
                 <label>背景音乐音量: {{ s2vConfig.bgmVolume }}</label>
                 <input type="range" v-model.number="s2vConfig.bgmVolume" min="0" max="10" step="1" class="form-range" />
               </div>
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('visual.watermarkText')">
                 <label>{{ translateWithLocaleFallback('create.story2video.watermark.label', 'Watermark text', 'Watermark text') }}</label>
                 <input v-model.trim="s2vConfig.watermarkText" class="form-input" :placeholder="translateWithLocaleFallback('create.story2video.watermark.placeholder', 'Optional', 'Optional')" />
               </div>
-              <div class="config-item" data-testid="s2v-watermark-position">
+              <div class="config-item" data-testid="s2v-watermark-position" v-if="s2vOptionVisible('visual.watermarkPosition')">
                 <label>{{ translateWithLocaleFallback('create.story2video.watermark.positionLabel', 'Watermark position', 'Watermark position') }}</label>
                 <select v-model="s2vConfig.watermarkConfig.position" class="form-select">
                   <option value="center">{{ translateWithLocaleFallback('create.story2video.watermark.positionCenter', 'Center', 'Center') }}</option>
@@ -347,7 +353,7 @@
                 </select>
                 <p v-if="s2vConfig.watermarkConfig.position === 'moving'" class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.movingHint', 'Moving is a smooth looping drift: the watermark starts near the center and wanders along a sine path, avoiding the flicker of per-frame random motion.', 'Moving is a smooth looping drift: the watermark starts near the center and wanders along a sine path, avoiding the flicker of per-frame random motion.') }}</p>
               </div>
-              <div class="config-item" data-testid="s2v-watermark-fontsize">
+              <div class="config-item" data-testid="s2v-watermark-fontsize" v-if="s2vOptionVisible('visual.watermarkFontSize')">
                 <label>{{ translateWithLocaleFallback('create.story2video.watermark.fontSizeLabel', 'Watermark size', 'Watermark size') }}</label>
                 <select v-model="s2vConfig.watermarkConfig.fontSize" class="form-select">
                   <option :value="16">16</option>
@@ -358,7 +364,7 @@
                 </select>
                 <span class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.fontSizeHint', 'Larger sizes are more prominent; 24-40 recommended.', 'Larger sizes are more prominent; 24-40 recommended.') }}</span>
               </div>
-              <div class="config-item" data-testid="s2v-watermark-opacity">
+              <div class="config-item" data-testid="s2v-watermark-opacity" v-if="s2vOptionVisible('visual.watermarkOpacity')">
                 <label>{{ translateWithLocaleFallback('create.story2video.watermark.opacityLabel', 'Watermark opacity', 'Watermark opacity') }}</label>
                 <select v-model="s2vConfig.watermarkConfig.opacity" class="form-select">
                   <option :value="0.1">10%</option>
@@ -374,11 +380,14 @@
                 </select>
                 <span class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.opacityHint', 'Lower opacity is subtler; 40% or higher recommended.', 'Lower opacity is subtler; 40% or higher recommended.') }}</span>
               </div>
-              <div class="config-item">
-                <label>比例与分辨率</label>
-                <select v-model="activeOutputConfig.resolution" class="form-select">
-                  <option v-for="opt in outputResolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              <div class="config-item" v-if="s2vOptionVisible('visual.imageProvider')">
+                <label>图片生成器</label>
+                <select v-model="s2vConfig.imageProvider" class="form-select">
+                  <!-- 无可用图片生成器时下拉显示「无」，避免空白选中项（2026-08-12 Bug 修复） -->
+                  <option v-if="s2vImageProviders.length === 0" value="">无</option>
+                  <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
                 </select>
+                <p v-if="s2vImageProviders.length === 0" class="config-hint">未找到可用的图片生成器，请先在「模型服务商」中配置并启用支持图片生成的模型（含多模态模型）。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </div>
             </div>
           </details>
@@ -396,7 +405,7 @@
             </summary>
             <div class="config-grid">
               <!-- 创作模式（2026-08-12）：全自动 / 分镜素材自选 -->
-              <div class="config-item" data-testid="s2v-creation-mode">
+              <div class="config-item" data-testid="s2v-creation-mode" v-if="s2vOptionVisible('advanced.creationMode')">
                 <label>{{ translateWithLocaleFallback('create.story2video.creationMode.label', '创作模式', 'Creation Mode') }}</label>
                 <div class="radio-group">
                   <label class="radio-option">
@@ -413,7 +422,7 @@
                 </p>
               </div>
               <template v-if="s2vConfig.creationMode === 'manual'">
-                <div class="config-item" data-testid="s2v-material-mode">
+                <div class="config-item" data-testid="s2v-material-mode" v-if="s2vOptionVisible('advanced.materialMode')">
                   <label>{{ translateWithLocaleFallback('create.story2video.creationMode.materialModeLabel', '素材模式', 'Material Mode') }}</label>
                   <div class="radio-group">
                     <label class="radio-option">
@@ -442,7 +451,7 @@
               </template>
               <!-- 视频增强模式：manual + 全部图片轮播 时忽略（不生成 AI 视频） -->
               <template v-if="s2vConfig.creationMode === 'auto' || s2vConfig.manualMaterialMode === 'video-image'">
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('videoEnhance.videoMode')">
                 <label>{{ translateWithLocaleFallback('create.story2video.batch.videoModeLabel', '视频增强模式', 'Video enhancement mode') }}</label>
                 <select v-model="s2vConfig.videoMode" class="form-select" data-testid="s2v-video-mode">
                   <option value="off">{{ translateWithLocaleFallback('videoConfig.videoModeOff', '纯图片轮播', 'Image carousel only') }}</option>
@@ -499,7 +508,7 @@
               <span class="s2v-summary">{{ s2vSectionSummary('voice') }}</span>
             </summary>
             <div class="config-grid">
-              <div class="config-item">
+              <div class="config-item" v-if="s2vOptionVisible('voice.voiceProvider')">
                 <label>语音生成器</label>
                 <select v-model="s2vConfig.voiceProvider" class="form-select" @change="handleS2VVoiceProviderChange">
                   <!-- 首项「自动 Edge TTS」为常驻免费兜底（id=''），列表为空时下拉仍非空白；
@@ -626,14 +635,6 @@
                 <label>音色复制 / 克隆</label>
                 <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
               </div>
-              <div class="config-item">
-                <label>语速: {{ Number(s2vConfig.voiceSpeed).toFixed(1) }}x</label>
-                <input type="range" v-model.number="s2vConfig.voiceSpeed" min="0.5" max="2" step="0.1" class="form-range" />
-              </div>
-              <div class="config-item">
-                <label>旁白音量: {{ Number(s2vConfig.voiceVolume).toFixed(2) }}</label>
-                <input type="range" v-model.number="s2vConfig.voiceVolume" min="0" max="2" step="0.05" class="form-range" />
-              </div>
             </div>
           </details>
 
@@ -647,31 +648,40 @@
               <span>{{ s2vSectionLabel('advanced') }}</span>
               <span class="s2v-summary">{{ s2vSectionSummary('advanced') }}</span>
             </summary>
+            <div class="config-grid">
+              <div class="config-item" v-if="s2vOptionVisible('advanced.contentType')">
+                <label>内容类型</label>
+                <select v-model="s2vConfig.contentType" class="form-select">
+                  <option value="general">通用内容</option>
+                  <option value="history">历史文章（自动识别时代与朝代）</option>
+                </select>
+              </div>
+            </div>
             <div class="s2v-subgroup">
               <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('splitTiming') }}</h4>
               <div class="config-grid">
-                <div class="config-item">
-                  <label>分句语言</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.splitLanguage')">
+                <label>分句语言</label>
                   <select v-model="s2vConfig.splitLanguage" class="form-select">
                     <option value="auto">自动识别</option>
                     <option value="zh">中文</option>
                     <option value="en">英文</option>
                   </select>
                 </div>
-                <div class="config-item">
-                  <label>分句模式</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.splitMode')">
+                <label>分句模式</label>
                   <select v-model="s2vConfig.splitMode" class="form-select">
                     <option value="fast">快速</option>
                     <option value="balanced">均衡</option>
                     <option value="precise">精确</option>
                   </select>
                 </div>
-                <div class="config-item">
-                  <label>单句最大长度</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.splitMaxSentenceLength')">
+                <label>单句最大长度</label>
                   <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
                 </div>
-                <div class="config-item">
-                  <label>分镜粒度</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.sceneGranularity')">
+                <label>分镜粒度</label>
                   <div class="s2v-split-view-toggle" role="group" aria-label="分镜粒度视图">
                     <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'seconds' }" :aria-pressed="s2vConfig.splitViewMode === 'seconds'" data-testid="s2v-split-view-seconds" @click="s2vConfig.splitViewMode = 'seconds'">目标时长</button>
                     <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'chars' }" :aria-pressed="s2vConfig.splitViewMode === 'chars'" data-testid="s2v-split-view-chars" @click="s2vConfig.splitViewMode = 'chars'">目标字数</button>
@@ -715,8 +725,8 @@
             <div class="s2v-subgroup">
               <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('templateOutput') }}</h4>
               <div class="config-grid">
-                <div class="config-item">
-                  <label>模板分类</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.templateCategory')">
+                <label>模板分类</label>
                   <select v-model="s2vTemplateCategory" class="form-select">
                     <option value="all">全部模板</option>
                     <option value="popular">热门</option>
@@ -727,8 +737,8 @@
                     <option value="custom">我的模板</option>
                   </select>
                 </div>
-                <div class="config-item">
-                  <label>视频模板</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.templateId')">
+                <label>视频模板</label>
                   <select v-model="s2vConfig.templateId" class="form-select" @change="applyS2VTemplate">
                     <option v-for="template in s2vTemplates" :key="template.value" :value="template.value">{{ template.label }}</option>
                   </select>
@@ -741,16 +751,16 @@
                     <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="btn-secondary danger" @click="requestTemplateDeletion">删除模板</button>
                   </div>
                 </div>
-                <div class="config-item">
-                  <label>帧率</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.fps')">
+                <label>帧率</label>
                   <select v-model.number="activeOutputConfig.fps" class="form-select">
                     <option :value="24">24 fps (电影)</option>
                     <option :value="30">30 fps (标准)</option>
                     <option :value="60">60 fps (流畅)</option>
                   </select>
                 </div>
-                <div class="config-item">
-                  <label>格式</label>
+                <div class="config-item" v-if="s2vOptionVisible('advanced.format')">
+                <label>格式</label>
                   <select v-model="activeOutputConfig.format" class="form-select">
                     <option value="mp4">MP4 (H.264)</option>
                     <option value="webm">WebM (VP9)</option>
@@ -762,7 +772,7 @@
           </details>
         </div>
 
-        <details v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-config-section" data-testid="s2v-section-publish" :open="s2vOpenSections.publish" @toggle="setS2VSectionOpen('publish', $event)">
+        <details v-if="isOrchestratedPipeline(selectedPipeline.name) && s2vOptionVisible('publish._group')" class="s2v-config-section" data-testid="s2v-section-publish" :open="s2vOpenSections.publish" @toggle="setS2VSectionOpen('publish', $event)">
           <summary class="s2v-section-summary">
             <span>{{ s2vSectionLabel('publish') }}</span>
             <span class="s2v-summary">{{ s2vSectionSummary('publish') }}</span>
@@ -777,12 +787,12 @@
                 </label>
               </div>
             </div>
-            <div class="config-item">
-              <label>发布标题</label>
+            <div class="config-item" v-if="s2vOptionVisible('publish.title')">
+                <label>发布标题</label>
               <input v-model.trim="s2vConfig.title" class="form-input" placeholder="可选" />
             </div>
-            <div class="config-item">
-              <label>发布标签</label>
+            <div class="config-item" v-if="s2vOptionVisible('publish.tags')">
+                <label>发布标签</label>
               <input v-model.trim="s2vConfig.tagsText" class="form-input" placeholder="用逗号分隔" />
             </div>
             <div class="config-item config-span-2">
@@ -799,22 +809,22 @@
         <div v-if="!isOrchestratedPipeline(selectedPipeline?.name)" class="config-section">
           <h3>输出设置</h3>
           <div class="config-grid">
-            <div class="config-item">
-              <label>分辨率</label>
+            <div class="config-item" v-if="s2vOptionVisible('publish.resolution')">
+                <label>分辨率</label>
               <select v-model="activeOutputConfig.resolution" class="form-select">
                 <option v-for="opt in outputResolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
             </div>
-            <div class="config-item">
-              <label>帧率</label>
+            <div class="config-item" v-if="s2vOptionVisible('advanced.fps')">
+                <label>帧率</label>
               <select v-model.number="activeOutputConfig.fps" class="form-select">
                 <option :value="24">24 fps (电影)</option>
                 <option :value="30">30 fps (标准)</option>
                 <option :value="60">60 fps (流畅)</option>
               </select>
             </div>
-            <div class="config-item">
-              <label>格式</label>
+            <div class="config-item" v-if="s2vOptionVisible('advanced.format')">
+                <label>格式</label>
               <select v-model="activeOutputConfig.format" class="form-select">
                 <option value="mp4">MP4 (H.264)</option>
                 <option value="webm">WebM (VP9)</option>
@@ -1236,21 +1246,21 @@
               <div class="bgm-library-rename-row">
                 <input v-model.trim="s2vConfigProfileRenameDraft" class="form-input" maxlength="60" data-testid="s2v-config-profile-rename-input" @keyup.enter="saveS2VConfigProfileRename" @keyup.esc="cancelS2VConfigProfileRename" />
                 <div class="bgm-library-actions" style="opacity:1">
-                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !String(s2vConfigProfileRenameDraft || '').trim()" @click="saveS2VConfigProfileRename" title="保存"><span class="material-symbols-outlined">check</span></button>
-                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="取消"><span class="material-symbols-outlined">close</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !String(s2vConfigProfileRenameDraft || '').trim()" @click="saveS2VConfigProfileRename" title="保存"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="取消"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
                 </div>
               </div>
             </template>
             <template v-else>
               <div class="bgm-library-item-content">
-                <span class="material-symbols-outlined bgm-library-item-icon">tune</span>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
                 <span class="bgm-library-name" :title="profile.name">{{ profile.name }}</span>
                 <span class="bgm-library-toolbar-hint">{{ pipelineName(profile.pipelineId) }} · {{ formatS2VConfigProfileTime(profile.updatedAt) }}</span>
               </div>
               <div class="bgm-library-actions">
-                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !s2vConfigProfileCanApply(profile)" :title="s2vConfigProfileCanApply(profile) ? '应用到当前流水线' : '该配置属于其他流水线'" data-testid="s2v-config-profile-apply" @click="requestApplyS2VConfigProfile(profile)"><span class="material-symbols-outlined">play_arrow</span></button>
-                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="重命名"><span class="material-symbols-outlined">edit</span></button>
-                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="删除"><span class="material-symbols-outlined">delete</span></button>
+                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !s2vConfigProfileCanApply(profile)" :title="s2vConfigProfileCanApply(profile) ? '应用到当前流水线' : '该配置属于其他流水线'" data-testid="s2v-config-profile-apply" @click="requestApplyS2VConfigProfile(profile)"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="重命名"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="删除"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg></button>
               </div>
             </template>
           </li>
@@ -1477,7 +1487,7 @@ import {
 import { modelProviderList } from '@/api/model-providers'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
-import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
+import { opsCenterSyncRuntime, opsCenterSyncPipelineOptions } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
 import {
   getTtsVoiceCatalog,
@@ -2056,6 +2066,8 @@ export default {
       s2vConfigProfileApplyTarget: null,
       s2vConfigProfileApplyPipelineId: '',
       s2vConfigProfileApplying: false,
+      // 当前已应用的配置名（2026-08-31）：应用配置后显示，用户改动选项后清除
+      s2vActiveConfigProfile: '',
       s2vConfigProfileDeleteDialogOpen: false,
       s2vConfigProfileDeleteTarget: null,
       s2vConfigProfileListRequestId: 0,
@@ -2087,6 +2099,9 @@ export default {
       s2vVoiceProviderExplicitEdge: false,
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
+      // 运营中心选项控制（2026-08-31）：可见性与默认值
+      s2vPipelineOptions: null,
+      s2vPipelineOptionsLoading: false,
       // 历史
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 页面导航历史
@@ -2588,8 +2603,8 @@ export default {
       }
     },
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
-    s2vConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) this.scheduleS2VLastOptionsSave() } },
-    s2vOutputConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) this.scheduleS2VLastOptionsSave() } },
+    s2vConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) { this.s2vActiveConfigProfile = ''; this.scheduleS2VLastOptionsSave() } } },
+    s2vOutputConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) { this.s2vActiveConfigProfile = ''; this.scheduleS2VLastOptionsSave() } } },
     // 分镜素材自选等待态（2026-08-13）：首次激活自动滚动到面板并短时高亮；关闭后重置，下次激活再引导
     sceneAssetSelectionActive(active) {
       if (!active) {
@@ -2692,7 +2707,7 @@ export default {
     },
     s2vSectionSummary(section) {
       const summaries = {
-        basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
+        basic: `${this.activeOutputConfig.resolution || '720x1280'} · 语速 ${Number(this.s2vConfig.voiceSpeed).toFixed(1)}x · 音量 ${Number(this.s2vConfig.voiceVolume).toFixed(2)}`,
         appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
         videoEnhance: this.s2vConfig.videoMode === 'off' || !this.s2vConfig.videoMode
           ? '纯图片轮播'
@@ -2708,6 +2723,28 @@ export default {
     setS2VSectionOpen(section, event) {
       if (!Object.prototype.hasOwnProperty.call(this.s2vOpenSections, section)) return
       this.s2vOpenSections[section] = Boolean(event?.target?.open)
+    },
+    // 旁白试听（2026-08-31）：使用浏览器内置 SpeechSynthesis API 按当前语速/音量播放试听文本
+    previewS2VVoice() {
+      try {
+        if (!window.speechSynthesis) {
+          this.showS2VOptionsToast('当前环境不支持语音合成')
+          return
+        }
+        window.speechSynthesis.cancel()
+        const utterance = new SpeechSynthesisUtterance('欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。')
+        const speed = Number(this.s2vConfig.voiceSpeed) || 1
+        const volume = Math.min(1, Math.max(0, Number(this.s2vConfig.voiceVolume) || 1))
+        utterance.rate = speed
+        utterance.volume = volume
+        utterance.lang = "zh-CN"
+        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+        window.speechSynthesis.speak(utterance)
+      } catch (e) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[previewS2VVoice] SpeechSynthesis failed:", e)
+        }
+      }
     },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
@@ -3205,6 +3242,7 @@ export default {
       }
       const applied = await this.applyS2VConfigProfileSnapshot(target)
       if (applied) {
+        this.s2vActiveConfigProfile = target.name || ''
         this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.applied', '已应用配置', 'Configuration applied'))
       }
     },
@@ -3423,6 +3461,93 @@ export default {
       } catch (_) {
         this.maxOutputResolution = '1080p'
       }
+    async loadPipelineOptions() {
+      // 运营中心选项控制（2026-08-31）：获取流水线选项可见性与默认值
+      // 优先级：运营后台下发 → 桌面端本地默认值；失败一律使用本地默认值（fail-open，不阻塞创作）。
+      this.s2vPipelineOptionsLoading = true
+      try {
+        const res = await opsCenterSyncPipelineOptions()
+        const data = res && res.code === 0 ? res.data : null
+        if (data && typeof data === 'object') {
+          this.s2vPipelineOptions = {
+            visibility: data.visibility || {},
+            defaults: data.defaults || {},
+          }
+          // 应用默认值到当前配置（仅当用户未手动修改过时）
+          this.applyS2VPipelineDefaults()
+        }
+      } catch (_) {
+        // 运营中心不可用时使用本地默认值，不阻塞创作流程
+        this.s2vPipelineOptions = null
+      } finally {
+        this.s2vPipelineOptionsLoading = false
+      }
+    },
+    // 应用运营中心下发的选项默认值（2026-08-31）
+    applyS2VPipelineDefaults() {
+      const defaults = this.s2vPipelineOptions?.defaults
+      if (!defaults || typeof defaults !== 'object') return
+      // 映射 option_key 到 s2vConfig 字段
+      const keyMap = {
+        'basic.resolution': { target: 's2vOutputConfig', field: 'resolution' },
+        'basic.voiceSpeed': { target: 's2vConfig', field: 'voiceSpeed' },
+        'basic.voiceVolume': { target: 's2vConfig', field: 'voiceVolume' },
+        'visual.imageStyle': { target: 's2vConfig', field: 'imageStyle' },
+        'visual.imageProvider': { target: 's2vConfig', field: 'imageProvider' },
+        'visual.promptStyle': { target: 's2vConfig', field: 'promptStyle' },
+        'visual.imageEffect': { target: 's2vConfig', field: 'imageEffect' },
+        'visual.imageCount': { target: 's2vConfig', field: 'imageCount' },
+        'visual.subtitleStyle': { target: 's2vConfig', field: 'subtitleStyle' },
+        'visual.watermarkConfig': { target: 's2vConfig', field: 'watermarkConfig' },
+        'videoEnhance.videoMode': { target: 's2vConfig', field: 'videoMode' },
+        'videoEnhance.videoFixedRatio': { target: 's2vConfig', field: 'videoFixedRatio' },
+        'videoEnhance.videoMinRatio': { target: 's2vConfig', field: 'videoMinRatio' },
+        'videoEnhance.videoMaxRatio': { target: 's2vConfig', field: 'videoMaxRatio' },
+        'videoEnhance.shortVideoHandling': { target: 's2vConfig', field: 'shortVideoHandling' },
+        'voice.voiceProvider': { target: 's2vConfig', field: 'voiceProvider' },
+        'voice.voiceModel': { target: 's2vConfig', field: 'voiceModel' },
+        'voice.voiceId': { target: 's2vConfig', field: 'voiceId' },
+        'voice.bgm': { target: 's2vConfig', field: 'bgm' },
+        'voice.bgmVolume': { target: 's2vConfig', field: 'bgmVolume' },
+        'advanced.contentType': { target: 's2vConfig', field: 'contentType' },
+        'advanced.creationMode': { target: 's2vConfig', field: 'creationMode' },
+        'advanced.materialMode': { target: 's2vConfig', field: 'materialMode' },
+        'advanced.splitLanguage': { target: 's2vConfig', field: 'splitLanguage' },
+        'advanced.splitMode': { target: 's2vConfig', field: 'splitMode' },
+        'advanced.splitMaxSentenceLength': { target: 's2vConfig', field: 'splitMaxSentenceLength' },
+        'advanced.splitTargetCharsPerScene': { target: 's2vConfig', field: 'splitTargetCharsPerScene' },
+        'advanced.templateId': { target: 's2vConfig', field: 'templateId' },
+        'advanced.fps': { target: 's2vOutputConfig', field: 'fps' },
+        'advanced.format': { target: 's2vOutputConfig', field: 'format' },
+        'advanced.negativePrompt': { target: 's2vConfig', field: 'negativePrompt' },
+        'publish.platforms': { target: 's2vConfig', field: 'platforms' },
+      }
+      for (const [key, value] of Object.entries(defaults)) {
+        const mapping = keyMap[key]
+        if (!mapping) continue
+        const target = this[mapping.target]
+        if (!target || typeof target !== 'object') continue
+        // 仅当字段尚未被用户手动修改时应用默认值（undefined 或等于初始值）
+        if (target[mapping.field] === undefined || target[mapping.field] === null) {
+          try {
+            target[mapping.field] = JSON.parse(value)
+          } catch (_) {
+            target[mapping.field] = value
+          }
+        }
+      }
+    },
+    // 检查选项是否可见（2026-08-31）
+    s2vOptionVisible(optionKey) {
+      const vis = this.s2vPipelineOptions?.visibility
+      if (!vis || typeof vis !== 'object') return true // 未下发配置时默认全部可见
+      if (Object.prototype.hasOwnProperty.call(vis, optionKey)) return vis[optionKey] === true
+      // 检查组级别可见性
+      const group = optionKey.split('.')[0]
+      const groupKey = group + '._group'
+      if (Object.prototype.hasOwnProperty.call(vis, groupKey)) return vis[groupKey] === true
+      return true // 默认可见
+    },
     },
     async loadS2VTtsSamples() {
       // Batch 5b：读取本地 TTS 时长样本用于自适应校准（best-effort，失败回退静态估算）。
@@ -6131,6 +6256,7 @@ export default {
     )
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     await this.loadMaxOutputResolution()
+      await this.loadPipelineOptions()
     // 路由直接进入历史记录视图（/create?view=history）
     if (this.$route?.query?.view === 'history') {
       this.detachPipelineView('history')

@@ -184,6 +184,11 @@
 /* 风格选择 */
 .config-section { margin-bottom: 24px; }
 .s2v-config-sections { display: grid; gap: 10px; margin-bottom: 16px; }
+/* 当前配置提示条（2026-08-31）：应用配置后显示，选项改动后消失 */
+.s2v-active-config { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--primary, rgba(64,158,255,0.35)); border-radius: 8px; background: color-mix(in srgb, var(--primary, #2563eb) 6%, transparent); font-size: 13px; }
+.s2v-active-config-label { font-weight: 600; color: var(--text-primary, #1D1D1F); }
+.s2v-active-config-name { color: var(--primary, #2563eb); font-weight: 600; overflow-wrap: anywhere; }
+
 .s2v-config-section { border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--surface); overflow: hidden; transition: border-color 0.2s ease; }
 .s2v-config-section[open] { border-color: var(--primary, rgba(64,158,255,0.3)); }
 .s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; font-size: 14px; transition: background 0.15s ease; }
@@ -217,6 +222,14 @@
 /* minmax(min(200px, 100%), 1fr)：窄容器下轨道可收缩到容器宽，避免 min-content 撑宽整页；
    grid/flex 子项 min-width: 0 + overflow-wrap:anywhere：长不可断文本（如 MiniMax 克隆 voice_id）换行而非溢出。 */
 .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 16px; }
+/* 选项内容区域宽度固定：voice-clone 展开时不得撑宽整个 config-grid（2026-08-31 修复） */
+.s2v-config-section > .config-grid { width: 100%; max-width: 100%; box-sizing: border-box; }
+.voice-clone-panel { width: 100%; max-width: 100%; overflow: hidden; }
+.voice-clone-row { flex-wrap: wrap; }
+.voice-clone-actions { flex-wrap: wrap; }
+.voice-clone-list { width: 100%; max-width: 100%; }
+.voice-clone-row > .voice-clone-actions { margin-left: auto; }
+
 .config-item { min-width: 0; }
 .config-span-2 { grid-column: span 2; min-width: 0; }
 .inline-file-control { display: flex; align-items: center; gap: 8px; min-width: 0; }

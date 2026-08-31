@@ -593,3 +593,18 @@ class PromptEvalScene(Base):
     prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class PipelineOption(Base):
+    __tablename__ = "pipeline_options"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    option_key = Column(String(128), unique=True, nullable=False)
+    group = Column(String(32), nullable=False)
+    field = Column(String(64), nullable=False)
+    label = Column(String(100), default="")
+    visible = Column(Integer, default=1)
+    default_value = Column(Text, default="")
+    description = Column(String(200), default="")
+    sort_order = Column(Integer, default=0)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")

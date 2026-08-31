@@ -196,6 +196,12 @@ const routes = [
     component: () => import('../views/ModelKeys.vue'),
     meta: { requiresAuth: true, adminOnly: true },
   },
+  {
+    path: '/pipeline-options',
+    name: 'PipelineOptions',
+    component: () => import('../views/PipelineOptions.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+  },
 ]
 
 const router = createRouter({

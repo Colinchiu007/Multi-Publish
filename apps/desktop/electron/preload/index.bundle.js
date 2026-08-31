@@ -561,6 +561,7 @@ var require_system = __commonJS({
         opsCenterSyncSave: (payload) => ipcRenderer2.invoke("ops-center-sync:save", payload),
         opsCenterSyncNow: () => ipcRenderer2.invoke("ops-center-sync:now"),
         opsCenterSyncRuntime: () => ipcRenderer2.invoke("ops-center-sync:runtime"),
+        opsCenterSyncPipelineOptions: () => ipcRenderer2.invoke("ops-center-sync:pipelineOptions"),
         modelProviderGet: (id) => ipcRenderer2.invoke("model-provider:get", id),
         modelProviderCreate: (data) => ipcRenderer2.invoke("model-provider:create", data),
         modelProviderUpdate: (id, data) => ipcRenderer2.invoke("model-provider:update", id, data),
@@ -858,7 +859,6 @@ var require_video_clone = __commonJS({
               try {
                 cb(evt);
               } catch {
-                /* ignore */
               }
             };
             ipcRendererRef.on("video-clone:progress", listener);

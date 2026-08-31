@@ -182,6 +182,7 @@ class OpsCenterSync {
       updatePolicy: state.updatePolicy || null,
       contentPolicy: state.contentPolicy || null,
       featureFlags: normalizeFeatureFlags(state.featureFlags),
+      pipelineOptions: (state.pipelineOptions && typeof state.pipelineOptions === 'object') ? state.pipelineOptions : null,
       syncedAt: state.syncedAt || '',
     }
   }
@@ -199,6 +200,7 @@ class OpsCenterSync {
       updatePolicy: this._runtime.updatePolicy || null,
       contentPolicy: cp ? { name: cp.name, enabled: cp.enabled !== false, updatedAt: cp.updated_at || cp.updatedAt || '' } : null,
       featureFlags: this._runtime.featureFlags || {},
+      pipelineOptions: this._runtime.pipelineOptions || null,
       syncedAt: this._runtime.syncedAt || '',
     }
   }
@@ -212,6 +214,11 @@ class OpsCenterSync {
   /** 目录同步 Key 明文（仅供内部上报/校验服务使用，不暴露给渲染进程） */
   getCatalogApiKey() {
     return this._readEncryptedKey()
+  }
+
+  /** 视频创作流水线选项控制（2026-08-31）：运营中心下发的可见性与默认值 */
+  getPipelineOptions() {
+    return this._runtime.pipelineOptions || null
   }
 
   /** 读取功能开关 typed value（主进程/引擎消费）；不存在返回 undefined */
@@ -255,6 +262,7 @@ class OpsCenterSync {
       updatePolicy: payload.update_policy && typeof payload.update_policy === 'object' ? payload.update_policy : null,
       contentPolicy: payload.content_policy && typeof payload.content_policy === 'object' ? payload.content_policy : null,
       featureFlags: normalizeFeatureFlags(payload.feature_flags),
+      pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
       syncedAt: payload.synced_at || new Date().toISOString(),
     }
     this._runtime = next
