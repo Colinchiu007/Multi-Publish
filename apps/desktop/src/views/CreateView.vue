@@ -3605,7 +3605,6 @@ export default {
       if (Object.prototype.hasOwnProperty.call(vis, groupKey)) return vis[groupKey] === true
       return true // 默认可见
     },
-    },
     async loadS2VTtsSamples() {
       // Batch 5b：读取本地 TTS 时长样本用于自适应校准（best-effort，失败回退静态估算）。
       // 兼容 { code, data } 与直接数组两种返回形态（storeGetSetting 解包后为数组；测试/直连为原始对象）。
