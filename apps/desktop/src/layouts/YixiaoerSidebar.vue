@@ -99,6 +99,7 @@ import {
 import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
+import { invokePageManager } from '@/api/electron-bridge'
 
 const route = useRoute()
 const router = useRouter()
@@ -116,12 +117,7 @@ onMounted(() => {
   if (el) {
     const syncWidth = () => {
       const w = el.getBoundingClientRect().width
-      if (w > 0) {
-        const api = window.electronAPI?.pageManager
-        if (api && typeof api.setSidebarWidth === 'function') {
-          api.setSidebarWidth(Math.round(w))
-        }
-      }
+      if (w > 0) invokePageManager('setSidebarWidth', Math.round(w))
     }
     syncWidth()
     _sidebarObserver = new ResizeObserver(syncWidth)

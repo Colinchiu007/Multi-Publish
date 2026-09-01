@@ -3097,7 +3097,7 @@ describe("CreateView - UI interactions", () => {
     expect(titles).toEqual(["分句与时长", "模板与输出"]);
     expect(w.text()).toContain("分句语言");
     expect(w.text()).toContain("比例与分辨率");
-    expect(w.text()).toContain("720×1280（竖屏）");
+    expect(w.text()).toContain("9:16竖屏 720x1280");
     w.unmount();
   });
 
