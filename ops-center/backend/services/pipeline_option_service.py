@@ -76,13 +76,13 @@ async def upsert_options(db: AsyncSession, items: list[dict], updated_by: str = 
 
 async def get_bootstrap_options(db: AsyncSession) -> dict:
     result = await db.execute(
-        sa.select(PipelineOption).where(PipelineOption.visible == 1).order_by(PipelineOption.sort_order, PipelineOption.option_key)
+        sa.select(PipelineOption).order_by(PipelineOption.sort_order, PipelineOption.option_key)
     )
     rows = result.scalars().all()
     visibility = {}
     defaults = {}
     for r in rows:
-        visibility[r.option_key] = True
+        visibility[r.option_key] = bool(r.visible)
         if r.default_value:
             try:
                 defaults[r.option_key] = json.loads(r.default_value)
