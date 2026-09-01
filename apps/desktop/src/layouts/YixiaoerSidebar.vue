@@ -99,6 +99,7 @@ import {
 import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
+import { setSidebarWidth } from '@/api/page-manager'
 
 const route = useRoute()
 const router = useRouter()
@@ -117,10 +118,7 @@ onMounted(() => {
     const syncWidth = () => {
       const w = el.getBoundingClientRect().width
       if (w > 0) {
-        const api = window.electronAPI?.pageManager
-        if (api && typeof api.setSidebarWidth === 'function') {
-          api.setSidebarWidth(Math.round(w))
-        }
+        setSidebarWidth(Math.round(w))
       }
     }
     syncWidth()
