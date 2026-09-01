@@ -1,3 +1,17 @@
+## RPA 浏览器数据主密钥改 safeStorage 加密（codex/stage-1.2-safe-storage，2026-09-02）
+
+- **背景**：架构重构 Stage -1.2 安全基线要求 —— rpa-engine 的浏览器数据主密钥（`browser_data/` 下 `.browser_data_key`，保护 cookies/localStorage 加密备份）此前以明文 hex 落盘，任意可读磁盘路径直接拿到密钥即可解密全部浏览器登录态，与 Stage -1.1（accounts 表）同类高风险存量债务。
+- **方案**：
+  - **safeStorage 加密 + 三层兼容读**：`browser-data.js` 主密钥支持 `safeStorage:v1:`（加密）/ `plaintext:v1:` / 历史裸 hex 三种格式读取；`decodeKey` 统一解码校验（64-hex 格式合同），损坏即抛错不静默重建。
+  - **fail-closed 新建**：无密钥且 safeStorage 不可用（纯 Node / DPAPI 异常）时抛错拒绝创建明文密钥；可用时生成 64-hex 密钥并以 `safeStorage:v1:` 前缀加密后原子落盘（主文件 + 备份双副本，chmod 600）。
+  - **存量明文自动迁移**：读取到明文格式且 safeStorage 可用 → 自动迁移为 safeStorage 加密，**密钥值不变**，既有加密 cookies/localStorage 无需重加密即可继续解密；不可用 → warn 告警降级继续使用历史明文（渐进迁移，不阻塞登录恢复）。
+  - **DI 注入点**：`configureSafeStorage()` 模块级注入（测试 / 宿主覆盖），缺省在 Electron 环境自动解析 `electron.safeStorage`，纯 Node 返回 null。
+  - **Windows 原子 rename 合同**：写入走 tmp + rename，仅对 `EPERM/EACCES/EBUSY` 做有界退避重试（20ms→640ms 6 档），其余错误原样抛出，匹配 AGENTS.md QM「Windows 原子文件替换重试」。
+- **教训（测试相关）**：rpa-engine 为纯 Node 包不可直接 import electron，safeStorage 必须走 DI 注入才能做真实加解密回环测试；「损坏主密钥 + 有效备份」双副本恢复路径、以及「明文密钥 + 用其加密的既有 cookies 在升级环境迁移后仍可解」的向后兼容用例是迁移安全的核心断言。
+- **预防**：新增 `browser-data.test.js`（14 用例：新建加密+双副本、密钥值稳定、fail-closed、明文/plaintext 迁移、备份恢复、解密失败 fail-closed、格式校验、加密往返、迁移后旧密文可解、DI API 完整性）；后续浏览器数据类敏感文件新建必须走同一安全存储合同，禁止新增明文密钥落盘。
+
+---
+
 ## 账号凭证明文落盘安全加固：cookies/localStorage 加密（codex/refactor-stage-1，2026-09-01）
 
 - **背景**：架构重构 Stage -1.1 安全基线要求 —— `accounts` 表的 `cookies` / `localStorage` 此前以明文 JSON 落盘，一期上线后任意磁盘可读路径 + SQLite 文件拷贝都能拿到平台登录态，属高风险存量债务。
