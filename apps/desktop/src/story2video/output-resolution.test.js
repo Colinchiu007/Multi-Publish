@@ -29,6 +29,8 @@ describe('parseMaxOutputResolution — 能力上限', () => {
 describe('getOutputResolutionOptions — 前端选项随开关', () => {
   it('1080p（默认）：不出现 3840x2160，保留竖屏/横屏 1080p 档', () => {
     const options = getOutputResolutionOptions('1080p')
+    // OUTPUT_RESOLUTION_OPTIONS 现含 1:1 与 16:9 720p 档（S2V 选项重组，2026-08），
+    // 1080p 面积档共 6 项，4K 仍由开关控制不出现。
     expect(options.map(o => o.value)).toEqual(['720x1280', '1080x1920', '1080x1440', '1080x1080', '1280x720', '1920x1080'])
     expect(options.some(o => o.value === '3840x2160')).toBe(false)
   })

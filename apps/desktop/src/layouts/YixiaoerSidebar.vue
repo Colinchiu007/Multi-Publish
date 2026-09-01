@@ -99,7 +99,7 @@ import {
 import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
-import { setSidebarWidth } from '@/api/page-manager'
+import { invokePageManager } from '@/api/electron-bridge'
 
 const route = useRoute()
 const router = useRouter()
@@ -117,9 +117,7 @@ onMounted(() => {
   if (el) {
     const syncWidth = () => {
       const w = el.getBoundingClientRect().width
-      if (w > 0) {
-        setSidebarWidth(Math.round(w))
-      }
+      if (w > 0) invokePageManager('setSidebarWidth', Math.round(w))
     }
     syncWidth()
     _sidebarObserver = new ResizeObserver(syncWidth)
@@ -133,25 +131,25 @@ onUnmounted(() => {
   }
 })
 
-const primaryItems = computed(() => [
-  { key: 'home', label: t('sidebar.nav.home'), to: '/', icon: HomeFilled },
-  { key: 'publish', label: t('sidebar.nav.publish'), to: '/publish/history', icon: VideoCamera },
-  { key: 'accounts', label: t('sidebar.nav.accounts'), to: '/accounts', icon: User },
-  { key: 'dashboard', label: t('sidebar.nav.dashboard'), to: '/dashboard', icon: DataAnalysis },
-  { key: 'create', label: t('sidebar.nav.create'), to: '/create', icon: VideoCamera },
-  { key: 'collection', label: t('sidebar.nav.collection'), to: '/collection', icon: Collection },
-])
+const primaryItems = [
+  { key: 'home', label: '主页', to: '/', icon: HomeFilled },
+  { key: 'publish', label: '发布', to: '/publish/history', icon: VideoCamera },
+  { key: 'accounts', label: '账号', to: '/accounts', icon: User },
+  { key: 'dashboard', label: '数据', to: '/dashboard', icon: DataAnalysis },
+  { key: 'create', label: '视频创作', to: '/create', icon: VideoCamera },
+  { key: 'collection', label: '采集', to: '/collection', icon: Collection },
+]
 
 const moreItems = computed(() => [
-  { key: 'monitor', label: t('sidebar.nav.monitor'), to: '/monitor', icon: Monitor },
-  { key: 'calendar', label: t('sidebar.nav.calendar'), to: '/calendar', icon: Calendar },
-  { key: 'comments', label: t('sidebar.nav.comments'), to: '/comments', icon: ChatDotRound },
-  { key: 'cloud-publish', label: t('sidebar.nav.cloudPublish'), to: '/cloud-publish', icon: FolderOpened },
-  { key: 'library', label: t('sidebar.nav.library'), to: '/library', icon: FolderOpened },
-  { key: 'keywords', label: t('sidebar.nav.keywords'), to: '/keywords', icon: Search },
-  { key: 'viral', label: t('sidebar.nav.viral'), to: '/viral-analysis', icon: TrendCharts },
-  { key: 'prompt-eval', label: t('sidebar.nav.promptEval'), to: '/prompt-eval', icon: MagicStick },
-  { key: 'model-providers', label: t('sidebar.nav.modelProviders'), to: '/model-providers', icon: Cpu },
+  { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
+  { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
+  { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
+  { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },
+  { key: 'library', label: '素材库', to: '/library', icon: FolderOpened },
+  { key: 'keywords', label: '关键词监控', to: '/keywords', icon: Search },
+  { key: 'viral', label: '爆款分析', to: '/viral-analysis', icon: TrendCharts },
+  { key: 'prompt-eval', label: '提示词评估', to: '/prompt-eval', icon: MagicStick },
+  { key: 'model-providers', label: '模型提供商', to: '/model-providers', icon: Cpu },
   { key: 'member-center', label: t('memberCenter.menuEntry'), to: '/member-center', icon: User },
 ])
 
