@@ -214,7 +214,7 @@ const checkpoint = run.stages[run.currentStage].requiresCheckpoint || false;
 
 ## 四、质量节拍检查结果
 
-按 `.codex/skills/质量节拍/SKILL.md` 的 defense-in-depth 标准：
+按 `.codex/skills/quality-rhythm/SKILL.md` 的 defense-in-depth 标准：
 
 | 检查项 | 结果 | 说明 |
 |---|---|---|
