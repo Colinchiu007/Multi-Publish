@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-vi.mock('element-plus', () => ({
-  ElMessageBox: { confirm: vi.fn() },
-  ElMessage: { warning: vi.fn(), error: vi.fn(), success: vi.fn(), info: vi.fn() },
+const { mockNotifyWarning, mockNotifyConfirm } = vi.hoisted(() => ({
+  mockNotifyWarning: vi.fn(),
+  mockNotifyConfirm: vi.fn(async () => true),
 }))
 
-const { ElMessageBox, ElMessage } = await import('element-plus')
+vi.mock('@/composables/useNotify', () => ({
+  useNotify: () => ({
+    notify: vi.fn(),
+    notifyError: vi.fn(),
+    notifySuccess: vi.fn(),
+    notifyWarning: mockNotifyWarning,
+    notifyInfo: vi.fn(),
+    notifyConfirm: mockNotifyConfirm,
+  }),
+}))
 
 let mockStore
 vi.mock('@/stores/identity', () => ({
@@ -27,7 +36,7 @@ describe('useLoginGate 主动操作登录门', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockStore = makeStore()
-    ElMessageBox.confirm.mockResolvedValue('confirm')
+    mockNotifyConfirm.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -38,16 +47,19 @@ describe('useLoginGate 主动操作登录门', () => {
     mockStore = makeStore({ status: 'authenticated', isAuthenticated: true })
     const { ensureLogin } = useLoginGate()
     await expect(ensureLogin()).resolves.toBe(true)
-    expect(ElMessageBox.confirm).not.toHaveBeenCalled()
+    expect(mockNotifyConfirm).not.toHaveBeenCalled()
     expect(mockStore.signIn).not.toHaveBeenCalled()
   })
 
   it('未登录：确认后调 signIn，登录成功且 authenticated → 放行', async () => {
     const { ensureLogin } = useLoginGate()
     const result = ensureLogin({ message: '发布功能需要登录后使用，是否立即登录？' })
-    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
-      '发布功能需要登录后使用，是否立即登录？', '需要登录',
-      expect.objectContaining({ confirmButtonText: '立即登录' }),
+    expect(mockNotifyConfirm).toHaveBeenCalledWith(
+      'loginGate.defaultMessage',
+      expect.objectContaining({
+        message: '发布功能需要登录后使用，是否立即登录？',
+        confirmButtonText: '立即登录',
+      }),
     )
     mockStore.signIn.mockImplementation(async () => {
       mockStore.status = 'authenticated'
@@ -59,7 +71,7 @@ describe('useLoginGate 主动操作登录门', () => {
   })
 
   it('未登录：确认框取消 → 拒绝且不调 signIn', async () => {
-    ElMessageBox.confirm.mockRejectedValue(new Error('cancel'))
+    mockNotifyConfirm.mockResolvedValue(false)
     const { ensureLogin } = useLoginGate()
     await expect(ensureLogin()).resolves.toBe(false)
     expect(mockStore.signIn).not.toHaveBeenCalled()
@@ -69,15 +81,15 @@ describe('useLoginGate 主动操作登录门', () => {
     const { ensureLogin } = useLoginGate()
     mockStore.signIn.mockResolvedValue(false)
     await expect(ensureLogin()).resolves.toBe(false)
-    expect(ElMessage.warning).toHaveBeenCalledWith('登录未完成，操作已取消')
+    expect(mockNotifyWarning).toHaveBeenCalledWith('loginGate.loginIncomplete', expect.any(Object))
   })
 
   it('身份服务不可用（disabled）→ 提示并拒绝，不弹确认', async () => {
     mockStore = makeStore({ status: 'disabled' })
     const { ensureLogin } = useLoginGate()
     await expect(ensureLogin()).resolves.toBe(false)
-    expect(ElMessageBox.confirm).not.toHaveBeenCalled()
-    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('身份服务未配置'))
+    expect(mockNotifyConfirm).not.toHaveBeenCalled()
+    expect(mockNotifyWarning).toHaveBeenCalledWith('loginGate.disabledMessage', expect.any(Object))
   })
 
   it('并发触发：signIn 只调一次（单例防重入）', async () => {
@@ -107,7 +119,7 @@ describe('useLoginGate 主动操作登录门', () => {
   })
 
   it('requireLogin：取消登录时不执行 action', async () => {
-    ElMessageBox.confirm.mockRejectedValue(new Error('cancel'))
+    mockNotifyConfirm.mockResolvedValue(false)
     const { requireLogin } = useLoginGate()
     const action = vi.fn(async () => 'done')
     await expect(requireLogin(action)).resolves.toBe(false)

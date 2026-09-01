@@ -29,6 +29,7 @@ const PUBLIC_CHANNELS = new Set([
   'model-provider:is-configured', 'model-provider:logs',
   'ops-center-sync:get', 'ops-center-sync:save', 'ops-center-sync:now', 'ops-center-sync:runtime', 'ops-center-sync:pipelineOptions',
   'logs:info', 'logs:clear', 'logs:error', 'feedback:submit',
+  'notify:log',
   'render:status', 'render:install-deps',
   'pipeline:list', 'pipeline:get', 'pipeline:history',
   // 本地只读历史通道：未登录时也可查看本机创作历史（写/敏感通道仍要求登录）。

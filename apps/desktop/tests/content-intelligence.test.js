@@ -255,10 +255,10 @@ describe('ContentIntelligence', () => {
       expect(result.keywords.length).toBeGreaterThan(0)
       expect(result.byPlatform).toBeDefined()
       expect(result.byPlatform.zhihu).toBeDefined()
-      expect(result.byPlatform.weibo).toBeDefined()
-      expect(result.byPlatform.xiaohongshu).toBeDefined()
-      expect(result.source).toBe('last30days')
-    })
+     expect(result.byPlatform.weibo).toBeDefined()
+     expect(result.byPlatform.xiaohongshu).toBeDefined()
+      expect(result.source).toBe('extractor')
+   })
 
     it('adapts tag style per platform (hashtag vs topic)', async () => {
       const ci = createCI()

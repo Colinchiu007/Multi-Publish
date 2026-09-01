@@ -150,6 +150,9 @@ function buildPublishArticle (task, platform) {
     mentions: processed.mentions,
     images: processed.images,
   }
+  // AI 生成内容声明：默认勾选（AI 生成内容），仅当显式 aiGenerated === false 时取消勾选。
+  // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
+  article.aiGenerated = resolved.base.aiGenerated !== false
   if (platform === 'zhihu') {
     article.commentPermission = resolved.commentPermission
     article.declare = resolved.declare
@@ -373,6 +376,8 @@ class ApiPublisher {
       content: article.content,
       tags: article.tags,
       draft: article.draft === true,
+      // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选
+      aiGenerated: article.aiGenerated !== false,
       video: {
         path: videoPath,
         duration: Number(videoInfo.duration) || 0,

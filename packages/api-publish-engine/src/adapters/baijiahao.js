@@ -5,6 +5,27 @@ const path = require("path");
 const qs = require("querystring");
 const logger = require("../logger");
 
+// 百家号视频标题上限按 UTF-8 字节数校验（后端 /pcui/article/publish 用
+// Math.floor(utf8Bytes/3) > 49 拒绝，即 utf8Bytes >= 150 时拒绝）。实测：
+//   30~49 个中文字符（90~147 字节）成功；50 个中文字符（150 字节）被拒；
+//   50 字符混合（45 中文+5 英文，140 字节）成功；49 中文+1 英文（148 字节）成功。
+// 因此安全上限 = 149 字节。历史视频/一键发布预填文案可能超长，发布前按字节截断兜底。
+const BAIJIAHAO_TITLE_MAX_BYTES = 149
+/** 按 UTF-8 字节数截断字符串到 maxBytes 字节内，避免把代理对（emoji 等）切成半个字符。 */
+function truncateTitle(value, maxBytes = BAIJIAHAO_TITLE_MAX_BYTES) {
+  const text = String(value || "").trim()
+  const chars = Array.from(text)
+  let bytes = 0
+  const out = []
+  for (const ch of chars) {
+    const b = Buffer.byteLength(ch, "utf8")
+    if (bytes + b > maxBytes) break
+    bytes += b
+    out.push(ch)
+  }
+  return out.join("")
+}
+
 // 调试开关：BJ_DEBUG_TRACE=1 且 BJ_DEBUG_LOG=<路径> 时把每个 HTTP 请求/响应写入该文件
 // （本机抓包用；默认关闭，不影响生产与测试）
 const DEBUG_TRACE = process.env.BJ_DEBUG_TRACE === "1" && Boolean(process.env.BJ_DEBUG_LOG);
@@ -212,19 +233,24 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
   /** 视频发布 postData（蚁小二 buildPostData$r；位置可选，无则空对象） */
   buildVideoPostData(taskData, uploadResult, verticalCover = "", videoName = "", draftId = "") {
     const parts = []
+    // 百家号标题上限按 UTF-8 字节数校验（后端 /pcui/article/publish 用
+    // Math.floor(utf8Bytes/3) > 49 拒绝，安全上限 149 字节）。
+    // 历史视频/一键发布预填的文案可能超长，这里按字节截断兜底，保证发布不因标题超长失败。
+    // 用 Array.from 按 Unicode 码点遍历，避免把代理对（emoji 等）切成半个字符。
+    const title = truncateTitle(taskData.title)
     const rawDuration = taskData.video && Number(taskData.video.duration) > 0 ? Number(taskData.video.duration) : 0
     const duration = Math.round(rawDuration)
     parts.push("video_duration=" + duration)
     parts.push("type=video")
     parts.push("usingImgFilter=false&source_reprinted_allow=0&nryx_mount_list=&is_consultant_card=")
     parts.push("image_edit_point=&ducut_info=&cover_source=upload&bjhmt=&aigc_rebuild=")
-    parts.push("title=" + encodeURIComponent(taskData.title || ""))
+    parts.push("title=" + encodeURIComponent(title))
     // desc：纯文本（剥离 HTML）
     let desc = String(taskData.content || "")
     desc = desc.replace(/<[^>]+>/g, "").trim()
     const mediaId = (uploadResult && uploadResult.mediaId) || (taskData.mediaId) || ""
-    const finalName = (videoName && String(videoName).length > 2) ? videoName : (taskData.title || "video") + ".mp4"
-    const content = JSON.stringify([{ title: taskData.title || "", desc: desc.length > 2 ? desc : taskData.title || "", mediaId, videoName: finalName, local: 1 }])
+    const finalName = (videoName && String(videoName).length > 2) ? videoName : (title || "video") + ".mp4"
+    const content = JSON.stringify([{ title, desc: desc.length > 2 ? desc : title, mediaId, videoName: finalName, local: 1 }])
     parts.push("content=" + encodeURIComponent(content))
     parts.push("desc=" + encodeURIComponent(desc.length > 2 ? desc : ""))
     const fingerprint = JSON.stringify({ s2l: null, s2game: null, bjh: { duration } })
@@ -256,7 +282,11 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     parts.push("vertical_cover=" + (verticalCover ? encodeURIComponent(verticalCover) : ""))
     // 常驻字段（蚁小二 buildPostData$r 尾部）
     parts.push("isBeautify=false")
-    parts.push("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status&activity_list%5B0%5D%5Bis_checked%5D=0")
+    // AI 生成内容声明（aigc_bjh_status）：默认勾选「AI 生成内容」。
+    // 平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
+    // taskData.aiGenerated === false 时显式不勾选（人工创作内容）。
+    const aiGenerated = taskData.aiGenerated !== false
+    parts.push("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status&activity_list%5B0%5D%5Bis_checked%5D=" + (aiGenerated ? 1 : 0))
     parts.push("fe_from=BJH_CMS_PC")
     parts.push("bjhtopic_info=&bjhtopic_id=")
     // 原创声明（蚁小二 original_status：original → 2）

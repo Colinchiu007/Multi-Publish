@@ -577,6 +577,7 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 2. 重写器仅消除可能的暴力、性化、仇恨、违法、有害或可识别个人细节，不扩大主题，并保留安全的主题、时代、动作和构图；内容信号不明确或重写失败时立即停止自动尝试。
 3. 每次尝试只持久化场景序号、尝试序号、结果类别、provider/model、提示词版本哈希和非敏感安全审计摘要；UI 与持久化记录都不得展示原始 prompt、密钥或完整 provider 错误体。
 4. 第 5 次仍被明确拒绝时，阶段状态为 `needs_user_input`，显示“可能存在内容风险，请修改文案后重新启动”的友好建议。用户必须取消旧 run，以修改后的文案创建新 run；不得 `resume`/`advance` 原 run，不得生成 ffmpeg 占位图，`allowPartialAssets` 也不得把它静默视为成功。
+5. **编辑直达（2026-08-30）**：内容政策检查点暂停时，进度弹窗右上角关闭按钮可点击（关闭=取消任务并关闭弹窗，作为已取消/失败处理，不后台化）；底部操作条显示【编辑场景】按钮，点击后取消当前 run 并跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`，结果页自动定位并高亮受影响场景，用户可直接修改对应场景文案后重新生成。`projectId` 来自 `getRunSnapshot` 透传的 `run.projectId`；受影响场景号来自 checkpoint 的 `scenes[].sceneNumber`（1-based）或 `sceneNumber`/`sceneIndex+1`。若缺少可编辑项目（run-only 记录或项目未落盘），不跳转编辑页，仅提示用户到历史记录处理。
 
 ### 3.1.8 创作端简化、运营配置与需求来源边界（P1）
 
@@ -3294,6 +3295,24 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 **八、废弃合同**
 
 3.1.11（running 快照→paused）、3.1.14（stale running→paused）、3.1.19（30 分钟无更新→paused）及 S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项中与本节冲突的条款以本节为准（各节顶部已加废弃警示）。
+
+
+### 3.1.34a 可恢复聚合筛选 tab（2026-08-31）
+
+展示层将已暂停和已中断归入同一个可恢复筛选 tab，筛选栏从 7 标签减少为 6 标签。底层状态值不变，卡片内仍通过图标和提示文字区分暂停原因。
+
+数据契约：
+
+- HISTORY_STATUSES 新增 recoverable 枚举值，RECOVERABLE_STATUSES = [paused, interrupted] 定义聚合关系。
+- filterHistoryByStatus 接受 recoverable 时返回 status 为 paused 或 interrupted 的所有记录，精确匹配 paused/interrupted 仍可用。
+- historyStatusCounts 新增 recoverable 计数，累加 paused 和 interrupted 的 count。
+- locale tabs: zh/en 中 paused/interrupted 合并为 recoverable（可恢复/Recoverable），statuses.interrupted 保留用于卡片内提示。
+
+不可合并底层状态的理由：
+
+- 已暂停（用户主动）和已中断（环境异常）的来源不同，恢复路径和 checkpoint 处理逻辑有差异。
+- 合并底层状态需修改 run-state-store、pipeline-engine 和 IPC 合同，风险高、收益低。
+- 展示层聚合即可同时满足降低认知负担和保留精确信息的双重目标。
 
 ### 3.1.35 流水线启动前台跟踪与离开转后台生命周期（2026-08-21）
 

@@ -410,14 +410,14 @@ describe('AuthViewManager 凭证边界', () => {
     manager.currentView = { setBounds }
 
     manager._positionView({ width: 1440, height: 900 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1440, height: 824 })
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1240, height: 824 })
 
     manager._positionView({ width: 1200, height: 800 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1200, height: 724 })
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1000, height: 724 })
 
-    // 窄窗口同样全屏（无侧栏偏移）
+    // 窄窗口同样偏移侧栏宽度
     manager._positionView({ width: 1000, height: 700 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1000, height: 624 })
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 800, height: 624 })
   })
 
   it('show()/hide() 切换视图可见性', () => {

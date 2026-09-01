@@ -1,0 +1,12 @@
+{
+  "id": "e2e-baijiahao-publish",
+  "title": "鐪熷疄鐜E2E锛氱敤鍘嗗彶瑙嗛鍙戝竷鐧惧鍙凤紝杈规祴杈逛慨",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "rpa-publish",
+  "currentPhase": "completed",
+  "nextAction": "PR #1247 merged, archived",
+  "createdAt": "2026-08-31T00:00:00Z",
+  "branch": "codex/e2e-baijiahao-publish"
+}

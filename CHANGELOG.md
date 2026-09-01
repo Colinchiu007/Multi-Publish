@@ -1,4 +1,43 @@
+## [未发布] feat(story2video): 历史记录可恢复聚合筛选 tab
+
+- 展示层将已暂停和已中断归入同一个可恢复筛选 tab，筛选栏从 7 标签减少为 6 标签（全部/进行中/可恢复/执行失败/已完成/已取消）。
+- 底层 paused/interrupted 状态值不变，恢复链路、快照持久化、checkpoint 判定和卡片内图标（II/↯）、提示文字（暂停环节/中断环节）均保留差异化。
+- 新增 RECOVERABLE_STATUSES = [paused, interrupted] 聚合关系，filterHistoryByStatus 接受 recoverable 时返回两者；精确匹配 paused/interrupted 仍可用。
+- historyStatusCounts 新增 recoverable 计数。
+- locale: zh/en paused/interrupted 合并为 recoverable（可恢复/Recoverable），statuses.interrupted 保留用于卡片内提示。
+- 回归保护：history-utils.test.js 更新 HISTORY_STATUSES 断言 + recoverable 聚合测试；CreateViewHistory.test.js 更新 tab 数量和数据状态列表。
+- 文档：PRD-S2V-PIPELINE-PAGE-UX 3.1/5.1.1；PRD-video-creation 3.1.34a。
+
+---
+## [未发布] fix(account): 快手账号卡片登录态修复——Dashboard URL 修正 + 创作者中心登录后自动保存
+
+- 现象：点击已添加的快手账号卡片，期望打开已登录状态的快手创作者中心，实际打开的是未登录登录页；在登录页登录后再次点击卡片，打开的网页仍是未登录状态。
+- 根因：`PLATFORM_DASHBOARD_URLS.kuaishou` 误指向登录页 `https://passport.kuaishou.com/pc/account/login`（2026-08-22 commit aedfc7011 在修复 `PLATFORM_LOGIN_URLS.kuaishou` 时连带误改），导致点击卡片永远打开登录页；同时创作者中心标签页内登录后 cookies 只留在隔离分区（`persist:account-<id>`），未写回加密凭证库，应用重启后登录态丢失。
+- 修复：
+  - ① `PLATFORM_DASHBOARD_URLS.kuaishou` 修正为快手创作者中心 `https://cp.kuaishou.com/`；`PLATFORM_LOGIN_URLS.kuaishou` 保持登录页不变（登录页排除逻辑依赖它区分「登录页」与「登录成功页」）。
+  - ② `account-manager.js` 新增 `updateAccountCredentials(accountId, platform, captured, options)`：更新已有账号凭证（cookies/localStorage/indexedDB/accountInfo），过滤平台域、保留原 proxy、覆盖写回加密凭证库并同步账号状态记录；无有效凭证拒绝、加密写入失败报错且不写状态记录。
+  - ③ `webview-manager.js` 账号级标签页（`useAccountSession && platform`）监听 `did-navigate`/`did-navigate-in-page`，URL 匹配 `isPlatformLoginSuccessUrl` 时延迟 3 秒捕获分区 cookies，过滤平台域后调用 `updateAccountCredentials` 写回，成功后发送 `account:status-changed` 通知前端刷新卡片。
+- 回归保护：`platform-definitions.test.js` 8/8（快手 Dashboard URL、登录页/成功页判定）；`account-manager.test.js` 45/45（覆盖写回保留 proxy、owner 隔离、无凭证拒绝、非法参数纵深拒绝、加密失败）；`webview-manager.test.js` 27/27（登录成功自动保存并通知、登录页不触发、未捕获到 cookie 不写不通知）。
+- 文档：PRD §18.2.4 新增「快手账号卡片登录态修复」合同表（数据校验/流程/交互/显示项/提示文字）；CHANGELOG 本记录。
+- 预防：AGENTS.md 账号卡片/创作者中心相关 QM 规则补充（快手 Dashboard 与 Login URL 必须区分，登录页排除逻辑不得误判成功页）。
+
+---
 ## [未发布] feat(story2video): 图片内容安全敏感改写优化点 7-8 与既有项增强（语言匹配/严重度差异化/预检闭环/映射表/negative_prompt/成本预算/审计反哺/语义算法）
+## [未发布] feat(publish): 历史视频一键发布到百家号 + AI 生成声明默认勾选 + 标题自动截断（真实 E2E 跑通）
+
+- 背景：用真实环境 E2E 验证「历史记录已生成视频 → 一键发布 → 自动创作 → 发布到百家号」全流程。真实发布成功（百家号文章 ID `1875007830173233602`），过程中发现并修复 3 个问题：① 历史视频跳转 query 双重编码导致预填失效；② 百家号标题超长（66 字 > 50 字限制）导致发布失败；③ 发布流程未默认勾选 AI 生成声明（合规风险）。
+- 新增/变更：
+  - **AI 生成内容声明默认勾选**：`usePublishFlow.js` 初始化 `data.aiGenerated` 时，只要平台未显式关闭即默认 `true`，避免用户漏勾导致内容违规；百家号后端 `baijiahao.js` 同步写入 `aigc_bjh_status=1`。
+  - **历史视频发布入口**：历史记录已生成视频可直接进入发布页，`applyHistoryVideoQuery` 预填标题/内容/标签/视频路径，封面走视频首帧。
+  - **历史视频跳转 query 双重编码修复**：跳转方 `publishDataToQuery` 用 `encodeURIComponent` 编码、vue-router 再编码一次、接收方只 decode 一次导致预填失效；`applyHistoryVideoQuery` 的 `decode` 改为循环解码（最多 3 次直到值不变）。
+  - **百家号标题自动截断（按 UTF-8 字节）**：真实发布实验确认百家号标题上限按 **UTF-8 字节数**校验（后端 `Math.floor(utf8Bytes/3) > 49` 拒绝，安全上限 149 字节）。前端 `usePublishFlow.js` + 后端 `baijiahao.js` 双端按字节截断兜底（`truncateByUtf8Bytes` / `truncateTitle`，上限 149 字节），保证自动一站式流程不因标题超长中断。
+  - **后端数据目录绑定 + 登录超时延长**：Python 后端子进程注入身份运行时配置，修复 `list_accounts` 返回空账号列表；登录超时延长避免真实登录偶发超时。
+  - **审查加固（双模型交叉验证）**：① 百家号标题截断后重新校验其余平台，避免截断到 149 字节后仍超 xiaohongshu(20字)/toutiao(30字) 上限而静默超限；② 差异化面板为 baijiahao 单独设置的覆盖标题超长时截断覆盖标题而非仅全局标题；③ 截断后提示用户；④ utf8ByteLength 兜底分支按 UTF-8 码点精确计字节；⑤ 循环解码上限收敛到 2 次并补注释。
+- 数据与测试：`Publish.test.js` + `publish-contract.test.js` 60 项全绿；`baijiahao-api-chain.test.js` 24 项全绿（含 utf8ByteLength/truncateByUtf8Bytes 字节截断与代理对保护用例）；`api-publish-engine` 全量通过（47 项）；完整 desktop vitest 套件除 `asset-generator.test.js` 5 个预存环境失败（spawn shell / Electron binary 下载，经 CHANGELOG 既有记录确认与本次无关）外全绿。
+- 验证：真实环境 E2E 发布到百家号成功，平台返回文章 ID `1875007830173233602`，发布过程无 `Publish failed` 错误。
+- 文档：PRD §6.6 新增「历史视频发布 + AI 生成声明」章节；learnings.md 新增复盘记录。
+
+---
 
 - 背景：在既有优化点 1-6 基础上，进一步补齐敏感改写策略的 8 项增强：语义保留度算法对中文/同义词失真、改写后缺预检闭环、敏感类型识别依赖错误文本、改写未联动 negative_prompt、LLM 改写无成本预算、审计统计未反哺、改写指令语言与原文不匹配、严重度未差异化改写强度。
 - 优化点：
@@ -38,6 +77,18 @@
 - 预防：AGENTS.md 新增「Story2Video 场景上下文现代信号中和」QM 规则；learnings.md 记录根因与教训；方案见 `01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-MODERN-SIGNAL-2026-08-30.md`。
 
 ---## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
+## [未发布] fix(story2video): 内容政策检查点交互优化——「编辑场景」直达 + 进度弹窗关闭可取消
+
+- 现象：图片提示词被判定敏感且重试耗尽进入内容政策检查点（`needs_user_input`/`content_policy`）时，底部操作条只有【✕ 取消】，进度弹窗右上角关闭按钮被禁用。用户无法直接跳转到受影响场景修改文案，且关闭语义不明确（内容政策任务不能后台化，否则静默卡在 `needs_user_input`）。
+- 修复：
+  1. 底部操作条新增【编辑场景】按钮（`isContentPolicyCheckpoint` 时显示）：点击后先 `pipelineCancel()` 取消当前 run（内容政策任务不能断点续跑，必须改文案后重新生成），再跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`，结果页自动定位并高亮受影响场景。
+  2. 进度弹窗右上角关闭按钮对内容政策检查点可点击：关闭走 `handlePipelineProgressClose` → `cancelContentPolicyTask`（调用 `pipelineCancel` 取消任务并关闭弹窗，作为已取消/失败处理），不后台化；关闭按钮可访问名称改为「关闭并取消该任务」。
+  3. 其他人工检查点（`scene_asset_selection`/`waiting_approval`/非内容政策 `needs_user_input`）保持禁用关闭、不显示后台运行。
+- 数据来源：`projectId` 来自 `getRunSnapshot` 透传的 `run.projectId`；受影响场景号来自 checkpoint 的 `scenes[].sceneNumber`（1-based）或 `sceneNumber`/`sceneIndex+1`。缺少可编辑项目时不跳转，仅提示到历史记录；取消失败保留运行态并提示。
+- 回归保护：`CreateView.test.js` 新增 5 用例（编辑按钮+关闭可点击、关闭=取消、编辑跳转携带 focusScenes、缺项目不跳转、取消失败不跳转）；全量 273 用例全绿。
+- 文档：PRD-S2V-PIPELINE-PAGE-UX.md §6.1、PRD-video-creation.md §3.1.7、ARCH-STORY2VIDEO-IMAGE-CONTENT-POLICY-2026-08-30.md §七。
+
+## [未发布] fix(story2video): 场景上下文朝代误判——成语"事后诸葛亮"被识别为三国（成语守卫）
 
 - 现象：任务 `mtfdxj8d_x694`（原文讲"中国人种单一/引进外国人"，非三国题材）场景 11 的 `storyContext` 被注入"中国三国（220-280）时期"，`anchors: ["三国","诸葛亮","中国"]`，所有场景被污染成汉末城寨/战袍旌旗画面，用户误以为程序串了另一个三国任务。
 - 根因：`story-context-engine.js` 的 `detectDynasty` 用裸子串匹配（`text.includes(keyword)`），三国规则关键词含"诸葛亮"；任务原文场景 5 有成语"事后诸葛亮"，子串"诸葛亮"命中 → 整篇误判为三国（`era=ancient, strong=true`），全局锚点注入所有场景。引入点 `74bdca844`（2026-08-11 场景上下文中间层）。

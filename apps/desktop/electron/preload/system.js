@@ -282,6 +282,9 @@ function createSystemApi(ipcRenderer) {
     logsClear: () => ipcRenderer.invoke('logs:clear'),
     logError: (message) => ipcRenderer.invoke('logs:error', { message }),
     submitFeedback: (payload) => ipcRenderer.invoke('feedback:submit', payload),
+
+    // 通知日志上报（notify:log）——renderer notify() 通道内部调用，写结构化日志行
+    notifyLog: (payload) => ipcRenderer.invoke('notify:log', payload),
   }
 }
 

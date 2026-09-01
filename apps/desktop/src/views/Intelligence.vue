@@ -139,7 +139,7 @@ import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 // eslint-disable-next-line no-unused-vars
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useNotify } from '@/composables/useNotify'
 import TrendingPanel from '@/components/TrendingPanel.vue'
 import ReferenceFinder from '@/components/ReferenceFinder.vue'
 import { intelligenceSearch, intelligenceSearchTitles } from '@/api/publisher'
@@ -150,6 +150,7 @@ const query = ref('')
 const searching = ref(false)
 const result = ref(null)
 const titleAnalysis = ref(null)
+const { notifySuccess } = useNotify()
 
 const sourceOptions = [
   { id: 'reddit', label: 'Reddit' },
@@ -215,7 +216,7 @@ const refVisible = ref(false)
 const refSearchText = ref('')
 
 function insertRef (ref) {
-  ElMessage.success('已插入引用: ' + ref.title.slice(0, 30))
+  notifySuccess('intelligence.insertedRef', { params: { title: ref.title.slice(0, 30) } })
 }
 </script>
 

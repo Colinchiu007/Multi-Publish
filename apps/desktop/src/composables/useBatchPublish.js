@@ -14,9 +14,10 @@
  *   - licenseStore: { isPro: boolean }
  */
 import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from './useLoginGate'
+import { useNotify } from './useNotify'
+import { resolveNotifyText } from '@/utils/notifyCore'
 import {
   batchCreate,
   batchExecute,
@@ -76,6 +77,14 @@ export function useBatchPublish(options) {
   )
   // 主动操作登录门：批量发布前未登录 → 弹登录引导，登录成功后继续
   const { ensureLogin } = useLoginGate()
+  // 统一通知通道（D1 决策）：toast/确认框走 useNotify，进度条文案走 resolveNotifyText
+  const { notify, notifyError, notifySuccess, notifyWarning, notifyConfirm } = useNotify()
+
+  // 进度条文案解析（非 toast，组件内展示；M6 路径：文案统一进 locales）
+  function progressText (messageKey, params, fallback) {
+    const { text, resolved } = resolveNotifyText(messageKey, params)
+    return resolved ? text : (fallback || '')
+  }
 
   const batchMode = ref(false)
   const batchPublishing = ref(false)
@@ -229,7 +238,7 @@ export function useBatchPublish(options) {
       _key: freshKey(),
     })
     // 复制标题加后缀
-    articles.value[idx + 1].title = orig.title + ' (复制)'
+    articles.value[idx + 1].title = orig.title + progressText('publishPage.batchNotify.duplicateSuffix')
   }
 
   async function retryFailedBatch () {
@@ -248,14 +257,21 @@ export function useBatchPublish(options) {
           }
           accepted += 1
           batchProgress.value.push({
-            text: `↻ [${task.platform}] ${task.title || task.taskId}: 已重新提交`,
+            text: progressText('publishPage.batchNotify.progressRetrySubmitted', {
+              platform: task.platform,
+              title: task.title || task.taskId,
+            }),
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             type: 'primary',
           })
         } catch (error) {
           remaining.push(task)
           batchProgress.value.push({
-            text: `✗ [${task.platform}] ${task.title || task.taskId}: ${formatUserError(error, { fallback: '重新提交失败' }).message}`,
+            text: progressText('publishPage.batchNotify.progressRetryFailed', {
+              platform: task.platform,
+              title: task.title || task.taskId,
+              message: formatUserError(error, { fallback: progressText('publishPage.batchNotify.retryResubmitFailed') }).message,
+            }),
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             type: 'danger',
           })
@@ -263,11 +279,11 @@ export function useBatchPublish(options) {
       }
       failedBatchTasks.value = remaining
       if (accepted > 0 && remaining.length === 0) {
-        ElMessage.success(`已重新提交 ${accepted} 个失败任务`)
+        notifySuccess('publishPage.batchNotify.retrySuccess', { params: { accepted } })
       } else if (accepted > 0) {
-        ElMessage.warning(`已重新提交 ${accepted} 个任务，${remaining.length} 个任务仍失败`)
+        notifyWarning('publishPage.batchNotify.retryPartial', { params: { accepted, remaining: remaining.length } })
       } else {
-        ElMessage.error('失败任务重新提交失败')
+        notifyError('publishPage.batchNotify.retryFailed')
       }
     } finally {
       retryingFailed.value = false
@@ -286,21 +302,21 @@ export function useBatchPublish(options) {
       // 验证每篇文章
       for (const a of articles.value) {
         if (!a.title.trim()) {
-          ElMessage.warning('有文章缺少标题')
+          notifyWarning('publishPage.batchNotify.missingTitle')
           return
         }
         if (!a.content.trim()) {
-          ElMessage.warning('有文章缺少正文')
+          notifyWarning('publishPage.batchNotify.missingContent')
           return
         }
         if (!a.platforms || a.platforms.length === 0) {
-          ElMessage.warning('"' + a.title.slice(0, 20) + '" 未选择发布平台')
+          notifyWarning('publishPage.batchNotify.noPlatform', { params: { title: a.title.slice(0, 20) } })
           return
         }
         if (isAccountAvailable) {
           const targetCheck = validatePublishTargets(buildPublishTargets(a.platforms, a.accounts || a.selectedAccounts || {}))
           if (!targetCheck.valid) {
-            ElMessage.warning(targetCheck.message)
+            notifyWarning('publishPage.batchNotify.targetInvalid', { params: { message: targetCheck.message } })
             return
           }
         }
@@ -313,7 +329,7 @@ export function useBatchPublish(options) {
           image_files: a.image_files || a.images,
         })
         if (!metadataCheck.valid) {
-          ElMessage.warning(`「${a.title.slice(0, 20)}」${metadataCheck.message}`)
+          notifyWarning('publishPage.batchNotify.metadataInvalid', { params: { title: a.title.slice(0, 20), message: metadataCheck.message } })
           return
         }
         if (
@@ -321,7 +337,7 @@ export function useBatchPublish(options) {
           buildPublishTargets(a.platforms, a.accounts || a.selectedAccounts || {})
             .some(target => target.accountId && !isAccountAvailable(target.platform, target.accountId))
         ) {
-          ElMessage.warning('批量文章中有账号已失效，请重新选择发布账号')
+          notifyWarning('publishPage.batchNotify.accountInvalid')
           return
         }
       }
@@ -337,37 +353,32 @@ export function useBatchPublish(options) {
       })
       const scheduleCheck = validateScheduleEntries(scheduleEntries)
       if (!scheduleCheck.valid) {
-        ElMessage.warning(scheduleCheck.message)
+        notifyWarning('publishPage.batchNotify.scheduleInvalid', { params: { message: scheduleCheck.message } })
         return
       }
 
-      try {
-        await ElMessageBox.confirm(
-          `即将发布 ${articles.value.length} 篇内容，共 ${totalPlatformTasks.value} 个平台账号任务。请确认各平台表单信息完整。`,
-          '确认批量发布',
-          {
-            confirmButtonText: '确认发布',
-            cancelButtonText: '取消',
-            type: 'warning',
-          },
-        )
-      } catch (_) {
-        return
-      }
+      const confirmed = await notifyConfirm('publishPage.batchNotify.confirmMessage', {
+        params: { count: articles.value.length, tasks: totalPlatformTasks.value },
+        title: progressText('publishPage.batchNotify.confirmTitle'),
+        confirmButtonText: progressText('publishPage.batchNotify.confirmButton'),
+        cancelButtonText: progressText('publishPage.batchNotify.cancelButton'),
+        type: 'warning',
+      })
+      if (!confirmed) return
 
       clearBatchTracking()
       batchProgress.value = []
       failedBatchTasks.value = []
       offProgress = onProgress(function (data) {
         batchProgress.value.push({
-          text: '[' + data.platform + '] ' + data.stage,
+          text: progressText('publishPage.batchNotify.progressStage', { platform: data.platform, stage: data.stage }),
           time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           type: data.type || 'primary',
         })
       })
 
       const createRes = await batchCreate(toPlainJson({
-        name: '批量发布 ' + new Date().toLocaleDateString('zh-CN'),
+        name: progressText('publishPage.batchNotify.batchNamePrefix') + new Date().toLocaleDateString('zh-CN'),
         articles: articles.value.map(function (a) {
           return {
             title: a.title,
@@ -402,10 +413,10 @@ export function useBatchPublish(options) {
       if (hasScheduled) {
         const scheduleRes = await batchSchedule(batchId)
         if (!scheduleRes || scheduleRes.code !== 0) {
-          throw new Error((scheduleRes && scheduleRes.message) || '批量排期失败')
+          throw new Error((scheduleRes && scheduleRes.message) || progressText('publishPage.batchNotify.scheduleFailedFallback'))
         }
         batchProgress.value.push({
-          text: '✅ 已排期 ' + articles.value.length + ' 篇文章',
+          text: progressText('publishPage.batchNotify.progressScheduled', { count: articles.value.length }),
           time: new Date().toLocaleTimeString('zh-CN'),
           type: 'success',
         })
@@ -434,11 +445,11 @@ export function useBatchPublish(options) {
             : expectedTaskCount
 
           if (failed === total && total > 0) {
-            ElMessage.error('批量发布失败：' + failed + ' 个任务全部失败')
+            notifyError('publishPage.batchNotify.publishAllFailed', { params: { failed } })
           } else if (failed > 0) {
-            ElMessage.warning('批量发布完成：' + succeeded + ' 个成功，' + failed + ' 个失败')
+            notifyWarning('publishPage.batchNotify.publishPartial', { params: { succeeded, failed } })
           } else {
-            ElMessage.success('批量发布完成：' + succeeded + ' 个任务全部成功')
+            notifySuccess('publishPage.batchNotify.publishSuccess', { params: { succeeded } })
           }
 
           if (stopBatchProgress) clearBatchTracking()
@@ -455,11 +466,11 @@ export function useBatchPublish(options) {
           if (data.taskId) seenTaskIds.add(data.taskId)
 
           const title = String(data.title || '').slice(0, 20)
-          const platform = data.platform || '未知平台'
+          const platform = data.platform || progressText('publishPage.batchNotify.unknownPlatform')
           batchProgress.value.push({
             text: data.ok
-              ? '✅ [' + platform + '] ' + title + ': 发布成功'
-              : '❌ [' + platform + '] ' + title + ': ' + (data.message || '发布失败'),
+              ? progressText('publishPage.batchNotify.progressTaskSuccess', { platform, title })
+              : progressText('publishPage.batchNotify.progressTaskFailed', { platform, title, message: data.message || progressText('publishPage.batchNotify.taskFailedFallback') }),
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
             type: data.ok ? 'success' : 'danger',
           })
@@ -495,8 +506,8 @@ export function useBatchPublish(options) {
           : 0
         batchProgress.value.push({
           text: enqueueFailedCount > 0
-            ? '🚀 已接受 ' + acceptedCount + ' 个发布任务，' + enqueueFailedCount + ' 个入队失败'
-            : '🚀 已接受 ' + acceptedCount + ' 个发布任务',
+            ? progressText('publishPage.batchNotify.progressAcceptedPartial', { accepted: acceptedCount, failed: enqueueFailedCount })
+            : progressText('publishPage.batchNotify.progressAccepted', { accepted: acceptedCount }),
           time: new Date().toLocaleTimeString('zh-CN'),
           type: 'primary',
         })
@@ -527,7 +538,7 @@ export function useBatchPublish(options) {
           if (pollAttempts >= batchStatusPollMaxAttempts) {
             batchSettled = true
             batchPublishing.value = false
-            ElMessage.error('批量发布状态确认超时，请在任务记录中查看最终结果')
+            notifyError('publishPage.batchNotify.statusTimeout')
             clearBatchTracking()
             return
           }
@@ -554,7 +565,7 @@ export function useBatchPublish(options) {
       keepPublishingLock = false
       clearBatchTracking()
       batchProgress.value.push({
-        text: '❌ 批量发布失败: ' + formatUserError(e, { fallback: '未知错误' }).message,
+        text: progressText('publishPage.batchNotify.progressFailed', { message: formatUserError(e, { fallback: progressText('publishPage.batchNotify.unknownError') }).message }),
         time: new Date().toLocaleTimeString('zh-CN'),
         type: 'danger',
       })
@@ -565,7 +576,7 @@ export function useBatchPublish(options) {
           offProgress()
         } catch (cleanupError) {
           batchProgress.value.push({
-            text: '⚠️ 全局进度监听清理失败: ' + ((cleanupError && cleanupError.message) || '未知错误'),
+            text: progressText('publishPage.batchNotify.progressCleanupFailed', { message: (cleanupError && cleanupError.message) || progressText('publishPage.batchNotify.unknownError') }),
             time: new Date().toLocaleTimeString('zh-CN'),
             type: 'warning',
           })

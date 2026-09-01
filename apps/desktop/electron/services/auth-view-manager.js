@@ -20,6 +20,8 @@ const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 
 const AUTH_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
+// 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
+const SIDEBAR_WIDTH_DEFAULT = 200
 const MAX_INDEXED_DB_SNAPSHOT_BYTES = 524288
 
 function normalizeIndexedDBSnapshot(value) {
@@ -76,6 +78,8 @@ class AuthViewManager {
     this._loginAttemptSequence = 0
     /** @type {number | null} */
     this._autoCompletionAttemptId = null
+    /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
+    this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
   }
 
   /**
@@ -93,10 +97,12 @@ class AuthViewManager {
    */
   _positionView(bounds) {
     if (!this.currentView) return
+    var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
+    // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域
     this.currentView.setBounds({
-      x: 0,
+      x: sidebarWidth,
       y: AUTH_VIEW_TOP,
-      width: bounds.width,
+      width: Math.max(0, bounds.width - sidebarWidth),
       height: Math.max(0, bounds.height - AUTH_VIEW_TOP),
     })
   }
@@ -129,6 +135,20 @@ class AuthViewManager {
   _onWindowResize() {
     if (!this.mainWindow || !this.currentView) return
     this._positionView(this.mainWindow.getBounds())
+  }
+
+  /**
+   * 设置左侧导航栏宽度（由 WebviewManager 同步）
+   * @param {number} width - 像素宽度
+   */
+  setSidebarWidth(width) {
+    if (typeof width !== 'number' || width < 0 || width > 600) return
+    if (this._sidebarWidth !== width) {
+      this._sidebarWidth = width
+      if (this.mainWindow && this.currentView) {
+        this._positionView(this.mainWindow.getBounds())
+      }
+    }
   }
 
   _createLoginAttempt() {

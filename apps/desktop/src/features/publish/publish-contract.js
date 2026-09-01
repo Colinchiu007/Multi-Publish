@@ -30,6 +30,10 @@ const PLATFORM_CONTENT_LIMITS = Object.freeze({
   bilibili: { titleMax: 80, contentMax: 2000 },
   xiaohongshu: { titleMax: 20, contentMax: 1000 },
   toutiao: { titleMax: 30, contentMax: 100000 },
+  // 百家号标题按 UTF-8 字节数校验（后端 Math.floor(utf8Bytes/3) > 49 拒绝，
+  // 即 utf8Bytes >= 150 拒绝），安全上限 149 字节。实测 50 个中文字符（150 字节）
+  // 被拒，50 字符混合（140 字节）与 49 中文+1 英文（148 字节）成功。
+  baijiahao: { titleMaxBytes: 149, contentMax: 100000 },
   youtube: { titleMax: 100, contentMax: 5000 },
   tiktok: { titleMax: 2200, contentMax: 0 },
   twitter: { titleMax: 0, contentMax: 280 },
@@ -246,11 +250,67 @@ export function getPlatformLabel (platformId) {
 /**
  * 返回平台标题/正文限制的副本，调用方不能修改全局契约。
  * @param {unknown} platformId
- * @returns {{ titleMax: number, contentMax: number }}
+ * @returns {{ titleMax?: number, titleMaxBytes?: number, contentMax: number }}
  */
 export function getPlatformContentLimit (platformId) {
   const limit = PLATFORM_CONTENT_LIMITS[platformId] || DEFAULT_CONTENT_LIMITS
-  return { titleMax: limit.titleMax, contentMax: limit.contentMax }
+  return { titleMax: limit.titleMax, titleMaxBytes: limit.titleMaxBytes, contentMax: limit.contentMax }
+}
+
+/**
+ * 按 Unicode 码点截断字符串到 max 个字符，避免把代理对（emoji 等）切成半个字符。
+ * 用于一键发布时对超长标题/正文自动截断，保证不因平台字数限制阻断发布。
+ * @param {unknown} value
+ * @param {number} max
+ * @returns {string}
+ */
+export function truncateByChars (value, max) {
+  const text = String(value ?? '').trim()
+  const chars = Array.from(text)
+  return max > 0 && chars.length > max ? chars.slice(0, max).join('') : text
+}
+
+/**
+ * 计算字符串的 UTF-8 字节长度（前端无 Node Buffer，用 TextEncoder）。
+ * 百家号标题上限按 UTF-8 字节数校验，中文每字 3 字节、英文/数字 1 字节。
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function utf8ByteLength (value) {
+  const text = String(value ?? '')
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(text).length
+  }
+  // 兜底：无 TextEncoder 时按 UTF-8 码点精确计算字节数
+  //（ASCII 1 字节、U+0080-U+07FF 2 字节、U+0800-U+FFFF 3 字节、补充平面 4 字节）
+  let bytes = 0
+  for (const ch of Array.from(text)) {
+    const cp = ch.codePointAt(0)
+    bytes += cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4
+  }
+  return bytes
+}
+
+/**
+ * 按 UTF-8 字节数截断字符串到 maxBytes 字节内，避免把代理对（emoji 等）切成半个字符。
+ * 用于百家号标题等按字节数校验的平台，保证不因标题超长阻断一键发布。
+ * @param {unknown} value
+ * @param {number} maxBytes
+ * @returns {string}
+ */
+export function truncateByUtf8Bytes (value, maxBytes) {
+  const text = String(value ?? '').trim()
+  if (!(maxBytes > 0) || utf8ByteLength(text) <= maxBytes) return text
+  const chars = Array.from(text)
+  let bytes = 0
+  const out = []
+  for (const ch of chars) {
+    const b = new TextEncoder().encode(ch).length
+    if (bytes + b > maxBytes) break
+    bytes += b
+    out.push(ch)
+  }
+  return out.join('')
 }
 
 /**
@@ -295,20 +355,28 @@ export function validatePlatformContent ({ platforms, article = {}, platformOver
       : {}
     const title = String(override.title || article.title || '')
     const content = String(override.content || article.content || '')
+    // 百家号标题按 UTF-8 字节数校验（titleMaxBytes），其余平台按字符数（titleMax）。
+    const titleLimit = limit.titleMaxBytes !== undefined
+      ? { max: limit.titleMaxBytes, unit: '字节' }
+      : { max: limit.titleMax, unit: '个字符' }
     const fields = [
-      ['title', title, limit.titleMax, '标题'],
-      ['content', content, limit.contentMax, '正文'],
+      ['title', title, titleLimit.max, '标题', titleLimit.unit],
+      ['content', content, limit.contentMax, '正文', '个字符'],
     ]
-    for (const [field, value, max, label] of fields) {
-      if (max > 0 && Array.from(value).length > max) {
-        const actual = Array.from(value).length
+    for (const [field, value, max, label, unit] of fields) {
+      const length = unit === '字节' ? utf8ByteLength(value) : Array.from(value).length
+      if (max > 0 && length > max) {
         return {
           valid: false,
           platform,
           field,
           limit: max,
-          actual,
-          message: `${getPlatformLabel(platform)}${label}最多 ${max} 个字符，当前 ${actual} 个`,
+          actual: length,
+          unit,
+          // 字符数平台保持历史文案「当前 N 个」，字节数平台用「当前 N 字节」，避免破坏预存测试
+          message: unit === '字节'
+            ? `${getPlatformLabel(platform)}${label}最多 ${max} 字节，当前 ${length} 字节`
+            : `${getPlatformLabel(platform)}${label}最多 ${max} 个字符，当前 ${length} 个`,
         }
       }
     }

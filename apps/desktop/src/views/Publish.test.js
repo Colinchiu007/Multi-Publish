@@ -27,8 +27,17 @@ vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
     load: mockAccountLoad,
     ensureLoaded: mockAccountLoad,
-    byPlatform: { wechat_mp: [{ id: "acc1", name: "My Account", is_default: true }] },
-    getDefault: (p) => { if (p === "wechat_mp") return { id: "acc1", name: "My Account" }; return null; }
+    byPlatform: {
+      wechat_mp: [{ id: "acc1", name: "My Account", is_default: true }],
+      baijiahao: [{ id: "bj1", name: "百家号账号", is_default: true }],
+      xiaohongshu: [{ id: "xhs1", name: "小红书账号", is_default: true }],
+    },
+    getDefault: (p) => {
+      if (p === "wechat_mp") return { id: "acc1", name: "My Account" };
+      if (p === "baijiahao") return { id: "bj1", name: "百家号账号" };
+      if (p === "xiaohongshu") return { id: "xhs1", name: "小红书账号" };
+      return null;
+    }
   })
 }));
 
@@ -227,6 +236,18 @@ describe("PublishView", () => {
     expect(w.vm.publishTypeLabel).toBe('视频发布')
     expect(w.text()).toContain('视频发布')
   })
+  it("历史视频跳转 query 双重编码时仍能解码出真实视频路径与文案", async () => {
+    // 跳转方 encodeURIComponent + vue-router 序列化二次编码，URL 中是双重编码（如 %253A）
+    const realPath = 'D:\\tmp\\Multi-Publish-debug-profile\\video.mp4'
+    const realTitle = '外婆的灶台总飘着豆瓣香的雾气'
+    const doubleEncoded = encodeURIComponent(encodeURIComponent(realPath))
+    const titleEncoded = encodeURIComponent(encodeURIComponent(realTitle))
+    await router.push('/?type=video&video_path=' + doubleEncoded + '&title=' + titleEncoded)
+    const w = await createWrapper()
+    await flushPromises()
+    expect(w.vm.article.video_path).toBe(realPath)
+    expect(w.vm.article.title).toBe(realTitle)
+  })
   it("handlePublish warns when title empty", async () => {
     const w = await createWrapper();
     await w.vm.handlePublish();
@@ -248,6 +269,58 @@ describe("PublishView", () => {
     await nextTick();
     expect(window.electronAPI.publishBatch).toHaveBeenCalled();
     expect(w.vm.result.success).toBe(true);
+  });
+
+  it("handlePublish 百家号标题超长时自动按字节截断到 149 字节并继续一键发布", async () => {
+    const w = await createWrapper();
+    w.vm.selectedPlatforms = ["baijiahao"];
+    w.vm.selectedAccounts = { baijiahao: ["bj1"] };
+    w.vm.article.title = "外婆的灶台总飘着豆瓣香的雾气。那年我离家求学，她往行李塞了一罐自制辣酱。十年后我回乡，罐子还在，人已不在，我终于读懂了那口辣里的甜。";
+    w.vm.article.content = "正文";
+
+    await w.vm.handlePublish();
+    await flushPromises();
+
+    // 自动截断后仍继续发布，不阻断一键流程
+    expect(window.electronAPI.publishBatch).toHaveBeenCalled();
+    const [, data] = window.electronAPI.publishBatch.mock.calls[0];
+    // 66 个中文字符 = 198 字节，按 149 字节上限截断后剩 49 个中文字符（147 字节）
+    expect(Array.from(data.title).length).toBe(49);
+    expect(w.vm.result.success).toBe(true);
+  });
+
+  it("handlePublish 多平台发布时百家号标题截断后重新校验，其他平台仍超限则阻断", async () => {
+    const w = await createWrapper();
+    // baijiahao(149字节) + xiaohongshu(20字符)：截断到 49 中文字符后仍超 xiaohongshu 上限
+    w.vm.selectedPlatforms = ["baijiahao", "xiaohongshu"];
+    w.vm.selectedAccounts = { baijiahao: ["bj1"], xiaohongshu: ["xhs1"] };
+    w.vm.article.title = "外婆的灶台总飘着豆瓣香的雾气。那年我离家求学，她往行李塞了一罐自制辣酱。十年后我回乡，罐子还在，人已不在，我终于读懂了那口辣里的甜。";
+    w.vm.article.content = "正文";
+
+    await w.vm.handlePublish();
+    await flushPromises();
+
+    // 截断到 49 字符后仍超 xiaohongshu 20 字符上限 → 重新校验失败，阻断发布
+    expect(window.electronAPI.publishBatch).not.toHaveBeenCalled();
+    expect(w.vm.result).toBeNull();
+  });
+
+  it("handlePublish 百家号差异化覆盖标题超长时截断覆盖标题而非全局标题", async () => {
+    const w = await createWrapper();
+    w.vm.selectedPlatforms = ["baijiahao"];
+    w.vm.selectedAccounts = { baijiahao: ["bj1"] };
+    w.vm.article.title = "正常标题";
+    w.vm.article.content = "正文";
+    // 差异化面板为 baijiahao 单独设置超长覆盖标题
+    w.vm.diffEdits.baijiahao = { title: "外婆的灶台总飘着豆瓣香的雾气。那年我离家求学，她往行李塞了一罐自制辣酱。十年后我回乡，罐子还在，人已不在，我终于读懂了那口辣里的甜。", content: "" };
+
+    await w.vm.handlePublish();
+    await flushPromises();
+
+    // 截断覆盖标题到 49 字符，全局标题保持不变
+    expect(window.electronAPI.publishBatch).toHaveBeenCalled();
+    expect(Array.from(w.vm.diffEdits.baijiahao.title).length).toBe(49);
+    expect(w.vm.article.title).toBe("正常标题");
   });
 
   it("handlePublish handles API failure", async () => {

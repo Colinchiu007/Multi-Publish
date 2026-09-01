@@ -578,7 +578,9 @@ var require_system = __commonJS({
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
         logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
-        submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload)
+        submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload),
+        // 通知日志上报（notify:log）——renderer notify() 通道内部调用，写结构化日志行
+        notifyLog: (payload) => ipcRenderer2.invoke("notify:log", payload)
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -993,6 +995,7 @@ var require_access_control = __commonJS({
       "logsGetInfo",
       "logsClear",
       "logError",
+      "notifyLog",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",

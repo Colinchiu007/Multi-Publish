@@ -78,7 +78,7 @@
 
 ### 3.1 统一卡片结构
 
-全部、进行中、已暂停、已中断、执行失败、已完成、已取消标签共用同一卡片 DOM 结构、宽度、内边距和操作区。状态差异只通过数据项和状态色体现，不复制状态专属 CSS。
+全部、进行中、可恢复、执行失败、已完成、已取消标签共用同一卡片 DOM 结构、宽度、内边距和操作区。状态差异只通过数据项和状态色体现，不复制状态专属 CSS。可恢复聚合已暂停和已中断两个子状态（2026-08-31 修订，见 5.1.1）。
 
 每张卡片统一显示：
 
@@ -96,8 +96,8 @@
 状态附加字段：
 
 - 进行中：当前阶段/阶段进度。
-- 已暂停：暂停环节、暂停环境/检查点（仅用户手动暂停与 scene_asset_selection 检查点）。
-- 已中断：中断环节（应用退出/崩溃/强杀后的 running 快照残留，或 >30 分钟无更新的 stale-running）。
+- 可恢复：聚合已暂停（用户手动暂停与 scene_asset_selection 检查点）和已中断（应用退出/崩溃/强杀或 >30 分钟无更新）两个子状态。卡片内仍通过图标和提示文字区分暂停原因，筛选栏统一为单一可恢复 tab。
+
 - 执行失败：失败环节、失败原因；失败原因统一使用“失败原因”标签，不使用“错误摘要”。
 - 已完成：编辑和预览入口。
 - 已取消：有有效 projectId 且流水线已经启动时可进入视频任务编辑页；可修改和保存，但不允许从断点继续。
@@ -249,7 +249,24 @@
 
 两个历史 UI（创作页内嵌历史记录 CreateViewHistory.vue 与独立历史页 CreateHistory.vue，2026-08-21 对齐）使用同一规则：仅当 `updatedAt` 存在且超过 30 分钟阈值才翻转；活跃 run 快照不带 updatedAt 时不得误判。
 
-暂停/中断后的历史卡片显示暂停/中断阶段与环境；可恢复记录显示继续动作。暂停保存失败必须恢复原状态、阶段和 checkpoint。
+可恢复记录（已暂停/已中断）显示暂停/中断阶段与环境；可恢复记录显示继续动作。暂停保存失败必须恢复原状态、阶段和 checkpoint。
+
+
+### 5.1.1 可恢复聚合筛选 tab（2026-08-31）
+
+展示层将已暂停和已中断归入同一个可恢复筛选 tab，降低筛选栏认知负担。底层 paused/interrupted 状态值不变，恢复链路、快照持久化、checkpoint 判定和卡片内图标（II/↯）、提示文字（暂停环节/中断环节）均保留差异化。
+
+数据契约：
+
+- HISTORY_STATUSES 新增 recoverable 枚举值，底层 RECOVERABLE_STATUSES = [paused, interrupted] 定义聚合关系。
+- filterHistoryByStatus 接受 recoverable 时返回 status 为 paused 或 interrupted 的所有记录，精确匹配 paused/interrupted 仍可用。
+- historyStatusCounts 新增 recoverable 计数，累加 paused 和 interrupted 的 count。
+- locale tabs: zh/en 中 paused/interrupted 改为 recoverable（可恢复/Recoverable），statuses.interrupted 保留用于卡片内提示。
+
+不可合并的理由：
+
+- 已暂停和已中断的来源不同（用户主动 vs 环境异常），恢复路径和 checkpoint 处理逻辑有差异，合并底层状态需修改 run-state-store、pipeline-engine 和 IPC 合同，风险高、收益低。
+- 展示层聚合即可同时满足降低认知负担和保留精确信息的双重目标。
 
 ### 5.2 历史进入编辑/恢复
 
@@ -311,8 +328,8 @@
 2. 全部阶段的本地化名称、状态（等待/进行中/已完成/跳过/失败/取消）、阶段详情、阶段耗时和阶段子进度。
 3. Story2Video 合成时间参考说明。
 4. provider warning、BGM 跳过提示、状态暂不可用提示和加载提示。
-5. `scene_asset_selection` 的候选素材、选择控件、确认动作；内容策略 checkpoint 的修改/取消提示。
-6. 右上角关闭按钮的可访问名称“关闭进度并转入后台运行”；普通 running 编排任务的 footer 显示【后台运行】。
+5. `scene_asset_selection` 的候选素材、选择控件、确认动作；内容策略 checkpoint 的修改/取消提示与【编辑场景】入口。
+6. 右上角关闭按钮的可访问名称：普通 running 编排任务为“关闭进度并转入后台运行”；内容政策检查点为“关闭并取消该任务”；普通 running 编排任务的 footer 显示【后台运行】。
 
 用户主动脱离后 toast 固定为：
 
@@ -325,15 +342,16 @@
 - stages 必须是数组，stage 必须是非空对象；progress、阶段 percent 和 numeric string 只接受有限值并收敛到 `0..100`，非法值隐藏或使用安全回退。
 - context、warning、BGM notice 和 checkpoint 只在字段类型正确时展示；原始技术错误、路径、请求 ID、token 和堆栈不进入用户文案。
 - 启动、恢复、push、轮询和暂停请求都绑定 runId、request generation、action generation 与组件存活状态；过期响应不得重新打开弹窗、污染新建态或跳转结果页。
-- 【后台运行】和右上角关闭共用同一个 renderer detach 方法：先失效请求代际、停止轮询、清理 renderer 运行态、关闭弹窗、恢复“启动流水线”初始页，再刷新历史；不调用 `pipelineCancel`，不释放主进程并发槽位。
+- 【后台运行】和右上角关闭共用同一个 renderer detach 方法：先失效请求代际、停止轮询、清理 renderer 运行态、关闭弹窗、恢复“启动流水线”初始页，再刷新历史；不调用 `pipelineCancel`，不释放主进程并发槽位。**内容政策检查点例外**：右上角关闭走 `handlePipelineProgressClose` → `cancelContentPolicyTask`，调用 `pipelineCancel` 取消主进程 run 并复位前端跟踪态，不后台化。
 - 完成/失败/取消仍沿用既有终态处理；用户未主动脱离时完成可跳结果页，失败/取消显示既有安全提示。
 
 ### 人工检查点例外
 
 当 `scene_asset_selection`、`content_policy`、`waiting_approval`、`needs_user_input` 或 `needsCheckpoint=true` 时：
 
-- 不显示【后台运行】；右上关闭按钮 disabled。
-- 弹窗显示“当前任务需要完成用户操作后才能继续。”以及对应候选选择/修改/取消操作。
+- 不显示【后台运行】。
+- `scene_asset_selection`、`waiting_approval`、非内容政策的 `needs_user_input`：右上关闭按钮 disabled，弹窗显示“当前任务需要完成用户操作后才能继续。”以及对应候选选择/修改/取消操作。
+- `content_policy`（图片提示词被判定敏感且重试耗尽）：右上关闭按钮**可点击**，点击=取消任务并关闭弹窗（作为已取消/失败处理），**不是**后台化——内容政策任务不能后台化，否则会静默卡在 `needs_user_input` 无法继续。底部操作条额外显示【编辑场景】按钮，点击后取消任务并跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`，结果页自动定位并高亮受影响场景。
 - 即使旧快照缺少 checkpoint 对象，也按状态枚举保护，不因元数据缺失开放后台化。
 
 ### 普通流水线能力边界
@@ -355,7 +373,7 @@
 - 长配置页滚动时底部启动/暂停/继续/取消操作仍可用；运行进度在统一弹窗中可滚动查看。
 - 运行中编排任务显示统一进度弹窗；遮罩和 Escape 不关闭，只有右上角关闭按钮可触发后台脱离。
 - 点击【后台运行】或右上角关闭后，页面恢复新建态、toast 显示指定文案，历史记录仍能读取该 run。
-- 人工检查点隐藏后台入口并禁用关闭，确认/修改/取消路径保持可操作。
+- 人工检查点隐藏后台入口并禁用关闭，确认/修改/取消路径保持可操作；内容政策检查点例外：关闭按钮可点击（关闭=取消任务），底部提供【编辑场景】直达结果页并定位受影响场景。
 - 历史所有状态卡片结构、宽度和通用字段一致，全部状态有删除。
 - 失败原因显示自然语言；卡片能通过标题或文案摘要识别具体视频任务。
 - 历史详情/编辑入口统一进入视频任务编辑页，旧详情弹窗不再出现。

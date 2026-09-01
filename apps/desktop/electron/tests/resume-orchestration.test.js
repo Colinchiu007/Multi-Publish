@@ -230,6 +230,49 @@ describe('编排流水线断点恢复', () => {
     expect(resume.errorCode).toBe('RUN_NOT_FAILED')
   })
 
+  it('手动暂停（manual_pause）的 paused 快照可从断点继续，不再被 RUN_NOT_FAILED 拦截', async () => {
+    let releaseB
+    const gate = new Promise((resolve) => { releaseB = resolve })
+    engine.registerStageExecutor('t_a', async () => ({ success: true, output: { ok: 'a' } }))
+    engine.registerStageExecutor('t_b', async () => { await gate; return { success: true, output: { ok: 'b' } } })
+    engine.registerStageExecutor('t_c', async () => ({ success: true, output: { ok: 'c' } }))
+    store.load.mockReturnValue({
+      kind: 'orchestration-run-state',
+      version: 1,
+      runId: 'run_manual_paused_1',
+      pipeline: 'resume-test',
+      status: 'paused',
+      error: null,
+      currentStage: 1,
+      stages: [
+        { name: 'a', status: 'completed' },
+        { name: 'b', status: 'paused' },
+        { name: 'c', status: 'pending' },
+      ],
+      checkpoint: { type: 'manual_pause', currentStage: 1, savedAt: new Date().toISOString() },
+      context: { x: 2, a: { ok: 'a' } },
+      params: {},
+      orchestrationMode: 'orchestrator',
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+    })
+
+    const resume = await engine.resumeOrchestration('run_manual_paused_1')
+    expect(resume.success).toBe(true)
+    expect(resume.runId).toBe('run_manual_paused_1')
+    const snap = engine.getRunSnapshot('run_manual_paused_1')
+    expect(snap.status.status).toBe('running')
+    expect(snap.currentStage).toBe(1)
+    expect(snap.stages.map((s) => [s.name, s.status])).toEqual([
+      ['a', 'completed'],
+      ['b', 'running'],
+      ['c', 'pending'],
+    ])
+    expect(store.remove).toHaveBeenCalledWith('run_manual_paused_1')
+    releaseB()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   it('getRunSnapshot 为已完成运行附带成片文件大小（完成汇总）', async () => {
     const fs = require('fs')
     const os = require('os')

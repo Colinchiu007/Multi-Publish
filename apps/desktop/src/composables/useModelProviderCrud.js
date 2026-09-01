@@ -8,7 +8,7 @@
  */
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { useNotify } from './useNotify'
 import {
   modelProviderList,
   modelProviderCreate,
@@ -70,6 +70,8 @@ function createEditForm (provider) {
 
 export function useModelProviderCrud () {
   const { t } = useI18n()
+  // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
+  const { notifyError, notifySuccess, notifyWarning, notifyConfirm } = useNotify()
 
   const CATEGORY_OPTIONS = computed(() => [
     { value: 'all', label: t('modelProviders.catAll') },
@@ -189,10 +191,10 @@ export function useModelProviderCrud () {
       if (res.code === 0 && Array.isArray(res.data)) {
         providers.value = res.data
       } else {
-        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.loadFailed') }).message)
+        notifyError('modelProviders.loadFailed', { message: formatUserError(res, { fallback: t('modelProviders.loadFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.loadFailed') }).message)
+      notifyError('modelProviders.loadFailed', { message: formatUserError(e, { fallback: t('modelProviders.loadFailed') }).message })
     } finally {
       loading.value = false
     }
@@ -283,11 +285,11 @@ export function useModelProviderCrud () {
 
   async function submitForm () {
     if (!form.value.name && !form.value.id) {
-      ElMessage.warning(t('modelProviders.nameRequired'))
+      notifyWarning('modelProviders.nameRequired', { message: t('modelProviders.nameRequired') })
       return
     }
     if (!isEditing.value && !String(form.value.api_key || '').trim() && !canUseWithoutApiKey(form.value)) {
-      ElMessage.warning(t('modelProviders.apiKeyRequired'))
+      notifyWarning('modelProviders.apiKeyRequired', { message: t('modelProviders.apiKeyRequired') })
       return
     }
 
@@ -301,7 +303,7 @@ export function useModelProviderCrud () {
         if (raw === '' || raw === undefined || raw === null) { cfg[field] = null; continue }
         const num = Number(raw)
         if (!Number.isInteger(num) || num < 1) {
-          ElMessage.warning(t(field === 'rate_per_minute' ? 'modelProviders.ratePerMinuteInvalid' : 'modelProviders.limitPer5hInvalid'))
+          notifyWarning('modelProviders.rateLimitInvalid', { message: t(field === 'rate_per_minute' ? 'modelProviders.ratePerMinuteInvalid' : 'modelProviders.limitPer5hInvalid') })
           return
         }
         cfg[field] = num
@@ -317,7 +319,7 @@ export function useModelProviderCrud () {
       const userConfig = { ...(form.value.config || {}) }
       if (userDefaultModel) {
         if (!models.includes(userDefaultModel)) {
-          ElMessage.warning(t('modelProviders.userDefaultModelInvalid'))
+          notifyWarning('modelProviders.userDefaultModelInvalid', { message: t('modelProviders.userDefaultModelInvalid') })
           return
         }
         userConfig.user_default_model = userDefaultModel
@@ -347,7 +349,7 @@ export function useModelProviderCrud () {
       }
 
       if (res.code === 0) {
-        ElMessage.success(t(isEditing.value ? 'modelProviders.updateSuccess' : 'modelProviders.addSuccess'))
+        notifySuccess('modelProviders.updateSuccess', { message: t(isEditing.value ? 'modelProviders.updateSuccess' : 'modelProviders.addSuccess') })
         filterCategory.value = 'all'
         showFormDialog.value = false
         showAddDialog.value = false
@@ -356,19 +358,19 @@ export function useModelProviderCrud () {
         // ID 冲突（预设已存在）→ 自动降级为更新，允许用户配置已有预设
         const updateRes = await modelProviderUpdate(data.id, data)
         if (updateRes.code === 0) {
-          ElMessage.success(t('modelProviders.updatedExisting'))
+          notifySuccess('modelProviders.updatedExisting', { message: t('modelProviders.updatedExisting') })
           filterCategory.value = 'all'
           showFormDialog.value = false
           showAddDialog.value = false
           await loadProviders()
         } else {
-          ElMessage.error(formatUserError(updateRes, { fallback: t('modelProviders.updateFailed') }).message)
+          notifyError('modelProviders.updateFailed', { message: formatUserError(updateRes, { fallback: t('modelProviders.updateFailed') }).message })
         }
       } else {
-        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.saveFailed') }).message)
+        notifyError('modelProviders.saveFailed', { message: formatUserError(res, { fallback: t('modelProviders.saveFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.saveFailed') }).message)
+      notifyError('modelProviders.saveFailed', { message: formatUserError(e, { fallback: t('modelProviders.saveFailed') }).message })
     } finally {
       submitting.value = false
     }
@@ -386,15 +388,15 @@ export function useModelProviderCrud () {
     try {
       const res = await modelProviderDelete(deleteTarget.value.id)
       if (res.code === 0) {
-        ElMessage.success(t('modelProviders.deleted'))
+        notifySuccess('modelProviders.deleted', { message: t('modelProviders.deleted') })
         showDeleteDialog.value = false
         deleteTarget.value = null
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.deleteFailed') }).message)
+        notifyError('modelProviders.deleteFailed', { message: formatUserError(res, { fallback: t('modelProviders.deleteFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.deleteFailed') }).message)
+      notifyError('modelProviders.deleteFailed', { message: formatUserError(e, { fallback: t('modelProviders.deleteFailed') }).message })
     } finally {
       submitting.value = false
     }
@@ -405,52 +407,50 @@ export function useModelProviderCrud () {
     const newEnabled = !provider.enabled
     const res = await modelProviderUpdate(provider.id, { enabled: newEnabled })
     if (res.code === 0) {
-      ElMessage.success(t(newEnabled ? 'modelProviders.enabledMsg' : 'modelProviders.disabledMsg'))
+      notifySuccess('modelProviders.enabledMsg', { message: t(newEnabled ? 'modelProviders.enabledMsg' : 'modelProviders.disabledMsg') })
       await loadProviders()
     } else {
-      ElMessage.error(formatUserError(res, { fallback: t('modelProviders.operationFailed') }).message)
+      notifyError('modelProviders.operationFailed', { message: formatUserError(res, { fallback: t('modelProviders.operationFailed') }).message })
     }
   }
 
   // ─── 设为默认 ────────────────────────────────────────
   async function setDefault (provider) {
     if (!isProviderConfigured(provider)) {
-      ElMessage.warning(t('modelProviders.configureFirst'))
+      notifyWarning('modelProviders.configureFirst', { message: t('modelProviders.configureFirst') })
       return
     }
     if (provider.category === 'multimodal') {
       const isCurrentlyDefault = provider.is_default
       const actionLabel = isCurrentlyDefault ? t('modelProviders.unsetDefault') : t('modelProviders.setDefault')
-      try {
-        const { ElMessageBox } = await import('element-plus')
-        await ElMessageBox.confirm(
-          isCurrentlyDefault
-            ? t('modelProviders.unsetMultimodalDefaultConfirm')
-            : t('modelProviders.setMultimodalDefaultConfirm'),
-          actionLabel,
-          { confirmButtonText: t('modelProviders.confirm'), cancelButtonText: t('modelProviders.cancel'), type: 'warning' }
-        )
-      } catch (_) {
-        return
-      }
+      const confirmed = await notifyConfirm('modelProviders.setMultimodalDefaultConfirm', {
+        message: isCurrentlyDefault
+          ? t('modelProviders.unsetMultimodalDefaultConfirm')
+          : t('modelProviders.setMultimodalDefaultConfirm'),
+        title: actionLabel,
+        confirmButtonText: t('modelProviders.confirm'),
+        cancelButtonText: t('modelProviders.cancel'),
+        type: 'warning',
+      })
+      if (!confirmed) return
     }
     try {
       const res = await modelProviderSetDefault(provider.category, provider.id)
       if (res.code === 0) {
-        ElMessage.success(t('modelProviders.setDefaultSuccess'))
+        notifySuccess('modelProviders.setDefaultSuccess', { message: t('modelProviders.setDefaultSuccess') })
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message)
+        notifyError('modelProviders.setDefaultFailed', { message: formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.setDefaultFailed') }).message)
+      notifyError('modelProviders.setDefaultFailed', { message: formatUserError(e, { fallback: t('modelProviders.setDefaultFailed') }).message })
     }
   }
 
   // ─── 能力默认切换（多模态模型） ────────────────────────────
   async function toggleCapabilityDefault (provider, capability) {
     if (!isProviderConfigured(provider)) {
-      ElMessage.warning(t('modelProviders.configureFirst'))
+      notifyWarning('modelProviders.configureFirst', { message: t('modelProviders.configureFirst') })
       return
     }
     const capabilityDefaults = (provider.config && Array.isArray(provider.config.capability_defaults)) ? provider.config.capability_defaults : []
@@ -458,13 +458,13 @@ export function useModelProviderCrud () {
     try {
       const res = await modelProviderSetCapabilityDefault(provider.id, capability, !isCurrentlyDefault)
       if (res.code === 0) {
-        ElMessage.success(t(isCurrentlyDefault ? 'modelProviders.capabilityUnsetDefaultSuccess' : 'modelProviders.capabilitySetDefaultSuccess'))
+        notifySuccess('modelProviders.capabilitySetDefaultSuccess', { message: t(isCurrentlyDefault ? 'modelProviders.capabilityUnsetDefaultSuccess' : 'modelProviders.capabilitySetDefaultSuccess') })
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message)
+        notifyError('modelProviders.setDefaultFailed', { message: formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message })
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.setDefaultFailed') }).message)
+      notifyError('modelProviders.setDefaultFailed', { message: formatUserError(e, { fallback: t('modelProviders.setDefaultFailed') }).message })
     }
   }
 

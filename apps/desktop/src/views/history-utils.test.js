@@ -57,16 +57,18 @@ describe('history-utils', () => {
     expect(filterHistoryByStatus(items, 'paused').map(item => item.id)).not.toContain('interrupted')
     expect(filterHistoryByStatus(items, 'interrupted').map(item => item.id)).toEqual(['interrupted'])
     expect(filterHistoryByStatus(items, 'all').map(item => item.id)).toEqual(['failed', 'paused', 'interrupted', 'running'])
+    // 聚合 tab「可恢复」同时覆盖 paused 与 interrupted，且保持有效时间倒序
+    expect(filterHistoryByStatus(items, 'recoverable').map(item => item.id)).toEqual(['paused', 'interrupted'])
   })
 
-  it('状态清单与计数合同包含 interrupted（已中断 ≠ 已暂停，2026-08-20 状态语义修订）', () => {
-    expect(HISTORY_STATUSES).toEqual(['all', 'running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled'])
+  it('状态清单与计数合同：recoverable 聚合 paused+interrupted，底层原值保留（2026-08-31 展示层聚合）', () => {
+    expect(HISTORY_STATUSES).toEqual(['all', 'running', 'recoverable', 'failed', 'completed', 'cancelled'])
     const counts = historyStatusCounts([
       { id: 'a', status: 'interrupted' },
       { id: 'b', status: 'paused' },
       { id: 'c', status: 'failed' },
     ])
-    expect(counts).toEqual({ all: 3, running: 0, paused: 1, interrupted: 1, failed: 1, completed: 0, cancelled: 0 })
+    expect(counts).toEqual({ all: 3, running: 0, recoverable: 2, paused: 1, interrupted: 1, failed: 1, completed: 0, cancelled: 0 })
   })
   it('RESUME_BLOCKING_ERROR_PATTERN 门控统一命中内容政策与空结果变体', () => {
     for (const text of ['content-policy', 'content policy', 'content_policy', 'contentpolicy', 'needs_user_input', '可能需要修改文案', '内容政策', '该失败需要人工处理（内容政策），请修改文案后重新启动', 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account', '图片生成多次未返回结果（可能是内容安全策略或服务波动）']) {

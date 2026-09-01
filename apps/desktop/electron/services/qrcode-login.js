@@ -35,6 +35,8 @@ const QR_SCAN_INTERVAL_MS = 2000
 // eslint-disable-next-line no-unused-vars
 const QR_REFRESH_INTERVAL_MS = 30000  // 微信码 30s 过期刷新
 const LOGIN_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
+// 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
+const SIDEBAR_WIDTH_DEFAULT = 200
 
 class QrCodeLogin {
   constructor (options = {}) {
@@ -53,6 +55,8 @@ class QrCodeLogin {
     this.onOpened = null
     /** @type {(() => void) | null} */
     this.onClosed = null
+    /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
+    this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
   }
 
   setMainWindow (win) {
@@ -217,10 +221,12 @@ class QrCodeLogin {
     const view = loginSession?.view
     if (!view || !this.mainWindow) return
     const bounds = this.mainWindow.getBounds()
+    var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
+    // 左侧导航栏为固定区域，二维码视图应定位在右侧主体区域
     view.setBounds({
-      x: 0,
+      x: sidebarWidth,
       y: LOGIN_VIEW_TOP,
-      width: Math.max(0, bounds.width),
+      width: Math.max(0, bounds.width - sidebarWidth),
       height: Math.max(0, bounds.height - LOGIN_VIEW_TOP),
     })
   }
@@ -559,6 +565,20 @@ class QrCodeLogin {
   _onWindowResize () {
     if (!this.mainWindow || !this._activeSession?.view) return
     this._positionView(this._activeSession)
+  }
+
+  /**
+   * 设置左侧导航栏宽度（由 WebviewManager 同步）
+   * @param {number} width - 像素宽度
+   */
+  setSidebarWidth (width) {
+    if (typeof width !== 'number' || width < 0 || width > 600) return
+    if (this._sidebarWidth !== width) {
+      this._sidebarWidth = width
+      if (this.mainWindow && this._activeSession?.view) {
+        this._positionView(this._activeSession)
+      }
+    }
   }
 
   /**

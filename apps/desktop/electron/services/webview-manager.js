@@ -28,6 +28,10 @@ const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/sha
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 
+// 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
+// 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
+const SIDEBAR_WIDTH_DEFAULT = 200
+
 // 账号级持久会话分区标识校验（与 comment-manager 保持一致）
 const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
 
@@ -106,6 +110,9 @@ class WebviewManager extends EventEmitter {
     // AccountManager 持有当前身份 owner_subject，并负责从加密凭证库读取账号会话。
     // 不在此处直接读取 credential-store，避免绕过身份命名空间。
     this._accountManager = null
+
+    // 左侧导航栏当前宽度（由渲染进程通过 IPC 同步，默认 200px）
+    this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
   }
 
   // ─── 虚拟登录标签集成 ──────────────────────────
@@ -932,6 +939,29 @@ class WebviewManager extends EventEmitter {
     this._repositionAll()
   }
 
+  /**
+   * 设置左侧导航栏宽度（由渲染进程同步 CSS 变量 --yixiaoer-sidebar-width）
+   * 默认 200px；窄屏（≤900px）时渲染进程传入 68px
+   * @param {number} width - 像素宽度
+   */
+  setSidebarWidth (width) {
+    if (typeof width !== 'number' || width < 0 || width > 600) {
+      log.warn('WebviewManager', 'Invalid sidebar width ignored: ' + width)
+      return
+    }
+    if (this._sidebarWidth !== width) {
+      this._sidebarWidth = width
+      // 同步到 AuthViewManager（登录视图也需避开左侧导航栏）
+      if (this._authViewManager && typeof this._authViewManager.setSidebarWidth === 'function') {
+        this._authViewManager.setSidebarWidth(width)
+      }
+      if (this._qrCodeLogin && typeof this._qrCodeLogin.setSidebarWidth === 'function') {
+        this._qrCodeLogin.setSidebarWidth(width)
+      }
+      this._repositionAll()
+    }
+  }
+
   // ─── 内部方法 ──────────────────────────────────
 
   /**
@@ -1001,6 +1031,7 @@ class WebviewManager extends EventEmitter {
   _repositionAll () {
     if (!this.mainWindow) return
     var bounds = this.mainWindow.getBounds()
+    var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
 
     // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
     // 浏览器标签保持隐藏，不做布局
@@ -1011,9 +1042,10 @@ class WebviewManager extends EventEmitter {
       }
     } else if (this._tabViews.size > 0) {
       // 处理浏览器标签页（新系统）
+      // 左侧导航栏为固定区域，WebContentsView 应定位在右侧主体区域
       var activeView = this._tabViews.get(this._activeTabId)
       if (activeView) {
-        activeView.setBounds({ x: 0, y: 76, width: bounds.width, height: bounds.height - 76 })
+        activeView.setBounds({ x: sidebarWidth, y: 76, width: bounds.width - sidebarWidth, height: bounds.height - 76 })
         activeView.setVisible(true)
       }
     }
@@ -1043,26 +1075,29 @@ class WebviewManager extends EventEmitter {
   _calculatePositions (bounds) {
     var NAV_HEIGHT = 56
     var GAP = 2
-    var W = bounds.width
+    var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
+    // 分屏区域应从左侧导航栏右侧开始，宽度也相应减少
+    var W = bounds.width - sidebarWidth
     var H = bounds.height - NAV_HEIGHT
+    var OFFSET_X = sidebarWidth
     var positions = []
 
     switch (this.layout) {
       case 1:
-        positions.push({ x: 0, y: NAV_HEIGHT, width: W, height: H })
+        positions.push({ x: OFFSET_X, y: NAV_HEIGHT, width: W, height: H })
         break
       case 2: {
         const hw = Math.floor((W - GAP) / 2)
-        positions.push({ x: 0, y: NAV_HEIGHT, width: hw, height: H })
-        positions.push({ x: hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: H })
+        positions.push({ x: OFFSET_X, y: NAV_HEIGHT, width: hw, height: H })
+        positions.push({ x: OFFSET_X + hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: H })
         break
       }
       case 3: {
         const hw = Math.floor((W - GAP) / 2)
         const hh = Math.floor((H - GAP) / 2)
-        positions.push({ x: 0, y: NAV_HEIGHT, width: hw, height: hh })
-        positions.push({ x: hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: hh })
-        positions.push({ x: 0, y: NAV_HEIGHT + hh + GAP, width: W, height: H - hh - GAP })
+        positions.push({ x: OFFSET_X, y: NAV_HEIGHT, width: hw, height: hh })
+        positions.push({ x: OFFSET_X + hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: hh })
+        positions.push({ x: OFFSET_X, y: NAV_HEIGHT + hh + GAP, width: W, height: H - hh - GAP })
         break
       }
       case 4: {
@@ -1070,10 +1105,10 @@ class WebviewManager extends EventEmitter {
         const hh = Math.floor((H - GAP) / 2)
         const y1 = NAV_HEIGHT
         const y2 = NAV_HEIGHT + hh + GAP
-        positions.push({ x: 0, y: y1, width: hw, height: hh })
-        positions.push({ x: hw + GAP, y: y1, width: W - hw - GAP, height: hh })
-        positions.push({ x: 0, y: y2, width: hw, height: H - hh - GAP })
-        positions.push({ x: hw + GAP, y: y2, width: W - hw - GAP, height: H - hh - GAP })
+        positions.push({ x: OFFSET_X, y: y1, width: hw, height: hh })
+        positions.push({ x: OFFSET_X + hw + GAP, y: y1, width: W - hw - GAP, height: hh })
+        positions.push({ x: OFFSET_X, y: y2, width: hw, height: H - hh - GAP })
+        positions.push({ x: OFFSET_X + hw + GAP, y: y2, width: W - hw - GAP, height: H - hh - GAP })
         break
       }
       case 6: {
@@ -1082,7 +1117,7 @@ class WebviewManager extends EventEmitter {
         for (let r = 0; r < 2; r++) {
           for (let c = 0; c < 3; c++) {
             positions.push({
-              x: c * (tw + GAP),
+              x: OFFSET_X + c * (tw + GAP),
               y: NAV_HEIGHT + r * (hh + GAP),
               width: tw,
               height: hh,
@@ -1287,6 +1322,15 @@ class WebviewManager extends EventEmitter {
       try { return { code: 0, data: self.getTabsInfo() } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
+
+    // ─── 左侧导航栏宽度同步 ──
+
+    ipcMain.handle('page-manager:set-sidebar-width', withSenderCheck(function (_, width) {
+      try {
+        self.setSidebarWidth(width)
+        return { code: 0 }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
   }
 
   getTabsInfo () {

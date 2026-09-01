@@ -1,4 +1,19 @@
 ## 图片内容政策敏感改写优化点 7-8 与既有项增强（codex/s2v-sensitive-rewrite-opt2，2026-08-30）
+## 历史视频一键发布到百家号：真实 E2E 跑通 + 标题截断 + AI 声明合规（codex/e2e-baijiahao-publish，2026-08-31）
+
+- **背景**：用真实环境 E2E 验证「历史记录已生成视频（run_1787747765446_xge6）→ 一键发布 → 自动创作 → 发布到百家号」全流程。真实发布成功（百家号文章 ID `1875007830173233602`），过程中发现并修复 3 个问题。
+- **方案**：
+  - **AI 生成内容声明默认勾选**：`usePublishFlow.js` 初始化 `data.aiGenerated` 时，平台未显式关闭即默认 `true`；百家号后端 `baijiahao.js` 同步写入 `aigc_bjh_status=1`。避免用户漏勾导致内容违规。
+  - **历史视频跳转 query 双重编码修复**：跳转方 `publishDataToQuery` 用 `encodeURIComponent` 编码、vue-router 再编码一次、接收方只 decode 一次导致预填失效。`applyHistoryVideoQuery` 的 `decode` 改为循环解码（最多 3 次直到值不变）。
+  - **百家号标题自动截断（按 UTF-8 字节）**：真实发布实验确认百家号标题上限按 **UTF-8 字节数**校验（后端 \`Math.floor(utf8Bytes/3) > 49\` 拒绝，即 \`utf8Bytes >= 150\` 拒绝，安全上限 149 字节）。前端 `usePublishFlow.js` + 后端 `baijiahao.js` 双端按字节截断兜底（`truncateByUtf8Bytes` / `truncateTitle`，上限 149 字节），保证自动一站式流程不因标题超长中断。
+  - **后端数据目录绑定与登录超时延长**：Python 后端子进程注入身份运行时配置，修复 `list_accounts` 返回空账号列表；登录超时延长避免真实登录偶发超时。
+- **教训 1（历史视频跳转 query 必须循环解码）**：跳转方编码 + vue-router 再编码 = 双重编码，接收方只 decode 一次会拿到 `%E5%A4%96%E5%A9%86` 这类乱码导致预填失效。解码必须循环直到值不再变化。
+- **教训 2（自动一站式发布必须对平台字段限制做兜底）**：百家号标题上限按 UTF-8 字节数校验（安全上限 149 字节），历史视频标题 66 字（198 字节）直接发布失败。自动流程必须在前端 + 后端双端按字节截断标题，否则一键发布会在中途失败。
+- **教训 4（平台「字数限制」可能是字节数而非字符数）**：百家号标题显示「最多 50 字」，但 50 个中文字符（150 字节）被拒、50 字符混合（140 字节）成功，实测后端按 \`Math.floor(utf8Bytes/3) > 49\` 拒绝。遇到平台字数限制报错时，必须实测是字符数还是 UTF-8 字节数，不能想当然按字符截断。
+- **教训 3（AI 生成声明是合规红线）**：各平台发布选项都有「内容是否为 AI 生成」声明，必须默认勾选 AI 生成内容并如实声明，否则违规。
+- **预防**：新增回归测试（`Publish.test.js` + `publish-contract.test.js` 60 项、`baijiahao-api-chain.test.js` 24 项，含 utf8ByteLength/truncateByUtf8Bytes 字节截断与代理对保护用例）；PRD §6.6 新增「历史视频发布 + AI 生成声明」合同表；后续新增平台发布字段限制时须同步做前端 + 后端双端兜底，并实测限制单位（字符/字节）。
+
+---
 
 - **背景**：在既有优化点 1-6 基础上，补齐敏感改写策略的 8 项增强：语义保留度算法对中文/同义词失真、改写后缺预检闭环、敏感类型识别依赖错误文本、改写未联动 negative_prompt、LLM 改写无成本预算、审计统计未反哺、改写指令语言与原文不匹配、严重度未差异化改写强度。
 - **方案**：8 项增强全部落地在 `story2video-image-retry.js` / `provider-error.js`：
@@ -54,6 +69,16 @@
 - **预防**：新增模块级 `MODERN_TERMS` 现代信号词表；`detectDynasty` 增加现代信号降级（现代信号 ≥2 且朝代命中 < 现代信号时返回 null）；`detectEra` 增加现代信号中和（双保险，era 降级 mixed）。新增 5 个回归测试：现代+历史引用不误判朝代（秦/三国）、纯历史仍识别、穿越剧不误伤、纯现代不受影响。后续新增朝代关键词时须同步考虑现代信号中和。
 
 ---## 场景上下文朝代误判：成语"事后诸葛亮"被识别为三国（fix-s2v-context-idiom-guard，2026-08-30）
+## 内容政策检查点交互不合理：缺编辑入口 + 关闭按钮禁用（fix-s2v-content-policy-edit，2026-08-30）
+
+- **现象**：图片提示词被判定敏感且重试耗尽进入内容政策检查点（`needs_user_input`/`content_policy`）时，底部操作条只有【✕ 取消】，进度弹窗右上角关闭按钮被禁用。用户无法直接跳转到受影响场景修改文案，且关闭语义不明确（内容政策任务不能后台化，否则静默卡在 `needs_user_input` 无法继续）。
+- **第一性原因**：`pipelineProgressCloseDisabled` 对人工检查点一律返回 true（`isPipelineManualCheckpoint`），未区分内容政策；底部 running-controls 只渲染取消按钮，无「编辑场景」直达入口。内容政策任务不能断点续跑（`resumeOrchestration` 会拦截 `content_policy`），必须改文案后重新生成，但 UI 未提供直达受影响场景的路径。
+- **教训 1（人工检查点必须区分「可编辑」与「不可编辑」）**：`content_policy` 与 `scene_asset_selection` 虽都属人工检查点，但语义不同——内容政策任务不能后台化、不能断点续跑，只能「改文案重新生成」；因此关闭按钮语义应为「取消任务」，而非「转入后台」。统一禁用关闭会掩盖这一区别，让用户失去关闭/编辑入口。
+- **教训 2（可编辑项目 projectId 来自 getRunSnapshot 透传）**：内容政策检查点暂停时，`getRunSnapshot` 已透传 `run.projectId` 到 `pipelineRunStatus.projectId`，可直接用于跳转结果页；但 run-only 记录或项目未落盘时 `projectId` 为空，必须降级为「提示到历史记录」，不能硬跳转。
+- **预防**：新增 `isContentPolicyCheckpoint` 计算属性区分内容政策检查点；`pipelineProgressCloseDisabled` 对内容政策返回 false（关闭=取消）；底部新增【编辑场景】按钮（`editContentPolicyScenes`）取消后跳转 `/create/result?project=<projectId>&focusScenes=<受影响场景号>`；`CreateView.test.js` 新增 5 个回归用例覆盖编辑按钮/关闭=取消/跳转携带 focusScenes/缺项目降级/取消失败不跳转。
+
+---
+## 场景上下文朝代误判：成语"事后诸葛亮"被识别为三国（fix-s2v-context-idiom-guard，2026-08-30）
 
 - **现象**：任务 `mtfdxj8d_x694`（原文讲"中国人种单一/引进外国人"，非三国题材）场景 11 的 `storyContext` 前缀被注入"中国三国（220-280）时期"，`anchors: ["三国","诸葛亮","中国"]`，所有 22 个场景都被污染成汉末城寨/战袍旌旗画面。用户误以为程序串了另一个三国任务。
 - **第一性原因**：`story-context-engine.js` 的 `detectDynasty` 用 `keywordHits` 做裸子串匹配（`text.includes(keyword)`），三国规则关键词含"诸葛亮"。任务原文场景 5 有成语"**事后诸葛亮**"，子串"诸葛亮"命中 → 整篇误判为三国（`era=ancient, strong=true`），全局锚点注入所有场景。引入点 `74bdca844`（2026-08-11 场景上下文中间层）。
@@ -14122,3 +14147,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
   3. 认证（401/403）、额度（402/quota）、限流（429/rate）仍保持不重试或按各自语义处理，不被 5xx/瞬时模式误判。
 - **回归保护**：provider-error.test.js 新增 `system error`/`fetch failed`/HTTP 500/503/socket hang up → transient，及 auth/quota/rate 不被误判共 8 用例；story2video-stages.test.js 新增 `system error`/`fetch failed` 抛错型 + 结果对象型各重试后恢复共 4 用例。
 - **预防**：新增「上游瞬时故障」类错误（5xx、system error、fetch failed、socket hang up 等）必须纳入 `TRANSIENT_MESSAGE_PATTERN` 并补分类回归测试；抛错路径与返回结果路径的瞬时判定必须复用同一模式，避免两处漂移。任何 provider 错误分类修改后，必须跑 provider-error.test.js + story2video-stages.test.js + api-usage-governor.test.js + provider-run-context.test.js。
+
+---
+
+## GitHub CLI（gh）安装与认证状态（环境备忘，2026-09-01）
+
+- **背景**：为本机（WSL + Windows）安装 GitHub CLI，供后续通过 `gh` 执行 GitHub 各种操作（repo / pr / issue / workflow / release 等），并确认是否仍需单独认证。
+- **安装方式**：Windows 侧经 winget 安装 —— `powershell.exe -Command "winget install --id GitHub.cli --silent --accept-package-agreements --accept-source-agreements"`。安装后 WSL 内 PATH 不会即时刷新，需用 `gh.exe --version` 调用（纯 `gh` 在当前 WSL 会话可能仍 `command not found`，重启 WSL 会话后 PATH 生效）。
+- **认证状态（已确认）**：`gh.exe auth status` 显示已登录 `github.com` 账户 **Colinchiu007**（keyring），Active account=true，Git operations protocol=https，Token scopes：`gist`、`read:org`、`repo`、`workflow`。**结论：gh 已可开箱执行 GitHub 操作，无需再执行 `gh auth login`。**
+- **教训/备忘**：
+  1. **安装 CLI ≠ 自动认证**：默认安装 gh 二进制不会完成登录；本机恰好此前已存在 keyring 中的认证凭据，因此安装后即处于已登录态。若换新机器/新用户，仍须先 `gh auth login` 才可用。
+  2. **WSL 下调用 Windows 版 gh 要带 `.exe`**：WSL bash PATH 未刷新时 `gh` 可能找不到，直接用 `gh.exe` 可稳定命中 Windows 安装；后续做 git/gh 写操作仍遵守 AGENTS.md「PowerShell 原生 `D:\` 路径」铁律。
+  3. **token 作用域已覆盖常见操作**：`repo`（读写仓库）、`workflow`（触发/管理 Actions）、`read:org`、`gist` 均已具备；若后续需要 org 管理、project、admin 等更高权限需单独扩权。

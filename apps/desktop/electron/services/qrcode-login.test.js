@@ -372,7 +372,7 @@ describe('QrCodeLogin 凭证边界', () => {
     const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
     const view = createdViews[0]
 
-    expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 76, width: 1200, height: 724 })
+    expect(view.setBounds).toHaveBeenCalledWith({ x: 200, y: 76, width: 1000, height: 724 })
     expect(onOpened).toHaveBeenCalledWith(expect.objectContaining({
       platform: 'kuaishou',
       accountId: expect.stringMatching(/^auth-kuaishou-/),

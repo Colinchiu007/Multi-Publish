@@ -863,9 +863,19 @@
           </div>
           <div v-else class="running-controls">
             <template v-if="orchestrationRunId">
-              <p v-if="pipelineRunStatus?.checkpoint?.reason === 'content_policy'" class="orchestration-attention">
+              <p v-if="isContentPolicyCheckpoint" class="orchestration-attention">
                 {{ pipelineRunStatus.checkpoint.recommendation || translateWithLocaleFallback('create.story2video.contentPolicyAttention', '图片内容需要处理；取消后修改文案并重新启动流水线。', 'Some image content needs attention. Cancel, update the text, and start the pipeline again.') }}
               </p>
+              <UiButton
+                v-if="isContentPolicyCheckpoint"
+                variant="secondary"
+                class="s2v-edit-scenes-btn"
+                data-testid="s2v-edit-scenes-trigger"
+                :disabled="contentPolicyEditBusy"
+                @click="editContentPolicyScenes"
+              >
+                ✎ {{ translateWithLocaleFallback('create.story2video.editScenes', '编辑场景', 'Edit scenes') }}
+              </UiButton>
               <p v-else-if="sceneAssetSelectionActive" class="orchestration-waiting" data-testid="s2v-selection-waiting-text">
                 {{ translateWithLocaleFallback('create.story2video.selectionWait.controlText', '⏳ 等待您选择分镜素材，确认后将生成旁白并合成视频。', 'Awaiting your asset selection — narration and compositing will start after you confirm.') }}
               </p>
@@ -947,6 +957,7 @@
         @update:historyFilter="historyFilter = $event"
         @resume-history="resumeHistoryItem"
         @open-result="openHistoryResult"
+        @publish-history="publishHistoryItem"
         @delete-history="requestHistoryDeletion"
         :deleting="deleting"
         @delete-history-batch="requestHistoryBatchDeletion"
@@ -964,7 +975,7 @@
       :close-on-esc="false"
       :close-disabled="pipelineProgressCloseDisabled"
       :close-aria-label="pipelineProgressCloseLabel"
-      @close="detachPipelineToBackground"
+      @close="handlePipelineProgressClose"
     >
       <div class="pipeline-progress-modal-content" data-testid="pipeline-progress-modal-content">
         <StageProgress
@@ -1459,6 +1470,7 @@ import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
+import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { PipelineSelector, StageProgress, SceneAssetSelection } from './video-creation'
 import { useLoginGate } from '@/composables/useLoginGate'
 import {
@@ -2032,6 +2044,7 @@ export default {
       cancelConfirmDialog: { visible: false, error: '' },
       story2videoResuming: false,
       pauseActionBusy: false,
+      contentPolicyEditBusy: false,
       startingPipeline: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
@@ -2455,9 +2468,19 @@ export default {
         : (name ? 'Pipeline progress · ' + name : 'Pipeline progress')
     },
     pipelineProgressCloseDisabled() {
+      // 内容政策检查点：关闭按钮可点击，点击=取消任务（作为失败/已取消处理），
+      // 而不是静默后台化（后台化会让任务卡在 needs_user_input 状态无法继续）。
+      if (this.isContentPolicyCheckpoint) return false
       return this.isPipelineManualCheckpoint()
     },
     pipelineProgressCloseLabel() {
+      if (this.isContentPolicyCheckpoint) {
+        const key = 'create.story2video.progressContentPolicyCloseLabel'
+        const translated = this.$t?.(key)
+        return typeof translated === 'string' && translated !== key
+          ? translated
+          : 'Close and cancel this task'
+      }
       const key = this.pipelineProgressCloseDisabled
         ? 'create.story2video.progressManualCloseLabel'
         : 'create.story2video.progressCloseLabel'
@@ -2505,6 +2528,39 @@ export default {
       if (!this.pipelineRunId) return false
       const status = this.pipelineRunStatus?.status
       return Boolean(this.pipelineRunStatus && status && !['idle', 'completed', 'failed', 'cancelled'].includes(status))
+    },
+    // 内容政策检查点（2026-08-30）：图片提示词被判定敏感且重试耗尽，run 暂停于 needs_user_input。
+    // 该任务不能断点续跑，必须修改受影响场景文案后重新生成；提供「编辑场景」直达入口。
+    isContentPolicyCheckpoint() {
+      const checkpoint = this.pipelineRunStatus?.checkpoint
+      if (!checkpoint || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) return false
+      const reason = String(checkpoint.reason || '').trim().toLowerCase()
+      const type = String(checkpoint.type || '').trim().toLowerCase()
+      return reason === 'content_policy' || type === 'content_policy'
+    },
+    // 内容政策检查点携带的受影响场景号（1-based，升序去重）。
+    contentPolicySceneNumbers() {
+      const checkpoint = this.pipelineRunStatus?.checkpoint
+      if (!checkpoint || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) return []
+      const numbers = new Set()
+      if (Array.isArray(checkpoint.scenes)) {
+        for (const scene of checkpoint.scenes) {
+          const value = scene && Number.isInteger(scene.sceneNumber) && scene.sceneNumber > 0
+            ? scene.sceneNumber
+            : (scene && Number.isInteger(scene.sceneIndex) && scene.sceneIndex >= 0 ? scene.sceneIndex + 1 : null)
+          if (value) numbers.add(value)
+        }
+      }
+      const single = Number.isInteger(checkpoint.sceneNumber) && checkpoint.sceneNumber > 0
+        ? checkpoint.sceneNumber
+        : (Number.isInteger(checkpoint.sceneIndex) && checkpoint.sceneIndex >= 0 ? checkpoint.sceneIndex + 1 : null)
+      if (single) numbers.add(single)
+      return [...numbers].sort((a, b) => a - b)
+    },
+    // 当前 run 对应的可编辑项目 projectId（getRunSnapshot 透传 run.projectId）。
+    contentPolicyProjectId() {
+      const value = this.pipelineRunStatus?.projectId
+      return typeof value === 'string' && value.trim() ? value.trim() : ''
     },
     orchestrationProgressPercent() {
       // 主进程权威值优先（_calcProgress = 阶段数占比 + 当前阶段 percent 加权，统一契约下发）
@@ -5404,6 +5460,72 @@ export default {
         fallbackEn: 'The task is now running in the background. You can view it in History.',
       })
     },
+    // 进度弹窗右上角关闭统一入口（2026-08-30）：
+    // - 普通 running 编排任务：关闭=后台脱离（detachPipelineToBackground）。
+    // - 内容政策检查点：关闭=取消任务并关闭弹窗（内容政策任务不能后台化，否则会静默卡在
+    //   needs_user_input；关闭即放弃本次运行，作为已取消/失败处理）。
+    // - 其他人工检查点（scene_asset_selection 等）：closeDisabled 为 true，不会触发本方法。
+    async handlePipelineProgressClose() {
+      if (this._s2vAlive === false) return false
+      if (this.isContentPolicyCheckpoint) {
+        return this.cancelContentPolicyTask()
+      }
+      return this.detachPipelineToBackground()
+    },
+    // 内容政策任务取消：调用 pipelineCancel 取消主进程 run，并复位前端跟踪态。
+    // 返回 true 表示已成功取消并复位；false 表示取消失败（保留当前运行态，避免静默失败）。
+    async cancelContentPolicyTask() {
+      if (this.contentPolicyEditBusy) return false
+      const runId = typeof this.orchestrationRunId === 'string' ? this.orchestrationRunId.trim() : ''
+      if (!runId) return false
+      this.contentPolicyEditBusy = true
+      try {
+        const result = await pipelineCancel()
+        if (!result || result.code !== 0) {
+          this.setPipelineProgressStatusError()
+          return false
+        }
+        this.resetPipelineUiState()
+        return true
+      } catch (_error) {
+        this.setPipelineProgressStatusError()
+        return false
+      } finally {
+        this.contentPolicyEditBusy = false
+      }
+    },
+    // 内容政策「编辑场景」：先取消当前 run（内容政策任务不能断点续跑，必须改文案后重新生成），
+    // 再跳转结果页并定位受影响场景。若缺少可编辑项目或受影响场景，则仅取消并提示。
+    async editContentPolicyScenes() {
+      if (this.contentPolicyEditBusy) return
+      const projectId = this.contentPolicyProjectId
+      const sceneNumbers = this.contentPolicySceneNumbers
+      this.contentPolicyEditBusy = true
+      try {
+        const result = await pipelineCancel()
+        if (!result || result.code !== 0) {
+          this.setPipelineProgressStatusError()
+          return
+        }
+        this.resetPipelineUiState()
+        if (!projectId) {
+          // 缺少可编辑项目（run-only 记录或项目尚未落盘）：无法跳转编辑页，仅提示用户到历史记录处理。
+          this.s2vOptionsToast = this.translateWithLocaleFallback(
+            'create.story2video.contentPolicyNoProjectToast',
+            '当前任务缺少可编辑项目，请在历史记录中查看并处理。',
+            'This task has no editable project. Please handle it from History.',
+          )
+          return
+        }
+        const query = { project: projectId }
+        if (sceneNumbers.length > 0) query.focusScenes = sceneNumbers.join(',')
+        await this.$router.push({ path: '/create/result', query })
+      } catch (_error) {
+        this.setPipelineProgressStatusError()
+      } finally {
+        this.contentPolicyEditBusy = false
+      }
+    },
     // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
     // run 完成后自动跳转结果页；断点恢复是用户显式继续动作，跳到流水线页并持续拉取运行态。
     // 历史记录中的运行任务由用户显式重新挂回创作页，继续实时查看或断点续跑。
@@ -5679,6 +5801,14 @@ export default {
       const focusScenes = policySceneQuery(item.error)
       if (item.status === 'failed' && focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
       this.$router.push({ path: '/create/result', query })
+    },
+    // 历史视频一键发布：从已完成项目提取发布数据，跳转发布页并预填充（视频模式）。
+    // 仅 completed 且有成片路径的项目可发布；发布走视频首帧封面，不携带自定义封面。
+    publishHistoryItem(item) {
+      if (!item || item.status !== 'completed' || !item.projectId) return
+      const data = buildPublishFromProject(item)
+      if (!data.video_path) return
+      this.$router.push({ path: '/publish', query: publishDataToQuery(data) })
     },
     historyRunId(item) {
       const value = item?.runId || item?.id

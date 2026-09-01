@@ -79,6 +79,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | 视频增强配置区 | 「单段视频短于分镜时长的处理」（循环播放/播放完停止） | 仅在视频增强模式（固定比例/AI 智能选择）下显示；默认循环播放 |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择）；**素材放大预览（2026-08-13 新增）**：点击图片/视频缩略图（`sas-preview-<scene>-<id>`，图片悬停显示放大镜遮罩）→ 打开 `UiModal` 大图预览/视频播放（图片 `max-width:100%`、`max-height:70vh`；视频 `controls autoplay playsinline`），标题按类型显示「图片预览/视频预览」，正文含「场景 n · 图片 m/视频」元信息与关闭提示；遮罩点击/× 关闭（`preview=null`）；**左右箭头循环切换（2026-08-13 新增）**：媒体两侧 ◀/▶ 按钮（data-testid `sas-preview-prev/next`，aria-label「上一个素材/下一个素材」），在全部素材（按场景 index 升序、场景内按候选顺序，图片+视频混合）间前后**跨场景循环**切换——第一条的上一条为最后一条、最后一条的下一条为第一条（`(idx±1+len)%len`）；元信息显示「第 N/M 个素材」；单候选时按钮禁用 | 缩略图点击 `openPreview(scene, candidate)` 打开预览（不改变单选，radio 选择独立）；`previewPrev()/previewNext()` 在全部素材有序列表 `allCandidates`（跨场景）中循环切换（切换后图片/视频元素随之更换，视频自动播放）；**选定状态切换（2026-08-13 新增）**：预览媒体下方按钮（data-testid `sas-preview-toggle`，aria-pressed 同步）显示当前素材「已选定/未选定」（`previewSelected = selected[scene.index] === candidate.id`）；点击切换：未选定→已选定（同场景原已选定素材自动取消，单值语义，与单选 radio 一致）、已选定→未选定（该场景变为无选定，确认按钮随 allSelected 禁用）；`closePreview()` 关闭；键盘 Enter 也可打开（图片缩略图 `role=button` + `tabindex=0`） |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
+| 断点恢复错误提示（2026-08-31） | 点击「从断点继续」失败时，resumeOrchestration 返回的错误码（RUN_SNAPSHOT_NOT_FOUND/RUN_NOT_FAILED/RUN_NOT_ORCHESTRATOR/STAGE_NOT_FOUND）必须经 resolveMessageKey 映射到具体本地化文案（zh/en 成对），PIPELINE_USER_INPUT_REQUIRED 回退「需要用户输入」；不得回退通用「当前操作未能完成」吞掉真实原因 | resumeOrchestration 返回 {success:false, error, errorCode} → 前端映射具体文案 |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 
 ##### 五、提示文字清单（zh / en）
@@ -339,6 +340,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | 视频增强配置区 | 「视频增强模式」（关闭/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择） | 单选切换；确认提交后进入 TTS+合成 |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
+| 断点恢复错误提示（2026-08-31） | 点击「从断点继续」失败时，resumeOrchestration 返回的错误码（RUN_SNAPSHOT_NOT_FOUND/RUN_NOT_FAILED/RUN_NOT_ORCHESTRATOR/STAGE_NOT_FOUND）必须经 resolveMessageKey 映射到具体本地化文案（zh/en 成对），PIPELINE_USER_INPUT_REQUIRED 回退「需要用户输入」；不得回退通用「当前操作未能完成」吞掉真实原因 | resumeOrchestration 返回 {success:false, error, errorCode} → 前端映射具体文案 |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 | 历史记录列表（CreateViewHistory） | 提示词预览行下方只读翻译块（.prompt-translation-readonly，🌐 图标 + 紫色斜体文字，最多2行截断120字符）；样式：color: #8b5cf6、background: rgba(139,92,246,0.06)、左侧2px紫色边框 | currentLocale() !== en 且首段存在 promptTranslation 时显示；只读不可修改；无翻译时隐藏 |
 
@@ -1210,6 +1212,8 @@ platforms:
 
 **视图层接入（2026-08-30）**：Accounts / Publish / Collection / Monitor / Intelligence 五个视图的 `ElMessage` / `ElMessageBox` 已全部迁移到统一通知通道 `useNotify`（`notifyError/Success/Warning/Info/Confirm` + `resolveNotifyText`）。确认框（`notifyConfirm`）返回 boolean，取消语义从 try/catch 改为 `if (!confirmed) return`。所有用户可见文案入 locales（zh/en 成对），新增 `collection.*` / `monitor.*` / `intelligence.*` 命名空间。
 
+**视图层接入（2026-08-30）**：Accounts / Publish / Collection / Monitor / Intelligence 五个视图的 `ElMessage` / `ElMessageBox` 已全部迁移到统一通知通道 `useNotify`（`notifyError/Success/Warning/Info/Confirm` + `resolveNotifyText`）。确认框（`notifyConfirm`）返回 boolean，取消语义从 try/catch 改为 `if (!confirmed) return`。所有用户可见文案入 locales（zh/en 成对），新增 `collection.*` / `monitor.*` / `intelligence.*` 命名空间。
+
 **5. 提示文字表（核心 errorCode → zh / en）**
 
 | errorCode | 中文（原因 + 建议） | English |
@@ -1577,6 +1581,95 @@ pending → publishing → { success | failed | partial | denied | cancelled }
                         (partial 可恢复)
 `
 
+### 6.6 历史视频发布 + AI 生成声明（2026-08-31 新增）
+
+**需求**：视频创作流水线生成的历史视频，可直接从「历史记录」/「结果页」一键跳转到发布页，预填视频路径与文案后发布到百家号等平台，形成「创作 → 发布」自动一站式闭环。发布时必须如实勾选「AI 生成内容」创作声明，否则平台判定违规。
+
+#### 6.6.1 入口与跳转
+
+1. **历史记录入口**：视频创作-历史记录中，已完成/可发布的视频条目提供「发布」按钮，点击跳转到发布页。
+2. **结果页入口**：视频创作结果页提供「去发布」按钮，点击跳转到发布页。
+3. **跳转方式**：跳转方（CreateViewHistory「发布」/ ResultView「去发布」）通过 publishEditorQuery() 构造 query，用 encodeURIComponent 编码 video_path / title / content / tags 后，router.replace 到 /publish。
+4. **双重编码兼容**：跳转方 encodeURIComponent 编码后，vue-router 序列化 query 时会再编码一次，URL 中实际是双重编码（如 %253A）。发布页 applyHistoryVideoQuery 采用**循环解码**（最多 3 次直到值不再变化），确保单次/双重编码都能还原为真实路径与文案。
+
+#### 6.6.2 发布页预填逻辑（applyHistoryVideoQuery）
+
+| 字段 | 来源 query | 处理 | 说明 |
+|------|-----------|------|------|
+| video_path | video_path | 循环解码后写入 article.video_path | 必填；为空则跳过预填 |
+| title | title | 循环解码后写入 article.title | 可空，空则保留用户输入 |
+| content | content | 循环解码后写入 article.content | 可空 |
+| tags | tags | 循环解码后经 normalizePublishStringList 转为标签数组 | 逗号分隔字符串 |
+| 封面 | — | 强制清空 cover_url / cover_path / cover_file | 历史视频发布走视频首帧封面，不携带自定义封面（百家号 API 不支持） |
+
+**触发时机**：发布页 onMounted 首次挂载时调用 applyHistoryVideoQuery()。注意 hash 路由下仅 query 变化不会重新挂载组件，因此从历史/结果页跳转时须确保发布页重新挂载（直接导航到发布 URL）。
+
+#### 6.6.3 AI 生成内容声明
+
+**数据模型**：article.aiGenerated（Boolean），默认 true（勾选「AI 生成内容」）。
+
+**前端（Publish.vue）**：
+- 发布页提供「AI 生成内容声明」checkbox（data-testid="ai-declaration-checkbox"），绑定 article.aiGenerated，默认勾选。
+- 用户可取消勾选（人工创作内容），但默认如实声明为 AI 生成，避免违规。
+
+**发布流程（usePublishFlow.js）**：
+- 构建发布数据时 data.aiGenerated = article.aiGenerated !== false，仅显式 false 时取消勾选，其余情况一律默认 AI 生成。
+
+**百家号后端（baijiahao.js）**：
+- buildVideoPostData 中 taskData.aiGenerated !== false 决定 aigc_bjh_status 勾选状态（activity_list[0][id]=aigc_bjh_status&activity_list[0][is_checked]=1|0）。
+- 平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
+
+#### 6.6.4 百家号标题长度限制与自动截断
+
+**平台限制**：百家号视频标题上限按 **UTF-8 字节数**校验（后端 /pcui/article/publish 用 \`Math.floor(utf8Bytes/3) > 49\` 拒绝，即 \`utf8Bytes >= 150\` 时拒绝）。实测：30~49 个中文字符（90~147 字节）成功；50 个中文字符（150 字节）被拒；50 字符混合（45 中文+5 英文，140 字节）成功；49 中文+1 英文（148 字节）成功。**安全上限 = 149 字节**。历史视频/一键发布预填的文案标题可能超长。
+
+**数据校验（前端契约 publish-contract.js）**：
+- PLATFORM_CONTENT_LIMITS 新增 baijiahao: { titleMaxBytes: 149, contentMax: 100000 }。
+- getPlatformContentLimit('baijiahao') 返回 { titleMaxBytes: 149, contentMax: 100000 }。
+- validatePlatformContent 对百家号标题按字节数校验，超长返回 { valid: false, platform: 'baijiahao', field: 'title', limit: 149, unit: '字节' }。
+- utf8ByteLength(value)：用 TextEncoder 计算 UTF-8 字节长度（中文 3 字节、英文 1 字节、emoji 4 字节）。
+- truncateByUtf8Bytes(value, maxBytes)：按 UTF-8 字节数截断，不切断代理对。
+
+**自动截断（usePublishFlow.js）**：
+- 一键发布/历史视频预填场景，若仅因百家号标题超长失败（contentCheck.platform === 'baijiahao' && contentCheck.field === 'title'），自动按 UTF-8 字节截断标题到 149 字节后继续发布，不阻断自动一站式流程。
+- 其他平台/字段超长仍提示并阻断，让用户手动调整。
+
+**字节安全截断（publish-contract.js truncateByUtf8Bytes / baijiahao.js truncateTitle）**：
+- 按 UTF-8 字节数（Array.from 遍历码点，累加 Buffer/TextEncoder 字节数）截断，避免把代理对（emoji 等）切成半个字符。
+- 前端 truncateByUtf8Bytes(value, 149) 与后端 truncateTitle(value, 149) 双端兜底，保证发布不因标题超长失败。
+
+#### 6.6.5 一键发布自动一站式流程
+
+1. 从历史记录/结果页选择视频 → 跳转发布页，自动预填视频路径、标题、内容、标签。
+2. 选择目标平台（如百家号）+ 绑定账号。
+3. 校验必填字段（标题/内容/标签），AI 生成声明默认勾选。
+4. 点击「一键发布」→ 任务加入队列 → 自动上传视频 → 自动发布 → 实时进度推送。
+5. 发布成功返回平台文章 ID（如百家号返回 ret.id / article_id）。
+
+**数据校验**：
+- 必填字段：标题、内容、标签（百家号话题标签可空，见平台矩阵）。
+- 标题长度：百家号 ≤ 50 字符，超长自动截断。
+- AI 生成声明：默认勾选，如实声明。
+
+**交互逻辑**：
+- 发布页预填后用户可编辑标题/内容/标签。
+- 发布进度通过 publish-progress 实时显示。
+- 发布失败提示具体错误（如标题超长、平台拒绝）。
+
+**显示项**：
+- 标题输入框（placeholder「输入视频标题」）。
+- 描述 textarea（placeholder「输入视频描述...」）。
+- 标签输入框（placeholder「多个标签用逗号分隔」）。
+- 话题输入框（placeholder「多个话题用逗号分隔」）。
+- AI 生成声明 checkbox（默认勾选）。
+- 发布按钮（data-testid="publish-submit"）。
+- 发布进度（data-testid="publish-progress"）。
+
+**提示文字**：
+- 标题超长自动截断：不提示，静默截断后继续发布。
+- 其他字段超长：提示「内容超出平台限制，请调整后重试」。
+- 发布失败：提示具体错误信息。
+
 ## 七、视频创作流程
 
 ### 7.1 故事讲述（原 全能创作 / Omni Creation；2026-08-14 更名）
@@ -1687,6 +1780,7 @@ key，未知内部 ID 只能回退为原始 ID。
 | 视频增强配置区 | 「视频增强模式」（关闭/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择） | 单选切换；确认提交后进入 TTS+合成 |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
+| 断点恢复错误提示（2026-08-31） | 点击「从断点继续」失败时，resumeOrchestration 返回的错误码（RUN_SNAPSHOT_NOT_FOUND/RUN_NOT_FAILED/RUN_NOT_ORCHESTRATOR/STAGE_NOT_FOUND）必须经 resolveMessageKey 映射到具体本地化文案（zh/en 成对），PIPELINE_USER_INPUT_REQUIRED 回退「需要用户输入」；不得回退通用「当前操作未能完成」吞掉真实原因 | resumeOrchestration 返回 {success:false, error, errorCode} → 前端映射具体文案 |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 
 ##### 五、提示文字清单（zh / en）
