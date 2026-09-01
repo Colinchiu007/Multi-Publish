@@ -14159,3 +14159,22 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
   1. **安装 CLI ≠ 自动认证**：默认安装 gh 二进制不会完成登录；本机恰好此前已存在 keyring 中的认证凭据，因此安装后即处于已登录态。若换新机器/新用户，仍须先 `gh auth login` 才可用。
   2. **WSL 下调用 Windows 版 gh 要带 `.exe`**：WSL bash PATH 未刷新时 `gh` 可能找不到，直接用 `gh.exe` 可稳定命中 Windows 安装；后续做 git/gh 写操作仍遵守 AGENTS.md「PowerShell 原生 `D:\` 路径」铁律。
   3. **token 作用域已覆盖常见操作**：`repo`（读写仓库）、`workflow`（触发/管理 Actions）、`read:org`、`gist` 均已具备；若后续需要 org 管理、project、admin 等更高权限需单独扩权。
+
+## S2V 选项重组 + 运营中心选项控制模块（codex/s2v-option-reorg-ops-control，2026-09-01）
+
+- **背景**：将视频创作流水线选项按功能重组（基础/画面/视频增强/声音/高级/发布），并通过运营中心后台实现选项的远程可见性控制与默认值下发，无需发布桌面端更新。
+- **方案**：
+  - **选项重组**：CreateView.vue 中 30+ 个选项按 6 个分组重新组织，仅「基础」默认展开，其余默认收起；CSS grid auto-fill 保证隐藏选项后视觉一致性。
+  - **运营中心后端**：新增 `pipeline_options` 表 + `PipelineOption` 模型，CRUD 服务 + FastAPI 路由（GET/PUT），集成到 `runtime_service.bootstrap` 中作为 `pipelineOptions` 字段下发。
+  - **运营中心前端**：PipelineOptions.vue 管理页面（分组卡片 + 可见性开关 + 默认值输入 + 过滤 + 保存），仅管理员可访问。
+  - **桌面端 Electron**：IPC 通道 `ops-center-sync:pipelineOptions`（公开通道），preload 桥接，Electron 服务 `getPipelineOptions()` 渲染进程调用。
+  - **桌面端前端**：`loadPipelineOptions()` 在 mounted 中加载，`s2vOptionVisible(key)` 检查可见性（支持 group._group 级联），`applyS2VPipelineDefaults()` 应用默认值到 s2vConfig/s2vOutputConfig。
+- **教训 1（CRITICAL：bootstrap 过滤隐藏选项导致不可见失效）**：`get_bootstrap_options()` 原实现 `.where(PipelineOption.visible == 1)` 过滤了隐藏选项，导致 `visibility` map 中缺失隐藏选项的 key。`s2vOptionVisible()` 使用 `hasOwnProperty` 检查后 fall through 到 group 级检查，group 级 `_group` 键为 `true`，因此隐藏选项始终显示为可见。**修复**：移除 WHERE 条件，选择所有行，`visibility[r.option_key] = bool(r.visible)` 正确标记隐藏选项为 `false`。
+- **教训 2（fail-open 设计必须与数据完整性对齐）**：`s2vOptionVisible()` 对未知 key 默认返回 `true`（fail-open），这是正确的容错设计。但前提是已知 key 的数据必须完整。当数据源过滤了隐藏行时，fail-open 反而导致隐藏选项可见。**预防**：fail-open 容错与数据完整性必须同时保证；bootstrap 应返回全量数据，由前端按需过滤。
+- **教训 3（IPC 通道新增必须同步更新测试）**：`ops-center-sync.ts` 新增第 5 个通道 `pipelineOptions` 后，既有测试 `ops-center-sync.test.js` 的通道列表断言仍期待 4 个通道，导致测试失败。**预防**：新增 IPC 通道时同步更新测试的通道列表和 mock 服务。
+- **教训 4（Windows 工作树在 WSL 中的兼容性问题）**：Windows 创建的工作树 `.git` 文件指向 Windows 路径（`D:/...`），WSL git 无法解析。使用 `git worktree add` 在 WSL 中重新创建工作树可解决，但需注意主仓库工作树状态（dirty working tree 不影响 `git worktree add`，因为 checkout 基于 ref 而非 working tree）。
+- **预防**：
+  - bootstrap 类接口应返回全量数据，不做过滤；前端负责按需过滤。
+  - 新增 IPC 通道必须同步更新测试的通道列表断言。
+  - 跨平台工作树建议在 WSL 中创建，避免 Windows 路径引用问题。
+  - 详见 PRD-S2V-PIPELINE-PAGE-UX.md §9（选项控制模块）。
