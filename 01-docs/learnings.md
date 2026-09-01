@@ -1,3 +1,17 @@
+## 账号凭证明文落盘安全加固：cookies/localStorage 加密（codex/refactor-stage-1，2026-09-01）
+
+- **背景**：架构重构 Stage -1.1 安全基线要求 —— `accounts` 表的 `cookies` / `localStorage` 此前以明文 JSON 落盘，一期上线后任意磁盘可读路径 + SQLite 文件拷贝都能拿到平台登录态，属高风险存量债务。
+- **方案**：
+  - **新增 `account-credential-crypto.js` 适配器**：复用 `credential-store` 主密钥（AES-256-GCM）+ `safeStorage`（Windows DPAPI / macOS Keychain / Linux libsecret），加密密钥单一事实源不新增第二套密钥体系。
+  - **schema 演进**：`accounts` 表新增 `cookies_enc BLOB` / `localStorage_enc BLOB` 列（`store-schema.js` 幂等迁移），明文列保留默认值，读取时优先解密加密列、缺失/解密失败回退明文列（渐进加密，兼容存量库）。
+  - **写路径**（`account-store.js addAccount`）：主密钥可用即加密写密文列、清空明文列；主密钥不可用（首次启动无 safeStorage/DPAPI 异常）时回退明文并 `log.warn` 告警，不阻塞登录。
+  - **存量迁移**：`migrateAccountCredentials()` 在 store 就绪后自动把明文列加密转存密文列并清空明文，幂等、空数据跳过、单条失败继续。
+  - **DI 注入**：`container.setup.js` 与 `store-interface.js` 均注入适配器，`base-store.js init` 完成 schema 迁移后立即触发存量迁移。
+- **教训（测试相关）**：`credential-store` 需导出 `encryptData` / `decryptData` 供适配器复用（此前仅 `getMasterKey`）；「主密钥不可用」测试必须预置损坏/占用凭据文件，否则 `getMasterKey` 会自愈重建造成断言反转。
+- **预防**：新增 `account-credential-crypto.test.js`（加解密回环、空值、主密钥不可用回退、解密失败回退）与 `account-store.test.js` 加密列/迁移用例；后续任何账号类敏感字段新增必须走同一加密适配器，禁止新增明文敏感列。
+
+---
+
 ## 图片内容政策敏感改写优化点 7-8 与既有项增强（codex/s2v-sensitive-rewrite-opt2，2026-08-30）
 ## 历史视频一键发布到百家号：真实 E2E 跑通 + 标题截断 + AI 声明合规（codex/e2e-baijiahao-publish，2026-08-31）
 

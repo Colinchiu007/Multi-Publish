@@ -40,6 +40,11 @@ function _createSqliteStore(opts) {
   const Store = require("./store");
   /** @type {any} */
   const instance = new Store();
+  // Stage -1.1：账号凭证加密适配器（复用 credential-store 主密钥，渐进加密）。
+  const { createAccountCredentialCrypto } = require("./account-credential-crypto");
+  instance.setAccountCredentialCrypto(
+    createAccountCredentialCrypto(opts.dbPath ? { userDataDir: opts.dbPath } : {})
+  );
 
   if (opts.dbPath) {
     instance._customDbPath = opts.dbPath;

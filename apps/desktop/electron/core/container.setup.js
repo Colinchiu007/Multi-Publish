@@ -230,7 +230,13 @@ function createContainer(options) {
   });
 
   // ---- 有依赖的服务 ----
-  container.register("store", function() { return new Store(); });
+  container.register("store", function() {
+    // Stage -1.1：注入账号凭证加密适配器（复用 credential-store 主密钥，渐进加密）。
+    const { createAccountCredentialCrypto } = require('../services/account-credential-crypto');
+    const store = new Store();
+    store.setAccountCredentialCrypto(createAccountCredentialCrypto());
+    return store;
+  });
   container.register("contentIntelligence", function(c) { return new ContentIntelligence(c.get("store")); });
   container.register("publishImpactTracker", function(c) { return new PublishImpactTracker(c.get("contentIntelligence")); });
   container.register("keywordMonitor", function(c) { return new KeywordMonitor(c.get("contentIntelligence"), c.get("store")); });
