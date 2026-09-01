@@ -3498,7 +3498,7 @@ export default {
           : 0.6
       }
     },
-        async loadMaxOutputResolution() {
+    async loadMaxOutputResolution() {
       // 运营开关（videoCreation.maxOutputResolution）：'1080p'（默认，禁止 4K）| '4k'
       // 优先级：运营后台功能开关（runtime 下发）→ 本地 store 设置 → 默认；失败一律 1080p（fail-closed）。
       try {
@@ -3517,6 +3517,7 @@ export default {
       } catch (_) {
         this.maxOutputResolution = '1080p'
       }
+    },
     async loadPipelineOptions() {
       // 运营中心选项控制（2026-08-31）：获取流水线选项可见性与默认值
       // 优先级：运营后台下发 → 桌面端本地默认值；失败一律使用本地默认值（fail-open，不阻塞创作）。

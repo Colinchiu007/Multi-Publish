@@ -29,7 +29,7 @@ describe('parseMaxOutputResolution — 能力上限', () => {
 describe('getOutputResolutionOptions — 前端选项随开关', () => {
   it('1080p（默认）：不出现 3840x2160，保留竖屏/横屏 1080p 档', () => {
     const options = getOutputResolutionOptions('1080p')
-    expect(options.map(o => o.value)).toEqual(['720x1280', '1920x1080', '1080x1920', '1080x1440'])
+    expect(options.map(o => o.value)).toEqual(['720x1280', '1080x1920', '1080x1440', '1080x1080', '1280x720', '1920x1080'])
     expect(options.some(o => o.value === '3840x2160')).toBe(false)
   })
 
