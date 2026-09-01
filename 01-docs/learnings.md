@@ -14147,3 +14147,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
   3. 认证（401/403）、额度（402/quota）、限流（429/rate）仍保持不重试或按各自语义处理，不被 5xx/瞬时模式误判。
 - **回归保护**：provider-error.test.js 新增 `system error`/`fetch failed`/HTTP 500/503/socket hang up → transient，及 auth/quota/rate 不被误判共 8 用例；story2video-stages.test.js 新增 `system error`/`fetch failed` 抛错型 + 结果对象型各重试后恢复共 4 用例。
 - **预防**：新增「上游瞬时故障」类错误（5xx、system error、fetch failed、socket hang up 等）必须纳入 `TRANSIENT_MESSAGE_PATTERN` 并补分类回归测试；抛错路径与返回结果路径的瞬时判定必须复用同一模式，避免两处漂移。任何 provider 错误分类修改后，必须跑 provider-error.test.js + story2video-stages.test.js + api-usage-governor.test.js + provider-run-context.test.js。
+
+---
+
+## GitHub CLI（gh）安装与认证状态（环境备忘，2026-09-01）
+
+- **背景**：为本机（WSL + Windows）安装 GitHub CLI，供后续通过 `gh` 执行 GitHub 各种操作（repo / pr / issue / workflow / release 等），并确认是否仍需单独认证。
+- **安装方式**：Windows 侧经 winget 安装 —— `powershell.exe -Command "winget install --id GitHub.cli --silent --accept-package-agreements --accept-source-agreements"`。安装后 WSL 内 PATH 不会即时刷新，需用 `gh.exe --version` 调用（纯 `gh` 在当前 WSL 会话可能仍 `command not found`，重启 WSL 会话后 PATH 生效）。
+- **认证状态（已确认）**：`gh.exe auth status` 显示已登录 `github.com` 账户 **Colinchiu007**（keyring），Active account=true，Git operations protocol=https，Token scopes：`gist`、`read:org`、`repo`、`workflow`。**结论：gh 已可开箱执行 GitHub 操作，无需再执行 `gh auth login`。**
+- **教训/备忘**：
+  1. **安装 CLI ≠ 自动认证**：默认安装 gh 二进制不会完成登录；本机恰好此前已存在 keyring 中的认证凭据，因此安装后即处于已登录态。若换新机器/新用户，仍须先 `gh auth login` 才可用。
+  2. **WSL 下调用 Windows 版 gh 要带 `.exe`**：WSL bash PATH 未刷新时 `gh` 可能找不到，直接用 `gh.exe` 可稳定命中 Windows 安装；后续做 git/gh 写操作仍遵守 AGENTS.md「PowerShell 原生 `D:\` 路径」铁律。
+  3. **token 作用域已覆盖常见操作**：`repo`（读写仓库）、`workflow`（触发/管理 Actions）、`read:org`、`gist` 均已具备；若后续需要 org 管理、project、admin 等更高权限需单独扩权。
