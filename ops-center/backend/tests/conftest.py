@@ -23,6 +23,8 @@ os.environ.setdefault("OPS_RUNTIME_SIGNING_PRIVATE_KEY", DEV_RUNTIME_PRIVATE_KEY
 # Catalog API Key 默认值：与各 API 测试模块一致（test_scheduler_api.py 等模块在导入期设 env，
 # 但 config.settings 是导入期单例，先导入的模块会让其为 ""。此处 setdefault 统一兜底。）
 os.environ.setdefault("OPS_CATALOG_API_KEY", "catalog-test-key")
+# Stage -1.8：JWT 密钥独立于 OPS_SECRET_KEY，测试环境默认注入
+os.environ.setdefault("OPS_JWT_SECRET", "test-jwt-secret")
 
 
 @pytest.fixture(autouse=True)
