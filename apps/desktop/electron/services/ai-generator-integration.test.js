@@ -22,6 +22,7 @@ __registerMock('./python-bridge', {
 
 const { AIGenerator } = require('./ai-generator')
 const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+const adapterRegistry = require('./adapters/_base/registry-singleton')
 
 // ─── mock manager ───
 function createMockManager(providers = []) {
@@ -76,6 +77,8 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+    // adapterRegistry 为全局单例，工厂跨 it 持久；清理避免重复 registerFactory 抛错
+    adapterRegistry._factories.clear()
   })
 
   describe('setRouter — 注入 ProviderRouter', () => {
