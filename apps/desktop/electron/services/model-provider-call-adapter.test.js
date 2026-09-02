@@ -1,3 +1,4 @@
+const adapterRegistry = require('./adapters/_base/registry-singleton')
 // @ts-check
 /**
  * model-provider-call-adapter.test.js — P3.2 TDD: manager.callAdapter 集成测试
@@ -14,6 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 
 // ─── mock safeStorage ───
 function createMockSafeStorage() {
@@ -275,11 +277,12 @@ afterEach(() => {
 })
 
 describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
+  beforeEach(() => { adapterRegistry.clear() })
   describe('registerAdapter — Adapter 注册', () => {
     it('注册 Adapter 工厂函数', () => {
       const factory = vi.fn(() => ({ id: 'openai', chatCompletion: vi.fn() }))
       manager.registerAdapter('openai', factory)
-      expect(manager._adapterFactories.has('openai')).toBe(true)
+      expect(adapterRegistry.hasFactory('openai')).toBe(true)
     })
   })
 
@@ -333,7 +336,7 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       // 验证凭据注入
       const adapter = mockChat.mock.calls[0].thisArg || {}
       // 凭据应包含解密后的 api_key
-      const factoryCall = manager._adapterFactories.get('openai').mock
+      const factoryCall = adapterRegistry.getFactory('openai').mock
       if (factoryCall) {
         const passedCreds = factoryCall.calls[0][0]
         expect(passedCreds.apiKey).toBe('sk-test-12345')
@@ -587,10 +590,10 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       expect(result.message).toContain('尚未初始化')
     })
 
-    it('manager._ready=false 时不访问 _adapterFactories', async () => {
+    it('manager._ready=false 时不访问 adapterRegistry', async () => {
       manager._ready = false
       // 清空 factories，确保不会被访问
-      manager._adapterFactories.clear()
+      adapterRegistry.clear()
       const result = await manager.callAdapter('openai', 'chatCompletion', {})
       // 仍返回 store not initialized（而非 no adapter）
       expect(result.errorCode).toBe('STORE_NOT_INITIALIZED')
@@ -602,27 +605,27 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
     it('空 providerId 静默返回（不注册）', () => {
       const factory = vi.fn(() => ({}))
       manager.registerAdapter('', factory)
-      expect(manager._adapterFactories.has('')).toBe(false)
+      expect(adapterRegistry.hasFactory('')).toBe(false)
     })
 
     it('null providerId 静默返回', () => {
       const factory = vi.fn(() => ({}))
       manager.registerAdapter(null, factory)
-      expect(manager._adapterFactories.has(null)).toBe(false)
+      expect(adapterRegistry.hasFactory(null)).toBe(false)
     })
 
     it('非 function factory 静默返回', () => {
       manager.registerAdapter('openai', 'not-a-function')
       // 即使之前注册过，也不应被覆盖
-      const original = manager._adapterFactories.get('openai')
+      const original = adapterRegistry.getFactory('openai')
       manager.registerAdapter('openai', { foo: 'bar' })
-      expect(manager._adapterFactories.get('openai')).toBe(original)
+      expect(adapterRegistry.getFactory('openai')).toBe(original)
     })
 
     it('undefined factory 静默返回', () => {
       manager.registerAdapter('openai', undefined)
-      const original = manager._adapterFactories.get('openai')
-      expect(manager._adapterFactories.get('openai')).toBe(original)
+      const original = adapterRegistry.getFactory('openai')
+      expect(adapterRegistry.getFactory('openai')).toBe(original)
     })
   })
 
