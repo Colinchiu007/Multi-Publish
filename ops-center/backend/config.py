@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     health_targets: str = ""  # JSON 数组 [{name, url}]
     # 兑换码签发密钥：须与桌面端 REDEMPTION_SECRET 一致（未配置 → 签发端点 400 fail-closed）
     redemption_secret: str = ""
+    # 运行时配置签名私钥（Ed25519，PEM 内容）：对 /api/v1/runtime/bootstrap 响应做 Ed25519 签名。
+    # 未配置 → bootstrap 端点 404 fail-closed（与 catalog_api_key 同一模式）。
+    # 私钥由运维生成，与桌面端内置/配置的 Ed25519 公钥配对；切勿随仓库分发。
+    runtime_signing_private_key: str = ""
+    # 运行时配置签名私钥 PEM 文件路径（与 runtime_signing_private_key 二选一，路径优先）
+    runtime_signing_key_path: str = ""
     feedback_media_dir: str = "data/feedback-media"
     feedback_max_message_chars: int = 10000
     feedback_max_archive_bytes: int = 25 * 1024 * 1024
@@ -48,6 +54,30 @@ class Settings(BaseSettings):
         if not secret or secret == INSECURE_DEFAULT_SECRET:
             raise RuntimeError("未配置安全的 OpsCenter JWT 密钥")
         return secret
+
+    def get_runtime_signing_private_key(self):
+        """返回 Ed25519 签名私钥对象；未配置任何密钥来源时返回 None（端点 fail-closed）。
+
+        密钥来源：runtime_signing_key_path（文件路径，优先）或 runtime_signing_private_key（PEM 内容）。
+        """
+        from pathlib import Path
+
+        from cryptography.hazmat.primitives import serialization
+
+        pem = ""
+        if self.runtime_signing_key_path.strip():
+            try:
+                pem = Path(self.runtime_signing_key_path.strip()).read_text(encoding="utf-8")
+            except OSError as e:
+                raise RuntimeError(f"无法读取运行时配置签名私钥文件: {e}")
+        elif self.runtime_signing_private_key.strip():
+            pem = self.runtime_signing_private_key
+        else:
+            return None
+        try:
+            return serialization.load_pem_private_key(pem.encode("utf-8"), password=None)
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"运行时配置签名私钥非法（须为 Ed25519 PEM）: {e}")
 
     def validate_security(self) -> None:
         """启动前验证认证配置，缺失时拒绝启动。"""
