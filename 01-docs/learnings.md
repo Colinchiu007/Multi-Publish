@@ -25,6 +25,50 @@
 
 ---
 
+## Stage -1.4：OpsCenter sync/status 补 require_admin 鉴权（codex/stage-1.4-sync-auth，2026-09-02）
+
+- **背景**：Stage -1.4 安全止血 —— sync 路由下 `/feature-gates`、`/platforms`、`/{project_code}/params` 三个端点均已加装 `Depends(require_admin)`，唯独 `GET /status` 无鉴权。无鉴权时，任意可访问 OpsCenter 的客户端均可枚举所有项目同步状态。
+- **方案**：`sync.py` `sync_status` 函数签名补 `user: dict = Depends(require_admin)`，与同路由其他端点一致。
+- **测试**：新增 `test_sync_api.py`（3 用例）：无 Token → 401、非 admin → 403、admin → 200。全量回归 326 passed。
+- **预防**：后续新增 sync 类端点必须统一加装 `require_admin`。
+
+---
+
+## Stage -1.5：webview:list-tabs 补 withSenderCheck sender 校验（codex/stage-1.5-webview-sender-check，2026-09-02）
+
+- **背景**：Stage -1.5 安全止血 —— `webview-manager.js` 下 20 个 IPC handler 中 19 个已加装 `withSenderCheck`，仅 `webview:list-tabs` 缺失。无 sender 校验时，任意来源可枚举所有 WebContentsView 标签信息。
+- **方案**：`webview:list-tabs` handler 包裹 `withSenderCheck`，与其余 19 个 handler 一致。
+- **测试**：`withSenderCheck` 自身在 `helpers.test.js` 已有 17 项覆盖。`webview-manager.test.js` 的 24 个失败为预存 Vite 导入分析问题，与本次修改无关。
+- **预防**：新增 IPC handler 必须加装 `withSenderCheck`。
+
+---
+
+## Stage -1.7：OpsCenter CORS 白名单收紧（codex/stage-1.7-cors-tighten，2026-09-02）
+
+- **背景**：Stage -1.7 安全止血 —— `config.py` 中 `cors_origins` 默认值为 `*`（允许任意来源跨域），生产环境若未显式覆盖，任意来源可发起 CORS 请求。
+- **方案**：默认值改为 `http://localhost:5173,http://localhost:5174`（开发环境 Vue 前端端口）；`.env.example` 同步更新并标注生产环境禁止使用 `*`。
+- **测试**：全量回归 326 passed，无破坏。
+- **预防**：生产部署清单需包含「确认 CORS origins 已设为具体域名而非 *」。
+
+---
+
+## Stage -1.8：管理员 JWT 密钥与 secret_key 解耦（codex/stage-1.8-jwt-decouple，2026-09-02）
+
+- **背景**：Stage -1.8 安全止血 —— `config.py` 中 `get_jwt_secret()` 使用 `jwt_secret or secret_key` 回退逻辑，若 `OPS_JWT_SECRET` 未配置，系统静默复用 `OPS_SECRET_KEY` 签发 JWT。
+- **方案**：`get_jwt_secret()` 移除 `or self.secret_key` 回退；`.env.example` 更新为独立密钥生成命令；`conftest.py` 注入 `OPS_JWT_SECRET` 默认值。
+- **测试**：`test_security_config.py`（9 项）、`test_auth_login.py`（12 项）、`test_sync_api.py`（3 项）全量通过。ops-center 全量回归 326 passed。
+- **预防**：部署时 `OPS_JWT_SECRET` 必须独立配置，不再与 `OPS_SECRET_KEY` 共享。
+
+---
+
+## Stage -1 附项：桌面端 sidecar 开发机绝对路径回退移除（codex/stage-1-appendix-sidecar-paths，2026-09-02）
+
+- **背景**：架构重构附项 —— `splitter-bridge.js` 和 `aligner-bridge.js` 在环境变量未配置时回退到硬编码的 `D:\Data\projects\` 开发机绝对路径。
+- **方案**：移除硬编码路径，改用 `__dirname` 相对路径指向 `packages/` 下对应目录。保留环境变量覆盖机制。
+- **预防**：Bridge 类 Python 包路径一律使用 `__dirname` 相对路径或环境变量，禁止硬编码绝对路径。
+
+---
+
 ## RPA 浏览器数据主密钥改 safeStorage 加密（codex/stage-1.2-safe-storage，2026-09-02）
 
 - **背景**：架构重构 Stage -1.2 安全基线要求 —— rpa-engine 的浏览器数据主密钥（`browser_data/` 下 `.browser_data_key`，保护 cookies/localStorage 加密备份）此前以明文 hex 落盘，任意可读磁盘路径直接拿到密钥即可解密全部浏览器登录态，与 Stage -1.1（accounts 表）同类高风险存量债务。
