@@ -156,7 +156,7 @@ async def test_bootstrap_includes_pipeline_options():
         }, headers=h)
 
         # bootstrap 接口（无需认证）
-        r = await client.get("/api/v1/runtime/bootstrap")
+        r = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "catalog-test-key"})
         assert r.status_code == 200, r.text
         data = r.json()
         assert "pipelineOptions" in data
@@ -179,7 +179,7 @@ async def test_bootstrap_includes_pipeline_options():
 @pytest.mark.asyncio
 async def test_bootstrap_no_auth_returns_pipeline_options():
     async with _client() as client:
-        r = await client.get("/api/v1/runtime/bootstrap")
+        r = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "catalog-test-key"})
         assert r.status_code == 200, r.text
         data = r.json()
         assert "pipelineOptions" in data
