@@ -34,11 +34,11 @@ export const FILM_ENGINEERING_PIPELINE_ENTRY = {
 }
 
 export const STYLES = [
-  { value: 'clean-professional', label: '简洁专业', desc: '干净排版，适合商业内容' },
-  { value: 'flat-motion-graphics', label: '扁平动效', desc: '现代扁平化动画风格' },
-  { value: 'anime-ghibli', label: '吉卜力动漫', desc: '温暖的手绘动漫质感' },
-  { value: 'minimalist-diagram', label: '极简图表', desc: '数据可视化优先' },
-  { value: 'cinematic-dark', label: '电影暗调', desc: '深色电影感渲染' },
+  { value: 'clean-professional', label: 'create.story2video.style.cleanProfessional', desc: 'create.story2video.style.cleanProfessionalDesc' },
+  { value: 'flat-motion-graphics', label: 'create.story2video.style.flatMotionGraphics', desc: 'create.story2video.style.flatMotionGraphicsDesc' },
+  { value: 'anime-ghibli', label: 'create.story2video.style.animeGhibli', desc: 'create.story2video.style.animeGhibliDesc' },
+  { value: 'minimalist-diagram', label: 'create.story2video.style.minimalistDiagram', desc: 'create.story2video.style.minimalistDiagramDesc' },
+  { value: 'cinematic-dark', label: 'create.story2video.style.cinematicDark', desc: 'create.story2video.style.cinematicDarkDesc' },
 ]
 
 export const STORY2VIDEO_STAGE_NAMES = Object.freeze([
@@ -47,10 +47,10 @@ export const STORY2VIDEO_STAGE_NAMES = Object.freeze([
 ])
 
 export const CATEGORY_LABELS = {
-  generated: 'AI 生成', talking_head: '说话头像', cinematic: '电影感',
-  animation: '动画', screen_recording: '屏幕录制', hybrid: '混合', custom: '自定义',
+  generated: 'pipelineSelector.catGenerated', talking_head: 'pipelineSelector.catTalkingHead', cinematic: 'pipelineSelector.catCinematic',
+  animation: 'pipelineSelector.catAnimation', screen_recording: 'pipelineSelector.catScreenRecording', hybrid: 'pipelineSelector.catHybrid', custom: 'pipelineSelector.catCustom',
 }
-export const COST_LABELS = { low: '低消耗', medium: '中等', high: '高消耗' }
+export const COST_LABELS = { low: 'pipelineSelector.costLow', medium: 'pipelineSelector.costMedium', high: 'pipelineSelector.costHigh' }
 export const STABILITY_MAP = {
   'cinematic': 'production', 'animated-explainer': 'production', 'talking-head': 'beta',
   'documentary-montage': 'beta', 'clip-factory': 'beta', 'screen-demo': 'beta',

@@ -148,6 +148,18 @@ export default {
   },
   create: {
     story2video: {
+      style: {
+        cleanProfessional: 'Clean & Professional',
+        cleanProfessionalDesc: 'Clean layout for business content',
+        flatMotionGraphics: 'Flat Motion',
+        flatMotionGraphicsDesc: 'Modern flat motion graphics',
+        animeGhibli: 'Ghibli Anime',
+        animeGhibliDesc: 'Warm hand-drawn anime feel',
+        minimalistDiagram: 'Minimalist Diagram',
+        minimalistDiagramDesc: 'Data visualization first',
+        cinematicDark: 'Cinematic Dark',
+        cinematicDarkDesc: 'Dark cinematic rendering',
+      },
       configurationTitle: 'Story Telling Configuration',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
