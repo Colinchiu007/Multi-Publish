@@ -169,9 +169,9 @@ async def test_bootstrap_includes_pipeline_options():
         # 隐藏的选项（CRITICAL：必须出现在 map 中且为 false）
         assert "basic.voiceSpeed" in po["visibility"]
         assert po["visibility"]["basic.voiceSpeed"] == False
-        # 默认值
+        # 默认值（typed defaults 契约：default_value 经 json.loads，可解析基元用解析值）
         assert po["defaults"]["basic.resolution"] == "1920x1080"
-        assert po["defaults"]["basic.voiceSpeed"] == "1.0"
+        assert po["defaults"]["basic.voiceSpeed"] == 1.0
 
 
 # ─── 场景 6：未认证用户访问 bootstrap 也能获取 pipelineOptions ──
