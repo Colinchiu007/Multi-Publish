@@ -68,6 +68,54 @@
 - **预防**：Bridge 类 Python 包路径一律使用 `__dirname` 相对路径或环境变量，禁止硬编码绝对路径。
 
 ---
+## Stage 0：债务熔断 CI 门禁（codex/stage-0-debt-guard，2026-09-02）
+
+- **背景**：架构重构 Stage 0「护栏与基线」—— 6 项指标量化债务基线，超阈值即阻断 merge。
+- **方案**：
+  - `scripts/check-debt-budget.js`：统计 maxFileLines、>=1000 行文件数、>=500 行文件数、model-provider-manager require 扇出、循环依赖数；首次运行自动生成 `scripts/debt-baseline.json`，后续与基线比较。
+  - `.github/workflows/debt-guard.yml`：PR 触发（非文档变更时运行），exit 1 阻断 merge。
+  - 当前基线：maxFileLines=6422（CreateView.vue）、>=1000 行=29、>=500 行=75、fanOut=61、circularDeps=0。
+- **教训**：基线文件需 git add -f 强制添加（`scripts/` 目录被 gitignore 匹配）。`check-debt-budget.js` 自身也被 gitignore，与 `debt-baseline.json` 同样需要 `-f`。
+- **预防**：新增 CI 脚本若放在 `scripts/` 下，需更新 `.gitignore` 白名单或使用 `git add -f`。
+
+---
+
+## Stage 1.1：IPC manifest registrar 双写校验（codex/stage-1-ipc-registrar，2026-09-02）
+
+- **背景**：架构重构 Stage 1.1「IPC manifest 单轨」—— 确保每个 IPC handler 都在 manifest 中登记，且 manifest 中登记的都有对应 handler。
+- **方案**：
+  - `scripts/ipc-manifest-registrar.js`：扫描 `ipcMain.handle/on` 注册的 channel，与 `01-docs/ipc-manifest.md` 双向校验。
+  - `01-docs/ipc-manifest.md`：从 52 模块 103 通道更新为 52 模块 315 通道（自动生成 + 人工校验）。
+- **教训**：manifest 长期未更新，代码中有 213 个通道未登记、1 个已废弃通道仍保留。自动生成脚本是保持 manifest 一致性的唯一可靠方式。
+- **预防**：新增 IPC handler 时必须同步更新 manifest；可将 registrar 加入 CI 门禁。
+
+---
+
+## Stage 1.3：流水线领域逻辑提取（codex/stage-1.3-domain-extract，2026-09-02）
+
+- **背景**：架构重构 Stage 1.3「domain 抽取」—— CreateView.vue（6,422 行）中的纯领域逻辑应提取到 `src/domain/`。
+- **方案**：
+  - `src/domain/pipeline-constants.js`：17 个常量（状态枚举、视觉风格、标签映射、假入口定义等）。
+  - `src/domain/pipeline-normalizer.js`：13 个纯函数（状态归一化、阶段合并、元数据管理、checkpoint 判断、上下文提取）。
+  - 绞杀者式：先立新模块，CreateView.vue 渐进迁移 import（后续 PR）。
+- **教训**：手动从大文件中删除内联定义极易引入语法错误（`</template>` 标签被截断等）。绞杀者式（先建新模块不删旧代码）比一次性替换安全得多。
+- **预防**：大文件重构必须分步进行（先建新模块 → 验证 → 迁移 import → 删除旧代码），每步单独验证 Vite build。
+
+---
+
+## Stage 1.4：容器守卫 — 孤儿 sidecar 清理 + stop 收敛（codex/stage-1.4-container-guard，2026-09-02）
+
+- **背景**：架构重构 Stage 1.4「容器守卫」—— BasePythonBridge 管理的 Python sidecar 进程在主进程异常退出时成为孤儿进程，占用端口且无法自动回收。
+- **方案**：
+  - 全局实例注册表（`_bridgeInstances` Set）+ `process.on('exit')` 清理：主进程退出时 taskkill/SIGKILL 所有已注册子进程。
+  - `stop()` 等待 `_starting` 收敛：与 python-bridge.js 同模式，防止 stop-start 竞态产生孤儿进程。
+  - 附带修复：splitter-bridge.js / aligner-bridge.js 中 Stage -1 附项遗留的 `SPLITTER_DIR`/`ALIGNER_DIR` 重复声明。
+- **教训**：`process.on('exit')` 回调中只能执行同步操作，不能使用 async/await 或 Promise。`taskkill /F /T` 是同步的，适合此场景。`SIGKILL` 直接终止不等待优雅退出。
+- **预防**：新增 sidecar 进程管理类必须继承 BasePythonBridge 或注册到全局实例表；process.on('exit') 回调必须是同步的。
+- **测试**：base-python-bridge.test.js 30/30 passed。
+
+---
+
 
 ## RPA 浏览器数据主密钥改 safeStorage 加密（codex/stage-1.2-safe-storage，2026-09-02）
 
