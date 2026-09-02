@@ -54,6 +54,23 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: 'Client status unknown',
+    nav: {
+      home: 'Home',
+      publish: 'Publish',
+      accounts: 'Accounts',
+      dashboard: 'Dashboard',
+      create: 'Video Creation',
+      collection: 'Collection',
+      monitor: 'Monitor',
+      calendar: 'Publish Calendar',
+      comments: 'Messages & Comments',
+      cloudPublish: 'CLI',
+      library: 'Material Library',
+      keywords: 'Keyword Monitoring',
+      viral: 'Viral Analysis',
+      promptEval: 'Prompt Evaluation',
+      modelProviders: 'Model Providers',
+    },
   },
   publish: {
     title: 'Title',

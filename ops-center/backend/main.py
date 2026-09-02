@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, diagnostics, scheduler, scene_context, prompt_eval, feedback
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, diagnostics, scheduler, scene_context, prompt_eval, feedback, pipeline_options
 
 
 
@@ -97,6 +97,7 @@ app.include_router(prompt_eval.router)
 app.include_router(feedback.router)
 
 app.include_router(content_templates.router)
+app.include_router(pipeline_options.router)
 
 
 

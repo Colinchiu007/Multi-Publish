@@ -1,4 +1,6 @@
-"""Tests for ops-center 运行时策略 API（公告/版本发布/内容安全 + runtime/bootstrap）。"""
+"""Tests for ops-center 运行时策略 API（公告/版本发布/内容安全 + runtime/bootstrap + Ed25519 签名）。"""
+import base64
+import copy
 import os
 import sys
 import tempfile
@@ -14,6 +16,24 @@ os.environ["OPS_SECRET_KEY"] = "test-secret"
 os.environ["OPS_JWT_SECRET"] = "test-secret"
 os.environ["OPS_CATALOG_API_KEY"] = "catalog-test-key"
 
+# DEV 签名密钥对（2026-09-02 生成）：与 apps/desktop/electron/services/ops-center-sync.js
+# 内置默认公钥 / ops-center-sync.test.js DEV 密钥对 / backend/.env.example DEV 私钥完全一致，
+# 用于双端交叉验证 canonical JSON + Ed25519 签名。
+os.environ["OPS_RUNTIME_SIGNING_PRIVATE_KEY"] = (
+    "-----BEGIN PRIVATE KEY-----\n"
+    "MC4CAQAwBQYDK2VwBCIEIMEaqZBFhrl/hpieWHhYoaG6Dn+Juchfx4/2s0dXok0S\n"
+    "-----END PRIVATE KEY-----"
+)
+# 模块级常量：与 .env.example / ops-center-sync.js 内置公钥配对（2026-09-02 生成）。
+# pytest 收集按字母序导入（test_platform_defs_* 在前），先被导入的模块会提前实例化
+# config.settings 单例，靠 os.environ 注入的关键字对后导入的模块不可见；
+# 因此 fixture 中必须对 settings.runtime_signing_private_key 直接赋值（与 catalog_api_key 同模式）。
+DEV_RUNTIME_PRIVATE_KEY = (
+    "-----BEGIN PRIVATE KEY-----\n"
+    "MC4CAQAwBQYDK2VwBCIEIMEaqZBFhrl/hpieWHhYoaG6Dn+Juchfx4/2s0dXok0S\n"
+    "-----END PRIVATE KEY-----"
+)
+
 import models  # noqa: F401
 from config import settings
 
@@ -23,6 +43,7 @@ async def setup_db():
     from database import engine, Base, async_session
 
     settings.catalog_api_key = os.environ.get("OPS_CATALOG_API_KEY", "catalog-test-key")
+    settings.runtime_signing_private_key = DEV_RUNTIME_PRIVATE_KEY
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
@@ -168,3 +189,83 @@ async def test_runtime_bootstrap_auth_and_active_filter():
         assert data["update_policy"]["min_version"] == "2.3.50"
         assert data["content_policy"]["word_list"] == ["测试词"]
         assert data["synced_at"]
+
+
+
+# ─── runtime/bootstrap Ed25519 签名（Stage -1.6）───
+
+DEV_RUNTIME_PUBLIC_KEY = (
+    "-----BEGIN PUBLIC KEY-----\n"
+    "MCowBQYDK2VwAyEAr6a4g942N23o31XNIcwFGX9VhSu2jlGA9dT1bfJIDpg=\n"
+    "-----END PUBLIC KEY-----"
+)
+
+
+def _verify_bootstrap_signature(data: dict) -> bool:
+    """用配对公钥对 bootstrap 响应的 Ed25519 签名验签（与桌面端 verifyRuntimeSignature 对齐）。"""
+    from cryptography.hazmat.primitives import serialization
+    from services.runtime_service import canonical_json
+
+    rest = {k: v for k, v in data.items() if k != "signature"}
+    canonical = canonical_json(rest).encode("utf-8")
+    pub = serialization.load_pem_public_key(DEV_RUNTIME_PUBLIC_KEY.encode("utf-8"))
+    try:
+        pub.verify(base64.b64decode(data["signature"]), canonical)
+        return True
+    except Exception:
+        return False
+
+
+def test_canonical_json_fixed_vectors():
+    """canonical_json 固定向量（与桌面端 canonicalJson 完全一致，双端交叉验证）。"""
+    from services.runtime_service import canonical_json
+
+    assert canonical_json({"b": 2, "a": 1, "c": [3]}) == '{"a":1,"b":2,"c":[3]}'
+    assert canonical_json({"标题": "维护"}) == '{"标题":"维护"}'
+    assert canonical_json({"o": {"x": False, "y": None, "z": []}}) == '{"o":{"x":false,"y":null,"z":[]}}'
+    assert canonical_json([1, 2.5, -3]) == "[1,2.5,-3]"
+
+
+@pytest.mark.asyncio
+async def test_runtime_bootstrap_ed25519_signature():
+    """bootstrap 响应带 Ed25519 签名，用配对公钥验签通过；篡改任意字段即验签失败。"""
+    async with _client() as client:
+        h = _admin_headers()
+        await client.put("/api/v1/update-policy", json={"min_version": "2.3.50", "gray_ratio": 100, "enabled": True}, headers=h)
+        r = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "catalog-test-key"})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "signature" in data
+        assert _verify_bootstrap_signature(copy.deepcopy(data))
+        # 篡改任一业务字段后验签必须失败（桌面端将整体拒绝应用）
+        tampered = copy.deepcopy(data)
+        tampered["update_policy"]["min_version"] = "9.9.9"
+        assert not _verify_bootstrap_signature(tampered)
+
+
+@pytest.mark.asyncio
+async def test_runtime_bootstrap_signing_not_configured_404():
+    """签名私钥未配置 → bootstrap 404 fail-closed（弱配置显式暴露）。"""
+    original = settings.runtime_signing_private_key
+    settings.runtime_signing_private_key = ""
+    try:
+        async with _client() as client:
+            r = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "catalog-test-key"})
+            assert r.status_code == 404
+            assert "签名" in r.text
+    finally:
+        settings.runtime_signing_private_key = original
+
+
+@pytest.mark.asyncio
+async def test_runtime_bootstrap_signing_invalid_key_500():
+    """签名私钥非法（非 Ed25519 PEM）→ 500 显式报错，绝不降级为未签名响应。"""
+    original = settings.runtime_signing_private_key
+    settings.runtime_signing_private_key = "not-a-valid-pem"
+    try:
+        async with _client() as client:
+            r = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "catalog-test-key"})
+            assert r.status_code == 500
+            assert "签名私钥" in r.text
+    finally:
+        settings.runtime_signing_private_key = original

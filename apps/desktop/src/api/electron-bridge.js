@@ -66,4 +66,17 @@ export function on(event, callback) {
   return api[method](callback);
 }
 
+/**
+ * 调用 pageManager 命名空间下的同步 IPC 方法（如 setSidebarWidth）
+ * @param {string} method pageManager 上的方法名
+ * @param {...any} args 参数
+ * @returns {any|undefined} 返回结果，无 API 或方法不存在时返回 undefined
+ */
+export function invokePageManager(method, ...args) {
+  const api = getApi();
+  const ns = api && api.pageManager;
+  if (!ns || typeof ns[method] !== "function") return undefined;
+  return ns[method](...args);
+}
+
 export { getApi };

@@ -16,7 +16,30 @@ __registerMock('./crypto', {
   setSafeStorage: () => {},
 })
 
-const { OpsCenterSync, normalizeUrl } = require('./ops-center-sync')
+const nodeCrypto = require('crypto')
+
+const { OpsCenterSync, normalizeUrl, canonicalJson, verifyRuntimeSignature, DEFAULT_RUNTIME_PUBLIC_KEY } = require('./ops-center-sync')
+
+// DEV 测试密钥对：与 ops-center-sync.js 默认公钥 / .env.example DEV 私钥配对（2026-09-02 生成）
+const DEV_PRIVATE_KEY = [
+  '-----BEGIN PRIVATE KEY-----',
+  'MC4CAQAwBQYDK2VwBCIEIMEaqZBFhrl/hpieWHhYoaG6Dn+Juchfx4/2s0dXok0S',
+  '-----END PRIVATE KEY-----',
+].join('\n')
+
+const DEV_PUBLIC_KEY = [
+  '-----BEGIN PUBLIC KEY-----',
+  'MCowBQYDK2VwAyEAr6a4g942N23o31XNIcwFGX9VhSu2jlGA9dT1bfJIDpg=',
+  '-----END PUBLIC KEY-----',
+].join('\n')
+
+/** 对 payload 去掉 signature 后做 canonical JSON + Ed25519 签名，返回带 signature 的对象（模拟 ops-center 服务端） */
+function signRuntimePayload (payload, privPem = DEV_PRIVATE_KEY) {
+  const { signature: _sig, ...rest } = payload
+  const canonical = Buffer.from(canonicalJson(rest), 'utf-8')
+  const sig = nodeCrypto.sign(null, canonical, privPem)
+  return { ...rest, signature: sig.toString('base64') }
+}
 
 function makeStore (initial) {
   let data = initial || ''
@@ -146,7 +169,7 @@ describe('OpsCenterSync syncNow', () => {
     global.fetch = vi.fn(async () => jsonResp({ status: 401 }))
     expect((await svc.syncNow()).message).toContain('API Key 无效')
     global.fetch = vi.fn(async () => jsonResp({ status: 404 }))
-    expect((await svc.syncNow()).message).toContain('未启用运营同步')
+    expect((await svc.syncNow()).message).toContain('端点未启用')
     global.fetch = vi.fn(async () => jsonResp({ status: 500 }))
     expect((await svc.syncNow()).message).toContain('HTTP 500')
   })
@@ -296,7 +319,7 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     const originalFetch = global.fetch
     global.fetch = vi.fn(async (url) => {
       if (String(url).includes('/runtime/bootstrap')) {
-        return jsonResp({ body: { announcements: [{ title: '公告', severity: 'info', content: '' }], update_policy: null, content_policy: null, synced_at: 't' } })
+        return jsonResp({ body: signRuntimePayload({ announcements: [{ title: '公告', severity: 'info', content: '' }], update_policy: null, content_policy: null, synced_at: 't' }) })
       }
       return jsonResp({ body: { items: [{ id: 'openai' }] } })
     })
@@ -427,5 +450,155 @@ describe('OpsCenterSync applyRuntime platform_defs', () => {
     svc2.setTemplateManager({})
     svc2.applyRuntime({ announcements: [], content_templates: [{ id: 'a' }], synced_at: 't' })
     expect(svc2.getRuntimeState().announcements).toEqual([])
+  })
+})
+
+describe('canonicalJson 固定向量（与 ops-center json.dumps 双端对齐）', () => {
+  it('键字典序排序', () => {
+    expect(canonicalJson({ b: 2, a: 1, c: [3] })).toBe('{"a":1,"b":2,"c":[3]}')
+  })
+  it('中文按 UTF-8 原样输出（ensure_ascii=False 对齐）', () => {
+    expect(canonicalJson({ 标题: '维护' })).toBe('{"标题":"维护"}')
+  })
+  it('字符串转义规则与 JSON.stringify 一致', () => {
+    expect(canonicalJson({ s: 'a"b\\c\nd' })).toBe(JSON.stringify({ s: 'a"b\\c\nd' }))
+  })
+  it('嵌套对象/空数组/布尔/null', () => {
+    expect(canonicalJson({ o: { x: false, y: null, z: [] } })).toBe('{"o":{"x":false,"y":null,"z":[]}}')
+  })
+  it('数字与数组直接序列化', () => {
+    expect(canonicalJson([1, 2.5, -3])).toBe('[1,2.5,-3]')
+  })
+})
+
+describe('verifyRuntimeSignature（Ed25519 验签）', () => {
+  it('正确签名 → ok:true（内置默认公钥）', () => {
+    const payload = signRuntimePayload({ announcements: [{ title: 'x', severity: 'info', content: '' }], synced_at: '2026-09-02T00:00:00Z' })
+    expect(verifyRuntimeSignature(payload)).toEqual({ ok: true })
+  })
+
+  it('显式传入配对的自定义公钥 → ok:true', () => {
+    const payload = signRuntimePayload({ announcements: [], synced_at: 't' })
+    expect(verifyRuntimeSignature(payload, DEV_PUBLIC_KEY)).toEqual({ ok: true })
+  })
+
+  it('签名字段缺失/空 → MISSING_SIGNATURE', () => {
+    expect(verifyRuntimeSignature({ announcements: [] }, DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'MISSING_SIGNATURE' })
+  })
+
+  it('签名长度非 64 字节 → INVALID_SIGNATURE_LENGTH', () => {
+    const p2 = { announcements: [], signature: Buffer.alloc(32, 1).toString('base64') }
+    expect(verifyRuntimeSignature(p2, DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'INVALID_SIGNATURE_LENGTH' })
+  })
+
+  it('签名 base64 非法 → INVALID_SIGNATURE_ENCODING', () => {
+    const p2 = { announcements: [], signature: '!!!not-base64!!!' }
+    expect(verifyRuntimeSignature(p2, DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'INVALID_SIGNATURE_ENCODING' })
+  })
+
+  it('payload 被篡改 → SIGNATURE_MISMATCH（任一字段变更均拒绝）', () => {
+    const payload = signRuntimePayload({ announcements: [{ title: 'original', severity: 'info', content: '' }], synced_at: 't' })
+    payload.announcements[0].title = 'evil'
+    expect(verifyRuntimeSignature(payload, DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'SIGNATURE_MISMATCH' })
+  })
+
+  it('payload 非对象（数组/空）→ INVALID_PAYLOAD', () => {
+    expect(verifyRuntimeSignature([], DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'INVALID_PAYLOAD' })
+    expect(verifyRuntimeSignature(null, DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'INVALID_PAYLOAD' })
+  })
+
+  it('传入非法公钥 PEM → INVALID_PUBLIC_KEY', () => {
+    const payload = signRuntimePayload({ announcements: [], synced_at: 't' })
+    expect(verifyRuntimeSignature(payload, '-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----')).toEqual({ ok: false, reason: 'INVALID_PUBLIC_KEY' })
+  })
+
+  it('签名用另一把私钥签发 → SIGNATURE_MISMATCH（端到端交叉验证）', () => {
+    const other = nodeCrypto.generateKeyPairSync('ed25519')
+    const payload = signRuntimePayload({ announcements: [], synced_at: 't' }, other.privateKey.export({ type: 'pkcs8', format: 'pem' }))
+    expect(verifyRuntimeSignature(payload, DEV_PUBLIC_KEY)).toEqual({ ok: false, reason: 'SIGNATURE_MISMATCH' })
+  })
+})
+
+describe('OpsCenterSync 运行时验签 fail-closed', () => {
+  it('syncNow 拉取的 runtime 未签名/验签失败 → 整体拒绝不应用（目录结果不受影响）', async () => {
+    const store = makeStore()
+    const manager = makeManager()
+    const svc = new OpsCenterSync({ store, modelProviderManager: manager, log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+    const originalFetch = global.fetch
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: { announcements: [{ title: '未签名公告', severity: 'info', content: '' }], synced_at: 't' } })
+      }
+      return jsonResp({ body: { items: [{ id: 'openai' }] } })
+    })
+    try {
+      const res = await svc.syncNow()
+      expect(res.code).toBe(0)
+      expect(res.runtimeApplied).toBe(false)
+      expect(svc.getRuntimeState().announcements).toEqual([])
+      expect(LOG.warn).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('验签失败'))
+    } finally {
+      global.fetch = originalFetch
+      LOG.warn.mockClear()
+    }
+  })
+
+  it('saveConfig 校验 runtimePublicKey 必须为合法 PEM；非法拒绝保存', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const bad = svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k', runtimePublicKey: 'not-a-pem' })
+    expect(bad.code).toBe(-1)
+    expect(bad.message).toContain('Ed25519')
+    const good = svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k', runtimePublicKey: DEFAULT_RUNTIME_PUBLIC_KEY })
+    expect(good.code).toBe(0)
+    expect(good.config.runtimePublicKey).toBe(DEFAULT_RUNTIME_PUBLIC_KEY)
+    expect(store._getData()).toContain('runtimePublicKey')
+  })
+
+  it('自定义公钥保存后 _fetchRuntime 用其验签：配对的公钥通过，错误公钥拒绝', async () => {
+    const store = makeStore()
+    const manager = makeManager()
+    const svc = new OpsCenterSync({ store, modelProviderManager: manager, log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k', runtimePublicKey: DEV_PUBLIC_KEY })
+
+    const originalFetch = global.fetch
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: signRuntimePayload({ announcements: [{ title: 'ok', severity: 'info', content: '' }], synced_at: 't' }, DEV_PRIVATE_KEY) })
+      }
+      return jsonResp({ body: { items: [{ id: 'openai' }] } })
+    })
+    try {
+      const res = await svc.syncNow()
+      expect(res.code).toBe(0)
+      expect(res.runtimeApplied).toBe(true)
+      expect(svc.getRuntimeState().announcements).toHaveLength(1)
+    } finally {
+      global.fetch = originalFetch
+      LOG.warn.mockClear()
+    }
+
+    // 换用另一把私钥签名 → 拒绝
+    const other = nodeCrypto.generateKeyPairSync('ed25519')
+    const otherPriv = other.privateKey.export({ type: 'pkcs8', format: 'pem' })
+    const store2 = makeStore()
+    const svc2 = new OpsCenterSync({ store: store2, modelProviderManager: manager, log: LOG })
+    svc2.saveConfig({ url: 'https://ops.example.com', apiKey: 'k', runtimePublicKey: DEV_PUBLIC_KEY })
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: signRuntimePayload({ announcements: [{ title: 'evil', severity: 'info', content: '' }], synced_at: 't' }, otherPriv) })
+      }
+      return jsonResp({ body: { items: [{ id: 'openai' }] } })
+    })
+    try {
+      const res2 = await svc2.syncNow()
+      expect(res2.code).toBe(0)
+      expect(res2.runtimeApplied).toBe(false)
+      expect(svc2.getRuntimeState().announcements).toEqual([])
+    } finally {
+      global.fetch = originalFetch
+      LOG.warn.mockClear()
+    }
   })
 })

@@ -212,6 +212,10 @@ Module._load = function (request, parent, isMain) {
   if (mockRegistry.has(request)) return mockRegistry.get(request)
   // 3. 通过 resolved filename 匹配（处理 require('./x') 与注册 key './x' 路径差异）
   if (parent && parent.filename) {
+    // 内置模块（crypto/path/fs/...）不走 filename 匹配：Node 对内置模块 _resolveFilename
+    // 返回自身名（如 'crypto'），会被 __registerMock('./crypto', ...) 归一化后误命中。
+    // 刻意 mock 内置模块必须用精确名注册（如 __registerMock('fs', ...)），已在步骤 2 命中。
+    if (Module.builtinModules.includes(request)) return originalLoad.apply(this, arguments)
     let resolved
     try { resolved = Module._resolveFilename(request, parent, isMain) } catch (e) { /* 模块不存在时跳过 */ }
     if (resolved) {

@@ -5,34 +5,49 @@
 ## 语言约定
 
 - **与用户交流默认使用简体中文**：所有面向用户的对话、解释、总结、报告、评审意见一律使用简体中文回复。
+
 - 用户明确要求使用其他语言（如 English）时，优先遵循用户当前指令。
+
 - 代码注释、commit message、文档按项目既有语言习惯执行（本项目以中文为主）。
 
----
+***
 
 ## 核心原则
 
 - **先文档再代码**：没有 PRD 不动手，没有架构设计不动手
+
 - **TDD**：测试先于代码，提交前全部测试通过
+
 - **Code Review**：每 2-3 个功能 review 一次
+
 - **git 提交**：所有变更必须 commit，不允许未跟踪代码
+
 - **分支隔离（分层）**：运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本）允许在 main 直接小步提交，但须保持可回滚且不得与并发会话的脏文件冲突。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
+
 - **⛔ Worktree 隔离（并发会话铁律）**：共享仓库根（例如 `D:/Data/projects/Multi-Publish`）是 **main-only 协调目录**，必须保持干净并停留在 `main`；不得作为运行时代码任务的 cwd，也不得执行 `git checkout` / `git switch` 到 feature 分支。每个运行时代码任务统一从 Git for Windows Bash 运行 `scripts/session-init.sh <task-name>`，在默认 `<仓库父目录>/mp-worktrees/mp-<task-name>`（可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）与 `codex/<task-name>` 独立分支中工作；同名路径已被其他仓库或错误分支占用时必须 fail closed。隔离 worktree 由 pre-commit 自动声明当前分支；共享主目录仅允许 `powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main`。**已有多个会话绑定同一共享 cwd 时，先暂停所有 Git 写操作，再逐个串行迁移；禁止并行 handoff/stash/checkout，因为 stash、index 与 HEAD 属于同一 Git 状态，会互相竞争。** 新 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`。统一使用 Git for Windows Bash（`start-mp-task.ps1` 自动探测，可经 `-GitBash` / `MP_GIT_BASH` 覆盖）；本机裸 `bash` 可能解析到 WSL，不得用于此流程。
+
 - **⛔ Worktree 清理防护铁律（R1-R5）**：删除任何 worktree 前必须：(R1) 对主工作区做基线快照（`git status --porcelain` + stash 数），删除后 diff 基线，出现新增 D/消失的 M 立即报错；(R2) 禁止宽目录恢复/清理（`git checkout -- <目录>`、`git restore <目录>`、`Remove-Item <目录> -Recurse` 一律禁用），恢复只针对 `git status` 精确列出的文件；(R3) 删除前扫描目标 worktree 的 junction/reparse point，凡指向主工作区的共享链接先解除再删，否则会级联删除主工作区物理文件；(R4) 对主工作区做批量操作前，未提交修改（M/A）先备份到 `%TEMP%` 或精确 `git stash push -- <路径>`；(R5) `git worktree remove --force` 是最后手段，使用前必须完成 R1/R3 并确认 dirty 清单无价值。标准流程已落地为 `scripts/safe-worktree-remove.ps1`（删除）与 `scripts/safe-restore-deleted.ps1`（恢复），涉及 worktree 删除/文件恢复一律调用这两个脚本。
+
 - **错误处理**：所有关键路径必须有错误处理
 
 ## 会话隔离自动入口与持续守护
 
 运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动；该入口会校验共享主目录、安装 hooks，并创建独立 worktree（默认 `<仓库父目录>/mp-worktrees`，路径可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）。共享根目录健康检查由 scripts/mp-worktree-health.ps1 执行，Windows 当前用户计划任务由 scripts/install-session-isolation-task.ps1 注册。完整说明见 docs/session-isolation-automation.md。不得把运行时代码任务直接绑定到共享仓库根；新电脑克隆后先运行 `scripts/bootstrap-write-guard.ps1` 完成 hooks、计划任务、watcher 与自检，仅安装质量节拍 skill 不会自动启用该机制。
+
 - **⛔ 共享主目录实时写保护**：共享仓库根下 `apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径禁止直接落盘；`scripts/guard-shared-root-writes.ps1` 由 Windows 计划任务 `Session Isolation Write Guard`（AtLogOn）常驻监听，非 gitignored 文件移入 `%LOCALAPPDATA%\Multi-Publish\session-isolation\quarantine\`，tracked 文件从 HEAD 精确恢复并写 `violations.jsonl`；放行 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.agent_context/`、`.hermes/` 及根级流程文档。任务开始与提交前必须确认 Write Guard 任务已注册且 watcher 运行、共享根保持 main clean。
+
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
 - **远程同步**：任务标记 completed 前必须核对关联 PR 已合并或记录 remoteStatus，禁止基于滞后状态做重复工作。
+
 - **子代理降级**：派发探子前探测子代理可用性；出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等。
+
 - **OpenSpec 引导**：OpenSpec 已启用——M+/中高风险任务须经 `/opsx:propose` 建 change，机制契约见 `openspec/specs/openspec-integration/spec.md`。
+
 - **locale 成对修改（i18n-content-sync）**：修改 `apps/desktop/src/locales/zh.js` 或 `en.js` 必须成对提交（CI Gate 7 `.github/scripts/check-locale-sync.js` 拦截）；新增用户可见文案一律写入 locales（zh/en 成对），渲染端 `src/` 非 locales 文件新增中文字符串字面量由 CI 基线扫描拦截；产品名词翻译集中维护于 `01-docs/i18n-glossary.md`。
+
 - **提交分支守卫**：pre-commit 强制校验当前分支 == `.agent_context/expected-branch`（会话声明），无声明或分支不符一律拦截，docs-only 提交同样校验；隔离 worktree 提交时自动声明当前分支（无需手动）；共享主工作区必须运行 `scripts/session-guard.ps1 -Branch <期望分支>`（不传 -Branch 自动取当前分支）。钩子安装在共享 `.git/hooks/`：隔离 worktree 零手动步骤；共享主工作区无声明/不符一律拦截并提示声明命令；`--no-verify` 可绕过钩子，属流程纪律威慑，禁止使用。
 
 ### 隔离失败/冲突防坑纪律（2026-08-26 复盘，硬规则）
@@ -40,15 +55,19 @@
 > 以下条目由一次「worktree 半失效 + 并发冲突」事故复盘得出，属于不可绕过的硬纪律。
 
 **根因复盘（4 类问题叠加）：**
-1. **路径规范不一致（系统性根因）**：Git for Windows 在 Git Bash 下遇到 `/d/...` POSIX 路径会拼成 `D:/d/...` 混写，使 worktree 的 `gitdir` 链接、含 `/` 的分支 ref 写入全部落到不存在的位置（分支 ref 静默 rc=0 但从未落盘），worktree 半失效。结论：**任何 git 写操作（worktree add / branch / checkout / commit）必须用 PowerShell 原生 `D:\` 路径执行，绝不在 Git Bash 下用 `/d/...` 绝对路径做 git 写。**
+
+1. **路径规范不一致（系统性根因）**：Git for Windows 在 Git Bash 下遇到 `/d/...` POSIX 路径会拼成 `D:/d/...` 混写，使 worktree 的 `gitdir` 链接、含 `/` 的分支 ref 写入全部落到不存在的位置（分支 ref 静默 rc=0 但从未落盘），worktree 半失效。结论：**任何 git 写操作（worktree add / branch / checkout / commit）必须用 PowerShell 原生** **`D:\`** **路径执行，绝不在 Git Bash 下用** **`/d/...`** **绝对路径做 git 写。**
 2. **隔离创建失败即高危手动补救**：共享根有前序脏改动 → 严格入口 `start-mp-task.ps1 -RequireClean` 被拒；fallback `git worktree add -b codex/...` 因 ref 解析异常失败后，手动 `rm` worktree 注册 + `prune`，把当前 git 上下文一并搞乱。
 3. **坏 cwd 下跑 git**：shell 卡在失效 worktree 的 cwd，导致 `git -C` 共享根报 "No such file"。
 4. **无并发冲突预检**：开 worktree 前没查已有 worktree 是否改同文件。
 
 **行为层硬纪律（立即可执行，最高优先级）：**
-- **A. 隔离创建失败 → 立即停、报告用户，绝不手动 `rm` worktree 注册、绝不在共享根落盘。** worktree 删除/恢复只走 `scripts/safe-worktree-remove.ps1` / `scripts/safe-restore-deleted.ps1`（铁律 R1-R5）；孤儿注册清理用 `git worktree prune`。
-- **B. git 写操作一律走 PowerShell 原生 `D:\` 路径**：worktree add / branch / checkout / commit / push 均在 PowerShell 下执行（Git Bash 的 `/d/` 路径会触发 `D:/d/` 混写，使含 `/` 的分支名 ref 静默写失败）。只读/相对路径操作（status、show-ref、diff）可在 Git Bash 下进行。
-- **C. 写码前先 `git rev-parse --abbrev-ref HEAD` 确认当前不是共享根的 `main`；任何 git 写操作前先 `cd` 到中立目录再 `git -C <绝对路径>`，不在可疑 cwd 跑 git。**
+
+- **A. 隔离创建失败 → 立即停、报告用户，绝不手动** **`rm`** **worktree 注册、绝不在共享根落盘。** worktree 删除/恢复只走 `scripts/safe-worktree-remove.ps1` / `scripts/safe-restore-deleted.ps1`（铁律 R1-R5）；孤儿注册清理用 `git worktree prune`。
+
+- **B. git 写操作一律走 PowerShell 原生** **`D:\`** **路径**：worktree add / branch / checkout / commit / push 均在 PowerShell 下执行（Git Bash 的 `/d/` 路径会触发 `D:/d/` 混写，使含 `/` 的分支名 ref 静默写失败）。只读/相对路径操作（status、show-ref、diff）可在 Git Bash 下进行。
+
+- **C. 写码前先** **`git rev-parse --abbrev-ref HEAD`** **确认当前不是共享根的** **`main`；任何 git 写操作前先** **`cd`** **到中立目录再** **`git -C <绝对路径>`，不在可疑 cwd 跑 git。**
 
 **工具层（治本，待排期）：** 统一路径规范（bash 侧 `cygpath -u`、PowerShell 侧 `cygpath -w`）；`git worktree add` 后立即 `git -C <绝对路径> rev-parse --show-toplevel` 验证可进入，失败则 `git worktree remove --force` 并告警，不留半失效注册。
 
@@ -74,7 +93,7 @@
 
 在执行任何代码修改前，AI必须自动检查：
 
-1. **文件修改检测**：即将执行 apply_patch、git add、git commit 等操作
+1. **文件修改检测**：即将执行 apply\_patch、git add、git commit 等操作
 2. **用户意图检测**：用户消息包含代码相关关键词
 3. **任务类型检测**：当前任务涉及代码实现、修复、优化等
 
@@ -82,7 +101,7 @@
 
 ### 会话隔离前置检查（MANDATORY）
 
-在执行任何 apply_patch / git add / 文件修改前，**必须先运行 pre-flight 守卫脚本**：
+在执行任何 apply\_patch / git add / 文件修改前，**必须先运行 pre-flight 守卫脚本**：
 
 powershell -ExecutionPolicy Bypass -File scripts/pre-code-edit-guard.ps1
 
@@ -92,15 +111,17 @@ exit 1 -> 拒绝（当前在共享主目录，禁止修改）
 **其他检查项（并行确认）：**
 
 1. **确认入口**：运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动
-3. **确认写保护**：写保护 watcher 必须存活（Session Isolation Write Guard 计划任务状态为 Running）
-4. **确认健康**：mp-worktree-health.ps1 -RequireWriteGuard 检查通过
+2. **确认写保护**：写保护 watcher 必须存活（Session Isolation Write Guard 计划任务状态为 Running）
+3. **确认健康**：mp-worktree-health.ps1 -RequireWriteGuard 检查通过
 
 **未通过 pre-code-edit-guard -> 不允许开始代码修改，立即创建 worktree。**
 
 ### 违反后果
 
 - **未触发质量节拍的代码修改**：不允许提交
+
 - **跳过质量节拍流程**：Code Review 打回
+
 - **绕过强制检查**：视为流程违规
 
 ### 触发方式
@@ -109,67 +130,83 @@ exit 1 -> 拒绝（当前在共享主目录，禁止修改）
 
 或者使用触发词：质量节拍、quality rhythm、门禁、流程、日常循环、阶段检查
 
-
----
+***
 
 ## AI 角色分工
 
-| 角色 | 阶段 | 产出物 |
-|------|------|--------|
-| **PM（产品经理）** | 需求分析 | PRD、用户故事、功能列表 |
-| **架构师** | 技术设计 | 架构图、技术选型、目录结构 |
-| **开发工程师** | 编码实现 | 功能代码、单元测试（TDD） |
-| **QA（测试）** | 质量验证 | 测试用例、测试报告 |
-| **CTO（技术总监）** | 代码评审 | 审查意见、安全审计 |
+| 角色            | 阶段   | 产出物            |
+| ------------- | ---- | -------------- |
+| **PM（产品经理）**  | 需求分析 | PRD、用户故事、功能列表  |
+| **架构师**       | 技术设计 | 架构图、技术选型、目录结构  |
+| **开发工程师**     | 编码实现 | 功能代码、单元测试（TDD） |
+| **QA（测试）**    | 质量验证 | 测试用例、测试报告      |
+| **CTO（技术总监）** | 代码评审 | 审查意见、安全审计      |
 
 切换角色口令：
+
 > 「现在你作为 PM，写 PRD」
 > 「切换成架构师角色，设计技术方案」
 > 「作为 CTO，review 一下这段代码」
 
----
+***
 
 ## 7 阶段开发流程
 
 ### 阶段 1：想法澄清（CEO + COO）
+
 把模糊想法变成一句话需求，确认：项目名称、目标用户、核心价值、MVP 范围。
 
 ### 阶段 2：PRD（PM）
+
 产出：PRD，包含目标用户、P0/P1/P2 功能列表、验收标准、非功能需求。
 **CEO 签字确认后才能进入下一阶段。**
 
 ### 阶段 3：技术架构（架构师）
+
 产出：2-3 个方案对比、推荐方案、目录结构、数据流。
 **原则：选最简单的方案，能不用数据库就不用，能不用第三方服务就不用。**
 
 ### 阶段 4：开发计划（PM）
+
 把 MVP 拆成 ≤4h 的任务，标注依赖关系，标注可并行项。
 
 ### 阶段 5：编码实现（开发 + TDD）
+
 - 先写测试，再写代码
+
 - 每次完成做手动验证：能启动 ✅/核心功能 ✅/非法输入不崩溃 ✅/错误提示友好 ✅
 
 ### 阶段 6：代码评审（CTO）
+
 整库扫描以下维度：
+
 - **安全**：硬编码密钥、Shell 注入、eval
+
 - **错误处理**：async vs .catch() 比例（健康 ≤5:1）
+
 - **XSS**：v-html / dangerouslySetInnerHTML
+
 - **Electron 安全**：contextIsolation、nodeIntegration、no-sandbox
+
 - **日志污染**：console.log 在生产代码中
+
 - **硬编码等待**：waitForTimeout
 
 分类输出：
+
 ```
 🔴 CRITICAL | 文件:行号 | 描述 | 修复建议
 🟠 MAJOR   | 文件:行号 | 描述 | 修复建议
 🟢 MINOR   | 文件:行号 | 描述 | 修复建议
 ```
+
 CRITICAL 必须修复才能继续。
 
 ### 阶段 7：发布（运维）
+
 打包/部署、生成安装包或部署指南、git tag。
 
----
+***
 
 ## 质量门禁
 
@@ -180,16 +217,18 @@ CRITICAL 必须修复才能继续。
 **Code Review**：CRITICAL 问题已修复 ✅ / 代码规范一致 ✅
 **发布阶段**：安装包可用 ✅ / git 已提交并 tag ✅
 
----
+***
 
 ## 实用沟通模板
 
 **启动任务**：
+
 ```
 按正规开发流程实现 [功能]。先写测试，再实现，再 review。不跳步骤。
 ```
 
 **加新功能**：
+
 ```
 ① 分析是否在 MVP 范围内
 ② 写功能规格
@@ -199,11 +238,13 @@ CRITICAL 必须修复才能继续。
 ```
 
 **改需求**：
+
 ```
 先停。需求调整：[改动]。更新 PRD，告诉我哪些已完成的代码需要改。
 ```
 
 **报错**：
+
 ```
 [贴完整错误栈]。分析根因，给出修复方案。
 ```
@@ -218,7 +259,7 @@ CRITICAL 必须修复才能继续。
 4. **修复 + 回归保护**：给出修复方案 + 这个 Bug 的**回归保护测试**（明确测试怎么写、放在哪个文件、用什么模式：单元/集成/E2E/视觉回归）
 5. **预防措施**：怎么防止再次发生 —— 更新测试场景模板 / 审查清单 / 质量节拍流程 / learnings，必须有具体文件变更落地
 
----
+***
 
 ## 避坑清单
 
@@ -230,16 +271,22 @@ CRITICAL 必须修复才能继续。
 6. 不问「为什么这么选」→ 被带进复杂方案
 7. 不做手动验证 → 测试过但实际用不了
 
----
+***
 
 ## 参考文件
 
 - `PRD.md` — 产品需求文档
+
 - `P0/P1/P2-IMPLEMENTATION-PLAN.md` — 实现计划
+
 - `ARCHITECTURE-PLAYWRIGHT.md` — 架构设计
+
 - `DEVELOPMENT_REPORT.md` — 开发报告
+
 - `CHANGELOG.md` — 变更日志
+
 - `DESIGN.md` — 设计规范
+
 - `INTEGRATION.md` — 集成说明
 
 ## 目录结构
@@ -289,28 +336,38 @@ sleep 8 && kill $!
 ```
 
 - 启动进程存活不等于通过：必须捕获 stderr；出现 `Failed to load platform config`、`PluginLoader.*mkdir failed`、`ENOTDIR.*app.asar` 或配置/插件路径指向 ASAR 内部时，QM-1 失败。
+
 - Git worktree 打包或执行真实 Electron IPC 验证前，必须运行 `node scripts/verify-worktree-deps.js` 确认 `node_modules/@multi-publish/*` 链接指向当前 worktree；禁止借用指向其他分支源码的 workspace 链接（含历史整目录 Junction）生成交付产物或测试证据。
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
 
----
+***
 
 ## 构建与发布
 
 - **依赖管理**：本项目使用 **pnpm**（唯一包管理器，`packageManager: pnpm@11.13.1`，锁文件 `pnpm-lock.yaml`）。所有 `npm ci/npm install/npm run` 均以 `pnpm install --frozen-lockfile` / `pnpm ...` 替代（`node-linker=hoisted`，布局与 npm workspaces 扁平结构一致）。
-- **打包**：`pnpm build:win`（需 node_modules 里有 electron@43.1.1 + electron-builder@25.1.8）
-- **electron 二进制自愈（方案 B）**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本有），`pnpm install` 后 `dist/` 不会自动下载。装完依赖后执行 `node scripts/ensure-electron.js`（缺失时自动触发 `node node_modules/electron/install.js`，优先走本地 `@electron/get` 缓存）；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 可显式跳过。`electron-ci.yml` 已手动执行 install.js（经 `scripts/run-package-install.js` 放行 esbuild/vue-demi），无需改动。
+
+- **打包**：`pnpm build:win`（需 node\_modules 里有 electron\@43.1.1 + electron-builder\@25.1.8）
+
+- **electron 二进制自愈（方案 B）**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31\~41 版本有），`pnpm install` 后 `dist/` 不会自动下载。装完依赖后执行 `node scripts/ensure-electron.js`（缺失时自动触发 `node node_modules/electron/install.js`，优先走本地 `@electron/get` 缓存）；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 可显式跳过。`electron-ci.yml` 已手动执行 install.js（经 `scripts/run-package-install.js` 放行 esbuild/vue-demi），无需改动。
+
 - **Playwright 浏览器捆绑**：打包前需执行 `cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers pnpm exec playwright install chromium`，浏览器自动捆入 `extraResources`
 
 ### 依赖安装与 Worktree 复用（pnpm）
 
 - **全局 store（机器级，不提交）**：`pnpm config set store-dir D:/Data/projects/.pnpm-store`（CI 使用默认 store）。所有 worktree 的依赖均从该 store 硬链接，不重复下载。
-- **新 worktree 依赖就绪**：`cd mp-<task-name> && pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`（首次 ~1 分钟，之后秒级）。
+
+- **新 worktree 依赖就绪**：`cd mp-<task-name> && pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`（首次 \~1 分钟，之后秒级）。
+
 - **解析门禁**：`node scripts/verify-worktree-deps.js` 断言每个被消费的 `@multi-publish/*` 包解析到当前 worktree；打包/测试/截图证据前必须运行。
-- **⛔ 禁止整目录 Junction 复用 node_modules**：它使 `@multi-publish/*` 共享物理链接、并发 worktree 无法解析各自分支源码（双模块实例）。历史 junction 状态用 `scripts/fix-worktree-node-modules.sh` 修复（检测 → 移除 → pnpm install --frozen-lockfile → 门禁）。
+
+- **⛔ 禁止整目录 Junction 复用 node\_modules**：它使 `@multi-publish/*` 共享物理链接、并发 worktree 无法解析各自分支源码（双模块实例）。历史 junction 状态用 `scripts/fix-worktree-node-modules.sh` 修复（检测 → 移除 → pnpm install --frozen-lockfile → 门禁）。
+
 - **锁文件变更**：仅在主仓库/单一 worktree 执行一次 `pnpm install` 更新 `pnpm-lock.yaml` 并提交；其他 worktree 用 `--frozen-lockfile` 拉取。
-- **离线支持**：安装包自带 Chromium 浏览器（~170MB），无需代理；
+
+- **离线支持**：安装包自带 Chromium 浏览器（\~170MB），无需代理；
   自动更新模块内置 GFW 网络错误静默处理，无网络时静默失败不弹错
+
 - **CI**：.github/workflows/build.yml 自动完成 Playwright 安装 + 浏览器捆绑
 
 ## 强制质量门禁（MUST）
@@ -326,7 +383,9 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 ```
 
 - ✅ 返回 exit code 0 → 提交代码
+
 - ❌ 打包失败 → 修复后重新打包，直到成功
+
 - ❌ 打包成功但应用启动报错 → 修复后重新打包
 
 **不打包不提交。** 单元测试不能替代完整打包验证（require 路径、文件 glob 覆盖、语法错误等只能在打包产物中检测）。
@@ -336,105 +395,170 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 Code review 时除逻辑正确性外，必须逐项检查：
 
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
+
 - **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用
+
 - **preload 重启验证**：修改 preload.js 后必须重启 Electron 应用（preload 只在窗口创建时加载，Vite HMR 不会热更新 preload）
+
 - **IPC 测试环境**：涉及 IPC 调用的功能必须在 Electron 窗口中测试，浏览器打开 Vite 开发服务器无 `window.electronAPI`，所有 IPC 调用静默 fallback
+
 - **IPC 参数序列化安全**：所有传给 `ipcRenderer.invoke()` / `window.electronAPI.*()` 的参数必须是纯 JSON 对象。Vue ref/reactive 包装的嵌套对象是 reactive proxy，直接传入会报 "An object could not be cloned"。规则：从 Vue ref 取出的对象一律 `JSON.parse(JSON.stringify(obj))` 脱壳后再传 IPC。
+
 - **IPC file URL canonical 合同**：打包 renderer 的 `file://` sender 必须将受信 `app.getAppPath()/dist` 与 sender 文件同时用 `fs.realpathSync.native()` 规范化后再做目录边界比较；允许 worktree/dist-electron junction 的 raw/canonical 根差异，但必须拒绝不存在文件、`dist-evil`、路径遍历及 `dist` 内链接逃逸。修改该逻辑后必须用真实 junction 回归，并在最终打包 Electron 窗口调用受保护 IPC，存活测试不能替代。单元/集成测试必须在 `os.tmpdir()` 自建真实 `dist/index.html`，禁止依赖被 Git 忽略的 `apps/desktop/dist` 构建残留；至少一次在仓库 `dist` 不存在时运行受影响测试。
+
 - **路径层级**：多包工作区中 `..` 层级必须用 path-utils 统一模块，禁止凭直觉估算
+
 - **注释语法**：`/* */` 成对出现，`* text` 开头的行必须前面有 `/*`
+
 - **模块导出**：`module.exports = {` 后不能有多余逗号
+
 - **Story2Video 版本化配置一致性**：`Story2VideoTextConfig` 必须能在没有重复顶层 `text` 时从 `config.prompt` 恢复；renderer、normalizer、YAML 和 compose engine 的枚举、数值边界及默认值必须一致。修改任一层时必须覆盖仅配置恢复、非支持枚举和绕过 renderer 的直接调用。
+
 - **Story2Video 场景上下文朝代成语守卫**：`story-context-engine.js` 的朝代关键词用裸子串匹配（`text.includes(keyword)`），人名类关键词（诸葛亮/曹操/刘备/孙权等）常作为成语/俗语成分（"事后诸葛亮""说曹操曹操到"），会把非该朝代题材整篇误判并污染所有场景。新增朝代关键词时必须：(1) 检查该词是否存在于常见成语中，是则同步登记到 `IDIOM_EXCLUSIONS` 成语守卫表；(2) 回归测试必须同时含正向（真实题材仍识别）与负面（成语/俗语不误判）用例。修改 `detectDynasty`/`keywordHits` 时必须运行 `story-context-engine.test.js` 全量。
+
 - **Story2Video 场景上下文现代信号中和**：`story-context-engine.js` 的朝代判定必须考虑全文现代信号。现代题材全文出现朝代关键词作举例/引用（"比如秦始皇""就像诸葛亮"）时，若现代信号 ≥2 且朝代命中 < 现代信号，`detectDynasty` 应返回 null、`detectEra` 降级 mixed，不得整篇误判为古代。新增朝代关键词或修改 `detectDynasty`/`detectEra` 时必须：(1) 复用模块级 `MODERN_TERMS` 现代信号词表；(2) 回归测试必须覆盖"现代+历史引用不误判朝代""纯历史仍识别""穿越剧不误伤""纯现代不受影响"四类场景。修改 `detectDynasty`/`detectEra` 时必须运行 `story-context-engine.test.js` 全量。
+
 - **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
+
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
+
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
+
 - **自动更新静默合同**：打包应用必须关闭 electron-updater console logger；检查更新阶段的网络阻断和缺失 `latest*.yml` 按 `not-available` 处理，签名、下载和安装等真实错误不得吞掉。修改更新服务后必须打包启动 8 秒并确认 stderr 无 updater 网络/404 栈。
-- **文件 glob 覆盖**：`package.json` 的 `files` 数组必须包含所有被 require 的非 node_modules 文件
+
+- **文件 glob 覆盖**：`package.json` 的 `files` 数组必须包含所有被 require 的非 node\_modules 文件
+
 - **生产依赖闭包**：生产入口静态加载的每个第三方包必须由所属 workspace 在 `dependencies` 中直接声明；根工作区或其他包的传递依赖不算满足。发布前必须执行 `npm pack --dry-run` 并从隔离 runner/安装目录加载真实入口。
+
 - **Docker runner 文件集**：修改 Dockerfile 或其构建上下文时，必须按最终 runner stage 的本地 `COPY` 清单构造隔离 staging，并加载真实入口验证完整 require 链；Docker daemon 可用时还必须真实 build、启动容器并验证 `/ready`，静态合同不能替代镜像启动。
+
 - **容器运行用户与健康检查**：非 root 容器的插件、缓存、上传和状态目录必须显式落到可写持久卷；Alpine 健康检查固定使用 `127.0.0.1`，除非服务同时验证过 IPv4/IPv6 监听。
+
 - **跨 Compose 网络与服务 DNS**：当容器通过 `postgres` 等 Compose 服务名访问数据库或身份依赖时，业务 Compose 必须显式加入正确的外部网络；合同测试要断言网络名和服务归属，ECS 必须用真实 `docker compose run` 执行 DNS 与 migration dry-run，不能用临时 `docker run --network` 替代。
+
 - **PostgreSQL migration 最小权限**：migration runner 在 advisory lock 内必须先探测 `identity_schema_migrations`；ledger 已存在时只能读取并校验，不得用 `CREATE TABLE IF NOT EXISTS` 等 DDL 作为存在性检查，因为 PostgreSQL 仍会校验 schema `CREATE` 权限。只有 ledger 缺失时才允许建表；回归必须覆盖“已有 ledger + 无 pending + 运行角色无 CREATE”成功、“缺失 ledger”创建，以及“缺失 ledger + 无 CREATE”失败并释放 advisory lock。ECS 发布还必须用真实 `multi_publish_api` 角色执行正式 runner，不能只以 dry-run 代替。
+
 - **OIDC 算法互操作**：JWT 算法白名单必须由目标租户真实 discovery/JWKS 证据驱动，并严格绑定 `alg`、`kty`、曲线和签名编码；Node/Python 双实现必须使用同一生产 JWKS fixture 回归，不能只以自生成 RSA fixture 证明兼容。
+
 - **OIDC access token 格式兼容**：业务 API 验证 Logto access token 时必须同时支持 JWT 和 Opaque Token 两种格式。Logto 默认签发 Opaque Token（非 JWT，无法本地验签），需通过 `/oidc/token/introspection` 验证。修改 `packages/api-publish-engine/src/auth/logto-*`、readiness 或认证回退逻辑时必须：(1) 在发送 M2M Basic 凭据前校验 discovery 的 introspection endpoint 使用 HTTPS、与 issuer 同源且不含 userinfo；仅本机 loopback issuer 允许同源 HTTP；discovery、JWKS、introspection 及携带 Bearer Token 的生产 smoke 请求禁止跟随 HTTP 重定向；(2) 对 active token 强制要求非空 `sub` 和目标 `aud`，`iss`/`exp` 可省略但存在时必须严格匹配且类型有效；(3) 生产环境强制同时配置 `LOGTO_CLIENT_ID` 和 `LOGTO_CLIENT_SECRET`，`/ready` 必须用随机无效 token 得到 `active:false` 后才报告 `checks.introspection=ready`；(4) `AUTH_*_UNAVAILABLE` 必须返回 503，且不得回退到 API Key；(5) introspection 缓存只能使用 token 指纹作为键，同 token 并发请求必须合并；(6) 至少运行 `logto-jwks.test.js`、`logto-runtime.test.js`、`production-config.test.js`、`production-readiness.test.js`、`logto-optional-auth.test.js`、`production-operations.test.js` 和 `logto-deploy-contract.test.js`。详见 [01-docs/learnings.md Opaque Token Introspection 缺失复盘](01-docs/learnings.md)。
+
 - **Logto Webhook POST 重试合同**：不得根据 `retry.limit` 或消费者端手工重放测试推断 Logto 会自动重试 Webhook。Logto 1.41.0 使用 Ky 1.2.3，默认可重试方法不含 `POST`，且 `TimeoutError` 不重试。派生镜像必须绑定已验收运行时文件 SHA-256、精确匹配一次后才显式加入 `methods: ["post"]`，目标缺失、重复、哈希漂移、路径替换、symlink/hardlink、部分写入或已被上游修复时一律 fail closed；补丁读取、哈希、写入和读回必须使用同一文件描述符，失败时恢复原字节并关闭全部描述符。基础 Compose 必须继续保留 `svhd/logto:1.41.0` 作为不删除 PostgreSQL 卷的回滚路径。修改相关 Dockerfile、补丁或 Compose 后必须运行 `logto-webhook-runtime-patch.test.js`、`logto-deploy-contract.test.js`，并在生产切换前后用独立签名密钥的临时 Hook 验证 `503 -> 503 -> 204` 共三次真实 POST、签名均有效、临时资源全部清理。超时场景必须单独标为未覆盖，不得用数据库锁或客户端超时冒充 HTTP 状态码重试证据。
+
 - **OIDC Token 类型判定**：不得仅按点号数量或三段 base64url 结构把 access token 判定为 JWT；OAuth Opaque Token 可以包含任意字符。只有首段能解析为 JSON JOSE header 时才进入 JWT 验签，进入后任何算法、密钥、签名或 claims 失败都不得降级到 introspection。Opaque introspection claims 必须与 JWT 路径一致检查 `nbf`/`exp` 时间边界，回归必须包含带两个点的有效 Opaque Token、未来/非法 `nbf` 和损坏 JWT 不降级三个场景。
+
 - **Entitlement 独立时钟偏差合同**：桌面端与 API 的 entitlement 验签必须统一使用默认 `60s`、可配置范围 `0..300s` 的可信本地时钟容差；不得从 token payload 读取容差。时间边界固定为 `iat > now + tolerance` 拒绝、`exp <= now - tolerance` 拒绝，在线同步与离线恢复必须使用同一参数。修改 `apps/desktop/electron/services/identity/entitlement*` 或 `packages/api-publish-engine/src/auth/entitlement.js` 时，必须用真实 RSA 签名覆盖客户端/服务端独立时钟、默认窗口、显式零容差、`300s` 上限及越界，并在真实登录验收中记录两端 UTC 时间差。
+
 - **打包权限模式不可由环境变量提权**：`app.isPackaged` 是 Electron 主进程判断开发/打包状态的权威来源。`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让 `app.isPackaged=true` 的应用获得 `admin`；权限相关修改必须覆盖打包应用、未打包应用、本地 Pro 和 Logto 身份四组合同。
+
 - **Adapter 能力注册表同步**：修改 `BaseAdapter.KNOWN_METHODS` 后必须全局检索同名 `supports()` / `capabilities()` 手工覆盖和旧测试断言；标准能力只能出现一次，所有受影响 Adapter 必须断言 `supports()` 为 true 且 `capabilities()` 无重复项。
+
 - **E2E fixture 断言渲染语义**：路由/工作流测试不得用内部枚举值断言已经过本地化或格式化的 UI 文案。优先使用稳定状态 class/testid 加用户可见文本，并在 UI 映射函数变更时同步运行受影响路由用例。
+
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。
+
 - **测试断言不得反向固化错误行为**：任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。composable 测试不得只 mock IPC 返回空数组，至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的真实数据路径用例。
+
 - **GUI 主窗口等待预算**：Electron GUI runner 必须使用条件轮询等待主窗口，等待上限必须覆盖 `createWindow()` 之前所有串行启动阶段的健康检查 timeout 总和并保留余量。修改 Bridge 启动顺序、健康检查 timeout 或窗口创建时机时，必须同步更新假时钟边界回归；不得通过测试专用 skip 开关静默绕过生产启动路径。
+
 - **全局单例事件监听器生命周期**：`autoUpdater` 等进程级 EventEmitter 不得在 BrowserWindow 重建时重复注册监听器。初始化函数必须把当前窗口/回调与“一次注册”分离：每次调用更新状态目标，只在首次调用绑定全局事件。回归必须用两个不同窗口连续初始化，并断言监听器数量不增长、单次事件只发送到新窗口一次。
+
 - **Windows 路径身份断言**：生产代码返回 canonical 路径时，测试必须对实际值和期望值同时调用 `fs.realpathSync.native()` 后比较；不得用原始字符串、`path.resolve()` 或 `path.normalize()` 判断 8.3 短路径与长路径是否为同一文件，也不得为消除平台差异而放宽受控根、符号链接或越界检查。
+
 - **文件系统测试隔离**：测试不得把可写状态固定到仓库内共享文件。并行会话或重复 runner 可能同时执行时，必须使用 `os.tmpdir()` 下带 PID/随机标识的独立路径；原子写测试需在 setup/teardown 同时清理 final 与 `.tmp` 文件。
+
 - **Windows 原子文件替换重试**：Electron 主进程或 Node 业务服务用“临时文件 + `renameSync`”迁移、全文重写用户状态、系统保护主密钥、加密凭据、API Key 等本地持久化数据时，必须让所有 rename 点保持相同的原子替换语义。Windows 上只允许对 `EPERM`、`EACCES`、`EBUSY` 做短且有界的退避重试；超过预算或遇到其他错误必须原样抛出/进入既有错误处理，禁止无限重试或退化为直接覆盖。回归必须分别锁住主文件、备份和业务数据目标，并使用真实 Windows 文件句柄制造短暂 delete-share 冲突，不得只 mock `fs.renameSync`。
+
 - **API Key 单 writer 合同**：`PublishApiServer` 必须在自动迁移和监听端口前，对 `API_KEYS_PATH` 指向的持久化文件取得跨进程 writer lock；同路径第二实例必须以 `API_KEY_WRITER_LOCKED` fail closed。监听失败、迁移失败和 `stop()` 都必须释放锁，启动进行中的 `stop()` 必须等待启动收敛后再关闭，重复 `start()` 必须明确拒绝。Compose 必须把 `API_KEYS_PATH` 显式指向 UID `1001` 可写的持久卷；除锁竞争专项测试外，所有服务器测试必须使用系统临时目录中的唯一 Key 路径并在停止后清理。文件锁只实现单 writer 所有权，不代表支持共享卷横向多实例；扩容前必须迁移到具备事务或 CAS 的共享存储。
+
 - **Story2Video 媒体工具资源闭包**：修改 Story2Video 的 FFmpeg/ffprobe 命令、`scripts/before-pack.js`、`scripts/stage-media-tools.js` 或桌面 `extraResources` 时，必须使用与目标平台/架构一致的原生构建主机；禁止把 Playwright 裁剪版或 Remotion 定制版 FFmpeg 当作通用媒体工具。打包前必须按 `media-tools-lock.json` 校验二进制字节数/SHA-256，并真实检查所需编码器、滤镜和 ffprobe；打包后必须确认 `resources/media-tools/ffmpeg(.exe)`、`ffprobe(.exe)`、资产锁、构建信息、许可证原文、包装层许可证与第三方声明存在，并在隔离用户目录中生成短视频再用捆绑 ffprobe 解码。有效打包资源必须优先于 `FFMPEG_PATH`/`FFPROBE_PATH`、宿主 `PATH` 和开发依赖，环境变量只能作为未找到打包资源时的开发回退；宿主工具或仅启动 8 秒不能替代该门禁。
+
 - **GPL 媒体二进制发布约束**：静态 FFmpeg 启用 `--enable-gpl`/`--enable-version3` 时，安装包必须保留适用许可证和来源声明；公开分发前必须确认对应源码及构建材料的提供方式。许可证材料缺失时 `beforePack` 必须失败关闭，不得降级为警告。
-- **Vue 模板语法**：修改 `.vue` 文件后，必须确认无模板编译错误（Vite HMR 报错或 `vite build` 通过）。使用 MCP node_repl 的 splice 操作修改 Vue 文件后，必须检查新旧代码没有重叠或残留。
+
+- **Vue 模板语法**：修改 `.vue` 文件后，必须确认无模板编译错误（Vite HMR 报错或 `vite build` 通过）。使用 MCP node\_repl 的 splice 操作修改 Vue 文件后，必须检查新旧代码没有重叠或残留。
+
 - **Bridge/子进程启动验证**：新增或修改 Bridge（BasePythonBridge 子类）时，必须验证：(1) `pythonModule` 指向的模块有 `__main__.py` 入口；(2) 真实执行一次 spawn + health check。不能只断言 `pythonModule` 字符串值。
+
 - **composable↔模板导出一致性**：composable 新增/重命名导出属性时，必须同步更新所有使用该 composable 的 Vue 模板的解构列表。新增属性后应运行 composable 导出完整性测试。
-- **AI 工具修改后的完整性校验**：使用 MCP node_repl splice / PowerShell 字符串替换 / apply_patch 修改大文件时，修改后必须用 `rg` 或 `git diff` 验证所有目标变更都已写入，不能假设「操作成功 = 内容正确」。
+
+- **AI 工具修改后的完整性校验**：使用 MCP node\_repl splice / PowerShell 字符串替换 / apply\_patch 修改大文件时，修改后必须用 `rg` 或 `git diff` 验证所有目标变更都已写入，不能假设「操作成功 = 内容正确」。
+
 - **HTTP 路径前缀守卫**：任何 HTTP 服务（Express/Koa/http.createService/publish-api-server）的 `_handle` 入口必须在鉴权逻辑之前增加路径前缀守卫——只允许声明的业务路径前缀（如 `/api/v1/`）通过，非业务前缀直接返回 404 + 明确错误码（如 `PATH_NOT_UNDER_BUSINESS_API`），不进入鉴权。避免反向代理误路由时返回误导性鉴权错误（如 "Valid API key required"）。回归测试必须覆盖 5 个场景：(1) 业务路径前缀正常通过；(2) 非 /api/v1/ 的 Logto 内部路径返回 404 守卫错误码；(3) 根路径被守卫拦截；(4) 守卫在 webhook 之后（webhook 路径仍能通过）；(5) 守卫不调用 keyManager.load（避免副作用）。详见 [publish-api-server-path-guard.test.js](packages/api-publish-engine/test/publish-api-server-path-guard.test.js)。
+
 - **Nginx 反向代理路由分离合同**：当一台 Nginx 同时反代业务 API container（如 `127.0.0.1:3030`）和 Logto container（如 `127.0.0.1:3021`）时，**禁止**用 `location /api/` 宽匹配反代到业务 API container，否则 Logto 自身的 `/api/users`、`/api/forgot-password`、`/api/sign-in` 等内部路径会被误路由。必须用精确前缀 `location /api/v1/` 反代到业务 API，其余路径兜底反代到 Logto。详见 [DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md §8](01-docs/DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md#8-nginx-路由分离合同2026-07-25-修订qm-5-回归)。部署后**必须**运行 `production-smoke.js` 验证 `api.path-guard/api/users` 和 `api.path-guard/api/forgot-password` 检查 passed，否则视为路由配置错误。
+
 - **production-smoke 路由分离检查**：每次修改 Nginx 配置、业务 API 路由或新增 API 路径前缀后，必须运行 `node packages/api-publish-engine/scripts/production-smoke.js --logto <LOGTO_URL> --api <API_URL>` 验证：(1) 业务 API 的 `/api/v1/health`、`/api/v1/ready` 返回 200；(2) Logto 内部路径 `/api/users`、`/api/forgot-password` 不被业务 API 错误处理（返回非 "Valid API key required" 响应）。这是部署后自动检测反向代理误路由的合同测试。
+
 - **可编辑性判断必须用数据语义而非字段存在性**：判断「历史记录任务是否可进入编辑页」时，不得仅凭 `projectId` 字段存在（主进程对 run-only 记录会把 projectId 回退为 runId，字段存在 ≠ 项目真实存在）。必须用 `historyType === 'story2video-project'`（真实项目）区分，run-only 记录（`historyType === 'pipeline-run'`）不得提供编辑入口。回归测试必须覆盖「run-only 记录即使带 projectId 也不可编辑、不跳转结果页」场景。详见 [CreateViewHistory.test.js](apps/desktop/src/views/CreateViewHistory.test.js) run-only 不可编辑用例。
+
 - **删除 story2video 项目必须级联清理持久化 run-state 快照**：`story2video:delete-project` 只移除项目索引并尽力清理项目目录，但「已中断/失败/暂停」的编排 run 以 `RunStateStore` 快照（`userData/run-state/<runId>.json`）持久化，`pipelineHistory()` 会从快照重新加载。删除项目时必须同步调用 `runStateStore.remove(projectId)`（runId 与 projectId 同源），否则删除后重进历史页该任务会再次出现。回归测试必须用真实 `RunStateStore`（os.tmpdir 隔离目录）断言删除项目后 `load(projectId)` 为 null、`listRunning()/listFailed()` 为空；快照清理失败仅告警不阻断项目删除。详见 [story2video.test.js](apps/desktop/electron/ipc-handlers/story2video.test.js) 级联清理用例。
 
 ### QM-3：测试策略
 
 - 单元测试（1830 passed | 10 skipped）：覆盖核心业务逻辑 ✅
+
 - 本地打包验证：覆盖 require 链、文件包含、语法 ✅（新增）
+
 - Docker 运行时合同：按 runner `COPY` 清单构造隔离文件集并加载真实入口；生产镜像必须完成 build + start + readiness 回归。
+
 - OIDC 生产合同：对真实租户 discovery/JWKS 执行 readiness，并分别覆盖允许的 RSA/EC 算法、错配密钥类型/曲线、未知 `kid` 与按 `alg:kid` 隔离的负缓存。
+
 - 后续补充：main.js 启动测试（`node -e "require('./electron/main.js')"`）
+
 - **composable 导出完整性测试**：所有使用 composable 的 Vue 组件，对应的 composable 测试必须包含导出完整性断言 — 列出模板需要的所有属性和方法，逐个 `toHaveProperty` 验证。防止模板引用未解构的属性。
+
 - **Bridge 启动回归测试**：Bridge 子类的测试必须包含 `pythonModule` 值断言（不能只断言字符串，还要验证目标模块路径指向的包能被 `python -m` 启动）。已有用例如用例 13b。
 
 ### QM-4：视觉回归测试
 
 **框架位置**：`apps/desktop/tests/visual-testing/`
 
-| 测试模式 | 依赖 | 适用场景 |
-|----------|------|----------|
-| **像素对比** | Resemble.js | 日常开发（默认，无需 API Key） |
-| **OCR 文字提取** | Tesseract.js | 日常开发（默认，无需 API Key） |
-| **AI 视觉** | OpenAI / Claude（可选） | 仅 CI 无人值守流水线 |
+| 测试模式         | 依赖                  | 适用场景                |
+| ------------ | ------------------- | ------------------- |
+| **像素对比**     | Resemble.js         | 日常开发（默认，无需 API Key） |
+| **OCR 文字提取** | Tesseract.js        | 日常开发（默认，无需 API Key） |
+| **AI 视觉**    | OpenAI / Claude（可选） | 仅 CI 无人值守流水线        |
 
 **集成规则**：
 
 - `pre-commit`：**不集成**视觉测试（需要 dev server 运行，触发频率过高）
+
 - **日常开发**：改完 UI 后用 `--single` 单独验证
+
   ```bash
   node apps/desktop/tests/visual-testing/views/all-views.visual.test.js --single home-default
   ```
+
 - **PR 合入前（必须通过）**：像素对比核心视图，无需 API Key
+
   ```bash
   cd apps/desktop && npm run test:visual:pixel
   ```
+
 - **发版前（必须通过）**：完整回归（94 个测试：44 视图 + 50 工作流）
+
   ```bash
   npm run test:all:visual
   ```
+
 - **CI 流水线**：AI 视觉可选，有 Key 才跑，无 Key 安全跳过
+
   ```bash
   npm run test:visual:ci
   ```
 
 **依赖**（已在 `package.json` 中）：
+
 - `playwright` — 浏览器自动化
+
 - `resemblejs` — 像素对比
+
 - `tesseract.js` — OCR 识别
+
 - `openai` / `@anthropic-ai/sdk` — AI 视觉（仅 CI 可选）
 
 **门禁规则**：
 
 > `npm run test:visual:pixel` 返回非零退出码 → **禁止合入 PR**
-
 
 ## 视觉测试框架(供其他 AI 使用)
 
@@ -457,11 +581,11 @@ apps/desktop/tests/visual-testing/
 
 ### 三种检测能力
 
-| 能力 | 是否需 Key | 适用 |
-|------|-----------|------|
-| 像素对比(Resemble.js) | ❌ 本地 | 日常开发、PR 合入 |
-| OCR(Tesseract.js) | ❌ 本地 | 文字内容校验 |
-| Agent 视觉判断 | ❌ 自带 | 像素失败后最终判断 |
+| 能力                | 是否需 Key | 适用         |
+| ----------------- | ------- | ---------- |
+| 像素对比(Resemble.js) | ❌ 本地    | 日常开发、PR 合入 |
+| OCR(Tesseract.js) | ❌ 本地    | 文字内容校验     |
+| Agent 视觉判断        | ❌ 自带    | 像素失败后最终判断  |
 
 ### 命令速查(必须 `cd apps/desktop`)
 
@@ -485,24 +609,28 @@ npm run test:all:visual
 2. **PR 合入前必须通过** `npm run test:visual:pixel`(非零退出码禁止合入)
 3. **发版前必须通过** `npm run test:all:visual`
 4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
-5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view_image 看图判断
+5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view\_image 看图判断
 6. 所有命令必须在 `apps/desktop/` 目录下执行
 
 ### 失败处理流程
 
 1. 查看 `tests/visual-testing/reports/pixel-diff/*.png` 确认 diff 范围
 2. 判断是否为预期变化:
+
    - ✅ 是 → `cp screenshots/<view>-current.png base-screenshots/<view>.png` 更新基准
+
    - ❌ 否 → 修复 UI 后重跑
 3. 仍有疑问 → 跑 `npm run test:visual:agent`,Agent 读 judge-report.md 判断
 
 ### 无外部 AI 依赖
 
 **重要**:本项目视觉测试**不使用** OpenAI / Claude / 任何云端 AI。所有能力本地完成:
-- 像素对比、OCR 走本地 Node 库
-- Agent 视觉判断走 Agent 自带的 LLM(view_image 工具)
 
----
+- 像素对比、OCR 走本地 Node 库
+
+- Agent 视觉判断走 Agent 自带的 LLM(view\_image 工具)
+
+***
 
 ### QM-5：Bug 修复协议（MUST）
 
@@ -511,28 +639,35 @@ npm run test:all:visual
 #### 第 1 步：找到第一性原因
 
 - 不修表面：不要只修报错的那一行，要找到这个 Bug 最原始的代码改动引入点
+
 - 用 git log + git blame 追溯：这个错误是哪次提交引入的？当时的意图是什么？
 
 #### 第 2 步：追溯测试逃逸
 
 - 这个 Bug 逃过了哪些测试？
+
 - 为什么逃过？具体原因（5 类：无测试 / Mock 过度 / 测试不执行 / 断言不精确 / 环境差异）
 
 #### 第 3 步：识别系统性漏洞
 
 - 在现有测试机制里找到具体的系统性漏洞
+
 - 必须具体到：哪个文件、哪个测试框架、哪个环节缺失
 
 #### 第 4 步：修复 + 回归保护测试
 
 - 给出修复方案（代码变更）
+
 - 编写回归保护测试：测试文件命名 {被测文件}.test.js，与被测文件同目录
+
 - 要求：用真实依赖（非 Mock），验证 Bug 的具体场景不会复现
 
 #### 第 5 步：防止再次发生
 
 - 必须有具体的系统性措施，不能只说以后注意
+
 - 至少落地以下一项：
+
   1. 更新 AGENTS.md QM 规则 — 增加检查项
   2. 更新 01-docs/learnings.md — 记录根因和教训
   3. 增加自动化测试 — 回归测试写入 CI
@@ -540,59 +675,78 @@ npm run test:all:visual
 
 > 审查时检查：修复 Bug 的 PR / 提交必须包含以上 5 步的产出物。
 
-
 ## 测试质量增强工具（v0.16.0）
 
 ### 新增 npm 命令（`cd apps/desktop` 下执行）
 
-| 命令 | 作用 | 运行时间 |
-|------|------|---------|
-| `npm run test:mutation` | Stryker 变异测试，找出"假测试" | 数小时（55293 突变体） |
-| `npm run test:coverage` | 覆盖率报告（branches ≥ 60% 门禁） | 30 秒 |
-| `npm run test:fault` | 故障注入测试，20% IPC 请求随机失败 | 10 秒 |
-| `npm run test:monkey` | 500 次随机 IPC 操作序列 | 5 秒 |
-| `npm run test:quality` | 一键跑全部（fault + monkey + mutation） | 数小时 |
+| 命令                      | 作用                               | 运行时间           |
+| ----------------------- | -------------------------------- | -------------- |
+| `npm run test:mutation` | Stryker 变异测试，找出"假测试"             | 数小时（55293 突变体） |
+| `npm run test:coverage` | 覆盖率报告（branches ≥ 60% 门禁）         | 30 秒           |
+| `npm run test:fault`    | 故障注入测试，20% IPC 请求随机失败            | 10 秒           |
+| `npm run test:monkey`   | 500 次随机 IPC 操作序列                 | 5 秒            |
+| `npm run test:quality`  | 一键跑全部（fault + monkey + mutation） | 数小时            |
 
 ### 配置说明
 
 - **Stryker 配置**：项目根目录 `stryker.conf.json`（`inPlace: true` 模式，避免 Windows junction 链接复制问题）
+
 - **Vitest 专用配置**：`apps/desktop/vitest.stryker.config.js`（排除不兼容 Instrumentation 的测试文件）
+
 - **运行方式**：从项目根目录用 `node node_modules/@stryker-mutator/core/bin/stryker.js run stryker.conf.json` 执行
 
 ### 质量门禁（提交前必须检查）
 
 - 变异测试得分 ≥ 30%（见 `.quality-gates.md`，首次运行需数小时）
+
 - 分支覆盖率 ≥ 40%（`npm run test:coverage`）
+
 - 故障注入测试通过（`npm run test:fault`）
 
 ### 用户会话录制
 
 设置 `BACKLOT_RECORD_SESSION=true` 后正常使用软件，IPC 调用序列自动录制到 `tests/sessions/`，可通过 `SessionRecorder.replaySession()` 回放为测试。
 
----
+***
+
 ## 新增模块（蚁小二逆向工程集成）
 
 - `electron/services/account-state-restorer.js` — 账号登录状态持久化（JSONL）
+
 - `electron/services/credential-store.js` — localStorage + accountInfo 加密存储（AES-256-GCM）
+
 - `electron/services/publish-monitor.js` — 发布后状态自动查询（QueryStateTaskScheduler）
+
 - `electron/services/system-tray.js` — 系统托盘（最小化到托盘 + 托盘菜单）
+
 - `electron/services/api-platform-adapter.js` — API 模式发布适配器（微博/抖音/B站/知乎）
+
 - `electron/services/webview-manager.js` — **分屏监控**（P0，WebContentsView 多屏布局，支持2/3/4/6屏）
+
 - `electron/services/callback-server.js` — **实时回调服务器**（P1，HTTP POST回调 + 59s心跳，端口16521）
+
 - `electron/monitor-preload.js` — 分屏视图预加载脚本
+
 - `electron/services/qrcode-login.js` — **二维码扫码登录**（P2，自动检测页面二维码，扫码即登录）
+
 - `electron/auth-qrcode-preload.js` — 扫码登录视图预加载脚本
+
 - `electron/services/store.js` — **统一 SQLite 持久化**（P2，sql.js，替代零散JSONL）
+
 - `electron/services/oauth-manager.js` — **OAuth 2.0 认证**（P2，YouTube/TikTok/微博/抖音 API Token 授权）
+
 - `electron/services/batch-manager.js` — **批量发布管理器**（批量编辑/排期/复制，支持多篇文章独立选平台+定时）
+
 - `electron/services/url-collector.js` — **URL 内容采集**（HTTP+Playwright双模式，og:meta提取）
+
 - `electron/services/hotkeys.js` — **全局快捷键**（6组 Ctrl+Alt+... 导航快捷键）
 
----
+***
 
 ## 质量节拍强制执行
 
 本仓库已启用质量节拍（quality-rhythm）门禁系统。每次新任务自动执行：
+
 1. 判断变更类型（14种全覆盖）
 2. 评估变更规模
 3. 路由到对应 Phase
@@ -605,17 +759,29 @@ npm run test:all:visual
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
 
 Key routing rules:
+
 - Product ideas/brainstorming → invoke /office-hours
+
 - Strategy/scope → invoke /plan-ceo-review
+
 - Architecture → invoke /plan-eng-review
+
 - Design system/plan review → invoke /design-consultation or /plan-design-review
+
 - Full review pipeline → invoke /autoplan
+
 - Bugs/errors → invoke /investigate
+
 - QA/testing site behavior → invoke /qa or /qa-only
+
 - Code review/diff check → invoke /review
+
 - Visual polish → invoke /design-review
+
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
+
 - Save progress → invoke /context-save
+
 - Resume context → invoke /context-restore
 
 ## 强制工具路由（Iron Rules）
@@ -624,19 +790,18 @@ Key routing rules:
 
 ### 文件操作强制路由
 
-| 操作类型 | 必须使用 | 严禁使用 |
-|---------|---------|---------|
-| 文本搜索 | mcp__fastctx__grep | 禁止 exec_command("rg ...")、exec_command("grep ...")、exec_command("findstr ...")、exec_command("Select-String ...") |
-| 文件读取 | mcp__fastctx__read | 禁止 exec_command("cat ...")、exec_command("Get-Content ...")、exec_command("type ...") |
-| 文件列表/查找 | mcp__fastctx__glob | 禁止 exec_command("ls ...")、exec_command("dir ...")、exec_command("Get-ChildItem ...") |
-| Shell 命令 | mcp__fastctx__run | 禁止 exec_command 直接执行 shell |
-| 批量文本替换 | mcp__fastctx__replace | 禁止 exec_command("sed ...")、exec_command("(Get-Content ...) -replace ...") |
-| 长时间任务（>2分钟） | mcp__fastctx__run_background | 禁止 exec_command |
+| 操作类型        | 必须使用                              | 严禁使用                                                                                                                 |
+| ----------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 文本搜索        | mcp\_\_fastctx\_\_grep            | 禁止 exec\_command("rg ...")、exec\_command("grep ...")、exec\_command("findstr ...")、exec\_command("Select-String ...") |
+| 文件读取        | mcp\_\_fastctx\_\_read            | 禁止 exec\_command("cat ...")、exec\_command("Get-Content ...")、exec\_command("type ...")                               |
+| 文件列表/查找     | mcp\_\_fastctx\_\_glob            | 禁止 exec\_command("ls ...")、exec\_command("dir ...")、exec\_command("Get-ChildItem ...")                               |
+| Shell 命令    | mcp\_\_fastctx\_\_run             | 禁止 exec\_command 直接执行 shell                                                                                          |
+| 批量文本替换      | mcp\_\_fastctx\_\_replace         | 禁止 exec\_command("sed ...")、exec\_command("(Get-Content ...) -replace ...")                                          |
+| 长时间任务（>2分钟） | mcp\_\_fastctx\_\_run\_background | 禁止 exec\_command                                                                                                     |
 
 ### 执行规则
 
 1. 收到用户请求后，Agent 必须先检查操作类型是否命中上表，命中则必须使用对应 FastCtx 工具。
-2. apply_patch 仅用于语义级代码修改，不用于机械文本替换。
-3. 上表未覆盖的轻量操作（如查询 git status、npm 版本等单行命令）可继续使用 exec_command。
-
+2. apply\_patch 仅用于语义级代码修改，不用于机械文本替换。
+3. 上表未覆盖的轻量操作（如查询 git status、npm 版本等单行命令）可继续使用 exec\_command。
 

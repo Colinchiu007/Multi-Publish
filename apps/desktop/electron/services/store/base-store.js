@@ -14,6 +14,7 @@ const {
   LEGACY_OWNER_SUBJECT,
   migrateOwnerIsolationSchema,
   migrateModelProvidersSchema,
+  migrateAccountCredentialSchema,
 } = require('../store-schema')
 const log = require('../logger')
 
@@ -81,7 +82,12 @@ class BaseStore {
       this._createTables()
       migrateOwnerIsolationSchema(this.db)
       migrateModelProvidersSchema(this.db)
+      migrateAccountCredentialSchema(this.db)
       this._ready = true
+      // Stage -1.1：数据库就绪后立即迁移存量明文账号凭证（主密钥已注入时）。
+      if (this._accountCrypto && typeof this.migrateAccountCredentials === 'function') {
+        try { this.migrateAccountCredentials() } catch (e) { log.warn('Store', 'init 存量账号凭证迁移失败: ' + e.message) }
+      }
       // 修复 P1：定时持久化（原仅 close() 时持久化，崩溃丢全部数据）
       // 每 5 秒检查 dirty 标记，有写入则原子持久化到磁盘
       this._persistTimer = setInterval(() => {

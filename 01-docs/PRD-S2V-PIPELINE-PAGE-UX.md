@@ -397,3 +397,259 @@
 - 0/51 scenes have both image and audio 只转成“场景 0/51，图片和旁白生成”等自然语言，不显示原始异常句。
 - 历史旧数据包含 sceneText 时仍可打开；渲染前忽略该内部字段，最终文案不得出现 {sceneText}。
 - 点击恢复、重试、编辑和删除的状态门控与本次改造前一致；文案细化不改变 run 状态、并发槽位和持久化字段。
+
+## 9. 选项控制模块（Pipeline Options Control）
+
+> 状态：已实现，待合并验收
+> 日期：2026-09-01
+> 关联任务：ccg/tasks/s2v-option-reorg-ops-control/
+> 适用范围：运营中心后台管理 + 桌面端视频创作页选项显隐与默认值
+
+### 9.1 目标
+
+运营管理员可通过运营中心后台，实时控制桌面端视频创作页中各选项的显示/隐藏及默认值，无需发布桌面端更新。桌面端启动时通过 bootstrap 接口拉取配置，运行时按配置渲染选项。
+
+### 9.2 数据模型
+
+#### 9.2.1 选项分组
+
+| 分组 key | 分组名称 | 说明 |
+|----------|---------|------|
+| `basic` | 基础 | 分辨率、旁白语速、旁白音量 |
+| `visual` | 画面 | 字幕样式、视觉风格、图片生成器、内容类型 |
+| `videoEnhance` | 视频增强 | AI 视频增强、视频模式、动态强度 |
+| `voice` | 声音 | 音色、音色克隆/复制、配音员 |
+| `advanced` | 高级 | 优化风格、分段模式、检测场景切换 |
+| `publish` | 发布 | 仅整组控制，无独立选项显隐 |
+
+#### 9.2.2 选项字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `option_key` | string | 全局唯一键，格式 `group.field`（如 `basic.resolution`） |
+| `group` | string | 所属分组 |
+| `field` | string | 字段名（与前端 s2vConfig 字段对应） |
+| `label` | string | 中文显示标签 |
+| `visible` | int | 1=可见，0=隐藏 |
+| `default_value` | string | 默认值（JSON 字符串或字面值） |
+| `description` | string | 提示描述 |
+| `sort_order` | int | 排序 |
+| `updated_at` | datetime | 最后更新时间 |
+| `updated_by` | string | 更新人 |
+
+#### 9.2.3 选项目录（完整清单）
+
+| option_key | group | 默认值 | 类型 |
+|------------|-------|--------|------|
+| `basic.resolution` | basic | `"1920x1080"` | 枚举 |
+| `basic.voiceSpeed` | basic | `"1.0"` | 浮点 |
+| `basic.voiceVolume` | basic | `"1.0"` | 浮点 |
+| `visual.subtitleStyle` | visual | `"default"` | 枚举 |
+| `visual.visualStyle` | visual | `"none"` | 枚举 |
+| `visual.imageGenerator` | visual | `"minimax-multimodal"` | 枚举 |
+| `visual.contentType` | visual | `"mixed"` | 枚举 |
+| `videoEnhance.mode` | videoEnhance | `"off"` | 枚举 |
+| `videoEnhance.dynamicIntensity` | videoEnhance | `"medium"` | 枚举 |
+| `voice.voice` | voice | `""` | 字符串 |
+| `voice.voiceClone` | voice | `""` | 字符串 |
+| `voice.narrator` | voice | `"default"` | 枚举 |
+| `advanced.optimizeStyle` | advanced | `"balanced"` | 枚举 |
+| `advanced.splitMode` | advanced | `"auto"` | 枚举 |
+| `advanced.detectSceneChanges` | advanced | `"true"` | 布尔 |
+| `publish._group` | publish | — | 布尔（整组开关） |
+
+### 9.3 数据校验规则
+
+#### 9.3.1 后端校验（pipeline_option_service.py）
+
+1. **option_key 校验**：必须存在于 `VALID_OPTION_KEYS` 白名单中，否则拒绝 upsert。
+2. **visible 校验**：必须为 0 或 1。
+3. **default_value 校验**：按字段类型校验：
+   - 枚举型：必须在允许值列表中（如 resolution 只允许 `["1920x1080", "1280x720", "1080x1920", "720x1280", "1:1"]`）。
+   - 浮点型：必须可解析为 float，且在范围内（如 voiceSpeed: 0.5-2.0, voiceVolume: 0.0-2.0）。
+   - 布尔型：必须为 `"true"` 或 `"false"`。
+   - 字符串型：允许任意非空字符串。
+4. **group 校验**：必须存在于 `VALID_GROUPS` 中。
+5. **批量 upsert**：事务性写入，任一校验失败则整批回滚。
+
+#### 9.3.2 前端校验（PipelineOptions.vue）
+
+1. 保存前本地校验类型格式（布尔值必须为 true/false，数值必须为有效数字）。
+2. 枚举值提供下拉选择，防止输入非法值。
+3. 重置按钮恢复为后端当前值（放弃本地修改）。
+
+### 9.4 数据流
+
+```
+┌─────────────────────┐
+│ 运营中心前端         │
+│ PipelineOptions.vue  │ ── PUT /api/v1/pipeline-options ──→ ┌──────────────────┐
+│ (管理员配置)         │ ←── GET /api/v1/pipeline-options ── │ 运营中心后端      │
+└─────────────────────┘                                      │ FastAPI           │
+                                                             │ pipeline_options  │
+                                                             │ router            │
+                                                             └────────┬─────────┘
+                                                                      │
+                                                             pipeline_option_service
+                                                             ┌────────┴─────────┐
+                                                             │ SQLite DB        │
+                                                             │ pipeline_options │
+                                                             │ table            │
+                                                             └────────┬─────────┘
+                                                                      │
+                                                   runtime_service.get_runtime_bootstrap()
+                                                   ┌────────┴─────────┐
+                                                   │ _get_pipeline_    │
+                                                   │ options()         │
+                                                   │ → { visibility,   │
+                                                   │     defaults }    │
+                                                   └────────┬─────────┘
+                                                            │
+                               ┌────────────────────────────┴────────────────────────────┐
+                               │ Desktop Electron (ops-center-sync.js)                   │
+                               │ bootstrap → runtimeState.pipelineOptions                │
+                               │ IPC: ops-center-sync:pipelineOptions                    │
+                               └────────────────────────────┬────────────────────────────┘
+                                                            │
+                               ┌────────────────────────────┴────────────────────────────┐
+                               │ Desktop Frontend (CreateView.vue)                       │
+                               │ loadPipelineOptions() → s2vPipelineOptions              │
+                               │ applyS2VPipelineDefaults() → s2vConfig / s2vOutputConfig│
+                               │ s2vOptionVisible(key) → v-if 条件渲染                  │
+                               └─────────────────────────────────────────────────────────┘
+```
+
+### 9.5 功能逻辑
+
+#### 9.5.1 可见性判断（s2vOptionVisible）
+
+```
+s2vOptionVisible(optionKey):
+  1. 如果 pipelineOptions.visibility 中存在 optionKey：
+     → 返回 visibility[optionKey] === true
+  2. 否则，解析 optionKey 的 group（如 "basic.resolution" → "basic"）：
+     → 如果 visibility 中存在 group._group：
+       → 返回 visibility[group._group] === true
+     → 否则：返回 true（fail-open，未配置视为可见）
+```
+
+**特殊处理**：
+- `publish` 组只有 `publish._group` 键，无独立选项可见性。发布组所有选项（标题、标签、分辨率等）统一由 `publish._group` 控制。
+- 系统默认选项（如 `_group` 键）在种子数据中创建，`visible=1`。
+- 隐藏选项对应字段不参与表单提交和校验。
+
+#### 9.5.2 默认值应用（applyS2VPipelineDefaults）
+
+```
+applyS2VPipelineDefaults():
+  遍历 pipelineOptions.defaults：
+    keyMap 映射 option_key → s2vConfig/s2vOutputConfig 字段路径
+    如果 keyMap 中不存在映射，跳过该选项
+    如果字段类型为数值（float），转换为数字
+    如果字段类型为布尔，转换为 boolean
+    如果字段类型为枚举，直接赋值字符串
+```
+
+**keyMap 映射表**（option_key → 配置路径）：
+
+| option_key | 目标字段 |
+|------------|---------|
+| `basic.resolution` | `s2vOutputConfig.resolution` |
+| `basic.voiceSpeed` | `s2vConfig.voiceSpeed` |
+| `basic.voiceVolume` | `s2vConfig.voiceVolume` |
+| `visual.subtitleStyle` | `s2vConfig.subtitleStyle` |
+| `visual.visualStyle` | `s2vConfig.visualStyle` |
+| `visual.imageGenerator` | `s2vConfig.imageGenerator` |
+| `visual.contentType` | `s2vConfig.contentType` |
+| `videoEnhance.mode` | `s2vConfig.videoMode` |
+| `videoEnhance.dynamicIntensity` | `s2vConfig.dynamicIntensity` |
+| `voice.voice` | `s2vConfig.voice` |
+| `voice.voiceClone` | `s2vConfig.voiceClone` |
+| `voice.narrator` | `s2vConfig.narrator` |
+| `advanced.optimizeStyle` | `s2vConfig.optimizeStyle` |
+| `advanced.splitMode` | `s2vConfig.splitMode` |
+| `advanced.detectSceneChanges` | `s2vConfig.detectSceneChanges` |
+
+#### 9.5.3 加载与容错
+
+```
+loadPipelineOptions():
+  1. 设置 s2vPipelineOptionsLoading = true
+  2. 调用 opsCenterSyncPipelineOptions() IPC
+  3. 成功：存储到 s2vPipelineOptions
+     → 调用 applyS2VPipelineDefaults()
+  4. 失败：fail-open，保持当前配置不变
+     → 所有选项可见（s2vOptionVisible 返回 true）
+  5. 设置 s2vPipelineOptionsLoading = false
+```
+
+**容错原则**：
+- 加载失败不阻塞创建流程。
+- 隐藏选项的配置值不参与表单提交（保留默认值）。
+- 空 visibility map 等同于全部可见。
+- 空 defaults map 等同于使用前端默认值。
+
+### 9.6 交互规范
+
+#### 9.6.1 桌面端选项显隐
+
+- 隐藏选项完全从 DOM 移除（v-if="false"），不占用布局空间。
+- CSS grid 使用 `auto-fill` + `minmax` 保证剩余选项自动填充空白。
+- 分组完全无可见选项时，整组折叠且不显示标题。
+- 分组摘要（s2vSectionSummary）仅统计可见选项的值。
+
+#### 9.6.2 运营中心管理页
+
+- 默认显示所有选项（含隐藏），按分组卡片排列。
+- 可见性开关：点击切换 visible 状态，即时反映（无需保存）。
+- 默认值输入：根据字段类型提供对应控件（下拉/输入框/开关）。
+- 保存按钮：批量提交所有修改，成功后显示"保存成功"提示。
+- 重置按钮：放弃本地修改，恢复为后端当前值。
+- 过滤栏：支持按分组筛选、按可见性筛选、按关键字搜索。
+
+#### 9.6.3 发布组特殊交互
+
+- 发布组仅显示一个 `_group` 开关，控制整组显隐。
+- 发布组开关关闭时，CreateView 中发布配置区域完全隐藏。
+- 发布组无独立选项默认值（发布标题、标签等不通过选项控制设置默认值）。
+
+### 9.7 显示项与提示文字
+
+#### 9.7.1 桌面端 CreateView
+
+| 显示项 | 位置 | 说明 |
+|--------|------|------|
+| 分组标题 | 各选项组顶部 | 基础/画面/视频增强/声音/高级/发布 |
+| 分组摘要 | 折叠状态下的副标题 | 显示当前关键配置值（如"16:9横屏 1920x1080 / 语速 1.0x / 音量 100%"） |
+| 选项标签 | 各选项左侧 | 中文标签（如"比例与分辨率"） |
+| 选项控件 | 各选项右侧 | 下拉/输入框/滑条/开关 |
+| 试听按钮 | 旁白语速/旁白音量旁 | 按当前语速+音量播放试听音频 |
+| 空态提示 | 分组完全隐藏时 | 不显示该分组（整组从 DOM 移除） |
+
+#### 9.7.2 运营中心 PipelineOptions
+
+| 显示项 | 说明 |
+|--------|------|
+| 分组卡片 | 每个 group 一个卡片，标题为分组中文名 |
+| 可见性开关 | 绿色=可见，灰色=隐藏 |
+| 默认值控件 | 下拉框（枚举）、输入框（文本/数字）、开关（布尔） |
+| 选项描述 | 灰色小字，显示 description 字段 |
+| 过滤栏 | 下拉选择分组 + 关键字搜索 + 可见性筛选 |
+| 保存按钮 | 右上角，蓝色主按钮 |
+| 重置按钮 | 保存按钮旁，灰色次按钮 |
+| 保存成功提示 | 绿色 toast "保存成功" |
+| 保存失败提示 | 红色 toast "保存失败：{错误信息}" |
+
+### 9.8 安全与权限
+
+- 运营中心 pipeline-options 路由仅管理员可访问（`role: admin`）。
+- API 接口 `GET /api/v1/pipeline-options` 和 `PUT /api/v1/pipeline-options` 均需 JWT 认证。
+- 桌面端 IPC 通道 `ops-center-sync:pipelineOptions` 为公开通道（PUBLIC_CHANNELS），无需登录即可调用。
+- bootstrap 接口不暴露 API Key 等敏感信息。
+
+### 9.9 已知限制
+
+- 选项默认值不覆盖用户已修改的值（仅在首次加载时应用）。
+- 选项隐藏后，已配置的值在提交时保留（不参与校验但保留在 s2vConfig 中）。
+- 运营中心前端 `typelabel` 占位符为静态文本，未从 API 动态获取（低优先级）。
+- 发布组独立选项（标题、标签、分辨率等）不在选项目录中，仅通过 `_group` 整组控制。

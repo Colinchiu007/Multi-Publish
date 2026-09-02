@@ -1318,7 +1318,7 @@ class WebviewManager extends EventEmitter {
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
-    ipcMain.handle('webview:list-tabs', function () {
+    ipcMain.handle('webview:list-tabs', withSenderCheck(function () {
       try { return { code: 0, data: self.getTabsInfo() } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })

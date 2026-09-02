@@ -15,11 +15,13 @@ export const MAX_OUTPUT_RESOLUTION_KEY = 'videoCreation.maxOutputResolution'
 
 /** 全量输出分辨率选项（按面积升序展示，4K 由开关决定是否出现） */
 export const OUTPUT_RESOLUTION_OPTIONS = [
-  { value: '720x1280', label: '720×1280（竖屏）' },
-  { value: '1920x1080', label: '1920×1080（横屏）' },
-  { value: '3840x2160', label: '3840×2160（横屏）' },
-  { value: '1080x1920', label: '1080×1920（竖屏）' },
-  { value: '1080x1440', label: '1080×1440（竖屏）' },
+  { value: '720x1280', label: '9:16竖屏 720x1280' },
+  { value: '1080x1920', label: '9:16竖屏 1080x1920' },
+  { value: '1080x1440', label: '3:4竖屏 1080x1440' },
+  { value: '1080x1080', label: '1:1方屏 1080x1080' },
+  { value: '1280x720', label: '16:9横屏 1280x720' },
+  { value: '1920x1080', label: '16:9横屏 1920x1080' },
+  { value: '3840x2160', label: '16:9横屏 3840x2160' },
 ]
 
 /**
