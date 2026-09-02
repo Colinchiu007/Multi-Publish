@@ -1,3 +1,35 @@
+## [未发布] feat(arch): 架构重构 Stage -1 ~ 3.3 落地（2026-09-02）
+
+### 安全止血（Stage -1，9 项）
+- -1.1：账号凭证 AES-256-GCM 加密落盘（#1254）
+- -1.2：RPA 浏览器数据主密钥改 safeStorage 加密（#1270）
+- -1.3：API Key 移出 CLI argv 改经 env 传递（#1271）
+- -1.6：OpsCenter 运行时配置 Ed25519 签名验签（#1273）
+- -1.4：sync/status 补 require_admin 鉴权（#1275）
+- -1.5：webview:list-tabs 补 withSenderCheck sender 校验（#1277）
+- -1.7：OpsCenter CORS 白名单收紧（#1279）
+- -1.8：管理员 JWT 密钥与 secret_key 解耦（#1281）
+- 附项：桌面端 sidecar 开发机绝对路径回退移除（#1283）
+
+### 护栏与基线（Stage 0）
+- 债务熔断 CI：`scripts/check-debt-budget.js` 6 指标基线（maxFileLines=6422、>=1000 行=29、>=500 行=75、fanOut=61、circularDeps=0）+ `.github/workflows/debt-guard.yml` PR 触发（#1286）
+
+### 契约与枢纽（Stage 1）
+- 1.1：IPC manifest registrar 双写校验 — `scripts/ipc-manifest-registrar.js` 扫描 315 通道与 `01-docs/ipc-manifest.md` 双向校验（#1288）
+- 1.3：流水线领域逻辑提取 — `src/domain/pipeline-constants.js`（17 常量）+ `src/domain/pipeline-normalizer.js`（13 纯函数）绞杀者式渐进迁移（#1293）
+- 1.4：容器守卫 — BasePythonBridge 全局实例注册表 + `process.on('exit')` 清理孤儿 sidecar；stop() 等待 `_starting` 收敛（#1298）
+
+### 治理固化（Stage 3）
+- 3.1：覆盖率纳入 — vitest coverage 新增 src/views、src/components、src/domain（#1303）
+- 3.2：脚本收敛 — scripts/README.md 50+ 脚本分类文档（#1306）
+- 3.3：CHANGELOG 更新（本文档）
+
+### 文档沉淀
+- learnings.md：Stage 0 + 1.1 + 1.3 + 1.4 经验记录（#1300）
+- PRD.md：7.4.6.4 架构质量保障基础设施章节（#1300）
+- CCG 评审材料：Stage 1.2 AdapterRegistry 接线方案（#1302）
+
+---
 ## [未发布] feat(story2video): 历史记录可恢复聚合筛选 tab
 
 - 展示层将已暂停和已中断归入同一个可恢复筛选 tab，筛选栏从 7 标签减少为 6 标签（全部/进行中/可恢复/执行失败/已完成/已取消）。
