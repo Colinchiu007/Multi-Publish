@@ -1,3 +1,5 @@
+const adapterRegistry = require('./adapters/_base/registry-singleton')
+
 // @vitest-environment node
 'use strict'
 
@@ -8,7 +10,7 @@ function createManager(provider) {
   manager._ready = true
   manager.getProviderWithKey = vi.fn(() => provider)
   manager._writeLog = vi.fn()
-  manager._adapterFactories.set(provider.id, () => ({}))
+  if (adapterRegistry.hasFactory(provider.id)) { adapterRegistry.removeFactory(provider.id) } adapterRegistry.registerFactory(provider.id, () => ({}))
   manager._getOrCreateAdapter = vi.fn(() => ({
     supports: () => true,
     synthesize: vi.fn(async () => ({ audio: Buffer.from('audio'), format: 'wav' })),

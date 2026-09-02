@@ -7,6 +7,7 @@
  */
 
 const log = require('./logger')
+const adapterRegistry = require('./adapters/_base/registry-singleton')
 const {
   PRESET_PROVIDERS,
   CATEGORIES,
@@ -109,7 +110,6 @@ class ModelProviderManager {
     this._store = store
     this._ready = false
     // P3.2: Adapter 工厂注册表 + 实例缓存
-    this._adapterFactories = new Map()
     this._adapterCache = new Map()
     // 统一调度网关（ApiUsageGovernor）：每分钟连接次数/5小时限额注入目标
     this._governor = null
@@ -223,7 +223,10 @@ class ModelProviderManager {
       log.error('ModelProviderManager', 'registerAdapter: invalid providerId or factory')
       return
     }
-    this._adapterFactories.set(providerId, factory)
+    if (adapterRegistry.hasFactory(providerId)) {
+      adapterRegistry.removeFactory(providerId)
+    }
+    adapterRegistry.registerFactory(providerId, factory)
     // 注册后清除该 provider 的缓存（下次 callAdapter 重建）
     this._adapterCache.delete(providerId)
     log.info('ModelProviderManager', 'Adapter factory registered: ' + providerId)
@@ -246,7 +249,7 @@ class ModelProviderManager {
     if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '模型服务尚未初始化，请稍后重试或重启应用。' }
 
     // 检查 Adapter 工厂是否注册
-    const factory = this._adapterFactories.get(providerId)
+    const factory = adapterRegistry.getFactory(providerId)
     if (!factory) {
       return { code: -1, errorCode: 'ADAPTER_NOT_FOUND', message: `未找到「${providerId}」对应的服务商适配器，请检查服务商配置后重试。` }
     }
@@ -377,7 +380,7 @@ class ModelProviderManager {
     }
 
     // 创建新实例
-    const factory = this._adapterFactories.get(providerId)
+    const factory = adapterRegistry.getFactory(providerId)
     const config = provider.config && typeof provider.config === 'object'
       ? { ...provider.config }
       : {}
@@ -728,7 +731,7 @@ class ModelProviderManager {
   async supportsAdapterMethod (providerId, method) {
     if (typeof providerId !== 'string' || !providerId || typeof method !== 'string' || !method) return false
     if (!this._ready) return null
-    const factory = this._adapterFactories.get(providerId)
+    const factory = adapterRegistry.getFactory(providerId)
     if (!factory) return null
     const provider = this.getProviderWithKey(providerId)
     if (!provider) return null
@@ -1136,7 +1139,7 @@ class ModelProviderManager {
       return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: `尚未配置 API Key，请先在「模型设置」中填写 ${provider.name || id} 的 API Key 后重试。` }
     }
     // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
-    const factory = this._adapterFactories.get(id)
+    const factory = adapterRegistry.getFactory(id)
     if (factory) {
       const result = await this.callAdapter(id, 'testConnection', {})
       return result

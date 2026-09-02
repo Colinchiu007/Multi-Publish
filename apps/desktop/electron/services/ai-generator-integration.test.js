@@ -41,7 +41,7 @@ function createMockManager(providers = []) {
     callAdapter: vi.fn(async (providerId, method, params) => {
       return { code: 0, data: { content: 'adapter response from ' + providerId } }
     }),
-    _adapterFactories: new Map(),
+    adapterRegistry: new Map(),
   }
 }
 
@@ -89,7 +89,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
     it('有 Adapter 注册时通过 callAdapter 调用', async () => {
       ai.setRouter(router)
       // 模拟 manager 有 Adapter 工厂注册
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       const result = await ai.generate('llm', 'openai', {
         messages: [{ role: 'user', content: 'Hi' }],
@@ -101,7 +101,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('chatCompletion 方法映射', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await ai.generate('llm', 'openai', {
         messages: [{ role: 'user', content: 'Hi' }],
@@ -122,7 +122,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
         is_configured: true,
         models: ['', '   ', ' deepseek-v4-flash '],
       })
-      manager._adapterFactories.set('sensenova-llm', () => ({}))
+      adapterRegistry.registerFactory('sensenova-llm', () => ({}))
 
       const result = await ai.generateWithDefault('llm', params)
 
@@ -180,7 +180,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
       await expect(ai.generateWithDefault('llm', { messages: [] }))
         .rejects.toThrow(/adapter.*default provider/i)
 
-      manager._adapterFactories.set('sensenova-llm', () => ({}))
+      adapterRegistry.registerFactory('sensenova-llm', () => ({}))
       manager.callAdapter.mockResolvedValue({ code: 0, data: { content: '   ' } })
 
       await expect(ai.generateWithDefault('llm', { messages: [] }))
@@ -198,8 +198,8 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('generateWithFailover — 故障转移', () => {
     it('通过 router.executeWithFailover 调用', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
-      manager._adapterFactories.set('anthropic', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
+      adapterRegistry.registerFactory('anthropic', () => ({}))
 
       await ai.generate('llm', null, {
         messages: [{ role: 'user', content: 'Hi' }],
@@ -235,8 +235,8 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
       })
 
       ai.setRouter(failoverRouter)
-      manager._adapterFactories.set('openai', () => ({}))
-      manager._adapterFactories.set('anthropic', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
+      adapterRegistry.registerFactory('anthropic', () => ({}))
 
       const result = await ai.generate('llm', null, {
         messages: [{ role: 'user', content: 'Hi' }],
@@ -293,7 +293,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('ProviderError 透传', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       manager.callAdapter.mockResolvedValue({
         code: -1,
         error: new ProviderError(ERROR_CODES.AUTH_FAILED, 'Invalid key'),
@@ -307,7 +307,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('generate — onProgress 回调', () => {
     it('onProgress 在调用前触发 start 事件', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       const events = []
       await ai.generate('llm', 'openai', {
@@ -330,7 +330,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('方法映射 — type 到 Adapter method', () => {
     it('llm → chatCompletion', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await ai.generate('llm', 'openai', { messages: [] })
       expect(manager.callAdapter.mock.calls[0][1]).toBe('chatCompletion')
@@ -338,7 +338,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('tts → synthesize', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('elevenlabs', () => ({}))
+      adapterRegistry.registerFactory('elevenlabs', () => ({}))
       manager.listProviders.mockReturnValue([{ id: 'elevenlabs', category: 'tts' }])
       manager.getProviderWithKey.mockReturnValue({ id: 'elevenlabs', api_key: 'sk-test', category: 'tts' })
 
@@ -348,7 +348,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('image → generateImage', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('dalle', () => ({}))
+      adapterRegistry.registerFactory('dalle', () => ({}))
       manager.getProviderWithKey.mockReturnValue({ id: 'dalle', api_key: 'sk-test', category: 'image' })
 
       await ai.generate('image', 'dalle', { prompt: 'a cat' })
@@ -360,7 +360,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('P3.5 补跑：三路径选择优先级', () => {
     it('Adapter 优先于 router failover', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await ai.generate('llm', 'openai', { messages: [] })
 
@@ -371,7 +371,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('useFailover=true 时优先 router.executeWithFailover（即使有 Adapter）', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await ai.generate('llm', null, {
         messages: [],
@@ -411,7 +411,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('P3.5 补跑：方法映射 — 其他 type', () => {
     it('video → generateVideo', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('sora', () => ({}))
+      adapterRegistry.registerFactory('sora', () => ({}))
       manager.getProviderWithKey.mockReturnValue({ id: 'sora', api_key: 'sk-test', category: 'video' })
 
       await ai.generate('video', 'sora', { prompt: 'cat' })
@@ -420,7 +420,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('embedding → chatCompletion（embedding 未在 TYPE_TO_METHOD 中，fallback）', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await ai.generate('embedding', 'openai', { input: 'text' })
       // embedding 未在 TYPE_TO_METHOD 中，默认 fallback 到 chatCompletion
@@ -429,7 +429,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('未知 type → chatCompletion（默认 fallback）', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await ai.generate('unknown_type', 'openai', { messages: [] })
       expect(manager.callAdapter.mock.calls[0][1]).toBe('chatCompletion')
@@ -439,7 +439,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('P3.5 补跑：callAdapter 错误返回', () => {
     it('code:-1 + ProviderError 抛错', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       const pe = new ProviderError(ERROR_CODES.AUTH_FAILED, 'Invalid key')
       manager.callAdapter.mockResolvedValue({ code: -1, error: pe })
 
@@ -454,7 +454,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('code:-1 + 无 error 字段（只有 message）抛普通 Error', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       manager.callAdapter.mockResolvedValue({ code: -1, message: 'something failed' })
 
       await expect(ai.generate('llm', 'openai', { messages: [] }))
@@ -463,7 +463,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('code:-1 + error 是普通 Error（非 ProviderError）抛 "Adapter call failed"', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       // 注意：error 是普通 Error 时，ai-generator 不读取 error.message，而是用通用消息
       manager.callAdapter.mockResolvedValue({ code: -1, error: new Error('network fail') })
 
@@ -473,7 +473,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('code:-1 + error 是普通 Error + message 字段时使用 message', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       manager.callAdapter.mockResolvedValue({
         code: -1,
         error: new Error('network fail'),
@@ -486,7 +486,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('code:-1 + error 是字符串抛错', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       manager.callAdapter.mockResolvedValue({ code: -1, error: 'string error' })
 
       await expect(ai.generate('llm', 'openai', { messages: [] }))
@@ -516,7 +516,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('useFailover=true 但无 router 抛错', async () => {
       // 不调用 setRouter
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       await expect(ai.generate('llm', null, {
         messages: [],
@@ -528,7 +528,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('P3.5 补跑：onProgress 回调详细', () => {
     it('onProgress 触发 start 和 end 事件', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       const events = []
       await ai.generate('llm', 'openai', {
@@ -542,7 +542,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('无 onProgress 回调时不抛错', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       // 不传第四个参数
       const result = await ai.generate('llm', 'openai', {
@@ -553,7 +553,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('onProgress 回调抛错不影响主流程 — MAJOR bug 已修复', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       // 修复后：onProgress 回调被 try-catch 包裹，回调异常不影响主流程
       // 修复方式：所有 `if (onProgress) onProgress(...)` 包裹为
@@ -568,7 +568,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('onProgress 多次回调中某次抛错不影响后续回调', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
 
       let callbackCount = 0
       // 第 2 次回调抛错，其他正常
@@ -589,7 +589,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('onProgress 抛 ProviderError 也不影响主流程', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
       const result = await ai.generate('llm', 'openai', {
@@ -605,7 +605,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
   describe('P3.5 补跑：router.executeWithFailover 异常', () => {
     it('router 抛 ProviderError 时透传', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       router.executeWithFailover = vi.fn(async () => {
         throw new ProviderError(ERROR_CODES.NETWORK_ERROR, 'all providers down')
       })
@@ -624,7 +624,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('router 抛普通 Error 时透传', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       router.executeWithFailover = vi.fn(async () => {
         throw new Error('router internal error')
       })
@@ -637,7 +637,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
 
     it('router 返回 null 结果时不崩溃', async () => {
       ai.setRouter(router)
-      manager._adapterFactories.set('openai', () => ({}))
+      adapterRegistry.registerFactory('openai', () => ({}))
       router.executeWithFailover = vi.fn(async () => null)
 
       const result = await ai.generate('llm', null, {

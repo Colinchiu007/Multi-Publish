@@ -23,7 +23,7 @@ const { ProviderError, ERROR_CODES } = require('./provider-error')
  */
 class AdapterRegistry {
   constructor() {
-    this._adapters = new Map()
+    this._adapters = new Map(); this._factories = new Map()
   }
 
   /**
@@ -113,8 +113,41 @@ class AdapterRegistry {
   /**
    * 清空所有注册
    */
+  registerFactory(id, factory) {
+    if (!id || typeof id !== 'string') {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'Factory id must be a non-empty string')
+    }
+    if (typeof factory !== 'function') {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'Factory must be a function')
+    }
+    if (this._factories.has(id)) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, `Factory "${id}" is already registered`)
+    }
+    this._factories.set(id, factory)
+    log.info('AdapterRegistry', `Registered factory: ${id}`)
+  }
+
+  getFactory(id) {
+    return this._factories.get(id)
+  }
+
+  hasFactory(id) {
+    return this._factories.has(id)
+  }
+
+  removeFactory(id) {
+    const had = this._factories.delete(id)
+    if (had) log.info('AdapterRegistry', `Removed factory: ${id}`)
+    return had
+  }
+
+  listFactoryIds() {
+    return Array.from(this._factories.keys())
+  }
+
   clear() {
     this._adapters.clear()
+    this._factories.clear()
   }
 }
 
