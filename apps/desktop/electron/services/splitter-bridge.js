@@ -16,7 +16,6 @@ const SPLITTER_DIR = process.env.SPLITTER_DIR || (() => {
   const path = require('path')
   return path.join(__dirname, '..', '..', '..', 'packages', 'smart-sentence-splitter')
 })()
-const SPLITTER_DIR = process.env.SPLITTER_DIR || _defaultSplitterDir
 
 class SplitterBridge extends BasePythonBridge {
   /**
