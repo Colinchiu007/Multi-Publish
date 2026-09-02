@@ -35,7 +35,8 @@ function countFiles(dir, ext, exclude = []) {
       if (exclude.some(x => e.name.includes(x))) continue;
       const fp = path.join(d, e.name);
       if (e.isDirectory()) { walk(fp); continue; }
-      if (e.name.endsWith(ext)) count++;
+      const matchExt = typeof ext === 'string' && ext.length > 0 ? e.name.includes(ext) : true;
+      if (matchExt) count++;
     }
   }
   walk(dir);
