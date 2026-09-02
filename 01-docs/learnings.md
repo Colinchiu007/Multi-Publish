@@ -1,3 +1,15 @@
+## prompt-engine CLI fallback：API Key 移出 argv 改 env 注入（codex/stage-1.3-prompt-key-env，2026-09-02）
+
+- **背景**：架构重构 Stage -1.3 安全基线 —— prompt-bridge 的 CLI fallback（HTTP 不可用时 spawn prompt-engine CLI 兜底）此前把 LLM API Key 作为 --api-key argparse 参数透传。命令行参数在进程列表可见（任务管理器/ps 可读，Windows 上 CommandLineToArgvW 即可恢复），等同把 Key 暴露给任意同机进程，属凭据暴露面债务。
+- **方案**：
+  - **Key 移出 argv**：prompt-bridge.js 抽出纯函数 uildCliFallbackCommand 返回 { args, apiKey }，argv 只含 provider/model/base-url/caller 等非敏感项，Key 单独经子进程 env 变量 PROMPT_ENGINE_API_KEY 注入（childEnv 在 ...process.env 基础上叠加，不污染父进程环境）。
+  - **prompt-engine 侧配合**：cli.py 新增 _resolve_api_key —— 优先 --api-key（向后兼容手动调用），未提供时回退读 PROMPT_ENGINE_API_KEY，两者皆缺 fail-closed 明确报错；配套 	ests/test_cli_api_key_env.py 覆盖 argv 优先、env 回退、strip 与 fail-closed（PR #75 已合并）。
+  - **兼容性**：桌面端不再传 --api-key，引擎侧读 env；手动/脚本调用仍可显式传 --api-key，双向兼容。
+- **教训（测试相关）**：vitest i.mock 只作用于 SSR 转换层，**不拦 CJS equire('child_process')**（test-setup.js 注释早已明示，CJS 拦截走 Module._load 注册表 __registerMock）。本项目既有 i.mock('child_process', ...) 的 fallback 测试实为假测试（mock 从未生效）。本次改用 __registerMock('child_process', { execFile: vi.fn() })，配合纯函数抽取后测试改为：断言 argv 不含 --api-key/明文、env 携带 Key；无需真 spawn、无需 mock 时机谜题。
+- **预防**：新增回归用例如合同断言「argv 无 Key + env 有 Key」；后续新增需给子进程传敏感凭据的路径，一律走 env/stdio 注入并在测试中断言 argv 干净，禁止把 Key 加回命令行。
+
+---
+
 ## RPA 浏览器数据主密钥改 safeStorage 加密（codex/stage-1.2-safe-storage，2026-09-02）
 
 - **背景**：架构重构 Stage -1.2 安全基线要求 —— rpa-engine 的浏览器数据主密钥（`browser_data/` 下 `.browser_data_key`，保护 cookies/localStorage 加密备份）此前以明文 hex 落盘，任意可读磁盘路径直接拿到密钥即可解密全部浏览器登录态，与 Stage -1.1（accounts 表）同类高风险存量债务。

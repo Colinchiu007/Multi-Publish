@@ -1,4 +1,7 @@
 // @vitest-environment node
+// CJS require 走 Module._load 拦截注册（vi.mock 仅作用于 SSR 转换层，不拦截 CJS 内置模块）
+// Stage -1.3：mock execFile 以捕获 argv/env 注入，不真实 spawn python
+__registerMock('child_process', { execFile: vi.fn() })
 const PromptBridge = require('./prompt-bridge')
 
 /**
@@ -495,6 +498,53 @@ describe('PromptBridge CLI fallback', () => {
     expect(result.optimized_prompt).toBe('mock-cli-result')
     expect(capturedArgs.request.prompt).toBe('test prompt')
     expect(capturedArgs.request.optimization_strategy).toBe('template')
+  })
+
+  it('_cliFallbackSingle 把 API Key 从 argv 移入 PROMPT_ENGINE_API_KEY env（Stage -1.3 合同）', async () => {
+    const bridge = makeBridge()
+    const cp = require('child_process')
+    let capturedEnv = null
+    let capturedArgs = null
+    cp.execFile.mockImplementation((cmd, args, opts, cb) => {
+      capturedEnv = opts.env
+      capturedArgs = args
+      const result = {
+        optimized_prompt: 'env-key-result',
+        platform: 'generic',
+        model_used: 'gpt-4o',
+        tokens_used: 0,
+        duration_ms: 0,
+        key_source: 'caller',
+        strategy_used: 'llm',
+        caller: 'multi-publish-desktop',
+        cache_hit: false,
+        error: null,
+      }
+      cb(null, JSON.stringify(result), '')
+    })
+    const result = await bridge._cliFallbackSingle({
+      prompt: '城市夜景',
+      optimization_strategy: 'llm',
+      creative_level: 5,
+      platform: 'generic',
+      llm: {
+        provider: 'openai_compat',
+        model: 'gpt-4o',
+        api_key: 'sk-super-secret',
+        base_url: 'https://api.example.com/v1',
+        caller: 'multi-publish-desktop',
+      },
+    })
+    expect(result.optimized_prompt).toBe('env-key-result')
+    // argv 不含 --api-key，也不含 key 明文
+    expect(capturedArgs).not.toContain('--api-key')
+    expect(capturedArgs).not.toContain('sk-super-secret')
+    // provider/model/base_url 仍在 argv
+    expect(capturedArgs).toContain('--provider')
+    expect(capturedArgs).toContain('openai_compat')
+    expect(capturedArgs).toContain('--base-url')
+    // env 携带 key
+    expect(capturedEnv.PROMPT_ENGINE_API_KEY).toBe('sk-super-secret')
   })
 
   it('optimize falls back to _cliFallbackSingle when HTTP _post fails', async () => {
