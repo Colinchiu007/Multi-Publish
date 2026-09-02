@@ -1321,7 +1321,7 @@ class WebviewManager extends EventEmitter {
     ipcMain.handle('webview:list-tabs', withSenderCheck(function () {
       try { return { code: 0, data: self.getTabsInfo() } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-    })
+    }))
 
     // ─── 左侧导航栏宽度同步 ──
 

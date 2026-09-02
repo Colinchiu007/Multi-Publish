@@ -148,6 +148,18 @@ export default {
   },
   create: {
     story2video: {
+      style: {
+        cleanProfessional: '简洁专业',
+        cleanProfessionalDesc: '干净排版，适合商业内容',
+        flatMotionGraphics: '扁平动效',
+        flatMotionGraphicsDesc: '现代扁平化动画风格',
+        animeGhibli: '吉卜力动漫',
+        animeGhibliDesc: '温暖的手绘动漫质感',
+        minimalistDiagram: '极简图表',
+        minimalistDiagramDesc: '数据可视化优先',
+        cinematicDark: '电影暗调',
+        cinematicDarkDesc: '深色电影感渲染',
+      },
       configurationTitle: '故事讲述配置',
       imageStyleHint: '控制每张生成图片的视觉外观。',
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
