@@ -1,3 +1,18 @@
+## OpsCenter 运行时配置 Ed25519 签名验签（codex/stage-1.6-runtime-verify，2026-09-02）
+
+- **背景**：架构重构 Stage -1.6「运行时配置完整性保护」——桌面端启动会调用 OpsCenter `/api/v1/runtime/bootstrap` 拉取运行时配置（含 pipelineOptions），此前接口返回的配置**无签名**，远端被篡改或中间人替换后桌面端无法察觉即会应用，危害运行时行为。需要为远端配置增加服务端签名、客户端验签的完整性保障。
+- **方案**：
+  - **服务端签发**（ops-center/backend）：`runtime_service.py` 用 canonical JSON 序列化 + Ed25519 私钥签名，`/api/v1/runtime/bootstrap` 在配置了 `OPS_RUNTIME_SIGNING_PRIVATE_KEY`（支持 PEM 文件路径或内容）时返回 `{ signature, payload }`；未配置私钥时 **fail-close 404**（宁可无配置也不给无签名配置）。
+  - **客户端验签**（apps/desktop）：`ops-center-sync.js` 用 WebCrypto `Ed25519` 导入公钥验签。沿用签名算法因 WebCrypto 原生支持 Ed25519、且 Node/Python 双侧均有标准实现，跨平台签名一致性代价最小。
+  - **canonical JSON 跨平台一致性**：Python 与 JavaScript 各自实现 canonical JSON（键排序、`","`/`":"` 分隔符、UTF-8、转义控制字符），用含中文/嵌套对象/数组/数字的固定向量验证两侧输出逐字节一致——这是「两侧各自签名/验签」可互操作的前提。
+  - **fail-closed 链**：客户端对「无 signature / signature 非 128 hex / 签名校验失败 / 公钥无效」一律拒绝应用配置并抛错，不静默降级应用。
+  - **测试夹具**：DEV 密钥对固定存放在两个仓库位置（桌面端测试公钥、`.env.example` 示例私钥），两者必须配对。
+- **教训 1（pytest settings 单例与用例导入顺序）**：`config.settings` 是导入期实例化的单例，pytest 按字母序导入模块，先导入的模块会令 `settings` 在 `os.environ` 赋值的模块代码执行前就初始化 → 后续对 `OPS_*` 环境变量的配置全部失效。修复方式：与 `catalog_api_key` 同模式，在 `tests/conftest.py` 用 `autouse` fixture 在每个测试前把签名私钥同步到 `settings` 单例，测试内临时修改靠自身 try/finally 恢复。
+- **教训 2（测试不得依赖外部真实服务返回）**：`test_model_catalog_api.py` 若开启 preset 种子抓取，本机跑着 Ollama/内网服务时会返回真实模型列表，覆盖种子数据后破坏 `default in models` 自洽断言。测试必须显式关闭外部抓取（`settings.preset_seed_fetch_enabled = False`），保证确定性。
+- **教训 3（SQLite 外键约束下父子行必须显式 flush）**：`feedback_service.py` 创建日志附件时若连接复用了 `init_db` 开启外键约束的连接，附件行会先于反馈父行插入而触发 IntegrityError。`db.add(row)` 后必须显式 `await db.flush()` 确保父行先落库再插入子行。
+- **预防**：新增 `ops-center-sync.test.js` 验签用例（47 项，含跨平台 canonical 固定向量、非 128-hex 签名、公钥无效、签名不匹配、fail-closed）与 `test_runtime_policy_api.py` 服务端签名用例；后续对「远端下发实体的信任边界」类改动必须沿用「服务端签名 + 客户端验签 + 未配置 fail-closed」三层合同。
+
+---
 ## prompt-engine CLI fallback：API Key 移出 argv 改 env 注入（codex/stage-1.3-prompt-key-env，2026-09-02）
 
 - **背景**：架构重构 Stage -1.3 安全基线 —— prompt-bridge 的 CLI fallback（HTTP 不可用时 spawn prompt-engine CLI 兜底）此前把 LLM API Key 作为 --api-key argparse 参数透传。命令行参数在进程列表可见（任务管理器/ps 可读，Windows 上 CommandLineToArgvW 即可恢复），等同把 Key 暴露给任意同机进程，属凭据暴露面债务。

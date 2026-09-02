@@ -39,6 +39,11 @@ def _user_token():
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
+    from config import settings
+
+    # 直接锁定 settings 单例（与 test_feedback_api.py 同模式）：pytest 模块导入顺序会令
+    # 其他模块的 os.environ 赋值互相覆盖，此处与 header（X-Catalog-Key: test-catalog-key）强绑定。
+    settings.catalog_api_key = "test-catalog-key"
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
