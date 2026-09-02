@@ -4029,6 +4029,16 @@ ops-center【模型预设】：
 | 版本发布 | `update_policy` → auto-updater `applyPolicy`：force_version 高于当前版本 → 跳过灰度强制检查；gray_ratio<100 → 按概率跳过检查（灰度）；min_version → 状态 `policy-min-version` 提示升级；enabled=false → 不生效 |
 | 安全 | 端点复用目录同步 Key；管理 CRUD require_admin；词库/公告不含用户隐私 |
 
+##### 7.4.6.2.1 运行时配置完整性（Ed25519 签名验签，2026-09-02 新增，Stage -1.6）
+
+| 合同 | 要求 |
+|------|------|
+| 签名能力 | 服务端配置 `OPS_RUNTIME_SIGNING_PRIVATE_KEY`（PEM 文件路径或内联 PEM）时，`runtime/bootstrap` 返回 `{ signature, payload }`：`signature` 为对 payload（业务字段）规范化 JSON 的 Ed25519 签名（128 位 hex）；未配置私钥 → 端点 fail-close 404（不发无签名配置） |
+| canonical JSON | Python 与桌面端各自实现 canonical JSON（键排序、紧凑分隔符、UTF-8、控制字符转义），用含中文/嵌套/数组的固定向量保证两侧序列化逐字节一致，签名可跨端互验 |
+| 客户端验签 | `OpsCenterSync` 用 WebCrypto `Ed25519`（SPKI 公钥）验签后才 `applyRuntime`；无 signature / signature 非 128-hex / 验签失败 / 公钥无效 → 拒绝应用并报错（fail-closed），不静默降级为无签名应用 |
+| 密钥管理 | 生产公钥由桌面端内置/受控分发；`pipelineOptions` 相关配置依赖本验签链，未验签前禁止合入 main（硬时限依赖） |
+| 回归 | `ops-center-sync.test.js`（47 项，含跨平台 canonical 固定向量、非法签名/公钥 fail-closed）+ `test_runtime_policy_api.py` 服务端签发用例 |
+
 ##### 7.4.6.3 验收标准
 
 ① 运营后台发布 maintenance 公告 → 桌面端同步后顶部常驻红色横幅且不可关闭；info 公告可关闭且刷新不重现；② 配置 `force_version=2.3.53` 且当前 2.3.50 → 桌面端强制检查更新（不受灰度限制）；③ `gray_ratio=0` → 桌面端跳过更新检查（`skipped-by-policy`）；④ `min_version=2.3.53` 且当前低于 → 状态含 `policy-min-version` 提示；⑤ 运营后台配置敏感词「新词」→ 桌面端 `sensitive:check('含新词')` 命中；关闭策略 → 仅内置词库；⑥ runtime 拉取失败不影响模型目录同步；⑦ 未配置同步的桌面端公告区为空、更新走默认流程。
