@@ -11,21 +11,11 @@ const { config } = require('../config/app-config')
 
 const SPLITTER_PORT = config.splitterBridge.port
 const SPLITTER_HOST = config.splitterBridge.host
-// P1-A: 移除硬编码开发者路径，必须通过环境变量配置
-// SPLITTER_DIR 必须指向包含 splitter 包的 Python 项目根目录
-// 优先环境变量，其次尝试已知路径，最后 process.cwd()
-const _defaultSplitterDir = (() => {
-  const knownPaths = [
-    'D:\\Data\\projects\\smart-sentence-splitter',
-    'D:\\Projects\\smart-sentence-splitter',
-  ]
-  const fs = require('fs')
-  for (const p of knownPaths) {
-    try { if (fs.existsSync(p + '/splitter')) return p } catch (_) { /* ignore */ }
-  }
-  return process.cwd()
+// Stage -1 附项：移除硬编码开发机绝对路径，仅保留环境变量 + 打包相对路径
+const SPLITTER_DIR = process.env.SPLITTER_DIR || (() => {
+  const path = require('path')
+  return path.join(__dirname, '..', '..', '..', 'packages', 'smart-sentence-splitter')
 })()
-const SPLITTER_DIR = process.env.SPLITTER_DIR || _defaultSplitterDir
 
 class SplitterBridge extends BasePythonBridge {
   /**

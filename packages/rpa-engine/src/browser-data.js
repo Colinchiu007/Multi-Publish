@@ -9,6 +9,13 @@
  * 3. 从页面提取/恢复 localStorage
  * 4. 管理浏览器 userData 目录（每个平台+账号独立）
  *
+ * Stage -1.2（安全止血）：主密钥（.browser_data_key）由明文改为 Electron safeStorage 加密
+ * （Windows DPAPI / macOS Keychain / Linux libsecret），与 credential-store 语义对齐：
+ *   - 新建密钥：safeStorage 不可用 → fail-closed 抛错，拒绝创建明文密钥
+ *   - 存量明文密钥（裸 hex / plaintext:v1:）：safeStorage 可用 → 自动迁移（密钥值不变，
+ *     已加密 cookies/localStorage 无需重加密）；不可用 → 降级警告继续使用
+ *   - 兼容读取：safeStorage:v1: / plaintext:v1: / 历史裸 hex 三种格式
+ *
  * 使用：
  *   const { browserData } = require('@multi-publish/rpa-engine')
  *
@@ -39,8 +46,129 @@ const KEY_LENGTH = 32
 const IV_LENGTH = 16
 const TAG_LENGTH = 16
 const SALT_LENGTH = 32
+/** safeStorage 加密主密钥文件前缀（Stage -1.2） */
+const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
+/** 历史明文密钥前缀（兼容读 + 迁移来源） */
+const PLAINTEXT_PREFIX = 'plaintext:v1:'
+/** 主密钥格式：64 位 hex */
+const MASTER_KEY_PATTERN = /^[0-9a-f]{64}$/i
+/** Windows 原子 rename 瞬时冲突错误（AGENTS.md QM：短且有界的退避重试） */
+const TRANSIENT_WINDOWS_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const ATOMIC_RENAME_RETRY_DELAYS_MS = [20, 40, 80, 160, 320, 640]
+const ATOMIC_RENAME_WAIT_BUFFER = new Int32Array(new SharedArrayBuffer(4))
+
+/** 模块级 safeStorage 注入点（测试 / 多实例场景；缺省自动解析 electron.safeStorage） */
+let safeStorageOverride = undefined
 
 // ─── 内部工具 ────────────────────────────────────
+
+/**
+ * Windows 原子重命名：对 EPERM/EACCES/EBUSY 做有界退避重试，其余错误原样抛出
+ */
+function atomicRenameSync (sourcePath, targetPath) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(sourcePath, targetPath)
+      return
+    } catch (error) {
+      const delayMs = ATOMIC_RENAME_RETRY_DELAYS_MS[attempt]
+      const isTransientWindowsLock = process.platform === 'win32' &&
+        TRANSIENT_WINDOWS_RENAME_ERRORS.has(error && error.code)
+      if (!isTransientWindowsLock || delayMs === undefined) throw error
+      Atomics.wait(ATOMIC_RENAME_WAIT_BUFFER, 0, 0, delayMs)
+    }
+  }
+}
+
+/**
+ * 解析 safeStorage：显式注入 > 模块级配置 > electron 自动解析（纯 Node 环境返回 null）
+ */
+function resolveSafeStorage () {
+  if (safeStorageOverride !== undefined) return safeStorageOverride
+  try {
+    // eslint-disable-next-line global-require
+    const electron = require('electron')
+    return electron && electron.safeStorage
+  } catch (_) {
+    return null
+  }
+}
+
+/**
+ * 判断 safeStorage 是否可用（与 credential-store 同构）
+ */
+function canUseSafeStorage (safeStorage) {
+  try {
+    return Boolean(
+      safeStorage &&
+      typeof safeStorage.isEncryptionAvailable === 'function' &&
+      safeStorage.isEncryptionAvailable() &&
+      typeof safeStorage.encryptString === 'function' &&
+      typeof safeStorage.decryptString === 'function'
+    )
+  } catch (_) {
+    return false
+  }
+}
+
+/**
+ * 校验主密钥格式（64 位 hex）
+ */
+function validateKey (key) {
+  if (typeof key !== 'string' || !MASTER_KEY_PATTERN.test(key)) {
+    throw new Error('浏览器数据主密钥格式无效')
+  }
+  return key
+}
+
+/**
+ * 将主密钥编码为 safeStorage 密文并落盘
+ */
+function encodeKey (key, safeStorage) {
+  if (canUseSafeStorage(safeStorage)) {
+    return SAFE_STORAGE_PREFIX + safeStorage.encryptString(key).toString('base64')
+  }
+  throw new Error('系统凭据保护不可用，拒绝创建明文浏览器数据主密钥')
+}
+
+/**
+ * 解码主密钥文件内容：支持 safeStorage:v1: / plaintext:v1: / 历史裸 hex
+ * @param {string} serialized - 密钥文件内容
+ * @param {object} safeStorage
+ * @returns {string} 主密钥 hex
+ */
+function decodeKey (serialized, safeStorage) {
+  const value = String(serialized || '').trim()
+  if (!value) throw new Error('浏览器数据主密钥文件为空')
+  if (value.startsWith(SAFE_STORAGE_PREFIX)) {
+    if (!canUseSafeStorage(safeStorage)) {
+      throw new Error('系统凭据保护不可用，无法解密浏览器数据主密钥')
+    }
+    return validateKey(
+      safeStorage.decryptString(Buffer.from(value.slice(SAFE_STORAGE_PREFIX.length), 'base64'))
+    )
+  }
+  if (value.startsWith(PLAINTEXT_PREFIX)) return validateKey(value.slice(PLAINTEXT_PREFIX.length))
+  // 兼容历史裸 hex 格式（Stage -1.2 之前的密钥文件）
+  return validateKey(value)
+}
+
+/**
+ * 原子写入主密钥文件（safeStorage 加密）+ 双副本备份 + 权限 600
+ */
+function writeKeyFiles (keyFile, key, safeStorage) {
+  const serialized = encodeKey(key, safeStorage)
+  const tmpPath = keyFile + '.tmp.' + process.pid
+  fs.writeFileSync(tmpPath, serialized, 'utf8')
+  atomicRenameSync(tmpPath, keyFile)
+  try { fs.chmodSync(keyFile, 0o600) } catch (_) { /* Windows 由 safeStorage 保护 */ }
+
+  const backupPath = keyFile + '.bak'
+  const backupTmpPath = backupPath + '.tmp.' + process.pid
+  fs.writeFileSync(backupTmpPath, serialized, 'utf8')
+  atomicRenameSync(backupTmpPath, backupPath)
+  try { fs.chmodSync(backupPath, 0o600) } catch (_) { /* ignore */ }
+}
 
 /**
  * 获取浏览器数据根目录
@@ -70,29 +198,61 @@ function sanitizeId (id) {
 }
 
 /**
- * 获取或创建加密密钥（文件锁+原子写入）
+ * 获取或创建浏览器数据主密钥（safeStorage 加密存储，原子写入 + 双副本）
+ *
+ * Stage -1.2 语义（与 credential-store.getMasterKey 对齐）：
+ *   - 已有密钥（safeStorage:v1: / plaintext:v1: / 裸 hex）→ 解码校验后返回；
+ *     若仍为明文格式且 safeStorage 可用 → 自动迁移为 safeStorage 加密（密钥值不变）
+ *   - 无密钥 → 必须 safeStorage 可用才允许创建，否则 fail-closed 抛错
+ *   - 密钥损坏或解密失败 → 抛错（不静默重建，防止损坏既有加密数据）
+ *
  * @param {string} dir - 密钥存储目录
  * @returns {string} masterKey hex string
  */
 function getOrCreateKey (dir) {
   const keyFile = path.join(dir, '.browser_data_key')
-  if (fs.existsSync(keyFile)) {
-    return fs.readFileSync(keyFile, 'utf8').trim()
+  const backupFile = keyFile + '.bak'
+  const safeStorage = resolveSafeStorage()
+  fs.mkdirSync(dir, { recursive: true })
+
+  const candidates = [keyFile, backupFile].filter(file => fs.existsSync(file))
+  let sourceFile = null
+  let serialized = null
+  let loadedKey = null
+  let lastError = null
+  for (const candidate of candidates) {
+    try {
+      const candidateSerialized = fs.readFileSync(candidate, 'utf8').trim()
+      const candidateKey = decodeKey(candidateSerialized, safeStorage)
+      sourceFile = candidate
+      serialized = candidateSerialized
+      loadedKey = candidateKey
+      break
+    } catch (error) {
+      lastError = error
+    }
+  }
+  if (sourceFile) {
+    const protectedStorageAvailable = canUseSafeStorage(safeStorage)
+    const needsMigration = sourceFile !== keyFile || !serialized.startsWith(SAFE_STORAGE_PREFIX)
+    if (needsMigration && protectedStorageAvailable) {
+      writeKeyFiles(keyFile, loadedKey, safeStorage)
+    } else if (!serialized.startsWith(SAFE_STORAGE_PREFIX) && !protectedStorageAvailable) {
+      // eslint-disable-next-line no-console
+      console.warn('[BrowserData] 系统凭据保护不可用，继续使用历史明文主密钥')
+    }
+    return loadedKey
+  }
+  if (lastError) {
+    // 主密钥损坏 / 系统凭据状态变化：fail-closed，由调用方处理（restoreCookies 外层捕获会清理损坏数据文件）
+    throw lastError
+  }
+
+  if (!canUseSafeStorage(safeStorage)) {
+    throw new Error('系统凭据保护不可用，拒绝创建明文浏览器数据主密钥')
   }
   const key = crypto.randomBytes(32).toString('hex')
-  fs.mkdirSync(dir, { recursive: true })
-  // 原子写入：先写临时文件再 rename
-  const tmp = keyFile + '.tmp.' + Date.now()
-  fs.writeFileSync(tmp, key, 'utf8')
-  fs.renameSync(tmp, keyFile)
-  // R26 修复：与 credential-store.getMasterKey 对齐 — 限制文件权限 600 + 双副本备份
-  // 原仅单文件无备份，主密钥损坏会导致所有浏览器数据永久不可解密
-  try { fs.chmodSync(keyFile, 0o600) } catch (e) { /* Windows 无效，忽略 */ }
-  try {
-    const bakPath = keyFile + '.bak'
-    fs.writeFileSync(bakPath, key, 'utf8')
-    try { fs.chmodSync(bakPath, 0o600) } catch (e) { /* ignore */ }
-  } catch (e) { /* best-effort backup */ }
+  writeKeyFiles(keyFile, key, safeStorage)
   return key
 }
 
@@ -124,6 +284,15 @@ function decrypt (payload, masterKey) {
 }
 
 // ─── public API ──────────────────────────────────
+
+/**
+ * 注入 safeStorage（测试 / 宿主环境覆盖）。
+ * 缺省时模块在 Electron 环境自动解析 electron.safeStorage；纯 Node 环境返回 null。
+ * 传 null/undefined 清除注入，恢复自动解析。
+ */
+function configureSafeStorage (safeStorage) {
+  safeStorageOverride = safeStorage
+}
 
 /**
  * 生成 Electron session 持久化分区名
@@ -381,6 +550,9 @@ module.exports = {
   getCookieCount,
   hasLoginCookie,
 
+  // 配置
+  configureSafeStorage,
+
   // 内部暴露（供测试用）
   _internals: {
     getBrowserDataDir,
@@ -389,5 +561,10 @@ module.exports = {
     getOrCreateKey,
     encrypt,
     decrypt,
+    encodeKey,
+    decodeKey,
+    canUseSafeStorage,
+    validateKey,
+    atomicRenameSync,
   },
 }

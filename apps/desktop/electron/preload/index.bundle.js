@@ -812,6 +812,8 @@ var require_page_manager = __commonJS({
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
+          // ── 左侧导航栏宽度同步 ──
+          setSidebarWidth: (width) => ipcRenderer2.invoke("page-manager:set-sidebar-width", width),
           /**
            * 监听导航状态变化（URL/标题/前进后退状态）
            * callback 收到 { tabId, url, title, canGoBack, canGoForward }

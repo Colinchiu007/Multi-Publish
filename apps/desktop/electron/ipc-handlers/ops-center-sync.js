@@ -22,6 +22,7 @@ function registerHandlers (ipcMain, deps) {
         url: data.url,
         apiKey: data.apiKey,
         autoSync: data.autoSync !== false,
+        runtimePublicKey: data.runtimePublicKey,
       })
     } catch (e) { return { code: -1, message: e.message } }
   })

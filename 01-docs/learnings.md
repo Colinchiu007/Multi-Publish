@@ -1,3 +1,151 @@
+## OpsCenter 运行时配置 Ed25519 签名验签（codex/stage-1.6-runtime-verify，2026-09-02）
+
+- **背景**：架构重构 Stage -1.6「运行时配置完整性保护」——桌面端启动会调用 OpsCenter `/api/v1/runtime/bootstrap` 拉取运行时配置（含 pipelineOptions），此前接口返回的配置**无签名**，远端被篡改或中间人替换后桌面端无法察觉即会应用，危害运行时行为。需要为远端配置增加服务端签名、客户端验签的完整性保障。
+- **方案**：
+  - **服务端签发**（ops-center/backend）：`runtime_service.py` 用 canonical JSON 序列化 + Ed25519 私钥签名，`/api/v1/runtime/bootstrap` 在配置了 `OPS_RUNTIME_SIGNING_PRIVATE_KEY`（支持 PEM 文件路径或内容）时返回 `{ signature, payload }`；未配置私钥时 **fail-close 404**（宁可无配置也不给无签名配置）。
+  - **客户端验签**（apps/desktop）：`ops-center-sync.js` 用 WebCrypto `Ed25519` 导入公钥验签。沿用签名算法因 WebCrypto 原生支持 Ed25519、且 Node/Python 双侧均有标准实现，跨平台签名一致性代价最小。
+  - **canonical JSON 跨平台一致性**：Python 与 JavaScript 各自实现 canonical JSON（键排序、`","`/`":"` 分隔符、UTF-8、转义控制字符），用含中文/嵌套对象/数组/数字的固定向量验证两侧输出逐字节一致——这是「两侧各自签名/验签」可互操作的前提。
+  - **fail-closed 链**：客户端对「无 signature / signature 非 128 hex / 签名校验失败 / 公钥无效」一律拒绝应用配置并抛错，不静默降级应用。
+  - **测试夹具**：DEV 密钥对固定存放在两个仓库位置（桌面端测试公钥、`.env.example` 示例私钥），两者必须配对。
+- **教训 1（pytest settings 单例与用例导入顺序）**：`config.settings` 是导入期实例化的单例，pytest 按字母序导入模块，先导入的模块会令 `settings` 在 `os.environ` 赋值的模块代码执行前就初始化 → 后续对 `OPS_*` 环境变量的配置全部失效。修复方式：与 `catalog_api_key` 同模式，在 `tests/conftest.py` 用 `autouse` fixture 在每个测试前把签名私钥同步到 `settings` 单例，测试内临时修改靠自身 try/finally 恢复。
+- **教训 2（测试不得依赖外部真实服务返回）**：`test_model_catalog_api.py` 若开启 preset 种子抓取，本机跑着 Ollama/内网服务时会返回真实模型列表，覆盖种子数据后破坏 `default in models` 自洽断言。测试必须显式关闭外部抓取（`settings.preset_seed_fetch_enabled = False`），保证确定性。
+- **教训 3（SQLite 外键约束下父子行必须显式 flush）**：`feedback_service.py` 创建日志附件时若连接复用了 `init_db` 开启外键约束的连接，附件行会先于反馈父行插入而触发 IntegrityError。`db.add(row)` 后必须显式 `await db.flush()` 确保父行先落库再插入子行。
+- **预防**：新增 `ops-center-sync.test.js` 验签用例（47 项，含跨平台 canonical 固定向量、非 128-hex 签名、公钥无效、签名不匹配、fail-closed）与 `test_runtime_policy_api.py` 服务端签名用例；后续对「远端下发实体的信任边界」类改动必须沿用「服务端签名 + 客户端验签 + 未配置 fail-closed」三层合同。
+
+---
+## prompt-engine CLI fallback：API Key 移出 argv 改 env 注入（codex/stage-1.3-prompt-key-env，2026-09-02）
+
+- **背景**：架构重构 Stage -1.3 安全基线 —— prompt-bridge 的 CLI fallback（HTTP 不可用时 spawn prompt-engine CLI 兜底）此前把 LLM API Key 作为 --api-key argparse 参数透传。命令行参数在进程列表可见（任务管理器/ps 可读，Windows 上 CommandLineToArgvW 即可恢复），等同把 Key 暴露给任意同机进程，属凭据暴露面债务。
+- **方案**：
+  - **Key 移出 argv**：prompt-bridge.js 抽出纯函数 uildCliFallbackCommand 返回 { args, apiKey }，argv 只含 provider/model/base-url/caller 等非敏感项，Key 单独经子进程 env 变量 PROMPT_ENGINE_API_KEY 注入（childEnv 在 ...process.env 基础上叠加，不污染父进程环境）。
+  - **prompt-engine 侧配合**：cli.py 新增 _resolve_api_key —— 优先 --api-key（向后兼容手动调用），未提供时回退读 PROMPT_ENGINE_API_KEY，两者皆缺 fail-closed 明确报错；配套 	ests/test_cli_api_key_env.py 覆盖 argv 优先、env 回退、strip 与 fail-closed（PR #75 已合并）。
+  - **兼容性**：桌面端不再传 --api-key，引擎侧读 env；手动/脚本调用仍可显式传 --api-key，双向兼容。
+- **教训（测试相关）**：vitest i.mock 只作用于 SSR 转换层，**不拦 CJS 
+equire('child_process')**（test-setup.js 注释早已明示，CJS 拦截走 Module._load 注册表 __registerMock）。本项目既有 i.mock('child_process', ...) 的 fallback 测试实为假测试（mock 从未生效）。本次改用 __registerMock('child_process', { execFile: vi.fn() })，配合纯函数抽取后测试改为：断言 argv 不含 --api-key/明文、env 携带 Key；无需真 spawn、无需 mock 时机谜题。
+- **预防**：新增回归用例如合同断言「argv 无 Key + env 有 Key」；后续新增需给子进程传敏感凭据的路径，一律走 env/stdio 注入并在测试中断言 argv 干净，禁止把 Key 加回命令行。
+
+---
+
+## Stage -1.4：OpsCenter sync/status 补 require_admin 鉴权（codex/stage-1.4-sync-auth，2026-09-02）
+
+- **背景**：Stage -1.4 安全止血 —— sync 路由下 `/feature-gates`、`/platforms`、`/{project_code}/params` 三个端点均已加装 `Depends(require_admin)`，唯独 `GET /status` 无鉴权。无鉴权时，任意可访问 OpsCenter 的客户端均可枚举所有项目同步状态。
+- **方案**：`sync.py` `sync_status` 函数签名补 `user: dict = Depends(require_admin)`，与同路由其他端点一致。
+- **测试**：新增 `test_sync_api.py`（3 用例）：无 Token → 401、非 admin → 403、admin → 200。全量回归 326 passed。
+- **预防**：后续新增 sync 类端点必须统一加装 `require_admin`。
+
+---
+
+## Stage -1.5：webview:list-tabs 补 withSenderCheck sender 校验（codex/stage-1.5-webview-sender-check，2026-09-02）
+
+- **背景**：Stage -1.5 安全止血 —— `webview-manager.js` 下 20 个 IPC handler 中 19 个已加装 `withSenderCheck`，仅 `webview:list-tabs` 缺失。无 sender 校验时，任意来源可枚举所有 WebContentsView 标签信息。
+- **方案**：`webview:list-tabs` handler 包裹 `withSenderCheck`，与其余 19 个 handler 一致。
+- **测试**：`withSenderCheck` 自身在 `helpers.test.js` 已有 17 项覆盖。`webview-manager.test.js` 的 24 个失败为预存 Vite 导入分析问题，与本次修改无关。
+- **预防**：新增 IPC handler 必须加装 `withSenderCheck`。
+
+---
+
+## Stage -1.7：OpsCenter CORS 白名单收紧（codex/stage-1.7-cors-tighten，2026-09-02）
+
+- **背景**：Stage -1.7 安全止血 —— `config.py` 中 `cors_origins` 默认值为 `*`（允许任意来源跨域），生产环境若未显式覆盖，任意来源可发起 CORS 请求。
+- **方案**：默认值改为 `http://localhost:5173,http://localhost:5174`（开发环境 Vue 前端端口）；`.env.example` 同步更新并标注生产环境禁止使用 `*`。
+- **测试**：全量回归 326 passed，无破坏。
+- **预防**：生产部署清单需包含「确认 CORS origins 已设为具体域名而非 *」。
+
+---
+
+## Stage -1.8：管理员 JWT 密钥与 secret_key 解耦（codex/stage-1.8-jwt-decouple，2026-09-02）
+
+- **背景**：Stage -1.8 安全止血 —— `config.py` 中 `get_jwt_secret()` 使用 `jwt_secret or secret_key` 回退逻辑，若 `OPS_JWT_SECRET` 未配置，系统静默复用 `OPS_SECRET_KEY` 签发 JWT。
+- **方案**：`get_jwt_secret()` 移除 `or self.secret_key` 回退；`.env.example` 更新为独立密钥生成命令；`conftest.py` 注入 `OPS_JWT_SECRET` 默认值。
+- **测试**：`test_security_config.py`（9 项）、`test_auth_login.py`（12 项）、`test_sync_api.py`（3 项）全量通过。ops-center 全量回归 326 passed。
+- **预防**：部署时 `OPS_JWT_SECRET` 必须独立配置，不再与 `OPS_SECRET_KEY` 共享。
+
+---
+
+## Stage -1 附项：桌面端 sidecar 开发机绝对路径回退移除（codex/stage-1-appendix-sidecar-paths，2026-09-02）
+
+- **背景**：架构重构附项 —— `splitter-bridge.js` 和 `aligner-bridge.js` 在环境变量未配置时回退到硬编码的 `D:\Data\projects\` 开发机绝对路径。
+- **方案**：移除硬编码路径，改用 `__dirname` 相对路径指向 `packages/` 下对应目录。保留环境变量覆盖机制。
+- **预防**：Bridge 类 Python 包路径一律使用 `__dirname` 相对路径或环境变量，禁止硬编码绝对路径。
+
+---
+## Stage 0：债务熔断 CI 门禁（codex/stage-0-debt-guard，2026-09-02）
+
+- **背景**：架构重构 Stage 0「护栏与基线」—— 6 项指标量化债务基线，超阈值即阻断 merge。
+- **方案**：
+  - `scripts/check-debt-budget.js`：统计 maxFileLines、>=1000 行文件数、>=500 行文件数、model-provider-manager require 扇出、循环依赖数；首次运行自动生成 `scripts/debt-baseline.json`，后续与基线比较。
+  - `.github/workflows/debt-guard.yml`：PR 触发（非文档变更时运行），exit 1 阻断 merge。
+  - 当前基线：maxFileLines=6422（CreateView.vue）、>=1000 行=29、>=500 行=75、fanOut=61、circularDeps=0。
+- **教训**：基线文件需 git add -f 强制添加（`scripts/` 目录被 gitignore 匹配）。`check-debt-budget.js` 自身也被 gitignore，与 `debt-baseline.json` 同样需要 `-f`。
+- **预防**：新增 CI 脚本若放在 `scripts/` 下，需更新 `.gitignore` 白名单或使用 `git add -f`。
+
+---
+
+## Stage 1.1：IPC manifest registrar 双写校验（codex/stage-1-ipc-registrar，2026-09-02）
+
+- **背景**：架构重构 Stage 1.1「IPC manifest 单轨」—— 确保每个 IPC handler 都在 manifest 中登记，且 manifest 中登记的都有对应 handler。
+- **方案**：
+  - `scripts/ipc-manifest-registrar.js`：扫描 `ipcMain.handle/on` 注册的 channel，与 `01-docs/ipc-manifest.md` 双向校验。
+  - `01-docs/ipc-manifest.md`：从 52 模块 103 通道更新为 52 模块 315 通道（自动生成 + 人工校验）。
+- **教训**：manifest 长期未更新，代码中有 213 个通道未登记、1 个已废弃通道仍保留。自动生成脚本是保持 manifest 一致性的唯一可靠方式。
+- **预防**：新增 IPC handler 时必须同步更新 manifest；可将 registrar 加入 CI 门禁。
+
+---
+
+## Stage 1.3：流水线领域逻辑提取（codex/stage-1.3-domain-extract，2026-09-02）
+
+- **背景**：架构重构 Stage 1.3「domain 抽取」—— CreateView.vue（6,422 行）中的纯领域逻辑应提取到 `src/domain/`。
+- **方案**：
+  - `src/domain/pipeline-constants.js`：17 个常量（状态枚举、视觉风格、标签映射、假入口定义等）。
+  - `src/domain/pipeline-normalizer.js`：13 个纯函数（状态归一化、阶段合并、元数据管理、checkpoint 判断、上下文提取）。
+  - 绞杀者式：先立新模块，CreateView.vue 渐进迁移 import（后续 PR）。
+- **教训**：手动从大文件中删除内联定义极易引入语法错误（`</template>` 标签被截断等）。绞杀者式（先建新模块不删旧代码）比一次性替换安全得多。
+- **预防**：大文件重构必须分步进行（先建新模块 → 验证 → 迁移 import → 删除旧代码），每步单独验证 Vite build。
+
+---
+
+## Stage 1.4：容器守卫 — 孤儿 sidecar 清理 + stop 收敛（codex/stage-1.4-container-guard，2026-09-02）
+
+- **背景**：架构重构 Stage 1.4「容器守卫」—— BasePythonBridge 管理的 Python sidecar 进程在主进程异常退出时成为孤儿进程，占用端口且无法自动回收。
+- **方案**：
+  - 全局实例注册表（`_bridgeInstances` Set）+ `process.on('exit')` 清理：主进程退出时 taskkill/SIGKILL 所有已注册子进程。
+  - `stop()` 等待 `_starting` 收敛：与 python-bridge.js 同模式，防止 stop-start 竞态产生孤儿进程。
+  - 附带修复：splitter-bridge.js / aligner-bridge.js 中 Stage -1 附项遗留的 `SPLITTER_DIR`/`ALIGNER_DIR` 重复声明。
+- **教训**：`process.on('exit')` 回调中只能执行同步操作，不能使用 async/await 或 Promise。`taskkill /F /T` 是同步的，适合此场景。`SIGKILL` 直接终止不等待优雅退出。
+- **预防**：新增 sidecar 进程管理类必须继承 BasePythonBridge 或注册到全局实例表；process.on('exit') 回调必须是同步的。
+- **测试**：base-python-bridge.test.js 30/30 passed。
+
+---
+
+
+## RPA 浏览器数据主密钥改 safeStorage 加密（codex/stage-1.2-safe-storage，2026-09-02）
+
+- **背景**：架构重构 Stage -1.2 安全基线要求 —— rpa-engine 的浏览器数据主密钥（`browser_data/` 下 `.browser_data_key`，保护 cookies/localStorage 加密备份）此前以明文 hex 落盘，任意可读磁盘路径直接拿到密钥即可解密全部浏览器登录态，与 Stage -1.1（accounts 表）同类高风险存量债务。
+- **方案**：
+  - **safeStorage 加密 + 三层兼容读**：`browser-data.js` 主密钥支持 `safeStorage:v1:`（加密）/ `plaintext:v1:` / 历史裸 hex 三种格式读取；`decodeKey` 统一解码校验（64-hex 格式合同），损坏即抛错不静默重建。
+  - **fail-closed 新建**：无密钥且 safeStorage 不可用（纯 Node / DPAPI 异常）时抛错拒绝创建明文密钥；可用时生成 64-hex 密钥并以 `safeStorage:v1:` 前缀加密后原子落盘（主文件 + 备份双副本，chmod 600）。
+  - **存量明文自动迁移**：读取到明文格式且 safeStorage 可用 → 自动迁移为 safeStorage 加密，**密钥值不变**，既有加密 cookies/localStorage 无需重加密即可继续解密；不可用 → warn 告警降级继续使用历史明文（渐进迁移，不阻塞登录恢复）。
+  - **DI 注入点**：`configureSafeStorage()` 模块级注入（测试 / 宿主覆盖），缺省在 Electron 环境自动解析 `electron.safeStorage`，纯 Node 返回 null。
+  - **Windows 原子 rename 合同**：写入走 tmp + rename，仅对 `EPERM/EACCES/EBUSY` 做有界退避重试（20ms→640ms 6 档），其余错误原样抛出，匹配 AGENTS.md QM「Windows 原子文件替换重试」。
+- **教训（测试相关）**：rpa-engine 为纯 Node 包不可直接 import electron，safeStorage 必须走 DI 注入才能做真实加解密回环测试；「损坏主密钥 + 有效备份」双副本恢复路径、以及「明文密钥 + 用其加密的既有 cookies 在升级环境迁移后仍可解」的向后兼容用例是迁移安全的核心断言。
+- **预防**：新增 `browser-data.test.js`（14 用例：新建加密+双副本、密钥值稳定、fail-closed、明文/plaintext 迁移、备份恢复、解密失败 fail-closed、格式校验、加密往返、迁移后旧密文可解、DI API 完整性）；后续浏览器数据类敏感文件新建必须走同一安全存储合同，禁止新增明文密钥落盘。
+
+---
+
+## 账号凭证明文落盘安全加固：cookies/localStorage 加密（codex/refactor-stage-1，2026-09-01）
+
+- **背景**：架构重构 Stage -1.1 安全基线要求 —— `accounts` 表的 `cookies` / `localStorage` 此前以明文 JSON 落盘，一期上线后任意磁盘可读路径 + SQLite 文件拷贝都能拿到平台登录态，属高风险存量债务。
+- **方案**：
+  - **新增 `account-credential-crypto.js` 适配器**：复用 `credential-store` 主密钥（AES-256-GCM）+ `safeStorage`（Windows DPAPI / macOS Keychain / Linux libsecret），加密密钥单一事实源不新增第二套密钥体系。
+  - **schema 演进**：`accounts` 表新增 `cookies_enc BLOB` / `localStorage_enc BLOB` 列（`store-schema.js` 幂等迁移），明文列保留默认值，读取时优先解密加密列、缺失/解密失败回退明文列（渐进加密，兼容存量库）。
+  - **写路径**（`account-store.js addAccount`）：主密钥可用即加密写密文列、清空明文列；主密钥不可用（首次启动无 safeStorage/DPAPI 异常）时回退明文并 `log.warn` 告警，不阻塞登录。
+  - **存量迁移**：`migrateAccountCredentials()` 在 store 就绪后自动把明文列加密转存密文列并清空明文，幂等、空数据跳过、单条失败继续。
+  - **DI 注入**：`container.setup.js` 与 `store-interface.js` 均注入适配器，`base-store.js init` 完成 schema 迁移后立即触发存量迁移。
+- **教训（测试相关）**：`credential-store` 需导出 `encryptData` / `decryptData` 供适配器复用（此前仅 `getMasterKey`）；「主密钥不可用」测试必须预置损坏/占用凭据文件，否则 `getMasterKey` 会自愈重建造成断言反转。
+- **预防**：新增 `account-credential-crypto.test.js`（加解密回环、空值、主密钥不可用回退、解密失败回退）与 `account-store.test.js` 加密列/迁移用例；后续任何账号类敏感字段新增必须走同一加密适配器，禁止新增明文敏感列。
+
+---
+
 ## 图片内容政策敏感改写优化点 7-8 与既有项增强（codex/s2v-sensitive-rewrite-opt2，2026-08-30）
 ## 历史视频一键发布到百家号：真实 E2E 跑通 + 标题截断 + AI 声明合规（codex/e2e-baijiahao-publish，2026-08-31）
 
@@ -142,7 +290,7 @@
 
 ### 测试逃逸链与系统性漏洞
 
-- 单元测试覆盖当前 run 的 voice_recovery 和单次重试，却没有覆盖“registry + 偏好在下一次运行仍直接指向新 ID”的跨运行合同；也没有覆盖 owner/provider/model 隔离、目标 ID 已存在时拒绝覆盖、偏好存储失败后当前 TTS 仍可完成。
+- 单元测试覆盖当前 run 的 voice_recovery 和单次重试，却没有覆盖"registry + 偏好在下一次运行仍直接指向新 ID"的跨运行合同；也没有覆盖 owner/provider/model 隔离、目标 ID 已存在时拒绝覆盖、偏好存储失败后当前 TTS 仍可完成。
 - 编码测试覆盖时长、帧率和 2x→1.5x→1x 降档循环，但没有把倍率平方纳入预算矩阵，也缺少真实 JPEG/TTS 的慢速合成证据。问题因此同时逃过单测、集成测试和真实媒体组合验收，属于测试场景缺失与性能预算审查盲区。
 
 ### 修复与回归保护
@@ -152,7 +300,7 @@
 
 ### 预防措施
 
-- 后续变更克隆音色恢复时，必须把“当前 run 复用”与“下一次运行目录/偏好可恢复”拆成两层验收；测试必须覆盖 owner 隔离、重复 replacement ID、偏好读取/写入失败和当前 TTS 不被持久化异常阻断。
+- 后续变更克隆音色恢复时，必须把"当前 run 复用"与"下一次运行目录/偏好可恢复"拆成两层验收；测试必须覆盖 owner 隔离、重复 replacement ID、偏好读取/写入失败和当前 TTS 不被持久化异常阻断。
 - 后续变更图片动效、工作分辨率或降档序列时，必须同步审查 timeout 公式；任何重试档位都以自己的媒体成本计算预算，不得复用高倍率或低倍率的 timeout。除数学单测外，至少保留一组真实媒体合成验证。
 
 ## MiMo TTS 服务商默认音色必须遵循官方 Voice ID（fix-mimo-tts-param-incorrect，2026-08-23）
@@ -189,8 +337,8 @@
 
 ## 历史场景素材四卡布局与预览/选择交互复盘（s2v-history-scene-material-layout，2026-08-20）
 
-- **需求与交付**：结果页场景素材区固定渲染 image1、image2、video1、video2 四个视觉卡；radio 放在缩略图下方、素材名称之前，缩略图只预览；预览弹窗使用 xl；生成新图/生成 AI 视频分别只在 image1/video1 卡内出现；空素材保持固定 media frame 并只显示本地化“未生成”。
-- **教训 1（预览与选择必须是不同的 DOM 控件）**：把 radio、缩略图和素材名称包在同一个 ancestor label 或卡片 click handler 中，会让浏览器原生 label activation 把“查看大图”误当成“设为当前使用”。正确合同是独立 button type=button 负责预览，独立 radio + label 负责选择，并为两者分别提供可访问名称。
+- **需求与交付**：结果页场景素材区固定渲染 image1、image2、video1、video2 四个视觉卡；radio 放在缩略图下方、素材名称之前，缩略图只预览；预览弹窗使用 xl；生成新图/生成 AI 视频分别只在 image1/video1 卡内出现；空素材保持固定 media frame 并只显示本地化"未生成"。
+- **教训 1（预览与选择必须是不同的 DOM 控件）**：把 radio、缩略图和素材名称包在同一个 ancestor label 或卡片 click handler 中，会让浏览器原生 label activation 把"查看大图"误当成"设为当前使用"。正确合同是独立 button type=button 负责预览，独立 radio + label 负责选择，并为两者分别提供可访问名称。
 - **教训 2（视觉卡数量不等于持久化身份数量）**：renderer 可以为主视频和 alternate 视频提供两个显示位，但后端仍只接受 image1 | image2 | video。视觉别名必须在 IPC 边界归一，当前使用徽标只在 canonical video1 显示，不能为了视觉布局扩展数据库枚举。
 - **教训 3（空态必须保留几何，不应泄漏 raw fallback）**：缺 path、缺 share URL 和媒体生成中间态都要保留固定宽高背景；空框只渲染 locale 的 emptySlot 一行，不渲染 video1/video2 或第二行英文 fallback。空态测试应断言 DOM 文案次数，而不是只断言 slot 存在。
 - **教训 4（场景级操作只渲染一次）**：生成图片和生成 AI 视频是 segment 级 IPC，不属于每个候选卡。把按钮放进 slot loop 会产生重复操作和含义歧义；应选择 canonical image1/video1 作为唯一承载卡，同时保留 prompt guard、busy guard 和失败回滚语义。
@@ -220,7 +368,7 @@
 
 - **现象**：PR #897 路由修复生效后，历史任务【重试图片】走 agnes-image 仍失败：URL 下载被 AssetGenerator SSRF 守卫拦截（`asset-generator.js:322/723`）。
 - **根因（第一性）**：`asset-generator.js:584` 调用生图适配器时始终传 `response_format:'b64_json'`，但 agnes-image 适配器实现于更早、固定发送顶层 `response_format:'url'` 并返回 URL——调用方契约从未被执行；顶层 response_format 又违反 agnes-image-2.1-flash 官方文档（须放 `extra_body`，顶层被网关 UnsupportedParamsError 拒绝，历史 103 次样本全失败）。
-- **逃逸链**：适配器单测只断言顶层 `response_format:'url'`，从未覆盖调用方 b64_json 参数（测试场景缺失）；PR #897 回归只到 service 层 provider 解析，真实生图被标为“用户确认后执行”，实际执行后才发现适配器契约问题（审查盲区/流程缺失）。
+- **逃逸链**：适配器单测只断言顶层 `response_format:'url'`，从未覆盖调用方 b64_json 参数（测试场景缺失）；PR #897 回归只到 service 层 provider 解析，真实生图被标为"用户确认后执行"，实际执行后才发现适配器契约问题（审查盲区/流程缺失）。
 - **系统性漏洞**：跨适配器「调用方请求参数 → 适配器行为」契约没有统一回归（imagen/grok 遵守 b64_json，agnes 忽略）；供应商文档契约（extra_body）没有测试固化。
 - **回归保护**：`agnes-image.test.js` +4 用例固化 extra_body 位置与 b64_json 直出/fail closed；后续新增/修改生图适配器必须断言「调用方 `response_format` 被尊重」+「顶层无 response_format」。
 - **预防**：生图适配器验收清单加入「尊重调用方 response_format」与「extra_body 契约」两项（已写入 openspec change spec 与本复盘）。
@@ -450,7 +598,7 @@
 ## 纯文档 PR 被全量 CI 路径过滤永久阻塞复盘（fix-docs-only-pr-ci-checks，2026-08-24）
 
 - **现象**：PR #1146 仅修改文档、`.ccg` 与流程记录；手动执行 Quality Gate 后 8 个 QG job 全绿，仍因 `electron-tests`、`单元测试 + Lint`、`文档同步检查`、双平台 build 没有 check run 而 `BLOCKED`。
-- **根因**：build/electron-ci/quality-gate 与 doc-gate 的 `pull_request.paths-ignore` 将 docs-only PR 整个 workflow 跳过，但分支保护仍把其中的 job 名称列为 required context。GitHub 对此不会生成“skipped 也满足”的状态，结果是结构性永远缺失。
+- **根因**：build/electron-ci/quality-gate 与 doc-gate 的 `pull_request.paths-ignore` 将 docs-only PR 整个 workflow 跳过，但分支保护仍把其中的 job 名称列为 required context。GitHub 对此不会生成"skipped 也满足"的状态，结果是结构性永远缺失。
 - **修复原则**：所有目标为 `main` 的 PR 都执行真实 workflow；仅合并后的 `push main` 保留统一路径过滤，避免同一 docs-only 改动重复消耗 CI。禁止用同名空 job、手动 dispatch 或 status API 伪造绿灯。
 - **回归保护**：`.github/scripts/workflow-contract.test.js` 断言三个全量 workflow 的 PR 不含 `paths-ignore`、main push 忽略清单仍一致，并断言 Doc Gate 对任意 main PR 运行。
 
@@ -533,10 +681,10 @@
 - **交付**：CreateView.test.js +6（175 全绿）、vite build/eslint 0、PRD §3a 合同、CHANGELOG、i18n-glossary、CJK 基线重排。
 ## 视频创作流水线启动即后台运行复盘（s2v-pipeline-always-background-run，2026-08-19）
 
-- **根因**：主进程早已用 autoAdvance + background 异步推进 run，但 renderer 仍用“是否点击后台运行按钮”区分前台挂载与后台运行，导致执行事实和 UI 语义分裂。
+- **根因**：主进程早已用 autoAdvance + background 异步推进 run，但 renderer 仍用"是否点击后台运行按钮"区分前台挂载与后台运行，导致执行事实和 UI 语义分裂。
 - **修复**：编排启动成功后统一 stop polling + resetPipelineUiState + 历史刷新；历史卡片续跑进入 running 时不切创作页、不重新建立轮询；只有 scene_asset_selection paused 保留人工素材选择交互。
 - **数据校验**：启动和续跑响应的 runId 必须是非空字符串；自动后台不调用 pipelineCancel、不释放并发槽位；已有 runId 快照守卫继续丢弃过期轮询响应。
-- **测试逃逸分析**：旧测试覆盖了“点击按钮后脱离”，但没有覆盖“启动成功后立即脱离”和“历史续跑不抢占创作页”；本次新增/改写 CreateView 启动、历史续跑、mounted 不接管、无效 runId 和历史后台提示断言。4 个 4K/音色异步用例仍有独立预存失败，未将其误报为本次回归。
+- **测试逃逸分析**：旧测试覆盖了"点击按钮后脱离"，但没有覆盖"启动成功后立即脱离"和"历史续跑不抢占创作页"；本次新增/改写 CreateView 启动、历史续跑、mounted 不接管、无效 runId 和历史后台提示断言。4 个 4K/音色异步用例仍有独立预存失败，未将其误报为本次回归。
 - **流程预防**：OpenSpec 规格明确运行态后台语义与人工检查点例外；PRD 记录校验、流程、显示项、提示文字和并发合同，避免后续只修改按钮文案而遗漏启动/续跑路径。
 
 ## npm → pnpm 迁移复盘（pnpm-worktree-deps，2026-08-13）
@@ -4554,7 +4702,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 托盘参数校验加固时曾把省略 `payload` 的合法旧调用一并拒绝，说明安全边界测试不能替代兼容性合同测试。
 
 **测试逃逸链**：
-- 单元测试：旧 mock 缺少 `senderFrame`，依赖测试环境放行，未覆盖“已打包 + 测试标记”的组合。
+- 单元测试：旧 mock 缺少 `senderFrame`，依赖测试环境放行，未覆盖"已打包 + 测试标记"的组合。
 - 集成测试：IPC mock 的平台定义结构与生产返回结构不一致，掩盖了页面异步加载问题。
 - E2E/视觉测试：以标题出现作为完成条件，未验证关键控件和 IPC 调用已完成。
 - 代码审查：只检查新增校验是否拒绝非法输入，没有同时检查合法默认参数是否保持兼容。
@@ -4630,7 +4778,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 单元测试只验证成功透传和 sender 拒绝，没有 cookies/localStorage/Token 输入。
 - 集成测试直接 mock Store，没有检查真实 SQLite 写入内容。
 - E2E 不调用低层 `storeAddAccount`，正常登录流程不会暴露该入口。
-- 代码审查把“可信窗口”误等同于“可信字段”。
+- 代码审查把"可信窗口"误等同于"可信字段"。
 
 **修复与保护**：IPC 创建账号使用公开字段白名单；真实 `account-store.test.js` 覆盖空对象、非法平台和合法写入；主进程 AccountManager/OAuth 凭证路径保持独立。
 
@@ -4639,7 +4787,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **第一性原因**：`e5e8e9e` 为退出流程增加频率控制定时器清理，目标是避免 timer 阻止退出，但没有同步定义等待、延迟和运行中任务的终止语义，关闭后仍可入队。
 
 **逃逸链**：
-- 单元测试覆盖任务执行、重试和频控，没有“关闭期间有三类任务”的组合。
+- 单元测试覆盖任务执行、重试和频控，没有"关闭期间有三类任务"的组合。
 - Electron 退出测试只验证服务调用，没有断言队列最终状态。
 - E2E/视觉测试不会在发布进行中关闭应用。
 - 审查只检查 timer 泄漏，未检查发布副作用是否停止。
@@ -4651,7 +4799,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **第一性原因**：`847cdf3` 迁移 PublisherRouter 时 publisher 只等待 RPA 结果，没有 AbortSignal 契约；后续任务队列引入 abort 后，只在调用前检查会让取消期间返回的成功结果覆盖取消状态。
 
 **逃逸链**：
-- 单元测试只有正常成功/失败，没有“await 期间取消后返回成功”。
+- 单元测试只有正常成功/失败，没有"await 期间取消后返回成功"。
 - 任务队列测试 mock executor，不经过真实 PublisherRouter。
 - E2E 无法稳定制造毫秒级竞态。
 - 审查关注 cancel 是否被调用，没有检查 await 返回后的信号状态。
@@ -4680,7 +4828,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - ASAR 门禁只检查路径条目和 require 链，未断言规则/预设实际加载，也未检查写目录。
 - 代码审查检查了 Electron `path-utils`，但没有沿顶层 require 追到 workspace 包中的独立相对路径。
 
-**系统性漏洞**：打包验证把“8 秒未退出”当成成功，缺少 stderr 语义门禁；worktree 借用其他工作区 `node_modules` 时也没有核验 workspace junction 的目标分支。
+**系统性漏洞**：打包验证把"8 秒未退出"当成成功，缺少 stderr 语义门禁；worktree 借用其他工作区 `node_modules` 时也没有核验 workspace junction 的目标分支。
 
 **修复与保护**：
 - 新增 `platform-config-path.test.js`，覆盖安装版 resources、显式路径、远程根目录和开发回退。
@@ -4700,17 +4848,17 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 ## 2026-07-23：全控件 E2E 扫描遗留确认删除遮罩
 
-**第一性原因**：`c4fae09` 引入路由通用控件扫描时，按顺序点击所有 `.cohere-main button`，但没有为会打开二次确认的按钮定义收尾语义。`44e2c6ea` 增加账号删除控件后，`removeAccount()` 会创建 Element Plus `ElMessageBox.confirm`；扫描器点击“删除”后既不确认也不取消，确认框和遮罩留在页面中，拦截后续“收藏”和“删除”按钮。
+**第一性原因**：`c4fae09` 引入路由通用控件扫描时，按顺序点击所有 `.cohere-main button`，但没有为会打开二次确认的按钮定义收尾语义。`44e2c6ea` 增加账号删除控件后，`removeAccount()` 会创建 Element Plus `ElMessageBox.confirm`；扫描器点击"删除"后既不确认也不取消，确认框和遮罩留在页面中，拦截后续"收藏"和"删除"按钮。
 
 **逃逸链**：
 - Accounts 单元测试 mock 了 `ElMessageBox.confirm` 的 Promise，只验证业务删除或取消，不会创建真实遮罩。
-- E2E 基础设施测试只验证每个按钮在页面重置后可点击、重渲染时最多重试一次，没有模拟“前一个按钮留下阻塞层”的状态。
-- 旧的本地路由报告只统计最终检查数，没有把“每次动作后的页面是否可继续交互”作为独立合同。
+- E2E 基础设施测试只验证每个按钮在页面重置后可点击、重渲染时最多重试一次，没有模拟"前一个按钮留下阻塞层"的状态。
+- 旧的本地路由报告只统计最终检查数，没有把"每次动作后的页面是否可继续交互"作为独立合同。
 - 代码审查关注了 data-testid 重定位和页面重置，却没有审查破坏性操作的完成或取消路径。
 
-**修复与回归保护**：`route-functional-suite.js` 在每次初始按钮点击后检测可见 `.el-message-box`，通过非主按钮执行取消，并等待确认框隐藏后才扫描下一个控件。`e2e-quality-infrastructure.test.js` 使用“删除 -> 确认遮罩 -> 下一按钮”的状态化 mock，断言取消动作发生、遮罩被清理且后续按钮仅成功点击一次。
+**修复与回归保护**：`route-functional-suite.js` 在每次初始按钮点击后检测可见 `.el-message-box`，通过非主按钮执行取消，并等待确认框隐藏后才扫描下一个控件。`e2e-quality-infrastructure.test.js` 使用"删除 -> 确认遮罩 -> 下一按钮"的状态化 mock，断言取消动作发生、遮罩被清理且后续按钮仅成功点击一次。
 
-**系统性预防**：通用 UI 控件审计不得把“已触发动作”当作完成；凡是可能产生确认框、模态层或破坏性副作用的动作，必须在同一审计步骤中显式恢复到可继续交互的状态，并以紧随其后的独立控件验证无残留遮罩。
+**系统性预防**：通用 UI 控件审计不得把"已触发动作"当作完成；凡是可能产生确认框、模态层或破坏性副作用的动作，必须在同一审计步骤中显式恢复到可继续交互的状态，并以紧随其后的独立控件验证无残留遮罩。
 
 ---
 
@@ -4734,12 +4882,12 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **第一性原因**：
 - `4f33523d` 的 `ProjectService.updateProject()` 每次直接使用 `new Date().toISOString()`；创建和连续更新发生在同一毫秒时，`updatedAt` 不变，破坏了项目排序和修改语义。
-- `6d048d01` 为内容情报 E2E 补充了 ReferenceFinder 关闭逻辑，但用全局 `.ui-modal` / `.ui-modal-close` 的 `.first()` 定位。UiModal 通过 Teleport 渲染，存在其他同类节点或遮罩时可能选错目标，导致 `.ui-modal-overlay` 留在页面上并拦截后台“清空”按钮。
+- `6d048d01` 为内容情报 E2E 补充了 ReferenceFinder 关闭逻辑，但用全局 `.ui-modal` / `.ui-modal-close` 的 `.first()` 定位。UiModal 通过 Teleport 渲染，存在其他同类节点或遮罩时可能选错目标，导致 `.ui-modal-overlay` 留在页面上并拦截后台"清空"按钮。
 
 **逃逸链**：
 - ProjectService 单元测试使用真实时钟，只断言字符串不同，未在固定同一毫秒下验证连续更新的严格递增；Gate 5 覆盖率运行恰好复现了竞争。
-- E2E 基础设施此前只覆盖 Element Plus 的确认框清理，没有覆盖 Teleport UiModal 的“打开参考内容 -> 精确关闭最新可见遮罩 -> 点击后台按钮”序列。
-- 内容情报路由报告把“参考内容弹窗可关闭”记录为失败后仍继续点击后台控件，最终只以遮罩拦截的 Playwright 超时表现出来，增加了定位成本。
+- E2E 基础设施此前只覆盖 Element Plus 的确认框清理，没有覆盖 Teleport UiModal 的"打开参考内容 -> 精确关闭最新可见遮罩 -> 点击后台按钮"序列。
+- 内容情报路由报告把"参考内容弹窗可关闭"记录为失败后仍继续点击后台控件，最终只以遮罩拦截的 Playwright 超时表现出来，增加了定位成本。
 - 代码审查只验证关闭选择器存在，没有校验选择器是否被限制在当前可见遮罩的作用域内。
 
 **修复与回归保护**：
@@ -4747,22 +4895,22 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 内容情报 E2E 现在定位 `.ui-modal-overlay:visible` 的最新实例，在其内部点击 `.ui-modal-close` 并等待该遮罩隐藏；关闭失败时不再尝试点击后台按钮。清空操作改为精确的 `button[title="清空"]`。
 - `e2e-quality-infrastructure.test.js` 以状态化 mock 复现遮罩拦截，断言关闭动作发生在清空动作之前；真实 Playwright 复验通过 intelligence 15/15 和完整 Gate 8 等价套件 270/270。
 
-**系统性预防**：所有时间序列字段都必须在业务需要排序或审计语义时定义单调性，并用 fake timer 覆盖同一时钟粒度。E2E 操作 Teleport/Modal 时必须使用“可见遮罩 + 子元素”的作用域选择器；任何模态关闭失败都必须阻止后续后台点击，不能继续执行并把根因伪装成元素点击超时。
+**系统性预防**：所有时间序列字段都必须在业务需要排序或审计语义时定义单调性，并用 fake timer 覆盖同一时钟粒度。E2E 操作 Teleport/Modal 时必须使用"可见遮罩 + 子元素"的作用域选择器；任何模态关闭失败都必须阻止后续后台点击，不能继续执行并把根因伪装成元素点击超时。
 
 ---
 
 ## 2026-07-23：账号页通用 E2E 扫描把非幂等动作当作普通控件
 
-**第一性原因**：`c4fae09` 的路由通用扫描枚举全部可见按钮，并在每次路由复位后通过初始 DOM `nth(index)` 重放点击。账号页的“设为默认”会变更账号状态并重渲染，“打开”会创建外部窗口，“验证”会触发异步登录检查，“删除”会创建确认框；这些动作既不是可重复的无副作用控件，也没有稳定的通用扫描收尾语义。同时，字段扫描在路由复位后把可见字段重新换算为序号，账号列表异步重建时 `select-acc_zhihu_001` 会在定位和点击之间失去可见性。
+**第一性原因**：`c4fae09` 的路由通用扫描枚举全部可见按钮，并在每次路由复位后通过初始 DOM `nth(index)` 重放点击。账号页的"设为默认"会变更账号状态并重渲染，"打开"会创建外部窗口，"验证"会触发异步登录检查，"删除"会创建确认框；这些动作既不是可重复的无副作用控件，也没有稳定的通用扫描收尾语义。同时，字段扫描在路由复位后把可见字段重新换算为序号，账号列表异步重建时 `select-acc_zhihu_001` 会在定位和点击之间失去可见性。
 
 **逃逸链**：
 - Accounts 组件和业务测试分别验证了打开、登录检测、删除确认，却没有声明哪些动作不适合通用点击审计。
-- 通用扫描单元测试覆盖了 data-testid 重定位和确认框取消，但没有覆盖“显式跳过非幂等控件”或“复位后异步列表按稳定 testid 重定位”。
-- 本地一次完整路由报告为 226/226，而 Windows CI 作业 `29973174669` 在 `/accounts` 得到 268/270：其中两个路由检查失败，按钮审计内部记录了“打开 / 验证 / 删除”三个控件的超时，字段审计记录了一个账号复选框复位后不可见，掩盖了测试基础设施的时序问题。
+- 通用扫描单元测试覆盖了 data-testid 重定位和确认框取消，但没有覆盖"显式跳过非幂等控件"或"复位后异步列表按稳定 testid 重定位"。
+- 本地一次完整路由报告为 226/226，而 Windows CI 作业 `29973174669` 在 `/accounts` 得到 268/270：其中两个路由检查失败，按钮审计内部记录了"打开 / 验证 / 删除"三个控件的超时，字段审计记录了一个账号复选框复位后不可见，掩盖了测试基础设施的时序问题。
 - 代码审查关注了确认遮罩清理，却没有审查通用扫描的适用边界和 `nth(index)` 在重渲染页面上的身份稳定性。
 
 **修复与回归保护**：
-- `PlatformAccountGroup` 为“设为默认 / 打开 / 验证 / 删除”声明带稳定 testid 的 `data-e2e-scan="manual"`；`accounts` 路由必须显式声明这些手工场景，通用扫描拒绝未声明的标记，避免静默跳过新增关键控件。专门场景分别验证设为默认 IPC、外部链接 URL 与目标、登录检测 IPC，以及取消删除前后删除 IPC 计数不变；设为默认后重新进入账号页，隔离其重渲染影响。
+- `PlatformAccountGroup` 为"设为默认 / 打开 / 验证 / 删除"声明带稳定 testid 的 `data-e2e-scan="manual"`；`accounts` 路由必须显式声明这些手工场景，通用扫描拒绝未声明的标记，避免静默跳过新增关键控件。专门场景分别验证设为默认 IPC、外部链接 URL 与目标、登录检测 IPC，以及取消删除前后删除 IPC 计数不变；设为默认后重新进入账号页，隔离其重渲染影响。
 - `auditInitialControls()` 读取该声明并记录为 skipped；`auditInitialFields()` 对带 `data-testid` 的字段先等待稳定 CSS 定位可见且唯一，再操作，避免再次依赖可变的可见序号。外部链接替身会保存并恢复 `window.open` 与同名全局属性的原始描述符。
 - `e2e-quality-infrastructure.test.js` 新增两条状态化回归：跳过按钮不得被点击，异步复位后缺失可见序号时仍要通过 `data-testid` 找到账号复选框。真实 Playwright `/accounts` 复验 14/14、零 console/page error。
 
@@ -4790,7 +4938,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **修复与回归保护**：`IdentityAuthWindow.clearSession()` 关闭窗口后清理隔离 session，`AuthService` 在清理本地凭证前调用该能力，失败时保留本地凭证并进入可重试错误状态。窗口关闭结算改为幂等并优先使用 `destroy()`：即使窗口已销毁、关闭事件尚未到达或常规关闭被阻止，也会结算等待方并继续存储清理。权限与下载拦截器改为由 `IdentityAuthWindow` 持有整个 session 生命周期，只在成功清理 session 后释放；外部浏览器回退 URL 绑定到当前窗口，过期窗口回调只阻止导航而不会打开新一轮授权地址。Agent Judge 与自主审计门禁传入本轮开始的毫秒时间，门禁和 PR 评论均忽略更早的报告；自主审计即使得到零退出码，也必须读取本轮 `autonomous-e2e-report-*.json` 且确认 `overall: PASS`，否则 fail closed。回归测试覆盖缺失报告、旧 PASS、零退出码与非 PASS 报告不一致、旧 NEED_HUMAN、已销毁窗口、关闭被阻止、窗口重开、旧窗口迟到导航、会话清理顺序和清理失败。
 
-**系统性预防**：任何持久化浏览器 partition 都必须拥有明确的登出清理接口，并在账号切换路径覆盖成功与失败语义；同一 Electron session 的单槽安全处理器必须按 session 而不是按窗口管理。所有等待窗口关闭的路径都必须有幂等结算函数，能够处理“正常 closed 事件”“已销毁但事件未到达”和“常规关闭被阻止”三种状态；每个窗口回调都必须绑定实例本身的授权上下文，并忽略过期窗口。CI 中从共享目录读取结论时，必须绑定本轮唯一标识或生成时间，缺少本轮产物应当 fail closed，不能以旧产物降级或放行。进程退出码只能说明执行状态，不能替代机器可读交付物的存在性和语义校验；每条成功门禁都要同时测试“无产物”“陈旧产物”“产物与退出码矛盾”三种反例。
+**系统性预防**：任何持久化浏览器 partition 都必须拥有明确的登出清理接口，并在账号切换路径覆盖成功与失败语义；同一 Electron session 的单槽安全处理器必须按 session 而不是按窗口管理。所有等待窗口关闭的路径都必须有幂等结算函数，能够处理"正常 closed 事件""已销毁但事件未到达"和"常规关闭被阻止"三种状态；每个窗口回调都必须绑定实例本身的授权上下文，并忽略过期窗口。CI 中从共享目录读取结论时，必须绑定本轮唯一标识或生成时间，缺少本轮产物应当 fail closed，不能以旧产物降级或放行。进程退出码只能说明执行状态，不能替代机器可读交付物的存在性和语义校验；每条成功门禁都要同时测试"无产物""陈旧产物""产物与退出码矛盾"三种反例。
 
 ---
 
@@ -4800,12 +4948,12 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **逃逸链**：
 - 单元测试：`789afd6` 当时没有 `AppNavbar.test.js`，也没有样式合同测试；组件测试只验证身份菜单行为，无法发现 CSS 几何错误。本轮初版测试也只验证发布记录数据、空态和路由，没有覆盖批量选择或移动端宽度。
-- 集成测试：Logto 集成测试聚焦身份 IPC、会话和租户隔离，没有在真实应用外壳中组合“主导航 + 身份菜单 + 窄窗口”。发布历史 API 与页面数据合同正确，因此数据集成测试不会触发布局失败。
+- 集成测试：Logto 集成测试聚焦身份 IPC、会话和租户隔离，没有在真实应用外壳中组合"主导航 + 身份菜单 + 窄窗口"。发布历史 API 与页面数据合同正确，因此数据集成测试不会触发布局失败。
 - 端到端测试：`identity-menu.e2e.js` 检查菜单自身在 1440x900 和 1024x600 内可见，但没有断言 `.nav-primary` 单行、主导航与内容不重叠；发布记录初版也没有移动端批量选择场景。
 - 视觉回归：既有补充视觉测试只断言导航元素存在或 active 状态，未检查几何关系。发布记录是新视图，像素门禁在没有人工基线时只能阻断，不能提前说明批量状态的移动布局正确。
 - 代码审查：`789afd6` 跨 158 个文件，审查重心落在认证和隔离安全，模板结构变化没有被同步追踪到 CSS ownership；固定宽度公式也没有逐项核算条件渲染元素、间距和内边距。
 
-**系统性漏洞**：现有响应式验证把单个控件“位于视口内”当作页面布局正确，缺少页面横向滚动、导航/主内容相交、条件元素插入后的卡片宽度三类合同；新增 flex wrapper 时也没有强制检查 `min-width`、收缩和 overflow 的组合语义。
+**系统性漏洞**：现有响应式验证把单个控件"位于视口内"当作页面布局正确，缺少页面横向滚动、导航/主内容相交、条件元素插入后的卡片宽度三类合同；新增 flex wrapper 时也没有强制检查 `min-width`、收缩和 overflow 的组合语义。
 
 **修复与回归保护**：`.nav-primary` 现在是可收缩的单行 flex 容器，在空间不足时仅自身横向滚动；导航项和右侧操作区禁止收缩，1024px/768px 下收紧间距并隐藏非关键状态文字。发布记录移动端 `.record-main` 改为 `width: auto; flex: 1 1 0`，由剩余空间决定宽度。`cohere-design-system.test.js` 固化导航容器合同，`PublishHistory.test.js` 覆盖批量选择、全选/取消和移动宽度合同；`capture-yixiaoer-current.js` 用测试 fixture 在 1440x900 与 480x800 捕获账号、发布记录和批量模式，并对页面横向溢出、卡片边界、文字控件和导航重叠执行真实 Chromium 断言。
 
@@ -4819,28 +4967,28 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **逃逸链**：单元测试和上传/适配器测试均在完整源码工作树运行，根 `node_modules` 的依赖提升遮蔽了 `js-yaml` 未声明；`prepublishOnly` 未检查 tarball 文件表，部署合同只做 Dockerfile 文本正则，没有按 runner `COPY` 文件集加载真实入口；CI 没有构建并启动业务 API 镜像，也未覆盖非 root 插件目录和 Alpine IPv4/IPv6 行为。OIDC 测试只用自生成 RS256/RSA fixture，没有对生产 discovery/JWKS 做算法契约验证。于是单元、集成、静态审查和 CI 都通过，首次 ECS 启动才依次暴露 `Cannot find module`、插件 `EACCES`、healthcheck 失败，以及生产 JWKS 无可用签名密钥。
 
-**系统性漏洞**：当前测试把“源码树可运行”“npm 发布包完整”“Docker runner 文件集完整”“容器以最终用户可运行”和“目标身份提供方互操作”混成一个结论。它们其实是五个独立边界；任何一个边界缺失，都可能在源码测试全绿时阻断生产。
+**系统性漏洞**：当前测试把"源码树可运行""npm 发布包完整""Docker runner 文件集完整""容器以最终用户可运行"和"目标身份提供方互操作"混成一个结论。它们其实是五个独立边界；任何一个边界缺失，都可能在源码测试全绿时阻断生产。
 
 **修复与回归保护**：runner 显式复制 `upload/`，npm `files` 同步包含 `upload/`，API workspace 直接声明 `js-yaml`；Compose 将插件目录设置为 `/app/data/plugins`，两个 bind mount 均使用 `create_host_path: false`，运行手册要求部署前以 UID/GID 1001 创建 config、data 和 plugins，避免 Docker 生成 root-owned 目录；Dockerfile 与 Compose healthcheck 固定使用 `127.0.0.1`。`logto-deploy-contract.test.js` 依据 runner 的本地 `COPY` 清单构造隔离 staging，以依赖声明守卫加载真实 `src/index.js`，同时固定 bind mount fail-closed 合同；`npm pack --dry-run` 验证 tarball。Node/Python 验证器只允许 `RS256 + RSA` 与 `ES384 + EC + P-384`，拒绝算法、密钥类型、曲线和签名编码错配，并以 `alg:kid` 作为 JWKS/未知密钥缓存键；两端均增加真实签名和负缓存隔离回归。生产候选还必须在 ECS 无缓存 build、以非 root 用户启动，并验证 health、ready、未认证 `/me`、production smoke 和错误日志。
 
-**系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以“只允许一种算法”替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
+**系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以"只允许一种算法"替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
 ---
 ## 2026-07-24：self-hosted Electron CI 的 Vitest 缺少资源上限和超时诊断
 
-**第一性原因**：`71b1e979b0fa05eed215984d87428aaac0f40c14` 在扩大 Electron 与 preload 测试收集范围时，将桌面 Vitest 默认并发固定为 `maxWorkers: 4`。该改动在开发机上能够退出，但 self-hosted Linux runner 上两次运行都在单元测试步骤静默占满 30 分钟后被 job 级超时取消。根因边界是“共享 runner 上的并发资源竞争，加上没有测试步骤 watchdog 和进程诊断”；本机 Loopback 单文件约 3 秒退出、四 worker 全量约 6 分钟退出，因此不能把某个 HTTP server 或单个测试文件写成已确认根因。
+**第一性原因**：`71b1e979b0fa05eed215984d87428aaac0f40c14` 在扩大 Electron 与 preload 测试收集范围时，将桌面 Vitest 默认并发固定为 `maxWorkers: 4`。该改动在开发机上能够退出，但 self-hosted Linux runner 上两次运行都在单元测试步骤静默占满 30 分钟后被 job 级超时取消。根因边界是"共享 runner 上的并发资源竞争，加上没有测试步骤 watchdog 和进程诊断"；本机 Loopback 单文件约 3 秒退出、四 worker 全量约 6 分钟退出，因此不能把某个 HTTP server 或单个测试文件写成已确认根因。
 
 **逃逸链**：
 - 单元测试：测试只验证业务断言，没有验证完整收集集在受限 runner 上能于预算内退出，也没有对默认 worker 数设置合同。
 - 集成测试：Electron smoke 位于 Vitest 之后，单元测试不退出时永远到不了 smoke，因此无法提供进程生命周期证据。
 - 端到端测试：GUI 和视觉工作流使用其他 runner/命令路径，未复现 self-hosted Electron job 的资源配置。
-- CI：只有 30 分钟 job 级超时；Vitest 步骤没有更短 watchdog、verbose reporter、test/hook/teardown timeout，失败后也没有进程树快照，日志只能说明“被取消”，无法定位仍存活的 worker 或子进程。
+- CI：只有 30 分钟 job 级超时；Vitest 步骤没有更短 watchdog、verbose reporter、test/hook/teardown timeout，失败后也没有进程树快照，日志只能说明"被取消"，无法定位仍存活的 worker 或子进程。
 - 代码审查：`maxWorkers: 4` 被当成加速参数评估，没有同步核算扩大收集范围、jsdom、Electron mock 与 self-hosted 机器容量的组合成本。
 
-**系统性漏洞**：仓库过去只约束 coverage 脚本串行，没有约束默认 Vitest 配置与 Electron CI 命令；工作流合同也没有测试“单元测试必须在 job 超时前自行失败并输出诊断”。这使资源型退化既能绕过本地功能测试，又会在 CI 中消耗完整 runner 配额。
+**系统性漏洞**：仓库过去只约束 coverage 脚本串行，没有约束默认 Vitest 配置与 Electron CI 命令；工作流合同也没有测试"单元测试必须在 job 超时前自行失败并输出诊断"。这使资源型退化既能绕过本地功能测试，又会在 CI 中消耗完整 runner 配额。
 
 **修复与回归保护**：`apps/desktop/vitest.config.js` 固定 `maxWorkers: 1` 和 `fileParallelism: false`。`.github/workflows/electron-ci.yml` 使用 20 分钟 GNU `timeout` 包裹串行 Vitest，并开启 verbose reporter、10 秒 test/hook/teardown timeout；失败后执行 `ps -eo ... --forest`。`.github/scripts/workflow-contract.test.js` 固化默认配置，`apps/desktop/tests/gui-ci-exit-contract.test.js` 固化 workflow 参数、诊断步骤和禁止回退到四 worker。
 
-**系统性预防**：self-hosted runner 上的全量测试必须显式声明 worker/file parallelism、步骤级 watchdog 和失败诊断；job 级 timeout 只作为最后保险，不能代替步骤预算。增加测试收集范围或真实子进程测试时，必须同时复核 runner 资源预算和退出行为；对根因的描述必须区分“已在 CI 证实”“本机复现”和“待诊断假设”，不得把可疑测试文件写成确认结论。
+**系统性预防**：self-hosted runner 上的全量测试必须显式声明 worker/file parallelism、步骤级 watchdog 和失败诊断；job 级 timeout 只作为最后保险，不能代替步骤预算。增加测试收集范围或真实子进程测试时，必须同时复核 runner 资源预算和退出行为；对根因的描述必须区分"已在 CI 证实""本机复现"和"待诊断假设"，不得把可疑测试文件写成确认结论。
 
 ---
 
@@ -4848,7 +4996,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **第一性原因**：截图脚本默认连接 `http://127.0.0.1:5174`。并行 worktree 开发时，该端口已经由旧版本 Vite 占用；旧页面返回 HTTP 200，却没有 `/publish/history` 路由，所以发布记录和批量发布在等待就绪选择器时超时。目标 worktree 的路由和组件本身是完整的，切换到独立端口后九张截图均能生成。
 
-**逃逸链**：`assertServerReady()` 只验证根路径状态码，不能证明服务属于当前 worktree；截图合同测试使用 page mock，不会连接真实 Vite；之前的手工捕获没有把 `TEST_URL` 和工作目录作为同一个前置条件记录，因而将“端口可访问”误读为“目标页面可审计”。
+**逃逸链**：`assertServerReady()` 只验证根路径状态码，不能证明服务属于当前 worktree；截图合同测试使用 page mock，不会连接真实 Vite；之前的手工捕获没有把 `TEST_URL` 和工作目录作为同一个前置条件记录，因而将"端口可访问"误读为"目标页面可审计"。
 
 **修复与回归保护**：`captureScenario()` 在路由就绪元素缺失时会明确指出场景、路由、当前 base URL，并提示从当前 worktree 启动 Vite 或设置 `TEST_URL`。`capture-yixiaoer-current.test.js` 覆盖该错误信息，视觉测试使用说明增加独立端口启动命令。真实审计固定使用 `TEST_URL=http://127.0.0.1:5181`，三张 audit 图与已验证参考基线均在 10% 阈值内通过。
 
@@ -4874,7 +5022,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **逃逸链**：组件测试已覆盖新的 `.platform-filter-panel`、`.account-name-button` 和编辑态输入框，但 GUI 测试配置的选择器没有由组件拥有者更新；常规 Vitest 不执行真实 Electron 路径，完整 GUI 门禁只在 PR CI 运行，因此该陈旧合同直到远端才暴露。
 
-**修复与回归保护**：选择器配置改为 `platformFilterButton` 与 `accountNameButton`；两个 GUI runner 现在验证“全部 + 六个平台”共七个筛选按钮、12 张账号卡片，以及默认账号卡片的可见名称按钮。静态 smoke 同时要求这两个语义选择器存在，避免配置退回到旧分组或编辑态专用输入框。
+**修复与回归保护**：选择器配置改为 `platformFilterButton` 与 `accountNameButton`；两个 GUI runner 现在验证"全部 + 六个平台"共七个筛选按钮、12 张账号卡片，以及默认账号卡片的可见名称按钮。静态 smoke 同时要求这两个语义选择器存在，避免配置退回到旧分组或编辑态专用输入框。
 
 **系统性预防**：任何替换页面级 DOM 结构或把常驻控件改为条件渲染控件的改动，都必须在同一提交中搜索并更新 `selectors.json` 的全部消费者；除组件 Vitest 外，至少保留一条真实 GUI 合同验证用户可见、非编辑态的语义元素。
 ---
@@ -4883,9 +5031,9 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **第一性原因**：`BUSINESS_DATABASE_URL` 在 ECS 使用基础 Logto Compose 的 `postgres:5432` 服务名，而业务 API Compose 只创建自己的默认网络。正式 release 的 `docker compose run` 因此在 `multi-publish-business-api_default` 内返回 `ENOTFOUND`；同一正式镜像接入 `multi-publish-logto_default` 后 migration dry-run 立即通过，说明数据库凭据和 migration 本身没有问题。
 
-**逃逸链**：环境校验只确认连接串存在，并不验证容器 DNS；静态部署合同覆盖 Docker COPY、依赖、bind mount、健康检查和 OIDC，却没有断言 API 的外部网络。候选阶段把“可在某个网络里执行 migration”误作“实际 Compose 服务具备网络连通性”，没有以正式 `docker compose run` 的网络集合复验。CI 不拥有 ECS 的 `postgres` 服务网络，无法自然暴露这个部署拓扑错误。
+**逃逸链**：环境校验只确认连接串存在，并不验证容器 DNS；静态部署合同覆盖 Docker COPY、依赖、bind mount、健康检查和 OIDC，却没有断言 API 的外部网络。候选阶段把"可在某个网络里执行 migration"误作"实际 Compose 服务具备网络连通性"，没有以正式 `docker compose run` 的网络集合复验。CI 不拥有 ECS 的 `postgres` 服务网络，无法自然暴露这个部署拓扑错误。
 
-**系统性漏洞**：容器镜像可启动、环境变量完整和数据库凭据可用是三件事，不能替代“实际 Compose 服务加入能够解析依赖服务名的网络”。临时 `docker run --network` 是诊断工具，不是部署合同验证。
+**系统性漏洞**：容器镜像可启动、环境变量完整和数据库凭据可用是三件事，不能替代"实际 Compose 服务加入能够解析依赖服务名的网络"。临时 `docker run --network` 是诊断工具，不是部署合同验证。
 
 **修复与回归保护**：业务 API 现在同时加入默认网络与名为 `logto` 的外部网络，默认映射 `LOGTO_COMPOSE_NETWORK=multi-publish-logto_default`；环境模板和 runbook 固化基础项目名与覆盖规则。`logto-deploy-contract.test.js` 断言服务网络、外部网络名和模板变量，ECS 验收必须使用真实 `docker compose run` 运行 DNS 和 migration dry-run。
 
@@ -4912,7 +5060,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **修复与回归保护**：配置文件存在时，加载器只允许环境覆盖 `identityAuthRequired` 与其余公开字段，固定发行级 `identityAuthEnabled`；新增回归测试验证环境不能静默关闭已发行的身份服务，并保留无配置旧式环境的布尔校验。Runbook 要求根盘至少同时保留 `5 GiB` 与 `10%` 可用空间，低于门槛时停止发布、拉取、备份和迁移；本次只删除超过两天的 Runner 诊断日志并把 journal 收缩到 `200MB`，不触碰 Docker 卷、容器或项目数据。
 
-**系统性预防**：发布前容量检查必须作为命令门禁执行，云监控或受控调度必须为根盘和备份卷提供容量告警；不得以自动 `docker system prune` 或删除持久化卷替代保留期治理。凡是把“是否启用安全边界”从发行配置与环境变量合并的模块，测试必须分别覆盖发行配置优先、可回滚字段覆盖、无发行配置兼容和非法覆盖值四种场景。
+**系统性预防**：发布前容量检查必须作为命令门禁执行，云监控或受控调度必须为根盘和备份卷提供容量告警；不得以自动 `docker system prune` 或删除持久化卷替代保留期治理。凡是把"是否启用安全边界"从发行配置与环境变量合并的模块，测试必须分别覆盖发行配置优先、可回滚字段覆盖、无发行配置兼容和非法覆盖值四种场景。
 ## Bug 6：Story2Video 编排创建后不执行与参数断链（2026-07-22）
 
 **第一性原因**：CreateView 只创建了 orchestrator run，没有传 `autoAdvance`；PipelineEngine
@@ -4952,7 +5100,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 - `91ab02b52f4f0036910fd09afbc2944194374c4e`（OpenMontage Phase 1-3）首次引入
   `VideoEngine`，把 10 类处理请求统一转发到当时并不具备对应实现的 `/api/video/process`。
-  目标是快速建立桥接面，但“请求成功”没有绑定真实输出工件校验，最终形成假成功合同。
+  目标是快速建立桥接面，但"请求成功"没有绑定真实输出工件校验，最终形成假成功合同。
 - `57bec4d7f59d3bc5a0f5a3f945fd154b531f5a59` 首次引入浏览器 `VideoTrimmer`。
   目标是迁移旧 UI，但没有验证编码后的媒体是否存在、可解码及起止时长是否正确。
 - `2d509abe226f8d10281de9d983e93e6df5d3fd2e` 引入 Story2Video 编排时只保存临时运行上下文，
@@ -4963,7 +5111,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   它没有覆盖项目编辑、媒体替换、共享引用、失败回滚和重合成后的持久文件生命周期。
 
 旧项目 PRD 还把 Sora/Supabase Remix、membership/quota、云分享等外部 orchestrator 能力写成
-产品合同，而旧代码本身也存在“多段旁白合并只取第一段”等不完整实现。对齐时必须以可执行
+产品合同，而旧代码本身也存在"多段旁白合并只取第一段"等不完整实现。对齐时必须以可执行
 代码和真实输出为准，不能把规划文档或外部 API 调用存在等同于功能已跑通。
 
 ### 测试逃逸链
@@ -4994,7 +5142,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 系统性预防措施
 
-1. 所有媒体“成功”响应必须绑定 artifact validator：普通非空文件、允许路径、ffprobe/解码通过。
+1. 所有媒体"成功"响应必须绑定 artifact validator：普通非空文件、允许路径、ffprobe/解码通过。
 2. 新增或修改视频处理类型时，必须有真实 ffmpeg/ffprobe 用例；只有 mock 调用测试不得标为完成。
 3. preload 源码变化后必须重建 bundle，并运行 sandbox=true/false 的生产 preload 回归。
 4. 项目媒体变更必须测试成功、失败、共享引用、删除、重启恢复和 symlink/junction 边界。
@@ -5008,11 +5156,11 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 - Provider 图片下载最初只在自定义 `lookup` 回调中检查 DNS 地址。若 HTTPS 客户端因连接重建再次
   调用 `lookup`，实现会重新解析域名，攻击者可让首次解析为公网、后续解析为内网地址。
-- 地址策略把“私网”当成完整的“不允许连接”集合，漏掉 RFC6598 共享地址段、RFC2544 基准测试段、
+- 地址策略把"私网"当成完整的"不允许连接"集合，漏掉 RFC6598 共享地址段、RFC2544 基准测试段、
   文档段及部分 IPv6 特殊前缀；这会把不可公开路由的目标误当作公网。
 - 本机 Provider 例外曾用 `hostname.startsWith('127.')` 判定回环地址，`127.attacker.example` 这类
   DNS 名称可被误判并绕过远程 HTTPS/DNS 边界；IPv4 保留段也遗漏了 `240.0.0.0/4`。
-- 本机例外还曾把“任意 loopback 地址”当成同一个受信任 endpoint，允许配置 `127.0.0.1` 后访问
+- 本机例外还曾把"任意 loopback 地址"当成同一个受信任 endpoint，允许配置 `127.0.0.1` 后访问
   `127.0.0.2` 的其他本机服务；受信任例外必须精确绑定配置地址。
 - 本机 endpoint 下载仍使用 `response.arrayBuffer()`，缺失或伪造较小 `Content-Length` 时会先把超大
   响应完整放入内存，再执行 25MiB 判断；远程 `https.request` 路径已有流式上限，形成两条下载路径漂移。
@@ -5025,7 +5173,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   也没有覆盖特殊 IPv4/IPv6 段。
 - **集成测试**：只验证 Provider 二进制输出和普通 URL 下载成功，没有把 DNS 解析、连接复用和
   地址可路由性视为下载合同的一部分。
-- **代码审查**：审查了“预检 DNS 与真实连接共用 lookup”的表面结构，没有继续推演连接重试、
+- **代码审查**：审查了"预检 DNS 与真实连接共用 lookup"的表面结构，没有继续推演连接重试、
   全局 agent socket 复用和 IANA 特殊地址集合。
 
 ### 修复与回归保护
@@ -5034,14 +5182,14 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   `lookup`；禁用全局 `https` agent 复用，重复 lookup 也不会再次 DNS 查询。
 - IPv4 地址策略覆盖 current-network、RFC1918、RFC6598、link-local、基准测试、文档、
   multicast/reserved；IPv6 覆盖未指定、ULA、link-local、multicast、文档、ORCHIDv2 和 6to4。
-- `asset-generator-provider.test.js` 新增特殊网段集合和“第二次 lookup 返回 127.0.0.1”回归，
+- `asset-generator-provider.test.js` 新增特殊网段集合和"第二次 lookup 返回 127.0.0.1"回归，
   断言仍固定到首次已验证公网地址；同时覆盖伪造 `127.*` 主机名、`240.0.0.0/4` 和不同的 loopback
   endpoint；并覆盖无 `Content-Length` 的超大本机响应在首个超限分块即取消；资产 Provider 两个测试
   文件还覆盖 DNS 永不返回和远程 HTTPS 永不结束；共 26/26 通过。
 
 ### 系统性预防措施
 
-1. 所有由 Provider、网页或回调返回的 URL 必须按“可公开路由地址”而非仅“私网地址”判定。
+1. 所有由 Provider、网页或回调返回的 URL 必须按"可公开路由地址"而非仅"私网地址"判定。
 2. 任何 DNS 校验测试都必须覆盖同一请求重复 lookup、连接复用和至少一个 IANA 特殊地址段。
 3. 修改 Electron 网络边界后，除单元测试外必须完成 Windows 打包、ASAR require 链和独立 8 秒启动日志验证。
 4. Hostname 例外必须先经语义解析再比较，禁止使用前缀、后缀或子串匹配来授予 loopback/内网信任。
@@ -5054,7 +5202,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 根因与逃逸链
 - STT 集成直接信任默认 provider，未再次核验 `enabled` 和执行器；同时转录读取规则沿用了通用媒体根目录，误把用户目录中的任意音频当成可上传输入。
-- 单元测试只覆盖了“已配置 provider + 正常路径”，没有覆盖禁用默认项、缺少 `aiGenerator`、嵌套本地 Whisper 地址或未导入文件；因此未经过服务能力、IPC 和真实安全边界的组合验证。
+- 单元测试只覆盖了"已配置 provider + 正常路径"，没有覆盖禁用默认项、缺少 `aiGenerator`、嵌套本地 Whisper 地址或未导入文件；因此未经过服务能力、IPC 和真实安全边界的组合验证。
 - Remotion 组件在模块加载阶段调用 `@remotion/google-fonts`，普通组件测试未执行离线真实渲染，直到 Chrome 渲染进程被网络策略阻断才暴露。
 - 项目服务的纯 Node 测试因无条件 `require('electron')` 触发 Electron binary downloader，说明服务层必须先判断是否运行在 Electron，而不是把桌面运行时当作 Node 依赖。
 
@@ -5078,7 +5226,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 系统性漏洞
 - 文件名的唯一性依赖了外部数据字段，而不是服务内部已验证的列表位置。
-- “用户可选择文件”与“renderer 可以再次任意引用该路径”混为一谈，缺少一次导入后只使用受控副本的边界。
+- "用户可选择文件"与"renderer 可以再次任意引用该路径"混为一谈，缺少一次导入后只使用受控副本的边界。
 
 ### 修复与回归保护
 - 媒体前缀改用数组 `position`；`sourceIndex` 仍保留诊断信息。回归用例固定构造两个 `index: 0` 的分段并校验两份图片路径和字节内容不同。
@@ -5120,7 +5268,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 ### 测试逃逸链与系统性漏洞
 - Adapter 单测全部使用简化的 `code: 3` mock，未覆盖实际业务成功码；没有参考请求/响应契约测试。
 - Provider 设置、凭据映射和 Adapter 模型列表分别测试，缺少跨模块一致性断言。
-- Story2Video 只断言“调用了 provider”，没有要求每个图片 provider 具备 workflow、轮询、下载和
+- Story2Video 只断言"调用了 provider"，没有要求每个图片 provider 具备 workflow、轮询、下载和
   可验证媒体输出的完整合同；批量 Adapter 审查也没有逐项核对外部协议。
 
 ### 修复与回归保护
@@ -5131,7 +5279,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   输出合同显式失败。
 
 ### 预防措施
-1. Provider 改动必须按 `.quality-gates.md` 的“Provider 请求与输出契约”执行，覆盖成功码、认证、端点、
+1. Provider 改动必须按 `.quality-gates.md` 的"Provider 请求与输出契约"执行，覆盖成功码、认证、端点、
    预设、凭据映射和最终媒体工件。
 2. 没有真实凭据的本地回归只能证明调用合同；合并前记录外部 smoke 验收为待办，不能把 mock 成功写成
    服务可用。
@@ -5141,15 +5289,15 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 第一性原因
 - `b00d5a7` 引入 `_seedPresets()`，启动时把全部内置预设写入 `model_providers`，表示目录已初始化。
-- `b60a2b96` 的 `getAvailablePresets()` 又以 `SELECT id` 结果过滤预设，把“种子行已存在”误当成“用户已完成配置”，因此图片、LLM、视频等类别全部显示为空。
-- 新增向导的保存路径本来支持重复 ID 的更新降级，但缺少“目录返回完整预设”的前置合同，导致该路径无法被用户触发。
+- `b60a2b96` 的 `getAvailablePresets()` 又以 `SELECT id` 结果过滤预设，把"种子行已存在"误当成"用户已完成配置"，因此图片、LLM、视频等类别全部显示为空。
+- 新增向导的保存路径本来支持重复 ID 的更新降级，但缺少"目录返回完整预设"的前置合同，导致该路径无法被用户触发。
 
 ### 测试逃逸链与系统性漏洞
-1. **单元测试逃逸**：旧测试明确断言“预设已初始化后列表为空”，把初始化副作用固化成错误行为。
+1. **单元测试逃逸**：旧测试明确断言"预设已初始化后列表为空"，把初始化副作用固化成错误行为。
 2. **集成测试逃逸**：IPC 测试 mock manager/store，没有覆盖真实种子初始化后的 `model-provider:presets` 链路。
 3. **UI 测试逃逸**：composable 只 mock IPC 返回空数组，未验证非空预设能进入 `availablePresets` 并渲染。
-4. **审查盲区**：没有区分“可配置目录”和“已配置状态”；后者应由 `api_key_enc IS NOT NULL AND enabled = 1` 判断。
-5. **流程缺失**：新增预设/种子时没有强制要求“空 userData 初始化后仍可添加”的回归用例。
+4. **审查盲区**：没有区分"可配置目录"和"已配置状态"；后者应由 `api_key_enc IS NOT NULL AND enabled = 1` 判断。
+5. **流程缺失**：新增预设/种子时没有强制要求"空 userData 初始化后仍可添加"的回归用例。
 
 ### 修复与回归保护
 - `ModelProviderManager.getAvailablePresets(category)` 现在返回该类别全部内置预设，不再按数据库行 ID 过滤。
@@ -5157,7 +5305,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 - 新增真实 `sql.js` 数据库 + IPC 集成测试，覆盖空库初始化、种子行仍可选和 Flux API Key 更新；composable 测试覆盖 IPC 非空数组转发。
 
 ### 预防措施
-1. 所有 `getAvailablePresets` / `getAvailableTemplates` 等目录 API 必须返回完整内置目录；“已配置”只能由业务字段判断。
+1. 所有 `getAvailablePresets` / `getAvailableTemplates` 等目录 API 必须返回完整内置目录；"已配置"只能由业务字段判断。
 2. 种子初始化改动必须同时覆盖空 userData、种子已存在、选择后更新三条路径，禁止只断言数据库行数。
 3. composable 测试必须包含一条 IPC 返回非空数据的真实响应路径；UI 集成测试使用稳定状态和用户可见文案断言。
 
@@ -5243,18 +5391,18 @@ SHA-256 缓存键和 in-flight 合并、JOSE header 类型判定，以及 `nbf` 
 
 1. **打包权限提权**：`b6b87b4` 为修复未打包开发环境权限，把 `NODE_ENV`、`ELECTRON_IS_DEV` 与
    `app.isPackaged === false` 用 OR 合并。该表达式让打包应用也能被环境变量提升到 `admin`，违背了提交本身
-   “以 `!app.isPackaged` 为准”的意图。
+   "以 `!app.isPackaged` 为准"的意图。
 2. **STT 能力合同漂移**：`4736094` 创建 Google/Baidu/Local Whisper Adapter 时，`transcribe` 尚未进入
    `KNOWN_METHODS`，所以三者手工追加能力且测试期望 `supports=false`；`e1b46eb` 将 `transcribe` 加入基类后，
    没有同步删除手工追加或更新旧断言，产生重复 capability 和三个稳定失败。
 3. **流水线 E2E 文案漂移**：`c4fae09` 的 E2E 用内部枚举 `completed` 断言页面；`e1b46eb` 把状态渲染为
    用户可见的「已完成」后没有同步测试，导致 `/create/pipeline` 固定失败，但页面本身没有 console/page error。
-4. **带点 Opaque Token**：`4f33c49` 用“三段 base64url”区分 JWT 与 Opaque Token，忽略 OAuth token 语法
+4. **带点 Opaque Token**：`4f33c49` 用"三段 base64url"区分 JWT 与 Opaque Token，忽略 OAuth token 语法
    不透明；独立安全复核才发现 `opaque.active.token` 会被误判。
 
 ### 测试逃逸链与系统性漏洞
 
-1. **单元测试**：权限安全断言早已存在却未在 `b6b87b4` 合并前跑到全套；STT 只验证“包含”而没有验证
+1. **单元测试**：权限安全断言早已存在却未在 `b6b87b4` 合并前跑到全套；STT 只验证"包含"而没有验证
    capability 唯一性；Opaque 用例只使用不含点的示例 token。
 2. **集成测试**：Story2Video 合并改变共享 `KNOWN_METHODS` 和 CreateView 文案，但未把所有 Provider Adapter
    与路由功能测试列入影响面。
@@ -5284,9 +5432,9 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    在 2026-07-22 把 Python backend 健康检查和 Splitter/Prompt bridge 健康检查串行放到 `createWindow()` 之前，
    却没有同步更新 GUI runner 的等待预算。Linux Runner 缺少 `numpy`、`splitter` 和 `prompt_engine` 时，两阶段
    各等待约 10 秒，GUI runner 会在主窗口按降级合同创建前先失败。
-2. **测试逃逸链**：单元层没有“第 15 秒后才建窗”的用例；bridge 集成测试使用 mock，失败会立即 settle；浏览器
+2. **测试逃逸链**：单元层没有"第 15 秒后才建窗"的用例；bridge 集成测试使用 mock，失败会立即 settle；浏览器
    E2E 只连接 Vite，不启动 Electron；视觉测试不经过主进程；代码审查没有比较测试 timeout 与启动阶段 timeout
-   的总预算。由此形成“各层独立通过、真实 GUI CI 稳定超时”的系统性漏洞。
+   的总预算。由此形成"各层独立通过、真实 GUI CI 稳定超时"的系统性漏洞。
 3. **系统性漏洞**：窗口 readiness 的固定循环次数与启动编排完全解耦，也没有假时钟边界测试；workflow 只验证
    `python-backend` 的部分 import，无法提供两个外部 sidecar，因此缺依赖的降级启动是 CI 的正常路径而非偶发环境噪声。
 4. **修复与回归保护**：新增 `tests/test-helpers.test.js`，用假时钟复现窗口在第 16 秒后出现时旧实现返回
@@ -5303,7 +5451,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
    文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
    Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
-3. **系统性漏洞**：跨平台测试没有统一的“文件身份”断言规则，`path.resolve()` 与字符串相等都不能消除 Windows
+3. **系统性漏洞**：跨平台测试没有统一的"文件身份"断言规则，`path.resolve()` 与字符串相等都不能消除 Windows
    短路径、长路径和 junction 的别名差异，导致安全规范化正确时仍可能产生环境相关假失败。
 4. **修复与回归保护**：保留真实文件复制、受控目录校验、场景索引和声明时长断言；仅将 `audioPath` 比较改为
    对实际值和 `imported.path` 同时执行 `fs.realpathSync.native()`。回归直接使用真实文件系统，不 mock 路径解析。
@@ -5335,7 +5483,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    视觉测试不启动两个业务 API 进程；Compose 默认单副本使部署 smoke 无法触发；代码审查只验证原子写与损坏存储
    fail closed，没有审查持久卷 writer 所有权。旧 `api-key-auth.test.js` 还同步统计 async callback，先打印通过再产生
    未处理拒绝，进一步掩盖了真实锁竞争。
-3. **系统性漏洞**：JSON 持久化没有“启动前取得跨进程锁、失败和停止时释放”的生命周期合同，CLI 也不能显式配置
+3. **系统性漏洞**：JSON 持久化没有"启动前取得跨进程锁、失败和停止时释放"的生命周期合同，CLI 也不能显式配置
    Key 存储路径；大量服务器测试隐式写仓库默认路径，既污染状态又无法区分预期的锁冲突与夹具冲突。
 4. **修复与回归保护**：业务 API 直接依赖 `proper-lockfile@4.1.2`，在自动迁移和监听前取得锁；同路径第二 writer
    返回 `API_KEY_WRITER_LOCKED`，监听失败和 `stop()` 释放锁，同一实例重复 `start()` 返回
@@ -5343,7 +5491,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    端口占用失败后接管、启动期间停止及重复启动。`API_KEYS_PATH` 现可由环境变量配置，Compose 固定到持久卷；普通 API 测试统一
    使用唯一临时目录并在停止后清理，async harness 会真实等待 callback。
 5. **预防措施**：`AGENTS.md` QM-2 增加 API Key 单 writer 合同，部署合同断言 `API_KEYS_PATH` 与持久卷一致，
-   `.quality-gates.md` 分开记录“单 writer 锁已通过”和“横向多 writer 仍待事务存储”。文件锁不提供跨副本的事务或
+   `.quality-gates.md` 分开记录"单 writer 锁已通过"和"横向多 writer 仍待事务存储"。文件锁不提供跨副本的事务或
    CAS 语义；需要横向扩容时必须先迁移共享存储，不能通过放宽锁、随机 `.tmp` 或重试第二 writer 伪造支持。
 
 ### Story2Video 安装包缺少完整 FFmpeg/ffprobe 复盘
@@ -5355,7 +5503,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    FFmpeg 能处理样例；E2E/视觉层不执行打包后的 Story2Video；QM-1 只检查 ASAR、RPA require 和进程存活，
    又把 Playwright 自带的裁剪版 `ffmpeg-win64.exe` 误记为产品媒体能力。代码审查没有检查 `resources/media-tools`
    以及 ffprobe、编码器和滤镜闭包，五层门禁都未拦住。
-3. **系统性漏洞**：发布验证把“构建主机能找到可执行文件”与“安装包携带目标平台可执行文件”混为一谈；同时
+3. **系统性漏洞**：发布验证把"构建主机能找到可执行文件"与"安装包携带目标平台可执行文件"混为一谈；同时
    未区分 Playwright 裁剪版、Remotion 定制版和 Story2Video 所需完整构建，也没有使用 electron-builder 的目标
    平台/架构上下文，交叉构建可能静默混入错误平台二进制。
 4. **修复与回归保护**：新增 `media-tool-paths.js`，有效安装包无条件优先解析 `resources/media-tools`，只有未找到打包资源的开发环境才回退到环境变量、直接依赖和系统路径；
@@ -5372,7 +5520,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 当前 Windows x64 构建包含 `--enable-gpl --enable-version3`，技术门禁按 GPLv3+ 处理并随包保留 GPLv3 原文和声明。
 公开分发前，发布负责人仍须完成对应源码/构建材料提供方式和法律审查；本次代码修复不把许可证合规自动标记为完成。
 
-独立安全复审进一步发现，若让 `FFMPEG_PATH`/`FFPROBE_PATH` 覆盖有效打包资源，本地父进程即可绕过资产锁选择任意可执行文件。回归现已固定“打包资源优先、环境变量仅开发回退”，并覆盖目标 Windows drive 路径下的 ffprobe sibling 解析。
+独立安全复审进一步发现，若让 `FFMPEG_PATH`/`FFPROBE_PATH` 覆盖有效打包资源，本地父进程即可绕过资产锁选择任意可执行文件。回归现已固定"打包资源优先、环境变量仅开发回退"，并覆盖目标 Windows drive 路径下的 ffprobe sibling 解析。
 
 ### ECS Electron CI 下载桌面 FFmpeg 导致超时复盘
 
@@ -5384,7 +5532,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    使用专用镜像，同时继续由 Electron 自带 `checksums.json` 校验资产。
 2. **测试逃逸链**：单元测试尚未启动，无法拦截安装阶段超时；集成测试没有覆盖 npm 生命周期脚本集合；Electron
    smoke 和 Vue build 都位于依赖安装之后；Windows QM-1 使用目标平台本地资产，无法暴露 ECS 到 GitHub Release
-   的链路速度；代码审查只确认“安装开发依赖和 Electron”，没有审查 Linux job 是否误下载桌面发布资产。
+   的链路速度；代码审查只确认"安装开发依赖和 Electron"，没有审查 Linux job 是否误下载桌面发布资产。
 3. **系统性漏洞**：同一条无限定 npm 生命周期链同时承担 Linux headless 测试和 Windows 桌面发布依赖准备，
    两种职责没有 allowlist。并且真实媒体测试会自动发现宿主 `PATH` 中的 FFmpeg；`91ab02b` 引入的
    `VideoEngine._checkFfmpeg()` 还绕过统一 resolver，直接 `spawnSync('ffmpeg', ['-version'])`。其单元测试只 mock
@@ -5409,19 +5557,19 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    合同并在一次性 ECS checkout 中验证总时限。Electron 镜像 URL 也属于 allowlist 合同，变更时必须以 Range
    探测、本地 checksum pin 和安装后的版本验证为证据。进程审计只包裹媒体相关集合、安装、Electron smoke 和构建；不要用
    `strace` 包裹全部 5777 项测试，否则观测开销会把原本 804.55 秒的套件推到 20 分钟 watchdog 之外，混淆
-   “测试超时”和“FFmpeg 被执行”两个不同问题。
+   "测试超时"和"FFmpeg 被执行"两个不同问题。
 
 ### Windows 账号状态原子替换瞬时锁复盘
 
-1. **第一性原因**：`d991fea` 为避免账号 JSONL 全文重写中断时丢失数据，引入“写临时文件后
-   `renameSync`”的原子替换；`44e2c6e` 又把同一模式用于启动时的遗留明文凭据脱敏。两次改动的原子性意图
+1. **第一性原因**：`d991fea` 为避免账号 JSONL 全文重写中断时丢失数据，引入"写临时文件后
+   `renameSync`"的原子替换；`44e2c6e` 又把同一模式用于启动时的遗留明文凭据脱敏。两次改动的原子性意图
    正确，但都假设 Windows 目标文件不会被杀毒软件或索引器短暂占用，没有处理系统返回的瞬时
    `EPERM/EACCES/EBUSY`。启动迁移没有上层容错，因此一次短锁就会让初始化失败。
 2. **测试逃逸链**：普通单元测试只在无竞争的临时目录中顺序读写；集成测试没有持有真实 Windows 文件句柄；
    Electron E2E 使用新用户目录，不触发遗留记录迁移；视觉测试不经过主进程文件迁移；代码审查只检查了原子性，
    没有检查 Windows delete-share 冲突。根全量偶发失败后，定向连续 10 次得到 1 次 `EPERM`、9 次通过，证明
    它是可复现的环境竞态，不是业务断言漂移。
-3. **系统性漏洞**：项目把“原子替换不会产生半文件”误等同于“原子替换不会暂时失败”，且没有面向真实 OS 锁的
+3. **系统性漏洞**：项目把"原子替换不会产生半文件"误等同于"原子替换不会暂时失败"，且没有面向真实 OS 锁的
    回归模式。相同模块四个全文重写点都直接调用 `renameSync`，修单一调用点会留下同类风险。
 4. **修复与回归保护**：`account-state-restorer.js` 统一使用同步原子重命名 helper；仅在 Windows 且错误码为
    `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误仍原样抛出。
@@ -5439,8 +5587,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    模块级窗口和回调，导致一次 updater 事件被重复发送。
 2. **测试逃逸链**：单元测试每次只初始化一个窗口；窗口集成测试不触发 macOS `activate` 重建；浏览器 E2E 不运行
    Electron 的全局 updater；视觉回归不观察事件监听器数量；Windows QM-1 只经历单次主窗口创建；此前审查看到
-   “防止重复 init”注释后没有验证不同窗口身份。因而同窗重复调用通过，跨窗口泄漏没有被任何层拦住。
-3. **系统性漏洞**：初始化函数把“当前状态发送目标”和“进程级监听器是否已经绑定”错误地绑在窗口对象身份上，
+   "防止重复 init"注释后没有验证不同窗口身份。因而同窗重复调用通过，跨窗口泄漏没有被任何层拦住。
+3. **系统性漏洞**：初始化函数把"当前状态发送目标"和"进程级监听器是否已经绑定"错误地绑在窗口对象身份上，
    测试也只验证错误降级文案，没有覆盖 Electron 全局单例与 BrowserWindow 生命周期不同步的合同。
 4. **修复与回归保护**：`init()` 每次都更新当前窗口和状态回调，只在模块生命周期首次调用时注册六个 updater 事件。
    新增双窗口回归，旧实现稳定得到 13 次 `.on()` 调用 RED；修复后保持基础 logger 加六个服务监听器共 7 次，
@@ -5477,9 +5625,9 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    索引或备份程序持有目标文件时会返回瞬时 `EPERM/EACCES/EBUSY`，导致迁移抛错或 `saveCredential()` 返回 false。
 2. **测试逃逸链**：单元测试只在无竞争临时目录验证最终内容；集成测试没有持有真实 Windows 文件句柄；Electron E2E
    使用新用户目录，不触发旧主密钥迁移；视觉回归不经过主进程凭据磁盘路径；QM-1 启动不执行已有凭据升级；审查只
-   检查了“临时文件 + rename”的崩溃原子性，没有逐一验证主文件、备份和业务文件在 Windows 短锁下的可恢复性。
+   检查了"临时文件 + rename"的崩溃原子性，没有逐一验证主文件、备份和业务文件在 Windows 短锁下的可恢复性。
 3. **系统性漏洞**：此前 Windows 原子替换合同先覆盖账号状态、再覆盖 API Key，却没有枚举 `credential-store` 的三个
-   安全状态目标。普通全量曾通过，覆盖率复跑才在“损坏主密钥从备份恢复”路径真实命中 `renameSync EPERM`，说明唯一
+   安全状态目标。普通全量曾通过，覆盖率复跑才在"损坏主密钥从备份恢复"路径真实命中 `renameSync EPERM`，说明唯一
    临时目录只能消除测试互相争用，不能消除操作系统外部文件锁。
 4. **修复与回归保护**：`credential-store.js` 的主密钥、备份和账号凭据替换统一使用同步原子 rename helper；仅在
    Windows 且错误码为 `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误仍
@@ -5532,7 +5680,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 - 无旁白/纯图片轮播模式已下线：`perImageDuration`（单画面时长/无旁白场景时长）已从 renderer、
   normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 默认 6 秒
   （可被 `params.defaultSceneDuration` / 配置内 `defaultSceneDuration` 运行参数覆盖，仅 UI 不暴露），
-  仅作“音频时长不可探测”时的回退与动效归一化兜底。归一化回退路径为 best-effort：探测失败时
+  仅作"音频时长不可探测"时的回退与动效归一化兜底。归一化回退路径为 best-effort：探测失败时
   动效按 6 秒归一化而片段仍以 `-shortest` 跟随真实音频，不强制 `-t` 对齐（避免截断旁白）。
   `_createSegment` 直调的 `clampNumber(opts.duration, 0.1, 3600, 3)` 中 0.1 秒下限可达；
   3 秒默认值因前置 `Number(duration) > 0` 守卫实际不可达（死默认）。
@@ -5551,7 +5699,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
   和 `undefined -> 6`。审查回补 5 个 RED 后，六文件聚焦回归 167/167 通过。
 
 ### 预防措施
-1. 版本化配置必须测试“仅 config”“仅扁平参数”“两者一致”“两者冲突”四种输入形状。
+1. 版本化配置必须测试"仅 config""仅扁平参数""两者一致""两者冲突"四种输入形状。
 2. 枚举合同必须用格式合法但集合外的值做负例，不能用语法错误代替白名单测试。
 3. 同一参数跨 renderer、normalizer、YAML 与执行器时，范围、单位和默认值必须用表驱动回归逐层核对。
 
@@ -5599,13 +5747,13 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 1. **第一性原因**：`564a8142` 为避免把包含 `latest.yml` 和 `404` 的签名失败误降级，收紧了
    `isLatestManifestMissing()`；但实现要求错误消息同时出现 `cannot find/not found`。electron-updater 的
    `HttpError` 也可能只在 `statusCode` 和 `url` 字段表达相同事实，因而被误报为真实更新错误。
-2. **测试逃逸链**：名为“结构化 404”的单元测试虽然设置了 `statusCode`，消息仍沿用 `Cannot find latest.yml`；
+2. **测试逃逸链**：名为"结构化 404"的单元测试虽然设置了 `statusCode`，消息仍沿用 `Cannot find latest.yml`；
    集成测试只验证 IPC 转发；浏览器 E2E 不运行 updater；打包启动只覆盖当次网络返回的单一错误形态；终审才用
    `{ statusCode: 404, url: '.../latest.yml', message: 'HttpError: 404' }` 捕获缺口。
-3. **系统性漏洞**：错误分类测试按当前实现中的英文句式取样，没有建立“状态码字段、URL 字段、消息文本、错误阶段”
+3. **系统性漏洞**：错误分类测试按当前实现中的英文句式取样，没有建立"状态码字段、URL 字段、消息文本、错误阶段"
    的输入形态矩阵；测试名称声称覆盖结构化错误，但断言实际仍依赖消息文本。
-4. **修复与回归保护**：分类器统一读取 `message`、顶层/response URL 和结构化状态码，只有“404 +
-   `latest*.yml` 引用”才降级，并显式排除 signature/signing/checksum/integrity/verification 错误。新增仅靠
+4. **修复与回归保护**：分类器统一读取 `message`、顶层/response URL 和结构化状态码，只有"404 +
+   `latest*.yml` 引用"才降级，并显式排除 signature/signing/checksum/integrity/verification 错误。新增仅靠
    `statusCode + url` 的 Promise 回归先得到 `error` RED，修复后 updater 聚焦套件 11/11 GREEN；结构化签名错误
    继续上报 `error`。
 5. **预防措施**：以后修改第三方错误分类器时，正例必须至少覆盖纯消息与结构化字段两种形态，负例必须使用相同
@@ -5618,7 +5766,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 ### 第一性原因
 - `c4fae09` 创建 `/create/pipeline` 功能 E2E 时，历史状态直接渲染原始 `h.status`，因此测试以正文
   `completed` 作为 fixture 到达页面的证据。
-- `e1b46eb` 为 Story2Video 历史列表增加 `historyStatusLabel()`，把 `completed` 本地化为“已完成”，但没有
+- `e1b46eb` 为 Story2Video 历史列表增加 `historyStatusLabel()`，把 `completed` 本地化为"已完成"，但没有
   同步更新跨文件 E2E 合同。内部状态仍正确，用户可见正文已不再包含英文值。
 
 ### 测试逃逸链与系统性漏洞
@@ -5634,8 +5782,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 
 ### 修复与回归保护
 - `CreateView.test.js` 使用真实挂载的历史项目，同时断言 `.history-status` 含 `completed` class 且可见文字
-  为“已完成”。
-- `/create/pipeline` 功能 E2E 定位 `.history-status.completed` 并校验“已完成”，既证明 fixture 状态到达，
+  为"已完成"。
+- `/create/pipeline` 功能 E2E 定位 `.history-status.completed` 并校验"已完成"，既证明 fixture 状态到达，
   也验证最终用户文案，不再从整页正文猜测内部状态。
 
 ### 预防措施
@@ -5693,7 +5841,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 3. **代码审查**：新增结果项时只审查了安全语义，遗漏了同一结果数组的顺序敏感消费者。
 
 系统性漏洞属于**测试场景缺失 + 断言质量不足**：固定完整数组适合校验无 token 的标准 smoke 集合，
-但可选检查不能用“最后一项”表达语义，否则任何安全检查追加都会制造无关失败。
+但可选检查不能用"最后一项"表达语义，否则任何安全检查追加都会制造无关失败。
 
 ### 修复与预防
 - 标准 smoke 合同显式纳入两个路径守卫名称，保证安全检查不会被误删。
@@ -5734,7 +5882,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 这次 PR 合并后的两条 Windows Quality Gate 又稳定暴露了同一类问题：`story2video-compose-engine.test.js`
 仍把 `scenes` 的原始音频路径与 `compose()` 传给 `_concatNarrationAudio` 的 canonical 路径直接比较。
 在本机长路径临时目录中字符串恰好相同，GitHub Windows 的 8.3 短路径表示不同，mock 断言抛错后被
-`compose()` 转成 `code: -1`，最终只看到“多段旁白导出”失败。此前只修 `story2video-stages.test.js`，检索范围
+`compose()` 转成 `code: -1`，最终只看到"多段旁白导出"失败。此前只修 `story2video-stages.test.js`，检索范围
 没有覆盖同一调用链的第二个路径断言，属于断言质量不足和修复范围不足。
 
 回归修复把测试期望同样规范化为 `fs.realpathSync.native()`，并 mock 无关的伪媒体 `ffprobe` 探测；生产
@@ -5744,7 +5892,7 @@ canonical 白名单和真实 `_concatNarrationAudio` 实现不变。以后修改
 ### 宿主路径与模拟平台不一致导致 Linux CI 失败（2026-07-27）
 
 `b05da3c` 为完成 Windows 媒体资源闭包，同时引入 `media-tool-paths.js` 和对应测试。测试辅助函数默认把
-`platform` 固定为 `win32`，但“同目录解析 ffprobe”用例通过 `os.tmpdir()` 创建真实文件：Windows 得到 drive
+`platform` 固定为 `win32`，但"同目录解析 ffprobe"用例通过 `os.tmpdir()` 创建真实文件：Windows 得到 drive
 路径并通过，Linux Runner 得到 `/tmp/...`，随后 `path.win32.isAbsolute('/tmp/...')` 返回 false，导致 sibling
 分支被跳过并返回 `null`。生产解析算法按目标平台选择 `path.win32`/`path.posix`，第一性原因是测试夹具把宿主
 文件系统路径与另一平台的路径语义混在一起，而不是产品回归。
@@ -5771,17 +5919,17 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 ### 第一性原因
 
-- `5effc65` 已在账号“设为默认、打开、验证、代理、删除”等副作用按钮上声明
+- `5effc65` 已在账号"设为默认、打开、验证、代理、删除"等副作用按钮上声明
   `data-e2e-scan="manual"`，组件测试也只验证了标记存在。
 - `17458ef` 随后把账号页接入通用语义扫描：扫描器收集所有可见按钮，按语义去重后逐个点击，却从未读取
-  `data-e2e-scan`。因此 producer 已声明“仅手工执行”，consumer 仍把删除等按钮当成自动覆盖目标。
+  `data-e2e-scan`。因此 producer 已声明"仅手工执行"，consumer 仍把删除等按钮当成自动覆盖目标。
 - 根因是跨组件的扫描合同没有接通；删除超时、遮罩和 socket buffer 耗尽都只是同一错误点击链的后果。
 
 ### 测试逃逸链与系统性漏洞
 
 1. **组件单元测试**：`PlatformAccountGroup.test.js` 只断言 manual 属性写入 DOM，没有验证 E2E 扫描器消费它。
 2. **扫描器单元测试**：`route-functional-suite.js` 没有针对 manual 控件的独立合同测试，语义去重测试只关注
-   “少点几个”，没有约束“哪些绝不能点”。
+   "少点几个"，没有约束"哪些绝不能点"。
 3. **端到端测试**：旧报告只统计点击是否完成以及页面能否恢复，没有断言删除、打开主页等副作用按钮的点击
    次数必须为零；可恢复的副作用会被误记为覆盖成功。
 4. **CI 门禁**：Gate 8 直接进入真实 Browser E2E，没有先运行扫描器的快速合同测试，错误只能在完整账号数据
@@ -5789,8 +5937,8 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 5. **代码审查**：组件标记与通用扫描器由不同提交维护，审查分别确认了 DOM 属性和语义采样，却没有沿
    producer 到 consumer 的调用链核对合同。
 
-系统性漏洞属于**跨模块合同缺失 + 测试场景缺失 + 审查盲区**：副作用控件的“可见、可用”不等于“允许
-自动执行”，自动扫描必须显式消费控件声明，而不能凭按钮类型或文案猜测。
+系统性漏洞属于**跨模块合同缺失 + 测试场景缺失 + 审查盲区**：副作用控件的"可见、可用"不等于"允许
+自动执行"，自动扫描必须显式消费控件声明，而不能凭按钮类型或文案猜测。
 
 ### 修复与回归保护
 
@@ -5870,7 +6018,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
    没有模拟 `42501` 或断言无 DDL。
 2. **集成测试**：dry-run 会先用 `to_regclass` 探测 ledger，因此天然不执行 DDL；它与正式 runner 走不同分支，
    无法证明正式路径兼容最小权限角色。
-3. **端到端测试**：本地和 CI 没有使用“有 ledger、无 schema CREATE”的真实 PostgreSQL 角色执行正式 runner。
+3. **端到端测试**：本地和 CI 没有使用"有 ledger、无 schema CREATE"的真实 PostgreSQL 角色执行正式 runner。
 4. **部署验收**：上一轮只保存迁移结果 JSON，没有保存执行角色权限快照与无 DDL 查询证据，历史成功掩盖了缺陷。
 5. **代码审查**：把 `CREATE TABLE IF NOT EXISTS` 误认为无副作用的存在性检查，没有按 PostgreSQL 权限语义审查。
 
@@ -5920,7 +6068,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 ### 系统性漏洞
 
 该问题属于**测试场景缺失 + 测试质量不足 + 审查盲区 + 环境差异**。测试计划只为 OIDC JWT 写明 60 秒
-偏差，entitlement 场景仅笼统写“signature/time”；本地 mock、浏览器 E2E 和公网 smoke 之间没有一个门禁
+偏差，entitlement 场景仅笼统写"signature/time"；本地 mock、浏览器 E2E 和公网 smoke 之间没有一个门禁
 同时覆盖真实服务端签发时间、桌面本地时间和 RSA 验签。
 
 ### 修复与回归保护
@@ -5949,7 +6097,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 - 在最终 NSIS 产物上同时设置 `NODE_ENV=development` 和 `ELECTRON_IS_DEV=1` 后，主进程尝试加载
   `http://localhost:5174/`，stderr 返回 `ERR_CONNECTION_REFUSED`。该行为发生在 `app.isPackaged=true`
-  的真实打包应用中，违反“打包状态优先于开发环境变量”的安全合同。
+  的真实打包应用中，违反"打包状态优先于开发环境变量"的安全合同。
 - `c834e9f5 feat: 项目重构方案分析` 从 `main.js` 拆出 `window.js` 时引入
   `NODE_ENV === 'development' || --dev || !app.isPackaged`。提交意图是保留开发服务器启动方式，但把可由
   外部继承的环境变量和命令行参数置于打包状态之前，使生产包可退回开发 URL 并打开 DevTools。
@@ -5965,8 +6113,8 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 ### 系统性漏洞
 
-该问题属于**测试场景缺失 + 审查盲区 + 环境差异**。仓库已经为许可证、IPC 和 updater 写入“打包状态
-优先”规则，但窗口加载测试没有同一矩阵，QM-1 也未固定使用受污染环境验证最终包。
+该问题属于**测试场景缺失 + 审查盲区 + 环境差异**。仓库已经为许可证、IPC 和 updater 写入"打包状态
+优先"规则，但窗口加载测试没有同一矩阵，QM-1 也未固定使用受污染环境验证最终包。
 
 ### 修复与回归保护
 
@@ -6043,7 +6191,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 2. **集成测试**：`phase5-ipc.test.js` 的 mock app root 和 sender 路径各少一层，二者都指向不存在位置；旧词法比较
    仍返回 true，掩盖了 fixture 错误。
 3. **端到端测试**：浏览器 E2E 直接访问 Vite，`window.electronAPI` 不存在，不会运行真实 `withSenderCheck()`。
-4. **视觉回归**：页面能渲染并不证明受保护 IPC 可调用；身份区把 `code=-3` 映射为通用“登录暂时不可用”。
+4. **视觉回归**：页面能渲染并不证明受保护 IPC 可调用；身份区把 `code=-3` 映射为通用"登录暂时不可用"。
 5. **发布验证**：旧隐藏启动只断言进程存活和 stderr，没有从最终 renderer 调用 `identityGetState()`；故障包因此通过。
 
 ### 系统性漏洞
@@ -6077,7 +6225,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
   `file://` URL 被拒绝，将 `isTrustedSender()` 从词法 `path.resolve()` 比较改为对受信 `dist` 和 sender
   文件执行 `fs.realpathSync.native()`。路径不存在时进入既有 `catch` 并返回 `false`，这是正确的 fail-closed
   生产合同。
-- 同一提交保留了两个指向仓库 `apps/desktop/dist/index.html` 的“合法来源”测试。该目录被 `.gitignore`
+- 同一提交保留了两个指向仓库 `apps/desktop/dist/index.html` 的"合法来源"测试。该目录被 `.gitignore`
   排除，干净 GitHub checkout 不包含它；本地工作树却因此前 Vue/Builder 运行留下该文件，导致同一测试在本地
   通过、在 Windows Quality Gate 和 ECS `electron-tests` 稳定得到 `expected false to be true`。
 
@@ -6097,7 +6245,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 ### 系统性漏洞
 
 该问题属于**测试数据失真 + 测试隔离缺失 + 环境差异 + 审查盲区**。当生产代码从词法路径升级为真实文件
-身份校验时，测试前置条件也随之变为“目录和文件必须真实存在”；但测试计划只覆盖路径边界，没有约束 fixture
+身份校验时，测试前置条件也随之变为"目录和文件必须真实存在"；但测试计划只覆盖路径边界，没有约束 fixture
 必须由 setup 创建并独立于 ignored build artifact。
 
 ### 修复与回归保护
@@ -6140,7 +6288,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 3. **端到端测试**：GitHub 在构造 job 前即拒绝 workflow，没有 step 日志；历史排查只看到红色 run，未把
    `jobs=[]` 作为编译阶段信号自动升级处理。
 4. **视觉回归**：视觉测试只能在 runner 启动后执行，无法覆盖 GitHub Actions 自身的 YAML 编译阶段。
-5. **代码审查**：引入提交的说明记录“93/93 tests passing”，但这些测试没有加载被改 workflow；同时未审查
+5. **代码审查**：引入提交的说明记录"93/93 tests passing"，但这些测试没有加载被改 workflow；同时未审查
    `git add -A`、`--allow-empty` 和 PR 写凭据的副作用边界。
 
 ### 系统性漏洞
@@ -6171,7 +6319,7 @@ runner 工作树纳入自动提交候选。
 #### 第一性原因
 
 - workflow 编译修复后，真实手动运行 `30423812727` 已创建 job `90485807072`，checkout、依赖安装、
-  Playwright、Vue build 和 artifacts 均正常；日志在“启动 Vite dev server”后立即结束并写入退出码 1。
+  Playwright、Vue build 和 artifacts 均正常；日志在"启动 Vite dev server"后立即结束并写入退出码 1。
 - `git blame/show` 定位到 `fb45e3b` 首次创建统一 E2E 脚本，`8536261c` 重构时保留缺陷。启动与清理都执行
   `taskkill /F /IM node.exe /T`。注释声称清理占用端口的进程，命令却按镜像名终止整台 Windows runner 上的
   所有 Node 进程，其中包含 GitHub Actions Runner 当前进程本身。
@@ -6187,13 +6335,13 @@ runner 工作树纳入自动提交候选。
 3. **端到端测试**：YAML 损坏长期让 run 停在 `jobs=[]`，因此 runner 内的进程误杀路径从未被执行；编译修复后
    第一轮真实 dispatch 才把第二层缺陷暴露出来。
 4. **视觉回归**：Node Runner 在 Vite 就绪前已被终止，视觉测试根本没有机会启动，无法承担进程边界门禁。
-5. **代码审查**：注释“清理端口”与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
+5. **代码审查**：注释"清理端口"与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
    和无关进程三个维度验证 Windows 命令。
 
 #### 系统性漏洞
 
-该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把“本次创建的 Vite 子进程”
-错误建模为“机器上的全部 Node 进程”，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
+该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把"本次创建的 Vite 子进程"
+错误建模为"机器上的全部 Node 进程"，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
 失败也只能在长超时后得到低质量错误。
 
 #### 修复与回归保护
@@ -6203,7 +6351,7 @@ runner 工作树纳入自动提交候选。
 - Vite 固定 `--host 127.0.0.1 --port <port> --strictPort`，端口冲突 fail closed，不允许自动漂移到另一个端口
   后误连旧服务；子进程提前退出会立即带出 stderr 和退出状态。
 - HTTP readiness 即使自身悬空也受总 deadline 约束；启动失败自动清理。终止命令和回退都未生效时明确报错，
-  不以“清理完成”掩盖残留进程。
+  不以"清理完成"掩盖残留进程。
 - 脚本改为 `require.main === module` 才执行，并以返回退出码配合 `finally` 等待清理，允许单元测试安全加载。
 - 新增 8 个回归用例；其中真实 Windows 用例同时启动受管 Node 与无关 Node 哨兵，确认只终止受管 PID 树，
   哨兵仍可接收信号 0。
@@ -6214,7 +6362,7 @@ runner 工作树纳入自动提交候选。
    全局清理命令。
 2. 服务启动合同必须同时覆盖固定 host、strict port、提前退出、探针悬空超时、重复清理和清理失败 fail closed。
 3. Windows 进程清理回归必须包含一个无关同名进程哨兵；只断言命令字符串不足以证明没有误杀。
-4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；“已创建 job”只关闭编译缺陷，不能替代 job 内运行验收。
+4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；"已创建 job"只关闭编译缺陷，不能替代 job 内运行验收。
 
 ### 后续裁决 Bug：无模型 prompt 包被误报为 PASS
 
@@ -6225,7 +6373,7 @@ runner 工作树纳入自动提交候选。
 - `RequirementsTestRunner` 在没有 LLM 时返回外层 `_mode: "agent-required"`、内层
   `_verdict._mode: "prompt"`。`git blame/show` 定位到 `8536261c`：简单模式的报告和退出码分别检查
   `_verdict.decision` 与错误的外层 `_mode === "prompt"`，没有识别真实 prompt 结构。
-- 两套重复逻辑都把“没有看到明确 FAIL”当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
+- 两套重复逻辑都把"没有看到明确 FAIL"当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
   workflow 又按 `LOOP_EXIT=0` 报告绿色。这是语义假绿，不是 Vite 或 GitHub Runner 再次失败。
 
 #### Bug 逃逸链
@@ -6237,8 +6385,8 @@ runner 工作树纳入自动提交候选。
 3. **端到端测试**：workflow 最终步骤只严格解析 `LOOP_EXIT`，没有能力纠正上游脚本错误返回的 0；首次跑通 Vite 后
    才出现足以检查语义结果的真实日志与报告。
 4. **视觉回归**：diff 为 0 只说明像素结果稳定，不能替代需求覆盖的模型或人工裁决。
-5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问“整体 PASS 是否存在
-   明确的覆盖 verdict”这一不变量。
+5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问"整体 PASS 是否存在
+   明确的覆盖 verdict"这一不变量。
 
 #### 系统性漏洞
 
@@ -6264,7 +6412,7 @@ runner 工作树纳入自动提交候选。
 #### 预防措施
 
 1. 自主测试的日志、报告和退出码必须来自同一 evaluator；禁止各层重新解释 `_mode` 或 `_verdict`。
-2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许“无 Key 时仅告警”，必须读取同一轮
+2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许"无 Key 时仅告警"，必须读取同一轮
    一致的 `NEED_HUMAN` 报告后显式降级，不能伪造 PASS。
 3. 任何 CI 绿色结论都要区分基础设施、测试执行和业务裁决；Vite 就绪、像素无 diff、进程退出 0 均不能替代明确 verdict。
 4. `autonomous-e2e-result.test.js` 纳入包级测试，固定覆盖明确 PASS/FAIL、prompt、矛盾/未知结果、畸形或基础设施错误、
@@ -6279,7 +6427,7 @@ failed: 0}` 或不自洽汇总仍可通过。
 
 **逃逸链与系统性漏洞**：单元测试只直接构造 `error` 结果，没有让真实 `runVisualTests()` 的命令执行器抛错；集成
 测试覆盖已形成的 diff 和显式失败，没有覆盖命令在产物生成前退出；PR workflow 的 `paths` 又未包含 tester 包和 workflow
-自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把“没有失败产物”等同于“测试成功”，且执行证据、
+自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把"没有失败产物"等同于"测试成功"，且执行证据、
 结果汇总和 workflow 触发范围没有同一份合同。
 
 **修复与回归保护**：视觉阶段继续执行两条命令以保留诊断产物，但收集任一命令的 stderr/message 并写入 `error`，统一
@@ -6303,7 +6451,7 @@ OIDC 登录、Token 或正常请求。
 ### 第一性原因
 
 - `789afd65137389a42af84a3b59e7d88ba8363c3b feat(auth): 集成 Logto 用户系统与租户隔离` 首次固定
-  `svhd/logto:1.41.0`，同时在架构文档写入“Webhook 使用 HMAC、超时和重试”。该提交的意图是建立完整
+  `svhd/logto:1.41.0`，同时在架构文档写入"Webhook 使用 HMAC、超时和重试"。该提交的意图是建立完整
   身份与租户隔离，并未对上游发送器做失败后黑盒投递验证。
 - Logto 1.41.0 的 `packages/core/src/libraries/hook/utils.ts` 对 Ky 配置
   `retry: { limit: retries ?? 3 }`，但 Ky 1.2.3 默认可重试方法只有
@@ -6321,13 +6469,13 @@ OIDC 登录、Token 或正常请求。
 1. **单元测试**：`logto-webhook.test.js` 测的是消费者收到同一 payload 两次时能从事务失败恢复；没有启动
    Logto，也没有断言发送端 HTTP attempt 数。
 2. **集成测试**：`publish-api-logto-webhook.test.js` 覆盖 HMAC 200、错误签名 401 和超大请求 413，但所有
-   请求都由测试直接发给 API；“第二次请求”不是 Logto 自动重试。
+   请求都由测试直接发给 API；"第二次请求"不是 Logto 自动重试。
 3. **部署合同**：`logto-deploy-contract.test.js` 只固定端口、Secret、网络和健康检查，没有核对上游镜像内
    Webhook client 的 method 白名单，也没有派生镜像的 fail-closed 补丁合同。
 4. **端到端与审查**：架构审查把源码中的 `retry.limit` 当成已经生效的行为，没有继续读取 Ky 1.2.3 的
    method gate。先前 UAT 没有让真实接收端返回 503，因此正常 Webhook 通过也无法暴露该缺口。
-5. **流程缺失**：真实 Webhook 重试长期标记 `PENDING_EXTERNAL`，却没有“失败两次、恢复一次、观察三次
-   签名 POST”的机器化验收步骤；消费者幂等证据被误当作发送端可靠性证据。
+5. **流程缺失**：真实 Webhook 重试长期标记 `PENDING_EXTERNAL`，却没有"失败两次、恢复一次、观察三次
+   签名 POST"的机器化验收步骤；消费者幂等证据被误当作发送端可靠性证据。
 
 ### 修复与回归保护
 
@@ -6372,7 +6520,7 @@ OIDC 登录、Token 或正常请求。
 1. `AGENTS.md` QM-2 增加 Logto Webhook POST 重试合同：不得用 `retry.limit` 或消费者手工重放推断上游
    自动重试；修改后必须运行两个聚焦合同并完成真实 503 探针。
 2. `ARCH-F14-logto-user-system.md` 修正错误架构事实，`TEST-PLAN-LOGTO-PRODUCTION.md` 分离发送端和消费者
-   两层测试，不再把两者合并为一个“Webhook 重试”结论。
+   两层测试，不再把两者合并为一个"Webhook 重试"结论。
 3. 生产验收使用独立 signing key、精确 Nginx 路径和一次性接收端：前两次 503、第三次 204，只记录 UTC
    时间、计数和签名有效性；完成后删除 Hook、用户、路由、进程和日志，主 Hook 不参与故障注入。
 4. Ky 1.2.3 `TimeoutError` 继续作为显式限制进入运行手册和风险清单；若后续需要超时自动重试，应升级并
@@ -6478,8 +6626,8 @@ OIDC 登录、Token 或正常请求。
 ### 第一性原因
 
 - `2d509ab` 首次加入 `OPTIMIZE_BATCH` 时只检查 prompt-engine 顶层 `code === 0`，没有验证批量结果的逐项内容。
-- `e1b46eb` 为兼容包装响应加入 `normalizeBatchOptimizeResult()` 和结果数量校验，但仍把“数组长度正确”误当成
-  “每个场景都有可消费的 prompt”。因此等长的 `{}`、`null` 或空白 `optimized_prompt` 会由
+- `e1b46eb` 为兼容包装响应加入 `normalizeBatchOptimizeResult()` 和结果数量校验，但仍把"数组长度正确"误当成
+  "每个场景都有可消费的 prompt"。因此等长的 `{}`、`null` 或空白 `optimized_prompt` 会由
   `StageExecutor` 返回 `success: true`，直到资产阶段读取空 prompt 后才延迟失败。
 
 ### 测试逃逸链与系统性漏洞
@@ -6513,31 +6661,31 @@ OIDC 登录、Token 或正常请求。
 ### 第一性原因
 
 - `031da9b6` 新增发布日历时，用本地 `Date` 的 `getFullYear()`、`getMonth()` 和 `getDate()` 生成月份与日号，
-  但把格子、选中日期和“今天”全部写成 `toISOString().slice(0, 10)`。该方法固定输出 UTC 日期，不是桌面用户
+  但把格子、选中日期和"今天"全部写成 `toISOString().slice(0, 10)`。该方法固定输出 UTC 日期，不是桌面用户
   正在查看的本地日历日。
 - 在 `Asia/Shanghai`，本地 `2026-07-15 00:00` 的格子键会变成 `2026-07-14`，而本地下午的当前 UTC 键为
   `2026-07-15`，因此今天高亮和带 Z 的定时任务都可能偏到 16 日；月末时它落入下月的补位格。
 - `db547bc` 随后为覆盖率添加实时 `calendarDays marks today` 断言。组件已保存初始化月份，但 computed 在后续
-  响应式更新时重新读取实时 UTC 日期，恰好跨月会稳定得到“今天存在但不是本月”的 CI 失败。
+  响应式更新时重新读取实时 UTC 日期，恰好跨月会稳定得到"今天存在但不是本月"的 CI 失败。
 
 ### 测试逃逸链与系统性漏洞
 
-1. **单元测试**：使用真实系统时钟，未固定月份边界，也未指定非 UTC 时区；日期格和事件归属只验证“存在”，
+1. **单元测试**：使用真实系统时钟，未固定月份边界，也未指定非 UTC 时区；日期格和事件归属只验证"存在"，
    没有验证本地 15 日仍使用 `2026-07-15` 日期键。
 2. **集成测试**：调度器验证的是时间戳执行顺序，未覆盖 Calendar 对 UTC ISO 时间戳的本地展示语义。
 3. **端到端与视觉回归**：页面快照只证明路由可渲染，没有在月末或时区边界断言当天的高亮格。
-4. **代码审查**：没有把 `toISOString()` 识别为“传输格式”与“本地日历键”之间的语义边界；同一组件中混用
+4. **代码审查**：没有把 `toISOString()` 识别为"传输格式"与"本地日历键"之间的语义边界；同一组件中混用
    本地 getter 和 UTC 字符串未被视为不变量破坏。
 
 ### 修复与回归保护
 
 - Calendar 统一通过本地 getter 生成日期键；完整的 `YYYY-MM-DD` 字面量仍视为日期键，其余有效时间戳按本地时区
   归属到日历格，事件时分也按相同本地时区显示。
-- “今天”继续按实时本地日期计算，点击“今天”同步更新月份和选中日期；CI 用例冻结时钟，不再以冻结产品状态来规避
+- "今天"继续按实时本地日期计算，点击"今天"同步更新月份和选中日期；CI 用例冻结时钟，不再以冻结产品状态来规避
   月末测试竞争。
 - 事件按解析后的真实时间排序而非原始字符串，避免 UTC ISO 与 `datetime-local` 无时区值混排时颠倒；不可能的
   `YYYY-MM-DD` 或其 datetime-local 变体在归档前被拒绝。
-- `Calendar.test.js` 固定 `Asia/Shanghai` 与假时钟，先得到日期格、当地午夜后的“今天”、UTC 边界事件归属和本地
+- `Calendar.test.js` 固定 `Asia/Shanghai` 与假时钟，先得到日期格、当地午夜后的"今天"、UTC 边界事件归属和本地
   事件时间三项 RED，再转为 GREEN；用例明确覆盖 `2026-07-14T16:30:00.000Z -> 2026-07-15`、无时区值混排
   和本地 HH:MM 显示。
 - 同一提交完成 Calendar 聚焦单测、目标 ESLint、Vue 1830 模块生产构建、Calendar 单视图视觉门禁，以及串行桌面
@@ -6548,7 +6696,7 @@ OIDC 登录、Token 或正常请求。
 
 1. UI 日历、日期筛选和日期输入必须明确采用本地日历键还是 UTC 传输键；禁止在同一比较中混用本地 getter 与
    `toISOString().slice(0, 10)`。
-2. 任何依赖“今天”“当前月”或日期边界的 Vue 测试必须冻结时钟；至少增加一条非 UTC 时区和一条跨月重算回归。
+2. 任何依赖"今天""当前月"或日期边界的 Vue 测试必须冻结时钟；至少增加一条非 UTC 时区和一条跨月重算回归。
 3. 代码审查针对日期展示时检查日期键、事件归属、选中日期和显示时间是否使用同一时区语义。
 
 ---
@@ -6557,30 +6705,30 @@ OIDC 登录、Token 或正常请求。
 
 ### 根因（第一性原因）
 
-**Bug 现象**：模型服务商新增向导中，图片、视频、LLM 等所有类别的预设列表都为空，界面显示“暂无可添加”。
+**Bug 现象**：模型服务商新增向导中，图片、视频、LLM 等所有类别的预设列表都为空，界面显示"暂无可添加"。
 
 **5 Whys 根因溯源**：
 
 1. 为什么图片类别为空 → IPC `model-provider:presets("image")` 返回空预设数组。
-2. 为什么 IPC 为空 → [`getAvailablePresets(category)`](../apps/desktop/electron/services/model-provider-manager.js) 排除了“已存在于 `model_providers` 表”的预设 ID。
+2. 为什么 IPC 为空 → [`getAvailablePresets(category)`](../apps/desktop/electron/services/model-provider-manager.js) 排除了"已存在于 `model_providers` 表"的预设 ID。
 3. 为什么所有 ID 都已入库 → 应用启动时 [`_seedPresets()`](../apps/desktop/electron/services/model-provider-manager.js) 已将全部 52 个预设写入本地数据库。
-4. 为什么仍以“是否已入库”判定能否添加 → 把“预设目录存在”（`_seedPresets` 已写入）和“用户已完成配置”（用户已填 API Key 并启用）混为同一状态。
-5. **根因**：`getAvailablePresets` 的语义错误，应返回“可配置的内置预设”，而不是“数据库中不存在的预设”。
+4. 为什么仍以"是否已入库"判定能否添加 → 把"预设目录存在"（`_seedPresets` 已写入）和"用户已完成配置"（用户已填 API Key 并启用）混为同一状态。
+5. **根因**：`getAvailablePresets` 的语义错误，应返回"可配置的内置预设"，而不是"数据库中不存在的预设"。
 
-**历史追溯**：该矛盾由 commit `b00d5a7`（全局模型服务商系统）引入，`b60a2b96` 固化了过滤逻辑；不是“已配置 0”修复造成的回归。
+**历史追溯**：该矛盾由 commit `b00d5a7`（全局模型服务商系统）引入，`b60a2b96` 固化了过滤逻辑；不是"已配置 0"修复造成的回归。
 
 ### 测试逃逸链
 
-1. **单元测试**：[`model-provider-manager.test.js`](../apps/desktop/tests/model-provider-manager.test.js) 甚至明确断言“预设已初始化写入，所以应该为空” — 将错误行为当成正确合同固化下来。
+1. **单元测试**：[`model-provider-manager.test.js`](../apps/desktop/tests/model-provider-manager.test.js) 甚至明确断言"预设已初始化写入，所以应该为空" — 将错误行为当成正确合同固化下来。
 2. **composable 测试**：使用脱离真实 IPC 的 mock，`modelProviderPresets.mockResolvedValueOnce({ data: [] })` 未覆盖非空预设路径。
-3. **集成测试缺失**：没有“空 userData → init 种子 → IPC presets 返回非空”端到端回归。
+3. **集成测试缺失**：没有"空 userData → init 种子 → IPC presets 返回非空"端到端回归。
 4. **代码审查盲区**：种子初始化（写入全部预设）与 `getAvailablePresets`（排除已入库）的语义冲突没有被识别。
 
 ### 系统性漏洞
 
-- **状态语义混淆**：`is_preset` 标志同时表示“种子目录存在”和“用户已完成配置”，导致 `getAvailablePresets` 用错误的状态判定能否添加。
-- **测试断言反向**：测试断言“预设已入库 → 列表应为空”把 Bug 当成正确合同，反向固化了错误行为。
-- **mock 过度**：composable 测试 mock 了 IPC，没有覆盖“IPC 返回非空 → composable 转发到模板”的真实路径。
+- **状态语义混淆**：`is_preset` 标志同时表示"种子目录存在"和"用户已完成配置"，导致 `getAvailablePresets` 用错误的状态判定能否添加。
+- **测试断言反向**：测试断言"预设已入库 → 列表应为空"把 Bug 当成正确合同，反向固化了错误行为。
+- **mock 过度**：composable 测试 mock 了 IPC，没有覆盖"IPC 返回非空 → composable 转发到模板"的真实路径。
 
 ### 修复 + 回归保护
 
@@ -6602,12 +6750,12 @@ getAvailablePresets (category) {
 **回归保护测试**（3 层防护）：
 
 1. **后端单元测试**（`apps/desktop/tests/model-provider-manager.test.js`）：
-   - 修正原错误断言“预设已初始化写入应为空”为“应返回该类别可配置的预设，即使种子行已经初始化”。
-   - 新增“选预设后 createProvider 返回 already exists，updateProvider 补填 API Key 成功”测试覆盖降级更新路径。
-   - 新增“getAvailablePresets 返回的预设包含 base_url 和 models 字段”测试覆盖字段完整性。
+   - 修正原错误断言"预设已初始化写入应为空"为"应返回该类别可配置的预设，即使种子行已经初始化"。
+   - 新增"选预设后 createProvider 返回 already exists，updateProvider 补填 API Key 成功"测试覆盖降级更新路径。
+   - 新增"getAvailablePresets 返回的预设包含 base_url 和 models 字段"测试覆盖字段完整性。
 
 2. **composable 测试**（`apps/desktop/src/composables/useModelProviderCrud.test.js`）：
-   - 新增“loadAvailablePresets 转发 IPC 返回的预设列表到 availablePresets”测试，mock 返回非空数组（flux、dall-e）。
+   - 新增"loadAvailablePresets 转发 IPC 返回的预设列表到 availablePresets"测试，mock 返回非空数组（flux、dall-e）。
    - 更新 composable 导出完整性测试，包含 `loadAvailablePresets` 导出断言。
 
 3. **真实 DB + IPC 集成回归**（`apps/desktop/electron/services/model-provider-preset-integration.test.js`）：
@@ -6616,9 +6764,9 @@ getAvailablePresets (category) {
 
 ### 预防措施（R85）
 
-1. **R85：预设/种子类语义合同** — `getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”。“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定，不能与“种子是否写入”混为一谈。修改此类 API 时必须：(1) 验证空 userData 初始化后预设列表非空；(2) 验证种子已入库但预设列表仍返回全部项；(3) 验证用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。
-2. **测试断言不得反向固化错误行为** — 任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。
-3. **mock 不得掩盖真实数据流** — composable 测试如果只 mock IPC 返回空数组，就无法发现“真实 IPC 返回非空时 composable 是否正确转发”。每个 composable 测试至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的用例，覆盖真实数据路径。
+1. **R85：预设/种子类语义合同** — `getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等"可配置目录"类 API 必须返回该类别全部内置预设，**不得用"是否已入库"判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示"目录存在"，不表示"用户已完成配置"。"是否已配置"必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定，不能与"种子是否写入"混为一谈。修改此类 API 时必须：(1) 验证空 userData 初始化后预设列表非空；(2) 验证种子已入库但预设列表仍返回全部项；(3) 验证用户选预设后保存路径走"ID 冲突 → 降级更新"而非创建重复行。
+2. **测试断言不得反向固化错误行为** — 任何断言"X 已初始化所以 Y 应为空"的测试必须额外验证"Y 为空是用户期望行为"而非"实现副作用"。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为"Y 应返回全部可配置项"。
+3. **mock 不得掩盖真实数据流** — composable 测试如果只 mock IPC 返回空数组，就无法发现"真实 IPC 返回非空时 composable 是否正确转发"。每个 composable 测试至少包含一条"IPC 返回非空数据 → composable 转发到响应式状态"的用例，覆盖真实数据路径。
 4. **新增真实 DB + IPC 集成回归** — `apps/desktop/electron/services/model-provider-preset-integration.test.js` 必须在每次修改 `model-provider-manager.js` 的预设相关方法（`getAvailablePresets` / `createProvider` / `updateProvider` / `_seedPresets`）后运行，确保从 IPC 入口到 DB 的完整链路不被破坏。
 
 ---
@@ -6628,18 +6776,18 @@ getAvailablePresets (category) {
 ### 第一性原因
 
 - `ModelProviderManager._safeRow()` 只要发现 `api_key_enc` 有值就调用 `crypto.mask()`；而 `crypto.decrypt()` 遇到旧密钥、无效安全存储或解密失败时会返回空字符串，`crypto.mask('')` 却会生成 `****`。
-- 因此渲染层把 `****` 当作“已配置”，但 `getProviderWithKey()`/`testConnection()` 实际拿到空 Key 并正确拒绝调用，造成同一条记录在列表与测试入口表现矛盾。
+- 因此渲染层把 `****` 当作"已配置"，但 `getProviderWithKey()`/`testConnection()` 实际拿到空 Key 并正确拒绝调用，造成同一条记录在列表与测试入口表现矛盾。
 
 ### 测试逃逸链与修复
 
-1. 单元测试只覆盖“解密抛异常”和“无加密字段”，没有覆盖“解密正常返回空字符串”。
+1. 单元测试只覆盖"解密抛异常"和"无加密字段"，没有覆盖"解密正常返回空字符串"。
 2. `isConfigured()` 只统计 `api_key_enc IS NOT NULL AND enabled = 1`，把不可解密历史 blob 当成可用凭据。
 3. 修复把明文读取统一收敛到 `_getApiKey()`；列表遮罩、测试连接与类别状态都基于同一条解密结果判定。
 4. `model-provider-manager.test.js` 新增两条回归：解密为空不得显示遮罩；已启用但解密为空不得计为已配置。
 
 ### 预防措施
 
-- 模型凭据状态不得以“加密字段存在”作为可用性依据；任何面向 UI、默认选择或调用前置检查的“已配置”判断都必须以可解密且非空的 Key 为准。
+- 模型凭据状态不得以"加密字段存在"作为可用性依据；任何面向 UI、默认选择或调用前置检查的"已配置"判断都必须以可解密且非空的 Key 为准。
 - 修改加密凭据读取或掩码逻辑时，必须同时覆盖：可解密、解密抛错、解密返回空字符串，以及同一记录在列表统计和实际测试调用中的一致性。
 
 ---
@@ -6649,7 +6797,7 @@ getAvailablePresets (category) {
 ### 第一性原因
 
 - 添加预设时，ID、名称、Base URL 和模型列表由预设自动填充；`useModelProviderCrud.submitForm()` 只检查名称或 ID，空 API Key 仍请求 IPC。
-- 预设的种子行已存在，创建路径返回重复 ID 后前端降级为更新；更新空 Key 不改变凭据却返回成功。默认“已配置”视图再按可用 Key 过滤，形成“保存成功但列表没有新增项”的矛盾体验。
+- 预设的种子行已存在，创建路径返回重复 ID 后前端降级为更新；更新空 Key 不改变凭据却返回成功。默认"已配置"视图再按可用 Key 过滤，形成"保存成功但列表没有新增项"的矛盾体验。
 - MiniMax Image 的 seeds、适配器静态模型列表、保存配置和请求参数彼此独立维护，使 `image-01-live` 能重新进入表单和真实请求，违背固定 `image-01` 的产品合同。
 
 ### 修复与回归保护
@@ -6661,7 +6809,7 @@ getAvailablePresets (category) {
 
 ### 预防措施（R86）
 
-1. **新增服务商成功合同**：任何可保存的远程服务商必须在保存前同时满足 ID、名称、类别和可用凭据；成功提示后必须能从同一筛选视图回读该项。修改 CRUD、IPC 或筛选状态时，至少保留“空凭据拒绝 + 成功创建后回读”的成对回归。
+1. **新增服务商成功合同**：任何可保存的远程服务商必须在保存前同时满足 ID、名称、类别和可用凭据；成功提示后必须能从同一筛选视图回读该项。修改 CRUD、IPC 或筛选状态时，至少保留"空凭据拒绝 + 成功创建后回读"的成对回归。
 2. **固定模型单一来源**：若服务商产品约定固定模型，seeds、持久化规范化、UI 表单、adapter `listModels()` 与请求体必须由同一个规范化规则约束；不得仅在 UI 隐藏字段而让存量记录或调用参数覆盖真实请求。
 3. **配置状态单一来源**：UI 不得从 `api_key_enc`、掩码或字段存在性自行推断已配置；主进程必须返回可调用状态，且该状态同时考虑启用开关、可解密凭据和合法免 Key 条件。
 ---
@@ -6673,26 +6821,26 @@ getAvailablePresets (category) {
 - 新增远程模型的 API Key 经过 Electron `safeStorage.encryptString()` 后以 BLOB 写入 `model_providers.api_key_enc`。
 - 桌面端的 `sqlite-wrapper` 基于 sql.js；`statement.getAsObject()` 对该 BLOB 返回 `Uint8Array`，而不是 Node `Buffer`。
 - `crypto._toBuffer()` 只将 `Buffer` 视为二进制，其他对象会先 `String()` 再按 Base64 解码。`Uint8Array` 因此变成逗号分隔的数字文本并被破坏；`decrypt()` 按既有 fail-closed 语义返回空字符串。
-- `_safeRow()` 继而给出 `is_configured: false`，默认“已配置”视图将刚保存的模型筛掉，形成“保存成功但列表没有新增”的假象。
+- `_safeRow()` 继而给出 `is_configured: false`，默认"已配置"视图将刚保存的模型筛掉，形成"保存成功但列表没有新增"的假象。
 
 ### 测试逃逸链
 
 1. 单元测试虽有 `Uint8Array` 用例，但只断言返回值类型，允许解密失败后的空字符串通过；没有锁定 sql.js 数据库驱动回读的原始字节语义。
 2. 模型服务商 CRUD 测试 mock 了加密层，真实 `sqlite-wrapper -> crypto.decrypt()` 的二进制类型合同被绕过。
-3. 既有真实 Electron 验证主要检查页面可打开、预设可见与空 Key 拦截，没有完成“新远程模型保存后默认已配置视图立即回读”的完整流程。
-4. 审查未把“SQLite BLOB 驱动返回类型”视为跨实现的运行时数据契约。
+3. 既有真实 Electron 验证主要检查页面可打开、预设可见与空 Key 拦截，没有完成"新远程模型保存后默认已配置视图立即回读"的完整流程。
+4. 审查未把"SQLite BLOB 驱动返回类型"视为跨实现的运行时数据契约。
 
 ### 修复与回归保护
 
 - `crypto._toBuffer()` 现接受所有 `ArrayBuffer` view（包括 `Uint8Array`）和独立 `ArrayBuffer`，并使用原始 buffer、offset 与 byte length 重建 Node `Buffer`，不再经过字符串/Base64 路径。
 - `crypto.test.js` 先以 sql.js 形态的 `Uint8Array` 得到 RED，再验证修复后的解密回读 GREEN；Buffer/Base64 兼容合同继续保留。
-- 用真实 Electron 隔离 profile 新增两个自定义图片模型并返回默认“已配置”视图；保存后对话框关闭且模型卡片立即可见。
+- 用真实 Electron 隔离 profile 新增两个自定义图片模型并返回默认"已配置"视图；保存后对话框关闭且模型卡片立即可见。
 - 同步修正过时测试：远程服务商缺少 API Key 必须被拒绝，不能把旧的空凭据创建语义继续固化为通过。
 
 ### 预防措施（R87）
 
 1. 使用 sql.js、better-sqlite3 或任何可替换存储驱动保存二进制凭据时，测试必须覆盖原始 `Buffer`、驱动回读的 typed array 与序列化 Base64 三种载体，且字节值保持等价。
-2. 加密凭据的 UI 状态、可用性检查与实际调用必须基于同一次可解密回读，不能只以 BLOB 非空或保存成功推断“已配置”。
+2. 加密凭据的 UI 状态、可用性检查与实际调用必须基于同一次可解密回读，不能只以 BLOB 非空或保存成功推断"已配置"。
 3. 任何模型服务商新增/编辑修复至少保留一次真实 Electron 冒烟：保存 → 列表重载 → 默认筛选视图中出现目标服务商。
 ---
 
@@ -6701,16 +6849,16 @@ getAvailablePresets (category) {
 ### 问题与复现
 
 - **现象**：新增模型保存后，用户返回模型服务商列表仍看不到新增项，并怀疑应用回到了旧版本。
-- **预期**：桌面窗口必须加载当前 worktree 的 renderer；远程服务商在填写有效 API Key 后保存，默认“已配置”视图应立即显示新卡片，且旧分类筛选不得遮挡。
+- **预期**：桌面窗口必须加载当前 worktree 的 renderer；远程服务商在填写有效 API Key 后保存，默认"已配置"视图应立即显示新卡片，且旧分类筛选不得遮挡。
 - **复现**：在 `C:/tmp/Multi-Publish-story2video-scope-e2e` 直接执行 `electron .` 且未传 `DEV_SERVER_PORT` 时，Electron 自动访问 `http://127.0.0.1:5174/`；该端口运行的是另一份旧 Vite 服务。改为 `DEV_SERVER_PORT=5178` 后，CDP 页面 URL 为 `http://127.0.0.1:5178/#/`，模型列表实现恢复为当前工作树版本。
 
 ### 5 Whys 与第一性原因
 
-1. 为什么用户看到“修复又失效” → 可见窗口加载的 renderer 不是当前 worktree 的 Vite 实例。
+1. 为什么用户看到"修复又失效" → 可见窗口加载的 renderer 不是当前 worktree 的 Vite 实例。
 2. 为什么加载了错误 renderer → 裸启动 `electron .` 未传目标 `DEV_SERVER_PORT`。
 3. 为什么未传端口仍能打开应用 → Electron 开发配置会回退到默认端口 `5174`，而该端口恰有旧 Vite 服务可响应。
 4. 为什么此前验证没有拦住 → 只确认 Electron 进程存活/窗口存在，没有把 CDP 或窗口 URL 与当前 worktree 的 Vite 端口绑定核验。
-5. **根因**：开发启动证据缺少“窗口 renderer 来源 = 当前 worktree Vite 实例”的身份合同；旧端口服务可用时，进程存活和页面可见会产生错误的通过结论。
+5. **根因**：开发启动证据缺少"窗口 renderer 来源 = 当前 worktree Vite 实例"的身份合同；旧端口服务可用时，进程存活和页面可见会产生错误的通过结论。
 
 ### 逃逸链
 
@@ -6735,9 +6883,9 @@ getAvailablePresets (category) {
 
 ### 问题
 
-- **现象**：在“视频创作”点击“历史记录”后，页面持续显示“加载中…”，没有错误提示或重试路径。
+- **现象**：在"视频创作"点击"历史记录"后，页面持续显示"加载中…"，没有错误提示或重试路径。
 - **预期**：历史读取成功时显示记录；任一来源失败或超时时结束加载、保留另一来源的成功记录，并给出明确的重试入口。
-- **复现**：当前用户的 `story2video_projects_v1` 中存在遗留项目，且 `videoPath` 指向项目受控目录外的不可及时响应路径；在 Electron 中进入 `/create` 后点击“历史记录”。
+- **复现**：当前用户的 `story2video_projects_v1` 中存在遗留项目，且 `videoPath` 指向项目受控目录外的不可及时响应路径；在 Electron 中进入 `/create` 后点击"历史记录"。
 
 ### 5 Whys 与根因
 
@@ -6751,17 +6899,17 @@ getAvailablePresets (category) {
 
 ### 漏测分类与逃逸链
 
-- **PRD 缺口：是**。历史记录只定义了成功/空态，未定义“一个来源长期无响应、另一个来源成功”的验收行为。
-- **代码缺陷：是**。主进程未建立“恢复项只能探测受控目录内普通文件”的边界；UI 未为 IPC 悬挂设置 deadline。
+- **PRD 缺口：是**。历史记录只定义了成功/空态，未定义"一个来源长期无响应、另一个来源成功"的验收行为。
+- **代码缺陷：是**。主进程未建立"恢复项只能探测受控目录内普通文件"的边界；UI 未为 IPC 悬挂设置 deadline。
 - **测试缺口：是**。组件测试只覆盖快速 success/reject；服务测试未覆盖遗留目录外路径；`CreateHistory` 的第二入口也没有超时状态测试。
 - **流程缺口：是**。评审只检查异常抛出和 IPC 权限，未检查主进程同步 I/O 是否信任持久化外部路径，也未检查加载状态的可终止性。
 
 ### 修复与 RED→GREEN 证据
 
 1. `Story2VideoProjectService.listProjects()` 先用 `path.relative()` 做不触发 I/O 的词法受控目录检查，再逐段 `lstatSync` 检查项目目录和目标文件的每一级路径；目录外、非法 ID、任意 junction/符号链接、非普通文件或异常路径一律标为不可恢复。
-2. `CreateView` 的两条历史 IPC 均增加 5 秒 deadline；无论成功、失败或超时都会关闭加载状态。部分成功时保留已返回的记录并展示错误和“重试”。
+2. `CreateView` 的两条历史 IPC 均增加 5 秒 deadline；无论成功、失败或超时都会关闭加载状态。部分成功时保留已返回的记录并展示错误和"重试"。
 3. `CreateHistory` 的渲染记录和流水线记录也使用相同的 5 秒 deadline，补齐该模式的第二 UI 入口。
-4. RED：`CreateView` 的“一个 IPC 永不结算、另一个返回已完成记录”测试先失败；`CreateHistory` 的悬挂 `pipelineHistory()` 测试先失败。
+4. RED：`CreateView` 的"一个 IPC 永不结算、另一个返回已完成记录"测试先失败；`CreateHistory` 的悬挂 `pipelineHistory()` 测试先失败。
 5. RED：项目目录内 junction 指向目录外视频、以及两次并发加载时旧响应晚到的测试都先失败，证明原实现既会越过受控根，也会用旧响应覆盖新状态。
 6. GREEN：CreateHistory.test.js、CreateView.test.js 和 story2video-project-service.test.js 共 **93/93** 通过；浏览器 GUI E2E **270/270** 通过；Vue 构建通过。
 
@@ -6770,11 +6918,11 @@ getAvailablePresets (category) {
 1. 任意用户可见的历史/列表加载不得无限等待 IPC。每个请求必须有有界 deadline，并在超时、reject、异常响应和成功时统一结束 loading。
 2. 聚合多个来源时，任一来源失败不得覆盖另一来源的成功数据；错误横幅必须与已获取的数据同时可见，并提供重试。
 3. 主进程不得对持久化记录中的外部或未经验证的路径执行同步文件状态查询。先做不触发文件系统访问的词法受控根校验；随后必须逐段拒绝 junction/符号链接，只有受控目录内的普通文件才允许继续探测。
-4. 修改 `pipelineHistory`、`story2video:list-projects` 或任一历史页时，至少运行：一个悬挂 Promise 状态覆盖测试、一个部分成功渲染测试、一个旧响应竞态测试、一个目录外或 junction 遗留路径服务测试，以及 GUI E2E 的“创作流水线/创作历史”路由。
+4. 修改 `pipelineHistory`、`story2video:list-projects` 或任一历史页时，至少运行：一个悬挂 Promise 状态覆盖测试、一个部分成功渲染测试、一个旧响应竞态测试、一个目录外或 junction 遗留路径服务测试，以及 GUI E2E 的"创作流水线/创作历史"路由。
 
 ### 7 阶段回流映射
 
-- **Stage 2（PRD）**：需要补充“历史多来源部分失败和超时”的可验收状态。
+- **Stage 2（PRD）**：需要补充"历史多来源部分失败和超时"的可验收状态。
 - **Stage 5（TDD）**：已补两个 fake-timer RED→GREEN 回归和目录边界回归。
 - **Stage 6（评审）**：需要检查用户可见 loading 是否有终止条件、部分成功是否可见、以及持久化路径是否触发主进程同步 I/O。
 
@@ -6795,14 +6943,14 @@ getAvailablePresets (category) {
 
 ### 第一性原因
 
-PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧合同：以内部英文名 `Story2Video` 查找流水线并点击“启动编排”。产品已将 `story2video-compose` 本地化为“图片轮播”/`Image Carousel`，启动按钮统一为“启动流水线”，因此真实 GUI 在文案和动作定位上失败。
+PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧合同：以内部英文名 `Story2Video` 查找流水线并点击"启动编排"。产品已将 `story2video-compose` 本地化为"图片轮播"/`Image Carousel`，启动按钮统一为"启动流水线"，因此真实 GUI 在文案和动作定位上失败。
 
 ### 测试逃逸链
 
 1. `PipelineBrowser.test.js`、`CreateView.test.js` 验证了组件渲染和启动 IPC，但没有执行真实 Browser GUI runner。
 2. Vue build 和像素视觉回归只覆盖编译、布局和截图，不覆盖 helper 的用户可见文案合同。
 3. 推送前聚焦测试只跑 Vitest，未把 `route-functional-suite.js` 的真实浏览器路径纳入提交前快速门禁。
-4. 审查没有逐项比对旧流水线名称、旧按钮文案和“优先显示”排序语义。
+4. 审查没有逐项比对旧流水线名称、旧按钮文案和"优先显示"排序语义。
 5. 结果是旧合同直到远端 `gui-test` 才暴露，269/270 检查无法完成。
 
 ### 系统性漏洞
@@ -6812,13 +6960,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 修复与回归保护
 
 - 在 `PipelineBrowser.vue` 和 `/create` 实际流水线卡片输出 `data-pipeline-id`，测试按受控 ID 精确定位。
-- E2E 同时断言首卡为 `story2video-compose`、卡片显示中文或英文本地化名称，并点击“启动流水线”；内部 IPC 名称 `pipelineStartOrchestrated` 保持不变。
+- E2E 同时断言首卡为 `story2video-compose`、卡片显示中文或英文本地化名称，并点击"启动流水线"；内部 IPC 名称 `pipelineStartOrchestrated` 保持不变。
 - 新增稳定选择器组件断言；`PipelineBrowser.test.js` 与 `CreateView.test.js` 聚焦回归 68/68 通过。
 
 ### 预防措施
 
 1. 本地化 E2E 禁止依赖内部枚举文本，必须使用稳定 `data-*`/状态 class 加用户可见文案。
-2. “优先显示”类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
+2. "优先显示"类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
 3. 修改 Vue 文案、按钮或流水线排序时，提交前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。
 ## Story2Video 图片轮播权限提示与调试 profile 复盘（2026-08-05）
 
@@ -6895,7 +7043,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 本机无 wrapper 源码（仅有 `backups/codeagent-wrapper-*/` 的 truncated exe），无法改二进制重编。
 
 ### 修复 + 回归保护
-- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离“空值/空字符串值的 `--setting-sources`”，其余参数原样透传真实 `claude.exe`。
+- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离"空值/空字符串值的 `--setting-sources`"，其余参数原样透传真实 `claude.exe`。
 - shim 用 `%USERPROFILE%` 展开中文路径（batch 文件保持 ASCII，避免 GBK/代码页损坏）；Python 侧把 `--setting-sources ""`（wrapper 实际传空字符串）也视为无值。
 - 验证：`CLAUDE_SHIM_DRYRUN=1` 探针证明 wrapper 实际调用 shim 且净化命令正确（`-p --dangerously-skip-permissions --output-format stream-json --verbose -`）；claude 越过参数解析进入运行。
 
@@ -11175,7 +11323,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 托盘参数校验加固时曾把省略 `payload` 的合法旧调用一并拒绝，说明安全边界测试不能替代兼容性合同测试。
 
 **测试逃逸链**：
-- 单元测试：旧 mock 缺少 `senderFrame`，依赖测试环境放行，未覆盖“已打包 + 测试标记”的组合。
+- 单元测试：旧 mock 缺少 `senderFrame`，依赖测试环境放行，未覆盖"已打包 + 测试标记"的组合。
 - 集成测试：IPC mock 的平台定义结构与生产返回结构不一致，掩盖了页面异步加载问题。
 - E2E/视觉测试：以标题出现作为完成条件，未验证关键控件和 IPC 调用已完成。
 - 代码审查：只检查新增校验是否拒绝非法输入，没有同时检查合法默认参数是否保持兼容。
@@ -11251,7 +11399,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 单元测试只验证成功透传和 sender 拒绝，没有 cookies/localStorage/Token 输入。
 - 集成测试直接 mock Store，没有检查真实 SQLite 写入内容。
 - E2E 不调用低层 `storeAddAccount`，正常登录流程不会暴露该入口。
-- 代码审查把“可信窗口”误等同于“可信字段”。
+- 代码审查把"可信窗口"误等同于"可信字段"。
 
 **修复与保护**：IPC 创建账号使用公开字段白名单；真实 `account-store.test.js` 覆盖空对象、非法平台和合法写入；主进程 AccountManager/OAuth 凭证路径保持独立。
 
@@ -11260,7 +11408,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **第一性原因**：`e5e8e9e` 为退出流程增加频率控制定时器清理，目标是避免 timer 阻止退出，但没有同步定义等待、延迟和运行中任务的终止语义，关闭后仍可入队。
 
 **逃逸链**：
-- 单元测试覆盖任务执行、重试和频控，没有“关闭期间有三类任务”的组合。
+- 单元测试覆盖任务执行、重试和频控，没有"关闭期间有三类任务"的组合。
 - Electron 退出测试只验证服务调用，没有断言队列最终状态。
 - E2E/视觉测试不会在发布进行中关闭应用。
 - 审查只检查 timer 泄漏，未检查发布副作用是否停止。
@@ -11272,7 +11420,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **第一性原因**：`847cdf3` 迁移 PublisherRouter 时 publisher 只等待 RPA 结果，没有 AbortSignal 契约；后续任务队列引入 abort 后，只在调用前检查会让取消期间返回的成功结果覆盖取消状态。
 
 **逃逸链**：
-- 单元测试只有正常成功/失败，没有“await 期间取消后返回成功”。
+- 单元测试只有正常成功/失败，没有"await 期间取消后返回成功"。
 - 任务队列测试 mock executor，不经过真实 PublisherRouter。
 - E2E 无法稳定制造毫秒级竞态。
 - 审查关注 cancel 是否被调用，没有检查 await 返回后的信号状态。
@@ -11301,7 +11449,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - ASAR 门禁只检查路径条目和 require 链，未断言规则/预设实际加载，也未检查写目录。
 - 代码审查检查了 Electron `path-utils`，但没有沿顶层 require 追到 workspace 包中的独立相对路径。
 
-**系统性漏洞**：打包验证把“8 秒未退出”当成成功，缺少 stderr 语义门禁；worktree 借用其他工作区 `node_modules` 时也没有核验 workspace junction 的目标分支。
+**系统性漏洞**：打包验证把"8 秒未退出"当成成功，缺少 stderr 语义门禁；worktree 借用其他工作区 `node_modules` 时也没有核验 workspace junction 的目标分支。
 
 **修复与保护**：
 - 新增 `platform-config-path.test.js`，覆盖安装版 resources、显式路径、远程根目录和开发回退。
@@ -11321,17 +11469,17 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 ## 2026-07-23：全控件 E2E 扫描遗留确认删除遮罩
 
-**第一性原因**：`c4fae09` 引入路由通用控件扫描时，按顺序点击所有 `.cohere-main button`，但没有为会打开二次确认的按钮定义收尾语义。`44e2c6ea` 增加账号删除控件后，`removeAccount()` 会创建 Element Plus `ElMessageBox.confirm`；扫描器点击“删除”后既不确认也不取消，确认框和遮罩留在页面中，拦截后续“收藏”和“删除”按钮。
+**第一性原因**：`c4fae09` 引入路由通用控件扫描时，按顺序点击所有 `.cohere-main button`，但没有为会打开二次确认的按钮定义收尾语义。`44e2c6ea` 增加账号删除控件后，`removeAccount()` 会创建 Element Plus `ElMessageBox.confirm`；扫描器点击"删除"后既不确认也不取消，确认框和遮罩留在页面中，拦截后续"收藏"和"删除"按钮。
 
 **逃逸链**：
 - Accounts 单元测试 mock 了 `ElMessageBox.confirm` 的 Promise，只验证业务删除或取消，不会创建真实遮罩。
-- E2E 基础设施测试只验证每个按钮在页面重置后可点击、重渲染时最多重试一次，没有模拟“前一个按钮留下阻塞层”的状态。
-- 旧的本地路由报告只统计最终检查数，没有把“每次动作后的页面是否可继续交互”作为独立合同。
+- E2E 基础设施测试只验证每个按钮在页面重置后可点击、重渲染时最多重试一次，没有模拟"前一个按钮留下阻塞层"的状态。
+- 旧的本地路由报告只统计最终检查数，没有把"每次动作后的页面是否可继续交互"作为独立合同。
 - 代码审查关注了 data-testid 重定位和页面重置，却没有审查破坏性操作的完成或取消路径。
 
-**修复与回归保护**：`route-functional-suite.js` 在每次初始按钮点击后检测可见 `.el-message-box`，通过非主按钮执行取消，并等待确认框隐藏后才扫描下一个控件。`e2e-quality-infrastructure.test.js` 使用“删除 -> 确认遮罩 -> 下一按钮”的状态化 mock，断言取消动作发生、遮罩被清理且后续按钮仅成功点击一次。
+**修复与回归保护**：`route-functional-suite.js` 在每次初始按钮点击后检测可见 `.el-message-box`，通过非主按钮执行取消，并等待确认框隐藏后才扫描下一个控件。`e2e-quality-infrastructure.test.js` 使用"删除 -> 确认遮罩 -> 下一按钮"的状态化 mock，断言取消动作发生、遮罩被清理且后续按钮仅成功点击一次。
 
-**系统性预防**：通用 UI 控件审计不得把“已触发动作”当作完成；凡是可能产生确认框、模态层或破坏性副作用的动作，必须在同一审计步骤中显式恢复到可继续交互的状态，并以紧随其后的独立控件验证无残留遮罩。
+**系统性预防**：通用 UI 控件审计不得把"已触发动作"当作完成；凡是可能产生确认框、模态层或破坏性副作用的动作，必须在同一审计步骤中显式恢复到可继续交互的状态，并以紧随其后的独立控件验证无残留遮罩。
 
 ---
 
@@ -11355,12 +11503,12 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **第一性原因**：
 - `4f33523d` 的 `ProjectService.updateProject()` 每次直接使用 `new Date().toISOString()`；创建和连续更新发生在同一毫秒时，`updatedAt` 不变，破坏了项目排序和修改语义。
-- `6d048d01` 为内容情报 E2E 补充了 ReferenceFinder 关闭逻辑，但用全局 `.ui-modal` / `.ui-modal-close` 的 `.first()` 定位。UiModal 通过 Teleport 渲染，存在其他同类节点或遮罩时可能选错目标，导致 `.ui-modal-overlay` 留在页面上并拦截后台“清空”按钮。
+- `6d048d01` 为内容情报 E2E 补充了 ReferenceFinder 关闭逻辑，但用全局 `.ui-modal` / `.ui-modal-close` 的 `.first()` 定位。UiModal 通过 Teleport 渲染，存在其他同类节点或遮罩时可能选错目标，导致 `.ui-modal-overlay` 留在页面上并拦截后台"清空"按钮。
 
 **逃逸链**：
 - ProjectService 单元测试使用真实时钟，只断言字符串不同，未在固定同一毫秒下验证连续更新的严格递增；Gate 5 覆盖率运行恰好复现了竞争。
-- E2E 基础设施此前只覆盖 Element Plus 的确认框清理，没有覆盖 Teleport UiModal 的“打开参考内容 -> 精确关闭最新可见遮罩 -> 点击后台按钮”序列。
-- 内容情报路由报告把“参考内容弹窗可关闭”记录为失败后仍继续点击后台控件，最终只以遮罩拦截的 Playwright 超时表现出来，增加了定位成本。
+- E2E 基础设施此前只覆盖 Element Plus 的确认框清理，没有覆盖 Teleport UiModal 的"打开参考内容 -> 精确关闭最新可见遮罩 -> 点击后台按钮"序列。
+- 内容情报路由报告把"参考内容弹窗可关闭"记录为失败后仍继续点击后台控件，最终只以遮罩拦截的 Playwright 超时表现出来，增加了定位成本。
 - 代码审查只验证关闭选择器存在，没有校验选择器是否被限制在当前可见遮罩的作用域内。
 
 **修复与回归保护**：
@@ -11368,22 +11516,22 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 内容情报 E2E 现在定位 `.ui-modal-overlay:visible` 的最新实例，在其内部点击 `.ui-modal-close` 并等待该遮罩隐藏；关闭失败时不再尝试点击后台按钮。清空操作改为精确的 `button[title="清空"]`。
 - `e2e-quality-infrastructure.test.js` 以状态化 mock 复现遮罩拦截，断言关闭动作发生在清空动作之前；真实 Playwright 复验通过 intelligence 15/15 和完整 Gate 8 等价套件 270/270。
 
-**系统性预防**：所有时间序列字段都必须在业务需要排序或审计语义时定义单调性，并用 fake timer 覆盖同一时钟粒度。E2E 操作 Teleport/Modal 时必须使用“可见遮罩 + 子元素”的作用域选择器；任何模态关闭失败都必须阻止后续后台点击，不能继续执行并把根因伪装成元素点击超时。
+**系统性预防**：所有时间序列字段都必须在业务需要排序或审计语义时定义单调性，并用 fake timer 覆盖同一时钟粒度。E2E 操作 Teleport/Modal 时必须使用"可见遮罩 + 子元素"的作用域选择器；任何模态关闭失败都必须阻止后续后台点击，不能继续执行并把根因伪装成元素点击超时。
 
 ---
 
 ## 2026-07-23：账号页通用 E2E 扫描把非幂等动作当作普通控件
 
-**第一性原因**：`c4fae09` 的路由通用扫描枚举全部可见按钮，并在每次路由复位后通过初始 DOM `nth(index)` 重放点击。账号页的“设为默认”会变更账号状态并重渲染，“打开”会创建外部窗口，“验证”会触发异步登录检查，“删除”会创建确认框；这些动作既不是可重复的无副作用控件，也没有稳定的通用扫描收尾语义。同时，字段扫描在路由复位后把可见字段重新换算为序号，账号列表异步重建时 `select-acc_zhihu_001` 会在定位和点击之间失去可见性。
+**第一性原因**：`c4fae09` 的路由通用扫描枚举全部可见按钮，并在每次路由复位后通过初始 DOM `nth(index)` 重放点击。账号页的"设为默认"会变更账号状态并重渲染，"打开"会创建外部窗口，"验证"会触发异步登录检查，"删除"会创建确认框；这些动作既不是可重复的无副作用控件，也没有稳定的通用扫描收尾语义。同时，字段扫描在路由复位后把可见字段重新换算为序号，账号列表异步重建时 `select-acc_zhihu_001` 会在定位和点击之间失去可见性。
 
 **逃逸链**：
 - Accounts 组件和业务测试分别验证了打开、登录检测、删除确认，却没有声明哪些动作不适合通用点击审计。
-- 通用扫描单元测试覆盖了 data-testid 重定位和确认框取消，但没有覆盖“显式跳过非幂等控件”或“复位后异步列表按稳定 testid 重定位”。
-- 本地一次完整路由报告为 226/226，而 Windows CI 作业 `29973174669` 在 `/accounts` 得到 268/270：其中两个路由检查失败，按钮审计内部记录了“打开 / 验证 / 删除”三个控件的超时，字段审计记录了一个账号复选框复位后不可见，掩盖了测试基础设施的时序问题。
+- 通用扫描单元测试覆盖了 data-testid 重定位和确认框取消，但没有覆盖"显式跳过非幂等控件"或"复位后异步列表按稳定 testid 重定位"。
+- 本地一次完整路由报告为 226/226，而 Windows CI 作业 `29973174669` 在 `/accounts` 得到 268/270：其中两个路由检查失败，按钮审计内部记录了"打开 / 验证 / 删除"三个控件的超时，字段审计记录了一个账号复选框复位后不可见，掩盖了测试基础设施的时序问题。
 - 代码审查关注了确认遮罩清理，却没有审查通用扫描的适用边界和 `nth(index)` 在重渲染页面上的身份稳定性。
 
 **修复与回归保护**：
-- `PlatformAccountGroup` 为“设为默认 / 打开 / 验证 / 删除”声明带稳定 testid 的 `data-e2e-scan="manual"`；`accounts` 路由必须显式声明这些手工场景，通用扫描拒绝未声明的标记，避免静默跳过新增关键控件。专门场景分别验证设为默认 IPC、外部链接 URL 与目标、登录检测 IPC，以及取消删除前后删除 IPC 计数不变；设为默认后重新进入账号页，隔离其重渲染影响。
+- `PlatformAccountGroup` 为"设为默认 / 打开 / 验证 / 删除"声明带稳定 testid 的 `data-e2e-scan="manual"`；`accounts` 路由必须显式声明这些手工场景，通用扫描拒绝未声明的标记，避免静默跳过新增关键控件。专门场景分别验证设为默认 IPC、外部链接 URL 与目标、登录检测 IPC，以及取消删除前后删除 IPC 计数不变；设为默认后重新进入账号页，隔离其重渲染影响。
 - `auditInitialControls()` 读取该声明并记录为 skipped；`auditInitialFields()` 对带 `data-testid` 的字段先等待稳定 CSS 定位可见且唯一，再操作，避免再次依赖可变的可见序号。外部链接替身会保存并恢复 `window.open` 与同名全局属性的原始描述符。
 - `e2e-quality-infrastructure.test.js` 新增两条状态化回归：跳过按钮不得被点击，异步复位后缺失可见序号时仍要通过 `data-testid` 找到账号复选框。真实 Playwright `/accounts` 复验 14/14、零 console/page error。
 
@@ -11411,7 +11559,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **修复与回归保护**：`IdentityAuthWindow.clearSession()` 关闭窗口后清理隔离 session，`AuthService` 在清理本地凭证前调用该能力，失败时保留本地凭证并进入可重试错误状态。窗口关闭结算改为幂等并优先使用 `destroy()`：即使窗口已销毁、关闭事件尚未到达或常规关闭被阻止，也会结算等待方并继续存储清理。权限与下载拦截器改为由 `IdentityAuthWindow` 持有整个 session 生命周期，只在成功清理 session 后释放；外部浏览器回退 URL 绑定到当前窗口，过期窗口回调只阻止导航而不会打开新一轮授权地址。Agent Judge 与自主审计门禁传入本轮开始的毫秒时间，门禁和 PR 评论均忽略更早的报告；自主审计即使得到零退出码，也必须读取本轮 `autonomous-e2e-report-*.json` 且确认 `overall: PASS`，否则 fail closed。回归测试覆盖缺失报告、旧 PASS、零退出码与非 PASS 报告不一致、旧 NEED_HUMAN、已销毁窗口、关闭被阻止、窗口重开、旧窗口迟到导航、会话清理顺序和清理失败。
 
-**系统性预防**：任何持久化浏览器 partition 都必须拥有明确的登出清理接口，并在账号切换路径覆盖成功与失败语义；同一 Electron session 的单槽安全处理器必须按 session 而不是按窗口管理。所有等待窗口关闭的路径都必须有幂等结算函数，能够处理“正常 closed 事件”“已销毁但事件未到达”和“常规关闭被阻止”三种状态；每个窗口回调都必须绑定实例本身的授权上下文，并忽略过期窗口。CI 中从共享目录读取结论时，必须绑定本轮唯一标识或生成时间，缺少本轮产物应当 fail closed，不能以旧产物降级或放行。进程退出码只能说明执行状态，不能替代机器可读交付物的存在性和语义校验；每条成功门禁都要同时测试“无产物”“陈旧产物”“产物与退出码矛盾”三种反例。
+**系统性预防**：任何持久化浏览器 partition 都必须拥有明确的登出清理接口，并在账号切换路径覆盖成功与失败语义；同一 Electron session 的单槽安全处理器必须按 session 而不是按窗口管理。所有等待窗口关闭的路径都必须有幂等结算函数，能够处理"正常 closed 事件""已销毁但事件未到达"和"常规关闭被阻止"三种状态；每个窗口回调都必须绑定实例本身的授权上下文，并忽略过期窗口。CI 中从共享目录读取结论时，必须绑定本轮唯一标识或生成时间，缺少本轮产物应当 fail closed，不能以旧产物降级或放行。进程退出码只能说明执行状态，不能替代机器可读交付物的存在性和语义校验；每条成功门禁都要同时测试"无产物""陈旧产物""产物与退出码矛盾"三种反例。
 
 ---
 
@@ -11421,12 +11569,12 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **逃逸链**：
 - 单元测试：`789afd6` 当时没有 `AppNavbar.test.js`，也没有样式合同测试；组件测试只验证身份菜单行为，无法发现 CSS 几何错误。本轮初版测试也只验证发布记录数据、空态和路由，没有覆盖批量选择或移动端宽度。
-- 集成测试：Logto 集成测试聚焦身份 IPC、会话和租户隔离，没有在真实应用外壳中组合“主导航 + 身份菜单 + 窄窗口”。发布历史 API 与页面数据合同正确，因此数据集成测试不会触发布局失败。
+- 集成测试：Logto 集成测试聚焦身份 IPC、会话和租户隔离，没有在真实应用外壳中组合"主导航 + 身份菜单 + 窄窗口"。发布历史 API 与页面数据合同正确，因此数据集成测试不会触发布局失败。
 - 端到端测试：`identity-menu.e2e.js` 检查菜单自身在 1440x900 和 1024x600 内可见，但没有断言 `.nav-primary` 单行、主导航与内容不重叠；发布记录初版也没有移动端批量选择场景。
 - 视觉回归：既有补充视觉测试只断言导航元素存在或 active 状态，未检查几何关系。发布记录是新视图，像素门禁在没有人工基线时只能阻断，不能提前说明批量状态的移动布局正确。
 - 代码审查：`789afd6` 跨 158 个文件，审查重心落在认证和隔离安全，模板结构变化没有被同步追踪到 CSS ownership；固定宽度公式也没有逐项核算条件渲染元素、间距和内边距。
 
-**系统性漏洞**：现有响应式验证把单个控件“位于视口内”当作页面布局正确，缺少页面横向滚动、导航/主内容相交、条件元素插入后的卡片宽度三类合同；新增 flex wrapper 时也没有强制检查 `min-width`、收缩和 overflow 的组合语义。
+**系统性漏洞**：现有响应式验证把单个控件"位于视口内"当作页面布局正确，缺少页面横向滚动、导航/主内容相交、条件元素插入后的卡片宽度三类合同；新增 flex wrapper 时也没有强制检查 `min-width`、收缩和 overflow 的组合语义。
 
 **修复与回归保护**：`.nav-primary` 现在是可收缩的单行 flex 容器，在空间不足时仅自身横向滚动；导航项和右侧操作区禁止收缩，1024px/768px 下收紧间距并隐藏非关键状态文字。发布记录移动端 `.record-main` 改为 `width: auto; flex: 1 1 0`，由剩余空间决定宽度。`cohere-design-system.test.js` 固化导航容器合同，`PublishHistory.test.js` 覆盖批量选择、全选/取消和移动宽度合同；`capture-yixiaoer-current.js` 用测试 fixture 在 1440x900 与 480x800 捕获账号、发布记录和批量模式，并对页面横向溢出、卡片边界、文字控件和导航重叠执行真实 Chromium 断言。
 
@@ -11440,28 +11588,28 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **逃逸链**：单元测试和上传/适配器测试均在完整源码工作树运行，根 `node_modules` 的依赖提升遮蔽了 `js-yaml` 未声明；`prepublishOnly` 未检查 tarball 文件表，部署合同只做 Dockerfile 文本正则，没有按 runner `COPY` 文件集加载真实入口；CI 没有构建并启动业务 API 镜像，也未覆盖非 root 插件目录和 Alpine IPv4/IPv6 行为。OIDC 测试只用自生成 RS256/RSA fixture，没有对生产 discovery/JWKS 做算法契约验证。于是单元、集成、静态审查和 CI 都通过，首次 ECS 启动才依次暴露 `Cannot find module`、插件 `EACCES`、healthcheck 失败，以及生产 JWKS 无可用签名密钥。
 
-**系统性漏洞**：当前测试把“源码树可运行”“npm 发布包完整”“Docker runner 文件集完整”“容器以最终用户可运行”和“目标身份提供方互操作”混成一个结论。它们其实是五个独立边界；任何一个边界缺失，都可能在源码测试全绿时阻断生产。
+**系统性漏洞**：当前测试把"源码树可运行""npm 发布包完整""Docker runner 文件集完整""容器以最终用户可运行"和"目标身份提供方互操作"混成一个结论。它们其实是五个独立边界；任何一个边界缺失，都可能在源码测试全绿时阻断生产。
 
 **修复与回归保护**：runner 显式复制 `upload/`，npm `files` 同步包含 `upload/`，API workspace 直接声明 `js-yaml`；Compose 将插件目录设置为 `/app/data/plugins`，两个 bind mount 均使用 `create_host_path: false`，运行手册要求部署前以 UID/GID 1001 创建 config、data 和 plugins，避免 Docker 生成 root-owned 目录；Dockerfile 与 Compose healthcheck 固定使用 `127.0.0.1`。`logto-deploy-contract.test.js` 依据 runner 的本地 `COPY` 清单构造隔离 staging，以依赖声明守卫加载真实 `src/index.js`，同时固定 bind mount fail-closed 合同；`npm pack --dry-run` 验证 tarball。Node/Python 验证器只允许 `RS256 + RSA` 与 `ES384 + EC + P-384`，拒绝算法、密钥类型、曲线和签名编码错配，并以 `alg:kid` 作为 JWKS/未知密钥缓存键；两端均增加真实签名和负缓存隔离回归。生产候选还必须在 ECS 无缓存 build、以非 root 用户启动，并验证 health、ready、未认证 `/me`、production smoke 和错误日志。
 
-**系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以“只允许一种算法”替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
+**系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以"只允许一种算法"替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
 ---
 ## 2026-07-24：self-hosted Electron CI 的 Vitest 缺少资源上限和超时诊断
 
-**第一性原因**：`71b1e979b0fa05eed215984d87428aaac0f40c14` 在扩大 Electron 与 preload 测试收集范围时，将桌面 Vitest 默认并发固定为 `maxWorkers: 4`。该改动在开发机上能够退出，但 self-hosted Linux runner 上两次运行都在单元测试步骤静默占满 30 分钟后被 job 级超时取消。根因边界是“共享 runner 上的并发资源竞争，加上没有测试步骤 watchdog 和进程诊断”；本机 Loopback 单文件约 3 秒退出、四 worker 全量约 6 分钟退出，因此不能把某个 HTTP server 或单个测试文件写成已确认根因。
+**第一性原因**：`71b1e979b0fa05eed215984d87428aaac0f40c14` 在扩大 Electron 与 preload 测试收集范围时，将桌面 Vitest 默认并发固定为 `maxWorkers: 4`。该改动在开发机上能够退出，但 self-hosted Linux runner 上两次运行都在单元测试步骤静默占满 30 分钟后被 job 级超时取消。根因边界是"共享 runner 上的并发资源竞争，加上没有测试步骤 watchdog 和进程诊断"；本机 Loopback 单文件约 3 秒退出、四 worker 全量约 6 分钟退出，因此不能把某个 HTTP server 或单个测试文件写成已确认根因。
 
 **逃逸链**：
 - 单元测试：测试只验证业务断言，没有验证完整收集集在受限 runner 上能于预算内退出，也没有对默认 worker 数设置合同。
 - 集成测试：Electron smoke 位于 Vitest 之后，单元测试不退出时永远到不了 smoke，因此无法提供进程生命周期证据。
 - 端到端测试：GUI 和视觉工作流使用其他 runner/命令路径，未复现 self-hosted Electron job 的资源配置。
-- CI：只有 30 分钟 job 级超时；Vitest 步骤没有更短 watchdog、verbose reporter、test/hook/teardown timeout，失败后也没有进程树快照，日志只能说明“被取消”，无法定位仍存活的 worker 或子进程。
+- CI：只有 30 分钟 job 级超时；Vitest 步骤没有更短 watchdog、verbose reporter、test/hook/teardown timeout，失败后也没有进程树快照，日志只能说明"被取消"，无法定位仍存活的 worker 或子进程。
 - 代码审查：`maxWorkers: 4` 被当成加速参数评估，没有同步核算扩大收集范围、jsdom、Electron mock 与 self-hosted 机器容量的组合成本。
 
-**系统性漏洞**：仓库过去只约束 coverage 脚本串行，没有约束默认 Vitest 配置与 Electron CI 命令；工作流合同也没有测试“单元测试必须在 job 超时前自行失败并输出诊断”。这使资源型退化既能绕过本地功能测试，又会在 CI 中消耗完整 runner 配额。
+**系统性漏洞**：仓库过去只约束 coverage 脚本串行，没有约束默认 Vitest 配置与 Electron CI 命令；工作流合同也没有测试"单元测试必须在 job 超时前自行失败并输出诊断"。这使资源型退化既能绕过本地功能测试，又会在 CI 中消耗完整 runner 配额。
 
 **修复与回归保护**：`apps/desktop/vitest.config.js` 固定 `maxWorkers: 1` 和 `fileParallelism: false`。`.github/workflows/electron-ci.yml` 使用 20 分钟 GNU `timeout` 包裹串行 Vitest，并开启 verbose reporter、10 秒 test/hook/teardown timeout；失败后执行 `ps -eo ... --forest`。`.github/scripts/workflow-contract.test.js` 固化默认配置，`apps/desktop/tests/gui-ci-exit-contract.test.js` 固化 workflow 参数、诊断步骤和禁止回退到四 worker。
 
-**系统性预防**：self-hosted runner 上的全量测试必须显式声明 worker/file parallelism、步骤级 watchdog 和失败诊断；job 级 timeout 只作为最后保险，不能代替步骤预算。增加测试收集范围或真实子进程测试时，必须同时复核 runner 资源预算和退出行为；对根因的描述必须区分“已在 CI 证实”“本机复现”和“待诊断假设”，不得把可疑测试文件写成确认结论。
+**系统性预防**：self-hosted runner 上的全量测试必须显式声明 worker/file parallelism、步骤级 watchdog 和失败诊断；job 级 timeout 只作为最后保险，不能代替步骤预算。增加测试收集范围或真实子进程测试时，必须同时复核 runner 资源预算和退出行为；对根因的描述必须区分"已在 CI 证实""本机复现"和"待诊断假设"，不得把可疑测试文件写成确认结论。
 
 ---
 
@@ -11469,7 +11617,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **第一性原因**：截图脚本默认连接 `http://127.0.0.1:5174`。并行 worktree 开发时，该端口已经由旧版本 Vite 占用；旧页面返回 HTTP 200，却没有 `/publish/history` 路由，所以发布记录和批量发布在等待就绪选择器时超时。目标 worktree 的路由和组件本身是完整的，切换到独立端口后九张截图均能生成。
 
-**逃逸链**：`assertServerReady()` 只验证根路径状态码，不能证明服务属于当前 worktree；截图合同测试使用 page mock，不会连接真实 Vite；之前的手工捕获没有把 `TEST_URL` 和工作目录作为同一个前置条件记录，因而将“端口可访问”误读为“目标页面可审计”。
+**逃逸链**：`assertServerReady()` 只验证根路径状态码，不能证明服务属于当前 worktree；截图合同测试使用 page mock，不会连接真实 Vite；之前的手工捕获没有把 `TEST_URL` 和工作目录作为同一个前置条件记录，因而将"端口可访问"误读为"目标页面可审计"。
 
 **修复与回归保护**：`captureScenario()` 在路由就绪元素缺失时会明确指出场景、路由、当前 base URL，并提示从当前 worktree 启动 Vite 或设置 `TEST_URL`。`capture-yixiaoer-current.test.js` 覆盖该错误信息，视觉测试使用说明增加独立端口启动命令。真实审计固定使用 `TEST_URL=http://127.0.0.1:5181`，三张 audit 图与已验证参考基线均在 10% 阈值内通过。
 
@@ -11495,7 +11643,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **逃逸链**：组件测试已覆盖新的 `.platform-filter-panel`、`.account-name-button` 和编辑态输入框，但 GUI 测试配置的选择器没有由组件拥有者更新；常规 Vitest 不执行真实 Electron 路径，完整 GUI 门禁只在 PR CI 运行，因此该陈旧合同直到远端才暴露。
 
-**修复与回归保护**：选择器配置改为 `platformFilterButton` 与 `accountNameButton`；两个 GUI runner 现在验证“全部 + 六个平台”共七个筛选按钮、12 张账号卡片，以及默认账号卡片的可见名称按钮。静态 smoke 同时要求这两个语义选择器存在，避免配置退回到旧分组或编辑态专用输入框。
+**修复与回归保护**：选择器配置改为 `platformFilterButton` 与 `accountNameButton`；两个 GUI runner 现在验证"全部 + 六个平台"共七个筛选按钮、12 张账号卡片，以及默认账号卡片的可见名称按钮。静态 smoke 同时要求这两个语义选择器存在，避免配置退回到旧分组或编辑态专用输入框。
 
 **系统性预防**：任何替换页面级 DOM 结构或把常驻控件改为条件渲染控件的改动，都必须在同一提交中搜索并更新 `selectors.json` 的全部消费者；除组件 Vitest 外，至少保留一条真实 GUI 合同验证用户可见、非编辑态的语义元素。
 ---
@@ -11504,9 +11652,9 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **第一性原因**：`BUSINESS_DATABASE_URL` 在 ECS 使用基础 Logto Compose 的 `postgres:5432` 服务名，而业务 API Compose 只创建自己的默认网络。正式 release 的 `docker compose run` 因此在 `multi-publish-business-api_default` 内返回 `ENOTFOUND`；同一正式镜像接入 `multi-publish-logto_default` 后 migration dry-run 立即通过，说明数据库凭据和 migration 本身没有问题。
 
-**逃逸链**：环境校验只确认连接串存在，并不验证容器 DNS；静态部署合同覆盖 Docker COPY、依赖、bind mount、健康检查和 OIDC，却没有断言 API 的外部网络。候选阶段把“可在某个网络里执行 migration”误作“实际 Compose 服务具备网络连通性”，没有以正式 `docker compose run` 的网络集合复验。CI 不拥有 ECS 的 `postgres` 服务网络，无法自然暴露这个部署拓扑错误。
+**逃逸链**：环境校验只确认连接串存在，并不验证容器 DNS；静态部署合同覆盖 Docker COPY、依赖、bind mount、健康检查和 OIDC，却没有断言 API 的外部网络。候选阶段把"可在某个网络里执行 migration"误作"实际 Compose 服务具备网络连通性"，没有以正式 `docker compose run` 的网络集合复验。CI 不拥有 ECS 的 `postgres` 服务网络，无法自然暴露这个部署拓扑错误。
 
-**系统性漏洞**：容器镜像可启动、环境变量完整和数据库凭据可用是三件事，不能替代“实际 Compose 服务加入能够解析依赖服务名的网络”。临时 `docker run --network` 是诊断工具，不是部署合同验证。
+**系统性漏洞**：容器镜像可启动、环境变量完整和数据库凭据可用是三件事，不能替代"实际 Compose 服务加入能够解析依赖服务名的网络"。临时 `docker run --network` 是诊断工具，不是部署合同验证。
 
 **修复与回归保护**：业务 API 现在同时加入默认网络与名为 `logto` 的外部网络，默认映射 `LOGTO_COMPOSE_NETWORK=multi-publish-logto_default`；环境模板和 runbook 固化基础项目名与覆盖规则。`logto-deploy-contract.test.js` 断言服务网络、外部网络名和模板变量，ECS 验收必须使用真实 `docker compose run` 运行 DNS 和 migration dry-run。
 
@@ -11533,7 +11681,7 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **修复与回归保护**：配置文件存在时，加载器只允许环境覆盖 `identityAuthRequired` 与其余公开字段，固定发行级 `identityAuthEnabled`；新增回归测试验证环境不能静默关闭已发行的身份服务，并保留无配置旧式环境的布尔校验。Runbook 要求根盘至少同时保留 `5 GiB` 与 `10%` 可用空间，低于门槛时停止发布、拉取、备份和迁移；本次只删除超过两天的 Runner 诊断日志并把 journal 收缩到 `200MB`，不触碰 Docker 卷、容器或项目数据。
 
-**系统性预防**：发布前容量检查必须作为命令门禁执行，云监控或受控调度必须为根盘和备份卷提供容量告警；不得以自动 `docker system prune` 或删除持久化卷替代保留期治理。凡是把“是否启用安全边界”从发行配置与环境变量合并的模块，测试必须分别覆盖发行配置优先、可回滚字段覆盖、无发行配置兼容和非法覆盖值四种场景。
+**系统性预防**：发布前容量检查必须作为命令门禁执行，云监控或受控调度必须为根盘和备份卷提供容量告警；不得以自动 `docker system prune` 或删除持久化卷替代保留期治理。凡是把"是否启用安全边界"从发行配置与环境变量合并的模块，测试必须分别覆盖发行配置优先、可回滚字段覆盖、无发行配置兼容和非法覆盖值四种场景。
 ## Bug 6：Story2Video 编排创建后不执行与参数断链（2026-07-22）
 
 **第一性原因**：CreateView 只创建了 orchestrator run，没有传 `autoAdvance`；PipelineEngine
@@ -11573,7 +11721,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 - `91ab02b52f4f0036910fd09afbc2944194374c4e`（OpenMontage Phase 1-3）首次引入
   `VideoEngine`，把 10 类处理请求统一转发到当时并不具备对应实现的 `/api/video/process`。
-  目标是快速建立桥接面，但“请求成功”没有绑定真实输出工件校验，最终形成假成功合同。
+  目标是快速建立桥接面，但"请求成功"没有绑定真实输出工件校验，最终形成假成功合同。
 - `57bec4d7f59d3bc5a0f5a3f945fd154b531f5a59` 首次引入浏览器 `VideoTrimmer`。
   目标是迁移旧 UI，但没有验证编码后的媒体是否存在、可解码及起止时长是否正确。
 - `2d509abe226f8d10281de9d983e93e6df5d3fd2e` 引入 Story2Video 编排时只保存临时运行上下文，
@@ -11584,7 +11732,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   它没有覆盖项目编辑、媒体替换、共享引用、失败回滚和重合成后的持久文件生命周期。
 
 旧项目 PRD 还把 Sora/Supabase Remix、membership/quota、云分享等外部 orchestrator 能力写成
-产品合同，而旧代码本身也存在“多段旁白合并只取第一段”等不完整实现。对齐时必须以可执行
+产品合同，而旧代码本身也存在"多段旁白合并只取第一段"等不完整实现。对齐时必须以可执行
 代码和真实输出为准，不能把规划文档或外部 API 调用存在等同于功能已跑通。
 
 ### 测试逃逸链
@@ -11615,7 +11763,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 系统性预防措施
 
-1. 所有媒体“成功”响应必须绑定 artifact validator：普通非空文件、允许路径、ffprobe/解码通过。
+1. 所有媒体"成功"响应必须绑定 artifact validator：普通非空文件、允许路径、ffprobe/解码通过。
 2. 新增或修改视频处理类型时，必须有真实 ffmpeg/ffprobe 用例；只有 mock 调用测试不得标为完成。
 3. preload 源码变化后必须重建 bundle，并运行 sandbox=true/false 的生产 preload 回归。
 4. 项目媒体变更必须测试成功、失败、共享引用、删除、重启恢复和 symlink/junction 边界。
@@ -11629,11 +11777,11 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 - Provider 图片下载最初只在自定义 `lookup` 回调中检查 DNS 地址。若 HTTPS 客户端因连接重建再次
   调用 `lookup`，实现会重新解析域名，攻击者可让首次解析为公网、后续解析为内网地址。
-- 地址策略把“私网”当成完整的“不允许连接”集合，漏掉 RFC6598 共享地址段、RFC2544 基准测试段、
+- 地址策略把"私网"当成完整的"不允许连接"集合，漏掉 RFC6598 共享地址段、RFC2544 基准测试段、
   文档段及部分 IPv6 特殊前缀；这会把不可公开路由的目标误当作公网。
 - 本机 Provider 例外曾用 `hostname.startsWith('127.')` 判定回环地址，`127.attacker.example` 这类
   DNS 名称可被误判并绕过远程 HTTPS/DNS 边界；IPv4 保留段也遗漏了 `240.0.0.0/4`。
-- 本机例外还曾把“任意 loopback 地址”当成同一个受信任 endpoint，允许配置 `127.0.0.1` 后访问
+- 本机例外还曾把"任意 loopback 地址"当成同一个受信任 endpoint，允许配置 `127.0.0.1` 后访问
   `127.0.0.2` 的其他本机服务；受信任例外必须精确绑定配置地址。
 - 本机 endpoint 下载仍使用 `response.arrayBuffer()`，缺失或伪造较小 `Content-Length` 时会先把超大
   响应完整放入内存，再执行 25MiB 判断；远程 `https.request` 路径已有流式上限，形成两条下载路径漂移。
@@ -11646,7 +11794,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   也没有覆盖特殊 IPv4/IPv6 段。
 - **集成测试**：只验证 Provider 二进制输出和普通 URL 下载成功，没有把 DNS 解析、连接复用和
   地址可路由性视为下载合同的一部分。
-- **代码审查**：审查了“预检 DNS 与真实连接共用 lookup”的表面结构，没有继续推演连接重试、
+- **代码审查**：审查了"预检 DNS 与真实连接共用 lookup"的表面结构，没有继续推演连接重试、
   全局 agent socket 复用和 IANA 特殊地址集合。
 
 ### 修复与回归保护
@@ -11655,14 +11803,14 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   `lookup`；禁用全局 `https` agent 复用，重复 lookup 也不会再次 DNS 查询。
 - IPv4 地址策略覆盖 current-network、RFC1918、RFC6598、link-local、基准测试、文档、
   multicast/reserved；IPv6 覆盖未指定、ULA、link-local、multicast、文档、ORCHIDv2 和 6to4。
-- `asset-generator-provider.test.js` 新增特殊网段集合和“第二次 lookup 返回 127.0.0.1”回归，
+- `asset-generator-provider.test.js` 新增特殊网段集合和"第二次 lookup 返回 127.0.0.1"回归，
   断言仍固定到首次已验证公网地址；同时覆盖伪造 `127.*` 主机名、`240.0.0.0/4` 和不同的 loopback
   endpoint；并覆盖无 `Content-Length` 的超大本机响应在首个超限分块即取消；资产 Provider 两个测试
   文件还覆盖 DNS 永不返回和远程 HTTPS 永不结束；共 26/26 通过。
 
 ### 系统性预防措施
 
-1. 所有由 Provider、网页或回调返回的 URL 必须按“可公开路由地址”而非仅“私网地址”判定。
+1. 所有由 Provider、网页或回调返回的 URL 必须按"可公开路由地址"而非仅"私网地址"判定。
 2. 任何 DNS 校验测试都必须覆盖同一请求重复 lookup、连接复用和至少一个 IANA 特殊地址段。
 3. 修改 Electron 网络边界后，除单元测试外必须完成 Windows 打包、ASAR require 链和独立 8 秒启动日志验证。
 4. Hostname 例外必须先经语义解析再比较，禁止使用前缀、后缀或子串匹配来授予 loopback/内网信任。
@@ -11675,7 +11823,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 根因与逃逸链
 - STT 集成直接信任默认 provider，未再次核验 `enabled` 和执行器；同时转录读取规则沿用了通用媒体根目录，误把用户目录中的任意音频当成可上传输入。
-- 单元测试只覆盖了“已配置 provider + 正常路径”，没有覆盖禁用默认项、缺少 `aiGenerator`、嵌套本地 Whisper 地址或未导入文件；因此未经过服务能力、IPC 和真实安全边界的组合验证。
+- 单元测试只覆盖了"已配置 provider + 正常路径"，没有覆盖禁用默认项、缺少 `aiGenerator`、嵌套本地 Whisper 地址或未导入文件；因此未经过服务能力、IPC 和真实安全边界的组合验证。
 - Remotion 组件在模块加载阶段调用 `@remotion/google-fonts`，普通组件测试未执行离线真实渲染，直到 Chrome 渲染进程被网络策略阻断才暴露。
 - 项目服务的纯 Node 测试因无条件 `require('electron')` 触发 Electron binary downloader，说明服务层必须先判断是否运行在 Electron，而不是把桌面运行时当作 Node 依赖。
 
@@ -11699,7 +11847,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 系统性漏洞
 - 文件名的唯一性依赖了外部数据字段，而不是服务内部已验证的列表位置。
-- “用户可选择文件”与“renderer 可以再次任意引用该路径”混为一谈，缺少一次导入后只使用受控副本的边界。
+- "用户可选择文件"与"renderer 可以再次任意引用该路径"混为一谈，缺少一次导入后只使用受控副本的边界。
 
 ### 修复与回归保护
 - 媒体前缀改用数组 `position`；`sourceIndex` 仍保留诊断信息。回归用例固定构造两个 `index: 0` 的分段并校验两份图片路径和字节内容不同。
@@ -11741,7 +11889,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 ### 测试逃逸链与系统性漏洞
 - Adapter 单测全部使用简化的 `code: 3` mock，未覆盖实际业务成功码；没有参考请求/响应契约测试。
 - Provider 设置、凭据映射和 Adapter 模型列表分别测试，缺少跨模块一致性断言。
-- Story2Video 只断言“调用了 provider”，没有要求每个图片 provider 具备 workflow、轮询、下载和
+- Story2Video 只断言"调用了 provider"，没有要求每个图片 provider 具备 workflow、轮询、下载和
   可验证媒体输出的完整合同；批量 Adapter 审查也没有逐项核对外部协议。
 
 ### 修复与回归保护
@@ -11752,7 +11900,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
   输出合同显式失败。
 
 ### 预防措施
-1. Provider 改动必须按 `.quality-gates.md` 的“Provider 请求与输出契约”执行，覆盖成功码、认证、端点、
+1. Provider 改动必须按 `.quality-gates.md` 的"Provider 请求与输出契约"执行，覆盖成功码、认证、端点、
    预设、凭据映射和最终媒体工件。
 2. 没有真实凭据的本地回归只能证明调用合同；合并前记录外部 smoke 验收为待办，不能把 mock 成功写成
    服务可用。
@@ -11762,15 +11910,15 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 
 ### 第一性原因
 - `b00d5a7` 引入 `_seedPresets()`，启动时把全部内置预设写入 `model_providers`，表示目录已初始化。
-- `b60a2b96` 的 `getAvailablePresets()` 又以 `SELECT id` 结果过滤预设，把“种子行已存在”误当成“用户已完成配置”，因此图片、LLM、视频等类别全部显示为空。
-- 新增向导的保存路径本来支持重复 ID 的更新降级，但缺少“目录返回完整预设”的前置合同，导致该路径无法被用户触发。
+- `b60a2b96` 的 `getAvailablePresets()` 又以 `SELECT id` 结果过滤预设，把"种子行已存在"误当成"用户已完成配置"，因此图片、LLM、视频等类别全部显示为空。
+- 新增向导的保存路径本来支持重复 ID 的更新降级，但缺少"目录返回完整预设"的前置合同，导致该路径无法被用户触发。
 
 ### 测试逃逸链与系统性漏洞
-1. **单元测试逃逸**：旧测试明确断言“预设已初始化后列表为空”，把初始化副作用固化成错误行为。
+1. **单元测试逃逸**：旧测试明确断言"预设已初始化后列表为空"，把初始化副作用固化成错误行为。
 2. **集成测试逃逸**：IPC 测试 mock manager/store，没有覆盖真实种子初始化后的 `model-provider:presets` 链路。
 3. **UI 测试逃逸**：composable 只 mock IPC 返回空数组，未验证非空预设能进入 `availablePresets` 并渲染。
-4. **审查盲区**：没有区分“可配置目录”和“已配置状态”；后者应由 `api_key_enc IS NOT NULL AND enabled = 1` 判断。
-5. **流程缺失**：新增预设/种子时没有强制要求“空 userData 初始化后仍可添加”的回归用例。
+4. **审查盲区**：没有区分"可配置目录"和"已配置状态"；后者应由 `api_key_enc IS NOT NULL AND enabled = 1` 判断。
+5. **流程缺失**：新增预设/种子时没有强制要求"空 userData 初始化后仍可添加"的回归用例。
 
 ### 修复与回归保护
 - `ModelProviderManager.getAvailablePresets(category)` 现在返回该类别全部内置预设，不再按数据库行 ID 过滤。
@@ -11778,7 +11926,7 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 - 新增真实 `sql.js` 数据库 + IPC 集成测试，覆盖空库初始化、种子行仍可选和 Flux API Key 更新；composable 测试覆盖 IPC 非空数组转发。
 
 ### 预防措施
-1. 所有 `getAvailablePresets` / `getAvailableTemplates` 等目录 API 必须返回完整内置目录；“已配置”只能由业务字段判断。
+1. 所有 `getAvailablePresets` / `getAvailableTemplates` 等目录 API 必须返回完整内置目录；"已配置"只能由业务字段判断。
 2. 种子初始化改动必须同时覆盖空 userData、种子已存在、选择后更新三条路径，禁止只断言数据库行数。
 3. composable 测试必须包含一条 IPC 返回非空数据的真实响应路径；UI 集成测试使用稳定状态和用户可见文案断言。
 
@@ -11864,18 +12012,18 @@ SHA-256 缓存键和 in-flight 合并、JOSE header 类型判定，以及 `nbf` 
 
 1. **打包权限提权**：`b6b87b4` 为修复未打包开发环境权限，把 `NODE_ENV`、`ELECTRON_IS_DEV` 与
    `app.isPackaged === false` 用 OR 合并。该表达式让打包应用也能被环境变量提升到 `admin`，违背了提交本身
-   “以 `!app.isPackaged` 为准”的意图。
+   "以 `!app.isPackaged` 为准"的意图。
 2. **STT 能力合同漂移**：`4736094` 创建 Google/Baidu/Local Whisper Adapter 时，`transcribe` 尚未进入
    `KNOWN_METHODS`，所以三者手工追加能力且测试期望 `supports=false`；`e1b46eb` 将 `transcribe` 加入基类后，
    没有同步删除手工追加或更新旧断言，产生重复 capability 和三个稳定失败。
 3. **流水线 E2E 文案漂移**：`c4fae09` 的 E2E 用内部枚举 `completed` 断言页面；`e1b46eb` 把状态渲染为
    用户可见的「已完成」后没有同步测试，导致 `/create/pipeline` 固定失败，但页面本身没有 console/page error。
-4. **带点 Opaque Token**：`4f33c49` 用“三段 base64url”区分 JWT 与 Opaque Token，忽略 OAuth token 语法
+4. **带点 Opaque Token**：`4f33c49` 用"三段 base64url"区分 JWT 与 Opaque Token，忽略 OAuth token 语法
    不透明；独立安全复核才发现 `opaque.active.token` 会被误判。
 
 ### 测试逃逸链与系统性漏洞
 
-1. **单元测试**：权限安全断言早已存在却未在 `b6b87b4` 合并前跑到全套；STT 只验证“包含”而没有验证
+1. **单元测试**：权限安全断言早已存在却未在 `b6b87b4` 合并前跑到全套；STT 只验证"包含"而没有验证
    capability 唯一性；Opaque 用例只使用不含点的示例 token。
 2. **集成测试**：Story2Video 合并改变共享 `KNOWN_METHODS` 和 CreateView 文案，但未把所有 Provider Adapter
    与路由功能测试列入影响面。
@@ -11905,9 +12053,9 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    在 2026-07-22 把 Python backend 健康检查和 Splitter/Prompt bridge 健康检查串行放到 `createWindow()` 之前，
    却没有同步更新 GUI runner 的等待预算。Linux Runner 缺少 `numpy`、`splitter` 和 `prompt_engine` 时，两阶段
    各等待约 10 秒，GUI runner 会在主窗口按降级合同创建前先失败。
-2. **测试逃逸链**：单元层没有“第 15 秒后才建窗”的用例；bridge 集成测试使用 mock，失败会立即 settle；浏览器
+2. **测试逃逸链**：单元层没有"第 15 秒后才建窗"的用例；bridge 集成测试使用 mock，失败会立即 settle；浏览器
    E2E 只连接 Vite，不启动 Electron；视觉测试不经过主进程；代码审查没有比较测试 timeout 与启动阶段 timeout
-   的总预算。由此形成“各层独立通过、真实 GUI CI 稳定超时”的系统性漏洞。
+   的总预算。由此形成"各层独立通过、真实 GUI CI 稳定超时"的系统性漏洞。
 3. **系统性漏洞**：窗口 readiness 的固定循环次数与启动编排完全解耦，也没有假时钟边界测试；workflow 只验证
    `python-backend` 的部分 import，无法提供两个外部 sidecar，因此缺依赖的降级启动是 CI 的正常路径而非偶发环境噪声。
 4. **修复与回归保护**：新增 `tests/test-helpers.test.js`，用假时钟复现窗口在第 16 秒后出现时旧实现返回
@@ -11924,7 +12072,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
    文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
    Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
-3. **系统性漏洞**：跨平台测试没有统一的“文件身份”断言规则，`path.resolve()` 与字符串相等都不能消除 Windows
+3. **系统性漏洞**：跨平台测试没有统一的"文件身份"断言规则，`path.resolve()` 与字符串相等都不能消除 Windows
    短路径、长路径和 junction 的别名差异，导致安全规范化正确时仍可能产生环境相关假失败。
 4. **修复与回归保护**：保留真实文件复制、受控目录校验、场景索引和声明时长断言；仅将 `audioPath` 比较改为
    对实际值和 `imported.path` 同时执行 `fs.realpathSync.native()`。回归直接使用真实文件系统，不 mock 路径解析。
@@ -11956,7 +12104,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    视觉测试不启动两个业务 API 进程；Compose 默认单副本使部署 smoke 无法触发；代码审查只验证原子写与损坏存储
    fail closed，没有审查持久卷 writer 所有权。旧 `api-key-auth.test.js` 还同步统计 async callback，先打印通过再产生
    未处理拒绝，进一步掩盖了真实锁竞争。
-3. **系统性漏洞**：JSON 持久化没有“启动前取得跨进程锁、失败和停止时释放”的生命周期合同，CLI 也不能显式配置
+3. **系统性漏洞**：JSON 持久化没有"启动前取得跨进程锁、失败和停止时释放"的生命周期合同，CLI 也不能显式配置
    Key 存储路径；大量服务器测试隐式写仓库默认路径，既污染状态又无法区分预期的锁冲突与夹具冲突。
 4. **修复与回归保护**：业务 API 直接依赖 `proper-lockfile@4.1.2`，在自动迁移和监听前取得锁；同路径第二 writer
    返回 `API_KEY_WRITER_LOCKED`，监听失败和 `stop()` 释放锁，同一实例重复 `start()` 返回
@@ -11964,7 +12112,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    端口占用失败后接管、启动期间停止及重复启动。`API_KEYS_PATH` 现可由环境变量配置，Compose 固定到持久卷；普通 API 测试统一
    使用唯一临时目录并在停止后清理，async harness 会真实等待 callback。
 5. **预防措施**：`AGENTS.md` QM-2 增加 API Key 单 writer 合同，部署合同断言 `API_KEYS_PATH` 与持久卷一致，
-   `.quality-gates.md` 分开记录“单 writer 锁已通过”和“横向多 writer 仍待事务存储”。文件锁不提供跨副本的事务或
+   `.quality-gates.md` 分开记录"单 writer 锁已通过"和"横向多 writer 仍待事务存储"。文件锁不提供跨副本的事务或
    CAS 语义；需要横向扩容时必须先迁移共享存储，不能通过放宽锁、随机 `.tmp` 或重试第二 writer 伪造支持。
 
 ### Story2Video 安装包缺少完整 FFmpeg/ffprobe 复盘
@@ -11976,7 +12124,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    FFmpeg 能处理样例；E2E/视觉层不执行打包后的 Story2Video；QM-1 只检查 ASAR、RPA require 和进程存活，
    又把 Playwright 自带的裁剪版 `ffmpeg-win64.exe` 误记为产品媒体能力。代码审查没有检查 `resources/media-tools`
    以及 ffprobe、编码器和滤镜闭包，五层门禁都未拦住。
-3. **系统性漏洞**：发布验证把“构建主机能找到可执行文件”与“安装包携带目标平台可执行文件”混为一谈；同时
+3. **系统性漏洞**：发布验证把"构建主机能找到可执行文件"与"安装包携带目标平台可执行文件"混为一谈；同时
    未区分 Playwright 裁剪版、Remotion 定制版和 Story2Video 所需完整构建，也没有使用 electron-builder 的目标
    平台/架构上下文，交叉构建可能静默混入错误平台二进制。
 4. **修复与回归保护**：新增 `media-tool-paths.js`，有效安装包无条件优先解析 `resources/media-tools`，只有未找到打包资源的开发环境才回退到环境变量、直接依赖和系统路径；
@@ -11993,7 +12141,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 当前 Windows x64 构建包含 `--enable-gpl --enable-version3`，技术门禁按 GPLv3+ 处理并随包保留 GPLv3 原文和声明。
 公开分发前，发布负责人仍须完成对应源码/构建材料提供方式和法律审查；本次代码修复不把许可证合规自动标记为完成。
 
-独立安全复审进一步发现，若让 `FFMPEG_PATH`/`FFPROBE_PATH` 覆盖有效打包资源，本地父进程即可绕过资产锁选择任意可执行文件。回归现已固定“打包资源优先、环境变量仅开发回退”，并覆盖目标 Windows drive 路径下的 ffprobe sibling 解析。
+独立安全复审进一步发现，若让 `FFMPEG_PATH`/`FFPROBE_PATH` 覆盖有效打包资源，本地父进程即可绕过资产锁选择任意可执行文件。回归现已固定"打包资源优先、环境变量仅开发回退"，并覆盖目标 Windows drive 路径下的 ffprobe sibling 解析。
 
 ### ECS Electron CI 下载桌面 FFmpeg 导致超时复盘
 
@@ -12005,7 +12153,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    使用专用镜像，同时继续由 Electron 自带 `checksums.json` 校验资产。
 2. **测试逃逸链**：单元测试尚未启动，无法拦截安装阶段超时；集成测试没有覆盖 npm 生命周期脚本集合；Electron
    smoke 和 Vue build 都位于依赖安装之后；Windows QM-1 使用目标平台本地资产，无法暴露 ECS 到 GitHub Release
-   的链路速度；代码审查只确认“安装开发依赖和 Electron”，没有审查 Linux job 是否误下载桌面发布资产。
+   的链路速度；代码审查只确认"安装开发依赖和 Electron"，没有审查 Linux job 是否误下载桌面发布资产。
 3. **系统性漏洞**：同一条无限定 npm 生命周期链同时承担 Linux headless 测试和 Windows 桌面发布依赖准备，
    两种职责没有 allowlist。并且真实媒体测试会自动发现宿主 `PATH` 中的 FFmpeg；`91ab02b` 引入的
    `VideoEngine._checkFfmpeg()` 还绕过统一 resolver，直接 `spawnSync('ffmpeg', ['-version'])`。其单元测试只 mock
@@ -12030,19 +12178,19 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    合同并在一次性 ECS checkout 中验证总时限。Electron 镜像 URL 也属于 allowlist 合同，变更时必须以 Range
    探测、本地 checksum pin 和安装后的版本验证为证据。进程审计只包裹媒体相关集合、安装、Electron smoke 和构建；不要用
    `strace` 包裹全部 5777 项测试，否则观测开销会把原本 804.55 秒的套件推到 20 分钟 watchdog 之外，混淆
-   “测试超时”和“FFmpeg 被执行”两个不同问题。
+   "测试超时"和"FFmpeg 被执行"两个不同问题。
 
 ### Windows 账号状态原子替换瞬时锁复盘
 
-1. **第一性原因**：`d991fea` 为避免账号 JSONL 全文重写中断时丢失数据，引入“写临时文件后
-   `renameSync`”的原子替换；`44e2c6e` 又把同一模式用于启动时的遗留明文凭据脱敏。两次改动的原子性意图
+1. **第一性原因**：`d991fea` 为避免账号 JSONL 全文重写中断时丢失数据，引入"写临时文件后
+   `renameSync`"的原子替换；`44e2c6e` 又把同一模式用于启动时的遗留明文凭据脱敏。两次改动的原子性意图
    正确，但都假设 Windows 目标文件不会被杀毒软件或索引器短暂占用，没有处理系统返回的瞬时
    `EPERM/EACCES/EBUSY`。启动迁移没有上层容错，因此一次短锁就会让初始化失败。
 2. **测试逃逸链**：普通单元测试只在无竞争的临时目录中顺序读写；集成测试没有持有真实 Windows 文件句柄；
    Electron E2E 使用新用户目录，不触发遗留记录迁移；视觉测试不经过主进程文件迁移；代码审查只检查了原子性，
    没有检查 Windows delete-share 冲突。根全量偶发失败后，定向连续 10 次得到 1 次 `EPERM`、9 次通过，证明
    它是可复现的环境竞态，不是业务断言漂移。
-3. **系统性漏洞**：项目把“原子替换不会产生半文件”误等同于“原子替换不会暂时失败”，且没有面向真实 OS 锁的
+3. **系统性漏洞**：项目把"原子替换不会产生半文件"误等同于"原子替换不会暂时失败"，且没有面向真实 OS 锁的
    回归模式。相同模块四个全文重写点都直接调用 `renameSync`，修单一调用点会留下同类风险。
 4. **修复与回归保护**：`account-state-restorer.js` 统一使用同步原子重命名 helper；仅在 Windows 且错误码为
    `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误仍原样抛出。
@@ -12060,8 +12208,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    模块级窗口和回调，导致一次 updater 事件被重复发送。
 2. **测试逃逸链**：单元测试每次只初始化一个窗口；窗口集成测试不触发 macOS `activate` 重建；浏览器 E2E 不运行
    Electron 的全局 updater；视觉回归不观察事件监听器数量；Windows QM-1 只经历单次主窗口创建；此前审查看到
-   “防止重复 init”注释后没有验证不同窗口身份。因而同窗重复调用通过，跨窗口泄漏没有被任何层拦住。
-3. **系统性漏洞**：初始化函数把“当前状态发送目标”和“进程级监听器是否已经绑定”错误地绑在窗口对象身份上，
+   "防止重复 init"注释后没有验证不同窗口身份。因而同窗重复调用通过，跨窗口泄漏没有被任何层拦住。
+3. **系统性漏洞**：初始化函数把"当前状态发送目标"和"进程级监听器是否已经绑定"错误地绑在窗口对象身份上，
    测试也只验证错误降级文案，没有覆盖 Electron 全局单例与 BrowserWindow 生命周期不同步的合同。
 4. **修复与回归保护**：`init()` 每次都更新当前窗口和状态回调，只在模块生命周期首次调用时注册六个 updater 事件。
    新增双窗口回归，旧实现稳定得到 13 次 `.on()` 调用 RED；修复后保持基础 logger 加六个服务监听器共 7 次，
@@ -12098,9 +12246,9 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    索引或备份程序持有目标文件时会返回瞬时 `EPERM/EACCES/EBUSY`，导致迁移抛错或 `saveCredential()` 返回 false。
 2. **测试逃逸链**：单元测试只在无竞争临时目录验证最终内容；集成测试没有持有真实 Windows 文件句柄；Electron E2E
    使用新用户目录，不触发旧主密钥迁移；视觉回归不经过主进程凭据磁盘路径；QM-1 启动不执行已有凭据升级；审查只
-   检查了“临时文件 + rename”的崩溃原子性，没有逐一验证主文件、备份和业务文件在 Windows 短锁下的可恢复性。
+   检查了"临时文件 + rename"的崩溃原子性，没有逐一验证主文件、备份和业务文件在 Windows 短锁下的可恢复性。
 3. **系统性漏洞**：此前 Windows 原子替换合同先覆盖账号状态、再覆盖 API Key，却没有枚举 `credential-store` 的三个
-   安全状态目标。普通全量曾通过，覆盖率复跑才在“损坏主密钥从备份恢复”路径真实命中 `renameSync EPERM`，说明唯一
+   安全状态目标。普通全量曾通过，覆盖率复跑才在"损坏主密钥从备份恢复"路径真实命中 `renameSync EPERM`，说明唯一
    临时目录只能消除测试互相争用，不能消除操作系统外部文件锁。
 4. **修复与回归保护**：`credential-store.js` 的主密钥、备份和账号凭据替换统一使用同步原子 rename helper；仅在
    Windows 且错误码为 `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误仍
@@ -12153,7 +12301,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 - 无旁白/纯图片轮播模式已下线：`perImageDuration`（单画面时长/无旁白场景时长）已从 renderer、
   normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 默认 6 秒
   （可被 `params.defaultSceneDuration` / 配置内 `defaultSceneDuration` 运行参数覆盖，仅 UI 不暴露），
-  仅作“音频时长不可探测”时的回退与动效归一化兜底。归一化回退路径为 best-effort：探测失败时
+  仅作"音频时长不可探测"时的回退与动效归一化兜底。归一化回退路径为 best-effort：探测失败时
   动效按 6 秒归一化而片段仍以 `-shortest` 跟随真实音频，不强制 `-t` 对齐（避免截断旁白）。
   `_createSegment` 直调的 `clampNumber(opts.duration, 0.1, 3600, 3)` 中 0.1 秒下限可达；
   3 秒默认值因前置 `Number(duration) > 0` 守卫实际不可达（死默认）。
@@ -12172,7 +12320,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
   和 `undefined -> 6`。审查回补 5 个 RED 后，六文件聚焦回归 167/167 通过。
 
 ### 预防措施
-1. 版本化配置必须测试“仅 config”“仅扁平参数”“两者一致”“两者冲突”四种输入形状。
+1. 版本化配置必须测试"仅 config""仅扁平参数""两者一致""两者冲突"四种输入形状。
 2. 枚举合同必须用格式合法但集合外的值做负例，不能用语法错误代替白名单测试。
 3. 同一参数跨 renderer、normalizer、YAML 与执行器时，范围、单位和默认值必须用表驱动回归逐层核对。
 
@@ -12220,13 +12368,13 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 1. **第一性原因**：`564a8142` 为避免把包含 `latest.yml` 和 `404` 的签名失败误降级，收紧了
    `isLatestManifestMissing()`；但实现要求错误消息同时出现 `cannot find/not found`。electron-updater 的
    `HttpError` 也可能只在 `statusCode` 和 `url` 字段表达相同事实，因而被误报为真实更新错误。
-2. **测试逃逸链**：名为“结构化 404”的单元测试虽然设置了 `statusCode`，消息仍沿用 `Cannot find latest.yml`；
+2. **测试逃逸链**：名为"结构化 404"的单元测试虽然设置了 `statusCode`，消息仍沿用 `Cannot find latest.yml`；
    集成测试只验证 IPC 转发；浏览器 E2E 不运行 updater；打包启动只覆盖当次网络返回的单一错误形态；终审才用
    `{ statusCode: 404, url: '.../latest.yml', message: 'HttpError: 404' }` 捕获缺口。
-3. **系统性漏洞**：错误分类测试按当前实现中的英文句式取样，没有建立“状态码字段、URL 字段、消息文本、错误阶段”
+3. **系统性漏洞**：错误分类测试按当前实现中的英文句式取样，没有建立"状态码字段、URL 字段、消息文本、错误阶段"
    的输入形态矩阵；测试名称声称覆盖结构化错误，但断言实际仍依赖消息文本。
-4. **修复与回归保护**：分类器统一读取 `message`、顶层/response URL 和结构化状态码，只有“404 +
-   `latest*.yml` 引用”才降级，并显式排除 signature/signing/checksum/integrity/verification 错误。新增仅靠
+4. **修复与回归保护**：分类器统一读取 `message`、顶层/response URL 和结构化状态码，只有"404 +
+   `latest*.yml` 引用"才降级，并显式排除 signature/signing/checksum/integrity/verification 错误。新增仅靠
    `statusCode + url` 的 Promise 回归先得到 `error` RED，修复后 updater 聚焦套件 11/11 GREEN；结构化签名错误
    继续上报 `error`。
 5. **预防措施**：以后修改第三方错误分类器时，正例必须至少覆盖纯消息与结构化字段两种形态，负例必须使用相同
@@ -12239,7 +12387,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 ### 第一性原因
 - `c4fae09` 创建 `/create/pipeline` 功能 E2E 时，历史状态直接渲染原始 `h.status`，因此测试以正文
   `completed` 作为 fixture 到达页面的证据。
-- `e1b46eb` 为 Story2Video 历史列表增加 `historyStatusLabel()`，把 `completed` 本地化为“已完成”，但没有
+- `e1b46eb` 为 Story2Video 历史列表增加 `historyStatusLabel()`，把 `completed` 本地化为"已完成"，但没有
   同步更新跨文件 E2E 合同。内部状态仍正确，用户可见正文已不再包含英文值。
 
 ### 测试逃逸链与系统性漏洞
@@ -12255,8 +12403,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 
 ### 修复与回归保护
 - `CreateView.test.js` 使用真实挂载的历史项目，同时断言 `.history-status` 含 `completed` class 且可见文字
-  为“已完成”。
-- `/create/pipeline` 功能 E2E 定位 `.history-status.completed` 并校验“已完成”，既证明 fixture 状态到达，
+  为"已完成"。
+- `/create/pipeline` 功能 E2E 定位 `.history-status.completed` 并校验"已完成"，既证明 fixture 状态到达，
   也验证最终用户文案，不再从整页正文猜测内部状态。
 
 ### 预防措施
@@ -12314,7 +12462,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 3. **代码审查**：新增结果项时只审查了安全语义，遗漏了同一结果数组的顺序敏感消费者。
 
 系统性漏洞属于**测试场景缺失 + 断言质量不足**：固定完整数组适合校验无 token 的标准 smoke 集合，
-但可选检查不能用“最后一项”表达语义，否则任何安全检查追加都会制造无关失败。
+但可选检查不能用"最后一项"表达语义，否则任何安全检查追加都会制造无关失败。
 
 ### 修复与预防
 - 标准 smoke 合同显式纳入两个路径守卫名称，保证安全检查不会被误删。
@@ -12355,7 +12503,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 这次 PR 合并后的两条 Windows Quality Gate 又稳定暴露了同一类问题：`story2video-compose-engine.test.js`
 仍把 `scenes` 的原始音频路径与 `compose()` 传给 `_concatNarrationAudio` 的 canonical 路径直接比较。
 在本机长路径临时目录中字符串恰好相同，GitHub Windows 的 8.3 短路径表示不同，mock 断言抛错后被
-`compose()` 转成 `code: -1`，最终只看到“多段旁白导出”失败。此前只修 `story2video-stages.test.js`，检索范围
+`compose()` 转成 `code: -1`，最终只看到"多段旁白导出"失败。此前只修 `story2video-stages.test.js`，检索范围
 没有覆盖同一调用链的第二个路径断言，属于断言质量不足和修复范围不足。
 
 回归修复把测试期望同样规范化为 `fs.realpathSync.native()`，并 mock 无关的伪媒体 `ffprobe` 探测；生产
@@ -12365,7 +12513,7 @@ canonical 白名单和真实 `_concatNarrationAudio` 实现不变。以后修改
 ### 宿主路径与模拟平台不一致导致 Linux CI 失败（2026-07-27）
 
 `b05da3c` 为完成 Windows 媒体资源闭包，同时引入 `media-tool-paths.js` 和对应测试。测试辅助函数默认把
-`platform` 固定为 `win32`，但“同目录解析 ffprobe”用例通过 `os.tmpdir()` 创建真实文件：Windows 得到 drive
+`platform` 固定为 `win32`，但"同目录解析 ffprobe"用例通过 `os.tmpdir()` 创建真实文件：Windows 得到 drive
 路径并通过，Linux Runner 得到 `/tmp/...`，随后 `path.win32.isAbsolute('/tmp/...')` 返回 false，导致 sibling
 分支被跳过并返回 `null`。生产解析算法按目标平台选择 `path.win32`/`path.posix`，第一性原因是测试夹具把宿主
 文件系统路径与另一平台的路径语义混在一起，而不是产品回归。
@@ -12392,17 +12540,17 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 ### 第一性原因
 
-- `5effc65` 已在账号“设为默认、打开、验证、代理、删除”等副作用按钮上声明
+- `5effc65` 已在账号"设为默认、打开、验证、代理、删除"等副作用按钮上声明
   `data-e2e-scan="manual"`，组件测试也只验证了标记存在。
 - `17458ef` 随后把账号页接入通用语义扫描：扫描器收集所有可见按钮，按语义去重后逐个点击，却从未读取
-  `data-e2e-scan`。因此 producer 已声明“仅手工执行”，consumer 仍把删除等按钮当成自动覆盖目标。
+  `data-e2e-scan`。因此 producer 已声明"仅手工执行"，consumer 仍把删除等按钮当成自动覆盖目标。
 - 根因是跨组件的扫描合同没有接通；删除超时、遮罩和 socket buffer 耗尽都只是同一错误点击链的后果。
 
 ### 测试逃逸链与系统性漏洞
 
 1. **组件单元测试**：`PlatformAccountGroup.test.js` 只断言 manual 属性写入 DOM，没有验证 E2E 扫描器消费它。
 2. **扫描器单元测试**：`route-functional-suite.js` 没有针对 manual 控件的独立合同测试，语义去重测试只关注
-   “少点几个”，没有约束“哪些绝不能点”。
+   "少点几个"，没有约束"哪些绝不能点"。
 3. **端到端测试**：旧报告只统计点击是否完成以及页面能否恢复，没有断言删除、打开主页等副作用按钮的点击
    次数必须为零；可恢复的副作用会被误记为覆盖成功。
 4. **CI 门禁**：Gate 8 直接进入真实 Browser E2E，没有先运行扫描器的快速合同测试，错误只能在完整账号数据
@@ -12410,8 +12558,8 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 5. **代码审查**：组件标记与通用扫描器由不同提交维护，审查分别确认了 DOM 属性和语义采样，却没有沿
    producer 到 consumer 的调用链核对合同。
 
-系统性漏洞属于**跨模块合同缺失 + 测试场景缺失 + 审查盲区**：副作用控件的“可见、可用”不等于“允许
-自动执行”，自动扫描必须显式消费控件声明，而不能凭按钮类型或文案猜测。
+系统性漏洞属于**跨模块合同缺失 + 测试场景缺失 + 审查盲区**：副作用控件的"可见、可用"不等于"允许
+自动执行"，自动扫描必须显式消费控件声明，而不能凭按钮类型或文案猜测。
 
 ### 修复与回归保护
 
@@ -12491,7 +12639,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
    没有模拟 `42501` 或断言无 DDL。
 2. **集成测试**：dry-run 会先用 `to_regclass` 探测 ledger，因此天然不执行 DDL；它与正式 runner 走不同分支，
    无法证明正式路径兼容最小权限角色。
-3. **端到端测试**：本地和 CI 没有使用“有 ledger、无 schema CREATE”的真实 PostgreSQL 角色执行正式 runner。
+3. **端到端测试**：本地和 CI 没有使用"有 ledger、无 schema CREATE"的真实 PostgreSQL 角色执行正式 runner。
 4. **部署验收**：上一轮只保存迁移结果 JSON，没有保存执行角色权限快照与无 DDL 查询证据，历史成功掩盖了缺陷。
 5. **代码审查**：把 `CREATE TABLE IF NOT EXISTS` 误认为无副作用的存在性检查，没有按 PostgreSQL 权限语义审查。
 
@@ -12541,7 +12689,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 ### 系统性漏洞
 
 该问题属于**测试场景缺失 + 测试质量不足 + 审查盲区 + 环境差异**。测试计划只为 OIDC JWT 写明 60 秒
-偏差，entitlement 场景仅笼统写“signature/time”；本地 mock、浏览器 E2E 和公网 smoke 之间没有一个门禁
+偏差，entitlement 场景仅笼统写"signature/time"；本地 mock、浏览器 E2E 和公网 smoke 之间没有一个门禁
 同时覆盖真实服务端签发时间、桌面本地时间和 RSA 验签。
 
 ### 修复与回归保护
@@ -12570,7 +12718,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 - 在最终 NSIS 产物上同时设置 `NODE_ENV=development` 和 `ELECTRON_IS_DEV=1` 后，主进程尝试加载
   `http://localhost:5174/`，stderr 返回 `ERR_CONNECTION_REFUSED`。该行为发生在 `app.isPackaged=true`
-  的真实打包应用中，违反“打包状态优先于开发环境变量”的安全合同。
+  的真实打包应用中，违反"打包状态优先于开发环境变量"的安全合同。
 - `c834e9f5 feat: 项目重构方案分析` 从 `main.js` 拆出 `window.js` 时引入
   `NODE_ENV === 'development' || --dev || !app.isPackaged`。提交意图是保留开发服务器启动方式，但把可由
   外部继承的环境变量和命令行参数置于打包状态之前，使生产包可退回开发 URL 并打开 DevTools。
@@ -12586,8 +12734,8 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 ### 系统性漏洞
 
-该问题属于**测试场景缺失 + 审查盲区 + 环境差异**。仓库已经为许可证、IPC 和 updater 写入“打包状态
-优先”规则，但窗口加载测试没有同一矩阵，QM-1 也未固定使用受污染环境验证最终包。
+该问题属于**测试场景缺失 + 审查盲区 + 环境差异**。仓库已经为许可证、IPC 和 updater 写入"打包状态
+优先"规则，但窗口加载测试没有同一矩阵，QM-1 也未固定使用受污染环境验证最终包。
 
 ### 修复与回归保护
 
@@ -12664,7 +12812,7 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 2. **集成测试**：`phase5-ipc.test.js` 的 mock app root 和 sender 路径各少一层，二者都指向不存在位置；旧词法比较
    仍返回 true，掩盖了 fixture 错误。
 3. **端到端测试**：浏览器 E2E 直接访问 Vite，`window.electronAPI` 不存在，不会运行真实 `withSenderCheck()`。
-4. **视觉回归**：页面能渲染并不证明受保护 IPC 可调用；身份区把 `code=-3` 映射为通用“登录暂时不可用”。
+4. **视觉回归**：页面能渲染并不证明受保护 IPC 可调用；身份区把 `code=-3` 映射为通用"登录暂时不可用"。
 5. **发布验证**：旧隐藏启动只断言进程存活和 stderr，没有从最终 renderer 调用 `identityGetState()`；故障包因此通过。
 
 ### 系统性漏洞
@@ -12698,7 +12846,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
   `file://` URL 被拒绝，将 `isTrustedSender()` 从词法 `path.resolve()` 比较改为对受信 `dist` 和 sender
   文件执行 `fs.realpathSync.native()`。路径不存在时进入既有 `catch` 并返回 `false`，这是正确的 fail-closed
   生产合同。
-- 同一提交保留了两个指向仓库 `apps/desktop/dist/index.html` 的“合法来源”测试。该目录被 `.gitignore`
+- 同一提交保留了两个指向仓库 `apps/desktop/dist/index.html` 的"合法来源"测试。该目录被 `.gitignore`
   排除，干净 GitHub checkout 不包含它；本地工作树却因此前 Vue/Builder 运行留下该文件，导致同一测试在本地
   通过、在 Windows Quality Gate 和 ECS `electron-tests` 稳定得到 `expected false to be true`。
 
@@ -12718,7 +12866,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 ### 系统性漏洞
 
 该问题属于**测试数据失真 + 测试隔离缺失 + 环境差异 + 审查盲区**。当生产代码从词法路径升级为真实文件
-身份校验时，测试前置条件也随之变为“目录和文件必须真实存在”；但测试计划只覆盖路径边界，没有约束 fixture
+身份校验时，测试前置条件也随之变为"目录和文件必须真实存在"；但测试计划只覆盖路径边界，没有约束 fixture
 必须由 setup 创建并独立于 ignored build artifact。
 
 ### 修复与回归保护
@@ -12761,7 +12909,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 3. **端到端测试**：GitHub 在构造 job 前即拒绝 workflow，没有 step 日志；历史排查只看到红色 run，未把
    `jobs=[]` 作为编译阶段信号自动升级处理。
 4. **视觉回归**：视觉测试只能在 runner 启动后执行，无法覆盖 GitHub Actions 自身的 YAML 编译阶段。
-5. **代码审查**：引入提交的说明记录“93/93 tests passing”，但这些测试没有加载被改 workflow；同时未审查
+5. **代码审查**：引入提交的说明记录"93/93 tests passing"，但这些测试没有加载被改 workflow；同时未审查
    `git add -A`、`--allow-empty` 和 PR 写凭据的副作用边界。
 
 ### 系统性漏洞
@@ -12792,7 +12940,7 @@ runner 工作树纳入自动提交候选。
 #### 第一性原因
 
 - workflow 编译修复后，真实手动运行 `30423812727` 已创建 job `90485807072`，checkout、依赖安装、
-  Playwright、Vue build 和 artifacts 均正常；日志在“启动 Vite dev server”后立即结束并写入退出码 1。
+  Playwright、Vue build 和 artifacts 均正常；日志在"启动 Vite dev server"后立即结束并写入退出码 1。
 - `git blame/show` 定位到 `fb45e3b` 首次创建统一 E2E 脚本，`8536261c` 重构时保留缺陷。启动与清理都执行
   `taskkill /F /IM node.exe /T`。注释声称清理占用端口的进程，命令却按镜像名终止整台 Windows runner 上的
   所有 Node 进程，其中包含 GitHub Actions Runner 当前进程本身。
@@ -12808,13 +12956,13 @@ runner 工作树纳入自动提交候选。
 3. **端到端测试**：YAML 损坏长期让 run 停在 `jobs=[]`，因此 runner 内的进程误杀路径从未被执行；编译修复后
    第一轮真实 dispatch 才把第二层缺陷暴露出来。
 4. **视觉回归**：Node Runner 在 Vite 就绪前已被终止，视觉测试根本没有机会启动，无法承担进程边界门禁。
-5. **代码审查**：注释“清理端口”与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
+5. **代码审查**：注释"清理端口"与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
    和无关进程三个维度验证 Windows 命令。
 
 #### 系统性漏洞
 
-该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把“本次创建的 Vite 子进程”
-错误建模为“机器上的全部 Node 进程”，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
+该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把"本次创建的 Vite 子进程"
+错误建模为"机器上的全部 Node 进程"，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
 失败也只能在长超时后得到低质量错误。
 
 #### 修复与回归保护
@@ -12824,7 +12972,7 @@ runner 工作树纳入自动提交候选。
 - Vite 固定 `--host 127.0.0.1 --port <port> --strictPort`，端口冲突 fail closed，不允许自动漂移到另一个端口
   后误连旧服务；子进程提前退出会立即带出 stderr 和退出状态。
 - HTTP readiness 即使自身悬空也受总 deadline 约束；启动失败自动清理。终止命令和回退都未生效时明确报错，
-  不以“清理完成”掩盖残留进程。
+  不以"清理完成"掩盖残留进程。
 - 脚本改为 `require.main === module` 才执行，并以返回退出码配合 `finally` 等待清理，允许单元测试安全加载。
 - 新增 8 个回归用例；其中真实 Windows 用例同时启动受管 Node 与无关 Node 哨兵，确认只终止受管 PID 树，
   哨兵仍可接收信号 0。
@@ -12835,7 +12983,7 @@ runner 工作树纳入自动提交候选。
    全局清理命令。
 2. 服务启动合同必须同时覆盖固定 host、strict port、提前退出、探针悬空超时、重复清理和清理失败 fail closed。
 3. Windows 进程清理回归必须包含一个无关同名进程哨兵；只断言命令字符串不足以证明没有误杀。
-4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；“已创建 job”只关闭编译缺陷，不能替代 job 内运行验收。
+4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；"已创建 job"只关闭编译缺陷，不能替代 job 内运行验收。
 
 ### 后续裁决 Bug：无模型 prompt 包被误报为 PASS
 
@@ -12846,7 +12994,7 @@ runner 工作树纳入自动提交候选。
 - `RequirementsTestRunner` 在没有 LLM 时返回外层 `_mode: "agent-required"`、内层
   `_verdict._mode: "prompt"`。`git blame/show` 定位到 `8536261c`：简单模式的报告和退出码分别检查
   `_verdict.decision` 与错误的外层 `_mode === "prompt"`，没有识别真实 prompt 结构。
-- 两套重复逻辑都把“没有看到明确 FAIL”当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
+- 两套重复逻辑都把"没有看到明确 FAIL"当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
   workflow 又按 `LOOP_EXIT=0` 报告绿色。这是语义假绿，不是 Vite 或 GitHub Runner 再次失败。
 
 #### Bug 逃逸链
@@ -12858,8 +13006,8 @@ runner 工作树纳入自动提交候选。
 3. **端到端测试**：workflow 最终步骤只严格解析 `LOOP_EXIT`，没有能力纠正上游脚本错误返回的 0；首次跑通 Vite 后
    才出现足以检查语义结果的真实日志与报告。
 4. **视觉回归**：diff 为 0 只说明像素结果稳定，不能替代需求覆盖的模型或人工裁决。
-5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问“整体 PASS 是否存在
-   明确的覆盖 verdict”这一不变量。
+5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问"整体 PASS 是否存在
+   明确的覆盖 verdict"这一不变量。
 
 #### 系统性漏洞
 
@@ -12885,7 +13033,7 @@ runner 工作树纳入自动提交候选。
 #### 预防措施
 
 1. 自主测试的日志、报告和退出码必须来自同一 evaluator；禁止各层重新解释 `_mode` 或 `_verdict`。
-2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许“无 Key 时仅告警”，必须读取同一轮
+2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许"无 Key 时仅告警"，必须读取同一轮
    一致的 `NEED_HUMAN` 报告后显式降级，不能伪造 PASS。
 3. 任何 CI 绿色结论都要区分基础设施、测试执行和业务裁决；Vite 就绪、像素无 diff、进程退出 0 均不能替代明确 verdict。
 4. `autonomous-e2e-result.test.js` 纳入包级测试，固定覆盖明确 PASS/FAIL、prompt、矛盾/未知结果、畸形或基础设施错误、
@@ -12900,7 +13048,7 @@ failed: 0}` 或不自洽汇总仍可通过。
 
 **逃逸链与系统性漏洞**：单元测试只直接构造 `error` 结果，没有让真实 `runVisualTests()` 的命令执行器抛错；集成
 测试覆盖已形成的 diff 和显式失败，没有覆盖命令在产物生成前退出；PR workflow 的 `paths` 又未包含 tester 包和 workflow
-自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把“没有失败产物”等同于“测试成功”，且执行证据、
+自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把"没有失败产物"等同于"测试成功"，且执行证据、
 结果汇总和 workflow 触发范围没有同一份合同。
 
 **修复与回归保护**：视觉阶段继续执行两条命令以保留诊断产物，但收集任一命令的 stderr/message 并写入 `error`，统一
@@ -12924,7 +13072,7 @@ OIDC 登录、Token 或正常请求。
 ### 第一性原因
 
 - `789afd65137389a42af84a3b59e7d88ba8363c3b feat(auth): 集成 Logto 用户系统与租户隔离` 首次固定
-  `svhd/logto:1.41.0`，同时在架构文档写入“Webhook 使用 HMAC、超时和重试”。该提交的意图是建立完整
+  `svhd/logto:1.41.0`，同时在架构文档写入"Webhook 使用 HMAC、超时和重试"。该提交的意图是建立完整
   身份与租户隔离，并未对上游发送器做失败后黑盒投递验证。
 - Logto 1.41.0 的 `packages/core/src/libraries/hook/utils.ts` 对 Ky 配置
   `retry: { limit: retries ?? 3 }`，但 Ky 1.2.3 默认可重试方法只有
@@ -12942,13 +13090,13 @@ OIDC 登录、Token 或正常请求。
 1. **单元测试**：`logto-webhook.test.js` 测的是消费者收到同一 payload 两次时能从事务失败恢复；没有启动
    Logto，也没有断言发送端 HTTP attempt 数。
 2. **集成测试**：`publish-api-logto-webhook.test.js` 覆盖 HMAC 200、错误签名 401 和超大请求 413，但所有
-   请求都由测试直接发给 API；“第二次请求”不是 Logto 自动重试。
+   请求都由测试直接发给 API；"第二次请求"不是 Logto 自动重试。
 3. **部署合同**：`logto-deploy-contract.test.js` 只固定端口、Secret、网络和健康检查，没有核对上游镜像内
    Webhook client 的 method 白名单，也没有派生镜像的 fail-closed 补丁合同。
 4. **端到端与审查**：架构审查把源码中的 `retry.limit` 当成已经生效的行为，没有继续读取 Ky 1.2.3 的
    method gate。先前 UAT 没有让真实接收端返回 503，因此正常 Webhook 通过也无法暴露该缺口。
-5. **流程缺失**：真实 Webhook 重试长期标记 `PENDING_EXTERNAL`，却没有“失败两次、恢复一次、观察三次
-   签名 POST”的机器化验收步骤；消费者幂等证据被误当作发送端可靠性证据。
+5. **流程缺失**：真实 Webhook 重试长期标记 `PENDING_EXTERNAL`，却没有"失败两次、恢复一次、观察三次
+   签名 POST"的机器化验收步骤；消费者幂等证据被误当作发送端可靠性证据。
 
 ### 修复与回归保护
 
@@ -12993,7 +13141,7 @@ OIDC 登录、Token 或正常请求。
 1. `AGENTS.md` QM-2 增加 Logto Webhook POST 重试合同：不得用 `retry.limit` 或消费者手工重放推断上游
    自动重试；修改后必须运行两个聚焦合同并完成真实 503 探针。
 2. `ARCH-F14-logto-user-system.md` 修正错误架构事实，`TEST-PLAN-LOGTO-PRODUCTION.md` 分离发送端和消费者
-   两层测试，不再把两者合并为一个“Webhook 重试”结论。
+   两层测试，不再把两者合并为一个"Webhook 重试"结论。
 3. 生产验收使用独立 signing key、精确 Nginx 路径和一次性接收端：前两次 503、第三次 204，只记录 UTC
    时间、计数和签名有效性；完成后删除 Hook、用户、路由、进程和日志，主 Hook 不参与故障注入。
 4. Ky 1.2.3 `TimeoutError` 继续作为显式限制进入运行手册和风险清单；若后续需要超时自动重试，应升级并
@@ -13099,8 +13247,8 @@ OIDC 登录、Token 或正常请求。
 ### 第一性原因
 
 - `2d509ab` 首次加入 `OPTIMIZE_BATCH` 时只检查 prompt-engine 顶层 `code === 0`，没有验证批量结果的逐项内容。
-- `e1b46eb` 为兼容包装响应加入 `normalizeBatchOptimizeResult()` 和结果数量校验，但仍把“数组长度正确”误当成
-  “每个场景都有可消费的 prompt”。因此等长的 `{}`、`null` 或空白 `optimized_prompt` 会由
+- `e1b46eb` 为兼容包装响应加入 `normalizeBatchOptimizeResult()` 和结果数量校验，但仍把"数组长度正确"误当成
+  "每个场景都有可消费的 prompt"。因此等长的 `{}`、`null` 或空白 `optimized_prompt` 会由
   `StageExecutor` 返回 `success: true`，直到资产阶段读取空 prompt 后才延迟失败。
 
 ### 测试逃逸链与系统性漏洞
@@ -13134,31 +13282,31 @@ OIDC 登录、Token 或正常请求。
 ### 第一性原因
 
 - `031da9b6` 新增发布日历时，用本地 `Date` 的 `getFullYear()`、`getMonth()` 和 `getDate()` 生成月份与日号，
-  但把格子、选中日期和“今天”全部写成 `toISOString().slice(0, 10)`。该方法固定输出 UTC 日期，不是桌面用户
+  但把格子、选中日期和"今天"全部写成 `toISOString().slice(0, 10)`。该方法固定输出 UTC 日期，不是桌面用户
   正在查看的本地日历日。
 - 在 `Asia/Shanghai`，本地 `2026-07-15 00:00` 的格子键会变成 `2026-07-14`，而本地下午的当前 UTC 键为
   `2026-07-15`，因此今天高亮和带 Z 的定时任务都可能偏到 16 日；月末时它落入下月的补位格。
 - `db547bc` 随后为覆盖率添加实时 `calendarDays marks today` 断言。组件已保存初始化月份，但 computed 在后续
-  响应式更新时重新读取实时 UTC 日期，恰好跨月会稳定得到“今天存在但不是本月”的 CI 失败。
+  响应式更新时重新读取实时 UTC 日期，恰好跨月会稳定得到"今天存在但不是本月"的 CI 失败。
 
 ### 测试逃逸链与系统性漏洞
 
-1. **单元测试**：使用真实系统时钟，未固定月份边界，也未指定非 UTC 时区；日期格和事件归属只验证“存在”，
+1. **单元测试**：使用真实系统时钟，未固定月份边界，也未指定非 UTC 时区；日期格和事件归属只验证"存在"，
    没有验证本地 15 日仍使用 `2026-07-15` 日期键。
 2. **集成测试**：调度器验证的是时间戳执行顺序，未覆盖 Calendar 对 UTC ISO 时间戳的本地展示语义。
 3. **端到端与视觉回归**：页面快照只证明路由可渲染，没有在月末或时区边界断言当天的高亮格。
-4. **代码审查**：没有把 `toISOString()` 识别为“传输格式”与“本地日历键”之间的语义边界；同一组件中混用
+4. **代码审查**：没有把 `toISOString()` 识别为"传输格式"与"本地日历键"之间的语义边界；同一组件中混用
    本地 getter 和 UTC 字符串未被视为不变量破坏。
 
 ### 修复与回归保护
 
 - Calendar 统一通过本地 getter 生成日期键；完整的 `YYYY-MM-DD` 字面量仍视为日期键，其余有效时间戳按本地时区
   归属到日历格，事件时分也按相同本地时区显示。
-- “今天”继续按实时本地日期计算，点击“今天”同步更新月份和选中日期；CI 用例冻结时钟，不再以冻结产品状态来规避
+- "今天"继续按实时本地日期计算，点击"今天"同步更新月份和选中日期；CI 用例冻结时钟，不再以冻结产品状态来规避
   月末测试竞争。
 - 事件按解析后的真实时间排序而非原始字符串，避免 UTC ISO 与 `datetime-local` 无时区值混排时颠倒；不可能的
   `YYYY-MM-DD` 或其 datetime-local 变体在归档前被拒绝。
-- `Calendar.test.js` 固定 `Asia/Shanghai` 与假时钟，先得到日期格、当地午夜后的“今天”、UTC 边界事件归属和本地
+- `Calendar.test.js` 固定 `Asia/Shanghai` 与假时钟，先得到日期格、当地午夜后的"今天"、UTC 边界事件归属和本地
   事件时间三项 RED，再转为 GREEN；用例明确覆盖 `2026-07-14T16:30:00.000Z -> 2026-07-15`、无时区值混排
   和本地 HH:MM 显示。
 - 同一提交完成 Calendar 聚焦单测、目标 ESLint、Vue 1830 模块生产构建、Calendar 单视图视觉门禁，以及串行桌面
@@ -13169,7 +13317,7 @@ OIDC 登录、Token 或正常请求。
 
 1. UI 日历、日期筛选和日期输入必须明确采用本地日历键还是 UTC 传输键；禁止在同一比较中混用本地 getter 与
    `toISOString().slice(0, 10)`。
-2. 任何依赖“今天”“当前月”或日期边界的 Vue 测试必须冻结时钟；至少增加一条非 UTC 时区和一条跨月重算回归。
+2. 任何依赖"今天""当前月"或日期边界的 Vue 测试必须冻结时钟；至少增加一条非 UTC 时区和一条跨月重算回归。
 3. 代码审查针对日期展示时检查日期键、事件归属、选中日期和显示时间是否使用同一时区语义。
 
 ---
@@ -13178,30 +13326,30 @@ OIDC 登录、Token 或正常请求。
 
 ### 根因（第一性原因）
 
-**Bug 现象**：模型服务商新增向导中，图片、视频、LLM 等所有类别的预设列表都为空，界面显示“暂无可添加”。
+**Bug 现象**：模型服务商新增向导中，图片、视频、LLM 等所有类别的预设列表都为空，界面显示"暂无可添加"。
 
 **5 Whys 根因溯源**：
 
 1. 为什么图片类别为空 → IPC `model-provider:presets("image")` 返回空预设数组。
-2. 为什么 IPC 为空 → [`getAvailablePresets(category)`](../apps/desktop/electron/services/model-provider-manager.js) 排除了“已存在于 `model_providers` 表”的预设 ID。
+2. 为什么 IPC 为空 → [`getAvailablePresets(category)`](../apps/desktop/electron/services/model-provider-manager.js) 排除了"已存在于 `model_providers` 表"的预设 ID。
 3. 为什么所有 ID 都已入库 → 应用启动时 [`_seedPresets()`](../apps/desktop/electron/services/model-provider-manager.js) 已将全部 52 个预设写入本地数据库。
-4. 为什么仍以“是否已入库”判定能否添加 → 把“预设目录存在”（`_seedPresets` 已写入）和“用户已完成配置”（用户已填 API Key 并启用）混为同一状态。
-5. **根因**：`getAvailablePresets` 的语义错误，应返回“可配置的内置预设”，而不是“数据库中不存在的预设”。
+4. 为什么仍以"是否已入库"判定能否添加 → 把"预设目录存在"（`_seedPresets` 已写入）和"用户已完成配置"（用户已填 API Key 并启用）混为同一状态。
+5. **根因**：`getAvailablePresets` 的语义错误，应返回"可配置的内置预设"，而不是"数据库中不存在的预设"。
 
-**历史追溯**：该矛盾由 commit `b00d5a7`（全局模型服务商系统）引入，`b60a2b96` 固化了过滤逻辑；不是“已配置 0”修复造成的回归。
+**历史追溯**：该矛盾由 commit `b00d5a7`（全局模型服务商系统）引入，`b60a2b96` 固化了过滤逻辑；不是"已配置 0"修复造成的回归。
 
 ### 测试逃逸链
 
-1. **单元测试**：[`model-provider-manager.test.js`](../apps/desktop/tests/model-provider-manager.test.js) 甚至明确断言“预设已初始化写入，所以应该为空” — 将错误行为当成正确合同固化下来。
+1. **单元测试**：[`model-provider-manager.test.js`](../apps/desktop/tests/model-provider-manager.test.js) 甚至明确断言"预设已初始化写入，所以应该为空" — 将错误行为当成正确合同固化下来。
 2. **composable 测试**：使用脱离真实 IPC 的 mock，`modelProviderPresets.mockResolvedValueOnce({ data: [] })` 未覆盖非空预设路径。
-3. **集成测试缺失**：没有“空 userData → init 种子 → IPC presets 返回非空”端到端回归。
+3. **集成测试缺失**：没有"空 userData → init 种子 → IPC presets 返回非空"端到端回归。
 4. **代码审查盲区**：种子初始化（写入全部预设）与 `getAvailablePresets`（排除已入库）的语义冲突没有被识别。
 
 ### 系统性漏洞
 
-- **状态语义混淆**：`is_preset` 标志同时表示“种子目录存在”和“用户已完成配置”，导致 `getAvailablePresets` 用错误的状态判定能否添加。
-- **测试断言反向**：测试断言“预设已入库 → 列表应为空”把 Bug 当成正确合同，反向固化了错误行为。
-- **mock 过度**：composable 测试 mock 了 IPC，没有覆盖“IPC 返回非空 → composable 转发到模板”的真实路径。
+- **状态语义混淆**：`is_preset` 标志同时表示"种子目录存在"和"用户已完成配置"，导致 `getAvailablePresets` 用错误的状态判定能否添加。
+- **测试断言反向**：测试断言"预设已入库 → 列表应为空"把 Bug 当成正确合同，反向固化了错误行为。
+- **mock 过度**：composable 测试 mock 了 IPC，没有覆盖"IPC 返回非空 → composable 转发到模板"的真实路径。
 
 ### 修复 + 回归保护
 
@@ -13223,12 +13371,12 @@ getAvailablePresets (category) {
 **回归保护测试**（3 层防护）：
 
 1. **后端单元测试**（`apps/desktop/tests/model-provider-manager.test.js`）：
-   - 修正原错误断言“预设已初始化写入应为空”为“应返回该类别可配置的预设，即使种子行已经初始化”。
-   - 新增“选预设后 createProvider 返回 already exists，updateProvider 补填 API Key 成功”测试覆盖降级更新路径。
-   - 新增“getAvailablePresets 返回的预设包含 base_url 和 models 字段”测试覆盖字段完整性。
+   - 修正原错误断言"预设已初始化写入应为空"为"应返回该类别可配置的预设，即使种子行已经初始化"。
+   - 新增"选预设后 createProvider 返回 already exists，updateProvider 补填 API Key 成功"测试覆盖降级更新路径。
+   - 新增"getAvailablePresets 返回的预设包含 base_url 和 models 字段"测试覆盖字段完整性。
 
 2. **composable 测试**（`apps/desktop/src/composables/useModelProviderCrud.test.js`）：
-   - 新增“loadAvailablePresets 转发 IPC 返回的预设列表到 availablePresets”测试，mock 返回非空数组（flux、dall-e）。
+   - 新增"loadAvailablePresets 转发 IPC 返回的预设列表到 availablePresets"测试，mock 返回非空数组（flux、dall-e）。
    - 更新 composable 导出完整性测试，包含 `loadAvailablePresets` 导出断言。
 
 3. **真实 DB + IPC 集成回归**（`apps/desktop/electron/services/model-provider-preset-integration.test.js`）：
@@ -13237,9 +13385,9 @@ getAvailablePresets (category) {
 
 ### 预防措施（R85）
 
-1. **R85：预设/种子类语义合同** — `getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”。“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定，不能与“种子是否写入”混为一谈。修改此类 API 时必须：(1) 验证空 userData 初始化后预设列表非空；(2) 验证种子已入库但预设列表仍返回全部项；(3) 验证用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。
-2. **测试断言不得反向固化错误行为** — 任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。
-3. **mock 不得掩盖真实数据流** — composable 测试如果只 mock IPC 返回空数组，就无法发现“真实 IPC 返回非空时 composable 是否正确转发”。每个 composable 测试至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的用例，覆盖真实数据路径。
+1. **R85：预设/种子类语义合同** — `getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等"可配置目录"类 API 必须返回该类别全部内置预设，**不得用"是否已入库"判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示"目录存在"，不表示"用户已完成配置"。"是否已配置"必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定，不能与"种子是否写入"混为一谈。修改此类 API 时必须：(1) 验证空 userData 初始化后预设列表非空；(2) 验证种子已入库但预设列表仍返回全部项；(3) 验证用户选预设后保存路径走"ID 冲突 → 降级更新"而非创建重复行。
+2. **测试断言不得反向固化错误行为** — 任何断言"X 已初始化所以 Y 应为空"的测试必须额外验证"Y 为空是用户期望行为"而非"实现副作用"。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为"Y 应返回全部可配置项"。
+3. **mock 不得掩盖真实数据流** — composable 测试如果只 mock IPC 返回空数组，就无法发现"真实 IPC 返回非空时 composable 是否正确转发"。每个 composable 测试至少包含一条"IPC 返回非空数据 → composable 转发到响应式状态"的用例，覆盖真实数据路径。
 4. **新增真实 DB + IPC 集成回归** — `apps/desktop/electron/services/model-provider-preset-integration.test.js` 必须在每次修改 `model-provider-manager.js` 的预设相关方法（`getAvailablePresets` / `createProvider` / `updateProvider` / `_seedPresets`）后运行，确保从 IPC 入口到 DB 的完整链路不被破坏。
 
 ---
@@ -13249,18 +13397,18 @@ getAvailablePresets (category) {
 ### 第一性原因
 
 - `ModelProviderManager._safeRow()` 只要发现 `api_key_enc` 有值就调用 `crypto.mask()`；而 `crypto.decrypt()` 遇到旧密钥、无效安全存储或解密失败时会返回空字符串，`crypto.mask('')` 却会生成 `****`。
-- 因此渲染层把 `****` 当作“已配置”，但 `getProviderWithKey()`/`testConnection()` 实际拿到空 Key 并正确拒绝调用，造成同一条记录在列表与测试入口表现矛盾。
+- 因此渲染层把 `****` 当作"已配置"，但 `getProviderWithKey()`/`testConnection()` 实际拿到空 Key 并正确拒绝调用，造成同一条记录在列表与测试入口表现矛盾。
 
 ### 测试逃逸链与修复
 
-1. 单元测试只覆盖“解密抛异常”和“无加密字段”，没有覆盖“解密正常返回空字符串”。
+1. 单元测试只覆盖"解密抛异常"和"无加密字段"，没有覆盖"解密正常返回空字符串"。
 2. `isConfigured()` 只统计 `api_key_enc IS NOT NULL AND enabled = 1`，把不可解密历史 blob 当成可用凭据。
 3. 修复把明文读取统一收敛到 `_getApiKey()`；列表遮罩、测试连接与类别状态都基于同一条解密结果判定。
 4. `model-provider-manager.test.js` 新增两条回归：解密为空不得显示遮罩；已启用但解密为空不得计为已配置。
 
 ### 预防措施
 
-- 模型凭据状态不得以“加密字段存在”作为可用性依据；任何面向 UI、默认选择或调用前置检查的“已配置”判断都必须以可解密且非空的 Key 为准。
+- 模型凭据状态不得以"加密字段存在"作为可用性依据；任何面向 UI、默认选择或调用前置检查的"已配置"判断都必须以可解密且非空的 Key 为准。
 - 修改加密凭据读取或掩码逻辑时，必须同时覆盖：可解密、解密抛错、解密返回空字符串，以及同一记录在列表统计和实际测试调用中的一致性。
 
 ---
@@ -13270,7 +13418,7 @@ getAvailablePresets (category) {
 ### 第一性原因
 
 - 添加预设时，ID、名称、Base URL 和模型列表由预设自动填充；`useModelProviderCrud.submitForm()` 只检查名称或 ID，空 API Key 仍请求 IPC。
-- 预设的种子行已存在，创建路径返回重复 ID 后前端降级为更新；更新空 Key 不改变凭据却返回成功。默认“已配置”视图再按可用 Key 过滤，形成“保存成功但列表没有新增项”的矛盾体验。
+- 预设的种子行已存在，创建路径返回重复 ID 后前端降级为更新；更新空 Key 不改变凭据却返回成功。默认"已配置"视图再按可用 Key 过滤，形成"保存成功但列表没有新增项"的矛盾体验。
 - MiniMax Image 的 seeds、适配器静态模型列表、保存配置和请求参数彼此独立维护，使 `image-01-live` 能重新进入表单和真实请求，违背固定 `image-01` 的产品合同。
 
 ### 修复与回归保护
@@ -13282,7 +13430,7 @@ getAvailablePresets (category) {
 
 ### 预防措施（R86）
 
-1. **新增服务商成功合同**：任何可保存的远程服务商必须在保存前同时满足 ID、名称、类别和可用凭据；成功提示后必须能从同一筛选视图回读该项。修改 CRUD、IPC 或筛选状态时，至少保留“空凭据拒绝 + 成功创建后回读”的成对回归。
+1. **新增服务商成功合同**：任何可保存的远程服务商必须在保存前同时满足 ID、名称、类别和可用凭据；成功提示后必须能从同一筛选视图回读该项。修改 CRUD、IPC 或筛选状态时，至少保留"空凭据拒绝 + 成功创建后回读"的成对回归。
 2. **固定模型单一来源**：若服务商产品约定固定模型，seeds、持久化规范化、UI 表单、adapter `listModels()` 与请求体必须由同一个规范化规则约束；不得仅在 UI 隐藏字段而让存量记录或调用参数覆盖真实请求。
 3. **配置状态单一来源**：UI 不得从 `api_key_enc`、掩码或字段存在性自行推断已配置；主进程必须返回可调用状态，且该状态同时考虑启用开关、可解密凭据和合法免 Key 条件。
 ---
@@ -13294,26 +13442,26 @@ getAvailablePresets (category) {
 - 新增远程模型的 API Key 经过 Electron `safeStorage.encryptString()` 后以 BLOB 写入 `model_providers.api_key_enc`。
 - 桌面端的 `sqlite-wrapper` 基于 sql.js；`statement.getAsObject()` 对该 BLOB 返回 `Uint8Array`，而不是 Node `Buffer`。
 - `crypto._toBuffer()` 只将 `Buffer` 视为二进制，其他对象会先 `String()` 再按 Base64 解码。`Uint8Array` 因此变成逗号分隔的数字文本并被破坏；`decrypt()` 按既有 fail-closed 语义返回空字符串。
-- `_safeRow()` 继而给出 `is_configured: false`，默认“已配置”视图将刚保存的模型筛掉，形成“保存成功但列表没有新增”的假象。
+- `_safeRow()` 继而给出 `is_configured: false`，默认"已配置"视图将刚保存的模型筛掉，形成"保存成功但列表没有新增"的假象。
 
 ### 测试逃逸链
 
 1. 单元测试虽有 `Uint8Array` 用例，但只断言返回值类型，允许解密失败后的空字符串通过；没有锁定 sql.js 数据库驱动回读的原始字节语义。
 2. 模型服务商 CRUD 测试 mock 了加密层，真实 `sqlite-wrapper -> crypto.decrypt()` 的二进制类型合同被绕过。
-3. 既有真实 Electron 验证主要检查页面可打开、预设可见与空 Key 拦截，没有完成“新远程模型保存后默认已配置视图立即回读”的完整流程。
-4. 审查未把“SQLite BLOB 驱动返回类型”视为跨实现的运行时数据契约。
+3. 既有真实 Electron 验证主要检查页面可打开、预设可见与空 Key 拦截，没有完成"新远程模型保存后默认已配置视图立即回读"的完整流程。
+4. 审查未把"SQLite BLOB 驱动返回类型"视为跨实现的运行时数据契约。
 
 ### 修复与回归保护
 
 - `crypto._toBuffer()` 现接受所有 `ArrayBuffer` view（包括 `Uint8Array`）和独立 `ArrayBuffer`，并使用原始 buffer、offset 与 byte length 重建 Node `Buffer`，不再经过字符串/Base64 路径。
 - `crypto.test.js` 先以 sql.js 形态的 `Uint8Array` 得到 RED，再验证修复后的解密回读 GREEN；Buffer/Base64 兼容合同继续保留。
-- 用真实 Electron 隔离 profile 新增两个自定义图片模型并返回默认“已配置”视图；保存后对话框关闭且模型卡片立即可见。
+- 用真实 Electron 隔离 profile 新增两个自定义图片模型并返回默认"已配置"视图；保存后对话框关闭且模型卡片立即可见。
 - 同步修正过时测试：远程服务商缺少 API Key 必须被拒绝，不能把旧的空凭据创建语义继续固化为通过。
 
 ### 预防措施（R87）
 
 1. 使用 sql.js、better-sqlite3 或任何可替换存储驱动保存二进制凭据时，测试必须覆盖原始 `Buffer`、驱动回读的 typed array 与序列化 Base64 三种载体，且字节值保持等价。
-2. 加密凭据的 UI 状态、可用性检查与实际调用必须基于同一次可解密回读，不能只以 BLOB 非空或保存成功推断“已配置”。
+2. 加密凭据的 UI 状态、可用性检查与实际调用必须基于同一次可解密回读，不能只以 BLOB 非空或保存成功推断"已配置"。
 3. 任何模型服务商新增/编辑修复至少保留一次真实 Electron 冒烟：保存 → 列表重载 → 默认筛选视图中出现目标服务商。
 ---
 
@@ -13322,16 +13470,16 @@ getAvailablePresets (category) {
 ### 问题与复现
 
 - **现象**：新增模型保存后，用户返回模型服务商列表仍看不到新增项，并怀疑应用回到了旧版本。
-- **预期**：桌面窗口必须加载当前 worktree 的 renderer；远程服务商在填写有效 API Key 后保存，默认“已配置”视图应立即显示新卡片，且旧分类筛选不得遮挡。
+- **预期**：桌面窗口必须加载当前 worktree 的 renderer；远程服务商在填写有效 API Key 后保存，默认"已配置"视图应立即显示新卡片，且旧分类筛选不得遮挡。
 - **复现**：在 `C:/tmp/Multi-Publish-story2video-scope-e2e` 直接执行 `electron .` 且未传 `DEV_SERVER_PORT` 时，Electron 自动访问 `http://127.0.0.1:5174/`；该端口运行的是另一份旧 Vite 服务。改为 `DEV_SERVER_PORT=5178` 后，CDP 页面 URL 为 `http://127.0.0.1:5178/#/`，模型列表实现恢复为当前工作树版本。
 
 ### 5 Whys 与第一性原因
 
-1. 为什么用户看到“修复又失效” → 可见窗口加载的 renderer 不是当前 worktree 的 Vite 实例。
+1. 为什么用户看到"修复又失效" → 可见窗口加载的 renderer 不是当前 worktree 的 Vite 实例。
 2. 为什么加载了错误 renderer → 裸启动 `electron .` 未传目标 `DEV_SERVER_PORT`。
 3. 为什么未传端口仍能打开应用 → Electron 开发配置会回退到默认端口 `5174`，而该端口恰有旧 Vite 服务可响应。
 4. 为什么此前验证没有拦住 → 只确认 Electron 进程存活/窗口存在，没有把 CDP 或窗口 URL 与当前 worktree 的 Vite 端口绑定核验。
-5. **根因**：开发启动证据缺少“窗口 renderer 来源 = 当前 worktree Vite 实例”的身份合同；旧端口服务可用时，进程存活和页面可见会产生错误的通过结论。
+5. **根因**：开发启动证据缺少"窗口 renderer 来源 = 当前 worktree Vite 实例"的身份合同；旧端口服务可用时，进程存活和页面可见会产生错误的通过结论。
 
 ### 逃逸链
 
@@ -13356,9 +13504,9 @@ getAvailablePresets (category) {
 
 ### 问题
 
-- **现象**：在“视频创作”点击“历史记录”后，页面持续显示“加载中…”，没有错误提示或重试路径。
+- **现象**：在"视频创作"点击"历史记录"后，页面持续显示"加载中…"，没有错误提示或重试路径。
 - **预期**：历史读取成功时显示记录；任一来源失败或超时时结束加载、保留另一来源的成功记录，并给出明确的重试入口。
-- **复现**：当前用户的 `story2video_projects_v1` 中存在遗留项目，且 `videoPath` 指向项目受控目录外的不可及时响应路径；在 Electron 中进入 `/create` 后点击“历史记录”。
+- **复现**：当前用户的 `story2video_projects_v1` 中存在遗留项目，且 `videoPath` 指向项目受控目录外的不可及时响应路径；在 Electron 中进入 `/create` 后点击"历史记录"。
 
 ### 5 Whys 与根因
 
@@ -13372,17 +13520,17 @@ getAvailablePresets (category) {
 
 ### 漏测分类与逃逸链
 
-- **PRD 缺口：是**。历史记录只定义了成功/空态，未定义“一个来源长期无响应、另一个来源成功”的验收行为。
-- **代码缺陷：是**。主进程未建立“恢复项只能探测受控目录内普通文件”的边界；UI 未为 IPC 悬挂设置 deadline。
+- **PRD 缺口：是**。历史记录只定义了成功/空态，未定义"一个来源长期无响应、另一个来源成功"的验收行为。
+- **代码缺陷：是**。主进程未建立"恢复项只能探测受控目录内普通文件"的边界；UI 未为 IPC 悬挂设置 deadline。
 - **测试缺口：是**。组件测试只覆盖快速 success/reject；服务测试未覆盖遗留目录外路径；`CreateHistory` 的第二入口也没有超时状态测试。
 - **流程缺口：是**。评审只检查异常抛出和 IPC 权限，未检查主进程同步 I/O 是否信任持久化外部路径，也未检查加载状态的可终止性。
 
 ### 修复与 RED→GREEN 证据
 
 1. `Story2VideoProjectService.listProjects()` 先用 `path.relative()` 做不触发 I/O 的词法受控目录检查，再逐段 `lstatSync` 检查项目目录和目标文件的每一级路径；目录外、非法 ID、任意 junction/符号链接、非普通文件或异常路径一律标为不可恢复。
-2. `CreateView` 的两条历史 IPC 均增加 5 秒 deadline；无论成功、失败或超时都会关闭加载状态。部分成功时保留已返回的记录并展示错误和“重试”。
+2. `CreateView` 的两条历史 IPC 均增加 5 秒 deadline；无论成功、失败或超时都会关闭加载状态。部分成功时保留已返回的记录并展示错误和"重试"。
 3. `CreateHistory` 的渲染记录和流水线记录也使用相同的 5 秒 deadline，补齐该模式的第二 UI 入口。
-4. RED：`CreateView` 的“一个 IPC 永不结算、另一个返回已完成记录”测试先失败；`CreateHistory` 的悬挂 `pipelineHistory()` 测试先失败。
+4. RED：`CreateView` 的"一个 IPC 永不结算、另一个返回已完成记录"测试先失败；`CreateHistory` 的悬挂 `pipelineHistory()` 测试先失败。
 5. RED：项目目录内 junction 指向目录外视频、以及两次并发加载时旧响应晚到的测试都先失败，证明原实现既会越过受控根，也会用旧响应覆盖新状态。
 6. GREEN：CreateHistory.test.js、CreateView.test.js 和 story2video-project-service.test.js 共 **93/93** 通过；浏览器 GUI E2E **270/270** 通过；Vue 构建通过。
 
@@ -13391,11 +13539,11 @@ getAvailablePresets (category) {
 1. 任意用户可见的历史/列表加载不得无限等待 IPC。每个请求必须有有界 deadline，并在超时、reject、异常响应和成功时统一结束 loading。
 2. 聚合多个来源时，任一来源失败不得覆盖另一来源的成功数据；错误横幅必须与已获取的数据同时可见，并提供重试。
 3. 主进程不得对持久化记录中的外部或未经验证的路径执行同步文件状态查询。先做不触发文件系统访问的词法受控根校验；随后必须逐段拒绝 junction/符号链接，只有受控目录内的普通文件才允许继续探测。
-4. 修改 `pipelineHistory`、`story2video:list-projects` 或任一历史页时，至少运行：一个悬挂 Promise 状态覆盖测试、一个部分成功渲染测试、一个旧响应竞态测试、一个目录外或 junction 遗留路径服务测试，以及 GUI E2E 的“创作流水线/创作历史”路由。
+4. 修改 `pipelineHistory`、`story2video:list-projects` 或任一历史页时，至少运行：一个悬挂 Promise 状态覆盖测试、一个部分成功渲染测试、一个旧响应竞态测试、一个目录外或 junction 遗留路径服务测试，以及 GUI E2E 的"创作流水线/创作历史"路由。
 
 ### 7 阶段回流映射
 
-- **Stage 2（PRD）**：需要补充“历史多来源部分失败和超时”的可验收状态。
+- **Stage 2（PRD）**：需要补充"历史多来源部分失败和超时"的可验收状态。
 - **Stage 5（TDD）**：已补两个 fake-timer RED→GREEN 回归和目录边界回归。
 - **Stage 6（评审）**：需要检查用户可见 loading 是否有终止条件、部分成功是否可见、以及持久化路径是否触发主进程同步 I/O。
 
@@ -13416,14 +13564,14 @@ getAvailablePresets (category) {
 
 ### 第一性原因
 
-PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧合同：以内部英文名 `Story2Video` 查找流水线并点击“启动编排”。产品已将 `story2video-compose` 本地化为“图片轮播”/`Image Carousel`，启动按钮统一为“启动流水线”，因此真实 GUI 在文案和动作定位上失败。
+PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧合同：以内部英文名 `Story2Video` 查找流水线并点击"启动编排"。产品已将 `story2video-compose` 本地化为"图片轮播"/`Image Carousel`，启动按钮统一为"启动流水线"，因此真实 GUI 在文案和动作定位上失败。
 
 ### 测试逃逸链
 
 1. `PipelineBrowser.test.js`、`CreateView.test.js` 验证了组件渲染和启动 IPC，但没有执行真实 Browser GUI runner。
 2. Vue build 和像素视觉回归只覆盖编译、布局和截图，不覆盖 helper 的用户可见文案合同。
 3. 推送前聚焦测试只跑 Vitest，未把 `route-functional-suite.js` 的真实浏览器路径纳入提交前快速门禁。
-4. 审查没有逐项比对旧流水线名称、旧按钮文案和“优先显示”排序语义。
+4. 审查没有逐项比对旧流水线名称、旧按钮文案和"优先显示"排序语义。
 5. 结果是旧合同直到远端 `gui-test` 才暴露，269/270 检查无法完成。
 
 ### 系统性漏洞
@@ -13433,13 +13581,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 修复与回归保护
 
 - 在 `PipelineBrowser.vue` 和 `/create` 实际流水线卡片输出 `data-pipeline-id`，测试按受控 ID 精确定位。
-- E2E 同时断言首卡为 `story2video-compose`、卡片显示中文或英文本地化名称，并点击“启动流水线”；内部 IPC 名称 `pipelineStartOrchestrated` 保持不变。
+- E2E 同时断言首卡为 `story2video-compose`、卡片显示中文或英文本地化名称，并点击"启动流水线"；内部 IPC 名称 `pipelineStartOrchestrated` 保持不变。
 - 新增稳定选择器组件断言；`PipelineBrowser.test.js` 与 `CreateView.test.js` 聚焦回归 68/68 通过。
 
 ### 预防措施
 
 1. 本地化 E2E 禁止依赖内部枚举文本，必须使用稳定 `data-*`/状态 class 加用户可见文案。
-2. “优先显示”类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
+2. "优先显示"类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
 3. 修改 Vue 文案、按钮或流水线排序时，提交前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。
 ## Story2Video 图片轮播权限提示与调试 profile 复盘（2026-08-05）
 
@@ -13516,7 +13664,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 本机无 wrapper 源码（仅有 `backups/codeagent-wrapper-*/` 的 truncated exe），无法改二进制重编。
 
 ### 修复 + 回归保护
-- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离“空值/空字符串值的 `--setting-sources`”，其余参数原样透传真实 `claude.exe`。
+- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离"空值/空字符串值的 `--setting-sources`"，其余参数原样透传真实 `claude.exe`。
 - shim 用 `%USERPROFILE%` 展开中文路径（batch 文件保持 ASCII，避免 GBK/代码页损坏）；Python 侧把 `--setting-sources ""`（wrapper 实际传空字符串）也视为无值。
 - 验证：`CLAUDE_SHIM_DRYRUN=1` 探针证明 wrapper 实际调用 shim 且净化命令正确（`-p --dangerously-skip-permissions --output-format stream-json --verbose -`）；claude 越过参数解析进入运行。
 
@@ -13891,18 +14039,18 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **恢复证据**：暂停其他任务 Git 写入，安全移除占用 `main` 的陈旧 worktree，将四个 `.tmp-*.js` 保存到 `stash@{0}`（message：`shared-main-recovery-temp-files-20260815`），再把共享主目录恢复为干净且跟踪 `origin/main`。恢复时不得 pop/drop 共享 stash；需要取回临时文件时先按 stash message 重新定位，再用路径级 `git restore --source=<stash> -- <path>`。
 - **永久修复**：共享主目录定义为 main-only 协调目录；新增 `post-checkout` 在干净状态递归安全恢复 `main`，脏状态或恢复失败时保留现场并写 `.agent_context/shared-root-violation`；`pre-commit` 在 marker 存在时 fail closed；`session-init.sh <task-name>` 只创建/复用 `D:/Data/projects/mp-worktrees/mp-<task-name>` + `codex/<task-name>`，错误分支或其他仓库占位均拒绝。
 - **迁移与工具边界**：多个任务已经共享一个 cwd 时必须暂停 Git 写入并逐个串行迁移，禁止并行 handoff/stash/checkout。Windows 上此流程固定使用 `D:/Program Files/Git/usr/bin/bash.exe` 或 Git Bash；裸 `bash` 在本机可能落到不可用 WSL。回滚仅重新安装上一版本 hooks，不删除恢复 stash；worktree 删除继续逐个运行 `scripts/safe-worktree-remove.ps1`。
-- **归档回补**：`session-guard.ps1` 的“另一活跃会话声明不可覆盖”（`session.json` pid 存活时拒绝，除非 `-Force`）在修复落地时缺少对应回归测试；归档任务补上该场景（`session-guard.test.ps1` 新增断言），避免后续把 fail-open 退化当通过。共享主目录必须保持 `main` 且干净，stash 列表里的恢复项与另一会话的未跟踪目录均不得触碰。
+- **归档回补**：`session-guard.ps1` 的"另一活跃会话声明不可覆盖"（`session.json` pid 存活时拒绝，除非 `-Force`）在修复落地时缺少对应回归测试；归档任务补上该场景（`session-guard.test.ps1` 新增断言），避免后续把 fail-open 退化当通过。共享主目录必须保持 `main` 且干净，stash 列表里的恢复项与另一会话的未跟踪目录均不得触碰。
 
 ## Story2Video 50 分钟上限后的固定 ffmpeg 超时与通用错误提示复盘（2026-08-15）
 
 ### 第一性原因
 - 产品时长上限调整到 50 分钟只改了 compose 预检；e39e22cfa 引入的 concat 60s，以及 e1b46eba 引入的旁白/BGM/WebM/输出校验 120s/120s/180s/60s，仍按短成片设计。此前 feffc5da 只把单段编码改为动态预算，没有覆盖全片下游阶段。
-- fed08eed 引入 Story2Video 通知归一化时，未知错误统一安全回退，但没有定义“成片总时长 / 单段旁白 / 合成阶段 timeout”的稳定消息键。更隐蔽的是 Node execFile 的 timeout 错误可能只有 killed=true、signal=SIGTERM，message 不含 timeout，单靠 renderer 正则无法可靠分类。
+- fed08eed 引入 Story2Video 通知归一化时，未知错误统一安全回退，但没有定义"成片总时长 / 单段旁白 / 合成阶段 timeout"的稳定消息键。更隐蔽的是 Node execFile 的 timeout 错误可能只有 killed=true、signal=SIGTERM，message 不含 timeout，单靠 renderer 正则无法可靠分类。
 
 ### 逃逸链与系统性漏洞
 1. 单元测试：耗时方法大量 mock；只覆盖短媒体与固定 timeout 数值，没有 3000s 预算矩阵，也没有 killed + SIGTERM 的子进程错误形态。
 2. 集成测试：真实 ffmpeg fixture 约 0.25-4s，无法触发长成片预算；阶段调用链未断言旁白使用真实音频总时长、BGM/WebM/校验使用预计成片时长。
-3. E2E：没有接近 50 分钟的长成片，因成本高而未覆盖；通知 E2E 只验证通用 fallback，反而固化了“具体原因不可见”。
+3. E2E：没有接近 50 分钟的长成片，因成本高而未覆盖；通知 E2E 只验证通用 fallback，反而固化了"具体原因不可见"。
 4. 代码审查：上限变更只审了预检常量，没有沿调用链搜索所有 timeout；错误映射审查只看文本 pattern，没有核对 execFile 的真实 error 结构。
 5. 分类：测试场景缺失 + 审查盲区 + 产品上限与执行预算联动流程缺失。
 
@@ -13913,7 +14061,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 回归覆盖短片下限、3000s、非法时长、阶段上限、阶段时长传参、killed + SIGTERM、通知优先级与技术细节脱敏。
 
 ### 预防措施
-- “提高产品媒体时长上限”审查必须沿链检查：输入校验 → 中间产物 → 所有子进程 timeout → 输出校验 → 用户错误映射；只改入口常量不算完成。
+- "提高产品媒体时长上限"审查必须沿链检查：输入校验 → 中间产物 → 所有子进程 timeout → 输出校验 → 用户错误映射；只改入口常量不算完成。
 - 子进程 timeout 分类必须在执行边界归一化；renderer 不得把操作系统 signal/message 当稳定 API。该规则已写入 .ccg/spec/frontend/index.md。
 - 长媒体测试不必真的生成 50 分钟文件，但必须同时具备预算数学测试、调用链传参测试和至少一组短媒体真实 ffmpeg 冒烟；三者互补，不能只 mock 或只跑短片。
 
@@ -13921,19 +14069,19 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 
 ### 第一性原因与逃逸链
 - `_advanceRun` 先发 `pipeline:complete` 再保存项目，约 1.15 秒竞态窗口内结果页可能读不到项目；结果页大范围 `try/catch` 又把旁白或场景预览失败误报为任务失败。
-- 旧测试未锁定完成事件与 `saveRun` 顺序，也未覆盖“项目/成片成功但附加资源失败”的组合；系统性漏洞是测试场景缺失与错误边界审查盲区。
+- 旧测试未锁定完成事件与 `saveRun` 顺序，也未覆盖"项目/成片成功但附加资源失败"的组合；系统性漏洞是测试场景缺失与错误边界审查盲区。
 
 ### 修复与预防
 - 完成事件后移到项目持久化成功之后；持久化失败同步最后阶段为 `failed` 并发送 `pipeline:fail`。
 - 结果页按项目、成片、旁白和场景素材独立降级；主视频播放器错误使用预览级文案。定向回归 86/86 全绿，规则已写入 frontend spec。
 
-## Story2Video 长合成“假卡死”可观测性复盘（story2video-compose-observability，2026-08-15）
+## Story2Video 长合成"假卡死"可观测性复盘（story2video-compose-observability，2026-08-15）
 
 - **现象**：长视频分块转场合成在 UI 87%-89% 可持续数分钟。既有引擎每完成一块才输出 merge_l{level}_chunk_{n} created，因此无法从日志区分 FFmpeg 尚未启动、持续 CPU 重编码、子进程退出、输出停止增长或阶段超时。
-- **第一性原因**：compose 没有跨阶段关联 ID，FFmpeg 通过不带 PID/输出状态的 execFileAsync 执行；分块只有完成事件，运行期间没有心跳。根因不是单纯的 UI 百分比，而是引擎缺少能够证明“仍在工作”的运行时证据。
+- **第一性原因**：compose 没有跨阶段关联 ID，FFmpeg 通过不带 PID/输出状态的 execFileAsync 执行；分块只有完成事件，运行期间没有心跳。根因不是单纯的 UI 百分比，而是引擎缺少能够证明"仍在工作"的运行时证据。
 - **逃逸链**：原测试验证了 87→89 单调进度和块完成文本日志，但没有断言 FFmpeg 启动、超时、失败、空输出、输出大小或块开始事件；短时真实 FFmpeg 用例不会自然暴露长时间无日志窗口。
 - **修复**：以 composeId 串联 compose_started/stage/终态事件；统一 FFmpeg 包装记录 started/succeeded/failed/timeout/output_missing；chunk 记录 started/succeeded/failed，超过 10 秒记录输出字节心跳，30 秒无增长 WARN。stderr 经过路径替换和长度截断，日志不写完整路径/命令/素材/prompt/凭据。
-- **预防**：所有新增长耗时本地子进程路径必须覆盖“启动 + 成功 + 失败/超时 + 产物校验”四态；需要帧级 ETA 时单独设计 spawn + progress pipe 合同，不得把高频解析混入普通诊断日志；测试至少包含一个可控超时和一个输出增长心跳。
+- **预防**：所有新增长耗时本地子进程路径必须覆盖"启动 + 成功 + 失败/超时 + 产物校验"四态；需要帧级 ETA 时单独设计 spawn + progress pipe 合同，不得把高频解析混入普通诊断日志；测试至少包含一个可控超时和一个输出增长心跳。
 ## 视频提示词引擎 Higgsfield Round3 B/C 复盘（prompt-engine-round3bc-delivery，2026-08-15）
 
 - **教训 1（跨镜承接语义红线）**：`final_frame` / `prev_final_frame` 是"计划中的最终画面描述"（计划态文本），不是解码帧/实际渲染帧。契约层、OpenSpec spec、PRD、learnings 四处措辞必须一致用"终态描述/承接事实"，避免下游（compose/渲染）误把它当真实帧结果消费。`story2video-stages.js` 回写 `scene.video.final_frame` 只是把上一场景的优化输出作为下一场景的承接输入，不改变素材链语义。
@@ -13951,18 +14099,18 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 4（新增 BYOK 边界要同步邻近测试）**：既有桌面契约测试未注入默认 LLM，fail-closed 后 9 个用例立即暴露——凡新增绑定/兜底类边界，邻近测试必须显式 mock 默认 LLM 或声明模板直出（creative_level<=3）。
 ## 创意等级与提示词执行策略解耦复盘（decouple-creative-level-strategy，2026-08-17）
 
-- **现象**：同一段历史场景文案生成结果只有原文加固定技术底座，无法确认是否真正调用了最新 LLM；低等级请求还容易被误认为“引擎自动判断创意等级”。
-- **根因**：`creative_level` 在 `auto` 兼容路由中同时承担等级和执行分流，调用方没有显式表达“必须模型/必须模板”；缓存结果缺少可见的执行证据，人工重生成没有绕过缓存。
+- **现象**：同一段历史场景文案生成结果只有原文加固定技术底座，无法确认是否真正调用了最新 LLM；低等级请求还容易被误认为"引擎自动判断创意等级"。
+- **根因**：`creative_level` 在 `auto` 兼容路由中同时承担等级和执行分流，调用方没有显式表达"必须模型/必须模板"；缓存结果缺少可见的执行证据，人工重生成没有绕过缓存。
 - **教训 1**：创意/细节强度与资源执行策略是两个正交维度。当前只允许 `optimization_strategy=template|llm`，缺省为 `llm`；`auto` 不再接受，显式模板才走确定性模板路径。
-- **教训 2**：用户点击“重新生成”必须有可验证语义：强制 BYOK LLM、`bypass_cache=true`，并返回 `strategy_used/key_source/model_used/caller/cache_hit`。
-- **教训 3**：模板路径应确定性输出；随机选择光影词会制造虚假的“重新生成”差异，且难以审计。
+- **教训 2**：用户点击"重新生成"必须有可验证语义：强制 BYOK LLM、`bypass_cache=true`，并返回 `strategy_used/key_source/model_used/caller/cache_hit`。
+- **教训 3**：模板路径应确定性输出；随机选择光影词会制造虚假的"重新生成"差异，且难以审计。
 - **逃逸链**：旧测试覆盖了等级边界，但没有覆盖低等级显式 LLM、高等级显式模板、混合 batch 逐项注入、缓存绕过及执行元数据；属于测试场景缺失与双路径契约漂移。
 - **回归保护**：PromptBridge/kernel/contract/service 与 prompt-engine `test_llm_object.py`、`test_template_render.py` 覆盖上述矩阵；后续修改策略解析或历史重生成必须运行这些套件。
 ## Story2Video 历史失败提示技术占位符泄漏与模型账号粒度复盘（error-message-fix，2026-08-19）
 
 ### 第一性原因
 
-历史错误友好化改造（引入 commit 73bbafbc9，后续由 ca69919bf 扩展额度/API Key 分类）把 locale 引用 @story2video.labels.sceneLabel 和参数 sceneText 一起带进了 formatter/renderer 边界。sceneText 原本是场景上下文领域的内部变量名，不是用户可读内容；当二次格式化缺少对应参数时，模板变量会原样进入失败提示。与此同时 provider 只被抽象成“对应模型账号”或 provider account，没有把具体账号身份传达给用户。
+历史错误友好化改造（引入 commit 73bbafbc9，后续由 ca69919bf 扩展额度/API Key 分类）把 locale 引用 @story2video.labels.sceneLabel 和参数 sceneText 一起带进了 formatter/renderer 边界。sceneText 原本是场景上下文领域的内部变量名，不是用户可读内容；当二次格式化缺少对应参数时，模板变量会原样进入失败提示。与此同时 provider 只被抽象成"对应模型账号"或 provider account，没有把具体账号身份传达给用户。
 
 ### 逃逸链
 
@@ -13973,7 +14121,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 
 ### 系统性漏洞定位
 
-属于“测试场景缺失 + 双路径契约漂移 + 用户可见文案审查盲区”。内部变量名可以在编译和分类测试中合法存在，但它一旦跨过 formatter 到 locale 插值层就成为用户可见内容；没有“最终渲染字符串脱敏”这一独立门禁。
+属于"测试场景缺失 + 双路径契约漂移 + 用户可见文案审查盲区"。内部变量名可以在编译和分类测试中合法存在，但它一旦跨过 formatter 到 locale 插值层就成为用户可见内容；没有"最终渲染字符串脱敏"这一独立门禁。
 
 ### 修复与回归保护
 
@@ -13991,12 +14139,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 
 ## Story2Video 断点恢复未切换当前模型复盘（s2v-resume-current-models，2026-08-19）
 
-- **现象**：历史记录中的失败/中断 Story2Video 任务恢复后，图片、语音和视频阶段仍可能携带启动任务时的 provider/model；用户已经在模型设置中切换模型，但“从断点继续”没有真正使用新设置。
-- **第一性原因**：恢复实现把旧快照 params 深度恢复，并把其中的 provider/model 视为新的显式路由；“已完成资产复用”和“未完成调用路由”没有在同一个恢复合同中分离。legacy Python 路径还存在绕过已解析 resolved 字段的分叉。
+- **现象**：历史记录中的失败/中断 Story2Video 任务恢复后，图片、语音和视频阶段仍可能携带启动任务时的 provider/model；用户已经在模型设置中切换模型，但"从断点继续"没有真正使用新设置。
+- **第一性原因**：恢复实现把旧快照 params 深度恢复，并把其中的 provider/model 视为新的显式路由；"已完成资产复用"和"未完成调用路由"没有在同一个恢复合同中分离。legacy Python 路径还存在绕过已解析 resolved 字段的分叉。
 - **方案**：恢复 Story2Video 参数只清除图片/TTS/视频路由字段并设置内部 marker；实际调用前按 capability 解析当前默认 provider/model。完成资产先按 scene index 校验本地路径并复用，未完成资产才调用当前模型。手动 finalize TTS、legacy Python 和视频 plan 同样遵守该策略。
 - **风险判断**：新 TTS 可能没有旧 voiceId、音色质量/语言不同；因此 voiceId 是内容参数，不能静默替换，必须沿用 VOICE_MODEL_MISMATCH/目录合同和既有 re-clone，失败时不覆盖旧音频。图片/视频允许新旧模型混合，视觉风格差异是明确产品取舍。
 - **远程任务边界**：当前 generateSceneVideo 未把远程 taskId 写入 checkpoint/run-state。提交后中断属于未知状态，不能查询、不能标记完成；恢复只能按现有阶段级重试/图片回退语义处理。未来持久化必须绑定原 provider/model。
-- **逃逸链**：旧测试验证了恢复能继续、完成视频能复用和跨镜终态，但没有组合覆盖“设置已切换 + 未完成 provider/model + legacy Python + 旧 video_plan + 远程未知状态”。因此问题逃过了单测和代码审查，属于测试场景缺失与跨路径契约审查盲区。
+- **逃逸链**：旧测试验证了恢复能继续、完成视频能复用和跨镜终态，但没有组合覆盖"设置已切换 + 未完成 provider/model + legacy Python + 旧 video_plan + 远程未知状态"。因此问题逃过了单测和代码审查，属于测试场景缺失与跨路径契约审查盲区。
 - **回归保护**：resume-orchestration.test.js 锁定旧路由清理和内容参数保留；story2video-stages.test.js 锁定 assetGenerator/legacy Python 的当前 image/TTS 模型、已完成图片/音频/视频不重复调用、未完成视频只提交一次且使用当前 provider/model；pipeline-story2video-contract.test.js 继续保护 stage options 合同。
 - **预防措施**：以后新增资产生成路径必须接收统一的 resolvedProvider/resolvedModel，禁止从原始 params/stage.options 重新取路由；恢复设计必须同时给出资产状态矩阵、旧快照兼容性、语音兼容性和远程任务状态说明；用户提示必须与事实状态一致，未知不能成功化。
 
@@ -14011,22 +14159,22 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 1. 单元测试：旧用例主要覆盖 completed 或纯排序，未要求六个标签使用同一套字段，也未覆盖标题为空、任务文案与提示词不同、视频时长与 activeMs 同时存在的组合。
 2. 集成测试：project/run 快照只覆盖常见 projectId，未覆盖旧 run 只有 id 时的匹配；缩略图没有覆盖图片优先、路径越界、符号链接和 FFmpeg 失败的完整矩阵。
 3. E2E/视觉：没有真实历史列表到 cancelled 编辑页、缺失图片/视频/语音占位和运行中卡片控制边界的窗口验收；旧详情规则反而固化了 cancelled 不可编辑。
-4. 代码审查：没有把“项目内容真源/运行状态真源”写成合并后校验合同，也没有逐项检查 updatedAt 是否覆盖内容写入和操作写入。
+4. 代码审查：没有把"项目内容真源/运行状态真源"写成合并后校验合同，也没有逐项检查 updatedAt 是否覆盖内容写入和操作写入。
 
 ### 系统性漏洞定位
 
-属于“测试场景缺失 + project/run 数据契约不显式 + UI 终态边界审查盲区”。历史快照兼容不能只按当前结构测试；用户可见卡片还需要验证字段语义，而不是只验证字段存在。
+属于"测试场景缺失 + project/run 数据契约不显式 + UI 终态边界审查盲区"。历史快照兼容不能只按当前结构测试；用户可见卡片还需要验证字段语义，而不是只验证字段存在。
 
 ### 修复与回归保护
 
-- CreateViewHistory 统一所有状态的卡片结构，标题按标题/参数标题/任务文案/流水线回退；文案预览只读任务文案并限制 120 字符；增加首场景缩略图、视频时长和“未生成”占位。
+- CreateViewHistory 统一所有状态的卡片结构，标题按标题/参数标题/任务文案/流水线回退；文案预览只读任务文案并限制 120 字符；增加首场景缩略图、视频时长和"未生成"占位。
 - Story2VideoProjectService 增加安全的图片优先/视频第 0 秒首帧生成、缓存校验、并发合并和 fail-soft IPC；路径必须在受控根目录内且输出格式有效。
 - CreateView 用三索引匹配 project/run，项目内容优先、run 状态补充，纯 run 不伪造项目；ResultView 固定缺失/失败素材槽位。
 - 统一单调 updatedAt helper，覆盖内容保存、暂停、继续、取消、失败和完成状态写回；回归断言同一时钟 tick 下也能前进。
 
 ### 预防措施
 
-1. 新增历史字段必须写入“字段语义 + 来源优先级 + 无效值处理 + 中英文文案”的合同，禁止用相近但语义不同的 duration 替代 videoDuration。
+1. 新增历史字段必须写入"字段语义 + 来源优先级 + 无效值处理 + 中英文文案"的合同，禁止用相近但语义不同的 duration 替代 videoDuration。
 2. project/run 合并变更必须覆盖 projectId、runId、legacy id、旧 run 只有 id、旧 run 内容过期和纯 run 无项目五种数据形态。
 3. 新媒体展示必须同时覆盖合法素材、缺失、失败、文件被清理、越界/符号链接和窗口加载失败；固定槽位不能因 v-if 消失。
 4. 终态可编辑规则必须同时检查 running 排除、paused/failed/completed/cancelled 进入、cancelled 禁止 resume、纯 run 禁止伪造项目；文档与 locale 成对更新。
@@ -14042,48 +14190,48 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 
 **修复**：生成按钮覆盖 image1/image2 与 video1/video2 全部视觉卡（保持场景级动作，写入目标由选中态/身份规则决定，video2 仍是视觉别名）；`hasUsableVideoPrompt` 改为 `videoPrompt || prompt || text` 任一 trim 非空，与后端契约一致（模板 disabled 与方法入口 guard 同时放宽，避免可点但静默 return）。
 
-**预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/“无按钮”固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。
+**预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的"能否生成"门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/"无按钮"固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。
 
 ## Story2Video 字幕常用词边界与未闭合引号保真（subtitle-word-boundary-fix，2026-08-22）
 
 - **现象**：用户整段文案分句后出现 `哪|怕`、`没|法`、`那|些`、`展|现` 等常用词被硬切；`前朝。"字里行间…` 这类未闭合半角引号会让后续句号失效，正文被吞。
 - **根因**：`no_cut_bigrams` 只覆盖此前用户反馈词；引号清理只发生在句界切分之后，孤立开引号会让 `_split_sentences` 的引号栈永不闭合，后续正文与句号一起被吞。
-- **修复**：常用词加入共享 `subtitle-rules.json`；三端在句界扫描前先做 `stripUnpairedQuotes`，只移除无法配对的引号字符并保留正文；`protectedPhrasePrefixAtEnd` 增加“文本已完整结束于保护短语时不再把末尾单字误判为另一短语前缀”的守卫，修复 `江南` 被 `南宋灭亡时` 误伤成 `江|南`。
-- **逃逸链**：单元测试覆盖了旧保护词但未覆盖“未闭合引号 + 多句 + 完整长文”组合；共享向量没有带上用户整段文案；Python/TS 向量测试各自独立，缺少同一输入的三端逐字对比。
+- **修复**：常用词加入共享 `subtitle-rules.json`；三端在句界扫描前先做 `stripUnpairedQuotes`，只移除无法配对的引号字符并保留正文；`protectedPhrasePrefixAtEnd` 增加"文本已完整结束于保护短语时不再把末尾单字误判为另一短语前缀"的守卫，修复 `江南` 被 `南宋灭亡时` 误伤成 `江|南`。
+- **逃逸链**：单元测试覆盖了旧保护词但未覆盖"未闭合引号 + 多句 + 完整长文"组合；共享向量没有带上用户整段文案；Python/TS 向量测试各自独立，缺少同一输入的三端逐字对比。
 - **回归保护**：新增 `user_common_words_and_unpaired_quote`、`user_full_ming_scholar_script` 共享向量，三端共用；Electron 141、TS 166、Python 169 全部通过；QM-1 打包与 ASAR 抽取真实 require 通过。
-- **预防**：以后新增常用词/引号规则必须同步三端规则表与共享向量；长文本测试不能只验词不验引号，句界预处理必须晚于引号配对检查、早于 `splitSentences`；向 `no_cut_bigrams` 加入以单字开头的新短语时，必须回归“该单字出现在其他完整保护短语末尾”的极端配置。
+- **预防**：以后新增常用词/引号规则必须同步三端规则表与共享向量；长文本测试不能只验词不验引号，句界预处理必须晚于引号配对检查、早于 `splitSentences`；向 `no_cut_bigrams` 加入以单字开头的新短语时，必须回归"该单字出现在其他完整保护短语末尾"的极端配置。
 ### 已经/依然 语义引导切分（subtitle-adverb-lead-cut，2026-08-23）
 
-长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是“底层农民的实际负担｜依然重得吓人”与“这举动说明老朱的态度｜已经变软了”，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
+长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是"底层农民的实际负担｜依然重得吓人"与"这举动说明老朱的态度｜已经变软了"，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
 
 ## Story2Video 提示词优化中文翻译被包装文本污染复盘（fix-s2v-prompt-translation-wrappers，2026-08-23）
 
-- **现象**：结果页“中文翻译”没有生成正确译文，偶发显示 `<response>`、`<thinking>`、marker、前后说明文字，或整段 JSON/协议噪声。
+- **现象**：结果页"中文翻译"没有生成正确译文，偶发显示 `<response>`、`<thinking>`、marker、前后说明文字，或整段 JSON/协议噪声。
 - **第一性原因**：`f7899b20b5` 首次引入 `translatePromptsForLocale` 时直接对 LLM `content` 执行 `JSON.parse(raw)`；`16b2db8427` 只补了 Markdown fence 剥离。推理模型和 provider wrapper 会返回 HTML/思考块/协议 marker/说明文字包裹 JSON，解析失败后旧逐行回退把包装文本当成译文写入 `segment.promptTranslation`。
 - **修复**：先遍历每个 `{` 起点，用平衡扫描处理嵌套对象、字符串内花括号和反斜杠转义；跳过未闭合或不可解析候选，取最后一个可解析对象，再按现有 index 映射。无合法对象时保留逐行 fail-open，避免阻塞流水线。
-- **逃逸链**：单测只覆盖裸 JSON/Markdown fence，未覆盖真实 provider 包装、转义、嵌套和示例回显；集成/E2E 未断言真实 LLM 响应形状到最终翻译字段；视觉审查只看页面可见性，不验证翻译语义；首轮外部审查发现“首个花括号独占”残余风险，复审前已修复。
+- **逃逸链**：单测只覆盖裸 JSON/Markdown fence，未覆盖真实 provider 包装、转义、嵌套和示例回显；集成/E2E 未断言真实 LLM 响应形状到最终翻译字段；视觉审查只看页面可见性，不验证翻译语义；首轮外部审查发现"首个花括号独占"残余风险，复审前已修复。
 - **回归保护**：`apps/desktop/electron/services/story2video-stages.test.js` 新增 HTML 闭合、thinking/前导文本、marker、转义引号、未闭合前导花括号和示例回显 6 例；定向翻译 13 passed，文件套件 137 passed。
 - **预防**：所有结构化 LLM 消费点按真实响应形态建立 fixture；解析候选、结构校验和用户字段脱噪必须分开断言；任何原文/逐行回退必须证明不会把协议包装写入用户可见字段。相同模式适用于 `prompt-engine-contract.js` 与 `video-prompt-engine-contract.js` 的优化结果解析。
 
 ## Windows Claude wrapper 启动环境诊断（2026-08-23）
 
 - **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
-- **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。
+- **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分"CLI 可用性""wrapper 启动成功"和"审查发现已解决"三件事。
 
 ## 视频流水线进度弹窗与后台脱离（s2v-progress-modal-background，2026-08-23）
 
 - **交付**：CreateView 运行中的完整阶段信息迁入 `UiModal variant=progress`（960px 上限、body 滚动、modeless、底部 action bar 保持可点击）；恢复【后台运行】，右上关闭与按钮共用 detach，不调用取消、轮询代际失效、恢复新建态并刷新历史；遮罩/Escape 不关闭，离场 scale(0.96) 缩小；人工检查点禁后台化；普通流水线无 runId 时只统一视觉壳。
-- **教训 1（“人工检查点”与“旧版提示”是两个判定）**：初版 `pipelineProgressLegacyCheckpoint` 直接复用 `hasManualPipelineCheckpoint`，导致只有 `waiting_approval`/`needs_user_input` 状态枚举、无旧快照证据时也显示“旧版人工检查点无操作协议”，让用户误以为快照损坏。修正为独立的 `hasLegacyPipelineCheckpointEvidence`（仅 paused+候选素材/requiresCheckpoint/finalize_assets 等证据算 legacy），文案分类与后台化阻断解耦，并补 `not.toContain('旧版人工检查点')` 回归。
-- **教训 2（modeless 窗口不能简单沿用 modal 焦点合同）**：进度弹窗需要底部 action bar 可用，因此 `UiModal` 进度变体不注册全局 ESC/焦点陷阱，`aria-modal=false`；只在 closeDisabled 时把焦点留在 dialog，可关闭时聚焦右上按钮。任何给进度窗补“全局键盘”的行为都会破坏底部操作。
+- **教训 1（"人工检查点"与"旧版提示"是两个判定）**：初版 `pipelineProgressLegacyCheckpoint` 直接复用 `hasManualPipelineCheckpoint`，导致只有 `waiting_approval`/`needs_user_input` 状态枚举、无旧快照证据时也显示"旧版人工检查点无操作协议"，让用户误以为快照损坏。修正为独立的 `hasLegacyPipelineCheckpointEvidence`（仅 paused+候选素材/requiresCheckpoint/finalize_assets 等证据算 legacy），文案分类与后台化阻断解耦，并补 `not.toContain('旧版人工检查点')` 回归。
+- **教训 2（modeless 窗口不能简单沿用 modal 焦点合同）**：进度弹窗需要底部 action bar 可用，因此 `UiModal` 进度变体不注册全局 ESC/焦点陷阱，`aria-modal=false`；只在 closeDisabled 时把焦点留在 dialog，可关闭时聚焦右上按钮。任何给进度窗补"全局键盘"的行为都会破坏底部操作。
 - **教训 3（普通流水线 identity 缺口不能靠视觉统一掩盖）**：非编排流水线按名称查询状态、启动响应可能无稳定 runId；统一弹窗后若仍显示 run-scoped 后台/恢复会造成串任务。本轮只允许启动响应明确返回 `runId/id` 时提供后台按钮；后续需主进程补充普通流水线 runId/API 合同。
-- **逃逸链**：旧自动后台改造删除按钮但测试只覆盖“无按钮”，没有覆盖“用户需要显式后台出口”；UiModal 遮罩/Escape 默认行为被当作所有弹窗共同合同；检查点文案分类没有独立测试。修复后 281 项定向测试全绿。
-- **预防**：① 进度观察窗/弹窗的新交互必须同时覆盖关闭策略、底层操作条、检查点阻断和离场动画；② 状态机判定不得把“语义分类”与“行为阻断”复用同一函数而不加反向断言；③ CJK 基线行号位移只允许显式更新并核对新增引用。
+- **逃逸链**：旧自动后台改造删除按钮但测试只覆盖"无按钮"，没有覆盖"用户需要显式后台出口"；UiModal 遮罩/Escape 默认行为被当作所有弹窗共同合同；检查点文案分类没有独立测试。修复后 281 项定向测试全绿。
+- **预防**：① 进度观察窗/弹窗的新交互必须同时覆盖关闭策略、底层操作条、检查点阻断和离场动画；② 状态机判定不得把"语义分类"与"行为阻断"复用同一函数而不加反向断言；③ CJK 基线行号位移只允许显式更新并核对新增引用。
 
 ## 统一进度弹窗范围边界审计（s2v-progress-unify-scope-doc，2026-08-23）
 
 - **结论**：生产可达的实时进度详情由 `CreateView` 进度弹窗承载；历史摘要与恢复入口由 `CreateViewHistory.vue` 承载。`/create/history` 已重定向到 `/create?view=history`，`CreateHistory.vue` 无生产引用，属于废弃组件。
-- **边界**：统一壳按“是否具有可观察流水线阶段状态 + run identity/恢复协议”收敛；快速渲染（Remotion）loading、发布 timeline、独立分析状态不套用，避免无历史恢复协议却声明“后台运行/在历史记录中可查看”。
-- **教训**：UI 统一不等于语义统一；跨页面共用“进度弹窗”前必须确认 runId、阶段合同和历史恢复路径，否则会为轻量任务伪造后台/历史能力。
+- **边界**：统一壳按"是否具有可观察流水线阶段状态 + run identity/恢复协议"收敛；快速渲染（Remotion）loading、发布 timeline、独立分析状态不套用，避免无历史恢复协议却声明"后台运行/在历史记录中可查看"。
+- **教训**：UI 统一不等于语义统一；跨页面共用"进度弹窗"前必须确认 runId、阶段合同和历史恢复路径，否则会为轻量任务伪造后台/历史能力。
 ## Windows Browser E2E 导航资源耗尽不能靠跳过 CI 掩盖（fix-docs-only-pr-ci-checks，2026-08-24）
 
 - **现象**：移除 docs-only PR 的路径过滤后，PR #1146 首次执行完整 Gate 8；Windows runner 在 `/accounts` 路由的 `page.goto` 报 `net::ERR_NO_BUFFER_SPACE`，同 run 的账号管理集成流仍通过。
@@ -14092,9 +14240,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **修复与预防**：仅精确匹配 `net::ERR_NO_BUFFER_SPACE` 时短暂等待并重试一次，第二次与任何其他错误原样抛出；`goto`/`resetToRoute` 共享实现，`waitForAppReady` 只在成功后执行。node:test 覆盖成功恢复、非匹配、不成功耗尽与 reset 路径，并由 Gate 8 在真实浏览器扫描前运行；禁止通过恢复 `paths-ignore`、跳过 Gate 8 或把全部错误重试来掩盖问题。
 ## 打包 E2E 必须等待真实终态，不得把临界延迟误报为未知（fix-docs-only-pr-ci-checks，2026-08-24）
 
-- **现象**：PR #1146 Windows build 的电影工程 E2E 在生成检查处报“未捕获生成结果提示”；artifact `9507479285` 最终消息数组实际含 `生成失败`。`ffmpeg` placeholder fallback 因 Windows 缺失 fontconfig 配置耗时，终态在旧 15 秒窗口后约 70ms 出现。
+- **现象**：PR #1146 Windows build 的电影工程 E2E 在生成检查处报"未捕获生成结果提示"；artifact `9507479285` 最终消息数组实际含 `生成失败`。`ffmpeg` placeholder fallback 因 Windows 缺失 fontconfig 配置耗时，终态在旧 15 秒窗口后约 70ms 出现。
 - **第一性原因**：`film-engineering-real.js` 的生成 toast 调用把 15 秒作为固定预算，没有把已知打包 fallback 的异步终态纳入观察时间。
-- **逃逸链**：首次同 PR Windows build 更快走“已提交 1 个分镜”，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对“终态可能在 timeout 边界后出现”做预算核验（审查盲区）。
+- **逃逸链**：首次同 PR Windows build 更快走"已提交 1 个分镜"，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对"终态可能在 timeout 边界后出现"做预算核验（审查盲区）。
 - **修复与预防**：生成终态预算固定为 30 秒，仍只接受既有真实终态，超时继续失败；模块用 `require.main` 守卫，`waitForToast` 可由 node:test 直接验证延迟消息。后续打包 E2E 修改终态等待时必须覆盖慢路径、未知超时和模块导入无副作用。
 
 ## 2026-08-27 双默认模型解析契约（运营预设 default_model + 用户自选 user_default_model）
@@ -14178,3 +14326,55 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
   - 新增 IPC 通道必须同步更新测试的通道列表断言。
   - 跨平台工作树建议在 WSL 中创建，避免 Windows 路径引用问题。
   - 详见 PRD-S2V-PIPELINE-PAGE-UX.md §9（选项控制模块）。
+
+---
+
+## 架构重构 26 PR 全面复盘（Stage -1 至 Stage 3，2026-09-02）
+
+### 背景
+
+按 `01-docs/架构重构/最终重构方案-2026-09-01.md` 分阶段落地，涵盖安全止血、债务熔断、契约与枢纽、域收敛、治理固化 5 个阶段 23 项承诺，共 26 个 PR，152M tokens，21h15m。
+
+### 做得好的
+
+1. **分层 PR 策略**：每个 PR 聚焦单一阶段目标，合并后独立可回滚。安全止血（9 PR）→ 债务熔断（1 PR）→ 契约与枢纽（4 PR）→ 域收敛（4 PR）→ 治理固化（5 PR），层次清晰，不交叉。
+2. **CI 全覆盖**：每个 PR 均通过完整 CI 流水线（18 项检查：单元测试、E2E、视觉回归、覆盖率、Lint、构建、文档同步），无合并前 CI 失败记录。
+3. **安全优先**：Stage -1 安全止血在重构方案中排在第一位执行，且 -1.6（Ed25519 验签）因可能影响 pipelineOptions 被提前为硬时限，符合"先止血再重构"原则。
+4. **测试驱动安全修复**：每项安全修复（-1.1 至 -1.8）均附回归测试，如 Ed25519 验签测试覆盖 47 个用例（含跨平台 canonical 固定向量、非法签名、fail-closed）。
+5. **文档同步交付**：learnings.md、PRD.md、CHANGELOG.md、scripts/README.md 均在实施过程中同步更新，未事后补写。
+6. **债务熔断量化**：6 项指标（maxFileLines=6,422、filesOver1000=29、filesOver500=93、fanOut=61、circularDeps=0、覆盖率纳入面）全部基线化，CI 自动阻断恶化。
+7. **IPC 治理双写校验**：ipc-manifest-registrar.js 对 315 个通道做双向校验（manifest ↔ 代码），确保文档与实现一致。
+
+### 需要注意的
+
+1. **CCG 外部评审未正式执行**：Stage 1.2 AdapterRegistry 接线评审材料已准备（#1302），但未通过 CCG 外部 Agent 做正式评审。这是全流程中唯一未完成的流程门禁。（后续 Stage 1.2 实际实施时应补跑）
+2. **OpenSpec 未使用**：所有 23 项任务均为 S 复杂度（单项变更），按 OpenSpec 契约不强制建 change，但缺少统一的任务追踪工件。后续 M+ 复杂度任务应建 change。
+3. **Stage 2 域收敛为文档级交付**：story2video 单源、发布能力模型、数据所有权均以设计文档形式交付，实际代码级收敛（如 story2video 引擎统一）需后续落地。
+4. **Stage 4+ 数据触发优化未启动**：sql.js 替换、OTLP、远程化 3 项在方案中标注"无期限承诺"，当前不启动是合理决策（见 §Stage 4 分析）。
+
+### 经验沉淀
+
+#### pattern: 安全止血分层 PR 策略
+- 安全修复应独立成 PR，每项附回归测试，合并后独立可回滚
+- 硬时限项（如影响 pipelineOptions 的验签）应排在最前
+- 适用场景：任何安全审计驱动的修复批次
+
+#### pitfall: CCG 评审材料准备后未执行正式评审
+- 评审材料 ≠ 评审完成。CCG 外部评审需要真实启动外部 Agent 并记录审查结论
+- 预防：在质量节拍 Phase 1→2 门禁中加入"CCG 外部评审已执行"检查项
+- 本次影响：Stage 1.2 实际实施时需补跑
+
+#### pitfall: 大文件（learnings.md 10,949 行 / PRD.md 超大）追加困难
+- PRD.md 约 950KB，learnings.md 约 1,374KB，字符串匹配追加极易失败
+- 本次通过 PowerShell 精确行号插入解决，但长期维护成本高
+- 建议：考虑将超大文档拆分为独立章节文件，用索引聚合
+
+#### architecture: 债务熔断 CI 的"只降不升"策略
+- freeze-current-value 模式：基线化当前值，CI 只检查不恶化，不设绝对值目标
+- 优点：不阻塞正常开发，渐进式改善
+- 适用：存量项目债务治理的起步阶段
+
+#### operational: 26 PR 跨 21 小时持续交付的节奏管理
+- 每个 PR 平均 ~50 分钟（含开发 + 测试 + CI + 合并）
+- 快速 CI（18 项检查并行，通常 5-8 分钟完成）是关键
+- 文档类 PR 可合并加速（合并前不等待 CI 全量），代码类 PR 必须等 CI 绿

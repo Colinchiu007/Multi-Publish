@@ -13,12 +13,25 @@
 'use strict'
 
 const crypto = require('./crypto')
+const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与上方 safeStorage 封装区分）
 
 const SETTING_KEY = 'opsCenterSync'
 const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
 const MAX_CATALOG_BYTES = 1024 * 1024
 const SYNC_TIMEOUT_MS = 10 * 1000
 const MAX_FEATURE_FLAGS = 100
+
+/**
+ * 内置默认 Ed25519 公钥（DEV KEY，2026-09-02 生成）。
+ * 与 ops-center/backend/.env.example 中标注的「DEV-ONLY 默认私钥」配对，仅用于开发/演示自验环。
+ * 生产部署必须自建密钥对，并在「运营中心同步配置」中指定自定义 runtimePublicKey，
+ * 使验签信任锚唯一——默认公钥不作为任何生产部署的信任锚。
+ */
+const DEFAULT_RUNTIME_PUBLIC_KEY = [
+  '-----BEGIN PUBLIC KEY-----',
+  'MCowBQYDK2VwAyEAr6a4g942N23o31XNIcwFGX9VhSu2jlGA9dT1bfJIDpg=',
+  '-----END PUBLIC KEY-----',
+].join('\n')
 
 /** 功能开关结构校验：仅接受 {key: 基本类型值}，超限/非法结构 fail-closed 返回空对象 */
 function normalizeFeatureFlags(raw) {
@@ -48,6 +61,47 @@ function normalizeUrl(value) {
   return parsed.toString().replace(/\/+$/, '')
 }
 
+/**
+ * canonical JSON 序列化：与 ops-center 后端 json.dumps(ensure_ascii=False, sort_keys=True,
+ * separators=(",", ":")) 完全对齐（键字典序、字符串 JSON 转义、UTF-8 输出）。
+ * 双端一致性由 ops-center-sync.test.js 固定向量锚定（含中文/转义/嵌套/空数组）。
+ */
+function canonicalJson (value) {
+  if (value === null) return 'null'
+  const t = typeof value
+  if (t === 'string') return JSON.stringify(value)
+  if (t === 'boolean') return value ? 'true' : 'false'
+  if (t === 'number') return JSON.stringify(value)
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']'
+  if (t === 'object') {
+    const keys = Object.keys(value).sort()
+    return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(value[k])).join(',') + '}'
+  }
+  throw new Error('cannot canonicalize type: ' + t)
+}
+
+/** Ed25519 验签：`{ ok: true }` 或 `{ ok: false, reason }`；缺失签名/签名非法一律拒绝（fail-closed） */
+function verifyRuntimeSignature (payload, publicKeyPem) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { ok: false, reason: 'INVALID_PAYLOAD' }
+  const sigB64 = payload.signature
+  if (!sigB64 || typeof sigB64 !== 'string') return { ok: false, reason: 'MISSING_SIGNATURE' }
+  const pem = (publicKeyPem && String(publicKeyPem).trim()) ? String(publicKeyPem).trim() : DEFAULT_RUNTIME_PUBLIC_KEY
+  if (!pem) return { ok: false, reason: 'NO_PUBLIC_KEY' }
+  let pubKey
+  try { pubKey = nodeCrypto.createPublicKey(pem) } catch { return { ok: false, reason: 'INVALID_PUBLIC_KEY' } }
+  let sig
+  try {
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(sigB64)) return { ok: false, reason: 'INVALID_SIGNATURE_ENCODING' }
+    sig = Buffer.from(sigB64, 'base64')
+    if (sig.length !== 64) return { ok: false, reason: 'INVALID_SIGNATURE_LENGTH' }
+  } catch { return { ok: false, reason: 'INVALID_SIGNATURE_ENCODING' } }
+  const { signature: _sig, ...rest } = payload
+  try {
+    const canonical = Buffer.from(canonicalJson(rest), 'utf-8')
+    return nodeCrypto.verify(null, canonical, pubKey, sig) ? { ok: true } : { ok: false, reason: 'SIGNATURE_MISMATCH' }
+  } catch { return { ok: false, reason: 'VERIFY_ERROR' } }
+}
+
 class OpsCenterSync {
   constructor({ store, modelProviderManager, log }) {
     this._store = store
@@ -73,11 +127,12 @@ class OpsCenterSync {
       apiKeyConfigured: !!(cfg.apiKeyEnc),
       autoSync: cfg.autoSync !== false,
       lastSyncedAt: cfg.lastSyncedAt || '',
+      runtimePublicKey: cfg.runtimePublicKey || '',
     }
   }
 
   /** 保存同步配置；apiKey 为空 = 保留现有 Key */
-  saveConfig({ url, apiKey, autoSync }) {
+  saveConfig({ url, apiKey, autoSync, runtimePublicKey }) {
     const current = this.getConfig()
     const cleanUrl = normalizeUrl(url)
     if (url && !cleanUrl) {
@@ -89,11 +144,22 @@ class OpsCenterSync {
       if (!crypto.isAvailable()) return { code: -1, message: '系统加密不可用，无法安全保存 API Key' }
       apiKeyEnc = crypto.encrypt(String(apiKey)).toString('base64')
     }
+    // runtimePublicKey：Ed25519 自定义信任锚（PEM）。undefined/null = 保留现有值；
+    // 显式空串 = 清除自定义锚（回退内置默认锚）；非空则必须先通过公钥解析才允许落盘。
+    let pubKey = current.runtimePublicKey || ''
+    if (runtimePublicKey !== undefined && runtimePublicKey !== null) {
+      const trimmed = String(runtimePublicKey).trim()
+      if (trimmed) {
+        try { nodeCrypto.createPublicKey(trimmed) } catch { return { code: -1, message: 'runtimePublicKey 必须是合法 Ed25519 PEM 公钥' } }
+      }
+      pubKey = trimmed
+    }
     const cfg = {
       url: cleanUrl,
       apiKeyEnc,
       autoSync: autoSync !== false,
       lastSyncedAt: current.lastSyncedAt || '',
+      runtimePublicKey: pubKey,
     }
     try {
       this._store.setSetting(SETTING_KEY, JSON.stringify(cfg))
@@ -143,7 +209,7 @@ class OpsCenterSync {
 
     // 更新 lastSyncedAt
     const nowIso = new Date().toISOString()
-    const updated = { url: cfg.url, apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso }
+    const updated = { url: cfg.url, apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
     try { this._store.setSetting(SETTING_KEY, JSON.stringify(updated)) } catch { /* 非关键 */ }
 
     // 运行时策略（公告/版本发布/内容安全）best-effort 拉取：失败仅 warn，不影响目录同步结果
@@ -168,6 +234,15 @@ class OpsCenterSync {
     let cfg = {}
     if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
     return cfg.apiKeyEnc || ''
+  }
+
+  /** 读取自定义 Ed25519 公钥（PEM）；未配置自定义锚返回空串（verify 时回退内置默认锚） */
+  _getRuntimePublicKey() {
+    let raw
+    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
+    let cfg = {}
+    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
+    return (cfg.runtimePublicKey && String(cfg.runtimePublicKey).trim()) ? String(cfg.runtimePublicKey).trim() : ''
   }
 
   // ─── 运行时策略（公告 / 版本发布 / 内容安全）────────────────
@@ -331,6 +406,12 @@ class OpsCenterSync {
 
   async _fetchRuntime(baseUrl, apiKey) {
     const data = await this._fetchJson('/api/v1/runtime/bootstrap', apiKey)
+    // Stage -1.6：运行时策略（公告/版本/敏感词/featureFlags/pipelineOptions）Ed25519 验签。
+    // 验签不通过 → 抛错，调用方整体拒绝应用任何运行时策略（fail-closed，pipelineOptions 永不经未验签路径合入）。
+    const signed = verifyRuntimeSignature(data, this._getRuntimePublicKey())
+    if (!signed.ok) {
+      throw new Error('运行时策略验签失败（' + signed.reason + '），已拒绝应用任何运行时策略')
+    }
     if (!data || !Array.isArray(data.announcements)) throw new Error('运行时策略响应结构错误（缺少 announcements 数组）')
     return data
   }
@@ -354,7 +435,7 @@ class OpsCenterSync {
       if (timer) clearTimeout(timer)
     }
     if (resp.status === 401 || resp.status === 403) throw new Error('Ops Center API Key 无效（401/403）')
-    if (resp.status === 404) throw new Error('Ops Center 未启用运营同步（404，需配置 OPS_CATALOG_API_KEY）')
+    if (resp.status === 404) throw new Error('Ops Center 端点未启用（404，需配置对应运营密钥/环境变量）')
     if (!resp.ok) throw new Error('Ops Center 返回 HTTP ' + resp.status)
     const buffer = Buffer.from(await resp.arrayBuffer())
     if (buffer.length > MAX_CATALOG_BYTES) throw new Error('运营同步响应超过 1MB，已拒绝')
@@ -379,4 +460,4 @@ class OpsCenterSync {
   }
 }
 
-module.exports = { OpsCenterSync, normalizeUrl }
+module.exports = { OpsCenterSync, normalizeUrl, canonicalJson, verifyRuntimeSignature, DEFAULT_RUNTIME_PUBLIC_KEY }

@@ -1,0 +1,11 @@
+{
+  "scannedAt": "2026-09-02T10:56:57.756Z",
+  "maxFileLines": 6422,
+  "maxFilePath": "apps/desktop/src/views/CreateView.vue",
+  "filesOver1000": 29,
+  "filesOver500": 75,
+  "modelProviderLines": 1215,
+  "modelProviderRequireFanOut": 62,
+  "circularDeps": 0,
+  "circularDepDetails": []
+}

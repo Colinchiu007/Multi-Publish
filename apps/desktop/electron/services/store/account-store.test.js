@@ -9,6 +9,10 @@ vi.mock("../logger", () => ({
 
 import accountMethods from "./account-store.js";
 import { SCHEMA_SQL } from "../store-schema.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createAccountCredentialCrypto } from "../account-credential-crypto.js";
 
 let SQL;
 let rawDb;
@@ -197,5 +201,153 @@ describe("account-store 删除账号级联", () => {
     store.deleteAccount(1);
 
     expect(createStatement("SELECT value FROM settings WHERE key = ?").get("default_account:wechat_mp")).toEqual({ value: "2" });
+  });
+});
+
+describe("account-store 凭证加密落盘（Stage -1.1）", () => {
+  const tempDirs = [];
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // 真实依赖：复用 account-credential-crypto + credential-store 主密钥（含 safeStorage 模拟）
+  function createCryptoAdapter() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mp-acc-enc-"));
+    tempDirs.push(dir);
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(`protected:${value}`, "utf8"),
+      decryptString: value => Buffer.from(value).toString("utf8").replace(/^protected:/, ""),
+    };
+    return createAccountCredentialCrypto({ userDataDir: dir, safeStorage });
+  }
+
+  it("加密可用时 addAccount 只落加密列，明文列清空", () => {
+    const store = createStoreContext();
+    store._accountCrypto = createCryptoAdapter();
+    const cookies = [{ name: "session", value: "secret" }];
+    const localStorage = { token: "private" };
+    expect(store.addAccount({ id: 1, platform: "wechat_mp", name: "加密账号", cookies, localStorage })).toBe(true);
+    const row = createStatement("SELECT cookies, localStorage, cookies_enc, localStorage_enc FROM accounts WHERE id = ?").get("1");
+    expect(row.cookies).toBe("");
+    expect(row.localStorage).toBe("");
+    expect(row.cookies_enc).not.toBeNull();
+    expect(row.localStorage_enc).not.toBeNull();
+  });
+
+  it("加密可用时 getAccount 能解密还原 cookies/localStorage", () => {
+    const store = createStoreContext();
+    store._accountCrypto = createCryptoAdapter();
+    const cookies = [{ name: "session", value: "secret" }];
+    const localStorage = { token: "private" };
+    store.addAccount({ id: 1, platform: "zhihu", name: "知乎", cookies, localStorage });
+    const account = store.getAccount(1);
+    expect(account.cookies).toEqual(cookies);
+    expect(account.localStorage).toEqual(localStorage);
+  });
+
+  it("加密可用时 OAuth 型 localStorage 凭证同样被加密落盘并还原", () => {
+    const store = createStoreContext();
+    store._accountCrypto = createCryptoAdapter();
+    const tokenRecord = { accessToken: "at-secret", refreshToken: "rt-secret" };
+    const accountId = "oauth-douyin-1";
+    expect(store.addAccount({ id: accountId, platform: "douyin", name: "douyin (OAuth)", cookies: [], localStorage: { oauth_token: JSON.stringify(tokenRecord) } })).toBe(true);
+    const account = store.getAccount(accountId);
+    expect(account.localStorage.oauth_token).toBe(JSON.stringify(tokenRecord));
+    const raw = createStatement("SELECT localStorage, localStorage_enc FROM accounts WHERE id = ?").get(accountId);
+    expect(raw.localStorage).toBe("");
+    expect(raw.localStorage_enc).not.toBeNull();
+  });
+
+  it("无加密适配器时保持明文列读写（向后兼容）", () => {
+    const store = createStoreContext();
+    const cookies = [{ name: "a", value: "b" }];
+    store.addAccount({ id: 1, platform: "wechat_mp", name: "明文账号", cookies, localStorage: { k: "v" } });
+    const row = createStatement("SELECT cookies, localStorage, cookies_enc FROM accounts WHERE id = ?").get("1");
+    expect(JSON.parse(row.cookies)).toEqual(cookies);
+    expect(row.cookies_enc).toBeNull();
+    const account = store.getAccount(1);
+    expect(account.cookies).toEqual(cookies);
+  });
+
+  it("cookies_enc 缺失（存量未迁移）时回退明文列解析", () => {
+    const store = createStoreContext();
+    rawDb.run(
+      "INSERT INTO accounts (owner_subject, id, platform, name, cookies, localStorage) VALUES (?, ?, ?, ?, ?, ?)",
+      ["__legacy__", "legacy-1", "wechat_mp", "存量账号", '[{"name":"old","value":"x"}]', '{"t":"1"}'],
+    );
+    store._accountCrypto = createCryptoAdapter();
+    const account = store.getAccount("legacy-1");
+    expect(account.cookies).toEqual([{ name: "old", value: "x" }]);
+    expect(account.localStorage).toEqual({ t: "1" });
+  });
+
+  it("enc 列存在但解密失败（数据损坏/主密钥变更）时回退明文列", () => {
+    const store = createStoreContext();
+    store._accountCrypto = createCryptoAdapter();
+    rawDb.run(
+      "INSERT INTO accounts (owner_subject, id, platform, name, cookies, localStorage, cookies_enc, localStorage_enc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["__legacy__", "bad-1", "wechat_mp", "损坏账号", '[{"name":"ok","value":"1"}]', '{"fallback":true}', new Uint8Array(Buffer.from("corrupted-ciphertext-abcdef")), new Uint8Array(Buffer.from("corrupted-ciphertext-abcdef"))],
+    );
+    const account = store.getAccount("bad-1");
+    expect(account.cookies).toEqual([{ name: "ok", value: "1" }]);
+    expect(account.localStorage).toEqual({ fallback: true });
+  });
+
+  it("migrateAccountCredentials 将存量明文迁移到加密列并清空明文，读取可解密", () => {
+    const store = createStoreContext();
+    store._accountCrypto = createCryptoAdapter();
+    rawDb.run(
+      "INSERT INTO accounts (owner_subject, id, platform, name, cookies, localStorage) VALUES (?, ?, ?, ?, ?, ?)",
+      ["__legacy__", "m1", "wechat_mp", "存量1", '[{"name":"a","value":"b"}]', '{"token":"t1"}'],
+    );
+    rawDb.run(
+      "INSERT INTO accounts (owner_subject, id, platform, name, cookies, localStorage) VALUES (?, ?, ?, ?, ?, ?)",
+      ["__legacy__", "m2", "zhihu", "存量2", '[]', '{}'],
+    );
+    const result = store.migrateAccountCredentials();
+    expect(result.migrated).toBe(1);
+    expect(result.rows).toBe(1);
+    const migrated = createStatement("SELECT cookies, localStorage, cookies_enc, localStorage_enc FROM accounts WHERE id = ?").get("m1");
+    expect(migrated.cookies).toBe("");
+    expect(migrated.localStorage).toBe("");
+    expect(migrated.cookies_enc).not.toBeNull();
+    expect(migrated.localStorage_enc).not.toBeNull();
+    expect(store.getAccount("m1").cookies).toEqual([{ name: "a", value: "b" }]);
+    // 空凭证行不迁移（仍为默认明文值）
+    const untouched = createStatement("SELECT cookies, localStorage, cookies_enc FROM accounts WHERE id = ?").get("m2");
+    expect(untouched.cookies).toBe("[]");
+    expect(untouched.localStorage).toBe("{}");
+    expect(untouched.cookies_enc).toBeNull();
+  });
+
+  it("加密不可用时 migrateAccountCredentials 跳过并保持明文", () => {
+    const store = createStoreContext();
+    store._accountCrypto = {
+      isEncryptionAvailable: () => false,
+      encrypt: () => null,
+      decrypt: () => null,
+    };
+    rawDb.run(
+      "INSERT INTO accounts (owner_subject, id, platform, name, cookies) VALUES (?, ?, ?, ?, ?)",
+      ["__legacy__", "s1", "wechat_mp", "跳过", '[{"name":"a","value":"b"}]'],
+    );
+    const result = store.migrateAccountCredentials();
+    expect(result.skipped).toBe(true);
+    const row = createStatement("SELECT cookies FROM accounts WHERE id = ?").get("s1");
+    expect(JSON.parse(row.cookies)).toEqual([{ name: "a", value: "b" }]);
+  });
+
+  it("无存量明文时 migrateAccountCredentials 返回 0 行", () => {
+    const store = createStoreContext();
+    store._accountCrypto = createCryptoAdapter();
+    expect(store.migrateAccountCredentials()).toEqual({ migrated: 0, rows: 0 });
+  });
+
+  it("migrateAccountCredentials 在未就绪时安全返回", () => {
+    const store = createStoreContext();
+    store._ready = false;
+    store._accountCrypto = createCryptoAdapter();
+    expect(store.migrateAccountCredentials()).toEqual({ migrated: 0 });
   });
 });
