@@ -109,6 +109,7 @@ class BasePythonBridge {
     this.process = await this._launchProcess(pythonCmd)
     await this._waitForHealthy()
     this.isRunning = true
+    _registerBridge(this)
     this.restartCount = 0
     this._startWatchdog()
     this.log.info(this.name, `${this.name} ready on port ${this.port}`)
@@ -302,6 +303,7 @@ class BasePythonBridge {
    */
   async stop () {
     this._stopWatchdog()
+    _unregisterBridge(this)
     if (!this.process) {
       this.isRunning = false
       return

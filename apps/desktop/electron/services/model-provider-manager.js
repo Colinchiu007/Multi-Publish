@@ -425,9 +425,9 @@ class ModelProviderManager {
    * 覆盖 6 大类别：llm / tts / speech_recognition / image / video / audio
    */
   _registerBuiltinAdapters () {
-    // 供应商 ID → Adapter 类的映射（共 52 个，与 PRESET_PROVIDERS 一一对应）
+    // 供应商 ID → Adapter 类的映射（共 54 个，与 PRESET_PROVIDERS 一一对应）
     const adapters = {
-      // ─── LLM 推理模型 (11) ─────────────────────────
+      // ─── LLM 推理模型 (12) ─────────────────────────
       openai: require('./adapters/openai').OpenAIAdapter,
       anthropic: require('./adapters/anthropic').AnthropicAdapter,
       gemini: require('./adapters/gemini').GeminiAdapter,
@@ -466,7 +466,7 @@ class ModelProviderManager {
       comfyui: require('./adapters/comfyui').ComfyUiAdapter,
       'minimax-image': require('./adapters/minimax-image').MinimaxImageAdapter,
       'agnes-image': require('./adapters/agnes-image').AgnesImageAdapter,
-      // ─── 视频生成 (13) ─────────────────────────────
+      // ─── 视频生成 (14) ─────────────────────────────
       hunyuan: require('./adapters/hunyuan').HunyuanAdapter,
       cogvideo: require('./adapters/cogvideo').CogVideoAdapter,
       'grok-video': require('./adapters/grok-video').GrokVideoAdapter,

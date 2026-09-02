@@ -15,6 +15,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+const adapterRegistry = require('./adapters/_base/registry-singleton')
+
 // ─── mock 依赖 ───
 const mockManager = {
   _ready: true,
@@ -273,8 +275,8 @@ describe('AIGenerator — P1 统一数据源（删除 PROVIDERS）', () => {
   describe('P1 补跑：generate 未知 type', () => {
     it('未知 type 回退到 chatCompletion 方法', async () => {
       // 使用 integration test 的 mock 模式
-      mockManager.adapterRegistry = new Map()
-      mockadapterRegistry.registerFactory('unknown_type_provider', () => ({}))
+      adapterRegistry.clear()
+      adapterRegistry.registerFactory('unknown_type_provider', () => ({}))
       mockManager.getProviderWithKey.mockReturnValue({ id: 'unknown_type_provider', api_key: 'sk-test' })
       mockManager.callAdapter = vi.fn(async () => ({ code: 0, data: { content: 'ok' } }))
 

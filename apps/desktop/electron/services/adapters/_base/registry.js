@@ -127,20 +127,39 @@ class AdapterRegistry {
     log.info('AdapterRegistry', `Registered factory: ${id}`)
   }
 
+  /**
+   * 获取工厂函数
+   * @param {string} id
+   * @returns {function|undefined}
+   */
   getFactory(id) {
     return this._factories.get(id)
   }
 
+  /**
+   * 检查工厂是否已注册
+   * @param {string} id
+   * @returns {boolean}
+   */
   hasFactory(id) {
     return this._factories.has(id)
   }
 
+  /**
+   * 移除工厂函数
+   * @param {string} id
+   * @returns {boolean} 是否成功移除
+   */
   removeFactory(id) {
     const had = this._factories.delete(id)
     if (had) log.info('AdapterRegistry', `Removed factory: ${id}`)
     return had
   }
 
+  /**
+   * 列出所有已注册工厂 ID
+   * @returns {string[]}
+   */
   listFactoryIds() {
     return Array.from(this._factories.keys())
   }

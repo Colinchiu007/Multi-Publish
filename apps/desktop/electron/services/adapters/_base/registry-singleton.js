@@ -1,9 +1,8 @@
 // @ts-check
 /**
- * registry-singleton.js — 全局 AdapterRegistry 单例（Stage 1.2 第一步）
+ * registry-singleton.js — 全局 AdapterRegistry 单例
  *
- * 所有 Adapter 通过此单例自注册，model-provider-manager.js 通过此单例查询。
- * 渐进迁移策略：先创建单例，再逐个迁移 Adapter 自注册，最后替换 manager 中的硬编码 require。
+ * 所有 Adapter 工厂通过此单例注册/查询，替代 model-provider-manager 中的私有 _adapterFactories。
  *
  * @example
  *   const registry = require('./registry-singleton')

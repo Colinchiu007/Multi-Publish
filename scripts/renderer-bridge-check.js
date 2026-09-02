@@ -36,8 +36,9 @@ function scanDirectAPIUsage() {
       if (!/\.(js|ts|vue|jsx|tsx)$/.test(e.name)) continue;
       try {
         const content = fs.readFileSync(fp, 'utf8');
-        const usesDirectAPI = content.includes('window.electronAPI') && !content.includes(BRIDGE_FILE);
-        const usesBridge = content.includes(BRIDGE_FILE) || content.includes('electron-bridge');
+        const usesBridge = /electron-bridge/.test(content);
+        const usesDirectAPI = content.includes('window.electronAPI') && !usesBridge;
+        
 
         if (usesDirectAPI) {
           const lines = content.split('\n');
