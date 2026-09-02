@@ -118,6 +118,9 @@ async def create_feedback(
     stored_path: Path | None = None
     try:
         db.add(row)
+        # 显式 flush：确保父行 UserFeedback 先落库，避免 attachment 在
+        # 外键约束开启时（如连接池复用了 init_db 的连接）先于父行插入失败
+        await db.flush()
         if log_archive is not None:
             data = await _read_archive(log_archive)
             root = _storage_root()

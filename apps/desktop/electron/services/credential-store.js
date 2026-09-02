@@ -414,5 +414,7 @@ module.exports = {
   loadCredential,
   deleteCredential,
   listAccounts,
-  hasCredential
+  hasCredential,
+  encryptData,
+  decryptData
 }

@@ -10,6 +10,7 @@
  */
 
 const { ProviderError, classifyProviderFailure } = require('./adapters/_base/provider-error')
+const adapterRegistry = require('./adapters/_base/registry-singleton')
 const { resolveProviderDefaultModel } = require('./model-provider-manager')
 
 // type → Adapter method 映射
@@ -148,7 +149,7 @@ class AIGenerator {
   /** P3.5: 检查 provider 是否注册了 Adapter */
   _hasAdapter(providerId) {
     const mgr = this._modelProviderManager;
-    return !!(mgr && mgr._adapterFactories && mgr._adapterFactories.has(providerId));
+    return !!(mgr && adapterRegistry.hasFactory(providerId));
   }
 
   /** P3.5: 通过 callAdapter 调用 */

@@ -59,7 +59,10 @@ async def sync_project_params(
 
 
 @router.get("/status")
-async def sync_status(db: AsyncSession = Depends(get_db)):
+async def sync_status(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
     """Check sync status across all projects."""
     projects = await config_service.get_all_projects(db)
     import os
