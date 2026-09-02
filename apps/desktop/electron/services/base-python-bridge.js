@@ -33,6 +33,34 @@ const HEALTH_CHECK_TIMEOUT = 10000
 const WATCHDOG_INTERVAL = 30000
 const MAX_RESTARTS = 3
 
+// Stage 1.4 容器守卫：全局实例注册表 + process.exit 清理孤儿 sidecar
+const _bridgeInstances = new Set()
+let _exitHandlerRegistered = false
+
+function _registerBridge(bridge) {
+  _bridgeInstances.add(bridge)
+  if (!_exitHandlerRegistered) {
+    _exitHandlerRegistered = true
+    process.on('exit', () => {
+      for (const b of _bridgeInstances) {
+        if (b.process && b.process.pid) {
+          try {
+            if (process.platform === 'win32') {
+              spawnSync('taskkill', ['/PID', String(b.process.pid), '/F', '/T'], { timeout: 3000 })
+            } else {
+              b.process.kill('SIGKILL')
+            }
+          } catch (_) { /* best-effort cleanup */ }
+        }
+      }
+    })
+  }
+}
+
+function _unregisterBridge(bridge) {
+  _bridgeInstances.delete(bridge)
+}
+
 class BasePythonBridge {
   /**
    * @param {object} config

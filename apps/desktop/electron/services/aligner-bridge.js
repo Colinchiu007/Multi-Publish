@@ -15,7 +15,6 @@ const ALIGNER_DIR = process.env.ALIGNER_DIR || (() => {
   const path = require('path')
   return path.join(__dirname, '..', '..', '..', 'packages', 'audio-aligner')
 })()
-const ALIGNER_DIR = process.env.ALIGNER_DIR || _defaultAlignerDir
 
 /** aligner Python 包是否可用（存在 aligner/ 模块）——不可用时对齐服务 fail-fast 跳过，不 spawn */
 function isAlignerAvailable () {
