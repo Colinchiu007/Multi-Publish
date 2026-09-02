@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     config_output_dir: str = "data/configs"
     orchestrator_feature_gates_path: str = "data/configs/orchestrator/feature_gates.yaml"
     # JWT: share secret with orchestrator
-    jwt_secret: str = ""  # Empty = fall back to secret_key
+    jwt_secret: str = ""  # 独立密钥，不再 fallback 到 secret_key
     jwt_algorithm: Literal["HS256"] = "HS256"
     # 本地管理员登录（自包含，替代 orchestrator 认证）：未配置且无管理员时登录 fail-closed
     admin_username: str = ""
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""
-        secret = (self.jwt_secret or self.secret_key).strip()
+        secret = self.jwt_secret.strip()
         if not secret or secret == INSECURE_DEFAULT_SECRET:
             raise RuntimeError("未配置安全的 OpsCenter JWT 密钥")
         return secret
