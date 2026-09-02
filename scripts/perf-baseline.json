@@ -1,0 +1,17 @@
+{
+  "scannedAt": "2026-09-02T07:17:17.086Z",
+  "testFiles": {
+    "opsCenter": 1,
+    "desktop": 0
+  },
+  "maxFileLines": {
+    "lines": 6422,
+    "path": "apps/desktop/src/views/CreateView.vue"
+  },
+  "scriptCount": 0,
+  "sourceFiles": {
+    "desktop": 154,
+    "electron": 332,
+    "opsCenter": 69
+  }
+}
