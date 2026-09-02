@@ -54,6 +54,23 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: '客户端状态未知',
+    nav: {
+      home: '主页',
+      publish: '发布',
+      accounts: '账号',
+      dashboard: '数据',
+      create: '视频创作',
+      collection: '采集',
+      monitor: '监控',
+      calendar: '发布日历',
+      comments: '私信评论',
+      cloudPublish: 'CLI',
+      library: '素材库',
+      keywords: '关键词监控',
+      viral: '爆款分析',
+      promptEval: '提示词评估',
+      modelProviders: '模型提供商',
+    },
   },
   publish: {
     title: '标题',

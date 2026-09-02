@@ -243,20 +243,11 @@ class PromptBridge extends BasePythonBridge {
    */
   _cliFallbackSingle (request, traceId) {
     return new Promise((resolve, reject) => {
-      const pyArgs = ['-m', 'prompt_engine.cli', 'optimize', request.prompt || '', '--json']
-      pyArgs.push('--strategy', request.optimization_strategy || 'llm')
-      pyArgs.push('--creative-level', String(request.creative_level || 5))
-      if (request.platform) pyArgs.push('--platform', request.platform)
-      if (request.llm) {
-        const llm = request.llm
-        if (llm.provider) pyArgs.push('--provider', llm.provider)
-        if (llm.model) pyArgs.push('--model', llm.model)
-        if (llm.api_key) pyArgs.push('--api-key', llm.api_key)
-        if (llm.base_url) pyArgs.push('--base-url', llm.base_url)
-        if (llm.caller) pyArgs.push('--caller', llm.caller)
-      }
+      const { args: pyArgs, apiKey } = buildCliFallbackCommand(request)
       this.log.info(this.name, `CLI fallback: python ${pyArgs.slice(0, 5).join(' ')}... traceId=${traceId || '-'}`)
-      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 120000, windowsHide: true, env: { ...process.env, PYTHONPATH: PROMPT_DIR } }, (err, stdout, stderr) => {
+      const childEnv = { ...process.env, PYTHONPATH: PROMPT_DIR }
+      if (apiKey) childEnv.PROMPT_ENGINE_API_KEY = apiKey
+      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 120000, windowsHide: true, env: childEnv }, (err, stdout, stderr) => {
         if (err) {
           this.log.warn(this.name, `CLI fallback failed: ${err.message}`)
           reject(new Error(`CLI fallback failed: ${err.message}`))
@@ -506,5 +497,29 @@ class PromptBridge extends BasePythonBridge {
   }
 }
 
+// Stage -1.3: API Key 移出 argv，经 env 传递。纯函数便于测试命令行构造。
+/**
+ * 构建 prompt-engine CLI fallback 的 argv 与 API Key。
+ * @param {object} request - 规范化 optimize 请求
+ * @returns {{ args: string[], apiKey: string }} args 不含 Key；Key 单独返回供 env 注入
+ */
+function buildCliFallbackCommand (request) {
+  const args = ['-m', 'prompt_engine.cli', 'optimize', request.prompt || '', '--json']
+  args.push('--strategy', request.optimization_strategy || 'llm')
+  args.push('--creative-level', String(request.creative_level || 5))
+  let apiKey = ''
+  if (request.platform) args.push('--platform', request.platform)
+  if (request.llm) {
+    const llm = request.llm
+    if (llm.provider) args.push('--provider', llm.provider)
+    if (llm.model) args.push('--model', llm.model)
+    if (llm.api_key) apiKey = llm.api_key
+    if (llm.base_url) args.push('--base-url', llm.base_url)
+    if (llm.caller) args.push('--caller', llm.caller)
+  }
+  return { args, apiKey }
+}
+
 module.exports = PromptBridge
+module.exports.buildCliFallbackCommand = buildCliFallbackCommand
 

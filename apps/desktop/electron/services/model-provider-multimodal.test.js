@@ -49,6 +49,7 @@ class SqlJsAdapter {
 
 async function createStore (database, settings) {
   const { SCHEMA_SQL } = require('./store-schema')
+const adapterRegistry = require('./adapters/_base/registry-singleton')
   const db = new SqlJsAdapter(database)
   for (const statement of SCHEMA_SQL) db.exec(statement)
   const map = settings || new Map()
@@ -440,7 +441,7 @@ describe('ai-generator 多模态能力模型选择', () => {
       }),
       getProviderWithKey: (id) => ({ id, api_key: 'k' }),
       callAdapter,
-      _adapterFactories: new Map([['minimax-multimodal', () => ({})]]),
+      adapterRegistry: new Map([['minimax-multimodal', () => ({})]]),
     }
     const ai = new AIGenerator()
     ai.setModelProviderManager(manager)
@@ -460,7 +461,7 @@ describe('ai-generator 多模态能力模型选择', () => {
       }),
       getProviderWithKey: (id) => ({ id, api_key: 'k' }),
       callAdapter,
-      _adapterFactories: new Map([['minimax-multimodal', () => ({})]]),
+      adapterRegistry: new Map([['minimax-multimodal', () => ({})]]),
     }
     const ai = new AIGenerator()
     ai.setModelProviderManager(manager)
@@ -477,7 +478,7 @@ describe('ai-generator 多模态能力模型选择', () => {
       getDefault: () => ({ id: 'openai', enabled: true, is_configured: true, models: ['gpt-4o'] }),
       getProviderWithKey: (id) => ({ id, api_key: 'k' }),
       callAdapter,
-      _adapterFactories: new Map([['openai', () => ({})]]),
+      adapterRegistry: new Map([['openai', () => ({})]]),
     }
     const ai = new AIGenerator()
     ai.setModelProviderManager(manager)

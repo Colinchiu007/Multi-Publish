@@ -14,6 +14,7 @@ const {
   safeJsonParse,
   safeJsonStringify,
 } = require('../store-schema')
+const log = require('../logger')
 
 function resolveOwnerSubject (store, explicitOwnerSubject) {
   if (typeof store._resolveOwnerSubject === 'function') {
@@ -67,12 +68,18 @@ module.exports = {
     const owner = resolveOwnerSubject(this, ownerSubject)
     if (!owner) return false
     const id = String(account.id || createAccountId())
+    // Stage -1.1：凭证优先加密落盘（cookies_enc/localStorage_enc），明文列保留默认值。
+    // 主密钥不可用时渐进回退明文列并告警（与 credential-store 主密钥单一事实源一致）。
+    const cryptoApi = this._accountCrypto
+    const credentialEncryptionOn = Boolean(cryptoApi && cryptoApi.isEncryptionAvailable())
+    const cookieEnc = credentialEncryptionOn ? cryptoApi.encrypt(account.cookies || []) : null
+    const localStorageEnc = credentialEncryptionOn ? cryptoApi.encrypt(account.localStorage || {}) : null
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO accounts (
         owner_subject, id, platform, account_name, name, avatar, cookies,
-        localStorage, avatar_url, status, is_default, created_at, updated_at
+        localStorage, cookies_enc, localStorage_enc, avatar_url, status, is_default, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `)
     const result = stmt.run(
       owner,
@@ -81,8 +88,10 @@ module.exports = {
       account.account_name || '',
       account.name || '',
       account.avatar || '',
-      safeJsonStringify(account.cookies || []),
-      safeJsonStringify(account.localStorage || {}),
+      credentialEncryptionOn ? '' : safeJsonStringify(account.cookies || []),
+      credentialEncryptionOn ? '' : safeJsonStringify(account.localStorage || {}),
+      cookieEnc,
+      localStorageEnc,
       account.avatar_url || '',
       account.status || 'active',
       account.is_default ? 1 : 0,
@@ -234,9 +243,21 @@ module.exports = {
   },
 
   _parseAccount (row) {
-    // eslint-disable-next-line no-unused-vars
-    try { row.cookies = JSON.parse(row.cookies) } catch (e) { row.cookies = [] }
-    row.localStorage = safeJsonParse(row.localStorage, {})
+    // Stage -1.1：优先解密加密列；解密失败或缺失（未迁移/顺迁）时回退明文列。
+    const cryptoApi = this._accountCrypto
+    const cookies = cryptoApi ? cryptoApi.decrypt(row.cookies_enc) : null
+    if (cookies !== null && cookies !== undefined) {
+      row.cookies = Array.isArray(cookies) ? cookies : []
+    } else {
+      // eslint-disable-next-line no-unused-vars
+      try { row.cookies = JSON.parse(row.cookies) } catch (e) { row.cookies = [] }
+    }
+    const localStorageDecrypted = cryptoApi ? cryptoApi.decrypt(row.localStorage_enc) : null
+    if (localStorageDecrypted !== null && localStorageDecrypted !== undefined) {
+      row.localStorage = localStorageDecrypted && typeof localStorageDecrypted === 'object' ? localStorageDecrypted : {}
+    } else {
+      row.localStorage = safeJsonParse(row.localStorage, {})
+    }
     return row
   },
 
@@ -258,5 +279,57 @@ module.exports = {
       return first ? this._parseAccount(first) : null
     }
     return this._parseAccount(row)
+  },
+
+  /**
+   * 注入账号凭证加密适配器（account-credential-crypto）。
+   * 注入后若数据库已就绪且存量明文尚未迁移，立即触发一次迁移。
+   */
+  setAccountCredentialCrypto (adapter) {
+    this._accountCrypto = adapter && typeof adapter === 'object' ? adapter : null
+    if (this._accountCrypto && this._ready && typeof this.migrateAccountCredentials === 'function') {
+      try { this.migrateAccountCredentials() } catch (e) { log.warn('Store', '账号加密集结后存量迁移失败: ' + e.message) }
+    }
+    return this
+  },
+
+  /**
+   * 存量迁移：把 accounts 表明文 cookies/localStorage 加密到 enc 列并清空明文列。
+   * 主密钥不可用时跳过（明文列保持不变）。事务包裹，中途失败整体回滚。
+   * @returns {{migrated: number, rows?: number, skipped?: boolean}}
+   */
+  migrateAccountCredentials () {
+    if (!this._ready) return { migrated: 0 }
+    const cryptoApi = this._accountCrypto
+    if (!cryptoApi || !cryptoApi.isEncryptionAvailable()) {
+      log.warn('Store', '账号凭证加密不可用，跳过存量明文迁移（明文列保持不变）')
+      return { migrated: 0, skipped: true }
+    }
+    const rows = this.db.prepare(
+      `SELECT owner_subject, id, cookies, localStorage FROM accounts
+       WHERE cookies_enc IS NULL AND localStorage_enc IS NULL
+         AND (cookies NOT IN ('', '[]') OR localStorage NOT IN ('', '{}'))`,
+    ).all()
+    if (rows.length === 0) return { migrated: 0, rows: 0 }
+
+    let migrated = 0
+    const tx = this.db.transaction(() => {
+      const update = this.db.prepare(
+        `UPDATE accounts SET cookies = '', localStorage = '', cookies_enc = ?, localStorage_enc = ?,
+         updated_at = datetime('now') WHERE owner_subject = ? AND id = ?`,
+      )
+      for (const row of rows) {
+        const hasCookies = row.cookies && row.cookies !== '[]'
+        const hasLocalStorage = row.localStorage && row.localStorage !== '{}'
+        const cookieEnc = hasCookies ? cryptoApi.encrypt(safeJsonParse(row.cookies, [])) : null
+        const localStorageEnc = hasLocalStorage ? cryptoApi.encrypt(safeJsonParse(row.localStorage, {})) : null
+        if (!cookieEnc && !localStorageEnc) continue
+        const result = update.run(cookieEnc, localStorageEnc, row.owner_subject, String(row.id))
+        if (result && !result.error && result.changes !== 0) migrated++
+      }
+    })
+    tx()
+    log.info('Store', `账号凭证存量迁移完成: ${migrated}/${rows.length} 条`)
+    return { migrated, rows: rows.length }
   },
 }

@@ -29,6 +29,8 @@ const OWNER_TABLE_SCHEMA_SQL = {
     avatar        TEXT,
     cookies       TEXT DEFAULT "[]",
     localStorage  TEXT DEFAULT "{}",
+    cookies_enc   BLOB,
+    localStorage_enc BLOB,
     avatar_url    TEXT,
     status        TEXT DEFAULT "active",
     is_default    INTEGER DEFAULT 0,
@@ -218,7 +220,7 @@ function sanitizeUpdateFields(tableName, fields) {
 }
 
 const OWNER_TABLE_COLUMNS = {
-  accounts: ["owner_subject", "id", "platform", "account_name", "name", "avatar", "cookies", "localStorage", "avatar_url", "status", "is_default", "created_at", "updated_at"],
+  accounts: ["owner_subject", "id", "platform", "account_name", "name", "avatar", "cookies", "localStorage", "cookies_enc", "localStorage_enc", "avatar_url", "status", "is_default", "created_at", "updated_at"],
   publish_history: ["owner_subject", "id", "platform", "article_id", "title", "content", "task_id", "status", "result", "error", "created_at"],
   scheduled_tasks: ["owner_subject", "id", "platform", "article", "publish_time", "status", "created_at"],
   batch_jobs: ["owner_subject", "id", "name", "articles", "total", "completed", "failed", "status", "created_at"],
@@ -239,6 +241,8 @@ const OWNER_COLUMN_DEFAULTS = {
   avatar: "''",
   cookies: "'[]'",
   localStorage: "'{}'",
+  cookies_enc: "NULL",
+  localStorage_enc: "NULL",
   avatar_url: "NULL",
   status: "'pending'",
   is_default: "0",
@@ -342,6 +346,22 @@ function migrateModelProvidersSchema(db) {
   }
 }
 
+/**
+ * 迁移 accounts 表：为 cookies/localStorage 添加加密 BLOB 列（如果不存在）
+ * 对齐 model_providers.api_key_enc 的安全水位。
+ * @param {import('better-sqlite3').Database} db
+ */
+function migrateAccountCredentialSchema(db) {
+  const cols = db.prepare("PRAGMA table_info(accounts)").all()
+  const colNames = cols.map(c => c.name)
+  if (!colNames.includes('cookies_enc')) {
+    execSchemaSql(db, "ALTER TABLE accounts ADD COLUMN cookies_enc BLOB")
+  }
+  if (!colNames.includes('localStorage_enc')) {
+    execSchemaSql(db, "ALTER TABLE accounts ADD COLUMN localStorage_enc BLOB")
+  }
+}
+
 module.exports = {
   TABLE_NAMES,
   SCHEMA_SQL,
@@ -349,6 +369,7 @@ module.exports = {
   OWNER_TABLE_SCHEMA_SQL,
   migrateOwnerIsolationSchema,
   migrateModelProvidersSchema,
+  migrateAccountCredentialSchema,
   safeJsonParse,
   safeJsonStringify,
   buildUpdateQuery,

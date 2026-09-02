@@ -2,7 +2,14 @@
 
 管理 CRUD 供运营后台使用；get_runtime_bootstrap 供桌面端 runtime/bootstrap 只读拉取。
 校验失败抛 ValueError，router 层转 400。
+
+签名契约（Stage -1.6）：
+- get_runtime_bootstrap_signed 用 Ed25519 私钥对 canonical JSON 签名，返回 payload + signature(base64)。
+- canonical 序列化必须与桌面端 canonicalJson 完全一致：
+  json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))，UTF-8 字节。
+  双端交叉验证见 ops-center-sync.test.js 固定向量。
 """
+import base64
 import datetime
 import json
 import re
@@ -320,3 +327,20 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "pipelineOptions": await _get_pipeline_options(db),
         "synced_at": _now(),
     }
+
+
+def canonical_json(payload: dict) -> str:
+    """canonical JSON 序列化（与桌面端 ops-center-sync.js canonicalJson 对齐）。"""
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def sign_runtime_payload(payload: dict, signing_key) -> dict:
+    """对 canonical payload 做 Ed25519 签名，返回 {**payload, "signature": base64}。"""
+    canonical = canonical_json(payload)
+    signature = base64.b64encode(signing_key.sign(canonical.encode("utf-8"))).decode("ascii")
+    return {**payload, "signature": signature}
+
+
+async def get_runtime_bootstrap_signed(db: AsyncSession, signing_key) -> dict:
+    """签名版 runtime bootstrap（桌面端拉取入口；signing_key 由 router 注入）。"""
+    return sign_runtime_payload(await get_runtime_bootstrap(db), signing_key)

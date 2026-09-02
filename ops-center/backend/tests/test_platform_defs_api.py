@@ -15,6 +15,11 @@ os.environ["OPS_CONFIG_OUTPUT_DIR"] = os.path.join(tempfile.gettempdir(), f"ops_
 os.environ["OPS_SECRET_KEY"] = "test-secret"
 os.environ["OPS_JWT_SECRET"] = "test-secret"
 os.environ["OPS_CATALOG_API_KEY"] = "catalog-test-key"
+os.environ["OPS_RUNTIME_SIGNING_PRIVATE_KEY"] = (
+    "-----BEGIN PRIVATE KEY-----\n"
+    "MC4CAQAwBQYDK2VwBCIEIMEaqZBFhrl/hpieWHhYoaG6Dn+Juchfx4/2s0dXok0S\n"
+    "-----END PRIVATE KEY-----"
+)  # DEV 私钥：与 test_runtime_policy_api.py / .env.example 配对，bootstrap 签名用
 
 import models  # noqa: F401
 from config import settings
@@ -26,6 +31,7 @@ async def setup_db():
     from services.platform_def_service import ensure_platform_def_seeded
 
     settings.catalog_api_key = os.environ.get("OPS_CATALOG_API_KEY", "catalog-test-key")
+    settings.runtime_signing_private_key = os.environ.get("OPS_RUNTIME_SIGNING_PRIVATE_KEY", "")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:

@@ -71,6 +71,10 @@ module.exports = defineConfig({
         'electron/shutdown.js',
         'src/stores/**/*.js',
         'src/composables/**/*.js',
+        // Stage 3.1：将 src/views、src/components、src/domain 纳入覆盖率统计
+        'src/views/**/*.js',
+        'src/components/**/*.js',
+        'src/domain/**/*.js',
       ],
       exclude: [
         '**/*.test.*',

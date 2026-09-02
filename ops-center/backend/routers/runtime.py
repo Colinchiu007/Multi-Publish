@@ -128,4 +128,12 @@ async def get_runtime_bootstrap(
     db: AsyncSession = Depends(get_db),
 ):
     _require_catalog_key(request)
-    return await runtime_service.get_runtime_bootstrap(db)
+    # 签名私钥未配置 → 404 fail-closed（与 catalog_api_key 未配置同一模式）：
+    # 未签名响应将被桌面端整体拒绝（尤其 pipelineOptions 阻塞），弱配置必须显式暴露。
+    try:
+        signing_key = settings.get_runtime_signing_private_key()
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+    if signing_key is None:
+        raise HTTPException(404, "运行时签名未启用（未配置 OPS_RUNTIME_SIGNING_PRIVATE_KEY）")
+    return await runtime_service.get_runtime_bootstrap_signed(db, signing_key)
