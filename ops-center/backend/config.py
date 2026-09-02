@@ -83,7 +83,7 @@ class Settings(BaseSettings):
         """启动前验证认证配置，缺失时拒绝启动。"""
         self.get_jwt_secret()
 
-    cors_origins: str = "*"
+    cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
 
 settings = Settings()
