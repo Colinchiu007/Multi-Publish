@@ -10,17 +10,10 @@ const { config } = require('../config/app-config')
 
 const ALIGNER_PORT = config.alignerBridge.port
 const ALIGNER_HOST = config.alignerBridge.host
-// ALIGNER_DIR 必须指向包含 audio_aligner 包的 Python 项目根目录（packages/audio-aligner）
-const _defaultAlignerDir = (() => {
-  const knownPaths = [
-    'D:\\Data\\projects\\Multi-Publish\\packages\\audio-aligner',
-    'D:\\Projects\\Multi-Publish\\packages\\audio-aligner',
-  ]
-  const fs = require('fs')
-  for (const p of knownPaths) {
-    try { if (fs.existsSync(p + '/aligner')) return p } catch (_) { /* ignore */ }
-  }
-  return process.cwd()
+// Stage -1 附项：移除硬编码开发机绝对路径，仅保留环境变量 + 打包相对路径
+const ALIGNER_DIR = process.env.ALIGNER_DIR || (() => {
+  const path = require('path')
+  return path.join(__dirname, '..', '..', '..', 'packages', 'audio-aligner')
 })()
 const ALIGNER_DIR = process.env.ALIGNER_DIR || _defaultAlignerDir
 
