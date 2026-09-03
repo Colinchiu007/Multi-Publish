@@ -129,6 +129,10 @@
     ],
     "extraResources": [
       {
+        "from": "dist/fonts",
+        "to": "fonts"
+      },
+      {
         "from": "../../config",
         "to": "config"
       },

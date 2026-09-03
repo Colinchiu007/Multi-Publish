@@ -5,6 +5,26 @@
    用于 @import 或 <link> 引入
    ============================================ */
 
+/* ── 内嵌字体（Linux 桌面无系统字体时的兜底）── */
+/* 开发环境：Vite 从 public/fonts/ 托底，访问路径 /fonts/xxx
+   生产环境：打包时字体复制到 dist/fonts/，file:// 协议直接加载 */
+@font-face {
+  font-family: 'Noto Sans CJK SC';
+  src: local('Noto Sans CJK SC'),
+       url('/fonts/NotoSansCJKsc-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Color Emoji';
+  src: local('Noto Color Emoji'),
+       url('/fonts/NotoColorEmoji.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* --- 色彩 Tokens (蚁小二对齐 · 蓝紫主题) --- */
 :root {
   /* 品牌色 → tokens.css 单一来源（别名桥接，禁止在此重定义同语义值） */
@@ -80,7 +100,7 @@
 }
 
 body {
-  font-family: ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--ink);
@@ -92,7 +112,7 @@ body {
 
 /* Display / heading 字体 (对应 CohereText) */
 .display-font {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* --- 顶部导航 --- */
@@ -112,7 +132,7 @@ body {
 }
 
 .cohere-topnav .brand {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 18px;
   font-weight: 500;
   color: var(--primary);
@@ -149,7 +169,7 @@ body {
 }
 
 .cohere-topnav .nav-item {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 400;
   color: var(--muted);
@@ -313,7 +333,7 @@ body {
   border: 1px solid var(--border-light);
   border-radius: var(--r-xs);
   font-size: 13px;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   color: var(--ink);
   background: var(--canvas);
   outline: none;
@@ -415,7 +435,7 @@ body {
 }
 
 .cohere-page-header .page-title {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 22px;
   font-weight: 500;
   color: var(--primary);
@@ -436,7 +456,7 @@ body {
 
 /* --- 按钮 --- */
 .cohere-btn {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   border: none;
@@ -451,7 +471,7 @@ body {
 }
 
 .cohere-btn-primary {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--on-primary);
@@ -469,7 +489,7 @@ body {
 .cohere-btn-primary:hover { background: var(--primary-hover); }
 
 .cohere-btn-secondary {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--ink);
@@ -486,7 +506,7 @@ body {
 .cohere-btn-secondary:hover { color: var(--action-blue); }
 
 .cohere-btn-outline {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--primary);
@@ -507,7 +527,7 @@ body {
 }
 
 .cohere-btn-coral {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--ink);
@@ -607,7 +627,7 @@ body {
 }
 
 .cohere-card .card-actions button {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   font-weight: 500;
   border: 1px solid var(--border-light);
@@ -643,7 +663,7 @@ body {
 }
 
 .cohere-filter-chip {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   font-weight: 400;
   background: transparent;
@@ -686,7 +706,7 @@ body {
 }
 
 .cohere-empty h3 {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 20px;
   font-weight: 500;
   color: var(--ink);
@@ -767,7 +787,7 @@ body {
 
 .cohere-modal-header .modal-title {
   flex: 1;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 16px;
   font-weight: 500;
   color: var(--ink);
@@ -827,7 +847,7 @@ body {
 }
 
 .cohere-input {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   padding: 8px 12px;
   border: 1px solid var(--border-light);
@@ -843,7 +863,7 @@ body {
 }
 
 .cohere-textarea {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   padding: 8px 12px;
   border: 1px solid var(--border-light);
@@ -861,7 +881,7 @@ body {
 }
 
 .cohere-select {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   padding: 8px 12px;
   border: 1px solid var(--border-light);
@@ -1022,7 +1042,7 @@ body {
 }
 
 .cohere-stat-card .stat-value {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 36px;
   font-weight: 400;
   color: var(--primary);
@@ -1146,7 +1166,7 @@ body {
 }
 
 .cohere-dark-band h2 {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 32px;
   font-weight: 400;
   line-height: 1.2;
