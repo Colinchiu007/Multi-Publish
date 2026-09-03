@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { IdentityError } = require('./identity-errors')
 
-const STORAGE_VERSION = 1
+const STORAGE_VERSION = 2 // v2: 新增 encrypted 字段，支持 safeStorage 不可用时明文回退
 
 function defaultFilePath() {
   const { app } = require('electron')
@@ -24,9 +24,13 @@ class SecureTokenStorage {
     this._mutation = Promise.resolve()
   }
 
+  _isEncryptionAvailable() {
+    return !!(this._safeStorage && typeof this._safeStorage.isEncryptionAvailable === 'function' &&
+      this._safeStorage.isEncryptionAvailable())
+  }
+
   _assertAvailable() {
-    if (!this._safeStorage || typeof this._safeStorage.isEncryptionAvailable !== 'function' ||
-        !this._safeStorage.isEncryptionAvailable()) {
+    if (!this._isEncryptionAvailable()) {
       throw new IdentityError('IDENTITY_SECURE_STORAGE_UNAVAILABLE', '操作系统安全存储不可用')
     }
   }
@@ -44,14 +48,18 @@ class SecureTokenStorage {
   }
 
   async save(session) {
-    this._assertAvailable()
     if (!session || typeof session !== 'object' || Array.isArray(session)) {
       throw new IdentityError('IDENTITY_SESSION_INVALID', '会话必须是对象')
     }
-    const encrypted = this._safeStorage.encryptString(JSON.stringify(session))
+    const plaintext = JSON.stringify(session)
+    const encrypted = this._isEncryptionAvailable()
+    const ciphertext = encrypted
+      ? Buffer.from(this._safeStorage.encryptString(plaintext)).toString('base64')
+      : Buffer.from(plaintext, 'utf8').toString('base64')
     const envelope = JSON.stringify({
       version: STORAGE_VERSION,
-      ciphertext: Buffer.from(encrypted).toString('base64'),
+      ciphertext,
+      encrypted,
     })
     await this._write(envelope)
   }
@@ -64,7 +72,6 @@ class SecureTokenStorage {
 
   async setItem(key, value) {
     return this._enqueue(async () => {
-      this._assertAvailable()
       const session = (await this.load()) || {}
       session[key] = String(value)
       await this.save(session)
@@ -90,20 +97,30 @@ class SecureTokenStorage {
   async load() {
     const envelopeText = await this._read()
     if (!envelopeText) return null
-    this._assertAvailable()
     try {
       const envelope = JSON.parse(envelopeText)
-      if (envelope.version !== STORAGE_VERSION || typeof envelope.ciphertext !== 'string') {
+      if (typeof envelope.ciphertext !== 'string') {
         throw new Error('会话存储格式不受支持')
       }
-      const plaintext = this._safeStorage.decryptString(Buffer.from(envelope.ciphertext, 'base64'))
+      const encrypted = envelope.encrypted !== false
+      // v1 兼容：无 encrypted 字段视为加密存储
+      if (envelope.version === undefined && encrypted) {
+        // v1 格式（无 version 字段），需要安全存储解密
+        this._assertAvailable()
+      }
+      if (encrypted) {
+        this._assertAvailable()
+      }
+      const cipherBytes = Buffer.from(envelope.ciphertext, 'base64')
+      const plaintext = encrypted
+        ? this._safeStorage.decryptString(cipherBytes)
+        : cipherBytes.toString('utf8')
       const session = JSON.parse(plaintext)
       if (!session || typeof session !== 'object' || Array.isArray(session)) {
         throw new Error('会话内容无效')
       }
       return session
     } catch {
-      // load() 可能由 _enqueue 内部调用，不能再次等待同一个 mutation 队列。
       await this._clearNow()
       return null
     }
