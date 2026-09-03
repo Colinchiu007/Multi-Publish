@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AutonomousEnforceLoop — 全自动强制执行修复闭环
  *
  * 与 autonomous-fix-loop.js 的区别:

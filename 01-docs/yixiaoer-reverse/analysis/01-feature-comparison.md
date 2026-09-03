@@ -1,4 +1,4 @@
-﻿# 蚁小二 vs Multi-Publish 功能对比分析
+# 蚁小二 vs Multi-Publish 功能对比分析
 
 ## 逆向工程结果摘要
 

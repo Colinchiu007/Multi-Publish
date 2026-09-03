@@ -1,4 +1,4 @@
-﻿/**
+/**
  * RequirementsTestRunner - 需求验证运行器
  *
  * 默认路径 (v0.5.0+):

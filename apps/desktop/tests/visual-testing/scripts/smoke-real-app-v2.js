@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 改进的真实应用视觉测试 - 等待 Vue 挂载
  */
 const { chromium } = require('playwright');

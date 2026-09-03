@@ -1,4 +1,4 @@
-﻿"""pytest conftest — shared fixtures."""
+"""pytest conftest — shared fixtures."""
 import os
 import sys
 import tempfile

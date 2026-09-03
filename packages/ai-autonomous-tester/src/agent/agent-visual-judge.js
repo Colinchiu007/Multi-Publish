@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AgentVisualJudge - Agent 视觉智能判断
  *
  * 核心能力：判断像素 diff 是"预期变更"还是"回归 bug"

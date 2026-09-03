@@ -1,4 +1,4 @@
-﻿"""E2E API Tests -- FastAPI backend integration tests."""
+"""E2E API Tests -- FastAPI backend integration tests."""
 
 import os
 from pathlib import Path

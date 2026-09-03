@@ -1,4 +1,4 @@
-﻿"""Tests for core data models."""
+"""Tests for core data models."""
 
 from multi_publish.models import (
     PLATFORM_META,

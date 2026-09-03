@@ -1,4 +1,4 @@
-﻿const { describe, it } = require("node:test");
+const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { AIAnalyzer } = require("../src/ai-analyzer");
 const { AgentJudge } = require("../src/agent/agent-judge");

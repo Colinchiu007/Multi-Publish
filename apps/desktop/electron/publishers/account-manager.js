@@ -318,9 +318,11 @@ async function deleteAccount (accountId, options = {}) {
   } catch (_) { /* 删除仍可继续，凭证清理使用本地记录回退 */ }
 
   const result = await pythonBridge.requestBackend('DELETE', `/api/accounts/${accountId}`)
-  const alreadyDeleted = result && result.code === undefined && result.detail === '账号不存在'
-  if (result.code !== 0 && !alreadyDeleted) {
-    throw new Error(result.message || '删除账号失败')
+  // pythonBridge.requestBackend 对 404 会归一化为 { code: -404, status, message }，
+  // 因此不能依赖 code === undefined 判断「账号已不存在」，否则该分支在生产永远不生效。
+  const alreadyDeleted = Boolean(result && result.detail === '账号不存在')
+  if ((result?.code ?? -1) !== 0 && !alreadyDeleted) {
+    throw new Error((result && result.message) || '删除账号失败')
   }
   if (!platform) {
     try {

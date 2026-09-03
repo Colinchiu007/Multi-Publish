@@ -1,4 +1,4 @@
-﻿/** API functional tests. Usage: node scripts/run-api-tests.js [--list] */
+/** API functional tests. Usage: node scripts/run-api-tests.js [--list] */
 const http = require('http');
 const https = require('https');
 

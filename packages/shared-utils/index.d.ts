@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @multi-publish/shared-utils — 类型声明
  */
 

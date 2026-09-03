@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * CompositionManager — 管理所有 Remotion Composition
  * 提供 Composition 注册、列表、参数校验和 props 生成

@@ -1,4 +1,4 @@
-﻿"""Tests for douyin.py — sync pure functions and file I/O."""
+"""Tests for douyin.py — sync pure functions and file I/O."""
 
 from __future__ import annotations
 

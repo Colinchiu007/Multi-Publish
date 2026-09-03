@@ -154,6 +154,20 @@ describe('TaskQueue', () => {
     ])
   })
 
+    test('恢复运行中旧快照缺少 retriesLeft 时兜底为 1，避免 NaN 使重试失效', () => {
+      const queue = new TaskQueue()
+      queue.pause()
+
+      expect(queue.deserialize(JSON.stringify({
+        running: [{ id: 'task-legacy-running', platform: 'douyin', article: { title: 'A' } }],
+      }))).toBe(1)
+
+      const pending = queue.getPendingTasks()
+      expect(pending).toHaveLength(1)
+      expect(pending[0].retriesLeft).toBe(1)
+      expect(Number.isFinite(pending[0].retriesLeft)).toBe(true)
+    })
+
   test('身份 provider 暂时不可用时查询 fail-closed 且不启动历史任务', () => {
     const queue = new TaskQueue()
     queue.pause()

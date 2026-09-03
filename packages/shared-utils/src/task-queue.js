@@ -329,9 +329,11 @@ class TaskQueue extends EventEmitter {
         }
       }
       // 恢复运行中被中断的任务 — 重新加入队列尾部重试
+      // 旧快照可能缺少 retriesLeft；Number.isFinite 兜底避免 Math.max(undefined, 1) → NaN
       if (Array.isArray(state.running)) {
         for (const t of state.running) {
-          if (restoreEntry({ ...t, retriesLeft: Math.max(t.retriesLeft, 1) }, '进程中断恢复')) count++
+          const retriesLeft = Number.isFinite(t.retriesLeft) ? Math.max(t.retriesLeft, 1) : 1
+          if (restoreEntry({ ...t, retriesLeft }, '进程中断恢复')) count++
         }
       }
       if (count > 0) this._processNext()

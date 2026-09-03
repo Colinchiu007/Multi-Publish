@@ -1,4 +1,4 @@
-﻿# 补充分析：GitHub Star 项目复用评估报告（第二批）
+# 补充分析：GitHub Star 项目复用评估报告（第二批）
 
 > 生成日期：2026-07-16  
 > 分析方法：github-project-analysis skill v2.0（需求驱动 + URL 驱动混合模式）  

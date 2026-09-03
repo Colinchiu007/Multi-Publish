@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent Visual Judge Report Generator
  * 
  * Purpose: After pixel diff fails, generate structured report for Agent to read screenshots and judge.

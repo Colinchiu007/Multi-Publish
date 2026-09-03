@@ -1,4 +1,4 @@
-﻿"""Extended tests for HttpClient deep error paths."""
+"""Extended tests for HttpClient deep error paths."""
 import httpx
 import pytest
 import respx

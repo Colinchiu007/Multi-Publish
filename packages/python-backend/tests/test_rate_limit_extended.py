@@ -1,4 +1,4 @@
-﻿"""Test rate_limit module edge cases."""
+"""Test rate_limit module edge cases."""
 import time
 
 from multi_publish._rate_limit import (
