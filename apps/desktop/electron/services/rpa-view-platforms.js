@@ -345,9 +345,12 @@ const platformsMixin = {
 
     if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
 
-    // 平台专用发布前准备（百家号：关闭引导弹窗 + 选择创作声明）
+    // 平台专用发布前准备（百家号/快手：关闭引导弹窗 + 选择 AI 创作声明）
     if (platform === 'baijiahao') {
-      try { await this._prepBaijiahao(win) } catch (e) { log.warn('RpaView', 'baijiahao prep: ' + e.message) }
+      try { await this._prepBaijiahao(win, article) } catch (e) { log.warn('RpaView', 'baijiahao prep: ' + e.message) }
+    }
+    if (platform === 'kuaishou') {
+      try { await this._prepKuaishou(win, article) } catch (e) { log.warn('RpaView', 'kuaishou prep: ' + e.message) }
     }
 
     // publish button
@@ -395,14 +398,17 @@ const platformsMixin = {
   },
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
-  async _prepBaijiahao(win) {
+  async _prepBaijiahao(win, article) {
 this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // 关闭"视频创作一键填写引导弹窗"（宽松匹配：文本包含"我知道了"，优先最内层叶子元素）
     try {
       await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){var t=(e.innerText||"").trim();return t==="我知道了"&&e.children.length===0});if(els.length){els[els.length-1].click();return "CLICKED:"+els.length}var wrap=[...document.querySelectorAll("[class*=guide],[class*=Guide],[class*=mask],[class*=Mask],[class*=popup],[class*=Popup]")].filter(function(e){var t=(e.innerText||"").trim();return t.indexOf("我知道了")!==-1});if(wrap.length){var b=[...wrap[0].querySelectorAll("button,a,span")].filter(function(e){return (e.innerText||"").trim()==="我知道了"});if(b.length){b[b.length-1].click();return "WRAP:"+wrap.length}}return "NOT_FOUND"})()')
     } catch (e) { /* ignore */ }
     await this._sleep(1200)
-    // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
+    // AI 生成内容声明：默认勾选「AI 生成内容」，仅当 article.aiGenerated === false 时选择"无需声明"。
+    // 平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
+    const aiGenerated = !article || article.aiGenerated !== false
+    // 选择创作声明：点击输入框 → 弹窗选择对应选项 → 确定
     // 返回 { state: 'no-input'|'already'|'done'|'option-missing'|'confirm-missing', value } 供调用方与日志判定
     let state = 'unknown'
     let selectedValue = ''
@@ -414,7 +420,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         state = 'already'
       } else if (opened === 'OPENED') {
         await this._sleep(2500)
-        const optionClicked = await win.webContents.executeJavaScript('(function(){var opts=["无需声明","无声明","默认声明"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div,.cheetah-modal span,.cheetah-modal label,.cheetah-modal div,[class*=modal] span,[class*=modal] label,[class*=modal] div")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
+        // AI 生成内容时选择"AI生成内容"或"AI 生成"，人工创作时选择"无需声明"
+        const targetOpts = aiGenerated
+          ? ['AI生成内容', 'AI 生成内容', 'AI生成', 'AI 生成', '含AI生成内容']
+          : ['无需声明', '无声明', '默认声明']
+        const optionClicked = await win.webContents.executeJavaScript('(function(){var opts=' + JSON.stringify(targetOpts) + ';for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div,.cheetah-modal span,.cheetah-modal label,.cheetah-modal div,[class*=modal] span,[class*=modal] label,[class*=modal] div")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
         if (optionClicked && optionClicked.ok) {
           selectedValue = optionClicked.option || ''
           state = 'option-selected'
@@ -430,7 +440,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       log.warn('RpaView', 'baijiahao declaration prep: ' + e.message)
       state = 'error'
     }
-    log.info('RpaView', '[baijiahao] declaration prep state=' + state + (selectedValue ? ' option=' + selectedValue : ''))
+    log.info('RpaView', '[baijiahao] declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' option=' + selectedValue : ''))
     // 诊断：prep 后立即截图（页面就绪态，含引导/声明状态）
     try {
       const image = await win.webContents.capturePage()
@@ -461,6 +471,72 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
     } catch (e) { log.warn('RpaView', 'baijiahao position select: ' + e.message) }
 
+    return { state, option: selectedValue }
+  },
+
+  // ========== 平台专用：快手发布前准备（AI 创作声明等） ==========
+  async _prepKuaishou(win, article) {
+    this._emitProgress('kuaishou', 'preparing AI declaration...', 82)
+    // AI 生成内容声明：默认勾选「AI 生成内容」，仅当 article.aiGenerated === false 时取消勾选。
+    // 快手平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
+    const aiGenerated = !article || article.aiGenerated !== false
+    let state = 'unknown'
+    let selectedValue = ''
+    try {
+      // 快手发布页的 AI 创作声明通常是一个 checkbox 或 switch 开关
+      // 尝试多种可能的 DOM 选择器来匹配 AI 声明控件
+      const declResult = await win.webContents.executeJavaScript(
+        '(function(){var aiGen=' + (aiGenerated ? 'true' : 'false') + ';' +
+        // 策略 1：查找含"AI"或"人工智能"关键词的 checkbox/switch 标签
+        'var labels=[...document.querySelectorAll("label,span,div")].filter(function(e){var t=(e.innerText||"").trim();return /(?:AI.{0,4}生成|人工智能.{0,4}生成|AI.{0,4}创作|含AI|AI辅助|内容.*AI)/.test(t)&&e.children.length<3});' +
+        'if(labels.length){' +
+          'var parent=labels[0].closest("label,div,[class*=check],[class*=switch],[class*=toggle]")||labels[0];' +
+          'var input=parent.querySelector("input[type=checkbox],input[type=radio]");' +
+          'if(input){' +
+            'var shouldCheck=aiGen;' +
+            'if(input.checked!==shouldCheck){input.click();return "CHECKED:"+shouldCheck}' +
+            'return "ALREADY:"+input.checked' +
+          '}' +
+          // 无 input 则尝试点击标签本身
+          'labels[0].click();return "LABEL_CLICKED"' +
+        '}' +
+        // 策略 2：查找含"声明"关键词的区域，在其中找 AI 选项
+        'var declSections=[...document.querySelectorAll("[class*=declare],[class*=statement],[class*=claim],[class*=创作],[class*=声明]")];' +
+        'for(var d=0;d<declSections.length;d++){' +
+          'var aiOpts=[...declSections[d].querySelectorAll("label,span,div,li")].filter(function(e){var t=(e.innerText||"").trim();return /(?:AI.{0,4}生成|人工智能|含AI|AI辅助)/.test(t)&&e.children.length===0});' +
+          'if(aiOpts.length){var inp=aiOpts[0].querySelector("input[type=checkbox],input[type=radio]")||aiOpts[0];if(inp.tagName==="INPUT"){if(inp.checked!==aiGen){inp.click()}return "AI_OPT_CHECKED"}else{aiOpts[0].click();return "AI_OPT_CLICKED"}}' +
+        '}' +
+        // 策略 3：查找所有 checkbox，检查其旁边文本是否含 AI 关键词
+        'var allInputs=[...document.querySelectorAll("input[type=checkbox]")];' +
+        'for(var i=0;i<allInputs.length;i++){' +
+          'var nearby=allInputs[i].parentElement;' +
+          'if(nearby){var nearText=(nearby.innerText||"").trim();if(/(?:AI.{0,4}生成|人工智能|含AI|AI辅助)/.test(nearText)){' +
+            'if(allInputs[i].checked!==aiGen){allInputs[i].click();return "NEARBY_CHECKED:"+aiGen}' +
+            'return "NEARBY_ALREADY:"+allInputs[i].checked' +
+          '}}' +
+        '}' +
+        'return "NO_DECLARATION_FOUND"' +
+        '})()'
+      )
+      log.info('RpaView', '[kuaishou] AI declaration result: ' + String(declResult))
+      if (String(declResult).startsWith('CHECKED') || String(declResult).startsWith('ALREADY') ||
+          String(declResult).startsWith('LABEL') || String(declResult).startsWith('AI_OPT') ||
+          String(declResult).startsWith('NEARBY')) {
+        state = 'done'
+        selectedValue = String(declResult)
+      } else if (String(declResult) === 'NO_DECLARATION_FOUND') {
+        state = 'no-declaration-input'
+        // 如果找不到 AI 声明控件，不阻塞发布（快手页面可能已更新或不需要声明）
+        log.warn('RpaView', '[kuaishou] AI declaration control not found on page, continuing without declaration')
+      } else {
+        state = 'unknown-result'
+      }
+      await this._sleep(1000)
+    } catch (e) {
+      log.warn('RpaView', 'kuaishou AI declaration prep: ' + e.message)
+      state = 'error'
+    }
+    log.info('RpaView', '[kuaishou] AI declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' result=' + selectedValue : ''))
     return { state, option: selectedValue }
   },
 

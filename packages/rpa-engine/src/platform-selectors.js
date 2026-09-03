@@ -97,6 +97,9 @@ module.exports = {
       desc_textarea: ['#work-description-edit', 'textarea', '[class*="desc"] textarea', '[class*="description"] input'],
       cover_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
       cover_trigger: ['[class*="cover"]', '[class*="封面"]', 'text=上传封面'],
+      // AI 生成内容声明：快手发布页的 AI 创作声明控件选择器
+      ai_declaration_checkbox: ['input[type="checkbox"][id*="ai"]', 'input[type="checkbox"][name*="ai"]', 'input[type="checkbox"][class*="ai"]', 'label:has-text("AI") input[type="checkbox"]', '[class*="declare"] input[type="checkbox"]', '[class*="声明"] input[type="checkbox"]'],
+      ai_declaration_label: ['label:has-text("AI 生成")', 'label:has-text("AI生成")', 'span:has-text("AI 生成")', 'span:has-text("AI生成")', '[class*="ai"] label', '[class*="declare"] label'],
       publish_btn: ['button:has-text("发布")', 'button:has-text("发表")', 'span:has-text("发 布")', 'span:has-text("发布")', 'span:has-text("立即投稿")', '[class*="submit"]', '[class*="publish"] button'],
     },
     toutiao: {
@@ -148,6 +151,10 @@ module.exports = {
       editor: ['[data-lexical-editor="true"]', '[contenteditable="true"]', '#desc', '[contenteditable]'],
       desc_textarea: ['[data-lexical-editor="true"]', '[contenteditable="true"]', '#desc', 'textarea'],
       tag_input: [],
+      // AI 生成内容声明：百家号发布页的创作声明输入框
+      ai_declaration_input: ['input[placeholder*="创作声明"]', '[class*="declare"] input', '[class*="声明"] input'],
+      ai_declaration_options: ['.cheetah-modal-body span', '.cheetah-modal-body label', '.cheetah-modal-body div', '.cheetah-modal span', '.cheetah-modal label', '.cheetah-modal div', '[class*=modal] span', '[class*=modal] label', '[class*=modal] div'],
+      ai_declaration_confirm: ['.cheetah-modal-footer button', '.cheetah-modal-footer span', '.cheetah-modal button', '.cheetah-modal span', '[class*=modal] button', '[class*=modal] span'],
       cover_input: ['input[type="file"][accept*="image"]'],
       cover_trigger: ['.cover-tabs-container', '[class*="cover"]', '[class*="封面"]'],
       publish_btn: ['button:has-text("发布")', 'button:has-text("提交")', 'button[data-testid="publish-btn"]', 'button.cheetah-btn-primary'],

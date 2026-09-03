@@ -21,10 +21,20 @@ class KuaishouAdapter extends BasePlatformAdapter {
   async uploadCover(td, cookie) { const r = await upload({...td, platform: "kuaishou"}, cookie); return r?.cover || null; }
 
   buildPostData(taskData) {
-    return { title: taskData.title || "", content: taskData.content || "", tags: taskData.tags || [] };
+    const data = {
+      title: taskData.title || "",
+      content: taskData.content || "",
+      tags: taskData.tags || [],
+    }
+    // AI 生成内容声明：默认勾选「AI 生成内容」。
+    // 快手平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
+    // taskData.aiGenerated === false 时显式不勾选（人工创作内容）。
+    // 快手 API 字段：ai_generated (1=AI 生成, 0=人工创作)
+    data.ai_generated = taskData.aiGenerated !== false ? 1 : 0
+    return data
   }
 
-  async publish(cookie, postData) {
+  async publish(cookie, postData, opts = {}) {
     const h = this.getHeaders(cookie);
     // Get __NS_sig3 from remote signer
     const sig = await getKuaishouSignature("/rest/cp/works/v2/video/pc/upload/finish", postData);
