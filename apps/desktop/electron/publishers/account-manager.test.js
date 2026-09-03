@@ -575,6 +575,21 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
   })
 
+  it('后端 404 被 pythonBridge 归一化后（code:-404）仍清理本地凭据', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend')
+      .mockResolvedValueOnce({ code: -404, status: 404, detail: '账号不存在', message: '账号不存在' })
+      .mockResolvedValueOnce({ code: -404, status: 404, detail: '账号不存在', message: '账号不存在' })
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential').mockReturnValue(true)
+    const deleteRecords = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecordsById').mockReturnValue(true)
+
+    await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteRecords).toHaveBeenCalledWith('account-1')
+  })
+
   it.each([
     ['../wechat_mp', 'account-1'],
     ['wechat_mp', '../account-1'],
