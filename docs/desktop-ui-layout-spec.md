@@ -401,3 +401,19 @@ mainWindow.on('resize', () => {
 |------|------|---------|---------|
 | 2026-09-01 | v1.0 | 初始版本：WebContentsView 定位偏移侧边栏宽度 | `959d65cff` |
 | 2026-09-03 | v1.1 | 补充完整 UI 布局规格文档 | 本文档 |
+## 13. 已知问题修复
+
+### 13.1 左侧菜单随内容滚动（2026-09-03 修复）
+
+**根因**：`.app-root` 缺少 `height: 100%`，导致 CSS 百分比高度链断裂。
+
+**影响**：`.yixiaoer-shell` 的 `height: 100%` 无法解析为视口高度，退化为 `auto`（由内容撑开），整个页面随工作区内容滚动，侧边栏随之移动。
+
+**修复**：
+- `.app-root` 添加 `height: 100%; display: flex; flex-direction: column;`
+- `.yixiaoer-shell` 改为 `flex: 1; min-height: 0;`
+- `.fullscreen-main` 改为 `flex: 1; min-height: 0;`
+- `html, body` 添加 `overflow: hidden;`
+- `.yixiaoer-sidebar` 添加 `flex-shrink: 0; overflow-y: auto;`
+
+**关联 PR**：[#1371](https://github.com/Colinchiu007/Multi-Publish/pull/1371)

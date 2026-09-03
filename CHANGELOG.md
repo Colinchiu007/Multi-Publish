@@ -1,4 +1,21 @@
 ## [未发布] feat(publish): 百家号+快手 AI 内容声明全链路实现（2026-09-02）
+## [未发布] fix(desktop): 修复左侧菜单区域不固定、随内容滚动的问题（2026-09-03）
+
+### 根因
+- `.app-root` 缺少 `height: 100%`，导致 CSS 百分比高度链断裂，`.yixiaoer-shell` 的 `height: 100%` 退化为 `auto`
+
+### 修复
+- **`.app-root`**：添加 `height: 100%; display: flex; flex-direction: column;`
+- **`.yixiaoer-shell`**：改为 `flex: 1; min-height: 0;`（替代 `height: 100%`）
+- **`.fullscreen-main`**：改为 `flex: 1; min-height: 0;`（替代 `height: 100%`）
+- **`html, body`**：添加 `overflow: hidden;`，防止视口滚动条
+- **`.yixiaoer-sidebar`**：添加 `flex-shrink: 0;`（防止压缩）+ `overflow-y: auto;`（内容溢出时可独立滚动）
+
+### 文档
+- 新增 `docs/desktop-ui-layout-spec.md`（UI 布局完整规格）
+- 更新 `docs/frontend-interaction-spec.md`（新增布局框架规则）
+- 更新 `01-docs/PRD-yixiaoer-reuse.md`（更新整体布局图）
+
 
 ### 功能增强
 - **百家号 API 模式**：`aigc_bjh_status` AI 声明默认勾选，仅 `aiGenerated === false` 时取消（`baijiahao.js`）
