@@ -167,8 +167,10 @@ function goToPublish () {
 .yixiaoer-sidebar {
   width: var(--yixiaoer-sidebar-width, 200px);
   min-width: var(--yixiaoer-sidebar-width, 200px);
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   background: linear-gradient(180deg, #f4f2ff 0%, #f0efff 100%);
   color: #7a7d99;
   border-right: 1px solid #e9e8f6;
