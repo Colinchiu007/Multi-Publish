@@ -1,4 +1,4 @@
-﻿# Quality Summary - 2026-07-07
+# Quality Summary - 2026-07-07
 
 > Phase 4.1 Health Check / Phase 4.2 Retro
 

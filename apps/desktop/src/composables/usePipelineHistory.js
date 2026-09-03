@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * usePipelineHistory.js — 流水线历史记录 composable
  *

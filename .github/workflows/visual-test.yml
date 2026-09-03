@@ -1,4 +1,4 @@
-﻿name: Visual Tests
+name: Visual Tests
 
 # 视觉回归测试（仅跑本地像素对比 + OCR，无需任何 API Key）
 # - 触发：PR / push 主分支 / 手动 dispatch

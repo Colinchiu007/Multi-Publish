@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * VideoEngine — 视频处理工具引擎
  * 桥接 Python 视频处理/分析/增强/字幕/素材检索工具

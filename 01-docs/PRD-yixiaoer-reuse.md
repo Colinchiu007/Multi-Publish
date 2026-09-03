@@ -1,4 +1,4 @@
-﻿# PRD：蚁小二 4.0 功能复用到 Multi-Publish
+# PRD：蚁小二 4.0 功能复用到 Multi-Publish
 
 > **项目名称**：Multi-Publish 蚁小二对标复用
 > **版本**：v1.0

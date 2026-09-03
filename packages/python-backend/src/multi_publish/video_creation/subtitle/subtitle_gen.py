@@ -1,4 +1,4 @@
-﻿"""Subtitle generation tool.
+"""Subtitle generation tool.
 
 Converts word-level timestamps from the transcriber into SRT, VTT,
 or caption JSON formats. Pure Python — no external dependencies beyond

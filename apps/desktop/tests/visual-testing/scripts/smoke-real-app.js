@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 真实应用视觉测试 - 验证 vite dev server 下的多视图
  */
 const { chromium } = require('playwright');

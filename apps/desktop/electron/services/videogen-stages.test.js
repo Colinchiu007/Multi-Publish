@@ -1,4 +1,4 @@
-﻿// @vitest-environment node
+// @vitest-environment node
 const {
   registerVideoGenStages,
   VIDEOGEN_STAGE_TYPES,

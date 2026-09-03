@@ -1,4 +1,4 @@
-﻿'use strict'
+'use strict'
 /**
  * RPA 选择器解析工具
  *

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 32个工作流的视觉回归测试
  * 运行: node tests/visual-testing/workflows/all-workflows.visual.test.js
  */

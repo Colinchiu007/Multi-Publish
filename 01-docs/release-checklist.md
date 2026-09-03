@@ -1,4 +1,4 @@
-﻿# Release Checklist — Multi-Publish
+# Release Checklist — Multi-Publish
 
 > **用途**: 每次发布前逐项核验，确保质量门禁通过。
 > **模板版本**: v1.0 | **最近更新**: 2026-07-08

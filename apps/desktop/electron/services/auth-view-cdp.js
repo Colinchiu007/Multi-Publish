@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * AuthView CDP — WebContentsView 调试器检测模块
  */

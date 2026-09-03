@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 全自动 E2E 多轮循环测试
  * 运行: node tests/visual-testing/autonomous-loop.js [--max-rounds N]
  * 

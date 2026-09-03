@@ -1,4 +1,4 @@
-﻿# UAT Execution Report - 2026-07-08
+# UAT Execution Report - 2026-07-08
 
 
 ## P0 Core Flow - Infrastructure Status
