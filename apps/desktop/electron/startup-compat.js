@@ -32,6 +32,32 @@ function setDataPaths (app, userDataDir) {
   app.setPath('cache', path.join(userDataDir, 'cache'))
 }
 
+/**
+ * 向上查找共享数据锚点：从 startDir 逐级上溯，寻找
+ * `shared-user-data/.shared-data-anchor` 文件。
+ *
+ * 这是「零环境变量」的强制共享方案：只要开发者在仓库根创建了
+ * `shared-user-data/.shared-data-anchor`，无论从哪个环境（WSL/Windows）
+ * 启动，应用都会自动使用仓库根的 shared-user-data 作为 userData，
+ * 两个环境的模型配置、流水线选项、发布历史天然一致。
+ *
+ * 锚点缺失 → 返回 null，行为完全回退到默认 userData（不改变既有逻辑）。
+ * 打包应用：asar 内不存在锚点文件，自然回退默认行为，对终端用户零影响。
+ */
+function findSharedUserDataDir (fsImpl, startDir) {
+  let dir = startDir
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = path.join(dir, 'shared-user-data')
+    try {
+      if (fsImpl.existsSync(path.join(candidate, '.shared-data-anchor'))) return candidate
+    } catch (_) { /* 权限异常等同锚点不存在 */ }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
 function configureUserDataPath ({
   app,
   env = process.env,
@@ -39,6 +65,7 @@ function configureUserDataPath ({
   fsImpl = fs,
   osImpl = os,
   platform = process.platform,
+  moduleDir = typeof __dirname === 'string' ? __dirname : process.cwd(),
 } = {}) {
   if (!app || typeof app.getPath !== 'function') {
     return { path: null, fallback: false, explicit: false }
@@ -48,6 +75,14 @@ function configureUserDataPath ({
   if (explicit) {
     setDataPaths(app, explicit)
     return { path: explicit, fallback: false, explicit: true }
+  }
+
+  // 共享数据锚点（优先级仅低于显式环境变量/CLI 参数）：
+  // 检测到锚点且目录可写 → 自动启用共享 userData。
+  const shared = findSharedUserDataDir(fsImpl, moduleDir)
+  if (shared && isWritableDirectory(fsImpl, shared)) {
+    setDataPaths(app, shared)
+    return { path: shared, fallback: false, explicit: false, shared: true }
   }
 
   const current = app.getPath('userData')
@@ -114,6 +149,7 @@ function configureGraphics ({
 module.exports = {
   configureGraphics,
   configureUserDataPath,
+  findSharedUserDataDir,
   getExplicitUserDataDir,
   isWritableDirectory,
 }

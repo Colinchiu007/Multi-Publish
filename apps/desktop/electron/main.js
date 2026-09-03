@@ -19,6 +19,9 @@ try {
   if (storageConfig.fallback) {
     console.warn(`[startup] 默认 userData 不可写，已切换到 ${storageConfig.path}`)
   }
+  if (storageConfig.shared) {
+    console.warn(`[startup] 检测到 shared-user-data 锚点，使用共享数据目录 ${storageConfig.path}（WSL/Windows 环境数据一致）`)
+  }
   if (graphicsConfig.disabled && graphicsConfig.reason === 'windows-default') {
     console.warn('[startup] Windows 默认使用软件渲染；设置 ELECTRON_ENABLE_GPU=1 可显式启用硬件加速')
   }

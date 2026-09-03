@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   configureGraphics,
   configureUserDataPath,
+  findSharedUserDataDir,
   getExplicitUserDataDir,
 } from './startup-compat.js'
 
@@ -98,5 +99,101 @@ describe('startup compatibility', () => {
   it('recognizes the Electron command-line userData override', () => {
     expect(getExplicitUserDataDir({}, ['electron', '.', '--user-data-dir=C:/tmp/profile']))
       .toBe('C:/tmp/profile')
+  })
+})
+
+describe('shared-data anchor detection', () => {
+  it('uses shared-user-data when anchor file exists', () => {
+    const repoRoot = '/tmp/test-repo'
+    const sharedDir = `${repoRoot}/shared-user-data`
+    const fsImpl = {
+      constants: { W_OK: 2 },
+      existsSync: vi.fn((p) => p === `${sharedDir}/.shared-data-anchor`),
+      mkdirSync: vi.fn(),
+      accessSync: vi.fn(),
+    }
+    const app = {
+      getPath: vi.fn(() => '/tmp/default-user-data'),
+      setPath: vi.fn(),
+    }
+
+    const result = configureUserDataPath({
+      app,
+      env: {},
+      argv: [],
+      fsImpl,
+      platform: 'linux',
+      moduleDir: repoRoot,
+    })
+
+    expect(result).toMatchObject({
+      path: sharedDir,
+      shared: true,
+      fallback: false,
+      explicit: false,
+    })
+    expect(app.setPath).toHaveBeenCalledWith('userData', sharedDir)
+  })
+
+  it('falls back to default when no anchor exists', () => {
+    const fsImpl = {
+      constants: { W_OK: 2 },
+      existsSync: vi.fn(() => false),
+      mkdirSync: vi.fn(),
+      accessSync: vi.fn(),
+    }
+    const app = {
+      getPath: vi.fn(() => '/tmp/default-user-data'),
+      setPath: vi.fn(),
+    }
+
+    const result = configureUserDataPath({
+      app,
+      env: {},
+      argv: [],
+      fsImpl,
+      platform: 'linux',
+      moduleDir: '/tmp/no-anchor',
+    })
+
+    expect(result.shared).toBeUndefined()
+    expect(result.path).toBe('/tmp/default-user-data')
+  })
+
+  it('explicit env var overrides shared anchor', () => {
+    const app = {
+      getPath: vi.fn(() => 'ignored'),
+      setPath: vi.fn(),
+    }
+
+    const result = configureUserDataPath({
+      app,
+      env: { ELECTRON_USER_DATA_DIR: 'C:/explicit-dir' },
+      argv: [],
+      moduleDir: '/tmp/has-anchor',
+    })
+
+    expect(result).toMatchObject({
+      path: 'C:/explicit-dir',
+      explicit: true,
+    })
+    expect(result.shared).toBeUndefined()
+  })
+
+  it('findSharedUserDataDir walks up from nested directory', () => {
+    const fsImpl = {
+      existsSync: vi.fn((p) => p === '/repo/shared-user-data/.shared-data-anchor'),
+    }
+    const result = findSharedUserDataDir(
+      fsImpl,
+      '/repo/apps/desktop/electron',
+    )
+    expect(result).toBe('/repo/shared-user-data')
+  })
+
+  it('findSharedUserDataDir returns null when anchor not found', () => {
+    const fsImpl = { existsSync: vi.fn(() => false) }
+    const result = findSharedUserDataDir(fsImpl, '/deep/nested/path')
+    expect(result).toBeNull()
   })
 })
