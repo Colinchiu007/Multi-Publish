@@ -1,3 +1,27 @@
+## [未发布] feat(publish): 百家号+快手 AI 内容声明全链路实现（2026-09-02）
+
+### 功能增强
+- **百家号 API 模式**：`aigc_bjh_status` AI 声明默认勾选，仅 `aiGenerated === false` 时取消（`baijiahao.js`）
+- **百家号 RPA 模式**：`_prepBaijiahao()` 创作声明从"无需声明"改为"AI生成内容"（默认），人工创作时选"无需声明"（`rpa-view-platforms.js`）
+- **快手 API 适配器**：`buildPostData()` 新增 `ai_generated` 字段，默认 1（AI 生成），`aiGenerated === false` 时为 0（`kuaishou.js`）
+- **快手 RPA 模式**：新增 `_prepKuaishou()` 方法，多策略查找 AI 声明控件（checkbox/switch/标签）并自动勾选（`rpa-view-platforms.js`）
+- **平台选择器增强**：百家号新增 `ai_declaration_*` 选择器，快手新增 `ai_declaration_checkbox/label` 选择器（`platform-selectors.js`）
+
+### 数据校验
+- `aiGenerated` 默认 `true`（AI 生成），仅严格 `=== false` 时为人工创作
+- 非布尔真值（`undefined`/`null`/数字）均按 AI 生成处理
+- RPA 找不到声明控件时不阻塞发布，warn 日志记录
+
+### 测试
+- 新增 `kuaishou-ai-declaration.test.js`（6 用例：默认/显式false/显式true/非布尔真值/保留字段/空数据）
+- `publisher-router.test.js` 已有 `aiGenerated` 透传断言
+
+### 文档
+- 新增 `01-docs/PRD-AI-CONTENT-DECLARATION.md`（AI 声明完整产品需求规格）
+- 更新 `CHANGELOG.md`（本文档）
+
+---
+
 ## [未发布] feat(arch): 架构重构 Stage -1 ~ 3.3 落地（2026-09-02）
 
 ### 安全止血（Stage -1，9 项）
