@@ -1,0 +1,4 @@
+# 后端测试/开发依赖（本地 pytest 门禁与 ops-center CI 共用）
+# 注意：pytest-asyncio 1.x 移除隐式 function 级事件循环，测试按 0.x API 编写，故锁 <1.0
+pytest>=7.4.0
+pytest-asyncio>=0.21.0,<1.0

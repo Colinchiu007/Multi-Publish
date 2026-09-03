@@ -24,6 +24,7 @@ jobs:
         run: |
           cd ops-center/backend
           pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: 运行测试
         run: |

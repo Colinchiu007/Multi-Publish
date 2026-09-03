@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
-from middleware.auth import get_current_user, require_admin
+from middleware.auth import require_admin
 from services import pipeline_option_service
 
 router = APIRouter(prefix="/api/v1/pipeline-options", tags=["pipeline-options"])
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/v1/pipeline-options", tags=["pipeline-options"])
 @router.get("")
 async def list_options(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
     return {"items": await pipeline_option_service.list_options(db)}
 
