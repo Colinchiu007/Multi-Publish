@@ -87,6 +87,48 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 - 若用户指定 worktree（如 `D:\Data\projects\mp-worktrees\mp-<task>`），用该 worktree。
 - ⚠️ `start-desktop.ps1` 默认 **fail-closed 拒绝共享主工作区**（`git-dir == common-dir`），因为脚本会 fetch/merge 并强停进程。若确实要在共享主目录启动，需 `-ForceShared`（高风险，先向用户说明）。
 
+#### 0a. 共享主工作区脏文件检测（关键，曾踩坑）
+
+**若目标是共享主工作区（`D:\Data\projects\Multi-Publish`），必须先检测脏文件数：**
+
+```powershell
+git -C <repo> status --short | Measure-Object | Select-Object -ExpandProperty Count   # 脏文件数
+```
+
+- **脏文件数 > 0（尤其 > 100）**：说明共享主工作区有**其他会话遗留的未提交改动**（常见：`.ccg/tasks/archive/` 归档 + `apps/desktop/electron/` 等）。此时：
+  - ⛔ **绝不在共享主工作区做任何 git 写操作**（stash / merge / checkout / restore）——违反 AGENTS.md 铁律「共享仓库根禁止 stash/checkout，stash/index/HEAD 属同一 Git 状态会互相竞争」。
+  - ✅ **改用隔离 worktree 启动**（见下方「隔离 worktree 启动」），不动共享主工作区。
+- **脏文件数 = 0**：共享主工作区干净，可正常走下方流程。
+
+> **⚠️ 核心教训（曾导致在共享主工作区误 stash）**：
+> 之前重启时，共享主工作区有 1204 个其他会话的脏文件，我直接 `git stash` 处理冲突，违反铁律。**正确做法：脏文件多时直接改用隔离 worktree，绝不在共享主工作区动 git 状态。**
+
+#### 0b. 隔离 worktree 启动（共享主工作区脏时用）
+
+当共享主工作区脏文件多（其他会话在用）时，在隔离 worktree 启动最新代码：
+
+```powershell
+# 1. 创建隔离 worktree（基于 origin/main 最新代码），用 PowerShell 原生 D:\ 路径
+git -C <repo> worktree add -b "local/<task>" "D:\Data\projects\mp-worktrees\mp-<task>" origin/main
+# 2. 验证 worktree 可进入（铁律：失败则 worktree remove --force，不留半失效注册）
+git -C "D:\Data\projects\mp-worktrees\mp-<task>" rev-parse --show-toplevel
+
+# 3. 新 worktree 依赖就绪
+cd "D:\Data\projects\mp-worktrees\mp-<task>"
+pnpm install --frozen-lockfile
+node scripts/ensure-electron.js
+node scripts/verify-worktree-deps.js
+
+# 4. 在隔离 worktree 启动（-StopForeignProfile 停掉占用同 profile 的旧实例；MP_*_PORT 覆盖端口避免 9222 被无关 Chrome 占用）
+$env:MP_VITE_PORT="5175"; $env:MP_CDP_PORT="9224"
+pwsh -File scripts/start-desktop.ps1 -Worktree "D:\Data\projects\mp-worktrees\mp-<task>" -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile
+```
+
+- 隔离 worktree 的端口由 `dev-ports.js` 按路径独立派生，不会与共享主工作区互抢。
+- `-StopForeignProfile`：审计停止占用同一 profile 的其他 worktree 实例（避免单实例锁互杀）。
+- `MP_VITE_PORT` / `MP_CDP_PORT`：显式覆盖端口（9222 常被无关 Chrome 的 `--remote-debugging-port=9222` 占用，需避开）。
+- 完成后可 `git -C <repo> worktree remove "D:\Data\projects\mp-worktrees\mp-<task>"`（走 `safe-worktree-remove.ps1`，遵守 R1-R5 铁律）。
+
 ### 1. 核对本地工作区与远程对齐（保证代码最新）
 
 在目标工作区执行：

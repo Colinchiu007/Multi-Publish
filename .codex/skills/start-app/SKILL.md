@@ -28,6 +28,7 @@ tags: [launch, desktop, electron, dev, sync, profile, restart]
    - **仅落后** → `git merge --ff-only origin/main`
    - **分叉（本地领先 + 落后）** → ⚠️ `--ff-only` 必然失败，**必须**用 `git merge origin/main`
    - **合并后验证落后数必须为 0**，否则停止不启动（避免用旧代码）
+   - ⚠️ **共享主工作区脏文件多时（其他会话在用）**：**绝不在共享主工作区做 git 写操作**（stash/merge/checkout），改用**隔离 worktree** 启动（`git worktree add -b local/<task> <path> origin/main` + `pnpm install` + `start-desktop.ps1 -Worktree <隔离路径> -StopForeignProfile`）。详见单一事实源「0a/0b」。
 
 3. **环境齐备**：`node scripts/ensure-desktop-deps.js --check`（缺失自愈）、确认 electron 二进制存在。
 
@@ -35,6 +36,8 @@ tags: [launch, desktop, electron, dev, sync, profile, restart]
    ```powershell
    pwsh -File scripts/start-desktop.ps1 -Worktree <工作区> -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json
    ```
+   - 端口被无关 Chrome 占用（9222）时：`$env:MP_VITE_PORT="5175"; $env:MP_CDP_PORT="9224"` 覆盖。
+   - 同 profile 被其他 worktree 占用时：加 `-StopForeignProfile`。
 
 5. **验证**：`START_CONTRACT_OK` + 窗口 handle + identity 登录态。
 
