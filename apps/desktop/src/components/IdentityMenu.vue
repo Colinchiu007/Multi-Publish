@@ -1,129 +1,159 @@
 <template>
-  <div ref="root" class="identity-menu">
+  <div class="identity-menu" ref="menuRef">
     <button
-      id="identity-menu-trigger"
-      ref="trigger"
-      data-testid="identity-trigger"
       class="identity-trigger"
-      :class="{ 'identity-trigger-login': isUnauthenticated }"
-      type="button"
-      :aria-expanded="open"
-      aria-controls="identity-menu-panel"
-      aria-haspopup="menu"
-      :aria-busy="loading"
-      @click="toggleMenu"
-      @keydown.down.prevent="openAndFocusFirst"
+      :class="{ 'is-open': open, 'is-authenticated': isAuthenticated }"
+      :disabled="status === 'disabled'"
+      @click="open = !open"
+      :aria-label="triggerLabel"
+      data-testid="identity-menu-trigger"
     >
-      <template v-if="isUnauthenticated">
-        <span class="identity-avatar identity-avatar-login" aria-hidden="true">⚡</span>
-        <span class="identity-trigger-label identity-trigger-label-login">登录</span>
-      </template>
-      <template v-else>
-        <span class="identity-avatar" aria-hidden="true">{{ initials }}</span>
-        <span class="identity-trigger-label">{{ displayName }}</span>
-      </template>
-      <span class="identity-chevron" aria-hidden="true">⌄</span>
+      <span class="identity-avatar" aria-hidden="true">{{ avatarChar }}</span>
+      <span class="identity-label" v-if="!compact">{{ displayName }}</span>
+      <span class="identity-chevron" aria-hidden="true">▾</span>
     </button>
-    <span class="identity-status-live" aria-live="polite" aria-atomic="true">{{ statusLabel }}</span>
 
-    <div
-      v-if="open"
-      id="identity-menu-panel"
-      ref="panel"
-      class="identity-menu-panel"
-      role="menu"
-      aria-labelledby="identity-menu-trigger"
-      @keydown="handleMenuKeydown"
-    >
-      <div class="identity-menu-heading">
-        <strong>{{ hasSessionIdentity ? displayName : 'Multi-Publish' }}</strong>
+    <div v-if="open" class="identity-dropdown" data-testid="identity-menu-dropdown">
+      <div class="identity-header">
+        <span class="identity-user-name">{{ user?.name || user?.email || '访客' }}</span>
+        <span class="identity-user-email" v-if="user?.email">{{ user.email }}</span>
+      </div>
+
+      <div class="identity-status" :class="'status-' + status">
+        <span class="status-dot" aria-hidden="true"></span>
         <span>{{ statusLabel }}</span>
       </div>
-      <button
-        v-if="!hasSessionIdentity && !isSigningOut && status !== 'disabled'"
-        data-testid="identity-sign-in"
-        class="identity-menu-action identity-menu-action-primary"
-        type="button"
-        role="menuitem"
-        :disabled="loading"
-        @click="handleSignIn"
-      >
-        {{ loading ? '正在打开登录...' : '登录 Multi-Publish' }}
-      </button>
-      <button
-        v-if="hasSessionIdentity"
-        data-testid="identity-member-center"
-        class="identity-menu-action"
-        type="button"
-        role="menuitem"
-        @click="goMemberCenter"
-      >
-        {{ memberCenterLabel }}
-      </button>
-      <button
-        v-if="hasSessionIdentity && !isSigningOut"
-        data-testid="identity-switch-account"
-        class="identity-menu-action"
-        type="button"
-        role="menuitem"
-        :disabled="loading"
-        @click="handleSwitchAccount"
-      >
-        {{ pendingAction === 'switch' ? '正在切换...' : '切换账号' }}
-      </button>
-      <button
-        v-if="hasSessionIdentity || isSigningOut"
-        data-testid="identity-sign-out"
-        class="identity-menu-action"
-        type="button"
-        role="menuitem"
-        :disabled="loading"
-        @click="handleSignOut"
-      >
-        {{ pendingAction === 'sign-out' || isSigningOut ? '正在退出...' : '退出登录' }}
-      </button>
-      <p v-if="status === 'disabled'" class="identity-menu-note">身份服务未启用</p>
-      <p v-if="errorMessage" class="identity-menu-error" role="alert">{{ errorMessage }}</p>
+
+      <div v-if="errorMessage" class="identity-error" data-testid="identity-error">
+        {{ errorMessage }}
+      </div>
+
+      <div class="identity-actions">
+        <button
+          v-if="!isAuthenticated"
+          class="identity-btn identity-btn-signin"
+          :disabled="status === 'signing_in' || isSigningOut"
+          @click="handleSignIn"
+          data-testid="identity-signin-btn"
+        >
+          {{ status === 'signing_in' ? '登录中…' : '登录' }}
+        </button>
+
+        <button
+          v-if="isAuthenticated"
+          class="identity-btn identity-btn-signout"
+          :disabled="isSigningOut"
+          @click="handleSignOut"
+          data-testid="identity-signout-btn"
+        >
+          {{ isSigningOut ? '退出中…' : '退出登录' }}
+        </button>
+
+        <button
+          v-if="isAuthenticated"
+          class="identity-btn identity-btn-switch"
+          :disabled="isSigningOut"
+          @click="handleSwitchAccount"
+          data-testid="identity-switch-btn"
+        >
+          切换账号
+        </button>
+
+        <button
+          v-if="isAuthenticated"
+          class="identity-btn identity-btn-member"
+          @click="goMemberCenter"
+          data-testid="identity-member-btn"
+        >
+          会员中心
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useIdentity } from '@/composables/useIdentity'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useIdentityStore } from '@/stores/identity'
 import { useI18n } from 'vue-i18n'
 
-const root = ref(null)
-const trigger = ref(null)
-const panel = ref(null)
-const open = ref(false)
-const { status, user, displayName, loading, error, signIn, switchAccount, signOut } = useIdentity()
-const router = useRouter()
-const { t } = useI18n()
-const memberCenterLabel = computed(() => t('memberCenter.menuEntry'))
-const isSigningOut = computed(() => status.value === 'signing_out')
-const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
-const isUnauthenticated = computed(() => !hasSessionIdentity.value && status.value !== 'disabled')
-const pendingAction = ref(null)
+const props = defineProps({
+  compact: { type: Boolean, default: false },
+})
 
-const initials = computed(() => Array.from(displayName.value || '登')[0].toUpperCase())
+const { t } = useI18n()
+const router = useRouter()
+const store = useIdentityStore()
+const {
+  user, status, error, hasSessionIdentity,
+  isAuthenticated, isSigningOut,
+  load, signIn, signOut, switchAccount, dispose,
+} = store
+
+const open = ref(false)
+const pendingAction = ref(null)
+const menuRef = ref(null)
+
+onMounted(() => {
+  load()
+  document.addEventListener('click', onClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onClickOutside)
+  dispose()
+})
+
+function onClickOutside(event) {
+  if (menuRef.value && !menuRef.value.contains(event.target)) {
+    open.value = false
+  }
+}
+
+watch(open, (val) => {
+  if (!val) pendingAction.value = null
+})
+
+const avatarChar = computed(() => {
+  if (user.value?.name) return user.value.name[0].toUpperCase()
+  if (user.value?.email) return user.value.email[0].toUpperCase()
+  return '?'
+})
+
+const displayName = computed(() => {
+  if (user.value?.name) return user.value.name
+  if (user.value?.email) return user.value.email.split('@')[0]
+  return '访客'
+})
+
+const triggerLabel = computed(() => {
+  if (isAuthenticated.value) return displayName.value + '，已登录'
+  return '未登录，点击登录'
+})
+
 const statusLabel = computed(() => {
-  if (status.value === 'authenticated') return '已连接'
-  if (status.value === 'offline_authenticated') return '离线模式'
-  if (status.value === 'refreshing') return '刷新中'
+  if (status.value === 'disabled') return '服务不可用'
+  if (status.value === 'signed_out') return '未登录'
   if (status.value === 'signing_in') return '登录中'
   if (status.value === 'expired') return '会话已过期'
   if (status.value === 'error') return hasSessionIdentity.value ? '仍保持登录' : '需要重试'
   if (isSigningOut.value) return '退出中'
   return '未登录'
 })
+
 const errorMessage = computed(() => {
   if (status.value === 'disabled') return ''
   const code = error.value?.code
   if (!code) return ''
   const messages = {
     IDENTITY_API_UNAVAILABLE: '当前运行环境未连接身份服务。',
+    IDENTITY_NOT_CONFIGURED: '身份服务未配置，请在设置中配置 Logto 连接信息。',
+    IDENTITY_CONFIG_INVALID: '身份服务配置无效，请检查设置。',
+    IDENTITY_OPERATION_FAILED: '身份服务操作失败，请稍后重试。',
+    IDENTITY_LOAD_FAILED: '无法加载身份信息，请检查网络连接。',
+    IDENTITY_SIGN_IN_FAILED: '登录失败，请确认身份服务配置正确后重试。',
+    IDENTITY_ACCOUNT_SWITCH_FAILED: '切换账号失败，请重试。',
     IDENTITY_CALLBACK_TIMEOUT: '登录等待超时，请重新尝试。',
     IDENTITY_SESSION_EXPIRED: '登录会话已过期，请重新登录。',
     IDENTITY_SIGN_OUT_FAILED: '退出失败，当前登录仍然有效。',
@@ -161,142 +191,183 @@ async function handleSwitchAccount() {
     pendingAction.value = null
   }
 }
-
-async function toggleMenu() {
-  if (open.value) {
-    open.value = false
-    return
-  }
-  await openAndFocusFirst()
-}
-
-async function openAndFocusFirst() {
-  open.value = true
-  await nextTick()
-  panel.value?.querySelector('[role="menuitem"]')?.focus()
-}
-
-function handleOutsideClick(event) {
-  if (open.value && root.value && !root.value.contains(event.target)) open.value = false
-}
-
-function handleKeydown(event) {
-  if (event.key !== 'Escape' || !open.value) return
-  event.preventDefault()
-  open.value = false
-  trigger.value?.focus()
-}
-
-function handleMenuKeydown(event) {
-  if (event.key === 'Tab') {
-    open.value = false
-    return
-  }
-  if (event.key === 'Escape') {
-    handleKeydown(event)
-    return
-  }
-  const items = Array.from(panel.value?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])
-  if (items.length === 0) return
-  const currentIndex = items.indexOf(document.activeElement)
-  let nextIndex
-  if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length
-  else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length
-  else if (event.key === 'Home') nextIndex = 0
-  else if (event.key === 'End') nextIndex = items.length - 1
-  else return
-  event.preventDefault()
-  items[nextIndex].focus()
-}
-
-onMounted(() => {
-  document.addEventListener('click', handleOutsideClick)
-  document.addEventListener('keydown', handleKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleOutsideClick)
-  document.removeEventListener('keydown', handleKeydown)
-})
-
 </script>
 
 <style scoped>
-.identity-menu { position: relative; min-width: 0; max-width: 180px; }
+.identity-menu {
+  position: relative;
+  display: inline-flex;
+}
+
 .identity-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 3px 8px 3px 4px;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  color: var(--ink);
-  background: var(--surface);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
   cursor: pointer;
-  max-width: 100%;
+  font-size: 13px;
+  color: var(--ink);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.identity-trigger:hover, .identity-trigger[aria-expanded="true"] { border-color: var(--primary); }
-.identity-trigger-login {
-  background: var(--primary);
-  color: var(--on-primary, #fff);
+
+.identity-trigger:hover {
   border-color: var(--primary);
-  font-weight: 600;
 }
-.identity-trigger-login:hover {
-  background: color-mix(in srgb, var(--primary) 85%, black);
-  border-color: color-mix(in srgb, var(--primary) 85%, black);
+
+.identity-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
-.identity-avatar-login {
-  background: rgba(255, 255, 255, 0.25);
+
+.identity-trigger.is-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
 }
-.identity-trigger-label-login {
-  letter-spacing: 0.5px;
+
+.identity-trigger.is-authenticated {
+  background: var(--primary-light);
+  border-color: var(--primary);
 }
+
 .identity-avatar {
   display: inline-flex;
-  width: 24px;
-  height: 24px;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  color: var(--on-primary);
   background: var(--primary);
+  color: var(--on-primary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
-.identity-trigger-label { min-width: 0; max-width: 120px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.identity-chevron { color: var(--text-muted); font-size: 14px; line-height: 1; }
-.identity-menu-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 130;
-  box-sizing: border-box;
-  width: min(220px, calc(100vw - 24px));
-  padding: 12px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  box-shadow: 0 12px 32px rgba(30, 27, 75, 0.14);
-}
-.identity-menu-heading { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--hairline); }
-.identity-menu-heading strong { min-width: 0; overflow-wrap: anywhere; }
-.identity-menu-heading span, .identity-menu-note { color: var(--text-muted); font-size: 12px; }
-.identity-menu-action { width: 100%; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--card-border); border-radius: var(--r-xs); background: var(--surface); color: var(--ink); cursor: pointer; text-align: left; }
-.identity-menu-action-primary { border-color: var(--primary); color: var(--primary); }
-.identity-menu-action:disabled { cursor: wait; opacity: 0.6; }
-.identity-menu-note, .identity-menu-error { margin: 10px 0 0; }
-.identity-menu-error { color: var(--error); font-size: 12px; }
-.identity-status-live {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
+
+.identity-label {
+  max-width: 120px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  text-overflow: ellipsis;
   white-space: nowrap;
-  border: 0;
+}
+
+.identity-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.identity-trigger.is-open .identity-chevron {
+  transform: rotate(180deg);
+}
+
+.identity-dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  right: 0;
+  min-width: 240px;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: var(--space-md);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.identity-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.identity-user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.identity-user-email {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.identity-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-light);
+  flex-shrink: 0;
+}
+
+.status-authenticated .status-dot { background: var(--success); }
+.status-signing_in .status-dot { background: var(--warning); animation: pulse 1s infinite; }
+.status-error .status-dot { background: var(--error); }
+.status-expired .status-dot { background: var(--warning); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.identity-error {
+  font-size: 12px;
+  color: var(--error);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--coral-soft);
+  border-radius: var(--r-xs);
+  line-height: 1.4;
+}
+
+.identity-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.identity-btn {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--canvas);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  transition: background 0.15s;
+  text-align: center;
+}
+
+.identity-btn:hover {
+  background: var(--soft-stone);
+}
+
+.identity-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.identity-btn-signin {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
+.identity-btn-signin:hover {
+  background: var(--primary-hover);
+}
+
+.identity-btn-signout {
+  color: var(--error);
 }
 </style>
