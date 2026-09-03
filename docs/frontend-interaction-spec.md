@@ -65,6 +65,29 @@
 - 新增全局组件前必须先检索是否已有等价实现（components 平铺区 + features/ 域目录两处都查）
 - 视图命名：路由页面统一 `XxxView.vue` 后缀（存量不一致者随触碰逐步改名，不做专项批量）
 
-## 6. 死代码处置原则
+## 6. 布局框架规则
+
+### 6.1 左侧侧边栏固定
+
+- **左侧导航栏（YixiaoerSidebar）是固定区域**，不可滚动、不可移动，不随右侧内容变化而移动
+- 侧边栏宽度由 CSS 变量 `--yixiaoer-sidebar-width` 控制（默认 200px，定义于 `cohere-design-system.css:69`）
+- 侧边栏通过 `ResizeObserver` 实时同步宽度到主进程，确保 WebContentsView 定位准确
+- 任何新增路由/视图不得覆盖或遮挡侧边栏区域
+- 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md)
+
+### 6.2 WebContentsView 定位
+
+- 所有由主进程管理的 WebContentsView（浏览器标签页、登录视图、扫码视图）必须定位在右侧主体区域
+- X 偏移 = 侧边栏宽度（默认 200px），Y 偏移 = 76px（TabBar + NavBar）
+- 新增 WebContentsView 场景必须遵循相同的定位规则，调用 `WebviewManager` 或 `AuthViewManager` 的标准方法
+- 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) 第 4 节
+
+### 6.3 模块导航栏
+
+- `YixiaoerModuleNav` 仅在首页标签（`isHomeTab === true`）时显示
+- 当浏览器标签或登录标签激活时，模块导航自动隐藏，WebContentsView 占据右侧主体区域
+- 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) 第 3 节
+
+## 7. 死代码处置原则
 
 不可达路由页、零引用组件、未挂载功能模块：先全库检索引用（含 tests、story2video 子目录）→ 无引用即删 → 全量单测验证。同功能双实现合并时保留一份测试并迁移引用方。
