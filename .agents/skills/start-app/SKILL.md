@@ -1,14 +1,15 @@
 ---
 name: start-app
-version: 1.1.0
+version: 1.2.0
 description: >
-  用当前项目最新代码 + 已登录 profile 启动/重启 Multi-Publish 桌面应用。
-  启动前先核对本地工作区与远程 origin/main 对齐（保证跑的是最新代码），
-  再检查环境齐备（node / 依赖 / electron / 端口），最后以已登录 profile
-  启动并验证窗口与登录态。自动判断应用是否已在运行，区分「启动 / 重启 /
-  仅确认状态」三种场景。触发词：启动应用、启动桌面、重启应用、start-app、
-  restart-app、应用在跑吗、跑最新代码。
-tags: [launch, desktop, electron, dev, sync, profile, restart]
+  用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
+  桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 WSL 环境的应用，
+  显式指定或检测到 Windows 时走 Windows 流程。启动前先核对本地工作区与远程
+  origin/main 对齐（保证跑的是最新代码），再检查环境齐备（node / 依赖 /
+  electron / 端口），最后启动并验证窗口与登录态。自动判断应用是否已在运行，
+  区分「启动 / 重启 / 仅确认状态」三种场景。触发词：启动应用、启动桌面、
+  重启应用、start-app、restart-app、应用在跑吗、跑最新代码。
+tags: [launch, desktop, electron, dev, sync, profile, restart, wsl, windows]
 ---
 
 # 启动应用（最新代码 + 已登录 profile）
@@ -67,19 +68,50 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 
 1. **代码最新**：启动前核对本地工作区与远程 origin/main 对齐，落后则 fast-forward 同步
 2. **环境齐备**：node、依赖、electron 二进制、端口都健康，避免启动即崩
-3. **带登录态**：用已登录的 profile（`ELECTRON_USER_DATA_DIR`）启动，保留身份与账号
-4. **验证**：窗口出现 + 登录态可读
+3. **共享数据**：用 `shared-user-data` 锚点（WSL/Windows 共用同一数据库、模型 key、账号），不设显式 profile 以免绕过锚点导致数据分裂
+4. **双环境**：默认启动 **WSL（Ubuntu-E）** 环境的应用；显式指定或检测到 Windows 时走 Windows 流程
+5. **验证**：窗口出现 + 登录态可读
 
 ## 关键事实（本项目）
 
-- **启动契约脚本**：`scripts/start-desktop.ps1` 已封装「同步 + 依赖 + 端口归属 + 单实例锁 + 启动 + 验证」全流程，优先复用。
-- **已登录 profile**：默认 `D:\tmp\Multi-Publish-debug-profile`（含 `identity-session.json`、`accounts\state.jsonl`，即登录态与账号）。
+- **双环境**：Windows（`start-desktop.ps1`，PowerShell 7）与 WSL Ubuntu-E（`start-desktop-wsl.sh`，bash）。**默认 WSL**。
+- **共享数据锚点**：仓库根 `shared-user-data/.shared-data-anchor`（已创建）。`startup-compat.js` 自动检测并启用共享 userData，WSL/Windows 数据一致。**⚠️ 显式设 `ELECTRON_USER_DATA_DIR` / `--user-data-dir=` 会绕过锚点 → 数据分裂**，默认不要设。
+- **Windows 启动契约**：`scripts/start-desktop.ps1`（同步 + 依赖 + 端口 + 单实例锁 + 启动 + 验证）。
+- **WSL 启动契约**：`scripts/start-desktop-wsl.sh`（bash 版；依赖 Linux 版 node_modules + `LD_LIBRARY_PATH` 指向 `~/mp-wsl-deps/electron-libs`）。
+- **WSL 依赖**：项目 node_modules 是 Windows 版（缺 `@rollup/rollup-linux-x64-gnu` 等 Linux 可选依赖），WSL 端须用**独立 Linux 依赖树**（`~/mp-wsl-deps/mp-wsl` worktree 内 `pnpm install --frozen-lockfile`）。
+- **WSL electron 库**：Linux electron 缺 5 个 GUI 库（libnspr4/libnss3/libnssutil3/libsmime3/libasound），用 `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入（持久目录，WSL 重启不丢）。
 - **远程**：`origin = https://github.com/Colinchiu007/Multi-Publish.git`，主干 `main`。
-- **依赖健康**：`scripts/ensure-desktop-deps.js`（自检 + 自愈脆弱依赖 + Vite 缓存失效）。
 - **登录态校验**：`scripts/start-desktop-identity.js` 经 CDP 读 `window.electronAPI.identityGetState()`。
 - **端口**：worktree 下按路径稳定派生独立端口（`apps/desktop/scripts/dev-ports.js`），避免并发互抢。
 
 ## 流程
+
+### 0. 环境判定（默认 WSL）
+
+**先判定当前运行环境，决定用哪个启动脚本：**
+
+```bash
+uname -s   # Linux → WSL；MINGW/CYGWIN/MSYS → Windows
+# 或检测 WSL：/proc/version 含 microsoft-standard-WSL2
+```
+
+| 判定 | 启动脚本 | 说明 |
+|------|---------|------|
+| **WSL（默认）** | `scripts/start-desktop-wsl.sh` | bash 版，Linux electron + LD_LIBRARY_PATH |
+| **Windows** | `scripts/start-desktop.ps1` | PowerShell 7 版 |
+
+- **不指定时默认 WSL**（用户要求「启动应用/重启应用」默认走 WSL）。
+- 用户显式说「Windows 启动」/「win 环境」→ 走 Windows 流程。
+- 若当前 shell 本身在 WSL 内（如本会话），直接用 WSL 流程；若在 Windows PowerShell，默认仍按用户意图（默认 WSL 则通过 `wsl.exe -d Ubuntu-E` 调 WSL 脚本）。
+
+**WSL 启动核心命令（默认路径）：**
+
+```bash
+# 在 WSL Ubuntu-E 内执行
+bash /mnt/d/Data/projects/Multi-Publish/scripts/start-desktop-wsl.sh
+```
+
+> 该脚本自动：同步 origin/main → 用 Linux 依赖树（`~/mp-wsl-deps/mp-wsl`）→ 注入 `LD_LIBRARY_PATH` → 启动 vite + electron（共享 userData 由锚点决定）。
 
 ### 0. 确认目标工作区
 
@@ -216,8 +248,11 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 | 端口被其他 worktree 占用 | 脚本 fail-closed；先停占用方或换 worktree |
 | profile 被其他 worktree 占用 | 加 `-StopForeignProfile` 审计停止，或手动停旧实例 |
 | 依赖缺失 | `node scripts/ensure-desktop-deps.js` 自愈后重试 |
-| 150s 无窗口 | 看 `%TEMP%\mp-start-dev.err.log` 尾部错误 |
+| 150s 无窗口 | 看 `%TEMP%\mp-start-dev.err.log`（Windows）或脚本输出日志（WSL）尾部错误 |
 | 504 空白页 | 加 `-InvalidateViteCache` 重试 |
+| WSL electron 缺库 | `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入；缺失则从 `/tmp/electron-libs/extracted/usr/lib/x86_64-linux-gnu/` 复制 |
+| WSL GPU 崩溃（GPU process isn't usable）| 加 `--in-process-gpu`（start-desktop-wsl.sh 已内置）|
+| WSL 数据分裂 | 确认 electron 用共享目录：`--user-data-dir=/mnt/d/Data/projects/Multi-Publish/shared-user-data`；不要设 `ELECTRON_USER_DATA_DIR` |
 
 ## Pitfalls
 
@@ -226,4 +261,6 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 - **profile 单实例锁**：同 profile 多实例互杀会导致窗口空白，先处理占用。
 - **同步失败即停**：代码未对齐时不要启动，否则跑的是旧代码。
 - **git 写操作走 PowerShell 原生路径**：避免 Git Bash `/d/...` 触发 `D:/d/...` 混写（项目硬纪律）。
+- **WSL/Windows 数据分裂（双环境核心坑）**：项目 node_modules 是 Windows 版，WSL 端必须用独立 Linux 依赖树（`~/mp-wsl-deps/mp-wsl`）；electron 必须显式 `--user-data-dir` 指向共享目录（Linux worktree 上溯不到共享主仓库锚点）；**默认不要设 `ELECTRON_USER_DATA_DIR`**（显式值会绕过共享目录）。
+- **WSL /tmp 是 tmpfs**：`/tmp/mp-electron`、`/tmp/electron-libs`、`/tmp/mp-wsl-profile` 都是临时方案，WSL 重启即清空。持久方案是 `~/mp-wsl-deps/`（electron-libs 库 + mp-wsl worktree）。
 - **单一事实源**：逻辑修改只改本文件；各 agent 入口只做「指向本文件 + 执行要点」，不要各自维护重复逻辑。
