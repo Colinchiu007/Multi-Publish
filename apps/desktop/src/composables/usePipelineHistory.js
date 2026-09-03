@@ -10,7 +10,7 @@
  */
 import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
-import { historyLoadFailureDetail } from '@/story2video/story2video-notifications'
+import { formatStory2VideoNotification, historyLoadFailureDetail, STORY2VIDEO_NOTIFICATION_KEYS } from '@/story2video/story2video-notifications'
 import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
 import { formatDateTime } from '@/utils/datetime'
 
@@ -52,7 +52,7 @@ export function usePipelineHistory(options = {}) {
 
   const historyLocalModeText = computed(() => {
     if (!historyLocalMode.value) return ''
-    return '当前为本地模式（未登录），历史记录仅保存在本机'
+    return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOCAL_MODE }).message
   })
 
   /**
