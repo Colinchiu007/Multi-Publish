@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const { VideoCloneError } = require('../errors');
 
@@ -27,7 +27,9 @@ function createAssetPlan(report, opts = {}) {
   const visual = (report && report.visual) || {};
   const mode = (report && report.replication && report.replication.mode) || 'structure';
   return shots.map((shot, i) => {
-    const kind = mode === 'full' && shot.type === 'video' ? 'video' : 'image';
+    // 视频克隆默认按镜头生成动态视频片段（真实视频模型，2026-09-05）；
+    // L0 文案级走封面图分支，不受此影响。
+    const kind = 'video';
     return {
       index: i,
       t0: shot.t0,

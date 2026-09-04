@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * 视频克隆 IPC handlers（切片 4b/4c/4d）
  * 通道：video-clone:run / cancel / report:edit / report:regenerate / pick-file / history
@@ -19,8 +19,11 @@ function registerHandlers(ipcMain, deps) {
   const tmp = require('node:os').tmpdir()
   const store = createVideoCloneStore({ baseDir: deps.videoCloneStoreDir || tmp })
 
+  const optimizeVideoPromptsBatch = deps.serviceBus && typeof deps.serviceBus.optimizeVideoPromptsBatch === 'function'
+    ? deps.serviceBus.optimizeVideoPromptsBatch.bind(deps.serviceBus)
+    : null
   const assetGenerator = deps.assetGenerator
-    ? createVideoCloneAssetGenerator({ assetGenerator: deps.assetGenerator })
+    ? createVideoCloneAssetGenerator({ assetGenerator: deps.assetGenerator, optimizeVideoPromptsBatch })
     : createPlaceholderImageGenerator({ outputDir: tmp })
   const publisher = createVideoClonePublisher({ publisherRouter: deps.publisherRouter })
 

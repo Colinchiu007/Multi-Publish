@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * 视频克隆 assetGenerator adapter（切片 4c）
  * - createVideoCloneAssetGenerator：走既有 AssetGenerator.generateImage（provider 或离线占位）
@@ -22,10 +22,42 @@ function genError(message) {
 }
 
 /** 走 AssetGenerator 服务（data.path；离线占位透传 degraded/source 供下游诚实展示） */
-function createVideoCloneAssetGenerator({ assetGenerator }) {
+function createVideoCloneAssetGenerator({ assetGenerator, optimizeVideoPromptsBatch } = {}) {
   return async (spec, report) => {
-    if (!assetGenerator || typeof assetGenerator.generateImage !== 'function') throw providerError()
+    if (!assetGenerator) throw providerError()
     const aspect = (report && report.platformParams && report.platformParams.aspect) || '16:9'
+    // 真实视频模型生成动态片段（2026-09-05）：spec.kind === 'video' 时走 generateVideo
+    if (spec.kind === 'video') {
+      if (typeof assetGenerator.generateVideo !== 'function') throw providerError()
+      // 生成前统一经 prompt-engine 优化视频提示词（PRD §2 generate 链路，2026-09-05）
+      let prompt = spec.promptSeed
+      if (typeof optimizeVideoPromptsBatch === 'function') {
+        const parts = await optimizeVideoPromptsBatch([prompt], { model: 'agnes-video-v2.0' })
+        if (!Array.isArray(parts) || parts.length !== 1) {
+          throw genError('视频提示词优化结果数量异常（expected 1, got ' + (Array.isArray(parts) ? parts.length : '非法响应') + '）')
+        }
+        const optimized = parts[0] && typeof parts[0].optimized_prompt === 'string' && parts[0].optimized_prompt.trim()
+          ? parts[0].optimized_prompt.trim()
+          : ''
+        if (!optimized) throw genError('视频提示词优化返回空提示词')
+        prompt = optimized
+      }
+      const result = await assetGenerator.generateVideo(prompt, {
+        index: spec.index,
+        aspect_ratio: aspect,
+        // 默认使用已配置的 Agnes Video；可通过 report/options 覆盖
+        video_provider: 'agnes-video',
+        video_model: 'agnes-video-v2.0',
+      })
+      if (!result || result.code !== 0 || !result.data || typeof result.data.path !== 'string') {
+        throw genError(result && result.message)
+      }
+      const degraded = result.data.degraded === true
+        ? { degraded: true, source: result.data.source || 'video-provider' }
+        : {}
+      return { path: result.data.path, kind: 'video', ...degraded }
+    }
+    if (typeof assetGenerator.generateImage !== 'function') throw providerError()
     const result = await assetGenerator.generateImage(spec.promptSeed, {
       style: 'cinematic', index: spec.index, aspect_ratio: aspect,
     })

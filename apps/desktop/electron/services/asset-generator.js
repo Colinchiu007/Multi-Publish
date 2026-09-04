@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * AssetGenerator - 资源生成服务
  *
@@ -19,6 +19,7 @@ const os = require('os')
 const dns = require('dns')
 const net = require('net')
 const https = require('https')
+const http = require('http')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
@@ -26,6 +27,27 @@ const { needsUserInputMessage, runContentPolicyImageRetry, createContentPolicyAu
 const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 const execFileAsync = promisify(execFile)
+
+/** 下载远程视频到本地（支持 http/https 与重定向；失败清理半成品文件） */
+function downloadVideoFile (url, dest) {
+  return new Promise((resolve, reject) => {
+    const lib = String(url).startsWith('https:') ? https : http
+    const file = fs.createWriteStream(dest)
+    const request = lib.get(url, (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        downloadVideoFile(response.headers.location, dest).then(resolve, reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
+        return
+      }
+      response.pipe(file)
+      file.on('finish', () => file.close(() => resolve(dest)))
+    })
+    request.on('error', (error) => { try { fs.unlinkSync(dest) } catch (_) {} reject(error) })
+  })
+}
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_PROVIDER_AUDIO_BYTES = 100 * 1024 * 1024
 const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
@@ -898,7 +920,73 @@ class AssetGenerator {
     })
   }
 
-  /**
+    /**
+   * 生成视频片段（真实视频模型，2026-09-05）。
+   * 通过 aiGenerator._modelProviderManager.callAdapter('generateVideo') 提交任务，
+   * 再轮询 getVideoStatus 获取结果 URL 并下载到本地。
+   * 未配置/调用失败返回 { code: -1, message }，不抛出。
+   */
+  async generateVideo (prompt, opts) {
+    opts = opts || {}
+    const manager = this.aiGenerator && this.aiGenerator._modelProviderManager
+    if (!manager || typeof manager.callAdapter !== 'function') {
+      return { code: -1, message: '视频模型服务不可用' }
+    }
+    const defaultVideo = manager.getDefault && typeof manager.getDefault === 'function' ? manager.getDefault('video') : null
+    const provider = (opts.video_provider || opts.videoProvider) || (defaultVideo && defaultVideo.id) || 'agnes-video'
+    const providerConfig = manager.getProvider && typeof manager.getProvider === 'function' ? manager.getProvider(provider) : null
+    const model = opts.video_model || opts.videoModel || (providerConfig && providerConfig.models && providerConfig.models[0]) || 'agnes-video-v2.0'
+    const outputDir = this._getOutputDir(opts)
+    fs.mkdirSync(outputDir, { recursive: true })
+    const idx = opts.index ?? 0
+    const safeIndex = this._getSafeIndex(idx)
+    const outputPath = path.join(outputDir, 'video_' + safeIndex + '.mp4')
+    const runtimeOptions = opts.providerRunContext ? { providerRunContext: opts.providerRunContext } : undefined
+
+    try {
+      const submit = await manager.callAdapter(provider, 'generateVideo', {
+        prompt,
+        model,
+        width: opts.width,
+        height: opts.height,
+        numFrames: opts.numFrames,
+        frameRate: opts.frameRate,
+        num_frames: opts.numFrames,
+        frame_rate: opts.frameRate,
+        image: opts.image || undefined,
+      }, runtimeOptions)
+      if (!submit || submit.code !== 0) {
+        return { code: -1, message: (submit && submit.message) || ('视频生成调用失败（provider: ' + provider + '）') }
+      }
+      const data = submit.data
+      if (data && typeof data === 'object' && (data.code === -1 || data.code < 0)) {
+        return { code: -1, message: (data.message || data.error || '视频生成失败（provider: ' + provider + '）') }
+      }
+      const taskId = data && (data.taskId || data.videoId || data.id || data.task_id)
+      if (!taskId) {
+        return { code: -1, message: '视频生成未返回任务 ID' + (data && typeof data === 'object' ? '，响应数据：' + JSON.stringify(Object.keys(data)) : '') }
+      }
+
+      const pollDeadline = Date.now() + (Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 10 * 60 * 1000)
+      let videoUrl = null
+      while (Date.now() < pollDeadline) {
+        await new Promise(r => setTimeout(r, 10000))
+        const status = await manager.callAdapter(provider, 'getVideoStatus', { videoId: taskId, taskId }, runtimeOptions)
+        const url = status && (status.videoUrl || status.url || (status.data && (status.data.videoUrl || status.data.url)))
+        if (url) { videoUrl = url; break }
+        const state = status && (status.status || (status.data && status.data.status)) || ''
+        if (['failed', 'error', 'cancelled'].includes(String(state).toLowerCase())) break
+      }
+      if (!videoUrl) {
+        return { code: -1, message: '视频生成超时或失败（provider: ' + provider + '）' }
+      }
+      await downloadVideoFile(videoUrl, outputPath)
+      return { code: 0, data: { path: outputPath, width: opts.width || null, height: opts.height || null } }
+    } catch (e) {
+      return { code: -1, message: (e && e.message) || String(e) }
+    }
+  }
+/**
    * 生成 TTS 音频。显式选择 provider 时不静默回退，默认仍优先 edge-tts。
    * @param {string} text - 待合成文本
    * @param {object} [opts] - { voice_id, index }

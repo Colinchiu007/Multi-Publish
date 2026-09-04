@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -26,16 +26,16 @@ test('createAssetPlan：逐镜头规格（时长/promptSeed 含风格锚点）',
   assert.ok(plan[0].promptSeed.includes('palette:warm'));
   assert.ok(plan[0].promptSeed.includes('tone:cheerful'));
   assert.ok(plan[0].promptSeed.includes('person:second'));
-  assert.equal(plan[0].kind, 'image');
+  assert.equal(plan[0].kind, 'video');
 });
 
-test('full 模式 + video 镜头 → kind=video', () => {
+test('视频克隆默认每个镜头生成动态视频片段（kind=video）', () => {
   const r = reportWithShots();
   r.replication.mode = 'full';
   r.visual.shots[0].type = 'video';
   const plan = createAssetPlan(r);
   assert.equal(plan[0].kind, 'video');
-  assert.equal(plan[1].kind, 'image');
+  assert.equal(plan[1].kind, 'video');
 });
 
 test('L0 文案级：单封面图规划（kind=cover, text-first）', () => {
