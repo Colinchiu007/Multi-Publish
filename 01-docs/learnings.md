@@ -14431,5 +14431,5 @@ commit `c0e9fb126`（feat: 视频创作历史记录下载视频）引入了 `dow
 | 逃逸分析 | ✅ 子组件测试覆盖 emit，父组件测试无覆盖 |
 | 系统性漏洞 | ✅ emit→binding 缺乏交叉验证 |
 | 修复 | ✅ 补 `@download-history="downloadHistoryVideo"` |
-| 回归测试 | ⚠️ 待补充 CreateView 集成测试 |
+| 回归测试 | ✅ CreateView.test.js 新增回归测试（274 tests passed，mock cancelled 路径避免测试环境通知方法缺失） |
 | 预防措施 | ✅ R92 记录 + AGENTS.md QM-2 补充 |
