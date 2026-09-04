@@ -4,7 +4,7 @@
       <button
         type="button"
         class="nav-btn"
-        :disabled="!canGoBack || isHome"
+        :disabled="!canGoBack"
         title="后退"
         aria-label="后退"
         data-testid="nav-back"
@@ -15,7 +15,7 @@
       <button
         type="button"
         class="nav-btn"
-        :disabled="!canGoForward || isHome"
+        :disabled="!canGoForward"
         title="前进"
         aria-label="前进"
         data-testid="nav-forward"
@@ -24,6 +24,7 @@
         →
       </button>
       <button
+        v-if="!isHome"
         type="button"
         class="nav-btn"
         title="刷新"
@@ -53,6 +54,7 @@
           type="text"
           class="url-input"
           :value="displayUrl"
+          :disabled="isHome"
           :placeholder="isHome ? '搜索或输入网址' : (currentTitle || '搜索或输入网址')"
           data-testid="nav-url-input"
           @focus="onFocus"

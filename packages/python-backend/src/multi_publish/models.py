@@ -343,7 +343,7 @@ PLATFORM_META: dict[PlatformType, dict] = {
         "homepage": "https://www.tiktok.com/upload/",
     },
     PlatformType.BILIBILI: {
-        "name": "B站",
+        "name": "Bilibili",
         "tech": "rpa",
         "publish_type": "video",
         "category": "video",

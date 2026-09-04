@@ -354,8 +354,17 @@ def create_account(req: AccountCreateRequest, request: Request):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
-    account_id = str(uuid.uuid4())[:8]
     accounts = _load_accounts()
+    normalized_name = (req.name or "").strip().lower()
+    for existing in accounts.values():
+        if (
+            existing.get("platform") == pt.value
+            and _is_owned_by(existing, owner_subject)
+            and (existing.get("name") or "").strip().lower() == normalized_name
+        ):
+            raise HTTPException(status_code=409, detail="此账号已添加过")
+
+    account_id = str(uuid.uuid4())[:8]
     account = {
         "id": account_id,
         "platform": pt.value,

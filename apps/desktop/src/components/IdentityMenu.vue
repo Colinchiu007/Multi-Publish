@@ -15,8 +15,8 @@
 
     <div v-if="open" class="identity-dropdown" data-testid="identity-menu-dropdown">
       <div class="identity-header">
-        <span class="identity-user-name">{{ user?.name || user?.email || '访客' }}</span>
-        <span class="identity-user-email" v-if="user?.email">{{ user.email }}</span>
+          <span class="identity-user-name">{{ displayName }}</span>
+          <span class="identity-user-email" v-if="user?.username">{{ user.username }}</span>
       </div>
 
       <div class="identity-status" :class="'status-' + status">
@@ -117,14 +117,15 @@ watch(open, (val) => {
 
 const avatarChar = computed(() => {
   if (user.value?.name) return user.value.name[0].toUpperCase()
-  if (user.value?.email) return user.value.email[0].toUpperCase()
-  return '?'
+  if (user.value?.username) return user.value.username[0].toUpperCase()
+  return isAuthenticated.value ? '已' : '未'
 })
 
 const displayName = computed(() => {
   if (user.value?.name) return user.value.name
-  if (user.value?.email) return user.value.email.split('@')[0]
-  return '访客'
+  if (user.value?.username) return user.value.username
+  if (status.value === 'disabled') return '身份服务不可用'
+  return isAuthenticated.value ? '已登录用户' : '未登录'
 })
 
 const triggerLabel = computed(() => {

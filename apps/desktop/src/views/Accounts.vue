@@ -211,13 +211,14 @@
               :selected="accountStore.selectedIds.has(account.id)"
               :favorite="(accountStore.favoriteIds || emptyIds).has(account.id)"
               :batch-mode="accountBatchMode"
+              :verifying="verifyingIds.has(account.id)"
               :creator-hint="t('accountsPage.creatorCardHint')"
               @toggle-select="toggleSelect"
               @toggle-favorite="toggleFavorite"
               @rename="renameAccount"
               @configure-proxy="openProxyDialog"
               @check-login="checkLogin"
-              @relogin="reloginAccount"
+              @open-login="openLoginPage"
               @remove="removeAccount"
             @open-creator="openCreatorCenter"
             />
@@ -275,7 +276,8 @@ import { usePlatformStore } from '@/stores/platforms'
 import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { PLATFORM_DASHBOARD_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
+import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
+import { formatUserError } from '@/utils/user-facing-error'
 import { formatUserError } from '@/utils/user-facing-error'
 
 const filterOptions = computed(() => [
@@ -322,6 +324,7 @@ const sharedOnly = ref(false)
 const searchInput = ref('')
 const platformSearchInput = ref('')
 const accountBatchMode = ref(false)
+const verifyingIds = ref(new Set())
 const pendingAuthAction = ref(null)
 const ownerFilter = ref('')
 const publisherFilter = ref('')
@@ -661,30 +664,7 @@ async function addAccount () {
   }
 }
 
-async function reloginAccount (account) {
-  if (!account?.platform) {
-    notifyError('accountsPage.accountIncompleteRelogin')
-    return
-  }
-  pendingAuthAction.value = 'relogin'
-  markOpening('browser', account.platform)
-  try {
-    const result = await accountActions.openLogin('browser', account.platform)
-    if (result?.cancelled) {
-      loginVisible.value = false
-      pendingAuthAction.value = null
-      notifyInfo('accountsPage.reloginCancelled')
-    } else if (result?.code !== 0) {
-      loginVisible.value = false
-      pendingAuthAction.value = null
-      notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: t('accountsPage.reloginFailed') }).message })
-    }
-  } catch (error) {
-    loginVisible.value = false
-    pendingAuthAction.value = null
-    notifyError('accountsPage.reloginFailed', { message: formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message })
-  }
-}
+
 
 async function completeAuthView () {
   completingLogin.value = true
@@ -790,13 +770,31 @@ async function clearProxy () {
 }
 
 async function checkLogin (account) {
-  notifyInfo('accountsPage.verifyingLogin', { params: { platform: platformLabel(account.platform) } })
+  const id = account?.id
+  if (!id || !account?.platform) return
+  if (verifyingIds.value.has(id)) return
+  verifyingIds.value = new Set([...verifyingIds.value, id])
   try {
     const result = await accountActions.checkLogin(account)
-    if (result?.code === 0 && result.data?.valid) notifySuccess('accountsPage.loginValid')
-    else notifyWarning('accountsPage.loginExpired', { message: result?.data?.message || t('accountsPage.loginExpired') })
+    if (result?.code === 0 && result.data?.valid) {
+      notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid') })
+    } else {
+      const message = result?.data?.message || t('accountsPage.loginExpired')
+      const confirmed = await notifyConfirm('accountsPage.loginExpiredConfirm', {
+        title: t('accountsPage.confirmTitle'),
+        message: message + '，' + t('accountsPage.loginExpiredHint'),
+        confirmButtonText: t('accountsPage.goLogin'),
+        cancelButtonText: t('accountsPage.cancel'),
+        type: 'warning',
+      })
+      if (confirmed) await openLoginPage(account)
+    }
   } catch (error) {
     notifyError('accountsPage.verifyFailed', { message: formatUserError(error, { fallback: t('accountsPage.verifyFailed') }).message })
+  } finally {
+    const next = new Set(verifyingIds.value)
+    next.delete(id)
+    verifyingIds.value = next
   }
 }
 
@@ -814,6 +812,19 @@ async function openCreatorCenter(account) {
     return
   }
   await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
+}
+
+async function openLoginPage (account) {
+  if (!account?.platform) {
+    notifyError('accountsPage.accountIncomplete')
+    return
+  }
+  const url = PLATFORM_LOGIN_URLS[account.platform]
+  if (!url) {
+    notifyWarning('accountsPage.loginUnsupported')
+    return
+  }
+  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: `${platformLabel(account.platform)}登录` })
 }
 
 async function removeAccount (account) {

@@ -28,8 +28,8 @@
             :loading="navigation.loading"
             :is-login-tab="isLoginTab"
             :saving="savingAccount"
-            @go-back="tabStore.goBack()"
-            @go-forward="tabStore.goForward()"
+            @go-back="onGoBack"
+            @go-forward="onGoForward"
             @reload="tabStore.reload()"
             @go-home="goHome"
             @navigate="onNavigate"
@@ -127,9 +127,25 @@ function onCloseTab(tabId) {
   tabStore.closeTab(tabId)
 }
 
-async function onCreateTab() {
-  await tabStore.createTab({ url: 'about:blank' })
-}
+  async function onCreateTab() {
+    await tabStore.createTab({ url: 'about:blank', title: '首页' })
+  }
+
+  function onGoBack() {
+    if (isHomeTab.value) {
+      try { router.back() } catch (error) { console.warn('[tab] goBack failed', error) }
+      return
+    }
+    tabStore.goBack()
+  }
+
+  function onGoForward() {
+    if (isHomeTab.value) {
+      try { router.forward() } catch (error) { console.warn('[tab] goForward failed', error) }
+      return
+    }
+    tabStore.goForward()
+  }
 
 function goHome() {
   const homeTab = tabStore.tabs.find(t => t.isHome)

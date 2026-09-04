@@ -3,7 +3,7 @@
     class="account-row account-card"
     :data-testid="`account-card-${account.id}`"
     :class="{ 'is-selected': selected, 'is-default': account.is_default }"
-    :aria-label="`${platformLabel}账号：${accountName(account)}`"
+    :aria-label="`${accountDisplayName}（${platformLabel}）`"
     role="button"
     tabindex="0"
     :title="creatorHint || undefined"
@@ -23,7 +23,7 @@
       </label>
       <span class="platform-chip">
         <span class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
-        {{ platformLabel }}
+        {{ accountDisplayName }}
       </span>
       <button
         class="favorite-button"
@@ -94,31 +94,25 @@
         <Setting />设置
       </button>
       <button
-        v-if="isActive(account)"
         :data-testid="`verify-${account.id}`"
         data-e2e-scan="manual"
         type="button"
+        :disabled="verifying"
         @click.stop="$emit('check-login', account)"
       >
         <CircleCheck />验证
       </button>
       <button
-        v-if="!isActive(account)"
-        :data-testid="`relogin-${account.id}`"
+        :data-testid="`login-${account.id}`"
         data-e2e-scan="manual"
         type="button"
-        @click.stop="$emit('relogin', account)"
+        class="login-button"
+        :class="{ 'is-logged-in': isActive(account) }"
+        :disabled="isActive(account)"
+        :title="isActive(account) ? '已登录' : '去登录'"
+        @click.stop="$emit('open-login', account)"
       >
-        <Refresh />重新登录
-      </button>
-      <button
-        :data-testid="`creator-${account.id}`"
-        data-e2e-scan="manual"
-        type="button"
-        @click.stop="$emit('open-creator', account)"
-        :title="creatorHint || undefined"
-      >
-        <Monitor />去登录
+        <Monitor />{{ isActive(account) ? '已登录' : '去登录' }}
       </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('remove', account)">
         <Delete />删除
@@ -128,7 +122,7 @@
 </template>
 
 <script setup>
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -138,6 +132,7 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
   favorite: { type: Boolean, default: false },
   batchMode: { type: Boolean, default: false },
+  verifying: { type: Boolean, default: false },
   creatorHint: { type: String, default: '' },
 })
 
@@ -148,13 +143,14 @@ const emit = defineEmits([
   'rename',
   'configure-proxy',
   'check-login',
-  'relogin',
+  'open-login',
   'remove',
   'open-creator',
 ])
 
 const editing = ref(false)
 const nameInput = ref(null)
+const accountDisplayName = computed(() => accountName(props.account))
 
 /**
  * 卡片整体点击（对齐蚁小二：点击账号卡片打开该账号创作者中心）。

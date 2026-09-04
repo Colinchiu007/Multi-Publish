@@ -101,15 +101,17 @@ function getDomainForPlatform(platform) {
   return domains[platform] || ''
 }
 
-function getTabLabel(tab) {
-  if (!tab.url || tab.url === 'about:blank') return '新标签页'
-  try {
-    const url = new URL(tab.url)
-    return url.hostname
-  } catch {
-    return tab.url
+  function getTabLabel(tab) {
+    if (tab.isHome) return '首页'
+    if (tab.title && tab.title.trim() && tab.title !== 'New Tab') return tab.title
+    if (!tab.url || tab.url === 'about:blank') return '新标签页'
+    try {
+      const url = new URL(tab.url)
+      return url.hostname
+    } catch {
+      return tab.url
+    }
   }
-}
 </script>
 
 <style scoped>

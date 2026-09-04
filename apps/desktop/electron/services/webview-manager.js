@@ -454,13 +454,14 @@ class WebviewManager extends EventEmitter {
     var initialTitle = (opts && typeof opts.title === 'string' && opts.title.trim())
       ? opts.title.trim()
       : 'New Tab'
-    self._tabStates.set(tabId, {
-      url: initialUrl,
-      title: initialTitle,
-      loading: false,
-      canGoBack: false,
-      canGoForward: false
-    })
+      self._tabStates.set(tabId, {
+        url: initialUrl,
+        title: initialTitle,
+        titleLocked: Boolean(opts && typeof opts.title === 'string' && opts.title.trim()),
+        loading: false,
+        canGoBack: false,
+        canGoForward: false
+      })
     self._activeTabId = tabId
 
     // 如果是第一个标签页，设为 home
@@ -1000,12 +1001,16 @@ class WebviewManager extends EventEmitter {
       self._broadcast('tab-finished-loading', { tabId: tabId, url: state.url, loading: false })
     })
 
-    view.webContents.on('page-title-updated', function (event, title) {
-      if (!self._tabStates.has(tabId)) return
-      var state = self._tabStates.get(tabId)
-      state.title = title
-      self._broadcast('tab-title-updated', { tabId: tabId, title: title })
-    })
+      view.webContents.on('page-title-updated', function (event, title) {
+        if (!self._tabStates.has(tabId)) return
+        var state = self._tabStates.get(tabId)
+        if (state.titleLocked) {
+          self._broadcast('tab-title-updated', { tabId: tabId, title: state.title })
+          return
+        }
+        state.title = title
+        self._broadcast('tab-title-updated', { tabId: tabId, title: title })
+      })
 
     view.webContents.on('did-navigate', function (event, url) {
       if (!self._tabStates.has(tabId)) return
