@@ -352,6 +352,20 @@ const platformsMixin = {
     if (platform === 'kuaishou') {
       try { await this._prepKuaishou(win, article) } catch (e) { log.warn('RpaView', 'kuaishou prep: ' + e.message) }
     }
+    // 通用 AI 生成内容声明：平台未设专用 prep 但有 ai_declaration_label 选择器时，
+    // 自动勾选声明控件（默认 AI 生成，仅当 article.aiGenerated === false 时跳过）。
+    // 覆盖 B站等平台；避免因漏选 AI 声明导致违规。
+    if (platform !== 'baijiahao' && platform !== 'kuaishou' && platform !== 'douyin' && platform !== 'tencent_video') {
+      const aiSel = sel.ai_declaration_label || sel.ai_declaration_checkbox
+      if (aiSel && aiSel.length > 0 && (!article || article.aiGenerated !== false)) {
+        try {
+          await this._click(win, aiSel[0])
+          log.info('RpaView', '[' + platform + '] generic AI declaration clicked')
+        } catch (e) {
+          log.warn('RpaView', '[' + platform + '] generic AI declaration: ' + e.message)
+        }
+      }
+    }
 
     // publish button
     log.info('RpaView', '['+platform+'] DIAG[publish2] pubBtn=' + (sel.publish_btn ? sel.publish_btn.length : 'NONE') + ' cfgHasApi=' + (config.has_api) + ' prePublishHook=' + String(config.prePublishHook||''))
