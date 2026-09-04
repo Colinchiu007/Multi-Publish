@@ -83,6 +83,8 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   UNKNOWN_ERROR: 'story2video.unknown_error',
   PIPELINE_NOT_IMPLEMENTED: 'story2video.pipeline_not_implemented',
   PIPELINE_CONCURRENCY_LIMIT: 'story2video.pipeline_concurrency_limit',
+  // 启动参数校验失败（2026-09-04）：normalizeStory2VideoTextParams 抛出的通用 Error 没有 .code 时兜底
+  INVALID_PARAMS: 'story2video.invalid_params',
   // 断点恢复失败（pipeline-engine resumeOrchestration errorCode 契约）
   RESUME_SNAPSHOT_NOT_FOUND: 'story2video.resume_snapshot_not_found',
   RESUME_RUN_NOT_FAILED: 'story2video.resume_run_not_failed',
@@ -359,6 +361,10 @@ function resolveMessageKey (notification, fallbackKey) {
   // 流水线启动前置校验（主进程契约 errorCode）：缺失能力清单 → models_required
   if (notification?.errorCode === 'PIPELINE_MODEL_REQUIREMENTS_MISSING') {
     return STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED
+  }
+  // 参数校验失败（normalizeStory2VideoTextParams 抛出的通用 Error 没有 .code 时兜底）
+  if (notification?.errorCode === 'INVALID_PARAMS') {
+    return STORY2VIDEO_NOTIFICATION_KEYS.INVALID_PARAMS
   }
   // 断点恢复失败（pipeline-engine resumeOrchestration errorCode 契约）：映射到具体文案，
   // 避免回退到 operation_failed 兜底吞掉真实原因。

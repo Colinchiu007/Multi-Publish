@@ -542,6 +542,7 @@ export default {
     compose_duration_exceeded: 'The video exceeds the {limitMinutes}-minute limit. Shorten the script or use fewer scenes, then start generation again.',
     compose_segment_duration_exceeded: 'A narration segment exceeds the duration limit. Split that part of the script, then start generation again.',
     operation_failed: 'Could not complete the request. Please try again.',
+    invalid_params: 'Pipeline parameter validation failed. Please check your configuration and try again.',
     unknown_error: 'Could not complete the request. Please try again.',
     needs_user_input: 'The generated content triggered a content safety review and needs your input. Check the scene copy for sensitive content, edit it, then resume from the breakpoint.',
     optimize_service_unavailable: 'Model optimization is temporarily unavailable. Try again shortly; if this continues, check the model settings and network connection.',
