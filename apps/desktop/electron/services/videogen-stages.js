@@ -784,23 +784,31 @@ function registerVideoGenStages (pipelineEngine) {
             num_frames: numFrames,
             frame_rate: frameRate,
           }, { providerRunContext })
-          // callAdapter 失败时返回 { code: -1, message }（不透传会掩盖真实 provider 错误，
-          // 如 MiniMax 特殊套餐的 Missing task_id / 401），必须原样上报供排查。
+          // callAdapter 统一返回 { code: 0, data: adapterResult } 或 { code: -1, message }。
+          // 前者 code !== 0 时直接透传；后者 code === 0 但有二层失败（adapter 抛异常被
+          // callAdapter 包装成 { code: 0, data: { code: -1, message: '...' } }）时，
+          // 必须检查 data.code 避免把真实错误吞成「视频生成未返回任务 ID」（2026-09-04 修复）。
           if (submit && submit.code !== 0) {
             return { index, success: false, error: submit.message || ('视频生成调用失败（provider: ' + videoProvider.providerId + '）') }
           }
           const data = submit && submit.data
-          // 适配器外层 code=0 但内层可能返回 { code: -1, message }（如 MiniMax 特殊套餐的 Missing task_id），
-          // 此时 data.taskId 为空，必须透传适配器的真实错误消息，避免吞成「视频生成未返回任务 ID」。
-          if (data && typeof data === 'object' && (Number(data.code) < 0 || data.success === false)) {
-            return { index, success: false, error: (data.message || data.error || '视频生成失败（provider: ' + videoProvider.providerId + '）') }
+          // 检查 data 层是否也包含失败（adapter 抛异常被 callAdapter 包装成 { code:0, data:{ code:-1, message } }）
+          if (data && typeof data === 'object' && (data.code === -1 || data.code < 0)) {
+            return {
+              index,
+              success: false,
+              error: (data.message || data.error || '视频生成失败（provider: ' + videoProvider.providerId + '）'),
+            }
           }
-          const taskId = data && (data.taskId || data.videoId)
+          // 兼容多种 taskId 字段命名（agnes-video 用 id/task_id，其他 adapter 用 taskId/videoId）
+          const taskId = data && (data.taskId || data.videoId || data.id || data.task_id)
           if (!taskId) {
             return {
               index,
               success: false,
-              error: '视频生成未返回任务 ID' + (data && data.message ? '：' + data.message : ''),
+              error: '视频生成未返回任务 ID'
+                + (data && typeof data === 'object' ? '，响应数据：' + JSON.stringify(Object.keys(data).filter(k => k !== 'model')) : '')
+                + (submit && submit.message ? '；' + submit.message : ''),
             }
           }
           // 轮询任务状态（最多 10 分钟）

@@ -16,6 +16,29 @@ export const HISTORY_TIME_KEYS = Object.freeze([
   'created_at',
 ])
 
+/** 历史记录排序方式枚举（2026-09-04：视频创作-历史记录排序下拉） */
+export const SORT_MODES = Object.freeze({
+  UPDATED_DESC: 'updatedDesc',
+  UPDATED_ASC: 'updatedAsc',
+  CREATED_DESC: 'createdDesc',
+  CREATED_ASC: 'createdAsc',
+  VIDEO_DURATION_DESC: 'videoDurationDesc',
+  VIDEO_DURATION_ASC: 'videoDurationAsc',
+})
+
+/** 排序下拉选项顺序（UI 展示顺序） */
+export const SORT_OPTIONS = Object.freeze([
+  SORT_MODES.UPDATED_DESC,
+  SORT_MODES.UPDATED_ASC,
+  SORT_MODES.CREATED_DESC,
+  SORT_MODES.CREATED_ASC,
+  SORT_MODES.VIDEO_DURATION_DESC,
+  SORT_MODES.VIDEO_DURATION_ASC,
+])
+
+// 视频时长候选字段（与 CreateViewHistory.videoDuration 保持一致）
+const VIDEO_DURATION_KEYS = Object.freeze(['videoDuration', 'video_duration', 'composeDuration', 'durationSeconds'])
+
 // 历史状态标签清单（tab 顺序即 UI 顺序）：
 //   recoverable = 聚合筛选 tab，同时覆盖 paused（用户手动暂停）与 interrupted（应用退出/崩溃中断），
 //   展示层弱化差异，但底层 item.status 仍保留 paused/interrupted 原值，卡片内图标与提示区分不变
@@ -54,6 +77,16 @@ function firstValidTime (item, keys) {
   return 0
 }
 
+/** 返回 null 表示缺失（用于排序缺省值放最后） */
+function firstValidTimeOrNull (item, keys) {
+  if (!item || typeof item !== 'object') return null
+  for (const key of keys) {
+    const parsed = parseHistoryTime(item[key])
+    if (parsed !== null) return parsed
+  }
+  return null
+}
+
 export function historyEffectiveTime (item) {
   return firstValidTime(item, HISTORY_TIME_KEYS)
 }
@@ -72,6 +105,16 @@ export function latestHistoryTimestamp (...items) {
 
 function historyCreatedTime (item) {
   return firstValidTime(item, CREATION_TIME_KEYS)
+}
+
+/** 返回 null 表示缺失 */
+function historyCreatedTimeOrNull (item) {
+  return firstValidTimeOrNull(item, CREATION_TIME_KEYS)
+}
+
+/** 返回 null 表示缺失 */
+function historyEffectiveTimeOrNull (item) {
+  return firstValidTimeOrNull(item, HISTORY_TIME_KEYS)
 }
 
 function historyStableIdentity (item) {
@@ -102,14 +145,136 @@ export function sortHistoryByEffectiveTime (items) {
     .map(entry => entry.item)
 }
 
-export function filterHistoryByStatus (items, status = 'all') {
+/**
+ * 提取视频时长（秒），用于排序。
+ * 字段候选与 CreateViewHistory.videoDuration 保持一致，排除流水线执行耗时（activeMs/duration）。
+ * @returns {number|null} 秒数或 null（缺失）
+ */
+export function historyVideoDuration (item) {
+  if (!item || typeof item !== 'object') return null
+  // 直接字段候选
+  for (const key of VIDEO_DURATION_KEYS) {
+    const value = item[key]
+    if (value === null || value === undefined || value === '') continue
+    const num = Number(value)
+    if (Number.isFinite(num) && num >= 0) return num
+  }
+  // 嵌套 video.duration
+  const video = item.video
+  if (video && typeof video === 'object') {
+    const dur = video.duration
+    if (dur !== null && dur !== undefined && dur !== '') {
+      const num = Number(dur)
+      if (Number.isFinite(num) && num >= 0) return num
+    }
+  }
+  return null
+}
+
+/**
+ * 提取任务显式标题（不含回退到流水线名或未命名任务）。
+ * 用于重复标题检测：只有显式命名的任务才参与比对。
+ * @returns {string} 修剪后的标题，空串表示无显式标题
+ */
+export function historyExplicitTitle (item) {
+  if (!item || typeof item !== 'object') return ''
+  const title = item.title
+  if (typeof title === 'string' && title.trim()) return title.trim()
+  const params = item.params && typeof item.params === 'object' ? item.params : {}
+  const paramsTitle = params.title || params.publishTitle
+  if (typeof paramsTitle === 'string' && paramsTitle.trim()) return paramsTitle.trim()
+  return ''
+}
+
+/**
+ * 在历史记录列表中检测重复标题，返回身份集合。
+ * 完全匹配（修剪后逐字相等），区分大小写。无显式标题的条目不参与比对。
+ * @param {Array} items - 历史记录数组
+ * @param {object} [options]
+ * @param {function} [options.titleOf] - 提取标题函数，默认 historyExplicitTitle
+ * @param {function} [options.identityOf] - 提取身份函数，默认 (item, index) => String(item?.id || item?.projectId || item?.runId || index)
+ * @returns {Set<string>} 存在重复标题的条目身份集合
+ */
+export function collectDuplicateTitleIdentities (items, { titleOf = historyExplicitTitle, identityOf } = {}) {
+  const list = Array.isArray(items) ? items : []
+  const resolveIdentity = typeof identityOf === 'function'
+    ? identityOf
+    : (item, index) => String(item?.id || item?.projectId || item?.runId || index)
+  const groups = new Map()
+  list.forEach((item, index) => {
+    const title = String(titleOf(item, index) || '').trim()
+    if (!title) return
+    if (!groups.has(title)) groups.set(title, [])
+    groups.get(title).push(String(resolveIdentity(item, index)))
+  })
+  const duplicates = new Set()
+  for (const identities of groups.values()) {
+    if (identities.length < 2) continue
+    for (const id of identities) duplicates.add(id)
+  }
+  return duplicates
+}
+
+/** 根据排序模式获取排序主键值，null 表示缺失 */
+function sortPrimaryValue (item, mode) {
+  if (mode === SORT_MODES.UPDATED_DESC || mode === SORT_MODES.UPDATED_ASC) return historyEffectiveTimeOrNull(item)
+  if (mode === SORT_MODES.CREATED_DESC || mode === SORT_MODES.CREATED_ASC) return historyCreatedTimeOrNull(item)
+  if (mode === SORT_MODES.VIDEO_DURATION_DESC || mode === SORT_MODES.VIDEO_DURATION_ASC) return historyVideoDuration(item)
+  return historyEffectiveTimeOrNull(item)
+}
+
+function isAscending (mode) {
+  return typeof mode === 'string' && mode.endsWith('Asc')
+}
+
+/** 比较主键值：缺失值统一放最后 */
+function comparePrimary (a, b, mode) {
+  const av = sortPrimaryValue(a, mode)
+  const bv = sortPrimaryValue(b, mode)
+  if (av === null && bv === null) return 0
+  if (av === null) return 1
+  if (bv === null) return -1
+  return isAscending(mode) ? av - bv : bv - av
+}
+
+/** 次级排序：有效时间倒序 → 创建时间倒序 → 身份升序 → 原始索引 */
+function tieBreakCompare (a, b, aIndex, bIndex) {
+  const eff = historyEffectiveTime(b) - historyEffectiveTime(a)
+  if (eff !== 0) return eff
+  const created = historyCreatedTime(b) - historyCreatedTime(a)
+  if (created !== 0) return created
+  const identity = historyStableIdentity(a).localeCompare(historyStableIdentity(b))
+  if (identity !== 0) return identity
+  return aIndex - bIndex
+}
+
+/**
+ * 按指定排序模式对历史记录排序（不修改原数组）。
+ * @param {Array} items
+ * @param {string} [sortMode] - 默认 UPDATED_DESC
+ * @returns {Array} 排序后的新数组
+ */
+export function sortHistory (items, sortMode) {
+  const list = Array.isArray(items) ? items : []
+  const mode = Object.values(SORT_MODES).includes(sortMode) ? sortMode : SORT_MODES.UPDATED_DESC
+  return list
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const primary = comparePrimary(left.item, right.item, mode)
+      if (primary !== 0) return primary
+      return tieBreakCompare(left.item, right.item, left.index, right.index)
+    })
+    .map(entry => entry.item)
+}
+
+export function filterHistoryByStatus (items, status = 'all', sortMode) {
   const list = Array.isArray(items) ? items : []
   const filtered = status === 'all'
     ? list
     : status === 'recoverable'
       ? list.filter(item => item && RECOVERABLE_STATUSES.includes(item.status))
     : list.filter(item => item && item.status === status)
-  return sortHistoryByEffectiveTime(filtered)
+  return sortHistory(filtered, sortMode || SORT_MODES.UPDATED_DESC)
 }
 
 export function historyStatusCounts (items) {

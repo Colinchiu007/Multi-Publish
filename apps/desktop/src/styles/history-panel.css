@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    CreateViewHistory — 历史记录卡片样式
    从 CreateViewHistory.vue 抽取，代码-设计分离
    优化版：更好的视觉层次、状态指示、间距
@@ -22,6 +22,21 @@
 .history-toolbar label { color: var(--text-muted, #666); font-size: 13px; font-weight: 600; }
 .history-filter { width: min(220px, 100%); }
 .history-count { color: var(--text-light, #999); font-size: 12px; }
+/* 排序下拉（2026-09-04） */
+.history-toolbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.history-sort-label { color: var(--text-muted, #666); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.history-sort-select {
+  padding: 5px 8px; border: 1px solid var(--border, #dcdfe6); border-radius: 6px;
+  background: var(--surface, #fff); color: var(--text, #333); font-size: 12px;
+  cursor: pointer; outline: none; min-width: 150px;
+}
+.history-sort-select:focus { border-color: var(--primary, #409eff); box-shadow: 0 0 0 2px rgba(64,158,255,0.15); }
+/* 重复标题标签（2026-09-04） */
+.history-duplicate-title-tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 4px;
+  background: var(--warning-bg, #fef3c7); color: var(--warning-text, #92400e);
+  flex-shrink: 0; white-space: nowrap; font-weight: 500;
+}
 .history-status-tabs { display: flex; align-items: stretch; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .history-status-tab { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; min-width: 72px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-muted, #666); cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; transition: color .15s ease, background .15s ease, border-color .15s ease; }
 .history-status-tab:hover { color: var(--text, #333); background: var(--status-pending-bg, #f3f4f6); }
