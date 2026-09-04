@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   common: {
     save: '保存',
     cancel: '取消',
@@ -460,6 +460,20 @@ export default {
       deselectAll: '取消全选',
       selectedCount: (ctx) => '已选 ' + ctx.named('count') + ' 项',
       batchDelete: '批量删除',
+      // 下载视频（2026-09-04）
+      downloadVideo: '下载视频',
+      // 排序方式（2026-09-04）
+      sortBy: '排序方式',
+      sortOptions: {
+        updatedDesc: '更新时间倒序',
+        updatedAsc: '更新时间正序',
+        createdDesc: '创建时间倒序',
+        createdAsc: '创建时间正序',
+        videoDurationDesc: '视频时长倒序',
+        videoDurationAsc: '视频时长正序',
+      },
+      // 重复标题检测（2026-09-04）
+      duplicateTitle: '有重复标题',
     },
   },
   // 运行进度文案（CreateView formatDuration / elapsed 命名插值；2026-08-10 补齐缺键）

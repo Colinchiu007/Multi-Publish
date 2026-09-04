@@ -1,3 +1,22 @@
+﻿## [未发布] feat(video): 视频创作历史记录下载视频+排序+重复标题提示（2026-09-04）
+
+### 功能
+- **下载视频**：已完成任务卡片新增【下载视频】按钮，复用 `story2videoSaveAs` IPC 另存为对话框（与结果页一致）；取消另存为不提示，成功走 `story2video.save_completed`，失败走操作失败提示。
+- **排序方式**：历史记录工具栏新增排序下拉，默认「更新时间倒序」，支持更新时间正序、创建时间倒序/正序、视频时长倒序/正序共 6 种。
+- **重复标题提示**：标题完全一致（trim 后区分大小写）的多个任务，相关卡片标题右侧显示「有重复标题」标签；未显式命名的任务不参与判定。
+
+### 实现
+- `apps/desktop/src/views/history-utils.js`：新增 `SORT_MODES`/`SORT_OPTIONS`/`sortHistory`/`historyVideoDuration`/`historyExplicitTitle`/`collectDuplicateTitleIdentities`；`filterHistoryByStatus` 支持 `sortMode`。
+- `apps/desktop/src/views/CreateViewHistory.vue`：排序下拉、下载按钮、重复标签。
+- `apps/desktop/src/views/CreateView.vue`：`@download-history` → `downloadHistoryVideo`。
+- `apps/desktop/src/locales/zh.js` / `en.js`：新增 i18n key（成对）。
+- `apps/desktop/src/styles/history-panel.css`：新增排序控件与重复标签样式。
+- 测试：`history-utils.test.js`（32 项）、`CreateViewHistory.test.js`（36 项）全通过。
+
+### 文档
+- 新增 `01-docs/PRD-STORY2VIDEO-HISTORY-DOWNLOAD-SORT-DUPLICATE.md`（数据校验/流程/交互/显示项/提示文字）。
+- 更新 `01-docs/PRD-video-creation.md` 模块演进记录。
+
 ## [未发布] fix(publish): 修复B站发布缺少 publish_url 和 AI 声明选择器（2026-09-04）
 
 ### 根因

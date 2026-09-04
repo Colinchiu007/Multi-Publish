@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   common: {
     save: 'Save',
     cancel: 'Cancel',
@@ -460,6 +460,20 @@ export default {
       deselectAll: 'Clear selection',
       selectedCount: (ctx) => String(ctx.named('count')) + ' selected',
       batchDelete: 'Delete selected',
+      // Download video (2026-09-04)
+      downloadVideo: 'Download video',
+      // Sort by (2026-09-04)
+      sortBy: 'Sort by',
+      sortOptions: {
+        updatedDesc: 'Updated (newest first)',
+        updatedAsc: 'Updated (oldest first)',
+        createdDesc: 'Created (newest first)',
+        createdAsc: 'Created (oldest first)',
+        videoDurationDesc: 'Video duration (longest first)',
+        videoDurationAsc: 'Video duration (shortest first)',
+      },
+      // Duplicate title detection (2026-09-04)
+      duplicateTitle: 'Duplicate title',
     },
   },
   // Runtime progress copy (CreateView formatDuration / elapsed named interpolation; missing keys fixed 2026-08-10)

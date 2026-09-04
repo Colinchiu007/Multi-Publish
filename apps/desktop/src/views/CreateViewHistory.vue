@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="create-view-history">
     <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
       {{ historyLocalModeText || tr('localMode') }}
@@ -28,7 +28,33 @@
           <span class="history-status-tab-count" aria-hidden="true">{{ statusCounts[status] }}</span>
         </button>
       </div>
-      <span class="history-count">{{ statusCounts.all }} {{ tr('records') }}</span>
+      <div class="history-toolbar-right">
+
+        <label class="history-sort-label" for="history-sort-select">{{ tr('sortBy') }}</label>
+
+        <select
+
+          id="history-sort-select"
+
+          v-model="sortMode"
+
+          class="history-sort-select"
+
+          data-testid="history-sort-select"
+
+          :aria-label="tr('sortBy')"
+
+          @change="onSortModeChange"
+
+        >
+
+          <option v-for="mode in sortOptions" :key="mode" :value="mode">{{ tr('sortOptions.' + mode) }}</option>
+
+        </select>
+
+        <span class="history-count">{{ statusCounts.all }} {{ tr('records') }}</span>
+
+      </div>
     </div>
 
     <div v-if="!historyLoading && filteredHistory.length > 0" class="history-batch-bar" data-testid="history-batch-bar">
@@ -93,6 +119,7 @@
             </span>
             <div class="history-heading-copy">
               <span class="history-name" :title="publishTitle(item)">{{ publishTitle(item) }}</span>
+              <span v-if="hasDuplicateTitle(item, index)" class="history-duplicate-title-tag" data-testid="history-duplicate-title-tag">{{ tr('duplicateTitle') }}</span>
               <span v-if="item.pipeline || item.name" class="history-pipeline-tag">
                 {{ pipelineName(item.pipeline || item.name) }}
               </span>
@@ -232,7 +259,15 @@
                 class="s2v-btn-secondary s2v-btn-sm"
                 data-testid="history-publish-button"
                 @click.stop="$emit('publish-history', item)"
-              >{{ tr('publish') }}</button>
+              >{{ tr('publish') }}</button>                <button
+                  v-if="downloadable(item)"
+                  type="button"
+                  class="s2v-btn-secondary s2v-btn-sm"
+                  data-testid="history-download-button"
+                  :disabled="story2videoResuming"
+                  @click.stop="$emit('download-history', item)"
+                >{{ tr('downloadVideo') }}</button>
+
               <button
                 type="button"
                 class="s2v-btn-danger s2v-btn-sm"
@@ -252,7 +287,7 @@ import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
-import { CONTENT_POLICY_ERROR_PATTERN, HISTORY_STATUSES, RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+import { CONTENT_POLICY_ERROR_PATTERN, HISTORY_STATUSES, RESUME_BLOCKING_ERROR_PATTERN, SORT_MODES, SORT_OPTIONS, collectDuplicateTitleIdentities, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 
 // HISTORY_STATUSES 由 ./history-utils 统一导出（含 interrupted），单一来源，避免与测试合同漂移
@@ -268,17 +303,26 @@ export default {
     story2videoResuming: { type: Boolean, default: false },
     deleting: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history'],
+  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history', 'download-history'],
   data () {
     return {
       activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',
       statusTabs: HISTORY_STATUSES,
       selectedIdentities: [],
+        sortMode: SORT_MODES.UPDATED_DESC,
+        sortOptions: SORT_OPTIONS,
     }
   },
   computed: {
-    filteredHistory () { return filterHistoryByStatus(this.history, this.activeFilter) },
+    filteredHistory () { return filterHistoryByStatus(this.history, this.activeFilter, this.sortMode) },
     statusCounts () { return historyStatusCounts(this.history) },
+    // 重复标题检测（2026-09-04）：基于完整 history（不受状态筛选影响），
+    // 完全相同的显式标题（修剪后逐字相等）标记所有相关卡片。
+    duplicateTitleIdentities () {
+      return collectDuplicateTitleIdentities(this.history, {
+        identityOf: (item, index) => this.historyIdentity(item, index),
+      })
+    },
     // 每张失败卡片只计算一次不可恢复提示文本，避免模板 v-if + 文本处重复跑正则。
     policyResumeHints () {
       const hints = new Map()
@@ -341,7 +385,20 @@ export default {
       } catch (_) { return key }
     },
     currentLocale () { try { return getAppLocale() } catch (_) { return 'zh' } },
-    selectFilter (status) {
+    
+      onSortModeChange () { /* 排序模式变更，v-model 已更新 */ },
+      hasDuplicateTitle (item, index) {
+        return this.duplicateTitleIdentities.has(this.historyIdentity(item, index))
+      },
+      downloadable (item) {
+        return Boolean(
+          item
+          && item.status === 'completed'
+          && typeof item.videoPath === 'string'
+          && item.videoPath.trim()
+        )
+      },
+selectFilter (status) {
       if (!HISTORY_STATUSES.includes(status)) return
       this.clearSelection()
       this.activeFilter = status
