@@ -5197,3 +5197,54 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。
 - 需调 LLM 的请求（图片 creative_level>3、video 域）无可用绑定时：桌面 fail-closed 返回可操作错误（不发送请求），引擎侧 422。
 - 图片 creative_level<=3 模板直出免 LLM；api_key 不出渲染层、不落日志；缓存键并入 provider 身份（provider|model|base_url）。
+
+---
+
+## 附录：账号管理页质量修复（2026-09-04）
+
+### 一、背景
+账号列表页存在 10 项体验与数据质量问题：重复账号、昵称显示错误、粉丝数缺失、创作者中心跳转错误、平台命名不一致、右上角"访客"信息不明、验证与登录按钮交互不符合预期、顶部标签页名称错误、标签系统行为不完整。
+
+### 二、数据校验规则
+| 项 | 规则 |
+|----|------|
+| 平台标识 | 仅允许 `[a-zA-Z0-9_-]+`，非法值拒绝 |
+| 重复账号 | `owner_subject + platform + name`（去空格、小写）唯一；重复返回 409，提示"此账号已添加过" |
+| 登录验证 | 验证通过 `code=0 且 data.valid=true`；其余一律按"已失效"处理 |
+| 防抖/并发 | 单账号验证期间 `verifyingIds` 防重入；验证按钮 disabled |
+
+### 三、功能逻辑
+1. **添加账号**：登录捕获后由 Electron 主进程调用 `POST /api/accounts`；后端查重后落盘公开元数据，凭据仅加密保存在主进程。
+2. **账号卡片**：
+   - 顶部显示 `account_name`（自媒体昵称）；平台信息保留在图标与 aria-label。
+   - 登录徽章：active/online → "已登录"；inactive/offline/expired → "已过期"；error → "异常"；其他 → "暂无检查记录"。
+3. **粉丝数**：优先读取 `followers / follower_count / followers_count / fans / fans_count / fansCount / 粉丝数`，无数据显示"暂无数据"。真实数据源待平台采集器任务补充。
+4. **验证**：点击【验证】→ `accountCheckLogin` → 通过提示"登录状态正常"（自动消失）；不通过弹窗"登录已失效，是否重新登录"，按钮【取消】【去登录】；确认后打开登录页标签。
+5. **去登录/已登录**：已登录时按钮灰显，文案"已登录"；未登录显示【去登录】，点击打开 `PLATFORM_LOGIN_URLS` 对应平台登录页。
+6. **创作者中心**：点击卡片打开 `PLATFORM_DASHBOARD_URLS` 对应创作者中心（Bilibili → `https://member.bilibili.com/`，快手 → `https://cp.kuaishou.com/`）。
+
+### 四、交互逻辑
+- 卡片整体点击（非批量模式）打开创作者中心标签；批量模式下切换选中。
+- 卡片内所有按钮 `@click.stop`，不冒泡触发卡片点击。
+- 键盘 Enter/Space 激活卡片；批量模式下切换选中。
+- 标签页标题优先使用应用页面名称（首页/账号管理），不被网页标题覆盖（`titleLocked`）。
+
+### 五、显示项与提示文字
+| 场景 | 文案 |
+|------|------|
+| 重复添加 | 此账号已添加过 |
+| 验证通过 | 登录状态正常 |
+| 验证失效 | 登录已失效，是否重新登录 |
+| 弹窗按钮 | 取消 / 去登录 |
+| 已登录按钮 | 已登录（灰显） |
+| 未登录按钮 | 去登录 |
+| 无昵称 | 未命名账号 |
+| 粉丝缺失 | 粉丝：暂无数据 |
+| 身份菜单未登录 | 未登录 |
+| 身份服务不可用 | 身份服务不可用 |
+| 新标签默认标题 | 首页 |
+
+### 六、后续工作
+1. 粉丝数真实数据采集：登录捕获时按平台提取 followers/avatar/platform_account_id 并写回账号元数据，提供刷新入口。
+2. 标签系统完整化：渲染层支持独立 App 标签（多路由状态），加号真正打开独立首页实例。
+3. 重复账号改用 `platform_account_id` 作为强标识，`name` 仅作提示级校验。

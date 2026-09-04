@@ -14378,3 +14378,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 每个 PR 平均 ~50 分钟（含开发 + 测试 + CI + 合并）
 - 快速 CI（18 项检查并行，通常 5-8 分钟完成）是关键
 - 文档类 PR 可合并加速（合并前不等待 CI 全量），代码类 PR 必须等 CI 绿
+
+## 2026-09-04 账号管理页质量修复
+- pitfall: str_replace_editor 对 CRLF 文件（此仓库 .vue/.json/.py 均为 CRLF）的字面替换静默失败，PowerShell `@(...)` 嵌套数组会被扁平化导致误替换（双引号被替换为字符 b）。可靠做法：Node 行范围替换脚本 + 替换后立即 diff 验证。
+- pattern: 标签页标题锁定（titleLocked）可防止 WebContents 页面标题覆盖应用级标签标题；其他标签系统同理。
+- architecture: 独立 App 标签需要 per-tab route state 或 App 多实例，不能靠现有单 router + webview 方案硬凑。
+- preference: 后端去重优先做在写路径（POST /api/accounts），再考虑前端预检，防止并发重复。
