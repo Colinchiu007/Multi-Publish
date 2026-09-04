@@ -2943,7 +2943,7 @@ export default {
         const res = await pipelineStart(pipelineName, params)
         if (res?.code !== 0) {
           if (this.isCurrentOrchestrationStart(startRequestId) && this.selectedPipeline?.name === pipelineName) {
-            this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: res?.message })
+            this.showStory2VideoErrorDialog({ errorCode: res?.errorCode, error: res?.message })
           }
           return
         }
@@ -2985,7 +2985,7 @@ export default {
           this.pipelineRunStatus = null
           this.pipelineRunId = null
           this.closePipelineProgressModal()
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+          this.showStory2VideoErrorDialog({ errorCode: error?.code || error?.errorCode, error: error?.message })
         }
       } finally {
         if (this.orchestrationStartRequestId === startRequestId) this.startingPipeline = false
@@ -3026,7 +3026,7 @@ export default {
           } else {
             await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
-        } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+        } else { this.setOrchestrationError({ code: res?.code, errorCode: res?.errorCode || outcome?.errorCode, errorParams: res?.errorParams || outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
         if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
@@ -3062,7 +3062,7 @@ export default {
           } else {
             await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
-        } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+        } else { this.setOrchestrationError({ code: res?.code, errorCode: res?.errorCode || outcome?.errorCode, errorParams: res?.errorParams || outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
         if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
@@ -3676,7 +3676,7 @@ export default {
           } else {
             await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
-        } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+        } else { this.setOrchestrationError({ code: res?.code, errorCode: res?.errorCode || outcome?.errorCode, errorParams: res?.errorParams || outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
         if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
@@ -5371,12 +5371,12 @@ export default {
         const result = await pipelinePauseRun(runId)
         if (!this.isCurrentOrchestrationAction(runId, actionRequestId)) return
         if (result?.code !== 0) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: result?.message })
+          this.showStory2VideoErrorDialog({ errorCode: result?.errorCode, error: result?.message })
         }
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) await this.updateOrchestrationStatus()
       } catch (error) {
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+          this.showStory2VideoErrorDialog({ errorCode: error?.code || error?.errorCode, error: error?.message })
         }
       } finally {
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) this.pauseActionBusy = false
