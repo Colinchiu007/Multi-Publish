@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 import { describe, it, expect, vi } from 'vitest'
 import {
   createVideoCloneAssetGenerator,
@@ -47,5 +47,62 @@ describe('createPlaceholderImageGenerator', () => {
     expect(out.degraded).toBe(true)
     expect(out.source).toBe('ffmpeg-placeholder')
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('createVideoCloneAssetGenerator - 真实视频生成（kind=video）', () => {
+  const videoSpec = { index: 1, promptSeed: 'palette:warm | plot:故事', durationSec: 3, kind: 'video' }
+
+  it('视频素材：调用 generateVideo 并返回 kind=video', async () => {
+    const generateVideo = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/video.mp4' } }))
+    const gen = createVideoCloneAssetGenerator({
+      assetGenerator: { generateImage: vi.fn(), generateVideo },
+    })
+    const out = await gen(videoSpec, report)
+    expect(out.kind).toBe('video')
+    expect(out.path).toBe('C:/tmp/video.mp4')
+    expect(generateVideo).toHaveBeenCalled()
+  })
+
+  it('视频素材：未提供 generateVideo 但可生成图片 → 降级为静态图 + degraded 标记', async () => {
+    const generateImage = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback.png' } }))
+    const gen = createVideoCloneAssetGenerator({
+      assetGenerator: { generateImage },
+    })
+    const out = await gen(videoSpec, report)
+    expect(out.kind).toBe('image')
+    expect(out.degraded).toBe(true)
+    expect(out.source).toContain('video-fallback')
+  })
+
+  it('视频素材：经 prompt-engine 优化后再调用 generateVideo', async () => {
+    const generateVideo = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/opt.mp4' } }))
+    const optimizeVideoPromptsBatch = vi.fn(async () => [{ optimized_prompt: '[optimized] 故事' }])
+    const gen = createVideoCloneAssetGenerator({
+      assetGenerator: { generateImage: vi.fn(), generateVideo },
+      optimizeVideoPromptsBatch,
+    })
+    await gen(videoSpec, report)
+    expect(optimizeVideoPromptsBatch).toHaveBeenCalledWith([videoSpec.promptSeed], { model: 'agnes-video-v2.0' })
+    expect(generateVideo).toHaveBeenCalledWith('[optimized] 故事', expect.any(Object))
+  })
+
+  it('视频素材：prompt-engine 返回空提示词 → ASSET_GENERATION_FAILED', async () => {
+    const gen = createVideoCloneAssetGenerator({
+      assetGenerator: { generateImage: vi.fn(), generateVideo: vi.fn() },
+      optimizeVideoPromptsBatch: vi.fn(async () => [{ optimized_prompt: '' }]),
+    })
+    await expect(gen(videoSpec, report)).rejects.toMatchObject({ code: 'VIDEOCLONE_ASSET_GENERATION_FAILED' })
+  })
+
+  it('视频素材：generateVideo 失败 → 降级为静态图 + degraded 标记', async () => {
+    const generateImage = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback2.png' } }))
+    const gen = createVideoCloneAssetGenerator({
+      assetGenerator: { generateImage, generateVideo: vi.fn(async () => ({ code: -1, message: 'video boom' })) },
+    })
+    const out = await gen(videoSpec, report)
+    expect(out.kind).toBe('image')
+    expect(out.degraded).toBe(true)
+    expect(out.source).toContain('video-fallback')
   })
 })

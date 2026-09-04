@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -95,7 +95,15 @@ function buildComposeCommand({ report, assets, outputPath, fps = 30 }) {
   const inputs = [];
   shots.forEach((s, i) => {
     const dur = Math.max(0.5, (s.t1 || 0) - (s.t0 || 0));
-    args.push('-loop', '1', '-t', String(dur), '-i', scenes[i].path);
+    const scene = scenes[i] || {};
+    // 视频素材（真实视频模型生成的动态片段）不能使用图片循环参数 -loop 1；
+    // 图片素材保留 -loop 1 以循环静态图。依据 kind 优先，其次扩展名兜底。
+    const isVideoAsset = scene.kind === 'video' || /\.(mp4|mov|webm|mkv|m4v|avi)$/i.test(String(scene.path || ''));
+    if (isVideoAsset) {
+      args.push('-t', String(dur), '-i', scene.path);
+    } else {
+      args.push('-loop', '1', '-t', String(dur), '-i', scene.path);
+    }
     inputs.push({ dur });
   });
   let audioIdx = null;
