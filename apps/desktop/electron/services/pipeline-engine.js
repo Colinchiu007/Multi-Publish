@@ -840,11 +840,11 @@ class PipelineEngine {
    */
   registerPipeline(def) {
     if (!def || !def.name || !Array.isArray(def.stages)) {
-      return { success: false, error: 'Pipeline definition requires name and stages array' };
+      return { success: false, error: 'Pipeline definition requires name and stages array', errorCode: 'PIPELINE_INVALID_DEF' };
     }
     if (PIPELINES.find((p) => p.name === def.name) ||
         (this._customPipelines && this._customPipelines.has(def.name))) {
-      return { success: false, error: 'Pipeline already exists: ' + def.name };
+      return { success: false, error: 'Pipeline already exists: ' + def.name, errorCode: 'PIPELINE_ALREADY_EXISTS' };
     }
     if (!this._customPipelines) this._customPipelines = new Map();
     this._customPipelines.set(def.name, {
@@ -862,7 +862,7 @@ class PipelineEngine {
   /** 启动流水线执行（state_machine 模式，同步） */
   start(pipelineName, params) {
     const pl = this.getPipeline(pipelineName);
-    if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName };
+    if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName, errorCode: 'PIPELINE_UNKNOWN' };
 
     const stageDefs = Array.isArray(pl.stageDefs) ? pl.stageDefs : [];
     const stageDefByName = new Map(stageDefs.map((def) => [def.name, def]));
@@ -921,12 +921,12 @@ class PipelineEngine {
   /** 暂停当前流水线 */
   pause() {
     const run = this._getCurrentRun();
-    if (!run) return { success: false, error: 'No active pipeline' };
-    if (run.status !== 'running') return { success: false, error: 'Pipeline is not running' };
+    if (!run) return { success: false, error: 'No active pipeline', errorCode: 'PIPELINE_NO_ACTIVE' };
+    if (run.status !== 'running') return { success: false, error: 'Pipeline is not running', errorCode: 'PIPELINE_NOT_RUNNING' };
     const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
       ? run.stages[run.currentStage]
       : null;
-    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: 'Pipeline stage state is invalid' };
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: 'Pipeline stage state is invalid', errorCode: 'PIPELINE_STAGE_INVALID' };
 
     run.status = 'paused';
     stage.status = 'paused';
@@ -937,12 +937,12 @@ class PipelineEngine {
   /** 恢复流水线执行 */
   resume() {
     const run = this._getCurrentRun();
-    if (!run) return { success: false, error: 'No active pipeline' };
-    if (run.status !== 'paused') return { success: false, error: 'Pipeline is not paused' };
+    if (!run) return { success: false, error: 'No active pipeline', errorCode: 'PIPELINE_NO_ACTIVE' };
+    if (run.status !== 'paused') return { success: false, error: 'Pipeline is not paused', errorCode: 'PIPELINE_NOT_PAUSED' };
     const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
       ? run.stages[run.currentStage]
       : null;
-    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: 'Pipeline stage state is invalid' };
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: 'Pipeline stage state is invalid', errorCode: 'PIPELINE_STAGE_INVALID' };
 
     run.status = 'running';
     stage.status = 'running';
@@ -953,7 +953,7 @@ class PipelineEngine {
   /** 取消流水线 */
   cancel() {
     const run = this._getCurrentRun();
-    if (!run) return { success: false, error: 'No active pipeline' };
+    if (!run) return { success: false, error: 'No active pipeline', errorCode: 'PIPELINE_NO_ACTIVE' };
 
     run.cancelled = true;
     run.status = 'cancelled';
@@ -1063,10 +1063,10 @@ class PipelineEngine {
    * 仅删除记录本身，不清理 run 输入/输出文件（与取消路径的清理语义分离）。
    */
   deleteRun (runId) {
-    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法' }
+    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法', errorCode: 'PIPELINE_INVALID_RUN_ID' }
     const id = runId.trim()
     const run = this._runs.get(id)
-    if (run && run.status === 'running') return { success: false, error: '运行中的流水线不能删除' }
+    if (run && run.status === 'running') return { success: false, error: '运行中的流水线不能删除', errorCode: 'PIPELINE_RUN_CANNOT_DELETE' }
     const historyIndex = this._history.findIndex(item => item && item.id === id)
     let hasSnapshot = false
     if (this.runStateStore && typeof this.runStateStore.remove === 'function') {
@@ -1076,21 +1076,21 @@ class PipelineEngine {
           hasSnapshot = Boolean(this.runStateStore.load(id))
         } catch (loadError) {
           this.log.warn('PipelineEngine', 'run state snapshot load failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)))
-          return { success: false, error: '读取运行记录失败' }
+          return { success: false, error: '读取运行记录失败', errorCode: 'PIPELINE_RUN_READ_FAILED' }
         }
       }
-      if (!run && historyIndex < 0 && !hasSnapshot) return { success: false, error: '运行记录不存在' }
+      if (!run && historyIndex < 0 && !hasSnapshot) return { success: false, error: '运行记录不存在', errorCode: 'PIPELINE_RUN_NOT_FOUND' }
       try {
         const removeResult = this.runStateStore.remove(id)
         if (removeResult === false) {
-          return { success: false, error: '删除运行记录失败：持久化快照未清理' }
+          return { success: false, error: '删除运行记录失败：持久化快照未清理', errorCode: 'PIPELINE_SNAPSHOT_CLEANUP_FAILED' }
         }
       } catch (removeError) {
         this.log.warn('PipelineEngine', 'run state snapshot remove failed: ' + (removeError && removeError.message ? removeError.message : String(removeError)))
-        return { success: false, error: '删除运行记录失败：持久化快照未清理' }
+        return { success: false, error: '删除运行记录失败：持久化快照未清理', errorCode: 'PIPELINE_SNAPSHOT_CLEANUP_FAILED' }
       }
     } else if (!run && historyIndex < 0) {
-      return { success: false, error: '运行记录不存在' }
+      return { success: false, error: '运行记录不存在', errorCode: 'PIPELINE_RUN_NOT_FOUND' }
     }
     if (run) {
       this._runs.delete(id)
@@ -1192,7 +1192,7 @@ class PipelineEngine {
   /** 确认检查点（继续下一阶段） */
   advance() {
     const run = this._getCurrentRun();
-    if (!run) return { success: false, error: 'No active pipeline' };
+    if (!run) return { success: false, error: 'No active pipeline', errorCode: 'PIPELINE_NO_ACTIVE' };
 
     return this._advanceRun(run, { skipped: this._isStageSkipped(null, run, run.stages[run.currentStage]) });
   }
@@ -1203,7 +1203,7 @@ class PipelineEngine {
    */
   _advanceRun(run, opts) {
     if (!run || !Array.isArray(run.stages) || !run.stages[run.currentStage]) {
-      return { success: false, error: 'No active stage' };
+      return { success: false, error: 'No active stage', errorCode: 'PIPELINE_NO_ACTIVE_STAGE' };
     }
 
     const skipped = Boolean(opts && opts.skipped);
@@ -1301,11 +1301,11 @@ class PipelineEngine {
       };
     }
     const pl = this.getPipeline(pipelineName);
-    if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName };
+    if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName, errorCode: 'PIPELINE_UNKNOWN' };
 
     params = params || {};
     if (typeof params !== 'object' || Array.isArray(params)) {
-      return { success: false, error: 'Pipeline params must be an object' };
+      return { success: false, error: 'Pipeline params must be an object', errorCode: 'PIPELINE_INVALID_PARAMS' };
     }
     // 批量创作标记（2026-08-14）：normalizer 重建 params 会丢弃未知字段，先白名单提取、
     // normalize 后重新附加，保证 run 打标（source/batchId/batchItemId）不丢失。
@@ -1342,13 +1342,13 @@ class PipelineEngine {
       ? params.initialContext
       : (params.context !== undefined ? params.context : {});
     if (!initialContext || typeof initialContext !== 'object' || Array.isArray(initialContext)) {
-      return { success: false, error: 'Invalid initialContext: expected an object' };
+      return { success: false, error: 'Invalid initialContext: expected an object', errorCode: 'PIPELINE_INVALID_CONTEXT' };
     }
     let serializedContext;
     try {
       serializedContext = JSON.parse(JSON.stringify(initialContext));
     } catch (e) {
-      return { success: false, error: 'Invalid initialContext: ' + e.message };
+      return { success: false, error: 'Invalid initialContext: ' + e.message, errorCode: 'PIPELINE_INVALID_CONTEXT' };
     }
 
     // 启动前模型能力前置校验（2026-08-28）：按「流水线 → 所需模型能力」映射统一拦截，
@@ -1378,7 +1378,7 @@ class PipelineEngine {
 
     const runId = startResult.runId;
     const run = this._runs.get(runId);
-    if (!run) return { success: false, error: 'Failed to create run' };
+    if (!run) return { success: false, error: 'Failed to create run', errorCode: 'PIPELINE_CREATE_FAILED' };
 
     // 标记为编排模式
     run.orchestrationMode = 'orchestrator';
@@ -1434,7 +1434,7 @@ class PipelineEngine {
    */
   async resumeOrchestration(runId) {
     if (typeof runId !== 'string' || !runId.trim()) {
-      return { success: false, error: '缺少或非法 runId' };
+      return { success: false, error: '缺少或非法 runId', errorCode: 'PIPELINE_INVALID_RUN_ID' };
     }
     // 同会话幂等：内存中已是 running 的编排 run 直接返回，避免重复创建运行
     // （renderer 重载/重复点击「继续」时，主进程仍在后台执行该任务）。
@@ -1680,9 +1680,9 @@ class PipelineEngine {
    */
   async advanceToNextCheckpoint(runId) {
     const run = this._runs.get(runId);
-    if (!run) return { success: false, error: 'Run not found: ' + runId };
+    if (!run) return { success: false, error: 'Run not found: ' + runId, errorCode: 'PIPELINE_INVALID_RUN_ID' };
     if (run.orchestrationMode !== 'orchestrator') {
-      return { success: false, error: 'Run is not in orchestrator mode' };
+      return { success: false, error: 'Run is not in orchestrator mode', errorCode: 'PIPELINE_NOT_ORCHESTRATOR' };
     }
     if (run.status === 'paused') {
       const checkpoint = run.checkpoint || {};
@@ -1902,7 +1902,7 @@ class PipelineEngine {
    */
   pauseWithCheckpoint() {
     const run = this._getCurrentRun();
-    if (!run) return { success: false, error: 'No active pipeline' };
+    if (!run) return { success: false, error: 'No active pipeline', errorCode: 'PIPELINE_NO_ACTIVE' };
     const result = this.pause();
     if (!result.success) return result;
 
@@ -1920,15 +1920,15 @@ class PipelineEngine {
    * 与 pauseWithCheckpoint 语义一致：编排运行保存检查点并持久化 paused 快照，可断点续跑。
    */
   pauseRun (runId) {
-    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法' }
+    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法', errorCode: 'PIPELINE_INVALID_RUN_ID' }
     const id = runId.trim()
     const run = this._runs.get(id)
-    if (!run) return { success: false, error: '运行记录不存在' }
-    if (run.status !== 'running') return { success: false, error: '仅运行中的流水线可暂停' }
+    if (!run) return { success: false, error: '运行记录不存在', errorCode: 'PIPELINE_RUN_NOT_FOUND' }
+    if (run.status !== 'running') return { success: false, error: '仅运行中的流水线可暂停', errorCode: 'PIPELINE_ERROR' }
     const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
       ? run.stages[run.currentStage]
       : null
-    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: '运行记录阶段数据无效' }
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: '运行记录阶段数据无效', errorCode: 'PIPELINE_ERROR' }
     const previousStatus = run.status
     const previousStageStatus = stage.status
     const previousCheckpoint = run.checkpoint
@@ -1944,7 +1944,7 @@ class PipelineEngine {
       }
     } catch (checkpointError) {
       this.log.warn('PipelineEngine', 'pause checkpoint build failed: ' + (checkpointError && checkpointError.message ? checkpointError.message : String(checkpointError)))
-      return { success: false, error: '保存暂停检查点失败' }
+      return { success: false, error: '保存暂停检查点失败', errorCode: 'PIPELINE_CHECKPOINT_SAVE_FAILED' }
     }
     run.status = 'paused'
     stage.status = 'paused'
@@ -1957,7 +1957,7 @@ class PipelineEngine {
         run.status = previousStatus
         stage.status = previousStageStatus
         run.checkpoint = previousCheckpoint
-        return { success: false, error: '保存暂停检查点失败' }
+        return { success: false, error: '保存暂停检查点失败', errorCode: 'PIPELINE_CHECKPOINT_SAVE_FAILED' }
       }
     }
     this._syncStory2VideoProjectStatus(run)
@@ -1969,7 +1969,7 @@ class PipelineEngine {
    */
   resumeFromCheckpoint() {
     const run = this._getCurrentRun();
-    if (!run) return { success: false, error: 'No active pipeline' };
+    if (!run) return { success: false, error: 'No active pipeline', errorCode: 'PIPELINE_NO_ACTIVE' };
     const result = this.resume();
     if (!result.success) return result;
 
@@ -1988,13 +1988,13 @@ class PipelineEngine {
    */
   registerStageExecutor(stageType, fn) {
     if (!this.stageExecutor) {
-      return { success: false, error: 'StageExecutor not configured' };
+      return { success: false, error: 'StageExecutor not configured', errorCode: 'PIPELINE_STAGE_EXECUTOR_MISSING' };
     }
     try {
       this.stageExecutor.register(stageType, fn);
       return { success: true };
     } catch (e) {
-      return { success: false, error: e.message };
+      return { success: false, error: e.message, errorCode: 'PIPELINE_ERROR' };
     }
   }
 
@@ -2202,12 +2202,12 @@ class PipelineEngine {
    */
   async _executeStage(runId) {
     const run = this._runs.get(runId);
-    if (!run) return { success: false, error: 'Run not found: ' + runId };
+    if (!run) return { success: false, error: 'Run not found: ' + runId, errorCode: 'PIPELINE_INVALID_RUN_ID' };
     if (run.orchestrationMode !== 'orchestrator') {
-      return { success: false, error: 'Run is not in orchestrator mode' };
+      return { success: false, error: 'Run is not in orchestrator mode', errorCode: 'PIPELINE_NOT_ORCHESTRATOR' };
     }
     const stage = run.stages[run.currentStage];
-    if (!stage) return { success: false, error: 'No stage to execute' };
+    if (!stage) return { success: false, error: 'No stage to execute', errorCode: 'PIPELINE_NO_STAGE' };
 
     // 合并流水线定义中的 stage 元数据（type, options, inputFrom 等）
     // 旧流水线无 stageDefs，stageDef 为空对象，type 为 undefined → 回退为 MANUAL_CHECKPOINT
@@ -2349,7 +2349,7 @@ class PipelineEngine {
    */
   async _autoAdvanceRun(runId) {
     const run = this._runs.get(runId);
-    if (!run) return { success: false, error: 'Run not found: ' + runId };
+    if (!run) return { success: false, error: 'Run not found: ' + runId, errorCode: 'PIPELINE_INVALID_RUN_ID' };
 
     const results = [];
     while (run.status === 'running') {
