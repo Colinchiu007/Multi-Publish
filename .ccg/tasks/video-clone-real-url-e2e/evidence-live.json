@@ -1,0 +1,319 @@
+{
+  "url": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\live-source.mp4",
+  "source": {
+    "type": "local",
+    "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\live-source.mp4"
+  },
+  "level": "L1",
+  "elapsedMs": 17774,
+  "events": [
+    {
+      "type": "stage:started",
+      "stage": "ingest"
+    },
+    {
+      "type": "stage:succeeded",
+      "stage": "ingest"
+    },
+    {
+      "type": "stage:started",
+      "stage": "analyze"
+    },
+    {
+      "type": "stage:succeeded",
+      "stage": "analyze"
+    },
+    {
+      "type": "stage:started",
+      "stage": "plan"
+    },
+    {
+      "type": "stage:succeeded",
+      "stage": "plan"
+    },
+    {
+      "type": "stage:started",
+      "stage": "generate"
+    },
+    {
+      "type": "stage:succeeded",
+      "stage": "generate"
+    },
+    {
+      "type": "stage:started",
+      "stage": "compose"
+    },
+    {
+      "type": "stage:succeeded",
+      "stage": "compose"
+    },
+    {
+      "type": "stage:started",
+      "stage": "publish"
+    },
+    {
+      "type": "stage:succeeded",
+      "stage": "publish"
+    }
+  ],
+  "checks": [
+    {
+      "name": "pipeline.ok",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "report.meta.durationSec > 0",
+      "pass": true,
+      "detail": 30.440998
+    },
+    {
+      "name": "report.visual.shots non-empty",
+      "pass": true,
+      "detail": 1
+    },
+    {
+      "name": "report.replication.level valid",
+      "pass": true,
+      "detail": {
+        "level": "L1",
+        "mode": "structure",
+        "auto": {
+          "determined": false,
+          "source": "explicit",
+          "level": "L1"
+        }
+      }
+    },
+    {
+      "name": "similarity verdict present",
+      "pass": true,
+      "detail": "needs_review"
+    },
+    {
+      "name": "publish skipped (no router)",
+      "pass": true,
+      "detail": {
+        "status": "skipped",
+        "reason": "no-publisher"
+      }
+    },
+    {
+      "name": "output artifact exists",
+      "pass": true,
+      "detail": {
+        "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-live-mtn7i368\\clone.mp4",
+        "durationSec": 30.366667,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "sizeBytes": 24503749,
+        "probeOk": true,
+        "shots": [
+          {
+            "t0": 0,
+            "t1": 30.366667
+          }
+        ],
+        "sceneMethod": "live-concat"
+      }
+    },
+    {
+      "name": "clone.mp4 has video stream",
+      "pass": true,
+      "detail": "h264"
+    },
+    {
+      "name": "clone.mp4 playable duration > 0",
+      "pass": true,
+      "detail": "30.366667"
+    },
+    {
+      "name": "duration within tolerance (<2s)",
+      "pass": true,
+      "detail": {
+        "source": 30.440998,
+        "clone": 30.366667
+      }
+    }
+  ],
+  "runId": "vc-mtn7i36h-nreh04",
+  "report": {
+    "meta": {
+      "source": "local",
+      "platform": null,
+      "durationSec": 30.440998,
+      "resolution": "1920x1080",
+      "fps": 30
+    },
+    "narrative": {
+      "structure": "unknown",
+      "timeline": [
+        {
+          "t0": 0,
+          "t1": 30.441,
+          "label": "shot"
+        }
+      ],
+      "plot": ""
+    },
+    "script": {
+      "fullText": "",
+      "lines": [],
+      "language": "zh"
+    },
+    "scriptStyle": {
+      "person": "unknown",
+      "tone": "unknown",
+      "sentenceStats": {},
+      "hookLines": []
+    },
+    "visual": {
+      "palette": "unknown",
+      "colorGrade": {},
+      "shots": [
+        {
+          "t0": 0,
+          "t1": 30.441,
+          "type": "unknown",
+          "motion": "unknown"
+        }
+      ],
+      "transitions": [],
+      "subtitleStyle": {}
+    },
+    "audio": {
+      "bgm": {
+        "style": "",
+        "bpm": null,
+        "segments": []
+      },
+      "sfx": [],
+      "voice": {
+        "gender": "unknown",
+        "speed": 1
+      }
+    },
+    "elements": {
+      "characters": [],
+      "props": [],
+      "brand": [],
+      "watermark": false
+    },
+    "platformParams": {
+      "aspect": "16:9",
+      "maxDurationSec": null
+    },
+    "replication": {
+      "level": "L1",
+      "mode": "structure",
+      "auto": {
+        "determined": false,
+        "source": "explicit",
+        "level": "L1"
+      }
+    }
+  },
+  "similarity": {
+    "score": 0.9968,
+    "confidence": 0.5,
+    "metrics": {
+      "structure": 0.9975581288393944,
+      "script": 1,
+      "style": 1,
+      "durationDeviation": 0.002441805620170561
+    },
+    "passes": {
+      "structure": true,
+      "script": false,
+      "style": false,
+      "duration": true
+    },
+    "warnings": {
+      "verbatimScript": false,
+      "unmeasuredScript": true
+    },
+    "grade": null,
+    "level": "L1",
+    "verdict": "needs_review",
+    "target": "P1",
+    "provenance": {
+      "structure": "measured",
+      "duration": "measured",
+      "script": "plan-constructive",
+      "style": "plan-constructive"
+    }
+  },
+  "artifacts": {
+    "media": {
+      "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\live-source.mp4",
+      "sizeBytes": 21657943,
+      "source": "local",
+      "durationSec": 30.440998,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "hasAudio": true,
+      "format": "mov",
+      "ext": "mp4"
+    },
+    "analysis": {
+      "probe": {
+        "ok": true,
+        "durationSec": 30.440998
+      },
+      "scene": {
+        "method": "ffmpeg-scene",
+        "shotCount": 1
+      },
+      "asr": {
+        "status": "skipped"
+      },
+      "rewrite": {
+        "status": "kept"
+      }
+    },
+    "assets": {
+      "scenes": [
+        {
+          "index": 0,
+          "kind": "video",
+          "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-live-mtn7i368\\assets\\shot_0.mp4",
+          "durationSec": 30.441
+        }
+      ],
+      "plan": [
+        {
+          "index": 0,
+          "t0": 0,
+          "t1": 30.441,
+          "durationSec": 30.441,
+          "kind": "image",
+          "promptSeed": "palette:unknown | tone:unknown | person:unknown | plot:"
+        }
+      ],
+      "level": "L1",
+      "degraded": false
+    },
+    "output": {
+      "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-live-mtn7i368\\clone.mp4",
+      "durationSec": 30.366667,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "sizeBytes": 24503749,
+      "probeOk": true,
+      "shots": [
+        {
+          "t0": 0,
+          "t1": 30.366667
+        }
+      ],
+      "sceneMethod": "live-concat"
+    }
+  },
+  "publishResult": {
+    "status": "skipped",
+    "reason": "no-publisher"
+  }
+}

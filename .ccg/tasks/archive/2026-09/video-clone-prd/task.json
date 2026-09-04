@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-prd",
+  "title": "视频克隆产品需求细化（PM 技能应用）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "product",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-12T00:00:00Z",
+  "branch": "main"
+}
