@@ -427,6 +427,17 @@ describe('videogen 共享阶段执行器', () => {
       expect(result.error).toContain('视频生成未返回任务 ID')
     })
 
+    it('callAdapter 外层 code=0 但内层 data.code<0 时透传适配器真实错误（不再吞成「未返回任务 ID」）', async () => {
+      const ai = makeAiWithVideoManager(async () => ({ code: 0, data: { code: -1, message: 'Missing task_id in response' } }))
+      const { get } = makePipeline(ai)
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: {}, params: { text: '主题' }, context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Missing task_id in response')
+      expect(result.error).not.toContain('视频生成未返回任务 ID')
+    })
+
   it('generateVideo 参数契约：双写驼峰+下划线（适配 agnes/ltx）', async () => {
     await waitForVideoUrl()
     let captured

@@ -790,12 +790,17 @@ function registerVideoGenStages (pipelineEngine) {
             return { index, success: false, error: submit.message || ('视频生成调用失败（provider: ' + videoProvider.providerId + '）') }
           }
           const data = submit && submit.data
+          // 适配器外层 code=0 但内层可能返回 { code: -1, message }（如 MiniMax 特殊套餐的 Missing task_id），
+          // 此时 data.taskId 为空，必须透传适配器的真实错误消息，避免吞成「视频生成未返回任务 ID」。
+          if (data && typeof data === 'object' && (Number(data.code) < 0 || data.success === false)) {
+            return { index, success: false, error: (data.message || data.error || '视频生成失败（provider: ' + videoProvider.providerId + '）') }
+          }
           const taskId = data && (data.taskId || data.videoId)
           if (!taskId) {
             return {
               index,
               success: false,
-              error: '视频生成未返回任务 ID' + (submit && submit.message ? '：' + submit.message : ''),
+              error: '视频生成未返回任务 ID' + (data && data.message ? '：' + data.message : ''),
             }
           }
           // 轮询任务状态（最多 10 分钟）
