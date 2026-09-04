@@ -1,3 +1,18 @@
+## [未发布] fix(publish): 修复B站发布缺少 publish_url 和 AI 声明选择器（2026-09-04）
+
+### 根因
+- `config/platforms.yaml` 中 bilibili 配置缺少 `publish_url`，RPA 发布流程 `_publish_generic` 依赖此字段
+- RPA 通用发布流程缺少 AI 内容声明自动勾选逻辑（B站等平台）
+- `platform-selectors.js` 中 bilibili 缺少 AI 声明选择器定义
+
+### 修复
+- **`config/platforms.yaml`**：bilibili 添加 `publish_url`、`cover_size`、`max_title`、`max_content` 等完整配置，`has_api` 改为 `false` 以匹配 ROUTE_TABLE 的 rpa_vm 模式
+- **`packages/rpa-engine/src/platform-selectors.js`**：bilibili 添加 `ai_declaration_label` 和 `ai_declaration_checkbox` 选择器
+- **`apps/desktop/electron/services/rpa-view-platforms.js`**：添加通用 AI 声明自动勾选逻辑，覆盖 baijiahao/kuaishou 之外有声明选择器的平台
+
+### 文档
+- 更新 `01-docs/PRD-AI-CONTENT-DECLARATION.md`：新增 B站 AI 声明章节，更新数据流图
+
 ## [未发布] feat(publish): 百家号+快手 AI 内容声明全链路实现（2026-09-02）
 ## [未发布] fix(desktop): 修复左侧菜单区域不固定、随内容滚动的问题（2026-09-03）
 

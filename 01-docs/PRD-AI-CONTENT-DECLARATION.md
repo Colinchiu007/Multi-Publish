@@ -41,9 +41,10 @@ publisher-router.js (ApiPublisher/RpaVmPublisher)
     │   ├── 百家号: aigc_bjh_status=1 (activity_list 参数)
     │   └── 快手:   ai_generated=1 (buildPostData 字段)
     │
-    └── RPA 模式 → article.aiGenerated → _prepBaijiahao() / _prepKuaishou()
+    └── RPA 模式 → article.aiGenerated → _prepBaijiahao() / _prepKuaishou() / 通用 AI 声明
         ├── 百家号: 弹窗选择「AI生成内容」
-        └── 快手:   checkbox 勾选「AI 生成」
+        ├── 快手:   checkbox 勾选「AI 生成」
+        └── B站等:  通用 ai_declaration_label 选择器自动勾选
 ```
 
 ### 2.3 各平台实现
@@ -69,6 +70,16 @@ publisher-router.js (ApiPublisher/RpaVmPublisher)
 - `_prepKuaishou(win, article)` 方法
 - 多策略查找 AI 声明控件（checkbox/switch/标签）
 - 找不到时不阻塞发布（warn 日志）
+
+#### B站（Bilibili）
+
+**RPA 模式**（`apps/desktop/electron/services/rpa-view-platforms.js`）：
+- 通用 AI 声明自动勾选逻辑（`ai_declaration_label` / `ai_declaration_checkbox` 选择器）
+- 选择器定义在 `packages/rpa-engine/src/platform-selectors.js` 的 `bilibili` 下
+- 默认 `aiGenerated !== false` 时自动点击声明控件
+- 找不到控件时记录 warn 日志，不阻塞发布
+
+**注意**：B站平台配置 `config/platforms.yaml` 中 `has_api: false`，使用 RPA 模式（`publish_url: https://member.bilibili.com/platform/upload/video/frame`）。
 
 ---
 
