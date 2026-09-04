@@ -40,7 +40,9 @@ if (-not $git -or -not (Test-Path -LiteralPath $git)) {
 function Git([string[]]$gitArgs) { & $git -C $root @gitArgs }
 
 $branch = (Git @('branch','--show-current')).Trim()
-$status = @(Git @('status','--porcelain=v1'))
+# clean 判定只看已跟踪文件：.ccg/、.agent_context/ 等目录被 Write Guard 放行直接落盘，
+# 未跟踪证据文件是共享根的设计内常态，不应阻塞 -RequireClean 任务入口（worktree add / 分支操作不受未跟踪文件影响）。
+$status = @(Git @('status','--porcelain=v1','--untracked-files=no'))
 $marker = Join-Path $root '.agent_context/shared-root-violation'
 $common = (Git @('rev-parse','--path-format=absolute','--git-common-dir')).Trim().TrimEnd('\','/')
 $primaryGit = (Git @('rev-parse','--path-format=absolute','--git-dir')).Trim().TrimEnd('\','/')

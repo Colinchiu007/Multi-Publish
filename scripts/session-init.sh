@@ -34,7 +34,9 @@ echo "Root:   $PRIMARY_ROOT"
 echo "Branch: ${CURRENT_BRANCH:-detached}"
 
 if [ "$CURRENT_BRANCH" = "main" ]; then
-    if [ -n "$(git -C "$PRIMARY_ROOT" status --porcelain)" ]; then
+    # clean 判定只看已跟踪文件：.ccg/ 等被 Write Guard 放行的目录会正常产生未跟踪证据文件，
+    # 不应阻塞任务入口（worktree add / 分支操作不受未跟踪文件影响）。
+    if [ -n "$(git -C "$PRIMARY_ROOT" status --porcelain --untracked-files=no)" ]; then
         echo "WARNING: shared root is on main but has local changes; leaving them untouched." >&2
         exit 2
     fi

@@ -69,7 +69,9 @@ case "$cmd" in
             "$BASH" "$SCRIPT_DIR/session-init.sh"
         fi
 
-        if [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
+        # clean 判定只看已跟踪文件：.ccg/ 等被 Write Guard 放行的目录会正常产生未跟踪证据文件，
+        # 不应阻塞 worktree 创建（worktree add / 分支操作不受未跟踪文件影响）。
+        if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ]; then
             echo -e "${RED}主目录 main 存在未提交文件，拒绝创建任务 worktree。${NC}"
             echo "先保护这些文件并恢复干净状态。"
             exit 2
