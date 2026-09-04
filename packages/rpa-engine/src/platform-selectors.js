@@ -130,6 +130,9 @@ module.exports = {
       title_input: ['input[placeholder*="标题"]', '.video-title input'],
       desc_textarea: ['textarea[placeholder*="简介"]', '.video-desc textarea'],
       publish_btn: ['button:has-text("发布")', '.submit-btn', '[class*="submit"]'],
+      // AI 生成内容声明：B站投稿页「AI生成内容」声明控件（RPA 模式）
+      ai_declaration_label: ['label:has-text("AI生成")', 'label:has-text("AI 生成")', 'label:has-text("由AI生成")', 'label:has-text("由 AI 生成")', '[class*="ai"] label', '[class*="declare"] label', '[class*="declaration"] label'],
+      ai_declaration_checkbox: ['input[type="checkbox"][id*="ai"], input[type="checkbox"][name*="ai"], input[type="checkbox"][class*="ai"], input[type="radio"][value*="ai"], input[type="radio"][value*="AI"]'],
     },
     twitter: {
       textarea: ['div[data-testid="tweetTextarea_0"][role="textbox"]', 'div[aria-label*="Post"][role="textbox"]', 'div[aria-label*="Tweet"][role="textbox"]'],
