@@ -961,6 +961,7 @@
         @open-result="openHistoryResult"
         @publish-history="publishHistoryItem"
         @delete-history="requestHistoryDeletion"
+        @download-history="downloadHistoryVideo"
         :deleting="deleting"
         @delete-history-batch="requestHistoryBatchDeletion"
       />

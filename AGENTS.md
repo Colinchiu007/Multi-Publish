@@ -476,6 +476,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Vue 模板语法**：修改 `.vue` 文件后，必须确认无模板编译错误（Vite HMR 报错或 `vite build` 通过）。使用 MCP node\_repl 的 splice 操作修改 Vue 文件后，必须检查新旧代码没有重叠或残留。
 
+- **Vue 子组件 emit→父模板绑定交叉验证（R92）**：新增子组件 `$emit('xxx')` 时，必须交叉验证父模板中存在 `@xxx` 绑定。审查时对每个 `$emit('xxx')` 搜索父模板中 `@xxx` 绑定。**这是编译期不可检测的运行时沉默失效**——子组件 emit 存在、父组件方法存在，但缺少绑定，按钮点击无反应。
+
 - **Bridge/子进程启动验证**：新增或修改 Bridge（BasePythonBridge 子类）时，必须验证：(1) `pythonModule` 指向的模块有 `__main__.py` 入口；(2) 真实执行一次 spawn + health check。不能只断言 `pythonModule` 字符串值。
 
 - **composable↔模板导出一致性**：composable 新增/重命名导出属性时，必须同步更新所有使用该 composable 的 Vue 模板的解构列表。新增属性后应运行 composable 导出完整性测试。

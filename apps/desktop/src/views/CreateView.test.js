@@ -47,6 +47,7 @@ vi.mock("@/api/publisher", () => ({
   story2videoTranscribe: vi.fn(),
   story2videoListProjects: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoGetThumbnail: vi.fn().mockResolvedValue({ code: 0, data: { status: "missing", url: null } }),
+  story2videoSaveAs: vi.fn().mockResolvedValue({ code: 0, data: { path: "/saved/video.mp4", cancelled: true } }),
   story2videoDeleteProject: vi.fn(),
   story2videoBgmLibraryList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoBgmLibraryAdd: vi.fn(),
@@ -3235,6 +3236,30 @@ describe("CreateView - UI interactions", () => {
 
     expect(w.vm.filteredHistory.map(item => item.id)).toEqual(["run-failed"]);
     expect(w.findAll(".history-name").map(item => item.text())).toEqual(["失败任务"]);
+  });
+
+  // R92 回归保护：下载视频按钮点击 → story2videoSaveAs IPC 调用（2026-09-04 QM-5）
+  it("历史记录已完成任务点击下载视频按钮调用 story2videoSaveAs", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
+      projectId: "project-download", pipeline: "story2video-compose", status: "completed",
+      title: "可下载任务", videoPath: "/videos/output.mp4", updatedAt: "2026-09-04T10:00:00.000Z",
+    }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoSaveAs.mockResolvedValue({ code: 0, data: { path: "/saved/video.mp4", cancelled: true } });
+
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress }, stubs: { teleport: true } },
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    const btn = w.find('[data-testid="history-download-button"]');
+    expect(btn.exists()).toBe(true);
+    await btn.trigger("click");
+    expect(mocks.story2videoSaveAs).toHaveBeenCalledWith("/videos/output.mp4", expect.any(String));
+    w.unmount();
   });
 
   it("全部历史任务按有效更新时间倒序混排，不提升未完成状态", async () => {

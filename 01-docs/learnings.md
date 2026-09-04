@@ -14384,3 +14384,52 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - pattern: 标签页标题锁定（titleLocked）可防止 WebContents 页面标题覆盖应用级标签标题；其他标签系统同理。
 - architecture: 独立 App 标签需要 per-tab route state 或 App 多实例，不能靠现有单 router + webview 方案硬凑。
 - preference: 后端去重优先做在写路径（POST /api/accounts），再考虑前端预检，防止并发重复。
+## 2026-09-04 历史记录下载视频按钮无反应（QM-5 复盘）
+
+### 现象
+
+视频创作 → 历史记录 → 已完成状态的卡片，点击「下载视频」按钮没反应。
+
+### 根因
+
+commit `c0e9fb126`（feat: 视频创作历史记录下载视频）引入了 `downloadHistoryVideo` 方法（`CreateView.vue` L5817-5828）和子组件 `CreateViewHistory.vue` 的 `download-history` emit（L268），但**父模板 `<CreateViewHistory>` 绑定漏掉了 `@download-history="downloadHistoryVideo"` 事件监听器**。子组件 emit 后父组件无人接收 → 按钮点击无反应。
+
+### 逃逸链
+
+1. **单元测试（CreateViewHistory.test.js L572-584）**：仅断言子组件 emit 了 `download-history` 事件，**未验证父组件实际绑定了该事件处理器**。
+2. **集成测试（CreateView.test.js）**：**零覆盖** — 没有任何测试用例覆盖下载视频按钮的端到端路径。
+3. **代码审查**：未发现 Vue 模板 `@event` 绑定缺失 — 审查只检查了方法存在、子组件 emit 存在，未交叉验证父模板是否绑定了事件。
+
+### 系统性漏洞
+
+**Vue 父子组件事件绑定缺乏自动化交叉验证**：子组件 `emits` 声明 + `@click.stop="$emit('download-history', item)"` 存在，父组件 `downloadHistoryVideo` 方法存在，但两者之间缺少「子组件 emit 的事件名 → 父模板是否绑定」的静态/动态检查。**这是编译期不可检测的运行时沉默失效。**
+
+### 修复
+
+- `CreateView.vue` L963：在 `<CreateViewHistory>` 模板绑定中补上 `@download-history="downloadHistoryVideo"`
+
+### 回归保护测试
+
+应在 `CreateView.test.js` 中新增集成测试用例：
+- 挂载 CreateView（含 CreateViewHistory 子组件），传入 completed + videoPath 的历史数据
+- 模拟点击 `[data-testid="history-download-button"]`
+- 断言 `story2videoSaveAs` IPC 被调用
+
+### 经验沉淀
+
+**R92：Vue 子组件 emit → 父模板绑定必须交叉验证**
+
+- 子组件 `emits: ['download-history']` + `$emit('download-history', item)` → 搜索父模板中是否出现 `@download-history`
+- 审查时：对每个 `$emit('xxx')` 搜索父模板中 `@xxx` 绑定
+- 自动化：可在 CI 中增加静态检查脚本 — 解析子组件 emits 声明，在父模板中搜索对应 `@event-name` 绑定
+
+### 质量节拍状态
+
+| 指标 | 状态 |
+|------|------|
+| 根因定位 | ✅ commit c0e9fb126 引入，漏绑定 |
+| 逃逸分析 | ✅ 子组件测试覆盖 emit，父组件测试无覆盖 |
+| 系统性漏洞 | ✅ emit→binding 缺乏交叉验证 |
+| 修复 | ✅ 补 `@download-history="downloadHistoryVideo"` |
+| 回归测试 | ⚠️ 待补充 CreateView 集成测试 |
+| 预防措施 | ✅ R92 记录 + AGENTS.md QM-2 补充 |

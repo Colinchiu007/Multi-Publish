@@ -301,9 +301,10 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 ## Pitfalls
 
 - **共享主目录默认被拒**：`start-desktop.ps1` 对共享主工作区 fail-closed，需 `-ForceShared` 且先向用户说明风险。
-- **共享主目录依赖残缺（核心坑）**：多会话并发时，共享主目录的 `node_modules` 可能被破坏（hoisting 不完整、缺包）。此时 `pnpm install --frozen-lockfile` 极慢（>1 小时）且不可靠——**不要修，直接用隔离 worktree**。
+- **共享主目录依赖残缺（核心坑）**：多会话并发时，共享主目录的 `node_modules` 可能被破坏（hoisting 不完整、缺包）。此时 `pnpm install --frozen-lockfile` 极慢（>1 小时）且不可靠。**处置优先级**：① 先用隔离 worktree 启动（优先，不阻塞）；② 有空时再修复共享主目录依赖——删除 `node_modules` 重装：`rm -r -fo node_modules; pnpm install --frozen-lockfile`（约 1 分钟，比增量修复快 60x）。
 - **重启必须加 `-StopForeignProfile`**：其他 worktree 可能留有旧 Electron 进程占用同一 profile，不加此参数会直接报错退出。重启场景一律加。
 - **`pnpm install` 超时纪律**：无论共享主目录还是隔离 worktree，`pnpm install` 超过 2 分钟就 kill 排查，不要死等。
+- **`node_modules` 半损状态识别**：若 `node_modules/.pnpm` 为空且 `.modules.yaml` 不存在，说明 node_modules 是之前安装中断的残留——增量修复（`pnpm install --frozen-lockfile`）在此状态下极慢甚至卡死。**直接删除重建**：`rm -r -fo node_modules; pnpm install --frozen-lockfile`（约 1 分钟）。
 - **隔离 worktree 优先复用**：创建新 worktree 需要 `pnpm install`（1-2 分钟），但已有 worktree 只需 `git checkout` + `git clean`（秒级）。优先检查是否已有可用的隔离 worktree。
 - **不要静默连别人的 Vite**：端口归属检查是 fail-closed，绝不绕过。
 - **profile 单实例锁**：同 profile 多实例互杀会导致窗口空白，先处理占用。
