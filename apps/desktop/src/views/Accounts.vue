@@ -278,7 +278,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
 import { formatUserError } from '@/utils/user-facing-error'
-import { formatUserError } from '@/utils/user-facing-error'
 
 const filterOptions = computed(() => [
   { value: 'all', label: t('accountsPage.filterAll') },
