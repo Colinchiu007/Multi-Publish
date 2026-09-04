@@ -1327,7 +1327,7 @@ class PipelineEngine {
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
-          errorCode: error?.code || null,
+          errorCode: error?.code || 'INVALID_PARAMS',
           errorParams: error?.params || null,
         };
       }

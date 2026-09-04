@@ -542,6 +542,7 @@ export default {
     compose_duration_exceeded: '视频内容超过 {limitMinutes} 分钟上限。请缩短文案或减少场景后重新启动生成。',
     compose_segment_duration_exceeded: '单段旁白超过时长上限。请拆分该段文案后重新启动生成。',
     operation_failed: '当前操作未能完成，请稍后再试。',
+    invalid_params: '流水线参数校验失败，请检查配置项是否有效后重试。',
     unknown_error: '当前操作未能完成，请稍后再试。',
     needs_user_input: '生成内容触发了内容安全审核，需要您修改文案后重新生成。请检查场景文案是否有敏感内容，修改后点击「从断点继续」。',
     optimize_service_unavailable: '模型优化暂时不可用，请稍后重试；若持续出现，请检查模型设置和网络连接。',

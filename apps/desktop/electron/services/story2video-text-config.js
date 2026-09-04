@@ -148,6 +148,7 @@ const MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000
 const STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE = 'story2video.text_too_long'
 const SUBTITLE_SIZE_MAP = Object.freeze({
   size1: 'size1', size2: 'size2', size3: 'size3', size4: 'size4', size5: 'size5', size6: 'size6',
+  small: 'size1', medium: 'size3', large: 'size5',
   sm: 'sm', md: 'md', lg: 'lg', xl: 'xl',
 })
 
