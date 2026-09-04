@@ -32,7 +32,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] start error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -109,7 +109,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] startOrchestrated error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -120,7 +120,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] resumeOrchestration error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
