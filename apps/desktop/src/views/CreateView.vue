@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
       <div class="page-header-nav">
@@ -5867,7 +5867,7 @@ export default {
           })
         }
       } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED })
+        this.showStory2VideoErrorDialog({ errorCode: _?.code || _?.errorCode, error: _?.message })
       } finally {
         this.story2videoResuming = false
       }

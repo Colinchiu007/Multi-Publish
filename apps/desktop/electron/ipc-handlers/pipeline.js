@@ -12,14 +12,14 @@ function registerHandlers(ipcMain, deps) {
     try {
       const list = pipelineEngine.listPipelines()
       return { code: 0, data: Array.isArray(list) ? list : [] }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null, data: [] } }
   }))
 
   ipcMain.handle('pipeline:get', withSenderCheck((_event, name) => {
     if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
     try {
       return { code: 0, data: pipelineEngine.getPipeline(name) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:start', withSenderCheck(async (_event, name, params) => {
@@ -39,19 +39,19 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('pipeline:pause', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.pause() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:resume', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.resume() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:cancel', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.cancel() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:status', withSenderCheck((_event, name) => {
@@ -60,21 +60,21 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: pipelineEngine.getStatus(name) }
     } catch (err) {
       log.error('[pipeline] status error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
   ipcMain.handle('pipeline:advance', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.advance() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:history', withSenderCheck(() => {
     try {
       const history = pipelineEngine.getHistory()
       return { code: 0, data: Array.isArray(history) ? history : [] }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null, data: [] } }
   }))
 
   ipcMain.handle('pipeline:delete-run', withSenderCheck((_event, runId) => {
@@ -83,7 +83,7 @@ function registerHandlers(ipcMain, deps) {
       const result = pipelineEngine.deleteRun(runId)
       if (result && result.success) return { code: 0, data: { deleted: true, runId: result.runId } }
       return { code: EC.REQUEST_ERROR, message: (result && result.error) || '删除运行记录失败' }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:fetch', withSenderCheck(async (_event, name) => {
@@ -93,7 +93,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] fetch error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -131,7 +131,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] executeStage error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -142,7 +142,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] advanceToNextCheckpoint error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -155,7 +155,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: result }
     } catch (err) {
       log.error('[pipeline] confirmSceneAssets error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -171,13 +171,13 @@ function registerHandlers(ipcMain, deps) {
       const { providerAnomalyBus } = require('../services/provider-anomaly')
       const providerWarnings = providerAnomalyBus.snapshotSince(snapshot.createdAt)
       return { code: 0, data: providerWarnings.length > 0 ? { ...snapshot, providerWarnings } : snapshot }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:pauseWithCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.pauseWithCheckpoint() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   // 按 runId 暂停指定运行（2026-08-16：视频任务编辑页手动暂停，保存检查点可断点续跑）
@@ -187,25 +187,25 @@ function registerHandlers(ipcMain, deps) {
       const result = pipelineEngine.pauseRun(runId)
       if (result && result.success) return { code: 0, data: result }
       return { code: EC.REQUEST_ERROR, message: (result && result.error) || '暂停流水线失败' }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:resumeFromCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.resumeFromCheckpoint() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:registerPipeline', withSenderCheck((_event, def) => {
     try {
       return { code: 0, data: pipelineEngine.registerPipeline(def) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('pipeline:registerStageExecutor', withSenderCheck((_event, stageType, fn) => {
     try {
       return { code: 0, data: pipelineEngine.registerStageExecutor(stageType, fn) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   // ---- Story2Video 批量创作（openspec story2video-batch-create）----
@@ -231,7 +231,7 @@ function registerHandlers(ipcMain, deps) {
       }
     } catch (err) {
       log.error('[pipeline] story2video batch create error:', err)
-      return { code: EC.REQUEST_ERROR, message: err.message }
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
     }
   }))
 
@@ -241,7 +241,7 @@ function registerHandlers(ipcMain, deps) {
     }
     try {
       return { code: 0, data: story2videoBatchQueue.getBatches() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null, data: [] } }
   }))
 
   ipcMain.handle('story2video:batch:cancel', withSenderCheck((_event, payload) => {
@@ -262,7 +262,7 @@ function registerHandlers(ipcMain, deps) {
         message: (result && result.error) || '批量任务不存在',
         errorCode: result && result.errorCode ? result.errorCode : undefined,
       }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
   ipcMain.handle('story2video:pick-batch-files', withSenderCheck(async (_event) => {
@@ -283,7 +283,7 @@ function registerHandlers(ipcMain, deps) {
       const files = result.filePaths.map((filePath) => ({ path: filePath, name: nodePath.basename(filePath) }))
       return { code: 0, data: { files } }
     } catch (e) {
-      return { code: EC.REQUEST_ERROR, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null }
     }
   }))
 

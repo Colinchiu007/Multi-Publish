@@ -176,16 +176,25 @@ function story2VideoTextTooLongError() {
   return error
 }
 
+
+const STORY2VIDEO_VALIDATION_ERROR = 'STORY2VIDEO_VALIDATION_ERROR'
+function validationError(message, params) {
+  const err = new Error(message)
+  err.code = STORY2VIDEO_VALIDATION_ERROR
+  if (params) err.params = params
+  return err
+}
+
 function textValue(value, fallback, field, maxLength = 20000) {
   const result = value === undefined || value === null ? fallback : String(value)
-  if (result.length > maxLength) throw new Error(`Story2Video ${field} 超过 ${maxLength} 字符`)
+  if (result.length > maxLength) throw validationError(`Story2Video ${field} 超过 ${maxLength} 字符`, { field, maxLength })
   return result
 }
 
 function idValue(value, fallback, field) {
   const result = textValue(value, fallback, field, 120).trim()
   if (result && !/^[a-zA-Z0-9._:@/-]+$/.test(result)) {
-    throw new Error(`Story2Video ${field} 格式无效`)
+    throw validationError(`Story2Video ${field} 格式无效`, { field })
   }
   return result
 }
@@ -193,7 +202,7 @@ function idValue(value, fallback, field) {
 function numberValue(value, fallback, field, min, max, integer = false) {
   const candidate = value === undefined || value === null || value === '' ? fallback : Number(value)
   if (!Number.isFinite(candidate) || candidate < min || candidate > max || (integer && !Number.isInteger(candidate))) {
-    throw new Error(`Story2Video ${field} 必须在 ${min}-${max} 范围内`)
+    throw validationError(`Story2Video ${field} 必须在 ${min}-${max} 范围内`, { field, min, max })
   }
   return candidate
 }
@@ -204,32 +213,32 @@ function booleanValue(value, fallback) {
 
 function enumValue(value, fallback, field, allowed) {
   const candidate = value === undefined || value === null || value === '' ? fallback : String(value)
-  if (!allowed.has(candidate)) throw new Error(`Story2Video ${field} 值无效: ${candidate}`)
+  if (!allowed.has(candidate)) throw validationError(`Story2Video ${field} 值无效: ${candidate}`, { field, candidate })
   return candidate
 }
 
 function stringArray(value, field, maxItems = 20) {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value) || value.length > maxItems) {
-    throw new Error(`Story2Video ${field} 必须是最多 ${maxItems} 项的数组`)
+    throw validationError(`Story2Video ${field} 必须是最多 ${maxItems} 项的数组`, { field, maxItems })
   }
   return value.map((item, index) => textValue(item, '', `${field}[${index}]`, 120).trim()).filter(Boolean)
 }
 
 function assertEmptyMediaArray(value, field) {
   if (value === undefined || value === null) return
-  if (!Array.isArray(value)) throw new Error(`Story2Video ${field} 必须是数组`)
-  if (value.length > 0) throw new Error('Story2Video 标准流水线只支持 text 模式')
+  if (!Array.isArray(value)) throw validationError(`Story2Video ${field} 必须是数组`, { field })
+  if (value.length > 0) throw validationError('Story2Video 标准流水线只支持 text 模式')
 }
 
 function normalizeSize(value) {
   const size = textValue(value, DEFAULT_STORY2VIDEO_TEXT_CONFIG.size, 'size', 32).trim()
   const match = /^(\d{2,4})x(\d{2,4})$/.exec(size)
-  if (!match) throw new Error('Story2Video size 必须使用 WIDTHxHEIGHT 格式')
+  if (!match) throw validationError('Story2Video size 必须使用 WIDTHxHEIGHT 格式')
   const width = Number(match[1])
   const height = Number(match[2])
   if (width < 160 || width > 7680 || height < 160 || height > 7680) {
-    throw new Error('Story2Video size 超出 160-7680 像素范围')
+    throw validationError('Story2Video size 超出 160-7680 像素范围')
   }
   return `${width}x${height}`
 }
@@ -249,7 +258,7 @@ function normalizeAspectRatio(value, size) {
   const ratio = textValue(value, derivedRatio, 'image.aspectRatio', 32).trim()
   const normalizedRatio = enumValue(ratio, derivedRatio, 'image.aspectRatio', ASPECT_RATIOS)
   if (normalizedRatio !== derivedRatio) {
-    throw new Error('Story2Video image.aspectRatio 必须与输出分辨率匹配')
+    throw validationError('Story2Video image.aspectRatio 必须与输出分辨率匹配')
   }
   return derivedRatio
 }
@@ -257,7 +266,7 @@ function normalizeAspectRatio(value, size) {
 function normalizeSubtitleSize(value) {
   const key = textValue(value, DEFAULT_STORY2VIDEO_TEXT_CONFIG.subtitle.size, 'subtitle.size', 16)
   const mapped = SUBTITLE_SIZE_MAP[key]
-  if (!mapped) throw new Error(`Story2Video subtitle.size 值无效: ${key}`)
+  if (!mapped) throw validationError(`Story2Video subtitle.size 值无效: ${key}`, { field: 'subtitle.size', value: key })
   return { source: key, compose: mapped }
 }
 
@@ -267,7 +276,7 @@ function normalizeSubtitleSize(value) {
  */
 function normalizeStory2VideoTextParams(params = {}) {
   if (!params || typeof params !== 'object' || Array.isArray(params)) {
-    throw new Error('Story2Video 参数必须是纯 JSON 对象')
+    throw validationError('Story2Video 参数必须是纯 JSON 对象')
   }
   assertNoSensitiveContext(params.initialContext, 'initialContext')
   assertNoSensitiveContext(params.context, 'context')
@@ -275,15 +284,15 @@ function normalizeStory2VideoTextParams(params = {}) {
   const suppliedConfig = objectValue(params.story2videoTextConfig)
   const suppliedVersion = own(suppliedConfig, 'version')
   if (suppliedVersion !== undefined && suppliedVersion !== STORY2VIDEO_TEXT_CONFIG_VERSION) {
-    throw new Error(`Story2Video text 配置版本不受支持: ${suppliedVersion}`)
+    throw validationError(`Story2Video text 配置版本不受支持: ${suppliedVersion}`, { suppliedVersion })
   }
   const mode = textValue(firstDefined(own(suppliedConfig, 'mode'), params.mode, params.inputMode), 'text', 'mode', 16)
-  if (mode !== 'text') throw new Error('Story2Video 标准流水线只支持 text 模式')
+  if (mode !== 'text') throw validationError('Story2Video 标准流水线只支持 text 模式')
   assertEmptyMediaArray(own(params, 'images'), 'images')
   assertEmptyMediaArray(own(params, 'audio'), 'audio')
   const video = own(params, 'video')
   if (video !== undefined && video !== null && video !== '') {
-    throw new Error('Story2Video 标准流水线只支持 text 模式')
+    throw validationError('Story2Video 标准流水线只支持 text 模式')
   }
 
   const suppliedPrompt = own(suppliedConfig, 'prompt')
@@ -295,11 +304,11 @@ function normalizeStory2VideoTextParams(params = {}) {
     throw story2VideoTextTooLongError()
   }
   const text = textValue(suppliedText, '', 'text').trim()
-  if (!text) throw new Error('Story2Video 文案不能为空')
+  if (!text) throw validationError('Story2Video 文案不能为空')
   const prompt = suppliedPrompt === undefined || suppliedPrompt === null || String(suppliedPrompt).trim() === ''
     ? text
     : textValue(suppliedPrompt, text, 'prompt').trim()
-  if (prompt !== text) throw new Error('Story2Video text 与 story2videoTextConfig.prompt 必须一致')
+  if (prompt !== text) throw validationError('Story2Video text 与 story2videoTextConfig.prompt 必须一致')
 
   const size = normalizeSize(firstDefined(own(suppliedConfig, 'size'), params.resolution, params.output?.resolution))
   const splitInput = objectValue(suppliedConfig.split)
@@ -340,9 +349,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     subtitleMaxChars: numberValue(own(splitInput, 'subtitleMaxChars'), 15, 'split.subtitleMaxChars', 1, 200, true),
     subtitleTiming: enumValue(own(splitInput, 'subtitleTiming'), 'proportional', 'split.subtitleTiming', SUBTITLE_TIMINGS),
   }
-  if (split.minWords > split.maxWords) throw new Error('Story2Video split.minWords 不能大于 split.maxWords')
+  if (split.minWords > split.maxWords) throw validationError('Story2Video split.minWords 不能大于 split.maxWords')
   if (split.subtitleMinChars > split.subtitleMaxChars) {
-    throw new Error('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
+    throw validationError('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
   }
   // 分镜字数主控（三层模型①）与 speechRate 单一来源在 voice 构建后计算（见下），
   // 使切分估算使用实际 TTS 语速。
@@ -358,7 +367,7 @@ function normalizeStory2VideoTextParams(params = {}) {
       assertNoSensitiveContext(value, 'optimize.context')
       return value
     }
-    throw new Error('Story2Video optimize.context 必须是字符串或对象')
+    throw validationError('Story2Video optimize.context 必须是字符串或对象')
   }
   const optimize = {
     // 平台/风格与运行层一致：契约别名归一 + 非法回退默认（generic/realistic），旧值兼容不抛错
@@ -471,7 +480,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     ),
   }
   if (videoConfig.minRatio > videoConfig.maxRatio) {
-    throw new Error('Story2Video video.minRatio 不能大于 video.maxRatio')
+    throw validationError('Story2Video video.minRatio 不能大于 video.maxRatio')
   }
 
   // 创作模式（2026-08-12）：auto=全自动（默认，现有流水线）；manual=分镜素材自选。
@@ -725,6 +734,8 @@ function normalizeStory2VideoTextParams(params = {}) {
 }
 
 module.exports = {
+  STORY2VIDEO_VALIDATION_ERROR,
+  validationError,
   DEFAULT_STORY2VIDEO_TEXT_CONFIG,
   STORY2VIDEO_PIPELINE,
   STORY2VIDEO_TEXT_CONFIG_VERSION,
