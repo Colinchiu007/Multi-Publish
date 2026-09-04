@@ -1,0 +1,15 @@
+{
+  "title": "视频克隆接入真实视频模型生成 + prompt-engine 提示词优化",
+  "complexity": "L",
+  "createdAt": "2026-09-05T01:20:00+08:00",
+  "completedAt": "2026-09-05T02:28:00+08:00",
+  "status": "completed",
+  "domain": "backend",
+  "prNumber": "1418",
+  "risk": "high",
+  "currentPhase": "completed",
+  "branch": "codex/video-clone-real-video-generation",
+  "remoteStatus": "merged",
+  "nextAction": "重启后应用内真实 Agnes Video 验证",
+  "id": "video-clone-real-video-generation"
+}
