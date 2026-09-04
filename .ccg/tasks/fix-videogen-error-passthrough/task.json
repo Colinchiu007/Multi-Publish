@@ -1,0 +1,12 @@
+{
+  "nextAction": "提交 PR",
+  "complexity": "S",
+  "title": "videogen 透传 callAdapter 真实错误",
+  "domain": "backend",
+  "status": "in_progress",
+  "currentPhase": "implementation",
+  "createdAt": "2026-09-04T13:40:00Z",
+  "branch": "codex/fix-videogen-error-passthrough",
+  "risk": "low",
+  "id": "fix-videogen-error-passthrough"
+}
