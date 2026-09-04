@@ -1,11 +1,11 @@
 {
-  "url": null,
+  "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4",
   "source": {
-    "type": "local",
-    "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\multi-scene-src.mp4"
+    "type": "url",
+    "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
   },
   "level": "L1",
-  "elapsedMs": 1430,
+  "elapsedMs": 7572,
   "events": [
     {
       "type": "stage:started",
@@ -65,12 +65,12 @@
     {
       "name": "report.meta.durationSec > 0",
       "pass": true,
-      "detail": 6
+      "detail": 10
     },
     {
       "name": "report.visual.shots non-empty",
       "pass": true,
-      "detail": 3
+      "detail": 1
     },
     {
       "name": "report.replication.level valid",
@@ -102,11 +102,20 @@
       "name": "output artifact exists",
       "pass": true,
       "detail": {
-        "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mt74vx7b\\clone.mp4",
-        "durationSec": 6,
+        "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mtn1iyop\\clone.mp4",
+        "durationSec": 10,
         "width": 640,
         "height": 360,
-        "sizeBytes": 9813
+        "fps": 24,
+        "sizeBytes": 13965,
+        "probeOk": true,
+        "shots": [
+          {
+            "t0": 0,
+            "t1": 10
+          }
+        ],
+        "sceneMethod": "ffmpeg-scene"
       }
     },
     {
@@ -117,47 +126,37 @@
     {
       "name": "clone.mp4 playable duration > 0",
       "pass": true,
-      "detail": "6.000000"
+      "detail": "10.000000"
     },
     {
       "name": "clone.mp4 sizeBytes matches report",
       "pass": true,
-      "detail": 9813
+      "detail": 13965
     },
     {
       "name": "duration within tolerance (<2s)",
       "pass": true,
       "detail": {
-        "source": 6,
-        "clone": 6
+        "source": 10,
+        "clone": 10
       }
     }
   ],
-  "runId": "vc-mt74vx7g-ibyxxc",
+  "runId": "vc-mtn1iyox-pwokz9",
   "report": {
     "meta": {
-      "source": "local",
+      "source": "url",
       "platform": null,
-      "durationSec": 6,
+      "durationSec": 10,
       "resolution": "640x360",
-      "fps": 24
+      "fps": 30
     },
     "narrative": {
       "structure": "unknown",
       "timeline": [
         {
           "t0": 0,
-          "t1": 2,
-          "label": "shot"
-        },
-        {
-          "t0": 2,
-          "t1": 4,
-          "label": "shot"
-        },
-        {
-          "t0": 4,
-          "t1": 6,
+          "t1": 10,
           "label": "shot"
         }
       ],
@@ -180,26 +179,12 @@
       "shots": [
         {
           "t0": 0,
-          "t1": 2,
-          "type": "unknown",
-          "motion": "unknown"
-        },
-        {
-          "t0": 2,
-          "t1": 4,
-          "type": "unknown",
-          "motion": "unknown"
-        },
-        {
-          "t0": 4,
-          "t1": 6,
+          "t1": 10,
           "type": "unknown",
           "motion": "unknown"
         }
       ],
-      "transitions": [
-        "cut"
-      ],
+      "transitions": [],
       "subtitleStyle": {}
     },
     "audio": {
@@ -236,28 +221,18 @@
   },
   "reportSource": {
     "meta": {
-      "source": "local",
+      "source": "url",
       "platform": null,
-      "durationSec": 6,
+      "durationSec": 10,
       "resolution": "640x360",
-      "fps": 24
+      "fps": 30
     },
     "narrative": {
       "structure": "unknown",
       "timeline": [
         {
           "t0": 0,
-          "t1": 2,
-          "label": "shot"
-        },
-        {
-          "t0": 2,
-          "t1": 4,
-          "label": "shot"
-        },
-        {
-          "t0": 4,
-          "t1": 6,
+          "t1": 10,
           "label": "shot"
         }
       ],
@@ -280,26 +255,12 @@
       "shots": [
         {
           "t0": 0,
-          "t1": 2,
-          "type": "unknown",
-          "motion": "unknown"
-        },
-        {
-          "t0": 2,
-          "t1": 4,
-          "type": "unknown",
-          "motion": "unknown"
-        },
-        {
-          "t0": 4,
-          "t1": 6,
+          "t1": 10,
           "type": "unknown",
           "motion": "unknown"
         }
       ],
-      "transitions": [
-        "cut"
-      ],
+      "transitions": [],
       "subtitleStyle": {}
     },
     "audio": {
@@ -331,7 +292,7 @@
   },
   "similarity": {
     "score": 1,
-    "confidence": 0.75,
+    "confidence": 0.5,
     "metrics": {
       "structure": 1,
       "script": 1,
@@ -341,41 +302,55 @@
     "passes": {
       "structure": true,
       "script": false,
-      "style": true,
+      "style": false,
       "duration": true
     },
     "warnings": {
-      "verbatimScript": false
+      "verbatimScript": false,
+      "unmeasuredScript": true,
+      "degradedAssets": true
     },
-    "grade": "L2",
+    "grade": null,
     "level": "L1",
     "verdict": "needs_review",
-    "target": "P1"
+    "target": "P1",
+    "provenance": {
+      "structure": "measured",
+      "duration": "measured",
+      "script": "plan-constructive",
+      "style": "plan-constructive"
+    }
   },
   "artifacts": {
     "media": {
-      "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\multi-scene-src.mp4",
-      "sizeBytes": 76657,
-      "source": "local",
-      "durationSec": 6,
+      "path": "D:\\Temp\\vc-dl-p4Ewv2\\video.mp4",
+      "sizeBytes": 991017,
+      "source": "url",
+      "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4",
+      "platform": null,
+      "format": "mov",
+      "durationSec": 10,
       "width": 640,
       "height": 360,
-      "fps": 24,
-      "hasAudio": true,
-      "format": "mov",
+      "fps": 30,
+      "hasAudio": false,
       "ext": "mp4"
     },
     "analysis": {
-      "probe": {
+      "download": {
         "ok": true,
-        "durationSec": 6
+        "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
       },
       "scene": {
         "method": "ffmpeg-scene",
-        "shotCount": 3
+        "shotCount": 1
       },
       "asr": {
         "status": "skipped"
+      },
+      "probe": {
+        "ok": true,
+        "durationSec": 10
       },
       "rewrite": {
         "status": "kept"
@@ -386,56 +361,40 @@
         {
           "index": 0,
           "kind": "image",
-          "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mt74vx7b\\assets\\default\\img_0000.png",
-          "durationSec": 2
-        },
-        {
-          "index": 1,
-          "kind": "image",
-          "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mt74vx7b\\assets\\default\\img_0001.png",
-          "durationSec": 2
-        },
-        {
-          "index": 2,
-          "kind": "image",
-          "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mt74vx7b\\assets\\default\\img_0002.png",
-          "durationSec": 2
+          "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mtn1iyop\\assets\\default\\img_0000.png",
+          "durationSec": 10,
+          "degraded": true,
+          "source": "ffmpeg-placeholder"
         }
       ],
       "plan": [
         {
           "index": 0,
           "t0": 0,
-          "t1": 2,
-          "durationSec": 2,
-          "kind": "image",
-          "promptSeed": "palette:unknown | tone:unknown | person:unknown | plot:"
-        },
-        {
-          "index": 1,
-          "t0": 2,
-          "t1": 4,
-          "durationSec": 2,
-          "kind": "image",
-          "promptSeed": "palette:unknown | tone:unknown | person:unknown | plot:"
-        },
-        {
-          "index": 2,
-          "t0": 4,
-          "t1": 6,
-          "durationSec": 2,
+          "t1": 10,
+          "durationSec": 10,
           "kind": "image",
           "promptSeed": "palette:unknown | tone:unknown | person:unknown | plot:"
         }
       ],
-      "level": "L1"
+      "level": "L1",
+      "degraded": true
     },
     "output": {
-      "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mt74vx7b\\clone.mp4",
-      "durationSec": 6,
+      "path": "D:\\Data\\projects\\Multi-Publish\\.ccg\\tasks\\video-clone-real-url-e2e\\run-output-mtn1iyop\\clone.mp4",
+      "durationSec": 10,
       "width": 640,
       "height": 360,
-      "sizeBytes": 9813
+      "fps": 24,
+      "sizeBytes": 13965,
+      "probeOk": true,
+      "shots": [
+        {
+          "t0": 0,
+          "t1": 10
+        }
+      ],
+      "sceneMethod": "ffmpeg-scene"
     }
   },
   "publishResult": {
