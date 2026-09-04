@@ -64,11 +64,15 @@ describe('createVideoCloneAssetGenerator - 真实视频生成（kind=video）', 
     expect(generateVideo).toHaveBeenCalled()
   })
 
-  it('视频素材：未提供 generateVideo → PROVIDER_UNAVAILABLE', async () => {
+  it('视频素材：未提供 generateVideo 但可生成图片 → 降级为静态图 + degraded 标记', async () => {
+    const generateImage = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback.png' } }))
     const gen = createVideoCloneAssetGenerator({
-      assetGenerator: { generateImage: vi.fn() },
+      assetGenerator: { generateImage },
     })
-    await expect(gen(videoSpec, report)).rejects.toMatchObject({ code: 'VIDEOCLONE_PROVIDER_UNAVAILABLE' })
+    const out = await gen(videoSpec, report)
+    expect(out.kind).toBe('image')
+    expect(out.degraded).toBe(true)
+    expect(out.source).toContain('video-fallback')
   })
 
   it('视频素材：经 prompt-engine 优化后再调用 generateVideo', async () => {
@@ -91,10 +95,14 @@ describe('createVideoCloneAssetGenerator - 真实视频生成（kind=video）', 
     await expect(gen(videoSpec, report)).rejects.toMatchObject({ code: 'VIDEOCLONE_ASSET_GENERATION_FAILED' })
   })
 
-  it('视频素材：generateVideo 失败 → ASSET_GENERATION_FAILED', async () => {
+  it('视频素材：generateVideo 失败 → 降级为静态图 + degraded 标记', async () => {
+    const generateImage = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback2.png' } }))
     const gen = createVideoCloneAssetGenerator({
-      assetGenerator: { generateImage: vi.fn(), generateVideo: vi.fn(async () => ({ code: -1, message: 'video boom' })) },
+      assetGenerator: { generateImage, generateVideo: vi.fn(async () => ({ code: -1, message: 'video boom' })) },
     })
-    await expect(gen(videoSpec, report)).rejects.toMatchObject({ code: 'VIDEOCLONE_ASSET_GENERATION_FAILED' })
+    const out = await gen(videoSpec, report)
+    expect(out.kind).toBe('image')
+    expect(out.degraded).toBe(true)
+    expect(out.source).toContain('video-fallback')
   })
 })

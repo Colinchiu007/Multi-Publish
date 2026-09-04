@@ -29,13 +29,18 @@ const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error'
 const execFileAsync = promisify(execFile)
 
 /** 下载远程视频到本地（支持 http/https 与重定向；失败清理半成品文件） */
-function downloadVideoFile (url, dest) {
+function downloadVideoFile (url, dest, maxRedirects = 5) {
   return new Promise((resolve, reject) => {
+    if (maxRedirects < 0) {
+      try { fs.unlinkSync(dest) } catch (_) {}
+      reject(new Error('视频下载重定向次数过多'))
+      return
+    }
     const lib = String(url).startsWith('https:') ? https : http
     const file = fs.createWriteStream(dest)
     const request = lib.get(url, (response) => {
       if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        downloadVideoFile(response.headers.location, dest).then(resolve, reject)
+        downloadVideoFile(response.headers.location, dest, maxRedirects - 1).then(resolve, reject)
         return
       }
       if (response.statusCode !== 200) {

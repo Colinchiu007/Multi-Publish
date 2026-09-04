@@ -28,34 +28,53 @@ function createVideoCloneAssetGenerator({ assetGenerator, optimizeVideoPromptsBa
     const aspect = (report && report.platformParams && report.platformParams.aspect) || '16:9'
     // 真实视频模型生成动态片段（2026-09-05）：spec.kind === 'video' 时走 generateVideo
     if (spec.kind === 'video') {
-      if (typeof assetGenerator.generateVideo !== 'function') throw providerError()
-      // 生成前统一经 prompt-engine 优化视频提示词（PRD §2 generate 链路，2026-09-05）
-      let prompt = spec.promptSeed
-      if (typeof optimizeVideoPromptsBatch === 'function') {
-        const parts = await optimizeVideoPromptsBatch([prompt], { model: 'agnes-video-v2.0' })
-        if (!Array.isArray(parts) || parts.length !== 1) {
-          throw genError('视频提示词优化结果数量异常（expected 1, got ' + (Array.isArray(parts) ? parts.length : '非法响应') + '）')
+      // 优先真实视频模型生成；失败时降级到静态图 + degraded 标记（诚实降级，不阻断流水线）
+      let videoError = null
+      if (typeof assetGenerator.generateVideo === 'function') {
+        try {
+          // 生成前统一经 prompt-engine 优化视频提示词（PRD §2 generate 链路，2026-09-05）
+          let prompt = spec.promptSeed
+          if (typeof optimizeVideoPromptsBatch === 'function') {
+            const parts = await optimizeVideoPromptsBatch([prompt], { model: 'agnes-video-v2.0' })
+            if (!Array.isArray(parts) || parts.length !== 1) {
+              throw genError('视频提示词优化结果数量异常（expected 1, got ' + (Array.isArray(parts) ? parts.length : '非法响应') + '）')
+            }
+            const optimized = parts[0] && typeof parts[0].optimized_prompt === 'string' && parts[0].optimized_prompt.trim()
+              ? parts[0].optimized_prompt.trim()
+              : ''
+            if (!optimized) throw genError('视频提示词优化返回空提示词')
+            prompt = optimized
+          }
+          const result = await assetGenerator.generateVideo(prompt, {
+            index: spec.index,
+            aspect_ratio: aspect,
+            // 默认使用已配置的 Agnes Video；可通过 report/options 覆盖
+            video_provider: 'agnes-video',
+            video_model: 'agnes-video-v2.0',
+          })
+          if (!result || result.code !== 0 || !result.data || typeof result.data.path !== 'string') {
+            videoError = (result && result.message) || '视频生成失败'
+          } else {
+            const degraded = result.data.degraded === true
+              ? { degraded: true, source: result.data.source || 'video-provider' }
+              : {}
+            return { path: result.data.path, kind: 'video', ...degraded }
+          }
+        } catch (e) {
+          videoError = (e && e.message) || String(e)
         }
-        const optimized = parts[0] && typeof parts[0].optimized_prompt === 'string' && parts[0].optimized_prompt.trim()
-          ? parts[0].optimized_prompt.trim()
-          : ''
-        if (!optimized) throw genError('视频提示词优化返回空提示词')
-        prompt = optimized
+      } else {
+        videoError = '视频模型不可用'
       }
-      const result = await assetGenerator.generateVideo(prompt, {
-        index: spec.index,
-        aspect_ratio: aspect,
-        // 默认使用已配置的 Agnes Video；可通过 report/options 覆盖
-        video_provider: 'agnes-video',
-        video_model: 'agnes-video-v2.0',
+      // 降级：静态图 + degraded 标记（诚实标注视频生成未成功）
+      if (typeof assetGenerator.generateImage !== 'function') throw providerError()
+      const fallback = await assetGenerator.generateImage(spec.promptSeed, {
+        style: 'cinematic', index: spec.index, aspect_ratio: aspect,
       })
-      if (!result || result.code !== 0 || !result.data || typeof result.data.path !== 'string') {
-        throw genError(result && result.message)
+      if (!fallback || fallback.code !== 0 || !fallback.data || typeof fallback.data.path !== 'string') {
+        throw genError(fallback && fallback.message)
       }
-      const degraded = result.data.degraded === true
-        ? { degraded: true, source: result.data.source || 'video-provider' }
-        : {}
-      return { path: result.data.path, kind: 'video', ...degraded }
+      return { path: fallback.data.path, kind: 'image', degraded: true, source: 'video-fallback:' + (videoError || 'unavailable') }
     }
     if (typeof assetGenerator.generateImage !== 'function') throw providerError()
     const result = await assetGenerator.generateImage(spec.promptSeed, {
