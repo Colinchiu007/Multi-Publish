@@ -31,7 +31,16 @@
 3. 操作条左侧与易效侧栏宽度对齐，不能遮挡侧栏；窄屏必须保持可点击和可换行。
 4. 流水线运行后，阶段进度不再嵌入启动页正文，而是由统一进度弹窗承载；页面正文不渲染重复的完整阶段区。
 5. 2026-08-21 起：启动流水线成功进入 running 后，创作页即作为该任务的“前台跟踪页”——stage 进度区、暂停/取消动作、完成自动跳结果页均在此页生效；离开此页自动停止前端跟踪，任务转后台运行，仅在历史记录可见；再次进入创作页为全新新建状态，不自动重挂任何 run。
-6. 内容区为操作条预留底部安全空间，最后一项配置不能被操作条遮住。
+6. 内容区与操作条为互不重叠的两个独立区域：内容区（`.pipeline-detail-scroll`）使用 `flex: 1; overflow-y: auto;` 独立滚动，操作条（`.action-bar`）使用 `flex-shrink: 0;` 位于正常流底部，不脱离文档流。此方案替代了原先的 `position: fixed` + `padding-bottom` 补偿方案，避免操作条因内容换行、多按钮等场景高度变化时遮挡底部配置项。
+   - 实现日期：2026-09-05
+   - 关联 PR：#fix/pipeline-action-bar-overlap
+   - 关键 CSS 变更：
+     - `.create-page--pipeline-detail`：`height: 100%; min-height: 0; overflow: hidden; padding-bottom: 0;`
+     - `.view-pane` / `.pipeline-detail`：添加 `overflow: hidden;`
+     - 新增 `.pipeline-detail-scroll`：`flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 24px;`
+     - `.action-bar`：移除 `position: fixed; left/right/bottom`，改为 `flex-shrink: 0; padding: 14px 0;`（无 `box-shadow` 浮动效果）
+     - `.s2v-options-toast`：从 `position: fixed;` 改为 `position: relative;`（位于操作条内部流）
+   - 模板变更：在 `detail-header` 与 `action-bar` 之间新增 `<div class="pipeline-detail-scroll">` 包裹所有配置内容
 7. 暂停、继续、取消和【后台运行】仍位于底部固定操作条；素材选择检查点、内容政策等待态不重复显示普通暂停动作。
 
 ### 2.1.1 启动前模型能力前置校验（2026-08-28）
