@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mount, config } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import fs from 'node:fs';
 import UiModal from './UiModal.vue';
 
 // Stub Teleport/Transition for jsdom compatibility
@@ -141,6 +142,20 @@ describe('UiModal', () => {
   it('applies custom width style', () => {
     const w = mount(UiModal, { props: { visible: true, width: '500px' } });
     expect(w.find('.ui-modal').attributes('style')).toMatch(/500px/);
+  });
+
+  // 回归保护（2026-09-05 进度弹窗露缝 bug）：
+  // .ui-modal-body 是 .stages-sticky-header（position: sticky; top: 0）的滚动容器，
+  // CSS sticky 约束矩形会被滚动容器自身的 padding 收缩——progress 变体若保留
+  // padding-top，粘性进度条只能停在距 body 顶部 padding-top 处，向上滚出的阶段
+  // 内容会先经过这条无遮盖的缝露出来（小窗口下尤其明显，标题和进度条之间漏出底层文字）。
+  // 契约：progress 变体的 body 不得设置非零 padding-top，保证粘性进度条紧贴弹窗标题区。
+  it('progress variant body keeps zero top padding so the sticky progress header stays flush with the modal title', () => {
+    const source = fs.readFileSync('./src/components/UiModal.vue', 'utf8');
+    const rule = source.match(/\.ui-modal-progress \.ui-modal-body\s*\{([^}]*)\}/);
+    expect(rule).toBeTruthy();
+    const top = rule[1].match(/padding-top:\s*([^;]+);/);
+    if (top) expect(top[1].trim()).toBe('0');
   });
 });
 

@@ -1,4 +1,14 @@
-﻿## [未发布] feat(video): 视频创作历史记录下载视频+排序+重复标题提示（2026-09-04）
+﻿## [未发布] fix(desktop): 修复流水线进度弹窗标题与进度条之间的露缝（2026-09-05）
+
+### 根因
+- `.ui-modal-body`（progress 变体）保留了 `padding-top: 16px`，而它是 `.stages-sticky-header`（`position: sticky; top: 0`）的滚动容器；CSS sticky 约束矩形会被滚动容器自身 padding 收缩，粘性进度条只能停在距 body 顶部 16px 处
+- 阶段项向上滚出时先经过这条无遮盖的缝，小窗口下弹窗标题与进度条之间露出底层文字
+
+### 修复
+- `apps/desktop/src/components/UiModal.vue`：`.ui-modal-progress .ui-modal-body` 的 `padding-top` 置 0，粘性进度条紧贴弹窗标题区（与标题区视觉合并）
+- 回归保护：`apps/desktop/src/components/UiModal.test.js` 新增 CSS 契约测试（progress 变体 body 不得有非零 padding-top）
+
+## [未发布] feat(video): 视频创作历史记录下载视频+排序+重复标题提示（2026-09-04）
 
 ### 功能
 - **下载视频**：已完成任务卡片新增【下载视频】按钮，复用 `story2videoSaveAs` IPC 另存为对话框（与结果页一致）；取消另存为不提示，成功走 `story2video.save_completed`，失败走操作失败提示。

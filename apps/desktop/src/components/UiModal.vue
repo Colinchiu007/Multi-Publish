@@ -241,8 +241,12 @@ onBeforeUnmount(() => {
   max-height: calc(100dvh - var(--pipeline-action-bar-space, 88px) - 48px);
 }
 
+/* sticky 契约：.ui-modal-body 是 .stages-sticky-header（top: 0）的滚动容器，
+   CSS sticky 约束矩形会被滚动容器自身 padding 收缩——保留 padding-top 会让粘性
+   进度条停在距 body 顶部 padding-top 处，向上滚出的阶段内容先经过这条无遮盖的
+   缝露出来（小窗口下标题与进度条之间漏出底层文字）。置 0 使进度条紧贴标题区。 */
 .ui-modal-progress .ui-modal-body {
-  padding-top: var(--apple-space-4);
+  padding-top: 0;
 }
 
 /* Transition */
