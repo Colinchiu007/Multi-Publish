@@ -222,6 +222,8 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
 "产品需求不清楚"           → /office-hours Phase 2.8 + /ai-collaboration Pillar 1
 "不知道怎么用 AI"          → /ai-collaboration + /codex
 "团队协作"                 → dispatching-parallel-agents + subagent-driven-development
+"清理工作区" / "清理仓库"     → git-cleanup-analysis
+"仓库体检" / "工作区诊断"      → git-cleanup-analysis（只读诊断）
 ```
 
 ---
@@ -397,6 +399,15 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
     ├── 依赖的上下游功能已经就绪吗？     → 没有 → ❌ 标记阻塞
     ├── 需要先写 PRD 或架构文档吗？      → 需要 → ⚠️ 调用 /office-hours
     ├── 需求边界清楚吗？                → 模糊 → ⚠️ 调用 /ai-collaboration Pillar 1
+    ├── [新增] **工作区隔离检查**
+    │   ├── 当前编辑路径是否在 apps/ packages/ ops-center/ config/ .github/ 下？
+    │   │   └── 是 → 检查是否在隔离 worktree 内（`git worktree list` 确认）
+    │   │   └── 不是 → ❌ 阻断，提示先运行 `scripts/start-mp-task.ps1 -TaskName <task>`
+    │   └── 如果当前在 main 且需要编辑运行时路径 → 自动提示创建 worktree
+    ├── [新增] **隔离区阈值告警**
+    │   └── quarantineCount > 50 或 violations > 100 → ⚠️ 主动提示"隔离区堆积，建议运行 git-cleanup-analysis"
+    └── [新增] **工作区健康快检**
+        └── 工作区数 > 5 或存在孤儿目录 → ⚠️ 提示"建议运行 git-cleanup-analysis 诊断"
     │
     ▼
 ① 上下文检查 + source-driven-dev（文章：贴完整上下文）
@@ -565,6 +576,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 │       + 置信度 9-10，全部写入 ~/.gstack/projects/multi-publish/learnings.jsonl
 [按需] /learn skillify   → 检查是否生成新 skill
 [按需] documentation-and-adrs → ADR 归档
+[按需] git-cleanup-analysis → 工作区健康诊断（worktree 数量/孤儿/隔离区/main 清洁度）
 ```
 
 ### Phase 5（运营期）阶段检查
@@ -576,6 +588,23 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 [按需] observability-and-instrumentation → 监控
 [按需] performance-optimization → 性能优化
 [按需] security-and-hardening → 安全加固
+[按需] git-cleanup-analysis → 工作区清理（worktree/分支/PR/CI/隔离区）
+```
+
+### Phase 5.7 工作区清理（新增）
+
+> 触发词："清理工作区" / "清理仓库" / "仓库体检" / "git cleanup"
+> 路由到 `git-cleanup-analysis` skill，执行 6 维度诊断（worktree / 分支 / PR / CI / 隔离区 / 磁盘），
+> 输出清理建议报告，经用户确认后辅助执行清理。
+
+```
+工作区清理流程：
+  1. 运行 git-cleanup-analysis 诊断（只读）
+  2. 展示诊断报告（可回收项、风险项、推荐顺序）
+  3. 用户选择清理维度 → 逐项确认
+  4. 执行清理（受安全门禁约束：基线快照、恢复凭据、串行验证）
+  5. 收尾：git worktree prune + git fetch --prune
+  6. 更新 .quality-gates.md 记录
 ```
 
 ---

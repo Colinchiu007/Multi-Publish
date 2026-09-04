@@ -1,4 +1,4 @@
-/**
+﻿/**
  * OCR文字识别 - 使用 Tesseract.js
  * 使用方式：
  *   const ocr = new OCRProvider();

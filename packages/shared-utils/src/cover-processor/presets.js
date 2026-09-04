@@ -1,4 +1,4 @@
-const logger = require('../logger')
+﻿const logger = require('../logger')
 /**
  * 各平台封面图预设 — 从 PlatformConfig 加载
  */

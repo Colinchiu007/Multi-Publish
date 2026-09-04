@@ -9,8 +9,6 @@ const VITEST_FILES = new Set([
   'api-router.test.js',
   'baijiahao-api-chain.test.js',
   'cos-uploader.test.js',
-  'e2e-publish-full-chain.test.js',
-  'kuaishou-ai-declaration.test.js',
   'oss-uploader.test.js',
   'signer.test.js',
   'tiktok.test.js',

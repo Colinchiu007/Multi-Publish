@@ -1,4 +1,4 @@
-let axe;
+﻿let axe;
 try { axe = require('axe-core'); } catch (e) { console.warn('[A11y] axe-core not installed'); }
 
 class A11yProvider {

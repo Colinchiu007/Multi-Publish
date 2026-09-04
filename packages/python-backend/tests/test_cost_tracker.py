@@ -1,4 +1,4 @@
-"""Tests for CostTracker."""
+﻿"""Tests for CostTracker."""
 
 
 import pytest

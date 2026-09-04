@@ -1,4 +1,4 @@
-"""Tests for video creation infrastructure (Phase 0)."""
+﻿"""Tests for video creation infrastructure (Phase 0)."""
 
 import tempfile
 from pathlib import Path

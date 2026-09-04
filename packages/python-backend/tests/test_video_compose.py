@@ -1,4 +1,4 @@
-"""Tests for video_compose.py -- high-risk pure functions."""
+﻿"""Tests for video_compose.py -- high-risk pure functions."""
 
 import json
 from unittest.mock import patch

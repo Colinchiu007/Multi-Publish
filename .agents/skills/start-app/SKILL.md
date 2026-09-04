@@ -3,8 +3,8 @@ name: start-app
 version: 1.2.0
 description: >
   用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
-  桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 WSL 环境的应用，
-  显式指定或检测到 Windows 时走 Windows 流程。启动前先核对本地工作区与远程
+  桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 Windows 环境的应用，
+  显式指定或检测到 WSL 时走 WSL 流程。启动前先核对本地工作区与远程
   origin/main 对齐（保证跑的是最新代码），再检查环境齐备（node / 依赖 /
   electron / 端口），最后启动并验证窗口与登录态。自动判断应用是否已在运行，
   区分「启动 / 重启 / 仅确认状态」三种场景。触发词：启动应用、启动桌面、
@@ -69,12 +69,12 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 1. **代码最新**：启动前核对本地工作区与远程 origin/main 对齐，落后则 fast-forward 同步
 2. **环境齐备**：node、依赖、electron 二进制、端口都健康，避免启动即崩
 3. **共享数据**：用 `shared-user-data` 锚点（WSL/Windows 共用同一数据库、模型 key、账号），不设显式 profile 以免绕过锚点导致数据分裂
-4. **双环境**：默认启动 **WSL（Ubuntu-E）** 环境的应用；显式指定或检测到 Windows 时走 Windows 流程
+4. **双环境**：默认启动 **Windows** 环境的应用；显式指定或检测到 WSL 时走 WSL 流程
 5. **验证**：窗口出现 + 登录态可读
 
 ## 关键事实（本项目）
 
-- **双环境**：Windows（`start-desktop.ps1`，PowerShell 7）与 WSL Ubuntu-E（`start-desktop-wsl.sh`，bash）。**默认 WSL**。
+- **双环境**：Windows（`start-desktop.ps1`，PowerShell 7）与 WSL Ubuntu-E（`start-desktop-wsl.sh`，bash）。**默认 Windows**。
 - **共享数据锚点**：仓库根 `shared-user-data/.shared-data-anchor`（已创建）。`startup-compat.js` 自动检测并启用共享 userData，WSL/Windows 数据一致。**⚠️ 显式设 `ELECTRON_USER_DATA_DIR` / `--user-data-dir=` 会绕过锚点 → 数据分裂**，默认不要设。
 - **Windows 启动契约**：`scripts/start-desktop.ps1`（同步 + 依赖 + 端口 + 单实例锁 + 启动 + 验证）。
 - **WSL 启动契约**：`scripts/start-desktop-wsl.sh`（bash 版；依赖 Linux 版 node_modules + `LD_LIBRARY_PATH` 指向 `~/mp-wsl-deps/electron-libs`）。
@@ -86,7 +86,7 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 
 ## 流程
 
-### 0. 环境判定（默认 WSL）
+### 0. 环境判定（默认 Windows）
 
 **先判定当前运行环境，决定用哪个启动脚本：**
 
@@ -97,14 +97,14 @@ uname -s   # Linux → WSL；MINGW/CYGWIN/MSYS → Windows
 
 | 判定 | 启动脚本 | 说明 |
 |------|---------|------|
-| **WSL（默认）** | `scripts/start-desktop-wsl.sh` | bash 版，Linux electron + LD_LIBRARY_PATH |
-| **Windows** | `scripts/start-desktop.ps1` | PowerShell 7 版 |
+| **Windows（默认）** | `scripts/start-desktop.ps1` | PowerShell 7 版 |
+| **WSL** | `scripts/start-desktop-wsl.sh` | bash 版，Linux electron + LD_LIBRARY_PATH |
 
-- **不指定时默认 WSL**（用户要求「启动应用/重启应用」默认走 WSL）。
-- 用户显式说「Windows 启动」/「win 环境」→ 走 Windows 流程。
-- 若当前 shell 本身在 WSL 内（如本会话），直接用 WSL 流程；若在 Windows PowerShell，默认仍按用户意图（默认 WSL 则通过 `wsl.exe -d Ubuntu-E` 调 WSL 脚本）。
+- **不指定时默认 Windows**（用户要求「启动应用/重启应用」默认走 Windows）。
+- 用户显式说「WSL 启动」/「wsl 环境」→ 走 WSL 流程。
+- 若当前 shell 本身在 WSL 内（如本会话），直接用 WSL 流程；若在 Windows PowerShell，默认走 Windows 流程。
 
-**WSL 启动核心命令（默认路径）：**
+**WSL 启动核心命令（显式指定 WSL 时）：**
 
 ```bash
 # 在 WSL Ubuntu-E 内执行

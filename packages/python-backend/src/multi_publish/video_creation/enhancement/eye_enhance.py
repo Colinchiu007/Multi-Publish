@@ -1,4 +1,4 @@
-"""Eye enhancement tool using MediaPipe Face Mesh + OpenCV.
+﻿"""Eye enhancement tool using MediaPipe Face Mesh + OpenCV.
 
 Targets the eye region for talking-head footage:
 - Under-eye dark circle brightening

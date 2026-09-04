@@ -1,4 +1,4 @@
-# @multi-publish/ai-autonomous-tester
+﻿# @multi-publish/ai-autonomous-tester
 
 > AI 全自动前端测试框架 + 需求验证。
 > **框架只做事实采集，语义判断由 Agent（你）用自带 LLM 完成。**

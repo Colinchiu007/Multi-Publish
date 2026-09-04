@@ -3,6 +3,8 @@ dist/
 dist-electron/
 dist-electron-*/
 .vite/
+# DSH 插件运行时数据（上传附件等），不进入版本库，仅供会话使用
+.dsh/
 *.enc
 browser-data/
 python/__pycache__/

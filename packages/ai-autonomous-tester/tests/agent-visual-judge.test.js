@@ -1,4 +1,4 @@
-const { describe, it } = require("node:test");
+﻿const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { AgentVisualJudge } = require("../src/agent/agent-visual-judge");
 

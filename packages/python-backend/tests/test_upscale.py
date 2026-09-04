@@ -1,4 +1,4 @@
-"""Tests for upscale.py — MODELS data + error paths."""
+﻿"""Tests for upscale.py — MODELS data + error paths."""
 
 from __future__ import annotations
 

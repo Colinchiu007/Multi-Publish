@@ -4,6 +4,8 @@ description: 质量节拍 — 所有开发/产品/需求/设计/测试/文档/�
 type: workflow
 ---
 
+> **注意**：本技能是自包含的路由技能，所有指令已内嵌在本文档中。不需要使用 read/edit 工具读取技能目录下的任何文件。所有路由决策基于当前会话提供的 `<available_skills>` 注册表。
+
 ## 强制触发规则（MUST）
 
 > **所有涉及代码修改的任务，无论规模大小，都必须强制触发质量节拍。**
@@ -36,13 +38,6 @@ type: workflow
 - **未触发质量节拍的代码修改**：不允许提交
 - **跳过质量节拍流程**：Code Review 打回
 - **绕过强制检查**：视为流程违规
-
-### 会话隔离与共享主目录写保护门禁（MUST）
-
-- **共享主目录只读运行时代码**：仓库根（例如 `D:/Data/projects/Multi-Publish`）是 main-only 协调目录，`apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径不得直接落盘；运行时代码任务必须先通过 `scripts/start-mp-task.ps1 -TaskName <task-name>` 创建独立 worktree（默认 `<仓库父目录>/mp-worktrees/mp-<task-name>`，可用 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）。
-- **实时写保护检查（pre-flight + 提交前）**：确认 `Session Isolation Write Guard` 计划任务已注册且 watcher 运行中，`scripts/mp-worktree-health.ps1 -RequireWriteGuard` 通过；共享主目录必须保持 `main` + clean。
-- **被隔离文件的处置**：写保护会把运行时目录直接落盘的文件移入 `%LOCALAPPDATA%\Multi-Publish\session-isolation\quarantine\`，tracked 文件从 HEAD 恢复；发现隔离残留先按 `docs/session-isolation-automation.md` 恢复，禁止用 `--no-verify` 绕过提交守卫。
-- **新机器启用**：安装 skill 只提供门禁文本，还需在克隆仓库后运行 `powershell -ExecutionPolicy Bypass -File scripts/bootstrap-write-guard.ps1` 安装 hooks、计划任务与 watcher；自检和健康门禁通过前不要开始运行时代码任务。
 
 ---
 
@@ -227,6 +222,8 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
 "产品需求不清楚"           → /office-hours Phase 2.8 + /ai-collaboration Pillar 1
 "不知道怎么用 AI"          → /ai-collaboration + /codex
 "团队协作"                 → dispatching-parallel-agents + subagent-driven-development
+"清理工作区" / "清理仓库"     → git-cleanup-analysis
+"仓库体检" / "工作区诊断"      → git-cleanup-analysis（只读诊断）
 ```
 
 ---
@@ -402,6 +399,15 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
     ├── 依赖的上下游功能已经就绪吗？     → 没有 → ❌ 标记阻塞
     ├── 需要先写 PRD 或架构文档吗？      → 需要 → ⚠️ 调用 /office-hours
     ├── 需求边界清楚吗？                → 模糊 → ⚠️ 调用 /ai-collaboration Pillar 1
+    ├── [新增] **工作区隔离检查**
+    │   ├── 当前编辑路径是否在 apps/ packages/ ops-center/ config/ .github/ 下？
+    │   │   └── 是 → 检查是否在隔离 worktree 内（`git worktree list` 确认）
+    │   │   └── 不是 → ❌ 阻断，提示先运行 `scripts/start-mp-task.ps1 -TaskName <task>`
+    │   └── 如果当前在 main 且需要编辑运行时路径 → 自动提示创建 worktree
+    ├── [新增] **隔离区阈值告警**
+    │   └── quarantineCount > 50 或 violations > 100 → ⚠️ 主动提示"隔离区堆积，建议运行 git-cleanup-analysis"
+    └── [新增] **工作区健康快检**
+        └── 工作区数 > 5 或存在孤儿目录 → ⚠️ 提示"建议运行 git-cleanup-analysis 诊断"
     │
     ▼
 ① 上下文检查 + source-driven-dev（文章：贴完整上下文）
@@ -570,6 +576,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 │       + 置信度 9-10，全部写入 ~/.gstack/projects/multi-publish/learnings.jsonl
 [按需] /learn skillify   → 检查是否生成新 skill
 [按需] documentation-and-adrs → ADR 归档
+[按需] git-cleanup-analysis → 工作区健康诊断（worktree 数量/孤儿/隔离区/main 清洁度）
 ```
 
 ### Phase 5（运营期）阶段检查
@@ -581,6 +588,23 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 [按需] observability-and-instrumentation → 监控
 [按需] performance-optimization → 性能优化
 [按需] security-and-hardening → 安全加固
+[按需] git-cleanup-analysis → 工作区清理（worktree/分支/PR/CI/隔离区）
+```
+
+### Phase 5.7 工作区清理（新增）
+
+> 触发词："清理工作区" / "清理仓库" / "仓库体检" / "git cleanup"
+> 路由到 `git-cleanup-analysis` skill，执行 6 维度诊断（worktree / 分支 / PR / CI / 隔离区 / 磁盘），
+> 输出清理建议报告，经用户确认后辅助执行清理。
+
+```
+工作区清理流程：
+  1. 运行 git-cleanup-analysis 诊断（只读）
+  2. 展示诊断报告（可回收项、风险项、推荐顺序）
+  3. 用户选择清理维度 → 逐项确认
+  4. 执行清理（受安全门禁约束：基线快照、恢复凭据、串行验证）
+  5. 收尾：git worktree prune + git fetch --prune
+  6. 更新 .quality-gates.md 记录
 ```
 
 ---
@@ -2286,7 +2310,7 @@ PHASE 切换但门禁未通过       → 自动降级到上一 Phase
 
 ### 2026-08-02 版本整合
 
-- 以 .agents/skills/质量节拍/SKILL.md 作为 canonical 主版本。
+- 以 .codex/skills/quality-rhythm/SKILL.md 作为 canonical 主版本。
 - 合并旧 Codex 副本中的完整任务覆盖描述；保留代码修改任务的强制门禁和 QM-5 Bug 反思流程。
 - 修正触发方式 D 的重复门禁提示，避免同一任务重复表达。
 

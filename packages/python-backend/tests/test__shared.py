@@ -1,4 +1,4 @@
-"""Tests for _shared.py — data dicts and pure functions."""
+﻿"""Tests for _shared.py — data dicts and pure functions."""
 
 from __future__ import annotations
 

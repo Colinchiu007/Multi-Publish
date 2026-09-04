@@ -1,4 +1,4 @@
-"""Tests for subtitle/subtitle_gen.py — SRT/VTT/JSON subtitle generation.
+﻿"""Tests for subtitle/subtitle_gen.py — SRT/VTT/JSON subtitle generation.
 
 subtitle_gen.py is pure Python (no external deps), making it a high-value
 target for coverage improvement (currently 0%).

@@ -38,7 +38,7 @@ const electronScript = path.resolve(repoRoot, 'node_modules', 'electron', 'cli.j
 const electronBinary = path.resolve(repoRoot, 'node_modules', 'electron', 'dist', 'electron.exe');
 
 console.log(`[dev] ports: vite=${vitePort} cdp=${cdpPort} derived=${devPorts.derived}`);
-const vite = spawnNodeScript(viteScript, ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort']);
+const vite = spawnNodeScript(viteScript, ['--host', '0.0.0.0', '--port', String(vitePort), '--strictPort']);
 
 let electron = null;
 let stopping = false;
