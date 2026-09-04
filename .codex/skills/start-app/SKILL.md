@@ -32,14 +32,14 @@ tags: [launch, desktop, electron, dev, sync, profile, restart, wsl, windows]
    - **仅落后** → `git merge --ff-only origin/main`
    - **分叉（本地领先 + 落后）** → ⚠️ `--ff-only` 必然失败，**必须**用 `git merge origin/main`
    - **合并后验证落后数必须为 0**，否则停止不启动（避免用旧代码）
-   - ⚠️ **共享主工作区脏文件多时（其他会话在用）**：**绝不在共享主工作区做 git 写操作**（stash/merge/checkout），改用**隔离 worktree** 启动。详见单一事实源「0a/0b」。
+   - ⚠️ **共享主工作区脏文件 > 0 或依赖残缺时**：**绝不在共享主工作区做 git 写操作**或 `pnpm install`（极慢，>1 小时），改用**隔离 worktree** 启动。详见单一事实源「0a/0b」。
 
 4. **Windows 启动（默认）**：
    ```powershell
    pwsh -File scripts/start-desktop.ps1 -Worktree <工作区> -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json
    ```
    - 端口被无关 Chrome 占用（9222）时：`$env:MP_VITE_PORT="5175"; $env:MP_CDP_PORT="9224"` 覆盖。
-   - 同 profile 被其他 worktree 占用时：加 `-StopForeignProfile`。
+   - **重启时一律加 `-StopForeignProfile`**（其他 worktree 可能留有旧 Electron 进程占用 profile）。
 
 5. **WSL 启动（显式指定时）**：
    ```bash

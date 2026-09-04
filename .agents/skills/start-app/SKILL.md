@@ -119,25 +119,55 @@ bash /mnt/d/Data/projects/Multi-Publish/scripts/start-desktop-wsl.sh
 - 若用户指定 worktree（如 `D:\Data\projects\mp-worktrees\mp-<task>`），用该 worktree。
 - ⚠️ `start-desktop.ps1` 默认 **fail-closed 拒绝共享主工作区**（`git-dir == common-dir`），因为脚本会 fetch/merge 并强停进程。若确实要在共享主目录启动，需 `-ForceShared`（高风险，先向用户说明）。
 
-#### 0a. 共享主工作区脏文件检测（关键，曾踩坑）
+#### 0a. 共享主工作区可用性检测（关键，曾多次踩坑）
 
-**若目标是共享主工作区（`D:\Data\projects\Multi-Publish`），必须先检测脏文件数：**
+**若目标是共享主工作区（`D:\Data\projects\Multi-Publish`），必须同时检查两项：**
 
 ```powershell
-git -C <repo> status --short | Measure-Object | Select-Object -ExpandProperty Count   # 脏文件数
+# 1. 脏文件数
+git -C <repo> status --short | Measure-Object | Select-Object -ExpandProperty Count
+
+# 2. 依赖健康度（⚠️ 曾因跳过此检查，pnpm install 跑了 1 小时没好）
+node scripts/ensure-desktop-deps.js --check
 ```
 
-- **脏文件数 > 0（尤其 > 100）**：说明共享主工作区有**其他会话遗留的未提交改动**（常见：`.ccg/tasks/archive/` 归档 + `apps/desktop/electron/` 等）。此时：
-  - ⛔ **绝不在共享主工作区做任何 git 写操作**（stash / merge / checkout / restore）——违反 AGENTS.md 铁律「共享仓库根禁止 stash/checkout，stash/index/HEAD 属同一 Git 状态会互相竞争」。
-  - ✅ **改用隔离 worktree 启动**（见下方「隔离 worktree 启动」），不动共享主工作区。
-- **脏文件数 = 0**：共享主工作区干净，可正常走下方流程。
+**判定矩阵：**
 
-> **⚠️ 核心教训（曾导致在共享主工作区误 stash）**：
+| 脏文件 | 依赖 | 决策 |
+|--------|------|------|
+| > 0 | 任意 | ⛔ 立即改用隔离 worktree，不动共享主工作区 |
+| = 0 | `DESKTOP_DEPS_OK` | ✅ 可正常走下方流程 |
+| = 0 | `DESKTOP_DEPS_MISSING` | ⛔ **立刻改用隔离 worktree**，不要在共享主目录跑 `pnpm install` |
+
+> **⚠️ 核心教训 1（曾导致误 stash）**：
 > 之前重启时，共享主工作区有 1204 个其他会话的脏文件，我直接 `git stash` 处理冲突，违反铁律。**正确做法：脏文件多时直接改用隔离 worktree，绝不在共享主工作区动 git 状态。**
 
-#### 0b. 隔离 worktree 启动（共享主工作区脏时用）
+> **⚠️ 核心教训 2（曾导致 pnpm install 死等 1 小时）**：
+> 共享主目录的 `node_modules` 可能被其他会话破坏（缺包、hoisting 不完整）。此时 `pnpm install --frozen-lockfile` 极慢（>1 小时）且不可靠——因为多会话并发时 hardlink 竞争、watcher 干扰。**依赖缺失时不要修，直接改用隔离 worktree。**
 
-当共享主工作区脏文件多（其他会话在用）时，在隔离 worktree 启动最新代码：
+#### 0b. 隔离 worktree 启动（共享主工作区不可用时用）
+
+当共享主工作区脏文件多或依赖残缺时，在隔离 worktree 启动最新代码。
+
+**优先复用已有 worktree（快）：**
+
+若已有基于 `origin/main` 的隔离 worktree（如 `mp-start-win`），直接复用：
+
+```powershell
+# 1. 丢弃所有本地改动，确保干净
+git -C "D:\Data\projects\mp-worktrees\mp-<name>" checkout -- .
+git -C "D:\Data\projects\mp-worktrees\mp-<name>" clean -fd
+
+# 2. 同步到 origin/main 最新
+git -C "D:\Data\projects\mp-worktrees\mp-<name>" fetch origin
+git -C "D:\Data\projects\mp-worktrees\mp-<name>" checkout origin/main
+
+# 3. 验证依赖仍健康（isolated worktree 的 deps 通常不受共享主目录影响）
+node "D:\Data\projects\mp-worktrees\mp-<name>/scripts/ensure-desktop-deps.js" --check
+# 若仍然 DESKTOP_DEPS_OK → 跳到步骤 5
+```
+
+**无可用 worktree 时新建：**
 
 ```powershell
 # 1. 创建隔离 worktree（基于 origin/main 最新代码），用 PowerShell 原生 D:\ 路径
@@ -150,15 +180,29 @@ cd "D:\Data\projects\mp-worktrees\mp-<task>"
 pnpm install --frozen-lockfile
 node scripts/ensure-electron.js
 node scripts/verify-worktree-deps.js
+```
 
-# 4. 在隔离 worktree 启动（-StopForeignProfile 停掉占用同 profile 的旧实例；MP_*_PORT 覆盖端口避免 9222 被无关 Chrome 占用）
-$env:MP_VITE_PORT="5175"; $env:MP_CDP_PORT="9224"
+**`pnpm install` 超时纪律（⚠️ 曾踩坑）：**
+
+隔离 worktree 的 `pnpm install` 通常 1-2 分钟完成。若超过 **2 分钟**还没结束——立即 `Ctrl+C` 终止，检查：
+- 是否有其他会话在同时跑 `pnpm install`（hoisted hardlink 竞争）
+- pnpm store 是否可达（`pnpm config get store-dir`）
+- 是否有写保护 watcher 在干扰（`Get-Process` 查 `pwsh` 进程命令行含 `guard-shared-root-writes`）
+
+**不要死等。** 2 分钟上限，超时就 kill 换方案。
+
+**4. 启动（⚠️ 重启场景必须加 `-StopForeignProfile`）：**
+
+```powershell
+# 重启场景：必须加 -StopForeignProfile，因为其他 worktree 可能留有旧 Electron 进程占用 profile
 pwsh -File scripts/start-desktop.ps1 -Worktree "D:\Data\projects\mp-worktrees\mp-<task>" -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile
 ```
 
+> **⚠️ 核心教训（曾因没加 -StopForeignProfile 白跑一轮）**：
+> 重启时，`mp-e2e-run` 等 worktree 可能留有 5+ 个 Electron 进程占用同一 profile。不加 `-StopForeignProfile` 会直接报错退出。**重启场景一律加此参数。**
+
 - 隔离 worktree 的端口由 `dev-ports.js` 按路径独立派生，不会与共享主工作区互抢。
 - `-StopForeignProfile`：审计停止占用同一 profile 的其他 worktree 实例（避免单实例锁互杀）。
-- `MP_VITE_PORT` / `MP_CDP_PORT`：显式覆盖端口（9222 常被无关 Chrome 的 `--remote-debugging-port=9222` 占用，需避开）。
 - 完成后可 `git -C <repo> worktree remove "D:\Data\projects\mp-worktrees\mp-<task>"`（走 `safe-worktree-remove.ps1`，遵守 R1-R5 铁律）。
 
 ### 1. 核对本地工作区与远程对齐（保证代码最新）
@@ -257,6 +301,10 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 ## Pitfalls
 
 - **共享主目录默认被拒**：`start-desktop.ps1` 对共享主工作区 fail-closed，需 `-ForceShared` 且先向用户说明风险。
+- **共享主目录依赖残缺（核心坑）**：多会话并发时，共享主目录的 `node_modules` 可能被破坏（hoisting 不完整、缺包）。此时 `pnpm install --frozen-lockfile` 极慢（>1 小时）且不可靠——**不要修，直接用隔离 worktree**。
+- **重启必须加 `-StopForeignProfile`**：其他 worktree 可能留有旧 Electron 进程占用同一 profile，不加此参数会直接报错退出。重启场景一律加。
+- **`pnpm install` 超时纪律**：无论共享主目录还是隔离 worktree，`pnpm install` 超过 2 分钟就 kill 排查，不要死等。
+- **隔离 worktree 优先复用**：创建新 worktree 需要 `pnpm install`（1-2 分钟），但已有 worktree 只需 `git checkout` + `git clean`（秒级）。优先检查是否已有可用的隔离 worktree。
 - **不要静默连别人的 Vite**：端口归属检查是 fail-closed，绝不绕过。
 - **profile 单实例锁**：同 profile 多实例互杀会导致窗口空白，先处理占用。
 - **同步失败即停**：代码未对齐时不要启动，否则跑的是旧代码。
