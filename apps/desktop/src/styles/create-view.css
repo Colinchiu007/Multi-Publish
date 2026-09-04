@@ -5,7 +5,7 @@
 
 /* 流水线启动页：整页 flex 纵向布局；为固定操作条预留底部安全空间。 */
 .create-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
-.create-page--pipeline-detail { height: 100%; min-height: 0; overflow: hidden; padding-bottom: 0; }
+.create-page--pipeline-detail { padding-bottom: calc(var(--pipeline-action-bar-space, 88px) + 24px); }
 
 /* 流水线选择视图：放宽容器以支持多列动态布局（宽屏 4-5 列） */
 .create-page--pipeline-list { max-width: 1600px; }
@@ -89,9 +89,8 @@
 
 /* 流水线详情 */
 /* 视图窗格与流水线详情：保持内容区的纵向布局。 */
-.view-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.pipeline-detail { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.pipeline-detail-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 24px; }
+.view-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.pipeline-detail { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .back-btn { background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: 13px; padding: 6px 14px; border-radius: 6px; margin-bottom: 16px; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
 .back-btn:hover { background: var(--surface); border-color: var(--primary); }
 .detail-header { margin-bottom: 20px; padding: 16px 20px; background: var(--surface, #fff); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
@@ -325,9 +324,9 @@
 .s2v-batch-error { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--status-failed-bg, #ffebe9); color: var(--status-failed-text, #d1242f); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 
 /* 流水线启动页底部操作条：脱离内容流并固定在主工作区底部。 */
-.action-bar { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; min-height: var(--pipeline-action-bar-space, 88px); padding: 14px 0; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); }
+.action-bar { position: fixed; left: var(--yixiaoer-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; min-height: var(--pipeline-action-bar-space, 88px); padding: 14px max(20px, calc((100vw - var(--yixiaoer-sidebar-width, 200px) - 1080px) / 2 + 32px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
 .action-bar > div { min-width: 0; }
-.s2v-options-toast { position: relative; margin: 0; bottom: auto; left: auto; right: auto; z-index: 10; width: 100%; font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 8px 12px; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out both; }
+.s2v-options-toast { position: fixed; left: max(calc(var(--yixiaoer-sidebar-width, 200px) + 16px), 16px); right: 16px; bottom: calc(var(--pipeline-action-bar-space, 88px) + 16px); z-index: 2500; width: fit-content; max-width: min(720px, calc(100vw - 32px)); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 8px 12px; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out both; }
 
 /* 统一流水线进度弹窗：内容滚动，阶段列表不再嵌套第二个滚动容器。 */
 .pipeline-progress-modal-content { min-width: 0; }

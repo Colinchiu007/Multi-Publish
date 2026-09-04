@@ -51,7 +51,6 @@
           <p v-if="pipelineMode(selectedPipeline.name)" class="detail-mode" data-testid="pipeline-mode-label">{{ pipelineMode(selectedPipeline.name) }}</p>
         </div>
 
-<div class="pipeline-detail-scroll">
         <!-- 输入区域 -->
         <div class="input-section">
           <h3>输入内容</h3>
@@ -833,7 +832,6 @@
             </div>
           </div>
         </div>
-</div>
 
         <!-- 执行控制 -->
         <div class="action-bar" data-testid="pipeline-action-bar">
