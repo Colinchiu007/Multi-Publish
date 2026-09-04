@@ -25,6 +25,8 @@ const UNAVAILABLE_CODES = new Set([
   'EHOSTUNREACH',
   'ENETUNREACH',
   'EPIPE',
+  'ENOENT',
+  'ENOTFOUND',
 ])
 
 function finiteNumber (value, fallback) {
