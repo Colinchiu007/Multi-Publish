@@ -131,12 +131,19 @@ platforms:
     content_category: VIDEO
 
   bilibili:
-    has_api: true
+    id: 23
     name: 哔哩哔哩
     type: mixed
     icon: 📺
     category: 中文
     content_category: VIDEO
+    publish_url: "https://member.bilibili.com/platform/upload/video/frame"
+    data_url: "https://member.bilibili.com/platform/upload/video/frame"
+    comment_url: ""
+    cover_size: 1146x717
+    max_title: 80
+    max_content: 2000
+    has_api: false
 
   baijiahao:
     id: 4
