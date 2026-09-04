@@ -117,3 +117,14 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 **反例（历史上发生）**：运营后台设置了 default_model 但调用解析仍走 `capability_models[type]` / `models[0]`，设置不生效；用户在输入框自由填模型 ID → 调用 404/400。
 
 **强制点**：① 调用侧必须经唯一解析入口 `resolveProviderDefaultModel(provider, type)`（user_default_model → default_model → capability_models[type] → fail-closed），任何接线点不得自行写 `models[0]`；② `user_default_model` 提交时校验 ∈ models，非法值清除；③ applyCatalog 目录同步不得覆盖本地用户 config 键；④ 新「默认模型」类 UI 收敛为下拉 + 只读列表。
+
+## 12. 历史列表排序/派生字段应放在 utility 纯函数层（2026-09-04，video-history-sort-duplicate）
+
+**模式**：任何对已加载列表数据的重新排序、过滤、派生字段（如重复标题检测），都应放在纯函数 utility 层（如 `history-utils.js`），组件只负责 UI 绑定和事件发射。排序主键缺失时统一放最后（无论正序/倒序），次级用稳定字段（有效时间倒序 → 创建时间倒序 → 身份字典序 → 索引）。
+
+**反例**：把排序逻辑写在组件 computed/methods 中，导致测试困难、复用性差。
+
+**强制点**：
+- 排序主键提取函数（如 `historyVideoDuration`）必须文档化字段候选顺序，排除重名字段（如 `activeMs`/`duration` 是流水线耗时，不是视频时长）。
+- 排序稳定的场景（从不同 tab 切换回来顺序不变）由纯函数保证，不依赖组件临时状态。
+- 重复检测等派生计算基于完整列表（不受当前 tab 筛选影响），避免切 tab 时标签闪烁。

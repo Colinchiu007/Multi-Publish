@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CreateViewHistory from './CreateViewHistory.vue'
 import zh from '@/locales/zh'
@@ -35,7 +35,7 @@ describe('CreateViewHistory', () => {
     expect(tabs.map(tab => tab.attributes('data-status'))).toEqual(['all', 'running', 'recoverable', 'failed', 'completed', 'cancelled'])
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     expect(tabs[0].attributes('tabindex')).toBe('0')
-    expect(wrapper.find('select').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="history-sort-select"]').exists()).toBe(true)
   })
 
   it('supports Arrow/Home/End keyboard tab selection', async () => {
@@ -459,5 +459,127 @@ describe('CreateViewHistory', () => {
     expect(wrapper.find('[data-testid="history-batch-delete-button"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="history-select-all"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="history-select-checkbox"]').attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('sort dropdown', () => {
+  it('renders sort select with default value updatedDesc', () => {
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: [{ id: '1', status: 'completed', title: 'Test', updatedAt: '2026-08-15T10:00:00Z' }] },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const select = wrapper.find('[data-testid="history-sort-select"]')
+    expect(select.exists()).toBe(true)
+    // Vue v-model binds to the select value
+    expect(wrapper.vm.sortMode).toBe('updatedDesc')
+  })
+
+  it('changes sort mode when user selects an option', async () => {
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: [
+        { id: 'b', title: 'B', status: 'completed', updatedAt: '2026-08-15T10:00:00Z' },
+        { id: 'a', title: 'A', status: 'completed', updatedAt: '2026-08-20T10:00:00Z' },
+      ] },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    expect(wrapper.vm.filteredHistory.map(item => item.id)).toEqual(['a', 'b'])
+    const select = wrapper.find('[data-testid="history-sort-select"]')
+    await select.setValue('updatedAsc')
+    expect(wrapper.vm.sortMode).toBe('updatedAsc')
+    expect(wrapper.vm.filteredHistory.map(item => item.id)).toEqual(['b', 'a'])
+  })
+})
+
+describe('duplicate title detection', () => {
+  it('shows duplicate title tag when two items have exact same title', () => {
+    const items = [
+      { id: '1', title: 'Same Title', status: 'completed', updatedAt: '2026-08-15T10:00:00Z' },
+      { id: '2', title: 'Same Title', status: 'completed', updatedAt: '2026-08-14T10:00:00Z' },
+      { id: '3', title: 'Different', status: 'completed', updatedAt: '2026-08-13T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const tags = wrapper.findAll('[data-testid="history-duplicate-title-tag"]')
+    expect(tags.length).toBe(2)
+  })
+
+  it('does not show duplicate tag when all titles are unique', () => {
+    const items = [
+      { id: '1', title: 'A', status: 'completed', updatedAt: '2026-08-15T10:00:00Z' },
+      { id: '2', title: 'B', status: 'completed', updatedAt: '2026-08-14T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const tags = wrapper.findAll('[data-testid="history-duplicate-title-tag"]')
+    expect(tags.length).toBe(0)
+  })
+
+  it('excludes items without explicit title from duplicate detection', () => {
+    const items = [
+      { id: '1', title: '', status: 'completed', updatedAt: '2026-08-15T10:00:00Z' },
+      { id: '2', title: '', status: 'completed', updatedAt: '2026-08-14T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const tags = wrapper.findAll('[data-testid="history-duplicate-title-tag"]')
+    expect(tags.length).toBe(0)
+  })
+})
+
+describe('download video button', () => {
+  it('shows download button for completed items with videoPath', () => {
+    const items = [
+      { id: '1', title: 'Test', status: 'completed', videoPath: '/path/to/video.mp4', updatedAt: '2026-08-15T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const btn = wrapper.find('[data-testid="history-download-button"]')
+    expect(btn.exists()).toBe(true)
+  })
+
+  it('hides download button for completed items without videoPath', () => {
+    const items = [
+      { id: '1', title: 'Test', status: 'completed', videoPath: '', updatedAt: '2026-08-15T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const btn = wrapper.find('[data-testid="history-download-button"]')
+    expect(btn.exists()).toBe(false)
+  })
+
+  it('hides download button for non-completed items', () => {
+    const items = [
+      { id: '1', title: 'Test', status: 'running', videoPath: '/path/to/video.mp4', updatedAt: '2026-08-15T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const btn = wrapper.find('[data-testid="history-download-button"]')
+    expect(btn.exists()).toBe(false)
+  })
+
+  it('emits download-history event when download button clicked', async () => {
+    const items = [
+      { id: '1', title: 'Test', status: 'completed', videoPath: '/path/to/video.mp4', updatedAt: '2026-08-15T10:00:00Z' },
+    ]
+    const wrapper = mount(CreateViewHistory, {
+      props: { history: items },
+      global: { mocks: { $t: interpolatingT } },
+    })
+    const btn = wrapper.find('[data-testid="history-download-button"]')
+    await btn.trigger('click')
+    expect(wrapper.emitted('download-history')).toBeTruthy()
+    expect(wrapper.emitted('download-history')[0][0]).toEqual(items[0])
   })
 })

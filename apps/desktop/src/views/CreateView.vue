@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
       <div class="page-header-nav">
@@ -1471,6 +1471,7 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
+import { story2videoSaveAs } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection } from './video-creation'
 import { useLoginGate } from '@/composables/useLoginGate'
 import {
@@ -5809,6 +5810,19 @@ export default {
       const data = buildPublishFromProject(item)
       if (!data.video_path) return
       this.$router.push({ path: '/publish', query: publishDataToQuery(data) })
+    },
+    /** 下载历史视频到本地（2026-09-04） */
+    async downloadHistoryVideo(item) {
+      if (!item || typeof item.videoPath !== 'string' || !item.videoPath.trim()) return
+      try {
+        const suggestedName = String(item.videoPath || '').split(/[\\/]/).pop() || 'video_' + Date.now() + '.mp4'
+        const result = await story2videoSaveAs(item.videoPath, suggestedName)
+        if (result?.code !== 0) throw new Error(result?.message || '下载失败')
+        if (result.data?.cancelled) return
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SAVE_COMPLETED })
+      } catch (_) {
+        this.showStory2VideoOperationFailure()
+      }
     },
     historyRunId(item) {
       const value = item?.runId || item?.id

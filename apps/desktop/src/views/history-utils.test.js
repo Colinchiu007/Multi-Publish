@@ -150,3 +150,160 @@ describe('history-utils', () => {
     expect(RESUME_BLOCKING_ERROR_PATTERN.test(emptyResultError)).toBe(true)
   })
 })
+
+describe('sortHistory with sort modes', () => {
+  const items = [
+    { id: 'a', title: 'Alpha', updatedAt: '2026-08-20T10:00:00Z', createdAt: '2026-08-18T10:00:00Z', videoDuration: 120 },
+    { id: 'b', title: 'Beta', updatedAt: '2026-08-15T12:00:00Z', createdAt: '2026-08-14T10:00:00Z', videoDuration: 60 },
+    { id: 'c', title: 'Gamma', updatedAt: '2026-08-19T10:00:00Z', createdAt: '2026-08-20T10:00:00Z', videoDuration: null },
+    { id: 'd', title: null, updatedAt: null, createdAt: null },
+  ]
+
+  const { SORT_MODES, sortHistory } = require('./history-utils')
+
+  it('updatedDesc default sorts newest first, missing last', () => {
+    const sorted = sortHistory(items, SORT_MODES.UPDATED_DESC)
+    expect(sorted.map(item => item.id)).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('updatedAsc sorts oldest first, missing last', () => {
+    const sorted = sortHistory(items, SORT_MODES.UPDATED_ASC)
+    expect(sorted.map(item => item.id)).toEqual(['b', 'c', 'a', 'd'])
+  })
+
+  it('createdDesc sorts newest created first, missing last', () => {
+    const sorted = sortHistory(items, SORT_MODES.CREATED_DESC)
+    expect(sorted.map(item => item.id)).toEqual(['c', 'a', 'b', 'd'])
+  })
+
+  it('createdAsc sorts oldest created first, missing last', () => {
+    const sorted = sortHistory(items, SORT_MODES.CREATED_ASC)
+    expect(sorted.map(item => item.id)).toEqual(['b', 'a', 'c', 'd'])
+  })
+
+  it('videoDurationDesc sorts longest first, missing last', () => {
+    const sorted = sortHistory(items, SORT_MODES.VIDEO_DURATION_DESC)
+    expect(sorted.map(item => item.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('videoDurationAsc sorts shortest first, missing last', () => {
+    const sorted = sortHistory(items, SORT_MODES.VIDEO_DURATION_ASC)
+    expect(sorted.map(item => item.id)).toEqual(['b', 'a', 'c', 'd'])
+  })
+
+  it('unknown mode falls back to updatedDesc', () => {
+    const sorted = sortHistory(items, 'invalid')
+    expect(sorted.map(item => item.id)).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('uses stable identity tie-break for equal primary values', () => {
+    const tied = [
+      { id: 'z', updatedAt: '2026-08-15T10:00:00Z', createdAt: '2026-08-15T10:00:00Z' },
+      { id: 'a', updatedAt: '2026-08-15T10:00:00Z', createdAt: '2026-08-15T10:00:00Z' },
+    ]
+    const sorted = sortHistory(tied, SORT_MODES.UPDATED_DESC)
+    expect(sorted.map(item => item.id)).toEqual(['a', 'z'])
+  })
+
+  it('accepts video_duration and composeDuration fields', () => {
+    const withAlt = [
+      { id: 'x', video_duration: 90 },
+      { id: 'y', composeDuration: 30 },
+      { id: 'z', videoDuration: 60 },
+    ]
+    const sorted = sortHistory(withAlt, SORT_MODES.VIDEO_DURATION_DESC)
+    expect(sorted.map(item => item.id)).toEqual(['x', 'z', 'y'])
+  })
+})
+
+describe('historyExplicitTitle and duplicate detection', () => {
+  const { historyExplicitTitle, collectDuplicateTitleIdentities } = require('./history-utils')
+
+  it('extracts explicit title from item.title or params', () => {
+    expect(historyExplicitTitle({ title: 'Hello' })).toBe('Hello')
+    expect(historyExplicitTitle({ title: '  Trimmed  ' })).toBe('Trimmed')
+    expect(historyExplicitTitle({ params: { title: 'From params' } })).toBe('From params')
+    expect(historyExplicitTitle({ params: { publishTitle: 'Publish' } })).toBe('Publish')
+    expect(historyExplicitTitle({ params: { title: '', publishTitle: '  Second  ' } })).toBe('Second')
+    expect(historyExplicitTitle({})).toBe('')
+    expect(historyExplicitTitle(null)).toBe('')
+  })
+
+  it('detects duplicate exact titles', () => {
+    const list = [
+      { id: '1', title: 'Same' },
+      { id: '2', title: 'Same' },
+      { id: '3', title: 'Different' },
+    ]
+    const dupes = collectDuplicateTitleIdentities(list)
+    expect(dupes.has('1')).toBe(true)
+    expect(dupes.has('2')).toBe(true)
+    expect(dupes.has('3')).toBe(false)
+  })
+
+  it('trims before comparison', () => {
+    const list = [
+      { id: '1', title: '  Same  ' },
+      { id: '2', title: 'Same' },
+    ]
+    const dupes = collectDuplicateTitleIdentities(list)
+    expect(dupes.has('1')).toBe(true)
+    expect(dupes.has('2')).toBe(true)
+  })
+
+  it('case-sensitive comparison', () => {
+    const list = [
+      { id: '1', title: 'Same' },
+      { id: '2', title: 'same' },
+    ]
+    const dupes = collectDuplicateTitleIdentities(list)
+    expect(dupes.has('1')).toBe(false)
+    expect(dupes.has('2')).toBe(false)
+    expect(dupes.size).toBe(0)
+  })
+
+  it('excludes items without explicit title', () => {
+    const list = [
+      { id: '1', title: '' },
+      { id: '2', title: '' },
+      { id: '3', params: {} },
+    ]
+    const dupes = collectDuplicateTitleIdentities(list)
+    expect(dupes.size).toBe(0)
+  })
+
+  it('accepts custom identityOf', () => {
+    const list = [
+      { id: 'a', title: 'Test' },
+      { id: 'b', title: 'Test' },
+    ]
+    const dupes = collectDuplicateTitleIdentities(list, { identityOf: (item) => item.id.toUpperCase() })
+    expect(dupes.has('A')).toBe(true)
+    expect(dupes.has('B')).toBe(true)
+  })
+
+  it('no duplicates when all titles unique', () => {
+    const list = [
+      { id: '1', title: 'A' },
+      { id: '2', title: 'B' },
+      { id: '3', title: 'C' },
+    ]
+    const dupes = collectDuplicateTitleIdentities(list)
+    expect(dupes.size).toBe(0)
+  })
+})
+
+describe('filterHistoryByStatus with sortMode', () => {
+  const { SORT_MODES, filterHistoryByStatus } = require('./history-utils')
+
+  it('accepts optional sortMode parameter', () => {
+    const items = [
+      { id: 'a', status: 'completed', updatedAt: '2026-08-15T10:00:00Z' },
+      { id: 'b', status: 'completed', updatedAt: '2026-08-20T10:00:00Z' },
+    ]
+    const desc = filterHistoryByStatus(items, 'completed', SORT_MODES.UPDATED_DESC)
+    expect(desc.map(item => item.id)).toEqual(['b', 'a'])
+    const asc = filterHistoryByStatus(items, 'completed', SORT_MODES.UPDATED_ASC)
+    expect(asc.map(item => item.id)).toEqual(['a', 'b'])
+  })
+})
