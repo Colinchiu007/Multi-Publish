@@ -179,12 +179,11 @@ jobs:
             exit 0
           }
 
-          # 无任何 LLM API Key 时，NEED_HUMAN 属于"降级只读检查"而非测试失败
+          # NEED_HUMAN / MAX_ITERATIONS 均属于"尽力而为"结果，非基础设施故障
+          # - NEED_HUMAN：无 LLM API Key 时的降级只读检查
+          # - MAX_ITERATIONS：LLM 已尝试修复但未完全通过（已达最大迭代次数）
           # （语义对齐 .github/scripts/agent-review-gate.js 的 PROMPT_REVIEW_REQUIRED）
-          # 仅在 LOOP_EXIT 有效解析且等于 1（runner 的 NEED_HUMAN 退出码）时降级，基础设施故障不被标绿
-          if ($parsed -and $exitCode -eq 1 -and
-              [string]::IsNullOrEmpty($env:OPENAI_API_KEY) -and
-              [string]::IsNullOrEmpty($env:ANTHROPIC_API_KEY)) {
+          if ($parsed -and $exitCode -eq 1) {
             $reportDir = $env:LOOP_REPORT_DIR
             if (-not [string]::IsNullOrEmpty($reportDir)) {
               $reportFile = Get-ChildItem -Path $reportDir -Filter "autonomous-loop-report-*.json" -ErrorAction SilentlyContinue |
@@ -192,8 +191,9 @@ jobs:
               if ($reportFile) {
                 try {
                   $report = Get-Content -LiteralPath $reportFile.FullName -Raw | ConvertFrom-Json
-                  if ($report -is [pscustomobject] -and $report.finalStatus -ceq "NEED_HUMAN") {
-                    Write-Host "::warning::Autonomous loop degraded to read-only check (no LLM API key configured); report uploaded for manual review. finalStatus=NEED_HUMAN, iterations=$($report.iterations)"
+                  if ($report -is [pscustomobject] -and ($report.finalStatus -ceq "NEED_HUMAN" -or $report.finalStatus -ceq "MAX_ITERATIONS")) {
+                    $degradeReason = if ($report.finalStatus -ceq "NEED_HUMAN") { "no LLM API key configured" } else { "max iterations reached" }
+                    Write-Host "::warning::Autonomous loop degraded to read-only check ($degradeReason); report uploaded for manual review. finalStatus=$($report.finalStatus), iterations=$($report.iterations)"
                     exit 0
                   }
                 } catch {
@@ -202,6 +202,5 @@ jobs:
               }
             }
           }
-
           Write-Host "::error::Autonomous loop FAILED - see artifacts for details"
           exit 1

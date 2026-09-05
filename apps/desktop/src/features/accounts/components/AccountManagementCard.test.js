@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import i18n from '@/i18n'
 import { nextTick } from 'vue'
 import { describe, expect, it } from 'vitest'
 import AccountManagementCard from './AccountManagementCard.vue'
@@ -18,6 +19,9 @@ function mountCard (props = {}) {
       platformIcon: '知',
       batchMode: true,
       ...props,
+    },
+    global: {
+      plugins: [i18n],
     },
   })
 }
