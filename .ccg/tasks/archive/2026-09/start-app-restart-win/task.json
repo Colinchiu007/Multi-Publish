@@ -1,0 +1,35 @@
+{
+  "id": "start-app-restart-win",
+  "title": "用 start-app skill 启动 Multi-Publish 桌面应用（Windows 环境，最新代码 + 共享登录 profile）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "已完成；如不再需要可用 safe-worktree-remove.ps1 清理隔离 worktree mp-start-app-win",
+  "createdAt": "2026-09-05T12:03:00+08:00",
+  "completedAt": "2026-09-05T12:11:00+08:00",
+  "branch": "main",
+  "context": {
+    "requestEnv": "Windows (MINGW64_NT-10.0-26200, 非 WSL) -> 走 scripts/start-desktop.ps1",
+    "appRunningBefore": false,
+    "scenario": "A-未运行-完整启动流程",
+    "codeAlignment": "HEAD 8d7774ef == origin/main 8d7774ef, 0/0 已对齐, 无需同步 (git ls-remote 只读核对, 未 fetch)",
+    "sharedMainWorkspace": "脏文件 3 个 + DESKTOP_DEPS_MISSING(@img/sharp-win32-x64) -> 按 skill 决策矩阵禁用共享主工作区, 未在其上做 git 写操作或 pnpm install",
+    "reusedWorktree": "无可复用: mp-worktrees 下现有目录均非 Multi-Publish 注册 worktree (属 D:/Data/projects=ReelClone 或空目录)",
+    "chosenWorktree": "D:/Data/projects/mp-worktrees/mp-start-app-win (新建, 基于 origin/main, 分支 local/start-app-20260905)",
+    "deps": "pnpm install --frozen-lockfile 54.1s 全 store 复用; DESKTOP_DEPS_OK(missing 0); electron v43.1.1; verify-worktree-deps OK(9 项消费方解析)",
+    "startCommand": "pwsh -File scripts/start-desktop.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-start-app-win -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile",
+    "result": {
+      "contractExit": 0,
+      "windowHandle": 26478944,
+      "windowTitle": "社媒管家",
+      "electronPid": 43156,
+      "vitePid": 31284,
+      "vitePort": 7364,
+      "cdpPort": 11412,
+      "pageUrl": "http://127.0.0.1:7364/#/",
+      "identity": "authenticated, sub=hc2y714slpby, plan=free, expiresAt=1788748010"
+    }
+  }
+}
