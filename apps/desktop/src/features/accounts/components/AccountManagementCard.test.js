@@ -56,7 +56,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('check-login')).toEqual([[account]])
     expect(wrapper.emitted('configure-proxy')).toEqual([[account]])
     expect(wrapper.emitted('remove')).toEqual([[account]])
-      expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(true)
   })
 
   it('非批量模式隐藏账号选择框', () => {
@@ -65,26 +65,26 @@ describe('AccountManagementCard', () => {
     expect(wrapper.find('[data-testid="select-account-1"]').exists()).toBe(false)
   })
 
-    it('失效账号展示登录按钮并上抛原始账号对象', async () => {
-      const expiredAccount = { ...account, status: 'inactive' }
-      const wrapper = mountCard({ account: expiredAccount })
+  it('失效账号展示登录按钮并上抛原始账号对象', async () => {
+    const expiredAccount = { ...account, status: 'inactive' }
+    const wrapper = mountCard({ account: expiredAccount })
 
-      expect(wrapper.text()).toContain('已过期')
-      await wrapper.get('[data-testid="login-account-1"]').trigger('click')
+    expect(wrapper.text()).toContain('已过期')
+    await wrapper.get('[data-testid="login-account-1"]').trigger('click')
 
-      expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])
-    })
+    expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])
+  })
 
-    it('未知状态保持诚实提示并继续提供登录动作', async () => {
-      const unknownAccount = { ...account, status: 'unknown' }
-      const wrapper = mountCard({ account: unknownAccount })
-      const status = wrapper.get('[data-testid="account-status-account-1"]')
+  it('未知状态保持诚实提示并继续提供登录动作', async () => {
+    const unknownAccount = { ...account, status: 'unknown' }
+    const wrapper = mountCard({ account: unknownAccount })
+    const status = wrapper.get('[data-testid="account-status-account-1"]')
 
-      expect(status.text()).toBe('暂无检查记录')
-      expect(status.classes()).toContain('unknown')
-      await wrapper.get('[data-testid="login-account-1"]').trigger('click')
-      expect(wrapper.emitted('open-login')).toEqual([[unknownAccount]])
-    })
+    expect(status.text()).toBe('暂无检查记录')
+    expect(status.classes()).toContain('unknown')
+    await wrapper.get('[data-testid="login-account-1"]').trigger('click')
+    expect(wrapper.emitted('open-login')).toEqual([[unknownAccount]])
+  })
 
   it('异常状态显示异常徽章并在非法检查时间后回退失败原因', () => {
     const failedAccount = {
@@ -151,12 +151,12 @@ describe('AccountManagementCard', () => {
     expect(ownerBadge.classes()).toContain('assignee-owner')
     expect(publisherBadge.classes()).toContain('assignee-publisher')
     expect(proxyBadge.classes()).toContain('assignee-proxy')
-    // 三类徽章各不相同，确保不是统一样式
     const kinds = new Set([ownerBadge.classes(), publisherBadge.classes(), proxyBadge.classes()]
       .flat()
       .filter(cls => cls.startsWith('assignee-') && cls !== 'assignee-badge'))
     expect(kinds.size).toBe(3)
   })
+
   it('只在名称非空且发生变化时上抛重命名', async () => {
     const wrapper = mountCard()
     await wrapper.get('.account-name-button').trigger('click')
@@ -172,7 +172,6 @@ describe('AccountManagementCard', () => {
     await wrapper.get('.account-name-input').trigger('blur')
     expect(wrapper.emitted('rename')).toHaveLength(1)
   })
-
 
   it('非批量模式点击卡片整体打开创作者中心（对齐蚁小二全屏标签交互）', async () => {
     const wrapper = mountCard({ batchMode: false })
@@ -190,16 +189,15 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('open-creator')).toBeUndefined()
   })
 
-    it('卡片内操作按钮点击不冒泡触发打开创作者中心', async () => {
-      const wrapper = mountCard({ batchMode: false })
-      await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
+  it('卡片内操作按钮点击不冒泡触发打开创作者中心', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
 
-      expect(wrapper.emitted('remove')).toEqual([[account]])
-      expect(wrapper.emitted('open-creator')).toBeUndefined()
+    expect(wrapper.emitted('remove')).toEqual([[account]])
+    expect(wrapper.emitted('open-creator')).toBeUndefined()
 
-      await wrapper.get('[data-testid="login-account-1"]').trigger('click')
-      expect(wrapper.emitted('open-login')).toEqual([[account]])
-    })
+    await wrapper.get('[data-testid="login-account-1"]').trigger('click')
+    expect(wrapper.emitted('open-login')).toEqual([[account]])
   })
 
   it('键盘 Enter/Space 激活卡片打开创作者中心（无障碍）', async () => {
