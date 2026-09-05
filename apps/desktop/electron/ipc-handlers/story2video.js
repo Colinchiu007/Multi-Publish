@@ -204,6 +204,17 @@ function registerHandlers (ipcMain, deps = {}) {
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
+  ipcMain.handle('story2video:ensure-project', withSenderCheck(async (_event, payload) => {
+    if (!payload || typeof payload !== 'object' || !isSafeId(payload.projectId)) {
+      return { code: EC.VALIDATION_ERROR, message: 'payload.projectId 无效' }
+    }
+    try {
+      const service = requireProjectService()
+      const result = service.ensureProjectFromRun(payload)
+      return { code: 0, data: result }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
   ipcMain.handle('story2video:update-segments', withSenderCheck(async (_event, request) => {
     if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
         !Array.isArray(request.segments) || request.segments.length === 0) {

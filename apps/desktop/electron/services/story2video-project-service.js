@@ -1164,6 +1164,68 @@ class Story2VideoProjectService {
     })
   }
 
+  /**
+   * 从历史记录 run 数据重建项目（如果项目不存在）。
+   * 用于 pipeline-run 记录点击编辑时自动恢复项目，解决项目被逐出/丢失后编辑按钮消失的问题。
+   * @param {object} payload - { projectId, pipeline, status, title, sourceText, params, stages, context, error }
+   * @returns {object} 项目对象，如果已存在则返回已有项目
+   */
+  ensureProjectFromRun (payload) {
+    if (!payload || typeof payload !== 'object' || !payload.projectId) throw new Error('payload.projectId 无效')
+    const projectId = this._assertId(String(payload.projectId))
+    const existing = this._readProjects().find(item => item.projectId === projectId)
+    if (existing) return existing
+    const now = new Date().toISOString()
+    const segments = Array.isArray(payload.segments) ? payload.segments.map((segment, index) => ({
+      id: segment.id || 'segment-' + index,
+      index: index,
+      sourceIndex: Number.isInteger(segment.sourceIndex) ? segment.sourceIndex : index,
+      text: segment.text || '',
+      prompt: segment.prompt || '',
+      promptTranslation: segment.promptTranslation || null,
+      videoPrompt: segment.videoPrompt || null,
+      imagePath: segment.imagePath || null,
+      audioPath: segment.audioPath || null,
+      videoPath: segment.videoPath || null,
+      duration: Number.isFinite(Number(segment.duration)) ? Number(segment.duration) : null,
+      imageMeta: segment.imageMeta || null,
+      audioMeta: segment.audioMeta || null,
+      videoMeta: segment.videoMeta || null,
+      subtitleBlocks: Array.isArray(segment.subtitleBlocks) ? segment.subtitleBlocks : [],
+      subtitleTimeline: Array.isArray(segment.subtitleTimeline) ? segment.subtitleTimeline : [],
+      sceneSource: segment.sceneSource || null,
+      subtitleSource: segment.subtitleSource || null,
+      degraded: segment.degraded === true,
+      fallbackReason: segment.fallbackReason || null,
+      status: segment.status || 'completed',
+      alternateImages: Array.isArray(segment.alternateImages) ? segment.alternateImages : [],
+      selectedMaterial: segment.selectedMaterial || null,
+    })) : []
+    const project = {
+      manifestVersion: 2,
+      projectId,
+      runId: projectId,
+      pipeline: payload.pipeline || 'story2video-compose',
+      startedPipeline: true,
+      status: payload.status || 'completed',
+      title: payload.title || payload.sourceText || '',
+      sourceText: payload.sourceText || '',
+      createdAt: now,
+      updatedAt: now,
+      endedAt: payload.status === 'running' ? null : now,
+      duration: null,
+      videoDuration: null,
+      outputSizeBytes: null,
+      format: null,
+      videoPath: null,
+      audioPath: null,
+      segments,
+      dirty: false,
+      options: {},
+    }
+    return this._upsertProject(project)
+  }
+
   _manualCandidateScenes (manifest) {
     if (!manifest || manifest.creationMode !== 'manual' || !Array.isArray(manifest.candidates)) return []
     const selections = Array.isArray(manifest.selection?.selections) ? manifest.selection.selections : []

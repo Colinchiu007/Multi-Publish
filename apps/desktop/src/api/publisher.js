@@ -350,6 +350,10 @@ export async function story2videoShowInFolder(filePath) {
 export async function story2videoSaveAs(filePath, suggestedName) {
   return invokeWithFallback("story2videoSaveAs", { code: -1, message: 'electronAPI not available' }, filePath, suggestedName)
 }
+export async function story2videoEnsureProject(payload) {
+  return invokeWithFallback("story2videoEnsureProject", { code: -1, message: 'electronAPI not available' }, payload)
+}
+
 export async function story2videoListProjects() {
   return invokeWithFallback("story2videoListProjects", { code: -1, message: 'electronAPI not available', data: [] })
 }
