@@ -49,6 +49,7 @@ export function useVideoClone() {
   const report = ref(null)
   const similarity = ref(null)
   const publishResult = ref(null)
+  const outputPath = ref(null)
   const error = ref(null)
   let offProgress = null
 
@@ -140,6 +141,7 @@ export function useVideoClone() {
         report.value = d.report || null
         similarity.value = d.similarity || null
         publishResult.value = d.publishResult || null
+        outputPath.value = (d.artifacts && d.artifacts.output && d.artifacts.output.path) || null
         if (!d.ok && d.error) {
           error.value = { code: d.error.code, phase: d.error.phase, userMessageKey: d.error.userMessageKey, params: d.error.params }
           notifyError('videoClone.error.internal', { message: formatUserError({ message: d.error.code }, { fallback: t('videoClone.error.internal') }).message })
@@ -177,6 +179,7 @@ export function useVideoClone() {
         report.value = d.report || report.value
         similarity.value = d.similarity || null
         publishResult.value = d.publishResult || null
+        outputPath.value = (d.artifacts && d.artifacts.output && d.artifacts.output.path) || null
         if (!d.ok && d.error) error.value = { code: d.error.code, phase: d.error.phase }
       }
     } catch (e) { error.value = { code: 'UNKNOWN', message: String(e && e.message) } }
@@ -211,7 +214,7 @@ export function useVideoClone() {
 
   return {
     sourceType, linkUrl, filePath, mode, rewriteScript,
-    running, runId, stageStatus, report, similarity, publishResult, error,
+    running, runId, stageStatus, report, similarity, publishResult, outputPath, error,
     start, cancel, editReport, pickFile, regenerate, STAGE_LABELS,
     buildConfigProfileSnapshot, applyConfigProfileSnapshot,
     loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,

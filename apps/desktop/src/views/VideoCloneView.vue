@@ -104,19 +104,41 @@
         <el-button data-testid="video-clone-regenerate" :loading="running" @click="regenerate" :disabled="!runId || running">{{ t('videoClone.regenerate') }}</el-button>
       </div>
     </el-card>
+
+    <!-- 成品视频（成品展示 + 下载） -->
+    <el-card v-if="outputPath" class="vc-card" shadow="never">
+      <template #header>{{ t('videoClone.outputVideo') }}</template>
+      <video
+        v-if="videoSrc"
+        ref="videoPlayer"
+        :src="videoSrc"
+        controls
+        class="vc-video"
+        data-testid="video-clone-output-video"
+        @error="handleVideoError"
+      />
+      <div v-else class="vc-video-fallback">{{ t('videoClone.outputVideoUnavailable') }}</div>
+      <p class="vc-path-text">{{ t('videoClone.outputPathLabel') }}: {{ outputPath }}</p>
+      <div class="vc-actions">
+        <el-button type="primary" data-testid="video-clone-download" :disabled="!videoSrc" @click="download">{{ t('videoClone.downloadVideo') }}</el-button>
+        <el-button data-testid="video-clone-show-in-folder" @click="showInFolder">{{ t('videoClone.showInFolder') }}</el-button>
+        <el-button data-testid="video-clone-copy-path" @click="copyPath">{{ t('videoClone.copyPath') }}</el-button>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useVideoClone } from '@/composables/useVideoClone'
 import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
+import { story2videoCreateShareUrl, story2videoSaveAs, story2videoShowInFolder, story2videoCopyPath } from '@/api/publisher'
 
 const { t } = useI18n()
 const {
   sourceType, linkUrl, filePath, mode, rewriteScript,
-  running, stageStatus, report, similarity, STAGE_LABELS,
+  running, stageStatus, report, similarity, outputPath, STAGE_LABELS,
   start, cancel, editReport, pickFile, regenerate, runId,
   buildConfigProfileSnapshot, applyConfigProfileSnapshot,
   loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
@@ -142,6 +164,42 @@ function stageLabel(s) {
 function stageStatusText(s) {
   return t('videoClone.status.' + (stageStatus[s] || 'idle'))
 }
+
+// 成品视频展示
+const videoSrc = ref(null)
+const videoLoadAttempted = ref(false)
+
+async function resolveVideoUrl() {
+  if (!outputPath.value) { videoSrc.value = null; return }
+  try {
+    const result = await story2videoCreateShareUrl(outputPath.value, videoSrc.value)
+    videoSrc.value = (result?.code === 0 ? (result.data?.url || result.data) : null) || null
+    videoLoadAttempted.value = false
+  } catch (_) { videoSrc.value = null }
+}
+
+watch(outputPath, () => resolveVideoUrl(), { immediate: true })
+
+function handleVideoError() {
+  if (videoLoadAttempted.value) return
+  videoLoadAttempted.value = true
+  resolveVideoUrl()
+}
+
+async function download() {
+  if (!outputPath.value) return
+  await story2videoSaveAs(outputPath.value, 'video_clone_' + Date.now() + '.mp4')
+}
+
+async function showInFolder() {
+  if (!outputPath.value) return
+  await story2videoShowInFolder(outputPath.value)
+}
+
+async function copyPath() {
+  if (!outputPath.value) return
+  await story2videoCopyPath(outputPath.value)
+}
 </script>
 
 <style scoped>
@@ -158,6 +216,9 @@ function stageStatusText(s) {
 .vc-stage.is-success .vc-stage-dot { background: #67c23a; }
 .vc-stage.is-failed .vc-stage-dot { background: #f56c6c; }
 .vc-stage-status { color: #909399; font-size: 12px; }
+.vc-video { width: 100%; max-height: 480px; border-radius: 4px; background: #000; }
+.vc-video-fallback { padding: 24px; text-align: center; color: #909399; }
+.vc-path-text { margin-top: 8px; color: #909399; font-size: 12px; word-break: break-all; }
 .vc-meta { margin-top: 8px; color: #909399; font-size: 12px; }
 .vc-sim { font-size: 16px; }
 .vc-level { margin-top: 6px; color: #303133; font-size: 14px; }

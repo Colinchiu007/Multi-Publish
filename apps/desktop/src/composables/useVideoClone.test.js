@@ -88,6 +88,45 @@ describe('useVideoClone', () => {
     await p
   })
 
+  it('run 成功时提取 artifacts.output.path 到 outputPath', async () => {
+    const { api } = installMockApi()
+    api.run = vi.fn(async () => ({
+      code: 0,
+      data: { ok: true, runId: 'vc-1', report: { script: { fullText: 'x' }, meta: { durationSec: 10 }, platformParams: { aspect: '9:16' } }, similarity: null, publishResult: null, artifacts: { output: { path: 'C:/tmp/vc-out-abc/clone.mp4' } } },
+    }))
+    vi.stubGlobal('window', { electronAPI: { videoClone: api } })
+    const c = useVideoClone()
+    c.filePath.value = 'C:/tmp/demo.mp4'
+    await c.start()
+    expect(c.outputPath.value).toBe('C:/tmp/vc-out-abc/clone.mp4')
+  })
+
+  it('run 成功但不含 artifacts 时 outputPath 为 null', async () => {
+    const c = useVideoClone()
+    c.filePath.value = 'C:/tmp/demo.mp4'
+    await c.start()
+    expect(c.outputPath.value).toBeNull()
+  })
+
+  it('regenerate 成功时同样提取 outputPath', async () => {
+    const { api } = installMockApi()
+    api.regenerate = vi.fn(async () => ({
+      code: 0,
+      data: { ok: true, report: { script: { fullText: 'y' }, meta: { durationSec: 10 }, platformParams: { aspect: '9:16' } }, similarity: null, publishResult: null, artifacts: { output: { path: 'D:/tmp/regenerated.mp4' } } },
+    }))
+    vi.stubGlobal('window', { electronAPI: { videoClone: api } })
+    const c = useVideoClone()
+    c.runId.value = 'vc-1'
+    await c.regenerate()
+    expect(c.outputPath.value).toBe('D:/tmp/regenerated.mp4')
+  })
+
+  it('导出完整性：outputPath 在 useVideoClone 返回中可访问', () => {
+    const c = useVideoClone()
+    expect(c).toHaveProperty('outputPath')
+    expect(c.outputPath.value).toBeNull()
+  })
+
   it('editReport：IPC 编辑往返写回 report', async () => {
     const c = useVideoClone()
     c.filePath.value = 'C:/tmp/demo.mp4'

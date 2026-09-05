@@ -1,4 +1,4 @@
-﻿export default {
+export default {
   common: {
     save: 'Save',
     cancel: 'Cancel',
@@ -1446,6 +1446,12 @@
     progress: 'Progress',
     report: 'Analysis Report (editable)',
     similarity: 'Similarity (F4)',
+    outputVideo: 'Output Video',
+    outputVideoUnavailable: 'Video failed to load, please retry or download to play',
+    outputPathLabel: 'Location',
+    downloadVideo: 'Download Video',
+    showInFolder: 'Show in Folder',
+    copyPath: 'Copy Path',
     stage: { ingest: 'Ingest', analyze: 'Analyze', plan: 'Plan', generate: 'Generate', compose: 'Compose', publish: 'Publish' },
     status: { idle: 'Idle', running: 'Running', success: 'Success', failed: 'Failed' },
     noDesktopWarning: 'Desktop capabilities are unavailable in this environment',

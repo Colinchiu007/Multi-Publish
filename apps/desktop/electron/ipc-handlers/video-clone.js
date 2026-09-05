@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * 视频克隆 IPC handlers（切片 4b/4c/4d）
  * 通道：video-clone:run / cancel / report:edit / report:regenerate / pick-file / history
@@ -51,6 +51,7 @@ function registerHandlers(ipcMain, deps) {
           runId: result.runId, request: arg,
           report: result.report, reportSource: result.reportSource,
           similarity: result.similarity, publishResult: result.publishResult,
+          artifacts: result.artifacts,
           createdAt: new Date().toISOString(), status: 'completed',
         })
       }
@@ -93,6 +94,7 @@ function registerHandlers(ipcMain, deps) {
           runId: result.runId, request: record.request,
           report: result.report, reportSource: result.reportSource || record.reportSource,
           similarity: result.similarity, publishResult: result.publishResult,
+          artifacts: result.artifacts,
           createdAt: new Date().toISOString(), status: 'completed', regeneratedFrom: runId,
         })
       }
