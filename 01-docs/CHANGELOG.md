@@ -1,3 +1,8 @@
+## [Unreleased] - 2026-09-05 (流水线进度弹窗「后台运行」按钮缺失修复)
+
+### 修复
+- 断点继续（openRunningPipeline）缺少人工检查点状态重置，与启动前台跟踪（startOrchestrationForeground）不一致；旧 run 的 sceneAssetSelectionActive/needsCheckpoint 残留会在状态拉取失败时让 isPipelineManualCheckpoint 误报，导致进度弹窗不显示「后台运行」按钮。补全 8 个状态重置（needsCheckpoint/providerWarnings/dismissedProviderWarnings/sceneAssetSelectionActive/sceneAssetCandidates/sceneAssetSelectionError/sceneAssetConfirming/dismissedBgmSkippedNotice），两条入口的前台状态初始化完全对齐。
+
 ## [Unreleased] - 2026-08-28 (视频创作流水线「保存配置」)
 
 ### 新增

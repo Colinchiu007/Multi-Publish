@@ -5547,6 +5547,15 @@ export default {
       this.orchestrationError = ''
       this.orchestrationContext = null
       this.orchestrationContextRunId = null
+      // 每条新 run 都从干净的前端展示态开始，对齐 startOrchestrationForeground（2026-09-05 修复）
+      this.needsCheckpoint = false
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
+      this.sceneAssetSelectionActive = false
+      this.sceneAssetCandidates = []
+      this.sceneAssetSelectionError = ''
+      this.sceneAssetConfirming = false
+      this.dismissedBgmSkippedNotice = false
       this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(outcome)
       this.orchestrationStages = this.getDefaultPipelineStages(pipelineName)
       this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
