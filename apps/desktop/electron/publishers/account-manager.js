@@ -193,7 +193,7 @@ async function captureCookies (platform, timeout = 300000) {
     } catch { /* ignore localStorage errors */ }
 
     try {
-      accountInfo = await extractAccountInfo(page)
+        accountInfo = await extractAccountInfo(page, platform)
     } catch { /* ignore account info errors */ }
 
     return { cookies, name: accountName, localStorage: localStorageData, accountInfo }
@@ -462,65 +462,68 @@ async function checkLoginStatus (platform, accountId) {
 }
 
 /**
- * 从页面提取账号信息（昵称、头像、平台ID）
- * 基于蚁小二逆向工程
+ * 从页面提取账号信息（昵称、头像、平台ID、粉丝数）。
+ * 优先使用平台专用选择器（PLATFORM_ACCOUNT_INFO_SELECTORS），
+ * 未命中时回退通用选择器。
+ * @param {object} page - Playwright page
+ * @param {string} [platform] - 平台标识（可选）
  */
-async function extractAccountInfo (page) {
+async function extractAccountInfo (page, platform = '') {
   try {
-    return await page.evaluate(() => {
+    const platformSelectors = (platform && PLATFORM_ACCOUNT_INFO_SELECTORS[platform]) || null
+    return await page.evaluate(({ platformSelectors }) => {
       const info = {}
-      // 尝试多种常见的账号信息选择器
-      const selectors = [
-        '[class*="nickname"]',
-        '[class*="username"]',
-        '[class*="account"]',
-        '[class*="user-name"]',
-        '.user-info',
-        '.profile-name',
-        '#nickname',
-        '#username',
-      ]
-      for (const sel of selectors) {
-        const el = document.querySelector(sel)
-        if (el && el.textContent && el.textContent.trim()) {
-          info.nickName = el.textContent.trim()
-          break
+      const trySelectors = (selectors) => {
+        for (const sel of selectors) {
+          const el = document.querySelector(sel)
+          if (el) {
+            const text = (el.textContent || '').trim()
+            if (text) return text
+          }
         }
+        return null
       }
+      const tryAttrSelectors = (selectors, attr) => {
+        for (const sel of selectors) {
+          const el = document.querySelector(sel)
+          if (el && el.getAttribute(attr)) return el.getAttribute(attr).trim()
+        }
+        return null
+      }
+
+      // 昵称：优先平台专用，后通用
+      const nickSelectors = platformSelectors && platformSelectors.nickname
+        ? platformSelectors.nickname
+        : ['[class*="nickname"]', '[class*="username"]', '[class*="user-name"]', '.user-info', '.profile-name', '#nickname', '#username']
+      info.nickName = trySelectors(nickSelectors) || ''
+
       // 头像
       const avatarEl = document.querySelector('[class*="avatar"] img, .avatar img, [class*="avatar-img"]')
-      if (avatarEl) {
-        info.avatar = avatarEl.src || avatarEl.getAttribute('data-src') || ''
-      }
+      if (avatarEl) info.avatar = avatarEl.src || avatarEl.getAttribute('data-src') || ''
+
       // 平台用户ID
-      info.platformAccountId = document.querySelector('[data-user-id], [data-account-id], [data-user]')?.getAttribute('data-user-id') || ''
-      // 粉丝数（通用选择器，按平台差异可扩展）
-      const followerSelectors = [
-        '[class*="fans"]',
-        '[class*="follower"]',
-        '[class*="fan-count"]',
-        '[class*="followers-count"]',
-        '[data-testid*="fans"]',
-        '[data-testid*="follower"]',
-      ]
-      for (const sel of followerSelectors) {
-        const el = document.querySelector(sel)
-        if (el && el.textContent && el.textContent.trim()) {
-          const text = el.textContent.trim()
-          // 支持「1.2万」「3,456」「1.2w」「890」等格式
-          const match = text.match(/([\d.,]+)\s*(万|w|W)?/)
-          if (match) {
-            const num = Number(String(match[1]).replace(/,/g, ''))
-            if (Number.isFinite(num)) {
-              const suffix = (match[2] || '').toLowerCase()
-              info.followers = num * (suffix === '万' || suffix === 'w' ? 10000 : 1)
-              break
-            }
+      const idSelectors = platformSelectors && platformSelectors.platformAccountId
+        ? platformSelectors.platformAccountId
+        : ['[data-user-id]', '[data-account-id]', '[data-user]']
+      info.platformAccountId = tryAttrSelectors(idSelectors, 'data-user-id') || tryAttrSelectors(idSelectors, 'data-account-id') || ''
+
+      // 粉丝数：优先平台专用，后通用
+      const followerSelectors = platformSelectors && platformSelectors.followers
+        ? platformSelectors.followers
+        : ['[class*="fans"]', '[class*="follower"]', '[class*="fan-count"]', '[class*="followers-count"]']
+      const followerText = trySelectors(followerSelectors)
+      if (followerText) {
+        const match = followerText.match(/([\d.,]+)\s*(万|w|W)?/)
+        if (match) {
+          const num = Number(String(match[1]).replace(/,/g, ''))
+          if (Number.isFinite(num)) {
+            const suffix = (match[2] || '').toLowerCase()
+            info.followers = num * (suffix === '万' || suffix === 'w' ? 10000 : 1)
           }
         }
       }
       return info
-    })
+    }, { platformSelectors })
   } catch {
     return {}
   }

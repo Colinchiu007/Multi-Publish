@@ -195,6 +195,27 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   facebook: ['a[aria-label*="profile"]', 'a[aria-label*="Profile"]', 'div[aria-label*="Account"]', 'div[data-pagelet*="root"]'],
 }
 
+// ─── 平台账号信息提取选择器（昵称/粉丝/平台ID）──────
+// 用于 Playwright 页面内提取账号信息；各平台按创作者中心 DOM 定制。
+// 字段：nickname(昵称), followers(粉丝数), platformAccountId(平台用户ID)
+const PLATFORM_ACCOUNT_INFO_SELECTORS = {
+  wechat_mp: { nickname: ['.weui-desktop-account__name'], followers: ['.weui-desktop-account__fans'], platformAccountId: ['[data-account-id]'] },
+  zhihu: { nickname: ['.ProfileHeader-name', '.AppHeader-profileAvatar + *'], followers: ['.NumberBoard-itemValue'], platformAccountId: ['[data-account-id]'] },
+  weibo: { nickname: ['.gn_name', '.ProfileHeader-name'], followers: ['.gn_count span'], platformAccountId: ['[data-account-id]'] },
+  douyin: { nickname: ['.user-name', '[class*="user-name"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  xiaohongshu: { nickname: ['.user-name', '[class*="user-name"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  tencent_video: { nickname: ['.channel-name', '[class*="channel-name"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  kuaishou: { nickname: ['.user-name', '[class*="user-name"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  toutiao: { nickname: ['.nickname', '[class*="nickname"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  bilibili: { nickname: ['.nickname', '[class*="nickname"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  baijiahao: { nickname: ['.user-name', '[class*="user-name"]'], followers: ['.fans-count', '[class*="fans"]'], platformAccountId: ['[data-account-id]'] },
+  youtube: { nickname: ['#channel-name', '#text.ytd-channel-name'], followers: ['#subscriber-count'], platformAccountId: ['[data-account-id]'] },
+  tiktok: { nickname: ['[data-e2e="user-title"]'], followers: ['[data-e2e="followers-count"]'], platformAccountId: ['[data-account-id]'] },
+  twitter: { nickname: ['[data-testid="UserName"]'], followers: ['[href*="verified_followers"]'], platformAccountId: ['[data-account-id]'] },
+  instagram: { nickname: ['h1'], followers: ['[href*="/followers/"]'], platformAccountId: ['[data-account-id]'] },
+  facebook: { nickname: ['h1'], followers: ['[href*="/followers"]'], platformAccountId: ['[data-account-id]'] },
+}
+
 // ─── 平台展示元数据 ───────────────────────────
 // JSON 同时被 Vite 浏览器端与 CommonJS 主进程消费，避免跨模块复制和 CJS 命名导入失败。
 const { PLATFORM_NAMES, PLATFORM_ICONS } = require('./platform-display-definitions.json')
@@ -221,6 +242,7 @@ module.exports = {
   isPlatformLoginSuccessUrl,
   isPlatformCookieDomain,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
+  PLATFORM_ACCOUNT_INFO_SELECTORS,
   PLATFORM_NAMES,
   PLATFORM_ICONS,
   QR_CODE_PLATFORMS,
