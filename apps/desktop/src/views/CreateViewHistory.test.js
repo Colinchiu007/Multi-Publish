@@ -460,6 +460,25 @@ describe('CreateViewHistory', () => {
     expect(wrapper.find('[data-testid="history-select-all"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="history-select-checkbox"]').attributes('disabled')).toBeDefined()
   })
+
+  it('pruneSelection 按 displayHistory 校验 identity，避免全量列表 index fallback 误清除选中', async () => {
+    // 无稳定身份（id/projectId/runId 全空）的目标项：
+    // displayHistory（failed 筛选后截断 500）中 index=1 -> identity='1'
+    // 全量 history 中 index=2 -> identity='2'
+    const noIdentityItem = { status: 'failed', updatedAt: '2026-08-15T10:00:00Z' }
+    const history = [
+      { id: 'stable', projectId: 'p-stable', status: 'failed', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'skip', projectId: 'p-skip', status: 'completed', updatedAt: '2026-08-15T11:00:00Z' },
+      noIdentityItem,
+    ]
+    const wrapper = mountHistory(history)
+    await wrapper.find('[role="tab"][data-status="failed"]').trigger('click')
+    wrapper.vm.toggleSelect(noIdentityItem, 1)
+    expect(wrapper.vm.selectedIdentities).toContain('1')
+    await wrapper.setProps({ history: history.map(item => ({ ...item })) })
+    expect(wrapper.vm.selectedIdentities).toContain('1')
+    expect(wrapper.vm.isSelected(noIdentityItem, 1)).toBe(true)
+  })
 })
 
 describe('sort dropdown', () => {
