@@ -401,16 +401,16 @@ async function listAccounts () {
  * 检查账号登录状态 — 通过加载 Cookie 并访问平台主页来判断
  * @param {string} platform - 平台标识
  * @param {string} accountId - 账号 ID
- * @returns {Promise<{valid: boolean, message: string}>}
+ * @returns {Promise<{valid: boolean, code?: string, error?: string}>}
  */
 async function checkLoginStatus (platform, accountId) {
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
-    return { valid: false, message: '缺少或非法平台/账号参数' }
+    return { valid: false, code: 'CHECK_LOGIN_INVALID_PARAMS' }
   }
 
   const loginUrl = PLATFORM_LOGIN_URLS[platform]
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
-  if (!loginUrl) return { valid: false, message: `不支持的平台: ${platform}` }
+  if (!loginUrl) return { valid: false, code: 'CHECK_LOGIN_UNSUPPORTED_PLATFORM' }
 
   try {
     const credentials = loadSavedCredentials(accountId, platform)
@@ -419,7 +419,7 @@ async function checkLoginStatus (platform, accountId) {
       ? credentials.localStorage
       : {}
     if (!credentials || (cookies.length === 0 && Object.keys(localStorageData).length === 0)) {
-      return { valid: false, message: '未配置 Cookie' }
+      return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
 
     // 创建临时 context 加载 Cookie 进行验证
@@ -440,24 +440,24 @@ async function checkLoginStatus (platform, accountId) {
       if (successSelector) {
         try {
           await page.waitForSelector(successSelector, { timeout: 10000 })
-          return { valid: true, message: 'Cookie 有效，登录正常' }
+          return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
         } catch {
-          return { valid: false, message: 'Cookie 已过期，请重新登录' }
+          return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
         }
       }
 
       // 无特定选择器时，检查 URL 是否跳离登录页
       const currentUrl = page.url()
       if (currentUrl.includes('login') || currentUrl.includes('signin')) {
-        return { valid: false, message: 'Cookie 已过期，请重新登录' }
+        return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
       }
 
-      return { valid: true, message: 'Cookie 似乎有效' }
+      return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
     } finally {
       await page.close().catch(() => {})
     }
   } catch (e) {
-    return { valid: false, message: `检查失败: ${e.message}` }
+    return { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
   }
 }
 

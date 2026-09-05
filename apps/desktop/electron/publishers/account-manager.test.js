@@ -612,7 +612,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     const accountManager = loadAccountManager()
 
     await expect(accountManager.checkLoginStatus(platform, accountId))
-      .resolves.toEqual({ valid: false, message: '缺少或非法平台/账号参数' })
+      .resolves.toEqual({ valid: false, code: 'CHECK_LOGIN_INVALID_PARAMS' })
     expect(requestBackend).not.toHaveBeenCalled()
   })
 
@@ -641,7 +641,7 @@ describe('account-manager — 捕获凭证持久化', () => {
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
       await expect(accountManager.checkLoginStatus('wechat_mp', 'account-storage'))
-        .resolves.toEqual({ valid: true, message: 'Cookie 有效，登录正常' })
+        .resolves.toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
       expect(getContext).toHaveBeenCalledWith({ show: false })
       expect(page.addInitScript).toHaveBeenCalledTimes(1)
     } finally {

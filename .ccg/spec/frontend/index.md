@@ -128,3 +128,44 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 - 排序主键提取函数（如 `historyVideoDuration`）必须文档化字段候选顺序，排除重名字段（如 `activeMs`/`duration` 是流水线耗时，不是视频时长）。
 - 排序稳定的场景（从不同 tab 切换回来顺序不变）由纯函数保证，不依赖组件临时状态。
 - 重复检测等派生计算基于完整列表（不受当前 tab 筛选影响），避免切 tab 时标签闪烁。
+
+## 10. 用户可见提示信息强制规则（i18n-user-facing-messages，2026-09-05）
+
+### 规则 1：语言描述的友好度
+
+**所有应用中出现的错误、警告和提示内容，必须使用自然语言描述，不能出现技术性的、非用户友好的话。** 具体要求：
+
+- ❌ 禁止：显示 i18n key 原始名称（如 `accountsPage.loginExpiredHint`）
+- ❌ 禁止：显示技术错误堆栈或原始错误对象
+- ❌ 禁止：显示后端返回的未处理错误码或英文技术消息
+- ✅ 必须：使用完整、自然的中文（或当前语言）句子描述问题和建议操作
+- ✅ 必须：对用户有具体指示性（不是"操作失败"，而是"登录已失效，请重新登录后重试"）
+
+### 规则 2：符合多语言（i18n）
+
+**所有用户可见文案必须通过 i18n 系统展示，且 zh/en 成对维护。**
+
+- 后端（Electron 主进程）：不得返回用户可见的中文/英文消息字符串。应返回结构化错误码（如 `CHECK_LOGIN_COOKIE_EXPIRED`），由前端根据错误码映射到 i18n 文案。
+- 前端（Vue 渲染进程）：所有用户可见字符串必须通过 `t('key.path')` 获取，禁止在 `.vue` 模板或 script 中硬编码中文字符串字面量。
+- 新增 key 必须在 `zh.js` 和 `en.js` 中成对添加（CI Gate 7 拦截）。
+- 带参文案必须写成 Message Function：`(ctx) => '失败：' + ctx.named('message')`，不能用 `{name}` 占位符。
+
+### 规则 3：后端错误码约定
+
+后端返回给前端的用户可见信息应遵循以下结构：
+
+```javascript
+// ✅ 正确：返回结构化错误码
+{ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+
+// ❌ 错误：返回硬编码用户消息
+{ valid: false, message: 'Cookie 已过期，请重新登录' }
+```
+
+前端维护错误码到 i18n key 的映射表，确保错误消息可翻译。
+
+### 检查机制
+
+- **CI Gate 7**：`node .github/scripts/check-locale-sync.js --cjk` 扫描渲染端硬编码中文字符串
+- **CI Gate 7**：`node .github/scripts/check-locale-sync.js --pair-base origin/main` 检查 zh/en 成对变更
+- **Code Review**：审查者必须检查新增字符串是否都通过 i18n 系统展示

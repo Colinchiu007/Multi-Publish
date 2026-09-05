@@ -12,12 +12,12 @@
     @keydown.space.prevent="onCardActivate"
   >
     <header class="account-card-header">
-      <label v-if="batchMode" class="select-account" :title="`选择 ${accountName(account)}`" @click.stop>
+      <label v-if="batchMode" class="select-account" :title="t('accountsPage.accountCardLabels.selectAccount', { name: accountName(account) })" @click.stop>
         <input
           :data-testid="`select-${account.id}`"
           type="checkbox"
           :checked="selected"
-          :aria-label="`选择 ${accountName(account)}`"
+          :aria-label="t('accountsPage.accountCardLabels.selectAccount', { name: accountName(account) })"
           @change="$emit('toggle-select', account.id)"
         >
       </label>
@@ -29,8 +29,8 @@
         class="favorite-button"
         :class="{ active: favorite }"
         type="button"
-        :title="favorite ? '取消收藏' : '收藏账号'"
-        :aria-label="favorite ? '取消收藏' : '收藏账号'"
+        :title="favorite ? t('accountsPage.accountCardLabels.favoriteRemove') : t('accountsPage.accountCardLabels.favoriteAdd')"
+        :aria-label="favorite ? t('accountsPage.accountCardLabels.favoriteRemove') : t('accountsPage.accountCardLabels.favoriteAdd')"
         :data-testid="`favorite-${account.id}`"
         @click.stop="$emit('toggle-favorite', account.id)"
       >
@@ -48,14 +48,14 @@
         :class="['login-badge', statusClass(account)]"
         :data-testid="`account-status-${account.id}`"
         role="status"
-        :aria-label="`账号登录状态：${statusLabel(account)}`"
+        :aria-label="t('accountsPage.accountCardLabels.accountLoginStatus', { status: statusLabel(account) })"
       >{{ statusLabel(account) }}</span>
       <div class="account-identity">
         <button
           v-if="!editing"
           class="account-name-button"
           type="button"
-          title="重命名账号"
+          :title="t('accountsPage.accountCardLabels.renameAccount')"
           @click.stop="startEditing"
         >
           <span>{{ accountName(account) }}</span>
@@ -66,32 +66,32 @@
           ref="nameInput"
           class="account-name-input"
           :value="accountName(account)"
-          :aria-label="`账号名称：${accountName(account)}`"
+          :aria-label="t('accountsPage.accountCardLabels.accountNameLabel', { name: accountName(account) })"
           spellcheck="false"
           @click.stop
           @blur="finishEditing"
           @keyup.enter="$event.target.blur()"
         >
         <div class="account-details">
-          <span v-if="account.is_default" class="default-label">默认账号</span>
-          <span v-if="account.created_at">添加于 {{ formatDate(account.created_at) }}</span>
-          <span v-else>账号信息已同步</span>
+          <span v-if="account.is_default" class="default-label">{{ t('accountsPage.accountCardLabels.defaultAccount') }}</span>
+          <span v-if="account.created_at">{{ t('accountsPage.accountCardLabels.addedOn', { date: formatDate(account.created_at) }) }}</span>
+          <span v-else>{{ t('accountsPage.accountCardLabels.accountSynced') }}</span>
           <span :data-testid="`account-check-${account.id}`">{{ loginCheckLabel(account) }}</span>
         </div>
         <div class="account-followers" :data-testid="`account-followers-${account.id}`">
-          粉丝：{{ followersLabel(account) }}
+          {{ t('accountsPage.accountCardLabels.followers') }}{{ followersLabel(account) }}
         </div>
-        <div class="account-assignees" aria-label="账号归属信息">
-          <div :data-testid="`account-owner-${account.id}`"><span class="assignee-badge assignee-owner">负责人</span><strong>{{ assigneeLabel(account, OWNER_KEYS) }}</strong></div>
-          <div :data-testid="`account-publisher-${account.id}`"><span class="assignee-badge assignee-publisher">运营人</span><strong>{{ assigneeLabel(account, PUBLISHER_KEYS) }}</strong></div>
-          <div :data-testid="`account-proxy-${account.id}`"><span class="assignee-badge assignee-proxy">代理</span><strong>{{ proxyLabel(account) }}</strong></div>
+        <div class="account-assignees" :aria-label="t('accountsPage.accountCardLabels.accountInfo')">
+          <div :data-testid="`account-owner-${account.id}`"><span class="assignee-badge assignee-owner">{{ t('accountsPage.accountCardLabels.ownerLabel') }}</span><strong>{{ assigneeLabel(account, OWNER_KEYS) }}</strong></div>
+          <div :data-testid="`account-publisher-${account.id}`"><span class="assignee-badge assignee-publisher">{{ t('accountsPage.accountCardLabels.publisherLabel') }}</span><strong>{{ assigneeLabel(account, PUBLISHER_KEYS) }}</strong></div>
+          <div :data-testid="`account-proxy-${account.id}`"><span class="assignee-badge assignee-proxy">{{ t('accountsPage.accountCardLabels.proxyLabel') }}</span><strong>{{ proxyLabel(account) }}</strong></div>
         </div>
       </div>
     </div>
 
     <footer class="account-actions">
       <button :data-testid="`proxy-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('configure-proxy', account)">
-        <Setting />设置
+        <Setting />{{ t('accountsPage.accountCardLabels.settings') }}
       </button>
       <button
         :data-testid="`verify-${account.id}`"
@@ -100,7 +100,7 @@
         :disabled="verifying"
         @click.stop="$emit('check-login', account)"
       >
-        <CircleCheck />验证
+        <CircleCheck />{{ t('accountsPage.accountCardLabels.verify') }}
       </button>
       <button
         :data-testid="`login-${account.id}`"
@@ -109,13 +109,13 @@
         class="login-button"
         :class="{ 'is-logged-in': isActive(account) }"
         :disabled="isActive(account)"
-        :title="isActive(account) ? '已登录' : '去登录'"
+        :title="isActive(account) ? t('accountsPage.accountCardLabels.statusLoggedIn') : t('accountsPage.accountCardLabels.goLogin')"
         @click.stop="$emit('open-login', account)"
       >
-        <Monitor />{{ isActive(account) ? '已登录' : '去登录' }}
+        <Monitor />{{ isActive(account) ? t('accountsPage.accountCardLabels.statusLoggedIn') : t('accountsPage.accountCardLabels.goLogin') }}
       </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('remove', account)">
-        <Delete />删除
+        <Delete />{{ t('accountsPage.accountCardLabels.delete') }}
       </button>
     </footer>
   </article>
@@ -123,6 +123,7 @@
 
 <script setup>
 import { computed, nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -135,6 +136,8 @@ const props = defineProps({
   verifying: { type: Boolean, default: false },
   creatorHint: { type: String, default: '' },
 })
+
+const { t } = useI18n()
 
 const emit = defineEmits([
   'toggle-select',
@@ -191,7 +194,7 @@ const PUBLISHER_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operato
 const FOLLOWER_KEYS = ['followers', 'follower_count', 'followers_count', 'fans', 'fans_count', 'fansCount', '粉丝数']
 
 function accountName (account) {
-  return account.account_name || account.name || '未命名账号'
+  return account.account_name || account.name || t('accountsPage.accountCardLabels.unnamedAccount')
 }
 
 function valueLabel (value) {
@@ -209,17 +212,17 @@ function firstValue (account, keys) {
 
 function followersLabel (account) {
   const value = firstValue(account, FOLLOWER_KEYS)
-  return value || '暂无数据'
+  return value || t('accountsPage.accountCardLabels.noData')
 }
 
 function assigneeLabel (account, keys) {
-  return firstValue(account, keys) || '未设置'
+  return firstValue(account, keys) || t('accountsPage.accountCardLabels.notSet')
 }
 
 function proxyLabel (account) {
   const proxy = account?.proxy || account?.proxy_url || account?.proxyUrl
   const value = valueLabel(proxy)
-  return value || '未设置'
+  return value || t('accountsPage.accountCardLabels.notSet')
 }
 
 function accountStatusKind (account) {
@@ -236,10 +239,10 @@ function isActive (account) {
 
 function statusLabel (account) {
   const kind = accountStatusKind(account)
-  if (kind === 'online') return '已登录'
-  if (kind === 'offline') return '已过期'
-  if (kind === 'error') return '异常'
-  return '暂无检查记录'
+  if (kind === 'online') return t('accountsPage.accountCardLabels.statusLoggedIn')
+  if (kind === 'offline') return t('accountsPage.accountCardLabels.statusExpired')
+  if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
+  return t('accountsPage.accountCardLabels.statusNoCheck')
 }
 
 function statusClass (account) {
@@ -254,18 +257,18 @@ function loginCheckLabel (account) {
     const value = account?.[key]
     if (value === null || value === undefined || value === '') continue
     const date = new Date(value)
-    if (!Number.isNaN(date.getTime())) return `最近检查 ${date.toLocaleString('zh-CN')}`
+    if (!Number.isNaN(date.getTime())) return t('accountsPage.accountCardLabels.lastCheck', { date: date.toLocaleString('zh-CN') })
   }
   for (const key of CHECK_REASON_KEYS) {
     const value = valueLabel(account?.[key])
-    if (value) return `异常：${value}`
+    if (value) return t('accountsPage.accountCardLabels.checkAbnormal', { reason: value })
   }
-  return '暂无检查记录'
+  return t('accountsPage.accountCardLabels.statusNoCheck')
 }
 
 function formatDate (value) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '未知日期' : date.toLocaleDateString('zh-CN')
+  return Number.isNaN(date.getTime()) ? t('accountsPage.accountCardLabels.unknownDate') : date.toLocaleDateString('zh-CN')
 }
 </script>
 
