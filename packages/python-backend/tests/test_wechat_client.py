@@ -42,7 +42,7 @@ def _make_publisher(
 ) -> WechatPublisher:
     """Build a WechatPublisher with a pre-injected token (skips refresh)."""
     pub = WechatPublisher(
-        appid="wx1234567890abcdef",
+        appid="wx_test_app_id_placeholder",
         secret="test_secret",
         access_token=access_token,
         auto_refresh_token=auto_refresh,
