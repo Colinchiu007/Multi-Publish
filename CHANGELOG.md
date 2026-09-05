@@ -1,4 +1,17 @@
-﻿## [未发布] fix(desktop): 修复流水线进度弹窗标题与进度条之间的露缝（2026-09-05）
+﻿## [未发布] fix(desktop): 批量删除并行化 + 删除进度反馈（2026-09-05）
+
+### 根因
+- 批量删除确认后立即关闭对话框，串行 for...of + await 逐条删除；每条项目删除经 IPC 调用主进程同步 fs.rmSync 清理目录，多项目耗时 N 倍且无进度反馈，用户感知为「点击无反应」
+- pruneSelection 用全量 history 校验选中 identity，与 selectedIdentities 基于筛选排序后列表的生成口径不一致
+
+### 修复
+- `apps/desktop/src/views/CreateView.vue`：confirmBatchDeletion 串行改并行（Promise.allSettled），对话框删除期间保持打开并显示「删除中…」，全部完成后才关闭
+- `apps/desktop/src/story2video/story2video-notifications.js`：getStory2VideoNotificationUiText 暴露 deleting 文案
+- `apps/desktop/src/locales/zh.js` / `en.js`：dialog.deleting i18n 键（成对）
+- pruneSelection 改用 displayHistory 校验（含 index fallback 场景回归测试）
+- 回归保护：`CreateView.test.js` 新增对话框保持打开/并行 IPC 测试；`CreateViewHistory.test.js` 新增 pruneSelection index fallback 测试；`story2video-notifications.test.js` 新增 zh/en 成对断言
+
+## [未发布] fix(desktop): 修复流水线进度弹窗标题与进度条之间的露缝（2026-09-05）
 
 ### 根因
 - `.ui-modal-body`（progress 变体）保留了 `padding-top: 16px`，而它是 `.stages-sticky-header`（`position: sticky; top: 0`）的滚动容器；CSS sticky 约束矩形会被滚动容器自身 padding 收缩，粘性进度条只能停在距 body 顶部 16px 处
