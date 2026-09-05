@@ -1,0 +1,12 @@
+{
+  "id": "one-click-publish-e2e",
+  "title": "一键发布E2E：自动化创作视频并发布到百家号、快手、B站",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "analysis",
+  "nextAction": "分析现有代码结构与发布流程",
+  "createdAt": "2026-09-05T03:10:00Z",
+  "branch": "main"
+}

@@ -1,0 +1,12 @@
+{
+  "nextAction": "初始化 Electron 容器 → 调用真实 Agnes Video 生成 → 验证动态画面",
+  "createdAt": "2026-09-05T03:00:00+08:00",
+  "status": "in_progress",
+  "currentPhase": "implementation",
+  "id": "video-clone-real-agv-e2e",
+  "branch": "main",
+  "complexity": "M",
+  "risk": "medium",
+  "title": "视频克隆真实 Agnes Video 生成 E2E 验证",
+  "domain": "desktop-e2e"
+}

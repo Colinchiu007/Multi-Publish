@@ -2748,6 +2748,40 @@ function registerStory2VideoStages(pipelineEngine) {
         if (normalized) resumeCompleted.set(normalized.index, normalized)
       }
 
+      /**
+       * 增量保存断点续传状态到 running checkpoint。
+       * 每完成一个资产（图片/旁白/视频）后立即调用，确保 App 中途崩溃后已完成的资产不丢失。
+       * @param {number} sceneIndex 场景索引
+       * @param {{ imagePath?: string, videoPath?: string, audioPath?: string, duration?: number }} asset 资产路径
+       */
+      const saveIncrementalResume = (sceneIndex, asset = {}) => {
+        if (!context || typeof context !== 'object') return;
+        const total = Math.max(sentences.length, optimizedPrompts.length);
+        context.generate_assets = context.generate_assets || {};
+        context.generate_assets.resume = context.generate_assets.resume || { completed: [], total, savedAt: null };
+        const merged = new Map();
+        for (const item of (context.generate_assets.resume.completed || [])) {
+          if (item && Number.isInteger(item.index) && item.index >= 0) {
+            merged.set(item.index, { ...item });
+          }
+        }
+        const existing = merged.get(sceneIndex) || { index: sceneIndex };
+        if (asset.imagePath) existing.imagePath = asset.imagePath;
+        if (asset.videoPath) existing.videoPath = asset.videoPath;
+        if (asset.audioPath) existing.audioPath = asset.audioPath;
+        if (asset.duration) existing.duration = asset.duration;
+        merged.set(sceneIndex, existing);
+        context.generate_assets.resume.completed = [...merged.values()];
+        context.generate_assets.resume.savedAt = new Date().toISOString();
+        // 同时更新内存 resumeCompleted Map（供后续 itemTask 跳过已生成的）
+        const normalized = normalizeResumeEntry(existing);
+        if (normalized) resumeCompleted.set(normalized.index, normalized);
+        // 持久化 running checkpoint：将包含断点数据的 context 落盘
+        if (pipelineEngine && typeof pipelineEngine.saveRunningCheckpoint === 'function') {
+          pipelineEngine.saveRunningCheckpoint(runId);
+        }
+      };
+
       // 实时进度（供前端阶段清单展示「图片 x/y · 视频 a/b · 旁白 x/y」）
       let imagesDone = 0;
       let videosDone = 0;
@@ -2875,6 +2909,7 @@ function registerStory2VideoStages(pipelineEngine) {
               resumedContinuity.backend,
             ));
             markVideoDone();
+            saveIncrementalResume(index, { videoPath: resumed.videoPath });
             return { index, success: true };
           }
           const prep = optimizedVideoPrompts.get(index);
@@ -2924,7 +2959,10 @@ function registerStory2VideoStages(pipelineEngine) {
                 prep.engine_source,
               ));
             }
-            if (outcome && outcome.success) markVideoDone();
+            if (outcome && outcome.success) {
+              markVideoDone();
+              saveIncrementalResume(index, { videoPath: outcome.path });
+            }
             return { index, success: Boolean(outcome && outcome.success) };
           } catch (error) {
             log.warn('Story2VideoStages', 'scene ' + index + ' video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
@@ -2954,6 +2992,7 @@ function registerStory2VideoStages(pipelineEngine) {
             const resumed = resumeCompleted.get(index);
             if (resumed && resumed.imagePath) {
               markImageDone();
+              saveIncrementalResume(index, { imagePath: resumed.imagePath });
               return {
                 index,
                 success: true,
@@ -2982,6 +3021,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 return { index, success: false, error: 'Supplied image is missing, unreadable, or too large' };
               }
               markImageDone();
+              saveIncrementalResume(index, { imagePath: suppliedPath });
               return { index, success: true, path: suppliedPath, meta: { supplied: true } };
             }
             let result;
@@ -3062,6 +3102,7 @@ function registerStory2VideoStages(pipelineEngine) {
             const normalized = normalizeAssetResult(result, ['path', 'url', 'image_path']);
             if (normalized) {
               markImageDone();
+              saveIncrementalResume(index, { imagePath: normalized.path });
               return {
                 index,
                 success: true,
@@ -3110,6 +3151,7 @@ function registerStory2VideoStages(pipelineEngine) {
             const resumed = resumeCompleted.get(index);
             if (resumed && resumed.audioPath) {
               markTtsDone();
+              saveIncrementalResume(index, { audioPath: resumed.audioPath, duration: resumed.duration });
               return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
             }
             const suppliedAudio = inputAudio[index]
@@ -3119,6 +3161,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 return { index, success: false, error: 'Supplied audio is missing or unreadable' };
               }
               markTtsDone();
+              saveIncrementalResume(index, { audioPath: suppliedPath, duration: typeof suppliedAudio === 'object' ? suppliedAudio.duration : null });
               return {
                 index,
                 success: true,
@@ -3158,6 +3201,7 @@ function registerStory2VideoStages(pipelineEngine) {
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
               markTtsDone();
+              saveIncrementalResume(index, { audioPath: normalized.path, duration: normalized.duration });
               return {
                 index,
                 success: true,
@@ -3188,6 +3232,7 @@ function registerStory2VideoStages(pipelineEngine) {
           })
           if (_reCloneResult) {
             markTtsDone()
+            saveIncrementalResume(index, { audioPath: _reCloneResult.path, duration: _reCloneResult.duration });
             return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
           }
           return { index, success: false, error: e.message };

@@ -1,0 +1,12 @@
+{
+  "id": "fix-generate-assets-resume",
+  "title": "修复 generate_assets 阶段断点续传不跳过已生成资源的问题",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-09-04T18:40:00Z",
+  "branch": "main"
+}

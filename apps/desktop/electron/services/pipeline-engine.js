@@ -1175,6 +1175,17 @@ class PipelineEngine {
     }
   }
 
+  /**
+   * 公开的阶段级 checkpoint 保存（供阶段执行器在资产增量生成后调用）。
+   * 确保 generate_assets 等长时间阶段中途崩溃后，已完成的资产不丢失。
+   * @param {string} runId
+   */
+  saveRunningCheckpoint(runId) {
+    const run = this._runs.get(runId);
+    if (!run) return;
+    this._saveRunningCheckpoint(run);
+  }
+
   /** 后台并行上限检查：超过 maxConcurrentRuns 时拒绝启动/恢复。 */
   _assertConcurrencyBudget() {
     const activeCount = this._countActiveRuns();
