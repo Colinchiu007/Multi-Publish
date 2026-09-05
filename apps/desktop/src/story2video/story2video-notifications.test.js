@@ -180,6 +180,11 @@ describe('Story2Video notification messages', () => {
     expect(getStory2VideoNotificationUiText('en', '').dialogTitle).toBe('Notice')
   })
 
+  it('删除进行中的 dialog 按钮文案（zh/en 成对）', () => {
+    expect(getStory2VideoNotificationUiText('zh').deleting).toBe('删除中…')
+    expect(getStory2VideoNotificationUiText('en').deleting).toBe('Deleting…')
+  })
+
   it('媒体文件细分提示：格式不支持/大小超限/不可读，参数可插值', () => {
     const zhFormat = formatStory2VideoNotification({
       messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,

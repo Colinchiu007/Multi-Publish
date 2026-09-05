@@ -179,6 +179,7 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
     acknowledge: read('acknowledge'),
     cancel: read('cancel'),
     confirmDelete: read('confirmDelete'),
+    deleting: read('deleting'),
     resume: read('resume'),
     resuming: read('resuming'),
     resumeHint: read('resumeHint'),

@@ -1137,9 +1137,10 @@
       @close="closeBatchDeletionDialog"
     >
       <p class="story2video-error-dialog-message">{{ story2videoBatchDeleteDialogMessage }}</p>
+      <p v-if="deleting" class="story2video-error-dialog-message" style="color: var(--s2v-text-secondary, #6b7280); margin-top: 8px;">{{ story2videoErrorDialogUiText.deleting }}</p>
       <template #footer>
         <UiButton variant="secondary" :disabled="deleting" @click="closeBatchDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
-        <UiButton variant="danger" :disabled="deleting" data-testid="confirm-batch-deletion" @click="confirmBatchDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+        <UiButton variant="danger" :disabled="deleting" data-testid="confirm-batch-deletion" @click="confirmBatchDeletion">{{ deleting ? story2videoErrorDialogUiText.deleting : story2videoErrorDialogUiText.confirmDelete }}</UiButton>
       </template>
     </UiModal>
 
@@ -4770,39 +4771,40 @@ export default {
     async confirmBatchDeletion() {
       if (this.deleting) return
       const items = this.story2videoBatchDeleteDialog.items
-      this.closeBatchDeletionDialog()
       if (!items || items.length === 0) return
       this.deleting = true
+      let success = 0
+      let failed = 0
+      const succeededProjectIds = new Set()
+      const succeededRunIds = new Set()
       try {
-        const succeededProjectIds = new Set()
-        const succeededRunIds = new Set()
-        let success = 0
-        let failed = 0
-        for (const item of items) {
-          try {
+        const results = await Promise.allSettled(
+          items.map(async (item) => {
             if (item.projectId) {
               const result = await story2videoDeleteProject(item.projectId)
-              if (result?.code === 0) {
-                success++
-                succeededProjectIds.add(item.projectId)
-              } else {
-                failed++
-              }
+              return { item, api: 'project', result }
             } else {
               const runId = item.id || item.runId
-              if (!runId) {
-                failed++
-                continue
-              }
+              if (!runId) throw new Error('missing runId')
               const result = await pipelineDeleteRun(runId)
-              if (result?.code === 0) {
-                success++
-                succeededRunIds.add(runId)
-              } else {
-                failed++
-              }
+              return { item, api: 'run', result, runId }
             }
-          } catch (_error) {
+          }),
+        )
+        for (const entry of results) {
+          if (entry.status === 'rejected') {
+            failed++
+            continue
+          }
+          const { item, api, result, runId } = entry.value
+          if (result?.code === 0) {
+            success++
+            if (api === 'project' && item.projectId) {
+              succeededProjectIds.add(item.projectId)
+            } else if (api === 'run' && runId) {
+              succeededRunIds.add(runId)
+            }
+          } else {
             failed++
           }
         }
@@ -4813,6 +4815,7 @@ export default {
             return !(runId && succeededRunIds.has(runId))
           })
         }
+        this.closeBatchDeletionDialog()
         if (failed === 0) {
           this.showS2VOptionsToast(
             formatStory2VideoNotification({
@@ -4830,6 +4833,9 @@ export default {
             }).message,
           )
         }
+      } catch (_error) {
+        this.closeBatchDeletionDialog()
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_FAILED })
       } finally {
         this.deleting = false
       }

@@ -3683,6 +3683,71 @@ describe("CreateView - UI interactions", () => {
     w.vm.deleting = false;
   });
 
+  it("批量删除确认后对话框保持打开并显示删除中，完成后才关闭", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [{ projectId: "p-keep-open" }];
+    w.vm.history = items.slice();
+    w.vm.requestHistoryBatchDeletion(items);
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(true);
+    const pending = w.vm.confirmBatchDeletion();
+    expect(w.vm.deleting).toBe(true);
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(true);
+    await pending;
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(false);
+    expect(w.vm.deleting).toBe(false);
+    expect(w.vm.history).toEqual([]);
+  });
+
+  it("批量删除 IPC 调用抛异常时计入失败并关闭对话框", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockRejectedValue(new Error("ipc boom"));
+    mocks.pipelineDeleteRun.mockRejectedValue(new Error("ipc run boom"));
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [
+      { projectId: "p-throw" },
+      { id: "r-throw" },
+      { },
+    ];
+    w.vm.history = items.slice();
+    w.vm.requestHistoryBatchDeletion(items);
+    await w.vm.confirmBatchDeletion();
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(false);
+    expect(w.vm.deleting).toBe(false);
+    expect(w.vm.history.length).toBe(3);
+    expect(w.vm.story2videoErrorDialog.visible).toBe(true);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.batch_delete_failed");
+  });
+
+  it("批量删除并行发起 IPC 调用（先全部发起再统一收口）", async () => {
+    const mocks = await import("@/api/publisher");
+    let callCount = 0;
+    const resolvers = [];
+    mocks.story2videoDeleteProject.mockImplementation(() => {
+      callCount++;
+      return new Promise(resolve => {
+        resolvers.push(() => resolve({ code: 0 }));
+      });
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [{ projectId: "p-par-1" }, { projectId: "p-par-2" }];
+    w.vm.history = items.slice();
+    w.vm.requestHistoryBatchDeletion(items);
+    const pending = w.vm.confirmBatchDeletion();
+    expect(callCount).toBe(2);
+    expect(w.vm.history.length).toBe(2);
+    resolvers.forEach(resolve => resolve());
+    await pending;
+    expect(w.vm.history).toEqual([]);
+  });
+
 });
   it("历史记录按有效时间倒序，运行中流水线显示阶段进度色块", async () => {
     const mocks = await import("@/api/publisher");
