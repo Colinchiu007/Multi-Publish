@@ -49,6 +49,9 @@ jobs:
       - name: Install content-aggregator (shared collection engine)
         run: python3 -m pip install "git+https://github.com/Colinchiu007/content-aggregator.git"
 
+      - name: Install content-aggregator-shared (auth/wechat/proxy)
+        run: python3 -m pip install "git+https://github.com/Colinchiu007/content-aggregator-shared.git"
+
       - name: Install Python backend runtime and test dependencies
         run: python3 -m pip install -e "packages/python-backend[web,video,aggregation]" pytest
 
