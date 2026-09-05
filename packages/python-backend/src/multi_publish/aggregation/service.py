@@ -6,6 +6,20 @@ Phase 1: 直接调用 content-aggregator 的 ContentPipeline、get_collector 和
 from __future__ import annotations
 
 import logging
+
+import importlib as _importlib
+
+def _lazy_import(module_path: str, attr: str = None):
+    """Lazy import with graceful degradation for optional dependencies."""
+    try:
+        mod = _importlib.import_module(module_path)
+        if attr:
+            return getattr(mod, attr)
+        return mod
+    except ImportError:
+        return None
+
+
 from typing import Optional
 
 from .models import (
@@ -47,7 +61,9 @@ class AggregationService:
             raise ValueError(f"Phase 1 不支持的 source_type: {request.source_type}")
 
     async def _collect_url(self, request: CollectRequest) -> CollectResult:
-        from content_aggregator.backend.app.services.collect import collect_url
+        collect_url = _lazy_import("content_aggregator.backend.app.services.collect", "collect_url")
+        if collect_url is None:
+            raise ImportError("content-aggregator 未安装。请运行: pip install content-aggregator")
         result = await collect_url(str(request.url))
         return CollectResult(
             title=result.title,
@@ -58,8 +74,10 @@ class AggregationService:
         )
 
     async def _collect_rss(self, request: CollectRequest) -> CollectResult:
-        from content_aggregator.workflows.pipeline import ContentPipeline
+        ContentPipeline = _lazy_import("content_aggregator.workflows.pipeline", "ContentPipeline")
         config = self._build_pipeline_config()
+        if ContentPipeline is None:
+            raise ImportError("content-aggregator 未安装")
         async with ContentPipeline(config) as pipeline:
             articles = await pipeline.process_url(
                 url=str(request.url),
@@ -84,8 +102,10 @@ class AggregationService:
         )
 
     async def _collect_via_pipeline(self, request: CollectRequest) -> CollectResult:
-        from content_aggregator.sources import get_collector
+        get_collector = _lazy_import("content_aggregator.sources", "get_collector")
         source_config = {"url": str(request.url), "name": request.source_type}
+        if get_collector is None:
+            raise ImportError("content-aggregator 未安装")
         collector = get_collector(request.source_type, config=source_config)
         result = await collector.collect()
         if not result.data:
@@ -105,8 +125,12 @@ class AggregationService:
 
     async def collect_batch(self, request: BatchCollectRequest) -> list[CollectResult]:
         logger.info(f"[AggregationService] collect_batch: type={request.source_type}")
-        from content_aggregator.workflows.pipeline import ContentPipeline
+        ContentPipeline = _lazy_import("content_aggregator.workflows.pipeline", "ContentPipeline")
         config = self._build_pipeline_config()
+        if ContentPipeline is None:
+            raise ImportError("content-aggregator 未安装")
+        if ContentPipeline is None:
+            raise ImportError("content-aggregator 未安装")
         async with ContentPipeline(config) as pipeline:
             result = await pipeline.process_all_sources(
                 rewrite=request.rewrite,
@@ -130,7 +154,9 @@ class AggregationService:
 
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
-        from content_aggregator.backend.app.services.rewrite import rewrite_content
+        rewrite_content = _lazy_import("content_aggregator.backend.app.services.rewrite", "rewrite_content")
+        if rewrite_content is None:
+            raise ImportError("content-aggregator 未安装")
         result = await rewrite_content(
             content=request.content,
             style=request.style,
