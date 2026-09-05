@@ -847,8 +847,8 @@ describe("AccountsView", () => {
     accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, message: "login expired" } });
     const w = await mountView();
     await w.vm.checkLogin({ platform: "douyin", id: "a1" });
-    const { ElMessage } = await import("element-plus");
-    expect(ElMessage.warning).toHaveBeenCalled();
+    const { ElMessageBox } = await import("element-plus");
+    expect(ElMessageBox.confirm).toHaveBeenCalled();
   });
 
   it("checkLogin catches exception", async () => {

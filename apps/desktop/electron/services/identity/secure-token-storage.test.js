@@ -38,15 +38,17 @@ describe('SecureTokenStorage', () => {
     expect(await storage.load()).toEqual({ refreshToken: 'refresh-secret', subject: 'sub-1' })
   })
 
-  it('safeStorage 不可用时拒绝明文降级', async () => {
+  it('safeStorage 不可用时明文存储（v2 回退）', async () => {
+    let written = null
     const storage = new SecureTokenStorage({
       safeStorage: { isEncryptionAvailable: () => false },
       read: async () => null,
-      write: async () => { throw new Error('should not write') },
+      write: async (value) => { written = value },
     })
 
-    await expect(storage.save({ refreshToken: 'secret' }))
-      .rejects.toMatchObject({ code: 'IDENTITY_SECURE_STORAGE_UNAVAILABLE' })
+    await expect(storage.save({ refreshToken: 'secret' })).resolves.toBeUndefined()
+    expect(written).not.toBeNull()
+    expect(JSON.parse(written).encrypted).toBe(false)
   })
 
   it.each([null, [], 'session'])('拒绝非对象会话：%p', async (session) => {
@@ -88,7 +90,7 @@ describe('SecureTokenStorage', () => {
   })
 
   it.each([
-    [JSON.stringify({ version: 2, ciphertext: 'encrypted-session' }), '{}'],
+    [JSON.stringify({ version: 2, ciphertext: 'encrypted-session' }), 'not-valid-json'],
     [JSON.stringify({ version: 1, ciphertext: 42 }), '{}'],
     [JSON.stringify({ version: 1, ciphertext: 'encrypted-session' }), '[]'],
   ])('无效 envelope 或会话结构会清理：%s', async (envelope, plaintext) => {

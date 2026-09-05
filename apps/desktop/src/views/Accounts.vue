@@ -841,7 +841,7 @@ async function openLoginPage (account) {
     notifyWarning('accountsPage.loginUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: `${platformLabel(account.platform)}登录` })
+  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
 }
 
 async function removeAccount (account) {

@@ -120,7 +120,11 @@ class SecureTokenStorage {
         throw new Error('会话内容无效')
       }
       return session
-    } catch {
+    } catch (error) {
+      // 安全存储暂时不可用（OS keyring 锁定等）→ 保留密文，下次重试；其余损坏才清理
+      if (error && error.code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE') {
+        throw error
+      }
       await this._clearNow()
       return null
     }
