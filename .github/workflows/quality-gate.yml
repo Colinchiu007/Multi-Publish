@@ -78,11 +78,13 @@ jobs:
           echo "IPC_CHECK=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # --- Gate 7: locale 内容同步（i18n-content-sync：zh/en 成对提交 + 渲染端硬编码扫描） ---
-      - name: "Gate 7 - locale content sync (zh/en paired + renderer CJK)"
+      - name: "Gate 7 - locale content sync (zh/en paired + renderer CJK + key existence)"
         run: |
           git fetch origin main --no-tags
+          node --test .github/scripts/check-locale-sync.test.js
           node .github/scripts/check-locale-sync.js --pair-base origin/main
           node .github/scripts/check-locale-sync.js --cjk
+          node .github/scripts/check-locale-sync.js --keys
 
       # --- Gate 10: 前端一致性卡点（desktop-ui-consistency：IPC 单轨 + 确认原语统一）---
       - name: "Gate 10 - Frontend consistency (renderer IPC single-track + confirm primitive)"

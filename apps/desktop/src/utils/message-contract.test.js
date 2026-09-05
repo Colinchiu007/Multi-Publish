@@ -10,6 +10,7 @@ import {
   matchNormalizeRule,
   isAllowedNotifyLevel,
   looksTechnical,
+  looksLikeI18nKey,
   isKnownMessageKey,
 } from './message-contract'
 import { USER_ERROR_CODES } from './user-facing-error'
@@ -125,6 +126,29 @@ describe('message-contract — 技术文本检测（M4）', () => {
   it('TECHNICAL_TEXT_PATTERNS 为非空数组', () => {
     expect(Array.isArray(TECHNICAL_TEXT_PATTERNS)).toBe(true)
     expect(TECHNICAL_TEXT_PATTERNS.length).toBeGreaterThan(0)
+  })
+})
+
+describe('message-contract — i18n 原始 key 泄漏检测（i18n-user-facing-messages）', () => {
+  it('识别泄漏的 i18n 原始 key（驼峰/下划线点分路径）', () => {
+    expect(looksLikeI18nKey('accountsPage.loginExpiredHint')).toBe(true)
+    expect(looksLikeI18nKey('accountsPage.goLogin')).toBe(true)
+    expect(looksLikeI18nKey('story2video.quota_exceeded')).toBe(true)
+    expect(looksLikeI18nKey('publishPage.coverCrop.title')).toBe(true)
+  })
+
+  it('不拦截自然语言（含空格/中文/标点）', () => {
+    expect(looksLikeI18nKey('hello world')).toBe(false)
+    expect(looksLikeI18nKey('登录已失效，请重新登录')).toBe(false)
+    expect(looksLikeI18nKey('操作失败: 网络错误')).toBe(false)
+    expect(looksLikeI18nKey('')).toBe(false)
+    expect(looksLikeI18nKey(null)).toBe(false)
+  })
+
+  it('不拦截单段或非 key 形态', () => {
+    expect(looksLikeI18nKey('a.b')).toBe(false)
+    expect(looksLikeI18nKey('loginExpired')).toBe(false)
+    expect(looksLikeI18nKey('123.456')).toBe(false)
   })
 })
 

@@ -14,7 +14,7 @@ import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
 import { invoke } from '@/api/electron-bridge'
-import { NOTIFY_LEVEL_MAP, resolveErrorCategory } from '@/utils/message-contract'
+import { NOTIFY_LEVEL_MAP, resolveErrorCategory, looksLikeI18nKey } from '@/utils/message-contract'
 
 const LOCALE_TREES = Object.freeze({ zh: zhLocale, en: enLocale })
 
@@ -70,7 +70,11 @@ export function resolveNotifyText (messageKey, params, locale) {
   const normalized = normalizeLocale(locale || defaultLocale())
   const template = localeMessageSource(normalized, messageKey)
   if (!template) return { text: '', resolved: false }
-  return { text: interpolateMessage(template, params), resolved: true }
+  const text = interpolateMessage(template, params)
+  // 防泄漏守卫：若解析结果仍是 i18n 原始 key 形态（vue-i18n 对缺失 key 原样返回），
+  // 视为未命中，避免技术性 key 直出到用户界面（i18n-user-facing-messages 强制规则）。
+  if (looksLikeI18nKey(text)) return { text: '', resolved: false }
+  return { text, resolved: true }
 }
 
 /**

@@ -5440,4 +5440,29 @@ const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
 1. **语言友好度**：所有用户可见提示必须使用自然语言，不能出现 i18n key 原始名称或技术错误信息
 2. **多语言合规**：所有文案必须通过 i18n 系统展示，zh/en 成对维护
 3. **后端错误码**：后端不得返回用户可见的硬编码消息，必须返回结构化错误码
-4. **CI 检查**：`node .github/scripts/check-locale-sync.js --cjk` 扫描硬编码中文字符串，`--pair-base` 检查 zh/en 成对变更
+4. **CI 检查**：
+   - `node .github/scripts/check-locale-sync.js --cjk` 扫描硬编码中文字符串
+   - `node .github/scripts/check-locale-sync.js --pair-base origin/main` 检查 zh/en 成对变更
+   - `node .github/scripts/check-locale-sync.js --keys` 扫描渲染端使用的 i18n key 必须存在于 zh/en（防 vue-i18n 缺失 key 原样返回泄漏到 UI）
+
+### 27.6 运行时防泄漏守卫（2026-09-05 增强）
+
+即使 CI 漏检，运行时也不允许 i18n 原始 key 直出到用户界面。统一通知通道（`useNotify` / `notifyCore`）在展示前拦截：
+
+- **`notifyCore.resolveNotifyText`**：解析结果若仍是 i18n key 形态（点分路径 + 驼峰/下划线），视为未命中，返回空串，不展示。
+- **`useNotify.notify` / `notifyConfirm`**：`options.message` 直接传文案若为 i18n key 形态，拦截不展示；`notifyConfirm` 的 `title` / `confirmButtonText` / `cancelButtonText` 同样拦截。
+- **判定函数**：`message-contract.js` 的 `looksLikeI18nKey(text)`（保守，仅识别点分路径 key 形态，不误伤自然语言）。
+
+**强制点**：任何新增用户可见文案必须走 `t('key.path')` 且 key 在 zh/en 成对存在；禁止把 i18n key 字符串直接传给 `ElMessage` / `ElMessageBox` / `options.message`。
+
+### 27.7 交互逻辑与显示项（账号管理-自媒体账号卡片）
+
+- **登录状态检查**：点击卡片「验证」按钮 → 调用 `accountActions.checkLogin(account)` → 返回 `{ code, data: { valid, code } }`。
+  - `valid === true` → 绿色成功提示「登录状态正常」。
+  - `valid === false` → 根据 `data.code`（`CHECK_LOGIN_COOKIE_EXPIRED` 等）映射到 i18n 文案，弹出确认对话框：
+    - 标题「确认」
+    - 正文「账号登录已失效（{原因}），建议重新登录以确保正常使用。」
+    - 按钮「去登录」/「取消」
+  - 用户点击「去登录」→ 打开该平台登录页（`openLoginPage`）。
+- **显示项**：账号卡片展示登录状态徽章（已登录/已过期/异常/暂无检查记录）、最近检查时间、异常原因、粉丝数、负责人、运营人、代理等字段，全部经 i18n 展示。
+- **提示文字规范**：所有提示必须为自然语言、具体指示性、zh/en 成对；禁止显示 i18n key 原始名称或技术错误码。
