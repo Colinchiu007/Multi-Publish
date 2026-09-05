@@ -3702,6 +3702,28 @@ describe("CreateView - UI interactions", () => {
     expect(w.vm.history).toEqual([]);
   });
 
+  it("批量删除 IPC 调用抛异常时计入失败并关闭对话框", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockRejectedValue(new Error("ipc boom"));
+    mocks.pipelineDeleteRun.mockRejectedValue(new Error("ipc run boom"));
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [
+      { projectId: "p-throw" },
+      { id: "r-throw" },
+      { },
+    ];
+    w.vm.history = items.slice();
+    w.vm.requestHistoryBatchDeletion(items);
+    await w.vm.confirmBatchDeletion();
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(false);
+    expect(w.vm.deleting).toBe(false);
+    expect(w.vm.history.length).toBe(3);
+    expect(w.vm.story2videoErrorDialog.visible).toBe(true);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.batch_delete_failed");
+  });
+
   it("批量删除并行发起 IPC 调用（先全部发起再统一收口）", async () => {
     const mocks = await import("@/api/publisher");
     let callCount = 0;
