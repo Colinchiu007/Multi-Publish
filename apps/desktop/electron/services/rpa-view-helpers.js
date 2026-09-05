@@ -311,10 +311,21 @@ const helpersMixin = {
     return new Promise(function(resolve,reject) {
       const t = setTimeout(function(){reject(new Error('nav timeout: '+url))},45000)
       if (t && t.unref) t.unref()
-      win.webContents.once('did-finish-load',function(){clearTimeout(t);setTimeout(function(){win.webContents.executeJavaScript('void(0)').then(resolve).catch(reject)},stabilizeMs)})
-      win.webContents.once('did-fail-load',function(e,code,desc){clearTimeout(t);log.warn('RpaView','nav warn: '+desc);setTimeout(resolve,stabilizeMs)})
+      // 防销毁：回调触发时窗口可能已被销毁（应用退出/任务取消），
+      // 此时静默 resolve，避免 "Object has been destroyed" 未捕获异常。
+      const safeResolve = function(value) { if (t && !t._called) { clearTimeout(t); t._called = true; resolve(value) } }
+      const safeReject = function(err) { if (t && !t._called) { clearTimeout(t); t._called = true; reject(err) } }
+      win.webContents.once('did-finish-load',function(){
+        setTimeout(function(){
+          if (win.isDestroyed && win.isDestroyed()) { safeResolve(undefined); return }
+          const wc = win.webContents
+          if (!wc || (wc.isDestroyed && wc.isDestroyed())) { safeResolve(undefined); return }
+          wc.executeJavaScript('void(0)').then(safeResolve).catch(function(){ safeResolve(undefined) })
+        },stabilizeMs)
+      })
+      win.webContents.once('did-fail-load',function(e,code,desc){log.warn('RpaView','nav warn: '+desc);safeResolve(undefined)})
       // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
-      win.webContents.loadURL(url).catch(function (e) { clearTimeout(t); reject(e) })
+      win.webContents.loadURL(url).catch(function (e) { safeReject(e) })
     })
   },
 }
