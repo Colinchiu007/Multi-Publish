@@ -77,7 +77,7 @@ describe('phase1-context.extractContext', () => {
       'oauthManager', 'batchManager', 'urlCollector', 'providerManager',
       'viralEngine', 'commentManager', 'contentIntelligence', 'publishImpactTracker',
       'proxyPool', 'templateManager', 'licenseManager', 'aiWriter',
-      'renderEngine', 'compositionManager', 'aiGenerator', 'videoEngine',
+      'renderEngine', 'compositionManager', 'aiGenerator', 'assetGenerator', 'videoEngine',
       'pipelineEngine', 'story2videoBatchQueue', 'modelProviderManager', '_chunkedUploader', '_platformConfig',
       '_sensitiveFilter', '_dataSync', 'BACKEND_PLATFORMS',
       'CloudPublisher',
