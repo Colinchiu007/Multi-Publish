@@ -28,8 +28,6 @@ function mountNav (path, query = {}) {
           },
           template: '<a :href="href" v-bind="$attrs"><slot /></a>',
         },
-
-        IdentityMenu: { template: '<div data-testid="identity-stub">IdentityMenu</div>' },
       },
     },
   })

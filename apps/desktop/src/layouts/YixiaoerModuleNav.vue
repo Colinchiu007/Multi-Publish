@@ -75,8 +75,6 @@
       </button>
     </div>
 
-    <IdentityMenu />
-
     <aside
       v-if="activeTool"
       id="yixiaoer-tool-panel"
@@ -110,7 +108,6 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import IdentityMenu from '@/components/IdentityMenu.vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
