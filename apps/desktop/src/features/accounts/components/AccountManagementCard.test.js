@@ -74,7 +74,6 @@ describe('AccountManagementCard', () => {
 
       expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])
     })
-  })
 
     it('未知状态保持诚实提示并继续提供登录动作', async () => {
       const unknownAccount = { ...account, status: 'unknown' }
@@ -86,7 +85,6 @@ describe('AccountManagementCard', () => {
       await wrapper.get('[data-testid="login-account-1"]').trigger('click')
       expect(wrapper.emitted('open-login')).toEqual([[unknownAccount]])
     })
-  })
 
   it('异常状态显示异常徽章并在非法检查时间后回退失败原因', () => {
     const failedAccount = {
