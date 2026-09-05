@@ -5441,3 +5441,30 @@ const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
 2. **多语言合规**：所有文案必须通过 i18n 系统展示，zh/en 成对维护
 3. **后端错误码**：后端不得返回用户可见的硬编码消息，必须返回结构化错误码
 4. **CI 检查**：`node .github/scripts/check-locale-sync.js --cjk` 扫描硬编码中文字符串，`--pair-base` 检查 zh/en 成对变更
+
+## 账号管理页核心修复 v4：重复检测增强 + 删除凭据清理保护（2026-09-05）
+
+### 变更背景
+1. 同一平台账号可添加多次，重复添加提示未生效
+2. 点击删除按钮后报错「账号元数据已删除，但清理本地加密凭据失败」
+
+### 修复内容
+
+#### 重复检测增强（server.py）
+| 场景 | 旧逻辑 | 新逻辑 |
+|------|--------|--------|
+| 双方都有 platform_account_id | 匹配任意一个（id 或 name） | 仅匹配 id（强标识） |
+| 双方都无 platform_account_id | 匹配 name | 匹配 name（弱标识，需完全一致） |
+| 一方有 id 一方无 | 可能被 name 误判重复 | 不判定重复（避免提取失败误判） |
+
+#### 删除凭据清理保护（account-manager.js）
+- 凭据文件删除失败后重试一次（500ms 延迟）
+- 重试仍失败则记录 warn 日志，不抛出异常
+- 账号元数据已删除，凭据文件将在下次清理时重试
+
+### 测试
+| 文件 | 新增测试 |
+|------|---------|
+| `account-manager.test.js` | 凭据删除失败不阻断主流程 / 凭据不存在正常完成 |
+| `Accounts.test.js` | 重复账号返回 409 提示 |
+| `tests/e2e/specs/account-management-full.js` | 全功能 functional E2E（导航/添加弹窗/平台筛选/排序/搜索/卡片交互/重复检测/标签页/批量操作/视图切换） |
