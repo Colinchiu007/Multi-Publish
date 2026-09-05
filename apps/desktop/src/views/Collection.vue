@@ -34,6 +34,9 @@
           </div>
           <div style="margin-top:8px;display:flex;gap:8px">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
+            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting">
+              {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
+            </button>
             <button class="cohere-btn-secondary" @click="collectedResult = null">取消</button>
           </div>
         </div>
@@ -104,6 +107,7 @@ const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } =
 const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
+const rewriting = ref(false)
 const collectedResult = ref(null)
 
 onMounted(async () => {
@@ -206,6 +210,33 @@ async function collectUrl () {
     notifyError('collection.collectRequestFailed', { message: resolveNotifyText('collection.collectRequestFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
   } finally {
     collecting.value = false
+  }
+}
+
+async function rewriteCollected () {
+  if (!collectedResult.value) return
+  const api = getApi()
+  if (!api || !api.aggregationRewrite) {
+    notifyWarning('collection.collectUnavailable')
+    return
+  }
+  rewriting.value = true
+  try {
+    const result = await api.aggregationRewrite({
+      content: collectedResult.value.content || collectedResult.value.description || '',
+      style: resolveNotifyText('collection.rewriteStyleEasy').text,
+      length: 'keep',
+    })
+    if (result && result.result_content) {
+      collectedResult.value = { ...collectedResult.value, content: result.result_content, description: result.result_content.slice(0, 120) }
+      notifySuccess('collection.rewriteSuccess')
+    } else {
+      notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (result && result.message ? result.message : '') })
+    }
+  } catch (e) {
+    notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message })
+  } finally {
+    rewriting.value = false
   }
 }
 
