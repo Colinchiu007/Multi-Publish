@@ -40,7 +40,7 @@ const { findFfmpeg } = require('./media-tool-paths')
 const { resolveProviderDefaultModel } = require('./model-provider-manager')
 
 const SETTING_KEY = 'story2video_projects_v1'
-const MAX_PROJECTS = 100
+const MAX_PROJECTS = 1000
 // 具备真实编排产物（compose/export/render/report 输出）并需要项目持久化的流水线
 const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024

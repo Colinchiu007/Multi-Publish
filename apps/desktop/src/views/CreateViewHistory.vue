@@ -87,7 +87,7 @@
 
     <div v-else class="history-list" role="list">
       <div
-        v-for="(item, index) in filteredHistory"
+        v-for="(item, index) in displayHistory"
         :key="historyIdentity(item, index)"
         class="history-item"
         :class="[
@@ -315,6 +315,8 @@ export default {
   },
   computed: {
     filteredHistory () { return filterHistoryByStatus(this.history, this.activeFilter, this.sortMode) },
+    // 渲染上限：全量渲染 1000+ 条会卡顿，取前 500 条展示
+    displayHistory () { return this.filteredHistory.slice(0, 500) },
     statusCounts () { return historyStatusCounts(this.history) },
     // 重复标题检测（2026-09-04）：基于完整 history（不受状态筛选影响），
     // 完全相同的显式标题（修剪后逐字相等）标记所有相关卡片。
@@ -326,7 +328,7 @@ export default {
     // 每张失败卡片只计算一次不可恢复提示文本，避免模板 v-if + 文本处重复跑正则。
     policyResumeHints () {
       const hints = new Map()
-      this.filteredHistory.forEach((item, index) => {
+      this.displayHistory.forEach((item, index) => {
         if (!item || item.status !== 'failed') return
         const text = this.policyResumeBlockedText(item)
         if (text) hints.set(this.historyIdentity(item, index), text)
@@ -334,10 +336,10 @@ export default {
       return hints
     },
     allSelected () {
-      return this.filteredHistory.length > 0 && this.filteredHistory.every((item, index) => this.selectedIdentities.includes(this.historyIdentity(item, index)))
+      return this.displayHistory.length > 0 && this.displayHistory.every((item, index) => this.selectedIdentities.includes(this.historyIdentity(item, index)))
     },
     selectedItems () {
-      return this.filteredHistory.filter((item, index) => this.selectedIdentities.includes(this.historyIdentity(item, index)))
+      return this.displayHistory.filter((item, index) => this.selectedIdentities.includes(this.historyIdentity(item, index)))
     },
   },
   watch: {
@@ -425,7 +427,7 @@ selectFilter (status) {
       else this.selectedIdentities.splice(pos, 1)
     },
     selectAll () {
-      this.selectedIdentities = this.filteredHistory.map((item, index) => this.historyIdentity(item, index))
+      this.selectedIdentities = this.displayHistory.map((item, index) => this.historyIdentity(item, index))
     },
     clearSelection () { this.selectedIdentities = [] },
     toggleSelectAll () {
@@ -433,7 +435,9 @@ selectFilter (status) {
       else this.selectAll()
     },
     pruneSelection () {
-      const valid = new Set(this.history.map((item, index) => this.historyIdentity(item, index)))
+      // 使用 filteredHistory（筛选+排序后）与 selectedIdentities 保持一致，
+      // 避免 history 全量列表与 filteredHistory 的 index fallback 差异导致选中被错误清除。
+      const valid = new Set(this.displayHistory.map((item, index) => this.historyIdentity(item, index)))
       this.selectedIdentities = this.selectedIdentities.filter(id => valid.has(id))
     },
     emitBatchDelete () {
