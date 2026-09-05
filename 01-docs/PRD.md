@@ -5291,3 +5291,35 @@ v1 修复（2026-09-04）的代码变更已正确合并到 main，但存在以�
 | 按钮-取消 | 取消 | Cancel |
 | 不支持登录 | 暂不支持该平台的登录页 | Login page not supported for this platform |
 | 重复添加 | 此账号已添加过 | This account has already been added |
+---
+
+## 账号管理页核心修复（2026-09-05，PR #1454）
+
+### 修复背景
+用户 E2E 测试反馈账号管理页存在 8 项核心缺陷。本 PR 修复以下 4 项运行时缺陷（其余 4 项在前序版本已修复）：
+
+### 1. i18n 键缺失导致验证弹窗静默失败
+**根因**：`checkLogin` 引用了 `loginExpiredConfirm`、`loginExpiredHint`、`goLogin`、`loginUnsupported` 四个未定义的 i18n 键。`notifyConfirm` 在 key 解析失败时静默返回 false，导致验证按钮的失效弹窗永不显示。
+**修复**：zh.js/en.js 成对补齐 4 个键；`loginValid` 文案修正为"登录状态正常"。
+
+### 2. 重复账号去重不精确
+**根因**：仅按 `name` 字段查重。昵称提取失败时回退为平台显示名（如"快手"），造成同名不同账号被误判。
+**修复**：登录时提取 `platform_account_id`；后端查重改为 platform_account_id 优先匹配，name 作为 fallback。
+
+### 3. 账号元数据丢失
+**根因**：`saveCapturedAccount` 只发送 `{platform, name}`，昵称/平台ID/粉丝数/头像全部丢失。
+**修复**：请求模型新增 `account_name`/`platform_account_id`/`followers`/`avatar` 四个字段；`_account_to_dict` 返回；IPC 白名单透传。
+
+### 4. 粉丝数未提取
+**修复**：`extractAccountInfo` 新增通用粉丝数 DOM 提取，支持"1.2万"等中文数字格式解析。
+
+### 数据校验
+| 项 | 规则 |
+|----|------|
+| 重复账号 | platform_account_id 非空时精确匹配；否则 name 归一化匹配 |
+| 粉丝数 | 非负整数；支持万/w 后缀 |
+| 昵称 | accountInfo.nickName 优先，fallback name |
+
+### 交互逻辑
+- 验证按钮：成功 → "登录状态正常"；失败 → 弹窗"登录已失效，是否重新登录该账号？"（按钮：取消/去登录）
+- 去登录按钮：已登录 → 灰显"已登录"；未登录 → "去登录" → 新标签页打开平台登录页
