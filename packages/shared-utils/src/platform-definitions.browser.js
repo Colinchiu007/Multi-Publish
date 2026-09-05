@@ -36,6 +36,24 @@ export const PLATFORM_ICONS = {
   facebook: '👍',
 }
 
+export const PLATFORM_LOGIN_URLS = {
+  wechat_mp: 'https://mp.weixin.qq.com/',
+  zhihu: 'https://www.zhihu.com/signin',
+  weibo: 'https://weibo.com/login',
+  douyin: 'https://creator.douyin.com/',
+  xiaohongshu: 'https://creator.xiaohongshu.com/',
+  tencent_video: 'https://channels.weixin.qq.com/',
+  kuaishou: 'https://cp.kuaishou.com/',
+  toutiao: 'https://mp.toutiao.com/',
+  bilibili: 'https://passport.bilibili.com/login',
+  baijiahao: 'https://baijiahao.baidu.com/',
+  youtube: 'https://studio.youtube.com/',
+  tiktok: 'https://www.tiktok.com/upload/',
+  twitter: 'https://twitter.com/i/flow/login',
+  instagram: 'https://www.instagram.com/accounts/login/',
+  facebook: 'https://www.facebook.com/login/',
+}
+
 export const PLATFORM_DASHBOARD_URLS = {
   wechat_mp: 'https://mp.weixin.qq.com/',
   zhihu: 'https://www.zhihu.com/',
@@ -52,22 +70,4 @@ export const PLATFORM_DASHBOARD_URLS = {
   twitter: 'https://twitter.com/home',
   instagram: 'https://www.instagram.com/',
   facebook: 'https://www.facebook.com/',
-}
-
-export const PLATFORM_LOGIN_URLS = {
-  wechat_mp: "https://mp.weixin.qq.com/",
-  zhihu: "https://www.zhihu.com/signin",
-  weibo: "https://weibo.com/login",
-  douyin: "https://creator.douyin.com/",
-  xiaohongshu: "https://creator.xiaohongshu.com/",
-  tencent_video: "https://channels.weixin.qq.com/",
-  kuaishou: "https://cp.kuaishou.com/",
-  toutiao: "https://mp.toutiao.com/",
-  bilibili: "https://passport.bilibili.com/login",
-  baijiahao: "https://baijiahao.baidu.com/",
-  youtube: "https://studio.youtube.com/",
-  tiktok: "https://www.tiktok.com/upload/",
-  twitter: "https://twitter.com/i/flow/login",
-  instagram: "https://www.instagram.com/accounts/login/",
-  facebook: "https://www.facebook.com/login/",
 }
