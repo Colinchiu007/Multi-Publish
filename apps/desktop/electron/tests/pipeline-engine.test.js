@@ -340,10 +340,10 @@ describe('PipelineEngine 状态机模式', () => {
     engine._runs.set(run.id, run)
     engine._runs.set('_story2video-compose', run)
     engine._history.push(run)
-
     expect(engine.deleteRun(run.id)).toEqual({
       success: false,
       error: '删除运行记录失败：持久化快照未清理',
+      errorCode: 'PIPELINE_SNAPSHOT_CLEANUP_FAILED',
     })
     expect(remove).toHaveBeenCalledWith(run.id)
     expect(engine._runs.get(run.id)).toBe(run)
@@ -409,7 +409,7 @@ describe('PipelineEngine 状态机模式', () => {
     const stage = run.stages[0]
     const previousStageStatus = stage.status
 
-    expect(engine.pauseRun(started.runId)).toEqual({ success: false, error: '保存暂停检查点失败' })
+    expect(engine.pauseRun(started.runId)).toEqual({ success: false, error: "保存暂停检查点失败", errorCode: "PIPELINE_CHECKPOINT_SAVE_FAILED" })
     expect(run.status).toBe('running')
     expect(stage.status).toBe(previousStageStatus)
     expect(run.checkpoint).toEqual({ type: 'previous_checkpoint' })
@@ -428,7 +428,7 @@ describe('PipelineEngine 状态机模式', () => {
     engine._runs.set(pausedRun.id, pausedRun)
     engine._runs.set('_malformed-paused-pipeline', pausedRun)
     engine._currentPipeline = 'malformed-paused-pipeline'
-    expect(engine.resume()).toEqual({ success: false, error: 'Pipeline stage state is invalid' })
+    expect(engine.resume()).toEqual({ success: false, error: 'Pipeline stage state is invalid', errorCode: 'PIPELINE_STAGE_INVALID' })
     expect(pausedRun.status).toBe('paused')
 
     const runningRun = {
@@ -442,9 +442,9 @@ describe('PipelineEngine 状态机模式', () => {
     engine._runs.set(runningRun.id, runningRun)
     engine._currentPipeline = 'malformed-paused-pipeline'
     engine._runs.set('_malformed-paused-pipeline', runningRun)
-    expect(engine.pause()).toEqual({ success: false, error: 'Pipeline stage state is invalid' })
+    expect(engine.pause()).toEqual({ success: false, error: 'Pipeline stage state is invalid', errorCode: 'PIPELINE_STAGE_INVALID' })
     expect(runningRun.status).toBe('running')
-    expect(engine.pauseRun(runningRun.id)).toEqual({ success: false, error: '运行记录阶段数据无效' })
+    expect(engine.pauseRun(runningRun.id)).toEqual({ success: false, error: '运行记录阶段数据无效', errorCode: 'PIPELINE_ERROR' })
     expect(runningRun.status).toBe('running')
   })
 

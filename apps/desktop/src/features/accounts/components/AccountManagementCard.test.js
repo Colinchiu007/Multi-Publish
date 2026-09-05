@@ -173,7 +173,8 @@ describe('AccountManagementCard', () => {
     await wrapper.get('.account-name-input').setValue('   ')
     await wrapper.get('.account-name-input').trigger('blur')
     expect(wrapper.emitted('rename')).toHaveLength(1)
-  })
+  })
+
 
   it('非批量模式点击卡片整体打开创作者中心（对齐蚁小二全屏标签交互）', async () => {
     const wrapper = mountCard({ batchMode: false })

@@ -684,6 +684,24 @@ function addAccountForPlatform (platform) {
   showAddDialog.value = true
 }
 
+async function reloginAccount (account) {
+  if (!account?.platform) return
+  pendingAuthAction.value = 'relogin'
+  loginMode.value = 'browser'
+  try {
+    const result = await accountActions.openLogin('browser', account.platform)
+    if (result?.code !== 0) {
+      loginVisible.value = false
+      pendingAuthAction.value = null
+      notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: result?.message || t('accountsPage.reloginFailed') }).message })
+    }
+  } catch (error) {
+    loginVisible.value = false
+    pendingAuthAction.value = null
+    notifyError('accountsPage.reloginFailed', { message: formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message })
+  }
+}
+
 async function closeAuthView () {
   try {
     await accountActions.closeLogin(loginMode.value)
