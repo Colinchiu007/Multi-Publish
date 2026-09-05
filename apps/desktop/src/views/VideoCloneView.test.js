@@ -16,6 +16,7 @@ const composable = {
   stageStatus: reactive({ ingest: 'idle', analyze: 'idle', plan: 'idle', generate: 'idle', compose: 'idle', publish: 'idle' }),
   report: ref(null),
   similarity: ref(null),
+  outputPath: ref(null),
   STAGE_LABELS: ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish'],
   start: vi.fn(),
   cancel: vi.fn(),
@@ -39,6 +40,20 @@ const composable = {
 }
 
 vi.mock('@/composables/useVideoClone', () => ({ useVideoClone: () => composable }))
+
+const publisherApi = {
+  story2videoCreateShareUrl: vi.fn().mockResolvedValue({ code: 0, data: { url: 'http://127.0.0.1:16521/media/abc123/clone.mp4' } }),
+  story2videoSaveAs: vi.fn().mockResolvedValue({ code: 0, data: { cancelled: false } }),
+  story2videoShowInFolder: vi.fn().mockResolvedValue({ code: 0 }),
+  story2videoCopyPath: vi.fn().mockResolvedValue({ code: 0 }),
+}
+
+vi.mock('@/api/publisher', () => ({
+  story2videoCreateShareUrl: (...args) => publisherApi.story2videoCreateShareUrl(...args),
+  story2videoSaveAs: (...args) => publisherApi.story2videoSaveAs(...args),
+  story2videoShowInFolder: (...args) => publisherApi.story2videoShowInFolder(...args),
+  story2videoCopyPath: (...args) => publisherApi.story2videoCopyPath(...args),
+}))
 
 function mountView () {
   return mount(VideoCloneView, {
@@ -66,6 +81,7 @@ beforeEach(() => {
   composable.runId.value = null
   composable.report.value = null
   composable.similarity.value = null
+  composable.outputPath.value = null
   for (const key of Object.keys(composable.stageStatus)) composable.stageStatus[key] = 'idle'
 })
 
@@ -113,5 +129,53 @@ describe('VideoCloneView configuration profiles', () => {
     await wrapper.find('[data-testid="video-clone-start"]').trigger('click')
     expect(composable.start).toHaveBeenCalledTimes(1)
     await nextTick()
+  })
+})
+
+describe('VideoCloneView output video', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    composable.outputPath.value = null
+  })
+
+  it('outputPath 为空时不渲染成品视频卡片', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="video-clone-output-video"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="video-clone-download"]').exists()).toBe(false)
+  })
+
+  it('outputPath 设置后渲染视频卡片和播放器', async () => {
+    composable.outputPath.value = 'C:/tmp/vc-out/clone.mp4'
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="video-clone-output-video"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="video-clone-download"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="video-clone-show-in-folder"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="video-clone-copy-path"]').exists()).toBe(true)
+  })
+
+  it('点击下载按钮调用 story2videoSaveAs', async () => {
+    composable.outputPath.value = 'C:/tmp/vc-out/clone.mp4'
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="video-clone-download"]').trigger('click')
+    expect(publisherApi.story2videoSaveAs).toHaveBeenCalledWith('C:/tmp/vc-out/clone.mp4', expect.stringContaining('video_clone_'))
+  })
+
+  it('点击打开文件夹调用 story2videoShowInFolder', async () => {
+    composable.outputPath.value = 'C:/tmp/vc-out/clone.mp4'
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="video-clone-show-in-folder"]').trigger('click')
+    expect(publisherApi.story2videoShowInFolder).toHaveBeenCalledWith('C:/tmp/vc-out/clone.mp4')
+  })
+
+  it('点击复制路径调用 story2videoCopyPath', async () => {
+    composable.outputPath.value = 'C:/tmp/vc-out/clone.mp4'
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="video-clone-copy-path"]').trigger('click')
+    expect(publisherApi.story2videoCopyPath).toHaveBeenCalledWith('C:/tmp/vc-out/clone.mp4')
   })
 })

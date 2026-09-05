@@ -1,4 +1,11 @@
 ## OpsCenter 运行时配置 Ed25519 签名验签（codex/stage-1.6-runtime-verify，2026-09-02）
+## Video Clone 流水线成品视频展示缺失（codex/video-clone-result-download，2026-09-05）
+
+- **背景**：视频克隆（Video Clone）流水线运行完成后，用户在 `VideoCloneView.vue` 看不到成品视频、也没有下载入口。而 Story2Video 流水线有完整的 `ResultView.vue` 结果页闭环（播放器 + 下载 + 导出 ZIP + 裁剪）。
+- **根因**：引擎层 `pipeline.js` 的 `run()` 实际返回了 `artifacts.output.path`，但前端 composable 只解构了 `runId/report/similarity/publishResult`，丢弃了 `artifacts`；视图层 `VideoCloneView.vue` 从未设计视频展示区域；IPC 历史记录也未持久化 artifacts。
+- **方案**：`useVideoClone.js` 新增 `outputPath` ref 并在 `start()`/`regenerate()` 两处从 `d.artifacts?.output?.path` 提取；`VideoCloneView.vue` 新增成品视频卡片（播放器 + 下载 + 打开文件夹 + 复制路径，复用 `story2videoCreateShareUrl/SaveAs/ShowInFolder/CopyPath`）；`ipc-handlers/video-clone.js` 的 `saveRun` 补存 artifacts；zh/en i18n 成对新增 6 键。
+- **教训**：新增流水线结果展示时必须沿「引擎 run() → IPC → composable 解构 → 视图模板」整条链核对每个环节是否消费了产物字段；任一环节解构清单缺失该字段，UI 即静默缺失。
+- **预防**：`useVideoClone.test.js` 新增 4 用例如「run/regenerate 提取 outputPath」「无 artifacts 时 outputPath 为 null」「导出完整性」；`VideoCloneView.test.js` 新增 5 用例如「无 outputPath 不渲染」「有 outputPath 渲染」「下载/打开文件夹/复制路径正确调用 IPC」。
 
 - **背景**：架构重构 Stage -1.6「运行时配置完整性保护」——桌面端启动会调用 OpsCenter `/api/v1/runtime/bootstrap` 拉取运行时配置（含 pipelineOptions），此前接口返回的配置**无签名**，远端被篡改或中间人替换后桌面端无法察觉即会应用，危害运行时行为。需要为远端配置增加服务端签名、客户端验签的完整性保障。
 - **方案**：

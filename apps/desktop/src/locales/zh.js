@@ -1,4 +1,4 @@
-﻿export default {
+export default {
   common: {
     save: '保存',
     cancel: '取消',
@@ -1447,6 +1447,12 @@
     progress: '分析进度',
     report: '拆解报告（可编辑）',
     similarity: '相似度自检（F4）',
+    outputVideo: '成品视频',
+    outputVideoUnavailable: '视频加载失败，请重试或下载后播放',
+    outputPathLabel: '位置',
+    downloadVideo: '下载视频',
+    showInFolder: '打开文件夹',
+    copyPath: '复制路径',
     stage: { ingest: '下载/校验', analyze: '拆解分析', plan: '方案确认', generate: '素材生成', compose: '合成', publish: '发布' },
     status: { idle: '等待', running: '进行中', success: '成功', failed: '失败' },
     noDesktopWarning: '当前环境未提供桌面端能力',
