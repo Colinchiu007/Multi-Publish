@@ -1,0 +1,12 @@
+{
+  "id": "fix-batch-delete-history",
+  "title": "修复批量删除无响应/响应极慢：并行化+进度反馈+pruneSelection bug",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "implementation",
+  "nextAction": "实施修复：并行删除 + 进度反馈 + pruneSelection 一致性",
+  "createdAt": "2026-09-05T04:55:00Z",
+  "branch": "main"
+}

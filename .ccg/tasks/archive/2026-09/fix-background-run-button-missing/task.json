@@ -1,0 +1,12 @@
+{
+  "id": "fix-background-run-button-missing",
+  "title": "流水线进度弹窗「后台运行」按钮缺失",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-09-05T12:58:00+08:00",
+  "branch": "main"
+}

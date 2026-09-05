@@ -223,3 +223,4 @@ apps/desktop/tests/e2e-output/
 
 # Shared user data dir (WSL/Windows 共享运行时数据，锚点文件用于自动检测)
 shared-user-data/
+.ccg/tasks/*
