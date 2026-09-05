@@ -211,6 +211,10 @@ class AccountCreateRequest(BaseModel):
 
     platform: str
     name: str
+    account_name: str | None = None
+    platform_account_id: str | None = None
+    followers: int | None = None
+    avatar: str | None = None
     cookies: list[dict] | None = None
     auth_data: dict | None = None
 
@@ -278,6 +282,10 @@ def _account_to_dict(a: dict) -> dict:
         "id": a["id"],
         "platform": a["platform"],
         "name": a["name"],
+        "account_name": a.get("account_name", ""),
+        "platform_account_id": a.get("platform_account_id", ""),
+        "followers": a.get("followers"),
+        "avatar": a.get("avatar", ""),
         "is_active": a.get("is_active", True),
         "last_validated": a.get("last_validated"),
         "created_at": a.get("created_at"),
@@ -356,11 +364,15 @@ def create_account(req: AccountCreateRequest, request: Request):
 
     accounts = _load_accounts()
     normalized_name = (req.name or "").strip().lower()
+    normalized_account_id = (req.platform_account_id or "").strip()
     for existing in accounts.values():
         if (
             existing.get("platform") == pt.value
             and _is_owned_by(existing, owner_subject)
-            and (existing.get("name") or "").strip().lower() == normalized_name
+            and (
+                (normalized_account_id and (existing.get("platform_account_id") or "").strip() == normalized_account_id)
+                or (existing.get("name") or "").strip().lower() == normalized_name
+            )
         ):
             raise HTTPException(status_code=409, detail="此账号已添加过")
 
@@ -369,6 +381,10 @@ def create_account(req: AccountCreateRequest, request: Request):
         "id": account_id,
         "platform": pt.value,
         "name": req.name,
+        "account_name": req.account_name or "",
+        "platform_account_id": req.platform_account_id or "",
+        "followers": req.followers,
+        "avatar": req.avatar or "",
         "is_active": True,
         "last_validated": datetime.now().isoformat(),
         "created_at": datetime.now().isoformat(),

@@ -251,10 +251,25 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     ? source.accountInfo
     : {}
 
+  const accountName = typeof accountInfo.nickName === 'string' && accountInfo.nickName.trim()
+    ? accountInfo.nickName.trim()
+    : name
+  const platformAccountId = typeof accountInfo.platformAccountId === 'string' && accountInfo.platformAccountId.trim()
+    ? accountInfo.platformAccountId.trim()
+    : ''
+  const followers = Number.isFinite(Number(accountInfo.followers)) ? Number(accountInfo.followers) : null
+  const avatar = typeof accountInfo.avatar === 'string' && accountInfo.avatar.trim()
+    ? accountInfo.avatar.trim()
+    : ''
+
   // 后端只保存公开元数据，避免在 accounts.json 中重复落盘凭证。
   const result = await pythonBridge.requestBackend('POST', '/api/accounts', {
     platform,
     name,
+    account_name: accountName,
+    platform_account_id: platformAccountId,
+    followers,
+    avatar,
   })
 
   if (result.code !== 0) {
@@ -479,6 +494,31 @@ async function extractAccountInfo (page) {
       }
       // 平台用户ID
       info.platformAccountId = document.querySelector('[data-user-id], [data-account-id], [data-user]')?.getAttribute('data-user-id') || ''
+      // 粉丝数（通用选择器，按平台差异可扩展）
+      const followerSelectors = [
+        '[class*="fans"]',
+        '[class*="follower"]',
+        '[class*="fan-count"]',
+        '[class*="followers-count"]',
+        '[data-testid*="fans"]',
+        '[data-testid*="follower"]',
+      ]
+      for (const sel of followerSelectors) {
+        const el = document.querySelector(sel)
+        if (el && el.textContent && el.textContent.trim()) {
+          const text = el.textContent.trim()
+          // 支持「1.2万」「3,456」「1.2w」「890」等格式
+          const match = text.match(/([\d.,]+)\s*(万|w|W)?/)
+          if (match) {
+            const num = Number(String(match[1]).replace(/,/g, ''))
+            if (Number.isFinite(num)) {
+              const suffix = (match[2] || '').toLowerCase()
+              info.followers = num * (suffix === '万' || suffix === 'w' ? 10000 : 1)
+              break
+            }
+          }
+        }
+      }
       return info
     })
   } catch {

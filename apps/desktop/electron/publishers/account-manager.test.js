@@ -295,6 +295,10 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'wechat_mp',
       name: '公众号',
+      account_name: '公众号',
+      platform_account_id: 'wx-1',
+      followers: null,
+      avatar: '',
     })
     expect(saveRecord).toHaveBeenCalledWith(expect.objectContaining({
       accountId: 'account-1',
@@ -341,6 +345,10 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'zhihu',
       name: '知乎账号',
+      account_name: '知乎账号',
+      platform_account_id: '',
+      followers: null,
+      avatar: '',
     })
   })
 
@@ -365,6 +373,10 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'wechat_mp',
       name: accountManager.PLATFORM_NAMES.wechat_mp,
+      account_name: accountManager.PLATFORM_NAMES.wechat_mp,
+      platform_account_id: '',
+      followers: null,
+      avatar: '',
     })
     expect(saveRecord).toHaveBeenCalledWith(expect.objectContaining({
       accountId: 'account-indexed-db',

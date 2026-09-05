@@ -54,7 +54,7 @@ function registerHandlers(ipcMain, deps) {
   }
 
   const publicAccountFields = [
-    'id', 'platform', 'name', 'account_name', 'avatar', 'avatar_url',
+    'id', 'platform', 'name', 'account_name', 'platform_account_id', 'avatar', 'avatar_url',
     'status', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
     'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'last_used_at', 'auth_method',
     'followers', 'owner', 'publisher', 'last_login_check_at', 'login_check_error', 'status_reason',
