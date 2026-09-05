@@ -5293,6 +5293,7 @@ v1 修复（2026-09-04）的代码变更已正确合并到 main，但存在以�
 | 重复添加 | 此账号已添加过 | This account has already been added |
 ---
 
+
 ## 账号管理页核心修复（2026-09-05，PR #1454）
 
 ### 修复背景
@@ -5323,3 +5324,120 @@ v1 修复（2026-09-04）的代码变更已正确合并到 main，但存在以�
 ### 交互逻辑
 - 验证按钮：成功 → "登录状态正常"；失败 → 弹窗"登录已失效，是否重新登录该账号？"（按钮：取消/去登录）
 - 去登录按钮：已登录 → 灰显"已登录"；未登录 → "去登录" → 新标签页打开平台登录页
+
+
+## 二十七、账号管理提示信息国际化（v2.3.53+，2026-09-05）
+
+### 27.1 背景
+
+账号管理页面中，部分操作的提示信息存在以下问题：
+1. 弹窗显示原始 i18n key 名称（如 `accountsPage.loginExpiredHint`），而非用户友好的翻译文本
+2. 后端返回硬编码中文消息（如 `'Cookie 已过期，请重新登录'`），无法根据用户语言环境切换
+3. 前端组件存在大量硬编码中文字符串，违反用户可见文案铁律
+
+### 27.2 修复方案
+
+#### 27.2.1 后端错误码约定
+
+后端（Electron 主进程）的 `checkLoginStatus` 函数不再返回硬编码用户消息，改为返回结构化错误码：
+
+```javascript
+// ✅ 正确：返回结构化错误码
+{ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+
+// ❌ 错误：返回硬编码用户消息
+{ valid: false, message: 'Cookie 已过期，请重新登录' }
+```
+
+**错误码枚举：**
+
+| 错误码 | 含义 | 触发条件 |
+|--------|------|---------|
+| `CHECK_LOGIN_SUCCESS` | 登录状态正常，Cookie 有效 | 成功选择器匹配或 URL 跳离登录页 |
+| `CHECK_LOGIN_COOKIE_EXPIRED` | 登录已失效，Cookie 已过期 | 成功选择器超时或 URL 仍停留在登录页 |
+| `CHECK_LOGIN_FAILED` | 登录状态检查失败 | 检查过程异常（如网络错误） |
+| `CHECK_LOGIN_INVALID_PARAMS` | 参数非法 | platform 或 accountId 包含非法路径字符 |
+| `CHECK_LOGIN_UNSUPPORTED_PLATFORM` | 不支持的平台 | 平台未在 PLATFORM_LOGIN_URLS 中配置 |
+| `CHECK_LOGIN_NO_CREDENTIAL` | 未配置 Cookie | 账号无存储的凭证 |
+
+#### 27.2.2 前端错误码映射
+
+前端维护错误码到 i18n key 的映射表，使用 `te()` 检查 key 是否存在后通过 `t()` 获取翻译：
+
+```javascript
+const errorCode = result?.data?.code || 'CHECK_LOGIN_COOKIE_EXPIRED'
+const reasonKey = 'accountsPage.accountCheckStatus.' + errorCode
+const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
+```
+
+#### 27.2.3 账号卡片 i18n 化
+
+`AccountManagementCard.vue` 组件中所有硬编码中文替换为 i18n key：
+
+| 显示项 | i18n Key | 中文 | English |
+|--------|---------|------|---------|
+| 收藏按钮 tooltip | `accountsPage.accountCardLabels.favoriteAdd` | 收藏账号 | Add to favorites |
+| 取消收藏 tooltip | `accountsPage.accountCardLabels.favoriteRemove` | 取消收藏 | Remove from favorites |
+| 重命名按钮 tooltip | `accountsPage.accountCardLabels.renameAccount` | 重命名账号 | Rename account |
+| 默认账号标签 | `accountsPage.accountCardLabels.defaultAccount` | 默认账号 | Default account |
+| 添加时间 | `accountsPage.accountCardLabels.addedOn` | 添加于 {date} | Added on {date} |
+| 已同步提示 | `accountsPage.accountCardLabels.accountSynced` | 账号信息已同步 | Account info synced |
+| 粉丝数标签 | `accountsPage.accountCardLabels.followers` | 粉丝： | Followers: |
+| 负责人标签 | `accountsPage.accountCardLabels.ownerLabel` | 负责人 | Owner |
+| 运营人标签 | `accountsPage.accountCardLabels.publisherLabel` | 运营人 | Publisher |
+| 代理标签 | `accountsPage.accountCardLabels.proxyLabel` | 代理 | Proxy |
+| 未设置 | `accountsPage.accountCardLabels.notSet` | 未设置 | Not set |
+| 暂无数据 | `accountsPage.accountCardLabels.noData` | 暂无数据 | No data |
+| 未命名账号 | `accountsPage.accountCardLabels.unnamedAccount` | 未命名账号 | Unnamed account |
+| 已登录状态 | `accountsPage.accountCardLabels.statusLoggedIn` | 已登录 | Logged in |
+| 已过期状态 | `accountsPage.accountCardLabels.statusExpired` | 已过期 | Expired |
+| 异常状态 | `accountsPage.accountCardLabels.statusError` | 异常 | Error |
+| 无检查记录 | `accountsPage.accountCardLabels.statusNoCheck` | 暂无检查记录 | No check record |
+| 最近检查 | `accountsPage.accountCardLabels.lastCheck` | 最近检查 {date} | Last checked {date} |
+| 检查异常 | `accountsPage.accountCardLabels.checkAbnormal` | 异常：{reason} | Abnormal: {reason} |
+| 未知日期 | `accountsPage.accountCardLabels.unknownDate` | 未知日期 | Unknown date |
+| 设置按钮 | `accountsPage.accountCardLabels.settings` | 设置 | Settings |
+| 验证按钮 | `accountsPage.accountCardLabels.verify` | 验证 | Verify |
+| 登录按钮 | `accountsPage.accountCardLabels.goLogin` | 去登录 | Log in |
+| 删除按钮 | `accountsPage.accountCardLabels.delete` | 删除 | Delete |
+
+#### 27.2.4 弹窗提示文案
+
+**验证登录状态弹窗：**
+
+- **标题**：确认（`accountsPage.confirmTitle`）
+- **消息**：账号登录已失效（{具体原因}），建议重新登录以确保正常使用。（`accountsPage.loginExpiredMessage`）
+- **确认按钮**：去登录（`accountsPage.goLogin`）
+- **取消按钮**：取消（`accountsPage.cancel`）
+
+**示例：**
+> 确认
+>
+> 账号登录已失效（登录已失效，Cookie 已过期，请重新登录），建议重新登录以确保正常使用。
+>
+> [取消] [去登录]
+
+### 27.3 交互流程
+
+1. 用户在账号管理页面点击账号卡片上的「验证」按钮
+2. 前端调用 `accountCheckLogin(platform, accountId)` IPC 接口
+3. 后端通过 Playwright 隐藏浏览器加载 Cookie 并访问平台页面
+4. 后端返回 `{ valid: boolean, code: string }` 结构
+5. 前端根据 `code` 查找对应 i18n key：
+   - `CHECK_LOGIN_SUCCESS` → 显示"登录状态正常"绿色成功提示
+   - `CHECK_LOGIN_COOKIE_EXPIRED` → 弹出确认对话框，提示用户重新登录
+   - 其他错误码 → 显示对应错误提示
+6. 用户在确认对话框中点击「去登录」→ 打开该平台的登录页面
+
+### 27.4 数据校验
+
+- **输入校验**：platform 和 accountId 必须通过 `isSafePathSegment()` 校验，拒绝包含 `../`、`?` 等非法字符的参数
+- **凭证存在性**：无 Cookie 且无 localStorage 时返回 `CHECK_LOGIN_NO_CREDENTIAL`
+- **平台支持性**：platform 不在 `PLATFORM_LOGIN_URLS` 中时返回 `CHECK_LOGIN_UNSUPPORTED_PLATFORM`
+
+### 27.5 强制规则
+
+1. **语言友好度**：所有用户可见提示必须使用自然语言，不能出现 i18n key 原始名称或技术错误信息
+2. **多语言合规**：所有文案必须通过 i18n 系统展示，zh/en 成对维护
+3. **后端错误码**：后端不得返回用户可见的硬编码消息，必须返回结构化错误码
+4. **CI 检查**：`node .github/scripts/check-locale-sync.js --cjk` 扫描硬编码中文字符串，`--pair-base` 检查 zh/en 成对变更

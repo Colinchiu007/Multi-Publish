@@ -300,7 +300,7 @@ const tabStore = useTabStore()
 const accountStore = useAccountStore()
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const { t, te } = useI18n()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
 const accountActions = useAccountActions()
 const loading = ref(false)
@@ -796,10 +796,13 @@ async function checkLogin (account) {
     if (result?.code === 0 && result.data?.valid) {
       notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid') })
     } else {
-      const message = result?.data?.message || t('accountsPage.loginExpired')
+      // 使用错误码映射到 i18n 文案，避免后端硬编码消息直接展示
+      const errorCode = result?.data?.code || 'CHECK_LOGIN_COOKIE_EXPIRED'
+      const reasonKey = 'accountsPage.accountCheckStatus.' + errorCode
+      const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
       const confirmed = await notifyConfirm('accountsPage.loginExpiredConfirm', {
         title: t('accountsPage.confirmTitle'),
-        message: message + '，' + t('accountsPage.loginExpiredHint'),
+        message: t('accountsPage.loginExpiredMessage', { reason: reason }),
         confirmButtonText: t('accountsPage.goLogin'),
         cancelButtonText: t('accountsPage.cancel'),
         type: 'warning',
