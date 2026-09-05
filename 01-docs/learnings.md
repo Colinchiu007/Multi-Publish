@@ -14433,3 +14433,8 @@ commit `c0e9fb126`（feat: 视频创作历史记录下载视频）引入了 `dow
 | 修复 | ✅ 补 `@download-history="downloadHistoryVideo"` |
 | 回归测试 | ✅ CreateView.test.js 新增回归测试（274 tests passed，mock cancelled 路径避免测试环境通知方法缺失） |
 | 预防措施 | ✅ R92 记录 + AGENTS.md QM-2 补充 |
+
+## 2026-09-05 账号管理页 v2 修复
+- pitfall: i18n 键缺失时 `notifyConfirm` 会静默返回 false 而不显示弹窗——任何新增 `t('key')` 引用必须同步检查 zh.js/en.js 双文件。
+- pattern: 重复去重应优先使用平台账号唯一 ID（platform_account_id），name 仅作 fallback。
+- pattern: 登录捕获流程应一次性提取全部公开元数据（昵称/粉丝/头像/平台ID）并持久化，避免二次爬取。

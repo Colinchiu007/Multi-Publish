@@ -5248,3 +5248,46 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 1. 粉丝数真实数据采集：登录捕获时按平台提取 followers/avatar/platform_account_id 并写回账号元数据，提供刷新入口。
 2. 标签系统完整化：渲染层支持独立 App 标签（多路由状态），加号真正打开独立首页实例。
 3. 重复账号改用 `platform_account_id` 作为强标识，`name` 仅作提示级校验。
+---
+
+## 附录：账号管理页质量修复 v2（2026-09-05）
+
+### 问题根因
+v1 修复（2026-09-04）的代码变更已正确合并到 main，但存在以下运行时缺陷：
+1. **i18n 键缺失**：`checkLogin` 函数引用了 `loginExpiredConfirm`、`loginExpiredHint`、`goLogin`、`loginUnsupported` 四个未定义的 i18n 键，导致 `notifyConfirm` 因 key 查找失败而静默返回 false，验证弹窗永不显示。
+2. **重复去重不精确**：仅按 `name` 字段查重。若昵称提取失败（回退为平台显示名如"快手"），则同名不同账号会被误判重名；若昵称变化，则同账号可重复添加。
+3. **账号元数据丢失**：`saveCapturedAccount` 只向 `/api/accounts` 发送 `{ platform, name }`，未发送 `accountInfo` 中的 `nickName`、`platformAccountId`、`followers`、`avatar`。
+4. **粉丝数缺失**：`extractAccountInfo` 未提取粉丝数 DOM 元素。
+
+### 修复方案
+
+| 文件 | 变更 |
+|------|------|
+| `apps/desktop/src/locales/zh.js` | 新增 `loginExpiredConfirm`、`loginExpiredHint`、`goLogin`、`loginUnsupported` 键 |
+| `apps/desktop/src/locales/en.js` | 对应英文键同步添加 |
+| `apps/desktop/electron/publishers/account-manager.js` | ① `saveCapturedAccount` 发送 `account_name`/`platform_account_id`/`followers`/`avatar`；② `extractAccountInfo` 新增粉丝数 DOM 提取 |
+| `packages/python-backend/src/server.py` | ① `AccountCreateRequest` 新增 4 字段；② `_account_to_dict` 返回新字段；③ `create_account` 存储新字段；④ 重复检查升级为 `platform_account_id` 优先，`name` 备选 |
+| `apps/desktop/electron/ipc-handlers/account.js` | `publicAccountFields` 白名单新增 `platform_account_id` |
+
+### 数据校验规则
+| 项 | 规则 |
+|----|------|
+| 重复账号 | `platform_account_id` 非空时精确匹配；否则 fallback `name` 归一化匹配 |
+| 粉丝数 | 支持 `万`/`w` 后缀解析（如 `1.2万` → `12000`），阈值保护（非负整数） |
+| 昵称 | 优先 `accountInfo.nickName`，缺失时回退 `name`（平台显示名） |
+| 平台账号 ID | 从 DOM 属性 `data-user-id`/`data-account-id` 提取 |
+
+### 交互逻辑
+- **验证按钮**：点击 → `accountCheckLogin` → 成功则 `notifySuccess`（"登录状态正常"），失败则 `notifyConfirm`（"登录已失效，是否重新登录？"）→ 确认后 `openLoginPage`（新标签页）
+- **去登录按钮**：已登录灰显"已登录"，未登录显示"去登录"→ 新标签页打开平台登录页
+- **卡片显示**：昵称（`account_name`）优先于平台名
+
+### 提示文字
+| 场景 | 中文 | 英文 |
+|------|------|------|
+| 验证通过 | 登录状态正常 | Login status is normal |
+| 验证失效 | 登录已失效，是否重新登录该账号？ | Session expired. Do you want to log in again? |
+| 按钮-去登录 | 去登录 | Go to login |
+| 按钮-取消 | 取消 | Cancel |
+| 不支持登录 | 暂不支持该平台的登录页 | Login page not supported for this platform |
+| 重复添加 | 此账号已添加过 | This account has already been added |
