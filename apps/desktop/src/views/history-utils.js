@@ -287,6 +287,52 @@ export function historyStatusCounts (items) {
   return counts
 }
 
+
+/** 30 分钟过期运行阈值（与 CreateView.vue / usePipelineHistory.js 保持一致） */
+export const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
+
+/**
+ * 将过期运行中的任务标记为 interrupted（应用退出/崩溃残留）。
+ * 直接修改传入数组中的元素（mutation），不返回新数组。
+ * @param {Array} items - 历史记录数组
+ * @param {number} [now] - 当前时间戳，默认 Date.now()
+ */
+export function markStaleRunningAsInterrupted (items, now = Date.now()) {
+  if (!Array.isArray(items)) return
+  for (const item of items) {
+    if (item && item.status === 'running') {
+      const updatedAt = item.updatedAt ? new Date(item.updatedAt).getTime() : 0
+      if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
+        item._originalStatus = item.status
+        item.status = 'interrupted'
+        if (!item.pausedStage) {
+          const stages = Array.isArray(item.stages) ? item.stages : []
+          const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
+          item.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 为 failed 状态的任务补充 pausedStage（失败环节）。
+ * 直接修改传入数组中的元素（mutation）。
+ * @param {Array} items - 历史记录数组
+ */
+export function fillFailedPausedStage (items) {
+  if (!Array.isArray(items)) return
+  for (const item of items) {
+    if (item && item.status === 'failed' && !item.pausedStage) {
+      const stages = Array.isArray(item.stages) ? item.stages : []
+      const failedStage = stages.find(s => s && s.status === 'failed')
+        || stages.find(s => s && s.status !== 'completed')
+        || stages[stages.length - 1]
+      item.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
+    }
+  }
+}
+
 export function historyDisplayTime (item) {
   return historyEffectiveTime(item)
 }

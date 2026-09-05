@@ -11,11 +11,10 @@
 import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
 import { formatStory2VideoNotification, historyLoadFailureDetail, STORY2VIDEO_NOTIFICATION_KEYS } from '@/story2video/story2video-notifications'
-import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, markStaleRunningAsInterrupted, fillFailedPausedStage, sortHistoryByEffectiveTime } from '@/views/history-utils'
 import { formatDateTime } from '@/utils/datetime'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
-const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
 
 /**
  * 带超时的请求包装
@@ -86,43 +85,24 @@ export function usePipelineHistory(options = {}) {
         : []
       const projectIds = new Set(projects.map(project => project.projectId))
       const runs = hasRuns
-        ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
+        ? pipelineResult.value.data
+            .filter(run => !projectIds.has(run.id))
+            .map(run => ({ ...run, historyType: 'pipeline-run' }))
         : []
 
-      // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为「已中断」
-      // （应用退出/崩溃残留；手动暂停任务持久化为 paused，不受此转换影响）
+      // stale running 检测（应用退出/崩溃残留；手动暂停任务持久化为 paused，不受此转换影响）
       const now = Date.now()
-      for (const run of runs) {
-        if (run.status === 'running') {
-          const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
-          if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
-            run._originalStatus = run.status
-            run.status = 'interrupted'
-            if (!run.pausedStage) {
-              const stages = Array.isArray(run.stages) ? run.stages : []
-              const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
-              run.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
-            }
-          }
-        }
-      }
-
-      // failed 任务保留原始状态，不再统一转为 paused
-      // 前端根据 _originalStatus 或 pausedStage 区分"用户暂停"和"执行失败"
-      for (const run of runs) {
-        if (run.status === 'failed' && !run.pausedStage) {
-          const stages = Array.isArray(run.stages) ? run.stages : []
-          const failedStage = stages.find(s => s && s.status === 'failed')
-            || stages.find(s => s && s.status !== 'completed')
-            || stages[stages.length - 1]
-          run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
-        }
-      }
+      markStaleRunningAsInterrupted(runs, now)
+      fillFailedPausedStage(runs)
 
       // enrich stages with sceneProgress from context
       for (const run of runs) {
         run.stages = _enrichStages(run.stages, run.context)
       }
+
+      // 对 projects 也应用 stale running 检测 + failed 补充 pausedStage（2026-09-05 修复）
+      markStaleRunningAsInterrupted(projects, now)
+      fillFailedPausedStage(projects)
 
       history.value = sortHistoryByEffectiveTime([...runs, ...projects])
 

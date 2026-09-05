@@ -1528,7 +1528,7 @@ import {
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
-import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, latestHistoryTimestamp, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, latestHistoryTimestamp, markStaleRunningAsInterrupted, fillFailedPausedStage, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -5719,33 +5719,13 @@ export default {
         const projectsWithoutRuns = projects.filter(project => !matchedProjectIds.has(project.projectId))
         // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为「已中断」
         // （应用退出/崩溃留下的运行残留；手动暂停任务经 savePaused 持久化为 paused，不受此转换影响）
-        const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
+        // 过期运行检测 + failed 阶段补充 pausedStage（2026-09-05 修复）：
+        // runs 和 projectsWithoutRuns 都需处理，避免残留 running 导致编辑按钮不显示
         const now = Date.now()
-        for (const run of runs) {
-          if (run.status === 'running') {
-            const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
-            if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
-              run._originalStatus = run.status
-              run.status = 'interrupted'
-              if (!run.pausedStage) {
-                const stages = Array.isArray(run.stages) ? run.stages : []
-                const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
-                run.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
-              }
-            }
-          }
-        }
-
-        // failed 任务补充 pausedStage（失败环节）
-        for (const run of runs) {
-          if (run.status === 'failed' && !run.pausedStage) {
-            const stages = Array.isArray(run.stages) ? run.stages : []
-            const failedStage = stages.find(s => s && s.status === 'failed')
-              || stages.find(s => s && s.status !== 'completed')
-              || stages[stages.length - 1]
-            run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
-          }
-        }
+        markStaleRunningAsInterrupted(runs, now)
+        fillFailedPausedStage(runs)
+        markStaleRunningAsInterrupted(projectsWithoutRuns, now)
+        fillFailedPausedStage(projectsWithoutRuns)
 
         this.history = sortHistoryByEffectiveTime([...runs, ...projectsWithoutRuns])
         void this.hydrateHistoryThumbnails(this.history, requestId)
