@@ -1,0 +1,44 @@
+{
+  "id": "start-app-restart-win-1309",
+  "title": "用 start-app skill 二次启动 Multi-Publish 桌面应用（Windows，最新代码 9c59cb34 + 共享登录 profile）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "已完成；用完可用 safe-worktree-remove.ps1 清理 mp-start-app-win-1309",
+  "createdAt": "2026-09-05T13:09:58+08:00",
+  "completedAt": "2026-09-05T13:14:30+08:00",
+  "branch": "main",
+  "context": {
+    "prevRun": "start-app-restart-win (12:09 启动 8d7774ef)，本次启动前已不在运行 -> 场景 A 完整启动",
+    "requestEnv": "Windows (MINGW64_NT-10.0-26200, 非 WSL) -> scripts/start-desktop.ps1",
+    "appRunningBefore": false,
+    "scenario": "A-未运行-完整启动流程 (启动前 electron 进程 0, 端口 7364/11412 全空)",
+    "codeAlignment": "HEAD 9c59cb34 == origin/main 9c59cb34, 0/0 已对齐 (git ls-remote 只读核对, 未 fetch); 主工作区 HEAD 自上次运行的 8d7774ef 前进 3 个提交",
+    "sharedMainWorkspace": "脏文件 16 个 + DESKTOP_DEPS_MISSING(@ctrl/tinycolor) -> 按 skill 决策矩阵禁用共享主工作区, 未在其上做 git 写操作或 pnpm install",
+    "reusedWorktree": "无可复用: mp-start-app-win 残留 1.7G 但 .git 链接已被并发会话 worktree remove 抹掉(非 git 仓库); 其余 mp-worktrees 目录同样失效",
+    "chosenWorktree": "D:/Data/projects/mp-worktrees/mp-start-app-win-1309 (新建, 基于 origin/main, 分支 local/start-app-20260905-1309); 故意换新路径避免与并发动作抢同名目录",
+    "deps": "pnpm install --frozen-lockfile 38.2s 全 store 复用; DESKTOP_DEPS_OK(missing 0); electron v43.1.1; verify-worktree-deps OK(9 项消费方解析)",
+    "startCommand": "pwsh -File scripts/start-desktop.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-start-app-win-1309 -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile",
+    "result": {
+      "contractExit": 0,
+      "windowHandle": 7805548,
+      "windowTitle": "社媒管家",
+      "electronPid": 44724,
+      "electronProcCount": 5,
+      "vitePid": 42012,
+      "vitePort": 5780,
+      "viteHttp": 200,
+      "cdpPort": 9828,
+      "pageUrl": "http://127.0.0.1:5780/#/",
+      "identity": "authenticated, sub=hc2y714slpby, plan=free, expiresAt=1788748010",
+      "note_ports": "端口随 worktree 路径变化由 dev-ports.js 派生: 上次 7364/11412 -> 本次 5780/9828"
+    }
+  },
+  "learnings": [
+    "隔离 worktree 会被并发会话 worktree remove 清除且残留 1.7G 孤儿目录(mp-start-app-win), 复用前必须 git worktree list 校验注册态, 不能只看目录存在",
+    "共享主工作区缺的包每次不同(上次 @img/sharp-win32-x64, 本次 @ctrl/tinycolor)且脏文件持续增长(3->16), 多会话并发破坏共享 node_modules 是常态, 隔离 worktree 是唯一可靠路径",
+    "未提交的 .ccg/tasks/<id>/ 会被并发清理清掉, 归档提交必须与写入同批完成"
+  ]
+}
