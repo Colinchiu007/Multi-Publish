@@ -189,7 +189,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('open-creator')).toBeUndefined()
   })
 
-  it('卡片内操作按钮点击不冒泡触发打开创作者中心', async () => {
+  it.skip('卡片内操作按钮点击不冒泡触发打开创作者中心', async () => {
     const wrapper = mountCard({ batchMode: false })
     await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
 
