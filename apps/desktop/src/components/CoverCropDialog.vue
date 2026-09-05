@@ -3,7 +3,7 @@
     v-if="visible"
     class="cover-crop-dialog"
     :visible="visible"
-    :title="t('coverCrop.title')"
+    :title="t('publishPage.coverCrop.title')"
     width="760px"
     @close="$emit('close')"
   >
@@ -32,7 +32,7 @@
             <div v-for="h in 8" :key="'h' + h" class="crop-handle" :class="'handle-' + h" />
           </div>
         </div>
-        <p class="crop-hint">{{ t('coverCrop.dragHint') }}</p>
+        <p class="crop-hint">{{ t('publishPage.coverCrop.dragHint') }}</p>
       </div>
       <div class="crop-toolbar">
         <div class="crop-ratios">
@@ -43,15 +43,15 @@
             :class="{ active: activeRatio === r.key }"
             @click="setRatio(r.key)"
           >
-            {{ t('coverCrop.ratio.' + r.key) }}
+            {{ t('publishPage.coverCrop.ratio.' + r.key) }}
           </button>
         </div>
         <div class="crop-actions">
           <UiButton class="crop-close" variant="ghost" size="sm" @click="$emit('close')">
-            {{ t('coverCrop.cancel') }}
+            {{ t('publishPage.coverCrop.cancel') }}
           </UiButton>
           <UiButton class="crop-confirm" variant="primary" size="sm" :loading="cropping" @click="confirmCrop">
-            {{ t('coverCrop.confirm') }}
+            {{ t('publishPage.coverCrop.confirm') }}
           </UiButton>
         </div>
       </div>
@@ -111,13 +111,13 @@ function loadImage () {
     .then((res) => {
       const url = res?.data?.dataUrl || res?.dataUrl || ''
       if (!url) {
-        loadError.value = res?.message || t('coverCrop.loadFailed')
+        loadError.value = res?.message || t('publishPage.coverCrop.loadFailed')
         return
       }
       previewUrl.value = url
     })
     .catch((e) => {
-      loadError.value = typeof e?.message === 'string' ? e.message : t('coverCrop.loadFailed')
+      loadError.value = typeof e?.message === 'string' ? e.message : t('publishPage.coverCrop.loadFailed')
     })
 }
 
@@ -205,10 +205,10 @@ async function confirmCrop () {
     if (res?.code === 0 && res?.data?.path) {
       emit('success', res.data)
     } else {
-      emit('error', res?.message || t('coverCrop.cropFailed'))
+      emit('error', res?.message || t('publishPage.coverCrop.cropFailed'))
     }
   } catch (e) {
-    emit('error', typeof e?.message === 'string' ? e.message : t('coverCrop.cropFailed'))
+    emit('error', typeof e?.message === 'string' ? e.message : t('publishPage.coverCrop.cropFailed'))
   } finally {
     cropping.value = false
   }

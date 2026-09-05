@@ -235,6 +235,40 @@ export function looksTechnical (text) {
 }
 
 /**
+ * 判断文本是否为「泄漏的 i18n 原始 key」。
+ *
+ * 当 vue-i18n 的 t()/te() 传入不存在的 key 时，会原样返回 key 字符串
+ * （如 `accountsPage.loginExpiredHint`），直接泄漏到用户界面。
+ * 本函数识别这类「点分路径 + 驼峰/下划线命名」的 key 形态，供通知通道
+ * 在展示前拦截，避免技术性 key 直出。
+ *
+ * 判定规则（保守，避免误伤自然语言）：
+ *   - 形如 `namespace.sub.path`（至少 2 段，含 `.`）
+ *   - 各段为字母/数字/下划线，整体不含空格、中文、标点（除 `.`）
+ *   - 至少一段含大写驼峰（如 loginExpiredHint）或下划线小写（login_expired）
+ *   - 排除常见英文自然语言短句（含空格即排除）
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeI18nKey (text) {
+  const raw = String(text || '')
+  if (!raw || raw.length > 120) return false
+  // 必须含至少一个点（namespace.sub.path）
+  if (!raw.includes('.')) return false
+  // 含空格/中文/常见标点 → 视为自然语言，不拦截
+  if (/[\s一-鿿，。！？：；、（）【】"'`]/u.test(raw)) return false
+  // 各段必须是小写字母/数字/下划线开头，允许驼峰（大写字母出现在非首字符）
+  const segments = raw.split('.')
+  if (segments.length < 2) return false
+  if (!segments.every((seg) => /^[a-z0-9_][a-zA-Z0-9_]*$/.test(seg))) return false
+  // 至少一段含大写驼峰（如 loginExpiredHint / goLogin）或下划线小写（login_expired）
+  const hasCamel = /[a-z][A-Z]/.test(raw)
+  const hasUnderscore = /[a-z0-9]_[a-z0-9]/.test(raw)
+  return hasCamel || hasUnderscore
+}
+
+/**
  * 校验 messageKey 是否已知（契约层 key 集合）。
  * 用于主进程 notify:log 服务端白名单（C2 修复）。
  * @param {string} messageKey

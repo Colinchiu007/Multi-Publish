@@ -168,4 +168,15 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 
 - **CI Gate 7**：`node .github/scripts/check-locale-sync.js --cjk` 扫描渲染端硬编码中文字符串
 - **CI Gate 7**：`node .github/scripts/check-locale-sync.js --pair-base origin/main` 检查 zh/en 成对变更
+- **CI Gate 7**：`node .github/scripts/check-locale-sync.js --keys` 扫描渲染端使用的 i18n key 必须存在于 zh/en（防 vue-i18n 缺失 key 原样返回泄漏）
 - **Code Review**：审查者必须检查新增字符串是否都通过 i18n 系统展示
+
+### 运行时防泄漏守卫（2026-09-05 增强）
+
+即使 CI 漏检，运行时也不允许 i18n 原始 key 直出到用户界面。统一通知通道（`useNotify` / `notifyCore`）在展示前拦截：
+
+- `notifyCore.resolveNotifyText`：解析结果若仍是 i18n key 形态（点分路径 + 驼峰/下划线），视为未命中，返回空串。
+- `useNotify.notify` / `notifyConfirm`：`options.message` 直接传文案若为 i18n key 形态，拦截不展示；`notifyConfirm` 的 `title` / `confirmButtonText` / `cancelButtonText` 同样拦截。
+- 判定函数：`message-contract.js` 的 `looksLikeI18nKey(text)`（保守，仅识别点分路径 key 形态，不误伤自然语言）。
+
+**强制点**：任何新增用户可见文案必须走 `t('key.path')` 且 key 在 zh/en 成对存在；禁止把 i18n key 字符串直接传给 `ElMessage` / `ElMessageBox` / `options.message`。

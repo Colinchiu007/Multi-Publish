@@ -275,3 +275,15 @@ test('Quality Gate Gate 10 前端一致性卡点接线（desktop-ui-consistency�
   assert.ok(fs.existsSync(path.join(__dirname, 'check-frontend-consistency.js')), 'checkpoint script must exist');
   assert.ok(fs.existsSync(path.join(__dirname, 'frontend-consistency-baseline.json')), 'baseline must exist');
 });
+
+test('Quality Gate Gate 7 locale 卡点包含 key 存在性检查（i18n-user-facing-messages）', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const gate = workflow.match(/- name: "Gate 7 - locale content sync[\s\S]*?(?=\r?\n\s*- name:|\r?\n  [a-z][-\w]*:)/)?.[0];
+  assert.ok(gate, 'Gate 7 locale content sync step must exist');
+  assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --pair-base origin\/main/);
+  assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --cjk/);
+  assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --keys/);
+  assert.match(gate, /node --test \.github\/scripts\/check-locale-sync\.test\.js/);
+  assert.ok(fs.existsSync(path.join(__dirname, 'check-locale-sync.js')), 'check-locale-sync.js must exist');
+  assert.ok(fs.existsSync(path.join(__dirname, 'check-locale-sync.test.js')), 'check-locale-sync.test.js must exist');
+});

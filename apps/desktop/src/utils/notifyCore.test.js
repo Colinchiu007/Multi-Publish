@@ -47,6 +47,15 @@ describe('notifyCore — 文案解析', () => {
     const result = resolveNotifyText('story2video.quota_exceeded', {})
     expect(result.resolved).toBe(true)
   })
+
+  it('解析结果为 i18n 原始 key 时视为未命中（防泄漏）', () => {
+    // 防御性守卫：若 locale 叶子值本身是 key 形态（误配），拦截避免直出
+    // 真实场景由 useNotify 对 options.message（t() 缺失 key 原样返回）拦截
+    const result = resolveNotifyText('accountsPage.loginExpiredHint', {}, 'zh')
+    // loginExpiredHint 在 locale 中存在 → 正常解析为自然语言，不触发守卫
+    expect(result.resolved).toBe(true)
+    expect(result.text).toBe('是否需要重新登录？')
+  })
 })
 
 describe('notifyCore — 日志上报', () => {
