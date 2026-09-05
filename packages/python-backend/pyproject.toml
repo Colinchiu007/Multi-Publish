@@ -17,6 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+aggregation = [
+    "content-aggregator>=0.1.0",
+    "content-aggregator-shared>=0.1.0",
+]
 web = [
     "jinja2>=3.1",
     "pyyaml>=6.0",
