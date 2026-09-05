@@ -162,6 +162,7 @@ function extractContext(container) {
   const renderEngine = container.get('renderEngine')
   const compositionManager = container.get('compositionManager')
   const aiGenerator = container.get('aiGenerator')
+  const assetGenerator = container.get('assetGenerator')
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
   const runStateStore = container.get('runStateStore')
@@ -395,7 +396,7 @@ function extractContext(container) {
       AccountManager, history, autoUpdater, hotkeys, firstRun,
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
-      renderEngine, compositionManager, aiGenerator, videoEngine, pipelineEngine,
+      renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,
       story2videoBatchQueue, runStateStore,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,
       _aggregatorBridge, publisherRouter, _PublishAlert,

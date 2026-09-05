@@ -103,6 +103,16 @@ describe('usageTracker context 注入', () => {
     expect(dependencies.credentialStore).toBe(require('../services/credential-store'))
     expect(dependencies.accountStateRestorer).toBe(require('../services/account-state-restorer'))
   })
+
+  it('context 中的 assetGenerator 流入 handlerDependencies（视频克隆 E2E 根因回归）', () => {
+    const assetGenerator = { generateVideo: vi.fn(), generateImage: vi.fn() }
+    const context = { assetGenerator }
+
+    registerAllIpcHandlers({ app, BrowserWindow, context })
+
+    const dependencies = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(dependencies.assetGenerator).toBe(assetGenerator)
+  })
 })
 
 describe('IPC 注册生命周期', () => {
