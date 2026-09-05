@@ -636,6 +636,16 @@ describe("AccountsView", () => {
     expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining("\u7f51\u7edc"));
   });
 
+  it("addAccount 重复账号返回 409 提示", async () => {
+    const { accountAdd } = await import("@/api/publisher");
+    accountAdd.mockResolvedValueOnce({ code: -409, message: "此账号已添加过" });
+    const w = await mountView();
+    w.vm.newPlatform = "douyin";
+    await w.vm.addAccount();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining("此账号已添加过"));
+  });
+
   it("失效账号重新登录复用网页登录 IPC 且不重新打开添加账号弹窗", async () => {
     const { authOpenLogin } = await import("@/api/publisher");
     const w = await mountView();

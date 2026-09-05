@@ -114,6 +114,40 @@ describe('account-manager — Logto owner 隔离', () => {
     expect(deleteCredential).toHaveBeenCalledWith('account-a', 'C:/test-user-data', 'user-a')
     expect(deleteRecord).toHaveBeenCalledWith('douyin', 'account-a', 'user-a', 'C:/test-user-data')
   })
+  it('删除账号时加密凭据删除失败不阻断主流程', async () => {
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => 'user-a')
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'account-a', platform: 'douyin' } })
+      .mockResolvedValueOnce({ code: 0 })
+    const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential')
+      .mockReturnValue(false)  // 模拟删除失败
+    const hasCredential = vi.spyOn(accountManager.credentialStore, 'hasCredential')
+      .mockReturnValue(true)  // 文件存在
+    const deleteRecord = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecord')
+      .mockImplementation(() => {})
+
+    // 凭据删除失败不应抛出异常，账号元数据已删除
+    await expect(accountManager.deleteAccount('account-a')).resolves.toBe(true)
+
+    expect(requestBackend).toHaveBeenNthCalledWith(2, 'DELETE', '/api/accounts/account-a')
+    expect(deleteRecord).toHaveBeenCalled()
+  })
+
+  it('删除账号时凭据不存在则正常完成', async () => {
+    const accountManager = loadAccountManager()
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'account-a', platform: 'douyin' } })
+      .mockResolvedValueOnce({ code: 0 })
+    const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential')
+      .mockReturnValue(false)  // 文件不存在
+    const hasCredential = vi.spyOn(accountManager.credentialStore, 'hasCredential')
+      .mockReturnValue(false)  // 文件不存在
+
+    await expect(accountManager.deleteAccount('account-a')).resolves.toBe(true)
+
+    expect(deleteCredential).toHaveBeenCalled()
+  })
 
   it('恢复账号时只读取当前 owner，并恢复 Cookie 与 localStorage', async () => {
     const accountManager = loadAccountManager()
