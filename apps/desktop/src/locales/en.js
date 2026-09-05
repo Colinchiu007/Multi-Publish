@@ -1246,7 +1246,7 @@ export default {
     verifyingLogin: (ctx) => 'Verifying ' + ctx.named('platform') + ' login status...',
     loginValid: 'Login status is normal',
     loginExpired: 'Session expired',
-    loginExpiredMessage: (ctx) => 'Account login has expired (' + ctx.named('reason') + '). Please re-login to ensure normal use.','
+    loginExpiredMessage: (ctx) => 'Account login has expired (' + ctx.named('reason') + '). Please re-login to ensure normal use.',
     loginTab: (ctx) => ctx.named('platform') + ' Login',
     loginExpiredConfirm: 'Session expired',
     loginExpiredHint: 'Do you want to re-login?',
