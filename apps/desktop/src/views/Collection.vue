@@ -14,8 +14,11 @@
     <div class="cohere-content">
       <!-- URL 采集输入 -->
       <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
-        <div style="display:flex;gap:var(--space-sm);align-items:center">
+        <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
           <span style="font-size:1.2rem">🔗</span>
+          <select v-model="collectSourceType" style="border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px">
+            <option v-for="s in collectSources" :key="s.type" :value="s.type">{{ s.name }}</option>
+          </select>
           <input
             v-model="linkUrl"
             placeholder="输入文章链接，自动采集标题、正文、封面..."
@@ -115,6 +118,13 @@ const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
 const collectedResult = ref(null)
+const collectSourceType = ref('url')
+const collectSources = ref([
+  { type: 'url', name: 'URL 正文提取' },
+  { type: 'rss', name: 'RSS 订阅源' },
+  { type: 'sitemap', name: 'Sitemap' },
+  { type: 'api', name: '自定义 API' },
+])
 const rewriteStyle = ref('轻松易懂')
 const rewriteLength = ref('keep')
 const rewriteStyles = [
@@ -208,10 +218,6 @@ async function deleteDraft (d) {
 
 async function collectUrl () {
   const api = getApi()
-  if (!api || !api.urlCollectFetch) {
-    notifyWarning('collection.collectUnavailable')
-    return
-  }
   if (!linkUrl.value || !linkUrl.value.trim()) {
     notifyWarning('collection.enterLink')
     return
@@ -219,13 +225,43 @@ async function collectUrl () {
   collecting.value = true
   collectedResult.value = null
   try {
-    const result = await api.urlCollectFetch(linkUrl.value.trim())
-    if (result.code !== 0) {
-      notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+    // 优先走 Python aggregation API（content-aggregator v1 引擎）
+    if (api && api.aggregationCollect) {
+      const res = await api.aggregationCollect({
+        url: linkUrl.value.trim(),
+        source_type: collectSourceType.value,
+        rewrite: false,
+      })
+      // aggregationCollect 直接返回 CollectResult（无 code 包装），失败由 handler 返回 { code, message }
+      if (res && res.code !== undefined && res.code !== 0) {
+        notifyError('collection.collectFailed', { message: res.message || resolveNotifyText('collection.collectFailed').text })
+        return
+      }
+      if (res && res.title) {
+        collectedResult.value = {
+          title: res.title,
+          content: res.content || '',
+          description: res.content ? res.content.slice(0, 120) : '',
+          source: collectSourceType.value,
+          sourceUrl: linkUrl.value,
+          wordCount: res.word_count || 0,
+        }
+        notifySuccess('collection.collectSuccess')
+        return
+      }
+    }
+    // 回退到旧的 url-collect（Node.js 端）
+    if (api && api.urlCollectFetch) {
+      const result = await api.urlCollectFetch(linkUrl.value.trim())
+      if (result.code !== 0) {
+        notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+        return
+      }
+      collectedResult.value = result.data
+      notifySuccess('collection.collectSuccess')
       return
     }
-    collectedResult.value = result.data
-    notifySuccess('collection.collectSuccess')
+    notifyWarning('collection.collectUnavailable')
   } catch (e) {
     notifyError('collection.collectRequestFailed', { message: resolveNotifyText('collection.collectRequestFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
   } finally {
