@@ -5734,3 +5734,85 @@ store:delete-account 凭据删除失败 → return { code: -1, message: '删除�
 - pps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
 
 
+
+
+## 账号管理页核心修复 v6：accounts:list 通道接入孤儿凭据清理（2026-09-07）
+
+### 变更背景
+v4/v5 已实现孤儿凭据清理逻辑（`credential-store.js` 的 `cleanOrphanCredentials`），但该逻辑只挂在 `account:list` IPC 通道的 `AccountManager.listAccounts()` 中。渲染层实际调用的是 `accounts:list` 通道（`src/stores/accounts.js` → `listAccounts()` → `accounts:list`），该通道直接调用 `pythonBridge.requestBackend`，跳过了 `AccountManager.listAccounts()` 中的清理步骤，导致孤儿凭据清理从未生效。
+
+### 数据流
+
+```
+渲染层: src/stores/accounts.js → load() → listAccounts()
+  → src/api/publisher.js → invokeWithFallback("listAccounts")
+    → preload(index.bundle.js) → ipcRenderer.invoke("accounts:list")
+      → 主进程 account.js accounts:list handler
+        修复前: pythonBridge.requestBackend('GET', '/api/accounts')  ← 跳过了清理
+        修复后: AccountManager.listAccounts()                        ← 内含 orphan 清理
+          → credential-store.cleanOrphanCredentials(knownIds, userDataDir, ownerSubject)
+```
+
+### 修复内容
+
+**文件**: `apps/desktop/electron/ipc-handlers/account.js`
+
+`accounts:list` handler 改为调用 `AccountManager.listAccounts()`（内含孤儿凭据清理），与 `account:list` handler 保持一致。
+
+#### 变更前
+```js
+const response = await pythonBridge.requestBackend('GET', '/api/accounts')
+if (response?.code !== 0 || !Array.isArray(response.data)) {
+  // error handling...
+}
+const data = response.data.map(toPublicAccount)
+```
+
+#### 变更后
+```js
+// 通过 AccountManager.listAccounts() 获取账号列表（内含孤儿凭据清理）
+const accounts = await AccountManager.listAccounts()
+const data = Array.isArray(accounts) ? accounts.map(toPublicAccount) : []
+```
+
+### 孤儿凭据清理逻辑
+
+**触发时机**: 每次拉取账号列表时自动执行（`accounts:list` 和 `account:list` 两个通道均已覆盖）
+
+**清理规则**:
+1. 获取当前所有已知账号的 ID 集合
+2. 遍历凭据目录（`{userData}/credentials/owners/{sha256(sub)}/`）下所有 `.json.enc` 文件
+3. 文件名去掉 `.json.enc` 后缀即账号 ID，不在已知 ID 集合中的 → 删除
+4. 删除失败记录 warn 日志，不阻断账号列表返回
+
+**日志输出**:
+- 成功: `[INFO] CredentialStore clean-orphan ok: {accountId}`
+- 失败: `[WARN] CredentialStore clean-orphan fail: {accountId} {errorMessage}`
+
+### 真实环境验证
+
+启动应用后拉取账号列表，日志确认清理 4 个孤儿凭据文件：
+```
+[INFO] CredentialStore clean-orphan ok: 480c50a8
+[INFO] CredentialStore clean-orphan ok: 7fd56530
+[INFO] CredentialStore clean-orphan ok: 9d5ef9b7
+[INFO] CredentialStore clean-orphan ok: f5f5ce78
+```
+
+凭据目录状态：
+- 清理前: 7 个 `.json.enc` 文件（3 个有效 + 4 个孤儿）
+- 清理后: 3 个 `.json.enc` 文件（a4505f45=快手、d39af89b=百家号、e72848c6=哔哩哔哩）
+
+### E2E 测试
+
+13 项全功能测试通过：
+- 导航到账号管理页面、3 个账号卡片渲染、去重验证（3 平台无重复）
+- 5 个状态筛选 tabs（首页/全部/已登录/未登录/收藏）均可点击
+- 添加账号弹窗 打开/关闭
+- 收藏按钮、重命名（内联编辑）、代理弹窗
+- 删除确认对话框（"确定删除「Bilibili」账号...吗？"）打开/取消
+- 登录按钮（已登录状态 disabled，正确行为）
+- 验证按钮、批量操作（全选/退出）
+
+### 变更文件
+- apps/desktop/electron/ipc-handlers/account.js (+3/-6)

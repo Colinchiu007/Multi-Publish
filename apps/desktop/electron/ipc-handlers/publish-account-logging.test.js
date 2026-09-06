@@ -132,30 +132,30 @@ describe('Publish IPC 日志增强', () => {
 })
 
 describe('Account IPC 日志增强', () => {
-  it('accounts:list 记录 enter/ok 日志（含 count/platforms）', async () => {
-    const log = createLogRecorder()
-    const ipcMain = createMockIpcMain()
-    const deps = accountDeps(log)
-    deps.pythonBridge.requestBackend.mockResolvedValue({ code: 0, data: [{ id: 'd39af89b', platform: 'baijiahao', name: '百家号账号' }] })
-    registerAccount(ipcMain, deps)
-    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
-    expect(result.code).toBe(0)
-    const calls = log.info.mock.calls.map((c) => c.join(' '))
-    expect(calls.some((c) => c.includes('accounts:list') && c.includes('enter'))).toBe(true)
-    expect(calls.some((c) => c.includes('accounts:list') && c.includes('ok') && c.includes('count=1') && c.includes('baijiahao'))).toBe(true)
-  })
+ it('accounts:list 记录 enter/ok 日志（含 count/platforms）', async () => {
+   const log = createLogRecorder()
+   const ipcMain = createMockIpcMain()
+   const deps = accountDeps(log)
+    deps.AccountManager.listAccounts.mockResolvedValue([{ id: 'd39af89b', platform: 'baijiahao', name: '百家号账号' }])
+   registerAccount(ipcMain, deps)
+   const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+   expect(result.code).toBe(0)
+   const calls = log.info.mock.calls.map((c) => c.join(' '))
+   expect(calls.some((c) => c.includes('accounts:list') && c.includes('enter'))).toBe(true)
+   expect(calls.some((c) => c.includes('accounts:list') && c.includes('ok') && c.includes('count=1') && c.includes('baijiahao'))).toBe(true)
+ })
 
-  it('accounts:list 后端失败记录 backend-failed 日志', async () => {
-    const log = createLogRecorder()
-    const ipcMain = createMockIpcMain()
-    const deps = accountDeps(log)
-    deps.pythonBridge.requestBackend.mockResolvedValue({ code: 500, message: 'backend down' })
-    registerAccount(ipcMain, deps)
-    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
-    expect(result.code).not.toBe(0)
-    const calls = log.warn.mock.calls.map((c) => c.join(' '))
-    expect(calls.some((c) => c.includes('accounts:list') && c.includes('backend-failed') && c.includes('500'))).toBe(true)
-  })
+ it('accounts:list 后端失败记录 backend-failed 日志', async () => {
+   const log = createLogRecorder()
+   const ipcMain = createMockIpcMain()
+   const deps = accountDeps(log)
+    deps.AccountManager.listAccounts.mockRejectedValue(new Error('backend down'))
+   registerAccount(ipcMain, deps)
+   const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+   expect(result.code).not.toBe(0)
+    const calls = log.error.mock.calls.map((c) => c.join(' '))
+    expect(calls.some((c) => c.includes('accounts:list') && c.includes('error') && c.includes('backend down'))).toBe(true)
+ })
 
   it('auth:open-login 成功记录 ok 日志（含 platform/accountId）', async () => {
     const log = createLogRecorder()

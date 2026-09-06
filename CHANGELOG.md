@@ -1,3 +1,16 @@
+## [未发布] fix(accounts): accounts:list 通道接入孤儿凭据清理 v7（2026-09-07）
+
+### 根因
+- v6 的孤儿凭据清理逻辑（credential-store.js `cleanOrphanCredentials`）只挂在 `account:list` 通道的 `AccountManager.listAccounts()` 中，而渲染层实际调用的是 `accounts:list` 通道，直接走 `pythonBridge.requestBackend`，跳过了清理步骤，导致孤儿凭据清理从未生效。
+
+### 修复
+- account.js：`accounts:list` handler 改为调用 `AccountManager.listAccounts()`（内含孤儿凭据清理），与 `account:list` handler 保持一致。
+
+### 验证
+- 真实环境启动后拉取账号列表，日志确认清理 4 个孤儿凭据文件（480c50a8/7fd56530/9d5ef9b7/f5f5ce78）。
+- 凭据目录从 7 个 .json.enc 减到 3 个（仅保留有效账号凭据）。
+- E2E 全功能测试 13/13 通过。
+
 ## [未发布] fix(accounts): 启动时存量去重 + 孤儿凭据清理 + i18n 补齐 v6（2026-09-06）
 
 ### 背景
