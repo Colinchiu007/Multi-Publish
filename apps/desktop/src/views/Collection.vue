@@ -51,6 +51,31 @@
         </div>
       </div>
 
+      <!-- 采集结果累计列表 -->
+      <div v-if="collectedItems.length > 0" style="margin-bottom:var(--space-lg)">
+        <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>采集结果（{{ collectedItems.length }} 篇）</span>
+          <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" @click="collectedItems = []; collectedResult = null">清空</button>
+        </div>
+        <div class="cohere-card-grid">
+          <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :style="{ borderLeft: item.id === collectedResult?.id ? '3px solid var(--primary)' : '' }">
+            <div class="card-top">
+              <div class="card-icon">📰</div>
+              <div class="card-info">
+                <div class="card-platform">{{ item.title || '无标题' }}</div>
+                <div class="card-account">{{ item.source || 'url' }} · {{ item.wordCount || (item.content || '').length }}字</div>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button @click="collectedResult = item">查看</button>
+              <button @click="createFromItem(item)">创建草稿</button>
+              <button @click="sendItemToPipeline(item)">视频创作</button>
+              <button @click="goPublishFromItem(item)">发布</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 快捷操作 -->
       <div class="cohere-stat-grid" style="margin-bottom:var(--space-lg)">
         <div class="cohere-stat-card" style="cursor:pointer" @click="createDraft">
@@ -118,6 +143,7 @@ const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
 const collectedResult = ref(null)
+const collectedItems = ref([])  // 累计采集列表
 const collectSourceType = ref('url')
 const collectSources = ref([
   { type: 'url', name: 'URL 正文提取' },
@@ -238,7 +264,8 @@ async function collectUrl () {
         return
       }
       if (res && res.title) {
-        collectedResult.value = {
+        const item = {
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
           title: res.title,
           content: res.content || '',
           description: res.content ? res.content.slice(0, 120) : '',
@@ -246,6 +273,8 @@ async function collectUrl () {
           sourceUrl: linkUrl.value,
           wordCount: res.word_count || 0,
         }
+        collectedResult.value = item
+        collectedItems.value.unshift(item)
         notifySuccess('collection.collectSuccess')
         return
       }
@@ -257,7 +286,12 @@ async function collectUrl () {
         notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
         return
       }
-      collectedResult.value = result.data
+      const item = {
+        ...result.data,
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      }
+      collectedResult.value = item
+      collectedItems.value.unshift(item)
       notifySuccess('collection.collectSuccess')
       return
     }
@@ -296,22 +330,49 @@ async function rewriteCollected () {
   }
 }
 
-function createFromCollected () {
-  if (!collectedResult.value) return
-  const data = collectedResult.value
-  const draft = {
+function getDraftFromItem (data) {
+  return {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     title: data.title || '',
     content: data.content || data.description || '',
     coverImage: data.coverImage || '',
     source: data.source || 'url',
-    sourceUrl: linkUrl.value,
+    sourceUrl: data.sourceUrl || linkUrl.value || '',
     created_at: new Date().toLocaleString('zh-CN'),
   }
+}
+
+function createFromCollected () {
+  if (!collectedResult.value) return
+  const draft = getDraftFromItem(collectedResult.value)
   drafts.value.unshift(draft)
   saveDrafts()
   collectedResult.value = null
   linkUrl.value = ''
+  notifySuccess('collection.draftCreated')
+  router.push('/publish?draft=' + draft.id)
+}
+
+function createFromItem (item) {
+  collectedResult.value = item
+  createFromCollected()
+}
+
+function sendItemToPipeline (item) {
+  // 发送到 Story2Video 流水线：将采集内容作为文案输入
+  collectedResult.value = item
+  const draft = getDraftFromItem(item)
+  drafts.value.unshift(draft)
+  saveDrafts()
+  notifySuccess('collection.draftCreated')
+  router.push('/create?draft=' + draft.id)
+}
+
+function goPublishFromItem (item) {
+  collectedResult.value = item
+  const draft = getDraftFromItem(item)
+  drafts.value.unshift(draft)
+  saveDrafts()
   notifySuccess('collection.draftCreated')
   router.push('/publish?draft=' + draft.id)
 }
