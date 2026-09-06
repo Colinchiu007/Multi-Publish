@@ -66,3 +66,6 @@
 - [x] 4.1 P1: get_task_status 接入内存任务追踪器（_create_task/_update_task/get_task_status 生命周期）
 - [x] 4.2 P2: 敏感词表外置 — SENSITIVE_WORDS_PATH 环境变量加载 JSON/YAML 词表（shared 库 1c36d0b）
 - [x] 4.3 P3: ContentPipeline 拆分评估文档（content-pipeline-evaluation.md）
+- [x] 4.4 P2: 前端错误状态细化 — 错误码分类（-1~-5）+ 重试按钮 + 内联错误提示
+- [x] 4.5 安全: aggregation 端点添加 publish:read 鉴权依赖（与其他 /api/* 端点一致）
+- [x] 4.6 测试: 27 项 aggregation 测试全部通过；shared 库 197 项全部通过
