@@ -392,7 +392,23 @@ async function listAccounts () {
   if (result.code !== 0) {
     throw new Error(result.message || '获取账号列表失败')
   }
-  return (result.data || []).map(account => {
+  const accounts = result.data || []
+  // 每次拉取账号列表时清理孤儿凭据文件（对应账号已不存在的加密凭据）
+  try {
+    const ownerSubject = resolveOwnerSubject(undefined)
+    const userDataDir = getUserDataDir()
+    const knownIds = accounts.map(a => a?.id || a?.accountId || a?.account_id).filter(Boolean)
+    if (typeof credentialStore.cleanOrphanCredentials === 'function') {
+      if (ownerSubject === undefined) {
+        credentialStore.cleanOrphanCredentials(knownIds, userDataDir)
+      } else {
+        credentialStore.cleanOrphanCredentials(knownIds, userDataDir, ownerSubject)
+      }
+    }
+  } catch (e) {
+    log.warn('AccountManager', '清理孤儿凭据失败: ' + (e && e.message ? e.message : String(e)))
+  }
+  return accounts.map(account => {
     const accountId = account?.id || account?.accountId || account?.account_id
     const platform = account?.platform
     if (!isSafePathSegment(accountId) || !isSafePathSegment(platform)) return account
