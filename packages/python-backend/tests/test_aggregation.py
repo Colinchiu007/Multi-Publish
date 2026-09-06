@@ -190,6 +190,64 @@ async def test_full_cycle_no_crash():
     assert service is not None
     assert router is not None
     assert AggregationService is not None
+
+
+# ── 5.1 v2 import regression protection (QM-5) ─────────────────────────
+
+def test_service_does_not_import_v2_backend():
+    """Regression: service.py must not reference content_aggregator.backend (v2 does not exist)."""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "content_aggregator.backend" not in src, (
+        "service.py 引用了不存在的 content_aggregator.backend (v2)。"
+        "Phase 1 只能使用 v1 引擎 (content_aggregator.workflows / processors / sources)。"
+    )
+
+
+def test_rewrite_uses_v1_rewrite_processor():
+    """Regression: rewrite must import v1 RewriteProcessor, not v2 rewrite_content."""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "content_aggregator.processors.rewrite.rewriter" in src, (
+        "rewrite 必须使用 v1 RewriteProcessor (content_aggregator.processors.rewrite.rewriter)"
+    )
+    assert "content_aggregator.backend.app.services.rewrite" not in src, (
+        "rewrite 不得引用 v2 的 backend.app.services.rewrite"
+    )
+
+
+def test_collect_url_uses_v1_pipeline():
+    """Regression: _collect_url must use v1 ContentPipeline, not v2 collect_url."""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "content_aggregator.workflows.pipeline" in src, (
+        "_collect_url 必须使用 v1 ContentPipeline (content_aggregator.workflows.pipeline)"
+    )
+    assert "content_aggregator.backend.app.services.collect" not in src, (
+        "_collect_url 不得引用 v2 的 backend.app.services.collect"
+    )
+
+
+def test_content_model_construction_is_valid():
+    """Regression: Content object must be constructed with id + source_id."""
+    from content_aggregator.models import Content
+
+    c = Content(
+        id="",
+        source_id="",
+        title="",
+        content="测试正文",
+        source_type="manual",
+        url="",
+    )
+    assert c.content == "测试正文"
+    assert c.source_type == "manual"
 # ── 6. TaskStatus model ──────────────────────────────────────────────
 
 def test_task_status_model():
