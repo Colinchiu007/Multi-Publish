@@ -38,7 +38,6 @@ from multi_publish.video_creation.providers.video.video_trimmer import VideoTrim
 from multi_publish.aggregation.router import router as aggregation_router
 
 app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
-app.include_router(aggregation_router)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -106,6 +105,8 @@ def _identity_dependency(required_scopes: list[str]):
 _require_publish_read = _identity_dependency(["publish:read"])
 _require_publish_submit = _identity_dependency(["publish:submit"])
 _require_account_manage = _identity_dependency(["account:manage"])
+
+app.include_router(aggregation_router, dependencies=[Depends(_require_publish_read)])
 
 app.add_middleware(
     CORSMiddleware,
