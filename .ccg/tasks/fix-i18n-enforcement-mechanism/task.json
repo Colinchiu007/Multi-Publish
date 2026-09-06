@@ -1,0 +1,12 @@
+{
+  "id": "fix-i18n-enforcement-mechanism",
+  "title": "账号管理弹窗泄漏 i18n 原始 key — 建立用户可见文案强制机制（友好度+多语言）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "implementation",
+  "nextAction": "提交并推送分支，合并到 main",
+  "createdAt": "2026-09-05T22:58:00+08:00",
+  "branch": "fix/i18n-enforcement-mechanism"
+}

@@ -1,4 +1,23 @@
-﻿## [未发布] fix(desktop): 批量删除并行化 + 删除进度反馈（2026-09-05）
+## [未发布] fix(accounts): 账号去重补漏 + 删除凭据双重通道对齐 v5（2026-09-06）
+
+### 根因
+- 重复账号漏检：server.py 重复检测存在「一方有 platform_account_id、一方没有」的盲区——同名账号两次添加时 ID 提取不一致即漏检，导致同一平台账号显示多个。
+- 删除报错：account:delete 已改为凭据删除失败不阻断，但旧通道 store:delete-account 仍阻断，导致「账号元数据已删除，但清理本地加密凭据失败」。
+
+### 修复
+- server.py：新增第三条规则——名称完全一致且非空即判定重复（不管 ID 是否对称），返回 409「此账号已添加过」。
+- store.js：store:delete-account 凭据删除失败改为 console.warn + 继续删除元数据，与 account-manager.js 对齐。
+- CI 上游回归修复：autonomous-loop-workflow.test.js 断言同步 + locale-cjk-baseline.json 更新（1366→1381）。
+
+### 测试
+- Python 7 passed、store.test.js 59 passed、account-manager.test.js 40 passed。
+- 账号管理全功能 E2E 24/24 passed（含重复检测 IPC mock 返回 -409）。
+
+### 文档
+- PRD 重复检测规则表 + 删除凭据双重通道对齐；learnings 补 4 pitfall + 1 pattern。
+- PR #1505、#1507 均已 squash 合并进 main。
+
+## [未发布] fix(desktop): 批量删除并行化 + 删除进度反馈（2026-09-05）
 
 ### 根因
 - 批量删除确认后立即关闭对话框，串行 for...of + await 逐条删除；每条项目删除经 IPC 调用主进程同步 fs.rmSync 清理目录，多项目耗时 N 倍且无进度反馈，用户感知为「点击无反应」

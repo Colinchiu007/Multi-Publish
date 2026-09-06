@@ -14445,3 +14445,10 @@ commit `c0e9fb126`（feat: 视频创作历史记录下载视频）引入了 `dow
 - pitfall: i18n 键缺失时 `notifyConfirm` 会静默返回 false 而不显示弹窗——任何新增 `t('key')` 引用必须同步检查 zh.js/en.js 双文件。
 - pattern: 重复去重应优先使用平台账号唯一 ID（platform_account_id），name 仅作 fallback。
 - pattern: 登录捕获流程应一次性提取全部公开元数据（昵称/粉丝/头像/平台ID）并持久化，避免二次爬取。
+
+## 2026-09-06 账号去重补漏 + 删除凭据双重通道对齐（PR #1505）
+- pitfall: 账号重复检测存在「一方有 platform_account_id、一方没有」的盲区——同名账号两次添加时 ID 提取不一致会漏检，导致同一平台账号显示多个。修复须在强/弱标识之外补第三条规则：名称完全一致且非空即判定重复（名称是稳定兜底标识）。
+- pitfall: 账号删除存在「双通道不同步」——`account:delete`（account-manager.js）已改为凭据删除失败不阻断，但旧通道 `store:delete-account`（ipc-handlers/store.js）仍 `return { code: -1 }` 阻断，导致「账号元数据已删除，但清理本地加密凭据失败」报错。凡涉及删除/清理语义的 IPC 多通道，必须逐一核对是否对齐，不能只改新通道。
+- pitfall: 上游 CI 提交改 workflow 逻辑但不同步对应 `*.test.js` 断言，会留下「工作流绿、测试红」的假阴性（如 autonomous-loop.yml 降级逻辑变更后 autonomous-loop-workflow.test.js 期望值未更新）。改 workflow 语义必须成对更新其 contract 测试。
+- pitfall: 合并引入大量新硬编码中文（aggregation 新文件）而未 `--update-baseline`，`locale-sync --cjk` 按 file:line 存基线、行号偏移即全量 fresh 假阳性。纯行号偏移/存量债务用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 吸收，禁止掩盖真正新增的用户可见硬编码。
+- pattern: 重复去重规则优先级：platform_account_id 强标识（双方都有）> name 弱标识（双方都无，或一方缺失时兜底）> 放行。
