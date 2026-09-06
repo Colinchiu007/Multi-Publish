@@ -1,0 +1,15 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/opencode/reviewer.md
+<TASK>
+审查以下账号管理修复的代码变更。变更的 git diff 文件在 /tmp/account-review.diff，请先读取该文件。
+
+变更范围说明：
+- account-manager.js: 删除凭据清理失败不再抛出异常，改为重试一次(500ms)+记录warn日志
+- server.py: 重复检测增强（platform_account_id 强标识优先，弱标识回退 name，一方缺 id 不判重）
+- account-manager.test.js: 测试更新（删除失败不阻断主流程 + 凭据不存在正常完成）
+- Accounts.test.js: 重复检测 409 测试
+- test_server_account_lifecycle.py: 3 个重复检测 Python 测试
+- account-management-full.js: 24 项 E2E 硬断言测试
+
+请进行正确性/安全/性能/规范分类审查，输出 Critical/Warning/Info 分级报告。
+</TASK>
+OUTPUT: Critical/Warning/Info 分级审查报告

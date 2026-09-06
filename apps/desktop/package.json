@@ -52,6 +52,7 @@
     "test:e2e:film-engineering": "node tests/e2e/film-engineering-real.js",
     "test:e2e:flows": "node tests/e2e/helpers/run-all.js flows",
     "test:e2e:b1": "node tests/e2e/specs/b1-core-publish.js",
+    "test:e2e:accounts": "node tests/e2e/specs/account-management-full.js",
     "test:startup": "vitest run --config vitest.smoke.config.js",
     "test:preload:sandbox": "pnpm run build:preload && node scripts/verify-preload-sandbox.js"
   },
