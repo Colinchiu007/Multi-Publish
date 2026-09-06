@@ -5,6 +5,9 @@
  * 进度：video-clone:progress（主 → 渲染事件）
  * 4d：运行记录持久化（store）+ regenerate（部分流水线 generate→compose→publish，initialReport 复用编辑后报告）
  */
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const { withSenderCheck } = require('./helpers')
 const engine = require('@multi-publish/video-clone-engine')
 const {
@@ -16,7 +19,9 @@ const { createVideoCloneStore } = require('../services/video-clone/store')
 
 function registerHandlers(ipcMain, deps) {
   const { BrowserWindow, dialog } = deps
-  const tmp = require('node:os').tmpdir()
+  const tmp = os.tmpdir()
+  const outputRoot = path.join(tmp, 'story2video', 'video-clone')
+  fs.mkdirSync(outputRoot, { recursive: true })
   const store = createVideoCloneStore({ baseDir: deps.videoCloneStoreDir || tmp })
 
   const optimizeVideoPromptsBatch = deps.serviceBus && typeof deps.serviceBus.optimizeVideoPromptsBatch === 'function'
@@ -24,10 +29,10 @@ function registerHandlers(ipcMain, deps) {
     : null
   const assetGenerator = deps.assetGenerator
     ? createVideoCloneAssetGenerator({ assetGenerator: deps.assetGenerator, optimizeVideoPromptsBatch })
-    : createPlaceholderImageGenerator({ outputDir: tmp })
+    : createPlaceholderImageGenerator({ outputDir: path.join(tmp, 'story2video', 'video-clone-assets') })
   const publisher = createVideoClonePublisher({ publisherRouter: deps.publisherRouter })
 
-  const pipelineOptions = { assetGenerator, publisher, outputDir: tmp, fps: 24 }
+  const pipelineOptions = { assetGenerator, publisher, outputDir: outputRoot, fps: 24 }
 
   const service = engine.createVideoCloneService({
     createPipeline: (opts) => engine.createSlice3Pipeline(Object.assign({}, opts, pipelineOptions)),
@@ -36,7 +41,7 @@ function registerHandlers(ipcMain, deps) {
   function partialRegeneratePipeline(opts) {
     return engine.createVideoClonePipeline({
       generate: engine.createGenerateAssets({ assetGenerator }),
-      compose: engine.createFfmpegCompose({ outputDir: tmp, fps: 24 }),
+      compose: engine.createFfmpegCompose({ outputDir: outputRoot, fps: 24 }),
       publish: engine.createPublish({ publisher }),
     }, { stageIds: ['generate', 'compose', 'publish'], eventSink: opts.eventSink, abortSignal: opts.abortSignal })
   }

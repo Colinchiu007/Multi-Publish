@@ -113,6 +113,18 @@ describe('usageTracker context 注入', () => {
     const dependencies = mockRegisterAllHandlers.mock.calls[0][1]
     expect(dependencies.assetGenerator).toBe(assetGenerator)
   })
+
+  it('context 中的 serviceBus/publisherRouter 流入 handlerDependencies（视频克隆提示词优化根因回归）', () => {
+    const serviceBus = { optimizeVideoPromptsBatch: vi.fn() }
+    const publisherRouter = { publish: vi.fn() }
+    const context = { serviceBus, publisherRouter }
+
+    registerAllIpcHandlers({ app, BrowserWindow, context })
+
+    const dependencies = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(dependencies.serviceBus).toBe(serviceBus)
+    expect(dependencies.publisherRouter).toBe(publisherRouter)
+  })
 })
 
 describe('IPC 注册生命周期', () => {

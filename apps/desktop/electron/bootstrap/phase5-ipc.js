@@ -174,7 +174,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
   const {
     renderEngine, taskQueue, history, scheduler, autoUpdater, hotkeys, firstRun,
     authViewManager, pythonBridge, AccountManager, store,
-    _platformConfig, _sensitiveFilter, _dataSync,
+    _platformConfig, _sensitiveFilter, _dataSync, publisherRouter, serviceBus,
     analyticsService, proxyPool, _chunkedUploader, keywordMonitor,
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine, modelProviderManager,
@@ -192,6 +192,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     app, BrowserWindow, log, renderEngine, taskQueue, history,
     scheduler, autoUpdater, hotkeys, firstRun, authViewManager, pythonBridge,
     AccountManager, store, _platformConfig, _sensitiveFilter, _dataSync,
+    publisherRouter, serviceBus,
     analyticsService, proxyPool, _chunkedUploader, keywordMonitor,
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine, modelProviderManager,

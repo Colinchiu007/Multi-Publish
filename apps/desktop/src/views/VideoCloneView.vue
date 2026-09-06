@@ -90,7 +90,7 @@
       <template #header>{{ t('videoClone.similarity') }}</template>
       <div class="vc-sim">{{ t('videoClone.meta.score') }} <b>{{ similarity.score }}</b> · {{ t('videoClone.meta.verdict') }} <b>{{ similarity.verdict }}</b></div>
       <div class="vc-level">
-        {{ t('videoClone.meta.autoTarget') }} <b>{{ report.replication?.level || '-' }}</b> → {{ t('videoClone.meta.achieved') }} <b>{{ similarity.grade || '-' }}</b>
+        {{ t('videoClone.meta.autoTarget') }} <b>{{ report?.replication?.level || '-' }}</b> → {{ t('videoClone.meta.achieved') }} <b>{{ similarity.grade || '-' }}</b>
         <span class="vc-level-note">（F4 {{ t('videoClone.meta.acceptedAt') }} {{ similarity.level || 'L1' }}）</span>
       </div>
       <div class="vc-sim-metrics">
@@ -99,6 +99,9 @@
       </div>
       <el-tag v-if="similarity.warnings && similarity.warnings.verbatimScript" type="warning">
         {{ t('videoClone.verbatimWarn') }}
+      </el-tag>
+      <el-tag v-if="similarity.warnings && similarity.warnings.degradedAssets" type="warning" data-testid="video-clone-degraded-warning">
+        {{ t('videoClone.degradedAssetsWarning') }}
       </el-tag>
       <div class="vc-actions">
         <el-button data-testid="video-clone-regenerate" :loading="running" @click="regenerate" :disabled="!runId || running">{{ t('videoClone.regenerate') }}</el-button>
@@ -120,7 +123,7 @@
       <div v-else class="vc-video-fallback">{{ t('videoClone.outputVideoUnavailable') }}</div>
       <p class="vc-path-text">{{ t('videoClone.outputPathLabel') }}: {{ outputPath }}</p>
       <div class="vc-actions">
-        <el-button type="primary" data-testid="video-clone-download" :disabled="!videoSrc" @click="download">{{ t('videoClone.downloadVideo') }}</el-button>
+        <el-button type="primary" data-testid="video-clone-download" :disabled="!outputPath" @click="download">{{ t('videoClone.downloadVideo') }}</el-button>
         <el-button data-testid="video-clone-show-in-folder" @click="showInFolder">{{ t('videoClone.showInFolder') }}</el-button>
         <el-button data-testid="video-clone-copy-path" @click="copyPath">{{ t('videoClone.copyPath') }}</el-button>
       </div>
