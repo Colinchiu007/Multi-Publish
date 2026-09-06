@@ -1221,6 +1221,7 @@ export default {
     reloginSuccess: 'Account re-signed in successfully',
     qrcodeSuccess: 'QR login successful',
     addSuccess: 'Account added',
+    duplicateAccount: 'This account has already been added',
     expiredWarning: (ctx) => ctx.named('count') + ' accounts have expired sessions',
     eventFailed: 'Account event handling failed',
     groupCreated: 'Group created',

@@ -1222,6 +1222,7 @@ export default {
     reloginSuccess: '账号重新登录成功',
     qrcodeSuccess: '扫码登录成功',
     addSuccess: '账号添加成功',
+    duplicateAccount: '此账号已添加过',
     expiredWarning: (ctx) => ctx.named('count') + ' 个账号登录已失效',
     eventFailed: '账号事件处理失败',
     groupCreated: '分组创建成功',

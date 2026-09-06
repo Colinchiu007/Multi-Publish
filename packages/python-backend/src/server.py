@@ -250,6 +250,43 @@ class HealthResponse(BaseModel):
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 
 
+def _dedup_accounts_on_startup():
+    """启动时清理存量重复账号：同平台+同owner+同名，保留最新一条。
+    仅记录日志，不阻塞启动。"""
+    try:
+        accounts = _load_accounts()
+        if not accounts:
+            return
+        removed_ids = []
+        # key = (platform, owner_subject, name_lower), value = (account_id, created_at)
+        seen = {}
+        for aid, acc in list(accounts.items()):
+            platform = (acc.get("platform") or "").strip().lower()
+            owner = (acc.get("owner_subject") or "").strip()
+            name = (acc.get("name") or "").strip().lower()
+            if not platform or not name:
+                continue
+            key = (platform, owner, name)
+            created = acc.get("created_at", "")
+            if key in seen:
+                existing_id, existing_created = seen[key]
+                # 保留更新时间较晚的（或 created_at 较晚的）
+                if created > existing_created:
+                    removed_ids.append(existing_id)
+                    seen[key] = (aid, created)
+                else:
+                    removed_ids.append(aid)
+            else:
+                seen[key] = (aid, created)
+        if removed_ids:
+            for rid in removed_ids:
+                accounts.pop(rid, None)
+            _save_accounts(accounts)
+            logger.info("启动时清理 %d 个重复账号: %s", len(removed_ids), removed_ids)
+    except Exception:
+        logger.exception("启动时重复账号清理失败，继续启动")
+
+
 def _load_accounts() -> dict[str, dict]:
     if ACCOUNTS_FILE.exists():
         return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8-sig"))
@@ -740,6 +777,8 @@ async def video_status():
 def main():
     port = int(os.environ.get("BACKEND_PORT", "8299"))
     print(f"[Multi-Publish] Backend starting on port {port}", flush=True)
+    # 启动时清理存量重复账号
+    _dedup_accounts_on_startup()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info", access_log=False, log_config=None)
 
 

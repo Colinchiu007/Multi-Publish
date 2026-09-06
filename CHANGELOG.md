@@ -1,3 +1,19 @@
+## [未发布] fix(accounts): 启动时存量去重 + 孤儿凭据清理 + i18n 补齐 v6（2026-09-06）
+
+### 背景
+- 去重 v5 只防新增不清理存量——修复前创建的同名重复账号（如 4 个"百家号账号"）仍残留。
+- 已删除账号的凭据文件残留（如 9d5ef9b7.json.enc），造成磁盘垃圾。
+- "此账号已添加过" 文案为后端透传，未走 i18n。
+
+### 修复
+- server.py：新增 `_dedup_accounts_on_startup()`，启动时按 (platform, owner, name) 清理重复账号，保留 created_at 最晚的。
+- credential-store.js：新增 `cleanOrphanCredentials()`，遍历凭据目录删除无主文件。
+- zh.js/en.js：补齐 `accountsPage.duplicateAccount` i18n key。
+
+### 测试
+- Python 9/9 passed（含 2 个新增启动去重测试）。
+- locale 同步检查通过（675 keys）。
+
 ## [未发布] fix(accounts): 账号去重补漏 + 删除凭据双重通道对齐 v5（2026-09-06）
 
 ### 根因
