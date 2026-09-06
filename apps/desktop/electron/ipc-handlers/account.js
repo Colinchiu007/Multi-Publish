@@ -176,12 +176,9 @@ function registerHandlers(ipcMain, deps) {
         ipcLog('warn', 'accounts:list', 'auth-failed', '无法识别当前用户')
         return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
       }
-      const response = await pythonBridge.requestBackend('GET', '/api/accounts')
-      if (response?.code !== 0 || !Array.isArray(response.data)) {
-        ipcLog('warn', 'accounts:list', 'backend-failed', `code=${response?.code} message=${response?.message} 耗时=${Date.now() - startedAt}ms`)
-        return { code: response?.code ?? EC.REQUEST_ERROR, message: response?.message || '获取账号列表失败', data: [] }
-      }
-      const data = response.data.map(toPublicAccount)
+      // 通过 AccountManager.listAccounts() 获取账号列表（内含孤儿凭据清理）
+      const accounts = await AccountManager.listAccounts()
+      const data = Array.isArray(accounts) ? accounts.map(toPublicAccount) : []
       ipcLog('info', 'accounts:list', 'ok', `count=${data.length} platforms=[${data.map((a) => a.platform).filter((v, i, arr) => arr.indexOf(v) === i).join(',')}] 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data }
     } catch (e) {
