@@ -1,13 +1,20 @@
-"""AggregationService — 封装 content-aggregator 的采集和改写能力。
+"""AggregationService — 热文采集和改写服务。
 
-Phase 1: 直接调用 content-aggregator 的 ContentPipeline、get_collector 和 rewrite 模块。
+Phase 2: 改写已切换至 content-aggregator-shared（shared 库），
+通过 LLMServiceAdapter 注入 Multi-Publish 的 LLMService，
+消除两套 LLM 调用逻辑并存。
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
 
 import importlib as _importlib
+
 
 def _lazy_import(module_path: str, attr: str = None):
     """Lazy import with graceful degradation for optional dependencies."""
@@ -19,8 +26,6 @@ def _lazy_import(module_path: str, attr: str = None):
     except ImportError:
         return None
 
-
-from typing import Optional
 
 from .models import (
     TaskStatus,
@@ -51,17 +56,23 @@ _LENGTH_RANGES = {
     "compress": (100, 800, 400),
     "expand": (800, 5000, 2500),
 }
+
+
 class AggregationService:
     """热文采集和改写服务。
 
     封装 content-aggregator v1 引擎的能力：
     - 单篇 URL 采集（ContentPipeline.process_url）
     - 批量源采集（ContentPipeline.process_all_sources）
-    - LLM 改写（rewrite_content）
+    - LLM 改写（shared 库 RewriteProcessor + LLMServiceAdapter）
     """
 
     def __init__(self, config: dict | None = None):
         self._config = config or {}
+        # P1: 内存任务追踪器（task_id → 状态）
+        self._tasks: dict[str, dict] = {}
+
+    # ── 采集 ──────────────────────────────────────────────────────────
 
     async def collect(self, request: CollectRequest) -> CollectResult:
         logger.info(f"[AggregationService] collect: url={request.url}, type={request.source_type}")
@@ -148,8 +159,6 @@ class AggregationService:
         config = self._build_pipeline_config()
         if ContentPipeline is None:
             raise ImportError("content-aggregator 未安装")
-        if ContentPipeline is None:
-            raise ImportError("content-aggregator 未安装")
         async with ContentPipeline(config) as pipeline:
             result = await pipeline.process_all_sources(
                 rewrite=request.rewrite,
@@ -171,15 +180,25 @@ class AggregationService:
             for a in articles
         ]
 
+    # ── 改写（P1: 使用 shared 库 + LLMServiceAdapter） ─────────────
+
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
-        RewriteProcessor = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteProcessor")
-        RewriteConfig = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteConfig")
-        RewriteStrategy = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteStrategy")
-        Content = _lazy_import("content_aggregator.models", "Content")
+        # 从 shared 库导入（替代旧 content_aggregator.xxx 路径）
+        RewriteProcessor = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteProcessor")
+        RewriteConfig = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteConfig")
+        RewriteStrategy = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteStrategy")
+        Content = _lazy_import("content_aggregator_shared.shared.models", "Content")
+
         if RewriteProcessor is None or RewriteConfig is None or Content is None:
-            raise ImportError("content-aggregator 未安装")
+            raise ImportError("content-aggregator-shared 未安装。请运行: pip install content-aggregator-shared")
+
+        # P1: 使用 LLMServiceAdapter 注入 Multi-Publish 的 LLMService
+        llm_client = self._build_llm_adapter()
+
         config = self._build_pipeline_config()
+        config["_llm_client"] = llm_client
+
         content_obj = Content(
             id="",
             source_id="",
@@ -207,6 +226,29 @@ class AggregationService:
             length=request.length,
         )
 
+    def _build_llm_adapter(self):
+        """构造 LLMServiceAdapter，将 Multi-Publish LLMService 注入改写器。
+
+        优先级：LLM_API_KEY > PO_OPENAI_API_KEY（向下兼容）
+        """
+        LLMService = _lazy_import("multi_publish.services.llm_service", "LLMService")
+        LLMServiceAdapter = _lazy_import("content_aggregator_shared.shared.clients.llm_service_adapter", "LLMServiceAdapter")
+
+        if LLMService is None or LLMServiceAdapter is None:
+            # 回退：不注入适配器，RewriteProcessor 会用默认 LLMClient
+            logger.warning("[AggregationService] LLMService 或 LLMServiceAdapter 不可用，"
+                           "RewriteProcessor 将使用默认 LLMClient (PO_OPENAI_*)")
+            return None
+
+        api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
+        base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("PO_OPENAI_BASE_URL", "")
+        model = os.environ.get("LLM_MODEL") or os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini")
+
+        svc = LLMService(config={"api_key": api_key, "base_url": base_url, "model": model})
+        return LLMServiceAdapter(svc)
+
+    # ── 源管理 ────────────────────────────────────────────────────────
+
     def get_available_sources(self) -> list[SourceInfo]:
         sources = [
             SourceInfo(type="url", name="URL 正文提取", description="输入任意 URL，自动提取正文内容（基于 trafilatura）", requires_auth=False, phase1_available=True),
@@ -228,29 +270,60 @@ class AggregationService:
             sources.append(SourceInfo(type=st, name=nm, description=ds, requires_auth=True, phase1_available=False))
         return sources
 
-    def get_task_status(self, task_id: str) -> TaskStatus | None:
-        """获取采集任务状态。
+    # ── 任务状态追踪（P1: 内存任务追踪器，替代占位实现） ────────────
 
-        Phase 1: 返回占位状态（后续接入 TaskQueue 后替换）。
-        """
-        from datetime import datetime
+    def get_task_status(self, task_id: str) -> TaskStatus | None:
+        """获取采集任务状态。"""
+        entry = self._tasks.get(task_id)
+        if entry is None:
+            return None
         return TaskStatus(
             task_id=task_id,
-            status="completed",
-            progress=100,
-            total_items=0,
-            processed_items=0,
-            created_at=datetime.now().isoformat(),
-            updated_at=datetime.now().isoformat(),
+            status=entry["status"],
+            progress=entry.get("progress", 0),
+            total_items=entry.get("total_items", 0),
+            processed_items=entry.get("processed_items", 0),
+            error=entry.get("error"),
+            created_at=entry.get("created_at"),
+            updated_at=entry.get("updated_at"),
         )
 
+    def _create_task(self, total_items: int = 0) -> str:
+        """创建采集任务并返回 task_id。"""
+        task_id = str(uuid.uuid4())[:8]
+        now = datetime.now(timezone.utc).isoformat()
+        self._tasks[task_id] = {
+            "status": "pending",
+            "progress": 0,
+            "total_items": total_items,
+            "processed_items": 0,
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        return task_id
+
+    def _update_task(self, task_id: str, **kwargs):
+        """更新任务状态。"""
+        entry = self._tasks.get(task_id)
+        if entry is None:
+            return
+        entry.update(kwargs)
+        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    # ── 配置 ──────────────────────────────────────────────────────────
+
     def _build_pipeline_config(self) -> dict:
-        import os
+        """构建 ContentPipeline 配置。
+
+        LLM 配置优先使用 Multi-Publish 标准环境变量 (LLM_API_KEY 等)，
+        向下兼容 PO_OPENAI_*（旧 content-aggregator 约定）。
+        """
         return {
             "llm": {
-                "api_key": os.environ.get("PO_OPENAI_API_KEY", ""),
-                "model": os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini"),
-                "base_url": os.environ.get("PO_OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                "api_key": os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", ""),
+                "model": os.environ.get("LLM_MODEL") or os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini"),
+                "base_url": os.environ.get("LLM_BASE_URL") or os.environ.get("PO_OPENAI_BASE_URL", "https://api.openai.com/v1"),
             },
             "export": {"output_dir": "./output/aggregation"},
             "http": {
