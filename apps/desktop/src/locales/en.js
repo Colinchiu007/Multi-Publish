@@ -1495,6 +1495,7 @@ export default {
     noDesktopWarning: 'Desktop capabilities are unavailable in this environment',
     done: 'Video clone analysis completed',
     verbatimWarn: 'Script is nearly identical to the source; consider rewriting before publishing',
+    degradedAssetsWarning: 'This output contains degraded static assets; real video generation was not successful. Configure a video model and regenerate.',
     pickerInfo: 'File picker will be enabled after desktop wiring; enter the path manually',
     error: {
       invalidRequest: 'Invalid request, check your input and retry',

@@ -1496,6 +1496,7 @@ export default {
     noDesktopWarning: '当前环境未提供桌面端能力',
     done: '视频克隆分析完成',
     verbatimWarn: '文案近乎照抄，建议改写后再发布',
+    degradedAssetsWarning: '当前成片包含降级静态素材，未成功生成真实动态视频，请配置视频模型后重新生成',
     pickerInfo: '文件选择器将在桌面端接线后开放，可先手动输入路径',
     error: {
       invalidRequest: '请求参数不合法，请检查输入后重试',

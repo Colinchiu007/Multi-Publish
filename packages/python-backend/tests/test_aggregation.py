@@ -248,6 +248,30 @@ def test_content_model_construction_is_valid():
     )
     assert c.content == "测试正文"
     assert c.source_type == "manual"
+
+
+# ── 5.2 style→strategy mapping regression ──────────────────────────────
+
+def test_style_to_strategy_mapping():
+    """Regression: 5 种中文风格名必须映射到正确的 v1 RewriteStrategy."""
+    from multi_publish.aggregation.service import _STYLE_TO_STRATEGY
+
+    assert _STYLE_TO_STRATEGY["轻松易懂"] == "paraphrase"
+    assert _STYLE_TO_STRATEGY["正式严谨"] == "style_transfer"
+    assert _STYLE_TO_STRATEGY["吸引眼球"] == "short_video"
+    assert _STYLE_TO_STRATEGY["深度分析"] == "expand"
+    assert _STYLE_TO_STRATEGY["认知锚点"] == "rewrite"
+    assert len(_STYLE_TO_STRATEGY) == 5
+
+
+def test_length_ranges_mapping():
+    """Regression: 3 种长度必须映射到正确的字数范围."""
+    from multi_publish.aggregation.service import _LENGTH_RANGES
+
+    assert _LENGTH_RANGES["keep"] == (300, 3000, 1500)
+    assert _LENGTH_RANGES["compress"] == (100, 800, 400)
+    assert _LENGTH_RANGES["expand"] == (800, 5000, 2500)
+    assert len(_LENGTH_RANGES) == 3
 # ── 6. TaskStatus model ──────────────────────────────────────────────
 
 def test_task_status_model():
