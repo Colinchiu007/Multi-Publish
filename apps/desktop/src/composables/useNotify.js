@@ -14,6 +14,7 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import i18n from '@/i18n'
 import { notifyText, reportNotify } from '@/utils/notifyCore'
+import { looksLikeI18nKey } from '@/utils/message-contract'
 
 /**
  * 统一通知入口。
@@ -29,9 +30,11 @@ export function useNotify () {
   function notify (messageKey, options = {}) {
     const level = options.level || 'info'
     // 支持直接传文案（options.message 优先于 messageKey 解析），用于动态/运行时拼接文案
-    const text = typeof options.message === 'string' && options.message
+    const rawText = typeof options.message === 'string' && options.message
       ? options.message
       : notifyText(messageKey, options)
+    // 防泄漏守卫：直接传文案若仍是 i18n 原始 key 形态，拦截并回退（i18n-user-facing-messages）
+    const text = rawText && looksLikeI18nKey(rawText) ? '' : rawText
     if (!text) {
       // 未命中 key：error 级用 fallback 兜底，其余静默
       if (level === 'error' && options.fallback) {
@@ -82,15 +85,25 @@ export function useNotify () {
    */
   async function notifyConfirm (messageKey, options = {}) {
     // options.message 直接传文案（动态/运行时拼接），否则用 messageKey 解析
-    const text = typeof options.message === 'string' && options.message
+    const rawText = typeof options.message === 'string' && options.message
       ? options.message
       : notifyText(messageKey, options)
+    // 防泄漏守卫：直接传文案若仍是 i18n 原始 key 形态，拦截（i18n-user-facing-messages）
+    const text = rawText && looksLikeI18nKey(rawText) ? '' : rawText
     if (!text) return false
+    // 标题/按钮同样拦截原始 key 泄漏
+    const title = options.title && looksLikeI18nKey(options.title) ? '' : options.title
+    const confirmButtonText = options.confirmButtonText && looksLikeI18nKey(options.confirmButtonText)
+      ? i18n.global.t('common.confirm')
+      : options.confirmButtonText
+    const cancelButtonText = options.cancelButtonText && looksLikeI18nKey(options.cancelButtonText)
+      ? i18n.global.t('common.cancel')
+      : options.cancelButtonText
     reportNotify(messageKey, { ...options, level: 'confirm' })
     try {
-      await ElMessageBox.confirm(text, options.title || '', {
-        confirmButtonText: options.confirmButtonText || i18n.global.t('common.confirm'),
-        cancelButtonText: options.cancelButtonText || i18n.global.t('common.cancel'),
+      await ElMessageBox.confirm(text, title || '', {
+        confirmButtonText: confirmButtonText || i18n.global.t('common.confirm'),
+        cancelButtonText: cancelButtonText || i18n.global.t('common.cancel'),
         type: options.type || 'warning',
       })
       return true

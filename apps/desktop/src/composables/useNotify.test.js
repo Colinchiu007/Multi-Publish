@@ -78,6 +78,12 @@ describe('useNotify — 通知展示', () => {
     expect(text).toBe('动态拼接的警告文案')
     expect(ElMessage.warning).toHaveBeenCalledWith('动态拼接的警告文案')
   })
+
+  it('options.message 为 i18n 原始 key 时拦截，不直出（防泄漏）', () => {
+    const text = n.notifyWarning('nonexistent.key', { message: 'accountsPage.loginExpiredHint' })
+    expect(text).toBe('')
+    expect(ElMessage.warning).not.toHaveBeenCalled()
+  })
 })
 
 describe('useNotify — 确认弹窗', () => {
@@ -115,5 +121,17 @@ describe('useNotify — 确认弹窗', () => {
     const ok = await n.notifyConfirm('nonexistent.key', { message: '动态确认文案', title: '需要登录' })
     expect(ok).toBe(true)
     expect(ElMessageBox.confirm).toHaveBeenCalledWith('动态确认文案', '需要登录', expect.any(Object))
+  })
+
+  it('notifyConfirm 的 message/title/按钮为 i18n 原始 key 时拦截（防泄漏）', async () => {
+    ElMessageBox.confirm.mockResolvedValue('confirm')
+    const ok = await n.notifyConfirm('nonexistent.key', {
+      message: 'accountsPage.loginExpiredHint',
+      title: 'accountsPage.confirmTitle',
+      confirmButtonText: 'accountsPage.goLogin',
+      cancelButtonText: 'accountsPage.cancel',
+    })
+    expect(ok).toBe(false)
+    expect(ElMessageBox.confirm).not.toHaveBeenCalled()
   })
 })
