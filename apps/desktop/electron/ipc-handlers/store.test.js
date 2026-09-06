@@ -260,16 +260,17 @@ describe("store IPC handlers", () => {
       expect(accountStateRestorer.deleteAccountRecord).toHaveBeenCalledWith("github", "acc1");
     });
 
-    it("加密凭据删除失败时保留账号记录并返回错误", async () => {
-      mockStore.getAccount.mockReturnValue({ id: "acc1", platform: "github" });
-      credentialStore.deleteCredential.mockReturnValue(false);
+  it("加密凭据删除失败时保留账号记录并返回错误", async () => {
+    mockStore.getAccount.mockReturnValue({ id: "acc1", platform: "github" });
+    credentialStore.deleteCredential.mockReturnValue(false);
+    mockStore.deleteAccount.mockReturnValue(true);
 
-      const result = await ipcMain._callHandler("store:delete-account", "acc1");
+    const result = await ipcMain._callHandler("store:delete-account", "acc1");
 
-      expect(result).toEqual({ code: -1, message: "删除账号加密凭据失败" });
-      expect(mockStore.deleteAccount).not.toHaveBeenCalled();
-      expect(accountStateRestorer.deleteAccountRecord).not.toHaveBeenCalled();
-    });
+     // 凭据删除失败不阻断账号元数据删除（与 account-manager.js 对齐）
+     expect(result).toEqual({ code: 0, data: true });
+     expect(mockStore.deleteAccount).toHaveBeenCalledWith("acc1");
+  });
 
     it("账号元数据删除失败时恢复已删除的加密凭据", async () => {
       mockStore.getAccount.mockReturnValue({ id: "acc1", platform: "github" });

@@ -5547,3 +5547,65 @@ credentialStore.deleteCredential 失败 → throw Error(加密凭据文件删除
 | 22 | 删除按钮 | delete-* | 可点击，弹出确认框 |
 | 23 | 创作者中心 | 卡片点击 | 可点击 |
 | 24 | 重复检测 | 注入 409 | 返回 -409 |
+
+
+## 账号管理页核心修复 v5：重复检测补漏 + 删除凭据双重通道对齐（2026-09-06）
+
+### 变更背景
+v4 修复后仍有漏检：
+1. server.py 重复检测存在不对称缺口——一方有 platform_account_id 另一方没有时，同名账号漏检
+2. store:delete-account 旧 IPC 通道在凭据删除失败时仍直接返回错误阻断，与 account:delete 新通道行为不一致
+
+### 修复 1：重复检测补漏（packages/python-backend/src/server.py）
+
+#### 旧逻辑
+- platform_account_id 匹配 → 409
+- 双方无 id + 同名 → 409
+- **一方有 id 一方没有 → 跳过（不判定重复）** ← 缺口
+
+#### 新逻辑
+- platform_account_id 匹配 → 409
+- 双方无 id + 同名 → 409
+- **一方有 id 一方没有 + 同名 → 409**（新增）
+- 一方有 id 一方没有 + 不同名 → 不判定重复（保留提取失败保护）
+
+#### 判定规则表
+| 新账号 platform_account_id | 已有账号 platform_account_id | 名称 | 判定 |
+|---------------------------|---------------------------|------|------|
+| 有值 | 有值，相同 | 任意 | 重复（409） |
+| 有值 | 有值，不同 | 任意 | 不重复 |
+| 无 | 无 | 相同 | 重复（409） |
+| 无 | 无 | 不同 | 不重复 |
+| 有值 | 无 | 相同 | **重复（409）← v5 新增** |
+| 有值 | 无 | 不同 | 不重复 |
+| 无 | 有值 | 相同 | **重复（409）← v5 新增** |
+| 无 | 有值 | 不同 | 不重复 |
+
+### 修复 2：删除凭据双重通道对齐（apps/desktop/electron/ipc-handlers/store.js）
+
+#### 旧逻辑
+store:delete-account 凭据删除失败 → return { code: -1, message: '删除账号加密凭据失败' } → 直接阻断
+
+#### 新逻辑
+凭据删除失败 → console.warn + 继续执行 store.deleteAccount → 不阻断
+
+#### 双通道行为对比
+| 通道 | 凭据删除失败 | 账号元数据 | 状态索引 |
+|------|-------------|-----------|---------|
+| account:delete（新） | warn 日志 | ✅ 继续删除 | ✅ 清理 |
+| store:delete-account（旧→修） | warn 日志 | ✅ 继续删除 | ✅ 清理 |
+
+### 测试覆盖
+
+| 文件 | 新增/更新测试 | 说明 |
+|------|-------------|------|
+| test_server_account_lifecycle.py | 同名+ID不对称→409 | 一方有 id 一方没有+同名判定重复 |
+| test_server_account_lifecycle.py | 不同名+ID不对称→200 | 一方有 id 一方没有+不同名不误判 |
+| store.test.js | 凭据删除失败→code 0 | 旧通道对齐新行为，断言更新 |
+
+### 变更文件
+- packages/python-backend/src/server.py (+5/-2)
+- pps/desktop/electron/ipc-handlers/store.js (+2/-1)
+- packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
+- pps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
+
