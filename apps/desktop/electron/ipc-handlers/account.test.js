@@ -218,19 +218,16 @@ describe('account IPC 写操作 sender 校验', () => {
 describe('account IPC 可信来源正常工作', () => {
   it('accounts:list 规范化账号状态、合并默认账号并移除敏感字段', async () => {
     const deps = createMockDeps()
-    deps.pythonBridge.requestBackend.mockResolvedValue({
-      code: 0,
-      data: [{
-        id: 'acc-1',
-        platform: 'wechat_mp',
-        name: '公众号',
-        is_active: true,
-        cookies: [{ name: 'session', value: 'secret' }],
-        auth_data: { local_storage: { token: 'private' } },
-        access_token: '不得暴露',
-        refresh_token: '不得暴露',
-      }],
-    })
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-1',
+      platform: 'wechat_mp',
+      name: '公众号',
+      is_active: true,
+      cookies: [{ name: 'session', value: 'secret' }],
+      auth_data: { local_storage: { token: 'private' } },
+      access_token: '不得暴露',
+      refresh_token: '不得暴露',
+    }])
     deps.store.getSetting.mockReturnValue('acc-1')
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
@@ -259,10 +256,7 @@ describe('account IPC 可信来源正常工作', () => {
       getSetting: vi.fn(() => 'acc-1'),
     }
     const deps = createMockDeps({ store: scopedStore })
-    deps.pythonBridge.requestBackend.mockResolvedValue({
-      code: 0,
-      data: [{ id: 'acc-1', platform: 'wechat_mp', name: '当前用户账号' }],
-    })
+    deps.AccountManager.listAccounts.mockResolvedValue([{ id: 'acc-1', platform: 'wechat_mp', name: '当前用户账号' }])
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
 
@@ -275,22 +269,19 @@ describe('account IPC 可信来源正常工作', () => {
 
   it('accounts:list 保留账号卡片所需的公开元数据并剥离未知字段', async () => {
     const deps = createMockDeps()
-    deps.pythonBridge.requestBackend.mockResolvedValue({
-      code: 0,
-      data: [{
-        id: 'acc-meta',
-        platform: 'wechat_mp',
-        name: '认知账号',
-        follower_count: 2048,
-        owner_name: { name: '团队甲', email: 'private@example.com' },
-        operatorName: '秋叔',
-        checkedAt: '2026-08-04T08:00:00.000Z',
-        statusReason: `token=private-token Cookie 已过期 ${'x'.repeat(300)}`,
-        lastUsedAt: '2026-08-04T09:00:00.000Z',
-        unknown_metadata: '不得透传',
-        cookies: [{ name: 'session', value: 'secret' }],
-      }],
-    })
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-meta',
+      platform: 'wechat_mp',
+      name: '认知账号',
+      follower_count: 2048,
+      owner_name: { name: '团队甲', email: 'private@example.com' },
+      operatorName: '秋叔',
+      checkedAt: '2026-08-04T08:00:00.000Z',
+      statusReason: `token=private-token Cookie 已过期 ${'x'.repeat(300)}`,
+      lastUsedAt: '2026-08-04T09:00:00.000Z',
+      unknown_metadata: '不得透传',
+      cookies: [{ name: 'session', value: 'secret' }],
+    }])
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
 
@@ -313,20 +304,17 @@ describe('account IPC 可信来源正常工作', () => {
   })
   it('accounts:list 对下划线/驼峰/中文/组合键敏感字段全部脱敏且不泄漏值', async () => {
     const deps = createMockDeps()
-    deps.pythonBridge.requestBackend.mockResolvedValue({
-      code: 0,
-      data: [{
-        id: 'acc-redact',
-        platform: 'wechat_mp',
-        name: '公众号',
-        statusReason: 'access_token=abc refreshToken=def api_key=xyz 密码：secret session=expired user_token=comb client_secret=xyz2 loginPassword=psw token=first,second Bearer abc123 普通描述 无密钥',
-      }, {
-        id: 'acc-arr',
-        platform: 'zhihu',
-        name: '知乎',
-        login_check_error: ['access_token=arr-secret 失败', '普通消息'],
-      }],
-    })
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-redact',
+      platform: 'wechat_mp',
+      name: '公众号',
+      statusReason: 'access_token=abc refreshToken=def api_key=xyz 密码：secret session=expired user_token=comb client_secret=xyz2 loginPassword=psw token=first,second Bearer abc123 普通描述 无密钥',
+    }, {
+      id: 'acc-arr',
+      platform: 'zhihu',
+      name: '知乎',
+      login_check_error: ['access_token=arr-secret 失败', '普通消息'],
+    }])
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
 
@@ -369,7 +357,7 @@ describe('account IPC 可信来源正常工作', () => {
       cookies: [{ name: 'session', value: 'secret' }],
     }
     const backendDeps = createMockDeps()
-    backendDeps.pythonBridge.requestBackend.mockResolvedValue({ code: 0, data: [rawAccount] })
+    backendDeps.AccountManager.listAccounts.mockResolvedValue([rawAccount])
     const localDeps = createMockDeps()
     localDeps.AccountManager.listAccounts.mockResolvedValue([rawAccount])
     const backendIpc = createMockIpcMain()
