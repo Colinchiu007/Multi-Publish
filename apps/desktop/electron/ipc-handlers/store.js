@@ -166,7 +166,8 @@ function registerHandlers(ipcMain, deps) {
           }
         }
         if (hasCredential && credentialStore.deleteCredential(...deleteArgs) !== true) {
-          return { code: EC.REQUEST_ERROR, message: '删除账号加密凭据失败' }
+          // 凭据删除失败不阻断账号元数据删除（与 account-manager.js 对齐）
+          console.warn('store:delete-account', '加密凭据文件删除失败，继续删除账号元数据: ' + id)
         }
         credentialDeleted = hasCredential
       }

@@ -378,9 +378,12 @@ def create_account(req: AccountCreateRequest, request: Request):
             if normalized_account_id and existing_account_id and normalized_account_id == existing_account_id:
                 raise HTTPException(status_code=409, detail="此账号已添加过")
             # platform_account_id 都为空时，回退到名称匹配（弱标识，需完全一致）
-            elif not normalized_account_id and not existing_account_id and existing_name == normalized_name:
+            if not normalized_account_id and not existing_account_id and existing_name == normalized_name:
                 raise HTTPException(status_code=409, detail="此账号已添加过")
-            # 一方有 platform_account_id 一方没有 → 不判定为重复（可能是提取失败）
+            # 一方有 platform_account_id 一方没有：若名称完全一致，仍判定为重复
+            # （同一账号重复添加时 ID 提取可能不一致，名称是稳定的兜底标识）
+            if existing_name and existing_name == normalized_name and normalized_name:
+                raise HTTPException(status_code=409, detail="此账号已添加过")
 
     account_id = str(uuid.uuid4())[:8]
     account = {

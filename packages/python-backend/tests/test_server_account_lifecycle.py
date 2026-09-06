@@ -139,8 +139,8 @@ def test_create_account_duplicate_by_name_when_both_ids_empty_returns_409(monkey
     assert dup.json()["detail"] == "此账号已添加过"
 
 
-def test_create_account_not_duplicate_when_only_one_side_has_id(monkeypatch, tmp_path):
-    """一方有 platform_account_id 一方没有 → 不判定重复（避免提取失败误判）。"""
+def test_create_account_duplicate_when_one_side_has_id_same_name(monkeypatch, tmp_path):
+    """一方有 platform_account_id 一方没有 + 同名 → 判定为重复（名称是稳定兜底标识）。"""
     verifier = StubVerifier("sub-a")
     client = _client(monkeypatch, tmp_path, verifier)
     first = client.post(
@@ -154,5 +154,25 @@ def test_create_account_not_duplicate_when_only_one_side_has_id(monkeypatch, tmp
         "/api/accounts",
         headers=_headers(),
         json={"platform": "douyin", "name": "账号 A"},
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"] == "此账号已添加过"
+
+
+def test_create_account_not_duplicate_when_only_one_side_has_id_different_name(monkeypatch, tmp_path):
+    """一方有 platform_account_id 一方没有 + 不同名 → 不判定重复（避免提取失败误判）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    first = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "账号 A", "platform_account_id": "uid-123"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "账号 B"},
     )
     assert second.status_code == 200
