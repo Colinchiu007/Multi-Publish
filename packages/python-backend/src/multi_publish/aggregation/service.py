@@ -100,7 +100,7 @@ class AggregationService:
             content=article.content,
             source_url=article.source_url,
             author=article.author or "",
-            word_count=article.word_count,
+            word_count=article.word_count or len(article.content or ""),
         )
 
     async def _collect_rss(self, request: CollectRequest) -> CollectResult:
@@ -125,7 +125,7 @@ class AggregationService:
             original_title=article.original_title,
             source_url=article.source_url,
             author=article.author,
-            word_count=article.word_count,
+            word_count=article.word_count or len(article.content or ""),
             summary=article.summary,
             tags=article.tags,
             metadata=article.metadata,
@@ -184,6 +184,13 @@ class AggregationService:
 
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
+        # 输入校验：内容过短（<20 字）优先报错，与 RewriteProcessor 的校验保持一致
+        if len((request.content or "").strip()) < 20:
+            raise ValueError(f"输入内容过短（仅 {len((request.content or '').strip())} 字符），请提供至少 20 字的完整文章")
+        # 前置校验：未配置 LLM API Key 时给出友好中文提示，避免底层抛英文错误
+        api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写")
         # 从 shared 库导入（替代旧 content_aggregator.xxx 路径）
         RewriteProcessor = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteProcessor")
         RewriteConfig = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteConfig")
@@ -218,7 +225,7 @@ class AggregationService:
         async with RewriteProcessor(config) as proc:
             result = await proc.rewrite(content_obj, rewrite_cfg)
         if not result.success:
-            raise RuntimeError(f"改写失败: {result.error or '未知错误'}")
+            raise ValueError(result.error or "未知错误")
         return RewriteResultModel(
             result_content=result.rewritten_content,
             word_count=len(result.rewritten_content),
@@ -230,17 +237,22 @@ class AggregationService:
         """构造 LLMServiceAdapter，将 Multi-Publish LLMService 注入改写器。
 
         优先级：LLM_API_KEY > PO_OPENAI_API_KEY（向下兼容）
+        无 API key 时返回 None，让 RewriteProcessor 使用默认 LLMClient。
         """
         LLMService = _lazy_import("multi_publish.services.llm_service", "LLMService")
         LLMServiceAdapter = _lazy_import("content_aggregator_shared.shared.clients.llm_service_adapter", "LLMServiceAdapter")
 
         if LLMService is None or LLMServiceAdapter is None:
-            # 回退：不注入适配器，RewriteProcessor 会用默认 LLMClient
             logger.warning("[AggregationService] LLMService 或 LLMServiceAdapter 不可用，"
-                           "RewriteProcessor 将使用默认 LLMClient (PO_OPENAI_*)")
+                           "RewriteProcessor 将使用默认 LLMClient")
             return None
 
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
+        if not api_key:
+            logger.warning("[AggregationService] 未配置 LLM API Key，"
+                           "RewriteProcessor 将使用默认 LLMClient")
+            return None
+
         base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("PO_OPENAI_BASE_URL", "")
         model = os.environ.get("LLM_MODEL") or os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini")
 

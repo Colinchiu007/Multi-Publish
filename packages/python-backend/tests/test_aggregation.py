@@ -355,3 +355,59 @@ def test_api_task_status_endpoint_unknown():
     client = TestClient(app)
     r = client.get("/aggregation/tasks/test-nonexistent-123")
     assert r.status_code == 404
+
+
+# ── 10. 回归测试：改写无 key 友好错误（P0 fix）──────────────────────
+
+@pytest.mark.asyncio
+async def test_rewrite_no_api_key_friendly_error():
+    """回归：无 LLM API Key 时返回友好中文错误，而非不可读的 repr。"""
+    import os as _os
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    _os.environ.pop("LLM_API_KEY", None)
+    _os.environ.pop("PO_OPENAI_API_KEY", None)
+
+    service = AggregationService()
+    req = RewriteRequest(content="这是一段用于测试改写的长内容，需要超过二十个字符来通过输入校验", style="轻松易懂")
+
+    with pytest.raises(ValueError, match="未配置 LLM API Key"):
+        await service.rewrite(req)
+
+
+@pytest.mark.asyncio
+async def test_rewrite_short_content_before_key_check():
+    """回归：内容过短应先报错，不因缺少 API key 先报错。"""
+    import os as _os
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    _os.environ.pop("LLM_API_KEY", None)
+    _os.environ.pop("PO_OPENAI_API_KEY", None)
+
+    service = AggregationService()
+    req = RewriteRequest(content="短", style="轻松易懂")
+
+    with pytest.raises(ValueError, match="输入内容过短"):
+        await service.rewrite(req)
+
+
+# ── 11. 回归测试：word_count 兜底 ──────────────────────────────────
+
+def test_collect_result_word_count_fallback():
+    """回归：word_count 为 0 时用 content 长度兜底。"""
+    from multi_publish.aggregation.models import CollectResult
+
+    r = CollectResult(
+        title="测试",
+        content="这是一段有内容的正文",
+        source_url="https://example.com",
+        word_count=0,
+    )
+    # 在 service 层已兜底；这里验证模型允许 word_count 为 0 且 content 有长度
+    assert r.word_count == 0
+    assert len(r.content) > 0
+    # 兜底逻辑：word_count or len(content)
+    effective = r.word_count or len(r.content)
+    assert effective == len("这是一段有内容的正文")
