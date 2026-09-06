@@ -46,8 +46,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install content-aggregator (shared collection engine)
+        run: python3 -m pip install "git+https://github.com/Colinchiu007/content-aggregator.git"
+
+      - name: Install content-aggregator-shared (auth/wechat/proxy)
+        run: python3 -m pip install "git+https://github.com/Colinchiu007/content-aggregator-shared.git"
+
       - name: Install Python backend runtime and test dependencies
-        run: python3 -m pip install -e "packages/python-backend[web,video]" pytest
+        run: python3 -m pip install -e "packages/python-backend[web,video,aggregation]" pytest
 
       - name: Verify optional Python provider imports
         run: python3 -m pytest packages/python-backend/tests/test_video_provider_imports.py -q
