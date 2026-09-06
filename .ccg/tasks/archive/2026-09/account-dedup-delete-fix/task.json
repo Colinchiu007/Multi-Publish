@@ -1,0 +1,14 @@
+{
+  "id": "account-dedup-delete-fix",
+  "title": "账号去重补漏 + 删除凭据双重通道对齐（v5）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend+frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-09-06T10:00:00Z",
+  "branch": "main",
+  "pr": 1505,
+  "mergedAt": "2026-09-06T12:59:41Z"
+}
