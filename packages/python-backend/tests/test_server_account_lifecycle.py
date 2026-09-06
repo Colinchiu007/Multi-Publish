@@ -176,3 +176,47 @@ def test_create_account_not_duplicate_when_only_one_side_has_id_different_name(m
         json={"platform": "douyin", "name": "账号 B"},
     )
     assert second.status_code == 200
+
+
+def test_startup_dedup_removes_duplicate_accounts(tmp_path):
+    """启动时去重：同平台+同owner+同名账号，保留最新一条。"""
+    import server as srv
+    monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
+    monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+
+    # 构造 3 个同名百家号账号（不同 id，不同 created_at）
+    srv._save_accounts({
+        "a1": {"id": "a1", "platform": "baijiahao", "name": "百家号账号", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a2": {"id": "a2", "platform": "baijiahao", "name": "百家号账号", "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
+        "a3": {"id": "a3", "platform": "baijiahao", "name": "百家号账号", "owner_subject": "sub-a", "created_at": "2025-01-03T00:00:00"},
+        "b1": {"id": "b1", "platform": "kuaishou", "name": "快手账号", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+    })
+
+    srv._dedup_accounts_on_startup()
+
+    accounts = srv._load_accounts()
+    # 百家号应只剩 a3（最晚），快手 b1 保留
+    assert "a3" in accounts
+    assert "a1" not in accounts
+    assert "a2" not in accounts
+    assert "b1" in accounts
+    assert len(accounts) == 2
+
+
+def test_startup_dedup_keeps_unique_accounts(tmp_path):
+    """无重复账号时，启动去重不误删。"""
+    import server as srv
+    monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
+    monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+
+    srv._save_accounts({
+        "a1": {"id": "a1", "platform": "baijiahao", "name": "百家号", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "b1": {"id": "b1", "platform": "kuaishou", "name": "快手", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+    })
+
+    srv._dedup_accounts_on_startup()
+
+    accounts = srv._load_accounts()
+    assert len(accounts) == 2
+    assert "a1" in accounts
+    assert "b1" in accounts

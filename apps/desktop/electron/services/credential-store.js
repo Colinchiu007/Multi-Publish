@@ -405,6 +405,37 @@ function hasCredential (accountId, userDataDir, ownerSubject) {
   return fs.existsSync(getCredentialFilePath(accountId, credDir))
 }
 
+/**
+ * 清理孤儿凭据文件
+ * @param {string[]} knownAccountIds
+ * @param {string} userDataDir
+ * @param {string} [ownerSubject]
+ * @returns {{ removed: string[], errors: string[] }}
+ */
+function cleanOrphanCredentials (knownAccountIds, userDataDir, ownerSubject) {
+  const removed = []
+  const errors = []
+  const idSet = new Set(knownAccountIds)
+  const credDir = ownerSubject === undefined
+    ? getCredentialDir(userDataDir)
+    : getOwnerCredentialDir(userDataDir, ownerSubject)
+  if (!fs.existsSync(credDir)) return { removed, errors }
+  for (const file of fs.readdirSync(credDir)) {
+    if (!file.endsWith('.json.enc')) continue
+    const aid = file.replace('.json.enc', '')
+    if (idSet.has(aid)) continue
+    try {
+      fs.unlinkSync(path.join(credDir, file))
+      removed.push(aid)
+      log.info('CredentialStore', 'clean-orphan ok: ' + aid)
+    } catch (e) {
+      errors.push(aid)
+      log.warn('CredentialStore', 'clean-orphan fail: ' + aid + ' ' + e.message)
+    }
+  }
+  return { removed, errors }
+}
+
 module.exports = {
   getMasterKey,
   getCredentialFilePath,
@@ -415,6 +446,7 @@ module.exports = {
   deleteCredential,
   listAccounts,
   hasCredential,
+  cleanOrphanCredentials,
   encryptData,
   decryptData
 }
