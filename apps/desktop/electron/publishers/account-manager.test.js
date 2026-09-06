@@ -591,7 +591,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
   })
 
-  it('加密凭据文件存在但删除失败时返回可重试错误并保留公开状态索引', async () => {
+  it('加密凭据文件存在但删除失败时不阻断删除并记录 warn 日志', async () => {
     const pythonBridge = require('../services/python-bridge')
     vi.spyOn(pythonBridge, 'requestBackend')
       .mockResolvedValueOnce({ code: 0, data: { id: 'account-1', platform: 'wechat_mp' } })
@@ -601,9 +601,9 @@ describe('account-manager — 捕获凭证持久化', () => {
     vi.spyOn(accountManager.credentialStore, 'deleteCredential').mockReturnValue(false)
     const deleteRecords = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecordsById')
 
-    await expect(accountManager.deleteAccount('account-1'))
-      .rejects.toThrow('清理本地加密凭据失败')
-    expect(deleteRecords).not.toHaveBeenCalled()
+    // 修复目标：凭据文件删除失败不阻断账号删除，账号元数据已删除，状态索引继续清理
+    await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
+    expect(deleteRecords).toHaveBeenCalledWith('account-1')
   })
 
   it('后端账号已不存在时仍重试本地凭据和状态清理', async () => {

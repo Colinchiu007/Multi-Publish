@@ -637,8 +637,9 @@ describe("AccountsView", () => {
   });
 
   it("addAccount 重复账号返回 409 提示", async () => {
-    const { accountAdd } = await import("@/api/publisher");
-    accountAdd.mockResolvedValueOnce({ code: -409, message: "此账号已添加过" });
+    const { authOpenLogin } = await import("@/api/publisher");
+    // 重复检测在后端 server.py 完成，前端通过 openLogin 返回 409 错误码提示
+    authOpenLogin.mockResolvedValueOnce({ code: -409, message: "此账号已添加过" });
     const w = await mountView();
     w.vm.newPlatform = "douyin";
     await w.vm.addAccount();
@@ -1202,6 +1203,45 @@ describe("AccountsView", () => {
     expect(store.isAllSelected).toBe(true);
     expect(w.find(".batch-toolbar label input").element.checked).toBe(true);
     w.unmount();
+  });
+
+  it('视图切换按钮切换 grid/list 视图', async () => {
+    const w = await mountView();
+    await w.get('[data-testid="account-view-grid"]').trigger('click');
+    expect(w.vm.accountViewMode).toBe('grid');
+    await w.get('[data-testid="account-view-list"]').trigger('click');
+    expect(w.vm.accountViewMode).toBe('list');
+  });
+
+  it('平台搜索框输入后出现清除按钮并点击清空', async () => {
+    const w = await mountView();
+    const input = w.get('input[type="search"]');
+    await input.setValue('快手');
+    await w.vm.$nextTick();
+    const clear = w.findAll('.clear-search')[0];
+    expect(clear.exists()).toBe(true);
+    await clear.trigger('click');
+    expect(w.vm.platformSearchInput).toBe('');
+  });
+
+  it('分组搜索框更新 groupSearchInput', async () => {
+    const w = await mountView();
+    const input = w.findAll('input[type="search"]').find(i => i.attributes('placeholder')?.includes('搜索分组'));
+    if (input) {
+      await input.setValue('测试分组');
+      expect(w.vm.groupSearchInput).toBe('测试分组');
+    }
+  });
+
+  it('批量模式点击取消选择按钮调用 clearSelection', async () => {
+    const w = await mountView();
+    await w.get('[data-testid="account-batch"]').trigger('click');
+    await w.vm.$nextTick();
+    const cancelBtn = w.findAll('.batch-cancel')[0];
+    if (cancelBtn) {
+      await cancelBtn.trigger('click');
+      expect(_spies.clearSelection).toHaveBeenCalled();
+    }
   });
 
 });
