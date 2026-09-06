@@ -51,7 +51,6 @@ _LENGTH_RANGES = {
     "compress": (100, 800, 400),
     "expand": (800, 5000, 2500),
 }
-
 class AggregationService:
     """热文采集和改写服务。
 
