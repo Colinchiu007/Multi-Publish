@@ -35,8 +35,10 @@ from multi_publish.models import PLATFORM_META, PlatformType, PublishPhase
 from multi_publish.publishers.account_paths import build_account_storage_paths
 from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
 from multi_publish.video_creation.providers.video.video_trimmer import VideoTrimmer
+from multi_publish.aggregation.router import router as aggregation_router
 
 app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
+app.include_router(aggregation_router)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
