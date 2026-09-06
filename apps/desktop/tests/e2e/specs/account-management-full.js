@@ -55,6 +55,9 @@ async function run(r) {
   const batchBtn = r.page.locator('[data-testid="account-batch"]');
   await record(r, '批量模式按钮可点击', await waitForVisible(batchBtn));
   if (await waitForVisible(batchBtn)) await batchBtn.click();
+  // 批量取消/批量操作按钮仅在选中至少一个账号后出现，先点击全选
+  const selectAllChk = r.page.locator('.batch-toolbar input[type="checkbox"]').first();
+  if (await waitForVisible(selectAllChk)) await selectAllChk.click();
   const batchCancel = r.page.locator('.batch-cancel');
   await record(r, '批量取消按钮可点击', await waitForVisible(batchCancel));
   if (await waitForVisible(batchCancel)) await batchCancel.click();
@@ -66,8 +69,18 @@ async function run(r) {
   if (await waitForVisible(addBtn)) await addBtn.click();
   const modal = r.page.locator('.ui-modal, .el-dialog').first();
   await record(r, '添加账号弹窗打开', await waitForVisible(modal));
-  if (await waitForVisible(modal)) await r.page.keyboard.press('Escape');
-  await record(r, '添加账号弹窗关闭', await r.page.locator('.ui-modal, .el-dialog').count() === 0);
+  // UiModal 默认 closeOnEsc=false，添加账号弹窗不支持 Escape 关闭，需点击取消按钮
+  if (await waitForVisible(modal)) {
+    const cancelBtn = r.page.locator('.ui-modal-footer button, .ui-modal__footer button').first();
+    if (await waitForVisible(cancelBtn, 3000)) { await cancelBtn.click(); }
+  }
+  // 等待 Transition 动画结束后弹窗真正消失
+  let modalClosed = false;
+  try {
+    await r.page.locator('.ui-modal, .el-dialog').first().waitFor({ state: 'hidden', timeout: 5000 });
+    modalClosed = true;
+  } catch { modalClosed = (await r.page.locator('.ui-modal, .el-dialog').count()) === 0; }
+  await record(r, '添加账号弹窗关闭', modalClosed);
 
   // 5. 状态筛选
   const tabs = r.page.locator('.filter-tabs button[role="tab"]');
@@ -75,6 +88,8 @@ async function run(r) {
   await record(r, '状态筛选 tabs 存在', tabCount >= 3, { count: tabCount });
   for (let i = 0; i < tabCount; i++) { await tabs.nth(i).click(); }
   await record(r, '状态筛选 tabs 均可点击', tabCount >= 3);
+  // 循环后点回「全部」tab，确保后续卡片检查有数据
+  if (tabCount > 0) await tabs.nth(0).click();
 
   // 6. 平台筛选
   const platformAll = r.page.locator('[data-testid="platform-filter-all"]');
@@ -103,18 +118,36 @@ async function run(r) {
 
     const proxy = r.page.locator('[data-testid^="proxy-"]').first();
     await record(r, '代理按钮可点击', await waitForVisible(proxy));
-    if (await waitForVisible(proxy)) { await proxy.click(); await r.page.keyboard.press('Escape'); }
+    if (await waitForVisible(proxy)) {
+      await proxy.click();
+      // 代理弹窗也是 UiModal，closeOnEsc 默认 false，需点击取消按钮关闭
+      const proxyCancelBtn = r.page.locator('.ui-modal-footer button, .ui-modal__footer button').first();
+      if (await waitForVisible(proxyCancelBtn, 3000)) { await proxyCancelBtn.click(); }
+      try { await r.page.locator('.ui-modal, .el-dialog').first().waitFor({ state: 'hidden', timeout: 4000 }); } catch {}
+    }
 
     const login = r.page.locator('[data-testid^="login-"]').first();
     await record(r, '登录按钮可点击', await waitForVisible(login));
 
     const rename = r.page.locator('.account-name-button').first();
     await record(r, '重命名按钮可点击', await waitForVisible(rename));
-    if (await waitForVisible(rename)) { await rename.click(); await r.page.keyboard.press('Escape'); }
+    if (await waitForVisible(rename)) {
+      await rename.click();
+      // 内联编辑：点击后变成 input，Enter 提交（blur 触发 finishEditing）
+      const nameInput = r.page.locator('.account-name-input').first();
+      if (await waitForVisible(nameInput, 3000)) {
+        await nameInput.fill('E2E-测试名称');
+        await nameInput.press('Enter');
+      }
+    }
 
     const del = r.page.locator('[data-testid^="delete-"]').first();
     await record(r, '删除按钮可点击', await waitForVisible(del));
-    if (await waitForVisible(del)) { await del.click(); await r.page.keyboard.press('Escape'); }
+    if (await waitForVisible(del)) {
+      await del.click();
+      // ElMessageBox.confirm 支持 Escape 取消
+      await r.page.keyboard.press('Escape');
+    }
 
     // 创作者中心：非批量模式点击卡片
     const nonBatch = r.page.locator('[data-testid="account-batch"]');
@@ -126,6 +159,8 @@ async function run(r) {
 
   // 9. 重复账号检测（IPC mock）
   const dupResult = await r.page.evaluate(async () => {
+    // 设置 accountAdd 下次调用返回 409 模拟重复检测
+    window.__ipcFailNextCall = { method: 'accountAdd', code: -409, message: '此账号已添加过' };
     try { return await window.electronAPI.accountAdd('douyin'); } catch (e) { return { code: -1, message: e.message }; }
   });
   await record(r, '重复账号检测返回', Boolean(dupResult && (dupResult.code === -409 || dupResult.message)), dupResult);
