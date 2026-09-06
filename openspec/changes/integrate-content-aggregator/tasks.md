@@ -54,3 +54,18 @@
 ## Phase 3: 原项目退场（91-180 天）
 - [x] 3.1 content-aggregator 仓库已降级为薄壳：所有 v1 引擎代码迁移至 shared，CA 侧仅保留 re-export shim 和未迁移的 v2 backend/web 模块
 - [x] 3.2 文档更新：architecture-analysis.md、review.md、design.md、proposal.md、tasks.md 均已更新
+
+## Phase 4: 质量优化（2026-09-06）
+
+- [x] 4.0 P0: shared 库 LLMServiceAdapter 提交并推送（shared c079b3a → 1c36d0b）
+- [x] 4.0 P0: CA 未推送 commits 推送至 origin/codex/phase2-shared-migration
+- [x] 4.0 P0: 死代码清理（service.py collect_batch 重复检查）
+- [x] 4.0 P0: 测试硬编码 worktree 路径修复（改用 TestClient + 404 验证）
+- [x] 4.1 P1: LLM 双轨合并 — AggregationService.rewrite() 切换至 shared 库 RewriteProcessor + LLMServiceAdapter
+- [x] 4.1 P1: LLM 配置统一 — LLM_API_KEY/LLM_BASE_URL/LLM_MODEL 优先，向下兼容 PO_OPENAI_*
+- [x] 4.1 P1: get_task_status 接入内存任务追踪器（_create_task/_update_task/get_task_status 生命周期）
+- [x] 4.2 P2: 敏感词表外置 — SENSITIVE_WORDS_PATH 环境变量加载 JSON/YAML 词表（shared 库 1c36d0b）
+- [x] 4.3 P3: ContentPipeline 拆分评估文档（content-pipeline-evaluation.md）
+- [x] 4.4 P2: 前端错误状态细化 — 错误码分类（-1~-5）+ 重试按钮 + 内联错误提示
+- [x] 4.5 安全: aggregation 端点添加 publish:read 鉴权依赖（与其他 /api/* 端点一致）
+- [x] 4.6 测试: 27 项 aggregation 测试全部通过；shared 库 197 项全部通过

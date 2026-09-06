@@ -28,6 +28,12 @@
           <button class="cohere-btn-primary" @click="collectUrl" :disabled="collecting">
             {{ collecting ? '采集中...' : '采集' }}
           </button>
+          <button v-if="collectError && RETRYABLE_CODES.has(collectError.code)" class="cohere-btn-secondary" @click="retryCollect" :disabled="collecting" style="font-size:13px;padding:8px 12px">
+            🔄 重试
+          </button>
+        </div>
+        <div v-if="collectError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+          {{ collectError.message }}
         </div>
         <div v-if="collectedResult" style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--soft-stone);border-radius:6px">
           <div style="font-weight:600;margin-bottom:4px">✅ {{ collectedResult.title || '无标题' }}</div>
@@ -46,7 +52,13 @@
             <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
+            <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="cohere-btn-secondary" @click="retryRewrite" :disabled="rewriting" style="font-size:13px">
+              🔄 重试
+            </button>
             <button class="cohere-btn-secondary" @click="collectedResult = null">取消</button>
+            <div v-if="rewriteError" style="margin-top:6px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+              {{ rewriteError.message }}
+            </div>
           </div>
         </div>
       </div>
@@ -143,6 +155,8 @@ const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
 const collectedResult = ref(null)
+const collectError = ref(null)
+const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
 const collectSourceType = ref('url')
 const collectSources = ref([
@@ -242,6 +256,16 @@ async function deleteDraft (d) {
   notifySuccess('collection.deleted')
 }
 
+// 错误码常量（与 IPC handler 同步）
+const ERROR_CODES = {
+  TIMEOUT: -1,
+  SOURCE_UNREACHABLE: -2,
+  QUOTA_EXHAUSTED: -3,
+  CONTENT_UNEXTRACTABLE: -4,
+  BACKEND_UNAVAILABLE: -5,
+}
+const RETRYABLE_CODES = new Set([-1, -2, -3, -5])
+
 async function collectUrl () {
   const api = getApi()
   if (!linkUrl.value || !linkUrl.value.trim()) {
@@ -250,6 +274,7 @@ async function collectUrl () {
   }
   collecting.value = true
   collectedResult.value = null
+  collectError.value = null
   try {
     // 优先走 Python aggregation API（content-aggregator v1 引擎）
     if (api && api.aggregationCollect) {
@@ -260,6 +285,7 @@ async function collectUrl () {
       })
       // aggregationCollect 直接返回 CollectResult（无 code 包装），失败由 handler 返回 { code, message }
       if (res && res.code !== undefined && res.code !== 0) {
+        collectError.value = { code: res.code, message: res.message }
         notifyError('collection.collectFailed', { message: res.message || resolveNotifyText('collection.collectFailed').text })
         return
       }
@@ -283,6 +309,7 @@ async function collectUrl () {
     if (api && api.urlCollectFetch) {
       const result = await api.urlCollectFetch(linkUrl.value.trim())
       if (result.code !== 0) {
+        collectError.value = { code: result.code, message: result.message }
         notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
         return
       }
@@ -297,10 +324,15 @@ async function collectUrl () {
     }
     notifyWarning('collection.collectUnavailable')
   } catch (e) {
-    notifyError('collection.collectRequestFailed', { message: resolveNotifyText('collection.collectRequestFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+    collectError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message }
+    notifyError('collection.collectRequestFailed', { message: collectError.value.message })
   } finally {
     collecting.value = false
   }
+}
+
+function retryCollect () {
+  collectUrl()
 }
 
 async function rewriteCollected () {
@@ -311,6 +343,7 @@ async function rewriteCollected () {
     return
   }
   rewriting.value = true
+  rewriteError.value = null
   try {
     const result = await api.aggregationRewrite({
       content: collectedResult.value.content || collectedResult.value.description || '',
@@ -321,13 +354,19 @@ async function rewriteCollected () {
       collectedResult.value = { ...collectedResult.value, content: result.result_content, description: result.result_content.slice(0, 120) }
       notifySuccess('collection.rewriteSuccess')
     } else {
-      notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (result && result.message ? result.message : '') })
+      rewriteError.value = { code: result && result.code != null ? result.code : -99, message: (result && result.message) || '' }
+      notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (rewriteError.value.message) })
     }
   } catch (e) {
-    notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message })
+    rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
+    notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
   } finally {
     rewriting.value = false
   }
+}
+
+function retryRewrite () {
+  rewriteCollected()
 }
 
 function getDraftFromItem (data) {

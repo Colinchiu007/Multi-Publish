@@ -63,7 +63,7 @@ async def rewrite(request: RewriteRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[aggregation] rewrite failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"改写失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/sources", response_model=list[SourceInfo])

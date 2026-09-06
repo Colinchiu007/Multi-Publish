@@ -4343,6 +4343,82 @@ screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默�
     │   └─ 点击「创建草稿」→ 存入草稿箱
     └─ 失败时提示错误
 ```
+### 8.1.1 热文采集（Python aggregation API，Phase 1-4 已集成）
+
+热文采集模块（`content-aggregator` 引擎）通过 Python 后端 `/aggregation/*` 端点提供多源采集 + AI 改写能力，前端「内容采集」页面经 Electron IPC 桥接（`aggregation:collect` / `aggregation:rewrite` / `aggregation:sources` / `aggregation:task-status`）调用。
+
+**采集源列表（12 源，`GET /aggregation/sources`）**：
+
+| 类型 | 名称 | 阶段 | 是否需要认证 |
+|------|------|------|--------------|
+| url | URL 正文提取 | Phase 1 | 否 |
+| rss | RSS 订阅源 | Phase 1 | 否 |
+| sitemap | Sitemap | Phase 1 | 否 |
+| api | 自定义 API | Phase 1 | 否 |
+| youtube | YouTube | Phase 2 | 是（API Key） |
+| douyin | 抖音 | Phase 2 | 是（Cookie） |
+| xiaohongshu | 小红书 | Phase 2 | 是（Cookie） |
+| wechat | 微信公众号 | Phase 2 | 是（API Key） |
+| weibo_hot | 微博热点 | Phase 2 | 否 |
+| wangyi | 网易新闻 | Phase 2 | 否 |
+| twitter | Twitter/X | Phase 2 | 是（Bearer Token） |
+| tiktok | TikTok | Phase 2 | 是（Session Cookie） |
+
+**采集请求数据校验（`CollectRequest`）**：
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| url | str | 必填，非空 | 目标 URL |
+| source_type | str | 枚举（12 源） | 非法值 → 422；Playwright 源（Phase 2）→ 422 提示"暂不支持" |
+| rewrite | bool | 默认 false | 是否同时改写 |
+| strategy | str | 可选，6 策略枚举 | 非法值 → 422 |
+| seo | bool | 默认 false | 是否 SEO 优化 |
+
+**改写请求数据校验（`RewriteRequest`）**：
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| content | str | 必填，≥1 字；实际改写前要求 ≥20 字 | 空 → 422；<20 字 → 400 "输入内容过短" |
+| style | str | 枚举 5 风格：轻松易懂/正式严谨/吸引眼球/深度分析/认知锚点 | 非法 → 422 |
+| length | str | 枚举：keep/compress/expand | 非法 → 422 |
+| seo_optimize | bool | 默认 false | SEO 优化 |
+
+**改写风格 → 策略映射**：轻松易懂→paraphrase、正式严谨→style_transfer、吸引眼球→short_video、深度分析→expand、认知锚点→rewrite。
+
+**长度 → 字数范围映射**：keep→(300,3000,1500)、compress→(100,800,400)、expand→(800,5000,2500)。
+
+**LLM 配置优先级**：`LLM_API_KEY` > `PO_OPENAI_API_KEY`（向下兼容）；`LLM_BASE_URL` > `PO_OPENAI_BASE_URL`；`LLM_MODEL` > `PO_OPENAI_MODEL`（默认 gpt-4o-mini）。未配置 API Key 时改写返回 400 + 友好提示「未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写」。
+
+**错误码分类（前端 IPC handler，`classifyError`）**：
+
+| 错误码 | 含义 | 触发条件 | 用户提示 |
+|--------|------|----------|----------|
+| -1 | TIMEOUT | 请求超时 / 408 | 请求超时，请稍后重试 |
+| -2 | SOURCE_UNREACHABLE | DNS/连接拒绝 / 502/503 | 源不可达，请检查链接或网络连接 |
+| -3 | QUOTA_EXHAUSTED | 429 / quota / rate limit | API 配额耗尽，请稍后重试或切换模型 |
+| -4 | CONTENT_UNEXTRACTABLE | 无结果 / 无法提取 / 422 | 无法提取内容，请检查链接是否有效 |
+| -5 | BACKEND_UNAVAILABLE | 后端不可用 / 500 | 后端服务不可用，请稍后重试 |
+| -99 | UNKNOWN | 其他 | 原始错误消息 |
+
+**前端交互流程（Collection.vue）**：
+
+1. 用户输入链接 + 选择采集源类型 → 点击「采集」或回车
+2. 成功 → 结果加入「采集结果」累计列表（标题 + 字数），显示「创建草稿」「改写」「视频创作」「发布」按钮
+3. 改写 → 选择风格 + 长度 → 点击「改写」→ 结果回填到采集结果
+4. 创建草稿 → 存入草稿箱 → 跳转发布页
+5. 失败 → 内联错误提示（红色），可重试的错误码（-1/-2/-3/-5）显示「🔄 重试」按钮
+
+**提示文字（i18n，zh/en 成对）**：
+
+| 场景 | 提示 |
+|------|------|
+| 采集成功 | collection.collectSuccess |
+| 采集失败 | collection.collectFailed |
+| 改写成功 | collection.rewriteSuccess |
+| 改写失败 | collection.rewriteFailed |
+| 未输入链接 | collection.enterLink |
+| 内容过短 | 输入内容过短（仅 N 字符），请提供至少 20 字的完整文章 |
+| 未配置 API Key | 未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写 |
 
 ### 8.2 剪贴板导入
 

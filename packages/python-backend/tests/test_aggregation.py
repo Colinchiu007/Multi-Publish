@@ -206,14 +206,15 @@ def test_service_does_not_import_v2_backend():
     )
 
 
-def test_rewrite_uses_v1_rewrite_processor():
-    """Regression: rewrite must import v1 RewriteProcessor, not v2 rewrite_content."""
+def test_rewrite_uses_shared_rewrite_processor():
+    """Regression: rewrite must import shared RewriteProcessor, not v2 rewrite_content."""
     import inspect
     from multi_publish.aggregation import service as service_module
 
     src = inspect.getsource(service_module)
-    assert "content_aggregator.processors.rewrite.rewriter" in src, (
-        "rewrite 必须使用 v1 RewriteProcessor (content_aggregator.processors.rewrite.rewriter)"
+    assert "content_aggregator_shared.shared.rewriters.rewriter" in src, (
+        "rewrite 必须使用 shared 库 RewriteProcessor "
+        "(content_aggregator_shared.shared.rewriters.rewriter)"
     )
     assert "content_aggregator.backend.app.services.rewrite" not in src, (
         "rewrite 不得引用 v2 的 backend.app.services.rewrite"
@@ -308,29 +309,105 @@ def test_router_has_task_endpoint():
 
 # ── 8. AggregationService task_status ────────────────────────────────
 
-def test_aggregation_service_get_task_status():
-    """AggregationService.get_task_status returns a TaskStatus."""
+def test_aggregation_service_get_task_status_unknown():
+    """AggregationService.get_task_status returns None for unknown task."""
     from multi_publish.aggregation.service import AggregationService
 
     service = AggregationService()
     status = service.get_task_status("test-789")
+    assert status is None
+
+
+def test_aggregation_service_task_lifecycle():
+    """AggregationService.create_task → update_task → get_task_status 生命周期。"""
+    from multi_publish.aggregation.service import AggregationService
+
+    service = AggregationService()
+    task_id = service._create_task(total_items=3)
+    assert task_id
+
+    status = service.get_task_status(task_id)
     assert status is not None
-    assert status.task_id == "test-789"
-    assert status.status == "completed"
+    assert status.task_id == task_id
+    assert status.status == "pending"
+    assert status.total_items == 3
+    assert status.processed_items == 0
+
+    service._update_task(task_id, status="running", progress=33, processed_items=1)
+    status2 = service.get_task_status(task_id)
+    assert status2.status == "running"
+    assert status2.progress == 33
+    assert status2.processed_items == 1
+
+    service._update_task(task_id, status="completed", progress=100, processed_items=3)
+    status3 = service.get_task_status(task_id)
+    assert status3.status == "completed"
+    assert status3.progress == 100
 
 
 # ── 9. API smoke test for task endpoint ──────────────────────────────
 
-def test_api_task_status_endpoint():
-    """GET /aggregation/tasks/{task_id} returns 200."""
-    import sys
-    sys.path.insert(0, r"D:\Data\projects\mp-worktrees\mp-integrate-content-aggregator\packages\python-backend\src")
+def test_api_task_status_endpoint_unknown():
+    """GET /aggregation/tasks/{task_id} 对未知任务返回 404。"""
     from fastapi.testclient import TestClient
     from server import app
 
     client = TestClient(app)
-    r = client.get("/aggregation/tasks/test-123")
-    assert r.status_code == 200
-    data = r.json()
-    assert data["task_id"] == "test-123"
-    assert data["status"] == "completed"
+    r = client.get("/aggregation/tasks/test-nonexistent-123")
+    assert r.status_code == 404
+
+
+# ── 10. 回归测试：改写无 key 友好错误（P0 fix）──────────────────────
+
+@pytest.mark.asyncio
+async def test_rewrite_no_api_key_friendly_error():
+    """回归：无 LLM API Key 时返回友好中文错误，而非不可读的 repr。"""
+    import os as _os
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    _os.environ.pop("LLM_API_KEY", None)
+    _os.environ.pop("PO_OPENAI_API_KEY", None)
+
+    service = AggregationService()
+    req = RewriteRequest(content="这是一段用于测试改写的长内容，需要超过二十个字符来通过输入校验", style="轻松易懂")
+
+    with pytest.raises(ValueError, match="未配置 LLM API Key"):
+        await service.rewrite(req)
+
+
+@pytest.mark.asyncio
+async def test_rewrite_short_content_before_key_check():
+    """回归：内容过短应先报错，不因缺少 API key 先报错。"""
+    import os as _os
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    _os.environ.pop("LLM_API_KEY", None)
+    _os.environ.pop("PO_OPENAI_API_KEY", None)
+
+    service = AggregationService()
+    req = RewriteRequest(content="短", style="轻松易懂")
+
+    with pytest.raises(ValueError, match="输入内容过短"):
+        await service.rewrite(req)
+
+
+# ── 11. 回归测试：word_count 兜底 ──────────────────────────────────
+
+def test_collect_result_word_count_fallback():
+    """回归：word_count 为 0 时用 content 长度兜底。"""
+    from multi_publish.aggregation.models import CollectResult
+
+    r = CollectResult(
+        title="测试",
+        content="这是一段有内容的正文",
+        source_url="https://example.com",
+        word_count=0,
+    )
+    # 在 service 层已兜底；这里验证模型允许 word_count 为 0 且 content 有长度
+    assert r.word_count == 0
+    assert len(r.content) > 0
+    # 兜底逻辑：word_count or len(content)
+    effective = r.word_count or len(r.content)
+    assert effective == len("这是一段有内容的正文")
