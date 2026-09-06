@@ -5542,6 +5542,30 @@ credentialStore.deleteCredential 失败 → throw Error(加密凭据文件删除
 | test_server_account_lifecycle.py | 双方无 id 时同名返回 409 | 弱标识回退 |
 | test_server_account_lifecycle.py | 一方有 id 一方无→不判重 | 避免提取失败误判 |
 | account-management-full.js | 24 项 E2E 硬断言 | 全功能覆盖 |
+| test_server_account_lifecycle.py | 启动去重：3 同名→保留最新 | 存量重复清理 |
+| test_server_account_lifecycle.py | 启动去重：无重复不误删 | 不误删唯一账号 |
+
+### 启动时存量去重（2026-09-06 新增）
+
+**背景**：修复前创建的重复账号（同平台同名多次添加）在去重逻辑上线后残留，需启动时自动清理。
+
+**`_dedup_accounts_on_startup()` 逻辑**（server.py）：
+1. 读取 `accounts.json` 全量账号
+2. 按 `(platform, owner_subject, name_lower)` 分组
+3. 每组保留 `created_at` 最晚的一条
+4. 删除其余重复项，`_save_accounts` 写回
+5. 异常时仅 `logger.exception`，不阻塞启动
+
+**凭据孤儿文件清理**（credential-store.js `cleanOrphanCredentials`）：
+1. 参数：已知账号 ID 列表 + userDataDir + ownerSubject
+2. 遍历凭据目录下所有 `.json.enc` 文件
+3. 文件名对应的 accountId 不在已知列表中的 → `fs.unlinkSync` 删除
+4. 返回 `{ removed: string[], errors: string[] }`
+5. 删除失败仅 log.warn，不抛异常
+
+**i18n 补齐**：
+- zh.js: `accountsPage.duplicateAccount: '此账号已添加过'`
+- en.js: `accountsPage.duplicateAccount: 'This account has already been added'`
 
 ### E2E 全功能覆盖清单（account-management-full.js，24 项）
 
