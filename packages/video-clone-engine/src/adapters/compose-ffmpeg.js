@@ -155,7 +155,11 @@ function createFfmpegCompose({
   async function run(ctx) {
     const report = ctx.report;
     const assets = ctx.artifacts.assets || {};
-    const dir = outputDir || (await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vc-out-')));
+    // 传入 outputDir 时在其下创建唯一子目录：避免并发/重新生成互相覆盖，
+    // 同时让成品落在调用方可控的媒体白名单根内（桌面端 story2video 临时根）。
+    const baseDir = outputDir || (await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vc-out-')));
+    if (outputDir) await fs.promises.mkdir(outputDir, { recursive: true });
+    const dir = outputDir ? await fs.promises.mkdtemp(path.join(outputDir, 'vc-')) : baseDir;
     const outputPath = path.join(dir, 'clone.mp4');
     let built;
     try {

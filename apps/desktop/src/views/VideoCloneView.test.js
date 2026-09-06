@@ -178,4 +178,39 @@ describe('VideoCloneView output video', () => {
     await wrapper.find('[data-testid="video-clone-copy-path"]').trigger('click')
     expect(publisherApi.story2videoCopyPath).toHaveBeenCalledWith('C:/tmp/vc-out/clone.mp4')
   })
+
+  it('分享 URL 签发失败时仍显示成品卡片并允许下载', async () => {
+    composable.outputPath.value = 'C:/tmp/vc-out/clone.mp4'
+    publisherApi.story2videoCreateShareUrl.mockResolvedValueOnce({ code: -1, message: 'denied' })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="video-clone-output-video"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('视频加载失败，请重试或下载后播放')
+    const download = wrapper.find('[data-testid="video-clone-download"]')
+    expect(download.exists()).toBe(true)
+    expect(download.attributes('disabled')).not.toBe('true')
+    await download.trigger('click')
+    expect(publisherApi.story2videoSaveAs).toHaveBeenCalledWith('C:/tmp/vc-out/clone.mp4', expect.stringContaining('video_clone_'))
+  })
+
+  it('相似度标记 degradedAssets 时展示降级素材警告', async () => {
+    composable.report.value = {
+      replication: { level: 'L1' },
+      script: { fullText: 'x' },
+      meta: { durationSec: 10, resolution: '640x360' },
+      platformParams: { aspect: '16:9' },
+    }
+    composable.similarity.value = {
+      score: 0.5,
+      verdict: 'needs_review',
+      grade: 'L1',
+      level: 'L1',
+      metrics: { structure: 0.5, script: 0.5, style: 0.5, durationDeviation: 0.1 },
+      warnings: { degradedAssets: true },
+    }
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="video-clone-degraded-warning"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('降级静态素材')
+  })
 })
