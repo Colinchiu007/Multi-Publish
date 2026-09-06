@@ -36,6 +36,22 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# style→strategy 映射（中文风格名 → v1 RewriteStrategy）
+_STYLE_TO_STRATEGY = {
+    "轻松易懂": "paraphrase",
+    "正式严谨": "style_transfer",
+    "吸引眼球": "short_video",
+    "深度分析": "expand",
+    "认知锚点": "rewrite",
+}
+
+# length→字数范围映射
+_LENGTH_RANGES = {
+    "keep": (300, 3000, 1500),
+    "compress": (100, 800, 400),
+    "expand": (800, 5000, 2500),
+}
+
 
 class AggregationService:
     """热文采集和改写服务。
@@ -160,8 +176,10 @@ class AggregationService:
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
         RewriteProcessor = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteProcessor")
+        RewriteConfig = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteConfig")
+        RewriteStrategy = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteStrategy")
         Content = _lazy_import("content_aggregator.models", "Content")
-        if RewriteProcessor is None or Content is None:
+        if RewriteProcessor is None or RewriteConfig is None or Content is None:
             raise ImportError("content-aggregator 未安装")
         config = self._build_pipeline_config()
         content_obj = Content(
@@ -172,8 +190,16 @@ class AggregationService:
             source_type="manual",
             url="",
         )
+        strategy_name = _STYLE_TO_STRATEGY.get(request.style, "rewrite")
+        min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
+        rewrite_cfg = RewriteConfig(
+            strategy=RewriteStrategy(strategy_name),
+            min_word_count=min_wc,
+            max_word_count=max_wc,
+            target_word_count=target_wc,
+        )
         async with RewriteProcessor(config) as proc:
-            result = await proc.rewrite(content_obj)
+            result = await proc.rewrite(content_obj, rewrite_cfg)
         if not result.success:
             raise RuntimeError(f"改写失败: {result.error or '未知错误'}")
         return RewriteResultModel(

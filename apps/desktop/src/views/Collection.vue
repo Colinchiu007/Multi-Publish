@@ -32,8 +32,14 @@
             {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
             <span v-if="collectedResult.coverImage"> · 有封面图</span>
           </div>
-          <div style="margin-top:8px;display:flex;gap:8px">
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
+            <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+              <option v-for="s in rewriteStyles" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+            <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+              <option v-for="l in rewriteLengths" :key="l.value" :value="l.value">{{ l.label }}</option>
+            </select>
             <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
@@ -109,6 +115,20 @@ const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
 const collectedResult = ref(null)
+const rewriteStyle = ref('轻松易懂')
+const rewriteLength = ref('keep')
+const rewriteStyles = [
+  { label: resolveNotifyText('collection.rewriteStyleEasy').text, value: '轻松易懂' },
+  { label: resolveNotifyText('collection.rewriteStyleFormal').text, value: '正式严谨' },
+  { label: resolveNotifyText('collection.rewriteStyleEyeCatching').text, value: '吸引眼球' },
+  { label: resolveNotifyText('collection.rewriteStyleDeep').text, value: '深度分析' },
+  { label: resolveNotifyText('collection.rewriteStyleCognitive').text, value: '认知锚点' },
+]
+const rewriteLengths = [
+  { label: resolveNotifyText('collection.rewriteLengthKeep').text, value: 'keep' },
+  { label: resolveNotifyText('collection.rewriteLengthCompress').text, value: 'compress' },
+  { label: resolveNotifyText('collection.rewriteLengthExpand').text, value: 'expand' },
+]
 
 onMounted(async () => {
   await loadDrafts()
@@ -224,8 +244,8 @@ async function rewriteCollected () {
   try {
     const result = await api.aggregationRewrite({
       content: collectedResult.value.content || collectedResult.value.description || '',
-      style: resolveNotifyText('collection.rewriteStyleEasy').text,
-      length: 'keep',
+      style: rewriteStyle.value,
+      length: rewriteLength.value,
     })
     if (result && result.result_content) {
       collectedResult.value = { ...collectedResult.value, content: result.result_content, description: result.result_content.slice(0, 120) }
