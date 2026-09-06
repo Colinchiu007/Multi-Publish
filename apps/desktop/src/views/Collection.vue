@@ -14,8 +14,11 @@
     <div class="cohere-content">
       <!-- URL 采集输入 -->
       <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
-        <div style="display:flex;gap:var(--space-sm);align-items:center">
+        <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
           <span style="font-size:1.2rem">🔗</span>
+          <select v-model="collectSourceType" style="border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px">
+            <option v-for="s in collectSources" :key="s.type" :value="s.type">{{ s.name }}</option>
+          </select>
           <input
             v-model="linkUrl"
             placeholder="输入文章链接，自动采集标题、正文、封面..."
@@ -32,9 +35,43 @@
             {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
             <span v-if="collectedResult.coverImage"> · 有封面图</span>
           </div>
-          <div style="margin-top:8px;display:flex;gap:8px">
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
+            <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+              <option v-for="s in rewriteStyles" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+            <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+              <option v-for="l in rewriteLengths" :key="l.value" :value="l.value">{{ l.label }}</option>
+            </select>
+            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting">
+              {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
+            </button>
             <button class="cohere-btn-secondary" @click="collectedResult = null">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 采集结果累计列表 -->
+      <div v-if="collectedItems.length > 0" style="margin-bottom:var(--space-lg)">
+        <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>采集结果（{{ collectedItems.length }} 篇）</span>
+          <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" @click="collectedItems = []; collectedResult = null">清空</button>
+        </div>
+        <div class="cohere-card-grid">
+          <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :style="{ borderLeft: item.id === collectedResult?.id ? '3px solid var(--primary)' : '' }">
+            <div class="card-top">
+              <div class="card-icon">📰</div>
+              <div class="card-info">
+                <div class="card-platform">{{ item.title || '无标题' }}</div>
+                <div class="card-account">{{ item.source || 'url' }} · {{ item.wordCount || (item.content || '').length }}字</div>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button @click="collectedResult = item">查看</button>
+              <button @click="createFromItem(item)">创建草稿</button>
+              <button @click="sendItemToPipeline(item)">视频创作</button>
+              <button @click="goPublishFromItem(item)">发布</button>
+            </div>
           </div>
         </div>
       </div>
@@ -104,7 +141,30 @@ const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } =
 const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
+const rewriting = ref(false)
 const collectedResult = ref(null)
+const collectedItems = ref([])  // 累计采集列表
+const collectSourceType = ref('url')
+const collectSources = ref([
+  { type: 'url', name: 'URL 正文提取' },
+  { type: 'rss', name: 'RSS 订阅源' },
+  { type: 'sitemap', name: 'Sitemap' },
+  { type: 'api', name: '自定义 API' },
+])
+const rewriteStyle = ref('轻松易懂')
+const rewriteLength = ref('keep')
+const rewriteStyles = [
+  { label: resolveNotifyText('collection.rewriteStyleEasy').text, value: '轻松易懂' },
+  { label: resolveNotifyText('collection.rewriteStyleFormal').text, value: '正式严谨' },
+  { label: resolveNotifyText('collection.rewriteStyleEyeCatching').text, value: '吸引眼球' },
+  { label: resolveNotifyText('collection.rewriteStyleDeep').text, value: '深度分析' },
+  { label: resolveNotifyText('collection.rewriteStyleCognitive').text, value: '认知锚点' },
+]
+const rewriteLengths = [
+  { label: resolveNotifyText('collection.rewriteLengthKeep').text, value: 'keep' },
+  { label: resolveNotifyText('collection.rewriteLengthCompress').text, value: 'compress' },
+  { label: resolveNotifyText('collection.rewriteLengthExpand').text, value: 'expand' },
+]
 
 onMounted(async () => {
   await loadDrafts()
@@ -184,10 +244,6 @@ async function deleteDraft (d) {
 
 async function collectUrl () {
   const api = getApi()
-  if (!api || !api.urlCollectFetch) {
-    notifyWarning('collection.collectUnavailable')
-    return
-  }
   if (!linkUrl.value || !linkUrl.value.trim()) {
     notifyWarning('collection.enterLink')
     return
@@ -195,13 +251,51 @@ async function collectUrl () {
   collecting.value = true
   collectedResult.value = null
   try {
-    const result = await api.urlCollectFetch(linkUrl.value.trim())
-    if (result.code !== 0) {
-      notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+    // 优先走 Python aggregation API（content-aggregator v1 引擎）
+    if (api && api.aggregationCollect) {
+      const res = await api.aggregationCollect({
+        url: linkUrl.value.trim(),
+        source_type: collectSourceType.value,
+        rewrite: false,
+      })
+      // aggregationCollect 直接返回 CollectResult（无 code 包装），失败由 handler 返回 { code, message }
+      if (res && res.code !== undefined && res.code !== 0) {
+        notifyError('collection.collectFailed', { message: res.message || resolveNotifyText('collection.collectFailed').text })
+        return
+      }
+      if (res && res.title) {
+        const item = {
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          title: res.title,
+          content: res.content || '',
+          description: res.content ? res.content.slice(0, 120) : '',
+          source: collectSourceType.value,
+          sourceUrl: linkUrl.value,
+          wordCount: res.word_count || 0,
+        }
+        collectedResult.value = item
+        collectedItems.value.unshift(item)
+        notifySuccess('collection.collectSuccess')
+        return
+      }
+    }
+    // 回退到旧的 url-collect（Node.js 端）
+    if (api && api.urlCollectFetch) {
+      const result = await api.urlCollectFetch(linkUrl.value.trim())
+      if (result.code !== 0) {
+        notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+        return
+      }
+      const item = {
+        ...result.data,
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      }
+      collectedResult.value = item
+      collectedItems.value.unshift(item)
+      notifySuccess('collection.collectSuccess')
       return
     }
-    collectedResult.value = result.data
-    notifySuccess('collection.collectSuccess')
+    notifyWarning('collection.collectUnavailable')
   } catch (e) {
     notifyError('collection.collectRequestFailed', { message: resolveNotifyText('collection.collectRequestFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
   } finally {
@@ -209,22 +303,76 @@ async function collectUrl () {
   }
 }
 
-function createFromCollected () {
+async function rewriteCollected () {
   if (!collectedResult.value) return
-  const data = collectedResult.value
-  const draft = {
+  const api = getApi()
+  if (!api || !api.aggregationRewrite) {
+    notifyWarning('collection.collectUnavailable')
+    return
+  }
+  rewriting.value = true
+  try {
+    const result = await api.aggregationRewrite({
+      content: collectedResult.value.content || collectedResult.value.description || '',
+      style: rewriteStyle.value,
+      length: rewriteLength.value,
+    })
+    if (result && result.result_content) {
+      collectedResult.value = { ...collectedResult.value, content: result.result_content, description: result.result_content.slice(0, 120) }
+      notifySuccess('collection.rewriteSuccess')
+    } else {
+      notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (result && result.message ? result.message : '') })
+    }
+  } catch (e) {
+    notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message })
+  } finally {
+    rewriting.value = false
+  }
+}
+
+function getDraftFromItem (data) {
+  return {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     title: data.title || '',
     content: data.content || data.description || '',
     coverImage: data.coverImage || '',
     source: data.source || 'url',
-    sourceUrl: linkUrl.value,
+    sourceUrl: data.sourceUrl || linkUrl.value || '',
     created_at: new Date().toLocaleString('zh-CN'),
   }
+}
+
+function createFromCollected () {
+  if (!collectedResult.value) return
+  const draft = getDraftFromItem(collectedResult.value)
   drafts.value.unshift(draft)
   saveDrafts()
   collectedResult.value = null
   linkUrl.value = ''
+  notifySuccess('collection.draftCreated')
+  router.push('/publish?draft=' + draft.id)
+}
+
+function createFromItem (item) {
+  collectedResult.value = item
+  createFromCollected()
+}
+
+function sendItemToPipeline (item) {
+  // 发送到 Story2Video 流水线：将采集内容作为文案输入
+  collectedResult.value = item
+  const draft = getDraftFromItem(item)
+  drafts.value.unshift(draft)
+  saveDrafts()
+  notifySuccess('collection.draftCreated')
+  router.push('/create?draft=' + draft.id)
+}
+
+function goPublishFromItem (item) {
+  collectedResult.value = item
+  const draft = getDraftFromItem(item)
+  drafts.value.unshift(draft)
+  saveDrafts()
   notifySuccess('collection.draftCreated')
   router.push('/publish?draft=' + draft.id)
 }

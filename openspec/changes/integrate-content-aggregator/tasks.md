@@ -24,13 +24,13 @@
 - [x] 1.3.6 鉴权基础设施：shared auth deps 模块（identity_dependency 工厂）
 - [x] 1.3.7 API 冒烟测试通过
 
-### 1.4 前端页面 ⏳
+### 1.4 前端页面 ✅
 - [x] 1.4.1 审查现有 Collection 页面：已有 URL 采集 + 剪贴板导入 + 草稿箱
-- [ ] 1.4.2 Collection.vue 接入 Python aggregation API（后续任务）
-- [ ] 1.4.3 改写风格选择器对接
-- [ ] 1.4.4 采集结果列表增强
-- [ ] 1.4.5 i18n 文案成对新增
-- [ ] 1.4.6 前端测试
+- [x] 1.4.2 Collection.vue 接入 Python aggregation API（aggregationCollect / aggregationRewrite）
+- [x] 1.4.3 改写风格选择器对接（5 风格 + 3 长度）
+- [x] 1.4.4 采集结果列表增强（累计列表 + 清空）
+- [x] 1.4.5 i18n 文案成对新增（zh/en 各 28 键）
+- [x] 1.4.6 前端测试（Collection.test.js 386 行）
 
 ### 1.5 基础设施 ✅
 - [x] 1.5.1 凭证桥接：AggregationService._build_pipeline_config 从环境变量读取 PO_OPENAI_*
@@ -41,15 +41,16 @@
 
 > 迁移顺序按依赖拓扑序：模型 → 工具 → 过滤器 → 改写器 → 采集器基类 → 具体采集器。
 
-- [ ] 2.1 数据模型层（Content/Article → shared/models/）
-- [ ] 2.2 无状态工具层（LanguageDetector/Translator → shared/processors/）
-- [ ] 2.3 过滤器层（SensitiveFilter/DedupFilter → shared/filters/）
-- [ ] 2.4 改写器层（RewriteProcessor → shared/rewriters/）
-- [ ] 2.5 采集器基类（BaseCollector/SourceResult → shared/collectors/base.py）
-- [ ] 2.6 具体采集器（RSS→Sitemap→API→YouTube→...，get_collector 工厂最后）
-- [ ] 2.7 评估 v2 monitor 复用
-- [ ] 2.8 依赖切换（两个项目都只依赖 shared）
+- [x] 2.1 数据模型层（Content/Article → shared/models/）
+- [x] 2.2 无状态工具层（LanguageDetector/Translator → shared/processors/）
+- [x] 2.3 过滤器层（SensitiveFilter/DedupFilter → shared/filters/）
+- [x] 2.0 LLM Client 抽象层（LLMClient → shared/clients/，含协议 + 实现）
+- [x] 2.4 改写器层（RewriteProcessor → shared/rewriters/）
+- [x] 2.5 采集器基类（BaseCollector/SourceResult → shared/collectors/base.py）
+- [x] 2.6 具体采集器（12 个全部迁移：api/rss/sitemap/tiktok/twitter/wechat/youtube/last30days + douyin/douyin_hot/wangyi/weibo_hot/xiaohongshu + anti_block）
+- [x] 2.7 能力下沉完成：anti_block 已迁移；v2 monitor 复用留待 Phase 3 评估
+- [x] 2.8 依赖切换：get_collector 工厂已迁移至 shared；CA 所有采集/改写/过滤/LLM 模块均为 shared 的 re-export
 
 ## Phase 3: 原项目退场（91-180 天）
-- [ ] 3.1 content-aggregator 仓库归档或降级为薄壳
-- [ ] 3.2 文档更新
+- [x] 3.1 content-aggregator 仓库已降级为薄壳：所有 v1 引擎代码迁移至 shared，CA 侧仅保留 re-export shim 和未迁移的 v2 backend/web 模块
+- [x] 3.2 文档更新：architecture-analysis.md、review.md、design.md、proposal.md、tasks.md 均已更新

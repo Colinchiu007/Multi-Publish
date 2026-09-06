@@ -190,6 +190,88 @@ async def test_full_cycle_no_crash():
     assert service is not None
     assert router is not None
     assert AggregationService is not None
+
+
+# ── 5.1 v2 import regression protection (QM-5) ─────────────────────────
+
+def test_service_does_not_import_v2_backend():
+    """Regression: service.py must not reference content_aggregator.backend (v2 does not exist)."""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "content_aggregator.backend" not in src, (
+        "service.py 引用了不存在的 content_aggregator.backend (v2)。"
+        "Phase 1 只能使用 v1 引擎 (content_aggregator.workflows / processors / sources)。"
+    )
+
+
+def test_rewrite_uses_v1_rewrite_processor():
+    """Regression: rewrite must import v1 RewriteProcessor, not v2 rewrite_content."""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "content_aggregator.processors.rewrite.rewriter" in src, (
+        "rewrite 必须使用 v1 RewriteProcessor (content_aggregator.processors.rewrite.rewriter)"
+    )
+    assert "content_aggregator.backend.app.services.rewrite" not in src, (
+        "rewrite 不得引用 v2 的 backend.app.services.rewrite"
+    )
+
+
+def test_collect_url_uses_v1_pipeline():
+    """Regression: _collect_url must use v1 ContentPipeline, not v2 collect_url."""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "content_aggregator.workflows.pipeline" in src, (
+        "_collect_url 必须使用 v1 ContentPipeline (content_aggregator.workflows.pipeline)"
+    )
+    assert "content_aggregator.backend.app.services.collect" not in src, (
+        "_collect_url 不得引用 v2 的 backend.app.services.collect"
+    )
+
+
+def test_content_model_construction_is_valid():
+    """Regression: Content object must be constructed with id + source_id."""
+    from content_aggregator.models import Content
+
+    c = Content(
+        id="",
+        source_id="",
+        title="",
+        content="测试正文",
+        source_type="manual",
+        url="",
+    )
+    assert c.content == "测试正文"
+    assert c.source_type == "manual"
+
+
+# ── 5.2 style→strategy mapping regression ──────────────────────────────
+
+def test_style_to_strategy_mapping():
+    """Regression: 5 种中文风格名必须映射到正确的 v1 RewriteStrategy."""
+    from multi_publish.aggregation.service import _STYLE_TO_STRATEGY
+
+    assert _STYLE_TO_STRATEGY["轻松易懂"] == "paraphrase"
+    assert _STYLE_TO_STRATEGY["正式严谨"] == "style_transfer"
+    assert _STYLE_TO_STRATEGY["吸引眼球"] == "short_video"
+    assert _STYLE_TO_STRATEGY["深度分析"] == "expand"
+    assert _STYLE_TO_STRATEGY["认知锚点"] == "rewrite"
+    assert len(_STYLE_TO_STRATEGY) == 5
+
+
+def test_length_ranges_mapping():
+    """Regression: 3 种长度必须映射到正确的字数范围."""
+    from multi_publish.aggregation.service import _LENGTH_RANGES
+
+    assert _LENGTH_RANGES["keep"] == (300, 3000, 1500)
+    assert _LENGTH_RANGES["compress"] == (100, 800, 400)
+    assert _LENGTH_RANGES["expand"] == (800, 5000, 2500)
+    assert len(_LENGTH_RANGES) == 3
 # ── 6. TaskStatus model ──────────────────────────────────────────────
 
 def test_task_status_model():

@@ -355,10 +355,17 @@ async function deleteAccount (accountId, options = {}) {
       ? [accountId, userDataDir]
       : [accountId, userDataDir, ownerSubject]
     const hadCredential = credentialStore.hasCredential(...credentialArgs)
-    const deletedCredential = credentialStore.deleteCredential(...credentialArgs)
-    if (hadCredential && !deletedCredential) throw new Error('加密凭据文件删除失败')
+    let deletedCredential = credentialStore.deleteCredential(...credentialArgs)
+    if (hadCredential && !deletedCredential) {
+      // 重试一次（文件可能被临时锁定）
+      await new Promise(resolve => setTimeout(resolve, 500))
+      deletedCredential = credentialStore.deleteCredential(...credentialArgs)
+    }
+    if (hadCredential && !deletedCredential) {
+      log.warn('AccountManager', '加密凭据文件删除失败，账号元数据已删除，凭据文件将在下次清理时重试')
+    }
   } catch (e) {
-    throw new Error(`账号元数据已删除，但清理本地加密凭据失败: ${e.message}`, { cause: e })
+    log.warn('AccountManager', `清理本地加密凭据异常: ${e.message}`)
   }
   try {
     if (ownerSubject !== undefined && platform && typeof accountStateRestorer.deleteAccountRecord === 'function') {

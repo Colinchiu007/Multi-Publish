@@ -5443,6 +5443,7 @@ const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
 2. **多语言合规**：所有文案必须通过 i18n 系统展示，zh/en 成对维护
 3. **后端错误码**：后端不得返回用户可见的硬编码消息，必须返回结构化错误码
 4. **CI 检查**：`node .github/scripts/check-locale-sync.js --cjk` 扫描硬编码中文字符串，`--pair-base` 检查 zh/en 成对变更
+
 ### 27.6 运行时防泄漏守卫（2026-09-05 增强）
 
 即使 CI 漏检，运行时也不允许 i18n 原始 key 直出到用户界面。统一通知通道（`useNotify` / `notifyCore`）在展示前拦截：
@@ -5464,3 +5465,172 @@ const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
   - 用户点击「去登录」→ 打开该平台登录页（`openLoginPage`）。
 - **显示项**：账号卡片展示登录状态徽章（已登录/已过期/异常/暂无检查记录）、最近检查时间、异常原因、粉丝数、负责人、运营人、代理等字段，全部经 i18n 展示。
 - **提示文字规范**：所有提示必须为自然语言、具体指示性、zh/en 成对；禁止显示 i18n key 原始名称或技术错误码。
+
+
+
+## 账号管理页核心修复 v4：重复检测增强 + 删除凭据清理保护（2026-09-05）
+
+### 变更背景
+1. 同一平台账号可添加多次，重复添加提示未生效，同一账号显示多个卡片
+2. 点击删除按钮后报错「账号元数据已删除，但清理本地加密凭据失败: 加密凭据文件删除失败」
+
+### 修复 1：重复检测增强（packages/python-backend/src/server.py）
+
+#### 旧逻辑
+- 使用 OR 条件：platform_account_id 匹配 或 name 匹配 → 判定重复
+- 一方有 platform_account_id 一方无时，可能被 name 误判为重复
+
+#### 新逻辑（三级判定）
+| 场景 | 判定条件 | 结果 |
+|------|---------|------|
+| 双方都有 platform_account_id | 仅匹配 platform_account_id（强标识） | id 相同 → 409；id 不同 → 放行 |
+| 双方都无 platform_account_id | 仅匹配 name（弱标识，需完全一致） | name 相同 → 409；name 不同 → 放行 |
+| 一方有 id 一方无 | 若名称完全一致则判定重复 | 放行（不同名）；409（同名，v5 补漏） |
+
+#### 数据校验流程
+1. 提取请求中的 platform_account_id 和 name，trim + lower 归一化
+2. 遍历已有同平台账号（同一 owner_subject）
+3. 逐条比对：强标识优先 → 弱标识回退 → 一方缺 id 时跳过
+4. 命中重复 → 返回 HTTP 409 "此账号已添加过"
+5. 未命中 → 正常创建账号
+
+#### 交互逻辑
+- 前端通过 authOpenLogin API 调用后端 POST /api/accounts
+- 后端返回 409 时，前端 formatUserError 将错误消息转为 i18n 可读文案
+- 显示 Element Plus 错误提示（ElMessage.error）："此账号已添加过"
+
+### 修复 2：删除凭据清理保护（apps/desktop/electron/publishers/account-manager.js）
+
+#### 旧逻辑
+credentialStore.deleteCredential 失败 → throw Error(加密凭据文件删除失败)
+  → catch 块 throw Error(账号元数据已删除，但清理本地加密凭据失败)
+    → 前端显示完整错误栈
+
+#### 新逻辑
+1. 尝试删除凭据文件
+2. 失败 → 等待 500ms 后重试一次（文件可能被临时锁定）
+3. 重试仍失败 → 记录 warn 日志，不抛出异常
+4. 继续清理本地状态索引（deleteAccountRecordsById）
+5. 返回 true（账号元数据已删除）
+
+#### 流程
+1. 用户点击删除按钮 → 前端弹出确认对话框（ElMessageBox.confirm）
+   - 显示文本：删除 {platform} 账号 "{name}"？（i18n key: accountsPage.confirmDeleteAccount）
+   - 标题：确认删除（accountsPage.confirmDeleteTitle）
+   - 确认按钮：确认删除（accountsPage.confirmDeleteBtn）
+   - 取消按钮：取消（accountsPage.cancelBtn）
+2. 用户确认 → 调用 accountDelete API → 后端删除账号元数据
+3. 前端调用 deleteAccount → 清理本地加密凭据 → 清理状态索引
+4. 凭据文件删除失败 → 不阻断，记录 warn 日志
+5. 前端刷新账号列表，卡片消失
+6. 显示成功提示：账号已删除（accountsPage.accountDeleted）
+
+#### 显示项
+- 删除按钮：红色文字按钮，每个账号卡片右下角，data-testid="delete-{accountId}"
+- 确认对话框：element-plus ElMessageBox，type=warning
+- 成功提示：ElMessage.success(账号已删除)
+- 失败提示：ElMessage.error(删除失败: {原因})（仅元数据删除失败时）
+
+### 测试覆盖
+
+| 文件 | 新增测试 | 说明 |
+|------|---------|------|
+| account-manager.test.js | 凭据删除失败不阻断主流程 | 有凭据但删除失败→resolve true，deleteRecords 被调用 |
+| account-manager.test.js | 凭据不存在则正常完成 | 无凭据→正常完成，不报错 |
+| Accounts.test.js | 重复账号返回 409 提示 | authOpenLogin 返回 409→ElMessage.error 显示"此账号已添加过" |
+| test_server_account_lifecycle.py | 相同 platform_account_id 返回 409 | 强标识重复检测 |
+| test_server_account_lifecycle.py | 双方无 id 时同名返回 409 | 弱标识回退 |
+| test_server_account_lifecycle.py | 一方有 id 一方无→不判重 | 避免提取失败误判 |
+| account-management-full.js | 24 项 E2E 硬断言 | 全功能覆盖 |
+
+### E2E 全功能覆盖清单（account-management-full.js，24 项）
+
+| # | 检查项 | 选择器 | 预期 |
+|---|--------|--------|------|
+| 1 | 账号页加载 | account-add | 可见 |
+| 2 | 排序字段下拉 | account-sort | 可见 |
+| 3 | 排序方向按钮 | account-sort-order | 可点击 |
+| 4 | grid 视图切换 | account-view-grid | 可点击 |
+| 5 | list 视图切换 | account-view-list | 可点击 |
+| 6 | 批量模式切换 | account-batch | 可点击 |
+| 7 | 批量取消 | .batch-cancel（选中后才出现） | 可点击 |
+| 8 | 添加账号按钮 | account-add | 可点击 |
+| 9 | 添加账号弹窗打开 | .ui-modal | 可见 |
+| 10 | 添加账号弹窗关闭 | .ui-modal 消失 | 已关闭 |
+| 11 | 状态筛选 tabs | .filter-tabs button[role=tab] | ≥3 个 |
+| 12 | 状态筛选切换 | 循环点击全部 tabs | 均可点击 |
+| 13 | 平台筛选-全部 | platform-filter-all | 可点击 |
+| 14 | 平台筛选列表 | platform-filter-* | ≥1 个 |
+| 15 | 分组筛选-全部 | group-filter-all | 可点击 |
+| 16 | 分组共享开关 | group-shared-only | 可点击 |
+| 17 | 收藏按钮 | favorite-* | 可点击 |
+| 18 | 验证按钮 | verify-* | 可点击 |
+| 19 | 代理按钮 | proxy-* | 可点击 |
+| 20 | 登录按钮 | login-* | 可点击 |
+| 21 | 重命名按钮 | .account-name-button | 可点击，内联编辑 |
+| 22 | 删除按钮 | delete-* | 可点击，弹出确认框 |
+| 23 | 创作者中心 | 卡片点击 | 可点击 |
+| 24 | 重复检测 | 注入 409 | 返回 -409 |
+
+
+## 账号管理页核心修复 v5：重复检测补漏 + 删除凭据双重通道对齐（2026-09-06）
+
+### 变更背景
+v4 修复后仍有漏检：
+1. server.py 重复检测存在不对称缺口——一方有 platform_account_id 另一方没有时，同名账号漏检
+2. store:delete-account 旧 IPC 通道在凭据删除失败时仍直接返回错误阻断，与 account:delete 新通道行为不一致
+
+### 修复 1：重复检测补漏（packages/python-backend/src/server.py）
+
+#### 旧逻辑
+- platform_account_id 匹配 → 409
+- 双方无 id + 同名 → 409
+- **一方有 id 一方没有 → 跳过（不判定重复）** ← 缺口
+
+#### 新逻辑
+- platform_account_id 匹配 → 409
+- 双方无 id + 同名 → 409
+- **一方有 id 一方没有 + 同名 → 409**（新增）
+- 一方有 id 一方没有 + 不同名 → 不判定重复（保留提取失败保护）
+
+#### 判定规则表
+| 新账号 platform_account_id | 已有账号 platform_account_id | 名称 | 判定 |
+|---------------------------|---------------------------|------|------|
+| 有值 | 有值，相同 | 任意 | 重复（409） |
+| 有值 | 有值，不同 | 任意 | 不重复 |
+| 无 | 无 | 相同 | 重复（409） |
+| 无 | 无 | 不同 | 不重复 |
+| 有值 | 无 | 相同 | **重复（409）← v5 新增** |
+| 有值 | 无 | 不同 | 不重复 |
+| 无 | 有值 | 相同 | **重复（409）← v5 新增** |
+| 无 | 有值 | 不同 | 不重复 |
+
+### 修复 2：删除凭据双重通道对齐（apps/desktop/electron/ipc-handlers/store.js）
+
+#### 旧逻辑
+store:delete-account 凭据删除失败 → return { code: -1, message: '删除账号加密凭据失败' } → 直接阻断
+
+#### 新逻辑
+凭据删除失败 → console.warn + 继续执行 store.deleteAccount → 不阻断
+
+#### 双通道行为对比
+| 通道 | 凭据删除失败 | 账号元数据 | 状态索引 |
+|------|-------------|-----------|---------|
+| account:delete（新） | warn 日志 | ✅ 继续删除 | ✅ 清理 |
+| store:delete-account（旧→修） | warn 日志 | ✅ 继续删除 | ✅ 清理 |
+
+### 测试覆盖
+
+| 文件 | 新增/更新测试 | 说明 |
+|------|-------------|------|
+| test_server_account_lifecycle.py | 同名+ID不对称→409 | 一方有 id 一方没有+同名判定重复 |
+| test_server_account_lifecycle.py | 不同名+ID不对称→200 | 一方有 id 一方没有+不同名不误判 |
+| store.test.js | 凭据删除失败→code 0 | 旧通道对齐新行为，断言更新 |
+
+### 变更文件
+- packages/python-backend/src/server.py (+5/-2)
+- pps/desktop/electron/ipc-handlers/store.js (+2/-1)
+- packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
+- pps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
+
+

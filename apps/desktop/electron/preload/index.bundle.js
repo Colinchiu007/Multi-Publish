@@ -900,6 +900,22 @@ var require_film_engineering = __commonJS({
   }
 });
 
+// electron/preload/aggregation.js
+var require_aggregation = __commonJS({
+  "electron/preload/aggregation.js"(exports2, module2) {
+    function createAggregationApi2(ipcRenderer2) {
+      return {
+        aggregationCollect: (payload) => ipcRenderer2.invoke("aggregation:collect", payload),
+        aggregationCollectBatch: (payload) => ipcRenderer2.invoke("aggregation:collect-batch", payload),
+        aggregationRewrite: (payload) => ipcRenderer2.invoke("aggregation:rewrite", payload),
+        aggregationSources: () => ipcRenderer2.invoke("aggregation:sources"),
+        aggregationTaskStatus: (taskId) => ipcRenderer2.invoke("aggregation:task-status", taskId)
+      };
+    }
+    module2.exports = { createAggregationApi: createAggregationApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -1144,6 +1160,7 @@ var { createPromptEvalApi } = require_prompt_eval();
 var { createPageManagerApi } = require_page_manager();
 var { createVideoCloneApi } = require_video_clone();
 var { createFilmEngineeringApi } = require_film_engineering();
+var { createAggregationApi } = require_aggregation();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1181,6 +1198,7 @@ var fullApi = {
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
+  ...createAggregationApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
   rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)

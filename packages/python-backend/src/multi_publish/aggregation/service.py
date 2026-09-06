@@ -36,7 +36,21 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# style→strategy 映射（中文风格名 → v1 RewriteStrategy）
+_STYLE_TO_STRATEGY = {
+    "轻松易懂": "paraphrase",
+    "正式严谨": "style_transfer",
+    "吸引眼球": "short_video",
+    "深度分析": "expand",
+    "认知锚点": "rewrite",
+}
 
+# length→字数范围映射
+_LENGTH_RANGES = {
+    "keep": (300, 3000, 1500),
+    "compress": (100, 800, 400),
+    "expand": (800, 5000, 2500),
+}
 class AggregationService:
     """热文采集和改写服务。
 
@@ -61,16 +75,21 @@ class AggregationService:
             raise ValueError(f"Phase 1 不支持的 source_type: {request.source_type}")
 
     async def _collect_url(self, request: CollectRequest) -> CollectResult:
-        collect_url = _lazy_import("content_aggregator.backend.app.services.collect", "collect_url")
-        if collect_url is None:
+        ContentPipeline = _lazy_import("content_aggregator.workflows.pipeline", "ContentPipeline")
+        if ContentPipeline is None:
             raise ImportError("content-aggregator 未安装。请运行: pip install content-aggregator")
-        result = await collect_url(str(request.url))
+        config = self._build_pipeline_config()
+        async with ContentPipeline(config) as pipeline:
+            articles = await pipeline.process_url(url=str(request.url), rewrite=False, limit=1)
+        if not articles:
+            raise ValueError(f"URL 采集无结果: {request.url}")
+        article = articles[0]
         return CollectResult(
-            title=result.title,
-            content=result.content,
-            source_url=result.source_url,
-            author=result.author or "",
-            word_count=result.word_count,
+            title=article.title,
+            content=article.content,
+            source_url=article.source_url,
+            author=article.author or "",
+            word_count=article.word_count,
         )
 
     async def _collect_rss(self, request: CollectRequest) -> CollectResult:
@@ -154,20 +173,38 @@ class AggregationService:
 
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
-        rewrite_content = _lazy_import("content_aggregator.backend.app.services.rewrite", "rewrite_content")
-        if rewrite_content is None:
+        RewriteProcessor = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteProcessor")
+        RewriteConfig = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteConfig")
+        RewriteStrategy = _lazy_import("content_aggregator.processors.rewrite.rewriter", "RewriteStrategy")
+        Content = _lazy_import("content_aggregator.models", "Content")
+        if RewriteProcessor is None or RewriteConfig is None or Content is None:
             raise ImportError("content-aggregator 未安装")
-        result = await rewrite_content(
+        config = self._build_pipeline_config()
+        content_obj = Content(
+            id="",
+            source_id="",
+            title="",
             content=request.content,
+            source_type="manual",
+            url="",
+        )
+        strategy_name = _STYLE_TO_STRATEGY.get(request.style, "rewrite")
+        min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
+        rewrite_cfg = RewriteConfig(
+            strategy=RewriteStrategy(strategy_name),
+            min_word_count=min_wc,
+            max_word_count=max_wc,
+            target_word_count=target_wc,
+        )
+        async with RewriteProcessor(config) as proc:
+            result = await proc.rewrite(content_obj, rewrite_cfg)
+        if not result.success:
+            raise RuntimeError(f"改写失败: {result.error or '未知错误'}")
+        return RewriteResultModel(
+            result_content=result.rewritten_content,
+            word_count=len(result.rewritten_content),
             style=request.style,
             length=request.length,
-            seo_optimize=request.seo_optimize,
-        )
-        return RewriteResultModel(
-            result_content=result.result_content,
-            word_count=result.word_count,
-            style=result.style,
-            length=result.length,
         )
 
     def get_available_sources(self) -> list[SourceInfo]:

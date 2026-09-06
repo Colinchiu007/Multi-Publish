@@ -29,6 +29,7 @@ const { createPromptEvalApi } = require('./prompt-eval')
 const { createPageManagerApi } = require('./page-manager')
 const { createVideoCloneApi } = require('./video-clone')
 const { createFilmEngineeringApi } = require('./film-engineering')
+const { createAggregationApi } = require('./aggregation')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -73,6 +74,7 @@ const fullApi = {
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
+  ...createAggregationApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke('rate-limit:self-check', params),
   rateLimitReport: (payload) => ipcRenderer.invoke('rate-limit:report', payload),
