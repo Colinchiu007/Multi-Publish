@@ -2014,6 +2014,11 @@ export default {
     collectRequestFailed: '采集请求失败',
     clipboardReadFailed: '剪贴板读取失败',
     draftCreated: '草稿已创建',
+    rewrite: 'AI 改写',
+    rewriteStyleEasy: '轻松易懂',
+    rewriting: 'AI 改写中...',
+    rewriteSuccess: '改写完成',
+    rewriteFailed: 'AI 改写失败',
   },
   monitor: {
     selectPlatform: '请选择平台',

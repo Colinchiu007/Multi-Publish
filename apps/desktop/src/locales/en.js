@@ -2013,6 +2013,11 @@ export default {
     collectRequestFailed: 'Collection request failed',
     clipboardReadFailed: 'Clipboard read failed',
     draftCreated: 'Draft created',
+    rewrite: 'AI rewrite',
+    rewriteStyleEasy: 'Easy to understand',
+    rewriting: 'AI rewriting...',
+    rewriteSuccess: 'Rewrite complete',
+    rewriteFailed: 'AI rewrite failed',
   },
   monitor: {
     selectPlatform: 'Please select a platform',
