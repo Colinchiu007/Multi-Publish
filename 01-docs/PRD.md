@@ -5461,7 +5461,7 @@ const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
 |------|---------|------|
 | 双方都有 platform_account_id | 仅匹配 platform_account_id（强标识） | id 相同 → 409；id 不同 → 放行 |
 | 双方都无 platform_account_id | 仅匹配 name（弱标识，需完全一致） | name 相同 → 409；name 不同 → 放行 |
-| 一方有 id 一方无 | 不判定重复 | 放行（避免提取失败误判） |
+| 一方有 id 一方无 | 若名称完全一致则判定重复 | 放行（不同名）；409（同名，v5 补漏） |
 
 #### 数据校验流程
 1. 提取请求中的 platform_account_id 和 name，trim + lower 归一化
