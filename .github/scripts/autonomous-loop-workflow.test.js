@@ -120,7 +120,7 @@ test('最终状态在退出码缺失或非法时失败，仅显式 0 成功', ()
   }
 });
 
-test('无 LLM key 时 NEED_HUMAN 降级为 warning 退出 0，配置 key 或真实失败保持 error', () => {
+test('NEED_HUMAN/MAX_ITERATIONS 报告降级为 warning 退出 0（无论是否配置 API Key）', () => {
   const workflow = readWorkflow(autonomousLoopPath);
   const reportStep = getStep(workflow, 'Report final status');
   const scriptPath = path.join(os.tmpdir(), `autonomous-loop-status-${process.pid}-degrade.ps1`);
@@ -137,13 +137,14 @@ test('无 LLM key 时 NEED_HUMAN 降级为 warning 退出 0，配置 key 或真�
     assert.match(result.stdout + result.stderr, /::warning::/);
     assert.doesNotMatch(result.stdout + result.stderr, /::error::/);
 
-    // 有 key + NEED_HUMAN → 1（真实需要人工判断，保持 fail-closed）
+    // 有 key + NEED_HUMAN → 0（降级为 warning，不阻塞 CI；见 commit 94b170eb）
     fs.rmSync(reportDir, { recursive: true, force: true });
     fs.mkdirSync(reportDir, { recursive: true });
     writeLoopReport(reportDir, 'NEED_HUMAN');
     result = runStatusStep(scriptPath, { ...process.env, LOOP_EXIT: '1', OPENAI_API_KEY: 'sk-test', ANTHROPIC_API_KEY: '', LOOP_REPORT_DIR: reportDir });
-    assert.equal(result.status, 1, '有 key + NEED_HUMAN 应保持失败');
-    assert.match(result.stdout + result.stderr, /::error::/);
+    assert.equal(result.status, 0, '有 key + NEED_HUMAN 应降级为 0');
+    assert.match(result.stdout + result.stderr, /::warning::/);
+    assert.doesNotMatch(result.stdout + result.stderr, /::error::/);
 
     // 无 key + 非 NEED_HUMAN（FAIL）→ 1
     fs.rmSync(reportDir, { recursive: true, force: true });
@@ -197,7 +198,7 @@ test('workflow_dispatch 暴露 LLM 供应商配置（中转站/模型覆盖）',
   assert.equal(env.ANTHROPIC_API_KEY, "${{ github.event_name != 'pull_request' && secrets.ANTHROPIC_API_KEY || '' }}");
 });
 
-test('配置 ANTHROPIC key 时 NEED_HUMAN 保持失败，不降级为只读检查', () => {
+test('配置 ANTHROPIC key 时 NEED_HUMAN 也降级为 warning，不阻塞 CI', () => {
   const workflow = readWorkflow(autonomousLoopPath);
   const reportStep = getStep(workflow, 'Report final status');
   const scriptPath = path.join(os.tmpdir(), `autonomous-loop-status-${process.pid}-anthropic.ps1`);
@@ -209,9 +210,9 @@ test('配置 ANTHROPIC key 时 NEED_HUMAN 保持失败，不降级为只读检�
   try {
     writeLoopReport(reportDir, 'NEED_HUMAN');
     const result = runStatusStep(scriptPath, { ...process.env, LOOP_EXIT: '1', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: 'sk-ant-test', LOOP_REPORT_DIR: reportDir });
-    assert.equal(result.status, 1, '配置 ANTHROPIC key 时 NEED_HUMAN 应保持失败');
-    assert.match(result.stdout + result.stderr, /::error::/);
-    assert.doesNotMatch(result.stdout + result.stderr, /::warning::/);
+    assert.equal(result.status, 0, '配置 ANTHROPIC key 时 NEED_HUMAN 应降级为 0');
+    assert.match(result.stdout + result.stderr, /::warning::/);
+    assert.doesNotMatch(result.stdout + result.stderr, /::error::/);
   } finally {
     fs.rmSync(scriptPath, { force: true });
     fs.rmSync(reportDir, { recursive: true, force: true });
