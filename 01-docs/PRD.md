@@ -5733,4 +5733,42 @@ store:delete-account 凭据删除失败 → return { code: -1, message: '删除�
 - packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
 - pps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
 
+#### 8.1.1.1 URL 正文提取实现细节（v2.3.61 BUG 修复）
+
+**问题背景**：AggregationService._collect_url 原调用 ContentPipeline.process_url()，pipeline 内部对所有 URL 强制使用 RSSCollector，导致任何普通网页（含 example.com）返回无结果。
+
+**修复方案**：_collect_url 绕过 pipeline，直接使用 trafilatura 做正文提取：
+
+1. trafilatura.fetch_url(url) -> 获取原始 HTML
+2. HTML 为空 -> 400 URL 无法访问
+3. trafilatura.extract(html) -> 纯文本正文
+4. 正文为空 -> 400 URL 采集无结果
+5. trafilatura.extract_metadata(html) -> 提取 title/author
+6. title 为空时回退到 URL 的 hostname
+
+**验证**：example.com -> title=Example Domain, content_len=112, word_count=112
+
+**许可证变更**：aggregation:collect / collect-batch / rewrite / sources / task-status 加入 PUBLIC_CHANNELS，内容采集/改写为纯本地操作，未登录也可用。
+
+**E2E 测试结果**（v2.3.61，e2e-full-v3.js）：
+
+| 测试区 | 结果 |
+|--------|------|
+| 页面结构（4 项） | 全部通过 |
+| 采集输入区（2 项） | 全部通过 |
+| 成功采集 example.com（3 项） | 全部通过 |
+| 采集结果卡片操作按钮（4 项） | 全部通过 |
+| 改写功能（2 项） | 全部通过（无 Key 时友好提示） |
+| 创建草稿->发布页 | 通过 |
+| 视频创作跳转->/create | 通过 |
+| 发布跳转->/publish | 通过 |
+| 清空采集结果 | 通过 |
+| 取消采集结果 | 通过 |
+| 空链接采集 toast | 通过 |
+| 快捷操作卡片（3 项） | 通过 |
+| 下拉框切换（2 项） | 通过 |
+| 路由跳转（2 项） | 通过 |
+| DPI/渲染 | 通过 |
+| API 健康检查（2 项） | 通过 |
+| **总计** | **33/33 通过** |
 
