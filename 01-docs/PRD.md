@@ -5888,3 +5888,46 @@ const data = Array.isArray(accounts) ? accounts.map(toPublicAccount) : []
 ### 变更文件
 - apps/desktop/electron/preload/account.js（回退误诊 +1 行）
 - apps/desktop/electron/preload.test.js（测试名校准 +1/-1）
+
+---
+
+## 账号管理 v9：B站→Bilibili 统一平台名 + 创作者中心 URL 修正（2026-09-07）
+
+### 背景
+
+用户提出账号管理列表页 10 项质量要求。经真实环境 CDP E2E 逐项验证 + 代码调研（file:line 证据链），确认其中 8 项已在当前 main 中实现，2 项存在真实缺陷需要修复。
+
+### 10 项需求验证结论
+
+| # | 需求 | 状态 | 证据 |
+|---|------|------|------|
+| 1 | 重复账号去重 | ✅ 已实现 | server.py:370-386 三级去重，重复返回 409「此账号已添加过」 |
+| 2 | 卡片显示昵称 | ✅ 已实现 | AccountManagementCard.vue:196-198 取 account_name（抓取自 nickName） |
+| 3 | 粉丝数 | ✅ 已实现 | account-manager.js:533-547 followers 字段 + 卡片展示 |
+| 4 | B站创作者中心 | ❌ 本次修复 | fallback URL www.bilibili.com → member.bilibili.com |
+| 5 | B站→Bilibili | ❌ 本次修复 | 生产 UI 平台名不一致 |
+| 6 | 右上角访客信息 | ✅ 无需改动 | 全仓无「访客」文案，实为 identity 用户名/未登录 |
+| 7 | 验证按钮 | ✅ 已实现 | Accounts.vue:789-819 |
+| 8 | 去登录/已登录按钮 | ✅ 已实现 | AccountManagementCard.vue:105-116 |
+| 9 | 顶部标签名 | ✅ 已实现 | TabBar 显示页面 title |
+| 10 | 标签页机制 | ✅ 已实现 | home 固化/URL disabled/新标签独立 |
+
+### 修复内容（需求 4 + 5）
+
+需求 4 — B站创作者中心 URL（fallback 对齐为 member.bilibili.com）：
+- packages/shared-utils/src/platform-definitions.browser.js
+- apps/desktop/src/stores/platforms.js
+
+需求 5 — B站→Bilibili 平台名（9 文件 13 处生产 UI 代码）：
+platform-definitions.browser.js / platforms.js / zh.js / CreateView.vue(2) / Comments.vue /
+create-view-utils.js / cloud-publisher.js / platform-selectors.js / media-profiles.ts
+
+### 验证
+| 证据 | 结果 |
+|------|------|
+| CreateView.test.js | 277/277 |
+| 平台相关测试 | 37/37 |
+| 文档/测试 fixture | 保留 B站/哔哩哔哩（非生产 UI） |
+
+### 变更文件
+- 9 个生产代码文件，+13/-13 行
