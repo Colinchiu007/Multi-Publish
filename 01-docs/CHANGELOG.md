@@ -1,3 +1,18 @@
+## [Unreleased] - 2026-09-07 (全自动内容生产与发布管道)
+
+### 新增
+- FullAutoPipeline 四阶段编排引擎（electron/services/full-auto-pipeline.js，829 行）：采集→改写→创作→发布 线性 DAG，run context 阶段间传递数据，支持断点续跑、取消、fail-open
+- 4 个 IPC 通道（auto-pipeline:start/get-run/cancel/list-runs）+ preload API + DI 三步注册完整接线
+- 前端管道配置与进度监控页面（AutoPipelineView.vue，439 行）：配置表单 + 四阶段进度 + 实时日志 + 历史运行
+- 采集页批量采集 UI（Collection.vue）：RSS/URL 列表批量采集 + 进度轮询 + 取消
+
+### 测试
+- full-auto-pipeline.test.js 11 用例 + auto-pipeline.test.js 8 用例 + DI 回归 64 测试全绿
+- E2E：真实 Electron + 6 个真实账号（百家号/快手/B站/抖音/公众号/头条），四阶段全部推进，fail-open 正确
+
+### 文档
+- 新增 01-docs/PRD-full-auto-pipeline.md（12 章，数据校验/流程/功能逻辑/交互/显示项/提示文字/API 契约/DI 接线链）
+
 ## [Unreleased] - 2026-09-05 (流水线进度弹窗「后台运行」按钮缺失修复)
 
 ### 修复
@@ -2105,3 +2120,4 @@
 - 重复去重升级：platform_account_id 优先匹配
 - 登录时捕获账号昵称/粉丝数/头像/平台ID 并持久化
 - IPC 白名单增加 platform_account_id
+

@@ -173,6 +173,7 @@ function extractContext(container) {
   const approvalGateService = container.get('approvalGateService')
   const executionRecorder = container.get('executionRecorder')
   const filmEngineeringService = container.get('filmEngineeringService')
+  const fullAutoPipeline = container.get('fullAutoPipeline')
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
@@ -404,6 +405,7 @@ function extractContext(container) {
       projectService, boardService, contactSheetService, approvalGateService,
       executionRecorder,
       filmEngineeringService,
+      fullAutoPipeline,
       story2videoProjectService,
       promptEvalService,
       signalCollector,

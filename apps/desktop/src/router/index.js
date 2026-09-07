@@ -49,6 +49,7 @@ const routes = [
   { path: '/prompt-eval', name: 'PromptEval', component: () => import('@/views/PromptEvalView.vue') },
   { path: '/video-clone', name: 'VideoClone', component: () => import('@/views/VideoCloneView.vue') },
   { path: '/film-engineering', name: 'FilmEngineering', component: () => import('@/views/FilmEngineeringView.vue') },
+  { path: '/auto-pipeline', name: 'AutoPipeline', component: () => import('@/views/AutoPipelineView.vue') },
 ]
 
 const router = createRouter({

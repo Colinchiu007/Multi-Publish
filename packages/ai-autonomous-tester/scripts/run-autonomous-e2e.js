@@ -168,7 +168,15 @@ async function runCoverageAudit() {
 }
 
 function classifyCoverageResult(coverageResult) {
-  if (!coverageResult || coverageResult.error) return "FAIL";
+  if (!coverageResult) return "FAIL";
+  if (coverageResult.error) {
+    // 基础设施错误（fetch/超时/网络）→ NEED_HUMAN 报告型，不阻塞合并
+    const errMsg = String(coverageResult.error);
+    if (/fetch|timeout|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network|abort/i.test(errMsg)) {
+      return "NEED_HUMAN";
+    }
+    return "FAIL";
+  }
 
   const verdict = coverageResult._verdict;
   const decision = verdict?.decision;

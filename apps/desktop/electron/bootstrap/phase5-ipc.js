@@ -183,6 +183,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, usageTracker, cloudPublisher, identityService,
     filmEngineeringService,
+    fullAutoPipeline,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector,
   } = context
@@ -201,6 +202,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, identityService, credentialStore, accountStateRestorer,
     filmEngineeringService,
+    fullAutoPipeline,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector,
   }

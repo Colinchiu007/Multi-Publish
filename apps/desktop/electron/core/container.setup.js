@@ -176,6 +176,20 @@ function createContainer(options) {
       log: c.get("logger"),
     });
   });
+  // 全自动内容生产与发布管道（采集→改写→创作→发布全链路编排）
+  container.register("fullAutoPipeline", function(c) {
+    const { FullAutoPipeline } = require('../services/full-auto-pipeline');
+    return new FullAutoPipeline({
+      pythonBridge: c.get("pythonBridge"),
+      pipelineEngine: c.get("pipelineEngine"),
+      publisherRouter: c.get("publisherRouter"),
+      accountManager: require('../publishers/account-manager'),
+      runStateStore: c.get("runStateStore"),
+      rpaViewManager: c.get("rpaViewManager"),
+      store: c.get("store"),
+      log: c.get("logger"),
+    });
+  });
   container.register("urlCollector", function() { return new UrlCollector(); });
   container.register("viralEngine", function() { return new ViralEngine(); });
   container.register("commentManager", function() { return new CommentManager(); });
@@ -333,7 +347,7 @@ function createContainer(options) {
     "callbackServer", "qrCodeLogin", "renderEngine",
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
     "oauthManager", "batchManager", "taskQueue", "publisherRouter",
-    "story2videoBatchQueue"
+    "story2videoBatchQueue", "fullAutoPipeline"
   ]);
 
   return container;
