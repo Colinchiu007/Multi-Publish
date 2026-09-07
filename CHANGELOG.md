@@ -1,3 +1,15 @@
+## [未发布] fix(backend): 视频号平台标识符统一 tencent_video ↔ shipinhao v10（2026-09-07）
+
+### 修复
+- Python PlatformType 枚举 `SHIPINHAO = "shipinhao"` → `TENCENT_VIDEO = "tencent_video"`，与 config/platforms.yaml 和 JS 端对齐。
+- PLATFORM_META 键同步更新。
+
+### 根因
+- config/platforms.yaml 和 JS 端使用 `tencent_video` 作为视频号平台标识符，Python 后端使用 `shipinhao`，导致添加视频号账号时 POST /api/accounts { platform: "tencent_video" } → PlatformType 校验失败 → 400 "不支持的平台: tencent_video"。
+
+### 验证
+- Python test_models.py 26/26 passed，全量 2571/2572 passed（1 个预存无关失败）。
+
 ## [未发布] fix(accounts): B站→Bilibili 统一平台名 + 创作者中心 URL 修正 v9（2026-09-07）
 
 ### 修复
