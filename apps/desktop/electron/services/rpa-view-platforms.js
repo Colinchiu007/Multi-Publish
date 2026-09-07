@@ -872,7 +872,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // Fill content — 新版后台编辑器位于主 frame（contenteditable/ProseMirror/Quill），旧版才在 iframe 内
     if (article.content) {
       this._emitProgress('wechat_mp','filling content...',40)
-      const contentSel = '#js_editor_content, [contenteditable="true"], .ql-editor, .ProseMirror, .rich_media_area_primary_inner'
+      const contentSel = '#js_editor_content, #js_editor, [contenteditable="true"], .ProseMirror, .ql-editor, .rich_media_area_primary_inner, .rich_media_area_primary, .editor-area, [data-lexical-editor="true"]'
       try {
         if (await this._waitForElement(win,contentSel,15000)) {
           await this._setElementContentSafe(win,contentSel,article.content)
@@ -882,7 +882,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
           if (await this._waitForElement(win,iframeSel,5000)) {
             await this._fillInFrame(win,iframeSel,'#js_editor_content, [contenteditable="true"]',article.content)
           } else {
-            log.warn('RpaView','wechat_mp content editor not found url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
+            log.warn('RpaView','wechat_mp content editor not found, aborting save url='+win.webContents.getURL()+' title='+win.webContents.getTitle()); return { success:false, error:'微信公众号内容编辑器未找到，已中止保存', platform:'wechat_mp' }
           }
         }
       } catch(e) {
@@ -906,7 +906,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     this._emitProgress('wechat_mp','saving draft...',70)
     let mediaId = null
     try {
-      const saveBtnSel = 'a[data-action="save"], a#js_sync_save, button:has-text("保存"), .weui-desktop-btn:has-text("保存"), [class*="save_draft"], [class*="saveDraft"]'
+      const saveBtnSel = 'a#js_sync_save, a[data-action="save"], .weui-desktop-btn_primary:has-text("保存草稿"), .weui-desktop-btn_primary:has-text("保存"), button:has-text("保存草稿"), button:has-text("保存"), [class*="save_draft"], [class*="saveDraft"]'
       // 新版后台保存草稿走 XHR，先挂响应监听，URL 不变时作为保存成功依据
       const saveResponse = this._waitForResponse(win, ['operate_appmsg', 'appmsg/save', 'oper=save'], 30000)
       const saveClicked = await this._click(win, saveBtnSel)
