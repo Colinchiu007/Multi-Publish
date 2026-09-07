@@ -118,7 +118,7 @@ class TestPublishTask:
             "WEIBO",
             "DOUYIN",
             "XIAOHONGSHU",
-            "SHIPINHAO",
+            "TENCENT_VIDEO",
             "KUAISHOU",
             "TOUTIAO",
             "YOUTUBE",
@@ -136,7 +136,7 @@ class TestPublishTask:
             "WEIBO",
             "DOUYIN",
             "XIAOHONGSHU",
-            "SHIPINHAO",
+            "TENCENT_VIDEO",
             "KUAISHOU",
             "TOUTIAO",
             "YOUTUBE",
@@ -153,8 +153,8 @@ class TestPublishTask:
     def test_wechat_mp_value(self):
         assert PlatformType.WECHAT_MP.value == "wechat_mp"
 
-    def test_shipinhao_value(self):
-        assert PlatformType.SHIPINHAO.value == "shipinhao"
+    def test_tencent_video_value(self):
+        assert PlatformType.TENCENT_VIDEO.value == "tencent_video"
 
 
 class TestPublishResultLegacy:

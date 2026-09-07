@@ -26,7 +26,7 @@ class PlatformType(Enum):
     WEIBO = "weibo"  # 微博
     DOUYIN = "douyin"  # 抖音
     XIAOHONGSHU = "xiaohongshu"  # 小红书
-    SHIPINHAO = "shipinhao"  # 视频号
+    TENCENT_VIDEO = "tencent_video"  # 视频号（与 config/platforms.yaml 一致）
     KUAISHOU = "kuaishou"  # 快手
     TOUTIAO = "toutiao"  # 今日头条
     YOUTUBE = "youtube"  # YouTube
@@ -307,7 +307,7 @@ PLATFORM_META: dict[PlatformType, dict] = {
         "category": "mixed",
         "homepage": "https://creator.xiaohongshu.com/",
     },
-    PlatformType.SHIPINHAO: {
+    PlatformType.TENCENT_VIDEO: {
         "name": "视频号",
         "tech": "rpa",
         "publish_type": "video",
