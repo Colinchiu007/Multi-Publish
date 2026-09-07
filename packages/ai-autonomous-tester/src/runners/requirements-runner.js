@@ -74,8 +74,8 @@ class RequirementsTestRunner extends BaseTestRunner {
     const parser = new MultiDocParser({ prdParser: this.verifier?.prdParser });
     const docResult = await parser.parseAll(context.docPaths);
     const { FeatureDetector } = require("../detectors/feature-detector");
-    const detector = new FeatureDetector();
-    const implItems = await detector.detect(context.srcDir || "src");
+    const detector = new FeatureDetector({ srcDir: context.srcDir || "src" });
+    const implItems = await detector.detect();
     const prdItems = filterPrdItemsByFeatureIds(docResult.items || [], context.featureIds);
     if ((context.featureIds || []).filter(Boolean).length > 0 && prdItems.length === 0) {
       return {
