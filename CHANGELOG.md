@@ -1,3 +1,12 @@
+## [未发布] fix(accounts): B站→Bilibili 统一平台名 + 创作者中心 URL 修正 v9（2026-09-07）
+
+### 修复
+- B站 创作者中心 fallback URL 从 www.bilibili.com 修正为 member.bilibili.com。
+- 生产 UI 平台名「B站」统一为「Bilibili」（9 文件 13 处）。
+
+### 验证
+- CreateView.test.js 277/277、平台相关测试 37/37。
+
 ## [未发布] fix(accounts): preload.test.js 方法数断言校准 v8（2026-09-07）
 
 ### 结论
