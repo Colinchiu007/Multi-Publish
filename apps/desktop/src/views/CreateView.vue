@@ -1859,7 +1859,7 @@ const AUTO_PIPELINE_STAGES = Object.freeze({
 const S2V_PLATFORMS = [
   { value: 'douyin', label: '抖音' },
   { value: 'xiaohongshu', label: '小红书' },
-  { value: 'bilibili', label: 'B站' },
+  { value: 'bilibili', label: 'Bilibili' },
   { value: 'wechat', label: '微信视频号' },
   { value: 'tiktok', label: 'TikTok' },
   { value: 'youtube', label: 'YouTube' },
@@ -2348,7 +2348,7 @@ export default {
         { value: 'youtube-landscape', label: 'YouTube 横屏 (1920x1080)' },
         { value: 'youtube-shorts', label: 'YouTube Shorts (1080x1920)' },
         { value: 'tiktok', label: '抖音/TikTok (1080x1920)' },
-        { value: 'bilibili', label: 'B站 (1920x1080)' },
+        { value: 'bilibili', label: 'Bilibili (1920x1080)' },
         { value: 'wechat', label: '微信视频号 (1080x1920)' },
         { value: 'xiaohongshu', label: '小红书 (1080x1440)' },
       ]

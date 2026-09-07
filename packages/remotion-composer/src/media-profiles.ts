@@ -6,7 +6,7 @@ const PROFILES: MediaProfile[] = [
   { id: 'tiktok', name: '抖音/TikTok', width: 1080, height: 1920, fps: 30, maxDurationSeconds: 180, videoBitrate: '6M', audioBitrate: '128k' },
   { id: 'instagram-reels', name: 'Instagram Reels', width: 1080, height: 1920, fps: 30, maxDurationSeconds: 90, videoBitrate: '6M', audioBitrate: '128k' },
   { id: 'wechat', name: '微信视频号', width: 1080, height: 1920, fps: 30, maxDurationSeconds: 60, videoBitrate: '4M', audioBitrate: '128k' },
-  { id: 'bilibili', name: 'B站', width: 1920, height: 1080, fps: 30, videoBitrate: '8M', audioBitrate: '192k' },
+  { id: 'bilibili', name: 'Bilibili', width: 1920, height: 1080, fps: 30, videoBitrate: '8M', audioBitrate: '192k' },
   { id: 'xiaohongshu', name: '小红书', width: 1080, height: 1440, fps: 30, maxDurationSeconds: 60, videoBitrate: '4M', audioBitrate: '128k' },
   { id: 'generic-hd', name: '通用 HD', width: 1920, height: 1080, fps: 30, videoBitrate: '6M', audioBitrate: '128k' },
 ];

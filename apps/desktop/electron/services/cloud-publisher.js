@@ -134,7 +134,7 @@ class CloudPublisher {
    */
   getSupportedPlatforms () {
     return [
-      { id: 'bilibili', name: 'B站' },
+      { id: 'bilibili', name: 'Bilibili' },
       { id: 'douyin', name: '抖音' },
     ]
   }

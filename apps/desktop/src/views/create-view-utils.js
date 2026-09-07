@@ -176,7 +176,7 @@ export const S2V_RESTORE_OUTPUT_ENUM_OPTIONS = Object.freeze({
 export const S2V_PLATFORMS = [
   { value: 'douyin', label: '抖音' },
   { value: 'xiaohongshu', label: '小红书' },
-  { value: 'bilibili', label: 'B站' },
+  { value: 'bilibili', label: 'Bilibili' },
   { value: 'wechat', label: '微信视频号' },
   { value: 'tiktok', label: 'TikTok' },
   { value: 'youtube', label: 'YouTube' },

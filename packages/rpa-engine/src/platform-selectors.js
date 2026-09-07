@@ -183,7 +183,7 @@ module.exports = {
     toutiao: '今日头条',
     youtube: 'YouTube',
     tiktok: 'TikTok',
-    bilibili: 'B站',
+    bilibili: 'Bilibili',
     baijiahao: '百家号',
     twitter: 'Twitter/X',
     instagram: 'Instagram',

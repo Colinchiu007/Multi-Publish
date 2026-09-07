@@ -60,7 +60,7 @@ const currentTabId = ref(null)
 const platformNameMap = {
   wechat_mp: '微信公众号', zhihu: '知乎', weibo: '微博', douyin: '抖音',
   xiaohongshu: '小红书', tencent_video: '视频号', kuaishou: '快手',
-  toutiao: '今日头条', bilibili: 'B站', youtube: 'YouTube',
+  toutiao: '今日头条', bilibili: 'Bilibili', youtube: 'YouTube',
   tiktok: 'TikTok', baijiahao: '百家号',
 }
 
