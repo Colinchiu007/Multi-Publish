@@ -6009,3 +6009,90 @@ create-view-utils.js / cloud-publisher.js / platform-selectors.js / media-profil
 
 ### 变更文件
 - 9 个生产代码文件，+13/-13 行
+
+## 账号管理 v10：视频号平台标识符统一（tencent_video ↔ shipinhao，2026-09-07）
+
+### 背景（第一性原因）
+
+用户在「账号管理」中添加视频号账号时，登录页刚弹出即报错 **「不支持的平台: tencent_video」**。
+
+经根因溯源（QM-5 第一步），该 Bug 的引入点是**跨端平台标识符命名不一致**，而非某一端单独的代码错误：
+
+| 层 | 视频号平台标识符 | 文件位置 |
+|----|----------------|---------|
+| 单一数据源 | `tencent_video` | `config/platforms.yaml:72` |
+| JS/Electron 主进程 | `tencent_video` | `packages/shared-utils/src/platform-definitions.js:26` |
+| JS 发布引擎 | `tencent_video` | `packages/api-publish-engine/src/platform-entries.js:10` |
+| Python 后端枚举 | `shipinhao`（旧） | `packages/python-backend/src/multi_publish/models.py:29` |
+
+两端标识符不一致导致账号添加流程在「登录完成 → 保存账号」阶段被后端拒绝。
+
+### 触发流程（数据流）
+
+```
+用户点击「添加账号」并选择「视频号」
+  → Accounts.vue addAccount()
+  → useAccountActions.openLogin('browser', 'tencent_video')
+  → ipcRenderer.invoke('auth:open-login', 'tencent_video')
+  → authViewManager.openLogin('tencent_video')
+  → PLATFORM_LOGIN_URLS['tencent_video'] 命中（channels.weixin.qq.com）→ 登录页正常打开
+  → 用户扫码/登录完成，authData 提取成功
+  → AccountManager.saveCapturedAccount('tencent_video', authData)
+  → pythonBridge.requestBackend('POST', '/api/accounts', { platform: 'tencent_video', ... })
+  → Python server.py create_account()
+  → PlatformType('tencent_video')  ← ValueError（枚举中只有 shipinhao）
+  → HTTP 400 detail="不支持的平台: tencent_video"
+  → Electron 主进程捕获 result.message → 抛 Error('不支持的平台: tencent_video')
+  → Accounts.vue notifyError 弹窗展示该错误文案
+```
+
+**关键时序**：报错并非登录页打开即触发，而是「登录页打开成功 → 登录态检测完成 → 保存账号元数据」这一步才触发；若用户当前无微信登录态，则报错会延迟到登录完成之后。
+
+### 修复方案
+
+将 Python 后端 `PlatformType` 枚举的 `SHIPINHAO = "shipinhao"` 统一为 `TENCENT_VIDEO = "tencent_video"`，与 `config/platforms.yaml` 单一数据源及 JS 端保持一致：
+
+- `packages/python-backend/src/multi_publish/models.py`
+  - 枚举成员 `SHIPINHAO = "shipinhao"` → `TENCENT_VIDEO = "tencent_video"`
+  - `PLATFORM_META` 键 `PlatformType.SHIPINHAO` → `PlatformType.TENCENT_VIDEO`
+- `packages/python-backend/tests/test_models.py`
+  - 平台存在性断言 `"SHIPINHAO"` → `"TENCENT_VIDEO"`
+  - 值断言 `test_shipinhao_value` → `test_tencent_video_value`，断言 `PlatformType.TENCENT_VIDEO.value == "tencent_video"`
+
+### 数据校验（Data Validation）
+
+1. **前端参数校验**：`auth:open-login` IPC handler 对 `platform` 执行 `_isSafePathSegment()` 校验（`ipc-handlers/account.js:199`），拒绝含 `../`、`?` 等非法字符的参数，返回 `VALIDATION_ERROR`。
+2. **主进程平台白名单**：`authViewManager.openLogin` 通过 `PLATFORM_LOGIN_URLS[platform]` 查表（`auth-view-manager.js:232-233`），未命中返回 `不支持的平台: <platform>`。
+3. **后端枚举校验**：`server.py` 三处（账号创建 `:401`、认证状态 `:499`、发布 `:531`）通过 `PlatformType(req.platform)` 校验；本次修复后 `tencent_video` 为合法枚举值，不再抛 `ValueError`。
+4. **跨端一致性**：`config/platforms.yaml`（`tencent_video`）、JS `platform-definitions.js`（`tencent_video`）、Python `PlatformType`（`tencent_video`）三处现已对齐。
+
+### 功能逻辑与交互逻辑
+
+- **添加账号**：选择「视频号」→ 打开内嵌登录视图（channels.weixin.qq.com）→ 登录完成后自动保存账号。
+- **登录态检测**：登录页 `did-finish-load` 解除初始重定向锁；`did-navigate`/CDP 检测命中 `isPlatformLoginSuccessUrl('tencent_video', url)` 后触发自动完成，提取 cookies/localStorage/indexedDB。
+- **保存账号**：主进程将脱敏账号元数据（`platform`、`name`、`account_name`、`platform_account_id`、`followers`、`avatar`）POST 至 `/api/accounts`，凭证仅留存于主进程加密存储，不下发渲染进程。
+- **错误提示**：保存失败时前端经 `formatUserError` 统一渲染错误文案；修复后视频号正常走成功路径，不再弹出「不支持的平台」报错。
+
+### 显示项与提示文字
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| 视频号添加账号成功 | — | 账号卡片正常展示「视频号」+ 昵称 + 粉丝数 |
+| 视频号添加账号失败 | 弹窗「不支持的平台: tencent_video」 | 不再出现该错误 |
+| 平台列表 | 视频号（tencent_video） | 视频号（tencent_video） |
+
+### 回归保护（QM-5 第四步）
+
+- **单元测试**：`packages/python-backend/tests/test_models.py` 更新为断言 `PlatformType.TENCENT_VIDEO.value == "tencent_video"`，`test_all_expected_platforms_exist` / `test_no_extra_platforms` 同步更新成员名。
+- **测试结果**：`test_models.py` 26 passed；Python 后端全量 2571 passed（1 个预存无关失败 `test_story2video_manifest_declares_text_only_versioned_contract`，与本改动无关）。
+
+### 系统性漏洞与预防（QM-5 第二、三、五步）
+
+- **逃逸链**：该 Bug 逃过了单元测试（Python 单测只验证 `shipinhao` 自身的值，未交叉验证 JS 端实际传入值）、集成测试（无跨端「JS 发起 → Python 保存」的账号创建链路测试）、代码审查（两端标识符各自「看似正确」）。
+- **系统性漏洞**：缺少「平台标识符跨端一致性」的契约校验机制。
+- **预防措施**：建议后续在 CI 增加契约检查项——将 `config/platforms.yaml` 的 keys 与 `PlatformType` 枚举值、JS `platform-definitions.js` 的 `PLATFORM_LOGIN_URLS` keys 做集合比对，任一端缺失即失败。此为本 Bug 的根本防复发手段。
+
+### 变更文件
+
+- `packages/python-backend/src/multi_publish/models.py`（+2/-2）
+- `packages/python-backend/tests/test_models.py`（+4/-4）
