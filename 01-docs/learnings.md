@@ -1,3 +1,21 @@
+## 多平台发布 E2E 真实环境测试复盘（codex/multi-platform-e2e-publish，2026-09-07）
+
+- **背景**：在真实 Electron 桌面应用中，对国内 4 个已登录自媒体平台（微信公众号/头条/抖音/视频号）进行了完整 E2E 发布测试，发现账号凭证检测、RPA 选择器引擎、Cookie 过期检测三方面问题。
+- **根因 1（凭证检测假阳性）**：`account.js` 的 `toPublicAccount` 只用 `is_active` 和 `last_validated` 判断账号状态，但 `is_active` 仅表示账号记录存在，不反映加密凭证文件是否真实存在。无凭证的平台（百家号/快手/B站）仍显示"已登录"。
+- **根因 2（_findByText 单匹配缺陷）**：`rpa-selector-utils.js` 的 `_findByText` 正则只匹配第一个 `:has-text(...)`，含多个文本选择器时后续候选被静默忽略。这是系统性缺陷，影响所有通过 `buildResolveElementCode` 构建的选择器（`_click`, `_fillInput`, `_waitForElement` 等）。
+- **根因 3（内容编辑器 fail-open）**：微信公众号 `_publish_wechat_mp` 在内容编辑器未找到时只 `log.warn` 继续执行保存，导致空内容草稿被保存然后失败。
+- **根因 4（Cookie 过期无法前置检测）**：`checkLocalCredentials` 只检测本地加密凭证文件是否存在，无法判断服务端 Cookie 是否仍有效。4 个平台本地凭证均存在但服务端全部过期。需要在实际发布前做一次轻量登录态探测（如 HEAD 请求目标平台 API）。
+- **方案**：
+  - 凭证检测：`toPublicAccount` 调用 `AccountManager.checkLocalCredentials(platform, id)` 真实检测，无凭证 fail-closed 为 `has_cookies=false` + `status=expired`
+  - 选择器：`_findByText` 改为遍历所有 `:has-text` 模式，按顺序逐文本匹配
+  - 错误处理：内容编辑器未找到时 fail closed，返回明确错误
+  - 发布按钮：按 `publish_btn` 数组优先级依次尝试
+- **教训 1（E2E 测试不可替代）**：单元测试通过（86 个 account 测试 + 13 个 rpa-view-manager 测试）不代表真实环境可用。E2E 揭示了 Cookie 过期、DOM 变化、选择器引擎缺陷等单元测试无法覆盖的问题。
+- **教训 2（凭证检测必须 fail-closed）**：不能依赖 `is_active` 等元数据字段判断凭证有效性，必须真实检测本地加密凭证文件。服务端有效性检测是下一步。
+- **教训 3（选择器引擎需要系统性测试）**：`_findByText` 的单匹配缺陷从代码审查角度不易发现（正则看起来正确），需要构造含多个 `:has-text` 的 selector 进行专用测试。
+- **预防**：新增 `rpa-selector-utils.test.js` 覆盖多 `:has-text` 选择器；`_publish_wechat_mp` 错误处理硬化；未来 publish 前增加轻量登录态预检。
+
+---
 ## OpsCenter 运行时配置 Ed25519 签名验签（codex/stage-1.6-runtime-verify，2026-09-02）
 ## Video Clone 流水线成品视频展示缺失（codex/video-clone-result-download，2026-09-05）
 

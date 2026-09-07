@@ -1,3 +1,21 @@
+## [Unreleased] - 2026-09-07 (多平台发布 E2E 真实环境测试 + RPA 选择器修复)
+
+### 修复
+- 账号列表 `toPublicAccount` 调用 `checkLocalCredentials` 真实检测本地加密凭证，无凭证时标记 `has_cookies=false` + `status=expired`，不再依赖 `is_active` 误报"已登录"
+- `_findByText` 选择器引擎修复：遍历所有 `:has-text` 模式而非仅取第一个（修复含多个文本选择器时后续候选被静默忽略的系统性缺陷）
+- 微信公众号内容编辑器选择器扩展（新增 `#js_editor`, `.editor-area`, `[data-lexical-editor="true"]` 等），保存按钮增加"保存草稿"文本匹配
+- 微信公众号内容编辑器未找到时 fail closed（不再跳过继续空保存）
+- 发布按钮候选遍历：按 `publish_btn` 数组优先级依次尝试，页面改版后自动降级
+
+### E2E 测试
+- 真实 Electron 应用环境（CDP 10213，Vite 6165）对国内 4 平台（微信公众号/头条/抖音/视频号）完成全流程 E2E 发布测试
+- 测试发现：4 个平台本地凭证文件存在但服务端 Cookie 均已过期，需重新登录
+- 3 个无凭证平台（百家号/快手/B站）正确标记为 `status=expired`
+
+### 蚁小二逆向
+- 完成蚁小二 4.0 多平台发布逆向分析（抖音/头条/B站/微信公众号/百家号/快手/视频号/小红书/知乎/CSDN/雪球）
+- 抖音认证体系（三层凭证：Cookie+localStorage+IndexedDB）已完整提取并复用
+
 ## [Unreleased] - 2026-09-05 (流水线进度弹窗「后台运行」按钮缺失修复)
 
 ### 修复
