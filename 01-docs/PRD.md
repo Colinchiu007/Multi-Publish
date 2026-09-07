@@ -6096,3 +6096,70 @@ create-view-utils.js / cloud-publisher.js / platform-selectors.js / media-profil
 
 - `packages/python-backend/src/multi_publish/models.py`（+2/-2）
 - `packages/python-backend/tests/test_models.py`（+4/-4）
+
+### 3.1.32 多平台发布 E2E 真实环境测试与凭证检测硬化（2026-09-07）
+
+#### 背景
+在真实 Electron 应用环境（CDP 10213，Vite 6165，profile D:\tmp\Multi-Publish-debug-profile）中对国内 4 个已登录自媒体平台（微信公众号、头条、抖音、视频号）进行了完整 E2E 发布测试。测试发现账号凭证检测机制存在缺陷：`is_active` 字段无法区分"有加密凭证文件"和"凭证服务端有效"。
+
+#### 数据校验
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `has_cookies` | boolean | 由 `checkLocalCredentials` 真实检测本地加密凭证文件是否存在，不再依赖 `is_active` |
+| `cookie_count` | number | has_cookies 为 true 时至少为 1 |
+| `status` | 'active' \| 'expired' \| 'inactive' | 无凭证时强制为 'expired' |
+
+#### 流程与功能逻辑
+
+**账号列表返回（account.js `toPublicAccount`）**：
+1. 字段白名单过滤（publicAccountFields）
+2. 别名映射（copyPublicMetadataAliases）
+3. 调用 `AccountManager.checkLocalCredentials(platform, id)` 真实检测本地加密凭证
+4. 无凭证时：`has_cookies=false`, `cookie_count=0`, `status=expired`
+5. 有凭证时：保留原有 status/is_active 语义
+
+**E2E 测试结果（2026-09-07）**：
+
+| 平台 | 账号ID | 凭证文件 | 服务端状态 | 发布结果 |
+|------|--------|---------|-----------|---------|
+| 微信公众号 | a6b2f413 | ✅ 存在 | ❌ 已过期（显示"登录超时"） | 草稿保存失败 |
+| 头条 | 7ae99805 | ✅ 存在 | ❌ 已过期（重定向登录页） | ERR_ABORTED |
+| 视频号 | 36b5b265 | ✅ 存在 | ❌ 已过期（停留在 login.html） | 验证超时 |
+| 抖音 | 01ab122e | ✅ 存在 | ❌ 已过期（发布超时） | publish timeout |
+| 百家号 | d39af89b | ❌ 不存在 | N/A | 正确标记 expired |
+| 快手 | a4505f45 | ❌ 不存在 | N/A | 正确标记 expired |
+| B站 | e72848c6 | ❌ 不存在 | N/A | 正确标记 expired |
+
+#### RPA 选择器修复
+
+**`_findByText` 多 :has-text 选择器缺陷（rpa-selector-utils.js）**：
+- 旧版只取第一个 `:has-text("...")` 匹配，后续选择器（如 `.weui-desktop-btn:has-text("保存")`）被忽略
+- 修复：遍历所有 `:has-text` 模式，按顺序逐文本匹配
+- 影响范围：所有含多个 `:has-text` 的 selector（`_click`, `_fillInput`, `_waitForElement` 等）
+
+**微信公众号内容编辑器选择器扩展（rpa-view-platforms.js）**：
+- 新增 `#js_editor`, `.editor-area`, `[data-lexical-editor="true"]` 等新版后台选择器
+- 保存按钮增加"保存草稿"文本匹配
+- 内容编辑器未找到时 fail closed（之前只 warn 继续空保存）
+
+#### 交互逻辑
+
+**发布按钮候选遍历（rpa-view-platforms.js `_publish_generic`）**：
+- 按 publish_btn 数组优先级依次尝试，任一可见即用
+- 页面改版后首个候选失效时自动降级到下一候选
+
+**视频号按钮选择器扩展（platform-selectors.js）**：
+- 新增 `button:has-text("发表")` 等选择器
+
+#### 蚁小二逆向工程复用
+
+通过逆向分析蚁小二 4.0（D:\Data\yixiaoer-extracted\），确认了以下平台的技术方案：
+
+| 平台 | 蚁小二方案 | Multi-Publish 现状 | 复用状态 |
+|------|-----------|-------------------|---------|
+| 抖音 | Cookie+security-sdk+HTTP API（三层认证） | API+RPA 双模式 | ✅ 认证体系已对齐 |
+| 微信公众号 | Cookie+mp.weixin.qq.com 内部 API | RPA（BrowserView） | ⚠️ 方式不同 |
+| 头条 | Cookie+HTTP API（需 a_bogus 签名） | RPA（通用引擎） | ❌ 未实现 API 模式 |
+| B站 | Cookie+member.bilibili.com HTTP API | RPA（Playwright） | ⚠️ 方式不同 |
+| 百家号 | Cookie+HTTP API | API 适配器完整移植 | ✅ 已对齐 |
