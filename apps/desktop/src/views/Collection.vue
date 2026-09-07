@@ -63,6 +63,60 @@
         </div>
       </div>
 
+      <!-- 批量采集区域 -->
+      <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
+        <div class="cohere-section-title" style="margin-bottom:var(--space-sm)">{{ $t('collection.batchCollectTitle') }}</div>
+
+        <!-- RSS 批量采集 -->
+        <div style="margin-bottom:var(--space-sm)">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.rssBatch') }}</div>
+          <div style="display:flex;gap:var(--space-sm);align-items:center">
+            <input
+              v-model="rssUrl"
+              :placeholder="$t('collection.rssPlaceholder')"
+              style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+            />
+            <button class="cohere-btn-primary" @click="collectBatch('rss')" :disabled="batchCollecting">
+              {{ batchCollecting ? $t('collection.batchCollecting') : $t('collection.batchCollect') }}
+            </button>
+          </div>
+        </div>
+
+        <!-- URL 列表批量采集 -->
+        <div style="margin-bottom:var(--space-sm)">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.urlListBatch') }}</div>
+          <textarea
+            v-model="urlListInput"
+            :placeholder="$t('collection.urlListPlaceholder')"
+            rows="3"
+            style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;resize:vertical"
+          ></textarea>
+          <div style="display:flex;gap:var(--space-sm);align-items:center;margin-top:4px">
+            <button class="cohere-btn-primary" @click="collectBatch('batch')" :disabled="batchCollecting || !urlListInput.trim()">
+              {{ batchCollecting ? $t('collection.batchCollecting') : $t('collection.batchCollect') }}
+            </button>
+            <span style="font-size:12px;color:var(--text-secondary)">{{ $t('collection.urlListHint') }}</span>
+          </div>
+        </div>
+
+        <!-- 批量采集进度 -->
+        <div v-if="batchTaskId" style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--soft-stone);border-radius:6px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.batchProgress') }}</div>
+          <div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;margin-bottom:4px">
+            <div :style="{ width: batchProgress + '%', background: 'var(--primary)', height:'100%', transition:'width 0.3s' }"></div>
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary)">
+            {{ batchProgressText }}
+          </div>
+          <button v-if="batchCollecting" class="cohere-btn-secondary" style="margin-top:4px;font-size:12px;padding:2px 8px" @click="cancelBatchCollect">
+            {{ $t('collection.cancelBatch') }}
+          </button>
+        </div>
+        <div v-if="batchError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+          {{ batchError }}
+        </div>
+      </div>
+
       <!-- 采集结果累计列表 -->
       <div v-if="collectedItems.length > 0" style="margin-bottom:var(--space-lg)">
         <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -141,7 +195,7 @@ import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
@@ -167,6 +221,14 @@ const collectSources = ref([
 ])
 const rewriteStyle = ref('轻松易懂')
 const rewriteLength = ref('keep')
+const rssUrl = ref('')
+const urlListInput = ref('')
+const batchCollecting = ref(false)
+const batchTaskId = ref(null)
+const batchProgress = ref(0)
+const batchProgressText = ref('')
+const batchError = ref('')
+let batchPollTimer = null
 const rewriteStyles = [
   { label: resolveNotifyText('collection.rewriteStyleEasy').text, value: '轻松易懂' },
   { label: resolveNotifyText('collection.rewriteStyleFormal').text, value: '正式严谨' },
@@ -182,6 +244,10 @@ const rewriteLengths = [
 
 onMounted(async () => {
   await loadDrafts()
+})
+
+onUnmounted(() => {
+  stopBatchPolling()
 })
 
 async function loadDrafts () {
@@ -414,5 +480,122 @@ function goPublishFromItem (item) {
   saveDrafts()
   notifySuccess('collection.draftCreated')
   router.push('/publish?draft=' + draft.id)
+}
+
+// ─── 批量采集 ─────────────────────────────────────────────
+
+async function collectBatch (sourceType) {
+  const api = getApi()
+  if (!api || !api.aggregationCollectBatch) {
+    notifyWarning('collection.collectUnavailable')
+    return
+  }
+
+  let payload = { source_type: sourceType }
+  if (sourceType === 'rss') {
+    if (!rssUrl.value.trim()) {
+      notifyWarning('collection.enterRss')
+      return
+    }
+    payload.rss_url = rssUrl.value.trim()
+  } else {
+    const urls = urlListInput.value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (urls.length === 0) {
+      notifyWarning('collection.enterUrlList')
+      return
+    }
+    payload.urls = urls
+  }
+
+  batchCollecting.value = true
+  batchError.value = ''
+  batchProgress.value = 0
+  batchProgressText.value = ''
+  batchTaskId.value = null
+
+  try {
+    const res = await api.aggregationCollectBatch(payload)
+    if (res && res.task_id) {
+      batchTaskId.value = res.task_id
+      startBatchPolling()
+    } else if (res && res.data && res.data.task_id) {
+      batchTaskId.value = res.data.task_id
+      startBatchPolling()
+    } else if (res && res.code !== undefined && res.code !== 0) {
+      batchError.value = res.message || resolveNotifyText('collection.batchCollectFailed').text
+      notifyError('collection.batchCollectFailed', { message: batchError.value })
+      batchCollecting.value = false
+    } else {
+      batchError.value = resolveNotifyText('collection.batchCollectFailed').text
+      notifyError('collection.batchCollectFailed', { message: batchError.value })
+      batchCollecting.value = false
+    }
+  } catch (e) {
+    batchError.value = formatUserError(e, { fallback: resolveNotifyText('collection.batchCollectFailed').text }).message
+    notifyError('collection.batchCollectFailed', { message: batchError.value })
+    batchCollecting.value = false
+  }
+}
+
+function startBatchPolling () {
+  stopBatchPolling()
+  batchPollTimer = setInterval(async () => {
+    if (!batchTaskId.value) return
+    const api = getApi()
+    if (!api || !api.aggregationTaskStatus) return
+    try {
+      const res = await api.aggregationTaskStatus(batchTaskId.value)
+      const data = res && res.data ? res.data : res
+      const status = data.status || res.status
+      const total = data.total || 0
+      const completed = data.completed !== undefined ? data.completed : data.done || 0
+
+      if (status === 'completed' || status === 'success') {
+        batchProgress.value = 100
+        batchProgressText.value = resolveNotifyText('collection.batchComplete').text
+        batchCollecting.value = false
+        const items = data.items || data.results || []
+        items.forEach((item) => {
+          collectedItems.value.unshift({
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            title: item.title || '',
+            content: item.content || '',
+            description: (item.content || '').slice(0, 120),
+            source: 'batch',
+            sourceUrl: item.source_url || item.sourceUrl || '',
+            wordCount: item.word_count || 0,
+          })
+        })
+        notifySuccess('collection.batchSuccess', { params: { count: items.length } })
+        stopBatchPolling()
+      } else if (status === 'failed' || status === 'error') {
+        batchError.value = data.message || resolveNotifyText('collection.batchCollectFailed').text
+        notifyError('collection.batchCollectFailed', { message: batchError.value })
+        batchCollecting.value = false
+        stopBatchPolling()
+      } else {
+        if (total > 0) {
+          batchProgress.value = Math.round((completed / total) * 100)
+          batchProgressText.value = resolveNotifyText('collection.batchProgressText', { params: { completed, total } }).text
+        }
+      }
+    } catch (e) {
+      // 轮询失败不立即中断，继续下次轮询
+    }
+  }, 2000)
+}
+
+function stopBatchPolling () {
+  if (batchPollTimer) {
+    clearInterval(batchPollTimer)
+    batchPollTimer = null
+  }
+}
+
+function cancelBatchCollect () {
+  batchCollecting.value = false
+  batchTaskId.value = null
+  stopBatchPolling()
+  notifyInfo('collection.batchCancelled')
 }
 </script>

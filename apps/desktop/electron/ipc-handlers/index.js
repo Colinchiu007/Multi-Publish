@@ -53,6 +53,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./approval-gate')(ipcMain, deps)
   // Backlot Replay 生产回放
   require('./replay')(ipcMain, deps)
+  // 全自动管道
+  require('./auto-pipeline')(ipcMain, deps)
 }
 
 module.exports = registerAllHandlers
