@@ -25,7 +25,7 @@ describe('useAccountActions', () => {
     await actions.openLogin('browser', 'zhihu')
     await actions.openLogin('qrcode', 'wechat_mp')
 
-    expect(api.authOpenLogin).toHaveBeenCalledWith('zhihu')
+    expect(api.authOpenLogin).toHaveBeenCalledWith('zhihu', undefined)
     expect(api.authOpenQrCodeLogin).toHaveBeenCalledWith('wechat_mp')
   })
 

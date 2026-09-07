@@ -187,9 +187,13 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('auth:open-login', withSenderCheck(async (event, platform) => {
+  ipcMain.handle('auth:open-login', withSenderCheck(async (event, arg) => {
+    // 兼容旧调用：仅传 platform 字符串；新调用：{platform, accountId?}
+    const raw = (arg && typeof arg === 'object' && !Array.isArray(arg) && !(typeof arg === 'string' && arg)) ? arg : { platform: arg }
+    const platform = raw.platform
+    const accountId = raw.accountId
     const startedAt = Date.now()
-    ipcLog('info', 'auth:open-login', 'enter', `platform=${platform}`)
+    ipcLog('info', 'auth:open-login', 'enter', `platform=${platform} accountId=${accountId || '<none>'}`)
     try {
       if (getOwnerSubject() === null) {
         ipcLog('warn', 'auth:open-login', 'auth-failed', '无法识别当前用户')
@@ -199,6 +203,11 @@ function registerHandlers(ipcMain, deps) {
       if (!_isSafePathSegment(platform)) {
         ipcLog('warn', 'auth:open-login', 'validation-failed', `platform=${platform}`)
         return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
+      }
+      // accountId 为可选参数，仅重新登录时传递；若提供则必须校验
+      if (accountId !== undefined && accountId !== null && !_isSafePathSegment(accountId)) {
+        ipcLog('warn', 'auth:open-login', 'validation-failed', `accountId=${accountId}`)
+        return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
       }
       const result = await authViewManager.openLogin(platform)
       // 用户关闭登录页签/Esc 取消：控制信号而非凭证数据，不得进入保存流程，也不得弹错误
@@ -211,8 +220,16 @@ function registerHandlers(ipcMain, deps) {
         ipcLog('warn', 'auth:open-login', 'timeout', `platform=${platform} 耗时=${Date.now() - startedAt}ms`)
         return { code: EC.TIMEOUT_ERROR, message: '登录超时，请重试' }
       }
-      const savedAccount = await AccountManager.saveCapturedAccount(platform, result)
-      const savedAccountId = savedAccount?.id || savedAccount?.accountId
+      let savedAccount, savedAccountId
+      if (accountId) {
+        // 重新登录：覆盖已有账号凭证，不创建新账号
+        savedAccount = await AccountManager.updateCapturedAccount(platform, result, accountId)
+        savedAccountId = accountId
+      } else {
+        // 新登录：创建新账号
+        savedAccount = await AccountManager.saveCapturedAccount(platform, result)
+        savedAccountId = savedAccount?.id || savedAccount?.accountId
+      }
       const win = BrowserWindow.getAllWindows()[0]
       if (win && !win.isDestroyed() && savedAccountId) {
         win.webContents.send('auth:completed', { platform, accountId: savedAccountId })
@@ -225,7 +242,7 @@ function registerHandlers(ipcMain, deps) {
           platform,
           name: result.name,
         }),
-        message: '账号添加成功',
+        message: accountId ? '账号重新登录成功' : '账号添加成功',
       }
     } catch (e) {
       ipcLog('error', 'auth:open-login', 'error', `platform=${platform} message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)

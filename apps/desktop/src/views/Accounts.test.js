@@ -588,7 +588,7 @@ describe("AccountsView", () => {
     w.vm.newPlatform = "douyin";
     await w.vm.addAccount();
     const { authOpenLogin } = await import("@/api/publisher");
-    expect(authOpenLogin).toHaveBeenCalledWith("douyin");
+    expect(authOpenLogin).toHaveBeenCalledWith("douyin", undefined);
     expect(w.vm.showAddDialog).toBe(false);
     expect(w.vm.newPlatform).toBe("");
   });
@@ -654,7 +654,7 @@ describe("AccountsView", () => {
 
     await w.vm.reloginAccount(account);
 
-    expect(authOpenLogin).toHaveBeenCalledWith("zhihu");
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "expired-1");
     expect(w.vm.showAddDialog).toBe(false);
     expect(w.vm.pendingAuthAction).toBe("relogin");
   });
@@ -1064,6 +1064,40 @@ describe("AccountsView", () => {
     expect(ElMessage.success).toHaveBeenCalledWith("账号重新登录成功");
     expect(_spies.load).toHaveBeenCalledTimes(1);
     expect(w.vm.pendingAuthAction).toBeNull();
+  });
+
+  it("checkLogin 检测失效后把账号状态标记为 expired 并走重新登录认证流程", async () => {
+    const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
+    accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });
+    authOpenLogin.mockResolvedValue({ code: 0 });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue("confirm");
+    _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+    const w = await mountView();
+
+    await w.vm.checkLogin({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+
+    // 账号状态应动态更新为 expired
+    expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
+    // 确认后应走 reloginAccount（auth:open-login 认证流程），而非 openLoginPage 普通标签页
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "a1");
+    expect(w.vm.pendingAuthAction).toBe("relogin");
+  });
+
+  it("checkLogin 检测失效后用户取消确认不触发重新登录也不改变状态", async () => {
+    const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
+    accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockRejectedValue("cancel");
+    _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+    const w = await mountView();
+
+    await w.vm.checkLogin({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+
+    // 即使取消确认，账号状态也应更新为 expired（用户已知失效事实）
+    expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
+    // 但不触发重新登录
+    expect(authOpenLogin).not.toHaveBeenCalled();
   });
 
   it("卸载时释放全部 Electron 登录事件订阅", async () => {

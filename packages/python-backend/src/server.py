@@ -222,6 +222,19 @@ class AccountCreateRequest(BaseModel):
     auth_data: dict | None = None
 
 
+class AccountUpdateRequest(BaseModel):
+    # 重新登录后更新账号公开元数据（名称/头像/平台ID/粉丝数/最近验证时间）。
+    # 仅公开元数据，拒绝任何凭据字段。
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    account_name: str | None = None
+    platform_account_id: str | None = None
+    followers: int | None = None
+    avatar: str | None = None
+    last_validated: str | None = None
+
+
 class PublishRequest(BaseModel):
     title: str
     content: str = ""
@@ -450,6 +463,29 @@ def get_account(account_id: str, request: Request):
     if not a or not _is_owned_by(a, _request_subject(request)):
         raise HTTPException(status_code=404, detail="账号不存在")
     return {"code": 0, "data": _account_to_dict(a)}
+
+
+@app.patch("/api/accounts/{account_id}", dependencies=[Depends(_require_account_manage)])
+def patch_account(account_id: str, req: AccountUpdateRequest, request: Request):
+    """更新账号公开元数据（重新登录后更新名称/头像/最近验证时间等）。"""
+    accounts = _load_accounts()
+    a = accounts.get(account_id)
+    if not a or not _is_owned_by(a, _request_subject(request)):
+        raise HTTPException(status_code=404, detail="账号不存在")
+    if req.name is not None:
+        a["name"] = req.name
+    if req.account_name is not None:
+        a["account_name"] = req.account_name
+    if req.platform_account_id is not None:
+        a["platform_account_id"] = req.platform_account_id
+    if req.followers is not None:
+        a["followers"] = req.followers
+    if req.avatar is not None:
+        a["avatar"] = req.avatar
+    if req.last_validated is not None:
+        a["last_validated"] = req.last_validated
+    _save_accounts(accounts)
+    return {"code": 0, "message": "账号元数据已更新", "data": _account_to_dict(a)}
 
 
 @app.get("/api/accounts/{account_id}/cookies")
