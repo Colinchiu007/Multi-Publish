@@ -87,7 +87,7 @@ module.exports = {
       file_input: ['input[type="file"]'],
       title_input: ['input[placeholder*="标题"]', '[class*="title"] input', '.title-input'],
       desc_textarea: ['textarea', '[class*="desc"] input', '[class*="desc"] textarea'],
-      publish_btn: ['button:has-text("发布")', '[class*="publish"] button', '.submit-btn'],
+      publish_btn: ['button:has-text("发表")', 'button:has-text("发布")', '[class*="publish"] button', '.submit-btn', '[class*="submit"] button', 'button[class*="primary"]'],
     },
     kuaishou: {
       upload_btn: ['button:has-text("上传视频")', '[class*="upload"]', 'a:has-text("上传视频")'],

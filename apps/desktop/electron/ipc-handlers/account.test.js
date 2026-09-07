@@ -64,6 +64,7 @@ function createMockDeps(overrides = {}) {
       loadSavedCredentials: vi.fn(),
       setAccountProxy: vi.fn(),
       getAccountProxyStatus: vi.fn(() => ({ configured: false })),
+      checkLocalCredentials: vi.fn(() => false),
     },
     BACKEND_PLATFORMS: new Set(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -218,6 +219,7 @@ describe('account IPC 写操作 sender 校验', () => {
 describe('account IPC 可信来源正常工作', () => {
   it('accounts:list 规范化账号状态、合并默认账号并移除敏感字段', async () => {
     const deps = createMockDeps()
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     deps.AccountManager.listAccounts.mockResolvedValue([{
       id: 'acc-1',
       platform: 'wechat_mp',
@@ -246,8 +248,32 @@ describe('account IPC 可信来源正常工作', () => {
         is_active: true,
         status: 'active',
         is_default: true,
+        has_cookies: true,
+        cookie_count: 1,
       }],
     })
+  })
+
+  it('accounts:list 本地无加密凭证时标记 has_cookies=false 且 status=expired', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(false)
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-no-cred',
+      platform: 'baijiahao',
+      name: '百家号账号',
+      is_active: true,
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(deps.AccountManager.checkLocalCredentials).toHaveBeenCalledWith('baijiahao', 'acc-no-cred')
+    expect(result.data[0]).toEqual(expect.objectContaining({
+      has_cookies: false,
+      cookie_count: 0,
+      status: 'expired',
+    }))
   })
 
   it('accounts:list 优先使用当前用户的默认账号设置，不能读取 legacy 全局默认值', async () => {
@@ -470,6 +496,7 @@ describe('account IPC 可信来源正常工作', () => {
       platform: 'youtube',
       name: '频道账号',
     })
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
 
@@ -484,6 +511,8 @@ describe('account IPC 可信来源正常工作', () => {
         account_name: '频道账号',
         status: 'active',
         is_default: false,
+        has_cookies: true,
+        cookie_count: 1,
       },
       message: '账号添加成功',
     })
@@ -515,6 +544,7 @@ describe('account IPC 可信来源正常工作', () => {
       name: '公众号',
       cookies: captured.cookies,
     })
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
 
@@ -531,6 +561,8 @@ describe('account IPC 可信来源正常工作', () => {
         account_name: '公众号',
         status: 'active',
         is_default: false,
+        has_cookies: true,
+        cookie_count: 1,
       },
       message: '账号添加成功',
     })
@@ -659,7 +691,10 @@ describe('account IPC 可信来源正常工作', () => {
       localStorage: { token: 'private' },
     }
     const deps = createMockDeps({
-      AccountManager: { addAccount: vi.fn().mockResolvedValue(mockAccount) },
+      AccountManager: {
+        addAccount: vi.fn().mockResolvedValue(mockAccount),
+        checkLocalCredentials: vi.fn(() => true),
+      },
     })
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
@@ -676,6 +711,8 @@ describe('account IPC 可信来源正常工作', () => {
         account_name: '公众号',
         status: 'active',
         is_default: false,
+        has_cookies: true,
+        cookie_count: 1,
       },
       message: '账号添加成功',
     })
@@ -695,13 +732,16 @@ describe('account IPC 可信来源正常工作', () => {
 
   it('account:list 拒绝外部来源，可信来源只返回脱敏字段', async () => {
     const deps = createMockDeps({
-      AccountManager: { listAccounts: vi.fn().mockResolvedValue([{
-        id: 'acc-1',
-        platform: 'wechat_mp',
-        name: '公众号',
-        cookies: [{ name: 'session', value: 'secret' }],
-        access_token: 'private',
-      }]) },
+      AccountManager: {
+        listAccounts: vi.fn().mockResolvedValue([{
+          id: 'acc-1',
+          platform: 'wechat_mp',
+          name: '公众号',
+          cookies: [{ name: 'session', value: 'secret' }],
+          access_token: 'private',
+        }]),
+        checkLocalCredentials: vi.fn(() => true),
+      },
     })
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
@@ -718,6 +758,8 @@ describe('account IPC 可信来源正常工作', () => {
       account_name: '公众号',
       status: 'active',
       is_default: false,
+      has_cookies: true,
+      cookie_count: 1,
     }] })
   })
 })

@@ -376,9 +376,14 @@ const platformsMixin = {
         try {
           this._emitProgress(platform,'publishing...',85)
           const rp = (config.has_api && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
-          if (!(await this._waitForElement(win,sel.publish_btn[0],10000))) throw new Error('publish btn not found')
+          // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
+          let publishSelector = null
+          for (const cand of sel.publish_btn || []) {
+            if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
+          }
+          if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
-          await this._click(win,sel.publish_btn[0])
+          await this._click(win,publishSelector)
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)
@@ -849,7 +854,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   async _publish_wechat_mp(win, article) {
     this._emitProgress('wechat_mp','navigating to draft...',5)
     // Direct draft edit URL
-    await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=10&create=1',3000)
+    // 加长稳定等待：新版后台为 SPA，编辑器与保存按钮延迟挂载
+    await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=10&create=1',5000)
 
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('connect'))
@@ -863,19 +869,24 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
     }
 
-    // Fill content inside editor iframe
+    // Fill content — 新版后台编辑器位于主 frame（contenteditable/ProseMirror/Quill），旧版才在 iframe 内
     if (article.content) {
-      this._emitProgress('wechat_mp','filling content in iframe...',40)
-      const iframeSel = 'iframe#ueditor_0, iframe[src*="ueditor"]'
-      const contentSel = '#js_editor_content, .rich_media_area_primary_inner, [contenteditable="true"]'
+      this._emitProgress('wechat_mp','filling content...',40)
+      const contentSel = '#js_editor_content, [contenteditable="true"], .ql-editor, .ProseMirror, .rich_media_area_primary_inner'
       try {
-        await this._waitForElement(win,iframeSel,15000)
-        await this._fillInFrame(win,iframeSel,contentSel,article.content)
+        if (await this._waitForElement(win,contentSel,15000)) {
+          await this._setElementContentSafe(win,contentSel,article.content)
+        } else {
+          // 兼容旧版后台：编辑器位于 iframe（ueditor）
+          const iframeSel = 'iframe#ueditor_0, iframe[src*="ueditor"]'
+          if (await this._waitForElement(win,iframeSel,5000)) {
+            await this._fillInFrame(win,iframeSel,'#js_editor_content, [contenteditable="true"]',article.content)
+          } else {
+            log.warn('RpaView','wechat_mp content editor not found url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
+          }
+        }
       } catch(e) {
-        log.warn('RpaView','wechat_mp iframe content failed: '+e.message)
-        // Fallback: try main frame editor
-        // eslint-disable-next-line no-unused-vars
-        try { await this._fillInput(win,contentSel,article.content) } catch (e) { /* ignore */ }
+        log.warn('RpaView','wechat_mp content fill failed: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
       }
     }
 
@@ -891,20 +902,38 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       await win.webContents.executeJavaScript("(function(){let cb=document.querySelector('.weui-desktop-btn_wrp .weui-desktop-checkbox input, input#js_agree');if(cb&&!cb.checked){cb.click()}})()")
     } catch(e) { log.warn('RpaView','wechat_mp agree: '+e.message) }
 
-    // Save draft
+    // Save draft — 轮询保存成功标识（URL appmsgid 或页面提示），并捕获保存 XHR 作为兜底
     this._emitProgress('wechat_mp','saving draft...',70)
     let mediaId = null
     try {
-      const saved = await this._click(win,'a[data-action="save"], a#js_sync_save')
-      if (!saved) {
+      const saveBtnSel = 'a[data-action="save"], a#js_sync_save, button:has-text("保存"), .weui-desktop-btn:has-text("保存"), [class*="save_draft"], [class*="saveDraft"]'
+      // 新版后台保存草稿走 XHR，先挂响应监听，URL 不变时作为保存成功依据
+      const saveResponse = this._waitForResponse(win, ['operate_appmsg', 'appmsg/save', 'oper=save'], 30000)
+      const saveClicked = await this._click(win, saveBtnSel)
+      if (!saveClicked) {
         return { success:false, error:'微信公众号草稿保存失败：保存按钮不可用', platform:'wechat_mp' }
       }
-      await this._sleep(3000)
+      // 轮询保存成功标识：URL 出现 appmsgid，或页面出现"保存成功/已保存"提示
+      const saved = await this._waitForCondition(win, 'function(){' +
+        'var u = location.href || "";' +
+        'if (/appmsgid=\\d+/.test(u)) return true;' +
+        'var t = (document.body && document.body.innerText) || "";' +
+        'return /保存成功|已保存/.test(t);' +
+      '}', 30000, 800)
+      const saveResp = await saveResponse
       const finalUrl = win.webContents.getURL()
       const match = finalUrl.match(/appmsgid=(\d+)/)
       if (match) mediaId = match[1]
+      // 兜底：URL 未变化时尝试从保存 XHR 响应 URL 提取 appmsgid
+      if (!mediaId && saveResp && saveResp.url) {
+        const respMatch = String(saveResp.url).match(/appmsgid=(\d+)/)
+        if (respMatch) mediaId = respMatch[1]
+      }
+      if (!mediaId) {
+        log.warn('RpaView','wechat_mp save done without mediaId (saved=' + saved + ' url=' + finalUrl + ')')
+      }
     } catch(e) {
-      log.warn('RpaView','wechat_mp save: '+e.message)
+      log.warn('RpaView','wechat_mp save: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
       return { success:false, error:'微信公众号草稿保存失败：'+e.message, platform:'wechat_mp' }
     }
 

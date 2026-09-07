@@ -144,10 +144,21 @@ function registerHandlers(ipcMain, deps) {
       : store && typeof store.getSetting === 'function'
         ? store.getSetting(defaultAccountKey)
         : null
+    // 实际检测本地加密凭证是否存在，避免仅凭 is_active 误报"已登录"。
+    // checkLocalCredentials 依赖主进程装配的 ownerSubjectProvider；缺方法或抛错时
+    // fail-closed 为 has_cookies=false，不阻断账号列表。
+    let hasCred = false
+    if (safeAccount.platform && safeAccount.id && typeof AccountManager.checkLocalCredentials === 'function') {
+      try {
+        hasCred = Boolean(AccountManager.checkLocalCredentials(safeAccount.platform, safeAccount.id))
+      } catch (_) { hasCred = false }
+    }
     const publicAccount = {
       ...safeAccount,
+      has_cookies: hasCred,
+      cookie_count: hasCred ? 1 : 0,
       account_name: safeAccount.account_name || safeAccount.name || '',
-      status: safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'),
+      status: !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active')),
       is_default: Boolean(safeAccount.is_default) || String(defaultId) === String(safeAccount.id),
     }
     if (raw.proxy !== undefined) {
