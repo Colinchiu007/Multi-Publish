@@ -5819,44 +5819,34 @@ const data = Array.isArray(accounts) ? accounts.map(toPublicAccount) : []
 
 ---
 
-## 账号管理 v8：preload 补全 listAccounts 方法（2026-09-07）
+## 账号管理 v8：preload.test.js 方法数断言校准（2026-09-07）
 
-### 根因
+### 背景
 
-渲染层 `publisher.js` 的 `listAccounts()` 调用 `window.electronAPI.listAccounts`（映射到 `accounts:list` IPC），但 `preload/account.js` 的 `createAccountApi` 只暴露了 `accountList`（`account:list` 通道），从未暴露 `listAccounts`，导致 `invokeWithFallback` 始终返回空 fallback `{ code: 0, data: [] }`，账号列表页永远显示 0 个账号。
+此前一次会话误判「账号列表页永远为空」是 preload 缺 `listAccounts` 方法所致，并据此在 `preload/account.js` 中新增 `listAccounts`。经排查确认该结论错误：`listAccounts` 早在 2026-07-09 的 preload 拆分（commit `1512b55a`）时就已存在于 `preload/publish.js`（第 54 行，映射 `accounts:list` IPC），渲染层 `publisher.js` 的 `listAccounts()` 一直走的是 publish 模块的方法，数据流从未断裂。
 
-### 数据流（修复后完整链路）
+### 真实结论
 
-```
-渲染层: src/stores/accounts.js → load() → listAccounts()
-  → src/api/publisher.js → invokeWithFallback("listAccounts")
-    → window.electronAPI.listAccounts()  ← v8 修复：preload 新增此方法
-      → ipcRenderer.invoke("accounts:list")
-        → 主进程 account.js accounts:list handler
-          → AccountManager.listAccounts()
-            → pythonBridge.requestBackend('GET', '/api/accounts')
-            → credential-store.cleanOrphanCredentials(knownIds, userDataDir, ownerSubject)
-```
+1. **账号列表数据流是通的**：`Accounts store.load()` → `publisher.listAccounts()` → `window.electronAPI.listAccounts`（来自 publish.js）→ `ipcRenderer.invoke("accounts:list")` → 主进程 `AccountManager.listAccounts()` → `pythonBridge.requestBackend('GET', '/api/accounts')` + `cleanOrphanCredentials`。
+2. **误诊根源**：上一轮 CDP E2E 用了错误选择器 `[data-testid="account-card"]`，而真实 DOM 是 `account-card-{id}` 格式（如 `account-card-e72848c6`），所以误判为「0 个账号」。
+3. **真实问题**：`preload/account.js` 在误诊中被重复添加了 `listAccounts`，与 `publish.js` 的方法名冲突，导致 `preload.test.js` 的「四模块间无方法名冲突」交叉验证失败。
 
 ### 修复内容
 
-**文件**: `apps/desktop/electron/preload/account.js`
+**文件**: `apps/desktop/electron/preload.test.js`
 
-在 `createAccountApi` 返回对象中新增一行：
-```js
-listAccounts: () => ipcRenderer.invoke('accounts:list'),
-```
+1. 回退 `account.js` 中重复的 `listAccounts` 定义（撤回误诊 commit）。
+2. 校准 `account 模块应导出 N 个方法` 测试名：`41 个方法` → `42 个方法`（此前测试名与断言 `toBe(42)` 不一致）。
 
 ### 验证
 
 | 证据 | 结果 |
 |------|------|
-| CDP 真实环境 E2E | 18/19 通过 |
-| 账号卡片渲染 | 从 0 恢复为 3 |
-| 删除确认弹窗 | 正常弹出 |
-| 收藏/验证/代理/登录/重命名按钮 | 全部可见可用 |
-| 状态筛选/平台筛选/排序/批量操作 | 全部正常 |
+| vitest preload.test.js | 356/356 通过 |
+| CDP 真实环境 E2E | 17/18 通过（账号卡片 3、无重复、删除弹窗、收藏/代理/验证/登录均正常） |
+| 账号卡片渲染 | 3 个（哔哩哔哩/快手/百家号，ID `e72848c6`/`a4505f45`/`d39af89b`） |
 | 无重复账号 | 3 个账号均为独立平台 |
 
 ### 变更文件
-- apps/desktop/electron/preload/account.js (+1 行)
+- apps/desktop/electron/preload/account.js（回退误诊 +1 行）
+- apps/desktop/electron/preload.test.js（测试名校准 +1/-1）

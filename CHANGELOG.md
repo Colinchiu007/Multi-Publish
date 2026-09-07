@@ -1,13 +1,17 @@
-## [未发布] fix(accounts): preload 补全 listAccounts 方法 v8（2026-09-07）
+## [未发布] fix(accounts): preload.test.js 方法数断言校准 v8（2026-09-07）
 
-### 根因
-- 渲染层 publisher.js 的 listAccounts() 调用 window.electronAPI.listAccounts（映射到 accounts:list IPC），但 preload/account.js 只暴露了 accountList（account:list 通道），从未暴露 listAccounts，导致 invokeWithFallback 始终返回空 fallback { code: 0, data: [] }，账号列表页永远显示 0 个账号。
+### 结论
+- 此前误判「账号列表页永远为空」是 preload 缺 listAccounts 方法所致，经排查确认该结论错误：listAccounts 早在 2026-07-09 的 preload 拆分时就已在 publish.js 中存在，数据流从未断裂。
+- 误诊根源：CDP E2E 用了错误选择器 `[data-testid="account-card"]`，而真实 DOM 是 `account-card-{id}` 格式。
+- 真实问题：误诊中在 account.js 重复添加 listAccounts 导致 preload 方法名冲突，已回退；同时校准 preload.test.js 测试名与断言（41→42）。
 
 ### 修复
-- preload/account.js：在 createAccountApi 中新增 listAccounts: () => ipcRenderer.invoke('accounts:list')，与前端 publisher.js 的 listAccounts() 调用匹配。
+- preload/account.js：回退误诊 commit 中重复的 listAccounts 定义。
+- preload.test.js：校准 account 模块测试名（41 个方法 → 42 个方法），与断言 toBe(42) 一致。
 
 ### 验证
-- CDP 真实环境 E2E 18/19 通过；账号卡片从 0 恢复为 3 个，删除确认弹窗、收藏/验证/代理/登录/重命名按钮均正常。
+- vitest preload.test.js 356/356 通过。
+- CDP 真实环境 E2E 17/18 通过：账号卡片 3 个、无重复、删除弹窗、收藏/代理/验证/登录均正常。
 
 ## [未发布] fix(accounts): accounts:list 通道接入孤儿凭据清理 v7（2026-09-07）
 
