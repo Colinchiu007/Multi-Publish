@@ -60,6 +60,9 @@ const PUBLIC_CHANNELS = new Set([
   'film-engineering:adapt-script', 'film-engineering:export', 'film-engineering:generate-selected',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
+  // 热文采集/改写：URL 正文提取/RSS/Sitemap 均为纯本地操作，未登录可用
+  'aggregation:collect', 'aggregation:collect-batch', 'aggregation:rewrite',
+  'aggregation:sources', 'aggregation:task-status',
 ])
 
 const ADMIN_ONLY_CHANNELS = new Set([

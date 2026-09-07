@@ -86,21 +86,44 @@ class AggregationService:
             raise ValueError(f"Phase 1 不支持的 source_type: {request.source_type}")
 
     async def _collect_url(self, request: CollectRequest) -> CollectResult:
-        ContentPipeline = _lazy_import("content_aggregator.workflows.pipeline", "ContentPipeline")
-        if ContentPipeline is None:
-            raise ImportError("content-aggregator 未安装。请运行: pip install content-aggregator")
-        config = self._build_pipeline_config()
-        async with ContentPipeline(config) as pipeline:
-            articles = await pipeline.process_url(url=str(request.url), rewrite=False, limit=1)
-        if not articles:
-            raise ValueError(f"URL 采集无结果: {request.url}")
-        article = articles[0]
+        logger.info(f"[AggregationService] _collect_url: url={request.url}")
+        url = str(request.url).strip()
+        if not url:
+            raise ValueError("URL 不能为空")
+        # 使用 trafilatura 直接做正文提取（原 pipeline.process_url 对所有 URL 走 RSS 路径导致普通网页提取失败）
+        import asyncio
+        from urllib.parse import urlparse
+        trafilatura = _lazy_import("trafilatura")
+        if trafilatura is None:
+            raise ImportError("trafilatura 未安装。请运行: pip install trafilatura")
+        try:
+            html = await asyncio.to_thread(trafilatura.fetch_url, url)
+        except Exception as fetch_err:
+            raise ValueError(f"URL 无法访问: {fetch_err}") from fetch_err
+        if not html:
+            raise ValueError(f"URL 无法访问: {url}")
+        text = await asyncio.to_thread(
+            trafilatura.extract,
+            html,
+            include_links=False,
+            include_images=False,
+            include_tables=False,
+        )
+        if not text:
+            raise ValueError(f"URL 采集无结果: {url}")
+        metadata = trafilatura.extract_metadata(html)
+        title = ""
+        if metadata and metadata.title:
+            title = str(metadata.title).strip()
+        if not title:
+            parsed = urlparse(url)
+            title = parsed.netloc or parsed.path or url
         return CollectResult(
-            title=article.title,
-            content=article.content,
-            source_url=article.source_url,
-            author=article.author or "",
-            word_count=article.word_count or len(article.content or ""),
+            title=title,
+            content=text.strip(),
+            source_url=url,
+            author=str(metadata.author).strip() if metadata and metadata.author else "",
+            word_count=len(text.strip()),
         )
 
     async def _collect_rss(self, request: CollectRequest) -> CollectResult:
