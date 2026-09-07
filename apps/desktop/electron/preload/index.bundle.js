@@ -916,6 +916,21 @@ var require_aggregation = __commonJS({
   }
 });
 
+// electron/preload/auto-pipeline.js
+var require_auto_pipeline = __commonJS({
+  "electron/preload/auto-pipeline.js"(exports2, module2) {
+    function createAutoPipelineApi2(ipcRenderer2) {
+      return {
+        autoPipelineStart: (config) => ipcRenderer2.invoke("auto-pipeline:start", config),
+        autoPipelineGetRun: (runId) => ipcRenderer2.invoke("auto-pipeline:get-run", runId),
+        autoPipelineCancel: (runId) => ipcRenderer2.invoke("auto-pipeline:cancel", runId),
+        autoPipelineListRuns: () => ipcRenderer2.invoke("auto-pipeline:list-runs")
+      };
+    }
+    module2.exports = { createAutoPipelineApi: createAutoPipelineApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -1161,6 +1176,7 @@ var { createPageManagerApi } = require_page_manager();
 var { createVideoCloneApi } = require_video_clone();
 var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
+var { createAutoPipelineApi } = require_auto_pipeline();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1199,6 +1215,7 @@ var fullApi = {
   ...createVideoCloneApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
+  ...createAutoPipelineApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
   rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)

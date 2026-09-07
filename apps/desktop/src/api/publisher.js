@@ -446,6 +446,12 @@ export async function story2videoBatchCancel(batchId, itemIds) {
 export async function story2videoPickBatchFiles() {
   return invokeWithFallback("story2videoPickBatchFiles", { code: -1, message: 'electronAPI not available', data: { files: [] } })
 }
+
+// ─── 全自动管道 API ─────────────────────────
+export async function autoPipelineStart(config) { return invokeWithFallback("autoPipelineStart", { code: -1, message: 'electronAPI not available' }, config) }
+export async function autoPipelineGetRun(runId) { return invokeWithFallback("autoPipelineGetRun", null, runId) }
+export async function autoPipelineCancel(runId) { return invokeWithFallback("autoPipelineCancel", { code: -1 }, runId) }
+export async function autoPipelineListRuns() { return invokeWithFallback("autoPipelineListRuns", { code: 0, data: [] }) }
 export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }
