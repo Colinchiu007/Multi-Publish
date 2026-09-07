@@ -6163,3 +6163,84 @@ create-view-utils.js / cloud-publisher.js / platform-selectors.js / media-profil
 | 头条 | Cookie+HTTP API（需 a_bogus 签名） | RPA（通用引擎） | ❌ 未实现 API 模式 |
 | B站 | Cookie+member.bilibili.com HTTP API | RPA（Playwright） | ⚠️ 方式不同 |
 | 百家号 | Cookie+HTTP API | API 适配器完整移植 | ✅ 已对齐 |
+
+### 3.1.33 多平台发布 E2E 真实环境测试（第二轮，2026-09-07）
+
+#### 背景
+
+在第一轮（3.1.32）凭证检测硬化与 RPA 选择器修复之后，对 4 个已登录平台（微信公众号、头条、抖音、视频号）进行了第二轮真实发布测试。测试内容为智能手环睡眠改善主题的真实自媒体文章。本轮重点验证：RPA 窗口能否真正复用账号凭证（Cookie + localStorage + IndexedDB 三层凭证）完成发布。
+
+#### 测试环境
+
+- 真实 Electron 桌面应用（CDP 10213，Vite 6165）
+- 4 个平台账号均已登录（应用账号列表显示 `has_cookies:true`）
+- 测试内容：智能手环睡眠改善主题真实自媒体文章
+
+#### 测试结果
+
+| 平台 | 测试次数 | 状态 | 错误 | 根因 |
+|------|---------|------|------|------|
+| 微信公众号 | 3 | ❌ 失败 | 内容编辑器未找到 | Cookie 恢复失败，RPA 窗口显示"登录超时" |
+| 视频号 | 1 | ❌ 失败 | 发布验证超时 | 需进一步诊断（超时时间或验证逻辑） |
+| 头条 | 1 | 未知 | 未出现在历史记录中 | 需进一步诊断 |
+| 抖音 | 0 | 未测试 | - | 未在本次测试中覆盖 |
+
+#### 关键发现
+
+**1. `has_cookies:true` 不代表 RPA 窗口能使用这些 Cookie**
+
+应用账号列表的 `has_cookies` 由 `checkLocalCredentials` 检测本地加密凭证文件（cookies/localStorage 加密备份）是否存在，只证明凭证文件存在，不证明凭证内容有效，更不证明 RPA 窗口能直接使用。第二轮测试中 4 个平台均显示 `has_cookies:true`，但微信公众号 RPA 窗口仍显示"登录超时"。
+
+**2. Auth 分区与 RPA 分区是独立 session，Cookie 需显式复制**
+
+- Auth 登录窗口使用 `persist:auth-auth-{platform}-{accountId}` 分区，RPA 发布窗口使用 `persist:rpa-{platform}-{accountId}` 分区，两者是独立的 Electron session。
+- 登录时写入 auth 分区的 Cookie 不会自动出现在 RPA 分区，必须显式复制。
+- 现有实现（rpa-view-manager.js `publish()`）已按顺序执行：
+  1. `_restoreCookies` — 恢复账号凭证中的 cookies
+  2. `_restoreAuthPartitionCookies` — 从最新 auth 分区补充完整 Cookie（可补回凭证过滤丢掉的父域 Cookie 如 BDUSS）
+  3. `_restoreBrowserStorage` — 恢复 localStorage / IndexedDB（经 `PLATFORM_LOGIN_URLS` 加载登录页后注入）
+
+**3. 微信公众号后台新版编辑器 DOM 已变化**
+
+- 旧选择器 `#js_editor_content`、`.ProseMirror` 等已不再匹配新版后台编辑器。
+- 第一轮已新增 `#js_editor`、`.editor-area`、`[data-lexical-editor="true"]` 等选择器，但本轮仍出现"内容编辑器未找到"，说明选择器覆盖仍不完整或登录态未恢复导致编辑器未渲染。
+- 需要结合登录态检测：编辑器未找到时先确认是否已登录，再决定是重试登录态恢复还是报错。
+
+**4. 登录态检测不应仅依赖 URL 关键字，需 DOM 探测**
+
+- 仅靠 URL 关键字（如是否停留在 login.html）判断登录态不可靠：部分平台登录后 URL 不变、或登录页与工作台共用域名。
+- 需要 DOM 探测：等待目标平台工作台特征元素（如编辑器、发布按钮、账号头像）出现，作为登录成功的判据。
+
+**5. 视频号发布验证超时**
+
+- 视频号发布后验证阶段超时，需要更长的超时时间或更精确的验证逻辑（如轮询发布状态接口/页面元素而非固定等待）。
+
+#### RPA Cookie 恢复问题分析
+
+**根因**：Cookie 恢复链路存在多层缺口：
+
+1. 账号凭证中的 cookies 可能是过滤后的子集（丢失父域 Cookie），单独恢复不足以建立完整登录态；
+2. auth 分区补充逻辑依赖 `session.fromPartition('persist:' + partitionName)` 读取 auth 分区 Cookie，若 auth 分区目录名匹配失败或 auth 会话已过期，补充为空；
+3. 登录态检测缺失：恢复后未验证 RPA 窗口是否真正登录，直接进入发布流程，导致"内容编辑器未找到"等下游失败被误报为选择器问题。
+
+**修复方案**：
+
+- 恢复顺序保持「账号凭证 cookies → auth 分区补充 → localStorage/IndexedDB」，并确保三层凭证都恢复后再进入发布；
+- 发布前增加 DOM 级登录态探测（等待工作台特征元素），探测失败时明确报"登录态恢复失败"而非继续发布；
+- 微信公众号编辑器选择器继续按新版 DOM 扩展，并增加登录态前置检查。
+
+#### 蚁小二逆向工程补充：三层凭证恢复机制
+
+蚁小二 4.0（D:\Data\yixiaoer-extracted\）逆向分析确认，平台登录态由三层凭证构成：
+
+| 层级 | 内容 | 存储位置 | 恢复方式 |
+|------|------|---------|---------|
+| Cookie | 登录 Cookie（含父域 Cookie） | Electron session | `session.cookies.set` 逐条恢复 |
+| localStorage | 登录态/用户信息 | 页面 localStorage | 加载登录页后 `executeJavaScript` 注入 |
+| IndexedDB | 会话/缓存数据 | 页面 IndexedDB | 加载登录页后注入 |
+
+**对 RPA 的启示**：
+
+- 三层凭证必须同时恢复，缺任一层都可能出现"Cookie 存在但未登录"；
+- Cookie 恢复要保留父域 Cookie（如 BDUSS），不能只恢复过滤后的子集；
+- 恢复后必须做 DOM 级登录态验证，不能以"凭证已恢复"代替"已登录"。

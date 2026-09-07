@@ -78,7 +78,7 @@ class RpaViewManager {
     let removeProxyAuthHandler = function () {}
     try {
       if (hasAccountProxy) removeProxyAuthHandler = await this._configureProxy(win, authData.proxy)
-      if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies); this._emitProgress(platform,'cookies restored',2) }
+      if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies,platform); this._emitProgress(platform,'cookies restored',2) }
       await this._restoreAuthPartitionCookies(win, platform, article&&article.accountId)
       await this._restoreBrowserStorage(win, platform, authData)
       const mn = '_publish_'+platform

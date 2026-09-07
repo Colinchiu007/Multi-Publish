@@ -12,8 +12,17 @@ const { BrowserWindow, session, app } = require('electron')
 const path = require('path')
 const log = require('./logger')
 const { normalizeProxyConfig, toElectronProxyRules } = require('./proxy-config')
-const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { PLATFORM_LOGIN_URLS, PLATFORM_COOKIE_DOMAINS } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { restoreLocalStorage, restoreIndexedDB } = require('./auth-view-session')
+
+// 平台默认域名：无 domain/url 的 cookie 按平台补 url（Electron cookies.set 要求 url）
+function defaultCookieUrl (platform, cookie) {
+  const domains = PLATFORM_COOKIE_DOMAINS[platform] || []
+  const domain = domains[0]
+  if (!domain) return ''
+  const secure = cookie && typeof cookie.secure === 'boolean' ? cookie.secure : true
+  return (secure ? 'https' : 'http') + '://' + String(domain).replace(/^\./, '') + '/'
+}
 
 const sessionMixin = {
   // ========== Window management ==========
@@ -54,7 +63,7 @@ const sessionMixin = {
   },
 
   // ========== Cookie / browser storage restore ==========
-  async _restoreCookies(win, cookies) {
+  async _restoreCookies(win, cookies, platform) {
     if (!cookies||!cookies.length) return
     let restored = 0
     // eslint-disable-next-line no-unused-vars
@@ -73,13 +82,19 @@ const sessionMixin = {
           setArgs.url = (c.secure ? 'https' : 'http') + '://' + c.domain.replace(/^\./, '') + '/'
           setArgs.domain = c.domain
         } else {
-          continue
+          // 无 domain 且无 url 的 cookie：按平台默认域名补 url，避免静默丢弃
+          const fallbackUrl = defaultCookieUrl(platform, c)
+          if (!fallbackUrl) continue
+          setArgs.url = fallbackUrl
         }
         await win.webContents.session.cookies.set(setArgs)
         restored += 1
       } catch (e) { /* ignore invalid cookie */ }
     }
     log.info('RpaView','Restored '+restored+'/'+cookies.length+' cookies')
+    if (restored === 0 && cookies && cookies.length > 0) {
+      log.warn('RpaView','[' + (platform || 'unknown') + '] cookie restore failed: 0/' + cookies.length + ' cookies restored')
+    }
   },
 
   // 从最新登录分区补充完整 cookie（登录会话是最权威来源，可补回凭证过滤丢掉的父域 cookie 如 BDUSS）
@@ -90,25 +105,38 @@ const sessionMixin = {
         path.join(app.getPath('userData'), 'session', 'Partitions'),
         path.join(app.getPath('userData'), 'Partitions'),
       ]
-      const prefix = 'auth-auth-' + platform + '-'
+      // 实际 auth 分区由 auth-view-session.createSession 创建，格式 persist:auth-{accountId}，
+      // accountId 形如 auth-{platform}-{ts}（auth-view-manager/qrcode-login）→ 分区 auth-auth-{platform}-{ts}。
+      // 用户保存账号后的 accountId（acc-1 等）与 webview-manager 的 persist:account-{accountId} 直接对应。
+      // 因此同时按 accountId 与 platform 构造前缀，兼容 auth-auth-/auth-/account- 三种格式。
+      const prefixes = []
+      if (typeof accountId === 'string' && accountId) {
+        prefixes.push('auth-' + accountId)
+        prefixes.push('account-' + accountId)
+      }
+      prefixes.push('auth-auth-' + platform + '-')
+      prefixes.push('auth-' + platform + '-')
       let latestDir = null
       for (const root of roots) {
         if (!fs.existsSync(root)) continue
         let names = []
         try { names = fs.readdirSync(root) } catch (_) { continue }
-        const candidates = names
-          .filter(function (name) { return name.startsWith(prefix) })
-          .filter(function (name) {
-            try { return fs.statSync(path.join(root, name)).isDirectory() } catch (_) { return false }
-          })
-          .sort()
-        if (candidates.length > 0) {
-          latestDir = path.join(root, candidates[candidates.length - 1])
-          break
+        for (const prefix of prefixes) {
+          const candidates = names
+            .filter(function (name) { return name.startsWith(prefix) })
+            .filter(function (name) {
+              try { return fs.statSync(path.join(root, name)).isDirectory() } catch (_) { return false }
+            })
+            .sort()
+          if (candidates.length > 0) {
+            latestDir = path.join(root, candidates[candidates.length - 1])
+            break
+          }
         }
+        if (latestDir) break
       }
       if (!latestDir) {
-        log.info('RpaView', '[' + platform + '] no auth partition to supplement cookies')
+        log.warn('RpaView', '[' + platform + '] no auth partition to supplement cookies (searched ' + prefixes.join(',') + ' in ' + roots.join(',') + ')')
         return 0
       }
       const partitionName = path.basename(latestDir)
@@ -130,6 +158,9 @@ const sessionMixin = {
         } catch (e) { /* ignore invalid cookie */ }
       }
       log.info('RpaView', '[' + platform + '] supplemented ' + restored + '/' + cookies.length + ' cookies from auth partition ' + partitionName)
+      if (restored === 0 && cookies && cookies.length > 0) {
+        log.warn('RpaView', '[' + platform + '] auth partition ' + partitionName + ' had ' + cookies.length + ' cookies but none could be restored')
+      }
       return restored
     } catch (e) {
       log.warn('RpaView', '[' + platform + '] auth partition cookie supplement failed: ' + e.message)
