@@ -24,6 +24,8 @@ function createWechatContext() {
     _fillInFrame: vi.fn().mockResolvedValue(undefined),
     _click: vi.fn().mockResolvedValue(true),
     _sleep: vi.fn().mockResolvedValue(undefined),
+    _waitForResponse: vi.fn().mockResolvedValue(null),
+    _waitForCondition: vi.fn().mockResolvedValue(true),
   }
 }
 
@@ -43,6 +45,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
     const win = {
       webContents: {
         getURL: vi.fn().mockReturnValue(url),
+        getTitle: vi.fn().mockReturnValue(''),
         executeJavaScript,
       },
     }
@@ -109,8 +112,10 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
 
   it('群发列表找不到已保存草稿时返回失败', async () => {
     const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    // 调用顺序：登录态检测（新）→ 同意勾选 → 群发列表草稿选择
     executeJavaScript
-      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({ hasTimeout: false, hasLoginPrompt: false })
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(false)
     const context = createWechatContext()
 

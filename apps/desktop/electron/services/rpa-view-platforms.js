@@ -861,6 +861,15 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('connect'))
       return { success:false, error:'wechat_mp not logged in', platform:'wechat_mp' }
 
+    // 登录态检测：URL 未跳转但页面已显示"登录超时/请重新登录"（公众号后台 SPA 常见），提前 fail
+    try {
+      const loginState = await win.webContents.executeJavaScript('(function(){var t=(document.body&&document.body.innerText)||"";var s=t.slice(0,6000);return {hasTimeout:/登录超时|登录已过期|登录状态已失效|请重新登录/.test(s),hasLoginPrompt:/立即登录|扫码登录|请登录|重新登录/.test(s)}})()').catch(function(){ return { hasTimeout:false, hasLoginPrompt:false } })
+      if (loginState && (loginState.hasTimeout || loginState.hasLoginPrompt)) {
+        log.warn('RpaView','[wechat_mp] login expired page detected, fail fast url='+curUrl)
+        return { success:false, error:'微信公众号登录超时，请重新登录', platform:'wechat_mp' }
+      }
+    } catch (_) { /* 检测失败不阻塞，继续尝试 */ }
+
     // Fill title
     if (article.title) {
       this._emitProgress('wechat_mp','filling title...',20)
@@ -882,6 +891,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
           if (await this._waitForElement(win,iframeSel,5000)) {
             await this._fillInFrame(win,iframeSel,'#js_editor_content, [contenteditable="true"]',article.content)
           } else {
+            // 诊断：dump 页面关键 DOM 结构，帮助区分登录失效/编辑器改版/iframe 跨域
+            try {
+              const domDiag = await win.webContents.executeJavaScript('(function(){var t=(document.body&&document.body.innerText)||"";var ceds=[...document.querySelectorAll("[contenteditable=true]")].map(function(e){return {cls:String(e.className||"").slice(0,120),tag:e.tagName}});var editors=[...document.querySelectorAll("[class*=editor],[class*=Editor],[class*=rich_media],[class*=content],[id*=editor],[id*=content]")].map(function(e){return {tag:e.tagName,id:e.id||"",cls:String(e.className||"").slice(0,120)}}).slice(0,20);var iframes=[...document.querySelectorAll("iframe")].map(function(f){return {src:String(f.src||"").slice(0,160),id:f.id||""}}).slice(0,10);var textareas=document.querySelectorAll("textarea").length;return {text:t.replace(/\\s+/g," ").slice(0,300),contenteditable:ceds.slice(0,10),editorLike:editors,iframes:iframes,textareas:textareas}})()')
+              log.warn('RpaView','wechat_mp content editor not found, DOM diag: '+JSON.stringify(domDiag).slice(0,1500))
+            } catch (diagError) { log.warn('RpaView','wechat_mp DOM diag failed: '+diagError.message) }
             log.warn('RpaView','wechat_mp content editor not found, aborting save url='+win.webContents.getURL()+' title='+win.webContents.getTitle()); return { success:false, error:'微信公众号内容编辑器未找到，已中止保存', platform:'wechat_mp' }
           }
         }

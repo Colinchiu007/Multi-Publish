@@ -16,6 +16,20 @@
 - **预防**：新增 `rpa-selector-utils.test.js` 覆盖多 `:has-text` 选择器；`_publish_wechat_mp` 错误处理硬化；未来 publish 前增加轻量登录态预检。
 
 ---
+
+## 多平台发布 E2E 真实环境测试复盘（第二轮，2026-09-07）
+
+- **背景**：在第一轮凭证检测硬化与 RPA 选择器修复后，对 4 个已登录平台（微信公众号/头条/抖音/视频号）进行第二轮真实发布测试（智能手环睡眠改善主题文章）。4 个平台应用账号列表均显示 `has_cookies:true`，但微信公众号 RPA 窗口仍显示"登录超时"，发布失败。
+- **根因 1（has_cookies 语义被误读）**：`has_cookies:true` 只表示本地加密凭证文件存在（`checkLocalCredentials` 检测），不表示凭证内容有效，更不表示 RPA 窗口能使用这些 Cookie。第二轮 4 个平台全部 `has_cookies:true` 但发布仍失败，证明凭证存在 ≠ 登录态有效。
+- **根因 2（Auth 分区与 RPA 分区独立 session）**：Auth 登录窗口（`persist:auth-auth-{platform}-{accountId}`）与 RPA 发布窗口（`persist:rpa-{platform}-{accountId}`）是独立 Electron session，登录时写入 auth 分区的 Cookie 不会自动出现在 RPA 分区。`rpa-view-manager.js publish()` 已按「账号凭证 cookies → `_restoreAuthPartitionCookies`（auth 分区补充，可补回父域 Cookie 如 BDUSS）→ `_restoreBrowserStorage`（localStorage/IndexedDB）」顺序恢复，但恢复后未验证 RPA 窗口是否真正登录。
+- **根因 3（登录态检测仅依赖 URL 关键字不可靠）**：部分平台登录后 URL 不变、或登录页与工作台共用域名，仅靠 URL 关键字（如 login.html）判断登录态会误判。需 DOM 探测：等待工作台特征元素（编辑器/发布按钮/账号头像）出现作为登录判据。
+- **根因 4（微信公众号新版编辑器 DOM 变化）**：`#js_editor_content`、`.ProseMirror` 等旧选择器不再匹配新版后台。第一轮已新增 `#js_editor`/`.editor-area`/`[data-lexical-editor="true"]`，本轮仍"内容编辑器未找到"，说明选择器覆盖仍不完整或登录态未恢复导致编辑器未渲染——需先区分"未登录"与"选择器失配"。
+- **教训 1（RPA Cookie 恢复需同时从 auth 分区和 account 分区补充）**：账号凭证中的 cookies 可能是过滤后的子集（丢失父域 Cookie），单独恢复不足以建立完整登录态；必须同时从 auth 登录分区补充完整 Cookie，并恢复 localStorage/IndexedDB 三层凭证。
+- **教训 2（登录态检测不应仅依赖 URL 关键字，需 DOM 探测）**：发布前必须等待目标平台工作台特征元素出现，探测失败应明确报"登录态恢复失败"，而不是继续发布导致下游"编辑器未找到"等误报。
+- **教训 3（蚁小二三层凭证恢复机制对 RPA 的启示）**：蚁小二逆向确认平台登录态由 Cookie + localStorage + IndexedDB 三层构成，缺任一层都可能"Cookie 存在但未登录"。RPA 恢复必须三层齐备，且恢复后做 DOM 级登录态验证。
+- **待办**：视频号发布验证超时（需更长超时或轮询验证）；头条发布后未出现在历史记录（需进一步诊断）；抖音未在本次覆盖。
+
+---
 ## OpsCenter 运行时配置 Ed25519 签名验签（codex/stage-1.6-runtime-verify，2026-09-02）
 ## Video Clone 流水线成品视频展示缺失（codex/video-clone-result-download，2026-09-05）
 
