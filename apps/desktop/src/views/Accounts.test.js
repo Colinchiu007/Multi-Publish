@@ -697,16 +697,15 @@ describe("AccountsView", () => {
     expect(w.vm.authViewVisible).toBe(false);
   });
 
-  it("网页登录改为全屏标签呈现，账号页不再显示完成登录横幅", async () => {
+  it("网页登录显示 login-state 横幅，包含「我已完成登录」按钮与关闭按钮", async () => {
     const { authCompleteLogin } = await import("@/api/publisher");
     const w = await mountView();
     _eventCallbacks.authOpened({ platform: "wechat_mp" });
     await nextTick();
 
-    // 完成登录入口已迁移到导航栏「保存账号」按钮（App.vue/NavBar.vue），
-    // 账号页不再渲染 login-state 横幅与浮动关闭按钮
-    expect(w.find(".login-state").exists()).toBe(false);
-    expect(w.find(".floating-close-button").exists()).toBe(false);
+    // 浏览器模式下应显示 login-state 横幅，包含「我已完成登录」按钮
+    expect(w.find(".login-state").exists()).toBe(true);
+    expect(w.find(".complete-login").exists()).toBe(true);
     expect(authCompleteLogin).not.toHaveBeenCalled();
   });
 
