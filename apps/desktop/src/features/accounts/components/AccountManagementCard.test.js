@@ -73,7 +73,7 @@ describe('AccountManagementCard', () => {
     const expiredAccount = { ...account, status: 'inactive' }
     const wrapper = mountCard({ account: expiredAccount })
 
-    expect(wrapper.text()).toContain('已过期')
+    expect(wrapper.text()).toContain('已失效')
     await wrapper.get('[data-testid="login-account-1"]').trigger('click')
 
     expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])

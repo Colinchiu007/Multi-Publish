@@ -38,7 +38,7 @@ function createAccountApi(ipcRenderer) {
     accountSetProxy: (accountId, platform, proxy) => ipcRenderer.invoke('account:set-proxy', { accountId, platform, proxy }),
 
     // 内嵌浏览器登录 API
-    authOpenLogin: (platform) => ipcRenderer.invoke('auth:open-login', platform),
+    authOpenLogin: (platform, accountId) => ipcRenderer.invoke('auth:open-login', { platform, accountId }),
     authCompleteLogin: () => ipcRenderer.invoke('auth:complete-login'),
     authClose: () => ipcRenderer.invoke('auth:close'),
     onAuthViewOpened: (callback) => {

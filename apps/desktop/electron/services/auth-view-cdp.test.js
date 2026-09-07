@@ -7,12 +7,12 @@ beforeAll(async () => {
 });
 
 describe("isLoginSuccess", () => {
-  it("detects login with dedeUserID", () => {
-    expect(cdp.isLoginSuccess({ code: 0, data: { dedeUserID: "12345" } })).toBe(true);
+  it("rejects dedeUserID alone (expired session polling emits mid/dedeUserID too)", () => {
+    expect(cdp.isLoginSuccess({ code: 0, data: { dedeUserID: "12345" } })).toBe(false);
   });
 
-  it("detects login with mid", () => {
-    expect(cdp.isLoginSuccess({ code: 0, data: { mid: "user_abc" } })).toBe(true);
+  it("rejects mid alone (expired session polling emits mid/dedeUserID too)", () => {
+    expect(cdp.isLoginSuccess({ code: 0, data: { mid: "user_abc" } })).toBe(false);
   });
 
   it("detects login with access_token", () => {

@@ -6009,6 +6009,177 @@ create-view-utils.js / cloud-publisher.js / platform-selectors.js / media-profil
 
 ### 变更文件
 - 9 个生产代码文件，+13/-13 行
+## 账号管理 v10：重新登录流程修复 + CDP 自动完成误判修正 + 凭证覆盖更新（2026-09-07）
+
+### 问题描述
+
+1. 哔哩哔哩账号点击验证提示登录已失效，点击去登录打开登录页面后，还没扫码页面就突然关闭。其他平台也是同样情况。
+2. 登录失效后卡片状态不动态更新，仍显示已登录 + disabled 去登录按钮，导致对已有账号无法再次登录。
+3. 百家号登录成功后无交互反馈，返回账号管理页后登录状态也不刷新。
+
+### 根因分析
+
+#### 1. CDP 自动完成误判（auth-view-cdp.js:41-48）
+
+isLoginSuccess 函数将 bilibili API 响应中的 mid（用户 ID）和 dedeUserID 字段误判为登录成功。这两个字段在已过期会话的轮询响应中也会出现（例如 passport.bilibili.com 的跨域登录状态检查接口），导致 _scheduleAutoCompletion 被触发，登录视图在用户扫码前就提前关闭。
+
+修改：isLoginSuccess 仅接受 data.data.isLogin === true 或 data.data.access_token 为登录成功信号，移除 mid / dedeUserID 误判。
+
+#### 2. 重新登录语义缺失（account-manager.js / account.js）
+
+auth:open-login IPC 通道始终走 saveCapturedAccount 创建新账号（POST /api/accounts），缺少对已有账号的凭证覆盖更新路径。重新登录会变成新增重复账号，而非更新已有账号凭证。
+
+修改：
+- 新增 updateCapturedAccount(platform, captured, accountId) 主进程函数，覆盖已有账号的加密凭据（credentialStore.saveCredential 原子写入）并更新后端公开元数据（PATCH /api/accounts/{id}）
+- auth:open-login IPC handler 扩展为接受 {platform, accountId?} 对象，向后兼容旧 platform 字符串调用
+- Preload -> API -> Composable 逐层透传 accountId 参数
+
+#### 3. 状态不动态更新（Accounts.vue:793-819）
+
+checkLogin 检测到失效后，只在确认对话框中提示，未更新本地 accountStore.accounts 中对应账号的 status 字段，导致卡片仍显示已登录。
+
+修改：检测到失效后，通过 findIndex + 数组赋值将 status 置为 expired，使 AccountManagementCard 的 isActive() 返回 false，从而动态变更为已失效徽章 + 去登录按钮。
+
+### 完整数据流与交互流程
+
+#### 验证与重新登录流程
+
+1. 用户点击验证按钮
+2. Accounts.vue checkLogin(account) -> accountActions.checkLogin(account) -> accountCheckLogin(platform, accountId) [IPC: account:check-login]
+3. AccountManager.checkLoginStatus(platform, accountId) 加载加密凭据 -> Playwright 注入 Cookie -> 访问平台主页 -> 检查登录成功选择器
+4. 返回 { valid: true/false, code: ... }
+5. valid=true: notifySuccess 登录状态正常
+6. valid=false:
+   - 立即更新本地状态：accountStore.accounts[i].status = expired
+   - 弹出确认对话框：账号登录已失效（{原因}），建议重新登录以确保正常使用
+   - 按钮：取消 / 去登录
+   - 用户点去登录 -> reloginAccount(account)
+     - accountActions.openLogin(browser, platform, accountId) -> authOpenLogin(platform, accountId) [IPC: auth:open-login]
+     - authViewManager.openLogin(platform) 创建 WebContentsView -> 加载平台登录页
+     - CDP 检测登录成功（isLoginSuccess 仅接受 isLogin===true / access_token）
+     - 用户完成登录 -> 自动提取凭证（cookies / localStorage / indexedDB）
+     - accountId 非空：updateCapturedAccount(platform, result, accountId) 覆盖凭证
+     - accountId 为空：saveCapturedAccount(platform, result) 新建账号
+     - 发送 auth:completed 事件到渲染进程 -> useAccountEvents.onCompleted -> refresh() 刷新列表
+     - notifySuccess 账号重新登录成功
+
+#### 卡片状态动态变更
+
+AccountManagementCard 组件通过 account.status 字段驱动显示：
+
+| status 值 | isActive() | 按钮显示 | 徽章文字 | 按钮 disabled |
+|-----------|-----------|---------|---------|--------------|
+| active / online | true | 已登录 | 已登录 | true |
+| inactive / offline / expired | false | 去登录 | 已失效 | false |
+| error / failed | false | 去登录 | 异常 | false |
+| 其他 / 未设置 | false | 去登录 | 暂无检查 | false |
+
+checkLogin 检测到失效后，通过 accountStore.accounts[accountIndex] = { ...原对象, status: expired } 触发 Vue 响应式更新，使卡片即时从已登录状态切换为已失效 + 去登录按钮。
+
+### 数据校验
+
+**IPC 参数校验（account.js:203-211）**：
+- platform：必须通过 _isSafePathSegment 检查（仅允许 [a-zA-Z0-9_-]+）
+- accountId（可选）：若提供，必须通过 _isSafePathSegment 检查
+- 兼容旧调用：仅传 platform 字符串时，自动解包为 { platform, accountId: undefined }
+
+**后端请求体校验（server.py:225-238）**：
+- AccountUpdateRequest 模型 extra=forbid：拒绝任何非白名单字段（包括 cookies/auth_data 等凭据字段）
+- 所有字段均为可选（None），仅更新提供的字段
+- last_validated 接受 ISO 8601 字符串
+
+**凭证存储校验（account-manager.js:updateCapturedAccount）**：
+- 先验证账号存在：GET /api/accounts/{accountId} 返回 code=0 且 platform 匹配
+- 凭证有效性：至少包含 1 个 Cookie 或 1 个 localStorage 键或 1 个 indexedDB 键
+- 平台域名过滤：isPlatformCookieDomain 阻止跨域 Cookie 注入
+- 原子写入：credentialStore.saveCredential 使用临时文件 + rename 防止崩溃损坏
+- 后端更新失败不阻断：PATCH 失败仅记录 warn 日志，依然更新本地凭证
+
+### 功能逻辑
+
+**新增登录（accountId 为空）**：openLogin(browser, platform) -> authOpenLogin(platform) -> IPC {platform, accountId: undefined} -> saveCapturedAccount(platform, result) -> POST /api/accounts 新建账号
+
+**重新登录（accountId 非空）**：openLogin(browser, platform, accountId) -> authOpenLogin(platform, accountId) -> IPC {platform, accountId} -> updateCapturedAccount(platform, result, accountId) -> PATCH /api/accounts/{id} 更新元数据 + credentialStore 覆盖凭据
+
+**取消/超时/错误处理**：
+| 场景 | 返回 | 渲染层处理 |
+|------|------|-----------|
+| 用户 Esc 关闭登录页 | {code:0, cancelled:true} | loginVisible=false，不弹错误 |
+| 登录超时 5 分钟 | {code: TIMEOUT_ERROR} | 弹错误提示 |
+| 凭证提取失败 | {code: REQUEST_ERROR} | 弹错误提示 |
+| 账号不存在 | updateCapturedAccount 抛异常 | 弹错误提示 |
+| 平台不匹配 | updateCapturedAccount 抛异常 | 弹错误提示 |
+| 旧调用兼容 | {code:0} 正常 | 走新建账号路径 |
+
+### 交互逻辑
+
+**验证按钮交互**：
+1. 点击验证 -> 按钮显示 loading 状态（verifyingIds Set 防重复点击）
+2. 验证通过 -> notifySuccess 登录状态正常 自动消失
+3. 验证失败 -> 卡片状态即时变更为 已失效
+4. 弹出确认对话框 -> 用户选择取消或去登录
+5. 选择去登录 -> 打开内嵌浏览器登录页（WebContentsView 全屏标签）
+6. 登录完成后 -> auth:completed 事件 -> 刷新列表 -> notifySuccess 账号重新登录成功
+
+**登录页交互**：
+1. 用户扫码/输入账号密码完成登录
+2. CDP 拦截到登录成功响应（isLogin=true 或 access_token）-> 延迟 3s 提取凭证
+3. 或 URL 检测到登录成功模式 -> 延迟 3s 提取凭证
+4. 凭证提取后自动保存（无需用户手动点我已完成登录）
+5. 百家号等无自动检测的平台：保留手动 我已完成登录 按钮
+
+### 显示项
+
+| 元素 | 值 | 来源 |
+|------|-----|------|
+| 卡片状态徽章 | 已登录 / 已失效 / 异常 / 暂无检查 | AccountManagementCard.statusLabel(account) |
+| 去登录按钮 | disabled 当 isActive=true | AccountManagementCard.isActive(account) |
+| 验证通过提示 | 登录状态正常 | accountsPage.loginValid |
+| 验证失败弹窗 | 账号登录已失效（{原因}），建议重新登录以确保正常使用。 | accountsPage.loginExpiredMessage |
+| 重新登录成功 | 账号重新登录成功 | accountsPage.reloginSuccess |
+| 重新登录失败 | 重新登录失败 | accountsPage.reloginFailed |
+
+### 提示文字清单
+
+| 场景 | zh | en |
+|------|-----|-----|
+| 验证通过 | 登录状态正常 | Login status is normal |
+| 验证失败标题 | 登录已失效 | Session expired |
+| 验证失败正文 | 账号登录已失效（{原因}），建议重新登录以确保正常使用。 | Account login has expired ({reason}). Please re-login to ensure normal use. |
+| 确认按钮 | 去登录 | Go to login |
+| 取消按钮 | 取消 | Cancel |
+| 重新登录成功 | 账号重新登录成功 | Account re-signed in successfully |
+| 重新登录失败 | 重新登录失败 | Re-login failed |
+| 重新登录已取消 | 已取消重新登录 | Re-sign in cancelled |
+| 卡片状态-已登录 | 已登录 | Logged in |
+| 卡片状态-已失效 | 已失效 | Invalid |
+| 卡片按钮-去登录 | 去登录 | Log in |
+
+### 变更文件
+
+| 文件 | 变更行数 | 变更类型 |
+|------|---------|---------|
+| auth-view-cdp.js | +2/-3 | CDP 误判修正 |
+| account-manager.js | +107 | 新增 updateCapturedAccount |
+| account.js (IPC) | +25/-8 | 扩展 auth:open-login 参数 |
+| server.py | +36 | 新增 PATCH 端点 + AccountUpdateRequest |
+| preload/account.js | +1/-1 | 签名扩展 |
+| publisher.js | +1/-1 | 签名扩展 |
+| useAccountActions.js | +2/-2 | 透传 accountId |
+| Accounts.vue | +16/-4 | 状态更新 + relogin 传递 |
+| locales/zh.js | +1/-1 | 已过期->已失效 |
+| locales/en.js | +1/-1 | Expired->Invalid |
+| 测试 | +8/-2 | 断言更新 + 回归测试 |
+
+### 测试
+
+- Accounts.test.js: 82 passed（含 2 个新增回归测试）
+- AccountManagementCard.test.js: 15 passed / 1 skipped
+- useAccountActions.test.js: 4 passed
+- publisher.test.js: 236 passed
+- FirstRun.test.js: 19 passed
+- check-locale-sync.js --pair-base origin/main: PASS
+- check-locale-sync.js --keys: PASS（675 key）
 
 ## 账号管理 v10：视频号平台标识符统一（tencent_video ↔ shipinhao，2026-09-07）
 
@@ -6244,3 +6415,130 @@ create-view-utils.js / cloud-publisher.js / platform-selectors.js / media-profil
 - 三层凭证必须同时恢复，缺任一层都可能出现"Cookie 存在但未登录"；
 - Cookie 恢复要保留父域 Cookie（如 BDUSS），不能只恢复过滤后的子集；
 - 恢复后必须做 DOM 级登录态验证，不能以"凭证已恢复"代替"已登录"。
+
+## 账号管理 v11：CI 失败修复 + 百家号重登录后状态不刷新（2026-09-07）
+
+### 背景（第一性原因）
+
+PR #1542 首次提交（e82a7907）在 CI `electron-tests` 检查中失败，2 个测试断言错误。此外，用户反馈百家号（及其他无 URL 自动完成的平台）登录成功后，账号管理页面内登录状态不刷新。
+
+经根因溯源（QM-5 第一步），发现了 **3 个独立根因**：
+
+#### 根因 1：CDP 测试未同步更新
+
+`auth-view-cdp.js` 的 `isLoginSuccess` 函数在 v10 修复中被硬化为只接受 `isLogin===true` 或 `access_token`（因为 `mid`/`dedeUserID` 在已过期会话的轮询中也会出现，不能作为登录成功判据）。但 `auth-view-cdp.test.js` 中的 2 个测试仍期望 `dedeUserID` 和 `mid` 能通过，导致测试失败。
+
+**逃逸链**：单元测试 → 本地测试通过（但 CI 环境使用不同 Vitest 配置）→ 代码审查未发现「逻辑变更后测试未同步」。
+
+**系统性漏洞**：测试与实现之间的契约断裂——修改实现逻辑后未运行完整测试套件。
+
+#### 根因 2：Preload bundle 未重建
+
+`electron/preload/account.js` 中 `authOpenLogin` 的签名已更新为 `(platform, accountId)`，但编译产物 `electron/preload/index.bundle.js` 仍为旧签名 `(platform)`。这导致 `accountId` 参数永远不会传递给 IPC handler `auth:open-login`，重新登录时 `accountId` 为 `undefined`，`updateCapturedAccount` 分支永不触发，始终走 `saveCapturedAccount` 创建重复账号。
+
+**逃逸链**：`index.bundle.js` 是编译产物，不在常规 lint/build 检查路径中 → 代码审查仅检查了源文件 → 实际运行时加载的是编译产物。
+
+**系统性漏洞**：CI 缺少「preload bundle 是否与源文件一致」的检查。
+
+#### 根因 3：login-state 横幅在浏览器模式下不可见（核心根因）
+
+`Accounts.vue` 第 89 行：
+
+```html
+<div v-if="authViewVisible && loginMode === 'qrcode'" class="login-state" role="status">
+```
+
+`v-if` 条件为 `authViewVisible && loginMode === 'qrcode'`，**只对二维码模式显示**。浏览器模式（`loginMode === 'browser'`）时，login-state 横幅完全不渲染。
+
+login-state 横幅包含两个关键控件：
+- **「我已完成登录」按钮**（`completeAuthView`）：调用 `authViewManager.completeLogin()` 提取当前视图的 cookies/localStorage/indexedDB，然后保存账号
+- **关闭按钮**（`closeAuthView`）：关闭登录视图
+
+对于百家号（`baijiahao`）等 `PLATFORM_LOGIN_SUCCESS_PATTERNS` 为**空数组**的平台（v10 注释：`该平台关闭 URL 自动完成，改由用户点击"我已完成登录"`），这个按钮是**用户登录成功后唯一的凭证提取触发途径**。CDP 检测也只监听 bilibili 域名，不覆盖百家号。
+
+结果：用户在百家号登录页扫码/输入密码登录成功后，**看不到任何操作按钮**，无法手动触发凭证提取和保存，登录视图只能通过 Esc 关闭（此时 `cancelled: true`，凭证丢弃）。
+
+### 修复方案
+
+#### 修复 1：auth-view-cdp.test.js 测试断言同步
+
+- 将「detects login with dedeUserID」测试从 `toBe(true)` 改为 `toBe(false)`，重命名为「rejects dedeUserID alone」
+- 将「detects login with mid」测试从 `toBe(true)` 改为 `toBe(false)`，重命名为「rejects mid alone」
+- 保留 `access_token` 和 `isLogin=true` 的通过测试
+
+#### 修复 2：重建 preload bundle
+
+运行 `node scripts/build-preload.js`，将 `account.js` 的最新签名编译到 `index.bundle.js`：
+
+```
+// 旧: authOpenLogin: (platform) => ipcRenderer.invoke("auth:open-login", platform)
+// 新: authOpenLogin: (platform, accountId) => ipcRenderer.invoke("auth:open-login", { platform, accountId })
+```
+
+#### 修复 3：login-state 横幅对浏览器模式也显示
+
+将 `v-if="authViewVisible && loginMode === 'qrcode'"` 改为 `v-if="authViewVisible"`。
+
+同时更新 `Accounts.test.js` 中对应测试，从「断言 login-state 不可见」改为「断言 login-state 可见且包含 complete-login 按钮」。
+
+### 数据校验
+
+1. **login-state 显示条件**：`authViewVisible` 为 `true` 即显示（不再限制 `loginMode`），由 `useAccountEvents` 的 `markOpening('browser', platform)` 设为 `true`。
+2. **complete-login 按钮**：在 `loginMode === 'browser'` 时显示，调用 `completeAuthView()` → `authCompleteLogin()` → `authViewManager.completeLogin()`。
+3. **close 按钮**：始终显示，调用 `closeAuthView()` → `authClose()` → `authViewManager.close()`。
+4. **preload bundle 一致性**：`authOpenLogin` 签名必须为 `(platform, accountId)`，将 `{ platform, accountId }` 对象传给 IPC。
+5. **CDP isLoginSuccess**：仅接受 `data.data.isLogin === true` 或 `data.data.access_token` 存在，拒绝 `mid`/`dedeUserID` 及其他字段。
+
+### 功能逻辑与交互逻辑
+
+```
+用户点击「验证」按钮 → checkLogin(account)
+  → accountCheckLogin(platform, accountId) → IPC: account:check-login
+  → 后端检测登录态
+  ├── 有效 → notifySuccess "登录状态正常"
+  └── 失效 → 设置 account.status = 'expired'（卡片动态变更为"已失效"）
+       → 弹出确认对话框：账号登录已失效（{原因}），建议重新登录以确保正常使用
+       → 用户点击「去登录」
+       → reloginAccount(account) → openLogin('browser', platform, accountId)
+       → authOpenLogin(platform, accountId) → IPC: auth:open-login {platform, accountId}
+       → authViewManager.openLogin(platform) → WebContentsView 加载平台登录页
+       → markOpening('browser', platform) → loginVisible=true, loginMode='browser'
+       → **[修复后]** login-state 横幅可见，显示平台名称 + 登录状态文字
+       → **[修复后]** 显示「我已完成登录」按钮 + 「关闭」按钮
+       → 用户在平台页面完成登录（扫码/输入密码）
+       → 用户点击「我已完成登录」
+       → completeAuthView() → authCompleteLogin() → authViewManager.completeLogin()
+       → 提取 cookies/localStorage/indexedDB
+       → accountId 非空 → updateCapturedAccount(platform, result, accountId)
+       → 覆盖凭据存储 + PATCH 后端元数据
+       → auth:completed 事件 → 刷新列表 → notifySuccess "账号重新登录成功"
+```
+
+### 显示项与提示文字
+
+| 场景 | 中文 | 英文 |
+|------|------|------|
+| login-state 横幅（浏览器模式） | 平台名称 + "网页登录进行中" | Platform name + "Web login in progress" |
+| 「我已完成登录」按钮 | 我已完成登录 | I have completed login |
+| 「关闭」按钮 | 关闭 | Close |
+| 重新登录成功 | 账号重新登录成功 | Account re-signed in successfully |
+| 账号已失效 | 已失效 | Invalid |
+
+### 回归保护（QM-5 第四步）
+
+- **单元测试**：`auth-view-cdp.test.js` 6 个测试全部通过，验证 `isLoginSuccess` 的硬化逻辑。
+- **组件测试**：`Accounts.test.js` 82 个测试全部通过，包括新增的「网页登录显示 login-state 横幅」测试。
+- **组合测试**：`useAccountEvents.test.js`、`AccountManagementCard.test.js`、`useAccountActions.test.js` 全部通过。
+- **API 契约测试**：`publisher.test.js` 236 个测试全部通过。
+
+### 系统性漏洞与预防（QM-5 第五步）
+
+- **逃生入口**：`index.bundle.js` 是编译产物，不在常规 CI 检查范围。建议 CI 增加「preload bundle 一致性检查」—— 比较 `build-preload.js` 的源文件与产物 SHA 或时间戳，或在 CI 中重新构建并比较 diff。
+- **模板可见性**：`v-if` 条件过于严格导致交互控件不可见。建议审查所有 `v-if` 条件中 `loginMode` 的使用，确保「浏览器模式」和「二维码模式」的控件不互相排他。
+
+### 变更文件
+
+- `apps/desktop/electron/services/auth-view-cdp.test.js`（+4/-4）
+- `apps/desktop/electron/preload/index.bundle.js`（+1/-1）
+- `apps/desktop/src/views/Accounts.vue`（+1/-1）
+- `apps/desktop/src/views/Accounts.test.js`（+4/-5）

@@ -588,7 +588,7 @@ describe("AccountsView", () => {
     w.vm.newPlatform = "douyin";
     await w.vm.addAccount();
     const { authOpenLogin } = await import("@/api/publisher");
-    expect(authOpenLogin).toHaveBeenCalledWith("douyin");
+    expect(authOpenLogin).toHaveBeenCalledWith("douyin", undefined);
     expect(w.vm.showAddDialog).toBe(false);
     expect(w.vm.newPlatform).toBe("");
   });
@@ -654,7 +654,7 @@ describe("AccountsView", () => {
 
     await w.vm.reloginAccount(account);
 
-    expect(authOpenLogin).toHaveBeenCalledWith("zhihu");
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "expired-1");
     expect(w.vm.showAddDialog).toBe(false);
     expect(w.vm.pendingAuthAction).toBe("relogin");
   });
@@ -697,16 +697,15 @@ describe("AccountsView", () => {
     expect(w.vm.authViewVisible).toBe(false);
   });
 
-  it("网页登录改为全屏标签呈现，账号页不再显示完成登录横幅", async () => {
+  it("网页登录显示 login-state 横幅，包含「我已完成登录」按钮与关闭按钮", async () => {
     const { authCompleteLogin } = await import("@/api/publisher");
     const w = await mountView();
     _eventCallbacks.authOpened({ platform: "wechat_mp" });
     await nextTick();
 
-    // 完成登录入口已迁移到导航栏「保存账号」按钮（App.vue/NavBar.vue），
-    // 账号页不再渲染 login-state 横幅与浮动关闭按钮
-    expect(w.find(".login-state").exists()).toBe(false);
-    expect(w.find(".floating-close-button").exists()).toBe(false);
+    // 浏览器模式下应显示 login-state 横幅，包含「我已完成登录」按钮
+    expect(w.find(".login-state").exists()).toBe(true);
+    expect(w.find(".complete-login").exists()).toBe(true);
     expect(authCompleteLogin).not.toHaveBeenCalled();
   });
 
@@ -1064,6 +1063,40 @@ describe("AccountsView", () => {
     expect(ElMessage.success).toHaveBeenCalledWith("账号重新登录成功");
     expect(_spies.load).toHaveBeenCalledTimes(1);
     expect(w.vm.pendingAuthAction).toBeNull();
+  });
+
+  it("checkLogin 检测失效后把账号状态标记为 expired 并走重新登录认证流程", async () => {
+    const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
+    accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });
+    authOpenLogin.mockResolvedValue({ code: 0 });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue("confirm");
+    _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+    const w = await mountView();
+
+    await w.vm.checkLogin({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+
+    // 账号状态应动态更新为 expired
+    expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
+    // 确认后应走 reloginAccount（auth:open-login 认证流程），而非 openLoginPage 普通标签页
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "a1");
+    expect(w.vm.pendingAuthAction).toBe("relogin");
+  });
+
+  it("checkLogin 检测失效后用户取消确认不触发重新登录也不改变状态", async () => {
+    const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
+    accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockRejectedValue("cancel");
+    _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+    const w = await mountView();
+
+    await w.vm.checkLogin({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
+
+    // 即使取消确认，账号状态也应更新为 expired（用户已知失效事实）
+    expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
+    // 但不触发重新登录
+    expect(authOpenLogin).not.toHaveBeenCalled();
   });
 
   it("卸载时释放全部 Electron 登录事件订阅", async () => {

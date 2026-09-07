@@ -79,7 +79,7 @@ export async function accountSetProxy (accountId, platform, proxy) {
 }
 
 // ─── 内嵌浏览器登录 API ──────────────────
-export async function authOpenLogin(platform) { return invokeWithFallback("authOpenLogin", {  code: -1  }, platform) }
+export async function authOpenLogin(platform, accountId) { return invokeWithFallback("authOpenLogin", { code: -1 }, platform, accountId) }
 
 export async function authCompleteLogin() { return invokeWithFallback("authCompleteLogin", { code: -1, message: 'electronAPI not available' }) }
 

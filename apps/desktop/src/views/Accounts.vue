@@ -86,7 +86,7 @@
       </template>
     </div>
 
-    <div v-if="authViewVisible && loginMode === 'qrcode'" class="login-state" role="status">
+    <div v-if="authViewVisible" class="login-state" role="status">
       <component :is="loginMode === 'qrcode' ? Cellphone : Monitor" />
       <div>
         <strong>{{ authPlatformName }}</strong>
@@ -218,7 +218,7 @@
               @rename="renameAccount"
               @configure-proxy="openProxyDialog"
               @check-login="checkLogin"
-              @open-login="openLoginPage"
+              @open-login="reloginAccount"
               @remove="removeAccount"
             @open-creator="openCreatorCenter"
             />
@@ -689,8 +689,12 @@ async function reloginAccount (account) {
   pendingAuthAction.value = 'relogin'
   loginMode.value = 'browser'
   try {
-    const result = await accountActions.openLogin('browser', account.platform)
-    if (result?.code !== 0) {
+    const result = await accountActions.openLogin('browser', account.platform, account.id)
+    if (result?.cancelled) {
+      // 用户主动关闭登录页签/Esc 取消：不弹错误
+      loginVisible.value = false
+      pendingAuthAction.value = null
+    } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
       notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: result?.message || t('accountsPage.reloginFailed') }).message })
@@ -796,6 +800,11 @@ async function checkLogin (account) {
     if (result?.code === 0 && result.data?.valid) {
       notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid') })
     } else {
+      // 账号登录已失效：立即更新本地状态，让卡片动态变更为"已失效"+【去登录】按钮
+      const accountIndex = accountStore.accounts.findIndex(a => a.id === id)
+      if (accountIndex !== -1) {
+        accountStore.accounts[accountIndex] = { ...accountStore.accounts[accountIndex], status: 'expired' }
+      }
       // 使用错误码映射到 i18n 文案，避免后端硬编码消息直接展示
       const errorCode = result?.data?.code || 'CHECK_LOGIN_COOKIE_EXPIRED'
       const reasonKey = 'accountsPage.accountCheckStatus.' + errorCode
@@ -807,7 +816,11 @@ async function checkLogin (account) {
         cancelButtonText: t('accountsPage.cancel'),
         type: 'warning',
       })
-      if (confirmed) await openLoginPage(account)
+      if (confirmed) {
+        // 使用 reloginAccount 走完整认证流程（auth:open-login），
+        // 而非 openLoginPage 的普通浏览器标签页（无凭证捕获机制，登录成功也无法保存）
+        await reloginAccount(account)
+      }
     }
   } catch (error) {
     notifyError('accountsPage.verifyFailed', { message: formatUserError(error, { fallback: t('accountsPage.verifyFailed') }).message })
