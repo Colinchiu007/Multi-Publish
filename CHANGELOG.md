@@ -1,3 +1,14 @@
+## [未发布] fix(accounts): preload 补全 listAccounts 方法 v8（2026-09-07）
+
+### 根因
+- 渲染层 publisher.js 的 listAccounts() 调用 window.electronAPI.listAccounts（映射到 accounts:list IPC），但 preload/account.js 只暴露了 accountList（account:list 通道），从未暴露 listAccounts，导致 invokeWithFallback 始终返回空 fallback { code: 0, data: [] }，账号列表页永远显示 0 个账号。
+
+### 修复
+- preload/account.js：在 createAccountApi 中新增 listAccounts: () => ipcRenderer.invoke('accounts:list')，与前端 publisher.js 的 listAccounts() 调用匹配。
+
+### 验证
+- CDP 真实环境 E2E 18/19 通过；账号卡片从 0 恢复为 3 个，删除确认弹窗、收藏/验证/代理/登录/重命名按钮均正常。
+
 ## [未发布] fix(accounts): accounts:list 通道接入孤儿凭据清理 v7（2026-09-07）
 
 ### 根因

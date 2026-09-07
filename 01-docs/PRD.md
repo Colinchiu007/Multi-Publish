@@ -5816,3 +5816,47 @@ const data = Array.isArray(accounts) ? accounts.map(toPublicAccount) : []
 
 ### 变更文件
 - apps/desktop/electron/ipc-handlers/account.js (+3/-6)
+
+---
+
+## 账号管理 v8：preload 补全 listAccounts 方法（2026-09-07）
+
+### 根因
+
+渲染层 `publisher.js` 的 `listAccounts()` 调用 `window.electronAPI.listAccounts`（映射到 `accounts:list` IPC），但 `preload/account.js` 的 `createAccountApi` 只暴露了 `accountList`（`account:list` 通道），从未暴露 `listAccounts`，导致 `invokeWithFallback` 始终返回空 fallback `{ code: 0, data: [] }`，账号列表页永远显示 0 个账号。
+
+### 数据流（修复后完整链路）
+
+```
+渲染层: src/stores/accounts.js → load() → listAccounts()
+  → src/api/publisher.js → invokeWithFallback("listAccounts")
+    → window.electronAPI.listAccounts()  ← v8 修复：preload 新增此方法
+      → ipcRenderer.invoke("accounts:list")
+        → 主进程 account.js accounts:list handler
+          → AccountManager.listAccounts()
+            → pythonBridge.requestBackend('GET', '/api/accounts')
+            → credential-store.cleanOrphanCredentials(knownIds, userDataDir, ownerSubject)
+```
+
+### 修复内容
+
+**文件**: `apps/desktop/electron/preload/account.js`
+
+在 `createAccountApi` 返回对象中新增一行：
+```js
+listAccounts: () => ipcRenderer.invoke('accounts:list'),
+```
+
+### 验证
+
+| 证据 | 结果 |
+|------|------|
+| CDP 真实环境 E2E | 18/19 通过 |
+| 账号卡片渲染 | 从 0 恢复为 3 |
+| 删除确认弹窗 | 正常弹出 |
+| 收藏/验证/代理/登录/重命名按钮 | 全部可见可用 |
+| 状态筛选/平台筛选/排序/批量操作 | 全部正常 |
+| 无重复账号 | 3 个账号均为独立平台 |
+
+### 变更文件
+- apps/desktop/electron/preload/account.js (+1 行)
