@@ -196,7 +196,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(111)
   })
 
-  it('account 模块应导出 41 个方法', () => {
+  it('account 模块应导出 42 个方法', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
     expect(Object.keys(r).length).toBe(42)
