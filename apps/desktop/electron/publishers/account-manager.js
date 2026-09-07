@@ -727,9 +727,116 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   return Boolean(loadSavedCredentials(accountId, platform, { ownerSubject }))
 }
 
+/**
+ * 更新已有账号凭证（重新登录场景）。
+ * 覆盖 credentialStore 中的加密凭据，并通过 Python 后端更新公开元数据。
+ * @param {string} platform
+ * @param {{cookies?: Array, name?: string, localStorage?: object, indexedDB?: object, accountInfo?: object}} captured
+ * @param {string} accountId - 已有账号 ID
+ * @returns {Promise<object>}
+ */
+async function updateCapturedAccount (platform, captured, accountId) {
+  if (!PLATFORM_LOGIN_URLS[platform]) throw new Error('不支持的平台: ' + platform)
+  if (!accountId || typeof accountId !== 'string' || !isSafePathSegment(accountId)) throw new Error('缺少或非法账号 ID')
+  const ownerSubject = resolveOwnerSubject(undefined)
+  const userDataDir = getUserDataDir()
+  const source = captured && typeof captured === 'object' ? captured : {}
+  const cookies = Array.isArray(source.cookies)
+    ? source.cookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
+    : []
+  const localStorageData = source.localStorage && typeof source.localStorage === 'object' && !Array.isArray(source.localStorage)
+    ? source.localStorage
+    : {}
+  const indexedDB = source.indexedDB && typeof source.indexedDB === 'object' && !Array.isArray(source.indexedDB)
+    ? source.indexedDB
+    : {}
+  if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
+    throw new Error('未捕获到有效登录凭证')
+  }
+  const name = typeof source.name === 'string' && source.name.trim()
+    ? source.name.trim()
+    : getPlatformName(platform)
+  const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
+    ? source.accountInfo
+    : {}
+  const accountName = typeof accountInfo.nickName === 'string' && accountInfo.nickName.trim()
+    ? accountInfo.nickName.trim()
+    : name
+  const platformAccountId = typeof accountInfo.platformAccountId === 'string' && accountInfo.platformAccountId.trim()
+    ? accountInfo.platformAccountId.trim()
+    : ''
+  const followers = Number.isFinite(Number(accountInfo.followers)) ? Number(accountInfo.followers) : null
+  const avatar = typeof accountInfo.avatar === 'string' && accountInfo.avatar.trim()
+    ? accountInfo.avatar.trim()
+    : ''
+
+  // 验证账号存在且平台匹配
+  let account
+  try {
+    const result = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
+    if (result.code !== 0) throw new Error('账号不存在')
+    account = result.data
+    if (account.platform !== platform) throw new Error('账号平台不匹配')
+  } catch (e) {
+    throw new Error('账号不存在或平台不匹配: ' + e.message)
+  }
+
+  // 更新后端公开元数据（PATCH）
+  try {
+    const metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
+      name,
+      account_name: accountName,
+      platform_account_id: platformAccountId,
+      followers,
+      avatar,
+      last_validated: new Date().toISOString(),
+    })
+    if (metaResult.code !== 0) {
+      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId)
+    }
+  } catch (e) {
+    log.warn('AccountManager', '更新后端账号元数据异常: ' + e.message)
+  }
+
+  // 覆盖凭证存储（原子写入，自动覆盖旧文件）
+  const credentialSaved = credentialStore.saveCredential(accountId, {
+    platform,
+    cookies,
+    localStorage: localStorageData,
+    indexedDB,
+    accountInfo,
+  }, userDataDir, ...(ownerSubject === undefined ? [] : [ownerSubject]))
+  if (!credentialSaved) {
+    throw new Error('加密凭证更新失败')
+  }
+  log.info('AccountManager', 'Updated credential store for account ' + accountId)
+
+  // 更新本地状态记录
+  try {
+    const record = {
+      accountId,
+      platform,
+      platformAccountId: accountInfo?.platformAccountId || '',
+      accountInfo,
+      timestamp: Date.now(),
+    }
+    const stateSaved = ownerSubject === undefined
+      ? accountStateRestorer.saveAccountRecord(record)
+      : accountStateRestorer.saveAccountRecord(record, ownerSubject, userDataDir)
+    if (stateSaved) log.info('AccountManager', 'Updated account state record for ' + platform + ':' + accountId)
+    else log.warn('AccountManager', 'Failed to update account state record for ' + platform + ':' + accountId)
+  } catch (e) {
+    log.warn('AccountManager', 'Failed to update account state record: ' + e.message)
+  }
+
+  log.info('AccountManager', '账号凭证已更新: ' + name + ' (' + platform + ', ' + accountId + ')')
+  return { ...account, name, account_name: accountName, platform_account_id: platformAccountId, followers, avatar, last_validated: new Date().toISOString() }
+}
+
 module.exports = {
   addAccount,
   saveCapturedAccount,
+  updateCapturedAccount,
   deleteAccount,
   listAccounts,
   checkLoginStatus,

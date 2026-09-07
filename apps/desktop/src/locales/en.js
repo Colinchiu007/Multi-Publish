@@ -1306,7 +1306,7 @@ export default {
       noData: 'No data',
       unnamedAccount: 'Unnamed account',
       statusLoggedIn: 'Logged in',
-      statusExpired: 'Expired',
+      statusExpired: 'Invalid',
       statusError: 'Error',
       statusNoCheck: 'No check record',
       lastCheck: (ctx) => 'Last checked ' + ctx.named('date'),

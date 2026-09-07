@@ -1307,7 +1307,7 @@ export default {
       noData: '暂无数据',
       unnamedAccount: '未命名账号',
       statusLoggedIn: '已登录',
-      statusExpired: '已过期',
+      statusExpired: '已失效',
       statusError: '异常',
       statusNoCheck: '暂无检查记录',
       lastCheck: (ctx) => '最近检查 ' + ctx.named('date'),

@@ -40,10 +40,10 @@ function attachCdpDetection(view, onLoginSuccess) {
  */
 function isLoginSuccess(data) {
   if (!data || !data.data) return false
+  // 仅接受明确的登录成功信号：isLogin 为 true 或存在 access_token。
+  // mid / dedeUserID 在已过期会话的轮询响应中也会出现，不能作为登录成功判据。
   return (data.code === 0 && (
     data.data.isLogin === true ||
-    !!data.data.dedeUserID ||
-    !!data.data.mid ||
     !!data.data.access_token
   )) || data.data.isLogin === true
 }

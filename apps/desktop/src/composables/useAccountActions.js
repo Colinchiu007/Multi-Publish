@@ -10,9 +10,9 @@ import {
 } from '@/api/publisher'
 
 export function useAccountActions() {
-  async function openLogin(mode, platform) {
+  async function openLogin(mode, platform, accountId) {
     if (!platform) throw new Error('平台不能为空')
-    if (mode === 'browser') return authOpenLogin(platform)
+    if (mode === 'browser') return authOpenLogin(platform, accountId)
     if (mode === 'qrcode') return authOpenQrCodeLogin(platform)
     throw new Error('不支持的登录方式')
   }

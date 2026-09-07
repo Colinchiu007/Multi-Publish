@@ -126,7 +126,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   accountList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   accountSetDefault: { args: ["wechat_mp", "acc-1"], fallback: undefined, returns: "undefined" },
   accountUpdate: { args: ["acc-1", { name: "new" }], fallback: undefined, returns: "undefined" },
-  authOpenLogin: { args: ["weibo"], fallback: { code: -1 }, returns: "object" },
+  authOpenLogin: { args: ["weibo", undefined], fallback: { code: -1 }, returns: "object" },
   authCompleteLogin: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   authClose: { args: [], fallback: undefined, returns: "undefined" },
   onAuthViewOpened: { args: [vi.fn()], fallback: undefined, returns: "function" },
