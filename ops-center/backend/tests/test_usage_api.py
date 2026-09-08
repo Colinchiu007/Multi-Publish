@@ -47,8 +47,9 @@ def _admin_headers():
 
 
 def _item(**over):
+    from datetime import date, timedelta
     base = {
-        "usage_date": "2026-08-10", "client_id": "dev-1", "provider_id": "openai", "category": "llm", "action": "chat",
+        "usage_date": (date.today() - timedelta(days=1)).isoformat(), "client_id": "dev-1", "provider_id": "openai", "category": "llm", "action": "chat",
         "calls": 10, "ok_count": 9, "fail_count": 1, "ratelimit_count": 2, "latency_ms": 5000,
         "tokens_in": 1000, "tokens_out": 500, "cost": 0.12,
         "latency_buckets": {"lt1s": 2, "1to3s": 3, "3to10s": 4, "gt10s": 1},
@@ -99,11 +100,12 @@ async def test_ingest_validation():
 async def test_summary_grouping_and_permissions():
     async with _client() as client:
         h = {"X-Catalog-Key": "catalog-test-key"}
+        from datetime import date, timedelta
         await client.post("/api/v1/usage/ingest", json={
             "items": [
-                _item(usage_date="2026-08-09", provider_id="openai", action="chat", calls=10, ok_count=8, fail_count=2),
-                _item(usage_date="2026-08-10", provider_id="openai", action="chat", calls=20, ok_count=19, fail_count=1),
-                _item(usage_date="2026-08-10", provider_id="minimax-multimodal", action="tts", calls=5, ok_count=5, fail_count=0, cost=0.5),
+                _item(usage_date=(date.today() - timedelta(days=2)).isoformat(), provider_id="openai", action="chat", calls=10, ok_count=8, fail_count=2),
+                _item(usage_date=(date.today() - timedelta(days=1)).isoformat(), provider_id="openai", action="chat", calls=20, ok_count=19, fail_count=1),
+                _item(usage_date=(date.today() - timedelta(days=1)).isoformat(), provider_id="minimax-multimodal", action="tts", calls=5, ok_count=5, fail_count=0, cost=0.5),
             ],
             "batch_id": "b-sum-1",
         }, headers=h)

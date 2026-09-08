@@ -1,6 +1,6 @@
 # 改写引擎（Rewrite Engine）— 产品需求文档
 
-> 立项日期: 2026-09-08 | 状态: Phase 2 后端完成 + 运营中心前端完成 | 复杂度: L | 风险: 中
+> 立项日期: 2026-09-08 | 状态: Phase 3 桌面端完成（全链路贯通） | 复杂度: L | 风险: 中
 
 ## 一、产品概述
 
@@ -144,8 +144,103 @@
 
 ## 九、前端交互设计
 
-面板：模式选择+策略选择(自动匹配/手动)+用户设置(行业/目的/风格/平台/长度)+输入框+改写按钮+结果展示+反馈
+### 9.1 桌面端改写面板（AiWriterPanel.vue 改写模式）
 
-## 十、实施计划
+**入口**：发布页（Publish.vue）的「🤖 AI 辅助写作」按钮 → 面板内第四个 tab「🔄 AI 改写」
 
-Phase 1: 基础架构 4d | Phase 2: 策略系统 6d | Phase 3: 改写模式 3.5d | Phase 4: 增强机制 4.5d | Phase 5: 前端 3d | Phase 6: 测试与交付 3d
+**布局**：面板宽度跟随现有 AiWriterPanel 容器（约 360px），内容垂直排列，各表单项间距 8px。
+
+**交互流程**：
+
+```
+打开面板 → 选择改写模式 → 设置行业/目的/风格/平台/长度 →
+选择策略(自动匹配/手动选择) → 输入或确认文案 →
+点击"开始改写" → 等待 LLM 返回 → 展示结果+元数据 →
+点击"应用"将结果填入正文编辑器
+```
+
+**表单字段**：
+
+| 字段 | 控件类型 | 默认值 | 说明 |
+|------|---------|--------|------|
+| 改写模式 | 3 个 chip 按钮 | imitate | 抄袭规避模仿 / 扩写爆款 / 选题创作 |
+| 行业 | select 下拉 | 通用 | 9 个选项：电商/教育/科技/金融/生活方式/美妆/娱乐/IP打造 |
+| 目的 | select 下拉 | 通用 | 6 个选项：提升互动/提升转化/涨粉/建立权威/带货销售 |
+| 语言风格 | select 下拉 | 通用 | 7 个选项：口语化/故事化/情感化/说服力/幽默/正式严谨 |
+| 目标平台 | select 下拉 | 通用 | 6 个选项：抖音/小红书/公众号/B站/知乎 |
+| 长度 | select 下拉 | 中（约1000字） | 短(500)/中(1000)/长(2000) |
+| 策略选择 | radio + select | 自动匹配 | 自动匹配（推荐）/ 手动选择（下拉列出所有策略） |
+| 输入文案 | textarea | 继承原文内容 | 至少 20 字，最多 6000 字 |
+
+**结果展示**：
+
+- 改写结果以可点击的 result-item 展示，点击「应用」触发 `apply-content` 事件，将结果填入编辑器
+- 结果下方显示元数据行：策略名称 · AI味等级（百分比） · 原文 X 字 → 结果 Y 字
+- 敏感词警告以 panel-error 显示
+
+**错误处理**：
+
+- 未配置 LLM：显示"需要配置 LLM API Key"
+- 登录未完成：弹出登录窗口
+- 改写失败：显示错误信息（敏感词/LLM调用失败/网络错误等）
+- 策略列表加载失败：静默处理，仍可用自动匹配模式
+
+**i18n 覆盖**：新增 `rewriteEngine.*` 命名空间，zh/en 共 56 个新 key，成对完整。
+
+### 9.2 数据流
+
+```
+Vue 组件 (AiWriterPanel.vue)
+  ↓ aiRewrite(params) / aiListRewriteStrategies() / aiGetRecommendedStrategies()
+  ↓ 前端 API 层 (src/api/publisher.js)
+  ↓ invoke("aiRewite") / invoke("aiListRewriteStrategies") ...
+  ↓ preload (system.js) → ipcRenderer.invoke('ai:rewrite', ...)
+  ↓ IPC Handler (electron/ipc-handlers/ai.js)
+  ↓ RewriteEngineService (electron/services/rewrite-engine.js)
+  ↓ @multi-publish/rewrite-engine (packages/rewrite-engine/)
+  ↓ aiGenerator.generateWithDefault('llm') → LLM Provider
+```
+
+## 十、实施计划与进度
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| Phase 1 | 基础架构（核心包） | ✅ 完成 |
+| Phase 2 | 策略系统（后端 + 运营中心前端） | ✅ 完成 |
+| Phase 3 | 改写模式（桌面端 Electron 接入 + 前端面板） | ✅ 完成 |
+| Phase 4 | 增强机制（敏感词/去AI味/知识库） | ✅ 完成 |
+| Phase 5 | 前端（AiWriterPanel 改写 tab） | ✅ 完成 |
+| Phase 6 | 测试与交付（PR/CI/合并） | 🔄 进行中 |
+
+### 11.1 测试覆盖
+
+| 层 | 测试 | 结果 |
+|----|------|------|
+| rewrite-engine 核心包 | 25/25 | ✅ |
+| ops-center 后端 | 320/323（修复后 322/322） | ✅ |
+| 桌面端 ai IPC | 10/10 | ✅ |
+| 桌面端 rewrite-strategy-manager | 8/8 | ✅ |
+| 桌面端 template-manager | 18/18 | ✅ |
+| 桌面端 AiWriterPanel | 17/17（含 6 个改写模式用例） | ✅ |
+
+### 11.2 关键文件索引
+
+| 文件 | 用途 |
+|------|------|
+| `packages/rewrite-engine/src/rewrite-engine-core.js` | 核心引擎（三种模式 `_getModeInstructions` :210-242） |
+| `packages/rewrite-engine/src/strategy-manager.js` | 内置策略 + mergeRemote |
+| `packages/rewrite-engine/src/strategy-matcher.js` | 5 维度加权匹配 |
+| `packages/rewrite-engine/src/ai-taste-remover.js` | 去 AI 味后处理 |
+| `packages/rewrite-engine/src/knowledge-base.js` | LLM Wiki 用户知识库 |
+| `packages/rewrite-engine/src/sensitive-filter.js` | 敏感词检测 |
+| `apps/desktop/electron/services/rewrite-engine.js` | 桥接 service（aiGenerator 网关） |
+| `apps/desktop/electron/services/rewrite-strategy-manager.js` | 远程策略持久化 + applyRemote |
+| `apps/desktop/electron/ipc-handlers/ai.js` | IPC handler（`ai:rewrite` 等） |
+| `apps/desktop/electron/preload/system.js` | preload 暴露（:229-231） |
+| `apps/desktop/src/api/publisher.js` | 前端 API（:25-32） |
+| `apps/desktop/src/components/AiWriterPanel.vue` | 改写模式 tab（Phase 3 新增） |
+| `apps/desktop/src/locales/zh.js` / `en.js` | i18n（`rewriteEngine.*` 命名空间） |
+| `ops-center/backend/services/rewrite_strategy_service.py` | 策略 CRUD + 种子 |
+| `ops-center/backend/services/runtime_service.py` | bootstrap 并入 rewrite_strategies |
+| `ops-center/backend/routers/rewrite_strategies.py` | 策略 API 路由 |
+| `ops-center/frontend/src/views/RewriteStrategies.vue` | 运营中心策略管理页 |
