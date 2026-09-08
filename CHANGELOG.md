@@ -1,3 +1,20 @@
+## [未发布] fix(accounts): 账号「去登录」改独立窗口承载，修复顶部多层内容重叠（2026-09-08）
+
+### 修复
+- 账号管理页已保存账号卡片「去登录」打开的登录页，由内嵌主窗口的 WebContentsView 改为独立 BrowserWindow 承载，登录视图铺满该窗口客户区并从 (0,0) 起算。
+- 新增独立窗口生命周期管理：resize 同步布局、窗口关闭按钮按「取消登录」结算、close() 销毁窗口，避免窗口与监听泄漏。
+- 登录状态提示文案同步更新（zh/en 成对）：明确告知用户「已在独立窗口打开登录页」。
+- 测试基建补齐 BrowserWindow mock（contentView / getContentBounds / destroy / isDestroyed）与 WebContentsView 的 vi.fn 布局记录。
+
+### 根因
+- 登录视图原以内嵌 WebContentsView 方式挂到主窗口 contentView，其坐标依赖硬编码常量 AUTH_VIEW_TOP=76（假设 TabBar 36 + NavBar 40）与侧边栏宽度 200。账号管理页顶部还有自身的 header / 工具栏 / 搜索栏，实际可用区域起点远高于 76px，导致平台页面顶栏、应用 TabBar、NavBar、页面 header 相互挤压 —— 表现为「顶部重叠了好几层内容」。
+- 内嵌模式的坐标必须与主窗口 DOM 布局严格同步，而布局会随页面切换、侧边栏折叠、窗口缩放变化，属架构性缺陷，调参无法根治。
+- 未采用外部浏览器标签页方案：Accounts.vue 注释已明确其无凭证捕获机制，登录成功也无法保存。
+
+### 验证
+- 新增 3 条回归测试（独立窗口承载 / 布局从原点铺满 / 关闭后窗口销毁）。
+- 文档：01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md（含数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字）；主 PRD.md 4 处「内嵌登录」描述同步更新。
+
 ## [未发布] fix(backend): 视频号平台标识符统一 tencent_video ↔ shipinhao v10（2026-09-07）
 
 ### 修复

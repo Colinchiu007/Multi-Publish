@@ -69,7 +69,13 @@ const electronMock = {
       this.minimize = function () {}
       this.maximize = function () {}
       this.restore = function () {}
-      this.isDestroyed = function () { return false }
+      this.isDestroyed = function () { return this._destroyed }
+      this.destroy = function () { this._destroyed = true }
+      this._destroyed = false
+      // Electron 30+ 窗口客户区容器：WebContentsView 等子视图的挂载点
+      this.contentView = { addChildView: function () {}, removeChildView: function () {} }
+      // 客户区尺寸（不含标题栏/边框），供子视图铺满布局使用
+      this.getContentBounds = function () { return { x: 0, y: 0, width: 800, height: 600 } }
       this.isMinimized = function () { return false }
       this.isMaximized = function () { return false }
       this.isVisible = function () { return true }
@@ -122,8 +128,9 @@ const electronMock = {
       executeJavaScript: function () { return Promise.resolve() },
       isDestroyed: function () { return false },
     }
-    this.setBounds = function () {}
-    this.setVisible = function () {}
+    // 用 vi.fn 记录布局调用：回归测试需断言登录视图从 (0,0) 铺满、不依赖硬编码偏移
+    this.setBounds = vi.fn(function () {})
+    this.setVisible = vi.fn(function () {})
   },
   Menu: {
     buildFromTemplate: function (t) { return t },

@@ -1203,7 +1203,7 @@ export default {
     close: 'Close',
     qrPreviewAria: 'QR code login',
     qrScanHint: 'Scan the QR code with the platform app',
-    loginStateBrowser: 'Browser login window opened',
+    loginStateBrowser: 'Login page opened in a separate window. Complete login there, then click "I have completed login"',
     loginStateOpening: 'Opening QR page',
     loginStateWaiting: 'Waiting for QR code',
     loginStateDetected: 'QR code ready',
