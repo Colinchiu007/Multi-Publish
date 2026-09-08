@@ -1,3 +1,14 @@
+## [未发布] refactor(accounts): AuthViewManager 统一接入 auth-window 公共工厂（2026-09-09）
+
+### 重构
+- _createLoginWindow 由内联实现（约 60 行 new BrowserWindow + syncBounds + closed 结算 + resize 清理）切换为调用 auth-window.js 公共工厂，与 QrCodeLogin / OAuthManager 三处复用同一实现。
+- openLogin 挂载段改用 handle.attach(view)（contentView 防御、显示、铺满布局由工厂内置）；close() 回收段改用 handle.dispose()（幂等：解除挂载 + destroy + resize 监听随窗口回收）。
+- auth-window.js 句柄新增 syncBounds 暴露；LOGIN_WINDOW_* 尺寸常量移交工厂默认值（1180×820 / 900×640，数值一致）后删除重复定义。
+- 对外字段签名全保留（loginWindow / _syncLoginViewBounds / _loginWindowResizeCleanup / _onWindowResize），PR #1557 的 3 条回归测试作为行为护栏保持通过。
+
+### 意义
+- 应用内三个认证管理器（AuthViewManager / QrCodeLogin / OAuthManager）全部经由同一工厂创建承载窗口，认证视图统一为「独立坐标系 + 从 (0,0) 铺满客户区」，不再存在任何依赖主窗口 DOM 坐标的可见认证浮层。
+
 ## [未发布] fix(accounts): 扫码登录与 OAuth 授权同步迁移独立窗口，清零内嵌浮层（2026-09-09）
 
 ### 修复
