@@ -503,6 +503,9 @@ var require_system = __commonJS({
         aiGenerateTitles: (topic) => ipcRenderer2.invoke("ai:generate-titles", topic),
         aiEnhanceContent: (content, style) => ipcRenderer2.invoke("ai:enhance-content", content, style),
         aiGenerateSummary: (content) => ipcRenderer2.invoke("ai:generate-summary", content),
+        aiRewrite: (params) => ipcRenderer2.invoke("ai:rewrite", params),
+        aiListRewriteStrategies: () => ipcRenderer2.invoke("ai:list-rewrite-strategies"),
+        aiGetRecommendedStrategies: (userSettings) => ipcRenderer2.invoke("ai:get-recommended-strategies", userSettings),
         onAIProgress: (callback) => {
           const h = (_e, p) => callback(p);
           ipcRenderer2.on("ai:progress", h);
