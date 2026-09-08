@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
+
+vi.mock("@/composables/usePlatformIconUrl", () => ({
+  getPlatformIconUrl: () => "",
+  platformIconUrl: () => "",
+}));
+
 import PlatformIcon from './PlatformIcon.vue';
 import UiSelect from './UiSelect.vue';
 
