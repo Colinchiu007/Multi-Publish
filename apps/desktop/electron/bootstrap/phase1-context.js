@@ -141,6 +141,8 @@ function extractContext(container) {
   const _PublishAlert = require('../services/publish-alert') // side effects on require
   const templateManager = container.get('templateManager')
   templateManager.seedDefaults()
+  const rewriteStrategyManager = container.get('rewriteStrategyManager')
+  const rewriteEngineService = container.get('rewriteEngineService')
   const licenseManager = LicenseManager.getInstance()
   const aiWriter = container.get('aiWriter')
   const offlineManager = require('../services/offline-manager')
@@ -162,6 +164,9 @@ function extractContext(container) {
   const renderEngine = container.get('renderEngine')
   const compositionManager = container.get('compositionManager')
   const aiGenerator = container.get('aiGenerator')
+  if (rewriteEngineService && typeof rewriteEngineService.setAiGenerator === 'function') {
+    rewriteEngineService.setAiGenerator(aiGenerator)
+  }
   const assetGenerator = container.get('assetGenerator')
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
@@ -202,6 +207,10 @@ function extractContext(container) {
   // 关键词监测目录运行时下发 → KeywordMonitor.applyRemoteWatchlist
   if (opsCenterSync && typeof opsCenterSync.setKeywordMonitor === 'function') {
     opsCenterSync.setKeywordMonitor(keywordMonitor)
+  }
+  // 改写策略运行时下发 → RewriteStrategyManager.applyRemote（先注入再启动自动同步）
+  if (opsCenterSync && typeof opsCenterSync.setRewriteStrategyManager === 'function') {
+    opsCenterSync.setRewriteStrategyManager(rewriteStrategyManager)
   }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
@@ -397,6 +406,7 @@ function extractContext(container) {
       AccountManager, history, autoUpdater, hotkeys, firstRun,
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
+      rewriteStrategyManager, rewriteEngineService,
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,
       story2videoBatchQueue, runStateStore,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,

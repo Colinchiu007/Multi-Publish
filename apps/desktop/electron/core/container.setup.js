@@ -61,6 +61,8 @@ const ProviderManager = require('../services/provider-manager');
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require("@multi-publish/shared-utils");
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
 const TemplateManager = require('../services/template-manager');
+const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
+const RewriteEngineService = require('../services/rewrite-engine');
 const AiWriter = require('../services/ai-writer');
 const { PublisherRouter } = require('../services/publisher-router');
 const UsageTracker = require('../services/usage-tracker');
@@ -197,6 +199,12 @@ function createContainer(options) {
   container.register("proxyPool", function() { return new ProxyPool(); });
   container.register("analyticsService", function() { return new AnalyticsService(); });
   container.register("templateManager", function() { return new TemplateManager(); });
+  container.register("rewriteStrategyManager", function() { return new RewriteStrategyManager(); });
+  container.register("rewriteEngineService", function(c) {
+    const svc = new RewriteEngineService({});
+    svc.setStrategyManager(c.get("rewriteStrategyManager"));
+    return svc;
+  });
   container.register("aiWriter", function() { return new AiWriter(); });
   container.register("usageTracker", function() { return new UsageTracker(); });
   container.register("chunkedUploader", function() { return new ChunkedUploader(); });

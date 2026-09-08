@@ -22,6 +22,13 @@ export async function aiEnhanceContent(content, style) { return invokeWithFallba
 
 export async function aiGenerateSummary(content) { return invokeWithFallback("aiGenerateSummary", { code: -1, data: "" }, content) }
 
+// ─── 改写引擎 API（rewrite-engine）────────────────────
+export async function aiRewrite(params) { return invokeWithFallback("aiRewrite", { code: -1, data: null }, params) }
+
+export async function aiListRewriteStrategies() { return invokeWithFallback("aiListRewriteStrategies", { code: -1, data: [] }) }
+
+export async function aiGetRecommendedStrategies(userSettings) { return invokeWithFallback("aiGetRecommendedStrategies", { code: -1, data: [] }, userSettings) }
+
 // ─── 队列 API ─────────────────────────────
 export async function getQueueStatus () {
   return invokeWithFallback("getQueueStatus", {})

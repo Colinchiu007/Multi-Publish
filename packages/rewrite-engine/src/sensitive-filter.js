@@ -56,7 +56,7 @@ class SensitiveFilter {
     if (!text) return text
     let result = text
     for (const word of this._wordList) {
-      const escaped = word.replace(/[.*+?^${}()|[\]\]/g, '\$&')
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\$&')
       const regex = new RegExp(escaped, 'g')
       result = result.replace(regex, this._replacement)
     }

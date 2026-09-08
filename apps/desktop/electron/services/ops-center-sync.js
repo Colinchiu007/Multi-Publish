@@ -329,6 +329,11 @@ class OpsCenterSync {
     this._keywordMonitor = km && typeof km.applyRemoteWatchlist === 'function' ? km : null
   }
 
+  /** 注入改写策略管理器（phase1 接线）；无 applyRemote 的对象视为未注入 */
+  setRewriteStrategyManager(rsm) {
+    this._rewriteStrategyManager = rsm && typeof rsm.applyRemote === 'function' ? rsm : null
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -373,7 +378,16 @@ class OpsCenterSync {
         this._log.warn('OpsCenterSync', 'keyword watchlist apply error: ' + String((e && e.message) || e))
       }
     }
-    this._log.info('OpsCenterSync', `runtime applied: ${next.announcements.length} announcements, policy=${next.updatePolicy ? 'set' : 'none'}`)
+    // 改写策略运行时下发：注入 rewriteStrategyManager 时应用；未注入跳过
+    if (Array.isArray(payload.rewrite_strategies) && this._rewriteStrategyManager) {
+      try {
+        const n = this._rewriteStrategyManager.applyRemote(payload.rewrite_strategies)
+        this._log.info('OpsCenterSync', 'rewrite strategies applied: ' + n + ' strategies')
+      } catch (e) {
+        this._log.warn('OpsCenterSync', 'rewrite strategies apply error: ' + String((e && e.message) || e))
+      }
+    }
+    this._log.info('OpsCenterSync', 'runtime applied: ${next.announcements.length} announcements, policy=${next.updatePolicy ? 'set' : 'none'}`)
   }
 
   /** 敏感词过滤器：内置词库 + 远程内容安全策略词库（惰性构建） */
