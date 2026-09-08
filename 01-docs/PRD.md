@@ -6741,3 +6741,169 @@ reloginAccount(account) 成功分支：
 - `apps/desktop/src/views/PublishHistory.vue`（+12/-2，发布历史图标 SVG 化）
 - `apps/desktop/electron/publishers/account-manager.js`（+55/-2，头像/昵称提取增强）
 - `packages/shared-utils/src/platform-display-definitions.json`（+30/-30，PLATFORM_ICONS 改为 SVG 路径）
+
+## 账号管理 v13：验证状态一致性修复 + 检测性能优化 + 交互体验改进（2026-09-08）
+
+**PR**：[#1562](https://github.com/Colinchiu007/Multi-Publish/pull/1562) ｜ **合并**：`2980b942` ｜ **分支**：`codex/account-verify-status-fix` ｜ **worktree**：`mp-account-verify-status-fix`
+
+### 问题描述
+
+用户反馈账号管理页面存在以下两个问题：
+
+1. **验证结果不一致**：账号卡片显示「已失效」，点击【验证】按钮也判定为已失效。但点击账号卡片打开创作者中心页面时，实际仍处于登录状态。两种情况判断结果不一致。
+2. **检测耗时过长且无即时反馈**：点击【验证】按钮后，从点击到显示结果耗时过长（30+ 秒），期间无任何反馈，用户容易误认为操作未触发。
+
+### 根因分析（三重问题叠加）
+
+**问题 1：验证 URL 与用户实际访问 URL 不一致**
+
+`checkLoginStatus` 函数访问 `PLATFORM_LOGIN_URLS`（各平台登录页 URL），以此判断 Cookie 是否有效。但用户点击账号卡片时，打开的是 `PLATFORM_DASHBOARD_URLS`（创作者中心/仪表盘 URL）。不同域名下 Cookie 行为不一致——以 Bilibili 为例：
+- 登录页：`passport.bilibili.com/login`
+- 创作者中心：`member.bilibili.com`
+
+用户可能在 `member.bilibili.com` 处于登录态，但 `passport.bilibili.com` 的 Cookie 已过期或不存在，导致验证误判为「已失效」。
+
+**问题 2：选择器超时直接判过期**
+
+`page.waitForSelector(successSelector, { timeout: 10000 })` 超时后直接 `return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }`。但选择器超时的原因可能是平台 DOM 结构变更导致选择器不再匹配，而非 Cookie 真的过期。原逻辑未区分这两种情况。
+
+**问题 3：`networkidle` 等待策略导致检测耗时过长**
+
+`page.goto(loginUrl, { waitUntil: 'networkidle', timeout: 30000 })` 使用 `networkidle` 策略，等待页面所有网络连接空闲（至少 500ms 无新请求）。大型 SPA 页面（如 Bilibili）持续有后台请求（埋点、心跳、广告），`networkidle` 可能等待 30+ 秒才触发，实际 DOM 内容早已加载完成。
+
+### 修复方案
+
+#### 后端修复（`account-manager.js`）
+
+**1. 页面加载策略优化**：`waitUntil` 从 `networkidle` 改为 `domcontentloaded`，超时从 30s 降至 15s。
+
+```
+改动前: await page.goto(loginUrl, { waitUntil: 'networkidle', timeout: 30000 })
+改动后: await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+```
+
+`domcontentloaded` 在 DOM 解析完成后立即触发，无需等待所有资源（图片、CSS、异步脚本）和后台请求完成。大型 SPA 的检测耗时从 30+ 秒降至 5-15 秒。
+
+**2. 选择器超时降级而非直接判过期**：选择器超时从 10s 降至 5s，超时后不再立即返回 `CHECK_LOGIN_COOKIE_EXPIRED`，而是继续走 URL 检查逻辑。
+
+**3. 新增仪表盘域名兜底检查**：导入 `PLATFORM_DASHBOARD_URLS`，当选择器超时但 URL 已跳离登录页时，额外检查当前 URL 是否在仪表盘/创作者中心域名下。若匹配，判定为「已登录」（选择器因 DOM 变更而过时，但 Cookie 实际有效）。
+
+```
+if (successSelector && !selectorMatched && dashboardUrl) {
+  const dashboardHost = new URL(dashboardUrl).hostname
+  const currentHost = new URL(currentUrl).hostname
+  if (currentHost === dashboardHost || currentHost.endsWith('.' + dashboardHost)) {
+    return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
+  }
+}
+```
+
+**4. 原有 URL 检查逻辑保留**：作为兜底，检查当前 URL 是否包含 `login` 或 `signin` 关键词。
+
+#### 前端修复（`Accounts.vue`）
+
+**即时反馈**：`checkLogin` 函数开始时立即调用 `notifyInfo('accountsPage.verifyingLogin', { params: { platform: platformName } })`，显示「正在验证 {平台名} 登录状态…」提示，消除用户等待焦虑。
+
+**平台名在提示中显示**：登录有效和失效提示均包含平台名，例如「Bilibili 账号登录已失效（Cookie 过期），建议重新登录以确保正常使用」。
+
+#### i18n 更新（`zh.js` / `en.js`）
+
+`loginExpiredMessage` 增加 `platform` 插值参数：
+
+```
+zh: "{platform} 账号登录已失效（{reason}），建议重新登录以确保正常使用。"
+en: "{platform} account login has expired ({reason}). Please re-login to ensure normal use."
+```
+
+### 验证流程（完整）
+
+```
+用户点击【验证】按钮
+  → 前端立即显示 "正在验证 {平台名} 登录状态…"（notifyInfo）
+  → 前端调用 accountActions.checkLogin(account)
+  → 后端 checkLoginStatus(platform, accountId):
+      1. 创建隐身 BrowserContext + 新页面
+      2. 恢复已保存的 Cookie / localStorage
+      3. page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      4. 尝试 waitForSelector(successSelector, { timeout: 5000 })
+         → 匹配成功 → 返回 { valid: true }
+         → 超时 → 不立即判过期，继续步骤 5
+      5. 检查 page.url() 是否跳离登录页
+         → 仍在登录页（含 login/signin）→ 返回 { valid: false }
+         → 已跳离登录页 → 检查是否在仪表盘域名下
+           → 是 → 返回 { valid: true }（仪表盘域名兜底）
+           → 否 → 返回 { valid: true }（URL 检查通过）
+  → 前端收到结果:
+     → valid: true → notifySuccess("登录状态正常", { message: "{平台名} 登录状态正常" })
+     → valid: false → 立即更新本地账号状态为 expired
+                    → notifyConfirm 弹窗 "{平台名} 账号登录已失效，是否重新登录？"
+                      → 确认 → 打开登录窗口
+                      → 取消 → 关闭弹窗
+```
+
+### 数据校验
+
+| 校验项 | 校验逻辑 | 失败处理 |
+|-------|---------|---------|
+| 平台支持 | `PLATFORM_LOGIN_URLS[platform]` 非空 | 返回 `CHECK_LOGIN_UNSUPPORTED_PLATFORM` |
+| 页面加载 | `page.goto` 成功 | catch 异常返回 `CHECK_LOGIN_NAVIGATION_FAILED` |
+| 选择器校验 | `waitForSelector` 超时 | 降级到 URL 检查，不立即判过期 |
+| 仪表盘域名 | `new URL(dashboardUrl).hostname` 解析成功 | 解析失败时跳过仪表盘检查，走原有 URL 逻辑 |
+| 当前 URL | `new URL(currentUrl).hostname` 解析成功 | 解析失败时跳过仪表盘检查 |
+
+### 功能逻辑
+
+| 场景 | 检测结果 | 前端行为 |
+|------|---------|---------|
+| 选择器匹配成功 | `valid: true` | 显示「登录状态正常」+ 卡片保持「已登录」 |
+| 选择器超时 + URL 在仪表盘域名 | `valid: true` | 显示「登录状态正常」+ 卡片保持「已登录」 |
+| 选择器超时 + URL 跳离登录页（非仪表盘） | `valid: true` | 显示「登录状态正常」+ 卡片保持「已登录」 |
+| URL 仍在登录页（含 login/signin） | `valid: false` | 弹窗提示重新登录 + 卡片变为「已失效」 |
+| 页面加载失败 | `valid: false` | 弹窗提示 + 卡片变为「已失效」 |
+| 平台不支持 | `valid: false` | 显示「暂不支持该平台的登录页」 |
+
+### 交互逻辑
+
+1. 用户点击【验证】→ 按钮进入 loading 状态（`verifyingIds` Set 防重复点击）
+2. 立即显示 `notifyInfo` 提示「正在验证 {平台名} 登录状态…」
+3. 检测完成（5-15 秒）：
+   - 登录有效 → `notifySuccess` 替换为「{平台名} 登录状态正常」
+   - 登录失效 → `notifyConfirm` 弹窗「{平台名} 账号登录已失效（{原因}），是否重新登录？」
+     - 确认 → 打开登录窗口
+     - 取消 → 关闭弹窗，卡片保持「已失效」状态
+4. 按钮恢复可点击状态
+
+### 显示项与提示文字
+
+| 场景 | 中文 | 英文 |
+|------|------|------|
+| 验证中 | 正在验证 {平台名} 登录状态… | Verifying {platform} login status... |
+| 登录正常 | {平台名} 登录状态正常 | {platform} login status is normal |
+| 登录失效弹窗标题 | 登录已失效 | Session expired |
+| 登录失效弹窗内容 | {平台名} 账号登录已失效（{原因}），建议重新登录以确保正常使用。 | {platform} account login has expired ({reason}). Please re-login to ensure normal use. |
+| 失效原因-通用 | 登录已失效 | Session expired |
+| 失效原因-Cookie | Cookie 过期 | Cookie expired |
+| 失效原因-导航失败 | 页面加载失败 | Page load failed |
+| 失效原因-不支持 | 暂不支持该平台的登录页 | Login page not supported for this platform |
+| 弹窗确认按钮 | 去登录 | Go to Login |
+| 弹窗取消按钮 | 取消 | Cancel |
+| 验证失败 | 验证失败 | Verification failed |
+
+### 回归保护（QM-5 第四步）
+
+- **单元测试**：`account-manager.test.js` 40/40 全部通过（含新增 dashboard fallback 测试用例）
+- **编译测试**：`accounts-compile.test.js` 2/2 全部通过
+- **CI 检查**：全部通过
+
+### 系统性漏洞与预防（QM-5 第五步）
+
+- **URL 检测多域名覆盖**：`checkLoginStatus` 仅检查登录页 URL 不足以判断登录状态，需同时覆盖仪表盘/创作者中心域名。后续新增平台时必须同步配置 `PLATFORM_DASHBOARD_URLS`。
+- **选择器健壮性**：平台 DOM 变更会导致选择器过时，不应将选择器超时等同于登录失效。建议后续引入多选择器 fallback 机制（类似 `PLATFORM_LOGIN_SUCCESS_SELECTORS` 支持数组）。
+- **即时反馈原则**：所有耗时操作（>1s）必须在开始时提供即时 UI 反馈，避免用户误认为无响应。本修复中 `checkLogin` 开头的 `notifyInfo` 即为该原则的落地。
+
+### 变更文件
+
+- `apps/desktop/electron/publishers/account-manager.js`（+31/-9，导入 `PLATFORM_DASHBOARD_URLS`；goto 改用 `domcontentloaded`；选择器超时降级；仪表盘域名兜底检查）
+- `apps/desktop/src/views/Accounts.vue`（+4/-2，`checkLogin` 开始时立即显示「正在验证…」；提示增加平台名）
+- `apps/desktop/src/locales/zh.js`（+1/-1，`loginExpiredMessage` 增加 `platform` 插值）
+- `apps/desktop/src/locales/en.js`（+1/-1，`loginExpiredMessage` 增加 `platform` 插值）
