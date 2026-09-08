@@ -1,0 +1,274 @@
+/**
+ * Rewrite Engine Core — 改写引擎核心
+ *
+ * 编排改写流程：模式路由 → 策略匹配 → Prompt 构建 → LLM 调用 → 后处理 → 返回结果
+ */
+
+const { StrategyManager } = require('./strategy-manager')
+const { StrategyMatcher } = require('./strategy-matcher')
+const { AITasteRemover } = require('./ai-taste-remover')
+const { KnowledgeBase } = require('./knowledge-base')
+
+class RewriteEngine {
+  /**
+   * @param {object} options
+   * @param {object} options.llmClient - LLM 调用客户端 { chat(systemPrompt, userPrompt): Promise<string> }
+   * @param {object} options.sensitiveFilter - 敏感词过滤器 { detect(text): object, filter(text): string }
+   * @param {object} options.knowledgeBase - 知识库实例
+   * @param {object} options.strategyManager - 策略管理器实例（可选）
+   */
+  constructor(options = {}) {
+    this._llmClient = options.llmClient || null
+    this._sensitiveFilter = options.sensitiveFilter || null
+    this._knowledgeBase = options.knowledgeBase || new KnowledgeBase()
+    this._strategyManager = options.strategyManager || new StrategyManager()
+    this._strategyManager.loadBuiltins()
+  }
+
+  /**
+   * 执行改写
+   * @param {object} params
+   * @param {string} params.mode - 'imitate' | 'expand' | 'create'
+   * @param {string} params.content - 用户输入文案
+   * @param {object} params.userSettings - { industry, purpose, tone, platform, targetLength }
+   * @param {string} params.strategyId - 手动指定策略 ID（可选，为空则自动匹配）
+   * @returns {Promise<object>} { success, result, strategy, warnings, sensitiveHits }
+   */
+  async rewrite(params = {}) {
+    const { mode = 'imitate', content = '', userSettings = {}, strategyId = null } = params
+
+    // 1. 输入校验
+    const validation = this._validate(content)
+    if (!validation.valid) {
+      return { success: false, error: validation.error, errorCode: validation.errorCode }
+    }
+
+    // 2. 敏感词前置检测
+    const preCheck = this._sensitiveCheck(content, 'pre')
+    if (preCheck.blocked) {
+      return {
+        success: false,
+        error: '内容包含敏感词，无法改写',
+        errorCode: 'SENSITIVE_CONTENT',
+        sensitiveHits: preCheck.hits
+      }
+    }
+
+    // 3. 策略匹配
+    const strategy = this._resolveStrategy(strategyId, userSettings)
+    if (!strategy) {
+      return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
+    }
+
+    // 4. 构建 Prompt
+    const { systemPrompt, userPrompt } = this._buildPrompt(strategy, content, mode, userSettings)
+
+    // 5. LLM 推理
+    if (!this._llmClient) {
+      return { success: false, error: 'LLM 客户端未配置', errorCode: 'NO_LLM_CLIENT' }
+    }
+
+    let result
+    try {
+      result = await this._llmClient.chat(systemPrompt, userPrompt)
+    } catch (e) {
+      return { success: false, error: `LLM 调用失败: ${e.message}`, errorCode: 'LLM_ERROR' }
+    }
+
+    if (!result || !result.trim()) {
+      return { success: false, error: 'LLM 返回空结果', errorCode: 'EMPTY_RESULT' }
+    }
+
+    // 6. 后处理
+    const processed = this._postProcess(result, strategy)
+
+    // 7. 敏感词后置检测
+    const postCheck = this._sensitiveCheck(processed, 'post')
+
+    const response = {
+      success: true,
+      result: processed,
+      strategy: {
+        id: strategy.id,
+        name: strategy.name,
+        category: strategy.category
+      },
+      warnings: postCheck.hits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
+      sensitiveHits: postCheck.hits,
+      metadata: {
+        mode,
+        originalLength: content.length,
+        resultLength: processed.length,
+        aiTasteLevel: this._getAITasteLevel(processed, strategy)
+      }
+    }
+
+    // 8. 记录到知识库（异步，不阻塞返回）
+    if (preCheck.hits.length === 0 && postCheck.hits.length === 0) {
+      this._knowledgeBase.recordFeedback({
+        action: 'generated',
+        strategyId: strategy.id,
+        resultContent: processed,
+        userSettings
+      })
+    }
+
+    return response
+  }
+
+  /**
+   * 获取推荐策略列表
+   * @param {object} userSettings
+   * @returns {Array}
+   */
+  getRecommendedStrategies(userSettings = {}) {
+    const strategies = this._strategyManager.listEnabled()
+    const matcher = new StrategyMatcher({
+      userSettings,
+      userHistory: this._knowledgeBase.getUserHistory(),
+      topN: 3
+    })
+    return matcher.recommend(strategies)
+  }
+
+  /**
+   * 获取所有可用策略
+   * @returns {Array}
+   */
+  listStrategies() {
+    return this._strategyManager.listEnabled()
+  }
+
+  /**
+   * 合并远程策略
+   * @param {Array} remoteStrategies
+   */
+  mergeRemoteStrategies(remoteStrategies) {
+    this._strategyManager.mergeRemote(remoteStrategies)
+  }
+
+  // ===== 内部方法 =====
+
+  _validate(content) {
+    if (!content || !content.trim()) {
+      return { valid: false, error: '内容不能为空', errorCode: 'EMPTY_CONTENT' }
+    }
+    const len = [...content].length // Unicode code point 计数
+    if (len < 20) {
+      return { valid: false, error: '内容太短，至少需要 20 字', errorCode: 'TOO_SHORT' }
+    }
+    if (len > 6000) {
+      return { valid: false, error: '内容过长，最多 6000 字', errorCode: 'TOO_LONG' }
+    }
+    return { valid: true }
+  }
+
+  _sensitiveCheck(text, stage) {
+    if (!this._sensitiveFilter) return { blocked: false, hits: [] }
+    try {
+      const result = this._sensitiveFilter.detect(text)
+      return {
+        blocked: stage === 'pre' && result.hits && result.hits.length > 0,
+        hits: result.hits || []
+      }
+    } catch {
+      return { blocked: false, hits: [] }
+    }
+  }
+
+  _resolveStrategy(strategyId, userSettings) {
+    if (strategyId) {
+      return this._strategyManager.get(strategyId)
+    }
+    // 自动匹配
+    const recommended = this.getRecommendedStrategies(userSettings)
+    return recommended.length > 0 ? recommended[0] : null
+  }
+
+  _buildPrompt(strategy, content, mode, userSettings) {
+    const kbContext = this._knowledgeBase.getContextSummary()
+
+    // 模式特定的系统提示补充
+    const modeInstructions = this._getModeInstructions(mode, userSettings)
+
+    const systemPrompt = `${strategy.systemPrompt}\n\n${modeInstructions}`
+
+    // 替换用户提示模板中的变量
+    let userPrompt = strategy.userPromptTemplate
+      .replace(/\{content\}/g, content)
+      .replace(/\{industry\}/g, userSettings.industry || strategy.industry?.[0] || '通用')
+      .replace(/\{purpose\}/g, userSettings.purpose || strategy.purpose?.[0] || '通用')
+      .replace(/\{tone\}/g, userSettings.tone || strategy.tone?.[0] || '口语化')
+      .replace(/\{platform\}/g, userSettings.platform || strategy.platforms?.[0] || '通用')
+      .replace(/\{knowledgeContext\}/g, kbContext)
+      .replace(/\{mode\}/g, mode)
+      .replace(/\{targetLength\}/g, userSettings.targetLength || 'medium')
+
+    return { systemPrompt, userPrompt }
+  }
+
+  _getModeInstructions(mode, userSettings) {
+    switch (mode) {
+      case 'imitate':
+        return `【改写模式：抄袭规避模仿】
+核心要求：
+1. 保留原文的核心观点和信息，但彻底重新组织表达方式
+2. 更换段落结构、句式、案例、修辞手法
+3. 确保改写后的文本与原文的相似度低于 40%
+4. 不要使用原文中的标志性短语和独特表达
+5. 可以改变叙述视角（如从第一人称改为第三人称）`
+
+      case 'expand':
+        return `【改写模式：扩写爆款】
+核心要求：
+1. 基于原文的核心思想进行深度扩展
+2. 增加背景介绍、原因分析、案例支撑、数据引用
+3. 从 What → Why → How → So What 四个层次递进
+4. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}
+5. 保证扩写不是"注水"，而是增加有价值的信息增量`
+
+      case 'create':
+        return `【改写模式：选题创作】
+核心要求：
+1. 基于用户提供的选题，创作一篇全新的完整文案
+2. 先分析选题确定内容类型，再生成结构化大纲
+3. 每段按写作指导独立生成，最后统一风格
+4. 自动注入爆款要素：钩子、情绪转折、金句、互动引导
+5. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}`
+
+      default:
+        return ''
+    }
+  }
+
+  _postProcess(text, strategy) {
+    let result = text
+
+    // 去 AI 味
+    const postProcess = strategy.postProcess || {}
+    if (postProcess.removeAITaste !== false) {
+      const remover = new AITasteRemover({
+        enabled: true,
+        intensity: 2,
+        tone: strategy.tone?.[0] || 'casual'
+      })
+      result = remover.process(result)
+    }
+
+    // 长度限制
+    const maxLength = postProcess.maxLength || 6000
+    if (result.length > maxLength) {
+      result = result.slice(0, maxLength)
+    }
+
+    return result.trim()
+  }
+
+  _getAITasteLevel(text, strategy) {
+    if (!strategy.postProcess || strategy.postProcess.removeAITaste === false) return null
+    const remover = new AITasteRemover({ enabled: true })
+    return remover.detectAITasteLevel(text)
+  }
+}
+
+module.exports = { RewriteEngine }
