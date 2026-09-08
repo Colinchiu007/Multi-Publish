@@ -38,7 +38,7 @@
                   class="publish-type-platform-icon"
                   :title="platform.label"
                   aria-hidden="true"
-                >{{ platform.icon }}</span>
+                ><img v-if="platform.iconUrl" :src="platform.iconUrl" :alt="platform.label" class="publish-type-platform-icon-img" width="16" height="16"><span v-else>{{ platform.icon }}</span></span>
                 <span v-if="option.platforms.length > 7" class="publish-type-platform-more">+{{ option.platforms.length - 7 }}</span>
               </span>
             </button>
@@ -52,6 +52,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 const { t } = useI18n()
 
@@ -81,6 +82,7 @@ const availablePlatforms = computed(() => {
     id: String(platform.id),
     label: platform.label || PLATFORM_NAMES[platform.id] || platform.id,
     icon: platform.icon || PLATFORM_ICONS[platform.id] || '•',
+    iconUrl: getPlatformIconUrl(platform.id) || '',
   }))
 })
 

@@ -78,7 +78,8 @@
       <h3 class="yixiaoer-home-section-title">{{ t('home.supportedPlatforms') }}</h3>
       <div class="yixiaoer-home-platform-list">
         <span v-for="p in platforms" :key="p.id" class="yixiaoer-home-platform-tag">
-          {{ p.icon }} {{ p.label }}
+          <img v-if="p.iconUrl" :src="p.iconUrl" class="home-platform-icon" :alt="p.label" width="18" height="18">
+          <span v-else>{{ p.icon }}</span> {{ p.label }}
         </span>
       </div>
     </section>
@@ -112,6 +113,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
 import { usePlatformStore } from '@/stores/platforms'
+import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatDateTime } from '@/utils/datetime'
 import { reportError } from '../utils/report-error'
 
@@ -138,20 +140,21 @@ const platforms = computed(() => {
       id: p.id,
       label: p.label,
       icon: platformStore.getIcon(p.id) || '',
+      iconUrl: getPlatformIconUrl(p.id) || '',
     }))
   }
   return [
-    { id: 'wechat_mp', icon: '💬' },
-    { id: 'zhihu', icon: '❓' },
-    { id: 'weibo', icon: '✧' },
-    { id: 'douyin', icon: '🎵' },
-    { id: 'xiaohongshu', icon: '📕' },
-    { id: 'tencent_video', icon: '▶' },
-    { id: 'kuaishou', icon: '🎬' },
-    { id: 'toutiao', icon: '📰' },
-    { id: 'bilibili', icon: '📺' },
-    { id: 'youtube', icon: '▶️' },
-    { id: 'tiktok', icon: '🎶' },
+    { id: 'wechat_mp', icon: '💬', iconUrl: getPlatformIconUrl('wechat_mp') },
+    { id: 'zhihu', icon: '❓', iconUrl: getPlatformIconUrl('zhihu') },
+    { id: 'weibo', icon: '✧', iconUrl: getPlatformIconUrl('weibo') },
+    { id: 'douyin', icon: '🎵', iconUrl: getPlatformIconUrl('douyin') },
+    { id: 'xiaohongshu', icon: '📕', iconUrl: getPlatformIconUrl('xiaohongshu') },
+    { id: 'tencent_video', icon: '▶', iconUrl: getPlatformIconUrl('tencent_video') },
+    { id: 'kuaishou', icon: '🎬', iconUrl: getPlatformIconUrl('kuaishou') },
+    { id: 'toutiao', icon: '📰', iconUrl: getPlatformIconUrl('toutiao') },
+    { id: 'bilibili', icon: '📺', iconUrl: getPlatformIconUrl('bilibili') },
+    { id: 'youtube', icon: '▶️', iconUrl: getPlatformIconUrl('youtube') },
+    { id: 'tiktok', icon: '🎶', iconUrl: getPlatformIconUrl('tiktok') },
   ].map(p => ({ ...p, label: fallbackPlatformLabel(p.id) }))
 })
 

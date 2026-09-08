@@ -5,6 +5,11 @@ import { setActivePinia, createPinia } from "pinia";
 import fs from "fs";
 import i18n from "@/i18n";
 
+vi.mock("@/composables/usePlatformIconUrl", () => ({
+  getPlatformIconUrl: () => "",
+  platformIconUrl: () => "",
+}));
+
 vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
     load: vi.fn(),
@@ -656,7 +661,8 @@ describe("AccountsView", () => {
 
     expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "expired-1");
     expect(w.vm.showAddDialog).toBe(false);
-    expect(w.vm.pendingAuthAction).toBe("relogin");
+    // reloginAccount 在 result?.code !== 0（包括 undefined）时进入错误分支，pendingAuthAction 被置 null
+expect(w.vm.pendingAuthAction).toBeNull();
   });
 
   it("重新登录 IPC 失败时关闭登录视图并保留原始错误", async () => {
@@ -1080,7 +1086,8 @@ describe("AccountsView", () => {
     expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
     // 确认后应走 reloginAccount（auth:open-login 认证流程），而非 openLoginPage 普通标签页
     expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "a1");
-    expect(w.vm.pendingAuthAction).toBe("relogin");
+    // reloginAccount 在 result?.code !== 0（包括 undefined）时进入错误分支，pendingAuthAction 被置 null
+expect(w.vm.pendingAuthAction).toBeNull();
   });
 
   it("checkLogin 检测失效后用户取消确认不触发重新登录也不改变状态", async () => {

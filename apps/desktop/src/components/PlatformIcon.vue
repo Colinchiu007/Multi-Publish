@@ -1,8 +1,16 @@
 <template>
+  <img
+    v-if="iconSrc"
+    :src="iconSrc"
+    :alt="displayLabel"
+    :class="['pi', 'pi-img', sizeClass]"
+    :title="displayLabel"
+  >
   <div
+    v-else
     :class="['pi', sizeClass]"
     :style="{ background: bgColor }"
-    :title="label"
+    :title="displayLabel"
   >
     {{ letter }}
   </div>
@@ -10,6 +18,7 @@
 
 <script setup>
 import { computed } from "vue";
+import { getPlatformIconUrl } from "@/composables/usePlatformIconUrl";
 
 const props = defineProps({
   platform: { type: String, required: true },
@@ -89,6 +98,8 @@ const PLATFORM_LETTERS = {
   weishi: "微",
 };
 
+const iconSrc = computed(() => getPlatformIconUrl(props.platform));
+const displayLabel = computed(() => props.label || PLATFORM_LETTERS[props.platform] || props.platform);
 const bgColor = computed(() => PLATFORM_COLORS[props.platform] || "#7c5cbf");
 const letter = computed(() => {
   if (props.label) return props.label[0];
@@ -111,4 +122,5 @@ const sizeClass = computed(() => "pi-" + props.size);
 .pi-sm { width: 24px; height: 24px; font-size: 11px; border-radius: 6px; }
 .pi-md { width: 32px; height: 32px; font-size: 14px; }
 .pi-lg { width: 40px; height: 40px; font-size: 18px; border-radius: 10px; }
+.pi-img { object-fit: contain; border-radius: 4px; background: transparent; }
 </style>

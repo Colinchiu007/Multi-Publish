@@ -1,7 +1,8 @@
 <template>
   <section class="account-platform-group" :aria-labelledby="headingId">
     <header class="platform-group-header">
-      <div class="platform-mark" aria-hidden="true">{{ platformIcon }}</div>
+      <img v-if="isIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img" :alt="platformLabel" width="36" height="36" aria-hidden="true">
+<div v-else class="platform-mark" aria-hidden="true">{{ platformIcon }}</div>
       <div class="platform-heading">
         <h2 :id="headingId">{{ platformLabel }}</h2>
         <div class="platform-summary" role="status" :aria-label="statusLabel">
@@ -127,6 +128,10 @@ function formatDate (value) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN')
 }
+
+function isIconUrl (value) {
+  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
+}
 </script>
 
 <style scoped>
@@ -155,6 +160,13 @@ function formatDate (value) {
   color: #5048e5;
   font-size: 17px;
   font-weight: 700;
+}
+.platform-mark-img {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 8px;
+  object-fit: contain;
 }
 .platform-heading { min-width: 0; flex: 1; }
 .platform-heading h2 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; }

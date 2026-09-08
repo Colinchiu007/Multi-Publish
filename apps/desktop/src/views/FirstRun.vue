@@ -86,7 +86,8 @@
               }"
               :disabled="addingPlatform === p.id"
               @click="addAccount(p.id)">
-              <span>{{ p.icon }}</span> {{ p.label }}
+              <img v-if="p.iconUrl" :src="p.iconUrl" :alt="p.label" width="20" height="20" style="vertical-align:middle">
+              <span v-else>{{ p.icon }}</span> {{ p.label }}
             </button>
           </div>
 
@@ -159,6 +160,7 @@ function notify(msg, type = 'success') {
   setTimeout(() => { showNotification.value = false }, 3000)
 }
 import { onFirstRunStatus, firstRunCheck, authOpenLogin, accountAdd } from '@/api/publisher'
+import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 const currentStep = ref(0)
 const addingPlatform = ref('')
@@ -172,12 +174,12 @@ const depSteps = ref([
 ])
 
 const quickPlatforms = [
-  { id: 'wechat_mp', label: '微信公众号', icon: '💬' },
-  { id: 'zhihu', label: '知乎', icon: '❓' },
-  { id: 'weibo', label: '微博', icon: '✧' },
-  { id: 'douyin', label: '抖音', icon: '🎵' },
-  { id: 'xiaohongshu', label: '小红书', icon: '📕' },
-  { id: 'youtube', label: 'YouTube', icon: '▶' },
+  { id: 'wechat_mp', label: '微信公众号', icon: '💬', iconUrl: getPlatformIconUrl('wechat_mp') },
+  { id: 'zhihu', label: '知乎', icon: '❓', iconUrl: getPlatformIconUrl('zhihu') },
+  { id: 'weibo', label: '微博', icon: '✧', iconUrl: getPlatformIconUrl('weibo') },
+  { id: 'douyin', label: '抖音', icon: '🎵', iconUrl: getPlatformIconUrl('douyin') },
+  { id: 'xiaohongshu', label: '小红书', icon: '📕', iconUrl: getPlatformIconUrl('xiaohongshu') },
+  { id: 'youtube', label: 'YouTube', icon: '▶', iconUrl: getPlatformIconUrl('youtube') },
 ]
 
 let cancelListen = null

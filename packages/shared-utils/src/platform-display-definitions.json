@@ -17,20 +17,20 @@
     "facebook": "Facebook"
   },
   "PLATFORM_ICONS": {
-    "wechat_mp": "💬",
-    "zhihu": "❓",
-    "weibo": "✧",
-    "douyin": "🎵",
-    "xiaohongshu": "📕",
-    "tencent_video": "▶",
-    "kuaishou": "🎬",
-    "toutiao": "📰",
-    "bilibili": "📺",
-    "baijiahao": "📖",
-    "youtube": "▶",
-    "tiktok": "♪",
-    "twitter": "✕",
-    "instagram": "📷",
-    "facebook": "👍"
+    "wechat_mp": "platforms/wechat_mp.svg",
+    "zhihu": "platforms/zhihu.svg",
+    "weibo": "platforms/weibo.svg",
+    "douyin": "platforms/douyin.svg",
+    "xiaohongshu": "platforms/xiaohongshu.svg",
+    "tencent_video": "platforms/tencent_video.svg",
+    "kuaishou": "platforms/kuaishou.svg",
+    "toutiao": "platforms/toutiao.svg",
+    "bilibili": "platforms/bilibili.svg",
+    "baijiahao": "platforms/baijiahao.svg",
+    "youtube": "platforms/youtube.svg",
+    "tiktok": "platforms/tiktok.svg",
+    "twitter": "platforms/twitter.svg",
+    "instagram": "platforms/instagram.svg",
+    "facebook": "platforms/facebook.svg"
   }
 }
