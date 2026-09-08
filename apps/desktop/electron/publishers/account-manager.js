@@ -48,6 +48,7 @@ function isSafePathSegment (value) {
 }
 const {
   PLATFORM_LOGIN_URLS,
+  PLATFORM_DASHBOARD_URLS,
   PLATFORM_NAMES,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
   getPlatformName,
@@ -432,6 +433,7 @@ async function checkLoginStatus (platform, accountId) {
   }
 
   const loginUrl = PLATFORM_LOGIN_URLS[platform]
+  const dashboardUrl = PLATFORM_DASHBOARD_URLS[platform]
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
   if (!loginUrl) return { valid: false, code: 'CHECK_LOGIN_UNSUPPORTED_PLATFORM' }
 
@@ -456,21 +458,38 @@ async function checkLoginStatus (platform, accountId) {
         await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
       }
 
-      // 访问平台页面
-      await page.goto(loginUrl, { waitUntil: 'networkidle', timeout: 30000 })
+      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速
+      // （networkidle 等待所有网络连接空闲，大型 SPA 页面可能耗时 30+ 秒）
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
 
       // 检查登录状态选择器
+      let selectorMatched = false
       if (successSelector) {
         try {
-          await page.waitForSelector(successSelector, { timeout: 10000 })
+          await page.waitForSelector(successSelector, { timeout: 5000 })
+          selectorMatched = true
           return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
         } catch {
-          return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
+          // 选择器超时不一定意味着失效：某些平台的选择器可能因 DOM 变更而失效
+          // 不立即判为过期，继续走 URL 检查逻辑
         }
       }
 
-      // 无特定选择器时，检查 URL 是否跳离登录页
+      // 检查 URL 是否跳离登录页
       const currentUrl = page.url()
+
+      // 如果选择器超时但 URL 已经跳离登录页，并且当前 URL 在仪表盘/创作者中心域名下，
+      // 说明实际上已登录（平台选择器因 DOM 变更而过时，但 Cookie 有效）
+      if (successSelector && !selectorMatched && dashboardUrl) {
+        try {
+          const dashboardHost = new URL(dashboardUrl).hostname
+          const currentHost = new URL(currentUrl).hostname
+          if (currentHost === dashboardHost || currentHost.endsWith('.' + dashboardHost)) {
+            return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
+          }
+        } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
+      }
+
       if (currentUrl.includes('login') || currentUrl.includes('signin')) {
         return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
       }

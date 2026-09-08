@@ -813,10 +813,13 @@ async function checkLogin (account) {
   if (!id || !account?.platform) return
   if (verifyingIds.value.has(id)) return
   verifyingIds.value = new Set([...verifyingIds.value, id])
+  // 立即显示"检测中…"提示，让用户知道操作已触发
+  const platformName = platformLabel(account.platform) || account.platform
+  notifyInfo('accountsPage.verifyingLogin', { params: { platform: platformName } })
   try {
     const result = await accountActions.checkLogin(account)
     if (result?.code === 0 && result.data?.valid) {
-      notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid') })
+      notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid', { platform: platformName }) })
     } else {
       // 账号登录已失效：立即更新本地状态，让卡片动态变更为"已失效"+【去登录】按钮
       const accountIndex = accountStore.accounts.findIndex(a => a.id === id)
@@ -829,7 +832,7 @@ async function checkLogin (account) {
       const reason = te(reasonKey) ? t(reasonKey) : t('accountsPage.loginExpired')
       const confirmed = await notifyConfirm('accountsPage.loginExpiredConfirm', {
         title: t('accountsPage.confirmTitle'),
-        message: t('accountsPage.loginExpiredMessage', { reason: reason }),
+        message: t('accountsPage.loginExpiredMessage', { platform: platformName, reason: reason }),
         confirmButtonText: t('accountsPage.goLogin'),
         cancelButtonText: t('accountsPage.cancel'),
         type: 'warning',
