@@ -20,6 +20,20 @@
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
 
+## [未发布] fix(ops-center): 内容质量评估 API 导入路径错误导致 500 错误 v11（2026-09-09）
+
+### 修复
+- ops-center/backend/services/quality/service.py：sys.path 追加路径从 5 个 `..` 修正为 4 个 `..`，使 `from multi_publish.aggregation.quality` 正确解析到项目根。
+- 新增回归测试 ops-center/backend/tests/test_quality_eval_api.py（4 用例：评估 200 / 短内容 400 / 无鉴权 401 / stats+records 链路）。
+
+### 根因
+- 运营中心 quality service 的 sys.path 用了 5 级 `..`，实际项目根只需 4 级，导致 `ModuleNotFoundError: No module named 'multi_publish.aggregation.quality'`，POST /api/v1/quality-eval/evaluate 全部 500。
+
+### 验证
+- pytest tests/test_quality_eval_api.py 4/4 passed。
+- 真实 uvicorn 端到端 login/evaluate/stats/records 全部 200。
+- 全量 pytest tests/ 330 passed。
+
 ## [未发布] fix(accounts): 账号「去登录」改独立窗口承载，修复顶部多层内容重叠（2026-09-08）
 
 ### 修复
