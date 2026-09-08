@@ -8,6 +8,7 @@ const { StrategyManager } = require('./strategy-manager')
 const { StrategyMatcher } = require('./strategy-matcher')
 const { AITasteRemover } = require('./ai-taste-remover')
 const { KnowledgeBase } = require('./knowledge-base')
+const { RewriteQualityEvaluator } = require('./rewrite-quality-evaluator')
 
 class RewriteEngine {
   /**
@@ -16,6 +17,7 @@ class RewriteEngine {
    * @param {object} options.sensitiveFilter - 敏感词过滤器 { detect(text): object, filter(text): string }
    * @param {object} options.knowledgeBase - 知识库实例
    * @param {object} options.strategyManager - 策略管理器实例（可选）
+   * @param {object} options.qualityEvaluator - 改写质量评估器实例（可选）
    */
   constructor(options = {}) {
     this._llmClient = options.llmClient || null
@@ -23,6 +25,7 @@ class RewriteEngine {
     this._knowledgeBase = options.knowledgeBase || new KnowledgeBase()
     this._strategyManager = options.strategyManager || new StrategyManager()
     this._strategyManager.loadBuiltins()
+    this._qualityEvaluator = options.qualityEvaluator || new RewriteQualityEvaluator()
   }
 
   /**
@@ -100,10 +103,19 @@ class RewriteEngine {
         originalLength: content.length,
         resultLength: processed.length,
         aiTasteLevel: this._getAITasteLevel(processed, strategy)
-      }
+      },
+      quality
     }
 
-    // 8. 记录到知识库（异步，不阻塞返回）
+    // 8. 改写质量评估（SimHash 判重 + 语义保持 + 原创性评分）
+    let quality
+    try {
+      quality = this._qualityEvaluator.evaluate(content, processed)
+    } catch {
+      quality = null
+    }
+
+    // 9. 记录到知识库（异步，不阻塞返回）
     if (preCheck.hits.length === 0 && postCheck.hits.length === 0) {
       this._knowledgeBase.recordFeedback({
         action: 'generated',

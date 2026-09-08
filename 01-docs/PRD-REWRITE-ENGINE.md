@@ -244,3 +244,61 @@ Vue 组件 (AiWriterPanel.vue)
 | `ops-center/backend/services/runtime_service.py` | bootstrap 并入 rewrite_strategies |
 | `ops-center/backend/routers/rewrite_strategies.py` | 策略 API 路由 |
 | `ops-center/frontend/src/views/RewriteStrategies.vue` | 运营中心策略管理页 |
+
+## 十二、改写引擎 v2 升级（2026-09-09）
+
+### 12.1 升级概述
+
+本次升级对改写引擎的 5 个核心模块进行了全面重构：
+
+| 模块 | v1 → v2 | 主要变更 |
+|------|---------|---------|
+| ai-taste-remover.js | 191行→879行 | 3-pass引擎+S1/S2/S3分级+句长方差+反注入护栏+人类基线保护 |
+| knowledge-base.js | 276行→795行 | Ebbinghaus遗忘曲线+RRF混合搜索+知识图谱+矛盾检测+隐私过滤 |
+| sensitive-filter.js | 76行→533行 | DFA自动机+6层词库分层+变体归一化+白名单+热更新 |
+| strategy-manager.js | 156行→350行 | few-shot/CoT+导出导入+自定义策略+部分更新+metadata扩展 |
+| rewrite-quality-evaluator.js | NEW(425行) | SimHash 64位指纹+海明距离判重+三维评分 |
+
+### 12.2 去AI味引擎 v2
+
+**3-pass处理流水线：** Pass1杀AI词汇(117条映射S1/S2/S3分级) → Pass2破AI结构(22种模式) → Pass3加人类质感(句长变化+口语化)。反注入护栏：改写后detect计数>原文时自动回滚。人类基线保护：人工高频用词(此外/然而/首先)密度≥3才替换。
+
+### 12.3 用户知识库 v2
+
+Ebbinghaus遗忘曲线 + RRF混合搜索 + 知识图谱(8种关系DFS) + 矛盾检测(bigram Jaccard>0.7) + 隐私过滤(12条正则) + 生命周期管理 + 质量评分。
+
+### 12.4 敏感词过滤器 v2
+
+DFA自动机O(n)+最长匹配、6层词库分层、变体归一化(全角→半角/繁→简/特殊字符→标准/重复字符去重)、词级+上下文白名单、增量热更新。
+
+### 12.5 策略管理器 v2
+
+新增数据结构：fewShot/chainOfThought/genre/metadata。新增方法：exportStrategy/importStrategy/addCustom/update/remove/toggle。
+
+### 12.6 改写质量评估器
+
+SimHash 64位指纹+海明距离判重(<3近似重复/>6充分改写)。三维评分：充分度/语义保持度/原创性。综合pass/warn/fail判定+改进建议。
+
+### 12.7 集成变更
+
+- rewrite-engine-core.js新增qualityEvaluator参数
+- index.js新增导出RewriteQualityEvaluator/SimHash/computeSimHash/hammingDistance
+- rewrite返回结果新增quality字段
+
+### 12.8 深度分析文档
+
+| 文档 | 内容 |
+|------|------|
+| DEEP-ANALYSIS-AI-TASTE.md | 4个去AI味开源项目深析+v1引擎14维差距+P0-P5方案 |
+| DEEP-ANALYSIS-KNOWLEDGE-BASE.md | mem0/letta/LLM-Wiki-V2三源码深析+Node移植方案 |
+| DEEP-ANALYSIS-SENSITIVE-DEDUP.md | houbb/sensitive-word+SimHash源码深析 |
+
+### 12.9 测试结果
+
+| 测试文件 | 数量 | 结果 |
+|---------|------|------|
+| ai-taste-remover.test.js | 6 | PASS |
+| knowledge-base.test.js | 6 | PASS |
+| strategy-manager.test.js | 7 | PASS |
+| strategy-matcher.test.js | 6 | PASS |
+| **总计** | **25** | **全部通过** |

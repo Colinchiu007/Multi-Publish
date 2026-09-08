@@ -19,6 +19,9 @@ const { StrategyMatcher } = require('./strategy-matcher')
 const { AITasteRemover, AI_PHRASE_MAP, FORBIDDEN_OPENING_PATTERNS } = require('./ai-taste-remover')
 const { KnowledgeBase, MemoryStorage, DEFAULT_KB } = require('./knowledge-base')
 const { SensitiveFilter } = require('./sensitive-filter')
+const {
+  RewriteQualityEvaluator, SimHash, computeSimHash, hammingDistance
+} = require('./rewrite-quality-evaluator')
 
 /**
  * 快速创建改写引擎实例
@@ -36,11 +39,14 @@ function createEngine(options = {}) {
     sm.mergeRemote(options.remoteStrategies)
   }
 
+  const qe = options.qualityEvaluator || new RewriteQualityEvaluator()
+
   return new RewriteEngine({
     llmClient: options.llmClient,
     sensitiveFilter: options.sensitiveFilter || new SensitiveFilter(),
     knowledgeBase: kb,
-    strategyManager: sm
+    strategyManager: sm,
+    qualityEvaluator: qe
   })
 }
 
@@ -56,5 +62,9 @@ module.exports = {
   AI_PHRASE_MAP,
   FORBIDDEN_OPENING_PATTERNS,
   DEFAULT_KB,
+  RewriteQualityEvaluator,
+  SimHash,
+  computeSimHash,
+  hammingDistance,
   createEngine
 }
