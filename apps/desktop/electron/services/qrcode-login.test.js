@@ -360,7 +360,7 @@ describe('QrCodeLogin 凭证边界', () => {
     await expect(loginPromise).resolves.toBeInstanceOf(Error)
   })
 
-  it('扫码登录以全屏虚拟标签布局打开，并暴露显示、隐藏和关闭生命周期', async () => {
+  it('扫码登录改由独立窗口承载（不再内嵌主窗口），并暴露显示、隐藏和关闭生命周期', async () => {
     const mainWindow = createMainWindow()
     const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
     const onOpened = vi.fn()
@@ -372,7 +372,11 @@ describe('QrCodeLogin 凭证边界', () => {
     const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
     const view = createdViews[0]
 
-    expect(view.setBounds).toHaveBeenCalledWith({ x: 200, y: 76, width: 1000, height: 724 })
+    // 回归点：认证视图不得内嵌主窗口（内嵌布局曾依赖 LOGIN_VIEW_TOP=76 与侧边栏
+    // 宽度硬编码，与账号页真实布局不符，导致顶部多层内容重叠）。
+    // 现由独立 BrowserWindow 承载并铺满客户区（从 (0,0) 起算）。
+    expect(mainWindow.contentView.addChildView).not.toHaveBeenCalled()
+    expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 800, height: 600 })
     expect(onOpened).toHaveBeenCalledWith(expect.objectContaining({
       platform: 'kuaishou',
       accountId: expect.stringMatching(/^auth-kuaishou-/),
@@ -386,7 +390,21 @@ describe('QrCodeLogin 凭证边界', () => {
 
     qrCodeLogin.close()
     expect(onClosed).toHaveBeenCalledTimes(1)
-    expect(mainWindow.contentView.removeChildView).toHaveBeenCalledWith(view)
+    await expect(loginPromise).resolves.toBeInstanceOf(Error)
+  })
+
+  it('close 会销毁独立认证窗口，避免窗口与监听泄漏', async () => {
+    const mainWindow = createMainWindow()
+    const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+    qrCodeLogin.setMainWindow(mainWindow)
+
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
+    expect(qrCodeLogin._activeSession?.window).toBeTruthy()
+    const hostWin = qrCodeLogin._activeSession.window.win
+
+    qrCodeLogin.close()
+    expect(qrCodeLogin._activeSession?.window ?? null).toBeNull()
+    expect(hostWin.isDestroyed()).toBe(true)
     await expect(loginPromise).resolves.toBeInstanceOf(Error)
   })
 })

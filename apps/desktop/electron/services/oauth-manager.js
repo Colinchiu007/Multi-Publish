@@ -22,6 +22,7 @@ const { config: appConfig } = require('../config/app-config')
 const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+const { createStandaloneAuthWindow } = require('./auth-window')
 
 // OAuth 平台配置
 const OAUTH_CONFIGS = {
@@ -60,6 +61,8 @@ class OAuthManager {
     this.mainWindow = null
     this.store = store
     this.currentView = null
+    /** @type {ReturnType<typeof createStandaloneAuthWindow> | null} 承载授权视图的独立认证窗口 */
+    this.currentWindow = null
     this.currentPlatform = null
     this._resolveAuth = null
     this._rejectAuth = null
@@ -127,18 +130,24 @@ class OAuthManager {
       })
       this.currentView = view
 
-      // 定位到窗口中央
-      const bounds = this.mainWindow.getBounds()
-      const vw = Math.min(480, bounds.width - 40)
-      const vh = Math.min(640, bounds.height - 100)
-      view.setBounds({
-        x: Math.max(0, Math.floor((bounds.width - vw) / 2)),
-        y: 56 + Math.max(0, Math.floor((bounds.height - 56 - vh) / 2)),
-        width: vw, height: vh,
+      // OAuth 授权页改由独立窗口承载（对齐 AuthViewManager / QrCodeLogin 的独立
+      // 窗口模式，见 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md）：不再内嵌主窗口居中
+      // 悬浮，从根本上消除与主窗口 DOM 的分层重叠。
+      const host = createStandaloneAuthWindow({
+        parent: this.mainWindow,
+        title: `OAuth 授权 - ${platform}`,
+        // 授权页内容较少，使用紧凑尺寸
+        width: 560,
+        height: 720,
+        minWidth: 480,
+        minHeight: 600,
+        onClosed: () => {
+          // 用户直接点击窗口关闭按钮：结束授权流程，避免 Promise 永久挂起
+          this.close()
+        },
       })
-
-      this.mainWindow.contentView.addChildView(view)
-      view.setVisible(true)
+      this.currentWindow = host
+      host.attach(view)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(authUrl).catch(function () { /* ignore nav errors */ })
 
@@ -350,9 +359,13 @@ class OAuthManager {
       this._loginTimeout = null
     }
 
-    if (this.currentView) {
+    // 先销毁独立授权窗口（幂等；dispose 内部会解除视图挂载），再清理视图本身
+    if (this.currentWindow) {
       // eslint-disable-next-line no-unused-vars
-      try { this.mainWindow.contentView.removeChildView(this.currentView) } catch (e) { /* ignore */ }
+      try { this.currentWindow.dispose() } catch (e) { /* ignore */ }
+      this.currentWindow = null
+    }
+    if (this.currentView) {
       // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.close() } catch (e) { /* ignore */ }
       // eslint-disable-next-line no-unused-vars

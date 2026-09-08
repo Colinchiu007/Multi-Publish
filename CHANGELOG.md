@@ -1,3 +1,25 @@
+## [未发布] fix(accounts): 扫码登录与 OAuth 授权同步迁移独立窗口，清零内嵌浮层（2026-09-09）
+
+### 修复
+- 全量审计应用内「打开平台网页」路径后，把仍在内嵌主窗口的两条认证路径迁移到独立 BrowserWindow 承载（对齐 PR #1557 的去登录修复模式）：
+  - 扫码登录（QrCodeLogin，auth:open-qrcode-login）：原 _positionView 依赖 LOGIN_VIEW_TOP=76 与侧边栏宽度硬编码内嵌，现为独立窗口铺满客户区。
+  - OAuth 授权页（OAuthManager，oauth:start）：原居中悬浮小窗（y=56 起算）内嵌，现为独立窗口（560×720）。
+- 新增公共工厂 auth-window.js（createStandaloneAuthWindow）：统一「独立窗口 + attach 铺满 + dispose 幂等回收」；onClosed 回调让窗口关闭按钮按取消结算，避免登录 Promise 挂起。
+- QrCodeLogin 的 _onWindowResize / setSidebarWidth 保留签名改为空操作（window.js resize 挂钩兼容）；_positionView 与 LOGIN_VIEW_TOP 常量移除。
+- 登录状态提示：扫码/OAuth 窗口标题明确标注「扫码登录 - <平台>」/「OAuth 授权 - <平台>」。
+
+### 根因
+- 与 PR #1557 同源：内嵌 WebContentsView 的坐标依赖与主窗口 DOM 布局强同步的硬编码常量，页面切换/侧边栏折叠/窗口缩放即错位。审计确认全仓共 3 处内嵌认证路径，#1557 修复 1 处，本次清零其余 2 处（另一处 openSavedAccount 为无调用方的预留代码，仅记录）。
+
+### 测试
+- 新增 auth-window.test.js（工厂：attach 铺满从 (0,0) 起算 / resize 同步 / dispose 幂等 / closed 回调）。
+- qrcode-login.test.js 旧内嵌布局断言更新为独立窗口断言 + 新增窗口销毁用例。
+- oauth-manager.test.js 新增 close 销毁独立授权窗口用例。
+- test-setup.js BrowserWindow mock 的 contentView 升级为 vi.fn 支持挂载断言。
+
+### 文档
+- 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
+
 ## [未发布] fix(accounts): 账号「去登录」改独立窗口承载，修复顶部多层内容重叠（2026-09-08）
 
 ### 修复
