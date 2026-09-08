@@ -30,6 +30,27 @@
 - **待办**：视频号发布验证超时（需更长超时或轮询验证）；头条发布后未出现在历史记录（需进一步诊断）；抖音未在本次覆盖。
 
 ---
+## 多平台发布 E2E 真实环境测试复盘（第三轮，2026-09-07）
+
+- **背景**：在第二轮 Cookie 恢复修复后，进行第三轮完整 E2E 发布测试。4 个平台全部 `has_cookies:true`，Cookie 恢复链路全部正常工作（日志显示 47/47、43/43、21/21、6/6 cookies 成功恢复），但发布仍全部失败。
+
+- **根因 1（服务器 session 与本地 Cookie 生命周期不同步）**：`has_cookies:true` 只检测本地加密凭证文件存在性（`checkLocalCredentials`），不检测服务器端 session 有效性。Cookie 恢复链路正常工作，但各平台后台在导航后检测到 session 过期，返回登录页面或显示"登录超时"。
+
+- **根因 2（抖音 RPA 标题填充脚本执行失败）**：日志 `douyin title: Script failed to execute` 表明 `_fillInput` 在抖音创作者后台 DOM 上执行失败。抖音使用 SPA（React），原生 value setter + Event('input') 可能无法触发 React 的合成事件系统。
+
+- **根因 3（视频号 Cookie 分区为空）**：`auth-auth-tencent_video-1788773515006` 分区存在但 `supplemented 0/0 cookies`，说明登录时 Cookie 未正确写入该分区，或已全部过期被清理。
+
+- **根因 4（Electron 启动端口不匹配）**：`start-desktop.ps1` 覆盖 Vite 端口为 6165，但直接 `npx electron .` 时默认连接 5174。端口不匹配导致页面加载失败。
+
+- **教训 1（has_cookies 语义需要明确）**：`has_cookies` 应区分"本地凭证存在"和"服务器 session 有效"两层含义。当前只检测前者，但发布需要后者。建议在账号验证流程中增加服务器端 session 有效性检测。
+
+- **教训 2（RPA 选择器引擎需适配 React SPA）**：抖音创作者后台使用 React，原生 DOM value setter 不触发 React 合成事件。需要研究 React 内部事件机制（`__reactInternalInstance$` 或 `reactFiber`）来正确填充表单。
+
+- **教训 3（Electron 启动方式需统一）**：直接 `npx electron .` 启动时端口默认为 5174，`start-desktop.ps1` 覆盖为 6165。CDP E2E 测试时必须使用与 Electron 匹配的端口。
+
+- **预防**：在账号管理页面增加"服务器 session 状态"指示器；在 RPA 引擎中增加 React SPA 兼容模式；在 `start-desktop.ps1` 输出中明确标注 Vite 端口。
+
+---
 ## OpsCenter 运行时配置 Ed25519 签名验签（codex/stage-1.6-runtime-verify，2026-09-02）
 ## Video Clone 流水线成品视频展示缺失（codex/video-clone-result-download，2026-09-05）
 

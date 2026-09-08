@@ -6542,3 +6542,47 @@ login-state 横幅包含两个关键控件：
 - `apps/desktop/electron/preload/index.bundle.js`（+1/-1）
 - `apps/desktop/src/views/Accounts.vue`（+1/-1）
 - `apps/desktop/src/views/Accounts.test.js`（+4/-5）
+
+### 3.1.34 多平台发布 E2E 真机测试诊断（2026-09-07）
+
+**背景**：在真实 Electron 桌面应用中，对国内 4 个已登录自媒体平台（微信公众号/头条/抖音/视频号）进行了三轮完整 E2E 发布测试。
+
+**测试环境**：
+- 应用：Electron 43.1.1 + Vue 3 + Vite 6.4.3
+- 账号：4 个已显示 `has_cookies:true`（微信公众号 a6b2f413 / 头条 7ae99805 / 抖音 01ab122e / 视频号 36b5b265）
+- 测试内容：智能手环睡眠改善主题文章（标题 17 字符，正文 HTML 格式，3 个标签）
+- 测试方式：CDP 协议驱动，`Runtime.evaluate` 操作 DOM，原生 value setter + Event('input') 触发 Vue 响应式
+
+**测试结果**：
+
+| 平台 | 第1轮 | 第2轮 | 第3轮 | 根因 |
+|------|-------|-------|-------|------|
+| 微信公众号 | ❌ 登录超时 | ❌ 登录超时 | ❌ 登录超时 | 服务器 session 过期，Cookie 恢复 21/21 但后台已失效 |
+| 今日头条 | ❌ not logged in | ❌ not logged in | ❌ not logged in | 重定向到登录页，Cookie 恢复 6/6 但 session 过期 |
+| 抖音 | ❌ timeout | ❌ timeout | ❌ timeout | 标题填充脚本执行失败 + API 发布 URL 不匹配 |
+| 视频号 | ❌ verification timeout | ❌ verification timeout | ❌ verification timeout | 导航到登录页，页面显示"加载失败" |
+
+**Cookie 恢复链路验证**：
+- 所有 4 个平台的 Cookie 恢复链路均正常工作（从 `auth-auth-{platform}-{ts}` 分区补充完整 Cookie）
+- 微信公众号：21/21 cookies 从 `account-a6b2f413` 恢复
+- 今日头条：6/6 cookies 从 `auth-auth-toutiao-1788765077167` 恢复
+- 抖音：47/47 + 43/43 cookies 从两处恢复
+- 视频号：0/0 cookies 从 `auth-auth-tencent_video-1788773515006`（分区为空）
+
+**诊断发现**：
+
+1. **Cookie 本地存储完好，服务器 session 过期是主要失败原因**：`has_cookies:true` 只表示本地加密凭证文件存在，不表示服务器端 session 有效。RPA 发布窗口导航到平台后台后，页面检测到登录态失效。
+
+2. **抖音标题填充脚本执行失败**：日志显示 `douyin title: Script failed to execute`，说明 `_fillInput` 在抖音创作者后台的 DOM 上执行失败，可能是选择器引擎与抖音 SPA 页面不兼容。
+
+3. **视频号 Cookie 分区为空**：`auth-auth-tencent_video-1788773515006` 分区存在但无 Cookie，说明登录时未正确写入或已过期。
+
+4. **"验证"按钮可触发重新登录窗口**：点击账号页面的"验证"按钮后，微信公众号后台窗口成功打开并获取新 token（`token=1406921224`），说明验证流程本身可用。
+
+5. **Electron 启动稳定性问题**：`start-desktop.ps1` 脚本通过 `cmd /c start` 完全脱离 shell 进程树后稳定运行，但直接通过 `npx electron` 启动时 Electron 随父 shell 退出而崩溃。Vite 端口为 5174（Electron 默认），非 6165（脚本覆盖）。
+
+**后续建议**：
+- 账号需重新扫码登录（4 个平台服务器 session 均已过期）
+- 修复抖音 RPA 标题填充脚本错误
+- 视频号登录后需确认 Cookie 正确写入 auth 分区
+- 考虑在前端账号列表增加"服务器 session 状态"检测（非仅本地 Cookie 存在性）
