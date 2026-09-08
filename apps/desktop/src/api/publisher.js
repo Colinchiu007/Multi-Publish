@@ -73,6 +73,10 @@ export async function accountDelete(accountId) { return invokeWithFallback("acco
 
 export async function accountCheckLogin(platform, accountId) { return invokeWithFallback("accountCheckLogin", {  code: -1, message: 'electronAPI not available'  }, platform, accountId) }
 
+export async function accountBatchCheckLogin(accountIds) { return invokeWithFallback("accountBatchCheckLogin", { code: -1, message: 'electronAPI not available' }, accountIds) }
+
+export async function accountBatchOpenLogin(accountIds) { return invokeWithFallback("accountBatchOpenLogin", { code: -1, message: 'electronAPI not available' }, accountIds) }
+
 export async function accountList() { return invokeWithFallback("accountList", {  code: 0, data: []  }) }
 
 export async function accountSetDefault(platform, accountId) { return invoke("accountSetDefault", platform, accountId) }
