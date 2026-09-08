@@ -121,6 +121,7 @@ class RewriteResult(BaseModel):
     word_count: int = 0
     style: str = ""
     length: str = ""
+    quality_report: Optional[dict] = None
 
 
 class SourceInfo(BaseModel):

@@ -202,6 +202,12 @@ const routes = [
     component: () => import('../views/PipelineOptions.vue'),
     meta: { requiresAuth: true, adminOnly: true },
   },
+  {
+    path: '/content-quality-eval',
+    name: 'ContentQualityEval',
+    component: () => import('../views/ContentQualityEval.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

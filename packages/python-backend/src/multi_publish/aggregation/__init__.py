@@ -15,6 +15,7 @@ from multi_publish.aggregation.models import (
 )
 from multi_publish.aggregation.service import AggregationService
 from multi_publish.aggregation.router import router
+from multi_publish.aggregation.quality import ContentQualityEvaluator, QualityReport
 
 __all__ = [
     "AggregationService",
@@ -24,5 +25,7 @@ __all__ = [
     "RewriteResult",
     "SourceInfo",
     "TaskStatus",
+    "ContentQualityEvaluator",
+    "QualityReport",
     "router",
 ]
