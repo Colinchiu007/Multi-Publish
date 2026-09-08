@@ -62,7 +62,7 @@ class QualityEvalService:
         # Lazy import the evaluator to avoid coupling
         import sys
         import os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..",
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..",
                                         "packages", "python-backend", "src"))
         from multi_publish.aggregation.quality import ContentQualityEvaluator
 
