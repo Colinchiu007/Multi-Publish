@@ -1253,7 +1253,7 @@ export default {
     loginExpiredConfirm: '登录已失效',
     loginExpiredHint: '是否需要重新登录？',
     loginUnsupported: '暂不支持该平台的登录页',
-    loginExpiredMessage: (ctx) => "账号登录已失效（" + ctx.named("reason") + "），建议重新登录以确保正常使用。",
+    loginExpiredMessage: (ctx) => ctx.named('platform') + " 账号登录已失效（" + ctx.named("reason") + "），建议重新登录以确保正常使用。",
     reloginFailed: '重新登录失败',
     verifyFailed: '验证失败',
     goLogin: '去登录',
