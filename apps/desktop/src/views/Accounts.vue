@@ -155,7 +155,8 @@
             :data-testid="`platform-filter-${item.id}`"
             @click="setPlatformFilter(item.id)"
           >
-            <span class="platform-filter-icon">{{ platformIcon(item.id) }}</span>
+            <img v-if="isIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img" :alt="platformLabel(item.id)" width="20" height="20">
+<span v-else class="platform-filter-icon">{{ platformIcon(item.id) }}</span>
             <span>{{ platformLabel(item.id) }}</span>
             <strong>{{ item.count }}</strong>
           </button>
@@ -277,6 +278,7 @@ import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
+import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
 
 const filterOptions = computed(() => [
@@ -429,9 +431,19 @@ function platformLabel (id) {
 }
 
 function platformIcon (id) {
+  // 优先使用真实 SVG 图标 URL
+  const iconUrl = getPlatformIconUrl(id)
+  if (iconUrl) return iconUrl
+  // 回退到 store 中的图标（可能是旧 emoji 或 path）
   const icon = platformStore.getIcon(id)
   if (typeof icon === 'string' && icon.trim()) return icon
+  // 最终回退：取平台名首字符
   return (platformLabel(id) || '?').slice(0, 1)
+}
+
+/** 判断图标值是否为图片 URL（需要以 <img> 渲染） */
+function isIconUrl (value) {
+  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
 }
 
 const OWNER_FIELD_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人']
@@ -698,6 +710,12 @@ async function reloginAccount (account) {
       loginVisible.value = false
       pendingAuthAction.value = null
       notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: result?.message || t('accountsPage.reloginFailed') }).message })
+    } else {
+      // 登录成功：刷新账号列表以更新头像/名称/状态
+      loginVisible.value = false
+      pendingAuthAction.value = null
+      await refresh()
+      notifySuccess('accountsPage.reloginSuccess')
     }
   } catch (error) {
     loginVisible.value = false

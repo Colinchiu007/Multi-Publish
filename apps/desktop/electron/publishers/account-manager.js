@@ -514,15 +514,60 @@ async function extractAccountInfo (page, platform = '') {
         return null
       }
 
-      // 昵称：优先平台专用，后通用
+      // 昵称：优先平台专用，后通用 → 多层回退
       const nickSelectors = platformSelectors && platformSelectors.nickname
         ? platformSelectors.nickname
-        : ['[class*="nickname"]', '[class*="username"]', '[class*="user-name"]', '.user-info', '.profile-name', '#nickname', '#username']
+        : [
+          '[class*="nickname"]', '[class*="username"]', '[class*="user-name"]',
+          '.user-info', '.profile-name', '#nickname', '#username',
+          '[data-user-name]', '[class*="profile"] h1', '[class*="profile"] strong',
+          '[class*="creator"] h1', '[class*="creator"] span',
+        ]
       info.nickName = trySelectors(nickSelectors) || ''
 
-      // 头像
-      const avatarEl = document.querySelector('[class*="avatar"] img, .avatar img, [class*="avatar-img"]')
-      if (avatarEl) info.avatar = avatarEl.src || avatarEl.getAttribute('data-src') || ''
+      // 昵称回退：meta 标签 og:title / twitter:title
+      if (!info.nickName) {
+        const metaTitle = document.querySelector('meta[property="og:title"]')
+        if (metaTitle) {
+          const content = (metaTitle.getAttribute('content') || '').trim()
+          if (content && content.length < 50) info.nickName = content
+        }
+      }
+      if (!info.nickName) {
+        const twitterTitle = document.querySelector('meta[name="twitter:title"]')
+        if (twitterTitle) {
+          const content = (twitterTitle.getAttribute('content') || '').trim()
+          if (content && content.length < 50) info.nickName = content
+        }
+      }
+      // 昵称最终回退：document.title 去掉后缀（如 " - 哔哩哔哩"）
+      if (!info.nickName) {
+        const rawTitle = (document.title || '').trim()
+        if (rawTitle) {
+          // 去掉常见平台后缀
+          info.nickName = rawTitle.replace(/\s*[-–—|·]\s*(.+)$/, '').trim() || rawTitle
+        }
+      }
+
+      // 头像：多层回退（img src → 背景图 → meta og:image）
+      const avatarEl = document.querySelector(
+        '[class*="avatar"] img, .avatar img, [class*="avatar-img"], ' +
+        'img[class*="avatar"], img[class*="profile"], img[class*="portrait"], ' +
+        '[class*="avatar"] [style*="background"], [class*="user-icon"] img'
+      )
+      if (avatarEl) {
+        info.avatar = avatarEl.src || avatarEl.getAttribute('data-src') || avatarEl.getAttribute('data-original') || ''
+        // 背景图回退
+        if (!info.avatar && avatarEl.style && avatarEl.style.backgroundImage) {
+          const bgMatch = String(avatarEl.style.backgroundImage).match(/url\(["']?([^"')]+)["']?\)/)
+          if (bgMatch) info.avatar = bgMatch[1]
+        }
+      }
+      // meta og:image 回退
+      if (!info.avatar) {
+        const metaImg = document.querySelector('meta[property="og:image"]')
+        if (metaImg) info.avatar = (metaImg.getAttribute('content') || '').trim()
+      }
 
       // 平台用户ID
       const idSelectors = platformSelectors && platformSelectors.platformAccountId

@@ -13,6 +13,7 @@
         @click="$emit('switch-tab', tab.tabId)"
       >
         <span class="tab-icon" v-if="tab.isHome" aria-hidden="true">🏠</span>
+        <img v-else-if="getPlatformIconUrl(tab)" :src="getPlatformIconUrl(tab)" class="tab-icon-img" :alt="getTabLabel(tab)" width="16" height="16" aria-hidden="true">
         <span class="tab-icon" v-else-if="getPlatformIcon(tab)" aria-hidden="true">{{ getPlatformIcon(tab) }}</span>
         <span class="tab-title" :title="tab.title || tab.url">{{ tab.title || getTabLabel(tab) }}</span>
         <span v-if="tab.loading" class="tab-spinner" aria-hidden="true">⟳</span>
@@ -44,6 +45,7 @@
 <script setup>
 import { useTabStore } from '@/stores/tab'
 import { storeToRefs } from 'pinia'
+import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 defineProps({})
 

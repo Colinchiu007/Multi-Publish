@@ -22,7 +22,8 @@
         >
       </label>
       <span class="platform-chip">
-        <span class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
+        <img v-if="isIconUrl(platformIcon)" :src="platformIcon" class="platform-icon-img" :alt="platformLabel" width="24" height="24" aria-hidden="true">
+<span v-else class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
         {{ accountDisplayName }}
       </span>
       <button
@@ -270,6 +271,10 @@ function formatDate (value) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? t('accountsPage.accountCardLabels.unknownDate') : date.toLocaleDateString('zh-CN')
 }
+
+function isIconUrl (value) {
+  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
+}
 </script>
 
 <style scoped>
@@ -349,6 +354,13 @@ function formatDate (value) {
   color: var(--primary, #5048e5);
   font-size: 12px;
   font-weight: 700;
+}
+.platform-icon-img {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 4px;
+  object-fit: contain;
 }
 
 .favorite-button {
