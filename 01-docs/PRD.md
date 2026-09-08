@@ -6586,3 +6586,158 @@ login-state 横幅包含两个关键控件：
 - 修复抖音 RPA 标题填充脚本错误
 - 视频号登录后需确认 Cookie 正确写入 auth 分区
 - 考虑在前端账号列表增加"服务器 session 状态"检测（非仅本地 Cookie 存在性）
+
+## 账号管理 v12：平台图标 SVG 化 + 账号头像/昵称提取增强 + 重新登录后刷新修复（2026-09-08）
+
+### 背景（第一性原因）
+
+用户反馈账号管理页存在三类问题：
+1. **平台图标为 emoji**：各平台图标使用 emoji（💬🎵📕等），风格不统一，分辨率低，不同平台/操作系统渲染不一致，专业度不足。
+2. **账号头像/昵称提取不完整**：部分平台（如 B站、百家号）的 DOM 结构与通用选择器不匹配，导致抓取到的头像/昵称为空。
+3. **重新登录后不回刷**：百家号等平台登录成功后，返回账号管理页后登录状态不刷新，仍是未登录状态。
+
+### 变更范围
+
+本 PR 覆盖 34 个文件（+338/-59 行），涉及三个独立子变更。
+
+#### 子变更 1：平台图标 SVG 化
+
+**数据校验**：
+- 15 个平台 SVG 图标文件位于 `apps/desktop/src/assets/platforms/`，由 Vite 静态导入模块 (`usePlatformIconUrl.js`) 统一管理。
+- `getPlatformIconUrl(platformId)` 返回 Vite 编译后的静态资源 URL（开发环境为 `/src/assets/platforms/xxx.svg`，生产环境为 `/assets/xxx.[hash].svg`）。
+- 未匹配平台返回空字符串 `''`，渲染端通过 `v-if` 回退到旧 emoji 或首字母 Fallback。
+- 图标为 24×24 或 32×32 的 SVG 文件，渲染时使用 `object-fit: contain` + `background: transparent`。
+
+**功能逻辑**：
+1. 新增 `apps/desktop/src/composables/usePlatformIconUrl.js`：Vite 静态导入 15 个平台 SVG，映射表 `ICON_URL_MAP`（platformId → Vite 模块 URL），导出 `getPlatformIconUrl(platformId)` 和别名 `platformIconUrl(platformId)`。
+2. 数据源 `platform-display-definitions.json` 的 `PLATFORM_ICONS` 值从 emoji 改为 SVG 路径（如 `"platforms/wechat_mp.svg"`），同时保留兼容旧消费者。
+3. Store `platforms.js` 的 `DEFAULT_ICONS` 改为 SVG 路径，标记为 IPC 不可用时的回退。
+4. `PlatformIcon.vue` 组件优先使用 `<img>` 渲染 SVG 图标（`v-if="iconSrc"`），仅无图标时回退到旧 `<div>` + 首字母渲染。
+
+**交互逻辑与显示项**：
+- **PlatformIcon 组件**：接收 `platform` prop，通过 `getPlatformIconUrl()` 自动解析图标 URL。有 SVG → `<img>` 渲染；无 SVG → 旧 `<div>` 首字母回退。`displayLabel` 优先使用 `label` prop，其次 platform 映射，最后 platform ID。
+- **TabBar 标签栏**：平台登录标签页图标优先取 SVG URL，回退 emoji。
+- **Dashboard 数据看板**：平台卡片图标优先取 SVG URL，回退 store 图标 → emoji（`📊`）。
+- **Home 首页**：平台列表标签图标优先取 SVG URL，回退 emoji。
+- **FirstRun 首次引导**：快速添加平台按钮图标优先取 SVG URL，回退 emoji。
+- **PublishHistory 发布历史**：平台图标优先取 SVG URL，回退 store 图标 → `PLATFORM_ICONS` → `•`。
+- **Accounts 账号管理**：平台筛选按钮图标优先取 SVG URL 渲染 `<img>`，回退 `<span>` 文字图标。
+- **PublishTypeDialog 发布类型选择**：平台选项图标优先取 SVG URL。
+
+**渲染位置汇总**：
+
+| 位置 | 组件/视图 | 使用方式 |
+|------|----------|---------|
+| 平台图标组件 | PlatformIcon.vue | 直接调用 `getPlatformIconUrl(platform)` |
+| 标签栏 | TabBar.vue | 导入 `getPlatformIconUrl`，`<img>` 渲染 |
+| 数据看板 | Dashboard.vue | `platformIcon()` 函数优先取 SVG URL |
+| 首页 | Home.vue | `platforms` computed 计算 `iconUrl` 字段 |
+| 首次引导 | FirstRun.vue | `quickPlatforms` 数组含 `iconUrl` 字段 |
+| 发布历史 | PublishHistory.vue | `platformIcon()` 函数优先取 SVG URL |
+| 账号管理 | Accounts.vue | `platformIcon()` 函数优先取 SVG URL |
+| 发布类型选择 | PublishTypeDialog.vue | 导入 `getPlatformIconUrl` |
+
+**回退策略**（三层）：
+1. 优先：`getPlatformIconUrl(platformId)` → SVG URL
+2. 回退：`platformStore.getIcon(platformId)` → store 中的图标
+3. 最终回退：平台名首字符（`platformLabel(id).slice(0, 1)`）或 `'📊'` / `'•'` 等固定 emoji
+
+**图标判断函数** `isIconUrl(value)`：
+- 判断 `typeof value === 'string'` 且 `value.startsWith('/')` 或 `value.startsWith('data:')` 或 `value.startsWith('http')`
+- 为 `true` → 渲染 `<img>` 标签
+- 为 `false` → 渲染 `<span>` 文字图标
+
+#### 子变更 2：账号头像/昵称提取增强
+
+**数据校验**：
+- `extractAccountInfo()` 在目标平台页面 `document` 中执行，返回 `{ nickName, avatar, platformAccountId, followers }` 或 `null`（页面不可用时）。
+- 昵称提取优先级：平台专用选择器 → 通用选择器列表（9 项）→ meta `og:title` → meta `twitter:title` → `document.title`（去掉平台后缀）。
+- 头像提取优先级：`<img>` 选择器列表（6 项）→ `src` / `data-src` / `data-original` → CSS 背景图 `background-image` 解析 → meta `og:image`。
+- 所有提取结果经 `trim()` 处理，空字符串与 `null` 等效。
+
+**功能逻辑**：
+
+1. **昵称提取多层回退**（`account-manager.js`）：
+   - **Layer 1 — CSS 选择器**：扩展通用选择器列表，新增 `[data-user-name]`、`[class*="profile"] h1`、`[class*="profile"] strong`、`[class*="creator"] h1`、`[class*="creator"] span`。
+   - **Layer 2 — meta 标签**：`og:title`（`document.querySelector('meta[property="og:title"]')`），内容长度 < 50 字符时采纳。
+   - **Layer 3 — twitter:title**：`document.querySelector('meta[name="twitter:title"]')`，内容长度 < 50 字符时采纳。
+   - **Layer 4 — document.title 去后缀**：取 `document.title`，用正则 `/\s*[-–—|·]\s*(.+)$/` 去掉平台后缀（如 `哔哩哔哩`、`百家号` 等），保留用户名部分。
+
+2. **头像提取多层回退**（`account-manager.js`）：
+   - **Layer 1 — CSS 选择器**：扩展选择器列表，新增 `img[class*="avatar"]`、`img[class*="profile"]`、`img[class*="portrait"]`、`[class*="avatar"] [style*="background"]`、`[class*="user-icon"] img`。
+   - **Layer 2 — 属性回退**：`src` → `data-src` → `data-original`（懒加载图片常用 `data-original` 属性）。
+   - **Layer 3 — 背景图解析**：CSS `background-image: url(...)` 用正则 `/url\(["']?([^"')]+)["']?\)/` 提取 URL。
+   - **Layer 4 — meta og:image**：`document.querySelector('meta[property="og:image"]')`，提取 `content` 属性。
+
+**交互逻辑**：
+- 提取在账号登录成功后自动执行（`saveCapturedAccount` → `extractAccountInfo`）。
+- 提取结果通过 `account_name` / `platform_account_id` / `followers` / `avatar` 字段 POST 到 `/api/accounts`。
+- 数据展示在 `AccountManagementCard.vue` 的头像区和昵称区。
+
+#### 子变更 3：重新登录后刷新修复
+
+**数据校验**：
+- `reloginAccount(account)` 成功 → 调用 `await refresh()` 重新加载账号列表。
+- `refresh()` 内部调用 `account:list` IPC，后端返回最新账号数据（含更新后的头像/昵称/登录状态）。
+- 登录失败 → 不刷新列表，显示错误提示。
+
+**功能逻辑**（`Accounts.vue`）：
+```
+reloginAccount(account) 成功分支：
+  → loginVisible = false                // 关闭登录视图
+  → pendingAuthAction = null            // 清除待处理操作
+  → await refresh()                     // 刷新账号列表
+  → notifySuccess('accountsPage.reloginSuccess')  // 显示成功提示
+```
+
+**交互逻辑**：
+1. 用户点击「验证」→ 检测到登录失效 → 弹出确认对话框。
+2. 用户点击「去登录」→ 打开平台登录页面（WebContentsView）。
+3. 用户完成登录 → 点击「我已完成登录」→ 凭证提取并保存。
+4. **修复后**：`refresh()` 刷新账号列表，卡片状态从「已失效」变为「已登录」，昵称/头像同步更新。
+5. 显示「账号重新登录成功」提示。
+
+**修复前**：登录成功后返回账号管理页，卡片状态不刷新，仍为「未登录」/「已失效」。
+
+### 显示项与提示文字
+
+| 场景 | 中文 | 英文 |
+|------|------|------|
+| 重新登录成功 | 账号重新登录成功 | Account re-signed in successfully |
+| 平台图标（SVG） | 各平台真实 SVG 图标 | (same) |
+| 账号头像 | 从平台提取的真实头像 | (same) |
+| 账号昵称 | 从平台提取的真实昵称 | (same) |
+
+### 回归保护（QM-5 第四步）
+
+- **单元测试**：`PlatformIcon.test.js`（8 测试，新增 mock `usePlatformIconUrl`）、`simple.test.js`（新增 mock）、`more-components.test.js`（新增 mock）、`Accounts.test.js`（11 测试，新增 mock）、`platforms.test.js`（2 测试）——全部通过。
+- **Vite Build**：`pnpm run build` 成功（1935 modules），`index.bundle.js` 已重建。
+- **CI 检查**：Visual Tests ✅、GUI Tests ✅、Build & Release ✅、Electron CI ✅、AI Agent Judge ✅、QG Static ✅、债务熔断门禁 ✅。
+
+### 系统性漏洞与预防（QM-5 第五步）
+
+- **图标渲染双路径**：SVG 和 emoji 共存期间，所有渲染位置必须正确处理 `isIconUrl()` 判断。建议后续统一 Icon 抽象层，避免各组件自行实现判断逻辑。
+- **SVG 文件管理**：15 个 SVG 文件通过 Vite 静态导入，新增平台需同时：创建 SVG 文件 → 在 `usePlatformIconUrl.js` 导入 → 加入 `ICON_URL_MAP` → 更新 `PLATFORM_ICONS` 和 `DEFAULT_ICONS`。
+
+### 变更文件
+
+- `apps/desktop/src/assets/platforms/*.svg`（15 个新增，平台图标 SVG 资源）
+- `apps/desktop/src/composables/usePlatformIconUrl.js`（新增，Vite 静态导入解析器）
+- `apps/desktop/src/components/PlatformIcon.vue`（+14/-4，优先 SVG 渲染）
+- `apps/desktop/src/components/PlatformIcon.test.js`（+8/-1，mock usePlatformIconUrl）
+- `apps/desktop/src/components/TabBar.vue`（+2，TabBar 图标 SVG 化）
+- `apps/desktop/src/components/accounts/components/AccountManagementCard.vue`（+14/-4，卡片图标 SVG 化）
+- `apps/desktop/src/components/accounts/components/PlatformAccountGroup.vue`（+14/-4，分组图标 SVG 化）
+- `apps/desktop/src/components/publish/components/PublishTypeDialog.vue`（+4/-1，发布类型图标 SVG 化）
+- `apps/desktop/src/components/simple.test.js`（+8/-1，mock）
+- `apps/desktop/src/components/more-components.test.js`（+8/-1，mock）
+- `apps/desktop/src/stores/platforms.js`（+19/-2，DEFAULT_ICONS 改为 SVG 路径）
+- `apps/desktop/src/stores/platforms.test.js`（+2/-1，测试同步）
+- `apps/desktop/src/views/Accounts.vue`（+20/-1，平台筛选图标 SVG 化 + re-login 刷新修复）
+- `apps/desktop/src/views/Accounts.test.js`（+11/-1，测试同步）
+- `apps/desktop/src/views/Dashboard.vue`（+6/-1，数据看板图标 SVG 化）
+- `apps/desktop/src/views/Home.vue`（+27/-11，首页图标 SVG 化）
+- `apps/desktop/src/views/FirstRun.vue`（+16/-6，首次引导图标 SVG 化）
+- `apps/desktop/src/views/PublishHistory.vue`（+12/-2，发布历史图标 SVG 化）
+- `apps/desktop/electron/publishers/account-manager.js`（+55/-2，头像/昵称提取增强）
+- `packages/shared-utils/src/platform-display-definitions.json`（+30/-30，PLATFORM_ICONS 改为 SVG 路径）
