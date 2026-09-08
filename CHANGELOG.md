@@ -1,3 +1,19 @@
+## [未发布] fix(ops-center): 内容质量评估 API 导入路径错误导致 500 错误 v11（2026-09-09）
+
+### 修复
+- ops-center/backend/services/quality/service.py：改用 importlib 按文件绝对路径加载纯标准库的 evaluator.py，绕开 multi_publish 父包命名空间。
+- 新增回归测试 ops-center/backend/tests/test_quality_eval_api.py（4 用例：评估 200 / 短内容 400 / 无鉴权 401 / stats+records 链路）。
+
+### 根因
+- 初版用 `from multi_publish.aggregation.quality import ...` 导入评估器，会触发 `multi_publish/__init__.py` 顶层导入 core/crypto/account_store，这些模块依赖 `loguru`，而 ops-center 运行环境未安装 loguru，导致 POST /api/v1/quality-eval/evaluate 在 CI/生产环境返回 500 `No module named 'loguru'`。
+- 评估器本身仅依赖标准库（re/math/dataclasses/typing/collections），按文件路径加载即可，无需引入整个发布栈。
+
+### 验证
+- pytest tests/test_quality_eval_api.py 4/4 passed。
+- 模拟 CI 无 loguru 环境下按路径加载评估器，正常返回 15 维度评分。
+- 全量 pytest tests/ 330 passed。
+
+
 ## [未发布] fix(accounts): 扫码登录与 OAuth 授权同步迁移独立窗口，清零内嵌浮层（2026-09-09）
 
 ### 修复
