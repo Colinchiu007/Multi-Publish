@@ -59,12 +59,24 @@ class QualityEvalService:
         skip_persist: bool = False,
     ) -> dict:
         """Evaluate content quality and optionally persist the record."""
-        # Lazy import the evaluator to avoid coupling
-        import sys
+        # Lazy import the evaluator to avoid coupling.
+        # 直接按文件路径加载纯标准库的 evaluator.py，绕开 multi_publish 父包。
+        # 原因：from multi_publish.aggregation.quality import ... 会触发
+        #   multi_publish/__init__.py 顶层导入 core/crypto/account_store，
+        #   这些模块依赖 loguru，而 ops-center 运行环境未安装 loguru，导致 500。
+        # evaluator.py 仅依赖标准库（re/math/dataclasses/typing/collections），
+        # 按路径加载即可，无需引入整个发布栈。
+        import importlib.util
         import os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..",
-                                        "packages", "python-backend", "src"))
-        from multi_publish.aggregation.quality import ContentQualityEvaluator
+        _evaluator_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "..",
+            "packages", "python-backend", "src", "multi_publish", "aggregation",
+            "quality", "evaluator.py",
+        ))
+        _spec = importlib.util.spec_from_file_location("cqe_evaluator", _evaluator_path)
+        _module = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_module)
+        ContentQualityEvaluator = _module.ContentQualityEvaluator
 
         evaluator = ContentQualityEvaluator()
         report = evaluator.evaluate(content, original_content=original_content or None, platform=platform, title=title)
