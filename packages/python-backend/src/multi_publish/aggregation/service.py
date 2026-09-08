@@ -249,12 +249,41 @@ class AggregationService:
             result = await proc.rewrite(content_obj, rewrite_cfg)
         if not result.success:
             raise ValueError(result.error or "未知错误")
-        return RewriteResultModel(
+        result_model = RewriteResultModel(
             result_content=result.rewritten_content,
             word_count=len(result.rewritten_content),
             style=request.style,
             length=request.length,
         )
+        try:
+            from .quality import ContentQualityEvaluator
+            evaluator = ContentQualityEvaluator()
+            report = evaluator.evaluate(
+                result.rewritten_content,
+                original_content=request.content,
+                platform="通用",
+            )
+            result_model.quality_report = {
+                "overall_score": report.overall_score,
+                "grade": report.grade,
+                "grade_label": report.grade_label,
+                "dimensions": [
+                    {
+                        "id": d.id,
+                        "label": d.label,
+                        "score": round(d.score, 1),
+                        "weight": d.weight,
+                        "weighted": round(d.weighted, 1),
+                    }
+                    for d in report.dimensions
+                ],
+                "summary": report.summary,
+                "warnings": report.warnings,
+                "suggestions": report.suggestions,
+            }
+        except Exception as e:
+            logger.warning(f"[AggregationService] quality evaluation failed: {e}")
+        return result_model
 
     def _build_llm_adapter(self):
         """构造 LLMServiceAdapter，将 Multi-Publish LLMService 注入改写器。

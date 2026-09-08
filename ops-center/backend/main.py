@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, diagnostics, scheduler, scene_context, prompt_eval, feedback, pipeline_options, rewrite_strategies
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, diagnostics, scheduler, scene_context, prompt_eval, feedback, pipeline_options, quality_eval, rewrite_strategies
 
 
 
@@ -23,6 +23,7 @@ from services.prompt_eval_migration import ensure_prompt_eval_scene_columns, ens
 from services.auth_service import ensure_admin_seeded
 from services.config_seed_service import ensure_feature_gates_seeded, ensure_projects_seeded
 from services.feature_flag_service import ensure_feature_flags_seeded
+from services.quality.service import ensure_quality_eval_table
 from database import async_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
         await ensure_projects_seeded(db)
         await ensure_feature_gates_seeded(db)
         await ensure_feature_flags_seeded(db)
+        await ensure_quality_eval_table()
     logger.info("OpsCenter ready")
     yield
     logger.info("OpsCenter shutting down")
@@ -97,6 +99,7 @@ app.include_router(scheduler.router)
 app.include_router(redemption_codes.router)
 app.include_router(prompt_eval.router)
 app.include_router(feedback.router)
+app.include_router(quality_eval.router)
 
 app.include_router(content_templates.router)
 app.include_router(pipeline_options.router)
