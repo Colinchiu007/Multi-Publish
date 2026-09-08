@@ -387,7 +387,7 @@ class OpsCenterSync {
         this._log.warn('OpsCenterSync', 'rewrite strategies apply error: ' + String((e && e.message) || e))
       }
     }
-    this._log.info('OpsCenterSync', 'runtime applied: ${next.announcements.length} announcements, policy=${next.updatePolicy ? 'set' : 'none'}`)
+    this._log.info('OpsCenterSync', 'runtime applied: ' + next.announcements.length + ' announcements, policy=' + (next.updatePolicy ? 'set' : 'none'))
   }
 
   /** 敏感词过滤器：内置词库 + 远程内容安全策略词库（惰性构建） */
