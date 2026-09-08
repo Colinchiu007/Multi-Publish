@@ -65,7 +65,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   tencent_video: ['channels.weixin.qq.com'],
   kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
-  bilibili: ['www.bilibili.com/'],
+  bilibili: ['www.bilibili.com/', 'member.bilibili.com/'],
   // 百家号登录页与创作后台同域：未登录访问 baijiahao.baidu.com/ 会 302 到
   // /pcui/register/index 与 /builder/theme/bjh/login（2026-08-12 实测），裸域名
   // 模式会把预登录登录页误判为“登录成功”，导致登录视图提前关闭并保存无效账号。
@@ -90,7 +90,7 @@ const PLATFORM_AUTH_HOSTS = {
   tencent_video: ['channels.weixin.qq.com'],
   kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
-  bilibili: ['www.bilibili.com', 'bilibili.com'],
+  bilibili: ['www.bilibili.com', 'bilibili.com', 'member.bilibili.com'],
   baijiahao: ['baijiahao.baidu.com'],
   youtube: ['studio.youtube.com', 'accounts.google.com'],
   tiktok: ['www.tiktok.com', 'tiktok.com'],

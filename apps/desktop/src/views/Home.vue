@@ -22,6 +22,14 @@
       </div>
     </section>
 
+    <!-- 登录失效提醒 -->
+    <LoginExpiredBanner
+      :visible="showExpiredBanner"
+      :expired-count="expiredAccountCount"
+      @batch-login="handleBatchLogin"
+      @dismiss="showExpiredBanner = false"
+    />
+
     <!-- 数据概览 -->
     <section class="yixiaoer-home-stats" data-testid="yixiaoer-home-stats">
       <div class="yixiaoer-home-stat-card">
@@ -109,10 +117,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getApi } from '@/api/electron-bridge'
+import { accountBatchOpenLogin } from '@/api/publisher'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
 import { usePlatformStore } from '@/stores/platforms'
+import { useAccountStore } from '@/stores/accounts'
+import { useTabStore } from '@/stores/tab'
+import LoginExpiredBanner from '@/components/LoginExpiredBanner.vue'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatDateTime } from '@/utils/datetime'
 import { reportError } from '../utils/report-error'
@@ -121,10 +133,15 @@ const router = useRouter()
 const { t } = useI18n()
 const identityStore = useIdentityStore()
 const platformStore = usePlatformStore()
+const accountStore = useAccountStore()
+const tabStore = useTabStore()
 
 const stats = ref({ total: 0, success: 0, failed: 0 })
 const accountCount = ref(0)
 const recentItems = ref([])
+const showExpiredBanner = ref(false)
+const expiredAccountCount = ref(0)
+const expiredAccounts = ref([])
 
 const displayName = computed(() => identityStore.displayName || t('home.user'))
 
@@ -179,9 +196,31 @@ function go(path) {
   router.push(path)
 }
 
+async function handleBatchLogin() {
+  const expiredAccountIds = expiredAccounts.value.map(account => account.id)
+  if (expiredAccountIds.length === 0) return
+  const result = await accountBatchOpenLogin(expiredAccountIds)
+  const items = result?.code === 0 ? result.data?.items : []
+  if (!Array.isArray(items)) return
+  for (const item of items) {
+    if (!item?.loginUrl) continue
+    await tabStore.createTab({
+      url: item.loginUrl,
+      platform: item.platform,
+      accountId: item.accountId,
+      title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }),
+    })
+  }
+}
+
 onMounted(async () => {
   try {
     platformStore.load()
+    await accountStore.ensureLoaded()
+    const expired = accountStore.accounts.filter(account => account.status === 'expired')
+    expiredAccounts.value = expired
+    expiredAccountCount.value = expired.length
+    showExpiredBanner.value = expired.length > 0
     const api = getApi()
     if (api) {
       if (api.storeGetPublishStats) {

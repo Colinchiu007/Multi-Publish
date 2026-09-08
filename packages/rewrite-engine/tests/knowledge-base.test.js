@@ -10,7 +10,7 @@ describe('KnowledgeBase', function() {
 
   test('should init with default values', function() {
     kb.init()
-    expect(kb._data.version).toBe(1)
+    expect(kb._data.version).toBe(2)
     expect(kb._data.preferences).toBeTruthy()
   })
 

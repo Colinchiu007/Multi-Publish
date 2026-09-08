@@ -24,6 +24,19 @@ describe('platform authentication URL boundaries', () => {
     }
   })
 
+  it('accepts bilibili member.bilibili.com as a login-success URL (2026-09-09 fix)', () => {
+    // Bilibili 登录后重定向到 member.bilibili.com（创作者中心），原配置只信任
+    // www.bilibili.com/bilibili.com，导致 URL 自动完成检测失效、用户必须手动点击
+    // "我已完成登录"。修复后在 AUTH_HOSTS 和 SUCCESS_PATTERNS 中增加该子域。
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com/')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com/platform/home')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://passport.bilibili.com/login')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://www.bilibili.com/')).toBe(true)
+    // 安全性：非 bilibili 域名即使包含 member.bilibili.com 关键词也不应通过
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://evil.example/?next=member.bilibili.com')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com.evil.example/')).toBe(false)
+  })
+
   it('never auto-completes Baijiahao from URL alone (login page and creator home share the same host)', () => {
     // 2026-08-12 实测：未登录访问 https://baijiahao.baidu.com/ 会 302 到
     // /pcui/register/index，最终落在 /builder/theme/bjh/login（登录/注册页）。

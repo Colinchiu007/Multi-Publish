@@ -15,6 +15,7 @@ function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   const { toPublicProxyConfig } = require('../services/proxy-config')
+  const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
   const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store, identityService } = deps
 
   function getOwnerSubject () {
@@ -387,6 +388,91 @@ function registerHandlers(ipcMain, deps) {
       ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data: status }
     } catch (e) { ipcLog('error', 'account:check-login', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
+  }))
+
+  ipcMain.handle('accounts:batch-check-login', withSenderCheck(async (event, arg) => {
+    const startedAt = Date.now()
+    const requestedIds = Array.isArray(arg?.accountIds) ? arg.accountIds.filter((id) => typeof id === 'string' && id) : []
+    ipcLog('info', 'accounts:batch-check-login', 'enter', `requested=${requestedIds.length}`)
+    try {
+      if (getOwnerSubject() === null) {
+        ipcLog('warn', 'accounts:batch-check-login', 'auth-failed', '无法识别当前用户')
+        return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { results: [], checkedAt: new Date().toISOString() } }
+      }
+      const accounts = await AccountManager.listAccounts()
+      const candidates = Array.isArray(accounts) ? accounts.filter((a) => a && typeof a === 'object' && a.platform && a.id) : []
+      const targets = requestedIds.length
+        ? candidates.filter((a) => requestedIds.includes(a.id))
+        : candidates
+      const results = []
+      for (const account of targets) {
+        const platform = account.platform
+        const accountId = account.id
+        try {
+          const status = await AccountManager.checkLoginStatus(platform, accountId)
+          results.push({
+            platform,
+            accountId,
+            valid: Boolean(status?.valid),
+            code: status?.code || (status?.valid ? 'CHECK_LOGIN_SUCCESS' : 'CHECK_LOGIN_FAILED'),
+            ...(status?.error ? { error: status.error } : {}),
+          })
+        } catch (e) {
+          results.push({
+            platform,
+            accountId,
+            valid: false,
+            code: 'CHECK_LOGIN_ERROR',
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }
+      const data = { results, checkedAt: new Date().toISOString() }
+      ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} 耗时=${Date.now() - startedAt}ms`)
+      return { code: 0, data }
+    } catch (e) {
+      ipcLog('error', 'accounts:batch-check-login', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { results: [], checkedAt: new Date().toISOString() } }
+    }
+  }))
+
+  ipcMain.handle('accounts:batch-open-login', withSenderCheck(async (event, arg) => {
+    const startedAt = Date.now()
+    const requestedIds = Array.isArray(arg?.accountIds) ? arg.accountIds.filter((id) => typeof id === 'string' && id) : []
+    ipcLog('info', 'accounts:batch-open-login', 'enter', `requested=${requestedIds.length}`)
+    try {
+      if (getOwnerSubject() === null) {
+        ipcLog('warn', 'accounts:batch-open-login', 'auth-failed', '无法识别当前用户')
+        return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { items: [] } }
+      }
+      // R51 P1：accountId 用于 URL 拼接，必须校验为安全路径段
+      for (const id of requestedIds) {
+        if (!_isSafePathSegment(id)) {
+          ipcLog('warn', 'accounts:batch-open-login', 'validation-failed', `accountId=${id}`)
+          return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数', data: { items: [] } }
+        }
+      }
+      const accounts = await AccountManager.listAccounts()
+      const candidates = Array.isArray(accounts) ? accounts.filter((a) => a && typeof a === 'object' && a.platform) : []
+      const targets = candidates.filter((a) => requestedIds.includes(a.id))
+      const items = []
+      for (const account of targets) {
+        const platform = account.platform
+        const loginUrl = PLATFORM_LOGIN_URLS[platform]
+        if (!loginUrl) continue
+        items.push({
+          accountId: account.id,
+          platform,
+          name: account.name || account.account_name || '',
+          loginUrl,
+        })
+      }
+      ipcLog('info', 'accounts:batch-open-login', 'ok', `count=${items.length} 耗时=${Date.now() - startedAt}ms`)
+      return { code: 0, data: { items } }
+    } catch (e) {
+      ipcLog('error', 'accounts:batch-open-login', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { items: [] } }
+    }
   }))
 
   ipcMain.handle('account:set-proxy', withSenderCheck(async (event, arg) => {
