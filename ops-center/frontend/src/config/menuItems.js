@@ -25,6 +25,7 @@ export const MENU_ITEMS = [
   { path: '/rate-limit-verifier', label: '限流验证', icon: Timer },
   { path: '/platform-defs', label: '平台元数据', icon: Grid },
   { path: '/content-templates', label: '内容模板库', icon: Document },
+  { path: '/rewrite-strategies', label: '改写策略管理', icon: Edit },
   { path: '/keyword-watchlist', label: '关键词监测', icon: Search },
   { path: '/pipeline-deps', label: '流水线依赖', icon: Connection },
   { path: '/pipeline-options', label: '选项控制', icon: Operation, adminOnly: true },
