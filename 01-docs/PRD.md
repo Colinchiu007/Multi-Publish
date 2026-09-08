@@ -6907,3 +6907,141 @@ en: "{platform} account login has expired ({reason}). Please re-login to ensure 
 - `apps/desktop/src/views/Accounts.vue`（+4/-2，`checkLogin` 开始时立即显示「正在验证…」；提示增加平台名）
 - `apps/desktop/src/locales/zh.js`（+1/-1，`loginExpiredMessage` 增加 `platform` 插值）
 - `apps/desktop/src/locales/en.js`（+1/-1，`loginExpiredMessage` 增加 `platform` 插值）
+
+## 账号管理 v14：Bilibili 登录后自动完成检测缺失 member.bilibili.com 域名（2026-09-09）
+
+**PR**：[#1576](https://github.com/Colinchiu007/Multi-Publish/pull/1576) ｜ **合并**：`248e8d1b` ｜ **分支**：`codex/bilibili-auth-fix`
+
+### 问题描述
+
+用户反馈：Bilibili 账号点击【验证】弹出「已失效」，点击「去登录」打开登录窗口完成登录后，返回账号列表页，状态未刷新、仍是「已失效」。用户关闭登录窗口后，凭证未保存。
+
+### 根因分析
+
+Bilibili 登录成功后重定向到 `member.bilibili.com`（创作者中心），但该子域缺失于两个配置表：
+
+1. `PLATFORM_AUTH_HOSTS[bilibili]` 只含 `www.bilibili.com`、`bilibili.com` → `isPlatformAuthHost` 精确匹配失败
+2. `PLATFORM_LOGIN_SUCCESS_PATTERNS[bilibili]` 只含 `www.bilibili.com/`
+
+`isPlatformLoginSuccessUrl` 处理流程：
+
+```
+isPlatformLoginSuccessUrl(platform, rawUrl)
+  → parse URL → isPlatformAuthHost(hostname) 可信域名检查
+    → member.bilibili.com 不在 PLATFORM_AUTH_HOSTS[bilibili] → 返回 false
+  → isPlatformAuthHost 返回 false → 整个函数返回 false
+```
+
+域名检查失败后，后续的 `PLATFORM_LOGIN_SUCCESS_PATTERNS` 模式匹配根本不会执行。
+
+CDP 检测（登录 API 拦截）对「已登录态残留重定向」也不触发（不经过登录 API）。双重失效 → 用户必须手动点「我已完成登录」，否则凭证永不保存。
+
+**深层原因**：Bilibili 的登录 URL 是 `passport.bilibili.com/login`，登录后跳到 `member.bilibili.com`。`member.bilibili.com` 是 `bilibili.com` 的子域，但 `isPlatformAuthHost` 用的是**精确匹配**（`normalizeHost(host) === normalized`），子域不自动包含。
+
+### 修复方案
+
+**1. `PLATFORM_LOGIN_SUCCESS_PATTERNS[bilibili]`** 增加 `member.bilibili.com/`：
+
+```
+改动前: bilibili: ['www.bilibili.com/']
+改动后: bilibili: ['www.bilibili.com/', 'member.bilibili.com/']
+```
+
+**2. `PLATFORM_AUTH_HOSTS[bilibili]`** 增加 `member.bilibili.com`：
+
+```
+改动前: bilibili: ['www.bilibili.com', 'bilibili.com']
+改动后: bilibili: ['www.bilibili.com', 'bilibili.com', 'member.bilibili.com']
+```
+
+### 数据校验
+
+| 校验项 | 校验逻辑 | 通过条件 |
+|-------|---------|---------|
+| member.bilibili.com 登录成功 | `isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com/')` | true |
+| member 子路径 | `isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com/platform/home')` | true |
+| 登录页拒绝 | `isPlatformLoginSuccessUrl('bilibili', 'https://passport.bilibili.com/login')` | false |
+| 现有 www 不变 | `isPlatformLoginSuccessUrl('bilibili', 'https://www.bilibili.com/')` | true |
+| Evil 域名绕过防护 | `isPlatformLoginSuccessUrl('bilibili', 'https://evil.example/?next=member.bilibili.com')` | false |
+| Evil 子域冒充 | `isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com.evil.example/')` | false |
+
+### 功能逻辑
+
+修复后的登录窗口自动完成检测流程（Bilibili）：
+
+```
+用户在独立登录窗口完成 Bilibili 登录
+  → Bilibili 302 重定向到 member.bilibili.com（创作者中心）
+  → did-navigate 事件触发 → _handleNavigation → _checkLoginCompleted
+  → isPlatformLoginSuccessUrl('bilibili', 'https://member.bilibili.com/...')
+    → isPlatformAuthHost: member.bilibili.com 在可信域名列表中 → true
+    → PLATFORM_LOGIN_SUCCESS_PATTERNS 匹配: member.bilibili.com/ 命中 → true
+    → 返回 true
+  → _scheduleAutoCompletion('url', attempt)
+  → 3 秒后 _extractAuthData 提取 Cookie/localStorage/IndexedDB
+  → _settleLogin(attempt, authData) 返回给 openLogin Promise
+  → ipc-handlers/account.js 收到结果 → AccountManager.updateCapturedAccount 保存凭证
+  → 前端收到 auth:completed 事件 → refresh() 刷新列表 → 账号变为「已登录」
+```
+
+### 账号状态流转体系（系统设计知识点）
+
+**凭证保存路径**：
+
+```
+openLogin → auth-view-manager.autoDetection (CDP/URL)
+  └─ 触发 → completeLogin → _extractAuthData → ipc-handlers/account.js
+    → AccountManager.updateCapturedAccount(platform, captured, accountId)
+      → credentialStore.saveCredential 加密存储
+      → pythonBackend PATCH /api/accounts/{id} (last_validated 更新)
+```
+
+**账号列表渲染时状态计算**：
+
+```
+listAccounts → pythonBackend GET /api/accounts → toPublicAccount
+  → checkLocalCredentials(platform, accountId) 检查本地加密凭证
+  → hasCred = false → status = 'expired'
+  → AccountManagementCard: status='expired' → accountStatusKind = 'offline'
+    → statusLabel = '已失效' → 卡片显示红色离线样式 +【去登录】按钮
+  → hasCred = true → status = safeAccount.status || 'active'
+    → accountStatusKind = 'online' → 卡片显示绿色在线样式 +【验证】按钮
+```
+
+**关键结论**：账号「已失效」取决于**本地加密凭证是否存在**，不是后端的 `is_active` 字段。即使后端 `is_active=true`，本地凭证缺失 → 展示「已失效」。用户必须点击「我已完成登录」或等自动检测触发来落盘凭证。
+
+### 交互逻辑（修复后）
+
+1. 用户点击【验证】→ 检测到失效 → 弹窗「Bilibili 账号登录已失效，是否重新登录？」
+2. 点击「去登录」→ 打开独立的 Bilibili 登录窗口（`passport.bilibili.com/login`）
+3. 在登录窗口中完成登录（扫码/输入账号密码）
+4. Bilibili 302 重定向到 `member.bilibili.com`（创作者中心）
+5. **自动检测**：URL 跳转到可信域 `member.bilibili.com` → 系统自动提取凭证并保存
+6. 前端收到 `auth:completed` 事件 → 自动刷新账号列表 → 卡片变为「已登录」
+7. 无需手动点击任何按钮
+
+### 显示项与提示文字
+
+无新增文案变更。已有文案：
+
+| 场景 | 中文 | 英文 |
+|------|------|------|
+| 重新登录成功 | 账号重新登录成功 | Account re-signed in successfully |
+| 凭证保存中 | 正在保存账号 | Saving account |
+| 验证中 | 正在验证 {平台名} 登录状态… | Verifying {platform} login status... |
+
+### 回归保护（QM-5 第四步）
+
+- **单元测试**：`platform-definitions.test.js` 7/7 全部通过（新增 1 测试 7 断言）
+- **手工验证**：`node -e` 运行时确认 `member.bilibili.com` 四个子 URL 通过、passport 登录页和 evil 域名被拒绝
+
+### 系统性漏洞与预防（QM-5 第五步）
+
+- **isPlatformAuthHost 精确匹配陷阱**：`normalizeHost(host) === normalized` 是精确匹配，子域需显式列出。平台新增子域（如 `member.`、`creator.`、`studio.`）时必须逐一加入 `PLATFORM_AUTH_HOSTS` 和 `PLATFORM_LOGIN_SUCCESS_PATTERNS`。
+- **自动检测双重失效防护**：当 CDP 和 URL 两种自动检测都可能失效时（跨域重定向 + 无登录 API），应确保「我已完成登录」手动按钮的可见性和可达性。百家号已有相同模式的注释说明。
+- **凭证落盘校验**：`updateCapturedAccount` 在 cookies 为空且无 localStorage/IndexedDB 时抛错，但 `_extractAuthData` 的返回值取决于 `isPlatformCookieDomain` 过滤。Cookie domain 白名单缺失会静默过滤掉关键 Cookie → 凭证永远为空 → 保存失败。后续新增平台子域时，`PLATFORM_COOKIE_DOMAINS` 也要同步检查。
+
+### 变更文件
+
+- `packages/shared-utils/src/platform-definitions.js`（+2/-2，`AUTH_HOSTS` 和 `SUCCESS_PATTERNS` 各增 `member.bilibili.com`）
+- `packages/shared-utils/src/__tests__/platform-definitions.test.js`（+13，新增 Bilibili member 域测试用例）
