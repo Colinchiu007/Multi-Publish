@@ -947,6 +947,14 @@ export default {
       youtube: 'YouTube',
       tiktok: 'TikTok',
     },
+    // Login expired reminder banner
+    loginExpiredBanner: {
+      title: 'Login Expired Reminder',
+      description: (ctx) => ctx.named('count') + ' account(s) need attention',
+      hint: 'Login sessions on different platforms have varying durations. Please re-verify expired accounts to avoid publishing disruptions.',
+      batchLoginBtn: 'Batch Login',
+      loginTabTitle: (ctx) => 'Login - ' + ctx.named('platform'),
+    },
   },
   publishPage: {
     draftsTitle: 'Drafts',

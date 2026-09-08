@@ -948,6 +948,14 @@ export default {
       youtube: 'YouTube',
       tiktok: 'TikTok',
     },
+    // 登录失效提醒横幅
+    loginExpiredBanner: {
+      title: '登录失效提醒',
+      description: (ctx) => ctx.named('count') + ' 个账号待处理',
+      hint: '不同平台的登录具有不同的时效。请完成已失效账号的登录验证，以免影响发布。',
+      batchLoginBtn: '批量登录',
+      loginTabTitle: (ctx) => '登录 - ' + ctx.named('platform'),
+    },
   },
   publishPage: {
     draftsTitle: '草稿箱',

@@ -22,6 +22,26 @@ vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => platformStoreMock,
 }));
 
+const accountStoreMock = {
+  accounts: [],
+  ensureLoaded: vi.fn().mockResolvedValue(undefined),
+};
+vi.mock("@/stores/accounts", () => ({
+  useAccountStore: () => accountStoreMock,
+}));
+
+const tabStoreMock = {
+  createTab: vi.fn().mockResolvedValue("tab-1"),
+};
+vi.mock("@/stores/tab", () => ({
+  useTabStore: () => tabStoreMock,
+}));
+
+const accountBatchOpenLoginMock = vi.fn();
+vi.mock("@/api/publisher", () => ({
+  accountBatchOpenLogin: (...args) => accountBatchOpenLoginMock(...args),
+}));
+
 import HomeView from "./Home.vue";
 
 async function flushMounted(w) {
@@ -40,6 +60,18 @@ describe("HomeView", () => {
     i18n.global.locale.value = "zh";
     vi.clearAllMocks();
     platformStoreMock.platforms = [];
+    accountStoreMock.accounts = [];
+    accountStoreMock.ensureLoaded.mockResolvedValue(undefined);
+    tabStoreMock.createTab.mockResolvedValue("tab-1");
+    accountBatchOpenLoginMock.mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          { accountId: "a1", platform: "weibo", name: "微博账号", loginUrl: "https://weibo.com/login" },
+          { accountId: "a2", platform: "douyin", name: "抖音账号", loginUrl: "https://creator.douyin.com/" },
+        ],
+      },
+    });
     window.electronAPI = {
       storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 42, success: 38, failed: 4 } }),
       storeListAccounts: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "a1" }, { id: "a2" }] }),
@@ -144,5 +176,51 @@ describe("HomeView", () => {
     } finally {
       i18n.global.locale.value = "zh";
     }
+  });
+
+  it("shows login expired banner when there are expired accounts", async () => {
+    accountStoreMock.accounts = [
+      { id: "a1", platform: "weibo", status: "active" },
+      { id: "a2", platform: "douyin", status: "expired" },
+      { id: "a3", platform: "zhihu", status: "expired" },
+    ];
+    const w = await flushMounted(mountHome());
+    expect(accountStoreMock.ensureLoaded).toHaveBeenCalled();
+    const banner = w.find(".login-expired-banner");
+    expect(banner.exists()).toBe(true);
+    expect(w.text()).toContain("登录失效提醒");
+    expect(w.text()).toContain("2 个账号待处理");
+    expect(w.text()).toContain("批量登录");
+  });
+
+  it("hides login expired banner when there are no expired accounts", async () => {
+    accountStoreMock.accounts = [
+      { id: "a1", platform: "weibo", status: "active" },
+      { id: "a2", platform: "douyin", status: "online" },
+    ];
+    const w = await flushMounted(mountHome());
+    expect(w.find(".login-expired-banner").exists()).toBe(false);
+  });
+
+  it("opens login tabs for all expired accounts on batch login", async () => {
+    accountStoreMock.accounts = [
+      { id: "a1", platform: "weibo", status: "expired" },
+      { id: "a2", platform: "douyin", status: "expired" },
+    ];
+    const w = await flushMounted(mountHome());
+    await w.find(".banner-btn").trigger("click");
+    expect(accountBatchOpenLoginMock).toHaveBeenCalledWith(["a1", "a2"]);
+    expect(tabStoreMock.createTab).toHaveBeenCalledTimes(2);
+    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://weibo.com/login", platform: "weibo", accountId: "a1" }));
+    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://creator.douyin.com/", platform: "douyin", accountId: "a2" }));
+  });
+
+  it("dismisses login expired banner", async () => {
+    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "expired" }];
+    const w = await flushMounted(mountHome());
+    expect(w.find(".login-expired-banner").exists()).toBe(true);
+    await w.find(".banner-close").trigger("click");
+    await nextTick();
+    expect(w.find(".login-expired-banner").exists()).toBe(false);
   });
 });

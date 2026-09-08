@@ -31,6 +31,8 @@ function createAccountApi(ipcRenderer) {
     accountAdd: (platform) => ipcRenderer.invoke('account:add', platform),
     accountDelete: (accountId) => ipcRenderer.invoke('account:delete', accountId),
     accountCheckLogin: (platform, accountId) => ipcRenderer.invoke('account:check-login', { platform, accountId }),
+    accountBatchCheckLogin: (accountIds) => ipcRenderer.invoke('accounts:batch-check-login', { accountIds }),
+    accountBatchOpenLogin: (accountIds) => ipcRenderer.invoke('accounts:batch-open-login', { accountIds }),
     accountList: () => ipcRenderer.invoke('account:list'),
     accountSetDefault: (platform, accountId) => ipcRenderer.invoke('store:set-default-account', { platform, accountId }),
     accountGetDefault: (platform) => ipcRenderer.invoke('store:get-default-account', platform),
