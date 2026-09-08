@@ -1204,7 +1204,7 @@ export default {
     close: '关闭',
     qrPreviewAria: '扫码登录二维码',
     qrScanHint: '请使用对应平台客户端扫描二维码',
-    loginStateBrowser: '网页登录窗口已打开',
+    loginStateBrowser: '已在独立窗口打开登录页，请在该窗口完成登录后点击「我已完成登录」',
     loginStateOpening: '正在打开扫码页',
     loginStateWaiting: '等待二维码加载',
     loginStateDetected: '二维码已就绪',

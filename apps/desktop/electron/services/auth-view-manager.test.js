@@ -465,3 +465,59 @@ describe('AuthViewManager 凭证边界', () => {
     expect(() => manager._fireClosed()).not.toThrow()
   })
 })
+
+describe('AuthViewManager 登录页承载方式（回归：主窗口顶部多层内容重叠）', () => {
+  it('openLogin 创建独立登录窗口，且不再把登录视图内嵌到主窗口', async () => {
+    const manager = new AuthViewManager()
+    const mainWindow = createMainWindow()
+    manager.setMainWindow(mainWindow)
+
+    const loginPromise = manager.openLogin('wechat_mp', 0).catch(() => {})
+
+    // 独立登录窗口已创建
+    expect(manager.loginWindow).toBeTruthy()
+    // 核心回归点：登录视图不得挂到主窗口 contentView。
+    // 内嵌是顶部多层内容重叠的根因——登录视图 y 坐标依赖硬编码的
+    // AUTH_VIEW_TOP(76)、x 坐标依赖侧边栏宽度，与账号管理页真实布局不符，
+    // 导致平台页面顶栏与应用 TabBar/NavBar、页面 header 挤压重叠。
+    expect(mainWindow.contentView.addChildView).not.toHaveBeenCalled()
+
+    manager.close()
+    await loginPromise
+  })
+
+  it('登录视图在独立窗口中从 (0,0) 铺满客户区，不依赖硬编码顶部偏移', async () => {
+    const manager = new AuthViewManager()
+    manager.setMainWindow(createMainWindow())
+
+    const loginPromise = manager.openLogin('wechat_mp', 0).catch(() => {})
+
+    const view = manager.currentView
+    expect(view).toBeTruthy()
+    const bounds = view.setBounds.mock.calls.at(-1)?.[0]
+    expect(bounds).toBeTruthy()
+    // 独立窗口下从原点起算，不再有 AUTH_VIEW_TOP / 侧边栏宽度的硬编码偏移
+    expect(bounds.x).toBe(0)
+    expect(bounds.y).toBe(0)
+
+    manager.close()
+    await loginPromise
+  })
+
+  it('close() 销毁独立登录窗口，避免窗口与监听泄漏', async () => {
+    const manager = new AuthViewManager()
+    manager.setMainWindow(createMainWindow())
+
+    const loginPromise = manager.openLogin('wechat_mp', 0).catch(() => {})
+    const loginWindow = manager.loginWindow
+    expect(loginWindow).toBeTruthy()
+
+    manager.close()
+
+    expect(manager.loginWindow).toBeNull()
+    expect(manager._syncLoginViewBounds).toBeNull()
+    expect(loginWindow.isDestroyed()).toBe(true)
+
+    await loginPromise
+  })
+})

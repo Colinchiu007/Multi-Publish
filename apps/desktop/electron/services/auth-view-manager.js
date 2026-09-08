@@ -24,6 +24,16 @@ const AUTH_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
 const SIDEBAR_WIDTH_DEFAULT = 200
 const MAX_INDEXED_DB_SNAPSHOT_BYTES = 524288
 
+// 独立登录窗口尺寸。
+// 背景：登录页原先以 WebContentsView 内嵌到主窗口 contentView（浮层），其坐标依赖上面两个
+// 硬编码常量（AUTH_VIEW_TOP / SIDEBAR_WIDTH_DEFAULT）。账号管理页顶部还有自身的 header 与
+// 工具栏，实际可用区域与 76px 的假设不符，导致平台页面顶栏、应用 TabBar/NavBar、页面 header
+// 多层内容挤压重叠。改为独立 BrowserWindow 承载后，登录视图拥有独立坐标系，从根上消除重叠。
+const LOGIN_WINDOW_WIDTH = 1180
+const LOGIN_WINDOW_HEIGHT = 820
+const LOGIN_WINDOW_MIN_WIDTH = 900
+const LOGIN_WINDOW_MIN_HEIGHT = 640
+
 function normalizeIndexedDBSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   try {
@@ -80,6 +90,12 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    /** @type {import('electron').BrowserWindow | null} 承载登录视图的独立窗口 */
+    this.loginWindow = null
+    /** @type {(() => void) | null} 登录窗口 resize 监听的清理函数 */
+    this._loginWindowResizeCleanup = null
+    /** @type {(() => void) | null} 同步登录视图到窗口客户区的函数 */
+    this._syncLoginViewBounds = null
   }
 
   /**
@@ -222,6 +238,72 @@ class AuthViewManager {
   }
 
   /**
+   * 创建承载登录视图的独立窗口。
+   *
+   * 为什么不再内嵌主窗口：内嵌方案下登录视图的 y 坐标由 AUTH_VIEW_TOP（76px，假设
+   * TabBar 36 + NavBar 40）决定、x 坐标由侧边栏宽度决定，而账号管理页顶部还有自身的
+   * header 与工具栏，实际可用区域与该假设不符，平台页面顶栏会和应用 TabBar/NavBar、
+   * 页面 header 挤压重叠。改为独立窗口后登录视图拥有独立坐标系（铺满客户区，从 (0,0)
+   * 起算），坐标不再随主窗口页面布局漂移。
+   *
+   * 隔离 session、preload、凭证提取等能力全部保持不变，仅更换承载容器。
+   * @param {string} platform
+   * @returns {import('electron').BrowserWindow}
+   */
+  _createLoginWindow(platform) {
+    const platformText = String(platform || '')
+    const win = new BrowserWindow({
+      width: LOGIN_WINDOW_WIDTH,
+      height: LOGIN_WINDOW_HEIGHT,
+      minWidth: LOGIN_WINDOW_MIN_WIDTH,
+      minHeight: LOGIN_WINDOW_MIN_HEIGHT,
+      // 与主窗口建立父子关系（主窗口关闭时一并回收），但不设 modal：
+      // 用户仍可切回主窗口查看账号列表与操作指引。
+      parent: this.mainWindow || undefined,
+      modal: false,
+      show: true,
+      autoHideMenuBar: true,
+      title: platformText ? `账号登录 - ${platformText}` : '账号登录',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+
+    /** 登录视图始终铺满独立窗口客户区，避免任何硬编码偏移。 */
+    const syncBounds = () => {
+      if (!this.currentView || win.isDestroyed()) return
+      try {
+        const bounds = win.getContentBounds()
+        this.currentView.setBounds({
+          x: 0,
+          y: 0,
+          width: Math.max(0, bounds.width || 0),
+          height: Math.max(0, bounds.height || 0),
+        })
+      } catch (_e) { /* 窗口正在销毁，忽略 */ }
+    }
+    this._syncLoginViewBounds = syncBounds
+    win.on('resize', syncBounds)
+
+    // 用户直接点击窗口关闭按钮：按"取消登录"结算，避免登录 Promise 永久挂起
+    win.once('closed', () => {
+      if (this.loginWindow === win) this.loginWindow = null
+      this._syncLoginViewBounds = null
+      const attempt = this._activeLoginAttempt
+      if (attempt) this._settleLogin(attempt, { cancelled: true })
+    })
+
+    this._loginWindowResizeCleanup = () => {
+      try { win.removeListener('resize', syncBounds) } catch (_e) { /* ignore */ }
+      this._loginWindowResizeCleanup = null
+    }
+
+    return win
+  }
+
+  /**
    * @param {string} platform
    * @param {number} [timeout]
    */
@@ -245,9 +327,20 @@ class AuthViewManager {
       this.currentView = view
       const attempt = this._createLoginAttempt()
 
-      this._positionView(this.mainWindow.getBounds())
-      this.mainWindow.contentView.addChildView(view)
+      // 登录页改由独立窗口承载：不再 addChildView 到主窗口 contentView，
+      // 从根本上消除与主窗口 TabBar/NavBar/页面 header 的分层重叠。
+      const loginWindow = this._createLoginWindow(platform)
+      this.loginWindow = loginWindow
+      // 防御：低版本 Electron 或异常环境下 contentView 可能不可用。
+      // 此时不阻断登录流程（loadURL 仍会执行），仅记录告警，避免主进程抛错。
+      if (loginWindow.contentView && typeof loginWindow.contentView.addChildView === 'function') {
+        loginWindow.contentView.addChildView(view)
+      } else {
+        log.warn('AuthView', 'Login window contentView unavailable; auth view not attached')
+      }
       view.setVisible(true)
+      if (typeof this._syncLoginViewBounds === 'function') this._syncLoginViewBounds()
+      try { loginWindow.focus() } catch (_e) { /* ignore */ }
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
@@ -381,12 +474,25 @@ class AuthViewManager {
           // @ts-expect-error Electron types missing before-input-event
           this._escView.webContents.removeListener("before-input-event", this._escHandler)
         }
-        if (this.mainWindow && this.currentView) {
-          this.mainWindow.contentView.removeChildView(this.currentView)
+        // 登录视图挂在独立登录窗口上（当前实现）；若为旧的内嵌路径则回退到主窗口
+        const hostWindow = this.loginWindow && !this.loginWindow.isDestroyed()
+          ? this.loginWindow
+          : this.mainWindow
+        if (hostWindow && this.currentView) {
+          try { hostWindow.contentView.removeChildView(this.currentView) } catch (_e) { /* ignore */ }
         }
         this.currentView.webContents.close()
         this.currentView = null
       } catch (_e) { /* ignore */ }
+    }
+
+    // 销毁独立登录窗口与相关监听（内嵌路径下 this.loginWindow 为 null，直接跳过）
+    if (this._loginWindowResizeCleanup) this._loginWindowResizeCleanup()
+    this._syncLoginViewBounds = null
+    if (this.loginWindow) {
+      const loginWindow = this.loginWindow
+      this.loginWindow = null
+      try { if (!loginWindow.isDestroyed()) loginWindow.destroy() } catch (_e) { /* ignore */ }
     }
     if (this._resolveLogin) {
       const resolveLogin = this._resolveLogin
