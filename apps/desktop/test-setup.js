@@ -72,8 +72,8 @@ const electronMock = {
       this.isDestroyed = function () { return this._destroyed }
       this.destroy = function () { this._destroyed = true }
       this._destroyed = false
-      // Electron 30+ 窗口客户区容器：WebContentsView 等子视图的挂载点
-      this.contentView = { addChildView: function () {}, removeChildView: function () {} }
+      // Electron 30+ 窗口客户区容器：WebContentsView 等子视图的挂载点（vi.fn 供断言）
+      this.contentView = { addChildView: vi.fn(function () {}), removeChildView: vi.fn(function () {}) }
       // 客户区尺寸（不含标题栏/边框），供子视图铺满布局使用
       this.getContentBounds = function () { return { x: 0, y: 0, width: 800, height: 600 } }
       this.isMinimized = function () { return false }

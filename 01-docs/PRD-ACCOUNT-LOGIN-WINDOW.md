@@ -2,7 +2,7 @@
 
 > **日期**：2026-09-08
 > **类型**：Bug 修复 + 交互模式变更
-> **影响模块**：`apps/desktop/electron/services/auth-view-manager.js`、`apps/desktop/src/locales/{zh,en}.js`、`apps/desktop/test-setup.js`
+> **影响模块**：`apps/desktop/electron/services/auth-view-manager.js`、`apps/desktop/electron/services/auth-window.js`（新增公共工厂）、`apps/desktop/electron/services/qrcode-login.js`、`apps/desktop/electron/services/oauth-manager.js`、`apps/desktop/src/locales/{zh,en}.js`、`apps/desktop/test-setup.js`
 > **关联页面**：账号管理（`Accounts.vue`）→ 已保存账号卡片 →「去登录」
 > **分支**：`fix-wechat-login-tab`
 
@@ -242,8 +242,55 @@ close()
 | 现有测试 | `openSavedAccount` 仍走旧的内嵌路径（本次未改动），`close()` 宿主窗口选择已做兼容 |
 | 多实例 | 每次登录创建独立窗口，`close()` 必销毁，无窗口泄漏 |
 
-## 十、遗留项（本次未处理）
+## 十、扩展迁移（2026-09-09）：扫码登录与 OAuth 授权同步迁移
 
-1. **`oauth-manager.js`** 仍使用内嵌 `WebContentsView` 模式，存在同类坐标错位风险，建议后续统一迁移到独立窗口。
-2. **`openSavedAccount()`**（打开已保存账号）仍走内嵌路径，本次聚焦「去登录」主链路，未一并迁移。
-3. 若后续要彻底统一，建议抽出公共的「认证窗口」基类，供 AuthView / OAuth / 扫码三种模式复用。
+### 10.1 覆盖范围审计结论
+
+对应用内全部「打开平台网页」路径的审计结论（本节随扩展迁移更新）：
+
+| # | 用户路径 | 触发位置 | 承载方式 | 状态 |
+|---|---|---|---|---|
+| 1 | 添加账号 / 去登录 / 重新登录（浏览器模式） | 账号页卡片 | 独立窗口（本 PRD 主体） | ✅ |
+| 2 | 扫码登录（`auth:open-qrcode-login`） | 账号页添加对话框选扫码 | **独立窗口（10.2 迁移）** | ✅ |
+| 3 | OAuth 授权页（`oauth:start`，YouTube/TikTok/微博/抖音 API 模式） | API 模式授权 | **独立窗口（10.2 迁移）** | ✅ |
+| 4 | 创作者中心（`openCreatorCenter`） | 账号卡片 | 应用内标签页（`tabStore.createTab`） | ✅ 本就是标签 |
+| 5 | 平台首页/后台（`openPlatform`） | 账号卡片 | 外部浏览器 `window.open` | ✅ 无需改 |
+| 6 | `auth-view-manager.openSavedAccount()` | —（全仓无调用方，预留代码） | 内嵌 | ➖ 不影响用户 |
+| 7 | 分屏监控（`webview-manager`） | 监控页 | 内嵌多分屏 | ✅ 功能设计本身 |
+| 8 | 静默验证 `loginSilent` / RPA（`rpa-view-manager`） | 后台自动 | 隐藏窗口 | ✅ 不可见无重叠 |
+
+### 10.2 公共工厂 auth-window.js
+
+新增 `apps/desktop/electron/services/auth-window.js`：`createStandaloneAuthWindow(options)`
+统一产出「独立 BrowserWindow + attach(view) 铺满客户区 + dispose() 幂等回收」句柄：
+
+- `options`：`parent`（父子关系便于回收）/ `title` / `width`·`height`（默认 1180×820）/
+  `minWidth`·`minHeight`（默认 900×640）/ `onClosed`（窗口关闭按钮 → 调用方按取消结算）
+- `attach(view)`：挂载视图到窗口 `contentView`、`setVisible(true)`、立即同步布局
+- `dispose()`：解除挂载 → `destroy()` 窗口；幂等，可安全重复调用
+- `resize` 监听自动同步视图铺满新客户区；视图布局恒为 `{x:0, y:0, 铺满}`，零硬编码偏移
+
+### 10.3 两个管理器的迁移点
+
+| 管理器 | 原内嵌实现 | 迁移后 |
+|---|---|---|
+| `QrCodeLogin` | `_positionView()` 依赖 `LOGIN_VIEW_TOP=76` + 侧边栏宽度；`mainWindow.contentView.addChildView` | `createStandaloneAuthWindow({ title: '扫码登录 - <平台>' })`；`_positionView` 删除；`_onWindowResize` / `setSidebarWidth` 保留签名改为空操作（window.js 挂钩兼容）；`_closeSession` 改 `window.dispose()`；登录会话对象新增 `window` 字段 |
+| `OAuthManager` | 居中悬浮小窗（`min(480, w-40) × min(640, h-100)`，y=56 起算）内嵌主窗口 | `createStandaloneAuthWindow({ title: 'OAuth 授权 - <平台>', width: 560, height: 720 })`；`close()` 改 `currentWindow.dispose()`；构造器新增 `currentWindow` 字段 |
+
+窗口关闭按钮行为：`onClosed` → `QrCodeLogin._closeSession({ reason })`（reject「扫码登录窗口已关闭」）/
+`OAuthManager.close()`（reject「OAuth window closed」），避免登录 Promise 永久挂起。
+
+### 10.4 测试
+
+| 文件 | 用例 |
+|---|---|
+| `auth-window.test.js`（新增） | 独立窗口创建与父子/非模态参数；attach 铺满且从 (0,0) 起算；resize 同步；dispose 幂等且 dispose 后 attach 不再挂载；closed 触发 onClosed |
+| `qrcode-login.test.js` | 原「全屏虚拟标签布局」用例改为「独立窗口承载」断言（主窗口 `addChildView` 未被调用、视图 `setBounds` 为 `{x:0,y:0,800,600}`）；新增 close 后窗口销毁用例 |
+| `oauth-manager.test.js` | 新增 close 销毁独立授权窗口用例 |
+| `test-setup.js` | `BrowserWindow` mock 的 `contentView` 升级为 `vi.fn` 支持挂载断言 |
+
+## 十一、遗留项（更新后）
+
+1. ~~`oauth-manager.js` 迁移独立窗口~~ → **已完成（10.2/10.3）**
+2. **`openSavedAccount()`**（`auth-view-manager.js`）：全仓无调用方（预留/死代码），内嵌实现暂保留；若未来接线需先迁移独立窗口
+3. **`AuthViewManager` 统一**：其 `_createLoginWindow` 为同模式的内联实现（行为正确、有回归测试保护），后续小 PR 可切换到 `auth-window.js` 工厂以消除重复代码

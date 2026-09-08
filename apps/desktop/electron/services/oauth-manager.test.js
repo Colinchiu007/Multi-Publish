@@ -55,4 +55,20 @@ describe('OAuthManager IPC 安全合同', () => {
       message: 'close failed',
     })
   })
+
+  it('close 会销毁独立授权窗口（幂等 dispose，不再内嵌主窗口）', () => {
+    const oauthManager = new OAuthManager({})
+    // 模拟存在独立授权窗口（由 auth-window.js 工厂创建）
+    const dispose = vi.fn()
+    oauthManager.currentWindow = { dispose }
+    oauthManager.currentView = { webContents: { close: vi.fn(), destroy: vi.fn() } }
+    oauthManager.mainWindow = null
+
+    oauthManager.close()
+
+    // 回归点：授权窗口被销毁（原实现是 mainWindow.contentView.removeChildView 内嵌挂载）
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(oauthManager.currentWindow).toBeNull()
+    expect(oauthManager.currentView).toBeNull()
+  })
 })
