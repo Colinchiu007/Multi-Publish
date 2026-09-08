@@ -76,12 +76,36 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) => {
+ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) => {
     try {
       const summary = await aiWriter.generateSummary(content)
       return { code: 0, data: summary }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
+
+  // RewriteEngine 改写引擎 API（Phase 3 — rewrite-engine 包）
+  const rewriteEngineService = deps.rewriteEngineService
+  if (rewriteEngineService) {
+    ipcMain.handle('ai:rewrite', withSenderCheck(async (_event, params) => {
+      try {
+        if (!params || typeof params !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+        const result = await rewriteEngineService.rewrite(params)
+        return { code: 0, data: result }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('ai:list-rewrite-strategies', async () => {
+      try {
+        return { code: 0, data: rewriteEngineService.listStrategies() }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    })
+
+    ipcMain.handle('ai:get-recommended-strategies', async (_event, userSettings) => {
+      try {
+        return { code: 0, data: rewriteEngineService.getRecommendedStrategies(userSettings || {}) }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    })
+  }
 }
 
 module.exports = registerHandlers

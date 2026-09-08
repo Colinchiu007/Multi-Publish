@@ -57,7 +57,7 @@ describe("API Router", function() {
       expect(apiPlatforms).toContain("twitter");
       expect(apiPlatforms).toContain("weibo");
       expect(apiPlatforms).toContain("douyin");
-      expect(apiPlatforms).toContain("bilibili");
+      // bilibili: has_api=false in platforms.yaml（适配器已实现，API 模式未启用）
     });
   });
 });

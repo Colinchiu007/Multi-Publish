@@ -8,6 +8,9 @@ const publisherApi = vi.hoisted(() => ({
   aiGenerateTitles: vi.fn((topic) => window.electronAPI?.aiGenerateTitles?.(topic)),
   aiEnhanceContent: vi.fn((content, style) => window.electronAPI?.aiEnhanceContent?.(content, style)),
   aiGenerateSummary: vi.fn((content) => window.electronAPI?.aiGenerateSummary?.(content)),
+  aiRewrite: vi.fn((params) => window.electronAPI?.aiRewrite?.(params)),
+  aiListRewriteStrategies: vi.fn(() => window.electronAPI?.aiListRewriteStrategies?.()),
+  aiGetRecommendedStrategies: vi.fn((settings) => window.electronAPI?.aiGetRecommendedStrategies?.(settings)),
 }));
 
 const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));
@@ -202,5 +205,136 @@ describe("AiWriterPanel", () => {
     }
     await nextTick();
     expect(w.text()).toContain("生成的摘要内容");
+  });
+
+  // ─── 改写引擎测试 ─────────────────────
+
+  it("shows rewrite tab when configured", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+    expect(w.text()).toContain("AI 改写");
+    // 切换到改写 tab 后模式选项才可见
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    expect(w.text()).toContain("抄袭规避模仿");
+    expect(w.text()).toContain("扩写爆款");
+    expect(w.text()).toContain("选题创作");
+  });
+
+  it("loads rewrite strategies on mount", async () => {
+    const mockStrategies = [
+      { id: "strategy-viral", name: "爆款策略", enabled: true },
+      { id: "strategy-ecom", name: "电商策略", enabled: true },
+    ];
+    window.electronAPI.aiIsConfigured = vi.fn().mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: mockStrategies });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+    expect(publisherApi.aiListRewriteStrategies).toHaveBeenCalled();
+  });
+
+  it("switches to rewrite mode and shows user settings", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+    // Click rewrite tab
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    expect(w.text()).toContain("改写模式");
+    expect(w.text()).toContain("行业");
+    expect(w.text()).toContain("目的");
+    expect(w.text()).toContain("语言风格");
+    expect(w.text()).toContain("目标平台");
+    expect(w.text()).toContain("长度");
+    expect(w.text()).toContain("策略选择");
+    expect(w.text()).toContain("自动匹配");
+  });
+
+  it("calls aiRewrite and displays result", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.aiRewrite = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        success: true,
+        result: "这是改写后的爆款文案内容",
+        strategy: { id: "strategy-viral", name: "故事化爆款策略", category: "viral" },
+        metadata: { mode: "imitate", originalLength: 50, resultLength: 120, aiTasteLevel: 0.15 },
+        warnings: [],
+        sensitiveHits: [],
+      },
+    });
+    const w = mount(AiWriterPanel, {
+      props: { sourceContent: "这是一段需要改写的测试文案内容，长度超过二十个字" }
+    });
+    await waitConfig();
+    // Click rewrite tab
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    // Set content
+    const textarea = w.find("textarea");
+    await textarea.setValue("这是一段需要改写的测试文案内容，长度超过二十个字");
+    // Click rewrite button
+    const rewriteBtn = w.findAll("button").find(b => b.text().includes("开始改写"));
+    await rewriteBtn.trigger("click");
+    await nextTick();
+    expect(publisherApi.aiRewrite).toHaveBeenCalled();
+    // After rewrite, result should be displayed
+    const callArgs = publisherApi.aiRewrite.mock.calls[0][0];
+    expect(callArgs.mode).toBe("imitate");
+    expect(callArgs.content).toContain("需要改写");
+    expect(w.text()).toContain("改写后的爆款文案内容");
+  });
+
+  it("displays error when rewrite fails", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.aiRewrite = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { success: false, error: "内容包含敏感词，无法改写", errorCode: "SENSITIVE_CONTENT" },
+    });
+    const w = mount(AiWriterPanel, {
+      props: { sourceContent: "这是一段需要改写的测试文案内容，长度超过二十个字" }
+    });
+    await waitConfig();
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    const textarea = w.find("textarea");
+    await textarea.setValue("敏感内容测试");
+    const rewriteBtn = w.findAll("button").find(b => b.text().includes("开始改写"));
+    await rewriteBtn.trigger("click");
+    await nextTick();
+    expect(w.get('[role="alert"]').text()).toContain("敏感词");
+  });
+
+  it("switches strategy mode to manual and shows strategy picker", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({
+      code: 0,
+      data: [
+        { id: "strategy-viral", name: "故事化爆款策略" },
+        { id: "strategy-ecom", name: "电商转化策略" },
+      ],
+    });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    // Click "手动选择" radio
+    const manualRadio = w.findAll('input[type="radio"]').find(r => r.element.nextSibling?.textContent?.includes("手动选择"));
+    await manualRadio.setValue(true);
+    await nextTick();
+    // Strategy dropdown should now be visible
+    const selects = w.findAll("select");
+    const strategySelect = selects.find(s => s.element.value === "");
+    expect(w.text()).toContain("故事化爆款策略");
   });
 });
