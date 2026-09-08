@@ -97,6 +97,79 @@
           </button>
         </div>
       </div>
+
+      <!-- 改写引擎 -->
+      <div v-if="activeMode === 'rewrite'" class="mode-content">
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">改写模式</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button
+              v-for="m in rewriteModes" :key="m.key"
+              class="style-chip" :class="{ active: rewriteMode === m.key }"
+              @click="rewriteMode = m.key"
+            >{{ m.label }}</button>
+          </div>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">行业</label>
+          <select v-model="rewriteIndustry" class="cohere-input">
+            <option v-for="o in industryOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">目的</label>
+          <select v-model="rewritePurpose" class="cohere-input">
+            <option v-for="o in purposeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">语言风格</label>
+          <select v-model="rewriteTone" class="cohere-input">
+            <option v-for="o in toneOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">目标平台</label>
+          <select v-model="rewritePlatform" class="cohere-input">
+            <option v-for="o in platformOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">长度</label>
+          <select v-model="rewriteTargetLength" class="cohere-input">
+            <option v-for="o in targetLengthOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">策略选择</label>
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
+            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="auto" /> 自动匹配</label>
+            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="manual" /> 手动选择</label>
+          </div>
+          <select v-if="strategyMode === 'manual'" v-model="rewriteStrategyId" class="cohere-input" style="margin-top:4px">
+            <option value="">-- 选择策略 --</option>
+            <option v-for="s in rewriteStrategies" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
+        <div class="cohere-form-item">
+          <label class="cohere-form-label">输入文案</label>
+          <textarea class="cohere-input" v-model="rewriteContent" rows="4" placeholder="输入需要改写的文案内容（至少 20 字）"></textarea>
+        </div>
+        <div class="cohere-form-item">
+          <button class="cohere-btn-primary" @click="doRewrite" :disabled="rewriting || !rewriteContent.trim()">
+            {{ rewriting ? '改写中...' : '🔄 开始改写' }}
+          </button>
+        </div>
+        <div v-if="rewriteResult" class="results">
+          <button type="button" class="result-item" @click="selectRewriteResult">
+            <span class="result-text">{{ rewriteResult.slice(0, 100) }}{{ rewriteResult.length > 100 ? '...' : '' }}</span>
+            <span class="result-action">应用</span>
+          </button>
+          <div v-if="rewriteResultMeta" style="font-size:11px;color:var(--muted);margin-top:4px;padding:0 4px">
+            策略：{{ rewriteResultMeta.strategyName }} · AI味等级：{{ rewriteResultMeta.aiTasteLevel != null ? (rewriteResultMeta.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A' }} · 原文 {{ rewriteResultMeta.originalLength }} 字 → 结果 {{ rewriteResultMeta.resultLength }} 字
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -109,12 +182,15 @@ import {
   aiGenerateSummary,
   aiGenerateTitles,
   aiIsConfigured,
+  aiRewrite,
+  aiListRewriteStrategies,
+  aiGetRecommendedStrategies,
   modelProviderIsConfigured,
 } from "@/api/publisher"
 import { useLoginGate } from "@/composables/useLoginGate"
 import { formatUserError } from '@/utils/user-facing-error'
 
-const emit = defineEmits(["close", "apply-title", "apply-content"])
+const emit = defineEmits(["close", "apply-title", "apply-content", "apply-rewrite"])
 const router = useRouter()
 const { ensureLogin } = useLoginGate()
 
@@ -134,6 +210,7 @@ const modes = [
   { key: "titles", label: "🎯 标题生成" },
   { key: "enhance", label: "✨ 内容润色" },
   { key: "summary", label: "📝 生成摘要" },
+  { key: "rewrite", label: "🔄 AI 改写" },
 ]
 
 const styles = [
@@ -141,6 +218,133 @@ const styles = [
   { key: "concise", label: "精简内容" },
   { key: "engaging", label: "社交媒体风" },
 ]
+
+// ─── 改写引擎状态 ─────────────────────
+const rewriting = ref(false)
+const rewriteMode = ref("imitate")
+const rewriteIndustry = ref("")
+const rewritePurpose = ref("")
+const rewriteTone = ref("")
+const rewritePlatform = ref("")
+const rewriteTargetLength = ref("medium")
+const strategyMode = ref("auto")
+const rewriteStrategyId = ref("")
+const rewriteContent = ref("")
+const rewriteStrategies = ref([])
+const rewriteResult = ref("")
+const rewriteResultMeta = ref(null)
+
+const rewriteModes = [
+  { key: "imitate", label: "抄袭规避模仿" },
+  { key: "expand", label: "扩写爆款" },
+  { key: "create", label: "选题创作" },
+]
+
+const industryOptions = [
+  { value: "", label: "通用" },
+  { value: "ecommerce", label: "电商" },
+  { value: "education", label: "教育" },
+  { value: "technology", label: "科技" },
+  { value: "finance", label: "金融" },
+  { value: "lifestyle", label: "生活方式" },
+  { value: "beauty", label: "美妆" },
+  { value: "entertainment", label: "娱乐" },
+  { value: "ip-building", label: "IP 打造" },
+]
+
+const purposeOptions = [
+  { value: "", label: "通用" },
+  { value: "engagement", label: "提升互动" },
+  { value: "conversion", label: "提升转化" },
+  { value: "follower-growth", label: "涨粉" },
+  { value: "authority-building", label: "建立权威" },
+  { value: "sales", label: "带货销售" },
+]
+
+const toneOptions = [
+  { value: "", label: "通用" },
+  { value: "casual", label: "口语化" },
+  { value: "storytelling", label: "故事化" },
+  { value: "emotional", label: "情感化" },
+  { value: "persuasive", label: "说服力" },
+  { value: "humorous", label: "幽默" },
+  { value: "formal", label: "正式严谨" },
+]
+
+const platformOptions = [
+  { value: "", label: "通用" },
+  { value: "douyin", label: "抖音" },
+  { value: "xiaohongshu", label: "小红书" },
+  { value: "wechat_mp", label: "公众号" },
+  { value: "bilibili", label: "B站" },
+  { value: "zhihu", label: "知乎" },
+]
+
+const targetLengthOptions = [
+  { value: "short", label: "短（约 500 字）" },
+  { value: "medium", label: "中（约 1000 字）" },
+  { value: "long", label: "长（约 2000 字）" },
+]
+
+async function loadRewriteStrategies() {
+  try {
+    const res = await aiListRewriteStrategies()
+    if (res && res.code === 0) rewriteStrategies.value = res.data || []
+  } catch (e) {
+    // 静默失败：策略列表为空时改写仍可用自动匹配
+  }
+}
+
+async function doRewrite() {
+  if (!rewriteContent.value.trim()) return
+  if (!(await ensureLogin({ message: "AI 改写需要登录后使用，是否立即登录？" }))) return
+  panelError.value = ""
+  rewriting.value = true
+  rewriteResult.value = ""
+  rewriteResultMeta.value = null
+  try {
+    const userSettings = {
+      industry: rewriteIndustry.value || undefined,
+      purpose: rewritePurpose.value || undefined,
+      tone: rewriteTone.value || undefined,
+      platform: rewritePlatform.value || undefined,
+      targetLength: rewriteTargetLength.value,
+    }
+    const params = {
+      mode: rewriteMode.value,
+      content: rewriteContent.value,
+      userSettings,
+      strategyId: strategyMode.value === "manual" ? (rewriteStrategyId.value || null) : null,
+    }
+    const res = await aiRewrite(params)
+    if (res && res.code === 0 && res.data && res.data.success) {
+      const data = res.data
+      rewriteResult.value = data.result || ""
+      rewriteResultMeta.value = {
+        strategyName: data.strategy?.name || "",
+        aiTasteLevel: data.metadata?.aiTasteLevel,
+        originalLength: data.metadata?.originalLength,
+        resultLength: data.metadata?.resultLength,
+      }
+      if (data.warnings && data.warnings.length > 0) {
+        panelError.value = data.warnings.join("；")
+      }
+    } else if (res && res.code === 0 && res.data && res.data.error) {
+      panelError.value = res.data.error
+    } else {
+      panelError.value = (res && res.message) || "改写失败"
+    }
+  } catch (e) {
+    panelError.value = formatUserError(e, { fallback: "改写失败" }).message
+  } finally {
+    rewriting.value = false
+  }
+}
+
+function selectRewriteResult() {
+  emit("apply-content", rewriteResult.value)
+  emit("apply-rewrite", rewriteResult.value)
+}
 
 function goToProviders() {
   router.push("/model-providers")
@@ -247,6 +451,11 @@ const props = defineProps({
 
 onMounted(() => {
   void checkConfig()
+  void loadRewriteStrategies()
+  // 改写模式默认使用原文内容
+  if (props.sourceContent) {
+    rewriteContent.value = props.sourceContent
+  }
 })
 </script>
 

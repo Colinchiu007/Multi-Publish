@@ -183,7 +183,8 @@
           </label>
           <div class="record-preview">
             <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="">
-            <span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
+            <img v-else-if="isIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
+<span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
             <small>{{ contentTypeLabel(record) }}</small>
           </div>
           <div class="record-main">
@@ -201,7 +202,7 @@
             </div>
             <div class="record-delivery">
               <span class="status-badge" :class="statusClass(record)">{{ statusLabel(record) }}</span>
-              <span class="platform-name"><span aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <span class="platform-name"><img v-if="isIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
           </div>
           <div class="record-stats" :aria-label="t('historyPage.statsAria')">
@@ -302,6 +303,7 @@ import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 import { confirmDanger } from '@/utils/confirm-danger'
@@ -557,7 +559,11 @@ function platformName (platform) {
 }
 
 function platformIcon (platform) {
-  return platformStore.getIcon(platform) || PLATFORM_ICONS[platform] || '•'
+  return getPlatformIconUrl(platform) || platformStore.getIcon(platform) || PLATFORM_ICONS[platform] || '•'
+}
+
+function isIconUrl (value) {
+  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
 }
 
 function matchesDateFilter (record, filter) {

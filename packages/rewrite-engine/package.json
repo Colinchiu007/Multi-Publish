@@ -1,0 +1,10 @@
+{
+  "name": "@multi-publish/rewrite-engine",
+  "version": "1.0.0",
+  "description": "Multi-strategy content rewrite engine",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}

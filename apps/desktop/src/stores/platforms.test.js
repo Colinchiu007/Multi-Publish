@@ -22,7 +22,7 @@ describe("usePlatformStore", () => {
     expect(s.loaded).toBe(true);
     expect(s.platforms.length).toBeGreaterThan(10);
     expect(s.getLabel("wechat_mp")).toBe("微信公众号");
-    expect(s.getIcon("douyin")).toBe("🎵");
+    expect(s.getIcon("douyin")).toBe("platforms/douyin.svg");
   });
 
   it("load() fetches from electronAPI when available", async () => {

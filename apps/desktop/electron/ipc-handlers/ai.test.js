@@ -161,3 +161,89 @@ describe('ai IPC 可信来源与只读操作', () => {
     expect(result).toEqual({ code: 0, data: ['openai', 'anthropic'] })
   })
 })
+
+describe('ai:rewrite 改写引擎 IPC', () => {
+  function createRewriteDeps(overrides = {}) {
+    return {
+      aiGenerator: {
+        listProviders: vi.fn(() => []),
+        getProviderConfig: vi.fn(),
+        listModels: vi.fn(() => []),
+        generate: vi.fn(),
+        testConnection: vi.fn(),
+        updateProviderConfig: vi.fn(),
+      },
+      aiWriter: {
+        isConfigured: vi.fn(() => true),
+        generateTitles: vi.fn(),
+        enhanceContent: vi.fn(),
+        generateSummary: vi.fn(),
+      },
+      rewriteEngineService: {
+        rewrite: vi.fn(),
+        listStrategies: vi.fn(() => []),
+        getRecommendedStrategies: vi.fn(() => []),
+      },
+      BrowserWindow: { fromWebContents: vi.fn(() => null), getAllWindows: vi.fn(() => []) },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      ...overrides,
+    }
+  }
+
+  it('ai:rewrite 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createRewriteDeps())
+    const handler = ipcMain._get('ai:rewrite')
+
+    const result = await handler(UNTRUSTED_EVENT, { mode: 'expand', content: 'x' })
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it('ai:rewrite 可信来源调用 rewriteEngineService.rewrite', async () => {
+    const deps = createRewriteDeps({
+      rewriteEngineService: {
+        rewrite: vi.fn().mockResolvedValue({ success: true, result: '改写结果' }),
+        listStrategies: vi.fn(() => []),
+        getRecommendedStrategies: vi.fn(() => []),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('ai:rewrite')
+
+    const params = { mode: 'expand', content: '正文', userSettings: {} }
+    const result = await handler(TRUSTED_EVENT, params)
+
+    expect(result).toEqual({ code: 0, data: { success: true, result: '改写结果' } })
+    expect(deps.rewriteEngineService.rewrite).toHaveBeenCalledWith(params)
+  })
+
+  it('ai:list-rewrite-strategies 返回策略列表', async () => {
+    const deps = createRewriteDeps({
+      rewriteEngineService: {
+        rewrite: vi.fn(),
+        listStrategies: vi.fn(() => [{ id: 'strategy-viral-storytelling', name: '故事化爆款策略' }]),
+        getRecommendedStrategies: vi.fn(() => []),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('ai:list-rewrite-strategies')
+
+    const result = await handler()
+
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual([{ id: 'strategy-viral-storytelling', name: '故事化爆款策略' }])
+  })
+
+  it('ai:rewrite 参数为 null 时返回校验错误', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createRewriteDeps())
+    const handler = ipcMain._get('ai:rewrite')
+
+    const result = await handler(TRUSTED_EVENT, null)
+
+    expect(result.code).not.toBe(0)
+  })
+})

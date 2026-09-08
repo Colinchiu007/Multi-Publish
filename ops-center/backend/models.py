@@ -608,3 +608,29 @@ class PipelineOption(Base):
     sort_order = Column(Integer, default=0)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+class RewriteStrategy(Base):
+    """改写策略模板 — 运营端管理桌面端改写引擎的策略配置。"""
+
+    __tablename__ = "rewrite_strategies"
+
+    id = Column(String(100), primary_key=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, default="")
+    version = Column(String(20), default="1.0.0")
+    category = Column(String(40), default="viral")
+    industry = Column(Text, default="[]")
+    purpose = Column(Text, default="[]")
+    tone = Column(Text, default="[]")
+    platforms = Column(Text, default="[]")
+    system_prompt = Column(Text, nullable=False, default="")
+    user_prompt_template = Column(Text, nullable=False, default="")
+    post_process_config = Column(Text, default="{}")
+    extra_metadata = Column(Text, default="{}")
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    deleted_at = Column(String, nullable=True)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")

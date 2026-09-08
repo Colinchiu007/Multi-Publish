@@ -66,6 +66,7 @@
     "@element-plus/icons-vue": "^2.3.2",
     "@logto/client": "3.1.8",
     "@multi-publish/ai-writer": "workspace:*",
+    "@multi-publish/rewrite-engine": "workspace:*",
     "@multi-publish/api-publish-engine": "workspace:*",
     "@multi-publish/rpa-engine": "workspace:*",
     "@multi-publish/shared-utils": "workspace:*",

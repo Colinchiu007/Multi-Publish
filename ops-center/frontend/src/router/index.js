@@ -197,6 +197,12 @@ const routes = [
     meta: { requiresAuth: true, adminOnly: true },
   },
   {
+    path: '/rewrite-strategies',
+    name: 'RewriteStrategies',
+    component: () => import('../views/RewriteStrategies.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/pipeline-options',
     name: 'PipelineOptions',
     component: () => import('../views/PipelineOptions.vue'),
