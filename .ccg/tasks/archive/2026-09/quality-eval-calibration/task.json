@@ -1,14 +1,14 @@
 {
   "id": "quality-eval-calibration",
   "title": "改写内容质量评估 v1.1 校准与适用性口径",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "python-backend+ops-center",
-  "currentPhase": "review",
-  "nextAction": "文档同步、双模型审查、OpenSpec 校验、提交推送合并",
+  "currentPhase": "archived",
+  "nextAction": "已完成归档",
   "createdAt": "2026-09-09T00:00:00+08:00",
   "branch": "codex/quality-eval-calibrate",
   "openspecChange": "quality-eval-calibration",
-  "remoteStatus": "not_pushed"
+  "remoteStatus": "merged"
 }

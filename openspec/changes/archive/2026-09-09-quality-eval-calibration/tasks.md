@@ -19,7 +19,7 @@
 
 ## 4. 验证与交付
 
-- [ ] 4.1 跑 Python 质量回归、aggregation 受影响测试、ops-center API 全量测试、前端构建/测试和 git diff --check。
-- [ ] 4.2 更新专项机制文档、改写引擎 PRD、架构说明、CHANGELOG、质量门禁和复盘；明确离线基准与真实 LLM 100 篇验收边界。
-- [ ] 4.3 执行 OpenCode 与 Claude 双模型审查，记录实际结果或分层不可用原因；完成主代理复审。
-- [ ] 4.4 OpenSpec 校验、提交、推送、PR、CI、合并后执行 OpenSpec/CCG/质量节拍三同步归档。
+- [x] 4.1 跑 Python 质量回归、aggregation 受影响测试、ops-center API 全量测试、前端构建/测试和 git diff --check。
+- [x] 4.2 更新专项机制文档、改写引擎 PRD、架构说明、CHANGELOG、质量门禁和复盘；明确离线基准与真实 LLM 100 篇验收边界。
+- [x] 4.3 执行 OpenCode 与 Claude 双模型审查，记录实际结果或分层不可用原因；完成主代理复审。
+- [x] 4.4 OpenSpec 校验、提交、推送、PR、CI、合并后执行 OpenSpec/CCG/质量节拍三同步归档。
