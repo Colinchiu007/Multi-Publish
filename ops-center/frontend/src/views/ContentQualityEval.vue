@@ -69,8 +69,14 @@
               <el-divider content-position="left">维度评分</el-divider>
               <div v-for="d in result.dimensions" :key="d.id" style="display:flex;align-items:center;margin-bottom:6px;gap:8px">
                 <span style="width:80px;font-size:13px;text-align:right;flex-shrink:0">{{ d.label }}</span>
-                <el-progress :percentage="d.score" :color="dimColor(d.score)" style="flex:1" />
-                <span style="width:40px;font-size:13px;text-align:right;flex-shrink:0;font-weight:600">{{ d.score.toFixed(0) }}</span>
+                <template v-if="isApplicable(d)">
+                  <el-progress :percentage="d.score" :color="dimColor(d.score)" style="flex:1" />
+                  <span style="width:40px;font-size:13px;text-align:right;flex-shrink:0;font-weight:600">{{ d.score.toFixed(0) }}</span>
+                </template>
+                <template v-else>
+                  <div class="not-applicable-track">不适用</div>
+                  <span class="not-applicable-value">N/A</span>
+                </template>
               </div>
 
               <el-divider v-if="result.suggestions && result.suggestions.length" content-position="left">优化建议</el-divider>
@@ -118,8 +124,14 @@
           <div v-if="stats && stats.avg_dimensions">
             <div v-for="d in stats.avg_dimensions" :key="d.id" style="display:flex;align-items:center;margin-bottom:6px;gap:8px">
               <span style="width:80px;font-size:13px;text-align:right;flex-shrink:0">{{ dimLabel(d.id) }}</span>
-              <el-progress :percentage="d.avg_score" :color="dimColor(d.avg_score)" style="flex:1" />
-              <span style="width:40px;font-size:13px;text-align:right;flex-shrink:0;font-weight:600">{{ d.avg_score.toFixed(0) }}</span>
+              <template v-if="d.count > 0">
+                <el-progress :percentage="d.avg_score" :color="dimColor(d.avg_score)" style="flex:1" />
+                <span style="width:40px;font-size:13px;text-align:right;flex-shrink:0;font-weight:600">{{ d.avg_score.toFixed(0) }}</span>
+              </template>
+              <template v-else>
+                <div class="not-applicable-track">暂无适用样本</div>
+                <span class="not-applicable-value">N/A</span>
+              </template>
             </div>
           </div>
         </el-card>
@@ -155,6 +167,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
+import { isApplicable, hasApplicableSamples } from './content-quality-eval-utils'
 
 const activeTab = ref('eval')
 const loading = ref(false)
@@ -253,4 +266,22 @@ onMounted(() => {
 
 <style scoped>
 .subtitle { color: #6b7280; font-size: 13px; margin-bottom: 16px; }
+.not-applicable-track {
+  flex: 1;
+  min-height: 16px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 16px;
+  padding-left: 8px;
+}
+.not-applicable-value {
+  width: 40px;
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: right;
+  flex-shrink: 0;
+  font-weight: 600;
+}
 </style>

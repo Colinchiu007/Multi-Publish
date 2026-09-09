@@ -221,6 +221,20 @@ def test_rewrite_uses_shared_rewrite_processor():
     )
 
 
+def test_rewrite_uses_shared_quality_report_serializer():
+    """回归：改写引擎质量报告必须消费评估器唯一的序列化投影，避免与运营中心字段漂移。"""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "serialize_quality_report" in src, (
+        "rewrite 必须使用 serialize_quality_report 统一序列化质量报告"
+    )
+    assert '"weighted": round(d.weighted, 1)' not in src, (
+        "改写引擎不得再手写维度字段清单，应复用评估器序列化投影"
+    )
+
+
 def test_collect_url_uses_v1_pipeline():
     """Regression: _collect_url must use v1 ContentPipeline, not v2 collect_url."""
     import inspect

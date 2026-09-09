@@ -26,13 +26,16 @@ from config import settings
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     from database import engine, Base
+    from sqlalchemy import text
 
     async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE IF EXISTS quality_eval_records"))
         await conn.run_sync(Base.metadata.create_all)
     from services.quality.service import ensure_quality_eval_table
     await ensure_quality_eval_table()
     yield
     async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE IF EXISTS quality_eval_records"))
         await conn.run_sync(Base.metadata.drop_all)
 
 
@@ -83,6 +86,9 @@ async def test_evaluate_imports_evaluator_and_returns_200():
         assert "overall_score" in data
         assert "grade" in data
         assert "dimensions" in data and len(data["dimensions"]) == 15
+        assert all("applicable" in dimension for dimension in data["dimensions"])
+        clone = next(dimension for dimension in data["dimensions"] if dimension["id"] == "clone_divergence")
+        assert clone["applicable"] is False
         assert data["word_count"] > 0
     finally:
         await client.aclose()
@@ -130,12 +136,61 @@ async def test_stats_and_records_return_after_evaluate():
         stats = await client.get("/api/v1/quality-eval/stats?limit=100", headers=_admin_headers())
         assert stats.status_code == 200
         s = stats.json()
-        assert s["total"] >= 1
+        assert s["total"] == 1
         assert "avg_score" in s
+        assert len(s["avg_dimensions"]) == 15
+        clone_stats = next(item for item in s["avg_dimensions"] if item["id"] == "clone_divergence")
+        assert clone_stats == {"id": "clone_divergence", "avg_score": 0, "count": 0}
 
         records = await client.get("/api/v1/quality-eval/records?limit=5", headers=_admin_headers())
         assert records.status_code == 200
         r = records.json()
-        assert "items" in r and len(r["items"]) >= 1
+        assert "items" in r and len(r["items"]) == 1
+        stored_clone = next(dimension for dimension in r["items"][0]["dimensions"] if dimension["id"] == "clone_divergence")
+        assert stored_clone["applicable"] is False
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stats_exclude_non_applicable_clone_divergence_and_fallback_for_legacy_records():
+    """统计只使用适用的克隆差异度，旧 JSON 按已存原文回退。"""
+    client = _client()
+    try:
+        content = "这是一篇用于验证克隆差异度统计口径的足够长测试文章。" * 4
+        no_original = await client.post(
+            "/api/v1/quality-eval/evaluate",
+            headers=_admin_headers(),
+            json={"content": content, "platform": "通用"},
+        )
+        with_original = await client.post(
+            "/api/v1/quality-eval/evaluate",
+            headers=_admin_headers(),
+            json={"content": content + "改写版", "original_content": "原始文章内容不同。" * 4, "platform": "通用"},
+        )
+        assert no_original.status_code == 200
+        assert with_original.status_code == 200
+
+        from database import async_session
+        from sqlalchemy import text
+        import json
+
+        legacy_dimensions = no_original.json()["dimensions"]
+        for dimension in legacy_dimensions:
+            dimension.pop("applicable", None)
+        async with async_session() as db:
+            await db.execute(
+                text("""INSERT INTO quality_eval_records
+                    (original_content, rewritten_content, dimensions_json, overall_score, grade, grade_label)
+                    VALUES (:original, :rewritten, :dimensions, 60, 'C', '较差')"""),
+                {"original": "旧原文" * 4, "rewritten": "旧改写" * 4, "dimensions": json.dumps(legacy_dimensions, ensure_ascii=False)},
+            )
+            await db.commit()
+
+        stats = await client.get("/api/v1/quality-eval/stats?limit=100", headers=_admin_headers())
+        assert stats.status_code == 200
+        clone_stats = next(item for item in stats.json()["avg_dimensions"] if item["id"] == "clone_divergence")
+        # 新版带原文记录和旧版带原文记录各计一次；无原文新版记录必须被排除。
+        assert clone_stats["count"] == 2
     finally:
         await client.aclose()
