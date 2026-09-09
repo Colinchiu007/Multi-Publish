@@ -20,8 +20,9 @@ const { AITasteRemover, AI_PHRASE_MAP, FORBIDDEN_OPENING_PATTERNS } = require('.
 const { KnowledgeBase, MemoryStorage, DEFAULT_KB } = require('./knowledge-base')
 const { SensitiveFilter } = require('./sensitive-filter')
 const {
-  RewriteQualityEvaluator, SimHash, computeSimHash, hammingDistance
+  RewriteQualityEvaluator, SimHash, computeSimHash, hammingDistance, cosineSimilarity
 } = require('./rewrite-quality-evaluator')
+const { SQLiteStorage } = require('./sqlite-storage')
 
 /**
  * 快速创建改写引擎实例
@@ -40,6 +41,11 @@ function createEngine(options = {}) {
   }
 
   const qe = options.qualityEvaluator || new RewriteQualityEvaluator()
+
+  // binding 质量评估器的可选 embedding 客户端
+  if (options.embeddingClient && qe._embeddingClient === undefined) {
+    qe._embeddingClient = options.embeddingClient || null
+  }
 
   return new RewriteEngine({
     llmClient: options.llmClient,
@@ -66,5 +72,7 @@ module.exports = {
   SimHash,
   computeSimHash,
   hammingDistance,
+  cosineSimilarity,
+  SQLiteStorage,
   createEngine
 }
