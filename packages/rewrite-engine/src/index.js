@@ -42,9 +42,9 @@ function createEngine(options = {}) {
 
   const qe = options.qualityEvaluator || new RewriteQualityEvaluator()
 
-  // binding 质量评估器的可选 embedding 客户端
-  if (options.embeddingClient && qe._embeddingClient === undefined) {
-    qe._embeddingClient = options.embeddingClient || null
+  // 注入质量评估器的可选 embedding 客户端（未显式传入 qualityEvaluator 时才生效）
+  if (options.embeddingClient && !options.qualityEvaluator) {
+    qe._embeddingClient = options.embeddingClient
   }
 
   return new RewriteEngine({

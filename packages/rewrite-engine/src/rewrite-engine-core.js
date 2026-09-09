@@ -88,7 +88,31 @@ class RewriteEngine {
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
 
-    const response = {
+    // 8. 改写质量评估（优先 embedding 语义 → 回退 SimHash/Jaccard 本地算法）
+    let quality
+    try {
+      quality = await this._qualityEvaluator.evaluateAsync(content, processed)
+    } catch {
+      try {
+        quality = this._qualityEvaluator.evaluate(content, processed)
+      } catch {
+        quality = null
+      }
+    }
+
+    // 9. 记录到知识库（持久化失败不影响主流程）
+    if (preCheck.hits.length === 0 && postCheck.hits.length === 0) {
+      try {
+        this._knowledgeBase.recordFeedback({
+          action: 'generated',
+          strategyId: strategy.id,
+          resultContent: processed,
+          userSettings
+        })
+      } catch { /* 知识库持久化失败不阻塞主流程 */ }
+    }
+
+    return {
       success: true,
       result: processed,
       strategy: {
@@ -98,34 +122,14 @@ class RewriteEngine {
       },
       warnings: postCheck.hits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
       sensitiveHits: postCheck.hits,
+      quality,
       metadata: {
         mode,
         originalLength: content.length,
         resultLength: processed.length,
         aiTasteLevel: this._getAITasteLevel(processed, strategy)
-      },
-      quality
+      }
     }
-
-    // 8. 改写质量评估（SimHash 判重 + 语义保持 + 原创性评分）
-    let quality
-    try {
-      quality = this._qualityEvaluator.evaluate(content, processed)
-    } catch {
-      quality = null
-    }
-
-    // 9. 记录到知识库（异步，不阻塞返回）
-    if (preCheck.hits.length === 0 && postCheck.hits.length === 0) {
-      this._knowledgeBase.recordFeedback({
-        action: 'generated',
-        strategyId: strategy.id,
-        resultContent: processed,
-        userSettings
-      })
-    }
-
-    return response
   }
 
   /**
