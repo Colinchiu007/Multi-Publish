@@ -29,6 +29,7 @@ const callbackMethods = require('./callback-store')
 const batchMethods = require('./batch-store')
 const rateLimitMethods = require('./rate-limit-store')
 const modelLogMethods = require('./model-log-store')
+const knowledgeLibraryMethods = require('./knowledge-library-store')
 
 class Store extends BaseStore {}
 
@@ -43,6 +44,7 @@ Object.assign(
   batchMethods,
   rateLimitMethods,
   modelLogMethods,
+  knowledgeLibraryMethods,
 )
 
 module.exports = Store

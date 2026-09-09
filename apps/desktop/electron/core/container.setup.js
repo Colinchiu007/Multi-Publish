@@ -63,6 +63,7 @@ const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-in
 const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
 const RewriteEngineService = require('../services/rewrite-engine');
+const KnowledgeLibraryService = require('../services/knowledge-library-service');
 const AiWriter = require('../services/ai-writer');
 const { PublisherRouter } = require('../services/publisher-router');
 const UsageTracker = require('../services/usage-tracker');
@@ -205,6 +206,9 @@ function createContainer(options) {
     svc.setStrategyManager(c.get("rewriteStrategyManager"));
     svc.setStore(c.get("store"));
     return svc;
+  });
+  container.register("knowledgeLibraryService", function(c) {
+    return new KnowledgeLibraryService({ store: c.get("store") });
   });
   container.register("aiWriter", function() { return new AiWriter(); });
   container.register("usageTracker", function() { return new UsageTracker(); });
@@ -356,7 +360,7 @@ function createContainer(options) {
     "callbackServer", "qrCodeLogin", "renderEngine",
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
     "oauthManager", "batchManager", "taskQueue", "publisherRouter",
-    "story2videoBatchQueue", "fullAutoPipeline"
+    "story2videoBatchQueue", "fullAutoPipeline", "knowledgeLibraryService"
   ]);
 
   return container;

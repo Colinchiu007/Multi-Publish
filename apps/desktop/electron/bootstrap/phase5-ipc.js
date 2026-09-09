@@ -185,7 +185,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     filmEngineeringService,
     fullAutoPipeline,
     story2videoProjectService, story2videoMediaServer,
-    promptEvalService, signalCollector,
+    promptEvalService, signalCollector, knowledgeLibraryService,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -205,6 +205,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     fullAutoPipeline,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector,
+    knowledgeLibraryService,
   }
   let state = registrationStates.get(context)
   if (!state) {

@@ -1,0 +1,316 @@
+// @ts-check
+/**
+ * knowledge-library-store — 知识库功能域 mixin（爆款库 + 个人知识库）
+ *
+ * 表：viral_library / personal_knowledge
+ * 存储：sql.js（WASM SQLite），无 FTS5 —— 搜索使用 LIKE 匹配。
+ * 依赖：logger
+ */
+const log = require('../logger')
+
+const VIRAL_SORT_COLUMNS = new Set([
+  'created_at', 'likes', 'collections', 'comments', 'like_collect_ratio', 'published_at',
+])
+
+function normalizeViralItem (item) {
+  if (!item || typeof item !== 'object') return null
+  if (typeof item.content !== 'string' || !item.content.trim()) return null
+  const likes = Math.max(0, Number(item.likes) || 0)
+  const collections = Math.max(0, Number(item.collections) || 0)
+  const comments = Math.max(0, Number(item.comments) || 0)
+  const ratio = Math.round((likes / Math.max(collections, 1)) * 100) / 100
+  let tags = []
+  if (Array.isArray(item.tags)) tags = item.tags
+  else if (typeof item.tags === 'string' && item.tags.trim()) {
+    try { tags = JSON.parse(item.tags) } catch { tags = [item.tags] }
+  }
+  return {
+    id: String(item.id || ''),
+    title: String(item.title || '').slice(0, 500),
+    cover_url: String(item.cover_url || '').slice(0, 2048),
+    author: String(item.author || '').slice(0, 100),
+    url: String(item.url || '').slice(0, 2048),
+    content: item.content,
+    tags: JSON.stringify(tags.filter(t => typeof t === 'string' && t.trim()).slice(0, 50)),
+    likes,
+    collections,
+    comments,
+    like_collect_ratio: ratio,
+    published_at: String(item.published_at || ''),
+    platform: String(item.platform || '').slice(0, 50),
+    source: item.source === 'collection' ? 'collection' : 'manual',
+  }
+}
+
+function normalizePersonalItem (item) {
+  if (!item || typeof item !== 'object') return null
+  if (typeof item.content !== 'string' || !item.content.trim()) return null
+  return {
+    id: String(item.id || ''),
+    category: String(item.category || ''),
+    title: String(item.title || '').slice(0, 500),
+    content: item.content,
+    source_file: String(item.source_file || '').slice(0, 1024),
+    file_type: String(item.file_type || '').slice(0, 20),
+  }
+}
+
+function parseViralRow (row) {
+  if (!row) return row
+  const copy = { ...row }
+  try { copy.tags = JSON.parse(copy.tags || '[]') } catch { copy.tags = [] }
+  return copy
+}
+
+module.exports = {
+  // ===================== 爆款库 =====================
+
+  addViralItem (item) {
+    if (!this._ready) return null
+    const row = normalizeViralItem(item)
+    if (!row || !row.id) return null
+    const now = new Date().toISOString()
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO viral_library
+          (id, title, cover_url, author, url, content, tags, likes, collections, comments,
+           like_collect_ratio, published_at, platform, source, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        row.id, row.title, row.cover_url, row.author, row.url, row.content, row.tags,
+        row.likes, row.collections, row.comments, row.like_collect_ratio,
+        row.published_at, row.platform, row.source, now, now,
+      )
+      return row.id
+    } catch (e) {
+      log.warn('Store', 'addViralItem failed: ' + e.message)
+      return null
+    }
+  },
+
+  getViralItem (id) {
+    if (!this._ready) return null
+    try {
+      const row = this.db.prepare('SELECT * FROM viral_library WHERE id = ?').get(String(id))
+      return parseViralRow(row) || null
+    } catch (e) {
+      log.warn('Store', 'getViralItem failed: ' + e.message)
+      return null
+    }
+  },
+
+  listViralItems (opts = {}) {
+    if (!this._ready) return { items: [], total: 0 }
+    const page = Math.max(1, Number(opts.page) || 1)
+    const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize) || 20))
+    const conditions = []
+    const params = []
+
+    if (opts.search && String(opts.search).trim()) {
+      const kw = '%' + String(opts.search).trim().replace(/[%_]/g, '') + '%'
+      conditions.push('(title LIKE ? OR content LIKE ? OR tags LIKE ? OR author LIKE ? OR platform LIKE ?)')
+      params.push(kw, kw, kw, kw, kw)
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+    let orderBy = 'created_at DESC'
+    if (opts.sortBy && VIRAL_SORT_COLUMNS.has(opts.sortBy)) {
+      orderBy = opts.sortBy + ' ' + (String(opts.sortOrder).toLowerCase() === 'asc' ? 'ASC' : 'DESC') + ', created_at DESC'
+    }
+
+    try {
+      const countRow = this.db.prepare('SELECT COUNT(*) AS n FROM viral_library ' + where).get(...params)
+      const total = countRow ? Number(countRow.n) || 0 : 0
+      const rows = this.db.prepare(
+        'SELECT * FROM viral_library ' + where + ' ORDER BY ' + orderBy + ' LIMIT ? OFFSET ?'
+      ).all(...params, pageSize, (page - 1) * pageSize)
+      return { items: rows.map(parseViralRow), total }
+    } catch (e) {
+      log.warn('Store', 'listViralItems failed: ' + e.message)
+      return { items: [], total: 0 }
+    }
+  },
+
+  updateViralItem (id, updates) {
+    if (!this._ready) return false
+    const existing = this.getViralItem(id)
+    if (!existing) return false
+    const merged = { ...existing, ...updates, tags: updates.tags !== undefined ? updates.tags : existing.tags }
+    const row = normalizeViralItem(merged)
+    if (!row) return false
+    const now = new Date().toISOString()
+    try {
+      const result = this.db.prepare(`
+        UPDATE viral_library SET title = ?, cover_url = ?, author = ?, url = ?, content = ?, tags = ?,
+          likes = ?, collections = ?, comments = ?, like_collect_ratio = ?, published_at = ?, platform = ?,
+          source = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        row.title, row.cover_url, row.author, row.url, row.content, row.tags,
+        row.likes, row.collections, row.comments, row.like_collect_ratio,
+        row.published_at, row.platform, row.source, now, String(id),
+      )
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'updateViralItem failed: ' + e.message)
+      return false
+    }
+  },
+
+  deleteViralItem (id) {
+    if (!this._ready) return false
+    try {
+      const result = this.db.prepare('DELETE FROM viral_library WHERE id = ?').run(String(id))
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'deleteViralItem failed: ' + e.message)
+      return false
+    }
+  },
+
+  searchViralItems (query, limit = 20) {
+    if (!this._ready) return []
+    if (!query || !String(query).trim()) return []
+    const kw = '%' + String(query).trim().replace(/[%_]/g, '') + '%'
+    try {
+      const rows = this.db.prepare(`
+        SELECT * FROM viral_library
+        WHERE title LIKE ? OR content LIKE ? OR tags LIKE ? OR author LIKE ? OR platform LIKE ?
+        ORDER BY (likes + collections + comments) DESC, created_at DESC
+        LIMIT ?
+      `).all(kw, kw, kw, kw, kw, Math.max(1, Math.min(100, Number(limit) || 20)))
+      return rows.map(parseViralRow)
+    } catch (e) {
+      log.warn('Store', 'searchViralItems failed: ' + e.message)
+      return []
+    }
+  },
+
+  countViralItems () {
+    if (!this._ready) return 0
+    try {
+      const row = this.db.prepare('SELECT COUNT(*) AS n FROM viral_library').get()
+      return row ? Number(row.n) || 0 : 0
+    } catch (e) { return 0 }
+  },
+
+  // ===================== 个人知识库 =====================
+
+  addPersonalItem (item) {
+    if (!this._ready) return null
+    const row = normalizePersonalItem(item)
+    if (!row || !row.id) return null
+    const now = new Date().toISOString()
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO personal_knowledge
+          (id, category, title, content, source_file, file_type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(row.id, row.category, row.title, row.content, row.source_file, row.file_type, now, now)
+      return row.id
+    } catch (e) {
+      log.warn('Store', 'addPersonalItem failed: ' + e.message)
+      return null
+    }
+  },
+
+  getPersonalItem (id) {
+    if (!this._ready) return null
+    try {
+      const row = this.db.prepare('SELECT * FROM personal_knowledge WHERE id = ?').get(String(id))
+      return row || null
+    } catch (e) {
+      log.warn('Store', 'getPersonalItem failed: ' + e.message)
+      return null
+    }
+  },
+
+  listPersonalItems (opts = {}) {
+    if (!this._ready) return { items: [], total: 0 }
+    const page = Math.max(1, Number(opts.page) || 1)
+    const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize) || 20))
+    const conditions = []
+    const params = []
+
+    if (opts.category && String(opts.category).trim()) {
+      conditions.push('category = ?')
+      params.push(String(opts.category))
+    }
+    if (opts.search && String(opts.search).trim()) {
+      const kw = '%' + String(opts.search).trim().replace(/[%_]/g, '') + '%'
+      conditions.push('(title LIKE ? OR content LIKE ?)')
+      params.push(kw, kw)
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+    try {
+      const countRow = this.db.prepare('SELECT COUNT(*) AS n FROM personal_knowledge ' + where).get(...params)
+      const total = countRow ? Number(countRow.n) || 0 : 0
+      const rows = this.db.prepare(
+        'SELECT * FROM personal_knowledge ' + where + ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      ).all(...params, pageSize, (page - 1) * pageSize)
+      return { items: rows, total }
+    } catch (e) {
+      log.warn('Store', 'listPersonalItems failed: ' + e.message)
+      return { items: [], total: 0 }
+    }
+  },
+
+  updatePersonalItem (id, updates) {
+    if (!this._ready) return false
+    const existing = this.getPersonalItem(id)
+    if (!existing) return false
+    const row = normalizePersonalItem({ ...existing, ...updates })
+    if (!row) return false
+    const now = new Date().toISOString()
+    try {
+      const result = this.db.prepare(`
+        UPDATE personal_knowledge SET category = ?, title = ?, content = ?, source_file = ?,
+          file_type = ?, updated_at = ?
+        WHERE id = ?
+      `).run(row.category, row.title, row.content, row.source_file, row.file_type, now, String(id))
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'updatePersonalItem failed: ' + e.message)
+      return false
+    }
+  },
+
+  deletePersonalItem (id) {
+    if (!this._ready) return false
+    try {
+      const result = this.db.prepare('DELETE FROM personal_knowledge WHERE id = ?').run(String(id))
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'deletePersonalItem failed: ' + e.message)
+      return false
+    }
+  },
+
+  searchPersonalItems (query, limit = 20) {
+    if (!this._ready) return []
+    if (!query || !String(query).trim()) return []
+    const kw = '%' + String(query).trim().replace(/[%_]/g, '') + '%'
+    try {
+      const rows = this.db.prepare(`
+        SELECT * FROM personal_knowledge
+        WHERE title LIKE ? OR content LIKE ? OR category LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(kw, kw, kw, Math.max(1, Math.min(100, Number(limit) || 20)))
+      return rows
+    } catch (e) {
+      log.warn('Store', 'searchPersonalItems failed: ' + e.message)
+      return []
+    }
+  },
+
+  countPersonalItems () {
+    if (!this._ready) return 0
+    try {
+      const row = this.db.prepare('SELECT COUNT(*) AS n FROM personal_knowledge').get()
+      return row ? Number(row.n) || 0 : 0
+    } catch (e) { return 0 }
+  },
+}
+
