@@ -2,7 +2,7 @@
 /**
  * feishu-settings.test.js — 飞书配置 IPC handlers 单测
  *
- * mock safeStorage（注入 crypto）+ mock store + mock FeishuClient。
+ * mock safeStorage（注入 crypto）+ mock store + mock FeishuClient（__registerMock）。
  * 覆盖：get-config 不返回 Secret、save-config 加密存储、test-connection（明文/存储/未配置/失败）。
  */
 
@@ -10,13 +10,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
 
-const feishuMock = vi.hoisted(() => ({
-  testConnection: vi.fn(),
-  FeishuClient: vi.fn(),
-}))
-vi.mock('../services/feishu-client', () => ({
-  FeishuClient: feishuMock.FeishuClient,
-}))
+// CJS mock：test-setup 的 __registerMock 拦截 Module._load（vi.mock 只对 ESM import 生效）
+let mockFeishuClient
+function installFeishuMock() {
+  mockFeishuClient = { FeishuClient: vi.fn(), testConnection: vi.fn() }
+  mockFeishuClient.FeishuClient.mockImplementation(function () {
+    return { testConnection: mockFeishuClient.testConnection }
+  })
+  __registerMock('./services/feishu-client', mockFeishuClient)
+}
 
 function createMockSafeStorage() {
   const store = new Map()
@@ -38,11 +40,8 @@ const TRUSTED_EVENT = { senderFrame: { url: 'app://localhost/index.html' } }
 
 beforeEach(async () => {
   __enableElectronMock()
-  // 统一用 CommonJS require，确保 handler 与测试引用同一 crypto 实例
+  installFeishuMock()
   crypto = require('../services/crypto')
-  feishuMock.FeishuClient.mockReset()
-  feishuMock.testConnection.mockReset()
-  feishuMock.FeishuClient.mockImplementation(() => ({ testConnection: feishuMock.testConnection }))
   const mod = require('./feishu-settings')
   registerHandlers = mod.default || mod
 })
@@ -121,14 +120,14 @@ describe('feishu-settings IPC handlers', () => {
   })
 
   it('test-connection 用传入明文参数构造客户端并成功', async () => {
-    feishuMock.testConnection.mockResolvedValue(true)
+    mockFeishuClient.testConnection.mockResolvedValue(true)
     const ipcMain = createMockIpcMain()
     const store = createMockStore()
     registerHandlers(ipcMain, { store })
     const r = await ipcMain._call('feishu:test-connection', 'app1', 'sec1')
     expect(r.code).toBe(0)
     expect(r.data).toEqual({ ok: true })
-    expect(feishuMock.FeishuClient).toHaveBeenCalledWith({ appId: 'app1', appSecret: 'sec1' })
+    expect(mockFeishuClient.FeishuClient).toHaveBeenCalledWith({ appId: 'app1', appSecret: 'sec1' })
   })
 
   it('test-connection 用已存配置（解密 Secret）构造客户端', async () => {
@@ -137,11 +136,11 @@ describe('feishu-settings IPC handlers', () => {
     const store = createMockStore()
     registerHandlers(ipcMain, { store })
     await ipcMain._call('feishu:save-config', 'app2', 'stored_secret')
-    feishuMock.testConnection.mockResolvedValue(true)
+    mockFeishuClient.testConnection.mockResolvedValue(true)
     const r = await ipcMain._call('feishu:test-connection')
     expect(r.code).toBe(0)
     expect(r.data).toEqual({ ok: true })
-    expect(feishuMock.FeishuClient).toHaveBeenCalledWith({ appId: 'app2', appSecret: 'stored_secret' })
+    expect(mockFeishuClient.FeishuClient).toHaveBeenCalledWith({ appId: 'app2', appSecret: 'stored_secret' })
   })
 
   it('test-connection 未配置时返回错误', async () => {
@@ -154,7 +153,7 @@ describe('feishu-settings IPC handlers', () => {
   })
 
   it('test-connection 失败返回 ok:false', async () => {
-    feishuMock.testConnection.mockRejectedValue(new Error('network down'))
+    mockFeishuClient.testConnection.mockRejectedValue(new Error('network down'))
     const ipcMain = createMockIpcMain()
     const store = createMockStore()
     registerHandlers(ipcMain, { store })

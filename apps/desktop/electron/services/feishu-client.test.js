@@ -22,6 +22,13 @@ function installMockRequest () {
   vi.spyOn(https, 'request').mockImplementation((url, options, cb) => {
     state.lastUrl = url
     state.lastOptions = options
+    const req = new EventEmitter()
+    req.write = vi.fn((d) => { state.lastBody = d })
+    req.end = vi.fn()
+    if (state.error) {
+      process.nextTick(() => req.emit('error', new Error(state.error)))
+      return req
+    }
     const res = new EventEmitter()
     process.nextTick(() => {
       cb(res)
@@ -31,12 +38,6 @@ function installMockRequest () {
       }
       res.emit('end')
     })
-    const req = new EventEmitter()
-    req.write = vi.fn((d) => { state.lastBody = d })
-    req.end = vi.fn()
-    if (state.error) {
-      process.nextTick(() => req.emit('error', new Error(state.error)))
-    }
     return req
   })
 }
