@@ -66,6 +66,9 @@ importers:
       '@multi-publish/api-publish-engine':
         specifier: workspace:*
         version: link:../../packages/api-publish-engine
+      '@multi-publish/rewrite-engine':
+        specifier: workspace:*
+        version: link:../../packages/rewrite-engine
       '@multi-publish/rpa-engine':
         specifier: workspace:*
         version: link:../../packages/rpa-engine
