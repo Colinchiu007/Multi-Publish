@@ -16,6 +16,11 @@ const PERSONAL_CATEGORIES = new Set([
 class KnowledgeLibraryService {
   constructor (opts) {
     this._store = opts.store || null
+    this._feishuClient = null
+  }
+
+  setFeishuClient (fc) {
+    this._feishuClient = fc
   }
 
   _requireStore () {
@@ -167,10 +172,133 @@ class KnowledgeLibraryService {
     return { code: ERROR.SUCCESS, data: items }
   }
 
+  // ===================== 批量导入 =====================
+
+  async importFiles (files, categoryPerFile) {
+    const err = this._requireStore()
+    if (err) return err
+    if (!Array.isArray(files) || files.length === 0) return { code: ERROR.VALIDATION_ERROR, message: '至少需要一个文件' }
+    if (files.length > 20) return { code: ERROR.VALIDATION_ERROR, message: '单批最多20个文件' }
+
+    const { parseFile, isSupportedFile } = require('./file-parser')
+    const results = []
+    for (let i = 0; i < files.length; i++) {
+      const fp = files[i]
+      try {
+        if (!isSupportedFile(fp)) {
+          results.push({ index: i, path: fp, error: '不支持的文件格式' })
+          continue
+        }
+        const parsed = await parseFile(fp)
+        if (!parsed.content || !parsed.content.trim()) {
+          results.push({ index: i, path: fp, error: '文件内容为空' })
+          continue
+        }
+        const cat = categoryPerFile && categoryPerFile[i] ? categoryPerFile[i] : 'personal_stories'
+        if (!PERSONAL_CATEGORIES.has(cat)) {
+          results.push({ index: i, path: fp, error: '无效的知识类别' })
+          continue
+        }
+        const id = this._genId()
+        const ok = this._store.addPersonalItem({
+          id, category: cat,
+          title: parsed.title || '',
+          content: parsed.content,
+          source_file: require('path').basename(fp),
+          file_type: require('path').extname(fp).replace('.', ''),
+        })
+        results.push({ index: i, path: fp, id: ok ? id : null, title: parsed.title, ok: !!ok })
+      } catch (e) {
+        results.push({ index: i, path: fp, error: e.message })
+      }
+    }
+    return { code: ERROR.SUCCESS, data: { total: files.length, results } }
+  }
+
+  // ===================== 飞书导出 =====================
+
+  async exportViralToFeishu (title) {
+    const err = this._requireStore()
+    if (err) return err
+    if (!this._feishuClient) return { code: ERROR.REQUEST_ERROR, message: '飞书客户端未配置' }
+    const count = this._store.countViralItems()
+    if (count === 0) return { code: ERROR.VALIDATION_ERROR, message: '爆款库为空，没有可导出的内容' }
+    // Paginate through all items
+    const pageSize = 50
+    const totalPages = Math.ceil(count / pageSize)
+    let allItems = []
+    for (let p = 1; p <= totalPages; p++) {
+      const { items } = this._store.listViralItems({ page: p, pageSize })
+      allItems = allItems.concat(items)
+    }
+    // Build markdown content
+    let md = '# ' + (title || '爆款库导出') + '\n\n'
+    md += '> 导出时间：' + new Date().toLocaleString('zh-CN') + ' | 共 ' + count + ' 条\n\n'
+    for (const item of allItems) {
+      md += '## ' + (item.title || '(无标题)') + '\n\n'
+      if (item.author) md += '**博主**：' + item.author + '\n\n'
+      if (item.url) md += '**链接**：' + item.url + '\n\n'
+      if (item.platform) md += '**平台**：' + item.platform + '\n\n'
+      md += '**正文**：\n' + (item.content || '') + '\n\n'
+      let tagList = []
+      try { tagList = JSON.parse(item.tags || '[]') } catch { tagList = [] }
+      if (tagList.length) md += '**标签**：' + tagList.map(t => '#' + t).join(' ') + '\n\n'
+      md += '**数据**：👍' + (item.likes || 0) + ' ⭐' + (item.collections || 0) + ' 💬' + (item.comments || 0) + '\n\n'
+      if (item.published_at) md += '**发布时间**：' + item.published_at + '\n\n'
+      md += '---\n\n'
+    }
+    try {
+      const docId = await this._feishuClient.createDocument(title || '爆款库导出')
+      await this._feishuClient.appendContent(docId, docId, md)
+      return { code: ERROR.SUCCESS, data: { docId, count } }
+    } catch (e) {
+      return { code: ERROR.REQUEST_ERROR, message: '飞书导出失败: ' + e.message }
+    }
+  }
+
+  async exportPersonalToFeishu (title) {
+    const err = this._requireStore()
+    if (err) return err
+    if (!this._feishuClient) return { code: ERROR.REQUEST_ERROR, message: '飞书客户端未配置' }
+    const count = this._store.countPersonalItems()
+    if (count === 0) return { code: ERROR.VALIDATION_ERROR, message: '个人知识库为空，没有可导出的内容' }
+    const pageSize = 50
+    const totalPages = Math.ceil(count / pageSize)
+    let allItems = []
+    for (let p = 1; p <= totalPages; p++) {
+      const { items } = this._store.listPersonalItems({ page: p, pageSize })
+      allItems = allItems.concat(items)
+    }
+    // Group by category
+    const groups = {}
+    for (const item of allItems) {
+      const cat = item.category || 'other'
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(item)
+    }
+    let md = '# ' + (title || '个人知识库导出') + '\n\n'
+    md += '> 导出时间：' + new Date().toLocaleString('zh-CN') + ' | 共 ' + count + ' 条 | ' + Object.keys(groups).length + ' 个类别\n\n'
+    for (const [cat, items] of Object.entries(groups)) {
+      md += '## ' + cat + '（' + items.length + '条）\n\n'
+      for (const item of items) {
+        md += '### ' + (item.title || '(无标题)') + '\n\n'
+        md += (item.content || '') + '\n\n'
+        if (item.source_file) md += '📄 来源：' + item.source_file + '\n\n'
+        md += '---\n\n'
+      }
+    }
+    try {
+      const docId = await this._feishuClient.createDocument(title || '个人知识库导出')
+      await this._feishuClient.appendContent(docId, docId, md)
+      return { code: ERROR.SUCCESS, data: { docId, count, categories: Object.keys(groups).length } }
+    } catch (e) {
+      return { code: ERROR.REQUEST_ERROR, message: '飞书导出失败: ' + e.message }
+    }
+  }
+
   _genId () {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
   }
 }
 
 module.exports = KnowledgeLibraryService
-

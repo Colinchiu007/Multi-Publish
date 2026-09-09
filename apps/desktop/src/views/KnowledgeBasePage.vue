@@ -34,6 +34,8 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { importFiles, exportViralToFeishu, exportPersonalToFeishu } from '@/api/knowledge-library'
+import { getApi } from '@/api/electron-bridge'
 import ViralLibraryTable from '@/components/ViralLibraryTable.vue'
 import PersonalKnowledgePanel from '@/components/PersonalKnowledgePanel.vue'
 import ViralFormDialog from '@/components/ViralFormDialog.vue'
@@ -65,16 +67,72 @@ function triggerBatchImport() {
   fileInput.value?.click()
 }
 
-function onFilesSelected(e) {
+async function onFilesSelected(e) {
   const files = e.target.files
   if (!files || !files.length) return
-  const names = Array.from(files).map(f => f.name).join(', ')
-  ElMessage.info(t('knowledgeBase.filesSelected', { count: files.length }) + ': ' + names + '（' + t('knowledgeBase.batchImportComingSoon') + '）')
-  fileInput.value.value = ''
+  const filePaths = []
+  for (const f of files) {
+    if (f.size > 5 * 1024 * 1024) {
+      ElMessage.warning(t('knowledgeBase.fileTooLarge', { name: f.name }))
+      fileInput.value.value = ''
+      return
+    }
+    // File 对象跨 contextBridge 后路径会丢失；经 getPathForFile 拿到真实路径
+    const fp = typeof getApi()?.getPathForFile === 'function'
+      ? await getApi().getPathForFile(f)
+      : (f.path || '')
+    if (!fp) {
+      ElMessage.warning(t('knowledgeBase.importFailed'))
+      fileInput.value.value = ''
+      return
+    }
+    filePaths.push(fp)
+  }
+  if (filePaths.length === 0) return
+  const categoryPerFile = new Array(filePaths.length).fill('personal_stories')
+  try {
+    const res = await importFiles(filePaths, categoryPerFile)
+    if (res && res.code === 0 && res.data) {
+      const { total, results } = res.data
+      const succeeded = results.filter(r => r.ok).length
+      const failed = results.filter(r => r.error).length
+      let msg = t('knowledgeBase.importResult', { total, succeeded, failed })
+      if (failed > 0) {
+        const errors = results.filter(r => r.error).map(r => r.path + ': ' + r.error).join('; ')
+        msg += '\n' + errors
+      }
+      if (failed > 0) ElMessage.warning(msg)
+      else ElMessage.success(msg)
+      personalRef.value?.loadData()
+    } else {
+      ElMessage.error((res && res.message) || t('knowledgeBase.importFailed'))
+    }
+  } catch (err) {
+    ElMessage.error(t('knowledgeBase.importFailed'))
+  } finally {
+    fileInput.value.value = ''
+  }
 }
 
-function handleExport() {
-  ElMessage.info(t('knowledgeBase.exportComingSoon'))
+async function handleExport() {
+  const title = prompt(t('knowledgeBase.exportTitlePrompt'), t('knowledgeBase.exportTitleDefault'))
+  if (!title) return
+  try {
+    let res
+    if (activeTab.value === 'viral') {
+      res = await exportViralToFeishu(title)
+    } else {
+      res = await exportPersonalToFeishu(title)
+    }
+    if (res && res.code === 0 && res.data) {
+      const { docId, count } = res.data
+      ElMessage.success(t('knowledgeBase.exportSuccess', { docId, count }))
+    } else {
+      ElMessage.error((res && res.message) || t('knowledgeBase.exportFailed'))
+    }
+  } catch (e) {
+    ElMessage.error(t('knowledgeBase.exportFailed'))
+  }
 }
 </script>
 
@@ -129,4 +187,3 @@ function handleExport() {
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 </style>
-

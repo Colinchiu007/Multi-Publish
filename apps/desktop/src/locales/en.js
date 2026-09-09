@@ -2330,6 +2330,13 @@ knowledgeBase: {
     fileTooBig: 'File too large (max 5MB)',
     fileNotSupported: 'Unsupported file format (.txt .md .doc .docx only)',
     loadFailed: 'Failed to load, please retry',
+    fileTooLarge: 'File {name} exceeds 5MB limit',
+    importResult: 'Import complete: {total} files, {succeeded} succeeded, {failed} failed',
+    importFailed: 'File import failed',
+    exportTitlePrompt: 'Enter Feishu document title',
+    exportTitleDefault: 'Knowledge Base Export',
+    exportSuccess: 'Export successful, Feishu doc ID: {docId}, {count} items',
+    exportFailed: 'Feishu export failed',
   },
 
   // ── Rewrite page ──

@@ -54,6 +54,19 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('knowledge-library:search-personal', async (_event, query, limit) => {
     try { return knowledgeLibraryService.searchPersonal(query, limit) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
+
+  // ─── 文件批量导入 ───
+  ipcMain.handle('knowledge-library:import-files', withSenderCheck(async (_event, files, categoryPerFile) => {
+    try { return await knowledgeLibraryService.importFiles(files, categoryPerFile) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // ─── 飞书导出 ───
+  ipcMain.handle('knowledge-library:export-viral-to-feishu', withSenderCheck(async (_event, title) => {
+    try { return await knowledgeLibraryService.exportViralToFeishu(title) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+  ipcMain.handle('knowledge-library:export-personal-to-feishu', withSenderCheck(async (_event, title) => {
+    try { return await knowledgeLibraryService.exportPersonalToFeishu(title) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
 }
 
 module.exports = registerHandlers

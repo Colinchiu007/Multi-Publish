@@ -2331,6 +2331,13 @@ knowledgeBase: {
     fileTooBig: '文件过大（超过 5MB），请选择更小的文件',
     fileNotSupported: '不支持的文件格式（仅支持 .txt .md .doc .docx）',
     loadFailed: '加载失败，请重试',
+    fileTooLarge: '文件 {name} 超过 5MB 限制',
+    importResult: '导入完成：共 {total} 个文件，成功 {succeeded} 个，失败 {failed} 个',
+    importFailed: '文件导入失败',
+    exportTitlePrompt: '请输入飞书文档标题',
+    exportTitleDefault: '知识库导出',
+    exportSuccess: '导出成功，飞书文档 ID：{docId}，共 {count} 条',
+    exportFailed: '飞书导出失败',
   },
 
   // ── 文案改写页面 ──

@@ -31,6 +31,11 @@ function createKnowledgeLibraryApi(ipcRenderer) {
     feishuGetConfig: () => ipcRenderer.invoke('feishu:get-config'),
     feishuSaveConfig: (appId, appSecret) => ipcRenderer.invoke('feishu:save-config', appId, appSecret),
     feishuTestConnection: (appId, appSecret) => ipcRenderer.invoke('feishu:test-connection', appId, appSecret),
+    // 文件批量导入
+    importFiles: (files, categoryPerFile) => ipcRenderer.invoke('knowledge-library:import-files', files, categoryPerFile),
+    // 飞书导出
+    exportViralToFeishu: (title) => ipcRenderer.invoke('knowledge-library:export-viral-to-feishu', title),
+    exportPersonalToFeishu: (title) => ipcRenderer.invoke('knowledge-library:export-personal-to-feishu', title),
   }
 }
 
