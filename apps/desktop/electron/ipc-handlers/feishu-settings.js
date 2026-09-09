@@ -69,7 +69,7 @@ function registerHandlers (ipcMain, deps) {
         const raw = store.getSetting(SETTING_KEY)
         const stored = raw && typeof raw === 'object' ? raw : {}
         if (!stored.appId || !stored.appSecret) {
-          return { code: EC.REQUEST_ERROR, message: '未配置飞书应用，请先保存配置' }
+          return { code: EC.REQUEST_ERROR, message: '未配置飞书应用，请先保存配置', data: { ok: false } }
         }
         cfg = { appId: stored.appId, appSecret: crypto.decrypt(Buffer.from(stored.appSecret, 'base64')) }
       }

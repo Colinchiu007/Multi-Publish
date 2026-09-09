@@ -11,9 +11,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
 
 // CJS mock：test-setup 的 __registerMock 拦截 Module._load（vi.mock 只对 ESM import 生效）
-let mockFeishuClient
+// 单例对象 + beforeEach mockReset：避免 require 缓存导致 handler 引用旧 mock 实例
+const mockFeishuClient = { FeishuClient: vi.fn(), testConnection: vi.fn() }
+mockFeishuClient.FeishuClient.mockImplementation(function () {
+  return { testConnection: mockFeishuClient.testConnection }
+})
 function installFeishuMock() {
-  mockFeishuClient = { FeishuClient: vi.fn(), testConnection: vi.fn() }
+  mockFeishuClient.FeishuClient.mockReset()
+  mockFeishuClient.testConnection.mockReset()
   mockFeishuClient.FeishuClient.mockImplementation(function () {
     return { testConnection: mockFeishuClient.testConnection }
   })
