@@ -4,10 +4,12 @@
  *
  * 桥接 @multi-publish/rewrite-engine 包 + aiGenerator 统一 provider 网关。
  * 改写策略运行时下发由 RewriteStrategyManager 提供，推理走 aiGenerator.generateWithDefault('llm')。
+ * v3: 知识库使用 SQLite 持久化存储，质量评估可选 embedding 客户端。
  */
 
-const { RewriteEngine } = require("@multi-publish/rewrite-engine")
+const { RewriteEngine, KnowledgeBase, RewriteQualityEvaluator } = require("@multi-publish/rewrite-engine")
 const { SensitiveFilter } = require("@multi-publish/rewrite-engine")
+const { SQLiteStorage } = require("@multi-publish/rewrite-engine")
 const log = require("./logger")
 
 class RewriteEngineService {
@@ -15,6 +17,7 @@ class RewriteEngineService {
     opts = opts || {}
     this._strategyManager = opts.strategyManager || null
     this._aiGenerator = opts.aiGenerator || null
+    this._store = opts.store || null
     this._engine = null
   }
 
@@ -24,6 +27,10 @@ class RewriteEngineService {
 
   setAiGenerator(gen) {
     this._aiGenerator = gen
+  }
+
+  setStore(store) {
+    this._store = store
   }
 
   _ensureEngine() {
@@ -44,9 +51,28 @@ class RewriteEngineService {
         return result && typeof result.content === "string" ? result.content : ""
       },
     }
+    // 构建知识库（优先 SQLite，降级内存）
+    let kb
+    if (this._store && this._store.db) {
+      const storage = new SQLiteStorage(this._store.db)
+      kb = new KnowledgeBase({ storage })
+    } else {
+      kb = new KnowledgeBase()
+    }
+    kb.init()
+
+    // 构建质量评估器（可选 embedding 客户端）
+    let embeddingClient = null
+    if (this._aiGenerator && typeof this._aiGenerator.getEmbedding === 'function') {
+      embeddingClient = { getEmbedding: (text) => this._aiGenerator.getEmbedding(text) }
+    }
+    const qualityEvaluator = new RewriteQualityEvaluator({ embeddingClient })
+
     const engine = new RewriteEngine({
       llmClient,
       sensitiveFilter: new SensitiveFilter(),
+      knowledgeBase: kb,
+      qualityEvaluator,
     })
     // 将策略管理器中的策略注入引擎的策略管理器
     if (engine._strategyManager && typeof engine._strategyManager.mergeRemote === "function") {

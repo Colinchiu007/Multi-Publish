@@ -203,6 +203,7 @@ function createContainer(options) {
   container.register("rewriteEngineService", function(c) {
     const svc = new RewriteEngineService({});
     svc.setStrategyManager(c.get("rewriteStrategyManager"));
+    svc.setStore(c.get("store"));
     return svc;
   });
   container.register("aiWriter", function() { return new AiWriter(); });

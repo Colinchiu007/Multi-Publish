@@ -146,6 +146,48 @@ class AIGenerator {
     }
     return result;
   }
+  /**
+   * 获取文本 embedding 向量（供改写引擎质量评估等使用）
+   *
+   * 使用 LLM 默认 provider（大多数 LLM 服务商同时提供 embeddings 接口），
+   * 通过 capability_models.embedding 或 default_embedding_model 解析模型名。
+   *
+   * @param {string} text 输入文本
+   * @returns {Promise<number[]>} 向量数组
+   */
+  async getEmbedding(text) {
+    if (!this._modelProviderManager || !this._modelProviderManager._ready) {
+      throw new Error('Model provider manager not available')
+    }
+    // 使用 LLM 默认 provider（OpenAI/DeepSeek/Doubao 等均支持 embeddings）
+    const provider = this._modelProviderManager.getDefault('llm')
+    if (!provider || !provider.id) {
+      throw new Error('No LLM provider configured for embeddings')
+    }
+    // 获取 provider（含解密后的 api_key）以读取 capability_models
+    const providerWithKey = this._modelProviderManager.getProviderWithKey(provider.id)
+    const capabilityModels = (providerWithKey && providerWithKey.capability_models &&
+      typeof providerWithKey.capability_models === 'object') ? providerWithKey.capability_models : {}
+    const config = (providerWithKey && providerWithKey.config && typeof providerWithKey.config === 'object')
+      ? providerWithKey.config : {}
+    // 模型解析优先级：capability_models.embedding → config.default_embedding_model → 默认
+    const model = capabilityModels.embedding || config.default_embedding_model || 'text-embedding-3-small'
+    // 调用 adapter
+    const result = await this._modelProviderManager.callAdapter(provider.id, 'embeddings', {
+      model,
+      input: text,
+    })
+    if (result.code !== 0) {
+      throw new Error(result.message || 'Embedding call failed')
+    }
+    // OpenAI 兼容格式：{ data: [{ embedding: number[] }] }
+    const embedding = result.data && result.data.data && result.data.data[0] && result.data.data[0].embedding
+    if (!Array.isArray(embedding)) {
+      throw new Error('Invalid embedding response format')
+    }
+    return embedding
+  }
+
   /** P3.5: 检查 provider 是否注册了 Adapter */
   _hasAdapter(providerId) {
     const mgr = this._modelProviderManager;

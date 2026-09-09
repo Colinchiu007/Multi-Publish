@@ -229,6 +229,26 @@ function keywordOverlap(original, rewritten, topN = 10, gramSize = 2) {
 }
 
 /**
+ * 向量余弦相似度
+ * @param {number[]} a 向量 A
+ * @param {number[]} b 向量 B
+ * @returns {number} 余弦相似度 [-1, 1]
+ */
+function cosineSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length || a.length === 0) return 0
+  let dot = 0
+  let normA = 0
+  let normB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB)
+  return denom === 0 ? 0 : dot / denom
+}
+
+/**
  * 将数值限制在 [0, 100] 区间
  * @param {number} value 原始值
  * @returns {number} 限制后的值
@@ -320,9 +340,10 @@ function determineVerdict(distance, semantic) {
  * @param {number} distance 海明距离
  * @param {number} sufficiency 充分度
  * @param {number} semantic 语义保持度
+ * @param {string} [method] 评估方法（simhash / embedding）
  * @returns {string[]} 建议数组
  */
-function buildSuggestions(distance, sufficiency, semantic) {
+function buildSuggestions(distance, sufficiency, semantic, method) {
   const suggestions = []
   if (distance < 3) {
     suggestions.push('改写与原文过于接近（近似重复），需要大幅调整句式与措辞')
@@ -340,25 +361,33 @@ function buildSuggestions(distance, sufficiency, semantic) {
   if (suggestions.length === 0) {
     suggestions.push('改写基本合格，可结合上下文微调以进一步提升自然度')
   }
+  if (method === 'embedding') {
+    suggestions.push('（语义保持度基于 embedding 余弦相似度计算）')
+  }
   return suggestions
 }
 
 /**
  * 改写质量评估器
  *
- * 对原文与改写文进行三维评分（充分度 / 语义保持度 / 原创性），
- * 并基于 SimHash 海明距离给出综合结论与改进建议。
+ * v3 升级：
+ * - 构造函数接受可选 embeddingClient { getEmbedding(text): Promise<number[]> }
+ * - evaluate() 保持纯同步，使用 SimHash + Jaccard（向后兼容）
+ * - evaluateAsync() 首次尝试 embedding（余弦相似度），失败回退 evaluate() 方案
  */
 class RewriteQualityEvaluator {
   /**
    * @param {object} [options]
    * @param {number} [options.gramSize=2] SimHash 字符 n-gram 大小
    * @param {number} [options.keywordTopN=10] 关键词重合度检测数量
+   * @param {object} [options.embeddingClient] 可选的 embedding 客户端
+   *   - { getEmbedding(text: string): Promise<number[]> }
    */
   constructor(options = {}) {
     this.gramSize = options.gramSize || 4
     this.keywordTopN = options.keywordTopN || 10
     this.simhash = new SimHash({ gramSize: this.gramSize })
+    this._embeddingClient = options.embeddingClient || null
   }
 
   /**
@@ -391,8 +420,67 @@ class RewriteQualityEvaluator {
       originality: Math.round(originality * 100) / 100,
       simhashDistance: distance,
       verdict,
-      suggestions
+      suggestions,
+      method: 'simhash'
     }
+  }
+
+  /**
+   * 异步评估：优先使用 embedding（余弦相似度），失败回退 SimHash + Jaccard
+   * @param {string} original 原文
+   * @param {string} rewritten 改写文
+   * @returns {Promise<object>} 综合评估报告
+   */
+  async evaluateAsync(original, rewritten) {
+    const distance = hammingDistance(
+      this.simhash.compute(original),
+      this.simhash.compute(rewritten)
+    )
+    const sufficiency = scoreSufficiency(distance)
+
+    let semanticPreservation
+    let method = 'simhash'
+
+    if (this._embeddingClient && typeof this._embeddingClient.getEmbedding === 'function') {
+      try {
+        const vecA = await this._embeddingClient.getEmbedding(original)
+        const vecB = await this._embeddingClient.getEmbedding(rewritten)
+        const sim = cosineSimilarity(vecA, vecB)
+        semanticPreservation = clamp100(((sim + 1) / 2) * 100)
+        method = 'embedding'
+      } catch (_) {
+        semanticPreservation = scoreSemanticPreservation(original, rewritten)
+      }
+    } else {
+      semanticPreservation = scoreSemanticPreservation(original, rewritten)
+    }
+
+    const originality = scoreOriginality(sufficiency, original, rewritten)
+    const verdict = determineVerdict(distance, semanticPreservation)
+    const suggestions = buildSuggestions(distance, sufficiency, semanticPreservation, method)
+
+    return {
+      sufficiency: Math.round(sufficiency * 100) / 100,
+      semanticPreservation: Math.round(semanticPreservation * 100) / 100,
+      originality: Math.round(originality * 100) / 100,
+      simhashDistance: distance,
+      verdict,
+      suggestions,
+      method
+    }
+  }
+
+  /**
+   * 批量异步评估
+   * @param {Array<{original: string, rewritten: string}>} items
+   * @returns {Promise<Array<object>>}
+   */
+  async evaluateBatchAsync(items) {
+    const results = []
+    for (const item of items) {
+      results.push(await this.evaluateAsync(item.original, item.rewritten))
+    }
+    return results
   }
 
   /**
@@ -417,6 +505,7 @@ module.exports = {
   RewriteQualityEvaluator,
   computeSimHash,
   hammingDistance,
+  cosineSimilarity,
   tokenize,
   fnv1a64,
   charJaccard,

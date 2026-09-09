@@ -1,13 +1,28 @@
 ## [未发布] refactor(accounts): AuthViewManager 统一接入 auth-window 公共工厂（2026-09-09）
 
 ### 重构
-- _createLoginWindow 由内联实现（约 60 行 new BrowserWindow + syncBounds + closed 结算 + resize 清理）切换为调用 auth-window.js 公共工厂，与 QrCodeLogin / OAuthManager 三处复用同一实现。
-- openLogin 挂载段改用 handle.attach(view)（contentView 防御、显示、铺满布局由工厂内置）；close() 回收段改用 handle.dispose()（幂等：解除挂载 + destroy + resize 监听随窗口回收）。
-- auth-window.js 句柄新增 syncBounds 暴露；LOGIN_WINDOW_* 尺寸常量移交工厂默认值（1180×820 / 900×640，数值一致）后删除重复定义。
-- 对外字段签名全保留（loginWindow / _syncLoginViewBounds / _loginWindowResizeCleanup / _onWindowResize），PR #1557 的 3 条回归测试作为行为护栏保持通过。
+- _createLoginWindow 切换为调用 auth-window.js 公共工厂，与 QrCodeLogin / OAuthManager 三处复用同一实现。
+- openLogin 挂载段改用 handle.attach(view)；close() 回收段改用 handle.dispose()。
+- auth-window.js 句柄新增 syncBounds 暴露；LOGIN_WINDOW_* 尺寸常量移交工厂默认值。
 
 ### 意义
-- 应用内三个认证管理器（AuthViewManager / QrCodeLogin / OAuthManager）全部经由同一工厂创建承载窗口，认证视图统一为「独立坐标系 + 从 (0,0) 铺满客户区」，不再存在任何依赖主窗口 DOM 坐标的可见认证浮层。
+- 应用内三个认证管理器全部经由同一工厂创建承载窗口，不再存在任何依赖主窗口 DOM 坐标的可见认证浮层。
+
+## [未发布] feat(rewrite-engine): 知识库接 SQLite + 质量评估接 embedding 服务（2026-09-09）
+
+### 功能
+- 改写引擎知识库从内存存储接入桌面端 SQLite 持久化：新增 `SQLiteStorage` 适配器（`packages/rewrite-engine/src/sqlite-storage.js`），实现 `{ get, set, isReady, setDb }` 接口，通过 `db.prepare().get()/.run()` 读写 `rewrite_engine_kv` 表。
+- 改写质量评估器接入 embedding 向量服务：`RewriteQualityEvaluator` 新增 `evaluateAsync()` / `evaluateBatchAsync()`，优先用 embedding 余弦相似度计算语义保持度（`method: 'embedding'`），失败自动回退 SimHash + Jaccard（`method: 'simhash'`）；导出 `cosineSimilarity()`。
+- 桌面端接线：`AIGenerator.getEmbedding(text)` 通过 LLM 默认 provider 调用 adapter.embeddings（模型解析优先级 `capability_models.embedding` → `config.default_embedding_model` → 默认）；`RewriteEngineService._ensureEngine()` 在 `store.db` 可用时用 SQLiteStorage 构建 KnowledgeBase，否则回退内存存储；`container.setup.js` 在构造后注入 store。
+- `createEngine()` 支持 `options.embeddingClient` 可选注入质量评估器。
+
+### 测试
+- 新增 `sqlite-storage.test.js`（7 项）+ `rewrite-quality-evaluator.test.js`（18 项，含 embedding/simhash/cosine）。
+- `packages/rewrite-engine` 全量 49 项测试通过。
+
+### 关联
+- 质量评估基础功能已合并至 main（#1569）。
+
 ## [未发布] fix(ops-center): 内容质量评估 API 导入路径错误导致 500 错误 v11（2026-09-09）
 
 ### 修复
@@ -45,6 +60,31 @@
 
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
+
+## [未发布] refactor(accounts): AuthViewManager 统一接入 auth-window 公共工厂（2026-09-09）
+
+### 重构
+- _createLoginWindow 切换为调用 auth-window.js 公共工厂，与 QrCodeLogin / OAuthManager 三处复用同一实现。
+- openLogin 挂载段改用 handle.attach(view)；close() 回收段改用 handle.dispose()。
+- auth-window.js 句柄新增 syncBounds 暴露；LOGIN_WINDOW_* 尺寸常量移交工厂默认值。
+
+### 意义
+- 应用内三个认证管理器全部经由同一工厂创建承载窗口，不再存在任何依赖主窗口 DOM 坐标的可见认证浮层。
+
+## [未发布] feat(rewrite-engine): 知识库接 SQLite + 质量评估接 embedding 服务（2026-09-09）
+
+### 功能
+- 改写引擎知识库从内存存储接入桌面端 SQLite 持久化：新增 `SQLiteStorage` 适配器（`packages/rewrite-engine/src/sqlite-storage.js`），实现 `{ get, set, isReady, setDb }` 接口，通过 `db.prepare().get()/.run()` 读写 `rewrite_engine_kv` 表。
+- 改写质量评估器接入 embedding 向量服务：`RewriteQualityEvaluator` 新增 `evaluateAsync()` / `evaluateBatchAsync()`，优先用 embedding 余弦相似度计算语义保持度（`method: 'embedding'`），失败自动回退 SimHash + Jaccard（`method: 'simhash'`）；导出 `cosineSimilarity()`。
+- 桌面端接线：`AIGenerator.getEmbedding(text)` 通过 LLM 默认 provider 调用 adapter.embeddings（模型解析优先级 `capability_models.embedding` → `config.default_embedding_model` → 默认）；`RewriteEngineService._ensureEngine()` 在 `store.db` 可用时用 SQLiteStorage 构建 KnowledgeBase，否则回退内存存储；`container.setup.js` 在构造后注入 store。
+- `createEngine()` 支持 `options.embeddingClient` 可选注入质量评估器。
+
+### 测试
+- 新增 `sqlite-storage.test.js`（7 项）+ `rewrite-quality-evaluator.test.js`（18 项，含 embedding/simhash/cosine）。
+- `packages/rewrite-engine` 全量 49 项测试通过。
+
+### 关联
+- 质量评估基础功能已合并至 main（#1569）。
 
 ## [未发布] fix(ops-center): 内容质量评估 API 导入路径错误导致 500 错误 v11（2026-09-09）
 
