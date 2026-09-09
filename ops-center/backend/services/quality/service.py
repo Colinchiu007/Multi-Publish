@@ -14,6 +14,24 @@ logger = logging.getLogger("ops-center.quality-eval")
 TABLE_NAME = "quality_eval_records"
 
 
+def _load_evaluator_module():
+    """Load the dependency-free evaluator without importing the full backend."""
+    import importlib.util
+    import os
+
+    evaluator_path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "..",
+        "packages", "python-backend", "src", "multi_publish",
+        "aggregation", "quality", "evaluator.py",
+    ))
+    spec = importlib.util.spec_from_file_location("cqe_evaluator", evaluator_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法加载内容质量评估器: {evaluator_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 async def ensure_quality_eval_table():
     """Ensure the table exists (called from main.py lifespan)."""
     async with engine.begin() as conn:
@@ -66,22 +84,15 @@ class QualityEvalService:
         #   这些模块依赖 loguru，而 ops-center 运行环境未安装 loguru，导致 500。
         # evaluator.py 仅依赖标准库（re/math/dataclasses/typing/collections），
         # 按路径加载即可，无需引入整个发布栈。
-        import importlib.util
-        import os
-        _evaluator_path = os.path.abspath(os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "..",
-            "packages", "python-backend", "src", "multi_publish", "aggregation",
-            "quality", "evaluator.py",
-        ))
-        _spec = importlib.util.spec_from_file_location("cqe_evaluator", _evaluator_path)
-        _module = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_module)
+        _module = _load_evaluator_module()
         ContentQualityEvaluator = _module.ContentQualityEvaluator
 
         evaluator = ContentQualityEvaluator()
         report = evaluator.evaluate(content, original_content=original_content or None, platform=platform, title=title)
 
-        record = QualityEvalService._report_to_dict(report, content, original_content, style, length, platform, title)
+        record = QualityEvalService._report_to_dict(
+            report, content, original_content, style, length, platform, title, _module
+        )
 
         if not skip_persist:
             await QualityEvalService._insert_record(db, record, created_by)
@@ -89,30 +100,15 @@ class QualityEvalService:
         return record
 
     @staticmethod
-    def _report_to_dict(report, content, original_content, style, length, platform, title) -> dict:
+    def _report_to_dict(report, content, original_content, style, length, platform, title, evaluator_module=None) -> dict:
+        module = evaluator_module or _load_evaluator_module()
+        serialized = module.serialize_quality_report(report)
         return {
+            **serialized,
             "original_content": original_content or "",
             "rewritten_content": content,
             "style": style,
             "length": length,
-            "word_count": report.word_count,
-            "overall_score": report.overall_score,
-            "grade": report.grade,
-            "grade_label": report.grade_label,
-            "dimensions": [
-                {
-                    "id": d.id,
-                    "label": d.label,
-                    "score": round(d.score, 1),
-                    "weight": d.weight,
-                    "weighted": round(d.weighted, 1),
-                    "evidence": d.evidence,
-                }
-                for d in report.dimensions
-            ],
-            "summary": report.summary,
-            "warnings": report.warnings,
-            "suggestions": report.suggestions,
             "platform": platform,
             "title": title,
         }
@@ -184,7 +180,7 @@ class QualityEvalService:
 
         # Get dimension averages
         dim_result = await db.execute(
-            text(f"SELECT dimensions_json FROM {TABLE_NAME} ORDER BY created_at DESC LIMIT :limit"),
+            text(f"SELECT dimensions_json, original_content FROM {TABLE_NAME} ORDER BY created_at DESC LIMIT :limit"),
             {"limit": max(1, min(limit, 200))},
         )
         dim_rows = dim_result.fetchall()
@@ -192,8 +188,18 @@ class QualityEvalService:
         dim_count = {}
         if dim_rows:
             for dr in dim_rows:
-                dims = json.loads(dr[0]) if dr[0] else []
+                dimensions_json, original_content = dr[0], dr[1]
+                dims = json.loads(dimensions_json) if dimensions_json else []
                 for d in dims:
+                    # v1.1 records carry explicit applicability. For v1.0
+                    # records, only clone divergence can be inferred safely
+                    # from the persisted source text; all other dimensions
+                    # retain their historic applicable semantics.
+                    applicable = d.get("applicable")
+                    if applicable is None:
+                        applicable = bool((original_content or "").strip()) if d.get("id") == "clone_divergence" else True
+                    if not applicable:
+                        continue
                     dim_id = d["id"]
                     if dim_id not in dim_avgs:
                         dim_avgs[dim_id] = 0.0
@@ -213,9 +219,12 @@ class QualityEvalService:
             gd = gr._mapping
             grade_dist[gd["grade"]] = gd["cnt"]
 
+        evaluator_module = _load_evaluator_module()
         avg_dimensions = []
-        for dim_id, total in dim_avgs.items():
-            count = dim_count[dim_id]
+        for dimension in evaluator_module.QUALITY_DIMENSIONS:
+            dim_id = dimension["id"]
+            total = dim_avgs.get(dim_id, 0.0)
+            count = dim_count.get(dim_id, 0)
             avg_dimensions.append({
                 "id": dim_id,
                 "avg_score": round(total / count, 1) if count > 0 else 0,

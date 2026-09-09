@@ -1,0 +1,5 @@
+{"file":"packages/python-backend/src/multi_publish/aggregation/quality/evaluator.py","reason":"15维评分、权重、适用性和校准信号的唯一实现"}
+{"file":"packages/python-backend/tests/quality/test_evaluator_calibration.py","reason":"离线人工/模板基准和回归场景"}
+{"file":"ops-center/backend/services/quality/service.py","reason":"单篇记录序列化和最近100篇维度统计"}
+{"file":"ops-center/frontend/src/views/ContentQualityEval.vue","reason":"运营中心单篇与统计页的N/A展示"}
+{"file":"01-docs/DOC-CONTENT-QUALITY-EVAL-MECHANISM.md","reason":"长期维护的专项机制文档"}
