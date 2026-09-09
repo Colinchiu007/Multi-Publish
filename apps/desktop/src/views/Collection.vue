@@ -366,6 +366,8 @@ const ERROR_CODES = {
 }
 const RETRYABLE_CODES = new Set([-1, -2, -3, -5])
 
+// 聚合路径失败 — 无论任何错误码，都回退到 urlCollectFetch 降级
+
 async function collectUrl () {
   const api = getApi()
   if (!linkUrl.value || !linkUrl.value.trim()) {
@@ -379,16 +381,15 @@ async function collectUrl () {
   try {
     // 优先走 Python aggregation API（content-aggregator v1 引擎）
     if (api && api.aggregationCollect) {
-      const res = await api.aggregationCollect({
+      let res = await api.aggregationCollect({
         url: linkUrl.value.trim(),
         source_type: collectSourceType.value,
         rewrite: false,
       })
-      // aggregationCollect 直接返回 CollectResult（无 code 包装），失败由 handler 返回 { code, message }
+      // aggregationCollect 失败 → 保存错误信息，回退到 urlCollectFetch 降级路径
       if (res && res.code !== undefined && res.code !== 0) {
-        collectError.value = { code: res.code, message: res.message }
-        notifyError('collection.collectFailed', { message: res.message || resolveNotifyText('collection.collectFailed').text })
-        return
+        aggregationError = { code: res.code, message: res.message }
+        res = null // 清空结果，让后续逻辑走 urlCollectFetch 回退
       }
       if (res && res.title) {
         const item = {
