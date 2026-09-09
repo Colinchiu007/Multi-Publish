@@ -12,15 +12,15 @@
       <label class="cohere-form-label">{{ t('knowledgeBase.feishuAppSecret') }}</label>
       <div style="display:flex;gap:8px">
         <input :type="showSecret ? 'text' : 'password'" v-model="appSecret" class="cohere-input" style="flex:1" placeholder="••••••••" />
-        <button class="cohere-btn-ghost" style="font-size:12px;padding:4px 8px" @click="showSecret = !showSecret">{{ showSecret ? '隐藏' : '显示' }}</button>
+        <button class="cohere-btn-ghost" style="font-size:12px;padding:4px 8px" @click="showSecret = !showSecret">{{ showSecret ? t('knowledgeBase.feishuHide') : t('knowledgeBase.feishuShow') }}</button>
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="cohere-btn-secondary" @click="testConnection" :disabled="testing || !appId || !appSecret">
-        {{ testing ? '测试中...' : t('knowledgeBase.feishuTestConnection') }}
+        {{ testing ? t('knowledgeBase.feishuTesting') : t('knowledgeBase.feishuTestConnection') }}
       </button>
       <button class="cohere-btn-primary" @click="saveConfig" :disabled="saving || !appId || !appSecret">
-        {{ saving ? '保存中...' : t('knowledgeBase.feishuSaveConfig') }}
+        {{ saving ? t('knowledgeBase.feishuSaving') : t('knowledgeBase.feishuSaveConfig') }}
       </button>
     </div>
     <div v-if="statusMsg" style="margin-top:8px;padding:6px 10px;border-radius:4px;font-size:12px" :style="{ color: statusOk ? '#67c23a' : '#d32f2f', background: statusOk ? '#f0f9eb' : '#fff3f3' }">
@@ -28,11 +28,11 @@
     </div>
     <div style="margin-top:24px;padding:12px;background:var(--soft-stone);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.8">
       <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)">{{ t('knowledgeBase.feishuInstructions') }}：</div>
-      <div>1. 访问 open.feishu.cn 创建企业自建应用</div>
-      <div>2. 在"凭证与基础信息"中获取 App ID 和 App Secret</div>
-      <div>3. 在"权限管理"中开启 docx:document 和 drive:drive 权限</div>
-      <div>4. 发布应用并获取管理员审批</div>
-      <div>5. 将 App ID 和 App Secret 填入上方并保存</div>
+      <div>{{ t('knowledgeBase.feishuInstrLine1') }}</div>
+      <div>{{ t('knowledgeBase.feishuInstrLine2') }}</div>
+      <div>{{ t('knowledgeBase.feishuInstrLine3') }}</div>
+      <div>{{ t('knowledgeBase.feishuInstrLine4') }}</div>
+      <div>{{ t('knowledgeBase.feishuInstrLine5') }}</div>
     </div>
   </div>
 </template>

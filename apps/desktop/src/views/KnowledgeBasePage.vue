@@ -3,7 +3,7 @@
     <div class="cohere-page-header">
       <div>
         <div class="page-title">{{ t('knowledgeBase.title') }}</div>
-        <div class="page-subtitle">{{ activeTab === 'viral' ? '爆款内容库 — 搜集管理自媒体爆款内容' : '个人知识资产 — 管理IP人设、背景、经历、观点' }}</div>
+        <div class="page-subtitle">{{ activeTab === 'viral' ? t('knowledgeBase.viralSubtitle') : t('knowledgeBase.personalSubtitle') }}</div>
       </div>
       <div class="page-actions" style="display:flex;gap:8px">
         <button v-if="activeTab === 'viral'" class="cohere-btn-primary" @click="showViralForm = true">＋ {{ t('knowledgeBase.addViral') }}</button>
@@ -69,12 +69,12 @@ function onFilesSelected(e) {
   const files = e.target.files
   if (!files || !files.length) return
   const names = Array.from(files).map(f => f.name).join(', ')
-  ElMessage.info('已选择 ' + files.length + ' 个文件：' + names + '（批量导入功能即将上线）')
+  ElMessage.info(t('knowledgeBase.filesSelected', { count: files.length }) + ': ' + names + '（' + t('knowledgeBase.batchImportComingSoon') + '）')
   fileInput.value.value = ''
 }
 
 function handleExport() {
-  ElMessage.info('飞书导出功能即将上线。请先在设置页的"飞书 API"标签页中配置 App ID 和 App Secret。')
+  ElMessage.info(t('knowledgeBase.exportComingSoon'))
 }
 </script>
 
