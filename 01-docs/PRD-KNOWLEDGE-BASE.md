@@ -1,6 +1,6 @@
 # 知识库功能 — 产品需求文档
 
-> 立项日期: 2026-09-09 | 状态: 实施中 | 复杂度: L | 风险: 中
+> 立项日期: 2026-09-09 | 状态: 已实现（PR #1604 已合并 + PR #1617 补发）| 复杂度: L | 风险: 中
 > 分支: codex/knowledge-base | 工作树: D:/Data/projects/mp-worktrees/mp-knowledge-base
 
 ## 一、产品概述
@@ -78,8 +78,8 @@ JSON：{appId, appSecret(加密), enabled, verifiedAt}。App Secret 使用 accou
 - 卡片列表，类别标签颜色区分（9色映射）
 - 类别筛选：全部 + 9 类
 - 单条添加：类别(必选)/标题(可选)/正文(必填)
-- 批量导入：多选文件（.txt/.md/.doc/.docx），每文件选类别，单文件<=5MB，正文<=50000字，单批最多20个文件；txt/md 直读 UTF-8/GBK，word 用 mammoth 提取
-- 导出飞书云文档（按类别分组）
+- 批量导入：多选文件（.txt/.md/.doc/.docx），单文件<=5MB，正文<=50000字，单批最多20个文件；txt/md 直读 UTF-8/GBK，word 用 mammoth 提取（file-parser.js 已实现，importFiles 经 IPC knowledge-library:import-files）
+- 导出飞书云文档（按类别分组，exportPersonalToFeishu 经 IPC knowledge-library:export-personal-to-feishu）
 
 ### 3.5 采集页集成（Collection.vue）
 【加入爆款库】按钮状态机：
@@ -126,6 +126,16 @@ knowledgeOptions: { useViralLibrary: boolean, usePersonalKnowledge: boolean }
 飞书：feishu:get-config / save-config / test-connection
 改写：ai:rewrite 新增 knowledgeOptions
 
+## 四·补 改写引擎三层融合接线（已完成）
+
+分析发现三条断线并全部修复（详见 01-docs/KNOWLEDGE-REWRITE-INTEGRATION.md）：
+
+1. **断线1**：RewriteEngineService._ensureEngine() 未注入 knowledgeLibrary → 新增 setKnowledgeLibrary() + adapter 构造 KnowledgeContextBuilder（rewrite-engine.js）
+2. **断线2**：rewrite-engine-core.js _buildPrompt 签名 4 参 vs 调用 5 参 → 修复参数合并（rewrite-engine-core.js）
+3. **断线3**：前端 RewriteView.vue / AiWriterPanel.vue 未传 knowledgeOptions → userSettings 新增 knowledgeOptions（useViralLibrary + usePersonalKnowledge）
+
+DI 链路：container.setup.js 工厂注入 knowledgeLibraryService → rewriteEngineService.setKnowledgeLibrary()。
+
 ## 五、错误处理
 
 - 存储层：DB 未就绪 -1；写入失败 -2；INSERT OR REPLACE 幂等
@@ -149,4 +159,3 @@ knowledgeOptions: { useViralLibrary: boolean, usePersonalKnowledge: boolean }
 packages/rewrite-engine/src/：viral-library.js、personal-knowledge-base.js、knowledge-context-builder.js、index.js
 apps/desktop/electron/：services/store/knowledge-library-store.js、services/knowledge-library-service.js、services/feishu-client.js、services/file-parser.js、ipc-handlers/knowledge-library.js、ipc-handlers/feishu-settings.js、preload/knowledge-library.js、core/container.setup.js、services/store-schema.js
 apps/desktop/src/：views/KnowledgeBasePage.vue、components/ViralLibraryTable.vue、components/PersonalKnowledgePanel.vue、components/FeishuSettingsTab.vue、api/knowledge-library.js、router/index.js、layouts/YixiaoerSidebar.vue、views/Collection.vue、components/AiWriterPanel.vue、locales/zh.js、locales/en.js
-

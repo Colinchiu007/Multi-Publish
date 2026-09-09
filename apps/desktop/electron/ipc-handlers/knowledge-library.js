@@ -5,9 +5,26 @@
 function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const EC = require('../core/error-codes').ERROR
-  const { knowledgeLibraryService } = deps
+  const { knowledgeLibraryService, store } = deps
 
   if (!knowledgeLibraryService) return
+
+  // 从 settings 表读取飞书配置并构造 FeishuClient（每次导出前调用，保证配置最新）
+  function _buildFeishuClient () {
+    if (!store || typeof store.getSetting !== 'function') return null
+    const crypto = require('../services/crypto')
+    const { FeishuClient } = require('../services/feishu-client')
+    try {
+      const raw = store.getSetting('feishu_api_config')
+      const cfg = raw && typeof raw === 'object' ? raw : {}
+      if (!cfg.appId || !cfg.appSecret) return null
+      const appSecret = crypto.decrypt(Buffer.from(cfg.appSecret, 'base64'))
+      if (!appSecret) return null
+      return new FeishuClient({ appId: cfg.appId, appSecret })
+    } catch (e) {
+      return null
+    }
+  }
 
   // ─── 爆款库 ───
   ipcMain.handle('knowledge-library:add-viral', withSenderCheck(async (_event, item) => {
@@ -54,6 +71,29 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('knowledge-library:search-personal', async (_event, query, limit) => {
     try { return knowledgeLibraryService.searchPersonal(query, limit) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
+
+  // ─── 文件批量导入 ───
+  ipcMain.handle('knowledge-library:import-files', withSenderCheck(async (_event, files, categoryPerFile) => {
+    try { return await knowledgeLibraryService.importFiles(files, categoryPerFile) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // ─── 飞书导出 ───
+  ipcMain.handle('knowledge-library:export-viral-to-feishu', withSenderCheck(async (_event, title) => {
+    try {
+      const client = _buildFeishuClient()
+      if (!client) return { code: EC.REQUEST_ERROR, message: '未配置飞书应用，请先在设置页保存 App ID 和 App Secret' }
+      knowledgeLibraryService.setFeishuClient(client)
+      return await knowledgeLibraryService.exportViralToFeishu(title)
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+  ipcMain.handle('knowledge-library:export-personal-to-feishu', withSenderCheck(async (_event, title) => {
+    try {
+      const client = _buildFeishuClient()
+      if (!client) return { code: EC.REQUEST_ERROR, message: '未配置飞书应用，请先在设置页保存 App ID 和 App Secret' }
+      knowledgeLibraryService.setFeishuClient(client)
+      return await knowledgeLibraryService.exportPersonalToFeishu(title)
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
 }
 
 module.exports = registerHandlers

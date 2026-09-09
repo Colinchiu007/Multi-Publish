@@ -39,3 +39,9 @@ export const PERSONAL_CATEGORY_LABELS = Object.fromEntries(
   PERSONAL_CATEGORIES.map(c => [c.value, c.label])
 )
 
+// ─── 文件批量导入 ─────────────────────────
+export async function importFiles(files, categoryPerFile) { return invokeWithFallback("importFiles", { code: -1, data: null }, files, categoryPerFile) }
+
+// ─── 飞书导出 ─────────────────────────────
+export async function exportViralToFeishu(title) { return invokeWithFallback("exportViralToFeishu", { code: -1, data: null }, title) }
+export async function exportPersonalToFeishu(title) { return invokeWithFallback("exportPersonalToFeishu", { code: -1, data: null }, title) }
