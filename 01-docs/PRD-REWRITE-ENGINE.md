@@ -295,9 +295,16 @@ SimHash 64位指纹+海明距离判重(<3近似重复/>6充分改写)。三维�
 
 ## 十三、改写引擎 v3 — SQLite 持久化 + Embedding 质量评估（2026-09-09，PR #1594）
 
-### 13.1 升级概述
+ ### 13.1 升级概述
 
 本次升级将改写引擎的知识库从内存存储接入桌面端 SQLite 持久化，并为质量评估器接入 embedding 向量服务，使改写质量评估从纯本地算法升级为语义级向量评估。
+
+v3.1 修复（2026-09-10，PR #1616）：
+- quality 字段 TDZ 缺陷：修复 rewrite() 中 quality 变量在 response 对象构造后才声明导致永远 undefined 的 bug
+- embedding 评估正式接入生产调用链：rewrite() 优先调用 evaluateAsync（embedding 余弦相似度语义评估）→ 失败回退 evaluate（SimHash+Jaccard）→ 再失败为 null
+- 知识库持久化容错：recordFeedback() 异常不再阻塞主流程返回
+- 引擎实例缓存：_ensureEngine() 首次构建后复用，避免每次 rewrite() 重建 KnowledgeBase/SQLiteStorage/QualityEvaluator
+- createEngine() embedding 注入条件修正：从 === undefined（永远 false，初值为 null）改为 !options.qualityEvaluator
 
 | 模块 | 变更 | 行数 |
 |------|------|------|
