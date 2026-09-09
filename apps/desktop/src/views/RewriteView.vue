@@ -199,12 +199,11 @@ async function startRewrite() {
       content: trimmed,
       userSettings: {
         platform: platform.value || undefined,
-        tone: useViralLibrary.value ? 'storytelling' : undefined,
+        knowledgeOptions: {
+          useViralLibrary: useViralLibrary.value,
+          usePersonalKnowledge: usePersonalExperience.value,
+        },
       },
-    }
-    // 如果指定了结合爆款库，让后端自动匹配 viral 策略
-    if (useViralLibrary.value) {
-      params.userSettings.purpose = 'engagement'
     }
 
     const res = await aiRewrite(params)

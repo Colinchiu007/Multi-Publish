@@ -55,8 +55,10 @@ function registerAllHandlers(ipcMain, deps) {
   require('./replay')(ipcMain, deps)
   // 全自动管道
   require('./auto-pipeline')(ipcMain, deps)
+  // 知识库（爆款库 + 个人知识库）
+  require('./knowledge-library')(ipcMain, deps)
+  // 飞书 API 配置
+  require('./feishu-settings')(ipcMain, deps)
 }
 
 module.exports = registerAllHandlers
-
-

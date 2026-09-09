@@ -5,9 +5,10 @@
  * 桥接 @multi-publish/rewrite-engine 包 + aiGenerator 统一 provider 网关。
  * 改写策略运行时下发由 RewriteStrategyManager 提供，推理走 aiGenerator.generateWithDefault('llm')。
  * v3: 知识库使用 SQLite 持久化存储，质量评估可选 embedding 客户端。
+ * v4: 三层 KnowledgeContextBuilder 集成（用户偏好 + 爆款库 + 个人知识库）。
  */
 
-const { RewriteEngine, KnowledgeBase, RewriteQualityEvaluator } = require("@multi-publish/rewrite-engine")
+const { RewriteEngine, KnowledgeBase, RewriteQualityEvaluator, KnowledgeContextBuilder } = require("@multi-publish/rewrite-engine")
 const { SensitiveFilter } = require("@multi-publish/rewrite-engine")
 const { SQLiteStorage } = require("@multi-publish/rewrite-engine")
 const log = require("./logger")
@@ -18,6 +19,7 @@ class RewriteEngineService {
     this._strategyManager = opts.strategyManager || null
     this._aiGenerator = opts.aiGenerator || null
     this._store = opts.store || null
+    this._knowledgeLibrary = null
     this._engine = null
   }
 
@@ -31,6 +33,14 @@ class RewriteEngineService {
 
   setStore(store) {
     this._store = store
+  }
+
+  /**
+   * 设置知识库业务服务（三层融合的爆款库+个人知识库数据源）
+   * @param {object} kl - KnowledgeLibraryService 实例
+   */
+  setKnowledgeLibrary(kl) {
+    this._knowledgeLibrary = kl
   }
 
   _ensureEngine(force) {
@@ -71,11 +81,32 @@ class RewriteEngineService {
     }
     const qualityEvaluator = new RewriteQualityEvaluator({ embeddingClient })
 
+    // 构建三层 KnowledgeContextBuilder（用户偏好 + 爆款库 + 个人知识库）
+    let knowledgeLibrary = null
+    if (this._knowledgeLibrary) {
+      knowledgeLibrary = new KnowledgeContextBuilder({
+        knowledgeBase: kb,
+        viralLibrary: {
+          search: (query, limit) => {
+            const res = this._knowledgeLibrary.searchViral(query, limit)
+            return res && res.code === 0 ? res.data : []
+          }
+        },
+        personalKnowledgeBase: {
+          search: (query, limit) => {
+            const res = this._knowledgeLibrary.searchPersonal(query, limit)
+            return res && res.code === 0 ? res.data : []
+          }
+        }
+      })
+    }
+
     const engine = new RewriteEngine({
       llmClient,
       sensitiveFilter: new SensitiveFilter(),
       knowledgeBase: kb,
       qualityEvaluator,
+      knowledgeLibrary,
     })
     // 将策略管理器中的策略注入引擎的策略管理器
     if (engine._strategyManager && typeof engine._strategyManager.mergeRemote === "function") {

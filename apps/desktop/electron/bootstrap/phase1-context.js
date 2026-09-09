@@ -143,6 +143,7 @@ function extractContext(container) {
   templateManager.seedDefaults()
   const rewriteStrategyManager = container.get('rewriteStrategyManager')
   const rewriteEngineService = container.get('rewriteEngineService')
+  const knowledgeLibraryService = container.get('knowledgeLibraryService')
   const licenseManager = LicenseManager.getInstance()
   const aiWriter = container.get('aiWriter')
   const offlineManager = require('../services/offline-manager')
@@ -407,6 +408,7 @@ function extractContext(container) {
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
       rewriteStrategyManager, rewriteEngineService,
+      knowledgeLibraryService,
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,
       story2videoBatchQueue, runStateStore,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,

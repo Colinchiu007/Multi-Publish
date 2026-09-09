@@ -936,6 +936,37 @@ var require_auto_pipeline = __commonJS({
   }
 });
 
+// electron/preload/knowledge-library.js
+var require_knowledge_library = __commonJS({
+  "electron/preload/knowledge-library.js"(exports2, module2) {
+    function createKnowledgeLibraryApi2(ipcRenderer2) {
+      return {
+        // 爆款库
+        addViralToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-viral", item),
+        addViralBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-viral-batch", items),
+        listViralItems: (params) => ipcRenderer2.invoke("knowledge-library:list-viral", params),
+        getViralItem: (id) => ipcRenderer2.invoke("knowledge-library:get-viral", id),
+        updateViralItem: (id, updates) => ipcRenderer2.invoke("knowledge-library:update-viral", id, updates),
+        deleteViralItem: (id) => ipcRenderer2.invoke("knowledge-library:delete-viral", id),
+        searchViralItems: (query, limit) => ipcRenderer2.invoke("knowledge-library:search-viral", query, limit),
+        // 个人知识库
+        addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
+        addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),
+        listPersonalItems: (params) => ipcRenderer2.invoke("knowledge-library:list-personal", params),
+        getPersonalItem: (id) => ipcRenderer2.invoke("knowledge-library:get-personal", id),
+        updatePersonalItem: (id, updates) => ipcRenderer2.invoke("knowledge-library:update-personal", id, updates),
+        deletePersonalItem: (id) => ipcRenderer2.invoke("knowledge-library:delete-personal", id),
+        searchPersonalItems: (query, limit) => ipcRenderer2.invoke("knowledge-library:search-personal", query, limit),
+        // 飞书 API 配置
+        feishuGetConfig: () => ipcRenderer2.invoke("feishu:get-config"),
+        feishuSaveConfig: (appId, appSecret) => ipcRenderer2.invoke("feishu:save-config", appId, appSecret),
+        feishuTestConnection: (appId, appSecret) => ipcRenderer2.invoke("feishu:test-connection", appId, appSecret)
+      };
+    }
+    module2.exports = { createKnowledgeLibraryApi: createKnowledgeLibraryApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -1182,6 +1213,7 @@ var { createVideoCloneApi } = require_video_clone();
 var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
 var { createAutoPipelineApi } = require_auto_pipeline();
+var { createKnowledgeLibraryApi } = require_knowledge_library();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1221,6 +1253,7 @@ var fullApi = {
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
+  ...createKnowledgeLibraryApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
   rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)

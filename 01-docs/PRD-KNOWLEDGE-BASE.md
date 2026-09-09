@@ -1,0 +1,152 @@
+# 知识库功能 — 产品需求文档
+
+> 立项日期: 2026-09-09 | 状态: 实施中 | 复杂度: L | 风险: 中
+> 分支: codex/knowledge-base | 工作树: D:/Data/projects/mp-worktrees/mp-knowledge-base
+
+## 一、产品概述
+
+知识库功能为内容创作者提供两大知识资产管理系统：
+
+1. **爆款库（ViralLibrary）**：搜集、管理网上自媒体平台的爆款内容，为改写引擎提供「风格参考」和「模式提取」
+2. **个人知识库（PersonalKnowledgeBase）**：管理创作者的 IP 人设、背景、经历、观点，为改写引擎提供「素材引用」和「人设约束」
+
+两类知识库通过改写引擎的三层 Prompt 融合机制，与现有用户偏好知识库（v2 Ebbinghaus 遗忘曲线 + RRF 混合搜索）协同工作。
+
+## 二、数据模型
+
+### 2.1 爆款库表 viral_library
+
+| 字段 | 类型 | 约束 |
+|------|------|------|
+| id | TEXT PK | UUID |
+| title | TEXT | 可选，<=500字符 |
+| cover_url | TEXT | 可选，http(s) URL |
+| author | TEXT | 可选，<=100字符 |
+| url | TEXT | 可选，http(s) URL |
+| content | TEXT | 必填，1-50000字符 |
+| tags | TEXT | JSON数组，每项<=100字符，最多50个 |
+| likes | INTEGER | >=0，默认0 |
+| collections | INTEGER | >=0，默认0 |
+| comments | INTEGER | >=0，默认0 |
+| like_collect_ratio | REAL | 自动计算 likes/max(collections,1)，2位小数 |
+| published_at | TEXT | ISO8601，可选 |
+| platform | TEXT | 可选，<=50字符 |
+| source | TEXT | 'manual' 或 'collection' |
+| created_at / updated_at | TEXT | ISO8601 UTC 自动生成 |
+
+搜索实现：sql.js（WASM SQLite）不支持 FTS5 虚拟表，因此全文检索采用与现有 `knowledge-base.js` 一致的纯 JS 分词（中文字符 + 英文/数字 token）+ `LIKE '%token%'` 匹配，或加载时内存过滤。不引入原生 better-sqlite3。
+
+### 2.2 个人知识库表 personal_knowledge
+
+| 字段 | 类型 | 约束 |
+|------|------|------|
+| id | TEXT PK | UUID |
+| category | TEXT | 必填，9个预定义值之一 |
+| title | TEXT | 可选，<=500字符 |
+| content | TEXT | 必填，1-50000字符 |
+| source_file | TEXT | 仅文件名，<=1024字符 |
+| file_type | TEXT | txt/md/doc/docx |
+| created_at / updated_at | TEXT | ISO8601 UTC |
+
+搜索实现：同爆款库，纯 JS 分词 + `LIKE` / 内存过滤（sql.js 无 FTS5）。
+
+9 个类别（枚举）：
+personal_ip_persona（个人IP人设·约束型）/ personal_background（个人背景·素材型）/ personal_stories（个人故事·素材型）/ growth_experience（成长经历·素材型）/ emotional_experience（情感经历·素材型）/ work_experience（工作经历·权威型）/ project_experience（项目经验·权威型）/ personal_opinions（个人观点·立场型）/ family_stories（家人故事·素材型）
+
+### 2.3 飞书 API 配置（settings 表 key=feishu_api_config）
+
+JSON：{appId, appSecret(加密), enabled, verifiedAt}。App Secret 使用 account-credential-crypto 同款加密。
+
+## 三、功能清单
+
+### 3.1 侧边栏入口
+「更多」菜单末尾添加【知识库】→ /knowledge-base（YixiaoerSidebar.vue moreItems + router）
+
+### 3.2 知识库主页（KnowledgeBasePage.vue）
+两个 Tab：爆款库 / 个人知识库，默认爆款库，切换保留各自状态（v-show）
+
+### 3.3 爆款库 Tab
+- 表格 13 列：序号/标题/封面缩略图(60x60)/博主/链接/正文(前100字)/话题标签/点赞数/收藏数/评论数/赞藏比/发布时间/平台 + 操作列
+- 排序：点赞/收藏/评论/赞藏比/发布时间 支持表头点击排序
+- 搜索：FTS5 全文检索（标题+正文+标签）
+- 分页：20条/页
+- 手动添加：弹窗表单（标题/链接可选，正文必填，其余可空）
+- 编辑 / 删除（删除需确认「删除后不可恢复」）
+- 导出飞书云文档
+
+### 3.4 个人知识库 Tab
+- 卡片列表，类别标签颜色区分（9色映射）
+- 类别筛选：全部 + 9 类
+- 单条添加：类别(必选)/标题(可选)/正文(必填)
+- 批量导入：多选文件（.txt/.md/.doc/.docx），每文件选类别，单文件<=5MB，正文<=50000字，单批最多20个文件；txt/md 直读 UTF-8/GBK，word 用 mammoth 提取
+- 导出飞书云文档（按类别分组）
+
+### 3.5 采集页集成（Collection.vue）
+【加入爆款库】按钮状态机：
+- 采集前/采集中 → disabled，tooltip「请先采集内容」
+- 采集成功 → enabled
+- 已加入 → 「已加入 ✓」disabled
+
+数据映射 CollectResult→viral_library：
+title→title, content→content, source_url→url, author→author, tags→tags, metadata.{platform,like_count,collect_count,comment_count,cover_url,published_at}→对应字段（缺失留空不报错），source='collection'，ratio 自动计算。
+
+### 3.6 设置页 — 飞书 API 标签页（FeishuSettingsTab.vue）
+- App ID 输入（cli_ 开头，20-40字符）
+- App Secret 输入（password 类型 + 显示/隐藏切换，16-128字符）
+- 【测试连接】：调 feishu:test-connection，成功「连接成功」/失败分类提示
+- 【保存配置】：加密后存 settings 表
+- 使用说明：飞书开放平台创建自建应用 → 开启 docx:document + drive:drive 权限 → 发布审批
+
+IPC：feishu:get-config（不回传 Secret）/ save-config / test-connection。渲染进程不持解密密钥，飞书 API 调用全部由主进程发起。
+
+### 3.7 改写引擎集成（核心）
+
+AiWriterPanel 改写 tab 新增两个复选框（默认不勾选）：「结合爆款库」「结合个人经历」。
+
+ai:rewrite 新增参数：
+knowledgeOptions: { useViralLibrary: boolean, usePersonalKnowledge: boolean }
+
+三层 Prompt 融合（KnowledgeContextBuilder 新模块）：
+- 第1层（原有）：KnowledgeBase.getContextSummary() 用户偏好
+- 第2层（新增）：buildViralContext(content, topN=3) — 标题模式 + 开头钩子 + 高频标签；只参考风格模式不复制内容
+- 第3层（新增）：buildPersonalContext(content, topN=5) — 按类别作用类型分组注入：
+  - 约束型（人设）→「必须符合人设」
+  - 立场型（观点）→「不能违背观点」
+  - 权威型（工作/项目经验）→「可用背景提升可信度」
+  - 素材型（故事/经历/家人）→「可引用素材」
+
+检索：FTS5 全文检索用户输入 → 爆款库按 BM25+互动数加权 Top3；个人库按 BM25 Top5。
+优先级链：策略约束 > 人设约束 > 爆款风格 > 用户偏好 > LLM 默认。P0/P1 硬约束，P2/P3 软建议。
+边界：检索为空则不注入；未勾选不检索；三层皆空保持原行为。
+
+## 四、IPC 接口
+
+爆款库：knowledge-library:add-viral / add-viral-batch / list-viral / get-viral / update-viral / delete-viral / search-viral / export-viral-to-feishu
+个人库：knowledge-library:add-personal / add-personal-batch / import-files / list-personal / get-personal / update-personal / delete-personal / search-personal / export-personal-to-feishu
+飞书：feishu:get-config / save-config / test-connection
+改写：ai:rewrite 新增 knowledgeOptions
+
+## 五、错误处理
+
+- 存储层：DB 未就绪 -1；写入失败 -2；INSERT OR REPLACE 幂等
+- 飞书：400 凭证无效 / 401 认证失败 / 403 权限不足 / 429 限频 / 5xx 服务不可用 / 网络超时
+- 文件导入：不存在 / 超5MB / 格式不支持 / 读取失败 / 解析失败，逐项分类提示
+- 全部用户可见提示走 i18n（zh/en 成对），带参文案用 Message Function
+
+## 六、i18n
+
+新增 knowledgeBase.* 命名空间，zh/en 成对，约 80+ key。产品名词先登记 01-docs/i18n-glossary.md。
+
+## 七、测试计划
+
+- 单元：knowledge-library-store（CRUD/FTS5/分页/排序）、feishu-client（mock HTTP）、file-parser（4格式+编码）、knowledge-context-builder（三层构建+空边界）、rewrite-engine-core（knowledgeOptions 集成）
+- 集成：knowledge-library IPC handler 全通道
+- 前端：KnowledgeBasePage（Tab/搜索/增删改）、AiWriterPanel（复选框+参数传递）、FeishuSettingsTab（校验/测试连接/保存）
+- 视觉回归：新增页面基线截图
+
+## 八、关键文件（20+）
+
+packages/rewrite-engine/src/：viral-library.js、personal-knowledge-base.js、knowledge-context-builder.js、index.js
+apps/desktop/electron/：services/store/knowledge-library-store.js、services/knowledge-library-service.js、services/feishu-client.js、services/file-parser.js、ipc-handlers/knowledge-library.js、ipc-handlers/feishu-settings.js、preload/knowledge-library.js、core/container.setup.js、services/store-schema.js
+apps/desktop/src/：views/KnowledgeBasePage.vue、components/ViralLibraryTable.vue、components/PersonalKnowledgePanel.vue、components/FeishuSettingsTab.vue、api/knowledge-library.js、router/index.js、layouts/YixiaoerSidebar.vue、views/Collection.vue、components/AiWriterPanel.vue、locales/zh.js、locales/en.js
+
