@@ -31,6 +31,7 @@ const { createVideoCloneApi } = require('./video-clone')
 const { createFilmEngineeringApi } = require('./film-engineering')
 const { createAggregationApi } = require('./aggregation')
 const { createAutoPipelineApi } = require('./auto-pipeline')
+const { createKnowledgeLibraryApi } = require('./knowledge-library')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -77,6 +78,7 @@ const fullApi = {
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
+  ...createKnowledgeLibraryApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke('rate-limit:self-check', params),
   rateLimitReport: (payload) => ipcRenderer.invoke('rate-limit:report', payload),

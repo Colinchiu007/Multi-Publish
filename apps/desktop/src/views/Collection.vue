@@ -43,6 +43,14 @@
           </div>
           <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
+            <button
+              class="cohere-btn-secondary"
+              :disabled="addedToViral"
+              :title="addedToViral ? $t('knowledgeBase.addedToViral') : $t('knowledgeBase.addToViral')"
+              @click="addCollectedToViral"
+            >
+              {{ addedToViral ? '✓ ' + $t('knowledgeBase.addedToViral') : $t('knowledgeBase.addToViral') }}
+            </button>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
               <input type="checkbox" v-model="useViralLibrary" class="coral-check" :disabled="rewriting" /> 结合爆款库
             </label>
@@ -219,6 +227,7 @@ import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
+import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 
 const router = useRouter()
@@ -231,6 +240,7 @@ const collectedResult = ref(null)
 const collectError = ref(null)
 const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
+const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
 const collectSourceType = ref('url')
 const collectSources = ref([
   { type: 'url', name: 'URL 正文提取' },
@@ -391,6 +401,7 @@ async function collectUrl () {
           wordCount: res.word_count || 0,
         }
         collectedResult.value = item
+        addedToViral.value = false
         collectedItems.value.unshift(item)
         notifySuccess('collection.collectSuccess')
         return
@@ -409,6 +420,7 @@ async function collectUrl () {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       }
       collectedResult.value = item
+      addedToViral.value = false
       collectedItems.value.unshift(item)
       notifySuccess('collection.collectSuccess')
       return
@@ -514,6 +526,29 @@ function createFromCollected () {
   linkUrl.value = ''
   notifySuccess('collection.draftCreated')
   router.push('/publish?draft=' + draft.id)
+}
+
+async function addCollectedToViral () {
+  if (!collectedResult.value) return
+  const item = collectedResult.value
+  // 将采集结果映射为爆款库条目
+  const viralItem = {
+    title: item.title || '',
+    content: item.content || item.description || '',
+    url: item.sourceUrl || linkUrl.value || '',
+    author: item.author || '',
+    source: 'collection',
+    platform: item.platform || '',
+    tags: item.tags || [],
+    cover_url: item.coverImage || '',
+  }
+  const res = await addViralToLibrary(viralItem)
+  if (res && res.code === 0) {
+    addedToViral.value = true
+    notifySuccess('knowledgeBase.addSuccess')
+  } else {
+    notifyWarning('knowledgeBase.loadFailed')
+  }
 }
 
 function createFromItem (item) {

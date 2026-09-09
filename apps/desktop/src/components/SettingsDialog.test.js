@@ -17,21 +17,22 @@ describe('SettingsDialog', () => {
     i18n.global.locale.value = 'zh'
   })
 
-  it('渲染四个 Tab（含禁用徽标），默认选中模型设置', () => {
+  it('渲染五个 Tab（含禁用徽标），默认选中模型设置', () => {
     const wrapper = mountDialog()
     const tabs = wrapper.findAll('.settings-tab')
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(5)
     expect(tabs[0].text()).toContain('模型设置')
     expect(tabs[1].text()).toContain('通用设置')
-    expect(tabs[2].text()).toContain('发布设置')
-    expect(tabs[2].text()).toContain('敬请期待')
-    expect(tabs[2].attributes('disabled')).toBeDefined()
+    expect(tabs[2].text()).toContain('飞书 API')
+    expect(tabs[3].text()).toContain('发布设置')
+    expect(tabs[3].text()).toContain('敬请期待')
+    expect(tabs[3].attributes('disabled')).toBeDefined()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
 
   it('点击禁用 Tab 不切换激活态', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[2].trigger('click')
+    await wrapper.findAll('.settings-tab')[3].trigger('click')
     await nextTick()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
@@ -51,6 +52,6 @@ describe('SettingsDialog', () => {
     const wrapper = mountDialog('en')
     const tabs = wrapper.findAll('.settings-tab')
     expect(tabs[0].text()).toContain('Model Settings')
-    expect(tabs[2].text()).toContain('Coming Soon')
+    expect(tabs[3].text()).toContain('Coming Soon')
   })
 })

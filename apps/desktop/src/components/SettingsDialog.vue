@@ -23,6 +23,7 @@
       <div class="settings-panel">
         <ModelProviders v-if="activeTab === 'model'" />
         <LogsSettings v-else-if="activeTab === 'general'" />
+        <FeishuSettingsTab v-else-if="activeTab === 'feishu'" />
         <div v-else class="placeholder-panel">
           <div class="placeholder-icon">🚧</div>
           <p>{{ t('settings.placeholder') }}</p>
@@ -38,6 +39,7 @@ import { useI18n } from 'vue-i18n'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
+import FeishuSettingsTab from './FeishuSettingsTab.vue'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -45,13 +47,14 @@ defineProps({
 defineEmits(['close'])
 
 const { t } = useI18n()
-const activeTab = ref('model')
-const tabs = computed(() => [
-  { key: 'model', label: t('settings.tabModel'), disabled: false },
-  { key: 'general', label: t('settings.tabGeneral'), disabled: false },
-  { key: 'publish', label: t('settings.tabPublish'), disabled: true },
-  { key: 'account', label: t('settings.tabAccount'), disabled: true },
-])
+  const activeTab = ref('model')
+  const tabs = computed(() => [
+    { key: 'model', label: t('settings.tabModel'), disabled: false },
+    { key: 'general', label: t('settings.tabGeneral'), disabled: false },
+    { key: 'feishu', label: t('knowledgeBase.feishuApi'), disabled: false },
+    { key: 'publish', label: t('settings.tabPublish'), disabled: true },
+    { key: 'account', label: t('settings.tabAccount'), disabled: true },
+  ])
 
 function onTabClick (tab) {
   if (tab.disabled) return

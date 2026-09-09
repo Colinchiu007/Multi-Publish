@@ -9,6 +9,7 @@ const { StrategyMatcher } = require('./strategy-matcher')
 const { AITasteRemover } = require('./ai-taste-remover')
 const { KnowledgeBase } = require('./knowledge-base')
 const { RewriteQualityEvaluator } = require('./rewrite-quality-evaluator')
+const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 
 class RewriteEngine {
   /**
@@ -26,6 +27,8 @@ class RewriteEngine {
     this._strategyManager = options.strategyManager || new StrategyManager()
     this._strategyManager.loadBuiltins()
     this._qualityEvaluator = options.qualityEvaluator || new RewriteQualityEvaluator()
+    // 三层知识库 Prompt 构建器（用户偏好 + 爆款库 + 个人知识库）
+    this._knowledgeLibrary = options.knowledgeLibrary || null
   }
 
   /**
@@ -38,7 +41,14 @@ class RewriteEngine {
    * @returns {Promise<object>} { success, result, strategy, warnings, sensitiveHits }
    */
   async rewrite(params = {}) {
-    const { mode = 'imitate', content = '', userSettings = {}, strategyId = null } = params
+    const { mode = 'imitate', content = '', userSettings = {}, strategyId = null, knowledgeOptions = null } = params
+
+    // 合并 knowledgeOptions：优先 userSettings.knowledgeOptions，其次顶层 params.knowledgeOptions
+    const effectiveKnowledgeOptions = (userSettings.knowledgeOptions && typeof userSettings.knowledgeOptions === 'object')
+      ? { ...knowledgeOptions, ...userSettings.knowledgeOptions }
+      : (knowledgeOptions || null)
+    // 将合并后的 knowledgeOptions 写回 userSettings 便于后续方法消费
+    userSettings.knowledgeOptions = effectiveKnowledgeOptions
 
     // 1. 输入校验
     const validation = this._validate(content)
@@ -64,7 +74,7 @@ class RewriteEngine {
     }
 
     // 4. 构建 Prompt
-    const { systemPrompt, userPrompt } = this._buildPrompt(strategy, content, mode, userSettings)
+    const { systemPrompt, userPrompt } = this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions)
 
     // 5. LLM 推理
     if (!this._llmClient) {
@@ -197,8 +207,10 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  _buildPrompt(strategy, content, mode, userSettings) {
-    const kbContext = this._knowledgeBase.getContextSummary()
+  _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
+    // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
+    const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
+    const kbContext = this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
 
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
@@ -251,6 +263,20 @@ class RewriteEngine {
       default:
         return ''
     }
+  }
+
+  /**
+   * 构建三层知识库上下文（用户偏好 + 爆款库 + 个人知识库）
+   * @param {string} content
+   * @param {object|null} knowledgeOptions
+   * @returns {string}
+   */
+  _buildKnowledgeContext(content, knowledgeOptions) {
+    if (this._knowledgeLibrary) {
+      return this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
+    }
+    // 向后兼容：无 knowledgeLibrary 时使用原有单层知识库
+    return this._knowledgeBase.getContextSummary()
   }
 
   _postProcess(text, strategy) {

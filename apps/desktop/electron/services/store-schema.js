@@ -162,6 +162,40 @@ const SCHEMA_SQL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_backlot_projects_updated ON backlot_projects(updated_at)`,
   `CREATE INDEX IF NOT EXISTS idx_backlot_projects_status ON backlot_projects(status)`,
+  // ─── 知识库：爆款库（采集/手动添加的爆款内容）───
+  `CREATE TABLE IF NOT EXISTS viral_library (
+    id                  TEXT PRIMARY KEY,
+    title               TEXT DEFAULT '',
+    cover_url           TEXT DEFAULT '',
+    author              TEXT DEFAULT '',
+    url                 TEXT DEFAULT '',
+    content             TEXT NOT NULL,
+    tags                TEXT DEFAULT '[]',
+    likes               INTEGER DEFAULT 0,
+    collections         INTEGER DEFAULT 0,
+    comments            INTEGER DEFAULT 0,
+    like_collect_ratio  REAL DEFAULT 0,
+    published_at        TEXT DEFAULT '',
+    platform            TEXT DEFAULT '',
+    source              TEXT DEFAULT 'manual',
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_viral_library_created ON viral_library(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_viral_library_platform ON viral_library(platform)`,
+  // ─── 知识库：个人知识库（IP 人设/背景/经历/观点）───
+  `CREATE TABLE IF NOT EXISTS personal_knowledge (
+    id          TEXT PRIMARY KEY,
+    category    TEXT NOT NULL,
+    title       TEXT DEFAULT '',
+    content     TEXT NOT NULL,
+    source_file TEXT DEFAULT '',
+    file_type   TEXT DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_personal_knowledge_created ON personal_knowledge(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_personal_knowledge_category ON personal_knowledge(category)`,
 ];
 
 function safeJsonParse(str, fallback = null) {

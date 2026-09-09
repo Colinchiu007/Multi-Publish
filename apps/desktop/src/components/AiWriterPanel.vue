@@ -100,6 +100,17 @@
 
       <!-- 改写引擎 -->
       <div v-if="activeMode === 'rewrite'" class="mode-content">
+        <!-- 知识库结合选项 -->
+        <div class="config-checkboxes" style="margin-bottom:8px">
+          <label class="config-checkbox" :class="{ disabled: rewriting }">
+            <input type="checkbox" v-model="useViralLibrary" :disabled="rewriting" class="coral-check" />
+            <span class="checkbox-label"><span class="checkbox-icon">🔥</span> 结合爆款库</span>
+          </label>
+          <label class="config-checkbox" :class="{ disabled: rewriting }">
+            <input type="checkbox" v-model="usePersonalExperience" :disabled="rewriting" class="coral-check" />
+            <span class="checkbox-label"><span class="checkbox-icon">📝</span> 结合个人经历</span>
+          </label>
+        </div>
         <div class="cohere-form-item">
           <label class="cohere-form-label">改写模式</label>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -222,6 +233,8 @@ const styles = [
 // ─── 改写引擎状态 ─────────────────────
 const rewriting = ref(false)
 const rewriteMode = ref("imitate")
+const useViralLibrary = ref(false)
+const usePersonalExperience = ref(false)
 const rewriteIndustry = ref("")
 const rewritePurpose = ref("")
 const rewriteTone = ref("")
@@ -309,6 +322,10 @@ async function doRewrite() {
       tone: rewriteTone.value || undefined,
       platform: rewritePlatform.value || undefined,
       targetLength: rewriteTargetLength.value,
+      knowledgeOptions: {
+        useViralLibrary: useViralLibrary.value,
+        usePersonalKnowledge: usePersonalExperience.value,
+      },
     }
     const params = {
       mode: rewriteMode.value,
