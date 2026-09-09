@@ -388,7 +388,6 @@ async function collectUrl () {
       })
       // aggregationCollect 失败 → 保存错误信息，回退到 urlCollectFetch 降级路径
       if (res && res.code !== undefined && res.code !== 0) {
-        aggregationError = { code: res.code, message: res.message }
         res = null // 清空结果，让后续逻辑走 urlCollectFetch 回退
       }
       if (res && res.title) {
