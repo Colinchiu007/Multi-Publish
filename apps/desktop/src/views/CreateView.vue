@@ -1475,7 +1475,7 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
-import { story2videoSaveAs } from '@/api/publisher'
+import { story2videoSaveAs, draftList } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection } from './video-creation'
 import { useLoginGate } from '@/composables/useLoginGate'
 import {
@@ -2860,6 +2860,25 @@ export default {
       // 避免同会话切走再切回覆盖当前编辑。
       if (this.isOrchestratedPipeline(p?.name) && !this._s2vRestoredOnce) {
         this.restoreS2VLastOptions()
+      }
+    },
+    // 改写页跳转预填充：读取草稿内容填入文案输入框，并按 query.pipeline 自动选择流水线
+    async _loadDraftForRewrite (draftId) {
+      try {
+        const res = await draftList()
+        const list = res && res.code === 0 && Array.isArray(res.data) ? res.data : []
+        const draft = list.find(item => item && item.id === draftId)
+        if (!draft) return
+        this.pipelineText = draft.content || ''
+        this.inputMode = 'text'
+        const pipelineName = this.$route?.query?.pipeline
+        if (pipelineName) {
+          if (!this.pipelines.length) await this.loadPipelines()
+          const pipeline = this.pipelines.find(p => p.name === pipelineName || p.title === pipelineName)
+          if (pipeline) this.selectPipeline(pipeline)
+        }
+      } catch (_e) {
+        // 预填充失败静默处理，不打扰创作主流程
       }
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
@@ -6416,6 +6435,11 @@ export default {
     this.cleanups.push(onPipelineUpdate((snapshot) => this.handlePipelinePush(snapshot)))
     this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = formatUserError(err, { fallback: '渲染错误' }).message }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
+    // 改写页跳转预填充：加载草稿文案并自动选择流水线
+    const rewriteDraftId = this.$route?.query?.draft
+    if (rewriteDraftId) {
+      this._loadDraftForRewrite(String(rewriteDraftId))
+    }
   },
   beforeUnmount() {
     this._s2vAlive = false

@@ -50,6 +50,7 @@ const routes = [
   { path: '/video-clone', name: 'VideoClone', component: () => import('@/views/VideoCloneView.vue') },
   { path: '/film-engineering', name: 'FilmEngineering', component: () => import('@/views/FilmEngineeringView.vue') },
   { path: '/auto-pipeline', name: 'AutoPipeline', component: () => import('@/views/AutoPipelineView.vue') },
+  { path: '/rewrite', name: 'Rewrite', component: () => import('@/views/RewriteView.vue') },
 ]
 
 const router = createRouter({

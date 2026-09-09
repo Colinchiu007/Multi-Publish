@@ -43,19 +43,29 @@
           </div>
           <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+              <input type="checkbox" v-model="useViralLibrary" class="coral-check" :disabled="rewriting" /> 结合爆款库
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+              <input type="checkbox" v-model="usePersonalExperience" class="coral-check" :disabled="rewriting" /> 结合个人经历
+            </label>
             <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
               <option v-for="s in rewriteStyles" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
             <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
               <option v-for="l in rewriteLengths" :key="l.value" :value="l.value">{{ l.label }}</option>
             </select>
-            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting">
+            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || !collectedResult">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
             <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="cohere-btn-secondary" @click="retryRewrite" :disabled="rewriting" style="font-size:13px">
               🔄 重试
             </button>
-            <button class="cohere-btn-secondary" @click="collectedResult = null">取消</button>
+            <template v-if="rewriteResult">
+              <button class="cohere-btn-secondary" @click="saveDraftAfterRewrite">💾 存入草稿</button>
+              <button class="cohere-btn-primary" @click="goPublishAfterRewrite">🚀 去发布</button>
+            </template>
+            <button class="cohere-btn-secondary" @click="collectedResult = null; rewriteResult = ''">取消</button>
             <div v-if="rewriteError" style="margin-top:6px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
               {{ rewriteError.message }}
             </div>
@@ -186,6 +196,14 @@
         </div>
       </div>
     </div>
+    <!-- 去发布弹窗 -->
+    <PublishDestinationModal
+      v-if="showPublishModal"
+      :visible="showPublishModal"
+      @close="showPublishModal = false"
+      @publish-article="onPublishArticle"
+      @publish-video="onPublishVideo"
+    />
   </div>
 </template>
 
@@ -201,6 +219,7 @@ import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
+import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -221,6 +240,11 @@ const collectSources = ref([
 ])
 const rewriteStyle = ref('轻松易懂')
 const rewriteLength = ref('keep')
+const rewriteResult = ref('')
+const useViralLibrary = ref(true)
+const usePersonalExperience = ref(false)
+const showPublishModal = ref(false)
+let genreDraftId = null
 const rssUrl = ref('')
 const urlListInput = ref('')
 const batchCollecting = ref(false)
@@ -340,6 +364,7 @@ async function collectUrl () {
   }
   collecting.value = true
   collectedResult.value = null
+  rewriteResult.value = ''
   collectError.value = null
   try {
     // 优先走 Python aggregation API（content-aggregator v1 引擎）
@@ -418,6 +443,7 @@ async function rewriteCollected () {
     })
     if (result && result.result_content) {
       collectedResult.value = { ...collectedResult.value, content: result.result_content, description: result.result_content.slice(0, 120) }
+      rewriteResult.value = result.result_content
       notifySuccess('collection.rewriteSuccess')
     } else {
       rewriteError.value = { code: result && result.code != null ? result.code : -99, message: (result && result.message) || '' }
@@ -445,6 +471,38 @@ function getDraftFromItem (data) {
     sourceUrl: data.sourceUrl || linkUrl.value || '',
     created_at: new Date().toLocaleString('zh-CN'),
   }
+}
+
+async function saveDraftAfterRewrite () {
+  if (!rewriteResult.value) return
+  const draft = getDraftFromItem({ ...collectedResult.value, content: rewriteResult.value })
+  drafts.value.unshift(draft)
+  await saveDrafts()
+  genreDraftId = draft.id
+  notifySuccess('collection.draftCreated')
+}
+
+async function goPublishAfterRewrite () {
+  if (!rewriteResult.value) return
+  if (!genreDraftId) {
+    await saveDraftAfterRewrite()
+  }
+  if (genreDraftId) {
+    showPublishModal.value = true
+  }
+}
+
+function onPublishArticle () {
+  showPublishModal.value = false
+  if (genreDraftId) {
+    router.push('/publish?draft=' + genreDraftId)
+  }
+}
+
+function onPublishVideo (pipelineId) {
+  showPublishModal.value = false
+  if (!genreDraftId) return
+  router.push({ path: '/create', query: { draft: genreDraftId, pipeline: pipelineId || 'story2video-compose' } })
 }
 
 function createFromCollected () {
@@ -599,3 +657,7 @@ function cancelBatchCollect () {
   notifyInfo('collection.batchCancelled')
 }
 </script>
+
+<style scoped>
+.coral-check { accent-color: var(--coral); }
+</style>

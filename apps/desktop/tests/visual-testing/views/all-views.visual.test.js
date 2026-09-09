@@ -48,6 +48,7 @@ const viewTests = [
   routeView('monitor-dashboard', '/monitor', '.cohere-main .page-title:has-text("分屏监控")'),
   routeView('keyword-monitor', '/keywords', '.cohere-main .page-title:has-text("关键词监测")'),
   routeView('viral-analysis', '/viral-analysis', '.cohere-main .page-title:has-text("爆款分析")'),
+  routeView('rewrite', '/rewrite', '.cohere-main .page-title:has-text("文案改写")'),
   routeView('providers-redirect', '/providers', '.cohere-main .page-title:has-text("模型服务商设置")', '页面主标题', '/model-providers'),
   routeView('model-providers', '/model-providers', '.cohere-main .page-title:has-text("模型服务商设置")'),
   routeView('video-clone', '/video-clone', '.video-clone-view'),
