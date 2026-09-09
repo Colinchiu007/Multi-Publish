@@ -1636,7 +1636,7 @@ POST /cases/{id}/runs → status=queued
 
 ## 12A.24 内容质量评估系统
 
-> 状态：已实现 | 版本：v1.0 | 关联 PR：\#1555
+> 状态：已实现 | 版本：v1.1 | 关联 PR：\#1555
 
 ### 12A.24.1 概述
 
@@ -1661,6 +1661,11 @@ POST /cases/{id}/runs → status=queued
 | keyword_density | 关键词密度 | 3% | n-gram频率分析、核心关键词分布、堆砌检测 |
 | call_to_action | 调用行动力 | 3% | CTA语句检测（关注/点赞/分享/点击/行动号召） |
 | brand_consistency | 品牌一致性 | 2% | 正式/口语语气一致性检测 |
+
+> **v1.1 维度适用性**：每个维度新增 `applicable` 字段（默认 `true`）。无原文时
+> `clone_divergence` 为 `applicable=false`，其 `score`/`weighted` 为 0，不参与综合分、
+> 低分警告、优化建议与最近 100 篇该维度均值；综合分按适用维度权重归一化。
+> 固定 15 维外形保持不变。
 
 ### 12A.24.3 评分等级
 
@@ -1695,6 +1700,7 @@ POST /cases/{id}/runs → status=queued
       "score": 64.0,
       "weight": 0.12,
       "weighted": 7.68,
+      "applicable": true,
       "evidence": ["标题长度适中(15字)", "含2处数据引用"]
     }
   ],
@@ -1756,6 +1762,9 @@ POST /cases/{id}/runs → status=queued
 **达标线**：最近 100 篇改写结果的平均分 ≥ 70 分（B 级）。
 
 **持续优化策略**：如果平均值低于 70 分，分析短板维度（如去AI味、逻辑性、趣味性等），针对性优化改写引擎的提示词和策略，持续迭代直到达标。
+
+> **达标口径（v1.1）**：平均值只统计适用维度归一化后的综合分；N/A 维度不计入
+> 短板分析。旧记录缺 `applicable` 时，仅克隆差异度按已存原文是否非空回退判定。
 
 ### 12A.24.10 API 接口
 
