@@ -293,6 +293,164 @@ SimHash 64位指纹+海明距离判重(<3近似重复/>6充分改写)。三维�
 | DEEP-ANALYSIS-KNOWLEDGE-BASE.md | mem0/letta/LLM-Wiki-V2三源码深析+Node移植方案 |
 | DEEP-ANALYSIS-SENSITIVE-DEDUP.md | houbb/sensitive-word+SimHash源码深析 |
 
+## 十三、改写引擎 v3 — SQLite 持久化 + Embedding 质量评估（2026-09-09，PR #1594）
+
+### 13.1 升级概述
+
+本次升级将改写引擎的知识库从内存存储接入桌面端 SQLite 持久化，并为质量评估器接入 embedding 向量服务，使改写质量评估从纯本地算法升级为语义级向量评估。
+
+| 模块 | 变更 | 行数 |
+|------|------|------|
+| sqlite-storage.js | NEW | 65 行 |
+| rewrite-quality-evaluator.js | v2→v3 | 470→514 行 |
+| rewrite-engine.js (service) | v2→v3 | +28 行 |
+| ai-generator.js | 新增 getEmbedding() | +42 行 |
+| container.setup.js | 接线 store 注入 | +1 行 |
+| index.js | 新增导出 | +10 行 |
+
+### 13.2 SQLite 持久化适配器
+
+**模块**：`packages/rewrite-engine/src/sqlite-storage.js`
+
+实现 `{ get(key), set(key, value), isReady(), setDb(db) }` 接口，与 `MemoryStorage` 行为完全一致。适配器不直接依赖 sql.js，而是通过 `db.prepare().get()/.run()` 注入，由调用方提供具体 SQLite 实例。
+
+**存储表结构**：
+
+```sql
+CREATE TABLE IF NOT EXISTS rewrite_engine_kv (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)
+```
+
+**数据校验**：
+- key：TEXT PRIMARY KEY，非空，≤1024 字符
+- value：TEXT NOT NULL，存储 JSON 序列化的知识库对象（KnowledgeBase._data 的 `JSON.stringify`）
+- 写入使用 `INSERT OR REPLACE`（幂等 upsert），读取通过 `SELECT value FROM ... WHERE key = ?`
+
+**生命周期**：
+- `constructor(db)` — 可选参数，传入则立即 `ensureTable` + 就绪
+- `setDb(db)` — 延迟绑定，适配 Store 初始化时序（Phase 3 SQLite WASM 就绪后注入）
+- `isReady()` — 返回 `this._ready && !!this._db`
+
+**错误处理**：
+- `ensureTable` 失败静默降级（catch + 不抛）
+- `get` 在未就绪时返回 `null`，db 调用异常返回 `null`
+- `set` 在未就绪时无操作，db 调用异常静默降级
+
+**接线**：
+- `RewriteEngineService._ensureEngine()`：store.db 可用 → `new SQLiteStorage(this._store.db)` → `new KnowledgeBase({ storage })`；不可用 → `new KnowledgeBase()`（内存 fallback）
+- `container.setup.js`：`rewriteEngineService.setStore(c.get("store"))` 在构造后注入
+
+### 13.3 Embedding 质量评估
+
+**模块**：`packages/rewrite-engine/src/rewrite-quality-evaluator.js`
+
+在原有同步 `evaluate()`（SimHash 64 位指纹 + 海明距离 + Jaccard）基础上，新增异步评估通道。
+
+**新增方法**：
+
+| 方法 | 签名 | 行为 |
+|------|------|------|
+| `evaluateAsync(original, rewritten)` | async → 报告 | 优先 embedding 余弦相似度（`method: 'embedding'`），失败回退 SimHash + Jaccard（`method: 'simhash'`） |
+| `evaluateBatchAsync(items[])` | async → 报告数组 | 逐项调用 `evaluateAsync`（串行） |
+
+**构造器变更**：
+
+```javascript
+// v3 新增 options.embeddingClient
+new RewriteQualityEvaluator({ embeddingClient: { getEmbedding(text): Promise<number[]> } })
+```
+
+`embeddingClient` 为可选注入，未传时 `evaluateAsync` 完全等价于 `evaluate()`（SimHash 路径）。
+
+**语义保持度计算**（embedding 路径）：
+- 调用 `embeddingClient.getEmbedding(original)` 和 `embeddingClient.getEmbedding(rewritten)` 获取两向量
+- 计算余弦相似度 → 归一化到 [0, 100] 作为 `semanticPreservation`
+- embedding 调用失败 → 自动 fallback 到 SimHash + Jaccard（通过 `scoreSemanticPreservation` 函数）
+
+**`cosineSimilarity(a, b)` 导出**：
+- 输入：两个等长 `number[]` 向量
+- 计算：`dot / (normA * normB)`
+- 边界：零向量返回 0，长度不等返回 0
+- 返回：[-1, 1] 浮点数
+
+**建议生成**：`buildSuggestions(distance, sufficiency, semanticPreservation, method)` 新增可选 `method` 参数，embedding 模式下给出更精准的建议（如"语义保持度高但改写不够充分，建议增加新表达方式"）。
+
+### 13.4 AIGenerator.getEmbedding()
+
+**模块**：`apps/desktop/electron/services/ai-generator.js`
+
+为改写引擎质量评估提供向量接口，通过 LLM 默认 provider 调用 `embeddings` API。
+
+**方法签名**：`async getEmbedding(text: string): Promise<number[]>`
+
+**实现流程**：
+
+1. 检查 `ModelProviderManager` 已就绪
+2. 调用 `manager.getDefault('llm')` 获取 LLM 默认 provider
+3. 从 `providerWithKey.capability_models.embedding` 或 `config.default_embedding_model` 或默认 `'text-embedding-3-small'` 解析模型名
+4. 调用 `manager.callAdapter(providerId, 'embeddings', { model, input: text })`
+5. 从返回的 `result.data.data[0].embedding` 提取向量数组
+6. 非数组时抛 `Error('Invalid embedding response format')`
+
+**模型解析优先级**：
+1. `capability_models.embedding` — 多模态预设的能力路由（如 OpenAI 预设的 `text-embedding-3-small`）
+2. `config.default_embedding_model` — 运营后台下发或用户自定义默认 embedding 模型
+3. `'text-embedding-3-small'` — 硬编码兜底（OpenAI 兼容 embed 模型）
+
+**接线**：
+- `RewriteEngineService._ensureEngine()`：检测 `aiGenerator.getEmbedding` 可用 → 包装为 `{ getEmbedding: (text) => this._aiGenerator.getEmbedding(text) }` → 传入 `new RewriteQualityEvaluator({ embeddingClient })`
+
+### 13.5 数据流（质量评估路径）
+
+```
+用户发起改写评估
+  ↓
+RewriteEngineService (rewrite-engine.js)
+  ↓
+RewriteEngine.rewrite()
+  ↓
+RewriteQualityEvaluator.evaluateAsync(original, rewritten)
+  ↓
+  ├─ embeddingClient.getEmbedding() → AIGenerator.getEmbedding()
+  │     ↓
+  │   ModelProviderManager.callAdapter('openai', 'embeddings', { model, input })
+  │     ↓
+  │   OpenAIAdapter.embeddings() → POST /embeddings
+  │     ↓
+  │   返回 { data: [{ embedding: number[] }] }
+  │     ↓
+  │   cosineSimilarity(vecA, vecB) → semanticPreservation [0-100]
+  │
+  └─ 失败 → 回退 SimHash + Jaccard（纯本地）
+```
+
+### 13.6 测试覆盖
+
+| 测试文件 | 数量 | 结果 |
+|---------|------|------|
+| sqlite-storage.test.js (NEW) | 7 | ✅ |
+| rewrite-quality-evaluator.test.js (NEW) | 18 | ✅ |
+| ai-taste-remover.test.js | 6 | ✅ |
+| knowledge-base.test.js | 6 | ✅ |
+| strategy-manager.test.js | 7 | ✅ |
+| strategy-matcher.test.js | 6 | ✅ |
+| **总计** | **50** | **全部通过** |
+
+### 13.7 关键文件索引（v3 新增/修改）
+
+| 文件 | 用途 |
+|------|------|
+| `packages/rewrite-engine/src/sqlite-storage.js` | SQLite 持久化适配器 |
+| `packages/rewrite-engine/src/rewrite-quality-evaluator.js` | 质量评估器（v3: +embedding 异步通道） |
+| `packages/rewrite-engine/src/index.js` | 新增导出 SQLiteStorage/cosineSimilarity |
+| `packages/rewrite-engine/tests/sqlite-storage.test.js` | SQLiteStorage 单元测试 |
+| `packages/rewrite-engine/tests/rewrite-quality-evaluator.test.js` | 质量评估器单元测试 |
+| `apps/desktop/electron/services/ai-generator.js` | 新增 getEmbedding() |
+| `apps/desktop/electron/services/rewrite-engine.js` | 桥接 SQLite + embedding 注入 |
+| `apps/desktop/electron/core/container.setup.js` | store 注入 rewriteEngineService |
+
 ### 12.9 测试结果
 
 | 测试文件 | 数量 | 结果 |

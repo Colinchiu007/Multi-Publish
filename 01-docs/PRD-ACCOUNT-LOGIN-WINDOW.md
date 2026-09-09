@@ -293,4 +293,27 @@ close()
 
 1. ~~`oauth-manager.js` 迁移独立窗口~~ → **已完成（10.2/10.3）**
 2. **`openSavedAccount()`**（`auth-view-manager.js`）：全仓无调用方（预留/死代码），内嵌实现暂保留；若未来接线需先迁移独立窗口
-3. **`AuthViewManager` 统一**：其 `_createLoginWindow` 为同模式的内联实现（行为正确、有回归测试保护），后续小 PR 可切换到 `auth-window.js` 工厂以消除重复代码
+3. ~~`AuthViewManager` 统一到 `auth-window.js` 工厂~~ → **已完成（§12）**
+
+## 十二、AuthViewManager 统一接入公共工厂（2026-09-09）
+
+### 12.1 改动点
+
+| 位置 | 原内联实现 | 统一后 |
+|---|---|---|
+| `_createLoginWindow(platform)` | 自行 `new BrowserWindow` + 定义 syncBounds + `win.on('resize')` + `once('closed')` 结算 + resize 清理函数（约 60 行） | 调用 `createStandaloneAuthWindow({ parent, title, onClosed })`，句柄存入 `this._authWindowHandle`；`_syncLoginViewBounds` 取自 `handle.syncBounds`（工厂新增暴露） |
+| `openLogin()` 挂载段 | 手动 `contentView.addChildView` + contentView 可用性防御 + `setVisible` + 手动 `syncBounds` | `this._authWindowHandle.attach(view)` 一步完成（防御、显示、铺满均由工厂内置） |
+| `close()` 回收段 | 手动 removeChildView（含宿主窗口回退判断）+ `_loginWindowResizeCleanup()` + `loginWindow.destroy()` | `this._authWindowHandle.dispose()`（幂等：解除挂载 + destroy + resize 监听随窗口回收） |
+
+### 12.2 兼容性说明
+
+- 对外字段签名全部保留：`loginWindow`、`_syncLoginViewBounds`、`_loginWindowResizeCleanup`（后者仅置空，回收已移交工厂）、`_onWindowResize`（window.js resize 挂钩）
+- 窗口尺寸默认值与原 `LOGIN_WINDOW_*` 常量一致（1180×820 / 最小 900×640），常量定义移交工厂后删除本文件重复定义
+- `loginSilent()` 的隐藏验证窗口不属于可见认证窗口，维持原实现
+- PR #1557 的 3 条回归测试（独立窗口承载 / 从 (0,0) 铺满 / close 后窗口销毁）全部保持通过，作为本次重构的行为护栏
+
+### 12.3 统一后的架构
+
+三个认证管理器（AuthViewManager / QrCodeLogin / OAuthManager）全部经由 `auth-window.js`
+工厂创建承载窗口，认证视图布局统一为「独立坐标系 + 从 (0,0) 铺满客户区」，应用内不再
+存在任何依赖主窗口 DOM 坐标的可见认证浮层。
