@@ -960,7 +960,12 @@ var require_knowledge_library = __commonJS({
         // 飞书 API 配置
         feishuGetConfig: () => ipcRenderer2.invoke("feishu:get-config"),
         feishuSaveConfig: (appId, appSecret) => ipcRenderer2.invoke("feishu:save-config", appId, appSecret),
-        feishuTestConnection: (appId, appSecret) => ipcRenderer2.invoke("feishu:test-connection", appId, appSecret)
+        feishuTestConnection: (appId, appSecret) => ipcRenderer2.invoke("feishu:test-connection", appId, appSecret),
+        // 文件批量导入
+        importFiles: (files, categoryPerFile) => ipcRenderer2.invoke("knowledge-library:import-files", files, categoryPerFile),
+        // 飞书导出
+        exportViralToFeishu: (title) => ipcRenderer2.invoke("knowledge-library:export-viral-to-feishu", title),
+        exportPersonalToFeishu: (title) => ipcRenderer2.invoke("knowledge-library:export-personal-to-feishu", title)
       };
     }
     module2.exports = { createKnowledgeLibraryApi: createKnowledgeLibraryApi2 };
