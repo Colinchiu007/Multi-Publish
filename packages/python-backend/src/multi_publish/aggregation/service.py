@@ -263,24 +263,9 @@ class AggregationService:
                 original_content=request.content,
                 platform="通用",
             )
-            result_model.quality_report = {
-                "overall_score": report.overall_score,
-                "grade": report.grade,
-                "grade_label": report.grade_label,
-                "dimensions": [
-                    {
-                        "id": d.id,
-                        "label": d.label,
-                        "score": round(d.score, 1),
-                        "weight": d.weight,
-                        "weighted": round(d.weighted, 1),
-                    }
-                    for d in report.dimensions
-                ],
-                "summary": report.summary,
-                "warnings": report.warnings,
-                "suggestions": report.suggestions,
-            }
+            from .quality import serialize_quality_report
+
+            result_model.quality_report = serialize_quality_report(report)
         except Exception as e:
             logger.warning(f"[AggregationService] quality evaluation failed: {e}")
         return result_model

@@ -149,6 +149,7 @@ const moreItems = computed(() => [
   { key: 'keywords', label: '关键词监控', to: '/keywords', icon: Search },
   { key: 'viral', label: '爆款分析', to: '/viral-analysis', icon: TrendCharts },
   { key: 'prompt-eval', label: '提示词评估', to: '/prompt-eval', icon: MagicStick },
+  { key: 'rewrite', label: '文案改写', to: '/rewrite', icon: MagicStick },
   { key: 'model-providers', label: '模型提供商', to: '/model-providers', icon: Cpu },
   { key: 'knowledge-base', label: t('knowledgeBase.title'), to: '/knowledge-base', icon: Collection },
   { key: 'member-center', label: t('memberCenter.menuEntry'), to: '/member-center', icon: User },

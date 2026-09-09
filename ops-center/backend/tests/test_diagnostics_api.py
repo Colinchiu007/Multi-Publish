@@ -18,6 +18,8 @@ import models  # noqa: F401
 from config import settings
 
 
+import datetime
+
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     from database import engine, Base
@@ -47,7 +49,7 @@ def _admin_headers():
 
 
 def _daily(**over):
-    base = {"diag_date": "2026-08-10", "client_id": "dev-1", "pipeline": "story2video-compose",
+    base = {"diag_date": (datetime.date.today() - datetime.timedelta(days=5)).isoformat(), "client_id": "dev-1", "pipeline": "story2video-compose",
             "total_runs": 10, "failed_runs": 2, "success_runs": 7, "cancelled_runs": 1}
     base.update(over)
     return base
@@ -55,7 +57,7 @@ def _daily(**over):
 
 def _sample(**over):
     base = {
-        "diag_date": "2026-08-10", "client_id": "dev-1", "run_id": "run-1", "pipeline": "story2video-compose",
+        "diag_date": (datetime.date.today() - datetime.timedelta(days=5)).isoformat(), "client_id": "dev-1", "run_id": "run-1", "pipeline": "story2video-compose",
         "status": "failed", "stage": "compose", "failure_type": "timeout", "severity": "blocker",
         "recoverability": "retryable", "cause_id": "provider_timeout", "duration_ms": 120000,
         "env": {"disk_free_bytes": 3000000000, "python_backend": True, "evil": "drop-me"},
@@ -202,8 +204,6 @@ async def test_samples_filter_and_admin_auth():
 
 @pytest.mark.asyncio
 async def test_sample_retention_cleanup():
-    import datetime
-
     async with _client() as client:
         today = datetime.date.today()
         old_date = (today - datetime.timedelta(days=40)).isoformat()  # >30 天前

@@ -461,7 +461,7 @@ RewriteQualityEvaluator.evaluateAsync(original, rewritten)
 | strategy-matcher.test.js | 6 | PASS |
 | **总计** | **25** | **全部通过** |
 
-## 十三、内容质量评估机制（Python 端 v1，2026-09-08）
+## 十三、内容质量评估机制（Python 端，2026-09-08；v1.1 校准 2026-09-09）
 
 > 本文档补充章节：改写产出的内容质量自动化评估机制。完整说明见
 > [DOC-CONTENT-QUALITY-EVAL-MECHANISM.md](./DOC-CONTENT-QUALITY-EVAL-MECHANISM.md)，
@@ -532,6 +532,13 @@ RewriteQualityEvaluator.evaluateAsync(original, rewritten)
 → 运营中心 GET /api/v1/quality-eval/stats 统计最近 100 篇平均值
 
 **降级策略**：评估异常仅记录 warning 日志，不影响改写主流程返回。
+
+> **v1.1 适用性语义**：
+> - 无原文时克隆差异度 `applicable=false`，不参与综合分/警告/建议/最近 100 篇该维度均值；
+> - 综合分按适用维度权重归一化；
+> - 改写引擎质量报告与运营中心单篇评估响应共用同一序列化投影（`serialize_quality_report`），
+>   字段一致，避免两端漂移；
+> - 旧记录缺 `applicable` 时，仅克隆差异度按已存原文是否非空回退。
 
 ### 13.5 运营中心功能
 

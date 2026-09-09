@@ -2247,7 +2247,7 @@ export default {
     signingIn: '正在打开登录...'
   },
 
-  knowledgeBase: {
+knowledgeBase: {
     title: '知识库',
     tabViral: '爆款库',
     viralSubtitle: '爆款内容库 — 搜集管理自媒体爆款内容',
@@ -2332,4 +2332,48 @@ export default {
     fileNotSupported: '不支持的文件格式（仅支持 .txt .md .doc .docx）',
     loadFailed: '加载失败，请重试',
   },
+
+  // ── 文案改写页面 ──
+  rewritePage: {
+    title: '文案改写',
+    subtitle: 'AI 驱动的多策略文案改写引擎，结合爆款库与个人经历提升原创性',
+    inputSection: '输入文案',
+    inputPlaceholder: '输入或粘贴需要改写的文案内容（至少 20 字，最多 6000 字）...',
+    configSection: '改写设置',
+    useViralLibrary: '结合爆款库',
+    useViralLibraryHint: '优先匹配爆款文案策略，提升内容吸引力和传播潜力',
+    usePersonalExperience: '结合个人经历',
+    usePersonalExperienceHint: '注入本地知识库中的个人偏好、写作风格和历史成功案例',
+    modeLabel: '改写模式',
+    modeImitate: '抄袭规避模仿',
+    modeExpand: '扩写爆款',
+    modeCreate: '选题创作',
+    platformLabel: '目标平台',
+    rewriteBtn: '🔄 开始改写',
+    rewritingBtn: '改写中...',
+    resultSection: '改写结果',
+    metaStrategy: '策略',
+    metaAiTaste: 'AI味等级',
+    metaLength: '{original} 字 → {result} 字',
+    saveDraft: '💾 存入草稿',
+    goPublish: '🚀 去发布',
+    draftSaved: '草稿已创建',
+    draftSaveFailed: '存入草稿失败',
+    needLogin: 'AI 改写需要登录后使用，是否立即登录？',
+    tooShort: '请输入至少 20 字的文案内容',
+    charCount: '字',
+  },
+
+  // ── 发布去向弹窗 ──
+  publishDestination: {
+    title: '选择发布去向',
+    subtitle: '改写内容已存入草稿箱，请选择下一步操作',
+    article: '直接发图文',
+    articleDesc: '打开图文发布页，改写内容将自动填入文案输入框',
+    video: '生成视频',
+    videoDesc: '打开视频创作流水线页，改写文本将自动填入文案输入框',
+    pipelineLabel: '流水线选择',
+    close: '关闭',
+  },
+
 }

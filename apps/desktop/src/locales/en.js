@@ -2246,7 +2246,7 @@ export default {
     signingIn: 'Opening sign-in...'
   },
 
-  knowledgeBase: {
+knowledgeBase: {
     title: 'Knowledge Base',
     tabViral: 'Viral Library',
     viralSubtitle: 'Viral content library - collect and manage trending content',
@@ -2331,4 +2331,48 @@ export default {
     fileNotSupported: 'Unsupported file format (.txt .md .doc .docx only)',
     loadFailed: 'Failed to load, please retry',
   },
+
+  // ── Rewrite page ──
+  rewritePage: {
+    title: 'Copy Rewrite',
+    subtitle: 'AI-powered multi-strategy rewrite engine, combining viral library and personal experience for originality',
+    inputSection: 'Input content',
+    inputPlaceholder: 'Enter or paste content to rewrite (at least 20 characters, up to 6000)...',
+    configSection: 'Rewrite settings',
+    useViralLibrary: 'Use viral library',
+    useViralLibraryHint: 'Prioritize viral content strategies to boost appeal and reach',
+    usePersonalExperience: 'Use personal experience',
+    usePersonalExperienceHint: 'Inject local knowledge base preferences, writing style, and past successes',
+    modeLabel: 'Rewrite mode',
+    modeImitate: 'Plagiarism-safe imitation',
+    modeExpand: 'Expand viral content',
+    modeCreate: 'Topic creation',
+    platformLabel: 'Target platform',
+    rewriteBtn: '🔄 Rewrite',
+    rewritingBtn: 'Rewriting...',
+    resultSection: 'Result',
+    metaStrategy: 'Strategy',
+    metaAiTaste: 'AI-taste level',
+    metaLength: '{original} → {result} chars',
+    saveDraft: '💾 Save draft',
+    goPublish: '🚀 Publish',
+    draftSaved: 'Draft created',
+    draftSaveFailed: 'Failed to save draft',
+    needLogin: 'AI rewrite requires login. Sign in now?',
+    tooShort: 'Please enter at least 20 characters',
+    charCount: 'chars',
+  },
+
+  // ── Publish destination modal ──
+  publishDestination: {
+    title: 'Choose publish destination',
+    subtitle: 'Rewritten content saved to drafts. Choose the next step',
+    article: 'Publish image-text',
+    articleDesc: 'Open the image-text publish page with content pre-filled',
+    video: 'Generate video',
+    videoDesc: 'Open the video pipeline page with text pre-filled',
+    pipelineLabel: 'Pipeline',
+    close: 'Close',
+  },
+
 }
