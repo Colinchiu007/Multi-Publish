@@ -90,6 +90,8 @@ function createStandaloneAuthWindow(options = {}) {
 
   return {
     win,
+    /** 同步视图铺满当前客户区（attach 时自动调用；暴露供调用方在窗口尺寸变化外手动触发） */
+    syncBounds,
     /**
      * @param {import('electron').WebContentsView} view
      */
