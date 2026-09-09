@@ -1,3 +1,23 @@
+## [未发布] fix(rewrite-engine): 修复 rewrite() 质量评估字段 TDZ 死区导致每次改写抛 ReferenceError（2026-09-10）
+
+### 修复
+- `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `rewrite()` 在 v2 重构时把质量评估步骤
+  （第 8 步 `let quality`）移到 `response` 对象字面量之后，但 `response` 仍引用 `quality`，
+  命中 `let` 的暂时性死区（TDZ），导致每次成功拿到 LLM 结果后必然抛
+  `ReferenceError: Cannot access 'quality' before initialization`，改写引擎主链路（桌面端
+  RewriteView / RewriteEngineService）完全不可用，`quality` 评估对象从未真正返回。
+- 将质量评估计算（`let quality ... evaluate(content, processed)`）移到 `response` 构造之前，
+  与 `response.quality` 引用顺序对齐。
+
+### 根因
+- `commit 36a09e5c`（rewrite-engine v2 升级）引入：`const response = { ..., quality }` 字面量
+  先于 `let quality` 声明求值，构成 TDZ。
+
+### 回归保护
+- 新增 `packages/rewrite-engine/tests/rewrite-engine-core.test.js`（4 项）：成功改写返回完整
+  `quality` 合同（6 字段 + method）、各维度数值区间合法、无 LLM 客户端 / 空内容 fail-closed。
+- `packages/rewrite-engine` 全量测试 53 passed（含 7 个测试文件）。
+
 ## [未发布] refactor(accounts): AuthViewManager 统一接入 auth-window 公共工厂（2026-09-09）
 
 ### 重构

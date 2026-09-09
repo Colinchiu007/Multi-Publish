@@ -281,9 +281,15 @@ SimHash 64位指纹+海明距离判重(<3近似重复/>6充分改写)。三维�
 
 ### 12.7 集成变更
 
-- rewrite-engine-core.js新增qualityEvaluator参数
-- index.js新增导出RewriteQualityEvaluator/SimHash/computeSimHash/hammingDistance
-- rewrite返回结果新增quality字段
+  - rewrite-engine-core.js新增qualityEvaluator参数
+  - index.js新增导出RewriteQualityEvaluator/SimHash/computeSimHash/hammingDistance
+  - rewrite返回结果新增quality字段（SimHash 三维评分：充分度 / 语义保持度 / 原创性 +
+    pass/warn/fail 判定 + 改进建议）。
+
+> **修复（2026-09-10）**：v2 重构时质量评估步骤被移到 `response` 字面量之后，
+> `quality` 字段命中 `let` 的暂时性死区（TDZ），导致每次成功改写必然抛
+> `ReferenceError`，`quality` 从未真正返回，改写主链路不可用。已把质量评估计算
+> 移到 `response` 构造之前并补回归测试（见 CHANGELOG / rewrite-engine-core.test.js）。
 
 ### 12.8 深度分析文档
 

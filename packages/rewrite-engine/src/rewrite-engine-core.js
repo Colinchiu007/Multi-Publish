@@ -98,6 +98,16 @@ class RewriteEngine {
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
 
+    // 8. 改写质量评估（SimHash 判重 + 语义保持 + 原创性评分）
+    // 注意：必须在 response 对象构造之前计算 quality，否则 response 字面量
+    // 引用 quality 会命中 `let` 的 TDZ（暂时性死区），每次成功改写都抛 ReferenceError。
+    let quality
+    try {
+      quality = this._qualityEvaluator.evaluate(content, processed)
+    } catch {
+      quality = null
+    }
+
     const response = {
       success: true,
       result: processed,
@@ -115,14 +125,6 @@ class RewriteEngine {
         aiTasteLevel: this._getAITasteLevel(processed, strategy)
       },
       quality
-    }
-
-    // 8. 改写质量评估（SimHash 判重 + 语义保持 + 原创性评分）
-    let quality
-    try {
-      quality = this._qualityEvaluator.evaluate(content, processed)
-    } catch {
-      quality = null
     }
 
     // 9. 记录到知识库（异步，不阻塞返回）

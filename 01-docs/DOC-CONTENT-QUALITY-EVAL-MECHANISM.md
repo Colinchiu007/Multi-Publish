@@ -645,6 +645,7 @@ CREATE INDEX IF NOT EXISTS idx_qe_score ON quality_eval_records(overall_score);
 |------|------|------|
 | v1.0 | 2026-09-08 | 初始版本：15 维度评估引擎 + 改写引擎集成 + 运营中心前后端 |
 | v1.1 | 2026-09-09 | 维度适用性（applicable/N/A）与综合分权重归一化；模板顺序与真实编号分点分离；书面第一人称叙事/个人观点的有限识别；统计排除 N/A 并固定返回 15 维；改写引擎与运营中心统一序列化合同；离线校准基线 |
+| v1.2 | 2026-09-10 | 修复改写引擎 rewrite() 质量评估字段 TDZ 死区（每次改写抛 ReferenceError，quality 从未返回）；补 rewrite-engine-core 回归测试；明确 Node 端 SimHash 三维评估与 Python 端 15 维评估是两层独立评估 |
 
 ---
 
