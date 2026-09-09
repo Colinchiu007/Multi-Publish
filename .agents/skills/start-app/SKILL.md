@@ -1,6 +1,6 @@
 ---
 name: start-app
-version: 1.2.0
+version: 1.3.0
 description: >
   用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
   桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 Windows 环境的应用，
@@ -297,6 +297,13 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 | WSL electron 缺库 | `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入；缺失则从 `/tmp/electron-libs/extracted/usr/lib/x86_64-linux-gnu/` 复制 |
 | WSL GPU 崩溃（GPU process isn't usable）| 加 `--in-process-gpu`（start-desktop-wsl.sh 已内置）|
 | WSL 数据分裂 | 确认 electron 用共享目录：`--user-data-dir=/mnt/d/Data/projects/Multi-Publish/shared-user-data`；不要设 `ELECTRON_USER_DATA_DIR` |
+| 启动后窗口出现几十秒就消失（无崩溃日志、退出码 0） | **单实例锁冲突**：另一 worktree 用同一 profile 启动，后启动实例被 `app.quit()` 顶掉。改用独立 profile 启动（见 Pitfalls「profile 单实例锁」） |
+| 后台 job 里跑 start-desktop.ps1，job 结束应用就没了 | **父会话连带杀进程**：`Start-Process` 启动的 electron 进程树挂在启动它的 PowerShell 会话下，会话退出即被终止。改用 WMI `Win32_Process.Create` 拉起独立启动器（见 Pitfalls「独立启动器」） |
+| 窗口加载 5174 而非 worktree 派生端口 | **WMI Create 不继承环境变量**：`Win32_Process.Create` 启动的进程不继承调用者的 `DEV_SERVER_PORT`，electron 回退默认 5174。启动器脚本内显式设置环境变量后再 `Start-Process` |
+| 窗口 show() 后 Win32 层面仍隐藏（visible=False） | 该执行环境特性。用 `ShowWindow(SW_RESTORE/SW_SHOW)` + `SetWindowPos(SWP_SHOWWINDOW)` + `SetForegroundWindow` 强制显示 |
+| 切换 profile 后账号信息消失 | **profile 数据分裂**：账号在 `userDataDir/backend-data/accounts.json`（Python 后端数据目录 = `ELECTRON_USER_DATA_DIR/backend-data`）。切 profile 必须复制该目录 |
+| 窗口没了但进程还在（用户以为应用关闭） | 窗口被关闭后应用可能进入后台/托盘模式，进程与后端服务仍存活。先查进程+CDP 页面再判断，必要时重启恢复窗口 |
+| worktree 的 git 注册被其他会话清理（`not a git repository: (NULL)`） | **worktree 半失效**：`.git/worktrees/<name>` 注册被 `git worktree prune` 或清理脚本移除，但物理目录还在。无法复用，需重建 worktree（见 Pitfalls「worktree 注册反复失效」） |
 
 ## Pitfalls
 
@@ -308,6 +315,13 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 - **隔离 worktree 优先复用**：创建新 worktree 需要 `pnpm install`（1-2 分钟），但已有 worktree 只需 `git checkout` + `git clean`（秒级）。优先检查是否已有可用的隔离 worktree。
 - **不要静默连别人的 Vite**：端口归属检查是 fail-closed，绝不绕过。
 - **profile 单实例锁**：同 profile 多实例互杀会导致窗口空白，先处理占用。
+- **profile 单实例锁（跨 worktree 顶掉，2026-09-08 复盘）**：Electron `requestSingleInstanceLock()` 基于 **userData 目录**。多个 worktree 用同一 profile（如 `D:/tmp/Multi-Publish-debug-profile`）启动时，后启动实例拿不到锁 → `app.quit()` 正常退出（**code 0、无崩溃日志**），表现为「应用启动后 2-3 分钟消失」。排查要点：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'"` 看主进程命令行属于哪个 worktree；`tasklist` 看是否有其他 worktree 的 electron 用同一 `--user-data-dir`。**解决：给每个 worktree 用独立 profile**（如 `D:/tmp/Multi-Publish-debug-profile-mp-start`），彻底隔离锁。⚠️ 切换 profile 必须复制登录态与数据（见「profile 数据分裂」坑）。
+- **独立启动器（脱离父会话，2026-09-08）**：`Start-Process` 启动的 electron 进程树**绑定在启动它的 PowerShell 会话**下，会话退出（后台 job 结束 / 脚本 exit）即连带终止。可靠做法：写一个启动器 `.ps1`（内部设置 `ELECTRON_USER_DATA_DIR` / `DEV_SERVER_PORT` 等 → `Start-Process electron ... -PassThru` → `WaitForExit()`），用 WMI `Invoke-CimMethod Win32_Process Create` 拉起启动器（进程真正独立，父退出不影响）。参考 `mp-start-desktop/scripts/start-electron-detached.ps1`。
+- **WMI Create 不继承调用者环境变量（2026-09-08）**：`Win32_Process.Create` 启动的进程**不继承**调用 PowerShell 的 `$env:...`。若 electron 需要 `DEV_SERVER_PORT`（worktree 派生端口），必须由启动器脚本内部显式设置后再 spawn，否则 electron 回退默认 5174，页面加载到错误端口（CDP 页面 URL 可验证）。
+- **窗口强制显示（2026-09-08）**：该执行环境（Codex 桌面 app 会话）里应用主窗口 `show()` 后 Win32 层面仍 `visible=False`（`Get-Process` 的 MainWindowHandle 为 0，但 `EnumWindows` 能找到标题窗口）。验证窗口存在用 `EnumWindows` + `GetWindowThreadProcessId` 匹配主进程 PID；强制显示用 `ShowWindow(SW_RESTORE=9)` → `ShowWindow(SW_SHOW=5)` → `SetWindowPos(SWP_SHOWWINDOW=0x0040)` → `SetForegroundWindow`。
+- **profile 数据分裂（backend-data，2026-09-08 核心坑）**：账号信息存在 **`userDataDir/backend-data/accounts.json`**（Python 后端 `server.py` 的 `DATA_DIR` = `ELECTRON_USER_DATA_DIR/backend-data`，经 `python-bridge.js` 注入 `MULTI_PUBLISH_DATA_DIR`）。**切换 profile 必须复制 `backend-data/` 目录**（含 accounts.json），否则账号管理里保存的平台账号全部消失。登录态在 `identity-session.json`（加密）+ `multi-publish.db`（模型 key）+ `Local State` + `session/`，一并复制。验证账号恢复：CDP 调 `window.electronAPI.listAccounts()`。
+- **窗口关闭但进程存活（2026-09-08）**：窗口被关闭后应用可能进入后台/托盘模式（`window-all-closed` → 无运行任务时正常退出；有托盘/后台逻辑时进程存活）。用户报「应用没了」时先查 `tasklist` + CDP `/json/list`（页面还在 = 进程活着），再决定重启恢复窗口，不要误判为已关闭。
+- **worktree 注册反复失效（2026-09-09 复盘）**：多会话并发时，其他会话的 `git worktree prune` 或清理脚本会移除 `<repo>/.git/worktrees/<name>` 注册，导致 worktree 半失效（`git -C <worktree> status` 报 `not a git repository: (NULL)`，但物理目录和 node_modules 还在）。**无法复用失效 worktree**（`git worktree add` 到已存在目录会报 "already exists" 或误绑到父级仓库）。可靠做法：**新建全新 worktree**（新目录名）→ `pnpm install --frozen-lockfile`（复用 store 约 1 分钟）→ `node scripts/ensure-electron.js` → `node scripts/verify-worktree-deps.js` → 启动。⚠️ 若目标目录位于另一 git 仓库（如 `D:/Data/projects` 本身是仓库）内，`git worktree add` 到已存在目录会误绑到父级仓库，务必用全新目录名。
 - **同步失败即停**：代码未对齐时不要启动，否则跑的是旧代码。
 - **git 写操作走 PowerShell 原生路径**：避免 Git Bash `/d/...` 触发 `D:/d/...` 混写（项目硬纪律）。
 - **WSL/Windows 数据分裂（双环境核心坑）**：项目 node_modules 是 Windows 版，WSL 端必须用独立 Linux 依赖树（`~/mp-wsl-deps/mp-wsl`）；electron 必须显式 `--user-data-dir` 指向共享目录（Linux worktree 上溯不到共享主仓库锚点）；**默认不要设 `ELECTRON_USER_DATA_DIR`**（显式值会绕过共享目录）。
