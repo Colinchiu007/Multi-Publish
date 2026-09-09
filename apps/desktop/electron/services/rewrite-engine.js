@@ -43,7 +43,10 @@ class RewriteEngineService {
     this._knowledgeLibrary = kl
   }
 
-  _ensureEngine() {
+  _ensureEngine(force) {
+    // 首次构建后复用引擎实例，避免每次 rewrite() 重建知识库/评估器
+    if (this._engine && !force) return this._engine
+
     if (!this._strategyManager) {
       throw new Error("改写策略管理器未注入")
     }
