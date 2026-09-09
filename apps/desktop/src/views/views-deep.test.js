@@ -30,6 +30,10 @@ vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
       
     load: vi.fn(),
+    // Home.vue onMounted 会先 await ensureLoaded() 再加载统计数据；
+    // 缺失该 mock 会在 onMounted 早期抛 TypeError，导致
+    // storeGetPublishStats 永远不被调用（CI 上 loads stats 连续失败）。
+    ensureLoaded: vi.fn().mockResolvedValue(undefined),
     accounts: [
       { id: "a1", platform: "wechat_mp", name: "MP1", status: "active" },
       { id: "a2", platform: "zhihu", name: "Zhihu1", status: "inactive" },
