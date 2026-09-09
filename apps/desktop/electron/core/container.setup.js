@@ -202,10 +202,11 @@ function createContainer(options) {
   container.register("templateManager", function() { return new TemplateManager(); });
   container.register("rewriteStrategyManager", function() { return new RewriteStrategyManager(); });
   container.register("rewriteEngineService", function(c) {
-    const svc = new RewriteEngineService({});
-    svc.setStrategyManager(c.get("rewriteStrategyManager"));
-    svc.setStore(c.get("store"));
-    return svc;
+    const svc = new RewriteEngineService({})
+    svc.setStrategyManager(c.get("rewriteStrategyManager"))
+    svc.setStore(c.get("store"))
+    svc.setKnowledgeLibrary(c.get("knowledgeLibraryService"))
+    return svc
   });
   container.register("knowledgeLibraryService", function(c) {
     return new KnowledgeLibraryService({ store: c.get("store") });

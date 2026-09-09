@@ -41,8 +41,14 @@ class RewriteEngine {
    * @returns {Promise<object>} { success, result, strategy, warnings, sensitiveHits }
    */
   async rewrite(params = {}) {
-    const { mode = 'imitate', content = '', userSettings = {}, strategyId = null } = params
-    const knowledgeOptions = params.knowledgeOptions || null
+    const { mode = 'imitate', content = '', userSettings = {}, strategyId = null, knowledgeOptions = null } = params
+
+    // 合并 knowledgeOptions：优先 userSettings.knowledgeOptions，其次顶层 params.knowledgeOptions
+    const effectiveKnowledgeOptions = (userSettings.knowledgeOptions && typeof userSettings.knowledgeOptions === 'object')
+      ? { ...knowledgeOptions, ...userSettings.knowledgeOptions }
+      : (knowledgeOptions || null)
+    // 将合并后的 knowledgeOptions 写回 userSettings 便于后续方法消费
+    userSettings.knowledgeOptions = effectiveKnowledgeOptions
 
     // 1. 输入校验
     const validation = this._validate(content)
@@ -201,10 +207,10 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  _buildPrompt(strategy, content, mode, userSettings) {
+  _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
     // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
-    const knowledgeOptions = userSettings.knowledgeOptions || null
-    const kbContext = this._buildKnowledgeContext(content, knowledgeOptions)
+    const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
+    const kbContext = this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
 
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
