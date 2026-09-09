@@ -302,3 +302,103 @@ SimHash 64位指纹+海明距离判重(<3近似重复/>6充分改写)。三维�
 | strategy-manager.test.js | 7 | PASS |
 | strategy-matcher.test.js | 6 | PASS |
 | **总计** | **25** | **全部通过** |
+
+## 十三、内容质量评估机制（Python 端 v1，2026-09-08）
+
+> 本文档补充章节：改写产出的内容质量自动化评估机制。完整说明见
+> [DOC-CONTENT-QUALITY-EVAL-MECHANISM.md](./DOC-CONTENT-QUALITY-EVAL-MECHANISM.md)，
+> 架构设计见 [ARCH-CONTENT-QUALITY-EVAL-2026-09-08.md](./ARCH-CONTENT-QUALITY-EVAL-2026-09-08.md)，
+> 运营中心 PRD 见 ops-center/docs/PRD.md §12A.24。
+
+### 13.1 目标与原则
+
+改写引擎产出内容后，需要一个量化、自动化、可迭代的质量评估机制，解决：
+
+1. 无量化标准：改写质量依赖人工主观判断，无法规模化
+2. 无持续优化抓手：不知道具体哪个维度弱，改什么、改多少
+3. AI 味不可见：改写内容是否像机器写的，没有量化指标
+4. 合规风险盲区：敏感内容是否被改写消除，没有自动化检测
+5. 克隆效果不可测：克隆模式下与原文的差异性，没有量化度量
+
+**设计原则**：纯启发式 NLP 评分（仅依赖 Python 标准库 re/math/collections），
+不调用外部 LLM，保证评估本身零成本、零延迟、可离线运行，可在 CI 与本地复现。
+
+### 13.2 15 维度与权重
+
+每个维度 0-100 分，加权综合为总分 0-100 分：
+
+| 维度 ID | 中文名 | 权重 | 核心算法 |
+|---------|--------|------|---------|
+| viral_potential | 爆款潜力 | 12% | 标题长度/问叹号、前500字数据引用、热点词、内容长度、开头悬念 |
+| logic | 逻辑性 | 10% | 句子/段落数、因果词、转折词、平均句长 |
+| engagement | 趣味性 | 8% | 案例标记、人称对话感、长短句节奏、互动问句 |
+| human_likeness | 去AI味 | 10% | AI模板词扣分、口语化加分、个性化标点、人称交互 |
+| compliance | 违规风险 | 10% | 8 类敏感词正则检测扣分 |
+| readability | 易读性 | 10% | 平均句长、常用字覆盖率、段落长度 |
+| clone_divergence | 克隆差异度 | 6% | 与原文字符集 Jaccard、长度比 |
+| information_density | 信息密度 | 6% | 数据/术语密度、虚词占比 |
+| emotional_resonance | 情感共鸣 | 6% | 正/负面情感词统计 |
+| structure | 结构完整性 | 6% | 开头/结尾/过渡/分点列表 |
+| originality | 原创性 | 4% | 个人观点标记、新概念词、陈词滥调扣分 |
+| platform_fitness | 平台适配 | 4% | 平台关键词命中、平台风格特化 |
+| keyword_density | 关键词密度 | 3% | bigram 频率与分布 |
+| call_to_action | CTA | 3% | CTA 句式统计 |
+| brand_consistency | 品牌一致性 | 2% | 正式/口语语气一致性 |
+
+### 13.3 评分等级与质量标准
+
+| 综合分 | 等级 | 说明 |
+|--------|------|------|
+| >=90 | A+ | 优秀，适合直接发布 |
+| 80-89 | A | 良好 |
+| 70-79 | B | 一般，基本达标 |
+| 60-69 | C | 较差 |
+| <60 | D | 差，建议重新改写 |
+
+**质量标准**（P0）：
+
+- 达标线：最近 100 篇改写结果平均分 >=70（B 级）
+- 优秀线：最近 100 篇平均分 >=80（A 级）
+- 单篇及格线：单篇综合分 >=60
+- 持续优化触发：平均值低于 70 时，分析短板维度（如去AI味、逻辑性、趣味性），
+  针对性优化改写引擎提示词与策略，迭代直到达标
+
+### 13.4 数据流与集成点
+
+改写请求 → AggregationService.rewrite()（packages/python-backend/.../aggregation/service.py）
+→ RewriteProcessor（content-aggregator-shared shared/rewriters/rewriter.py）
+→ 改写结果 → ContentQualityEvaluator.evaluate(rewritten, original, platform)
+→ QualityReport（15 维度 + 总分 + 等级 + 建议）
+→ RewriteResult.quality_report 返回给调用方
+→ 运营中心 POST /api/v1/quality-eval/evaluate 落库 quality_eval_records
+→ 运营中心 GET /api/v1/quality-eval/stats 统计最近 100 篇平均值
+
+**降级策略**：评估异常仅记录 warning 日志，不影响改写主流程返回。
+
+### 13.5 运营中心功能
+
+**前端页面**：ops-center/frontend/src/views/ContentQualityEval.vue
+
+| 功能 | 说明 |
+|------|------|
+| 单篇评估 | 输入正文（可选原文/标题/平台），点击评估，展示 15 维度评分雷达与总分、等级、建议 |
+| 最近 100 篇统计 | 展示最近测试的 100 篇改写结果的平均分、等级分布、短板维度排行 |
+| 记录查询 | 分页查看历史评估记录与明细 |
+
+**后端 API**（路由前缀 /api/v1/quality-eval，需管理员认证）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /evaluate | 单篇评估并落库 |
+| GET | /records?limit=N | 最近 N 条评估记录 |
+| GET | /stats?limit=100 | 最近 N 篇平均分/等级分布统计 |
+
+**数据存储**：SQLite 表 quality_eval_records，字段包含 content/original_content/title/platform/style、
+overall_score/grade 及各维度分数字段、created_at。
+
+### 13.6 校验与测试
+
+- 单篇内容 <20 字：返回 400「内容过短」
+- 未登录：返回 401
+- 无 LLM API Key：改写接口返回 400 友好中文提示（评估接口本身不依赖 LLM，可独立使用）
+- 回归测试：ops-center/backend/tests/test_quality_eval_api.py（导入路径修复、评估/统计/记录全链路、短内容 400、未认证 401）
