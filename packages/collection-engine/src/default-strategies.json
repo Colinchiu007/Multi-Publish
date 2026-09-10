@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "platforms": {
+    "wechat_mp": {
+      "riskLevel": "low",
+      "dailyBudget": 100,
+      "interval": { "min": 3000, "max": 10000 },
+      "activeHours": { "start": 7, "end": 23 },
+      "weekendFactor": 0.8,
+      "backoff": { "baseMs": 30000, "maxMs": 900000, "factor": 2 },
+      "circuitBreaker": { "failureThreshold": 3, "cooldownMs": 900000, "halfOpenMaxRequests": 1 },
+      "fetcher": { "primary": "http", "fallback": "electron" },
+      "needsLogin": false,
+      "warmup": false,
+      "behaviorIntensity": "light"
+    },
+    "zhihu": {
+      "riskLevel": "high",
+      "dailyBudget": 100,
+      "interval": { "min": 10000, "max": 40000 },
+      "activeHours": { "start": 8, "end": 22 },
+      "weekendFactor": 0.5,
+      "backoff": { "baseMs": 60000, "maxMs": 3600000, "factor": 2 },
+      "circuitBreaker": { "failureThreshold": 3, "cooldownMs": 1800000, "halfOpenMaxRequests": 1 },
+      "fetcher": { "primary": "electron", "fallback": "stealthy" },
+      "needsLogin": true,
+      "warmup": true,
+      "behaviorIntensity": "heavy"
+    },
+    "bilibili": {
+      "riskLevel": "medium",
+      "dailyBudget": 100,
+      "interval": { "min": 5000, "max": 20000 },
+      "activeHours": { "start": 8, "end": 23 },
+      "weekendFactor": 0.7,
+      "backoff": { "baseMs": 45000, "maxMs": 1800000, "factor": 2 },
+      "circuitBreaker": { "failureThreshold": 3, "cooldownMs": 1200000, "halfOpenMaxRequests": 1 },
+      "fetcher": { "primary": "http", "fallback": "electron" },
+      "needsLogin": false,
+      "warmup": false,
+      "behaviorIntensity": "light"
+    },
+    "xiaohongshu": {
+      "riskLevel": "extreme",
+      "dailyBudget": 20,
+      "interval": { "min": 30000, "max": 60000 },
+      "activeHours": { "start": 9, "end": 21 },
+      "weekendFactor": 0.4,
+      "backoff": { "baseMs": 120000, "maxMs": 7200000, "factor": 2 },
+      "circuitBreaker": { "failureThreshold": 2, "cooldownMs": 3600000, "halfOpenMaxRequests": 1 },
+      "fetcher": { "primary": "electron", "fallback": "stealthy" },
+      "needsLogin": true,
+      "warmup": true,
+      "behaviorIntensity": "heavy"
+    },
+    "douyin": {
+      "riskLevel": "extreme",
+      "dailyBudget": 20,
+      "interval": { "min": 30000, "max": 90000 },
+      "activeHours": { "start": 9, "end": 22 },
+      "weekendFactor": 0.5,
+      "backoff": { "baseMs": 120000, "maxMs": 7200000, "factor": 2 },
+      "circuitBreaker": { "failureThreshold": 2, "cooldownMs": 3600000, "halfOpenMaxRequests": 1 },
+      "fetcher": { "primary": "electron", "fallback": "stealthy" },
+      "needsLogin": true,
+      "warmup": true,
+      "behaviorIntensity": "heavy"
+    }
+  },
+  "defaults": {
+    "riskLevel": "medium",
+    "dailyBudget": 100,
+    "interval": { "min": 8000, "max": 25000 },
+    "activeHours": { "start": 8, "end": 22 },
+    "weekendFactor": 0.6,
+    "backoff": { "baseMs": 60000, "maxMs": 3600000, "factor": 2 },
+    "circuitBreaker": { "failureThreshold": 3, "cooldownMs": 1800000, "halfOpenMaxRequests": 1 },
+    "fetcher": { "primary": "http", "fallback": "electron" },
+    "needsLogin": false,
+    "warmup": false,
+    "behaviorIntensity": "light"
+  }
+}

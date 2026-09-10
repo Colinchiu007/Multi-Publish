@@ -1,0 +1,13 @@
+{
+  "name": "@multi-publish/collection-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "防封采集引擎 — 八层防护体系核心",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.9"
+  }
+}
