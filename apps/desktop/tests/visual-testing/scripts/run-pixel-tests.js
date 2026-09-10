@@ -26,7 +26,7 @@ const pixelTests = [
   { name: 'create-history', route: '/create/history', expectedRoute: '/create?view=history', waitFor: '.history-status-tabs' },
   { name: 'intelligence', route: '/intelligence', waitFor: '.cohere-main .page-title:has-text("内容情报")' },
   { name: 'keyword-monitor', route: '/keywords', waitFor: '.cohere-main .page-title:has-text("关键词监测")' },
-  { name: 'collection', route: '/collection', waitFor: '.cohere-main .page-title:has-text("内容采集")' },
+  { name: 'collection', route: '/collection', waitFor: '.cohere-main .collection-tab-btn.active' },
 ];
 
 function createRunner(options = {}) {

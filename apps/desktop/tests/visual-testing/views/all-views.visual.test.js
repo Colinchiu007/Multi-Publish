@@ -44,7 +44,7 @@ const viewTests = [
   ),
   routeView('accounts-list', '/accounts', '.yixiaoer-workspace .accounts-page'),
   routeView('dashboard', '/dashboard', '.cohere-main .page-title:has-text("数据看板")'),
-  routeView('collection', '/collection', '.cohere-main .page-title:has-text("内容采集")'),
+  routeView('collection', '/collection', '.cohere-main .collection-tab-btn.active'),
   routeView('monitor-dashboard', '/monitor', '.cohere-main .page-title:has-text("分屏监控")'),
   routeView('keyword-monitor', '/keywords', '.cohere-main .page-title:has-text("关键词监测")'),
   routeView('viral-analysis', '/viral-analysis', '.cohere-main .page-title:has-text("爆款分析")'),
