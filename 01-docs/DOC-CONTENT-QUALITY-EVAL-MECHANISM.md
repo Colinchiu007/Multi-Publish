@@ -702,3 +702,54 @@ AI 模板样本平均：59.63
 | 单篇综合分 | ≥60 | 低于 60 建议重新改写 |
 | N/A 率（克隆差异度无原文比例） | 观察项 | 异常升高说明改写入口普遍未传原文 |
 | 离线校准集 | 人工≥70/AI≤62/区分度≥8 | 权重/词表调整后必须重跑 |
+
+### 13.5 真实 LLM 改写验收（首轮，2026-09-10）
+
+> 本节首次以**真实 LLM 改写链路**产出样本并评分，替代此前「无可用凭据」的推断。
+> 凭据来源：运行中桌面应用（mp-start-app2 worktree，user-data-dir
+> `D:/tmp/Multi-Publish-debug-profile-mp-start`）内已配置的 `sensenova-llm`
+> （模型 `deepseek-v4-flash`，OpenAI 兼容，经 Electron safeStorage 加密存储、由应用进程解密）。
+
+**方法**：取 20 篇贴近平台日常的短文语料（微博/小红书/抖音/知乎/B站/微信公众号各若干），
+经运行中应用的 `aiGenerate('llm','sensenova-llm',...)` 按各平台改写策略真实生成改写文本，
+再以 `ContentQualityEvaluator` 按各篇对应平台评分（克隆模式提供原文）。
+
+**结果**：
+
+```text
+样本数：20
+平均分：69.5（达标线 70，未达标）
+低于 70 篇数：10 / 20
+```
+
+**15 维平均分（升序）**：
+
+```text
+emotional_resonance  53.4
+call_to_action       55.4
+originality          57.8
+brand_consistency    60.0
+information_density  61.1
+platform_fitness     61.2
+structure            62.3
+viral_potential      62.7
+engagement           64.0
+clone_divergence     64.8
+keyword_density      67.8
+human_likeness       74.2
+logic                74.7
+readability          80.5
+compliance           97.8
+```
+
+**结论与边界**：
+
+- 低于 70 的 10 篇全部是**短文本**（微博/抖音/微信公众号短文），共性短板集中在
+  `call_to_action`（55.4）、`emotional_resonance`（53.4）、`originality`（57.8）、
+  `brand_consistency`（60.0）——短文缺少标题/平台关键词/情感词/观点标记等证据，
+  这些维度天然偏低。
+- 这是**评估器对短文的度量偏差**与**改写产出真实质量**交织的结果，需进一步
+  区分二者：先确认短文在「平台适配/趣味/去AI味/易读性」等短文应占优的维度是否
+  被正确认可，再决定是校准评估器还是优化改写策略。
+- 首轮 20 篇为小样本探针，不等同于最终「最近 100 篇」达标结论；达标判定仍以
+  运营中心 `quality_eval_records` 最近 100 篇为准（见 13.2 数据来源边界）。
