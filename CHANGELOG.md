@@ -13,13 +13,18 @@
 
 ## [未发布] fix(quality-eval): 改写引擎平台字段透传（v1.4，2026-09-10）
 
+## [未发布] feat(desktop): 泛化 OpenAI 兼容 LLM Adapter 兜底（2026-09-10）
+
+### 新增
+- `ModelProviderManager._resolveAdapterFactory(provider)`：统一解析 Adapter 工厂，取代 `callAdapter` / `_getOrCreateAdapter` / `supportsAdapterMethod` / `testConnection` 四处直接调用 `adapterRegistry.getFactory()` 的旧逻辑。
+- 泛化兜底：未注册专用工厂时，若 `category === 'llm'` 且 `base_url` 非空，自动回退到 `OpenAICompatibleAdapter`。运营中心目录同步下发的任意 OpenAI 兼容 LLM 服务商（如天翼云 Coding Plan）无需再改桌面端代码即可设默认、调用、测试连接。
+
 ### 修复
-- AggregationService.rewrite() 评估时硬编码 platform=通用，导致改写引擎侧 quality_report 的平台适配/CTA 等维度与真实目标平台错位。修复为 RewriteRequest/RewriteResult 新增 platform 字段（默认「通用」），并透传 request.platform 给 ContentQualityEvaluator。
+- 此前运营中心下发的新 LLM 服务商若未在桌面端补专用 Adapter，设默认后调用返回 `ADAPTER_NOT_FOUND` 而不可用。兜底仅覆盖 llm 类别；TTS/语音/图片/视频/多模态仍走专用 Adapter，未注册时 fail-closed。
 
 ### 验证
-- 新增回归测试 3 个：RewriteRequest 默认 platform、接受 platform、rewrite() 不得硬编码 platform（inspect 源码断言）。
-- packages/python-backend: pytest tests/test_aggregation.py tests/test_models.py 59 passed。
-- 实测同一篇内容 platform_fitness 随平台变化（小红书 58 / 微博 63 / 知乎 55 / 通用 60），平台适配维度已按真实目标平台评分。
+- `model-provider-call-adapter.test.js` 45/45（新增 2 用例：llm+base_url 泛化兜底生效、llm 无 base_url 仍 fail-closed；修复 1 个旧 ADAPTER_NOT_FOUND 用例改为非 llm provider）。
+- `model-provider-multimodal` / `model-provider-preset-integration` / `tianyiyun-coding-plan` 36/36 通过。
 
 ## [未发布] feat(quality-eval): 内容质量评估短文度量校准 v1.2/v1.3（2026-09-10）
 
@@ -34,20 +39,6 @@
 
 ### 待办（单列，不在本 change 内）
 - 改写引擎侧：AggregationService.rewrite() 评估硬编码 platform=通用；short_video 策略抖音改写混入导演脚本标记；quality_report 不自动写入运营中心记录库。详见 DOC-CONTENT-QUALITY-EVAL-MECHANISM.md §13.8。
-
-## [未发布] fix(desktop+backend): 百家号反爬安全验证页拦截 — 防误报采集成功（2026-09-10）
-
-### 根因
-- Python 后端 trafilatura 直接 HTTP 请求百家号时被百度反爬拦截，返回"百度安全验证"页面（标题="百度安全验证"、正文="网络不给力，请稍后重试"），后端将其误认为成功结果返回前端。
-
-### 修复
-- **后端 `aggregation/service.py`**：HTML <3000 字节 + 含"安全验证"/"百度安全"/"网络不给力" → raise ValueError（触发 IPC 错误码 → 前端回退 Node 端 stealth 浏览器）
-- **前端 `Collection.vue`**：`isSecurityChallenge()` — 标题含"安全验证"/"百度安全"/"百度安全检测" 或正文极短且含提示语 → 回退 `urlCollectFetch`
-
-### 验证
-- 后端单测：`test_collect_url_rejects_security_challenge_page`（monkeypatch trafilatura → pytest.raises ValueError）
-- 前端单测：40/40 通过（新增"反爬安全验证页 → 回退 urlCollectFetch 而非误报成功"）
-- E2E：Node 端 stealth 浏览器重采成功（标题正确、2185 字正文）
 ## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
 
 ### 新增
@@ -110,19 +101,18 @@
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
 
-## [未发布] fix(desktop+backend): 百家号反爬安全验证页拦截 — 防误报采集成功（2026-09-10）
+## [未发布] feat(desktop): 泛化 OpenAI 兼容 LLM Adapter 兜底（2026-09-10）
 
-### 根因
-- Python 后端 trafilatura 直接 HTTP 请求百家号时被百度反爬拦截，返回"百度安全验证"页面（标题="百度安全验证"、正文="网络不给力，请稍后重试"），后端将其误认为成功结果返回前端。
+### 新增
+- `ModelProviderManager._resolveAdapterFactory(provider)`：统一解析 Adapter 工厂，取代 `callAdapter` / `_getOrCreateAdapter` / `supportsAdapterMethod` / `testConnection` 四处直接调用 `adapterRegistry.getFactory()` 的旧逻辑。
+- 泛化兜底：未注册专用工厂时，若 `category === 'llm'` 且 `base_url` 非空，自动回退到 `OpenAICompatibleAdapter`。运营中心目录同步下发的任意 OpenAI 兼容 LLM 服务商（如天翼云 Coding Plan）无需再改桌面端代码即可设默认、调用、测试连接。
 
 ### 修复
-- **后端 `aggregation/service.py`**：HTML <3000 字节 + 含"安全验证"/"百度安全"/"网络不给力" → raise ValueError（触发 IPC 错误码 → 前端回退 Node 端 stealth 浏览器）
-- **前端 `Collection.vue`**：`isSecurityChallenge()` — 标题含"安全验证"/"百度安全"/"百度安全检测" 或正文极短且含提示语 → 回退 `urlCollectFetch`
+- 此前运营中心下发的新 LLM 服务商若未在桌面端补专用 Adapter，设默认后调用返回 `ADAPTER_NOT_FOUND` 而不可用。兜底仅覆盖 llm 类别；TTS/语音/图片/视频/多模态仍走专用 Adapter，未注册时 fail-closed。
 
 ### 验证
-- 后端单测：`test_collect_url_rejects_security_challenge_page`（monkeypatch trafilatura → pytest.raises ValueError）
-- 前端单测：40/40 通过（新增"反爬安全验证页 → 回退 urlCollectFetch 而非误报成功"）
-- E2E：Node 端 stealth 浏览器重采成功（标题正确、2185 字正文）
+- `model-provider-call-adapter.test.js` 45/45（新增 2 用例：llm+base_url 泛化兜底生效、llm 无 base_url 仍 fail-closed；修复 1 个旧 ADAPTER_NOT_FOUND 用例改为非 llm provider）。
+- `model-provider-multimodal` / `model-provider-preset-integration` / `tianyiyun-coding-plan` 36/36 通过。
 
 ## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
 
