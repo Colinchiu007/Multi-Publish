@@ -198,7 +198,7 @@ class WebviewManager extends EventEmitter {
     if (viewManager && self._authTabInfo.manager && self._authTabInfo.manager !== viewManager) return
 
     // 用户在登录期间可能已经主动切到另一个标签。此时仅移除虚拟登录标签，
-    // 不应以“恢复原标签”覆盖用户当前的显式选择。
+    // 不应以"恢复原标签"覆盖用户当前的显式选择。
     var authTabWasActive = self._activeTabId === AUTH_TAB_ID
     self._authTabInfo = null
     var prevTabId = self._authPrevTabId
@@ -206,15 +206,16 @@ class WebviewManager extends EventEmitter {
     self._broadcast('tab-closed', { tabId: AUTH_TAB_ID })
     if (!authTabWasActive) return
 
-    // 回退：优先恢复之前的浏览器标签，否则回到首页
+    // 回退：优先恢复之前的浏览器标签，否则回到首页（仅重置 activeTabId，不广播 tab-switched）
     if (prevTabId && self._tabViews.has(prevTabId)) {
       self.switchToTab(prevTabId)
     } else {
       self._hideAllTabs()
       self._activeTabId = self._homeTabId
-      self._broadcast('tab-switched', { tabId: self._homeTabId, url: '', title: '首页' })
     }
-  }
+
+
+
 
   /**
    * 获取虚拟登录标签信息（含活动状态）
