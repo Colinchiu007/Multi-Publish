@@ -72,6 +72,9 @@ function normalizeElectronCookie (cookie, fallbackUrl) {
   return normalized
 }
 
+// 固定首页标签 ID（对齐蚁小二：第 1 个标签永远是应用主页，不可关闭，不占用真实 WebContentsView）
+const HOME_TAB_ID = 'home'
+
 // 虚拟登录标签 ID（对齐蚁小二：登录页以全屏标签形式呈现在 TabBar 中）
 const AUTH_TAB_ID = 'auth-login'
 
@@ -91,8 +94,8 @@ class WebviewManager extends EventEmitter {
     this._tabViews = new Map()
     /** @type {Map<string, {url: string, title: string, loading: boolean, canGoBack: boolean, canGoForward: boolean}>} */
     this._tabStates = new Map()
-    this._activeTabId = null
-    this._homeTabId = null
+    this._activeTabId = HOME_TAB_ID
+    this._homeTabId = HOME_TAB_ID
     this._tabIdCounter = 0
     /** @type {Set<string>} */
     this._subscribers = new Set()
@@ -464,11 +467,6 @@ class WebviewManager extends EventEmitter {
       })
     self._activeTabId = tabId
 
-    // 如果是第一个标签页，设为 home
-    if (!self._homeTabId) {
-      self._homeTabId = tabId
-    }
-
     // 设置导航监听
     self._setupNav(tabId, view)
 
@@ -734,6 +732,18 @@ class WebviewManager extends EventEmitter {
   getActiveTab () {
     // 虚拟登录标签活动态
     if (this._activeTabId === AUTH_TAB_ID) return this._getAuthTab()
+    // Home tab：固定虚拟标签，不存在于 _tabStates
+    if (this._activeTabId === this._homeTabId) {
+      return {
+        tabId: this._homeTabId,
+        url: '',
+        title: '首页',
+        loading: false,
+        canGoBack: false,
+        canGoForward: false,
+        isHome: true
+      }
+    }
     if (!this._activeTabId || !this._tabStates.has(this._activeTabId)) return null
     var state = this._tabStates.get(this._activeTabId)
     return {
@@ -752,7 +762,19 @@ class WebviewManager extends EventEmitter {
    * @returns {Object|null}
    */
   getHomeTab () {
-    if (!this._homeTabId || !this._tabStates.has(this._homeTabId)) return null
+    if (!this._homeTabId) return null
+    // Home tab 是固定虚拟标签，无 WebContentsView，返回静态信息
+    if (this._homeTabId === HOME_TAB_ID) {
+      return {
+        tabId: this._homeTabId,
+        url: '',
+        title: '首页',
+        loading: false,
+        canGoBack: false,
+        canGoForward: false
+      }
+    }
+    if (!this._tabStates.has(this._homeTabId)) return null
     var state = this._tabStates.get(this._homeTabId)
     return {
       tabId: this._homeTabId,
@@ -1358,4 +1380,5 @@ class WebviewManager extends EventEmitter {
 }
 
 module.exports = WebviewManager
+module.exports.HOME_TAB_ID = HOME_TAB_ID
 module.exports.AUTH_TAB_ID = AUTH_TAB_ID

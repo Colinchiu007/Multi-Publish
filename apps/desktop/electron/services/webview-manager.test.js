@@ -567,3 +567,86 @@ describe('WebviewManager 浏览器标签标题隔离', () => {
     ])
   })
 })
+
+describe('WebviewManager 固定首页标签（回归保护）', () => {
+  it('构造后 _homeTabId 固定为 HOME_TAB_ID，创建浏览器标签不改变它', () => {
+    const { HOME_TAB_ID } = require('./webview-manager.js')
+    const wm = new WebviewManager()
+    expect(wm._homeTabId).toBe(HOME_TAB_ID)
+    expect(wm._activeTabId).toBe(HOME_TAB_ID)
+
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com', platform: 'douyin', title: '抖音' })
+    expect(wm._homeTabId).toBe(HOME_TAB_ID)
+    expect(wm._activeTabId).toBe(tabId)
+  })
+
+  it('getAllTabs 固定返回首页标签（isHome:true）且排在第一位', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.createNewTabPage({ url: 'https://creator.douyin.com', platform: 'douyin', title: '抖音' })
+    wm.createNewTabPage({ url: 'https://cp.kuaishou.com', platform: 'kuaishou', title: '快手' })
+
+    const all = wm.getAllTabs()
+    const homeTabs = all.filter(t => t.isHome)
+    expect(homeTabs).toHaveLength(1)
+    expect(homeTabs[0].tabId).toBe('home')
+    expect(homeTabs[0].title).toBe('首页')
+    expect(all[0].isHome).toBe(true)
+    expect(all.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('关闭首页标签返回 false（不可关闭）', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    expect(wm.closeTab('home')).toBe(false)
+  })
+
+  it('closeAll 后回退到首页', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.createNewTabPage({ url: 'https://creator.douyin.com' })
+
+    wm.closeAll()
+
+    expect(wm._activeTabId).toBe('home')
+  })
+
+  it('从浏览器标签切换到首页 → 隐藏 WebContentsView 并广播', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const result = wm.switchToTab('home')
+
+    expect(result).toBe(true)
+    expect(view.setVisible).toHaveBeenLastCalledWith(false)
+    expect(wm._activeTabId).toBe('home')
+    const sends = wm.mainWindow.webContents.send.mock.calls.map(c => c[0])
+    expect(sends).toContain('page-manager:tab-switched')
+  })
+
+  it('getActiveTab 在首页活动态时返回虚拟首页信息', () => {
+    const { wm } = createManagerWithBrowserTab()
+    wm.switchToTab('home')
+
+    const active = wm.getActiveTab()
+    expect(active).toMatchObject({
+      tabId: 'home',
+      title: '首页',
+      isHome: true
+    })
+  })
+
+  it('getHomeTab 固定返回静态首页信息（无 _tabStates 记录）', () => {
+    const { wm } = createManagerWithBrowserTab()
+
+    const home = wm.getHomeTab()
+
+    expect(home).toMatchObject({
+      tabId: 'home',
+      title: '首页',
+      loading: false
+    })
+  })
+})
