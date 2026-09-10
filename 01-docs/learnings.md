@@ -14511,3 +14511,49 @@ commit `c0e9fb126`（feat: 视频创作历史记录下载视频）引入了 `dow
 - pitfall: 浏览器标签 WebContentsView 未注册 `setWindowOpenHandler`，平台创作者中心内的 `target=_blank`/`window.open` 走 Electron 默认行为弹出独立 BrowserWindow。对照蚁小二逆向代码（`index.cjs:120753-120793`）确认应拦截 `foreground-tab`/`background-tab`/`default`/`other` 并在当前 tab 内 `loadURL`。
 - pattern: 逆向工程对齐时，先读目标软件主进程的 `setWindowOpenHandler` disposition 分支，再决定 deny + 本页导航 还是 allow 新窗口；本页导航必须做 http/https 协议白名单校验，避免 file:// 等被当前 tab 加载。
 - pattern: CI「文档同步检查」要求代码变更同步 PRD，且要求对应版本表 + 数据校验/合同段落；修复契约违背类 bug 时，PRD 中既有契约文字（Home tab 固定 'home'）即为回归断言依据，补「修复」小节而非改写既有合同。
+
+## 2026-09-10 新建浏览器标签后页面按钮无响应 — 前端路由守卫补漏（PR #1649，PR #1641 补充） — _homeTabId 被错误覆盖（PR #1649）
+
+### 现象
+
+点击标签栏「+」建浏览器标签后，点侧边栏「采集」进入采集页，URL 正文提取输入框和所有按钮无法点击。
+
+### 根因
+
+commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `createNewTabPage` 中把首个浏览器标签（`btab-1`）设为 `_homeTabId`（覆盖固定值 `'home'`）。此后：
+1. 前端始终以 `'home'` 标识 SPA 首页标签，`switchToTab('home')` 进入主进程时 `_tabViews` 无 `'home'`（已被 `btab-1` 覆盖）→ 返回 false → 浏览器 WebContentsView 永不隐藏，盖在 router-view 之上拦截所有鼠标事件
+2. 侧边栏用 `router-link` 直接改 Vue 路由，不走标签切换，采集页的 router-view 一直在 WebContentsView 下方
+
+### 逃逸分析
+
+1. **单元测试（现有 24 个 webview-manager.test.js）**：所有测试在 `createManagerWithBrowserTab` 中显式设置 `wm._homeTabId = 'home'`，覆盖了真实构造流程。因此「`_homeTabId` 被浏览器标签覆盖」这一行为路径在整个测试套件中从未被触发。
+2. **集成测试（无相关覆盖）**：没有跨主进程/渲染进程的标签创建+侧边栏导航 E2E 测试。
+3. **代码审查**：`_homeTabId` 的覆盖逻辑（L467-469）仅 3 行，审查时未注意到它与前端 `tabStore` 中 `tabId: 'home'` 之间的语义不一致。
+
+### 系统性漏洞
+
+**WebContentsView 可见性管理缺乏守护**：`switchToTab` 返回 false 时前端无任何反馈，用户完全不知道 WebContentsView 仍然盖在页面上。系统应：① 在 `_repositionAll` 中增加只有活动标签才 setVisible(true) 的重入检查；② 前端 `switchToTab` 返回失败时 notification 提示用户。
+
+### 修复
+
+| 文件 | 变更 |
+|------|------|
+| `webview-manager.js` | `_homeTabId` 构造时固定为 `HOME_TAB_ID('home')`，删除 `createNewTabPage` 覆盖逻辑；补 `getActiveTab`/`getHomeTab` 虚拟首页标签支持 |
+| `App.vue` | 新增 `router.beforeEach` 守卫，SPA 内部导航自动切回首页标签隐藏 WebContentsView |
+| `webview-manager.test.js` | 新增 7 个回归测试，覆盖构造后 `_homeTabId` 不变、`getAllTabs` 含首页、`closeTab('home')` 保护等场景 |
+
+### 回归保护测试
+
+- `webview-manager.test.js`「固定首页标签（回归保护）」7 个新测试覆盖：
+  - 构造后 `_homeTabId` = `HOME_TAB_ID`，创建浏览器标签不改变
+  - `getAllTabs` 固定返回首页标签（`isHome:true`）且排第一位
+  - 关闭首页标签返回 false（不可关闭）
+  - `closeAll` 后回退到首页
+  - 从浏览器标签切换到首页时 `setVisible(false)` 被调用
+  - `getActiveTab` 在首页活动态返回虚拟首页信息
+  - `getHomeTab` 固定返回静态首页信息（无 `_tabStates` 记录）
+
+### 预防措施
+
+- **R93**：`_homeTabId` 等固定 ID 常量必须用 `const HOME_TAB_ID = 'home'` 集中声明，构造时赋值，禁止任何方法修改；测试 mock 必须以真实构造路径初始化，不能绕过构造器直接赋值
+- 建议后续补 E2E：创建标签 → 侧边栏导航 → 断言 router-view 在 DOM 中的 z-index 正确排序
