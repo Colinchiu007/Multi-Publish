@@ -2,7 +2,10 @@
   <div>
     <div class="cohere-page-header">
       <div>
-        <div class="page-title">内容采集</div>
+        <div class="collection-tabs" role="tablist">
+          <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
+          <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
+        </div>
         <div class="page-subtitle">从各平台采集内容，或快速创建草稿</div>
       </div>
       <div class="page-actions">
@@ -11,7 +14,7 @@
       </div>
     </div>
 
-    <div class="cohere-content">
+    <div v-if="activeTab === 'collect'" class="cohere-content">
       <!-- URL 采集输入 -->
       <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
         <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
@@ -218,6 +221,41 @@
         </div>
       </div>
     </div>
+
+    <!-- 采集记录标签页 -->
+    <div v-else class="cohere-content" role="tabpanel" aria-label="采集记录">
+      <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>{{ $t('collection.recordsTitle') }}（{{ collectedItems.length }} 篇）</span>
+        <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" :disabled="collectedItems.length === 0" @click="clearAllRecords">
+          {{ $t('collection.recordsClearAll') }}
+        </button>
+      </div>
+      <EmptyState
+        v-if="collectedItems.length === 0"
+        icon="📰"
+        :title="$t('collection.recordsEmptyTitle')"
+        :description="$t('collection.recordsEmptyDesc')"
+      />
+      <div v-else class="cohere-card-grid">
+        <div v-for="item in collectedItems" :key="item.id" class="cohere-card collection-record-card" role="button" tabindex="0" @click="openRecordForEdit(item)" @keyup.enter="openRecordForEdit(item)">
+          <div class="card-top">
+            <div class="card-icon">📰</div>
+            <div class="card-info">
+              <div class="card-platform">{{ item.title || $t('collection.recordsUntitled') }}</div>
+              <div class="card-account">{{ formatRecordSource(item) }} · {{ formatRecordWordCount(item) }} · {{ formatRecordTime(item) }}</div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button @click.stop="openRecordForEdit(item)">{{ $t('collection.recordsEdit') }}</button>
+            <button @click.stop="createFromItem(item)">{{ $t('collection.recordsCreateDraft') }}</button>
+            <button @click.stop="sendItemToPipeline(item)">{{ $t('collection.recordsToVideo') }}</button>
+            <button @click.stop="goPublishFromItem(item)">{{ $t('collection.recordsPublish') }}</button>
+            <button class="danger" @click.stop="deleteRecord(item)">{{ $t('collection.recordsDelete') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 去发布弹窗 -->
     <PublishDestinationModal
       v-if="showPublishModal"
@@ -257,6 +295,7 @@ const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
 const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
 const collectSourceType = ref('url')
+const activeTab = ref('collect')  // 标签页: 'collect' | 'records'
 const collectSources = ref([
   { type: 'url', name: 'URL 正文提取' },
   { type: 'rss', name: 'RSS 订阅源' },
@@ -292,7 +331,8 @@ const rewriteLengths = [
 ]
 
 onMounted(async () => {
-  await loadDrafts()
+  await loadDrafts();
+  await loadCollectedItems()
 })
 
 onUnmounted(() => {
@@ -418,6 +458,7 @@ async function collectUrl () {
         collectedResult.value = item
         addedToViral.value = false
         collectedItems.value.unshift(item)
+        saveCollectedItems()
         notifySuccess('collection.collectSuccess')
         return
       }
@@ -437,6 +478,7 @@ async function collectUrl () {
       collectedResult.value = item
       addedToViral.value = false
       collectedItems.value.unshift(item)
+      saveCollectedItems()
       notifySuccess('collection.collectSuccess')
       return
     }
@@ -509,6 +551,7 @@ async function collectAndRewrite () {
     collectedResult.value = item
     addedToViral.value = false
     collectedItems.value.unshift(item)
+    saveCollectedItems()
     notifySuccess('collection.collectSuccess')
     // Step 2: 自动改写
     rewriting.value = true
@@ -683,6 +726,80 @@ function goPublishFromItem (item) {
   router.push('/publish?draft=' + draft.id)
 }
 
+// ─── 采集记录标签页 ──────────────────────────────────────
+
+// 采集记录持久化键名（与草稿箱分开存储）
+const COLLECTED_ITEMS_KEY = 'collected_items'
+
+async function loadCollectedItems () {
+  const raw = await storeGetSetting(COLLECTED_ITEMS_KEY)
+  if (raw == null) return
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    collectedItems.value = Array.isArray(parsed) ? parsed : []
+  } catch {
+    collectedItems.value = []
+  }
+}
+
+async function saveCollectedItems () {
+  await storeSetSetting(COLLECTED_ITEMS_KEY, JSON.stringify(collectedItems.value))
+}
+
+function switchTab (tab) {
+  if (tab !== 'collect' && tab !== 'records') return
+  activeTab.value = tab
+}
+
+// 点击采集记录，创建草稿并进入内容编辑页
+function openRecordForEdit (item) {
+  if (!item || !item.id) return
+  const draft = getDraftFromItem(item)
+  drafts.value.unshift(draft)
+  saveDrafts()
+  notifySuccess('collection.recordsEditCreated')
+  router.push('/publish?draft=' + draft.id)
+}
+
+async function deleteRecord (item) {
+  const confirmed = await notifyConfirm('collection.recordsDeleteConfirm', { title: resolveNotifyText('collection.confirmTitle').text })
+  if (!confirmed) return
+  collectedItems.value = collectedItems.value.filter(x => x.id !== item.id)
+  if (collectedResult.value && collectedResult.value.id === item.id) {
+    collectedResult.value = null
+    rewriteResult.value = ''
+  }
+  await saveCollectedItems()
+  notifySuccess('collection.recordsDeleted')
+}
+
+async function clearAllRecords () {
+  const confirmed = await notifyConfirm('collection.recordsClearAllConfirm', { title: resolveNotifyText('collection.confirmTitle').text })
+  if (!confirmed) return
+  collectedItems.value = []
+  collectedResult.value = null
+  rewriteResult.value = ''
+  await saveCollectedItems()
+  notifySuccess('collection.recordsCleared')
+}
+
+function formatRecordSource (item) {
+  const map = { url: 'URL', rss: 'RSS', sitemap: 'Sitemap', api: 'API', batch: 'batch' }
+  const s = item.source || 'url'
+  return map[s] || s
+}
+
+function formatRecordWordCount (item) {
+  const wc = item.wordCount || (item.content || '').length
+  return resolveNotifyText('collection.recordsWordCount', { count: wc }).text
+}
+
+function formatRecordTime (item) {
+  if (item.createdAt) return item.createdAt
+  if (item.collectedAt) return item.collectedAt
+  return item.created_at || ''
+}
+
 // ─── 批量采集 ─────────────────────────────────────────────
 
 async function collectBatch (sourceType) {
@@ -764,9 +881,10 @@ function startBatchPolling () {
             description: (item.content || '').slice(0, 120),
             source: 'batch',
             sourceUrl: item.source_url || item.sourceUrl || '',
-            wordCount: item.word_count || 0,
+          wordCount: item.word_count || 0,
           })
         })
+        saveCollectedItems()
         notifySuccess('collection.batchSuccess', { params: { count: items.length } })
         stopBatchPolling()
       } else if (status === 'failed' || status === 'error') {
@@ -832,4 +950,44 @@ function cancelBatchCollect () {
   .rewrite-compare { grid-template-columns: 1fr; }
 }
 .o-disabled { opacity: 0.55; pointer-events: none; }
+
+.collection-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  background: var(--soft-stone, #f5f5f5);
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+}
+.collection-tab-btn {
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  transition: all 0.2s;
+}
+.collection-tab-btn:hover {
+  color: var(--text-primary, #333);
+}
+.collection-tab-btn.active {
+  background: #fff;
+  color: var(--primary, #ea580c);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.collection-record-card { cursor: pointer; transition: box-shadow 0.2s; }
+.collection-record-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.collection-record-card:focus-visible { outline: 2px solid var(--primary, #ea580c); outline-offset: 2px; }
+
+.collection-record-card .card-actions button.danger {
+  color: #d32f2f;
+}
+.collection-record-card .card-actions button.danger:hover {
+  background: #fde8e8;
+}
 </style>
