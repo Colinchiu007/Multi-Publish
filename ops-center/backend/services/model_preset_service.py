@@ -121,6 +121,7 @@ OFFICIAL_MODELS_URLS = {
     "agnes-image": "https://apihub.agnes-ai.com/v1/models",
     "agnes-video": "https://apihub.agnes-ai.com/v1/models",
     "sensenova-llm": "https://token.sensenova.cn/v1/models",
+    "tianyiyun-coding-plan": "https://eaichat.ctyun.cn/ai/platform/v2/cp/models",
     "cogvideo": "https://open.bigmodel.cn/api/paas/v4/models",
     "minimax-tts": "https://api.minimaxi.com/v1/models",
     "minimax-image": "https://api.minimaxi.com/v1/models",
@@ -234,6 +235,14 @@ PRESET_CATALOG = [
         "models": ["deepseek-v4-flash"], "default_model": "deepseek-v4-flash",
         "rate_per_minute": 30,
         "doc_links": ["https://platform.sensenova.cn/"],
+    },
+    {
+        "id": "tianyiyun-coding-plan", "name": "天翼云 Coding Plan", "category": "llm",
+        "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
+        "models_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp/models",
+        "models": ["deepseek-v4-flash-0731-oc"], "default_model": "deepseek-v4-flash-0731-oc",
+        "rate_per_minute": 30,
+        "doc_links": ["https://www.ctyun.cn/document/"],
     },
     # ─── TTS 语音 ─────────────────────────────
     {
