@@ -4836,6 +4836,28 @@ Task Queue → 各平台发布器 → 发布完成
 - 流水线记录空态："暂无流水线运行记录" + "选择创作模式开始流水线，运行记录将在这里显示"
 - URL 搜索栏 placeholder："搜索或输入网址"
 - 标签页 title："新标签页"（about:blank）或 hostname
+
+### 18.2.4 2026-09-10 首页标签固定 + window.open 本页导航
+
+**问题**：
+1. 首页标签被第一个浏览器标签错误污染：`createNewTabPage` 将首个浏览器 WebContentsView 设为 `_homeTabId`，导致第 2+ 个平台的内容（如百家号）覆盖首页标签、点击首页标签却切回 Vue router-view
+2. 平台创作者中心内点击链接（如头条号个人中心）弹出独立 BrowserWindow，不符合蚁小二「本页打开」行为
+
+**修复**：
+
+| 变更 | 文件 | 说明 |
+|------|------|------|
+| 首页标签固化 | `webview-manager.js` | `_homeTabId` 构造时固定为 HOME_TAB_ID ('home')，不再随浏览器标签创建变化；`createNewTabPage` 移除"第一个标签设为 home"逻辑；`getActiveTab`/`getHomeTab` 增加固定虚拟首页标签路径 |
+| window.open 拦截 | `webview-manager.js` `_setupNav` | 每个浏览器标签注册 `setWindowOpenHandler`：对 `foreground-tab`/`background-tab`/`default`/`other` disposition 执行 `deny` + 当前 tab 内 `navigateTab`；仅允许 http/https 协议；拒绝无效 URL 和非 http 协议 |
+| 常量导出 | `webview-manager.js` | 新增导出 `HOME_TAB_ID` |
+| 回归测试 | `webview-manager.test.js` | +8 用例：固定首页标签不变 + getAllTabs 首页首位 + 关闭首页拒绝 + closeAll 回退首页 + getActiveTab 首页 + window.open 拦截本页导航 + 拒绝非 http 协议 + 拒绝无效 URL |
+
+**数据校验/合同（不变，仅硬化实现）**：
+- Home tab tabId 固定为 'home'，无 WebContentsView，closeTab 返回 false
+- getAllTabs 始终在列表首位包含 `{tabId:'home', title:'首页', isHome:true}`
+- window.open 拦截仅在 tab 内导航 http/https URL；`new-window` disposition 仍拒绝（保持默认行为）
+- 与蚁小二逆向代码 (`index.cjs:120753-120793`) 对齐：普通 tab 内 target=_blank/前景标签默认在当前 tab 内 loadURL
+
 ### 18.3 设计与代码分层
 
 ```text
@@ -4902,6 +4924,7 @@ Vue 展示组件
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
+| v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐蚁小二）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
 | v2.3.60 | 2026-08-27 | 桌面端会员中心页面（账号 / 版本许可证 / 会员权益 / 资源配额 / 关于）+ 左上角头像账号入口（未登录直接弹登录、已登录弹菜单、disabled fail-closed）、「更多」菜单与身份菜单新增会员中心入口、entitlement.quota 透传修复、视觉门禁与 CJK 基线同步 |
 | v2.3.59 | 2026-08-27 | 双默认模型 ID（运营预设 default_model + 用户自选 user_default_model）：桌面端供应商「默认模型」下拉选择（模型列表只读，唯一维护入口运营中心）、resolveProviderDefaultModel 全链路接线、ops-center 种子自动 fetch + 批量获取模型 ID、7.4.5.5 定稿 |
 | v2.3.58 | 2026-08-27 | 模型默认选择逻辑分工（供应商级默认 vs 模型 ID 默认）需求登记：桌面端只选预设供应商（is_default / capability_defaults），运营后台 default_model 为调用默认模型 ID 权威来源，需接线 llmModelFor 优先消费 config.default_model |

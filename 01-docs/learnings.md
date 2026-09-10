@@ -14505,3 +14505,9 @@ commit `c0e9fb126`（feat: 视频创作历史记录下载视频）引入了 `dow
 - pitfall: 上游 CI 提交改 workflow 逻辑但不同步对应 `*.test.js` 断言，会留下「工作流绿、测试红」的假阴性（如 autonomous-loop.yml 降级逻辑变更后 autonomous-loop-workflow.test.js 期望值未更新）。改 workflow 语义必须成对更新其 contract 测试。
 - pitfall: 合并引入大量新硬编码中文（aggregation 新文件）而未 `--update-baseline`，`locale-sync --cjk` 按 file:line 存基线、行号偏移即全量 fresh 假阳性。纯行号偏移/存量债务用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 吸收，禁止掩盖真正新增的用户可见硬编码。
 - pattern: 重复去重规则优先级：platform_account_id 强标识（双方都有）> name 弱标识（双方都无，或一方缺失时兜底）> 放行。
+
+## 2026-09-10 首页标签被浏览器标签污染 + window.open 本页导航（PR #1641）
+- pitfall: 「固定首页标签」语义被 `createNewTabPage` 的「首个浏览器标签设为 home」破坏——第一个创作者中心标签被标记为 `_homeTabId`，导致后续平台内容显示在首页标签上、点击首页却切回 Vue router-view。任何「固定虚拟标签」设计都必须用独立常量 ID 构造时固化，绝不能与动态创建的实体共享身份。
+- pitfall: 浏览器标签 WebContentsView 未注册 `setWindowOpenHandler`，平台创作者中心内的 `target=_blank`/`window.open` 走 Electron 默认行为弹出独立 BrowserWindow。对照蚁小二逆向代码（`index.cjs:120753-120793`）确认应拦截 `foreground-tab`/`background-tab`/`default`/`other` 并在当前 tab 内 `loadURL`。
+- pattern: 逆向工程对齐时，先读目标软件主进程的 `setWindowOpenHandler` disposition 分支，再决定 deny + 本页导航 还是 allow 新窗口；本页导航必须做 http/https 协议白名单校验，避免 file:// 等被当前 tab 加载。
+- pattern: CI「文档同步检查」要求代码变更同步 PRD，且要求对应版本表 + 数据校验/合同段落；修复契约违背类 bug 时，PRD 中既有契约文字（Home tab 固定 'home'）即为回归断言依据，补「修复」小节而非改写既有合同。
