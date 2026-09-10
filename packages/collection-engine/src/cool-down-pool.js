@@ -77,12 +77,7 @@ class CoolDownPool {
   isBanned (type, id) {
     const entry = this._entries.get(this._key(type, id))
     if (!entry) return false
-    if (this._now() >= entry.expiresAt) {
-      this._entries.delete(this._key(type, id))
-      this._persist()
-      return false
-    }
-    return true
+    return this._now() < entry.expiresAt
   }
 
   unban (type, id) {

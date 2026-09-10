@@ -26,39 +26,49 @@ class CircuitBreaker {
     return platform + ':' + accountId
   }
 
-  _entry (key) {
+  _entry (key, config = {}) {
     if (!this._states.has(key)) {
       this._states.set(key, {
         state: STATE.CLOSED,
         failures: 0,
         openedAt: 0,
         halfOpenTries: 0,
+        halfOpenMax: config.halfOpenMaxRequests ?? 1,
+        cooldownMs: config.cooldownMs ?? 1800000,
       })
     }
-    return this._states.get(key)
+    const e = this._states.get(key)
+    if (config.halfOpenMaxRequests != null) e.halfOpenMax = config.halfOpenMaxRequests
+    if (config.cooldownMs != null) e.cooldownMs = config.cooldownMs
+    return e
   }
 
   /** 熔断器是否处于打开状态（阻断请求） */
   isOpen (platform, accountId = 'default', config = {}) {
-    const entry = this._entry(this._key(platform, accountId))
-    if (entry.state !== STATE.OPEN) return false
-
-    const cooldownMs = config.cooldownMs ?? 1800000
-    const elapsed = this._now() - entry.openedAt
-    if (elapsed >= cooldownMs) {
-      // 进入半开试探
-      entry.state = STATE.HALF_OPEN
-      entry.halfOpenTries = 0
+    const entry = this._entry(this._key(platform, accountId), config)
+    if (entry.state === STATE.CLOSED) return false
+    if (entry.state === STATE.OPEN) {
+      const elapsed = this._now() - entry.openedAt
+      if (elapsed >= entry.cooldownMs) {
+        entry.state = STATE.HALF_OPEN
+        entry.halfOpenTries = 0
+        return false
+      }
+      return true
+    }
+    if (entry.state === STATE.HALF_OPEN) {
+      if (entry.halfOpenTries >= entry.halfOpenMax) return true
+      entry.halfOpenTries += 1
       return false
     }
-    return true
+    return false
   }
 
   /**
    * 记录成功
    */
   recordSuccess (platform, accountId = 'default') {
-    const entry = this._entry(this._key(platform, accountId))
+    const entry = this._entry(this._key(platform, accountId), {})
     entry.state = STATE.CLOSED
     entry.failures = 0
     entry.halfOpenTries = 0
@@ -70,7 +80,7 @@ class CircuitBreaker {
    * @returns {string} 新状态
    */
   recordFailure (platform, accountId = 'default', config = {}) {
-    const entry = this._entry(this._key(platform, accountId))
+    const entry = this._entry(this._key(platform, accountId), config)
     const threshold = config.failureThreshold ?? 3
 
     if (entry.state === STATE.HALF_OPEN) {
@@ -91,15 +101,15 @@ class CircuitBreaker {
   }
 
   /** 获取当前状态详情 */
-  getState (platform, accountId = 'default') {
+  getState (platform, accountId = 'default', config = {}) {
     const key = this._key(platform, accountId)
-    const entry = this._entry(key)
+    const entry = this._entry(key, config)
     return {
       state: entry.state,
       failures: entry.failures,
       openedAt: entry.openedAt,
       cooldownRemaining: entry.state === STATE.OPEN
-        ? Math.max(0, (entry.openedAt || 0) + 1800000 - this._now())
+        ? Math.max(0, (entry.openedAt || 0) + entry.cooldownMs - this._now())
         : 0,
     }
   }

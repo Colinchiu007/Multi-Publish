@@ -19,7 +19,7 @@ class AuditLogger {
     this._buffer = []
     this._flushTimer = null
     this._flushMs = opts.flushMs || 5000
-    if (opts.enabled !== false) this._startFlush()
+    if (opts.enabled !== false && this._dir) this._startFlush()
   }
 
   _today () {
@@ -85,12 +85,19 @@ class AuditLogger {
 
   flush () {
     if (!this._dir || this._buffer.length === 0) return
+    let toFlush = []
     try {
       fs.mkdirSync(this._dir, { recursive: true })
-      const lines = this._buffer.splice(0).map(r => JSON.stringify(r)).join(NL)
+      toFlush = this._buffer.splice(0)
+      const lines = toFlush.map(r => JSON.stringify(r)).join(NL)
       if (!lines) return
       fs.appendFileSync(this._file(), lines + NL, 'utf8')
-    } catch (_) { }
+    } catch (err) {
+      if (toFlush.length > 0) {
+        this._buffer = toFlush.concat(this._buffer)
+      }
+      console.error('[AuditLogger] flush failed:', err.message)
+    }
   }
 }
 

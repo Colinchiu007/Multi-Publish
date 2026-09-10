@@ -30,7 +30,14 @@ class ContentCache {
 
   /** URL 级去重：该 URL 是否已采集过（不关心内容） */
   hasUrl (url) {
-    return this._urlSet.has(String(url))
+    const s = String(url)
+    if (!this._urlSet.has(s)) return false
+    // 清理已被 LRU 淘汰但 _urlSet 残留的条目
+    if (![...this._map.values()].some(e => e.url === s)) {
+      this._urlSet.delete(s)
+      return false
+    }
+    return true
   }
 
   /** 检查是否已缓存（相同 URL + 内容） */
@@ -61,9 +68,11 @@ class ContentCache {
       metadata,
       insertedAt: Date.now(),
     })
-    // LRU 淘汰最旧
+    // LRU 淘汰最旧，同步清理 URL 索引
     if (this._map.size > this.maxSize) {
       const oldestKey = this._map.keys().next().value
+      const oldest = this._map.get(oldestKey)
+      if (oldest) this._urlSet.delete(String(oldest.url))
       this._map.delete(oldestKey)
     }
     return true

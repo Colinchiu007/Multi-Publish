@@ -65,7 +65,8 @@ class BaseAdapter {
       response = await this._doFetch(url, strategy)
     } catch (err) {
       if (log) log.error(platform, accountId, err, { url })
-      if (this.healthMonitor) this.healthMonitor.record(platform, accountId, { success: false, reason: 'timeout' })
+      const errReason = (err && (err.code === 'ETIMEDOUT' || err.code === 'ESOCKETTIMEDOUT')) ? 'timeout' : 'network_error'
+      if (this.healthMonitor) this.healthMonitor.record(platform, accountId, { success: false, reason: errReason })
       if (this.circuitBreaker) this.circuitBreaker.recordFailure(platform, accountId, strategy.circuitBreaker)
       return { success: false, reason: 'error', content: null, error: err.message }
     }

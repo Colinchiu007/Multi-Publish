@@ -8,6 +8,8 @@ const { HealthMonitor } = require('./health-monitor')
 const { IdentityBinder } = require('./identity-binder')
 const { BaseAdapter } = require('./platform-adapters/base-adapter')
 const { WechatMpAdapter } = require('./platform-adapters/wechatmp-adapter')
+const { ZhihuAdapter } = require('./platform-adapters/zhihu-adapter')
+const { BehaviorSimulator } = require('./behavior-simulator')
 
 module.exports = {
   CollectionStrategy,
@@ -20,4 +22,6 @@ module.exports = {
   IdentityBinder,
   BaseAdapter,
   WechatMpAdapter,
+  ZhihuAdapter,
+  BehaviorSimulator,
 }
