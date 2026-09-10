@@ -28,7 +28,6 @@ const IPC_REGISTRAR_NAMES = [
   'qrCodeLogin',
   'oauthManager',
   'batchManager',
-  'urlCollector',
   'providerManager',
   'viralEngine',
   'commentManager',

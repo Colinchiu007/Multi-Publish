@@ -215,6 +215,7 @@ class WebviewManager extends EventEmitter {
     }
   }
 
+
   /**
    * 获取虚拟登录标签信息（含活动状态）
    * @returns {Object|null}
