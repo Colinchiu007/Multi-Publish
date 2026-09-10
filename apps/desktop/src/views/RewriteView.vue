@@ -135,7 +135,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, draftSave } from '@/api/publisher'
+import { aiRewrite, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -152,6 +152,8 @@ const rewriting = ref(false)
 const rewriteError = ref('')
 const rewriteResult = ref('')
 const rewriteMeta = ref(null)
+// P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
+const rewriteKnowledgeRefs = ref([])
 const contentError = ref('')
 
 // 配置
@@ -190,8 +192,13 @@ async function startRewrite() {
 
   rewriting.value = true
   rewriteError.value = ''
+  // P2 隐式反馈：上次改写结果未被保存/发布就再次改写 → 弃用上次引用的知识条目
+  if (rewriteResult.value && rewriteKnowledgeRefs.value.length > 0) {
+    sendKnowledgeFeedback('rejected', rewriteKnowledgeRefs.value)
+  }
   rewriteResult.value = ''
   rewriteMeta.value = null
+  rewriteKnowledgeRefs.value = []
 
   try {
     const params = {
@@ -210,6 +217,8 @@ async function startRewrite() {
     if (res && res.code === 0 && res.data && res.data.success) {
       const data = res.data
       rewriteResult.value = data.result || ''
+      // P2 隐式反馈：记录本次改写引用的知识条目
+      rewriteKnowledgeRefs.value = data.knowledgeRefs || []
       rewriteMeta.value = {
         strategyName: data.strategy?.name || '',
         aiTastePct: data.metadata?.aiTasteLevel != null ? (data.metadata.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A',
@@ -250,12 +259,24 @@ async function saveToDraft() {
     const res = await draftSave(saved)
     if (res && res.code === 0) {
       savedDraftId = saved.id
+      // P2 隐式反馈：保存草稿 = 采纳被引用的知识条目
+      sendKnowledgeFeedback('adopted', rewriteKnowledgeRefs.value)
       notifySuccess('collection.draftCreated')
     } else {
       notifyError('collection.rewriteFailed', { message: (res && res.message) || t('rewritePage.draftSaveFailed') })
     }
   } catch (e) {
     notifyError('collection.rewriteFailed', { message: formatUserError(e, { fallback: t('rewritePage.draftSaveFailed') }).message })
+  }
+}
+
+/** P2 隐式反馈：把用户对改写结果的自然操作转换为知识反馈（静默失败不影响主流程） */
+function sendKnowledgeFeedback(action, refs) {
+  if (!refs || refs.length === 0) return
+  try {
+    applyKnowledgeFeedback(action, refs)
+  } catch (e) {
+    // 知识反馈失败不影响改写主流程
   }
 }
 

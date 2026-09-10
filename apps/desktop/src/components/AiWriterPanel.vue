@@ -196,6 +196,7 @@ import {
   aiRewrite,
   aiListRewriteStrategies,
   aiGetRecommendedStrategies,
+  applyKnowledgeFeedback,
   modelProviderIsConfigured,
 } from "@/api/publisher"
 import { useLoginGate } from "@/composables/useLoginGate"
@@ -246,6 +247,8 @@ const rewriteContent = ref("")
 const rewriteStrategies = ref([])
 const rewriteResult = ref("")
 const rewriteResultMeta = ref(null)
+// P2 隐式反馈：本次改写引用的知识条目（应用=采纳 / 再次改写=弃用）
+const rewriteKnowledgeRefs = ref([])
 
 const rewriteModes = [
   { key: "imitate", label: "抄袭规避模仿" },
@@ -313,8 +316,13 @@ async function doRewrite() {
   if (!(await ensureLogin({ message: "AI 改写需要登录后使用，是否立即登录？" }))) return
   panelError.value = ""
   rewriting.value = true
+  // P2 隐式反馈：上次改写结果未被应用就再次改写 → 弃用上次引用的知识条目
+  if (rewriteResult.value && rewriteKnowledgeRefs.value.length > 0) {
+    sendKnowledgeFeedback("rejected", rewriteKnowledgeRefs.value)
+  }
   rewriteResult.value = ""
   rewriteResultMeta.value = null
+  rewriteKnowledgeRefs.value = []
   try {
     const userSettings = {
       industry: rewriteIndustry.value || undefined,
@@ -337,6 +345,8 @@ async function doRewrite() {
     if (res && res.code === 0 && res.data && res.data.success) {
       const data = res.data
       rewriteResult.value = data.result || ""
+      // P2 隐式反馈：记录本次改写引用的知识条目
+      rewriteKnowledgeRefs.value = data.knowledgeRefs || []
       rewriteResultMeta.value = {
         strategyName: data.strategy?.name || "",
         aiTasteLevel: data.metadata?.aiTasteLevel,
@@ -361,6 +371,18 @@ async function doRewrite() {
 function selectRewriteResult() {
   emit("apply-content", rewriteResult.value)
   emit("apply-rewrite", rewriteResult.value)
+  // P2 隐式反馈：用户应用改写结果 = 采纳被引用的知识条目
+  sendKnowledgeFeedback("adopted", rewriteKnowledgeRefs.value)
+}
+
+/** P2 隐式反馈：把用户对改写结果的自然操作转换为知识反馈（静默失败不影响主流程） */
+function sendKnowledgeFeedback(action, refs) {
+  if (!refs || refs.length === 0) return
+  try {
+    applyKnowledgeFeedback(action, refs)
+  } catch (e) {
+    // 知识反馈失败不影响改写主流程
+  }
 }
 
 function goToProviders() {

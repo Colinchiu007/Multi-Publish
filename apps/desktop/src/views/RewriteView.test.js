@@ -20,6 +20,7 @@ vi.mock('@/api/publisher', () => ({
   draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   storeGetSetting: vi.fn().mockResolvedValue(null),
   storeSetSetting: vi.fn().mockResolvedValue({}),
+  applyKnowledgeFeedback: vi.fn().mockResolvedValue({ code: 0 }),
 }))
 
 vi.mock('@/composables/useNotify', () => ({
@@ -184,5 +185,40 @@ describe('RewriteView', () => {
     await checkboxes[0].trigger('click')
     await nextTick()
     expect(checkboxes[0].element.checked).toBe(false)
+  })
+
+  // ─── P2 隐式反馈：保存草稿=采纳，再次改写=弃用 ───
+  it('saving draft sends adopted feedback for knowledgeRefs', async () => {
+    const { aiRewrite, applyKnowledgeFeedback } = await import('@/api/publisher')
+    aiRewrite.mockResolvedValue({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 'test-strategy', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [{ table: 'viral_library', id: 'v1' }],
+        metadata: { mode: 'create', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+      },
+    })
+    applyKnowledgeFeedback.mockClear()
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    // 点击存入草稿
+    const saveBtn = wrapper.findAll('button').find(b => b.text().includes('存入草稿'))
+    await saveBtn.trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(applyKnowledgeFeedback).toHaveBeenCalledWith(
+      'adopted',
+      expect.arrayContaining([expect.objectContaining({ table: 'viral_library', id: 'v1' })])
+    )
   })
 })

@@ -1,3 +1,18 @@
+## [未发布] feat(knowledge): 前端隐式反馈 — 应用/保存=采纳，再次改写=弃用（2026-09-10）
+
+### 新增
+- AiWriterPanel：改写成功后保存 knowledgeRefs，点击「应用」→ 调 applyKnowledgeFeedback('adopted', refs)；再次改写 → 对上次 refs 调 rejected。
+- RewriteView：改写成功后保存 knowledgeRefs，点击「存入草稿」/「去发布」→ adopted；再次改写 → rejected。
+- 反馈调用 try/catch 包裹，静默失败不影响改写主流程。
+
+### 设计说明
+避免用户误解「采纳/拒绝」为「改写结果是否保留」，改为从自然操作隐式推断知识反馈，用户无需理解知识置信度概念。
+
+### 验证
+- AiWriterPanel.test.js 19 passed（含 2 个新隐式反馈用例）。
+- RewriteView.test.js 13 passed（含 1 个新隐式反馈用例）。
+- Vue build 通过。
+
 ## [未发布] feat(knowledge): 知识库自我进化 P2 反馈闭环接线（2026-09-10）
 
 ### 新增

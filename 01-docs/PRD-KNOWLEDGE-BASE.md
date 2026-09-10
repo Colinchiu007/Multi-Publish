@@ -216,6 +216,16 @@ active ──(>90天未访问)──► stale ──(>180天)──► deprecate
 
 **数据校验**：action 仅允许 adopted/rejected；refs 过滤 table ∈ {viral_library, personal_knowledge} 且 id 非空；空 refs 返回成功（0 影响）。
 
+**前端隐式反馈（2026-09-10 补充）**：为避免用户误解「采纳/拒绝」为「改写结果是否保留」，前端不暴露显式的采纳/拒绝按钮，而是从用户对改写结果的自然操作中隐式推断知识反馈：
+
+| 用户操作 | 推断反馈 |
+|---------|---------|
+| 应用改写结果（AiWriterPanel「应用」） | adopted（引用知识有用） |
+| 保存草稿 / 去发布（RewriteView） | adopted（引用知识有用） |
+| 未应用就再次改写 | rejected（上次引用知识没用） |
+
+实现：`AiWriterPanel.vue` 与 `RewriteView.vue` 在改写成功后保存 `data.knowledgeRefs`，在应用/保存/发布时调 `applyKnowledgeFeedback('adopted', refs)`，在再次改写时对上次 refs 调 `applyKnowledgeFeedback('rejected', refs)`。反馈调用静默失败（`try/catch` 包裹），不影响改写主流程。
+
 ### 8.6 审计日志
 
 新增 `knowledge_audit_log` 表，记录所有进化事件（access/reinforce/status_change/archive），字段含 target_table/target_id/event/old_status/new_status/old_confidence/new_confidence/actor/created_at。支持知识变化的追溯与调试。

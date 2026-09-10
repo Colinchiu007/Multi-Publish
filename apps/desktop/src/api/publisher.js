@@ -227,6 +227,11 @@ export async function updateInstall () {
 export function onUpdateStatus(callback) { return bridgeOn("UpdateStatus", callback) }
 
 
+// ─── 知识库反馈 API（P2 隐式反馈）─────────────────
+export async function applyKnowledgeFeedback(action, refs) {
+  return invokeWithFallback("applyKnowledgeFeedback", { code: -1, message: 'electronAPI not available' }, action, refs)
+}
+
 // ─── 草稿箱 API（蚁小二复用）─────────────────
 export async function draftSave(draft) { return invokeWithFallback("draftSave", { code: -1, message: 'electronAPI not available' }, draft) }
 
