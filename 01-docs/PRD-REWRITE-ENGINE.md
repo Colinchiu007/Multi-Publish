@@ -594,10 +594,21 @@ AI 模板均值 59.83（红线 ≤62 保持）。
 继续放宽阈值（会推高 AI 模板）；其余 5 篇中 index 2 抖音改写混入导演脚本标记，
 属改写引擎 prompt 真实缺陷（见 13.8）。
 
+### 13.9 平台字段透传修复（v1.4，2026-09-10）
+
+> P1「平台字段传递缺失」已修复。RewriteRequest/RewriteResult 新增 platform 字段
+>（默认「通用」，取值：微信/抖音/小红书/知乎/微博/B站/通用，与评估器
+> _PLATFORM_KEYWORDS 键一致），AggregationService.rewrite() 将 request.platform
+> 透传给 ContentQualityEvaluator，替换原硬编码 platform=通用。
+> 新增回归测试 3 个：RewriteRequest 默认 platform、接受 platform、
+> rewrite() 不得硬编码 platform（inspect 源码断言）。
+> 实测同一篇内容 platform_fitness 随平台变化（小红书 58 / 微博 63 / 知乎 55 / 通用 60），
+> 证明平台适配维度现已按真实目标平台评分。
+
 ### 13.8 改写引擎侧待办缺陷（后续独立任务）
 
 | 优先级 | 缺陷 | 说明 |
 |--------|------|------|
-| P1 | 平台字段传递缺失 | AggregationService.rewrite() 评估硬编码 platform=通用，未传真实平台，导致改写引擎侧 quality_report 平台维度错位 |
+| ~~P1~~ | ~~平台字段传递缺失~~ | ✅ 已于 v1.4 修复（见 13.9） |
 | P1 | 抖音改写脚本标记污染 | short_video 策略 prompt 未约束 LLM 输出纯正文，产出混入「开头…」导演脚本残留 |
 | P2 | 跨进程持久化缺口 | 改写成功后的 quality_report 不自动写入运营中心 quality_eval_records，最近 100 篇均值当前仅统计运营中心手动评估记录 |

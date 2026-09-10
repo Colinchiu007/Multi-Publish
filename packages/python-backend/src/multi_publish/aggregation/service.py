@@ -254,6 +254,7 @@ class AggregationService:
             word_count=len(result.rewritten_content),
             style=request.style,
             length=request.length,
+            platform=request.platform,
         )
         try:
             from .quality import ContentQualityEvaluator
@@ -261,7 +262,7 @@ class AggregationService:
             report = evaluator.evaluate(
                 result.rewritten_content,
                 original_content=request.content,
-                platform="通用",
+                platform=request.platform,
             )
             from .quality import serialize_quality_report
 

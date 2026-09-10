@@ -99,6 +99,10 @@ class RewriteRequest(BaseModel):
     style: str = Field(default="轻松易懂", description="改写风格")
     length: str = Field(default="keep", description="长度控制: keep/compress/expand")
     seo_optimize: bool = Field(default=False, description="SEO 优化")
+    # v1.4：目标发布平台，透传给质量评估器做平台适配/CTA 等维度评分。
+    # 取值与 ContentQualityEvaluator._PLATFORM_KEYWORDS 键一致：
+    # 微信 / 抖音 / 小红书 / 知乎 / 微博 / B站 / 通用。
+    platform: str = Field(default="通用", description="目标平台（微信/抖音/小红书/知乎/微博/B站/通用）")
 
     @field_validator("style")
     @classmethod
@@ -121,6 +125,7 @@ class RewriteResult(BaseModel):
     word_count: int = 0
     style: str = ""
     length: str = ""
+    platform: str = "通用"
     quality_report: Optional[dict] = None
 
 
