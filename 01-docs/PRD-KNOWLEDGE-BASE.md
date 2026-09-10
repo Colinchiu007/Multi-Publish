@@ -159,3 +159,89 @@ DI 链路：container.setup.js 工厂注入 knowledgeLibraryService → rewriteE
 packages/rewrite-engine/src/：viral-library.js、personal-knowledge-base.js、knowledge-context-builder.js、index.js
 apps/desktop/electron/：services/store/knowledge-library-store.js、services/knowledge-library-service.js、services/feishu-client.js、services/file-parser.js、ipc-handlers/knowledge-library.js、ipc-handlers/feishu-settings.js、preload/knowledge-library.js、core/container.setup.js、services/store-schema.js
 apps/desktop/src/：views/KnowledgeBasePage.vue、components/ViralLibraryTable.vue、components/PersonalKnowledgePanel.vue、components/FeishuSettingsTab.vue、api/knowledge-library.js、router/index.js、layouts/YixiaoerSidebar.vue、views/Collection.vue、components/AiWriterPanel.vue、locales/zh.js、locales/en.js
+
+
+## 八、自我进化系统（新增）
+
+### 8.1 设计目标
+
+知识库不只是静态存储，而是一个会「生长」的记忆系统。借鉴 LLM Wiki v2 的算法骨架（置信度/生命周期/质量评分/巩固压缩）与 EverOS 的「事件驱动 + 策略调度」思路，让爆款库和个人知识库的每一条目都能自动成长、自动清理、自动分级。
+
+### 8.2 进化语义字段
+
+两张知识表各新增以下进化语义列（`confidence`/`status`/`access_count`/`last_accessed`），个人库额外有 `quality`：
+
+| 字段 | 语义 | 驱动因素 |
+|------|------|---------|
+| confidence | Ebbinghaus 遗忘曲线置信度（0-0.99） | 检索次数 + 用户反馈 + 时间衰减 |
+| status | 生命周期状态 active/stale/deprecated/archived | last_accessed 距今天数 |
+| access_count | 被改写引擎检索命中的次数 | 每次三层融合检索命中 +1 |
+| last_accessed | 最近一次被检索的时间 | 驱动遗忘曲线衰减 |
+| quality | 个人知识库条目的质量评分（0-1） | 结构/引用/可读性加权 |
+
+### 8.3 置信度公式（Ebbinghaus 遗忘曲线）
+
+```
+confidence = (0.5 + min(sources,3)*0.1 + authority*0.2 + min(access_count,10)*0.02) * 0.5^(days/30)
+```
+
+30 天半衰期。爆款库/个人库无 sources/authority 字段，取默认值（sources=0 → source_bonus=0；authority=0.5 → authority_bonus=0.1）。
+
+### 8.4 生命周期状态机
+
+```
+active ──(>90天未访问)──► stale ──(>180天)──► deprecated ──(access_count<3)──► archived
+```
+
+被重新访问可从 stale 复活回 active。
+
+### 8.5 五大进化机制
+
+| 机制 | 触发时机 | 行为 |
+|------|---------|------|
+| 检索即强化 | search 命中时 | access_count+1 + 置信度实时重算 + 审计日志 |
+| 生命周期推进 | 应用启动 + 每 6 小时 | decay-check 推进状态 |
+| 质量评分 | 每周日凌晨 3 点 | 重算个人库条目 quality |
+| 知识巩固 | 每周一凌晨 2 点 | 强化高置信度(≥0.7) + 归档低频(deprecated 且 access<3) |
+| 反馈驱动 | 改写完成时 | 用户采纳 → confidence+0.1；拒绝 → -0.05 |
+
+### 8.5.1 P2 反馈闭环实现（2026-09-10）
+
+> 反馈驱动机制已接线，形成完整进化闭环：
+
+1. **KnowledgeContextBuilder 收集 touchedItems**：`buildFullContext()` 内部记录本次检索命中的爆款库/个人库条目（`{table, id}`），新增 `getTouchedItems()` 方法。
+2. **改写引擎返回 knowledgeRefs**：`RewriteEngine.rewrite()` 返回 `knowledgeRefs`（本次改写引用的知识条目），供调用方在用户反馈时使用。
+3. **Service 层 applyFeedback**：`KnowledgeLibraryService.applyFeedback(action, refs)` 调 `feedbackBoost()`，采纳 +0.1 / 拒绝 -0.05，带 table 白名单防 SQL 注入。
+4. **IPC 通道**：`knowledge-library:apply-feedback` + preload `applyKnowledgeFeedback(action, refs)`。
+
+**数据校验**：action 仅允许 adopted/rejected；refs 过滤 table ∈ {viral_library, personal_knowledge} 且 id 非空；空 refs 返回成功（0 影响）。
+
+### 8.6 审计日志
+
+新增 `knowledge_audit_log` 表，记录所有进化事件（access/reinforce/status_change/archive），字段含 target_table/target_id/event/old_status/new_status/old_confidence/new_confidence/actor/created_at。支持知识变化的追溯与调试。
+
+### 8.7 调度器
+
+`KnowledgeEvolutionScheduler`（packages/rewrite-engine/src/knowledge-evolution-scheduler.js）在应用启动时（bootstrap.js runWhenReady）自动启动，应用退出时清理定时器。使用 setInterval/setTimeout 而非外部 cron（Electron 无系统 cron）。
+
+### 8.8 数据校验
+
+- 置信度 clamp 到 [0.01, 0.99]，防止反馈累积溢出
+- 状态仅允许 active/stale/deprecated/archived 四值
+- access_count 非负整数，上限不影响（检索即强化）
+- quality clamp 到 [0, 1]
+- 审计日志 actor 仅 system/rewrite_engine/user 三值
+
+### 8.9 关键文件
+
+- packages/rewrite-engine/src/knowledge-evolution.js — 5 个纯函数（decayCheck/consolidate/scoreQuality/batchScoreQuality/feedbackBoost）
+- packages/rewrite-engine/src/knowledge-evolution-scheduler.js — 调度器
+- apps/desktop/electron/services/store-schema.js — migrateKnowledgeEvolutionSchema
+- apps/desktop/electron/services/store/knowledge-library-store.js — _touchKnowledge/_touchAuditLog
+- apps/desktop/electron/core/container.setup.js — DI 注册
+- apps/desktop/electron/bootstrap.js — 启动调度器
+
+### 8.10 测试
+
+- packages/rewrite-engine/tests/knowledge-evolution.test.js — 11 个用例覆盖 scoreQuality/decayCheck/consolidate/feedbackBoost
+- 全量 64 项通过（53 已有 + 11 新增）

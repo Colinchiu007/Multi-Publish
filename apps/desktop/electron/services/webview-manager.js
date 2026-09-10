@@ -732,7 +732,7 @@ class WebviewManager extends EventEmitter {
   getActiveTab () {
     // 虚拟登录标签活动态
     if (this._activeTabId === AUTH_TAB_ID) return this._getAuthTab()
-    // Home tab：固定虚拟标签，不存在于 _tabStates
+// Home tab：固定虚拟标签，不存在于 _tabStates
     if (this._activeTabId === this._homeTabId) {
       return {
         tabId: this._homeTabId,
@@ -1043,12 +1043,38 @@ class WebviewManager extends EventEmitter {
       self._broadcastNav(tabId)
     })
 
-    view.webContents.on('did-navigate-in-page', function (event, url) {
-      if (!self._tabStates.has(tabId)) return
-      var state = self._tabStates.get(tabId)
-      state.url = url
-      self._broadcastNav(tabId)
-    })
+   view.webContents.on('did-navigate-in-page', function (event, url) {
+     if (!self._tabStates.has(tabId)) return
+     var state = self._tabStates.get(tabId)
+     state.url = url
+     self._broadcastNav(tabId)
+   })
+
+    // ─── window.open / target=_blank 拦截（对齐蚁小二）─────────────
+    // 平台创作者中心内点击"个人中心"等链接会触发 window.open 或 target=_blank，
+    // 默认 Electron 会弹出独立 BrowserWindow。这里拦截并在当前 tab 内直接导航，
+    // 与蚁小二"本页打开"行为保持一致。
+    if (typeof view.webContents.setWindowOpenHandler === 'function') {
+      view.webContents.setWindowOpenHandler(function (details) {
+        var targetUrl = details && details.url
+        if (!targetUrl || typeof targetUrl !== 'string') return { action: 'deny' }
+        try {
+          var parsed = new URL(targetUrl)
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return { action: 'deny' }
+          }
+        } catch (e) {
+          return { action: 'deny' }
+        }
+        // 明确请求独立窗口（window.open 带特定 features / shift+click）→ 拒绝并交默认行为
+        if (details.disposition === 'new-window') {
+          return { action: 'deny' }
+        }
+        // 其它 disposition（foreground-tab / background-tab / default / other）→ 当前 tab 内导航
+        self.navigateTab(tabId, targetUrl)
+        return { action: 'deny' }
+      })
+    }
   }
 
   /**

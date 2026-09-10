@@ -288,10 +288,42 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
 
   describe('callAdapter — 基础调用', () => {
     it('未注册 Adapter 返回错误', async () => {
-      const result = await manager.callAdapter('nonexistent', 'chatCompletion', {})
+      // 创建一个存在但无专用 adapter 且不走泛化兜底的非 LLM provider（TTS 无 base_url）
+      // 未被 _registerBuiltinAdapters 注册的 providerId 不存在工厂
+      manager.createProvider({
+        id: 'no-adapter-tts', name: 'NoAdapterTTS', category: 'tts',
+        api_key: 'sk-test', models: ['tts-model'],
+      })
+      const result = await manager.callAdapter('no-adapter-tts', 'chatCompletion', {})
       expect(result.code).toBe(-1)
       expect(result.errorCode).toBe('ADAPTER_NOT_FOUND')
       expect(result.message).toContain('适配器')
+    })
+
+    it('未注册 Adapter 的 OpenAI 兼容 LLM（有 base_url）走泛化兜底不报 ADAPTER_NOT_FOUND', async () => {
+      // 模拟运营中心下发的、桌面端未注册专用 adapter 的 OpenAI 兼容 LLM
+      manager.createProvider({
+        id: 'ops-new-llm', name: 'Ops New LLM', category: 'llm',
+        base_url: 'https://new-llm.example.com/v1',
+        api_key: 'sk-test', models: ['new-model'],
+      })
+      // 泛化兜底：应能构造出 OpenAICompatibleAdapter，而非返回 ADAPTER_NOT_FOUND
+      const factory = manager._resolveAdapterFactory({ id: 'ops-new-llm', category: 'llm', base_url: 'https://new-llm.example.com/v1' })
+      expect(typeof factory).toBe('function')
+      const adapter = factory({ id: 'ops-new-llm', apiKey: 'sk-test', baseUrl: 'https://new-llm.example.com/v1' })
+      expect(adapter).toBeTruthy()
+      expect(typeof adapter.chatCompletion).toBe('function')
+    })
+
+    it('无 base_url 的未注册 LLM 不触发泛化兜底（fail-closed）', async () => {
+      // llm 但无 base_url → 无法确定端点，仍应 ADAPTER_NOT_FOUND
+      manager.createProvider({
+        id: 'ops-no-url-llm', name: 'Ops NoURL LLM', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+      const result = await manager.callAdapter('ops-no-url-llm', 'chatCompletion', {})
+      expect(result.code).toBe(-1)
+      expect(result.errorCode).toBe('ADAPTER_NOT_FOUND')
     })
 
     it('provider 不存在返回错误', async () => {

@@ -683,3 +683,101 @@ describe('account-manager — 捕获凭证持久化', () => {
     }
   })
 })
+
+describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）', () => {
+  it('waitForSelector 收到数组选择器时逐一尝试，匹配到任一个即返回 true', async () => {
+    const playwrightPath = require.resolve('../services/playwright-manager')
+    const actualPlaywrightManager = require(playwrightPath)
+    const page = {
+      context: () => ({ addCookies: vi.fn() }),
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockResolvedValue(true),
+      close: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue('https://creator.douyin.com'),
+    }
+    const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
+    global.__registerMock(playwrightPath, { getContext })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'douyin',
+        cookies: [{ name: 'sid', value: 'v1', domain: '.douyin.com' }],
+        localStorage: { token: 'active' },
+        accountInfo: {},
+      })
+
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      await expect(accountManager.checkLoginStatus('douyin', 'acc-1'))
+        .resolves.toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+      const selectorArg = page.waitForSelector.mock.calls[0][0]
+      expect(Array.isArray(selectorArg)).toBe(true)
+      expect(selectorArg).toEqual(['.user-info', '.account-info', '.creator-header'])
+    } finally {
+      global.__registerMock(playwrightPath, actualPlaywrightManager)
+    }
+  })
+
+  it('selector 超时但 URL 在仪表盘域名下仍判为有效', async () => {
+    const playwrightPath = require.resolve('../services/playwright-manager')
+    const actualPlaywrightManager = require(playwrightPath)
+    const page = {
+      context: () => ({ addCookies: vi.fn() }),
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockRejectedValue(new Error('Timeout')),
+      close: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue('https://cp.kuaishou.com/article/publish/video'),
+    }
+    const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
+    global.__registerMock(playwrightPath, { getContext })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'kuaishou',
+        cookies: [{ name: 'kuaishou_sid', value: 'active', domain: '.kuaishou.com' }],
+        localStorage: { token: 'valid' },
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      await expect(accountManager.checkLoginStatus('kuaishou', 'acc-1'))
+        .resolves.toMatchObject({ valid: true })
+    } finally {
+      global.__registerMock(playwrightPath, actualPlaywrightManager)
+    }
+  })
+
+  it('selector 超时 + URL 仍在 login 特征中 → 判定过期', async () => {
+    const playwrightPath = require.resolve('../services/playwright-manager')
+    const actualPlaywrightManager = require(playwrightPath)
+    const page = {
+      context: () => ({ addCookies: vi.fn() }),
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockRejectedValue(new Error('Timeout')),
+      close: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue('https://passport.bilibili.com/login?returnUrl=...'),
+    }
+    const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
+    global.__registerMock(playwrightPath, { getContext })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'bilibili',
+        cookies: [{ name: 'expired', value: '1', domain: '.bilibili.com' }],
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      await expect(accountManager.checkLoginStatus('bilibili', 'acc-1'))
+        .resolves.toMatchObject({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    } finally {
+      global.__registerMock(playwrightPath, actualPlaywrightManager)
+    }
+  })
+})

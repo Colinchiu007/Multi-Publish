@@ -23,7 +23,7 @@ const ROUTE_READY_SELECTORS = {
   '/': '.yixiaoer-home .yixiaoer-home-welcome',
   '/accounts': '.yixiaoer-workspace .accounts-page',
   '/publish': '.yixiaoer-workspace .page-title:has-text("一键发布")',
-  '/collection': '.cohere-main .page-title:has-text("内容采集")',
+  '/collection': '.cohere-main .collection-tab-btn.active',
   '/monitor': '.cohere-main .page-title:has-text("分屏监控")',
   '/comments': '.cohere-main .page-title:has-text("评论管理")',
   '/dashboard': '.cohere-main .page-title:has-text("数据看板")',

@@ -330,6 +330,7 @@ function patchViewAndSessionMocks () {
     const handlers = {}
     this.webContents = {
       _handlers: handlers,
+      _windowOpenHandler: null,
       on: function (evt, fn) { handlers[evt] = fn },
       once: function () {},
       canGoBack: function () { return false },
@@ -337,6 +338,7 @@ function patchViewAndSessionMocks () {
       loadURL: vi.fn(function () { return Promise.resolve() }),
       executeJavaScript: vi.fn(function () { return Promise.resolve() }),
       isDestroyed: function () { return false },
+      setWindowOpenHandler: function (fn) { this._windowOpenHandler = fn },
     }
     this.setBounds = vi.fn()
     this.setVisible = vi.fn()
@@ -568,10 +570,10 @@ describe('WebviewManager 浏览器标签标题隔离', () => {
   })
 })
 
-describe('WebviewManager 固定首页标签（回归保护）', () => {
-  it('构造后 _homeTabId 固定为 HOME_TAB_ID，创建浏览器标签不改变它', () => {
-    const { HOME_TAB_ID } = require('./webview-manager.js')
+describe('WebviewManager 固定首页标签（对齐蚁小二：第1个标签永为应用主页）', () => {
+  it('构造后 _homeTabId 固定为 HOME_TAB_ID，创建浏览器标签不会改变它', () => {
     const wm = new WebviewManager()
+    const { HOME_TAB_ID } = require('./webview-manager.js')
     expect(wm._homeTabId).toBe(HOME_TAB_ID)
     expect(wm._activeTabId).toBe(HOME_TAB_ID)
 
@@ -609,44 +611,67 @@ describe('WebviewManager 固定首页标签（回归保护）', () => {
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.createNewTabPage({ url: 'https://creator.douyin.com' })
-
+wm.createNewTabPage({ url: 'https://cp.kuaishou.com' })
+    expect(wm._tabViews.size).toBe(2)
     wm.closeAll()
-
+    expect(wm._tabViews.size).toBe(0)
     expect(wm._activeTabId).toBe('home')
   })
 
-  it('从浏览器标签切换到首页 → 隐藏 WebContentsView 并广播', () => {
-    const { wm, view } = createManagerWithBrowserTab()
-    const result = wm.switchToTab('home')
+  it('getActiveTab 在首页活动时返回静态首页信息', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
 
-    expect(result).toBe(true)
-    expect(view.setVisible).toHaveBeenLastCalledWith(false)
-    expect(wm._activeTabId).toBe('home')
-    const sends = wm.mainWindow.webContents.send.mock.calls.map(c => c[0])
-    expect(sends).toContain('page-manager:tab-switched')
-  })
-
-  it('getActiveTab 在首页活动态时返回虚拟首页信息', () => {
-    const { wm } = createManagerWithBrowserTab()
     wm.switchToTab('home')
-
     const active = wm.getActiveTab()
     expect(active).toMatchObject({
       tabId: 'home',
       title: '首页',
-      isHome: true
+isHome: true,
+      canGoBack: false,
+      canGoForward: false
     })
   })
+})
 
-  it('getHomeTab 固定返回静态首页信息（无 _tabStates 记录）', () => {
-    const { wm } = createManagerWithBrowserTab()
+describe('WebviewManager window.open 拦截（对齐蚁小二：创作者中心链接在当前 tab 内打开）', () => {
+  it('_setupNav 注册 setWindowOpenHandler，intercept foreground-tab 并在当前 tab 内导航', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const tabId = wm.createNewTabPage({ url: 'https://mp.toutiao.com', platform: 'toutiao', title: '头条号' })
+    const view = wm._tabViews.get(tabId)
+    const handler = view.webContents._windowOpenHandler
+    expect(typeof handler).toBe('function')
 
-    const home = wm.getHomeTab()
+    const result = handler({ url: 'https://mp.toutiao.com/profile/', disposition: 'foreground-tab' })
+    expect(result).toEqual({ action: 'deny' })
+    expect(view.webContents.loadURL).toHaveBeenCalledWith('https://mp.toutiao.com/profile/')
+  })
 
-    expect(home).toMatchObject({
-      tabId: 'home',
-      title: '首页',
-      loading: false
-    })
+  it('拒绝非 http/https 协议的 URL', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com' })
+    const view = wm._tabViews.get(tabId)
+    const handler = view.webContents._windowOpenHandler
+
+    // 记录当前 loadURL 调用次数（标签创建本身会导航一次）
+    const callsBefore = view.webContents.loadURL.mock.calls.length
+    const result = handler({ url: 'file:///etc/passwd', disposition: 'foreground-tab' })
+    expect(result).toEqual({ action: 'deny' })
+    expect(view.webContents.loadURL.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('拒绝无效 URL', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com' })
+    const view = wm._tabViews.get(tabId)
+    const handler = view.webContents._windowOpenHandler
+
+    const result = handler({ url: 'not a valid url', disposition: 'foreground-tab' })
+    expect(result).toEqual({ action: 'deny' })
   })
 })

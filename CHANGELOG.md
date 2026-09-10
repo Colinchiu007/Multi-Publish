@@ -1,3 +1,31 @@
+## [未发布] feat(knowledge): 知识库自我进化 P2 反馈闭环接线（2026-09-10）
+
+### 新增
+- KnowledgeContextBuilder 收集 touchedItems：buildFullContext() 记录本次检索命中的爆款库/个人库条目，新增 getTouchedItems()。
+- RewriteEngine.rewrite() 返回 knowledgeRefs（本次改写引用的知识条目）。
+- KnowledgeLibraryService.applyFeedback(action, refs) 调 feedbackBoost()，采纳 +0.1 / 拒绝 -0.05，带 table 白名单防 SQL 注入。
+- IPC 通道 knowledge-library:apply-feedback + preload applyKnowledgeFeedback。
+
+### 验证
+- packages/rewrite-engine: vitest 67 passed（含 3 个新增 touchedItems/knowledgeRefs 用例）。
+- apps/desktop: knowledge-library-service.test.js 5 passed（applyFeedback 采纳/拒绝/非法action/注入防护/空refs）。
+- Vue build 通过。
+
+## [未发布] fix(quality-eval): 改写引擎平台字段透传（v1.4，2026-09-10）
+
+## [未发布] feat(desktop): 泛化 OpenAI 兼容 LLM Adapter 兜底（2026-09-10）
+
+### 新增
+- `ModelProviderManager._resolveAdapterFactory(provider)`：统一解析 Adapter 工厂，取代 `callAdapter` / `_getOrCreateAdapter` / `supportsAdapterMethod` / `testConnection` 四处直接调用 `adapterRegistry.getFactory()` 的旧逻辑。
+- 泛化兜底：未注册专用工厂时，若 `category === 'llm'` 且 `base_url` 非空，自动回退到 `OpenAICompatibleAdapter`。运营中心目录同步下发的任意 OpenAI 兼容 LLM 服务商（如天翼云 Coding Plan）无需再改桌面端代码即可设默认、调用、测试连接。
+
+### 修复
+- 此前运营中心下发的新 LLM 服务商若未在桌面端补专用 Adapter，设默认后调用返回 `ADAPTER_NOT_FOUND` 而不可用。兜底仅覆盖 llm 类别；TTS/语音/图片/视频/多模态仍走专用 Adapter，未注册时 fail-closed。
+
+### 验证
+- `model-provider-call-adapter.test.js` 45/45（新增 2 用例：llm+base_url 泛化兜底生效、llm 无 base_url 仍 fail-closed；修复 1 个旧 ADAPTER_NOT_FOUND 用例改为非 llm provider）。
+- `model-provider-multimodal` / `model-provider-preset-integration` / `tianyiyun-coding-plan` 36/36 通过。
+
 ## [未发布] feat(quality-eval): 内容质量评估短文度量校准 v1.2/v1.3（2026-09-10）
 
 ### 校准
@@ -72,6 +100,19 @@
 
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
+
+## [未发布] feat(desktop): 泛化 OpenAI 兼容 LLM Adapter 兜底（2026-09-10）
+
+### 新增
+- `ModelProviderManager._resolveAdapterFactory(provider)`：统一解析 Adapter 工厂，取代 `callAdapter` / `_getOrCreateAdapter` / `supportsAdapterMethod` / `testConnection` 四处直接调用 `adapterRegistry.getFactory()` 的旧逻辑。
+- 泛化兜底：未注册专用工厂时，若 `category === 'llm'` 且 `base_url` 非空，自动回退到 `OpenAICompatibleAdapter`。运营中心目录同步下发的任意 OpenAI 兼容 LLM 服务商（如天翼云 Coding Plan）无需再改桌面端代码即可设默认、调用、测试连接。
+
+### 修复
+- 此前运营中心下发的新 LLM 服务商若未在桌面端补专用 Adapter，设默认后调用返回 `ADAPTER_NOT_FOUND` 而不可用。兜底仅覆盖 llm 类别；TTS/语音/图片/视频/多模态仍走专用 Adapter，未注册时 fail-closed。
+
+### 验证
+- `model-provider-call-adapter.test.js` 45/45（新增 2 用例：llm+base_url 泛化兜底生效、llm 无 base_url 仍 fail-closed；修复 1 个旧 ADAPTER_NOT_FOUND 用例改为非 llm provider）。
+- `model-provider-multimodal` / `model-provider-preset-integration` / `tianyiyun-coding-plan` 36/36 通过。
 
 ## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
 

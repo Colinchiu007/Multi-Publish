@@ -72,6 +72,11 @@ function registerHandlers(ipcMain, deps) {
     try { return knowledgeLibraryService.searchPersonal(query, limit) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
+  // ─── P2 反馈闭环：用户采纳/拒绝驱动知识置信度 ───
+  ipcMain.handle('knowledge-library:apply-feedback', withSenderCheck(async (_event, action, refs) => {
+    try { return knowledgeLibraryService.applyFeedback(action, refs) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
   // ─── 文件批量导入 ───
   ipcMain.handle('knowledge-library:import-files', withSenderCheck(async (_event, files, categoryPerFile) => {
     try { return await knowledgeLibraryService.importFiles(files, categoryPerFile) } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
