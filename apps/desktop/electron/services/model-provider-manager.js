@@ -248,12 +248,6 @@ class ModelProviderManager {
     }
     if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '模型服务尚未初始化，请稍后重试或重启应用。' }
 
-    // 检查 Adapter 工厂是否注册
-    const factory = adapterRegistry.getFactory(providerId)
-    if (!factory) {
-      return { code: -1, errorCode: 'ADAPTER_NOT_FOUND', message: `未找到「${providerId}」对应的服务商适配器，请检查服务商配置后重试。` }
-    }
-
     // 获取 provider（含解密后的 api_key）
     const provider = this.getProviderWithKey(providerId)
     if (!provider) {
@@ -261,6 +255,11 @@ class ModelProviderManager {
     }
     if (!hasUsableApiKey(provider.api_key) && !canUseWithoutApiKey(provider)) {
       return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: `尚未配置 API Key，请先在「模型设置」中填写 ${provider.name || providerId} 的 API Key 后重试。` }
+    }
+
+    // 检查 Adapter 工厂是否可用（专用工厂优先，llm + base_url 走泛化 OpenAI 兼容兜底）
+    if (!this._resolveAdapterFactory(provider)) {
+      return { code: -1, errorCode: 'ADAPTER_NOT_FOUND', message: `未找到「${providerId}」对应的服务商适配器，请检查服务商配置后重试。` }
     }
 
     // 获取或创建 Adapter 实例（factory 可能同步抛异常）
@@ -371,6 +370,31 @@ class ModelProviderManager {
   }
 
   /**
+   * 解析 Adapter 工厂：专用工厂优先，未命中时对 OpenAI 兼容的 LLM provider 走泛化兜底。
+   *
+   * 背景：运营中心目录同步（applyCatalog）可下发桌面端预设未登记的 provider（如天翼云 Coding Plan）。
+   * 绝大多数云厂商 LLM 接口兼容 OpenAI 格式，若每次新增都要在桌面端补专用 Adapter，会导致「设默认后不可用」。
+   * 因此：未注册专用工厂时，只要 provider 是 llm 类别且配置了 base_url，即回退到 OpenAICompatibleAdapter。
+   *
+   * 不满足兜底条件（非 llm / 无 base_url）仍返回 null，由调用方 fail-closed。
+   * @param {{ id?: string, category?: string, base_url?: string }} provider
+   * @returns {function|null} factory 或 null
+   */
+  _resolveAdapterFactory (provider) {
+    if (!provider || typeof provider !== 'object' || !provider.id) return null
+    const factory = adapterRegistry.getFactory(provider.id)
+    if (factory) return factory
+    // 泛化兜底：仅 llm 类别且配置了 base_url（OpenAI 兼容端点）
+    const isLlm = provider.category === CATEGORIES.LLM
+    const hasBaseUrl = typeof provider.base_url === 'string' && provider.base_url.trim() !== ''
+    if (isLlm && hasBaseUrl) {
+      const { OpenAICompatibleAdapter } = require('./adapters/_base/openai-compatible')
+      return (creds) => new OpenAICompatibleAdapter(creds)
+    }
+    return null
+  }
+
+  /**
    * P3.2: 获取或创建 Adapter 实例（带缓存）
    */
   _getOrCreateAdapter (providerId, provider) {
@@ -380,7 +404,10 @@ class ModelProviderManager {
     }
 
     // 创建新实例
-    const factory = adapterRegistry.getFactory(providerId)
+    const factory = this._resolveAdapterFactory(provider)
+    if (!factory) {
+      throw new Error('No adapter factory for ' + providerId)
+    }
     const config = provider.config && typeof provider.config === 'object'
       ? { ...provider.config }
       : {}
@@ -732,10 +759,9 @@ class ModelProviderManager {
   async supportsAdapterMethod (providerId, method) {
     if (typeof providerId !== 'string' || !providerId || typeof method !== 'string' || !method) return false
     if (!this._ready) return null
-    const factory = adapterRegistry.getFactory(providerId)
-    if (!factory) return null
     const provider = this.getProviderWithKey(providerId)
     if (!provider) return null
+    if (!this._resolveAdapterFactory(provider)) return null
     try {
       const adapter = this._getOrCreateAdapter(providerId, provider)
       if (typeof adapter.supports !== 'function') return null
@@ -1139,13 +1165,12 @@ class ModelProviderManager {
     if (!hasUsableApiKey(provider.api_key) && !canUseWithoutApiKey(provider)) {
       return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: `尚未配置 API Key，请先在「模型设置」中填写 ${provider.name || id} 的 API Key 后重试。` }
     }
-    // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
-    const factory = adapterRegistry.getFactory(id)
-    if (factory) {
+    // P3.2: 若已解析到 Adapter 工厂（专用或泛化 LLM 兜底），通过 Adapter 实际调用 testConnection
+    if (this._resolveAdapterFactory(provider)) {
       const result = await this.callAdapter(id, 'testConnection', {})
       return result
     }
-    // Fallback: 仅配置校验（无 Adapter 注册时）
+    // Fallback: 仅配置校验（无可解析工厂时）
     return { code: 0, message: provider.name + ' 配置有效（config valid: ' + (provider.base_url || '默认地址') + '）' }
   }
 
