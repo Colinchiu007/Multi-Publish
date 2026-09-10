@@ -85,7 +85,10 @@ _SENSITIVE_PATTERNS = [
     (re.compile(r"台湾独立|台湾国|两个中国|西藏独立|新疆独立|香港独立|六四|天安门|法轮功"), 40),
     (re.compile(r"色情|淫秽|裸体|裸聊|约炮|一夜情|性交|做爱|妓女|嫖娼|卖淫"), 25),
     (re.compile(r"杀人|谋杀|杀害|砍死|捅死|炸死|枪杀|自杀|自残|自伤|割腕"), 30),
-    (re.compile(r"暴力|血腥|恐怖|绑架|勒索|虐待|殴打|群殴|斗殴"), 20),
+    (re.compile(r"暴力|血腥|恐怖|勒索|虐待|殴打|群殴|斗殴"), 20),
+    # v1.2 校准：「绑架」拆出独立真实犯罪语境，避免「绑架孩子未来/绑架注意力」等
+    # 比喻义被误判为暴力敏感词；真实犯罪（绑架人质/勒索/赎金/绑架案）仍必须命中。
+    (re.compile(r"绑架.{0,6}(人质|勒索|赎金)|绑架罪|绑架案|劫持.{0,4}(人质|勒索)"), 20),
     (re.compile(r"枪支|弹药|炸弹|炸药|雷管|管制刀具|毒品|吸毒|贩毒"), 25),
     (re.compile(r"赌博|赌场|赌球|赌马|彩票|六合彩|网赌|博彩"), 20),
     (re.compile(r"诈骗|骗局|传销|庞氏|非法集资|高利贷|套路贷"), 15),
@@ -123,6 +126,12 @@ _CTA_PATTERNS = [
     (re.compile(r"赶紧|赶快|快来|速来|马上|立即|立刻|现在就|别错过|不要错过|抓紧"), 4),
     (re.compile(r"你觉得|你怎么看|你会|你敢|你能|你愿意|你是否|评论区|告诉我|告诉我你|码住|三连|蹲一个"), 3),
 ]
+
+# v1.2 校准：口语化短文的修辞信号（反差句式「不是X，是Y」/ 劝诫句式「别等/别把/别用」）。
+# 这些信号是高质量金句文案的天然特征，AI 模板文（首先/其次/最后、综上所述、在当今社会）不具备，
+# 因此把它们作为情绪张力与结构完整性的正向证据，不会推高 AI 模板文得分。
+_CONTRAST_PATTERN = re.compile(r"不是[^。！？]{1,14}是")
+_EXHORT_PATTERN = re.compile(r"(别|不要)[^，。！？]{0,6}(等|把|用|拿|问|让|想|记|信)")
 
 _PLATFORM_KEYWORDS = {
     "微信": ["公众号","微信","朋友圈","好友","聊天","小程序"],
@@ -238,7 +247,7 @@ class ContentQualityEvaluator:
             self._score_originality(content),
             self._score_platform_fitness(content, platform),
             self._score_keyword_density(content, words),
-            self._score_cta(content),
+            self._score_cta(content, words, platform),
             self._score_brand_consistency(content),
         ]
         applicable_dims = [d for d in dims if d.applicable]
@@ -505,9 +514,18 @@ class ContentQualityEvaluator:
         elif total >= 2: score += 8; evidence.append("有一定情感色彩")
         elif total >= 1: score += 4
         elif total == 0:
-            rational = len(re.findall(r"(原因|因为|所以|因此|然而|但是|根据|数据|分析|论证|判断)", content))
-            if rational >= 3: score += 0; evidence.append("理性论证风格，不以情感词评判")
-            else: score -= 5; evidence.append("情感色彩平淡")
+            # v1.2 校准：金句/反差/劝诫/反问是口语化短文的情绪张力信号，
+            # 不得误判为「情感色彩平淡」（AI 模板文无此修辞）。
+            contrast = len(_CONTRAST_PATTERN.findall(content))
+            exhort = len(_EXHORT_PATTERN.findall(content))
+            rhetorical_q = content.count("？") + content.count("?")
+            rhetorical = contrast * 2 + exhort + (1 if rhetorical_q >= 1 else 0)
+            if rhetorical >= 3:
+                score += 12; evidence.append(f"金句修辞张力强(反差{contrast}/劝诫{exhort}/反问{rhetorical_q})")
+            else:
+                rational = len(re.findall(r"(原因|因为|所以|因此|然而|但是|根据|数据|分析|论证|判断)", content))
+                if rational >= 3: score += 0; evidence.append("理性论证风格，不以情感词评判")
+                else: score -= 5; evidence.append("情感色彩平淡")
         if pc > nc and pc >= 2: score += 5; evidence.append("情感基调积极向上")
         # v1.1 校准：感叹句密度是短文情绪张力的强信号（AI 模板文本几乎不用感叹号）
         ex = content.count("！") + content.count("!")
@@ -539,6 +557,11 @@ class ContentQualityEvaluator:
         total_lm = lm + cn
         if total_lm >= 3: score += 8; evidence.append(f"使用分点结构({total_lm}处)")
         elif total_lm >= 1: score += 4; evidence.append("含分点结构")
+        # v1.2 校准：金句/反差/劝诫是短文案的完整结构（钩子+金句收尾），无需长文段落
+        contrast = len(_CONTRAST_PATTERN.findall(content))
+        exhort = len(_EXHORT_PATTERN.findall(content))
+        if contrast >= 2 or (contrast >= 1 and exhort >= 1):
+            score += 8; evidence.append(f"金句对比结构({contrast}处反差)")
         return DimensionScore(id=dim["id"], label=dim["label"], score=max(0,min(100,score)), weight=dim["weight"], weighted=score*dim["weight"], evidence=evidence)
 
     def _score_originality(self, content):
@@ -552,9 +575,16 @@ class ContentQualityEvaluator:
         # “我们/咱们”是集体视角，不能单独冒充个人原创证据。
         personal_text = content.replace("我们", "").replace("咱们", "")
         fp = len(re.findall(r"[我咱]", personal_text))
+        # v1.3 校准：第一人称叙事标记（我见过/我一开始/我当时/我认识等）是强个人视角
+        # 信号，真实改写的个人叙事常只出现一次裸"我"字，故叙事标记按独立计分，
+        # 避免依赖"我"字频率而漏判（AI 模板文无个人叙事标记）。
+        narrative_markers = ["我见过","我一开始","我当时","我认识","我身边","我观察","我发现","我经历","我亲测","我用过","我买了","我记录","我和","我朋友","我同事"]
+        narrative_hits = sum(1 for m in narrative_markers if m in content)
         if fp >= 5: score += 8; evidence.append(f"第一人称视角鲜明({fp}处)")
         elif fp >= 3: score += 5
         elif fp >= 2: score += 3
+        elif narrative_hits >= 1:
+            score += 5; evidence.append(f"第一人称叙事视角({narrative_hits}处叙事标记)")
         nw = ["独特","创新","新颖","突破","领先","首创","独家","原创","首次","全新"]
         nh = sum(1 for w in nw if w in content)
         if nh >= 3: score += 10; evidence.append("新概念/表达丰富")
@@ -574,7 +604,12 @@ class ContentQualityEvaluator:
             elif hc >= 2: score += 14; evidence.append(f"适配{platform}({hc}个关键词)")
             elif hc >= 1: score += 10; evidence.append(f"含{platform}风格元素")
             else:
-                score = 55; evidence.append("平台风格元素较少")
+                # v1.2 校准：无平台名关键词时，短句/金句文体也是平台适配信号（微博尤甚）
+                short_sentences = sum(1 for s in _split_sentences(content) if len(s) <= 30)
+                if platform == "微博" and short_sentences >= 3:
+                    score = 60; evidence.append(f"微博短句金句文体({short_sentences}个短句)，无需平台名关键词")
+                else:
+                    score = 55; evidence.append("平台风格元素较少")
         else:
             score = 60; evidence.append("通用平台")
         if platform == "抖音":
@@ -615,7 +650,7 @@ class ContentQualityEvaluator:
             if top_word in content[:100]: score += 10; evidence.append(f"核心关键词出现在开头'{top_word}'")
         return DimensionScore(id=dim["id"], label=dim["label"], score=max(0,min(100,score)), weight=dim["weight"], weighted=score*dim["weight"], evidence=evidence)
 
-    def _score_cta(self, content):
+    def _score_cta(self, content, words, platform):
         dim = _lookup_dim("call_to_action")
         score, evidence = 50.0, []
         total_cta = 0
@@ -626,7 +661,17 @@ class ContentQualityEvaluator:
         elif total_cta >= 10: score += 15
         elif total_cta >= 5: score += 10
         elif total_cta >= 2: score += 6; evidence.append("有CTA引导")
-        elif total_cta == 0: score -= 10; evidence.append("缺少CTA")
+        elif total_cta == 0:
+            # v1.2 校准：短文（微博/通用等）天然无需 CTA，缺少 CTA 不应扣分。
+            # v1.3 校准：深度论证文（>400 字，知乎/公众号/通用等）以内容本身而非
+            # 互动引导为价值，同样无需 CTA；仅中等篇幅（200-400 字）的泛内容才因
+            # 缺少 CTA 扣分（AI 模板文无深度论证结构，故不受影响）。
+            is_short = words < 200 or platform in ("微博", "通用")
+            is_deep = words > 400 and platform in ("知乎", "微信公众号", "B站", "通用")
+            if is_short or is_deep:
+                score += 5; evidence.append("短文风格，CTA 非必需")
+            else:
+                score -= 10; evidence.append("缺少CTA")
         return DimensionScore(id=dim["id"], label=dim["label"], score=max(0,min(100,score)), weight=dim["weight"], weighted=score*dim["weight"], evidence=evidence)
 
     def _score_brand_consistency(self, content):
