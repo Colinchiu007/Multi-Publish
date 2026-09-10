@@ -23,6 +23,7 @@ const PROVIDER_LIMITS = Object.freeze({
   'doubao-llm': Object.freeze({ rpm: 60, maxConcurrent: 3, cooldownMs: 30000, retry429: 3 }),
   'mimo-llm': Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   'sensenova-llm': Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
+  'tianyiyun-coding-plan': Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   'agnes-llm': Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   'opencode-go': Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   ollama: Object.freeze({ rpm: 120, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }), // 本地

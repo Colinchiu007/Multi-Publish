@@ -14,7 +14,7 @@ MODEL_TYPES = ("llm", "tts", "speech_recognition", "image", "video", "audio", "m
 
 # 供应商候选（对齐 model-provider-seeds.js 预设目录）
 PROVIDERS = {
-    "llm": ["anthropic", "openai", "gemini", "openrouter", "doubao-llm", "deepseek", "mimo-llm", "sensenova-llm", "agnes-llm", "opencode-go"],
+    "llm": ["anthropic", "openai", "gemini", "openrouter", "doubao-llm", "deepseek", "mimo-llm", "sensenova-llm", "agnes-llm", "opencode-go", "tianyiyun-coding-plan"],
     "image": ["flux", "dall-e", "recraft", "imagen", "grok-image", "pixabay", "pexels", "local-diffusion", "comfyui", "minimax-image", "agnes-image"],
     "video": ["hunyuan", "cogvideo", "grok-video", "heygen", "kling", "runway", "veo", "wan", "minimax", "agnes-video", "ltx", "seedance", "higgsfield"],
     "tts": ["elevenlabs", "openai-tts", "doubao-tts", "google-tts", "piper", "mimo-tts", "minimax-tts"],
