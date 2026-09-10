@@ -186,8 +186,8 @@ module.exports = {
       `).all(kw, kw, kw, kw, kw, Math.max(1, Math.min(100, Number(limit) || 20)))
       if (rows.length > 0) {
         const ids = rows.map(function(r) { return r.id })
-        this._touchAuditLog('personal_knowledge', ids)
-        for (var i = 0; i < rows.length; i++) this._touchKnowledge('personal_knowledge', rows[i].id)
+        this._touchAuditLog('viral_library', ids)
+        for (var i = 0; i < rows.length; i++) this._touchKnowledge('viral_library', rows[i].id)
       }
       return rows.map(parseViralRow)
     } catch (e) {
