@@ -611,7 +611,7 @@ describe('WebviewManager 固定首页标签（对齐蚁小二：第1个标签永
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.createNewTabPage({ url: 'https://creator.douyin.com' })
-    wm.createNewTabPage({ url: 'https://cp.kuaishou.com' })
+wm.createNewTabPage({ url: 'https://cp.kuaishou.com' })
     expect(wm._tabViews.size).toBe(2)
     wm.closeAll()
     expect(wm._tabViews.size).toBe(0)
@@ -628,7 +628,7 @@ describe('WebviewManager 固定首页标签（对齐蚁小二：第1个标签永
     expect(active).toMatchObject({
       tabId: 'home',
       title: '首页',
-      isHome: true,
+isHome: true,
       canGoBack: false,
       canGoForward: false
     })

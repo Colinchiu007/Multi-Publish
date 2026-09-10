@@ -429,3 +429,28 @@ video_duration、type=video、usingImgFilter=false&source_reprinted_allow=0&nryx
 - 浏览器（browser）登录 = 全屏登录标签（App.vue isLoginTab）+ 导航栏「保存账号」按钮（调用 completeLogin(browser)）；账号页不再渲染 browser 登录横幅与「我已完成登录」按钮。
 - 「已登录状态不显示完成按钮」是设计契约而非缺陷；曾有改动把横幅条件扩大到任意 loginMode 导致既有测试回归（Accounts.test.js「网页登录改为全屏标签呈现」），已恢复并纳入 CI。
 
+## 13. 浏览器标签页首页契约（2026-09-10 修复，PR #1649）
+
+### 13.1 首页标签固定身份
+
+- **首页标签 ID 固定为 `'home'`**（主进程常量 `HOME_TAB_ID`），构造时即赋值，任何方法不得修改。
+- 首页标签是**固定虚拟标签**：不占用真实 `WebContentsView`，无 `_tabStates` 记录，`getActiveTab`/`getHomeTab` 在首页活动态返回静态信息（`url:''`、`title:'首页'`、`isHome:true`）。
+- 首页标签**不可关闭**：`closeTab('home')` 返回 false。
+- 创建浏览器标签（`createNewTabPage`）**不得**改变 `_homeTabId`——首个浏览器标签（`btab-*`）与首页标签是不同身份，禁止共享。
+
+### 13.2 数据校验 / 契约
+
+- `getAllTabs()` 固定返回首页标签且排第一位（`isHome:true`），随后是浏览器标签。
+- `closeAll()` 关闭所有浏览器标签后回退到首页标签（`_activeTabId = 'home'`）。
+- 从浏览器标签 `switchToTab('home')` 必须隐藏所有 `WebContentsView`（`setVisible(false)`）并广播 `tab-switched`。
+
+### 13.3 交互逻辑
+
+- 侧边栏/模块导航（`router-link`）是 Vue SPA 内部导航，**不会**切换标签。当用户在浏览器标签下点击侧边栏进入采集/发布等 SPA 页面时，`App.vue` 的 `router.beforeEach` 守卫自动切回首页标签以隐藏 `WebContentsView`，露出 router-view 渲染内容。
+- 修复前缺陷：`_homeTabId` 被首个浏览器标签覆盖 → `switchToTab('home')` 找不到对应 view → `WebContentsView` 永不隐藏，盖在 router-view 上拦截所有鼠标事件，表现为「采集页 URL 正文提取输入框无法点击、页面按钮无响应」。
+
+### 13.4 回归保护
+
+- `webview-manager.test.js` 固定首页标签测试覆盖：构造后 `_homeTabId` 不变、`getAllTabs` 含首页排首位、`closeTab('home')` 返回 false、`closeAll` 回退首页、切首页时 `setVisible(false)`、`getActiveTab`/`getHomeTab` 虚拟首页返回。
+- `window.open` 拦截测试覆盖：创作者中心 `target=_blank` 在当前 tab 内导航，拒绝非 http/https 协议。
+

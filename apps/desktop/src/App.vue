@@ -181,6 +181,9 @@ function refreshRouteLoad() {
 
 // ── 生命周期 ──
 
+// ── 侧边栏/模块导航自动切换：当用户在浏览器标签点击侧边栏进入 Vue SPA 页面时，
+// 自动切回首页标签以隐藏 WebContentsView，露出 router-view 渲染内容。
+let _routeGuard = null
 onMounted(() => {
   licenseStore.load()
   identityStore.load()
@@ -192,11 +195,25 @@ onMounted(() => {
       router.push(route)
     })
   }
+
+  // 路由守卫：SPA 内部页面导航（侧边栏/router-link）→ 自动切到首页标签
+  _routeGuard = router.beforeEach((to, from) => {
+    if (to && to.path && to.path !== from?.path && !isHomeTab.value) {
+      const homeTab = tabStore.tabs.find(t => t.isHome)
+      if (homeTab && homeTab.tabId) {
+        tabStore.switchToTab(homeTab.tabId)
+      }
+    }
+  })
 })
 
 onBeforeUnmount(() => {
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null
+  if (typeof _routeGuard === 'function') {
+    _routeGuard()
+    _routeGuard = null
+  }
   tabStore.dispose()
   identityStore.dispose()
 })

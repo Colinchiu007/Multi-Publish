@@ -732,7 +732,7 @@ class WebviewManager extends EventEmitter {
   getActiveTab () {
     // 虚拟登录标签活动态
     if (this._activeTabId === AUTH_TAB_ID) return this._getAuthTab()
-    // Home tab：虚拟标签，不存在于 _tabStates
+// Home tab：固定虚拟标签，不存在于 _tabStates
     if (this._activeTabId === this._homeTabId) {
       return {
         tabId: this._homeTabId,
