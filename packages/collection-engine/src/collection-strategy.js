@@ -15,6 +15,8 @@ const path = require('path')
 
 const DEFAULTS_FILE = path.join(__dirname, 'default-strategies.json')
 
+const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 function deepMerge (base, override) {
   if (override === undefined || override === null) return base
   if (Array.isArray(base) || Array.isArray(override)) {
@@ -25,6 +27,7 @@ function deepMerge (base, override) {
   }
   const out = { ...base }
   for (const key of Object.keys(override)) {
+    if (BLOCKED_KEYS.has(key)) continue
     out[key] = deepMerge(base[key], override[key])
   }
   return out
@@ -128,6 +131,39 @@ class CollectionStrategy {
     counter.count += 1
     this._dailyCounters.set(key, counter)
     return this.checkBudget(platform, accountId)
+  }
+
+  /**
+   * 原子预算预扣：先 +1 再检查是否超限，超限则回滚。
+   * 消除 checkBudget → consumeBudget 之间的 TOCTOU 窗口。
+   * @returns {{allowed: boolean, remaining: number, used: number}}
+   */
+  tryConsumeBudget (platform, accountId = 'default') {
+    const strategy = this.getStrategy(platform, accountId)
+    const budget = strategy.dailyBudget || 100
+    const today = new Date().toISOString().slice(0, 10)
+    const key = platform + ':' + accountId
+    let counter = this._dailyCounters.get(key)
+    if (!counter || counter.date !== today) {
+      counter = { date: today, count: 0 }
+      this._dailyCounters.set(key, counter)
+    }
+    counter.count += 1
+    if (counter.count > budget) {
+      counter.count -= 1 // 回滚
+      return { allowed: false, remaining: 0, used: counter.count }
+    }
+    return { allowed: true, remaining: budget - counter.count, used: counter.count }
+  }
+
+  /** 退还一次预算（失败路径回滚） */
+  refundBudget (platform, accountId = 'default') {
+    const today = new Date().toISOString().slice(0, 10)
+    const key = platform + ':' + accountId
+    const counter = this._dailyCounters.get(key)
+    if (counter && counter.date === today && counter.count > 0) {
+      counter.count -= 1
+    }
   }
 
   /** 重置某账号预算（测试/手动干预） */

@@ -77,7 +77,9 @@ class HealthMonitor {
     const results = []
     for (const [key, e] of this._metrics) {
       const total = e.total || 1
-      const [platform, accountId] = key.split(':')
+      const idx = key.indexOf(':')
+      const platform = key.slice(0, idx)
+      const accountId = key.slice(idx + 1)
       if (e.captcha / total > captchaThresh) {
         results.push({ platform, accountId, alert: 'captcha-high', value: e.captcha / total })
       }

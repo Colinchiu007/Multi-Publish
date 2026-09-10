@@ -9,6 +9,9 @@ const { IdentityBinder } = require('./identity-binder')
 const { BaseAdapter } = require('./platform-adapters/base-adapter')
 const { WechatMpAdapter } = require('./platform-adapters/wechatmp-adapter')
 const { ZhihuAdapter } = require('./platform-adapters/zhihu-adapter')
+const { BilibiliAdapter } = require('./platform-adapters/bilibili-adapter')
+const { XiaohongshuAdapter } = require('./platform-adapters/xiaohongshu-adapter')
+const { DouyinAdapter } = require('./platform-adapters/douyin-adapter')
 const { BehaviorSimulator } = require('./behavior-simulator')
 
 module.exports = {
@@ -23,5 +26,8 @@ module.exports = {
   BaseAdapter,
   WechatMpAdapter,
   ZhihuAdapter,
+  BilibiliAdapter,
+  XiaohongshuAdapter,
+  DouyinAdapter,
   BehaviorSimulator,
 }

@@ -104,6 +104,36 @@ describe('CollectionStrategy', () => {
     expect(strategy.checkBudget('test', 'acc1').used).toBe(0)
   })
 
+  it('should atomically consume budget without overshoot', () => {
+    strategy._strategies = {
+      version: 1,
+      defaults: { dailyBudget: 2 },
+      platforms: {}
+    }
+    const r1 = strategy.tryConsumeBudget('test', 'acc1')
+    expect(r1.allowed).toBe(true)
+    const r2 = strategy.tryConsumeBudget('test', 'acc1')
+    expect(r2.allowed).toBe(true)
+    const r3 = strategy.tryConsumeBudget('test', 'acc1')
+    expect(r3.allowed).toBe(false)
+    expect(r3.used).toBe(2)
+    expect(strategy.checkBudget('test', 'acc1').used).toBe(2)
+  })
+
+  it('should refund budget', () => {
+    strategy._strategies = {
+      version: 1,
+      defaults: { dailyBudget: 2 },
+      platforms: {}
+    }
+    strategy.tryConsumeBudget('test', 'acc1')
+    strategy.tryConsumeBudget('test', 'acc1')
+    strategy.refundBudget('test', 'acc1')
+    expect(strategy.checkBudget('test', 'acc1').used).toBe(1)
+    const r = strategy.tryConsumeBudget('test', 'acc1')
+    expect(r.allowed).toBe(true)
+  })
+
   it('should reload strategies', () => {
     strategy._strategies = {
       version: 1,
