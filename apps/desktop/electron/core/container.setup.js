@@ -64,6 +64,7 @@ const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
 const RewriteEngineService = require('../services/rewrite-engine');
 const KnowledgeLibraryService = require('../services/knowledge-library-service');
+const { KnowledgeEvolutionScheduler } = require('@multi-publish/rewrite-engine');
 const AiWriter = require('../services/ai-writer');
 const { PublisherRouter } = require('../services/publisher-router');
 const UsageTracker = require('../services/usage-tracker');
@@ -210,6 +211,11 @@ function createContainer(options) {
   });
   container.register("knowledgeLibraryService", function(c) {
     return new KnowledgeLibraryService({ store: c.get("store") });
+  });
+  container.register("knowledgeEvolutionScheduler", function(c) {
+    var scheduler = new KnowledgeEvolutionScheduler(c.get("store"), c.get("logger"));
+    c._knowledgeEvolutionScheduler = scheduler;
+    return scheduler;
   });
   container.register("aiWriter", function() { return new AiWriter(); });
   container.register("usageTracker", function() { return new UsageTracker(); });

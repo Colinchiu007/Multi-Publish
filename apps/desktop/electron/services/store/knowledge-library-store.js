@@ -124,6 +124,11 @@ module.exports = {
       const rows = this.db.prepare(
         'SELECT * FROM viral_library ' + where + ' ORDER BY ' + orderBy + ' LIMIT ? OFFSET ?'
       ).all(...params, pageSize, (page - 1) * pageSize)
+      if (opts.search && rows.length > 0) {
+        const ids = rows.map(function(r) { return r.id })
+        this._touchAuditLog('viral_library', ids)
+        for (var i = 0; i < rows.length; i++) this._touchKnowledge('viral_library', rows[i].id)
+      }
       return { items: rows.map(parseViralRow), total }
     } catch (e) {
       log.warn('Store', 'listViralItems failed: ' + e.message)
@@ -179,6 +184,11 @@ module.exports = {
         ORDER BY (likes + collections + comments) DESC, created_at DESC
         LIMIT ?
       `).all(kw, kw, kw, kw, kw, Math.max(1, Math.min(100, Number(limit) || 20)))
+      if (rows.length > 0) {
+        const ids = rows.map(function(r) { return r.id })
+        this._touchAuditLog('personal_knowledge', ids)
+        for (var i = 0; i < rows.length; i++) this._touchKnowledge('personal_knowledge', rows[i].id)
+      }
       return rows.map(parseViralRow)
     } catch (e) {
       log.warn('Store', 'searchViralItems failed: ' + e.message)
@@ -313,4 +323,27 @@ module.exports = {
     } catch (e) { return 0 }
   },
 }
+
+  // ===================== 进化语义：检索即强化 =====================
+
+  _touchKnowledge (table, id) {
+    if (!this._ready) return
+    const now = new Date().toISOString()
+    try {
+      this.db.prepare(
+        "UPDATE " + table + " SET access_count = access_count + 1, last_accessed = ?, confidence = MIN(0.99, (0.5 + 0.1 + MIN(access_count + 1, 10) * 0.02) * POWER(0.5, CAST((julianday(?) - julianday(COALESCE(last_accessed, created_at))) AS REAL) / 30)) WHERE id = ?"
+      ).run(now, now, id)
+    } catch (e) { /* 进化语义静默失败不减损功能 */ }
+  },
+
+  _touchAuditLog (table, ids) {
+    if (!this._ready || !Array.isArray(ids) || ids.length === 0) return
+    const now = new Date().toISOString()
+    try {
+      const stmt = this.db.prepare("INSERT INTO knowledge_audit_log (target_table, target_id, event, actor, created_at) VALUES (?, ?, 'access', 'rewrite_engine', ?)")
+      for (const id of ids) {
+        try { stmt.run(table, id, now) } catch (e) { /* skip dupes */ }
+      }
+    } catch (e) { /* ignore */ }
+  },
 

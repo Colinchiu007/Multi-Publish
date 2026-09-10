@@ -396,6 +396,58 @@ function migrateAccountCredentialSchema(db) {
   }
 }
 
+
+function migrateKnowledgeEvolutionSchema(db) {
+  const tables = {
+    viral_library: [
+      "ALTER TABLE viral_library ADD COLUMN confidence     REAL    DEFAULT 0.5",
+      "ALTER TABLE viral_library ADD COLUMN status         TEXT    DEFAULT 'active'",
+      "ALTER TABLE viral_library ADD COLUMN access_count   INTEGER DEFAULT 0",
+      "ALTER TABLE viral_library ADD COLUMN last_accessed  TEXT",
+    ],
+    personal_knowledge: [
+      "ALTER TABLE personal_knowledge ADD COLUMN confidence     REAL    DEFAULT 0.5",
+      "ALTER TABLE personal_knowledge ADD COLUMN status         TEXT    DEFAULT 'active'",
+      "ALTER TABLE personal_knowledge ADD COLUMN access_count   INTEGER DEFAULT 0",
+      "ALTER TABLE personal_knowledge ADD COLUMN last_accessed  TEXT",
+      "ALTER TABLE personal_knowledge ADD COLUMN quality        REAL    DEFAULT 0.5",
+    ],
+  }
+
+  for (const [table, cols] of Object.entries(tables)) {
+    const existing = db.prepare("PRAGMA table_info(" + table + ")").all().map(function(c) { return c.name; })
+    for (const sql of cols) {
+      const colMatch = sql.match(/ADD COLUMN (\w+)/)
+      const colName = colMatch ? colMatch[1] : null
+      if (colName && !existing.includes(colName)) {
+        if (typeof db.execOrThrow === "function") db.execOrThrow(sql)
+        else db.exec(sql)
+      }
+    }
+  }
+
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_viral_status ON viral_library(status)")
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_personal_status ON personal_knowledge(status)")
+
+  const auditCols = db.prepare("PRAGMA table_info(knowledge_audit_log)").all()
+  if (auditCols.length === 0) {
+    execSchemaSql(db, "CREATE TABLE IF NOT EXISTS knowledge_audit_log ("
+      + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+      + "target_table TEXT NOT NULL,"
+      + "target_id TEXT NOT NULL,"
+      + "event TEXT NOT NULL,"
+      + "old_status TEXT,"
+      + "new_status TEXT,"
+      + "old_confidence REAL,"
+      + "new_confidence REAL,"
+      + "actor TEXT DEFAULT 'system',"
+      + "created_at TEXT NOT NULL"
+    + ")")
+    execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_audit_target ON knowledge_audit_log(target_table, target_id)")
+    execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_audit_event ON knowledge_audit_log(event, created_at)")
+  }
+}
+
 module.exports = {
   TABLE_NAMES,
   SCHEMA_SQL,
@@ -409,4 +461,5 @@ module.exports = {
   buildUpdateQuery,
   sanitizeUpdateFields,
   UPDATE_WHITELIST,
+  migrateKnowledgeEvolutionSchema,
 };

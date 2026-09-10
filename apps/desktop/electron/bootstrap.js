@@ -180,11 +180,20 @@ function runWhenReady(context, deps) {
       stopBridges = await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
       context.stopBridges = stopBridges
 
-      servicesResult = await startServices({
+servicesResult = await startServices({
         container, store, taskQueue, callbackServer, scheduler,
         keywordMonitor, analyticsService, usageTracker, pythonBridge, CloudPublisher, commentManager,
         modelProviderManager, getMainWin,
       })
+
+      // 启动知识进化调度器（decay-check + consolidate + quality-score）
+      if (container.has('knowledgeEvolutionScheduler')) {
+        var evolutionScheduler = container.get('knowledgeEvolutionScheduler')
+        if (evolutionScheduler && typeof evolutionScheduler.start === 'function') {
+          evolutionScheduler.start()
+          log.info('App', 'knowledge-evolution scheduler started')
+        }
+      }
       context.keywordPersistTimer = servicesResult.keywordPersistTimer
       context.loginStatusMonitor = servicesResult.loginStatusMonitor
       context.cloudPublisher = servicesResult.cloudPublisher
