@@ -80,6 +80,86 @@ packages/rewrite-engine 改写引擎后端已完整实现（多策略文案改�
 - 改写有结果：改写按钮可用，存入草稿/去发布可见
 - 无采集结果：改写按钮隐藏
 
+### 2.4.1 一键改写功能（采集+改写一步完成）
+
+**背景**：现有采集页需先点击「采集」，成功后再点「AI改写」，两步操作；且改写后原文会被覆盖，用户无法对比原文与改写结果。
+
+**功能**：在采集 URL 输入区域新增「一键改写」按钮，点击后自动串联采集和改写，同时并排显示采集原文和改写后的内容。
+
+**数据校验**：
+- URL 非空校验：空链接提示「请输入链接」
+- API 能力检查：aggregationCollect 和 aggregationRewrite 两个 IPC 通道必须同时可用
+- 采集响应校验：title/content 非空，否则回退到 urlCollectFetch 降级路径
+- 改写响应校验：result_content 非空，否则显示改写错误信息，但不影响采集结果展示
+- 输入内容过短校验（不足 20 字）：后端 RewriteRequest 校验拒掉并返回「输入内容过短」
+
+**流程**：
+```
+用户输入链接 -> 配置风格/长度/爆款库/个人经历选项
+              |
+      点击「一键改写」
+              |
+      1. 禁用所有输入控件（采集按钮、改写按钮、选项）
+              |
+      2. 调用 aggregation:collect 采集正文
+              |-- 成功 -> 显示采集结果，追加到采集列表
+              |-- 失败 -> 回退 urlCollectFetch 降级路径
+                         |
+      3. 采集成功后自动调用 aggregation:rewrite
+              |-- 成功 -> rewriteResult 赋值，显示改写内容
+              |-- 失败 -> rewriteError 赋值，显示错误信息
+                         |
+      4. 结果区并排显示：左侧原文（只读），右侧改写后内容（可编辑）
+```
+
+**功能逻辑**：
+- `collectAndRewrite()` 函数串联两个 IPC 调用
+- 采集阶段的错误处理复用 `collectUrl()` 的降级逻辑（aggregationCollect 失败 -> urlCollectFetch）
+- 改写阶段的错误不覆盖采集结果——原文始终保留在 `collectedResult.content`
+- 修复改写不再覆盖原文：`rewriteCollected` 不再将 `result_content` 写回 `collectedResult.content`
+- `clearResult()` 清理所有状态
+- "取消"按钮绑定 `clearResult`
+
+**交互逻辑**：
+- 「一键改写」按钮在 collecting 或 oneClickRewriting 期间禁用
+- 「采集」按钮在 oneClickRewriting 期间禁用（防止重复请求）
+- 「AI改写」按钮在 oneClickRewriting 期间禁用
+- 所有选项控件（checkbox、select）在 rewriting 或 oneClickRewriting 期间禁用
+- 「一键改写」和「AI 改写」共用同一组风格/长度/爆款库/个人经历选项
+
+**显示项**：
+- 一键改写按钮文案："一键改写"
+- 一键改写中按钮文案："一键改写中..."
+- 采集原文标签："采集原文"
+- 改写内容标签："改写内容"
+- 原文区域：只读 textarea，灰色背景，显示 collectedResult.content
+- 改写区域：可编辑 textarea，白色背景，可修改后存入草稿/去发布
+- 双栏并排布局：grid-template-columns: 1fr 1fr；小屏（<=768px）自动切换为上下堆叠
+
+**提示文字清单（zh / en）**：
+| 键 | 中文 | 英文 |
+|----|------|------|
+| collection.oneClickRewrite | 一键改写 | One-click Rewrite |
+| collection.oneClickRewriting | 一键改写中... | Rewriting... |
+| collection.originalContent | 采集原文 | Original |
+| collection.rewrittenContent | 改写内容 | Rewritten |
+
+**测试覆盖**（Collection.test.js 新增 9 个用例）：
+- 一键改写按钮渲染存在性
+- 空链接校验 -> warning
+- API 不可用校验 -> warning
+- 成功采集+改写 -> 原文保留，改写结果独立，状态变量恢复
+- 采集成功但改写失败 -> 原文不丢，rewriteError 有值
+- urlCollectFetch 降级路径 -> 降级成功后改写继续
+- rewriteCollected 不再覆盖原文
+- clearResult 正确重置所有状态
+
+**文件变更**：
+- apps/desktop/src/views/Collection.vue：+1 按钮、+双栏对比区、+collectAndRewrite 函数、+clearResult 函数、+oneClickRewriting 状态、+CSS
+- apps/desktop/src/views/Collection.test.js：+9 个测试用例
+- apps/desktop/src/locales/zh.js：+4 个键
+- apps/desktop/src/locales/en.js：+4 个键
+
 ### 2.5 图文发布页预填充 (Publish.vue)
 - 无需改动：已有 mounted() 中 loadDraft(String(draftId)) 处理 /publish?draft=<id>，改写内容直接填入 article.content
 

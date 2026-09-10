@@ -25,8 +25,11 @@
             style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
             @keyup.enter="collectUrl"
           />
-          <button class="cohere-btn-primary" @click="collectUrl" :disabled="collecting">
+          <button class="cohere-btn-primary" @click="collectUrl" :disabled="collecting || oneClickRewriting">
             {{ collecting ? '采集中...' : '采集' }}
+          </button>
+          <button class="cohere-btn-primary" @click="collectAndRewrite" :disabled="collecting || oneClickRewriting">
+            {{ oneClickRewriting ? $t('collection.oneClickRewriting') : $t('collection.oneClickRewrite') }}
           </button>
           <button v-if="collectError && RETRYABLE_CODES.has(collectError.code)" class="cohere-btn-secondary" @click="retryCollect" :disabled="collecting" style="font-size:13px;padding:8px 12px">
             🔄 重试
@@ -51,19 +54,19 @@
             >
               {{ addedToViral ? '✓ ' + $t('knowledgeBase.addedToViral') : $t('knowledgeBase.addToViral') }}
             </button>
-            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
-              <input type="checkbox" v-model="useViralLibrary" class="coral-check" :disabled="rewriting" /> 结合爆款库
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer" :class="{ 'o-disabled': rewriting || oneClickRewriting }">
+              <input type="checkbox" v-model="useViralLibrary" class="coral-check" :disabled="rewriting || oneClickRewriting" /> 结合爆款库
             </label>
-            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
-              <input type="checkbox" v-model="usePersonalExperience" class="coral-check" :disabled="rewriting" /> 结合个人经历
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer" :class="{ 'o-disabled': rewriting || oneClickRewriting }">
+              <input type="checkbox" v-model="usePersonalExperience" class="coral-check" :disabled="rewriting || oneClickRewriting" /> 结合个人经历
             </label>
-            <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+            <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
               <option v-for="s in rewriteStyles" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
-            <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+            <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
               <option v-for="l in rewriteLengths" :key="l.value" :value="l.value">{{ l.label }}</option>
             </select>
-            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || !collectedResult">
+            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
             <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="cohere-btn-secondary" @click="retryRewrite" :disabled="rewriting" style="font-size:13px">
@@ -73,9 +76,20 @@
               <button class="cohere-btn-secondary" @click="saveDraftAfterRewrite">💾 存入草稿</button>
               <button class="cohere-btn-primary" @click="goPublishAfterRewrite">🚀 去发布</button>
             </template>
-            <button class="cohere-btn-secondary" @click="collectedResult = null; rewriteResult = ''">取消</button>
+            <button class="cohere-btn-secondary" @click="clearResult">取消</button>
             <div v-if="rewriteError" style="margin-top:6px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
               {{ rewriteError.message }}
+            </div>
+          </div>
+          <!-- 改写结果对比：原文 vs 改写后 -->
+          <div v-if="rewriteResult" class="rewrite-compare" style="margin-top:var(--space-sm);display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm)">
+            <div>
+              <div style="font-weight:600;font-size:13px;margin-bottom:4px">📄 {{ $t('collection.originalContent') }}</div>
+              <textarea class="compare-textarea" readonly :value="(collectedResult && (collectedResult.content || collectedResult.description)) || ''"></textarea>
+            </div>
+            <div>
+              <div style="font-weight:600;font-size:13px;margin-bottom:4px">✨ {{ $t('collection.rewrittenContent') }}</div>
+              <textarea class="compare-textarea" v-model="rewriteResult"></textarea>
             </div>
           </div>
         </div>
@@ -236,6 +250,7 @@ const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
+const oneClickRewriting = ref(false)
 const collectedResult = ref(null)
 const collectError = ref(null)
 const rewriteError = ref(null)
@@ -438,6 +453,93 @@ function retryCollect () {
   collectUrl()
 }
 
+async function collectAndRewrite () {
+  // 一键采集+改写：先采集URL，成功后自动触发改写
+  if (!linkUrl.value || !linkUrl.value.trim()) {
+    notifyWarning('collection.enterLink')
+    return
+  }
+  const api = getApi()
+  // 前置校验：API能力检查（采集+改写都必须可用）
+  if (!api || !api.aggregationCollect || !api.aggregationRewrite) {
+    notifyWarning('collection.collectUnavailable')
+    return
+  }
+  oneClickRewriting.value = true
+  collecting.value = true
+  rewriteError.value = null
+  collectError.value = null
+  rewriteResult.value = ''
+  collectedResult.value = null
+  try {
+    // Step 1: 采集
+    let res = await api.aggregationCollect({
+      url: linkUrl.value.trim(),
+      source_type: collectSourceType.value,
+      rewrite: false,
+    })
+    if (res && res.code !== undefined && res.code !== 0) {
+      res = null
+    }
+    if (!res || !res.title) {
+      // 回退到旧 urlCollectFetch
+      if (api.urlCollectFetch) {
+        const fallback = await api.urlCollectFetch(linkUrl.value.trim())
+        if (fallback.code !== 0) {
+          collectError.value = { code: fallback.code, message: fallback.message }
+          notifyError('collection.collectFailed', { message: formatUserError(fallback, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+          return
+        }
+        res = fallback.data
+      } else {
+        notifyWarning('collection.collectUnavailable')
+        return
+      }
+    }
+    collecting.value = false
+    const item = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: res.title,
+      content: res.content || '',
+      description: (res.content || '').slice(0, 120),
+      source: collectSourceType.value,
+      sourceUrl: linkUrl.value,
+      wordCount: res.word_count || 0,
+    }
+    collectedResult.value = item
+    addedToViral.value = false
+    collectedItems.value.unshift(item)
+    notifySuccess('collection.collectSuccess')
+    // Step 2: 自动改写
+    rewriting.value = true
+    try {
+      const rewrite = await api.aggregationRewrite({
+        content: res.content || res.description || '',
+        style: rewriteStyle.value,
+        length: rewriteLength.value,
+      })
+      if (rewrite && rewrite.result_content) {
+        rewriteResult.value = rewrite.result_content
+        notifySuccess('collection.rewriteSuccess')
+      } else {
+        rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: (rewrite && rewrite.message) || '' }
+        notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (rewriteError.value.message) })
+      }
+    } catch (e) {
+      rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
+      notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+    } finally {
+      rewriting.value = false
+    }
+  } catch (e) {
+    collectError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.collectFailed').text }).message }
+    notifyError('collection.collectRequestFailed', { message: collectError.value.message })
+  } finally {
+    collecting.value = false
+    oneClickRewriting.value = false
+  }
+}
+
 async function rewriteCollected () {
   if (!collectedResult.value) return
   const api = getApi()
@@ -454,7 +556,6 @@ async function rewriteCollected () {
       length: rewriteLength.value,
     })
     if (result && result.result_content) {
-      collectedResult.value = { ...collectedResult.value, content: result.result_content, description: result.result_content.slice(0, 120) }
       rewriteResult.value = result.result_content
       notifySuccess('collection.rewriteSuccess')
     } else {
@@ -471,6 +572,13 @@ async function rewriteCollected () {
 
 function retryRewrite () {
   rewriteCollected()
+}
+
+function clearResult () {
+  collectedResult.value = null
+  rewriteResult.value = ''
+  rewriteError.value = null
+  collectError.value = null
 }
 
 function getDraftFromItem (data) {
@@ -695,4 +803,33 @@ function cancelBatchCollect () {
 
 <style scoped>
 .coral-check { accent-color: var(--coral); }
+
+.rewrite-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.rewrite-compare > div {
+  min-width: 0;
+}
+.compare-textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  box-sizing: border-box;
+  font-family: inherit;
+  background: #fff;
+}
+.compare-textarea:focus { border-color: var(--coral); outline: none; }
+.compare-textarea[readonly] { background: var(--soft-stone); color: var(--text-secondary); }
+
+@media (max-width: 768px) {
+  .rewrite-compare { grid-template-columns: 1fr; }
+}
+.o-disabled { opacity: 0.55; pointer-events: none; }
 </style>

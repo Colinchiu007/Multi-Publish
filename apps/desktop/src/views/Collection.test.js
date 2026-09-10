@@ -383,4 +383,138 @@ describe("CollectionView", () => {
     expect(w.vm.collectedItems.length).toBe(0);
     expect(w.vm.collectedResult).toBeNull();
   });
+
+  it("renders one-click rewrite button", async () => {
+    const w = mountCollection();
+    await nextTick();
+    expect(w.text()).toContain("oneClickRewrite");
+  });
+
+  it("collectAndRewrite warns if URL is empty", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationRewrite: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "";
+    await w.vm.collectAndRewrite();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalled();
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+  });
+
+  it("collectAndRewrite warns if aggregation API unavailable", async () => {
+    window.electronAPI = {};
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://example.com/article";
+    await w.vm.collectAndRewrite();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalled();
+  });
+
+  it("collectAndRewrite collects and rewrites in one action", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({
+        title: "原始文章标题",
+        content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
+        word_count: 30,
+      }),
+      aggregationRewrite: vi.fn().mockResolvedValue({
+        result_content: "这是改写后的内容，与原文不同。",
+        word_count: 15,
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://example.com/article";
+    await w.vm.collectAndRewrite();
+    expect(window.electronAPI.aggregationCollect).toHaveBeenCalledWith({
+      url: "https://example.com/article",
+      source_type: "url",
+      rewrite: false,
+    });
+    expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith({
+      content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
+      style: "轻松易懂",
+      length: "keep",
+    });
+    expect(w.vm.collectedResult).toBeTruthy();
+    expect(w.vm.collectedResult.content).toContain("这是采集到的原文内容");
+    expect(w.vm.rewriteResult).toBe("这是改写后的内容，与原文不同。");
+    expect(w.vm.collectedItems.length).toBe(1);
+    expect(w.vm.oneClickRewriting).toBe(false);
+    expect(w.vm.collecting).toBe(false);
+  });
+
+  it("collectAndRewrite keeps original content when rewrite fails", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({
+        title: "原始文章标题",
+        content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
+        word_count: 30,
+      }),
+      aggregationRewrite: vi.fn().mockResolvedValue({ code: -99, message: "改写服务不可用" }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://example.com/article";
+    await w.vm.collectAndRewrite();
+    expect(w.vm.collectedResult).toBeTruthy();
+    expect(w.vm.collectedResult.content).toContain("这是采集到的原文内容");
+    expect(w.vm.rewriteResult).toBe("");
+    expect(w.vm.rewriteError).toBeTruthy();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalled();
+    expect(ElMessage.error).toHaveBeenCalled();
+  });
+
+  it("collectAndRewrite falls back to urlCollectFetch", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({ code: -4, message: "CONTENT_UNEXTRACTABLE" }),
+      aggregationRewrite: vi.fn().mockResolvedValue({
+        result_content: "回退采集后改写成功。",
+      }),
+      urlCollectFetch: vi.fn().mockResolvedValue({
+        code: 0,
+        data: { title: "回退标题", content: "回退采集到的正文内容，长度超过二十个字。", coverImage: "" },
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://example.com/article";
+    await w.vm.collectAndRewrite();
+    expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith("https://example.com/article");
+    expect(w.vm.collectedResult.title).toBe("回退标题");
+    expect(w.vm.rewriteResult).toBe("回退采集后改写成功。");
+  });
+
+  it("rewriteCollected no longer overwrites original content", async () => {
+    window.electronAPI = {
+      aggregationRewrite: vi.fn().mockResolvedValue({
+        result_content: "改写后的内容。",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "原始正文内容，长度超过二十个字用于测试。", description: "" };
+    await w.vm.rewriteCollected();
+    expect(w.vm.collectedResult.content).toBe("原始正文内容，长度超过二十个字用于测试。");
+    expect(w.vm.rewriteResult).toBe("改写后的内容。");
+  });
+
+  it("clearResult resets collectedResult and rewriteResult", async () => {
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { id: "i1", title: "T", content: "C" };
+    w.vm.rewriteResult = "R";
+    w.vm.rewriteError = { code: -99, message: "e" };
+    w.vm.collectError = { code: -99, message: "e" };
+    w.vm.clearResult();
+    expect(w.vm.collectedResult).toBeNull();
+    expect(w.vm.rewriteResult).toBe("");
+    expect(w.vm.rewriteError).toBeNull();
+    expect(w.vm.collectError).toBeNull();
+  });
 });
