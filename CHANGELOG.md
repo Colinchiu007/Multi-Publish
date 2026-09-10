@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## [未发布] feat(quality-eval): 内容质量评估短文度量校准 v1.2/v1.3（2026-09-10）
 
 ### 校准
@@ -11,6 +12,20 @@
 
 ### 待办（单列，不在本 change 内）
 - 改写引擎侧：AggregationService.rewrite() 评估硬编码 platform=通用；short_video 策略抖音改写混入导演脚本标记；quality_report 不自动写入运营中心记录库。详见 DOC-CONTENT-QUALITY-EVAL-MECHANISM.md §13.8。
+
+## [未发布] fix(desktop+backend): 百家号反爬安全验证页拦截 — 防误报采集成功（2026-09-10）
+
+### 根因
+- Python 后端 trafilatura 直接 HTTP 请求百家号时被百度反爬拦截，返回"百度安全验证"页面（标题="百度安全验证"、正文="网络不给力，请稍后重试"），后端将其误认为成功结果返回前端。
+
+### 修复
+- **后端 `aggregation/service.py`**：HTML <3000 字节 + 含"安全验证"/"百度安全"/"网络不给力" → raise ValueError（触发 IPC 错误码 → 前端回退 Node 端 stealth 浏览器）
+- **前端 `Collection.vue`**：`isSecurityChallenge()` — 标题含"安全验证"/"百度安全"/"百度安全检测" 或正文极短且含提示语 → 回退 `urlCollectFetch`
+
+### 验证
+- 后端单测：`test_collect_url_rejects_security_challenge_page`（monkeypatch trafilatura → pytest.raises ValueError）
+- 前端单测：40/40 通过（新增"反爬安全验证页 → 回退 urlCollectFetch 而非误报成功"）
+- E2E：Node 端 stealth 浏览器重采成功（标题正确、2185 字正文）
 ## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
 
 ### 新增
@@ -72,6 +87,20 @@
 
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
+
+## [未发布] fix(desktop+backend): 百家号反爬安全验证页拦截 — 防误报采集成功（2026-09-10）
+
+### 根因
+- Python 后端 trafilatura 直接 HTTP 请求百家号时被百度反爬拦截，返回"百度安全验证"页面（标题="百度安全验证"、正文="网络不给力，请稍后重试"），后端将其误认为成功结果返回前端。
+
+### 修复
+- **后端 `aggregation/service.py`**：HTML <3000 字节 + 含"安全验证"/"百度安全"/"网络不给力" → raise ValueError（触发 IPC 错误码 → 前端回退 Node 端 stealth 浏览器）
+- **前端 `Collection.vue`**：`isSecurityChallenge()` — 标题含"安全验证"/"百度安全"/"百度安全检测" 或正文极短且含提示语 → 回退 `urlCollectFetch`
+
+### 验证
+- 后端单测：`test_collect_url_rejects_security_challenge_page`（monkeypatch trafilatura → pytest.raises ValueError）
+- 前端单测：40/40 通过（新增"反爬安全验证页 → 回退 urlCollectFetch 而非误报成功"）
+- E2E：Node 端 stealth 浏览器重采成功（标题正确、2185 字正文）
 
 ## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
 
