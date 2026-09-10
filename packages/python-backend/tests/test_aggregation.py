@@ -148,6 +148,40 @@ async def test_aggregation_service_collect_url():
 
 
 @pytest.mark.asyncio
+async def test_collect_url_rejects_security_challenge_page(monkeypatch):
+    """Regression: 百家号等反爬站点返回「百度安全验证」页时应 raise ValueError，
+    不得把安全验证标题当正文返回（防误报采集成功）。"""
+    import multi_publish.aggregation.service as svc_mod
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import CollectRequest
+
+    # 用假 trafilatura 模块模拟返回安全验证页 HTML
+    class FakeTrafilatura:
+        @staticmethod
+        def fetch_url(url):
+            return '<html><head><title>百度安全验证</title></head><body>网络不给力，请稍后重试</body></html>'
+
+        @staticmethod
+        def extract(html, **kwargs):
+            return '网络不给力，请稍后重试 返回首页 问题反馈'
+
+        @staticmethod
+        def extract_metadata(html):
+            class M:
+                title = '百度安全验证'
+                author = ''
+            return M()
+
+    # _collect_url 内通过 _lazy_import("trafilatura") 获取，替换为假实现
+    monkeypatch.setattr(svc_mod, '_lazy_import', lambda path, attr=None: FakeTrafilatura())
+
+    service = AggregationService()
+    req = CollectRequest(url="https://baijiahao.baidu.com/s?id=123", source_type="url")
+    with pytest.raises(ValueError, match="安全验证"):
+        await service.collect(req)
+
+
+@pytest.mark.asyncio
 async def test_aggregation_service_rewrite():
     """AggregationService.rewrite() with text content."""
     from multi_publish.aggregation.service import AggregationService

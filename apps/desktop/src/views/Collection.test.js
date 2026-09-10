@@ -251,6 +251,28 @@ describe("CollectionView", () => {
     expect(ElMessage.error).toHaveBeenCalledWith("collection failed");
   });
 
+  it("collectUrl 反爬安全验证页 → 回退 urlCollectFetch 而非误报成功", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({
+        title: "百度安全验证",
+        content: "网络不给力，请稍后重试",
+        word_count: 0,
+      }),
+      urlCollectFetch: vi.fn().mockResolvedValue({
+        code: 0,
+        data: { title: "真实文章标题", content: "真实正文内容" },
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://baijiahao.baidu.com/s?id=123";
+    await w.vm.collectUrl();
+    // 不应把「百度安全验证」当成功结果，而应回退到 Node 端 stealth 采集
+    expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith("https://baijiahao.baidu.com/s?id=123");
+    expect(w.vm.collectedResult).toBeTruthy();
+    expect(w.vm.collectedResult.title).toBe("真实文章标题");
+  });
+
   it("collectUrl catches exception", async () => {
     window.electronAPI = {
       urlCollectFetch: vi.fn().mockRejectedValue(new Error("network error"))

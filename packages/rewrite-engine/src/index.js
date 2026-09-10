@@ -24,6 +24,8 @@ const {
   RewriteQualityEvaluator, SimHash, computeSimHash, hammingDistance, cosineSimilarity
 } = require('./rewrite-quality-evaluator')
 const { SQLiteStorage } = require('./sqlite-storage')
+const { decayCheck, consolidate, scoreQuality, batchScoreQuality, feedbackBoost } = require('./knowledge-evolution')
+const { KnowledgeEvolutionScheduler } = require('./knowledge-evolution-scheduler')
 
 /**
  * 快速创建改写引擎实例
@@ -76,5 +78,11 @@ module.exports = {
   hammingDistance,
   cosineSimilarity,
   SQLiteStorage,
+  decayCheck,
+  consolidate,
+  scoreQuality,
+  batchScoreQuality,
+  feedbackBoost,
+  KnowledgeEvolutionScheduler,
   createEngine
 }

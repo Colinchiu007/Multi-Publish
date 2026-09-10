@@ -102,6 +102,9 @@ class AggregationService:
             raise ValueError(f"URL 无法访问: {fetch_err}") from fetch_err
         if not html:
             raise ValueError(f"URL 无法访问: {url}")
+        # 检测反爬安全验证页面（百度家号等返回标题"百度安全验证"但无正文）
+        if len(html) < 3000 and ("安全验证" in html or "百度安全" in html or "网络不给力" in html):
+            raise ValueError(f"URL 触发安全验证，请尝试在浏览器环境采集: {url}")
         text = await asyncio.to_thread(
             trafilatura.extract,
             html,
