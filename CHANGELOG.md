@@ -1,3 +1,14 @@
+## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
+
+### 新增
+- 百家号域名（`baijiahao.baidu.com`）自动走 Playwright stealth 浏览器渲染路径。
+- 百家号 SPA 页面（class 名每次构建混淆变化）采用「段落聚合」策略：取含最多 `<p>` 的容器为正文，聚合其内所有非空段落为正文文本；排除导航、侧栏、AI 导读等低密度区域。
+- 标题提取：百家号无 og:title meta，回退 h1 → `<title>` 标签。
+
+### 验证
+- 单元测试 17/17 通过（url-collector.test.js 新增百家号段落聚合 + 标题回退 + _needsBrowser 用例）。
+- E2E 真实抓取：baijiahao.baidu.com/s?id=1873093353787420593 → 成功采集标题与 2185 字正文。
+
 ## [未发布] feat(desktop): 采集功能知乎专栏/问题回答正文提取修复（2026-09-09）
 
 ### 修复
@@ -48,6 +59,17 @@
 
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
+
+## [未发布] feat(desktop): 采集功能新增百家号正文提取（2026-09-10）
+
+### 新增
+- 百家号域名（`baijiahao.baidu.com`）自动走 Playwright stealth 浏览器渲染路径。
+- 百家号 SPA 页面（class 名每次构建混淆变化）采用「段落聚合」策略：取含最多 `<p>` 的容器为正文，聚合其内所有非空段落为正文文本；排除导航、侧栏、AI 导读等低密度区域。
+- 标题提取：百家号无 og:title meta，回退 h1 → `<title>` 标签。
+
+### 验证
+- 单元测试 17/17 通过（url-collector.test.js 新增百家号段落聚合 + 标题回退 + _needsBrowser 用例）。
+- E2E 真实抓取：baijiahao.baidu.com/s?id=1873093353787420593 → 成功采集标题与 2185 字正文。
 
 ## [未发布] feat(desktop): 采集功能知乎专栏/问题回答正文提取修复（2026-09-09）
 
