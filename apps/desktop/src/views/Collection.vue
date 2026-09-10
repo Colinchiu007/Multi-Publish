@@ -381,6 +381,17 @@ const ERROR_CODES = {
 }
 const RETRYABLE_CODES = new Set([-1, -2, -3, -5])
 
+// 检测采集结果是否为反爬安全验证页面（如百度家号返回「百度安全验证」标题）
+function isSecurityChallenge (res) {
+  if (!res || !res.title) return false
+  const title = String(res.title)
+  const content = String(res.content || '')
+  // 安全验证页特征：标题含「安全验证」/「百度安全」或被正文长度极短且含提示语
+  if (title.includes('安全验证') || title.includes('百度安全') || title.includes('百度安全检测')) return true
+  if (content.length < 60 && (content.includes('安全验证') || content.includes('网络不给力') || content.includes('请稍后重试'))) return true
+  return false
+}
+
 // 聚合路径失败 — 无论任何错误码，都回退到 urlCollectFetch 降级
 
 async function collectUrl () {
@@ -401,9 +412,15 @@ async function collectUrl () {
         source_type: collectSourceType.value,
         rewrite: false,
       })
-      // aggregationCollect 失败 → 保存错误信息，回退到 urlCollectFetch 降级路径
+      // aggregationCollect 失败 → 清空结果，回退到 urlCollectFetch 降级路径
       if (res && res.code !== undefined && res.code !== 0) {
         res = null // 清空结果，让后续逻辑走 urlCollectFetch 回退
+      }
+      // 反爬安全验证页防御：部分站点（如百家号）直接 HTTP 会返回「百度安全验证」
+      // 页面（标题=百度安全验证、正文为「网络不给力」等提示），并非真实内容。
+      // 检测到安全验证特征 → 视作采集失败，回退到 Node 端 stealth 浏览器重采。
+      if (res && isSecurityChallenge(res)) {
+        res = null
       }
       if (res && res.title) {
         const item = {
