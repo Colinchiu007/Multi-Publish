@@ -217,7 +217,8 @@ async function testCollectionPage(page) {
   console.log("\n═══ 采集页 ═══");
   await page.evaluate((r) => { window.location.hash = "#" + r; }, ROUTES.collection);
   await wait(3000);
-  await assertTitle(page, "采集");
+  const cTitle = await page.evaluate(() => document.querySelector('.collection-tab-btn.active')?.textContent?.trim() || '');
+  assert('采集标签选中', cTitle.includes('采集'), 'got: "' + cTitle + '"');
   const btns = await page.evaluate(() => {
     const btns = Array.from(document.querySelectorAll("button")).map(b => b.textContent.trim());
     return { import: btns.some(t => t.includes("剪贴板")), draft: btns.some(t => t.includes("新建草稿")) };
