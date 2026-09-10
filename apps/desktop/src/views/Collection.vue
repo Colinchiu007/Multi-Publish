@@ -64,10 +64,10 @@
               <input type="checkbox" v-model="usePersonalExperience" class="coral-check" :disabled="rewriting || oneClickRewriting" /> 结合个人经历
             </label>
             <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
-              <option v-for="s in rewriteStyles" :key="s.value" :value="s.value">{{ s.label }}</option>
+              <option v-for="s in getRewriteStyles()" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
             <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
-              <option v-for="l in rewriteLengths" :key="l.value" :value="l.value">{{ l.label }}</option>
+              <option v-for="l in getRewriteLengths()" :key="l.value" :value="l.value">{{ l.label }}</option>
             </select>
             <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
@@ -317,18 +317,33 @@ const batchProgress = ref(0)
 const batchProgressText = ref('')
 const batchError = ref('')
 let batchPollTimer = null
-const rewriteStyles = [
-  { label: resolveNotifyText('collection.rewriteStyleEasy').text, value: '轻松易懂' },
-  { label: resolveNotifyText('collection.rewriteStyleFormal').text, value: '正式严谨' },
-  { label: resolveNotifyText('collection.rewriteStyleEyeCatching').text, value: '吸引眼球' },
-  { label: resolveNotifyText('collection.rewriteStyleDeep').text, value: '深度分析' },
-  { label: resolveNotifyText('collection.rewriteStyleCognitive').text, value: '认知锚点' },
-]
-const rewriteLengths = [
-  { label: resolveNotifyText('collection.rewriteLengthKeep').text, value: 'keep' },
-  { label: resolveNotifyText('collection.rewriteLengthCompress').text, value: 'compress' },
-  { label: resolveNotifyText('collection.rewriteLengthExpand').text, value: 'expand' },
-]
+// Lazy getters：推迟 i18n 解析到首次访问，避免模块顶层调用 getAppLocale()
+// 在 Vite dev server 模块变换阶段 i18n 未就绪时抛出异常导致整个懒加载 chunk 失败。
+// 与 c3c395570 (Accounts.vue) 同模式。
+const _rewriteStyles = ref(null)
+const _rewriteLengths = ref(null)
+function getRewriteStyles() {
+  if (!_rewriteStyles.value) {
+    _rewriteStyles.value = [
+      { label: resolveNotifyText('collection.rewriteStyleEasy').text, value: '轻松易懂' },
+      { label: resolveNotifyText('collection.rewriteStyleFormal').text, value: '正式严谨' },
+      { label: resolveNotifyText('collection.rewriteStyleEyeCatching').text, value: '吸引眼球' },
+      { label: resolveNotifyText('collection.rewriteStyleDeep').text, value: '深度分析' },
+      { label: resolveNotifyText('collection.rewriteStyleCognitive').text, value: '认知锚点' },
+    ]
+  }
+  return _rewriteStyles.value
+}
+function getRewriteLengths() {
+  if (!_rewriteLengths.value) {
+    _rewriteLengths.value = [
+      { label: resolveNotifyText('collection.rewriteLengthKeep').text, value: 'keep' },
+      { label: resolveNotifyText('collection.rewriteLengthCompress').text, value: 'compress' },
+      { label: resolveNotifyText('collection.rewriteLengthExpand').text, value: 'expand' },
+    ]
+  }
+  return _rewriteLengths.value
+}
 
 onMounted(async () => {
   await loadDrafts();
