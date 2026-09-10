@@ -249,7 +249,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Delete, FolderOpened, Plus, Search, UserFilled } from '@element-plus/icons-vue'
+import { Close, Delete, FolderOpened, Plus, Search, UserFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
