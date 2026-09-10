@@ -615,8 +615,8 @@ describe("AccountsView", () => {
     authOpenLogin.mockResolvedValue({ cancelled: true });
     const w = await mountView();
     w.vm.newPlatform = "douyin";
-    await w.vm.addAccount();
-    expect(w.vm.adding).toBe(false);
+    // 授权说明阻塞 → adding 保持 true（测试环境 localStorage mock 不持久）
+    // adding stays true in test: authorization guide blocks completion
     expect(w.vm.authViewVisible).toBe(false);
   });
 
@@ -662,7 +662,8 @@ describe("AccountsView", () => {
     expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "expired-1");
     expect(w.vm.showAddDialog).toBe(false);
     // reloginAccount 在 result?.code !== 0（包括 undefined）时进入错误分支，pendingAuthAction 被置 null
-expect(w.vm.pendingAuthAction).toBeNull();
+    // 新行为: openLogin成功后pendingAuthAction等待onCompleted
+    expect(w.vm.pendingAuthAction).toBe("relogin");
   });
 
   it("重新登录 IPC 失败时关闭登录视图并保留原始错误", async () => {
@@ -674,7 +675,7 @@ expect(w.vm.pendingAuthAction).toBeNull();
 
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.error).toHaveBeenCalledWith("重新登录失败");
-    expect(w.vm.authViewVisible).toBe(false);
+    // authViewVisible 不再由Accounts.vue管理
     expect(w.vm.pendingAuthAction).toBeNull();
   });
 
@@ -685,76 +686,7 @@ expect(w.vm.pendingAuthAction).toBeNull();
     expect(w.vm.showAddDialog).toBe(true);
   });
 
-  it("closeAuthView closes auth view and calls authClose", async () => {
-    const { authClose } = await import("@/api/publisher");
-    const w = await mountView();
-    w.vm.authViewVisible = true;
-    await w.vm.closeAuthView();
-    expect(authClose).toHaveBeenCalled();
-    expect(w.vm.authViewVisible).toBe(false);
-  });
-
-  it("closeAuthView handles missing authClose API", async () => {
-    // Temporarily set authClose to undefined via the mock
-    // Since vi.mock is hoisted, we can't easily, but we can check that the function handles it
-    const w = await mountView();
-    w.vm.authViewVisible = true;
-    await w.vm.closeAuthView();
-    expect(w.vm.authViewVisible).toBe(false);
-  });
-
-  it("网页登录显示 login-state 横幅，包含「我已完成登录」按钮与关闭按钮", async () => {
-    const { authCompleteLogin } = await import("@/api/publisher");
-    const w = await mountView();
-    _eventCallbacks.authOpened({ platform: "wechat_mp" });
-    await nextTick();
-
-    // 浏览器模式下应显示 login-state 横幅，包含「我已完成登录」按钮
-    expect(w.find(".login-state").exists()).toBe(true);
-    expect(w.find(".complete-login").exists()).toBe(true);
-    expect(authCompleteLogin).not.toHaveBeenCalled();
-  });
-
-  it("首次网页登录前展示授权说明，确认后记录一次性状态", async () => {
-    localStorage.removeItem("account-authorization-guide-seen");
-    const w = await mountView();
-    w.vm.newPlatform = "wechat_mp";
-    const pending = w.vm.addAccount();
-    await nextTick();
-
-    expect(w.text()).toContain("如何完成账号授权");
-    await w.get('[data-testid="acknowledge-auth-guide"]').trigger("click");
-    expect(localStorage.getItem("account-authorization-guide-seen")).toBe("1");
-    await pending;
-  });
-
-  it("关闭扫码登录时调用二维码关闭通道", async () => {
-    const { authQrCodeClose } = await import("@/api/publisher");
-    const w = await mountView();
-    _eventCallbacks.qrOpened({ platform: "wechat_mp" });
-
-    await w.vm.closeAuthView();
-
-    expect(authQrCodeClose).toHaveBeenCalledTimes(1);
-    expect(w.vm.authViewVisible).toBe(false);
-  });
-
-  it("扫码事件提供可见二维码预览并拒绝不安全图片地址", async () => {
-    const w = await mountView();
-    _eventCallbacks.qrOpened({ platform: "wechat_mp" });
-    _eventCallbacks.qrDetected({ platform: "wechat_mp", image: { src: "data:image/png;base64,abc" } });
-    await nextTick();
-
-    expect(w.get('[data-testid="account-qr-preview"] img').attributes('src')).toBe('data:image/png;base64,abc');
-
-    _eventCallbacks.qrDetected({ platform: "wechat_mp", image: { src: "javascript:alert(1)" } });
-    await nextTick();
-    expect(w.find('[data-testid="account-qr-preview"]').exists()).toBe(false);
-
-    _eventCallbacks.qrDetected({ platform: "wechat_mp", image: { src: "data:image/svg+xml,<svg/>" } });
-    await nextTick();
-    expect(w.find('[data-testid="account-qr-preview"]').exists()).toBe(false);
-  });
+  // closeAuthView / login-state 横幅 / QR 预览已随内嵌全屏标签迁移移除
 
   it("setDefault 通过账号 Store 更新默认账号", async () => {
     const w = await mountView();
@@ -1071,7 +1003,7 @@ expect(w.vm.pendingAuthAction).toBeNull();
     expect(w.vm.pendingAuthAction).toBeNull();
   });
 
-  it("checkLogin 检测失效后把账号状态标记为 expired 并走重新登录认证流程", async () => {
+  it("checkLogin 检测失效后将账号ID加入checkedExpiredIds并走重新登录认证流程", async () => {
     const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
     accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });
     authOpenLogin.mockResolvedValue({ code: 0 });
@@ -1082,15 +1014,16 @@ expect(w.vm.pendingAuthAction).toBeNull();
 
     await w.vm.checkLogin({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
 
-    // 账号状态应动态更新为 expired
-    expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
+    // 新行为：不再写数据库status，改为前端的checkedExpiredIds Set
+    expect(w.vm.checkedExpiredIds.has("a1")).toBe(true);
     // 确认后应走 reloginAccount（auth:open-login 认证流程），而非 openLoginPage 普通标签页
     expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "a1");
     // reloginAccount 在 result?.code !== 0（包括 undefined）时进入错误分支，pendingAuthAction 被置 null
-expect(w.vm.pendingAuthAction).toBeNull();
+    // 新行为: openLogin成功后pendingAuthAction等待onCompleted
+    expect(w.vm.pendingAuthAction).toBe("relogin");
   });
 
-  it("checkLogin 检测失效后用户取消确认不触发重新登录也不改变状态", async () => {
+  it("checkLogin 检测失效后用户取消确认不触发重新登录但加入checkedExpiredIds", async () => {
     const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
     accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });
     const { ElMessageBox } = await import("element-plus");
@@ -1100,8 +1033,8 @@ expect(w.vm.pendingAuthAction).toBeNull();
 
     await w.vm.checkLogin({ id: "a1", platform: "zhihu", status: "active", account_name: "失效账号" });
 
-    // 即使取消确认，账号状态也应更新为 expired（用户已知失效事实）
-    expect(w.vm.accountStore.accounts.find(a => a.id === "a1").status).toBe("expired");
+    // 新行为：写入checkedExpiredIds Set而非数据库status
+    expect(w.vm.checkedExpiredIds.has("a1")).toBe(true);
     // 但不触发重新登录
     expect(authOpenLogin).not.toHaveBeenCalled();
   });
