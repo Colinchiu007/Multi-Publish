@@ -344,11 +344,14 @@ class OAuthManager {
       this._loginTimeout = null
     }
 
-    // 认证页改回内嵌主窗口：不再需要 dispose 独立窗口
+    // 认证页改回内嵌主窗口：从 contentView 移除视图
     if (this.currentView) {
-      // eslint-disable-next-line no-unused-vars
+      try {
+        if (this.mainWindow && !this.mainWindow.isDestroyed?.() && this.mainWindow.contentView) {
+          try { this.mainWindow.contentView.removeChildView(this.currentView) } catch (e) { /* ignore */ }
+        }
+      } catch (e) { /* ignore */ }
       try { this.currentView.webContents.close() } catch (e) { /* ignore */ }
-      // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.destroy() } catch (e) { /* ignore */ }
       this.currentView = null
     }

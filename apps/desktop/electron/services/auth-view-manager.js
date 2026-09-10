@@ -396,6 +396,9 @@ class AuthViewManager {
           // @ts-expect-error Electron types missing before-input-event
           this._escView.webContents.removeListener("before-input-event", this._escHandler)
         }
+        if (this.mainWindow && !this.mainWindow.isDestroyed?.() && this.mainWindow.contentView) {
+          try { this.mainWindow.contentView.removeChildView(this.currentView) } catch (_e) { /* ignore */ }
+        }
         this.currentView.webContents.close()
       } catch (_e) { /* ignore */ }
     }

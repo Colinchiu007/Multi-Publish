@@ -604,8 +604,12 @@ class QrCodeLogin {
 
     if (loginSession.view) {
       // eslint-disable-next-line no-unused-vars
+      try {
+        if (this.mainWindow && !this.mainWindow.isDestroyed?.() && this.mainWindow.contentView) {
+          try { this.mainWindow.contentView.removeChildView(loginSession.view) } catch (e) { /* ignore */ }
+        }
+      } catch (e) { /* ignore */ }
       try { loginSession.view.webContents.close() } catch (e) { /* ignore */ }
-      // eslint-disable-next-line no-unused-vars
       try { loginSession.view.webContents.destroy() } catch (e) { /* ignore */ }
       loginSession.view = null
     }
