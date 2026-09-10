@@ -249,31 +249,22 @@ describe('IPC 注册生命周期', () => {
     expect(businessHandler).toHaveBeenCalledTimes(1)
   })
 
-  it('urlCollector 也通过 Phase 5 受控 facade 注册，不可信来源被拒', async () => {
-    let isPro = false
-    const businessHandler = vi.fn(async () => ({ code: 0, data: { title: '测试', content: '正文' } }))
-    const licenseManager = { isPro: vi.fn(() => isPro) }
+  it('urlCollector 通过 window.js IPC_REGISTRAR_NAMES 自动注册，不在 Phase 5 中心注册重复处理', async () => {
+    // PR #1588 曾在 phase5-ipc.js 额外注册 urlCollector，与 window.js 的
+    // IPC_REGISTRAR_NAMES（含 urlCollector）重复，导致 "Attempted to register a
+    // second handler for 'url-collect:fetch'" 启动崩溃。现已移除 phase5-ipc.js
+    // 中的重复注册；urlCollector 仅由 window.js 的 registerIpcRegistrar 统一注册。
+    const licenseManager = { isPro: vi.fn(() => true) }
     const urlCollector = {
       registerIpcHandlers: vi.fn((target) => {
-        target.handle('url-collect:fetch', businessHandler)
+        target.handle('url-collect:fetch', vi.fn(async () => ({ code: 0, data: { title: '测试', content: '正文' } })))
       }),
     }
     const context = { urlCollector, licenseManager }
 
     registerAllIpcHandlers({ app, BrowserWindow, context })
-    const handler = ipcMain._handlers['url-collect:fetch']
-
-    // 不可信来源被拒
-    await expect(handler(makeUntrustedEvent(), { url: 'https://example.com' }))
-      .resolves.toMatchObject({ code: -3 })
-    expect(businessHandler).not.toHaveBeenCalled()
-
-    // 可信来源放行
-    isPro = true
-    await expect(handler(makeTrustedEvent(), { url: 'https://example.com' }))
-      .resolves.toEqual({ code: 0, data: { title: '测试', content: '正文' } })
-    expect(urlCollector.registerIpcHandlers).toHaveBeenCalledTimes(1)
-    expect(businessHandler).toHaveBeenCalledTimes(1)
+    // Phase 5 不再注册 urlCollector，故不应触发其 registerIpcHandlers
+    expect(urlCollector.registerIpcHandlers).not.toHaveBeenCalled()
   })
 
   it('CloudPublisher 也通过 Phase 5 受控 facade 注册', async () => {
