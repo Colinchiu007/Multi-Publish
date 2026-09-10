@@ -63,11 +63,34 @@ test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同�
 test('Windows 打包电影工程 E2E 先运行终态观察合同', () => {
   const workflow = fs.readFileSync(buildWorkflowPath, 'utf8');
   const contractIndex = workflow.indexOf('node apps/desktop/tests/e2e/film-engineering-real.test.js');
-  const e2eIndex = workflow.indexOf('pnpm --filter @multi-publish/desktop test:e2e:film-engineering');
+  const e2eIndex = workflow.indexOf('test:e2e:film-engineering');
 
   assert.ok(contractIndex >= 0, 'Windows build 必须运行电影工程 E2E 终态观察合同');
   assert.ok(e2eIndex >= 0, 'Windows build 必须运行电影工程真实 E2E');
   assert.ok(contractIndex < e2eIndex, '终态观察合同必须先于电影工程真实 E2E');
+	});
+
+test('Windows 打包电影工程 E2E 仅发布 tag 触发且带进程级硬看门狗', () => {
+  const workflow = fs.readFileSync(buildWorkflowPath, 'utf8');
+  const e2eStep = workflow.match(/- name: Run film engineering real E2E[\s\S]*?(?=\n      - name: Upload film engineering E2E report)/)?.[0];
+
+  assert.ok(e2eStep, 'film engineering real E2E step must exist');
+  assert.match(e2eStep, /startsWith\(github\.ref, 'refs\/tags\/v'\)/, '真实 E2E 必须仅发布 tag 触发');
+  assert.match(e2eStep, /Start-Process -FilePath "pnpm\.cmd"/, '必须用 Start-Process 启动 E2E 进程');
+  assert.match(e2eStep, /WaitForExit\(\$timeoutMs\)/, '必须用 WaitForExit 做硬超时');
+  assert.match(e2eStep, /taskkill \/PID \$e2eProcess\.Id \/T \/F/, '超时必须强制杀死整个进程树');
+  assert.match(e2eStep, /exit 124/, '超时必须返回非零退出码');
+});
+
+test('GUI gate Electron 步骤仅发布 tag 触发且带硬看门狗', () => {
+  const guiWorkflowPath = path.join(__dirname, '..', 'workflows', 'gui-test.yml');
+  const workflow = fs.readFileSync(guiWorkflowPath, 'utf8');
+  const gateStep = workflow.match(/- name: Electron GUI gate[\s\S]*?(?=\n      - name: Stop Vite server)/)?.[0];
+
+  assert.ok(gateStep, 'Electron GUI gate step must exist');
+  assert.match(gateStep, /startsWith\(github\.ref, 'refs\/tags\/v'\)/, 'Electron GUI gate 必须仅发布 tag 触发');
+  assert.match(gateStep, /timeout --signal=TERM --kill-after=30s 8m/, 'Electron GUI gate 必须带 8 分钟硬看门狗');
+  assert.match(gateStep, /xvfb-run/, 'Electron GUI gate 必须经 xvfb 虚拟显示');
 });
 
 test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {
