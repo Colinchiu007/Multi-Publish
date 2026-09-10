@@ -282,6 +282,8 @@
     // 分屏监控
     webviewSetLayout: makeHandler('webviewSetLayout', async (n) => ok({ layout: n })),
     webviewOpenTab: makeHandler('webviewOpenTab', async (opts) => ok({ tabId: 'tab_' + Date.now(), platform: opts && opts.platform })),
+    // 应用外 URL 独立窗口（2026-09-10：外链不再内嵌主窗口）
+    openExternalWindow: makeHandler('openExternalWindow', async (opts) => ok({ windowId: 'ext_' + Date.now(), platform: opts && opts.platform })),
     webviewCloseTab: makeHandler('webviewCloseTab', async () => ok(true)),
     webviewCloseAll: makeHandler('webviewCloseAll', async () => ok(true)),
     webviewListTabs: makeHandler('webviewListTabs', async () => ok([])),

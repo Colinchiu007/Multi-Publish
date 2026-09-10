@@ -365,10 +365,10 @@ async function flowMonitorToComments(r) {
     record(r, 'Flow4.3 评论页面可选择平台', await waitForVisible(r.page.locator('#comment-view-container')));
   }
 
-  // Step 4: 选择评论平台会通过 WebView 打开对应平台页面
-  if (commentItems > 0) await waitForIpcCall(r, 'webviewOpenTab');
-  const openTabCalls = await r.getIpcCalls('webviewOpenTab');
-  record(r, 'Flow4.4 webviewOpenTab IPC 已调用', openTabCalls > 0, { count: openTabCalls });
+  // Step 4: 选择评论平台会用独立窗口打开对应平台页面（2026-09-10：外链不再内嵌主窗口）
+  if (commentItems > 0) await waitForIpcCall(r, 'openExternalWindow');
+  const openExternalCalls = await r.getIpcCalls('openExternalWindow');
+  record(r, 'Flow4.4 openExternalWindow IPC 已调用', openExternalCalls > 0, { count: openExternalCalls });
 }
 
 /**

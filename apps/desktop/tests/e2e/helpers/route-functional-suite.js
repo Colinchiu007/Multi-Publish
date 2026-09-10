@@ -146,7 +146,7 @@ async function exerciseComments(r) {
   if (await item.count()) {
     await item.click();
     record(r, '评论容器在选择平台后显示', await waitForVisible(r.page.locator('#comment-view-container')));
-    await expectIpc(r, 'webviewOpenTab', '选择平台打开评论页');
+    await expectIpc(r, 'openExternalWindow', '选择平台打开评论页（独立窗口）');
   }
 }
 
