@@ -159,7 +159,7 @@ describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
     expect(sends).toContain('page-manager:tab-switched')
   })
 
-  it('登录视图关闭且无之前标签 → 回退到首页', () => {
+  it('登录视图关闭且无之前标签 → 回退到首页（不广播 tab-switched）', () => {
     const wm = new WebviewManager()
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
@@ -171,11 +171,13 @@ describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
     auth.onOpened({ platform: 'douyin', accountId: null, url: 'https://creator.douyin.com/' })
     auth.onClosed()
 
+    // 新行为：回退首页时不广播 tab-switched，仅内部重置 activeTabId
     expect(wm._activeTabId).toBe('home')
     const switched = wm.mainWindow.webContents.send.mock.calls
       .filter(c => c[0] === 'page-manager:tab-switched')
       .pop()
-    expect(switched[1].data.tabId).toBe('home')
+    // 最后一处 tab-switched 是登录打开时的广播，不是回退时的
+    expect(switched[1].data.isLogin).toBe(true)
   })
 
   it('switchToTab(登录标签) 显示登录视图并隐藏浏览器标签', () => {

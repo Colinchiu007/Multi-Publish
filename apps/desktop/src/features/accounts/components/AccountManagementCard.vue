@@ -135,6 +135,7 @@ const props = defineProps({
   batchMode: { type: Boolean, default: false },
   verifying: { type: Boolean, default: false },
   creatorHint: { type: String, default: '' },
+  checkedExpiredIds: { type: Object, default: () => new Set() },
 })
 
 const { t } = useI18n()
@@ -237,7 +238,28 @@ function isActive (account) {
   return accountStatusKind(account) === 'online'
 }
 
-/** 只有明确标记为 expired 的账号才需要重新登录（其它 offline/error/unknown 不显示去登录） */
+function statusLabel (account) {
+  const kind = accountStatusKind(account)
+  if (kind === 'online') return t('accountsPage.accountCardLabels.statusLoggedIn')
+  if (kind === 'offline') return t('accountsPage.accountCardLabels.statusLoggedIn')
+  if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
+  return t('accountsPage.accountCardLabels.statusNoCheck')
+}
+
+function statusClass (account) {
+  return accountStatusKind(account)
+}
+
+const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt']
+const CHECK_REASON_KEYS = ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError', 'status_reason', 'statusReason']
+
+function loginCheckLabel (account) {
+  for (const key of LAST_CHECK_KEYS) {
+    const value = account?.[key]
+    if (value === null || value === undefined || value === '') continue
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) return t('accountsPage.accountCardLabels.lastCheck', { date: date.toLocaleString('zh-CN') })
+  }
   for (const key of CHECK_REASON_KEYS) {
     const value = valueLabel(account?.[key])
     if (value) return t('accountsPage.accountCardLabels.checkAbnormal', { reason: value })
