@@ -462,11 +462,15 @@ async function checkLoginStatus (platform, accountId) {
       // （networkidle 等待所有网络连接空闲，大型 SPA 页面可能耗时 30+ 秒）
       await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
 
-      // 检查登录状态选择器
+      // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      // 检查登录状态选择器（支持数组选择器：PLATFORM_LOGIN_SUCCESS_SELECTORS 配置
+      // 每个平台多个备选 CSS 选择器，playwright-manager 的 waitForSelector 会逐一尝试）
       let selectorMatched = false
       if (successSelector) {
         try {
-          await page.waitForSelector(successSelector, { timeout: 5000 })
+          await page.waitForSelector(successSelector, { timeout: 10000 })
           selectorMatched = true
           return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
         } catch {
