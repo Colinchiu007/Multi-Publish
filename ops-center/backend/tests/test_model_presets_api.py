@@ -862,6 +862,7 @@ async def test_catalog_facts_consistency():
         "agnes-image": "/models",
         "agnes-video": "/models",
         "sensenova-llm": "/models",
+        "tianyiyun-coding-plan": "/models",
         "cogvideo": "/models",
         "minimax-tts": "/models",
         "minimax-image": "/models",
