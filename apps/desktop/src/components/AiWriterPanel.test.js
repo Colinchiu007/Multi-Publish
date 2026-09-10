@@ -11,6 +11,7 @@ const publisherApi = vi.hoisted(() => ({
   aiRewrite: vi.fn((params) => window.electronAPI?.aiRewrite?.(params)),
   aiListRewriteStrategies: vi.fn(() => window.electronAPI?.aiListRewriteStrategies?.()),
   aiGetRecommendedStrategies: vi.fn((settings) => window.electronAPI?.aiGetRecommendedStrategies?.(settings)),
+  applyKnowledgeFeedback: vi.fn((action, refs) => window.electronAPI?.applyKnowledgeFeedback?.(action, refs)),
 }));
 
 const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));

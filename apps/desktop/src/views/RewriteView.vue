@@ -135,7 +135,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, draftSave } from '@/api/publisher'
+import { aiRewrite, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -274,9 +274,7 @@ async function saveToDraft() {
 function sendKnowledgeFeedback(action, refs) {
   if (!refs || refs.length === 0) return
   try {
-    if (window.electronAPI && typeof window.electronAPI.applyKnowledgeFeedback === 'function') {
-      window.electronAPI.applyKnowledgeFeedback(action, refs)
-    }
+    applyKnowledgeFeedback(action, refs)
   } catch (e) {
     // 知识反馈失败不影响改写主流程
   }

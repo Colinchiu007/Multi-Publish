@@ -20,6 +20,7 @@ vi.mock('@/api/publisher', () => ({
   draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   storeGetSetting: vi.fn().mockResolvedValue(null),
   storeSetSetting: vi.fn().mockResolvedValue({}),
+  applyKnowledgeFeedback: vi.fn().mockResolvedValue({ code: 0 }),
 }))
 
 vi.mock('@/composables/useNotify', () => ({
@@ -188,7 +189,7 @@ describe('RewriteView', () => {
 
   // ─── P2 隐式反馈：保存草稿=采纳，再次改写=弃用 ───
   it('saving draft sends adopted feedback for knowledgeRefs', async () => {
-    const { aiRewrite, draftSave } = await import('@/api/publisher')
+    const { aiRewrite, applyKnowledgeFeedback } = await import('@/api/publisher')
     aiRewrite.mockResolvedValue({
       code: 0,
       data: {
@@ -201,8 +202,7 @@ describe('RewriteView', () => {
         metadata: { mode: 'create', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
       },
     })
-    const feedbackMock = vi.fn().mockResolvedValue({ code: 0 })
-    window.electronAPI = { applyKnowledgeFeedback: feedbackMock }
+    applyKnowledgeFeedback.mockClear()
     const wrapper = factory()
     const textarea = wrapper.find('textarea.rewrite-textarea')
     await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
@@ -216,7 +216,7 @@ describe('RewriteView', () => {
     await saveBtn.trigger('click')
     await nextTick()
     await nextTick()
-    expect(feedbackMock).toHaveBeenCalledWith(
+    expect(applyKnowledgeFeedback).toHaveBeenCalledWith(
       'adopted',
       expect.arrayContaining([expect.objectContaining({ table: 'viral_library', id: 'v1' })])
     )

@@ -196,6 +196,7 @@ import {
   aiRewrite,
   aiListRewriteStrategies,
   aiGetRecommendedStrategies,
+  applyKnowledgeFeedback,
   modelProviderIsConfigured,
 } from "@/api/publisher"
 import { useLoginGate } from "@/composables/useLoginGate"
@@ -378,9 +379,7 @@ function selectRewriteResult() {
 function sendKnowledgeFeedback(action, refs) {
   if (!refs || refs.length === 0) return
   try {
-    if (window.electronAPI && typeof window.electronAPI.applyKnowledgeFeedback === "function") {
-      window.electronAPI.applyKnowledgeFeedback(action, refs)
-    }
+    applyKnowledgeFeedback(action, refs)
   } catch (e) {
     // 知识反馈失败不影响改写主流程
   }
