@@ -60,7 +60,8 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('check-login')).toEqual([[account]])
     expect(wrapper.emitted('configure-proxy')).toEqual([[account]])
     expect(wrapper.emitted('remove')).toEqual([[account]])
-    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(true)
+    // 活动账号未在 checkedExpiredIds 中，不显示「去登录」按钮（仅失效账号显示）
+    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(false)
   })
 
   it('非批量模式隐藏账号选择框', () => {
@@ -69,19 +70,22 @@ describe('AccountManagementCard', () => {
     expect(wrapper.find('[data-testid="select-account-1"]').exists()).toBe(false)
   })
 
-  it('失效账号展示登录按钮并上抛原始账号对象', async () => {
+  it('失效账号（checkedExpiredIds 命中）展示登录按钮并上抛原始账号对象', async () => {
     const expiredAccount = { ...account, status: 'inactive' }
-    const wrapper = mountCard({ account: expiredAccount })
+    const checkedExpiredIds = new Set(['account-1'])
+    const wrapper = mountCard({ account: expiredAccount, checkedExpiredIds })
 
-    expect(wrapper.text()).toContain('已失效')
+    // offline 状态统一显示「已登录」（不再写数据库 expired）
+    expect(wrapper.get('[data-testid="account-status-account-1"]').text()).toBe('已登录')
     await wrapper.get('[data-testid="login-account-1"]').trigger('click')
 
     expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])
   })
 
-  it('未知状态保持诚实提示并继续提供登录动作', async () => {
+  it('未知状态保持诚实提示，checkedExpiredIds 命中时提供登录动作', async () => {
     const unknownAccount = { ...account, status: 'unknown' }
-    const wrapper = mountCard({ account: unknownAccount })
+    const checkedExpiredIds = new Set(['account-1'])
+    const wrapper = mountCard({ account: unknownAccount, checkedExpiredIds })
     const status = wrapper.get('[data-testid="account-status-account-1"]')
 
     expect(status.text()).toBe('暂无检查记录')
@@ -105,7 +109,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-check-account-1"]').text()).toBe('异常：Cookie 已过期')
   })
 
-  it('有检查时间或失败原因时展示真实字段', () => {
+  it('有检查时间时优先展示最近检查时间', () => {
     const wrapper = mountCard({
       account: {
         ...account,
@@ -114,6 +118,7 @@ describe('AccountManagementCard', () => {
       },
     })
 
+    // loginCheckLabel 优先展示最近检查时间（LAST_CHECK_KEYS），再展示失败原因
     expect(wrapper.get('[data-testid="account-check-account-1"]').text()).toContain('最近检查')
   })
 

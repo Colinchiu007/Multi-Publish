@@ -648,7 +648,6 @@ async function addAccount () {
   try {
     const result = await accountActions.openLogin(mode, platform)
     if (result?.cancelled) {
-      checkedExpiredIds.value.delete(account.id)
       pendingAuthAction.value = null
     } else if (result?.code !== 0) {
       pendingAuthAction.value = null
