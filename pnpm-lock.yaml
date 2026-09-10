@@ -66,6 +66,9 @@ importers:
       '@multi-publish/api-publish-engine':
         specifier: workspace:*
         version: link:../../packages/api-publish-engine
+      '@multi-publish/collection-engine':
+        specifier: workspace:*
+        version: link:../../packages/collection-engine
       '@multi-publish/rewrite-engine':
         specifier: workspace:*
         version: link:../../packages/rewrite-engine
@@ -261,6 +264,12 @@ importers:
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
+
+  packages/collection-engine:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@24.13.3)(@vitest/coverage-v8@4.1.9)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@24.13.3)(terser@5.48.0)(yaml@2.9.0))
 
   packages/remotion-composer:
     dependencies:
@@ -2485,8 +2494,8 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  bidi-js@1.0.3:
-    resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
+  bidi-js@1.1.0:
+    resolution: {integrity: sha512-fX1Onk0tdVPC7obPWB5EbJ1z7NVhLq4m2xZLq2YXBkxzMXIGRpNMU88n0EPgWseKl12J7zXs7qrDxPK4sRs2fg==}
 
   birpc@2.9.0:
     resolution: {integrity: sha512-KrayHS5pBi69Xi9JmvoqrIgYGDkD6mcSe/i6YKi3w5kekCLzrX4+nawcXqrj2tIp50Kw/mT/s3p+GVK0A0sKxw==}
@@ -5896,7 +5905,7 @@ snapshots:
     dependencies:
       '@asamuzakjp/generational-cache': 1.0.1
       '@asamuzakjp/nwsapi': 2.3.9
-      bidi-js: 1.0.3
+      bidi-js: 1.1.0
       css-tree: 3.2.1
       is-potential-custom-element-name: 1.0.1
 
@@ -8071,7 +8080,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.37: {}
 
-  bidi-js@1.0.3:
+  bidi-js@1.1.0:
     dependencies:
       require-from-string: 2.0.2
 

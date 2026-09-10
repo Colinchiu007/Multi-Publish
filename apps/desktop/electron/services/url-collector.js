@@ -14,11 +14,28 @@ const { ipcMain } = require('electron')
 // eslint-disable-next-line no-unused-vars
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
+const {
+  CollectionStrategy,
+  RateLimiter,
+  CircuitBreaker,
+  CoolDownPool,
+  ContentCache,
+  AuditLogger,
+  HealthMonitor,
+} = require('@multi-publish/collection-engine')
 
 class UrlCollector {
   constructor () {
     this._axios = null
     this._stealthBrowser = null
+    // 防封八层防护核心组件（L0/L3/L5/L6/L7）
+    this._strategy = new CollectionStrategy()
+    this._rateLimiter = new RateLimiter()
+    this._circuitBreaker = new CircuitBreaker()
+    this._coolDownPool = new CoolDownPool()
+    this._contentCache = new ContentCache()
+    this._auditLogger = new AuditLogger()
+    this._healthMonitor = new HealthMonitor()
   }
 
   /**
@@ -66,13 +83,64 @@ class UrlCollector {
       return { success: false, error: '不允许采集内网地址' }
     }
 
+    const platform = this._platformFromHostname(hostname)
+
+    // 八层防护门禁：预算 → 冷却池 → 熔断 → 频率 → 缓存
+    const budget = this._strategy.checkBudget(platform)
+    if (!budget.allowed) {
+      this._auditLogger.blocked(platform, 'default', 'budget_exhausted')
+      return { success: false, error: '已达每日采集预算上限', reason: 'budget_exhausted' }
+    }
+
+    if (this._coolDownPool.isBanned('account', platform)) {
+      this._auditLogger.blocked(platform, 'default', 'cooldown')
+      return { success: false, error: '该平台处于冷却期，请稍后再试', reason: 'cooldown' }
+    }
+
+    const strategy = this._strategy.getStrategy(platform)
+    if (this._circuitBreaker.isOpen(platform, 'default', strategy.circuitBreaker)) {
+      this._auditLogger.blocked(platform, 'default', 'circuit_open')
+      return { success: false, error: '该平台请求已熔断，请稍后再试', reason: 'circuit_open' }
+    }
+
+    const rateCheck = this._rateLimiter.evaluate({ ...strategy, platform, accountId: 'default' })
+    if (!rateCheck.allowed) {
+      this._auditLogger.blocked(platform, 'default', rateCheck.reason, { waitMs: rateCheck.waitMs })
+      return { success: false, error: '请求频率受限，请稍后再试', reason: rateCheck.reason, waitMs: rateCheck.waitMs }
+    }
+
+    if (this._contentCache.hasUrl(url)) {
+      return { success: true, reason: 'cache_hit', title: '', content: '' }
+    }
+
     try {
-      const hostname = new URL(url).hostname.toLowerCase()
+      this._rateLimiter.recordRequest(platform, 'default')
+      this._strategy.consumeBudget(platform)
+      let result
       if (this._needsBrowser(hostname)) {
-        return await this._collectViaBrowser(url)
+        result = await this._collectViaBrowser(url)
+      } else {
+        result = await this._collectViaHttp(url)
       }
-      return await this._collectViaHttp(url)
+      if (result && result.success) {
+        this._contentCache.mark(url, String(result.content || '').slice(0, 256))
+        this._circuitBreaker.recordSuccess(platform, 'default')
+        this._healthMonitor.record(platform, 'default', { success: true })
+        this._auditLogger.request(platform, 'default', url, 200, 0)
+      } else {
+        const reason = result && result.error && /登录|验证码|请登录/.test(result.error) ? 'captcha' : 'blocked'
+        this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
+        this._healthMonitor.record(platform, 'default', { success: false, reason })
+        this._auditLogger.blocked(platform, 'default', reason)
+        if (this._circuitBreaker.getState(platform, 'default', strategy.circuitBreaker).state === 'open') {
+          this._coolDownPool.ban('account', platform, reason)
+        }
+      }
+      return result
     } catch (e) {
+      this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
+      this._healthMonitor.record(platform, 'default', { success: false, reason: 'network_error' })
+      this._auditLogger.error(platform, 'default', e, { url })
       return { success: false, error: `采集失败: ${e.message}` }
     }
   }
@@ -173,6 +241,16 @@ class UrlCollector {
     return hostname === 'zhuanlan.zhihu.com' ||
       hostname === 'www.zhihu.com' ||
       hostname === 'zhihu.com'
+  }
+
+  /** 从 hostname 映射平台标识（策略配置键） */
+  _platformFromHostname (hostname) {
+    if (hostname.includes('zhihu')) return 'zhihu'
+    if (hostname.includes('weixin') || hostname.includes('wechat') || hostname === 'mp.weixin.qq.com') return 'wechat_mp'
+    if (hostname.includes('bilibili')) return 'bilibili'
+    if (hostname.includes('xiaohongshu') || hostname.includes('xhslink')) return 'xiaohongshu'
+    if (hostname.includes('douyin')) return 'douyin'
+    return 'generic'
   }
 
   /**
