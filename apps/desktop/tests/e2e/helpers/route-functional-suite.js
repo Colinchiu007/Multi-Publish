@@ -239,7 +239,7 @@ async function exerciseDashboard(r) {
 
 async function exerciseCollection(r) {
   record(r, '采集 URL 可填写', await fillByPlaceholder(r, '文章链接', 'https://example.com/e2e'));
-  const clicked = await clickText(r, '采集');
+  const clicked = await clickText(r, '采集', { selector: '[data-testid="collection-collect-btn"]' });
   record(r, '链接采集可执行', clicked);
   if (clicked) {
     record(r, '采集结果展示标题', await bodyHas(r, '采集的标题'));

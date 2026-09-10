@@ -135,8 +135,8 @@ async function run() {
     await win.evaluate(() => { window.location.hash = "#/collection"; });
     await wait(3000);
 
-    const cTitle = await win.evaluate(() => document.querySelector(".page-title")?.textContent?.trim() || "");
-    assert("采集页标题", cTitle.includes("采集"), `"${cTitle}"`);
+  const cTitle = await win.evaluate(() => document.querySelector('.collection-tab-btn.active')?.textContent?.trim() || "");
+    assert("采集标签选中", cTitle.includes("采集") || cTitle.includes("Collection"), `"${cTitle}"`);
 
     const cBtns = await win.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button")).map(b => b.textContent.trim());

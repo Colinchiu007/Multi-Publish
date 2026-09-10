@@ -31,7 +31,7 @@ describe("CollectionView", () => {
   it("renders page title and buttons", async () => {
     const w = mountCollection();
     await nextTick();
-    expect(w.text()).toContain("内容采集");
+    expect(w.text()).toContain("collection.tabCollect");
     expect(w.text()).toContain("新建草稿");
   });
 
@@ -538,5 +538,127 @@ describe("CollectionView", () => {
     expect(w.vm.rewriteResult).toBe("");
     expect(w.vm.rewriteError).toBeNull();
     expect(w.vm.collectError).toBeNull();
+  });
+
+  it("renders collection tabs and switches to records tab", async () => {
+    const w = mountCollection();
+    await nextTick();
+    expect(w.text()).toContain("collection.tabCollect");
+    expect(w.text()).toContain("collection.tabRecords");
+    // 默认在采集 tab
+    expect(w.vm.activeTab).toBe("collect");
+    // 切换到采集记录 tab
+    await w.vm.switchTab("records");
+    await nextTick();
+    expect(w.vm.activeTab).toBe("records");
+    expect(w.text()).toContain("collection.recordsEmptyTitle");
+  });
+
+  it("switchTab ignores invalid tab", async () => {
+    const w = mountCollection();
+    await nextTick();
+    await w.vm.switchTab("invalid");
+    expect(w.vm.activeTab).toBe("collect");
+  });
+
+  it("loadCollectedItems reads persisted records on mount", async () => {
+    window.electronAPI = {
+      storeGetSetting: vi.fn().mockImplementation(async (key) => {
+        if (key === "collected_items") return JSON.stringify([
+          { id: "c1", title: "Record A", content: "hello", source: "url" }
+        ]);
+        return null;
+      })
+    };
+    const w = mountCollection();
+    await nextTick();
+    await new Promise(r => setTimeout(r, 0));
+    await nextTick();
+    expect(w.vm.collectedItems.length).toBe(1);
+    expect(w.vm.collectedItems[0].title).toBe("Record A");
+  });
+
+  it("loadCollectedItems handles parse failure", async () => {
+    window.electronAPI = {
+      storeGetSetting: vi.fn().mockImplementation(async (key) => {
+        if (key === "collected_items") return "not-json{{{";
+        return null;
+      })
+    };
+    const w = mountCollection();
+    await nextTick();
+    await new Promise(r => setTimeout(r, 0));
+    await nextTick();
+    expect(w.vm.collectedItems).toEqual([]);
+  });
+
+  it("openRecordForEdit creates draft and navigates to publish", async () => {
+    window.electronAPI = { storeSetSetting: vi.fn() };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.drafts = [];
+    const item = { id: "rec1", title: "Record Title", content: "record content", source: "rss", sourceUrl: "https://ex.com" };
+    await w.vm.openRecordForEdit(item);
+    expect(w.vm.drafts.length).toBe(1);
+    expect(w.vm.drafts[0].title).toBe("Record Title");
+    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=" + w.vm.drafts[0].id);
+  });
+
+  it("openRecordForEdit does nothing for invalid item", async () => {
+    const w = mountCollection();
+    await nextTick();
+    w.vm.drafts = [];
+    await w.vm.openRecordForEdit(null);
+    expect(w.vm.drafts.length).toBe(0);
+  });
+
+  it("deleteRecord confirms and removes record", async () => {
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue(undefined);
+    window.electronAPI = { storeSetSetting: vi.fn() };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "r1" }, { id: "r2" }];
+    await w.vm.deleteRecord({ id: "r1" });
+    expect(w.vm.collectedItems.length).toBe(1);
+    expect(w.vm.collectedItems[0].id).toBe("r2");
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalled();
+  });
+
+  it("deleteRecord does nothing on cancel", async () => {
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockRejectedValue(new Error("canceled"));
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "r1" }];
+    await w.vm.deleteRecord({ id: "r1" });
+    expect(w.vm.collectedItems.length).toBe(1);
+  });
+
+  it("clearAllRecords clears list after confirm", async () => {
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue(undefined);
+    window.electronAPI = { storeSetSetting: vi.fn() };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "r1" }, { id: "r2" }];
+    w.vm.collectedResult = { id: "r1" };
+    await w.vm.clearAllRecords();
+    expect(w.vm.collectedItems.length).toBe(0);
+    expect(w.vm.collectedResult).toBeNull();
+  });
+
+  it("collectUrl persists collected items to store", async () => {
+    const storeSet = vi.fn().mockResolvedValue(undefined);
+    window.electronAPI = {
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 0, data: { title: "Persisted", content: "body" } }),
+      storeSetSetting: storeSet,
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://example.com/persist";
+    await w.vm.collectUrl();
+    expect(storeSet).toHaveBeenCalledWith("collected_items", expect.stringContaining("Persisted"));
   });
 });

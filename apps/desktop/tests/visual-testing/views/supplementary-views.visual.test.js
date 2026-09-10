@@ -173,7 +173,7 @@ const supplementaryViewTests = [
   {
     name: 'collection-confirm-dialog',
     route: '/collection',
-    waitFor: '.page-title:has-text("内容采集")',
+    waitFor: '.collection-tab-btn.active',
     checks: [
       check('收藏列表', '.cohere-section-title:has-text("草稿箱")', '显示草稿列表'),
       check('删除入口', '.cohere-card-grid button:has-text("删除"), .cohere-empty', '显示删除入口或明确空状态'),
