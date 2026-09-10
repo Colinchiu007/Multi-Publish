@@ -322,7 +322,6 @@ module.exports = {
       return row ? Number(row.n) || 0 : 0
     } catch (e) { return 0 }
   },
-}
 
   // ===================== 进化语义：检索即强化 =====================
 
@@ -347,3 +346,4 @@ module.exports = {
     } catch (e) { /* ignore */ }
   },
 
+}

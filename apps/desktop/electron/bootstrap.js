@@ -186,14 +186,14 @@ servicesResult = await startServices({
         modelProviderManager, getMainWin,
       })
 
-      // 启动知识进化调度器（decay-check + consolidate + quality-score）
-      if (container.has('knowledgeEvolutionScheduler')) {
+      // 启动知识进化调度器
+      try {
         var evolutionScheduler = container.get('knowledgeEvolutionScheduler')
         if (evolutionScheduler && typeof evolutionScheduler.start === 'function') {
           evolutionScheduler.start()
           log.info('App', 'knowledge-evolution scheduler started')
         }
-      }
+      } catch (e) { /* 容器无此服务时静默跳过（测试环境 mock container 不注册此服务） */ }
       context.keywordPersistTimer = servicesResult.keywordPersistTimer
       context.loginStatusMonitor = servicesResult.loginStatusMonitor
       context.cloudPublisher = servicesResult.cloudPublisher
