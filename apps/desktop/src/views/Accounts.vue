@@ -207,6 +207,7 @@
               @configure-proxy="openProxyDialog"
               @check-login="checkLogin"
               @open-login="reloginAccount"
+              :checked-expired-ids="checkedExpiredIds"
               @remove="removeAccount"
             @open-creator="openCreatorCenter"
             />
@@ -313,6 +314,8 @@ const searchInput = ref('')
 const platformSearchInput = ref('')
 const accountBatchMode = ref(false)
 const verifyingIds = ref(new Set())
+  /** 当前会话中被 checkLogin 确认失效的账号 ID */
+  const checkedExpiredIds = ref(new Set())
 const pendingAuthAction = ref(null)
 const ownerFilter = ref('')
 const publisherFilter = ref('')
@@ -645,6 +648,7 @@ async function addAccount () {
   try {
     const result = await accountActions.openLogin(mode, platform)
     if (result?.cancelled) {
+      checkedExpiredIds.value.delete(account.id)
       pendingAuthAction.value = null
     } else if (result?.code !== 0) {
       pendingAuthAction.value = null
@@ -676,6 +680,7 @@ async function reloginAccount (account) {
   try {
     const result = await accountActions.openLogin('browser', account.platform, account.id)
     if (result?.cancelled) {
+      checkedExpiredIds.value.delete(account.id)
       pendingAuthAction.value = null
     } else if (result?.code !== 0) {
       pendingAuthAction.value = null
@@ -778,11 +783,7 @@ async function checkLogin (account) {
     if (result?.code === 0 && result.data?.valid) {
       notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid', { platform: platformName }) })
     } else {
-      // 账号登录已失效：立即更新本地状态，让卡片动态变更为"已失效"+【去登录】按钮
-      const accountIndex = accountStore.accounts.findIndex(a => a.id === id)
-      if (accountIndex !== -1) {
-        accountStore.accounts[accountIndex] = { ...accountStore.accounts[accountIndex], status: 'expired' }
-      }
+      checkedExpiredIds.value.add(id)
       // 使用错误码映射到 i18n 文案，避免后端硬编码消息直接展示
       const errorCode = result?.data?.code || 'CHECK_LOGIN_COOKIE_EXPIRED'
       const reasonKey = 'accountsPage.accountCheckStatus.' + errorCode
