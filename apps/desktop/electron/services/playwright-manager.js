@@ -163,14 +163,16 @@ function createPage (
      * @param {string} selector CSS 选择器
      * @param {{ timeout?: number }} [options]
      */
-    async waitForSelector (selector, options = {}) {
+   async waitForSelector (selector, options = {}) {
+      // 支持数组选择器：为每个候选 CSS 选择器依次尝试，匹配到任一个即返回
+      const selectors = Array.isArray(selector) ? selector : [selector]
       const { timeout = 30000 } = options
       const start = Date.now()
       while (Date.now() - start < timeout) {
         if (_closed) throw new Error('Page closed while waiting')
         try {
           const found = await win.webContents.executeJavaScript(
-            `document.querySelector(${JSON.stringify(selector)}) !== null`
+            `(function(){var s=${JSON.stringify(selectors)};for(var i=0;i<s.length;i++){if(document.querySelector(s[i]))return true;}return false;})()`
           )
           if (found) return true
         // eslint-disable-next-line no-unused-vars
@@ -179,7 +181,7 @@ function createPage (
         }
         await new Promise(r => setTimeout(r, 500))
       }
-      throw new Error(`Timeout waiting for selector: ${selector}`)
+      throw new Error(`Timeout waiting for selectors: ${JSON.stringify(selectors)}`)
     },
 
     /**

@@ -4924,6 +4924,7 @@ Vue 展示组件
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
+| v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
 | v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐蚁小二）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
 | v2.3.60 | 2026-08-27 | 桌面端会员中心页面（账号 / 版本许可证 / 会员权益 / 资源配额 / 关于）+ 左上角头像账号入口（未登录直接弹登录、已登录弹菜单、disabled fail-closed）、「更多」菜单与身份菜单新增会员中心入口、entitlement.quota 透传修复、视觉门禁与 CJK 基线同步 |
 | v2.3.59 | 2026-08-27 | 双默认模型 ID（运营预设 default_model + 用户自选 user_default_model）：桌面端供应商「默认模型」下拉选择（模型列表只读，唯一维护入口运营中心）、resolveProviderDefaultModel 全链路接线、ops-center 种子自动 fetch + 批量获取模型 ID、7.4.5.5 定稿 |
