@@ -205,6 +205,17 @@ active ──(>90天未访问)──► stale ──(>180天)──► deprecate
 | 知识巩固 | 每周一凌晨 2 点 | 强化高置信度(≥0.7) + 归档低频(deprecated 且 access<3) |
 | 反馈驱动 | 改写完成时 | 用户采纳 → confidence+0.1；拒绝 → -0.05 |
 
+### 8.5.1 P2 反馈闭环实现（2026-09-10）
+
+> 反馈驱动机制已接线，形成完整进化闭环：
+
+1. **KnowledgeContextBuilder 收集 touchedItems**：`buildFullContext()` 内部记录本次检索命中的爆款库/个人库条目（`{table, id}`），新增 `getTouchedItems()` 方法。
+2. **改写引擎返回 knowledgeRefs**：`RewriteEngine.rewrite()` 返回 `knowledgeRefs`（本次改写引用的知识条目），供调用方在用户反馈时使用。
+3. **Service 层 applyFeedback**：`KnowledgeLibraryService.applyFeedback(action, refs)` 调 `feedbackBoost()`，采纳 +0.1 / 拒绝 -0.05，带 table 白名单防 SQL 注入。
+4. **IPC 通道**：`knowledge-library:apply-feedback` + preload `applyKnowledgeFeedback(action, refs)`。
+
+**数据校验**：action 仅允许 adopted/rejected；refs 过滤 table ∈ {viral_library, personal_knowledge} 且 id 非空；空 refs 返回成功（0 影响）。
+
 ### 8.6 审计日志
 
 新增 `knowledge_audit_log` 表，记录所有进化事件（access/reinforce/status_change/archive），字段含 target_table/target_id/event/old_status/new_status/old_confidence/new_confidence/actor/created_at。支持知识变化的追溯与调试。

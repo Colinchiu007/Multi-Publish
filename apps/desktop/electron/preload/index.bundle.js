@@ -965,7 +965,9 @@ var require_knowledge_library = __commonJS({
         importFiles: (files, categoryPerFile) => ipcRenderer2.invoke("knowledge-library:import-files", files, categoryPerFile),
         // 飞书导出
         exportViralToFeishu: (title) => ipcRenderer2.invoke("knowledge-library:export-viral-to-feishu", title),
-        exportPersonalToFeishu: (title) => ipcRenderer2.invoke("knowledge-library:export-personal-to-feishu", title)
+        exportPersonalToFeishu: (title) => ipcRenderer2.invoke("knowledge-library:export-personal-to-feishu", title),
+        // P2 反馈闭环：用户采纳/拒绝驱动知识置信度
+        applyKnowledgeFeedback: (action, refs) => ipcRenderer2.invoke("knowledge-library:apply-feedback", action, refs)
       };
     }
     module2.exports = { createKnowledgeLibraryApi: createKnowledgeLibraryApi2 };
