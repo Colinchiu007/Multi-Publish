@@ -1040,8 +1040,9 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ |
 | URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ |
-| 浏览器渲染采集 | HTTP 采集 + Playwright stealth 渲染降级（知乎等反爬站点自动走 stealth 路径，PR #1588） | ✅ |
+| 浏览器渲染采集 | HTTP 采集 + Playwright stealth 渲染降级（知乎、百家号等反爬/SPA 站点自动走 stealth 路径，PR #1588/#16xx） | ✅ |
 | 知乎正文提取 | 专栏文章 `.Post-RichTextContainer`、问题/回答 `.RichContent-inner`，逐级回退 article→main→body（PR #1588） | ✅ |
+| 百家号正文提取 | SPA 页面（class 名每次构建混淆）采用「段落聚合」：取含最多 `<p>` 的容器为正文，聚合其内非空段落；标题回退 h1/`<title>`（PR #16xx） | ✅ |
 | 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |
 | Python 聚合采集 | 后端 aggregation API（多源采集+AI改写），Phase 1 已集成；聚合失败自动回退 urlCollectFetch（PR #1588） | ✅ v2.3.60 (PR #1496) |
 
@@ -1560,7 +1561,7 @@ class BaseRpaPublisher {
 
 | 类别 | 用途 | 预设服务商 |
 |------|------|----------|
-| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek |
+| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek / 天翼云 Coding Plan |
 | TTS 语音 | 视频配音、语音合成 | ElevenLabs / OpenAI TTS / 豆包 TTS / Google TTS / Piper |
 | 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper |
 | 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI |

@@ -439,6 +439,7 @@ class ModelProviderManager {
       'opencode-go': require('./adapters/opencode-go').OpenCodeGoAdapter,
       'agnes-llm': require('./adapters/agnes-llm').AgnesLlmAdapter,
       'sensenova-llm': require('./adapters/sensenova-llm').SenseNovaLlmAdapter,
+      'tianyiyun-coding-plan': require('./adapters/tianyiyun-coding-plan').TianyiYunCodingPlanAdapter,
       'minimax-llm': require('./adapters/minimax-llm').MinimaxLlmAdapter,
       // ─── TTS 语音合成 (7) ──────────────────────────
       elevenlabs: require('./adapters/elevenlabs').ElevenLabsAdapter,

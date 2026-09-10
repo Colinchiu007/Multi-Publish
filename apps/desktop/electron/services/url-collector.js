@@ -6,7 +6,7 @@
  *
  * 采集方式：
  *   1. HTTP 请求 + Cheerio 解析（轻量，首选）
- *   2. Playwright stealth 浏览器（知乎等反爬站点）
+   *   2. Playwright stealth 浏览器（知乎、百家号等反爬/SPA 站点）
  *
  * 文件位置: apps/desktop/electron/url-collector.js
  */
@@ -130,6 +130,8 @@ class UrlCollector {
     const hostname = new URL(url).hostname.toLowerCase()
     let contentEl
 
+    let textContent = ''
+
     // 知乎专栏文章：正文在 .Post-RichTextContainer > .RichText
     if (hostname === 'zhuanlan.zhihu.com') {
       contentEl = $('.Post-RichTextContainer').first()
@@ -142,17 +144,44 @@ class UrlCollector {
       if (!contentEl.length) contentEl = $('.RichText.ztext').first()
     }
 
-    // 通用回退：article → main → body
-    if (!contentEl || !contentEl.length) {
-      contentEl = $('article').first()
+    // 百家号：SPA 渲染，class 名每次构建混淆变化，正文稳定在 <p> 段落标签中。
+    // 采用「段落聚合」策略：取包含最多 <p> 的元素作为正文容器，再聚合其内所有非空段落。
+    if (hostname === 'baijiahao.baidu.com') {
+      const containers = $('[class]').get()
+      let bestContainer = null
+      let bestParagraphCount = -1
+      for (const el of containers) {
+        const pCount = $(el).find('p').length
+        if (pCount > bestParagraphCount) {
+          bestParagraphCount = pCount
+          bestContainer = el
+        }
+      }
+      if (bestContainer && bestParagraphCount > 0) {
+        const paragraphs = []
+        $(bestContainer).find('p').each((_i, p) => {
+          const t = $(p).text().trim()
+          if (t) paragraphs.push(t)
+        })
+        textContent = paragraphs.join('\n').slice(0, 50000)
+      }
+      // 百家号标题回退到 h1 或 title
+      if (!title) title = $('h1').first().text().trim() || title
     }
-    if (!contentEl || !contentEl.length) {
-      contentEl = $('main').first()
+
+    // 通用回退：article → main → body（textContent 仍为空时才走）
+    if (!textContent) {
+      if (!contentEl || !contentEl.length) {
+        contentEl = $('article').first()
+      }
+      if (!contentEl || !contentEl.length) {
+        contentEl = $('main').first()
+      }
+      if (!contentEl || !contentEl.length) {
+        contentEl = $('body')
+      }
+      textContent = contentEl.text().trim().replace(/\s+/g, ' ').slice(0, 50000)
     }
-    if (!contentEl || !contentEl.length) {
-      contentEl = $('body')
-    }
-    const textContent = contentEl.text().trim().replace(/\s+/g, ' ').slice(0, 50000)
 
     return {
       success: true,
@@ -172,7 +201,8 @@ class UrlCollector {
   _needsBrowser (hostname) {
     return hostname === 'zhuanlan.zhihu.com' ||
       hostname === 'www.zhihu.com' ||
-      hostname === 'zhihu.com'
+      hostname === 'zhihu.com' ||
+      hostname === 'baijiahao.baidu.com'
   }
 
   /**

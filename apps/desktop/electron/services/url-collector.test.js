@@ -5,6 +5,7 @@
  * 覆盖：
  *   - 知乎专栏（zhuanlan.zhihu.com）：.Post-RichTextContainer 优先提取
  *   - 知乎问题/回答（www.zhihu.com）：.RichContent-inner 优先提取
+ *   - 百家号（baijiahao.baidu.com）：SPA <p> 段落聚合 + h1 标题回退
  *   - 通用站点回退：article → main → body
  *   - SSRF 防护：内网地址拒绝
  *   - IPC handler：url-collect:fetch 成功/失败路径
@@ -68,6 +69,32 @@ function genericArticleHtml() {
 </html>`;
 }
 
+function baijiahaoHtml() {
+  // 百家号是 SPA，class 名每次构建混淆变化；正文稳定在 <p> 段落标签中。
+  // 页面含多个带 class 的容器（导航/侧栏/正文），正文容器拥有最多 <p>。
+  return `<html>
+  <head><title>英伟达“掀桌子”了：国产大模型免费用 - 百家号</title></head>
+  <body>
+    <div class="_1nav">
+      <a>首页</a><a>登录</a>
+    </div>
+    <div class="xcp-publish">
+      <p>AI导读：这是一段较短的导读文字。</p>
+    </div>
+    <div class="_2jN0Z">
+      <h1>英伟达“掀桌子”了：国产大模型免费用</h1>
+      <p>上次发了一篇文章，发现AI行业内外有巨大的信息差。</p>
+      <p>周六又发了一个“英伟达开放 60 多个免费大模型”的视频被转发了几千次。</p>
+      <p>听起来像是黄仁勋突然改行做慈善：GLM、MiniMax、Qwen，统统不要钱。</p>
+      <p>真正的福利是：英伟达替你准备好了显卡和运行环境。</p>
+    </div>
+    <div class="_3side">
+      <p>相关推荐：另一篇文章标题</p>
+    </div>
+  </body>
+</html>`;
+}
+
 describe("UrlCollector _needsBrowser", () => {
   let collector;
 
@@ -79,6 +106,10 @@ describe("UrlCollector _needsBrowser", () => {
     expect(collector._needsBrowser("zhuanlan.zhihu.com")).toBe(true);
     expect(collector._needsBrowser("www.zhihu.com")).toBe(true);
     expect(collector._needsBrowser("zhihu.com")).toBe(true);
+  });
+
+  it("识别百家号域名需要浏览器渲染", () => {
+    expect(collector._needsBrowser("baijiahao.baidu.com")).toBe(true);
   });
 
   it("非知乎域名不需要浏览器渲染", () => {
@@ -129,6 +160,25 @@ describe("UrlCollector _parseHtml", () => {
   it("zhihu.com（无 www）也走回答提取分支", () => {
     const result = collector._parseHtml(zhihuAnswerHtml(), "https://zhihu.com/question/12345678/answer/87654321");
     expect(result.content).toContain("这是知乎某个回答的完整正文内容");
+  });
+
+  it("百家号：SPA <p> 段落聚合，取含最多 <p> 的容器为正文，排除导航/侧栏/导读", () => {
+    const result = collector._parseHtml(baijiahaoHtml(), "https://baijiahao.baidu.com/s?id=1873093353787420593");
+    // 正文容器含 4 个 <p>，其余容器段落更少
+    expect(result.content).toContain("上次发了一篇文章");
+    expect(result.content).toContain("周六又发了一个");
+    expect(result.content).toContain("听起来像是黄仁勋");
+    expect(result.content).toContain("真正的福利是");
+    // 排除侧栏/导航/导读内容
+    expect(result.content).not.toContain("AI导读");
+    expect(result.content).not.toContain("相关推荐");
+    expect(result.content).not.toContain("首页");
+  });
+
+  it("百家号：无 og:title 时回退 h1 或 <title>", () => {
+    const result = collector._parseHtml(baijiahaoHtml(), "https://baijiahao.baidu.com/s?id=1873093353787420593");
+    // 百家号 SPA 无 og:title meta，title 来自 <title> 标签
+    expect(result.title).toContain("英伟达");
   });
 });
 

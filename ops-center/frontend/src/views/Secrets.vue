@@ -170,7 +170,7 @@ api.interceptors.request.use(c => {
   return c
 })
 
-const providers = ['openai', 'doubao', 'minimax', 'deepseek', 'sensenova', 'tongyi', 'kling', 'jimeng']
+const providers = ['openai', 'doubao', 'minimax', 'deepseek', 'sensenova', 'tianyiyun', 'tongyi', 'kling', 'jimeng']
 const keys = ref([])
 const loading = ref(false)
 const providerFilter = ref('')

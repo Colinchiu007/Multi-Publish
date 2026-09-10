@@ -106,6 +106,12 @@ const PRESET_PROVIDERS = [
     models: ['deepseek-v4-flash'],
     is_preset: 1,
   },
+  {
+    id: 'tianyiyun-coding-plan', name: '天翼云 Coding Plan', category: 'llm',
+    base_url: 'https://eaichat.ctyun.cn/ai/platform/v2/cp',
+    models: ['deepseek-v4-flash-0731-oc'],
+    is_preset: 1,
+  },
 
   // ─── TTS 语音合成 ────────────────────────────
   {
@@ -397,6 +403,7 @@ const PRESET_RATE_LIMITS = {
   deepseek: { rate_per_minute: 60 },
   'mimo-llm': { rate_per_minute: 30 },
   'sensenova-llm': { rate_per_minute: 30 },
+  'tianyiyun-coding-plan': { rate_per_minute: 30 },
   'opencode-go': { rate_per_minute: 30 },
   'agnes-llm': { rate_per_minute: 30 },
   ollama: { rate_per_minute: 120 },
