@@ -1,3 +1,13 @@
+## [未发布] fix(desktop): 修复采集页加载失败（2026-09-11）
+
+### 修复
+- `Collection.vue`：`rewriteStyles`/`rewriteLengths` 改为 lazy getter，避免模块顶层 i18n 解析副作用导致懒加载 chunk 失败（采集页 `/collection` 动态导入 500）。
+- `Accounts.vue`：移除 `addAccount` 中引用未定义 `account` 的 `checkedExpiredIds.delete`（ReferenceError 风险）。
+
+### 验证
+- Vite dev server 正常启动，Collection.vue HTTP 200。
+- Collection.test.js 50 passed。
+
 ## [未发布] feat(knowledge): 前端隐式反馈 — 应用/保存=采纳，再次改写=弃用（2026-09-10）
 
 ### 新增
