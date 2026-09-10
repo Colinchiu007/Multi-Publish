@@ -110,18 +110,31 @@ jobs:
           retention-days: 30
 
       - name: Run film engineering E2E contract
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         run: node apps/desktop/tests/e2e/film-engineering-real.test.js
 
       # 打包产物真实 E2E：覆盖电影工程入口/场景/分镜/详情/复制/导出/套用/方法论/生成
-      - name: Run film engineering real E2E
-        if: runner.os == 'Windows'
-        run: pnpm --filter @multi-publish/desktop test:e2e:film-engineering
+      # L1+L2: 仅发布 tag 触发，并带进程级硬看门狗，防止 Electron 在 CI 虚拟环境僵尸化挂死整小时
+      - name: Run film engineering real E2E (release-only, with watchdog)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $e2eProcess = Start-Process -FilePath "pnpm.cmd" \
+            -ArgumentList "--filter", "@multi-publish/desktop", "test:e2e:film-engineering" \
+            -NoNewWindow -PassThru
+          $timeoutMs = 480000
+          $e2eProcess.WaitForExit($timeoutMs) | Out-Null
+          if (-not $e2eProcess.HasExited) {
+            Write-Host "::warning::Film engineering E2E hung after 480s, killing process tree"
+            taskkill /PID $e2eProcess.Id /T /F
+            exit 124
+          }
+          exit $e2eProcess.ExitCode
         env:
           FILM_E2E_OUTPUT: apps/desktop/tests/e2e/reports/film-engineering-real
 
       - name: Upload film engineering E2E report
-        if: runner.os == 'Windows' && always()
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v') && always()
         uses: actions/upload-artifact@v4
         with:
           name: film-engineering-real-e2e
