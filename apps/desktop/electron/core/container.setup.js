@@ -211,6 +211,11 @@ function createContainer(options) {
   container.register("knowledgeLibraryService", function(c) {
     return new KnowledgeLibraryService({ store: c.get("store") });
   });
+  container.register("knowledgeEvolutionScheduler", function(c) {
+    var { KnowledgeEvolutionScheduler } = require('@multi-publish/rewrite-engine');
+    var scheduler = new KnowledgeEvolutionScheduler(c.get("store"), c.get("logger"));
+    return scheduler;
+  });
   container.register("aiWriter", function() { return new AiWriter(); });
   container.register("usageTracker", function() { return new UsageTracker(); });
   container.register("chunkedUploader", function() { return new ChunkedUploader(); });
