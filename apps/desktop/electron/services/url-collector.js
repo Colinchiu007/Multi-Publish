@@ -6,8 +6,8 @@
  *
  * 采集方式：
  *   1. HTTP 请求 + Cheerio 解析（轻量，首选）
+ *   2. Playwright stealth 浏览器（知乎等反爬站点）
  *
- * P2-E: 移除了 Playwright 浏览器渲染采集方式。
  * 文件位置: apps/desktop/electron/url-collector.js
  */
 const { ipcMain } = require('electron')
@@ -18,6 +18,7 @@ const EC = require('../core/error-codes').ERROR
 class UrlCollector {
   constructor () {
     this._axios = null
+    this._stealthBrowser = null
   }
 
   /**
@@ -66,6 +67,10 @@ class UrlCollector {
     }
 
     try {
+      const hostname = new URL(url).hostname.toLowerCase()
+      if (this._needsBrowser(hostname)) {
+        return await this._collectViaBrowser(url)
+      }
       return await this._collectViaHttp(url)
     } catch (e) {
       return { success: false, error: `采集失败: ${e.message}` }
@@ -121,10 +126,32 @@ class UrlCollector {
     // 提取站点名
     const source = getMeta('og:site_name') || new URL(url).hostname
 
-    // 提取正文
-    const article = $('article').first()
-    const main = $('main').first()
-    const contentEl = article.length ? article : (main.length ? main : $('body'))
+    // 提取正文 — 按平台分派优先选择器，逐级回退
+    const hostname = new URL(url).hostname.toLowerCase()
+    let contentEl
+
+    // 知乎专栏文章：正文在 .Post-RichTextContainer > .RichText
+    if (hostname === 'zhuanlan.zhihu.com') {
+      contentEl = $('.Post-RichTextContainer').first()
+      if (!contentEl.length) contentEl = $('.RichText.ztext.Post-RichText').first()
+    }
+
+    // 知乎问题/回答：正文在 .RichContent-inner
+    if ((!contentEl || !contentEl.length) && (hostname === 'www.zhihu.com' || hostname === 'zhihu.com')) {
+      contentEl = $('.RichContent-inner').first()
+      if (!contentEl.length) contentEl = $('.RichText.ztext').first()
+    }
+
+    // 通用回退：article → main → body
+    if (!contentEl || !contentEl.length) {
+      contentEl = $('article').first()
+    }
+    if (!contentEl || !contentEl.length) {
+      contentEl = $('main').first()
+    }
+    if (!contentEl || !contentEl.length) {
+      contentEl = $('body')
+    }
     const textContent = contentEl.text().trim().replace(/\s+/g, ' ').slice(0, 50000)
 
     return {
@@ -136,6 +163,41 @@ class UrlCollector {
       publishTime,
       source,
       url,
+    }
+  }
+
+  /**
+   * 判断是否需要浏览器渲染（反爬站点）
+   */
+  _needsBrowser (hostname) {
+    return hostname === 'zhuanlan.zhihu.com' ||
+      hostname === 'www.zhihu.com' ||
+      hostname === 'zhihu.com'
+  }
+
+  /**
+   * Playwright stealth 浏览器采集（绕过反爬）
+   */
+  async _collectViaBrowser (url) {
+    const { chromium } = require('playwright-extra')
+    const StealthPlugin = require('puppeteer-extra-plugin-stealth')
+    chromium.use(StealthPlugin())
+
+    if (!this._stealthBrowser) {
+      this._stealthBrowser = await chromium.launch({ headless: true })
+    }
+    const context = await this._stealthBrowser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      locale: 'zh-CN',
+    })
+    const page = await context.newPage()
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+      await page.waitForTimeout(2000)
+      const html = await page.content()
+      return this._parseHtml(html, url)
+    } finally {
+      await context.close()
     }
   }
 

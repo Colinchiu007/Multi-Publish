@@ -1,49 +1,15 @@
-## [未发布] refactor(accounts): AuthViewManager 统一接入 auth-window 公共工厂（2026-09-09）
+## [未发布] feat(desktop): 采集功能知乎专栏/问题回答正文提取修复（2026-09-09）
 
-### 重构
-- _createLoginWindow 切换为调用 auth-window.js 公共工厂，与 QrCodeLogin / OAuthManager 三处复用同一实现。
-- openLogin 挂载段改用 handle.attach(view)；close() 回收段改用 handle.dispose()。
-- auth-window.js 句柄新增 syncBounds 暴露；LOGIN_WINDOW_* 尺寸常量移交工厂默认值。
+### 修复
+- IPC 断链：`phase5-ipc.js` 未注册 urlCollector 的 IPC handler，导致采集调用静默失败。已接入受控 facade（`urlCollector.registerIpcHandlers`），并与 cloudPublisher 注册并行等待。
+- 知乎反爬：数据中心 IP 被 403。引入 `playwright-extra` + `puppeteer-extra-plugin-stealth` 浏览器，知乎域名（zhuanlan/www.zhihu.com/zhihu.com）自动走 stealth 渲染路径。
+- 知乎正文选择器：专栏文章用 `.Post-RichTextContainer`，问题/回答用 `.RichContent-inner`，逐级回退到通用 `article → main → body`。
+- 前端降级中断：`Collection.vue` 聚合失败时直接 return 不降级。修复为所有聚合失败都回退到 `urlCollectFetch` 降级路径；并移除未声明的 `aggregationError` 赋值。
+- 幽灵依赖：`cheerio` 未在 `package.json` 声明，打包后可能断链。已显式声明。
 
-### 意义
-- 应用内三个认证管理器全部经由同一工厂创建承载窗口，不再存在任何依赖主窗口 DOM 坐标的可见认证浮层。
-
-## [未发布] feat(rewrite-engine): 知识库接 SQLite + 质量评估接 embedding 服务（2026-09-09）
-
-### 功能
-- 改写引擎知识库从内存存储接入桌面端 SQLite 持久化：新增 `SQLiteStorage` 适配器（`packages/rewrite-engine/src/sqlite-storage.js`），实现 `{ get, set, isReady, setDb }` 接口，通过 `db.prepare().get()/.run()` 读写 `rewrite_engine_kv` 表。
-- 改写质量评估器接入 embedding 向量服务：`RewriteQualityEvaluator` 新增 `evaluateAsync()` / `evaluateBatchAsync()`，优先用 embedding 余弦相似度计算语义保持度（`method: 'embedding'`），失败自动回退 SimHash + Jaccard（`method: 'simhash'`）；导出 `cosineSimilarity()`。
-- 桌面端接线：`AIGenerator.getEmbedding(text)` 通过 LLM 默认 provider 调用 adapter.embeddings（模型解析优先级 `capability_models.embedding` → `config.default_embedding_model` → 默认）；`RewriteEngineService._ensureEngine()` 在 `store.db` 可用时用 SQLiteStorage 构建 KnowledgeBase，否则回退内存存储；`container.setup.js` 在构造后注入 store。
-- `createEngine()` 支持 `options.embeddingClient` 可选注入质量评估器。
-
-### 测试
-- 新增 `sqlite-storage.test.js`（7 项）+ `rewrite-quality-evaluator.test.js`（18 项，含 embedding/simhash/cosine）。
-- `packages/rewrite-engine` 全量 49 项测试通过。
-
-### 关联
-- 质量评估基础功能已合并至 main（#1569）。
-
-## [未发布] feat(quality): 内容质量评估 v1.1 维度适用性校准（2026-09-09）
-
-### 变更
-- 每个维度新增 `applicable` 语义：无原文的克隆差异度标记为 N/A，`score`/`weighted` 归 0，
-  不参与综合分、低分警告、优化建议及最近 100 篇该维度均值；综合分按适用维度权重归一化。
-- 短文本（<50 字）或无句子的内容，关键词密度/易读性/信息密度不再以「中性 50 分」伪装成
-  质量证据，改为 `applicable=false` 安全降级。
-- 模板「首先/其次/最后」不再获得结构分点奖励，与逻辑维度扣分口径一致；
-  「第一/第二/第三」等真实编号分点仍被认可。
-- 书面第一人称叙事/个人观点获得有限去 AI 味与原创性证据；「我们/咱们」集体视角不再冒充个人原创。
-- 改写引擎与运营中心共用 `serialize_quality_report` 单一序列化投影，消除字段漂移。
-- 最近 100 篇统计固定返回全部 15 个维度，样本数为 0 的维度显示「暂无适用样本 / N/A」。
-- 旧记录缺 `applicable` 时，仅克隆差异度按已存原文是否非空回退判定。
-
-### 离线校准基线
-- 人工参考样本均值 70.48（≥70 达标）、AI 模板样本均值 59.63（≤62 达标）、区分度 10.85（≥8 达标）。
-- 该基线为离线构造回归集，不等同于真实 LLM 100 篇验收；真实链路验收需合法模型凭据。
-
-### 文档
-- DOC/ARCH 内容质量评估机制文档升级至 v1.1，新增证据边界与长期跟踪章节；
-- PRD-REWRITE-ENGINE §13 与 ops-center PRD §12A.24 同步适用性语义。
+### 验证
+- E2E 真实抓取：zhuanlan.zhihu.com/p/28852607 → 3716 字正文；www.zhihu.com/question/660077479 → 1181 字正文。
+- 单元测试 69/69 通过（url-collector.test.js 新增知乎专栏/问答选择器、stealth 路由、IPC 注册用例；phase5-ipc.test.js 新增 urlCollector 注册用例）。
 
 ## [未发布] fix(ops-center): 内容质量评估 API 导入路径错误导致 500 错误 v11（2026-09-09）
 
@@ -83,30 +49,18 @@
 ### 文档
 - 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md 新增 §10 扩展迁移（含 8 条路径全量审计表、公共工厂 API、迁移点对照）与 §11 更新后遗留项。
 
-## [未发布] refactor(accounts): AuthViewManager 统一接入 auth-window 公共工厂（2026-09-09）
+## [未发布] feat(desktop): 采集功能知乎专栏/问题回答正文提取修复（2026-09-09）
 
-### 重构
-- _createLoginWindow 切换为调用 auth-window.js 公共工厂，与 QrCodeLogin / OAuthManager 三处复用同一实现。
-- openLogin 挂载段改用 handle.attach(view)；close() 回收段改用 handle.dispose()。
-- auth-window.js 句柄新增 syncBounds 暴露；LOGIN_WINDOW_* 尺寸常量移交工厂默认值。
+### 修复
+- IPC 断链：`phase5-ipc.js` 未注册 urlCollector 的 IPC handler，导致采集调用静默失败。已接入受控 facade（`urlCollector.registerIpcHandlers`），并与 cloudPublisher 注册并行等待。
+- 知乎反爬：数据中心 IP 被 403。引入 `playwright-extra` + `puppeteer-extra-plugin-stealth` 浏览器，知乎域名（zhuanlan/www.zhihu.com/zhihu.com）自动走 stealth 渲染路径。
+- 知乎正文选择器：专栏文章用 `.Post-RichTextContainer`，问题/回答用 `.RichContent-inner`，逐级回退到通用 `article → main → body`。
+- 前端降级中断：`Collection.vue` 聚合失败时直接 return 不降级。修复为所有聚合失败都回退到 `urlCollectFetch` 降级路径；并移除未声明的 `aggregationError` 赋值。
+- 幽灵依赖：`cheerio` 未在 `package.json` 声明，打包后可能断链。已显式声明。
 
-### 意义
-- 应用内三个认证管理器全部经由同一工厂创建承载窗口，不再存在任何依赖主窗口 DOM 坐标的可见认证浮层。
-
-## [未发布] feat(rewrite-engine): 知识库接 SQLite + 质量评估接 embedding 服务（2026-09-09）
-
-### 功能
-- 改写引擎知识库从内存存储接入桌面端 SQLite 持久化：新增 `SQLiteStorage` 适配器（`packages/rewrite-engine/src/sqlite-storage.js`），实现 `{ get, set, isReady, setDb }` 接口，通过 `db.prepare().get()/.run()` 读写 `rewrite_engine_kv` 表。
-- 改写质量评估器接入 embedding 向量服务：`RewriteQualityEvaluator` 新增 `evaluateAsync()` / `evaluateBatchAsync()`，优先用 embedding 余弦相似度计算语义保持度（`method: 'embedding'`），失败自动回退 SimHash + Jaccard（`method: 'simhash'`）；导出 `cosineSimilarity()`。
-- 桌面端接线：`AIGenerator.getEmbedding(text)` 通过 LLM 默认 provider 调用 adapter.embeddings（模型解析优先级 `capability_models.embedding` → `config.default_embedding_model` → 默认）；`RewriteEngineService._ensureEngine()` 在 `store.db` 可用时用 SQLiteStorage 构建 KnowledgeBase，否则回退内存存储；`container.setup.js` 在构造后注入 store。
-- `createEngine()` 支持 `options.embeddingClient` 可选注入质量评估器。
-
-### 测试
-- 新增 `sqlite-storage.test.js`（7 项）+ `rewrite-quality-evaluator.test.js`（18 项，含 embedding/simhash/cosine）。
-- `packages/rewrite-engine` 全量 49 项测试通过。
-
-### 关联
-- 质量评估基础功能已合并至 main（#1569）。
+### 验证
+- E2E 真实抓取：zhuanlan.zhihu.com/p/28852607 → 3716 字正文；www.zhihu.com/question/660077479 → 1181 字正文。
+- 单元测试 69/69 通过（url-collector.test.js 新增知乎专栏/问答选择器、stealth 路由、IPC 注册用例；phase5-ipc.test.js 新增 urlCollector 注册用例）。
 
 ## [未发布] fix(ops-center): 内容质量评估 API 导入路径错误导致 500 错误 v11（2026-09-09）
 

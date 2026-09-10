@@ -249,6 +249,33 @@ describe('IPC 注册生命周期', () => {
     expect(businessHandler).toHaveBeenCalledTimes(1)
   })
 
+  it('urlCollector 也通过 Phase 5 受控 facade 注册，不可信来源被拒', async () => {
+    let isPro = false
+    const businessHandler = vi.fn(async () => ({ code: 0, data: { title: '测试', content: '正文' } }))
+    const licenseManager = { isPro: vi.fn(() => isPro) }
+    const urlCollector = {
+      registerIpcHandlers: vi.fn((target) => {
+        target.handle('url-collect:fetch', businessHandler)
+      }),
+    }
+    const context = { urlCollector, licenseManager }
+
+    registerAllIpcHandlers({ app, BrowserWindow, context })
+    const handler = ipcMain._handlers['url-collect:fetch']
+
+    // 不可信来源被拒
+    await expect(handler(makeUntrustedEvent(), { url: 'https://example.com' }))
+      .resolves.toMatchObject({ code: -3 })
+    expect(businessHandler).not.toHaveBeenCalled()
+
+    // 可信来源放行
+    isPro = true
+    await expect(handler(makeTrustedEvent(), { url: 'https://example.com' }))
+      .resolves.toEqual({ code: 0, data: { title: '测试', content: '正文' } })
+    expect(urlCollector.registerIpcHandlers).toHaveBeenCalledTimes(1)
+    expect(businessHandler).toHaveBeenCalledTimes(1)
+  })
+
   it('CloudPublisher 也通过 Phase 5 受控 facade 注册', async () => {
     let isPro = false
     const businessHandler = vi.fn(async () => ({ code: 0, data: 'submitted' }))

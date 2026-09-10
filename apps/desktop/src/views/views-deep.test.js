@@ -14,6 +14,7 @@ vi.mock("vue-router", () => ({
 vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
     load: vi.fn(),
+    ensureLoaded: vi.fn().mockResolvedValue(),
     platforms: [
       { id: "wechat_mp", label: "微信" },
       { id: "zhihu", label: "知乎" },
@@ -30,10 +31,7 @@ vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
       
     load: vi.fn(),
-    // Home.vue onMounted 会先 await ensureLoaded() 再加载统计数据；
-    // 缺失该 mock 会在 onMounted 早期抛 TypeError，导致
-    // storeGetPublishStats 永远不被调用（CI 上 loads stats 连续失败）。
-    ensureLoaded: vi.fn().mockResolvedValue(undefined),
+    ensureLoaded: vi.fn().mockResolvedValue(),
     accounts: [
       { id: "a1", platform: "wechat_mp", name: "MP1", status: "active" },
       { id: "a2", platform: "zhihu", name: "Zhihu1", status: "inactive" },
@@ -147,12 +145,9 @@ describe("HomeView (deep)", () => {
   it("loads stats from API", async () => {
     const { mod } = await setupView("Home.vue");
     mount(mod.default, { global: { plugins: [i18n] } });
-    // 用 vi.waitFor 轮询替代固定 10ms sleep：慢 CI 上 Home 挂载后的异步统计加载
-    // （storeListAccounts await 链之后才调用 storeGetPublishStats）可能晚于 10ms，
-    // 固定等待导致该用例在 CI 上确定性失败（2026-09-09 三轮连挂）。
-    await vi.waitFor(() => {
-      expect(window.electronAPI.storeGetPublishStats).toHaveBeenCalled();
-    });
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    expect(window.electronAPI.storeGetPublishStats).toHaveBeenCalled();
   });
 
   it("shows platform tags from store", async () => {

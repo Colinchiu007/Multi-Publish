@@ -1040,9 +1040,10 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ |
 | URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ |
-| 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ |
+| 浏览器渲染采集 | HTTP 采集 + Playwright stealth 渲染降级（知乎等反爬站点自动走 stealth 路径，PR #1588） | ✅ |
+| 知乎正文提取 | 专栏文章 `.Post-RichTextContainer`、问题/回答 `.RichContent-inner`，逐级回退 article→main→body（PR #1588） | ✅ |
 | 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |
-| Python 聚合采集 | 后端 aggregation API（多源采集+AI改写），Phase 1 已集成 | ✅ v2.3.60 (PR #1496) |
+| Python 聚合采集 | 后端 aggregation API（多源采集+AI改写），Phase 1 已集成；聚合失败自动回退 urlCollectFetch（PR #1588） | ✅ v2.3.60 (PR #1496) |
 
 #### F6：发布历史与统计
 

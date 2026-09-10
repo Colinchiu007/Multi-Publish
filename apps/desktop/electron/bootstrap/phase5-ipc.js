@@ -186,6 +186,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     fullAutoPipeline,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector, knowledgeLibraryService,
+    urlCollector,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -205,7 +206,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     fullAutoPipeline,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector,
-    knowledgeLibraryService,
+knowledgeLibraryService,
+    urlCollector,
   }
   let state = registrationStates.get(context)
   if (!state) {
@@ -224,11 +226,14 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     const registerCentralHandlers = () => {
       return registerAllHandlers(controlledIpcMain, handlerDependencies)
     }
+    const urlCollectorRegistration = urlCollector && typeof urlCollector.registerIpcHandlers === 'function'
+      ? urlCollector.registerIpcHandlers(controlledIpcMain)
+      : undefined
     const cloudRegistration = cloudPublisher
       ? cloudPublisher.registerIpcHandlers(controlledIpcMain)
       : undefined
-    const result = isThenable(cloudRegistration)
-      ? Promise.resolve(cloudRegistration).then(registerCentralHandlers)
+    const result = isThenable(cloudRegistration) || isThenable(urlCollectorRegistration)
+      ? Promise.all([cloudRegistration, urlCollectorRegistration]).then(registerCentralHandlers)
       : registerCentralHandlers()
     if (isThenable(result)) {
       return Promise.resolve(result).then(() => registerUsageHandlers(controlledIpcMain, usageTracker))
