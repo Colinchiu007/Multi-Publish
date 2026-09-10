@@ -22,7 +22,7 @@ const { config: appConfig } = require('../config/app-config')
 const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
-const { createStandaloneAuthWindow } = require('./auth-window')
+// 独立窗口已不再需要（改为内嵌主窗口）
 
 // OAuth 平台配置
 const OAUTH_CONFIGS = {
@@ -61,8 +61,7 @@ class OAuthManager {
     this.mainWindow = null
     this.store = store
     this.currentView = null
-    /** @type {ReturnType<typeof createStandaloneAuthWindow> | null} 承载授权视图的独立认证窗口 */
-    this.currentWindow = null
+    // 独立窗口字段已移除（改为内嵌主窗口全屏标签）
     this.currentPlatform = null
     this._resolveAuth = null
     this._rejectAuth = null
@@ -130,24 +129,10 @@ class OAuthManager {
       })
       this.currentView = view
 
-      // OAuth 授权页改由独立窗口承载（对齐 AuthViewManager / QrCodeLogin 的独立
-      // 窗口模式，见 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md）：不再内嵌主窗口居中
-      // 悬浮，从根本上消除与主窗口 DOM 的分层重叠。
-      const host = createStandaloneAuthWindow({
-        parent: this.mainWindow,
-        title: `OAuth 授权 - ${platform}`,
-        // 授权页内容较少，使用紧凑尺寸
-        width: 560,
-        height: 720,
-        minWidth: 480,
-        minHeight: 600,
-        onClosed: () => {
-          // 用户直接点击窗口关闭按钮：结束授权流程，避免 Promise 永久挂起
-          this.close()
-        },
-      })
-      this.currentWindow = host
-      host.attach(view)
+      // OAuth 授权页内嵌主窗口全屏标签（参照 AuthViewManager 内嵌迁移）
+      this.mainWindow.contentView.addChildView(view)
+      this._positionView(this.mainWindow.getBounds())
+      view.setVisible(true)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(authUrl).catch(function () { /* ignore nav errors */ })
 
@@ -359,12 +344,7 @@ class OAuthManager {
       this._loginTimeout = null
     }
 
-    // 先销毁独立授权窗口（幂等；dispose 内部会解除视图挂载），再清理视图本身
-    if (this.currentWindow) {
-      // eslint-disable-next-line no-unused-vars
-      try { this.currentWindow.dispose() } catch (e) { /* ignore */ }
-      this.currentWindow = null
-    }
+    // 认证页改回内嵌主窗口：不再需要 dispose 独立窗口
     if (this.currentView) {
       // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.close() } catch (e) { /* ignore */ }

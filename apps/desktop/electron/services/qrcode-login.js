@@ -26,7 +26,7 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
-const { createStandaloneAuthWindow } = require('./auth-window')
+// 独立窗口已不再需要（改为内嵌主窗口）
 
 // 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
 // 支持二维码登录的平台由 QR_CODE_PLATFORMS 定义
@@ -122,8 +122,7 @@ class QrCodeLogin {
         accountId,
         platform,
         view: null,
-        /** @type {ReturnType<typeof createStandaloneAuthWindow> | null} 承载视图的独立认证窗口 */
-        window: null,
+        // 独立窗口字段已移除（改为内嵌主窗口全屏标签模式）
         resolve,
         reject,
         settled: false,
@@ -161,21 +160,11 @@ class QrCodeLogin {
       loginSession.view = view
       this.currentView = view
 
-      // 认证页改由独立窗口承载：不再内嵌主窗口，从根本上消除与主窗口
-      // TabBar/NavBar/页面 header 的分层重叠（对齐 AuthViewManager 的独立窗口模式，
-      // 见 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md）。
-      const host = createStandaloneAuthWindow({
-        parent: this.mainWindow,
-        title: `扫码登录 - ${platform}`,
-        onClosed: () => {
-          // 用户直接点击窗口关闭按钮：按取消结算，避免登录 Promise 永久挂起
-          this._closeSession(loginSession, { reason: new Error('扫码登录窗口已关闭') })
-        },
-      })
-      loginSession.window = host
-      host.attach(view)
+      // 认证页内嵌主窗口全屏标签（参照 AuthViewManager 内嵌迁移）
+      this.mainWindow.contentView.addChildView(view)
+      this._positionView(this.mainWindow.getBounds())
+      view.setVisible(true)
       this._fireOpened({ platform, accountId, url: loginUrl })
-      if (this._isSessionActive(loginSession)) view.setVisible(true)
 
       // 导航到登录页
       // R49 修复：loadURL 返回 Promise，必须 .catch()
@@ -562,14 +551,37 @@ class QrCodeLogin {
    * 认证页改由独立窗口承载后，布局同步由 auth-window 的 resize 监听完成，
    * 主窗口大小变化不再影响认证窗口。
    */
-  _onWindowResize () { /* 独立窗口承载后无需同步主窗口布局 */ }
+  _onWindowResize () {
+    if (!this.mainWindow || !this.currentView) return
+    this._positionView(this.mainWindow.getBounds())
+  }
 
   /**
-   * 设置左侧导航栏宽度（由 WebviewManager 同步；保留签名兼容）。
-   * 认证页改由独立窗口承载后，认证视图不再依赖侧边栏宽度。
+   * 设置左侧导航栏宽度（由 WebviewManager 同步）。
    * @param {number} width - 像素宽度
    */
-  setSidebarWidth (width) { /* 独立窗口承载后与侧边栏无关，保留签名兼容 */ }
+  setSidebarWidth (width) {
+    if (typeof width !== 'number' || width < 0 || width > 600) return
+    this._sidebarWidth = width
+    if (this.mainWindow && this.currentView) {
+      this._positionView(this.mainWindow.getBounds())
+    }
+  }
+
+  /**
+   * 登录视图布局（TabBar+NavBar 下方），与浏览器标签定位一致。
+   * @param {{ width: number, height: number }} bounds
+   */
+  _positionView (bounds) {
+    if (!this.currentView) return
+    var sidebarWidth = this._sidebarWidth || 200
+    this.currentView.setBounds({
+      x: sidebarWidth,
+      y: 76,
+      width: Math.max(0, bounds.width - sidebarWidth),
+      height: Math.max(0, bounds.height - 76),
+    })
+  }
 
   /**
    * 清理指定会话。所有异步回调都持有自己的会话引用，因此旧会话不能关闭新视图。
@@ -590,12 +602,6 @@ class QrCodeLogin {
       loginSession.extractTimer = null
     }
 
-    // 先销毁独立认证窗口（幂等；dispose 内部会解除视图挂载），再清理视图本身
-    if (loginSession.window) {
-      // eslint-disable-next-line no-unused-vars
-      try { loginSession.window.dispose() } catch (e) { /* ignore */ }
-      loginSession.window = null
-    }
     if (loginSession.view) {
       // eslint-disable-next-line no-unused-vars
       try { loginSession.view.webContents.close() } catch (e) { /* ignore */ }

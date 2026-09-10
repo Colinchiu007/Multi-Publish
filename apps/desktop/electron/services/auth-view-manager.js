@@ -18,7 +18,7 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
-const { createStandaloneAuthWindow } = require('./auth-window')
+// auth-window.js 独立窗口工厂已不再需要（认证视图改为内嵌主窗口全屏标签）
 
 const AUTH_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
 // 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
@@ -85,13 +85,9 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
-    /** @type {import('electron').BrowserWindow | null} 承载登录视图的独立窗口 */
-    this.loginWindow = null
-    /** @type {ReturnType<typeof createStandaloneAuthWindow> | null} 独立登录窗口句柄（attach/dispose） */
-    this._authWindowHandle = null
-    /** @type {(() => void) | null} 登录窗口 resize 监听的清理函数（签名兼容保留，回收已移交工厂 dispose） */
+    /** @type {(() => void) | null} 保留签名兼容（window.js resize 挂钩） */
     this._loginWindowResizeCleanup = null
-    /** @type {(() => void) | null} 同步登录视图到窗口客户区的函数（由工厂句柄提供） */
+    /** @type {(() => void) | null} 保留签名兼容（auth-window factory 已不再使用） */
     this._syncLoginViewBounds = null
   }
 
@@ -234,37 +230,8 @@ class AuthViewManager {
     if (this[timerKey] && this[timerKey].unref) this[timerKey].unref()
   }
 
-  /**
-   * 创建承载登录视图的独立窗口（复用 auth-window.js 公共工厂）。
-   *
-   * 为什么不再内嵌主窗口：内嵌方案下登录视图的 y 坐标由 AUTH_VIEW_TOP（76px，假设
-   * TabBar 36 + NavBar 40）决定、x 坐标由侧边栏宽度决定，而账号管理页顶部还有自身的
-   * header 与工具栏，实际可用区域与该假设不符，平台页面顶栏会和应用 TabBar/NavBar、
-   * 页面 header 挤压重叠。改为独立窗口后登录视图拥有独立坐标系（铺满客户区，从 (0,0)
-   * 起算），坐标不再随主窗口页面布局漂移。
-   *
-   * 隔离 session、preload、凭证提取等能力全部保持不变，仅更换承载容器。
-   * 窗口尺寸/父子关系/布局同步/幂等回收统一由 auth-window.js 工厂提供。
-   * @param {string} platform
-   * @returns {import('electron').BrowserWindow}
-   */
-  _createLoginWindow(platform) {
-    const platformText = String(platform || '')
-    const handle = createStandaloneAuthWindow({
-      parent: this.mainWindow,
-      title: platformText ? `账号登录 - ${platformText}` : '账号登录',
-      onClosed: () => {
-        // 用户直接点击窗口关闭按钮：按"取消登录"结算，避免登录 Promise 永久挂起
-        if (this.loginWindow === handle.win) this.loginWindow = null
-        this._syncLoginViewBounds = null
-        const attempt = this._activeLoginAttempt
-        if (attempt) this._settleLogin(attempt, { cancelled: true })
-      },
-    })
-    this._authWindowHandle = handle
-    this._syncLoginViewBounds = handle.syncBounds
-    return handle.win
-  }
+  // _createLoginWindow 已删除。认证视图改回内嵌主窗口全屏标签模式
+  //（参照蚁小二 isAuth 模式：认证就是普通标签，不需要独立窗口）。
 
   /**
    * @param {string} platform
@@ -290,13 +257,12 @@ class AuthViewManager {
       this.currentView = view
       const attempt = this._createLoginAttempt()
 
-      // 登录页改由独立窗口承载：不再 addChildView 到主窗口 contentView，
-      // 从根本上消除与主窗口 TabBar/NavBar/页面 header 的分层重叠。
-      // 挂载（含 contentView 不可用降级）、铺满布局、resize 同步均由工厂完成。
-      const loginWindow = this._createLoginWindow(platform)
-      this.loginWindow = loginWindow
-      this._authWindowHandle.attach(view)
-      try { loginWindow.focus() } catch (_e) { /* ignore */ }
+      // 认证视图内嵌主窗口全屏标签（参照蚁小二 isAuth 模式：
+      // 认证就是普通标签，不需要独立窗口。重叠问题由 App.vue 隐藏 router-view 解决）
+      // 注意：必须先 addChildView 再 setBounds——Electron 要求视图挂载后才能设置坐标
+      this.mainWindow.contentView.addChildView(view)
+      this._positionView(this.mainWindow.getBounds())
+      view.setVisible(true)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
@@ -431,20 +397,13 @@ class AuthViewManager {
           this._escView.webContents.removeListener("before-input-event", this._escHandler)
         }
         this.currentView.webContents.close()
-        this.currentView = null
       } catch (_e) { /* ignore */ }
     }
+    this.currentView = null
 
-    // 销毁独立登录窗口（工厂 dispose：解除视图挂载 + destroy，幂等；
-    // resize 监听随窗口销毁一并回收）。旧内嵌路径下 handle 为 null，直接跳过。
-    if (this._authWindowHandle) {
-      const handle = this._authWindowHandle
-      this._authWindowHandle = null
-      try { handle.dispose() } catch (_e) { /* ignore */ }
-    }
     this._loginWindowResizeCleanup = null
     this._syncLoginViewBounds = null
-    this.loginWindow = null
+    
     if (this._resolveLogin) {
       const resolveLogin = this._resolveLogin
       this._resolveLogin = null

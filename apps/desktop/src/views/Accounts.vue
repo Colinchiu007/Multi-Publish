@@ -86,21 +86,8 @@
       </template>
     </div>
 
-    <div v-if="authViewVisible" class="login-state" role="status">
-      <component :is="loginMode === 'qrcode' ? Cellphone : Monitor" />
-      <div>
-        <strong>{{ authPlatformName }}</strong>
-        <span>{{ loginStateText }}</span>
-      </div>
-      <div class="login-state-actions">
-        <button v-if="loginMode === 'browser'" class="complete-login" type="button" :disabled="completingLogin" @click="completeAuthView">{{ completingLogin ? t('accountsPage.completeLoginSaving') : t('accountsPage.completeLoginDone') }}</button>
-        <button type="button" @click="closeAuthView">{{ t('accountsPage.close') }}</button>
-      </div>
-    </div>
-    <aside v-if="authViewVisible && loginMode === 'qrcode' && qrImageSource" class="login-qr-preview" data-testid="account-qr-preview" :aria-label="t('accountsPage.qrPreviewAria')">
-      <img :src="qrImageSource" :alt="t('accountsPage.qrPreviewAria')" referrerpolicy="no-referrer">
-      <span>{{ t('accountsPage.qrScanHint') }}</span>
-    </aside>
+    <!-- 登录状态条已移除：登录视图现在以全屏标签形式呈现，NavBar 有「保存账号」按钮 -->
+    <!-- QR 预览已移除：扫码登录现在以全屏标签形式呈现 -->
 
     <main
       id="account-results"
@@ -256,13 +243,13 @@
       @acknowledge="acknowledgeAuthorizationGuide"
     />
 
-    <button v-if="authViewVisible && loginMode === 'qrcode'" class="floating-close-button" type="button" @click="closeAuthView"><Close />{{ t('accountsPage.closeLogin') }}</button>
+    <!-- 浮动关闭按钮已移除：登录标签可通过 TabBar × 关闭 -->>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Cellphone, Close, Delete, FolderOpened, Monitor, Plus, Search, UserFilled } from '@element-plus/icons-vue'
+import { Delete, FolderOpened, Plus, Search, UserFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
@@ -311,7 +298,7 @@ const showProxyDialog = ref(false)
 const proxyAccount = ref(null)
 const savingProxy = ref(false)
 const adding = ref(false)
-const completingLogin = ref(false)
+// completingLogin 已移除（NavBar 保存按钮替代）
 const showAuthorizationGuide = ref(false)
 const newPlatform = ref('')
 const selectedLoginMode = ref('browser')
@@ -658,16 +645,13 @@ async function addAccount () {
   try {
     const result = await accountActions.openLogin(mode, platform)
     if (result?.cancelled) {
-      loginVisible.value = false
       pendingAuthAction.value = null
     } else if (result?.code !== 0) {
-      loginVisible.value = false
       pendingAuthAction.value = null
       notifyError('accountsPage.addFailed', { message: formatUserError(result, { fallback: t('accountsPage.addFailed') }).message })
     }
     if (result?.code === 0) newPlatform.value = ''
   } catch (error) {
-    loginVisible.value = false
     pendingAuthAction.value = null
     notifyError('accountsPage.addAccountFailed', { message: formatUserError(error, { fallback: t('accountsPage.addAccountFailed') }).message })
   } finally {
@@ -677,18 +661,7 @@ async function addAccount () {
 
 
 
-async function completeAuthView () {
-  completingLogin.value = true
-  try {
-    const result = await accountActions.completeLogin(loginMode.value)
-    if (result?.code !== 0) notifyError('accountsPage.saveFailed', { message: formatUserError(result, { fallback: t('accountsPage.saveFailed') }).message })
-    else notifyInfo('accountsPage.savingAccount')
-  } catch (error) {
-    notifyError('accountsPage.saveFailed', { message: formatUserError(error, { fallback: t('accountsPage.saveFailed') }).message })
-  } finally {
-    completingLogin.value = false
-  }
-}
+// completeAuthView 已移除：登录完成后 CDP 自动检测 + NavBar「保存账号」按钮替代
 
 function addAccountForPlatform (platform) {
   newPlatform.value = platform
@@ -703,35 +676,19 @@ async function reloginAccount (account) {
   try {
     const result = await accountActions.openLogin('browser', account.platform, account.id)
     if (result?.cancelled) {
-      // 用户主动关闭登录页签/Esc 取消：不弹错误
-      loginVisible.value = false
       pendingAuthAction.value = null
     } else if (result?.code !== 0) {
-      loginVisible.value = false
       pendingAuthAction.value = null
       notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: result?.message || t('accountsPage.reloginFailed') }).message })
-    } else {
-      // 登录成功：刷新账号列表以更新头像/名称/状态
-      loginVisible.value = false
-      pendingAuthAction.value = null
-      await refresh()
-      notifySuccess('accountsPage.reloginSuccess')
     }
+    // 登录成功由 useAccountEvents.onCompleted 处理（notifySuccess + refresh）
   } catch (error) {
-    loginVisible.value = false
     pendingAuthAction.value = null
     notifyError('accountsPage.reloginFailed', { message: formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message })
   }
 }
 
-async function closeAuthView () {
-  try {
-    await accountActions.closeLogin(loginMode.value)
-  } finally {
-    loginVisible.value = false
-    pendingAuthAction.value = null
-  }
-}
+// closeAuthView 已移除：登录标签通过 TabBar × 关闭
 
 async function setDefault (account) {
   try {

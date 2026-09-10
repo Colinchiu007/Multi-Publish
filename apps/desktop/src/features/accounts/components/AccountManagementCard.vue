@@ -104,16 +104,15 @@
         <CircleCheck />{{ t('accountsPage.accountCardLabels.verify') }}
       </button>
       <button
+        v-if="needsRelogin(account)"
         :data-testid="`login-${account.id}`"
         data-e2e-scan="manual"
         type="button"
         class="login-button"
-        :class="{ 'is-logged-in': isActive(account) }"
-        :disabled="isActive(account)"
-        :title="isActive(account) ? t('accountsPage.accountCardLabels.statusLoggedIn') : t('accountsPage.accountCardLabels.goLogin')"
+        :title="t('accountsPage.accountCardLabels.goLogin')"
         @click.stop="$emit('open-login', account)"
       >
-        <Monitor />{{ isActive(account) ? t('accountsPage.accountCardLabels.statusLoggedIn') : t('accountsPage.accountCardLabels.goLogin') }}
+        <Monitor />{{ t('accountsPage.accountCardLabels.goLogin') }}
       </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('remove', account)">
         <Delete />{{ t('accountsPage.accountCardLabels.delete') }}
@@ -238,10 +237,16 @@ function isActive (account) {
   return accountStatusKind(account) === 'online'
 }
 
+/** 只有明确标记为 expired 的账号才需要重新登录（其它 offline/error/unknown 不显示去登录） */
+function needsRelogin (account) {
+  return String(account?.status || '').trim().toLowerCase() === 'expired'
+}
+
 function statusLabel (account) {
   const kind = accountStatusKind(account)
   if (kind === 'online') return t('accountsPage.accountCardLabels.statusLoggedIn')
-  if (kind === 'offline') return t('accountsPage.accountCardLabels.statusExpired')
+  if (needsRelogin(account)) return t('accountsPage.accountCardLabels.statusExpired')
+  if (kind === 'offline') return t('accountsPage.accountCardLabels.statusLoggedIn')
   if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
   return t('accountsPage.accountCardLabels.statusNoCheck')
 }

@@ -40,7 +40,7 @@
           <!-- 主内容区 -->
           <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
-            <router-view v-else />
+            <router-view v-if="!isLoginTab" />
           </main>
         </div>
       </div>
