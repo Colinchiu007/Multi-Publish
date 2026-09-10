@@ -213,9 +213,7 @@ class WebviewManager extends EventEmitter {
       self._hideAllTabs()
       self._activeTabId = self._homeTabId
     }
-
-
-
+  }
 
   /**
    * 获取虚拟登录标签信息（含活动状态）

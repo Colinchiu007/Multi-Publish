@@ -180,8 +180,8 @@ describe('AuthViewManager 凭证边界', () => {
     })
 
     const results = await Promise.allSettled([first, second])
-    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
+    // 新行为：第二个 completeLogin() 检测到会话已结束，静默返回 true
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(2)
     expect(resolveLogin).toHaveBeenCalledTimes(1)
   })
 
@@ -399,9 +399,11 @@ describe('AuthViewManager 凭证边界', () => {
     expect(manager._cdpExtractTimer).toBeFalsy()
   })
 
-  it('没有活动登录页时拒绝完成登录', async () => {
+  it('没有活动登录页时完成登录静默返回成功', async () => {
     const manager = new AuthViewManager()
-    await expect(manager.completeLogin()).rejects.toThrow('没有正在进行的网页登录')
+    // 新行为：CDP 自动检测可能已保存凭证并关闭会话，completeLogin 检测到后静默返回 true
+    const result = await manager.completeLogin()
+    expect(result).toBe(true)
   })
 
   it('登录视图全屏布局（TabBar+NavBar 下方），不保留侧栏空间', () => {
