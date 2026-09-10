@@ -270,11 +270,11 @@ import AccountGroupsPanel from '@/features/accounts/components/AccountGroupsPane
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
+import { getApi } from '@/api/electron-bridge'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
-import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
@@ -298,7 +298,6 @@ const sortOptions = computed(() => [
 const emptyIds = new Set()
 
 const platformStore = usePlatformStore()
-const tabStore = useTabStore()
 const accountStore = useAccountStore()
 const route = useRoute()
 const router = useRouter()
@@ -853,7 +852,10 @@ async function checkLogin (account) {
 }
 
 /**
- * 打开创作者中心（在新标签页中全屏显示）
+ * 打开创作者中心（独立窗口承载）
+ *
+ * 应用外 URL 不再用应用内标签页内嵌：内嵌需与主窗口 DOM 同步坐标，布局一变就
+ * 错位重叠（见 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md）。
  */
 async function openCreatorCenter(account) {
   if (!account?.platform) {
@@ -865,9 +867,24 @@ async function openCreatorCenter(account) {
     notifyWarning('accountsPage.creatorUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
+  const api = getApi()
+  if (!api || !api.openExternalWindow) {
+    notifyWarning('accountsPage.creatorUnsupported')
+    return
+  }
+  await api.openExternalWindow({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }),
+  })
 }
 
+/**
+ * 打开登录页：走完整认证流程（独立登录窗口 + 凭证捕获）。
+ *
+ * 旧实现用应用内标签页打开登录 URL，无凭证捕获机制，登录成功也无法保存账号。
+ */
 async function openLoginPage (account) {
   if (!account?.platform) {
     notifyError('accountsPage.accountIncomplete')
@@ -878,7 +895,7 @@ async function openLoginPage (account) {
     notifyWarning('accountsPage.loginUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
+  await accountActions.openLogin('browser', account.platform, account.id)
 }
 
 async function removeAccount (account) {

@@ -27,6 +27,7 @@ const credentialStore = require('./credential-store')
 const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+const { createStandaloneWindow } = require('./standalone-window')
 
 // 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -113,6 +114,11 @@ class WebviewManager extends EventEmitter {
     // AccountManager 持有当前身份 owner_subject，并负责从加密凭证库读取账号会话。
     // 不在此处直接读取 credential-store，避免绕过身份命名空间。
     this._accountManager = null
+
+    // ─── 外链独立窗口（打开应用外 URL，不内嵌主窗口）──────────
+    /** @type {Map<string, ReturnType<typeof createStandaloneWindow>>} */
+    this._externalWindows = new Map()
+    this._externalWindowId = 0
 
     // 左侧导航栏当前宽度（由渲染进程通过 IPC 同步，默认 200px）
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
@@ -373,6 +379,128 @@ class WebviewManager extends EventEmitter {
     this._emit('webview:tab-opened', { tabId: tabId, platform: platform, accountId: accountId, tabCount: this.tabs.length })
     log.info('WebviewManager', 'Opened tab: ' + tabId + ' (' + platform + ')')
     return tabId
+  }
+
+  // ─── 外链独立窗口（打开应用外 URL）──────────────
+
+  /**
+   * 在独立 BrowserWindow 中打开应用外 URL。
+   *
+   * 与 openTab（分屏监控，内嵌主窗口）的区别：用户主动打开平台创作者中心 /
+   * 评论页等外部页面时，内嵌模式需依赖硬编码坐标（AUTH_VIEW_TOP / 侧边栏宽度）
+   * 与主窗口 DOM 同步，布局一变就错位重叠（采集页点知乎图标即此类，见
+   * 01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md）。独立窗口拥有自己的坐标系，从 (0,0)
+   * 铺满客户区，从根本上消除重叠；session 隔离与凭证恢复能力与标签页一致。
+   *
+   * @param {{url: string, title?: string, platform?: string, accountId?: string,
+   *          cookies?: Array, localStorage?: Object}} opts
+   * @returns {{code: number, data?: {windowId: string}, message?: string}}
+   */
+  openExternalUrlWindow (opts) {
+    var self = this
+    var options = opts || {}
+    var url = typeof options.url === 'string' ? options.url.trim() : ''
+    var platform = typeof options.platform === 'string' ? options.platform : ''
+    var accountId = typeof options.accountId === 'string' ? options.accountId : null
+    var title = (typeof options.title === 'string' && options.title.trim())
+      ? options.title.trim()
+      : (platform ? getPlatformName(platform) : '') || '外部链接'
+
+    if (!url) return { code: EC.VALIDATION_ERROR, message: 'Missing url' }
+
+    // 安全：校验 URL 协议（防止 file:// / data:// 等 SSRF/信息泄露）
+    try {
+      var parsed = new URL(url)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        log.warn('WebviewManager', 'Blocked non-http(s) external URL: ' + parsed.protocol)
+        return { code: EC.VALIDATION_ERROR, message: 'Unsupported URL protocol: ' + parsed.protocol }
+      }
+    } catch (e) {
+      log.warn('WebviewManager', 'Invalid external URL: ' + url)
+      return { code: EC.VALIDATION_ERROR, message: 'Invalid URL' }
+    }
+
+    var useAccountSession = typeof accountId === 'string' && SAFE_IDENTIFIER.test(accountId)
+    var windowId = 'ext-' + (++this._externalWindowId)
+    var partition = useAccountSession
+      ? 'persist:account-' + accountId
+      : 'persist:browse-' + windowId
+    var viewSession = session.fromPartition(partition, { cache: true })
+    var cookieRestorations = []
+
+    // 从当前身份命名空间的加密凭证恢复账号会话（与 createNewTabPage 一致）
+    if (useAccountSession) {
+      var accountCredential = null
+      try {
+        if (this._accountManager && typeof this._accountManager.loadSavedCredentials === 'function') {
+          accountCredential = this._accountManager.loadSavedCredentials(accountId, platform)
+        } else {
+          accountCredential = credentialStore.loadCredential(accountId, _getUserDataDir())
+        }
+      } catch (e) { accountCredential = null }
+      var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
+      for (var ci = 0; ci < credCookies.length; ci++) {
+        var cookieToSet = normalizeElectronCookie(credCookies[ci], url)
+        if (!cookieToSet) continue
+        try {
+          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function () {}))
+        } catch (e) { /* skip invalid */ }
+      }
+    }
+
+    if (options.cookies && options.cookies.length > 0) {
+      for (var i = 0; i < options.cookies.length; i++) {
+        var suppliedCookie = normalizeElectronCookie(options.cookies[i], url)
+        if (!suppliedCookie) continue
+        try {
+          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(suppliedCookie)).catch(function () {}))
+        } catch (e) { /* skip invalid */ }
+      }
+    }
+
+    var view = new WebContentsView({
+      webPreferences: {
+        session: viewSession,
+        preload: path.join(__dirname, '..', 'monitor-preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: false,
+      }
+    })
+
+    var handle = createStandaloneWindow({
+      parent: this.mainWindow,
+      title: title,
+      onClosed: function () {
+        self._externalWindows.delete(windowId)
+        try { view.webContents.close() } catch (e) { /* ignore */ }
+      },
+    })
+    handle.attach(view)
+
+    // Cookie 注入完成后再导航，确保平台首屏即读到登录态
+    Promise.all(cookieRestorations).then(function () {
+      try { view.webContents.loadURL(url).catch(function () { /* ignore nav errors */ }) } catch (e) { /* ignore */ }
+    })
+    if (cookieRestorations.length === 0) {
+      try { view.webContents.loadURL(url).catch(function () { /* ignore nav errors */ }) } catch (e) { /* ignore */ }
+    }
+
+    this._externalWindows.set(windowId, handle)
+    log.info('WebviewManager', 'Opened external URL window: ' + windowId + ' (' + url + ')')
+    return { code: 0, data: { windowId: windowId } }
+  }
+
+  /**
+   * 关闭并清理所有外链独立窗口
+   */
+  closeExternalWindows () {
+    var self = this
+    this._externalWindows.forEach(function (handle) {
+      try { handle.dispose() } catch (e) { /* ignore */ }
+    })
+    this._externalWindows.clear()
   }
 
   // ─── 新标签页（浏览器式）──────────────────────
@@ -1354,6 +1482,18 @@ class WebviewManager extends EventEmitter {
       try {
         var tabId = self.openTab(platform, accountId, cookies, localStorage, url)
         return tabId ? { code: 0, data: { tabId: tabId } } : { code: EC.REQUEST_ERROR, message: 'Cannot open ' + platform }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('webview:open-external', withSenderCheck(function (_, arg) {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: 'Missing args object' }
+      // 调用方可只传 platform（如采集页平台图标），由主进程解析创作者中心 URL
+      var payload = arg
+      if (!payload.url && payload.platform) {
+        payload = Object.assign({}, arg, { url: PLATFORM_DASHBOARD_URLS[payload.platform] || '' })
+      }
+      try {
+        return self.openExternalUrlWindow(payload)
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 

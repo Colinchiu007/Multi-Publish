@@ -202,17 +202,26 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(44)
   })
 
-  it('system 模块应导出 149 个方法', () => {
+  it('system 模块应导出 150 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
     // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
     // + notifyLog（通知/日志统一通道，notify:log）
-    expect(Object.keys(r).length).toBe(149)
+    // + openExternalWindow（应用外 URL 独立窗口承载，2026-09-10）
+    expect(Object.keys(r).length).toBe(150)
   })
 
-  it('合并后 api 总键数应为 311（含 videoClone/filmEngineering 命名空间与保存配置 4 方法）', () => {
-    expect(Object.keys(api).length).toBe(311)
+  it('openExternalWindow 存在且转发到 webview:open-external', () => {
+    const { createSystemApi } = require('./preload/system')
+    const r = createSystemApi(ipcRenderer)
+    expect(typeof r.openExternalWindow).toBe('function')
+    r.openExternalWindow({ platform: 'zhihu' })
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('webview:open-external', { platform: 'zhihu' })
+  })
+
+  it('合并后 api 总键数应为 312（含 videoClone/filmEngineering 命名空间与保存配置 4 方法）', () => {
+    expect(Object.keys(api).length).toBe(312)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

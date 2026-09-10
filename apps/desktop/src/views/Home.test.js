@@ -38,8 +38,10 @@ vi.mock("@/stores/tab", () => ({
 }));
 
 const accountBatchOpenLoginMock = vi.fn();
+const authOpenLoginMock = vi.fn();
 vi.mock("@/api/publisher", () => ({
   accountBatchOpenLogin: (...args) => accountBatchOpenLoginMock(...args),
+  authOpenLogin: (...args) => authOpenLoginMock(...args),
 }));
 
 import HomeView from "./Home.vue";
@@ -202,7 +204,9 @@ describe("HomeView", () => {
     expect(w.find(".login-expired-banner").exists()).toBe(false);
   });
 
-  it("opens login tabs for all expired accounts on batch login", async () => {
+  // 回归保护（2026-09-10）：登录过期批量重登走完整认证流程（独立登录窗口 + 凭证捕获），
+  // 不再用应用内标签页打开登录 URL（无凭证捕获，登录成功也无法保存账号）。
+  it("批量重登走完整认证流程，不再打开应用内标签页", async () => {
     accountStoreMock.accounts = [
       { id: "a1", platform: "weibo", status: "expired" },
       { id: "a2", platform: "douyin", status: "expired" },
@@ -210,9 +214,10 @@ describe("HomeView", () => {
     const w = await flushMounted(mountHome());
     await w.find(".banner-btn").trigger("click");
     expect(accountBatchOpenLoginMock).toHaveBeenCalledWith(["a1", "a2"]);
-    expect(tabStoreMock.createTab).toHaveBeenCalledTimes(2);
-    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://weibo.com/login", platform: "weibo", accountId: "a1" }));
-    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://creator.douyin.com/", platform: "douyin", accountId: "a2" }));
+    expect(authOpenLoginMock).toHaveBeenCalledTimes(2);
+    expect(authOpenLoginMock).toHaveBeenCalledWith("weibo", "a1");
+    expect(authOpenLoginMock).toHaveBeenCalledWith("douyin", "a2");
+    expect(tabStoreMock.createTab).not.toHaveBeenCalled();
   });
 
   it("dismisses login expired banner", async () => {

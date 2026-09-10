@@ -104,6 +104,8 @@ function createSystemApi(ipcRenderer) {
     webviewCloseTab: (tabId) => ipcRenderer.invoke('webview:close-tab', tabId),
     webviewCloseAll: () => ipcRenderer.invoke('webview:close-all'),
     webviewListTabs: () => ipcRenderer.invoke('webview:list-tabs'),
+    // 打开应用外 URL：独立窗口承载（不内嵌主窗口，避免与主窗口 DOM 重叠错位）
+    openExternalWindow: (opts) => ipcRenderer.invoke('webview:open-external', opts),
     onWebviewLayoutChanged: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('webview:layout-changed', h); return () => ipcRenderer.removeListener('webview:layout-changed', h)
     },

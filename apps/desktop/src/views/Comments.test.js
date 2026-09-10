@@ -82,41 +82,47 @@ describe("CommentsView", () => {
     expect(w.vm.platforms).toEqual([]);
   });
 
-  it("openPlatform sets activePlatform and opens webview tab", async () => {
-    window.electronAPI.webviewOpenTab = vi.fn().mockResolvedValue({ code: 0, data: { tabId: "tab-1" } });
+  // 回归保护（2026-09-10）：评论页用独立窗口打开平台外链，不再内嵌主窗口 tab
+  it("openPlatform sets activePlatform and opens external window", async () => {
+    window.electronAPI.openExternalWindow = vi.fn().mockResolvedValue({ code: 0, data: { windowId: "ext-1" } });
+    window.electronAPI.webviewOpenTab = vi.fn();
     const w = createView();
     await nextTick();
     const platform = { id: "zhihu", name: "\u77e5\u4e4e", comment_url: "https://zhihu.com/comments" };
     await w.vm.openPlatform(platform);
     expect(w.vm.activePlatform).toBe("zhihu");
     expect(w.vm.commentUrl).toBe("https://zhihu.com/comments");
-    expect(window.electronAPI.webviewOpenTab).toHaveBeenCalledWith({
+    expect(window.electronAPI.openExternalWindow).toHaveBeenCalledWith({
       platform: "zhihu",
       url: "https://zhihu.com/comments",
+      title: "\u77e5\u4e4e\u8bc4\u8bba",
     });
-    expect(w.vm.currentTabId).toBe("tab-1");
+    expect(window.electronAPI.webviewOpenTab).not.toHaveBeenCalled();
+    expect(w.vm.externalWindowId).toBe("ext-1");
   });
 
-  it("openPlatform closes previous tab before opening new one", async () => {
+  it("openPlatform 切换平台时不再关闭内嵌 tab（独立窗口由用户关闭）", async () => {
     window.electronAPI.webviewCloseTab = vi.fn().mockResolvedValue({ code: 0 });
-    window.electronAPI.webviewOpenTab = vi.fn().mockResolvedValue({ code: 0, data: { tabId: "tab-2" } });
+    window.electronAPI.openExternalWindow = vi.fn().mockResolvedValue({ code: 0, data: { windowId: "ext-2" } });
     const w = createView();
     await nextTick();
-    w.vm.currentTabId = "tab-1";
+    w.vm.externalWindowId = "ext-1";
     const platform = { id: "weibo", name: "\u5fae\u535a", comment_url: "https://weibo.com/comments" };
     await w.vm.openPlatform(platform);
-    expect(window.electronAPI.webviewCloseTab).toHaveBeenCalledWith("tab-1");
-    expect(window.electronAPI.webviewOpenTab).toHaveBeenCalled();
+    expect(window.electronAPI.webviewCloseTab).not.toHaveBeenCalled();
+    expect(window.electronAPI.openExternalWindow).toHaveBeenCalled();
+    expect(w.vm.externalWindowId).toBe("ext-2");
   });
 
   it("openPlatform handles platform without comment_url", async () => {
-    window.electronAPI.webviewOpenTab = vi.fn().mockResolvedValue({ code: 0, data: { tabId: "t1" } });
+    window.electronAPI.openExternalWindow = vi.fn().mockResolvedValue({ code: 0, data: { windowId: "t1" } });
     const w = createView();
     await nextTick();
     const platform = { id: "weibo", name: "\u5fae\u535a", comment_url: null };
     await w.vm.openPlatform(platform);
     expect(w.vm.activePlatform).toBe("weibo");
     expect(w.vm.commentUrl).toBe("");
+    expect(window.electronAPI.openExternalWindow).not.toHaveBeenCalled();
   });
 
   it("openPlatform handles missing electronAPI", async () => {
