@@ -52,8 +52,11 @@ class RateLimiter {
     if (!last) return 0
 
     const elapsed = nowMs - last
-    const target = jitter(interval.min, interval.max, this._rng)
-    this._lastInterval.set(key, target)
+    let target = this._lastInterval.get(key)
+    if (target == null) {
+      target = jitter(interval.min, interval.max, this._rng)
+      this._lastInterval.set(key, target)
+    }
     return Math.max(0, target - elapsed)
   }
 
