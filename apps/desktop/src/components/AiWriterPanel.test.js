@@ -337,4 +337,79 @@ describe("AiWriterPanel", () => {
     const strategySelect = selects.find(s => s.element.value === "");
     expect(w.text()).toContain("故事化爆款策略");
   });
+
+  // ─── P2 隐式反馈：应用=采纳，再次改写=弃用 ───
+  it("applying rewrite result sends adopted feedback for knowledgeRefs", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.aiRewrite = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        success: true,
+        result: "这是应用后的改写文案内容",
+        strategy: { id: "strategy-viral", name: "故事化爆款策略", category: "viral" },
+        metadata: { mode: "imitate", originalLength: 50, resultLength: 100, aiTasteLevel: 0.1 },
+        knowledgeRefs: [{ table: "viral_library", id: "v1" }, { table: "personal_knowledge", id: "p1" }],
+        warnings: [],
+        sensitiveHits: [],
+      },
+    });
+    window.electronAPI.applyKnowledgeFeedback = vi.fn().mockResolvedValue({ code: 0 });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "这是一段需要改写的测试文案内容，长度超过二十个字" } });
+    await waitConfig();
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    const textarea = w.find("textarea");
+    await textarea.setValue("这是一段需要改写的测试文案内容，长度超过二十个字");
+    const rewriteBtn = w.findAll("button").find(b => b.text().includes("开始改写"));
+    await rewriteBtn.trigger("click");
+    await nextTick();
+    // 点击结果项（应用）→ 应触发 adopted 反馈
+    const resultItem = w.findAll("button").find(b => b.text().includes("应用"));
+    await resultItem.trigger("click");
+    await nextTick();
+    expect(window.electronAPI.applyKnowledgeFeedback).toHaveBeenCalledWith(
+      "adopted",
+      expect.arrayContaining([
+        expect.objectContaining({ table: "viral_library", id: "v1" }),
+        expect.objectContaining({ table: "personal_knowledge", id: "p1" }),
+      ])
+    );
+  });
+
+  it("re-rewriting without applying sends rejected feedback for previous refs", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.aiRewrite = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        success: true,
+        result: "第一次改写结果",
+        strategy: { id: "s1", name: "策略", category: "viral" },
+        metadata: { mode: "imitate", originalLength: 50, resultLength: 100, aiTasteLevel: 0.1 },
+        knowledgeRefs: [{ table: "viral_library", id: "v1" }],
+        warnings: [],
+        sensitiveHits: [],
+      },
+    });
+    window.electronAPI.applyKnowledgeFeedback = vi.fn().mockResolvedValue({ code: 0 });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "这是一段需要改写的测试文案内容，长度超过二十个字" } });
+    await waitConfig();
+    const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
+    await rewriteTab.trigger("click");
+    await nextTick();
+    const textarea = w.find("textarea");
+    await textarea.setValue("这是一段需要改写的测试文案内容，长度超过二十个字");
+    const rewriteBtn = w.findAll("button").find(b => b.text().includes("开始改写"));
+    await rewriteBtn.trigger("click");
+    await nextTick();
+    // 再次点击改写（不应用）→ 上次的 refs 应被 rejected
+    await rewriteBtn.trigger("click");
+    await nextTick();
+    expect(window.electronAPI.applyKnowledgeFeedback).toHaveBeenCalledWith(
+      "rejected",
+      expect.arrayContaining([expect.objectContaining({ table: "viral_library", id: "v1" })])
+    );
+  });
 });
