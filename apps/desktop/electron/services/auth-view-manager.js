@@ -348,14 +348,16 @@ class AuthViewManager {
    */
   async completeLogin() {
     const attempt = this._getLoginAttempt()
-    if (!attempt) throw new Error('没有正在进行的网页登录')
+    // CDP 自动检测已保存凭证、会话已关闭 → 静默返回成功
+    if (!attempt) return true
 
     const authData = await this._extractAuthData(attempt.view, attempt.platform)
     if (!hasCapturedCredentials(authData)) {
       throw new Error('未检测到登录凭证，请先在平台页面完成登录')
     }
     if (!this._settleLogin(attempt, authData)) {
-      throw new Error('登录会话已结束，请重新添加账号')
+      // 会话已结束（CDP 自动完成或超时取消了）→ 静默返回
+      return true
     }
     return true
   }
