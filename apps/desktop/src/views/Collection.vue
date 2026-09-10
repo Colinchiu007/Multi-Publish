@@ -28,7 +28,7 @@
             style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
             @keyup.enter="collectUrl"
           />
-          <button class="cohere-btn-primary" @click="collectUrl" :disabled="collecting || oneClickRewriting">
+          <button data-testid="collection-collect-btn" class="cohere-btn-primary" @click="collectUrl" :disabled="collecting || oneClickRewriting">
             {{ collecting ? '采集中...' : '采集' }}
           </button>
           <button class="cohere-btn-primary" @click="collectAndRewrite" :disabled="collecting || oneClickRewriting">
