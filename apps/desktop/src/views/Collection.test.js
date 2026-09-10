@@ -143,14 +143,18 @@ describe("CollectionView", () => {
     expect(ElMessage.warning).toHaveBeenCalled();
   });
 
-  it("openCollection opens webview tab when API available", async () => {
+  // 回归保护（2026-09-10）：采集页平台图标必须用独立窗口打开应用外 URL，
+  // 不再用 webviewOpenTab 内嵌主窗口（内嵌会因布局坐标不同步而顶部错位重叠）。
+  it("openCollection 用独立窗口打开平台页，不再内嵌主窗口", async () => {
     window.electronAPI = {
-      webviewOpenTab: vi.fn().mockResolvedValue(undefined)
+      openExternalWindow: vi.fn().mockResolvedValue({ code: 0, data: { windowId: "ext-1" } }),
+      webviewOpenTab: vi.fn(),
     };
     const w = mountCollection();
     await nextTick();
     await w.vm.openCollection("weibo");
-    expect(window.electronAPI.webviewOpenTab).toHaveBeenCalledWith({ platform: "weibo" });
+    expect(window.electronAPI.openExternalWindow).toHaveBeenCalledWith({ platform: "weibo" });
+    expect(window.electronAPI.webviewOpenTab).not.toHaveBeenCalled();
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
   });

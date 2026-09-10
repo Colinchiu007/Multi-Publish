@@ -22,6 +22,7 @@ const PUBLIC_CHANNELS = new Set([
   'sync:all', 'sync:platform', 'sync:cached',
   'webview:set-layout', 'webview:open-tab', 'webview:close-tab',
   'webview:close-all', 'webview:list-tabs',
+  'webview:open-external',
   // 模型服务商配置：只读通道未登录可用（离线查看/测试已配置模型，保持本地钥匙串语义）；
   // 写操作（create/update/delete/set-default/clean-logs）不在 public 列表 → 默认 authenticated（需登录）。
   'model-provider:list', 'model-provider:get', 'model-provider:get-default',

@@ -33,6 +33,7 @@ const PUBLIC_METHODS = [
   'sensitiveCheck', 'sensitiveReplace',
   'syncAll', 'syncPlatform', 'syncCached',
   'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
+  'openExternalWindow',
   'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
   'modelProviderList', 'modelProviderGet',
   'opsCenterSyncGet', 'opsCenterSyncSave', 'opsCenterSyncNow', 'opsCenterSyncRuntime',

@@ -361,6 +361,103 @@ function patchViewAndSessionMocks () {
   return partitions
 }
 
+describe('WebviewManager.openExternalUrlWindow（打开应用外 URL → 独立窗口）', () => {
+  beforeEach(() => {
+    credentialLoadMock.mockReset()
+    credentialLoadMock.mockReturnValue(null)
+  })
+
+  function createManager() {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    return wm
+  }
+
+  it('打开应用外 URL 在独立窗口承载，不再内嵌主窗口（回归：采集页浮层错位）', () => {
+    const wm = createManager()
+
+    const result = wm.openExternalUrlWindow({ url: 'https://www.zhihu.com/creator', platform: 'zhihu' })
+
+    expect(result && result.code).toBe(0)
+    // 关键断言：绝不把视图挂到主窗口 contentView（浮层根因）
+    expect(wm.mainWindow.contentView.addChildView).not.toHaveBeenCalled()
+    expect(wm._externalWindows.size).toBe(1)
+  })
+
+  it('独立窗口中的视图从 (0,0) 铺满客户区，不依赖硬编码偏移', () => {
+    const wm = createManager()
+
+    wm.openExternalUrlWindow({ url: 'https://www.zhihu.com/creator' })
+
+    const handle = Array.from(wm._externalWindows.values())[0]
+    expect(handle.win.contentView.addChildView).toHaveBeenCalled()
+    const attached = handle.win.contentView.addChildView.mock.calls[0][0]
+    expect(attached.setBounds).toHaveBeenCalledWith(expect.objectContaining({ x: 0, y: 0 }))
+  })
+
+  it('拒绝非 http(s) 协议 URL（防止 file:// / data:// 信息泄露）', () => {
+    const wm = createManager()
+
+    const result = wm.openExternalUrlWindow({ url: 'file:///etc/passwd' })
+
+    expect(result.code).not.toBe(0)
+    expect(wm._externalWindows.size).toBe(0)
+  })
+
+  it('缺少 URL 时返回失败合同且不创建窗口', () => {
+    const wm = createManager()
+
+    const result = wm.openExternalUrlWindow({ platform: 'zhihu' })
+
+    expect(result.code).not.toBe(0)
+    expect(wm._externalWindows.size).toBe(0)
+  })
+
+  it('按 accountId 使用持久分区并注入凭证 Cookie 后再导航', async () => {
+    patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({
+      cookies: [{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }],
+    })
+    const wm = createManager()
+
+    wm.openExternalUrlWindow({
+      url: 'https://www.zhihu.com/creator',
+      platform: 'zhihu',
+      accountId: 'account-1',
+    })
+
+    // loadCredential 第二参为 userData 目录（与 createNewTabPage 一致）
+    expect(credentialLoadMock).toHaveBeenCalledWith('account-1', expect.any(String))
+    const partitions = __electronMock.session._partitions
+    expect(partitions[partitions.length - 1].partition).toBe('persist:account-account-1')
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([
+      { url: 'https://www.zhihu.com', name: 'session', value: 'abc' },
+    ])
+  })
+
+  it('窗口关闭时清理句柄，避免窗口与监听泄漏', () => {
+    const wm = createManager()
+
+    wm.openExternalUrlWindow({ url: 'https://www.zhihu.com/creator' })
+    const handle = Array.from(wm._externalWindows.values())[0]
+    handle.win._handlers.closed()
+
+    expect(wm._externalWindows.size).toBe(0)
+  })
+
+  it('closeExternalWindows 关闭并清理全部外链窗口', () => {
+    const wm = createManager()
+
+    wm.openExternalUrlWindow({ url: 'https://www.zhihu.com/creator' })
+    wm.openExternalUrlWindow({ url: 'https://creator.douyin.com/' })
+    expect(wm._externalWindows.size).toBe(2)
+
+    wm.closeExternalWindows()
+
+    expect(wm._externalWindows.size).toBe(0)
+  })
+})
+
 describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
   beforeEach(() => {
     credentialLoadMock.mockReset()

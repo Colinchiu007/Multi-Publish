@@ -117,13 +117,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getApi } from '@/api/electron-bridge'
-import { accountBatchOpenLogin } from '@/api/publisher'
+import { accountBatchOpenLogin, authOpenLogin } from '@/api/publisher'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
-import { useTabStore } from '@/stores/tab'
 import LoginExpiredBanner from '@/components/LoginExpiredBanner.vue'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatDateTime } from '@/utils/datetime'
@@ -134,7 +133,6 @@ const { t } = useI18n()
 const identityStore = useIdentityStore()
 const platformStore = usePlatformStore()
 const accountStore = useAccountStore()
-const tabStore = useTabStore()
 
 const stats = ref({ total: 0, success: 0, failed: 0 })
 const accountCount = ref(0)
@@ -204,12 +202,9 @@ async function handleBatchLogin() {
   if (!Array.isArray(items)) return
   for (const item of items) {
     if (!item?.loginUrl) continue
-    await tabStore.createTab({
-      url: item.loginUrl,
-      platform: item.platform,
-      accountId: item.accountId,
-      title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }),
-    })
+    // 走完整认证流程（独立登录窗口 + 凭证捕获）；应用内标签页无凭证捕获，
+    // 登录成功也无法保存账号。
+    await authOpenLogin(item.platform, item.accountId)
   }
 }
 

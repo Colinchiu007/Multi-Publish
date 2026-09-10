@@ -12,112 +12,26 @@
  * 从 (0,0) 起算），从根本上消除与主窗口 DOM 的重叠；隔离 session 与凭证
  * 提取等能力不受影响，仅更换承载容器。
  *
- * 待办：AuthViewManager 目前内置了自己的同模式实现（_createLoginWindow），
- * 后续小 PR 可切换到本工厂以消除重复代码（其回归测试已覆盖该行为）。
+ * 待办已完成：AuthViewManager 的同模式实现（_createLoginWindow）保留为认证语义封装，
+ * 底层窗口能力已统一到 ./standalone-window（见 createStandaloneAuthWindow）。
  */
-const { BrowserWindow } = require('electron')
-
-const DEFAULT_WIDTH = 1180
-const DEFAULT_HEIGHT = 820
-const DEFAULT_MIN_WIDTH = 900
-const DEFAULT_MIN_HEIGHT = 640
+const { createStandaloneWindow } = require('./standalone-window')
 
 /**
- * @typedef {Object} AuthWindowHandle
- * @property {import('electron').BrowserWindow} win 承载认证视图的独立窗口
- * @property {(view: import('electron').WebContentsView) => void} attach 挂载视图并铺满客户区
- * @property {() => void} dispose 解除挂载并销毁窗口（幂等，可安全重复调用）
- */
-
-/**
- * 创建承载认证视图的独立窗口。
+ * 认证窗口 = 通用独立窗口 + 认证默认标题。
  *
- * @param {{
- *   parent?: import('electron').BrowserWindow | null,
- *   title?: string,
- *   width?: number,
- *   height?: number,
- *   minWidth?: number,
- *   minHeight?: number,
- *   onClosed?: () => void,
- * }} [options]
- * @returns {AuthWindowHandle}
+ * 实现已统一收敛到 ./standalone-window（原 #1557 遗留的「切换到本工厂以消除重复
+ * 代码」TODO）：认证与其他「打开应用外 URL」场景共用同一份独立窗口实现。
+ *
+ * 默认尺寸（1180×820 / 最小 900×640）沿用 standalone-window 工厂默认值。
+ *
+ * @param {Parameters<typeof createStandaloneWindow>[0]} [options]
+ * @returns {ReturnType<typeof createStandaloneWindow>}
  */
 function createStandaloneAuthWindow(options = {}) {
-  /** @type {import('electron').WebContentsView | null} */
-  let attachedView = null
-  let disposed = false
-
-  const win = new BrowserWindow({
-    width: options.width || DEFAULT_WIDTH,
-    height: options.height || DEFAULT_HEIGHT,
-    minWidth: options.minWidth || DEFAULT_MIN_WIDTH,
-    minHeight: options.minHeight || DEFAULT_MIN_HEIGHT,
-    // 与主窗口建立父子关系（主窗口关闭时一并回收），但不设 modal：
-    // 用户仍可切回主窗口查看账号列表与操作指引。
-    parent: options.parent || undefined,
-    modal: false,
-    show: true,
-    autoHideMenuBar: true,
-    title: options.title || '账号登录',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-
-  /** 认证视图始终铺满窗口客户区，从 (0,0) 起算，避免任何硬编码偏移。 */
-  const syncBounds = () => {
-    if (!attachedView || win.isDestroyed()) return
-    try {
-      const bounds = win.getContentBounds()
-      attachedView.setBounds({
-        x: 0,
-        y: 0,
-        width: Math.max(0, bounds.width || 0),
-        height: Math.max(0, bounds.height || 0),
-      })
-    } catch (_e) { /* 窗口正在销毁，忽略 */ }
-  }
-  win.on('resize', syncBounds)
-
-  win.once('closed', () => {
-    disposed = true
-    attachedView = null
-    if (typeof options.onClosed === 'function') options.onClosed()
-  })
-
-  return {
-    win,
-    /** 同步视图铺满当前客户区（attach 时自动调用；暴露供调用方在窗口尺寸变化外手动触发） */
-    syncBounds,
-    /**
-     * @param {import('electron').WebContentsView} view
-     */
-    attach(view) {
-      if (disposed || !view) return
-      attachedView = view
-      // 防御：低版本 Electron 或异常环境下 contentView 可能不可用。
-      // 此时不阻断登录流程（loadURL 仍会执行），避免主进程抛错。
-      if (win.contentView && typeof win.contentView.addChildView === 'function') {
-        win.contentView.addChildView(view)
-      }
-      try { view.setVisible(true) } catch (_e) { /* ignore */ }
-      syncBounds()
-    },
-    dispose() {
-      if (disposed) return
-      disposed = true
-      try {
-        if (attachedView && win.contentView && typeof win.contentView.removeChildView === 'function') {
-          win.contentView.removeChildView(attachedView)
-        }
-      } catch (_e) { /* ignore */ }
-      attachedView = null
-      try { if (!win.isDestroyed()) win.destroy() } catch (_e) { /* ignore */ }
-    },
-  }
+  return createStandaloneWindow(
+    Object.assign({}, options, { title: options.title || '账号登录' })
+  )
 }
 
 module.exports = { createStandaloneAuthWindow }

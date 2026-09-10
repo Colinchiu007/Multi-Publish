@@ -381,6 +381,8 @@ var require_system = __commonJS({
         webviewCloseTab: (tabId) => ipcRenderer2.invoke("webview:close-tab", tabId),
         webviewCloseAll: () => ipcRenderer2.invoke("webview:close-all"),
         webviewListTabs: () => ipcRenderer2.invoke("webview:list-tabs"),
+        // 打开应用外 URL：独立窗口承载（不内嵌主窗口，避免与主窗口 DOM 重叠错位）
+        openExternalWindow: (opts) => ipcRenderer2.invoke("webview:open-external", opts),
         onWebviewLayoutChanged: (cb) => {
           const h = (_, d) => cb(d);
           ipcRenderer2.on("webview:layout-changed", h);
@@ -1049,6 +1051,7 @@ var require_access_control = __commonJS({
       "webviewCloseTab",
       "webviewCloseAll",
       "webviewListTabs",
+      "openExternalWindow",
       "onWebviewLayoutChanged",
       "onWebviewTabOpened",
       "onWebviewTabClosed",

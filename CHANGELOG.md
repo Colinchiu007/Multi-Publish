@@ -1,4 +1,22 @@
-<<<<<<< HEAD
+## [未发布] fix(desktop): 打开应用外 URL 统一改独立窗口，消除内嵌浮层错位（2026-09-10）
+
+### 根因
+- 打开应用外网页（采集页平台图标 / 评论页 / 创作者中心）一律把 `WebContentsView` 内嵌到主窗口 `contentView`（`webview-manager.openTab` / `createNewTabPage`），坐标依赖硬编码常量（`AUTH_VIEW_TOP=76`、侧边栏 200px），与真实页面布局不同步 → 顶部多层内容错位重叠（采集页点知乎图标即为此类，小窗口下尤其明显）
+- 登录过期批量重登与账号「去登录」仍有走应用内标签页打开登录 URL 的旧路径，无凭证捕获机制，登录成功也无法保存账号
+
+### 修复
+- 新增通用独立窗口工厂 `electron/services/standalone-window.js`（`createStandaloneWindow`），`auth-window.js` 收敛为其认证语义封装（消除 #1557 遗留的重复实现 TODO）
+- `webview-manager` 新增 `openExternalUrlWindow` / `closeExternalWindows`：应用外 URL 用独立 BrowserWindow 承载，视图从 (0,0) 铺满客户区；保留按账号 session 分区与加密凭证 Cookie 注入；URL 协议白名单（仅 http/https）
+- 新增 IPC `webview:open-external` + preload `openExternalWindow`（public 通道）
+- 调用方改造（应用外 URL → 独立窗口）：采集页平台图标、评论页 `openPlatform`、账号管理「创作者中心」
+- 认证旧路径归位：账号 `openLoginPage`、首页登录过期批量重登改走 `auth:open-login`（独立登录窗口 + 凭证捕获）
+- **保留**：`webviewOpenTab` 分屏监控（Monitor「添加监控」）、`tabStore.createTab` 应用内浏览器标签（App 新建标签）——两者是产品功能而非外链承载
+
+### 验证
+- 新增单测：`standalone-window.test.js`（8）、`webview-manager.test.js` 新增 7 条外链窗口回归（含「绝不挂主窗口 contentView」断言）
+- 更新渲染端契约测试：Collection / Comments / Home / preload 方法数（149→150、311→312）
+- 受影响 10 个测试文件全绿；修改文件 eslint 0 error
+
 ## [未发布] feat(quality-eval): 内容质量评估短文度量校准 v1.2/v1.3（2026-09-10）
 
 ### 校准

@@ -48,14 +48,15 @@
 
 <script setup>
 // eslint-disable-next-line no-unused-vars
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { platformList } from '@/api/publisher'
 
 const activePlatform = ref(null)
 const platforms = ref([])
 const commentUrl = ref('')
-const currentTabId = ref(null)
+// 外链独立窗口 ID（应用外 URL 由独立窗口承载，不再维护内嵌 tabId）
+const externalWindowId = ref(null)
 
 const platformNameMap = {
   wechat_mp: '微信公众号', zhihu: '知乎', weibo: '微博', douyin: '抖音',
@@ -78,25 +79,21 @@ async function loadPlatforms () {
 
 async function openPlatform (p) {
   const api = getApi()
-  if (!api || !api.webviewOpenTab) return
-
-  // 关闭上一个 tab
-  if (currentTabId.value) {
-    await api.webviewCloseTab(currentTabId.value)
-  }
+  if (!api || !api.openExternalWindow) return
 
   activePlatform.value = p.id
   commentUrl.value = p.comment_url || ''
 
   if (!p.comment_url) return
 
-  // 打开新 tab（使用评论页 URL）
-  const res = await api.webviewOpenTab({
+  // 应用外 URL 用独立窗口承载，不再内嵌主窗口（避免与主窗口 DOM 重叠错位）
+  const res = await api.openExternalWindow({
     platform: p.id,
     url: p.comment_url,
+    title: platformName(p.id) + '评论',
   })
-  if (res.code === 0) {
-    currentTabId.value = res.data.tabId
+  if (res && res.code === 0) {
+    externalWindowId.value = res.data ? res.data.windowId : null
   }
 }
 
@@ -104,14 +101,7 @@ onMounted(() => {
   loadPlatforms()
 })
 
-onBeforeUnmount(async () => {
-  if (currentTabId.value) {
-    const api = getApi()
-    if (api && api.webviewCloseTab) {
-      await api.webviewCloseTab(currentTabId.value)
-    }
-  }
-})
+// 外链独立窗口由用户自行关闭；组件卸载不再自动关闭（避免误关用户正在浏览的窗口）
 </script>
 
 <style scoped>

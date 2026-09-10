@@ -387,8 +387,9 @@ async function importFromClipboard () {
 
 function openCollection (platform) {
   const api = getApi()
-  if (api && api.webviewOpenTab) {
-    api.webviewOpenTab({ platform })
+  // 应用外 URL 一律用独立窗口承载：内嵌主窗口会因布局坐标不同步而错位重叠
+  if (api && api.openExternalWindow) {
+    api.openExternalWindow({ platform })
     notifySuccess('collection.openedPlatform', { params: { platform } })
   } else {
     notifyInfo('collection.switchToMonitor')
