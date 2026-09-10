@@ -299,6 +299,41 @@ class KnowledgeLibraryService {
   _genId () {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
   }
+
+  // ===================== P2 反馈闭环 =====================
+
+  /**
+   * 应用用户反馈，驱动被引用知识条目的置信度更新（采纳 +0.1 / 拒绝 -0.05）。
+   * @param {string} action - 'adopted' | 'rejected'
+   * @param {Array<{table: string, id: string}>} refs - 本次改写引用的知识条目
+   * @returns {{code: number, data?: {boosted: number, penalized: number}}}
+   */
+  applyFeedback (action, refs) {
+    const err = this._requireStore()
+    if (err) return err
+    if (action !== 'adopted' && action !== 'rejected') {
+      return { code: ERROR.VALIDATION_ERROR, message: '反馈动作仅支持 adopted / rejected' }
+    }
+    if (!Array.isArray(refs) || refs.length === 0) {
+      return { code: ERROR.SUCCESS, data: { boosted: 0, penalized: 0 } }
+    }
+    // 过滤非法 ref（table 白名单 + 非空 id），避免 SQL 注入
+    const VALID_TABLES = new Set(['viral_library', 'personal_knowledge'])
+    const validRefs = refs.filter(r => r && VALID_TABLES.has(r.table) && typeof r.id === 'string' && r.id)
+    if (validRefs.length === 0) {
+      return { code: ERROR.SUCCESS, data: { boosted: 0, penalized: 0 } }
+    }
+    try {
+      const { feedbackBoost } = require('@multi-publish/rewrite-engine')
+      const adopted = action === 'adopted' ? validRefs : []
+      const rejected = action === 'rejected' ? validRefs : []
+      feedbackBoost({ db: this._store.db }, adopted, rejected)
+      const count = validRefs.length
+      return { code: ERROR.SUCCESS, data: { boosted: action === 'adopted' ? count : 0, penalized: action === 'rejected' ? count : 0 } }
+    } catch (e) {
+      return { code: ERROR.REQUEST_ERROR, message: '反馈应用失败: ' + e.message }
+    }
+  }
 }
 
 module.exports = KnowledgeLibraryService

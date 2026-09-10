@@ -42,6 +42,8 @@ class RewriteEngine {
    */
   async rewrite(params = {}) {
     const { mode = 'imitate', content = '', userSettings = {}, strategyId = null, knowledgeOptions = null } = params
+    // P2 反馈闭环：每次改写重置知识引用记录
+    this._lastKnowledgeRefs = []
 
     // 合并 knowledgeOptions：优先 userSettings.knowledgeOptions，其次顶层 params.knowledgeOptions
     const effectiveKnowledgeOptions = (userSettings.knowledgeOptions && typeof userSettings.knowledgeOptions === 'object')
@@ -133,6 +135,8 @@ class RewriteEngine {
       warnings: postCheck.hits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
       sensitiveHits: postCheck.hits,
       quality,
+      // P2 反馈闭环：本次改写引用的知识条目（供前端采纳/拒绝时驱动 feedbackBoost）
+      knowledgeRefs: this._lastKnowledgeRefs || [],
       metadata: {
         mode,
         originalLength: content.length,
@@ -277,9 +281,15 @@ class RewriteEngine {
    */
   _buildKnowledgeContext(content, knowledgeOptions) {
     if (this._knowledgeLibrary) {
-      return this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
+      const ctx = this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
+      // P2 反馈闭环：收集本次检索命中的知识条目引用，供用户采纳/拒绝时驱动 feedbackBoost
+      if (typeof this._knowledgeLibrary.getTouchedItems === 'function') {
+        this._lastKnowledgeRefs = this._knowledgeLibrary.getTouchedItems()
+      }
+      return ctx
     }
     // 向后兼容：无 knowledgeLibrary 时使用原有单层知识库
+    this._lastKnowledgeRefs = []
     return this._knowledgeBase.getContextSummary()
   }
 

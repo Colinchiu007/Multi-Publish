@@ -1,3 +1,18 @@
+## [未发布] feat(knowledge): 知识库自我进化 P2 反馈闭环接线（2026-09-10）
+
+### 新增
+- KnowledgeContextBuilder 收集 touchedItems：buildFullContext() 记录本次检索命中的爆款库/个人库条目，新增 getTouchedItems()。
+- RewriteEngine.rewrite() 返回 knowledgeRefs（本次改写引用的知识条目）。
+- KnowledgeLibraryService.applyFeedback(action, refs) 调 feedbackBoost()，采纳 +0.1 / 拒绝 -0.05，带 table 白名单防 SQL 注入。
+- IPC 通道 knowledge-library:apply-feedback + preload applyKnowledgeFeedback。
+
+### 验证
+- packages/rewrite-engine: vitest 67 passed（含 3 个新增 touchedItems/knowledgeRefs 用例）。
+- apps/desktop: knowledge-library-service.test.js 5 passed（applyFeedback 采纳/拒绝/非法action/注入防护/空refs）。
+- Vue build 通过。
+
+## [未发布] fix(quality-eval): 改写引擎平台字段透传（v1.4，2026-09-10）
+
 ## [未发布] feat(desktop): 泛化 OpenAI 兼容 LLM Adapter 兜底（2026-09-10）
 
 ### 新增

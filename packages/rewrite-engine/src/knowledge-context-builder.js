@@ -15,6 +15,9 @@ class KnowledgeContextBuilder {
     this._kb = opts.knowledgeBase || null
     this._viral = opts.viralLibrary || null
     this._personal = opts.personalKnowledgeBase || null
+    // P2 反馈闭环：记录本次 buildFullContext 检索命中的知识条目（table + id），
+    // 供改写引擎在用户采纳/拒绝时驱动 feedbackBoost 置信度更新。
+    this._touchedItems = []
   }
 
   /**
@@ -27,6 +30,8 @@ class KnowledgeContextBuilder {
    */
   buildFullContext(userContent, options = {}) {
     const parts = []
+    // 每次构建前清空 touched 记录，避免跨调用累积
+    this._touchedItems = []
 
     // 第1层：原有用户偏好（始终注入）
     if (this._kb) parts.push(this._kb.getContextSummary())
@@ -47,6 +52,23 @@ class KnowledgeContextBuilder {
   }
 
   /**
+   * 获取本次 buildFullContext 检索命中的知识条目引用
+   * @returns {Array<{table: string, id: string}>}
+   */
+  getTouchedItems() {
+    return this._touchedItems.slice()
+  }
+
+  _recordTouched(table, items) {
+    if (!Array.isArray(items)) return
+    for (const item of items) {
+      if (item && item.id) {
+        this._touchedItems.push({ table, id: String(item.id) })
+      }
+    }
+  }
+
+  /**
    * 构建爆款风格分析 Prompt Block
    * 从 Top 3 爆款内容中提取：标题模式、开头钩子、高频标签
    */
@@ -54,6 +76,7 @@ class KnowledgeContextBuilder {
     if (!this._viral) return ''
     const items = this._viral.search(userContent, 3)
     if (!items || !Array.isArray(items) || items.length === 0) return ''
+    this._recordTouched('viral_library', items)
 
     const titlePatterns = []
     const hookPatterns = []
@@ -133,6 +156,7 @@ class KnowledgeContextBuilder {
     if (!this._personal) return ''
     const items = this._personal.search(userContent, 5)
     if (!items || !Array.isArray(items) || items.length === 0) return ''
+    this._recordTouched('personal_knowledge', items)
 
     const groups = {
       constraint: [],

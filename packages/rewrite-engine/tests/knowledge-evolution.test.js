@@ -79,6 +79,61 @@ describe('feedbackBoost', function () {
   })
 })
 
+
+describe('KnowledgeContextBuilder touched items (P2 feedback loop)', function () {
+  it('collects touched viral and personal item ids', function () {
+    var { KnowledgeContextBuilder } = require('../src/knowledge-context-builder')
+    var builder = new KnowledgeContextBuilder({
+      viralLibrary: { search: function () { return [{ id: 'v1', content: 'viral content' }] } },
+      personalKnowledgeBase: { search: function () { return [{ id: 'p1', content: 'personal content' }] } },
+    })
+    builder.buildFullContext('query', { useViralLibrary: true, usePersonalKnowledge: true })
+    var touched = builder.getTouchedItems()
+    expect(touched).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: 'viral_library', id: 'v1' }),
+      expect.objectContaining({ table: 'personal_knowledge', id: 'p1' }),
+    ]))
+  })
+
+  it('returns empty touched items when no knowledge used', function () {
+    var { KnowledgeContextBuilder } = require('../src/knowledge-context-builder')
+    var builder = new KnowledgeContextBuilder({})
+    builder.buildFullContext('query', {})
+    expect(builder.getTouchedItems()).toEqual([])
+  })
+})
+
+describe('RewriteEngine knowledgeRefs (P2 feedback loop)', function () {
+  it('rewrite() returns knowledgeRefs from touched knowledge items', async function () {
+    var { RewriteEngine } = require('../src/rewrite-engine-core')
+    var { KnowledgeContextBuilder } = require('../src/knowledge-context-builder')
+    var { KnowledgeBase } = require('../src/knowledge-base')
+    var kb = new KnowledgeBase()
+    var knowledgeLibrary = new KnowledgeContextBuilder({
+      knowledgeBase: kb,
+      viralLibrary: { search: function () { return [{ id: 'v1', content: 'viral' }] } },
+      personalKnowledgeBase: { search: function () { return [{ id: 'p1', content: 'personal' }] } },
+    })
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return 'rewritten content' } },
+      knowledgeBase: kb,
+      knowledgeLibrary: knowledgeLibrary,
+    })
+    var strat = { id: 't', name: 't', category: 'imitate', systemPrompt: 'p', userPromptTemplate: 'rewrite: {content} {knowledgeContext}', industry: ['g'], tone: ['c'], platforms: ['g'], postProcess: { removeAITaste: false, maxLength: 6000 } }
+    engine._strategyManager._strategies = [strat]
+    engine._strategyManager.listEnabled = function () { return [strat] }
+    engine._strategyManager.get = function () { return strat }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+    var result = await engine.rewrite({ mode: 'imitate', content: 'original content long enough to pass validation', userSettings: { knowledgeOptions: { useViralLibrary: true, usePersonalKnowledge: true } } })
+    expect(result.success).toBe(true)
+    expect(result.knowledgeRefs).toBeDefined()
+    expect(result.knowledgeRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: 'viral_library', id: 'v1' }),
+      expect.objectContaining({ table: 'personal_knowledge', id: 'p1' }),
+    ]))
+  })
+})
 // === mock helpers ===
 
 function makeDecayStore(rows) {
