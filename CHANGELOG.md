@@ -1,4 +1,13 @@
-<<<<<<< HEAD
+## [未发布] fix(quality-eval): 改写引擎平台字段透传（v1.4，2026-09-10）
+
+### 修复
+- AggregationService.rewrite() 评估时硬编码 platform=通用，导致改写引擎侧 quality_report 的平台适配/CTA 等维度与真实目标平台错位。修复为 RewriteRequest/RewriteResult 新增 platform 字段（默认「通用」），并透传 request.platform 给 ContentQualityEvaluator。
+
+### 验证
+- 新增回归测试 3 个：RewriteRequest 默认 platform、接受 platform、rewrite() 不得硬编码 platform（inspect 源码断言）。
+- packages/python-backend: pytest tests/test_aggregation.py tests/test_models.py 59 passed。
+- 实测同一篇内容 platform_fitness 随平台变化（小红书 58 / 微博 63 / 知乎 55 / 通用 60），平台适配维度已按真实目标平台评分。
+
 ## [未发布] feat(quality-eval): 内容质量评估短文度量校准 v1.2/v1.3（2026-09-10）
 
 ### 校准

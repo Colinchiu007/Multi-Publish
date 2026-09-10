@@ -90,6 +90,15 @@ def test_rewrite_request_model():
     assert req.content == "测试内容"
     assert req.style == "轻松易懂"
     assert req.length == "keep"
+    assert req.platform == "通用"  # v1.4 默认平台
+
+
+def test_rewrite_request_accepts_platform():
+    """Regression: RewriteRequest 必须接受 platform 字段，供改写引擎透传给评估器。"""
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(content="测试内容", style="轻松易懂", platform="小红书")
+    assert req.platform == "小红书"
 
 
 def test_collect_result_model():
@@ -321,6 +330,21 @@ def test_length_ranges_mapping():
     assert _LENGTH_RANGES["compress"] == (100, 800, 400)
     assert _LENGTH_RANGES["expand"] == (800, 5000, 2500)
     assert len(_LENGTH_RANGES) == 3
+
+
+def test_rewrite_evaluate_uses_request_platform_not_hardcoded():
+    """Regression: AggregationService.rewrite() 评估必须透传 request.platform，
+    而非硬编码 '通用'（P1 修复——平台适配/CTA 等维度错位的根因）。"""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert 'platform="通用"' not in src, (
+        "rewrite() 不得硬编码 platform='通用'，应透传 request.platform"
+    )
+    assert "platform=request.platform" in src, (
+        "rewrite() 必须用 request.platform 透传给评估器"
+    )
 # ── 6. TaskStatus model ──────────────────────────────────────────────
 
 def test_task_status_model():
