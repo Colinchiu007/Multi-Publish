@@ -10,12 +10,16 @@
  *   5. second-instance / activate   聚焦或重建主窗口
  */
 const { app, BrowserWindow } = require('electron')
-const { configureGraphics, configureUserDataPath } = require('./startup-compat')
+const { configureGraphics, configureUserDataPath, configureUserAgentFallback } = require('./startup-compat')
 
 let storageConfig
 try {
   storageConfig = configureUserDataPath({ app })
   const graphicsConfig = configureGraphics({ app })
+  const uaConfig = configureUserAgentFallback({ app })
+  if (uaConfig.configured) {
+    console.log('[startup] 已净化 User-Agent（移除 Electron 标记，规避平台登录风控）')
+  }
   if (storageConfig.fallback) {
     console.warn(`[startup] 默认 userData 不可写，已切换到 ${storageConfig.path}`)
   }
