@@ -103,6 +103,7 @@ describe('IPC 启动注册合同', () => {
     const { createWindow } = require('../window.js')
     const providerNames = [
       'webviewManager', 'qrCodeLogin', 'oauthManager', 'batchManager',
+      'urlCollector', // 回归锁定：35ae6224 误删后 url-collect:fetch 无 handler
       'providerManager', 'viralEngine', 'commentManager', 'contentIntelligence',
       'publishImpactTracker',
     ]

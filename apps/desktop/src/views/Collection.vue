@@ -39,7 +39,10 @@
           </button>
         </div>
         <div v-if="collectError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
-          {{ collectError.message }}
+          {{ collectErrorDetail }}
+          <button v-if="collectError && collectErrorRetryable" class="cohere-btn-secondary" @click="retryCollect" :disabled="collecting" style="font-size:12px;padding:4px 10px;margin-left:8px">
+            🔄 重试
+          </button>
         </div>
         <div v-if="videoCollectStage" data-testid="collection-video-stage" style="margin-top:8px;padding:6px 10px;background:#f0f7ff;border-radius:4px;font-size:12px;color:#1976d2">
           {{ videoStageText(videoCollectStage) }}
@@ -286,12 +289,13 @@ import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
+import { classifyCollectError } from '@/utils/collect-error'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 
@@ -507,6 +511,24 @@ function stopVideoStageProgression () {
   videoStageTimers = []
   videoCollectStage.value = ''
 }
+
+// 采集错误细分提示：按 classifyCollectError 的 reason 渲染「具体原因 + 建议」文案，
+// 重试按钮按 retryable 显示（invalid_url/internal_url/protocol 类输入错误重试无意义）。
+const collectErrorDetail = computed(() => {
+  if (!collectError.value) return ''
+  const raw = collectError.value.message || collectError.value
+  const { detailKey } = classifyCollectError(raw)
+  const fullKey = 'collection.' + detailKey
+  const resolved = resolveNotifyText(fullKey)
+  if (resolved.resolved) return resolved.text
+  // 分类文案缺失时回退原始消息（不暴露技术文本的兜底已由 formatUserError 处理）
+  return typeof raw === 'string' ? raw : resolveNotifyText('collection.collectFailed', { message: '' }).text
+})
+const collectErrorRetryable = computed(() => {
+  if (!collectError.value) return false
+  const raw = collectError.value.message || collectError.value
+  return classifyCollectError(raw).retryable
+})
 
 // 检测采集结果是否为反爬安全验证页面（如百度家号返回「百度安全验证」标题）
 function isSecurityChallenge (res) {

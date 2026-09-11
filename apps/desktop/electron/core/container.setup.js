@@ -193,7 +193,10 @@ function createContainer(options) {
       log: c.get("logger"),
     });
   });
-  container.register("urlCollector", function() { return new UrlCollector(); });
+  // auditDir 显式注入：AuditLogger 无目录时静默丢弃所有防护事件（回归：采集失败无日志）。
+  // 注意：目录在装配时快照式定型（与 app-*.log 同源）；若未来支持运行时切换日志目录，
+  // 需同步评估审计日志是否跟随（当前生产无 setLogOptions 调用，契约稳定）。
+  container.register("urlCollector", function(c) { return new UrlCollector({ auditDir: c.get("logger").getLogsDir() }); });
   // 热门选题聚合服务（多渠道热搜抓取 + 分类 + 缓存）
   container.register("hotTopicsService", function(c) {
     const { HotTopicsService } = require('../services/hot-topics-service');

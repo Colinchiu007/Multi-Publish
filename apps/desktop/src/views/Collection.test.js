@@ -425,8 +425,46 @@ describe("CollectionView", () => {
     const w = mountCollection();
     expect(w.vm.formatVideoDuration(0)).toBe("");
     expect(w.vm.formatVideoDuration(65)).toBe("1:05");
-    expect(w.vm.formatVideoDuration(185)).toBe("3:05");
+    expect(w.vm.formatVideoDuration(185)).toBe("3:05");  });
+
+  it("collectUrl 失败时错误横幅显示细分文案（安全验证类）", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({ code: -99, message: "URL 触发安全验证，请尝试在浏览器环境采集" }),
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 1, message: "采集失败: 目标页面触发了安全验证" }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://zhuanlan.zhihu.com/p/123";
+    await w.vm.collectUrl();
+    // 错误横幅应显示 security_challenge 细分文案（含建议），而非笼统「采集失败」
+    expect(w.vm.collectErrorDetail).toContain("安全验证");
+    expect(w.vm.collectErrorRetryable).toBe(true);
   });
+
+  it("collectUrl 失败时错误横幅显示细分文案（超时类）", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({ code: -1, message: "请求超时，请稍后重试" }),
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 1, message: "采集失败: timeout of 30000ms exceeded" }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://example.com/slow";
+    await w.vm.collectUrl();
+    expect(w.vm.collectErrorDetail).toContain("超时");
+    expect(w.vm.collectErrorRetryable).toBe(true);
+  });
+
+  it("collectUrl 失败时输入类错误不显示重试按钮", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({ code: -99, message: "URL 格式不正确" }),
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 1, message: "无效的 URL" }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "not-a-url";
+    await w.vm.collectUrl();
+    expect(w.vm.collectErrorDetail).toContain("链接格式无效");
+    expect(w.vm.collectErrorRetryable).toBe(false);  });
 
   it("creates draft from collected result", async () => {
     window.electronAPI = { storeSetSetting: vi.fn() };

@@ -10,8 +10,6 @@
  *
  * 文件位置: apps/desktop/electron/url-collector.js
  */
-const { ipcMain } = require('electron')
-// eslint-disable-next-line no-unused-vars
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
 const {
@@ -23,19 +21,50 @@ const {
   AuditLogger,
   HealthMonitor,
 } = require('@multi-publish/collection-engine')
+const path = require('path')
 
 class UrlCollector {
-  constructor () {
+  /**
+   * @param {object} [opts]
+   * @param {string} [opts.auditDir] - 审计日志目录（L7 AuditLogger 落盘位置）。
+   *   不传时回退 logger 同款规则（userData/logs）；传 null 显式禁用落盘。
+   * @param {object} [opts.log] - 应用日志实例（info/warn/error）。默认模块级 logger；
+   *   测试注入用（vi.mock 无法拦截 CJS 模块内部的 require，依赖注入是唯一可靠方式）。
+   */
+  constructor (opts = {}) {
     this._axios = null
     this._stealthBrowser = null
+    this._log = opts.log || log
     // 防封八层防护核心组件（L0/L3/L5/L6/L7）
     this._strategy = new CollectionStrategy()
     this._rateLimiter = new RateLimiter()
     this._circuitBreaker = new CircuitBreaker()
     this._coolDownPool = new CoolDownPool()
     this._contentCache = new ContentCache()
-    this._auditLogger = new AuditLogger()
+    this._auditLogger = new AuditLogger({ dir: this._normalizeAuditDir(this._resolveAuditDir(opts.auditDir)) })
     this._healthMonitor = new HealthMonitor()
+  }
+
+  /**
+   * 解析审计日志目录：显式传入 > logger 日志目录 > null（禁用落盘）。
+   * AuditLogger 构造时无 dir 会静默丢弃所有防护事件（回归：采集失败无日志）。
+   */
+  _resolveAuditDir (explicitDir) {
+    if (explicitDir !== undefined) return explicitDir
+    try {
+      // logger 模块暴露 getLogsDir（同款 userData/logs 规则）
+      if (typeof log.getLogsDir === 'function') return log.getLogsDir()
+    } catch { /* fallthrough */ }
+    return null
+  }
+
+  /**
+   * 规范化审计目录（审查 C2）：绝对路径化，拒绝空串。
+   * @param {string} dir
+   */
+  _normalizeAuditDir (dir) {
+    if (typeof dir !== 'string' || !dir.trim()) return null
+    return path.resolve(dir)
   }
 
   /**
@@ -141,6 +170,9 @@ class UrlCollector {
       this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
       this._healthMonitor.record(platform, 'default', { success: false, reason: 'network_error' })
       this._auditLogger.error(platform, 'default', e, { url })
+      // 回归保护：采集失败必须写应用日志（此前只写 AuditLogger，而 AuditLogger
+      // 无目录时静默丢弃，导致「采集失败」在 app-*.log 里完全无痕）
+      this._log.error('url-collect', '采集失败', { url, platform, error: e && e.message ? e.message : String(e) })
       return { success: false, error: `采集失败: ${e.message}` }
     }
   }
@@ -178,7 +210,8 @@ class UrlCollector {
     }
 
     // 提取标题
-    const title = getMeta('og:title') || $('title').first().text() || ''
+    // let：百家号 SPA 无 og:title meta，下方百家号分支会用 h1 覆写回退
+    let title = getMeta('og:title') || $('title').first().text() || ''
 
     // 提取描述
     const description = getMeta('og:description') || getMeta('description') || ''
