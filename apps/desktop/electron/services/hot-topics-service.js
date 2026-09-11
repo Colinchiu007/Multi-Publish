@@ -183,7 +183,9 @@ class HotTopicsService {
    */
   async fetchTopics(options = {}) {
     const cache = this.getCache()
-    const fresh = cache.fetchedAt > 0 && (Date.now() - cache.fetchedAt) < CACHE_TTL_MS
+    // 时钟回拨防护：fetchedAt 在未来视为过期，避免缓存永不过期
+    const age = Date.now() - cache.fetchedAt
+    const fresh = cache.fetchedAt > 0 && age >= 0 && age < CACHE_TTL_MS
     if (!options.force && fresh) {
       return { ...cache, fromCache: true }
     }
@@ -198,7 +200,8 @@ class HotTopicsService {
       const seen = new Map() // topic.trim() → { index, mergedFrom }
       for (const r of results) {
         channelStats[r.channel] = {
-          ok: !r.error && !r.skipped,
+          // 限流/熔断跳过不算失败：ok 保持 true，避免渠道下拉误标「不可用」
+          ok: !r.error,
           skipped: !!r.skipped,
           error: r.error || null,
           count: r.items ? r.items.length : 0,

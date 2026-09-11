@@ -13,6 +13,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const { hotTopicsService, log } = deps
+  if (!hotTopicsService) throw new Error('[hot-topics] deps.hotTopicsService is required')
   const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
 
   ipcMain.handle('hot-topics:fetch', async (_event, payload) => {
@@ -36,5 +37,4 @@ function registerHandlers(ipcMain, deps) {
   })
 }
 
-module.exports = { registerHandlers }
-module.exports.registerIpcHandlers = registerHandlers
+module.exports = registerHandlers

@@ -165,6 +165,7 @@ const publishDone = ref(false)
 const publishCancelled = ref(false)
 let refreshTimer = null
 let requestSeq = 0
+let disposed = false // 组件卸载标记：in-flight 改写/草稿保存不再写回状态
 
 // ── 常量 ──
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
@@ -296,10 +297,7 @@ function createCopyBatch() {
     notifyInfo('hotTopics.batchLimit')
     return
   }
-  // 批量：存 session 队列 + 首条跳转（本期简化）
-  try {
-    sessionStorage.setItem('hot_topics_selected', JSON.stringify(selected.map(x => ({ topic: x.topic }))))
-  } catch (_) { /* session 存储失败不阻塞首条跳转 */ }
+  // 本期简化：批量创作 = 逐条跳转首条自动开始；session 队列消费属后续迭代（PRD 3.4 已注明）
   router.push('/rewrite?topic=' + encodeURIComponent(selected[0].topic))
 }
 
@@ -364,6 +362,7 @@ async function rewriteOne(item) {
         updatedAt: new Date().toISOString(),
       }
       const saved = await draftSave(draft)
+      if (disposed) return // 已卸载：草稿已保存但不更新 UI 状态
       if (saved && saved.code === 0) {
         item.status = 'success'
         item.draftId = draft.id
@@ -411,6 +410,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
   if (refreshTimer) clearInterval(refreshTimer)
   requestSeq++ // 使 in-flight 响应失效
   publishing.value = false

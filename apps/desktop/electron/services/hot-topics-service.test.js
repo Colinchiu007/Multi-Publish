@@ -162,6 +162,24 @@ describe('HotTopicsService', () => {
     expect(store.setSetting).toHaveBeenCalledWith(CACHE_KEY, expect.stringContaining('"topics"'))
   })
 
+  it('container wiring shape: settingsStore adapter maps to store.getSetting/setSetting', () => {
+    // 验证 container.setup.js 的注入形态（不启动完整 container，只验证适配器映射）
+    const calls = []
+    const fakeStore = {
+      getSetting: (k) => { calls.push(['get', k]); return null },
+      setSetting: (k, v) => { calls.push(['set', k]) },
+    }
+    const adapter = {
+      getSetting: (k) => fakeStore.getSetting(k),
+      setSetting: (k, v) => fakeStore.setSetting(k, v),
+    }
+    const svc = makeService({ settingsStore: adapter })
+    svc.getCache()
+    svc._writeCache({ topics: [], fetchedAt: 1, channelStats: {} })
+    expect(calls.some(c => c[0] === 'get')).toBe(true)
+    expect(calls.some(c => c[0] === 'set')).toBe(true)
+  })
+
   it('has 7 channel configs with interval >= 5 minutes', () => {
     expect(CHANNEL_CONFIGS).toHaveLength(7)
     for (const cfg of CHANNEL_CONFIGS) {

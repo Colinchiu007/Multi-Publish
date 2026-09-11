@@ -197,7 +197,11 @@ function createContainer(options) {
   // 热门选题聚合服务（多渠道热搜抓取 + 分类 + 缓存）
   container.register("hotTopicsService", function(c) {
     const { HotTopicsService } = require('../services/hot-topics-service');
-    return new HotTopicsService({ log: c.get('logger') });
+    const s = c.get('store');
+    return new HotTopicsService({
+      log: c.get('logger'),
+      settingsStore: { getSetting: (k) => s.getSetting(k), setSetting: (k, v) => s.setSetting(k, v) },
+    });
   });
   container.register("viralEngine", function() { return new ViralEngine(); });
   container.register("commentManager", function() { return new CommentManager(); });
