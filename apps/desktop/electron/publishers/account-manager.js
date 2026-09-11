@@ -5,6 +5,7 @@
  */
 // eslint-disable-next-line no-unused-vars
 const path = require('path')
+const fs = require('fs')
 const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
@@ -794,17 +795,41 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   const args = ownerSubject === undefined
     ? [accountId, userDataDir]
     : [accountId, userDataDir, ownerSubject]
-  if (!credentialStore.hasCredential(...args)) {
-    log.info('AccountManager', 'checkLocalCredentials: no encrypted file for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
-    return false
+  const hasEncrypted = credentialStore.hasCredential(...args)
+  if (hasEncrypted) {
+    const loaded = loadSavedCredentials(accountId, platform, { ownerSubject })
+    if (!loaded) {
+      log.info('AccountManager', 'checkLocalCredentials: file exists but loadSavedCredentials null for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
+      // 加密文件损坏：仍检查 session 分区作为备选
+    } else {
+      log.info('AccountManager', 'checkLocalCredentials: OK encrypted ' + platform + ':' + accountId + ' cookies=' + (loaded.cookies ? loaded.cookies.length : 0) + ' lsKeys=' + Object.keys(loaded.localStorage || {}).length)
+      return true
+    }
   }
-  const loaded = loadSavedCredentials(accountId, platform, { ownerSubject })
-  if (!loaded) {
-    log.info('AccountManager', 'checkLocalCredentials: file exists but loadSavedCredentials null for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
-    return false
+
+  // 备选：Electron session 分区 Cookie（persist:account-{accountId}）
+  // 用户通过浏览器标签登录后，Electron 自动持久化 Cookie 到 session 分区。
+  // 加密凭据文件可能因 saveCapturedAccount 未成功而未创建，但浏览器的
+  // persist:account-{accountId} 分区 Cookie 仍然有效（创作者中心显示已登录）。
+  // 此备选路径让 checkLocalCredentials 把 session Cookie 文件的存在也视为有效凭证。
+  if (isSafePathSegment(accountId)) {
+    try {
+      const sessionCookiePath = path.join(userDataDir, 'Partitions', 'account-' + accountId, 'Network', 'Cookies')
+      if (fs.existsSync(sessionCookiePath)) {
+        const cookieStats = fs.statSync(sessionCookiePath)
+        if (cookieStats.size > 0) {
+          log.info('AccountManager', 'checkLocalCredentials: OK session-cookie ' + platform + ':' + accountId + ' size=' + cookieStats.size + 'B (fallback from missing encrypted file)')
+          return true
+        }
+        log.info('AccountManager', 'checkLocalCredentials: session cookie file empty for ' + platform + ':' + accountId)
+      }
+    } catch (e) {
+      log.warn('AccountManager', 'checkLocalCredentials: session cookie check error for ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    }
   }
-  log.info('AccountManager', 'checkLocalCredentials: OK ' + platform + ':' + accountId + ' cookies=' + (loaded.cookies ? loaded.cookies.length : 0) + ' lsKeys=' + Object.keys(loaded.localStorage || {}).length)
-  return true
+
+  log.info('AccountManager', 'checkLocalCredentials: NO credential for ' + platform + ':' + accountId + ' (no encrypted file, no session cookie file)' + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
+  return false
 }
 
 /**

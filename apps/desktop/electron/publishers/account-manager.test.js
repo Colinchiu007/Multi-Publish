@@ -41,6 +41,59 @@ describe('account-manager — userData fallback', () => {
   })
 })
 
+describe('checkLocalCredentials session 分区 Cookie 备选检测', () => {
+  it('加密凭据缺失但 session 分区 Cookie 文件存在且非空 → 视为有效', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+    // 模拟 persist:account-{accountId} 分区下的 Network/Cookies 文件存在
+    const fs = require('fs')
+    const existsSync = vi.spyOn(fs, 'existsSync').mockImplementation((p) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.includes('Partitions') && normalized.endsWith('Network/Cookies')
+    })
+    const statSync = vi.spyOn(fs, 'statSync').mockReturnValue({ size: 20480 })
+
+    try {
+      const result = accountManager.checkLocalCredentials('douyin', 'acc-1')
+      expect(result).toBe(true)
+    } finally {
+      existsSync.mockRestore()
+      statSync.mockRestore()
+    }
+  })
+
+  it('加密凭据缺失 + session Cookie 文件为空 → 视为无效', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+    const fs = require('fs')
+    const existsSync = vi.spyOn(fs, 'existsSync').mockImplementation((p) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.includes('Partitions') && normalized.endsWith('Network/Cookies')
+    })
+    const statSync = vi.spyOn(fs, 'statSync').mockReturnValue({ size: 0 })
+
+    try {
+      const result = accountManager.checkLocalCredentials('douyin', 'acc-2')
+      expect(result).toBe(false)
+    } finally {
+      existsSync.mockRestore()
+      statSync.mockRestore()
+    }
+  })
+
+  it('加密凭据缺失 + 无 session 分区 Cookie 文件 → 视为无效', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+    // 默认：fs.existsSync 返回 false（测试 tmp 目录下无 Partitions）
+
+    const result = accountManager.checkLocalCredentials('douyin', 'acc-3')
+    expect(result).toBe(false)
+  })
+})
+
 describe('account-manager — Logto owner 隔离', () => {
   beforeEach(() => {
     global.__enableElectronMock()
