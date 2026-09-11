@@ -56,7 +56,7 @@
           :disabled="batchCheckAllBusy || totalAccounts === 0"
           :title="t('accountsPage.batchCheckAll')"
           @click="batchCheckAllLogins"
-        >{{ batchCheckAllBusy ? t('accountsPage.batchCheckAllBusy') : t('accountsPage.batchCheckAll') }}</button>
+        >{{ batchCheckAllBusy ? batchCheckAllProgressText : t('accountsPage.batchCheckAll') }}</button>
         <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">{{ t('accountsPage.batchAction') }}</button>
         <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />{{ t('accountsPage.addAccount') }}</button>
       </div>
@@ -268,6 +268,7 @@ import AccountManagementCard from '@/features/accounts/components/AccountManagem
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { accountBatchCheckLogin } from '@/api/publisher'
+import { getApi } from '@/api/electron-bridge'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
@@ -323,6 +324,12 @@ const searchInput = ref('')
 const platformSearchInput = ref('')
 const accountBatchMode = ref(false)
 const batchCheckAllBusy = ref(false)
+const batchCheckProgress = ref({ checked: 0, total: 0, platform: '' })
+const batchCheckAllProgressText = computed(() => {
+  const p = batchCheckProgress.value
+  if (!p.total) return t('accountsPage.batchCheckAllBusy')
+  return t('accountsPage.batchCheckAllProgress', { checked: p.checked, total: p.total, platform: p.platform || '' })
+})
 const verifyingIds = ref(new Set())
   /** 当前会话中被 checkLogin 确认失效的账号 ID */
   const checkedExpiredIds = ref(new Set())
@@ -834,8 +841,26 @@ async function batchCheckAllLogins () {
     return
   }
   batchCheckAllBusy.value = true
+  batchCheckProgress.value = { checked: 0, total: accounts.length, platform: '' }
   verifyingIds.value = new Set(accounts.map(a => a.id))
   notifyInfo('accountsPage.batchCheckAllStarted', { params: { count: accounts.length } })
+  // 订阅主进程逐账号进度事件（accounts:batch-check-progress），
+  // 驱动按钮上的阶段性反馈「检测中 X/N：平台名」。
+  const api = getApi()
+  let offProgress = null
+  try {
+    if (api?.onAccountsBatchCheckProgress) {
+      offProgress = api.onAccountsBatchCheckProgress((data) => {
+        if (data && batchCheckAllBusy.value) {
+          batchCheckProgress.value = {
+            checked: Number(data.checked) || 0,
+            total: Number(data.total) || accounts.length,
+            platform: String(data.platform || '')
+          }
+        }
+      })
+    }
+  } catch (_) { /* 事件订阅失败不阻断检测 */ }
   try {
     const result = await accountBatchCheckLogin(accounts.map(a => a.id))
     const results = result?.code === 0 ? result.data?.results : []
@@ -865,6 +890,8 @@ async function batchCheckAllLogins () {
   } catch (error) {
     notifyError('accountsPage.batchCheckAllFailed', { message: formatUserError(error, { fallback: t('accountsPage.batchCheckAllFailed') }).message })
   } finally {
+    if (offProgress) { try { offProgress() } catch (_) { /* ignore */ } }
+    batchCheckProgress.value = { checked: 0, total: 0, platform: '' }
     verifyingIds.value = new Set()
     batchCheckAllBusy.value = false
   }

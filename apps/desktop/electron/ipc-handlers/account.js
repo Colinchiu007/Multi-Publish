@@ -417,6 +417,16 @@ function registerHandlers(ipcMain, deps) {
         ? candidates.filter((a) => requestedIds.includes(a.id))
         : candidates
       const results = []
+      // 进度广播：每检测完一个账号向渲染层推送进度，驱动按钮上的
+      // 阶段性反馈（「检测中 X/N」），消除长时间无响应的体验问题。
+      const broadcastProgress = (checkedIndex, total, platform, accountId) => {
+        try {
+          const win = BrowserWindow.getAllWindows()[0]
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('accounts:batch-check-progress', { checked: checkedIndex, total, platform, accountId })
+          }
+        } catch (_) { /* 广播失败不阻断检测 */ }
+      }
       for (const account of targets) {
         const platform = account.platform
         const accountId = account.id
@@ -438,6 +448,7 @@ function registerHandlers(ipcMain, deps) {
             error: e instanceof Error ? e.message : String(e),
           })
         }
+        broadcastProgress(results.length, targets.length, platform, accountId)
       }
       const data = { results, checkedAt: new Date().toISOString() }
       ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} 耗时=${Date.now() - startedAt}ms`)
