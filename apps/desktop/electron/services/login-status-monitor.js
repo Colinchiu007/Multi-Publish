@@ -62,15 +62,17 @@ function createLoginStatusMonitor (opts) {
         try {
           // 仅检测 active 状态的账号，避免对已失效账号重复检测
           if (acc.status && acc.status !== 'active' && acc.status !== 'online') continue
+          logger.info('LoginMonitor', 'checking ' + acc.platform + ':' + (acc.name || acc.account_name || acc.id) + ' (current status=' + (acc.status || '?') + ')')
           const result = await _accountManager.checkLoginStatus(acc.platform, acc.id)
+          logger.info('LoginMonitor', 'result ' + acc.platform + ':' + acc.id + ' valid=' + (result && result.valid) + ' code=' + (result && result.code) + (result && !result.valid ? ' error=' + (result.error || result.message || '') : ''))
           if (result && !result.valid) {
             _store.updateAccount(acc.id, { status: 'expired' })
             expiredCount++
-            logger.warn('LoginMonitor', '账号 ' + acc.platform + '/' + (acc.account_name || acc.id) + ' Cookie 已过期：' + result.message)
+            logger.warn('LoginMonitor', '账号 ' + acc.platform + '/' + (acc.account_name || acc.id) + ' 设为 expired: code=' + result.code + (result.error ? ' error=' + result.error : '') + (result.message ? ' msg=' + result.message : ''))
           }
         } catch (e) {
           // 单个账号检测失败不影响整体
-          logger.debug('LoginMonitor', '账号 ' + acc.id + ' 检测异常: ' + e.message)
+          logger.warn('LoginMonitor', '账号 ' + acc.id + ' 检测异常: ' + (e && e.message ? e.message : String(e)))
         }
       }
 
