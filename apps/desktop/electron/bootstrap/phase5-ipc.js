@@ -187,6 +187,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector, knowledgeLibraryService,
     urlCollector,
+    hotTopicsService,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -208,6 +209,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     promptEvalService, signalCollector,
 knowledgeLibraryService,
     urlCollector,
+    hotTopicsService,
   }
   let state = registrationStates.get(context)
   if (!state) {

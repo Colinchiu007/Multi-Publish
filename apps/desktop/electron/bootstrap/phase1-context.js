@@ -131,6 +131,7 @@ function extractContext(container) {
   const oauthManager = container.get('oauthManager')
   const batchManager = container.get('batchManager')
   const urlCollector = container.get('urlCollector')
+  const hotTopicsService = container.get('hotTopicsService')
   const viralEngine = container.get('viralEngine')
   const commentManager = container.get('commentManager')
   const proxyPool = container.get('proxyPool')
@@ -425,6 +426,7 @@ function extractContext(container) {
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
       oauthManager, batchManager, urlCollector, proxyPool,
+      hotTopicsService,
     },
     pipelines: {
       viralEngine, commentManager, contentIntelligence,

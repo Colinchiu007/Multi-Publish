@@ -63,6 +63,8 @@ const PUBLIC_CHANNELS = new Set([
   // 热文采集/改写：URL 正文提取/RSS/Sitemap 均为纯本地操作，未登录可用
   'aggregation:collect', 'aggregation:collect-batch', 'aggregation:rewrite',
   'aggregation:sources', 'aggregation:task-status',
+  // 热门选题：公开热搜榜单聚合，纯本地抓取，未登录可用
+  'hot-topics:fetch', 'hot-topics:get-cache',
 ])
 
 const ADMIN_ONLY_CHANNELS = new Set([

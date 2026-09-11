@@ -24,6 +24,7 @@ function createPageManagerApi(ipcRenderer) {
       getActiveTab: () => ipcRenderer.invoke('page-manager:get-active-tab'),
       getHomeTab: () => ipcRenderer.invoke('page-manager:get-home-tab'),
       saveCookies: (tabId) => ipcRenderer.invoke('page-manager:save-cookies', tabId),
+      saveAccountTabCredentials: (tabId) => ipcRenderer.invoke('page-manager:save-account-tab-credentials', tabId),
 
       // ── Event subscription ──
       subscribeEvents: () => ipcRenderer.invoke('page-manager:subscribe-events'),

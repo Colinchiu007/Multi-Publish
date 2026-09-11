@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import uuid
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -10,6 +11,7 @@ import pytest_asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _RUN_ID = uuid.uuid4().hex[:8]
+_TODAY = date.today().isoformat()
 os.environ["OPS_DB_PATH"] = os.path.join(tempfile.gettempdir(), f"ops_pm_{_RUN_ID}.db")
 os.environ["OPS_CONFIG_OUTPUT_DIR"] = os.path.join(tempfile.gettempdir(), f"ops_pm_cfg_{_RUN_ID}")
 os.environ["OPS_SECRET_KEY"] = "test-secret"
@@ -54,13 +56,13 @@ async def test_publish_ingest_validation_and_idempotent_accumulate():
         key = {"X-Catalog-Key": "catalog-test-key"}
         # 上报成功
         r = await client.post("/api/v1/publish/ingest", json={
-            "client_id": "dev-1", "items": [{"date": "2026-08-11", "platform": "wechat_mp", "publish_count": 5, "ok_count": 4, "fail_count": 1}],
+            "client_id": "dev-1", "items": [{"date": _TODAY, "platform": "wechat_mp", "publish_count": 5, "ok_count": 4, "fail_count": 1}],
         }, headers=key)
         assert r.status_code == 200 and r.json()["ingested"] == 1
 
         # 同桶再报 → 累加（服务端 upsert 累加；幂等由客户端水印防重）
         r = await client.post("/api/v1/publish/ingest", json={
-            "client_id": "dev-1", "items": [{"date": "2026-08-11", "platform": "wechat_mp", "publish_count": 3, "ok_count": 2, "fail_count": 1}],
+            "client_id": "dev-1", "items": [{"date": _TODAY, "platform": "wechat_mp", "publish_count": 3, "ok_count": 2, "fail_count": 1}],
         }, headers=key)
         assert r.status_code == 200
         s = (await client.get("/api/v1/publish/summary?days=30", headers=_admin_headers())).json()
@@ -69,11 +71,11 @@ async def test_publish_ingest_validation_and_idempotent_accumulate():
 
         # 逐条校验：非法条目跳过（200 + invalid_count）；结构错误整批 400；无 key 401
         assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": "2026-8-1", "platform": "x", "publish_count": 1, "ok_count": 1, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
-        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": "2026-08-11", "platform": "BAD ID", "publish_count": 1, "ok_count": 1, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
-        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": "2026-08-11", "platform": "x", "publish_count": -1, "ok_count": 1, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
-        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": "2026-08-11", "platform": "x", "publish_count": 1, "ok_count": 2, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
+        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": _TODAY, "platform": "BAD ID", "publish_count": 1, "ok_count": 1, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
+        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": _TODAY, "platform": "x", "publish_count": -1, "ok_count": 1, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
+        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": _TODAY, "platform": "x", "publish_count": 1, "ok_count": 2, "fail_count": 0}]}, headers=key)).json()["invalid_count"] == 1
         assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d"}, headers=key)).status_code == 400
-        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": "2026-08-11", "platform": "x", "publish_count": 1, "ok_count": 1, "fail_count": 0}]}, headers={})).status_code == 401
+        assert (await client.post("/api/v1/publish/ingest", json={"client_id": "d", "items": [{"date": _TODAY, "platform": "x", "publish_count": 1, "ok_count": 1, "fail_count": 0}]}, headers={})).status_code == 401
         # summary 非 admin 403
         assert (await client.get("/api/v1/publish/summary", headers={})).status_code in (401, 403)
 
@@ -86,10 +88,10 @@ async def test_publish_ingest_per_item_skip_and_batch_idempotent():
         r = await client.post("/api/v1/publish/ingest", json={
             "client_id": "dev-2", "report_id": "dev-2:2026-08-11:2026-08-11",
             "items": [
-                {"date": "2026-08-11", "platform": "wechat_mp", "publish_count": 2, "ok_count": 2, "fail_count": 0},
+                {"date": _TODAY, "platform": "wechat_mp", "publish_count": 2, "ok_count": 2, "fail_count": 0},
                 {"date": "2026-02-30", "platform": "x", "publish_count": 1, "ok_count": 1, "fail_count": 0},
-                {"date": "2026-08-11", "platform": "BAD PLATFORM", "publish_count": 1, "ok_count": 1, "fail_count": 0},
-                {"date": "2026-08-11", "platform": "x", "publish_count": 1.9, "ok_count": 1, "fail_count": 0},
+                {"date": _TODAY, "platform": "BAD PLATFORM", "publish_count": 1, "ok_count": 1, "fail_count": 0},
+                {"date": _TODAY, "platform": "x", "publish_count": 1.9, "ok_count": 1, "fail_count": 0},
             ],
         }, headers=key)
         assert r.status_code == 200, r.text
@@ -102,7 +104,7 @@ async def test_publish_ingest_per_item_skip_and_batch_idempotent():
         # 批次幂等：同 report_id 重复上报不累加
         r2 = await client.post("/api/v1/publish/ingest", json={
             "client_id": "dev-2", "report_id": "dev-2:2026-08-11:2026-08-11",
-            "items": [{"date": "2026-08-11", "platform": "wechat_mp", "publish_count": 2, "ok_count": 2, "fail_count": 0}],
+            "items": [{"date": _TODAY, "platform": "wechat_mp", "publish_count": 2, "ok_count": 2, "fail_count": 0}],
         }, headers=key)
         assert r2.status_code == 200 and r2.json()["already_reported"] is True
         s2 = (await client.get("/api/v1/publish/summary?days=30", headers=_admin_headers())).json()

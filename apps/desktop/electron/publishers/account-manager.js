@@ -5,6 +5,7 @@
  */
 // eslint-disable-next-line no-unused-vars
 const path = require('path')
+const fs = require('fs')
 const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
@@ -437,6 +438,19 @@ async function checkLoginStatus (platform, accountId) {
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
   if (!loginUrl) return { valid: false, code: 'CHECK_LOGIN_UNSUPPORTED_PLATFORM' }
 
+  // 渲染崩溃保护：部分平台页面（视频号 channels.weixin.qq.com 等）在隐藏
+  // sandbox 检测窗口中触发原生渲染崩溃（crashpad not connected），导致整个
+  // Electron 进程退出。这些平台降级为本地凭证存在性检查（与账号列表的
+  // checkLocalCredentials 语义一致），不打开浏览器窗口。
+  const RENDER_CRASH_PRONE_PLATFORMS = new Set(['tencent_video'])
+  if (RENDER_CRASH_PRONE_PLATFORMS.has(platform)) {
+    const hasLocal = checkLocalCredentials(platform, accountId)
+    log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' local-credential-only valid=' + hasLocal)
+    return hasLocal
+      ? { valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' }
+      : { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
+  }
+
   try {
     const credentials = loadSavedCredentials(accountId, platform)
     const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
@@ -444,8 +458,21 @@ async function checkLoginStatus (platform, accountId) {
       ? credentials.localStorage
       : {}
     if (!credentials || (cookies.length === 0 && Object.keys(localStorageData).length === 0)) {
+      log.info('AccountManager', 'checkLoginStatus: NO_CREDENTIAL ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length)
       return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
+
+    // 快速路径：已知「Cookie 必需」的平台在无 Cookie 时跳过浏览器窗口检测。
+    // 头条（toutiao）E2E 实测：无 Cookie 仍走浏览器检测耗时 19.2s，全部
+    // 浪费在加载注定未登录的页面上。这些平台登录态完全由 Cookie 维持，
+    // localStorage 单独不足以登录。知乎等 token 型平台不走此路径。
+    const COOKIE_REQUIRED_PLATFORMS = new Set(['toutiao', 'baijiahao'])
+    if (cookies.length === 0 && COOKIE_REQUIRED_PLATFORMS.has(platform)) {
+      log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + Object.keys(localStorageData).length)
+      return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+    }
+
+    log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 
     // 创建临时 context 加载 Cookie 进行验证
     const browser = await playwrightManager.getContext({ show: false })
@@ -458,19 +485,24 @@ async function checkLoginStatus (platform, accountId) {
         await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
       }
 
-      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速
-      // （networkidle 等待所有网络连接空闲，大型 SPA 页面可能耗时 30+ 秒）
-      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速。
+      // 15s→8s：登录检测只需要重定向链完成后的最终 URL 和基本 DOM，
+      // 不需要完整加载页面资源。B 站等重定向链长的平台 8s 足够。
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 8000 })
 
-      // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）。
+      // 2s→500ms：domcontentloaded 后 SPA 框架通常已挂载，选择器等待本身
+      // 有轮询重试，过长固定 sleep 是批量检测耗时主因（B 站 12.7s 中占 2s）。
+      await new Promise(resolve => setTimeout(resolve, 500))
 
       // 检查登录状态选择器（支持数组选择器：PLATFORM_LOGIN_SUCCESS_SELECTORS 配置
       // 每个平台多个备选 CSS 选择器，playwright-manager 的 waitForSelector 会逐一尝试）
       let selectorMatched = false
       if (successSelector) {
         try {
-          await page.waitForSelector(successSelector, { timeout: 10000 })
+          // 10s→3s：选择器不匹配时等满超时才降级 URL 检查，是批量检测
+          // 耗时主因（B 站选择器全部过时，10s 全浪费）。3s 足够 SPA 渲染。
+          await page.waitForSelector(successSelector, { timeout: 3000 })
           selectorMatched = true
           return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
         } catch {
@@ -482,7 +514,16 @@ async function checkLoginStatus (platform, accountId) {
       // 检查 URL 是否跳离登录页
       const currentUrl = page.url()
 
-      // 如果选择器超时但 URL 已经跳离登录页，并且当前 URL 在仪表盘/创作者中心域名下，
+      // 登录页 URL 特征检查必须先于仪表盘域名兜底：
+      // 微信公众号等平台的登录页与后台同域（mp.weixin.qq.com/cgi-bin/loginpage
+      // 与 mp.weixin.qq.com/ 同 host），若先做域名兜底会恒真，把已登出账号
+      // 误判为已登录（公众号会话仅 24h，登出后 30 分钟定时检测也永远报 valid）。
+      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
+        log.info('AccountManager', 'checkLoginStatus: URL hit login/signin marker ' + platform + ':' + accountId + ' url=' + currentUrl)
+        return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
+      }
+
+      // 选择器超时但 URL 不含登录特征，且在仪表盘/创作者中心域名下，
       // 说明实际上已登录（平台选择器因 DOM 变更而过时，但 Cookie 有效）
       if (successSelector && !selectorMatched && dashboardUrl) {
         try {
@@ -492,10 +533,6 @@ async function checkLoginStatus (platform, accountId) {
             return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
           }
         } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
-      }
-
-      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
-        return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
       }
 
       return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
@@ -791,8 +828,41 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   const args = ownerSubject === undefined
     ? [accountId, userDataDir]
     : [accountId, userDataDir, ownerSubject]
-  if (!credentialStore.hasCredential(...args)) return false
-  return Boolean(loadSavedCredentials(accountId, platform, { ownerSubject }))
+  const hasEncrypted = credentialStore.hasCredential(...args)
+  if (hasEncrypted) {
+    const loaded = loadSavedCredentials(accountId, platform, { ownerSubject })
+    if (!loaded) {
+      log.info('AccountManager', 'checkLocalCredentials: file exists but loadSavedCredentials null for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
+      // 加密文件损坏：仍检查 session 分区作为备选
+    } else {
+      log.info('AccountManager', 'checkLocalCredentials: OK encrypted ' + platform + ':' + accountId + ' cookies=' + (loaded.cookies ? loaded.cookies.length : 0) + ' lsKeys=' + Object.keys(loaded.localStorage || {}).length)
+      return true
+    }
+  }
+
+  // 备选：Electron session 分区 Cookie（persist:account-{accountId}）
+  // 用户通过浏览器标签登录后，Electron 自动持久化 Cookie 到 session 分区。
+  // 加密凭据文件可能因 saveCapturedAccount 未成功而未创建，但浏览器的
+  // persist:account-{accountId} 分区 Cookie 仍然有效（创作者中心显示已登录）。
+  // 此备选路径让 checkLocalCredentials 把 session Cookie 文件的存在也视为有效凭证。
+  if (isSafePathSegment(accountId)) {
+    try {
+      const sessionCookiePath = path.join(userDataDir, 'Partitions', 'account-' + accountId, 'Network', 'Cookies')
+      if (fs.existsSync(sessionCookiePath)) {
+        const cookieStats = fs.statSync(sessionCookiePath)
+        if (cookieStats.size > 0) {
+          log.info('AccountManager', 'checkLocalCredentials: OK session-cookie ' + platform + ':' + accountId + ' size=' + cookieStats.size + 'B (fallback from missing encrypted file)')
+          return true
+        }
+        log.info('AccountManager', 'checkLocalCredentials: session cookie file empty for ' + platform + ':' + accountId)
+      }
+    } catch (e) {
+      log.warn('AccountManager', 'checkLocalCredentials: session cookie check error for ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    }
+  }
+
+  log.info('AccountManager', 'checkLocalCredentials: NO credential for ' + platform + ':' + accountId + ' (no encrypted file, no session cookie file)' + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
+  return false
 }
 
 /**

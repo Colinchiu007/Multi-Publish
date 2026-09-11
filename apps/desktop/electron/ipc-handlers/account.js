@@ -149,17 +149,27 @@ function registerHandlers(ipcMain, deps) {
     // checkLocalCredentials 依赖主进程装配的 ownerSubjectProvider；缺方法或抛错时
     // fail-closed 为 has_cookies=false，不阻断账号列表。
     let hasCred = false
+    let credCheckReason = ''
     if (safeAccount.platform && safeAccount.id && typeof AccountManager.checkLocalCredentials === 'function') {
       try {
         hasCred = Boolean(AccountManager.checkLocalCredentials(safeAccount.platform, safeAccount.id))
-      } catch (_) { hasCred = false }
+        if (!hasCred) credCheckReason = 'no-credential-file-or-load-failed'
+      } catch (_) { hasCred = false; credCheckReason = 'checkLocalCredentials-threw' }
+    } else {
+      credCheckReason = AccountManager.checkLocalCredentials ? 'missing-platform-or-id' : 'checkLocalCredentials-not-function'
     }
+    const derivedStatus = !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'))
+    const backendStatus = safeAccount.status || 'absent'
+    ipcLog('info', 'account:status-derive',
+      'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus + ' derivedStatus=' + derivedStatus +
+      (credCheckReason ? ' reason=' + credCheckReason : ''))
+
     const publicAccount = {
       ...safeAccount,
       has_cookies: hasCred,
       cookie_count: hasCred ? 1 : 0,
       account_name: safeAccount.account_name || safeAccount.name || '',
-      status: !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active')),
+      status: derivedStatus,
       is_default: Boolean(safeAccount.is_default) || String(defaultId) === String(safeAccount.id),
     }
     if (raw.proxy !== undefined) {
@@ -191,7 +201,9 @@ function registerHandlers(ipcMain, deps) {
       // 通过 AccountManager.listAccounts() 获取账号列表（内含孤儿凭据清理）
       const accounts = await AccountManager.listAccounts()
       const data = Array.isArray(accounts) ? accounts.map(toPublicAccount) : []
-      ipcLog('info', 'accounts:list', 'ok', `count=${data.length} platforms=[${data.map((a) => a.platform).filter((v, i, arr) => arr.indexOf(v) === i).join(',')}] 耗时=${Date.now() - startedAt}ms`)
+      const expiredCount = data.filter(a => a.status === 'expired').length
+      const activeCount = data.filter(a => a.status === 'active' || a.status === 'online').length
+      ipcLog('info', 'accounts:list', 'ok', `count=${data.length} active=${activeCount} expired=${expiredCount} platforms=[${data.map((a) => a.platform).filter((v, i, arr) => arr.indexOf(v) === i).join(',')}] 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data }
     } catch (e) {
       ipcLog('error', 'accounts:list', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)
@@ -405,6 +417,16 @@ function registerHandlers(ipcMain, deps) {
         ? candidates.filter((a) => requestedIds.includes(a.id))
         : candidates
       const results = []
+      // 进度广播：每检测完一个账号向渲染层推送进度，驱动按钮上的
+      // 阶段性反馈（「检测中 X/N」），消除长时间无响应的体验问题。
+      const broadcastProgress = (checkedIndex, total, platform, accountId) => {
+        try {
+          const win = BrowserWindow.getAllWindows()[0]
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('accounts:batch-check-progress', { checked: checkedIndex, total, platform, accountId })
+          }
+        } catch (_) { /* 广播失败不阻断检测 */ }
+      }
       for (const account of targets) {
         const platform = account.platform
         const accountId = account.id
@@ -426,6 +448,7 @@ function registerHandlers(ipcMain, deps) {
             error: e instanceof Error ? e.message : String(e),
           })
         }
+        broadcastProgress(results.length, targets.length, platform, accountId)
       }
       const data = { results, checkedAt: new Date().toISOString() }
       ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} 耗时=${Date.now() - startedAt}ms`)

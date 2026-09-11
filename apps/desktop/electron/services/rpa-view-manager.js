@@ -18,6 +18,9 @@ const { supportsApi, publishViaApi, apiRouter } = require('@multi-publish/api-pu
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 
+// 桥接 api-publish-engine 的 CancelToken（蚁小二复用：阶段级可恢复取消）
+const { CancelToken } = require('@multi-publish/api-publish-engine/src/base-adapter')
+
 const helpersMixin = require('./rpa-view-helpers')
 const sessionMixin = require('./rpa-view-session')
 const platformsMixin = require('./rpa-view-platforms')
@@ -26,6 +29,8 @@ class RpaViewManager {
   constructor() {
     this.mainWindow = null; this.windows = {}; this._nextId = 1
     this._progressCallback = null; this._responseListeners = {}
+    // 每个发布会话配一个独立的 CancelToken（蚁小二模式：阶段级可恢复取消）
+    this._activeTokens = {}
   }
   setMainWindow(win) { this.mainWindow = win }
   onProgress(cb) { this._progressCallback = cb }
@@ -72,6 +77,9 @@ class RpaViewManager {
     // RPA path (existing)
     const key = this._windowKey(platform, article&&article.accountId)
     const partition = 'persist:rpa-'+key
+    // 为本次 RPA 会话建立独立的 CancelToken
+    const token = new CancelToken()
+    this._activeTokens[key] = token
     this._emitProgress(platform,'starting browser...',0)
     const win = this._createWindow(partition)
     this.windows[key] = win
@@ -81,21 +89,39 @@ class RpaViewManager {
       if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies,platform); this._emitProgress(platform,'cookies restored',2) }
       await this._restoreAuthPartitionCookies(win, platform, article&&article.accountId)
       await this._restoreBrowserStorage(win, platform, authData)
+      // 每个操作前检查取消令牌
+      token.throwIfCancelled()
       const mn = '_publish_'+platform
-      if (typeof this[mn]==='function') return await Promise.race([this[mn](win,article),new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})])
-      const cfg = this._getPlatformConfig(platform)
-      return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})])
-    } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
+      const publishFn = typeof this[mn]==='function'
+        ? this[mn](win,article)
+        : this._publish_generic(win,article,platform,this._getPlatformConfig(platform))
+      const result = await Promise.race([
+        publishFn,
+        new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})
+      ])
+      if (token.isCancelled) { return { success: false, error: 'Cancelled', code: -999, platform: platform } }
+      return result
+    } catch(e) {
+      if (e && e.isCanceled) { log.info('RpaView','publish '+platform+': cancelled'); return { success:false, error:'Cancelled', code:-999, platform:platform } }
+      log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform }
+    }
     // eslint-disable-next-line no-unused-vars
-    finally { try { removeProxyAuthHandler() } catch (e) { /* ignore */ }; try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }
+    finally {
+      try { removeProxyAuthHandler() } catch (e) { /* ignore */ }; try { win.destroy() } catch (e) { /* ignore */ }
+      delete this.windows[key]; delete this._activeTokens[key]
+    }
   }
 
   cancel(platform, accountId) {
     const key = this._windowKey(platform, accountId)
     const win = this.windows[key]
+    // 优先用 CancelToken 信号取消（让 publish() 的 throwIfCancelled / isCancelled 生效）
+    const token = this._activeTokens && this._activeTokens[key]
+    if (token) { token.cancel(); return true }
     if (!win) return false
     try { win.destroy() } catch (e) { /* ignore */ }
     delete this.windows[key]
+    delete this._activeTokens[key]
     return true
   }
 
@@ -103,7 +129,8 @@ class RpaViewManager {
     const ks = Object.keys(this.windows)
     // eslint-disable-next-line no-unused-vars
     for (let ki=0;ki<ks.length;ki++) { try { this.windows[ks[ki]].destroy() } catch (e) { /* ignore */ } }
-    this.windows = {}; log.info('RpaView','cleaned up')
+    this.windows = {}; this._activeTokens = {}
+    log.info('RpaView','cleaned up')
   }
 }
 

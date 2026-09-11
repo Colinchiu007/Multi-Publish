@@ -41,6 +41,59 @@ describe('account-manager — userData fallback', () => {
   })
 })
 
+describe('checkLocalCredentials session 分区 Cookie 备选检测', () => {
+  it('加密凭据缺失但 session 分区 Cookie 文件存在且非空 → 视为有效', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+    // 模拟 persist:account-{accountId} 分区下的 Network/Cookies 文件存在
+    const fs = require('fs')
+    const existsSync = vi.spyOn(fs, 'existsSync').mockImplementation((p) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.includes('Partitions') && normalized.endsWith('Network/Cookies')
+    })
+    const statSync = vi.spyOn(fs, 'statSync').mockReturnValue({ size: 20480 })
+
+    try {
+      const result = accountManager.checkLocalCredentials('douyin', 'acc-1')
+      expect(result).toBe(true)
+    } finally {
+      existsSync.mockRestore()
+      statSync.mockRestore()
+    }
+  })
+
+  it('加密凭据缺失 + session Cookie 文件为空 → 视为无效', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+    const fs = require('fs')
+    const existsSync = vi.spyOn(fs, 'existsSync').mockImplementation((p) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.includes('Partitions') && normalized.endsWith('Network/Cookies')
+    })
+    const statSync = vi.spyOn(fs, 'statSync').mockReturnValue({ size: 0 })
+
+    try {
+      const result = accountManager.checkLocalCredentials('douyin', 'acc-2')
+      expect(result).toBe(false)
+    } finally {
+      existsSync.mockRestore()
+      statSync.mockRestore()
+    }
+  })
+
+  it('加密凭据缺失 + 无 session 分区 Cookie 文件 → 视为无效', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+    // 默认：fs.existsSync 返回 false（测试 tmp 目录下无 Partitions）
+
+    const result = accountManager.checkLocalCredentials('douyin', 'acc-3')
+    expect(result).toBe(false)
+  })
+})
+
 describe('account-manager — Logto owner 隔离', () => {
   beforeEach(() => {
     global.__enableElectronMock()
@@ -751,6 +804,38 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
   })
 
+  it('公众号登录页与后台同域：URL 含 login 特征必须判失效（回归：域名兜底先于 login 检查导致恒真）', async () => {
+    const playwrightPath = require.resolve('../services/playwright-manager')
+    const actualPlaywrightManager = require(playwrightPath)
+    const page = {
+      context: () => ({ addCookies: vi.fn() }),
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockRejectedValue(new Error('Timeout')),
+      close: vi.fn().mockResolvedValue(undefined),
+      // 公众号登出后的真实重定向：登录页与后台同 host（mp.weixin.qq.com）
+      url: vi.fn().mockReturnValue('https://mp.weixin.qq.com/cgi-bin/loginpage?t=login&lang=zh_CN'),
+    }
+    const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
+    global.__registerMock(playwrightPath, { getContext })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'wechat_mp',
+        cookies: [{ name: 'slave_sid', value: 'expired-24h', domain: '.weixin.qq.com' }],
+        localStorage: { token: 'stale' },
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      await expect(accountManager.checkLoginStatus('wechat_mp', 'acc-wx'))
+        .resolves.toMatchObject({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    } finally {
+      global.__registerMock(playwrightPath, actualPlaywrightManager)
+    }
+  })
+
   it('selector 超时 + URL 仍在 login 特征中 → 判定过期', async () => {
     const playwrightPath = require.resolve('../services/playwright-manager')
     const actualPlaywrightManager = require(playwrightPath)
@@ -779,5 +864,31 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
     }
+  })
+})
+
+describe('checkLoginStatus 渲染崩溃平台降级', () => {
+  it('tencent_video 跳过浏览器检测，走本地凭证检查（E2E 回归：视频号页面崩溃带崩整个应用）', async () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'tencent_video',
+      cookies: [],
+      localStorage: { token: 'valid' },
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+    const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv')
+    expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' })
+  })
+
+  it('tencent_video 无本地凭证时返回 NO_CREDENTIAL', async () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+
+    const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-none')
+    expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' })
   })
 })

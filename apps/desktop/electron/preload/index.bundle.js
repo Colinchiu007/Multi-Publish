@@ -289,6 +289,11 @@ var require_account = __commonJS({
           ipcRenderer2.on("account:status-changed", h);
           return () => ipcRenderer2.removeListener("account:status-changed", h);
         },
+        onAccountsBatchCheckProgress: (cb) => {
+          const h = (_, d) => cb(d);
+          ipcRenderer2.on("accounts:batch-check-progress", h);
+          return () => ipcRenderer2.removeListener("accounts:batch-check-progress", h);
+        },
         // OAuth 认证 API
         oauthStart: (opts) => ipcRenderer2.invoke("oauth:start", opts),
         oauthClose: () => ipcRenderer2.invoke("oauth:close"),
@@ -815,6 +820,7 @@ var require_page_manager = __commonJS({
           getActiveTab: () => ipcRenderer2.invoke("page-manager:get-active-tab"),
           getHomeTab: () => ipcRenderer2.invoke("page-manager:get-home-tab"),
           saveCookies: (tabId) => ipcRenderer2.invoke("page-manager:save-cookies", tabId),
+          saveAccountTabCredentials: (tabId) => ipcRenderer2.invoke("page-manager:save-account-tab-credentials", tabId),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
@@ -918,6 +924,19 @@ var require_aggregation = __commonJS({
       };
     }
     module2.exports = { createAggregationApi: createAggregationApi2 };
+  }
+});
+
+// electron/preload/hot-topics.js
+var require_hot_topics = __commonJS({
+  "electron/preload/hot-topics.js"(exports2, module2) {
+    function createHotTopicsApi2(ipcRenderer2) {
+      return {
+        hotTopicsFetch: (payload) => ipcRenderer2.invoke("hot-topics:fetch", payload),
+        hotTopicsGetCache: () => ipcRenderer2.invoke("hot-topics:get-cache")
+      };
+    }
+    module2.exports = { createHotTopicsApi: createHotTopicsApi2 };
   }
 });
 
@@ -1219,6 +1238,7 @@ var { createPageManagerApi } = require_page_manager();
 var { createVideoCloneApi } = require_video_clone();
 var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
+var { createHotTopicsApi } = require_hot_topics();
 var { createAutoPipelineApi } = require_auto_pipeline();
 var { createKnowledgeLibraryApi } = require_knowledge_library();
 var {
@@ -1259,6 +1279,7 @@ var fullApi = {
   ...createVideoCloneApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
+  ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）

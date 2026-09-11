@@ -85,7 +85,7 @@ const ACCOUNT_METHODS = [
   'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
   'authOpenQrCodeLogin', 'authQrCodeClose',
   'onQrCodeOpened', 'onQrCodeDetected', 'onQrCodeCompleted', 'onQrCodeClosed',
-    'onAccountStatusChanged',
+    'onAccountStatusChanged', 'onAccountsBatchCheckProgress',
   'oauthStart', 'oauthClose', 'oauthGetConfigs',
   'onOAuthOpened', 'onOAuthCompleted', 'onOAuthFailed', 'onOAuthClosed',
   'storeAddAccount', 'storeGetAccount', 'storeListAccounts', 'storeDeleteAccount',
@@ -196,10 +196,10 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(111)
   })
 
-  it('account 模块应导出 44 个方法', () => {
+  it('account 模块应导出 45 个方法', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(44)
+    expect(Object.keys(r).length).toBe(45)
   })
 
   it('system 模块应导出 149 个方法', () => {
@@ -212,7 +212,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('合并后 api 总键数应为 311（含 videoClone/filmEngineering 命名空间与保存配置 4 方法）', () => {
-    expect(Object.keys(api).length).toBe(311)
+    expect(Object.keys(api).length).toBe(312)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -225,8 +225,8 @@ describe('preload 子模块方法数', () => {
     ]))
   })
 
-  it('ACCOUNT_METHODS 常量长度应为 44', () => {
-    expect(ACCOUNT_METHODS.length).toBe(44)
+  it('ACCOUNT_METHODS 常量长度应为 45', () => {
+    expect(ACCOUNT_METHODS.length).toBe(45)
   })
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {

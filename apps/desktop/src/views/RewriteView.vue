@@ -132,8 +132,8 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { aiRewrite, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
@@ -142,6 +142,7 @@ import { useLoginGate } from '@/composables/useLoginGate'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 const { notifySuccess, notifyError } = useNotify()
 const { ensureLogin } = useLoginGate()
@@ -172,6 +173,17 @@ const rewriteModes = [
   { value: 'expand', label: t('rewritePage.modeExpand') },
   { value: 'create', label: t('rewritePage.modeCreate') },
 ]
+
+// ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
+onMounted(() => {
+  const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
+  if (!topic) return
+  rewriteMode.value = 'create'
+  // 选题长度 <20 字符时补引导语（与 canStartRewrite 的 ≥20 校验对齐，并给 AI 明确指令）
+  content.value = topic.length >= 20 ? topic : t('hotTopics.topicPrefix') + '\n' + topic
+  // 等登录门禁与 DOM 就绪后自动触发（nextTick 保证 textarea 绑定完成）
+  Promise.resolve().then(() => startRewrite())
+})
 
 // ── 计算 ──
 const canStartRewrite = computed(() => {

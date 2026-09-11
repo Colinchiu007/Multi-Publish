@@ -7,6 +7,10 @@ const REGISTRY = {
   wechat_mp: require("./adapters/wechat_mp"),
   tencent_video: require("./adapters/shipinhao"),
   weibo: require("./adapters/weibo"),
+  // New platform adapters (蚁小二逆向工程复用)
+  xiaohongshu: require("./adapters/xiaohongshu"),
+  toutiao: require("./adapters/toutiao"),
+  bilibili: require("./adapters/bilibili"),
   // API-mode adapters (no publish method)
   youtube: require("./adapters/youtube"),
   tiktok: require("./adapters/tiktok"),
