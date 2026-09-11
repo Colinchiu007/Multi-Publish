@@ -1,3 +1,20 @@
+## [未发布] feat(desktop): 热门选题一键生成视频（2026-09-12）
+
+### 新增
+- 热门选题页每条选题新增【生成视频】按钮：点击后自动执行「改写引擎生成文案（mode=create，<20 字补引导语）→ 按用户已保存默认选项（story2video.lastOptions.v1）启动故事讲述（story2video-compose）流水线」完整编排。
+- 一键生成视频进度弹窗：复用视频创作页同款 UiModal(variant=progress) + StageProgress UI，stages = [文案改写(rewrite_copy), 文案拆分, 场景上下文, 提示词优化, AI视频场景选择, 素材生成, 视频合成, 发布] 共 8 阶段，进度百分比/耗时/阶段状态实时更新。
+- 进度双通道跟踪：onPipelineUpdate 实时推送 + 3s 轮询 pipelineGetRunContext 兜底，runId 快照守卫防竞态；完成自动提取 videoPath 跳转 /create/result。
+- 改写产物自动存草稿箱（source='hot-topics'），草稿保存失败不阻断视频生成。
+- 失败重试：改写失败从改写重试；流水线启动失败跳过改写直接重启流水线（产物缓存）。取消语义：改写阶段取消=中止编排；流水线运行取消=pipelineCancel；运行中关闭弹窗=后台运行（历史记录可查）。
+- 新增共享纯函数模块 src/story2video/s2v-config-snapshot.js：从 lastOptions 快照构建 story2videoTextConfig（与 CreateView.buildStory2VideoTextConfig 同契约，快照缺失/非法回退内置默认值）。
+- 新增 stage 名 rewrite_copy 注册于 pipeline-labels.js STAGES + locales pipelines.stages（zh: 文案改写 / en: Rewrite Copy）。
+
+### 验证
+- HotTopics.test.js 11 passed（含 4 个新用例：按钮渲染/完整编排流/改写失败/流水线失败重试不重复改写）。
+- publisher.test.js 236 + story2video/video-creation 136 + CreateView.test.js 277 全量回归通过。
+- locale-sync --pair-base/--cjk/--keys 全 PASS（CJK 基线仅行号位移重锚，无新增硬编码）。
+- vite build 通过。
+
 ## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
 
 ### 修复
