@@ -10,6 +10,7 @@ const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
 const playwrightManager = require('../services/playwright-manager')
+const { tryHttpLoginCheck } = require('./http-login-checker')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
@@ -438,10 +439,8 @@ async function checkLoginStatus (platform, accountId) {
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
   if (!loginUrl) return { valid: false, code: 'CHECK_LOGIN_UNSUPPORTED_PLATFORM' }
 
-  // 渲染崩溃保护：部分平台页面（视频号 channels.weixin.qq.com 等）在隐藏
-  // sandbox 检测窗口中触发原生渲染崩溃（crashpad not connected），导致整个
-  // Electron 进程退出。这些平台降级为本地凭证存在性检查（与账号列表的
-  // checkLocalCredentials 语义一致），不打开浏览器窗口。
+  // 渲染崩溃保护：视频号等平台在隐藏 sandbox 窗口中触发原生渲染崩溃
+  // （crashpad not connected）导致整个应用退出，降级为本地凭证检查。
   const RENDER_CRASH_PRONE_PLATFORMS = new Set(['tencent_video'])
   if (RENDER_CRASH_PRONE_PLATFORMS.has(platform)) {
     const hasLocal = checkLocalCredentials(platform, accountId)
@@ -462,15 +461,17 @@ async function checkLoginStatus (platform, accountId) {
       return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
 
-    // 快速路径：已知「Cookie 必需」的平台在无 Cookie 时跳过浏览器窗口检测。
-    // 头条（toutiao）E2E 实测：无 Cookie 仍走浏览器检测耗时 19.2s，全部
-    // 浪费在加载注定未登录的页面上。这些平台登录态完全由 Cookie 维持，
-    // localStorage 单独不足以登录。知乎等 token 型平台不走此路径。
+    // 快速路径：头条/百家号登录态完全由 Cookie 维持，无 Cookie 时跳过
+    // 浏览器窗口检测（E2E 实测 toutiao 无 Cookie 浏览器检测耗时 19.2s）。
     const COOKIE_REQUIRED_PLATFORMS = new Set(['toutiao', 'baijiahao'])
     if (cookies.length === 0 && COOKIE_REQUIRED_PLATFORMS.has(platform)) {
       log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + Object.keys(localStorageData).length)
       return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
     }
+
+    // HTTP API 快速路径（参考蚁小二）：Cookie 直接调平台 API，<1s/平台。
+    const httpResult = await tryHttpLoginCheck(platform, cookies, accountId)
+    if (httpResult) return httpResult
 
     log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 

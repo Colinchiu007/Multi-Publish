@@ -5016,6 +5016,7 @@ Vue 展示组件
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
 | v2.3.65 | 2026-09-11 | E2E 真实环境修复：视频号（tencent_video）等渲染崩溃平台降级本地凭证检查——隐藏 sandbox 检测窗口加载 channels.weixin.qq.com 触发原生渲染崩溃导致整个应用退出，降级后一键检测不再崩溃（E2E 8 步全通过） |
 | v2.3.66 | 2026-09-11 | 一键检测体验优化：按钮实时显示「检测中 X/N：平台名」阶段性进度（主进程逐账号广播 accounts:batch-check-progress）+ 检测耗时 27.2s→8.3s（-70%）：goto 超时 15s→8s、SPA 固定等待 2s→500ms、选择器超时 10s→3s、头条/百家号无 Cookie 快速路径跳过注定未登录的浏览器检测 |
+| v2.3.67 | 2026-09-11 | HTTP API 登录检测（复用蚁小二逆向端点）：新增 http-login-checker.js，抖音（creator.douyin.com/aweme/v1/creator/pc/user/info/）和头条（mp.toutiao.com/mp/agw/media/get_media_info）用 Cookie 直接调平台 API 判断登录态，不打开浏览器窗口，<1s/平台；网络错误自动降级浏览器检测。checkLoginStatus 接入 tryHttpLoginCheck 快速路径 |
 | v2.3.64 | 2026-09-11 | 账号管理页新增「一键检测」：批量检测全部账号登录状态（复用 accounts:batch-check-login IPC），检测期间全部卡片 verifying 态，完成后按结果更新本地 status/checkedExpiredIds 并汇总提示正常/失效数量，+4 回归测试。同批：公众号登录页同域误判修复（login URL 检查先于域名兜底）、账号浏览器标签「保存账号」按钮 + save-account-tab-credentials IPC、自动保存全局成功提示（autoSaved/autoSavedWithPlatform）、首页失效横幅订阅 auth:completed/account:status-changed 自动刷新 |
 | v2.3.63 | 2026-09-11 | 修复「已登录却提示失效」：checkLocalCredentials 增加 Electron session 分区 Cookie（persist:account-{accountId}）备选凭证检测，加密凭据文件缺失但浏览器登录态仍存时不再误报 expired + 登录状态判定全链路细粒度诊断日志 |
 | v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
