@@ -1,3 +1,25 @@
+## [未发布] feat(desktop): 「更多」菜单新增「热门选题」模块（2026-09-11）
+
+### 新增
+- 左侧「更多」菜单新增「热门选题」入口（/hot-topics），聚合知乎/头条/腾讯/B站/抖音/百度/tophub(微博) 7 渠道热搜。
+- HotTopicsService（主进程）：并发抓取 + 渠道内限流（5-30 分钟）+ 连续失败熔断（3 次转 30 分钟冷却）+ 10 分钟 SQLite 缓存 + 跨渠道去重（mergedFrom）。
+- 10 类分类体系（综合/社会/财经/科技/娱乐/体育/情感/教育/健康/国际）：渠道原生分类映射优先 + 关键词规则兜底 + 综合兜底。
+- 列表页：分类 chips + 渠道下拉筛选 + 勾选/全选 + 单条与批量创作文案 + 一键发布 + 失败渠道警告条 + 空态/加载态。
+- 创作文案：跳转 /rewrite?topic=xxx，改写页填入选题、模式设为选题创作、自动开始改写（短于 20 字自动补引导语）。
+- 一键发布：弹 PublishDestinationModal 选图文/视频，批量自动改写（进度条+单条状态+失败重试+取消保留），逐条存草稿后跳发布页。
+- 定时刷新：30 分钟自动刷新（document.hidden 暂停），10 分钟内重复进入走缓存。
+
+### 防反爬
+- 统一桌面 Chrome UA；抖音渠道强制 Referer 头（实测缺失返回空 body）；10s 超时 AbortController；失败不自动重试（熔断计数）。
+- 微博经 tophub.today 微博热搜节点页间接获取（直连 432/passport 反爬，放弃直连）；RSSHub 公共实例被 Cloudflare 拦截，不接入。
+
+### 验证
+- hot-topics-service.test.js 20 passed（渠道解析 fixture/分类/去重/缓存 fail-closed/限流熔断）。
+- HotTopics.test.js 6 passed（渲染/筛选/勾选/跳转/批量发布流）。
+- RewriteView.test.js 16 passed（含 3 个新 topic query 用例）。
+- 真实渠道冒烟：7/7 渠道成功，137 条选题（各渠道 20 条）。
+- locale-sync --keys PASS（870 keys）；vite build 通过；eslint 0 error。
+
 ## [未发布] fix(desktop): 修复采集页加载失败（2026-09-11）
 
 ### 修复

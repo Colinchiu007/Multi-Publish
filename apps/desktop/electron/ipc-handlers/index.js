@@ -42,6 +42,8 @@ function registerAllHandlers(ipcMain, deps) {
   // 影视工程（film-engineering）流水线
   require('./film-engineering')(ipcMain, deps)
   require('./aggregation')(ipcMain, deps)
+  // 热门选题聚合（多渠道热搜）
+  require('./hot-topics')(ipcMain, deps)
   require('./logs')(ipcMain, deps)
   // Backlot 项目库
   require('./project')(ipcMain, deps)

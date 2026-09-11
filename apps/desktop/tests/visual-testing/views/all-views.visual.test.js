@@ -16,6 +16,7 @@ function routeView(name, route, waitFor, checkName = '页面主标题', expected
 }
 
 const viewTests = [
+  routeView('hot-topics', '/hot-topics', '.hot-topics-page .page-title:has-text("热门选题")'),
   routeView('prompt-eval', '/prompt-eval', '.prompt-eval-page h1:has-text("提示词优化效果评估")'),
   routeView('home-default', '/', '.yixiaoer-home .yixiaoer-home-welcome'),
   routeView('comments-list', '/comments', '.cohere-main .page-title:has-text("评论管理")'),

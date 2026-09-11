@@ -4,6 +4,13 @@ import { nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import i18n from '@/i18n'
 
+// useRoute() 需要 router 环境；测试统一 mock vue-router（topic 场景由各用例覆盖 query）
+const mockRouteQuery = { value: {} }
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  useRoute: () => ({ query: mockRouteQuery.value }),
+}))
+
 vi.mock('@/api/publisher', () => ({
   aiRewrite: vi.fn().mockResolvedValue({
     code: 0,
@@ -74,6 +81,7 @@ function factory() {
 describe('RewriteView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRouteQuery.value = {}
   })
 
   it('renders the page title', () => {
@@ -220,5 +228,50 @@ describe('RewriteView', () => {
       'adopted',
       expect.arrayContaining([expect.objectContaining({ table: 'viral_library', id: 'v1' })])
     )
+  })
+})
+
+describe('RewriteView — hot topics topic query', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+  })
+
+  it('fills content with topic and auto-starts rewrite in create mode (>=20 chars)', async () => {
+    mockRouteQuery.value = { topic: '这是一个足够长的热门选题标题超过二十个字用于测试自动改写触发场景' }
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    expect(textarea.element.value).toContain('热门选题标题')
+    // 自动触发改写
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.mode).toBe('create')
+  })
+
+  it('prepends guide prefix when topic is shorter than 20 chars', async () => {
+    mockRouteQuery.value = { topic: '短选题' }
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    expect(textarea.element.value).toContain('请以下面这个选题为主题')
+    expect(textarea.element.value).toContain('短选题')
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing when topic query is missing', async () => {
+    mockRouteQuery.value = {}
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    factory()
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).not.toHaveBeenCalled()
   })
 })

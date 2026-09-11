@@ -2415,4 +2415,46 @@ knowledgeBase: {
     close: 'Close',
   },
 
+  // ── Hot topics page ──
+  hotTopics: {
+    menuLabel: 'Hot Topics',
+    pageTitle: 'Hot Topics',
+    pageDesc: 'Aggregate trending topics from multiple channels, create copy or publish in batch',
+    refresh: 'Refresh',
+    refreshing: 'Refreshing…',
+    lastRefresh: (ctx) => 'Last refresh ' + ctx.named('time'),
+    categoryAll: 'All',
+    categories: {
+      general: 'General', society: 'Society', finance: 'Finance', tech: 'Tech',
+      entertainment: 'Entertainment', sports: 'Sports', emotion: 'Emotion',
+      education: 'Education', health: 'Health', international: 'International',
+    },
+    channelAll: 'All channels',
+    channels: {
+      zhihu: 'Zhihu', toutiao: 'Toutiao', tencent: 'Tencent News', bilibili: 'Bilibili',
+      douyin: 'Douyin', baidu: 'Baidu', tophub: 'Weibo (tophub)',
+    },
+    selectAll: 'Select all',
+    deselectAll: 'Deselect all',
+    selectedCount: (ctx) => ctx.named('count') + ' selected',
+    createCopy: 'Create copy',
+    publishBtn: 'Publish',
+    toPublish: 'Go publish',
+    tenThousand: '0k+', // 万缩写（英文按 10k+ 语义展示）
+    emptyTitle: 'No topics yet',
+    emptyDesc: 'Click refresh to fetch the latest topics, or wait for auto refresh',
+    emptyAction: 'Refresh now',
+    partialFail: (ctx) => 'Some channels failed: ' + ctx.named('channels'),
+    noSelection: 'Please select at least one topic first',
+    batchLimit: 'Batch limit is 20 topics, please reduce your selection',
+    topicPrefix: 'Please create self-media copy based on the following topic:',
+    publishProgress: (ctx) => 'Rewriting ' + ctx.named('done') + '/' + ctx.named('total'),
+    publishCancelled: (ctx) => 'Cancelled, ' + ctx.named('count') + ' drafts kept',
+    publishDone: (ctx) => 'Done, ' + ctx.named('count') + ' drafts created',
+    publishRetry: 'Retry',
+    publishCancel: 'Cancel',
+    channelUnavailable: 'Unavailable',
+    loadFailed: 'Failed to fetch topics, please retry later',
+  },
+
 }
