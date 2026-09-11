@@ -475,8 +475,10 @@ async function checkLoginStatus (platform, accountId) {
         await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
       }
 
-      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速
-      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速。
+      // 15s→8s：登录检测只需要重定向链完成后的最终 URL 和基本 DOM，
+      // 不需要完整加载页面资源。B 站等重定向链长的平台 8s 足够。
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 8000 })
 
       // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）。
       // 2s→500ms：domcontentloaded 后 SPA 框架通常已挂载，选择器等待本身
