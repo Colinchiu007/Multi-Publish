@@ -438,6 +438,19 @@ async function checkLoginStatus (platform, accountId) {
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
   if (!loginUrl) return { valid: false, code: 'CHECK_LOGIN_UNSUPPORTED_PLATFORM' }
 
+  // 渲染崩溃保护：部分平台页面（视频号 channels.weixin.qq.com 等）在隐藏
+  // sandbox 检测窗口中触发原生渲染崩溃（crashpad not connected），导致整个
+  // Electron 进程退出。这些平台降级为本地凭证存在性检查（与账号列表的
+  // checkLocalCredentials 语义一致），不打开浏览器窗口。
+  const RENDER_CRASH_PRONE_PLATFORMS = new Set(['tencent_video'])
+  if (RENDER_CRASH_PRONE_PLATFORMS.has(platform)) {
+    const hasLocal = checkLocalCredentials(platform, accountId)
+    log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' local-credential-only valid=' + hasLocal)
+    return hasLocal
+      ? { valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' }
+      : { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
+  }
+
   try {
     const credentials = loadSavedCredentials(accountId, platform)
     const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
