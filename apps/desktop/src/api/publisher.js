@@ -14,6 +14,8 @@ export function onProgress(callback) { return bridgeOn("Progress", callback) }
 // ─── AI 写作 API ──────────────────────────
 export async function modelProviderIsConfigured(category) { return invokeWithFallback("modelProviderIsConfigured", { code: -1, data: false }, category) }
 
+export async function modelProviderGetDefault(category) { return invokeWithFallback("modelProviderGetDefault", { code: -1, data: null }, category) }
+
 export async function aiIsConfigured() { return invokeWithFallback("aiIsConfigured", { code: -1, data: false }) }
 
 export async function aiGenerateTitles(topic) { return invokeWithFallback("aiGenerateTitles", { code: -1, data: [] }, topic) }
@@ -21,6 +23,9 @@ export async function aiGenerateTitles(topic) { return invokeWithFallback("aiGen
 export async function aiEnhanceContent(content, style) { return invokeWithFallback("aiEnhanceContent", { code: -1, data: "" }, content, style) }
 
 export async function aiGenerateSummary(content) { return invokeWithFallback("aiGenerateSummary", { code: -1, data: "" }, content) }
+
+// AI 统一生成入口（ai:generate，type: llm/tts/image/video/audio）— CreateView 快速写稿等使用
+export async function aiGenerate(type, provider, params) { return invokeWithFallback("aiGenerate", { code: -1, message: 'electronAPI not available' }, type, provider, params) }
 
 // ─── 改写引擎 API（rewrite-engine）────────────────────
 export async function aiRewrite(params) { return invokeWithFallback("aiRewrite", { code: -1, data: null }, params) }

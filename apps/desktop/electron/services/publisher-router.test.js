@@ -21,6 +21,8 @@ vi.mock("./media-tool-paths", () => ({
 }));
 
 const { PublisherRouter, ROUTE_TABLE } = require("../services/publisher-router");
+// P0-3 回归：直接测 resolvePlatformArticle/buildPublishArticle 的平台特有字段透传（不经过 route）
+const routerSrc = require("../services/publisher-router");
 
 describe("ApiPublisher（baijiahao api 模式）", () => {
   const store = {
@@ -128,6 +130,39 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
       probeVideo: async () => ({ width: 720, height: 1280, duration: 1 }),
     })
     await expect(p.publish(baseTask)).rejects.toThrow(/竖版/)
+  })
+
+  // P0-3：平台特有字段透传回归测试（bilibili tid/copyright、youtube categoryId/privacy、
+  // tiktok privacyLevel、baijiahao original/location）——验证 resolvePlatformArticle →
+  // buildPublishArticle → taskData 三层链路不断链
+  it("bilibili platformOverrides 的 category/copyright 透传（buildPublishArticle 层）", () => {
+    const article = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { bilibili: { category: 21, copyright: 1 } } } }, "bilibili")
+    expect(article.category).toBe(21)
+    expect(article.copyright).toBe(1)
+  })
+
+  it("youtube categoryId/privacy、tiktok privacyLevel、baijiahao original/location 透传（buildPublishArticle 层）", () => {
+    const yt = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "10", privacy: "unlisted" } } } }, "youtube")
+    expect(yt.categoryId).toBe("10")
+    expect(yt.privacy).toBe("unlisted")
+
+    const tt = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { tiktok: { privacyLevel: "FRIENDS" } } } }, "tiktok")
+    expect(tt.privacyLevel).toBe("FRIENDS")
+
+    const loc = { uid: "poi-1", name: "北京·三里屯", city_name: "北京" }
+    const bjh = routerSrc.buildPublishArticle({ article: { ...baseArticle, original: true, location: loc } }, "baijiahao")
+    expect(bjh.original).toBe(true)
+    expect(bjh.location).toEqual(loc)
+  })
+
+  it("非法平台特有字段被过滤（category 非正整数/privacy 非法枚举不透传）", () => {
+    const a1 = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { bilibili: { category: -1, copyright: 9 } } } }, "bilibili")
+    expect(a1.category).toBeUndefined()
+    expect(a1.copyright).toBeUndefined()
+
+    const a2 = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "abc", privacy: "hack" } } } }, "youtube")
+    expect(a2.categoryId).toBeUndefined()
+    expect(a2.privacy).toBeUndefined()
   })
 
   it("缺少 cookie 时抛错", async () => {

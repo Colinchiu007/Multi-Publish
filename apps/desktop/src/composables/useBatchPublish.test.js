@@ -614,6 +614,8 @@ describe('useBatchPublish — composable setup', () => {
       tags: [],
       topics: [],
       mentions: [],
+      // P0-2：批量 payload 含 AI 声明（fail-safe 默认 true）
+      aiGenerated: true,
     }])
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
     expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()

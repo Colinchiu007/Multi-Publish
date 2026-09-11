@@ -128,6 +128,32 @@ function resolvePlatformArticle (task, platform) {
   } else if (platform === 'wechat_mp') {
     resolved.massSend = resolveBooleanOption(override, base, 'massSend')
   }
+  // P0-3：平台特有字段透传（参考蚁小二统一 publishData 超集 + 每平台按需消费的架构）。
+  // 字段从 platformOverrides[platform] 或文章基础字段解析，adapter 侧按平台消费。
+  if (platform === 'bilibili') {
+    // B站分区 tid + 版权声明（1=自制 2=转载）；蚁小二映射：createType original→1, forward→2
+    const category = Number(override.category ?? base.category)
+    if (Number.isInteger(category) && category > 0) resolved.category = category
+    const copyright = Number(override.copyright ?? base.copyright)
+    if (copyright === 1 || copyright === 2) resolved.copyright = copyright
+  } else if (platform === 'youtube') {
+    // YouTube 分类 categoryId + 可见性 privacy（public/unlisted/private）
+    const categoryId = String(override.categoryId ?? base.categoryId ?? '').trim()
+    if (/^\d{1,2}$/.test(categoryId)) resolved.categoryId = categoryId
+    const privacy = String(override.privacy ?? base.privacy ?? '').trim()
+    if (privacy === 'public' || privacy === 'unlisted' || privacy === 'private') resolved.privacy = privacy
+  } else if (platform === 'tiktok') {
+    // TikTok 可见性 privacy_level（PUBLIC/PRIVATE/FRIENDS）
+    const privacyLevel = String(override.privacyLevel ?? base.privacyLevel ?? '').trim()
+    if (privacyLevel === 'PUBLIC' || privacyLevel === 'PRIVATE' || privacyLevel === 'FRIENDS') resolved.privacyLevel = privacyLevel
+  } else if (platform === 'baijiahao') {
+    // 百家号原创声明（original truthy → original_status=2）与位置
+    if (typeof (override.original ?? base.original) === 'boolean') {
+      resolved.original = Boolean(override.original ?? base.original)
+    }
+    const loc = override.location ?? base.location
+    if (loc && typeof loc === 'object' && loc.uid) resolved.location = loc
+  }
   return resolved
 }
 
@@ -158,6 +184,20 @@ function buildPublishArticle (task, platform) {
     article.declare = resolved.declare
   }
   if (platform === 'wechat_mp') article.massSend = resolved.massSend
+  // P0-3：平台特有字段透传到 article（adapter buildPostData 消费）
+  if (platform === 'bilibili') {
+    if (resolved.category !== undefined) article.category = resolved.category
+    if (resolved.copyright !== undefined) article.copyright = resolved.copyright
+  }
+  if (platform === 'youtube') {
+    if (resolved.categoryId !== undefined) article.categoryId = resolved.categoryId
+    if (resolved.privacy !== undefined) article.privacy = resolved.privacy
+  }
+  if (platform === 'tiktok' && resolved.privacyLevel !== undefined) article.privacyLevel = resolved.privacyLevel
+  if (platform === 'baijiahao') {
+    if (resolved.original !== undefined) article.original = resolved.original
+    if (resolved.location !== undefined) article.location = resolved.location
+  }
   return article
 }
 
@@ -386,6 +426,15 @@ class ApiPublisher {
       },
     }
     if (article.cover_path) taskData.cover = article.cover_path
+    // P0-3：平台特有字段透传到 API taskData（adapter 按需消费；B站 tid/copyright、
+    // YouTube categoryId/privacy、TikTok privacy_level、百家号 original/location）
+    if (article.category !== undefined) taskData.category = article.category
+    if (article.copyright !== undefined) taskData.copyright = article.copyright
+    if (article.categoryId !== undefined) taskData.categoryId = article.categoryId
+    if (article.privacy !== undefined) taskData.privacy = article.privacy
+    if (article.privacyLevel !== undefined) taskData.privacyLevel = article.privacyLevel
+    if (article.original !== undefined) taskData.original = article.original
+    if (article.location !== undefined) taskData.location = article.location
 
     const result = await publishViaApi(platform, taskData, cookie, {
       timeout: this.route.timeout,
@@ -511,6 +560,6 @@ class PublisherRouter {
   }
 }
 
-module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask }
+module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask, resolvePlatformArticle, buildPublishArticle }
 
 
