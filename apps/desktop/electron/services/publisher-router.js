@@ -160,6 +160,21 @@ function resolvePlatformArticle (task, platform) {
       if (locationName) resolved.location = { uid: 'manual-' + locationName, name: locationName }
     }
   }
+  // P2-1：合集/播放列表透传（B站 season_id、YouTube playlistId、百家号 bjhtopic）
+  const collectionId = Number(override.collectionId ?? base.collectionId)
+  if (Number.isInteger(collectionId) && collectionId > 0) resolved.collectionId = collectionId
+  const playlistId = String(override.playlistId ?? base.playlistId ?? '').trim()
+  if (/^[A-Za-z0-9_-]{5,60}$/.test(playlistId)) resolved.playlistId = playlistId
+  const collection = override.collection ?? base.collection
+  if (collection && typeof collection === 'object' && (collection.id || collection.yixiaoerId)) {
+    resolved.collection = collection
+  }
+  // UI 侧百家号合集输入 'ID' 或 'ID:名称' → collection 对象
+  else if (platform === 'baijiahao') {
+    const raw = String(override.collectionIdText ?? base.collectionIdText ?? '').trim()
+    const m = raw.match(/^(\d+)(?::(.+))?$/)
+    if (m) resolved.collection = { id: m[1], name: (m[2] || '').trim() }
+  }
   return resolved
 }
 
@@ -204,6 +219,10 @@ function buildPublishArticle (task, platform) {
     if (resolved.original !== undefined) article.original = resolved.original
     if (resolved.location !== undefined) article.location = resolved.location
   }
+  // P2-1：合集/播放列表透传到 article
+  if (resolved.collectionId !== undefined) article.collectionId = resolved.collectionId
+  if (resolved.playlistId !== undefined) article.playlistId = resolved.playlistId
+  if (resolved.collection !== undefined) article.collection = resolved.collection
   return article
 }
 
@@ -441,6 +460,10 @@ class ApiPublisher {
     if (article.privacyLevel !== undefined) taskData.privacyLevel = article.privacyLevel
     if (article.original !== undefined) taskData.original = article.original
     if (article.location !== undefined) taskData.location = article.location
+    // P2-1：合集/播放列表透传
+    if (article.collectionId !== undefined) taskData.collectionId = article.collectionId
+    if (article.playlistId !== undefined) taskData.playlistId = article.playlistId
+    if (article.collection !== undefined) taskData.collection = article.collection
 
     const result = await publishViaApi(platform, taskData, cookie, {
       timeout: this.route.timeout,

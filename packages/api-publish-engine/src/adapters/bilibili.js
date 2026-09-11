@@ -20,13 +20,21 @@ class BilibiliAdapter extends BasePlatformAdapter {
   }
 
   buildPostData(taskData) {
-    return {
+    const data = {
       title: taskData.title || "",
       desc: taskData.content || "",
       tag: (taskData.tags || []).join(","),
       copyright: taskData.copyright || 2,
       tid: taskData.category || 17,
     };
+    // P2-1：合集（season_id，蚁小二映射 collection.yixiaoerId → season_id）
+    const seasonId = Number(taskData.collectionId)
+    if (Number.isInteger(seasonId) && seasonId > 0) {
+      data.season_id = seasonId
+      // 蚁小二：加入合集默认同时开启「选集」
+      data.new_draft = 1
+    }
+    return data
   }
 
   async publish(cookie, postData) {

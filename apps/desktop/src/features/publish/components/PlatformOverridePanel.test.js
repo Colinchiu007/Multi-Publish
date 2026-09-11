@@ -123,7 +123,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.get('[data-testid="override-toggle-bilibili"]').setValue(true)
 
     expect(wrapper.emitted('update:modelValue').at(-1)[0].bilibili).toEqual({
-      title: '', content: '', category: 21, copyright: 2,
+      title: '', content: '', category: 21, copyright: 2, collectionId: '',
     })
 
     await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
@@ -142,7 +142,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.get('[data-testid="override-toggle-youtube"]').setValue(true)
 
     expect(wrapper.emitted('update:modelValue').at(-1)[0].youtube).toEqual({
-      title: '', content: '', categoryId: '22', privacy: 'public',
+      title: '', content: '', categoryId: '22', privacy: 'public', playlistId: '',
     })
 
     await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })

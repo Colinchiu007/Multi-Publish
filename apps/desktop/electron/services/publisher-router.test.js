@@ -180,6 +180,34 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(b.location).toEqual({ uid: "poi-9", name: "POI" })
   })
 
+  it("P2-1 合集/播放列表透传：B站 collectionId、YouTube playlistId、百家号 collection", () => {
+    const bili = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { bilibili: { collectionId: 12345 } } } },
+      "bilibili",
+    )
+    expect(bili.collectionId).toBe(12345)
+
+    const yt = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { youtube: { playlistId: "PLabc123xyz_-" } } } },
+      "youtube",
+    )
+    expect(yt.playlistId).toBe("PLabc123xyz_-")
+
+    const col = { id: "topic-77", name: "我的合集" }
+    const bjh = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { baijiahao: { collection: col } } } },
+      "baijiahao",
+    )
+    expect(bjh.collection).toEqual(col)
+
+    // 非法值过滤：负数 collectionId、含特殊字符 playlistId 不透传
+    const bad = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { bilibili: { collectionId: -1 }, youtube: { playlistId: "bad id!" } } } },
+      "bilibili",
+    )
+    expect(bad.collectionId).toBeUndefined()
+  })
+
   it("缺少 cookie 时抛错", async () => {
     accountManager.loadSavedCredentials.mockReturnValueOnce(null)
     const r = new PublisherRouter()

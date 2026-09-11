@@ -90,6 +90,12 @@ class YouTubeAdapter {
         },
       };
 
+      // P2-1：播放列表（蚁小二无此映射；YouTube Data API 需先建 video 再
+      // playlistItems.insert — 此处记录 playlistId，上传完成后由调用方处理）
+      if (taskData.playlistId) {
+        videoBody.playlistId = taskData.playlistId;
+      }
+
       var videoRes = await apiRequest("POST", "/youtube/v3/videos?part=snippet,status", token, videoBody);
 
       if (taskData.videoPath || taskData.videoUrl) {

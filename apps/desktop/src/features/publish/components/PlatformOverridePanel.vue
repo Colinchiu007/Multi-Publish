@@ -135,6 +135,17 @@
                 <option :value="1">自制</option>
               </select>
             </label>
+            <label class="override-field">
+              <span>加入合集（可选，填合集 ID）</span>
+              <input
+                :data-testid="'override-collection-id-' + platform.id"
+                :value="getValue(platform.id, 'collectionId')"
+                type="text"
+                inputmode="numeric"
+                placeholder="合集 ID，如 12345"
+                @input="updateField(platform.id, 'collectionId', $event.target.value)"
+              />
+            </label>
           </template>
           <template v-else-if="platform.id === 'youtube'">
             <label class="override-field">
@@ -160,6 +171,16 @@
                 <option value="unlisted">不公开列出</option>
                 <option value="private">私享</option>
               </select>
+            </label>
+            <label class="override-field">
+              <span>播放列表（可选，填播放列表 ID）</span>
+              <input
+                :data-testid="'override-playlist-id-' + platform.id"
+                :value="getValue(platform.id, 'playlistId')"
+                type="text"
+                placeholder="播放列表 ID，如 PLabc123"
+                @input="updateField(platform.id, 'playlistId', $event.target.value)"
+              />
             </label>
           </template>
           <template v-else-if="platform.id === 'tiktok'">
@@ -194,6 +215,16 @@
                 type="text"
                 placeholder="如：北京·三里屯"
                 @input="updateField(platform.id, 'locationName', $event.target.value)"
+              />
+            </label>
+            <label class="override-field">
+              <span>加入合集（可选，填合集 ID 与名称）</span>
+              <input
+                :data-testid="'override-collection-id-' + platform.id"
+                :value="getValue(platform.id, 'collectionIdText')"
+                type="text"
+                placeholder="格式：合集ID 或 合集ID:名称"
+                @input="updateField(platform.id, 'collectionIdText', $event.target.value)"
               />
             </label>
           </template>
@@ -252,10 +283,10 @@ function defaultOverride (platformId) {
   if (platformId === 'zhihu') {
     return { title: '', content: '', commentPermission: 'anyone', declare: 0, topics: [], draft: false }
   }
-  if (platformId === 'bilibili') return { title: '', content: '', category: 21, copyright: 2 }
-  if (platformId === 'youtube') return { title: '', content: '', categoryId: '22', privacy: 'public' }
+  if (platformId === 'bilibili') return { title: '', content: '', category: 21, copyright: 2, collectionId: '' }
+  if (platformId === 'youtube') return { title: '', content: '', categoryId: '22', privacy: 'public', playlistId: '' }
   if (platformId === 'tiktok') return { title: '', content: '', privacyLevel: 'PUBLIC' }
-  if (platformId === 'baijiahao') return { title: '', content: '', original: false, locationName: '' }
+  if (platformId === 'baijiahao') return { title: '', content: '', original: false, locationName: '', collectionIdText: '' }
   return { title: '', content: '' }
 }
 
@@ -278,6 +309,10 @@ function normalizeValue (platformId, field, value) {
     const n = Number(value)
     return n === 1 || n === 2 ? n : 2
   }
+  if (platformId === 'bilibili' && field === 'collectionId') {
+    const s = String(value || '').trim()
+    return /^\d+$/.test(s) ? Number(s) : ''
+  }
   if (platformId === 'youtube' && field === 'categoryId') {
     const s = String(value || '').trim()
     return /^\d{1,2}$/.test(s) ? s : '22'
@@ -288,8 +323,15 @@ function normalizeValue (platformId, field, value) {
   if (platformId === 'tiktok' && field === 'privacyLevel') {
     return ['PUBLIC', 'PRIVATE', 'FRIENDS'].includes(value) ? value : 'PUBLIC'
   }
+  if (platformId === 'youtube' && field === 'playlistId') {
+    return String(value || '').trim().slice(0, 60)
+  }
   if (platformId === 'baijiahao' && field === 'original') return Boolean(value)
   if (platformId === 'baijiahao' && field === 'locationName') return String(value || '').slice(0, 60)
+  // 百家号合集输入：'ID' 或 'ID:名称' → collection 对象
+  if (platformId === 'baijiahao' && field === 'collectionIdText') {
+    return String(value || '').slice(0, 100)
+  }
   return value
 }
 
