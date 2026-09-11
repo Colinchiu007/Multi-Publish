@@ -85,6 +85,23 @@
           </select>
         </div>
 
+        <!-- 策略选择（自动匹配默认 + 手动下拉，与 AiWriterPanel 行为一致） -->
+        <RewriteStrategyPicker
+          v-model:strategy-mode="strategyMode"
+          v-model:strategy-id="rewriteStrategyId"
+          :strategies="rewriteStrategies"
+          :preview-name="previewStrategyName"
+          :disabled="rewriting"
+          :labels="{
+            label: t('rewritePage.strategyLabel'),
+            auto: t('rewritePage.strategyAuto'),
+            manual: t('rewritePage.strategyManual'),
+            preview: t('rewritePage.strategyPreview'),
+            previewColon: t('rewritePage.strategyPreviewColon'),
+            placeholder: t('rewritePage.strategySelectPlaceholder'),
+          }"
+        />
+
         <!-- 改写按钮 -->
         <button
           class="cohere-btn-primary rewrite-start-btn"
@@ -132,14 +149,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
+import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -163,6 +181,12 @@ const usePersonalExperience = ref(false)
 const rewriteMode = ref('create')
 const platform = ref('')
 
+// 策略选择（默认自动匹配，与 AiWriterPanel 一致）
+const strategyMode = ref('auto')
+const rewriteStrategyId = ref('')
+const rewriteStrategies = ref([])
+const previewStrategyName = ref('--')
+
 // 弹窗
 const showPublishModal = ref(false)
 let savedDraftId = null
@@ -174,8 +198,44 @@ const rewriteModes = [
   { value: 'create', label: t('rewritePage.modeCreate') },
 ]
 
+// ── 策略列表与匹配预览 ──
+/** 加载启用策略（内置 + 远程下发）；失败静默降级为空列表，改写仍可用自动匹配 */
+async function loadRewriteStrategies() {
+  try {
+    const res = await aiListRewriteStrategies()
+    if (res && res.code === 0) rewriteStrategies.value = res.data || []
+  } catch (_e) {
+    // 策略列表为空时改写仍可用（走自动匹配）
+  }
+}
+
+/** 预览请求序列号：快速切换平台时只保留最后一次请求的结果（竞态防护） */
+let previewSeq = 0
+
+/** 刷新自动匹配预览：取推荐列表第一名；失败降级为 --，不阻塞改写 */
+async function refreshStrategyPreview() {
+  if (rewriting.value) return
+  const seq = ++previewSeq
+  try {
+    const res = await aiGetRecommendedStrategies({ platform: platform.value || undefined })
+    if (seq !== previewSeq) return // 已有更新的请求，丢弃本次过期结果
+    if (res && res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
+      previewStrategyName.value = res.data[0].name || '--'
+    } else {
+      previewStrategyName.value = '--'
+    }
+  } catch (_e) {
+    if (seq === previewSeq) previewStrategyName.value = '--'
+  }
+}
+
+// 目标平台变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
+watch(platform, refreshStrategyPreview)
+
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
 onMounted(() => {
+  void loadRewriteStrategies()
+  void refreshStrategyPreview()
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (!topic) return
   rewriteMode.value = 'create'
@@ -223,6 +283,8 @@ async function startRewrite() {
           usePersonalKnowledge: usePersonalExperience.value,
         },
       },
+      // 策略传参契约（与 AiWriterPanel 一致）：手动=所选 id（未选 null），自动=null 走引擎匹配
+      strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) : null,
     }
 
     const res = await aiRewrite(params)
@@ -253,6 +315,9 @@ async function startRewrite() {
     notifyError('collection.rewriteFailed', { message: rewriteError.value || t('collection.rewriteFailed') })
   } finally {
     rewriting.value = false
+    // 改写结束后刷新预览：改写期间平台可能已变化（rewriting 中不刷新），且引擎
+    // 的用户历史（userHistory）在每次改写后更新，会影响下次自动匹配的推荐结果
+    refreshStrategyPreview()
   }
 }
 
@@ -287,7 +352,7 @@ function sendKnowledgeFeedback(action, refs) {
   if (!refs || refs.length === 0) return
   try {
     applyKnowledgeFeedback(action, refs)
-  } catch (e) {
+  } catch (_e) {
     // 知识反馈失败不影响改写主流程
   }
 }
@@ -322,36 +387,6 @@ function onPublishVideo(pipelineId) {
 </script>
 
 <style scoped>
-.rewrite-page {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.rewrite-textarea {
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
-  outline: none;
-  box-sizing: border-box;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-.rewrite-textarea:focus { border-color: var(--coral); }
-.rewrite-textarea:disabled { background: var(--soft-stone); opacity: 0.7; }
-
-.rewrite-input-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 6px;
-}
-.char-count { font-size: 12px; color: var(--muted); }
-.content-error { font-size: 12px; color: var(--danger); }
-
 .rewrite-input-card, .rewrite-config-card, .rewrite-result-card {
   margin-bottom: var(--space-lg);
   padding: var(--space-md);
@@ -391,10 +426,6 @@ function onPublishVideo(pipelineId) {
   margin-left: 24px;
 }
 
-.config-row {
-  margin-bottom: var(--space-sm);
-}
-
 .mode-chips {
   display: flex;
   gap: 8px;
@@ -422,70 +453,5 @@ function onPublishVideo(pipelineId) {
 .config-select {
   max-width: 280px;
 }
-
-.rewrite-start-btn {
-  margin-top: var(--space-sm);
-  padding: 10px 28px;
-  font-size: 15px;
-}
-.rewrite-start-btn:disabled { opacity: 0.5; cursor: default; }
-
-.rewrite-error {
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: #fff3f3;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #d32f2f;
-}
-
-.rewrite-result-meta {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: var(--space-sm);
-  padding: 6px 10px;
-  background: var(--soft-stone);
-  border-radius: 6px;
-}
-.rewrite-result-meta span {
-  white-space: nowrap;
-}
-
-.result-textarea {
-  min-height: 200px;
-}
-
-.rewrite-result-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: var(--space-sm);
-}
-
-.cohere-btn-primary {
-  padding: 8px 20px;
-  background: var(--coral, #f56c6c);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: opacity 0.15s;
-}
-.cohere-btn-primary:disabled { opacity: 0.5; cursor: default; }
-
-.cohere-btn-secondary {
-  padding: 8px 20px;
-  background: var(--surface, #fff);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.cohere-btn-secondary:hover { border-color: var(--coral); }
 </style>
 

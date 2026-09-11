@@ -5,7 +5,7 @@ function t(n,fn){try{fn();p++;console.log('  \u2705 '+n)}catch(e){f++;console.lo
 function eq(a,b){assert.deepStrictEqual(a,b)}
 
 console.log('--- REGISTRY ---');
-t('has custom adapters',()=>{eq(Object.keys(REGISTRY).length,10)});
+t('has custom adapters',()=>{eq(Object.keys(REGISTRY).length,13)});
 t('includes zhihu',()=>{eq('zhihu' in REGISTRY,true)});
 t('includes douyin',()=>{eq('douyin' in REGISTRY,true)});
 t('uses generic adapter for duoduo',()=>{var adapt = getAdapter('duoduo');eq(adapt!==null,true);eq(typeof adapt.execute,'function')});

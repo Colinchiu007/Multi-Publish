@@ -505,6 +505,82 @@ body {
 
 .cohere-btn-secondary:hover { color: var(--action-blue); }
 
+/* ── 文案改写页（RewriteView）── */
+.rewrite-page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.rewrite-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.rewrite-textarea:focus { border-color: var(--coral); }
+.rewrite-textarea:disabled { background: var(--soft-stone); opacity: 0.7; }
+
+.rewrite-input-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+.char-count { font-size: 12px; color: var(--muted); }
+.content-error { font-size: 12px; color: #d32f2f; }
+
+.config-row {
+  margin-bottom: var(--space-sm);
+}
+
+.rewrite-error {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fff3f3;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #d32f2f;
+}
+
+.rewrite-start-btn {
+  margin-top: var(--space-sm);
+  padding: 10px 28px;
+  font-size: 15px;
+}
+.rewrite-start-btn:disabled { opacity: 0.5; cursor: default; }
+
+.rewrite-result-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: var(--space-sm);
+  padding: 6px 10px;
+  background: var(--soft-stone);
+  border-radius: 6px;
+}
+.rewrite-result-meta span {
+  white-space: nowrap;
+}
+
+.result-textarea {
+  min-height: 200px;
+}
+
+.rewrite-result-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: var(--space-sm);
+}
+
 .cohere-btn-outline {
   font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
