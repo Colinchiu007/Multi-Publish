@@ -25,6 +25,7 @@ vi.mock("@/stores/platforms", () => ({
 const accountStoreMock = {
   accounts: [],
   ensureLoaded: vi.fn().mockResolvedValue(undefined),
+  load: vi.fn().mockResolvedValue(undefined),
 };
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => accountStoreMock,

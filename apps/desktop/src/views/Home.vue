@@ -117,7 +117,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getApi } from '@/api/electron-bridge'
-import { accountBatchOpenLogin, onAuthCompleted, onAccountStatusChanged } from '@/api/publisher'
+import { accountBatchOpenLogin } from '@/api/publisher'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
@@ -126,6 +126,7 @@ import { useAccountStore } from '@/stores/accounts'
 import { useTabStore } from '@/stores/tab'
 import LoginExpiredBanner from '@/components/LoginExpiredBanner.vue'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+import { useExpiredAccountsBanner } from '@/composables/useExpiredAccountsBanner'
 import { formatDateTime } from '@/utils/datetime'
 import { reportError } from '../utils/report-error'
 
@@ -139,9 +140,10 @@ const tabStore = useTabStore()
 const stats = ref({ total: 0, success: 0, failed: 0 })
 const accountCount = ref(0)
 const recentItems = ref([])
-const showExpiredBanner = ref(false)
-const expiredAccountCount = ref(0)
-const expiredAccounts = ref([])
+const {
+  expiredAccounts, expiredAccountCount, showExpiredBanner,
+  refresh: refreshExpiredAccounts, subscribeAutoRefresh, dispose: disposeExpiredBanner,
+} = useExpiredAccountsBanner(accountStore)
 
 const displayName = computed(() => identityStore.displayName || t('home.user'))
 
@@ -204,49 +206,16 @@ async function handleBatchLogin() {
   if (!Array.isArray(items)) return
   for (const item of items) {
     if (!item?.loginUrl) continue
-    await tabStore.createTab({
-      url: item.loginUrl,
-      platform: item.platform,
-      accountId: item.accountId,
-      title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }),
-    })
-  }
-}
-
-/** 重算失效账号横幅数据（登录完成/账号状态变化后自动调用）。 */
-async function refreshExpiredAccounts () {
-  try {
-    await accountStore.load()
-    const expired = accountStore.accounts.filter(account => account.status === 'expired')
-    expiredAccounts.value = expired
-    expiredAccountCount.value = expired.length
-    showExpiredBanner.value = expired.length > 0
-  } catch (e) {
-    reportError('刷新首页失效账号失败', e)
-  }
-}
-
-// 登录完成（含自动凭证保存成功）与账号状态变化后，自动刷新失效横幅，
-// 用户无需手动切页/重进首页即可看到最新状态。
-const _cleanups = []
-function _subscribeAccountRefresh () {
-  for (const register of [onAuthCompleted, onAccountStatusChanged]) {
-    try {
-      const cleanup = register(() => { refreshExpiredAccounts() })
-      if (typeof cleanup === 'function') _cleanups.push(cleanup)
-    } catch (_) { /* Electron bridge 在纯浏览器环境不可用时保持静默 */ }
+    await tabStore.createTab({ url: item.loginUrl, platform: item.platform, accountId: item.accountId, title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }) })
   }
 }
 
 onMounted(async () => {
-  _subscribeAccountRefresh()
+  subscribeAutoRefresh()
   try {
     platformStore.load()
     await accountStore.ensureLoaded()
-    const expired = accountStore.accounts.filter(account => account.status === 'expired')
-    expiredAccounts.value = expired
-    expiredAccountCount.value = expired.length
-    showExpiredBanner.value = expired.length > 0
+    await refreshExpiredAccounts()
     const api = getApi()
     if (api) {
       if (api.storeGetPublishStats) {
@@ -270,9 +239,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  for (const cleanup of _cleanups.splice(0)) {
-    try { cleanup() } catch (_) { /* ignore */ }
-  }
+  disposeExpiredBanner()
 })
 </script>
 
