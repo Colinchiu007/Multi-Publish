@@ -154,6 +154,65 @@ describe('publish IPC 可信来源正常工作', () => {
     expect(deps.taskQueue.add).toHaveBeenCalled()
   })
 
+  // P2-2：AI 封面生成（cover:generate-ai）— 复用 asset-generator 生图引擎
+  describe('cover:generate-ai', () => {
+    it('拒绝外部网页调用', async () => {
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, createMockDeps())
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(UNTRUSTED_EVENT, { prompt: 'city night' })
+
+      expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    })
+
+    it('可信来源：合法 prompt 调用 assetGenerator 并返回 coverPath', async () => {
+      const assetGenerator = {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/multi-publish-cover-ai/img_1.png' } })),
+      }
+      const deps = createMockDeps({ assetGenerator })
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, { prompt: '科技感城市夜景', style: 'cyberpunk', ratio: '9:16' })
+
+      expect(result.code).toBe(0)
+      expect(result.data.coverPath).toBe('C:/tmp/multi-publish-cover-ai/img_1.png')
+      expect(assetGenerator.generateImage).toHaveBeenCalledWith(
+        '科技感城市夜景',
+        expect.objectContaining({ style: 'cyberpunk', aspect_ratio: '9:16' }),
+      )
+    })
+
+    it('空 prompt 与超长 prompt 被校验拒绝', async () => {
+      const deps = createMockDeps()
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const r1 = await handler(TRUSTED_EVENT, { prompt: '' })
+      expect(r1.code).toBe(-2)
+      expect(r1.message).toContain('至少')
+
+      const r2 = await handler(TRUSTED_EVENT, { prompt: 'x'.repeat(501) })
+      expect(r2.code).toBe(-2)
+      expect(r2.message).toContain('500')
+    })
+
+    it('assetGenerator 未注入时返回服务不可用', async () => {
+      const deps = createMockDeps()
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, { prompt: 'city night' })
+
+      expect(result.code).toBe(-1)
+      expect(result.message).toContain('不可用')
+    })
+  })
+
   it('publish:batch 可信来源正常批量入队', async () => {
     const deps = createMockDeps()
     const ipcMain = createMockIpcMain()

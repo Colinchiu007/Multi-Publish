@@ -495,3 +495,12 @@ export async function videoProcess(type, params) {
 export function extractVideoCover(videoPath) {
   return window.electronAPI.extractVideoCover(videoPath)
 }
+
+/**
+ * AI 生成封面（P2-2：复用 asset-generator 生图引擎）
+ * @param {{ prompt: string, style?: string, ratio?: string }} payload
+ * @returns {Promise<{code: number, data?: {coverPath: string}, message: string}>}
+ */
+export function generateAiCover(payload) {
+  return window.electronAPI.generateAiCover(payload)
+}
