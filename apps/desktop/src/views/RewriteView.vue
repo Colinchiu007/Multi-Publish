@@ -97,6 +97,7 @@
             auto: t('rewritePage.strategyAuto'),
             manual: t('rewritePage.strategyManual'),
             preview: t('rewritePage.strategyPreview'),
+            previewColon: t('rewritePage.strategyPreviewColon'),
             placeholder: t('rewritePage.strategySelectPlaceholder'),
           }"
           @refresh-preview="refreshStrategyPreview"
@@ -209,25 +210,28 @@ async function loadRewriteStrategies() {
   }
 }
 
+/** 预览请求序列号：快速切换平台时只保留最后一次请求的结果（竞态防护） */
+let previewSeq = 0
+
 /** 刷新自动匹配预览：取推荐列表第一名；失败降级为 --，不阻塞改写 */
 async function refreshStrategyPreview() {
   if (rewriting.value) return
+  const seq = ++previewSeq
   try {
     const res = await aiGetRecommendedStrategies({ platform: platform.value || undefined })
+    if (seq !== previewSeq) return // 已有更新的请求，丢弃本次过期结果
     if (res && res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
       previewStrategyName.value = res.data[0].name || '--'
     } else {
       previewStrategyName.value = '--'
     }
   } catch (_e) {
-    previewStrategyName.value = '--'
+    if (seq === previewSeq) previewStrategyName.value = '--'
   }
 }
 
-// 目标平台变化 → 预览随新 userSettings 刷新
-watch(platform, () => {
-  void refreshStrategyPreview()
-})
+// 目标平台变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
+watch(platform, refreshStrategyPreview)
 
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
 onMounted(() => {
@@ -312,6 +316,9 @@ async function startRewrite() {
     notifyError('collection.rewriteFailed', { message: rewriteError.value || t('collection.rewriteFailed') })
   } finally {
     rewriting.value = false
+    // 改写结束后刷新预览：改写期间平台可能已变化（rewriting 中不刷新），且引擎
+    // 的用户历史（userHistory）在每次改写后更新，会影响下次自动匹配的推荐结果
+    refreshStrategyPreview()
   }
 }
 
@@ -381,36 +388,6 @@ function onPublishVideo(pipelineId) {
 </script>
 
 <style scoped>
-.rewrite-page {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.rewrite-textarea {
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
-  outline: none;
-  box-sizing: border-box;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-.rewrite-textarea:focus { border-color: var(--coral); }
-.rewrite-textarea:disabled { background: var(--soft-stone); opacity: 0.7; }
-
-.rewrite-input-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 6px;
-}
-.char-count { font-size: 12px; color: var(--muted); }
-.content-error { font-size: 12px; color: var(--danger); }
-
 .rewrite-input-card, .rewrite-config-card, .rewrite-result-card {
   margin-bottom: var(--space-lg);
   padding: var(--space-md);
@@ -476,22 +453,6 @@ function onPublishVideo(pipelineId) {
 
 .config-select {
   max-width: 280px;
-}
-
-.rewrite-start-btn {
-  margin-top: var(--space-sm);
-  padding: 10px 28px;
-  font-size: 15px;
-}
-.rewrite-start-btn:disabled { opacity: 0.5; cursor: default; }
-
-.rewrite-error {
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: #fff3f3;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #d32f2f;
 }
 </style>
 

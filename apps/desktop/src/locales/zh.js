@@ -2396,6 +2396,7 @@ knowledgeBase: {
     strategyAuto: '自动匹配',
     strategyManual: '手动选择',
     strategyPreview: '将匹配策略',
+    strategyPreviewColon: '：',
     strategySelectPlaceholder: '-- 选择策略 --',
     rewriteBtn: '🔄 开始改写',
     rewritingBtn: '改写中...',

@@ -2395,6 +2395,7 @@ knowledgeBase: {
     strategyAuto: 'Auto match',
     strategyManual: 'Manual select',
     strategyPreview: 'Will match strategy',
+    strategyPreviewColon: ': ',
     strategySelectPlaceholder: '-- Select strategy --',
     rewriteBtn: '🔄 Rewrite',
     rewritingBtn: 'Rewriting...',

@@ -27,7 +27,7 @@
     </div>
     <!-- 自动模式：发起前预览将匹配的策略（失败降级为 --） -->
     <div v-if="strategyMode === 'auto'" class="strategy-preview">
-      {{ labels.preview }}：{{ previewName }}
+      {{ labels.preview }}{{ labels.previewColon }}{{ previewName }}
     </div>
     <!-- 手动模式：策略下拉（列表加载失败时仅占位项，改写仍可发起） -->
     <select
@@ -66,7 +66,7 @@ defineProps({
   labels: {
     type: Object,
     required: true,
-    validator: (v) => ['label', 'auto', 'manual', 'preview', 'placeholder'].every((k) => typeof v[k] === 'string'),
+    validator: (v) => ['label', 'auto', 'manual', 'preview', 'previewColon', 'placeholder'].every((k) => typeof v[k] === 'string'),
   },
 })
 

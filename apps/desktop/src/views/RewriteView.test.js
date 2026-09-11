@@ -17,7 +17,7 @@ vi.mock('@/api/publisher', () => ({
     data: {
       success: true,
       result: '这是改写后的文案内容，用于测试。',
-      strategy: { id: params?.strategyId || 'auto-strategy', name: params?.strategyId === 'strategy-douyin' ? '抖音爆款策略' : '测试策略', category: 'viral' },
+      strategy: { id: params?.strategyId || 'auto-strategy', name: params?.strategyId === 'strategy-douyin-viral' ? '抖音爆款策略' : '测试策略', category: 'viral' },
       warnings: [],
       sensitiveHits: [],
       knowledgeRefs: [],
@@ -406,5 +406,52 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     await nextTick()
     const { aiRewrite } = await import('@/api/publisher')
     expect(aiRewrite.mock.calls[0][0].strategyId).toBeNull()
+  })
+
+  it('refreshes preview after rewrite completes (user history may change recommendations)', async () => {
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    aiGetRecommendedStrategies.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    // 挂载时第 1 次预览
+    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(1)
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写后预览刷新。')
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    // 改写结束后 finally 中再次刷新（第 2 次）
+    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops stale preview result when platform switches quickly (race guard)', async () => {
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    // 第一次调用（挂载，通用平台）慢返回，第二次（切抖音）快返回
+    let resolveFirst
+    aiGetRecommendedStrategies.mockImplementation(async (us) => {
+      if (!us?.platform) {
+        await new Promise((r) => { resolveFirst = r })
+        return { code: 0, data: [{ id: 's-general', name: '通用慢策略' }] }
+      }
+      return { code: 0, data: [{ id: 'strategy-douyin-viral', name: '抖音爆款策略' }] }
+    })
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    // 平台切换触发第二次（快）请求 → 显示抖音策略
+    await wrapper.find('select.config-select').setValue('douyin')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
+    // 慢的第一次请求现在才返回 → 应被序列号守卫丢弃，不覆盖抖音结果
+    resolveFirst()
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
+    expect(wrapper.find('.strategy-preview').text()).not.toContain('通用慢策略')
   })
 })
