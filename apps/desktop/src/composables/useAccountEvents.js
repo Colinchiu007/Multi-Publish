@@ -1,4 +1,6 @@
 import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import i18n from '@/i18n'
 import {
   onAccountStatusChanged,
   onAuthCompleted,
@@ -9,6 +11,19 @@ import {
   onQrCodeDetected,
   onQrCodeOpened,
 } from '@/api/publisher'
+
+/** 自动保存成功后的全局提示文案（i18n，zh/en 成对维护于 locales）。 */
+function autoSavedToastText (data) {
+  try {
+    const t = i18n.global.t.bind(i18n.global)
+    const platform = data?.platform || ''
+    return platform
+      ? t('accountsPage.autoSavedWithPlatform', { platform })
+      : t('accountsPage.autoSaved')
+  } catch (_) {
+    return ''
+  }
+}
 
 export function useAccountEvents (options = {}) {
   const loginVisible = ref(false)
@@ -66,6 +81,10 @@ export function useAccountEvents (options = {}) {
       qrStatus.value = 'completed'
       qrImage.value = null
     }
+    // 全局成功提示：凭证已由主进程自动保存（CDP/URL 检测自动完成或手动保存），
+    // 无论用户当前停留在哪个页面都能看到反馈；页面级 onCompleted 仍负责各自刷新。
+    const toast = autoSavedToastText(data)
+    if (toast) ElMessage.success(toast)
     invokeOption('onCompleted', [data, mode], 'completed')
   }
 

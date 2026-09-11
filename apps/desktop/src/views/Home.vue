@@ -115,7 +115,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { accountBatchOpenLogin } from '@/api/publisher'
 import { useRouter } from 'vue-router'
@@ -126,6 +126,7 @@ import { useAccountStore } from '@/stores/accounts'
 import { useTabStore } from '@/stores/tab'
 import LoginExpiredBanner from '@/components/LoginExpiredBanner.vue'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+import { useExpiredAccountsBanner } from '@/composables/useExpiredAccountsBanner'
 import { formatDateTime } from '@/utils/datetime'
 import { reportError } from '../utils/report-error'
 
@@ -139,9 +140,10 @@ const tabStore = useTabStore()
 const stats = ref({ total: 0, success: 0, failed: 0 })
 const accountCount = ref(0)
 const recentItems = ref([])
-const showExpiredBanner = ref(false)
-const expiredAccountCount = ref(0)
-const expiredAccounts = ref([])
+const {
+  expiredAccounts, expiredAccountCount, showExpiredBanner,
+  refresh: refreshExpiredAccounts, subscribeAutoRefresh, dispose: disposeExpiredBanner,
+} = useExpiredAccountsBanner(accountStore)
 
 const displayName = computed(() => identityStore.displayName || t('home.user'))
 
@@ -204,23 +206,16 @@ async function handleBatchLogin() {
   if (!Array.isArray(items)) return
   for (const item of items) {
     if (!item?.loginUrl) continue
-    await tabStore.createTab({
-      url: item.loginUrl,
-      platform: item.platform,
-      accountId: item.accountId,
-      title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }),
-    })
+    await tabStore.createTab({ url: item.loginUrl, platform: item.platform, accountId: item.accountId, title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }) })
   }
 }
 
 onMounted(async () => {
+  subscribeAutoRefresh()
   try {
     platformStore.load()
     await accountStore.ensureLoaded()
-    const expired = accountStore.accounts.filter(account => account.status === 'expired')
-    expiredAccounts.value = expired
-    expiredAccountCount.value = expired.length
-    showExpiredBanner.value = expired.length > 0
+    await refreshExpiredAccounts()
     const api = getApi()
     if (api) {
       if (api.storeGetPublishStats) {
@@ -241,6 +236,10 @@ onMounted(async () => {
   } catch (e) {
     reportError('加载首页数据失败', e)
   }
+})
+
+onUnmounted(() => {
+  disposeExpiredBanner()
 })
 </script>
 

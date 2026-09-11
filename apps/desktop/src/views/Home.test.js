@@ -25,6 +25,7 @@ vi.mock("@/stores/platforms", () => ({
 const accountStoreMock = {
   accounts: [],
   ensureLoaded: vi.fn().mockResolvedValue(undefined),
+  load: vi.fn().mockResolvedValue(undefined),
 };
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => accountStoreMock,
@@ -38,8 +39,12 @@ vi.mock("@/stores/tab", () => ({
 }));
 
 const accountBatchOpenLoginMock = vi.fn();
+const onAuthCompletedMock = vi.fn(() => vi.fn());
+const onAccountStatusChangedMock = vi.fn(() => vi.fn());
 vi.mock("@/api/publisher", () => ({
   accountBatchOpenLogin: (...args) => accountBatchOpenLoginMock(...args),
+  onAuthCompleted: (...args) => onAuthCompletedMock(...args),
+  onAccountStatusChanged: (...args) => onAccountStatusChangedMock(...args),
 }));
 
 import HomeView from "./Home.vue";

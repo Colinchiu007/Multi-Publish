@@ -457,13 +457,19 @@ class WebviewManager extends EventEmitter {
     var initialTitle = (opts && typeof opts.title === 'string' && opts.title.trim())
       ? opts.title.trim()
       : 'New Tab'
-      self._tabStates.set(tabId, {
+    self._tabStates.set(tabId, {
         url: initialUrl,
         title: initialTitle,
         titleLocked: Boolean(opts && typeof opts.title === 'string' && opts.title.trim()),
         loading: false,
         canGoBack: false,
         canGoForward: false
+        // 账号标签标识：关闭标签时用于自动把 session 分区 Cookie 回写加密凭证库
+        // （首页批量登录等普通标签场景没有 auth-view-manager 的 CDP 捕获链路，
+        // 关闭前回写可让下次 checkLocalCredentials 命中加密文件主路径）
+        ,
+        accountId: useAccountSession ? accountId : null,
+        platform: platform || null
       })
     self._activeTabId = tabId
 
@@ -716,7 +722,10 @@ class WebviewManager extends EventEmitter {
         canGoBack: state.canGoBack,
         canGoForward: state.canGoForward,
         isActive: tabId === self._activeTabId,
-        isHome: tabId === self._homeTabId
+        isHome: tabId === self._homeTabId,
+        // 账号标签标识：渲染层据此显示「保存账号」按钮（批量登录标签无 isLogin）
+        accountId: state.accountId || null,
+        platform: state.platform || null
       })
     })
     // 虚拟登录标签（对齐蚁小二全屏登录）
@@ -753,7 +762,9 @@ class WebviewManager extends EventEmitter {
       loading: state.loading,
       canGoBack: state.canGoBack,
       canGoForward: state.canGoForward,
-      isHome: this._activeTabId === this._homeTabId
+      isHome: this._activeTabId === this._homeTabId,
+      accountId: state.accountId || null,
+      platform: state.platform || null
     }
   }
 
@@ -907,6 +918,58 @@ class WebviewManager extends EventEmitter {
     view.webContents.session.cookies.getAll({}).then(function (cookies) {
       self.emit('tab-cookies-changed', { tabId: tabId, cookies: cookies })
     }).catch(function () { /* ignore */ })
+  }
+
+  /**
+   * 保存账号浏览器标签的凭证到加密凭证库（批量登录标签的手动保存入口）。
+   * 提取该标签 session 分区的 Cookie + localStorage，经 AccountManager
+   * updateCapturedAccount 覆盖已有账号凭证（重新登录语义，不创建新账号）。
+   * @param {string} tabId
+   * @returns {Promise<{ok: boolean, reason?: string, accountId?: string, platform?: string}>}
+   */
+  async saveAccountTabCredentials (tabId) {
+    var self = this
+    var view = self._tabViews.get(tabId)
+    var state = self._tabStates.get(tabId)
+    if (!view || !state) return { ok: false, reason: 'tab-not-found' }
+    var accountId = state.accountId
+    var platform = state.platform
+    if (!accountId || !platform) return { ok: false, reason: 'not-account-tab' }
+
+    var cookies = []
+    try {
+      cookies = await view.webContents.session.cookies.getAll({})
+    } catch (e) {
+      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.getAll failed for ' + tabId + ': ' + (e && e.message ? e.message : String(e)))
+    }
+
+    var localStorageData = {}
+    try {
+      var extracted = await view.webContents.executeJavaScript(
+        '(function(){try{var o={};for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);o[k]=localStorage.getItem(k);}return o;}catch(e){return {};}})()'
+      )
+      if (extracted && typeof extracted === 'object' && !Array.isArray(extracted)) {
+        for (var key of Object.keys(extracted)) {
+          if (typeof key === 'string' && typeof extracted[key] === 'string') localStorageData[key] = extracted[key]
+        }
+      }
+    } catch (e) { /* localStorage 提取失败不阻断 Cookie 保存 */ }
+
+    if (!self._accountManager || typeof self._accountManager.updateCapturedAccount !== 'function') {
+      return { ok: false, reason: 'account-manager-unavailable' }
+    }
+    try {
+      await self._accountManager.updateCapturedAccount(platform, {
+        cookies: cookies,
+        localStorage: localStorageData,
+        name: state.title || ''
+      }, accountId)
+      log.info('WebviewManager', 'saveAccountTabCredentials: saved ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length)
+      return { ok: true, accountId: accountId, platform: platform }
+    } catch (e) {
+      log.warn('WebviewManager', 'saveAccountTabCredentials: updateCapturedAccount failed for ' + platform + ':' + accountId + ': ' + (e && e.message ? e.message : String(e)))
+      return { ok: false, reason: (e && e.message) ? e.message : 'save-failed', accountId: accountId, platform: platform }
+    }
   }
 
   // ─── 关闭分屏监控标签 ──────────────────────────
@@ -1336,6 +1399,21 @@ class WebviewManager extends EventEmitter {
       try {
         self.saveCookies(tabId)
         return { code: 0 }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('page-manager:save-account-tab-credentials', withSenderCheck(async function (_, tabId) {
+      if (typeof tabId !== 'string' || !tabId) return { code: EC.VALIDATION_ERROR, message: '缺少 tabId' }
+       try {
+        const result = await self.saveAccountTabCredentials(tabId)
+        if (result && result.ok) {
+          const win = self.mainWindow
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('auth:completed', { platform: result.platform, accountId: result.accountId })
+          }
+          return { code: 0, data: result }
+        }
+        return { code: EC.REQUEST_ERROR, message: result?.reason || 'save-failed', data: result }
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
