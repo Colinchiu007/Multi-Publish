@@ -68,7 +68,12 @@ export function usePublishDrafts ({
       accounts: toPlainJson(selectedAccounts.value || {}),
       platformOverrides: toPlainJson(platformOverrides || {}),
     }
-    for (const field of ARTICLE_FIELDS) snapshot[field] = toPlainJson(article[field] || '')
+    // 与 applyDraft 对称：数组字段缺失/异常时保存 [] 而非 ''，防止未来新增数组字段漏配 ARRAY_FIELDS 时写回脏值
+    for (const field of ARTICLE_FIELDS) {
+      snapshot[field] = ARRAY_FIELDS.has(field)
+        ? (Array.isArray(article[field]) ? toPlainJson(article[field]) : [])
+        : toPlainJson(article[field] || '')
+    }
     return snapshot
   }
 

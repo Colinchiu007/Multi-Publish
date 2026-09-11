@@ -85,7 +85,8 @@
         </div>
         <div v-if="publishDone" class="publish-done">
           <span>{{ publishDoneText }}</span>
-          <button class="cohere-btn-primary" @click="goToDestination">{{ t('hotTopics.toPublish') }}</button>
+          <!-- 无成功草稿时隐藏去发布按钮，避免点击无反馈（审查 Warning：取消且零成功场景） -->
+          <button v-if="hasSuccessfulDrafts" class="cohere-btn-primary" @click="goToDestination">{{ t('hotTopics.toPublish') }}</button>
         </div>
       </div>
 
@@ -221,6 +222,11 @@ const publishDoneText = computed(() => {
   if (publishCancelled.value) return t('hotTopics.publishCancelled', { count: ok })
   return t('hotTopics.publishDone', { count: ok })
 })
+
+/** 是否有可发布的成功草稿（取消且零成功时隐藏去发布按钮） */
+const hasSuccessfulDrafts = computed(() =>
+  publishQueue.value.some(x => x.status === 'success' && x.draftId),
+)
 
 // ── 方法 ──
 function formatTime(ts) {
