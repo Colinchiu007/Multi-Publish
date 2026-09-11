@@ -153,6 +153,12 @@ function resolvePlatformArticle (task, platform) {
     }
     const loc = override.location ?? base.location
     if (loc && typeof loc === 'object' && loc.uid) resolved.location = loc
+    // UI 侧 locationName（手输位置名）→ 转为 adapter 消费的 location 对象（uid 用名称占位，
+    // adapter 侧 uid 存在即传 position_lat_lng；无真实 POI 坐标时这是最诚实的降级）
+    else {
+      const locationName = String(override.locationName ?? base.locationName ?? '').trim()
+      if (locationName) resolved.location = { uid: 'manual-' + locationName, name: locationName }
+    }
   }
   return resolved
 }

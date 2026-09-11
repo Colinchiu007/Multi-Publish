@@ -165,6 +165,21 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(a2.privacy).toBeUndefined()
   })
 
+  it("baijiahao locationName 手输位置转换为 location 对象", () => {
+    const a = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { baijiahao: { locationName: "北京·三里屯" } } } },
+      "baijiahao",
+    )
+    expect(a.location).toEqual({ uid: "manual-北京·三里屯", name: "北京·三里屯" })
+
+    // 完整 location 对象优先于 locationName
+    const b = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { baijiahao: { locationName: "手输", location: { uid: "poi-9", name: "POI" } } } } },
+      "baijiahao",
+    )
+    expect(b.location).toEqual({ uid: "poi-9", name: "POI" })
+  })
+
   it("缺少 cookie 时抛错", async () => {
     accountManager.loadSavedCredentials.mockReturnValueOnce(null)
     const r = new PublisherRouter()
