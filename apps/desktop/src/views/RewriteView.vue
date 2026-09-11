@@ -86,33 +86,21 @@
         </div>
 
         <!-- 策略选择（自动匹配默认 + 手动下拉，与 AiWriterPanel 行为一致） -->
-        <div class="config-row">
-          <label class="cohere-form-label">{{ t('rewritePage.strategyLabel') }}</label>
-          <div class="strategy-mode-row">
-            <label class="strategy-radio" :class="{ disabled: rewriting }">
-              <input type="radio" name="strategy-mode" value="auto" v-model="strategyMode" :disabled="rewriting" />
-              <span>{{ t('rewritePage.strategyAuto') }}</span>
-            </label>
-            <label class="strategy-radio" :class="{ disabled: rewriting }">
-              <input type="radio" name="strategy-mode" value="manual" v-model="strategyMode" :disabled="rewriting" />
-              <span>{{ t('rewritePage.strategyManual') }}</span>
-            </label>
-          </div>
-          <!-- 自动模式：发起前预览将匹配的策略（平台变化时刷新；失败降级为 --） -->
-          <div v-if="strategyMode === 'auto'" class="strategy-preview">
-            {{ t('rewritePage.strategyPreview') }}：{{ previewStrategyName }}
-          </div>
-          <!-- 手动模式：策略下拉（列表加载失败时仅占位项，改写仍可发起） -->
-          <select
-            v-if="strategyMode === 'manual'"
-            v-model="rewriteStrategyId"
-            class="cohere-input strategy-select"
-            :disabled="rewriting"
-          >
-            <option value="">{{ t('rewritePage.strategySelectPlaceholder') }}</option>
-            <option v-for="s in rewriteStrategies" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </div>
+        <RewriteStrategyPicker
+          v-model:strategy-mode="strategyMode"
+          v-model:strategy-id="rewriteStrategyId"
+          :strategies="rewriteStrategies"
+          :preview-name="previewStrategyName"
+          :disabled="rewriting"
+          :labels="{
+            label: t('rewritePage.strategyLabel'),
+            auto: t('rewritePage.strategyAuto'),
+            manual: t('rewritePage.strategyManual'),
+            preview: t('rewritePage.strategyPreview'),
+            placeholder: t('rewritePage.strategySelectPlaceholder'),
+          }"
+          @refresh-preview="refreshStrategyPreview"
+        />
 
         <!-- 改写按钮 -->
         <button
@@ -169,6 +157,7 @@ import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -461,10 +450,6 @@ function onPublishVideo(pipelineId) {
   margin-left: 24px;
 }
 
-.config-row {
-  margin-bottom: var(--space-sm);
-}
-
 .mode-chips {
   display: flex;
   gap: 8px;
@@ -493,34 +478,6 @@ function onPublishVideo(pipelineId) {
   max-width: 280px;
 }
 
-.strategy-mode-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 4px;
-}
-.strategy-radio {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  color: var(--text-primary);
-}
-.strategy-radio.disabled { opacity: 0.6; cursor: default; }
-.strategy-preview {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 4px 8px;
-  background: var(--soft-stone);
-  border-radius: 6px;
-}
-.strategy-select {
-  max-width: 280px;
-  margin-top: 4px;
-}
-
 .rewrite-start-btn {
   margin-top: var(--space-sm);
   padding: 10px 28px;
@@ -536,54 +493,5 @@ function onPublishVideo(pipelineId) {
   font-size: 12px;
   color: #d32f2f;
 }
-
-.rewrite-result-meta {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: var(--space-sm);
-  padding: 6px 10px;
-  background: var(--soft-stone);
-  border-radius: 6px;
-}
-.rewrite-result-meta span {
-  white-space: nowrap;
-}
-
-.result-textarea {
-  min-height: 200px;
-}
-
-.rewrite-result-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: var(--space-sm);
-}
-
-.cohere-btn-primary {
-  padding: 8px 20px;
-  background: var(--coral, #f56c6c);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: opacity 0.15s;
-}
-.cohere-btn-primary:disabled { opacity: 0.5; cursor: default; }
-
-.cohere-btn-secondary {
-  padding: 8px 20px;
-  background: var(--surface, #fff);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.cohere-btn-secondary:hover { border-color: var(--coral); }
 </style>
 
