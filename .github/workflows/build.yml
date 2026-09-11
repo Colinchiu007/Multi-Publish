@@ -30,9 +30,14 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    outputs:
+      package-relevant: ${{ steps.changes.outputs.package-relevant }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # merge-base diff 需要完整历史（Detect packaging-relevant changes）
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -44,6 +49,32 @@ jobs:
         with:
           node-version: '22'
           cache: 'pnpm'
+
+      # 打包相关性检测：PR 未触及主进程/依赖/打包配置时，跳过 30-60 分钟的
+      # Windows electron-builder 完整打包（QM-1 场景），快速检查照常执行。
+      # push(main/tag) 恒为打包相关，保证发布链路不变。
+      - name: Detect packaging-relevant changes
+        id: changes
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "package-relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE="${{ github.event.pull_request.base.sha }}"
+          # PR 同步后 base 可能落后于 main，用 merge-base 防止漏检
+          MERGE_BASE=$(git merge-base "$BASE" HEAD)
+          if git diff --name-only "$MERGE_BASE" HEAD -- \
+            'apps/desktop/electron/**' \
+            'apps/desktop/package.json' \
+            'packages/**' \
+            'config/**' \
+            'pnpm-lock.yaml' \
+            '.github/workflows/build.yml' | grep -q .; then
+            echo "package-relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "package-relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # 让安装包文件名与 tag 版本号保持一致
       # electron-builder 的 artifactName 模板用 package.json 的 version 字段
@@ -89,6 +120,7 @@ jobs:
 
       # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
       - name: Install Playwright chromium (bundled)
+        if: steps.changes.outputs.package-relevant == 'true'
         shell: bash
         run: |
           cd apps/desktop
@@ -96,13 +128,13 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers pnpm exec playwright install chromium
 
       - name: Build Electron app (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true'
         run: cd apps/desktop && pnpm exec electron-builder --win --x64 -p never
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
       - name: Upload Windows artifact
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Multi-Publish-Windows
@@ -143,7 +175,7 @@ jobs:
           retention-days: 14
 
       - name: Build Electron app (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.changes.outputs.package-relevant == 'true'
         run: cd apps/desktop && pnpm exec electron-builder --linux --x64 --dir
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
