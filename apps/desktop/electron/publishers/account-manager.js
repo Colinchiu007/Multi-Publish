@@ -10,6 +10,7 @@ const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
 const playwrightManager = require('../services/playwright-manager')
+const { checkLoginViaHttpApi, isHttpCheckSupported } = require('./http-login-checker')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
@@ -470,6 +471,18 @@ async function checkLoginStatus (platform, accountId) {
     if (cookies.length === 0 && COOKIE_REQUIRED_PLATFORMS.has(platform)) {
       log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + Object.keys(localStorageData).length)
       return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+    }
+
+    // HTTP API 快速路径（参考蚁小二 checkAccountAlive）：用保存的 Cookie 直接
+    // 调平台内部 API 判断登录态，不打开浏览器窗口。每次检测 <1s（浏览器方案
+    // 4-8s/平台）。网络错误/超时时返回 unknown，降级到浏览器窗口检测。
+    if (cookies.length > 0 && isHttpCheckSupported(platform)) {
+      const httpResult = await checkLoginViaHttpApi(platform, cookies)
+      if (httpResult.valid !== undefined) {
+        log.info('AccountManager', 'checkLoginStatus: HTTP_API fast-path ' + platform + ':' + accountId + ' valid=' + httpResult.valid + ' code=' + httpResult.code)
+        return { valid: httpResult.valid, code: httpResult.code }
+      }
+      log.info('AccountManager', 'checkLoginStatus: HTTP_API inconclusive ' + platform + ':' + accountId + ' → falling back to browser check')
     }
 
     log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))

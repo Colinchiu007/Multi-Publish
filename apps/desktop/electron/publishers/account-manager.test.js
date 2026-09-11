@@ -740,7 +740,9 @@ describe('account-manager — 捕获凭证持久化', () => {
 describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）', () => {
   it('waitForSelector 收到数组选择器时逐一尝试，匹配到任一个即返回 true', async () => {
     const playwrightPath = require.resolve('../services/playwright-manager')
+    const httpCheckerPath = require.resolve('./http-login-checker')
     const actualPlaywrightManager = require(playwrightPath)
+    const actualHttpChecker = require(httpCheckerPath)
     const page = {
       context: () => ({ addCookies: vi.fn() }),
       addInitScript: vi.fn().mockResolvedValue(undefined),
@@ -751,6 +753,8 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
     const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
     global.__registerMock(playwrightPath, { getContext })
+    // douyin 走 HTTP API 快速路径，mock 为不支持以走浏览器检测路径
+    global.__registerMock(httpCheckerPath, { isHttpCheckSupported: () => false, checkLoginViaHttpApi: vi.fn() })
 
     try {
       const accountManager = loadAccountManager()
@@ -770,6 +774,7 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
       expect(selectorArg).toEqual(['.user-info', '.account-info', '.creator-header'])
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
     }
   })
 
