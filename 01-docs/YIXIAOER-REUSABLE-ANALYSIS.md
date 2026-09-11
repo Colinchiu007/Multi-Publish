@@ -103,6 +103,36 @@ Multi-Publish 的 `packages/rpa-engine` 各平台 adapter 都涉及文件上传�
 
 蚁小二用私有标签 `<topic>`/`<friend>`/`<img>` 标记富文本内容，解析后通过占位符替换生成各平台的格式。Multi-Publish 用的是 Vue Quill，转平台格式时没有统一的中间层。可以对照参考它的 `Placeholder → PlatformFormat` 转换流水线。
 
+### 6. `zod` 数据校验统一入口
+
+蚁小二在 IPC 边界用 zod schema 统一校验入参，非法参数立即返回稳定错误合同，而不是让每个 handler 手写 `if (!arg)` 判断。Multi-Publish 的 `ipc-handlers/*` 目前是各 handler 分散手写校验，容易漏判、且错误返回格式不统一。
+
+```
+// 蚁小二模式
+const PublishSchema = z.object({
+  platform: z.string(),
+  content: z.object({ ... })
+})
+const result = PublishSchema.safeParse(args[0])
+if (!result.success) return { code: -1, message: result.error.issues[0].message }
+```
+
+### 7. 代理管理（`ProxyAgent` 工厂）
+
+蚁小二支持**每个标签页独立配置代理 IP**，通过 `createProxyAgent` 工厂统一生成 `httpAgent`/`httpsAgent`，并按平台分设 `createKuaiProxyAgent`（快手保留 Cookie 中的 `api_ph`）等专用工厂。Multi-Publish 已有 `account:set-proxy` 能力，但代理创建逻辑未集中成工厂层，各平台适配器各自拼 `proxyUrl`，结构不如蚁小二清晰。
+
+```
+// 蚁小二模式
+function createProxyAgent({ host, port, username, password, protocol = "http" }) {
+  const auth = username && password ? username + ":" + password + "@" : ""
+  const proxyUrl = protocol + "://" + auth + host + ":" + port
+  return {
+    httpAgent: new HttpProxyAgent(proxyUrl),
+    httpsAgent: new HttpsProxyAgent(proxyUrl)
+  }
+}
+```
+
 ---
 
 ## 四、蚁小二比 Multi-Publish 做得更好的地方
