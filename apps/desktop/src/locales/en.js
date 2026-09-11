@@ -1065,6 +1065,7 @@ export default {
     typeVideo: 'Video Publish',
     typeImage: 'Image & Text Publish',
     typeArticle: 'Article Publish',
+    typeArticleImage: 'Article & Image Publish',
     typeWechat: 'WeChat Official Account',
     // Single-publish flow notifications (usePublishFlow migration, 2026-08-30)
     publishFlow: {
@@ -1485,6 +1486,7 @@ export default {
     typeVideo: 'Video publish',
     typeImage: 'Image & text publish',
     typeArticle: 'Article publish',
+    typeArticleImage: 'Article & image publish',
     typeWechat: 'WeChat Official Account',
   },
   videoClone: {

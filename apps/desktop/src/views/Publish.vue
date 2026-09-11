@@ -556,16 +556,23 @@ const router = useRouter()
 const { t } = useI18n()
 const { notifySuccess, notifyWarning } = useNotify()
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
+// 2026-09 合并发布类型：image/wechat 为历史类型值，归一化为 article（向后兼容旧链接）。
+// 白名单只保留 video/article 两个真实入口。
+const LEGACY_PUBLISH_TYPES = { image: 'article', wechat: 'article' }
+const rawPublishType = () => String(route.query?.type || '').toLowerCase()
 const publishType = computed(() => {
-  const value = String(route.query?.type || '').toLowerCase()
-  return ['video', 'image', 'article', 'wechat'].includes(value) ? value : 'article'
+  const value = rawPublishType()
+  if (value === 'video') return 'video'
+  return LEGACY_PUBLISH_TYPES[value] || 'article'
 })
-const hasExplicitPublishType = computed(() => ['video', 'image', 'article', 'wechat'].includes(String(route.query?.type || '').toLowerCase()))
+// 仅当 query 携带有效类型值（含历史 image/wechat）时显示类型标签；无效值（如 ?type=foo）与缺省不显示。
+const hasExplicitPublishType = computed(() => {
+  const value = rawPublishType()
+  return value === 'video' || value === 'article' || LEGACY_PUBLISH_TYPES[value] !== undefined
+})
 const publishTypeLabel = computed(() => ({
   video: t('publishPage.typeVideo'),
-  image: t('publishPage.typeImage'),
-  article: t('publishPage.typeArticle'),
-  wechat: t('publishPage.typeWechat'),
+  article: t('publishPage.typeArticleImage'),
 }[publishType.value]))
 
 const activeMode = ref(publishType.value === 'video' ? 'video' : 'article')
