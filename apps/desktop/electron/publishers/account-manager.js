@@ -486,7 +486,16 @@ async function checkLoginStatus (platform, accountId) {
       // 检查 URL 是否跳离登录页
       const currentUrl = page.url()
 
-      // 如果选择器超时但 URL 已经跳离登录页，并且当前 URL 在仪表盘/创作者中心域名下，
+      // 登录页 URL 特征检查必须先于仪表盘域名兜底：
+      // 微信公众号等平台的登录页与后台同域（mp.weixin.qq.com/cgi-bin/loginpage
+      // 与 mp.weixin.qq.com/ 同 host），若先做域名兜底会恒真，把已登出账号
+      // 误判为已登录（公众号会话仅 24h，登出后 30 分钟定时检测也永远报 valid）。
+      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
+        log.info('AccountManager', 'checkLoginStatus: URL hit login/signin marker ' + platform + ':' + accountId + ' url=' + currentUrl)
+        return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
+      }
+
+      // 选择器超时但 URL 不含登录特征，且在仪表盘/创作者中心域名下，
       // 说明实际上已登录（平台选择器因 DOM 变更而过时，但 Cookie 有效）
       if (successSelector && !selectorMatched && dashboardUrl) {
         try {
@@ -496,10 +505,6 @@ async function checkLoginStatus (platform, accountId) {
             return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
           }
         } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
-      }
-
-      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
-        return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
       }
 
       return { valid: true, code: "CHECK_LOGIN_SUCCESS" }

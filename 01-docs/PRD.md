@@ -5014,6 +5014,7 @@ Vue 展示组件
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
+| v2.3.64 | 2026-09-11 | 账号管理页新增「一键检测」：批量检测全部账号登录状态（复用 accounts:batch-check-login IPC），检测期间全部卡片 verifying 态，完成后按结果更新本地 status/checkedExpiredIds 并汇总提示正常/失效数量，+4 回归测试 |
 | v2.3.63 | 2026-09-11 | 修复「已登录却提示失效」：checkLocalCredentials 增加 Electron session 分区 Cookie（persist:account-{accountId}）备选凭证检测，加密凭据文件缺失但浏览器登录态仍存时不再误报 expired + 登录状态判定全链路细粒度诊断日志 |
 | v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
 | v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐蚁小二）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
@@ -5552,6 +5553,7 @@ v1 修复（2026-09-04）的代码变更已正确合并到 main，但存在以�
 
 ### 交互逻辑
 - **验证按钮**：点击 → `accountCheckLogin` → 成功则 `notifySuccess`（"登录状态正常"），失败则 `notifyConfirm`（"登录已失效，是否重新登录？"）→ 确认后 `openLoginPage`（新标签页）
+- **一键检测按钮**（2026-09-11 v2.3.64 新增）：账号管理页工具栏 `account-command-bar` 中，位于「批量操作」左侧。点击 → `batchCheckAllLogins` → 调用 `accountBatchCheckLogin(全部账号 ID)`（主进程 `accounts:batch-check-login` IPC，串行逐账号 `checkLoginStatus`）→ 检测期间全部账号卡片进入 verifying 态（按钮显示「检测中…」并 disabled）→ 完成后按结果更新本地 `account.status`（valid→active / invalid→expired）与 `checkedExpiredIds`，并汇总提示：全部有效 `notifySuccess`（"检测完成：N 个账号登录状态全部正常"）；有失效 `notifyWarning`（"检测完成：X 个正常，Y 个失效"）。不弹逐账号确认框；失效账号由用户在卡片上单独点击「验证」走 relogin 流程。无账号时 `notifyWarning`（"暂无可检测的账号"）且不调用 IPC。IPC 失败时 `notifyError` 并复位 busy/verifying。
 - **去登录按钮**：已登录灰显"已登录"，未登录显示"去登录"→ 新标签页打开平台登录页
 - **卡片显示**：昵称（`account_name`）优先于平台名
 
