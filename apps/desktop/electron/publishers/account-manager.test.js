@@ -866,3 +866,29 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
   })
 })
+
+describe('checkLoginStatus 渲染崩溃平台降级', () => {
+  it('tencent_video 跳过浏览器检测，走本地凭证检查（E2E 回归：视频号页面崩溃带崩整个应用）', async () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'tencent_video',
+      cookies: [],
+      localStorage: { token: 'valid' },
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+    const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv')
+    expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' })
+  })
+
+  it('tencent_video 无本地凭证时返回 NO_CREDENTIAL', async () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+
+    const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-none')
+    expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' })
+  })
+})
