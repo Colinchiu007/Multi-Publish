@@ -444,8 +444,11 @@ async function checkLoginStatus (platform, accountId) {
       ? credentials.localStorage
       : {}
     if (!credentials || (cookies.length === 0 && Object.keys(localStorageData).length === 0)) {
+      log.info('AccountManager', 'checkLoginStatus: NO_CREDENTIAL ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length)
       return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
+
+    log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 
     // 创建临时 context 加载 Cookie 进行验证
     const browser = await playwrightManager.getContext({ show: false })
@@ -791,8 +794,17 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   const args = ownerSubject === undefined
     ? [accountId, userDataDir]
     : [accountId, userDataDir, ownerSubject]
-  if (!credentialStore.hasCredential(...args)) return false
-  return Boolean(loadSavedCredentials(accountId, platform, { ownerSubject }))
+  if (!credentialStore.hasCredential(...args)) {
+    log.info('AccountManager', 'checkLocalCredentials: no encrypted file for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
+    return false
+  }
+  const loaded = loadSavedCredentials(accountId, platform, { ownerSubject })
+  if (!loaded) {
+    log.info('AccountManager', 'checkLocalCredentials: file exists but loadSavedCredentials null for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
+    return false
+  }
+  log.info('AccountManager', 'checkLocalCredentials: OK ' + platform + ':' + accountId + ' cookies=' + (loaded.cookies ? loaded.cookies.length : 0) + ' lsKeys=' + Object.keys(loaded.localStorage || {}).length)
+  return true
 }
 
 /**
