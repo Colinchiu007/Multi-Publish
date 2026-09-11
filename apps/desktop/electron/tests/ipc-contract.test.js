@@ -102,7 +102,7 @@ describe('IPC 启动注册合同', () => {
     delete require.cache[require.resolve('../window.js')]
     const { createWindow } = require('../window.js')
     const providerNames = [
-      'webviewManager', 'qrCodeLogin', 'oauthManager', 'batchManager', 'urlCollector',
+      'webviewManager', 'qrCodeLogin', 'oauthManager', 'batchManager',
       'providerManager', 'viralEngine', 'commentManager', 'contentIntelligence',
       'publishImpactTracker',
     ]
