@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { i18n } from '@/i18n'
+import i18n from '@/i18n'
 import {
   onAccountStatusChanged,
   onAuthCompleted,
