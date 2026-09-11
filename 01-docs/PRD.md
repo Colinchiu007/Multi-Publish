@@ -5014,7 +5014,7 @@ Vue 展示组件
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
-| v2.3.64 | 2026-09-11 | 账号管理页新增「一键检测」：批量检测全部账号登录状态（复用 accounts:batch-check-login IPC），检测期间全部卡片 verifying 态，完成后按结果更新本地 status/checkedExpiredIds 并汇总提示正常/失效数量，+4 回归测试 |
+| v2.3.64 | 2026-09-11 | 账号管理页新增「一键检测」：批量检测全部账号登录状态（复用 accounts:batch-check-login IPC），检测期间全部卡片 verifying 态，完成后按结果更新本地 status/checkedExpiredIds 并汇总提示正常/失效数量，+4 回归测试。同批：公众号登录页同域误判修复（login URL 检查先于域名兜底）、账号浏览器标签「保存账号」按钮 + save-account-tab-credentials IPC、自动保存全局成功提示（autoSaved/autoSavedWithPlatform）、首页失效横幅订阅 auth:completed/account:status-changed 自动刷新 |
 | v2.3.63 | 2026-09-11 | 修复「已登录却提示失效」：checkLocalCredentials 增加 Electron session 分区 Cookie（persist:account-{accountId}）备选凭证检测，加密凭据文件缺失但浏览器登录态仍存时不再误报 expired + 登录状态判定全链路细粒度诊断日志 |
 | v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
 | v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐蚁小二）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
@@ -5556,6 +5556,28 @@ v1 修复（2026-09-04）的代码变更已正确合并到 main，但存在以�
 - **一键检测按钮**（2026-09-11 v2.3.64 新增）：账号管理页工具栏 `account-command-bar` 中，位于「批量操作」左侧。点击 → `batchCheckAllLogins` → 调用 `accountBatchCheckLogin(全部账号 ID)`（主进程 `accounts:batch-check-login` IPC，串行逐账号 `checkLoginStatus`）→ 检测期间全部账号卡片进入 verifying 态（按钮显示「检测中…」并 disabled）→ 完成后按结果更新本地 `account.status`（valid→active / invalid→expired）与 `checkedExpiredIds`，并汇总提示：全部有效 `notifySuccess`（"检测完成：N 个账号登录状态全部正常"）；有失效 `notifyWarning`（"检测完成：X 个正常，Y 个失效"）。不弹逐账号确认框；失效账号由用户在卡片上单独点击「验证」走 relogin 流程。无账号时 `notifyWarning`（"暂无可检测的账号"）且不调用 IPC。IPC 失败时 `notifyError` 并复位 busy/verifying。
 - **去登录按钮**：已登录灰显"已登录"，未登录显示"去登录"→ 新标签页打开平台登录页
 - **卡片显示**：昵称（`account_name`）优先于平台名
+
+### 凭证保存与自动刷新（2026-09-11 v2.3.64 补充）
+
+**「保存账号」按钮显示范围**：
+- 认证登录标签（`auth-view-manager` 打开的虚拟登录标签，`isLogin: true`）：导航栏右侧蓝色按钮（原有行为）
+- **账号浏览器标签（新增）**：首页批量登录/账号页「去登录」打开的普通浏览器标签（`accountId` 存在且非首页标签）同样显示该按钮。点击 → `page-manager:save-account-tab-credentials` IPC → 主进程提取该标签 session 分区的 Cookie + localStorage → `AccountManager.updateCapturedAccount` 覆盖已有账号凭证（重新登录语义，不创建新账号）→ 广播 `auth:completed` 事件 → 全局成功提示 + 相关页面自动刷新。
+
+**自动保存凭证**（原有行为确认）：
+- 认证流程（账号页「添加账号」/「去登录」）打开的登录视图由 `auth-view-manager` 双通道自动检测：CDP 检测（主）+ URL 特征检测（备用），命中后 3 秒自动提取凭证并保存，用户无需手动按按钮。
+- 手动「保存账号」按钮是兜底入口（自动检测未命中时使用）。
+
+**自动保存成功提示（新增）**：
+- `useAccountEvents.complete()` 在收到 `auth:completed` 事件时全局 `ElMessage.success`（"XX 登录凭证已自动保存"），无论用户当前停留在哪个页面（首页/账号管理页/其他模块）都能看到反馈。
+- i18n key：`accountsPage.autoSaved`（"登录凭证已自动保存"）/ `accountsPage.autoSavedWithPlatform`（"{platform} 登录凭证已自动保存"），zh/en 成对。
+- 保存失败提示：`accountsPage.saveAccountTabFailed`（"保存账号凭证失败，请重试"）/ `accountsPage.saveAccountTabNoCredential`（"未检测到登录凭证，请先在页面中完成登录"）。
+
+**账号管理页自动刷新**（原有行为确认）：
+- `Accounts.vue` 的 `useAccountEvents` 订阅 `auth:completed` → `onCompleted` → `refresh()`，凭证保存成功后账号列表自动刷新。
+
+**首页失效横幅自动刷新（新增）**：
+- `Home.vue` 订阅 `onAuthCompleted` + `onAccountStatusChanged` 事件 → `refreshExpiredAccounts()`（重算 `accountStore.load()` + 过滤 expired + 更新横幅显隐/计数），用户在首页即可看到失效账号数量实时变化，无需切页/重进。
+- 组件卸载时清理全部事件订阅。
 
 ### 提示文字
 | 场景 | 中文 | 英文 |

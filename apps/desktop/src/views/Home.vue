@@ -115,9 +115,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getApi } from '@/api/electron-bridge'
-import { accountBatchOpenLogin } from '@/api/publisher'
+import { accountBatchOpenLogin, onAuthCompleted, onAccountStatusChanged } from '@/api/publisher'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
@@ -213,7 +213,33 @@ async function handleBatchLogin() {
   }
 }
 
+/** 重算失效账号横幅数据（登录完成/账号状态变化后自动调用）。 */
+async function refreshExpiredAccounts () {
+  try {
+    await accountStore.load()
+    const expired = accountStore.accounts.filter(account => account.status === 'expired')
+    expiredAccounts.value = expired
+    expiredAccountCount.value = expired.length
+    showExpiredBanner.value = expired.length > 0
+  } catch (e) {
+    reportError('刷新首页失效账号失败', e)
+  }
+}
+
+// 登录完成（含自动凭证保存成功）与账号状态变化后，自动刷新失效横幅，
+// 用户无需手动切页/重进首页即可看到最新状态。
+const _cleanups = []
+function _subscribeAccountRefresh () {
+  for (const register of [onAuthCompleted, onAccountStatusChanged]) {
+    try {
+      const cleanup = register(() => { refreshExpiredAccounts() })
+      if (typeof cleanup === 'function') _cleanups.push(cleanup)
+    } catch (_) { /* Electron bridge 在纯浏览器环境不可用时保持静默 */ }
+  }
+}
+
 onMounted(async () => {
+  _subscribeAccountRefresh()
   try {
     platformStore.load()
     await accountStore.ensureLoaded()
@@ -240,6 +266,12 @@ onMounted(async () => {
     }
   } catch (e) {
     reportError('加载首页数据失败', e)
+  }
+})
+
+onUnmounted(() => {
+  for (const cleanup of _cleanups.splice(0)) {
+    try { cleanup() } catch (_) { /* ignore */ }
   }
 })
 </script>

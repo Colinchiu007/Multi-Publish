@@ -84,14 +84,43 @@ const accountActions = useAccountActions()
 const { t } = useI18n()
 
 // ── 登录标签（蚁小二式全屏登录视图）──
-const isLoginTab = computed(() => tabStore.activeTab?.isLogin === true)
+// 「保存账号」按钮显示条件：认证登录标签（isLogin）或账号浏览器标签（accountId，
+// 首页批量登录打开的普通标签，同样需要手动保存凭证入口）
+const isLoginTab = computed(() => {
+  const tab = tabStore.activeTab
+  return tab?.isLogin === true || (tab?.accountId != null && !tab.isHome)
+})
 const savingAccount = ref(false)
 
 async function onSaveAccount () {
   if (savingAccount.value) return
   savingAccount.value = true
   try {
-    const result = await accountActions.completeLogin('browser')
+    const tab = tabStore.activeTab
+    let result
+    if (tab?.isLogin === true) {
+      // 认证登录标签：走 auth-view-manager completeLogin（提取隔离视图凭证）
+      result = await accountActions.completeLogin('browser')
+    } else if (tab?.accountId != null) {
+      // 账号浏览器标签：提取该标签 session 分区凭证并回写加密凭证库
+      const api = (await import('@/api/electron-bridge')).getApi()
+      const saveResult = api?.pageManager?.saveAccountTabCredentials
+        ? await api.pageManager.saveAccountTabCredentials(tab.tabId)
+        : null
+      if (saveResult?.code === 0) {
+        result = { code: 0 }
+      } else {
+        const reason = saveResult?.message || saveResult?.data?.reason || ''
+        result = {
+          code: saveResult?.code ?? -1,
+          message: reason.includes('未检测到') || reason.includes('No login credentials')
+            ? t('accountsPage.saveAccountTabNoCredential')
+            : t('accountsPage.saveAccountTabFailed')
+        }
+      }
+    } else {
+      return
+    }
     if (result?.code !== 0) {
       ElMessage.error(formatUserError(result, { fallback: t('accounts.saveFailed') }).message)
     } else {
