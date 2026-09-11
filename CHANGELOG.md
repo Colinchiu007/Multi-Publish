@@ -1,3 +1,15 @@
+## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
+
+### 修复
+- `usePublishDrafts.js` `applyDraft`：草稿缺失的数组字段（images/image_files/tags/topics/mentions）回退为 `[]` 而非空字符串 `''`。原实现 `draft[field] || ''` 会把纯文字草稿（如热门选题生成的草稿）的 images 设为 `''`，触发 publish-contract 的「images 文件引用无效」校验，阻断一键发布（E2E 实测复现）。
+- `HotTopics.vue` 一键发布完成反馈：改写完成后进度区不再消失。原模板 `v-if="!publishing"` 在 publishing 复位时立即切回批量操作条，「改写完成，已生成 n 条草稿」提示和「去发布」按钮一闪而过。现在完成后保留进度区展示结果，新增「返回」按钮（backToBatch）重置状态回到批量操作条。
+
+### 验证
+- usePublishDrafts.test.js 6 passed（含 2 个新回归用例：缺失数组字段回退 []/有效数组保留）。
+- HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
+- usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
+- locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
+
 ## [未发布] feat(desktop): 「更多」菜单新增「热门选题」模块（2026-09-11）
 
 ### 新增

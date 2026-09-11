@@ -2456,6 +2456,7 @@ knowledgeBase: {
     publishDone: (ctx) => 'Done, ' + ctx.named('count') + ' drafts created',
     publishRetry: 'Retry',
     publishCancel: 'Cancel',
+    backToBatch: 'Back',
     channelUnavailable: 'Unavailable',
     loadFailed: 'Failed to fetch topics, please retry later',
   },
