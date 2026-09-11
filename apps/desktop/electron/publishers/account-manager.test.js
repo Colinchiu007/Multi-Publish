@@ -804,6 +804,38 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
   })
 
+  it('公众号登录页与后台同域：URL 含 login 特征必须判失效（回归：域名兜底先于 login 检查导致恒真）', async () => {
+    const playwrightPath = require.resolve('../services/playwright-manager')
+    const actualPlaywrightManager = require(playwrightPath)
+    const page = {
+      context: () => ({ addCookies: vi.fn() }),
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockRejectedValue(new Error('Timeout')),
+      close: vi.fn().mockResolvedValue(undefined),
+      // 公众号登出后的真实重定向：登录页与后台同 host（mp.weixin.qq.com）
+      url: vi.fn().mockReturnValue('https://mp.weixin.qq.com/cgi-bin/loginpage?t=login&lang=zh_CN'),
+    }
+    const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
+    global.__registerMock(playwrightPath, { getContext })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'wechat_mp',
+        cookies: [{ name: 'slave_sid', value: 'expired-24h', domain: '.weixin.qq.com' }],
+        localStorage: { token: 'stale' },
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      await expect(accountManager.checkLoginStatus('wechat_mp', 'acc-wx'))
+        .resolves.toMatchObject({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    } finally {
+      global.__registerMock(playwrightPath, actualPlaywrightManager)
+    }
+  })
+
   it('selector 超时 + URL 仍在 login 特征中 → 判定过期', async () => {
     const playwrightPath = require.resolve('../services/playwright-manager')
     const actualPlaywrightManager = require(playwrightPath)
