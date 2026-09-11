@@ -5014,6 +5014,7 @@ Vue 展示组件
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
+| v2.3.63 | 2026-09-11 | 修复「已登录却提示失效」：checkLocalCredentials 增加 Electron session 分区 Cookie（persist:account-{accountId}）备选凭证检测，加密凭据文件缺失但浏览器登录态仍存时不再误报 expired + 登录状态判定全链路细粒度诊断日志 |
 | v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
 | v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐蚁小二）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
 | v2.3.60 | 2026-08-27 | 桌面端会员中心页面（账号 / 版本许可证 / 会员权益 / 资源配额 / 关于）+ 左上角头像账号入口（未登录直接弹登录、已登录弹菜单、disabled fail-closed）、「更多」菜单与身份菜单新增会员中心入口、entitlement.quota 透传修复、视觉门禁与 CJK 基线同步 |
@@ -6402,7 +6403,9 @@ checkLogin 检测到失效后，通过 accountStore.accounts[accountIndex] = { .
 **账号列表返回（account.js `toPublicAccount`）**：
 1. 字段白名单过滤（publicAccountFields）
 2. 别名映射（copyPublicMetadataAliases）
-3. 调用 `AccountManager.checkLocalCredentials(platform, id)` 真实检测本地加密凭证
+3. 调用 `AccountManager.checkLocalCredentials(platform, id)` 双层检测：
+   - **主路径**：加密凭据文件（`credentials/owners/{sha256(sub)}/{accountId}.json.enc`）
+   - **备选路径**：Electron session 分区 Cookie（`Partitions/account-{accountId}/Network/Cookies`，文件存在且非空即视为有效）
 4. 无凭证时：`has_cookies=false`, `cookie_count=0`, `status=expired`
 5. 有凭证时：保留原有 status/is_active 语义
 
