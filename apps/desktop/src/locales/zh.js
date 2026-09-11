@@ -1066,6 +1066,7 @@ export default {
     typeVideo: '视频发布',
     typeImage: '图文发布',
     typeArticle: '文章发布',
+    typeArticleImage: '图文文章发布',
     typeWechat: '公众号',
     // 单篇发布流程通知（usePublishFlow 迁移，2026-08-30）
     publishFlow: {
@@ -1486,6 +1487,7 @@ export default {
     typeVideo: '视频发布',
     typeImage: '图文发布',
     typeArticle: '文章发布',
+    typeArticleImage: '图文文章发布',
     typeWechat: '公众号',
   },
   videoClone: {

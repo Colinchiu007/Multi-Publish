@@ -20,6 +20,20 @@
 - 真实渠道冒烟：7/7 渠道成功，137 条选题（各渠道 20 条）。
 - locale-sync --keys PASS（870 keys）；vite build 通过；eslint 0 error。
 
+## [未发布] refactor(publish): 合并发布类型入口——图文/文章/公众号三合一（2026-09-11）
+
+### 变更
+- `PublishTypeDialog.vue`：类型卡片 4→2（视频发布 + 图文文章发布）。合并入口平台集合取原 image ∪ article 并集去重（11 个平台）。
+- `Publish.vue`：`publishType` 白名单收敛为 `['video','article']`；`image`/`wechat` 作为历史值归一化为 `article`（旧链接 `?type=image|wechat` 向后兼容，不 404、不显示空标签）；`hasExplicitPublishType` 边界修复（无效 type 值不显示标签）。
+- locales（zh/en 成对）：新增 `typeArticleImage` 键；旧键 `typeImage`/`typeArticle`/`typeWechat` 保留不删。
+
+### 依据
+全链路追踪证实三个类型值在编辑器（都落 `activeMode='article'`）、IPC payload（不含 type）、主进程（按 platform 分发）、持久化（零存储）完全等价。原四入口为蚁小二 UI 对齐引入的纯展示性区分，选项数量与真实行为不一致。
+
+### 验证
+- 发布模块 108 测试通过（含新增：2 卡片断言、平台并集断言、image/wechat/article 归一化用例、无效 type 不显示标签用例）。
+- locale 三项检查（--cjk / --pair-base origin/main / --keys）全部 PASS。
+
 ## [未发布] fix(desktop): 修复采集页加载失败（2026-09-11）
 
 ### 修复
