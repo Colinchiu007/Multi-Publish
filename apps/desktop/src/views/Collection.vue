@@ -41,11 +41,15 @@
         <div v-if="collectError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
           {{ collectError.message }}
         </div>
+        <div v-if="videoCollectStage" data-testid="collection-video-stage" style="margin-top:8px;padding:6px 10px;background:#f0f7ff;border-radius:4px;font-size:12px;color:#1976d2">
+          {{ videoStageText(videoCollectStage) }}
+        </div>
         <div v-if="collectedResult" style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--soft-stone);border-radius:6px">
           <div style="font-weight:600;margin-bottom:4px">✅ {{ collectedResult.title || '无标题' }}</div>
           <div style="font-size:12px;color:var(--text-secondary)">
             {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
             <span v-if="collectedResult.coverImage"> · 有封面图</span>
+            <span v-if="collectedResult.mediaType === 'video'"> · 🎬 {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
           </div>
           <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
@@ -161,10 +165,14 @@
         <div class="cohere-card-grid">
           <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :style="{ borderLeft: item.id === collectedResult?.id ? '3px solid var(--primary)' : '' }">
             <div class="card-top">
-              <div class="card-icon">📰</div>
+              <div class="card-icon">{{ item.mediaType === 'video' ? '🎬' : '📰' }}</div>
               <div class="card-info">
                 <div class="card-platform">{{ item.title || '无标题' }}</div>
-                <div class="card-account">{{ item.source || 'url' }} · {{ item.wordCount || (item.content || '').length }}字</div>
+                <div class="card-account">
+                  {{ item.source || 'url' }} · {{ item.wordCount || (item.content || '').length }}字
+                  <template v-if="item.mediaType === 'video' && item.duration"> · {{ formatVideoDuration(item.duration) }}</template>
+                  <template v-if="item.mediaType === 'video' && item.platform && PLATFORM_KEYS.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
+                </div>
               </div>
             </div>
             <div class="card-actions">
@@ -239,10 +247,15 @@
       <div v-else class="cohere-card-grid">
         <div v-for="item in collectedItems" :key="item.id" class="cohere-card collection-record-card" role="button" tabindex="0" @click="openRecordForEdit(item)" @keyup.enter="openRecordForEdit(item)">
           <div class="card-top">
-            <div class="card-icon">📰</div>
+            <div class="card-icon">{{ item.mediaType === 'video' ? '🎬' : '📰' }}</div>
             <div class="card-info">
               <div class="card-platform">{{ item.title || $t('collection.recordsUntitled') }}</div>
-              <div class="card-account">{{ formatRecordSource(item) }} · {{ formatRecordWordCount(item) }} · {{ formatRecordTime(item) }}</div>
+              <div class="card-account">
+                {{ formatRecordSource(item) }} · {{ formatRecordWordCount(item) }}
+                <template v-if="item.mediaType === 'video' && item.duration"> · {{ formatVideoDuration(item.duration) }}</template>
+                <template v-if="item.mediaType === 'video' && item.platform && PLATFORM_KEYS.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
+                · {{ formatRecordTime(item) }}
+              </div>
             </div>
           </div>
           <div class="card-actions">
@@ -291,6 +304,7 @@ const rewriting = ref(false)
 const oneClickRewriting = ref(false)
 const collectedResult = ref(null)
 const collectError = ref(null)
+const videoCollectStage = ref('')  // 视频采集分阶段提示: probe/downloading/extracting/transcribing
 const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
 const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
@@ -435,6 +449,62 @@ const ERROR_CODES = {
   BACKEND_UNAVAILABLE: -5,
 }
 const RETRYABLE_CODES = new Set([-1, -2, -3, -5])
+// 抖音/小红书域名 → 视频采集通道（hostname 精确匹配，避免正则误判）
+const VIDEO_PLATFORM_DOMAINS = ['douyin.com', 'v.douyin.com', 'xiaohongshu.com', 'www.xiaohongshu.com', 'xhslink.com']
+function isVideoPlatformUrl (url) {
+  const u = String(url || '').trim()
+  try {
+    const parsed = new URL(u)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    return VIDEO_PLATFORM_DOMAINS.includes(host) || host.endsWith('.douyin.com') || host.endsWith('.xiaohongshu.com')
+  } catch { return false }
+}
+function formatVideoDuration (seconds) {
+  if (!seconds || seconds <= 0) return ''
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return m + ':' + String(s).padStart(2, '0')
+}
+const PLATFORM_KEYS = ['douyin', 'xiaohongshu']
+function platformLabel (platform) {
+  const key = { douyin: 'collection.platformDouyin', xiaohongshu: 'collection.platformXiaohongshu' }[platform]
+  if (key) return resolveNotifyText(key).text
+  return PLATFORM_KEYS.includes(platform) ? platform : (platform || '')
+}
+function videoStageText (stage) {
+  const map = {
+    probe: 'collection.videoStageProbe',
+    downloading: 'collection.videoStageDownloading',
+    extracting: 'collection.videoStageExtracting',
+    transcribing: 'collection.videoStageTranscribing',
+  }
+  const key = map[stage]
+  return key ? resolveNotifyText(key).text : ''
+}
+
+// 视频采集：按预估时间推进阶段提示（Phase 1 假进度，真实进度留待 Phase 2 任务轮询）
+let videoStageTimer = null
+function startVideoStageProgression () {
+  stopVideoStageProgression()
+  const stages = [
+    { stage: 'probe', ms: 5000 },
+    { stage: 'downloading', ms: 60000 },
+    { stage: 'extracting', ms: 10000 },
+    { stage: 'transcribing', ms: Infinity },
+  ]
+  let elapsed = 0
+  videoCollectStage.value = stages[0].stage
+  for (let i = 1; i < stages.length; i++) {
+    elapsed += stages[i - 1].ms
+    const next = stages[i].stage
+    videoStageTimer = setTimeout(() => { videoCollectStage.value = next }, elapsed)
+  }
+}
+function stopVideoStageProgression () {
+  if (videoStageTimer) { clearTimeout(videoStageTimer); videoStageTimer = null }
+  videoCollectStage.value = ''
+}
 
 // 检测采集结果是否为反爬安全验证页面（如百度家号返回「百度安全验证」标题）
 function isSecurityChallenge (res) {
@@ -460,6 +530,50 @@ async function collectUrl () {
   rewriteResult.value = ''
   collectError.value = null
   try {
+    // 抖音/小红书链接 → 视频采集通道（下载 + ASR 转写）
+    if (isVideoPlatformUrl(linkUrl.value.trim())) {
+      if (api && api.aggregationCollectVideo) {
+        startVideoStageProgression()
+        let res
+        try {
+          res = await api.aggregationCollectVideo({ url: linkUrl.value.trim() })
+        } finally {
+          stopVideoStageProgression()
+        }
+        if (res && res.code !== undefined && res.code !== 0) {
+          collectError.value = { code: res.code, message: res.message }
+          notifyError('collection.collectFailed', { message: formatUserError(res, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+          return
+        }
+        if (res && res.title) {
+          const item = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            title: res.title,
+            content: res.content || res.transcript || '',
+            description: (res.content || res.transcript || '').slice(0, 120),
+            source: collectSourceType.value,
+            sourceUrl: linkUrl.value,
+            wordCount: res.word_count || 0,
+            mediaType: res.media_type || 'video',
+            duration: res.duration || 0,
+            platform: (res.metadata && res.metadata.platform) || '',
+          }
+          collectedResult.value = item
+          addedToViral.value = false
+          collectedItems.value.unshift(item)
+          saveCollectedItems()
+          notifySuccess('collection.collectSuccess')
+          return
+        }
+        collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
+        notifyError('collection.collectFailed', { message: collectError.value.message })
+        return
+      }
+      // 视频通道不可用 → 不回退到图文采集（图文链路无法处理视频），直接提示
+      collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
+      notifyWarning('collection.collectUnavailable')
+      return
+    }
     // 优先走 Python aggregation API（content-aggregator v1 引擎）
     if (api && api.aggregationCollect) {
       let res = await api.aggregationCollect({

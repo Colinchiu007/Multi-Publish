@@ -5,6 +5,7 @@
  * 通过 pythonBridge.requestBackend 调用 Python 后端的 aggregation API。
  * 通道：
  *   aggregation:collect      → POST /aggregation/collect
+ *   aggregation:collect-video→ POST /aggregation/collect-video
  *   aggregation:collect-batch→ POST /aggregation/collect/batch
  *   aggregation:rewrite      → POST /aggregation/rewrite
  *   aggregation:sources      → GET  /aggregation/sources
@@ -17,6 +18,9 @@
  *   -3:  QUOTA_EXHAUSTED     LLM API 配额耗尽
  *   -4:  CONTENT_UNEXTRACTABLE  内容无法提取
  *   -5:  BACKEND_UNAVAILABLE    后端不可用
+ *   -6:  ASR_ENGINE_UNAVAILABLE 语音转写引擎不可用
+ *   -7:  TRANSCRIBE_TIMEOUT     转写超时
+ *   -8:  NO_AUDIO_TRACK         视频无音轨
  */
 
 /**
@@ -42,6 +46,15 @@ function classifyError(e, fallbackMsg) {
   if (msg.includes('无结果') || msg.includes('无法提取') || msg.includes('no content') ||
       msg.includes('empty') || status === 422) {
     return { code: -4, message: '无法提取内容，请检查链接是否有效' }
+  }
+  if (msg.includes('ASR_ENGINE_UNAVAILABLE') || msg.includes('语音转写引擎不可用') || msg.includes('faster-whisper')) {
+    return { code: -6, message: msg || '语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper' }
+  }
+  if (msg.includes('TRANSCRIBE_TIMEOUT') || msg.includes('转写超时')) {
+    return { code: -7, message: '转写超时，请尝试较短的短视频' }
+  }
+  if (msg.includes('NO_AUDIO_TRACK') || msg.includes('无音轨')) {
+    return { code: -8, message: '该视频无音轨，无法进行语音转写' }
   }
   if (msg.includes('ECONNRESET') || msg.includes('backend') || msg.includes('未安装') || status === 500) {
     return { code: -5, message: '后端服务不可用，请稍后重试' }
@@ -76,6 +89,17 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       logger.error('[aggregation] collect-batch failed:', e && e.message ? e.message : String(e))
       const err = classifyError(e, '批量采集失败')
+      return { code: err.code, message: err.message }
+    }
+  })
+
+  ipcMain.handle('aggregation:collect-video', async (_event, payload) => {
+    try {
+      // 视频管线（下载+ASR 转写）耗时可达数分钟，超时 600s
+      return await pythonBridge.requestBackend('POST', '/aggregation/collect-video', payload || {}, 600000)
+    } catch (e) {
+      logger.error('[aggregation] collect-video failed:', e && e.message ? e.message : String(e))
+      const err = classifyError(e, '视频采集失败')
       return { code: err.code, message: err.message }
     }
   })

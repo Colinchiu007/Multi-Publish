@@ -147,4 +147,61 @@ describe('aggregation IPC handlers', () => {
     expect(result.code).toBe(400)
     expect(result.message).toBe('采集失败')
   })
+
+  it('registers aggregation:collect-video channel', () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+    expect(ipcMain.handle).toHaveBeenCalledWith('aggregation:collect-video', expect.any(Function))
+  })
+
+  it('aggregation:collect-video calls pythonBridge with POST /aggregation/collect-video and 600s timeout', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({ media_type: 'video', transcript: '文案' }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'POST', '/aggregation/collect-video',
+      { url: 'https://v.douyin.com/abc/' }, 600000
+    )
+    expect(result.media_type).toBe('video')
+  })
+
+  it('aggregation:collect-video classifies ASR engine unavailable as -6', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockRejectedValue(new Error('ASR_ENGINE_UNAVAILABLE: 语音转写引擎不可用，请安装 faster-whisper')) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.code).toBe(-6)
+    expect(result.message).toContain('faster-whisper')
+  })
+
+  it('aggregation:collect-video classifies transcribe timeout as -7', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockRejectedValue(new Error('TRANSCRIBE_TIMEOUT: 转写超时')) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.code).toBe(-7)
+    expect(result.message).toContain('超时')
+  })
+
+  it('aggregation:collect-video classifies no audio track as -8', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockRejectedValue(new Error('NO_AUDIO_TRACK: 该视频无音轨')) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.code).toBe(-8)
+    expect(result.message).toContain('无音轨')
+  })
 })

@@ -285,6 +285,126 @@ describe("CollectionView", () => {
     expect(ElMessage.error).toHaveBeenCalled();
   });
 
+  it("collectUrl 抖音链接 → 走 aggregationCollectVideo 视频通道", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "抖音测试视频",
+        content: "这是口播文案",
+        transcript: "这是口播文案",
+        word_count: 6,
+        media_type: "video",
+        video_url: "https://v.douyin.com/abc/",
+        duration: 125.5,
+        metadata: { platform: "douyin", asr_engine: "faster_whisper" },
+      }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/abc123/";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://v.douyin.com/abc123/" });
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(w.vm.collectedResult).toBeTruthy();
+    expect(w.vm.collectedResult.mediaType).toBe("video");
+    expect(w.vm.collectedResult.content).toBe("这是口播文案");
+    expect(w.vm.collectedResult.duration).toBe(125.5);
+    expect(w.vm.collectedResult.platform).toBe("douyin");
+    expect(w.vm.collectedItems.length).toBe(1);
+  });
+
+  it("collectUrl 小红书链接 → 走视频通道", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "小红书视频", content: "文案", transcript: "文案", word_count: 2,
+        media_type: "video", duration: 60, metadata: { platform: "xiaohongshu" },
+      }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://xhslink.com/xyz";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://xhslink.com/xyz" });
+  });
+
+  it("collectUrl 普通网页链接 → 不走视频通道（回归保护）", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn().mockResolvedValue({ title: "文章", content: "正文", word_count: 2 }),
+      aggregationCollectVideo: vi.fn(),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://www.zhihu.com/question/123";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).not.toHaveBeenCalled();
+    expect(window.electronAPI.aggregationCollect).toHaveBeenCalled();
+  });
+
+  it("collectUrl 视频通道失败（-6 引擎不可用）→ 显示错误不回退图文", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -6, message: "语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/abc/";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(w.vm.collectError).toBeTruthy();
+    expect(w.vm.collectError.code).toBe(-6);
+    expect(w.vm.collectError.message).toContain("faster-whisper");
+  });
+
+  it("collectUrl 视频通道失败（-8 无音轨）→ 显示错误", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({ code: -8, message: "该视频无音轨，无法进行语音转写" }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://www.xiaohongshu.com/explore/x";
+    await w.vm.collectUrl();
+    expect(w.vm.collectError.code).toBe(-8);
+    expect(w.vm.collectError.message).toContain("无音轨");
+  });
+
+  it("collectUrl 视频通道不可用 → 提示且不回退图文采集", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      urlCollectFetch: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/abc/";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(window.electronAPI.urlCollectFetch).not.toHaveBeenCalled();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalled();
+  });
+
+  it("isVideoPlatformUrl 域名检测", async () => {
+    const w = mountCollection();
+    expect(w.vm.isVideoPlatformUrl("https://v.douyin.com/abc/")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.douyin.com/video/730")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.xiaohongshu.com/explore/x")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://xhslink.com/x")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.zhihu.com/question/1")).toBe(false);
+    expect(w.vm.isVideoPlatformUrl("https://example.com")).toBe(false);
+    expect(w.vm.isVideoPlatformUrl("not a url")).toBe(false);
+  });
+
+  it("formatVideoDuration 时长格式化", async () => {
+    const w = mountCollection();
+    expect(w.vm.formatVideoDuration(0)).toBe("");
+    expect(w.vm.formatVideoDuration(65)).toBe("1:05");
+    expect(w.vm.formatVideoDuration(185)).toBe("3:05");
+  });
+
   it("creates draft from collected result", async () => {
     window.electronAPI = { storeSetSetting: vi.fn() };
     const w = mountCollection();
