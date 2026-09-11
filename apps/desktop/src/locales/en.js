@@ -1065,6 +1065,7 @@ export default {
     typeVideo: 'Video Publish',
     typeImage: 'Image & Text Publish',
     typeArticle: 'Article Publish',
+    typeArticleImage: 'Article & Image Publish',
     typeWechat: 'WeChat Official Account',
     // Single-publish flow notifications (usePublishFlow migration, 2026-08-30)
     publishFlow: {
@@ -1485,6 +1486,7 @@ export default {
     typeVideo: 'Video publish',
     typeImage: 'Image & text publish',
     typeArticle: 'Article publish',
+    typeArticleImage: 'Article & image publish',
     typeWechat: 'WeChat Official Account',
   },
   videoClone: {
@@ -2405,6 +2407,12 @@ knowledgeBase: {
     modeExpand: 'Expand viral content',
     modeCreate: 'Topic creation',
     platformLabel: 'Target platform',
+    strategyLabel: 'Strategy',
+    strategyAuto: 'Auto match',
+    strategyManual: 'Manual select',
+    strategyPreview: 'Will match strategy',
+    strategyPreviewColon: ': ',
+    strategySelectPlaceholder: '-- Select strategy --',
     rewriteBtn: '🔄 Rewrite',
     rewritingBtn: 'Rewriting...',
     resultSection: 'Result',
@@ -2470,6 +2478,7 @@ knowledgeBase: {
     publishDone: (ctx) => 'Done, ' + ctx.named('count') + ' drafts created',
     publishRetry: 'Retry',
     publishCancel: 'Cancel',
+    backToBatch: 'Back',
     channelUnavailable: 'Unavailable',
     loadFailed: 'Failed to fetch topics, please retry later',
   },

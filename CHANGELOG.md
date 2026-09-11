@@ -1,3 +1,13 @@
+## [未发布] feat(collection): 采集失败错误提示细分 — 14 类原因 + 可操作建议（2026-09-12）
+
+### 新增
+- `collect-error.js`：采集错误分类器（纯函数），三层错误源（Python 聚合 / Node url-collector / 前端异常）归一化为 14 类 reason，每类含 retryable 标记。
+- locales zh/en 成对新增 `collection.collectErrors.*` 14 条文案，每条 = 具体原因 + 可操作建议（如安全验证类给出 3 步建议）。
+- `Collection.vue`：错误横幅按 reason 渲染细分文案；重试按钮按 retryable 显示（输入类错误不显示，避免无意义重试）。
+
+### 验证
+- Collection 53 + collect-error 33 + url-collector 23 全绿；locale-sync --keys PASS（871 keys）；eslint 0 error；vite build 通过。
+
 ## [未发布] fix(desktop): 修复采集回退层 IPC 断链 + 失败无日志双缺口（2026-09-11）
 
 ### 修复
@@ -17,7 +27,30 @@
 ### 验证
 - collection-engine 91 tests 全绿；url-collector 23 + window 52 + ipc-contract 6 全绿。
 - 全量 electron/ 6314 passed（1 个预存像素差异失败与本次无关，main 上同样失败）。
-- 真机 CDP 实测：修复前 reject "No handler registered"，修复后 resolve code -3（license 权益门禁，handler 已注册）。
+-- 真机 CDP 实测：修复前 reject "No handler registered"，修复后 resolve code -3（license 权益门禁，handler 已注册）。
+
+## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
+
+### 修复
+- `usePublishDrafts.js` `applyDraft`：草稿缺失的数组字段（images/image_files/tags/topics/mentions）回退为 `[]` 而非空字符串 `''`。原实现 `draft[field] || ''` 会把纯文字草稿（如热门选题生成的草稿）的 images 设为 `''`，触发 publish-contract 的「images 文件引用无效」校验，阻断一键发布（E2E 实测复现）。
+- `HotTopics.vue` 一键发布完成反馈：改写完成后进度区不再消失。原模板 `v-if="!publishing"` 在 publishing 复位时立即切回批量操作条，「改写完成，已生成 n 条草稿」提示和「去发布」按钮一闪而过。现在完成后保留进度区展示结果，新增「返回」按钮（backToBatch）重置状态回到批量操作条。
+
+### 验证
+- usePublishDrafts.test.js 6 passed（含 2 个新回归用例：缺失数组字段回退 []/有效数组保留）。
+- HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
+- usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
+- locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
+## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
+
+### 修复
+- `usePublishDrafts.js` `applyDraft`：草稿缺失的数组字段（images/image_files/tags/topics/mentions）回退为 `[]` 而非空字符串 `''`。原实现 `draft[field] || ''` 会把纯文字草稿（如热门选题生成的草稿）的 images 设为 `''`，触发 publish-contract 的「images 文件引用无效」校验，阻断一键发布（E2E 实测复现）。
+- `HotTopics.vue` 一键发布完成反馈：改写完成后进度区不再消失。原模板 `v-if="!publishing"` 在 publishing 复位时立即切回批量操作条，「改写完成，已生成 n 条草稿」提示和「去发布」按钮一闪而过。现在完成后保留进度区展示结果，新增「返回」按钮（backToBatch）重置状态回到批量操作条。
+
+### 验证
+- usePublishDrafts.test.js 6 passed（含 2 个新回归用例：缺失数组字段回退 []/有效数组保留）。
+- HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
+- usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
+- locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
 
 ## [未发布] feat(desktop): 「更多」菜单新增「热门选题」模块（2026-09-11）
 
@@ -40,6 +73,20 @@
 - RewriteView.test.js 16 passed（含 3 个新 topic query 用例）。
 - 真实渠道冒烟：7/7 渠道成功，137 条选题（各渠道 20 条）。
 - locale-sync --keys PASS（870 keys）；vite build 通过；eslint 0 error。
+
+## [未发布] refactor(publish): 合并发布类型入口——图文/文章/公众号三合一（2026-09-11）
+
+### 变更
+- `PublishTypeDialog.vue`：类型卡片 4→2（视频发布 + 图文文章发布）。合并入口平台集合取原 image ∪ article 并集去重（11 个平台）。
+- `Publish.vue`：`publishType` 白名单收敛为 `['video','article']`；`image`/`wechat` 作为历史值归一化为 `article`（旧链接 `?type=image|wechat` 向后兼容，不 404、不显示空标签）；`hasExplicitPublishType` 边界修复（无效 type 值不显示标签）。
+- locales（zh/en 成对）：新增 `typeArticleImage` 键；旧键 `typeImage`/`typeArticle`/`typeWechat` 保留不删。
+
+### 依据
+全链路追踪证实三个类型值在编辑器（都落 `activeMode='article'`）、IPC payload（不含 type）、主进程（按 platform 分发）、持久化（零存储）完全等价。原四入口为蚁小二 UI 对齐引入的纯展示性区分，选项数量与真实行为不一致。
+
+### 验证
+- 发布模块 108 测试通过（含新增：2 卡片断言、平台并集断言、image/wechat/article 归一化用例、无效 type 不显示标签用例）。
+- locale 三项检查（--cjk / --pair-base origin/main / --keys）全部 PASS。
 
 ## [未发布] fix(desktop): 修复采集页加载失败（2026-09-11）
 

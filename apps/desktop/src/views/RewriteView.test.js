@@ -12,17 +12,31 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/api/publisher', () => ({
-  aiRewrite: vi.fn().mockResolvedValue({
+  aiRewrite: vi.fn().mockImplementation(async (params) => ({
     code: 0,
     data: {
       success: true,
       result: '这是改写后的文案内容，用于测试。',
-      strategy: { id: 'test-strategy', name: '测试策略', category: 'viral' },
+      strategy: { id: params?.strategyId || 'auto-strategy', name: params?.strategyId === 'strategy-douyin-viral' ? '抖音爆款策略' : '测试策略', category: 'viral' },
       warnings: [],
       sensitiveHits: [],
-      metadata: { mode: 'create', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+      knowledgeRefs: [],
+      metadata: { mode: params?.mode, originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
     },
+  })),
+  aiListRewriteStrategies: vi.fn().mockResolvedValue({
+    code: 0,
+    data: [
+      { id: 'strategy-viral-storytelling', name: '爆款故事化策略', enabled: true },
+      { id: 'strategy-douyin-viral', name: '抖音爆款策略', enabled: true },
+    ],
   }),
+  aiGetRecommendedStrategies: vi.fn().mockImplementation(async (userSettings) => ({
+    code: 0,
+    data: userSettings?.platform === 'douyin'
+      ? [{ id: 'strategy-douyin-viral', name: '抖音爆款策略' }]
+      : [{ id: 'strategy-viral-storytelling', name: '爆款故事化策略' }],
+  })),
   draftSave: vi.fn().mockResolvedValue({ code: 0, data: true }),
   draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   storeGetSetting: vi.fn().mockResolvedValue(null),
@@ -273,5 +287,171 @@ describe('RewriteView — hot topics topic query', () => {
     await nextTick()
     await nextTick()
     expect(aiRewrite).not.toHaveBeenCalled()
+  })
+})
+
+describe('RewriteView — 策略选择与匹配预览', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+  })
+
+  it('renders strategy section with auto mode by default and no dropdown', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    // 默认「自动匹配」radio 选中
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    expect(radios.length).toBe(2)
+    expect(radios[0].element.checked).toBe(true)
+    // 默认不渲染策略下拉
+    expect(wrapper.find('select.strategy-select').exists()).toBe(false)
+  })
+
+  it('shows strategy dropdown when switching to manual mode', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[1].setValue('manual')
+    await nextTick()
+    const select = wrapper.find('select.strategy-select')
+    expect(select.exists()).toBe(true)
+    const options = select.findAll('option')
+    // 占位 + 2 个策略
+    expect(options.length).toBe(3)
+    expect(options[1].text()).toContain('爆款故事化策略')
+    expect(options[2].text()).toContain('抖音爆款策略')
+  })
+
+  it('previews auto-matched strategy name on mount', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    expect(aiGetRecommendedStrategies).toHaveBeenCalled()
+    expect(wrapper.find('.strategy-preview').text()).toContain('爆款故事化策略')
+  })
+
+  it('refreshes preview when platform changes', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('爆款故事化策略')
+    const select = wrapper.find('select.config-select')
+    await select.setValue('douyin')
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
+  })
+
+  it('degrades preview to placeholder when recommend IPC fails', async () => {
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    aiGetRecommendedStrategies.mockRejectedValueOnce(new Error('ipc down'))
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('--')
+  })
+
+  it('sends strategyId=null in auto mode', async () => {
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试自动模式传参。')
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+    expect(aiRewrite.mock.calls[0][0].strategyId).toBeNull()
+  })
+
+  it('sends selected strategyId in manual mode', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[1].setValue('manual')
+    await nextTick()
+    const select = wrapper.find('select.strategy-select')
+    await select.setValue('strategy-douyin-viral')
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试手动模式传参。')
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+    expect(aiRewrite.mock.calls[0][0].strategyId).toBe('strategy-douyin-viral')
+  })
+
+  it('sends null when manual mode has no strategy selected', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[1].setValue('manual')
+    await nextTick()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试手动未选策略。')
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    expect(aiRewrite.mock.calls[0][0].strategyId).toBeNull()
+  })
+
+  it('refreshes preview after rewrite completes (user history may change recommendations)', async () => {
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    aiGetRecommendedStrategies.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    // 挂载时第 1 次预览
+    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(1)
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写后预览刷新。')
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    // 改写结束后 finally 中再次刷新（第 2 次）
+    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops stale preview result when platform switches quickly (race guard)', async () => {
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    // 第一次调用（挂载，通用平台）慢返回，第二次（切抖音）快返回
+    let resolveFirst
+    aiGetRecommendedStrategies.mockImplementation(async (us) => {
+      if (!us?.platform) {
+        await new Promise((r) => { resolveFirst = r })
+        return { code: 0, data: [{ id: 's-general', name: '通用慢策略' }] }
+      }
+      return { code: 0, data: [{ id: 'strategy-douyin-viral', name: '抖音爆款策略' }] }
+    })
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    // 平台切换触发第二次（快）请求 → 显示抖音策略
+    await wrapper.find('select.config-select').setValue('douyin')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
+    // 慢的第一次请求现在才返回 → 应被序列号守卫丢弃，不覆盖抖音结果
+    resolveFirst()
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
+    expect(wrapper.find('.strategy-preview').text()).not.toContain('通用慢策略')
   })
 })

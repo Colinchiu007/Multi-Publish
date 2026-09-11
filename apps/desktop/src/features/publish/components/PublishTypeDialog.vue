@@ -69,11 +69,12 @@ const fallbackPlatforms = Object.entries(PLATFORM_NAMES).map(([id, label]) => ({
   icon: PLATFORM_ICONS[id] || '•',
 }))
 
+// 2026-09 合并发布类型：原 image（图文发布）/article（文章发布）/wechat（公众号）三个入口
+// 在编辑器、IPC payload、主进程链路完全等价（都落 activeMode='article'），合并为单一
+// "图文文章发布"入口；平台集合取原 image ∪ article 并集（去重）。video 保持独立。
 const typeDefinitions = [
   { value: 'video', labelKey: 'typeVideo', icon: '▶', tone: 'violet', ids: ['douyin', 'kuaishou', 'tencent_video', 'bilibili', 'youtube', 'tiktok', 'weibo', 'xiaohongshu', 'toutiao'] },
-  { value: 'image', labelKey: 'typeImage', icon: '▧', tone: 'blue', ids: ['douyin', 'xiaohongshu', 'weibo', 'zhihu', 'toutiao', 'baijiahao', 'wechat_mp', 'instagram', 'facebook'] },
-  { value: 'article', labelKey: 'typeArticle', icon: '▤', tone: 'pink', ids: ['wechat_mp', 'zhihu', 'baijiahao', 'toutiao', 'weibo', 'bilibili', 'instagram', 'twitter'] },
-  { value: 'wechat', labelKey: 'typeWechat', icon: '◉', tone: 'purple', ids: ['wechat_mp'] },
+  { value: 'article', labelKey: 'typeArticleImage', icon: '▤', tone: 'pink', ids: ['douyin', 'xiaohongshu', 'weibo', 'zhihu', 'toutiao', 'baijiahao', 'wechat_mp', 'instagram', 'facebook', 'bilibili', 'twitter'] },
 ]
 
 const availablePlatforms = computed(() => {

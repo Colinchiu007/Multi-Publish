@@ -236,6 +236,28 @@ describe("PublishView", () => {
     expect(w.vm.publishTypeLabel).toBe('视频发布')
     expect(w.text()).toContain('视频发布')
   })
+  it.each([
+    ['image', '图文文章发布'],
+    ['wechat', '图文文章发布'],
+    ['article', '图文文章发布'],
+  ])("旧类型 query 向后兼容归一化为图文文章发布", async (legacyType, expectedLabel) => {
+    await router.push('/?type=' + legacyType)
+    const w = await createWrapper()
+
+    expect(w.vm.publishType).toBe('article')
+    expect(w.vm.publishTypeLabel).toBe(expectedLabel)
+    expect(w.vm.activeMode).toBe('article')
+    expect(w.vm.hasExplicitPublishType).toBe(true)
+    expect(w.text()).toContain(expectedLabel)
+  })
+  it("无效类型 query 不显示类型标签且回落 article 编辑器", async () => {
+    await router.push('/?type=foo')
+    const w = await createWrapper()
+
+    expect(w.vm.publishType).toBe('article')
+    expect(w.vm.hasExplicitPublishType).toBe(false)
+    expect(w.vm.activeMode).toBe('article')
+  })
   it("历史视频跳转 query 双重编码时仍能解码出真实视频路径与文案", async () => {
     // 跳转方 encodeURIComponent + vue-router 序列化二次编码，URL 中是双重编码（如 %253A）
     const realPath = 'D:\\tmp\\Multi-Publish-debug-profile\\video.mp4'

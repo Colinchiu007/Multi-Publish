@@ -1066,6 +1066,7 @@ export default {
     typeVideo: '视频发布',
     typeImage: '图文发布',
     typeArticle: '文章发布',
+    typeArticleImage: '图文文章发布',
     typeWechat: '公众号',
     // 单篇发布流程通知（usePublishFlow 迁移，2026-08-30）
     publishFlow: {
@@ -1486,6 +1487,7 @@ export default {
     typeVideo: '视频发布',
     typeImage: '图文发布',
     typeArticle: '文章发布',
+    typeArticleImage: '图文文章发布',
     typeWechat: '公众号',
   },
   videoClone: {
@@ -2406,6 +2408,12 @@ knowledgeBase: {
     modeExpand: '扩写爆款',
     modeCreate: '选题创作',
     platformLabel: '目标平台',
+    strategyLabel: '策略选择',
+    strategyAuto: '自动匹配',
+    strategyManual: '手动选择',
+    strategyPreview: '将匹配策略',
+    strategyPreviewColon: '：',
+    strategySelectPlaceholder: '-- 选择策略 --',
     rewriteBtn: '🔄 开始改写',
     rewritingBtn: '改写中...',
     resultSection: '改写结果',
@@ -2471,6 +2479,7 @@ knowledgeBase: {
     publishDone: (ctx) => '改写完成，已生成 ' + ctx.named('count') + ' 条草稿',
     publishRetry: '重试',
     publishCancel: '取消',
+    backToBatch: '返回',
     channelUnavailable: '不可用',
     loadFailed: '选题获取失败，请稍后重试',
   },

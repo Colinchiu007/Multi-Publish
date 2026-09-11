@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import path from 'node:path'
 import {
   configureGraphics,
+  configureUserAgentFallback,
   configureUserDataPath,
   findSharedUserDataDir,
   getExplicitUserDataDir,
@@ -25,8 +27,8 @@ describe('startup compatibility', () => {
       fallback: false,
     })
     expect(app.setPath).toHaveBeenCalledWith('userData', 'C:/tmp/multi-publish-dev')
-    expect(app.setPath).toHaveBeenCalledWith('sessionData', 'C:/tmp/multi-publish-dev/session')
-    expect(app.setPath).toHaveBeenCalledWith('cache', 'C:/tmp/multi-publish-dev/cache')
+    expect(app.setPath).toHaveBeenCalledWith('sessionData', path.join('C:/tmp/multi-publish-dev', 'session'))
+    expect(app.setPath).toHaveBeenCalledWith('cache', path.join('C:/tmp/multi-publish-dev', 'cache'))
   })
 
   it('falls back to LOCALAPPDATA when the default userData path is not writable', () => {
@@ -51,13 +53,13 @@ describe('startup compatibility', () => {
     })
 
     expect(result).toMatchObject({
-      path: 'C:/Users/test/AppData/Local/Multi-Publish/user-data',
+      path: path.join('C:/Users/test/AppData/Local', 'Multi-Publish', 'user-data'),
       fallback: true,
       previousPath: 'C:/restricted/user-data',
     })
     expect(app.setPath).toHaveBeenCalledWith(
       'userData',
-      'C:/Users/test/AppData/Local/Multi-Publish/user-data',
+      path.join('C:/Users/test/AppData/Local', 'Multi-Publish', 'user-data'),
     )
   })
 
@@ -108,7 +110,7 @@ describe('shared-data anchor detection', () => {
     const sharedDir = `${repoRoot}/shared-user-data`
     const fsImpl = {
       constants: { W_OK: 2 },
-      existsSync: vi.fn((p) => p === `${sharedDir}/.shared-data-anchor`),
+      existsSync: vi.fn((p) => p === path.join(sharedDir, '.shared-data-anchor')),
       mkdirSync: vi.fn(),
       accessSync: vi.fn(),
     }
@@ -127,12 +129,12 @@ describe('shared-data anchor detection', () => {
     })
 
     expect(result).toMatchObject({
-      path: sharedDir,
+      path: path.join(repoRoot, 'shared-user-data'),
       shared: true,
       fallback: false,
       explicit: false,
     })
-    expect(app.setPath).toHaveBeenCalledWith('userData', sharedDir)
+    expect(app.setPath).toHaveBeenCalledWith('userData', path.join(repoRoot, 'shared-user-data'))
   })
 
   it('falls back to default when no anchor exists', () => {
@@ -182,18 +184,76 @@ describe('shared-data anchor detection', () => {
 
   it('findSharedUserDataDir walks up from nested directory', () => {
     const fsImpl = {
-      existsSync: vi.fn((p) => p === '/repo/shared-user-data/.shared-data-anchor'),
+      existsSync: vi.fn((p) => p === path.join('/repo', 'shared-user-data', '.shared-data-anchor')),
     }
     const result = findSharedUserDataDir(
       fsImpl,
       '/repo/apps/desktop/electron',
     )
-    expect(result).toBe('/repo/shared-user-data')
+    expect(result).toBe(path.join('/repo', 'shared-user-data'))
   })
 
   it('findSharedUserDataDir returns null when anchor not found', () => {
     const fsImpl = { existsSync: vi.fn(() => false) }
     const result = findSharedUserDataDir(fsImpl, '/deep/nested/path')
     expect(result).toBeNull()
+  })
+})
+
+describe('user-agent fallback sanitization', () => {
+  it('strips Electron and app name tokens from the default UA', () => {
+    const app = {
+      getPath: vi.fn(() => '/tmp/default-user-data'),
+      setPath: vi.fn(),
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Multi-Publish/1.2.3 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36',
+    }
+
+    const result = configureUserAgentFallback({ app })
+
+    expect(result).toEqual({
+      configured: true,
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.114 Safari/537.36',
+    })
+    expect(app.userAgentFallback).toBe(result.userAgent)
+  })
+
+  it('keeps the UA untouched when it carries no Electron markers', () => {
+    const plainUa = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
+    const app = { userAgent: plainUa }
+
+    const result = configureUserAgentFallback({ app })
+
+    expect(result).toEqual({ configured: false })
+    expect(app.userAgentFallback).toBeUndefined()
+  })
+
+  it('returns not-configured for a non-Electron-like app object', () => {
+    expect(configureUserAgentFallback({ app: null })).toEqual({ configured: false })
+    expect(configureUserAgentFallback({})).toEqual({ configured: false })
+    expect(configureUserAgentFallback({ app: {} })).toEqual({ configured: false })
+  })
+
+  it('never produces consecutive spaces when stripping tokens', () => {
+    const app = {
+      userAgent: 'Mozilla/5.0 Chrome/150.0.0.0 Electron/43.1.1 Multi-Publish/1.2.3 Safari/537.36',
+    }
+
+    const result = configureUserAgentFallback({ app })
+
+    expect(result.userAgent).toBe('Mozilla/5.0 Chrome/150.0.0.0 Safari/537.36')
+    expect(result.userAgent).not.toMatch(/\s\s/)
+  })
+
+  it('keeps Edge-family browser tokens when sanitizing', () => {
+    const app = {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0',
+    }
+
+    const result = configureUserAgentFallback({ app })
+
+    // 纯浏览器 UA（含 Edg token）不含 Electron 标记 → 不修改
+    expect(result.configured).toBe(false)
   })
 })

@@ -355,7 +355,7 @@ describe('PublishHistory', () => {
     await wrapper.get('[data-testid="new-publish"]').trigger('click')
     expect(wrapper.get('[data-testid="publish-type-dialog"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="publish-type-dialog-title"]').text()).toBe('选择发布类型')
-    expect(wrapper.findAll('[data-testid^="publish-type-card-"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-testid^="publish-type-card-"]')).toHaveLength(2)
   })
 
   it('加载失败时显示错误并允许重试', async () => {

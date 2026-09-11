@@ -5016,6 +5016,7 @@ Vue 展示组件
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
 | v2.3.65 | 2026-09-11 | E2E 真实环境修复：视频号（tencent_video）等渲染崩溃平台降级本地凭证检查——隐藏 sandbox 检测窗口加载 channels.weixin.qq.com 触发原生渲染崩溃导致整个应用退出，降级后一键检测不再崩溃（E2E 8 步全通过） |
 | v2.3.66 | 2026-09-11 | 一键检测体验优化：按钮实时显示「检测中 X/N：平台名」阶段性进度（主进程逐账号广播 accounts:batch-check-progress）+ 检测耗时 27.2s→8.3s（-70%）：goto 超时 15s→8s、SPA 固定等待 2s→500ms、选择器超时 10s→3s、头条/百家号无 Cookie 快速路径跳过注定未登录的浏览器检测 |
+| v2.3.67 | 2026-09-11 | HTTP API 登录检测（复用蚁小二逆向端点）：新增 http-login-checker.js，抖音（creator.douyin.com/aweme/v1/creator/pc/user/info/）和头条（mp.toutiao.com/mp/agw/media/get_media_info）用 Cookie 直接调平台 API 判断登录态，不打开浏览器窗口，<1s/平台；网络错误自动降级浏览器检测。checkLoginStatus 接入 tryHttpLoginCheck 快速路径 |
 | v2.3.64 | 2026-09-11 | 账号管理页新增「一键检测」：批量检测全部账号登录状态（复用 accounts:batch-check-login IPC），检测期间全部卡片 verifying 态，完成后按结果更新本地 status/checkedExpiredIds 并汇总提示正常/失效数量，+4 回归测试。同批：公众号登录页同域误判修复（login URL 检查先于域名兜底）、账号浏览器标签「保存账号」按钮 + save-account-tab-credentials IPC、自动保存全局成功提示（autoSaved/autoSavedWithPlatform）、首页失效横幅订阅 auth:completed/account:status-changed 自动刷新 |
 | v2.3.63 | 2026-09-11 | 修复「已登录却提示失效」：checkLocalCredentials 增加 Electron session 分区 Cookie（persist:account-{accountId}）备选凭证检测，加密凭据文件缺失但浏览器登录态仍存时不再误报 expired + 登录状态判定全链路细粒度诊断日志 |
 | v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
@@ -7190,3 +7191,81 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 
 - `packages/shared-utils/src/platform-definitions.js`（+2/-2，`AUTH_HOSTS` 和 `SUCCESS_PATTERNS` 各增 `member.bilibili.com`）
 - `packages/shared-utils/src/__tests__/platform-definitions.test.js`（+13，新增 Bilibili member 域测试用例）
+
+---
+
+## §N 发布类型入口合并（2026-09-11，v2.3.61）
+
+### 背景与决策
+
+"新建发布"类型选择弹窗原有 4 个入口：视频发布、图文发布、文章发布、公众号。全链路追踪证实：**图文发布（image）、文章发布（article）、公众号（wechat）三个类型值从选择那一刻起完全等价**：
+
+| 链路层 | 三类型行为 | 证据 |
+|--------|-----------|------|
+| 编辑器 | 全部落 `activeMode='article'` 同一分支 | Publish.vue `publishType.value === 'video' ? 'video' : 'article'` |
+| 表单/校验 | 共用同一套字段（标题/正文/图片/封面/标签），无类型条件分支 | Publish.vue 模板无 `publishType === 'image'/'wechat'` 判断 |
+| IPC payload | `buildArticleData()` 不含 type 字段 | usePublishFlow.js:197-219 |
+| 主进程 | 按 `task.platform` 分发，类型值不进入队列/执行器 | bootstrap.js executor 只读 platform |
+| 持久化 | 历史表无 type 列；草稿快照不含 type | store-schema.js / usePublishDrafts.js |
+
+三个入口给用户的差异化暗示（"我要发公众号"）在后续流程中完全没有兑现：选"公众号"进入编辑页后并不会预选微信公众号平台。这是蚁小二 UI 对齐时（commit e3e33af0，2026-08-04）引入的纯展示性区分。
+
+**决策**：选项数量与真实行为对齐优先于视觉对齐，三类合并为"图文文章发布"。蚁小二对齐度下降为有意的产品取舍。
+
+### 功能规格
+
+#### 入口结构（合并后）
+
+| 入口 | 类型值 | 平台集合 | 图标/色调 |
+|------|--------|---------|----------|
+| 视频发布 | `video` | douyin, kuaishou, tencent_video, bilibili, youtube, tiktok, weibo, xiaohongshu, toutiao | ▶ violet |
+| 图文文章发布 | `article` | douyin, xiaohongshu, weibo, zhihu, toutiao, baijiahao, wechat_mp, instagram, facebook, bilibili, twitter（原 image ∪ article 并集去重，11 个） | ▤ pink |
+
+#### 交互逻辑
+
+1. **入口展示**：发布历史页 →「新建发布」按钮 → 弹出类型选择弹窗，显示 2 张卡片。每张卡片显示图标、入口名、"支持平台 (N)"计数、平台图标（最多 7 个 + "+M" 溢出）。
+2. **选择行为**：点击卡片 → emit select(类型值) → 关闭弹窗 → 跳转 `/publish?type=<类型值>`。选择"图文文章发布"进入图文文章编辑器（与原 image/article/wechat 三入口完全相同的编辑体验）。
+3. **标题栏标签**：编辑页标题显示"一键发布 · 图文文章发布"（仅当 URL 携带有效类型值时；无 type 或无效 type 不显示标签）。
+4. **向后兼容**：旧链接 `?type=image` / `?type=wechat` 归一化为 `article`，页面正常渲染图文文章编辑器，标题栏显示"图文文章发布"（不显示空值或原始 query 值）。`?type=foo`（无效值）回落 article 编辑器但不显示类型标签。
+5. **视频入口**：行为与合并前完全一致，不受本次变更影响。
+
+#### 数据校验规则
+
+| 输入 | publishType 计算 | activeMode | 标题栏标签 |
+|------|-----------------|-----------|-----------|
+| `?type=video` | video | video | 视频发布 |
+| `?type=article` | article | article | 图文文章发布 |
+| `?type=image`（历史值） | article（归一化） | article | 图文文章发布 |
+| `?type=wechat`（历史值） | article（归一化） | article | 图文文章发布 |
+| `?type=foo`（无效） | article（回落） | article | 不显示 |
+| 无 type | article（默认） | article | 不显示 |
+| 大小写 `?type=VIDEO` | video（toLowerCase 归一） | video | 视频发布 |
+
+#### 显示项与提示文字
+
+- 弹窗标题：`选择发布类型`（publishType.title，zh）/ `Select publish type`（en）
+- 合并入口名：`图文文章发布`（publishPage.typeArticleImage + publishType.typeArticleImage，zh）/ `Article & Image Publish`（en）
+- 支持平台计数：`支持平台 (11)`（publishType.supportCount 带参）
+- 旧键 `typeImage`/`typeArticle`/`typeWechat` 保留于 locales（避免破坏潜在引用方），不再被入口引用
+
+#### 非影响范围（明确不变项）
+
+- 主进程 IPC、任务队列、RPA 执行器、发布历史存储：类型值从未进入这些层，零迁移
+- wechat_mp 平台的专属能力（草稿箱保存、massSend 群发、封面）：由 `platform === 'wechat_mp'` 触发，与入口类型无关，全部保留
+- 历史页 contentType 过滤（article/video/image 三值）：独立概念，不受影响
+- 批量发布、草稿、模板：不含类型值，不受影响
+
+### 回归保护
+
+- `PublishTypeDialog.test.js`：2 卡片断言 + 平台并集（11）断言 + 旧卡片不存在断言
+- `Publish.test.js`：`it.each` 覆盖 image/wechat/article 三值归一化 + 无效 type 不显示标签
+- `PublishHistory.test.js`：弹窗 2 卡片断言
+- locale 三项检查（--cjk / --pair-base / --keys）全部 PASS
+
+### 风险与缓解
+
+| 风险 | 等级 | 缓解 |
+|------|------|------|
+| 蚁小二 UI 对齐度下降（4→2 入口） | 中 | 有意的产品决策，文档留痕 |
+| 用户习惯旧入口找不到 | 低 | 合并入口覆盖原三入口全部平台；旧链接向后兼容 |
+| 旧键残留 locales | 低 | 保留不删，避免破坏未知引用方；后续清理另起任务 |

@@ -1,0 +1,16 @@
+{
+  "id": "fix-zhihu-login-10001",
+  "title": "知乎登录页获取短信验证码报 10001 — UA 净化修复 + startup-compat 测试逃逸修复",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已完成",
+  "createdAt": "2026-09-11T00:00:00Z",
+  "completedAt": "2026-09-11T13:57:06Z",
+  "branch": "codex/fix-zhihu-login-10001",
+  "pr": 1712,
+  "mergeCommit": "01f5e450afd6d613f02fedfb1219cd3d10126445",
+  "remoteStatus": "merged"
+}
