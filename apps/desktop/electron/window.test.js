@@ -343,6 +343,14 @@ describe('window — createWindow', () => {
     expect(context.oauthManager.registerIpcHandlers).toHaveBeenCalledTimes(1)
   })
 
+  it('调用 urlCollector.registerIpcHandlers（回归：35ae6224 误删导致 url-collect:fetch 无 handler）', () => {
+    // 35ae6224 从 IPC_REGISTRAR_NAMES 移除 urlCollector 时，phase5-ipc 侧注册
+    // 已在 71d0b85f 先行移除，两处都删后 'url-collect:fetch' 彻底无 handler，
+    // 采集回退层静默失败。此测试锁定 window.js 是 urlCollector 的唯一注册点。
+    createWindow(context)
+    expect(context.urlCollector.registerIpcHandlers).toHaveBeenCalledTimes(1)
+  })
+
   it('服务型 IPC 统一拒绝外部来源，并动态响应许可证升级', async () => {
     const originalPackaged = __electronMock.app.isPackaged
     let isPro = false

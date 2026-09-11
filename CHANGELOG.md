@@ -1,3 +1,45 @@
+## [未发布] feat(collection): 采集失败错误提示细分 — 14 类原因 + 可操作建议（2026-09-12）
+
+### 新增
+- `collect-error.js`：采集错误分类器（纯函数），三层错误源（Python 聚合 / Node url-collector / 前端异常）归一化为 14 类 reason，每类含 retryable 标记。
+- locales zh/en 成对新增 `collection.collectErrors.*` 14 条文案，每条 = 具体原因 + 可操作建议（如安全验证类给出 3 步建议）。
+- `Collection.vue`：错误横幅按 reason 渲染细分文案；重试按钮按 retryable 显示（输入类错误不显示，避免无意义重试）。
+
+### 验证
+- Collection 53 + collect-error 33 + url-collector 23 全绿；locale-sync --keys PASS（871 keys）；eslint 0 error；vite build 通过。
+
+## [未发布] fix(desktop): 修复采集回退层 IPC 断链 + 失败无日志双缺口（2026-09-11）
+
+### 修复
+- `window.js`：IPC_REGISTRAR_NAMES 恢复 urlCollector 注册。此前 71d0b85f 与 35ae6224 两次修复重复注册时互相删注册点，导致 `url-collect:fetch` 彻底无 handler，采集页回退层 invoke 直接 reject（用户表现为知乎链接「采集失败」）。
+- `url-collector.js`：`collect()` catch 分支补写应用日志（含 URL/platform/错误，结构化 meta）；此前 log 被 require 后从未使用，采集失败在 app-*.log 完全无痕。
+- `url-collector.js`：构造函数接受 auditDir 注入 + _normalizeAuditDir 路径规范化；AuditLogger 无目录时不再静默丢弃防护事件。
+- `logger.js`：新增 getLogsDir() 供采集审计日志复用 userData/logs 规则。
+
+### 安全（双模型审查修复）
+- `audit-logger.js`（collection-engine）：落盘前对 URL 敏感查询参数（token/secret/password/key/auth/credential/code）脱敏为 [REDACTED]；error 字符串内 key=value 同样脱敏；无敏感参数时保留原串避免 URL 往返副作用。
+- `audit-logger.js`：无目录时 log() 直接 return，防 buffer 无限增长（内存泄漏）。
+
+### 回归保护
+- url-collector.test.js：采集异常必须写 error 日志；auditDir 落盘/禁用/规范化/脱敏四类合同。
+- window.test.js + ipc-contract.test.js：urlCollector.registerIpcHandlers 必须被调用（锁定唯一注册点）。
+
+### 验证
+- collection-engine 91 tests 全绿；url-collector 23 + window 52 + ipc-contract 6 全绿。
+- 全量 electron/ 6314 passed（1 个预存像素差异失败与本次无关，main 上同样失败）。
+-- 真机 CDP 实测：修复前 reject "No handler registered"，修复后 resolve code -3（license 权益门禁，handler 已注册）。
+
+## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
+
+### 修复
+- `usePublishDrafts.js` `applyDraft`：草稿缺失的数组字段（images/image_files/tags/topics/mentions）回退为 `[]` 而非空字符串 `''`。原实现 `draft[field] || ''` 会把纯文字草稿（如热门选题生成的草稿）的 images 设为 `''`，触发 publish-contract 的「images 文件引用无效」校验，阻断一键发布（E2E 实测复现）。
+- `HotTopics.vue` 一键发布完成反馈：改写完成后进度区不再消失。原模板 `v-if="!publishing"` 在 publishing 复位时立即切回批量操作条，「改写完成，已生成 n 条草稿」提示和「去发布」按钮一闪而过。现在完成后保留进度区展示结果，新增「返回」按钮（backToBatch）重置状态回到批量操作条。
+
+### 验证
+- usePublishDrafts.test.js 6 passed（含 2 个新回归用例：缺失数组字段回退 []/有效数组保留）。
+- HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
+- usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
+- locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
 ## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
 
 ### 修复

@@ -285,6 +285,11 @@ const logger = {
       files: files.sort((a, b) => a.name.localeCompare(b.name)),
     }
   },
+
+  /** 当前日志目录（供其他模块复用同款 userData/logs 规则，如采集审计日志） */
+  getLogsDir() {
+    return logsDir || defaultLogsDir()
+  },
 }
 
 module.exports = logger
