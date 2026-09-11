@@ -253,4 +253,33 @@ describe('HotTopics.vue', () => {
     expect(aiRewrite).not.toHaveBeenCalled()
     expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(1)
   })
+
+  it('generate-video completes and navigates to result page with videoPath', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '完整流程文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-done-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: {
+      runId: 'run-done-1',
+      status: { status: 'completed', progress: 100, stages: [
+        { name: 'split', status: 'completed' }, { name: 'scene_context', status: 'completed' },
+        { name: 'optimize', status: 'completed' }, { name: 'select_video_scenes', status: 'skipped' },
+        { name: 'generate_assets', status: 'completed' }, { name: 'compose', status: 'completed' },
+        { name: 'publish', status: 'skipped' },
+      ] },
+      context: { compose: { data: { videoPath: 'D:/videos/out.mp4' } }, story2videoProject: { projectId: 'p1' } },
+    } })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+    await flushPromises()
+
+    expect(wrapper.vm.genVideoPhase).toBe('completed')
+    expect(wrapper.vm.genVideoModalOpen).toBe(false)
+    expect(pushSpy).toHaveBeenCalledWith({ path: '/create/result', query: { path: 'D:/videos/out.mp4', project: 'p1', runId: 'run-done-1' } })
+  })
 })
