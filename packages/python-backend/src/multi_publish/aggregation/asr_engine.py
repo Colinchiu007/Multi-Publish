@@ -61,6 +61,7 @@ class FasterWhisperEngine(AsrEngine):
 
     def __init__(self, model_size: str = "base"):
         self._model_size = model_size
+        self._model = None  # 懒加载 + 缓存：WhisperModel 冷启动 5-10s，重复转写必须复用
 
     def is_available(self) -> bool:
         try:
@@ -81,16 +82,7 @@ class FasterWhisperEngine(AsrEngine):
             raise AsrEngineError("engine_unavailable", self.install_hint())
 
         try:
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            compute_type = "float16" if device == "cuda" else "int8"
-        except ImportError:
-            device = "cpu"
-            compute_type = "int8"
-
-        try:
-            model = WhisperModel(self._model_size, device=device, compute_type=compute_type)
-            segments_iter, info = model.transcribe(
+            segments_iter, info = self._get_model().transcribe(
                 str(audio_path),
                 language=language,
                 word_timestamps=False,
@@ -114,6 +106,21 @@ class FasterWhisperEngine(AsrEngine):
             segments=segments,
             engine=self.name,
         )
+
+    def _get_model(self):
+        """懒加载并缓存 WhisperModel 实例（线程安全：CPython GIL 下竞态只导致重复加载，结果一致）。"""
+        if self._model is not None:
+            return self._model
+        from faster_whisper import WhisperModel
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            compute_type = "float16" if device == "cuda" else "int8"
+        except ImportError:
+            device = "cpu"
+            compute_type = "int8"
+        self._model = WhisperModel(self._model_size, device=device, compute_type=compute_type)
+        return self._model
 
 
 class SenseVoiceEngine(AsrEngine):

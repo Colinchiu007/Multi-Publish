@@ -448,7 +448,7 @@ const ERROR_CODES = {
   CONTENT_UNEXTRACTABLE: -4,
   BACKEND_UNAVAILABLE: -5,
 }
-const RETRYABLE_CODES = new Set([-1, -2, -3, -5])
+const RETRYABLE_CODES = new Set([-1, -2, -3, -5, -7])
 // 抖音/小红书域名 → 视频采集通道（hostname 精确匹配，避免正则误判）
 const VIDEO_PLATFORM_DOMAINS = ['douyin.com', 'v.douyin.com', 'xiaohongshu.com', 'www.xiaohongshu.com', 'xhslink.com']
 function isVideoPlatformUrl (url) {
@@ -462,8 +462,9 @@ function isVideoPlatformUrl (url) {
 }
 function formatVideoDuration (seconds) {
   if (!seconds || seconds <= 0) return ''
-  const m = Math.floor(seconds / 60)
-  const s = Math.round(seconds % 60)
+  const total = Math.floor(seconds)
+  const m = Math.floor(total / 60)
+  const s = total % 60
   return m + ':' + String(s).padStart(2, '0')
 }
 const PLATFORM_KEYS = ['douyin', 'xiaohongshu']
@@ -484,7 +485,7 @@ function videoStageText (stage) {
 }
 
 // 视频采集：按预估时间推进阶段提示（Phase 1 假进度，真实进度留待 Phase 2 任务轮询）
-let videoStageTimer = null
+let videoStageTimers = []
 function startVideoStageProgression () {
   stopVideoStageProgression()
   const stages = [
@@ -498,11 +499,12 @@ function startVideoStageProgression () {
   for (let i = 1; i < stages.length; i++) {
     elapsed += stages[i - 1].ms
     const next = stages[i].stage
-    videoStageTimer = setTimeout(() => { videoCollectStage.value = next }, elapsed)
+    videoStageTimers.push(setTimeout(() => { videoCollectStage.value = next }, elapsed))
   }
 }
 function stopVideoStageProgression () {
-  if (videoStageTimer) { clearTimeout(videoStageTimer); videoStageTimer = null }
+  videoStageTimers.forEach(t => clearTimeout(t))
+  videoStageTimers = []
   videoCollectStage.value = ''
 }
 
@@ -660,6 +662,71 @@ async function collectAndRewrite () {
   rewriteResult.value = ''
   collectedResult.value = null
   try {
+    // 抖音/小红书链接 → 视频采集通道（与 collectUrl 一致），转写文案作为改写输入
+    if (isVideoPlatformUrl(linkUrl.value.trim())) {
+      if (!api.aggregationCollectVideo) {
+        collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
+        notifyWarning('collection.collectUnavailable')
+        return
+      }
+      startVideoStageProgression()
+      let videoRes
+      try {
+        videoRes = await api.aggregationCollectVideo({ url: linkUrl.value.trim() })
+      } finally {
+        stopVideoStageProgression()
+      }
+      if (videoRes && videoRes.code !== undefined && videoRes.code !== 0) {
+        collectError.value = { code: videoRes.code, message: videoRes.message }
+        notifyError('collection.collectFailed', { message: formatUserError(videoRes, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+        return
+      }
+      if (videoRes && videoRes.title) {
+        const videoItem = {
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          title: videoRes.title,
+          content: videoRes.content || videoRes.transcript || '',
+          description: (videoRes.content || videoRes.transcript || '').slice(0, 120),
+          source: collectSourceType.value,
+          sourceUrl: linkUrl.value,
+          wordCount: videoRes.word_count || 0,
+          mediaType: videoRes.media_type || 'video',
+          duration: videoRes.duration || 0,
+          platform: (videoRes.metadata && videoRes.metadata.platform) || '',
+        }
+        collectedResult.value = videoItem
+        addedToViral.value = false
+        collectedItems.value.unshift(videoItem)
+        saveCollectedItems()
+        notifySuccess('collection.collectSuccess')
+        // Step 2: 用转写文案自动改写
+        collecting.value = false
+        rewriting.value = true
+        try {
+          const rewrite = await api.aggregationRewrite({
+            content: videoRes.content || videoRes.transcript || '',
+            style: rewriteStyle.value,
+            length: rewriteLength.value,
+          })
+          if (rewrite && rewrite.result_content) {
+            rewriteResult.value = rewrite.result_content
+            notifySuccess('collection.rewriteSuccess')
+          } else {
+            rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: (rewrite && rewrite.message) || '' }
+            notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + rewriteError.value.message })
+          }
+        } catch (e) {
+          rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
+          notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+        } finally {
+          rewriting.value = false
+        }
+        return
+      }
+      collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
+      notifyError('collection.collectFailed', { message: collectError.value.message })
+      return
+    }
     // Step 1: 采集
     let res = await api.aggregationCollect({
       url: linkUrl.value.trim(),

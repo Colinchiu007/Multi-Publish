@@ -11,9 +11,10 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 from .asr_engine import AsrEngineError, get_asr_engine
@@ -57,6 +58,22 @@ def detect_platform(url: str) -> str | None:
     return None
 
 
+def _is_private_address(host: str) -> bool:
+    """内网/回环地址检测（defense-in-depth：阻止 yt-dlp 探测本地服务）。"""
+    if host in ("localhost", "::1", "0.0.0.0") or host.startswith("127."):
+        return True
+    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
+        return True
+    if host.startswith("172."):
+        try:
+            first_octet = int(host.split(".")[1])
+            if 16 <= first_octet <= 31:
+                return True
+        except (IndexError, ValueError):
+            pass
+    return False
+
+
 def classify_download_error(text: str) -> tuple[str, str]:
     """yt-dlp stderr → (错误码, 中文提示)。与 video-clone-engine classifyDownloadError 语义一致。"""
     t = str(text or "")
@@ -66,7 +83,7 @@ def classify_download_error(text: str) -> tuple[str, str]:
         return "VIDEOCLONE_LINK_MEMBERSHIP", "该视频为会员专属内容，无法采集"
     if re.search(r"not available in your country|地区限制|geo-restricted", t, re.I):
         return "VIDEOCLONE_LINK_REGION", "该视频受地区限制，无法采集"
-    if re.search(r"captcha|风控|频控|bot|verify|验证", t, re.I):
+    if re.search(r"captcha|风控|频控|\bbot\b|verify|验证", t, re.I):
         return "VIDEOCLONE_LINK_ANTI_BOT", "该链接触发了平台风控，请稍后重试"
     if re.search(r"unavailable|video not found|deleted|不存在|已删除|404", t, re.I):
         return "VIDEOCLONE_LINK_UNAVAILABLE", "视频不可用或已删除，请检查链接"
@@ -105,12 +122,19 @@ class VideoCollectService:
 
     def collect_video(self, request: CollectVideoRequest) -> CollectResult:
         """同步执行完整管线（调用方用 asyncio.to_thread 包裹）。"""
-        url = request.url.strip()
+        url = request.url
         platform = detect_platform(url)
         if platform is None:
             raise VideoCollectError(
                 "VIDEOCLONE_INVALID_PLATFORM",
                 f"仅支持抖音/小红书视频链接，当前链接域名不受支持: {url}",
+            )
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+        if _is_private_address(host):
+            raise VideoCollectError(
+                "VIDEOCLONE_INVALID_PLATFORM",
+                "不支持内网地址链接",
             )
 
         engine = get_asr_engine(request.asr_engine)
@@ -235,14 +259,17 @@ class VideoCollectService:
             raise VideoCollectError("ASR_FAILED", f"音频提取失败: {(proc.stderr or '')[:200]}")
 
     def _transcribe_with_timeout(self, engine, audio_path: str):
-        """带超时的转写（在线程中执行，主线程等待）。"""
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(
-                asyncio.wait_for(loop.run_in_executor(None, engine.transcribe, audio_path), TRANSCRIBE_TIMEOUT_SEC)
-            )
-        finally:
-            loop.close()
+        """带超时的转写（线程池执行 + future.result 超时）。
+
+        注意：超时后底层转写线程无法被杀死（Python 线程特性），会继续运行至完成；
+        单用户桌面应用场景下资源泄漏影响有限，Phase 2 改用进程级隔离。
+        """
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(engine.transcribe, audio_path)
+            try:
+                return future.result(timeout=TRANSCRIBE_TIMEOUT_SEC)
+            except FutureTimeoutError:
+                raise asyncio.TimeoutError()
 
 
 def _fmt_duration(seconds: float) -> str:

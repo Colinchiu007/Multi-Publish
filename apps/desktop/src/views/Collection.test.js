@@ -398,6 +398,29 @@ describe("CollectionView", () => {
     expect(w.vm.isVideoPlatformUrl("not a url")).toBe(false);
   });
 
+  it("collectAndRewrite 抖音链接 → 走视频通道并用转写文案改写", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "抖音视频", content: "转写文案内容足够长可以改写", transcript: "转写文案内容足够长可以改写",
+        word_count: 13, media_type: "video", duration: 90, metadata: { platform: "douyin" },
+      }),
+      aggregationRewrite: vi.fn().mockResolvedValue({ result_content: "改写后的文案", word_count: 7 }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/abc/";
+    await w.vm.collectAndRewrite();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://v.douyin.com/abc/" });
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "转写文案内容足够长可以改写" })
+    );
+    expect(w.vm.collectedResult.mediaType).toBe("video");
+    expect(w.vm.rewriteResult).toBe("改写后的文案");
+  });
+
   it("formatVideoDuration 时长格式化", async () => {
     const w = mountCollection();
     expect(w.vm.formatVideoDuration(0)).toBe("");

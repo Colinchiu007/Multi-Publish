@@ -47,6 +47,9 @@ function classifyError(e, fallbackMsg) {
       msg.includes('empty') || status === 422) {
     return { code: -4, message: '无法提取内容，请检查链接是否有效' }
   }
+  if (msg.includes('ASR_EMPTY') || msg.includes('转写结果为空')) {
+    return { code: -99, message: '语音转写结果为空，该视频可能无清晰语音内容' }
+  }
   if (msg.includes('ASR_ENGINE_UNAVAILABLE') || msg.includes('语音转写引擎不可用') || msg.includes('faster-whisper')) {
     return { code: -6, message: msg || '语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper' }
   }
