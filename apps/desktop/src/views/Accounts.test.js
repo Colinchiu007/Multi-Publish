@@ -172,6 +172,7 @@ vi.mock("@/api/publisher", () => ({
   accountAdd: vi.fn().mockResolvedValue({ code: 0 }),
   accountDelete: vi.fn().mockResolvedValue({ code: 0 }),
   accountCheckLogin: vi.fn().mockResolvedValue({ code: 0, data: { valid: true } }),
+  accountBatchCheckLogin: vi.fn().mockResolvedValue({ code: 0, data: { results: [], checkedAt: "2026-09-11T00:00:00Z" } }),
   authOpenLogin: vi.fn().mockResolvedValue({ code: 0 }),
   authCompleteLogin: vi.fn().mockResolvedValue({ code: 0, data: true }),
   authOpenQrCodeLogin: vi.fn().mockResolvedValue({ code: 0 }),
@@ -225,6 +226,7 @@ describe("AccountsView", () => {
     publisher.accountAdd.mockResolvedValue({ code: 0 });
     publisher.accountDelete.mockResolvedValue({ code: 0 });
     publisher.accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: true } });
+    publisher.accountBatchCheckLogin.mockResolvedValue({ code: 0, data: { results: [], checkedAt: "2026-09-11T00:00:00Z" } });
     publisher.authOpenLogin.mockResolvedValue({ code: 0 });
     publisher.authCompleteLogin.mockResolvedValue({ code: 0, data: true });
     publisher.authOpenQrCodeLogin.mockResolvedValue({ code: 0 });
@@ -806,6 +808,93 @@ describe("AccountsView", () => {
     await w.vm.checkLogin({ platform: "douyin", id: "a1" });
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.error).toHaveBeenCalledWith("check failed");
+  });
+
+  it("batchCheckAllLogins 一键检测全部账号并按结果更新本地状态", async () => {
+    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "a1", platform: "douyin", valid: true, code: "CHECK_LOGIN_SUCCESS" },
+          { accountId: "a2", platform: "zhihu", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" },
+        ],
+        checkedAt: "2026-09-11T08:00:00Z",
+      },
+    });
+    _testAccounts.push(
+      { id: "a1", platform: "douyin", status: "expired", account_name: "抖音账号" },
+      { id: "a2", platform: "zhihu", status: "active", account_name: "知乎账号" },
+    );
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(accountBatchCheckLogin).toHaveBeenCalledWith(["a1", "a2"]);
+    // 本地状态按检测结果更新
+    const a1 = _testAccounts.find(a => a.id === "a1");
+    const a2 = _testAccounts.find(a => a.id === "a2");
+    expect(a1.status).toBe("active");
+    expect(a2.status).toBe("expired");
+    // checkedExpiredIds 同步
+    expect(w.vm.checkedExpiredIds.has("a2")).toBe(true);
+    expect(w.vm.checkedExpiredIds.has("a1")).toBe(false);
+    // busy 复位
+    expect(w.vm.batchCheckAllBusy).toBe(false);
+    // 有失效时提示汇总（warning）
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("1"));
+  });
+
+  it("batchCheckAllLogins 全部有效时提示全部正常", async () => {
+    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "b1", platform: "douyin", valid: true },
+          { accountId: "b2", platform: "zhihu", valid: true },
+        ],
+        checkedAt: "2026-09-11T08:00:00Z",
+      },
+    });
+    _testAccounts.push(
+      { id: "b1", platform: "douyin", status: "expired", account_name: "抖音" },
+      { id: "b2", platform: "zhihu", status: "active", account_name: "知乎" },
+    );
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(_testAccounts.find(a => a.id === "b1").status).toBe("active");
+    expect(_testAccounts.find(a => a.id === "b2").status).toBe("active");
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining("2"));
+  });
+
+  it("batchCheckAllLogins 无账号时提示且不调用 IPC", async () => {
+    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(accountBatchCheckLogin).not.toHaveBeenCalled();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalled();
+  });
+
+  it("batchCheckAllLogins IPC 失败时提示错误并复位 busy", async () => {
+    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockRejectedValue(new Error("batch check failed"));
+    _testAccounts.push({ id: "c1", platform: "douyin", status: "active", account_name: "抖音" });
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalled();
+    expect(w.vm.batchCheckAllBusy).toBe(false);
+    expect(w.vm.verifyingIds.size).toBe(0);
   });
 
   it("removeAccount confirms and deletes account", async () => {

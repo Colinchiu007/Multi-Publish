@@ -49,6 +49,14 @@
         <button type="button" data-testid="account-view-list" :aria-pressed="accountViewMode === 'list'" @click="accountViewMode = 'list'">☷</button>
       </div>
       <div class="account-command-bar" :aria-label="t('accountsPage.actionsAria')">
+        <button
+          class="page-button secondary"
+          type="button"
+          data-testid="account-batch-check-all"
+          :disabled="batchCheckAllBusy || totalAccounts === 0"
+          :title="t('accountsPage.batchCheckAll')"
+          @click="batchCheckAllLogins"
+        >{{ batchCheckAllBusy ? t('accountsPage.batchCheckAllBusy') : t('accountsPage.batchCheckAll') }}</button>
         <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">{{ t('accountsPage.batchAction') }}</button>
         <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />{{ t('accountsPage.addAccount') }}</button>
       </div>
@@ -259,6 +267,7 @@ import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialo
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
+import { accountBatchCheckLogin } from '@/api/publisher'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
@@ -313,6 +322,7 @@ const sharedOnly = ref(false)
 const searchInput = ref('')
 const platformSearchInput = ref('')
 const accountBatchMode = ref(false)
+const batchCheckAllBusy = ref(false)
 const verifyingIds = ref(new Set())
   /** 当前会话中被 checkLogin 确认失效的账号 ID */
   const checkedExpiredIds = ref(new Set())
@@ -806,6 +816,57 @@ async function checkLogin (account) {
     const next = new Set(verifyingIds.value)
     next.delete(id)
     verifyingIds.value = next
+  }
+}
+
+/**
+ * 一键检测所有账号的登录状态（对齐首页登录失效提醒区域的批量检测语义）。
+ * 调用主进程 accounts:batch-check-login（空数组 = 当前用户全部账号），
+ * 检测期间所有账号卡片进入 verifying 态；完成后按结果更新本地 status
+ * 并汇总提示正常/失效数量。不弹逐账号确认框，失效账号由用户在卡片上
+ * 单独点击「验证」走 relogin 流程。
+ */
+async function batchCheckAllLogins () {
+  if (batchCheckAllBusy.value) return
+  const accounts = accountStore.accounts || []
+  if (accounts.length === 0) {
+    notifyWarning('accountsPage.batchCheckAllNoAccounts')
+    return
+  }
+  batchCheckAllBusy.value = true
+  verifyingIds.value = new Set(accounts.map(a => a.id))
+  notifyInfo('accountsPage.batchCheckAllStarted', { params: { count: accounts.length } })
+  try {
+    const result = await accountBatchCheckLogin(accounts.map(a => a.id))
+    const results = result?.code === 0 ? result.data?.results : []
+    if (!Array.isArray(results)) throw new Error('invalid batch-check response')
+    let validCount = 0
+    const invalidIds = []
+    for (const item of results) {
+      if (!item?.accountId) continue
+      if (item.valid) {
+        validCount++
+        checkedExpiredIds.value.delete(item.accountId)
+      } else {
+        invalidIds.push(item.accountId)
+        checkedExpiredIds.value.add(item.accountId)
+      }
+      const account = accounts.find(a => a.id === item.accountId)
+      if (account) {
+        account.status = item.valid ? 'active' : 'expired'
+        account.last_validated = result.data?.checkedAt || new Date().toISOString()
+      }
+    }
+    if (invalidIds.length === 0) {
+      notifySuccess('accountsPage.batchCheckAllAllValid', { params: { count: validCount } })
+    } else {
+      notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length } })
+    }
+  } catch (error) {
+    notifyError('accountsPage.batchCheckAllFailed', { message: formatUserError(error, { fallback: t('accountsPage.batchCheckAllFailed') }).message })
+  } finally {
+    verifyingIds.value = new Set()
+    batchCheckAllBusy.value = false
   }
 }
 
