@@ -922,6 +922,19 @@ var require_aggregation = __commonJS({
   }
 });
 
+// electron/preload/hot-topics.js
+var require_hot_topics = __commonJS({
+  "electron/preload/hot-topics.js"(exports2, module2) {
+    function createHotTopicsApi2(ipcRenderer2) {
+      return {
+        hotTopicsFetch: (payload) => ipcRenderer2.invoke("hot-topics:fetch", payload),
+        hotTopicsGetCache: () => ipcRenderer2.invoke("hot-topics:get-cache")
+      };
+    }
+    module2.exports = { createHotTopicsApi: createHotTopicsApi2 };
+  }
+});
+
 // electron/preload/auto-pipeline.js
 var require_auto_pipeline = __commonJS({
   "electron/preload/auto-pipeline.js"(exports2, module2) {
@@ -1220,6 +1233,7 @@ var { createPageManagerApi } = require_page_manager();
 var { createVideoCloneApi } = require_video_clone();
 var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
+var { createHotTopicsApi } = require_hot_topics();
 var { createAutoPipelineApi } = require_auto_pipeline();
 var { createKnowledgeLibraryApi } = require_knowledge_library();
 var {
@@ -1260,6 +1274,7 @@ var fullApi = {
   ...createVideoCloneApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
+  ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）

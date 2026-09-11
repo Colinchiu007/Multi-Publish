@@ -13,8 +13,12 @@
  */
 function registerHandlers(ipcMain, deps) {
   const { hotTopicsService, log } = deps
-  if (!hotTopicsService) throw new Error('[hot-topics] deps.hotTopicsService is required')
   const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  // deps 缺失时 warn + 跳过注册（不中断其他模块的 IPC 注册链），调用方会拿到 invoke 超时/不存在
+  if (!hotTopicsService) {
+    logger.warn('[hot-topics] deps.hotTopicsService missing, skip channel registration')
+    return
+  }
 
   ipcMain.handle('hot-topics:fetch', async (_event, payload) => {
     try {

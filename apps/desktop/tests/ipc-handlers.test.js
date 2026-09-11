@@ -63,6 +63,11 @@ describe('IPC Handlers', () => {
         analyze: () => ({ recordCount: 0, averageOverall: 0, gradeDistribution: {}, dimensionAverages: [], problemCategories: [], promptPartDistribution: [], optimizationPoints: [], recommendations: [] }),
         dimensions: () => ({ image: [], video: [] }),
       },
+      // 热门选题聚合服务桩：验证通道注册
+      hotTopicsService: {
+        fetchTopics: async () => ({ topics: [], fetchedAt: 0, channelStats: {} }),
+        getCache: () => ({ topics: [], fetchedAt: 0, channelStats: {} }),
+      },
     })
   })
 

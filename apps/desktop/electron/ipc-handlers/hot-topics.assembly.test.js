@@ -13,10 +13,13 @@ describe('ipc-handlers assembly: hot-topics', () => {
     expect(typeof mod.default === 'function' || typeof mod === 'function').toBe(true)
   })
 
-  it('registerHandlers throws fail-fast when hotTopicsService missing', async () => {
+  it('registerHandlers warns and skips when hotTopicsService missing (does not break other modules)', async () => {
     const register = (await import('./hot-topics.js')).default || (await import('./hot-topics.js'))
     const fakeIpc = { handle: vi.fn() }
-    expect(() => register(fakeIpc, {})).toThrow(/hotTopicsService/)
+    const warned = []
+    register(fakeIpc, { log: { warn: (m) => warned.push(m) } })
+    expect(fakeIpc.handle).not.toHaveBeenCalled()
+    expect(warned.some(m => String(m).includes('hotTopicsService'))).toBe(true)
   })
 
   it('registerHandlers registers both channels when service present', async () => {
