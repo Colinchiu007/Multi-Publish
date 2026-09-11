@@ -79,6 +79,9 @@ function createAccountApi(ipcRenderer) {
     onAccountStatusChanged: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('account:status-changed', h); return () => ipcRenderer.removeListener('account:status-changed', h)
     },
+    onAccountsBatchCheckProgress: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('accounts:batch-check-progress', h); return () => ipcRenderer.removeListener('accounts:batch-check-progress', h)
+    },
 
     // OAuth 认证 API
     oauthStart: (opts) => ipcRenderer.invoke('oauth:start', opts),

@@ -289,6 +289,11 @@ var require_account = __commonJS({
           ipcRenderer2.on("account:status-changed", h);
           return () => ipcRenderer2.removeListener("account:status-changed", h);
         },
+        onAccountsBatchCheckProgress: (cb) => {
+          const h = (_, d) => cb(d);
+          ipcRenderer2.on("accounts:batch-check-progress", h);
+          return () => ipcRenderer2.removeListener("accounts:batch-check-progress", h);
+        },
         // OAuth 认证 API
         oauthStart: (opts) => ipcRenderer2.invoke("oauth:start", opts),
         oauthClose: () => ipcRenderer2.invoke("oauth:close"),

@@ -462,6 +462,16 @@ async function checkLoginStatus (platform, accountId) {
       return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
 
+    // 快速路径：已知「Cookie 必需」的平台在无 Cookie 时跳过浏览器窗口检测。
+    // 头条（toutiao）E2E 实测：无 Cookie 仍走浏览器检测耗时 19.2s，全部
+    // 浪费在加载注定未登录的页面上。这些平台登录态完全由 Cookie 维持，
+    // localStorage 单独不足以登录。知乎等 token 型平台不走此路径。
+    const COOKIE_REQUIRED_PLATFORMS = new Set(['toutiao', 'baijiahao'])
+    if (cookies.length === 0 && COOKIE_REQUIRED_PLATFORMS.has(platform)) {
+      log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + Object.keys(localStorageData).length)
+      return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+    }
+
     log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 
     // 创建临时 context 加载 Cookie 进行验证
@@ -475,19 +485,24 @@ async function checkLoginStatus (platform, accountId) {
         await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
       }
 
-      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速
-      // （networkidle 等待所有网络连接空闲，大型 SPA 页面可能耗时 30+ 秒）
-      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速。
+      // 15s→8s：登录检测只需要重定向链完成后的最终 URL 和基本 DOM，
+      // 不需要完整加载页面资源。B 站等重定向链长的平台 8s 足够。
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 8000 })
 
-      // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）。
+      // 2s→500ms：domcontentloaded 后 SPA 框架通常已挂载，选择器等待本身
+      // 有轮询重试，过长固定 sleep 是批量检测耗时主因（B 站 12.7s 中占 2s）。
+      await new Promise(resolve => setTimeout(resolve, 500))
 
       // 检查登录状态选择器（支持数组选择器：PLATFORM_LOGIN_SUCCESS_SELECTORS 配置
       // 每个平台多个备选 CSS 选择器，playwright-manager 的 waitForSelector 会逐一尝试）
       let selectorMatched = false
       if (successSelector) {
         try {
-          await page.waitForSelector(successSelector, { timeout: 10000 })
+          // 10s→3s：选择器不匹配时等满超时才降级 URL 检查，是批量检测
+          // 耗时主因（B 站选择器全部过时，10s 全浪费）。3s 足够 SPA 渲染。
+          await page.waitForSelector(successSelector, { timeout: 3000 })
           selectorMatched = true
           return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
         } catch {
