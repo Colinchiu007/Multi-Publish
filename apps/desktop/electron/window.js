@@ -28,6 +28,10 @@ const IPC_REGISTRAR_NAMES = [
   'qrCodeLogin',
   'oauthManager',
   'batchManager',
+  // 回归修复：35ae6224 修复重复注册时误删唯一注册点，导致 'url-collect:fetch'
+  // 无 handler（前端采集回退层静默失败）。71d0b85f 已移除 phase5-ipc 侧注册，
+  // 此处是唯一注册点；两处只可存在其一，重复注册会启动崩溃（R28）。
+  'urlCollector',
   'providerManager',
   'viralEngine',
   'commentManager',

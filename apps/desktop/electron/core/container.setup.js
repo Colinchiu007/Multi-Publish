@@ -193,7 +193,8 @@ function createContainer(options) {
       log: c.get("logger"),
     });
   });
-  container.register("urlCollector", function() { return new UrlCollector(); });
+  // auditDir 显式注入：AuditLogger 无目录时静默丢弃所有防护事件（回归：采集失败无日志）
+  container.register("urlCollector", function() { return new UrlCollector({ auditDir: require('../services/logger').getLogsDir() }); });
   // 热门选题聚合服务（多渠道热搜抓取 + 分类 + 缓存）
   container.register("hotTopicsService", function(c) {
     const { HotTopicsService } = require('../services/hot-topics-service');

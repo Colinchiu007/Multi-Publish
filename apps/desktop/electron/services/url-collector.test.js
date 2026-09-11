@@ -12,9 +12,62 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+// 先注册 logger mock 再 require 被测模块：url-collector.js 顶部 require('./logger')
+// 在模块加载时绑定，mock 必须在其之前注册才能命中（__registerMock 拦截 Module._load）。
+const loggerMock = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+__registerMock("./logger", loggerMock);
 
 const UrlCollector = require("./url-collector");
+
+// 回归保护：35ae6224 误删 urlCollector 唯一 IPC 注册点后，采集回退层静默失败且无日志。
+// 此 describe 锁定「失败必须留痕」合同：collect 失败路径必须写应用 logger。
+describe("UrlCollector 失败日志（回归：采集失败无日志）", () => {
+  let collector;
+  let logger = loggerMock;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const os = await import("os");
+    const path = await import("path");
+    // 显式注入审计目录，验证 AuditLogger 落盘合同
+    const auditDir = path.join(os.tmpdir(), "mp-collect-audit-test-" + Date.now());
+    collector = new UrlCollector({ auditDir });
+  });
+
+  it("浏览器采集异常时写 error 日志（含 URL 与错误信息）", async () => {
+    // _collectViaBrowser 抛错 → catch 分支必须写日志
+    collector._collectViaBrowser = vi.fn().mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
+    const result = await collector.collect("https://zhuanlan.zhihu.com/p/2081651053322421603");
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("采集失败");
+    expect(logger.error).toHaveBeenCalled();
+    const args = logger.error.mock.calls[0];
+    expect(String(args[0])).toContain("url-collect");
+    expect(JSON.stringify(args)).toContain("2081651053322421603");
+  });
+
+  it("HTTP 采集异常时写 error 日志", async () => {
+    collector._needsBrowser = () => false; // 强制走 HTTP 路径
+    collector._getAxios = () => ({ get: vi.fn().mockRejectedValue(new Error("timeout of 15000ms exceeded")) });
+    const result = await collector.collect("https://example.com/post/1");
+    expect(result.success).toBe(false);
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it("构造时注入 auditDir 后 AuditLogger 事件落盘 jsonl", async () => {
+    const os = await import("os");
+    const path = await import("path");
+    const fs = await import("fs");
+    collector._auditLogger.error("zhihu", "default", new Error("test-audit"), { url: "https://zhuanlan.zhihu.com/p/1" });
+    collector._auditLogger.flush();
+    const dir = collector._auditLogger._dir;
+    expect(dir).toBeTruthy();
+    const files = fs.readdirSync(dir).filter((f) => f.startsWith("collection-audit-"));
+    expect(files.length).toBeGreaterThan(0);
+    const content = fs.readFileSync(path.join(dir, files[0]), "utf8");
+    expect(content).toContain("test-audit");
+  });
+});
 
 function zhihuColumnHtml() {
   return `<html>
