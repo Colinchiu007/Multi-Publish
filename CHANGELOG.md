@@ -1,3 +1,24 @@
+## [未发布] fix(desktop): 修复采集回退层 IPC 断链 + 失败无日志双缺口（2026-09-11）
+
+### 修复
+- `window.js`：IPC_REGISTRAR_NAMES 恢复 urlCollector 注册。此前 71d0b85f 与 35ae6224 两次修复重复注册时互相删注册点，导致 `url-collect:fetch` 彻底无 handler，采集页回退层 invoke 直接 reject（用户表现为知乎链接「采集失败」）。
+- `url-collector.js`：`collect()` catch 分支补写应用日志（含 URL/platform/错误，结构化 meta）；此前 log 被 require 后从未使用，采集失败在 app-*.log 完全无痕。
+- `url-collector.js`：构造函数接受 auditDir 注入 + _normalizeAuditDir 路径规范化；AuditLogger 无目录时不再静默丢弃防护事件。
+- `logger.js`：新增 getLogsDir() 供采集审计日志复用 userData/logs 规则。
+
+### 安全（双模型审查修复）
+- `audit-logger.js`（collection-engine）：落盘前对 URL 敏感查询参数（token/secret/password/key/auth/credential/code）脱敏为 [REDACTED]；error 字符串内 key=value 同样脱敏；无敏感参数时保留原串避免 URL 往返副作用。
+- `audit-logger.js`：无目录时 log() 直接 return，防 buffer 无限增长（内存泄漏）。
+
+### 回归保护
+- url-collector.test.js：采集异常必须写 error 日志；auditDir 落盘/禁用/规范化/脱敏四类合同。
+- window.test.js + ipc-contract.test.js：urlCollector.registerIpcHandlers 必须被调用（锁定唯一注册点）。
+
+### 验证
+- collection-engine 91 tests 全绿；url-collector 23 + window 52 + ipc-contract 6 全绿。
+- 全量 electron/ 6314 passed（1 个预存像素差异失败与本次无关，main 上同样失败）。
+- 真机 CDP 实测：修复前 reject "No handler registered"，修复后 resolve code -3（license 权益门禁，handler 已注册）。
+
 ## [未发布] feat(desktop): 「更多」菜单新增「热门选题」模块（2026-09-11）
 
 ### 新增
