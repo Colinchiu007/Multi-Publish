@@ -805,5 +805,7 @@ Key routing rules:
 
 1. 收到用户请求后，Agent 必须先检查操作类型是否命中上表，命中则必须使用对应 FastCtx 工具。
 2. apply\_patch 仅用于语义级代码修改，不用于机械文本替换。
-3. 上表未覆盖的轻量操作（如查询 git status、npm 版本等单行命令）可继续使用 exec\_command。
+3. **零豁免**：禁止使用 exec\_command 执行任何 shell 命令——包括但不限于单行查询（git status、npm 版本、node -e、where/which 等）、只读命令、以及上表未覆盖的一切 shell 场景。所有 shell 命令一律走 mcp\_\_fastctx\_\_run；预计超过 2 分钟的走 mcp\_\_fastctx\_\_run\_\_background。
+4. **唯一例外**：确需 PTY 交互式会话（如启动开发服务器后持续观察输出、向运行中进程写 stdin）时，允许 exec\_command 创建会话并用 write\_stdin 轮询；除此之外不得使用 exec\_command 执行任何命令。
+5. **违规回退**：发现自己在 PowerShell 或内置 exec\_command 中执行了本应走 FastCtx 的操作时，必须立即中止，改用对应 FastCtx 工具重做，并以 FastCtx 的结果为准。
 
