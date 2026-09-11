@@ -14585,3 +14585,22 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **locales 旧键保留不删**：合并入口后旧 i18n 键（typeImage/typeWechat）可能有未知引用方，保留比删除安全；清理另起任务。
 - **平台集合合并用并集**：合并入口的支持平台列表 = 原各入口列表的并集（去重），保证不丢失任何原入口可达的平台。
 - **CJK 基线漂移是环境性的**：`check-locale-sync --cjk` 在无变更的 origin/main 上也可能报 FAIL（基线 1455 vs 当前 1458），需用 `--update-baseline` 重排并核对 diff 中无本任务相关新增。
+## 抖音/小红书视频 ASR 采集选型与管线复盘（codex/collect-douyin-xhs-asr，2026-09-12）
+
+- **背景**：采集页需要支持抖音/小红书视频作品链接采集，视频口播文案经 ASR 转写为文本素材。要求免费（线上或本地）方案。
+- **选型调研结论（2026-09 已核实）**：
+  - SenseVoice（FunASR llama.cpp GGUF）：中文 CER 8.01%（whisper.cpp 为 22-31%），Windows x64 预编译单二进制 + q8 模型 ~235MB，~20x 实时 CPU，商用免费——**质量最优但需验证二进制兼容性，Phase 2 接入**。
+  - faster-whisper：MIT、CPU int8 友好、项目已有 Transcriber 集成——**零新增成本，Phase 1 默认**。
+  - SiliconFlow SenseVoiceSmall API：国内可访问、¥0 免费——**在线兜底，Phase 2**。
+  - npm whisper 绑定包（whisper-node/smart-whisper 停更、nodejs-whisper Windows 需手动装 MinGW）与 Groq（国内不可直连）：明确不推荐。
+- **架构决策**：
+  - 新增独立 /collect-video 端点而非扩展 /collect：视频管线耗时/错误码/进度模型与图文完全不同，独立端点使现有链路零风险。
+  - yt-dlp --dump-json 做元数据探测而非浏览器自动化：不下载文件即可取时长（>10min 提前拒绝），复用 video-clone-engine 的 classifyDownloadError 错误语义。
+  - ASR 引擎放 Python sidecar + AsrEngine 抽象（transcribe/is_available/install_hint）：三引擎可切换，引擎缺失显式报错不自动降级（避免不可预期网络行为）。
+  - CollectResult 顶层增量可选字段（media_type/video_url/duration/transcript）而非嵌套对象：Pydantic 纯增量，旧数据自动兼容。
+- **踩坑**：
+  - locale CJK 基线按 file:line 存储，Collection.vue script 块行号偏移会触发全量假阳性——脚本设计如此（--update-baseline 显式更新），但更新前必须先做内容级 diff 确认无新增硬编码。
+  - heredoc 传中文给 codeagent-wrapper（opencode 后端）会被 GBK 双重编码损坏成乱码——改用 UTF-8 文件重定向输入。
+  - JS 正则经 apply_patch 传入会丢失反斜杠转义（\. 变 .）——复杂正则改用 new URL() hostname 精确匹配更可靠。
+  - Windows 下 /tmp 路径在 node -e 中解析为 D:\tmp 导致 ENOENT——临时文件用 $TEMP 环境变量。
+- **预防**：新增渲染端中文文案一律先写 locales（zh/en 成对）再引用；跨 shell 传中文任务用文件；正则域名匹配优先 URL 解析。

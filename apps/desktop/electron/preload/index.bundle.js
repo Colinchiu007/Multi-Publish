@@ -917,6 +917,7 @@ var require_aggregation = __commonJS({
     function createAggregationApi2(ipcRenderer2) {
       return {
         aggregationCollect: (payload) => ipcRenderer2.invoke("aggregation:collect", payload),
+        aggregationCollectVideo: (payload) => ipcRenderer2.invoke("aggregation:collect-video", payload),
         aggregationCollectBatch: (payload) => ipcRenderer2.invoke("aggregation:collect-batch", payload),
         aggregationRewrite: (payload) => ipcRenderer2.invoke("aggregation:rewrite", payload),
         aggregationSources: () => ipcRenderer2.invoke("aggregation:sources"),
