@@ -28,10 +28,13 @@ class UrlCollector {
    * @param {object} [opts]
    * @param {string} [opts.auditDir] - 审计日志目录（L7 AuditLogger 落盘位置）。
    *   不传时回退 logger 同款规则（userData/logs）；传 null 显式禁用落盘。
+   * @param {object} [opts.log] - 应用日志实例（info/warn/error）。默认模块级 logger；
+   *   测试注入用（vi.mock 无法拦截 CJS 模块内部的 require，依赖注入是唯一可靠方式）。
    */
   constructor (opts = {}) {
     this._axios = null
     this._stealthBrowser = null
+    this._log = opts.log || log
     // 防封八层防护核心组件（L0/L3/L5/L6/L7）
     this._strategy = new CollectionStrategy()
     this._rateLimiter = new RateLimiter()
@@ -169,7 +172,7 @@ class UrlCollector {
       this._auditLogger.error(platform, 'default', e, { url })
       // 回归保护：采集失败必须写应用日志（此前只写 AuditLogger，而 AuditLogger
       // 无目录时静默丢弃，导致「采集失败」在 app-*.log 里完全无痕）
-      log.error('url-collect', '采集失败', { url, platform, error: e && e.message ? e.message : String(e) })
+      this._log.error('url-collect', '采集失败', { url, platform, error: e && e.message ? e.message : String(e) })
       return { success: false, error: `采集失败: ${e.message}` }
     }
   }

@@ -12,18 +12,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// 先注册 logger mock 再 require 被测模块：url-collector.js 顶部 require('./logger')
-// 在模块加载时绑定，mock 必须在其之前注册才能命中（__registerMock 拦截 Module._load）。
-const loggerMock = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-__registerMock("./logger", loggerMock);
-
-const UrlCollector = require("./url-collector");
+const UrlCollector = (await import("./url-collector")).default;
 
 // 回归保护：35ae6224 误删 urlCollector 唯一 IPC 注册点后，采集回退层静默失败且无日志。
 // 此 describe 锁定「失败必须留痕」合同：collect 失败路径必须写应用 logger。
 describe("UrlCollector 失败日志（回归：采集失败无日志）", () => {
   let collector;
-  let logger = loggerMock;
+  let logger;
   let auditDir;
 
   beforeEach(async () => {
@@ -32,7 +27,9 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     const path = await import("path");
     // 显式注入审计目录，验证 AuditLogger 落盘合同
     auditDir = path.join(os.tmpdir(), "mp-collect-audit-test-" + Date.now());
-    collector = new UrlCollector({ auditDir });
+    // 依赖注入 logger（vi.mock 拦不住 CJS 模块内部的 require，构造注入是唯一可靠方式）
+    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    collector = new UrlCollector({ auditDir, log: logger });
   });
 
   afterEach(async () => {
@@ -43,6 +40,7 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
 
   it("浏览器采集异常时写 error 日志（含 URL 与错误信息）", async () => {
     // _collectViaBrowser 抛错 → catch 分支必须写日志
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
     collector._collectViaBrowser = vi.fn().mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
     const result = await collector.collect("https://zhuanlan.zhihu.com/p/2081651053322421603");
     expect(result.success).toBe(false);
@@ -54,6 +52,7 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
   });
 
   it("HTTP 采集异常时写 error 日志", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
     collector._needsBrowser = () => false; // 强制走 HTTP 路径
     collector._getAxios = () => ({ get: vi.fn().mockRejectedValue(new Error("timeout of 15000ms exceeded")) });
     const result = await collector.collect("https://example.com/post/1");
