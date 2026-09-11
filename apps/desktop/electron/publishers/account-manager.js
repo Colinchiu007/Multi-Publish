@@ -462,6 +462,16 @@ async function checkLoginStatus (platform, accountId) {
       return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
 
+    // 快速路径：已知「Cookie 必需」的平台在无 Cookie 时跳过浏览器窗口检测。
+    // 头条（toutiao）E2E 实测：无 Cookie 仍走浏览器检测耗时 19.2s，全部
+    // 浪费在加载注定未登录的页面上。这些平台登录态完全由 Cookie 维持，
+    // localStorage 单独不足以登录。知乎等 token 型平台不走此路径。
+    const COOKIE_REQUIRED_PLATFORMS = new Set(['toutiao', 'baijiahao'])
+    if (cookies.length === 0 && COOKIE_REQUIRED_PLATFORMS.has(platform)) {
+      log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + Object.keys(localStorageData).length)
+      return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+    }
+
     log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 
     // 创建临时 context 加载 Cookie 进行验证
