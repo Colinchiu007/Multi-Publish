@@ -6275,16 +6275,12 @@ export default {
       this.aiLoading = true
       try {
         const { aiGenerate, modelProviderGetDefault } = await import('@/api/publisher')
-        // P0-1 修复：type 用 'llm'（TYPE_TO_METHOD 契约），响应字段是 content 而非 text；
-        // provider 优先取用户默认 LLM（python-bridge 的 /api/ai/generate 是队列占位，null 会拿到 stub）
-        const def = await modelProviderGetDefault('llm')
-        const providerId = def?.code === 0 && def.data?.id ? def.data.id : null
+        const def = await modelProviderGetDefault('llm'), providerId = def?.code === 0 && def.data?.id ? def.data.id : null
         const r = await aiGenerate('llm', providerId, { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
-        if (r?.code === 0 && r.data?.content) this.quickText = r.data.content
+        if (r?.code === 0 && r.data?.content) this.quickText = r.data.content // P0-1: content 非 text
       } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.aiLoading = false
     },
-
     // Remotion 安装
     async installDeps() {
       this.installing = true; this.installLog = ''

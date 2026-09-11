@@ -13,7 +13,6 @@ export function onProgress(callback) { return bridgeOn("Progress", callback) }
 
 // ─── AI 写作 API ──────────────────────────
 export async function modelProviderIsConfigured(category) { return invokeWithFallback("modelProviderIsConfigured", { code: -1, data: false }, category) }
-
 export async function modelProviderGetDefault(category) { return invokeWithFallback("modelProviderGetDefault", { code: -1, data: null }, category) }
 
 export async function aiIsConfigured() { return invokeWithFallback("aiIsConfigured", { code: -1, data: false }) }
@@ -24,7 +23,6 @@ export async function aiEnhanceContent(content, style) { return invokeWithFallba
 
 export async function aiGenerateSummary(content) { return invokeWithFallback("aiGenerateSummary", { code: -1, data: "" }, content) }
 
-// AI 统一生成入口（ai:generate，type: llm/tts/image/video/audio）— CreateView 快速写稿等使用
 export async function aiGenerate(type, provider, params) { return invokeWithFallback("aiGenerate", { code: -1, message: 'electronAPI not available' }, type, provider, params) }
 
 // ─── 改写引擎 API（rewrite-engine）────────────────────
@@ -484,23 +482,14 @@ export async function submitFeedback(payload) {
 export async function videoProcess(type, params) {
   return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)
 }
-
-
-
 /**
  * 提取视频首帧作为封面
- * @param {string} videoPath - 视频文件路径
- * @returns {Promise<{code: number, data?: {coverPath: string}, message: string}>}
  */
 export function extractVideoCover(videoPath) {
   return window.electronAPI.extractVideoCover(videoPath)
 }
 
-/**
- * AI 生成封面（P2-2：复用 asset-generator 生图引擎）
- * @param {{ prompt: string, style?: string, ratio?: string }} payload
- * @returns {Promise<{code: number, data?: {coverPath: string}, message: string}>}
- */
+// AI 生成封面（P2-2：复用 asset-generator 生图引擎）
 export function generateAiCover(payload) {
   return window.electronAPI.generateAiCover(payload)
 }
