@@ -47,8 +47,8 @@
         </el-select>
       </div>
 
-      <!-- 批量操作条 / 发布进度区 -->
-      <div v-if="!publishing" class="batch-bar" data-testid="hot-topics-batch-bar">
+      <!-- 批量操作条 / 发布进度区（改写完成后保留进度区展示结果与去发布入口，直到用户返回） -->
+      <div v-if="!publishing && !publishDone" class="batch-bar" data-testid="hot-topics-batch-bar">
         <label class="select-all-label">
           <input type="checkbox" :checked="allFilteredSelected" @change="toggleSelectAll" />
           {{ allFilteredSelected ? t('hotTopics.deselectAll') : t('hotTopics.selectAll') }}
@@ -66,7 +66,8 @@
       <div v-else class="publish-progress" data-testid="hot-topics-publish-progress">
         <div class="progress-header">
           <span>{{ progressText }}</span>
-          <button class="cohere-btn-secondary" @click="cancelPublish">{{ t('hotTopics.publishCancel') }}</button>
+          <button v-if="!publishDone" class="cohere-btn-secondary" @click="cancelPublish">{{ t('hotTopics.publishCancel') }}</button>
+          <button v-else class="cohere-btn-secondary" @click="backToBatch">{{ t('hotTopics.backToBatch') }}</button>
         </div>
         <el-progress :percentage="progressPct" :stroke-width="10" />
         <div class="progress-items">
@@ -387,6 +388,14 @@ function cancelPublish() {
   publishing.value = false
   publishCancelled.value = true
   publishDone.value = true
+}
+
+/** 完成后返回批量操作条（重置发布状态，允许开始新一轮） */
+function backToBatch() {
+  publishDone.value = false
+  publishCancelled.value = false
+  publishQueue.value = []
+  selectedIds.value = new Set()
 }
 
 function goToDestination() {

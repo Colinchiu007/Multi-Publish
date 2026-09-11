@@ -130,4 +130,39 @@ describe('HotTopics.vue', () => {
     attached.unmount()
     el.remove()
   })
+
+  // ─── Bug 回归：改写完成后进度区不消失，完成提示与去发布按钮可见 ───
+  // E2E 2026-09-11 发现：publishing=false 时 v-if 切回批量条，
+  // 「改写完成，已生成 n 条草稿」和「去发布」按钮一闪而过用户看不到。
+  it('publish progress area stays visible after completion with done text and go-publish button', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '改写结果' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const attached = mount(HotTopics, {
+      attachTo: el,
+      global: { stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    attached.vm.selectedIds = new Set(mockTopics.map(x => x.id))
+    await attached.vm.$nextTick()
+    const publishBtn = attached.findAll('.batch-actions button').find(b => b.text().includes('publishBtn'))
+    await publishBtn.trigger('click')
+    const articleBtn = document.body.querySelector('[data-testid="publish-dest-article"]')
+    articleBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    // 完成后：批量条隐藏，进度区仍在，完成提示与去发布按钮可见
+    expect(attached.find('[data-testid="hot-topics-batch-bar"]').exists()).toBe(false)
+    expect(attached.find('.publish-progress').exists()).toBe(true)
+    expect(attached.find('.publish-done').exists()).toBe(true)
+    expect(attached.text()).toContain('publishDone')
+    // 点返回 → 回到批量条
+    const backBtn = attached.findAll('button').find(b => b.text().includes('backToBatch'))
+    await backBtn.trigger('click')
+    expect(attached.find('[data-testid="hot-topics-batch-bar"]').exists()).toBe(true)
+    expect(attached.find('.publish-progress').exists()).toBe(false)
+    attached.unmount()
+    el.remove()
+  })
 })

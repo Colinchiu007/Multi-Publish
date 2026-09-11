@@ -110,6 +110,46 @@ describe('usePublishDrafts', () => {
     expect(platformOverrides).toEqual({ wechat_mp: { title: '新微信标题', content: '' } })
   })
 
+  // ─── Bug 回归：缺失数组字段的草稿不得把 images 设为空字符串 ───
+  // E2E 2026-09-11 发现：热门选题等纯文字草稿无 images 字段，
+  // applyDraft 的 `draft[field] || ''` 把 images 设为 ''，
+  // 触发 publish-contract 的「images 文件引用无效」，阻断一键发布。
+  it('加载无 images 字段的草稿时数组字段保持空数组而非空字符串', async () => {
+    const drafts = createDrafts()
+    drafts.drafts.value = [{
+      id: 'draft-hot-topics',
+      title: '热门选题标题',
+      content: '热门选题内容',
+      // 故意缺失 images/image_files/tags/topics/mentions/publishTime
+    }]
+
+    await drafts.loadDraft('draft-hot-topics')
+
+    expect(article.title).toBe('热门选题标题')
+    expect(article.images).toEqual([])      // 不再是 ''
+    expect(article.image_files).toEqual([]) // 不再是 ''
+    expect(article.tags).toEqual([])        // 不再是 ''
+    expect(article.topics).toEqual([])      // 不再是 ''
+    expect(article.mentions).toEqual([])    // 不再是 ''
+    expect(article.publishTime).toBe('')    // 字符串字段仍为 ''
+  })
+
+  it('草稿带有效数组字段时正常保留', async () => {
+    const drafts = createDrafts()
+    drafts.drafts.value = [{
+      id: 'draft-with-images',
+      title: '有图草稿',
+      content: '内容',
+      images: ['D:/pic.png'],
+      tags: ['标签'],
+    }]
+
+    await drafts.loadDraft('draft-with-images')
+
+    expect(article.images).toEqual(['D:/pic.png'])
+    expect(article.tags).toEqual(['标签'])
+  })
+
   it('草稿 API 失败时显示错误且不抛出未处理异常', async () => {
     mockDraftList.mockRejectedValueOnce(new Error('读取失败'))
     mockDraftSave.mockResolvedValueOnce({ code: -1, message: '保存失败' })

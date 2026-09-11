@@ -2457,6 +2457,7 @@ knowledgeBase: {
     publishDone: (ctx) => '改写完成，已生成 ' + ctx.named('count') + ' 条草稿',
     publishRetry: '重试',
     publishCancel: '取消',
+    backToBatch: '返回',
     channelUnavailable: '不可用',
     loadFailed: '选题获取失败，请稍后重试',
   },

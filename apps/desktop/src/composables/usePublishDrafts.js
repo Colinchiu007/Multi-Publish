@@ -23,6 +23,11 @@ const ARTICLE_FIELDS = [
   'publishTime',
 ]
 
+// 数组型字段：草稿缺失时必须回退为 [] 而非 ''。
+// 回退为 '' 会触发 publish-contract 的「images 文件引用无效」（E2E 2026-09-11 发现，
+// 热门选题等纯文字草稿被阻断一键发布）。
+const ARRAY_FIELDS = new Set(['images', 'image_files', 'tags', 'topics', 'mentions'])
+
 function toPlainJson (value) {
   return JSON.parse(JSON.stringify(value))
 }
@@ -69,7 +74,11 @@ export function usePublishDrafts ({
 
   function applyDraft (draft) {
     if (!draft || typeof draft !== 'object') return false
-    for (const field of ARTICLE_FIELDS) article[field] = draft[field] || ''
+    for (const field of ARTICLE_FIELDS) {
+      article[field] = ARRAY_FIELDS.has(field)
+        ? (Array.isArray(draft[field]) ? toPlainJson(draft[field]) : [])
+        : (draft[field] || '')
+    }
     selectedPlatforms.value = Array.isArray(draft.platforms)
       ? toPlainJson(draft.platforms)
       : []
