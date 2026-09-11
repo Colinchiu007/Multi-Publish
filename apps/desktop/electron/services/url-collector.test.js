@@ -24,14 +24,21 @@ const UrlCollector = require("./url-collector");
 describe("UrlCollector 失败日志（回归：采集失败无日志）", () => {
   let collector;
   let logger = loggerMock;
+  let auditDir;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     const os = await import("os");
     const path = await import("path");
     // 显式注入审计目录，验证 AuditLogger 落盘合同
-    const auditDir = path.join(os.tmpdir(), "mp-collect-audit-test-" + Date.now());
+    auditDir = path.join(os.tmpdir(), "mp-collect-audit-test-" + Date.now());
     collector = new UrlCollector({ auditDir });
+  });
+
+  afterEach(async () => {
+    // 审查 M4：测试临时目录自清理
+    const fs = await import("fs");
+    try { fs.rmSync(auditDir, { recursive: true, force: true }); } catch { /* 已清理 */ }
   });
 
   it("浏览器采集异常时写 error 日志（含 URL 与错误信息）", async () => {
@@ -66,6 +73,31 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     expect(files.length).toBeGreaterThan(0);
     const content = fs.readFileSync(path.join(dir, files[0]), "utf8");
     expect(content).toContain("test-audit");
+  });
+
+  it("auditDir 传 null 时禁用落盘且不缓冲（审查 M5：防内存泄漏）", () => {
+    const c = new UrlCollector({ auditDir: null });
+    expect(c._auditLogger._dir).toBe(null);
+    c._auditLogger.error("zhihu", "default", new Error("should-not-buffer"), { url: "https://example.com" });
+    expect(c._auditLogger._buffer.length).toBe(0);
+  });
+
+  it("auditDir 相对路径被规范化为绝对路径（审查 C2）", () => {
+    const c = new UrlCollector({ auditDir: "relative/audit-dir" });
+    expect(c._auditLogger._dir.includes("relative")).toBe(true);
+    expect(c._auditLogger._dir).toMatch(new RegExp("^[A-Za-z]:[\\\\/]|^/"));
+  });
+
+  it("AuditLogger 落盘时 URL 敏感参数被脱敏（审查 C1）", async () => {
+    const fs = await import("fs");
+    const pathMod = await import("path");
+    collector._auditLogger.request("zhihu", "default", "https://example.com/callback?code=OAUTH_SECRET&state=x", 200, 0);
+    collector._auditLogger.flush();
+    const files = fs.readdirSync(auditDir).filter((f) => f.startsWith("collection-audit-"));
+    const content = fs.readFileSync(pathMod.join(auditDir, files[0]), "utf8");
+    // URL.searchParams.set 会做百分号编码，[REDACTED] → %5BREDACTED%5D
+    expect(content.toLowerCase()).toContain("redacted");
+    expect(content).not.toContain("OAUTH_SECRET");
   });
 });
 

@@ -21,6 +21,7 @@ const {
   AuditLogger,
   HealthMonitor,
 } = require('@multi-publish/collection-engine')
+const path = require('path')
 
 class UrlCollector {
   /**
@@ -37,7 +38,7 @@ class UrlCollector {
     this._circuitBreaker = new CircuitBreaker()
     this._coolDownPool = new CoolDownPool()
     this._contentCache = new ContentCache()
-    this._auditLogger = new AuditLogger({ dir: this._resolveAuditDir(opts.auditDir) })
+    this._auditLogger = new AuditLogger({ dir: this._normalizeAuditDir(this._resolveAuditDir(opts.auditDir)) })
     this._healthMonitor = new HealthMonitor()
   }
 
@@ -52,6 +53,15 @@ class UrlCollector {
       if (typeof log.getLogsDir === 'function') return log.getLogsDir()
     } catch { /* fallthrough */ }
     return null
+  }
+
+  /**
+   * 规范化审计目录（审查 C2）：绝对路径化，拒绝空串。
+   * @param {string} dir
+   */
+  _normalizeAuditDir (dir) {
+    if (typeof dir !== 'string' || !dir.trim()) return null
+    return path.resolve(dir)
   }
 
   /**
@@ -159,7 +169,7 @@ class UrlCollector {
       this._auditLogger.error(platform, 'default', e, { url })
       // 回归保护：采集失败必须写应用日志（此前只写 AuditLogger，而 AuditLogger
       // 无目录时静默丢弃，导致「采集失败」在 app-*.log 里完全无痕）
-      log.error('url-collect', `采集失败 url=${url} platform=${platform} error=${e && e.message ? e.message : String(e)}`)
+      log.error('url-collect', '采集失败', { url, platform, error: e && e.message ? e.message : String(e) })
       return { success: false, error: `采集失败: ${e.message}` }
     }
   }
@@ -197,6 +207,7 @@ class UrlCollector {
     }
 
     // 提取标题
+    // let：百家号 SPA 无 og:title meta，下方百家号分支会用 h1 覆写回退
     let title = getMeta('og:title') || $('title').first().text() || ''
 
     // 提取描述
