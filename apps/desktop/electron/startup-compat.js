@@ -168,7 +168,7 @@ function configureUserAgentFallback ({ app } = {}) {
   // Mozilla/5.0 (...) Multi-Publish/1.2.3 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36
   // 采用标准 token 白名单：只保留 Mozilla/Chrome/Safari/AppleWebKit 等浏览器原生 token，
   // 剔除 Electron/x.y.z 与 <AppName>/x.y.z（位置无关，避免正则误删 Mozilla/5.0）。
-  const KEEP_TOKENS = new Set(['Mozilla', 'Chrome', 'Safari', 'AppleWebKit', 'Gecko', 'like'])
+  const KEEP_TOKENS = new Set(['Mozilla', 'Chrome', 'Safari', 'AppleWebKit', 'Gecko', 'like', 'Edg'])
   const sanitized = originalUa
     .split(' ')
     .filter((token) => {

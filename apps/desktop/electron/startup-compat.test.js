@@ -245,4 +245,15 @@ describe('user-agent fallback sanitization', () => {
     expect(result.userAgent).toBe('Mozilla/5.0 Chrome/150.0.0.0 Safari/537.36')
     expect(result.userAgent).not.toMatch(/\s\s/)
   })
+
+  it('keeps Edge-family browser tokens when sanitizing', () => {
+    const app = {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0',
+    }
+
+    const result = configureUserAgentFallback({ app })
+
+    // 纯浏览器 UA（含 Edg token）不含 Electron 标记 → 不修改
+    expect(result.configured).toBe(false)
+  })
 })
