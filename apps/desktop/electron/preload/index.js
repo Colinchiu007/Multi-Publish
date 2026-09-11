@@ -30,6 +30,7 @@ const { createPageManagerApi } = require('./page-manager')
 const { createVideoCloneApi } = require('./video-clone')
 const { createFilmEngineeringApi } = require('./film-engineering')
 const { createAggregationApi } = require('./aggregation')
+const { createHotTopicsApi } = require('./hot-topics')
 const { createAutoPipelineApi } = require('./auto-pipeline')
 const { createKnowledgeLibraryApi } = require('./knowledge-library')
 const {
@@ -77,6 +78,7 @@ const fullApi = {
   ...createVideoCloneApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
+  ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
