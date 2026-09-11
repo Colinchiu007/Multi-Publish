@@ -534,7 +534,7 @@ body {
   margin-top: 6px;
 }
 .char-count { font-size: 12px; color: var(--muted); }
-.content-error { font-size: 12px; color: var(--danger); }
+.content-error { font-size: 12px; color: #d32f2f; }
 
 .config-row {
   margin-bottom: var(--space-sm);

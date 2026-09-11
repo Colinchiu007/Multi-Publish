@@ -100,7 +100,6 @@
             previewColon: t('rewritePage.strategyPreviewColon'),
             placeholder: t('rewritePage.strategySelectPlaceholder'),
           }"
-          @refresh-preview="refreshStrategyPreview"
         />
 
         <!-- 改写按钮 -->

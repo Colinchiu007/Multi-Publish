@@ -70,7 +70,7 @@ defineProps({
   },
 })
 
-defineEmits(['update:strategyMode', 'update:strategyId', 'refresh-preview'])
+defineEmits(['update:strategyMode', 'update:strategyId'])
 </script>
 
 <style scoped>

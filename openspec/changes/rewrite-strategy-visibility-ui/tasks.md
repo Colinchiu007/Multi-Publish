@@ -14,7 +14,8 @@
 
 ## 3. 文档与交付
 
+- [x] 3.0 review.md 记录双模型审查结论与修复（见本目录 review.md）
 - [x] 3.1 PRD-REWRITE-FRONTEND-ENTRY.md 补策略选择与预览规格（字段/交互/校验/提示文字）
-- [ ] 3.2 双模型审查（opencode + claude）并记录 review.md
-- [ ] 3.3 push GitHub + PR + CI 通过后合并
+- [x] 3.2 双模型审查（opencode + claude）并记录 review.md（Claude 完成，1 必修+4 应修已全部修复；opencode 首次未收到任务，已用最终 diff 重试复审）
+- [ ] 3.3 push GitHub + PR + CI 通过后合并（PR #1717，CI 重跑中）
 - [ ] 3.4 openspec archive + CCG task 归档 + 记忆沉淀
