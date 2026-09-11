@@ -85,6 +85,35 @@
           </select>
         </div>
 
+        <!-- 策略选择（自动匹配默认 + 手动下拉，与 AiWriterPanel 行为一致） -->
+        <div class="config-row">
+          <label class="cohere-form-label">{{ t('rewritePage.strategyLabel') }}</label>
+          <div class="strategy-mode-row">
+            <label class="strategy-radio" :class="{ disabled: rewriting }">
+              <input type="radio" name="strategy-mode" value="auto" v-model="strategyMode" :disabled="rewriting" />
+              <span>{{ t('rewritePage.strategyAuto') }}</span>
+            </label>
+            <label class="strategy-radio" :class="{ disabled: rewriting }">
+              <input type="radio" name="strategy-mode" value="manual" v-model="strategyMode" :disabled="rewriting" />
+              <span>{{ t('rewritePage.strategyManual') }}</span>
+            </label>
+          </div>
+          <!-- 自动模式：发起前预览将匹配的策略（平台变化时刷新；失败降级为 --） -->
+          <div v-if="strategyMode === 'auto'" class="strategy-preview">
+            {{ t('rewritePage.strategyPreview') }}：{{ previewStrategyName }}
+          </div>
+          <!-- 手动模式：策略下拉（列表加载失败时仅占位项，改写仍可发起） -->
+          <select
+            v-if="strategyMode === 'manual'"
+            v-model="rewriteStrategyId"
+            class="cohere-input strategy-select"
+            :disabled="rewriting"
+          >
+            <option value="">{{ t('rewritePage.strategySelectPlaceholder') }}</option>
+            <option v-for="s in rewriteStrategies" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
+
         <!-- 改写按钮 -->
         <button
           class="cohere-btn-primary rewrite-start-btn"
@@ -132,10 +161,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
+import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -163,6 +192,12 @@ const usePersonalExperience = ref(false)
 const rewriteMode = ref('create')
 const platform = ref('')
 
+// 策略选择（默认自动匹配，与 AiWriterPanel 一致）
+const strategyMode = ref('auto')
+const rewriteStrategyId = ref('')
+const rewriteStrategies = ref([])
+const previewStrategyName = ref('--')
+
 // 弹窗
 const showPublishModal = ref(false)
 let savedDraftId = null
@@ -174,8 +209,41 @@ const rewriteModes = [
   { value: 'create', label: t('rewritePage.modeCreate') },
 ]
 
+// ── 策略列表与匹配预览 ──
+/** 加载启用策略（内置 + 远程下发）；失败静默降级为空列表，改写仍可用自动匹配 */
+async function loadRewriteStrategies() {
+  try {
+    const res = await aiListRewriteStrategies()
+    if (res && res.code === 0) rewriteStrategies.value = res.data || []
+  } catch (_e) {
+    // 策略列表为空时改写仍可用（走自动匹配）
+  }
+}
+
+/** 刷新自动匹配预览：取推荐列表第一名；失败降级为 --，不阻塞改写 */
+async function refreshStrategyPreview() {
+  if (rewriting.value) return
+  try {
+    const res = await aiGetRecommendedStrategies({ platform: platform.value || undefined })
+    if (res && res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
+      previewStrategyName.value = res.data[0].name || '--'
+    } else {
+      previewStrategyName.value = '--'
+    }
+  } catch (_e) {
+    previewStrategyName.value = '--'
+  }
+}
+
+// 目标平台变化 → 预览随新 userSettings 刷新
+watch(platform, () => {
+  void refreshStrategyPreview()
+})
+
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
 onMounted(() => {
+  void loadRewriteStrategies()
+  void refreshStrategyPreview()
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (!topic) return
   rewriteMode.value = 'create'
@@ -223,6 +291,8 @@ async function startRewrite() {
           usePersonalKnowledge: usePersonalExperience.value,
         },
       },
+      // 策略传参契约（与 AiWriterPanel 一致）：手动=所选 id（未选 null），自动=null 走引擎匹配
+      strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) : null,
     }
 
     const res = await aiRewrite(params)
@@ -287,7 +357,7 @@ function sendKnowledgeFeedback(action, refs) {
   if (!refs || refs.length === 0) return
   try {
     applyKnowledgeFeedback(action, refs)
-  } catch (e) {
+  } catch (_e) {
     // 知识反馈失败不影响改写主流程
   }
 }
@@ -421,6 +491,34 @@ function onPublishVideo(pipelineId) {
 
 .config-select {
   max-width: 280px;
+}
+
+.strategy-mode-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.strategy-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.strategy-radio.disabled { opacity: 0.6; cursor: default; }
+.strategy-preview {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 8px;
+  background: var(--soft-stone);
+  border-radius: 6px;
+}
+.strategy-select {
+  max-width: 280px;
+  margin-top: 4px;
 }
 
 .rewrite-start-btn {

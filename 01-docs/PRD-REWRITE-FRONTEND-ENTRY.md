@@ -34,6 +34,12 @@ packages/rewrite-engine 改写引擎后端已完整实现（多策略文案改�
 - 「结合个人经历」checkbox：默认不勾选。勾选后启用 KnowledgeBase 上下文注入（knowledgeContext 模板变量），改写 prompt 将包含用户偏好、写作风格和历史成功案例
 - 「改写模式」：抄袭规避模仿 / 扩写爆款 / 选题创作，默认「选题创作」
 - 「目标平台」：通用 / 抖音 / 小红书 / 公众号 / B站 / 知乎
+- 「策略选择」（2026-09-11 新增，与 AiWriterPanel 行为对齐）：
+  - 两个 radio：「自动匹配」（默认选中） / 「手动选择」
+  - 自动模式下显示「匹配策略预览」：调用 aiGetRecommendedStrategies IPC（参数 `{ platform }`），取推荐列表第一名显示为「将匹配策略：X」；目标平台切换时自动刷新；改写进行中不刷新；接口失败或返回空时降级显示「将匹配策略：--」，不报错、不阻塞改写
+  - 手动模式下渲染策略下拉框：选项来自 aiListRewriteStrategies IPC（内置 5 套 + 运营后台远程下发、仅启用项），含占位项「-- 选择策略 --」；策略列表加载失败时下拉仅含占位项，改写仍可发起（走自动匹配）
+  - 传参契约：手动模式传 `strategyId = 所选策略 id`（未选传 null）；自动模式显式传 `strategyId = null`，引擎 `_resolveStrategy` 收到 null 走 StrategyMatcher 自动匹配
+  - 预览与实际执行的一致性说明：预览与发起改写是两次独立 IPC 调用，若期间远程策略同步变化，实际策略可能不同——以结果区显示的 strategy.name 为准
 - 「开始改写」按钮：内容 ≥20 字时启用，点击后调用 aiRewrite IPC
 
 结果区（改写完成后显示）：
@@ -212,6 +218,11 @@ rewritePage 区块（文案改写页面）：
 - modeExpand: 扩写爆款 / Expand viral content
 - modeCreate: 选题创作 / Topic creation
 - platformLabel: 目标平台 / Target platform
+- strategyLabel: 策略选择 / Strategy
+- strategyAuto: 自动匹配 / Auto match
+- strategyManual: 手动选择 / Manual select
+- strategyPreview: 将匹配策略 / Will match strategy
+- strategySelectPlaceholder: -- 选择策略 -- / -- Select strategy --
 - rewriteBtn: 开始改写 / Rewrite
 - rewritingBtn: 改写中... / Rewriting...
 - resultSection: 改写结果 / Result
