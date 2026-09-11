@@ -106,4 +106,24 @@ function isHttpCheckSupported (platform) {
   return Boolean(HTTP_CHECK_APIS[platform])
 }
 
-module.exports = { checkLoginViaHttpApi, isHttpCheckSupported, cookiesToHeader }
+/**
+ * HTTP API 快速路径入口（供 checkLoginStatus 调用）。
+ * 有 Cookie 且平台已注册时尝试 HTTP API 检测；返回 null 表示不适用
+ * （无 Cookie/未注册）或结果不确定（网络错误），调用方降级到浏览器检测。
+ * @param {string} platform
+ * @param {Array<{name:string, value:string}>} cookies
+ * @param {string} accountId
+ * @returns {Promise<{valid:boolean, code:string}|null>}
+ */
+async function tryHttpLoginCheck (platform, cookies, accountId) {
+  if (!cookies || cookies.length === 0 || !isHttpCheckSupported(platform)) return null
+  const httpResult = await checkLoginViaHttpApi(platform, cookies)
+  if (httpResult.valid === undefined) {
+    log.info('HttpLoginChecker', 'inconclusive ' + platform + ':' + accountId + ' → falling back to browser check')
+    return null
+  }
+  log.info('HttpLoginChecker', 'fast-path ' + platform + ':' + accountId + ' valid=' + httpResult.valid + ' code=' + httpResult.code)
+  return { valid: httpResult.valid, code: httpResult.code }
+}
+
+module.exports = { checkLoginViaHttpApi, isHttpCheckSupported, cookiesToHeader, tryHttpLoginCheck }

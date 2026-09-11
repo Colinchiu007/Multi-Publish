@@ -753,8 +753,8 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
     const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
     global.__registerMock(playwrightPath, { getContext })
-    // douyin 走 HTTP API 快速路径，mock 为不支持以走浏览器检测路径
-    global.__registerMock(httpCheckerPath, { isHttpCheckSupported: () => false, checkLoginViaHttpApi: vi.fn() })
+    // douyin 走 HTTP API 快速路径，mock 为 null（不适用）以走浏览器检测路径
+    global.__registerMock(httpCheckerPath, { tryHttpLoginCheck: vi.fn().mockResolvedValue(null) })
 
     try {
       const accountManager = loadAccountManager()
