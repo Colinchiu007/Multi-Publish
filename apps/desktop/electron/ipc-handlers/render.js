@@ -30,7 +30,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       // R52 修复：统一为标准格式
       renderEngine.cancel(); return { code: 0, data: true }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:render]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
   ipcMain.handle('render:status', () => {
     try {
@@ -57,21 +57,21 @@ function registerHandlers(ipcMain, deps) {
     try {
       // R52 修复：成功路径包裹为标准格式
       return { code: 0, data: renderEngine.listCompositions() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { log.warn('[ipc:render]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
   ipcMain.handle('render:get-composition', (_event, id) => {
     try {
       // R52 修复：成功路径包裹为标准格式
       return { code: 0, data: renderEngine.getComposition(id) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:render]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('render:validate-props', (_event, compositionId, props) => {
     try {
       // R52 修复：成功路径包裹为标准格式
       return { code: 0, data: renderEngine.validateProps(compositionId, props) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:render]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 }
 

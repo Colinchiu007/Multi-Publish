@@ -322,10 +322,20 @@ class WebviewManager extends EventEmitter {
 
     // 恢复已保存 Cookie（必须在 loadURL 之前）
     if (cookies && cookies.length > 0) {
+      var _cookieFail = 0
       for (var i = 0; i < cookies.length; i++) {
         // eslint-disable-next-line no-unused-vars
-        try { viewSession.cookies.set(cookies[i]).catch(function () {}) } catch (e) { /* skip invalid */ }
+        try {
+          viewSession.cookies.set(cookies[i]).catch(function (e2) {
+            _cookieFail += 1
+            log.warn('WebviewManager', 'cookie restore failed: ' + ((e2 && e2.message) || 'unknown'))
+          })
+        } catch (e) {
+          _cookieFail += 1
+          log.warn('WebviewManager', 'cookie restore threw: ' + ((e && e.message) || 'unknown'))
+        }
       }
+      if (_cookieFail > 0) log.warn('WebviewManager', 'cookie restore: ' + _cookieFail + '/' + cookies.length + ' failed (openTab ' + platform + ')')
     }
 
     // 创建 WebContentsView
@@ -344,7 +354,9 @@ class WebviewManager extends EventEmitter {
 
     // 导航到平台页面
     // R49 修复：loadURL 返回 Promise，必须 .catch()
-    view.webContents.loadURL(url).catch(function () { /* ignore nav errors */ })
+    view.webContents.loadURL(url).catch(function (e) {
+      log.warn('WebviewManager', 'nav failed url=' + String(url).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown'))
+    })
 
     // 页面加载后恢复 localStorage
     if (localStorage && Object.keys(localStorage).length > 0) {
@@ -411,15 +423,20 @@ class WebviewManager extends EventEmitter {
         } else {
           accountCredential = credentialStore.loadCredential(accountId, _getUserDataDir())
         }
-      } catch (e) { accountCredential = null }
+      } catch (e) {
+        log.warn('WebviewManager', 'loadSavedCredentials failed ' + platform + ':' + accountId + ' err=' + ((e && e.message) || 'unknown'))
+        accountCredential = null
+      }
       var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
       var initialUrlForCookies = initialUrl === 'about:blank' ? '' : initialUrl
       for (var ci = 0; ci < credCookies.length; ci++) {
         var cookieToSet = normalizeElectronCookie(credCookies[ci], initialUrlForCookies)
         if (!cookieToSet) continue
         try {
-          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function () {}))
-        } catch (e) { /* skip invalid */ }
+          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function (e2) {
+            log.warn('WebviewManager', 'credential cookie restore failed name=' + (cookieToSet.name || '') + ' err=' + ((e2 && e2.message) || 'unknown'))
+          }))
+        } catch (e) { log.warn('WebviewManager', 'credential cookie restore threw name=' + (cookieToSet.name || '') + ' err=' + ((e && e.message) || 'unknown')) }
       }
     }
 
@@ -430,8 +447,10 @@ class WebviewManager extends EventEmitter {
         var suppliedCookie = normalizeElectronCookie(cookies[i], initialUrl === 'about:blank' ? '' : initialUrl)
         if (!suppliedCookie) continue
         try {
-          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(suppliedCookie)).catch(function () {}))
-        } catch (e) { /* skip invalid */ }
+          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(suppliedCookie)).catch(function (e2) {
+            log.warn('WebviewManager', 'supplied cookie restore failed name=' + (suppliedCookie.name || '') + ' err=' + ((e2 && e2.message) || 'unknown'))
+          }))
+        } catch (e) { log.warn('WebviewManager', 'supplied cookie restore threw name=' + (suppliedCookie.name || '') + ' err=' + ((e && e.message) || 'unknown')) }
       }
     }
 
@@ -507,7 +526,7 @@ class WebviewManager extends EventEmitter {
     // 重定向到登录页，随后才写入 Cookie，用户看到的就是“账号已添加但未登录”。
     var navigateAfterCookies = function () {
       if (initialUrl && initialUrl !== 'about:blank') {
-        view.webContents.loadURL(initialUrl).catch(function () { /* ignore nav errors */ })
+        view.webContents.loadURL(initialUrl).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(initialUrl).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
       }
     }
     if (cookieRestorations.length > 0 || useAccountSession) {
@@ -867,7 +886,7 @@ class WebviewManager extends EventEmitter {
       return false
     }
 
-    view.webContents.loadURL(url).catch(function () { /* ignore nav errors */ })
+    view.webContents.loadURL(url).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(url).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
     return true
   }
 
@@ -1306,21 +1325,21 @@ class WebviewManager extends EventEmitter {
       try {
         var tabId = self.createNewTabPage(arg || {})
         return tabId ? { code: 0, data: { tabId: tabId } } : { code: EC.REQUEST_ERROR, message: '创建标签页失败，请重试' }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:close-tab', withSenderCheck(function (_, tabId) {
       try {
         self.closeTab(tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:switch-tab', withSenderCheck(function (_, tabId) {
       try {
         self.switchToTab(tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:navigate', withSenderCheck(function (_, arg) {
@@ -1328,21 +1347,21 @@ class WebviewManager extends EventEmitter {
       try {
         self.navigateTab(arg.tabId, arg.url)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:go-back', withSenderCheck(function (_, tabId) {
       try {
         self.goBack(tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:go-forward', withSenderCheck(function (_, tabId) {
       try {
         self.goForward(tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:reload', withSenderCheck(function (_, arg) {
@@ -1350,25 +1369,25 @@ class WebviewManager extends EventEmitter {
       try {
         self.reload(arg.tabId, arg.ignoreCache)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:get-all-tabs', withSenderCheck(function () {
       try {
         return { code: 0, data: self.getAllTabs() }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     }))
 
     ipcMain.handle('page-manager:get-active-tab', withSenderCheck(function () {
       try {
         return { code: 0, data: self.getActiveTab() }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: null } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message, data: null } }
     }))
 
     ipcMain.handle('page-manager:get-home-tab', withSenderCheck(function () {
       try {
         return { code: 0, data: self.getHomeTab() }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: null } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message, data: null } }
     }))
 
     ipcMain.handle('page-manager:search-or-navigate', withSenderCheck(function (_, arg) {
@@ -1376,7 +1395,7 @@ class WebviewManager extends EventEmitter {
       try {
         self.searchOrNavigate(arg.query, arg.tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:subscribe-events', withSenderCheck(function (_, arg) {
@@ -1384,7 +1403,7 @@ class WebviewManager extends EventEmitter {
         var subscriberId = (arg && arg.subscriberId) || 'default-' + Date.now()
         self._subscribers.add(subscriberId)
         return { code: 0, data: { subscriberId: subscriberId } }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:unsubscribe-events', withSenderCheck(function (_, arg) {
@@ -1392,14 +1411,14 @@ class WebviewManager extends EventEmitter {
         var subscriberId = (arg && arg.subscriberId) || ''
         if (subscriberId) { self._subscribers.delete(subscriberId) } else { self._subscribers.clear() }
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:save-cookies', withSenderCheck(function (_, tabId) {
       try {
         self.saveCookies(tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:save-account-tab-credentials', withSenderCheck(async function (_, tabId) {
@@ -1414,7 +1433,7 @@ class WebviewManager extends EventEmitter {
           return { code: 0, data: result }
         }
         return { code: EC.REQUEST_ERROR, message: result?.reason || 'save-failed', data: result }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     // ─── webview: IPC handlers（旧分屏系统，保持向后兼容）──
@@ -1423,7 +1442,7 @@ class WebviewManager extends EventEmitter {
       try {
         self.setLayout(count)
         return { code: 0, data: { layout: count, tabCount: self.tabs.length } }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('webview:open-tab', withSenderCheck(function (_, arg) {
@@ -1432,21 +1451,21 @@ class WebviewManager extends EventEmitter {
       try {
         var tabId = self.openTab(platform, accountId, cookies, localStorage, url)
         return tabId ? { code: 0, data: { tabId: tabId } } : { code: EC.REQUEST_ERROR, message: 'Cannot open ' + platform }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('webview:close-tab', withSenderCheck(function (_, tabId) {
       try {
         self.closeTab(tabId)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('webview:close-all', withSenderCheck(function () {
       try {
         self.closeAllMonitorTabs()
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('webview:list-tabs', withSenderCheck(function () {
@@ -1460,7 +1479,7 @@ class WebviewManager extends EventEmitter {
       try {
         self.setSidebarWidth(width)
         return { code: 0 }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
   }
 

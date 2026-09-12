@@ -4,6 +4,7 @@ const { withSenderCheck } = require('./helpers')
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const log = require('../services/logger')
   const { _chunkedUploader } = deps
 
   // 安全：校验路径不包含穿越序列（防止 ../../etc/passwd）
@@ -50,7 +51,7 @@ function registerHandlers(ipcMain, deps) {
       _chunkedUploader.cancel()
       // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:upload]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 }
 

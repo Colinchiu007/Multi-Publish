@@ -334,6 +334,7 @@ class VideoCompose(BaseTool):
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         operation = inputs["operation"]
         start = time.time()
+        log = logging.getLogger("video_compose.execute")
 
         try:
             if operation == "compose":
@@ -351,6 +352,15 @@ class VideoCompose(BaseTool):
             else:
                 return ToolResult(success=False, error=f"Unknown operation: {operation}")
         except Exception as e:
+            # logging-coverage-audit：CalledProcessError 的 stderr 已在 base_tool.run_command
+            # 记录；此处补充 operation 上下文与耗时，保证 execute 层可定位是哪个阶段失败。
+            log.error(
+                "execute failed: operation=%s elapsed=%.1fs error=%s stderr_tail=%s",
+                operation,
+                time.time() - start,
+                e,
+                getattr(e, "stderr", None) and " | ".join((e.stderr or "").strip().splitlines()[-5:])[-1000:] or "(none)",
+            )
             return ToolResult(success=False, error=str(e))
 
         result.duration_seconds = round(time.time() - start, 2)

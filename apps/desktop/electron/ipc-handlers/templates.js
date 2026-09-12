@@ -5,6 +5,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const log = require('../services/logger')
   const { withSenderCheck } = require('./helpers')
   const { templateManager } = deps
 
@@ -12,21 +13,21 @@ function registerHandlers(ipcMain, deps) {
     try {
       const templates = templateManager.list()
       return { code: 0, data: templates }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
   ipcMain.handle('template:get', async (event, id) => {
     try {
       const tpl = templateManager.get(id)
       return tpl ? { code: 0, data: tpl } : { code: EC.NOT_FOUND, message: '模板未找到' }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('template:add', withSenderCheck(async (event, tpl) => {
     try {
       const added = templateManager.add(tpl)
       return { code: 0, data: added, message: '模板已添加' }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('template:update', withSenderCheck(async (event, arg) => {
@@ -36,7 +37,7 @@ function registerHandlers(ipcMain, deps) {
       const { id, updates } = arg
       const updated = templateManager.update(id, updates)
       return updated ? { code: 0, data: updated, message: '模板已更新' } : { code: EC.NOT_FOUND, message: '模板未找到' }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('template:delete', withSenderCheck(async (event, id) => {
@@ -44,21 +45,21 @@ function registerHandlers(ipcMain, deps) {
       const ok = templateManager.delete(id)
       // R52 修复：统一返回格式，补充 data 字段
       return ok ? { code: 0, data: true, message: '模板已删除' } : { code: EC.NOT_FOUND, data: false, message: '模板未找到' }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('template:list-by-category', async (event, category) => {
     try {
       const templates = templateManager.listByCategory(category)
       return { code: 0, data: templates }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
   ipcMain.handle('template:get-presets', async () => {
     try {
       const TemplateManager = require('../services/template-manager')
       return { code: 0, data: TemplateManager.getPresets() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { log.warn('[ipc:templates]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 }
 

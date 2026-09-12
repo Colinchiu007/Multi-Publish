@@ -490,13 +490,17 @@ function _requestBackendOnce (method, path, body, timeout, accessToken) {
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
         let parsed
-        try { parsed = JSON.parse(data) } catch { parsed = { code: -1, message: data } }
+        // logging-coverage-audit：非 JSON 响应此前静默降级，原始 body 不进日志
+        try { parsed = JSON.parse(data) } catch {
+          log.warn('PythonBridge', 'backend response non-JSON (len=' + data.length + '): ' + String(data).slice(0, 300))
+          parsed = { code: -1, message: data }
+        }
         resolve({ status: res.statusCode || 200, data: parsed })
       })
     })
 
-    req.on('error', reject)
-    req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')) })
+    req.on('error', e => { log.error('PythonBridge', 'backend request error: ' + e.message); reject(e) })
+    req.on('timeout', () => { log.error('PythonBridge', 'backend request timeout'); req.destroy(); reject(new Error('Request timeout')) })
 
     if (body) req.write(JSON.stringify(body))
     req.end()

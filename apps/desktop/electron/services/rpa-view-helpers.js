@@ -120,8 +120,17 @@ const helpersMixin = {
   async _waitForElement(win, sel, timeout) {
     timeout = timeout||30000
     const resolveJs = buildResolveElementCode(sel)
+    let _curUrl = ''
+    try { _curUrl = win.webContents.getURL() } catch (_) { /* 窗口可能已销毁 */ }
     // eslint-disable-next-line no-unused-vars
-    try { return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');return new Promise(function(r){let e=_fn();if(e){r(true);return}let o=new MutationObserver(function(){let f=_fn();if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
+    try {
+      const found = await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');return new Promise(function(r){let e=_fn();if(e){r(true);return}let o=new MutationObserver(function(){let f=_fn();if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()')
+      if (!found) log.warn('RpaView', 'waitForElement timeout sel=' + String(sel).slice(0, 160) + ' timeoutMs=' + timeout + ' url=' + String(_curUrl).slice(0, 200))
+      return found
+    } catch(e) {
+      log.warn('RpaView', 'waitForElement error sel=' + String(sel).slice(0, 160) + ' err=' + (e && e.message) + ' url=' + String(_curUrl).slice(0, 200))
+      return false
+    }
   },
   async _waitForCondition(win, fn, timeout, interval) {
     // R75 防护：fn 必须是硬编码函数字面量字符串，禁止拼接用户输入
@@ -323,7 +332,7 @@ const helpersMixin = {
           wc.executeJavaScript('void(0)').then(safeResolve).catch(function(){ safeResolve(undefined) })
         },stabilizeMs)
       })
-      win.webContents.once('did-fail-load',function(e,code,desc){log.warn('RpaView','nav warn: '+desc);safeResolve(undefined)})
+      win.webContents.once('did-fail-load',function(e,code,desc){log.warn('RpaView','nav failed url='+String(url).slice(0,200)+' code='+code+' desc='+desc);safeResolve(undefined)})
       // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
       win.webContents.loadURL(url).catch(function (e) { safeReject(e) })
     })

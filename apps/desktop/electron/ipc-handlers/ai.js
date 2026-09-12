@@ -11,19 +11,19 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('ai:list-providers', (_event, type) => {
     try {
       return { code: 0, data: aiGenerator.listProviders(type || null) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
   ipcMain.handle('ai:get-config', (_event, providerId) => {
     try {
       return { code: 0, data: aiGenerator.getProviderConfig(providerId) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('ai:list-models', (_event, providerId) => {
     try {
       return { code: 0, data: aiGenerator.listModels(providerId) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
   ipcMain.handle('ai:generate', withSenderCheck(async (event, arg) => {
@@ -46,41 +46,41 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('ai:test-connection', async (_event, providerId) => {
     try {
       return { code: 0, data: await aiGenerator.testConnection(providerId) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('ai:save-config', withSenderCheck((_event, providerId, config) => {
     try {
       return { code: 0, data: aiGenerator.updateProviderConfig(providerId, config) }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   // AiWriter 辅助写作 API（AiWriterPanel.vue 使用）
   ipcMain.handle('ai:is-configured', () => {
     try {
       return { code: 0, data: aiWriter.isConfigured() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('ai:generate-titles', withSenderCheck(async (_event, topic) => {
     try {
       const titles = await aiWriter.generateTitles(topic)
       return { code: 0, data: titles }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('ai:enhance-content', async (_event, content, style) => {
     try {
       const enhanced = await aiWriter.enhanceContent(content, style)
       return { code: 0, data: enhanced }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
 ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) => {
     try {
       const summary = await aiWriter.generateSummary(content)
       return { code: 0, data: summary }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   // RewriteEngine 改写引擎 API（Phase 3 — rewrite-engine 包）
@@ -91,19 +91,19 @@ ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) =>
         if (!params || typeof params !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
         const result = await rewriteEngineService.rewrite(params)
         return { code: 0, data: result }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('ai:list-rewrite-strategies', async () => {
       try {
         return { code: 0, data: rewriteEngineService.listStrategies() }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+      } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
 
     ipcMain.handle('ai:get-recommended-strategies', async (_event, userSettings) => {
       try {
         return { code: 0, data: rewriteEngineService.getRecommendedStrategies(userSettings || {}) }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+      } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
   }
 }

@@ -70,8 +70,14 @@ class CollectionStrategy {
     if (!fs.existsSync(this.strategyFile)) {
       return createDefaultStrategies({ defaults: {}, platforms: {} })
     }
-    const raw = JSON.parse(fs.readFileSync(this.strategyFile, 'utf8'))
-    return createDefaultStrategies(raw)
+    // logging-coverage-audit：策略文件损坏时此前构造函数直接抛且无日志
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.strategyFile, 'utf8'))
+      return createDefaultStrategies(raw)
+    } catch (e) {
+      console.error('[collection-strategy] strategy file load failed, falling back to defaults', { file: this.strategyFile, error: e.message })
+      return createDefaultStrategies({ defaults: {}, platforms: {} })
+    }
   }
 
   /** 重新加载策略（热加载入口） */

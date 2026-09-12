@@ -66,8 +66,10 @@ async function publishWithFallback(platform, taskData, cookie, opts) {
       result.apiAttempt = await publishViaApi(platform, taskData, cookie, opts);
       result.success = result.apiAttempt.success;
       if (result.success) return result;
+      logger.warn('api-router', 'API publish failed, will fallback', { platform: platform, error: result.apiAttempt.error });
     } catch (apiErr) {
       result.apiAttempt = { success: false, error: apiErr.message };
+      logger.warn('api-router', 'API publish threw, will fallback', { platform: platform, error: apiErr.message });
     }
   }
 
@@ -76,6 +78,7 @@ async function publishWithFallback(platform, taskData, cookie, opts) {
     result.fallbackReason = result.apiAttempt
       ? "API failed, needs RPA fallback"
       : "No API mode available, needs RPA";
+    logger.info('api-router', 'falling back to RPA', { platform: platform, reason: result.fallbackReason });
 
     if (typeof opts.rpaPublish === "function") {
       try {
@@ -84,6 +87,7 @@ async function publishWithFallback(platform, taskData, cookie, opts) {
         result.rpaResult = rpaResult;
       } catch (rpaErr) {
         result.error = rpaErr.message;
+        logger.error('api-router', 'RPA fallback publish failed', { platform: platform, error: rpaErr.message });
       }
     } else {
       result.requiresRpa = true;
@@ -105,6 +109,7 @@ async function batchPublishWithRouting(platforms, taskData, cookie, opts) {
       results.push(r);
     } catch (e) {
       results.push({ platform: plat, success: false, error: e.message });
+      logger.error('api-router', 'batch publish platform failed', { platform: plat, error: e.message, index: i, total: total });
     }
     if (opts.onProgress) {
       opts.onProgress(Math.round((i + 1) / total * 100), plat);

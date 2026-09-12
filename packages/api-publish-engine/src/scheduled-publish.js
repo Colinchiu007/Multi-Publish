@@ -1,4 +1,5 @@
 const fs = require("fs");
+const logger = require("./logger");
 var _bp = null;function _b() { if (!_bp) { _bp = require("./index").batchPublish; } return _bp; }
 
 var ID_SEQ = 0;
@@ -26,6 +27,7 @@ class ScheduledPublish {
       if (!Array.isArray(this._entries)) this._entries = [];
     } catch(e) {
       this._entries = [];
+      logger.warn('scheduled-publish', 'storage load failed, reset to empty', { file: this._storageFile, error: e.message });
     }
   }
 
@@ -103,6 +105,7 @@ class ScheduledPublish {
       if (!Number.isFinite(scheduledTime)) {
         entry.status = "failed";
         entry.error = "invalid scheduledAt: " + entry.scheduledAt;
+        logger.error('scheduled-publish', 'invalid scheduledAt, marking failed', { id: entry.id, scheduledAt: entry.scheduledAt });
         this._save();
         continue;
       }
@@ -115,6 +118,7 @@ class ScheduledPublish {
   async _execute(entry) {
     var self = this;
     entry.status = "publishing";
+    logger.info('scheduled-publish', 'state pending->publishing', { id: entry.id, platforms: entry.platforms });
     self._save();
     try {
       if (self._authorizeEntry) await self._authorizeEntry(entry);
@@ -123,9 +127,11 @@ class ScheduledPublish {
       var results = await _b()(entry.platforms, entry.taskData, entry.cookie, opts);
       entry.status = "success";
       entry.results = results;
+      logger.info('scheduled-publish', 'state publishing->success', { id: entry.id, platforms: entry.platforms });
     } catch (e) {
       entry.status = "failed";
       entry.error = e && e.code ? e.code : e.message;
+      logger.error('scheduled-publish', 'publish failed', { id: entry.id, platforms: entry.platforms, error: entry.error });
     }
     self._save();
     // Fire webhook on completion

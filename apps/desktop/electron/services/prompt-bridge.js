@@ -249,7 +249,8 @@ class PromptBridge extends BasePythonBridge {
       if (apiKey) childEnv.PROMPT_ENGINE_API_KEY = apiKey
       execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 120000, windowsHide: true, env: childEnv }, (err, stdout, stderr) => {
         if (err) {
-          this.log.warn(this.name, `CLI fallback failed: ${err.message}`)
+          // logging-coverage-audit：stderr 参数此前被丢弃，CLI 真实报错不可见
+          this.log.warn(this.name, `CLI fallback failed: ${err.message} stderr=${String(stderr || '').trim().slice(0, 500)}`)
           reject(new Error(`CLI fallback failed: ${err.message}`))
           return
         }
