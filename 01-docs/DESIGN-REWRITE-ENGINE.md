@@ -126,12 +126,12 @@ async rewrite({ mode, content, userSettings, strategyId })
 
 **执行流程（8 步）**：
 
-1. **输入校验**（`_validate`）：空内容 → `EMPTY_CONTENT`；Unicode 码点计数 < 20 → `TOO_SHORT`；> 6000 → `TOO_LONG`。
+1. **输入校验**（`_validate`）：空内容 → `EMPTY_CONTENT`；Unicode 码点计数 > 6000 → `TOO_LONG`（2026-09-12 起移除 < 20 的 TOO_SHORT 下限）。
 2. **敏感词前置检测**（`_sensitiveCheck('pre')`）：命中则返回 `SENSITIVE_CONTENT`，不进入 LLM。
 3. **策略匹配**（`_resolveStrategy`）：手动指定 strategyId 直接取；否则自动匹配 Top1。
 4. **Prompt 构建**（`_buildPrompt`）：策略 systemPrompt + 模式指令组成 system prompt；userPromptTemplate 替换 `{content}` `{industry}` `{purpose}` `{tone}` `{platform}` `{knowledgeContext}` `{mode}` `{targetLength}` 八个占位符。
 5. **LLM 推理**：无 llmClient → `NO_LLM_CLIENT`；异常 → `LLM_ERROR`；空结果 → `EMPTY_RESULT`。
-6. **后处理**（`_postProcess`）：去 AI 味（默认开启）+ 长度截断。
+6. **后处理**（`_postProcess`）：去 AI 味（默认开启）+ 长度截断（上限优先级：userSettings.wordCountRange.max > 策略 postProcess.maxLength > 默认 2500）。
 7. **敏感词后置检测**：命中则附 warnings + sensitiveHits，不阻断返回。
 8. **质量评估 + 反馈**：SimHash 评估（失败降级 null），无敏感词命中时异步记录到知识库。
 

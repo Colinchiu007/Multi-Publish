@@ -72,6 +72,34 @@
           </div>
         </div>
 
+        <!-- 字数控制 -->
+        <div class="config-row">
+          <label class="cohere-form-label">{{ t('rewritePage.wordCountLabel') }}</label>
+          <div class="word-count-inputs">
+            <input
+              v-model.number="wordCountMin"
+              type="number"
+              class="cohere-input word-count-input"
+              :min="0"
+              :max="5999"
+              :placeholder="t('rewritePage.wordCountMinPlaceholder')"
+              :disabled="rewriting"
+            />
+            <span class="word-count-sep">-</span>
+            <input
+              v-model.number="wordCountMax"
+              type="number"
+              class="cohere-input word-count-input"
+              :min="1"
+              :max="6000"
+              :placeholder="t('rewritePage.wordCountMaxPlaceholder')"
+              :disabled="rewriting"
+            />
+            <span class="word-count-unit">{{ t('rewritePage.wordCountUnit') }}</span>
+            <span v-if="wordCountError" class="word-count-error">{{ wordCountError }}</span>
+          </div>
+        </div>
+
         <!-- 目标平台 -->
         <div class="config-row">
           <label class="cohere-form-label">{{ t('rewritePage.platformLabel') }}</label>
@@ -180,6 +208,9 @@ const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
 const rewriteMode = ref('create')
 const platform = ref('')
+// 字数区间控制（默认 800-2000）
+const wordCountMin = ref(800)
+const wordCountMax = ref(2000)
 
 // 策略选择（默认自动匹配，与 AiWriterPanel 一致）
 const strategyMode = ref('auto')
@@ -239,15 +270,31 @@ onMounted(() => {
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (!topic) return
   rewriteMode.value = 'create'
-  // 选题长度 <20 字符时补引导语（与 canStartRewrite 的 ≥20 校验对齐，并给 AI 明确指令）
-  content.value = topic.length >= 20 ? topic : t('hotTopics.topicPrefix') + '\n' + topic
+  // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
+  content.value = topic
   // 等登录门禁与 DOM 就绪后自动触发（nextTick 保证 textarea 绑定完成）
   Promise.resolve().then(() => startRewrite())
 })
 
 // ── 计算 ──
 const canStartRewrite = computed(() => {
-  return content.value.trim().length >= 20
+  return content.value.trim().length > 0 && !wordCountError.value
+})
+
+// ── 字数区间校验 ──
+const wordCountError = computed(() => {
+  const min = wordCountMin.value
+  const max = wordCountMax.value
+  if (min === '' || min === null || min === undefined || !Number.isInteger(Number(min)) || Number(min) < 0 || Number(min) > 5999) {
+    return t('rewritePage.wordCountMinInvalid')
+  }
+  if (max === '' || max === null || max === undefined || !Number.isInteger(Number(max)) || Number(max) < 1 || Number(max) > 6000) {
+    return t('rewritePage.wordCountMaxInvalid')
+  }
+  if (Number(max) < Number(min)) {
+    return t('rewritePage.wordCountMaxLtMin')
+  }
+  return ''
 })
 
 // ── 方法 ──
@@ -255,10 +302,11 @@ const canStartRewrite = computed(() => {
 /** 开始改写 */
 async function startRewrite() {
   const trimmed = content.value.trim()
-  if (trimmed.length < 20) {
-    contentError.value = t('rewritePage.tooShort')
+  if (!trimmed) {
+    contentError.value = t('rewritePage.contentEmpty')
     return
   }
+  if (wordCountError.value) return
   contentError.value = ''
   if (!(await ensureLogin({ message: t('rewritePage.needLogin') }))) return
 
@@ -278,6 +326,10 @@ async function startRewrite() {
       content: trimmed,
       userSettings: {
         platform: platform.value || undefined,
+        wordCountRange: {
+          min: Number(wordCountMin.value),
+          max: Number(wordCountMax.value),
+        },
         knowledgeOptions: {
           useViralLibrary: useViralLibrary.value,
           usePersonalKnowledge: usePersonalExperience.value,
@@ -452,6 +504,27 @@ function onPublishVideo(pipelineId) {
 
 .config-select {
   max-width: 280px;
+}
+
+.word-count-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.word-count-input {
+  width: 100px;
+}
+.word-count-sep {
+  color: var(--muted);
+}
+.word-count-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+.word-count-error {
+  font-size: 12px;
+  color: #d32f2f;
 }
 </style>
 

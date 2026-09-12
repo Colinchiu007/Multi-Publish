@@ -492,7 +492,8 @@ def test_rewrite_no_api_key_router_serializes_error_code():
 
 @pytest.mark.asyncio
 async def test_rewrite_short_content_before_key_check():
-    """回归：内容过短应先报错，不因缺少 API key 先报错。"""
+    """回归（2026-09-12 更新）：移除 20 字下限后，短内容不再报"过短"；
+    空 key 场景下走到 key 检查报 LLM_KEY_MISSING。"""
     import os as _os
     from multi_publish.aggregation.service import AggregationService
     from multi_publish.aggregation.models import RewriteRequest
@@ -503,8 +504,78 @@ async def test_rewrite_short_content_before_key_check():
     service = AggregationService()
     req = RewriteRequest(content="短", style="轻松易懂")
 
-    with pytest.raises(ValueError, match="输入内容过短"):
+    from multi_publish.aggregation._user_errors import UserVisibleError
+    with pytest.raises(UserVisibleError) as exc_info:
         await service.rewrite(req)
+    assert exc_info.value.error_code == "LLM_KEY_MISSING"
+
+
+# ── 12. 字数区间控制（2026-09-12）──────────────────────────────────
+
+def test_rewrite_request_word_count_defaults():
+    """RewriteRequest 默认 min/max 字数：800/2000。"""
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(content="测试内容", style="轻松易懂")
+    assert req.min_word_count == 800
+    assert req.max_word_count == 2000
+
+
+def test_rewrite_request_word_count_validation():
+    """min/max 字数校验：整数、0-6000 范围、max >= min。"""
+    from multi_publish.aggregation.models import RewriteRequest
+    from pydantic import ValidationError
+
+    req = RewriteRequest(content="测试内容", style="轻松易懂", min_word_count=100, max_word_count=500)
+    assert req.min_word_count == 100
+    assert req.max_word_count == 500
+
+    with pytest.raises(ValidationError, match="max_word_count"):
+        RewriteRequest(content="测试内容", style="轻松易懂", min_word_count=500, max_word_count=100)
+
+    with pytest.raises(ValidationError):
+        RewriteRequest(content="测试内容", style="轻松易懂", max_word_count=7000)
+
+    with pytest.raises(ValidationError):
+        RewriteRequest(content="测试内容", style="轻松易懂", min_word_count=-1)
+
+
+@pytest.mark.asyncio
+async def test_rewrite_short_content_now_allowed():
+    """回归：移除 20 字下限后，短内容（非空）不再被 service 拒绝。"""
+    import os as _os
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+    from multi_publish.aggregation._user_errors import UserVisibleError
+
+    _os.environ.pop("LLM_API_KEY", None)
+    _os.environ.pop("PO_OPENAI_API_KEY", None)
+
+    service = AggregationService()
+    req = RewriteRequest(content="短", style="轻松易懂")
+
+    with pytest.raises(UserVisibleError) as exc_info:
+        await service.rewrite(req)
+    assert exc_info.value.error_code == "LLM_KEY_MISSING"
+
+
+def test_rewrite_request_empty_content_rejected():
+    """空内容（纯空白）仍被拒绝。"""
+    from multi_publish.aggregation.models import RewriteRequest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RewriteRequest(content="   ", style="轻松易懂")
+
+
+def test_rewrite_word_count_range_used_in_config():
+    """service.rewrite 必须把 min/max_word_count 传给 RewriteConfig。"""
+    import inspect
+    from multi_publish.aggregation import service as service_module
+
+    src = inspect.getsource(service_module)
+    assert "min_word_count" in src
+    assert "request.max_word_count" in src
 
 
 # ── 11. 回归测试：word_count 兜底 ──────────────────────────────────

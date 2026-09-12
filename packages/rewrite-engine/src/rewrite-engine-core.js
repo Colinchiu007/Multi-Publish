@@ -13,6 +13,9 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 // 极简 logger（与 api-publish-engine/logger 同接口；logging-coverage-audit）
 const logger = require('./logger-fallback')
 
+// 无显式字数控制时的默认输出上限（2500 字以下）
+const DEFAULT_MAX_OUTPUT_LENGTH = 2500
+
 class RewriteEngine {
   /**
    * @param {object} options
@@ -39,7 +42,7 @@ class RewriteEngine {
    * @param {object} params
    * @param {string} params.mode - 'imitate' | 'expand' | 'create'
    * @param {string} params.content - 用户输入文案
-   * @param {object} params.userSettings - { industry, purpose, tone, platform, targetLength }
+   * @param {object} params.userSettings - { industry, purpose, tone, platform, targetLength, wordCountRange: {min, max} }
    * @param {string} params.strategyId - 手动指定策略 ID（可选，为空则自动匹配）
    * @returns {Promise<object>} { success, result, strategy, warnings, sensitiveHits }
    */
@@ -98,8 +101,8 @@ class RewriteEngine {
       return { success: false, error: 'LLM 返回空结果', errorCode: 'EMPTY_RESULT' }
     }
 
-    // 6. 后处理
-    const processed = this._postProcess(result, strategy)
+    // 6. 后处理（wordCountRange.max 优先于策略 postProcess.maxLength）
+    const processed = this._postProcess(result, strategy, userSettings.wordCountRange)
 
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
@@ -188,9 +191,6 @@ class RewriteEngine {
       return { valid: false, error: '内容不能为空', errorCode: 'EMPTY_CONTENT' }
     }
     const len = [...content].length // Unicode code point 计数
-    if (len < 20) {
-      return { valid: false, error: '内容太短，至少需要 20 字', errorCode: 'TOO_SHORT' }
-    }
     if (len > 6000) {
       return { valid: false, error: '内容过长，最多 6000 字', errorCode: 'TOO_LONG' }
     }
@@ -228,8 +228,10 @@ class RewriteEngine {
 
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
+    // 字数区间指令（wordCountRange 优先于 targetLength 三档）
+    const wordCountInstruction = this._getWordCountInstruction(userSettings)
 
-    const systemPrompt = `${strategy.systemPrompt}\n\n${modeInstructions}`
+    const systemPrompt = `${strategy.systemPrompt}\n\n${modeInstructions}\n\n${wordCountInstruction}`
 
     // 替换用户提示模板中的变量
     let userPrompt = strategy.userPromptTemplate
@@ -280,6 +282,17 @@ class RewriteEngine {
   }
 
   /**
+   * 构建字数区间指令：wordCountRange {min,max} 优先；未提供时不注入（由后处理默认上限兜底）
+   * @param {object} userSettings
+   * @returns {string}
+   */
+  _getWordCountInstruction(userSettings) {
+    const range = userSettings && userSettings.wordCountRange
+    if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
+    return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
+  }
+
+  /**
    * 构建三层知识库上下文（用户偏好 + 爆款库 + 个人知识库）
    * @param {string} content
    * @param {object|null} knowledgeOptions
@@ -299,7 +312,7 @@ class RewriteEngine {
     return this._knowledgeBase.getContextSummary()
   }
 
-  _postProcess(text, strategy) {
+  _postProcess(text, strategy, wordCountRange) {
     let result = text
 
     // 去 AI 味
@@ -314,7 +327,10 @@ class RewriteEngine {
     }
 
     // 长度限制
-    const maxLength = postProcess.maxLength || 6000
+    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 2500
+    const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
+      ? wordCountRange.max
+      : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
     if (result.length > maxLength) {
       result = result.slice(0, maxLength)
     }

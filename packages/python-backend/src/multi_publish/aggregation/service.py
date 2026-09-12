@@ -211,9 +211,9 @@ class AggregationService:
 
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
-        # 输入校验：内容过短（<20 字）优先报错，与 RewriteProcessor 的校验保持一致
-        if len((request.content or "").strip()) < 20:
-            raise ValueError(f"输入内容过短（仅 {len((request.content or '').strip())} 字符），请提供至少 20 字的完整文章")
+        # 输入校验：仅拦截空内容（2026-09-12 移除 20 字下限，非空即可改写）
+        if not (request.content or "").strip():
+            raise ValueError("输入内容不能为空")
         # 前置校验：未配置 LLM API Key 时返回稳定错误码，由前端 locale 渲染友好文案
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
         if not api_key:
@@ -242,7 +242,14 @@ class AggregationService:
             url="",
         )
         strategy_name = _STYLE_TO_STRATEGY.get(request.style, "rewrite")
-        min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
+        # 字数区间优先级：显式 min/max_word_count > length 三档映射
+        # （前端始终传 min/max_word_count，length 保留给旧客户端/API 调用方）
+        if request.min_word_count is not None and request.max_word_count is not None:
+            min_wc = request.min_word_count
+            max_wc = request.max_word_count
+            target_wc = (min_wc + max_wc) // 2
+        else:
+            min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
         rewrite_cfg = RewriteConfig(
             strategy=RewriteStrategy(strategy_name),
             min_word_count=min_wc,

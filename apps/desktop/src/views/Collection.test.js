@@ -707,7 +707,8 @@ describe("CollectionView", () => {
     expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith({
       content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
       style: "轻松易懂",
-      length: "keep",
+      min_word_count: 800,
+      max_word_count: 2000,
     });
     expect(w.vm.collectedResult).toBeTruthy();
     expect(w.vm.collectedResult.content).toContain("这是采集到的原文内容");
@@ -715,6 +716,42 @@ describe("CollectionView", () => {
     expect(w.vm.collectedItems.length).toBe(1);
     expect(w.vm.oneClickRewriting).toBe(false);
     expect(w.vm.collecting).toBe(false);
+  });
+
+  // ── 字数区间控制（2026-09-12）──
+
+  it("renders word count inputs with default 800-2000 and replaces length select", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationRewrite: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "C", description: "" };
+    await nextTick();
+    const inputs = w.findAll('input[type="number"]');
+    expect(inputs.length).toBeGreaterThanOrEqual(2);
+    expect(w.vm.rewriteWordCountMin).toBe(800);
+    expect(w.vm.rewriteWordCountMax).toBe(2000);
+    // 三档 length 下拉已移除
+    const selects = w.findAll("select");
+    const lengthOptions = selects.flatMap((s) => s.findAll("option").map((o) => o.text()));
+    expect(lengthOptions).not.toContain("保持原文");
+  });
+
+  it("rewriteCollected blocked when max < min", async () => {
+    window.electronAPI = {
+      aggregationRewrite: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "原始正文内容。", description: "" };
+    w.vm.rewriteWordCountMin = 2000;
+    w.vm.rewriteWordCountMax = 100;
+    await nextTick();
+    await w.vm.rewriteCollected();
+    expect(w.vm.rewriteWordCountError).toContain("最大字数不能小于最小字数");
+    expect(window.electronAPI.aggregationRewrite).not.toHaveBeenCalled();
   });
 
   // ── 回归：AI 改写无密钥错误必须渲染 locale 友好文案（2026-09-12）──
