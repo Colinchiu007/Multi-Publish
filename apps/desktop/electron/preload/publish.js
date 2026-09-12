@@ -128,6 +128,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     pipelineHistory: () => ipcRenderer.invoke('pipeline:history'),
     pipelineDeleteRun: (runId) => ipcRenderer.invoke('pipeline:delete-run', runId),
     pipelinePauseRun: (runId) => ipcRenderer.invoke('pipeline:pause-run', runId),
+    pipelineCancelRun: (runId) => ipcRenderer.invoke('pipeline:cancel-run', runId),
     pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
     // 编排模式 API（story2video-compose）
     pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),

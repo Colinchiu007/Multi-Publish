@@ -73,6 +73,9 @@ export function classifyCollectError(input) {
   if (message.includes('ASR_ENGINE_UNAVAILABLE') || (message.includes('转写引擎不可用') && fromVideoPipeline) || message.includes('pip install faster-whisper')) {
     return result('asr_engine_unavailable')
   }
+  if (message.includes('ASR_DOWNLOAD_FAILED') || (message.includes('模型下载失败') && fromVideoPipeline)) {
+    return result('asr_download_failed')
+  }
   if (message.includes('TRANSCRIBE_TIMEOUT') || message.includes('转写超时')) {
     return result('video_transcribe_timeout')
   }

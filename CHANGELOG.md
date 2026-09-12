@@ -6,12 +6,45 @@
 - Electron IPC：ipc-handlers/ 18 文件 111 处裸 catch 统一补 log.warn（返回值零变化）；webview-manager 20 处 IPC catch + 3 处静默导航失败 + cookie 恢复失败 + 凭证读取失败补日志。
 - packages：api-publish-engine execute catch（error+stack）/api-router fallback 降级链/scheduled-publish 状态机迁移全部留痕；rewrite-engine LLM 失败与敏感词 fail-open 记 error；ai-writer 三方法降级记 warn；collection-engine audit-logger 无 dir 丢弃计数 + 策略文件损坏回退默认（此前直接崩）。
 - Python/桥接：base_tool.run_command 根因修复——CalledProcessError 抛出前统一记 stderr 尾部（一次性覆盖所有 ffmpeg/Remotion 调用方）；video_compose.execute 补 operation/elapsed/stderr_tail；JS 桥接非 JSON 响应记原始 body；render-engine 收集 Remotion stderr 尾部；edge-tts stdio ignore→pipe 收集 stderr；prompt-bridge CLI fallback 附 stderr。
-- 文档：01-docs/PRD-LOGGING-COVERAGE-2026-09-12.md（39 个日志点清单、级别语义、字段颗粒度合同、脱敏规则、数据流图）；01-docs/LOGGING-GUIDELINES.md（开发者日志规范：5 类必写场景 + 5 类禁止反模式 + 各模块 logger 速查）。
-- 回归保护：rpa-view-manager.test.js 新增 2 条日志合同测试（失败分支必须记 warn），防日志被后续重构无声删除。
+- 文档：01-docs/PRD-LOGGING-COVERAGE-2026-09-12.md（39 个日志点清单、级别语义、字段颗粒度合同、脱敏规则、数据流图）；01-docs/LOGGING-GUIDELINES.md（开发者日志规范）。
+- 回归保护：rpa-view-manager.test.js 新增 2 条日志合同测试，防日志被后续重构无声删除。
+- 双模型审查修复：webview-manager cookie 聚合计数竞态（Promise.all 后判定）；base_tool.py 模块级 logger 兜底 StreamHandler；_waitForElement 超时降 info 防刷屏。
+- 债务基线：filesOver1000 30→31（account-manager.js 补日志后 998→1010 行首次破千，合并 main 的 85 filesOver500 取最大值）。
 
 ### 验证
-- Electron 受影响面 48 测试文件 732 passed（ipc-handlers 全量 + rpa-view/webview/account-manager/render-engine/python-bridge/asset-generator/prompt-bridge）。
-- collection-engine 91 + rewrite-engine 67 + ai-writer 16 passed；api-publish-engine node test 通过；全部修改文件 node --check / ast.parse 通过。
+- Electron 受影响面 598 passed（ipc-handlers 全量 + rpa-view/webview）；collection-engine 91 + rewrite-engine 67 + ai-writer 16 passed。
+- CI quality-gate 9/9 jobs success（Static/Unit/Coverage/E2E/Visual/Autonomous/Desktop Shards ×2/Gate Result）。
+
+## [未发布] feat(collection): faster-whisper 模型下载管理——镜像自动选择 + 失败分类与可操作提示（2026-09-12）
+
+### 新增
+- **下载源自动选择**（_resolve_download_endpoint）：优先级为用户显式 HF_ENDPOINT > hf-mirror.com 镜像（HEAD 5s 探测）> huggingface.co 直连回退；选择结果写日志；下载结束恢复原环境变量（用户显式设置不被覆盖）。
+- **下载预检**（is_model_ready）：local_files_only 纯本地查询，模型已缓存零网络请求直接加载。
+- **失败分类**（_classify_download_error）：网络不可达/超时/磁盘不足/离线模式冲突/仓库不存在/未知 六类，每类映射含可操作建议的中文提示；所有失败提示附手动下载兜底指引（直连/镜像双 URL + 本机缓存目录）。
+- **转写前确保模型就绪**（ensure_model）：未就绪自动走下载管理，失败抛 AsrEngineError(download_failed)，不再让用户看到笼统的「转写失败」。
+- 前端 collect-error.js 新增 asr_download_failed 分类（网络类可重试）；locale zh/en 成对新增。
+- PRD §7.2.1：下载管理流程图 + 六类失败场景矩阵 + 手动下载兜底指引 + 环境变量恢复契约。
+
+### 验证
+- Python: test_aggregation_video.py 35 passed（含 12 个新下载管理用例：源选择三分支/预检双路径/六类失败分类/提示含手动 URL/已缓存跳过下载/环境变量恢复）。
+- 前端: collect-error 48 + Collection 66 全绿；locale-sync --keys PASS（876）+ --cjk PASS（基线 1494，行偏移显式更新）。
+## [未发布] feat(desktop): 热门选题一键生成视频（2026-09-12）
+
+### 新增
+- 热门选题页每条选题新增【生成视频】按钮：点击后自动执行「改写引擎生成文案（mode=create，<20 字补引导语）→ 按用户已保存默认选项（story2video.lastOptions.v1）启动故事讲述（story2video-compose）流水线」完整编排。
+- 一键生成视频进度弹窗：复用视频创作页同款 UiModal(variant=progress) + StageProgress UI，stages = [文案改写(rewrite_copy), 文案拆分, 场景上下文, 提示词优化, AI视频场景选择, 素材生成, 视频合成, 发布] 共 8 阶段，进度百分比/耗时/阶段状态实时更新。
+- 进度双通道跟踪：onPipelineUpdate 实时推送 + 3s 轮询 pipelineGetRunContext 兜底，runId 快照守卫防竞态；完成自动提取 videoPath 跳转 /create/result。
+- 改写产物自动存草稿箱（source='hot-topics'），草稿保存失败不阻断视频生成。
+- 失败重试：改写失败从改写重试；流水线启动失败跳过改写直接重启流水线（产物缓存）。取消语义：改写阶段取消=中止编排；流水线运行取消=pipelineCancel；运行中关闭弹窗=后台运行（历史记录可查）。
+- 新增共享纯函数模块 src/story2video/s2v-config-snapshot.js：从 lastOptions 快照构建 story2videoTextConfig（与 CreateView.buildStory2VideoTextConfig 同契约，快照缺失/非法回退内置默认值）。
+- 新增 stage 名 rewrite_copy 注册于 pipeline-labels.js STAGES + locales pipelines.stages（zh: 文案改写 / en: Rewrite Copy）。
+
+### 验证
+- HotTopics.test.js 11 passed（含 4 个新用例：按钮渲染/完整编排流/改写失败/流水线失败重试不重复改写）。
+- publisher.test.js 236 + story2video/video-creation 136 + CreateView.test.js 277 全量回归通过。
+- locale-sync --pair-base/--cjk/--keys 全 PASS（CJK 基线仅行号位移重锚，无新增硬编码）。
+- vite build 通过。
+
 ## [未发布] fix(desktop): url-collect:fetch 加入 PUBLIC_CHANNELS — 未登录采集回退层不再被 license 拦截（2026-09-12）
 
 ### 修复
@@ -36,6 +69,7 @@
 
 ### 验证
 - Collection 66 + collect-error 40 + aggregation IPC 18 全绿；locale-sync --keys PASS（873）+ --cjk PASS（基线 1477）。
+
 ## [未发布] feat(collection): 抖音/小红书图文+视频链接采集，视频作品 ASR 口播文案转写（2026-09-12）
 
 ### 新增

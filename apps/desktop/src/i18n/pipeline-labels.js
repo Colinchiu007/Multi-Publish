@@ -158,6 +158,7 @@ const STAGES = {
   verify: 'pipelines.stages.verify',
   report: 'pipelines.stages.report',
   split: 'pipelines.stages.split',
+  rewrite_copy: 'pipelines.stages.rewrite_copy',
   domain_enrich: 'pipelines.stages.domain_enrich',
   scene_context: 'pipelines.stages.scene_context',
   optimize: 'pipelines.stages.optimize',
