@@ -13,6 +13,39 @@ const NL = String.fromCharCode(10)
 
 const LEVELS = { INFO: 'info', WARN: 'warn', ERROR: 'error', BLOCK: 'block' }
 
+// 敏感查询参数脱敏（与 apps/desktop logger.redactText 语义对齐，独立实现避免跨包依赖）：
+// OAuth code / token / key / secret / password 类参数值替换为 [REDACTED]
+const SENSITIVE_QUERY_KEYS = /(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|credential|code)/i
+
+function redactUrlString (value) {
+  if (typeof value !== 'string') return value
+  try {
+    const u = new URL(value)
+    let redacted = false
+    for (const [k] of u.searchParams) {
+      if (SENSITIVE_QUERY_KEYS.test(k)) {
+        u.searchParams.set(k, '[REDACTED]')
+        redacted = true
+      }
+    }
+    // 无敏感参数时返回原字符串，避免 URL 往返序列化副作用（如补尾斜杠）
+    return redacted ? u.toString() : value
+  } catch {
+    // 非 URL 字符串：对 key=value 形态做保守脱敏
+    return value.replace(/([?&;][\w-]*(?:token|secret|password|passwd|key|auth|credential|code)[\w-]*=)[^&;\s]*/gi, "$1[REDACTED]")
+  }
+}
+
+function redactRecord (record) {
+  if (!record || typeof record !== 'object') return record
+  const out = { ...record }
+  if (typeof out.url === 'string') out.url = redactUrlString(out.url)
+  if (typeof out.error === 'string') {
+    out.error = out.error.replace(/(token|secret|password|api[_-]?key)=[^\s&;]+/gi, '$1=[REDACTED]')
+  }
+  return out
+}
+
 class AuditLogger {
   constructor (opts = {}) {
     this._dir = opts.dir || null
@@ -43,10 +76,12 @@ class AuditLogger {
   }
 
   log (level, entry) {
+    // 无目录时禁用落盘也禁用缓冲（回归审查 M5：防 buffer 无限增长）
+    if (!this._dir) return
     const record = {
       ts: new Date().toISOString(),
       level,
-      ...entry,
+      ...redactRecord(entry),
     }
     this._buffer.push(record)
   }

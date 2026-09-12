@@ -147,4 +147,124 @@ describe('aggregation IPC handlers', () => {
     expect(result.code).toBe(400)
     expect(result.message).toBe('采集失败')
   })
+
+  it('registers aggregation:collect-video channel', () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+    expect(ipcMain.handle).toHaveBeenCalledWith('aggregation:collect-video', expect.any(Function))
+  })
+
+  it('aggregation:collect-video calls pythonBridge with POST /aggregation/collect-video and 600s timeout', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({ media_type: 'video', transcript: '文案' }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'POST', '/aggregation/collect-video',
+      { url: 'https://v.douyin.com/abc/' }, 600000
+    )
+    expect(result.media_type).toBe('video')
+  })
+
+  it('aggregation:collect-video classifies ASR engine unavailable as -6', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockRejectedValue(new Error('ASR_ENGINE_UNAVAILABLE: 语音转写引擎不可用，请安装 faster-whisper')) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.code).toBe(-6)
+    expect(result.message).toContain('faster-whisper')
+  })
+
+  it('aggregation:collect-video classifies transcribe timeout as -7', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockRejectedValue(new Error('TRANSCRIBE_TIMEOUT: 转写超时')) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.code).toBe(-7)
+    expect(result.message).toContain('超时')
+  })
+
+  it('aggregation:collect-video classifies no audio track as -8', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockRejectedValue(new Error('NO_AUDIO_TRACK: 该视频无音轨')) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.code).toBe(-8)
+    expect(result.message).toContain('无音轨')
+  })
+
+  // ── 视频采集错误：python-bridge 对 HTTP 422 不抛异常而是 resolve {code:-422, message:"CODE: 中文提示"} ──
+  // 回归：>10 分钟拒绝等具体提示曾被 -422/通用文案吞掉（QM-5 修复）
+
+  it('collect-video resolve 路径：>10 分钟拒绝 → 透传 -422 与「视频过长（含实际时长）」提示', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({
+      code: -422, status: 422,
+      message: 'VIDEOCLONE_FILE_TOO_LARGE: 视频过长（15:32），采集仅支持 10 分钟内的短视频',
+    }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/too-long/' })
+
+    expect(result.message).toContain('视频过长')
+    expect(result.message).toContain('15:32')
+    expect(result.message).toContain('10 分钟')
+  })
+
+  it('collect-video resolve 路径：引擎缺失 → 透传安装指引而非「无法提取内容」', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({
+      code: -422, status: 422,
+      message: '-6: 语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper',
+    }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.message).toContain('pip install faster-whisper')
+    expect(result.message).not.toContain('无法提取内容')
+  })
+
+  it('collect-video resolve 路径：无音轨 → 透传「无音轨」提示', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({
+      code: -422, status: 422,
+      message: '-8: 该视频无音轨，无法进行语音转写',
+    }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.message).toContain('无音轨')
+  })
+
+  it('collect-video resolve 路径：转写超时 → 透传「转写超时」提示', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({
+      code: -422, status: 422,
+      message: '-7: 转写超时（300 秒），请尝试较短的短视频',
+    }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:collect-video')
+    const result = await handler({}, { url: 'https://v.douyin.com/abc/' })
+
+    expect(result.message).toContain('转写超时')
+    expect(result.message).toContain('较短的短视频')
+  })
 })

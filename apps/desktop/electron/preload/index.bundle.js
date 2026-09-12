@@ -21,6 +21,7 @@ var require_publish = __commonJS({
         publishWechat: (articleData) => ipcRenderer2.invoke("publish:wechat", articleData),
         publishBatch: (platforms, article) => ipcRenderer2.invoke("publish:batch", { platforms, article }),
         extractVideoCover: (videoPath) => ipcRenderer2.invoke("cover:extract", videoPath),
+        generateAiCover: (payload) => ipcRenderer2.invoke("cover:generate-ai", payload),
         cropVideoCover: (payload) => ipcRenderer2.invoke("cover:crop", payload),
         readCoverData: (imagePath) => ipcRenderer2.invoke("cover:read-data", imagePath),
         listAccounts: () => ipcRenderer2.invoke("accounts:list"),
@@ -918,6 +919,7 @@ var require_aggregation = __commonJS({
     function createAggregationApi2(ipcRenderer2) {
       return {
         aggregationCollect: (payload) => ipcRenderer2.invoke("aggregation:collect", payload),
+        aggregationCollectVideo: (payload) => ipcRenderer2.invoke("aggregation:collect-video", payload),
         aggregationCollectBatch: (payload) => ipcRenderer2.invoke("aggregation:collect-batch", payload),
         aggregationRewrite: (payload) => ipcRenderer2.invoke("aggregation:rewrite", payload),
         aggregationSources: () => ipcRenderer2.invoke("aggregation:sources"),

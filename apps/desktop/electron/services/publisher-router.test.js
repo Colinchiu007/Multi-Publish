@@ -21,6 +21,8 @@ vi.mock("./media-tool-paths", () => ({
 }));
 
 const { PublisherRouter, ROUTE_TABLE } = require("../services/publisher-router");
+// P0-3 回归：直接测 resolvePlatformArticle/buildPublishArticle 的平台特有字段透传（不经过 route）
+const routerSrc = require("../services/publisher-router");
 
 describe("ApiPublisher（baijiahao api 模式）", () => {
   const store = {
@@ -128,6 +130,108 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
       probeVideo: async () => ({ width: 720, height: 1280, duration: 1 }),
     })
     await expect(p.publish(baseTask)).rejects.toThrow(/竖版/)
+  })
+
+  // P0-3：平台特有字段透传回归测试（bilibili tid/copyright、youtube categoryId/privacy、
+  // tiktok privacyLevel、baijiahao original/location）——验证 resolvePlatformArticle →
+  // buildPublishArticle → taskData 三层链路不断链
+  it("bilibili platformOverrides 的 category/copyright 透传（buildPublishArticle 层）", () => {
+    const article = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { bilibili: { category: 21, copyright: 1 } } } }, "bilibili")
+    expect(article.category).toBe(21)
+    expect(article.copyright).toBe(1)
+  })
+
+  it("youtube categoryId/privacy、tiktok privacyLevel、baijiahao original/location 透传（buildPublishArticle 层）", () => {
+    const yt = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "10", privacy: "unlisted" } } } }, "youtube")
+    expect(yt.categoryId).toBe("10")
+    expect(yt.privacy).toBe("unlisted")
+
+    const tt = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { tiktok: { privacyLevel: "FRIENDS" } } } }, "tiktok")
+    expect(tt.privacyLevel).toBe("FRIENDS")
+
+    const loc = { uid: "poi-1", name: "北京·三里屯", city_name: "北京" }
+    const bjh = routerSrc.buildPublishArticle({ article: { ...baseArticle, original: true, location: loc } }, "baijiahao")
+    expect(bjh.original).toBe(true)
+    expect(bjh.location).toEqual(loc)
+  })
+
+  it("非法平台特有字段被过滤（category 非正整数/privacy 非法枚举不透传）", () => {
+    const a1 = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { bilibili: { category: -1, copyright: 9 } } } }, "bilibili")
+    expect(a1.category).toBeUndefined()
+    expect(a1.copyright).toBeUndefined()
+
+    const a2 = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "abc", privacy: "hack" } } } }, "youtube")
+    expect(a2.categoryId).toBeUndefined()
+    expect(a2.privacy).toBeUndefined()
+  })
+
+  it("baijiahao locationName 手输位置转换为 location 对象", () => {
+    const a = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { baijiahao: { locationName: "北京·三里屯" } } } },
+      "baijiahao",
+    )
+    expect(a.location).toEqual({ uid: "manual-北京·三里屯", name: "北京·三里屯" })
+
+    // 完整 location 对象优先于 locationName
+    const b = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { baijiahao: { locationName: "手输", location: { uid: "poi-9", name: "POI" } } } } },
+      "baijiahao",
+    )
+    expect(b.location).toEqual({ uid: "poi-9", name: "POI" })
+  })
+
+  it("P2-1 合集/播放列表透传：B站 collectionId、YouTube playlistId、百家号 collection", () => {
+    const bili = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { bilibili: { collectionId: 12345 } } } },
+      "bilibili",
+    )
+    expect(bili.collectionId).toBe(12345)
+
+    const yt = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { youtube: { playlistId: "PLabc123xyz_-" } } } },
+      "youtube",
+    )
+    expect(yt.playlistId).toBe("PLabc123xyz_-")
+
+    const col = { id: "topic-77", name: "我的合集" }
+    const bjh = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { baijiahao: { collection: col } } } },
+      "baijiahao",
+    )
+    expect(bjh.collection).toEqual(col)
+
+    // 非法值过滤：负数 collectionId、含特殊字符 playlistId 不透传
+    const bad = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { bilibili: { collectionId: -1 }, youtube: { playlistId: "bad id!" } } } },
+      "bilibili",
+    )
+    expect(bad.collectionId).toBeUndefined()
+  })
+
+  it("P1-4/P1-5/P3-3：公众号 digest/openComment 与全平台 author 透传", () => {
+    // 公众号摘要 + 评论开关
+    const wx = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { wechat_mp: { digest: "这是摘要" } }, openComment: false, author: "张三" } },
+      "wechat_mp",
+    )
+    expect(wx.digest).toBe("这是摘要")
+    expect(wx.openComment).toBe(false)
+    expect(wx.author).toBe("张三")
+
+    // author 全平台透传（非公众号也有）
+    const dy = routerSrc.buildPublishArticle({ article: { ...baseArticle, author: "李四" } }, "douyin")
+    expect(dy.author).toBe("李四")
+
+    // openComment 默认 true（未显式 false）
+    const wx2 = routerSrc.buildPublishArticle({ article: { ...baseArticle } }, "wechat_mp")
+    expect(wx2.openComment).toBe(true)
+
+    // digest 超长截断 120
+    const wx3 = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { wechat_mp: { digest: "x".repeat(200) } } } },
+      "wechat_mp",
+    )
+    expect(wx3.digest.length).toBe(120)
   })
 
   it("缺少 cookie 时抛错", async () => {

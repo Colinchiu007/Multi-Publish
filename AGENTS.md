@@ -797,7 +797,7 @@ Key routing rules:
 | 文本搜索        | mcp\_\_fastctx\_\_grep            | 禁止 exec\_command("rg ...")、exec\_command("grep ...")、exec\_command("findstr ...")、exec\_command("Select-String ...") |
 | 文件读取        | mcp\_\_fastctx\_\_read            | 禁止 exec\_command("cat ...")、exec\_command("Get-Content ...")、exec\_command("type ...")                               |
 | 文件列表/查找     | mcp\_\_fastctx\_\_glob            | 禁止 exec\_command("ls ...")、exec\_command("dir ...")、exec\_command("Get-ChildItem ...")                               |
-| Shell 命令    | mcp\_\_fastctx\_\_run             | 禁止 exec\_command 直接执行 shell                                                                                          |
+| Shell 命令    | mcp\_\_fastctx\_\_run             | 禁止 exec\_command 直接执行 shell（例外见执行规则第 4、5 条）                                                              |
 | 批量文本替换      | mcp\_\_fastctx\_\_replace         | 禁止 exec\_command("sed ...")、exec\_command("(Get-Content ...) -replace ...")                                          |
 | 长时间任务（>2分钟） | mcp\_\_fastctx\_\_run\_background | 禁止 exec\_command                                                                                                     |
 
@@ -805,7 +805,10 @@ Key routing rules:
 
 1. 收到用户请求后，Agent 必须先检查操作类型是否命中上表，命中则必须使用对应 FastCtx 工具。
 2. apply\_patch 仅用于语义级代码修改，不用于机械文本替换。
-3. **零豁免**：禁止使用 exec\_command 执行任何 shell 命令——包括但不限于单行查询（git status、npm 版本、node -e、where/which 等）、只读命令、以及上表未覆盖的一切 shell 场景。所有 shell 命令一律走 mcp\_\_fastctx\_\_run；预计超过 2 分钟的走 mcp\_\_fastctx\_\_run\_\_background。
-4. **唯一例外**：确需 PTY 交互式会话（如启动开发服务器后持续观察输出、向运行中进程写 stdin）时，允许 exec\_command 创建会话并用 write\_stdin 轮询；除此之外不得使用 exec\_command 执行任何命令。
-5. **违规回退**：发现自己在 PowerShell 或内置 exec\_command 中执行了本应走 FastCtx 的操作时，必须立即中止，改用对应 FastCtx 工具重做，并以 FastCtx 的结果为准。
+3. **零豁免**：禁止使用 exec\_command 执行任何 shell 命令——包括但不限于单行查询（git status、npm 版本、node -e、where/which 等）、只读命令、以及上表未覆盖的一切 shell 场景。所有 shell 命令一律走 mcp\_\_fastctx\_\_run；预计超过 2 分钟的走 mcp\_\_fastctx\_\_run\_\_background。例外仅限下列第 4、5 条。
+4. **例外 A（PTY 交互式会话）**：确需 PTY 交互式会话（如启动开发服务器后持续观察输出、向运行中进程写 stdin）时，允许 exec\_command 创建会话并用 write\_stdin 轮询。
+5. **例外 B（PowerShell 原生操作白名单）**：仅限无法用 bash 语法表达的 Windows 原生操作，允许 exec\_command 直跑 PowerShell，避免 bash→PowerShell 双跳（实测每次约 +1.3s）与引号转义腐蚀。范围：注册表（reg.exe / Get-ItemProperty / Set-ItemProperty）、计划任务（schtasks / Register-ScheduledTask）、CIM/WMI 查询（Get-CimInstance / Get-WmiObject）、Windows 服务（Get-Service / Start-Service）等系统管理 API，且命令体含内联 PowerShell 语法（对象管道、哈希表、$_、[PSCustomObject] 等，经 bash 转义必腐蚀）。
+   - 执行 .ps1 脚本文件（如 scripts/session-guard.ps1）不适用本例外：仍走 mcp\_\_fastctx\_\_run，命令形如 "powershell -NoProfile -ExecutionPolicy Bypass -File <脚本路径>"——路径不含复杂引号，无转义风险，仅承担 PowerShell 自身启动开销（该开销 exec\_command 同样无法避免）。
+   - 白名单禁止扩大解释：文件搜索/读取/批量替换，以及普通 git、node、npm、pnpm、rg 命令，即使写成 PowerShell 语法也不属于本例外。
+6. **违规回退**：发现自己在 PowerShell 或内置 exec\_command 中执行了本应走 FastCtx 的操作时，必须立即中止，改用对应 FastCtx 工具重做，并以 FastCtx 的结果为准。
 

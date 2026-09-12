@@ -12,9 +12,93 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+const UrlCollector = (await import("./url-collector")).default;
 
-const UrlCollector = require("./url-collector");
+// 回归保护：35ae6224 误删 urlCollector 唯一 IPC 注册点后，采集回退层静默失败且无日志。
+// 此 describe 锁定「失败必须留痕」合同：collect 失败路径必须写应用 logger。
+describe("UrlCollector 失败日志（回归：采集失败无日志）", () => {
+  let collector;
+  let logger;
+  let auditDir;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const os = await import("os");
+    const path = await import("path");
+    // 显式注入审计目录，验证 AuditLogger 落盘合同
+    auditDir = path.join(os.tmpdir(), "mp-collect-audit-test-" + Date.now());
+    // 依赖注入 logger（vi.mock 拦不住 CJS 模块内部的 require，构造注入是唯一可靠方式）
+    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    collector = new UrlCollector({ auditDir, log: logger });
+  });
+
+  afterEach(async () => {
+    // 审查 M4：测试临时目录自清理
+    const fs = await import("fs");
+    try { fs.rmSync(auditDir, { recursive: true, force: true }); } catch { /* 已清理 */ }
+  });
+
+  it("浏览器采集异常时写 error 日志（含 URL 与错误信息）", async () => {
+    // _collectViaBrowser 抛错 → catch 分支必须写日志
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaBrowser = vi.fn().mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
+    const result = await collector.collect("https://zhuanlan.zhihu.com/p/2081651053322421603");
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("采集失败");
+    expect(logger.error).toHaveBeenCalled();
+    const args = logger.error.mock.calls[0];
+    expect(String(args[0])).toContain("url-collect");
+    expect(JSON.stringify(args)).toContain("2081651053322421603");
+  });
+
+  it("HTTP 采集异常时写 error 日志", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._needsBrowser = () => false; // 强制走 HTTP 路径
+    collector._getAxios = () => ({ get: vi.fn().mockRejectedValue(new Error("timeout of 15000ms exceeded")) });
+    const result = await collector.collect("https://example.com/post/1");
+    expect(result.success).toBe(false);
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it("构造时注入 auditDir 后 AuditLogger 事件落盘 jsonl", async () => {
+    const os = await import("os");
+    const path = await import("path");
+    const fs = await import("fs");
+    collector._auditLogger.error("zhihu", "default", new Error("test-audit"), { url: "https://zhuanlan.zhihu.com/p/1" });
+    collector._auditLogger.flush();
+    const dir = collector._auditLogger._dir;
+    expect(dir).toBeTruthy();
+    const files = fs.readdirSync(dir).filter((f) => f.startsWith("collection-audit-"));
+    expect(files.length).toBeGreaterThan(0);
+    const content = fs.readFileSync(path.join(dir, files[0]), "utf8");
+    expect(content).toContain("test-audit");
+  });
+
+  it("auditDir 传 null 时禁用落盘且不缓冲（审查 M5：防内存泄漏）", () => {
+    const c = new UrlCollector({ auditDir: null });
+    expect(c._auditLogger._dir).toBe(null);
+    c._auditLogger.error("zhihu", "default", new Error("should-not-buffer"), { url: "https://example.com" });
+    expect(c._auditLogger._buffer.length).toBe(0);
+  });
+
+  it("auditDir 相对路径被规范化为绝对路径（审查 C2）", () => {
+    const c = new UrlCollector({ auditDir: "relative/audit-dir" });
+    expect(c._auditLogger._dir.includes("relative")).toBe(true);
+    expect(c._auditLogger._dir).toMatch(new RegExp("^[A-Za-z]:[\\\\/]|^/"));
+  });
+
+  it("AuditLogger 落盘时 URL 敏感参数被脱敏（审查 C1）", async () => {
+    const fs = await import("fs");
+    const pathMod = await import("path");
+    collector._auditLogger.request("zhihu", "default", "https://example.com/callback?code=OAUTH_SECRET&state=x", 200, 0);
+    collector._auditLogger.flush();
+    const files = fs.readdirSync(auditDir).filter((f) => f.startsWith("collection-audit-"));
+    const content = fs.readFileSync(pathMod.join(auditDir, files[0]), "utf8");
+    // URL.searchParams.set 会做百分号编码，[REDACTED] → %5BREDACTED%5D
+    expect(content.toLowerCase()).toContain("redacted");
+    expect(content).not.toContain("OAUTH_SECRET");
+  });
+});
 
 function zhihuColumnHtml() {
   return `<html>

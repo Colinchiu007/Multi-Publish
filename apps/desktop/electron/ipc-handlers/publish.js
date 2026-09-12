@@ -72,6 +72,54 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
+  // AI 生成封面：cover:generate-ai（P2-2：复用 Story2Video 的 asset-generator 生图引擎，
+  // 输出落 publish-cover 临时目录，返回本地路径供 cover_path 消费）
+  ipcMain.handle('cover:generate-ai', withSenderCheck(async (event, payload) => {
+    const startedAt = Date.now()
+    ipcLog('info', 'cover:generate-ai', 'enter', `prompt=${typeof payload?.prompt === 'string' ? payload.prompt.slice(0, 60) : String(payload?.prompt)} style=${payload?.style} ratio=${payload?.ratio}`)
+    try {
+      if (!payload || typeof payload !== 'object') {
+        ipcLog('warn', 'cover:generate-ai', 'validation-failed', '缺少参数对象')
+        return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      }
+      const prompt = String(payload.prompt || '').trim()
+      if (!prompt || prompt.length < 2) {
+        ipcLog('warn', 'cover:generate-ai', 'validation-failed', 'prompt 必须为至少 2 个字符')
+        return { code: EC.VALIDATION_ERROR, message: '封面描述至少 2 个字符' }
+      }
+      if (prompt.length > 500) {
+        ipcLog('warn', 'cover:generate-ai', 'validation-failed', 'prompt 超过 500 字符')
+        return { code: EC.VALIDATION_ERROR, message: '封面描述不能超过 500 字符' }
+      }
+      const assetGenerator = deps.assetGenerator
+      if (!assetGenerator || typeof assetGenerator.generateImage !== 'function') {
+        ipcLog('warn', 'cover:generate-ai', 'unavailable', 'assetGenerator 未注入')
+        return { code: EC.REQUEST_ERROR, message: 'AI 生图服务不可用' }
+      }
+      const style = ['cinematic', 'realistic', 'cartoon', 'anime', 'cyberpunk', 'watercolor', 'minimalist'].includes(payload.style) ? payload.style : 'cinematic'
+      const ratio = ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(payload.ratio) ? payload.ratio : '16:9'
+      const path = require('path')
+      const os = require('os')
+      const outputDir = path.join(os.tmpdir(), 'multi-publish-cover-ai')
+      const result = await assetGenerator.generateImage(prompt.slice(0, 300), {
+        index: Date.now() % 10000,
+        style,
+        aspect_ratio: ratio,
+        outputDir,
+      })
+      if (!result || result.code !== 0 || !result.data || !result.data.path) {
+        const msg = (result && result.message) || 'AI 封面生成失败'
+        ipcLog('warn', 'cover:generate-ai', 'failed', `error=${msg} 耗时=${Date.now() - startedAt}ms`)
+        return { code: EC.REQUEST_ERROR, message: msg }
+      }
+      ipcLog('info', 'cover:generate-ai', 'ok', `path=${result.data.path.slice(-80)} 耗时=${Date.now() - startedAt}ms`)
+      return { code: 0, data: { coverPath: result.data.path }, message: 'AI 封面生成成功' }
+    } catch (e) {
+      ipcLog('error', 'cover:generate-ai', 'error', `message=${e.message} 耗时=${Date.now() - startedAt}ms`)
+      return { code: EC.REQUEST_ERROR, message: e.message }
+    }
+  }))
+
   // 封面裁剪：cover:crop（渲染层拖拽裁剪框后调用，主进程 offscreen canvas 编码并压缩到 maxBytes）
   ipcMain.handle('cover:crop', withSenderCheck(async (event, payload) => {
     const startedAt = Date.now()

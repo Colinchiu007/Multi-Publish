@@ -15,6 +15,80 @@
 - locale-sync --pair-base/--cjk/--keys 全 PASS（CJK 基线仅行号位移重锚，无新增硬编码）。
 - vite build 通过。
 
+## [未发布] fix(desktop): url-collect:fetch 加入 PUBLIC_CHANNELS — 未登录采集回退层不再被 license 拦截（2026-09-12）
+
+### 修复
+- `license-access-control.js`：PUBLIC_CHANNELS 新增 `url-collect:fetch`。此前采集回退层不在白名单而主路径 `aggregation:collect` 在，未登录时回退层被拦截返回 -3（AUTH_REQUIRED），采集彻底不可用。
+
+### 回归保护
+- license-access-control.test.js：断言 `url-collect:fetch` 与 `aggregation:collect` 的 requiredLevelForChannel 必须同为 public。
+
+### 验证
+- license-access-control 43 + window 52 + ipc-contract 6 + url-collector 23 全绿。
+- 真机 CDP：未登录（signed_out）调用 urlCollectFetch，修复前 code -3（license 拦截），修复后 code -1 + data（进入业务层）。
+
+## [未发布] fix(collection): 视频采集错误提示透传——>10 分钟拒绝等具体提示不再被通用文案吞掉（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：渲染层 collectErrorDetail 调 classifyCollectError 分类，该分类器不认识视频管线错误关键词（视频过长/无音轨/转写引擎不可用等）→ 落入 unknown → 显示「采集失败（原因未识别）」，后端精心构造的「视频过长（15:32），采集仅支持 10 分钟内的短视频」等具体提示被吞。
+- **修复**：collect-error.js 新增 11 个视频管线 reason（video_too_long/video_file_too_large/no_audio_track/asr_engine_unavailable/video_transcribe_timeout/video_private/video_membership/video_region/video_anti_bot/video_invalid_platform/asr_empty）；含具体数值的提示（视频过长含实际时长）剥错误码前缀后直接透传，固定语义提示渲染 locale 模板（zh/en 成对新增 11 条）。
+- **重试语义**：仅转写超时与反爬可重试；超长/超大/无音轨/引擎缺失/私密/会员等输入类错误不显示重试按钮。
+- **逃逸分析**：IPC 层 mock 测试用 mockRejectedValue（异常路径），而 python-bridge 对 HTTP 422 实际 resolve {code:-422}——mock 契约与真实行为不符；前端测试直接传 {code:-6} 绕过了 -422 包装；main 分支的 collect-error.js 与视频错误码并行演进无交叉测试。
+- **回归保护**：Collection.test.js +4 用例（>10min/无音轨/引擎缺失/超时的提示内容与重试语义）；collect-error.test.js +7 用例（11 个 reason 分类与 retryable）；aggregation.test.js +4 用例（resolve 路径 -422 透传）。
+- **文档**：PRD 新增 §7 ASR 引擎说明与部署打包策略（三引擎架构/faster-whisper 本地模型说明/打包三方案对比与推荐）+ §7.3 错误提示透传契约；错误码表标注渲染方式。
+
+### 验证
+- Collection 66 + collect-error 40 + aggregation IPC 18 全绿；locale-sync --keys PASS（873）+ --cjk PASS（基线 1477）。
+
+## [未发布] feat(collection): 抖音/小红书图文+视频链接采集，视频作品 ASR 口播文案转写（2026-09-12）
+
+### 新增
+- 采集页 URL 输入框支持抖音（douyin.com 及子域）与小红书（xiaohongshu.com/xhslink.com）作品链接：域名命中自动路由到视频采集通道，其余链接走原图文链路（零行为变化）。
+- 视频采集管线（Python FastAPI POST /aggregation/collect-video）：yt-dlp --dump-json 元数据探测（>10min 拒绝）→ yt-dlp 下载（≤500MB/300s）→ ffprobe 音轨检测（无音轨 -8）→ ffmpeg 提取 16kHz WAV → ASR 转写（300s 超时）；临时文件 TemporaryDirectory 自动清理。
+- ASR 引擎抽象层（asr_engine.py）：AsrEngine 基类 + FasterWhisperEngine（Phase 1 默认，MIT 本地推理）+ SenseVoiceEngine/SiliconFlowEngine（Phase 2 预留）；ASR_ENGINE 环境变量切换，引擎缺失返回 -6 + 中文安装指引，不自动降级。
+- CollectResult 模型扩展：media_type（article/video，默认 article）/video_url/duration/transcript 可选字段，旧数据完全兼容；视频采集 content=转写文案，下游改写/发布无感。
+- Electron IPC：aggregation:collect-video 通道（600s 超时）+ preload aggregationCollectVideo；classifyError 新增 -6（引擎不可用）/-7（转写超时）/-8（无音轨）。
+- 采集页 UI：视频卡片 🎬 徽标 + 时长（mm:ss）+ 平台标签（抖音/小红书）；详情区「视频口播文案」标注；采集期间分阶段进度提示（探测→下载→提音频→转写）；错误提示全中文。
+- 依赖：python-backend pyproject.toml 新增 [project.optional-dependencies].asr 组（faster-whisper>=1.0.0）。
+- 文档：01-docs/PRD-COLLECT-DOUYIN-XHS-VIDEO-ASR-2026-09-12.md（完整 PRD：数据校验/流程/交互/显示项/提示文字/错误码表）。
+
+### 验证
+- Python: test_aggregation_video.py 23 passed（模型兼容/平台检测/错误分类/引擎抽象/管线成功/反爬/超限/无音轨/引擎缺失/超时/空转写）。
+- IPC: aggregation.test.js 14 passed（新通道/600s 超时/-6/-7/-8 分类）；preload.test.js 359 passed。
+- 前端: Collection.test.js 58 passed（域名路由/视频卡片/错误路径/时长格式化，含存量回归）。
+- locale-sync --keys PASS（873 keys zh/en 成对）；--cjk PASS（基线更新 1452 条，无新增硬编码）。
+
+## [未发布] feat(collection): 采集失败错误提示细分 — 14 类原因 + 可操作建议（2026-09-12）
+
+### 新增
+- `collect-error.js`：采集错误分类器（纯函数），三层错误源（Python 聚合 / Node url-collector / 前端异常）归一化为 14 类 reason，每类含 retryable 标记。
+- locales zh/en 成对新增 `collection.collectErrors.*` 14 条文案，每条 = 具体原因 + 可操作建议（如安全验证类给出 3 步建议）。
+- `Collection.vue`：错误横幅按 reason 渲染细分文案；重试按钮按 retryable 显示（输入类错误不显示，避免无意义重试）。
+
+### 验证
+- Collection 53 + collect-error 33 + url-collector 23 全绿；locale-sync --keys PASS（871 keys）；eslint 0 error；vite build 通过。
+
+## [未发布] fix(desktop): 修复采集回退层 IPC 断链 + 失败无日志双缺口（2026-09-11）
+
+### 修复
+- `window.js`：IPC_REGISTRAR_NAMES 恢复 urlCollector 注册。此前 71d0b85f 与 35ae6224 两次修复重复注册时互相删注册点，导致 `url-collect:fetch` 彻底无 handler，采集页回退层 invoke 直接 reject（用户表现为知乎链接「采集失败」）。
+- `url-collector.js`：`collect()` catch 分支补写应用日志（含 URL/platform/错误，结构化 meta）；此前 log 被 require 后从未使用，采集失败在 app-*.log 完全无痕。
+- `url-collector.js`：构造函数接受 auditDir 注入 + _normalizeAuditDir 路径规范化；AuditLogger 无目录时不再静默丢弃防护事件。
+- `logger.js`：新增 getLogsDir() 供采集审计日志复用 userData/logs 规则。
+
+### 安全（双模型审查修复）
+- `audit-logger.js`（collection-engine）：落盘前对 URL 敏感查询参数（token/secret/password/key/auth/credential/code）脱敏为 [REDACTED]；error 字符串内 key=value 同样脱敏；无敏感参数时保留原串避免 URL 往返副作用。
+- `audit-logger.js`：无目录时 log() 直接 return，防 buffer 无限增长（内存泄漏）。
+
+### 回归保护
+- url-collector.test.js：采集异常必须写 error 日志；auditDir 落盘/禁用/规范化/脱敏四类合同。
+- window.test.js + ipc-contract.test.js：urlCollector.registerIpcHandlers 必须被调用（锁定唯一注册点）。
+
+### 验证
+- collection-engine 91 tests 全绿；url-collector 23 + window 52 + ipc-contract 6 全绿。
+- 全量 electron/ 6314 passed（1 个预存像素差异失败与本次无关，main 上同样失败）。
+-- 真机 CDP 实测：修复前 reject "No handler registered"，修复后 resolve code -3（license 权益门禁，handler 已注册）。
+
 ## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
 
 ### 修复
@@ -26,7 +100,6 @@
 - HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
 - usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
 - locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
-
 ## [未发布] feat(desktop): 「更多」菜单新增「热门选题」模块（2026-09-11）
 
 ### 新增

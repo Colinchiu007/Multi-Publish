@@ -102,6 +102,15 @@ function resolveBooleanOption (override, base, key) {
   return base[key] === true
 }
 
+// P1-4：公众号摘要 — platformOverrides.wechat_mp.digest 优先，其次文章基础字段
+function override_digest (resolved) {
+  const overrides = resolved.base.platformOverrides && typeof resolved.base.platformOverrides === 'object'
+    ? resolved.base.platformOverrides
+    : {}
+  const o = overrides.wechat_mp && typeof overrides.wechat_mp === 'object' ? overrides.wechat_mp : {}
+  return o.digest ?? resolved.base.digest ?? ''
+}
+
 function resolvePlatformArticle (task, platform) {
   const base = task && task.article && typeof task.article === 'object' ? task.article : {}
   const overrides = base.platformOverrides && typeof base.platformOverrides === 'object'
@@ -128,6 +137,53 @@ function resolvePlatformArticle (task, platform) {
   } else if (platform === 'wechat_mp') {
     resolved.massSend = resolveBooleanOption(override, base, 'massSend')
   }
+  // P0-3：平台特有字段透传（参考蚁小二统一 publishData 超集 + 每平台按需消费的架构）。
+  // 字段从 platformOverrides[platform] 或文章基础字段解析，adapter 侧按平台消费。
+  if (platform === 'bilibili') {
+    // B站分区 tid + 版权声明（1=自制 2=转载）；蚁小二映射：createType original→1, forward→2
+    const category = Number(override.category ?? base.category)
+    if (Number.isInteger(category) && category > 0) resolved.category = category
+    const copyright = Number(override.copyright ?? base.copyright)
+    if (copyright === 1 || copyright === 2) resolved.copyright = copyright
+  } else if (platform === 'youtube') {
+    // YouTube 分类 categoryId + 可见性 privacy（public/unlisted/private）
+    const categoryId = String(override.categoryId ?? base.categoryId ?? '').trim()
+    if (/^\d{1,2}$/.test(categoryId)) resolved.categoryId = categoryId
+    const privacy = String(override.privacy ?? base.privacy ?? '').trim()
+    if (privacy === 'public' || privacy === 'unlisted' || privacy === 'private') resolved.privacy = privacy
+  } else if (platform === 'tiktok') {
+    // TikTok 可见性 privacy_level（PUBLIC/PRIVATE/FRIENDS）
+    const privacyLevel = String(override.privacyLevel ?? base.privacyLevel ?? '').trim()
+    if (privacyLevel === 'PUBLIC' || privacyLevel === 'PRIVATE' || privacyLevel === 'FRIENDS') resolved.privacyLevel = privacyLevel
+  } else if (platform === 'baijiahao') {
+    // 百家号原创声明（original truthy → original_status=2）与位置
+    if (typeof (override.original ?? base.original) === 'boolean') {
+      resolved.original = Boolean(override.original ?? base.original)
+    }
+    const loc = override.location ?? base.location
+    if (loc && typeof loc === 'object' && loc.uid) resolved.location = loc
+    // UI 侧 locationName（手输位置名）→ 转为 adapter 消费的 location 对象（uid 用名称占位，
+    // adapter 侧 uid 存在即传 position_lat_lng；无真实 POI 坐标时这是最诚实的降级）
+    else {
+      const locationName = String(override.locationName ?? base.locationName ?? '').trim()
+      if (locationName) resolved.location = { uid: 'manual-' + locationName, name: locationName }
+    }
+  }
+  // P2-1：合集/播放列表透传（B站 season_id、YouTube playlistId、百家号 bjhtopic）
+  const collectionId = Number(override.collectionId ?? base.collectionId)
+  if (Number.isInteger(collectionId) && collectionId > 0) resolved.collectionId = collectionId
+  const playlistId = String(override.playlistId ?? base.playlistId ?? '').trim()
+  if (/^[A-Za-z0-9_-]{5,60}$/.test(playlistId)) resolved.playlistId = playlistId
+  const collection = override.collection ?? base.collection
+  if (collection && typeof collection === 'object' && (collection.id || collection.yixiaoerId)) {
+    resolved.collection = collection
+  }
+  // UI 侧百家号合集输入 'ID' 或 'ID:名称' → collection 对象
+  else if (platform === 'baijiahao') {
+    const raw = String(override.collectionIdText ?? base.collectionIdText ?? '').trim()
+    const m = raw.match(/^(\d+)(?::(.+))?$/)
+    if (m) resolved.collection = { id: m[1], name: (m[2] || '').trim() }
+  }
   return resolved
 }
 
@@ -149,6 +205,8 @@ function buildPublishArticle (task, platform) {
     draft: resolved.draft ?? resolveBooleanOption({}, resolved.base, 'draft'),
     mentions: processed.mentions,
     images: processed.images,
+    // P1-5：作者字段透传（原仅 wechat_mp RPA 硬编码消费，现全平台透传）
+    author: String(resolved.base.author || '').slice(0, 60) || null,
   }
   // AI 生成内容声明：默认勾选（AI 生成内容），仅当显式 aiGenerated === false 时取消勾选。
   // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
@@ -158,6 +216,31 @@ function buildPublishArticle (task, platform) {
     article.declare = resolved.declare
   }
   if (platform === 'wechat_mp') article.massSend = resolved.massSend
+  // P1-4 + P3-3：公众号摘要 + 评论开关（蚁小二 digest/need_open_comment 映射）
+  if (platform === 'wechat_mp') {
+    const digest = String(override_digest(resolved) || '').trim()
+    if (digest) article.digest = digest.slice(0, 120)
+    if (typeof resolved.base.openComment === 'boolean') article.openComment = resolved.base.openComment
+    else article.openComment = true // 默认开评论（公众号默认行为）
+  }
+  // P0-3：平台特有字段透传到 article（adapter buildPostData 消费）
+  if (platform === 'bilibili') {
+    if (resolved.category !== undefined) article.category = resolved.category
+    if (resolved.copyright !== undefined) article.copyright = resolved.copyright
+  }
+  if (platform === 'youtube') {
+    if (resolved.categoryId !== undefined) article.categoryId = resolved.categoryId
+    if (resolved.privacy !== undefined) article.privacy = resolved.privacy
+  }
+  if (platform === 'tiktok' && resolved.privacyLevel !== undefined) article.privacyLevel = resolved.privacyLevel
+  if (platform === 'baijiahao') {
+    if (resolved.original !== undefined) article.original = resolved.original
+    if (resolved.location !== undefined) article.location = resolved.location
+  }
+  // P2-1：合集/播放列表透传到 article
+  if (resolved.collectionId !== undefined) article.collectionId = resolved.collectionId
+  if (resolved.playlistId !== undefined) article.playlistId = resolved.playlistId
+  if (resolved.collection !== undefined) article.collection = resolved.collection
   return article
 }
 
@@ -386,6 +469,19 @@ class ApiPublisher {
       },
     }
     if (article.cover_path) taskData.cover = article.cover_path
+    // P0-3：平台特有字段透传到 API taskData（adapter 按需消费；B站 tid/copyright、
+    // YouTube categoryId/privacy、TikTok privacy_level、百家号 original/location）
+    if (article.category !== undefined) taskData.category = article.category
+    if (article.copyright !== undefined) taskData.copyright = article.copyright
+    if (article.categoryId !== undefined) taskData.categoryId = article.categoryId
+    if (article.privacy !== undefined) taskData.privacy = article.privacy
+    if (article.privacyLevel !== undefined) taskData.privacyLevel = article.privacyLevel
+    if (article.original !== undefined) taskData.original = article.original
+    if (article.location !== undefined) taskData.location = article.location
+    // P2-1：合集/播放列表透传
+    if (article.collectionId !== undefined) taskData.collectionId = article.collectionId
+    if (article.playlistId !== undefined) taskData.playlistId = article.playlistId
+    if (article.collection !== undefined) taskData.collection = article.collection
 
     const result = await publishViaApi(platform, taskData, cookie, {
       timeout: this.route.timeout,
@@ -511,6 +607,6 @@ class PublisherRouter {
   }
 }
 
-module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask }
+module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask, resolvePlatformArticle, buildPublishArticle }
 
 

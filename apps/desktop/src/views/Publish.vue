@@ -200,6 +200,12 @@
                     <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                     <template #tip><div class="el-upload__tip">{{ t('publishPage.dragVideoHint') }}</div></template>
                   </el-upload>
+                  <div class="video-ai-entry">
+                    <UiButton variant="ghost" size="sm" data-testid="goto-ai-video-btn" @click="router.push('/create')">
+                      {{ t('publishPage.aiVideoEntry') }}
+                    </UiButton>
+                    <span class="video-ai-entry__hint">{{ t('publishPage.aiVideoEntryHint') }}</span>
+                  </div>
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">{{ t('publishPage.title') }}</label>
@@ -224,8 +230,11 @@
                       <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
                       <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                     </el-upload>
-<UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
+                    <UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
                       {{ t('publishPage.extractCover') }}
+                    </UiButton>
+                    <UiButton variant="ghost" size="sm" :disabled="aiCoverGenerating" @click="showAiCoverDialog = true">
+                      {{ t('publishPage.aiGenerateCover') }}
                     </UiButton>
                     <UiButton v-if="article.cover_path" variant="ghost" size="sm" @click="openCoverCrop">
                       {{ t('publishPage.coverCrop.title') }}
@@ -511,6 +520,48 @@
     @success="onCoverCropSuccess"
     @error="onCoverCropError"
   />
+  <!-- P2-2：AI 封面生成对话框（复用 asset-generator 生图引擎） -->
+  <div v-if="showAiCoverDialog" class="ai-cover-overlay" data-testid="ai-cover-dialog">
+    <div class="ai-cover-modal">
+      <h3 class="ai-cover-modal__title">{{ t('publishPage.aiGenerateCover') }}</h3>
+      <label class="ai-cover-field">
+        <span>{{ t('publishPage.aiCoverPromptLabel') }}</span>
+        <textarea
+          v-model="aiCoverForm.prompt"
+          data-testid="ai-cover-prompt"
+          rows="3"
+          maxlength="500"
+          :placeholder="t('publishPage.aiCoverPromptPlaceholder')"
+        />
+      </label>
+      <label class="ai-cover-field">
+        <span>{{ t('publishPage.aiCoverStyleLabel') }}</span>
+        <select v-model="aiCoverForm.style" data-testid="ai-cover-style">
+          <option v-for="s in ['cinematic', 'realistic', 'cartoon', 'anime', 'cyberpunk', 'watercolor', 'minimalist']" :key="s" :value="s">
+            {{ t('publishPage.aiCoverStyle.' + s) }}
+          </option>
+        </select>
+      </label>
+      <label class="ai-cover-field">
+        <span>{{ t('publishPage.aiCoverRatioLabel') }}</span>
+        <select v-model="aiCoverForm.ratio" data-testid="ai-cover-ratio">
+          <option value="16:9">16:9</option>
+          <option value="9:16">9:16</option>
+          <option value="1:1">1:1</option>
+          <option value="4:3">4:3</option>
+          <option value="3:4">3:4</option>
+        </select>
+      </label>
+      <div class="ai-cover-actions">
+        <UiButton variant="ghost" size="sm" :disabled="aiCoverGenerating" @click="showAiCoverDialog = false">
+          {{ t('publishPage.aiCoverCancel') }}
+        </UiButton>
+        <UiButton variant="primary" size="sm" :disabled="aiCoverGenerating" data-testid="ai-cover-generate-btn" @click="handleGenerateAiCover">
+          {{ aiCoverGenerating ? t('publishPage.aiCoverGenerating') : t('publishPage.aiGenerateCover') }}
+        </UiButton>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -745,6 +796,42 @@ async function handleExtractVideoCover () {
         ? e.message
         : t('publishPage.coverExtractUnknownError') },
     })
+  }
+}
+
+// P2-2：AI 封面生成（复用 asset-generator 生图引擎，经 cover:generate-ai IPC）
+const showAiCoverDialog = ref(false)
+const aiCoverGenerating = ref(false)
+const aiCoverForm = reactive({ prompt: '', style: 'cinematic', ratio: '16:9' })
+
+async function handleGenerateAiCover () {
+  if (aiCoverGenerating.value) return
+  const prompt = aiCoverForm.prompt.trim()
+  if (prompt.length < 2) {
+    notifyWarning('publishPage.aiCoverGenerateFailed', { params: { message: t('publishPage.aiCoverPromptPlaceholder') } })
+    return
+  }
+  aiCoverGenerating.value = true
+  try {
+    const result = await getApi()?.generateAiCover?.({ prompt, style: aiCoverForm.style, ratio: aiCoverForm.ratio })
+    const coverPath = result?.data?.coverPath || ''
+    if (coverPath) {
+      article.cover_path = coverPath
+      article.cover_file = { path: coverPath, name: 'ai-cover.png' }
+      coverFileList.value = [{ name: 'ai-cover.png', url: coverPath, path: coverPath }]
+      notifySuccess('publishPage.aiCoverGenerated')
+      showAiCoverDialog.value = false
+    } else {
+      notifyWarning('publishPage.aiCoverGenerateFailed', {
+        params: { message: result?.message || t('publishPage.coverExtractUnknownError') },
+      })
+    }
+  } catch (e) {
+    notifyWarning('publishPage.aiCoverGenerateFailed', {
+      params: { message: typeof e?.message === 'string' && e.message.trim() ? e.message : t('publishPage.coverExtractUnknownError') },
+    })
+  } finally {
+    aiCoverGenerating.value = false
   }
 }
 
@@ -1226,4 +1313,18 @@ defineExpose({
   .publish-draft-actions { width: 100%; }
   .batch-metadata-grid { grid-template-columns: 1fr; }
 }
+</style>
+
+<style scoped>
+/* P2-2：AI 封面生成对话框 */
+.ai-cover-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
+.ai-cover-modal { width: min(420px, calc(100vw - 48px)); background: var(--surface, #fff); border-radius: 10px; padding: 20px; display: grid; gap: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+.ai-cover-modal__title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary, #202124); }
+.ai-cover-field { display: grid; gap: 5px; font-size: 12px; color: var(--muted, #73777d); }
+.ai-cover-field textarea, .ai-cover-field select { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; font: inherit; color: var(--text-primary, #202124); background: var(--surface, #fff); resize: vertical; }
+.ai-cover-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* P2-3：AI 视频生成入口 */
+.video-ai-entry { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.video-ai-entry__hint { font-size: 12px; color: var(--muted, #8a8f98); }
 </style>

@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-output-load-fix",
+  "title": "视频克隆成品加载失败 + 静态画面降级问题修复",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-e2e",
+  "currentPhase": "completed",
+  "nextAction": "已交付：PR #1510 合并（937134f8），成品视频加载与静态画面降级修复完成",
+  "createdAt": "2026-09-05T23:10:00+08:00",
+  "branch": "main"
+}
