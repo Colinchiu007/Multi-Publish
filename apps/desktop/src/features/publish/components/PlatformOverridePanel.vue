@@ -101,6 +101,17 @@
             </label>
           </template>
           <template v-else-if="platform.id === 'wechat_mp'">
+            <label class="override-field">
+              <span>摘要 <small>最多 120 字，留空自动取正文开头</small></span>
+              <textarea
+                :data-testid="'override-digest-' + platform.id"
+                :value="getValue(platform.id, 'digest')"
+                rows="2"
+                maxlength="120"
+                placeholder="公众号图文摘要（选填）"
+                @input="updateField(platform.id, 'digest', $event.target.value)"
+              />
+            </label>
             <label class="override-check">
               <input
                 :data-testid="'override-mass-send-' + platform.id"
@@ -109,6 +120,15 @@
                 @change="updateField(platform.id, 'massSend', $event.target.checked)"
               />
               <span>保存草稿后群发</span>
+            </label>
+            <label class="override-check">
+              <input
+                :data-testid="'override-open-comment-' + platform.id"
+                :checked="getValue(platform.id, 'openComment') !== false"
+                type="checkbox"
+                @change="updateField(platform.id, 'openComment', $event.target.checked)"
+              />
+              <span>开启留言（评论）</span>
             </label>
           </template>
           <template v-else-if="platform.id === 'bilibili'">
@@ -287,6 +307,7 @@ function defaultOverride (platformId) {
   if (platformId === 'youtube') return { title: '', content: '', categoryId: '22', privacy: 'public', playlistId: '' }
   if (platformId === 'tiktok') return { title: '', content: '', privacyLevel: 'PUBLIC' }
   if (platformId === 'baijiahao') return { title: '', content: '', original: false, locationName: '', collectionIdText: '' }
+  if (platformId === 'wechat_mp') return { title: '', content: '', digest: '', massSend: false, openComment: true }
   return { title: '', content: '' }
 }
 
@@ -301,6 +322,8 @@ function normalizeValue (platformId, field, value) {
   }
   if ((platformId === 'zhihu' || platformId === 'douyin') && field === 'draft') return Boolean(value)
   if (platformId === 'wechat_mp' && field === 'massSend') return Boolean(value)
+  if (platformId === 'wechat_mp' && field === 'digest') return String(value || '').slice(0, 120)
+  if (platformId === 'wechat_mp' && field === 'openComment') return Boolean(value)
   if (platformId === 'bilibili' && field === 'category') {
     const n = Number(value)
     return Number.isInteger(n) && n > 0 ? n : 21
