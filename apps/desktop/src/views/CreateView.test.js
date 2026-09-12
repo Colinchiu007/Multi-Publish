@@ -42,6 +42,7 @@ vi.mock("@/api/publisher", () => ({
   pipelineGetRunContext: vi.fn(),
   pipelineConfirmSceneAssets: vi.fn(),
   pipelineDeleteRun: vi.fn(),
+  draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoCreateShareUrl: vi.fn(async () => ({ code: 0, data: { url: "media://x" } })),
   storeGetSetting: vi.fn(),
   storeSetSetting: vi.fn(),
@@ -102,6 +103,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [{ path: "/create/result", name: "result", component: { template: "<div>result</div>" } }]
 });
+// _loadDraftForRewrite 场景需要 /create 路由使 query 生效（2026-09-13 rewrite-to-video-entry）
+router.addRoute({ path: "/create", name: "create", component: { template: "<div>create</div>" } });
 
 import CreateView from "./CreateView.vue";
 import CreateViewHistory from './CreateViewHistory.vue'
@@ -1241,6 +1244,93 @@ describe("CreateView - quick render", () => {
     w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
     w.vm.viewQuickResult();
     expect(push).toHaveBeenCalledWith({ path: "/create/result", query: { path: "/tmp/video.mp4" } });
+  });
+
+  // ── 带文案进入（rewrite-to-video-entry 2026-09-13）：_loadDraftForRewrite 预填 + 灰显 ──
+
+  it("_loadDraftForRewrite 预填成功后置 textPrefilledFromDraft 并填入文案", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.draftList.mockResolvedValueOnce({
+      code: 0,
+      data: [{ id: "draft_1", content: "改写后的文案内容" }],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await w.vm._loadDraftForRewrite("draft_1");
+    await nextTick();
+    expect(w.vm.pipelineText).toBe("改写后的文案内容");
+    expect(w.vm.inputMode).toBe("text");
+    expect(w.vm.textPrefilledFromDraft).toBe(true);
+    w.unmount();
+  });
+
+  it("_loadDraftForRewrite 草稿不存在时显示失败提示且不置灰显 flag", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.draftList.mockResolvedValueOnce({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await w.vm._loadDraftForRewrite("missing");
+    await nextTick();
+    expect(w.vm.textPrefilledFromDraft).toBe(false);
+    expect(w.vm.s2vOptionsToast).toContain("未找到要带入的草稿");
+    w.unmount();
+  });
+
+  it("_loadDraftForRewrite 空 content 草稿不置灰显 flag 也不预填", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.draftList.mockResolvedValueOnce({
+      code: 0,
+      data: [{ id: "draft_empty", content: "" }],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await w.vm._loadDraftForRewrite("draft_empty");
+    await nextTick();
+    // 空文案草稿不视为「带文案进入」：不预填、不灰显非文案型流水线
+    expect(w.vm.pipelineText).toBe("");
+    expect(w.vm.textPrefilledFromDraft).toBe(false);
+    w.unmount();
+  });
+
+  it("textPrefilledFromDraft 时 selectPipeline 拦截非文案型流水线", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.textPrefilledFromDraft = true;
+    w.vm.selectPipeline({ name: "cinematic", category: "cinematic" });
+    await nextTick();
+    expect(w.vm.selectedPipeline).toBeNull();
+    // 文案型流水线正常进入
+    w.vm.selectPipeline({ name: "story2video-compose", category: "generated" });
+    await nextTick();
+    expect(w.vm.selectedPipeline?.name).toBe("story2video-compose");
+    w.unmount();
+  });
+
+  it("超长草稿预填不在加载时截断，选中编排流水线时才截断到 6000 码点", async () => {
+    const mocks = await import("@/api/publisher");
+    const longText = "字".repeat(6500);
+    mocks.draftList.mockResolvedValueOnce({
+      code: 0,
+      data: [{ id: "draft_long", content: longText }],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await w.vm._loadDraftForRewrite("draft_long");
+    await nextTick();
+    // 预填时不截断：非编排流水线（如 talking-head）无 6000 上限
+    expect(w.vm.pipelineText.length).toBe(6500);
+    // 选中编排流水线时截断 + 弹窗提示
+    w.vm.selectPipeline({ name: "story2video-compose", category: "generated" });
+    await nextTick();
+    expect(Array.from(w.vm.pipelineText).length).toBe(6000);
+    expect(w.vm.story2videoErrorDialog?.visible).toBe(true);
+    w.unmount();
   });
 
   it("renderStart 拒绝时展示异常并复位渲染状态", async () => {

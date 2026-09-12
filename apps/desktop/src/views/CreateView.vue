@@ -36,6 +36,7 @@
           :pipelines="pipelines"
           :loading="pipelineLoading"
           :error="pipelineError"
+          :text-only="textPrefilledFromDraft"
           @select="selectPipeline"
           @retry="loadPipelines"
         />
@@ -1527,6 +1528,7 @@ import {
   getPipelineName,
   getPipelineStage,
   getPipelineStatus,
+  isTextBasedPipeline,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
 import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, latestHistoryTimestamp, markStaleRunningAsInterrupted, fillFailedPausedStage, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
@@ -1980,6 +1982,8 @@ export default {
       pipelineRunId: null,
       // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineAudio: [], pipelineVideo: null,
+      // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
+      textPrefilledFromDraft: false,
       // 配置
       selectedStyle: 'clean-professional',
       llmConfig: { temperature: 0.7 },
@@ -2836,6 +2840,10 @@ export default {
         this.$router.push('/film-engineering')
         return
       }
+      // 带文案进入场景：非文案型流水线不消费 pipelineText，直接拦截（与选择列表灰显一致）。
+      // video-clone / film-engineering 的独立页路由分支在前：它们是「跳转到专属页面」而非
+      // 「进入通用配置详情」，灰显拦截不应吞掉路由跳转语义（且两者在带文案场景同样被灰显，正常路径不可达）。
+      if (this.textPrefilledFromDraft && p && !isTextBasedPipeline(p.name)) return
       this.stopPipelinePolling()
       this.closePipelineProgressModal()
       this.orchestrationStartRequestId += 1
@@ -2854,6 +2862,8 @@ export default {
       this.dismissedProviderWarnings = false
       this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
+      // 选中编排流水线时执行 6000 码点上限（含带文案预填场景：预填时不截断，选中时统一截断+提示）
+      if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()
       // Bug 反哺（2026-08-09）：mounted 时 selectedPipeline 为 null，restore 守卫直接 return，
       // 导致「上次使用的选项」保存成功但从未恢复。选中编排流水线时主动触发恢复；
       // 生命周期内只恢复一次（由 restoreS2VLastOptions 内部设置 _s2vRestoredOnce），
@@ -2868,17 +2878,42 @@ export default {
         const res = await draftList()
         const list = res && res.code === 0 && Array.isArray(res.data) ? res.data : []
         const draft = list.find(item => item && item.id === draftId)
-        if (!draft) return
-        this.pipelineText = draft.content || ''
+        if (!draft) {
+          // 草稿不存在/已删除：用户已跳转过来，必须给出可见提示而不是静默失败
+          this.showS2VOptionsToast(this.translateWithLocaleFallback(
+            'story2video.draftLoadFailed',
+            '未找到要带入的草稿，请返回上一页重新发起',
+            'Draft not found. Please go back and try again'
+          ), 3200)
+          return
+        }
+        const draftContent = typeof draft.content === 'string' ? draft.content : ''
+        // 空 content 草稿（合集/外部链接等其他入口写入）不视为「带文案进入」，
+        // 避免误置灰显标志导致非文案型流水线被无意义禁用
+        if (!draftContent) return
+        this.pipelineText = draftContent
+        // 注意：此处不做 6000 码点截断——该上限仅作用于编排流水线（story2video-compose），
+        // 其余文案型流水线（talking-head 等）无此限制。截断推迟到 selectPipeline 选中
+        // 编排流水线时由 enforceStory2VideoTextLimit() 执行（见 selectPipeline）。
         this.inputMode = 'text'
+        // 带文案进入：非文案型流水线（素材/链接/录屏等）在选择列表中灰显不可选
+        this.textPrefilledFromDraft = true
         const pipelineName = this.$route?.query?.pipeline
         if (pipelineName) {
           if (!this.pipelines.length) await this.loadPipelines()
-          const pipeline = this.pipelines.find(p => p.name === pipelineName || p.title === pipelineName)
+          // query 指定的流水线若不适配带入文案（如历史链接指向素材型流水线），忽略并不选中
+          const pipeline = isTextBasedPipeline(pipelineName)
+            ? this.pipelines.find(p => p.name === pipelineName)
+            : null
           if (pipeline) this.selectPipeline(pipeline)
         }
       } catch (_e) {
-        // 预填充失败静默处理，不打扰创作主流程
+        // draftList IPC 调用失败（网络/进程通信异常）：与「草稿不存在」不同语义，需可见提示
+        this.showS2VOptionsToast(this.translateWithLocaleFallback(
+          'story2video.draftLoadFailed',
+          '未找到要带入的草稿，请返回上一页重新发起',
+          'Draft not found. Please go back and try again'
+        ), 3200)
       }
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },

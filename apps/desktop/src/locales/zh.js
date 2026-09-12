@@ -591,6 +591,7 @@ export default {
     resume_stage_not_found: '未定位到失败阶段，无法从断点继续，请重新启动生成。',
     optionsSaved: '选项已保存 ✓',
     optionsRestored: '已恢复上次的选项设置',
+    draftLoadFailed: '未找到要带入的草稿，请返回上一页重新发起',
     splitSceneCount: '拆分为了 {count} 个场景',
     optimizeProgress: '共 {total} 个场景，已完成 {done} 个',
     selectVideoScenes: '已选 {count} 个 AI 视频场景（约 {ratio}%）',
@@ -1872,6 +1873,7 @@ export default {
     inDevelopment: '开发中',
     availableHint: '流水线可用',
     inDevelopmentHint: '开发中，暂不可用',
+    textIneligible: '该流水线类型不适用',
   },
   errorDialog: {
     title: '错误',
@@ -2503,6 +2505,7 @@ knowledgeBase: {
     metaLength: '{original} 字 → {result} 字',
     saveDraft: '💾 存入草稿',
     goPublish: '🚀 去发布',
+    goVideo: '🎬 视频创作',
     draftSaved: '草稿已创建',
     draftSaveFailed: '存入草稿失败',
     needLogin: 'AI 改写需要登录后使用，是否立即登录？',
