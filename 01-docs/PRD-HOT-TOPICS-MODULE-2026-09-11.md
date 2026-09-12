@@ -1,7 +1,7 @@
 # PRD — 「更多」菜单新增「热门选题」功能模块
 
 - 文档编号：PRD-HOT-TOPICS-MODULE-2026-09-11
-- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）
+- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）
 - 关联分支：`codex/hot-topics-module`
 - 关联模块：`apps/desktop/src/views/HotTopics.vue`、`apps/desktop/electron/services/hot-topics-service.js`
 - 创建日期：2026-09-11
@@ -124,6 +124,26 @@ ${topic}
 - 不做发布动作的全自动发送（发布仍需用户在发布页确认）；
 - 不做自建 RSSHub/代理池。
 
+### 3.10 一键生成视频（P0，2026-09-12 新增）
+
+每条选题新增【生成视频】按钮（与【创作文案】并列，data-testid="hot-topic-generate-video-{id}"）。点击后弹出与视频创作页流水线进度弹窗同样 UI 的进度弹窗（UiModal variant=progress + StageProgress），自动执行完整编排：
+
+1. **文案改写阶段**（stage 名 rewrite_copy）：调用 aiRewrite(mode='create', content=buildRewriteInput(topic))，输入构造与一键发布一致（<20 字补引导前缀）。改写产物自动存入草稿箱（draftSave，source='hot-topics'，草稿保存失败不阻断视频生成）。
+2. **自动启动故事讲述流水线**：读取用户已保存的默认选项（settings key story2video.lastOptions.v1，owner-scoped SQLite；缺失/非法回退内置默认值），用共享纯函数 buildStory2VideoTextConfigFromSnapshot 构建 story2videoTextConfig，调用 pipelineStartOrchestrated('story2video-compose', params)。params 与创作页 startOrchestratedPipeline 完全一致（text=改写产物、inputMode='text'、checkpointPolicy='none'、autoAdvance=true、background=true、uiLocale）。
+3. **进度实时跟踪**：启动成功后订阅 onPipelineUpdate 实时推送 + 3s 轮询 pipelineGetRunContext 兜底（双通道，与创作页 startOrchestrationForeground 同口径）。runId 快照守卫防竞态。
+4. **完成跳转**：流水线 completed 且提取到 videoPath（publish/compose 上下文的 videoPath/path）→ 关闭弹窗跳转 /create/result?path=...。
+
+弹窗 stages = [rewrite_copy, split, scene_context, optimize, select_video_scenes, generate_assets, compose, publish]（8 阶段，改写环节在最前）。进度百分比 = 已完成阶段数/总数 + 流水线 run progress 映射到当前阶段区间；耗时从点击开始累计；StageProgress 的合成时间参考说明（showTimeGuidance）开启。
+
+**取消语义**：
+- 改写/启动阶段取消 = 仅中止前端编排（流水线尚未启动，无副作用）；
+- 流水线运行中取消 = 调用 pipelineCancel()（取消当前 run）；
+- 运行中关闭弹窗（右上角 ×）= 后台运行（停止前端跟踪，run 继续在主进程执行，提示可在视频创作页历史记录查看）。
+
+**失败重试**：改写失败 → 重试从改写开始；流水线启动失败 → 重试跳过改写（产物已缓存）直接重启流水线。失败阶段在弹窗中标红显示错误摘要。
+
+**并发约束**：一键生成视频进行中（busy），所有选题的【生成视频】按钮禁用；主进程流水线并发门禁拒绝时按流水线启动失败处理（可重试）。
+
 ## 4. 数据校验
 
 ### 4.1 选题条目结构
@@ -209,6 +229,27 @@ onUnmounted → clearInterval
 
 `document.hidden` 时跳过自动刷新 tick，恢复可见时检查缓存过期则刷新。
 
+### 5.6 一键生成视频流程
+
+```
+用户点击某选题的【生成视频】
+  → busy 守卫（进行中则忽略）→ 初始化 8 阶段弹窗（全部 pending）
+  → 阶段 rewrite_copy: running
+  → aiRewrite(mode=create, content=引导语+topic)
+    ├─ 成功 → 产物存草稿（失败不阻断）→ rewrite_copy: completed
+    │   → 读取 story2video.lastOptions.v1（缺失回退默认）
+    │   → buildStory2VideoTextConfigFromSnapshot(text, snapshot)
+    │   → pipelineStartOrchestrated('story2video-compose', params)
+    │     ├─ 成功 → runId 记录 → split: running → 开启双通道跟踪
+    │     │   → onPipelineUpdate 推送 / 3s 轮询 getRunContext
+    │     │     ├─ 阶段推进 → mergeGenStages 更新弹窗各阶段状态/子进度
+    │     │     ├─ completed + videoPath → 弹窗关闭 → 跳 /create/result?path=...
+    │     │     ├─ failed/cancelled → 终态处理，弹窗提供重试/关闭
+    │     │     └─ 用户关闭弹窗 → 后台运行提示，run 继续执行
+    │     └─ 失败 → split: failed → 弹窗错误提示 + 重试（跳过改写）
+    └─ 失败 → rewrite_copy: failed → 弹窗错误提示 + 重试（从改写开始）
+```
+
 ## 6. 交互逻辑
 
 ### 6.1 勾选与批量操作
@@ -291,6 +332,18 @@ onUnmounted → clearInterval
 | hotTopics.loadFailed | 选题获取失败，请稍后重试 | Failed to fetch topics, please retry later |
 | hotTopics.rank | 排名 | Rank |
 | hotTopics.hotValue | 热度 | Heat |
+| hotTopics.generateVideo | 生成视频 | Generate video |
+| hotTopics.genVideoTitle | 一键生成视频 · {topic} | One-click video · {topic} |
+| hotTopics.genVideoStartToast | 已开始生成视频，改写文案后将自动启动故事讲述流水线 | Video generation started. The storytelling pipeline will start after copy rewriting |
+| hotTopics.genVideoRewriteFailed | 文案改写失败，请点击重试 | Copy rewrite failed, please retry |
+| hotTopics.genVideoPipelineFailed | 视频流水线启动失败，请点击重试 | Failed to start the video pipeline, please retry |
+| hotTopics.genVideoCancelled | 已取消生成视频 | Video generation cancelled |
+| hotTopics.genVideoBackgroundHint | 任务已转入后台，可在视频创作页「历史记录」中查看进度 | Task moved to background. Track progress in Video Creation → History |
+| hotTopics.genVideoRetry | 重试 | Retry |
+| hotTopics.genVideoCancel | 取消 | Cancel |
+| hotTopics.genVideoClose | 关闭 | Close |
+| hotTopics.genVideoDone | 视频已生成，正在打开结果… | Video generated, opening result… |
+| pipelines.stages.rewrite_copy | 文案改写 | Rewrite Copy |
 
 ### 7.2 显示规则
 
@@ -313,6 +366,7 @@ onUnmounted → clearInterval
 7. 缓存与定时刷新：10 分钟缓存、30 分钟自动刷新、document.hidden 暂停。
 8. 防反爬组件接入（rate-limiter/circuit-breaker/cache 有测试断言）。
 9. i18n zh/en 成对 + Message Function + 无硬编码中文泄漏到模板。
+10. 【生成视频】按钮渲染于每条选题行；点击后弹窗打开、改写执行、流水线按用户默认选项自动启动；进度实时更新；完成跳转结果页；失败可重试（流水线失败重试不重复改写）；取消/后台运行语义正确（2026-09-12）。
 
 ## 9. 测试覆盖
 

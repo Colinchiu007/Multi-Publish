@@ -190,6 +190,16 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
+  // 按 runId 取消指定运行（2026-09-12 热门选题一键生成视频：定向取消，避免无参 cancel 误杀并发 run）
+  ipcMain.handle('pipeline:cancel-run', withSenderCheck((_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    try {
+      const result = pipelineEngine.cancelRun(runId)
+      if (result && result.success) return { code: 0, data: result }
+      return { code: EC.REQUEST_ERROR, message: (result && result.error) || '取消流水线失败', errorCode: result && result.errorCode }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
+  }))
+
   ipcMain.handle('pipeline:resumeFromCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.resumeFromCheckpoint() }
