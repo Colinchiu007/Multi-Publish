@@ -578,6 +578,78 @@ def test_rewrite_word_count_range_used_in_config():
     assert "request.max_word_count" in src
 
 
+def test_rewrite_length_fallback_for_legacy_clients():
+    """回归：旧客户端只传 length（不带 min/max_word_count）时走三档映射，
+    模型默认值 800/2000 不得吞掉 length 路径。"""
+    from multi_publish.aggregation.models import RewriteRequest
+    from multi_publish.aggregation.service import AggregationService, _LENGTH_RANGES
+    from unittest.mock import patch as _patch, MagicMock
+
+    service = AggregationService()
+    # 旧客户端：只传 content/style/length，不带 min/max_word_count
+    req = RewriteRequest(content="旧客户端测试内容", style="轻松易懂", length="compress")
+    assert "min_word_count" not in req.model_fields_set
+    assert "max_word_count" not in req.model_fields_set
+
+    captured_cfg = {}
+    class _FakeProcessor:
+        def __init__(self, config):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def rewrite(self, content, cfg):
+            captured_cfg.update(min_word_count=cfg.min_word_count, max_word_count=cfg.max_word_count)
+            r = MagicMock()
+            r.success = True
+            r.rewritten_content = "改写结果"
+            return r
+
+    import multi_publish.aggregation.service as svc_mod
+    with _patch.object(svc_mod._lazy_import, "__defaults__", None):
+        pass
+    # 直接 patch _lazy_import 返回 FakeProcessor
+    orig_lazy = svc_mod._lazy_import
+    def fake_lazy(module_path, attr=None):
+        if module_path == "content_aggregator_shared.shared.rewriters.rewriter":
+            if attr == "RewriteProcessor":
+                return _FakeProcessor
+            if attr == "RewriteConfig":
+                from multi_publish.aggregation.models import RewriteRequest as _R
+                class _RC:
+                    def __init__(self, strategy=None, min_word_count=None, max_word_count=None, target_word_count=None):
+                        self.min_word_count = min_word_count
+                        self.max_word_count = max_word_count
+                        self.target_word_count = target_word_count
+                return _RC
+            if attr == "RewriteStrategy":
+                class _RS:
+                    def __init__(self, name):
+                        self.name = name
+                return _RS
+        if module_path == "content_aggregator_shared.shared.models":
+            class _Content:
+                def __init__(self, **kw):
+                    for k, v in kw.items():
+                        setattr(self, k, v)
+            return _Content
+        return orig_lazy(module_path, attr)
+
+    import os as _os
+    _os.environ.setdefault("LLM_API_KEY", "test-key-for-legacy-path")
+    svc_mod._lazy_import = fake_lazy
+    try:
+        import asyncio
+        asyncio.run(service.rewrite(req))
+    finally:
+        svc_mod._lazy_import = orig_lazy
+
+    # compress 档应为 (100, 800)，而非默认 800/2000
+    assert captured_cfg["min_word_count"] == 100
+    assert captured_cfg["max_word_count"] == 800
+
+
 # ── 11. 回归测试：word_count 兜底 ──────────────────────────────────
 
 def test_collect_result_word_count_fallback():

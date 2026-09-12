@@ -143,5 +143,33 @@ describe('RewriteEngine', function () {
     var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 2000 } } })
     expect(result.result.length).toBeLessThanOrEqual(2000)
   })
+
+  test('W7 截断按 Unicode 码点计数（emoji 不被切断）', async function () {
+    // 3 个 emoji（各占 2 个 UTF-16 单元）+ 4997 个 ASCII = 5000 码点 / 5003 UTF-16 单元
+    var longText = '😀😀😀' + 'a'.repeat(4997)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 2500 } } })
+    // 码点截断后 ≤ 2500 码点，且不产生代理对被切断的乱码（无 U+FFFD/孤立高位代理）
+    expect([...result.result].length).toBeLessThanOrEqual(2500)
+    expect(result.result).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+  })
+
+  test('W8 无效字数区间（负数/越界/max<min）不注入 prompt', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: -5, max: 3000 } } })
+    expect(captured.sys).not.toContain('字数要求')
+    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 9999 } } })
+    expect(captured.sys).not.toContain('字数要求')
+    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 2000, max: 100 } } })
+    expect(captured.sys).not.toContain('字数要求')
+  })
 })
 

@@ -231,7 +231,7 @@ class RewriteEngine {
     // 字数区间指令（wordCountRange 优先于 targetLength 三档）
     const wordCountInstruction = this._getWordCountInstruction(userSettings)
 
-    const systemPrompt = `${strategy.systemPrompt}\n\n${modeInstructions}\n\n${wordCountInstruction}`
+    const systemPrompt = [strategy.systemPrompt, modeInstructions, wordCountInstruction].filter(Boolean).join('\n\n')
 
     // 替换用户提示模板中的变量
     let userPrompt = strategy.userPromptTemplate
@@ -289,6 +289,8 @@ class RewriteEngine {
   _getWordCountInstruction(userSettings) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
+    // 范围防御：与前端/PRD 契约一致（min 0-5999、max 1-6000、max >= min），无效区间不注入
+    if (!(range.min >= 0 && range.min <= 5999) || !(range.max >= 1 && range.max <= 6000) || range.max < range.min) return ''
     return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
   }
 
@@ -326,13 +328,14 @@ class RewriteEngine {
       result = remover.process(result)
     }
 
-    // 长度限制
+    // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
     // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 2500
     const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
       ? wordCountRange.max
       : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
-    if (result.length > maxLength) {
-      result = result.slice(0, maxLength)
+    const codePoints = [...result]
+    if (codePoints.length > maxLength) {
+      result = codePoints.slice(0, maxLength).join('')
     }
 
     return result.trim()

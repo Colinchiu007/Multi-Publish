@@ -242,9 +242,11 @@ class AggregationService:
             url="",
         )
         strategy_name = _STYLE_TO_STRATEGY.get(request.style, "rewrite")
-        # 字数区间优先级：显式 min/max_word_count > length 三档映射
-        # （前端始终传 min/max_word_count，length 保留给旧客户端/API 调用方）
-        if request.min_word_count is not None and request.max_word_count is not None:
+        # 字数区间优先级：显式传入的 min/max_word_count > length 三档映射
+        # （前端始终传 min/max_word_count；旧客户端只传 length 时走三档映射，
+        #   用 model_fields_set 区分"显式提供"与"模型默认值"，避免默认值吞掉 length 路径）
+        fields_set = request.model_fields_set
+        if "min_word_count" in fields_set and "max_word_count" in fields_set:
             min_wc = request.min_word_count
             max_wc = request.max_word_count
             target_wc = (min_wc + max_wc) // 2
