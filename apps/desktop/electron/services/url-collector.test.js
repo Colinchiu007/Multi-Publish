@@ -320,3 +320,96 @@ describe("UrlCollector 百家号平台映射与 IPC 错误契约（回归：超�
     expect(ret.data.error).toBe("请求频率受限，请稍后再试");
   });
 });
+
+// P0-P2 日志遗漏修复 + 手动采集豁免周末限流
+describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () => {
+  let collector;
+  let logger;
+
+  beforeEach(() => {
+    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    collector = new UrlCollector({ auditDir: null, log: logger });
+  });
+
+  it("P0: 预算耗尽拦截写应用日志", async () => {
+    collector._strategy.checkBudget = () => ({ allowed: false });
+    const r = await collector.collect("https://example.com/a");
+    expect(r.reason).toBe("budget_exhausted");
+    expect(logger.warn).toHaveBeenCalled();
+    expect(JSON.stringify(logger.warn.mock.calls)).toContain("budget_exhausted");
+  });
+
+  it("P0: 熔断拦截写应用日志", async () => {
+    collector._circuitBreaker.isOpen = () => true;
+    const r = await collector.collect("https://example.com/a");
+    expect(r.reason).toBe("circuit_open");
+    expect(JSON.stringify(logger.warn.mock.calls)).toContain("circuit_open");
+  });
+
+  it("P0: 限流拦截写应用日志（含 reason 与 waitMs）", async () => {
+    collector._rateLimiter.evaluate = () => ({ allowed: false, reason: "rate-limit", waitMs: 5000 });
+    const r = await collector.collect("https://example.com/a");
+    expect(r.reason).toBe("rate-limit");
+    expect(JSON.stringify(logger.warn.mock.calls)).toContain("rate-limit");
+    expect(JSON.stringify(logger.warn.mock.calls)).toContain("5000");
+  });
+
+  it("P1: 缓存命中写应用日志（解释为何返回空数据）", async () => {
+    collector._contentCache.hasUrl = () => true;
+    const r = await collector.collect("https://example.com/cached");
+    expect(r.reason).toBe("cache_hit");
+    expect(logger.info).toHaveBeenCalled();
+    expect(JSON.stringify(logger.info.mock.calls)).toContain("cache_hit");
+  });
+
+  it("P2: 采集成功写 info 日志（含标题/正文长度）", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._needsBrowser = () => false;
+    collector._getAxios = () => ({ get: vi.fn().mockResolvedValue({ data: "<html><head><title>T</title></head><body><article><p>正文内容足够长</p></article></body></html>" }) });
+    const r = await collector.collect("https://example.com/ok");
+    expect(r.success).toBe(true);
+    expect(logger.info).toHaveBeenCalled();
+    expect(JSON.stringify(logger.info.mock.calls)).toContain("采集成功");
+  });
+
+  it("P2: 浏览器采集路径写过程日志", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaBrowser = async () => ({ success: true, title: "T", content: "C".repeat(100) });
+    const r = await collector.collect("https://zhuanlan.zhihu.com/p/1");
+    expect(r.success).toBe(true);
+    expect(logger.info).toHaveBeenCalled();
+    expect(JSON.stringify(logger.info.mock.calls)).toContain("browser");
+  });
+
+  it("手动采集（manual）跳过 weekend-throttle 随机拒绝", async () => {
+    collector._rateLimiter.evaluate = vi.fn((s) => {
+      const factor = s.manual ? 1 : (s.weekendFactor ?? 1);
+      if (factor < 1 && 0.99 > factor) return { allowed: false, reason: "weekend-throttle" };
+      return { allowed: true };
+    });
+    collector._collectViaHttp = async () => ({ success: true, title: "T", content: "C" });
+    collector._needsBrowser = () => false;
+    const r = await collector.collect("https://example.com/m", { manual: true });
+    expect(r.success).toBe(true);
+    expect(collector._rateLimiter.evaluate).toHaveBeenCalledWith(expect.objectContaining({ manual: true }));
+  });
+
+  it("非手动采集仍受 weekend-throttle 限制", async () => {
+    collector._rateLimiter.evaluate = vi.fn((s) => {
+      const factor = s.manual ? 1 : (s.weekendFactor ?? 1);
+      if (factor < 1 && 0.99 > factor) return { allowed: false, reason: "weekend-throttle" };
+      return { allowed: true };
+    });
+    const r = await collector.collect("https://example.com/auto");
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("weekend-throttle");
+  });
+
+  it("IPC url-collect:fetch 透传 manual 参数", async () => {
+    const handlers = {};
+    collector.registerIpcHandlers({ handle: (ch, fn) => { handlers[ch] = fn } });
+    collector.collect = vi.fn().mockResolvedValue({ success: true, title: "T" });
+    await handlers["url-collect:fetch"](null, { url: "https://example.com/x", manual: true });
+    expect(collector.collect).toHaveBeenCalledWith("https://example.com/x", { manual: true });
+  });
+});

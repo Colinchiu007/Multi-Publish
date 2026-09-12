@@ -38,7 +38,7 @@ export function useNotify () {
     if (!text) {
       // 未命中 key：error 级用 fallback 兜底，其余静默
       if (level === 'error' && options.fallback) {
-        reportNotify(messageKey, { ...options, level: 'error' })
+        reportNotify(messageKey, { ...options, level: 'error', error: options.fallback })
         ElMessage.error(options.fallback)
         return options.fallback
       }
@@ -52,6 +52,9 @@ export function useNotify () {
       error: () => ElMessage.error(text),
     }[level]
     if (show) show()
+    // P1 可观测性：把用户实际看到的文案作为 error 字段上报（此前只报 messageKey，
+    // 主进程日志无法得知用户看到了什么内容；error 字段经 notify:log 脱敏后落盘）
+    reportNotify(messageKey, { ...options, level, error: text })
     return text
   }
 

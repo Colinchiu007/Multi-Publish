@@ -195,7 +195,7 @@ var require_publish = __commonJS({
         cloudPublishGetTask: (taskId) => ipcRenderer2.invoke("cloud-publisher:get-task", taskId),
         cloudPublishPlatforms: () => ipcRenderer2.invoke("cloud-publisher:platforms"),
         // URL Collect API
-        urlCollectFetch: (url) => ipcRenderer2.invoke("url-collect:fetch", { url }),
+        urlCollectFetch: (url) => ipcRenderer2.invoke("url-collect:fetch", { url, manual: true }),
         // Viral Analysis API
         viralAnalyze: (articles, topic) => ipcRenderer2.invoke("viral:analyze", { articles, topic }),
         viralGenerate: (opts) => ipcRenderer2.invoke("viral:generate", opts),

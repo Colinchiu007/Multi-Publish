@@ -216,7 +216,8 @@ function createPublishApi(ipcRenderer, options = {}) {
     cloudPublishPlatforms: () => ipcRenderer.invoke('cloud-publisher:platforms'),
 
     // URL Collect API
-    urlCollectFetch: (url) => ipcRenderer.invoke('url-collect:fetch', { url }),
+    // manual: true — 采集页用户手动点击（豁免周末随机限流；批量走 aggregation 不经此通道）
+    urlCollectFetch: (url) => ipcRenderer.invoke('url-collect:fetch', { url, manual: true }),
 
     // Viral Analysis API
     viralAnalyze: (articles, topic) => ipcRenderer.invoke('viral:analyze', { articles, topic }),
