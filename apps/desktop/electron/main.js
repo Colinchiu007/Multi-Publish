@@ -26,8 +26,8 @@ try {
   if (storageConfig.shared) {
     console.warn(`[startup] 检测到 shared-user-data 锚点，使用共享数据目录 ${storageConfig.path}（WSL/Windows 环境数据一致）`)
   }
-  if (graphicsConfig.disabled && graphicsConfig.reason === 'windows-default') {
-    console.warn('[startup] Windows 默认使用软件渲染；设置 ELECTRON_ENABLE_GPU=1 可显式启用硬件加速')
+  if (graphicsConfig.disabled) {
+    console.warn('[startup] 硬件加速已禁用（' + graphicsConfig.reason + '）；如遇界面异常可移除 ELECTRON_DISABLE_GPU=1 恢复默认 GPU 渲染')
   }
 } catch (error) {
   console.error('[startup] 无法准备应用运行目录:', error instanceof Error ? error.message : String(error))
