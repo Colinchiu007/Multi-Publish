@@ -1,3 +1,16 @@
+## [未发布] fix(gpu): Windows 默认硬件加速——修复 SwiftShader 合成器停摆导致窗口空白（2026-09-12）
+
+### 修复（QM-5 五步）
+- **现象**：应用窗口空白但 DOM/JS 存活（CDP 可查到完整内容、登录态正常）；requestAnimationFrame 0 帧即合成器帧循环停摆。
+- **根因**：`configureGraphics` 旧策略 Windows 默认强制 `use-angle=swiftshader` 软件渲染，部分 Windows 环境（Intel UHD + 高 DPI 实测）下 SwiftShader 合成器停摆。影响所有 Windows 安装用户。
+- **逃逸**：无 GPU 渲染路径的自动化测试；窗口空白在 CI（headless）不可见；用户侧「界面空白」报告此前无对应监控。
+- **修复**：Windows 默认硬件加速（对齐 VS Code/Slack；GPU 兼容交给 Chromium 内置驱动 blocklist）；`ELECTRON_DISABLE_GPU=1` 保留逃生门；`window.js` 增加 `render-process-gone` 监听（error 日志 + 系统通知，不再静默白屏）。
+- **预防**：startup-compat 测试锁定新策略（默认硬件加速 + 逃生门行为）；渲染进程崩溃显性化。
+
+### 验证
+- startup-compat.test.js 15/15（RED→GREEN）；window + startup-compat 67/67；electron/ 全量 6375 passed / 1 skipped。
+- 实测：ELECTRON_ENABLE_GPU=1 下 GPU_RENDERER 从 SwiftShader 变为 Intel(R) UHD Graphics Direct3D11。
+
 ## [未发布] fix(splitter): 修复 SPLITTER_DIR 路径解析错误——语义分句引擎全环境静默降级（2026-09-12）
 
 ### 修复（QM-5 五步）
