@@ -27,6 +27,7 @@ def _lazy_import(module_path: str, attr: str = None):
         return None
 
 
+from ._user_errors import UserVisibleError
 from .models import (
     TaskStatus,
     CollectRequest,
@@ -213,10 +214,10 @@ class AggregationService:
         # 输入校验：内容过短（<20 字）优先报错，与 RewriteProcessor 的校验保持一致
         if len((request.content or "").strip()) < 20:
             raise ValueError(f"输入内容过短（仅 {len((request.content or '').strip())} 字符），请提供至少 20 字的完整文章")
-        # 前置校验：未配置 LLM API Key 时给出友好中文提示，避免底层抛英文错误
+        # 前置校验：未配置 LLM API Key 时返回稳定错误码，由前端 locale 渲染友好文案
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
         if not api_key:
-            raise ValueError("未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写")
+            raise UserVisibleError("LLM_KEY_MISSING", "AI 改写服务尚未配置访问密钥")
         # 从 shared 库导入（替代旧 content_aggregator.xxx 路径）
         RewriteProcessor = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteProcessor")
         RewriteConfig = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteConfig")

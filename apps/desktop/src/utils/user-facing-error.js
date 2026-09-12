@@ -35,6 +35,7 @@ export const USER_ERROR_CODES = Object.freeze({
   PROVIDER_NOT_FOUND: 'PROVIDER_NOT_FOUND',
   API_KEY_NOT_CONFIGURED: 'API_KEY_NOT_CONFIGURED',
   API_KEY_REQUIRED: 'API_KEY_REQUIRED',
+  LLM_KEY_MISSING: 'LLM_KEY_MISSING',
   ADAPTER_INIT_FAILED: 'ADAPTER_INIT_FAILED',
   OPERATION_NOT_SUPPORTED: 'OPERATION_NOT_SUPPORTED',
   CREATE_FAILED: 'CREATE_FAILED',
@@ -105,6 +106,10 @@ const PATTERN_RULES = Object.freeze([
   {
     errorCode: USER_ERROR_CODES.API_KEY_NOT_CONFIGURED,
     patterns: [/api key not configured|尚未配置 api key|未配置.*api.?key/i],
+  },
+  {
+    errorCode: USER_ERROR_CODES.LLM_KEY_MISSING,
+    patterns: [/未配置 LLM API Key|LLM_API_KEY|PO_OPENAI_API_KEY|llm key (is )?missing/i],
   },
   {
     errorCode: USER_ERROR_CODES.IO_ERROR,

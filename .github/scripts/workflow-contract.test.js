@@ -306,7 +306,9 @@ test('Quality Gate Gate 7 locale 卡点包含 key 存在性检查（i18n-user-fa
   assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --pair-base origin\/main/);
   assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --cjk/);
   assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --keys/);
+  assert.match(gate, /node \.github\/scripts\/check-locale-sync\.js --py-cjk/);
   assert.match(gate, /node --test \.github\/scripts\/check-locale-sync\.test\.js/);
+  assert.ok(fs.existsSync(path.join(__dirname, 'locale-py-cjk-baseline.json')), 'locale-py-cjk-baseline.json must exist');
   assert.ok(fs.existsSync(path.join(__dirname, 'check-locale-sync.js')), 'check-locale-sync.js must exist');
   assert.ok(fs.existsSync(path.join(__dirname, 'check-locale-sync.test.js')), 'check-locale-sync.test.js must exist');
 });

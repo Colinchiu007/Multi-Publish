@@ -59,6 +59,21 @@ Define automated guards that keep zh/en user-facing copy permanently in sync —
 - **WHEN** CJK 仅出现在代码注释或平台数据源（如平台显示名）中
 - **THEN** 硬编码扫描通过
 
+### Requirement: python-backend 用户可见消息稳定错误码
+python-backend 的用户可见错误（会经 IPC 到达渲染端展示的消息）SHALL 优先通过 `UserVisibleError(error_code)` 携带稳定机器错误码传递，由渲染端 `formatUserError` 按 errorCode 从 locales 渲染当前语言的友好文案；CI SHALL 扫描 python-backend 源码中 raise 语句字符串字面量的新增中文（基线增量式），新增硬编码中文用户可见 raise 即拦截。
+
+#### Scenario: 新增用户可见错误走稳定错误码
+- **WHEN** python-backend 新增一个会展示给用户的错误（如 LLM 密钥未配置）
+- **THEN** 该错误通过 `UserVisibleError("XXX_CODE", fallback)` 抛出，HTTP 响应 detail 为 `{error_code, message}` 对象，渲染端按 errorCode 渲染 locale 文案
+
+#### Scenario: 新增硬编码中文 raise 被 CI 拦截
+- **WHEN** 某提交在 `packages/python-backend/src` 下的 .py 文件中新增 `raise ValueError("中文用户可见提示")` 且未入基线
+- **THEN** Gate 7 的 `--py-cjk` 扫描失败并指出文件与行号
+
+#### Scenario: 存量硬编码债务不误报
+- **WHEN** 扫描在已入基线（`locale-py-cjk-baseline.json`）的存量 raise 上运行
+- **THEN** 不产生失败（基线吸收存量）
+
 ### Requirement: 术语词典
 产品名词（如「故事讲述 / Story Telling」）SHALL 有集中维护的术语词典；当词典中的 zh 名词在任一 locale 文案中发生变更时，门禁 SHALL 校验对应 en 名词映射在 en 文案中已同步（或输出未同步候选词）。
 
@@ -95,6 +110,21 @@ Define automated guards that keep zh/en user-facing copy permanently in sync —
 #### Scenario: 扫描不再豁免错误目录
 - **WHEN** CJK 扫描运行于 `utils/user-facing-error.js`
 - **THEN** 该文件不再位于豁免清单（仅注释与正则字面量不误报）
+
+### Requirement: python-backend 用户可见消息稳定错误码
+python-backend 的用户可见错误（会经 IPC 到达渲染端展示的消息）SHALL 优先通过 `UserVisibleError(error_code)` 携带稳定机器错误码传递，由渲染端 `formatUserError` 按 errorCode 从 locales 渲染当前语言的友好文案；CI SHALL 扫描 python-backend 源码中 raise 语句字符串字面量的新增中文（基线增量式），新增硬编码中文用户可见 raise 即拦截。
+
+#### Scenario: 新增用户可见错误走稳定错误码
+- **WHEN** python-backend 新增一个会展示给用户的错误（如 LLM 密钥未配置）
+- **THEN** 该错误通过 `UserVisibleError("XXX_CODE", fallback)` 抛出，HTTP 响应 detail 为 `{error_code, message}` 对象，渲染端按 errorCode 渲染 locale 文案
+
+#### Scenario: 新增硬编码中文 raise 被 CI 拦截
+- **WHEN** 某提交在 `packages/python-backend/src` 下的 .py 文件中新增 `raise ValueError("中文用户可见提示")` 且未入基线
+- **THEN** Gate 7 的 `--py-cjk` 扫描失败并指出文件与行号
+
+#### Scenario: 存量硬编码债务不误报
+- **WHEN** 扫描在已入基线（`locale-py-cjk-baseline.json`）的存量 raise 上运行
+- **THEN** 不产生失败（基线吸收存量）
 
 ### Requirement: 术语词典覆盖产品核心名词
 术语词典（`01-docs/i18n-glossary.md`）SHALL 登记产品核心名词（流水线名、核心入口、设置页等用户高频可见名词），且每条术语的 zh/en 出现状态一致性由 `glossary.test.js` 强制校验。

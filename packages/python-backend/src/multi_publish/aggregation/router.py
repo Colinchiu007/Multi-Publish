@@ -16,6 +16,7 @@ from .models import (
     SourceInfo,
     TaskStatus,
 )
+from ._user_errors import UserVisibleError
 from .service import AggregationService
 from .video_service import VideoCollectError, VideoCollectService
 
@@ -87,6 +88,9 @@ async def rewrite(request: RewriteRequest):
     try:
         service = _get_service()
         return await service.rewrite(request)
+    except UserVisibleError as e:
+        # 稳定错误码透传：渲染端 formatUserError 按 error_code 渲染 locale 友好文案
+        raise HTTPException(status_code=400, detail={"error_code": e.error_code, "message": e.fallback_text})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

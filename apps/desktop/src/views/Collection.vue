@@ -742,8 +742,11 @@ async function collectAndRewrite () {
             rewriteResult.value = rewrite.result_content
             notifySuccess('collection.rewriteSuccess')
           } else {
-            rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: (rewrite && rewrite.message) || '' }
-            notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + rewriteError.value.message })
+            // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
+            // 禁止把后端原始 message（可能含环境变量名等技术细节）直出 UI（user-facing-messages 规范）
+            const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+            rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
+            notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
           }
         } catch (e) {
           rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
@@ -808,8 +811,10 @@ async function collectAndRewrite () {
         rewriteResult.value = rewrite.result_content
         notifySuccess('collection.rewriteSuccess')
       } else {
-        rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: (rewrite && rewrite.message) || '' }
-        notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (rewriteError.value.message) })
+        // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
+        const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+        rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
+        notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
       }
     } catch (e) {
       rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
@@ -845,8 +850,10 @@ async function rewriteCollected () {
       rewriteResult.value = result.result_content
       notifySuccess('collection.rewriteSuccess')
     } else {
-      rewriteError.value = { code: result && result.code != null ? result.code : -99, message: (result && result.message) || '' }
-      notifyError('collection.rewriteFailed', { message: resolveNotifyText('collection.rewriteFailed').text + ': ' + (rewriteError.value.message) })
+      // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
+      const formatted = formatUserError(result || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+      rewriteError.value = { code: result && result.code != null ? result.code : -99, message: formatted.message }
+      notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
     }
   } catch (e) {
     rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }

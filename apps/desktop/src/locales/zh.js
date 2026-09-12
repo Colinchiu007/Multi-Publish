@@ -1771,6 +1771,7 @@ export default {
     PROVIDER_NOT_FOUND: '未找到该服务商，可能已被删除。请刷新列表后重试。',
     API_KEY_NOT_CONFIGURED: '该服务商尚未配置 API Key。请在「模型设置」中填写对应服务商的 API Key 后重试。',
     API_KEY_REQUIRED: '远程服务商必须配置 API Key。请在「模型设置」中填写后重试。',
+    LLM_KEY_MISSING: 'AI 改写功能需要连接智能写作服务，但尚未完成服务配置。请在应用的「模型设置」中配置 AI 服务商的 API Key（支持 OpenAI 兼容接口），保存后重新点击改写；若不清楚如何配置，请参考使用说明或联系支持获取帮助。',
     ADAPTER_INIT_FAILED: '服务商初始化失败。请检查配置与服务商服务状态后重试。',
     OPERATION_NOT_SUPPORTED: '该服务商不支持此操作。请在「模型设置」中调整模型配置后重试。',
     CREATE_FAILED: '创建失败。请检查输入后重试。',

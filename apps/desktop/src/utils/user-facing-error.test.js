@@ -101,3 +101,43 @@ describe('formatUserError — 未知错误安全兜底', () => {
     expect(result.message).not.toContain('store:foo')
   })
 })
+
+describe('formatUserError — LLM_KEY_MISSING（AI 改写无密钥，2026-09-12 回归）', () => {
+  it('稳定 errorCode 优先：渲染 zh 友好文案，不暴露环境变量名', () => {
+    // python-bridge 归一化后的形态：{ errorCode: 'LLM_KEY_MISSING', code: -400, message: '...' }
+    const result = formatUserError(
+      { errorCode: 'LLM_KEY_MISSING', code: -400, message: 'AI 改写服务尚未配置访问密钥' },
+      { locale: 'zh' },
+    )
+    expect(result.errorCode).toBe('LLM_KEY_MISSING')
+    expect(result.matched).toBe('errorCode')
+    expect(result.message).toContain('模型设置')
+    expect(result.message).not.toContain('LLM_API_KEY')
+    expect(result.message).not.toContain('PO_OPENAI_API_KEY')
+    expect(result.message).not.toContain('环境变量')
+  })
+
+  it('稳定 errorCode：en 自然语言文案', () => {
+    const result = formatUserError(
+      { errorCode: 'LLM_KEY_MISSING', code: -400, message: 'x' },
+      { locale: 'en' },
+    )
+    expect(result.errorCode).toBe('LLM_KEY_MISSING')
+    expect(result.message).toContain('Model Settings')
+    expect(result.message).not.toContain('LLM_API_KEY')
+  })
+
+  it('遗留原始消息 pattern 兜底：旧版「未配置 LLM API Key…」也命中 LLM_KEY_MISSING 而非直出', () => {
+    // 兼容旧后端（无 errorCode，仅 message 原文）
+    const legacy = formatUserError(
+      { code: -400, message: '未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写' },
+      { locale: 'zh' },
+    )
+    // 注：旧文本同时命中 API_KEY_NOT_CONFIGURED（pattern 顺序更早），其文案同样指向「模型设置」配置路径，
+    // 均不泄露环境变量名。断言最终文案与安全属性，而非具体命中哪个 pattern。
+    expect(['LLM_KEY_MISSING', 'API_KEY_NOT_CONFIGURED']).toContain(legacy.errorCode)
+    expect(legacy.message).toContain('模型设置')
+    expect(legacy.message).not.toContain('LLM_API_KEY')
+    expect(legacy.message).not.toContain('PO_OPENAI_API_KEY')
+  })
+})

@@ -626,7 +626,7 @@ Click multimodal capability default chip (e.g. llm) showed error: provider.confi
 | 页面结构 | 1-6 | 页标题「内容采集」、副标题、剪贴板导入/新建草稿按钮、采集源 4 项、输入框 placeholder | 6/6 |
 | 核心采集 | 7-8 | example.com 成功采集、正文/标题展示、采集结果累计列表标题 | 2/2 |
 | 卡片按钮 | 9-12 | 查看/创建草稿/视频创作/发布 四按钮存在 | 4/4 |
-| 改写功能 | 13-14 | AI 改写按钮存在、未配置 LLM Key 时 toast 正确提示 | 2/2 |
+| 改写功能 | 13-14 | AI 改写按钮存在、未配置 LLM Key 时 toast 显示 locale 友好文案（userErrors.LLM_KEY_MISSING，2026-09-12 起） | 2/2 |
 | 草稿流转 | 15-17 | 创建草稿→/publish?draft=、视频创作→/create?draft=、发布→/publish?draft= | 3/3 |
 | 清空/取消 | 18-20 | 清空按钮、清空后列表消失、取消后预览隐藏 | 3/3 |
 | 空链接校验 | 21 | 空链接提示「请输入链接」 | 1/1 |
@@ -4510,7 +4510,27 @@ screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默�
 
 **长度 → 字数范围映射**：keep→(300,3000,1500)、compress→(100,800,400)、expand→(800,5000,2500)。
 
-**LLM 配置优先级**：`LLM_API_KEY` > `PO_OPENAI_API_KEY`（向下兼容）；`LLM_BASE_URL` > `PO_OPENAI_BASE_URL`；`LLM_MODEL` > `PO_OPENAI_MODEL`（默认 gpt-4o-mini）。未配置 API Key 时改写返回 400 + 友好提示「未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写」。
+**LLM 配置优先级**：`LLM_API_KEY` > `PO_OPENAI_API_KEY`（向下兼容）；`LLM_BASE_URL` > `PO_OPENAI_BASE_URL`；`LLM_MODEL` > `PO_OPENAI_MODEL`（默认 gpt-4o-mini）。未配置 API Key 时改写返回 400 + 稳定错误码 `LLM_KEY_MISSING`（2026-09-12 修复：不再硬编码中文技术提示，见下方「改写错误提示 i18n 友好化机制」）。
+
+**改写错误提示 i18n 友好化机制（2026-09-12 新增，user-facing-messages + i18n-content-sync 强制规则）**：
+
+数据校验与错误传递链路（四层）：
+
+1. **Python 后端（service.py）**：未配置密钥时抛 `UserVisibleError("LLM_KEY_MISSING", "AI 改写服务尚未配置访问密钥")`——只携带稳定错误码 + 简短兜底文本，不含环境变量名等技术细节；`UserVisibleError` 继承 `ValueError`（兼容既有 except 链）。
+2. **Python 路由层（router.py）**：`except UserVisibleError` 优先捕获，返回 HTTP 400 + `detail={"error_code": "LLM_KEY_MISSING", "message": "..."}`（对象形态，区别于普通 ValueError 的纯文本 detail）。
+3. **Electron 主进程（python-bridge.js）**：`requestBackend` 对 `status>=400` 的响应归一化时，识别 detail 对象形态，把 `error_code` 提升为 `errorCode` 字段透传给渲染端（IPC resolve 返回，非 throw）。
+4. **渲染端（Collection.vue）**：改写的三条路径（单独改写 / 一键改写普通链路 / 一键改写视频链路）的**业务错误分支（else）与异常分支（catch）统一走 `formatUserError`**——按 `errorCode → locale 文案` 渲染当前语言的自然语言提示，禁止把后端原始 message 直出 UI。
+
+错误文案（zh/en 成对，`userErrors.LLM_KEY_MISSING`）：
+
+- zh：`AI 改写功能需要连接智能写作服务，但尚未完成服务配置。请在应用的「模型设置」中配置 AI 服务商的 API Key（支持 OpenAI 兼容接口），保存后重新点击改写；若不清楚如何配置，请参考使用说明或联系支持获取帮助。`
+- en：`AI rewriting needs to connect to a writing service, but that service has not been configured yet. Please go to Model Settings in the app and add the API key for your AI provider (OpenAI-compatible endpoints are supported), save it, then click Rewrite again. If you are not sure how to configure it, see the user guide or contact support.`
+
+文案规范：自然语言描述 + 具体操作指引（指向「模型设置」入口）+ 不出现环境变量名（LLM_API_KEY/PO_OPENAI_API_KEY）、内部路径、错误码等技术细节。
+
+兜底兼容：旧版后端（无 errorCode，仅原始中文消息）经 `formatUserError` 的 pattern 规则（`/未配置 LLM API Key|LLM_API_KEY|PO_OPENAI_API_KEY/i` → `LLM_KEY_MISSING`；更早命中的 `API_KEY_NOT_CONFIGURED` pattern 亦指向「模型设置」）同样渲染友好文案，两条路径都不泄露技术细节。
+
+CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src` 下 .py 的 raise 语句字符串字面量中的中文，基线 `locale-py-cjk-baseline.json` 吸收 90 条存量；新增硬编码中文用户可见 raise 即 CI 失败，强制走 `UserVisibleError(error_code)` + 渲染端 locale 文案路径。
 
 **错误码分类（前端 IPC handler，`classifyError`）**：
 
@@ -4541,7 +4561,7 @@ screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默�
 | 改写失败 | collection.rewriteFailed |
 | 未输入链接 | collection.enterLink |
 | 内容过短 | 输入内容过短（仅 N 字符），请提供至少 20 字的完整文章 |
-| 未配置 API Key | 未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写 |
+| 未配置 API Key（2026-09-12 修复） | userErrors.LLM_KEY_MISSING（zh/en 成对，见上方「改写错误提示 i18n 友好化机制」；不再显示环境变量名） |
 
 **真机 E2E 全量验证（2026-09-07，64 项全量通过）**：
 
@@ -4552,7 +4572,7 @@ screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默�
 | 页面结构 | 1-6 | 页标题「内容采集」、副标题、剪贴板导入/新建草稿按钮、采集源 4 项、输入框 placeholder | 6/6 |
 | 核心采集 | 7-8 | example.com 成功采集、正文/标题展示、采集结果累计列表标题 | 2/2 |
 | 卡片按钮 | 9-12 | 查看/创建草稿/视频创作/发布 四按钮存在 | 4/4 |
-| 改写功能 | 13-14 | AI 改写按钮存在、未配置 LLM Key 时 toast 正确提示 | 2/2 |
+| 改写功能 | 13-14 | AI 改写按钮存在、未配置 LLM Key 时 toast 显示 locale 友好文案（userErrors.LLM_KEY_MISSING，2026-09-12 起） | 2/2 |
 | 草稿流转 | 15-17 | 创建草稿→/publish?draft=、视频创作→/create?draft=、发布→/publish?draft= | 3/3 |
 | 清空/取消 | 18-20 | 清空按钮、清空后列表消失、取消后预览隐藏 | 3/3 |
 | 空链接校验 | 21 | 空链接提示「请输入链接」 | 1/1 |
