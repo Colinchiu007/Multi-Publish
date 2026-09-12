@@ -138,30 +138,30 @@ module.exports = {
   },
 
   /**
-   * 记录一次提取尝试（attempts +1，写错误信息；attempts >= 3 时标记 failed）
+   * 记录一次提取尝试（attempts +1，写错误信息；attempts >= 3 时标记 failed 终态）
+   * failed 终态不自动重试——重试仅经 resetPatternCard（UI「重新分析」）触发
    */
   recordPatternAttempt (viralItemId, errorMessage) {
     if (!this._ready) return false
     const card = this.getPatternCard(viralItemId)
     if (!card) return false
     const attempts = (Number(card.attempts) || 0) + 1
-    const status = attempts >= 3 ? 'failed' : card.status === 'done' ? 'done' : 'pending'
     return this.updatePatternCard(viralItemId, {
       attempts,
-      status: status === 'done' ? 'done' : (attempts >= 3 ? 'failed' : 'pending'),
+      status: attempts >= 3 ? 'failed' : card.status === 'done' ? 'done' : 'pending',
       last_error: errorMessage || '',
     })
   },
 
   /**
-   * 待提取队列：pending 或 attempts < 3 的 failed（可重试）
+   * 待提取队列：仅 pending（failed 为终态，重试走 resetPatternCard）
    */
   listPendingPatternCards (limit = 20) {
     if (!this._ready) return []
     try {
       return this.db.prepare(`
         SELECT * FROM viral_pattern_cards
-        WHERE (status = 'pending' OR (status = 'failed' AND attempts < 3))
+        WHERE status = 'pending'
         ORDER BY created_at ASC
         LIMIT ?
       `).all(Math.max(1, Math.min(100, Number(limit) || 20))).map(parseCardRow)

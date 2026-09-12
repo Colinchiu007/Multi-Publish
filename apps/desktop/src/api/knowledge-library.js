@@ -17,6 +17,12 @@ export async function searchViralItems(query, limit) { return invokeWithFallback
 export async function listPatternCards(params) { return invokeWithFallback("listPatternCards", { code: -1, data: { items: [], total: 0 } }, params) }
 export async function reextractPattern(viralItemId) { return invokeWithFallback("reextractPattern", { code: -1, data: null }, viralItemId) }
 
+// ─── 效果闭环（P2）─────────────────────
+export async function listTrackedContent(params) { return invokeWithFallback("listTrackedContent", { code: -1, data: { items: [], total: 0 } }, params) }
+export async function addManualSnapshot(trackedContentId, metrics) { return invokeWithFallback("addManualSnapshot", { code: -1, data: null }, trackedContentId, metrics) }
+export async function recomputeAttribution() { return invokeWithFallback("recomputeAttribution", { code: -1, data: null }) }
+export async function listPatternPerformance(params) { return invokeWithFallback("listPatternPerformance", { code: -1, data: { items: [] } }, params) }
+
 // ─── 个人知识库 ─────────────────────────
 export async function addPersonalToLibrary(item) { return invokeWithFallback("addPersonalToLibrary", { code: -1, data: null }, item) }
 export async function addPersonalBatchToLibrary(items) { return invokeWithFallback("addPersonalBatchToLibrary", { code: -1, data: { count: 0 } }, items) }

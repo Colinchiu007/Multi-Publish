@@ -218,6 +218,7 @@ function createContainer(options) {
     svc.setStrategyManager(c.get("rewriteStrategyManager"))
     svc.setStore(c.get("store"))
     svc.setKnowledgeLibrary(c.get("knowledgeLibraryService"))
+    svc.setPerformanceStore(c.get("store"))
     return svc
   });
   container.register("knowledgeLibraryService", function(c) {
@@ -231,6 +232,14 @@ function createContainer(options) {
       store: c.get("store"),
       aiGenerator: c.get("aiGenerator"),
     });
+  });
+  container.register("performanceRecrawlService", function(c) {
+    const { PerformanceRecrawlService } = require('../services/performance-recrawl-service');
+    return new PerformanceRecrawlService({ store: c.get("store") });
+  });
+  container.register("patternAttributionService", function(c) {
+    const { PatternAttributionService } = require('../services/pattern-attribution-service');
+    return new PatternAttributionService({ store: c.get("store") });
   });
   container.register("knowledgeEvolutionScheduler", function(c) {
     var { KnowledgeEvolutionScheduler } = require('@multi-publish/rewrite-engine');
@@ -387,7 +396,8 @@ function createContainer(options) {
     "callbackServer", "qrCodeLogin", "renderEngine",
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
     "oauthManager", "batchManager", "taskQueue", "publisherRouter",
-    "story2videoBatchQueue", "fullAutoPipeline", "knowledgeLibraryService", "patternExtractionService"
+    "story2videoBatchQueue", "fullAutoPipeline", "knowledgeLibraryService", "patternExtractionService",
+    "performanceRecrawlService", "patternAttributionService"
   ]);
 
   return container;

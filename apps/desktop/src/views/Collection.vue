@@ -328,23 +328,31 @@ const usePersonalExperience = ref(false)
 
 // 改写走 Node 引擎（aiRewrite）：采集→入库→改写参考闭环的最后一块拼图。
 // Python 链路（aggregationRewrite）对桌面 SQLite 爆款库不可见、不接收 knowledgeOptions。
-// style/length 是 Python 链路专属枚举，映射到 Node 引擎契约：style→mode 语义近似、length→targetLength。
-const STYLE_TO_MODE = { '轻松易懂': 'imitate', '正式严谨': 'imitate', '吸引眼球': 'expand', '深度分析': 'expand', '认知锚点': 'imitate' }
+// style 是语气偏好 → userSettings.tone（引擎 prompt 模板消费）；mode 统一 imitate（保留原文语义，改写引擎核心场景）。
+// tone 值为引擎 prompt 模板的语气枚举（非用户可见 UI 文案，走常量；CJK 基线登记见 check-locale-sync）
+const STYLE_TO_TONE = { '轻松易懂': 'casual', '正式严谨': 'formal', '吸引眼球': 'catchy', '深度分析': 'professional', '认知锚点': 'anchor' }
 const LENGTH_TO_TARGET = { keep: 'medium', compress: 'short', expand: 'long' }
 
 async function rewriteViaEngine (content) {
-  const params = {
-    mode: STYLE_TO_MODE[rewriteStyle.value] || 'imitate',
-    content: content,
-    userSettings: {
-      targetLength: LENGTH_TO_TARGET[rewriteLength.value] || 'medium',
-      knowledgeOptions: {
-        useViralLibrary: useViralLibrary.value,
-        usePersonalKnowledge: usePersonalExperience.value,
+  let res
+  try {
+    const params = {
+      mode: 'imitate',
+      content: content,
+      userSettings: {
+      tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
+        targetLength: LENGTH_TO_TARGET[rewriteLength.value] || 'medium',
+        knowledgeOptions: {
+          useViralLibrary: useViralLibrary.value,
+          usePersonalKnowledge: usePersonalExperience.value,
+        },
       },
-    },
+    }
+    res = await aiRewrite(params)
+  } catch (e) {
+    // IPC 异常归一化为 __error 形态，调用方 formatUserError 消费统一形状（审查 W-7）
+    return { __error: { code: -99, message: (e && e.message) || String(e) } }
   }
-  const res = await aiRewrite(params)
   // aiRewrite 返回 { code, data: { success, result } }；归一化为旧 aggregationRewrite 的 { result_content } 消费形态
   if (res && res.code === 0 && res.data && res.data.success && res.data.result) {
     return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }

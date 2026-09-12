@@ -291,6 +291,21 @@
         </dl>
       </section>
     </div>
+
+    <!-- P2 效果闭环：手动录入表现数据 -->
+    <el-dialog v-model="manualDialogVisible" :title="t('historyPage.manualEntryTitle')" width="420px">
+      <el-form label-width="90px">
+        <el-form-item :label="t('perfInsights.colAvgViews')"><el-input-number v-model="manualMetrics.views" :min="0" /></el-form-item>
+        <el-form-item :label="t('perfInsights.colAvgLikes')"><el-input-number v-model="manualMetrics.likes" :min="0" /></el-form-item>
+        <el-form-item :label="t('perfInsights.colAvgComments')"><el-input-number v-model="manualMetrics.comments" :min="0" /></el-form-item>
+        <el-form-item :label="t('perfInsights.colAvgFavorites')"><el-input-number v-model="manualMetrics.favorites" :min="0" /></el-form-item>
+        <el-form-item :label="t('perfInsights.colAvgShares')"><el-input-number v-model="manualMetrics.shares" :min="0" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualDialogVisible = false">{{ t('historyPage.manualEntryCancel') }}</el-button>
+        <el-button type="primary" @click="submitManualSnapshot">{{ t('historyPage.manualEntrySave') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -301,6 +316,7 @@ import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
+import { listTrackedContent, addManualSnapshot } from '@/api/knowledge-library'
 import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
@@ -442,6 +458,8 @@ async function loadRecords (options = {}) {
       || (append && addedCount === 0)
       || records.value.length >= page.total
     selectedIds.value = selectedIds.value.filter(id => records.value.some(record => record.id === id))
+    // P2 效果闭环：拉取表现快照，合并到记录（tracked_content 以 task_id 关联）
+    void attachPerformanceSnapshots()
     if (!append && hasActiveFilters.value) void loadRemainingRecordsForFilters()
     return page.records.length > 0 && (!append || addedCount > 0)
   } catch {
@@ -457,6 +475,59 @@ async function loadRecords (options = {}) {
     if (append) loadingMore.value = false
     else loading.value = false
   }
+}
+
+// ── P2 效果闭环：表现数据合并 ──
+const manualDialogVisible = ref(false)
+const manualTarget = ref(null)
+const manualMetrics = ref({ views: null, likes: null, comments: null, favorites: null, shares: null })
+
+async function attachPerformanceSnapshots () {
+  try {
+    const res = await listTrackedContent({ page: 1, pageSize: 100 })
+    if (!res || res.code !== 0 || !res.data) return
+    // publish_history 记录的 taskId 对应 tracked_content 的 publish_history_id 语义（发布任务 id）
+    const byTask = new Map()
+    for (const t of (res.data.items || [])) {
+      if (t.publish_history_id) byTask.set(String(t.publish_history_id), t)
+    }
+    for (const record of records.value) {
+      const tracked = byTask.get(String(record.taskId || record.id))
+      if (tracked && tracked.latest_snapshot) {
+        const snap = tracked.latest_snapshot
+        record.views = snap.views
+        record.likes = snap.likes
+        record.comments = snap.comments
+        record.favorites = snap.favorites
+        record.shares = snap.shares
+        record.recrawlStatus = tracked.recrawl_status
+        record.trackedContentId = tracked.id
+      }
+    }
+  } catch { /* 表现数据合并失败不影响历史列表主流程 */ }
+}
+
+function openManualEntry (record) {
+  manualTarget.value = record
+  manualMetrics.value = { views: null, likes: null, comments: null, favorites: null, shares: null }
+  manualDialogVisible.value = true
+}
+
+async function submitManualSnapshot () {
+  if (!manualTarget.value || !manualTarget.value.trackedContentId) return
+  try {
+    const res = await addManualSnapshot(manualTarget.value.trackedContentId, {
+      views: Number(manualMetrics.value.views) || 0,
+      likes: Number(manualMetrics.value.likes) || 0,
+      comments: Number(manualMetrics.value.comments) || 0,
+      favorites: Number(manualMetrics.value.favorites) || 0,
+      shares: Number(manualMetrics.value.shares) || 0,
+    })
+    if (res && res.code === 0) {
+      manualDialogVisible.value = false
+      void attachPerformanceSnapshots()
+    }
+  } catch { /* 手动录入失败静默 */ }
 }
 
 function loadMoreRecords () {

@@ -195,6 +195,7 @@ var require_publish = __commonJS({
         cloudPublishGetTask: (taskId) => ipcRenderer2.invoke("cloud-publisher:get-task", taskId),
         cloudPublishPlatforms: () => ipcRenderer2.invoke("cloud-publisher:platforms"),
         // URL Collect API
+        // manual: true — 采集页用户手动点击（豁免周末随机限流；批量走 aggregation 不经此通道）
         urlCollectFetch: (url) => ipcRenderer2.invoke("url-collect:fetch", { url, manual: true }),
         // Viral Analysis API
         viralAnalyze: (articles, topic) => ipcRenderer2.invoke("viral:analyze", { articles, topic }),
@@ -984,6 +985,14 @@ var require_knowledge_library = __commonJS({
         updateViralItem: (id, updates) => ipcRenderer2.invoke("knowledge-library:update-viral", id, updates),
         deleteViralItem: (id) => ipcRenderer2.invoke("knowledge-library:delete-viral", id),
         searchViralItems: (query, limit) => ipcRenderer2.invoke("knowledge-library:search-viral", query, limit),
+        // 模式卡片（P1）
+        listPatternCards: (params) => ipcRenderer2.invoke("knowledge-library:list-pattern-cards", params),
+        reextractPattern: (viralItemId) => ipcRenderer2.invoke("knowledge-library:reextract-pattern", viralItemId),
+        // 效果闭环（P2）
+        listTrackedContent: (params) => ipcRenderer2.invoke("performance:list-tracked", params),
+        addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
+        recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
+        listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),

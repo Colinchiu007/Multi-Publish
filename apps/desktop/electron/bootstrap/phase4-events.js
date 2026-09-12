@@ -3,7 +3,7 @@
  * Phase 4: 事件总线接线
  *
  * 从 bootstrap.js 拆出：taskQueue 事件监听
- * - task:success → 发布成功通知 + 历史记录 + 发布监控 + 影响力追踪
+ * - task:success → 发布成功通知 + 历史记录 + 发布监控 + 影响力追踪 + 回采登记
  * - task:failed → 发布失败通知
  * - publish:blocked → 发布间隔限制通知
  * - task:retry → 重试通知
@@ -19,9 +19,10 @@ const log = require('../services/logger')
  * @param {object} deps.history
  * @param {object} deps.publishMonitor
  * @param {object} deps.publishImpactTracker
+ * @param {object} [deps.store] - 效果闭环：tracked_content 登记（可选）
  * @param {Function} deps.getMainWin
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store }) {
   taskQueue.on('task:success', (task) => {
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
@@ -59,6 +60,25 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
         log.info('ImpactTracker', 'Started tracking "' + title + '"')
       }
     } catch (e) { log.warn('ImpactTracker', 'Failed to start impact tracking: ' + e.message) }
+
+    // P2 效果闭环：发布成功登记 tracked_content（有 postId 或内容 URL → pending 排期回采；都没有 → untrackable 仅手动）
+    try {
+      if (store && typeof store.addTrackedContent === 'function') {
+        const result = task.result || {}
+        const postId = result.postId || result.publishId || ''
+        const url = typeof result.url === 'string' && /^https?:\/\//.test(result.url) ? result.url : ''
+        const hasAnchor = Boolean(postId || url)
+        store.addTrackedContent({
+          platform: task.platform,
+          postId: String(postId || ''),
+          url,
+          rewriteHistoryId: task.rewriteHistoryId || task.article?.rewriteHistoryId || null,
+          recrawlStatus: hasAnchor ? 'pending' : 'untrackable',
+          nextRecrawlAt: hasAnchor ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null, // T+1h 首采
+          ownerSubject,
+        })
+      }
+    } catch (e) { log.warn('PerformanceLoop', 'Failed to register tracked content: ' + e.message) }
   })
 
   taskQueue.on('task:failed', (task) => {

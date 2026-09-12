@@ -22,6 +22,11 @@ function createKnowledgeLibraryApi(ipcRenderer) {
     // 模式卡片（P1）
     listPatternCards: (params) => ipcRenderer.invoke('knowledge-library:list-pattern-cards', params),
     reextractPattern: (viralItemId) => ipcRenderer.invoke('knowledge-library:reextract-pattern', viralItemId),
+    // 效果闭环（P2）
+    listTrackedContent: (params) => ipcRenderer.invoke('performance:list-tracked', params),
+    addManualSnapshot: (trackedContentId, metrics) => ipcRenderer.invoke('performance:add-manual-snapshot', trackedContentId, metrics),
+    recomputeAttribution: () => ipcRenderer.invoke('performance:recompute-attribution'),
+    listPatternPerformance: (params) => ipcRenderer.invoke('performance:list-pattern-performance', params),
     // 个人知识库
     addPersonalToLibrary: (item) => ipcRenderer.invoke('knowledge-library:add-personal', item),
     addPersonalBatchToLibrary: (items) => ipcRenderer.invoke('knowledge-library:add-personal-batch', items),

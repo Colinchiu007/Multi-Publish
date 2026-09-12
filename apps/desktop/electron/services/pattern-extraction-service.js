@@ -34,6 +34,7 @@ class PatternExtractionService {
     this._aiGenerator = opts.aiGenerator || null
     this._store = opts.store || null
     this._running = false
+    this._pendingTrigger = false
     this._hourlyTimer = null
   }
 
@@ -45,7 +46,11 @@ class PatternExtractionService {
    */
   async processQueue() {
     if (!this._store || !this._aiGenerator) return
-    if (this._running) return // 防重入
+    if (this._running) {
+      // 防重入：运行中的触发不丢弃——标记待处理，本轮结束后立即补跑（审查 W-4）
+      this._pendingTrigger = true
+      return
+    }
     this._running = true
     try {
       const cards = this._store.listPendingPatternCards(10)
@@ -59,6 +64,12 @@ class PatternExtractionService {
       }
     } finally {
       this._running = false
+      if (this._pendingTrigger) {
+        this._pendingTrigger = false
+        setImmediate(() => {
+          this.processQueue().catch(e => log.warn('PatternExtraction', 'pending trigger run failed: ' + e.message))
+        })
+      }
     }
   }
 

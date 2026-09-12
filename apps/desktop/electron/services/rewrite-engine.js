@@ -43,6 +43,13 @@ class RewriteEngineService {
     this._knowledgeLibrary = kl
   }
 
+  /**
+   * 设置 store（效果闭环：改写历史持久化；可选依赖，未注入时跳过历史记录）
+   */
+  setPerformanceStore(store) {
+    this._perfStore = store || null
+  }
+
   _ensureEngine(force) {
     // 首次构建后复用引擎实例，避免每次 rewrite() 重建知识库/评估器
     if (this._engine && !force) return this._engine
@@ -160,7 +167,26 @@ class RewriteEngineService {
    */
   async rewrite(params) {
     const engine = this._ensureEngine()
-    return engine.rewrite(params || {})
+    const result = await engine.rewrite(params || {})
+
+    // P2 效果闭环：改写成功后持久化历史（写失败仅记日志，不阻塞改写主流程）
+    let rewriteHistoryId = null
+    if (result && result.success && this._perfStore && typeof this._perfStore.addRewriteHistory === 'function') {
+      try {
+        rewriteHistoryId = this._perfStore.addRewriteHistory({
+          mode: (params && params.mode) || 'imitate',
+          originalContent: (params && params.content) || '',
+          rewrittenContent: result.result || '',
+          strategyId: (result.strategy && result.strategy.id) || '',
+          knowledgeRefs: result.knowledgeRefs || [],
+          matchedKeywords: (result.metadata && result.metadata.knowledgeKeywords) || [],
+        })
+      } catch (e) {
+        log.warn("RewriteEngine", "rewrite history persist failed: " + (e && e.message))
+      }
+    }
+    if (rewriteHistoryId) result.rewriteHistoryId = rewriteHistoryId
+    return result
   }
 
   /** 列出所有可用策略（内置 + 远程，仅启用） */

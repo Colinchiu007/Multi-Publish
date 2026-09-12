@@ -49,6 +49,7 @@ const OWNER_TABLE_SCHEMA_SQL = {
     status        TEXT DEFAULT "pending",
     result        TEXT DEFAULT "{}",
     error         TEXT DEFAULT '',
+    rewrite_history_id TEXT,
     created_at    TEXT DEFAULT '',
     PRIMARY KEY (owner_subject, id)
   )`,
@@ -485,6 +486,80 @@ function migrateViralPatternSchema(db) {
   }
 }
 
+/**
+ * 效果闭环 schema（activate-viral-library PR-3）
+ * rewrite_history（改写历史）/ tracked_content（回采登记）/ performance_snapshot（表现快照）/
+ * pattern_performance（模式归因聚合）；publish_history 加 rewrite_history_id 关联列。
+ */
+function migratePerformanceLoopSchema(db) {
+  execSchemaSql(db, `CREATE TABLE IF NOT EXISTS rewrite_history (
+    id                  TEXT PRIMARY KEY,
+    mode                TEXT DEFAULT '',
+    original_excerpt    TEXT DEFAULT '',
+    rewritten_content   TEXT NOT NULL,
+    strategy_id         TEXT DEFAULT '',
+    knowledge_refs      TEXT DEFAULT '[]',
+    matched_keywords    TEXT DEFAULT '[]',
+    owner_subject       TEXT,
+    created_at          TEXT NOT NULL
+  )`)
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_rewrite_history_created ON rewrite_history(created_at)")
+
+  execSchemaSql(db, `CREATE TABLE IF NOT EXISTS tracked_content (
+    id                  TEXT PRIMARY KEY,
+    platform            TEXT NOT NULL,
+    post_id             TEXT DEFAULT '',
+    url                 TEXT DEFAULT '',
+    publish_history_id  TEXT,
+    rewrite_history_id  TEXT,
+    recrawl_status      TEXT NOT NULL DEFAULT 'pending',
+    last_recrawl_at     TEXT,
+    next_recrawl_at     TEXT,
+    owner_subject       TEXT,
+    created_at          TEXT NOT NULL
+  )`)
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_tracked_status ON tracked_content(recrawl_status)")
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_tracked_next ON tracked_content(next_recrawl_at)")
+
+  execSchemaSql(db, `CREATE TABLE IF NOT EXISTS performance_snapshot (
+    id                  TEXT PRIMARY KEY,
+    tracked_content_id  TEXT NOT NULL,
+    source              TEXT NOT NULL DEFAULT 'auto',
+    views               INTEGER DEFAULT 0,
+    likes               INTEGER DEFAULT 0,
+    comments            INTEGER DEFAULT 0,
+    favorites           INTEGER DEFAULT 0,
+    shares              INTEGER DEFAULT 0,
+    raw                 TEXT DEFAULT '{}',
+    captured_at         TEXT NOT NULL
+  )`)
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_snapshot_tracked ON performance_snapshot(tracked_content_id, captured_at)")
+
+  execSchemaSql(db, `CREATE TABLE IF NOT EXISTS pattern_performance (
+    id                  TEXT PRIMARY KEY,
+    dimension           TEXT NOT NULL,
+    value               TEXT NOT NULL,
+    platform            TEXT DEFAULT '',
+    sample_count        INTEGER DEFAULT 0,
+    avg_views           REAL DEFAULT 0,
+    avg_likes           REAL DEFAULT 0,
+    avg_comments        REAL DEFAULT 0,
+    avg_favorites       REAL DEFAULT 0,
+    engagement_score    REAL DEFAULT 0,
+    computed_at         TEXT NOT NULL
+  )`)
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_perf_dim ON pattern_performance(dimension, engagement_score)")
+
+  // publish_history 加关联列（幂等）
+  try {
+    const cols = db.prepare("PRAGMA table_info(publish_history)").all().map(c => c.name)
+    if (!cols.includes('rewrite_history_id')) {
+      if (typeof db.execOrThrow === 'function') db.execOrThrow('ALTER TABLE publish_history ADD COLUMN rewrite_history_id TEXT')
+      else db.exec('ALTER TABLE publish_history ADD COLUMN rewrite_history_id TEXT')
+    }
+  } catch (e) { /* publish_history 不存在（全新库由 SCHEMA_SQL 建）时跳过 */ }
+}
+
 module.exports = {
   TABLE_NAMES,
   SCHEMA_SQL,
@@ -500,4 +575,5 @@ module.exports = {
   UPDATE_WHITELIST,
   migrateKnowledgeEvolutionSchema,
   migrateViralPatternSchema,
+  migratePerformanceLoopSchema,
 };

@@ -128,6 +128,8 @@ class KnowledgeContextBuilder {
     // 有卡片时输出聚合风格指导；无卡片（或全部缺失/failed）回退浅层特征
     if (cards.length > 0) {
       const patternBlock = this._buildPatternGuidance(cards, items.length)
+      // 卡片全字段为空时指导块无实际内容——回退浅层（审查 W-3）
+      if (!patternBlock) return this._buildShallowViral(items)
       const shallowBlock = this._buildShallowViral(items)
       return patternBlock + (shallowBlock ? '\n' + shallowBlock : '')
     }
@@ -172,6 +174,13 @@ class KnowledgeContextBuilder {
       const label = labels[value] || value
       return label + '（' + count + '/' + totalItems + ' 条采用）'
     }
+
+    // 预检：所有卡片的所有维度字段均为空 → 返回空串触发上层回退（审查 W-3）
+    const hasAnyField = cards.some(c =>
+      c.hook_type || c.emotion_curve || c.narrative_structure || c.cta_style
+      || (Array.isArray(c.golden_quotes) && c.golden_quotes.length > 0)
+    )
+    if (!hasAnyField) return ''
 
     let block = '## 爆款风格指导（基于 ' + totalItems + ' 条同主题爆款模式分析）\n'
     block += '请按以下被验证有效的表达模式进行改写（学习模式，不复制具体内容）：\n\n'
