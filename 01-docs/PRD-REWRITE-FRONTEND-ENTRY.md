@@ -32,7 +32,7 @@ packages/rewrite-engine 改写引擎后端已完整实现（多策略文案改�
 配置区：
 - 「结合爆款库」checkbox：默认勾选。勾选后改写参数 userSettings.purpose=engagement、tone=storytelling，后端策略匹配器优先匹配 category=viral 策略（如故事化爆款、干货知识等）
 - 「结合个人经历」checkbox：默认不勾选。勾选后启用 KnowledgeBase 上下文注入（knowledgeContext 模板变量），改写 prompt 将包含用户偏好、写作风格和历史成功案例
-- 「改写模式」：抄袭规避模仿 / 扩写爆款 / 选题创作，默认「选题创作」
+- 「改写模式」：智能仿写 / 扩写爆款 / 选题创作，默认「选题创作」
 - 「目标平台」：通用 / 抖音 / 小红书 / 公众号 / B站 / 知乎
 - 「策略选择」（2026-09-11 新增，与 AiWriterPanel 行为对齐）：
   - 两个 radio：「自动匹配」（默认选中） / 「手动选择」
@@ -214,7 +214,7 @@ rewritePage 区块（文案改写页面）：
 - usePersonalExperience: 结合个人经历 / Use personal experience
 - usePersonalExperienceHint: 注入本地知识库中的个人偏好... / Inject local knowledge base...
 - modeLabel: 改写模式 / Rewrite mode
-- modeImitate: 抄袭规避模仿 / Plagiarism-safe imitation
+- modeImitate: 智能仿写 / Smart imitation
 - modeExpand: 扩写爆款 / Expand viral content
 - modeCreate: 选题创作 / Topic creation
 - platformLabel: 目标平台 / Target platform

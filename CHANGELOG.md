@@ -1,3 +1,14 @@
+## [未发布] refactor(rewrite): 改写模式「抄袭规避模仿」更名为「智能仿写」（2026-09-12）
+
+### 变更
+- 改写模式 imitate 的用户可见文案由「抄袭规避模仿」统一更名为「智能仿写」：zh/en locales 各 2 处（rewriteEngine、rewritePage 区块）、AiWriterPanel.vue 模式标签、rewrite-engine 提示词标题【改写模式：智能仿写】。
+- 英文文案同步由 Plagiarism-safe imitation 改为 Smart imitation；测试断言（RewriteView.test.js、AiWriterPanel.test.js）与 4 份 PRD/设计/营销文档同步更新，共 10 文件 18 处。
+
+### 验证
+- 桌面端：vitest RewriteView.test.js + AiWriterPanel.test.js 45 passed
+- 引擎：vitest rewrite-engine-core.test.js 4 passed
+- 全仓 grep 确认无「抄袭规避模仿」/ Plagiarism-safe 残留
+
 ## [未发布] fix(i18n): AI 改写错误提示友好化 + python-backend 用户可见消息门禁补洞（2026-09-12）
 
 ### 修复（QM-5 五步）
