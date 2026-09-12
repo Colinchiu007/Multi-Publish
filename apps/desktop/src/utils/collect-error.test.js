@@ -139,4 +139,46 @@ describe('classifyCollectError', () => {
   it('classifies from object with message and code', () => {
     expect(classifyCollectError({ code: -4, message: 'URL 采集无结果' }).reason).toBe('content_unextractable')
   })
+
+  // ── 视频采集管线错误分类（回归：>10 分钟拒绝等具体提示曾被 unknown 吞掉） ──
+
+  it('classifies video too long (VIDEOCLONE_FILE_TOO_LARGE + 视频过长)', () => {
+    expect(classifyCollectError('VIDEOCLONE_FILE_TOO_LARGE: 视频过长（15:32），采集仅支持 10 分钟内的短视频').reason)
+      .toBe('video_too_long')
+    expect(classifyCollectError('VIDEOCLONE_FILE_TOO_LARGE: 视频过长（15:32）').retryable).toBe(false)
+  })
+
+  it('classifies video file too large (文件过大 variant)', () => {
+    expect(classifyCollectError('VIDEOCLONE_FILE_TOO_LARGE: 视频文件过大（620MB），上限 500MB').reason)
+      .toBe('video_file_too_large')
+  })
+
+  it('classifies no audio track (-8 / NO_AUDIO_TRACK)', () => {
+    expect(classifyCollectError('-8: 该视频无音轨，无法进行语音转写').reason).toBe('no_audio_track')
+    expect(classifyCollectError('NO_AUDIO_TRACK: no audio').reason).toBe('no_audio_track')
+  })
+
+  it('classifies ASR engine unavailable (-6, non-retryable)', () => {
+    const r = classifyCollectError('-6: 语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper')
+    expect(r.reason).toBe('asr_engine_unavailable')
+    expect(r.retryable).toBe(false)
+  })
+
+  it('classifies transcribe timeout (-7, retryable)', () => {
+    const r = classifyCollectError('-7: 转写超时（300 秒），请尝试较短的短视频')
+    expect(r.reason).toBe('video_transcribe_timeout')
+    expect(r.retryable).toBe(true)
+  })
+
+  it('classifies video download errors (private/membership/region/anti-bot)', () => {
+    expect(classifyCollectError('VIDEOCLONE_LINK_PRIVATE: 该视频为私密作品').reason).toBe('video_private')
+    expect(classifyCollectError('VIDEOCLONE_LINK_MEMBERSHIP: 会员专属内容').reason).toBe('video_membership')
+    expect(classifyCollectError('VIDEOCLONE_LINK_REGION: 地区限制').reason).toBe('video_region')
+    expect(classifyCollectError('VIDEOCLONE_LINK_ANTI_BOT: 平台风控').reason).toBe('video_anti_bot')
+  })
+
+  it('classifies invalid platform and ASR empty', () => {
+    expect(classifyCollectError('VIDEOCLONE_INVALID_PLATFORM: 仅支持抖音/小红书视频链接').reason).toBe('video_invalid_platform')
+    expect(classifyCollectError('ASR_EMPTY: 语音转写结果为空').reason).toBe('asr_empty')
+  })
 })

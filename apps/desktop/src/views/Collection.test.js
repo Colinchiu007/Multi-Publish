@@ -464,7 +464,73 @@ describe("CollectionView", () => {
     w.vm.linkUrl = "not-a-url";
     await w.vm.collectUrl();
     expect(w.vm.collectErrorDetail).toContain("链接格式无效");
-    expect(w.vm.collectErrorRetryable).toBe(false);  });
+    expect(w.vm.collectErrorRetryable).toBe(false);
+  });
+
+  // ── 视频采集错误细分提示（回归：具体提示曾被 unknown 通用文案吞掉） ──
+
+  it("视频 >10 分钟拒绝 → 显示「视频过长（含实际时长）+ 上限」而非通用失败", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -422, status: 422,
+        message: "VIDEOCLONE_FILE_TOO_LARGE: 视频过长（15:32），采集仅支持 10 分钟内的短视频",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/too-long/";
+    await w.vm.collectUrl();
+    expect(w.vm.collectErrorDetail).toContain("视频过长");
+    expect(w.vm.collectErrorDetail).toContain("15:32");
+    expect(w.vm.collectErrorDetail).toContain("10 分钟");
+    expect(w.vm.collectErrorRetryable).toBe(false);
+  });
+
+  it("视频无音轨 → 显示「无音轨，无法转写」提示", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -422, status: 422,
+        message: "-8: 该视频无音轨，无法进行语音转写",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/no-audio/";
+    await w.vm.collectUrl();
+    expect(w.vm.collectErrorDetail).toContain("无音轨");
+    expect(w.vm.collectErrorRetryable).toBe(false);
+  });
+
+  it("ASR 引擎缺失 → 显示安装指引（pip install faster-whisper）", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -422, status: 422,
+        message: "-6: 语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper（国内可设 HF_ENDPOINT=https://hf-mirror.com）",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/abc/";
+    await w.vm.collectUrl();
+    expect(w.vm.collectErrorDetail).toContain("pip install faster-whisper");
+    expect(w.vm.collectErrorRetryable).toBe(false);
+  });
+
+  it("转写超时 → 显示「转写超时 + 建议较短视频」且可重试", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -422, status: 422,
+        message: "-7: 转写超时（300 秒），请尝试较短的短视频",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://v.douyin.com/slow/";
+    await w.vm.collectUrl();
+    expect(w.vm.collectErrorDetail).toContain("转写超时");
+    expect(w.vm.collectErrorDetail).toContain("较短的短视频");
+    expect(w.vm.collectErrorRetryable).toBe(true);
+  });
 
   it("creates draft from collected result", async () => {
     window.electronAPI = { storeSetSetting: vi.fn() };

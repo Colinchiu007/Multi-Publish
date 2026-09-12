@@ -517,7 +517,13 @@ function stopVideoStageProgression () {
 const collectErrorDetail = computed(() => {
   if (!collectError.value) return ''
   const raw = collectError.value.message || collectError.value
-  const { detailKey } = classifyCollectError(raw)
+  const { reason, detailKey } = classifyCollectError(raw)
+  // 视频管线错误：后端 detail 已含具体中文提示（如「视频过长（15:32），采集仅支持 10 分钟内的短视频」），
+  // 剥掉错误码前缀后直接透传，避免模板文案丢失实际时长/大小等关键信息。
+  if (reason.startsWith('video_') || reason.startsWith('asr_')) {
+    const detail = typeof raw === 'string' ? raw.replace(/^[A-Z_0-9-]+:\s*/, '').replace(/^-[0-9]+:\s*/, '') : ''
+    if (detail) return detail
+  }
   const fullKey = 'collection.' + detailKey
   const resolved = resolveNotifyText(fullKey)
   if (resolved.resolved) return resolved.text

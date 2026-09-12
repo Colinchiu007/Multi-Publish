@@ -13,8 +13,11 @@
  * 分类规则按优先级从上到下匹配，首个命中即返回。
  */
 
-/** 不可重试的分类（参数/输入类错误，重试无意义） */
-const NON_RETRYABLE = new Set(['invalid_url', 'internal_url', 'protocol'])
+/** 不可重试的分类（参数/输入类/资源超限错误，重试无意义） */
+const NON_RETRYABLE = new Set([
+  'invalid_url', 'internal_url', 'protocol',
+  'video_too_long', 'video_file_too_large', 'no_audio_track', 'asr_engine_unavailable',
+])
 
 /**
  * 归一化输入为 { message, code }。
@@ -53,6 +56,40 @@ function result(reason) {
  */
 export function classifyCollectError(input) {
   const { message, code } = normalizeInput(input)
+
+  // ── 视频采集管线错误（/aggregation/collect-video，detail 含具体中文提示时优先透传） ──
+  // python-bridge 对 HTTP 422 resolve {code:-422, message:"ERROR_CODE: 中文提示"}；
+  // 这些错误后端已生成含实际值的完整提示（如「视频过长（15:32）」），直接透传而非替换为模板文案。
+  if (message.includes('VIDEOCLONE_FILE_TOO_LARGE') || message.includes('视频过长') || message.includes('视频文件过大')) {
+    return result(message.includes('文件') ? 'video_file_too_large' : 'video_too_long')
+  }
+  if (message.includes('NO_AUDIO_TRACK') || message.includes('无音轨')) {
+    return result('no_audio_track')
+  }
+  if (message.includes('ASR_ENGINE_UNAVAILABLE') || message.includes('转写引擎不可用') || message.includes('faster-whisper')) {
+    return result('asr_engine_unavailable')
+  }
+  if (message.includes('TRANSCRIBE_TIMEOUT') || message.includes('转写超时')) {
+    return result('video_transcribe_timeout')
+  }
+  if (message.includes('VIDEOCLONE_LINK_PRIVATE') || message.includes('私密')) {
+    return result('video_private')
+  }
+  if (message.includes('VIDEOCLONE_LINK_MEMBERSHIP') || message.includes('会员专属')) {
+    return result('video_membership')
+  }
+  if (message.includes('VIDEOCLONE_LINK_REGION') || message.includes('地区限制')) {
+    return result('video_region')
+  }
+  if (message.includes('VIDEOCLONE_LINK_ANTI_BOT') || message.includes('平台风控')) {
+    return result('video_anti_bot')
+  }
+  if (message.includes('VIDEOCLONE_INVALID_PLATFORM') || message.includes('仅支持抖音/小红书')) {
+    return result('video_invalid_platform')
+  }
+  if (message.includes('ASR_EMPTY') || message.includes('转写结果为空')) {
+    return result('asr_empty')
+  }
 
   if (message.includes('无效的 URL') || message.includes('URL 格式不正确') || message.includes('缺少参数')) {
     return result('invalid_url')
