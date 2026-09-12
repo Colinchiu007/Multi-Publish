@@ -328,3 +328,131 @@ def test_collect_video_empty_transcript(monkeypatch):
     with pytest.raises(video_service.VideoCollectError) as exc_info:
         svc.collect_video(CollectVideoRequest(url="https://v.douyin.com/abc/"))
     assert exc_info.value.code == "ASR_EMPTY"
+
+
+# ── 6. 模型下载管理（asr-model-download） ────────────────────────────────
+
+def test_resolve_download_endpoint_user_explicit(monkeypatch):
+    """用户显式设置 HF_ENDPOINT 时直接使用，不探测不覆盖。"""
+    from multi_publish.aggregation import asr_engine
+    monkeypatch.setenv("HF_ENDPOINT", "https://my-custom-hf.example.com")
+    probe_calls = []
+    monkeypatch.setattr(asr_engine, "_probe_endpoint", lambda url: probe_calls.append(url) or True)
+    assert asr_engine._resolve_download_endpoint() == "https://my-custom-hf.example.com"
+    assert probe_calls == []  # 未触发探测
+
+
+def test_resolve_download_endpoint_mirror_reachable(monkeypatch):
+    """未设置 HF_ENDPOINT 且镜像可达 → 用镜像。"""
+    from multi_publish.aggregation import asr_engine
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(asr_engine, "_probe_endpoint", lambda url: url == "https://hf-mirror.com")
+    assert asr_engine._resolve_download_endpoint() == "https://hf-mirror.com"
+
+
+def test_resolve_download_endpoint_mirror_down_fallback(monkeypatch):
+    """镜像不可达 → 回退 HF 直连。"""
+    from multi_publish.aggregation import asr_engine
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(asr_engine, "_probe_endpoint", lambda url: False)
+    assert asr_engine._resolve_download_endpoint() == "https://huggingface.co"
+
+
+def test_classify_download_error_network(monkeypatch):
+    """网络不可达 → 提示含网络检查建议与镜像推荐。"""
+    from multi_publish.aggregation.asr_engine import _classify_download_error, _MODEL_REPO
+    msg = _classify_download_error(ConnectionError("connection refused"), "base")
+    assert "网络" in msg
+    assert "hf-mirror.com" in msg
+    assert "huggingface.co" in msg or _MODEL_REPO in msg  # 含手动下载指引
+
+
+def test_classify_download_error_timeout(monkeypatch):
+    """超时 → 提示含重试建议。"""
+    import socket
+    from multi_publish.aggregation.asr_engine import _classify_download_error
+    msg = _classify_download_error(socket.timeout("timed out"), "base")
+    assert "超时" in msg or "重试" in msg
+
+
+def test_classify_download_error_disk_full():
+    """磁盘不足 → 提示含磁盘清理建议。"""
+    from multi_publish.aggregation.asr_engine import _classify_download_error
+    msg = _classify_download_error(OSError(28, "No space left on device"), "base")
+    assert "磁盘" in msg
+
+
+def test_classify_download_error_offline_mode():
+    """HF_HUB_OFFLINE 冲突 → 提示关闭离线模式。"""
+    from huggingface_hub.errors import OfflineModeIsEnabled
+    from multi_publish.aggregation.asr_engine import _classify_download_error
+    msg = _classify_download_error(OfflineModeIsEnabled("offline"), "base")
+    assert "HF_HUB_OFFLINE" in msg
+
+
+def test_classify_download_error_unknown_includes_manual_url():
+    """未知失败 → 提示含手动下载 URL 与缓存目录（兜底路径）。"""
+    from multi_publish.aggregation.asr_engine import _classify_download_error, _MODEL_REPO
+    msg = _classify_download_error(RuntimeError("something odd"), "base")
+    assert "手动" in msg or _MODEL_REPO in msg
+    assert "缓存" in msg or "cache" in msg.lower()
+
+
+def test_engine_is_model_ready_cached(monkeypatch, tmp_path):
+    """模型已缓存 → is_model_ready True（纯本地查询，无网络）。"""
+    from multi_publish.aggregation.asr_engine import FasterWhisperEngine
+    eng = FasterWhisperEngine()
+    monkeypatch.setattr(eng, "_get_model_cache_dir", lambda: str(tmp_path))
+    # 模拟 snapshot_download local_files_only=True 成功返回路径
+    import multi_publish.aggregation.asr_engine as mod
+    monkeypatch.setattr(mod, "_snapshot_download", lambda **kw: str(tmp_path / "model.bin"))
+    assert eng.is_model_ready() is True
+
+
+def test_engine_is_model_ready_not_cached(monkeypatch, tmp_path):
+    """模型未缓存 → is_model_ready False。"""
+    from multi_publish.aggregation.asr_engine import FasterWhisperEngine
+    from huggingface_hub.errors import LocalEntryNotFoundError
+    import multi_publish.aggregation.asr_engine as mod
+    eng = FasterWhisperEngine()
+    monkeypatch.setattr(eng, "_get_model_cache_dir", lambda: str(tmp_path))
+    def raise_not_found(**kw):
+        raise LocalEntryNotFoundError("not cached")
+    monkeypatch.setattr(mod, "_snapshot_download", raise_not_found)
+    assert eng.is_model_ready() is False
+
+
+def test_engine_ensure_model_download_failure(monkeypatch, tmp_path):
+    """模型未缓存且下载失败 → AsrEngineError code=download_failed，提示含可操作建议。"""
+    from multi_publish.aggregation.asr_engine import AsrEngineError, FasterWhisperEngine
+    import multi_publish.aggregation.asr_engine as mod
+    eng = FasterWhisperEngine()
+    monkeypatch.setattr(eng, "_get_model_cache_dir", lambda: str(tmp_path))
+    calls = {"local_only": []}
+    def fake_download(**kw):
+        calls["local_only"].append(kw.get("local_files_only"))
+        if kw.get("local_files_only"):
+            from huggingface_hub.errors import LocalEntryNotFoundError
+            raise LocalEntryNotFoundError("not cached")
+        raise ConnectionError("network unreachable")
+    monkeypatch.setattr(mod, "_snapshot_download", fake_download)
+    monkeypatch.setattr(mod, "_resolve_download_endpoint", lambda: "https://hf-mirror.com")
+    with pytest.raises(AsrEngineError) as exc_info:
+        eng.ensure_model()
+    assert exc_info.value.code == "download_failed"
+    assert "hf-mirror.com" in exc_info.value.message or "网络" in exc_info.value.message
+
+
+def test_engine_ensure_model_already_cached_skips_download(monkeypatch, tmp_path):
+    """模型已缓存 → ensure_model 不触发下载（第二次调用 local_files_only=False 不出现）。"""
+    from multi_publish.aggregation.asr_engine import FasterWhisperEngine
+    import multi_publish.aggregation.asr_engine as mod
+    eng = FasterWhisperEngine()
+    monkeypatch.setattr(eng, "_get_model_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(mod, "_snapshot_download", lambda **kw: str(tmp_path / "model.bin"))
+    eng.ensure_model()
+    # 已缓存时不应调用下载源选择
+    resolve_calls = []
+    monkeypatch.setattr(mod, "_resolve_download_endpoint", lambda: resolve_calls.append(1) or "https://x")
+    eng.ensure_model()
+    assert resolve_calls == []

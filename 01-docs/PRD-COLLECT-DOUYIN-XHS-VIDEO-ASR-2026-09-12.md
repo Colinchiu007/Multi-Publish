@@ -236,6 +236,48 @@ SenseVoice 方案 C 的确切组成（2026-09-12 核实）：
 
 **推荐路径**：Phase 1 保持方案 A（轻量分发，错误提示含完整安装指引）；Phase 2 接入 SenseVoice 后切方案 C（单二进制 + 模型文件作为 extraResources 打包，无需 Python 依赖，中文 CER 8% 优于 Whisper 系 22-31%，~20x 实时 CPU 推理）。方案 B 不推荐（PyInstaller 打包 ctranslate2 依赖链复杂且体积最大）。
 
+### 7.2.1 模型下载管理（2026-09-12 实现）
+
+首次转写触发模型下载时，系统自动执行下载管理流程：
+
+```
+转写请求
+  ▼
+① 本地预检（is_model_ready，纯本地查询，无网络请求）
+  ├─ 已缓存 → 直接加载模型（零下载）
+  └─ 未缓存 → ② 下载源自动选择
+        ├─ 用户显式设置 HF_ENDPOINT → 直接使用（尊重配置，不探测不覆盖）
+        ├─ 未设置 → HEAD 探测 https://hf-mirror.com（5 秒超时）
+        │    ├─ 可达 → 用镜像（国内推荐路径）
+        │    └─ 不可达 → 回退 https://huggingface.co 直连
+        ▼
+      ③ 下载模型（约 141MB，日志记录所选源与进度）
+        ├─ 成功 → 继续转写
+        └─ 失败 → ④ 异常分类 → 专属提示（见下方矩阵）
+```
+
+**失败场景矩阵与提示文字**：
+
+| 失败场景 | 底层异常 | 用户提示（zh） | 可重试 |
+|---------|---------|---------------|--------|
+| 网络不可达 | ConnectionError / socket.timeout | 「模型下载失败：网络无法连接下载源。请检查网络连接（国内推荐设置 HF_ENDPOINT=https://hf-mirror.com）或配置代理后重试。手动下载：…」 | 是（网络恢复/换镜像后有意义） |
+| 下载超时 | TimeoutError / timed out | 同上（网络类合并提示） | 是 |
+| 磁盘不足 | OSError errno 28 | 「模型下载失败：磁盘空间不足。请清理磁盘后重试（模型约 141MB，缓存目录 …）。手动下载：…」 | 是（清理后） |
+| 离线模式冲突 | OfflineModeIsEnabled | 「模型下载失败：HuggingFace 处于离线模式（HF_HUB_OFFLINE=1）但本地无模型缓存。请取消该环境变量后重试。手动下载：…」 | 是（取消变量后） |
+| 仓库不存在 | RepositoryNotFoundError | 「模型下载失败：模型仓库不存在（Systran/faster-whisper-base）。手动下载：…」 | 否 |
+| 未知失败 | 其他异常 | 「模型下载失败：<原始信息前 200 字>。手动下载：…」 | 视情况 |
+
+**手动下载兜底指引**（所有失败提示都包含）：
+
+- 直连 URL：`https://huggingface.co/Systran/faster-whisper-base/resolve/main/model.bin`
+- 镜像 URL：`https://hf-mirror.com/Systran/faster-whisper-base/resolve/main/model.bin`
+- 缓存目录：系统提示中动态展示本机 huggingface_hub 缓存路径（默认 `~/.cache/huggingface/hub`）
+- 用户浏览器手动下载 model.bin / tokenizer.json / vocabulary.txt / config.json 后放入缓存目录即可跳过自动下载
+
+**错误码链路**：Python `AsrEngineError(code="download_failed")` → VideoCollectError(-6 语义) → HTTP 422 detail → IPC → 前端 collect-error.js 分类为 `asr_download_failed` → 采集页错误横幅透传后端具体提示（含手动下载指引）。
+
+**环境变量恢复契约**：下载期间临时设置 HF_ENDPOINT（所选源），下载结束（无论成败）恢复原值——用户显式设置永不被覆盖。
+
 ### 7.3 错误提示透传契约（2026-09-12 修复）
 
 视频管线的错误提示分两类渲染：

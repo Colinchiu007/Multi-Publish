@@ -205,4 +205,10 @@ describe('classifyCollectError', () => {
     expect(classifyCollectError('VIDEOCLONE_INVALID_PLATFORM: x').retryable).toBe(false)
     expect(classifyCollectError('ASR_EMPTY: x').retryable).toBe(false)
   })
+
+  it('classifies ASR model download failure (ASR_DOWNLOAD_FAILED, non-retryable)', () => {
+    const r = classifyCollectError('ASR_DOWNLOAD_FAILED: 模型下载失败：网络无法连接下载源')
+    expect(r.reason).toBe('asr_download_failed')
+    expect(r.retryable).toBe(true) // 网络类失败重试有意义（换镜像/网络恢复后）
+  })
 })

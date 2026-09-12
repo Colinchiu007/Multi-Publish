@@ -2074,6 +2074,7 @@ export default {
       video_file_too_large: '视频文件过大（上限 500MB），请更换较小的视频。',
       no_audio_track: '该视频无音轨，无法进行语音转写。',
       asr_engine_unavailable: '语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper（国内可设 HF_ENDPOINT=https://hf-mirror.com）。',
+      asr_download_failed: '语音模型下载失败。请检查网络连接后重试；国内推荐镜像源，或按提示手动下载模型文件。',
       video_transcribe_timeout: '转写超时，请尝试较短的短视频。',
       video_private: '该视频为私密作品，无法采集。',
       video_membership: '该视频为会员专属内容，无法采集。',
