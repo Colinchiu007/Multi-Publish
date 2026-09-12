@@ -355,6 +355,9 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
   });
 
   it("P1: 缓存命中写应用日志（解释为何返回空数据）", async () => {
+    // CI 可能跑在周末（UTC 时差），真实 RateLimiter 会触发 weekend-throttle 拦截，
+    // 必须 mock 放行才能到达缓存命中分支
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
     collector._contentCache.hasUrl = () => true;
     const r = await collector.collect("https://example.com/cached");
     expect(r.reason).toBe("cache_hit");
