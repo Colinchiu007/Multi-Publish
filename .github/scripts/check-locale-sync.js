@@ -114,7 +114,7 @@ function scanPyUserVisibleCjk (file) {
     while ((m = matcher.exec(line)) !== null) {
       if (CJK.test(m[2])) {
         const rel = toPosixRel(file)
-        hits.push({ id: rel + ':' + (idx + 1), snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
+        hits.push({ id: rel + ':' + (idx + 1), file: rel, snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
       }
     }
   })
@@ -201,12 +201,12 @@ function scanTemplateCjk (file) {
     let m
     while ((m = attrMatcher.exec(line)) !== null) {
       if (CJK.test(m[2])) {
-        hits.push({ id: `${rel}:${idx + 1}`, snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
+        hits.push({ id: `${rel}:${idx + 1}`, file: rel, snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
       }
     }
     const textOnly = line.replace(/<[^>]*>/g, '')
     if (CJK.test(textOnly)) {
-      hits.push({ id: `${rel}:${idx + 1}`, snippet: textOnly.trim().slice(0, 60) })
+      hits.push({ id: `${rel}:${idx + 1}`, file: rel, snippet: textOnly.trim().slice(0, 60) })
     }
   })
   return hits
@@ -225,7 +225,7 @@ function scanCjkHits (file) {
     while ((m = matcher.exec(line)) !== null) {
       if (CJK.test(m[2])) {
         const rel = toPosixRel(file)
-        hits.push({ id: `${rel}:${idx + 1}`, snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
+        hits.push({ id: `${rel}:${idx + 1}`, file: rel, snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
       }
     }
   })
@@ -241,24 +241,68 @@ function loadBaseline () {
   }
 }
 
+/** 基线条目形态：旧版 file:line（行号漂移假阳性），新版 file||content。
+ * 2026-09-12 修复：按「文件 + 文案内容」存储，文件内行号变化不再产生假阳性 fresh
+ * （事故背景：PR #1732 在 PlatformOverridePanel.vue 上方插入代码，18 条基线全部行号偏移，
+ *  --cjk 报 18 处假阳性 fresh，且因 Gate 7 退出码缺陷被静默吞掉，双缺陷叠加导致硬编码从未被拦截）。
+ * 迁移策略：读取旧基线后，把 file:line 条目归并为 {file: [line...]}；与当前扫描命中按
+ * (file, content) 匹配——同文件同内容无论行号多少都算已入基线。
+ */
+function contentBaselineFrom (legacyBaseline, currentHits) {
+  // legacy: Set<string> "path:line" → Map<file, Set<contentSnippet>>（借助当前命中回填内容）
+  const legacyLinesByFile = new Map()
+  for (const entry of legacyBaseline) {
+    const sep = entry.lastIndexOf(':')
+    if (sep <= 0) continue
+    const file = entry.slice(0, sep)
+    const line = Number(entry.slice(sep + 1))
+    if (!Number.isFinite(line)) continue
+    if (!legacyLinesByFile.has(file)) legacyLinesByFile.set(file, new Set())
+    legacyLinesByFile.get(file).add(line)
+  }
+  // 当前命中按 file:line 索引，把旧基线行号映射为该行当前内容（若该行仍有命中）
+  const byLineKey = new Map()
+  for (const h of currentHits) byLineKey.set(h.id, h.snippet)
+  const contentSet = new Set()
+  for (const [file, lines] of legacyLinesByFile) {
+    for (const line of lines) {
+      const snippet = byLineKey.get(file + ':' + line)
+      if (snippet !== undefined) contentSet.add(file + '||' + snippet)
+    }
+  }
+  return contentSet
+}
+
 function runCjkScan (opts) {
   const files = listFiles(SRC_DIR).filter(shouldScanFile)
   const hits = []
   for (const file of files) hits.push(...scanCjkHits(file))
 
   if (opts.updateBaseline) {
-    const baseline = [...new Set(hits.map(h => h.id))].sort()
+    // 新基线格式：file||content（去重排序）。同文件同内容只记一条，行号无关。
+    const baseline = [...new Set(hits.map(h => h.file + '||' + h.snippet))].sort()
     fs.writeFileSync(BASELINE_FILE, JSON.stringify(baseline, null, 2) + '\n')
     console.log(`[locale-sync] CJK baseline updated: ${baseline.length} 条（${BASELINE_FILE}）`)
     process.exit(0)
   }
 
   const baseline = loadBaseline()
+  // 双格式兼容：新基线直接是 file||content 集合；旧基线（file:line）经内容回填转换。
+  const isNewFormat = baseline.size === 0 || [...baseline].some(e => e.includes('||'))
+  let contentBaseline
+  if (isNewFormat) {
+    contentBaseline = baseline
+  } else {
+    contentBaseline = contentBaselineFrom(baseline, hits)
+  }
   const currentIds = new Set(hits.map(h => h.id))
-  const fresh = hits.filter(h => !baseline.has(h.id))
+  const currentContentKeys = hits.map(h => h.file + '||' + h.snippet)
+  const fresh = isNewFormat
+    ? hits.filter((h, i) => !contentBaseline.has(currentContentKeys[i]))
+    : hits.filter(h => !contentBaseline.has(h.file + '||' + h.snippet))
   const byFile = {}
   for (const h of fresh) {
-    const file = h.id.split(':')[0]
+    const file = h.file
     ;(byFile[file] = byFile[file] || []).push(h)
   }
   if (fresh.length > 0) {

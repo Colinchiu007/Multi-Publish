@@ -44,3 +44,30 @@ test('check-locale-sync --py-cjk：基线文件为非空 JSON 数组（扫描先
   assert.ok(Array.isArray(baseline))
   assert.ok(baseline.length > 0)
 })
+
+test('check-locale-sync --cjk：基线为 file||content 新格式（行号漂移免疫，2026-09-12 修复）', () => {
+  const baseline = JSON.parse(require('fs').readFileSync(
+    require('path').join(__dirname, 'locale-cjk-baseline.json'), 'utf8'))
+  assert.ok(Array.isArray(baseline))
+  assert.ok(baseline.length > 0)
+  // 新格式条目含 '||' 分隔符（file||content）；旧格式 file:line 已于 2026-09-12 一次性迁移
+  const newFormat = baseline.filter(e => e.includes('||'))
+  assert.ok(newFormat.length === baseline.length,
+    'baseline should be fully migrated to file||content format, found ' + (baseline.length - newFormat.length) + ' legacy entries')
+})
+
+test('check-locale-sync --cjk：行号漂移不产生假阳性（回归：PR #1732 事故）', () => {
+  // 在某文件头部插入一行（全部行号+1）后扫描应仍 PASS——内容级基线与行号无关
+  const fs = require('fs')
+  const file = 'apps/desktop/src/features/publish/components/PlatformOverridePanel.vue'
+  const abs = path.join(__dirname, '..', '..', file)
+  const orig = fs.readFileSync(abs, 'utf8')
+  let out = ''
+  try {
+    fs.writeFileSync(abs, '\n' + orig)
+    const r = run(['--cjk'])
+    assert.equal(r.ok, true, 'line-shifted scan should pass: ' + r.out + ' ' + r.err)
+  } finally {
+    fs.writeFileSync(abs, orig)
+  }
+})
