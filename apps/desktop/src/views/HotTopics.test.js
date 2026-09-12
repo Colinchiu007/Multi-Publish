@@ -50,6 +50,7 @@ import i18n from '@/i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
 import { hotTopicsGetCache } from '@/api/hot-topics'
 import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun } from '@/api/publisher'
+import { pipelineBackgroundToastVisible, hidePipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 
 const mockTopics = [
   { id: 'zhihu:1', topic: 'AI大模型最新突破进展', channel: 'zhihu', category: 'tech', rank: 1, hotValue: 12000000, url: null, fetchedAt: '2026-09-11T00:00:00Z' },
@@ -69,6 +70,7 @@ describe('HotTopics.vue', () => {
     pushSpy.mockClear()
     // 默认无缓存：走网络抓取路径（与旧行为兼容）
     hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
+    document.body.innerHTML = '' // 清理 Teleport 到 body 的弹窗/按钮残留，隔离用例
   })
 
   it('renders topic list after fetch', async () => {
@@ -425,6 +427,68 @@ describe('HotTopics.vue', () => {
     expect(wrapper.vm.genVideoBusy).toBe(true)
     await wrapper.vm.startGenerateVideo(mockTopics[0])
     expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(1)
+  })
+
+  // ─── 2026-09-12 需求回归：视频流水线弹窗统一【后台运行】按钮 + 全局居中提示 ───
+
+  it('running pipeline modal shows background-run button and clicking it detaches with centered toast', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '后台按钮文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-bg-btn-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: 'run-bg-btn-1', status: { status: 'running', progress: 40 } } })
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const attached = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await attached.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(attached.vm.genVideoPhase).toBe('running')
+    // UiModal 经 Teleport 渲染到 body，wrapper.find 找不到 footer 按钮；用 body 查询（与 publish-dest-article 同模式）
+    const bgBtn = document.body.querySelector('[data-testid="hot-topics-gen-video-background"]')
+    expect(bgBtn).toBeTruthy()
+    expect(bgBtn.textContent).toContain('genVideoBackgroundRun')
+    expect(pipelineBackgroundToastVisible.value).toBe(false)
+
+    bgBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    // 脱离语义：弹窗关闭、phase=background、busy 守卫保持、run 不被取消
+    expect(attached.vm.genVideoModalOpen).toBe(false)
+    expect(attached.vm.genVideoPhase).toBe('background')
+    expect(attached.vm.genVideoBusy).toBe(true)
+    expect(pipelineCancelRun).not.toHaveBeenCalled()
+    // 全局居中提示已触发（模块级单例，脱离视图存活）
+    expect(pipelineBackgroundToastVisible.value).toBe(true)
+    attached.unmount()
+    el.remove()
+    hidePipelineBackgroundToast()
+  })
+
+  it('background-run button hidden during rewrite (no run yet) and in terminal states', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    // 改写阶段：无主进程 run，不应提供后台运行（Teleport 到 body，用 body 查询断言）
+    expect(wrapper.vm.genVideoPhase).toBe('rewriting')
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-background"]')).toBeNull()
+
+    // 终态（取消）后同样不显示
+    await wrapper.vm.cancelGenVideo()
+    await flushPromises()
+    expect(wrapper.vm.genVideoPhase).toBe('cancelled')
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-background"]')).toBeNull()
   })
 
   it('mergeGenStages does not downgrade terminal stages on stale push', async () => {

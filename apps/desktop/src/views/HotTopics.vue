@@ -177,6 +177,12 @@
           @click="retryGenVideo"
         >{{ t('hotTopics.genVideoRetry') }}</button>
         <button
+          v-if="genVideoCanBackground"
+          class="cohere-btn-secondary"
+          data-testid="hot-topics-gen-video-background"
+          @click="detachGenVideoToBackground"
+        >{{ t('hotTopics.genVideoBackgroundRun') }}</button>
+        <button
           v-if="genVideoCanCancel"
           class="cohere-btn-secondary"
           data-testid="hot-topics-gen-video-cancel"
@@ -207,6 +213,7 @@ import { StageProgress } from './video-creation'
 import { buildStory2VideoTextConfigFromSnapshot } from '@/story2video/s2v-config-snapshot'
 import { STORY2VIDEO_STAGE_NAMES } from '@/domain/pipeline-constants'
 import { getAppLocale } from '@/i18n'
+import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -358,6 +365,12 @@ const genVideoCanRetry = computed(() => genVideoPhase.value === 'failed')
 
 const genVideoCanCancel = computed(() =>
   ['rewriting', 'starting', 'running'].includes(genVideoPhase.value),
+)
+
+/** 后台运行：仅流水线已真正启动（running 且持有 runId）时可脱离；
+ * 改写/启动阶段还没有主进程 run，脱离无意义（spec 规则 2：方法内重校验状态）。 */
+const genVideoCanBackground = computed(() =>
+  genVideoPhase.value === 'running' && Boolean(genVideoRunId.value),
 )
 
 function countCompletedGenStages() {
@@ -874,6 +887,14 @@ function handleGenVideoClose() {
   } else {
     closeGenVideoModal()
   }
+}
+
+/** 显式【后台运行】按钮：与右上角 × 同一后台语义（复用唯一公共脱离路径），
+ * 额外触发全局居中提示（2026-09-12 需求：所有视频流水线弹窗统一提供该按钮）。 */
+function detachGenVideoToBackground() {
+  if (!genVideoCanBackground.value) return
+  handleGenVideoClose()
+  showPipelineBackgroundToast()
 }
 
 function closeGenVideoModal() {
