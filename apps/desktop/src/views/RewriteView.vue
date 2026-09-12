@@ -75,29 +75,15 @@
         <!-- 字数控制 -->
         <div class="config-row">
           <label class="cohere-form-label">{{ t('rewritePage.wordCountLabel') }}</label>
-          <div class="word-count-inputs">
-            <input
-              v-model.number="wordCountMin"
-              type="number"
-              class="cohere-input word-count-input"
-              :min="0"
-              :max="5999"
-              :placeholder="t('rewritePage.wordCountMinPlaceholder')"
-              :disabled="rewriting"
-            />
-            <span class="word-count-sep">-</span>
-            <input
-              v-model.number="wordCountMax"
-              type="number"
-              class="cohere-input word-count-input"
-              :min="1"
-              :max="6000"
-              :placeholder="t('rewritePage.wordCountMaxPlaceholder')"
-              :disabled="rewriting"
-            />
-            <span class="word-count-unit">{{ t('rewritePage.wordCountUnit') }}</span>
-            <span v-if="wordCountError" class="word-count-error">{{ wordCountError }}</span>
-          </div>
+          <WordCountRangeInput
+            v-model:min="wordCountMin"
+            v-model:max="wordCountMax"
+            :min-placeholder="t('rewritePage.wordCountMinPlaceholder')"
+            :max-placeholder="t('rewritePage.wordCountMaxPlaceholder')"
+            :unit="t('rewritePage.wordCountUnit')"
+            :error="wordCountError"
+            :disabled="rewriting"
+          />
         </div>
 
         <!-- 目标平台 -->
@@ -184,8 +170,10 @@ import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSa
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
+import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
+import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -281,21 +269,8 @@ const canStartRewrite = computed(() => {
   return content.value.trim().length > 0 && !wordCountError.value
 })
 
-// ── 字数区间校验 ──
-const wordCountError = computed(() => {
-  const min = wordCountMin.value
-  const max = wordCountMax.value
-  if (min === '' || min === null || min === undefined || !Number.isInteger(Number(min)) || Number(min) < 0 || Number(min) > 5999) {
-    return t('rewritePage.wordCountMinInvalid')
-  }
-  if (max === '' || max === null || max === undefined || !Number.isInteger(Number(max)) || Number(max) < 1 || Number(max) > 6000) {
-    return t('rewritePage.wordCountMaxInvalid')
-  }
-  if (Number(max) < Number(min)) {
-    return t('rewritePage.wordCountMaxLtMin')
-  }
-  return ''
-})
+// ── 字数区间校验（共享 composable，与 Collection 页一致）──
+const { error: wordCountError } = useWordCountValidation(wordCountMin, wordCountMax, (key) => t('rewritePage.' + key))
 
 // ── 方法 ──
 
@@ -506,25 +481,5 @@ function onPublishVideo(pipelineId) {
   max-width: 280px;
 }
 
-.word-count-inputs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.word-count-input {
-  width: 100px;
-}
-.word-count-sep {
-  color: var(--muted);
-}
-.word-count-unit {
-  font-size: 13px;
-  color: var(--muted);
-}
-.word-count-error {
-  font-size: 12px;
-  color: #d32f2f;
-}
 </style>
 

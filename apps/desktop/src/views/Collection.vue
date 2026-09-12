@@ -74,28 +74,16 @@
               <option v-for="s in getRewriteStyles()" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
             <!-- 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档 -->
-            <span style="font-size:13px;color:var(--text-secondary)">{{ $t('collection.wordCountLabel') }}</span>
-            <input
-              v-model.number="rewriteWordCountMin"
-              type="number"
-              min="0"
-              max="5999"
-              :placeholder="$t('collection.wordCountMinPlaceholder')"
-              style="width:72px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:13px"
+            <WordCountRangeInput
+              v-model:min="rewriteWordCountMin"
+              v-model:max="rewriteWordCountMax"
+              :label="$t('collection.wordCountLabel')"
+              :min-placeholder="$t('collection.wordCountMinPlaceholder')"
+              :max-placeholder="$t('collection.wordCountMaxPlaceholder')"
+              :unit="$t('collection.wordCountUnit')"
+              :error="rewriteWordCountError"
               :disabled="rewriting || oneClickRewriting"
             />
-            <span style="font-size:13px;color:var(--text-secondary)">-</span>
-            <input
-              v-model.number="rewriteWordCountMax"
-              type="number"
-              min="1"
-              max="6000"
-              :placeholder="$t('collection.wordCountMaxPlaceholder')"
-              style="width:72px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:13px"
-              :disabled="rewriting || oneClickRewriting"
-            />
-            <span style="font-size:13px;color:var(--text-secondary)">{{ $t('collection.wordCountUnit') }}</span>
-            <span v-if="rewriteWordCountError" style="font-size:12px;color:#d32f2f">{{ rewriteWordCountError }}</span>
             <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult || !!rewriteWordCountError">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
@@ -316,8 +304,10 @@ import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
+import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -374,21 +364,12 @@ function getRewriteStyles() {
   return _rewriteStyles.value
 }
 
-// ── 字数区间校验 ──
-const rewriteWordCountError = computed(() => {
-  const min = rewriteWordCountMin.value
-  const max = rewriteWordCountMax.value
-  if (min === '' || min === null || min === undefined || !Number.isInteger(Number(min)) || Number(min) < 0 || Number(min) > 5999) {
-    return resolveNotifyText('collection.wordCountMinInvalid').text
-  }
-  if (max === '' || max === null || max === undefined || !Number.isInteger(Number(max)) || Number(max) < 1 || Number(max) > 6000) {
-    return resolveNotifyText('collection.wordCountMaxInvalid').text
-  }
-  if (Number(max) < Number(min)) {
-    return resolveNotifyText('collection.wordCountMaxLtMin').text
-  }
-  return ''
-})
+// ── 字数区间校验（共享 composable，与 RewriteView 一致）──
+const { error: rewriteWordCountError } = useWordCountValidation(
+  rewriteWordCountMin,
+  rewriteWordCountMax,
+  (key) => resolveNotifyText('collection.' + key).text
+)
 
 onMounted(async () => {
   await loadDrafts();
