@@ -30,6 +30,7 @@
           pipeline.category,
           {
             'is-unavailable': pipeline.available === false,
+            'is-text-ineligible': isTextIneligible(pipeline),
             'has-bg': hasBg(pipeline.name),
           },
         ]"
@@ -37,8 +38,10 @@
         tabindex="0"
         role="button"
         :aria-label="pipelineName(pipeline.name)"
-        @click="$emit('select', pipeline)"
-        @keydown.enter="$emit('select', pipeline)"
+        :aria-disabled="isTextIneligible(pipeline) ? 'true' : null"
+        :title="isTextIneligible(pipeline) ? textIneligibleHint : null"
+        @click="onCardActivate(pipeline)"
+        @keydown.enter="onCardActivate(pipeline)"
       >
         <!-- 内置静态背景层（装饰性，对辅助技术隐藏） -->
         <div v-if="hasBg(pipeline.name)" class="card-bg" aria-hidden="true" data-testid="pipeline-card-bg">
@@ -72,6 +75,7 @@ import {
   getPipelineCategory,
   getPipelineDescription,
   getPipelineName,
+  isTextBasedPipeline,
 } from '@/i18n/pipeline-labels'
 
 const CATEGORY_LABELS = {
@@ -93,8 +97,15 @@ export default {
     pipelines: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false },
     error: { type: String, default: null },
+    // 带文案进入场景（如改写页跳转预填成功）：非文案型流水线灰显不可选
+    textOnly: { type: Boolean, default: false },
   },
   emits: ['select', 'retry'],
+  computed: {
+    textIneligibleHint() {
+      return this.t('pipelineSelector.textIneligible', '该流水线类型不适用')
+    },
+  },
   methods: {
     pipelineName(id) { return getPipelineName((key) => this.$t?.(key), id) },
     pipelineDescription(id) { return getPipelineDescription((key) => this.$t?.(key), id) },
@@ -117,6 +128,13 @@ export default {
     hasBg(name) { return Boolean(PIPELINE_BG_IMAGES[name]) },
     bgUrl(name) { return PIPELINE_BG_IMAGES[name] || '' },
     cardDelayStyle(index) { return { '--i': String(index % 12) } },
+    isTextIneligible(pipeline) {
+      return this.textOnly && !isTextBasedPipeline(pipeline?.name)
+    },
+    onCardActivate(pipeline) {
+      if (this.isTextIneligible(pipeline)) return
+      this.$emit('select', pipeline)
+    },
   },
 }
 </script>

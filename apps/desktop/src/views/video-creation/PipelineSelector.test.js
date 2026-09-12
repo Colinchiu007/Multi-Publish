@@ -70,4 +70,36 @@ describe('PipelineSelector 静态卡片背景（方案 B）', () => {
     const err = mountSelector({ loading: false, error: '加载失败' })
     expect(err.find('.error-state').exists()).toBe(true)
   })
+
+  // ── 带文案进入场景（rewrite-to-video-entry 2026-09-13）：非文案型流水线灰显不可选 ──
+
+  it('textOnly 模式下非文案型流水线灰显并带悬浮提示，点击/回车不触发 select', async () => {
+    const wrapper = mountSelector({ textOnly: true })
+    // framework-smoke 不在文案型白名单 → 灰显
+    const ineligible = wrapper.find('[data-pipeline-id="framework-smoke"]')
+    expect(ineligible.classes()).toContain('is-text-ineligible')
+    expect(ineligible.attributes('title')).toBe('该流水线类型不适用')
+    await ineligible.trigger('click')
+    expect(wrapper.emitted('select')).toBeFalsy()
+    await ineligible.trigger('keydown.enter')
+    expect(wrapper.emitted('select')).toBeFalsy()
+  })
+
+  it('textOnly 模式下文案型流水线正常可选', async () => {
+    const wrapper = mountSelector({ textOnly: true })
+    // story2video-compose 在白名单 → 不灰显、可点击
+    const eligible = wrapper.find('[data-pipeline-id="story2video-compose"]')
+    expect(eligible.classes()).not.toContain('is-text-ineligible')
+    expect(eligible.attributes('title')).toBeUndefined()
+    await eligible.trigger('click')
+    expect(wrapper.emitted('select')).toBeTruthy()
+  })
+
+  it('默认（非 textOnly）模式所有流水线均可点击，无灰显', async () => {
+    const wrapper = mountSelector()
+    const smoke = wrapper.find('[data-pipeline-id="framework-smoke"]')
+    expect(smoke.classes()).not.toContain('is-text-ineligible')
+    await smoke.trigger('click')
+    expect(wrapper.emitted('select')).toBeTruthy()
+  })
 })
