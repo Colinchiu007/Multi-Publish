@@ -35,6 +35,7 @@ beforeEach(() => {
   const { createIdentityApi } = require('./preload/identity')
   const { createVideoCloneApi } = require('./preload/video-clone')
   const { createFilmEngineeringApi } = require('./preload/film-engineering')
+  const { createServicesApi } = require('./preload/services')
   api = {
     ...createPublishApi(ipcRenderer),
     ...createAccountApi(ipcRenderer),
@@ -42,6 +43,7 @@ beforeEach(() => {
     ...createIdentityApi(ipcRenderer),
     ...createVideoCloneApi(ipcRenderer),
     ...createFilmEngineeringApi(ipcRenderer),
+    ...createServicesApi(ipcRenderer),
   }
 })
 
@@ -211,8 +213,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 315（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections）', () => {
-    expect(Object.keys(api).length).toBe(315)
+  it('合并后 api 总键数应为 316（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus）', () => {
+    expect(Object.keys(api).length).toBe(316)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

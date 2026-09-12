@@ -28,6 +28,7 @@ const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
 const { createPromptEvalApi } = require('./prompt-eval')
 const { createPageManagerApi } = require('./page-manager')
 const { createVideoCloneApi } = require('./video-clone')
+const { createServicesApi } = require('./services')
 const { createFilmEngineeringApi } = require('./film-engineering')
 const { createAggregationApi } = require('./aggregation')
 const { createHotTopicsApi } = require('./hot-topics')
@@ -76,6 +77,7 @@ const fullApi = {
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),
+  ...createServicesApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),

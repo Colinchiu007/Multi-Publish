@@ -56,14 +56,17 @@
 
     <footer class="yixiaoer-sidebar-footer">
       <div class="yixiaoer-sidebar-status-row">
-        <span class="yixiaoer-sidebar-status is-unknown" data-testid="yixiaoer-sidebar-status">
-          <i aria-hidden="true"></i>{{ t('sidebar.clientStatusUnknown') }}
+        <span
+          class="yixiaoer-sidebar-status"
+          :class="'is-' + identityStatus"
+          data-testid="yixiaoer-sidebar-status"
+          :title="clientStatusTitle"
+        >
+          <i aria-hidden="true"></i>{{ clientStatusLabel }}
         </span>
       </div>
       <div class="yixiaoer-sidebar-footer-actions">
-        <span class="yixiaoer-service-status" data-testid="yixiaoer-service-status">
-          <i aria-hidden="true"></i>服务运行中
-        </span>
+        <SidebarServiceStatus />
         <button v-if="!licenseStore.isPro" type="button" class="yixiaoer-upgrade-btn" data-testid="yixiaoer-upgrade" @click="showUpgradeModal = true">
           ⭐ 升级 Pro
         </button>
@@ -97,14 +100,17 @@ import {
   VideoCamera,
 } from '@element-plus/icons-vue'
 import { useLicenseStore } from '@/stores/license'
+import { useIdentityStore } from '@/stores/identity'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
+import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
 import { invokePageManager } from '@/api/electron-bridge'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const licenseStore = useLicenseStore()
+const identityStore = useIdentityStore()
 const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
 
@@ -130,6 +136,29 @@ onUnmounted(() => {
     _sidebarObserver = null
   }
 })
+
+const identityStatus = computed(() => {
+  const status = identityStore.status
+  return ['authenticated', 'refreshing', 'offline_authenticated'].includes(status) ? 'online'
+    : ['signing_in', 'signing_out'].includes(status) ? 'busy'
+    : status === 'disabled' ? 'disabled'
+    : ['signed_out', 'expired'].includes(status) ? 'offline'
+    : 'error'
+})
+
+const clientStatusLabel = computed(() => {
+  if (identityStatus.value === 'online') return t('memberCenter.statusConnected')
+  if (identityStatus.value === 'busy') return identityStore.status === 'signing_in'
+    ? t('memberCenter.statusSigningIn')
+    : t('memberCenter.statusSigningOut')
+  if (identityStatus.value === 'disabled') return t('memberCenter.identityDisabled')
+  if (identityStatus.value === 'offline') return identityStore.status === 'expired'
+    ? t('memberCenter.statusExpired')
+    : t('memberCenter.notLoggedIn')
+  return t('memberCenter.statusError')
+})
+
+const clientStatusTitle = computed(() => clientStatusLabel.value)
 
 const primaryItems = [
   { key: 'home', label: '主页', to: '/', icon: HomeFilled },
@@ -324,20 +353,6 @@ function goToPublish () {
   gap: 8px;
 }
 
-.yixiaoer-service-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #6f9c6f;
-}
-
-.yixiaoer-service-status i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #6fbf73;
-}
-
 .yixiaoer-upgrade-btn {
   flex-shrink: 0;
   height: 26px;
@@ -370,6 +385,24 @@ function goToPublish () {
   height: 6px;
   border-radius: 50%;
   background: #a7a8b5;
+}
+
+.yixiaoer-sidebar-status.is-online i {
+  background: #6fbf73;
+}
+
+.yixiaoer-sidebar-status.is-online {
+  color: #6f9c6f;
+}
+
+.yixiaoer-sidebar-status.is-busy i,
+.yixiaoer-sidebar-status.is-error i {
+  background: #e6a23c;
+}
+
+.yixiaoer-sidebar-status.is-busy,
+.yixiaoer-sidebar-status.is-error {
+  color: #b08a3e;
 }
 
 .yixiaoer-sidebar-settings {

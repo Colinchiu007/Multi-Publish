@@ -188,6 +188,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     promptEvalService, signalCollector, knowledgeLibraryService,
     urlCollector,
     hotTopicsService,
+    callbackServer,
+    splitterBridge, promptBridge,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -210,6 +212,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
 knowledgeLibraryService,
     urlCollector,
     hotTopicsService,
+    callbackServer,
+    splitterBridge, promptBridge,
   }
   let state = registrationStates.get(context)
   if (!state) {
