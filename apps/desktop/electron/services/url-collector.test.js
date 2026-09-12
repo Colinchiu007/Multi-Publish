@@ -292,3 +292,31 @@ describe("UrlCollector SSRF 防护", () => {
     expect(result.error).toContain("协议");
   });
 });
+
+// 回归保护：百家号采集「超时」误报（实际是 weekend-throttle 被限流拦截，
+// 但 IPC 返回缺顶层 message + 前端取错字段 + 分类器 code -1 兜底误判为 timeout）。
+// 三个独立缺陷：① baijiahao 无平台映射落 generic（weekendFactor 0.6 随机拒绝）
+// ② IPC 失败返回缺顶层 message ③ 前端未读 data.error
+describe("UrlCollector 百家号平台映射与 IPC 错误契约（回归：超时误报）", () => {
+  let collector;
+
+  beforeEach(() => {
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {} } });
+  });
+
+  it("baijiahao.baidu.com 映射到 baijiahao 平台（非 generic）", () => {
+    expect(collector._platformFromHostname("baijiahao.baidu.com")).toBe("baijiahao");
+  });
+
+  it("IPC 失败返回必须带顶层 message（从 data.error 提取）", async () => {
+    const handlers = {};
+    const fakeIpc = { handle: (ch, fn) => { handlers[ch] = fn } };
+    collector.registerIpcHandlers(fakeIpc);
+    // 模拟限流拦截：collect 返回 { success: false, error: '请求频率受限...', reason }
+    collector.collect = async () => ({ success: false, error: "请求频率受限，请稍后再试", reason: "weekend-throttle" });
+    const ret = await handlers["url-collect:fetch"](null, { url: "https://baijiahao.baidu.com/s?id=1" });
+    expect(ret.code).toBe(-1);
+    expect(ret.message).toBe("请求频率受限，请稍后再试");
+    expect(ret.data.error).toBe("请求频率受限，请稍后再试");
+  });
+});

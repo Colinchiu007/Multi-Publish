@@ -115,22 +115,19 @@ function configureGraphics ({
   env = process.env,
   platform = process.platform,
 } = {}) {
+  // 2026-09-12 GPU 帧循环卡死复盘（产品级修复）：
+  // 旧策略 Windows 默认强制 SwiftShader 软件渲染（规避历史 GPU 兼容问题），但实测
+  // 部分 Windows 环境（高 DPI/多显示器/特定驱动）下 SwiftShader 合成器停摆——
+  // requestAnimationFrame 0 帧、窗口空白但 DOM/JS 存活，且影响所有安装用户。
+  // 新策略对齐 VS Code/Slack：默认硬件加速（Chromium 自带驱动 blocklist 处理兼容），
+  // ELECTRON_DISABLE_GPU=1 保留为手动逃生门；GPU 进程崩溃由 window 层监听并提示。
   const explicitlyDisabled = env.ELECTRON_DISABLE_GPU === '1'
   const safeMode = env.ELECTRON_GPU_SAFE_MODE === '1'
-  const windowsSoftwareDefault = platform === 'win32' && env.ELECTRON_ENABLE_GPU !== '1'
-  if (!explicitlyDisabled && !windowsSoftwareDefault && !safeMode) {
+  if (!explicitlyDisabled && !safeMode) {
     return { disabled: false, reason: null }
   }
 
   const appendSwitch = app?.commandLine?.appendSwitch
-  if (windowsSoftwareDefault && !explicitlyDisabled && !safeMode) {
-    if (typeof appendSwitch === 'function') {
-      appendSwitch.call(app.commandLine, 'use-gl', 'angle')
-      appendSwitch.call(app.commandLine, 'use-angle', 'swiftshader')
-    }
-    return { disabled: false, reason: 'windows-software' }
-  }
-
   if (typeof appendSwitch === 'function') {
     appendSwitch.call(app.commandLine, 'disable-gpu')
     appendSwitch.call(app.commandLine, 'disable-gpu-compositing')

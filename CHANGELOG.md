@@ -12,6 +12,19 @@
 - 前端：`vitest Collection.test.js + user-facing-error.test.js + message-contract.test.js` 107 passed（含 5 新增）
 - 门禁：`check-locale-sync --keys` PASS（882 key）；`--py-cjk` PASS（基线 90）；workflow-contract 19 passed；check-locale-sync.test.js 4 passed
 
+## [未发布] fix(gpu): Windows 默认硬件加速——修复 SwiftShader 合成器停摆导致窗口空白（2026-09-12）
+
+### 修复（QM-5 五步）
+- **现象**：应用窗口空白但 DOM/JS 存活（CDP 可查到完整内容、登录态正常）；requestAnimationFrame 0 帧即合成器帧循环停摆。
+- **根因**：`configureGraphics` 旧策略 Windows 默认强制 `use-angle=swiftshader` 软件渲染，部分 Windows 环境（Intel UHD + 高 DPI 实测）下 SwiftShader 合成器停摆。影响所有 Windows 安装用户。
+- **逃逸**：无 GPU 渲染路径的自动化测试；窗口空白在 CI（headless）不可见；用户侧「界面空白」报告此前无对应监控。
+- **修复**：Windows 默认硬件加速（对齐 VS Code/Slack；GPU 兼容交给 Chromium 内置驱动 blocklist）；`ELECTRON_DISABLE_GPU=1` 保留逃生门；`window.js` 增加 `render-process-gone` 监听（error 日志 + 系统通知，不再静默白屏）。
+- **预防**：startup-compat 测试锁定新策略（默认硬件加速 + 逃生门行为）；渲染进程崩溃显性化。
+
+### 验证
+- startup-compat.test.js 15/15（RED→GREEN）；window + startup-compat 67/67；electron/ 全量 6375 passed / 1 skipped。
+- 实测：ELECTRON_ENABLE_GPU=1 下 GPU_RENDERER 从 SwiftShader 变为 Intel(R) UHD Graphics Direct3D11。
+
 ## [未发布] fix(splitter): 修复 SPLITTER_DIR 路径解析错误——语义分句引擎全环境静默降级（2026-09-12）
 
 ### 修复（QM-5 五步）
@@ -72,6 +85,21 @@
 - publisher.test.js 236 + story2video/video-creation 136 + CreateView.test.js 277 全量回归通过。
 - locale-sync --pair-base/--cjk/--keys 全 PASS（CJK 基线仅行号位移重锚，无新增硬编码）。
 - vite build 通过。
+
+## [未发布] fix(collection): 百家号采集「超时」误报 — 平台映射 + IPC message + 周末限流三缺陷修复（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：① baijiahao.baidu.com 无平台映射落 generic（weekendFactor 0.6 周末 40% 随机拒绝）② IPC 失败返回缺顶层 message ③ 前端取 result.message（undefined）→ 分类器按 code -1 兜底误判 timeout → 显示「目标网站响应超时」误导用户。实际被 weekend-throttle 限流拦截。
+- `url-collector.js`：_platformFromHostname 新增 baijiahao/mbd.baidu.com 映射；IPC 失败返回补顶层 message（从 data.error 提取）。
+- `default-strategies.json`：新增 baijiahao 平台策略（weekendFactor 1.0 不衰减、fetcher primary electron、interval 5-15s）。
+- `Collection.vue`：回退分支 message 三级兜底（result.message > data.error > 空串）。
+
+### 回归保护
+- url-collector.test.js：baijiahao 平台映射断言 + IPC 失败返回顶层 message 断言（2 新用例，先红后绿）。
+
+### 验证
+- url-collector 25 + collection-engine 91 + Collection 53 + collect-error 33 全绿；eslint 0 error。
+- 真机 CDP：urlCollectFetch 百家号链接 code=0, success=true（标题+2185 字正文）；审计日志 platform=baijiahao status=200；UI E2E 点击【采集】4 秒成功卡片。
 
 ## [未发布] fix(desktop): url-collect:fetch 加入 PUBLIC_CHANNELS — 未登录采集回退层不再被 license 拦截（2026-09-12）
 

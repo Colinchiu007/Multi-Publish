@@ -71,6 +71,40 @@ describe('phase2-bridges.startBridges', () => {
     expect(log.info).toHaveBeenCalledWith('App', 'PromptBridge started')
   })
 
+  it('splitterBridge 失败（打包形态）— 发送系统通知提示语义分句不可用（bug 反思 P1 打包契约）', async () => {
+    // Mock electron：isPackaged=true + Notification 类
+    const shownNotifications = []
+    __registerMock('electron', {
+      app: {},
+      isPackaged: () => true,
+      Notification: Object.assign(
+        class MockNotification {
+          constructor(opts) { this.opts = opts }
+          show() { shownNotifications.push(this.opts) }
+        },
+        { isSupported: () => true },
+      ),
+    })
+    // 重新加载模块使 mock 生效
+    delete require.cache[require.resolve('./phase2-bridges')]
+    const { startBridges: startBridgesFresh } = require('./phase2-bridges')
+
+    mockSplitterBridge.start = vi.fn(() => Promise.reject(new Error('spawn python ENOENT')))
+    await startBridgesFresh({
+      app: mockApp,
+      pythonBridge: mockPythonBridge,
+      splitterBridge: mockSplitterBridge,
+      promptBridge: mockPromptBridge,
+    })
+
+    expect(shownNotifications.length).toBe(1)
+    expect(shownNotifications[0].title).toContain('语义分句引擎不可用')
+    expect(shownNotifications[0].body).toContain('smart-sentence-splitter')
+
+    // 清理 mock
+    delete require.cache[require.resolve('./phase2-bridges')]
+  })
+
   it('返回显式可等待的 bridge 清理函数，不注册异步 before-quit 监听器', async () => {
     const stopBridges = await startBridges({
       app: mockApp,

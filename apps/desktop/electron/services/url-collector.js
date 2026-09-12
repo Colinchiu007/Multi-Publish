@@ -309,6 +309,10 @@ class UrlCollector {
   /** 从 hostname 映射平台标识（策略配置键） */
   _platformFromHostname (hostname) {
     if (hostname.includes('zhihu')) return 'zhihu'
+    // 百家号：baijiahao.baidu.com / mbd.baidu.com（落地页）——此前无映射落 generic，
+    // generic 的 weekendFactor 0.6 在周末 40% 概率随机拒绝（weekend-throttle），
+    // 且 generic 间隔 min 8s 对单次手动采集过严
+    if (hostname.includes('baijiahao') || hostname === 'mbd.baidu.com') return 'baijiahao'
     if (hostname.includes('weixin') || hostname.includes('wechat') || hostname === 'mp.weixin.qq.com') return 'wechat_mp'
     if (hostname.includes('bilibili')) return 'bilibili'
     if (hostname.includes('xiaohongshu') || hostname.includes('xhslink')) return 'xiaohongshu'
@@ -350,10 +354,16 @@ class UrlCollector {
     ipcMain.handle('url-collect:fetch', async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { url } = arg
-      try {
-        const result = await this.collect(url)
-        return { code: result.success ? 0 : -1, data: result }
-      } catch (e) {
+    try {
+      const result = await this.collect(url)
+      // 失败时必须带顶层 message：前端 collectError 取 result.message，
+      // 此前只有 data.error 导致前端拿到 undefined → 分类器按 code -1 兜底
+      // 误判为 timeout（显示「目标网站响应超时」误导用户）
+      if (result.success) {
+        return { code: 0, data: result }
+      }
+      return { code: -1, message: result.error || '采集失败', data: result }
+    } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })

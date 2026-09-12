@@ -250,6 +250,22 @@ function createWindow(context) {
       return { action: 'deny' }
     })
   }
+  // 2026-09-12 GPU 帧循环卡死复盘：默认硬件加速后，GPU/渲染进程崩溃需显性化。
+  // 渲染进程崩溃 → 记录 + 通知用户（不静默白屏）；用户可重启应用或用
+  // ELECTRON_DISABLE_GPU=1 逃生门。GPU 进程崩溃由 Chromium 自愈（自动重启 GPU 进程）。
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.error('window', '渲染进程异常退出: reason=' + details.reason + ' exitCode=' + details.exitCode)
+    try {
+      const { Notification } = require('electron')
+      if (typeof Notification === 'function' && Notification.isSupported()) {
+        const notification = new Notification({
+          title: '应用界面异常',
+          body: '渲染进程异常退出（' + details.reason + '）。请重启应用；若反复出现，可在启动时设置 ELECTRON_DISABLE_GPU=1 使用兼容模式。',
+        })
+        notification.show()
+      }
+    } catch (_) { /* 通知失败不影响主流程 */ }
+  })
   if (isDev) {
     mainWindow.loadURL(getUrl(config.devServer)).catch(reportLoadFailure)
     mainWindow.webContents.openDevTools()
