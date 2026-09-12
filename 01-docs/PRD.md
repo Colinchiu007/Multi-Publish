@@ -4532,6 +4532,11 @@ screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默�
 
 CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src` 下 .py 的 raise 语句字符串字面量中的中文，基线 `locale-py-cjk-baseline.json` 吸收 90 条存量；新增硬编码中文用户可见 raise 即 CI 失败，强制走 `UserVisibleError(error_code)` + 渲染端 locale 文案路径。
 
+**门禁自身加固（2026-09-12 第二轮，修复两个门禁失效缺陷）**：
+
+1. **Gate 7 退出码吞掉修复**：PowerShell 多行 step 只取最后一条命令的退出码，中间命令失败被静默吞掉——`--cjk` 曾 FAIL（18 处硬编码）但 QG Static job 仍 success，导致 PR #1719/#1732 的硬编码中文从未被拦截。修复：每条命令后显式 `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`（与 Gate 6 同模式）。
+2. **CJK 基线行号漂移假阳性修复**：旧基线按 `file:line` 存储，文件上方插入代码即全量行号偏移产生 fresh 假阳性（脚本头部 2026-08-14 已记录的已知边界）。修复：基线迁移为 `file||content` 内容级存储——行号变化零假阳性，内容级新增精确拦截（同文件新增中文文案仍 FAIL）。
+
 **错误码分类（前端 IPC handler，`classifyError`）**：
 
 | 错误码 | 含义 | 触发条件 | 用户提示 |

@@ -414,7 +414,8 @@ async function importFromClipboard () {
     saveDrafts()
     notifySuccess('collection.importedLines', { params: { count: lines.length } })
   } catch (e) {
-    notifyError('collection.clipboardReadFailed', { message: resolveNotifyText('collection.clipboardReadFailed').text + ': ' + formatUserError(e, { fallback: resolveNotifyText('collection.clipboardReadFailed').text }).message })
+    // formatUserError 的 fallback 已含场景前缀，无需再拼接（避免「读取剪贴板失败: 读取剪贴板失败」双前缀）
+    notifyError('collection.clipboardReadFailed', { message: formatUserError(e, { fallback: resolveNotifyText('collection.clipboardReadFailed').text }).message })
   }
 }
 

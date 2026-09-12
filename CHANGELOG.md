@@ -1,3 +1,18 @@
+## [未发布] fix(ci): locale 门禁自身加固——Gate 7 退出码吞掉 + CJK 基线行号漂移假阳性（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因一（P0，门禁失效）**：PowerShell 多行 step 只取最后一条命令的退出码，Gate 7 的 `--cjk` 检查 FAIL（PR #1719/#1732 引入 18 处硬编码中文）后被静默吞掉，QG Static job 仍 success——门禁自上线以来对中间命令一直是装饰性的。CI 日志证据：run 34688843405 中 `--cjk` 输出 FAIL 但 job 结论 success。
+- **根因二（P0，假阳性）**：CJK 基线按 `file:line` 存储，文件上方插入代码即全量行号偏移，18 条基线全部变 fresh 假阳性（脚本头部 2026-08-14 已记录的已知边界从未根治）。
+- **修复**：① Gate 7 每条命令后显式 `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`（与 Gate 6 同模式）；② 基线一次性迁移为 `file||content` 内容级存储（1686 条），行号变化零假阳性、内容级新增精确拦截；③ KnowledgeBasePage.vue 两处原始错误透传补 formatUserError（批量导入逐文件错误 + 业务失败分支）；④ Collection.vue 剪贴板错误双前缀冗余修复。
+- **逃逸分析**：workflow-contract.test.js 只断言命令存在、未断言退出码传播——「命令在跑」≠「失败会拦」；基线假阳性让维护者形成「--cjk 报错可忽略」的疲劳，进一步掩盖真失败。
+- **回归保护**：check-locale-sync.test.js 新增 2 测试——基线格式断言（全量 file||content）+ 行号漂移注入实测（文件头部插行后扫描仍 PASS）。
+- **预防**：Gate 7 YAML 内注释记录事故背景；后续新增 PowerShell 多行 step 必须逐命令检查退出码（写入 workflow 注释模板）。
+
+### 验证
+- check-locale-sync.test.js 6 passed（+2）；workflow-contract 19 passed；--cjk/--keys/--py-cjk 全 PASS
+- 行号漂移注入实测：头部插行 → PASS（0 假阳性）；新增中文文案 → FAIL（精确拦截）；还原后 PASS
+- vitest Collection + user-facing-error 88 passed；views-coverage 11 passed
+
 ## [未发布] fix(i18n): AI 改写错误提示友好化 + python-backend 用户可见消息门禁补洞（2026-09-12）
 
 ### 修复（QM-5 五步）

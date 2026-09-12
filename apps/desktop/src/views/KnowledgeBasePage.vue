@@ -34,6 +34,7 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
 import { importFiles, exportViralToFeishu, exportPersonalToFeishu } from '@/api/knowledge-library'
 import { getApi } from '@/api/electron-bridge'
 import ViralLibraryTable from '@/components/ViralLibraryTable.vue'
@@ -98,17 +99,22 @@ async function onFilesSelected(e) {
       const failed = results.filter(r => r.error).length
       let msg = t('knowledgeBase.importResult', { total, succeeded, failed })
       if (failed > 0) {
-        const errors = results.filter(r => r.error).map(r => r.path + ': ' + r.error).join('; ')
+        // 逐文件错误经 formatUserError 归一化（i18n + 友好度），文件路径仅保留文件名避免泄露本机绝对路径
+        const errors = results.filter(r => r.error).map(r => {
+          const name = String(r.path || '').split(/[\\/]/).pop() || t('knowledgeBase.importFailed')
+          return name + ': ' + formatUserError({ message: String(r.error) }, { fallback: t('knowledgeBase.importFailed') }).message
+        }).join('; ')
         msg += '\n' + errors
       }
       if (failed > 0) ElMessage.warning(msg)
       else ElMessage.success(msg)
       personalRef.value?.loadData()
     } else {
-      ElMessage.error((res && res.message) || t('knowledgeBase.importFailed'))
+      // 业务错误 resolve 分支同样走 formatUserError（i18n + 友好度强制，禁止原始技术消息直出）
+      ElMessage.error(formatUserError(res || {}, { fallback: t('knowledgeBase.importFailed') }).message)
     }
   } catch (err) {
-    ElMessage.error(t('knowledgeBase.importFailed'))
+    ElMessage.error(formatUserError(err, { fallback: t('knowledgeBase.importFailed') }).message)
   } finally {
     fileInput.value.value = ''
   }
