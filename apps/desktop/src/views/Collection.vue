@@ -342,8 +342,8 @@ const usePersonalExperience = ref(false)
 // Python 链路（aggregationRewrite）对桌面 SQLite 爆款库不可见、不接收 knowledgeOptions。
 // style 是语气偏好 → userSettings.tone（引擎 prompt 模板消费）；mode 统一 imitate（保留原文语义，改写引擎核心场景）。
 // tone 值为引擎 prompt 模板的语气枚举（非用户可见 UI 文案，走常量；CJK 基线登记见 check-locale-sync）
+// 长度由字数区间控制（main 已移除三档 length 下拉）：min/max → targetWordCount + targetLength 语义映射
 const STYLE_TO_TONE = { '轻松易懂': 'casual', '正式严谨': 'formal', '吸引眼球': 'catchy', '深度分析': 'professional', '认知锚点': 'anchor' }
-const LENGTH_TO_TARGET = { keep: 'medium', compress: 'short', expand: 'long' }
 
 async function rewriteViaEngine (content) {
   let res
@@ -358,7 +358,7 @@ async function rewriteViaEngine (content) {
       userSettings: {
         tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
         targetWordCount: { min: minW, max: maxW },
-        targetLength: LENGTH_TO_TARGET[rewriteLength.value] || wordCountTarget,
+        targetLength: wordCountTarget,
         knowledgeOptions: {
           useViralLibrary: useViralLibrary.value,
           usePersonalKnowledge: usePersonalExperience.value,
