@@ -1,3 +1,28 @@
+# [未发布] feat: 爆款库激活与效果闭环——P0 检索修复 + P1 模式卡片 + P2 效果闭环（2026-09-13）
+
+### P0 检索修复（长文改写检索从 0 到 1）
+- **keyword-extractor**（packages/rewrite-engine）：Intl.Segmenter 词级切分 + 连续单字合并（小红书/自媒体类跨界词）+ bigram 高频补充 + 中英停用词过滤；LLM 兜底严格 JSON fail-open（多围栏贪婪解析）
+- **store 检索重构**：整文 LIKE（长文永远空结果）→ 关键词数组直传/字符串提取 + 多词 OR 候选集 + JS 评分（命中数×10 + log10 互动数 + confidence×5）；保留检索即强化
+- **async 化**：buildFullContext 变 async；关键词解析在开关守卫后（零开关零 LLM 调用）；LLM 兜底 10s 超时 + 复用包级 extractWithLLM 单实现
+
+### P1 模式卡片系统
+- **viral_pattern_cards 表**（一对一）：钩子/情绪曲线/叙事结构/CTA 枚举 + 金句≤3 + 标题公式占位符；入库即建 pending，存量迁移回填；LLM 后台队列提取（三层解析容错，失败 3 次终态降级浅层）
+- **聚合风格指导注入**：检索 Top3 加载 done 卡片 → 聚合输出「钩子建议+公式+情绪+叙事+CTA+金句」（Q10=B 聚合视图）；卡片缺失回退浅层特征
+- **入口收敛**：Collection.vue 改写从 Python 链路（无知识注入）切换 Node 引擎（style→tone/length→targetLength 映射）；HotTopics 创作默认开爆款库
+- **模式分析 Tab**：状态徽标/枚举标签/公式列表 + 详情抽屉 + 重新分析
+
+### P2 效果闭环
+- **4 新表**：rewrite_history（改写历史）/ tracked_content（回采登记）/ performance_snapshot（auto+manual 快照）/ pattern_performance（四维归因聚合）；publish_history 加 rewrite_history_id
+- **发布关联**：task:success 登记 tracked_content（有锚点→pending T+1h，否则 untrackable）
+- **platform-metrics 解析器注册表**：第一批 zhihu/baijiahao/kuaishou/bilibili（B 站公开 API 优先）；新平台=新增 parser 零改核心
+- **PerformanceRecrawlService**：+1h/+6h/+24h/+72h/+7d 采样、7 天窗口、连续失败 3 次转 manual
+- **PatternAttributionService**：tracked⋈history⋈cards⋈snapshot 四维归因全量重算
+- **UI**：发布历史页表现数据列 + 手动录入对话框；效果洞察页（/performance-insights 四维排行 + 样本不足标注 + 重算归因）
+
+### 验证
+- rewrite-engine 包 94 测试 + 桌面端 171 测试全绿；locale 三项门禁（CJK/keys/pair）全过；QM-1 打包 exit=0 + asar 清单 + 启动 8s 三调度器确认
+- 双模型审查：PR-1 opencode 3 MAJOR + claude 2C/5M 全修复；PR-2 claude 2C/8W 全修复（opencode 三次因 wrapper stdin 传参失败未出报告，API 可用性问题非审查缺席）
+
 ## [未发布] fix(ci): locale 门禁自身加固——Gate 7 退出码吞掉 + CJK 基线行号漂移假阳性（2026-09-12）
 
 ### 修复（QM-5 五步）
