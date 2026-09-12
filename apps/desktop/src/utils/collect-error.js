@@ -17,6 +17,7 @@
 const NON_RETRYABLE = new Set([
   'invalid_url', 'internal_url', 'protocol',
   'video_too_long', 'video_file_too_large', 'no_audio_track', 'asr_engine_unavailable',
+  'video_private', 'video_membership', 'video_region', 'video_invalid_platform', 'asr_empty',
 ])
 
 /**
@@ -61,30 +62,33 @@ export function classifyCollectError(input) {
   // python-bridge 对 HTTP 422 resolve {code:-422, message:"ERROR_CODE: 中文提示"}；
   // 这些错误后端已生成含实际值的完整提示（如「视频过长（15:32）」），直接透传而非替换为模板文案。
   if (message.includes('VIDEOCLONE_FILE_TOO_LARGE') || message.includes('视频过长') || message.includes('视频文件过大')) {
-    return result(message.includes('文件') ? 'video_file_too_large' : 'video_too_long')
+    return result(message.includes('视频文件过大') ? 'video_file_too_large' : 'video_too_long')
   }
-  if (message.includes('NO_AUDIO_TRACK') || message.includes('无音轨')) {
+  // 中文短关键词仅在已含错误码前缀（英文 VIDEOCLONE/NO_AUDIO_TRACK 或数字 -6/-7/-8，确定来自视频管线）时兜底匹配，
+  // 避免误吞图文链路错误（如「该文章为私密内容」）。
+  const fromVideoPipeline = message.includes('VIDEOCLONE') || /^-[678]:/.test(message)
+  if (message.includes('NO_AUDIO_TRACK') || (message.includes('无音轨') && fromVideoPipeline)) {
     return result('no_audio_track')
   }
-  if (message.includes('ASR_ENGINE_UNAVAILABLE') || message.includes('转写引擎不可用') || message.includes('faster-whisper')) {
+  if (message.includes('ASR_ENGINE_UNAVAILABLE') || (message.includes('转写引擎不可用') && fromVideoPipeline) || message.includes('pip install faster-whisper')) {
     return result('asr_engine_unavailable')
   }
   if (message.includes('TRANSCRIBE_TIMEOUT') || message.includes('转写超时')) {
     return result('video_transcribe_timeout')
   }
-  if (message.includes('VIDEOCLONE_LINK_PRIVATE') || message.includes('私密')) {
+  if (message.includes('VIDEOCLONE_LINK_PRIVATE') || (message.includes('私密') && fromVideoPipeline)) {
     return result('video_private')
   }
-  if (message.includes('VIDEOCLONE_LINK_MEMBERSHIP') || message.includes('会员专属')) {
+  if (message.includes('VIDEOCLONE_LINK_MEMBERSHIP') || (message.includes('会员专属') && fromVideoPipeline)) {
     return result('video_membership')
   }
-  if (message.includes('VIDEOCLONE_LINK_REGION') || message.includes('地区限制')) {
+  if (message.includes('VIDEOCLONE_LINK_REGION') || (message.includes('地区限制') && fromVideoPipeline)) {
     return result('video_region')
   }
-  if (message.includes('VIDEOCLONE_LINK_ANTI_BOT') || message.includes('平台风控')) {
+  if (message.includes('VIDEOCLONE_LINK_ANTI_BOT') || (message.includes('平台风控') && fromVideoPipeline)) {
     return result('video_anti_bot')
   }
-  if (message.includes('VIDEOCLONE_INVALID_PLATFORM') || message.includes('仅支持抖音/小红书')) {
+  if (message.includes('VIDEOCLONE_INVALID_PLATFORM') || (message.includes('仅支持抖音/小红书') && fromVideoPipeline)) {
     return result('video_invalid_platform')
   }
   if (message.includes('ASR_EMPTY') || message.includes('转写结果为空')) {

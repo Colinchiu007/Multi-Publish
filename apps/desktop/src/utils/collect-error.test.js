@@ -181,4 +181,28 @@ describe('classifyCollectError', () => {
     expect(classifyCollectError('VIDEOCLONE_INVALID_PLATFORM: 仅支持抖音/小红书视频链接').reason).toBe('video_invalid_platform')
     expect(classifyCollectError('ASR_EMPTY: 语音转写结果为空').reason).toBe('asr_empty')
   })
+
+  // ── 误吞边界（双模型审查 C2：中文短关键词不得误吞图文链路错误） ──
+
+  it('does NOT misclassify article 私密 as video_private', () => {
+    expect(classifyCollectError('该文章为私密内容，无法访问').reason).not.toBe('video_private')
+  })
+
+  it('does NOT misclassify regular timeout as video_transcribe_timeout', () => {
+    expect(classifyCollectError('请求超时，请稍后重试').reason).toBe('timeout')
+  })
+
+  it('does NOT misclassify bare 无音轨 (without VIDEOCLONE code) as no_audio_track', () => {
+    expect(classifyCollectError('音频流缺失：无音轨').reason).not.toBe('no_audio_track')
+  })
+
+  // ── 重试语义（审查 C1：5 个永久性 reason 补齐 NON_RETRYABLE） ──
+
+  it('video_private/membership/region/invalid_platform/asr_empty are non-retryable', () => {
+    expect(classifyCollectError('VIDEOCLONE_LINK_PRIVATE: x').retryable).toBe(false)
+    expect(classifyCollectError('VIDEOCLONE_LINK_MEMBERSHIP: x').retryable).toBe(false)
+    expect(classifyCollectError('VIDEOCLONE_LINK_REGION: x').retryable).toBe(false)
+    expect(classifyCollectError('VIDEOCLONE_INVALID_PLATFORM: x').retryable).toBe(false)
+    expect(classifyCollectError('ASR_EMPTY: x').retryable).toBe(false)
+  })
 })
