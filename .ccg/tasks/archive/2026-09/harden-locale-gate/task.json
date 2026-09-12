@@ -1,0 +1,16 @@
+{
+  "id": "harden-locale-gate",
+  "title": "locale 门禁自身加固——Gate 7 退出码吞掉 + CJK 基线行号漂移假阳性",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci+frontend",
+  "currentPhase": "completed",
+  "nextAction": "",
+  "createdAt": "2026-09-12T11:00:00Z",
+  "completedAt": "2026-09-12T13:01:10Z",
+  "branch": "codex/harden-locale-gate",
+  "pr": 1744,
+  "mergeCommit": "7c023a6e",
+  "remoteStatus": "merged"
+}
