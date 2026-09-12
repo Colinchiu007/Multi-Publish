@@ -6,7 +6,7 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const EC = require('../core/error-codes').ERROR
   const log = require('../services/logger')
-  const { knowledgeLibraryService, store } = deps
+  const { knowledgeLibraryService, store, patternExtractionService } = deps
 
   if (!knowledgeLibraryService) return
 
@@ -49,6 +49,27 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('knowledge-library:search-viral', async (_event, query, limit) => {
     try { return knowledgeLibraryService.searchViral(query, limit) } catch (e) { log.warn('[ipc:knowledge-library]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
+
+  // ─── 模式卡片（P1：LLM 提取的结构化爆款模式）───
+  ipcMain.handle('knowledge-library:list-pattern-cards', async (_event, params) => {
+    try {
+      if (!store || typeof store.listPatternCards !== 'function') return { code: EC.REQUEST_ERROR, message: '模式卡片存储未就绪' }
+      return { code: EC.SUCCESS, data: store.listPatternCards(params || {}) }
+    } catch (e) { log.warn('[ipc:knowledge-library]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+  ipcMain.handle('knowledge-library:reextract-pattern', withSenderCheck(async (_event, viralItemId) => {
+    try {
+      if (!store || typeof store.resetPatternCard !== 'function') return { code: EC.REQUEST_ERROR, message: '模式卡片存储未就绪' }
+      if (!viralItemId) return { code: EC.VALIDATION_ERROR, message: '缺少条目 ID' }
+      const ok = store.resetPatternCard(String(viralItemId))
+      if (!ok) return { code: EC.REQUEST_ERROR, message: '重置失败' }
+      // 异步触发重提取（不阻塞 IPC 响应）
+      if (patternExtractionService && typeof patternExtractionService.triggerExtraction === 'function') {
+        patternExtractionService.triggerExtraction()
+      }
+      return { code: EC.SUCCESS, data: null }
+    } catch (e) { log.warn('[ipc:knowledge-library]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
 
   // ─── 个人知识库 ───
   ipcMain.handle('knowledge-library:add-personal', withSenderCheck(async (_event, item) => {

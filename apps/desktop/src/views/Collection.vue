@@ -293,7 +293,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
-import { storeGetSetting, storeSetSetting } from '@/api/publisher'
+import { storeGetSetting, storeSetSetting, aiRewrite } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
 import { addViralToLibrary } from '@/api/knowledge-library'
@@ -325,6 +325,36 @@ const rewriteLength = ref('keep')
 const rewriteResult = ref('')
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
+
+// 改写走 Node 引擎（aiRewrite）：采集→入库→改写参考闭环的最后一块拼图。
+// Python 链路（aggregationRewrite）对桌面 SQLite 爆款库不可见、不接收 knowledgeOptions。
+// style/length 是 Python 链路专属枚举，映射到 Node 引擎契约：style→mode 语义近似、length→targetLength。
+const STYLE_TO_MODE = { '轻松易懂': 'imitate', '正式严谨': 'imitate', '吸引眼球': 'expand', '深度分析': 'expand', '认知锚点': 'imitate' }
+const LENGTH_TO_TARGET = { keep: 'medium', compress: 'short', expand: 'long' }
+
+async function rewriteViaEngine (content) {
+  const params = {
+    mode: STYLE_TO_MODE[rewriteStyle.value] || 'imitate',
+    content: content,
+    userSettings: {
+      targetLength: LENGTH_TO_TARGET[rewriteLength.value] || 'medium',
+      knowledgeOptions: {
+        useViralLibrary: useViralLibrary.value,
+        usePersonalKnowledge: usePersonalExperience.value,
+      },
+    },
+  }
+  const res = await aiRewrite(params)
+  // aiRewrite 返回 { code, data: { success, result } }；归一化为旧 aggregationRewrite 的 { result_content } 消费形态
+  if (res && res.code === 0 && res.data && res.data.success && res.data.result) {
+    return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
+  }
+  // 失败时透传原始 res（含 errorCode/message），供调用方 formatUserError 映射友好文案
+  if (res && (res.code !== 0 || (res.data && res.data.success === false))) {
+    return { __error: res }
+  }
+  return null
+}
 const showPublishModal = ref(false)
 let genreDraftId = null
 const rssUrl = ref('')
@@ -681,8 +711,8 @@ async function collectAndRewrite () {
     return
   }
   const api = getApi()
-  // 前置校验：API能力检查（采集+改写都必须可用）
-  if (!api || !api.aggregationCollect || !api.aggregationRewrite) {
+  // 前置校验：API能力检查（采集走 aggregationCollect；改写已切 Node 引擎 aiRewrite）
+  if (!api || !api.aggregationCollect) {
     notifyWarning('collection.collectUnavailable')
     return
   }
@@ -734,18 +764,15 @@ async function collectAndRewrite () {
         collecting.value = false
         rewriting.value = true
         try {
-          const rewrite = await api.aggregationRewrite({
-            content: videoRes.content || videoRes.transcript || '',
-            style: rewriteStyle.value,
-            length: rewriteLength.value,
-          })
+          const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
           if (rewrite && rewrite.result_content) {
             rewriteResult.value = rewrite.result_content
             notifySuccess('collection.rewriteSuccess')
           } else {
             // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
             // 禁止把后端原始 message（可能含环境变量名等技术细节）直出 UI（user-facing-messages 规范）
-            const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+            const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
+            const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
             rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
             notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
           }
@@ -803,17 +830,14 @@ async function collectAndRewrite () {
     // Step 2: 自动改写
     rewriting.value = true
     try {
-      const rewrite = await api.aggregationRewrite({
-        content: res.content || res.description || '',
-        style: rewriteStyle.value,
-        length: rewriteLength.value,
-      })
+      const rewrite = await rewriteViaEngine(res.content || res.description || '')
       if (rewrite && rewrite.result_content) {
         rewriteResult.value = rewrite.result_content
         notifySuccess('collection.rewriteSuccess')
       } else {
         // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
-        const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+        const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
+        const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
         rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
         notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
       }
@@ -835,24 +859,21 @@ async function collectAndRewrite () {
 async function rewriteCollected () {
   if (!collectedResult.value) return
   const api = getApi()
-  if (!api || !api.aggregationRewrite) {
+  if (!api) {
     notifyWarning('collection.collectUnavailable')
     return
   }
   rewriting.value = true
   rewriteError.value = null
   try {
-    const result = await api.aggregationRewrite({
-      content: collectedResult.value.content || collectedResult.value.description || '',
-      style: rewriteStyle.value,
-      length: rewriteLength.value,
-    })
+    const result = await rewriteViaEngine(collectedResult.value.content || collectedResult.value.description || '')
     if (result && result.result_content) {
       rewriteResult.value = result.result_content
       notifySuccess('collection.rewriteSuccess')
     } else {
       // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
-      const formatted = formatUserError(result || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+      const errorSource = result && result.__error ? result.__error : (result || {})
+      const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
       rewriteError.value = { code: result && result.code != null ? result.code : -99, message: formatted.message }
       notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
     }

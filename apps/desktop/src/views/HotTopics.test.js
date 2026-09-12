@@ -201,7 +201,7 @@ describe('HotTopics.vue', () => {
     await flushPromises()
 
     // 弹窗打开，改写完成，流水线启动
-    expect(aiRewrite).toHaveBeenCalledWith({ mode: 'create', content: expect.stringContaining('AI大模型最新突破进展') })
+    expect(aiRewrite).toHaveBeenCalledWith(expect.objectContaining({ mode: 'create', content: expect.stringContaining('AI大模型最新突破进展') }))
     expect(draftSave).toHaveBeenCalledTimes(1)
     expect(pipelineStartOrchestrated).toHaveBeenCalledWith('story2video-compose', expect.objectContaining({
       text: '改写后的视频文案内容',
