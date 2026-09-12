@@ -1,3 +1,15 @@
+## [未发布] fix(desktop): url-collect:fetch 加入 PUBLIC_CHANNELS — 未登录采集回退层不再被 license 拦截（2026-09-12）
+
+### 修复
+- `license-access-control.js`：PUBLIC_CHANNELS 新增 `url-collect:fetch`。此前采集回退层不在白名单而主路径 `aggregation:collect` 在，未登录时回退层被拦截返回 -3（AUTH_REQUIRED），采集彻底不可用。
+
+### 回归保护
+- license-access-control.test.js：断言 `url-collect:fetch` 与 `aggregation:collect` 的 requiredLevelForChannel 必须同为 public。
+
+### 验证
+- license-access-control 43 + window 52 + ipc-contract 6 + url-collector 23 全绿。
+- 真机 CDP：未登录（signed_out）调用 urlCollectFetch，修复前 code -3（license 拦截），修复后 code -1 + data（进入业务层）。
+
 ## [未发布] fix(collection): 视频采集错误提示透传——>10 分钟拒绝等具体提示不再被通用文案吞掉（2026-09-12）
 
 ### 修复（QM-5 五步）
