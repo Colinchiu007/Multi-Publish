@@ -61,6 +61,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./knowledge-library')(ipcMain, deps)
   // 飞书 API 配置
   require('./feishu-settings')(ipcMain, deps)
+  // 服务状态聚合（侧边栏多服务面板）
+  require('./services')(ipcMain, deps)
 }
 
 module.exports = registerAllHandlers

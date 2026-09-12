@@ -890,6 +890,18 @@ var require_video_clone = __commonJS({
   }
 });
 
+// electron/preload/services.js
+var require_services = __commonJS({
+  "electron/preload/services.js"(exports2, module2) {
+    function createServicesApi2(ipcRenderer2) {
+      return {
+        servicesGetStatus: () => ipcRenderer2.invoke("services:get-status")
+      };
+    }
+    module2.exports = { createServicesApi: createServicesApi2 };
+  }
+});
+
 // electron/preload/film-engineering.js
 var require_film_engineering = __commonJS({
   "electron/preload/film-engineering.js"(exports2, module2) {
@@ -1240,6 +1252,7 @@ var { createTtsVoiceCloneApi } = require_tts_voice_clone();
 var { createPromptEvalApi } = require_prompt_eval();
 var { createPageManagerApi } = require_page_manager();
 var { createVideoCloneApi } = require_video_clone();
+var { createServicesApi } = require_services();
 var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
 var { createHotTopicsApi } = require_hot_topics();
@@ -1281,6 +1294,7 @@ var fullApi = {
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),
+  ...createServicesApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),

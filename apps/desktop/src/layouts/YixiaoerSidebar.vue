@@ -56,14 +56,53 @@
 
     <footer class="yixiaoer-sidebar-footer">
       <div class="yixiaoer-sidebar-status-row">
-        <span class="yixiaoer-sidebar-status is-unknown" data-testid="yixiaoer-sidebar-status">
-          <i aria-hidden="true"></i>{{ t('sidebar.clientStatusUnknown') }}
+        <span
+          class="yixiaoer-sidebar-status"
+          :class="'is-' + identityStatus"
+          data-testid="yixiaoer-sidebar-status"
+          :title="clientStatusTitle"
+        >
+          <i aria-hidden="true"></i>{{ clientStatusLabel }}
         </span>
       </div>
       <div class="yixiaoer-sidebar-footer-actions">
-        <span class="yixiaoer-service-status" data-testid="yixiaoer-service-status">
-          <i aria-hidden="true"></i>服务运行中
-        </span>
+        <el-popover
+          placement="top-start"
+          :width="280"
+          trigger="hover"
+          :show-after="200"
+          popper-class="yixiaoer-service-popover"
+        >
+          <template #reference>
+            <span
+              class="yixiaoer-service-status"
+              :class="serviceSummaryClass"
+              data-testid="yixiaoer-service-status"
+              role="button"
+              tabindex="0"
+              aria-haspopup="dialog"
+            >
+              <i aria-hidden="true"></i>{{ serviceSummaryLabel }}
+            </span>
+          </template>
+          <div class="yixiaoer-service-list" data-testid="yixiaoer-service-list">
+            <div v-if="serviceStatusStore.unavailable" class="yixiaoer-service-unavailable">
+              {{ t('sidebar.serviceStatus.unavailable') }}
+            </div>
+            <template v-else>
+              <div
+                v-for="svc in serviceStatusStore.services"
+                :key="svc.key"
+                class="yixiaoer-service-item"
+                :data-testid="'yixiaoer-service-' + svc.key"
+              >
+                <i class="yixiaoer-service-dot" :class="'is-' + svc.status" aria-hidden="true"></i>
+                <span class="yixiaoer-service-name">{{ serviceLabel(svc) }}</span>
+                <span class="yixiaoer-service-state">{{ serviceStateLabel(svc.status) }}</span>
+              </div>
+            </template>
+          </div>
+        </el-popover>
         <button v-if="!licenseStore.isPro" type="button" class="yixiaoer-upgrade-btn" data-testid="yixiaoer-upgrade" @click="showUpgradeModal = true">
           ⭐ 升级 Pro
         </button>
@@ -97,6 +136,8 @@ import {
   VideoCamera,
 } from '@element-plus/icons-vue'
 import { useLicenseStore } from '@/stores/license'
+import { useIdentityStore } from '@/stores/identity'
+import { useServiceStatusStore } from '@/stores/serviceStatus'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import { invokePageManager } from '@/api/electron-bridge'
@@ -105,6 +146,8 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const licenseStore = useLicenseStore()
+const identityStore = useIdentityStore()
+const serviceStatusStore = useServiceStatusStore()
 const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
 
@@ -113,6 +156,7 @@ const emit = defineEmits(['open-settings'])
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──
 let _sidebarObserver = null
 onMounted(() => {
+  serviceStatusStore.startPolling()
   const el = document.querySelector('.yixiaoer-sidebar')
   if (el) {
     const syncWidth = () => {
@@ -125,11 +169,57 @@ onMounted(() => {
   }
 })
 onUnmounted(() => {
+  serviceStatusStore.stopPolling()
   if (_sidebarObserver) {
     _sidebarObserver.disconnect()
     _sidebarObserver = null
   }
 })
+
+const identityStatus = computed(() => {
+  const status = identityStore.status
+  return ['authenticated', 'refreshing', 'offline_authenticated'].includes(status) ? 'online'
+    : ['signing_in', 'signing_out'].includes(status) ? 'busy'
+    : status === 'disabled' ? 'disabled'
+    : ['signed_out', 'expired'].includes(status) ? 'offline'
+    : 'error'
+})
+
+const clientStatusLabel = computed(() => {
+  if (identityStatus.value === 'online') return t('memberCenter.statusConnected')
+  if (identityStatus.value === 'busy') return identityStore.status === 'signing_in'
+    ? t('memberCenter.statusSigningIn')
+    : t('memberCenter.statusSigningOut')
+  if (identityStatus.value === 'disabled') return t('memberCenter.identityDisabled')
+  if (identityStatus.value === 'offline') return identityStore.status === 'expired'
+    ? t('memberCenter.statusExpired')
+    : t('memberCenter.notLoggedIn')
+  return t('memberCenter.statusError')
+})
+
+const clientStatusTitle = computed(() => clientStatusLabel.value)
+
+const serviceSummaryLabel = computed(() => {
+  if (serviceStatusStore.unavailable) return t('sidebar.serviceStatus.unavailable')
+  if (serviceStatusStore.allRunning) return t('sidebar.serviceStatus.allRunning')
+  return t('sidebar.serviceStatus.partialRunning', serviceStatusStore.runningCount)
+})
+
+const serviceSummaryClass = computed(() => {
+  if (serviceStatusStore.unavailable) return 'is-degraded'
+  if (serviceStatusStore.allRunning) return 'is-ok'
+  return 'is-degraded'
+})
+
+function serviceLabel (svc) {
+  const key = 'sidebar.serviceStatus.services.' + svc.key
+  const label = t(key)
+  return label === key ? svc.name : label
+}
+
+function serviceStateLabel (status) {
+  return t('sidebar.serviceStatus.states.' + status)
+}
 
 const primaryItems = [
   { key: 'home', label: '主页', to: '/', icon: HomeFilled },
@@ -329,6 +419,7 @@ function goToPublish () {
   align-items: center;
   gap: 6px;
   color: #6f9c6f;
+  cursor: default;
 }
 
 .yixiaoer-service-status i {
@@ -336,6 +427,14 @@ function goToPublish () {
   height: 6px;
   border-radius: 50%;
   background: #6fbf73;
+}
+
+.yixiaoer-service-status.is-degraded {
+  color: #b08a3e;
+}
+
+.yixiaoer-service-status.is-degraded i {
+  background: #e6a23c;
 }
 
 .yixiaoer-upgrade-btn {
@@ -370,6 +469,24 @@ function goToPublish () {
   height: 6px;
   border-radius: 50%;
   background: #a7a8b5;
+}
+
+.yixiaoer-sidebar-status.is-online i {
+  background: #6fbf73;
+}
+
+.yixiaoer-sidebar-status.is-online {
+  color: #6f9c6f;
+}
+
+.yixiaoer-sidebar-status.is-busy i,
+.yixiaoer-sidebar-status.is-error i {
+  background: #e6a23c;
+}
+
+.yixiaoer-sidebar-status.is-busy,
+.yixiaoer-sidebar-status.is-error {
+  color: #b08a3e;
 }
 
 .yixiaoer-sidebar-settings {
@@ -425,5 +542,51 @@ function goToPublish () {
     justify-content: center;
     padding-inline: 0;
   }
+}
+</style>
+
+<style>
+/* el-popover 渲染在 body 下，scoped 样式无法命中，需全局样式 */
+.yixiaoer-service-popover .yixiaoer-service-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #5a5c73;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-dot.is-running {
+  background: #6fbf73;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-dot.is-stopped {
+  background: #f56c6c;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-dot.is-standby {
+  background: #c0c2cf;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-state {
+  margin-left: auto;
+  color: #9294ab;
+}
+
+.yixiaoer-service-popover .yixiaoer-service-unavailable {
+  font-size: 12px;
+  color: #b08a3e;
 }
 </style>

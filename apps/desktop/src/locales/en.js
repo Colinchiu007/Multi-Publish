@@ -54,6 +54,24 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: 'Client status unknown',
+    serviceStatus: {
+      allRunning: 'Services running',
+      partialRunning: (ctx) => ctx.named('count') + ' service(s) running',
+      unavailable: 'Service status unavailable',
+      services: {
+        mainBackend: 'Main service',
+        splitterEngine: 'Sentence splitter engine',
+        promptEngine: 'Prompt optimization engine',
+        callbackServer: 'Callback server',
+        mediaServer: 'Media server',
+        alignerEngine: 'Aligner engine',
+      },
+      states: {
+        running: 'Running',
+        stopped: 'Stopped',
+        standby: 'Standby',
+      },
+    },
     nav: {
       home: 'Home',
       publish: 'Publish',

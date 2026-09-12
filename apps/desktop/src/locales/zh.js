@@ -54,6 +54,24 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: '客户端状态未知',
+    serviceStatus: {
+      allRunning: '服务运行中',
+      partialRunning: (ctx) => ctx.named('count') + ' 项服务运行中',
+      unavailable: '服务状态不可用',
+      services: {
+        mainBackend: '主服务',
+        splitterEngine: '分句引擎',
+        promptEngine: '提示词优化引擎',
+        callbackServer: '回调服务',
+        mediaServer: '媒体服务',
+        alignerEngine: '对齐引擎',
+      },
+      states: {
+        running: '运行中',
+        stopped: '已停止',
+        standby: '待命',
+      },
+    },
     nav: {
       home: '主页',
       publish: '发布',
