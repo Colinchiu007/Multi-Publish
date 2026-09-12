@@ -213,7 +213,7 @@ class AggregationService:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
         # 输入校验：仅拦截空内容（2026-09-12 移除 20 字下限，非空即可改写）
         if not (request.content or "").strip():
-            raise ValueError("输入内容不能为空")
+            raise UserVisibleError("AGGREGATION_CONTENT_EMPTY", "输入内容不能为空")
         # 前置校验：未配置 LLM API Key 时返回稳定错误码，由前端 locale 渲染友好文案
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
         if not api_key:
@@ -261,7 +261,9 @@ class AggregationService:
         async with RewriteProcessor(config) as proc:
             result = await proc.rewrite(content_obj, rewrite_cfg)
         if not result.success:
-            raise ValueError(result.error or "未知错误")
+            # 改写引擎失败兜底：错误码化（原始 error 进日志，不直出 UI）
+            logger.warning(f"[AggregationService] rewrite engine failed: {result.error}")
+            raise UserVisibleError("AGGREGATION_REWRITE_FAILED", "AI 改写未能完成，请稍后重试")
         result_model = RewriteResultModel(
             result_content=result.rewritten_content,
             word_count=len(result.rewritten_content),

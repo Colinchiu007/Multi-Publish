@@ -4530,6 +4530,25 @@ screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默�
 
 兜底兼容：旧版后端（无 errorCode，仅原始中文消息）经 `formatUserError` 的 pattern 规则（`/未配置 LLM API Key|LLM_API_KEY|PO_OPENAI_API_KEY/i` → `LLM_KEY_MISSING`；更早命中的 `API_KEY_NOT_CONFIGURED` pattern 亦指向「模型设置」）同样渲染友好文案，两条路径都不泄露技术细节。
 
+**aggregation 域错误码全量收敛（2026-09-12 第三轮，存量债务清理）**：
+
+改写/采集链路的全部用户可达错误统一错误码化（此前 7 类校验错误以中文原文 passthrough 直出 UI，英文用户看到中文）：
+
+| 错误码 | 触发场景 | locale 文案要点（zh） |
+|--------|----------|----------------------|
+| AGGREGATION_CONTENT_EMPTY | 改写内容为空 | 请先输入或采集要改写的内容 |
+| AGGREGATION_URL_EMPTY / _URL_INVALID | 采集链接为空 / 协议不支持 | 请输入链接 / 仅支持 http(s) 网页链接 |
+| AGGREGATION_SOURCE_TYPE_UNSUPPORTED | 采集源/策略/媒体类型/ASR 引擎非法 | 支持的类型：{supported}（params 插值） |
+| AGGREGATION_STYLE_UNSUPPORTED / _LENGTH_UNSUPPORTED | 改写风格 / 长度档位非法 | 支持的选项：{supported}（params 插值） |
+| AGGREGATION_WORD_COUNT_RANGE_INVALID | max < min 字数区间 | 最小字数（{min}）不能大于最大字数（{max}） |
+| AGGREGATION_REWRITE_FAILED | 改写引擎返回失败 | 服务繁忙或内容较难处理，稍后重试 |
+| AGGREGATION_INTERNAL_ERROR | 四端点 500 兜底 | 异常原文只进日志，不拼进用户可见 detail |
+| AGGREGATION_TASK_NOT_FOUND | 任务不存在/过期 | 刷新列表后重试 |
+
+数据流：Python validator/service 抛 `UserVisibleError(code, fallback, params={...})` → router `except UserVisibleError` 转 400/500 `detail={error_code, message, params}` → python-bridge 提升 `errorCode` + `params` → 渲染端 `formatUserError` 用 params 替换 locale 文案的 `{param}` 占位符。params 缺失时占位符保留原样（不产生 undefined）。
+
+扫描豁免语义（`--py-cjk`）：`UserVisibleError(...)` 第二参与 `detail={error_code, message}` 对象内的 message 是错误码无法识别时的最后防线兜底，非直出路径，扫描豁免；裸 `raise ValueError("中文")` 与 500 分支拼接异常原文仍被拦截。
+
 CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src` 下 .py 的 raise 语句字符串字面量中的中文，基线 `locale-py-cjk-baseline.json` 吸收 90 条存量；新增硬编码中文用户可见 raise 即 CI 失败，强制走 `UserVisibleError(error_code)` + 渲染端 locale 文案路径。
 
 **门禁自身加固（2026-09-12 第二轮，修复两个门禁失效缺陷）**：

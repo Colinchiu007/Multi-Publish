@@ -25,7 +25,25 @@ class UserVisibleError(ValueError):
     error_code 字段（而非仅 detail 文本）。
     """
 
-    def __init__(self, error_code: str, fallback_text: str = ""):
+    def __init__(self, error_code: str, fallback_text: str = "", params: dict | None = None):
         self.error_code = error_code
         self.fallback_text = fallback_text or error_code
+        self.params = params or {}
         super().__init__(self.fallback_text)
+
+
+# ── aggregation 域稳定错误码 + locale 插值参数（2026-09-12 存量收敛）──
+# 渲染端对应文案：locales/{zh,en}.js 的 userErrors.* 命名空间，
+# {param} 占位符由渲染端 formatUserError 的 messageParams 机制插值。
+AGGREGATION_ERROR_CODES = frozenset({
+    "AGGREGATION_CONTENT_EMPTY",      # 改写内容为空
+    "AGGREGATION_URL_EMPTY",          # 采集 URL 为空
+    "AGGREGATION_URL_INVALID",        # 采集 URL 协议不支持
+    "AGGREGATION_SOURCE_TYPE_UNSUPPORTED",  # 不支持的采集源类型
+    "AGGREGATION_STYLE_UNSUPPORTED",  # 不支持的改写风格
+    "AGGREGATION_LENGTH_UNSUPPORTED", # 不支持的长度档位
+    "AGGREGATION_WORD_COUNT_RANGE_INVALID", # 字数区间非法（max < min）
+    "AGGREGATION_REWRITE_FAILED",     # 改写引擎返回失败（兜底）
+    "AGGREGATION_INTERNAL_ERROR",     # 服务内部 500 兜底（异常原文只进日志）
+    "AGGREGATION_TASK_NOT_FOUND",     # 任务不存在/已过期
+})

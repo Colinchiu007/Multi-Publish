@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Optional, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
+from ._user_errors import UserVisibleError
 
 
 # Supported source types (Phase 1: headless-only sources)
@@ -44,7 +45,11 @@ class CollectRequest(BaseModel):
     def validate_source_type(cls, v: str) -> str:
         valid = SUPPORTED_SOURCE_TYPES | PLAYWRIGHT_SOURCE_TYPES
         if v not in valid:
-            raise ValueError(f"不支持的 source_type: {v}，支持: {', '.join(sorted(valid))}")
+            raise UserVisibleError(
+                "AGGREGATION_SOURCE_TYPE_UNSUPPORTED",
+                f"不支持的 source_type: {v}，支持: {', '.join(sorted(valid))}",
+                params={"value": v, "supported": ", ".join(sorted(valid))},
+            )
         if v in PLAYWRIGHT_SOURCE_TYPES:
             raise ValueError(
                 f"source_type '{v}' 需要 Playwright 浏览器支持，Phase 1 暂不支持。"
@@ -56,7 +61,11 @@ class CollectRequest(BaseModel):
     @classmethod
     def validate_strategy(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in REWRITE_STRATEGIES:
-            raise ValueError(f"不支持的 strategy: {v}，支持: {', '.join(sorted(REWRITE_STRATEGIES))}")
+            raise UserVisibleError(
+                "AGGREGATION_SOURCE_TYPE_UNSUPPORTED",
+                f"不支持的 strategy: {v}，支持: {', '.join(sorted(REWRITE_STRATEGIES))}",
+                params={"value": v, "supported": ", ".join(sorted(REWRITE_STRATEGIES))},
+            )
         return v
 
 
@@ -72,7 +81,11 @@ class BatchCollectRequest(BaseModel):
     def validate_source_type(cls, v: str) -> str:
         valid = SUPPORTED_SOURCE_TYPES | PLAYWRIGHT_SOURCE_TYPES
         if v not in valid:
-            raise ValueError(f"不支持的 source_type: {v}")
+            raise UserVisibleError(
+                "AGGREGATION_SOURCE_TYPE_UNSUPPORTED",
+                f"不支持的 source_type: {v}",
+                params={"value": v, "supported": ", ".join(sorted(SUPPORTED_SOURCE_TYPES))},
+            )
         if v in PLAYWRIGHT_SOURCE_TYPES:
             raise ValueError(
                 f"source_type '{v}' 需要 Playwright 浏览器支持，Phase 1 暂不支持。"
@@ -101,7 +114,11 @@ class CollectResult(BaseModel):
     @classmethod
     def validate_media_type(cls, v: str) -> str:
         if v not in ("article", "video"):
-            raise ValueError(f"不支持的 media_type: {v}，支持: article, video")
+            raise UserVisibleError(
+                "AGGREGATION_SOURCE_TYPE_UNSUPPORTED",
+                f"不支持的 media_type: {v}，支持: article, video",
+                params={"value": v, "supported": "article, video"},
+            )
         return v
 
 
@@ -115,16 +132,20 @@ class CollectVideoRequest(BaseModel):
     def validate_url(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("URL 不能为空")
+            raise UserVisibleError("AGGREGATION_URL_EMPTY", "URL 不能为空")
         if not (v.startswith("http://") or v.startswith("https://")):
-            raise ValueError("URL 必须以 http:// 或 https:// 开头")
+            raise UserVisibleError("AGGREGATION_URL_INVALID", "URL 必须以 http:// 或 https:// 开头")
         return v
 
     @field_validator("asr_engine")
     @classmethod
     def validate_asr_engine(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ("faster_whisper", "sensevoice", "siliconflow"):
-            raise ValueError(f"不支持的 asr_engine: {v}，支持: faster_whisper, sensevoice, siliconflow")
+            raise UserVisibleError(
+                "AGGREGATION_SOURCE_TYPE_UNSUPPORTED",
+                f"不支持的 asr_engine: {v}，支持: faster_whisper, sensevoice, siliconflow",
+                params={"value": v, "supported": "faster_whisper, sensevoice, siliconflow"},
+            )
         return v
 
 
@@ -146,28 +167,38 @@ class RewriteRequest(BaseModel):
     @classmethod
     def validate_style(cls, v: str) -> str:
         if v not in REWRITE_STYLES:
-            raise ValueError(f"不支持的 style: {v}，支持: {', '.join(sorted(REWRITE_STYLES))}")
+            raise UserVisibleError(
+                "AGGREGATION_STYLE_UNSUPPORTED",
+                f"不支持的 style: {v}，支持: {', '.join(sorted(REWRITE_STYLES))}",
+                params={"value": v, "supported": ", ".join(sorted(REWRITE_STYLES))},
+            )
         return v
 
     @field_validator("length")
     @classmethod
     def validate_length(cls, v: str) -> str:
         if v not in {"keep", "compress", "expand"}:
-            raise ValueError(f"不支持的 length: {v}，支持: keep, compress, expand")
+            raise UserVisibleError(
+                "AGGREGATION_LENGTH_UNSUPPORTED",
+                f"不支持的 length: {v}，支持: keep, compress, expand",
+                params={"value": v, "supported": "keep, compress, expand"},
+            )
         return v
 
     @field_validator("content")
     @classmethod
     def validate_content(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("内容不能为空")
+            raise UserVisibleError("AGGREGATION_CONTENT_EMPTY", "内容不能为空")
         return v
 
     @model_validator(mode="after")
     def validate_word_count_range(self) -> "RewriteRequest":
         if self.max_word_count < self.min_word_count:
-            raise ValueError(
-                f"max_word_count ({self.max_word_count}) 必须大于等于 min_word_count ({self.min_word_count})"
+            raise UserVisibleError(
+                "AGGREGATION_WORD_COUNT_RANGE_INVALID",
+                f"max_word_count ({self.max_word_count}) 必须大于等于 min_word_count ({self.min_word_count})",
+                params={"max": str(self.max_word_count), "min": str(self.min_word_count)},
             )
         return self
 

@@ -531,6 +531,8 @@ async function requestBackend (method, path, body = null, timeout = 30000) {
     return {
       ...payload,
       ...(hasErrorCode ? { errorCode: detailObj.error_code } : {}),
+      // 插值参数透传（如 {value}/{supported}）：渲染端 formatUserError 用其替换 locale 占位符
+      ...(hasErrorCode && detailObj.params && typeof detailObj.params === 'object' ? { params: detailObj.params } : {}),
       status: response.status,
       code: payload.code === undefined ? -response.status : payload.code,
       message: normalizedMessage,

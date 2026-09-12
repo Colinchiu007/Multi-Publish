@@ -109,6 +109,12 @@ function scanPyUserVisibleCjk (file) {
   const hits = []
   stripped.split('\n').forEach((line, idx) => {
     if (!/\braise\s+\w/.test(line)) return
+    // 豁免 1：UserVisibleError(error_code, "中文兜底") —— 第二参是设计允许的
+    // 错误码无法识别时的最后防线兜底，渲染端正常路径只读 error_code 查 locale。
+    if (/raise\s+UserVisibleError\s*\(/.test(line)) return
+    // 豁免 2：detail={"error_code": ..., "message": "中文兜底"} —— 同上，
+    // detail 对象内的 message 是错误码兜底，非直出路径。
+    if (/error_code/.test(line) && /message/.test(line)) return
     const matcher = /(['"])((?:\\.|(?!\1)[^\\])*)\1/g
     let m
     while ((m = matcher.exec(line)) !== null) {
