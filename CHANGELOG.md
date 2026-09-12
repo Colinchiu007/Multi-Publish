@@ -1,3 +1,16 @@
+## [未发布] feat(collection): faster-whisper 模型下载管理——镜像自动选择 + 失败分类与可操作提示（2026-09-12）
+
+### 新增
+- **下载源自动选择**（_resolve_download_endpoint）：优先级为用户显式 HF_ENDPOINT > hf-mirror.com 镜像（HEAD 5s 探测）> huggingface.co 直连回退；选择结果写日志；下载结束恢复原环境变量（用户显式设置不被覆盖）。
+- **下载预检**（is_model_ready）：local_files_only 纯本地查询，模型已缓存零网络请求直接加载。
+- **失败分类**（_classify_download_error）：网络不可达/超时/磁盘不足/离线模式冲突/仓库不存在/未知 六类，每类映射含可操作建议的中文提示；所有失败提示附手动下载兜底指引（直连/镜像双 URL + 本机缓存目录）。
+- **转写前确保模型就绪**（ensure_model）：未就绪自动走下载管理，失败抛 AsrEngineError(download_failed)，不再让用户看到笼统的「转写失败」。
+- 前端 collect-error.js 新增 asr_download_failed 分类（网络类可重试）；locale zh/en 成对新增。
+- PRD §7.2.1：下载管理流程图 + 六类失败场景矩阵 + 手动下载兜底指引 + 环境变量恢复契约。
+
+### 验证
+- Python: test_aggregation_video.py 35 passed（含 12 个新下载管理用例：源选择三分支/预检双路径/六类失败分类/提示含手动 URL/已缓存跳过下载/环境变量恢复）。
+- 前端: collect-error 48 + Collection 66 全绿；locale-sync --keys PASS（876）+ --cjk PASS（基线 1494，行偏移显式更新）。
 ## [未发布] feat(desktop): 热门选题一键生成视频（2026-09-12）
 
 ### 新增

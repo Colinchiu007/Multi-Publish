@@ -174,6 +174,8 @@ class VideoCollectService:
             except AsrEngineError as e:
                 if e.code == "engine_unavailable":
                     raise VideoCollectError("-6", e.message)
+                if e.code == "download_failed":
+                    raise VideoCollectError("ASR_DOWNLOAD_FAILED", e.message)
                 raise VideoCollectError("ASR_FAILED", f"语音转写失败: {e.message}")
 
             transcript = result.text.strip()

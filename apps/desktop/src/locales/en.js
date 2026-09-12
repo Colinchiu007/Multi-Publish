@@ -2074,6 +2074,7 @@ export default {
       video_file_too_large: 'Video file too large (limit 500MB). Try a smaller video.',
       no_audio_track: 'This video has no audio track and cannot be transcribed.',
       asr_engine_unavailable: 'ASR engine unavailable. Install faster-whisper: pip install faster-whisper (set HF_ENDPOINT=https://hf-mirror.com for China).',
+      asr_download_failed: 'ASR model download failed. Check your network and retry; use the mirror source for China, or manually download the model files as prompted.',
       video_transcribe_timeout: 'Transcription timed out. Try a shorter video.',
       video_private: 'This video is private and cannot be collected.',
       video_membership: 'This video is membership-only and cannot be collected.',
