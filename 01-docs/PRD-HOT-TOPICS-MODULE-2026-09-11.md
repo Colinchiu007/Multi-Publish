@@ -296,7 +296,7 @@ onUnmounted → clearInterval
 
 **视觉与动效规格**：
 
-- 定位：全屏半透明遮罩（rgba(255,255,255,0.72) + backdrop-blur 2px），z-index 900，内容区居中；
+- 定位：全屏半透明遮罩（rgba(255,255,255,0.72) + backdrop-blur 2px），z-index 1001（高于应用内模态 UpgradeModal/ViralFormDialog 的 1000），内容区居中；
 - 卡片：白底圆角卡片（border-radius 16px，紫色系阴影），最大宽 460px，内边距 36px 48px；
 - 主文案：**「刷新中」** + 三个跳动圆点（依次延迟 0.15s 弹跳动画）；
 - 副文案：**「正在从网上实时获取热门信息，一般需要5-10秒，请耐心等候」**（13px，#777）；

@@ -137,7 +137,7 @@
         <div class="central-loading-card">
           <div class="central-spinner" aria-hidden="true"></div>
           <div class="central-loading-title">
-            {{ t('hotTopics.refreshLoadingTitle') }}<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            {{ t('hotTopics.refreshLoadingTitle') }}<span class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></span>
           </div>
           <div class="central-loading-desc">{{ t('hotTopics.refreshLoadingDesc') }}</div>
           <div class="central-loading-bar" aria-hidden="true"><span></span></div>
@@ -906,6 +906,8 @@ onUnmounted(() => {
   disposed = true
   if (refreshTimer) clearInterval(refreshTimer)
   requestSeq++ // 使 in-flight 响应失效
+  loading.value = false // 防 KeepAlive/重挂载场景下陈旧加载态泄漏
+  showCentralLoading.value = false
   publishing.value = false
   genVideoSeq++
   stopGenVideoTracking() // 停止轮询/订阅；主进程 run 不受影响（后台继续）
@@ -952,7 +954,7 @@ onUnmounted(() => {
 .empty-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
 /* ── 中央加载提示（非弹窗：全屏半透明遮罩 + 居中动效卡片） ── */
 .central-loading-overlay {
-  position: fixed; inset: 0; z-index: 900;
+  position: fixed; inset: 0; z-index: 1001; /* 高于应用内模态（UpgradeModal/ViralFormDialog 等 z-index 1000） */
   display: flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(2px);
@@ -967,7 +969,7 @@ onUnmounted(() => {
 .central-spinner {
   width: 42px; height: 42px; border-radius: 50%;
   border: 4px solid #eceafb; border-top-color: #5149e8;
-  animation: central-spin 0.9s linear infinite;
+  animation: hot-topics-spin 0.9s linear infinite;
 }
 .central-loading-title {
   font-size: 17px; font-weight: 700; color: #333;
@@ -982,22 +984,23 @@ onUnmounted(() => {
 .central-loading-bar span {
   position: absolute; top: 0; left: 0; height: 100%; width: 40%;
   border-radius: 3px; background: linear-gradient(90deg, #5149e8, #8b83ff);
-  animation: central-bar-sweep 1.4s ease-in-out infinite;
+  animation: hot-topics-bar-sweep 1.4s ease-in-out infinite;
 }
 /* 跳动省略号 */
 .loading-dots { display: inline-flex; gap: 4px; margin-left: 4px; }
-.loading-dots i {
+.loading-dots span {
   width: 5px; height: 5px; border-radius: 50%; background: #5149e8;
-  display: inline-block; animation: central-dot-bounce 1.2s ease-in-out infinite;
+  display: inline-block; animation: hot-topics-dot-bounce 1.2s ease-in-out infinite;
 }
-.loading-dots i:nth-child(2) { animation-delay: 0.15s; }
-.loading-dots i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes central-spin { to { transform: rotate(360deg); } }
-@keyframes central-bar-sweep {
+.loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+/* keyframes 带 hot-topics- 前缀：scoped 不隔离 @keyframes 名，防跨组件冲突 */
+@keyframes hot-topics-spin { to { transform: rotate(360deg); } }
+@keyframes hot-topics-bar-sweep {
   0% { left: -40%; }
   100% { left: 100%; }
 }
-@keyframes central-dot-bounce {
+@keyframes hot-topics-dot-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
   30% { transform: translateY(-5px); opacity: 1; }
 }

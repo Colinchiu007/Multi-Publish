@@ -85,19 +85,39 @@ describe('HotTopics.vue', () => {
   it('renders cached topics immediately on mount, then background refresh updates the list', async () => {
     // 缓存有数据：立即渲染；后台刷新完成后新数据替换旧数据（flushPromises 跑完 mount+getCache+fetch，断言最终态）
     hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now() - 5 * 60 * 1000, channelStats: { zhihu: { ok: true } } } })
-    // 后台刷新返回新数据
-    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: [...mockTopics, { id: 'bilibili:1', topic: '新B站热榜话题', channel: 'bilibili', category: 'tech', rank: 1, hotValue: 999, url: null }], fetchedAt: Date.now(), channelStats: {} } })
+    // 后台刷新 deferred：先断言缓存中间态，再放行 fetch 验证替换（SWR 核心保证：缓存先渲染、网络后更新）
+    let resolveFetch
+    hotTopicsFetch.mockImplementation(() => new Promise(r => { resolveFetch = r }))
 
     const wrapper = mountPage()
     await flushPromises()
 
-    // 最终列表：新数据已替换
+    // 中间态：缓存 3 条已渲染、fetch 未完成、无中央提示（后台刷新不打断内容）
+    expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('AI大模型最新突破进展')
+    expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(false)
+
+    // 放行后台刷新 → 新数据替换旧数据
+    resolveFetch({ code: 0, data: { topics: [...mockTopics, { id: 'bilibili:1', topic: '新B站热榜话题', channel: 'bilibili', category: 'tech', rank: 1, hotValue: 999, url: null }], fetchedAt: Date.now(), channelStats: {} } })
+    await flushPromises()
+
     expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(4)
     expect(wrapper.text()).toContain('新B站热榜话题')
-    // 不显示中央加载提示（有内容时后台刷新不打断用户）
+    // 全程无中央提示（后台刷新不打断用户）
     expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(false)
-    // 后台刷新已触发并完成，新数据替换旧数据
     expect(hotTopicsFetch).toHaveBeenCalledWith(false)
+  })
+
+  it('falls back to network fetch with central loading when getCache throws', async () => {
+    // getCache IPC 异常：静默容错回退网络抓取路径
+    hotTopicsGetCache.mockRejectedValue(new Error('IPC error'))
+    hotTopicsFetch.mockImplementation(() => new Promise(() => {})) // 抓取挂起：验证中央提示出现
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(hotTopicsFetch).toHaveBeenCalledWith(false)
+    expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(true)
   })
 
   it('shows central loading hint with animated dots when no cache on first visit', async () => {

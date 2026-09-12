@@ -5,6 +5,7 @@
 - **修复（SWR 模式）**：① 进入页面先调 `hotTopicsGetCache`，缓存有数据立即渲染（0 网络等待），随后后台静默刷新（不打断内容）；② 仅首次无缓存时走网络抓取并显示中央加载提示；③ 手动点击【刷新】显示中央提示（用户明确等待场景）；④ 定时器自动刷新改为静默后台模式。
 - **中央加载提示**：全屏半透明遮罩 + 居中白卡片，主文案「刷新中」+ 三点跳动动画，副文案「正在从网上实时获取热门信息，一般需要5-10秒，请耐心等候」，配旋转 spinner + 流光进度条 + 0.25s 淡入淡出；role="status" aria-live="polite" 无障碍标注。
 - **回归保护**：vitest +3（缓存命中立即渲染+后台刷新替换、无缓存中央提示含动效元素、手动刷新中央提示+旧数据保留）；zh/en locale 成对新增 `refreshLoadingTitle`/`refreshLoadingDesc`。
+- **双模型审查修复**（opencode + Claude）：① onUnmounted 补 loading/showCentralLoading 重置（防 KeepAlive 重挂载泄漏）；② SWR 测试改 deferred promise 断言中间态（缓存 3 条先渲染 → fetch 放行后替换为 4 条，核心保证有回归保护）；③ 新增 getCache IPC 异常回退测试；④ z-index 900→1001（高于 UpgradeModal 等 z-1000 模态）；⑤ @keyframes 加 hot-topics- 前缀防 scoped 不隔离的全局名冲突；⑥ 装饰点 `<i>`→`<span>` 语义修正。
 - **文档**：PRD §5.1 刷新流程改写为 SWR 三分支、§5.5 定时刷新逻辑更新、§6.2a 新增中央加载提示完整规格（触发条件/不触发条件/视觉动效/状态联动）。
 
 ### 验证
