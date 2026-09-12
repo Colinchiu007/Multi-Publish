@@ -2535,6 +2535,8 @@ knowledgeBase: {
     pageDesc: 'Aggregate trending topics from multiple channels, create copy or publish in batch',
     refresh: 'Refresh',
     refreshing: 'Refreshing…',
+    refreshLoadingTitle: 'Refreshing',
+    refreshLoadingDesc: 'Fetching the latest trending topics from the web in real time. It usually takes 5-10 seconds, please wait',
     lastRefresh: (ctx) => 'Last refresh ' + ctx.named('time'),
     categoryAll: 'All',
     categories: {

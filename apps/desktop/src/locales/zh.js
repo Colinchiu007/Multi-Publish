@@ -2536,6 +2536,8 @@ knowledgeBase: {
     pageDesc: '多渠道热门选题聚合，一键创作文案或批量发布',
     refresh: '刷新',
     refreshing: '刷新中…',
+    refreshLoadingTitle: '刷新中',
+    refreshLoadingDesc: '正在从网上实时获取热门信息，一般需要5-10秒，请耐心等候',
     lastRefresh: (ctx) => '上次刷新 ' + ctx.named('time'),
     categoryAll: '全部',
     categories: {
