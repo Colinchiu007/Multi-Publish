@@ -1976,6 +1976,30 @@ class PipelineEngine {
   }
 
   /**
+   * 按 runId 取消指定运行（2026-09-12 热门选题一键生成视频）。
+   * 与无参 cancel() 的区别：cancel() 取消 _getCurrentRun()（当前活跃 run），
+   * 多 run 并发时可能误杀其他入口启动的任务；cancelRun 定向取消指定 runId，
+   * 与 pauseRun/deleteRun 同一 runId 寻址模式。取消语义与 cancel() 一致：
+   * 标记 cancelled + 当前阶段 cancelled + finalize（不可断点恢复，仅影响取消记录展示）。
+   */
+  cancelRun (runId) {
+    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法', errorCode: 'PIPELINE_INVALID_RUN_ID' }
+    const id = runId.trim()
+    const run = this._runs.get(id)
+    if (!run) return { success: false, error: '运行记录不存在', errorCode: 'PIPELINE_RUN_NOT_FOUND' }
+    if (run.status !== 'running' && run.status !== 'paused') return { success: false, error: '仅运行中或已暂停的流水线可取消', errorCode: 'PIPELINE_ERROR' }
+    run.cancelled = true
+    run.status = 'cancelled'
+    const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
+      ? run.stages[run.currentStage]
+      : null
+    if (stage && typeof stage === 'object') stage.status = 'cancelled'
+    this._emit('pipeline:fail', { runId: id, pipelineType: run.pipeline, error: 'cancelled' })
+    this._finalizeRun(run, 'cancelled', 'cancelled')
+    return { success: true, runId: id }
+  }
+
+  /**
    * 从检查点恢复（编排模式增强）
    */
   resumeFromCheckpoint() {
