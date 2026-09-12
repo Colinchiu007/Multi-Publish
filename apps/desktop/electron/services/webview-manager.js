@@ -323,19 +323,23 @@ class WebviewManager extends EventEmitter {
     // 恢复已保存 Cookie（必须在 loadURL 之前）
     if (cookies && cookies.length > 0) {
       var _cookieFail = 0
+      var _cookiePromises = []
       for (var i = 0; i < cookies.length; i++) {
         // eslint-disable-next-line no-unused-vars
         try {
-          viewSession.cookies.set(cookies[i]).catch(function (e2) {
+          _cookiePromises.push(viewSession.cookies.set(cookies[i]).catch(function (e2) {
             _cookieFail += 1
             log.warn('WebviewManager', 'cookie restore failed: ' + ((e2 && e2.message) || 'unknown'))
-          })
+          }))
         } catch (e) {
           _cookieFail += 1
           log.warn('WebviewManager', 'cookie restore threw: ' + ((e && e.message) || 'unknown'))
         }
       }
-      if (_cookieFail > 0) log.warn('WebviewManager', 'cookie restore: ' + _cookieFail + '/' + cookies.length + ' failed (openTab ' + platform + ')')
+      // 审查修复：聚合日志必须等全部 set 完成后再判定（此前同步读取异步计数器恒为 0）
+      Promise.all(_cookiePromises).then(function () {
+        if (_cookieFail > 0) log.warn('WebviewManager', 'cookie restore: ' + _cookieFail + '/' + cookies.length + ' failed (openTab ' + platform + ')')
+      })
     }
 
     // 创建 WebContentsView

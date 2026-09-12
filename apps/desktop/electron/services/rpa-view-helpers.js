@@ -125,7 +125,9 @@ const helpersMixin = {
     // eslint-disable-next-line no-unused-vars
     try {
       const found = await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');return new Promise(function(r){let e=_fn();if(e){r(true);return}let o=new MutationObserver(function(){let f=_fn();if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()')
-      if (!found) log.warn('RpaView', 'waitForElement timeout sel=' + String(sel).slice(0, 160) + ' timeoutMs=' + timeout + ' url=' + String(_curUrl).slice(0, 200))
+      // 审查修复：降为 info——重试窗口内的正常超时很常见，warn 会刷屏；
+      // 真正的失败由调用方（publish 出口/平台分支）记 warn。
+      if (!found) log.info('RpaView', 'waitForElement timeout sel=' + String(sel).slice(0, 160) + ' timeoutMs=' + timeout + ' url=' + String(_curUrl).slice(0, 200))
       return found
     } catch(e) {
       log.warn('RpaView', 'waitForElement error sel=' + String(sel).slice(0, 160) + ' err=' + (e && e.message) + ' url=' + String(_curUrl).slice(0, 200))

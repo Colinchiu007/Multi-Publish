@@ -17,6 +17,13 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+# 审查修复：子进程/CLI 上下文可能未配置 root logger（无 handler 时 error 静默丢失）。
+# 挂一个兜底 StreamHandler，保证 run_command 失败日志总能到达 stderr。
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.WARNING)
 
 
 class ToolTier(StrEnum):
