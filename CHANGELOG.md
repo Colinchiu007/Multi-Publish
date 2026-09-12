@@ -1,3 +1,16 @@
+## [未发布] perf(hot-topics): 热门选题页 SWR 缓存优先渲染 + 中央动态加载提示（2026-09-12）
+
+### 优化
+- **根因**：进入热门选题页时 `onMounted` 直接 `refresh(false)` 等待 7 渠道并发抓取完成（全局超时 10s）才渲染——缓存过期（TTL 10min）时用户盯骨架屏最长 10 秒；主进程已有 `hotTopicsGetCache` IPC（立即返回 SQLite/内存缓存）但渲染层从未调用。
+- **修复（SWR 模式）**：① 进入页面先调 `hotTopicsGetCache`，缓存有数据立即渲染（0 网络等待），随后后台静默刷新（不打断内容）；② 仅首次无缓存时走网络抓取并显示中央加载提示；③ 手动点击【刷新】显示中央提示（用户明确等待场景）；④ 定时器自动刷新改为静默后台模式。
+- **中央加载提示**：全屏半透明遮罩 + 居中白卡片，主文案「刷新中」+ 三点跳动动画，副文案「正在从网上实时获取热门信息，一般需要5-10秒，请耐心等候」，配旋转 spinner + 流光进度条 + 0.25s 淡入淡出；role="status" aria-live="polite" 无障碍标注。
+- **回归保护**：vitest +3（缓存命中立即渲染+后台刷新替换、无缓存中央提示含动效元素、手动刷新中央提示+旧数据保留）；zh/en locale 成对新增 `refreshLoadingTitle`/`refreshLoadingDesc`。
+- **文档**：PRD §5.1 刷新流程改写为 SWR 三分支、§5.5 定时刷新逻辑更新、§6.2a 新增中央加载提示完整规格（触发条件/不触发条件/视觉动效/状态联动）。
+
+### 验证
+- vitest HotTopics.test.js 19 passed（+3）；hot-topics-service 21 + assembly 3 + src/api 294 全通过
+- locale-sync --pair-base origin/main PASS（zh/en 成对）
+
 ## [未发布] fix(i18n): aggregation 域错误码全量收敛——7 类校验错误不再中文直出（2026-09-12）
 
 ### 修复（QM-5 五步）

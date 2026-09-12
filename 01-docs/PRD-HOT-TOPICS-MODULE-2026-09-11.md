@@ -173,11 +173,27 @@ ${topic}
 ### 5.1 刷新流程
 
 ```
-进入页面 / 定时器触发 / 点击【刷新】
-  → 检查缓存（fetchedAt 距今 < 10 分钟且非强制）→ 命中则直接用缓存，结束
-  → 未命中：并发调用 7 渠道 fetch（各自过 rate-limiter + circuit-breaker 门禁）
+进入页面（onMounted，SWR 缓存优先）
+  → hotTopicsGetCache() 读缓存（IPC，内存+SQLite，立即返回）
+    ├─ 缓存有数据（topics.length > 0）→ 立即渲染缓存内容（0 网络等待）
+    │   → 后台静默 refresh(force=false)：不显示中央提示、不打断已渲染内容
+    │   → 主进程缓存新鲜（<10min）直接返回缓存；过期则并发抓取后替换列表
+    └─ 缓存为空（首次使用）→ refresh(force=false) 网络抓取 + 中央加载提示
+
+点击【刷新】（手动，force=true）
+  → 显示中央加载提示（用户明确等待场景）→ 并发调用 7 渠道 fetch
+
+定时器触发（每 30 分钟，页面可见时）
+  → 后台静默 refresh(force=false)：无中央提示，不打断用户
+
+并发抓取（7 渠道，各自过 rate-limiter + circuit-breaker 门禁）
   → 每渠道成功：解析 → 提取 top20 → 分类 → 入列表；失败：记入 channelStats.failed，不阻塞其他渠道
   → 全部返回后：跨渠道去重 → 按 fetchedAt 写缓存 → 更新页面状态
+
+中央加载提示显隐规则
+  → 显示：首次进入无缓存抓取中 / 用户点击【刷新】手动抓取中
+  → 隐藏：抓取完成（成功/失败/异常）后淡出；后台静默刷新一律不显示
+  → 已有内容时后台刷新：列表原地更新，内容不消失、无遮挡
 ```
 
 ### 5.2 分类映射流程
@@ -221,9 +237,10 @@ ${topic}
 
 ```
 onMounted
-  → 读缓存 → 缓存新鲜（<10min）→ 直接渲染，不抓取
-  → 缓存缺失/过期 → 触发 refresh(force=false)
-  → 启动 setInterval(30min, refresh(force=false))
+  → hotTopicsGetCache() 读缓存（SWR）
+    ├─ 有数据 → 立即渲染 + 后台静默 refresh(force=false, background=true)
+    └─ 无数据 → refresh(force=false)（中央加载提示）
+  → 启动 setInterval(30min, refresh(force=false, background=true))
 onUnmounted → clearInterval
 ```
 
@@ -264,6 +281,35 @@ onUnmounted → clearInterval
 - 分类 chips：全部 + 10 分类，单选；切换立即过滤列表。
 - 渠道下拉（el-select）：全部渠道 + 7 渠道（含不可用标记）；切换立即过滤。
 - 刷新按钮：loading 态（转圈 + 禁用），完成后显示「上次刷新 HH:mm」。
+
+### 6.2a 中央加载提示（SWR 优化新增，2026-09-12）
+
+**触发条件**（满足其一显示，非弹窗）：
+
+- 首次进入页面且无可用缓存（topics 为空），网络抓取进行中；
+- 用户点击【刷新】按钮手动触发抓取（即使列表已有内容）。
+
+**不触发**：
+
+- 缓存命中后的后台静默刷新（不打断已渲染内容）；
+- 定时器自动刷新。
+
+**视觉与动效规格**：
+
+- 定位：全屏半透明遮罩（rgba(255,255,255,0.72) + backdrop-blur 2px），z-index 900，内容区居中；
+- 卡片：白底圆角卡片（border-radius 16px，紫色系阴影），最大宽 460px，内边距 36px 48px；
+- 主文案：**「刷新中」** + 三个跳动圆点（依次延迟 0.15s 弹跳动画）；
+- 副文案：**「正在从网上实时获取热门信息，一般需要5-10秒，请耐心等候」**（13px，#777）；
+- 旋转 spinner：42px 紫色圆环（0.9s 线性无限旋转）；
+- 流光进度条：240px 宽轨道，40% 宽渐变光带（紫→浅紫）1.4s 循环扫过；
+- 进出场：0.25s 淡入淡出（Transition）；
+- 无障碍：容器 role="status" aria-live="polite"，动画元素 aria-hidden。
+
+**状态联动**：
+
+- 中央提示显示期间刷新按钮同步显示「刷新中…」并禁用；
+- 抓取失败：中央提示消失 + 错误 toast「选题获取失败，请稍后重试」；
+- 抓取成功：中央提示淡出，列表渲染新数据，头部显示「上次刷新 HH:mm」。
 - 失败渠道警告条：`el-alert` warning，文案「部分渠道获取失败：渠道A、渠道B」，可关闭。
 
 ### 6.3 一键发布进度交互
