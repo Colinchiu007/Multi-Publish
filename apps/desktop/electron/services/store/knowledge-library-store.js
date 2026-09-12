@@ -7,7 +7,7 @@
  * 依赖：logger
  */
 const log = require('../logger')
-const { extractSync } = require('@multi-publish/rewrite-engine/src/keyword-extractor')
+const { extractSync } = require('@multi-publish/rewrite-engine')
 
 const VIRAL_SORT_COLUMNS = new Set([
   'created_at', 'likes', 'collections', 'comments', 'like_collect_ratio', 'published_at',
@@ -167,6 +167,10 @@ module.exports = {
     if (!this._ready) return false
     try {
       const result = this.db.prepare('DELETE FROM viral_library WHERE id = ?').run(String(id))
+      // 级联清理模式卡片（viral_pattern-store mixin 混入同一 prototype 时生效）
+      if ((result.changes || 0) > 0 && typeof this.deletePatternCard === 'function') {
+        try { this.deletePatternCard(id) } catch (e) { /* 卡片清理失败不阻塞主删除 */ }
+      }
       return (result.changes || 0) > 0
     } catch (e) {
       log.warn('Store', 'deleteViralItem failed: ' + e.message)
@@ -177,8 +181,11 @@ module.exports = {
   searchViralItems (query, limit = 20) {
     if (!this._ready) return []
     if (!query || !String(query).trim()) return []
-    // 关键词化检索：长文先提取关键词，再按多词 OR 命中取候选集（修复整文 LIKE 永远空结果的缺陷）
-    const keywords = extractSync(String(query), 8)
+    // 关键词化检索：接受关键词数组（builder 已提取，直传避免二次分词稀释 LLM 兜底结果）
+    // 或字符串（IPC 等独立入口，内部提取——修复整文 LIKE 永远空结果的缺陷）
+    const keywords = Array.isArray(query)
+      ? query.filter(k => typeof k === 'string' && k.trim()).slice(0, 20)
+      : extractSync(String(query), 8)
     if (keywords.length === 0) return []
     const maxLimit = Math.max(1, Math.min(100, Number(limit) || 20))
     try {
@@ -190,8 +197,9 @@ module.exports = {
         conditions.push('(title LIKE ? OR content LIKE ? OR tags LIKE ? OR author LIKE ? OR platform LIKE ?)')
         params.push(like, like, like, like, like)
       }
+      // ORDER BY 保证候选集确定性（无序时 SQLite B-tree 遍历顺序不稳定）
       const rows = this.db.prepare(
-        'SELECT * FROM viral_library WHERE ' + conditions.join(' OR ') + ' LIMIT 100'
+        'SELECT * FROM viral_library WHERE ' + conditions.join(' OR ') + ' ORDER BY (likes + collections + comments) DESC, created_at DESC LIMIT 100'
       ).all(...params)
       if (rows.length === 0) return []
 
@@ -203,7 +211,7 @@ module.exports = {
           if (text.includes(kw.toLowerCase())) hits++
         }
         const engagement = Math.log10(1 + (Number(row.likes) || 0) + (Number(row.collections) || 0) + (Number(row.comments) || 0))
-        const confidence = Number(row.confidence) || 0.5
+        const confidence = row.confidence === 0 ? 0 : (Number(row.confidence) || 0.5)
         return { row, score: hits * 10 + engagement + confidence * 5, hits }
       }).filter(s => s.hits > 0)
 
@@ -326,8 +334,10 @@ module.exports = {
   searchPersonalItems (query, limit = 20) {
     if (!this._ready) return []
     if (!query || !String(query).trim()) return []
-    // 关键词化检索（与爆款库同修：原整文 LIKE 在长文场景永远空结果）
-    const keywords = extractSync(String(query), 8)
+    // 关键词化检索（与爆款库同修；数组直传语义同上）
+    const keywords = Array.isArray(query)
+      ? query.filter(k => typeof k === 'string' && k.trim()).slice(0, 20)
+      : extractSync(String(query), 8)
     if (keywords.length === 0) return []
     const maxLimit = Math.max(1, Math.min(100, Number(limit) || 20))
     try {
@@ -339,7 +349,7 @@ module.exports = {
         params.push(like, like, like)
       }
       const rows = this.db.prepare(
-        'SELECT * FROM personal_knowledge WHERE ' + conditions.join(' OR ') + ' LIMIT 100'
+        'SELECT * FROM personal_knowledge WHERE ' + conditions.join(' OR ') + ' ORDER BY created_at DESC LIMIT 100'
       ).all(...params)
       if (rows.length === 0) return []
 
@@ -350,7 +360,7 @@ module.exports = {
         for (const kw of keywords) {
           if (text.includes(kw.toLowerCase())) hits++
         }
-        const confidence = Number(row.confidence) || 0.5
+        const confidence = row.confidence === 0 ? 0 : (Number(row.confidence) || 0.5)
         return { row, score: hits * 10 + confidence * 5, hits }
       }).filter(s => s.hits > 0)
 

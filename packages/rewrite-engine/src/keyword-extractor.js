@@ -78,8 +78,10 @@ function tokenize(text) {
       .filter(s => s.isWordLike === true)
       .map(s => s.segment)
   } else {
-    // 兼容回退：无 Intl.Segmenter 时退化为 2-4 字正则切分（质量降级但可用）
-    segs = normalized.match(/[\u4e00-\u9fa5]{2,4}/g) || normalized.match(/[a-z0-9]+/g) || []
+    // 兼容回退：无 Intl.Segmenter 时退化为正则切分（质量降级但可用；中英文拼接，不丢英文）
+    const cjk = normalized.match(/[\u4e00-\u9fa5]{2,4}/g) || []
+    const eng = normalized.match(/[a-z0-9]+/g) || []
+    segs = cjk.concat(eng)
   }
 
   const words = []
@@ -171,10 +173,12 @@ async function extractWithLLM(text, topN = 8, llmClient) {
   }
   if (!raw || typeof raw !== 'string') return []
 
-  // 剥代码围栏（```json ... ```）
+  // 剥代码围栏（贪婪匹配到最后一个围栏，防多围栏输出时截断 JSON）
   let cleaned = raw.trim()
-  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-  if (fenceMatch) cleaned = fenceMatch[1].trim()
+  const fenceMatches = cleaned.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/g)
+  let lastFence = null
+  for (const m of fenceMatches) lastFence = m[1]
+  if (lastFence !== null) cleaned = lastFence.trim()
 
   let parsed
   try {

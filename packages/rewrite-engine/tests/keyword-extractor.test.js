@@ -85,3 +85,28 @@ describe('keyword-extractor', function () {
     expect(keywords).toEqual(['甲乙', '丙丁'])
   })
 })
+
+// ===== 审查修复回归（PR #1746 双模型审查发现）=====
+
+describe('keyword-extractor 审查修复回归', function () {
+  test('多代码围栏输出取最后一个围栏（贪婪语义）', async function () {
+    var llmClient = { chat: async function () {
+      return '分析如下：\n```\n一些推理过程\n```\n\n```json\n{"keywords": ["目标词"]}\n```'
+    } }
+    var keywords = await extractWithLLM('任意文本', 5, llmClient)
+    expect(keywords).toEqual(['目标词'])
+  })
+
+  test('LLM 返回停用词被过滤', async function () {
+    var llmClient = { chat: async function () { return '{"keywords": ["的", "不是", "有效词"]}' } }
+    var keywords = await extractWithLLM('任意文本', 5, llmClient)
+    expect(keywords).toEqual(['有效词'])
+  })
+
+  test('中英混排在无 Segmenter 回退路径不丢英文（通过 tokenize 间接验证）', function () {
+    var { tokenize } = require('../src/keyword-extractor')
+    var words = tokenize('自媒体 Content Marketing 运营')
+    expect(words).toContain('content')
+    expect(words).toContain('marketing')
+  })
+})

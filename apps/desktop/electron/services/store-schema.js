@@ -448,6 +448,43 @@ function migrateKnowledgeEvolutionSchema(db) {
   }
 }
 
+/**
+ * 模式卡片 schema（activate-viral-library PR-2）
+ * viral_pattern_cards 与 viral_library 一对一；存量条目回填 pending 卡片。
+ */
+function migrateViralPatternSchema(db) {
+  execSchemaSql(db, `CREATE TABLE IF NOT EXISTS viral_pattern_cards (
+    viral_item_id        TEXT PRIMARY KEY,
+    status               TEXT NOT NULL DEFAULT 'pending',
+    attempts             INTEGER NOT NULL DEFAULT 0,
+    hook_type            TEXT DEFAULT '',
+    hook_analysis        TEXT DEFAULT '',
+    emotion_curve        TEXT DEFAULT '',
+    narrative_structure  TEXT DEFAULT '',
+    cta_style            TEXT DEFAULT '',
+    golden_quotes        TEXT DEFAULT '[]',
+    title_formula        TEXT DEFAULT '',
+    schema_version       INTEGER NOT NULL DEFAULT 1,
+    extracted_at         TEXT,
+    last_error           TEXT DEFAULT '',
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL
+  )`)
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_status ON viral_pattern_cards(status)")
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_created ON viral_pattern_cards(created_at)")
+
+  // 存量爆款条目回填 pending 卡片（幂等：INSERT OR IGNORE）
+  try {
+    const now = new Date().toISOString()
+    db.prepare(`
+      INSERT OR IGNORE INTO viral_pattern_cards (viral_item_id, status, attempts, schema_version, created_at, updated_at)
+      SELECT id, 'pending', 0, 1, ?, ? FROM viral_library
+    `).run(now, now)
+  } catch (e) {
+    // viral_library 表不存在（全新库）时静默跳过
+  }
+}
+
 module.exports = {
   TABLE_NAMES,
   SCHEMA_SQL,
@@ -462,4 +499,5 @@ module.exports = {
   sanitizeUpdateFields,
   UPDATE_WHITELIST,
   migrateKnowledgeEvolutionSchema,
+  migrateViralPatternSchema,
 };

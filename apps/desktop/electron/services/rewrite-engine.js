@@ -8,7 +8,7 @@
  * v4: 三层 KnowledgeContextBuilder 集成（用户偏好 + 爆款库 + 个人知识库）。
  */
 
-const { RewriteEngine, KnowledgeBase, RewriteQualityEvaluator, KnowledgeContextBuilder } = require("@multi-publish/rewrite-engine")
+const { RewriteEngine, KnowledgeBase, RewriteQualityEvaluator, KnowledgeContextBuilder, extractWithLLM } = require("@multi-publish/rewrite-engine")
 const { SensitiveFilter } = require("@multi-publish/rewrite-engine")
 const { SQLiteStorage } = require("@multi-publish/rewrite-engine")
 const log = require("./logger")
@@ -86,23 +86,38 @@ class RewriteEngineService {
     if (this._knowledgeLibrary) {
       knowledgeLibrary = new KnowledgeContextBuilder({
         knowledgeBase: kb,
-        // P0 检索修复：LLM 关键词兜底（规则提取 < 2 词时触发，复用统一 provider 网关）
+        // P1 模式卡片：注入聚合风格指导（卡片缺失/failed 自动回退浅层特征）
+        patternCards: {
+          get: (viralItemId) => {
+            try {
+              if (this._store && typeof this._store.getPatternCard === 'function') {
+                return this._store.getPatternCard(viralItemId)
+              }
+            } catch { /* 卡片读取失败视为缺失 */ }
+            return null
+          },
+        },
+        // P0 检索修复：LLM 关键词兜底（规则提取为 0 词时触发）。
+        // 复用包的 extractWithLLM（停用词过滤/围栏解析与包内单实现，杜绝双实现漂移）；
+        // 10s 超时边界防 provider 挂起阻塞改写主流程。
         llmKeywords: async (text, topN) => {
           if (!this._aiGenerator) return []
           try {
-            const result = await this._aiGenerator.generateWithDefault("llm", {
-              messages: [
-                { role: "system", content: "你是关键词提取助手。从用户文本中提取主题关键词。只输出严格 JSON，格式：{\"keywords\": [\"关键词1\", \"关键词2\"]}，不要任何其他文字。" },
-                { role: "user", content: "从以下文本提取不超过 " + topN + " 个主题关键词（中文优先，保留专有名词）：\n\n" + String(text || "").slice(0, 2000) },
-              ],
-            })
-            const raw = result && typeof result.content === "string" ? result.content : ""
-            let cleaned = raw.trim()
-            const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-            if (fence) cleaned = fence[1].trim()
-            const parsed = JSON.parse(cleaned)
-            if (!parsed || !Array.isArray(parsed.keywords)) return []
-            return parsed.keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()).slice(0, Math.max(1, topN))
+            const chatClient = {
+              chat: async (systemPrompt, userPrompt) => {
+                const result = await Promise.race([
+                  this._aiGenerator.generateWithDefault("llm", {
+                    messages: [
+                      { role: "system", content: systemPrompt },
+                      { role: "user", content: userPrompt },
+                    ],
+                  }),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error("LLM keyword timeout (10s)")), 10000)),
+                ])
+                return result && typeof result.content === "string" ? result.content : ""
+              },
+            }
+            return await extractWithLLM(text, topN, chatClient)
           } catch (e) {
             log.warn("RewriteEngine", "LLM keyword fallback failed: " + (e && e.message))
             return [] // fail-open：LLM 兜底失败静默降级为规则关键词

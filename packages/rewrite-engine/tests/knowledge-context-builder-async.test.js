@@ -79,4 +79,42 @@ describe('KnowledgeContextBuilder async', function () {
     expect(touched.length).toBeGreaterThan(0)
     expect(touched[0].table).toBe('viral_library')
   })
+
+// ===== 审查修复回归：未勾选知识库时零 LLM 调用 =====
+
+describe('KnowledgeContextBuilder 审查修复回归', function () {
+  test('两个开关都关闭时不触发 LLM 兜底（零 LLM 调用）', async function () {
+    var llmCalled = false
+    var builder = makeBuilder({
+      llmKeywords: async function () { llmCalled = true; return ['x'] },
+    })
+    await builder.buildFullContext('的', {}) // 短文本本会触发兜底，但开关全关
+    expect(llmCalled).toBe(false)
+  })
+
+  test('关键词数组直传 search（不再 join 成字符串）', async function () {
+    var receivedQuery = null
+    var builder = makeBuilder({
+      viralLibrary: {
+        search: function (q, n) {
+          receivedQuery = q
+          return [{ id: 'v1', title: '标题', content: '内容'.repeat(30), tags: '[]' }]
+        },
+      },
+    })
+    await builder.buildFullContext('自媒体运营内容质量', { useViralLibrary: true })
+    expect(Array.isArray(receivedQuery)).toBe(true)
+    expect(receivedQuery.length).toBeGreaterThan(0)
+  })
+
+  test('规则提取 1 个关键词即跳过 LLM（阈值 >= 1）', async function () {
+    var llmCalled = false
+    var builder = makeBuilder({
+      llmKeywords: async function () { llmCalled = true; return ['llm词'] },
+    })
+    await builder.buildFullContext('自媒体', { useViralLibrary: true }) // 规则可提取「自媒体」
+    expect(llmCalled).toBe(false)
+  })
+})
+
 })

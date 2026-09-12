@@ -17,10 +17,18 @@ class KnowledgeLibraryService {
   constructor (opts) {
     this._store = opts.store || null
     this._feishuClient = null
+    this._patternExtraction = null
   }
 
   setFeishuClient (fc) {
     this._feishuClient = fc
+  }
+
+  /**
+   * 注入模式卡片提取服务（入库后异步触发提取；可选依赖，未注入时跳过）
+   */
+  setPatternExtraction (pe) {
+    this._patternExtraction = pe
   }
 
   _requireStore () {
@@ -42,6 +50,7 @@ class KnowledgeLibraryService {
     const id = String(item.id || '') || this._genId()
     const resultId = this._store.addViralItem({ ...item, id })
     if (!resultId) return { code: ERROR.REQUEST_ERROR, message: '保存失败' }
+    this._ensureAndTriggerPattern(resultId)
     return { code: ERROR.SUCCESS, data: { id: resultId } }
   }
 
@@ -52,9 +61,26 @@ class KnowledgeLibraryService {
     let count = 0
     for (const item of items) {
       const id = String(item.id || '') || this._genId()
-      if (this._store.addViralItem({ ...item, id })) count++
+      if (this._store.addViralItem({ ...item, id })) {
+        count++
+        this._ensureAndTriggerPattern(id)
+      }
     }
     return { code: ERROR.SUCCESS, data: { count } }
+  }
+
+  /**
+   * 入库后置钩子：建 pending 模式卡片 + 异步触发 LLM 提取（失败不阻塞入库）
+   */
+  _ensureAndTriggerPattern (viralItemId) {
+    try {
+      if (this._store && typeof this._store.ensurePatternCard === 'function') {
+        this._store.ensurePatternCard(viralItemId)
+      }
+      if (this._patternExtraction && typeof this._patternExtraction.triggerExtraction === 'function') {
+        this._patternExtraction.triggerExtraction()
+      }
+    } catch { /* 模式卡片后置钩子失败不影响入库主流程 */ }
   }
 
   listViral (params = {}) {
