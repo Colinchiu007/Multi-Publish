@@ -118,6 +118,26 @@ const MODES = {
   'avatar-spokesperson': 'pipelines.modes.avatar-spokesperson',
 }
 
+/**
+ * Text-based pipelines (rewrite-to-video entry, 2026-09-13):
+ * pipelines whose pipelineText is consumed as the video's textual basis
+ * (full script, voice-over lines, or fidelity-mode topic). Pipelines NOT in
+ * this set ignore the prefilled text for video generation (material-driven,
+ * link-import, screen-recording, smoke-test, script-template flows), so they
+ * are greyed out when the user arrives with a draft text.
+ */
+const TEXT_BASED_PIPELINES = Object.freeze([
+  'story2video-compose',
+  'talking-head',
+  'localization-dub',
+  'animated-explainer',
+  'documentary-montage',
+  'animation',
+  'character-animation',
+  'hybrid',
+  'avatar-spokesperson',
+])
+
 const STAGES = {
   research: 'pipelines.stages.research',
   proposal: 'pipelines.stages.proposal',
@@ -194,6 +214,9 @@ export const PIPELINE_CATEGORY_KEYS = Object.freeze(CATEGORIES)
 export const PIPELINE_MODE_KEYS = Object.freeze(MODES)
 export const PIPELINE_STAGE_KEYS = Object.freeze(STAGES)
 export const PIPELINE_STATUS_KEYS = Object.freeze(STATUSES)
+
+/** Whether a pipeline consumes pipelineText as the video's textual basis. */
+export const isTextBasedPipeline = (pipelineId) => TEXT_BASED_PIPELINES.includes(pipelineId)
 
 export const getPipelineName = (t, pipelineId) => {
   const fallback = fallbackLabel(pipelineId)

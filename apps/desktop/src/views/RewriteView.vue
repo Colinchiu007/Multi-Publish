@@ -144,6 +144,9 @@
           <button class="cohere-btn-secondary" @click="saveToDraft">
             {{ t('rewritePage.saveDraft') }}
           </button>
+          <button class="cohere-btn-secondary" data-testid="btn-video-create" @click="goToVideoCreate">
+            {{ t('rewritePage.goVideo') }}
+          </button>
           <button class="cohere-btn-primary" @click="goToPublish">
             {{ t('rewritePage.goPublish') }}
           </button>
@@ -209,6 +212,8 @@ const previewStrategyName = ref('--')
 // 弹窗
 const showPublishModal = ref(false)
 let savedDraftId = null
+// 跳转防重入（单一互斥锁）：连点/跨按钮并发点击不会重复存草稿、不会产生双草稿
+let navigatingToDestination = false
 
 // ── 选项 ──
 const rewriteModes = [
@@ -250,6 +255,12 @@ async function refreshStrategyPreview() {
 
 // 目标平台变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
 watch(platform, refreshStrategyPreview)
+
+// 改写结果被用户编辑（textarea v-model）→ 已存草稿内容过期：置空 id，下次操作按当前内容重存
+// （saveToDraft 成功后 savedDraftId 更新，此处仅在内容再次变化时失效，不构成循环）
+watch(rewriteResult, (next, prev) => {
+  if (savedDraftId && next !== prev) invalidateSavedDraft()
+})
 
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
 onMounted(() => {
@@ -318,6 +329,8 @@ async function startRewrite() {
     if (res && res.code === 0 && res.data && res.data.success) {
       const data = res.data
       rewriteResult.value = data.result || ''
+      // 新改写结果产生：旧草稿（如有）内容已过期，置空 id 让发布/视频创作按当前文案重存
+      invalidateSavedDraft()
       // P2 隐式反馈：记录本次改写引用的知识条目
       rewriteKnowledgeRefs.value = data.knowledgeRefs || []
       rewriteMeta.value = {
@@ -387,11 +400,38 @@ function sendKnowledgeFeedback(action, refs) {
 /** 去发布 — 先存草稿再弹窗 */
 async function goToPublish() {
   if (!rewriteResult.value.trim()) return
-  if (!savedDraftId) {
-    await saveToDraft()
+  if (navigatingToDestination) return
+  navigatingToDestination = true
+  try {
+    if (!savedDraftId) {
+      await saveToDraft()
+    }
+    if (savedDraftId) {
+      showPublishModal.value = true
+    }
+  } finally {
+    navigatingToDestination = false
   }
-  if (savedDraftId) {
-    showPublishModal.value = true
+}
+
+/** 改写结果变化后旧草稿失效：置空 savedDraftId，下次发布/视频创作按当前文案重存 */
+function invalidateSavedDraft() {
+  savedDraftId = null
+}
+
+/** 视频创作 — 先存草稿，再带草稿 id 跳转视频创作页（用户在创作页选择流水线） */
+async function goToVideoCreate() {
+  if (!rewriteResult.value.trim()) return
+  if (navigatingToDestination) return
+  navigatingToDestination = true
+  try {
+    if (!savedDraftId) {
+      await saveToDraft()
+    }
+    if (!savedDraftId) return // 保存失败已由 saveToDraft 提示，不再跳转
+    router.push({ path: '/create', query: { draft: savedDraftId } })
+  } finally {
+    navigatingToDestination = false
   }
 }
 

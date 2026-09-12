@@ -12,6 +12,13 @@
 - vitest HotTopics 18 + CreateView 277 + PipelineBackgroundToast 2 + store 3 = 300 全通过（rebase origin/main 后）
 - tsc --noEmit PASS；locale-sync --cjk/--keys/--pair-base 全 PASS；check-debt-budget PASS（CreateView 6458→6462 显式更新基线）
 
+## [未发布] fix(collection): 知乎/百家号反爬站点直连 stealth 通道——消除先裸连触发风控的封 IP 风险（2026-09-13）
+
+- **根因**：采集链路为「aggregationCollect（trafilatura 裸连）优先 → 失败回退 urlCollectFetch（stealth 浏览器）」。知乎/百家号对裸 HTTP 有反爬风控，每次点击一键采集/改写都先白挨一次反爬检测（封 IP 风险），失败后才走 stealth。
+- **修复**：新增 url-collect:needs-stealth 路由查询 IPC（纯函数）；ANTI_CRAWL_HOSTNAMES 域名清单单一来源；渲染层对反爬站点直接走 stealth 通道，跳过 Python 聚合层裸连，失败不回退裸连（避免二次触发风控）。
+- **回归测试**：13 个新增（主进程 7 + 前端 6），核心断言「反爬站点 aggregationCollect 必须未被调用」。
+- **知乎官方工具调研**：CLI/API/MCP 全部为搜索/摘要工具，无法读取第三方文章全文（唯一全文命令 me content 限本人创作），不能替代采集链路。
+
 ## [未发布] perf(hot-topics): 热门选题页 SWR 缓存优先渲染 + 中央动态加载提示（2026-09-12）
 
 ### 优化
@@ -25,6 +32,7 @@
 ### 验证
 - vitest HotTopics.test.js 19 passed（+3）；hot-topics-service 21 + assembly 3 + src/api 294 全通过
 - locale-sync --pair-base origin/main PASS（zh/en 成对）
+
 
 ## [未发布] fix(i18n): aggregation 域错误码全量收敛——7 类校验错误不再中文直出（2026-09-12）
 

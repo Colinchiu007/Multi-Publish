@@ -195,7 +195,11 @@ var require_publish = __commonJS({
         cloudPublishGetTask: (taskId) => ipcRenderer2.invoke("cloud-publisher:get-task", taskId),
         cloudPublishPlatforms: () => ipcRenderer2.invoke("cloud-publisher:platforms"),
         // URL Collect API
+        // manual: true — 采集页用户手动点击（豁免周末随机限流；批量走 aggregation 不经此通道）
         urlCollectFetch: (url) => ipcRenderer2.invoke("url-collect:fetch", { url, manual: true }),
+        // 反爬站点路由查询：知乎/百家号等站点直接 HTTP 裸连会触发风控，
+        // 渲染层据此跳过 Python 聚合层裸连、直连 stealth 浏览器通道
+        urlCollectNeedsStealth: (url) => ipcRenderer2.invoke("url-collect:needs-stealth", { url }),
         // Viral Analysis API
         viralAnalyze: (articles, topic) => ipcRenderer2.invoke("viral:analyze", { articles, topic }),
         viralGenerate: (opts) => ipcRenderer2.invoke("viral:generate", opts),

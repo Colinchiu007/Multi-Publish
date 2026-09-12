@@ -78,6 +78,21 @@
 .pipeline-card.is-unavailable { opacity: 0.72; }
 .pipeline-card.is-unavailable:hover { transform: none; box-shadow: none; border-color: var(--border); }
 
+/* 带文案进入（改写页等）时不适配的流水线：灰显不可点击，悬浮提示原因 */
+.pipeline-card.is-text-ineligible {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+  cursor: not-allowed;
+  pointer-events: auto; /* 保留 hover 以显示 title 提示 */
+}
+.pipeline-card.is-text-ineligible:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border);
+}
+/* 灰显时隐藏可用性徽章：悬浮提示已说明原因，避免「开发中」与「不适用」双原因并存混淆 */
+.pipeline-card.is-text-ineligible .availability-badge { display: none; }
+
 /* ── 生成背景层 ───────────────────────────── */
 .card-bg {
   position: absolute;

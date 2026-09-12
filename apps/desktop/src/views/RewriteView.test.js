@@ -6,8 +6,9 @@ import i18n from '@/i18n'
 
 // useRoute() 需要 router 环境；测试统一 mock vue-router（topic 场景由各用例覆盖 query）
 const mockRouteQuery = { value: {} }
+const mockRouterPush = vi.fn()
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockRouterPush }),
   useRoute: () => ({ query: mockRouteQuery.value }),
 }))
 
@@ -96,6 +97,7 @@ describe('RewriteView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRouteQuery.value = {}
+    mockRouterPush.mockClear()
   })
 
   it('renders the page title', () => {
@@ -216,6 +218,84 @@ describe('RewriteView', () => {
   it('does not show result section before rewrite', () => {
     const wrapper = factory()
     expect(wrapper.text()).not.toContain('改写结果')
+  })
+
+  // ── 视频创作入口（rewrite-to-video-entry 2026-09-13）──
+
+  it('shows video create button in result actions after rewrite', async () => {
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const videoBtn = wrapper.find('[data-testid="btn-video-create"]')
+    expect(videoBtn.exists()).toBe(true)
+    expect(videoBtn.text()).toContain('视频创作')
+  })
+
+  it('video create button saves draft then navigates to /create with draft query (no pipeline)', async () => {
+    const { draftSave } = await import('@/api/publisher')
+    draftSave.mockClear()
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    const videoBtn = wrapper.find('[data-testid="btn-video-create"]')
+    await videoBtn.trigger('click')
+    await nextTick()
+    await nextTick()
+    // 先存草稿
+    expect(draftSave).toHaveBeenCalledTimes(1)
+    // 再跳转 /create?draft=xxx（不预选流水线，用户在创作页自选）
+    expect(mockRouterPush).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).toHaveBeenCalledWith({ path: '/create', query: { draft: expect.any(String) } })
+    const query = mockRouterPush.mock.calls[0][0].query
+    expect(query.pipeline).toBeUndefined()
+  })
+
+  it('video create button does not navigate when draft save fails', async () => {
+    const { draftSave } = await import('@/api/publisher')
+    draftSave.mockResolvedValueOnce({ code: -1, message: 'save failed' })
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    await wrapper.find('[data-testid="btn-video-create"]').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  it('video create button is re-entry safe: double click saves draft once and navigates once', async () => {
+    const { draftSave } = await import('@/api/publisher')
+    draftSave.mockClear()
+    mockRouterPush.mockClear()
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    const videoBtn = wrapper.find('[data-testid="btn-video-create"]')
+    // 连点两次：两次 click 同步触发（第二次在第一次的 await saveToDraft() 挂起、锁未释放时进入）
+    const firstClick = videoBtn.trigger('click')
+    const secondClick = videoBtn.trigger('click')
+    await firstClick
+    await secondClick
+    await nextTick()
+    await nextTick()
+    expect(draftSave).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).toHaveBeenCalledTimes(1)
   })
 
   it('rewrite mode chip click changes active mode', async () => {

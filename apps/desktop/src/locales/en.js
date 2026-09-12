@@ -592,6 +592,7 @@ export default {
     resume_stage_not_found: 'The failed stage could not be located, so the task cannot be resumed from the breakpoint. Please start generation again.',
     optionsSaved: 'Options saved ✓',
     optionsRestored: 'Restored your last-used options',
+    draftLoadFailed: 'Draft not found. Please go back and try again',
     splitSceneCount: 'Split into {count} scenes',
     optimizeProgress: '{done}/{total} scenes optimized',
     selectVideoScenes: '{count} AI video scenes selected (~{ratio}%)',
@@ -1872,6 +1873,7 @@ export default {
     inDevelopment: 'In Development',
     availableHint: 'Pipeline available',
     inDevelopmentHint: 'In development, not available yet',
+    textIneligible: 'This pipeline type is not applicable',
   },
   errorDialog: {
     title: 'Error',
@@ -2503,6 +2505,7 @@ knowledgeBase: {
     metaLength: '{original} → {result} chars',
     saveDraft: '💾 Save draft',
     goPublish: '🚀 Publish',
+    goVideo: '🎬 Create Video',
     draftSaved: 'Draft created',
     draftSaveFailed: 'Failed to save draft',
     needLogin: 'AI rewrite requires login. Sign in now?',

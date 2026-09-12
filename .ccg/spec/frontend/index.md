@@ -127,7 +127,19 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 **强制点**：
 - 排序主键提取函数（如 `historyVideoDuration`）必须文档化字段候选顺序，排除重名字段（如 `activeMs`/`duration` 是流水线耗时，不是视频时长）。
 - 排序稳定的场景（从不同 tab 切换回来顺序不变）由纯函数保证，不依赖组件临时状态。
-- 重复检测等派生计算基于完整列表（不受当前 tab 筛选影响），避免切 tab 时标签闪烁。
+  - 重复检测等派生计算基于完整列表（不受当前 tab 筛选影响），避免切 tab 时标签闪烁。
+
+## 13. 反爬站点采集必须前置路由到 stealth 通道，禁止「裸连优先、失败回退」（2026-09-13，fix-zhihu-collect-route）
+
+**模式**：知乎/百家号等反爬站点的采集请求必须在发起前路由到 stealth 浏览器通道（urlCollectFetch），跳过 Python 聚合层的 trafilatura/axios 裸连。路由判断由主进程提供纯函数 IPC（url-collect:needs-stealth），域名清单单一来源（ANTI_CRAWL_HOSTNAMES，与 _needsBrowser 共用）。
+
+**反例（真实 Bug 根因）**：链路设计为「aggregationCollect 裸连优先 → 失败回退 urlCollectFetch」。知乎对裸 HTTP 有风控，每次点击都先触发一次反爬检测（封 IP 风险），失败后才走 stealth。用户输入知乎回答链接点一键改写报「请求过于频繁，被平台限流」。
+
+**强制点**：
+- 渲染层 collectUrl/collectAndRewrite 对反爬站点直接调 urlCollectFetch，断言 aggregationCollect 未被调用
+- stealth 采集失败不得回退裸连（避免二次触发风控）
+- 新增反爬域名必须同时更新 ANTI_CRAWL_HOSTNAMES，并有清单一致性测试锁定
+- 知乎官方 CLI/API/MCP 均为搜索/摘要工具（无第三方全文能力），不能替代 stealth 采集链路
 
 ## 10. 用户可见提示信息强制规则（i18n-user-facing-messages，2026-09-05）
 
