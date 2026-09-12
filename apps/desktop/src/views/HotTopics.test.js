@@ -133,7 +133,7 @@ describe('HotTopics.vue', () => {
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toContain('refreshLoadingTitle')
     expect(hint.text()).toContain('refreshLoadingDesc')
-    expect(hint.find('.loading-dots').exists()).toBe(true)
+    expect(hint.find('.htcl-dots').exists()).toBe(true)
   })
 
   it('shows central loading hint on manual refresh even when topics are visible', async () => {

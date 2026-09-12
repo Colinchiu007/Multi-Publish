@@ -132,18 +132,11 @@
     </div>
 
     <!-- 中央加载提示：首次进入无缓存 / 手动刷新时显示（非弹窗，全屏居中动态提示） -->
-    <Transition name="central-loading-fade">
-      <div v-if="showCentralLoading" class="central-loading-overlay" data-testid="hot-topics-central-loading" role="status" aria-live="polite">
-        <div class="central-loading-card">
-          <div class="central-spinner" aria-hidden="true"></div>
-          <div class="central-loading-title">
-            {{ t('hotTopics.refreshLoadingTitle') }}<span class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-          </div>
-          <div class="central-loading-desc">{{ t('hotTopics.refreshLoadingDesc') }}</div>
-          <div class="central-loading-bar" aria-hidden="true"><span></span></div>
-        </div>
-      </div>
-    </Transition>
+    <HotTopicsCentralLoading
+      :visible="showCentralLoading"
+      :title="t('hotTopics.refreshLoadingTitle')"
+      :description="t('hotTopics.refreshLoadingDesc')"
+    />
 
     <!-- 发布去向弹窗（复用采集页） -->
     <PublishDestinationModal
@@ -209,6 +202,7 @@ import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipel
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import UiModal from '@/components/UiModal.vue'
+import HotTopicsCentralLoading from '@/components/HotTopicsCentralLoading.vue'
 import { StageProgress } from './video-creation'
 import { buildStory2VideoTextConfigFromSnapshot } from '@/story2video/s2v-config-snapshot'
 import { STORY2VIDEO_STAGE_NAMES } from '@/domain/pipeline-constants'
@@ -952,61 +946,6 @@ onUnmounted(() => {
 .empty-box { text-align: center; padding: 60px 20px; }
 .empty-title { font-size: 16px; font-weight: 600; color: #555; margin-bottom: 8px; }
 .empty-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
-/* ── 中央加载提示（非弹窗：全屏半透明遮罩 + 居中动效卡片） ── */
-.central-loading-overlay {
-  position: fixed; inset: 0; z-index: 1001; /* 高于应用内模态（UpgradeModal/ViralFormDialog 等 z-index 1000） */
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(2px);
-}
-.central-loading-card {
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  padding: 36px 48px; background: #fff;
-  border: 1px solid #e9e8f6; border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(81, 73, 232, 0.14);
-  max-width: 460px; text-align: center;
-}
-.central-spinner {
-  width: 42px; height: 42px; border-radius: 50%;
-  border: 4px solid #eceafb; border-top-color: #5149e8;
-  animation: hot-topics-spin 0.9s linear infinite;
-}
-.central-loading-title {
-  font-size: 17px; font-weight: 700; color: #333;
-  display: flex; align-items: baseline; gap: 2px;
-}
-.central-loading-desc { font-size: 13px; color: #777; line-height: 1.6; }
-/* 滚动进度条（流光扫过效果） */
-.central-loading-bar {
-  width: 240px; height: 6px; border-radius: 3px;
-  background: #f0efff; overflow: hidden; position: relative;
-}
-.central-loading-bar span {
-  position: absolute; top: 0; left: 0; height: 100%; width: 40%;
-  border-radius: 3px; background: linear-gradient(90deg, #5149e8, #8b83ff);
-  animation: hot-topics-bar-sweep 1.4s ease-in-out infinite;
-}
-/* 跳动省略号 */
-.loading-dots { display: inline-flex; gap: 4px; margin-left: 4px; }
-.loading-dots span {
-  width: 5px; height: 5px; border-radius: 50%; background: #5149e8;
-  display: inline-block; animation: hot-topics-dot-bounce 1.2s ease-in-out infinite;
-}
-.loading-dots span:nth-child(2) { animation-delay: 0.15s; }
-.loading-dots span:nth-child(3) { animation-delay: 0.3s; }
-/* keyframes 带 hot-topics- 前缀：scoped 不隔离 @keyframes 名，防跨组件冲突 */
-@keyframes hot-topics-spin { to { transform: rotate(360deg); } }
-@keyframes hot-topics-bar-sweep {
-  0% { left: -40%; }
-  100% { left: 100%; }
-}
-@keyframes hot-topics-dot-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-  30% { transform: translateY(-5px); opacity: 1; }
-}
-/* 淡入淡出 */
-.central-loading-fade-enter-active, .central-loading-fade-leave-active { transition: opacity 0.25s ease; }
-.central-loading-fade-enter-from, .central-loading-fade-leave-to { opacity: 0; }
 .publish-progress { padding: 12px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
 .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #5149e8; }
 .progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
