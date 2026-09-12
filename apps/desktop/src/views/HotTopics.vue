@@ -94,11 +94,8 @@
         </div>
       </div>
 
-      <!-- 选题列表 -->
-      <div v-if="loading && topics.length === 0" class="loading-box">
-        <el-skeleton :rows="6" animated />
-      </div>
-      <div v-else-if="filteredTopics.length === 0" class="empty-box" data-testid="hot-topics-empty">
+      <!-- 选题列表（加载态由中央提示覆盖，此处仅空态/列表） -->
+      <div v-if="filteredTopics.length === 0 && !loading" class="empty-box" data-testid="hot-topics-empty">
         <div class="empty-title">{{ t('hotTopics.emptyTitle') }}</div>
         <div class="empty-desc">{{ t('hotTopics.emptyDesc') }}</div>
         <button class="cohere-btn-primary" @click="refresh(true)">{{ t('hotTopics.emptyAction') }}</button>
@@ -137,6 +134,13 @@
         </div>
       </div>
     </div>
+
+    <!-- 中央加载提示：首次进入无缓存 / 手动刷新时显示（非弹窗，全屏居中动态提示） -->
+    <HotTopicsCentralLoading
+      :visible="showCentralLoading"
+      :title="t('hotTopics.refreshLoadingTitle')"
+      :description="t('hotTopics.refreshLoadingDesc')"
+    />
 
     <!-- 发布去向弹窗（复用采集页） -->
     <PublishDestinationModal
@@ -197,11 +201,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { hotTopicsFetch } from '@/api/hot-topics'
+import { hotTopicsFetch, hotTopicsGetCache } from '@/api/hot-topics'
 import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, onPipelineUpdate } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import UiModal from '@/components/UiModal.vue'
+import HotTopicsCentralLoading from '@/components/HotTopicsCentralLoading.vue'
 import { StageProgress } from './video-creation'
 import { buildStory2VideoTextConfigFromSnapshot } from '@/story2video/s2v-config-snapshot'
 import { STORY2VIDEO_STAGE_NAMES } from '@/domain/pipeline-constants'
@@ -215,6 +220,7 @@ const { notifyError, notifyInfo } = useNotify()
 const topics = ref([])
 const channelStats = ref({})
 const loading = ref(false)
+const showCentralLoading = ref(false) // 中央加载提示：首次无缓存抓取 / 手动刷新时显示
 const lastRefresh = ref(0)
 const activeCategory = ref('all')
 const activeChannel = ref('all')
@@ -395,11 +401,17 @@ function toggleSelectAll() {
   }
 }
 
-/** 竞态守卫：刷新请求序号 */
-async function refresh(force = false) {
-  if (loading.value || publishing.value) return
+/** 竞态守卫：刷新请求序号；background=true 后台静默刷新（不显示中央提示） */
+async function refresh(force = false, { background = false } = {}) {
+  if (publishing.value) return
+  if (loading.value) {
+    // 已有抓取 in-flight：手动刷新复用当前请求仅补显中央提示；后台刷新静默返回
+    if (!background) showCentralLoading.value = true
+    return
+  }
   const seq = ++requestSeq
   loading.value = true
+  if (!background) showCentralLoading.value = true
   try {
     const res = await hotTopicsFetch(force)
     if (seq !== requestSeq) return // 旧响应丢弃
@@ -416,7 +428,28 @@ async function refresh(force = false) {
   } catch (_) {
     if (seq === requestSeq) notifyError('hotTopics.loadFailed')
   } finally {
-    if (seq === requestSeq) loading.value = false
+    if (seq === requestSeq) {
+      loading.value = false
+      showCentralLoading.value = false
+    }
+  }
+}
+
+/** SWR：缓存优先渲染——命中缓存立即显示并后台静默刷新；未命中走网络抓取（中央加载提示） */
+async function loadFromCacheThenRefresh() {
+  let cached = null
+  try {
+    cached = await hotTopicsGetCache()
+  } catch (_) { cached = null }
+  if (disposed) return
+  const data = cached && cached.code === 0 ? cached.data : null
+  if (data && Array.isArray(data.topics) && data.topics.length > 0) {
+    topics.value = data.topics
+    channelStats.value = data.channelStats || {}
+    lastRefresh.value = data.fetchedAt || 0
+    refresh(false, { background: true }) // 后台刷新：不打断已渲染内容
+  } else {
+    refresh(false) // 无可用缓存：网络抓取 + 中央加载提示
   }
 }
 
@@ -862,10 +895,10 @@ function closeGenVideoModal() {
 
 // ── 生命周期 ──
 onMounted(() => {
-  refresh(false)
+  loadFromCacheThenRefresh()
   refreshTimer = setInterval(() => {
     if (document.hidden) return
-    if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false)
+    if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false, { background: true })
   }, 60 * 1000)
 })
 
@@ -873,6 +906,8 @@ onUnmounted(() => {
   disposed = true
   if (refreshTimer) clearInterval(refreshTimer)
   requestSeq++ // 使 in-flight 响应失效
+  loading.value = false // 防 KeepAlive/重挂载场景下陈旧加载态泄漏
+  showCentralLoading.value = false
   publishing.value = false
   genVideoSeq++
   stopGenVideoTracking() // 停止轮询/订阅；主进程 run 不受影响（后台继续）
@@ -917,7 +952,6 @@ onUnmounted(() => {
 .empty-box { text-align: center; padding: 60px 20px; }
 .empty-title { font-size: 16px; font-weight: 600; color: #555; margin-bottom: 8px; }
 .empty-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
-.loading-box { padding: 20px 0; }
 .publish-progress { padding: 12px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
 .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #5149e8; }
 .progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }

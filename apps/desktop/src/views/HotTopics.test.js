@@ -48,6 +48,7 @@ vi.mock('@/composables/useNotify', () => ({
 import HotTopics from './HotTopics.vue'
 import i18n from '@/i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
+import { hotTopicsGetCache } from '@/api/hot-topics'
 import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun } from '@/api/publisher'
 
 const mockTopics = [
@@ -66,6 +67,8 @@ describe('HotTopics.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     pushSpy.mockClear()
+    // 默认无缓存：走网络抓取路径（与旧行为兼容）
+    hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
   })
 
   it('renders topic list after fetch', async () => {
@@ -75,6 +78,85 @@ describe('HotTopics.vue', () => {
     const items = wrapper.findAll('[data-testid="hot-topic-item"]')
     expect(items).toHaveLength(3)
     expect(wrapper.text()).toContain('AI大模型最新突破进展')
+  })
+
+  // ─── SWR 优化：缓存优先渲染 + 后台刷新 ───
+
+  it('renders cached topics immediately on mount, then background refresh updates the list', async () => {
+    // 缓存有数据：立即渲染；后台刷新完成后新数据替换旧数据（flushPromises 跑完 mount+getCache+fetch，断言最终态）
+    hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now() - 5 * 60 * 1000, channelStats: { zhihu: { ok: true } } } })
+    // 后台刷新 deferred：先断言缓存中间态，再放行 fetch 验证替换（SWR 核心保证：缓存先渲染、网络后更新）
+    let resolveFetch
+    hotTopicsFetch.mockImplementation(() => new Promise(r => { resolveFetch = r }))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // 中间态：缓存 3 条已渲染、fetch 未完成、无中央提示（后台刷新不打断内容）
+    expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('AI大模型最新突破进展')
+    expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(false)
+
+    // 放行后台刷新 → 新数据替换旧数据
+    resolveFetch({ code: 0, data: { topics: [...mockTopics, { id: 'bilibili:1', topic: '新B站热榜话题', channel: 'bilibili', category: 'tech', rank: 1, hotValue: 999, url: null }], fetchedAt: Date.now(), channelStats: {} } })
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(4)
+    expect(wrapper.text()).toContain('新B站热榜话题')
+    // 全程无中央提示（后台刷新不打断用户）
+    expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(false)
+    expect(hotTopicsFetch).toHaveBeenCalledWith(false)
+  })
+
+  it('falls back to network fetch with central loading when getCache throws', async () => {
+    // getCache IPC 异常：静默容错回退网络抓取路径
+    hotTopicsGetCache.mockRejectedValue(new Error('IPC error'))
+    hotTopicsFetch.mockImplementation(() => new Promise(() => {})) // 抓取挂起：验证中央提示出现
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(hotTopicsFetch).toHaveBeenCalledWith(false)
+    expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(true)
+  })
+
+  it('shows central loading hint with animated dots when no cache on first visit', async () => {
+    // 无缓存 + fetch 挂起（模拟网络抓取中）
+    hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
+    hotTopicsFetch.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // 中央加载提示可见：主文案 + 动态元素
+    const hint = wrapper.find('[data-testid="hot-topics-central-loading"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('refreshLoadingTitle')
+    expect(hint.text()).toContain('refreshLoadingDesc')
+    expect(hint.find('.htcl-dots').exists()).toBe(true)
+  })
+
+  it('shows central loading hint on manual refresh even when topics are visible', async () => {
+    // 有缓存数据 + 用户点击刷新按钮
+    hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now() - 30 * 60 * 1000, channelStats: {} } })
+    // 后台刷新立即完成（让 loading 归位，按钮恢复可点），手动刷新再挂起
+    hotTopicsFetch.mockResolvedValueOnce({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    hotTopicsFetch.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    // 缓存已渲染
+    expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(3)
+
+    // 点击刷新按钮（手动刷新 = 用户明确等待场景，显示中央提示）
+    const refreshBtn = wrapper.findAll('.header-actions button').find(b => b.text().includes('refresh'))
+    expect(refreshBtn).toBeTruthy()
+    expect(refreshBtn.attributes('disabled')).toBeFalsy() // loading 结束后按钮恢复可点
+    await refreshBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(3) // 旧数据保留
   })
 
   it('shows empty state when no topics', async () => {

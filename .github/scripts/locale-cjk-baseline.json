@@ -81,7 +81,7 @@
   "apps/desktop/src/components/AiWriterPanel.vue||读取 AI 配置失败",
   "apps/desktop/src/components/AiWriterPanel.vue||输入文案",
   "apps/desktop/src/components/AiWriterPanel.vue||输入文章主题或关键词",
-  "apps/desktop/src/components/AiWriterPanel.vue||输入需要改写的文案内容（至少 20 字）",
+  "apps/desktop/src/components/AiWriterPanel.vue||输入需要改写的文案内容（最多 6000 字）",
   "apps/desktop/src/components/AiWriterPanel.vue||选择",
   "apps/desktop/src/components/AiWriterPanel.vue||选择润色风格",
   "apps/desktop/src/components/AiWriterPanel.vue||选题创作",

@@ -714,6 +714,42 @@ describe("CollectionView", () => {
     expect(w.vm.collecting).toBe(false);
   });
 
+  // ── 字数区间控制（2026-09-12）──
+
+  it("renders word count inputs with default 800-2000 and replaces length select", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationRewrite: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "C", description: "" };
+    await nextTick();
+    const inputs = w.findAll('input[type="number"]');
+    expect(inputs.length).toBeGreaterThanOrEqual(2);
+    expect(w.vm.rewriteWordCountMin).toBe(800);
+    expect(w.vm.rewriteWordCountMax).toBe(2000);
+    // 三档 length 下拉已移除
+    const selects = w.findAll("select");
+    const lengthOptions = selects.flatMap((s) => s.findAll("option").map((o) => o.text()));
+    expect(lengthOptions).not.toContain("保持原文");
+  });
+
+  it("rewriteCollected blocked when max < min", async () => {
+    window.electronAPI = {
+      aggregationRewrite: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "原始正文内容。", description: "" };
+    w.vm.rewriteWordCountMin = 2000;
+    w.vm.rewriteWordCountMax = 100;
+    await nextTick();
+    await w.vm.rewriteCollected();
+    expect(w.vm.rewriteWordCountError).toContain("最大字数不能小于最小字数");
+    expect(window.electronAPI.aggregationRewrite).not.toHaveBeenCalled();
+  });
+
   // ── 回归：AI 改写无密钥错误必须渲染 locale 友好文案（2026-09-12）──
   // 曾泄漏原始技术消息「未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写」到 UI。
   it("rewriteCollected 无密钥错误 → 显示友好文案，不暴露环境变量名", async () => {

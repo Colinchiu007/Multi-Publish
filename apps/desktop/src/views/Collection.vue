@@ -73,10 +73,18 @@
             <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
               <option v-for="s in getRewriteStyles()" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
-            <select v-model="rewriteLength" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
-              <option v-for="l in getRewriteLengths()" :key="l.value" :value="l.value">{{ l.label }}</option>
-            </select>
-            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult">
+            <!-- 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档 -->
+            <WordCountRangeInput
+              v-model:min="rewriteWordCountMin"
+              v-model:max="rewriteWordCountMax"
+              :label="$t('collection.wordCountLabel')"
+              :min-placeholder="$t('collection.wordCountMinPlaceholder')"
+              :max-placeholder="$t('collection.wordCountMaxPlaceholder')"
+              :unit="$t('collection.wordCountUnit')"
+              :error="rewriteWordCountError"
+              :disabled="rewriting || oneClickRewriting"
+            />
+            <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult || !!rewriteWordCountError">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
             <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="cohere-btn-secondary" @click="retryRewrite" :disabled="rewriting" style="font-size:13px">
@@ -296,8 +304,10 @@ import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, aiRewrite } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
+import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -321,7 +331,9 @@ const collectSources = ref([
   { type: 'api', name: '自定义 API' },
 ])
 const rewriteStyle = ref('轻松易懂')
-const rewriteLength = ref('keep')
+// 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档，默认 800-2000
+const rewriteWordCountMin = ref(800)
+const rewriteWordCountMax = ref(2000)
 const rewriteResult = ref('')
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
@@ -336,12 +348,17 @@ const LENGTH_TO_TARGET = { keep: 'medium', compress: 'short', expand: 'long' }
 async function rewriteViaEngine (content) {
   let res
   try {
+    // main 新增的字数控制（min/max）→ targetLength 语义映射：窄区间视为 short，宽高区间视为 long，其余 medium
+    const minW = Number(rewriteWordCountMin.value) || 800
+    const maxW = Number(rewriteWordCountMax.value) || 2000
+    const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
     const params = {
       mode: 'imitate',
       content: content,
       userSettings: {
-      tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
-        targetLength: LENGTH_TO_TARGET[rewriteLength.value] || 'medium',
+        tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
+        targetWordCount: { min: minW, max: maxW },
+        targetLength: LENGTH_TO_TARGET[rewriteLength.value] || wordCountTarget,
         knowledgeOptions: {
           useViralLibrary: useViralLibrary.value,
           usePersonalKnowledge: usePersonalExperience.value,
@@ -377,7 +394,6 @@ let batchPollTimer = null
 // 在 Vite dev server 模块变换阶段 i18n 未就绪时抛出异常导致整个懒加载 chunk 失败。
 // 与 c3c395570 (Accounts.vue) 同模式。
 const _rewriteStyles = ref(null)
-const _rewriteLengths = ref(null)
 function getRewriteStyles() {
   if (!_rewriteStyles.value) {
     _rewriteStyles.value = [
@@ -390,16 +406,13 @@ function getRewriteStyles() {
   }
   return _rewriteStyles.value
 }
-function getRewriteLengths() {
-  if (!_rewriteLengths.value) {
-    _rewriteLengths.value = [
-      { label: resolveNotifyText('collection.rewriteLengthKeep').text, value: 'keep' },
-      { label: resolveNotifyText('collection.rewriteLengthCompress').text, value: 'compress' },
-      { label: resolveNotifyText('collection.rewriteLengthExpand').text, value: 'expand' },
-    ]
-  }
-  return _rewriteLengths.value
-}
+
+// ── 字数区间校验（共享 composable，与 RewriteView 一致）──
+const { error: rewriteWordCountError } = useWordCountValidation(
+  rewriteWordCountMin,
+  rewriteWordCountMax,
+  (key) => resolveNotifyText('collection.' + key).text
+)
 
 onMounted(async () => {
   await loadDrafts();
@@ -714,6 +727,10 @@ function retryCollect () {
 
 async function collectAndRewrite () {
   // 一键采集+改写：先采集URL，成功后自动触发改写
+  if (rewriteWordCountError.value) {
+    notifyWarning('collection.wordCountInvalid')
+    return
+  }
   if (!linkUrl.value || !linkUrl.value.trim()) {
     notifyWarning('collection.enterLink')
     return
@@ -866,6 +883,10 @@ async function collectAndRewrite () {
 
 async function rewriteCollected () {
   if (!collectedResult.value) return
+  if (rewriteWordCountError.value) {
+    notifyWarning('collection.wordCountInvalid')
+    return
+  }
   const api = getApi()
   if (!api) {
     notifyWarning('collection.collectUnavailable')

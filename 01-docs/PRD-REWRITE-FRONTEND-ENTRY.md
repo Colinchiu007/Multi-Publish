@@ -40,7 +40,8 @@ packages/rewrite-engine 改写引擎后端已完整实现（多策略文案改�
   - 手动模式下渲染策略下拉框：选项来自 aiListRewriteStrategies IPC（内置 5 套 + 运营后台远程下发、仅启用项），含占位项「-- 选择策略 --」；策略列表加载失败时下拉仅含占位项，改写仍可发起（走自动匹配）
   - 传参契约：手动模式传 `strategyId = 所选策略 id`（未选传 null）；自动模式显式传 `strategyId = null`，引擎 `_resolveStrategy` 收到 null 走 StrategyMatcher 自动匹配
   - 预览与实际执行的一致性说明：预览与发起改写是两次独立 IPC 调用，若期间远程策略同步变化，实际策略可能不同——以结果区显示的 strategy.name 为准
-- 「开始改写」按钮：内容 ≥20 字时启用，点击后调用 aiRewrite IPC
+- 「开始改写」按钮：内容非空且字数区间合法时启用，点击后调用 aiRewrite IPC
+- 「字数控制」行（2026-09-12）：min/max 两个数字输入框（默认 800/2000），实时校验（整数、min 0-5999、max 1-6000、max ≥ min），错误红字显示且禁用改写按钮；提交时经 userSettings.wordCountRange = { min, max } 传给引擎
 
 结果区（改写完成后显示）：
 - 改写元信息：策略名、AI味等级、原文/结果字数
@@ -49,8 +50,9 @@ packages/rewrite-engine 改写引擎后端已完整实现（多策略文案改�
 - 「去发布」按钮：先自动存入草稿，再弹出 PublishDestinationModal
 
 数据校验：
-- 内容 ≥20 Unicode 字符：提示「请输入至少 20 字的文案内容」
+- 内容非空（2026-09-12 起无最小字数限制）：空内容提示「请输入文案内容」
 - 内容 ≤6000 Unicode 字符：rewrite-engine 后端校验
+- 字数区间：min/max 整数校验 + max ≥ min 跨字段校验（前端实时 + 引擎后处理按 max 截断）
 - 调用 AI 前必须登录：提示「AI 改写需要登录后使用，是否立即登录？」
 
 ### 2.3 发布去向弹窗 (PublishDestinationModal.vue)
@@ -233,7 +235,14 @@ rewritePage 区块（文案改写页面）：
 - goPublish: 去发布 / Publish
 - draftSaveFailed: 存入草稿失败 / Failed to save draft
 - needLogin: AI 改写需要登录后使用，是否立即登录？ / AI rewrite requires login...
-- tooShort: 请输入至少 20 字的文案内容 / Please enter at least 20 chars
+- contentEmpty: 请输入文案内容 / Please enter some content（2026-09-12 替代原 tooShort，移除最小字数）
+- wordCountLabel: 字数控制 / Word count
+- wordCountMinPlaceholder: 最小 / Min
+- wordCountMaxPlaceholder: 最大 / Max
+- wordCountUnit: 字 / chars
+- wordCountMinInvalid: 最小字数需为 0-5999 的整数 / Min must be an integer between 0 and 5999
+- wordCountMaxInvalid: 最大字数需为 1-6000 的整数 / Max must be an integer between 1 and 6000
+- wordCountMaxLtMin: 最大字数不能小于最小字数 / Max cannot be less than min
 - charCount: 字 / chars
 
 publishDestination 区块（发布去向弹窗）：

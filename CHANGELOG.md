@@ -22,6 +22,33 @@
 ### 验证
 - rewrite-engine 包 94 测试 + 桌面端 171 测试全绿；locale 三项门禁（CJK/keys/pair）全过；QM-1 打包 exit=0 + asar 清单 + 启动 8s 三调度器确认
 - 双模型审查：PR-1 opencode 3 MAJOR + claude 2C/5M 全修复；PR-2 claude 2C/8W 全修复（opencode 三次因 wrapper stdin 传参失败未出报告，API 可用性问题非审查缺席）
+=======
+## [未发布] perf(hot-topics): 热门选题页 SWR 缓存优先渲染 + 中央动态加载提示（2026-09-12）
+
+### 优化
+- **根因**：进入热门选题页时 `onMounted` 直接 `refresh(false)` 等待 7 渠道并发抓取完成（全局超时 10s）才渲染——缓存过期（TTL 10min）时用户盯骨架屏最长 10 秒；主进程已有 `hotTopicsGetCache` IPC（立即返回 SQLite/内存缓存）但渲染层从未调用。
+- **修复（SWR 模式）**：① 进入页面先调 `hotTopicsGetCache`，缓存有数据立即渲染（0 网络等待），随后后台静默刷新（不打断内容）；② 仅首次无缓存时走网络抓取并显示中央加载提示；③ 手动点击【刷新】显示中央提示（用户明确等待场景）；④ 定时器自动刷新改为静默后台模式。
+- **中央加载提示**：全屏半透明遮罩 + 居中白卡片，主文案「刷新中」+ 三点跳动动画，副文案「正在从网上实时获取热门信息，一般需要5-10秒，请耐心等候」，配旋转 spinner + 流光进度条 + 0.25s 淡入淡出；role="status" aria-live="polite" 无障碍标注。
+- **回归保护**：vitest +3（缓存命中立即渲染+后台刷新替换、无缓存中央提示含动效元素、手动刷新中央提示+旧数据保留）；zh/en locale 成对新增 `refreshLoadingTitle`/`refreshLoadingDesc`。
+- **双模型审查修复**（opencode + Claude）：① onUnmounted 补 loading/showCentralLoading 重置（防 KeepAlive 重挂载泄漏）；② SWR 测试改 deferred promise 断言中间态（缓存 3 条先渲染 → fetch 放行后替换为 4 条，核心保证有回归保护）；③ 新增 getCache IPC 异常回退测试；④ z-index 900→1001（高于 UpgradeModal 等 z-1000 模态）；⑤ @keyframes 加 hot-topics- 前缀防 scoped 不隔离的全局名冲突；⑥ 装饰点 `<i>`→`<span>` 语义修正。
+- **文档**：PRD §5.1 刷新流程改写为 SWR 三分支、§5.5 定时刷新逻辑更新、§6.2a 新增中央加载提示完整规格（触发条件/不触发条件/视觉动效/状态联动）。
+
+### 验证
+- vitest HotTopics.test.js 19 passed（+3）；hot-topics-service 21 + assembly 3 + src/api 294 全通过
+- locale-sync --pair-base origin/main PASS（zh/en 成对）
+
+## [未发布] fix(i18n): aggregation 域错误码全量收敛——7 类校验错误不再中文直出（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：改写/采集链路的模型校验错误（内容为空、URL 格式、source_type/style/length 枚举、字数区间、改写引擎失败、500 兜底）全部以中文 ValueError 抛出，经 formatUserError 的 passthrough 分支（非技术特征、≤200 字符）原样直出 UI——英文用户看到中文。上两轮（PR #1736/#1744）修了泄漏路径与门禁失效，本轮收敛存量债务。
+- **修复**：① models.py/service.py 全部校验错误升级 `UserVisibleError`（10 个错误码，带 `params={value, supported, min, max}` 插值参数）；② router 四端点统一 `except UserVisibleError` 透传 `detail={error_code, message, params}`，500 兜底不再拼接异常原文；③ python-bridge 补 `params` 透传；④ formatUserError 支持 `{param}` 占位符插值（params 缺失时占位符保留原样）；⑤ locales zh/en 成对新增 10 条文案。
+- **逃逸分析**：passthrough 设计本为保留自然语言具体原因，但后端中文消息对英文用户即泄漏——「非技术特征」判定不含语言维度；--py-cjk 门禁只拦「新增」，存量 90 条进基线后无人收敛。
+- **回归保护**：pytest +2（Pydantic v2 ctx.error 错误码断言 + params 属性断言）；vitest +6（zh/en 渲染、params 插值、占位符缺失保留、500 兜底不直出异常原文、AGGREGATION_INTERNAL_ERROR/REWRITE_FAILED）。
+- **预防**：--py-cjk 扫描豁免语义明确化（UserVisibleError 兜底文本与 detail 对象 message 豁免，裸 raise 与 500 拼接仍拦截）；PRD §8.1.1 补全量错误码表与数据流。
+
+### 验证
+- pytest test_aggregation 43 passed（+2）；vitest user-facing-error/Collection/message-contract 114 passed（+6）
+- locale-sync --keys（888 key）/--cjk/--py-cjk 全 PASS；check-locale-sync.test + workflow-contract 25 passed
 
 ## [未发布] fix(ci): locale 门禁自身加固——Gate 7 退出码吞掉 + CJK 基线行号漂移假阳性（2026-09-12）
 
