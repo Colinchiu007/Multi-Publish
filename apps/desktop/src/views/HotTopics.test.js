@@ -178,6 +178,29 @@ describe('HotTopics.vue', () => {
     expect(wrapper.findAll('[data-testid="hot-topic-item"]')).toHaveLength(1)
   })
 
+  it('rank badges renumber from 1 within filtered view (not source channel rank)', async () => {
+    // 场景：分类筛选后各渠道原始 rank 混排（1、3、7…），视图内序号应从 1 连续递增
+    const mixed = [
+      { id: 'zhihu:3', topic: '科技话题三', channel: 'zhihu', category: 'tech', rank: 3, hotValue: null, url: null, fetchedAt: 'T' },
+      { id: 'toutiao:7', topic: '科技话题七', channel: 'toutiao', category: 'tech', rank: 7, hotValue: null, url: null, fetchedAt: 'T' },
+      { id: 'baidu:1', topic: '日常话题', channel: 'baidu', category: 'general', rank: 1, hotValue: null, url: null, fetchedAt: 'T' },
+    ]
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mixed, fetchedAt: Date.now(), channelStats: {} } })
+    const wrapper = mountPage()
+    await flushPromises()
+    // 点击「科技」chip
+    const chips = wrapper.findAll('.category-chip')
+    await chips[4].trigger('click')
+    const badges = wrapper.findAll('.rank-badge')
+    expect(badges).toHaveLength(2)
+    expect(badges[0].text()).toBe('1') // zhihu rank=3 → 视图内 1
+    expect(badges[1].text()).toBe('2') // toutiao rank=7 → 视图内 2
+    // 全部视图下同样从 1 递增
+    await chips[0].trigger('click')
+    const allBadges = wrapper.findAll('.rank-badge')
+    expect(allBadges.map(b => b.text())).toEqual(['1', '2', '3'])
+  })
+
   it('checkbox toggle updates selection', async () => {
     hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
     const wrapper = mountPage()

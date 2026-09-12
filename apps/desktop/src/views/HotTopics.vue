@@ -98,7 +98,7 @@
       </div>
       <div v-else class="topics-list">
         <div
-          v-for="topic in filteredTopics"
+          v-for="(topic, viewIndex) in filteredTopics"
           :key="topic.id"
           class="topic-item"
           :class="{ selected: selectedIds.has(topic.id) }"
@@ -111,7 +111,7 @@
             :data-testid="'hot-topic-check-' + topic.id"
             @change="toggleSelect(topic.id)"
           />
-          <span class="rank-badge">{{ topic.rank }}</span>
+          <span class="rank-badge" :title="t('hotTopics.sourceRank', { rank: topic.rank })">{{ viewIndex + 1 }}</span>
           <span class="topic-text" :title="topic.topic">{{ displayTopic(topic.topic) }}</span>
           <span class="tag category-tag" :class="'cat-' + topic.category">{{ t('hotTopics.categories.' + topic.category) }}</span>
           <span class="tag channel-tag">{{ t('hotTopics.channels.' + topic.channel) }}</span>
@@ -260,7 +260,7 @@ const GEN_VIDEO_TERMINAL_STAGE_STATUSES = new Set(['completed', 'skipped', 'fail
 
 // ── 常量 ──
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
-const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'tophub']
+const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo', 'tophub']
 const BATCH_LIMIT = 20
 const TOPIC_PREFIX_KEY = 'hotTopics.topicPrefix'
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000

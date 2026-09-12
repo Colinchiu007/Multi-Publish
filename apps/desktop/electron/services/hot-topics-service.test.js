@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { HotTopicsService, CACHE_KEY, CHANNEL_CONFIGS } from './hot-topics-service.js'
 import { classifyTopic } from './hot-topics/classifier.js'
-import { parseZhihu, parseToutiao, parseTencent, parseBilibili, parseDouyin, parseBaidu, parseTophub } from './hot-topics/channels.js'
+import { parseZhihu, parseToutiao, parseTencent, parseBilibili, parseDouyin, parseBaidu, parseTophub, parseWeibo } from './hot-topics/channels.js'
 
 // ── 分类器 ──
 describe('hot-topics classifier', () => {
@@ -17,6 +17,18 @@ describe('hot-topics classifier', () => {
   })
   it('falls back to general when nothing matches', () => {
     expect(classifyTopic(null, 'zhihu', '完全无关文本')).toBe('general')
+  })
+  it('maps weibo native category to 10-category system', () => {
+    expect(classifyTopic('数码', 'weibo', '任意文本')).toBe('tech')
+    expect(classifyTopic('民生新闻', 'weibo', '任意文本')).toBe('society')
+    expect(classifyTopic('健康医疗', 'weibo', '任意文本')).toBe('health')
+    // 未命中微博分类 → 关键词兜底
+    expect(classifyTopic('未知微博分类', 'weibo', 'A股大涨')).toBe('finance')
+  })
+  it('maps bilibili tname to 10-category system', () => {
+    expect(classifyTopic('手机游戏', 'bilibili', '任意文本')).toBe('entertainment')
+    expect(classifyTopic('科学科普', 'bilibili', '任意文本')).toBe('tech')
+    expect(classifyTopic('校园学习', 'bilibili', '任意文本')).toBe('education')
   })
 })
 
@@ -45,20 +57,35 @@ describe('hot-topics channel parsers', () => {
     expect(items[0].url).toBe('https://news.qq.com/a')
   })
   it('parses bilibili json', () => {
-    const json = { data: { list: [{ title: 'B站视频', bvid: 'BV1xx', stat: { view: 99999 } }] } }
+    const json = { data: { list: [{ title: 'B站视频', bvid: 'BV1xx', tname: '手机游戏', stat: { view: 99999 } }] } }
     const items = parseBilibili(json)
     expect(items[0]).toMatchObject({ channel: 'bilibili', topic: 'B站视频', hotValue: 99999, url: 'https://www.bilibili.com/video/BV1xx' })
+    expect(items[0].rawCategory).toBe('手机游戏')
   })
   it('parses douyin json', () => {
     const json = { data: { word_list: [{ word: '抖音热点词', hot_value: 8888888 }] } }
     const items = parseDouyin(json)
     expect(items[0]).toMatchObject({ channel: 'douyin', topic: '抖音热点词', hotValue: 8888888 })
   })
-  it('parses baidu embedded s-data html', () => {
-    const html = '<html><!--s-data:{"cards":[{"content":[{"rank":"1","word":"百度热搜词&amp;测试","hotScore":"666666","url":"https://baidu.com/s?wd=1"}]}]}--></html>'
-    const items = parseBaidu(html)
+  it('parses baidu official json api (nested content)', () => {
+    const json = { data: { cards: [{ content: [{ content: [
+      { index: 1, word: '百度热搜词&amp;测试', url: 'https://baidu.com/s?wd=1', newHotName: '热' },
+    ] }] }] } }
+    const items = parseBaidu(json)
     expect(items[0].topic).toBe('百度热搜词&测试')
-    expect(items[0].hotValue).toBe(666666)
+    expect(items[0].rank).toBe(1)
+    expect(items[0].url).toBe('https://baidu.com/s?wd=1')
+  })
+  it('parses weibo hot_band json with native category', () => {
+    const json = { data: { band_list: [
+      { word: '微博热搜词', num: 972888, realpos: 1, category: '数码', label_name: '热' },
+      { word: '第二条', num: 500000, realpos: 2, category: '民生新闻' },
+    ] } }
+    const items = parseWeibo(json)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ channel: 'weibo', rank: 1, topic: '微博热搜词', hotValue: 972888, rawCategory: '数码' })
+    expect(items[0].url).toContain('https://s.weibo.com/weibo?q=')
+    expect(items[1].rawCategory).toBe('民生新闻')
   })
   it('parses tophub weibo node page html', () => {
     const html = '<tbody> <tr> <td align="center">1.</td> <td><a href="https://s.weibo.com/weibo?q=%E6%B5%8B%E8%AF%95" target="_blank" rel="nofollow" itemid="1">男子编造停捐遭威胁事件被抓</a></td> <td class="ws">125万</td> </tr></tbody>'
@@ -180,11 +207,24 @@ describe('HotTopicsService', () => {
     expect(calls.some(c => c[0] === 'set')).toBe(true)
   })
 
-  it('has 7 channel configs with interval >= 5 minutes', () => {
-    expect(CHANNEL_CONFIGS).toHaveLength(7)
+  it('has 8 channel configs with interval >= 5 minutes', () => {
+    expect(CHANNEL_CONFIGS).toHaveLength(8)
+    const ids = CHANNEL_CONFIGS.map(c => c.id)
+    expect(ids).toContain('weibo')
+    expect(ids).toContain('baidu')
     for (const cfg of CHANNEL_CONFIGS) {
       expect(cfg.intervalMinutes).toBeGreaterThanOrEqual(5)
       expect(cfg.url.startsWith('https://')).toBe(true)
     }
+  })
+  it('baidu channel uses official JSON api (no HTML parsing)', () => {
+    const baidu = CHANNEL_CONFIGS.find(c => c.id === 'baidu')
+    expect(baidu.url).toBe('https://top.baidu.com/api/board?platform=wise&tab=realtime')
+    expect(baidu.riskLevel).toBe('low')
+  })
+  it('weibo channel config has Referer header', () => {
+    const weibo = CHANNEL_CONFIGS.find(c => c.id === 'weibo')
+    expect(weibo.headers.Referer).toBe('https://weibo.com/')
+    expect(weibo.riskLevel).toBe('medium')
   })
 })
