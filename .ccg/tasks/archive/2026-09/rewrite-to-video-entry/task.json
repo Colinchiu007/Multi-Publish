@@ -1,0 +1,12 @@
+{
+  "id": "rewrite-to-video-entry",
+  "title": "文案改写页新增视频创作入口并带入改写文案（含流水线灰显）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-09-12",
+  "branch": "codex/rewrite-to-video-entry"
+}
