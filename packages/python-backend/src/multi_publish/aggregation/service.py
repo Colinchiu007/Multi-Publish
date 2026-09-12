@@ -211,9 +211,9 @@ class AggregationService:
 
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
-        # 输入校验：内容过短（<20 字）优先报错，与 RewriteProcessor 的校验保持一致
-        if len((request.content or "").strip()) < 20:
-            raise ValueError(f"输入内容过短（仅 {len((request.content or '').strip())} 字符），请提供至少 20 字的完整文章")
+        # 输入校验：仅拦截空内容（2026-09-12 移除 20 字下限，非空即可改写）
+        if not (request.content or "").strip():
+            raise UserVisibleError("AGGREGATION_CONTENT_EMPTY", "输入内容不能为空")
         # 前置校验：未配置 LLM API Key 时返回稳定错误码，由前端 locale 渲染友好文案
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
         if not api_key:
@@ -242,7 +242,16 @@ class AggregationService:
             url="",
         )
         strategy_name = _STYLE_TO_STRATEGY.get(request.style, "rewrite")
-        min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
+        # 字数区间优先级：显式传入的 min/max_word_count > length 三档映射
+        # （前端始终传 min/max_word_count；旧客户端只传 length 时走三档映射，
+        #   用 model_fields_set 区分"显式提供"与"模型默认值"，避免默认值吞掉 length 路径）
+        fields_set = request.model_fields_set
+        if "min_word_count" in fields_set and "max_word_count" in fields_set:
+            min_wc = request.min_word_count
+            max_wc = request.max_word_count
+            target_wc = (min_wc + max_wc) // 2
+        else:
+            min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
         rewrite_cfg = RewriteConfig(
             strategy=RewriteStrategy(strategy_name),
             min_word_count=min_wc,
@@ -252,7 +261,9 @@ class AggregationService:
         async with RewriteProcessor(config) as proc:
             result = await proc.rewrite(content_obj, rewrite_cfg)
         if not result.success:
-            raise ValueError(result.error or "未知错误")
+            # 改写引擎失败兜底：错误码化（原始 error 进日志，不直出 UI）
+            logger.warning(f"[AggregationService] rewrite engine failed: {result.error}")
+            raise UserVisibleError("AGGREGATION_REWRITE_FAILED", "AI 改写未能完成，请稍后重试")
         result_model = RewriteResultModel(
             result_content=result.rewritten_content,
             word_count=len(result.rewritten_content),

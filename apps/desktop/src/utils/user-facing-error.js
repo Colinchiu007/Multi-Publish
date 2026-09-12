@@ -36,6 +36,16 @@ export const USER_ERROR_CODES = Object.freeze({
   API_KEY_NOT_CONFIGURED: 'API_KEY_NOT_CONFIGURED',
   API_KEY_REQUIRED: 'API_KEY_REQUIRED',
   LLM_KEY_MISSING: 'LLM_KEY_MISSING',
+  AGGREGATION_CONTENT_EMPTY: 'AGGREGATION_CONTENT_EMPTY',
+  AGGREGATION_URL_EMPTY: 'AGGREGATION_URL_EMPTY',
+  AGGREGATION_URL_INVALID: 'AGGREGATION_URL_INVALID',
+  AGGREGATION_SOURCE_TYPE_UNSUPPORTED: 'AGGREGATION_SOURCE_TYPE_UNSUPPORTED',
+  AGGREGATION_STYLE_UNSUPPORTED: 'AGGREGATION_STYLE_UNSUPPORTED',
+  AGGREGATION_LENGTH_UNSUPPORTED: 'AGGREGATION_LENGTH_UNSUPPORTED',
+  AGGREGATION_WORD_COUNT_RANGE_INVALID: 'AGGREGATION_WORD_COUNT_RANGE_INVALID',
+  AGGREGATION_REWRITE_FAILED: 'AGGREGATION_REWRITE_FAILED',
+  AGGREGATION_INTERNAL_ERROR: 'AGGREGATION_INTERNAL_ERROR',
+  AGGREGATION_TASK_NOT_FOUND: 'AGGREGATION_TASK_NOT_FOUND',
   ADAPTER_INIT_FAILED: 'ADAPTER_INIT_FAILED',
   OPERATION_NOT_SUPPORTED: 'OPERATION_NOT_SUPPORTED',
   CREATE_FAILED: 'CREATE_FAILED',
@@ -174,7 +184,12 @@ export function formatUserError (input, options = {}) {
     const known = USER_ERROR_CODES[input.errorCode]
     const message = known ? messageFor(input.errorCode) : null
     if (message) {
-      return { errorCode: input.errorCode, message, matched: 'errorCode' }
+      // 插值参数：后端 params（或 messageParams）替换文案中的 {param} 占位符
+      const params = { ...(input.params || {}), ...(input.messageParams || {}) }
+      const interpolated = Object.keys(params).length
+        ? message.replace(/\{(\w+)\}/g, (m, k) => (params[k] !== undefined ? String(params[k]) : m))
+        : message
+      return { errorCode: input.errorCode, message: interpolated, matched: 'errorCode' }
     }
   }
 

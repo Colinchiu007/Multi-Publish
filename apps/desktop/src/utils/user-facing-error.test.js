@@ -141,3 +141,54 @@ describe('formatUserError — LLM_KEY_MISSING（AI 改写无密钥，2026-09-12 
     expect(legacy.message).not.toContain('PO_OPENAI_API_KEY')
   })
 })
+
+describe('formatUserError — aggregation 域错误码 + params 插值（2026-09-12 存量收敛）', () => {
+  it('AGGREGATION_CONTENT_EMPTY：zh/en 渲染自然语言', () => {
+    const zh = formatUserError({ errorCode: 'AGGREGATION_CONTENT_EMPTY', code: -400 }, { locale: 'zh' })
+    expect(zh.errorCode).toBe('AGGREGATION_CONTENT_EMPTY')
+    expect(zh.message).toContain('请先输入')
+    const en = formatUserError({ errorCode: 'AGGREGATION_CONTENT_EMPTY', code: -400 }, { locale: 'en' })
+    expect(en.message).toContain('Please enter')
+  })
+
+  it('AGGREGATION_URL_INVALID：zh/en 渲染 + 不泄露内部字段名', () => {
+    const zh = formatUserError({ errorCode: 'AGGREGATION_URL_INVALID', code: -400 }, { locale: 'zh' })
+    expect(zh.message).toContain('http://')
+    expect(zh.message).not.toContain('source_type')
+    const en = formatUserError({ errorCode: 'AGGREGATION_URL_INVALID', code: -400 }, { locale: 'en' })
+    expect(en.message).toContain('http://')
+  })
+
+  it('params 插值：{value}/{supported}/{min}/{max} 占位符替换为实际值', () => {
+    const r = formatUserError(
+      { errorCode: 'AGGREGATION_STYLE_UNSUPPORTED', code: -400, params: { value: '未知风格', supported: '轻松易懂, 正式严谨' } },
+      { locale: 'zh' },
+    )
+    expect(r.message).toContain('未知风格')
+    expect(r.message).toContain('轻松易懂')
+    expect(r.message).not.toContain('{value}')
+    expect(r.message).not.toContain('{supported}')
+
+    const range = formatUserError(
+      { errorCode: 'AGGREGATION_WORD_COUNT_RANGE_INVALID', code: -400, params: { min: '3000', max: '800' } },
+      { locale: 'zh' },
+    )
+    expect(range.message).toContain('3000')
+    expect(range.message).toContain('800')
+    expect(range.message).not.toContain('{min}')
+  })
+
+  it('params 缺失时占位符保留原样（不崩溃不产生 undefined）', () => {
+    const r = formatUserError({ errorCode: 'AGGREGATION_STYLE_UNSUPPORTED', code: -400 }, { locale: 'zh' })
+    expect(r.message).toContain('{value}')
+    expect(r.message).not.toContain('undefined')
+  })
+
+  it('AGGREGATION_INTERNAL_ERROR / AGGREGATION_REWRITE_FAILED：500 兜底不再直出异常原文', () => {
+    const internal = formatUserError({ errorCode: 'AGGREGATION_INTERNAL_ERROR', code: -500, message: 'ConnectionResetError(10054)' }, { locale: 'zh' })
+    expect(internal.message).toContain('内部错误')
+    expect(internal.message).not.toContain('ConnectionResetError')
+    const rewrite = formatUserError({ errorCode: 'AGGREGATION_REWRITE_FAILED', code: -400 }, { locale: 'en' })
+    expect(rewrite.message).toContain('could not be completed')
+  })
+})

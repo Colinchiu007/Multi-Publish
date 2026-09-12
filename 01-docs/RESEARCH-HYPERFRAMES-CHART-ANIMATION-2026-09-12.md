@@ -1,6 +1,6 @@
 # 研究报告与落地计划：基于 HyperFrames 的「图表动画」视频创作流水线
 
-> 状态：**待用户确认**（Q1-Q5 决策问题见文末，确认后开工）
+> 状态：**已确认**（2026-09-12 用户确认 Q1-Q5 全部按推荐方案执行：混合路线 / 6 种图表首期 / CreateView 通用编排 / 一并修复 11 处断点 / 首期无 AI 辅助）
 > 日期：2026-09-12
 > 关联：PRD-CHART-ANIMATION-2026-09-12.md（Phase 0 产出）、PRD-video-creation.md、PRD-remotion.md
 > 上游项目：https://github.com/heygen-com/hyperframes（Apache 2.0）
@@ -64,7 +64,7 @@ HyperFrames 是 Remotion 的**替代品**而非构建于其上（docs/guides/hyp
   - `_render_via_hyperframes()`（video_compose.py:1510-1546）走 "Could not import hyperframes_compose" 分支 → `render_runtime='hyperframes'` 必然失败。
   - **主入口当前根本调不到 hyperframes。**
 - `hf_html_gen.py` 的 `cut_to_html` 仅支持 5 种形状：text_card / image-clip / video-clip / composition-clip / placeholder（hf_html_gen.py:36-145），**无图表 cut 类型**。
-- 附带发现（未逐一验证，建议单独审计）：`direct_clip_search.py:196/206/230`、`corpus_builder.py:203/217/243`、`upscale.py:313`、`face_restore.py:128` 存在同类 legacy 导入模式（`video_creation.video.*`）。
+- 附带发现（**已实测验证，2026-09-12**）：`direct_clip_search.py:196/206/230`、`corpus_builder.py:203/217/243`、`corpus_builder.py:243`、`upscale.py:313`、`face_restore.py:128` 存在同类 legacy 导入模式（`video_creation.video.*`）。实测（`PYTHONPATH=src` 逐模块 import）：`providers.video.stock_sources` / `providers.video._shared` / `providers.video.clip_cache` 全部 OK；`video_creation.video.*` 三条路径全部 `ModuleNotFoundError`。**即 4 个文件共 11 处断点全部真实断裂**——`direct_clip_search`、`corpus_builder`、`upscale`、`face_restore` 的相关功能在运行时同样会静默失败（异常被吞）。同一根因（providers 目录重构后导入未同步）、同一修法（路径加 `providers.`），边际修复成本极低。
 - 文档缺口：`hyperframes_compose.py:10-13` 引用的 `skills/core/hyperframes.md` 在仓库中不存在。
 
 ### 1.6 复用策略结论
@@ -174,7 +174,7 @@ HyperFrames 是 Remotion 的**替代品**而非构建于其上（docs/guides/hyp
 | Remotion Composition props 校验与 Explainer 耦合（render-engine.js:101） | 中 | 新增独立 Composition 分支 + 独立校验器 |
 | bar-chart-race 算法移植帧对帧偏差 | 中 | 单测锁定关键帧状态（首帧/末帧/rank 交换点） |
 | i18n 成对遗漏（CI Gate 7） | 低 | zh/en 同时改 + 本地跑 check-locale-sync.js |
-| legacy 导入路径同类 bug（4 个文件未验证） | 低 | 本次只修 hyperframes 两处，其余记录为后续任务 |
+| legacy 导入路径同类 bug（4 个文件 11 处，已实测全部断裂） | 低 | 本次一并修复（同根因同修法），回归测试覆盖真实 import |
 | 共享根 behind 6 + 他人未跟踪文件 | 低 | 先 fetch，worktree 从 origin/main 建，不碰共享根 |
 
 ---
@@ -191,7 +191,7 @@ HyperFrames 是 Remotion 的**替代品**而非构建于其上（docs/guides/hyp
 ➡️ 推荐：通用编排接入。
 
 ❓ **Q4 - bug 修复范围**：只修 `video_compose.py` 两处 hyperframes 导入，还是顺带审计修复同类 legacy 路径（direct_clip_search/corpus_builder/upscale/face_restore）？
-➡️ 推荐：本次只修 hyperframes 两处 + 在 PRD 记录其余为后续任务，避免 scope 膨胀。
+➡️ 推荐（已按实测证据更新）：本次一并修复全部 11 处——已实测确认 4 个文件 11 处断点全部真实断裂，同一根因（providers 目录重构后导入未同步）、同一修法（路径加 `providers.`）、边际成本极低，且 `direct_clip_search`/`corpus_builder` 属视频素材检索链路，与本流水线数据输入体验相关。
 
 ❓ **Q5 - 数据输入方式**：首期支持"结构化 JSON + 粘贴表格文本"两种，是否需要 AI 辅助（自然语言→图表数据）？
 ➡️ 推荐：首期不做 AI 辅助，保持确定性。
@@ -202,5 +202,6 @@ HyperFrames 是 Remotion 的**替代品**而非构建于其上（docs/guides/hyp
 
 - 调研方式：两个并行子代理（外部项目调研 + 本地流水线架构调研），主代理交叉验证关键结论。
 - 已实测验证：hyperframes 导入路径 bug（`PYTHONPATH=src python -c` 实测，providers 路径 OK / legacy 路径 ModuleNotFoundError）。
-- 未验证（标注为推断）：4 个同类 legacy 导入文件的运行时行为；hyperframes registry 图表 block 的完整数据契约（建议按需深读 bar-chart-race.html 与对应 mdx）。
+- 已实测验证（2026-09-12 补充）：4 个同类 legacy 导入文件共 11 处断点全部真实断裂（providers 路径 OK / legacy 路径 ModuleNotFoundError，逐模块 import 实测）。
++- 未验证（标注为推断）：hyperframes registry 图表 block 的完整数据契约（建议按需深读 bar-chart-race.html 与对应 mdx）。
 - 本文档为 docs-only 变更，按项目分层分支策略在 main 直接提交。

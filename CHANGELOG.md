@@ -1,3 +1,16 @@
+## [未发布] fix(i18n): aggregation 域错误码全量收敛——7 类校验错误不再中文直出（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：改写/采集链路的模型校验错误（内容为空、URL 格式、source_type/style/length 枚举、字数区间、改写引擎失败、500 兜底）全部以中文 ValueError 抛出，经 formatUserError 的 passthrough 分支（非技术特征、≤200 字符）原样直出 UI——英文用户看到中文。上两轮（PR #1736/#1744）修了泄漏路径与门禁失效，本轮收敛存量债务。
+- **修复**：① models.py/service.py 全部校验错误升级 `UserVisibleError`（10 个错误码，带 `params={value, supported, min, max}` 插值参数）；② router 四端点统一 `except UserVisibleError` 透传 `detail={error_code, message, params}`，500 兜底不再拼接异常原文；③ python-bridge 补 `params` 透传；④ formatUserError 支持 `{param}` 占位符插值（params 缺失时占位符保留原样）；⑤ locales zh/en 成对新增 10 条文案。
+- **逃逸分析**：passthrough 设计本为保留自然语言具体原因，但后端中文消息对英文用户即泄漏——「非技术特征」判定不含语言维度；--py-cjk 门禁只拦「新增」，存量 90 条进基线后无人收敛。
+- **回归保护**：pytest +2（Pydantic v2 ctx.error 错误码断言 + params 属性断言）；vitest +6（zh/en 渲染、params 插值、占位符缺失保留、500 兜底不直出异常原文、AGGREGATION_INTERNAL_ERROR/REWRITE_FAILED）。
+- **预防**：--py-cjk 扫描豁免语义明确化（UserVisibleError 兜底文本与 detail 对象 message 豁免，裸 raise 与 500 拼接仍拦截）；PRD §8.1.1 补全量错误码表与数据流。
+
+### 验证
+- pytest test_aggregation 43 passed（+2）；vitest user-facing-error/Collection/message-contract 114 passed（+6）
+- locale-sync --keys（888 key）/--cjk/--py-cjk 全 PASS；check-locale-sync.test + workflow-contract 25 passed
+
 ## [未发布] fix(ci): locale 门禁自身加固——Gate 7 退出码吞掉 + CJK 基线行号漂移假阳性（2026-09-12）
 
 ### 修复（QM-5 五步）
