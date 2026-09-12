@@ -192,10 +192,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 114 个键（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections）', () => {
+  it('publish 模块应导出 115 个键（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + urlCollectNeedsStealth）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(114)
+    expect(Object.keys(r).length).toBe(115)
   })
 
   it('account 模块应导出 45 个方法', () => {
@@ -213,8 +213,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 316（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus）', () => {
-    expect(Object.keys(api).length).toBe(316)
+  it('合并后 api 总键数应为 317（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth）', () => {
+    expect(Object.keys(api).length).toBe(317)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

@@ -202,6 +202,76 @@ describe("UrlCollector _needsBrowser", () => {
   });
 });
 
+// 回归保护：知乎链接一键改写报 rate_limited（2026-09-13）。
+// 根因：渲染层先走 Python 聚合层 trafilatura 裸连知乎 → 触发反爬失败 →
+// 回退 urlCollectFetch 才走 stealth。每次点击都先白挨一次反爬检测（封 IP 风险）。
+// 修复：暴露 needs-stealth 路由查询，渲染层对反爬站点直接走 stealth 通道。
+describe("UrlCollector url-collect:needs-stealth 路由查询（回归：知乎先裸连触发风控）", () => {
+  let collector;
+  let handlers;
+
+  beforeEach(() => {
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {} } });
+    handlers = {};
+    collector.registerIpcHandlers({ handle: (ch, fn) => { handlers[ch] = fn } });
+  });
+
+  it("知乎问题/回答 URL → needsStealth: true（必须走 stealth，禁止裸连）", async () => {
+    const ret = await handlers["url-collect:needs-stealth"](null, {
+      url: "https://www.zhihu.com/question/20255485/answer/2021183938203263464",
+    });
+    expect(ret.code).toBe(0);
+    expect(ret.data.needsStealth).toBe(true);
+  });
+
+  it("知乎专栏 URL → needsStealth: true", async () => {
+    const ret = await handlers["url-collect:needs-stealth"](null, {
+      url: "https://zhuanlan.zhihu.com/p/368038553",
+    });
+    expect(ret.code).toBe(0);
+    expect(ret.data.needsStealth).toBe(true);
+  });
+
+  it("百家号 URL → needsStealth: true", async () => {
+    const ret = await handlers["url-collect:needs-stealth"](null, {
+      url: "https://baijiahao.baidu.com/s?id=1873093353787420593",
+    });
+    expect(ret.code).toBe(0);
+    expect(ret.data.needsStealth).toBe(true);
+  });
+
+  it("普通站点 → needsStealth: false（走默认聚合路径）", async () => {
+    const ret = await handlers["url-collect:needs-stealth"](null, {
+      url: "https://example.com/article",
+    });
+    expect(ret.code).toBe(0);
+    expect(ret.data.needsStealth).toBe(false);
+  });
+
+  it("非法 URL → 不拦截（needsStealth: false，交由 collect 完整校验）", async () => {
+    const ret = await handlers["url-collect:needs-stealth"](null, { url: "not-a-url" });
+    expect(ret.code).toBe(0);
+    expect(ret.data.needsStealth).toBe(false);
+  });
+
+  it("缺少参数对象 → VALIDATION_ERROR", async () => {
+    const ret = await handlers["url-collect:needs-stealth"](null, null);
+    expect(ret.code).not.toBe(0);
+  });
+
+  it("静态判断与 _needsBrowser 共用同一域名清单（单一来源，防漂移）", () => {
+    // _needsBrowser 与 isAntiCrawlHost 必须一致：实例采集与渲染层路由不能各维护一份清单
+    for (const host of ["zhuanlan.zhihu.com", "www.zhihu.com", "zhihu.com", "baijiahao.baidu.com"]) {
+      expect(UrlCollector.isAntiCrawlHost(host)).toBe(true);
+      expect(collector._needsBrowser(host)).toBe(true);
+    }
+    for (const host of ["example.com", "mp.weixin.qq.com", "bilibili.com"]) {
+      expect(UrlCollector.isAntiCrawlHost(host)).toBe(false);
+      expect(collector._needsBrowser(host)).toBe(false);
+    }
+  });
+});
+
 describe("UrlCollector _parseHtml", () => {
   let collector;
 
