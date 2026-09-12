@@ -1,30 +1,59 @@
 import { ref } from 'vue'
-import { onAuthCompleted, onAccountStatusChanged } from '@/api/publisher'
+import { onAuthCompleted, onAccountStatusChanged, accountBatchCheckLogin } from '@/api/publisher'
 import { reportError } from '@/utils/report-error'
 
 /**
  * 首页「登录失效提醒」横幅状态与自动刷新。
  *
+ * 关键修正（2026-09-12）：不再读数据库 status === 'expired'（PR #1677
+ * 之后 checkLogin 已不写该字段，遗留脏数据会导致已登录账号误判失效），
+ * 改为实际调用 accountBatchCheckLogin 确认当前登录状态。
+ *
  * - expiredAccounts / expiredAccountCount / showExpiredBanner 为横幅渲染状态；
- * - refresh() 重算（accountStore.load + 过滤 expired）；
- * - 事件订阅（onAuthCompleted / onAccountStatusChanged）让凭证保存成功或
- *   账号状态变化后横幅自动刷新，用户无需切页/重进首页；
+ * - refresh() 调 accountBatchCheckLogin 逐账号验证，仅真正失效的才入列；
+ * - 事件订阅让凭证保存后自动刷新，用户无需切页；
  * - dispose() 清理全部订阅（组件 onUnmounted 调用）。
  */
 export function useExpiredAccountsBanner (accountStore) {
   const expiredAccounts = ref([])
   const expiredAccountCount = ref(0)
   const showExpiredBanner = ref(false)
+  const checking = ref(false)
 
   async function refresh () {
+    if (checking.value) return
+    checking.value = true
     try {
       await accountStore.load()
-      const expired = accountStore.accounts.filter(account => account.status === 'expired')
+      const accounts = accountStore.accounts || []
+      if (accounts.length === 0) {
+        expiredAccounts.value = []
+        expiredAccountCount.value = 0
+        showExpiredBanner.value = false
+        return
+      }
+      const ids = accounts.map(a => a.id).filter(Boolean)
+      if (ids.length === 0) {
+        expiredAccounts.value = []
+        expiredAccountCount.value = 0
+        showExpiredBanner.value = false
+        return
+      }
+      const result = await accountBatchCheckLogin(ids)
+      const results = (result?.code === 0 && Array.isArray(result?.data?.results))
+        ? result.data.results
+        : []
+      const expired = accounts.filter(account => {
+        const check = results.find(r => r.accountId === account.id)
+        return check && !check.valid
+      })
       expiredAccounts.value = expired
       expiredAccountCount.value = expired.length
       showExpiredBanner.value = expired.length > 0
     } catch (e) {
       reportError('刷新首页失效账号失败', e)
+    } finally {
+      checking.value = false
     }
   }
 
@@ -44,5 +73,5 @@ export function useExpiredAccountsBanner (accountStore) {
     }
   }
 
-  return { expiredAccounts, expiredAccountCount, showExpiredBanner, refresh, subscribeAutoRefresh, dispose }
+  return { expiredAccounts, expiredAccountCount, showExpiredBanner, checking, refresh, subscribeAutoRefresh, dispose }
 }

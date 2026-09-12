@@ -39,10 +39,12 @@ vi.mock("@/stores/tab", () => ({
 }));
 
 const accountBatchOpenLoginMock = vi.fn();
+const accountBatchCheckLoginMock = vi.fn();
 const onAuthCompletedMock = vi.fn(() => vi.fn());
 const onAccountStatusChangedMock = vi.fn(() => vi.fn());
 vi.mock("@/api/publisher", () => ({
   accountBatchOpenLogin: (...args) => accountBatchOpenLoginMock(...args),
+  accountBatchCheckLogin: (...args) => accountBatchCheckLoginMock(...args),
   onAuthCompleted: (...args) => onAuthCompletedMock(...args),
   onAccountStatusChanged: (...args) => onAccountStatusChangedMock(...args),
 }));
@@ -183,14 +185,27 @@ describe("HomeView", () => {
     }
   });
 
-  it("shows login expired banner when there are expired accounts", async () => {
+  // expired banner 的失效判定由 accountBatchCheckLogin 的真正结果控制，不再读 status 字段
+  function mockCheckResult(map) {
+    accountBatchCheckLoginMock.mockResolvedValue({
+      code: 0,
+      data: {
+        results: Object.entries(map).map(([id, valid]) => ({ accountId: id, valid, code: valid ? "CHECK_LOGIN_SUCCESS" : "CHECK_LOGIN_COOKIE_EXPIRED" })),
+      },
+    });
+  }
+
+  it("shows login expired banner when check results validate expired accounts", async () => {
     accountStoreMock.accounts = [
       { id: "a1", platform: "weibo", status: "active" },
-      { id: "a2", platform: "douyin", status: "expired" },
-      { id: "a3", platform: "zhihu", status: "expired" },
+      { id: "a2", platform: "douyin", status: "active" },
+      { id: "a3", platform: "zhihu", status: "active" },
     ];
+    // 后两个账号检查返回 false → 判别失效
+    mockCheckResult({ a1: true, a2: false, a3: false });
     const w = await flushMounted(mountHome());
     expect(accountStoreMock.ensureLoaded).toHaveBeenCalled();
+    expect(accountBatchCheckLoginMock).toHaveBeenCalled();
     const banner = w.find(".login-expired-banner");
     expect(banner.exists()).toBe(true);
     expect(w.text()).toContain("登录失效提醒");
@@ -198,20 +213,23 @@ describe("HomeView", () => {
     expect(w.text()).toContain("批量登录");
   });
 
-  it("hides login expired banner when there are no expired accounts", async () => {
+  it("hides login expired banner when all check results report valid", async () => {
     accountStoreMock.accounts = [
       { id: "a1", platform: "weibo", status: "active" },
-      { id: "a2", platform: "douyin", status: "online" },
+      { id: "a2", platform: "douyin", status: "active" },
     ];
+    mockCheckResult({ a1: true, a2: true });
     const w = await flushMounted(mountHome());
     expect(w.find(".login-expired-banner").exists()).toBe(false);
   });
 
   it("opens login tabs for all expired accounts on batch login", async () => {
     accountStoreMock.accounts = [
-      { id: "a1", platform: "weibo", status: "expired" },
-      { id: "a2", platform: "douyin", status: "expired" },
+      { id: "a1", platform: "weibo", status: "active" },
+      { id: "a2", platform: "douyin", status: "active" },
     ];
+    // 两个都判失效 → expiredAccounts 包含它们
+    mockCheckResult({ a1: false, a2: false });
     const w = await flushMounted(mountHome());
     await w.find(".banner-btn").trigger("click");
     expect(accountBatchOpenLoginMock).toHaveBeenCalledWith(["a1", "a2"]);
@@ -221,7 +239,8 @@ describe("HomeView", () => {
   });
 
   it("dismisses login expired banner", async () => {
-    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "expired" }];
+    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "active" }];
+    mockCheckResult({ a1: false });
     const w = await flushMounted(mountHome());
     expect(w.find(".login-expired-banner").exists()).toBe(true);
     await w.find(".banner-close").trigger("click");
