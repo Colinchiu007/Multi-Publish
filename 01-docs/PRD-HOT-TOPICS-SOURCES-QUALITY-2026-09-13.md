@@ -40,7 +40,7 @@
 - channel id：weibo；渠道名：微博热搜（zh）/ Weibo Hot Search（en）
 - 端点：https://weibo.com/ajax/statuses/hot_band
 - 请求头：桌面 UA + Referer: https://weibo.com/（无需 cookie）
-- 解析 data.band_list[]：word→topic、num→hotValue、realpos→rank、category→rawCategory（原生分类）、url 构造 https://s.weibo.com/weibo?q= + encodeURIComponent(word)
+- 解析 data.band_list[]：word→topic、num→hotValue、rank=数组序 i+1（realpos 偶发稀疏 null，回退会撞号产生重复 id，数组序恒唯一）、category→rawCategory（原生分类）、url 构造 https://s.weibo.com/weibo?q= + encodeURIComponent(word)
 - 取 top 20 进列表
 - 风险级别 medium，最小间隔 10 分钟
 
@@ -51,7 +51,7 @@
 ### 3.3 百度渠道切换官方 JSON API（FR-2）
 
 - URL 从 top.baidu.com/board?tab=realtime（HTML s-data 解析）改为 top.baidu.com/api/board?platform=wise&tab=realtime（纯 JSON）
-- 解析 data.cards[0].content[0].content[]：word→topic、index→rank、url→url
+- 解析 data.cards[0].content[0].content[]：word→topic、index→rank、url→url；过滤 isTop:true 置顶条（栏目推广位无 index 字段，不过滤会与正式榜首撞号产生重复 id baidu:1）
 - 降级说明：该 JSON 端点无 hotScore 字段，hotValue 置 null（列表热度列该渠道不显示，可接受）
 - 风险级别从 medium 降为 low（消除 HTML 结构变化导致的解析失败）
 
@@ -80,8 +80,8 @@
 
 ### 3.7 渠道下拉更新（FR-6）
 
-- CHANNEL_KEYS 增加 weibo（位于 baidu 之后、tophub 之前）
-- 渠道下拉选项：知乎/头条/腾讯新闻/B站/抖音/百度/微博热搜/微博(tophub)
+- CHANNEL_KEYS 增加 weibo；**移除 tophub**（weibo 官方渠道成功时，tophub 同源微博条目会被跨渠道去重合并到 weibo 名下，下拉切 tophub 恒空——服务层保留 tophub 渠道作微博数据兜底，但视图不再暴露该筛选）
+- 渠道下拉选项：知乎/头条/腾讯新闻/B站/抖音/百度/微博热搜
 - 总渠道数 7 变 8，MAX_TOPICS 140 变 160
 
 ## 4. 数据校验（增量）
@@ -91,7 +91,7 @@
 | 字段 | 来源 | 校验 |
 |------|------|------|
 | topic | item.word | trim 后非空，filter(x => x.topic) |
-| rank | item.realpos | Number() 转换，非数字回退 i+1 |
+| rank | 数组序 i+1 | 恒唯一（realpos 偶发稀疏 null，不可依赖） |
 | hotValue | item.num | Number() 转换，非数字置 null |
 | url | 构造 | encodeURIComponent(word)，sanitizeUrl 校验 https |
 | rawCategory | item.category | 可空字符串，未命中映射走关键词 |
@@ -101,7 +101,7 @@
 | 字段 | 来源 | 校验 |
 |------|------|------|
 | topic | item.word | decodeHtmlEntities + trim，非空过滤 |
-| rank | item.index | Number() 转换，非数字回退 i+1 |
+| rank | item.index | Number() 转换，非数字回退 i+1；isTop:true 条目直接过滤（无 index，防撞号） |
 | hotValue | 无此字段 | 固定 null |
 | url | item.url | sanitizeUrl 校验 |
 
@@ -168,7 +168,7 @@ filteredTopics = topics.filter(分类匹配 && 渠道匹配)
 |------|------|
 | classifier：微博原生分类映射 | 数码→tech / 民生新闻→society / 健康医疗→health / 未命中走关键词 |
 | classifier：B站分区映射 | 手机游戏→entertainment / 科学科普→tech / 校园学习→education |
-| parser：weibo hot_band JSON | band_list 解析 / realpos rank / category rawCategory / url 构造 |
+| parser：weibo hot_band JSON | band_list 解析 / 数组序 rank / category rawCategory / url 构造 |
 | parser：baidu JSON API | 嵌套 content 解析 / index rank / 实体解码 |
 | parser：bilibili tname | tname 提取为 rawCategory |
 | service：8 渠道配置 | 数量=8 / weibo+baidu 存在 / interval>=5min / https |

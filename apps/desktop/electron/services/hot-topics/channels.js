@@ -72,7 +72,8 @@ function parseTencent(json) {
   })).filter(x => x.topic)
 }
 
-/** B站热门 JSON：data.list[].title（tname 分区名作为原生分类，实测 2026-09） */
+/** B站热门 JSON：data.list[].title（tname 分区名作为原生分类，实测 2026-09）
+ * ps=50 拉取更充分的分区覆盖（tname 多样性），仅取 top 20 进列表。 */
 function parseBilibili(json) {
   const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
   return list.slice(0, 20).map((item, i) => ({
@@ -98,16 +99,21 @@ function parseDouyin(json) {
   })).filter(x => x.topic)
 }
 
-/** 百度热搜官方 JSON API：data.cards[0].content[0].content[]（实测 2026-09；该端点无 hotScore 字段） */
+/** 百度热搜官方 JSON API：data.cards[0].content[0].content[]（实测 2026-09；该端点无 hotScore 字段）
+ * 置顶条（isTop:true，无 index 字段）是栏目推广位非正式名次，跳过以保证 rank 唯一
+ * （否则置顶条 rank 回退 i+1=1 与正式榜首 index=1 重复，id 冲突污染勾选状态）。 */
 function parseBaidu(json) {
-  const cards = (json && json.data && Array.isArray(json.data.cards)) ? json.data.cards : []
+  const cards = (json && json.data && Array.isArray(json.data.cards)) ? json.data.cards
+    : (json && Array.isArray(json.cards)) ? json.cards : []
   const content = []
   for (const card of cards) {
     if (Array.isArray(card.content) && card.content[0] && Array.isArray(card.content[0].content)) {
       content.push(...card.content[0].content)
     }
   }
-  return content.slice(0, 20).map((item, i) => ({
+  // 过置顶推广位（isTop 无 index），保留正式名次 1..n 唯一
+  const ranked = content.filter(item => !item.isTop)
+  return ranked.slice(0, 20).map((item, i) => ({
     channel: 'baidu',
     rank: Number(item.index) || i + 1,
     topic: decodeHtmlEntities(item.word || item.query || ''),
@@ -122,7 +128,9 @@ function parseWeibo(json) {
   const list = (json && json.data && Array.isArray(json.data.band_list)) ? json.data.band_list : []
   return list.slice(0, 20).map((item, i) => ({
     channel: 'weibo',
-    rank: Number(item.realpos) || i + 1,
+    // rank 用数组序 i+1（与其他解析器一致）：实测 band_list 中 realpos 偶发稀疏（null），
+    // 若回退 i+1 会与后续条目的 realpos 撞号产生重复 id；数组序恒唯一
+    rank: i + 1,
     topic: String(item.word || '').trim(),
     hotValue: Number(item.num) || null,
     url: sanitizeUrl('https://s.weibo.com/weibo?q=' + encodeURIComponent(item.word || '')),

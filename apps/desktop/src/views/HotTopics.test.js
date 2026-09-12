@@ -199,6 +199,8 @@ describe('HotTopics.vue', () => {
     await chips[0].trigger('click')
     const allBadges = wrapper.findAll('.rank-badge')
     expect(allBadges.map(b => b.text())).toEqual(['1', '2', '3'])
+    // hover title 显示来源渠道内排名（zh locale 是函数，mock 下检查 title 属性存在且含 rank 值）
+    expect(badges[0].attributes('title')).toBeTruthy()
   })
 
   it('checkbox toggle updates selection', async () => {

@@ -29,6 +29,8 @@ describe('hot-topics classifier', () => {
     expect(classifyTopic('手机游戏', 'bilibili', '任意文本')).toBe('entertainment')
     expect(classifyTopic('科学科普', 'bilibili', '任意文本')).toBe('tech')
     expect(classifyTopic('校园学习', 'bilibili', '任意文本')).toBe('education')
+    // 未命中 B站分区 → 关键词兜底
+    expect(classifyTopic('未知分区', 'bilibili', 'A股大涨')).toBe('finance')
   })
 })
 
@@ -76,6 +78,30 @@ describe('hot-topics channel parsers', () => {
     expect(items[0].rank).toBe(1)
     expect(items[0].url).toBe('https://baidu.com/s?wd=1')
   })
+  it('parseBaidu skips isTop pinned item to keep rank unique (real 51-item shape)', () => {
+    // 真实载荷形状：首条 isTop 置顶（无 index）+ 正式条目 index 1..50
+    // 若不过滤置顶条，其 rank 回退 i+1=1 与正式榜首 index=1 重复 → id 'baidu:1' 冲突
+    const json = { data: { cards: [{ content: [{ content: [
+      { isTop: true, word: '置顶推广位', url: 'https://baidu.com/s?wd=top' },
+      { index: 1, word: '正式榜首', url: 'https://baidu.com/s?wd=1' },
+      { index: 2, word: '正式第二条', url: 'https://baidu.com/s?wd=2' },
+    ] }] }] } }
+    const items = parseBaidu(json)
+    expect(items).toHaveLength(2)
+    expect(items.map(x => x.rank)).toEqual([1, 2])
+    const ids = items.map(x => 'baidu:' + x.rank)
+    expect(new Set(ids).size).toBe(ids.length) // id 唯一性
+    expect(items[0].topic).toBe('正式榜首')
+  })
+  it('parseBaidu returns empty on missing/flat cards (defensive)', () => {
+    expect(parseBaidu({ data: {} })).toHaveLength(0)
+    expect(parseBaidu({ data: { cards: [{ content: [] }] } })).toHaveLength(0)
+    expect(parseBaidu(null)).toHaveLength(0)
+    // 顶层 cards 回退路径（无 data 包装）
+    const flat = { cards: [{ content: [{ content: [{ index: 1, word: '顶层回退', url: 'https://baidu.com/s?wd=f' }] }] }] }
+    expect(parseBaidu(flat)).toHaveLength(1)
+    expect(parseBaidu(flat)[0].topic).toBe('顶层回退')
+  })
   it('parses weibo hot_band json with native category', () => {
     const json = { data: { band_list: [
       { word: '微博热搜词', num: 972888, realpos: 1, category: '数码', label_name: '热' },
@@ -84,6 +110,8 @@ describe('hot-topics channel parsers', () => {
     const items = parseWeibo(json)
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({ channel: 'weibo', rank: 1, topic: '微博热搜词', hotValue: 972888, rawCategory: '数码' })
+    // rank 用数组序（realpos 偶发稀疏 null，回退会撞号）——realpos 缺失时仍连续唯一
+    expect(items[1].rank).toBe(2)
     expect(items[0].url).toContain('https://s.weibo.com/weibo?q=')
     expect(items[1].rawCategory).toBe('民生新闻')
   })

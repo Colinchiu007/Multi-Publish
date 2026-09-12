@@ -14,6 +14,7 @@
 - **微博 rank 改数组序**：实测 band_list 中 realpos 偶发稀疏（null，广告位），回退 i+1 与后续条目 realpos 撞号（18/20 唯一）。修复：rank 一律 i+1（与其他解析器一致），恒唯一。
 - **tophub 移出渠道下拉**：weibo 官方渠道成功时 tophub 同源条目被去重合并到 weibo 名下，切 tophub 筛选恒空。服务层保留 tophub 作微博兜底，视图不再暴露。
 - **parseBaidu 恢复 json.cards 顶层回退** + 防御性测试（missing cards / flat content）。
+- **B站 ps=50 注释**：意图是拉取更充分分区覆盖（tname 多样性），仅取 top 20 展示。
 
 ### 验证
 - vitest hot-topics-service 28 passed（+8：微博/B站分类映射、weibo hot_band 解析、百度 JSON 嵌套解析、isTop 置顶过滤、防御性回退、8 渠道配置、baidu JSON URL、weibo Referer 断言）

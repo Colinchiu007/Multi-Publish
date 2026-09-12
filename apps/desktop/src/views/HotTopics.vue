@@ -260,7 +260,9 @@ const GEN_VIDEO_TERMINAL_STAGE_STATUSES = new Set(['completed', 'skipped', 'fail
 
 // ── 常量 ──
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
-const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo', 'tophub']
+// weibo 官方渠道成功时，tophub（同源微博榜）条目会被跨渠道去重合并到 weibo 名下——
+// 下拉不再暴露 tophub 筛选，避免「显示有数据、切进去空列表」；服务层保留该渠道作微博数据兜底
+const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo']
 const BATCH_LIMIT = 20
 const TOPIC_PREFIX_KEY = 'hotTopics.topicPrefix'
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000
