@@ -63,7 +63,7 @@ describe('startup compatibility', () => {
     )
   })
 
-  it('uses ANGLE SwiftShader by default on Windows but allows explicit GPU opt-in', () => {
+  it('Windows 默认硬件加速（2026-09-12 GPU 帧循环卡死复盘：SwiftShader 软件渲染在部分 Windows 环境合成器停摆，窗口空白但 DOM 存活）；ELECTRON_DISABLE_GPU=1 保留为手动逃生门', () => {
     const app = {
       commandLine: { appendSwitch: vi.fn() },
       disableHardwareAcceleration: vi.fn(),
@@ -71,20 +71,20 @@ describe('startup compatibility', () => {
 
     expect(configureGraphics({ app, env: {}, platform: 'win32' })).toMatchObject({
       disabled: false,
-      reason: 'windows-software',
-    })
-    expect(app.disableHardwareAcceleration).not.toHaveBeenCalled()
-    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('use-gl', 'angle')
-    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('use-angle', 'swiftshader')
-
-    app.commandLine.appendSwitch.mockClear()
-    app.disableHardwareAcceleration.mockClear()
-    expect(configureGraphics({ app, env: { ELECTRON_ENABLE_GPU: '1' }, platform: 'win32' })).toEqual({
-      disabled: false,
       reason: null,
     })
     expect(app.disableHardwareAcceleration).not.toHaveBeenCalled()
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalled()
+
+    app.commandLine.appendSwitch.mockClear()
+    app.disableHardwareAcceleration.mockClear()
+    expect(configureGraphics({ app, env: { ELECTRON_DISABLE_GPU: '1' }, platform: 'win32' })).toMatchObject({
+      disabled: true,
+      reason: 'explicit',
+    })
+    expect(app.disableHardwareAcceleration).toHaveBeenCalled()
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu')
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu-compositing')
   })
 
   it('enables the explicit safe mode without changing the normal GPU policy', () => {
