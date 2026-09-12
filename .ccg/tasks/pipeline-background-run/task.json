@@ -1,0 +1,12 @@
+{
+  "id": "pipeline-background-run",
+  "title": "视频流水线进度弹窗统一后台运行按钮 + 居中提示",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "推送 + PR + 合并",
+  "createdAt": "2026-09-12T23:59:00+08:00",
+  "branch": "codex/pipeline-background-run"
+}
