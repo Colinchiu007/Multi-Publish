@@ -97,6 +97,18 @@
 - locale-sync --pair-base/--cjk/--keys 全 PASS（CJK 基线仅行号位移重锚，无新增硬编码）。
 - vite build 通过。
 
+## [未发布] feat(collection): 采集链路 P0-P2 日志覆盖补强 + 手动采集周末限流豁免（2026-09-12）
+
+### 新增
+- **日志覆盖（P0-P2 六个遗漏点全修）**：前置拦截分支（预算/冷却/熔断/限流）补 warn 日志；缓存命中补 info（解释空数据为预期）；采集过程（浏览器/HTTP 启动）补 info；采集成功补 info（含 durationMs/titleLen/contentLen）；前端 notifyError 上报用户实际文案（error 字段）；聚合层 IPC 非零码补 warn。百家号 bug 排查时发现的「app 日志无痕只能靠审计 jsonl」问题系统性解决。
+- **手动采集周末限流豁免**：`collect(url, { manual: true })` 跳过 weekend-throttle 随机拒绝（用户周六手动采一篇被 40-60% 概率拦截不合理），保留 interval 限流（防连点）与熔断/冷却（防滥用）。preload `urlCollectFetch` 固定传 manual: true（仅采集页手动点击使用，批量走 aggregation 不经此通道）。
+- **weekend_throttle 错误分类与文案**：自动批量路径被周末策略拦截时，显示解释性文案（保护账号不被封禁的原因 + 三个可操作建议），zh/en 成对。
+
+### 验证
+- url-collector 34（新增 10：P0×3 + P1×1 + P2×2 + manual×3 + 修复 1）+ collection-engine 91 + Collection 53 + collect-error 45 + aggregation 14 全绿；513 广集回归全绿。
+- 真机实测（周六）：手动采集连续两次均未被 weekend-throttle 拦截；成功日志 {durationMs: 607, titleLen: 14, contentLen: 125} 落盘；404 失败日志落盘。
+- locale-sync --keys PASS（882 keys）。
+
 ## [未发布] fix(collection): 百家号采集「超时」误报 — 平台映射 + IPC message + 周末限流三缺陷修复（2026-09-12）
 
 ### 修复（QM-5 五步）

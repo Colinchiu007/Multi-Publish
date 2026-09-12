@@ -109,6 +109,9 @@ export function classifyCollectError(input) {
   if (message.includes('频率受限') || /rate\s?limit/i.test(message) || message.includes('429')) {
     return result('rate_limited')
   }
+  if (message.includes('weekend-throttle') || message.includes('周末限流')) {
+    return result('weekend_throttle')
+  }
   if (message.includes('安全验证') || message.includes('百度安全') || /captcha/i.test(message) ||
       (message.includes('登录') && message.includes('验证'))) {
     return result('security_challenge')

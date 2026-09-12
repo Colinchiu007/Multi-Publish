@@ -80,9 +80,13 @@ class UrlCollector {
   /**
    * 从 URL 采集内容
    * @param {string} url
+   * @param {object} [opts]
+   * @param {boolean} [opts.manual] - 用户手动单次采集（采集页点击）。手动模式豁免
+   *   weekend-throttle 随机拒绝（用户周六想采一篇文章被 40% 概率拦截不合理），
+   *   但保留 interval 限流与熔断（防连点滥用）。
    * @returns {Promise<object>} { title, content, coverImage, description, publishTime, source, success }
    */
-  async collect (url) {
+  async collect (url, opts = {}) {
     if (!url || typeof url !== 'string') {
       return { success: false, error: '无效的 URL' }
     }
@@ -118,44 +122,54 @@ class UrlCollector {
     const budget = this._strategy.checkBudget(platform)
     if (!budget.allowed) {
       this._auditLogger.blocked(platform, 'default', 'budget_exhausted')
+      this._log.warn('url-collect', '采集被拦截：每日预算耗尽', { url, platform, reason: 'budget_exhausted' })
       return { success: false, error: '已达每日采集预算上限', reason: 'budget_exhausted' }
     }
 
     if (this._coolDownPool.isBanned('account', platform)) {
       this._auditLogger.blocked(platform, 'default', 'cooldown')
+      this._log.warn('url-collect', '采集被拦截：平台冷却期', { url, platform, reason: 'cooldown' })
       return { success: false, error: '该平台处于冷却期，请稍后再试', reason: 'cooldown' }
     }
 
     const strategy = this._strategy.getStrategy(platform)
     if (this._circuitBreaker.isOpen(platform, 'default', strategy.circuitBreaker)) {
       this._auditLogger.blocked(platform, 'default', 'circuit_open')
+      this._log.warn('url-collect', '采集被拦截：熔断保护', { url, platform, reason: 'circuit_open' })
       return { success: false, error: '该平台请求已熔断，请稍后再试', reason: 'circuit_open' }
     }
 
-    const rateCheck = this._rateLimiter.evaluate({ ...strategy, platform, accountId: 'default' })
+    const rateCheck = this._rateLimiter.evaluate({ ...strategy, platform, accountId: 'default', manual: Boolean(opts.manual) })
     if (!rateCheck.allowed) {
       this._auditLogger.blocked(platform, 'default', rateCheck.reason, { waitMs: rateCheck.waitMs })
+      this._log.warn('url-collect', '采集被拦截：频率控制', { url, platform, reason: rateCheck.reason, waitMs: rateCheck.waitMs })
       return { success: false, error: '请求频率受限，请稍后再试', reason: rateCheck.reason, waitMs: rateCheck.waitMs }
     }
 
     if (this._contentCache.hasUrl(url)) {
+      this._log.info('url-collect', '缓存命中（返回空标题/正文为预期行为，内容已缓存）', { url, platform, reason: 'cache_hit' })
       return { success: true, reason: 'cache_hit', title: '', content: '' }
     }
 
     try {
       this._rateLimiter.recordRequest(platform, 'default')
       this._strategy.consumeBudget(platform)
+      const collectStart = Date.now()
       let result
       if (this._needsBrowser(hostname)) {
+        this._log.info('url-collect', '启动 stealth 浏览器采集', { url, platform, mode: 'browser' })
         result = await this._collectViaBrowser(url)
       } else {
+        this._log.info('url-collect', '启动 HTTP 采集', { url, platform, mode: 'http' })
         result = await this._collectViaHttp(url)
       }
+      const durationMs = Date.now() - collectStart
       if (result && result.success) {
         this._contentCache.mark(url, String(result.content || '').slice(0, 256))
         this._circuitBreaker.recordSuccess(platform, 'default')
         this._healthMonitor.record(platform, 'default', { success: true })
         this._auditLogger.request(platform, 'default', url, 200, 0)
+        this._log.info('url-collect', '采集成功', { url, platform, mode: this._needsBrowser(hostname) ? 'browser' : 'http', durationMs, titleLen: (result.title || '').length, contentLen: (result.content || '').length })
       } else {
         const reason = result && result.error && /登录|验证码|请登录/.test(result.error) ? 'captcha' : 'blocked'
         this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
@@ -354,8 +368,9 @@ class UrlCollector {
     ipcMain.handle('url-collect:fetch', async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { url } = arg
-    try {
-      const result = await this.collect(url)
+      try {
+        // manual: 采集页用户手动点击（preload 传入）；批量/自动路径不经过此 IPC
+        const result = await this.collect(url, { manual: Boolean(arg.manual) })
       // 失败时必须带顶层 message：前端 collectError 取 result.message，
       // 此前只有 data.error 导致前端拿到 undefined → 分类器按 code -1 兜底
       // 误判为 timeout（显示「目标网站响应超时」误导用户）
@@ -363,7 +378,7 @@ class UrlCollector {
         return { code: 0, data: result }
       }
       return { code: -1, message: result.error || '采集失败', data: result }
-    } catch (e) {
+      } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
