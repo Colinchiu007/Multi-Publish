@@ -78,8 +78,8 @@ class RewriteEngine {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
 
-    // 4. 构建 Prompt
-    const { systemPrompt, userPrompt } = this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions)
+    // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
+    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions)
 
     // 5. LLM 推理
     if (!this._llmClient) {
@@ -221,10 +221,10 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
+  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
     // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
     const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
-    const kbContext = this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
+    const kbContext = await this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
 
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
@@ -283,11 +283,11 @@ class RewriteEngine {
    * 构建三层知识库上下文（用户偏好 + 爆款库 + 个人知识库）
    * @param {string} content
    * @param {object|null} knowledgeOptions
-   * @returns {string}
+   * @returns {Promise<string>}
    */
-  _buildKnowledgeContext(content, knowledgeOptions) {
+  async _buildKnowledgeContext(content, knowledgeOptions) {
     if (this._knowledgeLibrary) {
-      const ctx = this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
+      const ctx = await this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
       // P2 反馈闭环：收集本次检索命中的知识条目引用，供用户采纳/拒绝时驱动 feedbackBoost
       if (typeof this._knowledgeLibrary.getTouchedItems === 'function') {
         this._lastKnowledgeRefs = this._knowledgeLibrary.getTouchedItems()

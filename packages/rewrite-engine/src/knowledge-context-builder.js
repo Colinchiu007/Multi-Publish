@@ -3,18 +3,27 @@
  *
  * 组合用户偏好知识库（v2 Ebbinghaus + RRF）+ 爆款库 + 个人知识库，
  * 生成结构化的 {knowledgeContext} 注入改写 Prompt。
+ *
+ * P0 检索修复（2026-09-12）：buildFullContext 变更为 async。查询文本先经
+ * keyword-extractor 规则提取关键词；产出 < 2 个时触发 llmKeywords 兜底。
+ * 检索接口（viralLibrary.search / personalKnowledgeBase.search）契约：
+ * 接受关键词拼接字符串，返回条目数组（store 层内部再做关键词化检索）。
  */
+const { extractSync } = require('./keyword-extractor')
+
 class KnowledgeContextBuilder {
   /**
    * @param {object} opts
    * @param {object} opts.knowledgeBase - 原有用户偏好知识库（提供 getContextSummary()）
    * @param {object} [opts.viralLibrary] - 爆款库（提供 search(query, limit): Array）
    * @param {object} [opts.personalKnowledgeBase] - 个人知识库（提供 search(query, limit): Array）
+   * @param {function} [opts.llmKeywords] - async (text, topN) => string[] LLM 关键词兜底
    */
   constructor(opts = {}) {
     this._kb = opts.knowledgeBase || null
     this._viral = opts.viralLibrary || null
     this._personal = opts.personalKnowledgeBase || null
+    this._llmKeywords = opts.llmKeywords || null
     // P2 反馈闭环：记录本次 buildFullContext 检索命中的知识条目（table + id），
     // 供改写引擎在用户采纳/拒绝时驱动 feedbackBoost 置信度更新。
     this._touchedItems = []
@@ -26,29 +35,50 @@ class KnowledgeContextBuilder {
    * @param {object} [options]
    * @param {boolean} [options.useViralLibrary] - 是否结合爆款库
    * @param {boolean} [options.usePersonalKnowledge] - 是否结合个人经历
-   * @returns {string} 合并后的 knowledgeContext
+   * @returns {Promise<string>} 合并后的 knowledgeContext
    */
-  buildFullContext(userContent, options = {}) {
+  async buildFullContext(userContent, options = {}) {
     const parts = []
     // 每次构建前清空 touched 记录，避免跨调用累积
     this._touchedItems = []
+
+    // 关键词提取：规则为主，产出 < 2 个时 LLM 兜底（LLM 不可用静默降级）
+    const keywords = await this._resolveKeywords(userContent)
 
     // 第1层：原有用户偏好（始终注入）
     if (this._kb) parts.push(this._kb.getContextSummary())
 
     // 第2层：爆款风格参考
     if (options.useViralLibrary && this._viral) {
-      const vc = this.buildViralContext(userContent)
+      const vc = this.buildViralContext(keywords)
       if (vc) parts.push(vc)
     }
 
     // 第3层：个人素材参考
     if (options.usePersonalKnowledge && this._personal) {
-      const pc = this.buildPersonalContext(userContent)
+      const pc = this.buildPersonalContext(keywords)
       if (pc) parts.push(pc)
     }
 
     return parts.filter(Boolean).join('\n\n')
+  }
+
+  /**
+   * 关键词解析：规则提取 >= 2 个直接用；否则 LLM 兜底（可选注入）；
+   * LLM 失败/未注入返回规则结果（可能为空数组，此时检索自然为空）。
+   * @param {string} userContent
+   * @returns {Promise<string[]>}
+   */
+  async _resolveKeywords(userContent) {
+    const ruleKeywords = extractSync(userContent, 8)
+    if (ruleKeywords.length >= 2) return ruleKeywords
+    if (this._llmKeywords && typeof this._llmKeywords === 'function') {
+      try {
+        const llmKw = await this._llmKeywords(userContent, 8)
+        if (Array.isArray(llmKw) && llmKw.length > 0) return llmKw
+      } catch { /* LLM 兜底失败静默降级为规则结果 */ }
+    }
+    return ruleKeywords
   }
 
   /**
@@ -71,10 +101,12 @@ class KnowledgeContextBuilder {
   /**
    * 构建爆款风格分析 Prompt Block
    * 从 Top 3 爆款内容中提取：标题模式、开头钩子、高频标签
+   * @param {string[]} keywords - 检索关键词数组
    */
-  buildViralContext(userContent) {
+  buildViralContext(keywords) {
     if (!this._viral) return ''
-    const items = this._viral.search(userContent, 3)
+    const query = Array.isArray(keywords) ? keywords.join(' ') : String(keywords || '')
+    const items = this._viral.search(query, 3)
     if (!items || !Array.isArray(items) || items.length === 0) return ''
     this._recordTouched('viral_library', items)
 
@@ -151,10 +183,12 @@ class KnowledgeContextBuilder {
   /**
    * 构建个人素材 Prompt Block
    * 按类别作用类型分4组：约束型 / 素材型 / 立场型 / 权威型
+   * @param {string[]} keywords - 检索关键词数组
    */
-  buildPersonalContext(userContent) {
+  buildPersonalContext(keywords) {
     if (!this._personal) return ''
-    const items = this._personal.search(userContent, 5)
+    const query = Array.isArray(keywords) ? keywords.join(' ') : String(keywords || '')
+    const items = this._personal.search(query, 5)
     if (!items || !Array.isArray(items) || items.length === 0) return ''
     this._recordTouched('personal_knowledge', items)
 

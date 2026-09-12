@@ -7,6 +7,7 @@
  * 依赖：logger
  */
 const log = require('../logger')
+const { extractSync } = require('@multi-publish/rewrite-engine/src/keyword-extractor')
 
 const VIRAL_SORT_COLUMNS = new Set([
   'created_at', 'likes', 'collections', 'comments', 'like_collect_ratio', 'published_at',
@@ -176,20 +177,45 @@ module.exports = {
   searchViralItems (query, limit = 20) {
     if (!this._ready) return []
     if (!query || !String(query).trim()) return []
-    const kw = '%' + String(query).trim().replace(/[%_]/g, '') + '%'
+    // 关键词化检索：长文先提取关键词，再按多词 OR 命中取候选集（修复整文 LIKE 永远空结果的缺陷）
+    const keywords = extractSync(String(query), 8)
+    if (keywords.length === 0) return []
+    const maxLimit = Math.max(1, Math.min(100, Number(limit) || 20))
     try {
-      const rows = this.db.prepare(`
-        SELECT * FROM viral_library
-        WHERE title LIKE ? OR content LIKE ? OR tags LIKE ? OR author LIKE ? OR platform LIKE ?
-        ORDER BY (likes + collections + comments) DESC, created_at DESC
-        LIMIT ?
-      `).all(kw, kw, kw, kw, kw, Math.max(1, Math.min(100, Number(limit) || 20)))
-      if (rows.length > 0) {
-        const ids = rows.map(function(r) { return r.id })
-        this._touchAuditLog('viral_library', ids)
-        for (var i = 0; i < rows.length; i++) this._touchKnowledge('viral_library', rows[i].id)
+      // 每个关键词生成 OR 命中组，候选集上限 100
+      const conditions = []
+      const params = []
+      for (const kw of keywords) {
+        const like = '%' + kw.replace(/[%_]/g, '') + '%'
+        conditions.push('(title LIKE ? OR content LIKE ? OR tags LIKE ? OR author LIKE ? OR platform LIKE ?)')
+        params.push(like, like, like, like, like)
       }
-      return rows.map(parseViralRow)
+      const rows = this.db.prepare(
+        'SELECT * FROM viral_library WHERE ' + conditions.join(' OR ') + ' LIMIT 100'
+      ).all(...params)
+      if (rows.length === 0) return []
+
+      // JS 侧评分：关键词命中数 × 10 + log10(1 + 互动数) + confidence × 5
+      const scored = rows.map(row => {
+        const text = ((row.title || '') + ' ' + (row.content || '') + ' ' + (row.tags || '') + ' ' + (row.author || '') + ' ' + (row.platform || '')).toLowerCase()
+        let hits = 0
+        for (const kw of keywords) {
+          if (text.includes(kw.toLowerCase())) hits++
+        }
+        const engagement = Math.log10(1 + (Number(row.likes) || 0) + (Number(row.collections) || 0) + (Number(row.comments) || 0))
+        const confidence = Number(row.confidence) || 0.5
+        return { row, score: hits * 10 + engagement + confidence * 5, hits }
+      }).filter(s => s.hits > 0)
+
+      scored.sort((a, b) => b.score - a.score)
+      const top = scored.slice(0, maxLimit).map(s => s.row)
+
+      if (top.length > 0) {
+        const ids = top.map(function(r) { return r.id })
+        this._touchAuditLog('viral_library', ids)
+        for (var i = 0; i < top.length; i++) this._touchKnowledge('viral_library', top[i].id)
+      }
+      return top.map(parseViralRow)
     } catch (e) {
       log.warn('Store', 'searchViralItems failed: ' + e.message)
       return []
@@ -300,15 +326,43 @@ module.exports = {
   searchPersonalItems (query, limit = 20) {
     if (!this._ready) return []
     if (!query || !String(query).trim()) return []
-    const kw = '%' + String(query).trim().replace(/[%_]/g, '') + '%'
+    // 关键词化检索（与爆款库同修：原整文 LIKE 在长文场景永远空结果）
+    const keywords = extractSync(String(query), 8)
+    if (keywords.length === 0) return []
+    const maxLimit = Math.max(1, Math.min(100, Number(limit) || 20))
     try {
-      const rows = this.db.prepare(`
-        SELECT * FROM personal_knowledge
-        WHERE title LIKE ? OR content LIKE ? OR category LIKE ?
-        ORDER BY created_at DESC
-        LIMIT ?
-      `).all(kw, kw, kw, Math.max(1, Math.min(100, Number(limit) || 20)))
-      return rows
+      const conditions = []
+      const params = []
+      for (const kw of keywords) {
+        const like = '%' + kw.replace(/[%_]/g, '') + '%'
+        conditions.push('(title LIKE ? OR content LIKE ? OR category LIKE ?)')
+        params.push(like, like, like)
+      }
+      const rows = this.db.prepare(
+        'SELECT * FROM personal_knowledge WHERE ' + conditions.join(' OR ') + ' LIMIT 100'
+      ).all(...params)
+      if (rows.length === 0) return []
+
+      // 评分：关键词命中数 × 10 + confidence × 5（个人库无互动字段）
+      const scored = rows.map(row => {
+        const text = ((row.title || '') + ' ' + (row.content || '') + ' ' + (row.category || '')).toLowerCase()
+        let hits = 0
+        for (const kw of keywords) {
+          if (text.includes(kw.toLowerCase())) hits++
+        }
+        const confidence = Number(row.confidence) || 0.5
+        return { row, score: hits * 10 + confidence * 5, hits }
+      }).filter(s => s.hits > 0)
+
+      scored.sort((a, b) => b.score - a.score)
+      const top = scored.slice(0, maxLimit).map(s => s.row)
+
+      if (top.length > 0) {
+        const ids = top.map(function(r) { return r.id })
+        this._touchAuditLog('personal_knowledge', ids)
+        for (var i = 0; i < top.length; i++) this._touchKnowledge('personal_knowledge', top[i].id)
+      }
+      return top
     } catch (e) {
       log.warn('Store', 'searchPersonalItems failed: ' + e.message)
       return []

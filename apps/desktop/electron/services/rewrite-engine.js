@@ -86,6 +86,28 @@ class RewriteEngineService {
     if (this._knowledgeLibrary) {
       knowledgeLibrary = new KnowledgeContextBuilder({
         knowledgeBase: kb,
+        // P0 检索修复：LLM 关键词兜底（规则提取 < 2 词时触发，复用统一 provider 网关）
+        llmKeywords: async (text, topN) => {
+          if (!this._aiGenerator) return []
+          try {
+            const result = await this._aiGenerator.generateWithDefault("llm", {
+              messages: [
+                { role: "system", content: "你是关键词提取助手。从用户文本中提取主题关键词。只输出严格 JSON，格式：{\"keywords\": [\"关键词1\", \"关键词2\"]}，不要任何其他文字。" },
+                { role: "user", content: "从以下文本提取不超过 " + topN + " 个主题关键词（中文优先，保留专有名词）：\n\n" + String(text || "").slice(0, 2000) },
+              ],
+            })
+            const raw = result && typeof result.content === "string" ? result.content : ""
+            let cleaned = raw.trim()
+            const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+            if (fence) cleaned = fence[1].trim()
+            const parsed = JSON.parse(cleaned)
+            if (!parsed || !Array.isArray(parsed.keywords)) return []
+            return parsed.keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()).slice(0, Math.max(1, topN))
+          } catch (e) {
+            log.warn("RewriteEngine", "LLM keyword fallback failed: " + (e && e.message))
+            return [] // fail-open：LLM 兜底失败静默降级为规则关键词
+          }
+        },
         viralLibrary: {
           search: (query, limit) => {
             const res = this._knowledgeLibrary.searchViral(query, limit)
