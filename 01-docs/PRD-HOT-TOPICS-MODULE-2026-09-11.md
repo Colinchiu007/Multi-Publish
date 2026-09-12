@@ -140,6 +140,13 @@ ${topic}
 - 流水线运行中取消 = 调用 pipelineCancel()（取消当前 run）；
 - 运行中关闭弹窗（右上角 ×）= 后台运行（停止前端跟踪，run 继续在主进程执行，提示可在视频创作页历史记录查看）。
 
+**后台运行按钮**（2026-09-13 新增，与视频创作页进度弹窗对齐）：
+
+- 弹窗 footer 在【重试】与【取消】之间新增显式【后台运行】按钮（data-testid="hot-topics-gen-video-background"，文案 hotTopics.genVideoBackgroundRun），仅当 genVideoPhase === 'running' 且持有 runId 时显示；
+- 点击行为与右上角 × 的后台语义完全一致（复用唯一公共脱离路径 handleGenVideoClose）：停止前端跟踪（轮询/订阅/计时器）、弹窗关闭、genVideoPhase='background'、busy 守卫保持（禁止并发新任务）、主进程 run 不受影响继续执行、不调用 pipelineCancelRun；
+- 额外触发**全局居中提示**（见 §6.6）：应用界面正中央显示「如果想查看该任务，请进入视频创作的历史记录」，4 秒后自动消失；
+- 改写/启动阶段（无主进程 run）与终态（completed/failed/cancelled）不显示该按钮——脱离无意义或已无任务可脱离。
+
 **失败重试**：改写失败 → 重试从改写开始；流水线启动失败 → 重试跳过改写（产物已缓存）直接重启流水线。失败阶段在弹窗中标红显示错误摘要。
 
 **并发约束**：一键生成视频进行中（busy），所有选题的【生成视频】按钮禁用；主进程流水线并发门禁拒绝时按流水线启动失败处理（可重试）。
@@ -262,7 +269,7 @@ onUnmounted → clearInterval
     │     │     ├─ 阶段推进 → mergeGenStages 更新弹窗各阶段状态/子进度
     │     │     ├─ completed + videoPath → 弹窗关闭 → 跳 /create/result?path=...
     │     │     ├─ failed/cancelled → 终态处理，弹窗提供重试/关闭
-    │     │     └─ 用户关闭弹窗 → 后台运行提示，run 继续执行
+    │     │     └─ 用户点【后台运行】按钮 / 关闭弹窗 → 后台脱离 + 全局居中提示，run 继续执行
     │     └─ 失败 → split: failed → 弹窗错误提示 + 重试（跳过改写）
     └─ 失败 → rewrite_copy: failed → 弹窗错误提示 + 重试（从改写开始）
 ```
@@ -328,6 +335,41 @@ onUnmounted → clearInterval
 - 菜单高亮：`isActive` 沿用现有前缀匹配（`/hot-topics` 精确匹配）。
 - 页面离开时清理定时器（interval）与 in-flight 请求（AbortController.abort）。
 
+### 6.6 一键生成视频弹窗操作与全局居中提示（2026-09-13 新增）
+
+**弹窗 footer 按钮矩阵**（按 phase 状态机渲染）：
+
+| phase | 重试 | 后台运行 | 取消 | 关闭 | 错误文本 |
+|-------|------|---------|------|------|---------|
+| rewriting（改写中） | ✗ | ✗（无 run，脱离无意义） | ✓ | ✗ | ✗ |
+| starting（流水线启动中） | ✗ | ✗（run 未确认） | ✓ | ✗ | ✗ |
+| running（流水线运行中） | ✗ | ✓ | ✓ | ✗（右上角 × 等价后台运行） | ✗ |
+| background（已后台脱离） | ✗ | ✗（已脱离） | ✗ | ✗（弹窗已关） | ✗ |
+| failed（失败终态） | ✓ | ✗ | ✗ | ✓ | ✓ |
+| cancelled（取消终态） | ✗ | ✗ | ✗ | ✓ | ✓ |
+| completed（完成） | 弹窗已关闭并跳转结果页 | — | — | — | — |
+
+**【后台运行】按钮交互逻辑**：
+
+1. 显示条件：genVideoCanBackground = genVideoPhase === 'running' 且持有 runId——只有主进程 run 确实存在且正在执行时才提供脱离入口（spec 前端规则 2：可逆操作方法内重校验状态，不依赖模板条件）；
+2. 点击 → detachGenVideoToBackground()：入口重校验 genVideoCanBackground（防终态竞态）→ 复用 handleGenVideoClose()（唯一公共脱离路径：stopGenVideoTracking 停轮询/订阅/tick → 弹窗关闭 → phase='background' → busy 保持 true → notifyInfo 顶部 toast）→ showPipelineBackgroundToast() 触发全局居中提示；
+3. 脱离后：所有选题行的【生成视频】按钮保持禁用（busy 守卫），防止并发第二个流水线任务；run 在主进程继续执行，完成后可在视频创作页「历史记录」查看产物；
+4. 右上角 × 在运行中同样走后台脱离（与按钮同一 handleGenVideoClose），但不触发全局居中提示（避免与按钮路径重复提示）。
+
+**全局居中提示规格**（组件 PipelineBackgroundToast.vue，App.vue 全局挂载）：
+
+- 触发方：热门选题一键生成视频【后台运行】按钮 + 视频创作页进度弹窗【后台运行】按钮（detachPipelineToBackground 成功后触发）——所有视频生成流水线进度弹窗统一；
+- 文案：common.pipelineBackgroundToast = 「如果想查看该任务，请进入视频创作的历史记录」 / "To check this task, open History in Video Creation"（zh/en 成对）；
+- 位置：应用界面正中央（position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%)）；
+- 层级：z-index 2100（高于 UiModal overlay 的 2000，弹窗刚关闭瞬间提示仍居中可见）；
+- 时长：4 秒后自动消失（重复触发时重置计时器，不叠加多个提示）；
+- 视觉：深色半透明底（rgba(30,30,34,0.92)）白字圆角卡片，最大宽 480px，内边距 14px 24px，字号 14px，居中对齐，box-shadow 0 8px 24px rgba(0,0,0,0.28)；
+- 动效：0.25s 淡入淡出 + 轻微缩放（enter-from/leave-to: opacity 0 + scale 0.96）；
+- 交互：pointer-events: none（不阻挡任何点击，纯提示）；
+- 无障碍：role="status" aria-live="polite"；
+- 状态承载：模块级单例（stores/pipeline-background-toast.js，与 settings-dialog.js 同模式），脱离触发视图存活——用户点击后台运行后立即切换页面，提示仍正常显示与消失；
+- 防泄漏：文案经 vue-i18n 解析；key 未命中时回退空串（不显示），绝不把 i18n key 原文或硬编码中文泄漏到界面。
+
 ## 7. 显示项与提示文字（i18n）
 
 ### 7.1 新增 i18n key（zh/en 成对，命名空间 hotTopics.*）
@@ -385,11 +427,13 @@ onUnmounted → clearInterval
 | hotTopics.genVideoPipelineFailed | 视频流水线启动失败，请点击重试 | Failed to start the video pipeline, please retry |
 | hotTopics.genVideoCancelled | 已取消生成视频 | Video generation cancelled |
 | hotTopics.genVideoBackgroundHint | 任务已转入后台，可在视频创作页「历史记录」中查看进度 | Task moved to background. Track progress in Video Creation → History |
+| hotTopics.genVideoBackgroundRun | 后台运行 | Run in background |
 | hotTopics.genVideoRetry | 重试 | Retry |
 | hotTopics.genVideoCancel | 取消 | Cancel |
 | hotTopics.genVideoClose | 关闭 | Close |
 | hotTopics.genVideoDone | 视频已生成，正在打开结果… | Video generated, opening result… |
 | pipelines.stages.rewrite_copy | 文案改写 | Rewrite Copy |
+| common.pipelineBackgroundToast | 如果想查看该任务，请进入视频创作的历史记录 | To check this task, open History in Video Creation |
 
 ### 7.2 显示规则
 
@@ -413,6 +457,7 @@ onUnmounted → clearInterval
 8. 防反爬组件接入（rate-limiter/circuit-breaker/cache 有测试断言）。
 9. i18n zh/en 成对 + Message Function + 无硬编码中文泄漏到模板。
 10. 【生成视频】按钮渲染于每条选题行；点击后弹窗打开、改写执行、流水线按用户默认选项自动启动；进度实时更新；完成跳转结果页；失败可重试（流水线失败重试不重复改写）；取消/后台运行语义正确（2026-09-12）。
+11. 流水线运行中弹窗 footer 显示【后台运行】按钮；点击后弹窗关闭、run 继续后台执行、busy 守卫保持；应用正中央显示「如果想查看该任务，请进入视频创作的历史记录」4 秒后消失；改写/启动/终态不显示该按钮；视频创作页进度弹窗【后台运行】同样触发全局居中提示（2026-09-13）。
 
 ## 9. 测试覆盖
 
@@ -421,7 +466,9 @@ onUnmounted → clearInterval
 | 测试文件 | 覆盖 |
 |---------|------|
 | `hot-topics-service.test.js` | 渠道解析（7 渠道各一 fixture）、分类映射（原生+规则+综合兜底）、去重、缓存读写 fail-closed、限流/熔断调用断言、SSRF 拒绝 |
-| `HotTopics.test.js` | 渲染（菜单/标题/空态）、勾选与批量按钮态、筛选过滤、刷新交互（mock IPC）、一键发布进度流（mock aiRewrite） |
+| `HotTopics.test.js` | 渲染（菜单/标题/空态）、勾选与批量按钮态、筛选过滤、刷新交互（mock IPC）、一键发布进度流（mock aiRewrite）、一键生成视频全流程（改写/启动/进度/完成/取消/后台运行按钮与脱离语义，2026-09-13 补充） |
+| `pipeline-background-toast.test.js` | 全局居中提示状态机：show 立即可见、4s 自动消失、重复触发重置计时、hide 立即清除定时器 |
+| `PipelineBackgroundToast.test.js` | 全局居中提示组件渲染：zh/en 文案、隐藏后 DOM 移除、key 未命中回退空串不泄漏 |
 | `RewriteView.test.js`（补充） | query.topic 填充、模式切换 create、自动 startRewrite、<20 字补引导语 |
 
 ### 9.2 视觉回归
@@ -462,4 +509,12 @@ onUnmounted → clearInterval
 ### 10.5 渠道清单与间隔配置
 
 渠道策略内嵌于 service（`CHANNEL_CONFIGS`），每渠道：`{ id, name, url, headers, parser, intervalMinutes, riskLevel }`；不新增外部配置文件（避免打包 files 清单变更）。
+
+### 10.6 全局居中提示实现（2026-09-13 新增）
+
+- `stores/pipeline-background-toast.js`：模块级单例状态（pipelineBackgroundToastVisible ref + showPipelineBackgroundToast/hidePipelineBackgroundToast），与 settings-dialog.js 同模式（非 Pinia store，消费方直接 import）；4s 定时器在重复 show 时重置，hide 时清除；
+- `components/PipelineBackgroundToast.vue`：全局唯一渲染组件，Teleport to body，Transition 淡入淡出；App.vue 挂载（所有路由可见）；文案走 common.pipelineBackgroundToast，未命中回退空串；
+- 接入点 1：HotTopics.vue 的 detachGenVideoToBackground()（热门选题一键生成视频【后台运行】按钮）；
+- 接入点 2：CreateView.vue 的 detachPipelineToBackground() 成功分支（视频创作页进度弹窗【后台运行】按钮，含右上角 × 关闭=后台脱离路径）；
+- 全仓库审计结论：视频生成流水线进度弹窗仅此两处（VideoCloneView/FilmEngineeringView/RewriteView/ViralAnalysis/Intelligence/Collection 的进度均为页面内嵌或本地假进度，非弹窗，不适用本需求）。
 

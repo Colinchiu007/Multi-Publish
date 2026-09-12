@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-09-12T05:35:00.000Z",
-  "maxFileLines": 6458,
+  "scannedAt": "2026-09-12T17:05:46.790Z",
+  "maxFileLines": 6462,
   "maxFilePath": "apps/desktop/src/views/CreateView.vue",
   "filesOver1000": 31,
   "filesOver500": 85,

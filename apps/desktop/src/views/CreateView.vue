@@ -1504,6 +1504,7 @@ import {
 import { modelProviderList } from '@/api/model-providers'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
+import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 import { opsCenterSyncRuntime, opsCenterSyncPipelineOptions } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
 import {
@@ -5483,11 +5484,14 @@ export default {
     },
     async detachPipelineToBackground() {
       if (!this.canDetachPipelineToBackground) return false
-      return this.resetPipelineToNewTaskState({
+      const detached = await this.resetPipelineToNewTaskState({
         toastKey: 'create.story2video.backgroundDetachedToast',
         fallbackZh: '任务已转入后台运行，在历史记录中可查看',
         fallbackEn: 'The task is now running in the background. You can view it in History.',
       })
+      // 2026-09-12 需求：后台脱离成功后，应用界面正中央显示统一居中提示（数秒后消失）
+      if (detached) showPipelineBackgroundToast()
+      return detached
     },
     // 进度弹窗右上角关闭统一入口（2026-08-30）：
     // - 普通 running 编排任务：关闭=后台脱离（detachPipelineToBackground）。

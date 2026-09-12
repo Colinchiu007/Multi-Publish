@@ -48,6 +48,7 @@
 
     <UpdateNotification />
     <SettingsDialog :visible="showSettingsDialog" @close="closeSettingsDialog" />
+    <PipelineBackgroundToast />
   </div>
 </template>
 
@@ -60,6 +61,7 @@ import NavBar from '@/components/NavBar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
+import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

@@ -180,3 +180,14 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 - 判定函数：`message-contract.js` 的 `looksLikeI18nKey(text)`（保守，仅识别点分路径 key 形态，不误伤自然语言）。
 
 **强制点**：任何新增用户可见文案必须走 `t('key.path')` 且 key 在 zh/en 成对存在；禁止把 i18n key 字符串直接传给 `ElMessage` / `ElMessageBox` / `options.message`。
+
+## 13. 跨视图弹窗操作一致性：同类流水线弹窗的操作按钮必须对齐（2026-09-13，pipeline-background-run）
+
+**模式**：同一业务形态的进度/操作弹窗（如视频生成流水线进度弹窗）在多个视图出现时，footer 操作按钮集合（重试/取消/关闭/后台运行等）与语义必须对齐——新增视图复用弹窗 UI 时，逐项核对既有视图的全部操作入口，不能只复用 StageProgress 而漏掉操作按钮。
+
+**反例（真实 Bug 根因）**：热门选题一键生成视频复用了 CreateView 的 UiModal + StageProgress 进度 UI，但 footer 只实现了重试/取消/关闭；CreateView 已有的显式【后台运行】按钮被遗漏，后台能力只剩右上角 × 的隐式路径，用户找不到入口。
+
+**强制点**：
+- 新增"复用某视图弹窗 UI"的任务，审查清单必须包含「与源视图的 footer 按钮逐项 diff」；
+- 测试必须断言按钮 presence（渲染层），不能只测方法行为（handleClose 等）——方法测试无法发现按钮缺失；
+- 全局性提示（如后台运行居中提示）用模块级单例 store + App.vue 挂载的全局组件承载，脱离触发视图存活；文案走 i18n 且 key 未命中回退空串，不硬编码中文兜底（CJK 基线门禁会拦截）。
