@@ -1,3 +1,17 @@
+## [未发布] fix(splitter): 修复 SPLITTER_DIR 路径解析错误——语义分句引擎全环境静默降级（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：`splitter-bridge.js` 的 `path.join(__dirname,'..','..','..')` 从 electron/services/ 只回退到 apps/，拼出不存在的 `apps/packages/smart-sentence-splitter`；Windows 上 spawn cwd 不存在 → ENOENT（伪装成 python 缺失）→ smart-sentence-splitter 全环境静默降级为本地 TS 分句（开发/打包均受影响）。
+- **修复**：`resolveSplitterDir()` 候选目录依次探测（SPLITTER_DIR 环境变量 → 仓库源码 → 仓库根 → extraResources → resourcesPath → process.cwd 兜底），保证 workDir 永远真实存在；`base-python-bridge.js` spawn 前显式校验 workDir 并输出可诊断错误（区分「cwd 不存在」与「python 缺失」两类 ENOENT）。
+- **逃逸分析**：无 SPLITTER_DIR 存在性测试；E2E 只断言降级不阻断、未断言「不降级」；降级 WARN 日志无告警——「降级可用」掩盖了「应该可用却不可用」。
+- **回归保护**：`splitter-bridge.workdir.test.js` 3 用例（RED→GREEN）锁定 SPLITTER_DIR 存在性契约 + 旧 bug 路径形态。
+- **预防**：spawn 前诊断日志 `[SplitterBridge] workDir resolved:` 落盘；后续 E2E 应增加「sceneSource === 'smart-sentence-splitter'」断言（本次字幕质量排查发现双实现输出逐字一致，分句质量与降级无关，该断言列为后续改进）。
+
+### 验证
+- services 全量 4425 passed / 1 skipped；回归测试 3/3（RED 确认后 GREEN）。
+- electron-builder 打包后实机启动：`SplitterBridge ready on port 8002`（/health 200）——开发+打包双形态验证通过。
+- 字幕质量澄清：双实现共享 subtitle_rules.json，契约测试 105 断言锁定逐字一致；TS 侧规则领先 Python（semantic_lead/no_cut_bigrams 等），质量优化应走共享规则层同步。
+
 ## [未发布] feat(logging): 全项目日志覆盖补强 — 根因级修复 39 处失败盲区（2026-09-12）
 
 ### 新增
