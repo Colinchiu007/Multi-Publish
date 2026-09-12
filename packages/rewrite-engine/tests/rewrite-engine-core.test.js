@@ -120,8 +120,8 @@ describe('RewriteEngine', function () {
     expect(captured.sys).toContain('字数要求')
   })
 
-  test('W5 无字数控制时 postProcess 默认上限 2500', async function () {
-    var longText = 'x'.repeat(3000)
+  test('W5 无字数控制时 postProcess 默认上限 3000', async function () {
+    var longText = 'x'.repeat(3500)
     var strategy = sampleStrategy()
     strategy.postProcess = { removeAITaste: false }
     var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
@@ -129,7 +129,7 @@ describe('RewriteEngine', function () {
     engine._strategyManager.listEnabled = function () { return [strategy] }
     engine._strategyManager.get = function () { return strategy }
     var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
-    expect(result.result.length).toBeLessThanOrEqual(2500)
+    expect(result.result.length).toBeLessThanOrEqual(3000)
   })
 
   test('W6 wordCountRange.max 覆盖 postProcess 上限', async function () {

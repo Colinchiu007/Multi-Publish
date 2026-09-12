@@ -8,13 +8,13 @@
 
 1. 移除最少字数限制——只保留最大字数（6000 字）上限；
 2. 两个页面统一字数区间控制——通过最小/最大两个数字输入框精确控制改写结果字数，默认 800-2000；
-3. 无字数控制场景的默认上限——2500 字（输出不超过 2500）。
+3. 无字数控制场景的默认上限——3000 字（输出不超过 3000）。
 
 ### 1.2 目标
 
 - 输入侧：非空即可提交（无最小字数），上限维持 6000 字；
 - 输出侧：用户可精确设定改写结果的字数区间 [min, max]；
-- 兜底：未提供字数控制的调用路径，输出默认不超过 2500 字；
+- 兜底：未提供字数控制的调用路径，输出默认不超过 3000 字；
 - 校验：前端实时校验 + 后端模型校验双层防护，max ≥ min 强制。
 
 ### 1.3 非目标
@@ -40,7 +40,7 @@
 - 控件：两个 number 输入框，标签"字数控制"，中间"-"分隔符，后缀"字"；
 - 默认值：min=800，max=2000；
 - 提交时通过 userSettings.wordCountRange = { min, max } 传给改写引擎；
-- 引擎行为：systemPrompt 注入「【字数要求】改写后的文本长度必须控制在 {min} 到 {max} 字之间。」；后处理截断上限优先级 wordCountRange.max > 策略 postProcess.maxLength > 默认 2500。
+- 引擎行为：systemPrompt 注入「【字数要求】改写后的文本长度必须控制在 {min} 到 {max} 字之间。」；后处理截断上限优先级 wordCountRange.max > 策略 postProcess.maxLength > 默认 3000。
 
 ### 2.2 采集页（Collection）
 
@@ -57,12 +57,12 @@
 - model_validator：max ≥ min，否则 422；content 校验 strip 后非空（移除 20 字下限）；
 - AggregationService.rewrite()：字数优先级为显式 min/max_word_count > length 三档映射（兼容旧客户端）；target_word_count = (min + max) / 2 取整；输入校验仅拦截空内容。
 
-### 2.3 默认输出上限 2500（JS 引擎）
+### 2.3 默认输出上限 3000（JS 引擎）
 
 **F5**
 
-- rewrite-engine-core.js 常量 DEFAULT_MAX_OUTPUT_LENGTH = 2500；
-- _postProcess() 截断上限：wordCountRange.max > 策略 postProcess.maxLength > 2500；
+- rewrite-engine-core.js 常量 DEFAULT_MAX_OUTPUT_LENGTH = 3000；
+- _postProcess() 截断上限：wordCountRange.max > 策略 postProcess.maxLength > 3000；
 - 覆盖场景：AiWriterPanel 等未传字数区间的调用、内置策略未配置 maxLength 的情况。
 
 ## 3. 数据校验规则
@@ -124,15 +124,15 @@
 |------|------|
 | textarea placeholder | 输入需要改写的文案内容（最多 6000 字） |
 
-该面板为发布页内嵌组件，placeholder 硬编码中文，随本次一并更新；未加区间输入，输出走默认 2500 上限。
+该面板为发布页内嵌组件，placeholder 硬编码中文，随本次一并更新；未加区间输入，输出走默认 3000 上限。
 
 ## 6. 技术实现要点
 
 ### 6.1 JS 引擎（packages/rewrite-engine）
 
-- DEFAULT_MAX_OUTPUT_LENGTH = 2500 模块常量；
+- DEFAULT_MAX_OUTPUT_LENGTH = 3000 模块常量；
 - _getWordCountInstruction(userSettings)：生成「【字数要求】…{min} 到 {max} 字之间」指令，追加到 systemPrompt；
-- _postProcess(text, strategy, wordCountRange)：max 优先级 wordCountRange > postProcess.maxLength > 2500；
+- _postProcess(text, strategy, wordCountRange)：max 优先级 wordCountRange > postProcess.maxLength > 3000；
 - rewrite() 签名的 JSDoc 补充 wordCountRange。
 
 ### 6.2 Python 后端（packages/python-backend）
@@ -155,7 +155,7 @@
 - W2 空内容仍被拒绝（EMPTY_CONTENT）；
 - W3 超长（>6000）仍被拒绝（TOO_LONG）；
 - W4 wordCountRange 注入 systemPrompt 字数指令；
-- W5 无字数控制时默认输出上限 2500；
+- W5 无字数控制时默认输出上限 3000；
 - W6 wordCountRange.max 覆盖 postProcess 上限。
 
 ### 7.2 Python（test_aggregation.py，新增 6 例 + 更新 1 例）
@@ -184,7 +184,7 @@
 - [x] 两页面字数输入框默认 800/2000；
 - [x] min=2000, max=100 时显示错误且按钮禁用；
 - [x] 非整数/超范围值显示对应错误；
-- [x] 无字数控制场景输出不超过 2500 字；
+- [x] 无字数控制场景输出不超过 3000 字；
 - [x] locales zh/en 成对（check-locale-sync PASS）；
 - [x] 所有相关测试通过。
 
@@ -192,4 +192,4 @@
 
 | 日期 | 变更 | 说明 |
 |------|------|------|
-| 2026-09-12 | 初版 | 移除最小字数 + 字数区间控制 + 2500 默认上限 |
+| 2026-09-12 | 初版 | 移除最小字数 + 字数区间控制 + 3000 默认上限 |

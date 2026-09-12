@@ -13,8 +13,8 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 // 极简 logger（与 api-publish-engine/logger 同接口；logging-coverage-audit）
 const logger = require('./logger-fallback')
 
-// 无显式字数控制时的默认输出上限（2500 字以下）
-const DEFAULT_MAX_OUTPUT_LENGTH = 2500
+// 无显式字数控制时的默认输出上限（3000 字以下）
+const DEFAULT_MAX_OUTPUT_LENGTH = 3000
 
 class RewriteEngine {
   /**
