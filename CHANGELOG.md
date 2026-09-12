@@ -10,6 +10,19 @@
 - license-access-control 43 + window 52 + ipc-contract 6 + url-collector 23 全绿。
 - 真机 CDP：未登录（signed_out）调用 urlCollectFetch，修复前 code -3（license 拦截），修复后 code -1 + data（进入业务层）。
 
+## [未发布] fix(collection): 视频采集错误提示透传——>10 分钟拒绝等具体提示不再被通用文案吞掉（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：渲染层 collectErrorDetail 调 classifyCollectError 分类，该分类器不认识视频管线错误关键词（视频过长/无音轨/转写引擎不可用等）→ 落入 unknown → 显示「采集失败（原因未识别）」，后端精心构造的「视频过长（15:32），采集仅支持 10 分钟内的短视频」等具体提示被吞。
+- **修复**：collect-error.js 新增 11 个视频管线 reason（video_too_long/video_file_too_large/no_audio_track/asr_engine_unavailable/video_transcribe_timeout/video_private/video_membership/video_region/video_anti_bot/video_invalid_platform/asr_empty）；含具体数值的提示（视频过长含实际时长）剥错误码前缀后直接透传，固定语义提示渲染 locale 模板（zh/en 成对新增 11 条）。
+- **重试语义**：仅转写超时与反爬可重试；超长/超大/无音轨/引擎缺失/私密/会员等输入类错误不显示重试按钮。
+- **逃逸分析**：IPC 层 mock 测试用 mockRejectedValue（异常路径），而 python-bridge 对 HTTP 422 实际 resolve {code:-422}——mock 契约与真实行为不符；前端测试直接传 {code:-6} 绕过了 -422 包装；main 分支的 collect-error.js 与视频错误码并行演进无交叉测试。
+- **回归保护**：Collection.test.js +4 用例（>10min/无音轨/引擎缺失/超时的提示内容与重试语义）；collect-error.test.js +7 用例（11 个 reason 分类与 retryable）；aggregation.test.js +4 用例（resolve 路径 -422 透传）。
+- **文档**：PRD 新增 §7 ASR 引擎说明与部署打包策略（三引擎架构/faster-whisper 本地模型说明/打包三方案对比与推荐）+ §7.3 错误提示透传契约；错误码表标注渲染方式。
+
+### 验证
+- Collection 66 + collect-error 40 + aggregation IPC 18 全绿；locale-sync --keys PASS（873）+ --cjk PASS（基线 1477）。
+
 ## [未发布] feat(collection): 抖音/小红书图文+视频链接采集，视频作品 ASR 口播文案转写（2026-09-12）
 
 ### 新增
