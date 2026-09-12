@@ -1,0 +1,16 @@
+{
+  "id": "i18n-aggregation-errors",
+  "title": "aggregation 域错误码全量收敛——7 类校验错误不再中文直出",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend+frontend",
+  "currentPhase": "completed",
+  "nextAction": "",
+  "createdAt": "2026-09-12T14:00:00Z",
+  "completedAt": "2026-09-12T15:19:02Z",
+  "branch": "codex/i18n-aggregation-errors",
+  "pr": 1748,
+  "mergeCommit": "5c3520e1",
+  "remoteStatus": "merged"
+}
