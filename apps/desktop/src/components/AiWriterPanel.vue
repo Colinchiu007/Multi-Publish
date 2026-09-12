@@ -251,7 +251,7 @@ const rewriteResultMeta = ref(null)
 const rewriteKnowledgeRefs = ref([])
 
 const rewriteModes = [
-  { key: "imitate", label: "抄袭规避模仿" },
+  { key: "imitate", label: "智能仿写" },
   { key: "expand", label: "扩写爆款" },
   { key: "create", label: "选题创作" },
 ]

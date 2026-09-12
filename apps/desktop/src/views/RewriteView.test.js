@@ -123,7 +123,7 @@ describe('RewriteView', () => {
     const wrapper = factory()
     const chips = wrapper.findAll('.mode-chip')
     expect(chips.length).toBe(3)
-    expect(chips[0].text()).toContain('抄袭规避模仿')
+    expect(chips[0].text()).toContain('智能仿写')
     expect(chips[1].text()).toContain('扩写爆款')
     expect(chips[2].text()).toContain('选题创作')
   })

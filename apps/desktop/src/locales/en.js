@@ -2153,7 +2153,7 @@ export default {
   },
   rewriteEngine: {
     modeLabel: 'Rewrite mode',
-    modeImitate: 'Plagiarism-safe imitation',
+    modeImitate: 'Smart imitation',
     modeExpand: 'Expand viral content',
     modeCreate: 'Topic creation',
     industryLabel: 'Industry',
@@ -2447,7 +2447,7 @@ knowledgeBase: {
     usePersonalExperience: 'Use personal experience',
     usePersonalExperienceHint: 'Inject local knowledge base preferences, writing style, and past successes',
     modeLabel: 'Rewrite mode',
-    modeImitate: 'Plagiarism-safe imitation',
+    modeImitate: 'Smart imitation',
     modeExpand: 'Expand viral content',
     modeCreate: 'Topic creation',
     platformLabel: 'Target platform',

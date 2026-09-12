@@ -2154,7 +2154,7 @@ export default {
   },
   rewriteEngine: {
     modeLabel: '改写模式',
-    modeImitate: '抄袭规避模仿',
+    modeImitate: '智能仿写',
     modeExpand: '扩写爆款',
     modeCreate: '选题创作',
     industryLabel: '行业',
@@ -2448,7 +2448,7 @@ knowledgeBase: {
     usePersonalExperience: '结合个人经历',
     usePersonalExperienceHint: '注入本地知识库中的个人偏好、写作风格和历史成功案例',
     modeLabel: '改写模式',
-    modeImitate: '抄袭规避模仿',
+    modeImitate: '智能仿写',
     modeExpand: '扩写爆款',
     modeCreate: '选题创作',
     platformLabel: '目标平台',
