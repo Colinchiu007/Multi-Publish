@@ -46,7 +46,7 @@ registerParser({
       // 知乎页面 initialData 含点赞/评论（结构随版本变化，解析失败返回零值由上层记 failed）
       likeCount: /"voteupCount":\s*(\d+)/,
       commentCount: /"commentCount":\s*(\d+)/,
-      favoriteCount: /"favoritedCount"|\\"favoriteCount\\":\s*(\d+)/,
+      favoriteCount: /"favorit(?:edCount|eCount)"\s*[:=]\s*(\d+)/,
     })
   },
 })
@@ -63,9 +63,10 @@ registerParser({
     const target = url || this.resolveContentUrl(postId, '')
     if (!target) throw new Error('baijiahao: no content url')
     return await fetchPageMetrics(target, {
-      viewCount: /"readCount"|"playCount"|阅读[量数][^0-9]*(\d+)/,
-      likeCount: /"likeCount"|"praiseCount"|点赞[^0-9]*(\d+)/,
-      commentCount: /"commentCount"|评论[^0-9]*(\d+)/,
+      // 每个交替分支独立捕获组（审查 C-46：首分支匹配时 m[1] undefined → 静默零值）
+      viewCount: /(?:"readCount"|"playCount")\s*[:=]\s*(\d+)|阅读[量数][^0-9]*(\d+)/,
+      likeCount: /(?:"likeCount"|"praiseCount")\s*[:=]\s*(\d+)|点赞[^0-9]*(\d+)/,
+      commentCount: /"commentCount"\s*[:=]\s*(\d+)|评论[^0-9]*(\d+)/,
     })
   },
 })
@@ -81,9 +82,9 @@ registerParser({
     const target = url || this.resolveContentUrl(postId, '')
     if (!target) throw new Error('kuaishou: no content url')
     return await fetchPageMetrics(target, {
-      viewCount: /"viewCount"|播放[^0-9]*(\d+)/,
-      likeCount: /"likeCount"|点赞[^0-9]*(\d+)/,
-      commentCount: /"commentCount"|评论[^0-9]*(\d+)/,
+      viewCount: /"viewCount"\s*[:=]\s*(\d+)|播放[^0-9]*(\d+)/,
+      likeCount: /"likeCount"\s*[:=]\s*(\d+)|点赞[^0-9]*(\d+)/,
+      commentCount: /"commentCount"\s*[:=]\s*(\d+)|评论[^0-9]*(\d+)/,
     })
   },
 })
@@ -153,9 +154,12 @@ async function fetchPageMetrics(url, patterns) {
     for (const [field, pattern] of map) {
       if (!pattern) continue
       const m = html.match(pattern)
-      if (m) out[field] = Number(m[1]) || 0
+      if (m) out[field] = Number(m[1] || m[2]) || 0
     }
     return out
+  } catch (e) {
+    // 网络级错误（DNS/中断/超时）返回零值兜底（审查 C-47：不让未处理 rejection 传播）
+    return { views: 0, likes: 0, comments: 0, favorites: 0, shares: 0, raw: { error: (e && e.message) || 'network error' } }
   } finally {
     clearTimeout(timer)
   }

@@ -113,7 +113,8 @@ module.exports = {
   },
 
   /**
-   * 待回采队列：next_recrawl_at 到期 + 7 天窗口内 + status ∈ (pending, ok)
+   * 待回采队列：next_recrawl_at 到期 + 7 天窗口内 + status ∈ (pending, ok, failed)
+   * （failed = 单次失败待重试；连续 3 次失败由服务层转 manual 终态）
    * @param {number} nowMs - 当前时间戳
    */
   listDueForRecrawl (nowMs) {
@@ -123,7 +124,7 @@ module.exports = {
     try {
       return this.db.prepare(`
         SELECT * FROM tracked_content
-        WHERE recrawl_status IN ('pending', 'ok')
+        WHERE recrawl_status IN ('pending', 'ok', 'failed')
           AND next_recrawl_at IS NOT NULL AND next_recrawl_at <= ?
           AND created_at >= ?
         ORDER BY next_recrawl_at ASC
@@ -223,26 +224,34 @@ module.exports = {
     if (!this._ready || !Array.isArray(rows)) return false
     const now = new Date().toISOString()
     try {
-      this.db.prepare('DELETE FROM pattern_performance').run()
-      const stmt = this.db.prepare(`
-        INSERT INTO pattern_performance
-          (id, dimension, value, platform, sample_count, avg_views, avg_likes, avg_comments, avg_favorites, engagement_score, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      for (const r of rows) {
-        if (!r || !r.dimension || !r.value) continue
-        const avgViews = Math.max(0, Number(r.avgViews) || 0)
-        const avgLikes = Math.max(0, Number(r.avgLikes) || 0)
-        const avgComments = Math.max(0, Number(r.avgComments) || 0)
-        const avgFavorites = Math.max(0, Number(r.avgFavorites) || 0)
-        // engagement_score = avg_likes + avg_comments + avg_favorites × 2（首版启发式，常量区可调）
-        const score = avgLikes + avgComments + avgFavorites * 2
-        stmt.run(_genId(), String(r.dimension), String(r.value), String(r.platform || ''), Math.max(0, Number(r.sampleCount) || 0), avgViews, avgLikes, avgComments, avgFavorites, score, now)
-      }
+      // 事务包裹 delete+insert（审查 W-3：防中途崩溃留下半表）
+      const tx = (typeof this.db.transaction === 'function')
+        ? this.db.transaction(() => this._replacePatternPerformanceInner(rows, now))
+        : () => this._replacePatternPerformanceInner(rows, now)
+      tx()
       return true
     } catch (e) {
       log.warn('Store', 'replacePatternPerformance failed: ' + e.message)
       return false
+    }
+  },
+
+  _replacePatternPerformanceInner (rows, now) {
+    this.db.prepare('DELETE FROM pattern_performance').run()
+    const stmt = this.db.prepare(`
+      INSERT INTO pattern_performance
+        (id, dimension, value, platform, sample_count, avg_views, avg_likes, avg_comments, avg_favorites, engagement_score, computed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    for (const r of rows) {
+      if (!r || !r.dimension || !r.value) continue
+      const avgViews = Math.max(0, Number(r.avgViews) || 0)
+      const avgLikes = Math.max(0, Number(r.avgLikes) || 0)
+      const avgComments = Math.max(0, Number(r.avgComments) || 0)
+      const avgFavorites = Math.max(0, Number(r.avgFavorites) || 0)
+      // engagement_score = avg_likes + avg_comments + avg_favorites × 2（首版启发式，常量区可调）
+      const score = avgLikes + avgComments + avgFavorites * 2
+      stmt.run(_genId(), String(r.dimension), String(r.value), String(r.platform || ''), Math.max(0, Number(r.sampleCount) || 0), avgViews, avgLikes, avgComments, avgFavorites, score, now)
     }
   },
 

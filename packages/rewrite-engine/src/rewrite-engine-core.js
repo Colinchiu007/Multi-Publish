@@ -233,16 +233,20 @@ class RewriteEngine {
 
     const systemPrompt = [strategy.systemPrompt, modeInstructions, wordCountInstruction].filter(Boolean).join('\n\n')
 
-    // 替换用户提示模板中的变量
-    let userPrompt = strategy.userPromptTemplate
-      .replace(/\{content\}/g, content)
-      .replace(/\{industry\}/g, userSettings.industry || strategy.industry?.[0] || '通用')
-      .replace(/\{purpose\}/g, userSettings.purpose || strategy.purpose?.[0] || '通用')
-      .replace(/\{tone\}/g, userSettings.tone || strategy.tone?.[0] || '口语化')
-      .replace(/\{platform\}/g, userSettings.platform || strategy.platforms?.[0] || '通用')
-      .replace(/\{knowledgeContext\}/g, kbContext)
-      .replace(/\{mode\}/g, mode)
-      .replace(/\{targetLength\}/g, userSettings.targetLength || 'medium')
+    // 单遍正则替换（审查 W-51：顺序 .replace 会被 content 中的 {industry} 等字面量二次注入）
+    const vars = {
+      content,
+      industry: userSettings.industry || strategy.industry?.[0] || '通用',
+      purpose: userSettings.purpose || strategy.purpose?.[0] || '通用',
+      tone: userSettings.tone || strategy.tone?.[0] || '口语化',
+      platform: userSettings.platform || strategy.platforms?.[0] || '通用',
+      knowledgeContext: kbContext,
+      mode,
+      targetLength: userSettings.targetLength || 'medium',
+    }
+    const userPrompt = strategy.userPromptTemplate.replace(/\{(\w+)\}/g, (match, key) => (
+      Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match
+    ))
 
     return { systemPrompt, userPrompt }
   }

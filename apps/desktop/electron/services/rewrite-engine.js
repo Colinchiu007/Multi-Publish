@@ -25,14 +25,17 @@ class RewriteEngineService {
 
   setStrategyManager(sm) {
     this._strategyManager = sm
+    this._engine = null // setter 使缓存失效（审查 W-53：否则后续 rewrite 用旧依赖）
   }
 
   setAiGenerator(gen) {
     this._aiGenerator = gen
+    this._engine = null
   }
 
   setStore(store) {
     this._store = store
+    this._engine = null
   }
 
   /**
@@ -41,6 +44,7 @@ class RewriteEngineService {
    */
   setKnowledgeLibrary(kl) {
     this._knowledgeLibrary = kl
+    this._engine = null
   }
 
   /**
@@ -48,6 +52,7 @@ class RewriteEngineService {
    */
   setPerformanceStore(store) {
     this._perfStore = store || null
+    this._engine = null
   }
 
   _ensureEngine(force) {
@@ -112,16 +117,22 @@ class RewriteEngineService {
           try {
             const chatClient = {
               chat: async (systemPrompt, userPrompt) => {
-                const result = await Promise.race([
-                  this._aiGenerator.generateWithDefault("llm", {
-                    messages: [
-                      { role: "system", content: systemPrompt },
-                      { role: "user", content: userPrompt },
-                    ],
-                  }),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error("LLM keyword timeout (10s)")), 10000)),
-                ])
-                return result && typeof result.content === "string" ? result.content : ""
+                // 超时计时器必须显式清理（审查 C-48：Promise.race 输家 rejection 未处理）
+                let timer = null
+                try {
+                  const result = await Promise.race([
+                    this._aiGenerator.generateWithDefault("llm", {
+                      messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: userPrompt },
+                      ],
+                    }),
+                    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("LLM keyword timeout (10s)")), 10000) }),
+                  ])
+                  return result && typeof result.content === "string" ? result.content : ""
+                } finally {
+                  if (timer) clearTimeout(timer)
+                }
               },
             }
             return await extractWithLLM(text, topN, chatClient)

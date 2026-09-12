@@ -76,6 +76,10 @@ class PerformanceRecrawlService {
     }
 
     const metrics = await parser.fetchMetrics({ url: contentUrl, postId: item.post_id })
+    // 网络级错误以 raw.error 标记返回零值（platform-metrics 兜底契约）——视为本次失败而非成功零值
+    if (metrics && metrics.raw && metrics.raw.error) {
+      throw new Error(String(metrics.raw.error))
+    }
 
     // 写快照
     this._store.addPerformanceSnapshot({

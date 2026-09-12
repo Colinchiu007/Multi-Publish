@@ -5,7 +5,7 @@
  * 生成结构化的 {knowledgeContext} 注入改写 Prompt。
  *
  * P0 检索修复（2026-09-12）：buildFullContext 变更为 async。查询文本先经
- * keyword-extractor 规则提取关键词；产出 < 2 个时触发 llmKeywords 兜底。
+ * keyword-extractor 规则提取关键词；产出为 0 个时触发 llmKeywords 兜底（阈值 >= 1 跳过 LLM）。
  * 检索接口（viralLibrary.search / personalKnowledgeBase.search）契约：
  * 接受关键词拼接字符串，返回条目数组（store 层内部再做关键词化检索）。
  */
@@ -47,18 +47,23 @@ class KnowledgeContextBuilder {
     // 第1层：原有用户偏好（始终注入）
     if (this._kb) parts.push(this._kb.getContextSummary())
 
+    // 关键词只解析一次，两层共享（审查 W-50：避免双重 extractSync/LLM 兜底）
+    let resolvedKeywords = null
+    const resolveKeywordsOnce = async () => {
+      if (resolvedKeywords === null) resolvedKeywords = await this._resolveKeywords(userContent)
+      return resolvedKeywords
+    }
+
     // 第2层：爆款风格参考
     if (options.useViralLibrary && this._viral) {
       // 关键词提取在开关守卫之后：未勾选任何知识库时零 LLM 调用、零分词开销
-      const keywords = await this._resolveKeywords(userContent)
-      const vc = this.buildViralContext(keywords)
+      const vc = this.buildViralContext(await resolveKeywordsOnce())
       if (vc) parts.push(vc)
     }
 
     // 第3层：个人素材参考
     if (options.usePersonalKnowledge && this._personal) {
-      const keywords = await this._resolveKeywords(userContent)
-      const pc = this.buildPersonalContext(keywords)
+      const pc = this.buildPersonalContext(await resolveKeywordsOnce())
       if (pc) parts.push(pc)
     }
 
