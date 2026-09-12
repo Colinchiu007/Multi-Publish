@@ -2887,7 +2887,11 @@ export default {
           ), 3200)
           return
         }
-        this.pipelineText = draft.content || ''
+        const draftContent = typeof draft.content === 'string' ? draft.content : ''
+        // 空 content 草稿（合集/外部链接等其他入口写入）不视为「带文案进入」，
+        // 避免误置灰显标志导致非文案型流水线被无意义禁用
+        if (!draftContent) return
+        this.pipelineText = draftContent
         // 注意：此处不做 6000 码点截断——该上限仅作用于编排流水线（story2video-compose），
         // 其余文案型流水线（talking-head 等）无此限制。截断推迟到 selectPipeline 选中
         // 编排流水线时由 enforceStory2VideoTextLimit() 执行（见 selectPipeline）。

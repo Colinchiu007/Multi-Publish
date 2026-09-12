@@ -1278,6 +1278,23 @@ describe("CreateView - quick render", () => {
     w.unmount();
   });
 
+  it("_loadDraftForRewrite 空 content 草稿不置灰显 flag 也不预填", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.draftList.mockResolvedValueOnce({
+      code: 0,
+      data: [{ id: "draft_empty", content: "" }],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await w.vm._loadDraftForRewrite("draft_empty");
+    await nextTick();
+    // 空文案草稿不视为「带文案进入」：不预填、不灰显非文案型流水线
+    expect(w.vm.pipelineText).toBe("");
+    expect(w.vm.textPrefilledFromDraft).toBe(false);
+    w.unmount();
+  });
+
   it("textPrefilledFromDraft 时 selectPipeline 拦截非文案型流水线", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
