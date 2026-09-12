@@ -126,8 +126,8 @@ Phase 1 为按预估时间推进的假进度（真实进度轮询留待 Phase 2 
 | VIDEOCLONE_LINK_MEMBERSHIP | 会员内容 | 该视频为会员专属内容，无法采集 | 否 |
 | VIDEOCLONE_LINK_REGION | 地区限制 | 该视频受地区限制，无法采集 | 否 |
 | VIDEOCLONE_LINK_UNAVAILABLE | 链接失效/已删除 | 视频不可用或已删除，请检查链接 | 否 |
-| VIDEOCLONE_FILE_TOO_LARGE | >10min（探测期）或 >500MB | 视频过长/文件过大提示（含实际值） | 否 |
-| -6 | ASR 引擎未安装 | 语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper（国内可设 HF_ENDPOINT=https://hf-mirror.com） | 否（需安装） |
+| VIDEOCLONE_FILE_TOO_LARGE | >10min（探测期）或 >500MB | 透传后端提示，含实际值：「视频过长（15:32），采集仅支持 10 分钟内的短视频」/「视频文件过大（620MB），上限 500MB」 | 否 |
+| -6 | ASR 引擎未安装 | 透传安装指引：语音转写引擎不可用，请安装 faster-whisper：pip install faster-whisper（国内可设 HF_ENDPOINT=https://hf-mirror.com） | 否（需安装） |
 | -7 | 转写超时（300s） | 转写超时，请尝试较短的短视频 | 是 |
 | -8 | 视频无音轨 | 该视频无音轨，无法进行语音转写 | 否 |
 | VIDEOCLONE_INVALID_PLATFORM | 非抖音/小红书域名直达端点 | 仅支持抖音/小红书视频链接 | 否 |
@@ -170,7 +170,55 @@ Phase 1 为按预估时间推进的假进度（真实进度轮询留待 Phase 2 
 | 前端组件 | apps/desktop/src/views/Collection.test.js | 域名路由（抖音/小红书/普通 URL 回归）/成功结果字段/-6/-8 错误/通道不可用/时长格式化（58 用例含存量） |
 | locale | .github/scripts/check-locale-sync.js | zh/en key 成对 + CJK 无新增硬编码 |
 
-## 7. Phase 2 展望（不在本次范围）
+## 7. ASR 引擎说明与部署打包策略
+
+### 7.1 AsrEngine 三引擎架构说明
+
+`AsrEngine` 是 Python 后端的语音转写引擎抽象层（`packages/python-backend/src/multi_publish/aggregation/asr_engine.py`），统一接口：
+
+| 方法 | 作用 |
+|------|------|
+| transcribe(audio_path) | 转写音频 → { text, language, duration_seconds, segments } |
+| is_available() | 引擎依赖是否可用（库已装/二进制存在/API Key 已配） |
+| install_hint() | 依赖缺失时的中文安装指引 |
+
+三个实现：
+
+| 引擎 | 类型 | 状态 | 说明 |
+|------|------|------|------|
+| faster_whisper | 本地 Python 库 | **Phase 1 默认（已实现）** | MIT 许可，CPU int8 推理，模型首次使用自动下载 |
+| sensevoice | 本地单文件二进制 | Phase 2 预留 | llama.cpp GGUF（Windows 预编译包），中文 CER ~8%，~20x 实时 |
+| siliconflow | 在线 API | Phase 2 预留 | FunAudioLLM/SenseVoiceSmall 免费 API，需 SILICONFLOW_API_KEY |
+
+「可切换」= 通过环境变量 `ASR_ENGINE=faster_whisper|sensevoice|siliconflow` 选择引擎（默认 faster_whisper），调用代码无需修改。引擎不可用时返回 -6 + 该引擎安装指引，不自动切换（避免不可预期的网络/下载行为）。
+
+### 7.2 faster-whisper 是否本地模型？是否打包进安装包？
+
+**是纯本地模型**：MIT 许可、CPU 本地推理、无 API 调用、无使用费用、断网可用。
+
+**当前设计：不打包进安装包**。faster-whisper 是 Python 可选依赖（`pip install faster-whisper`，含 ctranslate2 等约 500MB 依赖），模型权重（base 约 150MB）首次转写时自动下载到本机 HuggingFace 缓存目录（国内可设 `HF_ENDPOINT=https://hf-mirror.com` 镜像加速）。
+
+**产品发布时的三个选项对比**：
+
+| 方案 | 安装包体积影响 | 首次使用体验 | 适用场景 |
+|------|--------------|------------|---------|
+| A. 现状：不打包，首次使用下载 | 零影响（+0MB） | 首次需下载 ~150MB 模型 + 依赖 | 当前默认；用户按需安装 |
+| B. 打包进安装包 | +650MB 左右（依赖+模型） | 开箱即用 | 对体积不敏感的企业内网分发 |
+| C. Phase 2 换 SenseVoice 单二进制 | +315MB 左右（二进制+q8 模型） | 开箱即用，中文效果更好 | **推荐的产品化终态** |
+
+**推荐路径**：Phase 1 保持方案 A（轻量分发，错误提示含完整安装指引）；Phase 2 接入 SenseVoice 后切方案 C（单二进制 + 模型文件作为 extraResources 打包，无需 Python 依赖，中文 CER 8% 优于 Whisper 系 22-31%，~20x 实时 CPU 推理）。方案 B 不推荐（PyInstaller 打包 ctranslate2 依赖链复杂且体积最大）。
+
+### 7.3 错误提示透传契约（2026-09-12 修复）
+
+视频管线的错误提示分两类渲染：
+
+- **含具体数值的提示**（视频过长含实际时长/文件过大含实际大小）：后端 detail 直接透传显示（剥掉错误码前缀），保留关键信息。例：「视频过长（15:32），采集仅支持 10 分钟内的短视频」。
+- **固定语义提示**（无音轨/引擎缺失/超时/私密/会员等）：按 collect-error.js 分类 reason 渲染 locale 模板文案（zh/en 成对）。
+
+分类器新增 11 个视频管线 reason：video_too_long / video_file_too_large / no_audio_track / asr_engine_unavailable / video_transcribe_timeout / video_private / video_membership / video_region / video_anti_bot / video_invalid_platform / asr_empty。重试语义：仅 video_transcribe_timeout 与 video_anti_bot 可重试，其余为输入/资源类错误不显示重试按钮。
+
+## 8. Phase 2 展望（不在本次范围）
+
 
 1. SenseVoice 本地引擎接入（llama.cpp GGUF 二进制 + 模型下载管理 UI）。
 2. SiliconFlow 在线引擎接入（设置页 API Key 配置）。
