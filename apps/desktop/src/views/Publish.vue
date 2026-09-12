@@ -200,6 +200,12 @@
                     <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                     <template #tip><div class="el-upload__tip">{{ t('publishPage.dragVideoHint') }}</div></template>
                   </el-upload>
+                  <div class="video-ai-entry">
+                    <UiButton variant="ghost" size="sm" data-testid="goto-ai-video-btn" @click="router.push('/create')">
+                      {{ t('publishPage.aiVideoEntry') }}
+                    </UiButton>
+                    <span class="video-ai-entry__hint">{{ t('publishPage.aiVideoEntryHint') }}</span>
+                  </div>
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">{{ t('publishPage.title') }}</label>
@@ -1317,4 +1323,8 @@ defineExpose({
 .ai-cover-field { display: grid; gap: 5px; font-size: 12px; color: var(--muted, #73777d); }
 .ai-cover-field textarea, .ai-cover-field select { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; font: inherit; color: var(--text-primary, #202124); background: var(--surface, #fff); resize: vertical; }
 .ai-cover-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* P2-3：AI 视频生成入口 */
+.video-ai-entry { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.video-ai-entry__hint { font-size: 12px; color: var(--muted, #8a8f98); }
 </style>
