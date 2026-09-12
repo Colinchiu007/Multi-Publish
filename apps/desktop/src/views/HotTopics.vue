@@ -90,11 +90,8 @@
         </div>
       </div>
 
-      <!-- 选题列表 -->
-      <div v-if="loading && topics.length === 0" class="loading-box">
-        <el-skeleton :rows="6" animated />
-      </div>
-      <div v-else-if="filteredTopics.length === 0" class="empty-box" data-testid="hot-topics-empty">
+      <!-- 选题列表（加载态由中央提示覆盖，此处仅空态/列表） -->
+      <div v-if="filteredTopics.length === 0 && !loading" class="empty-box" data-testid="hot-topics-empty">
         <div class="empty-title">{{ t('hotTopics.emptyTitle') }}</div>
         <div class="empty-desc">{{ t('hotTopics.emptyDesc') }}</div>
         <button class="cohere-btn-primary" @click="refresh(true)">{{ t('hotTopics.emptyAction') }}</button>
@@ -133,6 +130,20 @@
         </div>
       </div>
     </div>
+
+    <!-- 中央加载提示：首次进入无缓存 / 手动刷新时显示（非弹窗，全屏居中动态提示） -->
+    <Transition name="central-loading-fade">
+      <div v-if="showCentralLoading" class="central-loading-overlay" data-testid="hot-topics-central-loading" role="status" aria-live="polite">
+        <div class="central-loading-card">
+          <div class="central-spinner" aria-hidden="true"></div>
+          <div class="central-loading-title">
+            {{ t('hotTopics.refreshLoadingTitle') }}<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+          <div class="central-loading-desc">{{ t('hotTopics.refreshLoadingDesc') }}</div>
+          <div class="central-loading-bar" aria-hidden="true"><span></span></div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- 发布去向弹窗（复用采集页） -->
     <PublishDestinationModal
@@ -193,7 +204,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { hotTopicsFetch } from '@/api/hot-topics'
+import { hotTopicsFetch, hotTopicsGetCache } from '@/api/hot-topics'
 import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, onPipelineUpdate } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
@@ -211,6 +222,7 @@ const { notifyError, notifyInfo } = useNotify()
 const topics = ref([])
 const channelStats = ref({})
 const loading = ref(false)
+const showCentralLoading = ref(false) // 中央加载提示：首次无缓存抓取 / 手动刷新时显示
 const lastRefresh = ref(0)
 const activeCategory = ref('all')
 const activeChannel = ref('all')
@@ -389,11 +401,17 @@ function toggleSelectAll() {
   }
 }
 
-/** 竞态守卫：刷新请求序号 */
-async function refresh(force = false) {
-  if (loading.value || publishing.value) return
+/** 竞态守卫：刷新请求序号；background=true 后台静默刷新（不显示中央提示） */
+async function refresh(force = false, { background = false } = {}) {
+  if (publishing.value) return
+  if (loading.value) {
+    // 已有抓取 in-flight：手动刷新复用当前请求仅补显中央提示；后台刷新静默返回
+    if (!background) showCentralLoading.value = true
+    return
+  }
   const seq = ++requestSeq
   loading.value = true
+  if (!background) showCentralLoading.value = true
   try {
     const res = await hotTopicsFetch(force)
     if (seq !== requestSeq) return // 旧响应丢弃
@@ -410,7 +428,28 @@ async function refresh(force = false) {
   } catch (_) {
     if (seq === requestSeq) notifyError('hotTopics.loadFailed')
   } finally {
-    if (seq === requestSeq) loading.value = false
+    if (seq === requestSeq) {
+      loading.value = false
+      showCentralLoading.value = false
+    }
+  }
+}
+
+/** SWR：缓存优先渲染——命中缓存立即显示并后台静默刷新；未命中走网络抓取（中央加载提示） */
+async function loadFromCacheThenRefresh() {
+  let cached = null
+  try {
+    cached = await hotTopicsGetCache()
+  } catch (_) { cached = null }
+  if (disposed) return
+  const data = cached && cached.code === 0 ? cached.data : null
+  if (data && Array.isArray(data.topics) && data.topics.length > 0) {
+    topics.value = data.topics
+    channelStats.value = data.channelStats || {}
+    lastRefresh.value = data.fetchedAt || 0
+    refresh(false, { background: true }) // 后台刷新：不打断已渲染内容
+  } else {
+    refresh(false) // 无可用缓存：网络抓取 + 中央加载提示
   }
 }
 
@@ -856,10 +895,10 @@ function closeGenVideoModal() {
 
 // ── 生命周期 ──
 onMounted(() => {
-  refresh(false)
+  loadFromCacheThenRefresh()
   refreshTimer = setInterval(() => {
     if (document.hidden) return
-    if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false)
+    if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false, { background: true })
   }, 60 * 1000)
 })
 
@@ -911,7 +950,60 @@ onUnmounted(() => {
 .empty-box { text-align: center; padding: 60px 20px; }
 .empty-title { font-size: 16px; font-weight: 600; color: #555; margin-bottom: 8px; }
 .empty-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
-.loading-box { padding: 20px 0; }
+/* ── 中央加载提示（非弹窗：全屏半透明遮罩 + 居中动效卡片） ── */
+.central-loading-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(2px);
+}
+.central-loading-card {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 36px 48px; background: #fff;
+  border: 1px solid #e9e8f6; border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(81, 73, 232, 0.14);
+  max-width: 460px; text-align: center;
+}
+.central-spinner {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 4px solid #eceafb; border-top-color: #5149e8;
+  animation: central-spin 0.9s linear infinite;
+}
+.central-loading-title {
+  font-size: 17px; font-weight: 700; color: #333;
+  display: flex; align-items: baseline; gap: 2px;
+}
+.central-loading-desc { font-size: 13px; color: #777; line-height: 1.6; }
+/* 滚动进度条（流光扫过效果） */
+.central-loading-bar {
+  width: 240px; height: 6px; border-radius: 3px;
+  background: #f0efff; overflow: hidden; position: relative;
+}
+.central-loading-bar span {
+  position: absolute; top: 0; left: 0; height: 100%; width: 40%;
+  border-radius: 3px; background: linear-gradient(90deg, #5149e8, #8b83ff);
+  animation: central-bar-sweep 1.4s ease-in-out infinite;
+}
+/* 跳动省略号 */
+.loading-dots { display: inline-flex; gap: 4px; margin-left: 4px; }
+.loading-dots i {
+  width: 5px; height: 5px; border-radius: 50%; background: #5149e8;
+  display: inline-block; animation: central-dot-bounce 1.2s ease-in-out infinite;
+}
+.loading-dots i:nth-child(2) { animation-delay: 0.15s; }
+.loading-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes central-spin { to { transform: rotate(360deg); } }
+@keyframes central-bar-sweep {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+@keyframes central-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+/* 淡入淡出 */
+.central-loading-fade-enter-active, .central-loading-fade-leave-active { transition: opacity 0.25s ease; }
+.central-loading-fade-enter-from, .central-loading-fade-leave-to { opacity: 0; }
 .publish-progress { padding: 12px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
 .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #5149e8; }
 .progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
