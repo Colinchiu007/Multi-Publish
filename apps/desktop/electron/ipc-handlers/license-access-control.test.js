@@ -463,6 +463,13 @@ describe('主进程许可证动态鉴权', () => {
     expect(deleteProject).not.toHaveBeenCalled()
   })
 
+  it('采集回退通道 url-collect:fetch 与主路径 aggregation:collect 同为纯本地操作，未登录必须开放', () => {
+    // 回归：url-collect:fetch 此前不在 PUBLIC_CHANNELS，未登录时回退层被 license
+    // 拦截返回 -3，与 aggregation:collect（公开）行为不一致，导致「采集失败」。
+    expect(requiredLevelForChannel('url-collect:fetch')).toBe('public')
+    expect(requiredLevelForChannel('aggregation:collect')).toBe('public')
+  })
+
   it('本地媒体导入通道 story2video:import-media 对未登录开放（设备本地操作）', async () => {
     expect(requiredLevelForChannel('story2video:import-media')).toBe('public')
     // 写/删除等敏感通道不扩大

@@ -63,6 +63,9 @@ const PUBLIC_CHANNELS = new Set([
   // 热文采集/改写：URL 正文提取/RSS/Sitemap 均为纯本地操作，未登录可用
   'aggregation:collect', 'aggregation:collect-batch', 'aggregation:rewrite',
   'aggregation:sources', 'aggregation:task-status',
+  // 采集回退层（Node url-collector）：与 aggregation:collect 同为纯本地 URL 提取，
+  // 未登录必须开放，否则主路径失败后回退层被 license 拦截（-3），采集彻底不可用
+  'url-collect:fetch',
   // 热门选题：公开热搜榜单聚合，纯本地抓取，未登录可用
   'hot-topics:fetch', 'hot-topics:get-cache',
 ])
