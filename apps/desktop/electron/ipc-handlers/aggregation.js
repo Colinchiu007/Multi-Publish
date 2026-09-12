@@ -78,7 +78,12 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('aggregation:collect', async (_event, payload) => {
     try {
-      return await pythonBridge.requestBackend('POST', '/aggregation/collect', payload || {})
+      const res = await pythonBridge.requestBackend('POST', '/aggregation/collect', payload || {})
+      // 非零码也写日志（此前只有异常才记，400/422 等业务失败在 IPC 层无痕）
+      if (res && res.code !== undefined && res.code !== 0) {
+        logger.warn('[aggregation] collect returned non-zero:', JSON.stringify({ code: res.code, message: res.message, url: payload && payload.url }))
+      }
+      return res
     } catch (e) {
       logger.error('[aggregation] collect failed:', e && e.message ? e.message : String(e))
       const err = classifyError(e, '采集失败')

@@ -54,6 +54,24 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: '客户端状态未知',
+    serviceStatus: {
+      allRunning: '服务运行中',
+      partialRunning: (ctx) => ctx.named('count') + ' 项服务运行中',
+      unavailable: '服务状态不可用',
+      services: {
+        mainBackend: '主服务',
+        splitterEngine: '分句引擎',
+        promptEngine: '提示词优化引擎',
+        callbackServer: '回调服务',
+        mediaServer: '媒体服务',
+        alignerEngine: '对齐引擎',
+      },
+      states: {
+        running: '运行中',
+        stopped: '已停止',
+        standby: '待命',
+      },
+    },
     nav: {
       home: '主页',
       publish: '发布',
@@ -2066,6 +2084,7 @@ export default {
       cooldown: '该平台采集处于冷却期（反爬保护）。请等待几分钟后再试，或先采集其他平台的链接。',
       circuit_open: '该平台请求已被熔断保护（连续失败触发）。请等待约 1 小时后重试，或先采集其他平台。',
       rate_limited: '请求过于频繁，被平台限流。请等待 30 秒后重试。',
+      weekend_throttle: '周末自动采集已按保护策略降低频率（模拟人工低频使用，降低账号被平台封禁的风险）。本次请求被随机延迟。您可以：1) 稍等片刻再试；2) 在采集页手动输入链接单次采集（手动采集不受周末策略限制）；3) 工作日再执行批量采集。',
       security_challenge: '目标页面触发了安全验证（如知乎反爬）。建议：1) 在浏览器中打开该链接确认可访问；2) 稍后重试；3) 换用其他文章链接。',
       timeout: '目标网站响应超时。请检查网络连接后重试；若持续超时，可能是目标站点负载高，建议稍后再试。',
       unreachable: '无法连接目标网站。请检查：1) 链接是否正确；2) 本机网络是否可访问该站点；3) 是否需要代理。',
@@ -2154,7 +2173,7 @@ export default {
   },
   rewriteEngine: {
     modeLabel: '改写模式',
-    modeImitate: '抄袭规避模仿',
+    modeImitate: '智能仿写',
     modeExpand: '扩写爆款',
     modeCreate: '选题创作',
     industryLabel: '行业',
@@ -2448,7 +2467,7 @@ knowledgeBase: {
     usePersonalExperience: '结合个人经历',
     usePersonalExperienceHint: '注入本地知识库中的个人偏好、写作风格和历史成功案例',
     modeLabel: '改写模式',
-    modeImitate: '抄袭规避模仿',
+    modeImitate: '智能仿写',
     modeExpand: '扩写爆款',
     modeCreate: '选题创作',
     platformLabel: '目标平台',

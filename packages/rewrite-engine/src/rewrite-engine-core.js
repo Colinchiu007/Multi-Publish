@@ -248,7 +248,7 @@ class RewriteEngine {
   _getModeInstructions(mode, userSettings) {
     switch (mode) {
       case 'imitate':
-        return `【改写模式：抄袭规避模仿】
+        return `【改写模式：智能仿写】
 核心要求：
 1. 保留原文的核心观点和信息，但彻底重新组织表达方式
 2. 更换段落结构、句式、案例、修辞手法

@@ -10,16 +10,18 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push }),
 }))
 
+const mockIdentityState = vi.hoisted(() => ({
+  status: 'authenticated',
+  user: { name: '测试用户', username: 'testuser' },
+  displayName: '测试用户',
+  entitlement: null,
+  signIn: vi.fn(),
+  switchAccount: vi.fn(),
+  signOut: vi.fn(),
+}))
+
 vi.mock('@/stores/identity', () => ({
-  useIdentityStore: () => ({
-    status: 'authenticated',
-    user: { name: '测试用户', username: 'testuser' },
-    displayName: '测试用户',
-    entitlement: null,
-    signIn: vi.fn(),
-    switchAccount: vi.fn(),
-    signOut: vi.fn(),
-  }),
+  useIdentityStore: () => mockIdentityState,
 }))
 
 vi.mock('@/stores/license', () => ({
@@ -28,6 +30,28 @@ vi.mock('@/stores/license', () => ({
     isTrial: false,
     isFree: true,
   }),
+}))
+
+const serviceStatusState = vi.hoisted(() => ({
+  services: [
+    { key: 'mainBackend', name: '主服务', status: 'running', port: 8299 },
+    { key: 'splitterEngine', name: '分句引擎', status: 'running', port: 8002 },
+    { key: 'promptEngine', name: '提示词优化引擎', status: 'running', port: 8013 },
+    { key: 'callbackServer', name: '回调服务', status: 'running', port: 16521 },
+    { key: 'mediaServer', name: '媒体服务', status: 'running', port: 0 },
+    { key: 'alignerEngine', name: '对齐引擎', status: 'standby', port: 8004 },
+  ],
+  loaded: true,
+  unavailable: false,
+  runningCount: 5,
+  allRunning: true,
+  startPolling: vi.fn(),
+  stopPolling: vi.fn(),
+  refresh: vi.fn(async () => true),
+}))
+
+vi.mock('@/stores/serviceStatus', () => ({
+  useServiceStatusStore: () => serviceStatusState,
 }))
 
 import YixiaoerSidebar from './YixiaoerSidebar.vue'
@@ -48,6 +72,9 @@ function mountSidebar (path = '/accounts') {
       plugins: [i18n],
       stubs: {
         ProfileMenu: { template: '<div data-testid="profile-menu-stub" />' },
+        ElPopover: {
+          template: '<div class="el-popover-stub"><slot name="reference" /><slot /></div>',
+        },
         RouterLink: {
           props: { to: { type: [String, Object], default: '' } },
           computed: {
@@ -64,13 +91,16 @@ function mountSidebar (path = '/accounts') {
 }
 
 describe('YixiaoerSidebar', () => {
-  it('renders the account route active with dynamic user info from stores', () => {
+  it('renders the account route active with real identity status and service summary', () => {
     const sidebar = mountSidebar('/accounts')
 
     expect(sidebar.find('[data-testid="profile-menu-stub"]').exists()).toBe(true)
     const status = sidebar.get('[data-testid="yixiaoer-sidebar-status"]')
-    expect(status.text()).toBe('客户端状态未知')
-    expect(status.classes()).toContain('is-unknown')
+    expect(status.text()).toBe('已连接')
+    expect(status.classes()).toContain('is-online')
+    const serviceStatus = sidebar.get('[data-testid="yixiaoer-service-status"]')
+    expect(serviceStatus.text()).toBe('服务运行中')
+    expect(serviceStatus.classes()).toContain('is-ok')
     expect(sidebar.text()).toContain('主页')
     expect(sidebar.text()).toContain('发布')
     expect(sidebar.text()).toContain('账号')
@@ -79,6 +109,46 @@ describe('YixiaoerSidebar', () => {
     expect(sidebar.text()).toContain('采集')
     expect(sidebar.text()).toContain('设置')
     expect(sidebar.get('[data-testid="yixiaoer-primary-accounts"]').classes()).toContain('active')
+  })
+
+  it('shows per-service status list with names and states', () => {
+    const sidebar = mountSidebar('/accounts')
+
+    const list = sidebar.get('[data-testid="yixiaoer-service-list"]')
+    const items = list.findAll('.yixiaoer-service-item')
+    expect(items).toHaveLength(6)
+    expect(items[0].text()).toContain('主服务')
+    expect(items[0].text()).toContain('运行中')
+    expect(items[1].text()).toContain('分句引擎')
+    expect(items[2].text()).toContain('提示词优化引擎')
+    const aligner = sidebar.get('[data-testid="yixiaoer-service-alignerEngine"]')
+    expect(aligner.text()).toContain('待命')
+  })
+
+  it('shows degraded summary and offline identity when services fail', () => {
+    mockIdentityState.status = 'signed_out'
+    const previous = serviceStatusState.services
+    const previousRunning = serviceStatusState.runningCount
+    const previousAll = serviceStatusState.allRunning
+    serviceStatusState.services = previous.map((s) => s.key === 'promptEngine' ? { ...s, status: 'stopped' } : s)
+    serviceStatusState.runningCount = 4
+    serviceStatusState.allRunning = false
+
+    try {
+      const sidebar = mountSidebar('/accounts')
+
+      const status = sidebar.get('[data-testid="yixiaoer-sidebar-status"]')
+      expect(status.classes()).toContain('is-offline')
+      const serviceStatus = sidebar.get('[data-testid="yixiaoer-service-status"]')
+      expect(serviceStatus.classes()).toContain('is-degraded')
+      const prompt = sidebar.get('[data-testid="yixiaoer-service-promptEngine"]')
+      expect(prompt.text()).toContain('已停止')
+    } finally {
+      mockIdentityState.status = 'authenticated'
+      serviceStatusState.services = previous
+      serviceStatusState.runningCount = previousRunning
+      serviceStatusState.allRunning = previousAll
+    }
   })
 
   it('opens the more menu and exposes secondary navigation', async () => {
@@ -123,3 +193,4 @@ describe('YixiaoerSidebar', () => {
     expect(push).toHaveBeenCalledWith('/publish')
   })
 })
+

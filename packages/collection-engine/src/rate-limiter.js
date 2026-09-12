@@ -62,6 +62,9 @@ class RateLimiter {
 
   /**
    * 是否允许现在请求（结合活跃时段 + 周末衰减）
+   * @param {object} strategy - 平台策略（含 weekendFactor/activeHours/interval）
+   * @param {boolean} [strategy.manual] - 用户手动单次采集：豁免 weekend-throttle
+   *   随机拒绝（用户周末手动采一篇被概率拦截不合理），保留 interval 限流与活跃时段。
    * @returns {{allowed: boolean, reason?: string, waitMs?: number}}
    */
   evaluate (strategy) {
@@ -71,8 +74,10 @@ class RateLimiter {
       return { allowed: false, reason: 'outside-active-hours' }
     }
 
-    if (isWeekend(now)) {
-      // 周末衰减：按概率拒绝（factor=0.5 意味着 50% 概率拒绝）
+    if (isWeekend(now) && !strategy.manual) {
+      // 周末衰减：按概率拒绝（factor=0.5 意味着 50% 概率拒绝）。
+      // 仅作用于自动批量采集（模拟人类周末低频行为降低封号风险）；
+      // 手动单次采集（manual: true）豁免——用户点击一次被随机拒绝无意义。
       const factor = strategy.weekendFactor ?? 1
       if (factor < 1 && this._rng() > factor) {
         return { allowed: false, reason: 'weekend-throttle' }

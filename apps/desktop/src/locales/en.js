@@ -54,6 +54,24 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: 'Client status unknown',
+    serviceStatus: {
+      allRunning: 'Services running',
+      partialRunning: (ctx) => ctx.named('count') + ' service(s) running',
+      unavailable: 'Service status unavailable',
+      services: {
+        mainBackend: 'Main service',
+        splitterEngine: 'Sentence splitter engine',
+        promptEngine: 'Prompt optimization engine',
+        callbackServer: 'Callback server',
+        mediaServer: 'Media server',
+        alignerEngine: 'Aligner engine',
+      },
+      states: {
+        running: 'Running',
+        stopped: 'Stopped',
+        standby: 'Standby',
+      },
+    },
     nav: {
       home: 'Home',
       publish: 'Publish',
@@ -2065,6 +2083,7 @@ export default {
       cooldown: 'Collection for this platform is in cooldown (anti-scraping protection). Please wait a few minutes and try again, or collect links from another platform.',
       circuit_open: 'Requests to this platform are temporarily blocked by circuit breaker (triggered by consecutive failures). Please wait about 1 hour and retry, or collect from another platform.',
       rate_limited: 'Too many requests and rate-limited by the platform. Please wait 30 seconds and try again.',
+      weekend_throttle: 'Automatic collection is running at a reduced weekend pace (mimicking human low-frequency behavior to reduce the risk of your account being banned by the platform). This request was randomly deferred. You can: 1) retry in a moment; 2) manually enter the link on the collection page for a single fetch (manual collection is exempt from the weekend policy); 3) run batch collection on a weekday.',
       security_challenge: 'The target page triggered a security check (e.g. Zhihu anti-scraping). Suggestions: 1) open the link in a browser to confirm it is accessible; 2) retry later; 3) use another article link.',
       timeout: 'The target website timed out. Please check your network connection and retry; if it keeps timing out, the target site may be under heavy load, so try again later.',
       unreachable: 'Unable to connect to the target website. Please check: 1) whether the link is correct; 2) whether your network can reach the site; 3) whether a proxy is required.',
@@ -2153,7 +2172,7 @@ export default {
   },
   rewriteEngine: {
     modeLabel: 'Rewrite mode',
-    modeImitate: 'Plagiarism-safe imitation',
+    modeImitate: 'Smart imitation',
     modeExpand: 'Expand viral content',
     modeCreate: 'Topic creation',
     industryLabel: 'Industry',
@@ -2447,7 +2466,7 @@ knowledgeBase: {
     usePersonalExperience: 'Use personal experience',
     usePersonalExperienceHint: 'Inject local knowledge base preferences, writing style, and past successes',
     modeLabel: 'Rewrite mode',
-    modeImitate: 'Plagiarism-safe imitation',
+    modeImitate: 'Smart imitation',
     modeExpand: 'Expand viral content',
     modeCreate: 'Topic creation',
     platformLabel: 'Target platform',

@@ -220,7 +220,7 @@ describe("AiWriterPanel", () => {
     const rewriteTab = w.findAll("button").find(b => b.text().includes("AI 改写"));
     await rewriteTab.trigger("click");
     await nextTick();
-    expect(w.text()).toContain("抄袭规避模仿");
+    expect(w.text()).toContain("智能仿写");
     expect(w.text()).toContain("扩写爆款");
     expect(w.text()).toContain("选题创作");
   });

@@ -59,6 +59,8 @@ const PUBLIC_METHODS = [
   'story2videoConfigProfileList', 'story2videoConfigProfileCreate',
   'story2videoConfigProfileRename', 'story2videoConfigProfileDelete',
   'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
+  // 服务状态面板：纯本地只读诊断信息，未登录可见（与 identity:get-state 同理）
+  'servicesGetStatus',
   // 视频克隆：本地分析流水线（未登录可用）；发布经 PublisherRouter 外部验收边界
   'videoClone',
   'videoClone.run', 'videoClone.cancel', 'videoClone.editReport', 'videoClone.regenerate',
