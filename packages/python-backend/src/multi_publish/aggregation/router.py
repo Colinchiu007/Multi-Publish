@@ -47,11 +47,15 @@ async def collect(request: CollectRequest):
     try:
         service = _get_service()
         return await service.collect(request)
+    except UserVisibleError as e:
+        # 稳定错误码 + 插值参数透传：渲染端 formatUserError 按 error_code 渲染 locale 文案
+        raise HTTPException(status_code=400, detail={"error_code": e.error_code, "message": e.fallback_text, "params": e.params})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[aggregation] collect failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"采集失败: {e}")
+        # 500 兜底也错误码化：异常原文只进日志，不拼进用户可见 detail
+        raise HTTPException(status_code=500, detail={"error_code": "AGGREGATION_INTERNAL_ERROR", "message": "采集服务内部错误，请稍后重试"})
 
 
 @router.post("/collect/batch", response_model=list[CollectResult])
@@ -59,11 +63,13 @@ async def collect_batch(request: BatchCollectRequest):
     try:
         service = _get_service()
         return await service.collect_batch(request)
+    except UserVisibleError as e:
+        raise HTTPException(status_code=400, detail={"error_code": e.error_code, "message": e.fallback_text, "params": e.params})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[aggregation] collect_batch failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"批量采集失败: {e}")
+        raise HTTPException(status_code=500, detail={"error_code": "AGGREGATION_INTERNAL_ERROR", "message": "批量采集服务内部错误，请稍后重试"})
 
 
 @router.post("/collect-video", response_model=CollectResult)
@@ -76,11 +82,13 @@ async def collect_video(request: CollectVideoRequest):
         # code: -6 ASR引擎不可用 / -7 转写超时 / -8 无音轨 / VIDEOCLONE_* 下载错误
         logger.warning(f"[aggregation] collect_video failed: code={e.code}, {e.message}")
         raise HTTPException(status_code=422, detail=f"{e.code}: {e.message}")
+    except UserVisibleError as e:
+        raise HTTPException(status_code=400, detail={"error_code": e.error_code, "message": e.fallback_text, "params": e.params})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[aggregation] collect_video failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"视频采集失败: {e}")
+        raise HTTPException(status_code=500, detail={"error_code": "AGGREGATION_INTERNAL_ERROR", "message": "视频采集服务内部错误，请稍后重试"})
 
 
 @router.post("/rewrite", response_model=RewriteResult)
@@ -89,13 +97,14 @@ async def rewrite(request: RewriteRequest):
         service = _get_service()
         return await service.rewrite(request)
     except UserVisibleError as e:
-        # 稳定错误码透传：渲染端 formatUserError 按 error_code 渲染 locale 友好文案
-        raise HTTPException(status_code=400, detail={"error_code": e.error_code, "message": e.fallback_text})
+        # 稳定错误码 + 插值参数透传：渲染端 formatUserError 按 error_code 渲染 locale 文案
+        raise HTTPException(status_code=400, detail={"error_code": e.error_code, "message": e.fallback_text, "params": e.params})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[aggregation] rewrite failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # 500 兜底也错误码化：异常原文只进日志，不进用户可见 detail
+        raise HTTPException(status_code=500, detail={"error_code": "AGGREGATION_INTERNAL_ERROR", "message": "改写服务内部错误，请稍后重试"})
 
 
 @router.get("/sources", response_model=list[SourceInfo])
@@ -109,5 +118,5 @@ async def get_task_status(task_id: str):
     service = _get_service()
     status = service.get_task_status(task_id)
     if status is None:
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        raise HTTPException(status_code=404, detail={"error_code": "AGGREGATION_TASK_NOT_FOUND", "message": "任务不存在或已过期"})
     return status

@@ -490,6 +490,35 @@ def test_rewrite_no_api_key_router_serializes_error_code():
     assert "message" in detail
 
 
+def test_rewrite_style_unsupported_serializes_error_code_with_params():
+    """模型层（2026-09-12 存量收敛）：非法 style 抛 UserVisibleError(AGGREGATION_STYLE_UNSUPPORTED)
+    且携带 params（value/supported），渲染端 formatUserError 用其插值 locale 占位符。
+    注：Pydantic 会包一层 ValidationError，UserVisibleError 在 __cause__ 中。"""
+    from pydantic import ValidationError
+    from multi_publish.aggregation._user_errors import UserVisibleError
+    from multi_publish.aggregation.models import RewriteRequest
+
+    with pytest.raises(ValidationError) as exc_info:
+        RewriteRequest(content="内容", style="不存在的风格")
+
+    # Pydantic v2：原始异常在 errors()[0].ctx.error
+    ctx_error = exc_info.value.errors()[0].get("ctx", {}).get("error")
+    assert isinstance(ctx_error, UserVisibleError)
+    assert ctx_error.error_code == "AGGREGATION_STYLE_UNSUPPORTED"
+    assert ctx_error.params["value"] == "不存在的风格"
+    assert "轻松易懂" in ctx_error.params["supported"]
+
+
+def test_user_visible_error_params_attribute():
+    """UserVisibleError 携带 params 插值参数（渲染端 locale {param} 占位符替换）。"""
+    from multi_publish.aggregation._user_errors import UserVisibleError
+
+    e = UserVisibleError("AGGREGATION_STYLE_UNSUPPORTED", "兜底", params={"value": "x", "supported": "a, b"})
+    assert e.error_code == "AGGREGATION_STYLE_UNSUPPORTED"
+    assert e.params == {"value": "x", "supported": "a, b"}
+    assert isinstance(e, ValueError)
+
+
 @pytest.mark.asyncio
 async def test_rewrite_short_content_before_key_check():
     """回归（2026-09-12 更新）：移除 20 字下限后，短内容不再报"过短"；
