@@ -192,6 +192,27 @@ Phase 1 为按预估时间推进的假进度（真实进度轮询留待 Phase 2 
 
 「可切换」= 通过环境变量 `ASR_ENGINE=faster_whisper|sensevoice|siliconflow` 选择引擎（默认 faster_whisper），调用代码无需修改。引擎不可用时返回 -6 + 该引擎安装指引，不自动切换（避免不可预期的网络/下载行为）。
 
+### 7.2.0 模型下载可访问性实测（2026-09-12，中国大陆无 VPN 环境）
+
+对「方案 A：首次使用下载」的关键疑问——无 VPN 用户能否下载——做了本机 curl 实测：
+
+| 测试项 | 结果 |
+|--------|------|
+| 直连 huggingface.co | HTTP 200，0.6s（当前时段可达；HF 直连在国内不稳定，存在间歇性阻断风险，不可依赖） |
+| 镜像站 hf-mirror.com | HTTP 200，0.47s（国内长期稳定的社区镜像，推荐默认） |
+| 镜像下载 model.bin（HEAD 跟随重定向） | 200 OK，content-length 145,217,532 B ≈ 141 MB |
+| 实测下载速度（镜像，前 2MB） | ~724 KB/s（141MB 模型约 3-4 分钟完成） |
+| 实测下载速度（直连，前 2MB） | ~900 KB/s（当前时段直连更快，但稳定性不如镜像） |
+
+**结论**：
+1. **无 VPN 可以下载**。两条路：直连 huggingface.co（当前可达但不稳定）或镜像 hf-mirror.com（推荐，稳定）。
+2. **镜像切换机制**：faster-whisper 底层用 huggingface_hub，其 constants.py 原生支持 `HF_ENDPOINT` 环境变量（`ENDPOINT = os.getenv("HF_ENDPOINT", "https://huggingface.co")`）。设置 `HF_ENDPOINT=https://hf-mirror.com` 后所有模型下载自动走镜像，无需改代码。
+3. **确切下载 URL**（faster-whisper base 模型，repo `Systran/faster-whisper-base`）：
+   - 直连：`https://huggingface.co/Systran/faster-whisper-base/resolve/main/model.bin`
+   - 镜像：`https://hf-mirror.com/Systran/faster-whisper-base/resolve/main/model.bin`
+   - 完整文件集：model.bin 138.5MB + tokenizer.json 2.1MB + vocabulary.txt 0.4MB ≈ **141MB 总下载量**
+4. **产品化建议**（Phase 2 落地项）：应用内做「下载源自动选择」——启动时探测 hf-mirror.com 可达性，默认走镜像、失败回退直连；下载进度条 + 断点续传；把 HF_ENDPOINT 设置封装进应用的模型管理 UI，用户无需手动设环境变量。
+
 ### 7.2 faster-whisper 是否本地模型？是否打包进安装包？
 
 **是纯本地模型**：MIT 许可、CPU 本地推理、无 API 调用、无使用费用、断网可用。
@@ -204,7 +225,14 @@ Phase 1 为按预估时间推进的假进度（真实进度轮询留待 Phase 2 
 |------|--------------|------------|---------|
 | A. 现状：不打包，首次使用下载 | 零影响（+0MB） | 首次需下载 ~150MB 模型 + 依赖 | 当前默认；用户按需安装 |
 | B. 打包进安装包 | +650MB 左右（依赖+模型） | 开箱即用 | 对体积不敏感的企业内网分发 |
-| C. Phase 2 换 SenseVoice 单二进制 | +315MB 左右（二进制+q8 模型） | 开箱即用，中文效果更好 | **推荐的产品化终态** |
+| C. Phase 2 换 SenseVoice 单二进制 | 二进制 5.2MB + GGUF q8 模型 242MB ≈ **247MB** | 打包进安装包即开箱即用 | **推荐的产品化终态** |
+
+SenseVoice 方案 C 的确切组成（2026-09-12 核实）：
+- 运行时二进制：`funasr-llamacpp-windows-x64-avx2.zip`（5.2MB，GitHub `modelscope/FunASR` Releases v1.4.14，单文件自包含可执行 `llama-funasr-sensevoice`，无需 Python 运行时）
+- 模型：`sensevoice-small-q8.gguf`（242MB，HuggingFace `FunAudioLLM/SenseVoiceSmall-GGUF`；f16 版 448MB、f32 版 893MB，q8 精度与 f16 相当）
+- 可选 VAD：`fsmn-vad-GGUF`（长音频分段需要）
+- 许可：代码 MIT；官方权重 FunASR 模型协议 v1.1，官方 issue 澄清**允许商用**（需署名 + 保留模型名）；GGUF 转换版标注 apache-2.0 但官方提示第三方转换需单独核对条款
+- 运行命令形态：`llama-funasr-sensevoice -m sensevoice-small-q8.gguf --vad fsmn-vad.gguf -a audio.wav`
 
 **推荐路径**：Phase 1 保持方案 A（轻量分发，错误提示含完整安装指引）；Phase 2 接入 SenseVoice 后切方案 C（单二进制 + 模型文件作为 extraResources 打包，无需 Python 依赖，中文 CER 8% 优于 Whisper 系 22-31%，~20x 实时 CPU 推理）。方案 B 不推荐（PyInstaller 打包 ctranslate2 依赖链复杂且体积最大）。
 
