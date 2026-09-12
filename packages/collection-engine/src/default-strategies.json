@@ -14,6 +14,19 @@
       "warmup": false,
       "behaviorIntensity": "light"
     },
+    "baijiahao": {
+      "riskLevel": "medium",
+      "dailyBudget": 100,
+      "interval": { "min": 5000, "max": 15000 },
+      "activeHours": { "start": 7, "end": 23 },
+      "weekendFactor": 1.0,
+      "backoff": { "baseMs": 30000, "maxMs": 900000, "factor": 2 },
+      "circuitBreaker": { "failureThreshold": 3, "cooldownMs": 900000, "halfOpenMaxRequests": 1 },
+      "fetcher": { "primary": "electron", "fallback": "stealthy" },
+      "needsLogin": false,
+      "warmup": false,
+      "behaviorIntensity": "light"
+    },
     "zhihu": {
       "riskLevel": "high",
       "dailyBudget": 100,

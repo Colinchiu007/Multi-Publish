@@ -644,7 +644,8 @@ async function collectUrl () {
     if (api && api.urlCollectFetch) {
       const result = await api.urlCollectFetch(linkUrl.value.trim())
       if (result.code !== 0) {
-        collectError.value = { code: result.code, message: result.message }
+        // IPC 失败返回 { code, message, data }：message 为主，旧版/异常时兜底 data.error
+        collectError.value = { code: result.code, message: result.message || (result.data && result.data.error) || '' }
         notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
         return
       }
@@ -770,7 +771,7 @@ async function collectAndRewrite () {
       if (api.urlCollectFetch) {
         const fallback = await api.urlCollectFetch(linkUrl.value.trim())
         if (fallback.code !== 0) {
-          collectError.value = { code: fallback.code, message: fallback.message }
+          collectError.value = { code: fallback.code, message: fallback.message || (fallback.data && fallback.data.error) || '' }
           notifyError('collection.collectFailed', { message: formatUserError(fallback, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
           return
         }

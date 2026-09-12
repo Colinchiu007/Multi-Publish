@@ -59,6 +59,21 @@
 - locale-sync --pair-base/--cjk/--keys 全 PASS（CJK 基线仅行号位移重锚，无新增硬编码）。
 - vite build 通过。
 
+## [未发布] fix(collection): 百家号采集「超时」误报 — 平台映射 + IPC message + 周末限流三缺陷修复（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：① baijiahao.baidu.com 无平台映射落 generic（weekendFactor 0.6 周末 40% 随机拒绝）② IPC 失败返回缺顶层 message ③ 前端取 result.message（undefined）→ 分类器按 code -1 兜底误判 timeout → 显示「目标网站响应超时」误导用户。实际被 weekend-throttle 限流拦截。
+- `url-collector.js`：_platformFromHostname 新增 baijiahao/mbd.baidu.com 映射；IPC 失败返回补顶层 message（从 data.error 提取）。
+- `default-strategies.json`：新增 baijiahao 平台策略（weekendFactor 1.0 不衰减、fetcher primary electron、interval 5-15s）。
+- `Collection.vue`：回退分支 message 三级兜底（result.message > data.error > 空串）。
+
+### 回归保护
+- url-collector.test.js：baijiahao 平台映射断言 + IPC 失败返回顶层 message 断言（2 新用例，先红后绿）。
+
+### 验证
+- url-collector 25 + collection-engine 91 + Collection 53 + collect-error 33 全绿；eslint 0 error。
+- 真机 CDP：urlCollectFetch 百家号链接 code=0, success=true（标题+2185 字正文）；审计日志 platform=baijiahao status=200；UI E2E 点击【采集】4 秒成功卡片。
+
 ## [未发布] fix(desktop): url-collect:fetch 加入 PUBLIC_CHANNELS — 未登录采集回退层不再被 license 拦截（2026-09-12）
 
 ### 修复
