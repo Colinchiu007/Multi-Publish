@@ -134,10 +134,39 @@ describe('RewriteView', () => {
     expect(select.exists()).toBe(true)
   })
 
-  it('disables rewrite button when content is too short', async () => {
+  // ── 字数区间控制（2026-09-12）──
+
+  it('renders word count inputs with default 800-2000', () => {
+    const wrapper = factory()
+    const inputs = wrapper.findAll('input.word-count-input')
+    expect(inputs.length).toBe(2)
+    expect(Number(inputs[0].element.value)).toBe(800)
+    expect(Number(inputs[1].element.value)).toBe(2000)
+  })
+
+  it('shows error and disables button when max < min', async () => {
+    const wrapper = factory()
+    const inputs = wrapper.findAll('input.word-count-input')
+    await inputs[0].setValue(2000)
+    await inputs[1].setValue(100)
+    await nextTick()
+    expect(wrapper.text()).toContain('最大字数不能小于最小字数')
+    const btn = wrapper.find('.rewrite-start-btn')
+    expect(btn.attributes('disabled')).toBeDefined()
+  })
+
+  it('shows error for non-integer or out-of-range word count', async () => {
+    const wrapper = factory()
+    const inputs = wrapper.findAll('input.word-count-input')
+    await inputs[1].setValue(7000)
+    await nextTick()
+    expect(wrapper.text()).toContain('最大字数需为 1-6000 的整数')
+  })
+
+  it('disables rewrite button when content is empty', async () => {
     const wrapper = factory()
     const textarea = wrapper.find('textarea.rewrite-textarea')
-    await textarea.setValue('短')
+    await textarea.setValue('   ')
     await nextTick()
     const btn = wrapper.find('.rewrite-start-btn')
     expect(btn.attributes('disabled')).toBeDefined()
@@ -152,14 +181,14 @@ describe('RewriteView', () => {
     expect(btn.attributes('disabled')).toBeUndefined()
   })
 
-  it('shows error when content is too short on rewrite', async () => {
+  it('short content (no 20-char minimum) enables rewrite button', async () => {
     const wrapper = factory()
     const textarea = wrapper.find('textarea.rewrite-textarea')
     await textarea.setValue('太短')
     await nextTick()
     const btn = wrapper.find('.rewrite-start-btn')
-    // 内容太短时按钮保持禁用，不会触发改写
-    expect(btn.attributes('disabled')).toBeDefined()
+    // 2026-09-12 移除最少字数：短内容（非空）即可改写
+    expect(btn.attributes('disabled')).toBeUndefined()
   })
 
   it('shows result and action buttons after successful rewrite', async () => {
@@ -266,7 +295,7 @@ describe('RewriteView — hot topics topic query', () => {
     expect(params.mode).toBe('create')
   })
 
-  it('prepends guide prefix when topic is shorter than 20 chars', async () => {
+  it('short topic fills content directly without guide prefix', async () => {
     mockRouteQuery.value = { topic: '短选题' }
     const { aiRewrite } = await import('@/api/publisher')
     aiRewrite.mockClear()
@@ -274,8 +303,8 @@ describe('RewriteView — hot topics topic query', () => {
     await nextTick()
     await nextTick()
     const textarea = wrapper.find('textarea.rewrite-textarea')
-    expect(textarea.element.value).toContain('请以下面这个选题为主题')
-    expect(textarea.element.value).toContain('短选题')
+    // 2026-09-12 移除 ≥20 字符限制：短选题直接填入，不再补引导语
+    expect(textarea.element.value).toBe('短选题')
     expect(aiRewrite).toHaveBeenCalledTimes(1)
   })
 

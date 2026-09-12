@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # Supported source types (Phase 1: headless-only sources)
@@ -130,9 +130,12 @@ class CollectVideoRequest(BaseModel):
 
 class RewriteRequest(BaseModel):
     """改写请求"""
-    content: str = Field(..., min_length=1, description="待改写内容")
+    content: str = Field(..., min_length=1, description="待改写内容（非空即可，无最小字数限制）")
     style: str = Field(default="轻松易懂", description="改写风格")
     length: str = Field(default="keep", description="长度控制: keep/compress/expand")
+    # 字数区间控制（2026-09-12）：默认 800-2000；显式传入时优先于 length 三档
+    min_word_count: int = Field(default=800, ge=0, le=5999, description="改写结果最小字数")
+    max_word_count: int = Field(default=2000, ge=1, le=6000, description="改写结果最大字数")
     seo_optimize: bool = Field(default=False, description="SEO 优化")
     # v1.4：目标发布平台，透传给质量评估器做平台适配/CTA 等维度评分。
     # 取值与 ContentQualityEvaluator._PLATFORM_KEYWORDS 键一致：
@@ -152,6 +155,21 @@ class RewriteRequest(BaseModel):
         if v not in {"keep", "compress", "expand"}:
             raise ValueError(f"不支持的 length: {v}，支持: keep, compress, expand")
         return v
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("内容不能为空")
+        return v
+
+    @model_validator(mode="after")
+    def validate_word_count_range(self) -> "RewriteRequest":
+        if self.max_word_count < self.min_word_count:
+            raise ValueError(
+                f"max_word_count ({self.max_word_count}) 必须大于等于 min_word_count ({self.min_word_count})"
+            )
+        return self
 
 
 class RewriteResult(BaseModel):

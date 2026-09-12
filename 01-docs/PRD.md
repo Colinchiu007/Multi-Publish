@@ -4565,7 +4565,7 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 | 改写成功 | collection.rewriteSuccess |
 | 改写失败 | collection.rewriteFailed |
 | 未输入链接 | collection.enterLink |
-| 内容过短 | 输入内容过短（仅 N 字符），请提供至少 20 字的完整文章 |
+| 内容为空 | 输入内容不能为空（2026-09-12 起移除 20 字最小字数限制，非空即可改写） |
 | 未配置 API Key（2026-09-12 修复） | userErrors.LLM_KEY_MISSING（zh/en 成对，见上方「改写错误提示 i18n 友好化机制」；不再显示环境变量名） |
 
 **真机 E2E 全量验证（2026-09-07，64 项全量通过）**：

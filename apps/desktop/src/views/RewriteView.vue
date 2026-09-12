@@ -72,6 +72,20 @@
           </div>
         </div>
 
+        <!-- 字数控制 -->
+        <div class="config-row">
+          <label class="cohere-form-label">{{ t('rewritePage.wordCountLabel') }}</label>
+          <WordCountRangeInput
+            v-model:min="wordCountMin"
+            v-model:max="wordCountMax"
+            :min-placeholder="t('rewritePage.wordCountMinPlaceholder')"
+            :max-placeholder="t('rewritePage.wordCountMaxPlaceholder')"
+            :unit="t('rewritePage.wordCountUnit')"
+            :error="wordCountError"
+            :disabled="rewriting"
+          />
+        </div>
+
         <!-- 目标平台 -->
         <div class="config-row">
           <label class="cohere-form-label">{{ t('rewritePage.platformLabel') }}</label>
@@ -156,8 +170,10 @@ import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSa
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
+import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
+import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -180,6 +196,9 @@ const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
 const rewriteMode = ref('create')
 const platform = ref('')
+// 字数区间控制（默认 800-2000）
+const wordCountMin = ref(800)
+const wordCountMax = ref(2000)
 
 // 策略选择（默认自动匹配，与 AiWriterPanel 一致）
 const strategyMode = ref('auto')
@@ -239,26 +258,30 @@ onMounted(() => {
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (!topic) return
   rewriteMode.value = 'create'
-  // 选题长度 <20 字符时补引导语（与 canStartRewrite 的 ≥20 校验对齐，并给 AI 明确指令）
-  content.value = topic.length >= 20 ? topic : t('hotTopics.topicPrefix') + '\n' + topic
+  // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
+  content.value = topic
   // 等登录门禁与 DOM 就绪后自动触发（nextTick 保证 textarea 绑定完成）
   Promise.resolve().then(() => startRewrite())
 })
 
 // ── 计算 ──
 const canStartRewrite = computed(() => {
-  return content.value.trim().length >= 20
+  return content.value.trim().length > 0 && !wordCountError.value
 })
+
+// ── 字数区间校验（共享 composable，与 Collection 页一致）──
+const { error: wordCountError } = useWordCountValidation(wordCountMin, wordCountMax, (key) => t('rewritePage.' + key))
 
 // ── 方法 ──
 
 /** 开始改写 */
 async function startRewrite() {
   const trimmed = content.value.trim()
-  if (trimmed.length < 20) {
-    contentError.value = t('rewritePage.tooShort')
+  if (!trimmed) {
+    contentError.value = t('rewritePage.contentEmpty')
     return
   }
+  if (wordCountError.value) return
   contentError.value = ''
   if (!(await ensureLogin({ message: t('rewritePage.needLogin') }))) return
 
@@ -278,6 +301,10 @@ async function startRewrite() {
       content: trimmed,
       userSettings: {
         platform: platform.value || undefined,
+        wordCountRange: {
+          min: Number(wordCountMin.value),
+          max: Number(wordCountMax.value),
+        },
         knowledgeOptions: {
           useViralLibrary: useViralLibrary.value,
           usePersonalKnowledge: usePersonalExperience.value,
@@ -453,5 +480,6 @@ function onPublishVideo(pipelineId) {
 .config-select {
   max-width: 280px;
 }
+
 </style>
 
