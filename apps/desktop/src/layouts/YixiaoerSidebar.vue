@@ -458,4 +458,5 @@ function goToPublish () {
     justify-content: center;
     padding-inline: 0;
   }
+}
 </style>
