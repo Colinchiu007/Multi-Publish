@@ -33,6 +33,7 @@ vi.mock('@/api/publisher', () => ({
   storeGetSetting: vi.fn(),
   pipelineStartOrchestrated: vi.fn(),
   pipelineGetRunContext: vi.fn(),
+  pipelineCancelRun: vi.fn(),
   onPipelineUpdate: vi.fn(() => vi.fn()),
 }))
 
@@ -47,7 +48,7 @@ vi.mock('@/composables/useNotify', () => ({
 import HotTopics from './HotTopics.vue'
 import i18n from '@/i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
-import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext } from '@/api/publisher'
+import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun } from '@/api/publisher'
 
 const mockTopics = [
   { id: 'zhihu:1', topic: 'AI大模型最新突破进展', channel: 'zhihu', category: 'tech', rank: 1, hotValue: 12000000, url: null, fetchedAt: '2026-09-11T00:00:00Z' },
@@ -281,5 +282,80 @@ describe('HotTopics.vue', () => {
     expect(wrapper.vm.genVideoPhase).toBe('completed')
     expect(wrapper.vm.genVideoModalOpen).toBe(false)
     expect(pushSpy).toHaveBeenCalledWith({ path: '/create/result', query: { path: 'D:/videos/out.mp4', project: 'p1', runId: 'run-done-1' } })
+  })
+
+  it('generate-video cancel during rewrite aborts orchestration without pipeline call', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.genVideoPhase).toBe('rewriting')
+    await wrapper.vm.cancelGenVideo()
+    expect(wrapper.vm.genVideoPhase).toBe('cancelled')
+    expect(pipelineCancelRun).not.toHaveBeenCalled()
+    expect(pipelineStartOrchestrated).not.toHaveBeenCalled()
+    expect(wrapper.vm.genVideoStages.find(s => s.name === 'rewrite_copy').status).toBe('cancelled')
+  })
+
+  it('generate-video cancel during running pipeline calls pipelineCancelRun with runId', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '运行中文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-cancel-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: 'run-cancel-1', status: { status: 'running', progress: 20 } } })
+    pipelineCancelRun.mockResolvedValue({ code: 0, data: { success: true } })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(wrapper.vm.genVideoPhase).toBe('running')
+    await wrapper.vm.cancelGenVideo()
+    expect(pipelineCancelRun).toHaveBeenCalledWith('run-cancel-1')
+    expect(wrapper.vm.genVideoPhase).toBe('cancelled')
+  })
+
+  it('generate-video close during running moves to background and keeps busy guard', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '后台文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-bg-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: 'run-bg-1', status: { status: 'running', progress: 30 } } })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(wrapper.vm.genVideoPhase).toBe('running')
+    wrapper.vm.handleGenVideoClose()
+    expect(wrapper.vm.genVideoModalOpen).toBe(false)
+    expect(wrapper.vm.genVideoPhase).toBe('background')
+    expect(wrapper.vm.genVideoBusy).toBe(true)
+    await wrapper.vm.startGenerateVideo(mockTopics[0])
+    expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(1)
+  })
+
+  it('mergeGenStages does not downgrade terminal stages on stale push', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    const wrapper = mountPage()
+    await flushPromises()
+    wrapper.vm.genVideoStages = [
+      { id: 'rewrite_copy', name: 'rewrite_copy', status: 'completed', startedAt: null, completedAt: '2026-09-12T00:00:00Z' },
+      { id: 'split', name: 'split', status: 'running', startedAt: '2026-09-12T00:00:01Z', completedAt: null },
+    ]
+    wrapper.vm.mergeGenStages([
+      { name: 'rewrite_copy', status: 'running' },
+    ])
+    expect(wrapper.vm.genVideoStages.find(s => s.name === 'rewrite_copy').status).toBe('completed')
   })
 })

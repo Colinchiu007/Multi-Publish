@@ -415,6 +415,39 @@ describe('PipelineEngine 状态机模式', () => {
     expect(run.checkpoint).toEqual({ type: 'previous_checkpoint' })
   })
 
+  it('cancelRun 按 runId 定向取消运行中任务；非运行中/不存在/非法 runId 拒绝', () => {
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine.registerPipeline({
+      name: 'cancel-run-test',
+      description: '按 runId 取消测试',
+      stages: ['a', 'b'],
+      stageDefs: [{ name: 'a', type: 'cr_a' }, { name: 'b', type: 'cr_b' }],
+    })
+    engine.registerStageExecutor('cr_a', async () => ({ success: true, output: {} }))
+    engine.registerStageExecutor('cr_b', async () => ({ success: true, output: {} }))
+
+    const started = engine.start('cancel-run-test', {})
+    const run = engine._runs.get(started.runId)
+    run.status = 'running'
+    run.currentStage = 0
+    run.stages[0].status = 'running'
+
+    // 1) 运行中可定向取消：run + 当前阶段标记 cancelled
+    const result = engine.cancelRun(started.runId)
+    expect(result.success).toBe(true)
+    expect(result.runId).toBe(started.runId)
+    expect(run.status).toBe('cancelled')
+    expect(run.cancelled).toBe(true)
+    expect(run.stages[0].status).toBe('cancelled')
+
+    // 2) 已取消（非 running/paused）拒绝再次取消
+    expect(engine.cancelRun(started.runId).success).toBe(false)
+
+    // 3) 不存在 / 非法 runId 拒绝
+    expect(engine.cancelRun('no-such-run').success).toBe(false)
+    expect(engine.cancelRun('  ').success).toBe(false)
+  })
+
   it('pause/resume 及 pauseRun 拒绝非对象阶段数据', () => {
     const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
     const pausedRun = {

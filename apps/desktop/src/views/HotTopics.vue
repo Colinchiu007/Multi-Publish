@@ -194,7 +194,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
-import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, onPipelineUpdate } from '@/api/publisher'
+import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, onPipelineUpdate } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import UiModal from '@/components/UiModal.vue'
@@ -241,7 +241,9 @@ const genVideoDraftId = ref(null)
 const genVideoRunProgress = ref(null)
 let genVideoPollTimer = null
 let genVideoUnsubscribe = null
+let genVideoTickTimer = null
 let genVideoSeq = 0
+const GEN_VIDEO_TERMINAL_STAGE_STATUSES = new Set(['completed', 'skipped', 'failed', 'cancelled'])
 
 // ── 常量 ──
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
@@ -331,9 +333,11 @@ const genVideoProgressPercent = computed(() => {
   return Math.min(99, Math.round(base))
 })
 
-const genVideoElapsedMs = computed(() =>
-  genVideoStartedAt.value > 0 ? Date.now() - genVideoStartedAt.value : null,
-)
+const genVideoTick = ref(0)
+const genVideoElapsedMs = computed(() => {
+  void genVideoTick.value // 响应式依赖：1s tick 驱动 Date.now 重算（Date.now 非响应式源）
+  return genVideoStartedAt.value > 0 ? Math.max(0, Date.now() - genVideoStartedAt.value) : null
+})
 
 const genVideoSummary = computed(() => {
   if (genVideoPhase.value === 'rewriting') return t('hotTopics.genVideoStartToast')
@@ -546,7 +550,7 @@ function goToDestination() {
 /** 初始化弹窗 stages：改写 pending + 流水线 7 阶段 pending */
 function initGenVideoStages() {
   genVideoStages.value = GEN_VIDEO_STAGE_NAMES.map(name => ({
-    name, status: 'pending', startedAt: null, completedAt: null,
+    id: name, name, status: 'pending', startedAt: null, completedAt: null, progress: null,
   }))
 }
 
@@ -623,8 +627,7 @@ async function runGenVideoPipelineStart(seq) {
     // 读取用户保存的默认选项（owner-scoped SQLite；缺失回退内置默认）
     let snapshot = null
     try {
-      const raw = await storeGetSetting('story2video.lastOptions.v1')
-      snapshot = raw && typeof raw === 'object' ? (raw.data ?? raw) : raw
+      snapshot = await storeGetSetting('story2video.lastOptions.v1')
     } catch (_) { snapshot = null }
     if (disposed || seq !== genVideoSeq) return
     const text = genVideoRewrittenContent.value
@@ -638,7 +641,7 @@ async function runGenVideoPipelineStart(seq) {
       uiLocale: getAppLocale(),
       story2videoTextConfig,
     }
-    const res = await pipelineStartOrchestrated(GEN_VIDEO_PIPELINE_NAME, JSON.parse(JSON.stringify(params)))
+    const res = await pipelineStartOrchestrated(GEN_VIDEO_PIPELINE_NAME, params)
     if (disposed || seq !== genVideoSeq) return
     const outcome = res?.data
     if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
@@ -656,9 +659,6 @@ async function runGenVideoPipelineStart(seq) {
     if (disposed || seq !== genVideoSeq) return
     // 流水线启动失败：改写已完成保留；流水线首阶段标 failed
     setGenStage('split', { status: 'failed', error: (e && e.message) || '', completedAt: new Date().toISOString() })
-    for (const s of genVideoStages.value) {
-      if (s.status === 'pending' && s.name !== GEN_VIDEO_REWRITE_STAGE) s.status = 'pending'
-    }
     genVideoPhase.value = 'failed'
     genVideoErrorText.value = t('hotTopics.genVideoPipelineFailed')
     genVideoBusy.value = false
@@ -672,8 +672,12 @@ function mergeGenStages(incomingStages) {
     if (!inc || typeof inc.name !== 'string') continue
     const target = genVideoStages.value.find(s => s.name === inc.name)
     if (target) {
+      // 终态守卫：已 completed/skipped/failed/cancelled 的阶段不被乱序推送降级回 running
+      const nextStatus = GEN_VIDEO_TERMINAL_STAGE_STATUSES.has(target.status)
+        ? target.status
+        : (inc.status || target.status)
       Object.assign(target, {
-        status: inc.status || target.status,
+        status: nextStatus,
         startedAt: inc.startedAt || target.startedAt,
         completedAt: inc.completedAt || target.completedAt,
         error: inc.error ?? target.error,
@@ -690,12 +694,14 @@ function startGenVideoTracking() {
   if (!runId) return
   genVideoUnsubscribe = onPipelineUpdate(snapshot => handleGenVideoPush(snapshot))
   genVideoPollTimer = setInterval(() => pollGenVideoRun(runId), GEN_VIDEO_POLL_INTERVAL_MS)
+  genVideoTickTimer = setInterval(() => { genVideoTick.value++ }, 1000)
   void pollGenVideoRun(runId)
 }
 
 function stopGenVideoTracking() {
   if (genVideoPollTimer) { clearInterval(genVideoPollTimer); genVideoPollTimer = null }
   if (genVideoUnsubscribe) { try { genVideoUnsubscribe() } catch (_) {} genVideoUnsubscribe = null }
+  if (genVideoTickTimer) { clearInterval(genVideoTickTimer); genVideoTickTimer = null }
 }
 
 /** 实时推送处理（runId 快照守卫） */
@@ -783,6 +789,7 @@ async function retryGenVideo() {
   if (genVideoPhase.value !== 'failed') return
   genVideoSeq++
   const seq = genVideoSeq
+  genVideoBusy.value = true
   genVideoErrorText.value = ''
   genVideoRunId.value = null
   genVideoRunProgress.value = null
@@ -810,8 +817,7 @@ async function cancelGenVideo() {
   if (phase === 'running' && genVideoRunId.value) {
     stopGenVideoTracking()
     try {
-      const { pipelineCancel } = await import('@/api/publisher')
-      await pipelineCancel()
+      await pipelineCancelRun(genVideoRunId.value)
     } catch (_) { /* 取消失败也按前端取消处理 */ }
   } else {
     stopGenVideoTracking()
@@ -830,7 +836,7 @@ function handleGenVideoClose() {
     // 后台运行：停止前端跟踪，run 继续在主进程执行
     stopGenVideoTracking()
     genVideoModalOpen.value = false
-    genVideoBusy.value = false
+    genVideoPhase.value = 'background' // 后台态：按钮保持禁用直到用户开新任务（run 由主进程继续）
     notifyInfo('hotTopics.genVideoBackgroundHint')
   } else {
     closeGenVideoModal()
