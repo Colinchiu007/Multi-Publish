@@ -49,6 +49,10 @@ module.exports = {
       editor_frame: ['iframe#ueditor_0', 'iframe[src*="ueditor"]', '.rich_media_area_primary_inner'],
       editor: ['#js_editor_content', '.rich_media_area_primary_inner', '[contenteditable="true"]'],
       author_input: ['#author', 'input[name="author"]'],
+      // P1-4：公众号摘要（图文编辑页 digest textarea）
+      digest_textarea: ['#digest', 'textarea[name="digest"]', 'textarea[placeholder*="摘要"]', '.weui-desktop-form textarea'],
+      // P3-3：评论开关（留言开关 checkbox）
+      comment_toggle: ['#js_comment_open', 'input[name="need_open_comment"]', '[class*="comment"] input[type="checkbox"]'],
       agree_checkbox: ['.weui-desktop-btn_wrp .weui-desktop-checkbox', 'input#js_agree'],
       save_btn: ['a[data-action="save"]', 'a#js_sync_save', 'a:has-text("保存")'],
       mass_btn: ['a.btn_masssend', 'a[data-action="masssend"]', 'a:has-text("群发")'],

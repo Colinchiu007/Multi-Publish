@@ -208,6 +208,32 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(bad.collectionId).toBeUndefined()
   })
 
+  it("P1-4/P1-5/P3-3：公众号 digest/openComment 与全平台 author 透传", () => {
+    // 公众号摘要 + 评论开关
+    const wx = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { wechat_mp: { digest: "这是摘要" } }, openComment: false, author: "张三" } },
+      "wechat_mp",
+    )
+    expect(wx.digest).toBe("这是摘要")
+    expect(wx.openComment).toBe(false)
+    expect(wx.author).toBe("张三")
+
+    // author 全平台透传（非公众号也有）
+    const dy = routerSrc.buildPublishArticle({ article: { ...baseArticle, author: "李四" } }, "douyin")
+    expect(dy.author).toBe("李四")
+
+    // openComment 默认 true（未显式 false）
+    const wx2 = routerSrc.buildPublishArticle({ article: { ...baseArticle } }, "wechat_mp")
+    expect(wx2.openComment).toBe(true)
+
+    // digest 超长截断 120
+    const wx3 = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, platformOverrides: { wechat_mp: { digest: "x".repeat(200) } } } },
+      "wechat_mp",
+    )
+    expect(wx3.digest.length).toBe(120)
+  })
+
   it("缺少 cookie 时抛错", async () => {
     accountManager.loadSavedCredentials.mockReturnValueOnce(null)
     const r = new PublisherRouter()

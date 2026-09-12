@@ -1032,6 +1032,8 @@ export default {
     aiCoverGenerated: 'AI cover generated',
     aiCoverGenerateFailed: (ctx) => 'AI cover generation failed: ' + ctx.named('message'),
     aiCoverCancel: 'Cancel',
+    aiVideoEntry: 'Generate Video with AI',
+    aiVideoEntryHint: 'Go to the creation page, generate with Story2Video pipeline, then come back to publish',
     dragVideoHint: 'Supports MP4/MOV/AVI, max 500MB. Auto-extract first frame as cover after selecting',
     cover: 'Cover',
     coverExtracted: 'Cover extracted',

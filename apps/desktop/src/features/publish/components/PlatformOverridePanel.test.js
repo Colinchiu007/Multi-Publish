@@ -34,7 +34,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.get('[data-testid="override-toggle-wechat_mp"]').setValue(true)
 
     expect(wrapper.emitted('update:modelValue')[0][0]).toEqual({
-      wechat_mp: { title: '', content: '' },
+      wechat_mp: { title: '', content: '', digest: '', massSend: false, openComment: true },
     })
     expect(modelValue).toEqual({})
   })
@@ -50,7 +50,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.get('[data-testid="override-title-wechat_mp"]').setValue('专属标题')
 
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toEqual({
-      wechat_mp: { title: '专属标题', content: '' },
+      wechat_mp: { title: '专属标题', content: '', digest: '', massSend: false, openComment: true },
     })
   })
 
@@ -176,5 +176,23 @@ describe('PlatformOverridePanel', () => {
     expect(latest.tiktok.privacyLevel).toBe('FRIENDS')
     expect(latest.baijiahao.original).toBe(true)
     expect(latest.baijiahao.locationName).toBe('北京·三里屯')
+  })
+
+  it('公众号摘要与评论开关差异化字段（P1-4/P3-3）', async () => {
+    const wrapper = mount(PlatformOverridePanel, { props: { platforms, modelValue: {} } })
+
+    await wrapper.get('[data-testid="override-toggle-wechat_mp"]').setValue(true)
+    expect(wrapper.emitted('update:modelValue').at(-1)[0].wechat_mp).toMatchObject({
+      digest: '', openComment: true,
+    })
+
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
+    await wrapper.get('[data-testid="override-digest-wechat_mp"]').setValue('这是摘要内容')
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
+    await wrapper.get('[data-testid="override-open-comment-wechat_mp"]').setValue(false)
+
+    const latest = wrapper.emitted('update:modelValue').at(-1)[0].wechat_mp
+    expect(latest.digest).toBe('这是摘要内容')
+    expect(latest.openComment).toBe(false)
   })
 })

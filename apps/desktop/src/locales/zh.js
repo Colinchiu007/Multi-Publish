@@ -1033,6 +1033,8 @@ export default {
     aiCoverGenerated: 'AI 封面已生成',
     aiCoverGenerateFailed: (ctx) => 'AI 封面生成失败：' + ctx.named('message'),
     aiCoverCancel: '取消',
+    aiVideoEntry: '用 AI 生成视频',
+    aiVideoEntryHint: '跳转到视频创作页，用 Story2Video 流水线生成后回来发布',
     dragVideoHint: '支持 MP4/MOV/AVI，最大 500MB。选择视频后可自动提取首帧作为封面',
     cover: '封面图',
     coverExtracted: '封面已提取',

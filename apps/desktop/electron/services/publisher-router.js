@@ -102,6 +102,15 @@ function resolveBooleanOption (override, base, key) {
   return base[key] === true
 }
 
+// P1-4：公众号摘要 — platformOverrides.wechat_mp.digest 优先，其次文章基础字段
+function override_digest (resolved) {
+  const overrides = resolved.base.platformOverrides && typeof resolved.base.platformOverrides === 'object'
+    ? resolved.base.platformOverrides
+    : {}
+  const o = overrides.wechat_mp && typeof overrides.wechat_mp === 'object' ? overrides.wechat_mp : {}
+  return o.digest ?? resolved.base.digest ?? ''
+}
+
 function resolvePlatformArticle (task, platform) {
   const base = task && task.article && typeof task.article === 'object' ? task.article : {}
   const overrides = base.platformOverrides && typeof base.platformOverrides === 'object'
@@ -196,6 +205,8 @@ function buildPublishArticle (task, platform) {
     draft: resolved.draft ?? resolveBooleanOption({}, resolved.base, 'draft'),
     mentions: processed.mentions,
     images: processed.images,
+    // P1-5：作者字段透传（原仅 wechat_mp RPA 硬编码消费，现全平台透传）
+    author: String(resolved.base.author || '').slice(0, 60) || null,
   }
   // AI 生成内容声明：默认勾选（AI 生成内容），仅当显式 aiGenerated === false 时取消勾选。
   // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
@@ -205,6 +216,13 @@ function buildPublishArticle (task, platform) {
     article.declare = resolved.declare
   }
   if (platform === 'wechat_mp') article.massSend = resolved.massSend
+  // P1-4 + P3-3：公众号摘要 + 评论开关（蚁小二 digest/need_open_comment 映射）
+  if (platform === 'wechat_mp') {
+    const digest = String(override_digest(resolved) || '').trim()
+    if (digest) article.digest = digest.slice(0, 120)
+    if (typeof resolved.base.openComment === 'boolean') article.openComment = resolved.base.openComment
+    else article.openComment = true // 默认开评论（公众号默认行为）
+  }
   // P0-3：平台特有字段透传到 article（adapter buildPostData 消费）
   if (platform === 'bilibili') {
     if (resolved.category !== undefined) article.category = resolved.category

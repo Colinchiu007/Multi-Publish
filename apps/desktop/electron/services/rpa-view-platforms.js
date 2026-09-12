@@ -910,6 +910,26 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       try { await this._fillInput(win,'#author, input[name="author"]',article.author) } catch (e) { /* ignore */ }
     }
 
+    // P1-4: Fill digest (摘要) — 有摘要时展开摘要区并填充
+    if (article.digest) {
+      try {
+        const digestSel = '#digest, textarea[name="digest"], textarea[placeholder*="摘要"]'
+        if (await this._waitForElement(win, digestSel, 5000)) {
+          await this._fillInput(win, digestSel, String(article.digest).slice(0, 120))
+        } else {
+          // 摘要区可能折叠，尝试点击「摘要」展开后再填
+          await win.webContents.executeJavaScript("(function(){var lbl=[...document.querySelectorAll('label,dt,th,span')].find(function(e){return /摘要/.test(e.textContent||'')});if(lbl){var box=lbl.closest('dd,td,div');if(box){var ta=box.querySelector('textarea');if(ta){ta.focus();ta.value='"+String(article.digest).replace(/'/g,"\\'").slice(0,120)+"';ta.dispatchEvent(new Event('input',{bubbles:true}))}}}})()").catch(function(){/* ignore */})
+        }
+      } catch (e) { log.warn('RpaView','wechat_mp digest: '+e.message) }
+    }
+
+    // P3-3: 评论开关 — openComment===false 时关闭留言
+    if (article.openComment === false) {
+      try {
+        await win.webContents.executeJavaScript("(function(){var cb=document.querySelector('#js_comment_open, input[name=\"need_open_comment\"]');if(cb&&cb.checked){cb.click()}})()").catch(function(){/* ignore */})
+      } catch (e) { log.warn('RpaView','wechat_mp comment toggle: '+e.message) }
+    }
+
     // Check agreement
     this._emitProgress('wechat_mp','checking agreement...',60)
     try {

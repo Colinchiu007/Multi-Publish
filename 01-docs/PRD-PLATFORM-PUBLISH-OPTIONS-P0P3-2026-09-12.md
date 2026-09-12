@@ -72,6 +72,30 @@
 
 ## P3 — 长尾（待排期 ⏳）
 
+### P1-4/P1-5/P2-3/P3-3 收尾（2026-09-12 第二批实施 ✅）
+
+**P1-4 公众号摘要（digest）**
+- 数据校验：120 字截断；platformOverrides.wechat_mp.digest 优先，其次 article.digest
+- 流程：PlatformOverridePanel 摘要 textarea → buildArticleData → buildPublishArticle（override_digest）→ wechat_mp adapter digest 字段 + RPA _publish_wechat_mp digest 填充（#digest 选择器，折叠时点「摘要」label 展开）
+- 交互逻辑：留空时平台自动取正文开头（公众号默认行为）
+- 提示文字：「摘要 最多 120 字，留空自动取正文开头」/「公众号图文摘要（选填）」
+
+**P1-5 作者字段全平台透传**
+- 数据校验：60 字截断，空值 null
+- 流程：article.author（UI 已有输入）→ buildArticleData（已有 L201）→ buildPublishArticle（新增 author 字段）→ wechat_mp adapter + RPA（原仅 RPA 硬编码消费，现 adapter 也带）
+
+**P2-3 AI 视频生成入口**
+- 交互逻辑：视频表单视频区下方「用 AI 生成视频」按钮 → router.push('/create') 跳转创作页
+- 设计决策：不在发布页内嵌视频生成（Story2Video 流水线已完整，避免重复实现），引导用户生成后回来发布
+- 提示文字：「用 AI 生成视频」/「跳转到视频创作页，用 Story2Video 流水线生成后回来发布」（zh/en 双语）
+
+**P3-3 公众号评论开关**
+- 数据校验：boolean，默认 true（开评论=公众号默认行为）
+- 流程：PlatformOverridePanel「开启留言（评论）」checkbox → buildPublishArticle openComment → adapter need_open_comment（0/1）+ RPA 关闭时点击 #js_comment_open
+- 提示文字：「开启留言（评论）」
+
+第二批测试：router 48/48（新增 digest/openComment/author 透传）、Panel 10/10（新增公众号摘要+评论开关）、局部回归 679/679、债务熔断全绿。
+
 | 项 | 内容 | 依赖 |
 |----|------|------|
 | P3-1 | 商品橱窗（抖音 goodsInfoList/小红书 shopping_cart） | 电商权限 API |
