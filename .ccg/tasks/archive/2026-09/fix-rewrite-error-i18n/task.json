@@ -1,0 +1,16 @@
+{
+  "id": "fix-rewrite-error-i18n",
+  "title": "AI改写错误提示用户友好化+i18n机制补洞",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend+backend",
+  "currentPhase": "completed",
+  "nextAction": "",
+  "createdAt": "2026-09-12T00:00:00Z",
+  "completedAt": "2026-09-12T10:35:14Z",
+  "branch": "codex/fix-rewrite-error-i18n",
+  "pr": 1736,
+  "mergeCommit": "a25c0c9b",
+  "remoteStatus": "merged"
+}
