@@ -223,3 +223,16 @@
                         ↓
               日志文件 app-YYYY-MM-DD.log（脱敏后落盘）
 ```
+
+### 7.1 有意的行为变更（双模型审查后确认）
+
+以下两处变更超出「只加日志」边界，经审查确认为**有意修复**而非副作用：
+
+1. **collection-strategy.js 策略文件损坏**：原行为是 JSON.parse 异常直接从构造函数抛出（应用崩溃）；现改为记 error 日志后回退默认策略（容错）。理由：策略文件属用户数据，损坏不应导致整个采集引擎不可用；回退后热加载可恢复。
+2. **base_tool.py logger 兜底 handler**：子进程/CLI 上下文可能未配置 root logger，导致 logger.error 静默丢失；模块级挂 StreamHandler 保证 stderr 日志总能输出。这不改变业务行为，只保证日志可达。
+
+### 7.2 审查修复记录
+
+Claude 审查（3 Critical + 8 Major + 5 Minor）已修复：
+- Critical：webview-manager cookie 聚合计数竞态（Promise.all 后判定）；Python logger 兜底 handler；_waitForElement 超时降 info 防刷屏。
+- opencode 审查：确认 Electron 43 console-message 位置参数签名仍有效（deprecated 未移除）、18 个 ipc-handler 文件 log 定义齐全无 ReferenceError 风险。
