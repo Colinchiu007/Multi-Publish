@@ -156,13 +156,35 @@
               </select>
             </label>
             <label class="override-field">
-              <span>加入合集（可选，填合集 ID）</span>
+              <span>加入合集（可选）</span>
+              <div class="collection-picker">
+                <button
+                  type="button"
+                  class="collection-picker__btn"
+                  :data-testid="'override-collection-fetch-' + platform.id"
+                  :disabled="collectionLoading[platform.id]"
+                  @click="fetchCollections(platform.id)"
+                >{{ collectionLoading[platform.id] ? '拉取中…' : '拉取我的合集' }}</button>
+                <select
+                  :data-testid="'override-collection-id-' + platform.id"
+                  :value="getValue(platform.id, 'collectionId')"
+                  @change="updateField(platform.id, 'collectionId', $event.target.value)"
+                >
+                  <option value="">不加入合集</option>
+                  <option v-if="!collectionOptions[platform.id] || collectionOptions[platform.id].length === 0" :value="getValue(platform.id, 'collectionId')">
+                    {{ getValue(platform.id, 'collectionId') ? 'ID: ' + getValue(platform.id, 'collectionId') : '（先拉取或手输）' }}
+                  </option>
+                  <option v-for="col in collectionOptions[platform.id] || []" :key="col.id" :value="col.id">
+                    {{ col.name }}（{{ col.id }}）
+                  </option>
+                </select>
+              </div>
               <input
-                :data-testid="'override-collection-id-' + platform.id"
+                :data-testid="'override-collection-id-input-' + platform.id"
                 :value="getValue(platform.id, 'collectionId')"
                 type="text"
                 inputmode="numeric"
-                placeholder="合集 ID，如 12345"
+                placeholder="或手输合集 ID"
                 @input="updateField(platform.id, 'collectionId', $event.target.value)"
               />
             </label>
@@ -238,7 +260,16 @@
               />
             </label>
             <label class="override-field">
-              <span>加入合集（可选，填合集 ID 与名称）</span>
+              <span>加入合集（可选）</span>
+              <div class="collection-picker">
+                <button
+                  type="button"
+                  class="collection-picker__btn"
+                  :data-testid="'override-collection-fetch-' + platform.id"
+                  :disabled="collectionLoading[platform.id]"
+                  @click="fetchCollections(platform.id)"
+                >{{ collectionLoading[platform.id] ? '拉取中…' : '拉取我的合集' }}</button>
+              </div>
               <input
                 :data-testid="'override-collection-id-' + platform.id"
                 :value="getValue(platform.id, 'collectionIdText')"
@@ -255,12 +286,34 @@
 </template>
 
 <script setup>
+import { reactive } from 'vue'
+import { listPlatformCollections } from '@/api/publisher'
+
 const props = defineProps({
   platforms: { type: Array, default: () => [] },
   modelValue: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+// P3-7：合集列表拉取状态
+const collectionOptions = reactive({})
+const collectionLoading = reactive({})
+
+async function fetchCollections (platformId) {
+  if (collectionLoading[platformId]) return
+  collectionLoading[platformId] = true
+  try {
+    const result = await listPlatformCollections(platformId)
+    if (result?.code === 0 && Array.isArray(result.data)) {
+      collectionOptions[platformId] = result.data
+    }
+  } catch (_) {
+    collectionOptions[platformId] = []
+  } finally {
+    collectionLoading[platformId] = false
+  }
+}
 
 const zhihuStatements = [
   { value: 0, label: '无申明' },
@@ -408,6 +461,10 @@ function updateField (platformId, field, value) {
 .override-field select { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 7px 9px; color: var(--text-primary, #202124); background: var(--surface, #fff); font: inherit; }
 .override-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted, #73777d); }
 .override-check input { accent-color: var(--coral, #f56c6c); }
+.collection-picker { display: flex; gap: 8px; align-items: center; }
+.collection-picker__btn { white-space: nowrap; padding: 6px 10px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; background: var(--surface, #fff); color: var(--text-primary, #202124); font: inherit; font-size: 12px; cursor: pointer; }
+.collection-picker__btn:disabled { opacity: 0.6; cursor: wait; }
+.collection-picker select { flex: 1; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 6px 8px; font: inherit; }
 .override-field input:focus, .override-field textarea:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
 .override-field select:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
 </style>

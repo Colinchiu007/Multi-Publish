@@ -52,6 +52,11 @@ class AuditLogger {
     this._buffer = []
     this._flushTimer = null
     this._flushMs = opts.flushMs || 5000
+    this._droppedCount = 0
+    // logging-coverage-audit：无 dir 时此前完全静默丢弃所有审计事件（url-collector.js:50 注释证实为真实回归坑）
+    if (opts.enabled !== false && !this._dir) {
+      console.warn('[audit-logger] no dir configured — all audit/blocked events will be dropped (pass opts.dir to enable persistence)')
+    }
     if (opts.enabled !== false && this._dir) this._startFlush()
   }
 
@@ -77,7 +82,13 @@ class AuditLogger {
 
   log (level, entry) {
     // 无目录时禁用落盘也禁用缓冲（回归审查 M5：防 buffer 无限增长）
-    if (!this._dir) return
+    if (!this._dir) {
+      this._droppedCount += 1
+      if (this._droppedCount === 1 || this._droppedCount % 100 === 0) {
+        console.warn('[audit-logger] audit event dropped (no dir configured, droppedCount=' + this._droppedCount + ') level=' + level + ' event=' + (entry && entry.event))
+      }
+      return
+    }
     const record = {
       ts: new Date().toISOString(),
       level,

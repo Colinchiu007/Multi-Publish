@@ -509,6 +509,7 @@ async function checkLoginStatus (platform, accountId) {
         } catch {
           // 选择器超时不一定意味着失效：某些平台的选择器可能因 DOM 变更而失效
           // 不立即判为过期，继续走 URL 检查逻辑
+          log.info('AccountManager', 'checkLoginStatus: selector timeout ' + platform + ':' + accountId + ' selector=' + (Array.isArray(successSelector) ? successSelector.join(',').slice(0, 200) : String(successSelector).slice(0, 200)) + ' — 降级 URL 检查')
         }
       }
 
@@ -531,11 +532,15 @@ async function checkLoginStatus (platform, accountId) {
           const dashboardHost = new URL(dashboardUrl).hostname
           const currentHost = new URL(currentUrl).hostname
           if (currentHost === dashboardHost || currentHost.endsWith('.' + dashboardHost)) {
+            log.info('AccountManager', 'checkLoginStatus: dashboard-host fallback valid ' + platform + ':' + accountId + ' currentHost=' + currentHost + ' dashboardHost=' + dashboardHost + ' selectorMatched=false')
             return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
           }
         } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
       }
 
+      // 兜底判定日志：选择器超时 + URL 无登录特征 + 非仪表盘域名时无条件判 valid，
+      // 是假阳性盲区（logging-coverage-audit：必须留判定证据）
+      log.warn('AccountManager', 'checkLoginStatus: fallback valid (no selector match, no login URL marker, no dashboard host) ' + platform + ':' + accountId + ' url=' + currentUrl + ' selectorMatched=' + selectorMatched)
       return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
     } finally {
       await page.close().catch(() => {})
@@ -663,6 +668,7 @@ async function extractAccountInfo (page, platform = '') {
  * 基于蚁小二逆向工程 restoreCookies
  */
 function restoreCookies (session, cookies, baseUrl) {
+  let _restoreFailed = 0
   const promises = cookies.map(cookie => {
     try {
       const { name, value, domain, path, secure, httpOnly, expirationDate, sameSite } = cookie
@@ -676,12 +682,18 @@ function restoreCookies (session, cookies, baseUrl) {
         httpOnly: httpOnly || false,
         expirationDate: expirationDate || undefined,
         sameSite: sameSite || 'Unspecified',
-      }).catch(() => {})
+      }).catch(e => {
+        _restoreFailed += 1
+        log.warn('AccountManager', 'restoreCookies: cookie set failed name=' + (name || '') + ' err=' + (e && e.message))
+      })
     } catch {
       return Promise.resolve()
     }
   })
-  return Promise.all(promises)
+  return Promise.all(promises).then(results => {
+    if (_restoreFailed > 0) log.warn('AccountManager', 'restoreCookies: ' + _restoreFailed + '/' + cookies.length + ' cookies failed to restore')
+    return results
+  })
 }
 
 /**

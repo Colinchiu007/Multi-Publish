@@ -21,11 +21,18 @@ class DouyinAdapter extends BasePlatformAdapter {
   async uploadCover(td, cookie) { const r = await upload({...td, platform: "douyin"}, cookie); return r?.cover || null; }
 
   buildPostData(taskData) {
-    return {
+    const data = {
       title: taskData.title || "",
       content: taskData.content || "",
       tags: taskData.tags || [],
     };
+    // P3-1：商品橱窗（蚁小二映射 shopping_cart → goodsInfoList）
+    if (Array.isArray(taskData.goods) && taskData.goods.length > 0) {
+      data.goodsInfoList = taskData.goods.map(function (g) { return { item_id: g.id, item_name: g.title } })
+    }
+    // P3-2：任务/活动（蚁小二映射 hot_event → hot_sentence）
+    if (taskData.taskId) data.hot_sentence = taskData.taskId
+    return data
   }
 
   async publish(cookie, postData) {

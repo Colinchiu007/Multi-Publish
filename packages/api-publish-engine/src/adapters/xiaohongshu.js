@@ -21,12 +21,17 @@ class XiaohongshuAdapter extends BasePlatformAdapter {
   }
 
   buildPostData(taskData) {
-    return {
+    const data = {
       title: taskData.title || "",
       content: taskData.content || "",
       tags: taskData.tags || [],
       type: taskData.video_path ? "video" : "dynamic",
     };
+    // P3-1：商品（蚁小二映射 shopping_cart）
+    if (Array.isArray(taskData.goods) && taskData.goods.length > 0) {
+      data.shopping_cart = { items: taskData.goods.map(function (g) { return { item_id: g.id, name: g.title } }) }
+    }
+    return data
   }
 
   async publish(cookie, postData) {

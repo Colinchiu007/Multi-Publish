@@ -140,6 +140,13 @@ class BasePythonBridge {
    */
   _launchProcess (pythonCmd) {
     return new Promise((resolve, reject) => {
+      // 2026-09-12 bug 反思：cwd 不存在时 Windows spawn 报 ENOENT，与「python 缺失」无法区分。
+      // spawn 前显式校验 workDir，不存在时给出可诊断错误（而非伪装成 python ENOENT）。
+      const fs = require('fs')
+      if (!fs.existsSync(this.workDir)) {
+        reject(new Error(this.name + ' workDir does not exist: ' + this.workDir + ' (fix workDir resolution; spawn cwd must be a real directory)'))
+        return
+      }
       const proc = spawn(pythonCmd, ['-m', this.pythonModule], {
         cwd: this.workDir,
         env: { ...process.env, PORT: String(this.port), PYTHONUNBUFFERED: '1' },
@@ -281,7 +288,11 @@ class BasePythonBridge {
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
           let parsed
-          try { parsed = JSON.parse(data) } catch { parsed = { code: -1, message: data } }
+          // logging-coverage-audit：非 JSON 响应此前静默降级，原始 body 不进日志
+          try { parsed = JSON.parse(data) } catch {
+            this.log.warn(this.name, 'POST ' + path + ' non-JSON response (len=' + data.length + '): ' + String(data).slice(0, 300))
+            parsed = { code: -1, message: data }
+          }
           if (res.statusCode && res.statusCode >= 400) {
             const detail = (parsed && (parsed.detail || parsed.message)) || data
             this.log.error(this.name, `POST ${path} HTTP ${res.statusCode}: ${typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)}`)
@@ -291,8 +302,8 @@ class BasePythonBridge {
           }
         })
       })
-      req.on('error', reject)
-      req.on('timeout', () => { req.destroy(); reject(new Error(`${this.name} request timeout`)) })
+      req.on('error', e => { this.log.error(this.name, 'POST ' + path + ' request error: ' + e.message); reject(e) })
+      req.on('timeout', () => { this.log.error(this.name, 'POST ' + path + ' timeout after ' + reqTimeout + 'ms'); req.destroy(); reject(new Error(`${this.name} request timeout`)) })
       req.write(body)
       req.end()
     })

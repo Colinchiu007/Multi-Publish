@@ -90,6 +90,16 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
   getReferer() { return "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2"; }
   getOrigin() { return "https://baijiahao.baidu.com"; }
 
+  // P3-7：拉取当前用户的合集列表（bjhtopic，蚁小二 collection.yixiaoerId 对应 bjhtopic_id）
+  async listCollections(cookie) {
+    const h = this.getHeaders(cookie, { Accept: "application/json" });
+    const resp = await this.http.get(this.apiBase + "/pcui/topic/list", { headers: h, params: { pn: 1, rn: 50 } });
+    const list = resp.data?.data?.list || resp.data?.data?.topics || [];
+    return (Array.isArray(list) ? list : []).map(function (t) {
+      return { id: t.topic_id || t.id, name: t.topic_name || t.name || "" };
+    }).filter(function (t) { return t.id });
+  }
+
   getHeaders(cookie, extra) {
     return super.getHeaders(cookie, {
       "Content-Type": "application/x-www-form-urlencoded",

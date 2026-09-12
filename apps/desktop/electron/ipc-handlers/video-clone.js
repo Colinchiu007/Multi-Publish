@@ -18,6 +18,7 @@ const { createVideoClonePublisher } = require('../services/video-clone/publisher
 const { createVideoCloneStore } = require('../services/video-clone/store')
 
 function registerHandlers(ipcMain, deps) {
+  const log = require('../services/logger')
   const { BrowserWindow, dialog } = deps
   const tmp = os.tmpdir()
   const outputRoot = path.join(tmp, 'story2video', 'video-clone')
@@ -69,7 +70,7 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('video-clone:cancel', (_event, arg) => {
     try {
       return { code: 0, data: service.cancel(arg && arg.runId) }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { log.warn('[ipc:video-clone]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('video-clone:report:edit', (_event, arg) => {
@@ -112,7 +113,7 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('video-clone:history', (_event) => {
     try {
       return { code: 0, data: store.listRuns() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { log.warn('[ipc:video-clone]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('video-clone:pick-file', withSenderCheck(async (_event) => {

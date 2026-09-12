@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 __enableElectronMock()
 
+// logger mock：用 __registerMock 拦截 require('./logger')，resetModules 后仍生效
+const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+__registerMock('./logger', log)
+
 const supportsApi = vi.fn()
 const shouldUseApi = vi.fn()
 const publishViaApi = vi.fn()
@@ -148,5 +152,42 @@ describe('RpaViewManager API 路由', () => {
 
     expect(publishViaApi).not.toHaveBeenCalled()
     expect(publishSpy).not.toHaveBeenCalled()
+  })
+
+  describe('logging-coverage-audit：失败分支日志合同', () => {
+    it('RPA publish 返回 success:false 时必须记 warn 日志（此前完全无日志）', async () => {
+      shouldUseApi.mockReturnValue(false)
+      const manager = new RpaViewManager()
+      const win = { destroy: vi.fn() }
+      vi.spyOn(manager, '_createWindow').mockReturnValue(win)
+      vi.spyOn(manager, '_publish_wechat_mp').mockResolvedValue({
+        success: false,
+        error: '微信公众号登录超时，请重新登录',
+        platform: 'wechat_mp',
+      })
+
+      const result = await manager.publish('wechat_mp', { accountId: 'acc-log' }, {}, 1000)
+
+      expect(result).toMatchObject({ success: false, platform: 'wechat_mp' })
+      const warnCalls = log.warn.mock.calls.filter(args => String(args[1]).includes('publish failed'))
+      expect(warnCalls.length).toBeGreaterThanOrEqual(1)
+      expect(warnCalls[0][1]).toContain('platform=wechat_mp')
+      expect(warnCalls[0][1]).toContain('登录超时')
+    })
+
+    it('API publish 返回 success:false 时也必须记日志（降级到 RPA 前）', async () => {
+      shouldUseApi.mockReturnValue(true)
+      supportsApi.mockReturnValue(true)
+      publishViaApi.mockResolvedValue({ success: false, error: 'API cookie 过期' })
+      const manager = new RpaViewManager()
+      const win = { destroy: vi.fn() }
+      vi.spyOn(manager, '_createWindow').mockReturnValue(win)
+      vi.spyOn(manager, '_publish_wechat_mp').mockResolvedValue({ success: true, platform: 'wechat_mp' })
+
+      await manager.publish('wechat_mp', {}, {}, 1000)
+
+      const warnCalls = log.warn.mock.calls.filter(args => String(args[1]).includes('API publish returned failure'))
+      expect(warnCalls.length).toBeGreaterThanOrEqual(1)
+    })
   })
 })

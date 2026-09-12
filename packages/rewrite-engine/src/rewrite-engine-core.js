@@ -10,6 +10,8 @@ const { AITasteRemover } = require('./ai-taste-remover')
 const { KnowledgeBase } = require('./knowledge-base')
 const { RewriteQualityEvaluator } = require('./rewrite-quality-evaluator')
 const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
+// 极简 logger（与 api-publish-engine/logger 同接口；logging-coverage-audit）
+const logger = require('./logger-fallback')
 
 class RewriteEngine {
   /**
@@ -29,6 +31,7 @@ class RewriteEngine {
     this._qualityEvaluator = options.qualityEvaluator || new RewriteQualityEvaluator()
     // 三层知识库 Prompt 构建器（用户偏好 + 爆款库 + 个人知识库）
     this._knowledgeLibrary = options.knowledgeLibrary || null
+    this._logger = options.logger || logger
   }
 
   /**
@@ -87,6 +90,7 @@ class RewriteEngine {
     try {
       result = await this._llmClient.chat(systemPrompt, userPrompt)
     } catch (e) {
+      this._logger.error('rewrite-engine', 'LLM call failed', { strategyId: strategy && strategy.id, mode, error: e.message })
       return { success: false, error: `LLM 调用失败: ${e.message}`, errorCode: 'LLM_ERROR' }
     }
 
@@ -201,7 +205,9 @@ class RewriteEngine {
         blocked: stage === 'pre' && result.hits && result.hits.length > 0,
         hits: result.hits || []
       }
-    } catch {
+    } catch (e) {
+      // 敏感词检测异常 fail-open 放行（logging-coverage-audit：必须留痕）
+      this._logger.error('rewrite-engine', 'sensitive check failed, fail-open', { stage, error: (e && e.message) || 'unknown' })
       return { blocked: false, hits: [] }
     }
   }

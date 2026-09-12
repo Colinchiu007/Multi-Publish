@@ -212,14 +212,16 @@ const platformsMixin = {
     const throttle = new ProgressThrottle(5000, 10)
     const retry = new FieldRetryState(3)
 
-    if (!config.publish_url) return { success: false, error: platform+' no publish_url', platform: platform }
+    if (!config.publish_url) { log.warn('RpaView', '[' + platform + '] no publish_url configured'); return { success: false, error: platform+' no publish_url', platform: platform } }
 
     this._emitProgress(platform, 'navigating...', 5)
     await this._navigateAndWait(win, config.publish_url, 3000)
 
     const curUrl = win.webContents.getURL()
-    if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('signin'))
+    if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('signin')) {
+      log.warn('RpaView', '[' + platform + '] not logged in url=' + curUrl)
       return { success: false, error: platform+' not logged in', platform: platform }
+    }
     // SPA 鐧诲綍鎬?DOM 鎺㈡祴锛歎RL 鏈烦杞絾椤甸潰宸叉槸鐧诲綍寮曞锛堝揩鎵嬬瓑 SPA 鏈櫥褰曚笉鏀瑰彉 URL锛?
     const loginProbe = await win.webContents.executeJavaScript(`(function(){
       var t = (document.body && document.body.innerText) || '';
@@ -352,6 +354,10 @@ const platformsMixin = {
     if (platform === 'kuaishou') {
       try { await this._prepKuaishou(win, article) } catch (e) { log.warn('RpaView', 'kuaishou prep: ' + e.message) }
     }
+    // P3-6：B站分区 + 版权声明（RPA 模式；蚁小二映射 createType original→1/forward→2）
+    if (platform === 'bilibili') {
+      try { await this._prepBilibili(win, article) } catch (e) { log.warn('RpaView', 'bilibili prep: ' + e.message) }
+    }
     // 通用 AI 生成内容声明：平台未设专用 prep 但有 ai_declaration_label 选择器时，
     // 自动勾选声明控件（默认 AI 生成，仅当 article.aiGenerated === false 时跳过）。
     // 覆盖 B站等平台；避免因漏选 AI 声明导致违规。
@@ -413,7 +419,7 @@ const platformsMixin = {
         }
       }
     }
-    return {success:false,error:platform+' no publish_btn selector',platform:platform}
+    { log.warn('RpaView', '[' + platform + '] no publish_btn selector configured'); return {success:false,error:platform+' no publish_btn selector',platform:platform} }
   },
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
@@ -555,9 +561,60 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       log.warn('RpaView', 'kuaishou AI declaration prep: ' + e.message)
       state = 'error'
     }
-    log.info('RpaView', '[kuaishou] AI declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' result=' + selectedValue : ''))
+    log.info('RpaView', '[kuaishou] AI declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' option=' + selectedValue : ''))
     return { state, option: selectedValue }
   },
+
+  // P3-6：B站投稿页分区选择 + 版权声明
+  // 分区：article.category（tid）→ 页面分区搜索框输入分区名 → 点选候选
+  // 版权：article.copyright（1=自制 2=转载）→ 点对应 radio
+  async _prepBilibili(win, article) {
+    this._emitProgress('bilibili', 'preparing category & copyright...', 82)
+    // 版权声明（自制/转载 radio）
+    const copyright = Number(article.copyright) === 1 ? 1 : 2
+    try {
+      const crResult = await win.webContents.executeJavaScript(
+        '(function(){var want=' + copyright + ';' +
+        'var radios=[...document.querySelectorAll("input[type=radio][name=copyright], input[type=radio]")].filter(function(r){return r.value==="1"||r.value==="2"});' +
+        'if(radios.length){var target=radios.find(function(r){return Number(r.value)===want});' +
+        'if(target){if(!target.checked){target.click()}return "COPYRIGHT:"+want}' +
+        '// radio 无 value 时按文本匹配（自制=1 转载=2）' +
+        'var labels=[...document.querySelectorAll("label,span")].filter(function(e){var t=(e.innerText||"").trim();return t==="自制"||t==="转载"});' +
+        'if(labels.length){var idx=want===1?labels.findIndex(function(e){return e.textContent.trim()==="自制"}):labels.findIndex(function(e){return e.textContent.trim()==="转载"});' +
+        'if(idx>=0){labels[idx].click();return "COPYRIGHT_LABEL:"+want}}}' +
+        'return "NO_COPYRIGHT_INPUT"})()'
+      )
+      log.info('RpaView', '[bilibili] copyright result: ' + String(crResult))
+    } catch (e) { log.warn('RpaView', 'bilibili copyright: ' + e.message) }
+    // 分区选择：article.category 存在时尝试（tid → 分区名映射由 UI 层提供 categoryName）
+    const categoryName = article.categoryName
+    if (categoryName) {
+      try {
+        const catResult = await win.webContents.executeJavaScript(
+          '(function(){var name=' + JSON.stringify(String(categoryName)) + ';' +
+          '// 策略1：分区搜索/选择输入框' +
+          'var inputs=[...document.querySelectorAll("input")].filter(function(i){return /分区|类目/.test(i.placeholder||"")});' +
+          'if(inputs.length){inputs[0].focus();inputs[0].value=name;inputs[0].dispatchEvent(new Event("input",{bubbles:true}));' +
+          'return "TYPED"}' +
+          '// 策略2：分区下拉容器' +
+          'var sels=[...document.querySelectorAll("[class*=category] select,[class*=tid] select,.video-category select")];' +
+          'if(sels.length){var opt=[...sels[0].options].find(function(o){return o.text.indexOf(name)!==-1});' +
+          'if(opt){sels[0].value=opt.value;sels[0].dispatchEvent(new Event("change",{bubbles:true}));return "SELECTED:"+opt.value}}' +
+          'return "NO_CATEGORY_INPUT"})()'
+        )
+        log.info('RpaView', '[bilibili] category result: ' + String(catResult))
+        if (String(catResult) === 'TYPED') {
+          await this._sleep(1500)
+          // 输入后点选下拉候选第一项
+          await win.webContents.executeJavaScript(
+            '(function(){var opts=[...document.querySelectorAll("[class*=dropdown] li,[class*=option] li,[class*=suggestion] li,[class*=popover] li")].filter(function(e){return (e.innerText||"").trim().length>0});' +
+            'if(opts.length){opts[0].click();return "PICKED"}return "NO_OPTIONS"})()'
+          ).catch(function(){/* ignore */})
+        }
+      } catch (e) { log.warn('RpaView', 'bilibili category: ' + e.message) }
+    }
+  },
+
 
   async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
     const title = String(context.title || '').trim()
@@ -790,11 +847,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     const self = this
     this._emitProgress('douyin','navigating...',5)
     await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload')
-    if (win.webContents.getURL().includes('login')) return {success:false,error:'douyin not logged in',platform:'douyin'}
+    if (win.webContents.getURL().includes('login')) { log.warn('RpaView', '[douyin] not logged in url=' + win.webContents.getURL()); return {success:false,error:'douyin not logged in',platform:'douyin'} }
 
     if (article.video_path) {
       this._emitProgress('douyin','uploading video...',20)
-      if (!(await this._waitForElement(win,'input[type="file"]',15000))) return {success:false,error:'no file input',platform:'douyin'}
+      if (!(await this._waitForElement(win,'input[type="file"]',15000))) { log.warn('RpaView', '[douyin] no file input url=' + win.webContents.getURL()); return {success:false,error:'no file input',platform:'douyin'} }
       await this._setFileInput(win,article.video_path)
       this._emitProgress('douyin','waiting upload...',30)
       const done = await this._waitForCondition(win,'function(){let p=document.querySelector(\'[class*="progress"]\');let s=document.querySelector(\'[class*="upload-success"],[class*="success"]\');return !p||s!==null}',300000)
@@ -846,6 +903,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       await this._sleep(5000)
       const fu=win.webContents.getURL()
       if (fu.includes('success')||fu.includes('publish/success')) return { success:true, url:fu||'', platform:'douyin' }
+      log.warn('RpaView', '[douyin] publish timeout url=' + (fu||''))
       return { success:false, error:'publish timeout', platform:'douyin' }
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
   },
@@ -859,7 +917,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('connect'))
-      return { success:false, error:'wechat_mp not logged in', platform:'wechat_mp' }
+      { log.warn('RpaView', '[wechat_mp] not logged in url=' + curUrl); return { success:false, error:'wechat_mp not logged in', platform:'wechat_mp' } }
 
     // 登录态检测：URL 未跳转但页面已显示"登录超时/请重新登录"（公众号后台 SPA 常见），提前 fail
     try {
@@ -945,7 +1003,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       const saveResponse = this._waitForResponse(win, ['operate_appmsg', 'appmsg/save', 'oper=save'], 30000)
       const saveClicked = await this._click(win, saveBtnSel)
       if (!saveClicked) {
-        return { success:false, error:'微信公众号草稿保存失败：保存按钮不可用', platform:'wechat_mp' }
+        { log.warn('RpaView', '[wechat_mp] save draft failed: save button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号草稿保存失败：保存按钮不可用', platform:'wechat_mp' } }
       }
       // 轮询保存成功标识：URL 出现 appmsgid，或页面出现"保存成功/已保存"提示
       const saved = await this._waitForCondition(win, 'function(){' +
@@ -972,7 +1030,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     }
 
     if (!mediaId) {
-      return { success:false, error:'微信公众号草稿保存结果无法验证：缺少媒体 ID', platform:'wechat_mp' }
+      { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error:'微信公众号草稿保存结果无法验证：缺少媒体 ID', platform:'wechat_mp' } }
     }
 
     // Mass send (群发)
@@ -982,17 +1040,17 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
         const draftSelected = await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(!row)return false;row.click();return true;})()')
         if (!draftSelected) {
-          return { success:false, error:'微信公众号群发失败：未找到已保存草稿', platform:'wechat_mp' }
+          { log.warn('RpaView', '[wechat_mp] mass send failed: draft not found mediaId=' + mediaId); return { success:false, error:'微信公众号群发失败：未找到已保存草稿', platform:'wechat_mp' } }
         }
         await this._sleep(1000)
         const massSendStarted = await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
         if (!massSendStarted) {
-          return { success:false, error:'微信公众号群发失败：群发按钮不可用', platform:'wechat_mp' }
+          { log.warn('RpaView', '[wechat_mp] mass send failed: button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号群发失败：群发按钮不可用', platform:'wechat_mp' } }
         }
         await this._sleep(2000)
         const massSendConfirmed = await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
         if (!massSendConfirmed) {
-          return { success:false, error:'微信公众号群发确认失败：确认按钮不可用', platform:'wechat_mp' }
+          { log.warn('RpaView', '[wechat_mp] mass send confirm failed: button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号群发确认失败：确认按钮不可用', platform:'wechat_mp' } }
         }
         await this._sleep(3000)
       } catch(e) {
@@ -1012,7 +1070,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('signin')||curUrl.includes('login')||curUrl.includes('ServiceLogin'))
-      return { success:false, error:'youtube not logged in', platform:'youtube' }
+      { log.warn('RpaView', '[youtube] not logged in url=' + curUrl); return { success:false, error:'youtube not logged in', platform:'youtube' } }
 
     if (!article.video_path)
       return { success:false, error:'youtube needs video file', platform:'youtube' }
@@ -1101,10 +1159,10 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     this._emitProgress('zhihu','navigating to write page...',5)
     await this._navigateAndWait(win,'https://www.zhihu.com/creator/write')
     if (win.webContents.getURL().includes('signin')||win.webContents.getURL().includes('login'))
-      return {success:false,error:'zhihu not logged in',platform:'zhihu'}
+      { log.warn('RpaView', '[zhihu] not logged in url=' + win.webContents.getURL()); return {success:false,error:'zhihu not logged in',platform:'zhihu'} }
     this._emitProgress('zhihu','waiting for editor...',15)
     if (!(await this._waitForElement(win,'.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title',15000)))
-      return {success:false,error:'zhihu: editor not loaded',platform:'zhihu'}
+      { log.warn('RpaView', '[zhihu] editor not loaded url=' + win.webContents.getURL()); return {success:false,error:'zhihu: editor not loaded',platform:'zhihu'} }
     if (article.title) {
       this._emitProgress('zhihu','filling title...',30)
       try {
@@ -1122,11 +1180,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     try {
       const pubBtn = "button:has-text('\u53d1\u5e03'), .PublishPanel-publish"
       if (!(await this._waitForElement(win,pubBtn,10000)))
-        return {success:false,error:'zhihu: publish button not found',platform:'zhihu'}
+        { log.warn('RpaView', '[zhihu] publish button not found url=' + win.webContents.getURL()); return {success:false,error:'zhihu: publish button not found',platform:'zhihu'} }
       if (article.draft) {
         const saveBtn = "button:has-text('\u4fdd\u5b58\u8349\u7a3f'), .WriteIndex-saveDraft"
         if (!(await this._waitForElement(win,saveBtn,5000)))
-          return {success:false,error:'zhihu: save draft btn not found',platform:'zhihu'}
+          { log.warn('RpaView', '[zhihu] save draft btn not found url=' + win.webContents.getURL()); return {success:false,error:'zhihu: save draft btn not found',platform:'zhihu'} }
         await this._click(win,saveBtn)
         await this._sleep(2000)
         this._emitProgress('zhihu','draft saved',100)
@@ -1145,7 +1203,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         this._emitProgress('zhihu','published!',100)
         return {success:true,url:curUrl,platform:'zhihu'}
       }
-      return {success:false,error:'zhihu: publish verification failed',platform:'zhihu'}
+      { log.warn('RpaView', '[zhihu] publish verification failed url=' + curUrl); return {success:false,error:'zhihu: publish verification failed',platform:'zhihu'} }
     } catch(e) {
       log.error('RpaView','zhihu publish: '+e.message)
       return {success:false,error:e.message,platform:'zhihu'}

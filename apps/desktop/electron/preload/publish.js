@@ -50,6 +50,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     publishBatch: (platforms, article) => ipcRenderer.invoke('publish:batch', { platforms, article }),
     extractVideoCover: (videoPath) => ipcRenderer.invoke('cover:extract', videoPath),
     generateAiCover: (payload) => ipcRenderer.invoke('cover:generate-ai', payload),
+    listPlatformCollections: (payload) => ipcRenderer.invoke('collection:list', payload),
     cropVideoCover: (payload) => ipcRenderer.invoke('cover:crop', payload),
     readCoverData: (imagePath) => ipcRenderer.invoke('cover:read-data', imagePath),
     listAccounts: () => ipcRenderer.invoke('accounts:list'),

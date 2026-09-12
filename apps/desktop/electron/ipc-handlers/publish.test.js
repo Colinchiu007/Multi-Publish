@@ -213,6 +213,45 @@ describe('publish IPC 可信来源正常工作', () => {
     })
   })
 
+  // P3-7：合集列表拉取（collection:list）
+  describe('collection:list', () => {
+    it('拒绝外部网页调用', async () => {
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, createMockDeps())
+      const handler = ipcMain._get('collection:list')
+
+      const result = await handler(UNTRUSTED_EVENT, { platform: 'bilibili' })
+
+      expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    })
+
+    it('非法平台被校验拒绝', async () => {
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, createMockDeps())
+      const handler = ipcMain._get('collection:list')
+
+      const r1 = await handler(TRUSTED_EVENT, { platform: 'wechat_mp' })
+      expect(r1.code).toBe(-2)
+      expect(r1.message).toContain('bilibili')
+
+      const r2 = await handler(TRUSTED_EVENT, {})
+      expect(r2.code).toBe(-2)
+    })
+
+    it('Cookie 缺失时返回错误', async () => {
+      const deps = createMockDeps()
+      deps.accountManager = { loadSavedCredentials: vi.fn(() => null) }
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('collection:list')
+
+      const result = await handler(TRUSTED_EVENT, { platform: 'bilibili' })
+
+      expect(result.code).toBe(-1)
+      expect(result.message).toContain('Cookie')
+    })
+  })
+
   it('publish:batch 可信来源正常批量入队', async () => {
     const deps = createMockDeps()
     const ipcMain = createMockIpcMain()
