@@ -433,8 +433,10 @@ def test_api_task_status_endpoint_unknown():
 
 @pytest.mark.asyncio
 async def test_rewrite_no_api_key_friendly_error():
-    """回归：无 LLM API Key 时返回友好中文错误，而非不可读的 repr。"""
+    """回归：无 LLM API Key 时抛 UserVisibleError(LLM_KEY_MISSING) 稳定错误码，
+    由渲染端 formatUserError 按 locale 渲染友好文案（不再硬编码中文技术提示）。"""
     import os as _os
+    from multi_publish.aggregation._user_errors import UserVisibleError
     from multi_publish.aggregation.service import AggregationService
     from multi_publish.aggregation.models import RewriteRequest
 
@@ -444,8 +446,48 @@ async def test_rewrite_no_api_key_friendly_error():
     service = AggregationService()
     req = RewriteRequest(content="这是一段用于测试改写的长内容，需要超过二十个字符来通过输入校验", style="轻松易懂")
 
-    with pytest.raises(ValueError, match="未配置 LLM API Key"):
+    with pytest.raises(UserVisibleError) as exc_info:
         await service.rewrite(req)
+    assert exc_info.value.error_code == "LLM_KEY_MISSING"
+    # 兜底文本不含环境变量名等技术细节
+    assert "LLM_API_KEY" not in exc_info.value.fallback_text
+    assert "PO_OPENAI_API_KEY" not in exc_info.value.fallback_text
+
+
+def test_rewrite_no_api_key_router_serializes_error_code():
+    """router 层：UserVisibleError → HTTP 400 detail={error_code, message}，
+    渲染端 python-bridge 透传 errorCode 供 formatUserError 渲染 locale 文案。"""
+    from multi_publish.aggregation._user_errors import UserVisibleError
+    from multi_publish.aggregation.router import rewrite as rewrite_endpoint
+
+    import asyncio
+
+    async def _raise(_req):
+        raise UserVisibleError("LLM_KEY_MISSING", "AI 改写服务尚未配置访问密钥")
+
+    original = rewrite_endpoint.__wrapped__ if hasattr(rewrite_endpoint, "__wrapped__") else None
+    # 直接构造异常路径验证：patch _get_service
+    import multi_publish.aggregation.router as router_mod
+
+    class _FakeService:
+        async def rewrite(self, request):
+            raise UserVisibleError("LLM_KEY_MISSING", "AI 改写服务尚未配置访问密钥")
+
+    router_mod._service = _FakeService()
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(content="这是一段用于测试改写的长内容，需要超过二十个字符来通过输入校验", style="轻松易懂")
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as http_info:
+        asyncio.run(rewrite_endpoint(req))
+
+    assert http_info.value.status_code == 400
+    detail = http_info.value.detail
+    assert isinstance(detail, dict)
+    assert detail["error_code"] == "LLM_KEY_MISSING"
+    assert "message" in detail
 
 
 @pytest.mark.asyncio

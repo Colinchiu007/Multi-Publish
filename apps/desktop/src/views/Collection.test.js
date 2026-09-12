@@ -717,6 +717,44 @@ describe("CollectionView", () => {
     expect(w.vm.collecting).toBe(false);
   });
 
+  // ── 回归：AI 改写无密钥错误必须渲染 locale 友好文案（2026-09-12）──
+  // 曾泄漏原始技术消息「未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写」到 UI。
+  it("rewriteCollected 无密钥错误 → 显示友好文案，不暴露环境变量名", async () => {
+    window.electronAPI = {
+      aggregationRewrite: vi.fn().mockResolvedValue({
+        code: -400, status: 400, errorCode: "LLM_KEY_MISSING",
+        message: "AI 改写服务尚未配置访问密钥",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "原始正文内容，长度超过二十个字用于测试。", description: "" };
+    await w.vm.rewriteCollected();
+    expect(w.vm.rewriteError).toBeTruthy();
+    // 友好文案来自 locale（含具体指引），不含环境变量名/技术细节
+    expect(w.vm.rewriteError.message).toContain("模型设置");
+    expect(w.vm.rewriteError.message).not.toContain("LLM_API_KEY");
+    expect(w.vm.rewriteError.message).not.toContain("PO_OPENAI_API_KEY");
+    expect(w.vm.rewriteError.message).not.toContain("环境变量");
+  });
+
+  it("rewriteCollected 旧版后端（无 errorCode，仅原始中文消息）→ pattern 兜底也不直出技术细节", async () => {
+    window.electronAPI = {
+      aggregationRewrite: vi.fn().mockResolvedValue({
+        code: -400, status: 400,
+        message: "未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.collectedResult = { title: "T", content: "原始正文内容，长度超过二十个字用于测试。", description: "" };
+    await w.vm.rewriteCollected();
+    expect(w.vm.rewriteError).toBeTruthy();
+    expect(w.vm.rewriteError.message).not.toContain("LLM_API_KEY");
+    expect(w.vm.rewriteError.message).not.toContain("PO_OPENAI_API_KEY");
+    expect(w.vm.rewriteError.message).not.toContain("环境变量");
+  });
+
   it("collectAndRewrite keeps original content when rewrite fails", async () => {
     window.electronAPI = {
       aggregationCollect: vi.fn().mockResolvedValue({

@@ -520,11 +520,20 @@ async function requestBackend (method, path, body = null, timeout = 30000) {
   }
   if (response.status >= 400) {
     const payload = response.data && typeof response.data === 'object' ? response.data : {}
+    // FastAPI detail 可为对象（如 { error_code, message }）：稳定错误码透传给渲染端 formatUserError
+    const detail = payload.detail
+    const detailObj = detail && typeof detail === 'object' ? detail : {}
+    const hasErrorCode = detailObj.error_code !== undefined
+    const normalizedMessage = payload.message
+      || (hasErrorCode ? (detailObj.message || '') : '')
+      || (typeof detail === 'string' && detail ? detail : '')
+      || 'Python backend request failed (' + response.status + ')'
     return {
       ...payload,
+      ...(hasErrorCode ? { errorCode: detailObj.error_code } : {}),
       status: response.status,
       code: payload.code === undefined ? -response.status : payload.code,
-      message: payload.message || payload.detail || `Python backend request failed (${response.status})`,
+      message: normalizedMessage,
     }
   }
   return response.data

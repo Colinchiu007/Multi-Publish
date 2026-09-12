@@ -32,6 +32,7 @@
 | L0-2 插值占位符一致性 | 同一 key 的 zh/en 文案 `{param}` 集合必须一致 | 「en 漏了 `{max}` 插值」 |
 | L0-3 重复源值一致性 | 断言 locales 与 `story2video-notifications.js` 同 key 文案值一致 | 「两处文案漂移」（语料源收敛后删除本条） |
 | L0-4 渲染端硬编码扫描 | `apps/desktop/src/` 非 locales 文件出现 CJK 字符串字面量即失败（注释除外） | 「新代码直接写死中文」 |
+| L0-5 python-backend 用户可见消息扫描（2026-09-12 补洞） | `check-locale-sync.js --py-cjk`：扫描 `packages/python-backend/src` 下 raise 语句字符串字面量中的中文，基线 `locale-py-cjk-baseline.json`（90 条存量）吸收存量，新增即 CI 失败 | 「python-backend 新增硬编码中文用户可见 raise」（如 2026-09-11 的「未配置 LLM API Key…」泄漏事故） |
 
 ### L1 — 提交配对规则（直接解决「只改中文」）
 
@@ -65,6 +66,7 @@
 | L0-3 重复源值 | locales 与 notifications 同 key 文案不一致 → fail | CI/本地测试（收敛前） |
 | L1 diff 配对 | 本提交只改 `zh.js` 没改 `en.js` → fail | CI |
 | L0-4 CJK 扫描 | renderer 新代码直接写中文 → fail | CI |
+| L0-5 python CJK 扫描 | python-backend 新增硬编码中文 raise → fail（2026-09-12 起，Gate 7 `--py-cjk`） | CI |
 
 ## 5. 落地路线
 

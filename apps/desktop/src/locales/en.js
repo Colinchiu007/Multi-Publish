@@ -1770,6 +1770,7 @@ export default {
     PROVIDER_NOT_FOUND: 'The provider was not found and may have been deleted. Please refresh the list and try again.',
     API_KEY_NOT_CONFIGURED: 'This provider does not have an API key configured. Add the key in Model Settings and try again.',
     API_KEY_REQUIRED: 'Remote providers require an API key. Add it in Model Settings and try again.',
+    LLM_KEY_MISSING: 'AI rewriting needs to connect to a writing service, but that service has not been configured yet. Please go to Model Settings in the app and add the API key for your AI provider (OpenAI-compatible endpoints are supported), save it, then click Rewrite again. If you are not sure how to configure it, see the user guide or contact support.',
     ADAPTER_INIT_FAILED: 'Provider initialization failed. Please check the configuration and the provider service status, then try again.',
     OPERATION_NOT_SUPPORTED: 'This provider does not support this operation. Please adjust the model configuration in Model Settings and try again.',
     CREATE_FAILED: 'Creation failed. Please check your input and try again.',

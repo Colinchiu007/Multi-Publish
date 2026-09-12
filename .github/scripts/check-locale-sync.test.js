@@ -31,3 +31,16 @@ test('check-locale-sync --keys：缺失 key 时失败并列出', () => {
   const r = run(['--keys'])
   assert.equal(r.ok, true)
 })
+
+test('check-locale-sync --py-cjk：python-backend 用户可见消息基线扫描通过（2026-09-12 补洞）', () => {
+  const r = run(['--py-cjk'])
+  assert.equal(r.ok, true, 'py-cjk scan should pass: ' + r.out + ' ' + r.err)
+  assert.match(r.out, /python CJK scan PASS/)
+})
+
+test('check-locale-sync --py-cjk：基线文件为非空 JSON 数组（扫描先决条件）', () => {
+  const baseline = JSON.parse(require('fs').readFileSync(
+    require('path').join(__dirname, 'locale-py-cjk-baseline.json'), 'utf8'))
+  assert.ok(Array.isArray(baseline))
+  assert.ok(baseline.length > 0)
+})

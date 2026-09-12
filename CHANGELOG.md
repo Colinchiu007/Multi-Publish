@@ -1,3 +1,17 @@
+## [未发布] fix(i18n): AI 改写错误提示友好化 + python-backend 用户可见消息门禁补洞（2026-09-12）
+
+### 修复（QM-5 五步）
+- **根因**：`072d33bc`（2026-09-11）在 `aggregation/service.py:219` 新增硬编码中文技术提示「未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写」。泄漏路径：ValueError → router 400 detail → python-bridge resolve（非 throw）→ Collection.vue 三处 else 分支直出 `result.message`（未过 formatUserError）→ UI 显示。机制空洞：Gate 7 CJK 扫描根目录写死 `apps/desktop/src`（JS/Vue），python-backend（FastAPI，无 i18n 机制）完全在门禁之外；`test_aggregation.py` 甚至把硬编码中文当预期固化。
+- **修复**（四层）：① Python `UserVisibleError("LLM_KEY_MISSING")` 稳定错误码（继承 ValueError）；② router 层 `detail={error_code, message}` 对象透传；③ python-bridge 识别 detail 对象提升 errorCode；④ Collection.vue 三处 else 分支统一走 `formatUserError`（errorCode → locale 文案）。locales zh/en 成对新增 `userErrors.LLM_KEY_MISSING` 自然语言文案（含「模型设置」具体指引，无环境变量名）。
+- **逃逸分析**：单测层——`test_rewrite_no_api_key_friendly_error` 断言的是「抛出该中文」而非「不出现技术细节」（断言目标错位）；集成层——无 python→bridge→renderer 全链路错误形态测试；E2E 层——断言 toast 出现但未断言内容合规；审查层——PR #1732 引入时无 python-backend i18n 检查清单。
+- **回归保护**：`test_aggregation.py` 2 个新测试（error_code 断言 + router 序列化断言）；`user-facing-error.test.js` 3 个新测试（errorCode zh/en 渲染 + 旧消息 pattern 兜底不泄露）；`Collection.test.js` 2 个新测试（无密钥错误显示友好文案、旧后端消息不泄露技术细节）。
+- **预防**：Gate 7 新增 `--py-cjk` 扫描（`check-locale-sync.js`）——扫描 python-backend raise 语句中文，基线 `locale-py-cjk-baseline.json`（90 条存量），新增即 CI 失败；workflow-contract.test.js 同步断言。PRD §8.1.1 补「改写错误提示 i18n 友好化机制」章节；i18n-sync-mechanism.md 补 L0-5；openspec i18n-content-sync spec 补「python-backend 用户可见消息稳定错误码」Requirement。
+
+### 验证
+- python-backend：`pytest test_aggregation.py` 35 passed（含 2 新增）
+- 前端：`vitest Collection.test.js + user-facing-error.test.js + message-contract.test.js` 107 passed（含 5 新增）
+- 门禁：`check-locale-sync --keys` PASS（882 key）；`--py-cjk` PASS（基线 90）；workflow-contract 19 passed；check-locale-sync.test.js 4 passed
+
 ## [未发布] fix(splitter): 修复 SPLITTER_DIR 路径解析错误——语义分句引擎全环境静默降级（2026-09-12）
 
 ### 修复（QM-5 五步）

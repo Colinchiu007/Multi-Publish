@@ -12,6 +12,12 @@
  *    --update-baseline 重新生成基线（存量债务吸收用，禁用于掩盖新增硬编码）。
  *
  * 3) --keys：渲染端「使用的 i18n key 必须存在于 zh/en locale」扫描。
+ *
+ * 4) --py-cjk：python-backend 用户可见中文消息扫描（基线增量式，2026-09-12 补洞）。
+ *    扫描 packages/python-backend/src 下 .py 的 raise 语句字符串字面量；
+ *    与 .github/scripts/locale-py-cjk-baseline.json 基线对比，超出基线的新增命中即失败（exit 1）。
+ *    新增用户可见错误必须改走 UserVisibleError(error_code) 稳定错误码 + 渲染端 locale 文案，
+ *    不得新增硬编码中文 raise（存量债务进入基线，--update-py-baseline 显式吸收）。
  *    扫描 apps/desktop/src 下非 locales 的 .js/.vue 中 t('...') / te('...') /
  *    notify* / notifyConfirm('...') 的字符串 key，逐一验证 zh.js 与 en.js 均存在。
  *    防止 vue-i18n 对缺失 key 原样返回（如 accountsPage.loginExpiredHint 泄漏到 UI）。
@@ -31,17 +37,21 @@ const { execFileSync } = require('child_process')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 const SRC_DIR = path.join(ROOT, 'apps', 'desktop', 'src')
+const PY_SRC_DIR = path.join(ROOT, 'packages', 'python-backend', 'src')
 const BASELINE_FILE = path.join(__dirname, 'locale-cjk-baseline.json')
+const PY_BASELINE_FILE = path.join(__dirname, 'locale-py-cjk-baseline.json')
 const CJK = /[\u4e00-\u9fff]/
 
 function parseArgs () {
   const args = process.argv.slice(2)
-  const opts = { pairBase: null, cjk: false, keys: false, updateBaseline: false }
+  const opts = { pairBase: null, cjk: false, keys: false, pyCjk: false, updateBaseline: false, updatePyBaseline: false }
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--pair-base') opts.pairBase = args[++i]
     else if (args[i] === '--cjk') opts.cjk = true
     else if (args[i] === '--keys') opts.keys = true
+    else if (args[i] === '--py-cjk') opts.pyCjk = true
     else if (args[i] === '--update-baseline') opts.updateBaseline = true
+    else if (args[i] === '--update-py-baseline') opts.updatePyBaseline = true
     else {
       console.error(`unknown option: ${args[i]}`)
       process.exit(2)
@@ -89,6 +99,66 @@ function toPosixRel (file) {
   return path.relative(ROOT, file).split(String.fromCharCode(92)).join('/')
 }
 
+/** python-backend 用户可见消息扫描：raise 语句字符串字面量中的中文（i18n 机制补洞，2026-09-12）。 */
+function scanPyUserVisibleCjk (file) {
+  const raw = fs.readFileSync(file, 'utf8')
+  const stripped = raw
+    .replace(/'''[\s\S]*?'''/g, '\n')
+    .replace(/"""[\s\S]*?"""/g, '\n')
+    .replace(/(^|[^:"'\\])#[^\n]*/g, '$1\n')
+  const hits = []
+  stripped.split('\n').forEach((line, idx) => {
+    if (!/\braise\s+\w/.test(line)) return
+    const matcher = /(['"])((?:\\.|(?!\1)[^\\])*)\1/g
+    let m
+    while ((m = matcher.exec(line)) !== null) {
+      if (CJK.test(m[2])) {
+        const rel = toPosixRel(file)
+        hits.push({ id: rel + ':' + (idx + 1), snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
+      }
+    }
+  })
+  return hits
+}
+
+function runPyCjkScan (opts) {
+  const files = listFiles(PY_SRC_DIR).filter(f => f.endsWith('.py'))
+  const hits = []
+  for (const file of files) hits.push(...scanPyUserVisibleCjk(file))
+
+  if (opts.updatePyBaseline) {
+    const baseline = [...new Set(hits.map(h => h.id))].sort()
+    fs.writeFileSync(PY_BASELINE_FILE, JSON.stringify(baseline, null, 2) + '\n')
+    console.log('[locale-sync] python CJK baseline updated: ' + baseline.length + ' entries (' + PY_BASELINE_FILE + ')')
+    process.exit(0)
+  }
+
+  let baseline
+  try {
+    baseline = new Set(JSON.parse(fs.readFileSync(PY_BASELINE_FILE, 'utf8')))
+  } catch (_) {
+    console.error('[locale-sync] FAIL: cannot read python CJK baseline ' + PY_BASELINE_FILE + '; first-time init requires --update-py-baseline')
+    process.exit(1)
+  }
+  const fresh = hits.filter(h => !baseline.has(h.id))
+  const byFile = {}
+  for (const h of fresh) {
+    const file = h.id.split(':')[0]
+    ;(byFile[file] = byFile[file] || []).push(h)
+  }
+  if (fresh.length > 0) {
+    console.error('[locale-sync] FAIL: python-backend has ' + fresh.length + ' new hardcoded CJK user-visible messages (baseline ' + baseline.size + ')')
+    for (const [file, list] of Object.entries(byFile)) {
+      console.error('  ' + file)
+      for (const h of list.slice(0, 8)) console.error('    ' + h.id + '  "' + h.snippet + '"')
+      if (list.length > 8) console.error('    ... ' + list.length + ' total')
+    }
+    console.error('[locale-sync] python-backend user-visible errors must use UserVisibleError(error_code) + renderer locale copy (user-facing-messages rule); baseline refresh requires explicit --update-py-baseline')
+    process.exit(1)
+  }
+  console.log('[locale-sync] python CJK scan PASS (baseline ' + baseline.size + ', no new hardcoded messages)')
+}
+
 function shouldScanFile (file) {
   const rel = toPosixRel(file)
   if (rel.startsWith('apps/desktop/src/locales/')) return false
@@ -103,6 +173,7 @@ function listFiles (dir) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) out.push(...listFiles(full))
     else if (entry.name.endsWith('.js') || entry.name.endsWith('.vue')) out.push(full)
+    else if (entry.name.endsWith('.py')) out.push(full)
   }
   return out
 }
@@ -281,7 +352,8 @@ let ran = false
 if (opts.pairBase) { runPairCheck(opts.pairBase); ran = true }
 if (opts.cjk) { runCjkScan(opts); ran = true }
 if (opts.keys) { runKeysCheck(); ran = true }
+if (opts.pyCjk) { runPyCjkScan(opts); ran = true }
 if (!ran) {
-  console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys')
+  console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys | --py-cjk [--update-py-baseline]')
   process.exit(2)
 }
