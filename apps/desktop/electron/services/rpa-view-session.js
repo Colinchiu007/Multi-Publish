@@ -29,7 +29,18 @@ const sessionMixin = {
   _createWindow(partition) {
     const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:path.join(__dirname,'../stealth-preload.js') } })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
-    win.webContents.on('console-message',function(){})
+    // 渲染进程 console 转发（logging-coverage-audit：此前空处理器吞掉页面 JS 报错）
+    win.webContents.on('console-message', function (e, _level, message, line, sourceId) {
+      // 只转发 warning 及以上，避免页面正常日志刷屏；sourceId/line 帮助定位页面报错
+      if (_level >= 2) log.warn('RpaView', 'page console: ' + String(message).slice(0, 300) + ' (' + String(sourceId).slice(0, 120) + ':' + line + ')')
+    })
+    // 渲染进程崩溃/无响应（logging-coverage-audit：此前完全静默）
+    win.webContents.on('render-process-gone', function (e, details) {
+      log.error('RpaView', 'render process gone: reason=' + (details && details.reason) + ' exitCode=' + (details && details.exitCode))
+    })
+    win.webContents.on('unresponsive', function () {
+      log.warn('RpaView', 'page unresponsive')
+    })
     // anti-detection: inject stealth on every navigation
      
     // stealth injected via preload script
@@ -89,7 +100,7 @@ const sessionMixin = {
         }
         await win.webContents.session.cookies.set(setArgs)
         restored += 1
-      } catch (e) { /* ignore invalid cookie */ }
+      } catch (e) { log.warn('RpaView', 'cookie restore failed name=' + (c && c.name) + ' err=' + (e && e.message)) }
     }
     log.info('RpaView','Restored '+restored+'/'+cookies.length+' cookies')
     if (restored === 0 && cookies && cookies.length > 0) {
@@ -155,7 +166,7 @@ const sessionMixin = {
           setArgs.domain = c.domain
           await win.webContents.session.cookies.set(setArgs)
           restored += 1
-        } catch (e) { /* ignore invalid cookie */ }
+        } catch (e) { log.warn('RpaView', 'auth partition cookie restore failed name=' + (c && c.name) + ' err=' + (e && e.message)) }
       }
       log.info('RpaView', '[' + platform + '] supplemented ' + restored + '/' + cookies.length + ' cookies from auth partition ' + partitionName)
       if (restored === 0 && cookies && cookies.length > 0) {

@@ -1,3 +1,20 @@
+## [未发布] feat(logging): 全项目日志覆盖补强 — 根因级修复 39 处失败盲区（2026-09-12）
+
+### 新增
+- RPA 发布链：publish() 统一结果日志（成功 info / 失败 warn / 异常 error 含 stack）——修复「未登录/找不到输入框/发布超时」等失败分支此前完全无日志的根因缺口；渲染进程 console 转发（warn+ 级）+ render-process-gone/unresponsive 崩溃处理器；_waitForElement 超时记 sel/url；_navigateAndWait 失败记 url/code；6 平台「not logged in」分支、wechat_mp 保存/群发 5 分支、zhihu 4 分支、douyin 2 分支全部补日志。
+- 登录态检测：checkLoginStatus 选择器超时降级、dashboard 兜底、假阳性盲区兜底（fallback valid）三处判定依据留痕；restoreCookies 单条失败记 cookie 名 + 聚合失败数。
+- Electron IPC：ipc-handlers/ 18 文件 111 处裸 catch 统一补 log.warn（返回值零变化）；webview-manager 20 处 IPC catch + 3 处静默导航失败 + cookie 恢复失败 + 凭证读取失败补日志。
+- packages：api-publish-engine execute catch（error+stack）/api-router fallback 降级链/scheduled-publish 状态机迁移全部留痕；rewrite-engine LLM 失败与敏感词 fail-open 记 error；ai-writer 三方法降级记 warn；collection-engine audit-logger 无 dir 丢弃计数 + 策略文件损坏回退默认（此前直接崩）。
+- Python/桥接：base_tool.run_command 根因修复——CalledProcessError 抛出前统一记 stderr 尾部（一次性覆盖所有 ffmpeg/Remotion 调用方）；video_compose.execute 补 operation/elapsed/stderr_tail；JS 桥接非 JSON 响应记原始 body；render-engine 收集 Remotion stderr 尾部；edge-tts stdio ignore→pipe 收集 stderr；prompt-bridge CLI fallback 附 stderr。
+- 文档：01-docs/PRD-LOGGING-COVERAGE-2026-09-12.md（39 个日志点清单、级别语义、字段颗粒度合同、脱敏规则、数据流图）；01-docs/LOGGING-GUIDELINES.md（开发者日志规范）。
+- 回归保护：rpa-view-manager.test.js 新增 2 条日志合同测试，防日志被后续重构无声删除。
+- 双模型审查修复：webview-manager cookie 聚合计数竞态（Promise.all 后判定）；base_tool.py 模块级 logger 兜底 StreamHandler；_waitForElement 超时降 info 防刷屏。
+- 债务基线：filesOver1000 30→31（account-manager.js 补日志后 998→1010 行首次破千，合并 main 的 85 filesOver500 取最大值）。
+
+### 验证
+- Electron 受影响面 598 passed（ipc-handlers 全量 + rpa-view/webview）；collection-engine 91 + rewrite-engine 67 + ai-writer 16 passed。
+- CI quality-gate 9/9 jobs success（Static/Unit/Coverage/E2E/Visual/Autonomous/Desktop Shards ×2/Gate Result）。
+
 ## [未发布] feat(collection): faster-whisper 模型下载管理——镜像自动选择 + 失败分类与可操作提示（2026-09-12）
 
 ### 新增

@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const { withSenderCheck } = require('./helpers')
 const { ERROR: EC } = require('../core/error-codes')
+  const log = require('../services/logger')
 const {
   MAX_EXPORT_BYTES,
   createShareFileUrl,
@@ -149,7 +150,7 @@ function registerHandlers (ipcMain, deps = {}) {
       const service = requireProjectService()
       const localMode = typeof service.isLocalOwner === 'function' ? service.isLocalOwner() : false
       return { code: 0, data: service.listProjects(), localMode }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message, data: [] } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message, data: [] } }
   }))
 
   ipcMain.handle('story2video:get-project', withSenderCheck(async (_event, projectId) => {
@@ -212,7 +213,7 @@ function registerHandlers (ipcMain, deps = {}) {
       const service = requireProjectService()
       const result = service.ensureProjectFromRun(payload)
       return { code: 0, data: result }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:update-segments', withSenderCheck(async (_event, request) => {
@@ -249,7 +250,7 @@ function registerHandlers (ipcMain, deps = {}) {
     try {
       const data = await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().retrySegment(request.projectId, request.segmentId, request.mode))
       return { code: 0, data }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:recompose-project', withSenderCheck(async (_event, projectId) => {
@@ -265,7 +266,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().selectSceneMaterial(request.projectId, request.segmentId, request.kind)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:generate-scene-image', withSenderCheck(async (_event, request) => {
@@ -274,7 +275,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneImage(request.projectId, request.segmentId)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:generate-scene-ai-video', withSenderCheck(async (_event, request) => {
@@ -283,7 +284,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneAiVideo(request.projectId, request.segmentId)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:generate-scene-video', withSenderCheck(async (_event, request) => {
@@ -292,7 +293,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneVideo(request.projectId, request.segmentId)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:regenerate-scene-subtitle', withSenderCheck(async (_event, request) => {
@@ -301,7 +302,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateSceneSubtitle(request.projectId, request.segmentId)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:regenerate-scene-audio', withSenderCheck(async (_event, request) => {
@@ -310,7 +311,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateSceneAudio(request.projectId, request.segmentId)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:regenerate-scene-prompt', withSenderCheck(async (_event, request) => {
@@ -320,7 +321,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateScenePrompt(request.projectId, request.segmentId, request.kind)) }
-    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+    } catch (error) { log.warn('[ipc:story2video]', ((error && error.message) || String(error))); return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:transcribe', withSenderCheck(async (_event, request) => {

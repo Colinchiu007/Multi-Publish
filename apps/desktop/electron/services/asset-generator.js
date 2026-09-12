@@ -1180,6 +1180,8 @@ class AssetGenerator {
       }
       const spawnTts = (script) => {
         let proc
+        // logging-coverage-audit：stdio ignore 丢弃 stderr，失败无痕 → 改 pipe 收集尾部
+        let _stderrTail = []
         try {
           // 参数通过数组传递，shell 元字符不会被解释。
           const speed = Math.max(0.5, Math.min(2, Number(opts?.rate) || 1))
@@ -1187,13 +1189,15 @@ class AssetGenerator {
           const rate = (Math.round((speed - 1) * 100) >= 0 ? '+' : '') + Math.round((speed - 1) * 100) + '%'
           const pitchValue = (Math.round(pitch) >= 0 ? '+' : '') + Math.round(pitch) + 'Hz'
           proc = spawn(command, [...commandArgs, '-c', script, cleanText, voice, audioPath, rate, pitchValue, timingsPath], {
-            stdio: 'ignore', shell: false, timeout: 15000,
+            stdio: ['ignore', 'ignore', 'pipe'], shell: false, timeout: 15000,
           })
+          proc.stderr?.on('data', d => { _stderrTail.push(String(d)); if (_stderrTail.length > 10) _stderrTail.shift() })
         } catch (error) {
+          this.log.warn('AssetGenerator', 'edge-tts spawn failed: ' + ((error && error.message) || error))
           finish({ commandMissing: error?.code === 'ENOENT' })
           return
         }
-        proc.on('error', (error) => finish({ commandMissing: error?.code === 'ENOENT' }))
+        proc.on('error', (error) => { this.log.error('AssetGenerator', 'edge-tts proc error: ' + ((error && error.message) || error)); finish({ commandMissing: error?.code === 'ENOENT' }) })
         proc.on('exit', (code) => {
           // 新脚本依赖 stream(boundary=...)（edge-tts >= 6.0）：旧版本会失败退出，
           // 重试一次旧 .save() 脚本保持兼容（此时无词级时间戳，回退 ASR）。
@@ -1204,10 +1208,14 @@ class AssetGenerator {
               spawnTts(buildEdgeTtsLegacyScript())
               return
             }
+            this.log.warn('AssetGenerator', 'edge-tts failed exitCode=' + code + ' retried=' + retried + ' stderr_tail=' + _stderrTail.join('').trim().slice(-800))
             return finish({ commandMissing: false })
           }
           const stat = fs.statSync(audioPath)
-          if (!stat || stat.size <= 0) return finish({ commandMissing: false })
+          if (!stat || stat.size <= 0) {
+            this.log.warn('AssetGenerator', 'edge-tts produced empty audio file path=' + audioPath)
+            return finish({ commandMissing: false })
+          }
           const timings = readEdgeTtsTimings(timingsPath)
           // 有词级时间戳时用真实词尾（+0.3s 尾音）替代文件大小估算（mp3 位率未知时误差可达数倍）
           const duration = timings

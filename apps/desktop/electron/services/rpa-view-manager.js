@@ -48,6 +48,7 @@ class RpaViewManager {
   // ========== Main publish entry ==========
   async publish(platform, article, authData, timeout) {
     timeout = timeout||120000
+    log.info('RpaView','publish start platform='+platform+' hasTitle='+Boolean(article&&article.title)+' hasVideo='+Boolean(article&&article.video_path)+' timeoutMs='+timeout)
     // API-first: if we have an API adapter for this platform, use it (no browser needed)
     const hasAccountProxy = Boolean(authData?.proxy)
     const apiEnabled = !hasAccountProxy && apiRouter && typeof apiRouter.shouldUseApi === 'function'
@@ -67,6 +68,9 @@ class RpaViewManager {
           }),
           new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
         ]);
+        // 统一结果日志：API 失败分支此前无日志（logging-coverage-audit）
+        if (apiResult && apiResult.success) log.info('RpaView','publish done via API platform='+platform)
+        else log.warn('RpaView','API publish returned failure platform='+platform+' error='+(apiResult&&apiResult.error))
         return apiResult;
       } catch(e) {
         log.error('RpaView', 'API publish ' + platform + ': ' + e.message);
@@ -100,10 +104,16 @@ class RpaViewManager {
         new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})
       ])
       if (token.isCancelled) { return { success: false, error: 'Cancelled', code: -999, platform: platform } }
+      // 统一结果日志：RPA 失败分支此前完全无日志（logging-coverage-audit 根因修复）
+      if (result && result.success) {
+        log.info('RpaView','publish done platform='+platform+' url='+(result.url||'')+(result.draft?' draft=true':''))
+      } else {
+        log.warn('RpaView','publish failed platform='+platform+' error='+(result&&result.error)+' url='+(result&&result.url||''))
+      }
       return result
     } catch(e) {
       if (e && e.isCanceled) { log.info('RpaView','publish '+platform+': cancelled'); return { success:false, error:'Cancelled', code:-999, platform:platform } }
-      log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform }
+      log.error('RpaView','publish '+platform+': '+e.message+(e.stack?' | stack='+String(e.stack).split('\n').slice(0,3).join(' <- '):'')); return { success:false, error:e.message, platform:platform }
     }
     // eslint-disable-next-line no-unused-vars
     finally {

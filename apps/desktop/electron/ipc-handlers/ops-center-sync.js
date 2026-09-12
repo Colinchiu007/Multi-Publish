@@ -12,7 +12,7 @@ function registerHandlers (ipcMain, deps) {
 
   ipcMain.handle('ops-center-sync:get', () => {
     try { return { code: 0, config: opsCenterSync.getConfig() } }
-    catch (e) { return { code: -1, message: e.message } }
+    catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ops-center-sync:save', (_event, payload) => {
@@ -24,26 +24,26 @@ function registerHandlers (ipcMain, deps) {
         autoSync: data.autoSync !== false,
         runtimePublicKey: data.runtimePublicKey,
       })
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ops-center-sync:now', async () => {
     try { return await opsCenterSync.syncNow() }
-    catch (e) { return { code: -1, message: e.message } }
+    catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ops-center-sync:runtime', () => {
     try {
       if (typeof opsCenterSync.getRuntimeState !== 'function') return { code: -1, message: '运行时策略服务未就绪' }
       return { code: 0, data: opsCenterSync.getRuntimeState() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ops-center-sync:pipelineOptions', () => {
     try {
       if (typeof opsCenterSync.getPipelineOptions !== 'function') return { code: -1, message: '运行时策略服务未就绪' }
       return { code: 0, data: opsCenterSync.getPipelineOptions() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
 }
 

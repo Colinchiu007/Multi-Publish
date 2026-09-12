@@ -6,6 +6,7 @@
 // eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const log = require('../services/logger')
   const onboarding = require('../services/onboarding')
   const { withSenderCheck } = require('./helpers')
 
@@ -13,19 +14,19 @@ function registerHandlers(ipcMain, deps) {
     try {
       const ok = onboarding.completeOnboarding()
       return { code: 0, data: { completed: ok } }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:onboarding]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('onboarding:get-steps', async function () {
     try {
       return { code: 0, data: onboarding.getSteps() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:onboarding]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('onboarding:status', async function () {
     try {
       return { code: 0, data: { done: onboarding.isOnboardingDone() } }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+    } catch (e) { log.warn('[ipc:onboarding]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 }
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import platform
 import shutil
 import subprocess
@@ -14,6 +15,15 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+# 审查修复：子进程/CLI 上下文可能未配置 root logger（无 handler 时 error 静默丢失）。
+# 挂一个兜底 StreamHandler，保证 run_command 失败日志总能到达 stderr。
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.WARNING)
 
 
 class ToolTier(StrEnum):
@@ -166,16 +176,30 @@ class BaseTool(ABC):
             exe = shutil.which(rcmd[0])
             if exe:
                 rcmd[0] = exe
-        return subprocess.run(
-            rcmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            cwd=cwd,
-            check=True,
-        )
+        # logging-coverage-audit：check=True 失败抛 CalledProcessError 时，
+        # stderr 已捕获但从未记录 — 调用方多数只 catch 不 log，ffmpeg 真实报错丢失。
+        # 在此层统一记录非 0 退出的 stderr 尾部（一次性堵住所有调用方）。
+        try:
+            return subprocess.run(
+                rcmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                cwd=cwd,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            stderr_tail = (e.stderr or "").strip().splitlines()[-8:]
+            logger.error(
+                "run_command failed: tool=%s cmd=%s exit=%s stderr_tail=%s",
+                self.name,
+                rcmd[:3],
+                e.returncode,
+                " | ".join(stderr_tail)[-2000:] if stderr_tail else "(empty)",
+            )
+            raise
 
 
 class DependencyError(Exception):

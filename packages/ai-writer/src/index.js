@@ -11,6 +11,10 @@ function AiWriter(opts) {
   this.apiKey = opts.apiKey || process.env.OPENAI_API_KEY || ""
   this.apiUrl = opts.apiUrl || process.env.AI_API_URL || DEFAULT_API_URL
   this.model = opts.model || DEFAULT_MODEL
+  // logging-coverage-audit：AI 调用失败此前静默降级（返回 []/""/原文），必须留痕
+  this._logger = opts.logger || {
+    warn: function (msg, meta) { console.warn('[ai-writer] ' + msg + (meta ? ' ' + JSON.stringify(meta) : '')) },
+  }
 }
 
 AiWriter.prototype.isConfigured = function() {
@@ -43,7 +47,7 @@ AiWriter.prototype.generateTitles = async function(topic, count) {
     const up = "Topic: " + topic + String.fromCharCode(10,10) + "Generate " + count + " titles, one per line."
     const result = await this._call(sp, up)
     return this._parseNumberedList(result)
-  } catch (e) { return [] }
+  } catch (e) { this._logger.warn('generateTitles failed, returning empty list', { topic: String(topic).slice(0, 100), error: e.message }); return [] }
 }
 
 AiWriter.prototype.generateSummary = async function(content) {
@@ -52,7 +56,7 @@ AiWriter.prototype.generateSummary = async function(content) {
     const sp = "You are a summarizer. Summarize in 2-3 sentences."
     const up = content.slice(0, 3000)
     return await this._call(sp, up)
-  } catch (e) { return "" }
+  } catch (e) { this._logger.warn('generateSummary failed, returning empty string', { contentLength: content.length, error: e.message }); return "" }
 }
 
 AiWriter.prototype.enhanceContent = async function(content, style) {
@@ -63,7 +67,7 @@ AiWriter.prototype.enhanceContent = async function(content, style) {
     const sp = "You are an editor. " + (guides[style] || guides.polish)
     const up = content.slice(0, 4000)
     return await this._call(sp, up)
-  } catch (e) { return content }
+  } catch (e) { this._logger.warn('enhanceContent failed, returning original', { style, contentLength: content.length, error: e.message }); return content }
 }
 
 AiWriter.prototype._parseNumberedList = function(text) {

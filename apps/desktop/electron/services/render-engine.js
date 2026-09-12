@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const { CompositionManager } = require('./composition-manager');
 const { getComposerDir } = require('./path-utils');
+const log = require('./logger');
 
 const COMPOSER_DIR = getComposerDir();
 const QUICK_RENDER_DIR = path.join(os.tmpdir(), 'story2video', 'quick-render');
@@ -164,9 +165,13 @@ class RenderEngine {
         }
       });
 
+      // logging-coverage-audit：收集 stderr 尾部，失败时进日志（此前完全丢弃）
+      let stderrTail = [];
       child.stderr.on('data', (data) => {
         // Remotion 可能在 stderr 输出进度
         const text = data.toString();
+        stderrTail.push(text);
+        if (stderrTail.length > 20) stderrTail.shift();
         const match = text.match(/Rendered frame (\d+)\/(\d+)/);
         if (match) {
           const done = parseInt(match[1], 10);
@@ -187,6 +192,8 @@ class RenderEngine {
         }
 
         if (code !== 0) {
+          const stderrText = stderrTail.join('').trim();
+          log.error('RenderEngine', 'render failed exitCode=' + code + ' stderr_tail=' + String(stderrText).slice(-1500));
           resolve({ success: false, error: `渲染进程退出码: ${code}` });
           return;
         }

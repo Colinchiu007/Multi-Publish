@@ -1,4 +1,5 @@
 const axios = require("axios");
+const logger = require("./logger");
 const { CancelToken } = require("./cancel-token");
 const { ProgressEmitter, publishStatusEnum } = require("./progress-emitter");
 const { formatContent } = require("./content-formatter");
@@ -74,12 +75,17 @@ class BasePlatformAdapter {
       return result;
     } catch (err) {
       if (onProgress) onProgress(100, "Error: " + err.message);
-      // ???????????????
       var code = errorCode.unknown_error;
       if (err.message && err.message.indexOf("timeout") >= 0) code = errorCode.request_error;
       if (err.message && err.message.indexOf("parse") >= 0) code = errorCode.data_error;
       if (err.message && err.message.indexOf("cancel") >= 0) code = errorCode.cancel_error;
       if (err.code === "ECONNREFUSED" || err.code === "ENOTFOUND") code = errorCode.request_error;
+      // 失败日志（logging-coverage-audit：此前 catch 完全无日志）
+      logger.error("adapter:" + this.name, "execute failed", {
+        error: err.message,
+        code: code,
+        stack: String(err.stack || "").split("\n").slice(0, 3).join(" <- "),
+      });
       return { success: false, error: err.message, code: code, platform: this.name };
     }
   }
