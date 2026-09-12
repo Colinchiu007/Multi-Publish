@@ -202,7 +202,7 @@ const clientStatusTitle = computed(() => clientStatusLabel.value)
 const serviceSummaryLabel = computed(() => {
   if (serviceStatusStore.unavailable) return t('sidebar.serviceStatus.unavailable')
   if (serviceStatusStore.allRunning) return t('sidebar.serviceStatus.allRunning')
-  return t('sidebar.serviceStatus.partialRunning', serviceStatusStore.runningCount)
+  return t('sidebar.serviceStatus.partialRunning', { count: serviceStatusStore.runningCount })
 })
 
 const serviceSummaryClass = computed(() => {

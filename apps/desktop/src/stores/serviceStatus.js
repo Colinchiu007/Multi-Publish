@@ -48,7 +48,6 @@ export const useServiceStatusStore = defineStore('serviceStatus', () => {
     if (pollTimer) return
     refresh()
     pollTimer = setInterval(() => { refresh() }, POLL_INTERVAL_MS)
-    if (pollTimer && pollTimer.unref) pollTimer.unref()
   }
 
   function stopPolling () {

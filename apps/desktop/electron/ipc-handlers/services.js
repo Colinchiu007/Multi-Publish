@@ -10,7 +10,14 @@
  * - alignerEngine：按需懒启动，未激活时返回 standby（不算故障）
  */
 const { withSenderCheck, EC } = require('./helpers')
+const log = require('../services/logger')
 
+/**
+ * BasePythonBridge 子类的状态提取（isRunning 为布尔属性，区别于 python-bridge 的函数式导出）。
+ * alignerBridge 当前未接入 DI（由 subtitle-align-service 按需懒启动，无全局实例），
+ * 故传 null 时返回 standby——语义为"当前未激活"，不算故障。
+ * TODO: 若未来对齐引擎常驻化，接入 deps 后此处自动反映真实状态。
+ */
 function bridgeStatus (bridge, fallbackPort) {
   if (!bridge) return { status: 'standby', port: fallbackPort }
   return { status: bridge.isRunning ? 'running' : 'stopped', port: bridge.port || fallbackPort }
@@ -58,17 +65,27 @@ function registerServicesHandlers (ipcMain, deps = {}) {
           name: '媒体服务',
           status: deps.story2videoMediaServer && deps.story2videoMediaServer.origin ? 'running' : 'stopped',
           port: deps.story2videoMediaServer && deps.story2videoMediaServer.origin
-            ? Number(deps.story2videoMediaServer.origin.split(':').pop()) || 0
+            ? _portFromOrigin(deps.story2videoMediaServer.origin)
             : 0,
         },
         { key: 'alignerEngine', name: '对齐引擎', ...bridgeStatus(null, config.alignerBridge.port) },
       ]
 
       return { code: 0, data: { services, timestamp: Date.now() } }
-    } catch (_error) {
+    } catch (error) {
+      log.warn('IPC:services', '服务状态聚合失败: ' + (error instanceof Error ? error.message : String(error)))
       return { code: EC.UNKNOWN_ERROR, message: 'SERVICES_STATUS_UNAVAILABLE' }
     }
   }))
+}
+
+function _portFromOrigin (origin) {
+  try {
+    const port = Number(new URL(origin).port)
+    return Number.isFinite(port) ? port : 0
+  } catch {
+    return 0
+  }
 }
 
 module.exports = registerServicesHandlers

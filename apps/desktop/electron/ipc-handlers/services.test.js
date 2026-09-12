@@ -56,6 +56,25 @@ describe('services IPC', () => {
     })
   })
 
+  it('splitterBridge/promptBridge 缺失时对应服务返回 stopped（生产 deps 接线守卫）', async () => {
+    const registerServicesHandlers = require('./services')
+    const handlers = {}
+    registerServicesHandlers({ handle: (channel, handler) => { handlers[channel] = handler } }, {
+      pythonBridge: { isRunning: vi.fn(() => true), currentPort: vi.fn(() => 8299) },
+      callbackServer: { server: { listening: true } },
+      story2videoMediaServer: { origin: 'http://127.0.0.1:54321' },
+    })
+    const event = { senderFrame: { url: 'app://localhost/index.html' } }
+
+    const result = await handlers['services:get-status'](event)
+
+    expect(result.code).toBe(0)
+    const byKey = Object.fromEntries(result.data.services.map((s) => [s.key, s.status]))
+    expect(byKey.splitterEngine).toBe('stopped')
+    expect(byKey.promptEngine).toBe('stopped')
+    expect(byKey.mainBackend).toBe('running')
+  })
+
   it('不可信 sender 不能查询服务状态', async () => {
     const registerServicesHandlers = require('./services')
     const handlers = {}
