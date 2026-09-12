@@ -352,6 +352,10 @@ const platformsMixin = {
     if (platform === 'kuaishou') {
       try { await this._prepKuaishou(win, article) } catch (e) { log.warn('RpaView', 'kuaishou prep: ' + e.message) }
     }
+    // P3-6：B站分区 + 版权声明（RPA 模式；蚁小二映射 createType original→1/forward→2）
+    if (platform === 'bilibili') {
+      try { await this._prepBilibili(win, article) } catch (e) { log.warn('RpaView', 'bilibili prep: ' + e.message) }
+    }
     // 通用 AI 生成内容声明：平台未设专用 prep 但有 ai_declaration_label 选择器时，
     // 自动勾选声明控件（默认 AI 生成，仅当 article.aiGenerated === false 时跳过）。
     // 覆盖 B站等平台；避免因漏选 AI 声明导致违规。
@@ -555,9 +559,60 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       log.warn('RpaView', 'kuaishou AI declaration prep: ' + e.message)
       state = 'error'
     }
-    log.info('RpaView', '[kuaishou] AI declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' result=' + selectedValue : ''))
+    log.info('RpaView', '[kuaishou] AI declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' option=' + selectedValue : ''))
     return { state, option: selectedValue }
   },
+
+  // P3-6：B站投稿页分区选择 + 版权声明
+  // 分区：article.category（tid）→ 页面分区搜索框输入分区名 → 点选候选
+  // 版权：article.copyright（1=自制 2=转载）→ 点对应 radio
+  async _prepBilibili(win, article) {
+    this._emitProgress('bilibili', 'preparing category & copyright...', 82)
+    // 版权声明（自制/转载 radio）
+    const copyright = Number(article.copyright) === 1 ? 1 : 2
+    try {
+      const crResult = await win.webContents.executeJavaScript(
+        '(function(){var want=' + copyright + ';' +
+        'var radios=[...document.querySelectorAll("input[type=radio][name=copyright], input[type=radio]")].filter(function(r){return r.value==="1"||r.value==="2"});' +
+        'if(radios.length){var target=radios.find(function(r){return Number(r.value)===want});' +
+        'if(target){if(!target.checked){target.click()}return "COPYRIGHT:"+want}' +
+        '// radio 无 value 时按文本匹配（自制=1 转载=2）' +
+        'var labels=[...document.querySelectorAll("label,span")].filter(function(e){var t=(e.innerText||"").trim();return t==="自制"||t==="转载"});' +
+        'if(labels.length){var idx=want===1?labels.findIndex(function(e){return e.textContent.trim()==="自制"}):labels.findIndex(function(e){return e.textContent.trim()==="转载"});' +
+        'if(idx>=0){labels[idx].click();return "COPYRIGHT_LABEL:"+want}}}' +
+        'return "NO_COPYRIGHT_INPUT"})()'
+      )
+      log.info('RpaView', '[bilibili] copyright result: ' + String(crResult))
+    } catch (e) { log.warn('RpaView', 'bilibili copyright: ' + e.message) }
+    // 分区选择：article.category 存在时尝试（tid → 分区名映射由 UI 层提供 categoryName）
+    const categoryName = article.categoryName
+    if (categoryName) {
+      try {
+        const catResult = await win.webContents.executeJavaScript(
+          '(function(){var name=' + JSON.stringify(String(categoryName)) + ';' +
+          '// 策略1：分区搜索/选择输入框' +
+          'var inputs=[...document.querySelectorAll("input")].filter(function(i){return /分区|类目/.test(i.placeholder||"")});' +
+          'if(inputs.length){inputs[0].focus();inputs[0].value=name;inputs[0].dispatchEvent(new Event("input",{bubbles:true}));' +
+          'return "TYPED"}' +
+          '// 策略2：分区下拉容器' +
+          'var sels=[...document.querySelectorAll("[class*=category] select,[class*=tid] select,.video-category select")];' +
+          'if(sels.length){var opt=[...sels[0].options].find(function(o){return o.text.indexOf(name)!==-1});' +
+          'if(opt){sels[0].value=opt.value;sels[0].dispatchEvent(new Event("change",{bubbles:true}));return "SELECTED:"+opt.value}}' +
+          'return "NO_CATEGORY_INPUT"})()'
+        )
+        log.info('RpaView', '[bilibili] category result: ' + String(catResult))
+        if (String(catResult) === 'TYPED') {
+          await this._sleep(1500)
+          // 输入后点选下拉候选第一项
+          await win.webContents.executeJavaScript(
+            '(function(){var opts=[...document.querySelectorAll("[class*=dropdown] li,[class*=option] li,[class*=suggestion] li,[class*=popover] li")].filter(function(e){return (e.innerText||"").trim().length>0});' +
+            'if(opts.length){opts[0].click();return "PICKED"}return "NO_OPTIONS"})()'
+          ).catch(function(){/* ignore */})
+        }
+      } catch (e) { log.warn('RpaView', 'bilibili category: ' + e.message) }
+    }
+  },
+
 
   async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
     const title = String(context.title || '').trim()

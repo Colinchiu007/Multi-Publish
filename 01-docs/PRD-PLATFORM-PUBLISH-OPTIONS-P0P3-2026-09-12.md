@@ -1,6 +1,6 @@
 # PRD：平台发布选项 P0-P3 实施计划落地
 
-日期：2026-09-12 | 分支：codex/platform-publish-p0p3 | 状态：P0-P2 已实施，P3 待排期
+日期：2026-09-12 | 分支：codex/platform-publish-p0p3 | 状态：P0-P2 + P3 主体已实施（投票按用户要求不做）
 
 ## 背景
 
@@ -72,6 +72,31 @@
 
 ## P3 — 长尾（待排期 ⏳）
 
+### P3 第三批实施（2026-09-12 ✅，投票按用户确认不实施）
+
+**P3-6 B站 RPA 分区 + 版权声明**
+- 流程：_publish_generic B站分支调 _prepBilibili → 版权 radio（value=1/2 或文本「自制/转载」匹配）→ 分区搜索框输入 categoryName → 点选下拉候选
+- 数据校验：copyright 仅 1|2（默认 2 转载）；categoryName 字符串（UI 层提供分区名）
+- 选择器：category_selector（分区搜索/下拉）+ copyright_radio（自制/转载）
+
+**P3-7 合集列表 API 拉取（替代手输 ID）**
+- IPC：collection:list（platform 白名单 bilibili|baijiahao；按账号取 cookie；sender 校验）
+- adapter：bilibili.listCollections（seasons API）、baijiahao.listCollections（topic list API）
+- UI：B站/百家号面板「拉取我的合集」按钮 + 下拉选择（保留手输 ID 兜底）
+- 提示文字：「拉取我的合集」「拉取中…」「不加入合集」「（先拉取或手输）」「或手输合集 ID」
+
+**P3-1 商品字段透传（抖音/小红书）**
+- 数据校验：goods 数组 ≤10 项 {id ≤64字, title ≤100字}，空 id 过滤
+- adapter：douyin goodsInfoList、xiaohongshu shopping_cart.items（蚁小二映射）
+
+**P3-2 任务/活动字段透传（抖音）**
+- 数据校验：taskId 安全字符 1-64（A-Za-z0-9_-）
+- adapter：douyin hot_sentence（蚁小二映射 hot_event）
+
+**投票/交叉发布：按用户要求不实施（2026-09-12 确认）**
+
+第三批测试：router 49/49（商品/任务透传+过滤）、publish IPC 31/31（collection:list 3 场景）、Panel+rpa 87/87、preload+bundle 362/362、局部回归 608/608、债务熔断全绿。
+
 ### P1-4/P1-5/P2-3/P3-3 收尾（2026-09-12 第二批实施 ✅）
 
 **P1-4 公众号摘要（digest）**
@@ -98,13 +123,13 @@
 
 | 项 | 内容 | 依赖 |
 |----|------|------|
-| P3-1 | 商品橱窗（抖音 goodsInfoList/小红书 shopping_cart） | 电商权限 API |
-| P3-2 | 任务/活动参与（抖音 hot_sentence/flashMobInfo） | 平台活动 ID 接口 |
-| P3-3 | 评论开关（公众号 need_open_comment/IG 高级设置） | 低 |
-| P3-4 | 投票（微博/X）、交叉发布（IG↔FB） | 低 |
+| P3-1 | ✅ 商品字段透传已实施（UI 输入待后续） | — |
+| P3-2 | ✅ 任务字段透传已实施（UI 输入待后续） | — |
+| P3-3 | ✅ 已实施（第二批） | — |
+| P3-4 | ❌ 投票/交叉发布按用户要求不实施 | 用户确认 |
 | P3-5 | 国内平台必填性 RPA 实测（修正「待确认」标注） | 需真实账号 |
-| P3-6 | B站 RPA 分区选择器（当前 RPA 路径无分区处理，平台默认分区兜底） | B站页面 DOM 稳定性 |
-| P3-7 | 合集列表 API 拉取（当前手输 ID，应改为下拉选择） | 各平台合集列表接口 |
+| P3-6 | ✅ 已实施（本批） | — |
+| P3-7 | ✅ 已实施（本批） | — |
 
 ## 测试覆盖
 

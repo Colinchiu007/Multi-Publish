@@ -22,6 +22,7 @@ var require_publish = __commonJS({
         publishBatch: (platforms, article) => ipcRenderer2.invoke("publish:batch", { platforms, article }),
         extractVideoCover: (videoPath) => ipcRenderer2.invoke("cover:extract", videoPath),
         generateAiCover: (payload) => ipcRenderer2.invoke("cover:generate-ai", payload),
+        listPlatformCollections: (payload) => ipcRenderer2.invoke("collection:list", payload),
         cropVideoCover: (payload) => ipcRenderer2.invoke("cover:crop", payload),
         readCoverData: (imagePath) => ipcRenderer2.invoke("cover:read-data", imagePath),
         listAccounts: () => ipcRenderer2.invoke("accounts:list"),

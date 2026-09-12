@@ -129,6 +129,12 @@ async function batchPublish(platforms, taskData, cookie, opts) {
 
 module.exports = {
   getAdapter, supportsApi, publishViaApi, batchPublish, reloadPlugins,
+  // P3-7：合集列表拉取（adapter 可选实现）
+  async listCollections(platform, cookie) {
+    const adapter = getAdapter(platform);
+    if (!adapter || typeof adapter.listCollections !== "function") return [];
+    return adapter.listCollections(cookie);
+  },
   REGISTRY, pluginLoader,
   ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger,
   DEFAULT_MAX_BODY_BYTES, LOGTO_WEBHOOK_EVENTS, LOGTO_WEBHOOK_SIGNATURE_HEADER,

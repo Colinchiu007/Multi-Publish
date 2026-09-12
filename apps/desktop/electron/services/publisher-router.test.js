@@ -234,6 +234,27 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(wx3.digest.length).toBe(120)
   })
 
+  it("P3-1/P3-2/P3-4：商品/任务/投票/交叉发布透传与过滤", () => {
+    const goods = [{ id: "g1", title: "商品1" }, { id: "g2", title: "商品2" }]
+    const a = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, goods, taskId: "act-123" } },
+      "douyin",
+    )
+    expect(a.goods).toEqual(goods)
+    expect(a.taskId).toBe("act-123")
+    expect(a.poll).toBeUndefined()
+    expect(a.crossPost).toBeUndefined()
+
+    // 过滤：空 goods / 非法 taskId / 选项不足的 poll / 非数组 goods 不透传
+    const b = routerSrc.buildPublishArticle(
+      { article: { ...baseArticle, goods: [], taskId: "bad id!" } },
+      "douyin",
+    )
+    expect(b.goods).toBeUndefined()
+    expect(b.taskId).toBeUndefined()
+    expect(b.poll).toBeUndefined()
+  })
+
   it("缺少 cookie 时抛错", async () => {
     accountManager.loadSavedCredentials.mockReturnValueOnce(null)
     const r = new PublisherRouter()

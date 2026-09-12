@@ -10,6 +10,16 @@ class BilibiliAdapter extends BasePlatformAdapter {
   getReferer() { return "https://member.bilibili.com/platform/upload/video/frame"; }
   getOrigin() { return "https://member.bilibili.com"; }
 
+  // P3-7：拉取当前用户的合集/season 列表（arc/search API，蚁小二 collection.yixiaoerId 对应 season_id）
+  async listCollections(cookie) {
+    const h = this.getHeaders(cookie, { Accept: "application/json" });
+    const resp = await this.http.get(this.apiBase + "/x/vupre/web/archives/seasons", { headers: h, params: { pn: 1, ps: 50 } });
+    const list = resp.data?.data?.items || resp.data?.data?.seasons || [];
+    return (Array.isArray(list) ? list : []).map(function (s) {
+      return { id: s.season_id || s.id, name: s.title || s.name || "" };
+    }).filter(function (s) { return s.id });
+  }
+
   async uploadVideo(td, cookie) {
     const r = await upload({ ...td, platform: "bilibili" }, cookie);
     return r?.video || null;
