@@ -110,6 +110,7 @@ var require_publish = __commonJS({
         pipelineHistory: () => ipcRenderer2.invoke("pipeline:history"),
         pipelineDeleteRun: (runId) => ipcRenderer2.invoke("pipeline:delete-run", runId),
         pipelinePauseRun: (runId) => ipcRenderer2.invoke("pipeline:pause-run", runId),
+        pipelineCancelRun: (runId) => ipcRenderer2.invoke("pipeline:cancel-run", runId),
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
