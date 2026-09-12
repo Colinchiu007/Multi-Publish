@@ -200,6 +200,8 @@ export function useBatchPublish(options) {
       tags: [],
       topics: [],
       mentions: [],
+      // P0-2：批量模式补 AI 声明（与单篇默认勾选语义一致，仅显式 false 取消）
+      aiGenerated: true,
       tagsText: '',
       topicsText: '',
       mentionsText: '',
@@ -231,6 +233,7 @@ export function useBatchPublish(options) {
       tags: orig.tags ? orig.tags.slice() : [],
       topics: orig.topics ? orig.topics.slice() : [],
       mentions: orig.mentions ? JSON.parse(JSON.stringify(orig.mentions)) : [],
+      aiGenerated: orig.aiGenerated !== false,
       tagsText: orig.tagsText || '',
       topicsText: orig.topicsText || '',
       mentionsText: orig.mentionsText || '',
@@ -396,6 +399,8 @@ export function useBatchPublish(options) {
             tags: normalizePublishStringList(a.tagsText || a.tags),
             topics: normalizePublishStringList(a.topicsText || a.topics),
             mentions: normalizePublishMentions(a.mentionsText || a.mentions),
+            // P0-2：批量 payload 补 AI 声明，与单篇 buildArticleData 的 fail-safe 语义对齐
+            aiGenerated: a.aiGenerated !== false,
           }
         }),
       }))

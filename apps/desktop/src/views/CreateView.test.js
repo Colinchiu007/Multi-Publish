@@ -24,7 +24,9 @@ vi.mock("@/api/publisher", () => ({
   onRenderError: vi.fn().mockReturnValue(vi.fn()),
   onRenderInstallProgress: vi.fn().mockReturnValue(vi.fn()),
   onPipelineUpdate: vi.fn().mockReturnValue(vi.fn()),
-  aiGenerate: vi.fn().mockResolvedValue({ code: 0, data: { text: "AI生成文案内容" } }),
+  // P0-1 修复后的契约：aiGenerate 走 ai:generate（响应字段 content），provider 由 modelProviderGetDefault 查询
+  modelProviderGetDefault: vi.fn().mockResolvedValue({ code: 0, data: { id: "openai" } }),
+  aiGenerate: vi.fn().mockResolvedValue({ code: 0, data: { content: "AI生成文案内容" } }),
   pipelineList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   pipelineStart: vi.fn(),
   pipelinePause: vi.fn(),

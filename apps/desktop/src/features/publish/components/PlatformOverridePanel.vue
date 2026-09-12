@@ -111,6 +111,123 @@
               <span>保存草稿后群发</span>
             </label>
           </template>
+          <template v-else-if="platform.id === 'bilibili'">
+            <label class="override-field">
+              <span>分区</span>
+              <select
+                :data-testid="'override-category-' + platform.id"
+                :value="getValue(platform.id, 'category')"
+                @change="updateField(platform.id, 'category', $event.target.value)"
+              >
+                <option v-for="cat in bilibiliCategories" :key="cat.value" :value="cat.value">
+                  {{ cat.label }}
+                </option>
+              </select>
+            </label>
+            <label class="override-field">
+              <span>版权声明</span>
+              <select
+                :data-testid="'override-copyright-' + platform.id"
+                :value="getValue(platform.id, 'copyright')"
+                @change="updateField(platform.id, 'copyright', $event.target.value)"
+              >
+                <option :value="2">转载</option>
+                <option :value="1">自制</option>
+              </select>
+            </label>
+            <label class="override-field">
+              <span>加入合集（可选，填合集 ID）</span>
+              <input
+                :data-testid="'override-collection-id-' + platform.id"
+                :value="getValue(platform.id, 'collectionId')"
+                type="text"
+                inputmode="numeric"
+                placeholder="合集 ID，如 12345"
+                @input="updateField(platform.id, 'collectionId', $event.target.value)"
+              />
+            </label>
+          </template>
+          <template v-else-if="platform.id === 'youtube'">
+            <label class="override-field">
+              <span>分类</span>
+              <select
+                :data-testid="'override-category-id-' + platform.id"
+                :value="getValue(platform.id, 'categoryId')"
+                @change="updateField(platform.id, 'categoryId', $event.target.value)"
+              >
+                <option v-for="cat in youtubeCategories" :key="cat.value" :value="cat.value">
+                  {{ cat.label }}
+                </option>
+              </select>
+            </label>
+            <label class="override-field">
+              <span>可见性</span>
+              <select
+                :data-testid="'override-privacy-' + platform.id"
+                :value="getValue(platform.id, 'privacy')"
+                @change="updateField(platform.id, 'privacy', $event.target.value)"
+              >
+                <option value="public">公开</option>
+                <option value="unlisted">不公开列出</option>
+                <option value="private">私享</option>
+              </select>
+            </label>
+            <label class="override-field">
+              <span>播放列表（可选，填播放列表 ID）</span>
+              <input
+                :data-testid="'override-playlist-id-' + platform.id"
+                :value="getValue(platform.id, 'playlistId')"
+                type="text"
+                placeholder="播放列表 ID，如 PLabc123"
+                @input="updateField(platform.id, 'playlistId', $event.target.value)"
+              />
+            </label>
+          </template>
+          <template v-else-if="platform.id === 'tiktok'">
+            <label class="override-field">
+              <span>可见性</span>
+              <select
+                :data-testid="'override-privacy-level-' + platform.id"
+                :value="getValue(platform.id, 'privacyLevel')"
+                @change="updateField(platform.id, 'privacyLevel', $event.target.value)"
+              >
+                <option value="PUBLIC">所有人可见</option>
+                <option value="FRIENDS">朋友可见</option>
+                <option value="PRIVATE">仅自己可见</option>
+              </select>
+            </label>
+          </template>
+          <template v-else-if="platform.id === 'baijiahao'">
+            <label class="override-check">
+              <input
+                :data-testid="'override-original-' + platform.id"
+                :checked="Boolean(getValue(platform.id, 'original'))"
+                type="checkbox"
+                @change="updateField(platform.id, 'original', $event.target.checked)"
+              />
+              <span>原创声明</span>
+            </label>
+            <label class="override-field">
+              <span>位置（可选，留空不声明）</span>
+              <input
+                :data-testid="'override-location-' + platform.id"
+                :value="getValue(platform.id, 'locationName')"
+                type="text"
+                placeholder="如：北京·三里屯"
+                @input="updateField(platform.id, 'locationName', $event.target.value)"
+              />
+            </label>
+            <label class="override-field">
+              <span>加入合集（可选，填合集 ID 与名称）</span>
+              <input
+                :data-testid="'override-collection-id-' + platform.id"
+                :value="getValue(platform.id, 'collectionIdText')"
+                type="text"
+                placeholder="格式：合集ID 或 合集ID:名称"
+                @input="updateField(platform.id, 'collectionIdText', $event.target.value)"
+              />
+            </label>
+          </template>
         </div>
       </article>
     </div>
@@ -134,10 +251,42 @@ const zhihuStatements = [
   { value: 5, label: '包含 AI 辅助创作' },
 ]
 
+// B站分区（tid）：常用分区映射（蚁小二 subCategory.yixiaoerId → parseInt → tid）
+const bilibiliCategories = [
+  { value: 21, label: '日常' },
+  { value: 17, label: '单机游戏' },
+  { value: 171, label: '电子竞技' },
+  { value: 124, label: '影视' },
+  { value: 231, label: '科技·数码·手机' },
+  { value: 138, label: '搞笑' },
+  { value: 119, label: '鬼畜' },
+  { value: 217, label: '动物圈' },
+  { value: 207, label: '时尚' },
+  { value: 251, label: '资讯' },
+]
+
+// YouTube 分类（categoryId）：常用分类（默认 22 = People & Blogs）
+const youtubeCategories = [
+  { value: '22', label: '人物与博客' },
+  { value: '10', label: '音乐' },
+  { value: '20', label: '游戏' },
+  { value: '24', label: '娱乐' },
+  { value: '28', label: '科技' },
+  { value: '27', label: '教育' },
+  { value: '17', label: '体育' },
+  { value: '19', label: '旅行' },
+  { value: '23', label: '喜剧' },
+  { value: '25', label: '新闻政治' },
+]
+
 function defaultOverride (platformId) {
   if (platformId === 'zhihu') {
     return { title: '', content: '', commentPermission: 'anyone', declare: 0, topics: [], draft: false }
   }
+  if (platformId === 'bilibili') return { title: '', content: '', category: 21, copyright: 2, collectionId: '' }
+  if (platformId === 'youtube') return { title: '', content: '', categoryId: '22', privacy: 'public', playlistId: '' }
+  if (platformId === 'tiktok') return { title: '', content: '', privacyLevel: 'PUBLIC' }
+  if (platformId === 'baijiahao') return { title: '', content: '', original: false, locationName: '', collectionIdText: '' }
   return { title: '', content: '' }
 }
 
@@ -152,6 +301,37 @@ function normalizeValue (platformId, field, value) {
   }
   if ((platformId === 'zhihu' || platformId === 'douyin') && field === 'draft') return Boolean(value)
   if (platformId === 'wechat_mp' && field === 'massSend') return Boolean(value)
+  if (platformId === 'bilibili' && field === 'category') {
+    const n = Number(value)
+    return Number.isInteger(n) && n > 0 ? n : 21
+  }
+  if (platformId === 'bilibili' && field === 'copyright') {
+    const n = Number(value)
+    return n === 1 || n === 2 ? n : 2
+  }
+  if (platformId === 'bilibili' && field === 'collectionId') {
+    const s = String(value || '').trim()
+    return /^\d+$/.test(s) ? Number(s) : ''
+  }
+  if (platformId === 'youtube' && field === 'categoryId') {
+    const s = String(value || '').trim()
+    return /^\d{1,2}$/.test(s) ? s : '22'
+  }
+  if (platformId === 'youtube' && field === 'privacy') {
+    return ['public', 'unlisted', 'private'].includes(value) ? value : 'public'
+  }
+  if (platformId === 'tiktok' && field === 'privacyLevel') {
+    return ['PUBLIC', 'PRIVATE', 'FRIENDS'].includes(value) ? value : 'PUBLIC'
+  }
+  if (platformId === 'youtube' && field === 'playlistId') {
+    return String(value || '').trim().slice(0, 60)
+  }
+  if (platformId === 'baijiahao' && field === 'original') return Boolean(value)
+  if (platformId === 'baijiahao' && field === 'locationName') return String(value || '').slice(0, 60)
+  // 百家号合集输入：'ID' 或 'ID:名称' → collection 对象
+  if (platformId === 'baijiahao' && field === 'collectionIdText') {
+    return String(value || '').slice(0, 100)
+  }
   return value
 }
 
