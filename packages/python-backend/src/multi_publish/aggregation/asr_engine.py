@@ -64,7 +64,8 @@ def _classify_download_error(e: Exception, model_size: str = "base") -> str:
     """把模型下载异常映射为含可操作建议的中文提示（含手动下载兜底指引）。"""
     repo = _MODEL_REPO if model_size == "base" else model_size
     cache_dir = _get_model_cache_dir()
-    manual = f"手动下载：https://huggingface.co/{repo}/resolve/main/model.bin（或镜像 https://hf-mirror.com/{repo}/resolve/main/model.bin），解压后放入缓存目录 {cache_dir}"
+    manual = (f"手动下载：访问 https://huggingface.co/{repo}/tree/main（或镜像 https://hf-mirror.com/{repo}/tree/main），"
+              f"下载 config.json / model.bin / tokenizer.json / vocabulary.txt 四个文件后放入缓存目录 {cache_dir} 下")
     msg_str = str(e)
 
     # 磁盘不足（errno 28）
@@ -77,9 +78,15 @@ def _classify_download_error(e: Exception, model_size: str = "base") -> str:
             return f"模型下载失败：HuggingFace 处于离线模式（HF_HUB_OFFLINE=1）但本地无模型缓存。请取消该环境变量后重试。{manual}"
     except ImportError:
         pass
-    # 网络类
+    # 网络类（含 requests/urllib3 异常——huggingface_hub 底层用 requests，其异常不继承内建类型）
     import socket
-    if isinstance(e, (ConnectionError, socket.timeout, TimeoutError)) or "connection" in msg_str.lower() or "timed out" in msg_str.lower():
+    network_types = [ConnectionError, socket.timeout, TimeoutError]
+    try:
+        import requests.exceptions as req_exc
+        network_types.extend([req_exc.ConnectionError, req_exc.Timeout])
+    except ImportError:
+        pass
+    if isinstance(e, tuple(network_types)) or "connection" in msg_str.lower() or "timed out" in msg_str.lower() or "max retries exceeded" in msg_str.lower():
         return f"模型下载失败：网络无法连接下载源。请检查网络连接（国内推荐设置 HF_ENDPOINT=https://hf-mirror.com）或配置代理后重试。{manual}"
     # 仓库不存在 / HTTP 错误
     try:
@@ -103,7 +110,7 @@ class AsrResult:
 
 
 class AsrEngineError(Exception):
-    """ASR 引擎错误（code: engine_unavailable / timeout / no_audio / failed）"""
+    """ASR 引擎错误（code: engine_unavailable / download_failed / timeout / no_audio / failed）"""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -177,12 +184,12 @@ class FasterWhisperEngine(AsrEngine):
             logger.info(f"[asr] 模型已缓存（{_MODEL_REPO}），跳过下载")
             return
         endpoint = _resolve_download_endpoint()
-        # huggingface_hub 读 HF_ENDPOINT 环境变量决定下载源；进程内设置对本次下载生效
-        old = os.environ.get("HF_ENDPOINT")
-        os.environ["HF_ENDPOINT"] = endpoint
         try:
             logger.info(f"[asr] 开始下载模型 {_MODEL_REPO}（约 141MB，源 {endpoint}）...")
-            _snapshot_download(
+            # 经 HfApi(endpoint=...) 传参指定下载源，不修改 os.environ（多线程安全，用户显式设置不被覆盖）
+            import huggingface_hub
+            api = huggingface_hub.HfApi(endpoint=endpoint)
+            api.snapshot_download(
                 repo_id=_MODEL_REPO,
                 allow_patterns=["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"],
                 cache_dir=self._get_model_cache_dir(),
@@ -192,12 +199,6 @@ class FasterWhisperEngine(AsrEngine):
         except Exception as e:
             logger.error(f"[asr] 模型下载失败（源 {endpoint}）: {e}")
             raise AsrEngineError("download_failed", _classify_download_error(e, self._model_size)) from e
-        finally:
-            # 恢复原环境变量（用户显式设置不被覆盖）
-            if old is None:
-                os.environ.pop("HF_ENDPOINT", None)
-            else:
-                os.environ["HF_ENDPOINT"] = old
 
     def transcribe(self, audio_path: str, *, language: str | None = None) -> AsrResult:
         if not Path(audio_path).exists():

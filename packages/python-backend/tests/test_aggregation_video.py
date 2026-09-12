@@ -390,6 +390,29 @@ def test_classify_download_error_offline_mode():
     assert "HF_HUB_OFFLINE" in msg
 
 
+def test_classify_download_error_repo_not_found():
+    """仓库不存在（isinstance 分支）→ 提示含仓库不存在。"""
+    from multi_publish.aggregation.asr_engine import _classify_download_error
+    # RepositoryNotFoundError 构造需真实 response 对象（HfHubHTTPError 内部访问 response 属性），
+    # 单测中用 mock response 构造真实实例以命中 isinstance 分支
+    from unittest.mock import MagicMock
+    from huggingface_hub.errors import RepositoryNotFoundError
+    resp = MagicMock()
+    resp.status_code = 404
+    resp.headers = {}
+    err = RepositoryNotFoundError("Repository not found", response=resp)
+    msg = _classify_download_error(err, "base")
+    assert "不存在" in msg
+
+
+def test_classify_download_error_requests_connection_error():
+    """requests.ConnectionError（huggingface_hub 实际网络异常类型）→ 网络类提示。"""
+    import requests.exceptions as req_exc
+    from multi_publish.aggregation.asr_engine import _classify_download_error
+    msg = _classify_download_error(req_exc.ConnectionError("Max retries exceeded with url"), "base")
+    assert "网络" in msg
+
+
 def test_classify_download_error_unknown_includes_manual_url():
     """未知失败 → 提示含手动下载 URL 与缓存目录（兜底路径）。"""
     from multi_publish.aggregation.asr_engine import _classify_download_error, _MODEL_REPO
@@ -456,3 +479,67 @@ def test_engine_ensure_model_already_cached_skips_download(monkeypatch, tmp_path
     monkeypatch.setattr(mod, "_resolve_download_endpoint", lambda: resolve_calls.append(1) or "https://x")
     eng.ensure_model()
     assert resolve_calls == []
+
+
+def test_engine_ensure_model_no_env_mutation(monkeypatch, tmp_path):
+    """下载全程不修改 HF_ENDPOINT 环境变量（多线程安全，用户显式设置不被覆盖）。"""
+    import os
+    from multi_publish.aggregation.asr_engine import FasterWhisperEngine
+    import multi_publish.aggregation.asr_engine as mod
+    eng = FasterWhisperEngine()
+    monkeypatch.setattr(eng, "_get_model_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setenv("HF_ENDPOINT", "https://user-explicit.example.com")
+
+    class FakeApi:
+        def __init__(self, endpoint=None):
+            self.endpoint = endpoint
+        def snapshot_download(self, **kw):
+            assert self.endpoint == "https://user-explicit.example.com"  # 源选择尊重用户显式设置
+            return str(tmp_path / "model.bin")
+    import huggingface_hub
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
+    # 预检未缓存
+    from huggingface_hub.errors import LocalEntryNotFoundError
+    def fake_snapshot(**kw):
+        if kw.get("local_files_only"):
+            raise LocalEntryNotFoundError("not cached")
+        return str(tmp_path / "model.bin")
+    monkeypatch.setattr(mod, "_snapshot_download", fake_snapshot)
+    eng.ensure_model()
+    assert os.environ.get("HF_ENDPOINT") == "https://user-explicit.example.com"
+
+
+def test_collect_video_download_failed_error_code(monkeypatch, tmp_path):
+    """端到端：download_failed → VideoCollectError code=ASR_DOWNLOAD_FAILED（前端可匹配）。"""
+    from multi_publish.aggregation import video_service
+    from multi_publish.aggregation.models import CollectVideoRequest
+    from multi_publish.aggregation.asr_engine import AsrEngineError
+
+    svc = video_service.VideoCollectService()
+    meta = json.dumps({"title": "t", "duration": 30})
+
+    def fake_run(cmd, timeout=None, **kwargs):
+        if "--dump-json" in cmd:
+            return _make_completed(0, stdout=meta)
+        if "-select_streams" in cmd:
+            return _make_completed(0, stdout=json.dumps({"streams": [{"codec_type": "audio"}]}))
+        return _make_completed(0)
+
+    def fake_stat(self, *a, **kw):
+        st = MagicMock(); st.st_size = 1024; return st
+
+    def fake_transcribe_with_timeout(self, engine, path):
+        raise AsrEngineError("download_failed", "模型下载失败：网络无法连接下载源")
+
+    monkeypatch.setattr(video_service, "_run_subprocess", fake_run)
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    monkeypatch.setattr(video_service.VideoCollectService, "_transcribe_with_timeout", fake_transcribe_with_timeout)
+
+    fake_engine = MagicMock()
+    fake_engine.is_available.return_value = True
+    monkeypatch.setattr(video_service, "get_asr_engine", lambda name=None: fake_engine)
+
+    with pytest.raises(video_service.VideoCollectError) as exc_info:
+        svc.collect_video(CollectVideoRequest(url="https://v.douyin.com/abc/"))
+    assert exc_info.value.code == "ASR_DOWNLOAD_FAILED"
+    assert "模型下载失败" in exc_info.value.message
