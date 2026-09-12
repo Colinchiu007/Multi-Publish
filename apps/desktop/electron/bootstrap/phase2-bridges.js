@@ -12,6 +12,25 @@
 const log = require('../services/logger')
 
 /**
+ * SplitterBridge 启动失败的用户可见提示（2026-09-12 bug 反思 P1 打包契约）。
+ * 背景：splitter 依赖用户机器 pip 安装 smart-sentence-splitter；缺失时此前仅写日志，
+ * 用户无感知地使用降级分句。此通知让「语义分句引擎不可用」显性化（不阻断启动）。
+ * 仅打包形态提示（开发环境降级属已知调试状态，避免噪音）。
+ */
+function notifySplitterUnavailable(reason) {
+  try {
+    const { app, Notification, isPackaged } = require('electron')
+    if (!isPackaged()) return
+    if (typeof Notification !== 'function' || !Notification.isSupported()) return
+    const notification = new Notification({
+      title: '语义分句引擎不可用',
+      body: '视频字幕将使用本地基础分句（质量可能下降）。请安装 Python 及 smart-sentence-splitter 包后重启应用。诊断: ' + String(reason || '').slice(0, 180),
+    })
+    notification.show()
+  } catch (_) { /* 通知失败不影响启动 */ }
+}
+
+/**
  * @param {unknown} value
  * @returns {string}
  */
@@ -44,8 +63,9 @@ async function startBridges({ app, pythonBridge, splitterBridge, promptBridge })
   const names = ['SplitterBridge', 'PromptBridge']
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      log.warn('App', names[i] + ' failed to start: ' +
-        (r.reason instanceof Error ? r.reason.message : String(r.reason)))
+      const reason = r.reason instanceof Error ? r.reason.message : String(r.reason)
+      log.warn('App', names[i] + ' failed to start: ' + reason)
+      if (names[i] === 'SplitterBridge') notifySplitterUnavailable(reason)
     } else {
       log.info('App', names[i] + ' started')
     }
