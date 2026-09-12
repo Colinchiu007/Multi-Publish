@@ -184,6 +184,16 @@ function resolvePlatformArticle (task, platform) {
     const m = raw.match(/^(\d+)(?::(.+))?$/)
     if (m) resolved.collection = { id: m[1], name: (m[2] || '').trim() }
   }
+  // P3-1：商品（抖音 goodsInfoList / 小红书 shopping_cart）— 透传 goods 对象数组
+  const goods = override.goods ?? base.goods
+  if (Array.isArray(goods) && goods.length > 0 && goods.length <= 10) {
+    resolved.goods = goods.map(function (g) {
+      return { id: String(g.id || '').slice(0, 64), title: String(g.title || '').slice(0, 100) }
+    }).filter(function (g) { return g.id })
+  }
+  // P3-2：任务/活动（抖音 hot_sentence/flashMobInfo）— 透传 taskId
+  const taskId = String(override.taskId ?? base.taskId ?? '').trim()
+  if (/^[A-Za-z0-9_-]{1,64}$/.test(taskId)) resolved.taskId = taskId
   return resolved
 }
 
@@ -241,6 +251,9 @@ function buildPublishArticle (task, platform) {
   if (resolved.collectionId !== undefined) article.collectionId = resolved.collectionId
   if (resolved.playlistId !== undefined) article.playlistId = resolved.playlistId
   if (resolved.collection !== undefined) article.collection = resolved.collection
+  // P3-1/P3-2/P3-4：商品/任务/投票/交叉发布透传
+  if (resolved.goods !== undefined) article.goods = resolved.goods
+  if (resolved.taskId !== undefined) article.taskId = resolved.taskId
   return article
 }
 
@@ -482,6 +495,9 @@ class ApiPublisher {
     if (article.collectionId !== undefined) taskData.collectionId = article.collectionId
     if (article.playlistId !== undefined) taskData.playlistId = article.playlistId
     if (article.collection !== undefined) taskData.collection = article.collection
+    // P3-1/P3-2/P3-4：商品/任务/投票/交叉发布透传到 API taskData
+    if (article.goods !== undefined) taskData.goods = article.goods
+    if (article.taskId !== undefined) taskData.taskId = article.taskId
 
     const result = await publishViaApi(platform, taskData, cookie, {
       timeout: this.route.timeout,

@@ -120,6 +120,36 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
+  // P3-7：合集列表拉取 collection:list — 从平台 API 拉当前用户合集（B站 season/百家号 bjhtopic）
+  ipcMain.handle('collection:list', withSenderCheck(async (event, payload) => {
+    const startedAt = Date.now()
+    ipcLog('info', 'collection:list', 'enter', `platform=${payload?.platform}`)
+    try {
+      const platform = String(payload?.platform || '').trim()
+      if (!['bilibili', 'baijiahao'].includes(platform)) {
+        return { code: EC.VALIDATION_ERROR, message: 'platform 必须为 bilibili 或 baijiahao' }
+      }
+      const accountId = String(payload?.accountId || '').trim()
+      // 复用发布路由的凭证加载（按账号取 cookie）
+      const { accountManager } = deps
+      const credentials = accountManager && typeof accountManager.loadSavedCredentials === 'function'
+        ? (accountId ? accountManager.loadSavedCredentials(platform, accountId) : accountManager.loadSavedCredentials(platform))
+        : null
+      const cookies = credentials && Array.isArray(credentials.cookies) ? credentials.cookies : []
+      if (cookies.length === 0) {
+        return { code: EC.REQUEST_ERROR, message: '平台 Cookie 缺失（账号未登录或凭证不可用）' }
+      }
+      const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
+      const { listCollections } = require('@multi-publish/api-publish-engine/src/index')
+      const list = await listCollections(platform, cookie)
+      ipcLog('info', 'collection:list', 'ok', `platform=${platform} count=${list.length} 耗时=${Date.now() - startedAt}ms`)
+      return { code: 0, data: list, message: 'ok' }
+    } catch (e) {
+      ipcLog('error', 'collection:list', 'error', `message=${e.message} 耗时=${Date.now() - startedAt}ms`)
+      return { code: EC.REQUEST_ERROR, message: e.message }
+    }
+  }))
+
   // 封面裁剪：cover:crop（渲染层拖拽裁剪框后调用，主进程 offscreen canvas 编码并压缩到 maxBytes）
   ipcMain.handle('cover:crop', withSenderCheck(async (event, payload) => {
     const startedAt = Date.now()

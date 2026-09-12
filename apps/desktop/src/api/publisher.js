@@ -19,9 +19,8 @@ export async function aiIsConfigured() { return invokeWithFallback("aiIsConfigur
 
 export async function aiGenerateTitles(topic) { return invokeWithFallback("aiGenerateTitles", { code: -1, data: [] }, topic) }
 
-export async function aiEnhanceContent(content, style) { return invokeWithFallback("aiEnhanceContent", { code: -1, data: "" }, content, style) }
-
 export async function aiGenerateSummary(content) { return invokeWithFallback("aiGenerateSummary", { code: -1, data: "" }, content) }
+export async function aiEnhanceContent(content, style) { return invokeWithFallback("aiEnhanceContent", { code: -1, data: "" }, content, style) }
 
 export async function aiGenerate(type, provider, params) { return invokeWithFallback("aiGenerate", { code: -1, message: 'electronAPI not available' }, type, provider, params) }
 
@@ -490,7 +489,9 @@ export function extractVideoCover(videoPath) {
   return window.electronAPI.extractVideoCover(videoPath)
 }
 
-// AI 生成封面（P2-2：复用 asset-generator 生图引擎）
 export function generateAiCover(payload) {
   return window.electronAPI.generateAiCover(payload)
+}
+export function listPlatformCollections(platform, accountId) {
+  return window.electronAPI.listPlatformCollections({ platform, accountId })
 }
