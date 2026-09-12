@@ -6274,13 +6274,13 @@ export default {
     async aiWrite() {
       this.aiLoading = true
       try {
-        const { aiGenerate } = await import('@/api/publisher')
-        const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
-        if (r?.code === 0 && r.data?.text) this.quickText = r.data.text
+        const { aiGenerate, modelProviderGetDefault } = await import('@/api/publisher')
+        const def = await modelProviderGetDefault('llm'), providerId = def?.code === 0 && def.data?.id ? def.data.id : null
+        const r = await aiGenerate('llm', providerId, { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
+        if (r?.code === 0 && r.data?.content) this.quickText = r.data.content // P0-1: content 非 text
       } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.aiLoading = false
     },
-
     // Remotion 安装
     async installDeps() {
       this.installing = true; this.installLog = ''

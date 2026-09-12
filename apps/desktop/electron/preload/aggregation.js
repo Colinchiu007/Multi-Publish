@@ -11,6 +11,7 @@
 function createAggregationApi(ipcRenderer) {
   return {
     aggregationCollect: (payload) => ipcRenderer.invoke('aggregation:collect', payload),
+    aggregationCollectVideo: (payload) => ipcRenderer.invoke('aggregation:collect-video', payload),
     aggregationCollectBatch: (payload) => ipcRenderer.invoke('aggregation:collect-batch', payload),
     aggregationRewrite: (payload) => ipcRenderer.invoke('aggregation:rewrite', payload),
     aggregationSources: () => ipcRenderer.invoke('aggregation:sources'),

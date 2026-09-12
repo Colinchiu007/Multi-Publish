@@ -288,7 +288,16 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     const aiGenerated = taskData.aiGenerated !== false
     parts.push("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status&activity_list%5B0%5D%5Bis_checked%5D=" + (aiGenerated ? 1 : 0))
     parts.push("fe_from=BJH_CMS_PC")
-    parts.push("bjhtopic_info=&bjhtopic_id=")
+    // P2-1：合集（bjhtopic_info/bjhtopic_id，蚁小二映射 collection → {id, name}）
+    const collection = taskData.collection
+    if (collection && (collection.id || collection.yixiaoerId)) {
+      const topicId = String(collection.id || collection.yixiaoerId)
+      const topicInfo = JSON.stringify({ topic_id: topicId, topic_name: collection.name || collection.yixiaoerName || "" })
+      parts.push("bjhtopic_info=" + encodeURIComponent(topicInfo))
+      parts.push("bjhtopic_id=" + encodeURIComponent(topicId))
+    } else {
+      parts.push("bjhtopic_info=&bjhtopic_id=")
+    }
     // 原创声明（蚁小二 original_status：original → 2）
     parts.push("original_status=" + (taskData.original ? 2 : 0))
     if (taskData.original) {

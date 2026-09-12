@@ -10,6 +10,24 @@
 - license-access-control 43 + window 52 + ipc-contract 6 + url-collector 23 全绿。
 - 真机 CDP：未登录（signed_out）调用 urlCollectFetch，修复前 code -3（license 拦截），修复后 code -1 + data（进入业务层）。
 
+## [未发布] feat(collection): 抖音/小红书图文+视频链接采集，视频作品 ASR 口播文案转写（2026-09-12）
+
+### 新增
+- 采集页 URL 输入框支持抖音（douyin.com 及子域）与小红书（xiaohongshu.com/xhslink.com）作品链接：域名命中自动路由到视频采集通道，其余链接走原图文链路（零行为变化）。
+- 视频采集管线（Python FastAPI POST /aggregation/collect-video）：yt-dlp --dump-json 元数据探测（>10min 拒绝）→ yt-dlp 下载（≤500MB/300s）→ ffprobe 音轨检测（无音轨 -8）→ ffmpeg 提取 16kHz WAV → ASR 转写（300s 超时）；临时文件 TemporaryDirectory 自动清理。
+- ASR 引擎抽象层（asr_engine.py）：AsrEngine 基类 + FasterWhisperEngine（Phase 1 默认，MIT 本地推理）+ SenseVoiceEngine/SiliconFlowEngine（Phase 2 预留）；ASR_ENGINE 环境变量切换，引擎缺失返回 -6 + 中文安装指引，不自动降级。
+- CollectResult 模型扩展：media_type（article/video，默认 article）/video_url/duration/transcript 可选字段，旧数据完全兼容；视频采集 content=转写文案，下游改写/发布无感。
+- Electron IPC：aggregation:collect-video 通道（600s 超时）+ preload aggregationCollectVideo；classifyError 新增 -6（引擎不可用）/-7（转写超时）/-8（无音轨）。
+- 采集页 UI：视频卡片 🎬 徽标 + 时长（mm:ss）+ 平台标签（抖音/小红书）；详情区「视频口播文案」标注；采集期间分阶段进度提示（探测→下载→提音频→转写）；错误提示全中文。
+- 依赖：python-backend pyproject.toml 新增 [project.optional-dependencies].asr 组（faster-whisper>=1.0.0）。
+- 文档：01-docs/PRD-COLLECT-DOUYIN-XHS-VIDEO-ASR-2026-09-12.md（完整 PRD：数据校验/流程/交互/显示项/提示文字/错误码表）。
+
+### 验证
+- Python: test_aggregation_video.py 23 passed（模型兼容/平台检测/错误分类/引擎抽象/管线成功/反爬/超限/无音轨/引擎缺失/超时/空转写）。
+- IPC: aggregation.test.js 14 passed（新通道/600s 超时/-6/-7/-8 分类）；preload.test.js 359 passed。
+- 前端: Collection.test.js 58 passed（域名路由/视频卡片/错误路径/时长格式化，含存量回归）。
+- locale-sync --keys PASS（873 keys zh/en 成对）；--cjk PASS（基线更新 1452 条，无新增硬编码）。
+
 ## [未发布] feat(collection): 采集失败错误提示细分 — 14 类原因 + 可操作建议（2026-09-12）
 
 ### 新增
@@ -52,18 +70,6 @@
 - HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
 - usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
 - locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
-## [未发布] fix(desktop): 修复 E2E 发现的两个发布链路 Bug（2026-09-11）
-
-### 修复
-- `usePublishDrafts.js` `applyDraft`：草稿缺失的数组字段（images/image_files/tags/topics/mentions）回退为 `[]` 而非空字符串 `''`。原实现 `draft[field] || ''` 会把纯文字草稿（如热门选题生成的草稿）的 images 设为 `''`，触发 publish-contract 的「images 文件引用无效」校验，阻断一键发布（E2E 实测复现）。
-- `HotTopics.vue` 一键发布完成反馈：改写完成后进度区不再消失。原模板 `v-if="!publishing"` 在 publishing 复位时立即切回批量操作条，「改写完成，已生成 n 条草稿」提示和「去发布」按钮一闪而过。现在完成后保留进度区展示结果，新增「返回」按钮（backToBatch）重置状态回到批量操作条。
-
-### 验证
-- usePublishDrafts.test.js 6 passed（含 2 个新回归用例：缺失数组字段回退 []/有效数组保留）。
-- HotTopics.test.js 7 passed（含 1 个新回归用例：完成后进度区保留+返回按钮）。
-- usePublishFlow.test.js + Publish.test.js 全量通过（122 passed，无回归）。
-- locale-sync --keys PASS（新增 backToBatch key zh/en 成对）；eslint 0 error。
-
 ## [未发布] feat(desktop): 「更多」菜单新增「热门选题」模块（2026-09-11）
 
 ### 新增

@@ -91,6 +91,41 @@ class CollectResult(BaseModel):
     summary: str = ""
     tags: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+    # 视频采集扩展字段（可选，默认值保证旧数据/旧客户端兼容）
+    media_type: str = Field(default="article", description="媒体类型: article(图文)/video(视频)")
+    video_url: str = Field(default="", description="视频原始链接（仅视频采集）")
+    duration: float = Field(default=0.0, description="视频时长（秒，仅视频采集）")
+    transcript: str = Field(default="", description="ASR 转写文案（仅视频采集，与 content 同值）")
+
+    @field_validator("media_type")
+    @classmethod
+    def validate_media_type(cls, v: str) -> str:
+        if v not in ("article", "video"):
+            raise ValueError(f"不支持的 media_type: {v}，支持: article, video")
+        return v
+
+
+class CollectVideoRequest(BaseModel):
+    """视频作品采集请求（抖音/小红书）"""
+    url: str = Field(..., description="视频作品链接")
+    asr_engine: Optional[str] = Field(default=None, description="ASR 引擎覆盖: faster_whisper/sensevoice/siliconflow（默认走 ASR_ENGINE 环境变量）")
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("URL 不能为空")
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("URL 必须以 http:// 或 https:// 开头")
+        return v
+
+    @field_validator("asr_engine")
+    @classmethod
+    def validate_asr_engine(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("faster_whisper", "sensevoice", "siliconflow"):
+            raise ValueError(f"不支持的 asr_engine: {v}，支持: faster_whisper, sensevoice, siliconflow")
+        return v
 
 
 class RewriteRequest(BaseModel):

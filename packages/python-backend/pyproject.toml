@@ -29,8 +29,11 @@ video = [
     "pyyaml>=6.0",
     "jsonschema>=4.20",
 ]
+asr = [
+    "faster-whisper>=1.0.0",
+]
 all = [
-    "multi-publish-backend[web,video]",
+    "multi-publish-backend[web,video,asr]",
 ]
 
 [tool.setuptools.packages.find]
