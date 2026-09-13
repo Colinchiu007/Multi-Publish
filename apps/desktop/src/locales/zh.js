@@ -2630,7 +2630,7 @@ knowledgeBase: {
     channelAll: '全部渠道',
     channels: {
       zhihu: '知乎', toutiao: '头条', tencent: '腾讯新闻', bilibili: 'B站',
-      douyin: '抖音', baidu: '百度', tophub: '微博(tophub)',
+      douyin: '抖音', baidu: '百度', weibo: '微博热搜', tophub: '微博(tophub)',
     },
     selectAll: '全选',
     deselectAll: '取消全选',
@@ -2654,6 +2654,7 @@ knowledgeBase: {
     publishCancel: '取消',
     backToBatch: '返回',
     channelUnavailable: '不可用',
+    sourceRank: (ctx) => '来源渠道内第 ' + ctx.named('rank') + ' 名（列表序号为当前筛选视图内顺序）',
     loadFailed: '选题获取失败，请稍后重试',
     generateVideo: '生成视频',
     genVideoTitle: (ctx) => '一键生成视频 · ' + ctx.named('topic'),

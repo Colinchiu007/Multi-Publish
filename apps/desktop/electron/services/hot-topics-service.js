@@ -3,7 +3,7 @@
  * HotTopicsService — 热门选题聚合服务（主进程）
  *
  * 职责：
- *   - 从 7 个公开渠道并发抓取热搜榜/热榜选题
+ *   - 从 8 个公开渠道并发抓取热搜榜/热榜选题
  *   - 复用 collection-engine 防反爬组件（限流/熔断/缓存）
  *   - 分类（渠道原生 + 关键词规则）→ 去重 → 缓存落 SQLite settings
  *
@@ -19,7 +19,7 @@ const CACHE_KEY = 'hot_topics_cache'
 const CACHE_TTL_MS = 10 * 60 * 1000
 const FETCH_TIMEOUT_MS = 10 * 1000
 const MAX_PER_CHANNEL = 20
-const MAX_TOPICS = 140
+const MAX_TOPICS = 160 // 8 渠道 × 20 条上限 = 160（去重后实际更少）
 
 const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
@@ -31,9 +31,10 @@ const CHANNEL_CONFIGS = [
   { id: 'zhihu', name: '知乎', url: 'https://www.zhihu.com/api/v4/creators/rank/hot?domain=0', headers: {}, intervalMinutes: 5, riskLevel: 'low' },
   { id: 'toutiao', name: '今日头条', url: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc', headers: {}, intervalMinutes: 5, riskLevel: 'medium' },
   { id: 'tencent', name: '腾讯新闻', url: 'https://r.inews.qq.com/gw/event/hot_ranking_list?page_size=20', headers: {}, intervalMinutes: 10, riskLevel: 'medium' },
-  { id: 'bilibili', name: '哔哩哔哩', url: 'https://api.bilibili.com/x/web-interface/popular?ps=20&pn=1', headers: {}, intervalMinutes: 10, riskLevel: 'low' },
+  { id: 'bilibili', name: '哔哩哔哩', url: 'https://api.bilibili.com/x/web-interface/popular?ps=50&pn=1', headers: {}, intervalMinutes: 10, riskLevel: 'low' },
   { id: 'douyin', name: '抖音', url: 'https://www.douyin.com/aweme/v1/web/hot/search/list/', headers: { Referer: 'https://www.douyin.com/' }, intervalMinutes: 15, riskLevel: 'high' },
-  { id: 'baidu', name: '百度热搜', url: 'https://top.baidu.com/board?tab=realtime', headers: {}, intervalMinutes: 10, riskLevel: 'medium' },
+  { id: 'baidu', name: '百度热搜', url: 'https://top.baidu.com/api/board?platform=wise&tab=realtime', headers: {}, intervalMinutes: 10, riskLevel: 'low' },
+  { id: 'weibo', name: '微博热搜', url: 'https://weibo.com/ajax/statuses/hot_band', headers: { Referer: 'https://weibo.com/' }, intervalMinutes: 10, riskLevel: 'medium' },
   { id: 'tophub', name: '微博(tophub)', url: 'https://tophub.today/n/KqndgxeLl9', headers: {}, intervalMinutes: 30, riskLevel: 'medium' },
 ]
 
