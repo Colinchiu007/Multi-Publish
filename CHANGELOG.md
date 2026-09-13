@@ -1,5 +1,11 @@
 # [未发布] feat: 爆款库激活与效果闭环——P0 检索修复 + P1 模式卡片 + P2 效果闭环（2026-09-13）
 
+## [未发布] fix(accounts): checkLoginStatus 假阳性过期判定修复——凭证检测路径对齐 + 浏览器故障回退（2026-09-13）
+
+- checkLoginStatus 加密凭证缺失时回退 checkLocalCredentials session cookie 备选路径
+- Playwright 隐藏浏览器检测异常时回退本地凭证检测（平台反爬导致误判过期）
+- toPublicAccount effectiveStatus 本地凭证优先于 DB 残留 expired
+
 ### P0 检索修复（长文改写检索从 0 到 1）
 - **keyword-extractor**（packages/rewrite-engine）：Intl.Segmenter 词级切分 + 连续单字合并（小红书/自媒体类跨界词）+ bigram 高频补充 + 中英停用词过滤；LLM 兜底严格 JSON fail-open（多围栏贪婪解析）
 - **store 检索重构**：整文 LIKE（长文永远空结果）→ 关键词数组直传/字符串提取 + 多词 OR 候选集 + JS 评分（命中数×10 + log10 互动数 + confidence×5）；保留检索即强化

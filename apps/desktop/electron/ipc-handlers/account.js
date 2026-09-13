@@ -158,18 +158,25 @@ function registerHandlers(ipcMain, deps) {
     } else {
       credCheckReason = AccountManager.checkLocalCredentials ? 'missing-platform-or-id' : 'checkLocalCredentials-not-function'
     }
-    const derivedStatus = !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'))
+   const derivedStatus = !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'))
+    // 本地凭证检测到的真实登录状态优先于后端 DB 残留的 expired（LoginMonitor
+    // 周期性检测写入的旧值），防止 hasCred=true 但后端 status='expired' 时列表
+    // 仍展示过期。
+    const effectiveStatus = hasCred && safeAccount.status === 'expired'
+      ? 'active'
+      : derivedStatus
     const backendStatus = safeAccount.status || 'absent'
     ipcLog('info', 'account:status-derive',
-      'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus + ' derivedStatus=' + derivedStatus +
-      (credCheckReason ? ' reason=' + credCheckReason : ''))
+     'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus + ' derivedStatus=' + derivedStatus +
+      ' effectiveStatus=' + effectiveStatus +
+     (credCheckReason ? ' reason=' + credCheckReason : ''))
 
     const publicAccount = {
       ...safeAccount,
       has_cookies: hasCred,
       cookie_count: hasCred ? 1 : 0,
       account_name: safeAccount.account_name || safeAccount.name || '',
-      status: derivedStatus,
+      status: effectiveStatus,
       is_default: Boolean(safeAccount.is_default) || String(defaultId) === String(safeAccount.id),
     }
     if (raw.proxy !== undefined) {
