@@ -457,7 +457,16 @@ async function checkLoginStatus (platform, accountId) {
       ? credentials.localStorage
       : {}
     if (!credentials || (cookies.length === 0 && Object.keys(localStorageData).length === 0)) {
-      log.info('AccountManager', 'checkLoginStatus: NO_CREDENTIAL ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length)
+      // 加密凭据文件缺失/为空时，回退到 checkLocalCredentials 的 session cookie
+      // 分区备选路径（对齐 toPublicAccount 的凭证检测逻辑，消除两套路径不一致
+      // 导致的假阳性过期判定）。
+      const hasSessionCred = checkLocalCredentials(platform, accountId)
+      log.info('AccountManager', 'checkLoginStatus: NO_ENCRYPTED_CREDENTIAL ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' hasSessionCred=' + hasSessionCred)
+      if (hasSessionCred) {
+        // 有 session cookie 但无加密凭据 → 判为有效（用户通过内嵌浏览器标签
+        // 登录后 Cookie 落在 Electron session 分区，未同步到加密文件）
+        return { valid: true, code: 'CHECK_LOGIN_SUCCESS_SESSION_ONLY' }
+      }
       return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
 
@@ -542,11 +551,18 @@ async function checkLoginStatus (platform, accountId) {
       // 是假阳性盲区（logging-coverage-audit：必须留判定证据）
       log.warn('AccountManager', 'checkLoginStatus: fallback valid (no selector match, no login URL marker, no dashboard host) ' + platform + ':' + accountId + ' url=' + currentUrl + ' selectorMatched=' + selectorMatched)
       return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
-    } finally {
-      await page.close().catch(() => {})
-    }
+   } finally {
+     await page.close().catch(() => {})
+   }
   } catch (e) {
-    return { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
+   // 隐藏浏览器检测失败时（平台反爬超时/阻断/导航失败），回退到本地凭证
+   // 检测。对齐 toPublicAccount 的 checkLocalCredentials 逻辑，避免
+   // 有效 session cookie 因浏览器检测不稳定而被误判过期。
+   const hasLocal = checkLocalCredentials(platform, accountId)
+   log.warn('AccountManager', 'checkLoginStatus: browser-check failed for ' + platform + ':' + accountId + ' error=' + (e && e.message ? e.message : String(e)) + ' hasLocalCred=' + hasLocal + ' — 回退本地凭证检测')
+   return hasLocal
+     ? { valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' }
+     : { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
   }
 }
 
