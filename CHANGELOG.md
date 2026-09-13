@@ -1,3 +1,7 @@
+## [未发布] fix(hot-topics): 修复 catch (_) {} 空块 eslint no-empty 错误（2026-09-13）
+
+- PR #1726 预存的 `catch (_) {}` 空块（stopGenVideoTracking 的 genVideoUnsubscribe 取消订阅）被 eslint no-empty 规则拦截；补语义注释消除 error，无行为改动。
+
 ## [未发布] feat(hot-topics): 热门选题扩源（微博热搜官方 JSON + 百度 JSON API + B站分区分类）+ 分类原生优先 + 序号视图内重编号（2026-09-13）
 
 ### 新增
