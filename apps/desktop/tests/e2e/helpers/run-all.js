@@ -83,6 +83,9 @@ async function runRoutes() {
       results[name] = report;
       const marker = report.checks.failed === 0 ? '✓' : '✗';
       console.log(`  ${marker} ${name}: ${report.checks.passed}/${report.checks.total}`);
+      if (report.checks.failed > 0 || (report.consoleErrors && report.consoleErrors.length > 0) || (report.pageErrors && report.pageErrors.length > 0)) {
+        logRouteFailure(name, report);
+      }
     } catch (error) {
       console.error(`  ✗ ${name}: ${error.message}`);
       results[name] = { checks: { total: 0, passed: 0, failed: 1 }, error: error.message };
@@ -100,12 +103,48 @@ async function runFlows() {
       results[key] = report;
       const marker = report.checks.failed === 0 ? '✓' : '✗';
       console.log(`  ${marker} ${key}: ${report.checks.passed}/${report.checks.total}`);
+      if (report.checks.failed > 0 || (report.consoleErrors && report.consoleErrors.length > 0) || (report.pageErrors && report.pageErrors.length > 0)) {
+        logRouteFailure(key, report);
+      }
     } catch (error) {
       console.error(`  ✗ ${key}: ${error.message}`);
       results[key] = { checks: { total: 0, passed: 0, failed: 1 }, error: error.message };
     }
   });
   return results;
+}
+
+/**
+ * 路由/流失败时打印详细失败信息（check 名称 + console error + page error），
+ * 让 CI 日志可直接定位失败项，而不是只有 passed/total 数量。
+ */
+function logRouteFailure(name, report) {
+  if (!report) return;
+  const failedChecks = (report.details || []).filter((c) => !c.passed);
+  if (failedChecks.length > 0) {
+    console.log(`    ── ${name} 失败检查点 (${failedChecks.length}) ──`);
+    for (const c of failedChecks) {
+      console.log(`      ✗ ${c.name}${c.details ? ' | ' + JSON.stringify(c.details) : ''}`);
+    }
+  }
+  if (report.consoleErrors && report.consoleErrors.length > 0) {
+    console.log(`    ── ${name} console errors (${report.consoleErrors.length}) ──`);
+    const seen = new Set();
+    for (const e of report.consoleErrors) {
+      if (seen.has(e.text)) continue;
+      seen.add(e.text);
+      console.log(`      [console] ${e.text}`);
+    }
+  }
+  if (report.pageErrors && report.pageErrors.length > 0) {
+    console.log(`    ── ${name} page errors (${report.pageErrors.length}) ──`);
+    for (const e of report.pageErrors) {
+      console.log(`      [page] ${e.message}`);
+    }
+  }
+  if (report.error) {
+    console.log(`      [error] ${report.error}`);
+  }
 }
 
 function buildReport(results) {
