@@ -1,3 +1,12 @@
+# [未发布] fix(create): 分镜素材自选等待态测试断言修复——spy 组件方法替代全局 scrollIntoView（2026-09-13）
+
+### 修复（QM-5 五步）
+- **根因**：PR #1770（StageProgress 自动滚动）在 `StageProgress.vue` 新增 `scrollToStage` 调用 `el.scrollIntoView`，而 CreateView 测试用 `vi.spyOn(Element.prototype, 'scrollIntoView')` 全局 spy 并断言「恰好 1 次」——StageProgress 的自动滚动也触发全局 spy，导致计数 2/4/7 次。
+- **逃逸分析**：单测只断言全局 scrollIntoView 计数，未隔离组件自身滚动与第三方组件滚动；PR #1770 合入后未跑 CreateView 全量（CI 的 QG Unit/Shards/Coverage/electron-tests 均失败，PR #1776 带相同失败被合并）。
+- **系统性漏洞**：测试断言依赖全局 DOM 方法 spy 的「恰好 N 次」，对第三方组件引入的同类调用无隔离。
+- **修复**：3 个测试改为 `vi.spyOn(w.vm, 'scrollToSceneAssetPanel')`（组件方法 spy，保留原实现），只统计 sceneAssetPanel 自身的滚动，不受 StageProgress 影响。
+- **回归保护**：CreateView 282 测试全绿（含 3 个修复用例）；CI 的 QG Unit/Shards/Coverage/electron-tests 恢复通过。
+
 # [未发布] feat(prompt-evolution): 提示词引擎自进化记忆库 + 治理层（P1b-memory）（2026-09-13）
 
 ### 新增
