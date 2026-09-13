@@ -371,6 +371,45 @@ function extractContext(container) {
     }
   }
 
+  // ─── 提示词引擎自进化记忆库 + 治理（P1b，feature flag 控制，默认关闭）───
+  // 设计参考 openspec/changes/prompt-engine-evolution-p1b-memory
+  // 记忆库是检索（fingerprint.findSimilarTemplates）的上游数据源；治理层提供门禁/状态机/回滚/配额。
+  let promptMemory = null
+  let governance = null
+  if (evolutionEnabled) {
+    const { createPromptMemory } = require('../services/prompt-evolution/prompt-memory')
+    const { createGovernance } = require('../services/prompt-evolution/governance')
+    const evolutionLibraryRoot = electronAppForPromptEval && typeof electronAppForPromptEval.getPath === 'function'
+      ? require('path').join(electronAppForPromptEval.getPath('userData'), 'prompt-library')
+      : require('path').join(require('os').tmpdir(), 'multi-publish-prompt-library')
+    promptMemory = createPromptMemory({
+      libraryRoot: evolutionLibraryRoot,
+      config: {},
+      statsProvider: (_templateId) => {
+        // V0：按 templateVersion 聚合的生产数据源依赖 P1 recordGeneration 接线 + P1a score-log；
+        // 当前以 signalCollector 的 engine 级统计近似（无 score-log 时返回 null，回滚判定不触发）。
+        try {
+          if (signalCollector && typeof signalCollector.getStats === 'function') {
+            return signalCollector.getStats({ engine: 'image' })[0] || null
+          }
+        } catch (_e) { /* 数据源不可用，回滚判定不触发 */ }
+        return null
+      },
+      log,
+    })
+    try {
+      promptMemory.load()
+    } catch (e) {
+      log.warn('PromptMemory', '记忆库加载失败: ' + (e && e.message))
+    }
+    governance = createGovernance({
+      config: {},
+      memory: promptMemory,
+      statsProvider: (_templateId) => null,
+      log,
+    })
+  }
+
   // ─── 平台配置 + 敏感词 + 横切服务 ───
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
   const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
@@ -426,6 +465,8 @@ function extractContext(container) {
       story2videoProjectService,
       promptEvalService,
       signalCollector,
+      promptMemory,
+      governance,
     },
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,

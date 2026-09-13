@@ -158,9 +158,12 @@ function createSystemApi(ipcRenderer) {
     analyticsPlatform: (platform) => ipcRenderer.invoke('analytics:platform', { platform }),
     analyticsPlatforms: () => ipcRenderer.invoke('analytics:platforms'),
 
-    // Prompt engine evolution API (P0 反馈管道)
+    // Prompt engine evolution API (P0 反馈管道 + P1b 记忆库)
     generationFeedback: (payload) => ipcRenderer.invoke('generation:feedback', payload),
     promptLibraryList: () => ipcRenderer.invoke('prompt-library:list'),
+    promptLibraryGet: (id, version) => ipcRenderer.invoke('prompt-library:get', { id, version }),
+    promptLibrarySave: (payload) => ipcRenderer.invoke('prompt-library:save', payload),
+    promptLibraryActivate: (id, confirmedBy) => ipcRenderer.invoke('prompt-library:activate', { id, confirmedBy }),
 
     // Hotkeys API
     hotkeysList: () => ipcRenderer.invoke('hotkeys:list'),

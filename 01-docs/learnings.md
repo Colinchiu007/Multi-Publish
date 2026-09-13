@@ -1,3 +1,16 @@
+## 提示词引擎自进化记忆库 + 治理层实现复盘（codex/prompt-engine-evolution-p1b-memory，2026-09-13）
+
+- **背景**：P0 反馈管道（signal-collector）+ P1b 主题指纹（fingerprint.js）已合入 main，但 learnt 模板无落库/门禁/治理通道。本次实现 PromptMemory 记忆库 V0 + Governance 治理层，完成「采集 → 评估 → 记忆 → 优化 → 治理」闭环中「高价值片段沉淀为可复用资产」的关键一环。
+- **实现**：
+  - prompt-memory.js：prompt-library/library.json 索引 + templates/<id>@<version>.json 版本化模板文件；learnt fragment 仅四类可控参数（compositionType/action/object/creativeLevel）；版本化优先级（checksum 碰撞拒绝/同源升版/新 id）；dictVersion 变更以 sourceText 重算；fingerprint 缺失 fail-close；写盘原子性 + 损坏库重建
+  - governance.js：门禁 6 规则（structure/compliance/length/noSecrets/dedup/evaluatorVersion）；状态机 draft→active→deprecated→disabled；滑窗回滚 + 冷却防抖；成本配额
+  - IPC：prompt-library:list（保持 P0 envelope）+ get/save/activate；EC.TEMPLATE_* 常量（-20..-23）；preload 暴露；MP_EVOLUTION_ENABLED === '1' 接线
+- **教训 1（版本化优先级需先定死）**：实现前必须先明确 checksum 碰撞/同源升版/新 id 的判定顺序，否则测试与实现会冲突（相同 content 但不同 concept 的模板被误判为碰撞拒绝）。
+- **教训 2（TYPES 枚举需含 fragment）**：模板 type 字段同时承载「级别」（full/fragment）和「类型」（composition/style/...），TYPES 数组必须包含 'fragment'，否则合法 fragment 模板被误判为非法。
+- **教训 3（dedup 需检查全部已入库模板）**：dedup 规则不能只检查 active 模板，draft 模板也应参与去重（否则重复入库），disabled 除外（终态可重新入库）。
+- **预防**：新增 prompt-memory.test.js（23 测试）+ governance.test.js（17 测试）+ generation-feedback.test.js（20 测试）+ prompt-memory.integration.test.js（5 测试），覆盖版本优先级、四类参数白名单、状态机边表、滑窗回滚、配额降级。
+
+---
 ## 多平台发布 E2E 真实环境测试复盘（codex/multi-platform-e2e-publish，2026-09-07）
 
 - **背景**：在真实 Electron 桌面应用中，对国内 4 个已登录自媒体平台（微信公众号/头条/抖音/视频号）进行了完整 E2E 发布测试，发现账号凭证检测、RPA 选择器引擎、Cookie 过期检测三方面问题。
