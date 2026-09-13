@@ -311,14 +311,32 @@ class UrlCollector {
   }
 
   /**
-   * 判断是否需要浏览器渲染（反爬站点）
+   * 判断是否需要浏览器渲染（反爬站点）。
+   * 域名清单单一来源：ANTI_CRAWL_HOSTNAMES（渲染层路由与主进程采集共用，
+   * 避免「前端一份清单、主进程一份清单」漂移导致某站点仍走裸连触发风控）。
    */
   _needsBrowser (hostname) {
-    return hostname === 'zhuanlan.zhihu.com' ||
-      hostname === 'www.zhihu.com' ||
-      hostname === 'zhihu.com' ||
-      hostname === 'baijiahao.baidu.com'
+    return UrlCollector.isAntiCrawlHost(hostname)
   }
+
+  /**
+   * 反爬站点 hostname 判定（静态：preload/渲染层路由与实例采集共用）。
+   * 这些站点直接 HTTP 裸连会触发反爬（知乎返回 403/异常页，百家号返回安全验证页），
+   * 必须走 stealth 浏览器通道。
+   * @param {string} hostname
+   * @returns {boolean}
+   */
+  static isAntiCrawlHost (hostname) {
+    return UrlCollector.ANTI_CRAWL_HOSTNAMES.has(hostname)
+  }
+
+  /** 反爬站点清单（与 _parseHtml 的平台分派保持同步维护） */
+  static ANTI_CRAWL_HOSTNAMES = new Set([
+    'zhuanlan.zhihu.com',
+    'www.zhihu.com',
+    'zhihu.com',
+    'baijiahao.baidu.com',
+  ])
 
   /** 从 hostname 映射平台标识（策略配置键） */
   _platformFromHostname (hostname) {
@@ -365,6 +383,22 @@ class UrlCollector {
    */
   registerIpcHandlers (injectedIpcMain) {
     const ipcMain = injectedIpcMain || require("electron").ipcMain;
+    // 反爬站点路由查询（纯函数，无采集副作用）：渲染层据此决定是否跳过
+    // Python 聚合层裸连、直接走本通道的 stealth 浏览器采集。
+    // 背景：知乎/百家号对裸 HTTP 请求有风控，先裸连失败再回退会白白多触发
+    // 一次反爬检测（提高封 IP 风险），必须在发起前就路由到 stealth 通道。
+    ipcMain.handle('url-collect:needs-stealth', async (event, arg) => {
+      if (!arg || typeof arg !== 'object' || typeof arg.url !== 'string') {
+        return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      }
+      try {
+        const hostname = new URL(arg.url).hostname.toLowerCase()
+        return { code: 0, data: { needsStealth: UrlCollector.isAntiCrawlHost(hostname) } }
+      } catch {
+        // 非法 URL 交由后续 collect 的完整校验处理，这里不拦截
+        return { code: 0, data: { needsStealth: false } }
+      }
+    });
     ipcMain.handle('url-collect:fetch', async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { url } = arg

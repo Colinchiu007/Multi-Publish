@@ -22,7 +22,27 @@
 ### 验证
 - rewrite-engine 包 94 测试 + 桌面端 171 测试全绿；locale 三项门禁（CJK/keys/pair）全过；QM-1 打包 exit=0 + asar 清单 + 启动 8s 三调度器确认
 - 双模型审查：PR-1 opencode 3 MAJOR + claude 2C/5M 全修复；PR-2 claude 2C/8W 全修复（opencode 三次因 wrapper stdin 传参失败未出报告，API 可用性问题非审查缺席）
-=======
+## [未发布] fix(hot-topics): 视频流水线弹窗统一【后台运行】按钮 + 全局居中提示（2026-09-13）
+
+### 修复（QM-5 五步）
+- **根因**：PR #1726 新增热门选题一键生成视频时，进度弹窗 footer 只设计了重试/取消/关闭，未对齐视频创作页（CreateView）已有的显式【后台运行】按钮——后台能力仅隐式挂在右上角 ×（handleGenVideoClose），用户无显式入口。
+- **逃逸分析**：单测只覆盖 handleGenVideoClose 方法行为（close during running → background），无 footer 按钮渲染断言 → E2E 无弹窗 footer 视觉断言 → 审查修复聚焦取消/守卫逻辑，漏跨视图 UI 一致性。
+- **系统性漏洞**：测试场景缺失（按钮 presence）+ 审查盲区（无跨视图一致性清单）。
+- **修复**：① HotTopics.vue 弹窗 footer 新增【后台运行】按钮（genVideoCanBackground = running 且有 runId；点击复用唯一公共脱离路径 handleGenVideoClose + 触发全局居中提示）；② 新增全局居中提示组件 PipelineBackgroundToast.vue（App.vue 挂载，模块级单例 store，z-index 2100 居中，4s 自动消失，pointer-events none）；③ CreateView.vue 的 detachPipelineToBackground 成功后同样触发全局居中提示（所有视频流水线弹窗统一）；④ zh/en 成对新增 common.pipelineBackgroundToast + hotTopics.genVideoBackgroundRun。
+- **回归保护**：vitest +7（HotTopics 后台按钮渲染/点击脱离语义/改写与终态不显示；store 状态机 3 例；组件渲染 zh/en/隐藏/key 防泄漏 2 例）。
+- **预防**：PRD §3.10/§6.6/§10.6 补完整规格（按钮矩阵/交互逻辑/居中提示视觉与状态承载/审计结论）；spec 前端回馈「跨视图弹窗操作一致性」规则。
+
+### 验证
+- vitest HotTopics 18 + CreateView 277 + PipelineBackgroundToast 2 + store 3 = 300 全通过（rebase origin/main 后）
+- tsc --noEmit PASS；locale-sync --cjk/--keys/--pair-base 全 PASS；check-debt-budget PASS（CreateView 6458→6462 显式更新基线）
+
+## [未发布] fix(collection): 知乎/百家号反爬站点直连 stealth 通道——消除先裸连触发风控的封 IP 风险（2026-09-13）
+
+- **根因**：采集链路为「aggregationCollect（trafilatura 裸连）优先 → 失败回退 urlCollectFetch（stealth 浏览器）」。知乎/百家号对裸 HTTP 有反爬风控，每次点击一键采集/改写都先白挨一次反爬检测（封 IP 风险），失败后才走 stealth。
+- **修复**：新增 url-collect:needs-stealth 路由查询 IPC（纯函数）；ANTI_CRAWL_HOSTNAMES 域名清单单一来源；渲染层对反爬站点直接走 stealth 通道，跳过 Python 聚合层裸连，失败不回退裸连（避免二次触发风控）。
+- **回归测试**：13 个新增（主进程 7 + 前端 6），核心断言「反爬站点 aggregationCollect 必须未被调用」。
+- **知乎官方工具调研**：CLI/API/MCP 全部为搜索/摘要工具，无法读取第三方文章全文（唯一全文命令 me content 限本人创作），不能替代采集链路。
+
 ## [未发布] perf(hot-topics): 热门选题页 SWR 缓存优先渲染 + 中央动态加载提示（2026-09-12）
 
 ### 优化
@@ -36,6 +56,7 @@
 ### 验证
 - vitest HotTopics.test.js 19 passed（+3）；hot-topics-service 21 + assembly 3 + src/api 294 全通过
 - locale-sync --pair-base origin/main PASS（zh/en 成对）
+
 
 ## [未发布] fix(i18n): aggregation 域错误码全量收敛——7 类校验错误不再中文直出（2026-09-12）
 

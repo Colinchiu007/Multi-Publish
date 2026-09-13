@@ -602,6 +602,36 @@ function isSecurityChallenge (res) {
 
 // 聚合路径失败 — 无论任何错误码，都回退到 urlCollectFetch 降级
 
+// 反爬站点路由：知乎/百家号对裸 HTTP 请求有风控（trafilatura/axios 直连触发反爬检测），
+// 必须直接走 Node 端 stealth 浏览器通道，跳过 Python 聚合层裸连——
+// 先裸连失败再回退会白白多触发一次风控（提高封 IP 风险）。
+async function needsStealthRoute (api, url) {
+  if (!api || typeof api.urlCollectNeedsStealth !== 'function') return false
+  try {
+    const res = await api.urlCollectNeedsStealth(url)
+    return !!(res && res.code === 0 && res.data && res.data.needsStealth)
+  } catch {
+    // 查询失败不阻塞采集，按非反爬站点走默认聚合路径
+    return false
+  }
+}
+
+// stealth 通道采集结果 → 采集条目（与聚合路径的字段映射保持一致）
+function stealthResultToItem (result, sourceUrl) {
+  const data = (result && result.data) || {}
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    title: data.title || '',
+    content: data.content || '',
+    description: (data.description || data.content || '').slice(0, 120),
+    coverImage: data.coverImage || '',
+    publishTime: data.publishTime || '',
+    source: data.source || 'url',
+    sourceUrl,
+    wordCount: data.word_count || (data.content ? data.content.length : 0),
+  }
+}
+
 async function collectUrl () {
   const api = getApi()
   if (!linkUrl.value || !linkUrl.value.trim()) {
@@ -613,8 +643,9 @@ async function collectUrl () {
   rewriteResult.value = ''
   collectError.value = null
   try {
+    const trimmedUrl = linkUrl.value.trim()
     // 抖音/小红书链接 → 视频采集通道（下载 + ASR 转写）
-    if (isVideoPlatformUrl(linkUrl.value.trim())) {
+    if (isVideoPlatformUrl(trimmedUrl)) {
       if (api && api.aggregationCollectVideo) {
         startVideoStageProgression()
         let res
@@ -655,6 +686,22 @@ async function collectUrl () {
       // 视频通道不可用 → 不回退到图文采集（图文链路无法处理视频），直接提示
       collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
       notifyWarning('collection.collectUnavailable')
+      return
+    }
+    // 反爬站点（知乎/百家号）→ 直接走 Node stealth 浏览器通道，跳过 Python 聚合层裸连
+    if (api && api.urlCollectFetch && await needsStealthRoute(api, trimmedUrl)) {
+      const result = await api.urlCollectFetch(trimmedUrl)
+      if (result.code !== 0) {
+        collectError.value = { code: result.code, message: result.message || (result.data && result.data.error) || '' }
+        notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+        return
+      }
+      const item = stealthResultToItem(result, linkUrl.value)
+      collectedResult.value = item
+      addedToViral.value = false
+      collectedItems.value.unshift(item)
+      saveCollectedItems()
+      notifySuccess('collection.collectSuccess')
       return
     }
     // 优先走 Python aggregation API（content-aggregator v1 引擎）
@@ -748,8 +795,9 @@ async function collectAndRewrite () {
   rewriteResult.value = ''
   collectedResult.value = null
   try {
+    const trimmedUrl = linkUrl.value.trim()
     // 抖音/小红书链接 → 视频采集通道（与 collectUrl 一致），转写文案作为改写输入
-    if (isVideoPlatformUrl(linkUrl.value.trim())) {
+    if (isVideoPlatformUrl(trimmedUrl)) {
       if (!api.aggregationCollectVideo) {
         collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
         notifyWarning('collection.collectUnavailable')
@@ -811,6 +859,46 @@ async function collectAndRewrite () {
       }
       collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
       notifyError('collection.collectFailed', { message: collectError.value.message })
+      return
+    }
+    // 反爬站点（知乎/百家号）→ 直接走 Node stealth 浏览器通道采集，跳过 Python 聚合层裸连
+    if (api.urlCollectFetch && await needsStealthRoute(api, trimmedUrl)) {
+      const stealthResult = await api.urlCollectFetch(trimmedUrl)
+      if (stealthResult.code !== 0) {
+        collectError.value = { code: stealthResult.code, message: stealthResult.message || (stealthResult.data && stealthResult.data.error) || '' }
+        notifyError('collection.collectFailed', { message: formatUserError(stealthResult, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+        return
+      }
+      const stealthItem = stealthResultToItem(stealthResult, linkUrl.value)
+      collectedResult.value = stealthItem
+      addedToViral.value = false
+      collectedItems.value.unshift(stealthItem)
+      saveCollectedItems()
+      notifySuccess('collection.collectSuccess')
+      collecting.value = false
+      // Step 2: 自动改写
+      rewriting.value = true
+      try {
+        const rewrite = await api.aggregationRewrite({
+          content: stealthItem.content || stealthItem.description || '',
+          style: rewriteStyle.value,
+          min_word_count: Number(rewriteWordCountMin.value),
+          max_word_count: Number(rewriteWordCountMax.value),
+        })
+        if (rewrite && rewrite.result_content) {
+          rewriteResult.value = rewrite.result_content
+          notifySuccess('collection.rewriteSuccess')
+        } else {
+          const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+          rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
+          notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+        }
+      } catch (e) {
+        rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
+        notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+      } finally {
+        rewriting.value = false
+      }
       return
     }
     // Step 1: 采集

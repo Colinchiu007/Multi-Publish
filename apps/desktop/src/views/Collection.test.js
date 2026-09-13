@@ -273,6 +273,103 @@ describe("CollectionView", () => {
     expect(w.vm.collectedResult.title).toBe("真实文章标题");
   });
 
+  // 回归保护：知乎链接一键改写报 rate_limited（2026-09-13）。
+  // 根因：先走 Python 聚合层 trafilatura 裸连知乎触发反爬 → 失败回退 stealth。
+  // 每次点击都先白挨一次反爬检测（封 IP 风险）。修复：反爬站点直接走 stealth 通道。
+  describe("反爬站点直连 stealth 通道（回归：知乎先裸连触发风控）", () => {
+    const ZHIHU_ANSWER_URL = "https://www.zhihu.com/question/20255485/answer/2021183938203263464";
+
+    function mockStealthApi() {
+      return {
+        aggregationCollect: vi.fn(), // 必须未被调用（裸连会触发风控）
+        aggregationRewrite: vi.fn().mockResolvedValue({ result_content: "改写后的内容。" }),
+        urlCollectNeedsStealth: vi.fn().mockResolvedValue({
+          code: 0,
+          data: { needsStealth: true },
+        }),
+        urlCollectFetch: vi.fn().mockResolvedValue({
+          code: 0,
+          data: { title: "知乎回答标题", content: "知乎回答正文内容，长度超过二十个字。", coverImage: "" },
+        }),
+      };
+    }
+
+    it("collectUrl：知乎链接跳过 aggregationCollect，直接 urlCollectFetch", async () => {
+      window.electronAPI = mockStealthApi();
+      const w = mountCollection();
+      await nextTick();
+      w.vm.linkUrl = ZHIHU_ANSWER_URL;
+      await w.vm.collectUrl();
+      // 核心：不得调用 Python 聚合层裸连（每次裸连都触发一次反爬检测）
+      expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+      expect(window.electronAPI.urlCollectNeedsStealth).toHaveBeenCalledWith(ZHIHU_ANSWER_URL);
+      expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith(ZHIHU_ANSWER_URL);
+      expect(w.vm.collectedResult.title).toBe("知乎回答标题");
+    });
+
+    it("collectAndRewrite：知乎链接采集走 stealth，改写正常触发", async () => {
+      window.electronAPI = mockStealthApi();
+      const w = mountCollection();
+      await nextTick();
+      w.vm.linkUrl = ZHIHU_ANSWER_URL;
+      await w.vm.collectAndRewrite();
+      expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+      expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith(ZHIHU_ANSWER_URL);
+      expect(w.vm.collectedResult.title).toBe("知乎回答标题");
+      expect(w.vm.rewriteResult).toBe("改写后的内容。");
+      expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringContaining("知乎回答正文内容") })
+      );
+    });
+
+    it("stealth 采集失败 → 显示错误，不回退裸连", async () => {
+      const api = mockStealthApi();
+      api.urlCollectFetch = vi.fn().mockResolvedValue({ code: -1, message: "采集失败: timeout" });
+      window.electronAPI = api;
+      const w = mountCollection();
+      await nextTick();
+      w.vm.linkUrl = ZHIHU_ANSWER_URL;
+      await w.vm.collectUrl();
+      // 失败也不回退到 Python 裸连（避免二次触发风控）
+      expect(api.aggregationCollect).not.toHaveBeenCalled();
+      expect(w.vm.collectError).toBeTruthy();
+    });
+
+    it("普通站点 → needsStealth false，走默认聚合路径", async () => {
+      const api = {
+        aggregationCollect: vi.fn().mockResolvedValue({
+          title: "聚合标题", content: "聚合正文内容，长度超过二十个字。", word_count: 15,
+        }),
+        urlCollectNeedsStealth: vi.fn().mockResolvedValue({ code: 0, data: { needsStealth: false } }),
+        urlCollectFetch: vi.fn(),
+      };
+      window.electronAPI = api;
+      const w = mountCollection();
+      await nextTick();
+      w.vm.linkUrl = "https://example.com/article";
+      await w.vm.collectUrl();
+      expect(api.aggregationCollect).toHaveBeenCalled();
+      expect(api.urlCollectFetch).not.toHaveBeenCalled();
+      expect(w.vm.collectedResult.title).toBe("聚合标题");
+    });
+
+    it("needsStealth 查询失败 → 降级走默认聚合路径（不阻塞采集）", async () => {
+      const api = {
+        aggregationCollect: vi.fn().mockResolvedValue({
+          title: "降级标题", content: "降级正文内容。", word_count: 7,
+        }),
+        urlCollectNeedsStealth: vi.fn().mockRejectedValue(new Error("ipc error")),
+        urlCollectFetch: vi.fn(),
+      };
+      window.electronAPI = api;
+      const w = mountCollection();
+      await nextTick();
+      w.vm.linkUrl = ZHIHU_ANSWER_URL;
+      await w.vm.collectUrl();
+      expect(api.aggregationCollect).toHaveBeenCalled();
+    });
+  });
+
   it("collectUrl catches exception", async () => {
     window.electronAPI = {
       urlCollectFetch: vi.fn().mockRejectedValue(new Error("network error"))

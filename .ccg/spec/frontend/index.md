@@ -127,7 +127,19 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 **强制点**：
 - 排序主键提取函数（如 `historyVideoDuration`）必须文档化字段候选顺序，排除重名字段（如 `activeMs`/`duration` 是流水线耗时，不是视频时长）。
 - 排序稳定的场景（从不同 tab 切换回来顺序不变）由纯函数保证，不依赖组件临时状态。
-- 重复检测等派生计算基于完整列表（不受当前 tab 筛选影响），避免切 tab 时标签闪烁。
+  - 重复检测等派生计算基于完整列表（不受当前 tab 筛选影响），避免切 tab 时标签闪烁。
+
+## 13. 反爬站点采集必须前置路由到 stealth 通道，禁止「裸连优先、失败回退」（2026-09-13，fix-zhihu-collect-route）
+
+**模式**：知乎/百家号等反爬站点的采集请求必须在发起前路由到 stealth 浏览器通道（urlCollectFetch），跳过 Python 聚合层的 trafilatura/axios 裸连。路由判断由主进程提供纯函数 IPC（url-collect:needs-stealth），域名清单单一来源（ANTI_CRAWL_HOSTNAMES，与 _needsBrowser 共用）。
+
+**反例（真实 Bug 根因）**：链路设计为「aggregationCollect 裸连优先 → 失败回退 urlCollectFetch」。知乎对裸 HTTP 有风控，每次点击都先触发一次反爬检测（封 IP 风险），失败后才走 stealth。用户输入知乎回答链接点一键改写报「请求过于频繁，被平台限流」。
+
+**强制点**：
+- 渲染层 collectUrl/collectAndRewrite 对反爬站点直接调 urlCollectFetch，断言 aggregationCollect 未被调用
+- stealth 采集失败不得回退裸连（避免二次触发风控）
+- 新增反爬域名必须同时更新 ANTI_CRAWL_HOSTNAMES，并有清单一致性测试锁定
+- 知乎官方 CLI/API/MCP 均为搜索/摘要工具（无第三方全文能力），不能替代 stealth 采集链路
 
 ## 10. 用户可见提示信息强制规则（i18n-user-facing-messages，2026-09-05）
 
@@ -180,3 +192,14 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 - 判定函数：`message-contract.js` 的 `looksLikeI18nKey(text)`（保守，仅识别点分路径 key 形态，不误伤自然语言）。
 
 **强制点**：任何新增用户可见文案必须走 `t('key.path')` 且 key 在 zh/en 成对存在；禁止把 i18n key 字符串直接传给 `ElMessage` / `ElMessageBox` / `options.message`。
+
+## 13. 跨视图弹窗操作一致性：同类流水线弹窗的操作按钮必须对齐（2026-09-13，pipeline-background-run）
+
+**模式**：同一业务形态的进度/操作弹窗（如视频生成流水线进度弹窗）在多个视图出现时，footer 操作按钮集合（重试/取消/关闭/后台运行等）与语义必须对齐——新增视图复用弹窗 UI 时，逐项核对既有视图的全部操作入口，不能只复用 StageProgress 而漏掉操作按钮。
+
+**反例（真实 Bug 根因）**：热门选题一键生成视频复用了 CreateView 的 UiModal + StageProgress 进度 UI，但 footer 只实现了重试/取消/关闭；CreateView 已有的显式【后台运行】按钮被遗漏，后台能力只剩右上角 × 的隐式路径，用户找不到入口。
+
+**强制点**：
+- 新增"复用某视图弹窗 UI"的任务，审查清单必须包含「与源视图的 footer 按钮逐项 diff」；
+- 测试必须断言按钮 presence（渲染层），不能只测方法行为（handleClose 等）——方法测试无法发现按钮缺失；
+- 全局性提示（如后台运行居中提示）用模块级单例 store + App.vue 挂载的全局组件承载，脱离触发视图存活；文案走 i18n 且 key 未命中回退空串，不硬编码中文兜底（CJK 基线门禁会拦截）。
