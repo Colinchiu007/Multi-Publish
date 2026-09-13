@@ -754,7 +754,7 @@ function startGenVideoTracking() {
 
 function stopGenVideoTracking() {
   if (genVideoPollTimer) { clearInterval(genVideoPollTimer); genVideoPollTimer = null }
-  if (genVideoUnsubscribe) { try { genVideoUnsubscribe() } catch (_) {} genVideoUnsubscribe = null }
+  if (genVideoUnsubscribe) { try { genVideoUnsubscribe() } catch (_) { /* 取消订阅失败无害，静默忽略 */ } genVideoUnsubscribe = null }
   if (genVideoTickTimer) { clearInterval(genVideoTickTimer); genVideoTickTimer = null }
 }
 

@@ -22,6 +22,10 @@
 ### 验证
 - rewrite-engine 包 94 测试 + 桌面端 171 测试全绿；locale 三项门禁（CJK/keys/pair）全过；QM-1 打包 exit=0 + asar 清单 + 启动 8s 三调度器确认
 - 双模型审查：PR-1 opencode 3 MAJOR + claude 2C/5M 全修复；PR-2 claude 2C/8W 全修复（opencode 三次因 wrapper stdin 传参失败未出报告，API 可用性问题非审查缺席）
+## [未发布] fix(hot-topics): 修复 catch (_) {} 空块 eslint no-empty 错误（2026-09-13）
+
+- PR #1726 预存的 `catch (_) {}` 空块（stopGenVideoTracking 的 genVideoUnsubscribe 取消订阅）被 eslint no-empty 规则拦截；补语义注释消除 error，无行为改动。
+
 ## [未发布] feat(hot-topics): 热门选题扩源（微博热搜官方 JSON + 百度 JSON API + B站分区分类）+ 分类原生优先 + 序号视图内重编号（2026-09-13）
 
 ### 新增
