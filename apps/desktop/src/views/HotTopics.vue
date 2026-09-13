@@ -14,6 +14,26 @@
     </div>
 
     <div class="cohere-content">
+      <!-- 标签页切换 -->
+      <div class="tab-bar" role="tablist">
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'hot'"
+          class="tab-btn"
+          :class="{ active: activeTab === 'hot' }"
+          @click="activeTab = 'hot'"
+        >{{ t('hotTopics.tabHot') }}</button>
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'favorites'"
+          class="tab-btn"
+          :class="{ active: activeTab === 'favorites' }"
+          @click="activeTab = 'favorites'"
+        >{{ t('hotTopics.tabFavorites') }}<span v-if="favorites.length > 0" class="fav-count">{{ favorites.length }}</span></button>
+      </div>
+
+      <!-- 热门选题：仅 hot tab 下显示 -->
+      <div v-if="activeTab === 'hot'">
       <!-- 部分渠道失败警告 -->
       <el-alert
         v-if="failedChannels.length > 0"
@@ -116,10 +136,16 @@
             @change="toggleSelect(topic.id)"
           />
           <span class="rank-badge" :title="t('hotTopics.sourceRank', { rank: topic.rank })">{{ viewIndex + 1 }}</span>
-          <span class="topic-text" :title="topic.topic">{{ displayTopic(topic.topic) }}</span>
+          <span class="topic-text" :title="getTopicSummary(topic)">{{ displayTopic(topic.topic) }}</span>
           <span class="tag category-tag" :class="'cat-' + topic.category">{{ t('hotTopics.categories.' + topic.category) }}</span>
           <span class="tag channel-tag">{{ t('hotTopics.channels.' + topic.channel) }}</span>
           <span v-if="topic.hotValue" class="hot-value">{{ formatHotValue(topic.hotValue) }}</span>
+          <span class="update-time">{{ formatTime(topic.fetchedAt || lastRefresh) }}</span>
+          <button
+            class="cohere-btn-secondary item-fav-btn"
+            :data-testid="'hot-topic-fav-' + topic.id"
+            @click="toggleFavorite(topic)"
+          >{{ isFavorited(topic.id) ? '♥' : '♡' }}</button>
           <button class="cohere-btn-secondary item-create-btn" @click="createCopySingle(topic)">
             {{ t('hotTopics.createCopy') }}
           </button>
@@ -133,6 +159,17 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 收藏选题 tab（独立组件减少 HotTopics.vue 行数） -->
+    <HotTopicsFavorites
+      :activeTab="activeTab"
+      :favorites="favorites"
+      :getTopicSummary="getTopicSummary"
+      :displayTopic="displayTopic"
+      :formatFavoritedAt="formatFavoritedAt"
+      @remove-favorite="removeFavorite"
+    />
     </div>
 
     <!-- 中央加载提示：首次进入无缓存 / 手动刷新时显示（非弹窗，全屏居中动态提示） -->
@@ -218,6 +255,8 @@ import { buildStory2VideoTextConfigFromSnapshot } from '@/story2video/s2v-config
 import { STORY2VIDEO_STAGE_NAMES } from '@/domain/pipeline-constants'
 import { getAppLocale } from '@/i18n'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
+import HotTopicsFavorites from '@/components/HotTopicsFavorites.vue'
+import { useHotTopicsFavorites } from '@/composables/useHotTopicsFavorites'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -232,6 +271,13 @@ const lastRefresh = ref(0)
 const activeCategory = ref('all')
 const activeChannel = ref('all')
 const selectedIds = ref(new Set())
+
+// 标签页与收藏（逻辑抽到 composable）
+const {
+  activeTab, favorites,
+  isFavorited, toggleFavorite, loadFavorites, removeFavorite,
+  formatHotValue, getTopicSummary, formatFavoritedAt,
+} = useHotTopicsFavorites()
 
 // 发布流程
 const showPublishModal = ref(false)
@@ -387,6 +433,7 @@ function countCompletedGenStages() {
 
 // ── 方法 ──
 function formatTime(ts) {
+  if (!ts) return ''
   const d = new Date(ts)
   const pad = n => String(n).padStart(2, '0')
   return pad(d.getHours()) + ':' + pad(d.getMinutes())
@@ -394,11 +441,6 @@ function formatTime(ts) {
 
 function displayTopic(topic) {
   return topic.length > 60 ? topic.slice(0, 60) + '…' : topic
-}
-
-function formatHotValue(v) {
-  if (v >= 10000) return (v / 10000).toFixed(1) + t('hotTopics.tenThousand')
-  return String(v)
 }
 
 function toggleSelect(id) {
@@ -919,6 +961,7 @@ function closeGenVideoModal() {
 // ── 生命周期 ──
 onMounted(() => {
   loadFromCacheThenRefresh()
+  loadFavorites()
   refreshTimer = setInterval(() => {
     if (document.hidden) return
     if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false, { background: true })
@@ -937,51 +980,4 @@ onUnmounted(() => {
 })
 </script>
 
-<style scoped>
-.hot-topics-page { padding: 20px; }
-.header-actions { display: flex; align-items: center; gap: 12px; }
-.last-refresh { font-size: 12px; color: #999; }
-.filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-.category-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.category-chip { padding: 4px 12px; border: 1px solid #ddd; border-radius: 14px; background: #fff; font-size: 12px; cursor: pointer; color: #666; }
-.category-chip.active { border-color: #5149e8; color: #5149e8; background: #f0efff; font-weight: 600; }
-.batch-bar { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
-.select-all-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #666; cursor: pointer; }
-.selected-count { font-size: 13px; color: #5149e8; }
-.batch-actions { margin-left: auto; display: flex; gap: 8px; }
-.topics-list { display: flex; flex-direction: column; gap: 6px; }
-.topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
-.topic-item.selected { border-color: #5149e8; background: #f7f6ff; }
-.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: 12px; font-weight: 700; }
-.topic-text { flex: 1; font-size: 14px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tag { padding: 2px 8px; border-radius: 4px; font-size: 11px; flex-shrink: 0; }
-.category-tag { background: #f5f5f5; color: #666; }
-.cat-general { background: #f5f5f5; color: #666; }
-.cat-society { background: #e8f4ff; color: #1976d2; }
-.cat-finance { background: #fff4e5; color: #f57c00; }
-.cat-tech { background: #f3e8ff; color: #7b1fa2; }
-.cat-entertainment { background: #ffe4f1; color: #c2185b; }
-.cat-sports { background: #e8f7e8; color: #388e3c; }
-.cat-emotion { background: #ffe8e8; color: #d32f2f; }
-.cat-education { background: #e0f7fa; color: #0097a7; }
-.cat-health { background: #e0f2f1; color: #00796b; }
-.cat-international { background: #e3f2fd; color: #1565c0; }
-.channel-tag { background: #f0f2f5; color: #888; }
-.hot-value { font-size: 12px; color: #ff5722; flex-shrink: 0; }
-.item-create-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
-.item-gen-video-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
-.gen-video-modal-content { min-height: 200px; }
-.gen-video-error-text { margin-right: auto; font-size: 13px; color: #d32f2f; align-self: center; }
-.empty-box { text-align: center; padding: 60px 20px; }
-.empty-title { font-size: 16px; font-weight: 600; color: #555; margin-bottom: 8px; }
-.empty-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
-.publish-progress { padding: 12px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
-.progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #5149e8; }
-.progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.progress-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 8px; border-radius: 4px; }
-.progress-item.failed { background: #fff3f3; color: #d32f2f; }
-.progress-item.success { background: #f3faf3; }
-.pi-topic { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.retry-btn { border: 1px solid #d32f2f; background: transparent; color: #d32f2f; border-radius: 4px; font-size: 11px; padding: 1px 8px; cursor: pointer; }
-.publish-done { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #388e3c; }
-</style>
+<style scoped src="./HotTopics.css"></style>

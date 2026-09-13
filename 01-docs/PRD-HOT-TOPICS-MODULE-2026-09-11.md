@@ -518,3 +518,35 @@ onUnmounted → clearInterval
 - 接入点 2：CreateView.vue 的 detachPipelineToBackground() 成功分支（视频创作页进度弹窗【后台运行】按钮，含右上角 × 关闭=后台脱离路径）；
 - 全仓库审计结论：视频生成流水线进度弹窗仅此两处（VideoCloneView/FilmEngineeringView/RewriteView/ViralAnalysis/Intelligence/Collection 的进度均为页面内嵌或本地假进度，非弹窗，不适用本需求）。
 
+### 10.7 收藏与标签页增强（2026-09-13 新增）
+
+#### 10.7.1 标签页切换
+
+- 热门选题页顶部新增双标签页（tab-bar）："热门选题"（hot）与"收藏选题"（favorites），`activeTab` 切换视图。
+- 收藏标签右侧角标显示收藏数量。
+
+#### 10.7.2 收藏功能
+
+- 每条热门选题行新增 ♡ 收藏按钮，点击收藏/取消收藏。
+- 持久化方案：本地 SQLite settings 表，key `hot_topics_favorites`，owner-scoped（复用 `getUserSetting/setUserSetting`，与草稿箱同模式）。
+- IPC 新增 3 通道：
+  - `hot-topics:favorite-add` — 收藏选题（保存完整 topic 快照 + 收藏时间戳）
+  - `hot-topics:favorite-remove` — 取消收藏（按 topicId）
+  - `hot-topics:favorite-list` — 读取收藏列表
+
+#### 10.7.3 收藏列表
+
+- "收藏选题"tab 展示已收藏选题：分类标签、渠道标签、收藏时间（M/D HH:mm）、取消收藏按钮。
+- 空态展示引导文案"在热门选题中点击 ♡ 即可收藏感兴趣的选题"。
+- 收藏逻辑抽到独立 composable `useHotTopicsFavorites.js`，模板抽到 `HotTopicsFavorites.vue`。
+
+#### 10.7.4 信息增强
+
+- **更新时间**：每条热门选题行新增更新时间（`fetchedAt` 字段，格式 HH:mm），紧跟热度值之后。
+- **摘要悬浮**：`title` 属性由纯选题文本替换为结构化摘要（渠道名称 + 排名 + 分类 + 热度值），如"【知乎第3名】分类：科技，热度：952万"，由 `getTopicSummary()` 动态生成。
+
+#### 10.7.5 i18n
+
+- 新增 10 个 i18n key（zh/en 成对）：`tabHot`、`tabFavorites`、`favorite`、`unfavorite`、`favoritesEmptyTitle`、`favoritesEmptyDesc`、`updateTime`、`favoritedAt`、`topicSummary`。
+- 涉及文件：`apps/desktop/src/locales/zh.js`、`en.js`。
+

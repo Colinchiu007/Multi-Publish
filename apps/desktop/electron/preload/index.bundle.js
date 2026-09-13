@@ -953,7 +953,11 @@ var require_hot_topics = __commonJS({
     function createHotTopicsApi2(ipcRenderer2) {
       return {
         hotTopicsFetch: (payload) => ipcRenderer2.invoke("hot-topics:fetch", payload),
-        hotTopicsGetCache: () => ipcRenderer2.invoke("hot-topics:get-cache")
+        hotTopicsGetCache: () => ipcRenderer2.invoke("hot-topics:get-cache"),
+        // 收藏
+        hotTopicsFavoriteAdd: (topic) => ipcRenderer2.invoke("hot-topics:favorite-add", { topic }),
+        hotTopicsFavoriteRemove: (topicId) => ipcRenderer2.invoke("hot-topics:favorite-remove", { topicId }),
+        hotTopicsFavoriteList: () => ipcRenderer2.invoke("hot-topics:favorite-list")
       };
     }
     module2.exports = { createHotTopicsApi: createHotTopicsApi2 };

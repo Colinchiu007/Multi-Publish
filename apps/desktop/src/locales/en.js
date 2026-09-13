@@ -2672,6 +2672,16 @@ knowledgeBase: {
     genVideoCancel: 'Cancel',
     genVideoClose: 'Close',
     genVideoDone: 'Video generated, opening result…',
+    // Favorites & tabs
+    tabHot: 'Hot Topics',
+    tabFavorites: 'Favorites',
+    favorite: 'Favorite',
+    unfavorite: 'Unfavorite',
+    favoritesEmptyTitle: 'No favorites yet',
+    favoritesEmptyDesc: 'Click ♡ on any topic to save it here',
+    updateTime: 'Updated',
+    favoritedAt: (ctx) => 'Favorited at ' + ctx.named('time'),
+    topicSummary: (ctx) => '[' + ctx.named('channel') + ' #' + ctx.named('rank') + '] Category: ' + ctx.named('category') + ', Heat: ' + ctx.named('hotValue'),
   },
 
 }
