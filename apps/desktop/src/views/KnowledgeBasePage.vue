@@ -3,7 +3,7 @@
     <div class="cohere-page-header">
       <div>
         <div class="page-title">{{ t('knowledgeBase.title') }}</div>
-        <div class="page-subtitle">{{ activeTab === 'viral' ? t('knowledgeBase.viralSubtitle') : t('knowledgeBase.personalSubtitle') }}</div>
+        <div class="page-subtitle">{{ subtitleText }}</div>
       </div>
       <div class="page-actions" style="display:flex;gap:8px">
         <button v-if="activeTab === 'viral'" class="cohere-btn-primary" @click="showViralForm = true">＋ {{ t('knowledgeBase.addViral') }}</button>
@@ -16,10 +16,12 @@
     <div class="cohere-content">
       <div class="kb-tabs" style="display:flex;gap:4px;margin-bottom:16px;background:var(--soft-stone,#f5f5f5);border-radius:8px;padding:3px">
         <button class="kb-tab-btn" :class="{ active: activeTab === 'viral' }" @click="activeTab = 'viral'">{{ t('knowledgeBase.tabViral') }}</button>
+        <button v-if="activeTab === 'viral' || activeTab === 'pattern'" class="kb-tab-btn" :class="{ active: activeTab === 'pattern' }" @click="activeTab = 'pattern'">{{ t('knowledgeBase.tabPattern') }}</button>
         <button class="kb-tab-btn" :class="{ active: activeTab === 'personal' }" @click="activeTab = 'personal'">{{ t('knowledgeBase.tabPersonal') }}</button>
       </div>
 
       <ViralLibraryTable v-if="activeTab === 'viral'" ref="viralRef" />
+      <PatternAnalysisPanel v-if="activeTab === 'pattern'" ref="patternRef" />
       <PersonalKnowledgePanel v-if="activeTab === 'personal'" ref="personalRef" />
 
       <ViralFormDialog v-if="showViralForm" :item="editingViral" @close="showViralForm = false; editingViral = null" @saved="onViralSaved" />
@@ -31,13 +33,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import { importFiles, exportViralToFeishu, exportPersonalToFeishu } from '@/api/knowledge-library'
 import { getApi } from '@/api/electron-bridge'
 import ViralLibraryTable from '@/components/ViralLibraryTable.vue'
+import PatternAnalysisPanel from '@/components/PatternAnalysisPanel.vue'
 import PersonalKnowledgePanel from '@/components/PersonalKnowledgePanel.vue'
 import ViralFormDialog from '@/components/ViralFormDialog.vue'
 import PersonalFormDialog from '@/components/PersonalFormDialog.vue'
@@ -49,6 +52,12 @@ const showPersonalForm = ref(false)
 const editingViral = ref(null)
 const editingPersonal = ref(null)
 const viralRef = ref(null)
+const patternRef = ref(null)
+const subtitleText = computed(() => {
+  if (activeTab.value === 'viral') return t('knowledgeBase.viralSubtitle')
+  if (activeTab.value === 'pattern') return t('knowledgeBase.patternSubtitle')
+  return t('knowledgeBase.personalSubtitle')
+})
 const personalRef = ref(null)
 const fileInput = ref(null)
 

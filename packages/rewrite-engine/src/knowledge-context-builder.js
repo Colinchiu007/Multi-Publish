@@ -3,18 +3,29 @@
  *
  * 组合用户偏好知识库（v2 Ebbinghaus + RRF）+ 爆款库 + 个人知识库，
  * 生成结构化的 {knowledgeContext} 注入改写 Prompt。
+ *
+ * P0 检索修复（2026-09-12）：buildFullContext 变更为 async。查询文本先经
+ * keyword-extractor 规则提取关键词；产出为 0 个时触发 llmKeywords 兜底（阈值 >= 1 跳过 LLM）。
+ * 检索接口（viralLibrary.search / personalKnowledgeBase.search）契约：
+ * 接受关键词拼接字符串，返回条目数组（store 层内部再做关键词化检索）。
  */
+const { extractSync } = require('./keyword-extractor')
+
 class KnowledgeContextBuilder {
   /**
    * @param {object} opts
    * @param {object} opts.knowledgeBase - 原有用户偏好知识库（提供 getContextSummary()）
    * @param {object} [opts.viralLibrary] - 爆款库（提供 search(query, limit): Array）
    * @param {object} [opts.personalKnowledgeBase] - 个人知识库（提供 search(query, limit): Array）
+   * @param {function} [opts.llmKeywords] - async (text, topN) => string[] LLM 关键词兜底
+   * @param {object} [opts.patternCards] - 模式卡片（提供 get(viralItemId): card|null）
    */
   constructor(opts = {}) {
     this._kb = opts.knowledgeBase || null
     this._viral = opts.viralLibrary || null
     this._personal = opts.personalKnowledgeBase || null
+    this._llmKeywords = opts.llmKeywords || null
+    this._patternCards = opts.patternCards || null
     // P2 反馈闭环：记录本次 buildFullContext 检索命中的知识条目（table + id），
     // 供改写引擎在用户采纳/拒绝时驱动 feedbackBoost 置信度更新。
     this._touchedItems = []
@@ -26,9 +37,9 @@ class KnowledgeContextBuilder {
    * @param {object} [options]
    * @param {boolean} [options.useViralLibrary] - 是否结合爆款库
    * @param {boolean} [options.usePersonalKnowledge] - 是否结合个人经历
-   * @returns {string} 合并后的 knowledgeContext
+   * @returns {Promise<string>} 合并后的 knowledgeContext
    */
-  buildFullContext(userContent, options = {}) {
+  async buildFullContext(userContent, options = {}) {
     const parts = []
     // 每次构建前清空 touched 记录，避免跨调用累积
     this._touchedItems = []
@@ -36,19 +47,45 @@ class KnowledgeContextBuilder {
     // 第1层：原有用户偏好（始终注入）
     if (this._kb) parts.push(this._kb.getContextSummary())
 
+    // 关键词只解析一次，两层共享（审查 W-50：避免双重 extractSync/LLM 兜底）
+    let resolvedKeywords = null
+    const resolveKeywordsOnce = async () => {
+      if (resolvedKeywords === null) resolvedKeywords = await this._resolveKeywords(userContent)
+      return resolvedKeywords
+    }
+
     // 第2层：爆款风格参考
     if (options.useViralLibrary && this._viral) {
-      const vc = this.buildViralContext(userContent)
+      // 关键词提取在开关守卫之后：未勾选任何知识库时零 LLM 调用、零分词开销
+      const vc = this.buildViralContext(await resolveKeywordsOnce())
       if (vc) parts.push(vc)
     }
 
     // 第3层：个人素材参考
     if (options.usePersonalKnowledge && this._personal) {
-      const pc = this.buildPersonalContext(userContent)
+      const pc = this.buildPersonalContext(await resolveKeywordsOnce())
       if (pc) parts.push(pc)
     }
 
     return parts.filter(Boolean).join('\n\n')
+  }
+
+  /**
+   * 关键词解析：规则提取 >= 1 个直接用；否则 LLM 兜底（可选注入）；
+   * LLM 失败/未注入返回规则结果（可能为空数组，此时检索自然为空）。
+   * @param {string} userContent
+   * @returns {Promise<string[]>}
+   */
+  async _resolveKeywords(userContent) {
+    const ruleKeywords = extractSync(userContent, 8)
+    if (ruleKeywords.length >= 1) return ruleKeywords
+    if (this._llmKeywords && typeof this._llmKeywords === 'function') {
+      try {
+        const llmKw = await this._llmKeywords(userContent, 8)
+        if (Array.isArray(llmKw) && llmKw.length > 0) return llmKw
+      } catch { /* LLM 兜底失败静默降级为规则结果 */ }
+    }
+    return ruleKeywords
   }
 
   /**
@@ -71,13 +108,123 @@ class KnowledgeContextBuilder {
   /**
    * 构建爆款风格分析 Prompt Block
    * 从 Top 3 爆款内容中提取：标题模式、开头钩子、高频标签
+   * @param {string[]} keywords - 检索关键词数组
    */
-  buildViralContext(userContent) {
+  buildViralContext(keywords) {
     if (!this._viral) return ''
-    const items = this._viral.search(userContent, 3)
+    // 关键词数组直传（store 层支持数组契约，避免 join 后被二次分词稀释——LLM 兜底场景关键）
+    const query = Array.isArray(keywords) ? keywords : (keywords ? [String(keywords)] : [])
+    const items = this._viral.search(query, 3)
     if (!items || !Array.isArray(items) || items.length === 0) return ''
     this._recordTouched('viral_library', items)
 
+    // P1 模式卡片：收集 done 状态卡片
+    const cards = []
+    if (this._patternCards && typeof this._patternCards.get === 'function') {
+      for (const item of items) {
+        if (!item || !item.id) continue
+        try {
+          const card = this._patternCards.get(item.id)
+          if (card && card.status === 'done') cards.push(card)
+        } catch { /* 卡片读取失败视为缺失 */ }
+      }
+    }
+
+    // 有卡片时输出聚合风格指导；无卡片（或全部缺失/failed）回退浅层特征
+    if (cards.length > 0) {
+      const patternBlock = this._buildPatternGuidance(cards, items.length)
+      // 卡片全字段为空时指导块无实际内容——回退浅层（审查 W-3）
+      if (!patternBlock) return this._buildShallowViral(items)
+      const shallowBlock = this._buildShallowViral(items)
+      return patternBlock + (shallowBlock ? '\n' + shallowBlock : '')
+    }
+    return this._buildShallowViral(items)
+  }
+
+  /**
+   * 聚合模式卡片为「本次风格指导」（Q10=B：聚合视图注入，非原始数据罗列）
+   * @param {Array} cards - done 状态的模式卡片
+   * @param {number} totalItems - 本次检索命中的爆款总数（用于「N 条中 M 条采用」表述）
+   */
+  _buildPatternGuidance(cards, totalItems) {
+    const HOOK_LABELS = {
+      suspense: '悬念式', conflict: '冲突式', counterintuitive: '反常识', question: '提问式',
+      story: '故事式', data: '数据式', empathy: '共情式', other: '其他',
+    }
+    const CURVE_LABELS = {
+      rise: '逐步升温', fall: '逐步下沉', rise_fall: '先扬后抑', fall_rise: '先抑后扬',
+      wave: '波浪起伏', flat: '平铺直叙',
+    }
+    const NARRATIVE_LABELS = {
+      total_subtotal: '总分总', problem_solution: '问题-方案', chronological: '时间线',
+      contrast: '对比', list: '清单', story_lesson: '故事+道理',
+    }
+    const CTA_LABELS = {
+      question: '提问式互动', challenge: '挑战式', resource: '资源引导', follow: '关注引导',
+      comment: '评论引导', none: '无 CTA',
+    }
+
+    function tally(field) {
+      const freq = {}
+      for (const c of cards) {
+        const v = c[field]
+        if (v) freq[v] = (freq[v] || 0) + 1
+      }
+      return Object.entries(freq).sort((a, b) => b[1] - a[1])
+    }
+    function topLabel(field, labels) {
+      const ranked = tally(field)
+      if (ranked.length === 0) return ''
+      const [value, count] = ranked[0]
+      const label = labels[value] || value
+      return label + '（' + count + '/' + totalItems + ' 条采用）'
+    }
+
+    // 预检：所有卡片的所有维度字段均为空 → 返回空串触发上层回退（审查 W-3）
+    const hasAnyField = cards.some(c =>
+      c.hook_type || c.emotion_curve || c.narrative_structure || c.cta_style
+      || (Array.isArray(c.golden_quotes) && c.golden_quotes.length > 0)
+    )
+    if (!hasAnyField) return ''
+
+    let block = '## 爆款风格指导（基于 ' + totalItems + ' 条同主题爆款模式分析）\n'
+    block += '请按以下被验证有效的表达模式进行改写（学习模式，不复制具体内容）：\n\n'
+
+    const hook = topLabel('hook_type', HOOK_LABELS)
+    if (hook) {
+      block += '- 开头钩子：优先「' + hook + '」'
+      const formulas = cards.map(c => c.title_formula).filter(f => f && /\{[^}]+\}/.test(f))
+      if (formulas.length > 0) block += '——标题公式参考「' + formulas[0] + '」'
+      const analyses = cards.map(c => c.hook_analysis).filter(a => a)
+      if (analyses.length > 0) block += '\n  钩子原理：' + analyses[0]
+      block += '\n'
+    }
+
+    const curve = topLabel('emotion_curve', CURVE_LABELS)
+    if (curve) block += '- 情绪曲线：建议「' + curve + '」\n'
+
+    const narrative = topLabel('narrative_structure', NARRATIVE_LABELS)
+    if (narrative) block += '- 叙事结构：建议「' + narrative + '」\n'
+
+    const cta = topLabel('cta_style', CTA_LABELS)
+    if (cta) block += '- CTA：建议「' + cta + '」\n'
+
+    const quotes = []
+    for (const c of cards) {
+      if (Array.isArray(c.golden_quotes)) quotes.push(...c.golden_quotes)
+    }
+    if (quotes.length > 0) {
+      block += '- 金句风格参考（学习句式，不复制）：' + quotes.slice(0, 3).map(q => '「' + q + '」').join(' ') + '\n'
+    }
+
+    return block
+  }
+
+  /**
+   * 浅层特征块（原 P0 行为：标题模式 + 开头钩子 + 标签）
+   */
+  _buildShallowViral(items) {
+    if (!items || items.length === 0) return ''
     const titlePatterns = []
     const hookPatterns = []
     const allTags = {}
@@ -151,10 +298,12 @@ class KnowledgeContextBuilder {
   /**
    * 构建个人素材 Prompt Block
    * 按类别作用类型分4组：约束型 / 素材型 / 立场型 / 权威型
+   * @param {string[]} keywords - 检索关键词数组
    */
-  buildPersonalContext(userContent) {
+  buildPersonalContext(keywords) {
     if (!this._personal) return ''
-    const items = this._personal.search(userContent, 5)
+    const query = Array.isArray(keywords) ? keywords : (keywords ? [String(keywords)] : [])
+    const items = this._personal.search(query, 5)
     if (!items || !Array.isArray(items) || items.length === 0) return ''
     this._recordTouched('personal_knowledge', items)
 

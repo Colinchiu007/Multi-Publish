@@ -30,6 +30,8 @@ const batchMethods = require('./batch-store')
 const rateLimitMethods = require('./rate-limit-store')
 const modelLogMethods = require('./model-log-store')
 const knowledgeLibraryMethods = require('./knowledge-library-store')
+const viralPatternMethods = require('./viral-pattern-store')
+const performanceLoopMethods = require('./performance-loop-store')
 
 class Store extends BaseStore {}
 
@@ -45,6 +47,8 @@ Object.assign(
   rateLimitMethods,
   modelLogMethods,
   knowledgeLibraryMethods,
+  viralPatternMethods,
+  performanceLoopMethods,
 )
 
 module.exports = Store

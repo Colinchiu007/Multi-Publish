@@ -81,13 +81,13 @@ describe('feedbackBoost', function () {
 
 
 describe('KnowledgeContextBuilder touched items (P2 feedback loop)', function () {
-  it('collects touched viral and personal item ids', function () {
+  it('collects touched viral and personal item ids', async function () {
     var { KnowledgeContextBuilder } = require('../src/knowledge-context-builder')
     var builder = new KnowledgeContextBuilder({
       viralLibrary: { search: function () { return [{ id: 'v1', content: 'viral content' }] } },
       personalKnowledgeBase: { search: function () { return [{ id: 'p1', content: 'personal content' }] } },
     })
-    builder.buildFullContext('query', { useViralLibrary: true, usePersonalKnowledge: true })
+    await builder.buildFullContext('query', { useViralLibrary: true, usePersonalKnowledge: true })
     var touched = builder.getTouchedItems()
     expect(touched).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: 'viral_library', id: 'v1' }),
@@ -95,10 +95,10 @@ describe('KnowledgeContextBuilder touched items (P2 feedback loop)', function ()
     ]))
   })
 
-  it('returns empty touched items when no knowledge used', function () {
+  it('returns empty touched items when no knowledge used', async function () {
     var { KnowledgeContextBuilder } = require('../src/knowledge-context-builder')
     var builder = new KnowledgeContextBuilder({})
-    builder.buildFullContext('query', {})
+    await builder.buildFullContext('query', {})
     expect(builder.getTouchedItems()).toEqual([])
   })
 })

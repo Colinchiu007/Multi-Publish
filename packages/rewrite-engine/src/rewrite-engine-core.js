@@ -81,8 +81,8 @@ class RewriteEngine {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
 
-    // 4. 构建 Prompt
-    const { systemPrompt, userPrompt } = this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions)
+    // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
+    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions)
 
     // 5. LLM 推理
     if (!this._llmClient) {
@@ -221,10 +221,10 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
+  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
     // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
     const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
-    const kbContext = this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
+    const kbContext = await this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
 
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
@@ -233,16 +233,20 @@ class RewriteEngine {
 
     const systemPrompt = [strategy.systemPrompt, modeInstructions, wordCountInstruction].filter(Boolean).join('\n\n')
 
-    // 替换用户提示模板中的变量
-    let userPrompt = strategy.userPromptTemplate
-      .replace(/\{content\}/g, content)
-      .replace(/\{industry\}/g, userSettings.industry || strategy.industry?.[0] || '通用')
-      .replace(/\{purpose\}/g, userSettings.purpose || strategy.purpose?.[0] || '通用')
-      .replace(/\{tone\}/g, userSettings.tone || strategy.tone?.[0] || '口语化')
-      .replace(/\{platform\}/g, userSettings.platform || strategy.platforms?.[0] || '通用')
-      .replace(/\{knowledgeContext\}/g, kbContext)
-      .replace(/\{mode\}/g, mode)
-      .replace(/\{targetLength\}/g, userSettings.targetLength || 'medium')
+    // 单遍正则替换（审查 W-51：顺序 .replace 会被 content 中的 {industry} 等字面量二次注入）
+    const vars = {
+      content,
+      industry: userSettings.industry || strategy.industry?.[0] || '通用',
+      purpose: userSettings.purpose || strategy.purpose?.[0] || '通用',
+      tone: userSettings.tone || strategy.tone?.[0] || '口语化',
+      platform: userSettings.platform || strategy.platforms?.[0] || '通用',
+      knowledgeContext: kbContext,
+      mode,
+      targetLength: userSettings.targetLength || 'medium',
+    }
+    const userPrompt = strategy.userPromptTemplate.replace(/\{(\w+)\}/g, (match, key) => (
+      Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match
+    ))
 
     return { systemPrompt, userPrompt }
   }
@@ -298,11 +302,11 @@ class RewriteEngine {
    * 构建三层知识库上下文（用户偏好 + 爆款库 + 个人知识库）
    * @param {string} content
    * @param {object|null} knowledgeOptions
-   * @returns {string}
+   * @returns {Promise<string>}
    */
-  _buildKnowledgeContext(content, knowledgeOptions) {
+  async _buildKnowledgeContext(content, knowledgeOptions) {
     if (this._knowledgeLibrary) {
-      const ctx = this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
+      const ctx = await this._knowledgeLibrary.buildFullContext(content, knowledgeOptions || {})
       // P2 反馈闭环：收集本次检索命中的知识条目引用，供用户采纳/拒绝时驱动 feedbackBoost
       if (typeof this._knowledgeLibrary.getTouchedItems === 'function') {
         this._lastKnowledgeRefs = this._knowledgeLibrary.getTouchedItems()

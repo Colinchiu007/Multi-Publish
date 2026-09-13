@@ -54,6 +54,10 @@
           {{ allFilteredSelected ? t('hotTopics.deselectAll') : t('hotTopics.selectAll') }}
         </label>
         <span class="selected-count">{{ selectedCountText }}</span>
+        <label class="hot-viral-toggle" data-testid="hot-use-viral">
+          <input type="checkbox" v-model="hotUseViral" class="coral-check" />
+          <span>{{ t('hotTopics.useViralLibrary') }}</span>
+        </label>
         <div class="batch-actions">
           <button class="cohere-btn-secondary" :disabled="selectedIds.size === 0" @click="createCopyBatch">
             {{ t('hotTopics.createCopy') }}
@@ -231,6 +235,8 @@ const selectedIds = ref(new Set())
 
 // 发布流程
 const showPublishModal = ref(false)
+// 创作场景默认开爆款库（Q18=A）：无原文风格约束，模式注入纯增益；可在 UI 关闭
+const hotUseViral = ref(true)
 const publishing = ref(false)
 const publishQueue = ref([])
 const publishMode = ref('article') // article | video
@@ -535,7 +541,7 @@ async function runQueue() {
 
 async function rewriteOne(item) {
   try {
-    const res = await aiRewrite({ mode: 'create', content: buildRewriteInput(item.topic) })
+    const res = await aiRewrite({ mode: 'create', content: buildRewriteInput(item.topic), userSettings: { knowledgeOptions: { useViralLibrary: hotUseViral.value, usePersonalKnowledge: false } } })
     if (res && res.code === 0 && res.data && res.data.success) {
       const content = res.data.result || ''
       const draft = {
@@ -632,7 +638,7 @@ async function runGenVideoRewrite(seq) {
   genVideoBusy.value = true
   setGenStage(GEN_VIDEO_REWRITE_STAGE, { status: 'running', startedAt: new Date().toISOString(), completedAt: null, error: null })
   try {
-    const res = await aiRewrite({ mode: 'create', content: buildRewriteInput(topic.topic) })
+    const res = await aiRewrite({ mode: 'create', content: buildRewriteInput(topic.topic), userSettings: { knowledgeOptions: { useViralLibrary: hotUseViral.value, usePersonalKnowledge: false } } })
     if (disposed || seq !== genVideoSeq) return
     if (res && res.code === 0 && res.data && res.data.success) {
       const content = res.data.result || ''

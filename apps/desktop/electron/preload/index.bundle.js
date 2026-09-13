@@ -988,6 +988,15 @@ var require_knowledge_library = __commonJS({
         updateViralItem: (id, updates) => ipcRenderer2.invoke("knowledge-library:update-viral", id, updates),
         deleteViralItem: (id) => ipcRenderer2.invoke("knowledge-library:delete-viral", id),
         searchViralItems: (query, limit) => ipcRenderer2.invoke("knowledge-library:search-viral", query, limit),
+        // 模式卡片（P1）
+        listPatternCards: (params) => ipcRenderer2.invoke("knowledge-library:list-pattern-cards", params),
+        reextractPattern: (viralItemId) => ipcRenderer2.invoke("knowledge-library:reextract-pattern", viralItemId),
+        // 效果闭环（P2）
+        listTrackedContent: (params) => ipcRenderer2.invoke("performance:list-tracked", params),
+        addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
+        recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
+        listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
+        triggerPerformanceRecrawl: () => ipcRenderer2.invoke("performance:trigger-recrawl"),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),

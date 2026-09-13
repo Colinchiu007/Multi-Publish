@@ -67,6 +67,7 @@ const viewTests = [
   routeView('replay-timeline', '/replay/e2e-project', '.cohere-main .replay-title:has-text("生产回放")'),
   routeView('auto-pipeline', '/auto-pipeline', '.cohere-page-header .page-title:has-text("全自动内容生产与发布")'),
   routeView('knowledge-base', '/knowledge-base', '.cohere-page-header .page-title:has-text("知识库")'),
+  routeView('performance-insights', '/performance-insights', '.cohere-page-header .page-title:has-text("效果洞察")'),
   routeView('member-center', '/member-center', '.member-center-view .page-title:has-text("会员中心")'),
 ];
 

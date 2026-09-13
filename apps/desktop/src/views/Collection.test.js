@@ -502,7 +502,7 @@ describe("CollectionView", () => {
         title: "抖音视频", content: "转写文案内容足够长可以改写", transcript: "转写文案内容足够长可以改写",
         word_count: 13, media_type: "video", duration: 90, metadata: { platform: "douyin" },
       }),
-      aggregationRewrite: vi.fn().mockResolvedValue({ result_content: "改写后的文案", word_count: 7 }),
+      aiRewrite: vi.fn().mockResolvedValue({ code: 0, data: { success: true, result: "改写后的文案" } }),
       storeSetSetting: vi.fn(),
     };
     const w = mountCollection();
@@ -511,7 +511,7 @@ describe("CollectionView", () => {
     await w.vm.collectAndRewrite();
     expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://v.douyin.com/abc/" });
     expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
-    expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith(
+    expect(window.electronAPI.aiRewrite).toHaveBeenCalledWith(
       expect.objectContaining({ content: "转写文案内容足够长可以改写" })
     );
     expect(w.vm.collectedResult.mediaType).toBe("video");
@@ -759,7 +759,7 @@ describe("CollectionView", () => {
   it("collectAndRewrite warns if URL is empty", async () => {
     window.electronAPI = {
       aggregationCollect: vi.fn(),
-      aggregationRewrite: vi.fn(),
+      aiRewrite: vi.fn(),
     };
     const w = mountCollection();
     await nextTick();
@@ -787,9 +787,8 @@ describe("CollectionView", () => {
         content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
         word_count: 30,
       }),
-      aggregationRewrite: vi.fn().mockResolvedValue({
-        result_content: "这是改写后的内容，与原文不同。",
-        word_count: 15,
+      aiRewrite: vi.fn().mockResolvedValue({
+        code: 0, data: { success: true, result: "这是改写后的内容，与原文不同。" },
       }),
     };
     const w = mountCollection();
@@ -801,12 +800,9 @@ describe("CollectionView", () => {
       source_type: "url",
       rewrite: false,
     });
-    expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith({
-      content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
-      style: "轻松易懂",
-      min_word_count: 800,
-      max_word_count: 2000,
-    });
+    expect(window.electronAPI.aiRewrite).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。" })
+    );
     expect(w.vm.collectedResult).toBeTruthy();
     expect(w.vm.collectedResult.content).toContain("这是采集到的原文内容");
     expect(w.vm.rewriteResult).toBe("这是改写后的内容，与原文不同。");
@@ -855,7 +851,7 @@ describe("CollectionView", () => {
   // 曾泄漏原始技术消息「未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写」到 UI。
   it("rewriteCollected 无密钥错误 → 显示友好文案，不暴露环境变量名", async () => {
     window.electronAPI = {
-      aggregationRewrite: vi.fn().mockResolvedValue({
+      aiRewrite: vi.fn().mockResolvedValue({
         code: -400, status: 400, errorCode: "LLM_KEY_MISSING",
         message: "AI 改写服务尚未配置访问密钥",
       }),
@@ -874,7 +870,7 @@ describe("CollectionView", () => {
 
   it("rewriteCollected 旧版后端（无 errorCode，仅原始中文消息）→ pattern 兜底也不直出技术细节", async () => {
     window.electronAPI = {
-      aggregationRewrite: vi.fn().mockResolvedValue({
+      aiRewrite: vi.fn().mockResolvedValue({
         code: -400, status: 400,
         message: "未配置 LLM API Key，请在环境变量中设置 LLM_API_KEY 或 PO_OPENAI_API_KEY 后再改写",
       }),
@@ -896,7 +892,7 @@ describe("CollectionView", () => {
         content: "这是采集到的原文内容，长度超过二十个字，用于测试一键改写流程。",
         word_count: 30,
       }),
-      aggregationRewrite: vi.fn().mockResolvedValue({ code: -99, message: "改写服务不可用" }),
+      aiRewrite: vi.fn().mockResolvedValue({ code: -99, message: "改写服务不可用" }),
     };
     const w = mountCollection();
     await nextTick();
@@ -914,8 +910,8 @@ describe("CollectionView", () => {
   it("collectAndRewrite falls back to urlCollectFetch", async () => {
     window.electronAPI = {
       aggregationCollect: vi.fn().mockResolvedValue({ code: -4, message: "CONTENT_UNEXTRACTABLE" }),
-      aggregationRewrite: vi.fn().mockResolvedValue({
-        result_content: "回退采集后改写成功。",
+      aiRewrite: vi.fn().mockResolvedValue({
+        code: 0, data: { success: true, result: "回退采集后改写成功。" },
       }),
       urlCollectFetch: vi.fn().mockResolvedValue({
         code: 0,
@@ -933,8 +929,8 @@ describe("CollectionView", () => {
 
   it("rewriteCollected no longer overwrites original content", async () => {
     window.electronAPI = {
-      aggregationRewrite: vi.fn().mockResolvedValue({
-        result_content: "改写后的内容。",
+      aiRewrite: vi.fn().mockResolvedValue({
+        code: 0, data: { success: true, result: "改写后的内容。" },
       }),
     };
     const w = mountCollection();

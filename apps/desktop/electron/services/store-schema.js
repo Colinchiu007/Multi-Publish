@@ -49,6 +49,7 @@ const OWNER_TABLE_SCHEMA_SQL = {
     status        TEXT DEFAULT "pending",
     result        TEXT DEFAULT "{}",
     error         TEXT DEFAULT '',
+    rewrite_history_id TEXT,
     created_at    TEXT DEFAULT '',
     PRIMARY KEY (owner_subject, id)
   )`,
@@ -448,6 +449,15 @@ function migrateKnowledgeEvolutionSchema(db) {
   }
 }
 
+/**
+ * 模式卡片 schema（activate-viral-library PR-2）
+ * viral_pattern_cards 与 viral_library 一对一；存量条目回填 pending 卡片。
+ */
+// activate-viral-library 迁移拆至独立文件（债务熔断：store-schema 不允许突破 500 行）
+const { migrateViralPatternSchema: _migrateViralPattern, migratePerformanceLoopSchema: _migratePerformanceLoop } = require('./activate-viral-schema')
+function migrateViralPatternSchema(db) { _migrateViralPattern(db, execSchemaSql) }
+function migratePerformanceLoopSchema(db) { _migratePerformanceLoop(db, execSchemaSql) }
+
 module.exports = {
   TABLE_NAMES,
   SCHEMA_SQL,
@@ -462,4 +472,6 @@ module.exports = {
   sanitizeUpdateFields,
   UPDATE_WHITELIST,
   migrateKnowledgeEvolutionSchema,
+  migrateViralPatternSchema,
+  migratePerformanceLoopSchema,
 };

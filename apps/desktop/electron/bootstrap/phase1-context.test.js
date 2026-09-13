@@ -85,6 +85,9 @@ describe('phase1-context.extractContext', () => {
       'splitterBridge', 'promptBridge', 'serviceBus', 'pluginRegistry',
       'executionRecorder', 'story2videoProjectService', 'promptEvalService', 'signalCollector',
       'filmEngineeringService',
+      'patternExtractionService',
+      'performanceRecrawlService',
+      'patternAttributionService',
     ]
     expectedFields.forEach((f) => {
       expect(ctx).toHaveProperty(f)

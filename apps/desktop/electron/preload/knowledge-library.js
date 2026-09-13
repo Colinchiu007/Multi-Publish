@@ -19,6 +19,15 @@ function createKnowledgeLibraryApi(ipcRenderer) {
     updateViralItem: (id, updates) => ipcRenderer.invoke('knowledge-library:update-viral', id, updates),
     deleteViralItem: (id) => ipcRenderer.invoke('knowledge-library:delete-viral', id),
     searchViralItems: (query, limit) => ipcRenderer.invoke('knowledge-library:search-viral', query, limit),
+    // 模式卡片（P1）
+    listPatternCards: (params) => ipcRenderer.invoke('knowledge-library:list-pattern-cards', params),
+    reextractPattern: (viralItemId) => ipcRenderer.invoke('knowledge-library:reextract-pattern', viralItemId),
+    // 效果闭环（P2）
+    listTrackedContent: (params) => ipcRenderer.invoke('performance:list-tracked', params),
+    addManualSnapshot: (trackedContentId, metrics) => ipcRenderer.invoke('performance:add-manual-snapshot', trackedContentId, metrics),
+    recomputeAttribution: () => ipcRenderer.invoke('performance:recompute-attribution'),
+    listPatternPerformance: (params) => ipcRenderer.invoke('performance:list-pattern-performance', params),
+    triggerPerformanceRecrawl: () => ipcRenderer.invoke('performance:trigger-recrawl'),
     // 个人知识库
     addPersonalToLibrary: (item) => ipcRenderer.invoke('knowledge-library:add-personal', item),
     addPersonalBatchToLibrary: (items) => ipcRenderer.invoke('knowledge-library:add-personal-batch', items),

@@ -59,6 +59,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./auto-pipeline')(ipcMain, deps)
   // 知识库（爆款库 + 个人知识库）
   require('./knowledge-library')(ipcMain, deps)
+  require('./performance-loop')(ipcMain, deps)
   // 飞书 API 配置
   require('./feishu-settings')(ipcMain, deps)
   // 服务状态聚合（侧边栏多服务面板）

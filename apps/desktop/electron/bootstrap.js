@@ -98,6 +98,7 @@ function createAppContext() {
   // 保留原位：任务事件接线（拆分到 bootstrap/phase4-events.js）
   wireTaskQueueEvents({
     taskQueue, history, publishMonitor, publishImpactTracker, getMainWin,
+    store: ctx.store || (ctx.container && ctx.container.get('store')),
   })
 
   return ctx
@@ -194,6 +195,24 @@ servicesResult = await startServices({
           log.info('App', 'knowledge-evolution scheduler started')
         }
       } catch (e) { /* 容器无此服务时静默跳过（测试环境 mock container 不注册此服务） */ }
+
+      // 启动模式卡片提取服务（activate-viral-library：启动后 30s + 每小时巡检）
+      try {
+        var patternExtraction = container.get('patternExtractionService')
+        if (patternExtraction && typeof patternExtraction.start === 'function') {
+          patternExtraction.start()
+          log.info('App', 'pattern-extraction scheduler started')
+        }
+      } catch (e) { /* 容器无此服务时静默跳过 */ }
+
+      // 启动表现数据回采服务（activate-viral-library P2：启动后 30s + 每日巡检 + 归因重算）
+      try {
+        var performanceRecrawl = container.get('performanceRecrawlService')
+        if (performanceRecrawl && typeof performanceRecrawl.start === 'function') {
+          performanceRecrawl.start()
+          log.info('App', 'performance-recrawl scheduler started')
+        }
+      } catch (e) { /* 容器无此服务时静默跳过 */ }
       context.keywordPersistTimer = servicesResult.keywordPersistTimer
       context.loginStatusMonitor = servicesResult.loginStatusMonitor
       context.cloudPublisher = servicesResult.cloudPublisher

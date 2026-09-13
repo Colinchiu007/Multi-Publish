@@ -19,6 +19,7 @@ const { StrategyMatcher } = require('./strategy-matcher')
 const { AITasteRemover, AI_PHRASE_MAP, FORBIDDEN_OPENING_PATTERNS } = require('./ai-taste-remover')
 const { KnowledgeBase, MemoryStorage, DEFAULT_KB } = require('./knowledge-base')
 const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
+const { extractSync, extractWithLLM } = require('./keyword-extractor')
 const { SensitiveFilter } = require('./sensitive-filter')
 const {
   RewriteQualityEvaluator, SimHash, computeSimHash, hammingDistance, cosineSimilarity
@@ -67,6 +68,8 @@ module.exports = {
   KnowledgeBase,
   MemoryStorage,
   KnowledgeContextBuilder,
+  extractSync,
+  extractWithLLM,
   SensitiveFilter,
   BUILTIN_STRATEGIES,
   AI_PHRASE_MAP,

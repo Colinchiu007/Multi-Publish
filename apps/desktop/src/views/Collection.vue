@@ -301,7 +301,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
-import { storeGetSetting, storeSetSetting } from '@/api/publisher'
+import { storeGetSetting, storeSetSetting, aiRewrite } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
@@ -337,6 +337,49 @@ const rewriteWordCountMax = ref(2000)
 const rewriteResult = ref('')
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
+
+// 改写走 Node 引擎（aiRewrite）：采集→入库→改写参考闭环的最后一块拼图。
+// Python 链路（aggregationRewrite）对桌面 SQLite 爆款库不可见、不接收 knowledgeOptions。
+// style 是语气偏好 → userSettings.tone（引擎 prompt 模板消费）；mode 统一 imitate（保留原文语义，改写引擎核心场景）。
+// tone 值为引擎 prompt 模板的语气枚举（非用户可见 UI 文案，走常量；CJK 基线登记见 check-locale-sync）
+// 长度由字数区间控制（main 已移除三档 length 下拉）：min/max → targetWordCount + targetLength 语义映射
+const STYLE_TO_TONE = { '轻松易懂': 'casual', '正式严谨': 'formal', '吸引眼球': 'catchy', '深度分析': 'professional', '认知锚点': 'anchor' }
+
+async function rewriteViaEngine (content) {
+  let res
+  try {
+    // main 新增的字数控制（min/max）→ targetLength 语义映射：窄区间视为 short，宽高区间视为 long，其余 medium
+    const minW = Number(rewriteWordCountMin.value) || 800
+    const maxW = Number(rewriteWordCountMax.value) || 2000
+    const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
+    const params = {
+      mode: 'imitate',
+      content: content,
+      userSettings: {
+        tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
+        targetWordCount: { min: minW, max: maxW },
+        targetLength: wordCountTarget,
+        knowledgeOptions: {
+          useViralLibrary: useViralLibrary.value,
+          usePersonalKnowledge: usePersonalExperience.value,
+        },
+      },
+    }
+    res = await aiRewrite(params)
+  } catch (e) {
+    // IPC 异常归一化为 __error 形态，调用方 formatUserError 消费统一形状（审查 W-7）
+    return { __error: { code: -99, message: (e && e.message) || String(e) } }
+  }
+  // aiRewrite 返回 { code, data: { success, result } }；归一化为旧 aggregationRewrite 的 { result_content } 消费形态
+  if (res && res.code === 0 && res.data && res.data.success && res.data.result) {
+    return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
+  }
+  // 失败时透传原始 res（含 errorCode/message），供调用方 formatUserError 映射友好文案
+  if (res && (res.code !== 0 || (res.data && res.data.success === false))) {
+    return { __error: res }
+  }
+  return null
+}
 const showPublishModal = ref(false)
 let genreDraftId = null
 const rssUrl = ref('')
@@ -740,8 +783,8 @@ async function collectAndRewrite () {
     return
   }
   const api = getApi()
-  // 前置校验：API能力检查（采集+改写都必须可用）
-  if (!api || !api.aggregationCollect || !api.aggregationRewrite) {
+  // 前置校验：API能力检查（采集走 aggregationCollect；改写已切 Node 引擎 aiRewrite）
+  if (!api || !api.aggregationCollect) {
     notifyWarning('collection.collectUnavailable')
     return
   }
@@ -794,19 +837,15 @@ async function collectAndRewrite () {
         collecting.value = false
         rewriting.value = true
         try {
-          const rewrite = await api.aggregationRewrite({
-            content: videoRes.content || videoRes.transcript || '',
-            style: rewriteStyle.value,
-            min_word_count: Number(rewriteWordCountMin.value),
-            max_word_count: Number(rewriteWordCountMax.value),
-          })
+          const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
           if (rewrite && rewrite.result_content) {
             rewriteResult.value = rewrite.result_content
             notifySuccess('collection.rewriteSuccess')
           } else {
             // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
             // 禁止把后端原始 message（可能含环境变量名等技术细节）直出 UI（user-facing-messages 规范）
-            const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+            const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
+            const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
             rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
             notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
           }
@@ -904,18 +943,14 @@ async function collectAndRewrite () {
     // Step 2: 自动改写
     rewriting.value = true
     try {
-      const rewrite = await api.aggregationRewrite({
-        content: res.content || res.description || '',
-        style: rewriteStyle.value,
-        min_word_count: Number(rewriteWordCountMin.value),
-        max_word_count: Number(rewriteWordCountMax.value),
-      })
+      const rewrite = await rewriteViaEngine(res.content || res.description || '')
       if (rewrite && rewrite.result_content) {
         rewriteResult.value = rewrite.result_content
         notifySuccess('collection.rewriteSuccess')
       } else {
         // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
-        const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+        const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
+        const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
         rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
         notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
       }
@@ -941,25 +976,21 @@ async function rewriteCollected () {
     return
   }
   const api = getApi()
-  if (!api || !api.aggregationRewrite) {
+  if (!api) {
     notifyWarning('collection.collectUnavailable')
     return
   }
   rewriting.value = true
   rewriteError.value = null
   try {
-    const result = await api.aggregationRewrite({
-      content: collectedResult.value.content || collectedResult.value.description || '',
-      style: rewriteStyle.value,
-      min_word_count: Number(rewriteWordCountMin.value),
-      max_word_count: Number(rewriteWordCountMax.value),
-    })
+    const result = await rewriteViaEngine(collectedResult.value.content || collectedResult.value.description || '')
     if (result && result.result_content) {
       rewriteResult.value = result.result_content
       notifySuccess('collection.rewriteSuccess')
     } else {
       // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
-      const formatted = formatUserError(result || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+      const errorSource = result && result.__error ? result.__error : (result || {})
+      const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
       rewriteError.value = { code: result && result.code != null ? result.code : -99, message: formatted.message }
       notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
     }
