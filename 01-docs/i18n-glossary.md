@@ -20,6 +20,11 @@
 | 文案预览 | Content preview | history.contentPreview |
 | 未生成 | Not generated | history.notGenerated |
 | 视频任务编辑页 | Video task editor | story2video.history.editor |
+| 查看文案 | View Script | story2video.view_script |
+| 全部文案 | Full Script | story2video.script_modal_title |
+| 文案已复制到剪贴板 | Script copied to clipboard | story2video.script_copied |
+| 复制 | Copy | story2video.script_copy_button |
+| 已复制 | Copied | story2video.script_copied_button |
 | 已取消任务可编辑 | Cancelled task is editable | story2video.history.cancelledEditable |
 | 暂停环节 | Paused stage | history.pausedStage |
 | 暂停环境/检查点 | Pause environment/checkpoint | history.pauseEnvironment |
