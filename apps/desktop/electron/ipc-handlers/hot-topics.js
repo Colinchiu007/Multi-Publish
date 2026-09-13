@@ -9,7 +9,7 @@
 
 /**
  * @param {import('electron').IpcMain} ipcMain
- * @param {{ hotTopicsService: { fetchTopics: Function, getCache: Function }, log?: object }} deps
+ * @param {{ hotTopicsService: { fetchTopics: Function, getCache: Function }, store?: object, identityService?: object, log?: object }} deps
  */
 function registerHandlers(ipcMain, deps) {
   const { hotTopicsService, store, identityService, log } = deps
@@ -17,7 +17,7 @@ function registerHandlers(ipcMain, deps) {
   const FAVORITES_KEY = 'hot_topics_favorites'
 
   function _getOwnerSubject() {
-    if (!identityService) return undefined
+    if (!identityService) return null
     try {
       const state = identityService.getState()
       const sub = state && state.user && state.user.sub
@@ -35,7 +35,25 @@ function registerHandlers(ipcMain, deps) {
 
   function _writeFavorites(favorites, owner) {
     if (!store || typeof store.setUserSetting !== 'function') return
-    store.setUserSetting(FAVORITES_KEY, JSON.stringify(favorites), owner)
+    store.setUserSetting(FAVORITES_KEY, favorites, owner)
+  }
+
+  // 白名单字段剥离：防止被攻陷渲染器传入超大/含多余字段的 topic 对象
+  function _sanitizeTopic(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const id = typeof raw.id === 'string' ? raw.id.slice(0, 128) : ''
+    const topic = typeof raw.topic === 'string' ? raw.topic.slice(0, 500) : ''
+    if (!id || !topic) return null
+    return {
+      id,
+      topic,
+      channel: typeof raw.channel === 'string' ? raw.channel.slice(0, 32) : '',
+      category: typeof raw.category === 'string' ? raw.category.slice(0, 32) : 'general',
+      rank: Number.isFinite(Number(raw.rank)) ? Number(raw.rank) : null,
+      hotValue: Number.isFinite(Number(raw.hotValue)) ? Number(raw.hotValue) : null,
+      url: typeof raw.url === 'string' ? raw.url.slice(0, 2048) : null,
+      fetchedAt: Number.isFinite(Number(raw.fetchedAt)) ? Number(raw.fetchedAt) : null,
+    }
   }
 
   // deps 缺失时 warn + 跳过注册（不中断其他模块的 IPC 注册链），调用方会拿到 invoke 超时/不存在
@@ -69,13 +87,12 @@ function registerHandlers(ipcMain, deps) {
     try {
       const owner = _getOwnerSubject()
       if (owner === null) return { code: -2, message: 'FAVORITE_AUTH_REQUIRED' }
-      if (!payload || !payload.topic || !payload.topic.id) {
-        return { code: -1, message: 'FAVORITE_INVALID_TOPIC' }
-      }
+      const topic = _sanitizeTopic(payload && payload.topic)
+      if (!topic) return { code: -1, message: 'FAVORITE_INVALID_TOPIC' }
       const favorites = _readFavorites(owner)
-      const existing = favorites.find(f => f.topic && f.topic.id === payload.topic.id)
+      const existing = favorites.find(f => f.topic && f.topic.id === topic.id)
       if (existing) return { code: 0, data: existing }
-      const entry = { topic: payload.topic, favoritedAt: Date.now() }
+      const entry = { topic, favoritedAt: Date.now() }
       favorites.unshift(entry)
       _writeFavorites(favorites, owner)
       return { code: 0, data: entry }
