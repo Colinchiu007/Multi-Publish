@@ -37,10 +37,7 @@ describe('viral-pattern-store', function () {
 
   beforeAll(async function () {
     var db = new Database(null)
-    for (var i = 0; i < 50 && !db._db; i++) {
-      await new Promise(function (r) { setTimeout(r, 50) })
-    }
-    if (!db._db) throw new Error('sql.js init timeout')
+    await Database.ready
     db.exec(SCHEMA)
     var patternMixin = require('../electron/services/store/viral-pattern-store')
     var knowledgeMixin = require('../electron/services/store/knowledge-library-store')

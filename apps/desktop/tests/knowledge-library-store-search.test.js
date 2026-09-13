@@ -16,11 +16,7 @@ describe('knowledge-library-store keyword search', function () {
 
   beforeAll(async function () {
     var db = new Database(null)
-    // 等待 sql.js WASM 异步初始化（sqlite-wrapper 内部 readyPromise）
-    for (var i = 0; i < 50 && !db._db; i++) {
-      await new Promise(function (r) { setTimeout(r, 50) })
-    }
-    if (!db._db) throw new Error('sql.js init timeout')
+    await Database.ready
     db.exec(`
       CREATE TABLE viral_library (
         id TEXT PRIMARY KEY, title TEXT, cover_url TEXT, author TEXT, url TEXT,
