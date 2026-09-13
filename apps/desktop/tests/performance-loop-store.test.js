@@ -61,6 +61,7 @@ describe('performance-loop-store', function () {
   beforeAll(async function () {
     var db = new Database(null)
     await Database.ready
+    if (!db._db) db._init()
     db.exec(SCHEMA)
     var mixin = require('../electron/services/store/performance-loop-store')
     store = Object.assign({}, mixin)

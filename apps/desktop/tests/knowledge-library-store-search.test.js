@@ -17,6 +17,7 @@ describe('knowledge-library-store keyword search', function () {
   beforeAll(async function () {
     var db = new Database(null)
     await Database.ready
+    if (!db._db) db._init()
     db.exec(`
       CREATE TABLE viral_library (
         id TEXT PRIMARY KEY, title TEXT, cover_url TEXT, author TEXT, url TEXT,

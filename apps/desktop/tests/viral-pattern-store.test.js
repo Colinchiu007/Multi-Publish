@@ -38,6 +38,7 @@ describe('viral-pattern-store', function () {
   beforeAll(async function () {
     var db = new Database(null)
     await Database.ready
+    if (!db._db) db._init()
     db.exec(SCHEMA)
     var patternMixin = require('../electron/services/store/viral-pattern-store')
     var knowledgeMixin = require('../electron/services/store/knowledge-library-store')
