@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## [Unreleased] - 2026-09-13 (图片轮播模式人脸种族一致性修复)
 
 ### 修复
@@ -10,6 +11,17 @@
 ### 文档
 - 更新 01-docs/PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（§5.3 功能逻辑 + §7 验收标准新增人脸一致性条目）
 - 更新 01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（新增人物外观锚默认规则说明）
+=======
+## [Unreleased] - 2026-09-13 (视频创作·历史记录「查看文案」)
+
+### 新增
+- 视频创作·历史记录·任务详情页（编辑页）成品视频下方按钮区，在【下载视频】右侧新增【查看文案】按钮：点击打开模态弹窗，展示全部文案文字（按分段编号【N】+文案内容，段间双换行分隔，空段显示【N】（无文案））。
+- 弹窗底部【复制】按钮：点击将全部文案文字复制到剪贴板（`navigator.clipboard.writeText`，不支持时回退 textarea 方式）；复制成功后按钮文案变为「已复制」，1.5 秒后恢复；关闭弹窗重置复制状态。
+- 新增 i18n key（zh/en 成对）：`story2video.view_script` / `script_modal_title` / `script_copied` / `script_copy_button` / `script_copied_button`。
+
+### 文档
+- 新增 01-docs/PRD-STORY2VIDEO-HISTORY-VIEW-SCRIPT-2026-09-13.md（功能描述/数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/边界情况）。
+>>>>>>> 4ab55b22 (docs: 新增查看文案功能 PRD，更新 CHANGELOG 与 i18n 术语表)
 
 ## [Unreleased] - 2026-09-07 (全自动内容生产与发布管道)
 
