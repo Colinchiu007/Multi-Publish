@@ -1,3 +1,16 @@
+## [Unreleased] - 2026-09-13 (图片轮播模式人脸种族一致性修复)
+
+### 修复
+- Story2Video 图片轮播模式下，同一文案生成含人脸图片时种族不一致（有的亚洲脸、有的欧美脸）。根因：story-context-engine.js 的 resolveAppearanceAnchor 仅对「古代东亚文化命中」与「明确文化关键词」注入东亚外观锚，现代/中性（无文化词）场景无锚点裸奔，图片 API（FLUX/DALL-E/MiniMax）训练数据偏西方，默认生成欧美脸；同一文案中偶然命中文化关键词的场景→亚洲脸、其余→欧美脸，跨场景不统一。
+- 修复：resolveAppearanceAnchor 新增默认外观锚——modern/mixed 时代无文化命中且场景不含非东亚异域词（胡人/波斯/希腊/维京/玛雅/巴黎等）时默认注入「东亚人面孔、黑发、黄皮肤、深色瞳」；明确欧洲/美国文化、ancient 无 eastAsianCue（古希腊/维京/玛雅等）保持原逻辑不注入。
+
+### 测试
+- story-context-engine.test.js：新增 3 条用例（modern/mixed 无文化默认东亚锚双路径、modern/mixed 场景含非东亚词免除默认），升级 1 条旧期望（modern 无文化 → 默认东亚锚）；61 用例全绿无回归。
+
+### 文档
+- 更新 01-docs/PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（§5.3 功能逻辑 + §7 验收标准新增人脸一致性条目）
+- 更新 01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（新增人物外观锚默认规则说明）
+
 ## [Unreleased] - 2026-09-07 (全自动内容生产与发布管道)
 
 ### 新增
