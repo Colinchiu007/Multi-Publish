@@ -1,3 +1,15 @@
+# [未发布] feat(StageProgress): 流水线进度弹窗自动滚动+固定进度条sticky（2026-09-13）
+
+### 新增
+- **自动滚动到当前阶段**：StageProgress 组件新增 currentActiveStageIndex computed 与 scrollToStage 方法，stages 深度 watch 监听阶段切换时自动 scrollIntoView（smooth），running/paused 优先
+- **_lastActiveStageIndex 防抖**：仅阶段索引变化时触发滚动
+
+### 修复
+- **HotTopics 弹窗 sticky header 补齐**：create-view.css 统一 .gen-video-modal-content 与 .pipeline-progress-modal-content 的 sticky header CSS
+
+### 影响
+- 视频创作页流水线进度弹窗（CreateView）+ 热门话题一键生成视频进度弹窗（HotTopics）
+
 # [未发布] feat: 爆款库激活与效果闭环——P0 检索修复 + P1 模式卡片 + P2 效果闭环（2026-09-13）
 
 ## [未发布] fix(accounts): checkLoginStatus 假阳性过期判定修复——凭证检测路径对齐 + 浏览器故障回退（2026-09-13）

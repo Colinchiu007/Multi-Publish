@@ -89,6 +89,20 @@ export default {
       if (!Number.isFinite(numeric)) return 0
       return Math.max(0, Math.min(100, Math.round(numeric)))
     },
+    currentActiveStageIndex() {
+      for (let i = 0; i < this.stages.length; i++) {
+        const s = this.stages[i]
+        if (s.status === 'running' || s.status === 'paused') return i
+      }
+      for (let i = this.stages.length - 1; i >= 0; i--) {
+        const s = this.stages[i]
+        if (s.status === 'completed' || s.status === 'failed' || s.status === 'skipped') return i
+      }
+      return -1
+    },
+  },
+  data() {
+    return { _lastActiveStageIndex: -1 }
   },
   methods: {
     stageName(name) {
@@ -238,6 +252,31 @@ export default {
         return this.$t('stageProgress.durationMin', { minutes, seconds })
       }
       return this.$t('stageProgress.durationSec', { seconds })
+    },
+    scrollToStage(idx) {
+      const stage = this.stages[idx]
+      if (!stage) return
+      const el = this.$el && this.$el.querySelector
+        ? this.$el.querySelector('[data-testid="story2video-stage-' + (stage.name || idx) + '"]')
+        : null
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }
+    },
+  },
+  watch: {
+    stages: {
+      handler() {
+        this.$nextTick(() => {
+          const idx = this.currentActiveStageIndex
+          if (idx >= 0 && idx !== this._lastActiveStageIndex) {
+            this._lastActiveStageIndex = idx
+            this.scrollToStage(idx)
+          }
+        })
+      },
+      deep: true,
+      immediate: true,
     },
   },
 }
