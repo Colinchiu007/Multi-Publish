@@ -84,6 +84,7 @@ describe('phase1-context.extractContext', () => {
       '_aggregatorBridge', 'publisherRouter', '_PublishAlert',
       'splitterBridge', 'promptBridge', 'serviceBus', 'pluginRegistry',
       'executionRecorder', 'story2videoProjectService', 'promptEvalService', 'signalCollector',
+      'promptMemory', 'governance',
       'filmEngineeringService',
       'patternExtractionService',
       'performanceRecrawlService',

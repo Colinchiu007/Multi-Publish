@@ -114,12 +114,19 @@
 - 评分/反思用异构模型（避免同族自我偏好）或规则+用户信号校验
 - 视频 V0 **不自动 LLM 评分生成内容**，仅生成成功率+用户采纳+平台三态
 
-### 4.3 记忆库 PromptMemory
+### 4.3 记忆库 PromptMemory（✅ V0 已实现，2026-09-13）
 
 - 两级：full 模板 + fragment（**仅 composition/action/object/creativeLevel 四类**，与生成器可控参数一一映射；color/keywords/metaphor 类 fragment 列为 P3 契约扩展，不在 P0-P1 范围）
 - V0 检索：type+engine+标签+主题关键词；**检索加探索概率 ε(默认 0.1) 防马太效应**；阈值可配
-- 入库门槛：图片 `llm >= 7.0`(0-10 标度, 缺维 partial 不参与) 或 `user.accepted` 累计≥3 次(可配)；视频人工确认或平台 `valid_positive` 且≥5 条；全部过门禁
+- 入库门槛：图片 `llm >= 7.0`(0-10 标度, 缺维 partial 不参与) 或 `user.accepted` 累计≥3 次(可配)；视频人工确认或平台 `valid_positive` 且≥5 条；全部过门禁（**V0 仅人工确认激活**，数据确认阈值归 P2）
 - V1：本地 embedding 语义检索（默认关闭）
+
+**V0 实现细节**（`apps/desktop/electron/services/prompt-evolution/prompt-memory.js`）：
+- 目录布局：`prompt-library/library.json` 索引 + `templates/<id>@<version>.json` 版本化模板文件
+- 模板字段：id/engine(image|video)/mode(story2video|standalone|storyboard)/type(composition|style|keyword|metaphor|full|fragment)/version/content/sourceText(≤2000)/fingerprint/source(learnt)/provenance{learnedFrom,acceptedEvents}/stats{uses,acceptRate,avgScore,avgCost,lastUsedAt}/state(draft|active|deprecated|disabled)/guard{checksum,validatedAt,gateRules,evaluatorVersion}/createdAt/updatedAt/confirmedBy(加盐 HMAC)
+- 版本化优先级：content checksum 完全碰撞拒绝 / 同 learnedFrom 且指纹相似升版 / 否则新 id
+- dictVersion 变更以 sourceText 惰性重算；无 sourceText 标 stale 不参与检索；fingerprint 缺失 fail-close
+- 写盘原子性（临时文件 + rename）；损坏库 fail-close 重建
 
 ### 4.4 优化器 Optimizer（唯一承载异步/LLM 的编排层）
 
@@ -128,7 +135,7 @@
 - **回路 C A-B**：`seed=hash(eventId+variant)` 确定性分配；随机化单元=一次任务/一个概念；记录 `experimentId/armId`；胜者统计需样本量阈值
 - **provider 路由学习**：从 P2 移除，挪至 P3（需补 provider 性能数据表+选择策略+回退设计）
 
-### 4.5 治理层 Governance
+### 4.5 治理层 Governance（✅ V0 已实现，2026-09-13）
 
 - **状态机**：builtin/manual→active→deprecated→disabled；learnt: 门禁→draft→(人工或数据确认)→active
 - **门禁 6 规则**：
@@ -140,6 +147,12 @@
   6. `evaluatorVersion` 记录
 - **回滚**：滑窗指标（acceptRate 连续 N 期<阈值 或 avgScore 下滑）→ 自动 deprecated → 回退上一版本；冷却期防抖；全部指标化可测
 - **成本配额**：config 按引擎 dailyBudget；视频默认零自动评分
+
+**V0 实现细节**（`apps/desktop/electron/services/prompt-evolution/governance.js`）：
+- 门禁 6 规则全部纯函数、可注入配置、无 LLM；compositionType 值域校验（8 种构图模式 parity 锁死）；noSecrets 用预编译 token 表查找（不拼用户输入进正则）
+- 状态机合法边：draft→active / active→deprecated / deprecated→disabled；非法边拒绝
+- 滑窗回滚：acceptRate 连续 N 期(默认3)<阈值(默认0.3) 或 avgScore 相对峰值下滑>20% → deprecated + 24h 冷却防抖；statsProvider 可注入
+- 成本配额：`evolution.budget = { image: { daily: 2000 }, video: { daily: 0 } }`；视频默认零自动评分
 
 ---
 

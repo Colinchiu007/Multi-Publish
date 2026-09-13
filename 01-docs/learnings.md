@@ -1,3 +1,25 @@
+
+## glob 工具权限失败根因与规避（2026-09-13）
+
+- **现象**：DSH glob 工具搜索整个仓库时报 g: ./packages\python-backend\.pytest-tmp-logto-final: IO error ... 拒绝访问 (os error 5)，整体失败（exit 2）。
+- **根因**：packages/python-backend/.pytest-tmp-logto-final 目录被 ACL 锁定（连管理员 icacls 都无法访问），是 2026-07-21 的 pytest 测试残留。DSH glob 工具用 ripgrep 遍历，**不尊重 .gitignore**（该目录已被 .pytest-tmp-logto*/ 覆盖），遇到不可访问目录就整体报错而非跳过。
+- **规避**：用 Get-ChildItem -Recurse -Filter "*.py" -ErrorAction SilentlyContinue（PowerShell）替代 glob，-ErrorAction SilentlyContinue 跳过不可访问目录；或避免搜索该路径。
+- **根治**：需管理员权限删除该目录（	akeown /F <dir> /A + Remove-Item -Recurse -Force）。当前会话无管理员权限，无法删除。
+- **教训**：DSH glob 工具不尊重 gitignore 且对权限拒绝 fail-closed，遇到 ACL 锁定的 gitignored 残留目录会整体失败。此类残留应定期清理（管理员权限），或搜索时避开。
+
+---## 提示词引擎自进化记忆库 + 治理层实现复盘（codex/prompt-engine-evolution-p1b-memory，2026-09-13）
+
+- **背景**：P0 反馈管道（signal-collector）+ P1b 主题指纹（fingerprint.js）已合入 main，但 learnt 模板无落库/门禁/治理通道。本次实现 PromptMemory 记忆库 V0 + Governance 治理层，完成「采集 → 评估 → 记忆 → 优化 → 治理」闭环中「高价值片段沉淀为可复用资产」的关键一环。
+- **实现**：
+  - prompt-memory.js：prompt-library/library.json 索引 + templates/<id>@<version>.json 版本化模板文件；learnt fragment 仅四类可控参数（compositionType/action/object/creativeLevel）；版本化优先级（checksum 碰撞拒绝/同源升版/新 id）；dictVersion 变更以 sourceText 重算；fingerprint 缺失 fail-close；写盘原子性 + 损坏库重建
+  - governance.js：门禁 6 规则（structure/compliance/length/noSecrets/dedup/evaluatorVersion）；状态机 draft→active→deprecated→disabled；滑窗回滚 + 冷却防抖；成本配额
+  - IPC：prompt-library:list（保持 P0 envelope）+ get/save/activate；EC.TEMPLATE_* 常量（-20..-23）；preload 暴露；MP_EVOLUTION_ENABLED === '1' 接线
+- **教训 1（版本化优先级需先定死）**：实现前必须先明确 checksum 碰撞/同源升版/新 id 的判定顺序，否则测试与实现会冲突（相同 content 但不同 concept 的模板被误判为碰撞拒绝）。
+- **教训 2（TYPES 枚举需含 fragment）**：模板 type 字段同时承载「级别」（full/fragment）和「类型」（composition/style/...），TYPES 数组必须包含 'fragment'，否则合法 fragment 模板被误判为非法。
+- **教训 3（dedup 需检查全部已入库模板）**：dedup 规则不能只检查 active 模板，draft 模板也应参与去重（否则重复入库），disabled 除外（终态可重新入库）。
+- **预防**：新增 prompt-memory.test.js（23 测试）+ governance.test.js（17 测试）+ generation-feedback.test.js（20 测试）+ prompt-memory.integration.test.js（5 测试），覆盖版本优先级、四类参数白名单、状态机边表、滑窗回滚、配额降级。
+
+---
 ## 多平台发布 E2E 真实环境测试复盘（codex/multi-platform-e2e-publish，2026-09-07）
 
 - **背景**：在真实 Electron 桌面应用中，对国内 4 个已登录自媒体平台（微信公众号/头条/抖音/视频号）进行了完整 E2E 发布测试，发现账号凭证检测、RPA 选择器引擎、Cookie 过期检测三方面问题。

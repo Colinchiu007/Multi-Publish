@@ -1,3 +1,27 @@
+# [未发布] fix(create): 分镜素材自选等待态测试断言修复——spy 组件方法替代全局 scrollIntoView（2026-09-13）
+
+### 修复（QM-5 五步）
+- **根因**：PR #1770（StageProgress 自动滚动）在 `StageProgress.vue` 新增 `scrollToStage` 调用 `el.scrollIntoView`，而 CreateView 测试用 `vi.spyOn(Element.prototype, 'scrollIntoView')` 全局 spy 并断言「恰好 1 次」——StageProgress 的自动滚动也触发全局 spy，导致计数 2/4/7 次。
+- **逃逸分析**：单测只断言全局 scrollIntoView 计数，未隔离组件自身滚动与第三方组件滚动；PR #1770 合入后未跑 CreateView 全量（CI 的 QG Unit/Shards/Coverage/electron-tests 均失败，PR #1776 带相同失败被合并）。
+- **系统性漏洞**：测试断言依赖全局 DOM 方法 spy 的「恰好 N 次」，对第三方组件引入的同类调用无隔离。
+- **修复**：3 个测试改为 `vi.spyOn(w.vm, 'scrollToSceneAssetPanel')`（组件方法 spy，保留原实现），只统计 sceneAssetPanel 自身的滚动，不受 StageProgress 影响。
+- **回归保护**：CreateView 282 测试全绿（含 3 个修复用例）；CI 的 QG Unit/Shards/Coverage/electron-tests 恢复通过。
+
+# [未发布] feat(prompt-evolution): 提示词引擎自进化记忆库 + 治理层（P1b-memory）（2026-09-13）
+
+### 新增
+- **PromptMemory 记忆库 V0**（`services/prompt-evolution/prompt-memory.js`）：`prompt-library/library.json` 索引 + `templates/<id>@<version>.json` 版本化模板文件；full + fragment 两级；learnt fragment 仅允许 compositionType/action/object/creativeLevel 四类可控参数（越界字段入库即拒绝）；模板含 mode/sourceText/fingerprint/source/provenance/stats/state/guard 元数据；dictVersion 变更以 sourceText 惰性重算，无法重算标 stale 不参与检索；fingerprint 缺失 fail-close
+- **版本化优先级**（m9）：content checksum 完全碰撞拒绝 / 同 learnedFrom 且指纹相似升版 / 否则新 id；写盘原子性（临时文件 + rename）；损坏库 fail-close 重建
+- **Governance 治理层**（`services/prompt-evolution/governance.js`）：门禁 6 规则（structure/compliance/length/noSecrets/dedup/evaluatorVersion）；状态机 draft→active→deprecated→disabled（V0 仅人工确认激活）；滑窗回滚（acceptRate 连续 N 期 < 阈值 或 avgScore 下滑 > 阈值 → deprecated + 冷却防抖）；成本配额（按 engine dailyBudget，视频默认零自动评分）
+- **IPC 升级**（`ipc-handlers/generation-feedback.js`）：`prompt-library:list` 升级为真实列表且保持 P0 envelope `data:{templates, evolution}`；新增 `prompt-library:get/save/activate`；save 入参 `{engine, mode, type, content, concept, eventId}`（eventId evt_ 前缀校验、concept ≤2000 截断）
+- **error-codes**：新增 `EC.TEMPLATE_INVALID:-20 / TEMPLATE_GATE_FAILED:-21 / TEMPLATE_NOT_FOUND:-22 / TEMPLATE_BAD_STATE:-23`
+- **preload**：新增 `promptLibraryGet/Save/Activate` 暴露（system.js + index.bundle.js）
+- **接线**：`bootstrap/phase1-context.js` env `MP_EVOLUTION_ENABLED === '1'`（默认关）构造 promptMemory/governance 单例 + 注入 statsProvider
+
+### 验证
+- prompt-memory.test.js 23 通过 + governance.test.js 17 通过 + generation-feedback.test.js 20 通过 + prompt-memory.integration.test.js 5 通过 + preload.test.js 362 通过
+- 全链路集成：memory.listActive → fingerprint.findSimilarTemplates（active 命中 / deprecated 不命中 / fingerprint 缺失不参与）
+
 # [未发布] feat(StageProgress): 流水线进度弹窗自动滚动+固定进度条sticky（2026-09-13）
 
 ### 新增

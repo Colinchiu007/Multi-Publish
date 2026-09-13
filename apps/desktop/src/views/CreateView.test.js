@@ -4658,10 +4658,11 @@ describe("分镜素材自选等待态 UX（2026-08-13）", () => {
 
   it("检查点激活：横幅（含场景数）+ 就近面板 + 等待文案出现，且首次激活自动滚动一次", async () => {
     Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function () {};
-    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValue(selectionPayload());
     const w = await mountCreate();
+    // spy 组件方法而非全局 Element.scrollIntoView（StageProgress 自动滚动也会触发全局 spy，2026-09-13 PR #1770 回归）
+    const scrollSpy = vi.spyOn(w.vm, "scrollToSceneAssetPanel");
     await w.vm.updateOrchestrationStatus();
     await nextTick();
 
@@ -4680,10 +4681,11 @@ describe("分镜素材自选等待态 UX（2026-08-13）", () => {
 
   it("后续轮询不重复滚动（selectionGuided 一次性）", async () => {
     Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function () {};
-    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValue(selectionPayload());
     const w = await mountCreate();
+    // spy 组件方法而非全局 Element.scrollIntoView（StageProgress 自动滚动也会触发全局 spy，2026-09-13 PR #1770 回归）
+    const scrollSpy = vi.spyOn(w.vm, "scrollToSceneAssetPanel");
     await w.vm.updateOrchestrationStatus();
     await nextTick();
     await w.vm.updateOrchestrationStatus();
@@ -4769,11 +4771,13 @@ describe("分镜素材自选等待态 UX（2026-08-13）", () => {
 
   it("点击「去选择素材」按钮触发滚动 + 高亮（审查 I5）", async () => {
     Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function () {};
-    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValue(selectionPayload());
     const w = await mountCreate();
     w.vm.selectionGuided = true; // 关闭自动滚动，仅验证按钮路径
+    // spy 组件方法而非全局 Element.scrollIntoView（StageProgress 自动滚动也会触发全局 spy，2026-09-13 PR #1770 回归）；
+    // 保留原实现（sceneAssetAttention 置位 + 滚动），仅统计调用次数
+    const scrollSpy = vi.spyOn(w.vm, "scrollToSceneAssetPanel");
     await w.vm.updateOrchestrationStatus();
     await nextTick();
 

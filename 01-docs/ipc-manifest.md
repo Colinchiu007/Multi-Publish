@@ -131,6 +131,9 @@
 |---------|------|------|------|
 | `generation:feedback` | IPC invoke | (event, ...args) | { code, data, message } |
 | `prompt-library:list` | IPC invoke | (event, ...args) | { code, data, message } |
+| `prompt-library:get` | IPC invoke | (event, ...args) | { code, data, message } |
+| `prompt-library:save` | IPC invoke | (event, ...args) | { code, data, message } |
+| `prompt-library:activate` | IPC invoke | (event, ...args) | { code, data, message } |
 
 ## identity
 
