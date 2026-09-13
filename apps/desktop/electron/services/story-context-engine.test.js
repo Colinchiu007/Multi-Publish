@@ -488,11 +488,14 @@ describe('古代东亚面孔锚（2026-08-16 east-asian-face-anchor）', () => {
     expect(block.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
   })
 
-  it('modern 时代不注入面孔负面锚，且无文化 modern 无东亚锚', () => {
+ it('modern 时代不注入面孔负面锚，且无文化 modern 无东亚锚', () => {
     const story = extractStoryContext('小明在写字楼里用手机点外卖，晚上坐地铁回家。')
     expect(story.era).toBe('modern')
     expect(story.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
-    expect(buildDomainSeed('小明在写字楼加班', story)).not.toContain('人物形象')
+    // 2026-09-13 default-appearance-anchor：modern 无文化 → 默认东亚锚（buildDomainSeed 与 contextBlock 双路径）
+    expect(buildDomainSeed('小明在写字楼加班', story)).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    const block = buildSceneContextBlock({ text: '小明在写字楼加班' }, story)
+    expect(block.contextBlock).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
   })
 
   it('strong ancient 无文化 + 东亚意象线索 → 默认东亚锚与面孔负面锚', () => {
@@ -527,6 +530,34 @@ describe('古代东亚面孔锚（2026-08-16 east-asian-face-anchor）', () => {
     const troop = buildSceneContextBlock({ text: '士兵们在城墙下巡逻' }, story)
     expect(troop.contextBlock).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
     expect(troop.negativeAnchors).toEqual(expect.arrayContaining(['西方面孔']))
+  })
+
+  it('modern 无文化 + 中性文本 → 默认东亚锚，contextBlock 与 buildDomainSeed 双路径生效', () => {
+    const story = extractStoryContext('他走在下班回家的路上，夕阳把影子拉得很长。')
+    expect(story.culture).toBe('')
+    expect(story.era).toBe('mixed')
+    expect(story.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+    expect(buildDomainSeed('他走在下班回家的路上', story)).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    const block = buildSceneContextBlock({ text: '他走在下班回家的路上' }, story)
+    expect(block.contextBlock).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+  })
+
+  it('modern 无文化 + 场景含非东亚异域词→ 不注入东亚锚', () => {
+    const story = extractStoryContext('小明每天坐地铁去公司上班。')
+    expect(story.culture).toBe('')
+    expect(story.era).toBe('modern')
+    // 场景含"欧洲"→ 跳过默认东亚锚
+    expect(buildDomainSeed('小明去欧洲出差，在巴黎开会', story)).not.toContain('人物形象')
+    const block = buildSceneContextBlock({ text: '小明去欧洲出差，在巴黎开会' }, story)
+    expect(block.contextBlock).not.toContain('人物形象')
+  })
+
+  it('mixed 无文化 + 场景含非东亚异域词→ 不注入东亚锚', () => {
+    const story = extractStoryContext('他在旅途中看到了不同的风景。')
+    expect(story.culture).toBe('')
+    expect(story.era).toBe('mixed')
+    expect(buildDomainSeed('他在罗马街头漫步', story)).not.toContain('人物形象')
+    expect(buildSceneContextBlock({ text: '他在罗马街头漫步' }, story).contextBlock).not.toContain('人物形象')
   })
 
   it('eraStrong 输出：朝代命中/多独立信号 true，弱信号 false', () => {

@@ -535,7 +535,9 @@ function containsNonEaSceneCue (text) {
 
 /**
  * 人物外貌正锚解析：东亚文化 → 东亚锚；印度/阿拉伯/埃及 → 当地民族面孔；
- * 欧洲/美国绝不注入；无文化命中时仅 strong ancient + 东亚意象线索才默认东亚锚。
+ * 欧洲/美国绝不注入；无文化命中时 strong ancient 需东亚意象线索才默认东亚锚。
+ * 2026-09-13 default-appearance-anchor：中国媒体来源无文化/地域指向时默认东亚面孔，
+ * 避免图片 API 训练数据偏西方导致同一文案跨场景人脸种族不一致。
  * @param {object|null} story
  * @param {string} [sceneText] 场景文本（W4 场景级守卫）
  * @returns {string} 空串 = 不注入
@@ -549,6 +551,13 @@ function resolveAppearanceAnchor (story, sceneText) {
   if (EAST_ASIAN_CULTURES.has(culture)) return EAST_ASIAN_APPEARANCE
   if (OTHER_REGION_APPEARANCE[culture]) return OTHER_REGION_APPEARANCE[culture]
   if (!culture && story.eraStrong === true && era === 'ancient' && story.eastAsianCue === true) return EAST_ASIAN_APPEARANCE
+  // 默认外观锚（2026-09-13 default-appearance-anchor）：modern/mixed 时代无文化命中 → 默认东亚。
+  // ancient 时代保持原逻辑（无 eastAsianCue 的古希腊/维京/玛雅等不得被强制东亚化，审查 C1）。
+  if (!culture && (era === 'modern' || era === 'mixed')) {
+    // 场景级守卫：含非东亚异域词（胡人/波斯/古希腊/维京/玛雅等）不默认
+    if (!containsNonEaSceneCue(sceneText)) return EAST_ASIAN_APPEARANCE
+    return ''
+  }
   return ''
 }
 
