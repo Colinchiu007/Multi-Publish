@@ -36,6 +36,28 @@ const RAW_CATEGORY_MAP = {
     '科技': 'tech', '娱乐': 'entertainment', '体育': 'sports',
     '教育': 'education', '健康': 'health', '军事': 'international',
   },
+  // 微博热搜 hot_band 的 category 字段（实测 2026-09 枚举，15 类）
+  weibo: {
+    '数码': 'tech', '电竞': 'entertainment', '国内时政': 'society',
+    '演出': 'entertainment', '互联网': 'tech', '剧集': 'entertainment',
+    '综艺': 'entertainment', '民生新闻': 'society', '体育': 'sports',
+    '幽默': 'entertainment', '科学科普': 'tech', '美食': 'general',
+    '健康医疗': 'health', '舆论监督': 'society', '游戏': 'entertainment',
+  },
+  // B站热门 tname 分区名（实测 2026-09，常见分区 → 10 类映射；未命中分区走关键词规则）
+  bilibili: {
+    '科技': 'tech', '数码': 'tech', '软件应用': 'tech', '科学科普': 'tech',
+    '知识': 'tech', '人文历史': 'general', '校园学习': 'education',
+    '手机游戏': 'entertainment', '单机游戏': 'entertainment', '电子竞技': 'entertainment',
+    '游戏': 'entertainment', '国产动画': 'entertainment', '影视杂谈': 'entertainment',
+    '电影': 'entertainment', '电视剧': 'entertainment', '综艺': 'entertainment',
+    '音乐综合': 'entertainment', '演奏': 'entertainment', '鬼畜剧场': 'entertainment',
+    '同人·手书': 'entertainment', '小剧场': 'entertainment', '预告·资讯': 'general',
+    '体育': 'sports', '社会': 'society', '日常': 'general', '生活': 'general',
+    '美食制作': 'general', '美食记录': 'general', '美食侦探': 'general',
+    '亲子': 'general', '动物二创': 'general', '搞笑': 'entertainment',
+    '出行': 'general', '手工': 'general',
+  },
 }
 
 /**

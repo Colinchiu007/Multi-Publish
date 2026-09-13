@@ -2551,7 +2551,7 @@ knowledgeBase: {
     channelAll: 'All channels',
     channels: {
       zhihu: 'Zhihu', toutiao: 'Toutiao', tencent: 'Tencent News', bilibili: 'Bilibili',
-      douyin: 'Douyin', baidu: 'Baidu', tophub: 'Weibo (tophub)',
+      douyin: 'Douyin', baidu: 'Baidu', weibo: 'Weibo Hot Search', tophub: 'Weibo (tophub)',
     },
     selectAll: 'Select all',
     deselectAll: 'Deselect all',
@@ -2574,6 +2574,7 @@ knowledgeBase: {
     publishCancel: 'Cancel',
     backToBatch: 'Back',
     channelUnavailable: 'Unavailable',
+    sourceRank: (ctx) => 'Rank #' + ctx.named('rank') + ' on source channel (list numbers are sequential within the current filtered view)',
     loadFailed: 'Failed to fetch topics, please retry later',
     generateVideo: 'Generate video',
     genVideoTitle: (ctx) => 'One-click video · ' + ctx.named('topic'),

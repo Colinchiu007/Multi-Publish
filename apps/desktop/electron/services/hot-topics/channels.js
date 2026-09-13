@@ -72,7 +72,8 @@ function parseTencent(json) {
   })).filter(x => x.topic)
 }
 
-/** B站热门 JSON：data.list[].title */
+/** B站热门 JSON：data.list[].title（tname 分区名作为原生分类，实测 2026-09）
+ * ps=50 拉取更充分的分区覆盖（tname 多样性），仅取 top 20 进列表。 */
 function parseBilibili(json) {
   const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
   return list.slice(0, 20).map((item, i) => ({
@@ -81,7 +82,7 @@ function parseBilibili(json) {
     topic: String(item.title || '').trim(),
     hotValue: Number(item.stat && item.stat.view) || null,
     url: sanitizeUrl('https://www.bilibili.com/video/' + (item.bvid || '')),
-    rawCategory: null,
+    rawCategory: item.tname || null,
   })).filter(x => x.topic)
 }
 
@@ -98,25 +99,42 @@ function parseDouyin(json) {
   })).filter(x => x.topic)
 }
 
-/** 百度热搜 HTML：数据内嵌 <!--s-data: {...}--> 注释 JSON，data.cards[].content[]（实测 2026-09） */
-function parseBaidu(html) {
-  const m = html && html.match(/<!--s-data:([\s\S]*?)-->/)
-  if (!m) return []
-  let json
-  try { json = JSON.parse(m[1]) } catch (_) { return [] }
+/** 百度热搜官方 JSON API：data.cards[0].content[0].content[]（实测 2026-09；该端点无 hotScore 字段）
+ * 置顶条（isTop:true，无 index 字段）是栏目推广位非正式名次，跳过以保证 rank 唯一
+ * （否则置顶条 rank 回退 i+1=1 与正式榜首 index=1 重复，id 冲突污染勾选状态）。 */
+function parseBaidu(json) {
   const cards = (json && json.data && Array.isArray(json.data.cards)) ? json.data.cards
     : (json && Array.isArray(json.cards)) ? json.cards : []
   const content = []
   for (const card of cards) {
-    if (Array.isArray(card.content)) content.push(...card.content)
+    if (Array.isArray(card.content) && card.content[0] && Array.isArray(card.content[0].content)) {
+      content.push(...card.content[0].content)
+    }
   }
-  return content.slice(0, 20).map((item, i) => ({
+  // 过置顶推广位（isTop 无 index），保留正式名次 1..n 唯一
+  const ranked = content.filter(item => !item.isTop)
+  return ranked.slice(0, 20).map((item, i) => ({
     channel: 'baidu',
-    rank: Number(item.rank) || i + 1,
+    rank: Number(item.index) || i + 1,
     topic: decodeHtmlEntities(item.word || item.query || ''),
     hotValue: Number(item.hotScore) || null,
     url: sanitizeUrl(item.url || item.rawUrl),
     rawCategory: null,
+  })).filter(x => x.topic)
+}
+
+/** 微博热搜官方 JSON：data.band_list[]（实测 2026-09；带 category 原生分类字段，免登录） */
+function parseWeibo(json) {
+  const list = (json && json.data && Array.isArray(json.data.band_list)) ? json.data.band_list : []
+  return list.slice(0, 20).map((item, i) => ({
+    channel: 'weibo',
+    // rank 用数组序 i+1（与其他解析器一致）：实测 band_list 中 realpos 偶发稀疏（null），
+    // 若回退 i+1 会与后续条目的 realpos 撞号产生重复 id；数组序恒唯一
+    rank: i + 1,
+    topic: String(item.word || '').trim(),
+    hotValue: Number(item.num) || null,
+    url: sanitizeUrl('https://s.weibo.com/weibo?q=' + encodeURIComponent(item.word || '')),
+    rawCategory: item.category || null,
   })).filter(x => x.topic)
 }
 
@@ -154,11 +172,12 @@ const CHANNEL_PARSERS = {
   douyin: parseDouyin,
   baidu: parseBaidu,
   tophub: parseTophub,
+  weibo: parseWeibo,
 }
 
 module.exports = {
   decodeHtmlEntities,
   sanitizeUrl,
   CHANNEL_PARSERS,
-  parseZhihu, parseToutiao, parseTencent, parseBilibili, parseDouyin, parseBaidu, parseTophub,
+  parseZhihu, parseToutiao, parseTencent, parseBilibili, parseDouyin, parseBaidu, parseTophub, parseWeibo,
 }

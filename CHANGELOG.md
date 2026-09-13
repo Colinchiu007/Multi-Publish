@@ -1,3 +1,28 @@
+## [未发布] feat(hot-topics): 热门选题扩源（微博热搜官方 JSON + 百度 JSON API + B站分区分类）+ 分类原生优先 + 序号视图内重编号（2026-09-13）
+
+### 新增
+- **微博热搜渠道**（weibo.com/ajax/statuses/hot_band）：免登录官方 AJAX 端点，50 条/次，带 category 原生分类字段（15 类：数码/电竞/国内时政/演出/互联网/剧集/综艺/民生新闻/体育/幽默/科学科普/美食/健康医疗/舆论监督/游戏），仅需 UA+Referer。渠道总数 7→8，MAX_TOPICS 140→160。
+- **分类原生优先**：微博 category、B站 tname 分区名接入 RAW_CATEGORY_MAP（带原生分类的渠道从 2/7 → 4/8），微博/B站条目不再走关键词猜测。
+
+### 修复
+- **百度渠道切官方 JSON API**（top.baidu.com/api/board?platform=wise&tab=realtime）：消除 HTML s-data 正则解析脆弱性；该端点无 hotScore，热度列降级不显示；riskLevel medium→low。
+- **序号视图内重编号**：列表序号从「渠道内原始 rank」改为「当前筛选视图内从 1 递增」（v-for index+1）；原 rank 保留在数据层，hover 序号徽标显示「来源渠道内第 N 名」提示。
+- **B站渠道升级**：ps=20→50 减少翻页；提取 tname 分区名作为原生分类。
+
+### 双模型审查修复（opencode + Claude，含真实载荷实测）
+- **百度 isTop 置顶条过滤**：真实 51 条载荷首条为 isTop:true 置顶推广位（无 index），rank 回退 i+1=1 与正式榜首 index=1 撞号 → id 'baidu:1' 重复，勾选状态互相污染。修复：过滤 isTop 条目 + 真实形状回归测试（1 置顶 + index 1..50，断言 rank 唯一）。
+- **微博 rank 改数组序**：实测 band_list 中 realpos 偶发稀疏（null，广告位），回退 i+1 与后续条目 realpos 撞号（18/20 唯一）。修复：rank 一律 i+1（与其他解析器一致），恒唯一。
+- **tophub 移出渠道下拉**：weibo 官方渠道成功时 tophub 同源条目被去重合并到 weibo 名下，切 tophub 筛选恒空。服务层保留 tophub 作微博兜底，视图不再暴露。
+- **parseBaidu 恢复 json.cards 顶层回退** + 防御性测试（missing cards / flat content）。
+- **B站 ps=50 注释**：意图是拉取更充分分区覆盖（tname 多样性），仅取 top 20 展示。
+
+### 验证
+- vitest hot-topics-service 28 passed（+8：微博/B站分类映射、weibo hot_band 解析、百度 JSON 嵌套解析、isTop 置顶过滤、防御性回退、8 渠道配置、baidu JSON URL、weibo Referer 断言）
+- vitest HotTopics.test 21 passed（+1：序号重编号回归——筛选后 1,2 连续/全部视图 1,2,3/title 提示）
+- 真实端点冒烟：weibo 200/20条 id 唯一 20/20（修复后）、baidu 200/20条 id 唯一 20/20（置顶已滤）、bilibili 200/20条（tname 亲子→general）
+- QM-1 打包验证：electron-builder --win --dir 成功；asar 含 parseWeibo/isTop；启动 8s 存活无关键错误
+- locale-sync --pair-base HEAD / --cjk 全 PASS；zh/en 成对新增 channels.weibo + sourceRank
+
 ## [未发布] fix(hot-topics): 视频流水线弹窗统一【后台运行】按钮 + 全局居中提示（2026-09-13）
 
 ### 修复（QM-5 五步）
