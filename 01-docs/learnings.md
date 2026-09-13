@@ -1,4 +1,13 @@
-## 提示词引擎自进化记忆库 + 治理层实现复盘（codex/prompt-engine-evolution-p1b-memory，2026-09-13）
+
+## glob 工具权限失败根因与规避（2026-09-13）
+
+- **现象**：DSH glob 工具搜索整个仓库时报 g: ./packages\python-backend\.pytest-tmp-logto-final: IO error ... 拒绝访问 (os error 5)，整体失败（exit 2）。
+- **根因**：packages/python-backend/.pytest-tmp-logto-final 目录被 ACL 锁定（连管理员 icacls 都无法访问），是 2026-07-21 的 pytest 测试残留。DSH glob 工具用 ripgrep 遍历，**不尊重 .gitignore**（该目录已被 .pytest-tmp-logto*/ 覆盖），遇到不可访问目录就整体报错而非跳过。
+- **规避**：用 Get-ChildItem -Recurse -Filter "*.py" -ErrorAction SilentlyContinue（PowerShell）替代 glob，-ErrorAction SilentlyContinue 跳过不可访问目录；或避免搜索该路径。
+- **根治**：需管理员权限删除该目录（	akeown /F <dir> /A + Remove-Item -Recurse -Force）。当前会话无管理员权限，无法删除。
+- **教训**：DSH glob 工具不尊重 gitignore 且对权限拒绝 fail-closed，遇到 ACL 锁定的 gitignored 残留目录会整体失败。此类残留应定期清理（管理员权限），或搜索时避开。
+
+---## 提示词引擎自进化记忆库 + 治理层实现复盘（codex/prompt-engine-evolution-p1b-memory，2026-09-13）
 
 - **背景**：P0 反馈管道（signal-collector）+ P1b 主题指纹（fingerprint.js）已合入 main，但 learnt 模板无落库/门禁/治理通道。本次实现 PromptMemory 记忆库 V0 + Governance 治理层，完成「采集 → 评估 → 记忆 → 优化 → 治理」闭环中「高价值片段沉淀为可复用资产」的关键一环。
 - **实现**：
