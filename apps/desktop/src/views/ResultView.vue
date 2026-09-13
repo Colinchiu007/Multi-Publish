@@ -56,6 +56,7 @@
 
       <div class="actions">
         <UiButton @click="download">下载视频</UiButton>
+        <UiButton variant="secondary" @click="viewScript">{{ tOrKey('story2video.view_script') }}</UiButton>
         <UiButton variant="secondary" @click="exportZip">导出 ZIP</UiButton>
         <UiButton variant="secondary" @click="copyLocalPath">复制路径</UiButton>
         <UiButton variant="secondary" @click="showInFolder">打开文件夹</UiButton>
@@ -430,6 +431,16 @@
       <p v-if="!sceneMaterialPreview.url" class="scene-material-preview-empty">{{ sceneMaterialPreview.label }}</p>
     </div>
   </UiModal>
+  <UiModal :visible="scriptModalVisible" :title="tOrKey('story2video.script_modal_title')" size="lg" @close="closeScriptModal">
+    <div class="script-modal-body">
+      <pre class="script-text">{{ scriptText }}</pre>
+    </div>
+    <template #footer>
+      <UiButton :disabled="!scriptText" @click="copyScript">{{ copyingScript ? tOrKey('story2video.script_copied_button') : tOrKey('story2video.script_copy_button') }}</UiButton>
+      <UiButton variant="secondary" @click="closeScriptModal">{{ tOrKey('common.close') }}</UiButton>
+    </template>
+  </UiModal>
+
 </template>
 
 <script>
@@ -505,6 +516,8 @@ export default {
       pipelineRunId: null,
       pipelineRunStatus: null,
       pipelineRunActionBusy: false,
+      scriptModalVisible: false,
+      copyingScript: false,
     }
   },
   async mounted() {
@@ -651,10 +664,49 @@ export default {
       if (!this.pipelineRunStatus) return ''
       return this.tOrKey('create.history.statuses.' + this.pipelineRunStatus)
     },
+    scriptText() {
+      if (!Array.isArray(this.segments) || !this.segments.length) return ''
+      return this.segments.map((segment, index) => {
+        const text = (segment && typeof segment.text === 'string') ? segment.text.trim() : ''
+        return text ? '【' + (index + 1) + '】' + text : '【' + (index + 1) + '】（无文案）'
+      }).join('\n\n')
+
+
+    },
   },
   methods: {
     // 去发布：从当前项目提取发布数据并跳转发布页（视频模式预填充）。
     // 有完整项目对象时走 buildPublishFromProject；仅文件路径模式（无 project）时只带视频路径。
+    viewScript() {
+      this.scriptModalVisible = true
+    },
+    closeScriptModal() {
+      this.scriptModalVisible = false
+      this.copyingScript = false
+    },
+    async copyScript() {
+      const text = this.scriptText
+      if (!text) return
+      this.copyingScript = true
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text)
+        } else {
+          const textarea = document.createElement('textarea')
+          textarea.value = text
+          textarea.style.position = 'fixed'
+          textarea.style.opacity = '0'
+          document.body.appendChild(textarea)
+          textarea.select()
+          document.execCommand('copy')
+          document.body.removeChild(textarea)
+        }
+      } catch (_) {
+        // fallback already handled
+      }
+      setTimeout(() => { this.copyingScript = false }, 1500)
+    },
+
     goPublish() {
       const data = this.project ? buildPublishFromProject(this.project) : null
       const videoPath = (data && data.video_path) || (typeof this.videoPath === 'string' ? this.videoPath : '')
