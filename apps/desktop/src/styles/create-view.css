@@ -329,11 +329,16 @@
 .action-bar > div { min-width: 0; }
 .s2v-options-toast { position: relative; margin: 0; bottom: auto; left: auto; right: auto; z-index: 10; width: 100%; font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 8px 12px; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out both; }
 
-/* 统一流水线进度弹窗：内容滚动，阶段列表不再嵌套第二个滚动容器。 */
+/* 统一流水线进度弹窗（CreateView + HotTopics 共用 Sticky Header + 自动滚动契约）；内容随 .ui-modal-body 滚动，阶段列表不再嵌套第二个滚动容器 */
+.gen-video-modal-content,
 .pipeline-progress-modal-content { min-width: 0; }
+.gen-video-modal-content .stage-progress,
 .pipeline-progress-modal-content .stage-progress { position: relative; top: auto; z-index: auto; background: var(--apple-surface-primary, var(--surface, #fff)); padding: 0; margin: 0; }
+.gen-video-modal-content .stages-list,
 .pipeline-progress-modal-content .stages-list { max-height: none; overflow: visible; gap: 10px; }
+.gen-video-modal-content .stages-sticky-header,
 .pipeline-progress-modal-content .stages-sticky-header { position: sticky; top: 0; z-index: 1; padding: 4px 0 10px; background: var(--apple-surface-primary, var(--surface, #fff)); }
+.gen-video-modal-content .stage-status,
 .pipeline-progress-modal-content .stage-status { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: right; }
 .pipeline-progress-basic { display: flex; align-items: center; gap: 10px; margin: 12px 0 16px; color: var(--text, #333); font-size: 13px; font-weight: 600; }
 .pipeline-progress-basic-track { flex: 1; min-width: 0; height: 8px; overflow: hidden; background: var(--border, #dcdfe6); border-radius: 4px; }
