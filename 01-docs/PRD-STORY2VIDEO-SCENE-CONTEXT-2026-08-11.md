@@ -144,6 +144,14 @@ optimize 阶段调用 prompt-engine 时，请求 `context` 携带场景上下文
       + (scene 含做饭/烹饪 且 era=modern  ? [土灶,柴火] : [])
   ```
 - 时代互斥：era=ancient 时 props 只输出古代道具；era=modern 时只输出现代道具；`mixed/general` 不输出时代道具。
+- **人物外观锚默认规则（2026-09-13 default-appearance-anchor）**：为避免中国媒体来源文案在现代/中性题材下生成欧美脸，`resolveAppearanceAnchor` 按以下优先级解析人物外观锚：
+  1. 场景含非东亚异域词（胡人/波斯/希腊/维京/玛雅/巴黎等，完整列表见 `NON_EA_SCENE_CUE_TERMS`）→ 不注入（尊重异域角色）
+  2. 文化命中欧洲/美国 → 不注入（西方故事保持西方面孔）
+  3. 文化命中东亚（中国/日本/韩国/朝鲜・东北亚古国）→ 注入 `东亚人面孔、黑发、黄皮肤、深色瞳`
+  4. 文化命中印度/阿拉伯/埃及 → 注入对应民族面孔锚
+  5. 无文化命中且 era=ancient + eraStrong + eastAsianCue → 注入东亚锚（古代东亚题材）
+  6. **无文化命中且 era=modern/mixed → 默认注入东亚锚**（新增，覆盖现代都市/无地域指向故事）
+- 数据校验：`culture` 为空串时走默认分支；`era` 非 `modern/mixed`（如 `ancient` 或空 story 中性兜底 `era=undefined`）不注入默认锚；场景级守卫优先于默认规则。
 - 无关键词文案：`genre=general / era=mixed / culture=''`，summary 截取全文开头，不做时代编造；场景上下文块仅基于场景文字（与现行为等价，保证不回归）。
 
 ### 5.4 交互逻辑
@@ -191,6 +199,7 @@ optimize 阶段调用 prompt-engine 时，请求 `context` 携带场景上下文
 6. 【fail-closed】空场景输入阶段失败。
 7. 【流程】流水线阶段顺序含 scene_context，且旧行为（无 scene_context 配置）不回归。
 8. 【文档】PRD/技术方案/CHANGELOG/learnings/.quality-gates 已同步。
+9. 【人脸一致性（2026-09-13）】无文化命中的现代/中性文案 → `buildDomainSeed` 与 `buildSceneContextBlock` 双路径均注入「东亚人面孔、黑发、黄皮肤、深色瞳」；场景含非东亚异域词时免除默认；明确欧洲/美国文化不注入；无文化 strong ancient 古希腊/维京/玛雅不注入；空 story 中性兜底不注入。
 
 ## 8. 验收边界（外部）
 
