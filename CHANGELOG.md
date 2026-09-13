@@ -26,6 +26,12 @@
 
 - PR #1726 预存的 `catch (_) {}` 空块（stopGenVideoTracking 的 genVideoUnsubscribe 取消订阅）被 eslint no-empty 规则拦截；补语义注释消除 error，无行为改动。
 
+## [未发布] fix(story2video): TTS 空音频逃逸防线 — 落盘后 ffprobe 校验 0 时长（2026-09-13）
+
+- 根因：MiniMax 语音克隆 TTS 偶发返回「200 OK + 空 payload」的音频文件，normalizeAssetResult 只检查 path 非空就通过，空音频逃逸到 compose narration_concat 阶段触发 ffmpeg "matches no streams" 崩溃。
+- 修复：新增 probeAudioFile 函数在 TTS 落盘 + re-clone 两处校验——有音频流但时长为 0 时触发瞬态重试；假路径/ffprobe 不可用静默跳过（兼容测试环境 mock）。
+- 测试：story2video-stages.test.js 149/149 + compose-engine.test.js 149/149 全绿，无回归。
+
 ## [未发布] feat(hot-topics): 热门选题扩源（微博热搜官方 JSON + 百度 JSON API + B站分区分类）+ 分类原生优先 + 序号视图内重编号（2026-09-13）
 
 ### 新增

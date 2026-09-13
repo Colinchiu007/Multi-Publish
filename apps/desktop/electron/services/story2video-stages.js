@@ -774,6 +774,38 @@ async function probeVideoFile (videoPath) {
   await runTool(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', videoPath])
 }
 
+/** 用捆绑 ffprobe 校验音频可解码且时长 > 0。TTS 返回 200 OK + 空体等损坏音频
+ *  会被合成前防线拦截，避免逃逸到 concat 阶段触发 "matches no streams"。
+ *  2026-09-13 fix-tts-empty-audio-escape */
+async function probeAudioFile (audioPath) {
+  const { findFfprobe } = require('./media-tool-paths')
+  const ffprobe = findFfprobe()
+  if (!ffprobe) return
+  // 假路径（测试 mock 不存在的文件名）静默跳过；真实 TTS 落盘后才 probe。
+  if (!fs.existsSync(audioPath)) return
+  // 仅当文件存在 + ffprobe 成功 + 时长为 0 时拒绝。
+  // 文件不存在/ffprobe 不可用等场景静默通过——compose preflight 已有终因守卫。
+  const { promisify } = require('util')
+  const execFileAsync = promisify(execFile)
+  try {
+    const { stdout } = await execFileAsync(ffprobe, [
+      '-v', 'error', '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_type,duration',
+      '-of', 'csv=p=0', audioPath,
+    ], { timeout: 30000, maxBuffer: 128 * 1024 })
+    const parts = String(stdout || '').trim().split(',')
+    if (parts[0] && parts[0] !== 'none') {
+      const duration = Number.parseFloat(parts[1] || '')
+      if (!Number.isFinite(duration) || duration <= 0) {
+        throw new Error('TTS audio has 0 duration — likely provider returned empty content')
+      }
+    }
+  } catch (e) {
+    // Only reject on confirmed 0-duration damage; all other probe errors pass.
+    if (e && e.message && e.message.includes('0 duration')) throw e
+  }
+}
+
 function runTool (binary, args) {
   return new Promise((resolve, reject) => {
     execFile(binary, args, { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -3200,6 +3232,12 @@ function registerStory2VideoStages(pipelineEngine) {
             const result = await generateTts(voiceId);
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
+              try {
+                await probeAudioFile(normalized.path);
+              } catch (probeErr) {
+                if (log && log.warn) log.warn('Story2VideoStages', 'TTS returned damaged audio, throwing for retry', { index, path: normalized.path, error: probeErr.message });
+                throw probeErr;
+              }
               markTtsDone();
               saveIncrementalResume(index, { audioPath: normalized.path, duration: normalized.duration });
               return {
@@ -3231,6 +3269,12 @@ function registerStory2VideoStages(pipelineEngine) {
             context,
           })
           if (_reCloneResult) {
+            try {
+              await probeAudioFile(_reCloneResult.path);
+            } catch (probeErr) {
+              if (log && log.warn) log.warn('Story2VideoStages', 're-cloned voice returned damaged audio', { index, path: _reCloneResult.path, error: probeErr.message });
+              return { index, success: false, error: 're-cloned voice audio is damaged: ' + (probeErr && probeErr.message || String(probeErr)).slice(0, 120) };
+            }
             markTtsDone()
             saveIncrementalResume(index, { audioPath: _reCloneResult.path, duration: _reCloneResult.duration });
             return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
