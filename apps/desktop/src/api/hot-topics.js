@@ -8,3 +8,16 @@ export async function hotTopicsFetch(force = false) {
 export async function hotTopicsGetCache() {
   return invokeWithFallback('hotTopicsGetCache', { code: -1, data: null })
 }
+
+// 收藏
+export async function hotTopicsFavoriteAdd(topic) {
+  return invokeWithFallback('hotTopicsFavoriteAdd', { code: -1, message: 'IPC unavailable' }, topic)
+}
+
+export async function hotTopicsFavoriteRemove(topicId) {
+  return invokeWithFallback('hotTopicsFavoriteRemove', { code: -1, message: 'IPC unavailable' }, topicId)
+}
+
+export async function hotTopicsFavoriteList() {
+  return invokeWithFallback('hotTopicsFavoriteList', { code: -1, data: [] })
+}

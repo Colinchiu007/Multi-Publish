@@ -14,6 +14,26 @@
     </div>
 
     <div class="cohere-content">
+      <!-- 标签页切换 -->
+      <div class="tab-bar" role="tablist">
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'hot'"
+          class="tab-btn"
+          :class="{ active: activeTab === 'hot' }"
+          @click="activeTab = 'hot'"
+        >{{ t('hotTopics.tabHot') }}</button>
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'favorites'"
+          class="tab-btn"
+          :class="{ active: activeTab === 'favorites' }"
+          @click="activeTab = 'favorites'"
+        >{{ t('hotTopics.tabFavorites') }}<span v-if="favorites.length > 0" class="fav-count">{{ favorites.length }}</span></button>
+      </div>
+
+      <!-- 热门选题：仅 hot tab 下显示 -->
+      <div v-if="activeTab === 'hot'">
       <!-- 部分渠道失败警告 -->
       <el-alert
         v-if="failedChannels.length > 0"
@@ -116,10 +136,16 @@
             @change="toggleSelect(topic.id)"
           />
           <span class="rank-badge" :title="t('hotTopics.sourceRank', { rank: topic.rank })">{{ viewIndex + 1 }}</span>
-          <span class="topic-text" :title="topic.topic">{{ displayTopic(topic.topic) }}</span>
+          <span class="topic-text" :title="getTopicSummary(topic)">{{ displayTopic(topic.topic) }}</span>
           <span class="tag category-tag" :class="'cat-' + topic.category">{{ t('hotTopics.categories.' + topic.category) }}</span>
           <span class="tag channel-tag">{{ t('hotTopics.channels.' + topic.channel) }}</span>
           <span v-if="topic.hotValue" class="hot-value">{{ formatHotValue(topic.hotValue) }}</span>
+          <span class="update-time">{{ formatTime(topic.fetchedAt || lastRefresh) }}</span>
+          <button
+            class="cohere-btn-secondary item-fav-btn"
+            :data-testid="'hot-topic-fav-' + topic.id"
+            @click="toggleFavorite(topic)"
+          >{{ isFavorited(topic.id) ? '♥' : '♡' }}</button>
           <button class="cohere-btn-secondary item-create-btn" @click="createCopySingle(topic)">
             {{ t('hotTopics.createCopy') }}
           </button>
@@ -133,6 +159,35 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 收藏选题 tab -->
+    <div v-if="activeTab === 'favorites'" class="favorites-section">
+      <div v-if="favorites.length === 0" class="empty-box" data-testid="hot-topics-favorites-empty">
+        <div class="empty-title">{{ t('hotTopics.favoritesEmptyTitle') }}</div>
+        <div class="empty-desc">{{ t('hotTopics.favoritesEmptyDesc') }}</div>
+      </div>
+      <div v-else class="topics-list">
+        <div
+          v-for="fav in favorites"
+          :key="fav.topic?.id || fav.favoritedAt"
+          class="topic-item favorite-item"
+          data-testid="hot-topic-favorite-item"
+        >
+          <span class="rank-badge fav-star">♡</span>
+          <span
+            class="topic-text"
+            :title="fav.topic ? getTopicSummary(fav.topic) : ''"
+          >{{ fav.topic ? displayTopic(fav.topic.topic) : '—' }}</span>
+          <span v-if="fav.topic" class="tag category-tag" :class="'cat-' + fav.topic.category">{{ t('hotTopics.categories.' + fav.topic.category) }}</span>
+          <span v-if="fav.topic" class="tag channel-tag">{{ t('hotTopics.channels.' + fav.topic.channel) }}</span>
+          <span v-if="fav.favoritedAt" class="fav-date">{{ formatFavoritedAt(fav.favoritedAt) }}</span>
+          <button class="cohere-btn-secondary item-create-btn" @click="removeFavorite(fav.topic?.id)">
+            {{ t('hotTopics.unfavorite') }}
+          </button>
+        </div>
+      </div>
+    </div>
     </div>
 
     <!-- 中央加载提示：首次进入无缓存 / 手动刷新时显示（非弹窗，全屏居中动态提示） -->
@@ -207,7 +262,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { hotTopicsFetch, hotTopicsGetCache } from '@/api/hot-topics'
+import { hotTopicsFetch, hotTopicsGetCache, hotTopicsFavoriteAdd, hotTopicsFavoriteRemove, hotTopicsFavoriteList } from '@/api/hot-topics'
 import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, onPipelineUpdate } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
@@ -232,6 +287,10 @@ const lastRefresh = ref(0)
 const activeCategory = ref('all')
 const activeChannel = ref('all')
 const selectedIds = ref(new Set())
+
+// 标签页与收藏
+const activeTab = ref('hot')
+const favorites = ref([])
 
 // 发布流程
 const showPublishModal = ref(false)
@@ -394,6 +453,59 @@ function formatTime(ts) {
 
 function displayTopic(topic) {
   return topic.length > 60 ? topic.slice(0, 60) + '…' : topic
+}
+
+function getTopicSummary(topic) {
+  const channel = t('hotTopics.channels.' + (topic.channel || ''))
+  const category = t('hotTopics.categories.' + (topic.category || 'general'))
+  const rank = topic.rank || '—'
+  const hot = topic.hotValue ? formatHotValue(topic.hotValue) : '—'
+  return t('hotTopics.topicSummary', { channel, rank, category, hotValue: hot })
+}
+
+// ── 收藏相关 ──
+const favoritedIds = computed(() => new Set(favorites.value.filter(f => f.topic).map(f => f.topic.id)))
+
+function isFavorited(topicId) {
+  return favoritedIds.value.has(topicId)
+}
+
+async function toggleFavorite(topic) {
+  if (!topic?.id) return
+  if (isFavorited(topic.id)) {
+    const res = await hotTopicsFavoriteRemove(topic.id)
+    if (res && res.code === 0 && res.data) {
+      favorites.value = favorites.value.filter(f => f.topic?.id !== topic.id)
+    }
+  } else {
+    const res = await hotTopicsFavoriteAdd(topic)
+    if (res && res.code === 0 && res.data) {
+      favorites.value.unshift(res.data)
+    }
+  }
+}
+
+async function loadFavorites() {
+  try {
+    const res = await hotTopicsFavoriteList()
+    if (res && res.code === 0 && Array.isArray(res.data)) {
+      favorites.value = res.data
+    }
+  } catch (_) { /* 收藏加载失败不影响热门选题列表 */ }
+}
+
+async function removeFavorite(topicId) {
+  if (!topicId) return
+  const res = await hotTopicsFavoriteRemove(topicId)
+  if (res && res.code === 0 && res.data) {
+    favorites.value = favorites.value.filter(f => f.topic?.id !== topicId)
+  }
+}
+
+function formatFavoritedAt(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
 }
 
 function formatHotValue(v) {
@@ -919,6 +1031,7 @@ function closeGenVideoModal() {
 // ── 生命周期 ──
 onMounted(() => {
   loadFromCacheThenRefresh()
+  loadFavorites()
   refreshTimer = setInterval(() => {
     if (document.hidden) return
     if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false, { background: true })
@@ -939,6 +1052,21 @@ onUnmounted(() => {
 
 <style scoped>
 .hot-topics-page { padding: 20px; }
+/* 标签页 */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid #eee; margin-bottom: 16px; }
+.tab-btn { padding: 8px 20px; border: none; background: transparent; font-size: 14px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; position: relative; }
+.tab-btn:hover { color: #5149e8; }
+.tab-btn.active { color: #5149e8; border-bottom-color: #5149e8; font-weight: 600; }
+.fav-count { margin-left: 6px; background: #5149e8; color: #fff; border-radius: 10px; padding: 0 7px; font-size: 11px; line-height: 18px; display: inline-block; vertical-align: middle; }
+/* 收藏按钮 */
+.item-fav-btn { font-size: 14px; padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
+.item-fav-btn:hover { color: #e91e63; }
+/* 收藏列表 */
+.favorite-item .fav-star { background: #fff0f5; color: #e91e63; }
+.fav-date { font-size: 11px; color: #999; flex-shrink: 0; white-space: nowrap; }
+.favorites-section { margin-top: 0; }
+/* 更新时间 */
+.update-time { font-size: 11px; color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .last-refresh { font-size: 12px; color: #999; }
 .filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }

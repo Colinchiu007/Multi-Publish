@@ -22,13 +22,17 @@ describe('ipc-handlers assembly: hot-topics', () => {
     expect(warned.some(m => String(m).includes('hotTopicsService'))).toBe(true)
   })
 
-  it('registerHandlers registers both channels when service present', async () => {
+  it('registerHandlers registers all 5 channels when service present', async () => {
     const register = (await import('./hot-topics.js')).default || (await import('./hot-topics.js'))
     const fakeIpc = { handle: vi.fn() }
     const fakeService = { fetchTopics: vi.fn(), getCache: vi.fn() }
-    register(fakeIpc, { hotTopicsService: fakeService })
+    const fakeStore = { getUserSetting: vi.fn(() => []), setUserSetting: vi.fn() }
+    register(fakeIpc, { hotTopicsService: fakeService, store: fakeStore })
     const channels = fakeIpc.handle.mock.calls.map(c => c[0])
     expect(channels).toContain('hot-topics:fetch')
     expect(channels).toContain('hot-topics:get-cache')
+    expect(channels).toContain('hot-topics:favorite-add')
+    expect(channels).toContain('hot-topics:favorite-remove')
+    expect(channels).toContain('hot-topics:favorite-list')
   })
 })

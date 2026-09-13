@@ -2668,6 +2668,16 @@ knowledgeBase: {
     genVideoCancel: '取消',
     genVideoClose: '关闭',
     genVideoDone: '视频已生成，正在打开结果…',
+    // 收藏与标签页
+    tabHot: '热门选题',
+    tabFavorites: '收藏选题',
+    favorite: '收藏',
+    unfavorite: '取消收藏',
+    favoritesEmptyTitle: '暂无收藏选题',
+    favoritesEmptyDesc: '在热门选题中点击 ♡ 即可收藏感兴趣的选题',
+    updateTime: '更新',
+    favoritedAt: (ctx) => '收藏于 ' + ctx.named('time'),
+    topicSummary: (ctx) => '【' + ctx.named('channel') + '第' + ctx.named('rank') + '名】分类：' + ctx.named('category') + '，热度：' + ctx.named('hotValue'),
   },
 
 }

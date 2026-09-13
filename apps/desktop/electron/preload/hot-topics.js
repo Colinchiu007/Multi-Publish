@@ -10,6 +10,10 @@ function createHotTopicsApi(ipcRenderer) {
   return {
     hotTopicsFetch: (payload) => ipcRenderer.invoke('hot-topics:fetch', payload),
     hotTopicsGetCache: () => ipcRenderer.invoke('hot-topics:get-cache'),
+    // 收藏
+    hotTopicsFavoriteAdd: (topic) => ipcRenderer.invoke('hot-topics:favorite-add', { topic }),
+    hotTopicsFavoriteRemove: (topicId) => ipcRenderer.invoke('hot-topics:favorite-remove', { topicId }),
+    hotTopicsFavoriteList: () => ipcRenderer.invoke('hot-topics:favorite-list'),
   }
 }
 

@@ -12,8 +12,32 @@
  * @param {{ hotTopicsService: { fetchTopics: Function, getCache: Function }, log?: object }} deps
  */
 function registerHandlers(ipcMain, deps) {
-  const { hotTopicsService, log } = deps
+  const { hotTopicsService, store, identityService, log } = deps
   const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const FAVORITES_KEY = 'hot_topics_favorites'
+
+  function _getOwnerSubject() {
+    if (!identityService) return undefined
+    try {
+      const state = identityService.getState()
+      const sub = state && state.user && state.user.sub
+      if (typeof sub === 'string' && sub.trim()) return sub.trim()
+    } catch (_) { void _ }
+    return null
+  }
+
+  function _readFavorites(owner) {
+    if (!store || typeof store.getUserSetting !== 'function') return []
+    const raw = store.getUserSetting(FAVORITES_KEY, [], owner)
+    if (Array.isArray(raw)) return raw
+    return []
+  }
+
+  function _writeFavorites(favorites, owner) {
+    if (!store || typeof store.setUserSetting !== 'function') return
+    store.setUserSetting(FAVORITES_KEY, JSON.stringify(favorites), owner)
+  }
+
   // deps 缺失时 warn + 跳过注册（不中断其他模块的 IPC 注册链），调用方会拿到 invoke 超时/不存在
   if (!hotTopicsService) {
     logger.warn('[hot-topics] deps.hotTopicsService missing, skip channel registration')
@@ -37,6 +61,57 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       logger.error('[hot-topics] get-cache failed:', e && e.message ? e.message : String(e))
       return { code: -99, message: 'HOT_TOPICS_CACHE_FAILED' }
+    }
+  })
+
+  // ── 收藏 CRUD（owner-scoped，复用 settings-store getUserSetting/setUserSetting）──
+  ipcMain.handle('hot-topics:favorite-add', async (_event, payload) => {
+    try {
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: -2, message: 'FAVORITE_AUTH_REQUIRED' }
+      if (!payload || !payload.topic || !payload.topic.id) {
+        return { code: -1, message: 'FAVORITE_INVALID_TOPIC' }
+      }
+      const favorites = _readFavorites(owner)
+      const existing = favorites.find(f => f.topic && f.topic.id === payload.topic.id)
+      if (existing) return { code: 0, data: existing }
+      const entry = { topic: payload.topic, favoritedAt: Date.now() }
+      favorites.unshift(entry)
+      _writeFavorites(favorites, owner)
+      return { code: 0, data: entry }
+    } catch (e) {
+      logger.error('[hot-topics] favorite-add failed:', e && e.message ? e.message : String(e))
+      return { code: -99, message: 'FAVORITE_ADD_FAILED' }
+    }
+  })
+
+  ipcMain.handle('hot-topics:favorite-remove', async (_event, payload) => {
+    try {
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: -2, message: 'FAVORITE_AUTH_REQUIRED' }
+      const topicId = payload && payload.topicId
+      if (!topicId) return { code: -1, message: 'FAVORITE_INVALID_TOPIC_ID' }
+      const favorites = _readFavorites(owner)
+      const idx = favorites.findIndex(f => f.topic && f.topic.id === topicId)
+      if (idx === -1) return { code: 0, data: false }
+      favorites.splice(idx, 1)
+      _writeFavorites(favorites, owner)
+      return { code: 0, data: true }
+    } catch (e) {
+      logger.error('[hot-topics] favorite-remove failed:', e && e.message ? e.message : String(e))
+      return { code: -99, message: 'FAVORITE_REMOVE_FAILED' }
+    }
+  })
+
+  ipcMain.handle('hot-topics:favorite-list', async () => {
+    try {
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: -2, message: 'FAVORITE_AUTH_REQUIRED', data: [] }
+      const favorites = _readFavorites(owner)
+      return { code: 0, data: favorites }
+    } catch (e) {
+      logger.error('[hot-topics] favorite-list failed:', e && e.message ? e.message : String(e))
+      return { code: -99, message: 'FAVORITE_LIST_FAILED', data: [] }
     }
   })
 }
