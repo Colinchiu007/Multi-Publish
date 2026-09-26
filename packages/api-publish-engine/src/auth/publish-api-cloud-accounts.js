@@ -23,7 +23,26 @@ const CLOUD_ACCOUNT_PATHS = new Set(
 // 共享机器的 HTTP 缓存，「库被拖走不是明文」这条防线就在传输层被重新打开。
 // 收在**这一个**出口常量上，而不是逐处理器各写一遍：新增路由只要经由本方法出线就自动被覆盖，
 // 漏写的可能性被压成「去删这个常量」，而那会被 test/cloud-accounts-no-store.test.js 抓到。
-const NO_STORE = { 'Cache-Control': 'no-store' }
+const NO_STORE = Object.freeze({ 'Cache-Control': 'no-store' })
+
+/**
+ * 在**进入路由与鉴权之前**给云账号面的应答打上 no-store。
+ *
+ * 为什么不能只靠 `_handleCloudAccounts` 里的三处传参：401（`_checkAuth` 失败）、
+ * 403/503（`_ensureRequestIdentity` / `_assertEntitlementFeature` 抛出）、429（限流）
+ * 都在本面被路由到之前短路，那些发送点不归本模块管；漏一条就等于「同一条 URL 有时可被缓存」。
+ * 未鉴权应答被缓存后，后续合法请求可能直接命中这条错误应答——比明文缓存更难排查。
+ * 路径判定与入口守卫共用 `CLOUD_ACCOUNT_PATHS`（同一真源，不会漂成两套清单）。
+ *
+ * @returns {boolean} 是否已施加（供调用方与测试断言）
+ */
+function applyCloudAccountNoStore(res, url) {
+  if (!res || typeof res.setHeader !== 'function' || res.headersSent) return false
+  if (typeof url !== 'string') return false
+  if (!CLOUD_ACCOUNT_PATHS.has(url.split('?')[0])) return false
+  res.setHeader('Cache-Control', 'no-store')
+  return true
+}
 
 class PublishApiCloudAccountHelpers {
   /** 该 URL 是否属于账号云镜像面（路径集合与 CLOUD_ACCOUNTS_ROUTES 同源，含 digest/full/sync/tombstones/disconnect）。 */
@@ -103,4 +122,4 @@ function applyCloudAccountHelpers(Proto) {
   }
 }
 
-module.exports = { applyCloudAccountHelpers }
+module.exports = { applyCloudAccountHelpers, applyCloudAccountNoStore, NO_STORE }

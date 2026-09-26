@@ -18,7 +18,7 @@ const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/lo
 const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
-const { applyCloudAccountHelpers } = require("./auth/publish-api-cloud-accounts")
+const { applyCloudAccountHelpers, applyCloudAccountNoStore } = require("./auth/publish-api-cloud-accounts")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -225,9 +225,17 @@ class PublishApiServer {
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID",
       "Vary": "Accept-Encoding",
     };
-    // 调用方可按面追加响应头（如账号云镜像面的 no-store）；在 Content-Length 计算之前合并，
-    // 长度与 gzip 分支始终以最终 body 为准，追加头不得影响体。
-    if (extraHeaders) Object.assign(headers, extraHeaders);
+    // 调用方可按面追加响应头（如账号云镜像面的 no-store）。传输语义相关的键一律不接受：
+    // Content-Length 由本函数按最终 body 计算、Content-Encoding 由 gzip 分支决定，
+    // 让调用方覆盖它们会造出「头写着 gzip、体是明文」这类只能在真实链路里才暴露的损坏。
+    if (extraHeaders) {
+      var extraKeys = Object.keys(extraHeaders);
+      for (var i = 0; i < extraKeys.length; i++) {
+        var lowerKey = extraKeys[i].toLowerCase();
+        if (lowerKey === "content-length" || lowerKey === "content-encoding" || lowerKey === "transfer-encoding") continue;
+        headers[extraKeys[i]] = extraHeaders[extraKeys[i]];
+      }
+    }
     if (res.req && res.req.requestId) headers["X-Request-Id"] = res.req.requestId;
     var request = res.req;
     var acceptEncoding = request && request.headers ? request.headers["accept-encoding"] : null;
@@ -628,6 +636,11 @@ class PublishApiServer {
       });
       return;
     }
+
+    // 云账号面（下行含服务端解密后的明文凭证）的 no-store 打在**任何应答之前**：
+    // 401 / 403 / 503 / 429 都在路由之前短路，不经过该面自己的三处显式出线点，
+    // 只靠出线点传参会留下「同一条 URL 有时可缓存」的口子（外部评审 W-2/C-1）。
+    applyCloudAccountNoStore(res, url);
 
     // Rate limiting
     if (this._rateLimiter && !this._rateLimiter.check(req.socket.remoteAddress || req.headers["x-forwarded-for"] || "unknown")) {
