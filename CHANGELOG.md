@@ -1,3 +1,22 @@
+# [未发布] fix(cloud-account-sync): 账号云镜像面全量补 `Cache-Control: no-store`（2026-09-27，cloud-sync-no-store）
+
+### 变更
+- **`packages/api-publish-engine/src/auth/publish-api-cloud-accounts.js`**：新增模块级常量 `NO_STORE`，并把它接到本面**全部三处出线点**——未接仓储的 503、未解析出业务身份的 503、以及交给 handlers 的 `json` 回调（digest / full / sync / tombstones / disconnect 与面内 405 都经它）。刻意不做「按路由逐条加头」：新增路由只要经由本方法出线就自动被覆盖，漏写的唯一途径是去删这个常量，而那会被下面的出站头锁当场抓到。
+- **`packages/api-publish-engine/src/publish-api-server.js`**：`_json(res, status, data, extraHeaders)` 增第 4 个**可选**参数，在 `Content-Length` 计算之前 `Object.assign` 合并，因此追加头既不影响体长度也不影响 gzip 分支；其余全部 API 面因不传该参数而行为完全不变（`_json` 是全仓共用出口，绝不允许在此处一把给所有接口加 no-store）。
+- **新增 `test/cloud-accounts-no-store.test.js`**：真 `http.createServer` + 真 `_json` + 真 `_parseBody` 的**线级**锁，逐条断言实抓到的 `cache-control` 恰为 `no-store`，并断言 `content-type` 未被合并动作覆盖。
+
+### 影响
+- 关掉 PRD §7.0 与运维文档 §4/§5 登记的残余缺口：`POST /api/v1/me/accounts/sync` 回传的是**服务端解密后的明文凭证**（下行不带信封，依据 ADR-0003「换设备免扫码 ⇒ 服务端必须能重新解出凭证」）。明文钥匙若落进中间代理 / CDN / 共享机器的 HTTP 缓存，「库被拖走不是明文」这条防线就在传输层被重新打开。
+- 运维口径变化：本特性现在可以部署在会缓存响应的网关后面（此前运维文档明写「在补上之前不得部署到任何会缓存响应的网关后面」）。Nginx 侧仍需保留对 `/api/v1/` 的默认不缓存，但不再是对冲该缺口的唯一屏障。
+- 未做的事（避免夸大）：本项不改变任何业务响应体、状态码或语义码；`GET /api/v1/health`、会员面、Logto 面一律不受影响。
+
+### 测试
+- `node --test test/cloud-accounts-no-store.test.js` → 5 tests / 0 fail（含 6 条出站路径逐一枚举 + 两处 503 提前出口 + KMS 故障逐条降级）。
+- **反证一（锁本身）**：把 `_json` 里的 `if (extraHeaders) Object.assign(...)` 改成不可达，`GET digest` 立刻报 `必须 no-store，实得 undefined`；恢复后 5/5 绿、源文件字节一致。
+- **反证二（区分发送点）**：只摘掉两处 503 的 `NO_STORE` 实参 → 失败集合恰为「503 提前出口」这一条子测试（2 fail / 3 pass），证明它不是靠成功路径顺带通过的；恢复后 5/5 绿。
+- **反空转**：同一夹具断言 `POST /sync` 出站体里 `data.credentials[0].credential` **确实等于**上传的明文（前提成立，防线不是空的），并断言 digest 的 `data` 形状逐字段 `deepEqual`（证明请求真跑到了处理器而非被 404/405 短路）。
+- 全量回归：`node scripts/run-tests.js`（api-publish-engine）→ rc=0，本文件被 runner 收录并「开始/通过」各出现一次；`node scripts/check-debt-budget.js`、`.github/scripts/check-max-lines.js`、`check-hardcoded-secrets.js`、`scripts/check-no-brand-residue.js`、`.github/scripts/check-test-microtask-spin.js` 全 PASS。
+
 # [未发布] fix(ci): gate-result 由「只 echo 不判定」改为真实聚合上游结论（2026-09-26，fix-ci-gate-result-aggregation）
 
 ### 变更

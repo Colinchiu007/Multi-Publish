@@ -235,12 +235,17 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 | 剥壳只有一处实现，调用点一律按业务字段读（`total` / `results` / `accounts` / `credentials`） | 各调用点手写 `body.data` 会在服务端换壳时逐处失配，且没有任何一处能兜住 |
 | 信封缺失或 `data` 不是对象 → 抛 `CLOUD_ENVELOPE_INVALID`，**不返回空对象** | 返回空对象会把契约破坏伪装成「云端一个账号都没有」，正是 §10.2 禁止的形态 |
 | 同一路径前缀 `/api/v1/me/*` 的另一半由 ops-center 提供，那边是**裸 JSON 不带壳** | 同一个 apiClient 承着两种约定，是最容易踩的不对称；新增 `/me` 面时必须先确认属于哪一半 |
+| 云账号面的**每一条**应答（2xx / 4xx / 5xx）都带 `Cache-Control: no-store` | 下行是服务端解密后的**明文凭证**（§7.3），任何中间层缓存它都等于把「库被拖走不是明文」这条防线在传输层重新打开；头由 `publish-api-cloud-accounts.js` 的单一常量加在三处出线上，新增路由自动继承 |
 
 > 反证（实测）：把 `unwrapApiResponse` 改成原样返回，`cloud-account-sync.test.js` 红 19 条、
 > `cloud-accounts-desktop-contract.test.js` 红 4 条；恢复后两个文件全绿、源文件字节一致。
 > 这条缺口曾经真实存在：
 > 契约测试的夹具当时**代替客户端剥了壳**（`return response.body.data`），于是
 > 「弹窗永远共 0 个 / 同步永远 0 条」在全绿单测下面躺了一整轮。
+>
+> 出站头（实测）：`test/cloud-accounts-no-store.test.js` 用真 HTTP 链路逐条枚举 `GET digest / GET ?view=full /
+> POST sync / POST tombstones / POST disconnect / 面内 PATCH 405`，并单独覆盖两处提前 503 出口；反证做了两条——
+> 摘掉 `_json` 的合并动作首条即红，只摘 503 的实参则只有 503 子测试红（2 fail / 3 pass）。
 
 ### 7.1 `GET /api/v1/me/accounts`
 

@@ -18,6 +18,13 @@ const CLOUD_ACCOUNT_PATHS = new Set(
     .filter(Boolean),
 )
 
+// 本面每一条应答都必须禁止缓存：`POST /sync` 回传的是**服务端解密后的明文凭证**（下行不带信封，
+// 依据 ADR-0003「换设备免扫码 ⇒ 服务端必须能重新解出凭证」）。明文钥匙一旦落进中间代理 / CDN /
+// 共享机器的 HTTP 缓存，「库被拖走不是明文」这条防线就在传输层被重新打开。
+// 收在**这一个**出口常量上，而不是逐处理器各写一遍：新增路由只要经由本方法出线就自动被覆盖，
+// 漏写的可能性被压成「去删这个常量」，而那会被 test/cloud-accounts-no-store.test.js 抓到。
+const NO_STORE = { 'Cache-Control': 'no-store' }
+
 class PublishApiCloudAccountHelpers {
   /** 该 URL 是否属于账号云镜像面（路径集合与 CLOUD_ACCOUNTS_ROUTES 同源，含 digest/full/sync/tombstones/disconnect）。 */
   _isCloudAccountsUrl(url) {
@@ -64,13 +71,13 @@ class PublishApiCloudAccountHelpers {
   async _handleCloudAccounts(req, res, method, url) {
     const services = this._cloudAccounts()
     if (!services) {
-      this._json(res, 503, { error: 'CLOUD_ACCOUNTS_NOT_CONFIGURED' })
+      this._json(res, 503, { error: 'CLOUD_ACCOUNTS_NOT_CONFIGURED' }, NO_STORE)
       return true
     }
     const user = req.auth && req.auth.businessUser
     const userId = user && typeof user.id === 'string' ? user.id : null
     if (!userId) {
-      this._json(res, 503, { error: 'BUSINESS_USER_REPOSITORY_NOT_CONFIGURED' })
+      this._json(res, 503, { error: 'BUSINESS_USER_REPOSITORY_NOT_CONFIGURED' }, NO_STORE)
       return true
     }
     const parsedBody = method === 'GET' ? null : await this._parseBody(req)
@@ -82,7 +89,7 @@ class PublishApiCloudAccountHelpers {
       // handlers 侧按 bodyParser 取体并自带解析失败收口（body 传进来会绕过它的错误语义）
       bodyParser: () => Promise.resolve(parsedBody),
       now: () => Date.now(),
-      json: (status, body) => this._json(res, status, body),
+      json: (status, body) => this._json(res, status, body, NO_STORE),
     })
     return true
   }
