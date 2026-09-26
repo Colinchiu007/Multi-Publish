@@ -31,7 +31,7 @@
 
 ## 4. 主进程同步服务
 
-- [ ] 4.1 `services/cloud-credential-crypto.js`（桌面侧）：加密上行 / 解密落盘，复用 `credential-store` 读写口径，禁止本机主密钥出机
+- [x] 4.1 桌面侧凭证加解密**按最终实现改判为「不在桌面侧」**：原计划的 `services/cloud-credential-crypto.js`（加密上行 / 解密落盘）未创建——加密与解密收敛到服务端单点 `src/cloud-accounts/envelope-crypto.js` + KMS 抽象层（ADR-0003「换设备免扫码 ⇒ 服务端必须能重新解出凭证」），桌面→服务端走 TLS。桌面侧再持一把钥匙会与「本机自证」互相打脸，改判理由见 §9 处置 A-C2。契约与回归锁：PRD §7.0 信封表、`cloud-accounts-handlers.test.js` 的下行四条锁（含「下行不得带信封密文」）。
 - [x] 4.2 `services/cloud-account-sync.js`：读真源 + 凭证 → 补 uid → 生成合并计划 → 逐条执行（并发上限 + 单账号硬超时）→ 事件广播（start/done 双边界）
 - [x] 4.3 恢复路径：写回本地强制 `status='unverified'` + `last_validated` 取本机时刻且不参与超龄锚点；复用 `loginStatusTransition`，禁止第四份三态映射
 - [x] 4.4 冲突裁决：凭证指纹不一致 → 较新者优先 + 本机实测 → 两份皆失效保留本机并标需重登
@@ -56,16 +56,16 @@
 - [x] 6.3 结构锁：`preload.test.js` 方法清单、`overlay-view-suspension.test.js` owner、locale 成对（CI Gate 7）、sender guard 覆盖（CI Gate 17）、自旋让出（CI Gate 19）
 - [x] 6.4 `network-egress-guard` 合规：所有新测试只打 `os.tmpdir()` 自建回环服务，禁真实出站
 - [x] 6.5 QM-1 本地打包验证（改了 `apps/desktop/electron/`）：`build:vue` + `electron-builder --win --dir` 退出 0；asar 清单含 `electron/services/cloud-account-{sync,core,conflict,tombstone}.js`、`electron/ipc-handlers/cloud-account.js`、`electron/publishers/platform-uid.js` 与 `dist/index.html`；解包后 require 链六个模块全部加载成功且 `ipc-handlers/cloud-account.js` 与源码逐字节一致；打包产物启动 12 秒，stderr 仅 ICU fd 一行既有噪声，无 `Failed to load platform config` / `PluginLoader.*mkdir` / `ENOTDIR.*app.asar` / `Cannot find module` / updater 网络栈
-- [ ] 6.6 视觉回归：`npm run test:visual:pixel` 通过；`accounts-list` 视图因新增按钮需换基线，且基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条）
+- [ ] 6.6 视觉回归**部分证据已具备、结论未达成**：CI `QG Visual` 在 PR #2461 为绿，且 `apps/desktop/tests/visual-testing/views/all-views.visual.test.js:46` 确有 `accounts-list` 用例与 `base-screenshots/accounts-list.png` 基线。但入口 flag `account_cloud_sync` 默认关闭且「缺失/不可达一律关闭」（`Accounts.vue:62`、ADR-0006），CI 环境无运营中心 ⇒ 按钮根本不渲染，**该绿只证明「未开启态无回归」，不构成新按钮的视觉还原证据**。仍缺：flag 开启态基线（AGENTS.md QM-4 第 7 条要求基线取自 CI 产物）+ 一次开启态重跑。
 - [x] 6.7 QM-6 CCG 双模型外部评审已执行（claude 后端视角 + opencode 前端视角并行；dsh 因缺 DEEPSEEK_API_KEY 不可用），2 个 Critical 全修、数据校验/安全类 Warning 全修，逐条处置见 §9
-- [ ] 6.8 `.quality-gates.md` 自检清单与评审记录
+- [x] 6.8 `.quality-gates.md` 自检清单与评审记录已落盘：一节「2026-09-27 账号云镜像同步【同步云端】（PR #2461 / openspec change `add-cloud-account-sync`）」，含 QM-1 打包与 12 秒启动 stderr 采集、QM-6 双模型逐条处置、真库 7/7、各门禁清单与未执行项登记
 
 ## 7. 交付
 
 - [x] 7.1 `CHANGELOG.md` 收口 + `pnpm version:bump`（新功能 bump minor）
 - [x] 7.2 推送分支、创建 PR、CI 全绿、自动合并
 - [x] 7.3 运维文档：`01-docs/OPS-CLOUD-ACCOUNT-SYNC-2026-09-27.md` —— 发布顺序（先迁移后发 API，`assertReady()` 对未跑 005 的存量库 fail-closed）、KMS 生产实现要求（本地实现禁用于生产、AAD 绑 keyId 的轮转口径）、Nginx 前缀路由、feature flag **双条件**（enabled 且 value）与 SEED_FLAGS 增量补齐、可观测性排障表、数据边界；生产 ECS 发布与真机端到端在本文件 §5 如实登记为**未执行**
-- [ ] 7.4 记忆写入：内置记忆 / 外部记忆（learnings）/ EverOS
+- [x] 7.4 记忆写入三路齐：内置记忆（用户级批量改写校验 / ccg-workflow / EverOS 超时；项目级 CI 无真库与门禁聚合）/ 外部记忆 `01-docs/learnings.md` 置顶 4 条（随 PR #2461 合入）/ EverOS episode 已写入并可检索（结果键 `data.episodes`）
 
 ## 状态（2026-09-27 提交 PR #2461 时）
 
@@ -73,11 +73,11 @@
 
 - [ ] 3.6 八平台真凭据线级取证（保留未勾选）：小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否严格等于平台原生主键 —— 仓库内无实测证据；未命中即走 `uid-unavailable` 跳过上行。
 - [x] 6.5 QM-1 已执行（见上；证据为本次干净工作树下的 `--dir` 产物与 12 秒启动 stderr 采集）。
-- [ ] 6.6 视觉回归：`accounts-list` 基线因命令栏新增按钮必然 diff；基线**只能取自 CI 产物**（AGENTS.md QM-4 第 7 条），需 CI 出图后回填并重跑 `test:visual:pixel`。
+- [ ] 6.6 视觉回归：`accounts-list` 基线在 flag **开启态**下仍需重新采集（基线只能取自 CI 产物，AGENTS.md QM-4 第 7 条）。CI `QG Visual` 已绿，但 flag 默认关、按钮不渲染，该绿不是新按钮的证据——详见 §6 同条目的取证说明。
 - [x] 6.7 QM-6 已执行：两个独立外部模型各出一份结论，处置见 §9；「双模型并行」这一轮真实满足，未以自审冒充。
-- [ ] 6.8 `.quality-gates.md` 自检清单与评审记录。
+- [x] 6.8 `.quality-gates.md` 自检清单与评审记录已落盘（见该文件 2026-09-27「账号云镜像同步【同步云端】」一节）。
 - [x] 7.3 运维文档已落地（生产 ECS 发布与 `production-smoke` 仍未执行，登记在运维文档 §5，不得当作已完成）。
-- [ ] 7.4 记忆写入：内置记忆与 EverOS 已写；`01-docs/learnings.md` 已追加 4 条。
+- [x] 7.4 记忆写入：内置记忆与 EverOS 已写；`01-docs/learnings.md` 置顶 4 条已随 `d6ba3282` 合入 main。
 
 ### 本期发现的已知缺口（follow-up，未悄悄放宽测试）
 - `validateSyncKeys` 不拒 `keys` 之外的顶层字段（`{keys:[…],extra:1}` 目前放行），与 PRD §6.2「未知键 fail closed」不完全一致。
@@ -230,3 +230,31 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
   窗口需"PUT 失败 + 期间登出 + 重新登录产生新凭证"三件事依次发生；下一轮同步会自行以 digest 差异重新裁决。
 - [x] **non-findings 5 条 PASS**（AAD 跨归属、逐条不给半成品、明文不进日志、单向证据未被破坏、依赖为 DAG）
   —— 记录为独立模型的正面确认，不替代自审。
+
+
+## 12. 收口：合入证据与残留登记（2026-09-27）
+
+本节只记**已实测到的**事实，命令与输出均可复跑。
+
+- **PR #2461 状态**：`state=MERGED`，`mergedAt=2026-09-26T22:04:49Z`，squash 合入提交 `d6ba328283b0368e989855e0df259ab003874706`（短 `d6ba3282`）。
+- **改动规模**：`git diff --shortstat d6ba3282^1 d6ba3282` = 91 files changed, 13057 insertions(+), 118 deletions(-)。
+- **检查项**：`gh pr checks 2461` 共 20 条，19 pass + `release` skipping，`Gate Result`（main 的必需检查之一）为 pass。
+- **真库 job 不是空跑**：`QG Business API Postgres` 日志计数 `# tests 7 / # pass 7 / # fail 0 / # skipped 0`——「skipped 也算绿」的口径在本 job 不成立，因为 7 条全部实跑。
+- **落盘核对**（对 `origin/main` 而非本地工作树）：`cloud-account-restore.js`、`src/cloud-accounts/upsert-decision.js`、`migrations/postgresql/005_cloud_accounts.sql` 均 PRESENT；`cloud-account-core.js` 含 `unwrapApiResponse`（信封单点剥离）。
+- **记忆三路已回读确认**：内置记忆（用户级 + 项目级各文件）、外部记忆（`01-docs/learnings.md` 置顶 4 条随 `d6ba3282` 进 main）、EverOS（分区 `dsh/Mulpub-17875af60fc6` 下检索到 2 条 2026-09-26 episode：跨包信封契约、明文下行决策）。
+
+### 12.1 交付后仍开放的工程项（有意不在本 PR 内收口）
+
+| 项 | 未做的原因 | 影响面 |
+| --- | --- | --- |
+| 3.6 八平台 uid 真凭证线级取证 | 仓库内无实测证据，未命中即走 `uid-unavailable` 跳过上行 | 合并键覆盖率，不影响已上线行为 |
+| 6.6 flag 开启态视觉基线 | CI 无运营中心 ⇒ 按钮不渲染，`QG Visual` 的绿不构成新按钮证据 | 视觉回归覆盖面 |
+| `/sync` 响应缺 `Cache-Control: no-store` | 明文凭证下行经代理/HTTP 缓存有留存风险，运维文档 §4 已登记为待办 | 安全（生产上线前必须处理） |
+| `ipc-handlers/cloud-account.js` 直测 | 现由服务层测试与 preload 结构锁间接覆盖 | IPC 边界回归强度 |
+| 主进程「同步中 × 批量检测」互斥 | 两者可并发改写同一真源，最后写入者胜 | 登录态真源竞态 |
+| W5 `tombstone-backfilled` 结果语义 | 墓碑补写与逐条结果的对应关系未定 | 结果展示口径 |
+| 生产 KMS 实现与密钥轮转 | 本 PR 只交付接口 + 本地实现（ADR-0003 后果段） | 生产可用性 |
+| QM-4 全量 94 例视觉回归 | 发版前人工核查项，`release-gate` 未纳入硬门禁 | 发版前检查 |
+
+> 上表由「归档即视为已完成」的风险反向生成：**change 归档只表示规格已并入主规格，不表示这 8 项做完**。
+> 下一轮触碰本特性时必须先读本节，不得以「PR 已合并」推断残留为零。
