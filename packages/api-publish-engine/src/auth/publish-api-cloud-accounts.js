@@ -36,6 +36,20 @@ const NO_STORE = Object.freeze({ 'Cache-Control': 'no-store' })
  *
  * @returns {boolean} 是否已施加（供调用方与测试断言）
  */
+const TRANSPORT_KEYS = Object.freeze({ 'content-length': 1, 'content-encoding': 1, 'transfer-encoding': 1 })
+/**
+ * 把「本面追加的响应头」并进出口头表，拒绝传输语义三键。
+ * Content-Length 由最终 body 决定、Content-Encoding 由 gzip 分支决定，让调用方覆盖它们
+ * 会造出「头写着 gzip、体是明文」这类只能在真实链路里才发现的损坏（评审 W-1）。
+ */
+function mergeFaceHeaders(headers, extraHeaders) {
+  if (!extraHeaders) return headers
+  for (const key of Object.keys(extraHeaders)) {
+    if (!TRANSPORT_KEYS[String(key).toLowerCase()]) headers[key] = extraHeaders[key]
+  }
+  return headers
+}
+
 function applyCloudAccountNoStore(res, url) {
   if (!res || typeof res.setHeader !== 'function' || res.headersSent) return false
   if (typeof url !== 'string') return false
@@ -122,4 +136,4 @@ function applyCloudAccountHelpers(Proto) {
   }
 }
 
-module.exports = { applyCloudAccountHelpers, applyCloudAccountNoStore, NO_STORE }
+module.exports = { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders, NO_STORE }
