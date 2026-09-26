@@ -70,6 +70,8 @@ export default {
     // Download side: the copy must separate "the cloud has nothing to give" from "this device failed to store it"
     restoreNoCredential: 'The cloud has no restorable sign-in data for this account, please sign in again on this device',
     restoreUndecryptable: 'The stored sign-in data could not be decrypted right now, please retry; sign in again if it keeps failing',
+    restoreEmptyCredential: 'The sign-in data stored in the cloud is empty, please sign in again on this device',
+    cloudStateUnavailable: 'Could not read the cloud account list, nothing was uploaded (to avoid restoring deleted accounts)',
     rowTimeout: 'The cloud request for this account timed out, the next sync will retry',
     localWriteFailed: 'This device could not save the account, check disk space and retry',
     // Local-side unavailability must not be blamed on the cloud

@@ -73,6 +73,8 @@ export default {
     // 下行四类：文案必须说清「是云端给不出、还是本机没存下」，否则用户只会反复点同步
     restoreNoCredential: '云端没有该账号可恢复的登录数据，请在该设备重新登录一次',
     restoreUndecryptable: '云端存取的登录数据暂时解不开，请稍后重试；仍失败请重新登录',
+    restoreEmptyCredential: '云端保存的登录数据为空，请在该设备重新登录一次',
+    cloudStateUnavailable: '云端账号清单读取失败，本次未上传任何数据（避免误恢复已删除的账号）',
     rowTimeout: '该账号的云端请求超时，下次同步会自动重试',
     localWriteFailed: '本机未能保存该账号，请检查磁盘空间后重试',
     // 本机侧不可用不得甩锅给云端：这三类重试云端操作没有意义

@@ -10,6 +10,7 @@
  * 拦截，逐键对齐由本文件负责）。
  */
 import { describe, expect, it } from 'vitest'
+import { ERROR_SUFFIXES } from '../features/accounts/composables/useCloudSyncResultModel.js'
 import zh from './zh.js'
 import en from './en.js'
 
@@ -126,8 +127,29 @@ describe('accountsPage.cloudSyncPartial / cloudSyncAllFailed / cloudSyncProgress
  * ——分组文案彼此不得重复，也不得与既有码位文案、断开按钮的 cloudDisconnectFailed 撞句。
  */
 describe('accountsPage.cloudSyncErr.* 分组文案', () => {
-  const NEW_GROUP_KEYS = ['invalidData', 'invalidCredential', 'tooMany', 'disconnectPartial', 'cloudFailed']
-  const EXISTING_KEYS = ['unauthorized', 'serviceUnavailable', 'kmsUnavailable', 'credentialTooLarge', 'budgetExceeded', 'inProgress']
+  // 不再手抄键清单：分组集合由展示层导出（ERROR_SUFFIXES），locale 必须与它**精确相等**。
+  // 手抄清单的后果实测过两次：新增分组后清单没跟上 → 测试红；或清单里有、分组里没有 → 死键静默躺着。
+  const GROUP_KEYS = ERROR_SUFFIXES
+
+  it('展示层解析出的每个分组名在 zh/en 下都有键，且两侧键集合与展示层精确对齐', () => {
+    expect(GROUP_KEYS.length).toBeGreaterThanOrEqual(10)
+    for (const key of GROUP_KEYS) {
+      expect(typeof zh.accountsPage.cloudSyncErr[key], `zh 缺 ${key}`).toBe('string')
+      expect(typeof en.accountsPage.cloudSyncErr[key], `en 缺 ${key}`).toBe('string')
+    }
+    expect(Object.keys(zh.accountsPage.cloudSyncErr).sort()).toEqual([...GROUP_KEYS].sort())
+    expect(Object.keys(en.accountsPage.cloudSyncErr).sort()).toEqual([...GROUP_KEYS].sort())
+  })
+
+  it('分组文案两两不相同（防撞句：同一个键集里出现重复句子说明分组被并错了）', () => {
+    for (const locale of [zh, en]) {
+      const table = locale.accountsPage.cloudSyncErr
+      const all = GROUP_KEYS.map(key => table[key])
+      // 每条都必须是非空整句：空串就是界面上那片空白
+      for (const text of all) expect(text.trim().length).toBeGreaterThan(0)
+      expect(new Set(all).size).toBe(all.length)
+    }
+  })
 
   it('中文整句：五个分组各一条，与 PRD §7.5 落笔字面一致', () => {
     expect(zh.accountsPage.cloudSyncErr.invalidData).toBe('账号信息格式不正确，未上传')
@@ -143,25 +165,6 @@ describe('accountsPage.cloudSyncErr.* 分组文案', () => {
     expect(en.accountsPage.cloudSyncErr.tooMany).toBe('Too many accounts in this batch, nothing was uploaded')
     expect(en.accountsPage.cloudSyncErr.disconnectPartial).toBe('The cloud was not fully cleared, please retry')
     expect(en.accountsPage.cloudSyncErr.cloudFailed).toBe('The cloud did not accept this account, please try again later')
-  })
-
-  it('五个新键在 zh/en 下都成对存在（CI Gate 7 只查文件是否成对变更，逐键对齐由本条负责）', () => {
-    for (const key of NEW_GROUP_KEYS) {
-      expect(typeof zh.accountsPage.cloudSyncErr[key]).toBe('string')
-      expect(typeof en.accountsPage.cloudSyncErr[key]).toBe('string')
-    }
-    expect(Object.keys(zh.accountsPage.cloudSyncErr).sort())
-      .toEqual([...NEW_GROUP_KEYS, ...EXISTING_KEYS].sort())
-  })
-
-  it('分组文案两两不相同，且与既有六个码位文案也不相同（防撞句）', () => {
-    for (const locale of [zh, en]) {
-      const table = locale.accountsPage.cloudSyncErr
-      const all = [...NEW_GROUP_KEYS, ...EXISTING_KEYS].map(key => table[key])
-      // 每条都必须是非空整句：空串就是界面上那片空白
-      for (const text of all) expect(text.trim().length).toBeGreaterThan(0)
-      expect(new Set(all).size).toBe(all.length)
-    }
   })
 
   it('过程区的 disconnectPartial 与断开按钮的 cloudDisconnectFailed 不得撞句（各司其职）', () => {

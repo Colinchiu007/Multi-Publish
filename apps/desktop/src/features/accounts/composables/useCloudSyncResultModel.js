@@ -94,8 +94,11 @@ const ERROR_CODE_GROUPS = {
   // 下行（恢复到本机 / 冲突时取云端那一份）的失败：语义是「云端给不出可用凭证」，
   // 不是「云端拒绝了这次上行」。混成一类的后果是用户去改账号信息，而真正该做的是重试或重新登录。
   restoreNoCredential: ['CREDENTIAL_UNAVAILABLE'],
+  restoreEmptyCredential: ['CREDENTIAL_EMPTY'],
   restoreUndecryptable: ['CREDENTIAL_DECRYPT_FAILED'],
   rowTimeout: ['SYNC_TIMEOUT'],
+  // 云端全集读不到 ⇒ 整批一条都不上行（判不出墓碑集合就上行，会复活已删账号）
+  cloudStateUnavailable: ['CLOUD_STATE_UNAVAILABLE'],
   // 失败发生在**本机**（建号 / 存凭证），不得甩锅给云端
   localWriteFailed: ['CREDENTIAL_PERSIST_FAILED', 'ACCOUNT_CREATE_FAILED'],
   // 本机的读取侧与「本机根本没有凭证」：让用户重试云端操作是错方向
@@ -122,6 +125,19 @@ const ERROR_GROUP_OF_CODE = Object.create(null)
 for (const [group, codes] of Object.entries(ERROR_CODE_GROUPS)) {
   for (const code of codes) ERROR_GROUP_OF_CODE[code] = group
 }
+
+/**
+ * 展示层能解析出的**全部分组名**（一码一位的专有条目 + 分组 + 兜底句）。
+ * locale 必须逐名有键：多一名 → 界面出现空原因栏；少一名 → 白写一条永不命中的死键。
+ * 由 `accounts-cloud-sync-copy.test.js` 按本集合做精确对齐断言，
+ * 取代此前手抄的 `NEW_GROUP_KEYS/EXISTING_KEYS` 清单（那份清单每加一个分组就得有人记得改，
+ * 而没人记得时它的表现是测试红、或更糟：静默漏掉一条文案）。
+ */
+export const ERROR_SUFFIXES = Object.freeze([...new Set([
+  ...Object.values(ERROR_CODE_KEYS),
+  ...Object.keys(ERROR_CODE_GROUPS),
+  ERROR_FALLBACK_SUFFIX,
+])].sort())
 
 export function createCloudSyncResultModel ({ t, te } = {}) {
   function outcomeLabel (outcome) {

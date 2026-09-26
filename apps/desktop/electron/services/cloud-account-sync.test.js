@@ -21,6 +21,7 @@ function makeFixture (overrides = {}) {
     AccountManager: {
       listAccounts: vi.fn(async () => accounts),
       addAccount: vi.fn(async (payload) => { calls.push({ path: 'addAccount', payload }); return { code: 0, data: { id: 'new-id-1' } } }),
+      deleteAccount: vi.fn(async (accountId) => { calls.push({ path: 'deleteAccount', accountId }); return { code: 0 } }),
       persistLoginState: vi.fn(async (accountId, patch) => { calls.push({ path: 'persistLoginState', accountId, patch }); return { code: 0 } }),
     },
     credentialStore: {
@@ -358,6 +359,99 @@ describe('下行取凭证的四种结局（不得互相伪装）', () => {
     const forced = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT' && c.body
       && c.body.accounts && c.body.accounts.some((a) => a.force))
     expect(forced.length).toBe(0, '一次服务端解密失败不是反证，不得授权覆盖云端凭证')
+  })
+  it('empty（云端这一行的 cookie 为空）→ 负向证据 CREDENTIAL_EMPTY，可与 undecryptable 分开', async () => {
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [{ platform: 'douyin', platformUid: 'u9' }], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') {
+          return { credentials: [{ platform: 'douyin', platformUid: 'u9', credential: { cookies: [], localStorage: {}, indexedDB: {} } }] }
+        }
+        return { results: [] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items[0]).toMatchObject({ outcome: 'failed', code: 'CREDENTIAL_EMPTY' })
+    expect(res.data.items[0].code).not.toBe('CREDENTIAL_DECRYPT_FAILED')
+  })
+
+  it('冲突时云端那份为空 → 判本机胜出并允许带 force 回写（负向证据要能收敛）', async () => {
+    const f = makeFixture({
+      accounts: [{ id: 'a1', platform: 'douyin', name: '甲', platform_account_id: 'u1' }],
+      credentials: { a1: cred('local-val') },
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') {
+          return { credentials: [{ platform: 'douyin', platformUid: 'u1', credential: { cookies: [], localStorage: {}, indexedDB: {} } }] }
+        }
+        return { results: [{ platform: 'douyin', platformUid: 'u1', outcome: 'conflict', credentialFreshness: 'cloud' }] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items[0].outcome).toBe('conflict-resolved-local')
+    const forced = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT'
+      && c.body && c.body.accounts && c.body.accounts.some((a) => a.force === 'local-wins'))
+    expect(forced.length).toBe(1, '本机那份被实测判有效 = 正向证据，允许覆盖云端那份空凭证')
+  })
+})
+
+describe('云端全集读不到时整条上行必须 fail closed', () => {
+  it('view=full 请求失败 ⇒ 一条都不 PUT（判不出墓碑集合就上行会复活已删账号）', async () => {
+    const f = makeFixture({
+      accounts: [{ id: 'a1', platform: 'douyin', name: '甲', platform_account_id: 'u1' }],
+      credentials: { a1: cred('local-val') },
+      respond: (o) => {
+        if (o.method === 'GET' && o.query === 'view=full') {
+          throw Object.assign(new Error('broken'), { code: 'CLOUD_ENVELOPE_INVALID' })
+        }
+        if (o.method === 'GET') return { total: 0, byPlatform: [], tombstones: 0 }
+        return { results: [] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    const puts = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT')
+    expect(puts.length).toBe(0, '读不到云端全集时不得发起任何上行')
+    expect(res.data.failed).toBe(1)
+    expect(res.data.items[0]).toMatchObject({ outcome: 'failed', code: 'CLOUD_ENVELOPE_INVALID' })
+    expect(res.data.errorCode).toBe('CLOUD_ENVELOPE_INVALID')
+    expect(res.data.skipped).toBe(0, '也不能伪装成"已跳过（云端标删）"')
+  })
+})
+
+describe('恢复半成功必须回滚，不留无凭证僵尸账号', () => {
+  it('建号成功但凭证落盘失败 ⇒ 删掉刚建的账号，且不把 accountId 报成已恢复', async () => {
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [{ platform: 'douyin', platformUid: 'u9', displayName: '云端号' }], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') return { credentials: [{ platform: 'douyin', platformUid: 'u9', credential: cred('from-cloud') }] }
+        return { results: [] }
+      },
+    })
+    f.deps.credentialStore.saveCredential = vi.fn(async () => { throw new Error('disk full') })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.restored).toBe(0)
+    expect(res.data.items[0].code).toBe('CREDENTIAL_PERSIST_FAILED')
+    const del = f.calls.find((c) => c.path === 'deleteAccount')
+    expect(del, '僵尸账号必须被回滚删除，否则它永久占住合并键').toMatchObject({ accountId: 'new-id-1' })
+    expect(res.data.items[0].accountId == null).toBe(true, '已回滚的行不得再带 accountId')
+    expect(f.calls.some((c) => c.path === 'persistLoginState')).toBe(false)
+  })
+
+  it('回滚本身失败时如实带上 accountId（本机确实残留）', async () => {
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [{ platform: 'douyin', platformUid: 'u9' }], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') return { credentials: [{ platform: 'douyin', platformUid: 'u9', credential: cred('from-cloud') }] }
+        return { results: [] }
+      },
+    })
+    f.deps.credentialStore.saveCredential = vi.fn(async () => { throw new Error('disk full') })
+    f.deps.AccountManager.deleteAccount = vi.fn(async () => { throw new Error('backend down') })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items[0]).toMatchObject({ code: 'CREDENTIAL_PERSIST_FAILED', accountId: 'new-id-1' })
   })
 })
 

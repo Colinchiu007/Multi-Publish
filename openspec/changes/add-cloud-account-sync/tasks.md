@@ -208,3 +208,25 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
   其余计数由逐条分支即时累加；彻底统一为「全部从 items 反推」需要 `items` 携带平台级去重信息，属独立改动。
 - [x] **F5 Info：正面确认（模块边界、unwrap 单一使用、无重复实现）** → 记录。
 - [ ] 后端模型（claude）本轮仍在跑；结论落地后逐条处置，Critical 未清不合入。
+
+### 后端模型（claude）结论与逐条处置（0 critical / 2 medium / 3 low + 5 条 non-findings）
+
+- [x] **M-F1：`GET ?view=full` 的 `.catch(() => null)` 吞掉 `CLOUD_ENVELOPE_INVALID` ⇒ 墓碑集合变空 ⇒ 已删账号被本机重新上行复活** → **采纳（本轮最值钱的一条）**。
+  核实：原实现在 `cloudFull` 读失败时确实把 `tombstoneKeys` 当空集继续 PUT。这正是"外部要求 fail closed、
+  内部却降级成空数据"的同一个形状的第二个落点。修法：读不到云端全集的当轮**一条都不上行、也不恢复**，
+  逐条计 `failed` 带真实码 + 批次 `errorCode` 置码 + 新文案 `cloudStateUnavailable`；
+  **不得**伪装成 `skipped-tombstone`。回归：`view=full` 抛错 ⇒ 断言 `PUT` 次数为 0 且 `skipped === 0`。
+- [x] **M-F2：`addAccount` 成功而 `saveCredential` 失败 ⇒ 留下无凭证僵尸账号，永久占住合并键** → **采纳**。
+  核实：该账号下一轮既不会被恢复（本机已有该键）也不会被上行（读不到凭证），每轮固定一条失败，
+  而云端那份凭证永远取不到 —— 是"沉默的永久坏"，不是可重试的失败。修法：best-effort `deleteAccount` 回滚，
+  回滚成功则不把 `accountId` 报出去、失败则如实带上。两条用例（回滚成功 / 回滚自身失败）。
+- [x] **L-F4：解出空 `cookies` 被判成 `undecryptable`，丢失"这份凭证确实不可用"的负向证据** → **采纳**。
+  新增第五种结局 `empty`，冲突处按负向证据收敛（本机有效即胜出并允许 `force` 回写），
+  恢复处给 `CREDENTIAL_EMPTY` 而非 `CREDENTIAL_DECRYPT_FAILED`。
+- [ ] **L-F3：cloud-wins 时把云端明文凭证原路回传上行** → **登记为已知限制**。
+  服务端该分支只写元数据（`WRITE_MODE_METADATA`），收到的 `credential` 被忽略，不改变存储；
+  要彻底消除需让 `credential` 在该分支可选（改动校验面白），单独评估。
+- [ ] **L-F5：cloud-wins 的 PUT 被 `.catch` 吞掉时，本机已覆盖而服务端仍持冲突态** → **登记为已知限制**。
+  窗口需"PUT 失败 + 期间登出 + 重新登录产生新凭证"三件事依次发生；下一轮同步会自行以 digest 差异重新裁决。
+- [x] **non-findings 5 条 PASS**（AAD 跨归属、逐条不给半成品、明文不进日志、单向证据未被破坏、依赖为 DAG）
+  —— 记录为独立模型的正面确认，不替代自审。

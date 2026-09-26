@@ -270,22 +270,43 @@ function createCloudAccountSync (deps) {
         summary.items.push({ accountId: r.accountId, platform: r.platform, name: r.displayName, outcome: OUTCOME.FAILED, code: r.credentialError })
       })
 
-      // 一次性 PUT，由服务端逐条裁决 created/updated/unchanged/conflict/rejected
-      const cloudFull = await callApi(subject, ACCOUNT_PATH, { method: 'GET', query: 'view=full' })
-        .then((v) => (isTimeout(v) ? null : v))
-        .catch(() => null)
-      const tombstoneKeys = new Set(cloudFull && Array.isArray(cloudFull.tombstones) ? cloudFull.tombstones.map((t) => keyOf(t.platform, t.platformUid)) : [])
+      // 云端全集既是墓碑来源，也是恢复来源。**读不到 ≠ 云端什么都没有**：
+      // 空墓碑集合会让已在云端被标删的账号被本机重新上行（复活），正是 ADR-0005 要拦的形态；
+      // 而信封破坏（CLOUD_ENVELOPE_INVALID）若被 .catch 吞成 null，这条防线就只是装饰。
+      const cloudRaw = await raceWithTimeout(
+        callApi(subject, ACCOUNT_PATH, { method: 'GET', query: 'view=full' }),
+        accountTimeoutMs, TIMEOUT_SENTINEL,
+      )
+      const cloudFullErr = isTimeout(cloudRaw) ? 'SYNC_TIMEOUT'
+        : (!cloudRaw || cloudRaw.__cloudSyncError) ? ((cloudRaw && cloudRaw.__cloudSyncError) || 'CLOUD_STATE_UNAVAILABLE') : null
+      const cloudFull = cloudFullErr ? null : cloudRaw
+      const tombstoneKeys = new Set()
 
       const toUpload = []
-      uploadable.forEach((r) => {
-        if (tombstoneKeys.has(keyOf(r.platform, r.platformUid))) {
-          summary.skipped += 1
-          summary.items.push({ accountId: r.accountId, platform: r.platform, name: r.displayName, outcome: OUTCOME.SKIPPED_TOMBSTONE })
-          return
+      if (cloudFullErr) {
+        // 判不出墓碑集合 ⇒ 一条都不上行，也不做恢复（拿不到云端全集）；本机数据原样不动。
+        log('warn', 'cloud-state-unavailable', `code=${cloudFullErr}`)
+        summary.errorCode = cloudFullErr
+        uploadable.forEach((r) => {
+          summary.failed += 1
+          summary.items.push({ accountId: r.accountId, platform: r.platform, name: r.displayName, outcome: OUTCOME.FAILED, code: cloudFullErr })
+          send({ phase: 'done', rowKey: String(r.accountId), platform: r.platform, accountId: r.accountId, name: r.displayName, outcome: OUTCOME.FAILED, code: cloudFullErr })
+        })
+      } else {
+        for (const t of (Array.isArray(cloudFull && cloudFull.tombstones) ? cloudFull.tombstones : [])) {
+          tombstoneKeys.add(keyOf(t.platform, t.platformUid))
         }
-        toUpload.push(r)
-      })
+        uploadable.forEach((r) => {
+          if (tombstoneKeys.has(keyOf(r.platform, r.platformUid))) {
+            summary.skipped += 1
+            summary.items.push({ accountId: r.accountId, platform: r.platform, name: r.displayName, outcome: OUTCOME.SKIPPED_TOMBSTONE })
+            return
+          }
+          toUpload.push(r)
+        })
+      }
 
+      // 一次性 PUT，由服务端逐条裁决 created/updated/unchanged/conflict/rejected
       let results = []
       if (toUpload.length) {
         const put = await raceWithTimeout(
@@ -385,6 +406,8 @@ function createCloudAccountSync (deps) {
         `platform=${row.platform} reason=${!slot ? 'transport' : slot.errorCode}`)
       return OUTCOME.CONFLICT_UNRESOLVED
     }
+    // 'ok' 给凭证本体；'missing'/'empty' 给 null —— 后者是**负向证据**（云端那份确实没有可用 cookie），
+    // 与"没问到/解不开"必须分开，否则一次本可收敛的冲突会被永久钉成"未判定"。
     const cloudCredential = slot.status === 'ok' ? slot.credential : null
     const cloudNewer = res && res.credentialFreshness === 'cloud'
     const resolution = await resolveCredentialConflict(row.platform, row.credential, cloudCredential, cloudNewer)

@@ -74,10 +74,18 @@
 
 ## 4. 数据边界与合规
 
-- 上行只含白名单字段（`ACCOUNT_METADATA_ONLY` 契约）+ 信封化凭证；`credential_digest` **只由服务端计算**，
-  桌面端提交的同名值一律丢弃（防两侧口径漂移）。
+- 上行只含白名单字段（`ACCOUNT_FIELD_NOT_ALLOWED` 契约）+ **明文凭证过 TLS**；
+  `credential_digest` **只由服务端计算**，桌面端提交的同名值一律丢弃（防两侧口径漂移）。
+- **下行同样携带明文凭证**（`POST /sync` 由服务端解密后回传，PRD §7.3）。这决定了三件运维事实：
+  1. 该端点的日志、代理与任何中间层**都不得缓存或记录响应体**；当前实现依赖"本机链路无缓存 + Nginx 对
+     `/api/v1/` 默认不缓存"，**`Cache-Control: no-store` 尚未加**（登记在 §5），接入任何共享缓存前必须先补；
+  2. 主密钥（`MP_CLOUD_KMS_LOCAL_KEY`）一旦泄露 = 全量凭证可解，其轮转与销毁流程必须在生产开启前落地；
+  3. 解密 AAD 绑定 `(userId, platform, platformUid)`，即便仓储错返他人行也解不出明文（有回归用例）。
 - 「断开云端」只删云端镜像与写墓碑，**不反向删除本机账号或本机凭证**；墓碑只阻止恢复，不阻止重新登录。
 - 恢复回本机的账号登录状态强制 `unverified`，必须本机自证一次才可能变 `active`。
+- **读不到云端全集的当轮一条都不上行**（PRD §7.3 fail closed）：宁可这一轮不同步，也不能凭空墓碑集合
+  把用户已删除的账号复活——运维若看到某用户"同步一直失败且码为 `CLOUD_ENVELOPE_INVALID`/`SYNC_TIMEOUT`"，
+  应查网关与业务 API 版本，而不是让用户重复点击。
 - 用户同意点：弹窗的隐私提示行（`cloudDigestPrivacy`）在摘要态恒显示，首次同步前必然被看到。
 
 ## 5. 本期**未执行**的运维事项（如实登记，不得当作已完成）
@@ -90,6 +98,11 @@
   在这一项落地前，本特性不得对真实用户开启。
 - 视觉基线：`accounts-list` 视图因命令栏新增按钮必然产生 diff；基线只能取自 CI 产物后回填（QM-4 第 7 条），
   本 PR 内**未回填**。
+- `POST /api/v1/me/accounts/sync` 的响应现在含明文凭证，**`Cache-Control: no-store` 未加**：
+  需要给 `_handleCloudAccounts` 按路由加头（`_json` 是全 API 共用的，不能一把改），属独立改动。
+  在补上之前，本特性不得部署到任何会缓存响应的网关后面。
+- `ipc-handlers/cloud-account.js` 无直接单测（`ownerSubject()` 取不到身份的 fail-closed、
+  `withSenderCheck`、以及 IPC 回执的 `{code,data}` 形状目前只由 preload 通道合同与服务层测试间接覆盖）。
 
 CI 侧已有的等价证据：`business-api-postgres` job 用真实 PostgreSQL 16 跑 dry-run + apply + 断言 `005` 进 ledger +
 幂等重跑 + 真 SQL 用例，这是「迁移可用」的证据，**不等于**上面任何一条已执行。

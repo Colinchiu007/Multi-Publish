@@ -299,18 +299,36 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 | 未配置加密器 → 503 `KMS_UNAVAILABLE` 且**不查库** | 把「没密钥」降级成「云端没有」是最坏形态：用户会以为云端空了 | 同上「无 crypto 时 503 且不查库」 |
 | 出线不得再带 `credentialEnvelope` | 客户端用不了它，多带一份密文只是多一处可被日志/落盘二次暴露的字节 | 契约锁 + 真库用例都断言 `credentialEnvelope === undefined` |
 
-客户端把下行结果**分成四种互不伪装的结局**（`cloud-account-restore.js` 的 `fetchCloudCredential`）：
+客户端把下行结果**分成五种互不伪装的结局**（`cloud-account-restore.js` 的 `fetchCloudCredential`）：
 
 | 结局 | 触发 | 恢复行的 `code` | 冲突裁决处 |
 | --- | --- | --- | --- |
 | `ok` | 拿到非空 `cookies` | — | 用云端那份实测 |
-| `missing` | 云端没有这一行 | `CREDENTIAL_UNAVAILABLE` | 视为云端无凭证（本机有效即胜出） |
-| `undecryptable` | 有这一行但服务端解不开 | 透传 `errorCode`（如 `CREDENTIAL_DECRYPT_FAILED`） | **本轮不裁决**：判 `conflict-unresolved`，且绝不发带 `force` 的 PUT |
+| `missing` | 云端没有这一行 | `CREDENTIAL_UNAVAILABLE` | 视为云端无凭证（负向证据） |
+| `empty` | 云端有这一行、也解开了，但 `cookies` 为空 | `CREDENTIAL_EMPTY` | 视为云端那份不可用（**负向证据**，本机有效即胜出并允许带 `force` 回写） |
+| `undecryptable` | 有这一行但服务端解不开（KMS 轮转、密文损坏） | 透传 `errorCode` | **本轮不裁决**：判 `conflict-unresolved`，且绝不发带 `force` 的 PUT |
 | 传输无结论（超时/请求失败） | — | `SYNC_TIMEOUT` | **本轮不裁决**（同上） |
 
-> 后两行为什么必须与 `missing` 分开：把「解不开/没问到」当成「云端凭证已失效」，就会凭一次
+> `empty` 与 `undecryptable` 必须分开（外部评审 F4 抓到）：把"解开了但本来就是空的"当成"没问到"，
+> 会让一次**本可收敛**的冲突被永久钉成"未判定"，每轮同步都停在同一个 chip 上不动。
+> 后两行为什么必须与 `missing`/`empty` 分开：把「解不开/没问到」当成「云端凭证失效」，就会凭一次
 > 服务端内部错误给出「两份都失效，请重新登录」的负结论 —— 那正是单向证据规则禁止的形态
 > （§5.5、AGENTS.md「登录态真源只被正/负证据改写」）。
+
+**恢复半成功必须回滚（外部评审 F2）**：`addAccount` 成功而 `saveCredential` 失败时，
+一律 best-effort 调 `AccountManager.deleteAccount(accountId)` 删掉刚建出来的账号。
+不回滚的后果不是报错而是**永久卡死**：这个"有账号、无凭证"的僵尸占住合并键，
+下一轮既不会被恢复（本机已有该键）也不会被上行（读不到凭证），每次同步固定报一条失败，
+而云端那一份凭证明明还在、永远取不到。回滚自身失败时如实把 `accountId` 带在行上（本机确实残留）。
+顺序不变量与 AGENTS.md「凭证未落盘不得声称可用」同源。
+
+**读不到云端全集 ⇒ 整条上行 fail closed（外部评审 F1）**：`GET ?view=full` 是墓碑集合的唯一来源。
+若把它 `.catch(() => null)` 吞掉，`tombstoneKeys` 变成空集，**已在云端被标删的账号会被本机重新上行（复活）**，
+ADR-0005 的防线就此失效；而信封破坏（`CLOUD_ENVELOPE_INVALID`）正是会被吞掉的一类。
+因此该请求失败/超时的当轮：一条都不 PUT、不做恢复，本机数据原样不动，
+逐条计 `failed` 并带真实码，批次 `errorCode` 同步置码，
+文案 `cloudSyncErr.cloudStateUnavailable`（「云端账号清单读取失败，本次未上传任何数据（避免误恢复已删除的账号）」）。
+**不得**伪装成 `skipped-tombstone`（那是"云端确实标删了"的结论，我们没拿到）。
 
 ### 7.4 `POST /api/v1/me/accounts/disconnect`（断开云端）
 
@@ -351,6 +369,8 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 | `CLOUD_ENVELOPE_INVALID` | 云端响应连 `{code,data}` 都不成形（跨包契约破坏） | `…err.cloudFailed` |
 | `SYNC_TIMEOUT` | 该账号的云端请求超时（单账号预算耗尽） | `…err.rowTimeout` |
 | `CREDENTIAL_UNAVAILABLE` | 云端没有这一行可恢复的凭证（下行 `missing`） | `…err.restoreNoCredential` |
+| `CREDENTIAL_EMPTY` | 云端有这一行且解开了，但 `cookies` 为空（下行 `empty`，负向证据） | `…err.restoreEmptyCredential` |
+| `CLOUD_STATE_UNAVAILABLE` | 云端全集读不到的兜底码（正常应带真实码，见 §7.3 fail closed） | `…err.cloudStateUnavailable` |
 | `CREDENTIAL_DECRYPT_FAILED` | 云端有这一行但服务端解不开（下行 `undecryptable`） | `…err.restoreUndecryptable` |
 | `CLOUD_RESULT_MISSING` | 上行成功但服务端这一行没给出裁决结果 | `…err.cloudFailed` |
 | `CHECK_LOGIN_NO_CREDENTIAL` | 本机从未成功登录过该账号（盘上没有凭证） | `…err.noLocalCredential` |

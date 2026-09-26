@@ -54,10 +54,13 @@ function createRestoreFlow (deps) {
     const list = Array.isArray(got.credentials) ? got.credentials : []
     const hit = list.find((c) => keyOf(c.platform, c.platformUid) === keyOf(platform, platformUid))
     if (!hit) return { status: 'missing' }
-    if (hit.credential && Array.isArray(hit.credential.cookies) && hit.credential.cookies.length) {
-      return { status: 'ok', credential: hit.credential }
+    if (hit.errorCode || !hit.credential || typeof hit.credential !== 'object') {
+      return { status: 'undecryptable', errorCode: hit.errorCode || 'CREDENTIAL_DECRYPT_FAILED' }
     }
-    return { status: 'undecryptable', errorCode: hit.errorCode || 'CREDENTIAL_DECRYPT_FAILED' }
+    // 解出来了但一份 cookie 都没有：这是**负向证据**（云端那份确实不可用），
+    // 不得与"服务端解不开"混为一谈 —— 混了就把一次可收敛的冲突永久钉成"未判定"。
+    if (!Array.isArray(hit.credential.cookies) || !hit.credential.cookies.length) return { status: 'empty' }
+    return { status: 'ok', credential: hit.credential }
   }
 
   /** 把一份凭证落到本机（覆盖同名账号的本机凭证），并强制本机自证 */
@@ -98,7 +101,27 @@ function createRestoreFlow (deps) {
   function restoreFailureCode (slot) {
     if (!slot) return 'SYNC_TIMEOUT'
     if (slot.status === 'undecryptable') return slot.errorCode || 'CREDENTIAL_DECRYPT_FAILED'
+    if (slot.status === 'empty') return 'CREDENTIAL_EMPTY'
     return 'CREDENTIAL_UNAVAILABLE'
+  }
+
+  /**
+   * 凭证没存上就删掉刚建出来的账号：留一个"有账号、无凭证"的僵尸，
+   * 下一轮它既不会被恢复（合并键已在本机存在）也不会被上行（读不到凭证），
+   * 于是每次同步都固定报一条失败 —— 而那一份云端凭证明明还在，只是永远取不到。
+   */
+  async function rollbackCreated (subject, accountId, cloudAccount) {
+    if (typeof AccountManager.deleteAccount !== 'function') {
+      log('warn', 'restore-rollback-unavailable', `accountId=${accountId}`)
+      return false
+    }
+    try {
+      await Promise.resolve(AccountManager.deleteAccount(accountId, { ownerSubject: subject }))
+      return true
+    } catch (e) {
+      log('warn', 'restore-rollback-failed', `platform=${cloudAccount.platform} accountId=${accountId} message=${errorMessage(e)}`)
+      return false
+    }
   }
 
   async function restoreToLocal (subject, cloudAccount, startedAt) {
@@ -132,7 +155,14 @@ function createRestoreFlow (deps) {
       await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
     } catch (e) {
       log('warn', 'restore-credential-failed', `platform=${cloudAccount.platform} accountId=${accountId} message=${errorMessage(e)}`)
-      return { outcome: OUTCOME.FAILED, code: 'CREDENTIAL_PERSIST_FAILED', accountId }
+      // 回滚：不留"有账号无凭证"的僵尸（它会永久占住合并键，使那一份云端凭证再也恢复不到）
+      const rolledBack = await rollbackCreated(subject, accountId, cloudAccount)
+      return {
+        outcome: OUTCOME.FAILED,
+        code: 'CREDENTIAL_PERSIST_FAILED',
+        // 回滚失败时才把 accountId 带出去（本机确实还残留一个账号，排障需要它）
+        accountId: rolledBack ? null : accountId,
+      }
     }
     await markNeedLocalAttestation(accountId, cloudAccount.platform)
     return { outcome: OUTCOME.RESTORED, accountId, elapsedMs: now() - startedAt }
