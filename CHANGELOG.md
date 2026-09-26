@@ -22,7 +22,7 @@
 
 ### 关键设计（12 项决策的收口，理由见 `docs/adr/0001`–`0006`、`CONTEXT.md`）
 - **落点选业务 API 而不是运营中心**：账号是"归属于某个登录身份"的用户私有数据，业务 API 已有 Postgres + Logto 身份 + `Bearer`+`X-Device-Id` 客户端封装；运营中心是配置下发与脱敏聚合域，鉴权是静态 `X-Catalog-Key`，把账号放进去归属维度天然缺失。
-- **合并键 = `(platform, platform_uid)`**，显示名/昵称/页面标题**永不**参与。竞品取证印证：蚁小二 `index.cjs:87265` 把 `id/platformUserId/platformUserName` 分三列，上云送的 `userId` 就是平台原生 uid（视频号 `finderUser.uniqId`、快手 `data.userId`、微博 `user.id`）。本仓原先只有 4/8 平台能取到 uid，本机真源 `platform_account_id` 填充率实测 **3/8**（知乎的 name 甚至是"首页 - 知乎"这类页面标题），因此把 uid 覆盖补齐定为本功能上线的前置条件，而不是留一个"靠昵称猜"的降级路径——猜错会把两台设备的不同账号并成一条，撤销要改云端数据。
+- **合并键 = `(platform, platform_uid)`**，显示名/昵称/页面标题**永不**参与。竞品取证印证：参考产品 `index.cjs:87265` 把 `id/platformUserId/platformUserName` 分三列，上云送的 `userId` 就是平台原生 uid（视频号 `finderUser.uniqId`、快手 `data.userId`、微博 `user.id`）。本仓原先只有 4/8 平台能取到 uid，本机真源 `platform_account_id` 填充率实测 **3/8**（知乎的 name 甚至是"首页 - 知乎"这类页面标题），因此把 uid 覆盖补齐定为本功能上线的前置条件，而不是留一个"靠昵称猜"的降级路径——猜错会把两台设备的不同账号并成一条，撤销要改云端数据。
 - **凭证上云换取免扫码，但用信封加密落库**：随机数据密钥 AES-256-GCM，AAD 绑定 `(user_id, platform, platform_uid)`，数据密钥再由按用户隔离的主密钥经服务端 KMS 抽象层包裹；KMS 缺失 fail-closed 为 `KMS_UNAVAILABLE`，禁止降级明文。取竞品的能力，不取它"明文托管 + 本地 socket JWT 校验写了 RS256 却用常量关掉"的形态。
 - **凭证摘要只在服务端算一份**：桌面侧曾考虑也实现一份规范化摘要，被否决——本仓已有"同一个三态映射抄成三份，导致已登录账号每 30 分钟来回振荡"的事故（#2433），摘要口径同理，两份实现必然漂移，漂移的表现是 `unchanged` 被误判成冲突、每次同步重写一遍凭证。
 

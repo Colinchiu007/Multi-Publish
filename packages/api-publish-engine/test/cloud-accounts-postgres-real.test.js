@@ -224,6 +224,9 @@ RUN('真库：avatar 的 https:// 前缀 CHECK 在存储层真的拦得住', asy
 
     async function tryInsert(platformUid, avatarValue) {
       try {
+        // 参数个数必须与 SQL 里引用到的 $n 完全一致：多传一个没被引用的 $4，
+        // PostgreSQL 会先报 42P18「could not determine data type of parameter $4」，
+        // 于是这条本该验 CHECK 的用例根本没走到约束判定（真库才报得出，fake client 一律放行）。
         await pool.query(
           `INSERT INTO cloud_accounts
              (user_id, platform, platform_uid, display_name, avatar,
@@ -231,8 +234,8 @@ RUN('真库：avatar 的 https:// 前缀 CHECK 在存储层真的拦得住', asy
               credential_digest, credential_updated_at, metadata_updated_at)
            VALUES ($1, 'douyin', $2, '头像用例', $3,
               '\\x01'::bytea, '\\x02'::bytea, '\\x03'::bytea, '\\x04'::bytea,
-              $5, NOW(), NOW())`,
-          [surrogate, platformUid, avatarValue, null, 'f'.repeat(64)])
+              $4, NOW(), NOW())`,
+          [surrogate, platformUid, avatarValue, 'f'.repeat(64)])
         return null
       } catch (error) {
         return error

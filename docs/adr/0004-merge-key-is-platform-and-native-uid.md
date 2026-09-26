@@ -1,8 +1,8 @@
 # 合并键是 (platform, platform_uid)，且必须八平台覆盖做全才上线
 
-两条设备上的记录是否为同一账号，只由 `(platform, platform_uid)` 判定。`platform_uid` 是平台原生主键，由带凭证调用平台 user-info 接口取得——我们仓库已有这条链路（`http-login-checker.js` 的 `extract`：视频号 `:127` 取 `finderUser.uniqId`、B站 `:148` 取 `mid`、抖音 `:61`、头条 `:79`），与蚁小二 `getPlatformUserInfo` 完全同构。显示名与昵称**永不**参与判定。
+两条设备上的记录是否为同一账号，只由 `(platform, platform_uid)` 判定。`platform_uid` 是平台原生主键，由带凭证调用平台 user-info 接口取得——我们仓库已有这条链路（`http-login-checker.js` 的 `extract`：视频号 `:127` 取 `finderUser.uniqId`、B站 `:148` 取 `mid`、抖音 `:61`、头条 `:79`），与参考产品 `getPlatformUserInfo` 完全同构。显示名与昵称**永不**参与判定。
 
-蚁小二的取证也印证了这是竞品级答案：`index.cjs:87265` 把 `id / platformUserId / platformUserName` 明确分成三列，上云时送的 `userId` 就是平台原生 uid，昵称只作附属字段。
+参考产品的取证也印证了这是竞品级答案：`index.cjs:87265` 把 `id / platformUserId / platformUserName` 明确分成三列，上云时送的 `userId` 就是平台原生 uid，昵称只作附属字段。
 
 ## 为什么不接受"缺口转人工确认"
 
