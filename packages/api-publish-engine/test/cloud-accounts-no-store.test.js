@@ -17,14 +17,21 @@
  * 成「测了一个不产生头的地方」。这里 `_json` 与 `_parseBody` 都直接借生产实现（AGENTS.md
  * 「出站行为以线级取证为准」）。
  *
- * 反证（每条都实测过，见 PR 记录）：
- *   ① 摘掉 `_json` 里对 `extraHeaders` 的合并 → A 组全部变红；
- *   ② 只摘两处 503 的 `NO_STORE` 实参 → 仅「503 提前出口」子测试变红（证明它不靠成功路径顺带通过）；
- *   ③ 摘掉 `applyCloudAccountNoStore(res, url)` 这一行 → 「鉴权之前」子测试变红而 A 组仍绿（两条缝互不掩盖）。
+ * 反证（四条变异都**实跑过**，跑完用 `git checkout HEAD -- <单文件>` 还原并复跑全绿）：
+ *   ① 把 `mergeFaceHeaders` 改成 no-op → 线级只有「不接受传输语义追加头」一条红；
+ *   ② 摘掉本面两处 503 的 `NO_STORE` 实参 → **线级断言全绿**（被 B 缝掩盖），只有结构锁红；
+ *   ③ 摘掉生产里的 `applyCloudAccountNoStore(res, url);` → 同样只有结构锁红；
+ *   ④ 摘掉传输语义键白名单判定 → 「不接受覆盖 Content-Encoding」红。
+ *
+ * ②③ 的实测结果本身就是本文件必须带「生产接线结构锁」的理由：B 缝生效后，线级的
+ * `cache-control === no-store` 对 A 缝与守卫存在性**完全免疫**——夹具自己调一遍守卫，
+ * 更证明不了生产调了它。别拿线级断言冒充接线证据。
  */
 const test = require('node:test').test
 const assert = require('node:assert/strict')
 const http = require('node:http')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const { PublishApiServer } = require('../src/publish-api-server')
 const {
@@ -277,4 +284,47 @@ test('KMS 故障逐条降级仍走同一出口并带 no-store（错误项不泄�
   assert.equal(parsed.data.credentials[0].credential, null)
   assert.equal(parsed.data.credentials[0].errorCode, 'KMS_UNAVAILABLE')
   assert.equal(res.headers['cache-control'], 'no-store')
+})
+
+/**
+ * 生产接线结构锁。
+ *
+ * 为什么必须有（反证跑出来的结果与直觉相反）：B 缝（路由前的 `applyCloudAccountNoStore`）一旦生效，
+ * 线级的逐条 `cache-control === 'no-store'` 断言就**测不出 A 缝还在不在**——实测把 `mergeFaceHeaders`
+ * 改成 no-op、或把两处 503 的 `NO_STORE` 实参摘掉，11 条用例照样全绿。同理，测试夹具自己调用一次守卫
+ * 也证明不了生产调用它。所以两条缝的存在性只能直接锁生产源码，别拿线级断言冒充。
+ */
+test('生产接线结构锁：两条缝都必须真的接在生产代码上', async (t) => {
+  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'publish-api-server.js'), 'utf8')
+  const mixinSrc = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'auth', 'publish-api-cloud-accounts.js'), 'utf8')
+
+  await t.test('B 缝：守卫在生产 _handle 里，且位置早于鉴权与路由', () => {
+    const guardAt = serverSrc.indexOf('applyCloudAccountNoStore(res, url);')
+    const authAt = serverSrc.indexOf('const authResult = this._logtoVerifier')
+    const routeAt = serverSrc.indexOf('await this._handleCloudAccounts(req, res, method, url)')
+    assert.ok(authAt > 0 && routeAt > 0, '鉴权/路由锚点必须仍可定位（改名要同步本锁，否则它退化成装饰）')
+    assert.ok(guardAt > 0,
+      'publish-api-server.js 必须自己调用 applyCloudAccountNoStore —— 测试夹具调一遍不算生产接上')
+    assert.ok(guardAt < authAt, '守卫必须早于鉴权，否则未鉴权 401 可被缓存')
+    assert.ok(guardAt < routeAt, '守卫必须早于路由分派')
+  })
+
+  await t.test('A 缝：本面三处出线点各自都带 NO_STORE', () => {
+    const withStore = (mixinSrc.match(/, NO_STORE\)/g) || []).length
+    assert.equal(withStore, 3, '两处 503 + 注入 handlers 的 json 回调，三处都必须显式带 NO_STORE')
+    assert.match(mixinSrc, /this\._json\(res, 503, \{ error: 'CLOUD_ACCOUNTS_NOT_CONFIGURED' \}, NO_STORE\)/)
+    assert.match(mixinSrc, /this\._json\(res, 503, \{ error: 'BUSINESS_USER_REPOSITORY_NOT_CONFIGURED' \}, NO_STORE\)/)
+    assert.match(mixinSrc, /json: \(status, body\) => this\._json\(res, status, body, NO_STORE\)/)
+    assert.match(mixinSrc, /Object\.freeze\(\{ 'Cache-Control': 'no-store' \}\)/,
+      '跨路由共享的常量必须冻结')
+  })
+
+  await t.test('_json 的追加头必须经 mergeFaceHeaders，而不是裸合并', () => {
+    assert.match(serverSrc, /if \(extraHeaders\) mergeFaceHeaders\(headers, extraHeaders\);/)
+    assert.doesNotMatch(serverSrc, /if \(extraHeaders\) Object\.assign\(headers, extraHeaders\);/,
+      '退回裸合并就等于允许调用方覆盖 Content-Length / Content-Encoding（评审 W-1）')
+    assert.match(mixinSrc, /if \(!TRANSPORT_KEYS\[String\(key\)\.toLowerCase\(\)\]\)/,
+      '白名单判定不得被摘掉（摘掉后本条与上一条必须一起红）')
+  })
 })
