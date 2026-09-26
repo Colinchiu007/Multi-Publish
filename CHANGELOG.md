@@ -11,6 +11,7 @@
 
 ### 测试
 - `pnpm exec vitest run electron/ipc-handlers/cloud-account.test.js` → **20 passed / 0 failed**。
+- 夹具不外溢（`__registerMock` 拦的是全局 `Module._load`）：`pnpm exec vitest run electron/ipc-handlers` → **50 files / 755 tests 全绿**；本文件与走真模块的 `services/cloud-account-sync.test.js` 一起跑 → 54/54 绿。
 - **反证三条（各自独立、互不重叠）**：A 把「身份取不到即 fail closed」的判定改成不可达 → `6 failed / 14 passed`；B 反转 `abort` 的返回语义（`aborted: !stopped`）→ `1 failed / 19 passed`；C 把 `accounts:cloud-sync-abort` 通道字面量改名 → `3 failed / 17 passed`。三次变异后均以 `git checkout HEAD -- <单文件>` 还原并复跑 20/20，源文件 `git status` 归零。
 - 门禁：`eslint electron/ipc-handlers/cloud-account.test.js --quiet` rc=0；`check-ipc-bridge.js`（402 handlers / 419 preload / 已知缺口 0）、`check-ipc-sender-guard.js` PASS；`check-debt-budget.js`、`check-no-brand-residue.js`、`check-test-microtask-spin.js` PASS。
 - **未做**：QM-1 整包重打（本轮无生产代码改动，`electron/` 下仅新增 `*.test.js`，且不进 `asar` 的 require 链）；渲染层与真机登录态回归与本项无关。
