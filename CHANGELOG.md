@@ -1,3 +1,20 @@
+# [未发布] test(账号云镜像): 给云账号 IPC 边界补第一把直接锁（2026-09-27，cloud-sync-no-store 第二段）
+
+### 变更
+- **新增 `apps/desktop/electron/ipc-handlers/cloud-account.test.js`**（20 例）：`ownerSubject()` 五种「取不到身份」形态（未注入 / getState 抛错 / 无 user / 空白 sub / 非字符串 sub）逐条断言 `digest`·`sync`·`disconnect` 都回 `{code:-3, message:'无法识别当前用户', data:null}` **且服务层三个方法零调用**——「没往外发」这件事此前无人验证；四条通道全部拒绝外部网页 sender；服务抛错（含抛非 Error 值）不得逃逸到渲染进程；`disconnect` 的 `confirm` 缺省/非字符串一律归约为空串（IPC 层不替用户臆造确认值）；`apiClient` 只在 `memberApiService` 存在时接线否则保持 `null`；`userData` 路径取不到时退化为空串并留 warn；广播按字面量通道发出、窗口缺失或已销毁时静默失败绝不阻断同步。
+- **「四条通道精确集合」结构锁**：`ipcMain.handle` 的调用集合排序后必须**恰好等于** `digest / sync / disconnect / sync-abort`——新增通道若漏挂 `withSenderCheck`，会先在「拒绝外部网页调用」那组用例里红，而不是静默少一层防护。
+- 无生产代码改动：本轮只补测试与文档（`OPS` §5 对应待办随之收口）。
+
+### 影响
+- 关掉 #2461 登记的「`ipc-handlers/cloud-account.js` 无直接单测」缺口。该层的价值不在重复服务层语义，而在**它才是 fail-closed 的落点**：身份解析发生在 IPC 层，服务层测试永远证不了「身份没解析出来时不发请求」。
+- 测试口径顺带纠一处易错点：`vi.mock` 对主进程的 CJS `require` **不生效**（`test-setup.js` 明写），必须用 `__registerMock`；用 `vi.mock` 时夹具会静默失效、测试转而打到真服务上——本轮首次运行就是这样「20 例里 9 例红」才暴露出来的。
+
+### 测试
+- `pnpm exec vitest run electron/ipc-handlers/cloud-account.test.js` → **20 passed / 0 failed**。
+- **反证三条（各自独立、互不重叠）**：A 把「身份取不到即 fail closed」的判定改成不可达 → `6 failed / 14 passed`；B 反转 `abort` 的返回语义（`aborted: !stopped`）→ `1 failed / 19 passed`；C 把 `accounts:cloud-sync-abort` 通道字面量改名 → `3 failed / 17 passed`。三次变异后均以 `git checkout HEAD -- <单文件>` 还原并复跑 20/20，源文件 `git status` 归零。
+- 门禁：`eslint electron/ipc-handlers/cloud-account.test.js --quiet` rc=0；`check-ipc-bridge.js`（402 handlers / 419 preload / 已知缺口 0）、`check-ipc-sender-guard.js` PASS；`check-debt-budget.js`、`check-no-brand-residue.js`、`check-test-microtask-spin.js` PASS。
+- **未做**：QM-1 整包重打（本轮无生产代码改动，`electron/` 下仅新增 `*.test.js`，且不进 `asar` 的 require 链）；渲染层与真机登录态回归与本项无关。
+
 # [未发布] fix(cloud-account-sync): 账号云镜像面全量补 `Cache-Control: no-store`（2026-09-27，cloud-sync-no-store）
 
 ### 变更

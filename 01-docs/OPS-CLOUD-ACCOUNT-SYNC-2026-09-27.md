@@ -104,8 +104,10 @@
 - ~~`POST /api/v1/me/accounts/sync` 的响应现在含明文凭证，**`Cache-Control: no-store` 未加**~~ → **已收口**
   （PR `cloud-sync-no-store`）：按本文件原设想落地——头加在 `_handleCloudAccounts` 的三处出线上，
   `_json` 只多一个可选参数、不全局加头；出站头由 `test/cloud-accounts-no-store.test.js` 以真 HTTP 链路锁定。原「在补上之前，本特性不得部署到任何会缓存响应的网关后面」这条前置条件随本项收口而解除。
-- `ipc-handlers/cloud-account.js` 无直接单测（`ownerSubject()` 取不到身份的 fail-closed、
-  `withSenderCheck`、以及 IPC 回执的 `{code,data}` 形状目前只由 preload 通道合同与服务层测试间接覆盖）。
+- ~~`ipc-handlers/cloud-account.js` 无直接单测~~ → **已补**（`ipc-handlers/cloud-account.test.js`，20 例）：
+  五种「身份取不到」形态逐条断言**服务层零调用**、四条通道拒外部 sender、异常不逃逸、`confirm` 不臆造、
+  `apiClient` 缺失时保持 `null`、广播静默失败不阻断。三条变异反证见 CHANGELOG「测试」段；
+  **仍待做**：真机 Electron 窗口内的 IPC 全链路往返（与下方 flag 开启态基线是同一轮 dogfood）。
 
 CI 侧已有的等价证据：`business-api-postgres` job 用真实 PostgreSQL 16 跑 dry-run + apply + 断言 `005` 进 ledger +
 幂等重跑 + 真 SQL 用例，这是「迁移可用」的证据，**不等于**上面任何一条已执行。
