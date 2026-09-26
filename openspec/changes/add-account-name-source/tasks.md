@@ -67,7 +67,10 @@
 
 - [x] 7.1 RED：`stores/accounts.test.js` / `Accounts.test.js` 新增 —— `renameAccount(id, '阿飞 - 自由职业')` 必须调用**后端 PATCH 通道**（断言具体 API 与参数 `{ name, name_source: 'manual' }`），且 `load()` 之后卡片显示该名字；失败路径断言界面保留旧值并提示
 - [x] 7.2 GREEN：`stores/accounts.js:434-437` 改走 `publisher.js` 中打后端真源的通道（参照 `batchSetActive` 因同类问题被明确要求的写法，见 `publisher.js:102-103`）；不得再使用写 SQLite 的 `accountUpdate`
-- [ ] 7.3 手动验证（不可用测试替代）：真实 Electron 窗口里改名 → 卡片立即生效 → 重启应用后仍生效；同时验证一个含 ` - ` 的名字不被藏。**未执行**：QM-1 的 8 秒启动因本 worktree 打包未捆 python-backend（`spawn python ENOENT`）→ 账号列表加载不了 → 改名链路根本没走到（见 `.quality-gates.md` 同条自证）。本项此前被勾成 `[x]` 属**假完成**，独立评审指出后改回。须在 `mp-app-live` 同步本分支后于真实窗口补做。
+- [ ] 7.3 手动验证（不可用测试替代）：真实 Electron 窗口里改名 → 卡片立即生效 → 重启应用后仍生效；同时验证一个含 ` - ` 的名字不被藏。**仍未执行；已实测确认 agent 自起隔离实例无法完成，四层卡点依次是**：① QM-1 打包版不捆 python-backend（`spawn python ENOENT`）→ 账号列表加载不了；② 改 dev 模式 + 空 profile → 账号页显示「请先登录」（后端 `AUTH_REQUIRED`），而**关掉 `IDENTITY_AUTH_ENABLED` 不会放行、反而返回空列表** —— `python-bridge.js:65-71` 注明 `list_accounts` 的 `owner_subject` 过滤依赖身份认证启用，否则 `request.state.auth` 不设 ⇒ 全部账号判为不属于当前用户，手工塞 `backend-data/accounts.json` 同样无效；③ 复制已登录 profile **可行**（本条曾被我误判为不可行并已更正）：被并发实例锁住的只有 `session/` 子树即 Chromium 存储，而登录态其实在可直接复制的普通文件里 —— `identity-session.json` / `identity-entitlement.json`（均为 `{version:2,ciphertext,encrypted:true}` 密文）+ `credentials/.masterkey`（DPAPI 封装）+ `backend-data/`，定向复制仅 639K，新实例自建 `session/`；④ **真正过不去的一层**：WMI 脱离启动的 Electron 里 `safeStorage` 不可用 ⇒ 解不开 DPAPI 主密钥 ⇒ 读不出加密身份会话。三次启动稳定复现同一链路：`AccountCredentialCrypto 主密钥不可用…系统凭据保护不可用，无法解密主密钥` → `Identity getAccessToken.sessionRejected failed: not_authenticated` → 账号页依旧「请先登录」。
+  - 附带挖出的**独立隐患（已开 #2459）**：bridge 后端端口 `8299` 被 `dev-ports.js` 有意排除在按-worktree 派生之外，而 `python-bridge.js` 的 `port+1` 回退在「端口被占」场景下是死代码（`PORT_IN_USE` 只由 `proc.on('error')` 产生，可子进程是正常 spawn 后自己 bind 失败退出、走 `'exit'`）⇒ 并发实例后端活锁起不来，而启动器仍打印 `MAIN_BACKEND_LISTENING port=8299 / START_CONTRACT_OK`（它探测到的是**别人那个**后端）。临时绕法：显式设 `BACKEND_PORT` + `CALLBACK_SERVER_PORT` + `PROMPT_PORT`（实测 `8431` 可用）；注意 `mp-applive-launcher.ps1` 不透传额外环境变量。
+  - ⇒ **本项只能在用户自己的交互会话里完成**：把 `mp-app-live` 同步到含本改动的 main 后，改名一次 + 试一个含 ` - ` 的名字，约两分钟。agent 侧不要重试上述路径。
+  - 收尾纪律（本次实际踩到）：不要用「已起过实例的 profile」当复制目标 —— `rm -rf` 会因 busy 部分失败、把别处数据半覆盖进正在运行的 profile；停进程一律按 `ExecutablePath` 前缀只杀自己的并复核他人实例存活；副本含用户加密凭据，用完必删；并复核用户源 profile 未被写（手法：mtime + 条数 + 不含本 change 新增的 `name_source` 字段）。
 
 ## 8. 守卫孪生与 parity
 
