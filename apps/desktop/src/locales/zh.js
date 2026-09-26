@@ -1,3 +1,5 @@
+import accountsCloudSyncZh from './accounts-cloud-sync/zh'
+
 export default {
   signer: {
     pageNotReady: '签名服务未就绪，请稍后重试或重新登录对应账号',
@@ -1418,6 +1420,7 @@ export default {
     persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',
     batchCheckAllNoAccounts: '暂无可检测的账号',
     batchCheckAllFailed: '一键检测失败，请稍后重试',
+    ...accountsCloudSyncZh,
     autoSaved: '登录凭证已自动保存',
     autoSavedWithPlatform: (ctx) => ctx.named('platform') + ' 登录凭证已自动保存',
     saveAccountTabFailed: '保存账号凭证失败，请重试',

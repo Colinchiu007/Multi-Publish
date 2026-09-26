@@ -114,11 +114,17 @@ describe('name_source 投影白名单接线守卫', () => {
       const value = m[1]
       return /\|\|/.test(value) && /account_name/.test(value) && /\.name\b/.test(value)
     }
-    // 登记格式：'相对路径:行号' -> 复核结论。新增条目必须同时给出「零消费者」的实测证据。
+    // 登记格式：'相对路径||归一化行内容' -> 复核结论。新增条目必须同时给出「零消费者」的实测证据。
+    //
+    // 键用**内容指纹而不是行号**：本仓已因「行号锚定的基线」吃过两次长期假红（locale CJK 基线
+    // PR #1732、check-locale-sync 的 file||content 改造），而任何人在文件上方插几行就会让
+    // 例外清单整体错位——错位的表现是「已复核的死通道被判为新增违规」+「僵尸例外不再命中却不被收口」，
+    // 与本 PR 无关的改动也会被卡住。内容指纹对空白归一，行号漂移免疫。
+    const fingerprintOf = (rel, text) => rel + '||' + text.replace(/\s+/g, ' ').trim()
     const KNOWN_DEAD_CHANNELS = new Map([
-      ['apps/desktop/electron/ipc-handlers/store.js:73',
+      [fingerprintOf('apps/desktop/electron/ipc-handlers/store.js', "account_name: safeAccount.account_name || safeAccount.name || '',"),
         'store:list-accounts / store:get-account：grep -rna storeListAccounts|storeGetAccount apps/desktop/src 排除 .test.js 后 0 命中，唯一引用是 Home.test.js:226 断言它不被调用'],
-      ['apps/desktop/electron/ipc-handlers/account.js:707',
+      [fingerprintOf('apps/desktop/electron/ipc-handlers/account.js', "name: account.name || account.account_name || '',"),
         'accounts:batch-open-login：grep -rna batchOpenLogin apps/desktop/src 0 命中（preload 暴露了 accountBatchOpenLogin 但渲染层无调用方），故当前不可见；一旦接线必须改走唯一入口'],
     ])
     const offenders = []
@@ -129,13 +135,13 @@ describe('name_source 投影白名单接线守卫', () => {
         if (entry.isDirectory()) { walk(full); continue }
         if (!/\.js$/.test(entry.name) || /\.test\.js$/.test(entry.name)) continue
         const rel = path.relative(REPO_ROOT, full).split(path.sep).join('/')
-        fs.readFileSync(full, 'utf8').split(/\r?\n/).forEach((line, i) => {
+        fs.readFileSync(full, 'utf8').split(/\r?\n/).forEach((line) => {
           const t = line.trim()
           if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return
           if (!isRawDisplayFallback(t)) return
-          const key = rel + ':' + (i + 1)
+          const key = fingerprintOf(rel, t)
           if (KNOWN_DEAD_CHANNELS.has(key)) { offenders.push(key); return }
-          unsanctioned.push(key + '  ' + t)
+          unsanctioned.push(rel + '  ' + t)
         })
       }
     }
