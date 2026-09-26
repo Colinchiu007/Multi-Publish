@@ -176,9 +176,9 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 
 ### 本轮新增的已知缺口（登记，不粉饰）
 
-- [ ] `electron/ipc-handlers/cloud-account.js` 无直接单测：`ownerSubject()` 取不到 sub 的 fail-closed、
+- [x] ~~`electron/ipc-handlers/cloud-account.js` 无直接单测~~ → **已收口（2026-09-27，PR 云账号 no-store 第二段）**：`ipc-handlers/cloud-account.test.js` 20 例，逐条断言五种「取不到 sub」形态下**服务层零调用**、四条通道拒外部 sender、异常不逃逸、`confirm` 不臆造。原描述
   `withSenderCheck`、以及 `res.data` 被 renderer 消费的形状，目前只由 preload 通道合同与服务层测试间接覆盖。
-- [ ] `POST /sync` 现在返回明文凭证，响应侧**尚未**加 `Cache-Control: no-store`。
+- [x] ~~`POST /sync` 现在返回明文凭证，响应侧**尚未**加 `Cache-Control: no-store`~~ → **已收口（2026-09-27）**：no-store 加在云账号面的统一出口（`publish-api-cloud-accounts.js` 的 `NO_STORE`，三处出线点全覆盖），`test/cloud-accounts-no-store.test.js` 以真 HTTP 链路锁出站头。
   本机链路不经缓存、Nginx 默认也不缓存 `/api/v1/`，但这条应在接入任何共享缓存前补上（需改 `_json` 的按路由加头，属独立改动）。
 - [ ] 真库回归仍需 CI 才跑得到（本机无 docker）：合并前必须在 `QG Business API Postgres` 看到 7 条真跑绿，
   跳过不算通过。
@@ -249,8 +249,8 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 | --- | --- | --- |
 | 3.6 八平台 uid 真凭证线级取证 | 仓库内无实测证据，未命中即走 `uid-unavailable` 跳过上行 | 合并键覆盖率，不影响已上线行为 |
 | 6.6 flag 开启态视觉基线 | CI 无运营中心 ⇒ 按钮不渲染，`QG Visual` 的绿不构成新按钮证据 | 视觉回归覆盖面 |
-| `/sync` 响应缺 `Cache-Control: no-store` | 明文凭证下行经代理/HTTP 缓存有留存风险，运维文档 §4 已登记为待办 | 安全（生产上线前必须处理） |
-| `ipc-handlers/cloud-account.js` 直测 | 现由服务层测试与 preload 结构锁间接覆盖 | IPC 边界回归强度 |
+| ~~`/sync` 响应缺 `Cache-Control: no-store`~~ **已收口（2026-09-27）** | 出口常量 `NO_STORE` 覆盖云账号面三处出线点；真 HTTP 线级锁 + 两条分离变异反证 | 安全项已关闭；生产网关缓存行为仍未现场验证 |
+| ~~`ipc-handlers/cloud-account.js` 直测~~ **已补（2026-09-27）** | `ipc-handlers/cloud-account.test.js` 20 例（fail-closed / sender / 异常不逃逸 / 接线合同），三条独立变异反证 | IPC 边界回归强度已建立；真机 IPC 往返仍未做 |
 | 主进程「同步中 × 批量检测」互斥 | 两者可并发改写同一真源，最后写入者胜 | 登录态真源竞态 |
 | W5 `tombstone-backfilled` 结果语义 | 墓碑补写与逐条结果的对应关系未定 | 结果展示口径 |
 | 生产 KMS 实现与密钥轮转 | 本 PR 只交付接口 + 本地实现（ADR-0003 后果段） | 生产可用性 |
@@ -258,3 +258,22 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 
 > 上表由「归档即视为已完成」的风险反向生成：**change 归档只表示规格已并入主规格，不表示这 8 项做完**。
 > 下一轮触碰本特性时必须先读本节，不得以「PR 已合并」推断残留为零。
+
+
+> **2026-09-27 后续**：上表 8 项中的 `Cache-Control: no-store` 与「`ipc-handlers/cloud-account.js` 直测」两项
+> 已在同日的 no-store 收口 PR 里关闭（含各自的变异反证），其余 6 项仍开放。本文件是归档记录，
+> 只在原行上标注去向、不删条目，避免「归档文件被改写成一副全干完的样子」。
+
+### 12.2 需求逐条对照（原始需求 ↔ 工件 ↔ 谁锁住它）
+
+原始需求三句，逐句给落点与证据；「谁锁住它」一列写的是**会因它退化而变红**的测试，不是"我记得写过"。
+
+| 需求原文 | 界面工件（testid / 文案键） | 锁住它的测试 |
+| --- | --- | --- |
+| 「先弹出弹窗，显示云端的账号信息，共 xx 个」 | 摘要态：`cloud-digest-loading` / `cloud-digest-error` / `cloud-digest-retry`；文案 `cloudDigestTotal`＝「云端现有 {total} 个账号」、`cloudDigestLocal`＝「本机 {local} 个账号将参与同步」 | `AccountCloudSyncDialog` 渲染层用例（摘要态渲染 + 取消不发写请求）+ `accounts-cloud-sync-copy.test.js`（文案键与精确结构）+ `useCloudSyncResultModel.test.js` 反向收集锁（错误码/结局枚举漏一个即红） |
+| 「是否同步」 | 摘要态主按钮 `cloud-sync-start` → `startSync()`（`AccountCloudSyncDialog.vue:86,309`） | 渲染层「点同步才发起、取消不发起」用例；IPC 侧由 `ipc-handlers/cloud-account.test.js` 锁 `accounts:cloud-sync` 的身份门槛与返回形状 |
+| 「点击【同步】按钮后，显示同步过程信息」 | 过程态：`cloud-sync-progress`＝「同步中 {done}/{total}」、`cloud-sync-elapsed`、`cloud-sync-current`（在途账号名逐条）、逐条结果列表、`cloud-sync-stop`（中止）/ `cloud-sync-background`（后台等）/ `cloud-sync-finish`（完成） | `useCloudSyncRows` 的 start/done 双边界用例（15 例）+ `cloud-account-sync.test.js` 的进度事件双边界断言 + `account-batch-check.test.js` 同族的「进度不得退化为已完成数」口径 |
+
+另有两条**不属于原始需求但被实现引入**的界面能力，同样已文档化并加锁：「断开云端」`cloud-disconnect`（PRD §7.4 语义：只删云端镜像与写墓碑，不反向删本机）与「中止同步」`cloud-sync-stop`（PRD §7.3 中止后逐条如实归因）。
+
+> 本表的「未做」部分仍以下面这些为准：flag 开启态视觉基线（`QG Visual` 的绿是在按钮不渲染的前提下拿到的）、真机 Electron 窗口内的 IPC 全链路往返、八平台 uid 真凭证取证。

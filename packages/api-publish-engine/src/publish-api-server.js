@@ -18,7 +18,7 @@ const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/lo
 const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
-const { applyCloudAccountHelpers } = require("./auth/publish-api-cloud-accounts")
+const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -214,7 +214,7 @@ class PublishApiServer {
     });
   }
 
-  _json(res, status, data) {
+  _json(res, status, data, extraHeaders) {
     var body = Buffer.from(JSON.stringify(data));
     if (res.req && (status >= 400 || (data && data.success === false))) {
       res.req._errorCode = errorCodeOf(data);
@@ -225,6 +225,8 @@ class PublishApiServer {
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID",
       "Vary": "Accept-Encoding",
     };
+    // 追加响应头（如账号云镜像面的 no-store），传输语义三键由 mergeFaceHeaders 挡掉。
+    if (extraHeaders) mergeFaceHeaders(headers, extraHeaders);
     if (res.req && res.req.requestId) headers["X-Request-Id"] = res.req.requestId;
     var request = res.req;
     var acceptEncoding = request && request.headers ? request.headers["accept-encoding"] : null;
@@ -625,6 +627,9 @@ class PublishApiServer {
       });
       return;
     }
+
+    // 云账号面下行是明文凭证：no-store 必须打在路由/鉴权之前，否则 401/403/429 这些不经本面出线点的短路应答可被缓存（评审 W-2/C-1）。
+    applyCloudAccountNoStore(res, url);
 
     // Rate limiting
     if (this._rateLimiter && !this._rateLimiter.check(req.socket.remoteAddress || req.headers["x-forwarded-for"] || "unknown")) {

@@ -77,8 +77,11 @@
 - 上行只含白名单字段（`ACCOUNT_FIELD_NOT_ALLOWED` 契约）+ **明文凭证过 TLS**；
   `credential_digest` **只由服务端计算**，桌面端提交的同名值一律丢弃（防两侧口径漂移）。
 - **下行同样携带明文凭证**（`POST /sync` 由服务端解密后回传，PRD §7.3）。这决定了三件运维事实：
-  1. 该端点的日志、代理与任何中间层**都不得缓存或记录响应体**；当前实现依赖"本机链路无缓存 + Nginx 对
-     `/api/v1/` 默认不缓存"，**`Cache-Control: no-store` 尚未加**（登记在 §5），接入任何共享缓存前必须先补；
+  1. 该端点的日志、代理与任何中间层**都不得缓存或记录响应体**。现在应用侧自己就把它声明死了：云账号面的
+     **每一条**出站应答都带 `Cache-Control: no-store`（`publish-api-cloud-accounts.js` 的 `NO_STORE`，
+     接在三处出线点上，新增路由自动继承），不再依赖"Nginx 恰好没缓存"这条运维巧合；代理与网关侧仍应保持
+     `/api/v1/` 不缓存，但那是纵深防御而非唯一屏障。出站头由 `test/cloud-accounts-no-store.test.js` 以真
+     HTTP 链路锁定（含反证：摘掉合并或摘掉 503 实参都会立刻变红）。
   2. 主密钥（`MP_CLOUD_KMS_LOCAL_KEY`）一旦泄露 = 全量凭证可解，其轮转与销毁流程必须在生产开启前落地；
   3. 解密 AAD 绑定 `(userId, platform, platformUid)`，即便仓储错返他人行也解不出明文（有回归用例）。
 - 「断开云端」只删云端镜像与写墓碑，**不反向删除本机账号或本机凭证**；墓碑只阻止恢复，不阻止重新登录。
@@ -98,11 +101,13 @@
   在这一项落地前，本特性不得对真实用户开启。
 - 视觉基线：`accounts-list` 视图因命令栏新增按钮必然产生 diff；基线只能取自 CI 产物后回填（QM-4 第 7 条），
   本 PR 内**未回填**。
-- `POST /api/v1/me/accounts/sync` 的响应现在含明文凭证，**`Cache-Control: no-store` 未加**：
-  需要给 `_handleCloudAccounts` 按路由加头（`_json` 是全 API 共用的，不能一把改），属独立改动。
-  在补上之前，本特性不得部署到任何会缓存响应的网关后面。
-- `ipc-handlers/cloud-account.js` 无直接单测（`ownerSubject()` 取不到身份的 fail-closed、
-  `withSenderCheck`、以及 IPC 回执的 `{code,data}` 形状目前只由 preload 通道合同与服务层测试间接覆盖）。
+- ~~`POST /api/v1/me/accounts/sync` 的响应现在含明文凭证，**`Cache-Control: no-store` 未加**~~ → **已收口**
+  （PR `cloud-sync-no-store`）：按本文件原设想落地——头加在 `_handleCloudAccounts` 的三处出线上，
+  `_json` 只多一个可选参数、不全局加头；出站头由 `test/cloud-accounts-no-store.test.js` 以真 HTTP 链路锁定。原「在补上之前，本特性不得部署到任何会缓存响应的网关后面」这条前置条件随本项收口而解除。
+- ~~`ipc-handlers/cloud-account.js` 无直接单测~~ → **已补**（`ipc-handlers/cloud-account.test.js`，20 例）：
+  五种「身份取不到」形态逐条断言**服务层零调用**、四条通道拒外部 sender、异常不逃逸、`confirm` 不臆造、
+  `apiClient` 缺失时保持 `null`、广播静默失败不阻断。三条变异反证见 CHANGELOG「测试」段；
+  **仍待做**：真机 Electron 窗口内的 IPC 全链路往返（与下方 flag 开启态基线是同一轮 dogfood）。
 
 CI 侧已有的等价证据：`business-api-postgres` job 用真实 PostgreSQL 16 跑 dry-run + apply + 断言 `005` 进 ledger +
 幂等重跑 + 真 SQL 用例，这是「迁移可用」的证据，**不等于**上面任何一条已执行。
