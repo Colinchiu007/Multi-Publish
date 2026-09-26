@@ -30,6 +30,86 @@
 
 
 
+# [未发布] fix(e2e): #2455 的恢复动作选错原语——「对同一 URL 再 goto」是 same-document 导航，救不回失败的 chunk（缺陷 K，2026-09-27，fix-e2e-reload-primitive）
+
+### 这片修的是"上一个修复自己无效"
+#2455 给 E2E 加了「瞬时子资源故障 ⇒ 有界重载」的恢复路径，判据、记账、证据卫生都对，**但恢复动作写成了 `this.navigate(this.lastNavigationUrl)` —— 即对完全相同的 URL 再 `page.goto` 一次**。
+真实浏览器里这不是重载：Chromium 对"仅 fragment 相同"的导航按同文档导航处理，**不重新请求子资源**。于是首屏模块被丢弃时，"重载"只是白烧 2×15s，然后抛出同一个超时 —— 修复是空转的。
+
+### 怎么发现的（不在测试里，在测试外）
+CI 全绿、本地 26 条合同用例全绿 —— 因为**假 `page.goto` 只记录调用，不模拟语义**。真正的触发点是我自己复查时问了一句"goto 同一个 URL 到底会不会重新取 chunk？"，然后用真实浏览器实测（Edge + 本机 vite:5174）：
+
+| 动作 | `window.__probe` 是否存活 | JS 子资源重新请求 |
+|------|--------------------------|-------------------|
+| 对完全相同的 URL 再 `page.goto` 一次 | 存活（= 同文档导航） | **0 次** |
+| `page.reload()` | 消失（= 文档重建） | **64 次** |
+
+### 变更
+- `functional-runner.js`：恢复动作改为 `page.reload({ waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT })`；重载前复位证据光标（本轮只看重载之后的新观测）；`reload` 自身被同一个瞬时码打断时，把它记进同一份证据账（否则下一轮会因"没有新证据"而放弃剩余预算 —— 而故障条件明明还在），其他错误原样抛出。删除随之下课的 `lastNavigationUrl`。
+- `functional-runner.test.js`：**把实测语义装进假 page** —— 新增两条用例，其夹具规定"同 URL 的 goto 不会让应用挂载，只有 reload 会"，因此对旧实现必须变红；另加一条锁住"本轮没有新证据就立刻收口，不得拿上一轮的旧证据烧完预算"。合同用例 23 → 26。
+
+### 反证（把锁改成 no-op 必须变红，4/4 红）
+| 变异 | 结果 |
+|------|------|
+| 恢复动作退回「对同一 URL 再 goto」（= 本次真正的 Bug） | **6 条红** |
+| 恢复动作改成 no-op（只记账不做事） | **6 条红** |
+| reload 被瞬时打断时不再记账 | **1 条红** |
+| 去掉本轮证据光标复位 | **1 条红** |
+还原后基线 26/26 绿，源文件与备份字节级一致。
+
+### 真实浏览器端到端证明（本机 Edge，一次性脚本，跑完即删）
+| 组 | 场景 | 结果 |
+|----|------|------|
+| C | 入口模块被丢弃 + 走真实 `runner.goto()` | 首轮 14.9s 失败 → **1 次 appReadyReload** → 第二轮 **2.0s 挂载成功**，入口模块被重新请求（共 2 次），产物记账在案 |
+| A | 同样被丢弃的首屏，只做「对同一 URL 再 goto 两次」 | 入口模块重新请求 **0 次**，`#app` 始终未挂载 —— 即 #2455 原语的真实后果 |
+| B | 同样被丢弃的首屏，只做一次 `page.reload()` | 入口模块重新请求 1 次，挂载成功 |
+对照组与实验组差的就是那一个原语。**正常路径零成本**：无瞬时证据时一次 reload 都不会发生（#2455 合入后 CI 的 `QG Browser E2E` 一直是 0 console errors）。
+
+### 文档
+AGENTS.md QM-3「上一条的镜像要求」增补：恢复动作必须**真的重做副作用**（同 URL 的 `goto` 属同文档导航，不重取子资源）；以及"夹具必须承载被测语义，只记录调用的假对象锁不住恢复类修复"这条口径。CHANGELOG / `01-docs/learnings.md` 置顶复盘。
+
+### 未做的验证（如实登记）
+- 上表浏览器证明是**本机 Edge + 本机 vite** 的一次性脚本（`channel: 'msedge'`，未下载 Playwright 浏览器），不进 CI、不留档；CI 侧的浏览器级证据仍是 Gate 8 全量跑（它只能证明"不回归"，证明不了"恢复路径有效"——那个 flake 无法按需复现）。
+- QM-1 打包：只改 `apps/desktop/tests/`，前提不成立，未执行。QM-6 双模型外部评审：未执行（纯测试基建），按缺口登记。
+# [未发布] fix(scripts): start-mp-task 在「已成功建成 worktree」时也返回 rc=1 —— EAP=Stop 把 git 的良性 stderr 变成终止错误（缺陷 J，2026-09-27，fix-start-mp-task-stderr）
+
+### 现象与本会话付出的代价
+隔离入口 `scripts/start-mp-task.ps1` 在**完全成功**地建好 worktree 之后仍以 rc=1 退出，并跳过 `.git` 存在性校验、结果报告与开 shell。本会话先后给出过两次**都错**的归因：
+1. 「脚本静默失败：exit 0 却没建 worktree」—— 实际是 `cmd | tail` 吃掉了真退出码；
+2. 「只有 fetch 失败才会 rc=1，脚本本身有两道硬校验所以没问题」—— 实际成功路径照样 rc=1。
+两次都是**从单次观测外推、没有做机制级最小复现**。真正的机制是第三次才拿到的。
+
+### 根因（一行可复现）
+`start-mp-task.ps1:19` 设 `$ErrorActionPreference = 'Stop'`，`:63` 写作 `$output = & $bash $initScript $TaskName 2>&1`。
+Windows PowerShell 5.1 下「EAP=Stop + 用 `2>&1` 捕获 native 命令的 stderr」会把**任意一行** stderr 变成终止性错误。最小复现（不建任何 worktree）：
+
+```powershell
+$ErrorActionPreference='Stop'; $o = & cmd /c 'echo x 1>&2' 2>&1   # → 实测抛 RemoteException
+```
+
+而 git 在**成功**时也要往 stderr 写进度。实测原文（本机跑修复前的脚本，同一命令行）：
+
+```
+bash.exe : Preparing worktree (new branch 'fix-start-mp-task-stderr')
+位于 …\start-mp-task.ps1:63 字符: 15
+    + FullyQualifiedErrorId : NativeCommandError
+```
+⇒ 脚本恰好在捕获行中止，`git worktree list` 里 worktree 明明已存在（`9a2e35fe [fix-start-mp-task-stderr]`），退出码却是 1。
+
+### 变更
+- `start-mp-task.ps1`：把捕获包进「保存 → 临时 `Continue` → `finally` 原样恢复」的 EAP 作用域，判成败一律用 `$LASTEXITCODE` 与 worktree 存在性（本来就是这两道校验，只是此前根本执行不到）。
+- **新增结构锁 `scripts/start-mp-task.test.js`（4 条，接进 `quality-gate.yml` Gate 2b）**：① 顶部仍是 `Stop`（前提）；② **每一处** `2>&1` 捕获都必须处在「已放宽」的 EAP 作用域内；③ 放宽必须在同一 `try` 的 `finally` 里恢复（不允许整段脚本降级成 Continue）；④ 放宽之前不得出现任何捕获点。注释行里的 `2>&1` 一律排除（写锁的人自己踩了一次：说明文字命中正则，锁自我报警）。
+- **真机行为验证（修复前后同一命令对照，零残留）**：修复前 → 在 `:63` 抛 `NativeCommandError`（worktree 已建成）；修复后 → 子进程 stderr 被完整采集并打印，脚本走到自己的判定分支，输出 `session-init.sh 失败，退出码 128`（本次是 `worktree add` 撞已存在分支的真实失败）。同一条命令行，从「在捕获处炸掉」变成「按设计报告子进程结论」。
+
+### 反证（把锁改成 no-op 必须变红）
+去掉捕获期放宽 → 2 条红；放宽但忘记恢复 → 1 条红；整段降级成 Continue（不保存/恢复）→ 1 条红；还原后 0 红且源文件字节级一致。
+
+### 未做的验证（如实登记）
+- CI 侧只跑结构锁；「真机行为验证」是本机 PowerShell 5.1 手工证据，GitHub runner 的 PowerShell 版本/配置差异未覆盖（结构锁不依赖版本，故不敏感）。
+- QM-1 打包：只改 `scripts/` 与 CI 配置，未触发前提，未执行。
+- QM-6 CCG 双模型外部评审：未执行（纯工具脚本 + 测试），按缺口登记。
+- 同族风险未一并处理：`start-mp-task.ps1` 里另有若干 `& powershell -File …` / `& git …` 调用**没有** `2>&1`，因此不落入本锁的判据（stderr 直写宿主不会产生 ErrorRecord）——这是「不捕获就不受害」的巧合而非设计；若将来有人给这些调用加 `2>&1`，结构锁会立刻拦下。
+
 # [未发布] fix(desktop): 登录承载节流按「是否可能被绘制」分两档 + CDP 只数字节观测 + 登录页噪音 cancel 实验开关（2026-09-27，login-qr-throttle-and-netobs）
 
 ### 变更
@@ -309,6 +389,7 @@ CCG 双模型外部评审本机不可用（无 `.ccg/config.toml`、`codeagent-w
 - PR #2414 的 `QG Desktop Shards (1/2)` 红：`AssertionError: concurrency-real {...,"total_duration_ms":false} diffTotalDurationMs=1640 allowedTotalDurationMs=1500`（python=11000 / real=12640，job `108349933889`，run `36222207527`）。
 - **定责证据**：main 在 `aa090b92`（即 #2416 的 squash 合并提交，也正是 #2414 的 rebase 基线）同一 job 为 **success**；#2414 只改了一张视觉基线 PNG 与文档，未触碰该测试。所以这是 #2416 未收口的同一颗雷，而非 #2414 引入。
 - **为什么 `max(下限, 比例×期望)` 仍会红**：11000ms 用例的比例项只有 1100ms < 1500 下限 ⇒ `max()` 在该量级**退化回固定下限**，而 CI 实测抖动是 1640ms。两个真实样本合起来给出漂移的形状：21000ms 上 1653ms（7.9%）、11000ms 上 1640ms（14.9%）—— 绝对值几乎相同、相对值差一倍，说明 CI 挂钟漂移是「**固定项 + 随时长累积的比例项**」，既不是纯常量（#2416 之前的假设）也不是纯比例（#2416 的假设）。4 个 20ms 级合成用例从未红过，也印证漂移不来自进程固定开销，而来自真实 governor 定时器在 10–20s 尺度上的累积误差。
+- **更正（2026-09-26 打点实测后）**：上面那句漂移形状**不成立**。本条自己新增的逐轮打点在首轮 CI 就给出 12 个样本（两个 shard × 6 用例，`real - python`）：`+14 / +6`、`+1 / +5`、`−123 / −118`、`+1 / +1`、`+2 / +2`、`+25 / +31` ms。常态差值是个位到几十毫秒 ⇒ 真实形状是「常态近零 + **饱和长尾**」，不是随时长累积；「4 个 20ms 合成用例从未红过」也不能用来证明累积说，那些用例在常态与长尾下都不会红。**修法与结论仍成立**（`floor + ratio × 期望` 单调加宽，既容纳常态也容纳 1640 的长尾），但下次调参应据累计分布定分位数，而不是再拿单点样本猜形状。数据表与推论详见 `01-docs/learnings.md` 的 parity-tolerance-additive 条目。
 
 ### 变更
 - **`scripts/compare-scheduler-models.js`**：`durationTolerance` 由 `max(FLOOR, ratio×expected)` 改为 **`ceil(FLOOR + ratio×expected)`**（FLOOR 1500ms、ratio 10% 两个常量都不动）。生效容差：1500→1650、11000→**2600**（本次 1640 通过，余量 58%）、21000→3600、30000→4500。
