@@ -240,6 +240,26 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 
 幂等：同一 `(platform, platformUid)` 且服务端算得的摘要未变 → `unchanged` 且不更新 `updated_at`。
 
+**上行字段的正反清单（实现事实，评审补写的缺口）**：
+
+| 允许客户端提交 | 禁止客户端提交（提交即 `ACCOUNT_FIELD_NOT_ALLOWED`，不是静默忽略） | 为什么 |
+| --- | --- | --- |
+| `credential`（明文，TLS 上行） | `credentialEnvelope` | ADR-0003 定的是服务端加密；桌面端没有也不该有 KMS 访问权。接受客户端信封等于把「服务端只存自己加密的东西」交出去 |
+| `credentialUpdatedAt`（本机凭证上次被证明可用的时刻） | `credentialDigest` / `credential_digest` | 摘要只由服务端对明文算（§8.6）；接受客户端摘要会让 `unchanged`/`conflict` 判定被客户端操纵 |
+| `force`（仅 `'local-wins'` \| `'cloud-wins'`，其他值判非法） | `metadataUpdatedAt`、`createdAt`、`lastReportedStatus` | 存储时间戳与只读展示快照都由服务端决定；让客户端写 `last_reported_status` 就是把自己的登录结论塞进真源镜像列，违反单向证据规则 |
+
+**`force` 的方向（必须与 §5.5 四分支一致，读反的后果是长期错而不是报错）**：
+`'local-wins'` = 本机那份被实测判有效、授权**覆盖**云端凭证列（唯一有资格碰凭证四列的取值）；
+`'cloud-wins'` = 本机接受了云端那份并回写自身，**只写元数据**、不覆盖凭证列（此时 digest 本就相同）。
+两份都无定论时桌面端**不发**带 `force` 的 PUT——「没验出来」不是反证，不构成覆盖另一台设备有效凭证的授权，
+且服务端在无 `force` 时只会回 `conflict`，那一趟是纯冗余写。
+
+**并发（CAS，不是行锁）**：读-判-写之间必须带 `AND credential_digest = $expected` 谓词。
+两个设备同时 PUT 同一合并键时，后写者影响 0 行 → 重读 → 如实报 `conflict`，交回本机下一轮重新实测；
+**凭证写绝不重试覆盖**（重试会把抢先赢的那台设备刚写入的有效凭证就地抹掉，且两路都报 `updated`，
+正是本特性要消灭的无条件 LWW 形态）。刻意不用 `SELECT ... FOR UPDATE`：那要求显式事务与持锁，
+会把「逐条独立裁决、一条失败不整批回滚」变成串行长事务。
+
 ### 7.3 `POST /api/v1/me/accounts/sync`
 
 服务端裁决端点（供客户端在合并计划不确定时索取权威视图）：入本机计划摘要，出 `actions: [{key, action, reason}]` + 需要解密的凭证槽。若实现上把裁决完全放客户端，本端点退化为"批量取凭证"：`{ keys: [{platform, platformUid}] } → { credentials: [{platform, platformUid, credentialEnvelope}] }`。**本期按后者实现**（客户端裁决，服务端只存取），因为凭证解密必须在服务端做、而合并键判定不需要服务器状态。

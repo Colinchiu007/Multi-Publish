@@ -38,24 +38,34 @@ function context(overrides) {
   }, overrides || {})
 }
 
-/** 用真实加密器产出一份可入库的信封（不手搓形状，避免 mock 反向固化错误结构）。 */
-async function realEnvelope(userId, platform, platformUid, credential) {
+/**
+ * 上行夹具：返回**明文凭证**本体（PRD §7.2 / ADR-0003 的上行形态）。
+ * 信封与摘要必须由被测的 handler 自己用真加密器算出来——测试不得预先加密，
+ * 否则「服务端到底有没有加密入库」这件事在夹具里就被替做掉了，缺陷会被静默藏住。
+ * 需要一份真实信封做入库断言时，用 sealedEnvelopeOf() 现算，别复用这条路径。
+ */
+function credentialFor(userId, platform, platformUid, credential) {
+  assert.ok(typeof userId === 'string' && userId, '夹具保留原调用形状（归属只从 token 取）')
+  assert.ok(platform && platformUid, '夹具保留原调用形状（合并键必须齐）')
+  return credential
+}
+
+/** 真加密器算一份入库形态的信封（base64 线上形状），只用于断言「服务端确实加密了」。 */
+async function sealedEnvelopeOf(userId, platform, platformUid, credential) {
   const envelopeCrypto = createEnvelopeCrypto({ kms: createLocalKms({ key: LOCAL_MASTER_KEY }) })
   const sealed = await envelopeCrypto.encryptCredential({ userId, platform, platformUid, credential })
-  const digest = credentialDigest(credential)
-  assert.strictEqual(sealed.digest, digest)
+  assert.strictEqual(sealed.digest, credentialDigest(credential))
   return Object.assign(encodeEnvelope(sealed), { credentialUpdatedAt: PAST })
 }
 
-function itemFor(envelope, overrides) {
+function itemFor(credential, overrides) {
   return Object.assign({
     platform: 'douyin',
     platformUid: 'uid-9',
     displayName: '数字生命丘丘',
     followers: 100,
     isActive: true,
-    metadataUpdatedAt: PAST,
-    credentialEnvelope: envelope,
+    credential,
   }, overrides || {})
 }
 
@@ -88,12 +98,12 @@ test('handlers：路由与归属', async (t) => {
   })
 
   await t.test('归属只从 auth 取：请求体里的 userId/ownerSubject 一律不生效', async () => {
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [] })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [] })
     // A) body 顶层混入归属字段：不得改变写入归属（也绝不作为「第二真源」参与裁决）。
     const clean = repositoryStub()
     const inert = await handleCloudAccountsRequest(context({
       method: 'PUT',
-      bodyParser: async () => ({ accounts: [itemFor(envelope)], userId: 'victim-9', ownerSubject: 'victim-9' }),
+      bodyParser: async () => ({ accounts: [itemFor(credential)], userId: 'victim-9', ownerSubject: 'victim-9' }),
       repository: clean,
     }))
     assert.strictEqual(inert.status, 200)
@@ -102,7 +112,7 @@ test('handlers：路由与归属', async (t) => {
     const itemLevel = repositoryStub()
     const rejected = await handleCloudAccountsRequest(context({
       method: 'PUT',
-      bodyParser: async () => ({ accounts: [itemFor(envelope, { platformUid: 'uid-x', ownerSubject: 'victim-9' })] }),
+      bodyParser: async () => ({ accounts: [itemFor(credential, { platformUid: 'uid-x', ownerSubject: 'victim-9' })] }),
       repository: itemLevel,
     }))
     assert.strictEqual(rejected.status, 400)
@@ -205,13 +215,13 @@ test('handlers：路由与归属', async (t) => {
 
 test('handlers：PUT 批量上行', async (t) => {
   await t.test('合法批次 → created，results 与入参同序', async () => {
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [{ name: 'a', value: 'b' }] })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [{ name: 'a', value: 'b' }] })
     const repository = repositoryStub()
     const response = await handleCloudAccountsRequest(context({
       method: 'PUT',
       url: '/api/v1/me/accounts',
       req: { method: 'PUT', url: '/api/v1/me/accounts', headers: {} },
-      bodyParser: async () => ({ accounts: [itemFor(envelope)] }),
+      bodyParser: async () => ({ accounts: [itemFor(credential)] }),
       repository,
     }))
     assert.strictEqual(response.status, 200)
@@ -226,7 +236,7 @@ test('handlers：PUT 批量上行', async (t) => {
 
   await t.test('未知字段 → 400，且 results 逐条如实（一条坏不拦其余）', async () => {
     const repositoryStubCalls = []
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [] })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [] })
     const repository = repositoryStub({
       async upsertMany(userId, items) {
         repositoryStubCalls.push(items.length)
@@ -238,9 +248,9 @@ test('handlers：PUT 批量上行', async (t) => {
       req: { method: 'PUT', url: '/api/v1/me/accounts', headers: {} },
       bodyParser: async () => ({
         accounts: [
-          itemFor(envelope),
-          itemFor(envelope, { platformUid: 'uid-bad', status: 'active' }),
-          itemFor(envelope, { platformUid: 'uid-3', followers: -1 }),
+          itemFor(credential),
+          itemFor(credential, { platformUid: 'uid-bad', status: 'active' }),
+          itemFor(credential, { platformUid: 'uid-3', followers: -1 }),
         ],
       }),
       repository,
@@ -256,12 +266,12 @@ test('handlers：PUT 批量上行', async (t) => {
   })
 
   await t.test('KMS 不可用 → 503 KMS_UNAVAILABLE，且一条都没写', async () => {
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [] })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [] })
     const repository = repositoryStub()
     const response = await handleCloudAccountsRequest(context({
       method: 'PUT',
       req: { method: 'PUT', url: '/api/v1/me/accounts', headers: {} },
-      bodyParser: async () => ({ accounts: [itemFor(envelope)] }),
+      bodyParser: async () => ({ accounts: [itemFor(credential)] }),
       repository,
       crypto: createEnvelopeCrypto({
         kms: { async wrap() { throw new Error('kms down') }, async unwrap() { throw new Error('kms down') } },
@@ -273,12 +283,12 @@ test('handlers：PUT 批量上行', async (t) => {
   })
 
   await t.test('未接加密器 → 503 KMS_UNAVAILABLE（禁止把无法确认主密钥的信封入库）', async () => {
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [] })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [] })
     const repository = repositoryStub()
     const response = await handleCloudAccountsRequest(context({
       method: 'PUT',
       req: { method: 'PUT', url: '/api/v1/me/accounts', headers: {} },
-      bodyParser: async () => ({ accounts: [itemFor(envelope)] }),
+      bodyParser: async () => ({ accounts: [itemFor(credential)] }),
       repository,
       crypto: null,
     }))
@@ -288,9 +298,9 @@ test('handlers：PUT 批量上行', async (t) => {
   })
 
   await t.test('批量层错误：>100 条 413，body 形状不对 400，且都不触库', async () => {
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [] })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [] })
     for (const [payload, code, status] of [
-      [{ accounts: new Array(101).fill(itemFor(envelope)) }, 'ACCOUNT_BATCH_TOO_LARGE', 413],
+      [{ accounts: new Array(101).fill(itemFor(credential)) }, 'ACCOUNT_BATCH_TOO_LARGE', 413],
       [{}, 'ACCOUNT_BATCH_INVALID', 400],
       [{ accounts: 'nope' }, 'ACCOUNT_BATCH_INVALID', 400],
       [null, 'ACCOUNT_BATCH_INVALID', 400],
@@ -338,11 +348,11 @@ test('handlers：PUT 批量上行', async (t) => {
   })
 
   await t.test('时钟注入点三种形态都必须生效（接线方传的是函数）', async () => {
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [] })
-    // 略微超前的 metadataUpdatedAt：只有当注入时钟被真正读到时才判合法，
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [] })
+    // 略微超前的 credentialUpdatedAt：只有当注入时钟被真正读到时才判合法，
     // 否则「注入 now」会退化成一个没人读的参数（死探针），时间戳门禁静默失去可测性。
     const future = new Date(NOW.getTime() + 60_000).toISOString()
-    const body = async () => ({ accounts: [itemFor(envelope, { metadataUpdatedAt: future })] })
+    const body = async () => ({ accounts: [itemFor(credential, { credentialUpdatedAt: future })] })
     const asDate = await handleCloudAccountsRequest(context({ method: 'PUT', bodyParser: body, now: new Date(NOW.getTime() + 120_000) }))
     assert.strictEqual(asDate.status, 200, 'now 为 Date 必须生效')
     const asNumber = await handleCloudAccountsRequest(context({ method: 'PUT', bodyParser: body, now: NOW.getTime() + 120_000 }))
@@ -353,7 +363,7 @@ test('handlers：PUT 批量上行', async (t) => {
     assert.strictEqual(asFunctionDate.status, 200)
     const beyondSkew = await handleCloudAccountsRequest(context({
       method: 'PUT',
-      bodyParser: async () => ({ accounts: [itemFor(envelope, { metadataUpdatedAt: new Date(NOW.getTime() + 3_600_000).toISOString() })] }),
+      bodyParser: async () => ({ accounts: [itemFor(credential, { credentialUpdatedAt: new Date(NOW.getTime() + 3_600_000).toISOString() })] }),
       now: () => NOW.getTime(),
     }))
     assert.strictEqual(beyondSkew.status, 400, '超出 now+5min 必须拒绝')
@@ -501,7 +511,7 @@ test('handlers：POST 取凭证与 POST 断开云端', async (t) => {
   })
 
   await t.test('POST disconnect 未清干净 → 500 CLOUD_DISCONNECT_PARTIAL + 已删/剩余如实', async () => {
-    const repository = repositoryStub({ async clearAll() { return { ok: false, errorCode: 'CLOUD_DISCONNECT_PARTIAL', deletedAccounts: 1, deletedTombstones: 0, remaining: 3 } } })
+    const repository = repositoryStub({ async clearAll() { return { ok: false, errorCode: 'CLOUD_DISCONNECT_PARTIAL', deletedAccounts: 1, deletedTombstones: 2, remaining: 3 } } })
     const response = await handleCloudAccountsRequest(context({
       method: 'POST',
       url: '/api/v1/me/accounts/disconnect',
@@ -510,7 +520,7 @@ test('handlers：POST 取凭证与 POST 断开云端', async (t) => {
       repository,
     }))
     assert.strictEqual(response.status, 500)
-    assert.deepStrictEqual(response.body, { error: 'CLOUD_DISCONNECT_PARTIAL', deletedAccounts: 1, remaining: 3 })
+    assert.deepStrictEqual(response.body, { error: 'CLOUD_DISCONNECT_PARTIAL', deletedAccounts: 1, deletedTombstones: 2, remaining: 3 })
   })
 
   await t.test('断开云端不得影响本机：响应里不出现本机路径或凭证字段', async () => {
@@ -539,11 +549,11 @@ test('handlers：与真仓储 + 真加密器的贯通（不 mock SQL 执行以�
         return { rows: [], rowCount: 0 }
       },
     }
-    const envelope = await realEnvelope('u-1', 'douyin', 'uid-9', { cookies: [{ name: 'sid', value: 'private-value' }], localStorage: { a: 'b' } })
+    const credential = await credentialFor('u-1', 'douyin', 'uid-9', { cookies: [{ name: 'sid', value: 'private-value' }], localStorage: { a: 'b' } })
     const response = await handleCloudAccountsRequest(context({
       method: 'PUT',
       req: { method: 'PUT', url: '/api/v1/me/accounts', headers: {} },
-      bodyParser: async () => ({ accounts: [itemFor(envelope)] }),
+      bodyParser: async () => ({ accounts: [itemFor(credential)] }),
       repository: createCloudAccountRepository({ pool }),
     }))
     assert.strictEqual(response.status, 200)

@@ -137,7 +137,7 @@ const SCHEMA = [
     platform_uid TEXT NOT NULL,
     display_name TEXT NOT NULL CHECK (display_name <> '' AND char_length(display_name) <= 200),
     account_name TEXT CHECK (account_name IS NULL OR char_length(account_name) <= 200),
-    avatar TEXT CHECK (avatar IS NULL OR char_length(avatar) <= 1024),
+    avatar TEXT CHECK (avatar IS NULL OR (char_length(avatar) <= 1024 AND avatar LIKE 'https://%')),
     followers BIGINT CHECK (followers IS NULL OR followers >= 0),
     is_active BOOLEAN NOT NULL DEFAULT true,
     credential_ciphertext BYTEA NOT NULL,

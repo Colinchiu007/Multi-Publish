@@ -165,6 +165,63 @@ RUN('真库：合并键唯一约束生效，同 (platform, platform_uid) 不产�
   })
 })
 
+RUN('真库：avatar 的 https:// 前缀 CHECK 在存储层真的拦得住', async () => {
+  await withServices(async (services, pool) => {
+    // 绕过应用层直接写库：这道锁存在的理由就是「任何绕过 handlers 的写入」，
+    // 只测 validate-account.js 的 https 校验等于没测存储层。
+    const surrogate = 'user-real-avatar-' + process.pid + '-' + Date.now()
+    await pool.query(
+      `INSERT INTO identity_users (id, subject, created_at, updated_at)
+       VALUES ($1, $2, NOW(), NOW())
+       ON CONFLICT (id) DO NOTHING`, [surrogate, 'sub-avatar-' + surrogate])
+
+    const columns = await pool.query(
+      `SELECT column_name, data_type FROM information_schema.columns
+        WHERE table_name = 'cloud_accounts' AND column_name = 'credential_digest'`)
+    assert.equal(columns.rows.length, 1, 'cloud_accounts 表结构与本用例假设不符，先修表再谈 CHECK')
+
+    async function tryInsert(platformUid, avatarValue) {
+      try {
+        await pool.query(
+          `INSERT INTO cloud_accounts
+             (user_id, platform, platform_uid, display_name, avatar,
+              credential_ciphertext, credential_iv, credential_auth_tag, encrypted_data_key,
+              credential_digest, credential_updated_at, metadata_updated_at)
+           VALUES ($1, 'douyin', $2, '头像用例', $3,
+              '\\x01'::bytea, '\\x02'::bytea, '\\x03'::bytea, '\\x04'::bytea,
+              $5, NOW(), NOW())`,
+          [surrogate, platformUid, avatarValue, null, 'f'.repeat(64)])
+        return null
+      } catch (error) {
+        return error
+      }
+    }
+
+    for (const [label, value] of [
+      ['file:', 'file:///C:/Windows/win.ini'],
+      ['javascript:', 'javascript:alert(1)'],
+      ['data:', 'data:text/html,<script>alert(1)</script>'],
+      ['http:', 'http://cdn.example.com/a.png'],
+      ['相对路径', 'cdn.example.com/a.png'],
+    ]) {
+      const error = await tryInsert('avatar-bad-' + label, value)
+      assert.ok(error, `${label} 形态的 avatar 必须被 CHECK 拦住：${value}`)
+      assert.equal(error.code, '23514', `${label} 应当是 check_violation(23514)，实得 ${error.code}: ${error.message}`)
+    }
+
+    // 正例：https:// 与 NULL 都必须放行（NULL 是「本机没有头像」的正常形态，桌面端恒上报空串 → 存 NULL）。
+    assert.equal(await tryInsert('avatar-ok-https', 'https://cdn.example.com/a.png'), null)
+    assert.equal(await tryInsert('avatar-ok-null', null), null)
+
+    // 长度上限仍由同一条 CHECK 兜住（>1024 必须拒）。
+    const tooLong = await tryInsert('avatar-ok-long', 'https://cdn.example.com/' + 'x'.repeat(1024))
+    assert.ok(tooLong && tooLong.code === '23514', 'avatar 超长度必须仍被拒')
+
+    await pool.query('DELETE FROM cloud_accounts WHERE user_id = $1', [surrogate])
+    await pool.query('DELETE FROM identity_users WHERE id = $1', [surrogate])
+  })
+})
+
 RUN('真库：库内取证不含任何 cookie 明文子串', async () => {
   await withServices(async (services, pool) => {
     const secret = 'super-secret-session-value'

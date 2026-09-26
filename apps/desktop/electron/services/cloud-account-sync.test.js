@@ -247,6 +247,24 @@ describe('账号云同步 —— 凭证冲突四分支', () => {
     expect(f.deps.credentialStore.saveCredential).not.toHaveBeenCalled()
   })
 
+  it('本机那份被实测判有效时，必须带 force=local-wins 覆盖云端（方向反了云端会长期存着失效钥匙）', async () => {
+    const f = conflictFixture({
+      freshness: 'local',
+      checkLogin: async (platform, cookies) => ({
+        supported: true,
+        // 本机那份（cookie 值为 local-*）有效，云端那份无效
+        valid: !(cookies || []).some((c) => String(c.value || '').startsWith('cloud')),
+      }),
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items.find((i) => i.outcome === 'conflict-resolved-local')).toBeTruthy()
+    const forced = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT')
+      .map((c) => (c.body?.accounts || []).map((a) => a && a.force))
+      .flat()
+    expect(forced).toContain('local-wins')
+    expect(forced).not.toContain('cloud-wins')
+  })
+
   it('两份都无定论时保留本机且不写任何负结论', async () => {
     const f = conflictFixture({
       freshness: 'local',
@@ -256,6 +274,11 @@ describe('账号云同步 —— 凭证冲突四分支', () => {
     expect(res.data.items.find((i) => i.outcome === 'conflict-unresolved')).toBeTruthy()
     expect(res.data.invalid).toBe(0)
     expect(f.calls.some((c) => c.path === 'persistLoginState')).toBe(false)
+    // 无定论不是反证，也就没有授权覆盖云端凭证的资格：带 force 的 PUT 一发都不该发。
+    // 旧实现在这里发了 force:'local-wins'，等于用「没验出来」去覆盖另一台设备仍有效的钥匙。
+    const forced = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT'
+      && (c.body?.accounts || []).some((a) => a && a.force))
+    expect(forced.map((c) => JSON.stringify(c.body))).toEqual([])
   })
 })
 

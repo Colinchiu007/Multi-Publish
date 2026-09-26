@@ -19,6 +19,9 @@
 const { safeErrorCode } = require('../auth/safe-error-code')
 const { ENVELOPE_ALG, ENVELOPE_VERSION } = require('./envelope-crypto')
 const { accountError, isPlainObject, MAX_UID_LENGTH, CONTROL_CHARS, MAX_BATCH_SIZE } = require('./validate-account')
+// 写裁决（能不能写、写哪几列、谁的凭证更新）与它需要的行值归一化器都在 upsert-decision.js：
+// 判点只允许有一处，且必须能被逐分支直接断言（见该文件头注释）。
+const { bool, credentialFreshness, decideWrite, intText, isoTime, sameRecord, text, writeModeOf, WRITE_MODE_CREDENTIAL } = require('./upsert-decision')
 
 const CLOUD_ACCOUNT_COLUMNS = `id, user_id, platform, platform_uid, display_name, account_name, avatar, followers,
   is_active, credential_digest, last_reported_status, credential_updated_at, metadata_updated_at,
@@ -51,23 +54,51 @@ const SELECT_CREDENTIALS = `SELECT platform, platform_uid, credential_iv, creden
      AND (platform, platform_uid) IN (SELECT p, u FROM unnest($2::text[], $3::text[]) AS t(p, u))
    ORDER BY platform ASC, platform_uid ASC`
 
+/**
+ * `last_reported_status` **不在写入列里**（PRD §6.1：它是只读展示快照，恢复流程不读它）。
+ * 客户端侧由白名单挡掉（validate-account.js），这里连列都不出现是第二道：一旦写库里出现
+ * 「服务端自己派生的快照」，客户端上报值把它抹成 NULL 就是数据破坏，所以两侧都不给通路。
+ */
 const INSERT_ACCOUNT = `INSERT INTO cloud_accounts
     (user_id, platform, platform_uid, display_name, account_name, avatar, followers, is_active,
      credential_ciphertext, credential_iv, credential_auth_tag, encrypted_data_key, credential_digest,
-     last_reported_status, credential_updated_at, metadata_updated_at, last_sync_device_label, created_at)
-   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::timestamptz, $16::timestamptz, $17,
-     COALESCE($18::timestamptz, NOW()))
+     credential_updated_at, metadata_updated_at, last_sync_device_label, created_at)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::timestamptz, $15::timestamptz, $16,
+     COALESCE($17::timestamptz, NOW()))
    ON CONFLICT (user_id, platform, platform_uid) DO NOTHING
    RETURNING id`
 
-/** `updated_at = NOW()` 只出现在真正写库的分支；`unchanged` 走不到这里。 */
+/**
+ * 凭证覆盖写：`updated_at = NOW()` 只出现在真正写库的分支，`unchanged` 走不到这里。
+ *
+ * 末尾的 `$17` 是**乐观并发（CAS）谓词**，不是可选装饰：读-判-写之间没有行锁（本仓储刻意
+ * 不开事务，见文件头约束 3），两个设备同时 PUT 同一合并键会双双报 `updated` 而互相覆盖
+ * （lost update）。加谓词后，后写者影响 0 行 → 重读 → 发现 digest 已变 → 如实报 `conflict`，
+ * 交给本机实测裁决。选 CAS 而不是 `SELECT ... FOR UPDATE`：后者要求 `pool.connect()` + 显式
+ * 事务，会把「逐条独立裁决、一条失败不整批回滚」变成持锁的长事务，并让整条批量串行化。
+ */
 const UPDATE_ACCOUNT = `UPDATE cloud_accounts SET
      display_name = $4, account_name = $5, avatar = $6, followers = $7, is_active = $8,
      credential_ciphertext = $9, credential_iv = $10, credential_auth_tag = $11,
-     encrypted_data_key = $12, credential_digest = $13, last_reported_status = $14,
-     credential_updated_at = $15::timestamptz, metadata_updated_at = $16::timestamptz,
-     last_sync_device_label = $17, updated_at = NOW()
+     encrypted_data_key = $12, credential_digest = $13,
+     credential_updated_at = $14::timestamptz, metadata_updated_at = $15::timestamptz,
+     last_sync_device_label = $16, updated_at = NOW()
    WHERE user_id = $1 AND platform = $2 AND platform_uid = $3
+     AND credential_digest = $17
+   RETURNING id`
+
+/**
+ * 元数据只写分支：凭证四列（ciphertext / iv / auth_tag / encrypted_data_key）与 digest
+ * **不出现在 SET 里**，`credential_updated_at` 也不重贴戳。
+ * 两个用途：① digest 已一致、只有昵称/头像/粉丝变了的常规更新；② `force: 'local-wins'`
+ * ——本机实测裁决完但胜出的只是「本机继续用这份凭证」，云端那一份没有资格被未验证的证据覆盖
+ * （单向证据规则：没拿到新证据不是反证）。
+ */
+const UPDATE_ACCOUNT_METADATA = `UPDATE cloud_accounts SET
+     display_name = $4, account_name = $5, avatar = $6, followers = $7, is_active = $8,
+     metadata_updated_at = $9::timestamptz, last_sync_device_label = $10, updated_at = NOW()
+   WHERE user_id = $1 AND platform = $2 AND platform_uid = $3
+     AND credential_digest = $11
    RETURNING id`
 
 const INSERT_TOMBSTONE = `INSERT INTO cloud_account_tombstones (user_id, platform, platform_uid)
@@ -82,28 +113,6 @@ const DELETE_TOMBSTONES = 'DELETE FROM cloud_account_tombstones WHERE user_id = 
 const SELECT_RESIDUAL = `SELECT
     (SELECT COUNT(*) FROM cloud_accounts WHERE user_id = $1) AS accounts,
     (SELECT COUNT(*) FROM cloud_account_tombstones WHERE user_id = $1) AS tombstones`
-
-function text(value) {
-  if (value === undefined || value === null || value === '') return null
-  return String(value)
-}
-
-function bool(value) {
-  return value === true || value === 't' || value === 't ' || value === 1 || value === '1'
-}
-
-/** pg 的 int8 以字符串回读，与 Number 比较前统一成字符串（null 保持 null，不与 0 混同）。 */
-function intText(value) {
-  if (value === undefined || value === null || value === '') return null
-  return String(value)
-}
-
-function isoTime(value) {
-  if (value === undefined || value === null) return null
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toISOString()
-}
 
 function countAffected(result) {
   if (!result) return 0
@@ -165,22 +174,13 @@ function assertWritable(userId, item) {
     credentialUpdatedAt: item.credentialUpdatedAt,
     metadataUpdatedAt: item.metadataUpdatedAt,
     createdAt: item.createdAt || null,
-    lastReportedStatus: text(item.lastReportedStatus),
     lastSyncDeviceLabel: text(item.lastSyncDeviceLabel),
+    // 冲突裁决的两项透传：force 是「本机已实测裁决完」的凭据；reportedCredentialUpdatedAt 只用于
+    // 回传 credentialFreshness，绝不作为存储值（存储侧时间戳由服务端盖戳）。
+    force: item.force === 'local-wins' || item.force === 'cloud-wins' ? item.force : null,
+    reportedCredentialUpdatedAt: item.reportedCredentialUpdatedAt || null,
     envelope,
   }
-}
-
-/** 内容是否等价：digest + 全部元数据列。时间戳列不参与（它们是客户端上报的镜像值，不是内容）。 */
-function sameRecord(existing, record) {
-  return (existing.credential_digest || null) === record.credentialDigest
-    && text(existing.display_name) === record.displayName
-    && text(existing.account_name) === record.accountName
-    && text(existing.avatar) === record.avatar
-    && intText(existing.followers) === record.followers
-    && bool(existing.is_active) === record.isActive
-    && text(existing.last_reported_status) === record.lastReportedStatus
-    && text(existing.last_sync_device_label) === record.lastSyncDeviceLabel
 }
 
 function mapAccount(row) {
@@ -208,19 +208,39 @@ function insertParams(userId, record) {
     userId, record.platform, record.platformUid, record.displayName, record.accountName, record.avatar,
     record.followers, record.isActive,
     record.envelope.ciphertext, record.envelope.iv, record.envelope.tag, record.envelope.encryptedDataKey,
-    record.credentialDigest, record.lastReportedStatus, record.credentialUpdatedAt, record.metadataUpdatedAt,
+    record.credentialDigest, record.credentialUpdatedAt, record.metadataUpdatedAt,
     record.lastSyncDeviceLabel, record.createdAt,
   ]
 }
 
+/** 凭证覆盖写（`force: 'cloud-wins'`）：末位是 CAS 谓词，取本次读到的 digest。 */
 function updateParams(userId, record) {
   return [
     userId, record.platform, record.platformUid, record.displayName, record.accountName, record.avatar,
     record.followers, record.isActive,
     record.envelope.ciphertext, record.envelope.iv, record.envelope.tag, record.envelope.encryptedDataKey,
-    record.credentialDigest, record.lastReportedStatus, record.credentialUpdatedAt, record.metadataUpdatedAt,
+    record.credentialDigest, record.credentialUpdatedAt, record.metadataUpdatedAt,
     record.lastSyncDeviceLabel,
+    casDigest(record),
   ]
+}
+
+/** 元数据只写（digest 已一致的常规更新，或 `force: 'local-wins'`）：不含任何凭证列。 */
+function updateMetadataParams(userId, record) {
+  return [
+    userId, record.platform, record.platformUid, record.displayName, record.accountName, record.avatar,
+    record.followers, record.isActive, record.metadataUpdatedAt, record.lastSyncDeviceLabel,
+    casDigest(record),
+  ]
+}
+
+/** CAS 谓词取值：缺失即编程错误，宁可直接红，也不退化成「无条件覆盖」。 */
+function casDigest(record) {
+  const expected = record.expectedCredentialDigest
+  if (typeof expected !== 'string' || !expected) {
+    throw accountError('ACCOUNT_WRITE_FAILED', 500, 'missing CAS digest')
+  }
+  return expected
 }
 
 function createCloudAccountRepository(options = {}) {
@@ -245,20 +265,72 @@ function createCloudAccountRepository(options = {}) {
     return countAffected(result) > 0 || Boolean(result && result.rows && result.rows[0])
   }
 
-  /** 一条一个独立裁决序列；任何一步抛错只影响这一条。 */
+  /** 元数据只写：语句里连凭证列名都不出现，误写凭证的可能性从形状上被排除。 */
+  async function writeMetadata(userId, record) {
+    const result = await query(UPDATE_ACCOUNT_METADATA, updateMetadataParams(userId, record))
+    return countAffected(result) > 0 || Boolean(result && result.rows && result.rows[0])
+  }
+
+  /**
+   * 一条一个独立裁决序列；任何一步抛错只影响这一条。
+   *
+   * 四类写分支（PRD §5.5 / §7.2，A 设备与 B 设备的差别只在有没有 `force` 这份本机实测凭据）：
+   *   * digest 相同、元数据不同 → 元数据只写（凭证列与 `credential_updated_at` 一律不动）。
+   *   * digest 不同 + `force: 'cloud-wins'` → 凭证覆盖写（云端那一份换成裁决胜出的那一份）。
+   *   * digest 不同 + `force: 'local-wins'` → **只写元数据，凭证四列绝不覆盖**。本机的结论是
+   *     「我这台继续用我这份」，而其中「两份检测都无定论」那一支并没有证明云端凭证无效；
+   *     「没拿到新证据」不是反证（AGENTS.md 单向证据规则），所以这一支无权抹掉云端那半份。
+   *   * digest 不同 + 没有 force → 一个字节都不写，回 `conflict` + `credentialFreshness`。
+   * 每一次写都带 `credential_digest = 本次读到的值` 的 CAS 谓词；落空即重读重判，绝不盲写。
+   */
   async function upsertOne(userId, rawItem) {
     const record = assertWritable(userId, rawItem)
     const existing = await readRow(userId, record.platform, record.platformUid)
-    if (existing) {
-      if (sameRecord(existing, record)) return { outcome: 'unchanged' }
-      if (await writeUpdate(userId, record)) return { outcome: 'updated' }
-    }
+    if (existing) return writeAgainst(userId, record, existing, 0)
     if (await writeInsert(userId, record)) return { outcome: 'created' }
     // INSERT 被唯一约束挡下（并发同一合并键）：回读再按内容裁决一次，绝不「猜成 created」。
     const afterConflict = await readRow(userId, record.platform, record.platformUid)
     if (!afterConflict) throw accountError('ACCOUNT_WRITE_FAILED', 500)
-    if (sameRecord(afterConflict, record)) return { outcome: 'unchanged' }
-    return { outcome: (await writeUpdate(userId, record)) ? 'updated' : 'unchanged' }
+    return writeAgainst(userId, record, afterConflict, 0)
+  }
+
+  /**
+   * 对着读到的行裁决并写。`attempt` 只用于封顶 CAS 重试（最多 2 次写），
+   * 上限存在的理由：并发写热点上无上限重试会把一批的预算全烧在一条上。
+   */
+  async function writeAgainst(userId, record, row, attempt) {
+    const decision = decideWrite(row, record)
+    if (decision) return decision
+    record.expectedCredentialDigest = row.credential_digest
+    const mode = writeModeOf(row, record)
+    if (await writeByDecision(userId, record, row)) return { outcome: 'updated' }
+    // CAS 落空 = 读-判-写之间别的设备改过这条凭证。
+    if (mode === WRITE_MODE_CREDENTIAL) {
+      // 凭证写**绝不重试覆盖**：再写一次会把抢先赢的那台设备刚写入的有效凭证就地抹掉，
+      // 而且两路都报 `updated` —— 正是本特性要消灭的无条件 LWW 形态。
+      // 如实报冲突，把裁决权交回本机：下一轮同步它会重新实测再决定。
+      const raced = await readRow(userId, record.platform, record.platformUid)
+      if (!raced) throw accountError('ACCOUNT_WRITE_FAILED', 500)
+      const afterRace = decideWrite(raced, record)
+      return afterRace || { outcome: 'conflict', credentialFreshness: credentialFreshness(raced, record) }
+    }
+    if (attempt >= 1) {
+      // 元数据写第二次仍落空：本行正被持续并发写。如实报冲突，不无限重试。
+      return { outcome: 'conflict', credentialFreshness: credentialFreshness(row, record) }
+    }
+    const racedMeta = await readRow(userId, record.platform, record.platformUid)
+    if (!racedMeta) throw accountError('ACCOUNT_WRITE_FAILED', 500)
+    return writeAgainst(userId, record, racedMeta, attempt + 1)
+  }
+
+  /**
+   * 按裁决选语句：只有持有 `force: 'cloud-wins'` 且 digest 真的不同才允许碰凭证四列。
+   * 判点本身在 `upsert-decision.js::decideWrite`（本文件内**不得**再写一份同名局部函数——
+   * 一旦遮蔽，三处调用点就会各自跟着不同的那份走，无条件覆盖就从这条缝里回来）。
+   */
+  function writeByDecision(userId, record, row) {
+    return writeModeOf(row, record) === WRITE_MODE_CREDENTIAL
+      ? writeUpdate(userId, record) : writeMetadata(userId, record)
   }
 
   return {
@@ -309,7 +381,14 @@ function createCloudAccountRepository(options = {}) {
         const platformUid = item && typeof item.platformUid === 'string' ? item.platformUid : null
         try {
           const outcome = await upsertOne(owner, item)
-          results.push({ platform, platformUid, outcome: outcome.outcome })
+          // conflict 必须把「哪份凭证较新」一起带出去：桌面端的四分支裁决要靠它决定先验哪一份，
+          // 在这里把该字段裁掉，客户端就只剩「猜」——而那正是本条冲突机制要避免的事。
+          results.push({
+            platform,
+            platformUid,
+            outcome: outcome.outcome,
+            ...(outcome.credentialFreshness ? { credentialFreshness: outcome.credentialFreshness } : {}),
+          })
         } catch (error) {
           // 只回语义码：驱动原文（约束名、SQLSTATE、连接串）一律不外泄。
           results.push({ platform, platformUid, outcome: 'rejected', errorCode: safeErrorCode(error, 'ACCOUNT_WRITE_FAILED') })
@@ -397,6 +476,7 @@ module.exports = {
   SELECT_TOMBSTONE_COUNT,
   SELECT_TOMBSTONES,
   UPDATE_ACCOUNT,
+  UPDATE_ACCOUNT_METADATA,
   createCloudAccountRepository,
   sameRecord,
 }

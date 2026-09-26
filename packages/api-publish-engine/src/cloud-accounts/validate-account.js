@@ -46,7 +46,17 @@ const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/
 const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$/
 
-/** 上行白名单：camelCase 为规范形态，snake_case 为 §6.2 表体的兼容别名。 */
+/**
+ * 上行白名单：camelCase 为规范形态，snake_case 为 §6.2 表体的兼容别名。
+ *
+ * 两个刻意不在表里的字段，是外部评审揪出来的跨包断裂点，别再顺手加回去：
+ *   - `credentialEnvelope`：PRD §8 / docs/adr/0003 定的是**服务端加密**（桌面端没有 KMS 访问权，
+ *     也不该有）。客户端提交信封等于把「服务端只存密文、摘要只由服务端算」这条不变量交出去。
+ *   - `lastReportedStatus`：§6.1 注明它是只读快照，恢复流程不读它；允许客户端写就等于
+ *     让客户端把自己的登录结论塞进真源的镜像列。
+ * `credential` 是明文凭证本体（走 TLS），服务端加密后才落 `credentialEnvelope` 列。
+ * `credentialUpdatedAt` 只用于冲突时判「哪份较新」，存储值一律由服务端重新盖戳（见 handlers.js）。
+ */
 const ACCOUNT_FIELD_ALIASES = Object.freeze({
   platform: ['platform'],
   platformUid: ['platformUid', 'platform_uid'],
@@ -55,13 +65,12 @@ const ACCOUNT_FIELD_ALIASES = Object.freeze({
   avatar: ['avatar'],
   followers: ['followers'],
   isActive: ['isActive', 'is_active'],
-  credentialEnvelope: ['credentialEnvelope', 'credential_envelope'],
+  credential: ['credential'],
   credentialUpdatedAt: ['credentialUpdatedAt', 'credential_updated_at'],
-  metadataUpdatedAt: ['metadataUpdatedAt', 'metadata_updated_at'],
-  createdAt: ['createdAt', 'created_at'],
-  lastReportedStatus: ['lastReportedStatus', 'last_reported_status'],
   lastSyncDeviceLabel: ['lastSyncDeviceLabel', 'last_sync_device_label'],
+  force: ['force'],
 })
+const CREDENTIAL_FORCE_VALUES = Object.freeze(['local-wins', 'cloud-wins'])
 const ALLOWED_ACCOUNT_FIELDS = Object.freeze(
   Array.from(new Set(Object.keys(ACCOUNT_FIELD_ALIASES).reduce((acc, key) => acc.concat(ACCOUNT_FIELD_ALIASES[key]), []))),
 )
@@ -252,7 +261,7 @@ function validateEnvelope(envelope, { now, required = true } = {}) {
 // ---- §6.2 单条账号 ----------------------------------------------------------------------
 
 function validateAccount(raw, options = {}) {
-  const { now, requireEnvelope = true } = options
+  const { now, requireCredential = true } = options
   if (!isPlainObject(raw)) throw accountError('CREDENTIAL_SHAPE_INVALID', 400)
   for (const key of Object.keys(raw)) {
     if (!ALLOWED_ACCOUNT_FIELDS.includes(key)) throw accountError('ACCOUNT_FIELD_NOT_ALLOWED', 400)
@@ -307,21 +316,29 @@ function validateAccount(raw, options = {}) {
   const isActive = isActiveRaw === undefined || isActiveRaw === null ? true : isActiveRaw
   if (typeof isActive !== 'boolean') throw accountError('ACCOUNT_FIELD_NOT_ALLOWED', 400)
 
-  const lastReportedRaw = pick(raw, 'lastReportedStatus').value
-  // §6.1 注：last_reported_status 只是展示用只读快照，恢复流程不读它；
-  // 非三态之一一律按「本轮未上报」存 null，不为其发明 §7.5 之外的错误码。
-  const lastReportedStatus = typeof lastReportedRaw === 'string' && REPORTED_STATUSES.includes(lastReportedRaw)
-    ? lastReportedRaw : null
-
   const deviceLabelRaw = pick(raw, 'lastSyncDeviceLabel').value
   const deviceLabel = optionalText(deviceLabelRaw, 'ACCOUNT_DEVICE_LABEL_INVALID')
   if (deviceLabel !== null && (deviceLabel.length > MAX_DEVICE_LABEL_LENGTH || CONTROL_CHARS.test(deviceLabel))) {
     throw accountError('ACCOUNT_DEVICE_LABEL_INVALID', 400)
   }
 
-  const metadataUpdatedAt = validateTimestamp(pick(raw, 'metadataUpdatedAt').value, { now, required: true })
-  const createdAt = validateTimestamp(pick(raw, 'createdAt').value, { now })
-  const envelope = validateEnvelope(pick(raw, 'credentialEnvelope').value, { now, required: requireEnvelope })
+  // 冲突裁决用的「本机凭证上次被证明可用的时刻」。只读来比新鲜度，绝不作为存储值——
+  // 存储侧的 credential_updated_at / metadata_updated_at 由服务端重新盖戳（handlers.js），
+  // 否则任何客户端都能把时钟写成「最新」从而覆盖他人的有效凭证。
+  const reportedCredentialUpdatedAt = validateTimestamp(pick(raw, 'credentialUpdatedAt').value, { now })
+
+  // 上行是**明文凭证**（TLS），信封由服务端生成（PRD §8 / ADR-0003）。
+  const credentialInput = pick(raw, 'credential').value
+  const hasCredential = credentialInput !== undefined && credentialInput !== null
+  if (hasCredential) validateCredentialShape(credentialInput, { now })
+  else if (requireCredential) throw accountError('CREDENTIAL_SHAPE_INVALID', 400)
+
+  const forceRaw = pick(raw, 'force').value
+  const force = forceRaw === undefined || forceRaw === null || forceRaw === ''
+    ? null : String(forceRaw)
+  if (force !== null && !CREDENTIAL_FORCE_VALUES.includes(force)) {
+    throw accountError('ACCOUNT_FIELD_NOT_ALLOWED', 400)
+  }
 
   return {
     platform,
@@ -331,13 +348,17 @@ function validateAccount(raw, options = {}) {
     avatar: normalizedAvatar,
     followers,
     isActive,
-    lastReportedStatus,
     lastSyncDeviceLabel: deviceLabel === '' ? null : deviceLabel,
-    metadataUpdatedAt,
-    createdAt,
-    credentialDigest: envelope ? envelope.digest : null,
-    credentialUpdatedAt: envelope ? envelope.credentialUpdatedAt : null,
-    credential: envelope,
+    // 待服务端加密的明文本体；`credential` / `credentialDigest` 这两个键名留给加密产物（handlers 填）
+    credentialPlaintext: hasCredential ? credentialInput : null,
+    reportedCredentialUpdatedAt,
+    force,
+    credential: null,
+    credentialDigest: null,
+    credentialUpdatedAt: null,
+    metadataUpdatedAt: null,
+    createdAt: null,
+    lastReportedStatus: null,
   }
 }
 

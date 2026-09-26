@@ -32,6 +32,13 @@ const NOW = new Date('2026-09-27T08:00:00.000Z')
 const PAST = '2026-09-26T08:00:00.000Z'
 const FIVE_MIN = '2026-09-27T08:05:00.000Z'
 const SIX_MIN = '2026-09-27T08:06:00.000Z'
+// 上行契约（PRD §7.2 / ADR-0003）是**明文凭证**，信封由服务端生成，因此夹具给的是明文形态。
+const CREDENTIAL = {
+  cookies: [{ name: 'sessionid', value: 'v', domain: '.douyin.com', path: '/' }],
+  localStorage: { token: 't' },
+  indexedDB: {},
+}
+// 客户端提交信封是历史上写错的方向（服务端无法核验其摘要来源），必须被白名单拒绝。
 const ENVELOPE = {
   v: 1,
   alg: 'A256GCM',
@@ -52,10 +59,8 @@ function account(overrides) {
     avatar: 'https://p3.douyinpic.com/avatar.jpg',
     followers: 12345,
     isActive: true,
-    credentialEnvelope: ENVELOPE,
-    metadataUpdatedAt: PAST,
-    createdAt: PAST,
-    lastReportedStatus: 'active',
+    credential: CREDENTIAL,
+    credentialUpdatedAt: PAST,
     lastSyncDeviceLabel: 'DESKTOP-A1',
   }, overrides || {})
 }
@@ -85,22 +90,42 @@ test('validate-account：PRD §6.2 逐行校验', async (t) => {
     assert.strictEqual(value.accountName, '丘丘')
     assert.strictEqual(value.followers, 12345)
     assert.strictEqual(value.isActive, true)
-    assert.strictEqual(value.credentialDigest, 'a'.repeat(64))
-    assert.strictEqual(value.metadataUpdatedAt, PAST)
-    assert.ok(Buffer.isBuffer(value.credential.iv), '信封字段必须解成 Buffer 供 BYTEA 入库')
-    assert.strictEqual(value.credential.iv.length, 12)
-    assert.strictEqual(value.credentialUpdatedAt, PAST)
+    // 摘要与信封都在服务端加密阶段才诞生（ADR-0003）：校验层只透传明文，既不自己算也不接受客户端信封
+    assert.strictEqual(value.credentialDigest, null)
+    assert.strictEqual(value.credential, null)
+    assert.deepStrictEqual(value.credentialPlaintext, CREDENTIAL)
+    assert.strictEqual(value.reportedCredentialUpdatedAt, PAST, '上报时刻原样透传（仅供新鲜度比较）')
+    assert.strictEqual(value.credentialUpdatedAt, null, '存储槽必须由服务端盖戳后才非空')
+    // 存储侧时间戳由服务端盖戳（handlers.js），校验层不得凭空造值
+    assert.strictEqual(value.metadataUpdatedAt, null)
+    assert.strictEqual(value.createdAt, null)
+    assert.strictEqual(value.lastReportedStatus, null)
+    assert.strictEqual(value.force, null)
   })
 
   await t.test('整体：只允许白名单键，未知键 ACCOUNT_FIELD_NOT_ALLOWED', () => {
     rejectsWith({ ownerSubject: 'someone-else' }, 'ACCOUNT_FIELD_NOT_ALLOWED')
     rejectsWith({ status: 'active' }, 'ACCOUNT_FIELD_NOT_ALLOWED')
-    rejectsWith({ credential: { cookies: [] } }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    // 这三键曾被允许，是把「客户端自加密 / 自报摘要 / 自报登录结论」写进了契约——
+    // 与 ADR-0003「服务端加密、摘要只由服务端算」和 §6.1「last_reported_status 只读」直接冲突，
+    // 现在必须在白名单外，且拒绝必须是 ACCOUNT_FIELD_NOT_ALLOWED 而不是静默忽略。
+    rejectsWith({ credentialEnvelope: ENVELOPE }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    rejectsWith({ metadataUpdatedAt: PAST }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    rejectsWith({ lastReportedStatus: 'active' }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    // cookies 为空数组在形状上是合法的（纯 localStorage 会话），不得当成未知键拒掉
+    assert.strictEqual(accepts({ credential: { cookies: [], localStorage: { a: 'b' } } }).credentialPlaintext.localStorage.a, 'b')
+    rejectsWith({ credential: { cookies: 'not-an-array' } }, 'CREDENTIAL_SHAPE_INVALID')
+    rejectsWith({ credential: 'plain-string' }, 'CREDENTIAL_SHAPE_INVALID')
+    // force 只认两个裁决值：拼错必须是「不允许的字段值」，不能静默当成没带
+    rejectsWith({ force: 'mine-wins' }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    rejectsWith({ force: 1 }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    assert.strictEqual(accepts({ force: 'local-wins' }).force, 'local-wins')
+    assert.strictEqual(accepts({ force: 'cloud-wins' }).force, 'cloud-wins')
     // 归属只从 token 取（PRD §6.3 owner_subject 行）：客户端自报归属必须被拒。
     assert.strictEqual(ALLOWED_ACCOUNT_FIELDS.includes('ownerSubject'), false)
     assert.strictEqual(ALLOWED_ACCOUNT_FIELDS.includes('status'), false)
     assert.strictEqual(ALLOWED_ACCOUNT_FIELDS.includes('lastValidated'), false)
-    assert.ok(ALLOWED_ACCOUNT_FIELDS.length >= 20)
+    assert.ok(ALLOWED_ACCOUNT_FIELDS.length >= 15, `白名单键数异常（${ALLOWED_ACCOUNT_FIELDS.length}）`)
   })
 
   await t.test('platform：八平台枚举，其余 ACCOUNT_PLATFORM_UNSUPPORTED', () => {
@@ -175,17 +200,22 @@ test('validate-account：PRD §6.2 逐行校验', async (t) => {
   })
 
   await t.test('时间戳：ISO 8601、不得晚于 now+5min → ACCOUNT_TIMESTAMP_INVALID', () => {
-    assert.strictEqual(accepts({ metadataUpdatedAt: FIVE_MIN }).metadataUpdatedAt, FIVE_MIN)
-    assert.strictEqual(accepts({ createdAt: PAST }).createdAt, PAST)
-    rejectsWith({ metadataUpdatedAt: SIX_MIN }, 'ACCOUNT_TIMESTAMP_INVALID')
-    rejectsWith({ metadataUpdatedAt: 'not-a-date' }, 'ACCOUNT_TIMESTAMP_INVALID')
-    rejectsWith({ metadataUpdatedAt: '2026/09/26 08:00' }, 'ACCOUNT_TIMESTAMP_INVALID')
-    rejectsWith({ metadataUpdatedAt: null }, 'ACCOUNT_TIMESTAMP_INVALID')
-    rejectsWith({ metadataUpdatedAt: undefined }, 'ACCOUNT_TIMESTAMP_INVALID')
-    rejectsWith({ createdAt: SIX_MIN }, 'ACCOUNT_TIMESTAMP_INVALID')
-    rejectsWith({ credentialEnvelope: Object.assign({}, ENVELOPE, { credentialUpdatedAt: SIX_MIN }) }, 'ACCOUNT_TIMESTAMP_INVALID')
+    // 客户端只上报 credentialUpdatedAt（本机凭证上次被证明可用的时刻）；
+    // metadata/created 两个存储时间戳已改由服务端盖戳（ADR-0003），客户端再报就是未知键。
+    assert.strictEqual(accepts({ credentialUpdatedAt: FIVE_MIN }).reportedCredentialUpdatedAt, FIVE_MIN)
+    assert.strictEqual(accepts({ credentialUpdatedAt: null }).reportedCredentialUpdatedAt, null, '缺席/为 null 都按「未上报」处理，不得当作非法')
+    assert.strictEqual(accepts({ credentialUpdatedAt: undefined }).reportedCredentialUpdatedAt, null)
+    rejectsWith({ credentialUpdatedAt: SIX_MIN }, 'ACCOUNT_TIMESTAMP_INVALID')
+    rejectsWith({ credentialUpdatedAt: 'not-a-date' }, 'ACCOUNT_TIMESTAMP_INVALID')
+    rejectsWith({ credentialUpdatedAt: '2026-09-26 08:00' }, 'ACCOUNT_TIMESTAMP_INVALID')
+    rejectsWith({ credentialUpdatedAt: 1758873600000 }, 'ACCOUNT_TIMESTAMP_INVALID')
+    rejectsWith({ metadataUpdatedAt: PAST }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    rejectsWith({ createdAt: PAST }, 'ACCOUNT_FIELD_NOT_ALLOWED')
     // 时区偏移形态必须被接受并归一为 UTC ISO（客户端来自本机 new Date().toISOString()）。
-    assert.strictEqual(accepts({ metadataUpdatedAt: '2026-09-27T16:00:00+08:00' }).metadataUpdatedAt, '2026-09-27T08:00:00.000Z')
+    assert.strictEqual(
+      accepts({ credentialUpdatedAt: '2026-09-27T16:00:00+08:00' }).reportedCredentialUpdatedAt,
+      '2026-09-27T08:00:00.000Z',
+    )
   })
 
   await t.test('isActive 必须是布尔', () => {
@@ -205,11 +235,16 @@ test('validate-account：PRD §6.2 逐行校验', async (t) => {
     rejectsWith({ platformUid: 'uid-9', platform_uid: 'other-uid' }, 'ACCOUNT_FIELD_NOT_ALLOWED')
   })
 
-  await t.test('last_reported_status 只认三态，其余按未上报存 null（不为展示快照发明错误码）', () => {
-    assert.strictEqual(accepts({ lastReportedStatus: 'expired' }).lastReportedStatus, 'expired')
-    assert.strictEqual(accepts({ lastReportedStatus: 'unverified' }).lastReportedStatus, 'unverified')
-    assert.strictEqual(accepts({ lastReportedStatus: 'active-ish' }).lastReportedStatus, null)
-    assert.strictEqual(accepts({ lastReportedStatus: null }).lastReportedStatus, null)
+  await t.test('last_reported_status 不再由客户端写（§6.1 只读快照，写入方只有服务端自己的结论）', () => {
+    // 旧实现允许客户端把 active/expired/unverified 直接塞进这一列，等于让客户端把自己的
+    // 登录结论写进真源的镜像列——与「登录态真源只被正/负证据改写」这条本仓铁律相冲突。
+    for (const value of ['active', 'expired', 'unverified', 'active-ish', null, undefined]) {
+      rejectsWith({ lastReportedStatus: value }, 'ACCOUNT_FIELD_NOT_ALLOWED')
+    }
+    assert.strictEqual(ALLOWED_ACCOUNT_FIELDS.includes('lastReportedStatus'), false)
+    assert.strictEqual(ALLOWED_ACCOUNT_FIELDS.includes('last_reported_status'), false)
+    // 校验产物里这一列恒为 null：值由服务端在写库时决定
+    assert.strictEqual(accepts({}).lastReportedStatus, null)
   })
 
   await t.test('last_sync_device_label ≤64 且无控制字符', () => {

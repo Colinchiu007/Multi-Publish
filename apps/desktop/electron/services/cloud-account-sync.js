@@ -149,6 +149,11 @@ function createCloudAccountSync (deps) {
       avatar: account.avatar || '',
       followers: Number.isSafeInteger(account.followers) && account.followers >= 0 ? account.followers : null,
       isActive: account.is_active !== false,
+      // 本机凭证「上次被证明可用」的时刻（accounts.json 的 last_validated）。
+      // 它只用于服务端判「云端 vs 本机哪份凭证较新」以回传 credentialFreshness，
+      // 服务端落库的 credential_updated_at 一律取服务端此刻 —— 客户端报的时间戳不得成为存储值，
+      // 否则谁都能把自己的时钟写成「最新」从而覆盖别人的有效凭证。
+      credentialUpdatedAt: typeof account.last_validated === 'string' ? account.last_validated : null,
       credential: null,
       credentialError: null,
     }
@@ -195,6 +200,7 @@ function createCloudAccountSync (deps) {
       followers: row.followers,
       isActive: row.isActive,
       credential: row.credential,
+      credentialUpdatedAt: row.credentialUpdatedAt || null,
     }
   }
 
@@ -455,8 +461,10 @@ function createCloudAccountSync (deps) {
       return OUTCOME.INVALID_CREDENTIAL
     }
     if (resolution.winner === 'keep-local') {
-      await callApi(subject, ACCOUNT_PATH, { method: 'PUT', body: { accounts: [{ ...toUpsertPayload(row), force: 'local-wins' }] } })
-        .catch((e) => log('warn', 'conflict-local-put-failed', errorMessage(e)))
+      // 两份都无定论：本机原样保留，且**不发这次 PUT**。
+      // 带 force:'local-wins' 回写等于用「没验出来」这份未证实的证据去授权覆盖云端凭证，
+      // 直接违反单向证据规则（没拿到新证据不是反证）；而服务端在无 force 时只会回 conflict，
+      // 这一趟请求除了把 last_validated 之外什么都没改，属纯冗余写。下一轮同步会重新实测。
       return OUTCOME.CONFLICT_UNRESOLVED
     }
     // 本机较新且有效 → 上行覆盖云端

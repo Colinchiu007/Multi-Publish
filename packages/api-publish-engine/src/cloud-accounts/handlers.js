@@ -43,6 +43,15 @@ const CONFIRM_DISCONNECT_VALUE = 'cloud'
 const SUCCESS_CODE = 0
 const REJECTED_CODE = -1
 
+/**
+ * 逐条终态白名单（PRD §7.2）。少登记一枚，那一枚就会被降级成 `rejected` 并让整批回 400，
+ * 桌面端 member-api-service 随即把整次 PUT 当请求失败抛掉——`conflict` 就是这么从「四分支裁决」
+ * 变成「同步失败」的：判对了我这边也报不出来。新增终态必须在此登记并在用例里覆盖。
+ */
+const STORED_OUTCOMES = Object.freeze(['created', 'updated', 'unchanged', 'conflict', 'rejected'])
+/** `credentialFreshness` 的合法取值；缺席或非法时按 'cloud' 回传（保守侧，见 handleUpsert）。 */
+const CREDENTIAL_FRESHNESS_VALUES = Object.freeze(['cloud', 'local'])
+
 /** 本处理器接管的路由清单（与 PRD §7.1–§7.4 一一对应，供接线方与结构锁共用）。 */
 const CLOUD_ACCOUNTS_ROUTES = Object.freeze([
   'GET /api/v1/me/accounts',
@@ -203,19 +212,50 @@ async function handleUpsert(context, userId) {
   }
 
   const now = nowOf(context)
+  const nowIso = new Date(now).toISOString()
   const validated = incoming.map((item) => validateAccountQuietly(item, { now }))
   const writable = validated.filter((entry) => entry.ok).map((entry) => entry.value)
 
   if (writable.length > 0) {
-    if (!context.crypto || typeof context.crypto.verifyDataKey !== 'function') {
+    // 上行是明文凭证（PRD §7.2 / ADR-0003：加密发生在服务端，桌面端没有也不该有 KMS 访问权）。
+    // 缺 crypto 一律 503 fail-closed，绝不存在「没有 KMS 就明文入库」的降级分支。
+    // verifyDataKey 同为必需：只保证「wrap 得出去」不够，解不开的主密钥会把整片云端凭证变成
+    // 永久不可恢复的字节，而这种形态只能在写之前拦。
+    if (!context.crypto || typeof context.crypto.encryptCredential !== 'function'
+      || typeof context.crypto.verifyDataKey !== 'function') {
       return fail('KMS_UNAVAILABLE', 503)
     }
     for (const item of writable) {
+      let envelope = null
       try {
-        await context.crypto.verifyDataKey(item.credential.encryptedDataKey, { userId })
+        envelope = await context.crypto.encryptCredential({
+          userId,
+          platform: item.platform,
+          platformUid: item.platformUid,
+          credential: item.credentialPlaintext,
+        })
+      } catch (error) {
+        // 加密阶段失败：整条请求中止且零写入，明文不留痕
+        return errorResponse(error, 'KMS_UNAVAILABLE', 503)
+      }
+      try {
+        await context.crypto.verifyDataKey(envelope.encryptedDataKey, { userId })
       } catch (error) {
         return errorResponse(error, 'KMS_UNAVAILABLE', 503)
       }
+      // 摘要只在这里产生：encryptCredential 的 digest 是服务端对明文算的（PRD §8.6），
+      // 客户端提交同名字段早在白名单外被拒（validate-account.js）。
+      item.credential = envelope
+      item.credentialDigest = envelope.digest
+      // 明文本体到此用完即从记录上摘掉：repository 是最后一道门，也是错误序列化、
+      // 调试日志最容易把整个入参对象 dump 出来的地方。留一个 `credentialPlaintext` 在上面，
+      // 等于把「库内不得出现 cookie 明文」（PRD 验收标准 7）寄托在下游每一处都记得不看它。
+      delete item.credentialPlaintext
+      // 时间戳由服务端盖戳：客户端上报的 credentialUpdatedAt 只用于回传 credentialFreshness，
+      // 不得成为存储值，否则谁都能把时钟写成「最新」从而覆盖他人的有效凭证。
+      item.credentialUpdatedAt = nowIso
+      item.metadataUpdatedAt = nowIso
+      item.createdAt = nowIso
     }
   }
 
@@ -233,9 +273,17 @@ async function handleUpsert(context, userId) {
     }
     const storedEntry = isPlainObject(stored[storeCursor]) ? stored[storeCursor] : {}
     storeCursor += 1
-    const outcome = ['created', 'updated', 'unchanged', 'rejected'].includes(storedEntry.outcome)
-      ? storedEntry.outcome : 'rejected'
+    // 'conflict' 是正常业务终态而非错误：整批仍回 200，由桌面端逐条本机实测裁决后带 force 重发。
+    // 少这一枚白名单，conflict 会被降级成 rejected 并让整批 400，四分支裁决就永远跑不到。
+    const outcome = STORED_OUTCOMES.includes(storedEntry.outcome) ? storedEntry.outcome : 'rejected'
     const row = { platform: key.platform, platformUid: key.platformUid, outcome }
+    if (outcome === 'conflict') {
+      // PRD §7.2：冲突必须带「谁的凭证更新」，桌面端据此决定先测哪一份。缺席也要给，
+      // 且保守按 'cloud'——漏传时让本机先去实测云端那一份，绝不默认「本机较新」从而
+      // 授权一次上行覆盖（与 repository 的「相等按 cloud」同一口径）。
+      row.credentialFreshness = CREDENTIAL_FRESHNESS_VALUES.includes(storedEntry.credentialFreshness)
+        ? storedEntry.credentialFreshness : 'cloud'
+    }
     if (storedEntry.errorCode) row.errorCode = safeErrorCode({ code: storedEntry.errorCode }, 'ACCOUNT_WRITE_FAILED')
     if (outcome === 'rejected' && !firstRejection) firstRejection = row.errorCode || 'ACCOUNT_WRITE_FAILED'
     results.push(row)
@@ -335,7 +383,9 @@ async function disconnect(context, userId) {
   const deletedTombstones = Number(source.deletedTombstones) || 0
   if (source.ok !== true) {
     const remaining = Number(source.remaining) || 0
-    return respond(500, { error: 'CLOUD_DISCONNECT_PARTIAL', deletedAccounts, remaining })
+    // 部分失败也要把两组计数报全：成功与失败路径字段不对称，消费方就得为「缺字段」多写一条分支，
+    // 而 UI 上恰恰是最需要知道「墓碑清了几枚、还剩几枚」的时候
+    return respond(500, { error: 'CLOUD_DISCONNECT_PARTIAL', deletedAccounts, deletedTombstones, remaining })
   }
   return respond(200, { code: SUCCESS_CODE, data: { deletedAccounts, deletedTombstones } })
 }
@@ -399,6 +449,8 @@ async function handleCloudAccountsRequest(context) {
 module.exports = {
   ACCOUNTS_PATH,
   CLOUD_ACCOUNTS_ROUTES,
+  CREDENTIAL_FRESHNESS_VALUES,
+  STORED_OUTCOMES,
   CONFIRM_DISCONNECT_VALUE,
   DISCONNECT_PATH,
   REJECTED_CODE,

@@ -6,16 +6,23 @@
 //
 // 为什么单独成文件：`publish-api-server.js` 是 1300+ 行的巨型 `_handle` if 链，
 // 往里塞账号云镜像的组装逻辑会让本特性的可测试性与回滚面一起劣化。
-const { createCloudAccountServices, createLocalKms } = require('../cloud-accounts')
+const { createCloudAccountServices, createLocalKms, CLOUD_ACCOUNTS_ROUTES } = require('../cloud-accounts')
+
+// 入口守卫的路径集由 handlers 的 CLOUD_ACCOUNTS_ROUTES 推导，不再手抄第二份清单。
+// 手抄过一次真实事故：清单里已登记 `POST /api/v1/me/accounts/tombstones`，而守卫只认三条路径，
+// 于是删除账号时写墓碑的请求在入口就 404 —— 墓碑永远写不上，「已删账号不得在别的设备复活」这条防线
+// 静默失效（桌面端只看到一次 warn，用户毫无感知）。一处真源，两侧同步。
+const CLOUD_ACCOUNT_PATHS = new Set(
+  (Array.isArray(CLOUD_ACCOUNTS_ROUTES) ? CLOUD_ACCOUNTS_ROUTES : [])
+    .map((entry) => String(entry).split(' ')[1])
+    .filter(Boolean),
+)
 
 class PublishApiCloudAccountHelpers {
-  /** 该 URL 是否属于账号云镜像面（前缀匹配，含 digest/full/sync/disconnect）。 */
+  /** 该 URL 是否属于账号云镜像面（路径集合与 CLOUD_ACCOUNTS_ROUTES 同源，含 digest/full/sync/tombstones/disconnect）。 */
   _isCloudAccountsUrl(url) {
     if (typeof url !== 'string') return false
-    const path = url.split('?')[0]
-    return path === '/api/v1/me/accounts'
-      || path === '/api/v1/me/accounts/sync'
-      || path === '/api/v1/me/accounts/disconnect'
+    return CLOUD_ACCOUNT_PATHS.has(url.split('?')[0])
   }
 
   /**

@@ -98,6 +98,24 @@ test('005 账号云镜像迁移（cloud_accounts / cloud_account_tombstones）',
     assert.match(accounts, /credential_digest TEXT NOT NULL/)
     // 合并键不接受空串（PRD §6.1「不接受空串」）。
     assert.match(accounts, /CHECK\s*\(\s*platform_uid\s*(?:<>\s*''|>\s*0|LENGTH)/)
+    // avatar 的协议门禁必须落在**存储层**，与 validate-account.js 的 https 校验同口径：
+    // 渲染层直接把这一列塞进 <img src>，`file:` 探测本地磁盘、`data:` 绕过 CSP、`javascript:`
+    // 在部分 WebView 里仍可执行 —— 只靠应用层校验时，任何绕过 handlers 的写入都能塞进来。
+    // 断言按整句匹配，并额外对「只剩长度、没有协议」的旧形态做负控：
+    // 若有人把前缀条件单独摘掉而保留一句 CHECK，宽泛的 /avatar TEXT CHECK/ 会照样绿。
+    assert.match(
+      accounts,
+      /avatar TEXT CHECK \(avatar IS NULL OR \(char_length\(avatar\) <= 1024 AND avatar LIKE 'https:\/\/%'\)\)/,
+      'avatar 的 CHECK 必须同时约束长度与 https:// 前缀',
+    )
+    const avatarLengthOnly = "avatar TEXT CHECK (avatar IS NULL OR char_length(avatar) <= 1024)"
+    assert.strictEqual(accounts.includes(avatarLengthOnly), false, 'avatar 仍允许无协议前缀的旧形态')
+    for (const scheme of ['file:', 'javascript:', 'data:']) {
+      assert.strictEqual(
+        accounts.includes(`avatar LIKE '${scheme}%`), false,
+        `avatar CHECK 不得把 ${scheme} 当成允许前缀`,
+      )
+    }
     // 墓碑表：合并键三列 + deleted_at。
     for (const column of [
       'user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE CASCADE',

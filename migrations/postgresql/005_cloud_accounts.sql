@@ -15,7 +15,12 @@ CREATE TABLE IF NOT EXISTS cloud_accounts (
     platform_uid TEXT NOT NULL,
     display_name TEXT NOT NULL CHECK (display_name <> '' AND char_length(display_name) <= 200),
     account_name TEXT CHECK (account_name IS NULL OR char_length(account_name) <= 200),
-    avatar TEXT CHECK (avatar IS NULL OR char_length(avatar) <= 1024),
+    -- avatar 只接受 https:// 前缀（或 NULL），与应用层 validate-account.js 的 https 门禁同口径。
+    -- 库里这一道不是装饰：头像 URL 会被渲染层直接塞进 <img src>，而 `file:` / `javascript:` / `data:`
+    -- 三种形态在 Electron 里都不是「显示不出来」这么简单 —— file: 会探测本地磁盘、
+    -- data: 让任意字节穿过 CSP 变成图片内容。云端镜像行是可被写入的数据，不是受信输入，
+    -- 所以协议约束必须同时存在于校验层与存储层（少存储层那一半，任何绕过 handlers 的写入都能塞进来）。
+    avatar TEXT CHECK (avatar IS NULL OR (char_length(avatar) <= 1024 AND avatar LIKE 'https://%')),
     followers BIGINT CHECK (followers IS NULL OR followers >= 0),
     is_active BOOLEAN NOT NULL DEFAULT true,
     credential_ciphertext BYTEA NOT NULL,

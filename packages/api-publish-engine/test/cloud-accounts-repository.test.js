@@ -209,17 +209,63 @@ test('cloud-account-repository：upsertMany 逐条独立裁决', async (t) => {
     }
   })
 
-  await t.test('digest 不同 → UPDATE 带 updated_at = NOW() → updated', async () => {
-    const pool = fakePool([rows([dbRow({ credential_digest: 'b'.repeat(64) })]), rows([{ id: '41' }])])
+  await t.test('digest 不同且没有 force → conflict，一个写请求都不发（反无条件 LWW 的核心断言）', async () => {
+    const pool = fakePool([rows([dbRow({ credential_digest: 'b'.repeat(64) })])])
     const result = await createCloudAccountRepository({ pool }).upsertMany('u-1', [ITEM])
+    assert.deepStrictEqual(result.results, [
+      { platform: 'douyin', platformUid: 'uid-9', outcome: 'conflict', credentialFreshness: 'cloud' },
+    ])
+    assert.strictEqual(pool.calls.length, 1, '冲突态不得发任何写请求')
+    assert.strictEqual(/^\s*(?:INSERT|UPDATE)\b/i.test(pool.calls[0].text), false)
+    // 新鲜度方向：云端存储时刻比本机上报的旧 → local（让本机先验自己那份）
+    const older = fakePool([rows([dbRow({ credential_digest: 'b'.repeat(64), credential_updated_at: '2026-01-01T00:00:00.000Z' })])])
+    const second = await createCloudAccountRepository({ pool: older }).upsertMany('u-1', [
+      Object.assign({}, ITEM, { reportedCredentialUpdatedAt: '2026-09-26T08:00:00.000Z' }),
+    ])
+    assert.strictEqual(second.results[0].credentialFreshness, 'local')
+  })
+
+  // force 的方向由 PRD §7.2 钉死：'local-wins' 才是「本机实测胜出、授权覆盖云端凭证」的凭据。
+  // 把两侧读反的后果不是报错而是长期错：本机验证过的新凭证永远写不上去，云端一直存着失效钥匙。
+  await t.test('force=local-wins 才允许碰凭证四列，且带 CAS 谓词', async () => {
+    const pool = fakePool([rows([dbRow({ credential_digest: 'b'.repeat(64) })]), rows([{ id: '41' }])])
+    const result = await createCloudAccountRepository({ pool }).upsertMany('u-1', [Object.assign({}, ITEM, { force: 'local-wins' })])
     assert.deepStrictEqual(result.results, [{ platform: 'douyin', platformUid: 'uid-9', outcome: 'updated' }])
     const update = pool.calls[1]
     assert.match(update.text, /^UPDATE cloud_accounts SET/)
+    assert.match(update.text, /credential_ciphertext = \$9/, '本机胜出必须真的覆盖凭证列')
     assert.match(update.text, /updated_at = NOW\(\)/)
-    assert.match(update.text, /WHERE user_id = \$1 AND platform = \$2 AND platform_uid = \$3/)
     assert.strictEqual(/created_at\s*=/.test(update.text), false, '更新不得覆盖 created_at')
-    assert.deepStrictEqual(update.values.slice(0, 3), ['u-1', 'douyin', 'uid-9'])
+    assert.match(update.text, /AND credential_digest = \$17\b/, 'CAS 谓词必须在 WHERE 里')
+    assert.strictEqual(update.values[16], 'b'.repeat(64), 'CAS 参数必须是刚读到的库存 digest')
   })
+
+  await t.test('force=cloud-wins 只写元数据，绝不覆盖凭证列', async () => {
+    const pool = fakePool([rows([dbRow({ credential_digest: 'b'.repeat(64), display_name: '云端旧昵称' })]), rows([{ id: '41' }])])
+    const result = await createCloudAccountRepository({ pool }).upsertMany('u-1', [Object.assign({}, ITEM, { force: 'cloud-wins' })])
+    assert.deepStrictEqual(result.results, [{ platform: 'douyin', platformUid: 'uid-9', outcome: 'updated' }])
+    const update = pool.calls[1]
+    // 只看 SET 子句：credential_digest  legitimately 出现在 WHERE 的 CAS 谓词里
+    const setClause = update.text.slice(update.text.indexOf(' SET ') + 5, update.text.indexOf(' WHERE '))
+    for (const column of ['credential_ciphertext', 'credential_iv', 'credential_auth_tag', 'encrypted_data_key', 'credential_digest', 'credential_updated_at']) {
+      assert.strictEqual(setClause.includes(column), false, `cloud-wins 分支的 SET 里不得出现 ${column}`)
+    }
+    assert.match(update.text, /display_name = \$4/, '元数据仍要写进去')
+    assert.match(update.text, /AND credential_digest = \$11\b/, '元数据分支同样要 CAS 谓词')
+  })
+
+  await t.test('CAS 落空后的凭证写绝不重试覆盖：重读 → 如实 conflict，只发一次 UPDATE', async () => {
+    const pool = fakePool([
+      rows([dbRow({ credential_digest: 'b'.repeat(64) })]),
+      rows([]),
+      rows([dbRow({ credential_digest: 'c'.repeat(64) })]),
+    ])
+    const result = await createCloudAccountRepository({ pool }).upsertMany('u-1', [Object.assign({}, ITEM, { force: 'local-wins' })])
+    assert.strictEqual(result.results[0].outcome, 'conflict')
+    assert.strictEqual(pool.calls.filter((c) => /^\s*UPDATE/i.test(c.text)).length, 1, 'CAS 落空后再写一次会抹掉抢先赢的那台设备的有效凭证')
+  })
+
+
 
   await t.test('元数据不同（昵称）也判 updated；pg 的 int8 字符串与 Number 等值可比', async () => {
     const pool = fakePool([rows([dbRow({ followers: '999' })]), rows([{ id: '41' }])])

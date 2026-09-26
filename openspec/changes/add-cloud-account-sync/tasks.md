@@ -57,7 +57,7 @@
 - [x] 6.4 `network-egress-guard` 合规：所有新测试只打 `os.tmpdir()` 自建回环服务，禁真实出站
 - [x] 6.5 QM-1 本地打包验证（改了 `apps/desktop/electron/`）：`build:vue` + `electron-builder --win --dir` 退出 0；asar 清单含 `electron/services/cloud-account-{sync,core,conflict,tombstone}.js`、`electron/ipc-handlers/cloud-account.js`、`electron/publishers/platform-uid.js` 与 `dist/index.html`；解包后 require 链六个模块全部加载成功且 `ipc-handlers/cloud-account.js` 与源码逐字节一致；打包产物启动 12 秒，stderr 仅 ICU fd 一行既有噪声，无 `Failed to load platform config` / `PluginLoader.*mkdir` / `ENOTDIR.*app.asar` / `Cannot find module` / updater 网络栈
 - [ ] 6.6 视觉回归：`npm run test:visual:pixel` 通过；`accounts-list` 视图因新增按钮需换基线，且基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条）
-- [ ] 6.7 QM-6 CCG 双模型外部评审（claude + opencode 并行），Critical 修完、数据校验/安全类 Warning 修完
+- [x] 6.7 QM-6 CCG 双模型外部评审已执行（claude 后端视角 + opencode 前端视角并行；dsh 因缺 DEEPSEEK_API_KEY 不可用），2 个 Critical 全修、数据校验/安全类 Warning 全修，逐条处置见 §9
 - [ ] 6.8 `.quality-gates.md` 自检清单与评审记录
 
 ## 7. 交付
@@ -74,7 +74,7 @@
 - [ ] 3.6 八平台真凭据线级取证（保留未勾选）：小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否严格等于平台原生主键 —— 仓库内无实测证据；未命中即走 `uid-unavailable` 跳过上行。
 - [x] 6.5 QM-1 已执行（见上；证据为本次干净工作树下的 `--dir` 产物与 12 秒启动 stderr 采集）。
 - [ ] 6.6 视觉回归：`accounts-list` 基线因命令栏新增按钮必然 diff；基线**只能取自 CI 产物**（AGENTS.md QM-4 第 7 条），需 CI 出图后回填并重跑 `test:visual:pixel`。
-- [ ] 6.7 QM-6 CCG 双模型外部评审（M+ 变更强制卡点）。
+- [x] 6.7 QM-6 已执行：两个独立外部模型各出一份结论，处置见 §9；「双模型并行」这一轮真实满足，未以自审冒充。
 - [ ] 6.8 `.quality-gates.md` 自检清单与评审记录。
 - [x] 7.3 运维文档已落地（生产 ECS 发布与 `production-smoke` 仍未执行，登记在运维文档 §5，不得当作已完成）。
 - [ ] 7.4 记忆写入：内置记忆与 EverOS 已写；`01-docs/learnings.md` 已追加 4 条。
@@ -94,3 +94,42 @@
 - [x] 8.6 运营开关补种子：`account_cloud_sync` 此前只被桌面端读取，未登记进 ops-center `SEED_FLAGS` —— 存量部署的管理页永远看不到该项，运营只能手敲 key（AGENTS.md「跨端目录常量 ↔ 存量数据必须前向兼容」）。补种子为 `boolean/false/enabled=0`，并把供给循环的硬编码 `enabled=1` 改为逐条可声明；回归锁从**非空旧状态**出发（先建全量、删新 key、改旧行为运营值，再跑供给），同时断言「只补不改」。顺带修掉 `test_feature_flags_count_cap` 里硬编码「种子占 1 个名额」的假红前提。
 
 门禁状态：`check-max-lines.js` 全绿（新增超限 0、挂账与现实一致），`check-debt-budget.js` 的 `filesOver500` 由基线 101 降到 98（还了 3 个文件的债）；`--pair-base` / `--cjk` / `--keys` / `check-vue-style-parse` / `check-color-literals` / `check-font-size-scale` / `check-scoped-root` 均通过。
+
+## 9. QM-6 双模型外部评审（已执行）与逐条处置
+
+两个独立外部模型并行（AGENTS.md QM-6 的「双模型」这一轮**真的满足了**，与 #2433 那轮「降级为自审」不同）：
+
+- 模型 A `claude`（后端：正确性/边界/安全/规格合规）：2 Critical + 6 Warning + 6 Info，含一张「PRD 写了但代码没做 / 代码做了但 PRD 没写」逐条对照表。
+- 模型 B `opencode`（前端：拆分/口径落点/门禁改动风险）：3 Warning + 4 Info。第一次运行因全仓 grep 超时失败（`OPENCODE_RC=1`、零结论），改成「只读列出的文件」后成功；`dsh` 兜底因缺 `DEEPSEEK_API_KEY` 不可用（本机运行态，不写入长期结论）。
+
+处置（采纳并修 / 有据驳回，逐条给证据）：
+
+- [x] A-C1 服务端无条件 LWW、永不回 `conflict` → 桌面端四分支成死代码。**采纳**：裁决收敛为唯一纯函数 `src/cloud-accounts/upsert-decision.js::decideWrite`，digest 不同且无 `force` 一律 `conflict` 且零写入。
+- [x] A-C2 + A-W1 服务端白名单没有 `credential`/`force`，桌面端每个 PUT 都被拒（400 `ACCOUNT_FIELD_NOT_ALLOWED`）。**采纳**：白名单收为「五个键 + 明文凭证实体」，信封/摘要/`lastReportedStatus` 等禁止客户端提交；加密改在服务端做，`credential_digest` 由服务端对明文算出。
+- [x] A-W5(其编号 I5) 入口守卫 `_isCloudAccountsUrl` 手抄路径清单、漏 `/accounts/tombstones` → **删除账号时写墓碑全部 404，「已删账号不得复活」防线静默失效**。**采纳并根治**：守卫的路径集改由 `CLOUD_ACCOUNTS_ROUTES` 推导（一处真源，想漏只能去删路由表，而那会被契约锁抓到）。
+- [x] A-I4 读-判-写无并发保护 → **采纳**：两条写语句都加 `AND credential_digest = $expected` 的 CAS 谓词；凭证写 CAS 落空后**不重试覆盖**（重试会抹掉抢先赢的那台设备刚写入的有效凭证，且两路都报 `updated`），如实报 `conflict` 交回本机下轮实测。刻意不用 `FOR UPDATE`：那会把「逐条独立裁决、一条失败不回滚整批」变成持锁长事务。
+- [x] A-I2 `disconnect` 部分失败响应缺 `deletedTombstones`。**采纳**：与成功路径字段对称。
+- [x] A-I3 `last_reported_status` 客户端可写。**采纳**：移出白名单，该列只有服务端能写。
+- [x] A-W4 `avatar` 缺 `https://` 前缀 CHECK。**采纳**：005 加 CHECK（本 PR 未合并、无环境应用过 005，允许就地改），并同步 `postgres-identity-repository.js` 那份逐字 DDL 防漂移锁。
+- [x] A-I1 整批预算恒 180s 而非 PRD §5.7 的公式值。**驳回为文档修**：固定上限是可接受的保守实现，改 PRD 措辞而非改代码（避免给 8 账号场景发明一条无人验证的缩放路径）。
+- [x] A-I6 冲突裁决里「检测超时」与「检测抛错」在日志上不可区分。**部分采纳**：服务端只如实回传 `errorCode`；桌面端日志区分留作 follow-up（不改变行为，仅影响排障）。
+- [x] A-W3 「005 用了 `CREATE TABLE IF NOT EXISTS`，违反迁移最小权限」。**有据驳回**：该规则针对的是 migration runner 探测 `identity_schema_migrations` 的方式（`postgres-migrations.js::loadApplied` 先 `to_regclass` 再建表，已合规），不是禁止迁移文件自身幂等。
+- [x] A-W6 sync 与一键检测互斥。**部分驳回**：渲染层已互禁（`Accounts.vue:58/69` 两个按钮互相 `disabled`），PRD §5.8 的「互相 disable」正是这个口径；主进程侧再加一层锁属额外防护，登记为 follow-up。
+- [x] B-W1 `rowKeyOf` 兜底键依赖 `rows.value.length`，start/done 会漂移 → **采纳并扩大**：真正的破口在恢复阶段（start 还没有 accountId、done 才带上，一条账号裂成两行；且 `index` 恒为 0 使同平台多条挤成一行）。两侧同修：主进程每个进度 send 都带 `rowKey`，渲染层取键顺序 `rowKey → accountId → platform-index → platform` 并禁止时序量，加源码结构锁（反证：抽掉一处 `rowKey` 立刻变红）。
+- [x] B-W2 汇总区兜底漏 `uid-unavailable`、并给 `conflicts` 造带侧向标签。**采纳**：兜底映射收敛为唯一表 `COUNTER_TO_OUTCOME`，补 `uidUnavailable` 透传，故意不含 `conflicts`（无逐条 items 判不出哪侧胜出）。
+- [x] B-W3 `check-locale-sync.js` 的 import 解析只认默认导入，其余形式可能静默漏判键。**采纳**：残留 import 一律显式抛错，并补反证用例。
+- [x] B-I1 两个子组件重复注入 `outcomeClass/outcomeLabel`。**驳回**：口径真源唯一（`useCloudSyncResultModel`），子组件只是消费方，不构成第二落点。
+- [x] B-I2 `notifyError(key, { message })` 与 `notifyConfirm(key, { params })` 形状不一致。**驳回（核实后）**：`useNotify` 第 32-34 行明确支持 `options.message` 直传文案（优先于 key 解析），是两个各有用途的既有合同，不是误用。
+- [x] B-I3/B-I4 watch immediate 语义、`require.main` 守卫与导出顺序。**核实无异议**，记录为已复核。
+
+### 评审之外自己找到的两处（不粉饰来源）
+
+- [x] `force` 的方向在实现里被写反（只有 `cloud-wins` 能覆盖凭证列）。PRD §7.2 第 235 行才是权威：`local-wins` = 本机实测胜出的覆盖授权。方向反了的后果不是报错而是长期错：本机验证过的新凭证永远写不上去，云端长期存着失效钥匙。
+- [x] 「两份都无定论」分支原先发 `force: 'local-wins'` 的 PUT —— 用「没验出来」这份未证实的证据去授权覆盖，直接违反单向证据规则；且无 `force` 时服务端只回 `conflict`，那趟是纯冗余写。改为不发这次 PUT，并补桌面端断言（带 force 的 PUT 一发都不该发）。
+
+### 本轮新增的已知缺口（如实登记，不悄悄放宽测试）
+
+- [ ] **W5 `tombstone-backfilled` 仍未实现**：本机删除账号时若墓碑写入失败（网络/KMS/5xx），本机删除照常完成、只 `log.warn`，此后该键在别的设备会被当「从未在本机存在」恢复回来。入口守卫修好后，这个窗口只剩「请求真失败」这一种，不再是系统性 404。收口方式已想清楚：墓碑记录器落一份 pending 文件（`userDataDir`，tmp+rename 原子写），`sync()` 在算 `toRestore` 前先补写并把补成功的键并入墓碑集，对应逐条结果给 `tombstone-backfilled`。本轮不做，因为它是新增持久化面 + 新枚举 + 新文案键，需与 ADR-0004 一起过一轮。
+- [ ] 桌面端恢复阶段仍不发送 `credentialUpdatedAt`（恢复项本机没有历史时刻），`credentialFreshness` 因此保守取 `cloud`。
+- [ ] `cloud-accounts-concurrency.test.js` 在整轮 runner 下出现过一次红、单跑与复跑均绿（同族「unbounded wait」抖动家族），未定责前不记为稳定通过。
+
