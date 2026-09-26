@@ -120,6 +120,44 @@ describe('AuthViewManager 凭证边界', () => {
     expect(manager._resolveLogin).not.toHaveBeenCalled()
   })
 
+  it('未声明会话标记的平台完成登录时记下待取证证据（只记 Cookie 名，不记值）', async () => {
+    // 取证纪律：这条日志是「哪个平台该补 PLATFORM_SESSION_COOKIE_MARKERS」的现场材料，
+    // 值一律不得进日志；已声明标记的平台不得产出（否则会把「已在把关」误报成欠账）。
+    const infoSpy = vi.spyOn(require('./logger'), 'info').mockImplementation(function () {})
+    const pendingManager = new AuthViewManager()
+    pendingManager.mainWindow = createMainWindow()
+    pendingManager.currentView = createView([
+      { name: 'web_session_probe', value: 'SECRET-VALUE-42', domain: '.xiaohongshu.com' },
+    ])
+    pendingManager.currentPlatform = 'xiaohongshu'
+    pendingManager.currentAccountId = 'auth-xiaohongshu-1'
+    pendingManager._resolveLogin = vi.fn()
+
+    await expect(pendingManager.completeLogin()).resolves.toBe(true)
+
+    const evidence = infoSpy.mock.calls
+      .map(call => String(call[1]))
+      .find(line => line.includes('pending session-marker evidence'))
+    expect(evidence).toContain('xiaohongshu')
+    expect(evidence).toContain('web_session_probe')
+    expect(evidence).not.toContain('SECRET-VALUE-42')
+
+    const doneManager = new AuthViewManager()
+    doneManager.mainWindow = createMainWindow()
+    doneManager.currentView = createView([
+      { name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' },
+    ])
+    doneManager.currentPlatform = 'kuaishou'
+    doneManager.currentAccountId = 'auth-kuaishou-1'
+    doneManager._resolveLogin = vi.fn()
+    infoSpy.mockClear()
+
+    await expect(doneManager.completeLogin()).resolves.toBe(true)
+
+    expect(infoSpy.mock.calls.map(call => String(call[1]))
+      .some(line => line.includes('pending session-marker evidence'))).toBe(false)
+  })
+
   it('只提取当前平台域名范围内的 Cookie', async () => {
     const manager = new AuthViewManager()
     const view = createView([
@@ -777,6 +815,60 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
       expect(used.length).toBeGreaterThan(0)
       const undeclared = [...new Set(used)].filter(name => !declared.has(name))
       expect(undeclared).toEqual([])
+    })
+  })
+
+  // 节流取值必须"显式声明"：留默认等于没写理由 —— 上一轮就是留默认导致真机恒 bgThrottle=true。
+  describe('登录承载路径 backgroundThrottling 显式声明锁（四类承载同口径）', () => {
+    const fsLock = require('fs')
+    const pathLock = require('path')
+
+    // 隐藏期承载（全程不被绘制）必须 false；可见期承载允许 true，但两者都必须写出来。
+    const CARRIERS = [
+      ['auth-view-session.js', true],
+      ['qrcode-login.js', true],
+      ['identity/identity-auth-window.js', false],
+      ['auth-view-manager.js', false],
+    ]
+
+    function declOf (file) {
+      const p = pathLock.join(__dirname, file)
+      if (!fsLock.existsSync(p)) throw new Error('登录承载文件不存在：' + file)
+      const lines = fsLock.readFileSync(p, 'utf8').split(/\r?\n/)
+      for (const raw of lines) {
+        const l = raw.trim()
+        // 注释里的 backgroundThrottling:false 不算声明 —— 上一版就是被注释字样骗过
+        if (l.startsWith('*') || l.startsWith('//') || l.startsWith('/*')) continue
+        const m = l.match(/backgroundThrottling:\s*(true|false)/)
+        if (m) return m[1] === 'false' ? false : true
+      }
+      return null
+    }
+
+    it('每个登录承载文件都必须显式声明 backgroundThrottling（留默认即视为未声明）', () => {
+      const missing = CARRIERS.filter(([f]) => declOf(f) === null).map(([f]) => f)
+      expect(missing, '以下登录承载路径未声明 backgroundThrottling').toEqual([])
+    })
+
+    it('隐藏期承载声明 false、可见期承载声明 true（分档即门禁口径）', () => {
+      expect(declOf('identity/identity-auth-window.js')).toBe(false)
+      expect(declOf('auth-view-manager.js')).toBe(false)
+      expect(declOf('auth-view-session.js')).toBe(true)
+      expect(declOf('qrcode-login.js')).toBe(true)
+    })
+
+    it('loginSilent 真的把 backgroundThrottling:false 传给了隐藏 BrowserWindow', () => {
+      const electron = require('electron')
+      const AuthViewManager = require('./auth-view-manager')
+      const m = new AuthViewManager()
+      const before = electron.BrowserWindow.mock.calls.length
+      const pending = m.loginSilent('wechat_mp', [], {}, {})
+      pending.catch(() => {}) // 内部 3s 兜底定时器不该阻塞断言
+      const calls = electron.BrowserWindow.mock.calls
+      expect(calls.length).toBeGreaterThan(before)
+      const opts = calls[calls.length - 1][0]
+      expect(opts.show).toBe(false)
+      expect(opts.webPreferences.backgroundThrottling).toBe(false)
     })
   })
 
