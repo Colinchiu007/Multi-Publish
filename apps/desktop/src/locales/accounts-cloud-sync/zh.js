@@ -41,6 +41,8 @@ export default {
   cloudOutcomeSkippedTombstone: '已跳过（云端标记删除）',
   cloudOutcomeConflictLocal: '冲突：保留本机登录状态',
   cloudOutcomeConflictCloud: '冲突：采用云端登录状态',
+  // 本轮没有定论（传输超时 / 云端那一份解不开）：既没说清也没弄坏，绝不能显示成空标签
+  cloudOutcomeConflictUnresolved: '冲突：本轮未判定，下次同步会重试',
   cloudOutcomeInvalidCredential: '凭证已失效，需重新登录',
   cloudOutcomeUidUnavailable: '未能确认账号身份，已跳过',
   cloudOutcomeFailed: '失败',
@@ -68,6 +70,15 @@ export default {
     tooMany: '本次提交账号过多，未上传',
     // 只用于同步过程区里的断开类失败行；断开云端按钮自身的失败提示仍是上面的 cloudDisconnectFailed（含计数）
     disconnectPartial: '云端未完全清除，请重试',
+    // 下行四类：文案必须说清「是云端给不出、还是本机没存下」，否则用户只会反复点同步
+    restoreNoCredential: '云端没有该账号可恢复的登录数据，请在该设备重新登录一次',
+    restoreUndecryptable: '云端存取的登录数据暂时解不开，请稍后重试；仍失败请重新登录',
+    rowTimeout: '该账号的云端请求超时，下次同步会自动重试',
+    localWriteFailed: '本机未能保存该账号，请检查磁盘空间后重试',
+    // 本机侧不可用不得甩锅给云端：这三类重试云端操作没有意义
+    noLocalCredential: '本机没有该账号的登录数据，请先在该设备登录一次',
+    localCredentialReadFailed: '本机登录数据读取失败，请检查磁盘与权限后重试',
+    localSubsystemMissing: '本机同步所需的本地组件未就绪（凭证存储或账号列表）',
     // 未登记码的兜底句：失败行的原因栏不允许空白
     cloudFailed: '云端未接受该账号，请稍后重试',
   },

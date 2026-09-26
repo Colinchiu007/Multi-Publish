@@ -133,3 +133,78 @@
 - [ ] 桌面端恢复阶段仍不发送 `credentialUpdatedAt`（恢复项本机没有历史时刻），`credentialFreshness` 因此保守取 `cloud`。
 - [ ] `cloud-accounts-concurrency.test.js` 在整轮 runner 下出现过一次红、单跑与复跑均绿（同族「unbounded wait」抖动家族），未定责前不记为稳定通过。
 
+
+## 10. CI 首轮两项红灯的定责与真修（2026-09-27，PR #2461 head 47515348）
+
+CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日志定责后，**两个都是本 PR 引入**，
+且顺着它们挖出三处更严重的跨包断裂（本地全绿、CI 也绿不到的那种）。
+
+- [x] **`QG Static`**：`cloud-account-sync.js:161/257` eslint `no-useless-assignment`
+  （`let stored = null` / `let created = null` 的初值在 catch 早返回后永不被读）→ 改为无初值声明。
+- [x] **`cloud-accounts-desktop-contract.test.js` 从未被执行**：该文件自创建起就缺一个 `test()` 头
+  （第 458 行起是孤儿块，`await` 落在顶层 CJS → SyntaxError）。它被 runner 记为「通过」是**我误读**：
+  `pnpm test` 的 rc=0 来自修复之后，而我把"文件存在 + 我写过断言"当成了锁已建立。
+  → 补回标题、并实测 `node <file>` 对损坏文件确实 rc=1（runner 无漏洞，漏洞在我的核验方式）。
+  **新纪律见 AGENTS.md「新增测试文件必须看见它被执行过」**。
+- [x] **响应信封断裂（功能级 Bug）**：服务端出线 `{code,data}`，`member-api-service.request()` 原样返回**整个响应体**，
+  而桌面端读的是 `cloud.total` / `put.results` / `got.credentials`（内层）→ 用户可见后果是
+  **弹窗恒「共 0 个」、同步恒 0 条**。修法：`cloud-account-core.js` 新增唯一剥壳出口 `unwrapApiResponse()`，
+  `callApi()` 一处应用；信封缺失抛 `CLOUD_ENVELOPE_INVALID`（不得伪装成「云端没有」）。
+  契约夹具同步改为与真实传输层逐字同形（原来写的是 `return response.body.data`，即**替客户端剥壳**，
+  这正是缺陷穿过单测的原因），并把原先的「记录性断言」换成真跑流程。
+  反证：`unwrapApiResponse` 改恒等 → 桌面端红 19 条 + 契约文件红 4 条；恢复后两文件全绿、源文件字节一致。
+- [x] **下行凭证形态断裂**：`POST /sync` 出线是 base64 `credentialEnvelope`，桌面端读 `credential`；
+  而数据密钥由**服务端主密钥**包裹、桌面端无 KMS 访问权 → 恢复路径**恒** `CREDENTIAL_UNAVAILABLE`，
+  ADR-0003「换设备免扫码（服务端必须能重新解出凭证）」这一立约前提落空。
+  修法：`handleSyncFetch` 在服务端解密后回明文 `credential`（同一条 TLS、同一 owner、AAD 绑 `userId`），
+  不再下发信封；新增四条锁：跨归属解不开、逐条独立不给半成品、无 crypto 时 503 且不查库、出线不得带信封。
+  桌面端把下行分成本互不伪装的**四种结局**（ok / missing / undecryptable / 传输无结论），
+  其中后两类在冲突裁决处判 `conflict-unresolved` 且**不发**带 `force` 的 PUT（「解不开」不是反证）。
+- [x] **真库夹具自身的错**（只有真库能证伪，正是该文件存在的理由）：
+  ① 忘了给 `createCloudAccountServices` 传 `kms` → 每条 PUT 503，并把 6 条用例串成假象；
+  ② 父行写成 `identity_users(id, subject)`，真库列是 `(auth_provider, auth_subject)` → 42703；
+  ③ 云账号必须挂在真实父行上（`user_id` 有 FK），夹具改为 `ensureIdentityUser/trackUser` 并在收尾按父行删除；
+  ④ 断言直读 `res.body.results`，未过 `{code,data}` 信封 → 统一走 `dataOf()`，它先把状态钉成 200。
+- [x] **反互锁（空跑守卫）**：首轮 CI 里「库内不含明文」「断开不影响他人」两条是**伪绿**——写失败后
+  「什么都查不到」恰好满足"不存在坏东西"。现在这两条各加了前置断言（行数/上行结果），
+  avatar 用例也加了「正例确实落库 = 2 行」的空跑守卫。
+- [x] **文案归属**：下行/本机写入类码原先一律落兜底句「云端未接受该账号」，会把用户推去改账号信息。
+  新增 4 组 `cloudSyncErr` 键（zh/en 成对）+ 逐码归属用例。
+- [x] `cloud-account-sync.js` 因上述修改涨到 527 行触发 `NEW_OVER_LIMIT` → 按语义边界真拆分：
+  下行链路（取凭证 → 建号 → 存凭证 → 打回 unverified → 排检测）落到新模块 `cloud-account-restore.js`，
+  守的是「凭证未落盘不得声称可用」这条顺序不变量；拆分后 `filesOver500` 98（基线 101）。
+
+### 本轮新增的已知缺口（登记，不粉饰）
+
+- [ ] `electron/ipc-handlers/cloud-account.js` 无直接单测：`ownerSubject()` 取不到 sub 的 fail-closed、
+  `withSenderCheck`、以及 `res.data` 被 renderer 消费的形状，目前只由 preload 通道合同与服务层测试间接覆盖。
+- [ ] `POST /sync` 现在返回明文凭证，响应侧**尚未**加 `Cache-Control: no-store`。
+  本机链路不经缓存、Nginx 默认也不缓存 `/api/v1/`，但这条应在接入任何共享缓存前补上（需改 `_json` 的按路由加头，属独立改动）。
+- [ ] 真库回归仍需 CI 才跑得到（本机无 docker）：合并前必须在 `QG Business API Postgres` 看到 7 条真跑绿，
+  跳过不算通过。
+
+## 11. QM-6 双模型外部评审（第二轮，针对本轮跨包改动）
+
+前端模型（opencode）本轮**跑通了** —— 推翻上一轮「opencode 恒被 external_directory 自动拒绝」的结论：
+真正的拦路点是 `codeagent-wrapper` 不在 PATH、我用裸命令名启动后 `command not found`，
+而 wrapper 仍 exit 0（只在输出里留一行错误）。改用全路径 `C:\Users\to_co\.claude\bin\codeagent-wrapper.exe` 后一次成功。
+
+- [x] **F1 Critical：`conflict-unresolved` 在展示层无标签无样式** → **采纳**。
+  核实：`OUTCOME_LABEL_KEYS` / `OUTCOME_CLASS` 确实没有它（`grep -c` = 0），而主进程已会产出该终态。
+  后果不是报错而是**该行标签空白**。修法不止补两条表：新增 `useCloudSyncResultModel.test.js` 结构锁，
+  从 `cloud-account-core.js` 的 `OUTCOME` 枚举反向收集全部终态，逐个断言有显式标签 + 显式样式 + zh/en 文案存在。
+  反证：摘掉标签条目 → 该用例立刻红。
+- [x] **F2 Warning：四个本机侧码未登记** → **采纳**。
+  核实成立：`CREDENTIAL_LOAD_FAILED` / `CHECK_LOGIN_NO_CREDENTIAL` / `CREDENTIAL_STORE_UNAVAILABLE` /
+  `ACCOUNT_MANAGER_UNAVAILABLE` 全部漏登记，前两个会落到「云端未接受该账号」兜底句（把本机问题说成云端问题），
+  后两个批次级返回空串。新增 3 个分组 + 3 组 zh/en 文案，并把锁扩到
+  「从主进程源码收集所有 `'UPPER_SNAKE'` 语义码，逐个断言已登记」—— **首跑即抓到第 5 个漏网码
+  `CLOUD_RESULT_MISSING`**（评审没提到的，说明这条锁的值不在复现评审结论，而在继续往下抓）。
+- [x] **F3 Info：`unwrapApiResponse` 对 `HTTP 200 + {error}` 会判成信封破坏** → **核实后接受该行为**。
+  `member-api-service.request()` 对 `response.ok !== true` 一律先 reject（并把上游语义码透出来），
+  所以剥壳层只会见到 2xx 成功体；`{error}` 无 `data` 的 200 属服务端实现错，抛 `CLOUD_ENVELOPE_INVALID`
+  比静默当空数据更符合 fail closed。已在 §7.0 表里写明该口径。
+- [x] **F4 Info：`finishSummary` 只反推 conflicts/invalid/uidUnavailable 三类** → **登记为已知限制**。
+  其余计数由逐条分支即时累加；彻底统一为「全部从 items 反推」需要 `items` 携带平台级去重信息，属独立改动。
+- [x] **F5 Info：正面确认（模块边界、unwrap 单一使用、无重复实现）** → 记录。
+- [ ] 后端模型（claude）本轮仍在跑；结论落地后逐条处置，Critical 未清不合入。

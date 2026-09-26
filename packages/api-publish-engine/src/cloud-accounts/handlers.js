@@ -18,7 +18,7 @@
  */
 
 const { safeErrorCode } = require('../auth/safe-error-code')
-const { encodeEnvelope } = require('./envelope-crypto')
+
 const {
   CONTROL_CHARS,
   accountError,
@@ -299,7 +299,15 @@ async function handleUpsert(context, userId) {
 
 /**
  * 本期语义 = 批量取凭证槽（PRD §7.3 后半段：客户端裁决、服务端只存取）。
- * 出线形态是 base64 信封，正文仍是密文：服务端解密留给后续阶段，绝不在这条路径上返回明文。
+ *
+ * 出线是**解密后的明文凭证**，不是信封：ADR-0003 选信封加密的前提正是
+ * 「换设备免扫码 ⇒ 服务端必须能重新解出凭证」，只回 `credentialEnvelope` 会让这条路径
+ * 永远拿不到可用凭证（数据密钥由**服务端**按登录身份的主密钥包裹，桌面端没有也不该有 KMS 访问权），
+ * 于是「恢复」退化成恒 `CREDENTIAL_UNAVAILABLE`。上行 (§7.2) 已经是明文过 TLS，
+ * 下行同一档位不构成新的暴露类别；约束落在三条：
+ *   1. 归属只认 `auth.businessUser.id`，AAD 三元组用同一个 `userId` —— 行取错也解不开；
+ *   2. 逐条独立裁决：一条解不开只让该条 `credential:null` + `errorCode`，不得带走整批；
+ *   3. 不得返回半成品（GCM 认证失败即整条作废，`decryptCredential` 内部已保证）。
  */
 async function handleSyncFetch(context, userId) {
   const parsed = await readBody(context)
@@ -310,16 +318,28 @@ async function handleSyncFetch(context, userId) {
   } catch (error) {
     return errorResponse(error, 'ACCOUNT_BATCH_INVALID', 400)
   }
+  if (!context.crypto || typeof context.crypto.decryptCredential !== 'function') {
+    return fail('KMS_UNAVAILABLE', 503)
+  }
   const found = await context.repository.getCredentials(userId, keys)
-  const credentials = (Array.isArray(found) ? found : []).map((entry) => {
+  const credentials = []
+  for (const entry of (Array.isArray(found) ? found : [])) {
     const source = isPlainObject(entry) ? entry : {}
-    return {
-      platform: source.platform === undefined ? null : source.platform,
-      platformUid: source.platformUid === undefined ? null : source.platformUid,
+    const platform = source.platform === undefined ? null : source.platform
+    const platformUid = source.platformUid === undefined ? null : source.platformUid
+    const item = {
+      platform,
+      platformUid,
       credentialUpdatedAt: source.credentialUpdatedAt === undefined ? null : source.credentialUpdatedAt,
-      credentialEnvelope: encodeEnvelope(source.credentialEnvelope),
+      credential: null,
     }
-  })
+    try {
+      item.credential = await context.crypto.decryptCredential(source.credentialEnvelope, { userId, platform, platformUid })
+    } catch (error) {
+      item.errorCode = safeErrorCode(error, 'CREDENTIAL_DECRYPT_FAILED')
+    }
+    credentials.push(item)
+  }
   return respond(200, { code: SUCCESS_CODE, data: { credentials } })
 }
 

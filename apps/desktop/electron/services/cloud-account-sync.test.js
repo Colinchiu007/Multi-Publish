@@ -34,7 +34,19 @@ function makeFixture (overrides = {}) {
     fetchAccountInfo: overrides.fetchAccountInfo || (async (platform) => ({ supported: true, platformAccountId: 'uid-' + platform })),
     // 冲突裁决的检测必须能逐次给出不同结论，否则无法区分「较新但失效」
     checkLogin: overrides.checkLogin || (async () => ({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })),
-    apiClient: { request: vi.fn(async (o) => { calls.push({ kind: 'api', ...o }); return overrides.respond ? overrides.respond(o) : {} }) },
+    // mock 写的是 payload，但**线上传的是信封**：服务端每个成功响应都是 `{code:0,data:{...}}`，
+    // `memberApiService.request` 又原样返回整个响应体。这里统一包一层，
+    // 客户端任何漏剥信封的读法都会立刻变红 —— 历史上两侧各自 mock（客户端裸对象、服务端裸断言信封），
+    // 于是「同步永远 0 条、弹窗永远共 0 个」穿过了全部单测。
+    // `{__raw:true, body}` 用于模拟「信封被破坏」的反证用例。
+    apiClient: {
+      request: vi.fn(async (o) => {
+        calls.push({ kind: 'api', ...o })
+        const payload = await (overrides.respond ? overrides.respond(o) : {})
+        if (payload && typeof payload === 'object' && payload.__raw === true) return payload.body
+        return { code: 0, data: payload }
+      }),
+    },
     broadcast: (p) => events.push(p),
     queueLoginCheck: vi.fn(async () => {}),
     userDataDir: '/tmp/fake-userdata',
@@ -279,6 +291,95 @@ describe('账号云同步 —— 凭证冲突四分支', () => {
     const forced = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT'
       && (c.body?.accounts || []).some((a) => a && a.force))
     expect(forced.map((c) => JSON.stringify(c.body))).toEqual([])
+  })
+})
+
+describe('下行取凭证的四种结局（不得互相伪装）', () => {
+  /** 云端有一行但服务端解不开：只能报「解不开」，不得冒充「云端没有」。 */
+  it('undecryptable → 逐条 code 透传语义码', async () => {
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [{ platform: 'douyin', platformUid: 'u9', displayName: '云端号' }], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') {
+          return { credentials: [{ platform: 'douyin', platformUid: 'u9', credential: null, errorCode: 'CREDENTIAL_DECRYPT_FAILED' }] }
+        }
+        return { results: [] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.restored).toBe(0)
+    expect(res.data.items[0]).toMatchObject({ outcome: 'failed', code: 'CREDENTIAL_DECRYPT_FAILED' })
+    expect(f.calls.some((c) => c.path === 'addAccount')).toBe(false, '解不开就不该先建号')
+  })
+
+  it('missing（云端没有这一行）→ CREDENTIAL_UNAVAILABLE', async () => {
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [{ platform: 'douyin', platformUid: 'u9' }], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') return { credentials: [] }
+        return { results: [] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items[0]).toMatchObject({ outcome: 'failed', code: 'CREDENTIAL_UNAVAILABLE' })
+  })
+
+  it('传输失败/超时 → SYNC_TIMEOUT，不得并入「云端没有」', async () => {
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [{ platform: 'douyin', platformUid: 'u9' }], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') throw Object.assign(new Error('slow'), { code: 'MEMBER_API_REQUEST_FAILED' })
+        return { results: [] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items[0].outcome).toBe('failed')
+    expect(res.data.items[0].code).toBe('SYNC_TIMEOUT')
+  })
+
+  it('conflict 行 + 云端解不开 → 不裁决、且绝不带 force 回写（单向证据规则）', async () => {
+    const f = makeFixture({
+      accounts: [{ id: 'a1', platform: 'douyin', name: '甲', platform_account_id: 'u1' }],
+      credentials: { a1: cred('local-val') },
+      respond: (o) => {
+        if (o.method === 'GET') return { accounts: [], tombstones: [] }
+        if (o.path === '/api/v1/me/accounts/sync') {
+          return { credentials: [{ platform: 'douyin', platformUid: 'u1', credential: null, errorCode: 'CREDENTIAL_DECRYPT_FAILED' }] }
+        }
+        return { results: [{ platform: 'douyin', platformUid: 'u1', outcome: 'conflict', credentialFreshness: 'cloud' }] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.items[0].outcome).toBe('conflict-unresolved')
+    expect(res.data.conflicts).toBe(1)
+    const forced = f.calls.filter((c) => c.kind === 'api' && c.method === 'PUT' && c.body
+      && c.body.accounts && c.body.accounts.some((a) => a.force))
+    expect(forced.length).toBe(0, '一次服务端解密失败不是反证，不得授权覆盖云端凭证')
+  })
+})
+
+describe('响应信封（服务端 {code,data} 与 member-api 原样返回响应体）', () => {
+  it('信封缺 data 时不得降级成「云端 0 个」，必须报契约错', async () => {
+    const f = makeFixture({
+      accounts: [{ id: 'a1', platform: 'douyin', name: '甲' }],
+      respond: () => ({ __raw: true, body: { code: 0 } }),
+    })
+    const res = await f.service.digest(SUBJECT)
+    expect(res.data.reachable).toBe(false)
+    expect(res.data.errorCode).toBe('CLOUD_ENVELOPE_INVALID')
+    expect(res.data.total).toBe(0)
+  })
+
+  it('unwrapApiResponse 只认对象型 data，其余一律抛语义码', async () => {
+    const { unwrapApiResponse } = await import('./cloud-account-core')
+    expect(unwrapApiResponse({ code: 0, data: { total: 2 } })).toEqual({ total: 2 })
+    for (const bad of [null, undefined, {}, { code: 0 }, { data: null }, { data: [] }, 'text']) {
+      expect(() => unwrapApiResponse(bad)).toThrowError(/data 信封/)
+      try { unwrapApiResponse(bad) } catch (e) { expect(e.code).toBe('CLOUD_ENVELOPE_INVALID') }
+    }
   })
 })
 

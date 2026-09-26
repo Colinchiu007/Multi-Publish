@@ -38,6 +38,8 @@ export default {
   cloudOutcomeSkippedTombstone: 'Skipped (deleted in cloud)',
   cloudOutcomeConflictLocal: 'Conflict: kept this device sign-in',
   cloudOutcomeConflictCloud: 'Conflict: used cloud sign-in',
+  // No verdict this round (transport timeout / cloud copy undecryptable): must never render as an empty chip
+  cloudOutcomeConflictUnresolved: 'Conflict: not decided this round, next sync will retry',
   cloudOutcomeInvalidCredential: 'Credential expired, sign in again',
   cloudOutcomeUidUnavailable: 'Account identity not confirmed, skipped',
   cloudOutcomeFailed: 'Failed',
@@ -65,6 +67,15 @@ export default {
     tooMany: 'Too many accounts in this batch, nothing was uploaded',
     // Only for disconnect-type failures inside the sync progress list; the Disconnect button keeps cloudDisconnectFailed (with counts)
     disconnectPartial: 'The cloud was not fully cleared, please retry',
+    // Download side: the copy must separate "the cloud has nothing to give" from "this device failed to store it"
+    restoreNoCredential: 'The cloud has no restorable sign-in data for this account, please sign in again on this device',
+    restoreUndecryptable: 'The stored sign-in data could not be decrypted right now, please retry; sign in again if it keeps failing',
+    rowTimeout: 'The cloud request for this account timed out, the next sync will retry',
+    localWriteFailed: 'This device could not save the account, check disk space and retry',
+    // Local-side unavailability must not be blamed on the cloud
+    noLocalCredential: 'This device has no sign-in data for the account, please sign in once on this device',
+    localCredentialReadFailed: 'Could not read the local sign-in data, check disk and permissions, then retry',
+    localSubsystemMissing: 'A local component required for syncing is unavailable (credential store or account list)',
     // Fallback for any unlisted code: a failed row never shows an empty reason
     cloudFailed: 'The cloud did not accept this account, please try again later',
   },

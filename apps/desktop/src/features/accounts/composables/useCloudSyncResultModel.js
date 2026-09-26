@@ -33,6 +33,10 @@ const OUTCOME_LABEL_KEYS = {
   'skipped-tombstone': 'accountsPage.cloudOutcomeSkippedTombstone',
   'conflict-resolved-local': 'accountsPage.cloudOutcomeConflictLocal',
   'conflict-resolved-cloud': 'accountsPage.cloudOutcomeConflictCloud',
+  // 主进程四结局之一（本轮无定论）：它不是「未知 outcome」，必须有自己的标签，
+  // 否则用户看到的是一行没有解释的空白 —— 与本表头注释的「不得渲染成假标签」不冲突，
+  // 留空只适用于真正未登记的值。全覆盖由 useCloudSyncResultModel.test.js 的结构锁保证。
+  'conflict-unresolved': 'accountsPage.cloudOutcomeConflictUnresolved',
   'invalid-credential': 'accountsPage.cloudOutcomeInvalidCredential',
   'uid-unavailable': 'accountsPage.cloudOutcomeUidUnavailable',
   failed: 'accountsPage.cloudOutcomeFailed',
@@ -47,6 +51,7 @@ const OUTCOME_CLASS = {
   'uid-unavailable': 'is-muted',
   'conflict-resolved-local': 'is-warning',
   'conflict-resolved-cloud': 'is-warning',
+  'conflict-unresolved': 'is-warning',
   'invalid-credential': 'is-danger',
   failed: 'is-danger',
 }
@@ -86,6 +91,18 @@ const ERROR_CODE_GROUPS = {
   invalidCredential: ['CREDENTIAL_SHAPE_INVALID'],
   tooMany: ['ACCOUNT_BATCH_TOO_LARGE'],
   disconnectPartial: ['CLOUD_DISCONNECT_PARTIAL', 'DISCONNECT_CONFIRMATION_REQUIRED'],
+  // 下行（恢复到本机 / 冲突时取云端那一份）的失败：语义是「云端给不出可用凭证」，
+  // 不是「云端拒绝了这次上行」。混成一类的后果是用户去改账号信息，而真正该做的是重试或重新登录。
+  restoreNoCredential: ['CREDENTIAL_UNAVAILABLE'],
+  restoreUndecryptable: ['CREDENTIAL_DECRYPT_FAILED'],
+  rowTimeout: ['SYNC_TIMEOUT'],
+  // 失败发生在**本机**（建号 / 存凭证），不得甩锅给云端
+  localWriteFailed: ['CREDENTIAL_PERSIST_FAILED', 'ACCOUNT_CREATE_FAILED'],
+  // 本机的读取侧与「本机根本没有凭证」：让用户重试云端操作是错方向
+  noLocalCredential: ['CHECK_LOGIN_NO_CREDENTIAL'],
+  localCredentialReadFailed: ['CREDENTIAL_LOAD_FAILED'],
+  // 本机子系统缺失属主进程装配问题，批次级也必须能出文案（batchErrorKeyFor 只认登记过的码）
+  localSubsystemMissing: ['CREDENTIAL_STORE_UNAVAILABLE', 'ACCOUNT_MANAGER_UNAVAILABLE'],
   // 显式登记「云端自己的问题」，与「未知码」同组：未知码同样走这条，见 errorKeyFor
   cloudFailed: [
     'ACCOUNT_REJECTED',
@@ -93,6 +110,10 @@ const ERROR_CODE_GROUPS = {
     'ROUTE_NOT_FOUND',
     'METHOD_NOT_ALLOWED',
     'CLOUD_ACCOUNTS_NOT_CONFIGURED',
+    // 响应连 `{code,data}` 都不成形：责任在云端契约，文案与"未知云端问题"同档
+    'CLOUD_ENVELOPE_INVALID',
+    // 上行成功但服务端这一行没给出裁决结果：同样是云端的问题，不是本机
+    'CLOUD_RESULT_MISSING',
   ],
 }
 

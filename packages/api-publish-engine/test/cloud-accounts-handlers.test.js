@@ -12,6 +12,25 @@ const AUTH = { businessUser: { id: 'u-1', status: 'active' }, authType: 'logto',
 /** 测试内共用同一把本地主密钥：KMS 不匹配时 503 是预期行为，见「KMS 不可用」用例。 */
 const LOCAL_MASTER_KEY = '11'.repeat(32)
 
+/** 云端已存着的那份凭证（属于 u-1）。取凭证用例断言解出来的就是它。 */
+const OWNER_OF_ENVELOPES = 'u-1'
+const CLOUD_CREDENTIAL = {
+  cookies: [{ name: 'sessionid', value: 'cloud-side-session-value', domain: '.douyin.com', path: '/' }],
+  localStorage: { user_name: '数字生命丘丘' },
+  indexedDB: {},
+}
+
+/** 入库形态（Buffer，不是 base64）：夹具只负责「库里躺着什么」，解密是被测行为。 */
+async function sealedRowEnvelope(userId, platform, platformUid, credential) {
+  const c = createEnvelopeCrypto({ kms: createLocalKms({ key: LOCAL_MASTER_KEY }) })
+  const sealed = await c.encryptCredential({ userId, platform, platformUid, credential })
+  assert.strictEqual(sealed.digest, credentialDigest(credential))
+  return {
+    v: sealed.v, alg: sealed.alg, iv: sealed.iv, ciphertext: sealed.ciphertext,
+    tag: sealed.tag, encryptedDataKey: sealed.encryptedDataKey, digest: sealed.digest,
+  }
+}
+
 function repositoryStub(overrides) {
   const calls = []
   return Object.assign({
@@ -21,7 +40,15 @@ function repositoryStub(overrides) {
     async upsertMany(userId, items) { calls.push(['upsertMany', userId, items.length]); return { results: items.map((item) => ({ platform: item.platform, platformUid: item.platformUid, outcome: 'created' })) } },
     async listTombstones(userId) { calls.push(['listTombstones', userId]); return [] },
     async addTombstone(userId, platform, platformUid) { calls.push(['addTombstone', userId, platform, platformUid]); return { created: true } },
-    async getCredentials(userId, keys) { calls.push(['getCredentials', userId, keys.length]); return keys.map((key) => ({ platform: key.platform, platformUid: key.platformUid, credentialUpdatedAt: PAST, credentialEnvelope: { v: 1, alg: 'A256GCM', iv: Buffer.alloc(12, 1), ciphertext: Buffer.from('ct', 'utf8'), tag: Buffer.alloc(16, 2), encryptedDataKey: Buffer.alloc(32, 3), digest: 'a'.repeat(64) } })) },
+    async getCredentials(userId, keys) {
+      calls.push(['getCredentials', userId, keys.length])
+      return Promise.all(keys.map(async (key) => ({
+        platform: key.platform,
+        platformUid: key.platformUid,
+        credentialUpdatedAt: PAST,
+        credentialEnvelope: await sealedRowEnvelope(OWNER_OF_ENVELOPES, key.platform, key.platformUid, CLOUD_CREDENTIAL),
+      })))
+    },
     async clearAll(userId) { calls.push(['clearAll', userId]); return { ok: true, deletedAccounts: 3, deletedTombstones: 2, remaining: 0 } },
   }, overrides || {})
 }
@@ -372,7 +399,7 @@ test('handlers：PUT 批量上行', async (t) => {
 })
 
 test('handlers：POST 取凭证与 POST 断开云端', async (t) => {
-  await t.test('POST /sync → 批量取回信封（base64 线上形态）', async () => {
+  await t.test('POST /sync → 解出明文凭证（ADR-0003「服务端必须能重新解出」的落地处）', async () => {
     const repository = repositoryStub()
     const response = await handleCloudAccountsRequest(context({
       method: 'POST',
@@ -384,10 +411,78 @@ test('handlers：POST 取凭证与 POST 断开云端', async (t) => {
     assert.strictEqual(response.status, 200)
     const [entry] = response.body.data.credentials
     assert.strictEqual(entry.platformUid, 'uid-9')
-    assert.strictEqual(typeof entry.credentialEnvelope.iv, 'string', '信封必须以 base64 出线')
-    assert.strictEqual(Buffer.from(entry.credentialEnvelope.iv, 'base64').length, 12)
-    assert.strictEqual(entry.credentialEnvelope.alg, 'A256GCM')
+    assert.deepStrictEqual(entry.credential, CLOUD_CREDENTIAL, '解出的凭证必须与入库前逐字段一致（AAD 三元组任一不符即解不开）')
+    // 密文信封不得再出现在出线上：客户端没有 KMS 访问权，带信封等于带一份它用不了、
+    // 却可能被日志/落盘二次暴露的字节。
+    assert.strictEqual(entry.credentialEnvelope, undefined, '出线不得再带 credentialEnvelope')
+    assert.strictEqual(entry.errorCode, undefined)
     assert.deepStrictEqual(repository.calls, [['getCredentials', 'u-1', 1]])
+  })
+
+  await t.test('POST /sync 逐条独立：一行解不开只让该行带 errorCode，其余照常出线且不给半成品', async () => {
+    /** 改一个密文字节：GCM 认证必须让整条作废，不得解出「差一点」的明文 */
+    const tamper = async (userId, platform, platformUid) => {
+      const env = await sealedRowEnvelope(userId, platform, platformUid, CLOUD_CREDENTIAL)
+      const ciphertext = Buffer.from(env.ciphertext)
+      ciphertext[ciphertext.length - 1] ^= 0x01
+      return Object.assign(env, { ciphertext })
+    }
+    const repository = repositoryStub()
+    repository.getCredentials = async (userId, keys) => Promise.all(keys.map(async (key, i) => ({
+      platform: key.platform,
+      platformUid: key.platformUid,
+      credentialUpdatedAt: PAST,
+      credentialEnvelope: i === 0
+        ? await tamper(userId, key.platform, key.platformUid)
+        : await sealedRowEnvelope(userId, key.platform, key.platformUid, CLOUD_CREDENTIAL),
+    })))
+    const response = await handleCloudAccountsRequest(context({
+      method: 'POST',
+      url: '/api/v1/me/accounts/sync',
+      req: { method: 'POST', url: '/api/v1/me/accounts/sync', headers: {} },
+      bodyParser: async () => ({ keys: [{ platform: 'douyin', platformUid: 'uid-bad' }, { platform: 'zhihu', platformUid: 'uid-good' }] }),
+      repository,
+    }))
+    assert.strictEqual(response.status, 200)
+    const [bad, good] = response.body.data.credentials
+    assert.strictEqual(bad.credential, null)
+    assert.strictEqual(bad.errorCode, 'CREDENTIAL_DECRYPT_FAILED')
+    assert.deepStrictEqual(good.credential, CLOUD_CREDENTIAL)
+    // 反证防线：坏条目不得带任何密文/明文键
+    assert.deepStrictEqual(Object.keys(bad).sort(), ['credential', 'credentialUpdatedAt', 'errorCode', 'platform', 'platformUid'])
+  })
+
+  await t.test('POST /sync 跨归属不得解出明文（AAD 绑定 userId）', async () => {
+    // 仓储被写坏、把 u-1 的行回给了 u-2 —— 这道锁要保证泄露不了：信封的 AAD 里绑的是 u-1。
+    const repository = repositoryStub()
+    const response = await handleCloudAccountsRequest(context({
+      method: 'POST',
+      url: '/api/v1/me/accounts/sync',
+      req: { method: 'POST', url: '/api/v1/me/accounts/sync', headers: {} },
+      auth: { businessUser: { id: 'u-2', status: 'active' }, authType: 'logto', subject: 'sub-2' },
+      bodyParser: async () => ({ keys: [{ platform: 'douyin', platformUid: 'uid-9' }] }),
+      repository,
+    }))
+    assert.strictEqual(response.status, 200)
+    const [entry] = response.body.data.credentials
+    assert.strictEqual(entry.credential, null)
+    assert.ok(entry.errorCode, '跨归属解密必须以语义码失败，不得静默返回 null 了事')
+    assert.ok(!JSON.stringify(response.body).includes('cloud-side-session-value'))
+  })
+
+  await t.test('POST /sync 无 crypto 时 503 且不查库（不得把「没密钥」降级成「云端没有」）', async () => {
+    const repository = repositoryStub()
+    const response = await handleCloudAccountsRequest(context({
+      method: 'POST',
+      url: '/api/v1/me/accounts/sync',
+      req: { method: 'POST', url: '/api/v1/me/accounts/sync', headers: {} },
+      bodyParser: async () => ({ keys: [{ platform: 'douyin', platformUid: 'uid-9' }] }),
+      repository,
+      crypto: null,
+    }))
+    assert.strictEqual(response.status, 503)
+    assert.strictEqual(response.body.error, 'KMS_UNAVAILABLE')
+    assert.deepStrictEqual(repository.calls, [], 'KMS 不可用时不得先查库')
   })
 
   await t.test('POST /sync 入参非法 → 400，不发查询', async () => {

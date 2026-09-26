@@ -221,6 +221,27 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 
 基址：业务 API（`config/identity-public.json` 的 `businessApiUrl`；本机回环同源可用 http，其余强制 https）。鉴权：`Authorization: Bearer <Logto access token>` + `X-Device-Id`，与 `member-api-service.js:27-34` 同口径。路径前缀守卫已允许 `/api/v1/`（`publish-api-server.js:619`），新路径无需改守卫；Nginx 侧 `/api/v1/` 反代不变（AGENTS.md 路由分离合同）。
 
+### 7.0 响应信封与「谁负责剥壳」（跨包合同的唯一口径）
+
+服务端（`packages/api-publish-engine`）每个成功响应都是 **`{ code: 0, data: { ... } }`**，
+失败响应是 **`{ error: "<语义码>" }` + 非 2xx**（`handlers.js` 的 `respond/fail`）。
+桌面端传输层 `member-api-service.request()` **原样返回整个响应体**（`return response.json()`），
+因此**剥壳是业务侧的责任**，唯一实现是
+`apps/desktop/electron/services/cloud-account-core.js` 的 `unwrapApiResponse()`，
+只允许在 `cloud-account-sync.js` 的 `callApi()` 这一处被调用：
+
+| 约束 | 后果 |
+| --- | --- |
+| 剥壳只有一处实现，调用点一律按业务字段读（`total` / `results` / `accounts` / `credentials`） | 各调用点手写 `body.data` 会在服务端换壳时逐处失配，且没有任何一处能兜住 |
+| 信封缺失或 `data` 不是对象 → 抛 `CLOUD_ENVELOPE_INVALID`，**不返回空对象** | 返回空对象会把契约破坏伪装成「云端一个账号都没有」，正是 §10.2 禁止的形态 |
+| 同一路径前缀 `/api/v1/me/*` 的另一半由 ops-center 提供，那边是**裸 JSON 不带壳** | 同一个 apiClient 承着两种约定，是最容易踩的不对称；新增 `/me` 面时必须先确认属于哪一半 |
+
+> 反证（实测）：把 `unwrapApiResponse` 改成原样返回，`cloud-account-sync.test.js` 红 19 条、
+> `cloud-accounts-desktop-contract.test.js` 红 4 条；恢复后两个文件全绿、源文件字节一致。
+> 这条缺口曾经真实存在：
+> 契约测试的夹具当时**代替客户端剥了壳**（`return response.body.data`），于是
+> 「弹窗永远共 0 个 / 同步永远 0 条」在全绿单测下面躺了一整轮。
+
 ### 7.1 `GET /api/v1/me/accounts`
 
 | 参数 | 说明 |
@@ -260,9 +281,36 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 正是本特性要消灭的无条件 LWW 形态）。刻意不用 `SELECT ... FOR UPDATE`：那要求显式事务与持锁，
 会把「逐条独立裁决、一条失败不整批回滚」变成串行长事务。
 
-### 7.3 `POST /api/v1/me/accounts/sync`
+### 7.3 `POST /api/v1/me/accounts/sync`（批量取凭证 = 下行唯一入口）
 
-服务端裁决端点（供客户端在合并计划不确定时索取权威视图）：入本机计划摘要，出 `actions: [{key, action, reason}]` + 需要解密的凭证槽。若实现上把裁决完全放客户端，本端点退化为"批量取凭证"：`{ keys: [{platform, platformUid}] } → { credentials: [{platform, platformUid, credentialEnvelope}] }`。**本期按后者实现**（客户端裁决，服务端只存取），因为凭证解密必须在服务端做、而合并键判定不需要服务器状态。
+入 `{ keys: [{ platform, platformUid }] }`（≤100 条、逐条形状同 §6.2），出
+`{ code, data: { credentials: [{ platform, platformUid, credentialUpdatedAt, credential | errorCode }] } }`。
+
+裁决完全放客户端，服务端只存取；但**解密发生在服务端**：`credential` 是服务端用自己的主密钥
+解出后的**明文凭证**（与 §7.2 上行同档位，同一条 TLS 通道）。这**不是**放宽 —— ADR-0003 选信封加密
+的前提正是「换设备免扫码 ⇒ **服务端必须能重新解出凭证**」；只回 `credentialEnvelope` 会让客户端
+永远拿不到可用凭证（数据密钥由服务端按登录身份的主密钥包裹，桌面端没有也不该有 KMS 访问权），
+于是 §5.3 的"恢复"退化成恒 `CREDENTIAL_UNAVAILABLE`。约束落三条：
+
+| 约束 | 为什么 | 回归锁 |
+| --- | --- | --- |
+| 归属只认 token 里的 `userId`，解密 AAD 用同一 `userId` | 仓储若把别人的行回给我，AAD 三元组不匹配 → 整条解不开，不泄露明文 | `cloud-accounts-handlers.test.js`「跨归属不得解出明文」 |
+| 逐条独立：一条解不开 → 该条 `credential: null` + `errorCode`，其余照常出线 | 整批 500 会让一次密文损坏毁掉全部账号的恢复 | 同上「逐条独立…不给半成品」 |
+| 未配置加密器 → 503 `KMS_UNAVAILABLE` 且**不查库** | 把「没密钥」降级成「云端没有」是最坏形态：用户会以为云端空了 | 同上「无 crypto 时 503 且不查库」 |
+| 出线不得再带 `credentialEnvelope` | 客户端用不了它，多带一份密文只是多一处可被日志/落盘二次暴露的字节 | 契约锁 + 真库用例都断言 `credentialEnvelope === undefined` |
+
+客户端把下行结果**分成四种互不伪装的结局**（`cloud-account-restore.js` 的 `fetchCloudCredential`）：
+
+| 结局 | 触发 | 恢复行的 `code` | 冲突裁决处 |
+| --- | --- | --- | --- |
+| `ok` | 拿到非空 `cookies` | — | 用云端那份实测 |
+| `missing` | 云端没有这一行 | `CREDENTIAL_UNAVAILABLE` | 视为云端无凭证（本机有效即胜出） |
+| `undecryptable` | 有这一行但服务端解不开 | 透传 `errorCode`（如 `CREDENTIAL_DECRYPT_FAILED`） | **本轮不裁决**：判 `conflict-unresolved`，且绝不发带 `force` 的 PUT |
+| 传输无结论（超时/请求失败） | — | `SYNC_TIMEOUT` | **本轮不裁决**（同上） |
+
+> 后两行为什么必须与 `missing` 分开：把「解不开/没问到」当成「云端凭证已失效」，就会凭一次
+> 服务端内部错误给出「两份都失效，请重新登录」的负结论 —— 那正是单向证据规则禁止的形态
+> （§5.5、AGENTS.md「登录态真源只被正/负证据改写」）。
 
 ### 7.4 `POST /api/v1/me/accounts/disconnect`（断开云端）
 
@@ -292,6 +340,27 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 | `CLOUD_SYNC_IN_PROGRESS` | 重入 | 409 | `…err.inProgress` |
 | `SYNC_BUDGET_EXCEEDED` | 整体预算耗尽 | 200（逐条计 failed） | `…err.budgetExceeded` |
 | `CLOUD_DISCONNECT_PARTIAL` | 断开未全清 | 500 | `…err.disconnectPartial` |
+
+### 7.5.1 客户端侧语义码（不经 HTTP，由主进程/传输层产生）
+
+这些码同样进入逐条 `items[].code` 或批次 `errorCode`，因此**同样必须在展示层登记**
+（锁见 §10.3；未登记即落到「云端未接受该账号」兜底句，把本机问题说成云端问题）。
+
+| 码 | 触发 | 文案键 |
+| --- | --- | --- |
+| `CLOUD_ENVELOPE_INVALID` | 云端响应连 `{code,data}` 都不成形（跨包契约破坏） | `…err.cloudFailed` |
+| `SYNC_TIMEOUT` | 该账号的云端请求超时（单账号预算耗尽） | `…err.rowTimeout` |
+| `CREDENTIAL_UNAVAILABLE` | 云端没有这一行可恢复的凭证（下行 `missing`） | `…err.restoreNoCredential` |
+| `CREDENTIAL_DECRYPT_FAILED` | 云端有这一行但服务端解不开（下行 `undecryptable`） | `…err.restoreUndecryptable` |
+| `CLOUD_RESULT_MISSING` | 上行成功但服务端这一行没给出裁决结果 | `…err.cloudFailed` |
+| `CHECK_LOGIN_NO_CREDENTIAL` | 本机从未成功登录过该账号（盘上没有凭证） | `…err.noLocalCredential` |
+| `CREDENTIAL_LOAD_FAILED` | 本机凭证读取失败 | `…err.localCredentialReadFailed` |
+| `CREDENTIAL_PERSIST_FAILED` / `ACCOUNT_CREATE_FAILED` | 本机存凭证 / 建号失败 | `…err.localWriteFailed` |
+| `CREDENTIAL_STORE_UNAVAILABLE` / `ACCOUNT_MANAGER_UNAVAILABLE` | 主进程装配缺组件（批次级 503） | `…err.localSubsystemMissing` |
+| `DISCONNECT_CONFIRMATION_REQUIRED` | 断开未带 `confirm: "cloud"` | `…err.disconnectPartial` |
+| `CLOUD_SYNC_IN_PROGRESS` | 重入（IPC 层 409） | `…err.inProgress` |
+| `SYNC_BUDGET_EXCEEDED` | 整批预算耗尽，剩余计入 `cancelled` | `…err.budgetExceeded` |
+| `BUSINESS_USER_REPOSITORY_NOT_CONFIGURED` | 本机取不到归属身份 / 服务端未接库（批次级 503） | `…err.serviceUnavailable` |
 
 ## 八、加密契约
 
@@ -368,6 +437,19 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 > **两个动作语义不同，不得合并**：`【后台继续】` = 关闭弹窗、同步照常进行到终态（重开弹窗可看结果）；`【停止同步】` = 请求中止，**当前条完成后**停止发起新账号，已完成的结果保留，剩余账号计 `cancelled`。中止按钮在 IPC 回执后不得自行伪造"已停止"终态；若批次其实已自然结束（`data.aborted === false`），按钮直接失效并走正常汇总流程。
 
 结果标签颜色语义：成功类 `success`、跳过/已最新 `muted`、冲突 `warning`、失效/失败 `danger`。
+
+**冲突有三枚 chip，不是两枚**：`conflict-resolved-local`（保留本机）、`conflict-resolved-cloud`（采用云端）、
+`conflict-unresolved`（**本轮未判定** —— 传输无结论，或云端那一份解不开）。第三枚容易被漏：
+主进程四结局（§7.3）产出它，而展示层的 `OUTCOME_LABEL_KEYS` / `OUTCOME_CLASS` 是手写字典，
+漏登记的后果不是报错而是**该行标签空白**。因此加了一条结构锁
+（`useCloudSyncResultModel.test.js`）：从 `cloud-account-core.js` 的 `OUTCOME` 枚举**反向收集**全部终态，
+逐个断言"有显式标签键 + 有显式样式条目 + zh/en 文案都存在"；同一文件另有一条按源码收集
+`'UPPER_SNAKE'` 语义码、断言每个码都在展示层登记的锁（首跑即抓到漏网的 `CLOUD_RESULT_MISSING`）。
+两条锁各自做过反证：摘掉标签条目 / 摘掉码登记，对应用例立刻变红。
+
+**文案归属的硬口径**：本机侧的失败（读不到凭证、建号失败、存凭证失败、本机子系统缺失）
+**不得**落到「云端未接受该账号」兜底句 —— 那会把用户推去重试云端操作。分组见
+`cloudSyncErr` 的 `noLocalCredential` / `localCredentialReadFailed` / `localWriteFailed` / `localSubsystemMissing`。
 
 **汇总区逐类计数（chips）的口径**：优先按终态 `items` 统计（与逐条列表同源，绝不允许出现两个口径）；
 只有旧载荷/`items` 缺席时才回落 `counters`，回落映射表 `COUNTER_TO_OUTCOME` 的唯一落点在

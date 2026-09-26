@@ -34,6 +34,8 @@ const { credentialDigest } = require('../src/cloud-accounts/credential-digest')
 const CLOUD_ACCOUNTS_PREFIX = '/api/v1/me/accounts'
 const AUTH = { businessUser: { id: 'user-contract-1' } }
 const KMS_KEY = '22'.repeat(32)
+/** 与夹具内服务端同一把密钥：夹具用它把「库里躺着的密文」造出来。 */
+const envelopeCrypto = createEnvelopeCrypto({ kms: createLocalKms({ key: KMS_KEY }) })
 
 /**
  * 定位桌面端源码：从 `__dirname` 逐级上溯找锚点目录，**禁止数 `..` 层级**。
@@ -62,6 +64,7 @@ function loadDesktop(relativeName) {
 
 const memberApi = loadDesktop('identity/member-api-service.js')
 const core = loadDesktop('cloud-account-core.js')
+const syncService = loadDesktop('cloud-account-sync.js')
 const tombstone = loadDesktop('cloud-account-tombstone.js')
 
 /** 入口守卫挂在 PublishApiServer 原型上；按接线方的做法把它装到一个空宿主上再调用。 */
@@ -172,13 +175,13 @@ function localCredential(marker) {
 }
 
 /**
- * 桌面端编排器 ⇄ 真服务端的对接夹具。
+ * 桌面端编排器 ⇄ 真服务端的对接夹具 —— **两侧都不许替对方剥壳**。
  *
- * ⚠ 诚实边界：`apiClient` 这一层回给桌面端的是**剥掉 `{code,data}` 外壳**的载荷。真实
- * `member-api-service.request` 返回的是整个 JSON body，而 `cloud-account-sync.js` 读的是
- * `cloud.total` / `put.results` / `got.credentials`（都在 data 里面）。那是响应方向上一处
- * **尚未对齐**的裂口，本 PR 只按 brief 修上行，不在这里假装两边已经对上；下面第三段把服务端的
- * 真实出线形状单独钉住，并用一条断言把「桌面端读的是内层」这个事实写死，谁改谁红。
+ * `apiClient.request` 与真实 `member-api-service.js` 逐字同形：`return response.json()`，
+ * 即把整个 `{code,data}` 响应体交给桌面端；下行取凭证也走真 handlers（仓储回真信封、
+ * 服务端自己解密）。夹具一旦替客户端剥掉外壳，客户端漏剥信封的读法就永远测不出来 ——
+ * 这正是本文件第一段版本犯过的错（`return response.body.data`），它对下制造的
+ * 「弹窗永远共 0 个 / 同步永远 0 条」在单测里是全绿的。
  */
 function createHarness(options = {}) {
   const { outcomes = {}, cloudCredentialCheckValid = false, serverUserId = 'user-contract-1' } = options
@@ -188,9 +191,21 @@ function createHarness(options = {}) {
   const localCred = localCredential('local')
 
   const repository = {
-    async listDigest() { return { total: 0, byPlatform: [], tombstones: 0, updatedAt: null } },
-    async listFull() { return { accounts: [], tombstones: [] } },
-    async getCredentials() { return [] },
+    async listDigest() { return options.digest || { total: 0, byPlatform: [], tombstones: 0, updatedAt: null } },
+    async listFull() { return options.cloudAccounts || { accounts: [], tombstones: [] } },
+    // 入库形态 = 真信封（Buffer 四列 + 按 serverUserId 绑定的 AAD），不是现成的明文：
+    // 「下行由服务端解密」这件事只有在库里躺的是密文时才谈得上被证明。
+    async getCredentials(userId, keys) {
+      return Promise.all((keys || []).map(async (key) => ({
+        platform: key.platform,
+        platformUid: key.platformUid,
+        credentialUpdatedAt: '2026-09-26T09:00:00.000Z',
+        credentialEnvelope: await envelopeCrypto.encryptCredential({
+          userId: serverUserId, platform: key.platform, platformUid: key.platformUid,
+          credential: localCredential('cloud'),
+        }),
+      })))
+    },
     async addTombstone() { return { created: true } },
     async clearAll() { return { ok: true, deletedAccounts: 0, deletedTombstones: 0, remaining: 0 } },
     async upsertMany(userId, items) {
@@ -220,26 +235,13 @@ function createHarness(options = {}) {
   const apiClient = {
     async request(o) {
       requests.push(o)
-      // 下行取凭证这一条**不走真 handlers**：服务端按 PRD §7.3 出线 base64 `credentialEnvelope`，
-      // 而桌面端 `fetchCloudCredential` 读的是明文 `credential`（两侧尚未对齐，见第三段的记录性断言）。
-      // 本夹具在这里按桌面端的读取口径回包，唯一目的是让「冲突 → 本机实测 → 带 force 重发」这条
-      // **上行**路径真的跑起来；它不构成对下行形态的任何证明，下行由 PRD 那一侧单独钉。
-      if (o.method === 'POST' && o.path === core.module.SYNC_PATH) {
-        return {
-          credentials: [{
-            platform: account.platform,
-            platformUid: account.platform_account_id,
-            credentialUpdatedAt: '2026-09-26T09:00:00.000Z',
-            credential: localCredential('cloud'),
-          }],
-        }
-      }
       const response = await handleCloudAccountsRequest(serverContext(o, o.body))
-      // 见上面「诚实边界」：这里回内层，好让桌面端流程真的走下去。
       if (response.status >= 400) {
         throw Object.assign(new Error(response.body.error || 'request failed'), { code: response.body.error })
       }
-      return response.body.data
+      // 与真实传输层同形：交回**整个响应体**（带 `{code,data}` 外壳）。
+      // 这里剥壳 = 桌面端漏剥信封的 Bug 永远测不出来（见 createHarness 头注释）。
+      return response.body
     },
   }
 
@@ -261,7 +263,7 @@ function createHarness(options = {}) {
     return { supported: true, valid }
   }
 
-  const { createCloudAccountSync } = require(desktopServiceFile('cloud-account-sync.js'))
+  const { createCloudAccountSync } = syncService.module
   const broadcasts = []
   const service = createCloudAccountSync({
     AccountManager, credentialStore, fetchAccountInfo, checkLogin, apiClient,
@@ -270,7 +272,7 @@ function createHarness(options = {}) {
   })
 
   return {
-    service, requests, repositoryCalls, broadcasts, account, localCred,
+    service, requests, repositoryCalls, broadcasts, account, localCred, created,
     putBodies: () => requests.filter((r) => r.method === 'PUT').map((r) => r.body),
   }
 }
@@ -387,7 +389,7 @@ function serverContextFor(payload) {
   }
 }
 
-test('跨包契约锁：服务端响应形态按 PRD 钉住，并如实记录桌面端的读取口径', async (t) => {
+test('跨包契约锁：服务端响应形态按 PRD 钉住，且桌面端必须自己剥壳', async (t) => {
   await t.test('PUT 成功出线 = { code: 0, data: { results: [...] } }', async () => {
     const payload = {
       accounts: [{
@@ -406,17 +408,53 @@ test('跨包契约锁：服务端响应形态按 PRD 钉住，并如实记录桌
     ])
   })
 
-  await t.test('桌面端读的是 data 内层：把裂口写成断言而不是留给下一次生产事故', async () => {
-    // 桌面端 `sync()` 读 `cloud.total` / `put.results` / `got.credentials`（内层），
-    // 而真实 `member-api-service.request()` 返回整个 JSON body（外层带 code/data）。
-    // 本条只**记录**这个差异存在（两侧读取路径都能被源码证明），不在服务端单方面改外壳：
-    // PRD §7.1–§7.4 定的是带壳形态，改壳属另一件事，需 PRD 与两侧一起动。
-    const syncSource = fs.readFileSync(desktopServiceFile('cloud-account-sync.js'), 'utf8')
-    assert.ok(syncSource.includes('put.results'), '桌面端读取内层 results 的形态变了，请同步本锁与 PRD §7.2')
-    assert.ok(syncSource.includes('cloud.total'), '桌面端读取内层 total 的形态变了，请同步本锁与 PRD §7.1')
-    const memberSource = fs.readFileSync(desktopServiceFile('identity/member-api-service.js'), 'utf8')
-    assert.ok(memberSource.includes('return response.json()'),
-      '会员接口客户端如果把外壳剥掉（变成与桌面端读取口径一致），请同步本锁并删除上面两条记录性断言')
+  await t.test('响应方向真对接：桌面端必须自己剥壳，夹具不得替它剥（total 读不到即断裂）', async () => {
+    // 这里原本写的是一条「记录性断言」：只 grep 桌面端源码里有没有 `put.results`。
+    // 于是「弹窗永远共 0 个 / 同步永远 0 条」这个**生产事故**在全绿的单测下面躺了一整轮 ——
+    // 记录「差异存在」而不跑一次真流程，等于把锁做成装饰（AGENTS.md：反证必须能跑红）。
+    const harness = createHarness({
+      digest: { total: 3, byPlatform: [{ platform: 'douyin', count: 3 }], tombstones: 1, updatedAt: '2026-09-26T08:00:00.000Z' },
+    })
+    const res = await harness.service.digest('sub-1')
+    assert.equal(res.data.reachable, true, JSON.stringify(res.data))
+    assert.equal(res.data.total, 3, 'total 取不到 = 桌面端没剥信封 或 服务端换了外壳，两者都是跨包断裂')
+    assert.equal(res.data.tombstones, 1)
+    assert.deepEqual(res.data.byPlatform, [{ platform: 'douyin', count: 3 }])
+
+    // 前提锁 ①：真实传输层确实**不**剥壳（它原样 `return response.json()`）。
+    // 哪天它改成剥壳，桌面端这一层就变成双重解包 —— 必须先在这里变红，而不是在线上表现成「云端没有数据」。
+    assert.match(memberApi.source, /return response\.json\(\)/,
+      '会员接口传输层已不再原样返回响应体：剥壳职责要重新划分，本夹具与桌面端要一起改')
+    // 前提锁 ②：剥壳只有一处实现，禁止各调用点手写 `body.data`（本仓已有「同一判定抄成三份」的先例）。
+    assert.ok(core.source.includes('function unwrapApiResponse'),
+      '桌面端剥壳的唯一实现必须留在 cloud-account-core')
+    // 只看代码行：JSDoc 里出现 `body.data` 是在解释「为什么不必这么写」，不是点状解包。
+    const codeOnly = syncService.source.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    assert.equal(/\.body\.data|response\.data|body\.data/.test(codeOnly), false,
+      'cloud-account-sync.js 里出现了点状解包，说明有调用点绕过了唯一出口')
+  })
+
+  await t.test('下行真跑通：服务端解密后桌面端才建得出号（明文不经信封出线）', async () => {
+    const harness = createHarness({
+      cloudAccounts: {
+        accounts: [{
+          platform: 'zhihu', platformUid: 'uid-cloud-only',
+          displayName: '云端独有号', accountName: '云端独有号',
+        }],
+        tombstones: [],
+      },
+    })
+    const res = await harness.service.sync('sub-1')
+    assert.equal(res.code, 0, JSON.stringify(res))
+    const restored = res.data.items.filter((i) => i.outcome === 'restored')
+    assert.equal(restored.length, 1, `云端独有号必须被恢复，实得 ${JSON.stringify(res.data.items)}`)
+    assert.equal(harness.created.length, 1, '恢复必须真的落到本机建号')
+    assert.equal(harness.created[0].platform_account_id, 'uid-cloud-only')
+    assert.equal(harness.created[0].loginVerified, false, '跨设备恢复的凭证是弱证据，不得固化 active')
+    const syncPost = harness.requests.find((r) => r.method === 'POST' && r.path === core.module.SYNC_PATH)
+    assert.ok(syncPost, '恢复必须真的向服务端取凭证')
+    assert.deepEqual(harness.requests.filter((r) => JSON.stringify(r).includes('v-cloud')).length, 0,
+      '云端明文凭证不得被原样回传到请求里（取凭证是下行，不是上行）')
   })
 
   await t.test('逐条 errorCode 必须如实透传（含 conflict 行），驱动原文一律折叠', async () => {
@@ -455,6 +493,8 @@ test('跨包契约锁：服务端响应形态按 PRD 钉住，并如实记录桌
     assert.equal(response.status, 400, '存在 rejected 时整批仍按 §7.2 报 400')
   })
 })
+test('跨包契约锁：conflict 之后两侧的动作必须闭环', async (t) => {
+  await t.test('桌面端冲突后重发的 PUT 服务端照收，且 conflict 必带 credentialFreshness', async () => {
     const harness = createHarness({ outcomes: { 'douyin|uid-9': 'conflict' } })
     await harness.service.sync('sub-1')
     const conflictPut = harness.requests.find((r) => r.method === 'PUT')

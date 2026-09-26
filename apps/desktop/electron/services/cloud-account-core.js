@@ -58,6 +58,24 @@ function raceWithTimeout (promiseOrValue, timeoutMs, timeoutValue) {
 
 function isTimeout (v) { return v === TIMEOUT_SENTINEL }
 
+/**
+ * 剥掉业务 API 的成功信封 —— `memberApiService.request` 返回的是**整个 HTTP 响应体**，
+ * 而 `packages/api-publish-engine` 每个成功响应都是 `{ code: 0, data: {...} }`。
+ * 直接在响应体上读 `results` / `total` / `credentials` 一律是 undefined，
+ * 表现是「弹窗永远共 0 个、同步永远 0 条」，而**两侧单测都发现不了**：
+ * 客户端 mock 的是裸 payload，服务端断言的是信封。
+ * 之所以容易踩：同一个 apiClient 承着两种约定 —— `/api/v1/me/*` 的另一半由 ops-center 提供，
+ * 那边是裸 JSON；信封只属于业务 API 这一半。
+ *
+ * 信封缺失或 `data` 不是对象时**抛错**而不是返回空对象：后者会把契约破坏降级成
+ * 「云端确实一个账号都没有」这个假事实，而 digest 的既有契约是不可达时不得伪装成 0 个。
+ */
+function unwrapApiResponse (body) {
+  const data = body && typeof body === 'object' && !Array.isArray(body) ? body.data : undefined
+  if (data && typeof data === 'object' && !Array.isArray(data)) return data
+  throw Object.assign(new Error('云端响应缺少 data 信封'), { code: 'CLOUD_ENVELOPE_INVALID' })
+}
+
 /** 固定并发映射；结果落位由调用方按 index 处理，完成顺序不影响结果集 */
 async function mapWithConcurrency (items, limit, worker) {
   const size = Math.max(1, Math.min(limit, items.length || 1))
@@ -105,4 +123,5 @@ module.exports = {
   mapWithConcurrency,
   raceWithTimeout,
   resolveInt,
+  unwrapApiResponse,
 }

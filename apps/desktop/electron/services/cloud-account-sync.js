@@ -51,11 +51,12 @@ const {
   mapWithConcurrency,
   raceWithTimeout,
   resolveInt,
+  unwrapApiResponse,
 } = require('./cloud-account-core')
-
 
 // 凭证冲突裁决独立成模块：它是唯一会改写本机有效凭证的路径（见该文件头注释）。
 const { createConflictResolver } = require('./cloud-account-conflict')
+const { createRestoreFlow } = require('./cloud-account-restore')
 
 
 function createCloudAccountSync (deps) {
@@ -96,8 +97,12 @@ function createCloudAccountSync (deps) {
     }
   }
 
+  /**
+   * 唯一的云端出入口。返回**已剥信封的 payload**（`total` / `results` / `accounts` / `credentials`…），
+   * 所以本文件里所有调用点都按业务字段读，不必各自记得 `body.data`。
+   */
   function callApi (subject, path, options) {
-    return Promise.resolve(apiClient.request({ subject, path, ...(options || {}) }))
+    return Promise.resolve(apiClient.request({ subject, path, ...(options || {}) })).then(unwrapApiResponse)
   }
 
   // ── 摘要：弹窗先看到的"共 xx 个" ──────────────────────────────────
@@ -158,7 +163,7 @@ function createCloudAccountSync (deps) {
       credentialError: null,
     }
 
-    let stored = null
+    let stored
     try {
       stored = await Promise.resolve(credentialStore.loadCredential(account.id, userDataDir, subject))
     } catch (e) {
@@ -204,86 +209,13 @@ function createCloudAccountSync (deps) {
     }
   }
 
-  async function fetchCloudCredential (subject, platform, platformUid) {
-    const got = await raceWithTimeout(
-      callApi(subject, SYNC_PATH, { method: 'POST', body: { keys: [{ platform, platformUid }] } }),
-      accountTimeoutMs, TIMEOUT_SENTINEL,
-    )
-    if (isTimeout(got) || !got || got.__cloudSyncError) return null
-    const list = Array.isArray(got.credentials) ? got.credentials : []
-    const hit = list.find((c) => keyOf(c.platform, c.platformUid) === keyOf(platform, platformUid))
-    return hit ? hit.credential || null : null
-  }
-
-  /** 把一份凭证落到本机（覆盖同名账号的本机凭证），并强制本机自证 */
-  async function applyCredentialLocally (subject, accountId, credential, platform) {
-    try {
-      await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
-    } catch (e) {
-      log('warn', 'credential-apply-failed', `platform=${platform} accountId=${accountId} message=${errorMessage(e)}`)
-      return false
-    }
-    await markNeedLocalAttestation(accountId, platform)
-    return true
-  }
-
-  /**
-   * 恢复到本机 / 被云端凭证覆盖后的统一收尾：
-   * status 强制 unverified（不继承云端结论）、last_validated 取本机此刻且标 restored 来源
-   * （不参与 7 天超龄锚点），然后排一次本机检测。
-   */
-  async function markNeedLocalAttestation (accountId, platform) {
-    try {
-      await Promise.resolve(AccountManager.persistLoginState(accountId, {
-        status: 'unverified',
-        lastValidated: new Date(now()).toISOString(),
-        validationOrigin: 'restored',
-      }))
-    } catch (e) {
-      log('warn', 'restore-status-failed', `platform=${platform} accountId=${accountId} message=${errorMessage(e)}`)
-    }
-    if (typeof queueLoginCheck === 'function') {
-      try { await Promise.resolve(queueLoginCheck(accountId, { platform, reason: 'cloud-restored' })) } catch (e) {
-        log('warn', 'restore-check-queue-failed', `accountId=${accountId} message=${errorMessage(e)}`)
-      }
-    }
-  }
-
-  async function restoreToLocal (subject, cloudAccount, startedAt) {
-    const credential = await fetchCloudCredential(subject, cloudAccount.platform, cloudAccount.platformUid)
-    if (!credential || !Array.isArray(credential.cookies) || !credential.cookies.length) {
-      return { outcome: OUTCOME.FAILED, code: 'CREDENTIAL_UNAVAILABLE' }
-    }
-    let created = null
-    try {
-      created = await Promise.resolve(AccountManager.addAccount({
-        platform: cloudAccount.platform,
-        name: cloudAccount.displayName || cloudAccount.accountName || '',
-        account_name: cloudAccount.accountName || '',
-        platform_account_id: cloudAccount.platformUid || '',
-        followers: typeof cloudAccount.followers === 'number' ? cloudAccount.followers : null,
-        avatar: cloudAccount.avatar || '',
-        is_active: cloudAccount.isActive !== false,
-        // 跨设备恢复的凭证来自云端镜像，不经本机登录捕获 → 弱证据，不得固化 active
-        loginVerified: false,
-      }))
-    } catch (e) {
-      return { outcome: OUTCOME.FAILED, code: errorMessage(e) }
-    }
-    const accountId = created && created.data && created.data.id
-    if (!accountId) {
-      return { outcome: OUTCOME.FAILED, code: (created && (created.errorCode || created.message)) || 'ACCOUNT_CREATE_FAILED' }
-    }
-    // 顺序不可颠倒：凭证未落盘不得声称该账号可用（AGENTS.md 固化顺序）
-    try {
-      await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
-    } catch (e) {
-      log('warn', 'restore-credential-failed', `platform=${cloudAccount.platform} accountId=${accountId} message=${errorMessage(e)}`)
-      return { outcome: OUTCOME.FAILED, code: 'CREDENTIAL_PERSIST_FAILED', accountId }
-    }
-    await markNeedLocalAttestation(accountId, cloudAccount.platform)
-    return { outcome: OUTCOME.RESTORED, accountId, elapsedMs: now() - startedAt }
-  }
+  // 下行链路（取凭证 → 建号 → 存凭证 → 打回 unverified → 排检测）整体在 cloud-account-restore.js：
+  // 那里守着「凭证未落盘不得声称可用」这条顺序不变量，本编排器只决定什么时候需要恢复。
+  const {
+    fetchCloudCredential, applyCredentialLocally, restoreToLocal,
+  } = createRestoreFlow({
+    callApi, AccountManager, credentialStore, queueLoginCheck, userDataDir, now, log, accountTimeoutMs,
+  })
 
   // ── 主流程 ──────────────────────────────────────────────────────
   async function sync (subject) {
@@ -445,7 +377,15 @@ function createCloudAccountSync (deps) {
    * 返回逐条结果枚举，并把胜出的一方落到正确位置。
    */
   async function settleConflict (subject, row, res) {
-    const cloudCredential = await fetchCloudCredential(subject, row.platform, row.platformUid)
+    const slot = await fetchCloudCredential(subject, row.platform, row.platformUid)
+    // 传输层无结论 / 云端有这一行却解不开：都**不是**「云端凭证失效」的反证，本轮不裁决。
+    // 若把它们当成 null 交给裁决，verdict 会判云端 invalid，两份都"失效"的假结论就由此产生。
+    if (!slot || slot.status === 'undecryptable') {
+      log('warn', 'conflict-cloud-no-evidence',
+        `platform=${row.platform} reason=${!slot ? 'transport' : slot.errorCode}`)
+      return OUTCOME.CONFLICT_UNRESOLVED
+    }
+    const cloudCredential = slot.status === 'ok' ? slot.credential : null
     const cloudNewer = res && res.credentialFreshness === 'cloud'
     const resolution = await resolveCredentialConflict(row.platform, row.credential, cloudCredential, cloudNewer)
 

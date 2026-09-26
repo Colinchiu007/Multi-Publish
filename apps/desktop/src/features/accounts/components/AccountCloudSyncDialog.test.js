@@ -529,6 +529,25 @@ describe('AccountCloudSyncDialog — 过程态与终态', () => {
       await row.finish()
     })
 
+    it('下行/本机写入类码各有自己的文案，不得一律落到「云端未接受该账号」兜底句', async () => {
+      // 兜底句的语义是「云端拒绝了这次上行」。用它去解释一次下行失败，
+      // 用户会去改账号信息，而真正该做的是重试或重新登录 —— 所以这里逐码钉住归属。
+      const cases = [
+        ['CREDENTIAL_UNAVAILABLE', 'restoreNoCredential'],
+        ['CREDENTIAL_DECRYPT_FAILED', 'restoreUndecryptable'],
+        ['SYNC_TIMEOUT', 'rowTimeout'],
+        ['CREDENTIAL_PERSIST_FAILED', 'localWriteFailed'],
+        ['ACCOUNT_CREATE_FAILED', 'localWriteFailed'],
+        ['CLOUD_ENVELOPE_INVALID', 'cloudFailed'],
+      ]
+      for (const [code, suffix] of cases) {
+        const row = await openFailedRow(code)
+        expect(row.reason(), `code=${code}`).toBe(tk(`accountsPage.cloudSyncErr.${suffix}`))
+        expect(row.reason(), `code=${code}`).not.toBe('')
+        await row.finish()
+      }
+    })
+
     it('断开类码（CLOUD_DISCONNECT_PARTIAL / DISCONNECT_CONFIRMATION_REQUIRED）渲染 cloudSyncErr.disconnectPartial', async () => {
       for (const code of ['CLOUD_DISCONNECT_PARTIAL', 'DISCONNECT_CONFIRMATION_REQUIRED']) {
         const row = await openFailedRow(code)
