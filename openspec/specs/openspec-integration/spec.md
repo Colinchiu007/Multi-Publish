@@ -120,15 +120,15 @@ change 的每个 WHEN/THEN 场景 SHALL 在实现时映射到对应测试（单�
 - **THEN** 先运行 openspec validate 确认 change 有效，并核对场景-测试映射无遗漏
 
 ### Requirement: 分层分支策略
-分支策略 SHALL 分层执行：运行时代码变更（apps/、packages/ 及关联配置/CI）MUST 在 `D:/Data/projects/mp-worktrees/mp-<task-name>` 下的独立 linked worktree 与 `codex/<task-name>` 分支进行，经 PR 审查与 CI 后合并回 main；共享主工作区 MUST 保持在 main，禁止运行时代码任务在共享主工作区切换 feature 分支或修改代码。纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）MAY 在 main 直接小步提交，但 MUST 保持可回滚且不得与并发会话的脏文件冲突。判定以「是否影响运行行为」为准，禁止以文档提交夹带运行时代码。
+分支策略 SHALL 分层执行：运行时代码变更（apps/、packages/ 及关联配置/CI）MUST 在 `D:/Data/projects/mp-worktrees/mp-<task-name>` 下的独立 linked worktree 与 `codex/<task-name>` 分支进行，经 PR 审查与 CI 后合并回 main；共享主工作区 MUST 保持在 main，禁止运行时代码任务在共享主工作区切换 feature 分支或修改代码。纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）MAY 跳过独立 linked worktree 在共享主工作区就地编辑，但 MUST NOT 直接推入 `refs/heads/main`（远端分支保护对任何直推一律返回 `GH011`，required status checks 只能经 PR 满足），且 MUST 保持可回滚、不得与并发会话的脏文件冲突。判定以「是否影响运行行为」为准，禁止以文档提交夹带运行时代码。
 
 #### Scenario: 运行时代码必须分支
 - **WHEN** 变更涉及产品代码、测试、构建或部署配置
 - **THEN** 必须在 D 盘独立 linked worktree 的 codex/ 分支上开发并经 PR 合并回 main，不得在共享主工作区开发或提交
 
-#### Scenario: 纯流程文档允许 main
-- **WHEN** 变更仅涉及 openspec/、.ccg/、docs/、工具脚本等纯流程/文档
-- **THEN** 允许在 main 直接小步提交，但须 stage 命名路径、不与并发脏文件冲突且可回滚
+#### Scenario: 纯流程文档不豁免 PR
+- **WHEN** 变更仅涉及 openspec/、.ccg/、docs/、工具脚本、CHANGELOG、.quality-gates.md 等纯流程/文档
+- **THEN** 不要求独立 linked worktree，可在共享主工作区就地编辑并 stage 命名路径、不与并发脏文件冲突且保持可回滚；但 MUST 经 PR 落地——远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`，直推路径无法满足 required status checks（2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒，见 PR #2411）
 
 #### Scenario: 文档夹带代码
 - **WHEN** 一次提交同时包含流程文档与运行时代码
