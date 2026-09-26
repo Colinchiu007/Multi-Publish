@@ -1,3 +1,20 @@
+# [未发布] fix(ci): gate-result 由「只 echo 不判定」改为真实聚合上游结论（2026-09-26，fix-ci-gate-result-aggregation）
+
+### 变更
+- **`.github/workflows/quality-gate.yml`**：`gate-result` job 的 `Gate result` 步骤原先只有 11 行 `echo`，把 `needs.*.result` 打印出来就结束，**没有任何 `exit` 判定**，又带 `if: always()`，于是上游全红它照样 success。现改为 `[ordered]@{}` 收集 7 个上游结论 → 逐项打印 → 计算阻断项集合 `$blocking` → 非空即 `exit 1`。放行口径 `success` / `skipped`；`skipped` 放行的依据是「上游失败会把其下游置为 skipped，失败本身已由那个 failed 的上游捕获」。空串（表达式缺失）按 fail-closed 拦。步骤显式声明 `shell: pwsh`，运行时消息一律 ASCII，规避 runner 侧中文编码风险。
+- **`.github/scripts/workflow-contract.test.js`**：新增契约用例，锁住 `$blocking` / `$allowed = @('success', 'skipped')` / `exit 1` 三个结构锚点，并额外断言 `needs.visual.result`、`needs.e2e.result` 必须参与聚合（这两个结论此前被静默丢弃），防止退回空转形态。
+
+### 影响
+- **这是 main 的 4 条必需状态检查之一，此前等于零保护**：实际拦截只剩 `build` + `QG Unit Tests` + `QG Coverage` 三条；`QG Visual`、`QG Browser E2E`、`QG Static`、`QG Desktop Shards`、`QG Autonomous` 红掉都不拦合并，而 `Gate Result` 仍显示绿灯——「必需检查过了」这句话此前不含视觉/E2E 保障。
+- **新增拦停数为 0（已实测）**：改动前盘过 main 最近两次已完成的 quality-gate run，9 个 job 全为 success；7 个在飞 PR 的 `bucket=="fail"` 红项均为空。因此判定生效后不会立刻拦停任何现存 PR。
+- 副作用（预期且正确）：今后任一上游 job 失败或被取消，`Gate Result` 会随之变红并拦住合并。
+
+### 测试
+- **行为实测**（把内嵌 PowerShell 从 YAML 抽出，替换 `${{ needs.*.result }}` 占位后用 PowerShell 实跑退出码）6/6 通过：全绿→0；visual 失败→1；e2e 取消→1；coverage skipped→0；多 job 红→1（输出列出全部阻断项）；取值缺失→1（fail-closed）。
+- **反证**：① 旧版步骤无 `exit` 语句，喂入 `visual=failure` 后打印 `visual gate : failure` 却**退出 0**；② 新契约用例跑在 `git show HEAD:` 的修复前 workflow 上，精确失败于「必须计算阻断项集合」。
+- `node --test .github/scripts/workflow-contract.test.js` → 23 tests / 0 fail。
+- 局限：本地以 Windows PowerShell 5.1 验证，CI 用 pwsh 7；所用构造（`[ordered]@{}`、`-notcontains`、`Where-Object`）两版通用。
+
 # [未发布] feat(cloud-account-sync): 账号管理页【同步云端】—— 账号与凭证加密镜像到业务 API，支持跨设备免扫码恢复（2026-09-27，cloud-account-sync）
 
 ### 为什么这次不是"接一个现成接口"
@@ -13714,4 +13731,3 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
-
