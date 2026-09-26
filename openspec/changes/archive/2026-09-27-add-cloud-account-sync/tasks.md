@@ -263,3 +263,17 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 > **2026-09-27 后续**：上表 8 项中的 `Cache-Control: no-store` 与「`ipc-handlers/cloud-account.js` 直测」两项
 > 已在同日的 no-store 收口 PR 里关闭（含各自的变异反证），其余 6 项仍开放。本文件是归档记录，
 > 只在原行上标注去向、不删条目，避免「归档文件被改写成一副全干完的样子」。
+
+### 12.2 需求逐条对照（原始需求 ↔ 工件 ↔ 谁锁住它）
+
+原始需求三句，逐句给落点与证据；「谁锁住它」一列写的是**会因它退化而变红**的测试，不是"我记得写过"。
+
+| 需求原文 | 界面工件（testid / 文案键） | 锁住它的测试 |
+| --- | --- | --- |
+| 「先弹出弹窗，显示云端的账号信息，共 xx 个」 | 摘要态：`cloud-digest-loading` / `cloud-digest-error` / `cloud-digest-retry`；文案 `cloudDigestTotal`＝「云端现有 {total} 个账号」、`cloudDigestLocal`＝「本机 {local} 个账号将参与同步」 | `AccountCloudSyncDialog` 渲染层用例（摘要态渲染 + 取消不发写请求）+ `accounts-cloud-sync-copy.test.js`（文案键与精确结构）+ `useCloudSyncResultModel.test.js` 反向收集锁（错误码/结局枚举漏一个即红） |
+| 「是否同步」 | 摘要态主按钮 `cloud-sync-start` → `startSync()`（`AccountCloudSyncDialog.vue:86,309`） | 渲染层「点同步才发起、取消不发起」用例；IPC 侧由 `ipc-handlers/cloud-account.test.js` 锁 `accounts:cloud-sync` 的身份门槛与返回形状 |
+| 「点击【同步】按钮后，显示同步过程信息」 | 过程态：`cloud-sync-progress`＝「同步中 {done}/{total}」、`cloud-sync-elapsed`、`cloud-sync-current`（在途账号名逐条）、逐条结果列表、`cloud-sync-stop`（中止）/ `cloud-sync-background`（后台等）/ `cloud-sync-finish`（完成） | `useCloudSyncRows` 的 start/done 双边界用例（15 例）+ `cloud-account-sync.test.js` 的进度事件双边界断言 + `account-batch-check.test.js` 同族的「进度不得退化为已完成数」口径 |
+
+另有两条**不属于原始需求但被实现引入**的界面能力，同样已文档化并加锁：「断开云端」`cloud-disconnect`（PRD §7.4 语义：只删云端镜像与写墓碑，不反向删本机）与「中止同步」`cloud-sync-stop`（PRD §7.3 中止后逐条如实归因）。
+
+> 本表的「未做」部分仍以下面这些为准：flag 开启态视觉基线（`QG Visual` 的绿是在按钮不渲染的前提下拿到的）、真机 Electron 窗口内的 IPC 全链路往返、八平台 uid 真凭证取证。
