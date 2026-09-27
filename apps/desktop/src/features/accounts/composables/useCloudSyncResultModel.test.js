@@ -89,7 +89,9 @@ describe('云同步展示层口径锁', () => {
   it('本机侧码不得解析到「云端未接受该账号」兜底句', () => {
     const localCodes = ['CREDENTIAL_LOAD_FAILED', 'CHECK_LOGIN_NO_CREDENTIAL',
       'CREDENTIAL_PERSIST_FAILED', 'ACCOUNT_CREATE_FAILED',
-      'CREDENTIAL_STORE_UNAVAILABLE', 'ACCOUNT_MANAGER_UNAVAILABLE']
+      'CREDENTIAL_STORE_UNAVAILABLE', 'ACCOUNT_MANAGER_UNAVAILABLE',
+      // 下行恢复/冲突取云端那一份时，凭证已拿到、是本机这一侧没写成 —— 同样不得算到云端头上
+      'CREDENTIAL_APPLY_FAILED', 'RESTORE_STATUS_PERSIST_FAILED']
     for (const code of localCodes) {
       expect(model.errorKeyFor(code), `code=${code}`).not.toBe('accountsPage.cloudSyncErr.cloudFailed')
     }

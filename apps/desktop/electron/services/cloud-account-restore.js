@@ -17,6 +17,9 @@ const {
   keyOf,
   raceWithTimeout,
 } = require('./cloud-account-core')
+// 登录态真源写入的 per-account 串行锁：与 login-status-monitor / ipc-handlers/account.js 同一把。
+// 恢复侧是「改数据」的那一侧，锁必须包住「覆盖凭证 + 打回 unverified」整段。
+const { withAccountStateLock } = require('./account-state-lock')
 
 /**
  * @param {Object} deps
@@ -63,37 +66,74 @@ function createRestoreFlow (deps) {
     return { status: 'ok', credential: hit.credential }
   }
 
-  /** 把一份凭证落到本机（覆盖同名账号的本机凭证），并强制本机自证 */
+  /**
+   * 把一份凭证落到本机（覆盖同名账号的本机凭证），并强制本机自证。
+   *
+   * 覆盖凭证 + 回写 unverified **必须落在同一个 per-account 串行临界区里**：否则一次基于旧凭证、
+   * 仍在途的检测会把刚打回的 unverified 重新写成 active，本机这份从未验证过的凭证就显示已登录。
+   * 收尾的本机检测排队 MUST 留在临界区之外——它走同一把锁去检测同一个账号，写进来即自死锁
+   * （`cloud-account-restore.test.js` 用 `accountStateLockHeld` 当场断言它在锁外，重构时别挪）。
+   */
   async function applyCredentialLocally (subject, accountId, credential, platform) {
+    const written = await withAccountStateLock(accountId, async () => {
+      try {
+        await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
+      } catch (e) {
+        log('warn', 'credential-apply-failed', `platform=${platform} accountId=${accountId} message=${errorMessage(e)}`)
+        return 'CREDENTIAL_PERSIST_FAILED'
+      }
+      // 状态回写失败**不能算这次覆盖成功**：真源里可能还留着上一次的 active，于是"本机这份从未
+      // 验证过的凭证"继续显示已登录——正是本锁要消灭的那个形态。AGENTS.md 也写着固化失败不得冒充。
+      return (await markRestoredStatus(accountId, platform)) ? '' : 'RESTORE_STATUS_PERSIST_FAILED'
+    })
+    if (written) return { applied: false, code: written, queuedCheck: false }
+    const queuedCheck = await queueLocalAttestation(accountId, platform)
+    return { applied: true, code: '', queuedCheck }
+  }
+
+  /**
+   * 恢复到本机 / 被云端凭证覆盖后的统一状态回写：status 强制 unverified（不继承云端结论），
+   * last_validated 取本机此刻。
+   *
+   * ⚠️ 参数口径必须与 `AccountManager.persistLoginState(accountId, platform, status, validatedAt)`
+   * 的**位置签名**一致。本仓曾按 `{status, lastValidated}` 对象形调用：真实现把第二个实参当 platform、
+   * 第三个（undefined）当 status，一律判 `invalid-status` 直接返回而不写后端，又因返回值被丢弃而
+   * 只在异常时才落日志 —— 于是「恢复即 unverified」这条契约在生产里从未生效，而测试夹具
+   * （`cloud-account-sync.test.js` 的 `persistLoginState: (accountId, patch)`）把同一个错误形状
+   * 断言成了契约，全绿躺了一整轮。失败现在必须出声（依据 AGENTS.md「固化失败不得冒充成功」）。
+   */
+  async function markRestoredStatus (accountId, platform) {
+    let result
     try {
-      await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
+      result = await Promise.resolve(AccountManager.persistLoginState(
+        accountId, platform, 'unverified', new Date(now()).toISOString(),
+      ))
     } catch (e) {
-      log('warn', 'credential-apply-failed', `platform=${platform} accountId=${accountId} message=${errorMessage(e)}`)
+      log('warn', 'restore-status-failed', `platform=${platform} accountId=${accountId} message=${errorMessage(e)}`)
       return false
     }
-    await markNeedLocalAttestation(accountId, platform)
+    if (!result || result.ok !== true) {
+      log('warn', 'restore-status-failed', `platform=${platform} accountId=${accountId} reason=${(result && result.reason) || 'unknown'}`)
+      return false
+    }
     return true
   }
 
   /**
-   * 恢复到本机 / 被云端凭证覆盖后的统一收尾：
-   * status 强制 unverified（不继承云端结论）、last_validated 取本机此刻且标 restored 来源
-   * （不参与 7 天超龄锚点），然后排一次本机检测。
+   * 恢复后排一次本机自证检测（锁外调用，理由见 applyCredentialLocally）。
+   * 返回**是否真的排上了**：生产接线目前没注入 `queueLoginCheck`
+   * （`ipc-handlers/cloud-account.js` 未传），所以 `false` 是常态——恢复后的自证由下一次
+   * 定期检测（默认 30 分钟）收口。摘要里的 `queuedCheck` 必须如实反映这一点，
+   * 拿 restored 数充当它等于界面在凭空许诺"已安排检测"。
    */
-  async function markNeedLocalAttestation (accountId, platform) {
+  async function queueLocalAttestation (accountId, platform) {
+    if (typeof queueLoginCheck !== 'function') return false
     try {
-      await Promise.resolve(AccountManager.persistLoginState(accountId, {
-        status: 'unverified',
-        lastValidated: new Date(now()).toISOString(),
-        validationOrigin: 'restored',
-      }))
+      await Promise.resolve(queueLoginCheck(accountId, { platform, reason: 'cloud-restored' }))
+      return true
     } catch (e) {
-      log('warn', 'restore-status-failed', `platform=${platform} accountId=${accountId} message=${errorMessage(e)}`)
-    }
-    if (typeof queueLoginCheck === 'function') {
-      try { await Promise.resolve(queueLoginCheck(accountId, { platform, reason: 'cloud-restored' })) } catch (e) {
-        log('warn', 'restore-check-queue-failed', `accountId=${accountId} message=${errorMessage(e)}`)
-      }
+      log('warn', 'restore-check-queue-failed', `accountId=${accountId} message=${errorMessage(e)}`)
+      return false
     }
   }
 
@@ -150,25 +190,34 @@ function createRestoreFlow (deps) {
     if (!accountId) {
       return { outcome: OUTCOME.FAILED, code: (created && (created.errorCode || created.message)) || 'ACCOUNT_CREATE_FAILED' }
     }
-    // 顺序不可颠倒：凭证未落盘不得声称该账号可用（AGENTS.md 固化顺序）
-    try {
-      await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
-    } catch (e) {
-      log('warn', 'restore-credential-failed', `platform=${cloudAccount.platform} accountId=${accountId} message=${errorMessage(e)}`)
-      // 回滚：不留"有账号无凭证"的僵尸（它会永久占住合并键，使那一份云端凭证再也恢复不到）
+    // 顺序不可颠倒：凭证未落盘不得声称该账号可用（AGENTS.md 固化顺序）。
+    // 与 applyCredentialLocally 共用同一把 per-account 锁，回滚留在锁外（它不写登录态真源）。
+    const written = await withAccountStateLock(accountId, async () => {
+      try {
+        await Promise.resolve(credentialStore.saveCredential(accountId, credential, userDataDir, subject))
+      } catch (e) {
+        log('warn', 'restore-credential-failed', `platform=${cloudAccount.platform} accountId=${accountId} message=${errorMessage(e)}`)
+        return 'CREDENTIAL_PERSIST_FAILED'
+      }
+      return (await markRestoredStatus(accountId, cloudAccount.platform)) ? '' : 'RESTORE_STATUS_PERSIST_FAILED'
+    })
+    if (written) {
+      // 回滚：不留"有账号无凭证"的僵尸（它会永久占住合并键，使那一份云端凭证再也恢复不到）。
+      // 状态没写成同样属于半成功——该账号既没被本机自证、真源里也没有可信结论，
+      // 报失败比报"恢复成功但状态未知"诚实，用户重试也比继续用更安全。
       const rolledBack = await rollbackCreated(subject, accountId, cloudAccount)
       return {
         outcome: OUTCOME.FAILED,
-        code: 'CREDENTIAL_PERSIST_FAILED',
+        code: written,
         // 回滚失败时才把 accountId 带出去（本机确实还残留一个账号，排障需要它）
         accountId: rolledBack ? null : accountId,
       }
     }
-    await markNeedLocalAttestation(accountId, cloudAccount.platform)
-    return { outcome: OUTCOME.RESTORED, accountId, elapsedMs: now() - startedAt }
+    const queuedCheck = await queueLocalAttestation(accountId, cloudAccount.platform)
+    return { outcome: OUTCOME.RESTORED, accountId, queuedCheck, elapsedMs: now() - startedAt }
   }
 
-  return { fetchCloudCredential, applyCredentialLocally, markNeedLocalAttestation, restoreToLocal }
+  return { fetchCloudCredential, applyCredentialLocally, restoreToLocal }
 }
 
 module.exports = { createRestoreFlow }
