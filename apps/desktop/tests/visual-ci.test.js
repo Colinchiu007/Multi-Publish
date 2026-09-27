@@ -420,6 +420,35 @@ describe('视觉用例双清单一致性', () => {
     }
   })
 
+
+  it('两份清单里**所有同名用例**的 route 与 waitFor 必须逐字一致', () => {
+    // 上面那条只守"必须进 CI 的那几条"。真正咬过人的是**反向漂移**：同一个用例名在两份清单里
+    // 各写一遍等待条件，改了一份忘了另一份。实测本仓 first-run 就是这样漂的 ——
+    // `App.vue` 把 `/first-run` 划到全屏布局（`isFullScreenRoute`）后，`pixelTests` 侧改成了
+    // `.fullscreen-main h2`，`viewTests` 侧仍留着 `.cohere-main h2`，于是
+    // `npm run test:all:visual`（跑 viewTests）从 first-run 起就绪超时，而 CI 的 `QG Visual`
+    // 照跑照绿 —— 两边都"没问题"，坏掉的是那条没人跑的路径。
+    // 判据取"同名即须一致"，且**不预留豁免表**：真要分叉必须在这里显式登记理由，否则即红。
+    const byPixel = new Map(pixelTests.map((t) => [t.name, t]))
+    const drifted = viewTests
+      .filter((v) => byPixel.has(v.name))
+      .map((v) => {
+        const p = byPixel.get(v.name)
+        return {
+          name: v.name,
+          routeDiff: String(v.route) !== String(p.route),
+          waitForDiff: String(v.waitFor) !== String(p.waitFor),
+          view: v,
+          pixel: p,
+        }
+      })
+      .filter((d) => d.routeDiff || d.waitForDiff)
+    const detail = drifted.map((d) => `${d.name}: view{route=${d.view.route}, waitFor=${d.view.waitFor}} ` +
+      `vs pixel{route=${d.pixel.route}, waitFor=${d.pixel.waitFor}}`).join("\n")
+    expect(drifted, `两份清单出现漂移（${drifted.length} 条）:\n${detail}`).toEqual([])
+    // 顺带钉住"当前确实有可比对的重名用例"，否则这条锁会在某侧被清空后静默恒真
+    expect(viewTests.filter((v) => byPixel.has(v.name)).length, 'viewTests 与 pixelTests 无重名用例 ⇒ 本锁退化为 no-op').toBeGreaterThan(5)
+  })
   it('pixelTests 每条用例的基线都必须被 base-screenshots/.gitignore 显式放行', () => {
     // 根 .gitignore 有 `*.png`，基线目录靠一份**逐个点名**的 negation 白名单才被跟踪。漏登记的后果
     // 不是报错而是静默：新基线 PNG 进不了 git ⇒ CI 上永远缺基线 ⇒ 这条门禁永远红，或有人改用
