@@ -579,9 +579,11 @@ jobs:
           HEADLESS: "true"
           PIXEL_THRESHOLD: "0.06"
           VISUAL_READY_TIMEOUT: "15000"
-          # 视觉门禁要拍"由运营 flag 控制的入口"的开启态。CI 的 vite 进程带 NODE_ENV=production，
-          # import.meta.env.DEV 为 false ⇒ 只挂 DEV 的通道在这里永远不生效（实测逐字复现过失败诊断）。
-          # 这是构建期显式注入，正式包构建不设该变量，通道被静态折叠。
+          # 视觉门禁要拍「由运营 flag 控制的入口」的开启态，所以这里显式注入构建期开关。
+          # 它是**显式 opt-in**，不依赖环境巧合：正式包构建不设该变量 ⇒ 该分支被静态折叠。
+          # （曾以为必需它是因为「CI 的 vite 带 NODE_ENV=production 压掉了 DEV」——该判定已被
+          #   本 step 的探针证伪：实测 VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]。真正根因是
+          #   hash 路由下「同一路由只改 query」会复用组件实例，见 PRD §17.5。）
           VITE_MP_DEV_FLAG_OVERRIDE: "1"
         run: |
           $PSNativeCommandUseErrorActionPreference = $false

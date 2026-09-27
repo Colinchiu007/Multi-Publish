@@ -175,9 +175,9 @@ describe('开发态 flag 覆盖通道', () => {
     expect(_runtime).toHaveBeenCalledTimes(0)
   })
 
-  it('显式构建期开关打开时，即使 DEV 为 false 通道也生效（CI 的 vite 带 NODE_ENV=production）', async () => {
+  it('显式构建期开关打开时，即使 DEV 为 false 通道也生效（构建期常量，与运行环境无关）', async () => {
     // 这不是假想的兜底：CI 首轮就是因为只挂 DEV 而**永远拍不到开启态**（本地用
-    // NODE_ENV=production 起 vite dev，逐字复现了 CI 的失败诊断）。
+    // 判据不依赖"CI 恰好带 NODE_ENV=production"——那个归因已被 Gate 7 探针证伪（实测 NODE_ENV 为空）。
     vi.stubEnv('DEV', false)
     vi.stubEnv('VITE_MP_DEV_FLAG_OVERRIDE', '1')
     vi.stubGlobal('window', { location: { protocol: 'http:', hash: '#/accounts?mpFlag=account_cloud_sync=1', search: '' } })

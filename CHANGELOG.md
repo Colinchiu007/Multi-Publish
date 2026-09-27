@@ -38,9 +38,10 @@
   首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
   而我的用例名出现 0 次。等待选择器直接指向 `[data-testid="account-cloud-sync"]`
   ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
-  并按后端模型 I4 补锁 encoded `=`、key 大小写、非法项在后不清掉前一合法值、值内再带 `=` 这四种确定语义；
-  覆盖命中不发请求、`0` 强制关闭、非开发态完全无视该通道、`file:` 协议不生效、非法值必须 warn、
-  无覆盖参数时保持 fail-closed。
+- 同一条错误归因当时还写在**三处非文档位置**：`useFeatureFlag.js` 里 `devFlagChannelEnabled` 的头注释、
+  用例名「显式构建期开关打开时…（CI 的 vite 带 NODE_ENV=production）」、以及 `quality-gate.yml` Gate 7 的
+  `env:` 注释。三处一并改为撤回式表述（写明被证伪的取值与真正根因）—— 只改文档不改代码注释，
+  下一个人读源码时仍会把这个结论捡回来。
 ### 结论 / 待办
 - 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图），
   随后从 `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png` 并复跑要求 0 px。

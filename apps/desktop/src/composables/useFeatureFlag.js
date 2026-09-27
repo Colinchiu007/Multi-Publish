@@ -96,9 +96,11 @@ export function parseDevFlagOverrides (queryText = '') {
 /**
  * 通道是否开启：显式构建期开关，或开发态 —— 两者都是构建期常量。
  *
- * 为什么不能只挂 `import.meta.env.DEV`：**CI 的 vite 进程带 NODE_ENV=production，DEV 就是 false**。
- * 本地用 `NODE_ENV=production` 起 vite dev 后逐字复现了 CI 的失败诊断（页面入口仍是 `/@vite/client`、
- * 命令栏其余按钮全在、只缺本入口、`flagParamInUrl=in-hash`），证明"仅 DEV"的通道在 CI 里永远不会生效。
+ * 曾以为必须加第二个来源，是因为判定「CI 的 vite 带 NODE_ENV=production ⇒ DEV 就是 false，
+ * 只挂 DEV 的通道在 CI 里永不生效」。**该归因已于 2026-09-27 被 Gate 7 的进程侧探针证伪**
+ * （实测 `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、页面侧 `channelState=enabled=true`）。
+ * 视觉用例当时失败的真实原因：hash 路由下「同一路由只改 query」复用组件实例 ⇒ `onMounted`
+ * 不再跑，见 PRD §17.5。第二个来源的正当定位是**显式 opt-in**——不依赖"运行环境恰好是 dev"。
  * 正式包构建时既不是 DEV 也不会注入该变量 ⇒ 这条分支被静态折叠，线上包不存在此通道。
  */
 export function devFlagChannelEnabled () {
