@@ -1,3 +1,24 @@
+# [未发布] docs(登录): 真机配对 A/B 收口——噪音 cancel 无可证明收益，维持默认关（2026-09-27，login-qr-ab-backfill）
+
+### 做了什么
+- 在 `mp-app-live`（快进 ff 到 `origin/main`）上用官方启动链起真机，经 CDP 驱动 15 次 `authOpenLogin('wechat_mp')`，把 #2457 留的两个待验证项一次性收口：**(b) CDP 只数字节观测是否真的给出字节**、**(c) `MP_LOGIN_NOISE_CANCEL` 是否值得转默认开**。
+- 第一轮顺序跑完发现「开启档全部更慢」是时间趋势混淆（两档各只对应一次开机、开档在前），改造成**配对设计**：两档交替重启，每档只取「该次开机后的首次 `openLogin`」，得 4 组配对。
+
+### 结论
+- **(b) 达成**：`qr bytes #1 after 1158–1592ms encodedDataLength=5789…5921` —— webRequest 层恒 `contentLength=redacted` 拿不到的量，现在拿得到。
+- **(c) 维持默认关**：配对差 −145 / −20 / +17 / −453 ms，均值 −150ms，落在微信侧抖动量级内且由单个离群点主导；开档两个长尾（3.5s / 8.4s）出自同一开机的同一簇，不是独立观测。
+- **新判据（AGENTS.md ⑦）**：被取消的 `cube?label=connect.qrconnect` 可能参与微信侧 QR 会话登记，不扫码即**不可证伪** ⇒ 凡「收益在噪声内 + 副作用不可证伪」一律停在实验开关，不得以「没测出问题」转默认开。
+
+### 顺手挖出（已登记未修）
+- `mp-applive-launcher.ps1` 设的 `MP_CDP_ALLOW_ALL_ORIGINS=1` **没落到 electron 命令行**（两次实测缺 `--remote-allow-origins`），本次靠 WebSocket 不发 `Origin` 头绕过；文档里"必须设该变量"的口径与运行态不符。
+
+### 边界
+- 单机单日单网络，只覆盖 wechat_mp；`tencent_video` 的 12s 二次导航本轮 0/15 未复现，不等于已收敛；真机手机扫码对照未做。
+- 触发应用自身周期检测，真源 `accounts.json` 全 8 条 `last_validated` 被刷新（无状态翻转、无改名、无凭证写入）；本轮产生的 15 个 auth 分区收尾按精确名删除（约 130MB），更早会话的 21 个未动。
+
+### 测试
+- 零代码变更：QM-1 / QM-3 前提不成立，QM-6 按 AGENTS.md 对纯文档变更不强制；pre-commit 钩子照常执行。
+
 # [未发布] fix(cloud-account-sync): 按 QM-6 双模型评审补第二道 no-store 发送缝，并撤掉一处自我宽免（2026-09-27，cloud-sync-no-store 第三段）
 
 ### 为什么这一段的起点是"我漏跑了一道门禁"
