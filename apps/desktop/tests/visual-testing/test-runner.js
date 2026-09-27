@@ -110,6 +110,7 @@ class VisualTestRunner {
       commandBarTestids: 'unavailable',
       flagParamInUrl: 'unavailable',
       entryScripts: 'unavailable',
+      channelState: 'unavailable',
     };
 
     try {
@@ -123,8 +124,24 @@ class VisualTestRunner {
     try {
       return {
         ...diagnostics,
-        ...await this.page.evaluate(() => {
+        ...await this.page.evaluate(async () => {
           const app = document.querySelector('#app');
+          // 让应用自己回答「通道开着吗、参数解析成了什么」—— 这是唯一能区分
+          // "环境变量没进 vite 进程" 与 "进了但判定没通过" 两种情况的手段。
+          // 两条踩过的坑：① 不能用 import.meta（page.evaluate 是经典脚本上下文，会直接语法错）；
+          // ② 必须**先 await 再放进返回对象** —— 把 async IIFE 直接当属性值，Playwright 序列化
+          //    时它就是个 Promise，日志里会变成没用的 [object Object]（本地实测抓到过）。
+          let channelState = 'unavailable';
+          try {
+            const m = await import('/composables/useFeatureFlag.js');
+            const raw = (window.location.hash || '').split('?')[1]
+              || (window.location.search || '').replace(/^\?/, '');
+            const got = [...m.parseDevFlagOverrides(raw).entries()]
+              .map(([flagKey, on]) => `${flagKey}=${on}`).join(',');
+            channelState = `enabled=${m.devFlagChannelEnabled()} parsed=[${got}]`;
+          } catch (error) {
+            channelState = `unavailable (${error.message})`;
+          }
           return {
             hash: window.location.hash,
             appPresent: Boolean(app),
@@ -137,9 +154,10 @@ class VisualTestRunner {
               .map((el) => el.getAttribute('data-testid')).join('|') || '(none)',
             flagParamInUrl: /mpFlag=/.test(window.location.hash) ? 'in-hash'
               : /mpFlag=/.test(window.location.search) ? 'in-search' : 'absent',
+            channelState,
             // 直接回报页面加载了哪些脚本入口（不做启发式猜测）：dev 服务下是 `/main.js` +
-            // `/@vite/client`，构建产物下是 `./assets/*.js`。这决定 `import.meta.env.DEV` 的取值，
-            // 而开发态专用通道只在 DEV 下生效 —— 没有这一项就只能靠猜 CI 当时在服务什么。
+            // `/@vite/client`，构建产物下是 `./assets/*.js`。这决定 import.meta.env.DEV 的取值，
+            // 没有这一项就只能靠猜 CI 当时在服务什么。
             entryScripts: [...document.querySelectorAll('script[src]')]
               .map((el) => el.getAttribute('src')).join('|').slice(0, 160) || '(none)',
           };
@@ -186,6 +204,7 @@ class VisualTestRunner {
         + `；accountsPagePresent=${diagnostics.accountsPagePresent}`
         + `；flagParamInUrl=${diagnostics.flagParamInUrl}`
         + `；entryScripts=${diagnostics.entryScripts}`
+        + `；channelState=${diagnostics.channelState}`
         + `；commandBarTestids=${diagnostics.commandBarTestids}`
         + (diagnostics.diagnosticsError ? `；diagnosticsError=${diagnostics.diagnosticsError}` : ''),
       );
