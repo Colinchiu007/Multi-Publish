@@ -104,6 +104,12 @@ class VisualTestRunner {
       appPresent: 'unavailable',
       appMounted: 'unavailable',
       appTextLength: 'unavailable',
+      // 「选择器等不到」有三种完全不同的成因，只看前五项分不开：
+      // ① 页面根本没渲染 ② 渲染了但目标控件所在容器没渲染 ③ 控件本该渲染却被业务开关挡住
+      accountsPagePresent: 'unavailable',
+      commandBarTestids: 'unavailable',
+      flagParamInUrl: 'unavailable',
+      entryScripts: 'unavailable',
     };
 
     try {
@@ -124,6 +130,18 @@ class VisualTestRunner {
             appPresent: Boolean(app),
             appMounted: Boolean(app?.hasAttribute('data-v-app')),
             appTextLength: (app?.textContent || '').trim().length,
+            // 页面是否真渲染 + 命令栏里实际存在哪些按钮：直接区分「整条命令栏没渲染」与
+            // 「只有这一个按钮没渲染」（后者才说明是业务开关没开）
+            accountsPagePresent: Boolean(document.querySelector('.accounts-page')),
+            commandBarTestids: [...document.querySelectorAll('.account-controls [data-testid]')]
+              .map((el) => el.getAttribute('data-testid')).join('|') || '(none)',
+            flagParamInUrl: /mpFlag=/.test(window.location.hash) ? 'in-hash'
+              : /mpFlag=/.test(window.location.search) ? 'in-search' : 'absent',
+            // 直接回报页面加载了哪些脚本入口（不做启发式猜测）：dev 服务下是 `/main.js` +
+            // `/@vite/client`，构建产物下是 `./assets/*.js`。这决定 `import.meta.env.DEV` 的取值，
+            // 而开发态专用通道只在 DEV 下生效 —— 没有这一项就只能靠猜 CI 当时在服务什么。
+            entryScripts: [...document.querySelectorAll('script[src]')]
+              .map((el) => el.getAttribute('src')).join('|').slice(0, 160) || '(none)',
           };
         }),
       };
@@ -165,6 +183,10 @@ class VisualTestRunner {
         + `url=${diagnostics.url}；hash=${diagnostics.hash}；`
         + `appPresent=${diagnostics.appPresent}；appMounted=${diagnostics.appMounted}；`
         + `appTextLength=${diagnostics.appTextLength}`
+        + `；accountsPagePresent=${diagnostics.accountsPagePresent}`
+        + `；flagParamInUrl=${diagnostics.flagParamInUrl}`
+        + `；entryScripts=${diagnostics.entryScripts}`
+        + `；commandBarTestids=${diagnostics.commandBarTestids}`
         + (diagnostics.diagnosticsError ? `；diagnosticsError=${diagnostics.diagnosticsError}` : ''),
       );
       timeoutError.code = stage === 'Vue 挂载'
