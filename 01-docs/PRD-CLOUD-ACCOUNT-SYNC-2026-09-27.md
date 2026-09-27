@@ -389,6 +389,18 @@ ADR-0005 的防线就此失效；而信封破坏（`CLOUD_ENVELOPE_INVALID`）�
 
 ## 八、加密契约
 
+> 主密钥托管形态（2026-09-27 落地）：服务端 KMS 抽象层 `{ wrap(dataKey, keyId) / unwrap(wrapped, keyId) }`
+> 的生产实现是**文件密钥环**（ADR-0007）——`{version, activeKeyId, keys:{id:hex}}`，路径由
+> `MP_CLOUD_KMS_KEYRING` 指定。轮转 = 追加一把 + 移 active 指针，**旧密钥永不删除**；
+> `encryptedDataKey` 的字节里前置 `[idLen][keyId]` 自描述所用的那把，因此不需要新增数据库列，
+> 旧信封在轮转后依然解得开。AAD 仍绑 `user:${userId}`，密钥环 id **不构成**第二层归属隔离。
+> 提供方选择只有 `createKmsFromEnv()` 一处实现：没配环就退回开发单密钥并落 `KMS_LOCAL_ONLY` warn；
+> **「配了但值为空白」按配置事故当场失败**，不静默退回单密钥（那属于 §8.4 禁止的降级形态）。
+> 三条配套约束：轮转的读-改-写以 `proper-lockfile` 互斥（竞争即 `KMS_KEYRING_LOCKED`，不写盘）；
+> 环与临时文件以 `wx` + `0600` 创建、POSIX 下 rename 后 fsync 父目录（否则权限被继承成全局可读、
+> 且断电后一次轮转可能静默回滚）；KMS 返回的明文数据密钥副本在复制后立即清零（不留第二份内存副本）。
+> 生效时机：KMS 实例首次使用时构造并永久缓存 ⇒ 轮转后需重启服务，新写入才用新 active（旧信封始终可解）。
+
 1. **加密发生在服务端收到 `PUT` 之后、写库之前**：对每条凭证 `dk = randomBytes(32)`；`ciphertext = AES-256-GCM(key=dk, iv = randomBytes(12), aad = "${userId}|${platform}|${platformUid}")`。客户端不做加密、不持有主密钥——客户端加密要么把明文 DK 一起传上去（等于没加密），要么多一次 GenerateDataKey 往返；本项目的信任边界就是"服务端持有 KMS 主密钥"，两种做法安全上限相同，多一条链路只多一处漂移点。
 2. `encryptedDataKey = KMS.wrap(dk, keyId = "user:${userId}")`；DK 明文在进程内用后必须清零。
 3. KMS 抽象层接口：`{ wrap(dk, keyId) → Promise<Buffer>, unwrap(cipherDk, keyId) → Promise<Buffer> }`。本机实现用环境密钥文件（仅开发/测试），生产实现接云 KMS；实现缺失 → `KMS_UNAVAILABLE`，**禁止**退化为"不加密"或"用固定密钥"。

@@ -57,6 +57,28 @@
 - 反证六次，逐个 `git checkout HEAD -- <单文件>` 恢复：改坏镜像一处文案 → 逐行全等锁红；删掉镜像一个 Scenario → Scenario 清单锁 + 全等锁红；删掉镜像整块 Requirement → 标题集合锁 + 规模下界锁红；给 vendored 脚本副本加一行 → 逐字节锁红；把锁的读取目标换成不存在的文件 → 整个文件红（非静默跳过）；换成存在但无 Requirement 的文件 → 规模下界锁红。
 - 新锁 5 例全绿；`node --test scripts/openspec-sync-check.test.js` 19 例全绿；`.github/scripts/workflow-contract.test.js` 23 例全绿（改 workflow 必跑）；镜像 diff +32/−10，`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同数（未改行尾，`.quality-rhythm/.gitattributes` 的 eol=lf 保持）。
 
+# [未发布] feat(账号云镜像): 生产 KMS 落地为文件密钥环（可轮转），并把轮转做成运维可执行的入口（2026-09-27）
+
+### 做了什么
+- 新增 `packages/api-publish-engine/src/cloud-accounts/keyring-kms.js`：主密钥从"单个环境变量"变成`{version, activeKeyId, keys:{id:hex}}` 密钥环；`encryptedDataKey` 前缀自描述所用 key id，因此**不需要新增数据库列**就能同时存在多把主密钥，旧信封在轮转后依然解得开。
+- 新增 `scripts/rotate-cloud-kms-key.js`（轮转 CLI，含 `--dry-run`）与轮转 SOP（OPS §5.1）。轮转 = 追加一把 + 移 active 指针，**旧密钥永不删除**。
+- 提供方选择收成一处 `createKmsFromEnv()`：配了 `MP_CLOUD_KMS_KEYRING` 走环，否则退回开发单密钥并落 `KMS_LOCAL_ONLY` warn（此前生产路径只有 `createLocalKms`，OPS 明令"该项落地前不得对真实用户开启"）。
+- 把 `api-key-manager` 的 Windows 原子 rename 重试提取为共享模块 `src/atomic-rename.js`，Key 存储与密钥环共用同一把 rename 语义（AGENTS.md 要求所有 rename 点口径一致）。
+
+### 外部评审（QM-6：codex + opencode 双模型）之后修掉的五条
+- **空白配置降级**：`MP_CLOUD_KMS_KEYRING=` 被 `|| ""` 判成"没配"，于是静默退回开发单密钥 ——正是 PRD §8.4 禁止的"降级成用固定密钥"。改为按"键是否存在"判定，空白即 `KMS_CONFIG_INVALID`。
+- **`--key-id --dry-run` 被当成密钥名**：运维本想演练，结果执行了一次真实轮转。选项值现在拒绝缺失值与下一个 flag，且 `--dry-run` 与真跑共用同一把校验（`assertNewKeyIdUsable`）。
+- **临时文件默认 mode**：Linux umask 022 下建出 0644，rename 把权限带到密钥环上 ⇒ 同机任意用户可读主密钥环。现在用 `openSync(tmp, "wx", 0o600)` 创建，临时名改用 `crypto.randomBytes`（可猜即可被符号链接诱导）。
+- **轮转无锁**：read-modify-write 下两个并发轮转各自基于旧环生成新环，后一次 rename 整把丢掉前一次的新密钥，那批信封永久不可解。现在用 `proper-lockfile` 与 API Key 存储同口径互斥，竞争即 `KMS_KEYRING_LOCKED` 不写盘。
+- **明文 DK 副本不清零**：`unwrapDataKey` 复制后只清副本，KMS 交出的那份原 Buffer 留到 GC。现在两份都清；`rotateKeyring` 也不再返回整份 ring（返回含密钥的对象 = 给未来日志埋雷）。
+
+### 结论
+- 轮转回归用**真 envelope-crypto** 跑一整轮（旧信封在 active 切换后仍解得开），不是只测本模块的 wrap/unwrap。
+- 11 条变异反证全部实测变红（其中一条先暴露了**我自己写的装饰性断言**：H2 原本断言 `(mode & 0o077) === 0`，省略 mode 实参时 `undefined & 0o077` 也是 0，删掉权限实参后套件仍全绿 —— 已改成钉死 `mode === 0o600`）。包内测试 node:test 侧 199 passed / 0 failed（7 条 skip 为需真实 Postgres 的用例），vitest 侧 258 passed。
+- 生效时机写进 CLI 与 OPS：KMS 实例永久缓存 active ⇒ **轮转后必须重启进程**，新写入才用新密钥。
+
+---
+
 # [未发布] docs(登录): 真机配对 A/B 收口——噪音 cancel 无可证明收益，维持默认关（2026-09-27，login-qr-ab-backfill）
 
 ### 做了什么
