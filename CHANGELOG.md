@@ -1,50 +1,40 @@
 # [未发布] feat(login-state): 抖音/B站/小红书补上会话凭证标记，并把「取证」变成可自建的实测差集（2026-09-27，declare-platform-session-markers）
 
-
-
 ### 变更
-
 - `PLATFORM_SESSION_COOKIE_MARKERS` 新增 douyin（`sessionid`/`sessionid_ss`/`sid_tt`/`uid_tt`）、bilibili（`SESSDATA`/`DedeUserID`）、xiaohongshu（`access-token-creator.xiaohongshu.com`/`x-user-id-creator.xiaohongshu.com`）。裸域名成功模式缺标记清单由 7 项缩小为 4 项（`facebook`/`instagram`/`youtube`/`zhihu`）。
-
 - 新增 `sessionCookieNames(cookies)` 于 shared-utils 并导出：四处「声明标记即实际将拦」的门禁（`auth-view-manager` / `qrcode-login` / `credential-saver` / `account-manager.captureCookies`）的拒绝日志统一只出 Cookie **名字**、绝不出值；`auth-view-manager` 另加 `logDeclaredMarkerMiss`，使「已声明却被拒」留下现场。
-
 - `SESSION_MARKER_SHAPE` 泛化为接纳 `uid_tt` / `SESSDATA` / `x-user-id-*`（`user[-_.]?id`、`(^|[._-])sess`、`(^|[._-])uid([._-]|$)`）。
-
 - `platform-definitions.test.js` 新增 `session-marker evidence contract`：A/B 夹具由脚本从实测产物生成，锁「A−B 差集逐字」「匿名基线判未登录」「登录视图判已登录」「每个标记 ∈A 且 ∉B」；另加形态负控 40 项与「形态过、实测不过」墓碑名单。
 
-
-
 ### 取证方法（本轮的主要增量）
-
 负向证据不必等用户登录：用与主进程**同版本**的 `electron.exe`（43.1.1 / Chrome 150）、复刻 `configureUserAgentFallback` 的 UA 净化，在全新隔离分区匿名访问各平台「登录页 + 创作者首页」取 Cookie 名；正向证据取本机 `auth-auth-<平台>-<ts>` 分区（`account-<id>` 分区常年 0 条，不可当正向样本）。基线有效性自证：B 内必须出现该平台公认匿名 Cookie（知乎 `d_c0`、B 站 `buvid3`、小红书 `a1`/`webId`、抖音 `ttwid`），否则页面未渲染、差集虚高。
 
-
-
 ### 一项刻意不做
-
 **知乎不声明 Cookie 标记**：实测其登录视图 `.zhihu.com` 域 8 个 Cookie 全为匿名可读类，A−B 唯一独有项是验证码票据 `captcha_ticket_v2`，`z_c0` 在 A/B 两侧都不存在。给它声明任何 Cookie 标记会把每次真实登录判成失败；知乎只能走 `PLATFORM_LS_SESSION_MARKERS` 侧取证。该「刻意不声明」由断言钉住，以免被后人当遗漏随手补上。
 
-
-
 ### 门禁与反证
-
 - 4 条变异反证均实测变红并字节还原：标记表清空 → 6 红（含棘轮与取证契约）；`sessionCookieNames` 退化恒空 → 1 红；删 `logDeclaredMarkerMiss` 调用 → 1 红；把 qrcode 那条日志的 `+` 退回相邻模板串 → **仅新加的 reject 用例红（1 failed / 16 passed）**。
-
 - 全量 `apps/desktop` electron 测试：7808 passed / 1 failed，唯一红为 `feedback.test.js` 的 `EPERM symlink`，已在未含本改动的 main 上实测复现（既有机器级失败，需开发者模式或提权才能建符号链接）。
-
 - QM-6 双模型（claude + opencode）**独立**命中同一 Critical：`qrcode-login.js` 拒绝分支的日志语句是两个相邻模板字符串、缺 `+`，被解析为 tag 函数调用，`node --check` 通过但运行时必 `TypeError`，且原测试无一执行该分支。已修复并补一条真跑该路径的用例作锁。
 
-
-
 ### 已知风险与未覆盖
-
 - 这三平台从「门禁恒过」变为「实际将拦」。正向证据来自历史登录视图分区，**未**做一次新登录的真机复核；若标记集偏窄，用户会看到硬失败，唯一线索是本轮补的 `names=` 日志。
-
 - `credential-saver` 的 `names=` 日志仍无可执行锁：该模块经 vite SSR 管道 `require('../logger')`，绕过测试的 `__registerMock('./logger')` 注册表（spy 与具名 mock 均抓不到，仅在 stdout 见到一次真日志）。已在 openspec tasks 2.5b 登记。
-
 - 评审 W2（`_scheduleAutoCompletion` 的 warn 不含 names）经核查**不采纳**：同一路径上 `hasCapturedCredentials` 已对已声明平台调用 `logDeclaredMarkerMiss`，名字在紧邻的 info 行内，属级别一致性而非信息缺失。
 
 
+# [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
+
+### 做了什么
+- PR #2501 已合并（`56ac1c40`）。回填基线后的复跑 run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`）：`QG Visual` **19 条全 `PASSED`、通过率 100.0%**，
+  其中 `accounts-list-flag-on` 在产物 `reports/report-*.json` 里为 `status:"PASSED", misMatchPercentage: 0`
+  ⇒ PRD §17.4 步骤 3「必须报该视图 0 px 差异」**达成**，该视图自此成为硬门禁的一部分。
+- **纠正一处取证口径（写进 PRD §17.4）**：`run-pixel-tests.js` 的 stdout 只打 `PASSED` / `FAILED`，
+  **不打印差异率**（实测该 job 日志里 `misMatch` / `差异率` 命中 0 次）。因此"日志说 PASSED"只等价于
+  "差异低于 `PIXEL_THRESHOLD=0.06`"，**不等价于 0 px**。上一轮我在文档里写"0 px 由下一轮 CI 证明"时，
+  默认了"下一轮日志会给出这个数字"——它不会；真要去证，只能下载产物读 report JSON。本轮就是这么做的。
+- openspec 归档 `add-cloud-account-sync` 的 tasks：§6 那条"基线仍需重新采集"的过期勾选纠为已完成并附证据，
+  「未执行清单 / 残留」两张表的同名行同步收口（历史登记文字按既有约定保留不删）。
 
 # [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
 - 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
