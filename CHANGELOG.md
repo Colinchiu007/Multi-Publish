@@ -14,6 +14,63 @@
 - 反证四次：摘掉 Gate 2d 里一条 pwsh 点名→棘轮真实仓库断言红；把 `worktree-fs-longpath` 从 2d-b 挪走→红；给它加一条新欠账豁免→报 `TEST_EXEMPTION_STALE`（它已接线）；把 `session-isolation-automation` 的豁免摘掉→红（证明那条欠账确实在承重）。
 - `node scripts/check-unwired-tests.js` → 41 文件 / 0 违规；棘轮 8 passed；`.github/scripts/workflow-contract.test.js` 23 passed。
 - 顺带披露：判定过程中我在共享根直接跑过一次 `session-isolation-automation.test.ps1`，它确实走了注册路径并以 `0x80070005` 被拒；事后回读两个计划任务仍 `State=Ready`、注册定义未被改动（非提权注册失败即无副作用）。这也是"跑任何可能改共享机器状态的测试前先读它会不会动手"的现成反例。
+# [未发布] fix(账号云镜像): 收口 CI 抓出的两处本 PR 自身缺口 —— 锁的 unhandledRejection 逃逸与两个语义码未登记展示层（2026-09-27）
+### 根因（首跑 4 条红全部由本 PR 引入，不是既有噪声）
+- **串行锁把 section 的失败留在了队尾链上**：`state.tail = state.tail.then(run, run)` 在"本等待者是最后一名排队者"
+  时链上再无接手人，section 的 rejection 以队尾 promise 的身份逃逸成 `unhandledRejection`（CI 报 `Errors 2`，
+  栈顶是 `run()` 里的 `section()` 调用点，而调用方其实早已通过 `callerPromise` 收到同一个错误）。生产里这会打到
+  主进程的 unhandledRejection 钩子。修法：**失败只有一个出口（callerPromise），链只负责顺序**。
+- **两个新语义码没进展示层口径表**：`CREDENTIAL_APPLY_FAILED`（`cloud-account-sync.js:427`）与
+  `RESTORE_STATUS_PERSIST_FAILED`（`cloud-account-restore.js:87/202`）未登记进 `useCloudSyncResultModel.js` 的
+  `ERROR_CODE_GROUPS`。后果不是报错而是**文案归错类**：未登记码会落进「云端未接受该账号」兜底句，用户去查云端，
+  而真正该做的是重试本机落盘。两者并入 `localWriteFailed` 组，并在「本机侧码不得解析到云端兜底句」用例里逐个点名，
+  防止哪天被挪错组。
+### 为什么本地全绿（QM-5 逃逸分析）
+- 口径锁住在 `src/`，我改的是 `electron/` —— 本地按"我改了哪"挑文件，必然漏掉这条**跨目录读主进程源码**的锁。
+  沉淀：改动侧与锁侧不在同一目录时，回归必须按"锁在哪"挑文件。
+- vitest 把 unhandled rejection 记在 `Errors` 里，不影响 `Tests ... passed` 那一行的计数；我此前只看那一行。
+### 回归保护与反证
+- `account-state-lock.test.js` 新增「section 失败且链上无人接手时，不得逃逸成 unhandledRejection」（挂 process.on
+  钩子 + 让出两个宏任务后断言收不到），该文件 12 → 13 例。**反证**：把链改回 `.then(run, run)` 后该用例红 1 条，
+  同时 `login-status-monitor.test.js` 注入 `net down` 的那条从红转绿。
+- 6 个相关文件 `vitest run` = **94 passed**；`check-max-lines` / `check-debt-budget` 通过。
+# [未发布] docs(账号云镜像): 真机 IPC 与八平台 uid 线级取证回填——覆盖率实测 2/8，并记下两个挡住成功路径的外因（2026-09-27）
+- 在隔离 worktree 上用**复制的** debug profile 起真实 Electron 实例，渲染层经 CDP 真调 `window.electronAPI`，主进程经 Node inspector 调生产代码，并在 `https/http.request` 与 `fetch` 上记录真实出站。
+- 八平台 uid 取证：用生产同一对函数（`getMasterKey`/`decryptData`）解密 `credentials/owners/<hash>/*.json.enc`，调 `fetchAccountInfoViaHttpApi` 本体。**实测覆盖率 2/8**（bilibili、toutiao 取到原生 uid）。
+- 真机 IPC：`accountsCloudDigest/Sync/Disconnect/SyncAbort` + 进度订阅全部可达；信封形状、fail-closed、二次确认守卫、空闲中止均实测。
+- 文档原先暗示"多数平台可取 uid"，实测是 2/8；douyin/zhihu/xiaohongshu 端点 200 仍提不到可信身份属性 —— 提高覆盖率需要逐平台重新取证并改提取规则，属新工作项。
+- 成功路径（上传→换设备恢复→恢复即 unverified）本轮**跑不了**，两个外因：① 线上部署的构建不含云镜像面；② 本机第二实例的 python-backend 端口 8299 固定且被占用，绑定失败后无限重启，导致 `localCount` 读到的是别人的后端（返回 0）。这条端口固定造成的"假就绪"值得单独立项。
+- 附带发现（不修，登记）：`wechat_mp` 真源写 `active`，线级证据却是 `mp.weixin.qq.com/cgi-bin/loginpage → 302` —— 登录判定家族的既有问题，它会让失效凭证被镜像。
+- QM-4 全量视觉回归本机无法执行（Playwright chromium 未安装）；按 QM-4 第 7 条，本机截图也不得作为提交基线，故不产出"跑过了"的假证据。
+# [未发布] fix+test(账号云镜像): 登录态真源写入按账号加主进程串行锁，并修掉恢复侧从未生效的回写（2026-09-27）
+- 收口 openspec add-cloud-account-sync 残留「主进程同步 × 批量检测互斥」：新增 `apps/desktop/electron/services/account-state-lock.js`（`withAccountStateLock(accountId, section)`，FIFO、失败放行、排空回收键），把三个检测入口（`login-status-monitor` / `account:check-login` / `accounts:batch-check-login`）的「读凭证 → 回写结论」与云端恢复的「覆盖本机凭证 → 回写 unverified」各自收进同一把以 accountId 为键的临界区。
+- 修掉一个写测试时当场撞出来的断链：`cloud-account-restore.js` 按对象形调用 `AccountManager.persistLoginState`，而真实现是位置签名 —— status 恒为 undefined、判 `invalid-status` 直接 return，**恢复后的登录态一次都没写进真源**；返回值又被丢弃，所以连 warn 都没有。改回位置签名并检查返回值（非 ok 落 warn）。
+- 夹具同步纠正：`cloud-account-sync.test.js` 的 `persistLoginState` 夹具从 `(accountId, patch)` 改成与真实现逐字同形的位置签名 —— 正是这个「替被调方改签名」的夹具把断链断言成了契约。
+- 新增跨模块契约锁：`cloud-account-restore.test.js` 把**真实** `persistLoginState` 装进恢复流，断言后端真收到 `PATCH /api/accounts/<id>` 且 body 为 `{status: unverified, last_validated}`。
+### 外部评审（QM-6 双模型）之后补的三处
+- **取锁等待必须有上限**：`withHardTimeout` 在临界区内启动，等锁时间原本完全绕过单任务硬超时——挂死的写者会让批量已广播 `start` 却永不 `done`，定期检测的 `_running` 更会永不复位（之后所有轮次静默停摆且不报错）。现在等待计入同一份预算（批量用 `MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`，检测侧 `lockWaitTimeoutMs` / `MP_ACCOUNT_LOCK_WAIT_MS`，默认 30s），超时记 `CHECK_LOGIN_LOCK_TIMEOUT`、`valid: undefined`、不发 PATCH，且**不执行**临界区。
+- **无定论分支必须在临界区内重读真源现状**：列表快照是取锁前拍的，拿它猜现状会把别的写者刚落的 `expired` 覆盖成 `unverified`。
+- **恢复的状态回写失败不得冒充成功**：原先只 warn 一声仍返回"已覆盖"。现在返回结构化失败 + 新语义码 `RESTORE_STATUS_PERSIST_FAILED`，新建号场景回滚且不排自证检测；`summary.queuedCheck` 改为只统计真的排上的行（生产未注入 `queueLoginCheck`，故如实为 0，PRD/规格按实现纠正）。
+- 跨包契约夹具 `cloud-accounts-desktop-contract.test.js` 的 `persistLoginState(id, state)` 改成与真实现逐字同形的位置签名，并断言恢复真的按 `('restored-1','zhihu','unverified')` 到达写者。
+- 不变量：**凭证覆盖不得插在「检测读凭证」与「检测写结论」之间**。渲染层把两个按钮互相 disable 不构成防线，因为定期检测由 setInterval 自己起来、不经过任何按钮。
+- 6 条变异全部实测变红：摘监控侧锁 2 红 / 摘恢复侧锁 6 红 / 退回对象形调用 2 红 / 把排队检测挪进锁内 3 红 / 摘批量检测锁 10 红 / 锁退化成全局单键 7 红。
+- 文档按实现纠正两处失真：PRD §5.3 与 AGENTS.md 都写着 `validation_origin=restored` 且「不参与 7 天超龄兜底」——后端从来没有这一列，兜底也只作用于 `active`，字段无人消费故不再实现（禁止死键）。
+### 做了什么
+### 做了什么
+### 结论
+### 结论
+
+
+
+
+
+
+
+
+
+
+
+
 
 # [未发布] fix(contract): 任务分支命名按代码为准回灌三处文档，并钉成契约锁
 

@@ -105,9 +105,17 @@
 ## 5. 本期**未执行**的运维事项（如实登记，不得当作已完成）
 
 - 生产 ECS 发布与 `production-smoke.js` 实跑：**未执行**（无可用的生产目标）。
-- 真机端到端（真实业务库 + 真实 Logto 身份 + 真实第三方平台凭证）同步一轮：**未执行**。
-- 八平台 `platform_uid` 线级取证（小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否等于平台原生主键）：
-  **未执行**；未取到可信 uid 的平台走 `uid-unavailable` 跳过上行，不会污染合并键。
+- 真机端到端（真实业务库 + 真实 Logto 身份 + 真实第三方平台凭证）同步一轮 → **部分执行（2026-09-27）**：五个云镜像通道在真实窗口里全部可达，
+  信封形状、fail-closed 语义、二次确认守卫、空闲中止、进度不发虚均已实测（PRD §16.2）。
+  **成功路径仍未执行**：线上构建不含该面，且本机第二实例的后端端口 8299 固定、被第一实例占用，
+  绑定失败后无限重启 ⇒ 读到的 `localCount` 来自别人的后端。要有真机成功链证据，须先部署带云镜像面的
+  业务 API（或本机起一套业务 API + Postgres + 同一 Logto 租户）。
+- ~~八平台 `platform_uid` 线级取证（小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否等于平台原生主键）**未执行**~~ → **2026-09-27 已执行**（真机 Electron 主进程内、真凭证解密、
+  出站层记录真实请求）。结论：合并键覆盖率实测 **2/8**（bilibili、toutiao 取到原生 uid），
+  douyin/zhihu/xiaohongshu/wechat_mp 端点可达（含 200）但提不到可信身份属性，kuaishou 按
+  `uidSource: cookie` 不发请求也未取到。全部走 `uid-unavailable` 跳过上行，未污染合并键。
+  细节与逐平台表见 PRD §16.1。附带发现：wechat_mp 真源写 `active` 而线级证据是 `loginpage → 302`，
+  属登录判定家族的既有问题，已登记。
 - ~~生产 KMS 实现尚未编写~~ → **已落地（2026-09-27，ADR-0007）**：文件密钥环 `src/cloud-accounts/keyring-kms.js`
   + 轮转 CLI `scripts/rotate-cloud-kms-key.js`。仍**未在生产现场执行**下列步骤，因此"本特性不得对真实用户开启"
   这条前置条件要到 §5.1 的 SOP 真跑过一遍之后才解除。
@@ -156,6 +164,21 @@
 `test/cloud-accounts-kms-rotate-cli.test.js`（7 例，含 `--dry-run` 零写入与 flag 吞值）。
 - 视觉基线：`accounts-list` 视图因命令栏新增按钮必然产生 diff；基线只能取自 CI 产物后回填（QM-4 第 7 条），
   本 PR 内**未回填**。
+- **生产网关的缓存行为：2026-09-27 实测，结论是「线上还没跑到本特性」，不是「验证通过」**。对已部署实例做只读探测（不带任何凭证）：
+  | 请求 | 结果 | 读法 |
+  | --- | --- | --- |
+  | `GET /api/v1/health` | `200`，body `{"status":"ok","version":"1.0.0","platforms":10}` | 业务 API 活着，nginx `1.24.0` 在前 |
+  | `GET /api/v1/me/accounts/digest` | `401 Valid API key required`，**响应头没有 `Cache-Control`** | 该面走的是通用 Key 鉴权短路，云账号面与 `applyCloudAccountNoStore` 前置守卫都不在场 ⇒ **部署的构建早于本特性** |
+  | `GET /api/users` | `401 auth.authorization_header_missing`（Logto 的错误体形状） | nginx 路由分离合同生效：`/api/v1/` → 业务 API，其余 → Logto |
+  | `GET /api/v1/ready` | `200`，`database/schema/oidc/jwks/introspection` 全 ready | 部署侧身份链完整 |
+
+  口径：`no-store` 是**应用合同**，只有部署后从线级证据才能确认生产网关没把它吃掉；本轮拿到的是"尚未部署"的证据，
+  因此「生产网关缓存行为」这条**仍开放**，且必须排在「生产 ECS 发布」之后做（顺序见 §2）。
+  部署后复跑：`curl -sSD- -o /dev/null https://<host>/api/v1/me/accounts/digest | grep -i cache-control`，
+  期望在 401 上就能看到 `no-store`（守卫在鉴权之前），看不到即说明部署的仍是旧构建或 nginx 改写了头。
+- 主进程侧新增一条可观测信号（`cloud-sync-residuals`）：恢复成功后写登录态失败会落 `restore-status-failed ... reason=<reason>`。
+  此前这类失败**完全静默**（返回值被丢弃，只有 throw 才记日志），所以线上看到这条 warn 不是新故障，是新暴露的旧断链；
+  它意味着该账号的 `unverified` 没有落进真源，下一次定期检测的结论将决定它的显示状态。
 - ~~`POST /api/v1/me/accounts/sync` 的响应现在含明文凭证，**`Cache-Control: no-store` 未加**~~ → **已收口**
   （PR `cloud-sync-no-store`）：按本文件原设想落地——头加在 `_handleCloudAccounts` 的三处出线上，
   `_json` 只多一个可选参数、不全局加头；出站头由 `test/cloud-accounts-no-store.test.js` 以真 HTTP 链路锁定。原「在补上之前，本特性不得部署到任何会缓存响应的网关后面」这条前置条件随本项收口而解除。

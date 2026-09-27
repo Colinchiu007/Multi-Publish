@@ -326,14 +326,19 @@ function createCloudAccountSync (deps) {
 
       const rowByKey = new Map(toUpload.map((r) => [keyOf(r.platform, r.platformUid), r]))
       const outcomeToCounter = { [OUTCOME.CREATED]: 'created', [OUTCOME.UPDATED]: 'updated', [OUTCOME.UNCHANGED]: 'unchanged' }
+      /** 真的排上本机自证检测的行数（供 summary.queuedCheck 如实上报） */
+      let queuedChecks = 0
       for (const res of results) {
         const row = rowByKey.get(keyOf(res.platform, res.platformUid))
         if (!row) continue
         if (res.outcome === 'conflict') {
-          const outcome = await settleConflict(subject, row, res)
+          const settledConflict = await settleConflict(subject, row, res)
           summary.conflicts += 1
-          summary.items.push({ accountId: row.accountId, platform: row.platform, name: row.displayName, outcome })
-          send({ phase: 'done', rowKey: String(row.accountId), platform: row.platform, accountId: row.accountId, name: row.displayName, outcome })
+          if (settledConflict.queuedCheck) queuedChecks += 1
+          // code 缺席时不写这个键：过程区对"无原因的失败"和"有原因的失败"显示方式不同
+          const extra = settledConflict.code ? { code: settledConflict.code } : {}
+          summary.items.push({ accountId: row.accountId, platform: row.platform, name: row.displayName, outcome: settledConflict.outcome, ...extra })
+          send({ phase: 'done', rowKey: String(row.accountId), platform: row.platform, accountId: row.accountId, name: row.displayName, outcome: settledConflict.outcome, ...extra })
           continue
         }
         if (res.outcome === 'rejected') {
@@ -369,11 +374,15 @@ function createCloudAccountSync (deps) {
         const settled = isTimeout(result) ? { outcome: OUTCOME.FAILED, code: 'SYNC_BUDGET_EXCEEDED' } : result
         if (settled.outcome === OUTCOME.RESTORED) summary.restored += 1
         else summary.failed += 1
+        if (settled.queuedCheck) queuedChecks += 1
         summary.items.push({ accountId: settled.accountId || null, platform: c.platform, name: c.displayName || '', outcome: settled.outcome, code: settled.code })
         send({ phase: 'done', rowKey, index: i + 1, total: toRestore.length, platform: c.platform, accountId: settled.accountId || null, name: c.displayName || '', outcome: settled.outcome, code: settled.code })
       }
 
-      summary.queuedCheck = summary.items.filter((i) => i.outcome === OUTCOME.RESTORED).length
+      summary.queuedCheck = queuedChecks
+      // queuedCheck 只统计**真的排上了**本机自证检测的行。曾用 restored 数充当它：
+      // queueLoginCheck 在生产接线里没注入，界面于是会报"已安排 N 条检测"而什么都没安排。
+      // 恢复后的自证实际由下一次定期检测（默认 30 分钟）收口，见 PRD §5.3 第 4 条。
       summary.elapsedMs = now() - startedAt
       summary.aborted = abortRequested
       if (now() - startedAt > totalBudgetMs && !summary.errorCode) summary.errorCode = 'SYNC_BUDGET_EXCEEDED'
@@ -404,7 +413,7 @@ function createCloudAccountSync (deps) {
     if (!slot || slot.status === 'undecryptable') {
       log('warn', 'conflict-cloud-no-evidence',
         `platform=${row.platform} reason=${!slot ? 'transport' : slot.errorCode}`)
-      return OUTCOME.CONFLICT_UNRESOLVED
+      return { outcome: OUTCOME.CONFLICT_UNRESOLVED }
     }
     // 'ok' 给凭证本体；'missing'/'empty' 给 null —— 后者是**负向证据**（云端那份确实没有可用 cookie），
     // 与"没问到/解不开"必须分开，否则一次本可收敛的冲突会被永久钉成"未判定"。
@@ -414,26 +423,27 @@ function createCloudAccountSync (deps) {
 
     if (resolution.winner === 'cloud') {
       const applied = await applyCredentialLocally(subject, row.accountId, resolution.credential, row.platform)
-      if (!applied) return OUTCOME.FAILED
+      // 失败必须带原因码，否则界面上只有一条"失败"而排障时不知道断在哪一步
+      if (!applied.applied) return { outcome: OUTCOME.FAILED, code: applied.code || 'CREDENTIAL_APPLY_FAILED' }
       await callApi(subject, ACCOUNT_PATH, { method: 'PUT', body: { accounts: [{ ...toUpsertPayload({ ...row, credential: resolution.credential }), force: 'cloud-wins' }] } })
         .catch((e) => log('warn', 'conflict-cloud-put-failed', errorMessage(e)))
-      return OUTCOME.CONFLICT_CLOUD
+      return { outcome: OUTCOME.CONFLICT_CLOUD, queuedCheck: applied.queuedCheck }
     }
     if (resolution.invalid) {
       // 两份都明确失效：本机原样保留，如实告诉用户需要重新登录（不静默丢弃）
-      return OUTCOME.INVALID_CREDENTIAL
+      return { outcome: OUTCOME.INVALID_CREDENTIAL }
     }
     if (resolution.winner === 'keep-local') {
       // 两份都无定论：本机原样保留，且**不发这次 PUT**。
       // 带 force:'local-wins' 回写等于用「没验出来」这份未证实的证据去授权覆盖云端凭证，
       // 直接违反单向证据规则（没拿到新证据不是反证）；而服务端在无 force 时只会回 conflict，
       // 这一趟请求除了把 last_validated 之外什么都没改，属纯冗余写。下一轮同步会重新实测。
-      return OUTCOME.CONFLICT_UNRESOLVED
+      return { outcome: OUTCOME.CONFLICT_UNRESOLVED }
     }
     // 本机较新且有效 → 上行覆盖云端
     await callApi(subject, ACCOUNT_PATH, { method: 'PUT', body: { accounts: [{ ...toUpsertPayload(row), force: 'local-wins' }] } })
       .catch((e) => log('warn', 'conflict-local-put-failed', errorMessage(e)))
-    return OUTCOME.CONFLICT_LOCAL
+    return { outcome: OUTCOME.CONFLICT_LOCAL }
   }
 
   function disconnect (subject, confirm) {

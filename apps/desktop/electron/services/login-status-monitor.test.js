@@ -235,3 +235,169 @@ describe('login-status-monitor 账号真源与唯一写者', () => {
     expect(accountManager.persistLoginState).toHaveBeenCalledWith('acc-ok', 'baijiahao', 'expired', expect.any(String))
   })
 })
+
+/**
+ * 定期检测 × 云端恢复的交错合同（openspec add-cloud-account-sync 残留「主进程互斥」）。
+ *
+ * 要拦的那一条：检测用**旧**凭证发出请求 → 恢复把云端凭证覆盖到本机并写 unverified(restored)
+ * → 检测结论迟到一步写成 active。渲染层的 `batchCheckAllBusy` / `cloudSyncRunning` 互斥管不到
+ * 本模块——它是 setInterval 自己起来的，不经过任何按钮。
+ *
+ * 断言方式是**事件序列**而不是返回值：序列化这件事只能从「谁先发生」看出来，
+ * 两边各自都"成功返回"恰恰是竞态通过的样子。真锁（不 mock），因为要证的正是跨模块共用同一把键。
+ */
+describe('login-status-monitor 与云端恢复对同一真源的写入串行', () => {
+  /** 把当前所有微任务排空；不用 await Promise.resolve() 数跳数，那会把断言绑在实现细节上。 */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  function createGate () {
+    let resolve
+    const promise = new Promise((r) => { resolve = r })
+    return { promise, resolve }
+  }
+
+  it('检测在途时，恢复侧的凭证覆盖不得插进「读凭证」与「写结论」之间', async () => {
+    const { withAccountStateLock } = require('./account-state-lock')
+    /** @type {string[]} */
+    const events = []
+    const gate = createGate()
+    accountManager.listAccounts.mockResolvedValue([
+      // 现状 unverified：一次 valid 的检测才会真的触发回写（现状已是 active 时按「结论未变」跳过，
+      // 那样这条用例就只是在断言"什么都没发生"，锁在不在都能过）
+      { id: 'acc-ser-1', platform: 'toutiao', status: 'unverified' },
+    ])
+    accountManager.checkLoginStatus.mockImplementation(async () => {
+      events.push('check:enter')
+      await gate.promise
+      events.push('check:return')
+      return { valid: true, code: 'CHECK_LOGIN_SUCCESS' }
+    })
+    accountManager.persistLoginState.mockImplementation(async () => {
+      events.push('monitor:persist')
+      return { ok: true }
+    })
+
+    const monitor = createMonitor()
+    const running = monitor._runOnce()
+    await flush()
+    expect(events).toEqual(['check:enter'])
+
+    // 恢复侧的临界区：覆盖本机凭证 + 把登录态打回 unverified(restored)
+    const restoring = withAccountStateLock('acc-ser-1', async () => {
+      events.push('restore:saveCredential')
+      events.push('restore:persistUnverified')
+    })
+    await flush()
+    expect(events, '凭证覆盖插进了检测的「读凭证」与「写结论」之间').toEqual(['check:enter'])
+
+    gate.resolve()
+    await Promise.all([running, restoring])
+    expect(events).toEqual([
+      'check:enter', 'check:return', 'monitor:persist',
+      'restore:saveCredential', 'restore:persistUnverified',
+    ])
+  })
+
+  it('恢复先持锁时，该账号的检测必须整段等待（不是只让回写排队）', async () => {
+    const { withAccountStateLock } = require('./account-state-lock')
+    /** @type {string[]} */
+    const events = []
+    const gate = createGate()
+    accountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-ser-2', platform: 'zhihu', status: 'unverified' },
+    ])
+    accountManager.checkLoginStatus.mockImplementation(async () => {
+      events.push('check:enter')
+      return { valid: true, code: 'CHECK_LOGIN_SUCCESS' }
+    })
+    accountManager.persistLoginState.mockImplementation(async () => {
+      events.push('monitor:persist')
+      return { ok: true }
+    })
+
+    const holder = withAccountStateLock('acc-ser-2', async () => {
+      events.push('restore:enter')
+      await gate.promise
+      events.push('restore:leave')
+    })
+    await flush()
+    expect(events).toEqual(['restore:enter'])
+
+    const monitor = createMonitor()
+    const running = monitor._runOnce()
+    await flush()
+    expect(events, '检测在恢复持锁期间就已经开始 —— 锁没有包住检测体').toEqual(['restore:enter'])
+
+    gate.resolve()
+    await Promise.all([running, holder])
+    // 顺序反过来才是坏的：检测用恢复前的凭证得出 active，随后盖掉 restored
+    expect(events).toEqual(['restore:enter', 'restore:leave', 'check:enter', 'monitor:persist'])
+  })
+
+  it('不同账号的检测与恢复并行，不因一把全局锁退化（批量预算合同）', async () => {
+    const { withAccountStateLock } = require('./account-state-lock')
+    /** @type {string[]} */
+    const events = []
+    const gate = createGate()
+    accountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-ser-3', platform: 'douyin', status: 'unverified' },
+    ])
+    accountManager.checkLoginStatus.mockImplementation(async () => {
+      events.push('check:enter')
+      return { valid: true, code: 'CHECK_LOGIN_SUCCESS' }
+    })
+    accountManager.persistLoginState.mockImplementation(async () => ({ ok: true }))
+
+    const holder = withAccountStateLock('acc-someone-else', () => gate.promise)
+    const monitor = createMonitor()
+    await monitor._runOnce()
+    // 别的账号持锁不得挡住本账号：批量检测有并发上限与单任务硬超时，全局单锁会整批撞预算
+    expect(events).toEqual(['check:enter'])
+    gate.resolve()
+    await holder
+  })
+})
+
+/**
+ * 取锁等待必须有上限（外部评审 Critical）。本模块由 setInterval 自己起来，
+ * 若它无限等一把被挂死写者占住的锁，`_running` 永不复位 = **之后所有轮次静默停摆**，
+ * 而且现场没有任何错误。超时口径与批量检测一致：本轮跳过、不回写、绝不猜成失效。
+ */
+describe('login-status-monitor 取锁等待的有界性', () => {
+  it('等锁超时：本轮跳过该账号、不回写，且这一轮能收口（_running 复位，下一轮照常起来）', async () => {
+    const { withAccountStateLock } = require('./account-state-lock')
+    let releaseGate
+    const gate = new Promise((r) => { releaseGate = r })
+    accountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-lock-1', platform: 'douyin', status: 'active' },
+    ])
+
+    let releaseHeld
+    const held = withAccountStateLock('acc-lock-1', () => new Promise((r) => { releaseHeld = r }))
+    await new Promise((r) => setTimeout(r, 5))
+    // gate 未被使用（仅表达"持锁者挂死"的形状），释放一律走 releaseHeld
+    void gate
+
+    const monitor = createLoginStatusMonitor({
+      store: { _ready: true, listAccounts: vi.fn(() => []) },
+      accountManager,
+      intervalMs: 30 * 60 * 1000,
+      getMainWin: vi.fn(() => null),
+      lockWaitTimeoutMs: 20,
+    })
+
+    await monitor._runOnce()
+    expect(accountManager.checkLoginStatus, '等锁超时后不得再执行检测体').not.toHaveBeenCalled()
+    expect(accountManager.persistLoginState).not.toHaveBeenCalled()
+    expect(loggerMock.warn.mock.calls.map((c) => String(c[1])).join(' ')).toContain('等锁超时')
+    expect(loggerMock.error.mock.calls.length).toBe(0)
+
+    releaseHeld()
+    await held
+
+    // 关键：上一轮已经收口，这一轮必须还能正常检测同一个账号
+    accountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+    await monitor._runOnce()
+    expect(accountManager.checkLoginStatus).toHaveBeenCalledWith('douyin', 'acc-lock-1')
+  })
+})

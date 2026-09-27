@@ -246,10 +246,19 @@ function createHarness(options = {}) {
   }
 
   const created = []
+  /** 恢复侧对登录态真源的回写记录（按真实位置签名收集） */
+  const loginStateWrites = []
   const AccountManager = {
     async listAccounts() { return [account] },
     async addAccount(payload) { created.push(payload); return { data: { id: 'restored-1' } } },
-    async persistLoginState(id, state) { return { id, ...state } },
+    // 形状必须与真实 `AccountManager.persistLoginState(accountId, platform, status, validatedAt)`
+    // 的位置签名逐字同形。此前这里写的是 `(id, state)` 对象形，于是桌面端恢复侧那份
+    // 「status 恒为 undefined、真源一次都没写」的断链被本夹具当成契约断言了下来
+    // （AGENTS.md「契约夹具不得替对方剥壳」的第三种落点：替对方改签名）。
+    async persistLoginState(id, platform, status, validatedAt) {
+      loginStateWrites.push({ id, platform, status, validatedAt })
+      return { ok: true, status }
+    },
   }
   const credentialStore = {
     async loadCredential() { return localCred },
@@ -272,7 +281,7 @@ function createHarness(options = {}) {
   })
 
   return {
-    service, requests, repositoryCalls, broadcasts, account, localCred, created,
+    service, requests, repositoryCalls, broadcasts, account, localCred, created, loginStateWrites,
     putBodies: () => requests.filter((r) => r.method === 'PUT').map((r) => r.body),
   }
 }
@@ -451,6 +460,12 @@ test('跨包契约锁：服务端响应形态按 PRD 钉住，且桌面端必须
     assert.equal(harness.created.length, 1, '恢复必须真的落到本机建号')
     assert.equal(harness.created[0].platform_account_id, 'uid-cloud-only')
     assert.equal(harness.created[0].loginVerified, false, '跨设备恢复的凭证是弱证据，不得固化 active')
+    // 恢复即 unverified 必须**真的写进真源**：只断言建号成功会放过
+    // 「凭证落了盘、状态一次都没写」这一整类半成功（本轮修掉的就是它）。
+    assert.deepEqual(harness.loginStateWrites.map((w) => [w.id, w.platform, w.status]), [['restored-1', 'zhihu', 'unverified']],
+      '恢复后必须按位置签名回写 unverified，实际记录：' + JSON.stringify(harness.loginStateWrites))
+    assert.ok(harness.loginStateWrites[0].validatedAt, '回写必须带本机恢复时刻（7 天超龄兜底的锚点）')
+    assert.equal(res.data.queuedCheck, 0, 'queueLoginCheck 未注入时 queuedCheck 必须如实为 0，不得凭 restored 数凭空许诺')
     const syncPost = harness.requests.find((r) => r.method === 'POST' && r.path === core.module.SYNC_PATH)
     assert.ok(syncPost, '恢复必须真的向服务端取凭证')
     assert.deepEqual(harness.requests.filter((r) => JSON.stringify(r).includes('v-cloud')).length, 0,
