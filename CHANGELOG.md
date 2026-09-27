@@ -21,6 +21,21 @@
 | `all-workflows` 32 | **24/32** | 8 条红：5 条等 `/accounts` 的 `.page-title`/`.page-actions`（该页无此类名）、1 条等 `input[placeholder="搜索平台..."]`、1 条等 `button.cohere-btn-ghost:has-text("📝 模板")`，均为选择器漂移；第 8 条 `dashboard-benchmark-title-reset` 是**真像素差 10.9% > 阈值 1%**，不是选择器问题，单独立项 |
 | `supplementary-workflows` 18 | 18/18 | 实测返回 `{total:18,passed:18}` |
 
+- **同轮把 `all-workflows` 的 8 条红一并收口**（原登记为后续项，实测就在本 PR 里做掉了 7 条）：
+  `/accounts` 的可见页头已改成 `<h1 class="sr-only">`（`Accounts.vue:3`），`.page-title` / `.page-actions`
+  在该页**只存在于 CSS**（`:1236-1239`）⇒ 5 条用例改锚到实测存在的 `.accounts-page` /
+  `.account-command-bar` / `[data-testid="account-add"]`；`publish-platform-search-reset` 的 placeholder
+  改成实测的「搜索平台或账号」；`publish-template-panel-toggle` 的按钮不再带 📝 前缀，
+  改锚 `button:has-text("模板")`（点击后 `✕ 关闭`=1、再点回 0 已实测）。**每处新选择器都先用真浏览器探测命中数**。
+  `accounts-group-dialog-close` 删除：分组管理已不是弹窗，而是 shell 模块导航以 `?tab=groups` 打开的
+  内联面板；改成面板断言后仍过不了本套件的 `[SCREENSHOT_REQUIRED]` 契约（那一屏与任何既有基线都不同源，
+  实测拿 `accounts-list` 比 = 差 2.26%，而 `test:all:visual` 没有 CI job ⇒ 按 QM-4 第 7 条拿不到合法基线）。
+  留 8 行注释说明去向。**曾先试「只留结构断言」，被该契约当场拦下** —— 说明删用例优于留一条恒红/恒假的用例。
+  结果：`all-workflows` 32 → **31 条，30 绿 1 红**。
+- **唯一剩下的红是 `dashboard-benchmark-title-reset`（差 10.9%），已证不是选择器问题也不是回归**：
+  同一屏「未操作 vs fill+clear 后」只差 **0.16%**，而「仓库基线 vs 未操作」差 **3.82%** ⇒ 差值几乎全部来自基线
+  与本机渲染环境不同源。同轮还观测到 `create-quick-text-reset` 在三次运行里 2 绿 1 红（7.39%），
+  进一步说明**这套工作流基线整体不具备可判据性** —— 要修的是「给它一个 CI job」，不是把阈值调大。
 合计 104 例，96 绿 8 红；8 红全部集中在 `all-workflows`，已登记为后续项（不在本 PR 扩面修）。
 
 ### 顺带记一条框架缺陷（未修）
