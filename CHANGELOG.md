@@ -1,3 +1,22 @@
+# [未发布] fix+test(账号云镜像): 登录态真源写入按账号加主进程串行锁，并修掉恢复侧从未生效的回写（2026-09-27）
+
+### 做了什么
+- 收口 openspec add-cloud-account-sync 残留「主进程同步 × 批量检测互斥」：新增 `apps/desktop/electron/services/account-state-lock.js`（`withAccountStateLock(accountId, section)`，FIFO、失败放行、排空回收键），把三个检测入口（`login-status-monitor` / `account:check-login` / `accounts:batch-check-login`）的「读凭证 → 回写结论」与云端恢复的「覆盖本机凭证 → 回写 unverified」各自收进同一把以 accountId 为键的临界区。
+- 修掉一个写测试时当场撞出来的断链：`cloud-account-restore.js` 按对象形调用 `AccountManager.persistLoginState`，而真实现是位置签名 —— status 恒为 undefined、判 `invalid-status` 直接 return，**恢复后的登录态一次都没写进真源**；返回值又被丢弃，所以连 warn 都没有。改回位置签名并检查返回值（非 ok 落 warn）。
+- 夹具同步纠正：`cloud-account-sync.test.js` 的 `persistLoginState` 夹具从 `(accountId, patch)` 改成与真实现逐字同形的位置签名 —— 正是这个「替被调方改签名」的夹具把断链断言成了契约。
+- 新增跨模块契约锁：`cloud-account-restore.test.js` 把**真实** `persistLoginState` 装进恢复流，断言后端真收到 `PATCH /api/accounts/<id>` 且 body 为 `{status: unverified, last_validated}`。
+
+### 外部评审（QM-6 双模型）之后补的三处
+- **取锁等待必须有上限**：`withHardTimeout` 在临界区内启动，等锁时间原本完全绕过单任务硬超时——挂死的写者会让批量已广播 `start` 却永不 `done`，定期检测的 `_running` 更会永不复位（之后所有轮次静默停摆且不报错）。现在等待计入同一份预算（批量用 `MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`，检测侧 `lockWaitTimeoutMs` / `MP_ACCOUNT_LOCK_WAIT_MS`，默认 30s），超时记 `CHECK_LOGIN_LOCK_TIMEOUT`、`valid: undefined`、不发 PATCH，且**不执行**临界区。
+- **无定论分支必须在临界区内重读真源现状**：列表快照是取锁前拍的，拿它猜现状会把别的写者刚落的 `expired` 覆盖成 `unverified`。
+- **恢复的状态回写失败不得冒充成功**：原先只 warn 一声仍返回"已覆盖"。现在返回结构化失败 + 新语义码 `RESTORE_STATUS_PERSIST_FAILED`，新建号场景回滚且不排自证检测；`summary.queuedCheck` 改为只统计真的排上的行（生产未注入 `queueLoginCheck`，故如实为 0，PRD/规格按实现纠正）。
+- 跨包契约夹具 `cloud-accounts-desktop-contract.test.js` 的 `persistLoginState(id, state)` 改成与真实现逐字同形的位置签名，并断言恢复真的按 `('restored-1','zhihu','unverified')` 到达写者。
+
+### 结论
+- 不变量：**凭证覆盖不得插在「检测读凭证」与「检测写结论」之间**。渲染层把两个按钮互相 disable 不构成防线，因为定期检测由 setInterval 自己起来、不经过任何按钮。
+- 6 条变异全部实测变红：摘监控侧锁 2 红 / 摘恢复侧锁 6 红 / 退回对象形调用 2 红 / 把排队检测挪进锁内 3 红 / 摘批量检测锁 10 红 / 锁退化成全局单键 7 红。
+- 文档按实现纠正两处失真：PRD §5.3 与 AGENTS.md 都写着 `validation_origin=restored` 且「不参与 7 天超龄兜底」——后端从来没有这一列，兜底也只作用于 `active`，字段无人消费故不再实现（禁止死键）。
+
 # [未发布] docs(登录): 真机配对 A/B 收口——噪音 cancel 无可证明收益，维持默认关（2026-09-27，login-qr-ab-backfill）
 
 ### 做了什么

@@ -99,8 +99,16 @@
 
 1. 写 `accounts.json`：走本机 python-backend `POST /api/accounts`（元数据）→ 得到本机 `id`；元数据映射见 §6.3。
 2. 写凭证：主进程 `credential-store.saveCredential(accountId, {platform, cookies, localStorage, indexedDB, accountInfo})`，本机重新用 safeStorage 主密钥加密（**云端密文不直接落本机**，两侧密钥体系独立）。
-3. 登录态：`status` 强制 `unverified`；`last_validated` 写本机恢复时刻，并打 `validation_origin = 'restored'` 使其**不参与** 7 天超龄兜底（`MP_LOGIN_STATE_GRACE_DAYS`）。
-4. 队列：恢复成功的账号进入一次自动登录检测（复用 `accounts:batch-check-login` 链路的并发与超时口径），由本机证据决定最终状态。
+3. 登录态：`status` 强制 `unverified`；`last_validated` 写本机恢复时刻（`AccountManager.persistLoginState(accountId, platform, 'unverified', ISO)` 的**位置签名**，见下方事故段）。
+   ~~并打 `validation_origin = 'restored'` 使其不参与 7 天超龄兜底~~ —— 2026-09-27 按实现纠正：
+   后端从来没有这一列，`persistLoginState` 也只 PATCH `{status, last_validated}`；而 7 天超龄兜底
+   （`MP_LOGIN_STATE_GRACE_DAYS`）在语义上**只作用于 `active`**，恢复即 `unverified` 本身就已经把
+   这条账号排除在宽限期之外，所以那个标记没有任何消费者。原先文档写着它存在，是因为恢复侧写了一份
+   "看起来像在实现它"的调用——而那份调用从来没生效过。不为一件没人读的字段新增列（AGENTS.md 禁止死键）。
+4. 队列：若主进程注入了本机检测入口（`queueLoginCheck`），恢复成功的账号立即进入一次检测（复用
+   `accounts:check-login` 的串行锁与三态口径）；**生产接线目前没有注入它**，所以实际情况是由下一次
+   定期检测（`login-status-monitor`，默认 30 分钟）收口。摘要字段 `queuedCheck` 只统计真的排上的行，
+   不得用 restored 数充当——那是凭空许诺"已安排检测"。（2026-09-27 按实现纠正；外部评审指出该承诺与实现不符）
 5. 顺序不可颠倒：凭证未落盘不得把元数据写成可用；凭证落盘失败时返回值如实透传真源原值，MUST NOT 声称 active（对齐 AGENTS.md「固化失败或登录证据不足时不得冒充」）。
 
 ### 5.4 元数据冲突（两边都有、字段不同）
@@ -146,7 +154,44 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 
 - 全局单实例：`syncing === true` 时再次触发返回 `CLOUD_SYNC_IN_PROGRESS`，按钮禁用。
 - 断开云端与同步互斥（同一把锁）。
-- 与「一键检测登录」(`account-batch-check-all`) 互斥：两者并行会同时改 `status`，任一先结束都会让另一份结论错乱；实现为互相 disable，过程区文案提示"登录检测进行中，稍后再同步"。
+- 与「一键检测登录」(`account-batch-check-all`) 互斥：两者并行会同时改 `status`，任一先结束都会让另一份结论错乱。
+
+**按钮互斥不足以成立这条契约（2026-09-27 收口，实现见 `apps/desktop/electron/services/account-state-lock.js`）**：
+渲染层的 `batchCheckAllBusy` / `cloudSyncRunning` 只能拦住*用户点下去的那一次*，而登录态真源还有第三个写者
+——`login-status-monitor` 由 `setInterval` 自己起来，不经过任何按钮；`account:check-login` 也另有一条入口。
+于是存在这样一条真实交错：检测读出**旧**凭证并发出请求 → 云端恢复把新凭证覆盖到本机并回写 `unverified`
+→ 检测结论迟到一步写成 `active`。结果正是「本机这份从未验证过的凭证显示已登录」，同时破掉
+「恢复即 unverified」与「登录态只被正/负证据改写」两条契约。
+
+主进程口径（唯一实现 `withAccountStateLock(accountId, section)`）：
+
+| 临界区 | 包住的动作 | 调用方 |
+| --- | --- | --- |
+| 检测侧 | 读本机凭证 → 得出三态结论 → 回写 `status` / `last_validated` | `login-status-monitor`、`account:check-login`、`accounts:batch-check-login` |
+| 恢复侧 | 用云端凭证覆盖本机凭证 → 回写 `unverified` | `cloud-account-restore.applyCredentialLocally` / `restoreToLocal` |
+
+| 口径 | 具体要求 |
+| --- | --- |
+| 等待有界 | 取锁等待计入**同一个**单任务硬超时预算（批量侧 `MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`，定期检测 `lockWaitTimeoutMs`，默认 30s，可用 `MP_ACCOUNT_LOCK_WAIT_MS` 调）。超时的等待者**不执行**临界区——调用方已经放弃了，迟到补写就是第二次竞态 |
+| 超时的语义 | "本轮无结论"，不是失效：批量记 `CHECK_LOGIN_LOCK_TIMEOUT` + `valid: undefined` + 不发 PATCH + 照常广播 `done`；定期检测落一条 `等锁超时，本轮跳过` warn 并结束本轮（`_running` 必须复位） |
+| 现状以锁内为准 | 无定论分支的"保持还是降级"取决于**此刻**的真源现状；列表快照是取锁前拍的，必须重读（`persistCheckOutcome` 在非定论分支重读 `GET /api/accounts/:id`；monitor 重读 `listAccounts` 里该 id 那一行）。否则会把别的写者刚落的 `expired` 覆盖成 `unverified` |
+| 回写失败不冒充成功 | `markRestoredStatus` 返回布尔；非 `ok` ⇒ `applyCredentialLocally` 返回 `{applied:false, code:'RESTORE_STATUS_PERSIST_FAILED'}`、不排检测；`restoreToLocal` 回滚新建的账号并如实报失败 |
+| 排队检测如实计数 | `summary.queuedCheck` 只统计**真的排上了**的行。生产接线没有注入 `queueLoginCheck`，因此它是 0——恢复后的自证由下一次定期检测（默认 30 分钟）收口，界面与文档都不得声称"已安排检测" |
+
+四条不可违反的口径：
+
+1. **键是 `accountId`**，不是 platform、更不是全局单锁。批量检测声明了并发上限与单任务硬超时
+   （AGENTS.md「批量 IPC 进度双边界与超时预算契约」），退化成全局单锁会让整批排队撞上预算，
+   遮罩钉死在第一个账号。回归里有一条专门断言「不同账号仍并行」。
+2. **失败必须放行**：前一个临界区抛错（检测异常、磁盘满）不得把该账号永久挡在门外，
+   否则表现为「这个账号从此再也不被检测」。
+3. **恢复收尾排定的本机自证检测必须在临界区之外**：它走同一把键，写进区内即自死锁，
+   且死锁不报错。回归用 `accountStateLockHeld(accountId)` 在排队那一刻当场断言为 `false`。
+4. **缺 `accountId` 一律抛错**，不静默降级成"不串行"——那等于把要防的竞态留在原地。
+
+不变量的可测表述：**凭证覆盖不得插在「检测读凭证」与「检测写结论」之间**。两条方向各一条用例
+（检测在途挡住恢复 / 恢复先持锁挡住检测），断言的是事件序列而非返回值——竞态通过时的样子
+恰恰是两边都返回成功。
 
 ## 六、数据模型与校验
 
@@ -365,6 +410,14 @@ ADR-0005 的防线就此失效；而信封破坏（`CLOUD_ENVELOPE_INVALID`）�
 | `CLOUD_DISCONNECT_PARTIAL` | 断开未全清 | 500 | `…err.disconnectPartial` |
 
 ### 7.5.1 客户端侧语义码（不经 HTTP，由主进程/传输层产生）
+
+本轮新增三个，登记在 `useCloudSyncResultModel` 的反向收集锁里（漏一个即红）：
+
+| 码 | 出现处 | 用户侧读法 |
+| --- | --- | --- |
+| `RESTORE_STATUS_PERSIST_FAILED` | 恢复：凭证已覆盖本机，但登录态没打回 `unverified` | 该账号本轮恢复失败（已回滚新建号），提示重试；**不得**显示为已登录 |
+| `CHECK_LOGIN_LOCK_TIMEOUT` | 检测：同一账号的临界区被另一写者占住，本轮放弃 | 本轮没结论，既有状态原样保持（不是失效） |
+| `ACCOUNT_LOCK_WAIT_TIMEOUT` | 锁内部错误码（IPC 不直接透传） | 只进主进程日志，用于区分"等锁超时"与"检测异常" |
 
 这些码同样进入逐条 `items[].code` 或批次 `errorCode`，因此**同样必须在展示层登记**
 （锁见 §10.3；未登记即落到「云端未接受该账号」兜底句，把本机问题说成云端问题）。

@@ -251,7 +251,7 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 | 6.6 flag 开启态视觉基线 | CI 无运营中心 ⇒ 按钮不渲染，`QG Visual` 的绿不构成新按钮证据 | 视觉回归覆盖面 |
 | ~~`/sync` 响应缺 `Cache-Control: no-store`~~ **已收口（2026-09-27）** | 出口常量 `NO_STORE` 覆盖云账号面三处出线点；真 HTTP 线级锁 + 两条分离变异反证 | 安全项已关闭；生产网关缓存行为仍未现场验证 |
 | ~~`ipc-handlers/cloud-account.js` 直测~~ **已补（2026-09-27）** | `ipc-handlers/cloud-account.test.js` 20 例（fail-closed / sender / 异常不逃逸 / 接线合同），三条独立变异反证 | IPC 边界回归强度已建立；真机 IPC 往返仍未做 |
-| 主进程「同步中 × 批量检测」互斥 | 两者可并发改写同一真源，最后写入者胜 | 登录态真源竞态 |
+| ~~主进程「同步中 × 批量检测」互斥~~ **已收口（2026-09-27，cloud-sync-residuals）** | `services/account-state-lock.js` 按 accountId 串行三个检测入口（定期 / 单账号 / 批量）与恢复写入；顺带修掉「恢复侧用对象形调用位置签名函数」导致的断链——真源从未被写，而夹具替被调方改了签名所以全绿；6 条变异反证均实测变红 | 登录态真源竞态已关闭；真机 Electron 内 IPC 往返仍未做 |
 | W5 `tombstone-backfilled` 结果语义 | 墓碑补写与逐条结果的对应关系未定 | 结果展示口径 |
 | 生产 KMS 实现与密钥轮转 | 本 PR 只交付接口 + 本地实现（ADR-0003 后果段） | 生产可用性 |
 | QM-4 全量 94 例视觉回归 | 发版前人工核查项，`release-gate` 未纳入硬门禁 | 发版前检查 |
