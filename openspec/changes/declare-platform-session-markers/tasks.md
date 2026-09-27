@@ -27,7 +27,10 @@
 - [x] 3.3 修正被收紧波及的既有断言：douyin 不再作为「未声明」代表（`hasPlatformSessionCookie`/`Markers` 两处改锚）；webview-manager 批量保存夹具补 douyin 会话 Cookie
 - [x] 3.3b 复核 `auth-view-manager.test.js`：改锚后该套件实测 40 passed，无其它用例以 xiaohongshu/douyin 作「未声明」样本
 - [x] 3.4 变异反证（4 条全部实测变红并字节还原）：把三家标记清空 ⇒ 取证契约必须红；把 `sessionCookieNames` 改成恒返回 `[]` ⇒ 单测必须红；把 `logDeclaredMarkerMiss` 调用删掉 ⇒ auth-view-manager 用例必须红
-- [x] 3.5 全量 `apps/desktop` electron 测试 + QM-1 打包验证
+- [x] 3.5 全量 `apps/desktop` electron 测试（7808 passed / 1 failed，唯一红为既有 `EPERM symlink`，已在未含本改动的 main 上复现）
+- [~] 3.5b QM-1：打包成功 + 解包后 require 产物内 `platform-definitions.js` 实测判定正确；**未做**启动 8 秒捕 stderr
+      （**未复验**：项目记忆中记有「并发实例在后端端口 8299 互相踩踏、launcher 误报 OK」，本轮未重测；
+      为避免为补一条记录而冒打断他人在跑应用的风险，选择留待下次打包一并补做）
 
 ## 4. 收口
 
