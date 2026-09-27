@@ -85,13 +85,14 @@ jobs:
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，
-      # 根 test 脚本是 pnpm -r），新写一条不登记就等于没写。以下 7 条即由
+      # 根 test 脚本是 pnpm -r），新写一条不登记就等于没写。以下条目即由
       # scripts/check-unwired-tests.js 扫出后收编的；shell: bash 与 doc-gate.yml 同形
       # （windows-latest 上已验证 bash 可用）。
       - name: "Gate 2c - Unwired-test ratchet (node --test / bash)"
         shell: bash
         run: |
           node --test scripts/check-unwired-tests.test.js
+          node --test scripts/branch-naming-contract.test.js
           node --test .github/scripts/check-ipc-bridge.test.js
           node --test scripts/detect-unwired-exports.test.js
           node --test scripts/ensure-desktop-deps.test.js
@@ -99,6 +100,7 @@ jobs:
           node --test scripts/sync-version.test.mjs
           bash scripts/hooks/post-checkout.test.sh
           bash scripts/hooks/pre-commit.test.sh
+          bash scripts/session-init.test.sh
           node scripts/check-unwired-tests.js
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
