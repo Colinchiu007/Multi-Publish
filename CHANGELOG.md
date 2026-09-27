@@ -1,5 +1,4 @@
 # [未发布] fix(账号云镜像): 收口 CI 抓出的两处本 PR 自身缺口 —— 锁的 unhandledRejection 逃逸与两个语义码未登记展示层（2026-09-27）
-
 ### 根因（首跑 4 条红全部由本 PR 引入，不是既有噪声）
 - **串行锁把 section 的失败留在了队尾链上**：`state.tail = state.tail.then(run, run)` 在"本等待者是最后一名排队者"
   时链上再无接手人，section 的 rejection 以队尾 promise 的身份逃逸成 `unhandledRejection`（CI 报 `Errors 2`，
@@ -10,33 +9,23 @@
   `ERROR_CODE_GROUPS`。后果不是报错而是**文案归错类**：未登记码会落进「云端未接受该账号」兜底句，用户去查云端，
   而真正该做的是重试本机落盘。两者并入 `localWriteFailed` 组，并在「本机侧码不得解析到云端兜底句」用例里逐个点名，
   防止哪天被挪错组。
-
 ### 为什么本地全绿（QM-5 逃逸分析）
 - 口径锁住在 `src/`，我改的是 `electron/` —— 本地按"我改了哪"挑文件，必然漏掉这条**跨目录读主进程源码**的锁。
   沉淀：改动侧与锁侧不在同一目录时，回归必须按"锁在哪"挑文件。
 - vitest 把 unhandled rejection 记在 `Errors` 里，不影响 `Tests ... passed` 那一行的计数；我此前只看那一行。
-
 ### 回归保护与反证
 - `account-state-lock.test.js` 新增「section 失败且链上无人接手时，不得逃逸成 unhandledRejection」（挂 process.on
   钩子 + 让出两个宏任务后断言收不到），该文件 12 → 13 例。**反证**：把链改回 `.then(run, run)` 后该用例红 1 条，
   同时 `login-status-monitor.test.js` 注入 `net down` 的那条从红转绿。
 - 6 个相关文件 `vitest run` = **94 passed**；`check-max-lines` / `check-debt-budget` 通过。
-
-
 # [未发布] docs(账号云镜像): 真机 IPC 与八平台 uid 线级取证回填——覆盖率实测 2/8，并记下两个挡住成功路径的外因（2026-09-27）
-
-### 做了什么
 - 在隔离 worktree 上用**复制的** debug profile 起真实 Electron 实例，渲染层经 CDP 真调 `window.electronAPI`，主进程经 Node inspector 调生产代码，并在 `https/http.request` 与 `fetch` 上记录真实出站。
 - 八平台 uid 取证：用生产同一对函数（`getMasterKey`/`decryptData`）解密 `credentials/owners/<hash>/*.json.enc`，调 `fetchAccountInfoViaHttpApi` 本体。**实测覆盖率 2/8**（bilibili、toutiao 取到原生 uid）。
 - 真机 IPC：`accountsCloudDigest/Sync/Disconnect/SyncAbort` + 进度订阅全部可达；信封形状、fail-closed、二次确认守卫、空闲中止均实测。
-
-### 结论
 - 文档原先暗示"多数平台可取 uid"，实测是 2/8；douyin/zhihu/xiaohongshu 端点 200 仍提不到可信身份属性 —— 提高覆盖率需要逐平台重新取证并改提取规则，属新工作项。
 - 成功路径（上传→换设备恢复→恢复即 unverified）本轮**跑不了**，两个外因：① 线上部署的构建不含云镜像面；② 本机第二实例的 python-backend 端口 8299 固定且被占用，绑定失败后无限重启，导致 `localCount` 读到的是别人的后端（返回 0）。这条端口固定造成的"假就绪"值得单独立项。
 - 附带发现（不修，登记）：`wechat_mp` 真源写 `active`，线级证据却是 `mp.weixin.qq.com/cgi-bin/loginpage → 302` —— 登录判定家族的既有问题，它会让失效凭证被镜像。
 - QM-4 全量视觉回归本机无法执行（Playwright chromium 未安装）；按 QM-4 第 7 条，本机截图也不得作为提交基线，故不产出"跑过了"的假证据。
-
-
 # [未发布] fix+test(账号云镜像): 登录态真源写入按账号加主进程串行锁，并修掉恢复侧从未生效的回写（2026-09-27）
 - 收口 openspec add-cloud-account-sync 残留「主进程同步 × 批量检测互斥」：新增 `apps/desktop/electron/services/account-state-lock.js`（`withAccountStateLock(accountId, section)`，FIFO、失败放行、排空回收键），把三个检测入口（`login-status-monitor` / `account:check-login` / `accounts:batch-check-login`）的「读凭证 → 回写结论」与云端恢复的「覆盖本机凭证 → 回写 unverified」各自收进同一把以 accountId 为键的临界区。
 - 修掉一个写测试时当场撞出来的断链：`cloud-account-restore.js` 按对象形调用 `AccountManager.persistLoginState`，而真实现是位置签名 —— status 恒为 undefined、判 `invalid-status` 直接 return，**恢复后的登录态一次都没写进真源**；返回值又被丢弃，所以连 warn 都没有。改回位置签名并检查返回值（非 ok 落 warn）。
@@ -51,10 +40,39 @@
 - 6 条变异全部实测变红：摘监控侧锁 2 红 / 摘恢复侧锁 6 红 / 退回对象形调用 2 红 / 把排队检测挪进锁内 3 红 / 摘批量检测锁 10 红 / 锁退化成全局单键 7 红。
 - 文档按实现纠正两处失真：PRD §5.3 与 AGENTS.md 都写着 `validation_origin=restored` 且「不参与 7 天超龄兜底」——后端从来没有这一列，兜底也只作用于 `active`，字段无人消费故不再实现（禁止死键）。
 ### 做了什么
+### 做了什么
+### 结论
 ### 结论
 
 
 
+
+
+
+
+
+
+
+
+
+
+# [未发布] fix(contract): 任务分支命名按代码为准回灌三处文档，并钉成契约锁
+
+### 做了什么
+- `scripts/gwm-task.sh:38` 自 2026-09-15 起默认建**裸 `<task-name>`** 分支（含斜杠分支名在本机 ref 写入不可靠，实测 `fatal: invalid reference`），前缀改为 `MP_BRANCH_PREFIX` 可选。但 `AGENTS.md` 铁律段、`openspec/specs/openspec-integration/spec.md` 的「分层分支策略」Requirement（及 #2485 同步过的 vendored 镜像副本）三处仍写 `codex/<task-name>`，唯一能证伪它的 `scripts/session-init.test.sh` 又从没接进 CI —— 三方漂移无人察觉。现按「代码为准」回灌三处。
+- 新增 `scripts/branch-naming-contract.test.js` 把口径钉住：实现侧断言 `MP_BRANCH_PREFIX` 可选拼接且禁止写死前缀；文档侧禁止 AGENTS.md / 真源 spec / vendored 镜像出现命令式的 `codex/<task-name>` 或「的 codex/ 分支」（AGENTS.md 记述事故的 `-b codex/...` 属历史叙述，不被误伤）；夹具侧改为**实跑** `session-init.test.sh` 并核对其结果行。
+- `session-init.test.sh`：断言由 `codex/alpha-task` 改为裸 `alpha-task`，新增 `MP_BRANCH_PREFIX=team → team/beta-task` 正向用例（本机实跑 PASS=13 FAIL=0，此前 FAIL=1）。
+- 接线棘轮扫描域扩到 `*.test.ps1`，并摘掉 session-init 的欠账、把它接进 Gate 2c。
+
+### 为什么
+「文档说要 A、代码做 B、测试断言 A、而测试从不跑」这组合能长期存在，缺的不是知识而是判据。回灌只解决这一次；契约锁 + 实跑核对才解决下一次。
+
+### 反证中新暴露的一处（值得单记）
+「前缀那一支要有覆盖」最初写成对 `MP_BRANCH_PREFIX=` 的文本 grep，反证 C4「删掉场景调用、保留场景定义」**照样全绿** —— 文本断言可以被"存在但从不执行"绕过。升级为实跑并断言 `PASS: MP_BRANCH_PREFIX opts into a prefixed branch` 结果行后，同一条变异精确变红。
+
+### 验证
+- 反证七次实测（AGENTS.md 退回写死→文档锁红；真源 spec 退回→文档锁 + 镜像漂移锁**同时**红；夹具退回 codex/→夹具锁红且 bash 自己 FAIL=1；删场景调用→实跑锁红；新增未接线 `.test.ps1`→棘轮红；摘掉一条 ps1 欠账→棘轮红；把 `gwm-task.sh` 改回写死 `codex/$TASK_NAME`→实现侧锁红），每次 `git checkout HEAD -- <单文件>` 恢复后复绿。
+- Gate 2c 整套按 CI 原语 `bash -euc` 实跑全绿；`node scripts/check-unwired-tests.js` → 41 文件 / 0 违规（欠账 7 条全部为 `.test.ps1`）。`.github/scripts/workflow-contract.test.js` 23 passed。
 
 # [未发布] test(ci): 新增「测试文件未接 CI 收集」棘轮，收编 7 条从未执行过的死锁
 
@@ -96,6 +114,28 @@
 ### 验证
 - 反证六次，逐个 `git checkout HEAD -- <单文件>` 恢复：改坏镜像一处文案 → 逐行全等锁红；删掉镜像一个 Scenario → Scenario 清单锁 + 全等锁红；删掉镜像整块 Requirement → 标题集合锁 + 规模下界锁红；给 vendored 脚本副本加一行 → 逐字节锁红；把锁的读取目标换成不存在的文件 → 整个文件红（非静默跳过）；换成存在但无 Requirement 的文件 → 规模下界锁红。
 - 新锁 5 例全绿；`node --test scripts/openspec-sync-check.test.js` 19 例全绿；`.github/scripts/workflow-contract.test.js` 23 例全绿（改 workflow 必跑）；镜像 diff +32/−10，`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同数（未改行尾，`.quality-rhythm/.gitattributes` 的 eol=lf 保持）。
+
+# [未发布] feat(账号云镜像): 生产 KMS 落地为文件密钥环（可轮转），并把轮转做成运维可执行的入口（2026-09-27）
+
+### 做了什么
+- 新增 `packages/api-publish-engine/src/cloud-accounts/keyring-kms.js`：主密钥从"单个环境变量"变成`{version, activeKeyId, keys:{id:hex}}` 密钥环；`encryptedDataKey` 前缀自描述所用 key id，因此**不需要新增数据库列**就能同时存在多把主密钥，旧信封在轮转后依然解得开。
+- 新增 `scripts/rotate-cloud-kms-key.js`（轮转 CLI，含 `--dry-run`）与轮转 SOP（OPS §5.1）。轮转 = 追加一把 + 移 active 指针，**旧密钥永不删除**。
+- 提供方选择收成一处 `createKmsFromEnv()`：配了 `MP_CLOUD_KMS_KEYRING` 走环，否则退回开发单密钥并落 `KMS_LOCAL_ONLY` warn（此前生产路径只有 `createLocalKms`，OPS 明令"该项落地前不得对真实用户开启"）。
+- 把 `api-key-manager` 的 Windows 原子 rename 重试提取为共享模块 `src/atomic-rename.js`，Key 存储与密钥环共用同一把 rename 语义（AGENTS.md 要求所有 rename 点口径一致）。
+
+### 外部评审（QM-6：codex + opencode 双模型）之后修掉的五条
+- **空白配置降级**：`MP_CLOUD_KMS_KEYRING=` 被 `|| ""` 判成"没配"，于是静默退回开发单密钥 ——正是 PRD §8.4 禁止的"降级成用固定密钥"。改为按"键是否存在"判定，空白即 `KMS_CONFIG_INVALID`。
+- **`--key-id --dry-run` 被当成密钥名**：运维本想演练，结果执行了一次真实轮转。选项值现在拒绝缺失值与下一个 flag，且 `--dry-run` 与真跑共用同一把校验（`assertNewKeyIdUsable`）。
+- **临时文件默认 mode**：Linux umask 022 下建出 0644，rename 把权限带到密钥环上 ⇒ 同机任意用户可读主密钥环。现在用 `openSync(tmp, "wx", 0o600)` 创建，临时名改用 `crypto.randomBytes`（可猜即可被符号链接诱导）。
+- **轮转无锁**：read-modify-write 下两个并发轮转各自基于旧环生成新环，后一次 rename 整把丢掉前一次的新密钥，那批信封永久不可解。现在用 `proper-lockfile` 与 API Key 存储同口径互斥，竞争即 `KMS_KEYRING_LOCKED` 不写盘。
+- **明文 DK 副本不清零**：`unwrapDataKey` 复制后只清副本，KMS 交出的那份原 Buffer 留到 GC。现在两份都清；`rotateKeyring` 也不再返回整份 ring（返回含密钥的对象 = 给未来日志埋雷）。
+
+### 结论
+- 轮转回归用**真 envelope-crypto** 跑一整轮（旧信封在 active 切换后仍解得开），不是只测本模块的 wrap/unwrap。
+- 11 条变异反证全部实测变红（其中一条先暴露了**我自己写的装饰性断言**：H2 原本断言 `(mode & 0o077) === 0`，省略 mode 实参时 `undefined & 0o077` 也是 0，删掉权限实参后套件仍全绿 —— 已改成钉死 `mode === 0o600`）。包内测试 node:test 侧 199 passed / 0 failed（7 条 skip 为需真实 Postgres 的用例），vitest 侧 258 passed。
+- 生效时机写进 CLI 与 OPS：KMS 实例永久缓存 active ⇒ **轮转后必须重启进程**，新写入才用新密钥。
+
+---
 
 # [未发布] docs(登录): 真机配对 A/B 收口——噪音 cancel 无可证明收益，维持默认关（2026-09-27，login-qr-ab-backfill）
 
