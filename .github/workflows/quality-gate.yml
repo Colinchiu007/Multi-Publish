@@ -103,6 +103,26 @@ jobs:
           bash scripts/session-init.test.sh
           node scripts/check-unwired-tests.js
 
+      # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
+      # 分档依据是本机实测（pwsh 7.6 / Windows PowerShell 5.1 各跑一遍），不是猜的：
+      # - 下面 5 条在 pwsh 7 下 rc=0；其中 applive-foreign-audit 与 start-desktop-profile-lock
+      #   带小写 `#requires -Version 7`，在 5.1 下直接 ScriptRequiresUnmatchedPSVersion 拒跑。
+      # - worktree-fs-longpath 必须走 Windows PowerShell：它的负控「未加 \\?\ 前缀的
+      #   IO.Directory::Delete 应当失败」只在 .NET Framework 下成立；pwsh 7 因程序清单带
+      #   longPathAware 而**意外成功**（实测 FAIL: fixture too shallow），属运行时依赖而非缺陷。
+      - name: "Gate 2d - PowerShell locks never collected by CI (pwsh 7)"
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/applive-foreign-audit.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
+
+      - name: "Gate 2d-b - worktree-fs-longpath (Windows PowerShell 5.1 runtime dependency)"
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/worktree-fs-longpath.test.ps1
+
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
