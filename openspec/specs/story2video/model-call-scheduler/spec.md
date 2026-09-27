@@ -4,7 +4,7 @@
 视频创作模块统一模型调用调度：按 provider 的每分钟连接次数/5小时限额合理安排并发与排队，预算来自前端默认模型配置并可回退默认。
 ## Requirements
 ### Requirement: 统一模型调用调度机制
-桌面端所有模型 API 调用（含视频创作生成阶段）必须收敛到 ApiUsageGovernor + model-call-scheduler 统一入口：并发信号量、RPM 滑动窗口排队、429 冷却重试、5h 请求额度窗口。调度边界必须单层收敛：已由 AIGenerator.generate 内部 governor 调度的路径，阶段外层不得重复包裹（同 key 双包会导致并发信号量自死锁）；网关必须提供同 key 重入保护。
+桌面端所有模型 API 调用（含视频创作生成阶段） SHALL 收敛到 ApiUsageGovernor + model-call-scheduler 统一入口：并发信号量、RPM 滑动窗口排队、429 冷却重试、5h 请求额度窗口。调度边界 SHALL 单层收敛：已由 AIGenerator.generate 内部 governor 调度的路径，阶段外层 SHALL NOT 重复包裹（同 key 双包会导致并发信号量自死锁）；网关 SHALL 提供同 key 重入保护。
 
 #### Scenario: 生成阶段调用走统一入口
 - **WHEN** story2video generate_assets 并行生成图片/TTS 且 provider 已配置
@@ -39,7 +39,7 @@
 - **THEN** 释放方把槽位转移给被放行请求（active+=1），全部完成后 active 归零、不漂移为负
 
 ### Requirement: 每分钟连接次数与5小时限额配置
-model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 limit_per_5h（5小时限额次数），允许为空；非空时必须为正整数并注入 governor。
+model provider 配置 SHALL 支持 rate_per_minute（每分钟连接次数）与 limit_per_5h（5小时限额次数），允许为空；非空时 SHALL 为正整数并注入 governor。
 
 #### Scenario: 预算注入
 - **WHEN** ModelProviderManager 初始化或 provider 配置更新且包含 rate_per_minute/limit_per_5h
@@ -54,7 +54,7 @@ model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 
 - **THEN** 配置保存被拒绝并给出明确错误提示
 
 ### Requirement: 前端设置展示限流字段
-前端模型设置页必须提供「每分钟连接次数」「5小时限额次数」输入（可空），并提示语义与留空行为。
+前端模型设置页 SHALL 提供「每分钟连接次数」「5小时限额次数」输入（可空），并提示语义与留空行为。
 
 #### Scenario: 编辑与持久化
 - **WHEN** 用户在模型设置编辑 rate_per_minute/limit_per_5h 并保存
@@ -65,7 +65,7 @@ model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 
 - **THEN** 界面显示「留空使用默认限流」提示，不阻塞保存
 
 ### Requirement: 种子预算来源约束
-预设限流种子只允许包含代码事实：rate_per_minute 必须与 governor-provider-limits 静态表一致；limit_per_5h 无代码事实不得预填（运营配置后注入 provider 级 5h 窗口）。
+预设限流种子只允许包含代码事实：rate_per_minute SHALL 与 governor-provider-limits 静态表一致；limit_per_5h 无代码事实 SHALL NOT 预填（运营配置后注入 provider 级 5h 窗口）。
 
 #### Scenario: 种子自洽
 - **WHEN** 检查 PRESET_RATE_LIMITS
@@ -76,7 +76,7 @@ model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 
 - **THEN** governor 不预置 5h 窗口（注入清除），运营填写后生效
 
 ### Requirement: 运行时同步预算来源
-桌面端 governor 预算来源增加「运行时同步目录」层：ModelProviderManager.applyCatalog 把运营目录写入本地 config（rate_per_minute/limit_per_5h/capabilities/capability_models/models/default_model），随后重应用 governor；不覆盖 api_key/enabled/is_default/base_url。
+桌面端 governor 预算来源 SHALL 增加「运行时同步目录」层：ModelProviderManager.applyCatalog 把运营目录写入本地 config（rate_per_minute/limit_per_5h/capabilities/capability_models/models/default_model），随后重应用 governor；不覆盖 api_key/enabled/is_default/base_url。
 
 #### Scenario: 同步后预算生效
 - **WHEN** applyCatalog 更新某 provider 的 rate_per_minute=30
@@ -87,7 +87,7 @@ model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 
 - **THEN** api_key/enabled/is_default/base_url 保持不变
 
 ### Requirement: 前端字段只读
-模型设置页在启用运营后台同步后：限流字段只读展示（不提供输入）；模型列表只读（disabled）。
+模型设置页在启用运营后台同步后：限流字段 SHALL 只读展示（不提供输入）；模型列表 SHALL 只读（disabled）。
 
 #### Scenario: 已同步
 - **WHEN** lastSyncedAt 存在
@@ -98,7 +98,7 @@ model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 
 - **THEN** 模型列表可手动编辑（向后兼容），限流字段显示「未配置（默认限流）」
 
 ### Requirement: 排队等待与冷却时序预算
-governor 的排队与冷却等待必须有界且文案明确：并发信号量队列 30s、RPM 时间槽 180s、429 冷却 45s；超限返回 RATE_LIMITED 明确文案，额度窗口请求前预检即拒返回 QUOTA_EXCEEDED，不静默丢弃。
+governor 的排队与冷却等待 SHALL 有界且文案明确：并发信号量队列 30s、RPM 时间槽 180s、429 冷却 45s；超限返回 RATE_LIMITED 明确文案，额度窗口请求前预检即拒返回 QUOTA_EXCEEDED，不静默丢弃。
 
 #### Scenario: 并发队列超时
 - **WHEN** 请求等待并发信号量超过 30s（MAX_QUEUE_WAIT_MS）
@@ -117,7 +117,7 @@ governor 的排队与冷却等待必须有界且文案明确：并发信号量�
 - **THEN** rateFactor ×0.75（下限 0.2）下调 RPM 预算，成功后每笔 +0.05 缓慢恢复，_effectiveRpm = max(2, round(rpm × rateFactor))
 
 ### Requirement: 预算来源与数据库默认值降级
-桌面端限流预算来源必须按「运营后台配置（ops-center DB → catalog → 桌面 DB config）> 桌面 DB 预设种子（PRESET_RATE_LIMITS 回填 config）> 静态表 PROVIDER_LIMITS > 类别默认 DEFAULT_LIMITS」降级；运营显式清空（null/''/0/布尔）时删除本地值并回退静态表/类别默认。
+桌面端限流预算来源 SHALL 按「运营后台配置（ops-center DB → catalog → 桌面 DB config）> 桌面 DB 预设种子（PRESET_RATE_LIMITS 回填 config）> 静态表 PROVIDER_LIMITS > 类别默认 DEFAULT_LIMITS」降级；运营显式清空（null/''/0/布尔）时删除本地值并回退静态表/类别默认。
 
 #### Scenario: 运营未配置使用数据库种子默认
 - **WHEN** 运营后台 rate_per_minute 未设置且预设种子已回填 config.rate_per_minute
