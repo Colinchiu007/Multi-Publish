@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { holdExclusiveWindowsFileLock } = require('../../../test-helpers/windows-file-lock.js')
+const { holdExclusiveWindowsFileLock, LOCK_CASE_TIMEOUT_MS } = require('../../../test-helpers/windows-file-lock.js')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -9,6 +9,7 @@ const ApiKeyManager = require('../src/api-key-manager')
 
 test('Windows 短暂文件锁释放后 API Key 原子保存成功', {
   skip: process.platform !== 'win32',
+  timeout: LOCK_CASE_TIMEOUT_MS,
 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-api-key-atomic-'))
   const keysPath = path.join(directory, 'api-keys.json')
