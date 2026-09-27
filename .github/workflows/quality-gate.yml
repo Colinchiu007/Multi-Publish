@@ -116,8 +116,13 @@ jobs:
       # worktree-fs-longpath 曾在此之后加一步 `shell: powershell` 单独跑，实测在 runner 上仍红
       # （同一条负控「未加 \\?\ 前缀的 IO.Directory::Delete 应当失败」unexpectedly succeeded），
       # 已撤下并登记进 scripts/check-unwired-tests.js 的 KNOWN_UNWIRED。
-      # session-write-guard 亦已撤下：改成 fail-fast 后暴露它在 runner 上本就是红的
-      # （`FAIL: shared status stays clean after tracked restore`，本机绿），同样登记欠账。
+      # session-write-guard 曾在撤下名单里：改成 fail-fast 后暴露它在 runner 上本就红
+      # （`FAIL: shared status stays clean after tracked restore`，本机绿）。根因已定位并修掉，
+      # 不在守卫也不在 runner 的特殊性，而在夹具两处与真实工作树不同形：索引由 `git add`
+      # 现场建立（不带 git 的换行转换状态），以及工作树 EOL 形态留给宿主 core.autocrlf 决定
+      # （本机 false=LF、runner 默认 true=CRLF）。现已改为 clone 出工作树 + 夹具自带
+      # `* text eol=lf` / `* text eol=crlf` 两档都跑；本机以 GIT_CONFIG_GLOBAL 注入
+      # autocrlf=true 复现 runner 档位后，两 shell × 有/无全局身份 4 组组合各 34 条全绿。
       # 本步骤整体用 shell: bash —— 旧版用 pwsh 时，前一条测试抛 FAIL 后步骤仍报 success
       # （实测 run 36313053992 的 step 11 之后继续跑完并绿），等于装饰性门禁。
       - name: "Gate 2d - PowerShell locks never collected by CI (pwsh 7)"
@@ -126,6 +131,7 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/applive-foreign-audit.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---

@@ -17,6 +17,24 @@
 - 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
 - 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
 - **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
+# [未发布] test(ci): session-write-guard 夹具改成与真实工作树同形，收掉「runner 红、本机绿」那条欠账（2026-09-27，write-guard-eol）
+
+### 变更
+- `scripts/session-write-guard.test.ps1` 重写夹具：被测工作树改由 `git clone` 建立（索引带着 git 的换行转换状态），EOL 档位由夹具自己提交的 `.gitattributes` 声明，`text eol=lf` 与 `text eol=crlf` **两档各跑一遍**；夹具内写文件一律 `[IO.File]::WriteAllText` 显式 LF，不再用 `Set-Content -Encoding UTF8`。断言 17 → 35 条（末条是规模锁，少跑一格即红）。
+- 「tracked 文件已恢复」从读 `git show HEAD:<path>` 改为读**工作树内容**（v1 在、被拦截的 v2 不在）。旧写法是装饰性断言：把守卫的恢复动作改成「恢复另一个文件」（守卫 rc 仍为 0、`tracked.js` 留在 v2）时，旧断言照样打印 `PASS: tracked file is restored from HEAD`。
+- 夹具的 clone 侧补上仓库级 `user.name/email`：clone 不继承源仓的仓库级身份，嵌套提交此前依赖宿主**全局**身份，干净机器上会以 `unable to auto-detect email address` 红一条无关断言。
+- `quality-gate.yml` 的 Gate 2d 回接本测试（4 → 5 条）；`scripts/check-unwired-tests.js` 的 `KNOWN_UNWIRED` 3 → 2 条（棘轮只缩小），并同步缩小 `check-unwired-tests.test.js` 里钉住该清单的断言。
+
+### 根因（并更正上一轮的归因）
+上一轮我把这条 runner 红判成「只有 runner 本身算数」那一类、登记成欠账。**判错了**：差异维度是宿主的 `core.autocrlf`（本机 `false`、GitHub windows runner 默认 `true`），用 `GIT_CONFIG_GLOBAL` 指到一个只写 `[core] autocrlf=true` 的临时文件即可在本机确定性复现同一条 `FAIL: shared status stays clean after tracked restore`。8 格对照（{混合行尾, 单 LF} × {无属性, `* text=auto`} × {autocrlf false, true}）进一步证明**守卫无责**：`git init` + `git add` 现场造的索引 5/8 格在恢复后报脏，`clone` 形态 8/8 格干净，且「纯 `git restore`」与「经守卫恢复」逐格完全相同。真仓根 `.gitattributes` 是 `* text=auto`，其工作树落地形态恰好由宿主配置决定——夹具没声明这一维，等于把结论交给运行环境。
+
+### 门禁与反证
+- 本机实跑：`pwsh 7.6` 与 `Windows PowerShell 5.1` × {宿主 autocrlf=false（本机现状）、=true（runner 等价）、=true 且无全局身份} 共 4 组组合，各 `rc=0 / 35 条断言`。改前在同一 runner 等价档下是 `rc=1`。
+- 五格变异全部实测变红，每次改完以 sha256 核对逐字还原：M1 去掉夹具 `.gitattributes` → `[lf] restore reproduced this repo's declared work-tree EOL form` 红；M2 不 clone、复用 add 索引 → `[crlf] shared status stays clean after tracked restore` 红（正是历史 CI 红的那一条签名）；M3 属性写死 `eol=lf` → `[crlf] ...EOL form` 红；M4 删掉第二格 → 规模锁红（`expect 34 checks, got 17`）；M5 守卫恢复错文件 → 旧断言仍 PASS、新内容断言不 PASS。
+- 同 PR 自跑：`node scripts/check-unwired-tests.js`（42 个测试文件，OK）、`node scripts/check-step-failfast.js`（4 个多测试步骤，OK）、`node --test scripts/check-unwired-tests.test.js scripts/check-step-failfast.test.js .github/scripts/workflow-contract.test.js`（8+6+23 passed）、`scripts/verify-worktree-deps.js` OK。
+- AGENTS.md：更正「绿灯与否只有 runner 本身算数」的适用边界（**可配置维度**必须先用 `GIT_CONFIG_GLOBAL` 之类手段在本机复现，不得记成欠账），新增 MUST「断言 `git status` 干净度的测试夹具，必须自己声明 EOL 档并把索引交给 checkout」。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不冒充通过）。
+
 # [未发布] refactor(accounts): 会话凭证恢复侧从 account-manager.js 拆出（2026-09-27，split-account-manager-session-restore）
 
 ### 变更
