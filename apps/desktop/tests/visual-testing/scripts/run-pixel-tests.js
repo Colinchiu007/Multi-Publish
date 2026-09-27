@@ -11,6 +11,13 @@ const pixelTests = [
   // 首页已复刻为参考产品风格 .mp-home 布局，旧版 .cohere-main .page-title 选择器已不存在。
   { name: 'home-baseline', route: '/', waitFor: '.mp-home .mp-home-welcome' },
   { name: 'accounts-list', route: '/accounts', waitFor: '.mp-workspace .accounts-page' },
+  // 账号云镜像入口的**开启态**（ADR-0006 默认关闭 + CI 无运营中心 ⇒ 上一行那条绿只证明"未开启态无回归"）。
+  // 等待条件直接指向入口本身：渲染不出来就是这条失败，而不是"截一张没有按钮的图当基线"。
+  // 本仓是 hash 路由，参数落在 fragment 内，由 useFeatureFlag 从 location.hash 的 query 段读取。
+  // expectedRoute 先留空（= route）：本地实测一次，读 runner 报的 expectedHash vs hash，
+  // 再决定是否需要写 vue-router 归一化后的形态（禁止凭猜测设值把就绪判定放宽）。
+  { name: 'accounts-list-flag-on', route: '/accounts?mpFlag=account_cloud_sync=1',
+    waitFor: '.mp-workspace .accounts-page [data-testid="account-cloud-sync"]' },
   // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
   { name: 'publish-form', route: '/publish', waitFor: '.mp-workspace .target-selector [data-testid^="platform-"]' },
   { name: 'publish-history', route: '/publish/history', waitFor: '.mp-workspace .publish-history-page h1:has-text("发布记录")' },

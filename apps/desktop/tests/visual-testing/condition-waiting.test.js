@@ -144,7 +144,7 @@ describe('视觉测试条件等待合同', () => {
     expect(ipcMock).toContain('visualProviders');
   });
 
-  it('完整视觉命令聚合四套用例并覆盖 104 个场景', () => {
+  it('完整视觉命令聚合四套用例并覆盖 105 个场景', () => {
     const packageJson = require('../../package.json');
     const { viewTests } = require('./views/all-views.visual.test');
     const { supplementaryViewTests } = require('./views/supplementary-views.visual.test');
@@ -156,12 +156,14 @@ describe('视觉测试条件等待合同', () => {
     expect(command).toContain('views/supplementary-views.visual.test.js');
     expect(command).toContain('workflows/all-workflows.visual.test.js');
     expect(command).toContain('workflows/supplementary-workflows.visual.test.js');
+    // 总数随用例注册表增删而变，改这里的前提是"确实新增/下线了一条用例"；
+    // 它锁的是"四套注册表都被命令聚合到、且没有整批没加载"（少加载一整套会一次差几十条）。
     expect(
       viewTests.length
         + supplementaryViewTests.length
         + workflowTests.length
         + supplementaryWorkflowTests.length,
-    ).toBe(104);
+    ).toBe(105);
   });
 
   it('浏览器原生文本变化轮询只使用标准 CSS 选择器', () => {
