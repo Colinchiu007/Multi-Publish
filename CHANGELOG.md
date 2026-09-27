@@ -1,21 +1,47 @@
 # [未发布] fix+test(账号云镜像): 登录态真源写入按账号加主进程串行锁，并修掉恢复侧从未生效的回写（2026-09-27）
-
-### 做了什么
 - 收口 openspec add-cloud-account-sync 残留「主进程同步 × 批量检测互斥」：新增 `apps/desktop/electron/services/account-state-lock.js`（`withAccountStateLock(accountId, section)`，FIFO、失败放行、排空回收键），把三个检测入口（`login-status-monitor` / `account:check-login` / `accounts:batch-check-login`）的「读凭证 → 回写结论」与云端恢复的「覆盖本机凭证 → 回写 unverified」各自收进同一把以 accountId 为键的临界区。
 - 修掉一个写测试时当场撞出来的断链：`cloud-account-restore.js` 按对象形调用 `AccountManager.persistLoginState`，而真实现是位置签名 —— status 恒为 undefined、判 `invalid-status` 直接 return，**恢复后的登录态一次都没写进真源**；返回值又被丢弃，所以连 warn 都没有。改回位置签名并检查返回值（非 ok 落 warn）。
 - 夹具同步纠正：`cloud-account-sync.test.js` 的 `persistLoginState` 夹具从 `(accountId, patch)` 改成与真实现逐字同形的位置签名 —— 正是这个「替被调方改签名」的夹具把断链断言成了契约。
 - 新增跨模块契约锁：`cloud-account-restore.test.js` 把**真实** `persistLoginState` 装进恢复流，断言后端真收到 `PATCH /api/accounts/<id>` 且 body 为 `{status: unverified, last_validated}`。
-
 ### 外部评审（QM-6 双模型）之后补的三处
 - **取锁等待必须有上限**：`withHardTimeout` 在临界区内启动，等锁时间原本完全绕过单任务硬超时——挂死的写者会让批量已广播 `start` 却永不 `done`，定期检测的 `_running` 更会永不复位（之后所有轮次静默停摆且不报错）。现在等待计入同一份预算（批量用 `MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`，检测侧 `lockWaitTimeoutMs` / `MP_ACCOUNT_LOCK_WAIT_MS`，默认 30s），超时记 `CHECK_LOGIN_LOCK_TIMEOUT`、`valid: undefined`、不发 PATCH，且**不执行**临界区。
 - **无定论分支必须在临界区内重读真源现状**：列表快照是取锁前拍的，拿它猜现状会把别的写者刚落的 `expired` 覆盖成 `unverified`。
 - **恢复的状态回写失败不得冒充成功**：原先只 warn 一声仍返回"已覆盖"。现在返回结构化失败 + 新语义码 `RESTORE_STATUS_PERSIST_FAILED`，新建号场景回滚且不排自证检测；`summary.queuedCheck` 改为只统计真的排上的行（生产未注入 `queueLoginCheck`，故如实为 0，PRD/规格按实现纠正）。
 - 跨包契约夹具 `cloud-accounts-desktop-contract.test.js` 的 `persistLoginState(id, state)` 改成与真实现逐字同形的位置签名，并断言恢复真的按 `('restored-1','zhihu','unverified')` 到达写者。
-
-### 结论
 - 不变量：**凭证覆盖不得插在「检测读凭证」与「检测写结论」之间**。渲染层把两个按钮互相 disable 不构成防线，因为定期检测由 setInterval 自己起来、不经过任何按钮。
 - 6 条变异全部实测变红：摘监控侧锁 2 红 / 摘恢复侧锁 6 红 / 退回对象形调用 2 红 / 把排队检测挪进锁内 3 红 / 摘批量检测锁 10 红 / 锁退化成全局单键 7 红。
 - 文档按实现纠正两处失真：PRD §5.3 与 AGENTS.md 都写着 `validation_origin=restored` 且「不参与 7 天超龄兜底」——后端从来没有这一列，兜底也只作用于 `active`，字段无人消费故不再实现（禁止死键）。
+### 做了什么
+### 结论
+
+
+
+
+# [未发布] test(windows-lock 夹具): 握手拆成启动/持锁两相位 + 持锁有效性自证，并消除预算倒挂（2026-09-27，fix-windows-lock-coldstart）
+
+### 做了什么
+- 定责 main 上那朵随机拦合并的红：`credential-store` 的 Windows 主密钥迁移用例报 `lock handshake did not report "LOCKED" within 20000ms (stdout="", stderr="")`。逐相位实测（本机 16 核 + 16 忙循环）证明延迟全在 **PowerShell 冷启动**（首个字节 0.28–0.47s → 3.6–8.4s），`[IO.File]::Open` 从未成为瓶颈 —— 原注释「冷启动是秒级，20s 有数倍余量」是未量过的断言。
+- ① `test-helpers/windows-file-lock.js` 子脚本在 open 前先吐 `READY`，握手拆成启动相位(45s)/持锁相位(12s)各带预算，错误点名相位，并每次留痕 `ready= locked= verify=`。
+- ② 新增父进程侧反向探针 `exclusiveLockIsEffective()`：**标记不等于效果**。实测到「去掉 `& { param() }` ⇒ Open 抛异常但 PS 默认 Continue 照样打印 LOCKED」这条真实路径，那种夹具是 no-op 且快 4 倍，会让消费用例对着无锁文件假绿。
+- ③ 消除预算倒挂：`account-state-restorer` 该用例此前无 timeout，继承全局 10s < 夹具预算 ⇒ 框架先赢、零诊断。统一导出 `LOCK_CASE_TIMEOUT_MS` 单点口径，三个消费方一律引用，并加扫描式接线守卫。
+
+### 结论
+- 反证 5 条全部实测变红（探针恒 true / 探针默认关 / 相位文案合并 / 裸数字 timeout / 余量归零）；还原后 18/18 绿，工作区与提交字节一致。
+- `MP_WINDOWS_LOCK_HANDSHAKE_TIMEOUT_MS` 被 `MP_WINDOWS_LOCK_READY_TIMEOUT_MS` / `MP_WINDOWS_LOCK_OPEN_TIMEOUT_MS` 取代（仅测试排障用，无生产引用）。
+
+# [未发布] test(quality-rhythm): vendored 契约镜像加漂移锁，并收编从未在 CI 跑过的孤儿锁
+
+### 做了什么
+- 新增 `scripts/quality-rhythm-spec-mirror.test.js`：`.quality-rhythm/integrations/openspec/spec-contract.md` 是 openspec 真源 spec 分发到其他仓库的契约副本，此前全仓零引用、零校验。新锁按 `### Requirement:` 切块，断言镜像标题集合与真源相同、每块逐行全等、`#### Scenario:` 清单一致，并对解析结果加规模下界断言（防止解析退化成空集合而假绿）。同锁 `.quality-rhythm/skills/other/ci-hardening/scripts/affected-report.js` 的 vendored 副本（与已被守的 openspec-sync-check.js 同形、此前无人守）。
+- 回灌镜像：真源「归档三同步自动检查」的 3 个 Scenario（active change 仍有未完成任务 / 终态字段双向漂移 / superseded 缺少替代证据）与「分层分支策略」的独立 worktree 细则、`GH011` 全称、第 4 个 Scenario「共享主工作区误切 feature 分支」，在镜像里全部缺失。
+- 收编孤儿锁：`scripts/openspec-sync-check.test.js`（19 例，含仓库里唯一一条镜像逐字节对齐断言）从未被任何 workflow 收集——CI 只显式挂 `scripts/` 下 5 个测试文件且无通配，`pnpm -r test` 也不覆盖根 `scripts/`。现与新锁一并接入 `quality-gate.yml` Gate 2b（QG Static 红会经 `gate-result` 聚合拦住必需检查 Gate Result）。
+
+### 为什么
+镜像只能靠人肉同步（#2479 只补了其中一句），属 AGENTS.md「门禁断言随实现迁移同步」点名的沉默漂移类；而唯一那条对齐锁本身不在 CI 里跑——登记了一把从未拉动的闸。
+
+### 验证
+- 反证六次，逐个 `git checkout HEAD -- <单文件>` 恢复：改坏镜像一处文案 → 逐行全等锁红；删掉镜像一个 Scenario → Scenario 清单锁 + 全等锁红；删掉镜像整块 Requirement → 标题集合锁 + 规模下界锁红；给 vendored 脚本副本加一行 → 逐字节锁红；把锁的读取目标换成不存在的文件 → 整个文件红（非静默跳过）；换成存在但无 Requirement 的文件 → 规模下界锁红。
+- 新锁 5 例全绿；`node --test scripts/openspec-sync-check.test.js` 19 例全绿；`.github/scripts/workflow-contract.test.js` 23 例全绿（改 workflow 必跑）；镜像 diff +32/−10，`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同数（未改行尾，`.quality-rhythm/.gitattributes` 的 eol=lf 保持）。
 
 # [未发布] docs(登录): 真机配对 A/B 收口——噪音 cancel 无可证明收益，维持默认关（2026-09-27，login-qr-ab-backfill）
 

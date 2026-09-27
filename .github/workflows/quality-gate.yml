@@ -77,6 +77,11 @@ jobs:
           # 会话隔离入口脚本的结构锁：native stderr 捕获不得处在 EAP=Stop 作用域内
           # （否则 worktree 已建成也会以 rc=1 中止，见 scripts/start-mp-task.test.js 头注释）
           node --test scripts/start-mp-task.test.js
+          # openspec-sync-check.test.js 自带「镜像与真源逐字节一致」锁，但历史上从未被任何
+          # workflow 收集（CI 只显式挂 scripts 下 5 个测试文件，无通配），锁等于没在跑；在此收编。
+          node --test scripts/openspec-sync-check.test.js
+          # 质量节拍 vendored 契约镜像（.quality-rhythm/）与 openspec 真源的漂移锁
+          node --test scripts/quality-rhythm-spec-mirror.test.js
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
