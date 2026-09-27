@@ -1,3 +1,11 @@
+## 瞬时故障的卫生要覆盖全部证据消费点；而 rc=0 不等于你的文件被 CI 看见（2026-09-28）
+
+- **「恢复逻辑」的副作用清理必须逐个核对证据消费点，只挂在恢复事件上等于没修（测试场景缺失）**：#2455 为 `net::ERR_NO_BUFFER_SPACE` 设计证据卫生时，只在 `waitForAppReady()` 的重载分支里调 `_discardTransientConsoleNoise()`，理由是「重载会丢弃旧页面状态」。这个理由对**那一条路径**成立，于是同一次改动在「应用已就绪之后的逐路由检查」这条路径上留了真空：噪音没人清，直通 `final-report.js` 的 `consoleErrors === 0`。写恢复逻辑时要先列「这份证据被谁读」的清单（断言点 / 收口点 / 退出码），逐个确认，而不是只在产生处收尾。
+- **卫生/降噪类改动必须带预算上限，否则把持续故障伪装成健康（测试质量不足）**：按错误码无上限清理，等价于「socket 缓冲区被打满、一整条路由的资源全挂」也能判绿。落成 `TRANSIENT_CONSOLE_NOISE_BUDGET`（默认 3，env 可调），超出部分留在 `consoleErrors` 照常判红；清掉的条目一律进 `recoveredTransientErrors` 落产物。回归锁要有一条「灌 budget+2 条必须仍然判红」的用例，只测「1 条能清掉」是半个锁。
+- **「检查器返回 0」不构成「我的新测试被 CI 看见」的证据，必须先核实它的扫描根（流程缺失）**：本仓的「测试文件未接 CI 收集」棘轮 `scripts/check-unwired-tests.js` 里 `SCAN_DIRS = ["scripts", ".github/scripts"]`，**完全不覆盖** `apps/desktop/tests/`。所以把 `run-all.test.js` 手工接进 `quality-gate.yml` 之后，跑该棘轮得到 rc=0 是一次**假安心**——它根本没看过这个目录。判据改为「在 CI 里看见该文件名出现在 runner 通过清单且测试数 >0」，不看工具退出码。同理适用于任何「XX 检查通过」：先问它的扫描集是什么。
+- **日志读取侧与记录生产侧的字段不一致，会让 CI 日志静默失去定位能力（约束记录）**：`checks` 有两个生产者两种形状（`route-functional-suite.js` 写 `{kind,name,details}`，`FunctionalRunner` 的 `expect*` 写 `{kind,text|selector|errors}`），而打印侧只读 `c.name` 与 `c.details` —— 于是**第二类**失败项打成 `✗ undefined`，其 `c.details ? JSON.stringify(...)` 分支对该生产者恒不成立、详情段永不出现（第一类的 `details` 为 null 时同样落空）。新增检查类生产者时必须同步核对读取侧字段；给这类格式化函数配一条**整行 `deepEqual`** 的用例（`toContain` 对「整行只剩 undefined」免疫）。
+
+
 ## 纯平移重构的两个沉默失败面：改前没基线的"测试仍绿"，和会被自己注释打红的结构锁（split-account-manager-session-restore，2026-09-27）
 
 - **「移动代码后测试全绿」不构成行为不变的证据，「移动前先全绿」才是（流程缺失 → 已固化为门禁）**：把 6 个函数从 `account-manager.js`（1260 行 / 上限 1261，余量 1 行）平移到新模块时，若直接搬，原有测试对 `restoreCookies` 的部分失败计数、`getAccountPartitionCookies` 的非法 accountId、session 形状不符等分支**一个都没跑到**，搬坏了也不会红。做法：先写 18 例特征测试并在**未改动的实现上**实测全绿（这一步是前提，不是结果），再移动，再要求同一套断言一字不改全绿，最后做 7 条变异反证（优先级倒置 / 去校验 / 去计数 / 去短路 / 断导出绑定），每条都必须变红。**判据**：任何以「降行数债务」为名的重构，先答「改前哪条测试会红？」；答不出就是没有基线，等于无验证。
