@@ -1,3 +1,21 @@
+# [未发布] fix(contract): 任务分支命名按代码为准回灌三处文档，并钉成契约锁
+
+### 做了什么
+- `scripts/gwm-task.sh:38` 自 2026-09-15 起默认建**裸 `<task-name>`** 分支（含斜杠分支名在本机 ref 写入不可靠，实测 `fatal: invalid reference`），前缀改为 `MP_BRANCH_PREFIX` 可选。但 `AGENTS.md` 铁律段、`openspec/specs/openspec-integration/spec.md` 的「分层分支策略」Requirement（及 #2485 同步过的 vendored 镜像副本）三处仍写 `codex/<task-name>`，唯一能证伪它的 `scripts/session-init.test.sh` 又从没接进 CI —— 三方漂移无人察觉。现按「代码为准」回灌三处。
+- 新增 `scripts/branch-naming-contract.test.js` 把口径钉住：实现侧断言 `MP_BRANCH_PREFIX` 可选拼接且禁止写死前缀；文档侧禁止 AGENTS.md / 真源 spec / vendored 镜像出现命令式的 `codex/<task-name>` 或「的 codex/ 分支」（AGENTS.md 记述事故的 `-b codex/...` 属历史叙述，不被误伤）；夹具侧改为**实跑** `session-init.test.sh` 并核对其结果行。
+- `session-init.test.sh`：断言由 `codex/alpha-task` 改为裸 `alpha-task`，新增 `MP_BRANCH_PREFIX=team → team/beta-task` 正向用例（本机实跑 PASS=13 FAIL=0，此前 FAIL=1）。
+- 接线棘轮扫描域扩到 `*.test.ps1`，并摘掉 session-init 的欠账、把它接进 Gate 2c。
+
+### 为什么
+「文档说要 A、代码做 B、测试断言 A、而测试从不跑」这组合能长期存在，缺的不是知识而是判据。回灌只解决这一次；契约锁 + 实跑核对才解决下一次。
+
+### 反证中新暴露的一处（值得单记）
+「前缀那一支要有覆盖」最初写成对 `MP_BRANCH_PREFIX=` 的文本 grep，反证 C4「删掉场景调用、保留场景定义」**照样全绿** —— 文本断言可以被"存在但从不执行"绕过。升级为实跑并断言 `PASS: MP_BRANCH_PREFIX opts into a prefixed branch` 结果行后，同一条变异精确变红。
+
+### 验证
+- 反证七次实测（AGENTS.md 退回写死→文档锁红；真源 spec 退回→文档锁 + 镜像漂移锁**同时**红；夹具退回 codex/→夹具锁红且 bash 自己 FAIL=1；删场景调用→实跑锁红；新增未接线 `.test.ps1`→棘轮红；摘掉一条 ps1 欠账→棘轮红；把 `gwm-task.sh` 改回写死 `codex/$TASK_NAME`→实现侧锁红），每次 `git checkout HEAD -- <单文件>` 恢复后复绿。
+- Gate 2c 整套按 CI 原语 `bash -euc` 实跑全绿；`node scripts/check-unwired-tests.js` → 41 文件 / 0 违规（欠账 7 条全部为 `.test.ps1`）。`.github/scripts/workflow-contract.test.js` 23 passed。
+
 # [未发布] test(ci): 新增「测试文件未接 CI 收集」棘轮，收编 7 条从未执行过的死锁
 
 ### 做了什么

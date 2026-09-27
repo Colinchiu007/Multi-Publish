@@ -10,6 +10,7 @@ const assert = require("node:assert/strict")
 const fs = require("node:fs")
 const path = require("node:path")
 const { test } = require("node:test")
+const { spawnSync } = require("node:child_process")
 
 const ROOT = path.join(__dirname, "..")
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8")
@@ -50,7 +51,14 @@ test("夹具侧：session-init.test.sh 断言的是裸 task 名", () => {
   assert.match(text, /= "alpha-task"/, "夹具必须正向断言默认分支名")
 })
 
-test("前缀语义本身要有回归覆盖（防止有人把可选前缀改回写死或删掉）", () => {
-  const text = read(path.join("scripts", "session-init.test.sh"))
-  assert.match(text, /MP_BRANCH_PREFIX=/, "session-init.test.sh 必须实测 MP_BRANCH_PREFIX 生效的那一支")
+test("前缀语义那一支必须真被执行（实跑夹具，而不是 grep 文本）", () => {
+  // 反证实测：把 scenario_opt_in_prefix 从调用清单里删掉、只留定义，
+  // 任何按文本 grep `MP_BRANCH_PREFIX=` 的断言都会假绿。唯一可信判据是它跑出来的结果行。
+  const script = path.join(ROOT, "scripts", "session-init.test.sh")
+  const out = spawnSync(process.env.MP_GIT_BASH || "bash", [script], { encoding: "utf8" })
+  const text = `${out.stdout || ""}${out.stderr || ""}`
+  assert.equal(out.status, 0, `session-init.test.sh 未全绿：\n${text}`)
+  assert.match(text, /PASS: MP_BRANCH_PREFIX opts into a prefixed branch/, "MP_BRANCH_PREFIX 那一支没有被真正执行（定义在但未被调用？）")
+  assert.match(text, /PASS: dedicated branch is the bare task name/, "裸 task 名那一支没有被真正执行")
+  assert.doesNotMatch(text, /FAIL: /, `夹具报告了失败：\n${text}`)
 })
