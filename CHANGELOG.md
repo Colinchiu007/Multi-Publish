@@ -3,7 +3,7 @@
 ### 做了什么
 - 重写 `apps/desktop/src/assets/platforms/` 全部 15 个 svg。旧资产是手绘几何拼块（今日头条是闪电 polygon、微博是同心圆、快手是矩形+圆、**抖音与 TikTok 两个文件内容几乎相同**），这是账号卡片「风格不统一」的根因。新资产：11 个取 Simple Icons v16（CC0-1.0）官方 path 与官方 source 品牌色；今日头条取 Iconify `icon-park:jinritoutiao`（Apache-2.0，48×48 经 `scale(0.5)` 归一）；抖音/百家号/视频号手工绘制示意标并在文件注释标注「非官方矢量」。
 - 来源取证：Simple Icons 覆盖 11/15，缺 douyin/toutiao/baijiahao/tencent_video。进一步扫了 Iconify 全部 238 个集合（含 `thesvg-color` MIT 4896 枚、字节 `icon-park` Apache-2.0、`arcticons`），只有今日头条以 `jinritoutiao` 存在，**抖音/百家号/视频号全网零覆盖**。参考产品 4.0 逆向包（46 文件）无任何平台图标资产，只有 `index.cjs:263` 的 37 个平台 key 命名规范可借鉴。
-- 色值取证：视频号 `#FA9D3B` 实测自 channels.weixin.qq.com 页面样式；**百家号未取证**（baijiahao.baidu.com 及其登录页均为纯 JS 壳，静态 HTML 只有 `theme-color #000000`），暂用百度系品牌蓝并在 svg 注释标注为待核实。
+- 色值取证：视频号 `#FA9D3B` 实测自 channels.weixin.qq.com 页面样式；百家号 `#3855D5` 实测自官方登录页（`baijiahao.baidu.com` → `/builder/theme/bjh/login`，页面标题「百家号」）渲染后 DOM 的 computed style，**187 个元素命中、为最高频饱和色**（次高 `#2E82FF` 百度系蓝 ×9）。这条是**二次取证纠正的**：静态 HTML 抓不到（纯 JS 壳，只有 `theme-color #000000`），我最初凭"百度系品牌蓝"写了 `#2932E1` 并标注待核实，后用 playwright 真渲染才拿到实测值——两者不同，说明那次凭记忆确实会写错。
 - 把散在 6 个组件里、逐字同形的 `isIconUrl()` 收敛为 `usePlatformIconUrl` 导出的 `isPlatformIconUrl`，并补 `./` 前缀识别。`vite.config.js` 的 `base` 为 `'./'`，一旦某个 svg 超过 `assetsInlineLimit`（4096B）就不再内联为 data URI 而是产出 `./assets/x.svg`；旧判定不认它，组件会走 v-else 的 `<span>{{ icon }}</span>` 分支**把路径字符串当文字渲染到卡片上**。实测确认当前 15 个 svg 仍全部内联为 `data:image/svg+xml`（最大小红书 3762B，距上限仅 334B——所以这条不是假想风险）。真源 `PLATFORM_ICONS` 的历史裸相对值（`platforms/x.svg`）继续判 false，避免渲染成破图。
 - 修暗色主题下黑图标隐身：新增全局 `.mp-platform-icon` 底衬类，7 个图标渲染点全部接入。归属已核实为**既有缺陷**（旧 `twitter.svg` 本就是 `fill="#000"`，15 个旧图标无一使用 `currentColor`），本次换标把它放大而非引入。抖音改为青 `#25F4EE` 偏左下 / 红 `#FE2C55` 偏右上 / 黑主体居中的三层重影，与 TikTok 的单色音符拉开区分度。
 
