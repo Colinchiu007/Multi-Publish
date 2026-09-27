@@ -656,7 +656,7 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 - `useFeatureFlag(key)` 在读运营值之前先看 `mpFlag=<flagKey>=<1|0|true|false>`（**不给 composable 开测试
   注入口**：通道读的就是 `import.meta.env.DEV` 与 `window.location`，用例用 `vi.stubEnv` / `vi.stubGlobal`
   把环境量摆出来，跑的是生产同一条分支）。生效需同时满足两条：`import.meta.env.DEV` 为 true，**且**页面协议
-  是 `http:`/`https:`。第二条是评审补的：`vite build --mode development` 的产物里 `DEV` 仍是 true，
+  是 `http:`/`https:`。第二条是**自审加严**（外部评审未提出这一条；它是顺着评审 W2「不能说通道整体不存在」查出来的）：`vite build --mode development` 的产物里 `DEV` 仍是 true，
   若这份 dist 被 `file://` 直开，只挡 DEV 等于没挡。线上正式包构建时 DEV 注入为 false（默认关闭，与
   AGENTS.md「打包权限模式不可由环境变量提权」同族）。
 - 只认 `1|true|0|false`，且 `<flagKey>` 必须在 `DEV_OVERRIDABLE_FLAGS` 白名单内（当前只有
@@ -668,13 +668,19 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 - 命中覆盖时**完全不调运营中心**：视觉门禁要求同一份代码每次都得到同一张图，不能取决于网络。
 - 显式 `0` 可以盖过运营下发的 `1`（排障用），这是刻意的。
 - 它只改**界面开关键**：服务端 `/api/v1/me/*` 每个请求仍按归属身份鉴权，URL 参数不构成任何权限路径。
+- **评审 W3 的处置（不采纳为本 PR 的修法，理由留档）**：它提出"覆盖命中后不查运营中心 ⇒ 开发态 UI 可与运营授权
+  不一致，主进程 IPC 未复查该 flag"。同一次评审亦确认"生产包因 DEV=false 不受影响、不存在跨用户提权、服务端仍按
+  归属鉴权"。让主进程复查 flag 等于让**每次点击都依赖运营中心可达性**，而这条通道存在的理由恰恰是"CI 里没有运营
+  中心也要能确定性渲染"；且只在 UI 层加校验、IPC 层不加，只是把不一致挪个位置。本 PR 的收敛动作是把可覆盖集收成
+  白名单。**前置条件（登记，不在本次预埋）**：将来若把某个 flag 升级为能力 / 付费 / 额度判据，必须在主进程侧同步
+  复查该 flag，届时这条"只影响渲染"的豁免即失效。
 
 本仓是 `createWebHashHistory` ⇒ 视觉用例写出的实际 URL 是 `<base>/#/accounts?mpFlag=…`，查询段落进 fragment，
-`window.location.search` **恒为空**。因此覆盖参数必须同时从 `location.hash` 的 `?` 之后取（评审实测指出，
+`window.location.search` **恒为空**。因此覆盖参数必须同时从 `location.hash` 的 `?` 之后取（**QM-6 后端模型 C1** 实测指出，
 只读 search 的那版实现在这条真实路由形态下永不自检通过 —— 表现是"参数写了、按钮仍不渲染"，而视觉用例
 会因为等不到按钮而红，不会静默截一张没有按钮的图）。
 
-视图用例 `accounts-list-flag-on`（原名 `accounts-list-cloud-sync`，评审指出旧名会让人误以为这条在守「同步功能整体」，而它实际守的是 flag 开启态的渲染）的等待选择器直接指向按钮本身
+视图用例 `accounts-list-flag-on`（原名 `accounts-list-cloud-sync`，**自审改名**：旧名会让人误以为这条在守「同步功能整体」，而它实际守的是 flag 开启态的渲染）的等待选择器直接指向按钮本身
 （`.mp-workspace .accounts-page [data-testid="account-cloud-sync"]`）：渲染不出来就是这条用例失败，
 而不是"截了一张没有按钮的图当基线"。
 

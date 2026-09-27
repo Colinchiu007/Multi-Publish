@@ -123,6 +123,23 @@ describe('开发态 flag 覆盖通道', () => {
     expect([...parseDevFlagOverrides('mpFlag=some_capability_flag=1').entries()]).toEqual([])
     expect([...parseDevFlagOverrides('x=1&mpFlag=account_cloud_sync=true').entries()])
       .toEqual([['account_cloud_sync', true]])
+    // 下面四条是实现此刻的确定行为，后端模型评审（I4）指出它们没被钉住 —— 不钉住的后果不是报错，
+    // 而是哪天有人"顺手简化"解析器时，静默改变这条通道的覆盖面。
+    // ① encoded `=`：URLSearchParams 先解码，所以 %3D 等价于真 `=` ⇒ 承认为覆盖
+    expect([...parseDevFlagOverrides('mpFlag=account_cloud_sync%3D1').entries()])
+      .toEqual([['account_cloud_sync', true]])
+    // ② key 大小写敏感：不做模糊匹配，避免"看起来像"就放行
+    expect([...parseDevFlagOverrides('mpFlag=ACCOUNT_CLOUD_SYNC=1').entries()]).toEqual([])
+    // ③ 非法项在后不得清掉前一个合法值（逐条判定，不是取末条原文）
+    expect(parseDevFlagOverrides('mpFlag=account_cloud_sync=0&mpFlag=account_cloud_sync=yes')
+      .get('account_cloud_sync')).toBe(false)
+    // ④ 非法项在前也不得挡住后面的合法项（这条专门锁住"只取末条/只取首条"的简化）
+    expect(parseDevFlagOverrides('mpFlag=account_cloud_sync=yes&mpFlag=account_cloud_sync=1')
+      .get('account_cloud_sync')).toBe(true)
+    // ⑤ 值里再带 `=`：按"第一个 = 是分隔符"判定，剩余整体当值 ⇒ 非法、不覆盖
+    //    （注：把分隔符改成"最后一个 ="是**等价变异** —— 该键不再命中白名单，两种实现
+    //     对所有可观察行为完全一致，所以这里锁的是可观察结果，不是切分规则本身。实测已验证）
+    expect([...parseDevFlagOverrides('mpFlag=account_cloud_sync=1=0').entries()]).toEqual([])
     expect([...parseDevFlagOverrides().entries()]).toEqual([])
     expect(DEV_OVERRIDABLE_FLAGS).toEqual([FEATURE_FLAG_ACCOUNT_CLOUD_SYNC])
   })
