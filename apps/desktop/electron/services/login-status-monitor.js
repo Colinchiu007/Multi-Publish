@@ -19,6 +19,8 @@
 const logger = require('./logger')
 // 登录态单向证据规则的唯一实现（本模块曾自持一份 _loginStatusOf，是振荡的三个源头之一）
 const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
+// 登录态真源写入的 per-account 串行锁：与 ipc-handlers/account.js、cloud-account-restore.js 同一把
+const { withAccountStateLock } = require('./account-state-lock')
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000  // 30 分钟
 
@@ -27,6 +29,9 @@ function createLoginStatusMonitor (opts) {
   const _store = opts.store
   const _accountManager = opts.accountManager
   const _intervalMs = opts.intervalMs || DEFAULT_INTERVAL_MS
+  // 取锁等待上限（默认走锁自身的 30s）：必须显式可注入，否则测试无法在秒级内证明
+  // 「等锁超时不会把 _running 永久卡住」。
+  const _lockWaitMs = Number(opts.lockWaitTimeoutMs) > 0 ? Number(opts.lockWaitTimeoutMs) : undefined
   const _getMainWin = opts.getMainWin
 
   let _timer = null
@@ -80,24 +85,16 @@ function createLoginStatusMonitor (opts) {
         if (current && current !== 'active' && current !== 'online' && current !== 'unverified') continue
         try {
           logger.info('LoginMonitor', 'checking ' + acc.platform + ':' + (acc.name || acc.account_name || acc.id) + ' (current status=' + (current || '?') + ')')
-          const result = await _accountManager.checkLoginStatus(acc.platform, acc.id)
-          // 单向证据规则：无定论（含超时/异常）返回 null = 本轮不改写真源，也不广播
-          const next = _loginStatusTransition(result, acc)
-          logger.info('LoginMonitor', 'result ' + acc.platform + ':' + acc.id + ' valid=' + (result && result.valid) + ' -> ' + next + ' code=' + (result && result.code) + (result && result.valid !== true ? ' error=' + ((result && (result.error || result.message)) || '') : ''))
-          // 无新证据或结论未变都不回写：后者是原注释的既有约束，前者终结 active↔unverified 振荡
-          if (next === null || next === current) continue
-          const validatedAt = new Date().toISOString()
-          const persisted = await _persist(acc, next, validatedAt)
-          if (!persisted || !persisted.ok) {
-            logger.warn('LoginMonitor', '账号 ' + acc.platform + '/' + acc.id + ' 登录态固化失败 status=' + next + ' reason=' + ((persisted && persisted.reason) || 'unknown'))
-            continue
-          }
+          // 整段（读凭证 → 检测 → 写结论）在 per-account 串行锁内：本模块由 setInterval 自己起来，
+          // 不经过渲染层任何按钮，所以云端恢复覆盖凭证的窗口只能在这里挡。
+          const turn = await withAccountStateLock(acc.id, () => _checkAndPersist(acc), { waitTimeoutMs: _lockWaitMs })
+          if (!turn.persisted) continue
           changedCount++
-          if (next === 'expired') expiredCount++
-          logger.info('LoginMonitor', '账号 ' + acc.platform + '/' + (acc.account_name || acc.id) + ' 登录态已固化为 ' + next + (result && result.code ? ' code=' + result.code : ''))
+          if (turn.next === 'expired') expiredCount++
+          logger.info('LoginMonitor', '账号 ' + acc.platform + '/' + (acc.account_name || acc.id) + ' 登录态已固化为 ' + turn.next + (turn.result && turn.result.code ? ' code=' + turn.result.code : ''))
         } catch (e) {
-          // 单个账号检测失败不影响整体
-          logger.warn('LoginMonitor', '账号 ' + acc.id + ' 检测异常: ' + (e && e.message ? e.message : String(e)))
+          // 单个账号检测失败不影响整体；取锁等待超时也走这里（有界等待，绝不无限等）
+          logger.warn('LoginMonitor', (e && e.code === 'ACCOUNT_LOCK_WAIT_TIMEOUT' ? '账号 ' + acc.id + ' 等锁超时，本轮跳过: ' : '账号 ' + acc.id + ' 检测异常: ') + (e && e.message ? e.message : String(e)))
         }
       }
 
@@ -113,6 +110,55 @@ function createLoginStatusMonitor (opts) {
       logger.error('LoginMonitor', '登录状态检测循环异常: ' + e.message)
     } finally {
       _running = false
+    }
+  }
+
+  /**
+   * 一次「检测 → 判定 → 回写」的完整回合，整体处于该账号的串行锁内。
+   * 返回 persisted=false 表示本轮不计数（无定论 / 结论未变 / 回写失败），失败原因各自已落日志。
+   * @param {any} acc 真源快照（进入本轮循环时取到的那份）
+   * @param {string|undefined} current 该快照的 status
+   */
+  async function _checkAndPersist (acc) {
+    const result = await _accountManager.checkLoginStatus(acc.platform, acc.id)
+    const definitive = Boolean(result && (result.valid === true || result.valid === false))
+    let effective = acc
+    // 单向证据规则：无定论（含超时/异常）返回 null = 本轮不改写真源，也不广播
+    let next = _loginStatusTransition(result, acc)
+    if (!definitive) {
+      // 无定论时的「保持还是降级」取决于**此刻**的现状，而 `acc` 是取锁前拍的全量快照。
+      // 期间别的写者（批量检测 / 云端恢复）可能已经改写结论：拿旧快照猜现状会把刚写下的
+      // `expired` 覆盖成 `unverified` —— 负向证据被抹掉，正是「登录态只被正/负证据改写」的反例。
+      const fresh = await _readCurrentRow(acc.id)
+      if (fresh) {
+        effective = fresh
+        next = _loginStatusTransition(result, fresh)
+      }
+    }
+    logger.info('LoginMonitor', 'result ' + acc.platform + ':' + acc.id + ' valid=' + (result && result.valid) + ' -> ' + next + ' code=' + (result && result.code) + (result && result.valid !== true ? ' error=' + ((result && (result.error || result.message)) || '') : ''))
+    // 无新证据或结论未变都不回写：后者是原注释的既有约束，前者终结 active↔unverified 振荡
+    if (next === null || next === effective.status) return { result, next, persisted: false }
+    const validatedAt = new Date().toISOString()
+    const persisted = await _persist(acc, next, validatedAt)
+    if (!persisted || !persisted.ok) {
+      logger.warn('LoginMonitor', '账号 ' + acc.platform + '/' + acc.id + ' 登录态固化失败 status=' + next + ' reason=' + ((persisted && persisted.reason) || 'unknown'))
+      return { result, next, persisted: false }
+    }
+    return { result, next, persisted: true }
+  }
+
+  /**
+   * 重读该账号在真源里的此刻状态（只在无定论分支调用，一次全量列表）。
+   * 读不到就返回 null = 沿用旧快照，绝不因为"读失败"就猜一个值写进去。
+   */
+  async function _readCurrentRow (accountId) {
+    try {
+      const rows = await _accountManager.listAccounts()
+      if (!Array.isArray(rows)) return null
+      return rows.find((r) => r && r.id === accountId) || null
+    } catch (e) {
+      logger.warn('LoginMonitor', '重读真源现状失败 accountId=' + accountId + ' message=' + (e && e.message ? e.message : String(e)))
+      return null
     }
   }
 
