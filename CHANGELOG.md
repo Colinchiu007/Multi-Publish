@@ -1,3 +1,20 @@
+# [未发布] feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身
+
+### 做了什么
+- 重写 `apps/desktop/src/assets/platforms/` 全部 15 个 svg。旧资产是手绘几何拼块（今日头条是闪电 polygon、微博是同心圆、快手是矩形+圆、**抖音与 TikTok 两个文件内容几乎相同**），这是账号卡片「风格不统一」的根因。新资产：11 个取 Simple Icons v16（CC0-1.0）官方 path 与官方 source 品牌色；今日头条取 Iconify `icon-park:jinritoutiao`（Apache-2.0，48×48 经 `scale(0.5)` 归一）；抖音/百家号/视频号手工绘制示意标并在文件注释标注「非官方矢量」。
+- 来源取证：Simple Icons 覆盖 11/15，缺 douyin/toutiao/baijiahao/tencent_video。进一步扫了 Iconify 全部 238 个集合（含 `thesvg-color` MIT 4896 枚、字节 `icon-park` Apache-2.0、`arcticons`），只有今日头条以 `jinritoutiao` 存在，**抖音/百家号/视频号全网零覆盖**。蚁小二 4.0 逆向包（46 文件）无任何平台图标资产，只有 `index.cjs:263` 的 37 个平台 key 命名规范可借鉴。
+- 色值取证：视频号 `#FA9D3B` 实测自 channels.weixin.qq.com 页面样式；**百家号未取证**（baijiahao.baidu.com 及其登录页均为纯 JS 壳，静态 HTML 只有 `theme-color #000000`），暂用百度系品牌蓝并在 svg 注释标注为待核实。
+- 把散在 6 个组件里、逐字同形的 `isIconUrl()` 收敛为 `usePlatformIconUrl` 导出的 `isPlatformIconUrl`，并补 `./` 前缀识别。`vite.config.js` 的 `base` 为 `'./'`，一旦某个 svg 超过 `assetsInlineLimit`（4096B）就不再内联为 data URI 而是产出 `./assets/x.svg`；旧判定不认它，组件会走 v-else 的 `<span>{{ icon }}</span>` 分支**把路径字符串当文字渲染到卡片上**。实测确认当前 15 个 svg 仍全部内联为 `data:image/svg+xml`（最大小红书 3762B，距上限仅 334B——所以这条不是假想风险）。真源 `PLATFORM_ICONS` 的历史裸相对值（`platforms/x.svg`）继续判 false，避免渲染成破图。
+- 修暗色主题下黑图标隐身：新增全局 `.mp-platform-icon` 底衬类，7 个图标渲染点全部接入。归属已核实为**既有缺陷**（旧 `twitter.svg` 本就是 `fill="#000"`，15 个旧图标无一使用 `currentColor`），本次换标把它放大而非引入。抖音改为青 `#25F4EE` 偏左下 / 红 `#FE2C55` 偏右上 / 黑主体居中的三层重影，与 TikTok 的单色音符拉开区分度。
+
+### 为什么
+用户反馈账号卡片图标不像各平台的标志。根因不是「图标太小」而是那 15 个文件从来不是品牌标。选 Simple Icons 是因为它是 CC0、24×24 单 path、且直接给出官方 source 色，能一处解决「形」和「色」两件事；三个国内平台全网无覆盖只能自绘，因此把「不得用 polygon/rect/circle 拼」写成锁，防止将来有人退回旧画法却以为自己在做品牌标。
+
+### 验证
+- 反证六次实测变红，每次 `git checkout HEAD -- <单文件>` 恢复后复绿：① 判定函数退回不认 `./` → 红 1；② toutiao 换回旧手绘 polygon 版 → 红 3（根 fill / 几何图元禁令 / 全 path）；③ 组件里重新抄一份 `isIconUrl` → 红 1（结构锁）；④ 图标撑到超内联预算 → 红 1；⑤ 拿掉某渲染点底衬类 → 红 1；⑥ 删全局底衬的 `background` → 红 1。
+- 回归锁 `usePlatformIconUrl.test.js` 131 例；受影响范围 53 个测试文件 986 passed / 1 skipped；`vite build` 通过；4 处既有 `vi.mock` 改 partial mock 透传真实判定函数。
+- 渲染实图自检（playwright 出四段对照表）：确认 12 枚真实品牌标正确、百家号「百」字在 24px 下可辨、暗色无底衬时 TikTok/X 确实不可见、加底衬后 15 枚全部可读。
+- ⚠️ 残留：视觉基线 `accounts-list.png` 必然像素超阈。按 QM-4 规则 7「基线只能取自 CI 产物」，本条不随 PR 提交本地截图，须在 CI 出图后自证「新基线 vs 同次 CI 渲染 = 0 px」再更新。
 # [未发布] test(ci): 新增「测试文件未接 CI 收集」棘轮，收编 7 条从未执行过的死锁
 
 ### 做了什么
