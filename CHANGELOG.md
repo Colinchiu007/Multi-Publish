@@ -22,7 +22,6 @@
 - `credential-saver` 的 `names=` 日志仍无可执行锁：该模块经 vite SSR 管道 `require('../logger')`，绕过测试的 `__registerMock('./logger')` 注册表（spy 与具名 mock 均抓不到，仅在 stdout 见到一次真日志）。已在 openspec tasks 2.5b 登记。
 - 评审 W2（`_scheduleAutoCompletion` 的 warn 不含 names）经核查**不采纳**：同一路径上 `hasCapturedCredentials` 已对已声明平台调用 `logDeclaredMarkerMiss`，名字在紧邻的 info 行内，属级别一致性而非信息缺失。
 
-
 # [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
 
 ### 做了什么
