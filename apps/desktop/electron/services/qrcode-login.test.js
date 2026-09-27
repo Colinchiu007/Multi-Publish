@@ -83,6 +83,25 @@ describe('QrCodeLogin 凭证边界', () => {
     expect(__electronMock.WebContentsView).not.toHaveBeenCalled()
   })
 
+  it('扫码会话只有匿名埋点 Cookie 时必须拒绝入库（同时锁住 reject 分支的可执行性）', async () => {
+    // 2026-09-27 QM-6 评审在这条 reject 分支的日志语句里抓到一个「两个模板字符串相邻、缺 +」的写法：
+    // 它能过 node --check（被解析成把前一个模板当后一个的 tag 函数），却在运行时必抛 TypeError。
+    // 本用例不检查日志文本，只要求该分支抛出**预期的业务错误**——日志语句一旦炸，
+    // 失败信息就会变成 TypeError 而不是下面的消息，从而把这类「语法过、运行崩」钉住。
+    // 选快手：它既在 QR_CODE_PLATFORMS 内（openLogin 可用），又已声明会话标记。
+    const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0)
+    loginPromise.catch(() => {})
+    // 名单取自仓库既有实测（2026-09-25 快手假成功：未登录访问 cp.kuaishou.com 即有这 8 个）
+    const anon = ['did', 'wid', 'kwssectoken', 'kwpsecproductname', 'kwfv1', 'kwscode', '_did', 'divid']
+      .map(name => ({ name, value: 'anon-value' }))
+    await expect(qrCodeLogin._onLoginSuccess(
+      { cookies: anon, localStorage: {}, accountName: '快手' },
+      qrCodeLogin._activeSession,
+    )).rejects.toThrow('未检测到登录态，请在手机上确认登录后重试')
+  })
+
   it('登录成功后在主进程持久化，并只向渲染层发送脱敏账号信息', async () => {
     const accountManager = createManager()
     const qrCodeLogin = new QrCodeLogin({ accountManager })
