@@ -617,6 +617,10 @@ Code review 时除逻辑正确性外，必须逐项检查：
   node apps/desktop/tests/visual-testing/views/all-views.visual.test.js --single home-default
   ```
 
+> ⚠️ **视觉用例有两份清单**：`views/all-views.visual.test.js` 的 `viewTests`（`test:visual` / `test:all:visual` / `--single`）
+> 与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 只执行这一份**）。只登记前者会得到一条必然的"绿"，
+> 它等于没跑。新增像素用例必须两处都登记，并以「CI 日志里该用例名出现次数 > 0」为通过证据。
+
 - **PR 合入前（必须通过）**：像素对比核心视图，无需 API Key
 
   ```bash

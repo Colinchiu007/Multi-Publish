@@ -764,3 +764,128 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
   这条本身是值得修的环境缺陷（多实例并存时"假就绪"），已登记。
 - 因此"上传 8 个账号 → 换设备恢复 → 恢复即 unverified → 本机自证"这条主链，仍要有云镜像面的
   服务端（生产部署或本机起一套业务 API + Postgres + 同一 Logto 租户）才能取到真机证据。
+## 十七、【同步云端】入口的 flag 开启态视觉基线通道（2026-09-27）
+
+### 17.1 为什么"视觉回归绿"曾经不构成新按钮的证据
+
+入口由运营 feature flag `account_cloud_sync` 控制，且口径是 fail-closed：缺失 / 不可达 / 抛错一律按关闭
+（ADR-0006）。CI 的 `QG Visual` 环境里没有运营中心，所以按钮**根本不渲染** —— `accounts-list` 那条
+用例的绿只证明"未开启态无回归"。这不是可以靠"我在本地点开看了一眼"补上的：QM-4 第 7 条要求
+**基线必须与比对环境同源**，本机 Chromium/字体渲染与 CI 的 `windows-latest` 会产生 3%+ 的全页亚像素
+差异（本仓实测过），拿本机截图入库会让门禁长期被噪声吃掉、对局部回归反而失明。
+
+### 17.2 采用的做法
+
+给渲染层一条**只在开发态、或 CI 显式注入构建期开关时**生效的覆盖，让 CI 能声明"这一张要拍开启态"：
+
+- `useFeatureFlag(key)` 在读运营值之前先看 `mpFlag=<flagKey>=<1|0|true|false>`（**不给 composable 开测试
+  注入口**：通道读的就是 `import.meta.env.DEV` 与 `window.location`，用例用 `vi.stubEnv` / `vi.stubGlobal`
+  把环境量摆出来，跑的是生产同一条分支）。生效需同时满足两条：**通道开关打开**，且页面协议是
+  `http:`/`https:`。协议门是**自审加严**（外部评审未提出这一条；它是顺着评审 W2「不能说通道整体不存在」
+  查出来的：`vite build --mode development` 的产物里 `DEV` 仍是 true，若这份 dist 被 `file://` 直开，
+  只挡 DEV 等于没挡）。
+- **通道开关有两个来源，任一即可**：`import.meta.env.DEV`（本机开发），或构建期注入
+  `VITE_MP_DEV_FLAG_OVERRIDE=1`（CI 视觉 job 专用，见 workflow 的 Gate 7 env）。
+  **这层开关保留，但它不是本次 CI 失败的原因 —— 那段归因已撤回。** 我一度判定"CI 的 vite 进程带
+  `NODE_ENV=production` ⇒ `import.meta.env.DEV` 为 false，只挂 DEV 的通道在 CI 里永远不会生效"，
+  依据是本地用 `NODE_ENV=production` 起 vite dev 能复现同一症状。**该判定被自己的探针证伪**：Gate 7
+  实测进程侧取值 `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`，页面侧 `channelState` 亦给出
+  `enabled=true parsed=[account_cloud_sync=true]` —— DEV 并没有被压掉，通道本身是开着的。
+  真正根因见 §17.5。这层开关因此回到它实际的价值：**显式 opt-in**，不依赖环境巧合（正式包既不是 DEV
+  也不会注入该变量 ⇒ 分支被静态折叠），而**不是**本次失败的修法。
+  URL 参数也不是提权路径：它只改**界面开关键**，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
+- 只认 `1|true|0|false`，且 `<flagKey>` 必须在 `DEV_OVERRIDABLE_FLAGS` 白名单内（当前只有
+  `account_cloud_sync`）。写成 `=yes` / 空值 / 没有 `=` / 白名单外的键，都**不产生覆盖**，落回运营真值 ——
+  否则"用户 URL 里写了个东西"就变成了默认放行。白名单的必要性：`isFlagEnabled` 是全仓共用导出，未来
+  **能力/额度/付费**类判据也可能接进来（先例 `videoCreation.maxOutputResolution`），那条链路不该由 URL 决定。
+- 被忽略的非法值必须 `console.warn` 出声：写错形态是**静默**回落，而这条通道唯一的用户就是排障的人和 CI，
+  他们能看到的只有控制台。日志只 echo 键名与字面量，不打整条 URL。
+- 命中覆盖时**完全不调运营中心**：视觉门禁要求同一份代码每次都得到同一张图，不能取决于网络。
+- 显式 `0` 可以盖过运营下发的 `1`（排障用），这是刻意的。
+- 它只改**界面开关键**：服务端 `/api/v1/me/*` 每个请求仍按归属身份鉴权，URL 参数不构成任何权限路径。
+- **评审 W3 的处置（不采纳为本 PR 的修法，理由留档）**：它提出"覆盖命中后不查运营中心 ⇒ 开发态 UI 可与运营授权
+  不一致，主进程 IPC 未复查该 flag"。同一次评审亦确认"生产包因 DEV=false 不受影响、不存在跨用户提权、服务端仍按
+  归属鉴权"。让主进程复查 flag 等于让**每次点击都依赖运营中心可达性**，而这条通道存在的理由恰恰是"CI 里没有运营
+  中心也要能确定性渲染"；且只在 UI 层加校验、IPC 层不加，只是把不一致挪个位置。本 PR 的收敛动作是把可覆盖集收成
+  白名单。**前置条件（登记，不在本次预埋）**：将来若把某个 flag 升级为能力 / 付费 / 额度判据，必须在主进程侧同步
+  复查该 flag，届时这条"只影响渲染"的豁免即失效。
+
+本仓是 `createWebHashHistory` ⇒ 视觉用例写出的实际 URL 是 `<base>/#/accounts?mpFlag=…`，查询段落进 fragment，
+`window.location.search` **恒为空**。因此覆盖参数必须同时从 `location.hash` 的 `?` 之后取（**QM-6 后端模型 C1** 实测指出，
+只读 search 的那版实现在这条真实路由形态下永不自检通过 —— 表现是"参数写了、按钮仍不渲染"，而视觉用例
+会因为等不到按钮而红，不会静默截一张没有按钮的图）。
+
+视图用例 `accounts-list-flag-on`（原名 `accounts-list-cloud-sync`，**自审改名**：旧名会让人误以为这条在守「同步功能整体」，而它实际守的是 flag 开启态的渲染）的等待选择器直接指向按钮本身
+（`.mp-workspace .accounts-page [data-testid="account-cloud-sync"]`）：渲染不出来就是这条用例失败，
+而不是"截了一张没有按钮的图当基线"。
+
+### 17.3 先说一个踩过的分界：视觉用例有**两份清单**，CI 只认第二份
+
+- `views/all-views.visual.test.js` 的 `viewTests` —— 服务 `npm run test:visual` / `test:all:visual` 与 `--single <name>`；
+- `scripts/run-pixel-tests.js` 的 `pixelTests` —— **`QG Visual`（Gate 7，`npm run test:visual:pixel`）跑的就是这一份**。
+
+只登记进第一份的用例**不会进 CI 门禁**：本 PR 首版就是这样，`QG Visual` 因此"绿"得毫无意义（实测该 job 日志里
+18 个视图各出现一次、全部 `PASSED`，而我的用例名出现 **0** 次）。所以开启态这条用例**两处都登记**。
+
+### 17.4 基线回填流程（本 PR 内必须走完，不得用本机截图）
+
+1. 本 PR 首次跑 CI 时必然报 `ERR_VISUAL_BASELINE_MISSING: .../accounts-list-flag-on.png` —— 这是
+   预期内的红，作用是产出那张 CI 渲染图。
+2. 从那次 run 的 `quality-gate-visual-reports` 产物里取 `screenshots/accounts-list-flag-on-current.png`，
+   存为 `tests/visual-testing/base-screenshots/accounts-list-flag-on.png` 并随 PR 推上。
+   ⚠️ 推之前必须把 `!accounts-list-flag-on.png` 登记进 `base-screenshots/.gitignore` 的白名单：根
+   `.gitignore` 有 `*.png`，未登记的基线**不会出现在 `git status` 里、`git add` 也静默不收**，
+   于是"回填了基线"这件事在本地看起来完成、CI 上却依旧缺基线。该前提已由
+   `visual-ci.test.js`「pixelTests 每条用例的基线都必须被白名单放行」钉住（漏登记即红）。
+   （第 1-2 步已实测完成：run 36330609534 的 `QG Visual` 里 18 条既有视图全部 `PASSED`，
+   唯一失败正是本用例的 `缺少人工审核的视觉基线`；基线即取自该 run 的产物。）
+3. 复跑 CI：`QG Visual` 必须报该视图 **0 px** 差异（自证"基线与比对环境同源"），此后它成为硬门禁的一部分。
+
+4. 回填前后可以在 `apps/desktop/` 下单独复跑这一条看渲染结果（`--single` 是已记录的用法）：
+   `node tests/visual-testing/views/all-views.visual.test.js --single accounts-list-flag-on`。
+   但**本机截出的图仍不得入库当基线**（QM-4 第 7 条），这一步只用于确认渲染。
+
+本 PR 已在本地对**真实构建产物**跑过一次这条用例（vite dev + 1920×1080 + headless Chromium），取到的运行态事实：
+
+- 导航后的 `window.location.hash` 与写入的 `#/accounts?mpFlag=account_cloud_sync=1` **逐字相同**，`location.search` 为空 —— 证实参数确实落在 fragment 里，也证实就绪判定不需要额外放宽 `expectedRoute`；
+- 等待条件（入口本身的 `data-testid`）命中，即**按钮真的渲染出来了**；
+- 失败点恰好停在 `缺少人工审核的视觉基线: ...base-screenshots/accounts-list-flag-on.png`，与 §17.4 预期的第一轮红一致；
+- 同页不带参数时入口**不渲染**（fail-closed 未被本通道削弱）。
+
+这张本机截图只用于确认渲染，**不入库当基线**（QM-4 第 7 条）。
+
+> 这条流程本身也是防"用本机基线蒙混过关"的锁：缺基线时门禁是红的，不能靠 skip 变绿
+> （`test-runner.js` 在未设 `UPDATE_BASELINE=1` 时对缺基线直接 FAILED）。
+
+### 17.5 这条通道跑通过程中真实发生的四轮（含一次错误结论的撤回）
+
+| 轮次 | 现象 | 当时判为 | 实际 |
+| --- | --- | --- | --- |
+| 1 | `QG Visual` 直接绿 | 通过 | **假绿**：用例只登记进 `viewTests`，Gate 7 跑的是 `run-pixel-tests.js` 的 `pixelTests`（job 日志 18 个视图各 1 次全 `PASSED`、新用例名 0 次）|
+| 2 | 红在"等业务选择器超时" | 环境差异，本地无法归因 | 原判"CI 的 vite 带 `NODE_ENV=production` ⇒ `DEV=false`"（**已被第 4 轮证伪**）|
+| 3 | 同上（两处清单都登记后） | 需要取证 | 给就绪诊断补 `accountsPagePresent` / `commandBarTestids` / `flagParamInUrl` / `entryScripts` / `channelState` |
+| 4 | 同上，但探针给出 `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、`channelState=enabled=true` | —— | **第 2 轮的判定被证伪。** 真正根因：本仓是 hash 路由，`#/accounts` → `#/accounts?mpFlag=…` 属于**同一路由只改 query** ⇒ vue-router **复用组件实例** ⇒ `Accounts.vue` 的 `onMounted` 不再跑第二遍 ⇒ `refreshCloudSyncFlag()` 根本没被再调用 |
+
+**本地对照实验（决定性，且成本极低）**：用 `PIXEL_ONLY` 控制执行顺序 ——
+
+```bash
+cd apps/desktop
+# 单独跑 ⇒ 就绪通过，只红在「缺少人工审核的视觉基线」（即 §17.4 预期的第一轮红）
+PIXEL_ONLY=accounts-list-flag-on npm run test:visual:pixel
+# 先跑同路由的 accounts-list 再跑它 ⇒ 逐字复现 CI 的等待超时
+PIXEL_ONLY=accounts-list,accounts-list-flag-on npm run test:visual:pixel
+```
+
+两条命令的差别只有**顺序**，因此这是**顺序依赖**而不是环境差异。教训：能复现症状不等于找到成因，
+本地那次 `NODE_ENV=production` 复现只证明"该条件足以产生同样表现"，不证明它是现场的那个原因；
+而**顺序依赖**也意味着这条用例在本地"单独跑通过"不构成证据，必须按 CI 的顺序再跑一遍。
+
+**修法**：`test-runner.js` 的 `_navigateToRoute` 增加 `_isSameRouteQueryOnlyNav()` 判定 —— 当目标与当前 URL 的
+protocol / host / pathname 相同、且 fragment 的 path 段相同而 query 段不同时，`goto` 之后强制一次
+`page.reload()`，让每条用例拍到的都是"该路由的首次加载"。判定**刻意做窄**：换路由（path 变了）一律不重载，
+否则会改写既有 18 条基线的拍摄条件。回归锁两条（`test-runner.test.js`）：只改 query ⇒ reload 恰好 1 次；
+换路由 / query 也没变 ⇒ reload 0 次。**反证**：把 `if (reusedComponent)` 改成恒 false 后前者立刻变红。
+
+**顺带纠正一处我自己的过度声称**：`channelState` 调的是模块导出的**纯函数**，它只能证明"参数解析与开关
+判定正确"，**不能**证明"组件真的重新读过这个参数"。第 4 轮我差点把它当成后者写进结论。诊断字段要按它
+实际能证明的范围来解读。
