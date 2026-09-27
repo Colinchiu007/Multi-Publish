@@ -8,7 +8,7 @@
 
 ### 两条值得单独记的运行时事实（都是本轮实测出来的，不是先验）
 1. **小写 `#requires`**：`applive-foreign-audit.test.ps1` 与 `start-desktop-profile-lock.test.ps1` 带 `#requires -Version 7`，在 Windows PowerShell 5.1 下不是"测试失败"而是根本没执行（`ScriptRequiresUnmatchedPSVersion`）。我第一次用大写 `Requires` grep 命中 0，差点据此判"没有版本门槛、是测试本身坏了"。
-2. **负控绑运行时**：`worktree-fs-longpath.test.ps1` 断言"不加 `\\?\` 前缀的 `IO.Directory::Delete` 应当失败"，在 5.1 下成立、在 pwsh 7 下**意外成功**（清单带 `longPathAware`），报 `FAIL ... fixture too shallow`。它不是缺陷，是断言的适用前提；所以给它单独一步 `shell: powershell`，而不是把断言改松。
+2. **负控绑的是"长路径是否对该进程生效"，不是 shell 版本**：`worktree-fs-longpath.test.ps1` 断言"不加 `\\?\` 前缀的 `IO.Directory::Delete` 应当失败"。本机（`LongPathsEnabled` 缺失=关）在 5.1 下成立、在 pwsh 7 下因清单带 `longPathAware` 而意外成功；于是本 PR 一度给它单独一步 `shell: powershell`。**该判断被 runner 推翻**：run `36313053992` 的 `Gate 2d-b` 步骤在同一条断言上报 `FAIL ... unexpectedly succeeded - fixture too shallow`。已撤下该步骤并按证据登记欠账。由此立口径：**判定 PowerShell 测试能否接进 CI，本机实跑只能筛掉"必然不行"的，绿灯与否只有 runner 本身算数。**
 
 ### 验证
 - 反证四次：摘掉 Gate 2d 里一条 pwsh 点名→棘轮真实仓库断言红；把 `worktree-fs-longpath` 从 2d-b 挪走→红；给它加一条新欠账豁免→报 `TEST_EXEMPTION_STALE`（它已接线）；把 `session-isolation-automation` 的豁免摘掉→红（证明那条欠账确实在承重）。

@@ -21,6 +21,11 @@ const KNOWN_UNWIRED = {
     "内部直接调用 install-session-isolation-task.ps1 注册**真实**计划任务（跨会话共享的机器状态），" +
     "且本机非提权实跑 HRESULT 0x80070005 拒绝访问（AtLogOn 任务需提权注册）⇒ 接进 CI 要么恒误红、要么真改 runner 状态。" +
     "接线前提：把注册动作注入为假实现或隔离 task path，另立 change 处理",
+  "scripts/worktree-fs-longpath.test.ps1":
+    "负控「未加 \\\\?\\ 前缀的 IO.Directory::Delete 应当失败」绑的是**该进程是否处于长路径生效状态**，" +
+    "不是 shell 版本：本机（LongPathsEnabled 缺失=关）在 5.1 下成立、在 pwsh 7 下因清单 longPathAware 意外成功；" +
+    "CI runner 上实测（run 36313053992 / step Gate 2d-b，shell: powershell 5.1）同样 FAIL ... unexpectedly succeeded - fixture too shallow。" +
+    "接线前提：先让该断言按运行时探测长路径状态来分档，另立 change 处理",
 }
 
 function listTestFiles(root) {
