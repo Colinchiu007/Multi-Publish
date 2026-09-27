@@ -44,6 +44,23 @@
   读 `runSupplementaryTests()` 的返回值 `{total,passed}` 才拿到正证据。判据：跑这类套件必须拿到
   total/passed 数字，不能只看 exit code 0。
 
+# [未发布] test(worktree-fs-longpath): 长路径负控改由运行时探针推导期望，回接 Gate 2d（2026-09-27，longpath-probe）
+
+### 变更
+- `scripts/worktree-fs-longpath.test.ps1` 新增 `Get-LongPathCapability`：在一条必然超过 MAX_PATH 的深路径上做一次**不带前缀**的 `CreateDirectory`，用真实结果判定"本进程能否走长路径"，再据此选择第 6 节负控的期望——不能走 ⇒ 仍要求「未加前缀必须失败」（失败才证明夹具够深）；能走 ⇒ 只要求结果与探针一致（不一致即真异常）。三元组 `LongPathsEnabled / processCapable / unprefixedDeleteFailed` 每次都打印留痕。
+- 文件头从「必须跑在 5.1」改为「两档 shell 皆可，自带探针」；本文件注释保持 ASCII——它是无 BOM UTF-8，Windows PowerShell 5.1 会把非 ASCII 字节按 ANSI 解，实测插入中文注释会让 5.1 直接 `ParserError`。
+- Gate 2d 回接本测试（5 → 6 条）；`KNOWN_UNWIRED` 2 → 1 条（只剩计划任务那条），`check-unwired-tests.test.js` 钉住清单的断言同步缩小。
+
+### 为什么不是"再等 runner 告诉你"
+上一轮这条被判成"只有 runner 本身算数"而挂欠账。这次分辨清楚了：决定它成败的是**进程级长路径能力**，本机两档 shell 恰好各命中一侧（pwsh 7 清单带 `longPathAware` ⇒ 能走；5.1 不带 ⇒ 不能走），所以两种期望在本机**都**可测——挂欠账会让这个文件另外 27 条与长路径无关的检查（扫描器深浅、junction 不穿透、`Resolve-RemoveDisposition` 真值表、进程持有者分类）永久不进 CI。
+
+### 门禁与反证
+- 本机实跑：`pwsh 7.6` 与 `Windows PowerShell 5.1` 各 `rc=0 / 28 PASS`，且两档分别走到不同支路（pwsh 打 `processCapable=True`、5.1 打 `processCapable=False note=MethodInvocationException`）。
+- 三格变异全部实测变红并 sha256 逐字还原：CP-1 把分支写死成"必须失败"（即假装没有探针）⇒ pwsh 下红，原文正是历史 CI 那句 `it unexpectedly succeeded - fixture too shallow`；CP-2 让探针谎称 capable ⇒ 5.1 下红（`probe said the process CAN take long paths, but the unprefixed delete failed`）；CP-3 把主体 `Remove-FsDirectory` 改成 no-op ⇒ 第 6 节正控红（`ok=True err=MUTATION no-op`），证明本文件真正的牙在正控上、不依赖那侧环境。
+- 同 PR 自跑：`check-unwired-tests.js`（42 个测试文件 OK）、`check-step-failfast.js`（4 个多测试步骤 OK）、`--test` 三件 8 + 6 + 23 passed。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
+
 # [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
 
 ### 做了什么
