@@ -1,3 +1,17 @@
+# [未发布] test(quality-rhythm): vendored 契约镜像加漂移锁，并收编从未在 CI 跑过的孤儿锁
+
+### 做了什么
+- 新增 `scripts/quality-rhythm-spec-mirror.test.js`：`.quality-rhythm/integrations/openspec/spec-contract.md` 是 openspec 真源 spec 分发到其他仓库的契约副本，此前全仓零引用、零校验。新锁按 `### Requirement:` 切块，断言镜像标题集合与真源相同、每块逐行全等、`#### Scenario:` 清单一致，并对解析结果加规模下界断言（防止解析退化成空集合而假绿）。同锁 `.quality-rhythm/skills/other/ci-hardening/scripts/affected-report.js` 的 vendored 副本（与已被守的 openspec-sync-check.js 同形、此前无人守）。
+- 回灌镜像：真源「归档三同步自动检查」的 3 个 Scenario（active change 仍有未完成任务 / 终态字段双向漂移 / superseded 缺少替代证据）与「分层分支策略」的独立 worktree 细则、`GH011` 全称、第 4 个 Scenario「共享主工作区误切 feature 分支」，在镜像里全部缺失。
+- 收编孤儿锁：`scripts/openspec-sync-check.test.js`（19 例，含仓库里唯一一条镜像逐字节对齐断言）从未被任何 workflow 收集——CI 只显式挂 `scripts/` 下 5 个测试文件且无通配，`pnpm -r test` 也不覆盖根 `scripts/`。现与新锁一并接入 `quality-gate.yml` Gate 2b（QG Static 红会经 `gate-result` 聚合拦住必需检查 Gate Result）。
+
+### 为什么
+镜像只能靠人肉同步（#2479 只补了其中一句），属 AGENTS.md「门禁断言随实现迁移同步」点名的沉默漂移类；而唯一那条对齐锁本身不在 CI 里跑——登记了一把从未拉动的闸。
+
+### 验证
+- 反证六次，逐个 `git checkout HEAD -- <单文件>` 恢复：改坏镜像一处文案 → 逐行全等锁红；删掉镜像一个 Scenario → Scenario 清单锁 + 全等锁红；删掉镜像整块 Requirement → 标题集合锁 + 规模下界锁红；给 vendored 脚本副本加一行 → 逐字节锁红；把锁的读取目标换成不存在的文件 → 整个文件红（非静默跳过）；换成存在但无 Requirement 的文件 → 规模下界锁红。
+- 新锁 5 例全绿；`node --test scripts/openspec-sync-check.test.js` 19 例全绿；`.github/scripts/workflow-contract.test.js` 23 例全绿（改 workflow 必跑）；镜像 diff +32/−10，`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同数（未改行尾，`.quality-rhythm/.gitattributes` 的 eol=lf 保持）。
+
 # [未发布] docs(登录): 真机配对 A/B 收口——噪音 cancel 无可证明收益，维持默认关（2026-09-27，login-qr-ab-backfill）
 
 ### 做了什么
