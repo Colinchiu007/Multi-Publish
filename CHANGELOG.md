@@ -1,3 +1,34 @@
+# [未发布] test(视觉门禁): 修掉补充视图里 5 处过期选择器并删 1 条死用例，首次跑完 QM-4 全量 104 例（2026-09-28，cloud-flag-registry-drift）
+
+### 做了什么
+- `supplementary-views.visual.test.js`：5 处选择器随渲染层外壳改名而漂移，逐条**先用真浏览器探测**再改：
+  `first-run/步骤指示` `.cohere-card [style*="border-radius"]` ⇒ `.fr-dots .fr-dot`（实测 4）；
+  `dashboard/数据卡片` `.cohere-stat-grid .cohere-stat-card` ⇒ `.stats-grid .stat-card`（实测 4）；
+  `sidebar-platform-list` 整条从 `/` + `.cohere-sidebar*` 迁到 `/accounts` + `.platform-filter-*`
+  （平台账号列表的现居处）；`nav-active-state` `.nav-item.active` ⇒ `.mp-primary-item.active:has-text("账号")`；
+  `app-header-status` `.cohere-topnav*` ⇒ `.nav-bar` + `.mp-sidebar-logo|-service|-footer`。
+- 删除 `monitor-settings-dialog`：它等的 `/monitor` 路由**在渲染层路由表里从来不存在**（`src/router/index.js`
+  全集逐条核对，只有 `/keywords` 指向 `KeywordMonitorView`，那是"关键词监控"不是"分屏监控"）。
+  分屏监控是主进程 `WebContentsView` 的布局能力，浏览器态视觉 runner 无 IPC 宿主，实测该路由渲染出的
+  正文长度为 0。留 5 行注释说明去向（真覆盖在 `webview-manager` 单测），不留恒红死用例。
+- 总数锁随之 105 → 104（`condition-waiting.test.js`）。
+
+### QM-4 全量首跑的**真实**结果（此前从未有人完整跑过）
+| 套件 | 结果 | 说明 |
+| --- | --- | --- |
+| `all-views` 35 | 全绿 | 需先修上一条 PR 的 `first-run` 选择器；否则该套件的 `&&` 链把后面三套全带走 |
+| `supplementary-views` 19 | 19/19 | 本条修完后实测返回 `{total:19,passed:19}` |
+| `all-workflows` 32 | **24/32** | 8 条红：5 条等 `/accounts` 的 `.page-title`/`.page-actions`（该页无此类名）、1 条等 `input[placeholder="搜索平台..."]`、1 条等 `button.cohere-btn-ghost:has-text("📝 模板")`，均为选择器漂移；第 8 条 `dashboard-benchmark-title-reset` 是**真像素差 10.9% > 阈值 1%**，不是选择器问题，单独立项 |
+| `supplementary-workflows` 18 | 18/18 | 实测返回 `{total:18,passed:18}` |
+
+合计 104 例，96 绿 8 红；8 红全部集中在 `all-workflows`，已登记为后续项（不在本 PR 扩面修）。
+
+### 顺带记一条框架缺陷（未修）
+- `supplementary-views` / `all-workflows` 的成功路径**一行结果都不打**（`runViewSuite` 只在失败时
+  throw 聚合信息），所以"跑完了"与"什么都没跑"在 stdout 上长得一样 —— 本次是靠 `require` 该模块
+  读 `runSupplementaryTests()` 的返回值 `{total,passed}` 才拿到正证据。判据：跑这类套件必须拿到
+  total/passed 数字，不能只看 exit code 0。
+
 # [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
 - 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库

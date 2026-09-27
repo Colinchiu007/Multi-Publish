@@ -144,7 +144,7 @@ describe('视觉测试条件等待合同', () => {
     expect(ipcMock).toContain('visualProviders');
   });
 
-  it('完整视觉命令聚合四套用例并覆盖 105 个场景', () => {
+  it('完整视觉命令聚合四套用例并覆盖 104 个场景', () => {
     const packageJson = require('../../package.json');
     const { viewTests } = require('./views/all-views.visual.test');
     const { supplementaryViewTests } = require('./views/supplementary-views.visual.test');
@@ -163,7 +163,7 @@ describe('视觉测试条件等待合同', () => {
         + supplementaryViewTests.length
         + workflowTests.length
         + supplementaryWorkflowTests.length,
-    ).toBe(105);
+    ).toBe(104);
   });
 
   it('浏览器原生文本变化轮询只使用标准 CSS 选择器', () => {
