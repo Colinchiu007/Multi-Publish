@@ -2,7 +2,9 @@
 # Use negation patterns to override parent *.png rule
 !home-baseline.png
 !accounts-list.png
+!accounts-list-flag-on.png
 !publish-form.png
+!publish-history.png
 !monitor-dashboard.png
 !analytics-overview.png
 !settings-general.png

@@ -419,5 +419,18 @@ describe('视觉用例双清单一致性', () => {
       expect(t.route, `用例 ${t.name} 等的是入口本身，路由却没开它`).toContain('mpFlag=account_cloud_sync=1')
     }
   })
+
+  it('pixelTests 每条用例的基线都必须被 base-screenshots/.gitignore 显式放行', () => {
+    // 根 .gitignore 有 `*.png`，基线目录靠一份**逐个点名**的 negation 白名单才被跟踪。漏登记的后果
+    // 不是报错而是静默：新基线 PNG 进不了 git ⇒ CI 上永远缺基线 ⇒ 这条门禁永远红，或有人改用
+    // `git add -f` 补图，白名单与清单从此漂移（实测踩过：accounts-list-flag-on.png 落盘后 `git status`
+    // 完全不显示它，`git add` 也静默不收）。方向只锁"清单要求跟踪的都必须放行"，反向不锁
+    // （白名单里留着已下线视图的条目无害）。
+    const ignorePath = path.join(__dirname, 'visual-testing', 'base-screenshots', '.gitignore')
+    const allow = new Set(fs.readFileSync(ignorePath, 'utf8').split(/\r?\n/)
+      .map((l) => l.trim()).filter((l) => l.startsWith('!')).map((l) => l.slice(1)))
+    const missing = pixelTests.map((t) => t.name).filter((n) => !allow.has(`${n}.png`))
+    expect(missing, `以下 pixelTests 的基线未被 .gitignore 白名单放行：${missing.join(', ')}`).toEqual([])
+  })
 })
 })

@@ -833,6 +833,12 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
    预期内的红，作用是产出那张 CI 渲染图。
 2. 从那次 run 的 `quality-gate-visual-reports` 产物里取 `screenshots/accounts-list-flag-on-current.png`，
    存为 `tests/visual-testing/base-screenshots/accounts-list-flag-on.png` 并随 PR 推上。
+   ⚠️ 推之前必须把 `!accounts-list-flag-on.png` 登记进 `base-screenshots/.gitignore` 的白名单：根
+   `.gitignore` 有 `*.png`，未登记的基线**不会出现在 `git status` 里、`git add` 也静默不收**，
+   于是"回填了基线"这件事在本地看起来完成、CI 上却依旧缺基线。该前提已由
+   `visual-ci.test.js`「pixelTests 每条用例的基线都必须被白名单放行」钉住（漏登记即红）。
+   （第 1-2 步已实测完成：run 36330609534 的 `QG Visual` 里 18 条既有视图全部 `PASSED`，
+   唯一失败正是本用例的 `缺少人工审核的视觉基线`；基线即取自该 run 的产物。）
 3. 复跑 CI：`QG Visual` 必须报该视图 **0 px** 差异（自证"基线与比对环境同源"），此后它成为硬门禁的一部分。
 
 4. 回填前后可以在 `apps/desktop/` 下单独复跑这一条看渲染结果（`--single` 是已记录的用法）：

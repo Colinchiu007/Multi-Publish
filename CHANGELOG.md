@@ -38,12 +38,20 @@
   首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
   而我的用例名出现 0 次。等待选择器直接指向 `[data-testid="account-cloud-sync"]`
   ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
+- **基线入库踩到一个静默陷阱**：根 `.gitignore` 有 `*.png`，而 `base-screenshots/.gitignore` 的白名单是
+  **逐个点名**的 `!<file>.png`。新基线 `accounts-list-flag-on.png` 落盘后 `git status` 不显示、`git add`
+  静默不收（`git check-ignore -v` 指到 `*.png`）—— 表现不是报错而是"基线永远缺"。已登记该文件，并加锁
+  `visual-ci.test.js`「pixelTests 每条用例的基线都必须被白名单放行」（20 → 21 例，反证：摘掉白名单行即红）。
+  锁当场查出既有缺口：`publish-history.png` 被跟踪却从未登记在白名单里，已补。
 - 同一条错误归因当时还写在**三处非文档位置**：`useFeatureFlag.js` 里 `devFlagChannelEnabled` 的头注释、
   用例名「显式构建期开关打开时…（CI 的 vite 带 NODE_ENV=production）」、以及 `quality-gate.yml` Gate 7 的
   `env:` 注释。三处一并改为撤回式表述（写明被证伪的取值与真正根因）—— 只改文档不改代码注释，
   下一个人读源码时仍会把这个结论捡回来。
 ### 结论 / 待办
-- 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图），
+- 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图）。
+  实测 run 36330609534 正是如此：**18 条既有视图全 PASSED、唯一红就是本用例缺基线**，随后从该 run 的
+  `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png`（1920×1080，人工核对图内确有「同步云端」按钮）。
+  **本 PR 合入前的最后一道**：复跑 CI，`QG Visual` 必须报该视图 **0 px** 差异（自证基线与比对环境同源）。
   随后从 `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png` 并复跑要求 0 px。
 - 顺手记下（只记实测过的部分）：USAGE §5 写"44 视图"，而 `all-views.visual.test.js` 的 `routeView(` 注册实为 35 条
   （本 PR 后 36），另有 `supplementary-views.visual.test.js` 以对象数组注册 20 条；AGENTS.md 同一段又写"43 用例：23 核心 + 20
