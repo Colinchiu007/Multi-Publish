@@ -1,3 +1,39 @@
+## `getMasterKey` 传错目录时会静默新建一份主密钥，把"我取错了"伪装成"数据坏了"（pitfall，2026-09-27）
+- 现场：做真凭证线级取证时按 `getMasterKey(userDataDir)` 调用（真实入参应是 `getCredentialDir(userDataDir)`，即 `<userDataDir>/credentials`）。结果 8 份凭证**全部**解密失败，报 `Unsupported state or unable to authenticate data`（GCM 认证失败）。
+- 真实过程：函数内部先 `fs.mkdirSync(credDir, {recursive:true})`，找不到 `.masterkey` 就新生成一把并落盘。于是它在**错误的位置新建了一份正确格式的密钥**，解密于是以"密文被篡改/密钥不符"的面目失败。做完才注意到目录里多出一个 `.masterkey`。
+- 为什么危险：这条路径对用户来说就是"我的凭证全坏了"。如果运维以为是数据损坏而去清库/让全员重扫码，就是被一个传参错误诱导做了破坏性操作。任何"读不到就创建"的密钥函数都必须：① 把 rootDir 的来源收敛到单一导出（`getCredentialDir`）而不是让调用方自己拼路径；② 区分"新建"与"载入"并在日志里说明是哪一种。
+- 可复用判据：出现 GCM 认证失败而不是"文件不存在"时，先怀疑**我拿到的密钥是不是新造的**（查 `ls -la` 时间戳：我那次 `.masterkey` 的 mtime 正是本次调用时刻），而不是先怀疑密文。
+- 关联：AGENTS.md「Windows 原子文件替换重试」（同一族的"保护性主密钥"路径）、「静默配置失败必须留日志」。
+## 给并发写加锁，会把"竞态"换成"排队"：等待没有上限就是新的死法（pitfall，2026-09-27）
+- 现场：给登录态真源的四个主进程写者加 per-account 串行锁。自审 + 首轮测试全绿，外部双模型评审（codex / opencode 各自独立命中）指出三处我漏掉的后果，其中两处是**加锁本身引入的**：
+  1. `withHardTimeout` 写在临界区**内部**，于是"等锁"这段时间完全不消耗超时预算 —— 一个挂死的写者让批量已广播 `start` 却永不 `done`（违反本仓「批量 IPC 进度双边界与超时预算契约」），而定期检测的 `_running` 永不复位 = **之后所有轮次静默停摆且不报错**。原来的并发恰好掩盖了这一点：并行时很少出现"所有人都卡在同一个账号"。
+  2. 列表快照是在**取锁之前**拍的。加锁之后，从拍快照到自己真正写入之间可能隔着别人的整个临界区；用旧快照判断"要不要保持现状"，就会把别的写者刚落盘的 `expired` 覆盖成 `unverified`。以前这个窗口极窄（没人排队），加锁等于把它放大成可控时长。
+- 口径：**加锁时必须同时设计"等不到锁怎么办"**——等待要有上限，且上限只作用于"还没进场"的等待者；超时的等待者绝不能执行临界区（调用方已放弃后由迟到者补写过期结论，正是锁要消灭的形态）；超时语义是"本轮无结论"而不是"失败/失效"。临界区内的判定必须**重读**它所依赖的状态，不得沿用区外拍的快照。
+- 流程账：这两条我都没在自审里发现（我当时只想到"锁会不会死锁"），是外部评审发现的。QM-6 的价值不在复核"对不对"，而在追问"这个新机制把什么换成了什么"。
+- 关联：AGENTS.md「批量 IPC 进度双边界与超时预算契约」「测试断言不得反向固化错误行为」「多通道同步编排不得失败互锁」（那条讲的是**不该**互锁，这条讲的是**已经**互锁之后必须补的半边）。
+## 测试夹具替被调方改了签名，断链就永久全绿：跨模块调用必须真跑一次对方实现（pitfall，2026-09-27）
+- 现场：做「同步 × 批量检测互斥」那条残留时，给恢复侧写一条断言「回写口径是 unverified」，结果它当场就红了。红出来的不是新代码，是一个已经躺了一整轮的断链：`cloud-account-restore.js` 按对象形调用 `AccountManager.persistLoginState(accountId, { status, lastValidated, validationOrigin })`，而真实现的签名是 `persistLoginState(accountId, platform, status, validatedAt)`。真实现把第二个实参当 platform、第三个（undefined）当 status，一律判 `invalid-status` 直接 return，**一次 PATCH 都没发出**；返回值又被调用方丢弃，只有 throw 才落日志，所以连 warn 都没有。
+- 为什么全绿：`cloud-account-sync.test.js:25` 的夹具写的是 `persistLoginState: vi.fn(async (accountId, patch) => …)` —— 夹具按**调用方想象的形状**收参数，于是「status 恒为 undefined」被断言成 `patch.status === "unverified"` 并且通过。这是 AGENTS.md「契约夹具不得替对方剥壳」的新机制版本：上次是替对方剥信封，这次是**替对方改签名**。同一个家族，第三种落点。
+- 逃逸链：单元层（夹具同形状，免疫）→ 集成层（无，恢复只在这一层被 mock）→ 真机 IPC（未做，正是本轮登记的残留）→ 代码审查（前一轮自审 + 双模型外部评审都读了这段代码，没有人把调用点与 1253 行的导出签名对一遍）。**只要有一处「注入真实现」的用例，这颗雷第一次就炸**。
+- 系统性漏洞：本仓 desktop 侧测试一律 mock 掉跨模块依赖（真实 AccountManager 会拉起 electron/python-backend/SQLite），于是「跨模块签名一致」这件事从来没有一把锁。与「跨包上行契约必须有一把拿真校验器 + 真加密器的锁」是同一缺口的两侧：那次把 `validate-account` 换成真的，这次要把 `persistLoginState` 换成真的。
+- 修法 + 回归：调用点改回位置签名并**检查返回值**（非 ok 就 warn，依据「固化失败不得冒充成功」）；新增 `cloud-account-restore.test.js::cloud-account-restore × 真实 AccountManager.persistLoginState 契约` —— 把真函数装进恢复流，断言后端真收到 `PATCH /api/accounts/<id>` 且 body `{status: unverified, last_validated}`；夹具改成与真签名逐字同形。反证：把调用退回对象形 → 该文件 2 条变红（已实测）。
+- 顺带纠正两处文档失真：PRD §5.3 与 AGENTS.md 都写着恢复时打 `validation_origin=restored` 且「不参与 7 天超龄兜底」—— 后端从来没有这一列，而超龄兜底只作用于 `active`，恢复即 `unverified` 本身已排除。字段无人消费，按禁止死键的纪律不再实现，只把文档改成实现的样子。
+- 关联：AGENTS.md「跨包上行契约必须有一把拿真校验器 + 真加密器的锁」「跨包响应信封只在一处剥」「门禁断言随实现迁移同步」「任何防再犯锁必须做一次把锁本身改成 no-op 的变异」。
+
+
+
+
+
+
+
+## 位运算式权限断言是恒真的装饰：省略实参时 undefined & mask 也等于 0（pitfall，2026-09-27）
+- 现场：给密钥环写盘加"临时文件必须 0600"的断言，写成 `assert.strictEqual(tmpCall.mode & 0o077, 0)`。做反证时把实现里的 `openSync(tmp, "wx", mode)` 改成 `openSync(tmp, "wx")`（省略 mode），**套件仍全绿**。
+- 根因：省略第三个实参时它是 `undefined`，`undefined & 0o077` 在 JS 里就是 0。位掩码断言只对"传了但传错"生效，对"根本没传"完全免疫 —— 而"没传 mode"恰恰是真实故障形态（Linux umask 022 下建出 0644，rename 再把权限带到主密钥环上，同机任意用户可读）。
+- 口径：凡断言"某个配置实参必须存在且取某个值"，一律钉**等值**（`strictEqual(mode, 0o600)`）而不是"掩码后为零"；需要放宽时写成"必须先断言它是 number，再断言掩码结果"。同理，`if (x?.foo & MASK)` 一类的判断在读不到字段时会静默等价于 0，不要把"取不到"和"值为 0"合并。
+- 这条只有靠**真跑变异**才会暴露：本轮把它写进 `.quality-gates.md` 的执行记录，作为「反证必须实测、不能推断」的又一个具体样本（同族先例：通配锁静默永久跳过、"防再犯锁"被改成 no-op 才红）。
+- 关联：AGENTS.md「任何防再犯锁必须做一次把锁本身改成 no-op 的变异」「出站行为以线级取证为准」。
+
+
 ## Windows 文件锁夹具：冷启动与被测语义共用一个预算，且"自报标记"不等于"真的持有"（2026-09-27）
 
 - **症状**：main `655acd0c` 的 `QG Desktop Shards (1/2)` → `credential-store.test.js`「Windows 主密钥短暂锁释放后仍能完成格式迁移」报 `lock handshake did not report "LOCKED" within 20000ms (stdout="", stderr="")`，摘要 `Tests 1 failed | 11768 passed`。#2410 的 `Gate Result` 真聚合上线后，这颗从"可重跑的 job 红"升级成"随机拦所有人合并"。

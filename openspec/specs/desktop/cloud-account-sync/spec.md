@@ -196,3 +196,91 @@
 - **WHEN** 某账号凭证序列化后超过声明上限
 - **THEN** 该账号以 `CREDENTIAL_TOO_LARGE` 失败并在过程区显示，MUST NOT 截断后上传
 
+
+### Requirement: 登录态真源写入按账号串行
+
+登录态真源（`accounts.json` 的 `status` 与 `last_validated`）在本机有四个互不知情的写者：定期检测
+（`login-status-monitor`，由 `setInterval` 自己起来）、单账号检测（`account:check-login`）、批量检测
+（`accounts:batch-check-login`）与云端恢复（`cloud-account-restore`）。渲染层【同步云端】与【一键检测】
+两个按钮的互斥（`batchCheckAllBusy` / `cloudSyncRunning`）**管不到定时器发起的检测**，因此系统 MUST
+在主进程以 `accountId` 为键串行化两段写入：
+
+- 检测侧：「读本机凭证 → 得出检测结论 → 回写真源」MUST 落在同一个临界区内；
+- 恢复侧：「用云端凭证覆盖本机凭证 → 回写 `unverified`」MUST 落在同一个临界区内。
+
+由此不变量得到的是：**凭证覆盖不得插在「检测读凭证」与「检测写结论」之间**。违反的后果是一次基于
+**旧**凭证的结论把刚被打回的 `unverified(restored)` 重新写成 `active`，于是「本机这份从未验证过的凭证」
+显示为已登录，同时破坏「恢复即 unverified」与「登录态只被正/负证据改写」两条既有契约。
+
+不同 `accountId` MUST 并行（批量检测声明了并发上限与单任务硬超时，退化为全局单锁会让整批撞上超时
+预算并把进度遮罩钉死在第一个账号）。恢复收尾排定的本机自证检测 MUST 在临界区**之外**发起——它走同一
+把键，写进区内即自死锁，且死锁不报错，只表现为该账号此后永远不再被检测。
+
+#### Scenario: 恢复的凭证覆盖不得插进在途检测的两步之间
+
+- **WHEN** 某账号的检测已读出本机凭证、尚未回写结论，此时云端恢复要覆盖该账号凭证
+- **THEN** 覆盖与随后的 `unverified` 回写 MUST 等到该检测回写完成后才发生
+
+#### Scenario: 恢复先完成时检测用的是新凭证
+
+- **WHEN** 云端恢复已覆盖凭证并回写 `unverified`，随后同一账号进入检测
+- **THEN** 该检测 MUST 在恢复的临界区释放之后才开始读凭证，其结论对应的是恢复后的那份凭证
+
+#### Scenario: 排队本机自证检测时不得仍持有该账号的锁
+
+- **WHEN** 恢复成功后为同一账号排一次本机检测
+- **THEN** 排队的动作 MUST 发生在临界区之外；实现把它挪进区内时回归 MUST 当场变红（自死锁形态）
+
+#### Scenario: 不同账号的写入不得互相阻塞
+
+- **WHEN** 账号 A 正被恢复侧持锁，账号 B 进入批量检测
+- **THEN** B 的检测 MUST 照常开始，不等 A
+
+### Requirement: 取锁等待有上限且超时不执行临界区
+
+串行锁的**等待**必须有上限，且上限只作用于"还没进场"的等待者：超时的等待者 MUST NOT 执行它的临界区
+（否则一个迟到的排队者会在调用方已经放弃之后写进一份过期结论，正是本锁要消灭的形态），并 MUST 继续放行
+队列里的后来者。批量检测把这段等待计入**同一个**单任务硬超时预算，超时对该账号如实记为"本轮无结论"
+（`CHECK_LOGIN_LOCK_TIMEOUT`、`valid` 为 `undefined`、不发 PATCH、照常广播 `done`）；定期检测 MUST 因
+超时而结束本轮（`_running` 复位）——否则一个挂死的写者会让之后所有轮次静默停摆且不报任何错。
+
+无定论分支的"保持还是降级" MUST 以**此刻**的真源现状为准，而不是取锁前拍的全量列表快照：期间另
+一写者可能已落成 `expired`，用旧快照计算会把这条负向证据覆盖成 `unverified`。
+
+#### Scenario: 持锁者挂死时批量检测仍能收口
+
+- **WHEN** 某账号的临界区被一个不结束的写者占住，批量检测开始该账号
+- **THEN** 本账号在单任务超时内记为"本轮无结论"并广播 `done`，MUST NOT 永久停在 `start`
+
+#### Scenario: 超时后的排队段不得补写
+
+- **WHEN** 等待方已超时返回，之后持锁者才释放
+- **THEN** 等待方的临界区代码 MUST 一次都不执行，真源 MUST NOT 被这次已放弃的操作改写
+
+#### Scenario: 定期检测不因等锁停摆
+
+- **WHEN** 定期检测等锁超时
+- **THEN** 本轮如实落一条"等锁超时，本轮跳过"日志并结束，下一轮 MUST 照常起来
+
+#### Scenario: 无定论时按锁内重读的现状判定
+
+- **WHEN** 检测无定论，而列表快照显示 `active`、真源此刻已是 `expired`
+- **THEN** 本轮 MUST NOT 发出任何改写（`expired` 是粘滞的负结论，不得被抹成 `unverified`）
+
+### Requirement: 恢复的状态回写失败不得算恢复成功
+
+云端凭证覆盖本机后把登录态打回 `unverified` 这一步，若返回非 `ok` 或抛错，本次恢复 MUST 如实报失败
+并带原因码 `RESTORE_STATUS_PERSIST_FAILED`，MUST NOT 排定本机自证检测；新建号场景 MUST 回滚已建的
+账号，不留"账号在、状态不可信"的半成功。摘要字段 `queuedCheck` 只统计**真的排上了**检测的行——
+生产接线没有注入 `queueLoginCheck` 时它就是 0，恢复后的自证由下一次定期检测收口，界面与文档都不得
+声称"已安排检测"。
+
+#### Scenario: 回写失败不冒充成功
+
+- **WHEN** `persistLoginState` 返回 `{ok: false}`
+- **THEN** 该行的结局是失败且带 `RESTORE_STATUS_PERSIST_FAILED`，`queueLoginCheck` 不被调用
+
+#### Scenario: 未注入检测入口时如实报 0
+
+- **WHEN** 恢复成功但主进程没有注入 `queueLoginCheck`
+- **THEN** `summary.queuedCheck` MUST 为 0，即使 `restored` 计数大于 0

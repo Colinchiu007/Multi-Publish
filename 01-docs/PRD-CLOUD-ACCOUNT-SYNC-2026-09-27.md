@@ -99,8 +99,16 @@
 
 1. 写 `accounts.json`：走本机 python-backend `POST /api/accounts`（元数据）→ 得到本机 `id`；元数据映射见 §6.3。
 2. 写凭证：主进程 `credential-store.saveCredential(accountId, {platform, cookies, localStorage, indexedDB, accountInfo})`，本机重新用 safeStorage 主密钥加密（**云端密文不直接落本机**，两侧密钥体系独立）。
-3. 登录态：`status` 强制 `unverified`；`last_validated` 写本机恢复时刻，并打 `validation_origin = 'restored'` 使其**不参与** 7 天超龄兜底（`MP_LOGIN_STATE_GRACE_DAYS`）。
-4. 队列：恢复成功的账号进入一次自动登录检测（复用 `accounts:batch-check-login` 链路的并发与超时口径），由本机证据决定最终状态。
+3. 登录态：`status` 强制 `unverified`；`last_validated` 写本机恢复时刻（`AccountManager.persistLoginState(accountId, platform, 'unverified', ISO)` 的**位置签名**，见下方事故段）。
+   ~~并打 `validation_origin = 'restored'` 使其不参与 7 天超龄兜底~~ —— 2026-09-27 按实现纠正：
+   后端从来没有这一列，`persistLoginState` 也只 PATCH `{status, last_validated}`；而 7 天超龄兜底
+   （`MP_LOGIN_STATE_GRACE_DAYS`）在语义上**只作用于 `active`**，恢复即 `unverified` 本身就已经把
+   这条账号排除在宽限期之外，所以那个标记没有任何消费者。原先文档写着它存在，是因为恢复侧写了一份
+   "看起来像在实现它"的调用——而那份调用从来没生效过。不为一件没人读的字段新增列（AGENTS.md 禁止死键）。
+4. 队列：若主进程注入了本机检测入口（`queueLoginCheck`），恢复成功的账号立即进入一次检测（复用
+   `accounts:check-login` 的串行锁与三态口径）；**生产接线目前没有注入它**，所以实际情况是由下一次
+   定期检测（`login-status-monitor`，默认 30 分钟）收口。摘要字段 `queuedCheck` 只统计真的排上的行，
+   不得用 restored 数充当——那是凭空许诺"已安排检测"。（2026-09-27 按实现纠正；外部评审指出该承诺与实现不符）
 5. 顺序不可颠倒：凭证未落盘不得把元数据写成可用；凭证落盘失败时返回值如实透传真源原值，MUST NOT 声称 active（对齐 AGENTS.md「固化失败或登录证据不足时不得冒充」）。
 
 ### 5.4 元数据冲突（两边都有、字段不同）
@@ -146,7 +154,44 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 
 - 全局单实例：`syncing === true` 时再次触发返回 `CLOUD_SYNC_IN_PROGRESS`，按钮禁用。
 - 断开云端与同步互斥（同一把锁）。
-- 与「一键检测登录」(`account-batch-check-all`) 互斥：两者并行会同时改 `status`，任一先结束都会让另一份结论错乱；实现为互相 disable，过程区文案提示"登录检测进行中，稍后再同步"。
+- 与「一键检测登录」(`account-batch-check-all`) 互斥：两者并行会同时改 `status`，任一先结束都会让另一份结论错乱。
+
+**按钮互斥不足以成立这条契约（2026-09-27 收口，实现见 `apps/desktop/electron/services/account-state-lock.js`）**：
+渲染层的 `batchCheckAllBusy` / `cloudSyncRunning` 只能拦住*用户点下去的那一次*，而登录态真源还有第三个写者
+——`login-status-monitor` 由 `setInterval` 自己起来，不经过任何按钮；`account:check-login` 也另有一条入口。
+于是存在这样一条真实交错：检测读出**旧**凭证并发出请求 → 云端恢复把新凭证覆盖到本机并回写 `unverified`
+→ 检测结论迟到一步写成 `active`。结果正是「本机这份从未验证过的凭证显示已登录」，同时破掉
+「恢复即 unverified」与「登录态只被正/负证据改写」两条契约。
+
+主进程口径（唯一实现 `withAccountStateLock(accountId, section)`）：
+
+| 临界区 | 包住的动作 | 调用方 |
+| --- | --- | --- |
+| 检测侧 | 读本机凭证 → 得出三态结论 → 回写 `status` / `last_validated` | `login-status-monitor`、`account:check-login`、`accounts:batch-check-login` |
+| 恢复侧 | 用云端凭证覆盖本机凭证 → 回写 `unverified` | `cloud-account-restore.applyCredentialLocally` / `restoreToLocal` |
+
+| 口径 | 具体要求 |
+| --- | --- |
+| 等待有界 | 取锁等待计入**同一个**单任务硬超时预算（批量侧 `MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`，定期检测 `lockWaitTimeoutMs`，默认 30s，可用 `MP_ACCOUNT_LOCK_WAIT_MS` 调）。超时的等待者**不执行**临界区——调用方已经放弃了，迟到补写就是第二次竞态 |
+| 超时的语义 | "本轮无结论"，不是失效：批量记 `CHECK_LOGIN_LOCK_TIMEOUT` + `valid: undefined` + 不发 PATCH + 照常广播 `done`；定期检测落一条 `等锁超时，本轮跳过` warn 并结束本轮（`_running` 必须复位） |
+| 现状以锁内为准 | 无定论分支的"保持还是降级"取决于**此刻**的真源现状；列表快照是取锁前拍的，必须重读（`persistCheckOutcome` 在非定论分支重读 `GET /api/accounts/:id`；monitor 重读 `listAccounts` 里该 id 那一行）。否则会把别的写者刚落的 `expired` 覆盖成 `unverified` |
+| 回写失败不冒充成功 | `markRestoredStatus` 返回布尔；非 `ok` ⇒ `applyCredentialLocally` 返回 `{applied:false, code:'RESTORE_STATUS_PERSIST_FAILED'}`、不排检测；`restoreToLocal` 回滚新建的账号并如实报失败 |
+| 排队检测如实计数 | `summary.queuedCheck` 只统计**真的排上了**的行。生产接线没有注入 `queueLoginCheck`，因此它是 0——恢复后的自证由下一次定期检测（默认 30 分钟）收口，界面与文档都不得声称"已安排检测" |
+
+四条不可违反的口径：
+
+1. **键是 `accountId`**，不是 platform、更不是全局单锁。批量检测声明了并发上限与单任务硬超时
+   （AGENTS.md「批量 IPC 进度双边界与超时预算契约」），退化成全局单锁会让整批排队撞上预算，
+   遮罩钉死在第一个账号。回归里有一条专门断言「不同账号仍并行」。
+2. **失败必须放行**：前一个临界区抛错（检测异常、磁盘满）不得把该账号永久挡在门外，
+   否则表现为「这个账号从此再也不被检测」。
+3. **恢复收尾排定的本机自证检测必须在临界区之外**：它走同一把键，写进区内即自死锁，
+   且死锁不报错。回归用 `accountStateLockHeld(accountId)` 在排队那一刻当场断言为 `false`。
+4. **缺 `accountId` 一律抛错**，不静默降级成"不串行"——那等于把要防的竞态留在原地。
+
+不变量的可测表述：**凭证覆盖不得插在「检测读凭证」与「检测写结论」之间**。两条方向各一条用例
+（检测在途挡住恢复 / 恢复先持锁挡住检测），断言的是事件序列而非返回值——竞态通过时的样子
+恰恰是两边都返回成功。
 
 ## 六、数据模型与校验
 
@@ -366,6 +411,14 @@ ADR-0005 的防线就此失效；而信封破坏（`CLOUD_ENVELOPE_INVALID`）�
 
 ### 7.5.1 客户端侧语义码（不经 HTTP，由主进程/传输层产生）
 
+本轮新增三个，登记在 `useCloudSyncResultModel` 的反向收集锁里（漏一个即红）：
+
+| 码 | 出现处 | 用户侧读法 |
+| --- | --- | --- |
+| `RESTORE_STATUS_PERSIST_FAILED` | 恢复：凭证已覆盖本机，但登录态没打回 `unverified` | 该账号本轮恢复失败（已回滚新建号），提示重试；**不得**显示为已登录 |
+| `CHECK_LOGIN_LOCK_TIMEOUT` | 检测：同一账号的临界区被另一写者占住，本轮放弃 | 本轮没结论，既有状态原样保持（不是失效） |
+| `ACCOUNT_LOCK_WAIT_TIMEOUT` | 锁内部错误码（IPC 不直接透传） | 只进主进程日志，用于区分"等锁超时"与"检测异常" |
+
 这些码同样进入逐条 `items[].code` 或批次 `errorCode`，因此**同样必须在展示层登记**
 （锁见 §10.3；未登记即落到「云端未接受该账号」兜底句，把本机问题说成云端问题）。
 
@@ -388,6 +441,18 @@ ADR-0005 的防线就此失效；而信封破坏（`CLOUD_ENVELOPE_INVALID`）�
 | `BUSINESS_USER_REPOSITORY_NOT_CONFIGURED` | 本机取不到归属身份 / 服务端未接库（批次级 503） | `…err.serviceUnavailable` |
 
 ## 八、加密契约
+
+> 主密钥托管形态（2026-09-27 落地）：服务端 KMS 抽象层 `{ wrap(dataKey, keyId) / unwrap(wrapped, keyId) }`
+> 的生产实现是**文件密钥环**（ADR-0007）——`{version, activeKeyId, keys:{id:hex}}`，路径由
+> `MP_CLOUD_KMS_KEYRING` 指定。轮转 = 追加一把 + 移 active 指针，**旧密钥永不删除**；
+> `encryptedDataKey` 的字节里前置 `[idLen][keyId]` 自描述所用的那把，因此不需要新增数据库列，
+> 旧信封在轮转后依然解得开。AAD 仍绑 `user:${userId}`，密钥环 id **不构成**第二层归属隔离。
+> 提供方选择只有 `createKmsFromEnv()` 一处实现：没配环就退回开发单密钥并落 `KMS_LOCAL_ONLY` warn；
+> **「配了但值为空白」按配置事故当场失败**，不静默退回单密钥（那属于 §8.4 禁止的降级形态）。
+> 三条配套约束：轮转的读-改-写以 `proper-lockfile` 互斥（竞争即 `KMS_KEYRING_LOCKED`，不写盘）；
+> 环与临时文件以 `wx` + `0600` 创建、POSIX 下 rename 后 fsync 父目录（否则权限被继承成全局可读、
+> 且断电后一次轮转可能静默回滚）；KMS 返回的明文数据密钥副本在复制后立即清零（不留第二份内存副本）。
+> 生效时机：KMS 实例首次使用时构造并永久缓存 ⇒ 轮转后需重启服务，新写入才用新 active（旧信封始终可解）。
 
 1. **加密发生在服务端收到 `PUT` 之后、写库之前**：对每条凭证 `dk = randomBytes(32)`；`ciphertext = AES-256-GCM(key=dk, iv = randomBytes(12), aad = "${userId}|${platform}|${platformUid}")`。客户端不做加密、不持有主密钥——客户端加密要么把明文 DK 一起传上去（等于没加密），要么多一次 GenerateDataKey 往返；本项目的信任边界就是"服务端持有 KMS 主密钥"，两种做法安全上限相同，多一条链路只多一处漂移点。
 2. `encryptedDataKey = KMS.wrap(dk, keyId = "user:${userId}")`；DK 明文在进程内用后必须清零。
@@ -638,3 +703,64 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 **合规**
 - 首次同步的隐私提示行即为同意点；`credential_updated_at` 与断开入口保证用户可撤回。
 - 隐私声明需新增"平台登录凭证加密托管"条目（本文档 §八 为依据），由文档任务跟进。
+
+## 十六、真机验证与线级取证记录（2026-09-27）
+
+本章只记**实测到的**事实。方法：在隔离 worktree（含本特性代码）上用复制的 debug profile 启动一份
+真实 Electron 实例（`--user-data-dir=D:/tmp/mp-residual-verify-profile`，同时开
+`--remote-debugging-port` 与 `--inspect`），渲染层经 CDP 调 `window.electronAPI` 走真 IPC，
+主进程侧经 Node inspector 调生产代码，并在 `https/http.request` 与 `globalThis.fetch` 上挂钩记录真实出站。
+profile 是**复制件**（原实例正在运行且锁着 Chromium session 目录），原目录未被写入。
+
+### 16.1 八平台 `platform_uid` 线级取证（收口 tasks 3.6）
+
+凭证来自 `credentials/owners/<hash>/*.json.enc`，用生产同一对函数
+（`credential-store.getMasterKey` + `decryptData`）解密；uid 提取走
+`http-login-checker.fetchAccountInfoViaHttpApi(platform, cookies)` 本体，不是复刻实现。
+下表"出站"是线级抓到的真实请求（只记目标与状态码，绝不记凭证值）：
+
+| 平台 | 真源 status | cookie 数 | 真实出站 | 取到 uid |
+| --- | --- | --- | --- | --- |
+| bilibili | active | 18 | `api.bilibili.com/x/web-interface/nav` → 200 | **3747542357510297** |
+| toutiao | active | 32 | `mp.toutiao.com/mp/agw/media/get_media_info` → 200 | **1342958645023752** |
+| douyin | active | 46 | `creator.douyin.com/aweme/v1/creator/pc/user/info/` → 200 | 无（端点可达但响应里提不到可信身份属性） |
+| zhihu | active | 25 | `www.zhihu.com/` → 200（SSR HTML） | 无 |
+| xiaohongshu | active | 20 | `creator.xiaohongshu.com/` → 200（SSR HTML） | 无 |
+| wechat_mp | active | 12 | `channels.weixin.qq.com/.../auth_data` → 200；`mp.weixin.qq.com/cgi-bin/loginpage` → **302** | 无（`loginpage` 是未登录特征） |
+| kuaishou | active | 9 | **无出站**（`uidSource: cookie` 按设计不发请求） | 无（约定 cookie 里没取到） |
+| tencent_video | expired | 2 | 无出站 | 无（该账号本就失效） |
+
+**结论（把原来"待取证"的判断改成实测结论）**：
+
+1. 合并键覆盖率实测是 **2/8**，不是文档此前暗示的"多数平台可取"。其余 6 个全部走
+   `uid-unavailable` 跳过上行 —— 这条 fail-closed 路径是本次唯一保证"不污染合并键"的防线，
+   现在它有了真凭证下的实测证据（此前只有单测）。
+2. **端点 200 不等于取得到 uid**：douyin / zhihu / xiaohongshu 都返回 200，但现有提取规则
+   在真实响应里取不到可信身份属性。知乎/小红书是 SSR HTML，"HTML 里到底直不直出身份属性"这个
+   原问题至此有了否定答案（至少在本次这两个账号的响应形态上）。要提升覆盖率必须逐平台重新取证
+   并改提取规则，属新的工作项，不在本轮。
+3. `wechat_mp` 的真源写的是 `active`，线级证据却是 `loginpage → 302`（未登录特征）。
+   这是**登录态判定**侧的既有问题（AGENTS.md「登录页 ≠ 已登录」家族），不是云镜像引入的，
+   但它会让一份失效凭证被镜像上去。已登记，不在本轮修。
+
+### 16.2 真机 Electron 内 IPC 全链路（部分收口）
+
+| 调用（渲染层真调 `window.electronAPI`） | 实测结果 | 读法 |
+| --- | --- | --- |
+| preload 键位 | `accountsCloudDigest` / `accountsCloudSync` / `accountsCloudDisconnect` / `accountsCloudSyncAbort` / `onAccountsCloudSyncProgress` 五个都在真实窗口里存在且可调用 | 不是浏览器里的静默 fallback |
+| `accountsCloudDigest()` | `{code:0, data:{reachable:false, total:0, localCount:0, tombstones:0, errorCode:"MEMBER_API_REQUEST_FAILED"}}` | 信封只在一处剥 ⇒ `code/data` 形状正确；云端不可达时如实 `reachable:false`，没有冒充"云端共 0 个" |
+| `accountsCloudSync()` | `{code:500, errorCode:"Python backend is not running", data:{failed:1, created:0, restored:0, uidUnavailable:0, queuedCheck:0, items:0}}` | 失败如实上报、不半途假装成功；`queuedCheck` 为 0 与"生产未注入 queueLoginCheck"一致 |
+| `accountsCloudSyncAbort()`（空闲时） | `{code:0, data:{aborted:false}}` | 空闲中止不谎报"已中止" |
+| `accountsCloudDisconnect("nope")` | `{code:400, errorCode:"DISCONNECT_CONFIRMATION_REQUIRED"}` | 二次确认守卫在真窗口里生效 |
+| `accountsCloudDisconnect("cloud")` | `{code:500, errorCode:"MEMBER_API_REQUEST_FAILED"}` | 云端不可达时不静默"当作已断开" |
+| 进度广播 | 0 条事件（同步在触达任何一行之前就失败） | 与 `items:0` 自洽，不是丢事件 |
+
+**未被本轮覆盖（必须连着看，否则会误判"真机全链路已验证"）**：
+
+- **成功路径跑不了，两个外因**：① 已部署的业务 API 构建尚不含云镜像面（见 OPS §5 探测表，
+  未带凭证探测 `GET /api/v1/me/accounts/digest` 返回通用 Key 鉴权 401 且无 `Cache-Control`）；
+  ② 本机第二实例起不动自己的 python-backend —— 端口 8299 是固定值且已被第一个实例占用，
+  绑定失败后进程退出码 3 并无限重启，于是 `localCount` 读到的是**别人那份**后端（返回 0 个账号）。
+  这条本身是值得修的环境缺陷（多实例并存时"假就绪"），已登记。
+- 因此"上传 8 个账号 → 换设备恢复 → 恢复即 unverified → 本机自证"这条主链，仍要有云镜像面的
+  服务端（生产部署或本机起一套业务 API + Postgres + 同一 Logto 租户）才能取到真机证据。

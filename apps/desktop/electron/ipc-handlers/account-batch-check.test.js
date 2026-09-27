@@ -354,3 +354,146 @@ describe('accounts:batch-check-login 单账号超时', () => {
     }
   })
 })
+
+/**
+ * 批量检测 × 云端恢复的交错合同（openspec add-cloud-account-sync 残留「主进程互斥」）。
+ *
+ * 与 `login-status-monitor.test.js` 里同族用例配对：那一侧是定时器发起的检测，本侧是用户
+ * 点「一键检测」发起的。两者都必须把「读凭证 → 写结论」整段放进 per-account 串行锁里，
+ * 否则云端恢复可以在中间把凭证换掉，让一次基于旧凭证的结论覆盖掉 `unverified(restored)`。
+ *
+ * 断言的是**别的写者进不来 / 本写者出不去**这一时序，不是结果值——竞态通过时的样子恰恰是
+ * 两边都返回成功。
+ */
+describe('accounts:batch-check-login 与云端恢复对同一真源的写入串行', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('该账号被恢复侧持锁时，检测体不得开始（锁包住整段而非只包住回写）', async () => {
+    const { withAccountStateLock } = require('../services/account-state-lock')
+    const gate = { resolve: null }
+    const held = withAccountStateLock('a1', () => new Promise((r) => { gate.resolve = r }))
+    const sends = []
+    /** @type {string[]} */
+    const events = []
+    const deps = createMockDeps({
+      accounts: ACCOUNTS.slice(0, 1),
+      sends,
+      checkLoginStatus: async () => {
+        events.push('check:enter')
+        return { valid: true, code: 'CHECK_LOGIN_SUCCESS' }
+      },
+    })
+
+    const running = invokeBatch(deps, ['a1'])
+    await flush()
+    expect(events, '恢复侧仍持锁，批量检测却已经开始读凭证').toEqual([])
+
+    gate.resolve()
+    await held
+    const result = await running
+    expect(events).toEqual(['check:enter'])
+    expect(result.data.results[0]).toMatchObject({ valid: true, loginStatus: 'active' })
+  })
+
+  it('批量检测在途时，恢复侧的凭证覆盖必须等到本账号写完结论', async () => {
+    const { withAccountStateLock } = require('../services/account-state-lock')
+    const gate = { resolve: null }
+    const sends = []
+    /** @type {string[]} */
+    const events = []
+    // 串行模式：交错序唯一，便于把「凭证覆盖不得插在中间」写成精确断言
+    process.env.MP_BATCH_CHECK_CONCURRENCY = '1'
+    const deps = createMockDeps({
+      accounts: ACCOUNTS.slice(0, 1),
+      sends,
+      checkLoginStatus: async () => {
+        events.push('check:enter')
+        await new Promise((r) => { gate.resolve = r })
+        events.push('check:return')
+        return { valid: true, code: 'CHECK_LOGIN_SUCCESS' }
+      },
+    })
+    deps.AccountManager.persistLoginState = vi.fn(async () => {
+      events.push('batch:persist')
+      return { ok: true, status: 'active' }
+    })
+
+    const running = invokeBatch(deps, ['a1'])
+    await flush()
+    const restoring = withAccountStateLock('a1', async () => {
+      events.push('restore:saveCredential')
+    })
+    await flush()
+    expect(events, '凭证覆盖插进了批量检测的读凭证与写结论之间').toEqual(['check:enter'])
+
+    gate.resolve()
+    await Promise.all([running, restoring])
+    expect(events).toEqual(['check:enter', 'check:return', 'batch:persist', 'restore:saveCredential'])
+  })
+})
+
+/**
+ * 取锁等待必须受**单任务硬超时**约束（外部评审 Critical）。
+ * `withHardTimeout` 在临界区内启动，所以"等锁"这段时间本身不在它的预算里 ——
+ * 一个挂死的写者会让本账号已广播 start 却永不广播 done（违反本仓「批量 IPC 进度双边界」），
+ * 因此等待上限必须显式等于同一份预算，并且超时后的语义是"本轮无结论"，不是"失效"。
+ */
+describe('accounts:batch-check-login 取锁等待的有界性', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('等锁超时：如实记为无结论（CHECK_LOGIN_LOCK_TIMEOUT），绝不回写，也必须广播 done', async () => {
+    const { withAccountStateLock } = require('../services/account-state-lock')
+    process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS = '30'
+    const sends = []
+    const deps = createMockDeps({
+      accounts: ACCOUNTS.slice(0, 1),
+      sends,
+      checkLoginStatus: async () => { throw new Error('持锁者还挂着，本不该被调用') },
+    })
+    let release
+    const held = withAccountStateLock('a1', () => new Promise((r) => { release = r }))
+    let result
+    try {
+      result = await invokeBatch(deps, ['a1'])
+    } finally {
+      // 断言失败也必须放锁：否则这把键会带着超时的等待者串到同文件的下一条用例
+      release()
+      await held
+      delete process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS
+    }
+    const item = result.data.results[0]
+    expect(item.code).toBe('CHECK_LOGIN_LOCK_TIMEOUT')
+    expect(item.valid).toBeUndefined()
+    // 超时只是"本轮没拿到锁"，不是反证：既有结论必须原样保持。夹具里的账号没有 status 字段，
+    // 所以如实的"保持原状"就是 null（既不猜 active 也不抹成 unverified）。
+    expect(item.loginStatus).toBeNull()
+    expect(item.persisted.changed).toBeFalsy()
+    expect(deps.AccountManager.persistLoginState).not.toHaveBeenCalled()
+    expect(deps.AccountManager.checkLoginStatus).not.toHaveBeenCalled()
+    expect(progressEvents(sends).map((e) => e.phase)).toEqual(['start', 'done'])
+    // 放锁后再让出一轮：迟到的那一段**绝不能**补写（票已过期 = section 永不执行）
+    await flush()
+    expect(deps.AccountManager.persistLoginState, '超时后迟到的排队段仍写入真源').not.toHaveBeenCalled()
+  })
+
+  it('无定论时必须在临界区内重读真源现状，不得拿取锁前的旧快照覆盖刚落盘的 expired', async () => {
+    const sends = []
+    const patches = []
+    const deps = createMockDeps({
+      accounts: [{ id: 'a1', platform: 'douyin', status: 'active', last_validated: new Date().toISOString() }],
+      sends,
+      checkLoginStatus: async () => ({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' }),
+    })
+    // 真源此刻已是 expired（别的写者刚判出来的），而列表快照还是取锁前拍的那份 active
+    deps.pythonBridge = {
+      requestBackend: (method, path, body) => {
+        if (method === 'GET') return Promise.resolve({ code: 0, data: { status: 'expired', last_validated: new Date().toISOString() } })
+        patches.push({ method, path, body })
+        return Promise.resolve({ code: 0 })
+      },
+    }
+    const result = await invokeBatch(deps, ['a1'])
+    expect(result.data.results[0].loginStatus).toBe('expired')
+    expect(patches.length, '无定论 + 现状已是负结论：一次 PATCH 都不该发').toBe(0)
+  })
+})

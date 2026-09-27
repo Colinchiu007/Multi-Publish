@@ -22,7 +22,14 @@ function makeFixture (overrides = {}) {
       listAccounts: vi.fn(async () => accounts),
       addAccount: vi.fn(async (payload) => { calls.push({ path: 'addAccount', payload }); return { code: 0, data: { id: 'new-id-1' } } }),
       deleteAccount: vi.fn(async (accountId) => { calls.push({ path: 'deleteAccount', accountId }); return { code: 0 } }),
-      persistLoginState: vi.fn(async (accountId, patch) => { calls.push({ path: 'persistLoginState', accountId, patch }); return { code: 0 } }),
+      // 形状必须与真实 `AccountManager.persistLoginState(accountId, platform, status, validatedAt)`
+      // 逐字同形。此前夹具写的是 (accountId, patch) 对象形，于是恢复侧那份错误的调用形状
+      // ——status 恒为 undefined、真源一次都没写成功——被夹具当成契约断言了下来（AGENTS.md
+      // 「契约夹具不得替对方剥壳」同族事故）。返回 { ok } 也是真实现的合同，不是 { code }。
+      persistLoginState: vi.fn(async (accountId, platform, status, validatedAt) => {
+        calls.push({ path: 'persistLoginState', accountId, platform, status, validatedAt })
+        return { ok: true, status }
+      }),
     },
     credentialStore: {
       loadCredential: vi.fn((accountId) => {
@@ -174,7 +181,9 @@ describe('账号云同步 —— 恢复到本机', () => {
     const saved = f.calls.find((c) => c.path === 'saveCredential')
     expect(saved.accountId).toBe('new-id-1')
     const persisted = f.calls.find((c) => c.path === 'persistLoginState')
-    expect(persisted.patch).toMatchObject({ status: 'unverified', validationOrigin: 'restored' })
+    expect(persisted.status).toBe('unverified')
+    expect(persisted.platform).toBe('douyin')
+    expect(typeof persisted.validatedAt).toBe('string')
     expect(f.calls.indexOf(saved)).toBeLessThan(f.calls.indexOf(persisted))
     expect(f.deps.queueLoginCheck).toHaveBeenCalledWith('new-id-1', { platform: 'douyin', reason: 'cloud-restored' })
   })
@@ -207,8 +216,8 @@ describe('账号云同步 —— 恢复到本机', () => {
     })
     await f.service.sync(SUBJECT)
     // 服务自己只写 unverified（恢复即无本机结论），不写 active/expired
-    const patch = f.calls.find((c) => c.path === 'persistLoginState').patch
-    expect(patch.status).toBe('unverified')
+    const persisted = f.calls.find((c) => c.path === 'persistLoginState')
+    expect(persisted.status).toBe('unverified')
   })
 })
 
@@ -246,7 +255,7 @@ describe('账号云同步 —— 凭证冲突四分支', () => {
     const saved = f.calls.find((c) => c.path === 'saveCredential')
     expect(saved.credential.cookies[0].value).toBe('cloud-val')
     const persisted = f.calls.find((c) => c.path === 'persistLoginState')
-    expect(persisted.patch.status).toBe('unverified')
+    expect(persisted.status).toBe('unverified')
   })
 
   it('两份都明确失效时保留本机凭证并标需重新登录', async () => {

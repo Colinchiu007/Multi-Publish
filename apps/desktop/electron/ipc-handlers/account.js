@@ -17,6 +17,8 @@ function registerHandlers(ipcMain, deps) {
   const { toPublicProxyConfig } = require('../services/proxy-config')
   const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
   const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
+  // 登录态真源写入的 per-account 串行锁（与 login-status-monitor / cloud-account-restore 共用）
+  const { withAccountStateLock } = require('../services/account-state-lock')
   const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store, identityService, credentialStore, app } = deps
 
   // 本机删除账号 → 云端墓碑（best-effort）。必须在删除前解析 uid：凭证就是要删的东西。
@@ -98,9 +100,12 @@ function registerHandlers(ipcMain, deps) {
 
   /** 把一次检测结论落进真源，并如实回报本轮到底改没改。 */
   async function persistCheckOutcome (platform, accountId, status, checkError, account, checkedAt) {
-    let snapshot = account
     const definitive = !checkError && status && (status.valid === true || status.valid === false)
-    if (!definitive && !snapshot) snapshot = await readAccountSnapshot(accountId)
+    // 无定论分支的「保持还是降级」取决于**此刻**的真源现状，而调用方传进来的 `account` 是取锁
+    // 之前拍的全量快照：期间别的写者（定期检测 / 云端恢复 / 另一个批量任务）可能已经写下结论。
+    // 拿旧快照猜现状会把刚落盘的 `expired` 覆盖成 `unverified`，把负向证据抹掉——
+    // 这正是「登录态只被正/负证据改写」的反例。有定论的分支不依赖现状，因此不多读一次。
+    const snapshot = definitive ? account : ((await readAccountSnapshot(accountId)) || account)
     const next = loginStatusFromCheck(status, checkError, snapshot, Date.parse(checkedAt))
     const current = snapshot && snapshot.status
     // 无定论（含检测异常/硬超时/现状读不到）= 没有新证据，一律不改写：规则给出 null 时已明示，
@@ -586,9 +591,13 @@ function registerHandlers(ipcMain, deps) {
         ipcLog('warn', 'account:check-login', 'validation-failed', `platform=${platform} accountId=${accountId}`)
         return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform/accountId 参数' }
       }
-      const status = await AccountManager.checkLoginStatus(platform, accountId)
-      const checkedAt = new Date().toISOString()
-      const outcome = await persistCheckOutcome(platform, accountId, status, '', null, checkedAt)
+      // 与批量检测同一把锁：单账号检测同样不得让凭证覆盖插进「读凭证」与「写结论」之间
+      const { status, outcome } = await withAccountStateLock(accountId, async () => {
+        const innerStatus = await AccountManager.checkLoginStatus(platform, accountId)
+        const innerCheckedAt = new Date().toISOString()
+        const innerOutcome = await persistCheckOutcome(platform, accountId, innerStatus, '', null, innerCheckedAt)
+        return { status: innerStatus, checkedAt: innerCheckedAt, outcome: innerOutcome }
+      })
       ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} loginStatus=${outcome.status || outcome.keptStatus} changed=${outcome.changed} persisted=${outcome.ok} 耗时=${Date.now() - startedAt}ms`)
       // data 仍是检测三态原样返回（向后兼容）；是否改写了真源由 statusChanged 表达
       return { code: 0, data: { ...status, loginStatus: outcome.status || outcome.keptStatus, statusChanged: outcome.changed } }
@@ -634,39 +643,71 @@ function registerHandlers(ipcMain, deps) {
         const accountId = account.id
         broadcastProgress({ phase: 'start', checked: doneCount, total, platform, accountId })
         const accountStartedAt = Date.now()
-        let status = null
-        let checkError = ''
-        let timeoutCode = ''
-        try {
-          status = await withHardTimeout(
-            AccountManager.checkLoginStatus(platform, accountId),
-            timeoutMs,
-            `检测超时（>${timeoutMs}ms）`,
-          )
-        } catch (e) {
-          checkError = e instanceof Error ? e.message : String(e)
-          if (e && e.__batchCheckTimeout) timeoutCode = 'CHECK_LOGIN_TIMEOUT'
-        }
-        // 三态透传：valid 只能是 true / false / undefined（未确认）。
-        // 历史实现用 Boolean(status?.valid) 把 undefined 压成 false，
-        // 导致「无法判定」被渲染成「已失效」（今日头条假阴性根因之一）。
+        // 「读凭证 → 检测 → 写结论」整段必须在同一把 per-account 串行锁内：云端恢复可以在这个
+        // 窗口里把新凭证覆盖到本机并把登录态打回 unverified(restored)，于是一次基于**旧**凭证的
+        // 结论会把它重新写成 active —— 本机这份凭证从未被验证过却显示已登录。渲染层的
+        // batchCheckAllBusy/cloudSyncRunning 互斥只管按钮，管不到定时器与别的 IPC 入口。
+        // 三态映射是纯函数，一并放进临界区只为让边界只有一处。
+        // 取锁等待同样受**单任务硬超时**约束：否则一个挂死的写者会让本账号已广播 start 却永不
+        // 广播 done（违反 AGENTS.md「批量 IPC 进度双边界与超时预算契约」）。超时 = 本轮对该账号
+        // 没有任何结论：不回写、valid 保持 undefined、如实发 done，绝不猜成失效。
+        /** 临界区的产物；取锁超时时的兜底值也走同一组变量，保证下面的装配逻辑只有一套。 */
+        let status
+        let checkError
         let valid
         let code
-        if (checkError) {
+        let outcome
+        try {
+          const turn = await withAccountStateLock(accountId, async () => {
+          let rawStatus = null
+          let innerError = ''
+          let timeoutCode = ''
+          try {
+            rawStatus = await withHardTimeout(
+              AccountManager.checkLoginStatus(platform, accountId),
+              timeoutMs,
+              `检测超时（>${timeoutMs}ms）`,
+            )
+          } catch (e) {
+            innerError = e instanceof Error ? e.message : String(e)
+            if (e && e.__batchCheckTimeout) timeoutCode = 'CHECK_LOGIN_TIMEOUT'
+          }
+          // 三态透传：valid 只能是 true / false / undefined（未确认）。
+          // 历史实现用 Boolean(status?.valid) 把 undefined 压成 false，
+          // 导致「无法判定」被渲染成「已失效」（今日头条假阴性根因之一）。
+          let mappedValid
+          let mappedCode
+          if (innerError) {
+            mappedValid = undefined
+            mappedCode = timeoutCode || 'CHECK_LOGIN_ERROR'
+          } else if (rawStatus && rawStatus.valid === true) {
+            mappedValid = true
+            mappedCode = rawStatus.code || 'CHECK_LOGIN_SUCCESS'
+          } else if (rawStatus && rawStatus.valid === false) {
+            mappedValid = false
+            mappedCode = rawStatus.code || 'CHECK_LOGIN_FAILED'
+          } else {
+            mappedValid = undefined
+            mappedCode = (rawStatus && rawStatus.code) || 'CHECK_LOGIN_INCONCLUSIVE'
+          }
+          // 单向证据规则：无定论时保持真源原状，不抹掉既有正/负结论
+          const innerOutcome = await persistCheckOutcome(platform, accountId, rawStatus, innerError, account, checkedAt)
+            return { status: rawStatus, checkError: innerError, valid: mappedValid, code: mappedCode, outcome: innerOutcome }
+          }, { waitTimeoutMs: timeoutMs })
+          status = turn.status
+          checkError = turn.checkError
+          valid = turn.valid
+          code = turn.code
+          outcome = turn.outcome
+        } catch (e) {
+          if (!e || e.code !== 'ACCOUNT_LOCK_WAIT_TIMEOUT') throw e
+          status = null
+          checkError = e.message || String(e)
           valid = undefined
-          code = timeoutCode || 'CHECK_LOGIN_ERROR'
-        } else if (status && status.valid === true) {
-          valid = true
-          code = status.code || 'CHECK_LOGIN_SUCCESS'
-        } else if (status && status.valid === false) {
-          valid = false
-          code = status.code || 'CHECK_LOGIN_FAILED'
-        } else {
-          valid = undefined
-          code = (status && status.code) || 'CHECK_LOGIN_INCONCLUSIVE'
+          code = 'CHECK_LOGIN_LOCK_TIMEOUT'
+          outcome = { ok: true, status: null, changed: false, keptStatus: (account && account.status) || null }
+          ipcLog('warn', 'accounts:batch-check-login', 'lock-timeout', `platform=${platform} accountId=${accountId} 等锁>${timeoutMs}ms，本轮跳过且不回写`)
         }
-        // 单向证据规则：无定论时保持真源原状，不抹掉既有正/负结论
-        const outcome = await persistCheckOutcome(platform, accountId, status, checkError, account, checkedAt)
         const loginStatus = outcome.status || outcome.keptStatus
         if (outcome.ok && outcome.changed) persistedCount++
         const persisted = {

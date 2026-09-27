@@ -99,8 +99,15 @@ const ERROR_CODE_GROUPS = {
   rowTimeout: ['SYNC_TIMEOUT'],
   // 云端全集读不到 ⇒ 整批一条都不上行（判不出墓碑集合就上行，会复活已删账号）
   cloudStateUnavailable: ['CLOUD_STATE_UNAVAILABLE'],
-  // 失败发生在**本机**（建号 / 存凭证），不得甩锅给云端
-  localWriteFailed: ['CREDENTIAL_PERSIST_FAILED', 'ACCOUNT_CREATE_FAILED'],
+  // 失败发生在**本机**（建号 / 存凭证 / 回写登录态），不得甩锅给云端。
+  // 后三个码由「恢复/冲突落盘」产出：凭证已拿到、是本机这一侧没写成，
+  // 用户该做的是重试本机操作或重新登录，而不是去云端侧找原因。
+  localWriteFailed: [
+    'CREDENTIAL_PERSIST_FAILED',
+    'ACCOUNT_CREATE_FAILED',
+    'CREDENTIAL_APPLY_FAILED',
+    'RESTORE_STATUS_PERSIST_FAILED',
+  ],
   // 本机的读取侧与「本机根本没有凭证」：让用户重试云端操作是错方向
   noLocalCredential: ['CHECK_LOGIN_NO_CREDENTIAL'],
   localCredentialReadFailed: ['CREDENTIAL_LOAD_FAILED'],
