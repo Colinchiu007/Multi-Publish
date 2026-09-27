@@ -564,6 +564,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Bridge 启动回归测试**：Bridge 子类的测试必须包含 `pythonModule` 值断言（不能只断言字符串，还要验证目标模块路径指向的包能被 `python -m` 启动）。已有用例如用例 13b。
 
+- **测试文件必须显式接进 CI，否则等于没写（MUST）**：本仓**没有**任何自动收集机制覆盖 `scripts/` 与 `.github/scripts/`——vitest 只收 workspace（`apps/desktop` 等），根 `package.json` 的 `test` 是 `pnpm -r --if-present run test`（不跑根目录），CI 里每一条 `node --test` 都是逐个显式点名。所以新写一条 `*.test.js` / `*.test.mjs` / `*.test.sh` 而没在同 PR 里登记进 `.github/workflows/quality-gate.yml`（Gate 2b/2c），它**永远不会执行、也没有任何东西会因此变红**——实测 2026-09-27 检查域内 32 个测试文件有 8 个是这种死锁，其中 `session-init.test.sh` 一拉起来就 FAIL=1（它断言 `codex/<task>`，而 `gwm-task.sh:38` 早在 2026-09-15 就把前缀改成 `MP_BRANCH_PREFIX` 可选）。接线判据由 `scripts/check-unwired-tests.js` 强制：按 workflow **可执行正文**匹配（注释里提一句不算接线）、同名 basename 必须写全相对路径、workflows 集合为空直接抛错而非判绿、欠账走 `KNOWN_UNWIRED` 且必须带原因、清单只能缩小。同源坑：`.gitignore` 第 106 行 `scripts/*.js` 默认忽略新建脚本（`git add` 会当场报错），新工具须按既有惯例补一条 `!scripts/<name>.js` negation。
+
 - **文本结构断言（MUST）**：凡断言**文本结构**（换行 / 分段 / 分隔符 / 字段顺序 / 序列化格式）的测试，必须**至少一条 `toBe` / `toEqual` 精确断言或结构断言**（如 `expect(out.split("\n")).toEqual([...])`），`toContain` 仅可作为补充。原因：纯 `toContain` 子串匹配对结构性回归**完全免疫** —— 正文被压成一整行时每个子串依然命中（2026-09-16 采集页正文换行全丢即由此逃逸，见 `01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`）。新增/修改文本提取、解析、格式化类代码时必须同时补一条精确断言，并用「修复前实现副本」实测确认该断言能抓住 Bug。
 
 - **全仓关键词复扫必须带 `-a`（MUST）**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等历史文档含 NUL 字节，`grep`/`rg` 默认把这类文件判为二进制并**静默跳过**，只输出一行 `Binary file ... matches`，命中数直接归零——于是「全仓扫到 0 命中」这类收口结论对真正有问题的文件完全失明（2026-09-26 实测：`grep -rn 立即同步 01-docs/PRD.md` = 1，`grep -rna` = 10）。凡以「扫到 0」作为完成判据的检查，一律 `grep -na` / `rg -a`，并额外确认**扫描器没有把这些文件当二进制**（`grep -c` 单文件计数对照）。

@@ -17,6 +17,21 @@
 
 
 
+# [未发布] test(ci): 新增「测试文件未接 CI 收集」棘轮，收编 7 条从未执行过的死锁
+
+### 做了什么
+- 新增 `scripts/check-unwired-tests.js`：本仓不自动收集 `scripts/` 与 `.github/scripts/` 下的测试（vitest 只管 workspace，根 `test` 是 `pnpm -r --if-present run test`，CI 里每条 `node --test` 都是逐个显式点名）。新写一条锁而不同 PR 登记进 workflow，它就永远不执行且没有任何东西会变红。棘轮要求在 `.github/workflows` 的**可执行正文**被点名（剥 YAML 注释后匹配）、同名 basename 必须写全相对路径、workflows 集合为空直接抛错；欠账走 `KNOWN_UNWIRED`、必须带非空原因、清单只能缩小。
+- 收编实测出的 7 条死锁：`check-ipc-bridge` / `detect-unwired-exports` / `ensure-desktop-deps` / `release-gate` / `sync-version` / `hooks/post-checkout` / `hooks/pre-commit`，新增 workflow 步骤 Gate 2c（`shell: bash`，与 doc-gate.yml 同形）。
+- AGENTS.md QM-3 补一条口径：测试必须显式接进 CI，另记 `.gitignore:106` 的 `scripts/*.js` 默认忽略会让新工具默默无法入库。
+
+### 为什么
+检查域内 32 个测试文件里 8 个从未在 CI 执行过。其中 `scripts/session-init.test.sh` 一拉起来就 FAIL=1——它断言分支为 `codex/<task>`，而 `scripts/gwm-task.sh:38` 早在 2026-09-15 就把前缀改成 `MP_BRANCH_PREFIX` 可选（实测本仓任务分支就叫裸 task 名）。**死锁保守着一个已废弃的契约，正因为从没跑过才没人知道**；该文件已登记为欠账，待「代码为准回灌 AGENTS.md/openspec spec/该测试」或恢复 `codex/` 前缀后再接线。
+
+### 验证
+- 本机按 CI 的原语实跑：`bash -euc` 整套 Gate 2c 全绿，59s（27 个 `node --test` 例 + hooks PASS=10 + PASS=23 + 棘轮自身）。
+- 反证五次实测变红，每次 `git checkout HEAD -- <单文件>` 恢复后复绿：新写一条未接线测试→红；只删 Gate 2c 正文点名而保留提到文件名的注释→红（这条同时证明「注释不算接线」的剥注释逻辑在守东西）；给已接线文件塞豁免→报 `TEST_EXEMPTION_STALE`；把「workflow 集合为空必须抛错」改成返回空串→夹具红；摘掉 `stripComments` 调用→注释夹具红。
+- `.github/scripts/workflow-contract.test.js` 23 例全绿（改了 workflow 必跑）。
+
 # [未发布] test(windows-lock 夹具): 握手拆成启动/持锁两相位 + 持锁有效性自证，并消除预算倒挂（2026-09-27，fix-windows-lock-coldstart）
 
 ### 做了什么
