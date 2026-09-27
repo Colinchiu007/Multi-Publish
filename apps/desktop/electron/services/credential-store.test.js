@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import lockHelper from '../../../../test-helpers/windows-file-lock.js'
 
-const { holdExclusiveWindowsFileLock } = lockHelper
+const { holdExclusiveWindowsFileLock, LOCK_CASE_TIMEOUT_MS } = lockHelper
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -153,7 +153,7 @@ describe('credential-store', () => {
   })
 
   // 显式超时 30s：真实 Windows 文件锁 + 有界重试在 CI 全量单进程负载下可能超过全局 10s 上限（偶发超时）
-  it.skipIf(process.platform !== 'win32')('Windows 主密钥短暂锁释放后仍能完成格式迁移', { timeout: 60000 }, async () => {
+  it.skipIf(process.platform !== 'win32')('Windows 主密钥短暂锁释放后仍能完成格式迁移', { timeout: LOCK_CASE_TIMEOUT_MS }, async () => {
     const userDataDir = createTempDir()
     const credDir = path.join(userDataDir, 'credentials')
     const keyFile = path.join(credDir, '.masterkey')
@@ -172,7 +172,7 @@ describe('credential-store', () => {
     }
   })
 
-  it.skipIf(process.platform !== 'win32')('Windows 主密钥备份短暂锁释放后仍能完成格式迁移', { timeout: 60000 }, async () => {
+  it.skipIf(process.platform !== 'win32')('Windows 主密钥备份短暂锁释放后仍能完成格式迁移', { timeout: LOCK_CASE_TIMEOUT_MS }, async () => {
     const userDataDir = createTempDir()
     const credDir = path.join(userDataDir, 'credentials')
     const keyFile = path.join(credDir, '.masterkey')
@@ -274,7 +274,7 @@ describe('credential-store', () => {
     expect(credentialStore.saveCredential('acct-z', { cookies: [] }, userDataDir, { safeStorage: null })).toBe(false)
   })
 
-  it.skipIf(process.platform !== 'win32')('Windows 凭据文件短暂锁释放后原子保存成功', { timeout: 60000 }, async () => {
+  it.skipIf(process.platform !== 'win32')('Windows 凭据文件短暂锁释放后原子保存成功', { timeout: LOCK_CASE_TIMEOUT_MS }, async () => {
     const userDataDir = createTempDir()
     const options = { safeStorage: createSafeStorage() }
     const accountId = 'locked-account'
