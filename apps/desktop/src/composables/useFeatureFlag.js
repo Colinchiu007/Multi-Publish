@@ -41,6 +41,9 @@ export const DEV_FLAG_QUERY_KEY = 'mpFlag'
  */
 export const DEV_OVERRIDABLE_FLAGS = Object.freeze([FEATURE_FLAG_ACCOUNT_CLOUD_SYNC])
 
+/** 视觉门禁 / 排障用的显式构建期开关（值恰为 '1' 才开通道）。 */
+export const DEV_FLAG_OVERRIDE_ENV = 'VITE_MP_DEV_FLAG_OVERRIDE'
+
 /** 可被覆盖的查询串位置：`search` 与 hash 内的 query 段。 */
 const DEV_FLAG_PROTOCOLS = Object.freeze(['http:', 'https:'])
 
@@ -53,7 +56,7 @@ const DEV_FLAG_PROTOCOLS = Object.freeze(['http:', 'https:'])
  * 本地点开开关看一眼就算验过）。给渲染层一条 CI 可显式声明的通道，开启态才进得了同一条门禁。
  *
  * 四条边界，放宽任何一条都等于把 fail-closed 换成 fail-open：
- *  1. 只在**开发态 + http(s) 页面**生效（见 `readDevFlagSource`）。
+ *  1. 只在**（开发态 或 显式构建期开关）+ http(s) 页面**生效（见 `readDevFlagSource`）。
  *  2. 只认 `1|true|0|false`，且 flagKey 必须在 `DEV_OVERRIDABLE_FLAGS` 内。写成 `=yes`、
  *     或指向白名单外的键，都**不产生覆盖**，落回运营真值 —— 不能因为"用户写了个东西"就默认放行。
  *  3. 显式 `0/false` 可以**强制关闭**（排障用），因此它能盖过运营下发的 1，这是刻意的。
@@ -90,8 +93,21 @@ export function parseDevFlagOverrides (queryText = '') {
  * 静默回落的后果是"我明明写了参数，截图里按钮还是没有"现场无迹可寻，而这条通道的唯一用户
  * 就是排障的人和 CI —— 他们能看到的只有控制台。只 echo 键名与字面量，不含其它上下文。
  */
+/**
+ * 通道是否开启：显式构建期开关，或开发态 —— 两者都是构建期常量。
+ *
+ * 为什么不能只挂 `import.meta.env.DEV`：**CI 的 vite 进程带 NODE_ENV=production，DEV 就是 false**。
+ * 本地用 `NODE_ENV=production` 起 vite dev 后逐字复现了 CI 的失败诊断（页面入口仍是 `/@vite/client`、
+ * 命令栏其余按钮全在、只缺本入口、`flagParamInUrl=in-hash`），证明"仅 DEV"的通道在 CI 里永远不会生效。
+ * 正式包构建时既不是 DEV 也不会注入该变量 ⇒ 这条分支被静态折叠，线上包不存在此通道。
+ */
+export function devFlagChannelEnabled () {
+  if (import.meta.env[DEV_FLAG_OVERRIDE_ENV] === '1') return true
+  return Boolean(import.meta.env.DEV)
+}
+
 function warnIgnoredDevFlag (flagKey, rawValue) {
-  if (!import.meta.env.DEV) return
+  if (!devFlagChannelEnabled()) return
   const shown = /^.{0,24}$/.test(rawValue) ? rawValue : rawValue.slice(0, 24) + '…'
   console.warn(`[useFeatureFlag] ignored invalid dev flag override ${DEV_FLAG_QUERY_KEY}=${flagKey}=${shown}; accepted: 1|0|true|false`)
 }
@@ -127,7 +143,7 @@ export function useFeatureFlag (key) {
 
   /** 开发态覆盖值；undefined = 本通道不表态，交给运营真值 */
   function devOverride () {
-    if (!import.meta.env.DEV || !key) return undefined
+    if (!devFlagChannelEnabled() || !key) return undefined
     return parseDevFlagOverrides(readDevFlagQueryText()).get(key)
   }
 

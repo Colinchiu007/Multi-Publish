@@ -16268,6 +16268,21 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
 - **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。
 
+## CI 的 vite 带 `NODE_ENV=production` ⇒ `import.meta.env.DEV` 为 false（ci-vite-node-env-production，2026-09-27，cloud-flag-visual）
+
+- **为什么值得单独记**：`QG Visual` 的 Gate 7 是「先 `pnpm run build:vue` 再 `pnpm exec vite --host --port`」，
+  那个 dev 服务进程里的 `import.meta.env.DEV` **是 false**（`NODE_ENV=production` 决定，与它是不是 dev 服务无关）。
+  所以任何"只在 DEV 下生效"的渲染通道，在这条 CI 里**永远不会生效** —— 表现不是报错，是"页面渲染正常、
+  只是我要的那个控件没出现"。
+- **取证手法（可复用）**：本地 `NODE_ENV=production npx vite --port <p>` 起一份，跑同一条用例，比对失败诊断
+  的 `entryScripts` / `commandBarTestids` / `appTextLength` 是否与 CI 逐字一致。一致 ⇒ 环境成因确认，不必猜。
+  本轮实测：两边都是 `/@vite/client|./main.js` + 命令栏其余按钮全在 + 只缺目标入口。
+- **正确写法**：需要被 CI 拍到的开关，用**显式构建期变量**（本仓 `VITE_MP_DEV_FLAG_OVERRIDE=1`，在 workflow
+  的对应 step `env:` 注入），而不是 `import.meta.env.DEV`。VITE_ 前缀是构建期常量，正式包构建不注入即为
+  false ⇒ 分支被静态折叠，比"依赖运行环境巧合"更强：它是**显式 opt-in**，不是"恰好是 dev"。
+- **别把开关当授权**：开关只决定"能不能用 URL 参数改界面开关键"，服务端每个 `/api/v1/me/*` 仍按归属身份
+  鉴权；同时保留协议门（拒绝 `file:`）与可覆盖 flag 白名单。
+
 ## 视觉用例有**两份清单**，CI 只认 `run-pixel-tests.js` 的 `pixelTests`（visual-two-registries，2026-09-27，cloud-flag-visual）
 
 - **症状特征**：给某个视图新增一条像素用例、CI 的 `QG Visual` 直接绿 —— 那不是"通过了"，是**根本没跑**。

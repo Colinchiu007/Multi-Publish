@@ -776,14 +776,22 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
 
 ### 17.2 采用的做法
 
-给渲染层一条**只在开发态生效**的显式覆盖，让 CI 能声明"这一张要拍开启态"：
+给渲染层一条**只在开发态、或 CI 显式注入构建期开关时**生效的覆盖，让 CI 能声明"这一张要拍开启态"：
 
 - `useFeatureFlag(key)` 在读运营值之前先看 `mpFlag=<flagKey>=<1|0|true|false>`（**不给 composable 开测试
   注入口**：通道读的就是 `import.meta.env.DEV` 与 `window.location`，用例用 `vi.stubEnv` / `vi.stubGlobal`
-  把环境量摆出来，跑的是生产同一条分支）。生效需同时满足两条：`import.meta.env.DEV` 为 true，**且**页面协议
-  是 `http:`/`https:`。第二条是**自审加严**（外部评审未提出这一条；它是顺着评审 W2「不能说通道整体不存在」查出来的）：`vite build --mode development` 的产物里 `DEV` 仍是 true，
-  若这份 dist 被 `file://` 直开，只挡 DEV 等于没挡。线上正式包构建时 DEV 注入为 false（默认关闭，与
-  AGENTS.md「打包权限模式不可由环境变量提权」同族）。
+  把环境量摆出来，跑的是生产同一条分支）。生效需同时满足两条：**通道开关打开**，且页面协议是
+  `http:`/`https:`。协议门是**自审加严**（外部评审未提出这一条；它是顺着评审 W2「不能说通道整体不存在」
+  查出来的：`vite build --mode development` 的产物里 `DEV` 仍是 true，若这份 dist 被 `file://` 直开，
+  只挡 DEV 等于没挡）。
+- **通道开关有两个来源，任一即可**：`import.meta.env.DEV`（本机开发），或构建期注入
+  `VITE_MP_DEV_FLAG_OVERRIDE=1`（CI 视觉 job 专用，见 workflow 的 Gate 7 env）。
+  **为什么必须有第二个**：CI 的 vite 进程带 `NODE_ENV=production`，`import.meta.env.DEV` 就是 false。
+  这不是推测 —— 本地用 `NODE_ENV=production` 起 vite dev 后，逐字复现了 CI 的失败诊断（页面入口仍是
+  `/@vite/client|./main.js`、`flagParamInUrl=in-hash`、命令栏其余按钮全在、只缺本入口）。
+  也就是说**只挂 DEV 的通道在 CI 里永远不会生效**。两者都是构建期常量：正式包既不是 DEV 也不会
+  注入该变量 ⇒ 这条分支被静态折叠，线上包不存在此通道；URL 参数也不是提权路径 —— 它只改
+  **界面开关键**，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
 - 只认 `1|true|0|false`，且 `<flagKey>` 必须在 `DEV_OVERRIDABLE_FLAGS` 白名单内（当前只有
   `account_cloud_sync`）。写成 `=yes` / 空值 / 没有 `=` / 白名单外的键，都**不产生覆盖**，落回运营真值 ——
   否则"用户 URL 里写了个东西"就变成了默认放行。白名单的必要性：`isFlagEnabled` 是全仓共用导出，未来
@@ -840,4 +848,18 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
 
 > 这条流程本身也是防"用本机基线蒙混过关"的锁：缺基线时门禁是红的，不能靠 skip 变绿
 > （`test-runner.js` 在未设 `UPDATE_BASELINE=1` 时对缺基线直接 FAILED）。
+
+### 17.5 首两轮 CI 的实况（记录，避免后人以为这条流程一次就跑通）
+
+- **第一轮**（用例只登记进 `viewTests`）：`QG Visual` **直接绿** —— 那是假绿，CI 根本没跑这条
+  （job 日志里 18 个视图各出现一次全 `PASSED`，新用例名 0 次）。⇒ 已改为两处清单都登记，并加
+  了「双清单一致性」结构锁。
+- **第二轮**（接进 `pixelTests` 后）：红在**等业务选择器超时**，而不是预期的"缺基线"。原
+  `appTextLength=719` 与本地"flag 关闭"态逐字一致，但当时无法判定成因，于是给 runner 的就绪诊断
+  补了 `accountsPagePresent` / `commandBarTestids` / `flagParamInUrl` / `entryScripts` 四项。
+- **第三轮**（带诊断）：诊断给出 `entryScripts=/@vite/client|./main.js`（确认是 dev 服务）、
+  `flagParamInUrl=in-hash`（参数送到了）、`commandBarTestids=…account-batch-check-all|account-batch|account-add`
+  （**整条命令栏都在，只缺本入口**）⇒ 定位到通道开关本身，即上面的 `NODE_ENV=production` 结论。
+- 每次本地都用「故意等不到的选择器」验证新诊断字段真的会填，再推上去 —— 不做"加了字段但
+  没人看见它填没填"的那种改进。
 

@@ -14,6 +14,12 @@
 - **warn 文案改 ASCII**：`QG Static` 的渲染端硬编码中文基线扫描实测拦在 `useFeatureFlag.js:64`（新增的中文
   `console.warn`）。这条 warn 是给开发者看控制台的、不是 UI 文案，所以改英文而不是塞进 locale —— 本地
   `node .github/scripts/check-locale-sync.js --cjk` 由 FAIL 转 `PASS（无新增硬编码）`。
+- **通道开关从「仅 `import.meta.env.DEV`」改成「DEV 或构建期注入 `VITE_MP_DEV_FLAG_OVERRIDE=1`」**：
+  CI 的 vite 进程带 `NODE_ENV=production` ⇒ `DEV` 为 false，只挂 DEV 的通道在 `QG Visual` 里**永远不会生效**。
+  本地用 `NODE_ENV=production` 起 vite dev 逐字复现了 CI 的失败诊断后定位到此；workflow 的 Gate 7 env
+  显式注入该变量。端到端实测：CI 条件下注入开关 ⇒ 入口渲染（appTextLength 724），
+**不给 URL 参数 ⇒ 仍不渲染（720）** —— 开关不会自己把入口打开，fail-closed 未被削弱。
+  正式包既非 DEV 也不注入该变量 ⇒ 分支被静态折叠。
 - 新增视图用例 `accounts-list-flag-on`，**两处清单都登记**：`views/all-views.visual.test.js` 的 `viewTests`
   （`--single` / 全量路径）与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 实际执行的是这一份**）。
   首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，

@@ -175,6 +175,33 @@ describe('开发态 flag 覆盖通道', () => {
     expect(_runtime).toHaveBeenCalledTimes(0)
   })
 
+  it('显式构建期开关打开时，即使 DEV 为 false 通道也生效（CI 的 vite 带 NODE_ENV=production）', async () => {
+    // 这不是假想的兜底：CI 首轮就是因为只挂 DEV 而**永远拍不到开启态**（本地用
+    // NODE_ENV=production 起 vite dev，逐字复现了 CI 的失败诊断）。
+    vi.stubEnv('DEV', false)
+    vi.stubEnv('VITE_MP_DEV_FLAG_OVERRIDE', '1')
+    vi.stubGlobal('window', { location: { protocol: 'http:', hash: '#/accounts?mpFlag=account_cloud_sync=1', search: '' } })
+    _runtime.mockRejectedValue(new Error('运营中心不可达'))
+    const flag = useFeatureFlag(FEATURE_FLAG_ACCOUNT_CLOUD_SYNC)
+    await expect(flag.refresh()).resolves.toBe(true)
+    expect(flag.enabled.value).toBe(true)
+    expect(_runtime).toHaveBeenCalledTimes(0)
+  })
+
+  it('开关值不是恰好 1 时不得开通道（true/0/空/yes 一律按关）', async () => {
+    for (const bad of ['true', '0', '', 'yes']) {
+      vi.stubEnv('DEV', false)
+      vi.stubEnv('VITE_MP_DEV_FLAG_OVERRIDE', bad)
+      vi.stubGlobal('window', { location: { protocol: 'http:', hash: '#/accounts?mpFlag=account_cloud_sync=1', search: '' } })
+      _runtime.mockReset()
+      _runtime.mockResolvedValue({ code: 0, data: { featureFlags: {} } })
+      const flag = useFeatureFlag(FEATURE_FLAG_ACCOUNT_CLOUD_SYNC)
+      await expect(flag.refresh()).resolves.toBe(false)
+      // 未打通道 ⇒ 必须回到运营真值，也就是**要**去问过运营中心
+      expect(_runtime, `开关值 ${JSON.stringify(bad)} 竟打通了通道`).toHaveBeenCalledTimes(1)
+    }
+  })
+
   it('非开发态一律走运营真值：URL 参数不是提权通道', async () => {
     locate({ dev: false, search: '?mpFlag=account_cloud_sync=1' })
     _runtime.mockResolvedValue({ code: 0, data: { featureFlags: {} } })

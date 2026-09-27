@@ -554,6 +554,10 @@ jobs:
           HEADLESS: "true"
           PIXEL_THRESHOLD: "0.06"
           VISUAL_READY_TIMEOUT: "15000"
+          # 视觉门禁要拍"由运营 flag 控制的入口"的开启态。CI 的 vite 进程带 NODE_ENV=production，
+          # import.meta.env.DEV 为 false ⇒ 只挂 DEV 的通道在这里永远不生效（实测逐字复现过失败诊断）。
+          # 这是构建期显式注入，正式包构建不设该变量，通道被静态折叠。
+          VITE_MP_DEV_FLAG_OVERRIDE: "1"
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 7: Visual Regression Test ==="
