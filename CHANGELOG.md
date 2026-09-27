@@ -17,7 +17,7 @@ PowerShell 步骤只取最后一条命令的 `$LASTEXITCODE`，所以前 4 条�
 ### 验证
 - **直接反证（决定性）**：按 Gate 2d 完全相同的调用形状跑 `bash -ec 'pwsh -Command "exit 1"; pwsh -Command "Write-Host REACHED_SECOND"'` → `REACHED_SECOND` **未打印**、rc=1，证明改法真的会中止步骤。
 - 棘轮自身 6 passed（含"pwsh 多命令必须红 / bash 放行 / 自查 $LASTEXITCODE 放行 / 单条命令不受约束 / 空 workflow 集合抛错 / 真实仓库违规为 0 且清单为空"）。
-- 反证另五次：把 Gate 2b 的 `shell: bash` 摘掉→报该步骤违规；把 Gate 2d 的 4 条命令删到 1 条→stepsScanned 变化被真实仓库断言抓住；给它加一条豁免→清单非空即红；把 `check-step-failfast.test.js` 从 Gate 2c 摘掉→接线棘轮报它未接线；改松 TEST_INVOCATION 使其永不匹配→"应解析出 1 个多测试步骤"的规模下界红。
+- 反证另六次（每次 `git checkout HEAD -- <单文件>` 恢复后复绿）：① 把 Gate 2b 的 `shell: bash` 摘掉 → 报 `STEP_NOT_FAIL_FAST`；② 把 Gate 2d 的 `shell: bash` 换回 `pwsh` → 同样报违规；③ 给违规步骤塞一条豁免 → 报 `STEP_EXEMPTION_STALE` 且"清单必须为空"的钉住断言红；④ 把 `check-step-failfast.test.js` 从 Gate 2c 摘掉 → 接线棘轮报它未接线；⑤ 把 `TEST_INVOCATION` 改成永不匹配 → `stepsScanned` 由 4 掉到 2，夹具的"恰好 1 个"与真实仓库的 `>= 4` 下界**同时**红；⑥ 摘掉"空 workflow 集合必须抛错" → 对应夹具红。（⑤⑥ 第一次尝试时探针锚点没对上、自己抛错，变异根本没落下 —— 那样的"没变红"不作数，改锚点后重跑才计入。）
 - 整跑：`bash -ec` 下 Gate 2b+2c+2d 全绿、113s（hooks PASS=10 / PASS=23、session-init PASS=13、4 条 ps1 rc=0、两套棘轮 rc=0）；`workflow-contract` 23 passed。
 
 # [未发布] test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d
