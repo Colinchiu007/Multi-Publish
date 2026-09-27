@@ -32,11 +32,20 @@
   实测拿 `accounts-list` 比 = 差 2.26%，而 `test:all:visual` 没有 CI job ⇒ 按 QM-4 第 7 条拿不到合法基线）。
   留 8 行注释说明去向。**曾先试「只留结构断言」，被该契约当场拦下** —— 说明删用例优于留一条恒红/恒假的用例。
   结果：`all-workflows` 32 → **31 条，30 绿 1 红**。
+- **顺带揪出一条「把坏选择器钉成契约」的测试**：`electron/tests/visual-workflow-runner.test.js` 的
+  「账号工作流使用当前筛选器和命令按钮的稳定选择器」直接断言 `click .page-actions button:has-text("添加账号")`
+  与 `.page-actions button:has-text("分组管理")` —— 这两个类名在 `Accounts.vue` 模板里**根本不存在**
+  （页头是 `<h1 class="sr-only">`，两个名字只在 CSS:1236-1239 出现）。该契约只读注册表对象、从不跑浏览器，
+  所以能与真渲染**同时绿**，把漂移固化成了契约（AGENTS.md「测试断言不得反向固化错误行为」的现例）。
+  我改注册表后 CI 才红（`QG Unit Tests`/`QG Coverage`/`Desktop Shards 1+2` 四条同源）—— 这条红是**改动
+  正确的证据**，不是回归。已把断言改钉到实测存在的 `[data-testid="account-add"]`、对已删除的分组用例
+  改为 `toBeUndefined()` 留痕，并补一条正向锁：账号系工作流的 selector **不得再出现**
+  `.page-title` / `.page-actions`。
 - **唯一剩下的红是 `dashboard-benchmark-title-reset`（差 10.9%），已证不是选择器问题也不是回归**：
   同一屏「未操作 vs fill+clear 后」只差 **0.16%**，而「仓库基线 vs 未操作」差 **3.82%** ⇒ 差值几乎全部来自基线
   与本机渲染环境不同源。同轮还观测到 `create-quick-text-reset` 在三次运行里 2 绿 1 红（7.39%），
   进一步说明**这套工作流基线整体不具备可判据性** —— 要修的是「给它一个 CI job」，不是把阈值调大。
-合计 104 例，96 绿 8 红；8 红全部集中在 `all-workflows`，已登记为后续项（不在本 PR 扩面修）。
+合计 104 例首跑：96 绿 8 红。8 红**已在本 PR 内一并收口**（见上一条），收口后为 103 例、102 绿 1 红。
 
 ### 顺带记一条框架缺陷（未修）
 - `supplementary-views` / `all-workflows` 的成功路径**一行结果都不打**（`runViewSuite` 只在失败时
