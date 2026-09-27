@@ -603,6 +603,8 @@ jobs:
             # 取证：视觉门禁要拍 flag 开启态，而通道由构建期常量决定。把进程侧到底有没有拿到变量
             # 原样打出来，避免再靠猜（这两个变量都不是密钥）。
             Write-Host "flag-override env probe: VITE_MP_DEV_FLAG_OVERRIDE=[$env:VITE_MP_DEV_FLAG_OVERRIDE] NODE_ENV=[$env:NODE_ENV]"
+            # 探针打完之后按最稳的方式自己设一遍：step 级 env 是否被 Start-Process 子进程继承，不该靠假设。
+            $env:VITE_MP_DEV_FLAG_OVERRIDE = "1"
             $viteProcess = Start-Process -FilePath "pnpm.cmd" `
               -ArgumentList @("exec", "vite", "--host", "127.0.0.1", "--port", "5174") `
               -WorkingDirectory $desktopDir `
