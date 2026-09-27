@@ -1,3 +1,15 @@
+## Windows 文件锁夹具：冷启动与被测语义共用一个预算，且"自报标记"不等于"真的持有"（2026-09-27）
+
+- **症状**：main `655acd0c` 的 `QG Desktop Shards (1/2)` → `credential-store.test.js`「Windows 主密钥短暂锁释放后仍能完成格式迁移」报 `lock handshake did not report "LOCKED" within 20000ms (stdout="", stderr="")`，摘要 `Tests 1 failed | 11768 passed`。#2410 的 `Gate Result` 真聚合上线后，这颗从"可重跑的 job 红"升级成"随机拦所有人合并"。
+- **取证手法（可复用）**：把等待拆成**相位**分别计时 —— `spawn` 完成 / 首个 stdout 字节 / 收到标记 / 进程退出。本机 16 核 + 16 个忙循环对照：`spawn` 35–836ms 不随负载显著变化，而**首个字节从空闲 0.28–0.47s 涨到满载 3.6–8.4s**，锁本身的 `[IO.File]::Open` 从未成为瓶颈。
+- **根因**：PowerShell **冷启动**（CLR 加载 / AMSI / Defender 扫描）与被测语义"能不能拿到锁"共用同一个 20s 预算。错误里 `stdout=""` 且**没有** exit 事件，本身就是直接证据：CI 上冷启动确实超过过 20s。而代码注释写着「CI 满载下 powershell.exe 冷启动是秒级，20s 已有数倍余量」——**那是从没量过的断言**，却被当成预算依据写了两年。
+- **修法 ①**：子脚本在 open **之前**先吐 `READY`，握手拆成「启动相位」与「持锁相位」各带独立预算，错误文案点名是哪一相位（否则下一次红仍然无从定责）；并每次留痕 `[windows-file-lock] ready=…ms locked=…ms verify=…`，预算以后按攒出来的分布调，不再靠注释。
+- **顺带抓到的更危险缺口**：夹具**无条件相信子进程自报的 `LOCKED`**。做启动开销对照实验时实测到一条真实失效路径 —— 去掉 `& { param(...) }` 块后命令行尾参不再绑定，`$file` 为空 ⇒ `[IO.File]::Open` 抛异常，但 PowerShell 默认 `ErrorActionPreference=Continue` **继续往下执行并照样打印 LOCKED**。于是夹具是 no-op，消费用例却对着"没有锁"的文件断言重试逻辑并**假绿**，而且比正确实现快 4 倍 —— 看起来是"优化"。
+- **修法 ②**：父进程侧加反向探针 `exclusiveLockIsEffective()`（子进程以 `FileShare.Read` 持有 ⇒ 我方请求写权限的 open **必须**失败），不成立就 fail closed 并 kill 子进程。探针自己再配一条「无人持锁时必须判 false」的用例，防止它退化成恒真 —— 只证"有锁时能查出"不够。
+- **预算倒挂是既存病灶**：`account-state-restorer.test.js` 的该用例**根本没有** timeout，继承全局 `testTimeout: 10000` < 夹具 20s ⇒ 一旦超 10s 只剩 `Test timed out in 10000ms`、诊断全被框架吃掉。改法：helper 单点导出 `LOCK_CASE_TIMEOUT_MS`，三个消费方一律引用它，再加一条扫描式接线守卫（新调用点用裸数字或漏引用即红）。
+- **反证（5 条全红才算锁在跑）**：探针恒 true / 探针默认关掉 / 两相位文案合并回旧单句 / 消费方退回裸数字 timeout / 生产余量归零。每条跑完用 `git checkout HEAD -- <单文件>` 还原，最后确认工作区与提交**字节一致**。
+- **驱动脚本自身的四条坑**：① 本仓部分文件在 blob 里就是 **CRLF**，变异锚点用 `\n` 拼会**静默不匹配** —— 于是"锁没抓住"是假结论，必须按文件实际行尾拼；② vitest 输出带 ANSI，不剥就解析不到计数，会把红误报成绿；③ Node ≥18 禁止无 `shell` 启动 `.cmd`（`spawnSync EINVAL`）；④ 全绿时摘要里没有 `failed` 这个 token，不能用"解析出 failed=0"当通过判据。
+
 
 ## 线级断言会被更上游的兜底掩盖：加了前置守卫之后必须重跑变异，否则锁已失效而你不知道（pitfall，2026-09-27）
 

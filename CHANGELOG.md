@@ -1,3 +1,15 @@
+# [未发布] test(windows-lock 夹具): 握手拆成启动/持锁两相位 + 持锁有效性自证，并消除预算倒挂（2026-09-27，fix-windows-lock-coldstart）
+
+### 做了什么
+- 定责 main 上那朵随机拦合并的红：`credential-store` 的 Windows 主密钥迁移用例报 `lock handshake did not report "LOCKED" within 20000ms (stdout="", stderr="")`。逐相位实测（本机 16 核 + 16 忙循环）证明延迟全在 **PowerShell 冷启动**（首个字节 0.28–0.47s → 3.6–8.4s），`[IO.File]::Open` 从未成为瓶颈 —— 原注释「冷启动是秒级，20s 有数倍余量」是未量过的断言。
+- ① `test-helpers/windows-file-lock.js` 子脚本在 open 前先吐 `READY`，握手拆成启动相位(45s)/持锁相位(12s)各带预算，错误点名相位，并每次留痕 `ready= locked= verify=`。
+- ② 新增父进程侧反向探针 `exclusiveLockIsEffective()`：**标记不等于效果**。实测到「去掉 `& { param() }` ⇒ Open 抛异常但 PS 默认 Continue 照样打印 LOCKED」这条真实路径，那种夹具是 no-op 且快 4 倍，会让消费用例对着无锁文件假绿。
+- ③ 消除预算倒挂：`account-state-restorer` 该用例此前无 timeout，继承全局 10s < 夹具预算 ⇒ 框架先赢、零诊断。统一导出 `LOCK_CASE_TIMEOUT_MS` 单点口径，三个消费方一律引用，并加扫描式接线守卫。
+
+### 结论
+- 反证 5 条全部实测变红（探针恒 true / 探针默认关 / 相位文案合并 / 裸数字 timeout / 余量归零）；还原后 18/18 绿，工作区与提交字节一致。
+- `MP_WINDOWS_LOCK_HANDSHAKE_TIMEOUT_MS` 被 `MP_WINDOWS_LOCK_READY_TIMEOUT_MS` / `MP_WINDOWS_LOCK_OPEN_TIMEOUT_MS` 取代（仅测试排障用，无生产引用）。
+
 # [未发布] test(quality-rhythm): vendored 契约镜像加漂移锁，并收编从未在 CI 跑过的孤儿锁
 
 ### 做了什么
