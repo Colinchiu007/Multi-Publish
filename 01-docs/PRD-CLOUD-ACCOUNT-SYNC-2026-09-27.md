@@ -786,12 +786,14 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
   只挡 DEV 等于没挡）。
 - **通道开关有两个来源，任一即可**：`import.meta.env.DEV`（本机开发），或构建期注入
   `VITE_MP_DEV_FLAG_OVERRIDE=1`（CI 视觉 job 专用，见 workflow 的 Gate 7 env）。
-  **为什么必须有第二个**：CI 的 vite 进程带 `NODE_ENV=production`，`import.meta.env.DEV` 就是 false。
-  这不是推测 —— 本地用 `NODE_ENV=production` 起 vite dev 后，逐字复现了 CI 的失败诊断（页面入口仍是
-  `/@vite/client|./main.js`、`flagParamInUrl=in-hash`、命令栏其余按钮全在、只缺本入口）。
-  也就是说**只挂 DEV 的通道在 CI 里永远不会生效**。两者都是构建期常量：正式包既不是 DEV 也不会
-  注入该变量 ⇒ 这条分支被静态折叠，线上包不存在此通道；URL 参数也不是提权路径 —— 它只改
-  **界面开关键**，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
+  **这层开关保留，但它不是本次 CI 失败的原因 —— 那段归因已撤回。** 我一度判定"CI 的 vite 进程带
+  `NODE_ENV=production` ⇒ `import.meta.env.DEV` 为 false，只挂 DEV 的通道在 CI 里永远不会生效"，
+  依据是本地用 `NODE_ENV=production` 起 vite dev 能复现同一症状。**该判定被自己的探针证伪**：Gate 7
+  实测进程侧取值 `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`，页面侧 `channelState` 亦给出
+  `enabled=true parsed=[account_cloud_sync=true]` —— DEV 并没有被压掉，通道本身是开着的。
+  真正根因见 §17.5。这层开关因此回到它实际的价值：**显式 opt-in**，不依赖环境巧合（正式包既不是 DEV
+  也不会注入该变量 ⇒ 分支被静态折叠），而**不是**本次失败的修法。
+  URL 参数也不是提权路径：它只改**界面开关键**，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
 - 只认 `1|true|0|false`，且 `<flagKey>` 必须在 `DEV_OVERRIDABLE_FLAGS` 白名单内（当前只有
   `account_cloud_sync`）。写成 `=yes` / 空值 / 没有 `=` / 白名单外的键，都**不产生覆盖**，落回运营真值 ——
   否则"用户 URL 里写了个东西"就变成了默认放行。白名单的必要性：`isFlagEnabled` 是全仓共用导出，未来
@@ -849,17 +851,35 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
 > 这条流程本身也是防"用本机基线蒙混过关"的锁：缺基线时门禁是红的，不能靠 skip 变绿
 > （`test-runner.js` 在未设 `UPDATE_BASELINE=1` 时对缺基线直接 FAILED）。
 
-### 17.5 首两轮 CI 的实况（记录，避免后人以为这条流程一次就跑通）
+### 17.5 这条通道跑通过程中真实发生的四轮（含一次错误结论的撤回）
 
-- **第一轮**（用例只登记进 `viewTests`）：`QG Visual` **直接绿** —— 那是假绿，CI 根本没跑这条
-  （job 日志里 18 个视图各出现一次全 `PASSED`，新用例名 0 次）。⇒ 已改为两处清单都登记，并加
-  了「双清单一致性」结构锁。
-- **第二轮**（接进 `pixelTests` 后）：红在**等业务选择器超时**，而不是预期的"缺基线"。原
-  `appTextLength=719` 与本地"flag 关闭"态逐字一致，但当时无法判定成因，于是给 runner 的就绪诊断
-  补了 `accountsPagePresent` / `commandBarTestids` / `flagParamInUrl` / `entryScripts` 四项。
-- **第三轮**（带诊断）：诊断给出 `entryScripts=/@vite/client|./main.js`（确认是 dev 服务）、
-  `flagParamInUrl=in-hash`（参数送到了）、`commandBarTestids=…account-batch-check-all|account-batch|account-add`
-  （**整条命令栏都在，只缺本入口**）⇒ 定位到通道开关本身，即上面的 `NODE_ENV=production` 结论。
-- 每次本地都用「故意等不到的选择器」验证新诊断字段真的会填，再推上去 —— 不做"加了字段但
-  没人看见它填没填"的那种改进。
+| 轮次 | 现象 | 当时判为 | 实际 |
+| --- | --- | --- | --- |
+| 1 | `QG Visual` 直接绿 | 通过 | **假绿**：用例只登记进 `viewTests`，Gate 7 跑的是 `run-pixel-tests.js` 的 `pixelTests`（job 日志 18 个视图各 1 次全 `PASSED`、新用例名 0 次）|
+| 2 | 红在"等业务选择器超时" | 环境差异，本地无法归因 | 原判"CI 的 vite 带 `NODE_ENV=production` ⇒ `DEV=false`"（**已被第 4 轮证伪**）|
+| 3 | 同上（两处清单都登记后） | 需要取证 | 给就绪诊断补 `accountsPagePresent` / `commandBarTestids` / `flagParamInUrl` / `entryScripts` / `channelState` |
+| 4 | 同上，但探针给出 `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、`channelState=enabled=true` | —— | **第 2 轮的判定被证伪。** 真正根因：本仓是 hash 路由，`#/accounts` → `#/accounts?mpFlag=…` 属于**同一路由只改 query** ⇒ vue-router **复用组件实例** ⇒ `Accounts.vue` 的 `onMounted` 不再跑第二遍 ⇒ `refreshCloudSyncFlag()` 根本没被再调用 |
 
+**本地对照实验（决定性，且成本极低）**：用 `PIXEL_ONLY` 控制执行顺序 ——
+
+```bash
+cd apps/desktop
+# 单独跑 ⇒ 就绪通过，只红在「缺少人工审核的视觉基线」（即 §17.4 预期的第一轮红）
+PIXEL_ONLY=accounts-list-flag-on npm run test:visual:pixel
+# 先跑同路由的 accounts-list 再跑它 ⇒ 逐字复现 CI 的等待超时
+PIXEL_ONLY=accounts-list,accounts-list-flag-on npm run test:visual:pixel
+```
+
+两条命令的差别只有**顺序**，因此这是**顺序依赖**而不是环境差异。教训：能复现症状不等于找到成因，
+本地那次 `NODE_ENV=production` 复现只证明"该条件足以产生同样表现"，不证明它是现场的那个原因；
+而**顺序依赖**也意味着这条用例在本地"单独跑通过"不构成证据，必须按 CI 的顺序再跑一遍。
+
+**修法**：`test-runner.js` 的 `_navigateToRoute` 增加 `_isSameRouteQueryOnlyNav()` 判定 —— 当目标与当前 URL 的
+protocol / host / pathname 相同、且 fragment 的 path 段相同而 query 段不同时，`goto` 之后强制一次
+`page.reload()`，让每条用例拍到的都是"该路由的首次加载"。判定**刻意做窄**：换路由（path 变了）一律不重载，
+否则会改写既有 18 条基线的拍摄条件。回归锁两条（`test-runner.test.js`）：只改 query ⇒ reload 恰好 1 次；
+换路由 / query 也没变 ⇒ reload 0 次。**反证**：把 `if (reusedComponent)` 改成恒 false 后前者立刻变红。
+
+**顺带纠正一处我自己的过度声称**：`channelState` 调的是模块导出的**纯函数**，它只能证明"参数解析与开关
+判定正确"，**不能**证明"组件真的重新读过这个参数"。第 4 轮我差点把它当成后者写进结论。诊断字段要按它
+实际能证明的范围来解读。

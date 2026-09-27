@@ -16268,20 +16268,26 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
 - **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。
 
-## CI 的 vite 带 `NODE_ENV=production` ⇒ `import.meta.env.DEV` 为 false（ci-vite-node-env-production，2026-09-27，cloud-flag-visual）
+## hash 路由里「同一路由只改 query」会复用组件实例，`onMounted` 不再跑（hash-route-query-only-reuse，2026-09-27，cloud-flag-visual）
 
-- **为什么值得单独记**：`QG Visual` 的 Gate 7 是「先 `pnpm run build:vue` 再 `pnpm exec vite --host --port`」，
-  那个 dev 服务进程里的 `import.meta.env.DEV` **是 false**（`NODE_ENV=production` 决定，与它是不是 dev 服务无关）。
-  所以任何"只在 DEV 下生效"的渲染通道，在这条 CI 里**永远不会生效** —— 表现不是报错，是"页面渲染正常、
-  只是我要的那个控件没出现"。
-- **取证手法（可复用）**：本地 `NODE_ENV=production npx vite --port <p>` 起一份，跑同一条用例，比对失败诊断
-  的 `entryScripts` / `commandBarTestids` / `appTextLength` 是否与 CI 逐字一致。一致 ⇒ 环境成因确认，不必猜。
-  本轮实测：两边都是 `/@vite/client|./main.js` + 命令栏其余按钮全在 + 只缺目标入口。
-- **正确写法**：需要被 CI 拍到的开关，用**显式构建期变量**（本仓 `VITE_MP_DEV_FLAG_OVERRIDE=1`，在 workflow
-  的对应 step `env:` 注入），而不是 `import.meta.env.DEV`。VITE_ 前缀是构建期常量，正式包构建不注入即为
-  false ⇒ 分支被静态折叠，比"依赖运行环境巧合"更强：它是**显式 opt-in**，不是"恰好是 dev"。
-- **别把开关当授权**：开关只决定"能不能用 URL 参数改界面开关键"，服务端每个 `/api/v1/me/*` 仍按归属身份
-  鉴权；同时保留协议门（拒绝 `file:`）与可覆盖 flag 白名单。
+- **症状**：视觉用例等一个"由 `onMounted` 里读 URL 参数才会出现"的控件，超时；但**单独跑同一条用例就通过**。
+  本仓是 `createWebHashHistory`，从 `#/accounts` 导航到 `#/accounts?mpFlag=…` 时 pathname 恒为 `/`、
+  fragment 的 path 段也没变 ⇒ vue-router 复用组件实例 ⇒ `onMounted` 不重跑 ⇒ 挂在里面的参数读取根本不执行。
+  只要**上一条用例恰好停在同一路由**就中招（实测：`accounts-list` → `accounts-list-flag-on` 必红）。
+- **为什么容易误判成环境问题**：症状与"构建期常量没生效"完全同形（页面正常、纯函数说该开、控件不在）。
+  我当时据此判定"CI 的 vite 带 `NODE_ENV=production` ⇒ `import.meta.env.DEV=false`"，还被本地一次同形复现
+  "佐证"过 —— 直到在 CI 里打印进程侧取值，实测 `NODE_ENV=[]`，判定被**自己的探针证伪**。
+  核心教训：**能复现症状不等于找到成因**。本地复现只证明"该条件足以产生同样表现"，不证明它是现场那个原因；
+  要区分这两者，得找一个"只改变嫌疑变量、其它全部不变"的对照，而不是找一个能重现症状的环境。
+- **判别手法（便宜且决定性）**：用执行顺序做 A/B。本仓 `run-pixel-tests.js` 认环境变量 `PIXEL_ONLY`：
+  单独跑 ⇒ 通过；把上一条同路由用例加进去按序跑 ⇒ 复现。一步把"环境差异"与"顺序依赖"分开。
+  推论：**顺序依赖使"我在本地单独跑过并通过"不构成证据**，共享同一 page/上下文的用例必须按 CI 的顺序再跑一遍。
+- **修法**：`test-runner.js` 的 `_navigateToRoute` 增加 `_isSameRouteQueryOnlyNav()`（protocol / host / pathname 相同、
+  fragment 的 path 段相同、query 段不同 ⇒ 命中），命中时 `goto` 后强制 `page.reload()`。判定必须**做窄**：
+  换路由不重载，否则会把既有基线的拍摄条件一并改掉（那等于静默作废整套人工审核过的基线）。
+  回归锁要**成对**写（该重载 / 不该重载各一条）—— 只写前者，实现退化成"永远重载"也无人发现。
+- **同族要求**：诊断字段要按它**实际能证明的范围**解读。`channelState` 调的是模块导出的纯函数，只证明
+  "解析与开关判定正确"，不证明"组件真的重新读过参数"；把前者当后者用，结论就带进沟里了。
 
 ## 视觉用例有**两份清单**，CI 只认 `run-pixel-tests.js` 的 `pixelTests`（visual-two-registries，2026-09-27，cloud-flag-visual）
 

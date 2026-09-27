@@ -216,14 +216,53 @@ class VisualTestRunner {
     }
   }
 
+  /**
+   * 目标 URL 与当前 URL 是否"只有 fragment 里的 query 在变、路由 path 不变"。
+   * 这种导航会被 vue-router 复用组件实例，挂在 onMounted 上的读取不会再跑。
+   * 只在能确定判定为 true 时才触发 reload —— 判不出来一律返回 false（保持既有行为）。
+   */
+  _isSameRouteQueryOnlyNav (targetUrl) {
+    if (typeof this.page?.url !== 'function') return false;
+    let current;
+    let next;
+    try {
+      current = new URL(this.page.url());
+      next = new URL(targetUrl);
+    } catch (_) {
+      return false;
+    }
+    if (current.protocol !== next.protocol || current.host !== next.host) return false;
+    if (current.pathname !== next.pathname) return false;
+    const split = (hash) => {
+      const raw = String(hash || '').replace(/^#/, '');
+      const at = raw.indexOf('?');
+      return at < 0 ? { path: raw, query: '' } : { path: raw.slice(0, at), query: raw.slice(at + 1) };
+    };
+    const a = split(current.hash);
+    const b = split(next.hash);
+    if (!a.path || a.path !== b.path) return false;
+    return a.query !== b.query;
+  }
+
   async _navigateToRoute(route, readySelector, expectedRoute = route, destinationUrl = null) {
     const normalizedBase = this.url.replace(/\/$/, '');
     const expectedHash = '#' + expectedRoute;
     await this._resetBrowserState();
-    await this.page.goto(destinationUrl || `${normalizedBase}/#${route}`, {
+    const targetUrl = destinationUrl || `${normalizedBase}/#${route}`;
+    // 同一路由只改 query ⇒ vue-router **复用组件实例** ⇒ onMounted 不再跑第二遍。
+    // 本仓是 hash 路由，pathname 恒为 /，所以判据只能落在 fragment 的 path 段上。
+    // 症状（实测）：accounts-list 跑完之后紧跟 accounts-list-flag-on，按钮永不出现、就绪超时；
+    // 单独跑同一条则通过 —— 纯函数说"该开"，但组件根本没重新读参数。
+    const reusedComponent = this._isSameRouteQueryOnlyNav(targetUrl);
+    await this.page.goto(targetUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
+    if (reusedComponent) {
+      // 强制一次真实文档加载，让这条用例拍到的是"该路由首次加载"的样子，
+      // 而不是上一条用例留下的组件实例状态。
+      await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    }
     await this._waitForApplicationReady(expectedHash, readySelector);
     if (typeof this.page.evaluate === 'function') {
       await this.page.evaluate(async () => {

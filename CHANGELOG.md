@@ -14,12 +14,20 @@
 - **warn 文案改 ASCII**：`QG Static` 的渲染端硬编码中文基线扫描实测拦在 `useFeatureFlag.js:64`（新增的中文
   `console.warn`）。这条 warn 是给开发者看控制台的、不是 UI 文案，所以改英文而不是塞进 locale —— 本地
   `node .github/scripts/check-locale-sync.js --cjk` 由 FAIL 转 `PASS（无新增硬编码）`。
-- **通道开关从「仅 `import.meta.env.DEV`」改成「DEV 或构建期注入 `VITE_MP_DEV_FLAG_OVERRIDE=1`」**：
-  CI 的 vite 进程带 `NODE_ENV=production` ⇒ `DEV` 为 false，只挂 DEV 的通道在 `QG Visual` 里**永远不会生效**。
-  本地用 `NODE_ENV=production` 起 vite dev 逐字复现了 CI 的失败诊断后定位到此；workflow 的 Gate 7 env
-  显式注入该变量。端到端实测：CI 条件下注入开关 ⇒ 入口渲染（appTextLength 724），
-**不给 URL 参数 ⇒ 仍不渲染（720）** —— 开关不会自己把入口打开，fail-closed 未被削弱。
-  正式包既非 DEV 也不注入该变量 ⇒ 分支被静态折叠。
+- **真正根因（以及一次错误结论的撤回）**：`QG Visual` 连续三轮红在"等按钮超时"。我一度判定为
+  "CI 的 vite 进程带 `NODE_ENV=production` ⇒ `import.meta.env.DEV=false`"，理由是本地用该环境变量起
+  vite dev 能复现同一症状。**这个判定是错的** —— 在 Gate 7 里打印进程侧取值后实测
+  `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、页面侧 `channelState=enabled=true`（DEV 并未被压掉）。
+- **实际根因是 harness 的组件复用盲区**：本仓 hash 路由下 `#/accounts` → `#/accounts?mpFlag=…` 属于
+  "同一路由只改 query"，vue-router **复用组件实例** ⇒ `onMounted` 不重跑 ⇒ `refreshCloudSyncFlag()`
+  根本没被再调用。本地用 `PIXEL_ONLY` 控制顺序即可决定性复现：单独跑通过（只红在缺基线），
+  紧跟在 `accounts-list` 之后跑则逐字复现 CI 的超时 —— 差别只有顺序，不是环境。
+- 修法：`test-runner.js` 新增 `_isSameRouteQueryOnlyNav()`，命中时在 `goto` 后强制 `page.reload()`，
+  让每条用例拍到的都是"该路由首次加载"。判定刻意做窄（换路由不重载），以免改写既有 18 条基线的
+  拍摄条件。回归锁 2 条（该重载 / 不该重载各一条）+ 反证（把 `if (reusedComponent)` 改成恒 false ⇒ 前者红）。
+- `VITE_MP_DEV_FLAG_OVERRIDE` 这层构建期开关**保留**，但定位改回它实际的价值：显式 opt-in、不依赖
+  环境巧合（正式包既非 DEV 也不注入该变量 ⇒ 分支被静态折叠）；它不是本次失败的修法。同时纠正一处
+  过度声称：诊断里的 `channelState` 调的是纯函数，只证明"解析与开关判定正确"，不证明"组件真的重新读过参数"。
 - 新增视图用例 `accounts-list-flag-on`，**两处清单都登记**：`views/all-views.visual.test.js` 的 `viewTests`
   （`--single` / 全量路径）与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 实际执行的是这一份**）。
   首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
