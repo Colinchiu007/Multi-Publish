@@ -16374,3 +16374,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
   和一张被甩到块尾的**表格表头**（`.quality-gates.md` 的 `| 门禁 | 状态 | … |`）。它们同样不会让「不少行」变红。
   ⇒ 置顶型文档合并完必须**用眼睛读一遍被合并的那个块**（约 50 行），不能只看断言绿。
 
+
+## 交接文档的「未开工」清单可能是过期快照：接手 §4D 类清单必须逐条 git 证伪（stale-handoff-inventory，2026-09-28）
+
+- **现象（pitfall，差点重复实现已交付功能）**：跨机交接文档（handoff-w3-live-fix-20260927.md §4D）列出 4 个「未开工大件」（33/19/13/37 任务）。接手方按拆解惯例逐条 git 取证后推翻前提：**4 个里 3 个已被交付**——`add-account-name-source` 已实现并归档（#2435→#2466→#2482→#2496）；`rewrite-hard-constraints` 19/19 已被 #2011+#2015 交付（仅剩 delta/勾选/归档三件流程工件）；`pipeline-card-bg-static-bundle` 13/13 已被 #776 交付（同样仅剩归档收口）。仅 `ui-apple-token-retirement` 真未开工。
+- **第一性原因**：交接作者写作时本地 main 落后 origin/main 24 提交，读到的是**实现前**的 tasks.md 快照；「未开工」判定只数了未勾选框、未做 git 核对。该文档 §2 甚至自相矛盾——已记录「#2466 已合并该线」，§4D 却仍把同一条列为未开工。
+- **实际后果（若不证伪）**：按「未开工」重复实施 = 重复删除已删文件（空 diff）、重复生成 15 张图、重复改 locales——纯浪费且在 account 热域制造真实冲突（add-account-name-source 的后续 PR #2514 已引用其 account-name-write.js 作先例）。
+- **规约（接手任何交接清单的固定动作）**：对清单里每一条「未开工/待办」，先做三件只读取证再规划工作——① `git merge-base --is-ancestor <合并提交> origin/main`（合并是否在主干）；② `git log -S "<关键符号>"`（交付物是否在代码里）；③ openspec change 目录是否已在 `changes/archive/`。**「未勾选框计数」≠「未交付」**：tasks.md 复选框是流程工件，滞后于代码事实是常态（本批 3 个 change 全部如此）。
+- **落地**：4 个大件各派一个只读拆解代理做证伪 + 技术拆解（报告存 `.agent_context/breakdowns/`，机器本地）；证伪结论与证据已固化进 PR 描述（#2530/#2531/#2532）——其中 2 个「假未开工」转为归档收口 PR、1 个已在档无需动作、1 个真未开工项（ui-apple-token-retirement，L 复杂度）正确地停在「等用户拍板 7 个开放问题」。拆解报告本体在 gitignored 目录会随机器丢失，**有跨机价值的结论必须进 PR 描述或 learnings，不能只存 .agent_context**。
