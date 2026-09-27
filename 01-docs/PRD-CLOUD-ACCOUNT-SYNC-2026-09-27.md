@@ -638,3 +638,57 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 **合规**
 - 首次同步的隐私提示行即为同意点；`credential_updated_at` 与断开入口保证用户可撤回。
 - 隐私声明需新增"平台登录凭证加密托管"条目（本文档 §八 为依据），由文档任务跟进。
+
+## 十七、【同步云端】入口的 flag 开启态视觉基线通道（2026-09-27）
+
+### 17.1 为什么"视觉回归绿"曾经不构成新按钮的证据
+
+入口由运营 feature flag `account_cloud_sync` 控制，且口径是 fail-closed：缺失 / 不可达 / 抛错一律按关闭
+（ADR-0006）。CI 的 `QG Visual` 环境里没有运营中心，所以按钮**根本不渲染** —— `accounts-list` 那条
+用例的绿只证明"未开启态无回归"。这不是可以靠"我在本地点开看了一眼"补上的：QM-4 第 7 条要求
+**基线必须与比对环境同源**，本机 Chromium/字体渲染与 CI 的 `windows-latest` 会产生 3%+ 的全页亚像素
+差异（本仓实测过），拿本机截图入库会让门禁长期被噪声吃掉、对局部回归反而失明。
+
+### 17.2 采用的做法
+
+给渲染层一条**只在开发态生效**的显式覆盖，让 CI 能声明"这一张要拍开启态"：
+
+- `useFeatureFlag(key)` 在读运营值之前先看 `mpFlag=<flagKey>=<1|0|true|false>`（**不给 composable 开测试
+  注入口**：通道读的就是 `import.meta.env.DEV` 与 `window.location`，用例用 `vi.stubEnv` / `vi.stubGlobal`
+  把环境量摆出来，跑的是生产同一条分支）。生效需同时满足两条：`import.meta.env.DEV` 为 true，**且**页面协议
+  是 `http:`/`https:`。第二条是评审补的：`vite build --mode development` 的产物里 `DEV` 仍是 true，
+  若这份 dist 被 `file://` 直开，只挡 DEV 等于没挡。线上正式包构建时 DEV 注入为 false（默认关闭，与
+  AGENTS.md「打包权限模式不可由环境变量提权」同族）。
+- 只认 `1|true|0|false`，且 `<flagKey>` 必须在 `DEV_OVERRIDABLE_FLAGS` 白名单内（当前只有
+  `account_cloud_sync`）。写成 `=yes` / 空值 / 没有 `=` / 白名单外的键，都**不产生覆盖**，落回运营真值 ——
+  否则"用户 URL 里写了个东西"就变成了默认放行。白名单的必要性：`isFlagEnabled` 是全仓共用导出，未来
+  **能力/额度/付费**类判据也可能接进来（先例 `videoCreation.maxOutputResolution`），那条链路不该由 URL 决定。
+- 被忽略的非法值必须 `console.warn` 出声：写错形态是**静默**回落，而这条通道唯一的用户就是排障的人和 CI，
+  他们能看到的只有控制台。日志只 echo 键名与字面量，不打整条 URL。
+- 命中覆盖时**完全不调运营中心**：视觉门禁要求同一份代码每次都得到同一张图，不能取决于网络。
+- 显式 `0` 可以盖过运营下发的 `1`（排障用），这是刻意的。
+- 它只改**界面开关键**：服务端 `/api/v1/me/*` 每个请求仍按归属身份鉴权，URL 参数不构成任何权限路径。
+
+本仓是 `createWebHashHistory` ⇒ 视觉用例写出的实际 URL 是 `<base>/#/accounts?mpFlag=…`，查询段落进 fragment，
+`window.location.search` **恒为空**。因此覆盖参数必须同时从 `location.hash` 的 `?` 之后取（评审实测指出，
+只读 search 的那版实现在这条真实路由形态下永不自检通过 —— 表现是"参数写了、按钮仍不渲染"，而视觉用例
+会因为等不到按钮而红，不会静默截一张没有按钮的图）。
+
+视图用例 `accounts-list-flag-on`（原名 `accounts-list-cloud-sync`，评审指出旧名会让人误以为这条在守「同步功能整体」，而它实际守的是 flag 开启态的渲染）的等待选择器直接指向按钮本身
+（`.mp-workspace .accounts-page [data-testid="account-cloud-sync"]`）：渲染不出来就是这条用例失败，
+而不是"截了一张没有按钮的图当基线"。
+
+### 17.3 基线回填流程（本 PR 内必须走完，不得用本机截图）
+
+1. 本 PR 首次跑 CI 时必然报 `ERR_VISUAL_BASELINE_MISSING: .../accounts-list-flag-on.png` —— 这是
+   预期内的红，作用是产出那张 CI 渲染图。
+2. 从那次 run 的 `quality-gate-visual-reports` 产物里取 `screenshots/accounts-list-flag-on-current.png`，
+   存为 `tests/visual-testing/base-screenshots/accounts-list-flag-on.png` 并随 PR 推上。
+3. 复跑 CI：`QG Visual` 必须报该视图 **0 px** 差异（自证"基线与比对环境同源"），此后它成为硬门禁的一部分。
+
+4. 回填前后可以在 `apps/desktop/` 下单独复跑这一条看渲染结果（`--single` 是已记录的用法）：
+   `node tests/visual-testing/views/all-views.visual.test.js --single accounts-list-flag-on`。
+   但**本机截出的图仍不得入库当基线**（QM-4 第 7 条），这一步只用于确认渲染。
+
+> 这条流程本身也是防"用本机基线蒙混过关"的锁：缺基线时门禁是红的，不能靠 skip 变绿
+> （`test-runner.js` 在未设 `UPDATE_BASELINE=1` 时对缺基线直接 FAILED）。

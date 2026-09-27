@@ -1,3 +1,29 @@
+# [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
+
+### 为什么
+- 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
+  原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
+  （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
+
+### 做了什么
+- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
+  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
+  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
+  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
+  它只改界面开关键，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
+- 新增视图用例 `accounts-list-flag-on`，等待选择器直接指向 `[data-testid="account-cloud-sync"]`
+  ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
+- `useFeatureFlag.test.js` 补 9 条（该文件用例数 6 → 15）：解析边界（含 `=yes`/空值/无 `=`/白名单外一律不覆盖）、
+  `0` 强制关闭、非开发态完全无视该通道、无覆盖参数时保持 fail-closed。
+
+### 结论 / 待办
+- 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图），
+  随后从 `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png` 并复跑要求 0 px。
+- 顺手记下（只记实测过的部分）：USAGE §5 写"44 视图"，而 `all-views.visual.test.js` 的 `routeView(` 注册实为 35 条
+  （本 PR 后 36），另有 `supplementary-views.visual.test.js` 以对象数组注册 20 条；AGENTS.md 同一段又写"43 用例：23 核心 + 20
+  补充" —— 三个数互不相同，属既有文档漂移。工作流侧条数本次未精确核对（`name:` 命中含步骤名），不给总数，只给真实增量。
+
+
 # [未发布] test(ci): 新增「测试文件未接 CI 收集」棘轮，收编 7 条从未执行过的死锁
 
 ### 做了什么
