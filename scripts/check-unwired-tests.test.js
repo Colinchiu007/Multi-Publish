@@ -161,10 +161,19 @@ test("注释里提到文件名不算接线（只有可执行正文算）", () =>
 test("真实仓库：检查域非空、欠账清单已钉住且无违规", () => {
   const root = path.join(__dirname, "..")
   const r = checker.collectCheck(root, checker.KNOWN_UNWIRED)
-  assert.ok(r.files.length >= 30, `真实仓库解析到的测试文件数异常：${r.files.length}（解析退化会让本门禁假绿）`)
+  assert.ok(r.files.length >= 40, `真实仓库解析到的测试文件数异常：${r.files.length}（解析退化会让本门禁假绿）`)
+  assert.ok(checker.TEST_SUFFIXES.includes(".test.ps1"), "PowerShell 测试必须在扫描域内，否则它们继续隐身")
   assert.deepEqual(
     Object.keys(checker.KNOWN_UNWIRED).sort(),
-    ["scripts/session-init.test.sh"],
+    [
+      "scripts/applive-foreign-audit.test.ps1",
+      "scripts/mp-worktree-health.test.ps1",
+      "scripts/session-guard.test.ps1",
+      "scripts/session-isolation-automation.test.ps1",
+      "scripts/session-write-guard.test.ps1",
+      "scripts/start-desktop-profile-lock.test.ps1",
+      "scripts/worktree-fs-longpath.test.ps1",
+    ].sort(),
     "欠账清单只能缩小；新增豁免须先在门禁里明确接受（棘轮与 platform-definitions 同形）",
   )
   for (const [file, reason] of Object.entries(checker.KNOWN_UNWIRED)) {

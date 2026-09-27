@@ -1,3 +1,11 @@
+## 位运算式权限断言是恒真的装饰：省略实参时 undefined & mask 也等于 0（pitfall，2026-09-27）
+- 现场：给密钥环写盘加"临时文件必须 0600"的断言，写成 `assert.strictEqual(tmpCall.mode & 0o077, 0)`。做反证时把实现里的 `openSync(tmp, "wx", mode)` 改成 `openSync(tmp, "wx")`（省略 mode），**套件仍全绿**。
+- 根因：省略第三个实参时它是 `undefined`，`undefined & 0o077` 在 JS 里就是 0。位掩码断言只对"传了但传错"生效，对"根本没传"完全免疫 —— 而"没传 mode"恰恰是真实故障形态（Linux umask 022 下建出 0644，rename 再把权限带到主密钥环上，同机任意用户可读）。
+- 口径：凡断言"某个配置实参必须存在且取某个值"，一律钉**等值**（`strictEqual(mode, 0o600)`）而不是"掩码后为零"；需要放宽时写成"必须先断言它是 number，再断言掩码结果"。同理，`if (x?.foo & MASK)` 一类的判断在读不到字段时会静默等价于 0，不要把"取不到"和"值为 0"合并。
+- 这条只有靠**真跑变异**才会暴露：本轮把它写进 `.quality-gates.md` 的执行记录，作为「反证必须实测、不能推断」的又一个具体样本（同族先例：通配锁静默永久跳过、"防再犯锁"被改成 no-op 才红）。
+- 关联：AGENTS.md「任何防再犯锁必须做一次把锁本身改成 no-op 的变异」「出站行为以线级取证为准」。
+
+
 ## Windows 文件锁夹具：冷启动与被测语义共用一个预算，且"自报标记"不等于"真的持有"（2026-09-27）
 
 - **症状**：main `655acd0c` 的 `QG Desktop Shards (1/2)` → `credential-store.test.js`「Windows 主密钥短暂锁释放后仍能完成格式迁移」报 `lock handshake did not report "LOCKED" within 20000ms (stdout="", stderr="")`，摘要 `Tests 1 failed | 11768 passed`。#2410 的 `Gate Result` 真聚合上线后，这颗从"可重跑的 job 红"升级成"随机拦所有人合并"。

@@ -8,30 +8,9 @@ const path = require("path");
 const crypto = require("crypto");
 const lockfile = require("proper-lockfile");
 
-const WINDOWS_RENAME_RETRY_DELAYS_MS = Object.freeze([20, 40, 80, 160, 320, 640]);
-const WINDOWS_TRANSIENT_RENAME_ERRORS = new Set(["EPERM", "EACCES", "EBUSY"]);
-
-function sleepSync(delayMs) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
-}
-
-function atomicRenameSync(sourcePath, targetPath) {
-  let attempt = 0;
-  while (true) {
-    try {
-      fs.renameSync(sourcePath, targetPath);
-      return;
-    } catch (error) {
-      const retryable = process.platform === "win32"
-        && error
-        && WINDOWS_TRANSIENT_RENAME_ERRORS.has(error.code)
-        && attempt < WINDOWS_RENAME_RETRY_DELAYS_MS.length;
-      if (!retryable) throw error;
-      sleepSync(WINDOWS_RENAME_RETRY_DELAYS_MS[attempt]);
-      attempt += 1;
-    }
-  }
-}
+// Windows 原子替换语义的唯一实现已收在 ./atomic-rename（AGENTS.md「所有 rename 点保持相同的原子替换语义」）：
+// 本包的 API Key 存储与 cloud-accounts 的主密钥环写盘都走它，抄第二份必然漂移。
+const { atomicRenameSync } = require("./atomic-rename");
 
 function hashKey(key) {
   return crypto.createHash("sha256").update(key).digest("hex");

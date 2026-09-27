@@ -29,12 +29,23 @@
    回滚前须知：`005` 只新增表，不改动既有表，因此**回滚 API 镜像不需要回滚数据库**（旧版本 API 不认识新表即可）。
 
 2. **配置主密钥（KMS）**。
-   - 开发/本机：`MP_CLOUD_KMS_LOCAL_KEY`（64 位 hex，即 32 字节）。缺失或非法 → 构造期不抛错，
-     首次使用时抛 `KMS_UNAVAILABLE`（503），且不写入任何明文。
-   - **生产禁止使用 `createLocalKms`**：主密钥落进环境变量等于把整个镜像库的解密能力放在一台机器上。
-     生产必须实现 `wrap(keyId, plaintext, aad)/unwrap(...)` 对接云 KMS（KMS 侧根密钥不可导出、按 `keyId` 轮转），
-     并把 `keyId` 与审计日志绑定。轮转口径：AAD 绑 `keyId`，换 `keyId` 后旧信封**解不开**，
-     因此轮转必须是「新写入用新 key、存量按需重加密」，不得直接替换根密钥。
+   - **生产：`MP_CLOUD_KMS_KEYRING`（密钥环 JSON 文件路径，ADR-0007）**。服务端读取的唯一口径是
+     `createKmsFromEnv()`：配了环路径 ⇒ 密钥环（支持轮转）；没配 ⇒ 退回 `MP_CLOUD_KMS_LOCAL_KEY`
+     开发单密钥，并落一条 `KMS_LOCAL_ONLY` warn（静默跑在单密钥上 = 「生产必须有 KMS」这条前置条件没人看得见）。
+     **「配了但值为空白」不等于「没配」**：`MP_CLOUD_KMS_KEYRING=` 或全空格一律当场 `KMS_CONFIG_INVALID`。
+     早先按 `env[KEYRING_ENV] || ""` 判空会让一次空值赋值静默退回开发单密钥 —— 那是 PRD §8.4 明令禁止的
+     「降级成用固定密钥」，而现场只剩一条 warn。回归锁 `test/cloud-accounts-keyring-hardening.test.js` H1。
+     环缺失 / JSON 坏 / `activeKeyId` 不在 `keys` 里 / 密钥不是 32 字节 hex ⇒ 同样构造期 `KMS_CONFIG_INVALID`。
+   - ~~生产必须对接云 KMS；换 `keyId` 后旧信封解不开，因此轮转必须是「新写入用新 key、存量按需重加密」~~
+     → **2026-09-27 按 ADR-0007 纠正**：那段写于只有 `createLocalKms` 的时期，两个判断都已过时。
+     其一，生产实现现在就是仓库里的文件密钥环，**不需要**外部云 KMS（抽象层只有 `{wrap, unwrap}` 两个方法，
+     将来接 Vault / 阿里云 KMS 只换 provider，`envelope-crypto.js` 一行不用改）。
+     其二，「换 key 后旧信封解不开」的根因是**旧实现没有记录信封用的是哪把密钥**；密钥环把 key id 前缀写进
+     `encryptedDataKey` 自己，因此轮转是无损的：新写入用新 active、存量按各自登记的 id 解，
+     **旧密钥永远不得从环里删除**（删了才等于销毁数据）。存量重加密由此不再是轮转的前置条件。
+   - **生效时机**：KMS 实例在首次使用时构造并永久缓存，轮转后**必须重启业务 API 进程**，新写入才用新 active。
+   - **权限与并发**：环文件与其临时文件必须以 `0600` 创建（属主 = 服务运行账户 UID `1001`），POSIX 下 rename 后
+     fsync 父目录；轮转用 `proper-lockfile` 互斥，竞争即 `KMS_KEYRING_LOCKED` 且不写盘。
    - KMS 不可用时接口返回 `KMS_UNAVAILABLE`，桌面端文案为「云端加密服务未就绪，本次未上传任何凭证」——
      这条路径**不会**把凭证以明文暂存在服务端，也不需要人工清理。
 
@@ -97,8 +108,52 @@
 - 真机端到端（真实业务库 + 真实 Logto 身份 + 真实第三方平台凭证）同步一轮：**未执行**。
 - 八平台 `platform_uid` 线级取证（小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否等于平台原生主键）：
   **未执行**；未取到可信 uid 的平台走 `uid-unavailable` 跳过上行，不会污染合并键。
-- 生产 KMS 实现：仓库内只有 `createLocalKms`（开发/测试用），**生产实现尚未编写**。
-  在这一项落地前，本特性不得对真实用户开启。
+- ~~生产 KMS 实现尚未编写~~ → **已落地（2026-09-27，ADR-0007）**：文件密钥环 `src/cloud-accounts/keyring-kms.js`
+  + 轮转 CLI `scripts/rotate-cloud-kms-key.js`。仍**未在生产现场执行**下列步骤，因此"本特性不得对真实用户开启"
+  这条前置条件要到 §5.1 的 SOP 真跑过一遍之后才解除。
+
+### 5.1 主密钥初始化与轮转 SOP（生产，逐条实测后才算完成）
+
+`<ring>` 指部署机上 UID `1001` 可读的持久卷路径，例如 `/var/lib/mulpub/cloud-kms-keyring.json`。
+
+1. **初始化**（一次性）：生成一把 32 字节随机密钥并写成第一版环，`activeKeyId` 取一个有名字的事件标签
+   （如 `2026-09`）。为什么不自动生成日期标签：轮转必须是一次可被追溯命名的事件，出事故时要能回答
+   "这批信封是哪次轮转之前写的"。
+   环必须 **0600 / 属主 = 服务运行账户**（`writeKeyringFile` 建临时文件时就以 `wx` + `0o600` 创建，
+   rename 会把这份权限带到目标；Linux 默认 umask 022 下"先建后 chmod"会留一个全局可读窗口）：
+   ```bash
+   install -d -o 1001 -g 1001 -m 750 /var/lib/mulpub
+   install -o 1001 -g 1001 -m 600 /dev/null /var/lib/mulpub/cloud-kms-keyring.json
+   # 再用一次性脚本写入第一版内容。**不要用 root 跑初始化或轮转** —— 写出 root 属主后服务读不到自己的密钥环
+   ```
+2. 把 `MP_CLOUD_KMS_KEYRING=<ring>` 写进服务环境，重启；`GET /api/v1/ready` 必须仍 ready，
+   且日志里**不得**出现 `KMS_LOCAL_ONLY`（出现了就说明路径没生效，仍在单密钥上跑）。
+   若这一行配成了空值，服务会在构造期直接 `KMS_CONFIG_INVALID`——这是设计行为，不是回归。
+3. **备份环文件**（与 `.masterkey` 同级纪律）：环丢了 = 全部云端凭证不可解，且无法通过重加密救回。
+   权限按第 1 步收敛；备份副本同样 0600、放在服务账户之外、**不进仓库**。
+4. **轮转**（定期 / 密钥疑似泄露 / 人员变动时）：
+   ```bash
+   node packages/api-publish-engine/scripts/rotate-cloud-kms-key.js --ring <ring> --key-id 2026-10 --dry-run
+   node packages/api-publish-engine/scripts/rotate-cloud-kms-key.js --ring <ring> --key-id 2026-10
+   ```
+   先演练（`--dry-run` 与真跑同一把校验口径、**一个字节都不写**；选项值缺失或被下一个 flag 顶替一律报错——
+   否则 `--key-id --dry-run` 会被读成"用 `--dry-run` 当密钥名"并真的执行一次轮转），再执行。
+   **生效时机**：服务端的 KMS 实例首次使用时构造并永久缓存，所以轮转之后正在跑的进程仍会用旧 active
+   继续封装，**必须重启业务 API 进程**才切换。这不是数据风险（旧 key 不删 ⇒ 新旧信封都解得开），
+   但"轮转完就以为换完了"是运维误判，CLI 输出里也写了这条提示。
+   **旧密钥永远不得从环里删除** —— 它是解开旧信封的唯一途径。
+   **并发轮转必须避免**：轮转是 read-modify-write，`rotateKeyring` 用 `proper-lockfile` 锁住环文件，
+   竞争者直接 `KMS_KEYRING_LOCKED` 失败且不写盘（后一次 rename 整把丢掉前一次的新密钥 = 那批信封永久不可解）。
+5. **轮转后验收（必做，不可省略）**：挑一个在**上一次轮转之前**镜像上去的账号，
+   走一次 `POST /api/v1/me/accounts/sync` 取凭证，必须返回该凭证而不是 `CREDENTIAL_DECRYPT_FAILED`。
+   这一步是唯一能证明"旧信封仍可解"的现场证据；单测锁住了实现，锁不住"生产用的其实是另一份环"。
+6. 失败回滚：把轮转前的备份文件放回原路径并重启即可（信封里登记的是写入当时的 key id，
+   回滚不需要改数据库）。
+
+回归锁：`test/cloud-accounts-keyring-kms.test.js`（15 例，含"轮转后用真 envelope-crypto 跑一整轮、
+旧信封仍解得开"）、`test/cloud-accounts-keyring-hardening.test.js`（10 例，评审 4 条 Critical 的逐条锁：
+空白配置不降级 / 0600 权限 / 轮转持锁 / DK 清零 + 信封前缀字节边界）、
+`test/cloud-accounts-kms-rotate-cli.test.js`（7 例，含 `--dry-run` 零写入与 flag 吞值）。
 - 视觉基线：`accounts-list` 视图因命令栏新增按钮必然产生 diff；基线只能取自 CI 产物后回填（QM-4 第 7 条），
   本 PR 内**未回填**。
 - ~~`POST /api/v1/me/accounts/sync` 的响应现在含明文凭证，**`Cache-Control: no-store` 未加**~~ → **已收口**

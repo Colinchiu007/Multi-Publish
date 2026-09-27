@@ -6,7 +6,7 @@
 //
 // 为什么单独成文件：`publish-api-server.js` 是 1300+ 行的巨型 `_handle` if 链，
 // 往里塞账号云镜像的组装逻辑会让本特性的可测试性与回滚面一起劣化。
-const { createCloudAccountServices, createLocalKms, CLOUD_ACCOUNTS_ROUTES } = require('../cloud-accounts')
+const { createCloudAccountServices, createKmsFromEnv, CLOUD_ACCOUNTS_ROUTES } = require('../cloud-accounts')
 
 // 入口守卫的路径集由 handlers 的 CLOUD_ACCOUNTS_ROUTES 推导，不再手抄第二份清单。
 // 手抄过一次真实事故：清单里已登记 `POST /api/v1/me/accounts/tombstones`，而守卫只认三条路径，
@@ -83,7 +83,15 @@ class PublishApiCloudAccountHelpers {
     }
     let kms = null
     try {
-      kms = createLocalKms({ env: process.env })
+      // 提供方的选择口径只在 `createKmsFromEnv` 一处实现（禁止调用点各写一份判断）
+      const picked = createKmsFromEnv(process.env)
+      kms = picked.kms
+      this.__cloudAccountsKmsProvider = picked.provider
+      // 落在"开发用单密钥"上必须出声：OPS §5 写着生产 KMS 落地前本特性不得对真实用户开启，
+      // 而单密钥形态换一次主密钥就报废全部既有信封。静默跑起来等于这条前置条件没人看得见。
+      if (picked.provider !== 'keyring') {
+        this._logWarn('KMS_LOCAL_ONLY', null, { module: 'cloud-accounts' })
+      }
     } catch (error) {
       // 未配置/非法主密钥：记录一次，后续每次使用都由 crypto 抛 KMS_UNAVAILABLE
       this.__cloudAccountsKmsError = error && error.code ? error.code : 'KMS_CONFIG_INVALID'

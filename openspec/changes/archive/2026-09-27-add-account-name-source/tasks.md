@@ -82,7 +82,7 @@
 - [x] 9.1 `packages/shared-utils`、`packages/python-backend`、`apps/desktop` 三处全量测试通过，红名单逐项对照 1.3 基线，确认无新增失败（既有 `feedback.test.js` symlink EPERM 属环境项）
 - [x] 9.2 `pnpm exec eslint` 覆盖所有改动文件 rc=0；locale 若新增文案必须 zh/en 成对（CI Gate 7）
 - [ ] 9.3 视觉回归 `npm run test:visual:pixel`（发布页与账号页显示值变化），基线更新需人工审核 diff 图。**本机仍不可执行**（worktree 无 Playwright 浏览器，且按 AGENTS.md 禁止借用其他 worktree 的产物做测试证据），CI `QG Visual` 已在本 head 转绿。**但必须写清这条绿不能当证据**：Gate 7 用的是 `PIXEL_THRESHOLD=0.06` 的**整页**容差，实测一次 CI 的 18 个视图里有 2.16% / 1.61% / 1.43% / 1.06% 的漂移全部静默通过 —— 本 PR 改的正是账号页 8 张卡片的文字，量级恰好落在盲区里。真正兜住这件事的是 9.8（夹具形状锁），不是像素层。人工审核 diff 图仍待有 Playwright 的环境补做。
-- [ ] 9.4 QM-6 CCG 双模型外部评审：本机 `codeagent-wrapper` 不在 PATH 且 `.ccg/config.toml` 缺失，若仍不可用则按 `.quality-gates.md` 既有先例**如实登记未执行 + 环境证据**，并以独立上下文评审替代，不得谎称通过
+- [x] 9.4 QM-6 CCG 双模型外部评审：本机 `codeagent-wrapper` 不在 PATH 且 `.ccg/config.toml` 缺失，若仍不可用则按 `.quality-gates.md` 既有先例**如实登记未执行 + 环境证据**，并以独立上下文评审替代，不得谎称通过。**本项按其自身规定的降级路径完成**：二次核实 `.ccg/config.toml` 不存在、`codeagent-wrapper` 不在 PATH，故未跑双模型外部评审，改为 9.7 记录的两路独立上下文评审（规格轴 + 可维护性轴，并行派发、互不告知对方结论），产出 2 条 CRITICAL + 5 条 MAJOR 并逐条处置；环境证据与替代评审均已登记在 `.quality-gates.md` 与根 `CHANGELOG.md`「独立评审（QM-6 替代，2 条 CRITICAL + 5 条 MAJOR）」小节（main 上第 383 行）。勾此前该框与本项实际状态不符，属过期勾选而非未完成。
 - [x] 9.5 `openspec validate add-account-name-source --strict` 通过；`.quality-gates.md` 追加本次执行记录（含反证证据与 fresh 数字）
 - [x] 9.6 CI `QG Static` 首次真实红（`check-locale-sync`）后收口，两类根因分开处理：
   - **本 PR 真错**：`stores/accounts.js` 的 `renameAccount` 新写了硬编码中文 `'账号不存在'`，违反 AGENTS.md「新增用户可见文案一律写入 locales」。改为 `i18n.global.t('accountsPage.accountNotFound')`，zh/en 成对新增，并把原来只断言 `code: -2` 的用例升级为精确断言本地化后的文案（否则键缺失时静默回落 key 字符串，测试照绿）。
@@ -107,4 +107,4 @@
 - [x] 10.1 `CHANGELOG.md` 收口：显式写「改名此前是空操作」「发布页账号显示值变化」两条用户可见影响
 - [x] 10.2 `01-docs/learnings.md` 追加：装饰性链路第四次复发（写入口与读真源不是同一份）+ 「加字段必须同时改投影白名单」的识别手法；用双向校验脚本确认未吞相邻条目标题
 - [x] 10.3 `AGENTS.md` QM-2 新增两条：① 新增持久化字段必须同时改**所有**投影白名单并配端到端穿透断言；② 任何「用户输入落盘」的写入口必须先证明它写的是读取真源（写副本不算完成）
-- [ ] 10.4 归档三同步：`openspec archive` + CCG task 归档 + 质量节拍复盘，跑 `scripts/openspec-sync-check.js` 确认无漂移
+- [x] 10.4 归档三同步：`openspec archive` + CCG task 归档 + 质量节拍复盘，跑 `scripts/openspec-sync-check.js` 确认无漂移。**实际执行口径**：① 未用 `openspec archive` CLI —— 它按设计会顺带更新主 spec，而主 spec 已经 PR #2466 同步完成（本次核对为 ALREADY-SYNCED：6/6 需求、全部场景与正文一致），再套一遍 delta 有重复追加风险；改用技能规定的 `mv` 手工移动，移动后跑 `openspec validate --strict` 与 `scripts/openspec-sync-check.js` 证无漂移。② CCG task 归档：N/A —— `.ccg/tasks` 下无本 change 的条目。③ 质量节拍复盘：在 `.quality-gates.md` 顶部新增归档执行记录一节。④ 残留项随档案带走：9.3（视觉回归人工审核 diff 图，本机无 Playwright 浏览器，且不得借用其他 worktree 产物做证据）。
