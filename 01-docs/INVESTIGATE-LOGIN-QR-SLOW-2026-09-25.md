@@ -209,3 +209,44 @@ https://mp.weixin.qq.com/mp/fereport?action=csp_report
 三次同档测量合并看：公众号 11:53 `656ms`/`1072ms`、18:26 `983ms`/`1497ms`；`tencent_video` 12:04 首文档 `1394ms` + 末次 `did-finish-load` `12167ms`（§11.1）。支持本篇主结论：**首屏与出码都不慢，"刷了很久"来自微信登录页自身行为**（§10 结论三 + §11.1）。
 
 **覆盖限制（如实登记）**：`authClose` 走销毁路径、不经 `hide()`，因此关闭时**不会**产生 `login view setVisible=false drawn=…` 那一行。要正面观测「出码窗口落在未绘制时段」，需在登录页保持打开时切到别的标签再切回（`hide()`/`show()` 路径）。本次未做，因为上述结论不依赖该观测。
+
+## 13. 真机配对 A/B 终局取证（2026-09-27 04:08–04:26，`mp-app-live` + 用户 debug-profile）
+
+### 13.1 取数方式与为什么必须配对
+
+`mp-app-live` 快进 ff 到 `origin/main`（`655acd0c`，已含 §11/§12 的 `f3a0bf11`），依赖门禁 `verify-worktree-deps.js` = OK、`ensure-desktop-deps.js --check` = `DESKTOP_DEPS_OK`。登录页由 CDP 对 vite 页面 target 发 `Runtime.evaluate`（`awaitPromise:false`）调 `window.electronAPI.authOpenLogin('wechat_mp', null)` 驱动，测完 `authClose`；`auth:open-login enter` 与 `auth:close enter` 各 **15** 条，配平证明没有把登录视图留给用户。计时一律取 `<profile>/logs/app-2026-09-27.log`（§10 的两份 decoy 日志已避开）。
+
+- 每次 `openLogin` 的 `accountId = auth-<platform>-<Date.now()>` ⇒ 分区 `auth-auth-<platform>-<ts>`（落在 `<profile>/session/Partitions/`）**每次全新且空**。这对 A/B 是好事：无 cookie 泄漏、每轮冷分区；代价是分区无 GC（本轮 15 次约 **130MB**，收尾按精确名逐个删除，更早会话的 21 个未动）。
+- 第一轮实测两档顺序执行后，**开启档全部慢于默认关档**（789–8408 vs 721–1242ms）。但这批数据里两档各只对应一次开机、且开启档在前，属典型时间趋势混淆 ⇒ 改造成**配对设计**：两档交替重启，每档只取「该次开机后的第一次 `openLogin`」，得 4 组配对样本。
+
+### 13.2 结果
+
+| 配置 | 样本数 | 首屏 `login page finished after` | `qr bytes #1 after` | `encodedDataLength` | 二次导航 |
+| --- | --- | --- | --- | --- | --- |
+| 默认关 | 8 | 721 / 852 / 853 / 917 / 940 / 1116 / 1239 / 1242 ms（中位 928） | 1282–1592 ms | 5789–5921 | 0/8 |
+| `MP_LOGIN_NOISE_CANCEL=1` | 7 | 789 / 795 / 870 / 897 / 1531 / 3502 / 8408 ms（中位 897） | 1158–8704 ms | 5813–5861 | 0/7 |
+
+配对差（同簇内 开−关，首屏）：**−145 / −20 / +17 / −453 ms**，均值 **−150ms**；`qr` 指标 3 负 1 正（−147 / +55 / −49 / −434 ms）。开启档每轮稳定命中 6 条 `LoginNoise cancel`（默认关档 0 条）——**开关确实在运行态生效**，不是配了没跑。
+
+### 13.3 结论
+
+1. **(b) 达成**：CDP 只数字节的观测在生产路径拿到了真实字节（`encodedDataLength=5789…5921`），这正是 webRequest 层 `contentLength=redacted` 永远拿不到的量；此后判「200 + 空体」的服务端静默拒绝有了一手依据。
+2. **(c) 维持默认关**：均值 −150ms 完全落在微信侧抖动量级内，且被单个 −453ms 离群点主导；开启档那两个长尾（3502ms、8408ms）**出自同一次开机的同一簇**，不是独立观测，不能反过来归因于开关，也不能归因于网络——它只说明"n 太小"。
+3. **不得转默认开的第二理由是不可证伪项**：被取消的 `support.weixin.qq.com/cgi-bin/mmsupportmeshnodelogicsvr-bin/cube?biz=3512&label=connect.qrconnect&action=connect` 每轮 6 次，它**可能**参与微信侧 QR 会话登记。本机 15 次全部未扫码，**没有任何证据能证明取消它不影响扫码成功**；要证伪必须真机手机扫码。"没测出问题" ≠ "无副作用"。
+
+### 13.4 局限与污染（如实登记）
+
+- 单机、单日、单网络（Clash Verge 在路径上、对 CN 域名直通）；只覆盖 wechat_mp 一路。`tencent_video` 的 12s 二次导航本轮**未复现**（0/15），不得据此宣称该分支已收敛。
+- 取数结束后本机时钟被外部快进约 7 小时（共享根 `main` 在 04:30 / 05:08 两次 ff）。所有数值均为同进程内 `Date.now()` 差，取数窗口（04:08–04:26）内无跳变，故不受影响；但**日志里的绝对时间戳与文件 mtime 跨过了这个跳变**。
+- 应用在 04:26 自行跑了一轮周期检测，把真源 `accounts.json` 全 8 条的 `last_validated` 刷成当次时间（sha256 前缀 `3df752c0…` → `011f35b5…`）。轨迹：`checkLocalCredentials: OK encrypted` ×8、`effectiveStatus=active`、`statusSource=backend` ⇒ **无状态翻转、无改名、无凭证写入**（15 次 `openLogin` 全部以 `cancelled` 收口）。这是应用自身的正常行为，但由本次启动触发，记为污染。
+
+### 13.5 顺手挖出的两处与本文档相关的事实
+
+- **`MP_CDP_ALLOW_ALL_ORIGINS=1` 没有落到 electron 命令行**：`mp-applive-launcher.ps1` 确实设了该变量，但两次实测主进程 `CommandLine` 里**都没有** `--remote-allow-origins` ⇒ 文档口径「必须设该变量，否则外部 CDP 客户端 403」与运行态不符。本次是靠**WebSocket 请求不带 `Origin` 头**连上的（带上就 403）。属独立的启动链缺陷，未在本 PR 修。
+- **`Runtime.evaluate` 顶层 `await` 静默返回 undefined**：`'JSON.stringify(await x())'` 不报错也不返回值，必须写 `(async()=>…)()`；且异常在 `msg.result.exceptionDetails` 而非 `msg.result.result.exceptionDetails`，读错字段会把语法错误误判成「宿主 API 不存在」。
+
+### 13.6 仍未做
+
+- 真机手机扫码下的 cancel 对照（唯一能证伪 §13.3-3 的实验，需要用户手机）。
+- `tencent_video` 同法复测（其出码标记 `getqrcode` 不覆盖该平台，§11 已记）。
+- `persist:auth-*` 分区 GC 与 asar 打进 439 个 `*.test.js` 两项遗留（另案）。
