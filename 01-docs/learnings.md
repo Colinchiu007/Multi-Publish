@@ -1,3 +1,44 @@
+
+## 线级断言会被更上游的兜底掩盖：加了前置守卫之后必须重跑变异，否则锁已失效而你不知道（pitfall，2026-09-27）
+
+- 现场：给账号云镜像面补 `Cache-Control: no-store`。第一版把头加在该面自己的三处出线点，配四条变异反证，全绿。
+- 外部评审揪出真实缺口：401（鉴权失败）、403/503（身份/权益解析抛出）、429（限流）都在**路由之前**短路，根本不经过该面出线点 ⇒ 同一条 URL 存在「有时可缓存」的窗口。于是补了路由前的 `applyCloudAccountNoStore(res, url)` 守卫。
+- **关键后果：补完上游兜底后，原有全部线级断言都变成了装饰。** 实测摘掉出线点的 `NO_STORE` 实参、甚至把 `mergeFaceHeaders` 改成 no-op，11 条线级用例照样全绿——因为同一个头已由更上游设置过。更隐蔽的是「鉴权之前的应答也要 no-store」那条也绿，因为**测试夹具自己调用了一遍守卫**，等于夹具在自证接线，生产有没有调它完全没锁住。
+- 口径：
+  1. **任何让行为"更容易成立"的改动（加前置守卫、加兜底、加默认值、加降级路径）之后，必须重跑既有变异反证**，不能只跑一次看绿。反证的时效性只到下一次兜底出现为止。
+  2. 一条断言若可能被多层机制满足，它就**不能用来证明其中某一层存在**。要证明"这一层接上了"，用直接锁该层的手段：本例是在生产源码里断言守卫调用存在且**位置早于**鉴权与路由锚点，并数该面出线点显式传参的次数（恰好三处），另加一条 `doesNotMatch` 禁止合并退回裸 `Object.assign`。四条变异重跑后各自都被抓到（merge→1 红、early503→2 红、guard→2 红、filter→3 红）。
+  3. **夹具复刻生产调用序列时，被验对象必须是生产文件本身。**夹具调一遍 helper 只能证明 helper 正确；两者要拆成两条用例，并各自写明它锁的是哪一层。
+  4. 同处留下两条正向口径：追加响应头时拒绝 `Content-Length` / `Content-Encoding` / `Transfer-Encoding`（长度与编码由出口按最终 body 自己决定，覆盖它们会造出「头写 gzip、体是明文」这类只能在真实链路里发现的损坏）；跨路由共享的头常量要 `Object.freeze`。
+- 另一条流程账：本 PR 改的是凭证明文的缓存策略，属 AGENTS.md QM-6 触发面（安全类），我一度在自检记录里写「S 级单点响应头改动，不触发」——那是**自我宽免**。补跑后两个模型独立指向同一处真实缺陷，说明该门禁不是仪式；判"要不要跑 QM-6"要看改动性质，不能看改动行数。
+- 关联：AGENTS.md「反证要做在锁本身」「出站行为以线级取证为准」「门禁断言随实现迁移同步」；另记一笔：本仓 `check-max-lines` 的 200 行膨胀容差已被他人漂移吃满（登记 1156 / 现实 1356），往 `publish-api-server.js` 加行前先压缩自己的注释，**不要靠调基线过关**（本例把策略搬进本面模块 + 压注释后回到 1356，基线未动）。
+
+---
+
+## 竞品做法的因果链必须先拆开，否则会把「体验」当免费的抄过来（pattern）
+
+需求写「账号和云端同步 + 换设备免扫码」时，看起来是一个功能。对参考产品 4.13.19 的逆向取证（`D:\Data\逆向工程_参考产品4.0\packages\main\dist\index.cjs`）给出的是一条因果链，不是一堆可挑选的特性清单：它换设备免扫码（`:263` 按 `spaceId` 从对象存储拉 gzip 凭证）**之所以成立**，是因为它把完整 cookie 上云（`:118248` 无条件 POST `cookie: JSON.stringify(cookies)`）；它的客户端**没有去重、没有合并算法、没有墓碑**（全仓 `已存在|重复|tombstone|deleted_at` 命中 0，electron-store 只有 deviceId / reptileVersion / rpaVersion / rapData / isVertical 五个键，账号完全不落盘），**之所以不需要**，是因为它是「云端为真源 + 本地无状态执行器」的形态。
+
+推论：本项目要「本地真源 + 双向合并 + 免扫码」，就必须自己造它跳过的那一层（墓碑、LWW、冲突实测），不能因为竞品没做就判定不需要。反过来，若坚持「凭证不出本机」，免扫码在物理上不可能，此时唯一诚实的设计是恢复后要求重新登录。**把「不上云但免扫码」当成需求去做，等于要求一个不存在的机制。** 附带的反面教训：参考产品本地 socket 服务写了一套完整的 RS256 客户端令牌校验，却用常量 `enableClientTokenValidation = false`（`:126746`）整体关掉 —— 同机任意进程可下发 `open-auth-view` 取走凭证。做本机回环通道时不要抄这个。
+
+## 同一个判定逻辑抄成第二份，就是下一个振荡 bug（pitfall，本仓又一例）
+
+凭证摘要（判 unchanged / updated / conflict 用）需要「规范化 JSON → SHA-256」。桌面侧本来可以照着服务端再写一份 cookies 排序 + 丢弃 `expirationDate/lastAccessTime/session/hostOnly` 的实现 —— 没写。原因不是省事：本案与 #2433（登录态三态映射被抄成 `account-manager` / `ipc-handlers/account.js` / `login-status-monitor` 三份，导致已登录账号每 30 分钟在「已登录 ↔ 未确认」之间来回）**结构同构** —— 两份实现不会同时错，会各自漂移，而漂移在单测里互相印证为正确。同类先例还有 `isNoiseAccountName` 的 CJS/ESM 孪生（新增词表必须进 parity 断言）。
+
+落地口径：摘要只在服务端算一份，客户端只消费服务端回传的裁决结果（`created/updated/unchanged/conflict`）。将来若必须在客户端算，先把服务端实现抽进 `packages/shared-utils` 并补 parity 锁（正则按 `source`+`flags` 比较），不接受「两处保持一致」的口头约定。
+
+## 「有 Cookie」不等于「已登录」：Cookie 型身份必须先过会话门禁（pitfall）
+
+补八平台 `platform_uid` 时，快手是唯一走「从已保存凭证的 Cookie 取身份」的平台（`userId`，2026-09-25 CDP 实测登录成功后才写入）。这条通道真正的风险不是取不到值，而是**取到别人的或未登录的值**：未登录形态同样存在 `did/wid/_did/divid/kwssectoken` 这类埋点与设备标识，把它们当身份会让同机两个账号并成一条，或让未登录账号被当成已登录上行凭证。
+
+防线两条缺一不可：① 先过 `hasPlatformSessionCookie(platform, cookies)`（数据源 `PLATFORM_SESSION_COOKIE_MARKERS`）才允许产出 uid；② 标记表本身必须有**结构化正向契约**（形态正则 + 埋点名单一律不放行），不能只靠逐个列举坏值 —— AGENTS.md「枚举式黑名单必须配结构化正向契约」作用在身份字段上的后果比作用在文案判定上严重得多，因为错合并不表现为失败，而是静默改变数据归属。
+
+HTML 通道的对应风险是「页面里 `data-user-id` 不止一个」（评论区、协作成员、推荐作者卡片都带），取「第一个命中」等于把本机账号身份绑到一个随机访客上 —— 比取不到更糟。实现因此加了**唯一性守卫**：命中值不唯一即不产出（黑名单语义，不确定就不给结论）。
+
+## 反证要做在「锁本身」上，而不是「业务改动」上（pattern）
+
+本次四组反证里最能说明问题的是快手那组：把负例测试标题从「未登录（login page …）」改成「匿名 Cookie …」之后，**业务测试文件 27 例依旧全绿**，只有覆盖结构锁变红（`kuaishou 缺少负例 … expected 0 to be greater than or equal to 1`）。这同时证明了两件事：锁在真跑；而「删掉一个负例不会有任何人察觉」不是推测，是实测 —— 被删的那个负例对该测试文件自身的通过与否毫无贡献。
+
+口径：任何「防再犯锁」必须做一次**把锁本身改成 no-op 必须立刻变红**的变异；只证明「改业务会让它红」不能证明锁被执行过。
 ## 恢复类修复的"有效性"不在测试里，在被测系统语义里：假对象只记录调用，就会让空转的恢复逻辑全绿（e2e-reload-primitive，2026-09-27）
 
 - **「重载」写成"对同一个 URL 再导航一次"是空转，而且测试全绿（pitfall，本片根因，也是 #2455 的自伤）**：`page.goto(与当前完全相同的 URL)` 在 Chromium 里是**同文档导航** —— `window` 上的标记存活、**子资源 0 次重新请求**；只有 `page.reload()` 会重建文档并重取（实测 64 个模块）。后果：恢复路径每次都白烧满预算再抛同一个超时，等于没有恢复。**口径**：写任何 retry/reload/refetch 型恢复时，先单独问一句"这个动作到底重做了哪个副作用（重新发请求？重建 JS 世界？只是换个哈希？）"，并到目标运行时上**实测一次**，不要从 API 名字推断语义（`goto` 名字里就带"重新去"，这正是它骗人的地方）。
@@ -16055,6 +16096,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 ## CI 单测失败先做「改动范围归因 + 同内容多 run」双判再动手——scheduler-parity 时序 flake（api-publish-w3 PR #2413，2026-09-26）
 
+- **现象**：PR #2413（签名页基建）QG Unit Tests 的 Gate 4 失败，唯一红测是 `electron/tests/test_scheduler_parity.test.js`「concurrency-real 场景 total_duration_ms 对拍」——本 PR diff 完全没碰 scheduler/parity 任何文件。本地单跑该文件 2 测全绿（77s），据此判定为共享 runner 负载下的时序 flaky，`gh run rerun --failed` 后转绿。
+- **判定手法（pattern）**：CI 单测红的归因三步——① `git diff --stat origin/main...HEAD -- '*关键词*'` 确认失败文件是否在本 PR 改动面内；② 本地以同命令单跑该测试文件复现（绿 = 强烈 flaky 信号）；③ 查同内容/邻近内容历史 run 的 pass/fail 反复记录（沿用 learnings「E2E 抖动以同内容多 run + 失败点判断」纪律，扩大到 Gate 4）。三步都不指向本 PR 才 rerun，禁止无归因直接 rerun 掩盖真回归。
+- **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。
+- **拉 CI 日志的 Windows 绕行（pitfall）**：`gh api .../logs` 响应含终端转义序列会被 gh 新版安全策略拦截（"pass --allow-escape-sequences to output it anyway"）；PowerShell `>` 重定向会把 stdout 落为 UTF-16LE。可`gh api "repos/:owner/:repo/actions/jobs/<id>/logs" --allow-escape-sequences > file` 后按 UTF-16LE 探测读取；`--jq` 表达式含 `[]`/`|` 会被 PowerShell 撕碎参数，改 `--json X > file` + Node 脚本解析（按 BOM 判 utf16le/utf8）。
+- **预防（待排期，未在本 PR 做）**：parity 类「真实时钟对拍」测试天然在共享 runner 不稳定——后续应给 duration 比对加相对容差或在模拟器/ governor 双侧改虚拟时钟；登记前该文件失败按本条三步归因。
 
 ## 「没拿到新证据」被当成反证 + 同一映射抄三份，让状态每 30 分钟自我否定（evidence-direction-asymmetry，2026-09-26）
 
@@ -16074,11 +16120,6 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **「同一份规则该在哪一层被测」取决于规则的唯一实现在哪一层（pattern，测试迁移的理由）**：规则表原先测在 `account-manager` 的转发 shim 上，等于把「规则」和「某一次转发」绑在一起，还给第四份映射留了藏身之处。收口：表测在 `packages/shared-utils/src/__tests__/login-state.test.js`（真源层），`account-manager` 侧只留一条**结构锁**（`loginStatusFromCheckResult` 与 `loginStatusTransition` 均 `toBeUndefined()`），写者层的三条判据测在 IPC。转发 shim 与被替代的映射一并删除 —— 保留「向后兼容出口」就是把口径漂移留在手边。
 
 - **第二模型降级为自审时，必须显式登记「双模型」这一条不成立（pitfall，流程诚实）**：本轮 `codeagent-wrapper.exe` 缺失，第二个模型的输出实际由主代理完成，但结论有效（并抓到了第一个模型漏掉的真缺陷）。**口径**：登记 QM-6 时写清「有效发现数 N / 独立模型数 M」，不得用两次同源的自审冒充跨模型交叉审查。
-- **现象**：PR #2413（签名页基建）QG Unit Tests 的 Gate 4 失败，唯一红测是 `electron/tests/test_scheduler_parity.test.js`「concurrency-real 场景 total_duration_ms 对拍」——本 PR diff 完全没碰 scheduler/parity 任何文件。本地单跑该文件 2 测全绿（77s），据此判定为共享 runner 负载下的时序 flaky，`gh run rerun --failed` 后转绿。
-- **判定手法（pattern）**：CI 单测红的归因三步——① `git diff --stat origin/main...HEAD -- '*关键词*'` 确认失败文件是否在本 PR 改动面内；② 本地以同命令单跑该测试文件复现（绿 = 强烈 flaky 信号）；③ 查同内容/邻近内容历史 run 的 pass/fail 反复记录（沿用 learnings「E2E 抖动以同内容多 run + 失败点判断」纪律，扩大到 Gate 4）。三步都不指向本 PR 才 rerun，禁止无归因直接 rerun 掩盖真回归。
-- **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。
-- **拉 CI 日志的 Windows 绕行（pitfall）**：`gh api .../logs` 响应含终端转义序列会被 gh 新版安全策略拦截（"pass --allow-escape-sequences to output it anyway"）；PowerShell `>` 重定向会把 stdout 落为 UTF-16LE。可`gh api "repos/:owner/:repo/actions/jobs/<id>/logs" --allow-escape-sequences > file` 后按 UTF-16LE 探测读取；`--jq` 表达式含 `[]`/`|` 会被 PowerShell 撕碎参数，改 `--json X > file` + Node 脚本解析（按 BOM 判 utf16le/utf8）。
-- **预防（待排期，未在本 PR 做）**：parity 类「真实时钟对拍」测试天然在共享 runner 不稳定——后续应给 duration 比对加相对容差或在模拟器/ governor 双侧改虚拟时钟；登记前该文件失败按本条三步归因。
 
 ## 一个绝对容差不能服务跨量级用例：对拍类测试的容差必须由「预测值」按比例驱动（parity-tolerance-scale，2026-09-26）
 

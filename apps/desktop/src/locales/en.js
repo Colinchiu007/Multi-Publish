@@ -1,3 +1,5 @@
+import accountsCloudSyncEn from './accounts-cloud-sync/en'
+
 export default {
   signer: {
     pageNotReady: 'Signer service not ready. Please retry later or sign in to the account again.',
@@ -1417,6 +1419,7 @@ export default {
     persistFailedTitle: (ctx) => 'Failed to persist login status (' + ctx.named('count') + ' account(s))',
     batchCheckAllNoAccounts: 'No accounts to check',
     batchCheckAllFailed: 'Check-all failed, please retry later',
+    ...accountsCloudSyncEn,
     autoSaved: 'Login credentials saved automatically',
     autoSavedWithPlatform: (ctx) => ctx.named('platform') + ' login credentials saved automatically',
     saveAccountTabFailed: 'Failed to save account credentials, please retry',

@@ -1,3 +1,65 @@
+# [未发布] fix(cloud-account-sync): 按 QM-6 双模型评审补第二道 no-store 发送缝，并撤掉一处自我宽免（2026-09-27，cloud-sync-no-store 第三段）
+
+### 为什么这一段的起点是"我漏跑了一道门禁"
+- AGENTS.md QM-6 的触发条件写明「修改涉及安全 / 数据校验 / 状态机 / 持久化的逻辑」必须做双模型外部评审。本 PR 改的正是凭证明文的缓存策略，属安全类；我在自检记录里写「S 级单点响应头改动，不触发」是**自我宽免**。补跑后两模型独立指向同一处真实缺陷（见下），证明这条门禁不是仪式。
+
+### 评审揪出的真实缺陷（已修）
+- **W-2/C-1：no-store 原先只打在本面自己的三处出线点上。** 401（`_checkAuth` 失败）、403/503（`_ensureRequestIdentity` / `_assertEntitlementFeature` 抛出）、429（限流）都在**路由之前**短路，根本不经过本面 —— 于是同一条 URL 存在「有时可缓存」的窗口，而未鉴权应答被缓存后，后续带凭证的请求可能直接命中那条错误应答。修法：新增 `applyCloudAccountNoStore(res, url)`，在生产 `_handle` 里紧跟路径前缀守卫调用（早于限流与鉴权），路径集与入口守卫共用 `CLOUD_ACCOUNT_PATHS` 同一真源；越界与否由一条对照用例锁住（`/api/v1/notifications` 不得被波及）。
+- **W-1：`_json` 的追加头合并原本不加甄别**，调用方可覆盖 `Content-Length` / `Content-Encoding` / `Transfer-Encoding`，造出「头写着 gzip、体是明文」这类只能在真实链路里发现的损坏。修法：合并策略收进本面模块的 `mergeFaceHeaders`（策略归所有者），传输语义三键一律拒绝；`NO_STORE` 同时 `Object.freeze`（跨路由共享对象，防有人就地改它）。
+- **C-2：线级枚举漏了 `PUT`**（上行写面）→ 已并入逐条枚举；另加「追加头集合快照」用例，断言云账号面不得夹带 `etag` / `last-modified` / `expires` / `pragma` / `set-cookie` 任何一条可缓存或条件请求头。
+- **W-3（503 应改 401）不采纳**，理由写进评审处置：`req.auth.businessUser` 由 `_ensureRequestIdentity` 依业务身份仓储解析，取不到通常是**仓储未配置**或调用方根本不是 Logto 会话（API Key 面），503 如实反映服务端依赖；且改状态码会连带改变桌面侧「云端不可用」的降级分支，不属本次 scope。
+- **W-4（abort 通道到底有没有 sender 校验）经核实不成立**：`ipc-handlers/cloud-account.js` 的 abort 注册行本就包在 `withSenderCheck(...)` 里，且把该通道字面量改名会有 3 条用例变红（已实测）。
+
+### 本段最值钱的一条：线级断言会被更上游的守卫"掩盖"，从而对下层接线完全免疫
+- 补了守卫之后重跑四条变异，结果与直觉相反：**摘掉 `mergeFaceHeaders` 的合并、或摘掉两处 503 的 `NO_STORE` 实参，11 条线级用例照样全绿** —— 因为 B 缝已经在 `res` 上设过同名头。更糟的是「鉴权之前」那条用例当时也是绿的，因为**测试夹具自己调了一遍守卫**，等于在证明自己的接线。
+- 修法不是删线级断言（它仍然证明真实出站头正确），而是补一把**生产接线结构锁**：直接在 `publish-api-server.js` 源码里定位守卫调用与鉴权/路由锚点的**先后次序**，在本面模块源码里数 `, NO_STORE)` 恰好三处并逐处匹配正则，且禁止 `_json` 退回裸 `Object.assign`。四条变异重跑后各自都被抓到：merge→1 红、early503→2 红、guard→2 红、filter→3 红，还原后 15/15 绿。
+
+### 影响与边界
+- 全仓其它 API 面零影响：`applyCloudAccountNoStore` 只认 `CLOUD_ACCOUNT_PATHS`；`mergeFaceHeaders` 只在传了 `extraHeaders` 时生效；未传第 4 参的既有调用方行为不变。
+- `publish-api-server.js` 曾因此次改动越过 `check-max-lines` 的 200 行膨胀容差（登记值 1156，容差在先前会话已被别人的漂移吃满）。**没有改基线**：把注释压到必要长度、并把白名单策略搬进本面模块，使该文件回到 1356 行、重新落在容差内，`check-max-lines.js` 由 ❌ LEDGER_GREW 转 ✅。
+- 仍未做：生产网关侧真实缓存行为现场验证（只保证应用侧出站头正确）；真库 job 由 CI 覆盖；真机 Electron 内的 IPC 往返。
+
+### 测试
+- `node --test test/cloud-accounts-no-store.test.js` → **15 passed / 0 failed**；`node scripts/run-tests.js`（api-publish-engine）rc=0、新文件被 runner 收录。
+- 变异反证四条，逐一实跑并 `git checkout HEAD -- <单文件>` 还原（结果见上）。
+
+# [未发布] test(账号云镜像): 给云账号 IPC 边界补第一把直接锁（2026-09-27，cloud-sync-no-store 第二段）
+
+### 变更
+- **新增 `apps/desktop/electron/ipc-handlers/cloud-account.test.js`**（20 例）：`ownerSubject()` 五种「取不到身份」形态（未注入 / getState 抛错 / 无 user / 空白 sub / 非字符串 sub）逐条断言 `digest`·`sync`·`disconnect` 都回 `{code:-3, message:'无法识别当前用户', data:null}` **且服务层三个方法零调用**——「没往外发」这件事此前无人验证；四条通道全部拒绝外部网页 sender；服务抛错（含抛非 Error 值）不得逃逸到渲染进程；`disconnect` 的 `confirm` 缺省/非字符串一律归约为空串（IPC 层不替用户臆造确认值）；`apiClient` 只在 `memberApiService` 存在时接线否则保持 `null`；`userData` 路径取不到时退化为空串并留 warn；广播按字面量通道发出、窗口缺失或已销毁时静默失败绝不阻断同步。
+- **「四条通道精确集合」结构锁**：`ipcMain.handle` 的调用集合排序后必须**恰好等于** `digest / sync / disconnect / sync-abort`——新增通道若漏挂 `withSenderCheck`，会先在「拒绝外部网页调用」那组用例里红，而不是静默少一层防护。
+- 无生产代码改动：本轮只补测试与文档（`OPS` §5 对应待办随之收口）。
+
+### 影响
+- 关掉 #2461 登记的「`ipc-handlers/cloud-account.js` 无直接单测」缺口。该层的价值不在重复服务层语义，而在**它才是 fail-closed 的落点**：身份解析发生在 IPC 层，服务层测试永远证不了「身份没解析出来时不发请求」。
+- 测试口径顺带纠一处易错点：`vi.mock` 对主进程的 CJS `require` **不生效**（`test-setup.js` 明写），必须用 `__registerMock`；用 `vi.mock` 时夹具会静默失效、测试转而打到真服务上——本轮首次运行就是这样「20 例里 9 例红」才暴露出来的。
+
+### 测试
+- `pnpm exec vitest run electron/ipc-handlers/cloud-account.test.js` → **20 passed / 0 failed**。
+- 夹具不外溢（`__registerMock` 拦的是全局 `Module._load`）：`pnpm exec vitest run electron/ipc-handlers` → **50 files / 755 tests 全绿**；本文件与走真模块的 `services/cloud-account-sync.test.js` 一起跑 → 54/54 绿。
+- **反证三条（各自独立、互不重叠）**：A 把「身份取不到即 fail closed」的判定改成不可达 → `6 failed / 14 passed`；B 反转 `abort` 的返回语义（`aborted: !stopped`）→ `1 failed / 19 passed`；C 把 `accounts:cloud-sync-abort` 通道字面量改名 → `3 failed / 17 passed`。三次变异后均以 `git checkout HEAD -- <单文件>` 还原并复跑 20/20，源文件 `git status` 归零。
+- 门禁：`eslint electron/ipc-handlers/cloud-account.test.js --quiet` rc=0；`check-ipc-bridge.js`（402 handlers / 419 preload / 已知缺口 0）、`check-ipc-sender-guard.js` PASS；`check-debt-budget.js`、`check-no-brand-residue.js`、`check-test-microtask-spin.js` PASS。
+- **未做**：QM-1 整包重打（本轮无生产代码改动，`electron/` 下仅新增 `*.test.js`，且不进 `asar` 的 require 链）；渲染层与真机登录态回归与本项无关。
+
+# [未发布] fix(cloud-account-sync): 账号云镜像面全量补 `Cache-Control: no-store`（2026-09-27，cloud-sync-no-store）
+
+### 变更
+- **`packages/api-publish-engine/src/auth/publish-api-cloud-accounts.js`**：新增模块级常量 `NO_STORE`，并把它接到本面**全部三处出线点**——未接仓储的 503、未解析出业务身份的 503、以及交给 handlers 的 `json` 回调（digest / full / sync / tombstones / disconnect 与面内 405 都经它）。刻意不做「按路由逐条加头」：新增路由只要经由本方法出线就自动被覆盖，漏写的唯一途径是去删这个常量，而那会被下面的出站头锁当场抓到。
+- **`packages/api-publish-engine/src/publish-api-server.js`**：`_json(res, status, data, extraHeaders)` 增第 4 个**可选**参数，在 `Content-Length` 计算之前 `Object.assign` 合并，因此追加头既不影响体长度也不影响 gzip 分支；其余全部 API 面因不传该参数而行为完全不变（`_json` 是全仓共用出口，绝不允许在此处一把给所有接口加 no-store）。
+- **新增 `test/cloud-accounts-no-store.test.js`**：真 `http.createServer` + 真 `_json` + 真 `_parseBody` 的**线级**锁，逐条断言实抓到的 `cache-control` 恰为 `no-store`，并断言 `content-type` 未被合并动作覆盖。
+
+### 影响
+- 关掉 PRD §7.0 与运维文档 §4/§5 登记的残余缺口：`POST /api/v1/me/accounts/sync` 回传的是**服务端解密后的明文凭证**（下行不带信封，依据 ADR-0003「换设备免扫码 ⇒ 服务端必须能重新解出凭证」）。明文钥匙若落进中间代理 / CDN / 共享机器的 HTTP 缓存，「库被拖走不是明文」这条防线就在传输层被重新打开。
+- 运维口径变化：本特性现在可以部署在会缓存响应的网关后面（此前运维文档明写「在补上之前不得部署到任何会缓存响应的网关后面」）。Nginx 侧仍需保留对 `/api/v1/` 的默认不缓存，但不再是对冲该缺口的唯一屏障。
+- 未做的事（避免夸大）：本项不改变任何业务响应体、状态码或语义码；`GET /api/v1/health`、会员面、Logto 面一律不受影响。
+
+### 测试
+- `node --test test/cloud-accounts-no-store.test.js` → 5 tests / 0 fail（含 6 条出站路径逐一枚举 + 两处 503 提前出口 + KMS 故障逐条降级）。
+- **反证一（锁本身）**：把 `_json` 里的 `if (extraHeaders) Object.assign(...)` 改成不可达，`GET digest` 立刻报 `必须 no-store，实得 undefined`；恢复后 5/5 绿、源文件字节一致。
+- **反证二（区分发送点）**：只摘掉两处 503 的 `NO_STORE` 实参 → 失败集合恰为「503 提前出口」这一条子测试（2 fail / 3 pass），证明它不是靠成功路径顺带通过的；恢复后 5/5 绿。
+- **反空转**：同一夹具断言 `POST /sync` 出站体里 `data.credentials[0].credential` **确实等于**上传的明文（前提成立，防线不是空的），并断言 digest 的 `data` 形状逐字段 `deepEqual`（证明请求真跑到了处理器而非被 404/405 短路）。
+- 全量回归：`node scripts/run-tests.js`（api-publish-engine）→ rc=0，本文件被 runner 收录并「开始/通过」各出现一次；`node scripts/check-debt-budget.js`、`.github/scripts/check-max-lines.js`、`check-hardcoded-secrets.js`、`scripts/check-no-brand-residue.js`、`.github/scripts/check-test-microtask-spin.js` 全 PASS。
+
 # [未发布] fix(ci): gate-result 由「只 echo 不判定」改为真实聚合上游结论（2026-09-26，fix-ci-gate-result-aggregation）
 
 ### 变更
@@ -14,6 +76,39 @@
 - **反证**：① 旧版步骤无 `exit` 语句，喂入 `visual=failure` 后打印 `visual gate : failure` 却**退出 0**；② 新契约用例跑在 `git show HEAD:` 的修复前 workflow 上，精确失败于「必须计算阻断项集合」。
 - `node --test .github/scripts/workflow-contract.test.js` → 23 tests / 0 fail。
 - 局限：本地以 Windows PowerShell 5.1 验证，CI 用 pwsh 7；所用构造（`[ordered]@{}`、`-notcontains`、`Where-Object`）两版通用。
+
+# [未发布] feat(cloud-account-sync): 账号管理页【同步云端】—— 账号与凭证加密镜像到业务 API，支持跨设备免扫码恢复（2026-09-27，cloud-account-sync）
+
+### 为什么这次不是"接一个现成接口"
+动手前全仓取证：`ops-center/backend/models.py` 的 `account` 命中数为 **0**、`accounts.json` 的内容从未出过本机（`server.py:484` 收到 cookies 直接 400 `ACCOUNT_METADATA_ONLY`）、`openspec/specs/story2video-pipeline-config-profiles/spec.md:129` 与 `01-docs/ARCH-REFACTOR-ROADMAP-2026-08-31.md:871` 都把"账号同步/云同步"写成**显式排除项**。所以这是一个从零建的后端面，不是接已有能力；按 M+ 复杂度走 openspec change + worktree 隔离 + 全链路门禁。
+
+### 关键设计（12 项决策的收口，理由见 `docs/adr/0001`–`0006`、`CONTEXT.md`）
+- **落点选业务 API 而不是运营中心**：账号是"归属于某个登录身份"的用户私有数据，业务 API 已有 Postgres + Logto 身份 + `Bearer`+`X-Device-Id` 客户端封装；运营中心是配置下发与脱敏聚合域，鉴权是静态 `X-Catalog-Key`，把账号放进去归属维度天然缺失。
+- **合并键 = `(platform, platform_uid)`**，显示名/昵称/页面标题**永不**参与。竞品取证印证：参考产品 `index.cjs:87265` 把 `id/platformUserId/platformUserName` 分三列，上云送的 `userId` 就是平台原生 uid（视频号 `finderUser.uniqId`、快手 `data.userId`、微博 `user.id`）。本仓原先只有 4/8 平台能取到 uid，本机真源 `platform_account_id` 填充率实测 **3/8**（知乎的 name 甚至是"首页 - 知乎"这类页面标题），因此把 uid 覆盖补齐定为本功能上线的前置条件，而不是留一个"靠昵称猜"的降级路径——猜错会把两台设备的不同账号并成一条，撤销要改云端数据。
+- **凭证上云换取免扫码，但用信封加密落库**：随机数据密钥 AES-256-GCM，AAD 绑定 `(user_id, platform, platform_uid)`，数据密钥再由按用户隔离的主密钥经服务端 KMS 抽象层包裹；KMS 缺失 fail-closed 为 `KMS_UNAVAILABLE`，禁止降级明文。取竞品的能力，不取它"明文托管 + 本地 socket JWT 校验写了 RS256 却用常量关掉"的形态。
+- **凭证摘要只在服务端算一份**：桌面侧曾考虑也实现一份规范化摘要，被否决——本仓已有"同一个三态映射抄成三份，导致已登录账号每 30 分钟来回振荡"的事故（#2433），摘要口径同理，两份实现必然漂移，漂移的表现是 `unchanged` 被误判成冲突、每次同步重写一遍凭证。
+
+### 与既有硬契约的冲突点（这是本次最需要谨慎的地方）
+- **登录态不跨设备传播**：恢复到本机的账号一律 `status='unverified'`、`last_validated` 取本机时刻且不参与 7 天超龄兜底，随后自动排队一次本机检测。若让云端结论直接写真源，等于"没有本机证据却声称已登录"，旧设备时间戳还会让新设备立刻判失效——正是 #2433 刚关上的那扇门。
+- **云端墓碑只阻止复活，不反向删除本机账号与凭证**：本机凭证删除不可恢复，合并键判错时反向删除等于跨设备抹号。
+- **`ACCOUNT_METADATA_ONLY` 保持不变**：那条 400 管的是本地真源不收凭证，与云端镜像是两条独立通道，不是本特性的门禁。
+
+### 变更
+- **云端**：`migrations/postgresql/005_cloud_accounts.sql`（`cloud_accounts` + `cloud_account_tombstones`，唯一键 `(user_id, platform, platform_uid)`）；`src/cloud-accounts/{credential-digest,envelope-crypto,validate-account,cloud-account-repository,handlers,index}.js`；`src/auth/publish-api-cloud-accounts.js` 接线 + `publish-api-server.js` 路由派发（在鉴权之后，归属只取服务端解析出的 `businessUser.id`）。断开云端统一为 `POST /api/v1/me/accounts/disconnect` + body `{confirm:'cloud'}`，**不留 DELETE 别名**。
+- **主进程**：`services/cloud-account-sync.js`（合并计划、逐条 start/done 双边界、并发 3 / 单账号 20s / 总预算 180s 均可用环境变量覆盖、迟到 reject 不冒 unhandledRejection）；`ipc-handlers/cloud-account.js` 四通道全部 `withSenderCheck`；`preload/account.js` 暴露 5 个方法并重建两份 bundle；`member-api-service.js` 白名单从"只放路径"收紧为"路径 + 方法"双维。
+- **渲染层**：`Accounts.vue` 命令栏【同步云端】按钮 + `AccountCloudSyncDialog.vue`（摘要确认态 → 过程态同弹窗切换、逐条结果、进度条复用一键检测口径）+ 【停止同步】中止阀 + 断开云端退路；入口由运营中心 feature flag `account_cloud_sync` 控制，默认关闭；`useFeatureFlag.js` 复用 `opsCenterSyncRuntime` 既有链路，读不到一律 fail-closed。
+- **uid 补齐**：`http-login-checker.js` 新增 `uidSource: json|html|cookie` 三通道与 `normalizeUid` 形态白名单（正则 + 占位值黑名单，不用枚举坏值打地鼠）；HTML 通道带**唯一性守卫**（评论区/协作成员也带 `data-user-id`，取"第一个命中"会把本机身份绑到随机访客上，比取不到更糟）；快手不注册端点、只从已过 `hasPlatformSessionCookie` 门禁的 `userId` Cookie 派生，登录检测行为零漂移（`hasLoginCheck()` 钉住）。
+
+### 验证与如实登记的未执行项
+- 已实测：主进程 `cloud-account-sync.test.js` 20/20（含**反证**——把"恢复即 unverified"改成冒充 active，3 条立刻红）；uid 覆盖结构锁 25/25 + info 27/27（反证：改名/删负例都能变红，删负例时**业务测试仍全绿、只有锁红**，正是补住了"删一个负例无人察觉"）；渲染层 157/157、全量 `src` 3634 passed 无回归；服务端存储层 104/104（4 次反证）；`workflow-contract` 22/22；locale 成对与 CJK 基线门禁 PASS。
+- **未执行（不得当作已完成）**：八平台真凭据线级取证（tasks 3.6）—— 小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否严格等于平台原生主键，仓库内**无实测证据**，可靠性等级已在代码注释标注，未命中即走 `uid-unavailable` 整体跳过上行，不会退化成猜值；生产 ECS 发布与真实 `multi_publish_api` 角色的迁移 runner；云 KMS 生产实现与密钥轮转；双设备端到端；`production-smoke.js`。生产部署与灰度开关打开顺序见 PRD §十五。
+- **新增 CI job**：`quality-gate` 的 `business-api-postgres`（ubuntu + `postgres:16-alpine` service，Windows runner 不支持 `services:`）。真库回归覆盖 fake client 结构上免疫的失败：DDL 语法、唯一约束与 `ON CONFLICT` 目标列不匹配（真库直接 42P10）、BYTEA↔Buffer、TIMESTAMPTZ↔Date、`ON DELETE CASCADE` 级联、按用户行级隔离、库内取证不含 cookie 明文。无 `BUSINESS_DATABASE_URL` 时该文件整体 SKIP——**跳过不等于通过**，已纳入 `gate-result` 汇总（注意 `gate-result` 目前只打印不传播失败，属既有缺口，另有分支在处理）。
+
+### 合规
+用户全部平台登录钥匙首次离开本机。首次同步弹窗内的隐私提示行即为同意点，`credential_updated_at` + 「断开云端」构成可撤回路径；隐私声明需新增"平台登录凭证加密托管"条目（AGENTS.md 凭证边界条款已同步修订）。
+
+
+
 # [未发布] fix(e2e): #2455 的恢复动作选错原语——「对同一 URL 再 goto」是 same-document 导航，救不回失败的 chunk（缺陷 K，2026-09-27，fix-e2e-reload-primitive）
 
 ### 这片修的是"上一个修复自己无效"
@@ -13698,4 +13793,3 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
-

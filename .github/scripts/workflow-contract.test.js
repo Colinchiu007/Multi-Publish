@@ -319,7 +319,7 @@ test('gate-result 必须真正聚合上游结论（不得退回只 echo 不判�
   assert.equal(job.if, 'always()', 'gate-result 必须带 if: always()');
   assert.deepEqual(
     job.needs,
-    ['static-gates', 'unit-tests', 'desktop-shards', 'coverage', 'visual', 'e2e', 'autonomous'],
+    ['static-gates', 'unit-tests', 'desktop-shards', 'coverage', 'business-api-postgres', 'visual', 'e2e', 'autonomous'],
     'gate-result 必须聚合全部上游 job',
   );
   const step = job.steps.find(s => s.name === 'Gate result');
@@ -330,6 +330,8 @@ test('gate-result 必须真正聚合上游结论（不得退回只 echo 不判�
   // 这两条锁住"静默丢弃"复发：visual / e2e 的结论必须进入聚合
   assert.match(step.run, /needs\.visual\.result/, 'visual 结论必须参与聚合');
   assert.match(step.run, /needs\.e2e\.result/, 'browser E2E 结论必须参与聚合');
+  // 真库 job 同族：它红了必须有人拦，否则「005 迁移 + 真 SQL 回归」只是一条没人看的绿线
+  assert.match(step.run, /needs\.business-api-postgres\.result/, 'business-api-postgres 结论必须参与聚合');
 });
 
 test('shared-utils 测试超时预算（冷启动 flaky 回归保护）', () => {

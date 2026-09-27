@@ -18,6 +18,7 @@ const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/lo
 const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
+const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -213,7 +214,7 @@ class PublishApiServer {
     });
   }
 
-  _json(res, status, data) {
+  _json(res, status, data, extraHeaders) {
     var body = Buffer.from(JSON.stringify(data));
     if (res.req && (status >= 400 || (data && data.success === false))) {
       res.req._errorCode = errorCodeOf(data);
@@ -224,6 +225,8 @@ class PublishApiServer {
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID",
       "Vary": "Accept-Encoding",
     };
+    // 追加响应头（如账号云镜像面的 no-store），传输语义三键由 mergeFaceHeaders 挡掉。
+    if (extraHeaders) mergeFaceHeaders(headers, extraHeaders);
     if (res.req && res.req.requestId) headers["X-Request-Id"] = res.req.requestId;
     var request = res.req;
     var acceptEncoding = request && request.headers ? request.headers["accept-encoding"] : null;
@@ -625,6 +628,9 @@ class PublishApiServer {
       return;
     }
 
+    // 云账号面下行是明文凭证：no-store 必须打在路由/鉴权之前，否则 401/403/429 这些不经本面出线点的短路应答可被缓存（评审 W-2/C-1）。
+    applyCloudAccountNoStore(res, url);
+
     // Rate limiting
     if (this._rateLimiter && !this._rateLimiter.check(req.socket.remoteAddress || req.headers["x-forwarded-for"] || "unknown")) {
       this._json(res, 429, { error: "Too Many Requests", message: "Rate limit exceeded. Try again later." });
@@ -863,6 +869,13 @@ class PublishApiServer {
           this._json(res, 405, { error: "METHOD_NOT_ALLOWED" });
           return;
         } catch (error) { this._commerceFailure(req, res, error); return; }
+      }
+
+      if (this._isCloudAccountsUrl(url)) {
+        // 账号云镜像面：必须排在鉴权之后（req.auth.businessUser 由 _ensureRequestIdentity 填充），
+        // 且归属只取服务端解析出的 userId，绝不读请求体里的 user/subject。
+        await this._handleCloudAccounts(req, res, method, url);
+        return;
       }
 
       if (url.indexOf("/api/v1/admin/member/") === 0) {
@@ -1327,6 +1340,7 @@ p{color:#6e6e73}
 }
 
 applyCommerceHelpers(PublishApiServer);
+applyCloudAccountHelpers(PublishApiServer);
 
 PublishApiServer.registerShutdownSignals = function(server) {
   var sig = function() { server.stop(); };
