@@ -14,6 +14,83 @@
 - 同 PR 自跑：`check-unwired-tests.js`（42 个测试文件 OK）、`check-step-failfast.js`（4 个多测试步骤 OK）、`--test` 三件 8 + 6 + 23 passed。
 - QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
 
+# [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
+
+### 做了什么
+- PR #2501 已合并（`56ac1c40`）。回填基线后的复跑 run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`）：`QG Visual` **19 条全 `PASSED`、通过率 100.0%**，
+  其中 `accounts-list-flag-on` 在产物 `reports/report-*.json` 里为 `status:"PASSED", misMatchPercentage: 0`
+  ⇒ PRD §17.4 步骤 3「必须报该视图 0 px 差异」**达成**，该视图自此成为硬门禁的一部分。
+- **纠正一处取证口径（写进 PRD §17.4）**：`run-pixel-tests.js` 的 stdout 只打 `PASSED` / `FAILED`，
+  **不打印差异率**（实测该 job 日志里 `misMatch` / `差异率` 命中 0 次）。因此"日志说 PASSED"只等价于
+  "差异低于 `PIXEL_THRESHOLD=0.06`"，**不等价于 0 px**。上一轮我在文档里写"0 px 由下一轮 CI 证明"时，
+  默认了"下一轮日志会给出这个数字"——它不会；真要去证，只能下载产物读 report JSON。本轮就是这么做的。
+- openspec 归档 `add-cloud-account-sync` 的 tasks：§6 那条"基线仍需重新采集"的过期勾选纠为已完成并附证据，
+  「未执行清单 / 残留」两张表的同名行同步收口（历史登记文字按既有约定保留不删）。
+
+# [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
+- 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
+  原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
+  （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
+### 做了什么
+- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
+  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
+  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
+  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
+  它只改界面开关键，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
+- **归属澄清（不得把自审项记成评审发现）**：协议门、白名单、非法值 warn、用例改名这四项是评审之后
+  **自审补严/自审判断**；外部评审实际提出的是 hash 路由丢参（C1，完全成立）、`options.dev` 可短路 DEV 判断（W2）、
+  非开发态用例显式传参等于没锁默认路径（W5）、四种解析语义未钉住（I4），以及 W3（开发态 UI 与运营授权可能
+  不一致）—— W3 经评估不在本 PR 修，理由与前置条件写在 PRD §17.2。前端模型那一路未产出任何结论。
+- **warn 文案改 ASCII**：`QG Static` 的渲染端硬编码中文基线扫描实测拦在 `useFeatureFlag.js:64`（新增的中文
+  `console.warn`）。这条 warn 是给开发者看控制台的、不是 UI 文案，所以改英文而不是塞进 locale —— 本地
+  `node .github/scripts/check-locale-sync.js --cjk` 由 FAIL 转 `PASS（无新增硬编码）`。
+- **真正根因（以及一次错误结论的撤回）**：`QG Visual` 连续三轮红在"等按钮超时"。我一度判定为
+  "CI 的 vite 进程带 `NODE_ENV=production` ⇒ `import.meta.env.DEV=false`"，理由是本地用该环境变量起
+  vite dev 能复现同一症状。**这个判定是错的** —— 在 Gate 7 里打印进程侧取值后实测
+  `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、页面侧 `channelState=enabled=true`（DEV 并未被压掉）。
+- **实际根因是 harness 的组件复用盲区**：本仓 hash 路由下 `#/accounts` → `#/accounts?mpFlag=…` 属于
+  "同一路由只改 query"，vue-router **复用组件实例** ⇒ `onMounted` 不重跑 ⇒ `refreshCloudSyncFlag()`
+  根本没被再调用。本地用 `PIXEL_ONLY` 控制顺序即可决定性复现：单独跑通过（只红在缺基线），
+  紧跟在 `accounts-list` 之后跑则逐字复现 CI 的超时 —— 差别只有顺序，不是环境。
+- 修法：`test-runner.js` 新增 `_isSameRouteQueryOnlyNav()`，命中时在 `goto` 后强制 `page.reload()`，
+  让每条用例拍到的都是"该路由首次加载"。判定刻意做窄（换路由不重载），以免改写既有 18 条基线的
+  拍摄条件。回归锁 2 条（该重载 / 不该重载各一条，`test-runner.test.js` 18 → 20 例）+ 反证（把 `if (reusedComponent)` 改成恒 false ⇒ 前者红）。
+- `VITE_MP_DEV_FLAG_OVERRIDE` 这层构建期开关**保留**，但定位改回它实际的价值：显式 opt-in、不依赖
+  环境巧合（正式包既非 DEV 也不注入该变量 ⇒ 分支被静态折叠）；它不是本次失败的修法。同时纠正一处
+  过度声称：诊断里的 `channelState` 调的是纯函数，只证明"解析与开关判定正确"，不证明"组件真的重新读过参数"。
+- `useFeatureFlag.test.js` 补 11 条（该文件用例数 6 → 17）：解析边界（含 `=yes`/空值/无 `=`/白名单外一律不覆盖，
+  并按后端模型 I4 补锁 encoded `=`、key 大小写、非法项在后不清掉前一合法值、值内再带 `=` 这四种确定语义；
+  覆盖命中不发请求、`0` 强制关闭、非开发态完全无视该通道、`file:` 协议不生效、非法值必须 warn、
+  无覆盖参数时保持 fail-closed；另有 `VITE_MP_DEV_FLAG_OVERRIDE` 开关两侧各一条）。
+- 新增视图用例 `accounts-list-flag-on`，**两处清单都登记**：`views/all-views.visual.test.js` 的 `viewTests`
+  （`--single` / 全量路径）与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 实际执行的是这一份**）。
+  首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
+  而我的用例名出现 0 次。等待选择器直接指向 `[data-testid="account-cloud-sync"]`
+  ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
+- **基线入库踩到一个静默陷阱**：根 `.gitignore` 有 `*.png`，而 `base-screenshots/.gitignore` 的白名单是
+  **逐个点名**的 `!<file>.png`。新基线 `accounts-list-flag-on.png` 落盘后 `git status` 不显示、`git add`
+  静默不收（`git check-ignore -v` 指到 `*.png`）—— 表现不是报错而是"基线永远缺"。已登记该文件，并加锁
+  `visual-ci.test.js`「pixelTests 每条用例的基线都必须被白名单放行」（20 → 21 例，反证：摘掉白名单行即红）。
+  锁当场查出既有缺口：`publish-history.png` 被跟踪却从未登记在白名单里，已补。
+- 同一条错误归因当时还写在**三处非文档位置**：`useFeatureFlag.js` 里 `devFlagChannelEnabled` 的头注释、
+  用例名「显式构建期开关打开时…（CI 的 vite 带 NODE_ENV=production）」、以及 `quality-gate.yml` Gate 7 的
+  `env:` 注释。三处一并改为撤回式表述（写明被证伪的取值与真正根因）—— 只改文档不改代码注释，
+  下一个人读源码时仍会把这个结论捡回来。
+### 结论 / 待办
+- **CI 首轮红的连带项（不得只盯着预期的那条）**：同一个 run 里 `QG Unit Tests` / `QG Desktop Shards 1+2` /
+  `QG Coverage` 也红，共同原因是 `condition-waiting.test.js` 的**视觉用例总数锁**（104）——本 PR 新增一条视图
+  用例使总数变 105。属 AGENTS.md「门禁断言随实现迁移同步」的漏更，已同步标题与断言（本地复现
+  `expected 105 to be 104` 后才改，改后 23 例全绿）。同轮 `rate-limit-self-check.test.js` 那条红**未认领**：
+  本 PR 未触碰 `electron/services/`，该用例按真实 `setTimeout` 计并发，本机连跑 6/6 绿，登记为 CI 满载抖动待查。
+- 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图）。
+  实测 run 36330609534 正是如此：**18 条既有视图全 PASSED、唯一红就是本用例缺基线**，随后从该 run 的
+  `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png`（1920×1080，人工核对图内确有「同步云端」按钮）。
+  **本 PR 合入前的最后一道**：复跑 CI，`QG Visual` 必须报该视图 **0 px** 差异（自证基线与比对环境同源）。
+  随后从 `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png` 并复跑要求 0 px。
+- 顺手记下（只记实测过的部分）：USAGE §5 写"44 视图"，而 `all-views.visual.test.js` 的 `routeView(` 注册实为 35 条
+  （本 PR 后 36），另有 `supplementary-views.visual.test.js` 以对象数组注册 20 条；AGENTS.md 同一段又写"43 用例：23 核心 + 20
+  补充" —— 三个数互不相同，属既有文档漂移。工作流侧条数本次未精确核对（`name:` 命中含步骤名），不给总数，只给真实增量。
+
 # [未发布] test(ci): session-write-guard 夹具改成与真实工作树同形，收掉「runner 红、本机绿」那条欠账（2026-09-27，write-guard-eol）
 
 ### 变更
@@ -31,6 +108,7 @@
 - 同 PR 自跑：`node scripts/check-unwired-tests.js`（42 个测试文件，OK）、`node scripts/check-step-failfast.js`（4 个多测试步骤，OK）、`node --test scripts/check-unwired-tests.test.js scripts/check-step-failfast.test.js .github/scripts/workflow-contract.test.js`（8+6+23 passed）、`scripts/verify-worktree-deps.js` OK。
 - AGENTS.md：更正「绿灯与否只有 runner 本身算数」的适用边界（**可配置维度**必须先用 `GIT_CONFIG_GLOBAL` 之类手段在本机复现，不得记成欠账），新增 MUST「断言 `git status` 干净度的测试夹具，必须自己声明 EOL 档并把索引交给 checkout」。
 - QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不冒充通过）。
+
 
 # [未发布] refactor(accounts): 会话凭证恢复侧从 account-manager.js 拆出（2026-09-27，split-account-manager-session-restore）
 
