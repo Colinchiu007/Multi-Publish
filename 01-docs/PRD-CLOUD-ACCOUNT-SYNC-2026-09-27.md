@@ -839,7 +839,11 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
    `visual-ci.test.js`「pixelTests 每条用例的基线都必须被白名单放行」钉住（漏登记即红）。
    （第 1-2 步已实测完成：run 36330609534 的 `QG Visual` 里 18 条既有视图全部 `PASSED`，
    唯一失败正是本用例的 `缺少人工审核的视觉基线`；基线即取自该 run 的产物。）
-3. 复跑 CI：`QG Visual` 必须报该视图 **0 px** 差异（自证"基线与比对环境同源"），此后它成为硬门禁的一部分。
+3. 复跑 CI：`QG Visual` 必须报该视图 **0 px** 差异（自证"基线与比对环境同源"），此后它成为硬门禁的一部分。（**已实测达成**：run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`） 的产物 `reports/report-*.json` 里该用例为 `status:"PASSED", misMatchPercentage: 0`，`QG Visual` 19 条全绿、通过率 100.0%。）
+   ⚠️ **0 px 这件事只能从产物 JSON 读，不能从日志读**：`run-pixel-tests.js` 的 stdout 只打
+   `名称 (路由)...` + `PASSED` / `FAILED`，**不打差异率**（实测日志里 `misMatch` / `差异率` 命中 0 次）。
+   所以"日志说 PASSED"只等于"差异低于 `PIXEL_THRESHOLD=0.06`"，**不等于 0 px**；要自证基线与
+   比对环境同源，必须去 `quality-gate-visual-reports` 产物里取 `reports/report-*.json` 看数字。
 
 4. 回填前后可以在 `apps/desktop/` 下单独复跑这一条看渲染结果（`--single` 是已记录的用法）：
    `node tests/visual-testing/views/all-views.visual.test.js --single accounts-list-flag-on`。
@@ -857,7 +861,7 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
 > 这条流程本身也是防"用本机基线蒙混过关"的锁：缺基线时门禁是红的，不能靠 skip 变绿
 > （`test-runner.js` 在未设 `UPDATE_BASELINE=1` 时对缺基线直接 FAILED）。
 
-### 17.5 这条通道跑通过程中真实发生的四轮（含一次错误结论的撤回）
+### 17.5 这条通道跑通过程中真实发生的五轮（含一次错误结论的撤回）
 
 | 轮次 | 现象 | 当时判为 | 实际 |
 | --- | --- | --- | --- |
@@ -865,6 +869,7 @@ profile 是**复制件**（原实例正在运行且锁着 Chromium session 目�
 | 2 | 红在"等业务选择器超时" | 环境差异，本地无法归因 | 原判"CI 的 vite 带 `NODE_ENV=production` ⇒ `DEV=false`"（**已被第 4 轮证伪**）|
 | 3 | 同上（两处清单都登记后） | 需要取证 | 给就绪诊断补 `accountsPagePresent` / `commandBarTestids` / `flagParamInUrl` / `entryScripts` / `channelState` |
 | 4 | 同上，但探针给出 `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、`channelState=enabled=true` | —— | **第 2 轮的判定被证伪。** 真正根因：本仓是 hash 路由，`#/accounts` → `#/accounts?mpFlag=…` 属于**同一路由只改 query** ⇒ vue-router **复用组件实例** ⇒ `Accounts.vue` 的 `onMounted` 不再跑第二遍 ⇒ `refreshCloudSyncFlag()` 根本没被再调用 |
+| 5 | 基线回填后复跑：`QG Visual` **19/19 全 PASSED**、通过率 100.0% | 可以收口了 | 日志不打印差异率，故"全绿"本身不足以自证 0 px；改从产物 `reports/report-*.json` 读到该用例 `misMatchPercentage: 0` 才算达成 §17.4 步骤 3 |
 
 **本地对照实验（决定性，且成本极低）**：用 `PIXEL_ONLY` 控制执行顺序 ——
 
