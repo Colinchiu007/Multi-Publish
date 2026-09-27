@@ -1,3 +1,17 @@
+# [未发布] docs(账号云镜像): 真机 IPC 与八平台 uid 线级取证回填——覆盖率实测 2/8，并记下两个挡住成功路径的外因（2026-09-27）
+
+### 做了什么
+- 在隔离 worktree 上用**复制的** debug profile 起真实 Electron 实例，渲染层经 CDP 真调 `window.electronAPI`，主进程经 Node inspector 调生产代码，并在 `https/http.request` 与 `fetch` 上记录真实出站。
+- 八平台 uid 取证：用生产同一对函数（`getMasterKey`/`decryptData`）解密 `credentials/owners/<hash>/*.json.enc`，调 `fetchAccountInfoViaHttpApi` 本体。**实测覆盖率 2/8**（bilibili、toutiao 取到原生 uid）。
+- 真机 IPC：`accountsCloudDigest/Sync/Disconnect/SyncAbort` + 进度订阅全部可达；信封形状、fail-closed、二次确认守卫、空闲中止均实测。
+
+### 结论
+- 文档原先暗示"多数平台可取 uid"，实测是 2/8；douyin/zhihu/xiaohongshu 端点 200 仍提不到可信身份属性 —— 提高覆盖率需要逐平台重新取证并改提取规则，属新工作项。
+- 成功路径（上传→换设备恢复→恢复即 unverified）本轮**跑不了**，两个外因：① 线上部署的构建不含云镜像面；② 本机第二实例的 python-backend 端口 8299 固定且被占用，绑定失败后无限重启，导致 `localCount` 读到的是别人的后端（返回 0）。这条端口固定造成的"假就绪"值得单独立项。
+- 附带发现（不修，登记）：`wechat_mp` 真源写 `active`，线级证据却是 `mp.weixin.qq.com/cgi-bin/loginpage → 302` —— 登录判定家族的既有问题，它会让失效凭证被镜像。
+- QM-4 全量视觉回归本机无法执行（Playwright chromium 未安装）；按 QM-4 第 7 条，本机截图也不得作为提交基线，故不产出"跑过了"的假证据。
+
+
 # [未发布] fix+test(账号云镜像): 登录态真源写入按账号加主进程串行锁，并修掉恢复侧从未生效的回写（2026-09-27）
 - 收口 openspec add-cloud-account-sync 残留「主进程同步 × 批量检测互斥」：新增 `apps/desktop/electron/services/account-state-lock.js`（`withAccountStateLock(accountId, section)`，FIFO、失败放行、排空回收键），把三个检测入口（`login-status-monitor` / `account:check-login` / `accounts:batch-check-login`）的「读凭证 → 回写结论」与云端恢复的「覆盖本机凭证 → 回写 unverified」各自收进同一把以 accountId 为键的临界区。
 - 修掉一个写测试时当场撞出来的断链：`cloud-account-restore.js` 按对象形调用 `AccountManager.persistLoginState`，而真实现是位置签名 —— status 恒为 undefined、判 `invalid-status` 直接 return，**恢复后的登录态一次都没写进真源**；返回值又被丢弃，所以连 warn 都没有。改回位置签名并检查返回值（非 ok 落 warn）。

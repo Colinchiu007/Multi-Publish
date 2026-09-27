@@ -691,3 +691,64 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 **合规**
 - 首次同步的隐私提示行即为同意点；`credential_updated_at` 与断开入口保证用户可撤回。
 - 隐私声明需新增"平台登录凭证加密托管"条目（本文档 §八 为依据），由文档任务跟进。
+
+## 十六、真机验证与线级取证记录（2026-09-27）
+
+本章只记**实测到的**事实。方法：在隔离 worktree（含本特性代码）上用复制的 debug profile 启动一份
+真实 Electron 实例（`--user-data-dir=D:/tmp/mp-residual-verify-profile`，同时开
+`--remote-debugging-port` 与 `--inspect`），渲染层经 CDP 调 `window.electronAPI` 走真 IPC，
+主进程侧经 Node inspector 调生产代码，并在 `https/http.request` 与 `globalThis.fetch` 上挂钩记录真实出站。
+profile 是**复制件**（原实例正在运行且锁着 Chromium session 目录），原目录未被写入。
+
+### 16.1 八平台 `platform_uid` 线级取证（收口 tasks 3.6）
+
+凭证来自 `credentials/owners/<hash>/*.json.enc`，用生产同一对函数
+（`credential-store.getMasterKey` + `decryptData`）解密；uid 提取走
+`http-login-checker.fetchAccountInfoViaHttpApi(platform, cookies)` 本体，不是复刻实现。
+下表"出站"是线级抓到的真实请求（只记目标与状态码，绝不记凭证值）：
+
+| 平台 | 真源 status | cookie 数 | 真实出站 | 取到 uid |
+| --- | --- | --- | --- | --- |
+| bilibili | active | 18 | `api.bilibili.com/x/web-interface/nav` → 200 | **3747542357510297** |
+| toutiao | active | 32 | `mp.toutiao.com/mp/agw/media/get_media_info` → 200 | **1342958645023752** |
+| douyin | active | 46 | `creator.douyin.com/aweme/v1/creator/pc/user/info/` → 200 | 无（端点可达但响应里提不到可信身份属性） |
+| zhihu | active | 25 | `www.zhihu.com/` → 200（SSR HTML） | 无 |
+| xiaohongshu | active | 20 | `creator.xiaohongshu.com/` → 200（SSR HTML） | 无 |
+| wechat_mp | active | 12 | `channels.weixin.qq.com/.../auth_data` → 200；`mp.weixin.qq.com/cgi-bin/loginpage` → **302** | 无（`loginpage` 是未登录特征） |
+| kuaishou | active | 9 | **无出站**（`uidSource: cookie` 按设计不发请求） | 无（约定 cookie 里没取到） |
+| tencent_video | expired | 2 | 无出站 | 无（该账号本就失效） |
+
+**结论（把原来"待取证"的判断改成实测结论）**：
+
+1. 合并键覆盖率实测是 **2/8**，不是文档此前暗示的"多数平台可取"。其余 6 个全部走
+   `uid-unavailable` 跳过上行 —— 这条 fail-closed 路径是本次唯一保证"不污染合并键"的防线，
+   现在它有了真凭证下的实测证据（此前只有单测）。
+2. **端点 200 不等于取得到 uid**：douyin / zhihu / xiaohongshu 都返回 200，但现有提取规则
+   在真实响应里取不到可信身份属性。知乎/小红书是 SSR HTML，"HTML 里到底直不直出身份属性"这个
+   原问题至此有了否定答案（至少在本次这两个账号的响应形态上）。要提升覆盖率必须逐平台重新取证
+   并改提取规则，属新的工作项，不在本轮。
+3. `wechat_mp` 的真源写的是 `active`，线级证据却是 `loginpage → 302`（未登录特征）。
+   这是**登录态判定**侧的既有问题（AGENTS.md「登录页 ≠ 已登录」家族），不是云镜像引入的，
+   但它会让一份失效凭证被镜像上去。已登记，不在本轮修。
+
+### 16.2 真机 Electron 内 IPC 全链路（部分收口）
+
+| 调用（渲染层真调 `window.electronAPI`） | 实测结果 | 读法 |
+| --- | --- | --- |
+| preload 键位 | `accountsCloudDigest` / `accountsCloudSync` / `accountsCloudDisconnect` / `accountsCloudSyncAbort` / `onAccountsCloudSyncProgress` 五个都在真实窗口里存在且可调用 | 不是浏览器里的静默 fallback |
+| `accountsCloudDigest()` | `{code:0, data:{reachable:false, total:0, localCount:0, tombstones:0, errorCode:"MEMBER_API_REQUEST_FAILED"}}` | 信封只在一处剥 ⇒ `code/data` 形状正确；云端不可达时如实 `reachable:false`，没有冒充"云端共 0 个" |
+| `accountsCloudSync()` | `{code:500, errorCode:"Python backend is not running", data:{failed:1, created:0, restored:0, uidUnavailable:0, queuedCheck:0, items:0}}` | 失败如实上报、不半途假装成功；`queuedCheck` 为 0 与"生产未注入 queueLoginCheck"一致 |
+| `accountsCloudSyncAbort()`（空闲时） | `{code:0, data:{aborted:false}}` | 空闲中止不谎报"已中止" |
+| `accountsCloudDisconnect("nope")` | `{code:400, errorCode:"DISCONNECT_CONFIRMATION_REQUIRED"}` | 二次确认守卫在真窗口里生效 |
+| `accountsCloudDisconnect("cloud")` | `{code:500, errorCode:"MEMBER_API_REQUEST_FAILED"}` | 云端不可达时不静默"当作已断开" |
+| 进度广播 | 0 条事件（同步在触达任何一行之前就失败） | 与 `items:0` 自洽，不是丢事件 |
+
+**未被本轮覆盖（必须连着看，否则会误判"真机全链路已验证"）**：
+
+- **成功路径跑不了，两个外因**：① 已部署的业务 API 构建尚不含云镜像面（见 OPS §5 探测表，
+  未带凭证探测 `GET /api/v1/me/accounts/digest` 返回通用 Key 鉴权 401 且无 `Cache-Control`）；
+  ② 本机第二实例起不动自己的 python-backend —— 端口 8299 是固定值且已被第一个实例占用，
+  绑定失败后进程退出码 3 并无限重启，于是 `localCount` 读到的是**别人那份**后端（返回 0 个账号）。
+  这条本身是值得修的环境缺陷（多实例并存时"假就绪"），已登记。
+- 因此"上传 8 个账号 → 换设备恢复 → 恢复即 unverified → 本机自证"这条主链，仍要有云镜像面的
+  服务端（生产部署或本机起一套业务 API + Postgres + 同一 Logto 租户）才能取到真机证据。
