@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <path d="M17 12V3h4v5a4 4 0 0 1-4 4z" fill="#00F2EA"/>
-  <path d="M17 12v3a4 4 0 1 1-4-4" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="9" cy="15" r="4" fill="#000"/>
-  <path d="M17 3v9" stroke="#FE2C55" stroke-width="2" stroke-linecap="round"/>
-</svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 平台品牌图标 · 单色 24×24 · 品牌色 #FE2C55
+     手工绘制的示意标，非官方矢量：Simple Icons v16 与 Iconify 全部 238 个集合（含 IconPark、
+     thesvg、arcticons）均无抖音图标，实测 slug douyin/toutiao 一律 not_found。
+     造型取八分音符骨架（符头 + 符干 + 右上折角符尾），色值沿用本仓既有资产中的抖音主红。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FE2C55"><path d="M4 16.5a4 4 0 1 0 8 0a4 4 0 1 0-8 0Z"/><path d="M11.2 3h2.4v13.5h-2.4Z"/><path d="M11.2 3h7v5.6h-2.4V5.4h-4.6Z"/></svg>

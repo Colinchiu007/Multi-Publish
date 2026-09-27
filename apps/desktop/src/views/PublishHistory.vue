@@ -203,7 +203,7 @@
           </label>
           <div class="record-preview">
             <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="">
-            <img v-else-if="isIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
+            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
 <span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
             <small>{{ contentTypeLabel(record) }}</small>
           </div>
@@ -223,7 +223,7 @@
             <div class="record-delivery">
               <span class="status-badge" :class="statusClass(record)">{{ statusLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
-              <span class="platform-name"><img v-if="isIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
           </div>
           <div class="record-stats" :aria-label="t('historyPage.statsAria')">
@@ -353,7 +353,7 @@ import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/
 import { listTrackedContent, addManualSnapshot } from '@/api/knowledge-library'
 import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
-import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { usePlatformStore } from '@/stores/platforms'
 import { useIdentity } from '@/composables/useIdentity'
 import { isAuthGateResult } from '@/utils/auth-gate'
@@ -701,9 +701,6 @@ function platformIcon (platform) {
   return getPlatformIconUrl(platform) || platformStore.getIcon(platform) || PLATFORM_ICONS[platform] || '•'
 }
 
-function isIconUrl (value) {
-  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
-}
 
 function matchesDateFilter (record, filter) {
   const value = new Date(record?.timestamp || record?.createdAt || record?.publishedAt).getTime()

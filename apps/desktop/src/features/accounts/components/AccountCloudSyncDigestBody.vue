@@ -10,7 +10,7 @@
         :data-testid="`cloud-digest-platform-${row.platform}`"
       >
         <img
-          v-if="isIconUrl(row.icon)"
+          v-if="isPlatformIconUrl(row.icon)"
           :src="row.icon"
           class="cloud-digest-platform-icon-img"
           :alt="row.label"
@@ -44,6 +44,7 @@
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 const props = defineProps({
   digest: { type: Object, default: null },
@@ -83,9 +84,6 @@ const platformRows = computed(() => {
     })
 })
 
-function isIconUrl (value) {
-  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
-}
 </script>
 
 <style scoped>

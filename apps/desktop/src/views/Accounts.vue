@@ -165,7 +165,7 @@
             :data-testid="`platform-filter-${item.id}`"
             @click="setPlatformFilter(item.id)"
           >
-            <img v-if="isIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img" :alt="platformLabel(item.id)" width="20" height="20">
+            <img v-if="isPlatformIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img" :alt="platformLabel(item.id)" width="20" height="20">
 <span v-else class="platform-filter-icon">{{ platformIcon(item.id) }}</span>
             <span>{{ platformLabel(item.id) }}</span>
             <strong>{{ item.count }}</strong>
@@ -358,7 +358,7 @@ import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
-import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { useIdentityStore } from '@/stores/identity'
@@ -580,9 +580,6 @@ function platformIcon (id) {
 }
 
 /** 判断图标值是否为图片 URL（需要以 <img> 渲染） */
-function isIconUrl (value) {
-  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
-}
 
 const OWNER_FIELD_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人']
 const PUBLISHER_FIELD_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', 'publishers', '发布人']
