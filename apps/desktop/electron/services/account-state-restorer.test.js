@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import lockHelper from '../../../../test-helpers/windows-file-lock.js'
 
-const { holdExclusiveWindowsFileLock } = lockHelper
+const { holdExclusiveWindowsFileLock, LOCK_CASE_TIMEOUT_MS } = lockHelper
 
 import * as restorer from './account-state-restorer.js'
 
@@ -110,7 +110,9 @@ describe('account-state-restorer', () => {
   })
 
   if (process.platform === 'win32') {
-    it('遗留状态文件被 Windows 短暂占用时会在释放后完成原子脱敏迁移', async () => {
+    // 必须显式声明：本文件此前没有 timeout，继承全局 10s，而夹具预算远大于它
+    // ⇒ 一旦 PowerShell 冷启动超 10s，框架超时先赢、只剩 "Test timed out in 10000ms"（预算倒挂）。
+    it('遗留状态文件被 Windows 短暂占用时会在释放后完成原子脱敏迁移', { timeout: LOCK_CASE_TIMEOUT_MS }, async () => {
       userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))
       process.env.ELECTRON_USER_DATA_DIR = userDataDir
       const dir = path.join(userDataDir, 'accounts')
