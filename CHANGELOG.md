@@ -1,3 +1,28 @@
+# [未发布] fix(账号云镜像): 收口 CI 抓出的两处本 PR 自身缺口 —— 锁的 unhandledRejection 逃逸与两个语义码未登记展示层（2026-09-27）
+
+### 根因（首跑 4 条红全部由本 PR 引入，不是既有噪声）
+- **串行锁把 section 的失败留在了队尾链上**：`state.tail = state.tail.then(run, run)` 在"本等待者是最后一名排队者"
+  时链上再无接手人，section 的 rejection 以队尾 promise 的身份逃逸成 `unhandledRejection`（CI 报 `Errors 2`，
+  栈顶是 `run()` 里的 `section()` 调用点，而调用方其实早已通过 `callerPromise` 收到同一个错误）。生产里这会打到
+  主进程的 unhandledRejection 钩子。修法：**失败只有一个出口（callerPromise），链只负责顺序**。
+- **两个新语义码没进展示层口径表**：`CREDENTIAL_APPLY_FAILED`（`cloud-account-sync.js:427`）与
+  `RESTORE_STATUS_PERSIST_FAILED`（`cloud-account-restore.js:87/202`）未登记进 `useCloudSyncResultModel.js` 的
+  `ERROR_CODE_GROUPS`。后果不是报错而是**文案归错类**：未登记码会落进「云端未接受该账号」兜底句，用户去查云端，
+  而真正该做的是重试本机落盘。两者并入 `localWriteFailed` 组，并在「本机侧码不得解析到云端兜底句」用例里逐个点名，
+  防止哪天被挪错组。
+
+### 为什么本地全绿（QM-5 逃逸分析）
+- 口径锁住在 `src/`，我改的是 `electron/` —— 本地按"我改了哪"挑文件，必然漏掉这条**跨目录读主进程源码**的锁。
+  沉淀：改动侧与锁侧不在同一目录时，回归必须按"锁在哪"挑文件。
+- vitest 把 unhandled rejection 记在 `Errors` 里，不影响 `Tests ... passed` 那一行的计数；我此前只看那一行。
+
+### 回归保护与反证
+- `account-state-lock.test.js` 新增「section 失败且链上无人接手时，不得逃逸成 unhandledRejection」（挂 process.on
+  钩子 + 让出两个宏任务后断言收不到），该文件 12 → 13 例。**反证**：把链改回 `.then(run, run)` 后该用例红 1 条，
+  同时 `login-status-monitor.test.js` 注入 `net down` 的那条从红转绿。
+- 6 个相关文件 `vitest run` = **94 passed**；`check-max-lines` / `check-debt-budget` 通过。
+
+
 # [未发布] docs(账号云镜像): 真机 IPC 与八平台 uid 线级取证回填——覆盖率实测 2/8，并记下两个挡住成功路径的外因（2026-09-27）
 
 ### 做了什么

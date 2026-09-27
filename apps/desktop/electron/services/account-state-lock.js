@@ -131,7 +131,13 @@ function withAccountStateLock (accountId, section, options = {}) {
   }
 
   // 前后两个分支都是 run：前一环节成功或失败都必须放行本环节
-  state.tail = state.tail.then(run, run)
+  const step = state.tail.then(run, run)
+  // 队列链本身**不得携带失败**。上一行 `.then(run, run)` 的产物在被最后一名等待者使用时，
+  // 链上再无接手人 —— section 的 rejection 就以"队尾 promise"的身份逃逸成 unhandledRejection
+  // （CI 实测：vitest 报 `Errors 2`，栈顶是 run() 里的 section() 调用点，而调用方其实已经
+  // 通过 callerPromise 收到过同一个错误）。生产里这会打到 process 的 unhandledRejection 钩子。
+  // 失败的正确出口只有一个：callerPromise。链只负责顺序。
+  state.tail = step.then(() => undefined, () => undefined)
 
   ticket.timer = setTimeout(() => {
     ticket.timer = null

@@ -138,6 +138,34 @@ describe('account-state-lock 串行锁合同', () => {
     expect(await after).toBe('ok')
   })
 
+  /**
+   * CI 实测逃逸（quality-gate / QG Desktop Shards 报 `Errors 2`，栈顶为 run() 里的 section()）：
+   * 队列链 `.then(run, run)` 的产物如果被**最后一名**等待者使用，链上再无接手人，section 的
+   * rejection 就以"队尾 promise"的身份变成 unhandledRejection —— 调用方明明已经通过
+   * callerPromise 收到了同一个错误。生产里这会打到主进程的 unhandledRejection 钩子。
+   * 口径：失败只有一个出口（callerPromise），链只负责顺序。
+   */
+  it('section 失败且链上无人接手时，不得逃逸成 unhandledRejection', async () => {
+    /** @type {any[]} */
+    const seen = []
+    const hook = (reason) => { seen.push(reason) }
+    process.on('unhandledRejection', hook)
+    try {
+      await expect(
+        lock.withAccountStateLock('acc-no-leak-async', async () => { throw new Error('boom-async') }),
+      ).rejects.toThrow('boom-async')
+      await expect(
+        lock.withAccountStateLock('acc-no-leak-sync', () => { throw new Error('boom-sync') }),
+      ).rejects.toThrow('boom-sync')
+      // Node 在微任务清空后的 check 阶段才派发 unhandledRejection，必须让出宏任务再接住
+      await new Promise((resolve) => setImmediate(resolve))
+      await new Promise((resolve) => setImmediate(resolve))
+    } finally {
+      process.off('unhandledRejection', hook)
+    }
+    expect(seen.map((e) => (e && e.message) || String(e))).toEqual([])
+  })
+
   it('缺 accountId 一律当场抛错：静默不串行等于把要防的竞态留在原地', () => {
     for (const bad of [undefined, null, '', '   ']) {
       expect(() => lock.withAccountStateLock(bad, async () => 'x'), '空 accountId 被放行: ' + JSON.stringify(bad))
