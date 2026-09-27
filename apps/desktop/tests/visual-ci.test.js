@@ -15,6 +15,7 @@ const {
 } = require('./visual-testing/scripts/visual-ci')
 const { buildJudgeResults, selectLatestReportFile } = require('./visual-testing/scripts/agent-visual-judge')
 const { pixelTests } = require('./visual-testing/scripts/run-pixel-tests')
+const { viewTests } = require('./visual-testing/views/all-views.visual.test.js')
 
 describe('visual-ci 像素门禁', () => {
   it('CI 和日常像素门禁共享同一份测试注册表，并拒绝缺失批准基线', () => {
@@ -390,4 +391,33 @@ describe('视觉门禁路由选择器', () => {
     const homeTest = pixelTests.find((test) => test.name === 'home-baseline')
     expect(homeTest?.waitFor).toBe('.mp-home .mp-home-welcome')
   })
+
+describe('视觉用例双清单一致性', () => {
+  // CI 的 `QG Visual` 只执行 `run-pixel-tests.js` 的 `pixelTests`；只登记进 `all-views` 的用例**等于没跑**
+  // （实测踩过：`accounts-list-flag-on` 首版只在 `viewTests` 里，于是 QG Visual 直接绿 —— 那条绿是必然的假绿，
+  //  日志里 18 个视图各出现一次全 PASSED，而新用例名 0 次）。这里不要求两份清单整体等价（范围本就不同），
+  //  只锁"必须进 CI 的那几条"，以及"等入口本身的用例必须自带开启该入口的条件"。
+  const MUST_BE_IN_CI = ['accounts-list-flag-on']
+
+  for (const name of MUST_BE_IN_CI) {
+    it(`${name} 必须同时存在于 viewTests 与 CI 执行的 pixelTests`, () => {
+      const inViews = viewTests.find((t) => t.name === name)
+      const inPixel = pixelTests.find((t) => t.name === name)
+      expect(inViews, `${name} 不在 all-views 的 viewTests 里（全量路径会漏它）`).toBeTruthy()
+      expect(inPixel, `${name} 不在 pixelTests 里 ⇒ QG Visual 对它的绿是假绿`).toBeTruthy()
+      // 两份清单靠名字各写一遍，最容易漂移的是等待条件与路由：不一致时 CI 拍的就不是同一张图
+      expect(inPixel.waitFor).toBe(inViews.waitFor)
+      expect(inPixel.route).toBe(inViews.route)
+    })
+  }
+
+  it('pixelTests 里等待应用入口本身的用例，路由必须自带开启该入口的条件', () => {
+    const flagged = pixelTests.filter((t) => /data-testid="account-cloud-sync"/.test(String(t.waitFor || '')))
+    expect(flagged.length).toBeGreaterThan(0)
+    for (const t of flagged) {
+      // 否则这条用例恒等于"截一张没有该入口的页面"，像素门禁会稳定通过而什么都没说
+      expect(t.route, `用例 ${t.name} 等的是入口本身，路由却没开它`).toContain('mpFlag=account_cloud_sync=1')
+    }
+  })
+})
 })

@@ -93,7 +93,7 @@ export function parseDevFlagOverrides (queryText = '') {
 function warnIgnoredDevFlag (flagKey, rawValue) {
   if (!import.meta.env.DEV) return
   const shown = /^.{0,24}$/.test(rawValue) ? rawValue : rawValue.slice(0, 24) + '…'
-  console.warn(`[useFeatureFlag] 已忽略非法的开发态 flag 覆盖值 ${DEV_FLAG_QUERY_KEY}=${flagKey}=${shown}（只接受 1/0/true/false）`)
+  console.warn(`[useFeatureFlag] ignored invalid dev flag override ${DEV_FLAG_QUERY_KEY}=${flagKey}=${shown}; accepted: 1|0|true|false`)
 }
 
 /**

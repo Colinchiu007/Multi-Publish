@@ -16240,6 +16240,22 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
 - **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。
 
+## 视觉用例有**两份清单**，CI 只认 `run-pixel-tests.js` 的 `pixelTests`（visual-two-registries，2026-09-27，cloud-flag-visual）
+
+- **症状特征**：给某个视图新增一条像素用例、CI 的 `QG Visual` 直接绿 —— 那不是"通过了"，是**根本没跑**。
+  判据：去 job 日志数视图名出现次数（`run-pixel-tests.js` 每条打印 `名称 (路由)...` + 一行 `PASSED`）；新用例名 0 次 = 没进清单。
+  实测本仓首跑日志 18 个视图各 1 次全 PASSED，而我登记的用例名 0 次。
+- **两份清单的分工**：`tests/visual-testing/views/all-views.visual.test.js` 的 `viewTests` 服务 `npm run test:visual` /
+  `test:all:visual` / `--single <name>`；`tests/visual-testing/scripts/run-pixel-tests.js` 的 `pixelTests` 才是
+  **`QG Visual`（Gate 7，`npm run test:visual:pixel`）** 执行的清单。另有 `test:visual:ci` → `visual-ci.js`，它会先
+  `assertApprovedBaselines` **整批前置中止**（未接进 workflow）—— 所以"缺基线要红一轮好取产物"这条路只能走 `test:visual:pixel`。
+  单条过滤的入口也不同：`all-views` 认 argv `--single`，`run-pixel-tests` 认环境变量 `PIXEL_ONLY`。
+- **口径**：新增/改造像素用例**两处都登记**（除非该视图明确只用于人工核查），并在 PR 说明里给出"CI 日志里这条用例
+  出现了几次"作为证据；只贴"QG Visual 绿"不构成证据。
+- **顺带一条让整条流程成立的事实**：缺基线时 `test-runner.js` 是**先截图再判失败**（`page.screenshot()` 在
+  `ERR_VISUAL_BASELINE_MISSING` 之前），所以"第一轮故意让它红"确实能从 `quality-gate-visual-reports` 产物里拿到
+  `*-current.png` 用于回填 —— 改 `test-runner.js` 时不得把这个顺序反过来。
+
 ## 外部评审的"发现"必须逐条对得上产物原文：一路模型没返回结论时，"双模型"就是虚的（review-attribution-drift，2026-09-27，cloud-flag-visual）
 
 - **事故**：给一条开发态 flag 覆盖通道做 QM-6 降级评审（`codeagent-wrapper` 未安装 → 直调 `codex exec` + `opencode run`）。

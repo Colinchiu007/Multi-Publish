@@ -11,7 +11,13 @@
   **自审补严/自审判断**；外部评审实际提出的是 hash 路由丢参（C1，完全成立）、`options.dev` 可短路 DEV 判断（W2）、
   非开发态用例显式传参等于没锁默认路径（W5）、四种解析语义未钉住（I4），以及 W3（开发态 UI 与运营授权可能
   不一致）—— W3 经评估不在本 PR 修，理由与前置条件写在 PRD §17.2。前端模型那一路未产出任何结论。
-- 新增视图用例 `accounts-list-flag-on`，等待选择器直接指向 `[data-testid="account-cloud-sync"]`
+- **warn 文案改 ASCII**：`QG Static` 的渲染端硬编码中文基线扫描实测拦在 `useFeatureFlag.js:64`（新增的中文
+  `console.warn`）。这条 warn 是给开发者看控制台的、不是 UI 文案，所以改英文而不是塞进 locale —— 本地
+  `node .github/scripts/check-locale-sync.js --cjk` 由 FAIL 转 `PASS（无新增硬编码）`。
+- 新增视图用例 `accounts-list-flag-on`，**两处清单都登记**：`views/all-views.visual.test.js` 的 `viewTests`
+  （`--single` / 全量路径）与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 实际执行的是这一份**）。
+  首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
+  而我的用例名出现 0 次。等待选择器直接指向 `[data-testid="account-cloud-sync"]`
   ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
 - `useFeatureFlag.test.js` 补 9 条（该文件用例数 6 → 15）：解析边界（含 `=yes`/空值/无 `=`/白名单外一律不覆盖，
   并按后端模型 I4 补锁 encoded `=`、key 大小写、非法项在后不清掉前一合法值、值内再带 `=` 这四种确定语义；

@@ -696,7 +696,15 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 （`.mp-workspace .accounts-page [data-testid="account-cloud-sync"]`）：渲染不出来就是这条用例失败，
 而不是"截了一张没有按钮的图当基线"。
 
-### 17.3 基线回填流程（本 PR 内必须走完，不得用本机截图）
+### 17.3 先说一个踩过的分界：视觉用例有**两份清单**，CI 只认第二份
+
+- `views/all-views.visual.test.js` 的 `viewTests` —— 服务 `npm run test:visual` / `test:all:visual` 与 `--single <name>`；
+- `scripts/run-pixel-tests.js` 的 `pixelTests` —— **`QG Visual`（Gate 7，`npm run test:visual:pixel`）跑的就是这一份**。
+
+只登记进第一份的用例**不会进 CI 门禁**：本 PR 首版就是这样，`QG Visual` 因此"绿"得毫无意义（实测该 job 日志里
+18 个视图各出现一次、全部 `PASSED`，而我的用例名出现 **0** 次）。所以开启态这条用例**两处都登记**。
+
+### 17.4 基线回填流程（本 PR 内必须走完，不得用本机截图）
 
 1. 本 PR 首次跑 CI 时必然报 `ERR_VISUAL_BASELINE_MISSING: .../accounts-list-flag-on.png` —— 这是
    预期内的红，作用是产出那张 CI 渲染图。
@@ -707,6 +715,15 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 4. 回填前后可以在 `apps/desktop/` 下单独复跑这一条看渲染结果（`--single` 是已记录的用法）：
    `node tests/visual-testing/views/all-views.visual.test.js --single accounts-list-flag-on`。
    但**本机截出的图仍不得入库当基线**（QM-4 第 7 条），这一步只用于确认渲染。
+
+本 PR 已在本地对**真实构建产物**跑过一次这条用例（vite dev + 1920×1080 + headless Chromium），取到的运行态事实：
+
+- 导航后的 `window.location.hash` 与写入的 `#/accounts?mpFlag=account_cloud_sync=1` **逐字相同**，`location.search` 为空 —— 证实参数确实落在 fragment 里，也证实就绪判定不需要额外放宽 `expectedRoute`；
+- 等待条件（入口本身的 `data-testid`）命中，即**按钮真的渲染出来了**；
+- 失败点恰好停在 `缺少人工审核的视觉基线: ...base-screenshots/accounts-list-flag-on.png`，与 §17.4 预期的第一轮红一致；
+- 同页不带参数时入口**不渲染**（fail-closed 未被本通道削弱）。
+
+这张本机截图只用于确认渲染，**不入库当基线**（QM-4 第 7 条）。
 
 > 这条流程本身也是防"用本机基线蒙混过关"的锁：缺基线时门禁是红的，不能靠 skip 变绿
 > （`test-runner.js` 在未设 `UPDATE_BASELINE=1` 时对缺基线直接 FAILED）。
