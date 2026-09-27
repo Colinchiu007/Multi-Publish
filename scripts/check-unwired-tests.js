@@ -10,14 +10,23 @@
 const fs = require("node:fs")
 const path = require("node:path")
 
-const TEST_SUFFIXES = [".test.js", ".test.mjs", ".test.sh"]
+const TEST_SUFFIXES = [".test.js", ".test.mjs", ".test.sh", ".test.ps1"]
 const SCAN_DIRS = ["scripts", path.join(".github", "scripts")]
 
 // 欠账登记：path -> 不可省略的原因。只能缩小，新增即红（与 platform-definitions 棘轮同形）。
+// 2026-09-27 实测：scripts 下 7 条 PowerShell 测试在 .github/workflows 里零命中，
+// 其中两条仅由本机 bootstrap 自检调用；其余能否在 CI runner 上跑尚未逐个实测，
+// 故先登记欠账而非直接接线（接线前必须先证明它在 runner 上可跑且无真机副作用）。
 const KNOWN_UNWIRED = {
-  "scripts/session-init.test.sh":
-    "断言 codex/<task> 而 gwm-task.sh:38 已于 2026-09-15 改为 MP_BRANCH_PREFIX 可选前缀（裸 task 名），" +
-    "本机实跑 FAIL=1；须先定「代码为准回灌 AGENTS.md/openspec spec/本测试」还是恢复 codex/ 前缀，再接线",
+  "scripts/applive-foreign-audit.test.ps1": "本机脚本；是否可在 CI runner 上跑未实测，接线前需逐个判定",
+  "scripts/mp-worktree-health.test.ps1": "本机脚本；是否可在 CI runner 上跑未实测，接线前需逐个判定",
+  "scripts/session-guard.test.ps1": "本机脚本；是否可在 CI runner 上跑未实测，接线前需逐个判定",
+  "scripts/session-isolation-automation.test.ps1":
+    "仅由本机 scripts/bootstrap-write-guard.ps1 自检调用；会注册计划任务/起 watcher，属真机副作用，未在 CI",
+  "scripts/session-write-guard.test.ps1":
+    "仅由本机 scripts/bootstrap-write-guard.ps1 自检调用；依赖计划任务与 watcher 实态，未在 CI",
+  "scripts/start-desktop-profile-lock.test.ps1": "需起真实桌面进程；是否可在 CI runner 上跑未实测",
+  "scripts/worktree-fs-longpath.test.ps1": "需真实长路径 worktree 环境；是否可在 CI runner 上跑未实测",
 }
 
 function listTestFiles(root) {

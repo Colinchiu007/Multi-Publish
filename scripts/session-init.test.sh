@@ -40,7 +40,7 @@ scenario_create_and_reuse() {
     fi
     local path="$TMP/worktrees/mp-alpha-task"
     if [ -d "$path" ]; then ok "named task creates dedicated worktree"; else bad "dedicated worktree missing"; fi
-    if [ "$(git -C "$path" branch --show-current)" = "codex/alpha-task" ]; then ok "dedicated branch matches task"; else bad "dedicated branch mismatch"; fi
+    if [ "$(git -C "$path" branch --show-current)" = "alpha-task" ]; then ok "dedicated branch is the bare task name"; else bad "dedicated branch mismatch: $(git -C "$path" branch --show-current)"; fi
     if [ "$(git -C "$TMP/repo" branch --show-current)" = "main" ]; then ok "shared root stays on main"; else bad "shared root branch changed"; fi
     local before
     before="$(git -C "$TMP/repo" worktree list --porcelain | grep -c '^worktree ')"
@@ -127,7 +127,23 @@ scenario_bootstrap_lock_blocks_concurrency() {
     fi
 }
 
+scenario_opt_in_prefix() {
+    setup_repo
+    if ! MP_WORKTREES="$TMP/worktrees" MP_BRANCH_PREFIX=team GWM_SKIP_DEPS=1 "$BASH" "$TMP/repo/scripts/session-init.sh" beta-task >"$TMP/prefix.log" 2>&1; then
+        bad "prefixed bootstrap failed: $(head -5 "$TMP/prefix.log")"
+        return
+    fi
+    local got
+    got="$(git -C "$TMP/worktrees/mp-beta-task" branch --show-current 2>&1)"
+    if [ "$got" = "team/beta-task" ]; then
+        ok "MP_BRANCH_PREFIX opts into a prefixed branch"
+    else
+        bad "MP_BRANCH_PREFIX ignored (got $got)"
+    fi
+}
+
 scenario_create_and_reuse
+scenario_opt_in_prefix
 scenario_invalid_name_blocked
 scenario_wrong_existing_branch_blocked
 scenario_unrelated_repo_path_blocked
