@@ -28,11 +28,11 @@
 - [x] `eslint electron/ src/ --quiet` → 0 error；`tsc --noEmit` → 0 error
 - [x] `check-ipc-bridge.js` / `check-locale-sync --cjk --keys` / `check-frontend-consistency.js` 全 PASS
 - [x] `check-debt-budget.js`：publisher.js 越 500 行触发 FAIL → 压缩行数修复（未抬基线）
-- [ ] 桌面端全量单测 + CI 全绿后合并
+- [x] 桌面端全量单测 + CI 全绿后合并（已随 #1834 `89e8e299` 合并进 main，代码实证：`update:install-now` IPC / `SidebarUpdateButton.vue` / `useAutoUpdate` 单例均在 main）
 
 ## 5. 文档与归档
 - [x] `01-docs/PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md`（新增完整规格）
 - [x] `01-docs/PRD.md`（头部索引 / F8 / §7.4.6.2 / 末尾增量章节）
 - [x] `01-docs/UI-INVENTORY.md`、`user-manual.md`、`ipc-manifest.md`、`PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md`
 - [x] `CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`
-- [ ] PR 合并后归档至 `openspec/changes/archive/2026-09-14-sidebar-update-available-entry/`
+- [x] PR 合并后归档至 `openspec/changes/archive/2026-09-28-sidebar-update-available-entry/`（2026-09-28 收口 PR 执行归档，目录名按实际归档日期）

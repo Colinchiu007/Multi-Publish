@@ -17,6 +17,19 @@
 - 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
 - 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
 - **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
+# [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
+
+### 做了什么
+- PR #2501 已合并（`56ac1c40`）。回填基线后的复跑 run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`）：`QG Visual` **19 条全 `PASSED`、通过率 100.0%**，
+  其中 `accounts-list-flag-on` 在产物 `reports/report-*.json` 里为 `status:"PASSED", misMatchPercentage: 0`
+  ⇒ PRD §17.4 步骤 3「必须报该视图 0 px 差异」**达成**，该视图自此成为硬门禁的一部分。
+- **纠正一处取证口径（写进 PRD §17.4）**：`run-pixel-tests.js` 的 stdout 只打 `PASSED` / `FAILED`，
+  **不打印差异率**（实测该 job 日志里 `misMatch` / `差异率` 命中 0 次）。因此"日志说 PASSED"只等价于
+  "差异低于 `PIXEL_THRESHOLD=0.06`"，**不等价于 0 px**。上一轮我在文档里写"0 px 由下一轮 CI 证明"时，
+  默认了"下一轮日志会给出这个数字"——它不会；真要去证，只能下载产物读 report JSON。本轮就是这么做的。
+- openspec 归档 `add-cloud-account-sync` 的 tasks：§6 那条"基线仍需重新采集"的过期勾选纠为已完成并附证据，
+  「未执行清单 / 残留」两张表的同名行同步收口（历史登记文字按既有约定保留不删）。
+
 # [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
 - 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
