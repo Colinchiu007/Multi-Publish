@@ -166,12 +166,7 @@ test("真实仓库：检查域非空、欠账清单已钉住且无违规", () =>
   assert.deepEqual(
     Object.keys(checker.KNOWN_UNWIRED).sort(),
     [
-      "scripts/applive-foreign-audit.test.ps1",
-      "scripts/mp-worktree-health.test.ps1",
-      "scripts/session-guard.test.ps1",
       "scripts/session-isolation-automation.test.ps1",
-      "scripts/session-write-guard.test.ps1",
-      "scripts/start-desktop-profile-lock.test.ps1",
       "scripts/worktree-fs-longpath.test.ps1",
     ].sort(),
     "欠账清单只能缩小；新增豁免须先在门禁里明确接受（棘轮与 platform-definitions 同形）",
