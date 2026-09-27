@@ -203,7 +203,7 @@
           </label>
           <div class="record-preview">
             <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="">
-            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
+            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
 <span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
             <small>{{ contentTypeLabel(record) }}</small>
           </div>
@@ -223,7 +223,7 @@
             <div class="record-delivery">
               <span class="status-badge" :class="statusClass(record)">{{ statusLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
-              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
           </div>
           <div class="record-stats" :aria-label="t('historyPage.statsAria')">

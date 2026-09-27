@@ -165,7 +165,7 @@
             :data-testid="`platform-filter-${item.id}`"
             @click="setPlatformFilter(item.id)"
           >
-            <img v-if="isPlatformIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img" :alt="platformLabel(item.id)" width="20" height="20">
+            <img v-if="isPlatformIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img mp-platform-icon" :alt="platformLabel(item.id)" width="20" height="20">
 <span v-else class="platform-filter-icon">{{ platformIcon(item.id) }}</span>
             <span>{{ platformLabel(item.id) }}</span>
             <strong>{{ item.count }}</strong>

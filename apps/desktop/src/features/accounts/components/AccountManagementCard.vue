@@ -22,7 +22,7 @@
         >
       </label>
       <span class="platform-chip">
-        <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-icon-img" :alt="platformLabel" width="24" height="24" aria-hidden="true">
+        <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-icon-img mp-platform-icon" :alt="platformLabel" width="24" height="24" aria-hidden="true">
 <span v-else class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
         {{ platformLabel }}
       </span>

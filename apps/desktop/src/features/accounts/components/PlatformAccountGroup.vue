@@ -1,7 +1,7 @@
 <template>
   <section class="account-platform-group" :aria-labelledby="headingId">
     <header class="platform-group-header">
-      <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img" :alt="platformLabel" width="36" height="36" aria-hidden="true">
+      <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img mp-platform-icon" :alt="platformLabel" width="36" height="36" aria-hidden="true">
 <div v-else class="platform-mark" aria-hidden="true">{{ platformIcon }}</div>
       <div class="platform-heading">
         <h2 :id="headingId">{{ platformLabel }}</h2>

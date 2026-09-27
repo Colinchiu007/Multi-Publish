@@ -10,6 +10,15 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Buffer } from 'node:buffer'
+import fs from 'node:fs'
+import path from 'node:path'
+
+// vitest 的 CSS 管道会让 ?raw（无论静态 import 还是 glob）恒返回空串，实测见
+// GLOB_RAW len=0；这里按 runner 工作目录直读文件。读不到会直接抛 ENOENT 让本文件
+// 收集失败，而不是静默拿到空串把下面那条锁变成假绿。
+const designSystemCss = fs.readFileSync(
+  path.resolve(process.cwd(), 'src/styles/cohere-design-system.css'), 'utf8',
+)
 import platformDisplayDefinitions from '@multi-publish/shared-utils/src/platform-display-definitions.json'
 import { isPlatformIconUrl } from './usePlatformIconUrl'
 
@@ -149,5 +158,38 @@ describe('isIconUrl 单一来源结构锁', () => {
   it('扫描器确实看见了组件源码（防 glob 空集合让上一条假绿）', () => {
     const vueCount = Object.keys(sources).filter((p) => p.endsWith('.vue')).length
     expect(vueCount).toBeGreaterThan(20)
+  })
+})
+
+describe('图标底衬接线合同', () => {
+  // 暗色主题会把 --canvas 改深，而 X / TikTok 的官方色就是纯黑，没有底衬就直接隐身。
+  // 判据按形态取而非点名文件：凡以 isPlatformIconUrl 守卫渲染的 <img> 都必须带公共底衬类，
+  // 新增第 N 个图标渲染点漏加即红。
+  const vueSources = import.meta.glob('../**/*.vue', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  })
+
+  it('每个平台图标 <img> 都带 .mp-platform-icon 底衬', () => {
+    const offenders = []
+    for (const [p, src] of Object.entries(vueSources)) {
+      for (const line of String(src).split(/\r?\n/)) {
+        if (line.includes('<img') && line.includes('isPlatformIconUrl(') && !line.includes('mp-platform-icon')) {
+          offenders.push(p + ': ' + line.trim().slice(0, 90))
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('扫描器确实覆盖了图标渲染点（防 glob 空集合让上一条假绿）', () => {
+    const withIconGuard = Object.entries(vueSources)
+      .filter(([, src]) => String(src).includes('isPlatformIconUrl('))
+    expect(withIconGuard.length).toBeGreaterThanOrEqual(6)
+  })
+
+  it('底衬定义在全局样式里，不是各组件各抄一份', () => {
+    expect(designSystemCss).toMatch(/\.mp-platform-icon\s*\{[^}]*background:/)
   })
 })

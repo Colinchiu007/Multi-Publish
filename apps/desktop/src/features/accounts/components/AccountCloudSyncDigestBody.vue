@@ -12,7 +12,7 @@
         <img
           v-if="isPlatformIconUrl(row.icon)"
           :src="row.icon"
-          class="cloud-digest-platform-icon-img"
+          class="cloud-digest-platform-icon-img mp-platform-icon"
           :alt="row.label"
           width="20"
           height="20"
