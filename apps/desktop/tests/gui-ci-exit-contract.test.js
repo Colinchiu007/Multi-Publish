@@ -226,7 +226,11 @@ describe('GUI/CI 工作流门禁契约', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
 
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual('windows-latest');
-    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(45);
+    // 45 → 70（#2458）：串行单测步骤预算从 20m 抬到 35m 后，job 级必须一起抬，
+    // 否则「不可归因的超时」只是从 timeout(1) 换成 Actions 的 job killer。
+    // 该值与步骤预算的**关系**由同文件「预算挂实测、超时可自证、且不与 job 级倒挂」那条守住，
+    // 不要把它改回一个孤立的魔数。
+    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(70);
   });
 
   it('Electron CI 跳过桌面媒体下载脚本，并显式恢复测试所需运行时', () => {
@@ -322,7 +326,8 @@ describe('GUI/CI 工作流门禁契约', () => {
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(unitStep.run).toContain('timeout --signal=TERM --kill-after=30s 20m');
+    expect(unitStep.run).toContain('BUDGET_SECONDS=2100');
+    expect(unitStep.run).toMatch(/timeout --signal=TERM --kill-after=30s \$\{BUDGET_SECONDS\}s/);
     expect(unitStep.run).toContain('--maxWorkers=1');
     expect(unitStep.run).toContain('--no-file-parallelism');
     expect(unitStep.run).toContain('--reporter=verbose');
@@ -332,6 +337,43 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(diagnosticStep.if).toBe('failure()');
     expect(diagnosticStep.run).toContain('tasklist.exe');
     expect(source).not.toContain('maxWorkers=4');
+  });
+
+  /**
+   * #2458：串行单 worker 那一轮的步骤级预算。
+   *
+   * 旧状态是 `timeout ... 20m` 这个**没挂任何实测依据的魔数**，而自然耗时实测区间为
+   * 18m44s ~ 21m32s（main 近 14 次运行 8 次撞墙，日志被切在 Post job cleanup、
+   * 没有任何 vitest 摘要行 ⇒ exit 124 而非断言失败）。20m 距观测最大值只剩约 1 分钟，
+   * 每加一条测试都在加剧它。这里同时钉三件事：预算够、超时能自证、且不与 job 级倒挂。
+   */
+  it('Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂', () => {
+    const { source, workflow } = readWorkflow('electron-ci.yml');
+    const job = workflow.jobs['electron-tests'];
+    const unitStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
+
+    // 1) 预算必须有实测分布支撑：≥ 观测到的自然耗时上界 × 1.5
+    const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
+    const measuredPMaxSeconds = 21 * 60 + 32; // 21m32s，见 issue #2458 的 main 运行表
+    expect(budgetSeconds).toBeGreaterThanOrEqual(measuredPMaxSeconds * 1.5);
+    // 旧魔数不得复活（它是「贴着一堵墙再留 1 分钟」的那种写法）
+    expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
+
+    // 2) 超时必须能自证，而不是让人再去下 7MB 日志反推
+    expect(unitStep.run).toContain('TIMEOUT_BUDGET_EXCEEDED');
+    expect(unitStep.run).toContain('elapsed=');
+    // 输出被 tee 走之后，判成败只能读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的（恒 0）
+    expect(unitStep.run).toContain('RC=${PIPESTATUS[0]}');
+    expect(unitStep.run).toMatch(/exit "\$\{RC\}"/);
+
+    // 3) 预算不得倒挂：job 级上限必须容得下「本步骤预算 + 其余显式 timeout-minutes 之和」，
+    //    否则抬内层只是把不可归因的超时从 timeout(1) 换成 Actions 的 job killer。
+    const otherCapsMinutes = job.steps.reduce(
+      (sum, step) => sum + (typeof step['timeout-minutes'] === 'number' ? step['timeout-minutes'] : 0),
+      0,
+    );
+    expect(job['timeout-minutes']).toBeGreaterThan(otherCapsMinutes + budgetSeconds / 60);
+    expect(source).toContain('# 预算不得倒挂');
   });
 
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
