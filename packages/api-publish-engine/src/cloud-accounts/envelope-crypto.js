@@ -105,11 +105,20 @@ async function unwrapDataKey(kms, encryptedDataKey, keyId) {
   }
   if (!Buffer.isBuffer(raw) || raw.length === 0) throw kmsUnavailable(new Error('KMS returned no data key'))
   const dataKey = Buffer.from(raw)
-  if (dataKey.length !== DATA_KEY_BYTES) {
-    dataKey.fill(0)
-    throw kmsUnavailable(new Error('KMS returned a wrong-length data key'))
+  let handedOver = false
+  try {
+    if (dataKey.length !== DATA_KEY_BYTES) {
+      throw kmsUnavailable(new Error('KMS returned a wrong-length data key'))
+    }
+    handedOver = true
+    return dataKey
+  } finally {
+    // 复制出来的那份只有交回调用方才不清（调用方负责 fill(0)）；失败路径两份都要清。
+    // 而 KMS 直接交给我们的这份**必须当场清**，否则同一把明文 DK 在内存里多存一份副本直到 GC
+    // （外部评审 W5）。
+    raw.fill(0)
+    if (!handedOver) dataKey.fill(0)
   }
-  return dataKey
 }
 
 async function wrapDataKey(kms, dataKey, keyId) {
