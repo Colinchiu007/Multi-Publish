@@ -14,8 +14,8 @@ const TEST_SUFFIXES = [".test.js", ".test.mjs", ".test.sh", ".test.ps1"]
 const SCAN_DIRS = ["scripts", path.join(".github", "scripts")]
 
 // 欠账登记：path -> 不可省略的原因。只能缩小，新增即红（与 platform-definitions 棘轮同形）。
-// 2026-09-27 把 scripts 下 7 条 PowerShell 测试逐个实跑分档（pwsh 7.6 与 Windows PowerShell 5.1
-// 各跑一遍）后，6 条已接进 Gate 2d / 2d-b；只剩这一条，理由是硬的而不是"没试过"。
+// 2026-09-27 把 scripts 下 7 条 PowerShell 测试逐个实跑分档（本机 pwsh 7.6 / PS 5.1 各一遍，
+// 再以 runner 首跑为准）：5 条接进 Gate 2d，2 条按硬证据登记欠账（不是"没试过"）。
 const KNOWN_UNWIRED = {
   "scripts/session-isolation-automation.test.ps1":
     "内部直接调用 install-session-isolation-task.ps1 注册**真实**计划任务（跨会话共享的机器状态），" +
@@ -26,6 +26,10 @@ const KNOWN_UNWIRED = {
     "不是 shell 版本：本机（LongPathsEnabled 缺失=关）在 5.1 下成立、在 pwsh 7 下因清单 longPathAware 意外成功；" +
     "CI runner 上实测（run 36313053992 / step Gate 2d-b，shell: powershell 5.1）同样 FAIL ... unexpectedly succeeded - fixture too shallow。" +
     "接线前提：先让该断言按运行时探测长路径状态来分档，另立 change 处理",
+  "scripts/session-write-guard.test.ps1":
+    "第 46 行断言「守卫恢复 tracked 文件后临时仓库 git status 为空」在 runner 上红、本机绿" +
+    "（run 36313053992 的 Gate 2d 日志：FAIL: shared status stays clean after tracked restore）。" +
+    "此前它被非 fail-fast 的 pwsh 步骤吞掉、步骤照绿；改 bash 后暴露。接线前提：先修这个 runner 端差异（疑与 CRLF/autocrlf 有关）",
 }
 
 function listTestFiles(root) {

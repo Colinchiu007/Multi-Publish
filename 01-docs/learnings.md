@@ -1,3 +1,13 @@
+## 纯平移重构的两个沉默失败面：改前没基线的"测试仍绿"，和会被自己注释打红的结构锁（split-account-manager-session-restore，2026-09-27）
+
+- **「移动代码后测试全绿」不构成行为不变的证据，「移动前先全绿」才是（流程缺失 → 已固化为门禁）**：把 6 个函数从 `account-manager.js`（1260 行 / 上限 1261，余量 1 行）平移到新模块时，若直接搬，原有测试对 `restoreCookies` 的部分失败计数、`getAccountPartitionCookies` 的非法 accountId、session 形状不符等分支**一个都没跑到**，搬坏了也不会红。做法：先写 18 例特征测试并在**未改动的实现上**实测全绿（这一步是前提，不是结果），再移动，再要求同一套断言一字不改全绿，最后做 7 条变异反证（优先级倒置 / 去校验 / 去计数 / 去短路 / 断导出绑定），每条都必须变红。**判据**：任何以「降行数债务」为名的重构，先答「改前哪条测试会红？」；答不出就是没有基线，等于无验证。
+- **拆簇要按可测指标选，不按直觉选（架构决策记录）**：对 40 个顶层函数测量「是否导出 / 文件内部调用次数 / 测试提及次数」，再测「簇外调用点」与「真实跨模块消费方」。选中的「会话凭证恢复」簇依赖只有 `log`/`path`/`isSafePathSegment`、无跨模块消费方；被放弃的「资料刷新」簇有 `http-login-checker.js` 与 `account-manager-extract-info.test.js` 两处真实消费方，改它要同时动别人，属另一个 PR 的粒度。同名函数不等于消费方：`rpa-engine/browser-data.js`、`auth-view-session.js` 里的 `restoreCookies`/`restoreLocalStorage` 是各自独立实现，grep 命中是**假阳性**，要顺着 import 关系复核。
+- **读源码型「结构合同锁」会被自己写的注释打红（测试质量不足）**：断言「新模块不得 require 回 account-manager」时用了整份源码 `toContain("require('./account-manager')")`，而新模块文件头的禁止说明里正好写着这句 → 立刻假红。正解：**先剥注释行再匹配**（只扫非 `//`、`*`、`/*` 开头的行），并且用 `require\(\s*['"]…['"]\s*\)` 这种语句形态而不是裸字符串。更一般的口径：读源码断言只能当**边界合同**的补充，行为证据必须由真跑流程的用例承担（同族纪律见 AGENTS.md「禁止记录性断言代替真跑一次流程」）。
+- **注入式依赖缺省时必须 fail-closed，而且要单独一条用例钉住（安全加固）**：把 `isSafePathSegment` 改成调用点注入后，「忘了传 deps」很容易演变成「校验形同不存在」→ 任意 accountId 直读分区。实现取 `typeof isSafePathSegment !== 'function' || !isSafePathSegment(accountId) → return []`，并补一条不传 deps / 传空 deps 都必须返回空数组的用例。**判据**：给「可选依赖」定默认行为时，默认值只能是收紧的一侧。
+- **移动实现时不要顺手修语义，即使是自己看着不对的语义（preference）**：`restoreLocalStorage` 的 `typeof [] === 'object'` 会让数组入参产出 `"0"`/`"1"` 数字键——看起来像 Bug。QM-6 提出来之后仍然只**加一条钉住现状的特征测试**，不在重构 PR 里改它；要改就在能观察真实影响的独立 PR 里改。混在一起会让「这次有没有改变行为」这个问题再也无法被回答。
+- **行数门禁余量归零是「必须现在拆」而不是「少写两行注释」（约束记录）**：上一单为了在 1259/1261 里塞进新逻辑，把注释压成单行——那是 debt 的表象而不是解法。本轮把余量从 1 行买回 95 行，并把「下一个簇」明确登记为后续项（它需要同时改两处消费方）。
+
+
 ## `getMasterKey` 传错目录时会静默新建一份主密钥，把"我取错了"伪装成"数据坏了"（pitfall，2026-09-27）
 - 现场：做真凭证线级取证时按 `getMasterKey(userDataDir)` 调用（真实入参应是 `getCredentialDir(userDataDir)`，即 `<userDataDir>/credentials`）。结果 8 份凭证**全部**解密失败，报 `Unsupported state or unable to authenticate data`（GCM 认证失败）。
 - 真实过程：函数内部先 `fs.mkdirSync(credDir, {recursive:true})`，找不到 `.masterkey` 就新生成一把并落盘。于是它在**错误的位置新建了一份正确格式的密钥**，解密于是以"密文被篡改/密钥不符"的面目失败。做完才注意到目录里多出一个 `.masterkey`。

@@ -69,7 +69,10 @@ jobs:
           Write-Host "All Electron JS files pass syntax check"
 
       # --- Gate 2b: 桌面 dev 启动脚本单测（worktree 独立端口/退出留痕/Electron 环境净化回归保护）---
+      # shell: bash 是必需的而不是风格：PowerShell 步骤里一个 run 块的多条命令**不 fail-fast**，
+      # 只有最后一条的 $LASTEXITCODE 决定步骤成败（实测见 scripts/check-step-failfast.js 头注释）。
       - name: "Gate 2b - Desktop dev scripts (node --test)"
+        shell: bash
         run: |
           node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
           node --test scripts/sync-platform-config.test.js
@@ -101,6 +104,8 @@ jobs:
           bash scripts/hooks/post-checkout.test.sh
           bash scripts/hooks/pre-commit.test.sh
           bash scripts/session-init.test.sh
+          node --test scripts/check-step-failfast.test.js
+          node scripts/check-step-failfast.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
@@ -111,13 +116,16 @@ jobs:
       # worktree-fs-longpath 曾在此之后加一步 `shell: powershell` 单独跑，实测在 runner 上仍红
       # （同一条负控「未加 \\?\ 前缀的 IO.Directory::Delete 应当失败」unexpectedly succeeded），
       # 已撤下并登记进 scripts/check-unwired-tests.js 的 KNOWN_UNWIRED。
+      # session-write-guard 亦已撤下：改成 fail-fast 后暴露它在 runner 上本就是红的
+      # （`FAIL: shared status stays clean after tracked restore`，本机绿），同样登记欠账。
+      # 本步骤整体用 shell: bash —— 旧版用 pwsh 时，前一条测试抛 FAIL 后步骤仍报 success
+      # （实测 run 36313053992 的 step 11 之后继续跑完并绿），等于装饰性门禁。
       - name: "Gate 2d - PowerShell locks never collected by CI (pwsh 7)"
-        shell: pwsh
+        shell: bash
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/applive-foreign-audit.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---

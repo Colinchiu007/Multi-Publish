@@ -2,6 +2,7 @@
 - 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
   （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
+### 做了什么
 - `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
   只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
   完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
@@ -24,31 +25,77 @@
   紧跟在 `accounts-list` 之后跑则逐字复现 CI 的超时 —— 差别只有顺序，不是环境。
 - 修法：`test-runner.js` 新增 `_isSameRouteQueryOnlyNav()`，命中时在 `goto` 后强制 `page.reload()`，
   让每条用例拍到的都是"该路由首次加载"。判定刻意做窄（换路由不重载），以免改写既有 18 条基线的
-  拍摄条件。回归锁 2 条（该重载 / 不该重载各一条）+ 反证（把 `if (reusedComponent)` 改成恒 false ⇒ 前者红）。
+  拍摄条件。回归锁 2 条（该重载 / 不该重载各一条，`test-runner.test.js` 18 → 20 例）+ 反证（把 `if (reusedComponent)` 改成恒 false ⇒ 前者红）。
 - `VITE_MP_DEV_FLAG_OVERRIDE` 这层构建期开关**保留**，但定位改回它实际的价值：显式 opt-in、不依赖
   环境巧合（正式包既非 DEV 也不注入该变量 ⇒ 分支被静态折叠）；它不是本次失败的修法。同时纠正一处
   过度声称：诊断里的 `channelState` 调的是纯函数，只证明"解析与开关判定正确"，不证明"组件真的重新读过参数"。
+- `useFeatureFlag.test.js` 补 11 条（该文件用例数 6 → 17）：解析边界（含 `=yes`/空值/无 `=`/白名单外一律不覆盖，
+  并按后端模型 I4 补锁 encoded `=`、key 大小写、非法项在后不清掉前一合法值、值内再带 `=` 这四种确定语义；
+  覆盖命中不发请求、`0` 强制关闭、非开发态完全无视该通道、`file:` 协议不生效、非法值必须 warn、
+  无覆盖参数时保持 fail-closed；另有 `VITE_MP_DEV_FLAG_OVERRIDE` 开关两侧各一条）。
 - 新增视图用例 `accounts-list-flag-on`，**两处清单都登记**：`views/all-views.visual.test.js` 的 `viewTests`
   （`--single` / 全量路径）与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 实际执行的是这一份**）。
   首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
   而我的用例名出现 0 次。等待选择器直接指向 `[data-testid="account-cloud-sync"]`
   ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
-- `useFeatureFlag.test.js` 补 9 条（该文件用例数 6 → 15）：解析边界（含 `=yes`/空值/无 `=`/白名单外一律不覆盖，
   并按后端模型 I4 补锁 encoded `=`、key 大小写、非法项在后不清掉前一合法值、值内再带 `=` 这四种确定语义；
   覆盖命中不发请求、`0` 强制关闭、非开发态完全无视该通道、`file:` 协议不生效、非法值必须 warn、
   无覆盖参数时保持 fail-closed。
-  `0` 强制关闭、非开发态完全无视该通道、无覆盖参数时保持 fail-closed。
 ### 结论 / 待办
 - 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图），
   随后从 `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png` 并复跑要求 0 px。
 - 顺手记下（只记实测过的部分）：USAGE §5 写"44 视图"，而 `all-views.visual.test.js` 的 `routeView(` 注册实为 35 条
   （本 PR 后 36），另有 `supplementary-views.visual.test.js` 以对象数组注册 20 条；AGENTS.md 同一段又写"43 用例：23 核心 + 20
   补充" —— 三个数互不相同，属既有文档漂移。工作流侧条数本次未精确核对（`name:` 命中含步骤名），不给总数，只给真实增量。
-### 为什么
+
+# [未发布] refactor(accounts): 会话凭证恢复侧从 account-manager.js 拆出（2026-09-27，split-account-manager-session-restore）
+
+### 变更
+- **新增 `apps/desktop/electron/publishers/account-session-restore.js`（132 行）**：`restoreCookies` / `restoreLocalStorage` / `buildLocalStorageRestoreScript` / `_electronSession` / `getAccountPartitionCookies` / `mergeCookies` 六个函数**逐字平移**自 `publishers/account-manager.js`。拆出的两条理由与同目录先例 `account-name-write.js` 一致：① 关注点不同（「已保存凭证怎么注回 session/webContents、分区里现在有哪些 Cookie」 vs 「怎么登录、怎么检测、怎么发布」）；② 门禁——`account-manager.js` 在 `.github/scripts/max-lines-baseline.json` 挂账 1061 + 容差 200 = 上限 1261，而实测已写到 **1260 行，只剩 1 行余量**，任何后续改动都会撞 `LEDGER_GREW`。
+- **`account-manager.js` 1260 → 1166 行**（余量 1 → 95）。内部调用点一律改走**模块对象** `sessionRestore.X(...)`，刻意不做 require 期解构——本仓已两次证明「解构成本地绑定」会让测试里的 `vi.spyOn` 拦不到、静默走真实实现。
+- **依赖注入与 fail-closed**：`getAccountPartitionCookies` 需要的路径段校验 `isSafePathSegment` 由调用点注入（`{ isSafePathSegment }`），新模块**不**反向 require `account-manager`（CJS 循环会拿到半初始化导出，症状是只在加载顺序变化时偶发的 `is not a function`）。未注入或注入非函数时**返回空数组**（fail-closed），即「忘了注入」不会被放宽成放过任意 accountId。
+- **公开面零变化**：`module.exports` 中 `restoreCookies` / `restoreLocalStorage` / `mergeCookies` 以 `名字: sessionRestore.名字` 显式重绑定（同一函数对象），`getAccountPartitionCookies` 仍是本地两参包装函数；IPC 合同面、`bootstrap/phase*.js` 与 `core/container.js` 的引用方式均未改。日志前缀仍为 `AccountManager`。
+
+### 为什么这样做（不是顺手清理）
+纯重构最容易翻车的地方是「移动后测试仍绿，但绿的是一组从没真正跑到这些分支的测试」。因此顺序被强制为：先在**未改动**的实现上写特征测试并实测全绿（前提，不是结果）→ 再移动 → 同一套断言一字不改仍全绿 → 再做变异反证。拆分缝也不靠直觉：对 40 个顶层函数测量了「是否导出／文件内部调用次数／测试提及次数」，选中的簇内部依赖只有 `log`/`path`/`isSafePathSegment`、**无任何真实跨模块消费方**；被放弃的「资料刷新簇」有 `http-login-checker.js` 与 `account-manager-extract-info.test.js` 两处真实消费方，另开一单。
+
+### 测试
+- 新增 `account-session-restore.test.js` **22 例**：`restoreCookies` 的逐条默认值补齐 / `baseUrl` 覆盖 / 部分失败计数与两条 warn / 同步抛错不外抛；`restoreLocalStorage` 的非对象与空对象短路、注入脚本逐字形态、含引号换行的值必须整体 JSON 序列化（并新增 **Array 入参会产出数字键** 这一既有行为用例，来自 QM-6 Warning）；`getAccountPartitionCookies` 的非法 accountId fail-closed / 按平台根域过滤（含后缀伪装域被排除）/ session 形状不符 / 读取抛错 warn + `[]` / 非数组返回 / 宿主无 session；`mergeCookies` 的 `name+domain` 去重与**前者优先**。
+- 模块边界合同锁 3 例：新模块非注释代码行内不得出现 `require('./account-manager')`；`account-manager.js` 不得再自带这 5 个被移走的定义且导出仍是同一函数对象；未注入校验时必须 fail-closed。
+- **反证 7 条**：移动前 4 条（mergeCookies 优先级倒置 → 2 红；去掉 accountId 校验 → 1 红；去掉失败计数 → 1 红；去掉空对象短路 → 1 红）；移动后 3 条（去掉注入式校验 → 2 红；优先级倒置 → 2 红；断掉导出重绑定 → 1 红）。全部按字节还原（sha256 一致）。
+- 回归：`electron/publishers/` 9 files / 226 passed；desktop 全量 676 files / **12037 passed / 1 failed / 3 skipped**（唯一失败＝既有已知 flake `feedback.test.js` 的 `EPERM symlink`）；`check-max-lines` rc=0。
+- QM-1：先 `build:vue` 产出 `dist/index.html` 再 `--win --dir --publish never --config.electronDist=...`，rc=0 且无 `⨯`；asar 内确认含新模块与本 worktree 的 `dist/index.html`；隔离 `--user-data-dir` 启动 14 秒存活、`stderr` 0 字节、日志出现 `主窗口已显示` ×2，禁用模式（`Failed to load platform config`/`PluginLoader`/`ENOTDIR`/`Cannot find module`/`ERR_FILE_NOT_FOUND`）命中 0。残留 ERROR 为隔离 profile 无许可证/无 python/回调端口被并发实例占用，属既有环境产物。
+
+### QM-6 双模型外部评审
+- claude 侧：**0 Critical / 1 Warning / 8 Info**。逐条核对后采纳两条：Warning（`restoreLocalStorage` 未覆盖 Array 入参）→ 补特征用例钉住现状而不改语义；Info（注释写「6 个」而校验实为 5 个）→ 注释精确化。其余 Info 为确认项（无循环 require、两参签名保留、日志前缀不变、去重优先级逐字保留、`buildLocalStorageRestoreScript` 本就未导出）。
+- opencode 侧：已知 `external_directory` 自动拒绝导致三连败，本轮未重复尝试，按 AGENTS.md「3 次全败才跳过」**如实登记为未完整通过**，不以本地自审冒充双模型。
+
+### 文档
+- 新增 openspec change `split-account-manager-session-restore`（proposal / design / specs delta / tasks 四件，`openspec validate --strict` 通过）。
+- `01-docs/learnings.md` 新增「纯平移重构」条目；`.quality-gates.md` 回填执行记录。
+
+
+# [未发布] fix(ci): 多命令 run 步骤必须 fail-fast —— 上一条 PR 交付的 Gate 2d 是装饰性门禁
+
+### 症状（runner 日志实证，run 36313053992 / step 11）
+`Gate 2d` 用 `shell: pwsh`，一个 `run: |` 里串了 5 条测试。日志时间线：
+`session-write-guard.test.ps1` 抛 `FAIL: shared status stays clean after tracked restore` → 下一条测试照跑并打 `PROFILE_LOCK_TEST_OK` → 步骤 success → QG Static success → `Gate Result` success → **PR 照合并**。
+PowerShell 步骤只取最后一条命令的 `$LASTEXITCODE`，所以前 4 条的失败全被吞掉。
+
 ### 做了什么
+- 新增 `scripts/check-step-failfast.js`：含 ≥2 条测试命令的 `run:` 块必须 fail-fast —— `shell: bash`（GitHub 默认 `bash -e -o pipefail`）或正文里自查 `$LASTEXITCODE`；`workflows` 目录缺失/为空直接抛错；欠账清单**钉成空数组**（不许用豁免绕过，只能改成 bash）。
+- `Gate 2b`（长期存在的同类洞，6 条 `node --test`）与 `Gate 2d` 改为 `shell: bash`；全仓 4 个多测试步骤现已全部 fail-fast。
+- `session-write-guard.test.ps1` 从 Gate 2d 撤下并登记欠账：它不是被误红，是**在 runner 上本就红**（此前一直被吞）。疑与 CRLF/autocrlf 下的 `git restore` 差异有关，另立 change 修。
+- 两个棘轮都接进 Gate 2c。
 
+### 为什么值得单开一轮
+上一条 PR 的立意就是"测试没接进 CI 等于没写"，结果我接进去的那一步自身不 fail-fast —— 收集齐了，执行结果却不上报。这比没接更糟：它给出绿色的假安心。
 
-
+### 验证
+- **直接反证（决定性）**：按 Gate 2d 完全相同的调用形状跑 `bash -ec 'pwsh -Command "exit 1"; pwsh -Command "Write-Host REACHED_SECOND"'` → `REACHED_SECOND` **未打印**、rc=1，证明改法真的会中止步骤。
+- 棘轮自身 6 passed（含"pwsh 多命令必须红 / bash 放行 / 自查 $LASTEXITCODE 放行 / 单条命令不受约束 / 空 workflow 集合抛错 / 真实仓库违规为 0 且清单为空"）。
+- 反证另六次（每次 `git checkout HEAD -- <单文件>` 恢复后复绿）：① 把 Gate 2b 的 `shell: bash` 摘掉 → 报 `STEP_NOT_FAIL_FAST`；② 把 Gate 2d 的 `shell: bash` 换回 `pwsh` → 同样报违规；③ 给违规步骤塞一条豁免 → 报 `STEP_EXEMPTION_STALE` 且"清单必须为空"的钉住断言红；④ 把 `check-step-failfast.test.js` 从 Gate 2c 摘掉 → 接线棘轮报它未接线；⑤ 把 `TEST_INVOCATION` 改成永不匹配 → `stepsScanned` 由 4 掉到 2，夹具的"恰好 1 个"与真实仓库的 `>= 4` 下界**同时**红；⑥ 摘掉"空 workflow 集合必须抛错" → 对应夹具红。（⑤⑥ 第一次尝试时探针锚点没对上、自己抛错，变异根本没落下 —— 那样的"没变红"不作数，改锚点后重跑才计入。）
+- 整跑：`bash -ec` 下 Gate 2b+2c+2d 全绿、113s（hooks PASS=10 / PASS=23、session-init PASS=13、4 条 ps1 rc=0、两套棘轮 rc=0）；`workflow-contract` 23 passed。
 
 
 # [未发布] test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d
