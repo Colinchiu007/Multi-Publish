@@ -110,12 +110,19 @@ jobs:
 
       # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
       # 分档依据：本机 pwsh 7.6 与 Windows PowerShell 5.1 各跑一遍 + **本步在 runner 上的首跑结果**。
-      # 下面 5 条在 runner 的 pwsh 7 下 rc=0；其中 applive-foreign-audit 与 start-desktop-profile-lock
+      # 下面 6 条：**前 5 条已在 runner 的 pwsh 7 下实测 rc=0**（#2516 留痕），第 6 条
+      # worktree-fs-longpath 由本 PR 首次回接、其成败以本 run 的这一步为准。其中
+      # applive-foreign-audit 与 start-desktop-profile-lock
       # 带小写 `#requires -Version 7`，在 5.1 下是 ScriptRequiresUnmatchedPSVersion 根本没执行
       # （grep 时 `-i` 才能命中，按 `#Requires` 大写找会漏）。
       # worktree-fs-longpath 曾在此之后加一步 `shell: powershell` 单独跑，实测在 runner 上仍红
       # （同一条负控「未加 \\?\ 前缀的 IO.Directory::Delete 应当失败」unexpectedly succeeded），
-      # 已撤下并登记进 scripts/check-unwired-tests.js 的 KNOWN_UNWIRED。
+      # 当时被撤下并登记进 KNOWN_UNWIRED。现已回接：那条负控把「本进程能不能走长路径」写死了，
+      # 而它实际由注册表 LongPathsEnabled 与该 exe 清单是否 longPathAware 共同决定（pwsh 7 带、
+      # 5.1 不带，且 .NET FW 4.6.2+ 在 OS 开启后自己补前缀）。改为运行时探针实测本进程能力再选
+      # 期望：不能走长路径 ⇒ 仍要求「未加前缀必须失败」（这才证明夹具够深、正控有意义）；
+      # 能走 ⇒ 只要求结果与探针一致，深浅由该文件第 2 节的 depth>260 硬断言守住。
+      # 本机两档各命中一条支路实跑（pwsh 7 capable / 5.1 not-capable，各 28 条 PASS）。
       # session-write-guard 曾在撤下名单里：改成 fail-fast 后暴露它在 runner 上本就红
       # （`FAIL: shared status stays clean after tracked restore`，本机绿）。根因已定位并修掉，
       # 不在守卫也不在 runner 的特殊性，而在夹具两处与真实工作树不同形：索引由 `git add`
@@ -132,6 +139,7 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/worktree-fs-longpath.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
