@@ -48,6 +48,11 @@
   `env:` 注释。三处一并改为撤回式表述（写明被证伪的取值与真正根因）—— 只改文档不改代码注释，
   下一个人读源码时仍会把这个结论捡回来。
 ### 结论 / 待办
+- **CI 首轮红的连带项（不得只盯着预期的那条）**：同一个 run 里 `QG Unit Tests` / `QG Desktop Shards 1+2` /
+  `QG Coverage` 也红，共同原因是 `condition-waiting.test.js` 的**视觉用例总数锁**（104）——本 PR 新增一条视图
+  用例使总数变 105。属 AGENTS.md「门禁断言随实现迁移同步」的漏更，已同步标题与断言（本地复现
+  `expected 105 to be 104` 后才改，改后 23 例全绿）。同轮 `rate-limit-self-check.test.js` 那条红**未认领**：
+  本 PR 未触碰 `electron/services/`，该用例按真实 `setTimeout` 计并发，本机连跑 6/6 绿，登记为 CI 满载抖动待查。
 - 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图）。
   实测 run 36330609534 正是如此：**18 条既有视图全 PASSED、唯一红就是本用例缺基线**，随后从该 run 的
   `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png`（1920×1080，人工核对图内确有「同步云端」按钮）。
