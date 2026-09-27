@@ -16277,3 +16277,91 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **为什么这是"借来的安全"**：安全来自"缺少那段逻辑"，不是来自"我们做了防护"。**将来任何人给登录视图加「失败→错误页」，都必须同时补 `errorCode !== -3` 与 `isMainFrame` 门禁**，否则一次 cancel 就会把登录页换成错误页 —— 而 cancel 默认关（`MP_LOGIN_NOISE_CANCEL=1`）意味着这个回归只会在有人打开开关、又恰好加了错误页之后才爆，测试面完全覆盖不到。
 - **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
 - **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。
+
+## hash 路由里「同一路由只改 query」会复用组件实例，`onMounted` 不再跑（hash-route-query-only-reuse，2026-09-27，cloud-flag-visual）
+
+- **症状**：视觉用例等一个"由 `onMounted` 里读 URL 参数才会出现"的控件，超时；但**单独跑同一条用例就通过**。
+  本仓是 `createWebHashHistory`，从 `#/accounts` 导航到 `#/accounts?mpFlag=…` 时 pathname 恒为 `/`、
+  fragment 的 path 段也没变 ⇒ vue-router 复用组件实例 ⇒ `onMounted` 不重跑 ⇒ 挂在里面的参数读取根本不执行。
+  只要**上一条用例恰好停在同一路由**就中招（实测：`accounts-list` → `accounts-list-flag-on` 必红）。
+- **为什么容易误判成环境问题**：症状与"构建期常量没生效"完全同形（页面正常、纯函数说该开、控件不在）。
+  我当时据此判定"CI 的 vite 带 `NODE_ENV=production` ⇒ `import.meta.env.DEV=false`"，还被本地一次同形复现
+  "佐证"过 —— 直到在 CI 里打印进程侧取值，实测 `NODE_ENV=[]`，判定被**自己的探针证伪**。
+  核心教训：**能复现症状不等于找到成因**。本地复现只证明"该条件足以产生同样表现"，不证明它是现场那个原因；
+  要区分这两者，得找一个"只改变嫌疑变量、其它全部不变"的对照，而不是找一个能重现症状的环境。
+- **判别手法（便宜且决定性）**：用执行顺序做 A/B。本仓 `run-pixel-tests.js` 认环境变量 `PIXEL_ONLY`：
+  单独跑 ⇒ 通过；把上一条同路由用例加进去按序跑 ⇒ 复现。一步把"环境差异"与"顺序依赖"分开。
+  推论：**顺序依赖使"我在本地单独跑过并通过"不构成证据**，共享同一 page/上下文的用例必须按 CI 的顺序再跑一遍。
+- **修法**：`test-runner.js` 的 `_navigateToRoute` 增加 `_isSameRouteQueryOnlyNav()`（protocol / host / pathname 相同、
+  fragment 的 path 段相同、query 段不同 ⇒ 命中），命中时 `goto` 后强制 `page.reload()`。判定必须**做窄**：
+  换路由不重载，否则会把既有基线的拍摄条件一并改掉（那等于静默作废整套人工审核过的基线）。
+  回归锁要**成对**写（该重载 / 不该重载各一条）—— 只写前者，实现退化成"永远重载"也无人发现。
+- **同族要求**：诊断字段要按它**实际能证明的范围**解读。`channelState` 调的是模块导出的纯函数，只证明
+  "解析与开关判定正确"，不证明"组件真的重新读过参数"；把前者当后者用，结论就带进沟里了。
+
+## 视觉用例有**两份清单**，CI 只认 `run-pixel-tests.js` 的 `pixelTests`（visual-two-registries，2026-09-27，cloud-flag-visual）
+
+- **症状特征**：给某个视图新增一条像素用例、CI 的 `QG Visual` 直接绿 —— 那不是"通过了"，是**根本没跑**。
+  判据：去 job 日志数视图名出现次数（`run-pixel-tests.js` 每条打印 `名称 (路由)...` + 一行 `PASSED`）；新用例名 0 次 = 没进清单。
+  实测本仓首跑日志 18 个视图各 1 次全 PASSED，而我登记的用例名 0 次。
+- **两份清单的分工**：`tests/visual-testing/views/all-views.visual.test.js` 的 `viewTests` 服务 `npm run test:visual` /
+  `test:all:visual` / `--single <name>`；`tests/visual-testing/scripts/run-pixel-tests.js` 的 `pixelTests` 才是
+  **`QG Visual`（Gate 7，`npm run test:visual:pixel`）** 执行的清单。另有 `test:visual:ci` → `visual-ci.js`，它会先
+  `assertApprovedBaselines` **整批前置中止**（未接进 workflow）—— 所以"缺基线要红一轮好取产物"这条路只能走 `test:visual:pixel`。
+  单条过滤的入口也不同：`all-views` 认 argv `--single`，`run-pixel-tests` 认环境变量 `PIXEL_ONLY`。
+- **口径**：新增/改造像素用例**两处都登记**（除非该视图明确只用于人工核查），并在 PR 说明里给出"CI 日志里这条用例
+  出现了几次"作为证据；只贴"QG Visual 绿"不构成证据。
+- **顺带一条让整条流程成立的事实**：缺基线时 `test-runner.js` 是**先截图再判失败**（`page.screenshot()` 在
+  `ERR_VISUAL_BASELINE_MISSING` 之前），所以"第一轮故意让它红"确实能从 `quality-gate-visual-reports` 产物里拿到
+  `*-current.png` 用于回填 —— 改 `test-runner.js` 时不得把这个顺序反过来。
+
+## 外部评审的"发现"必须逐条对得上产物原文：一路模型没返回结论时，"双模型"就是虚的（review-attribution-drift，2026-09-27，cloud-flag-visual）
+
+- **事故**：给一条开发态 flag 覆盖通道做 QM-6 降级评审（`codeagent-wrapper` 未安装 → 直调 `codex exec` + `opencode run`）。
+  我在 `.quality-gates.md`、CHANGELOG 与提交信息里写了"双模型发现 X 条"，其中**两条（"1280 视口会隐藏命令栏"、
+  "与运营中心同步卡片共用开关"）根本不在任何一份评审产物里**，而 `opencode` 那一路**一个字结论都没返回**
+  （产物只有"我先读取 diff…"和若干 Read 调用，1188 字节就结束了）。
+- **为什么会发生**：评审产物是几十万字节的 stdout 转储（codex 那份 3.1MB，含它自己的思维流水），我在正文里
+  找"看起来像结论"的段落来复述，而不是**先确认这一路有没有真的产出 findings**；再把自审同时段想到的东西
+  顺手挂到了"评审指出"名下。表现完全静默：文档读起来比事实更权威。
+- **口径（今后强制）**：① 引用外部评审前，先 `grep` 产物原文确认该条**确实存在**，并按"哪一路模型说的"记录，
+  不得合并两路再摊派；② 一路未产出结论必须写成「**未产出结论 / 本轮仅 N 个独立外部模型覆盖**」，
+  不得声称双模型完成（AGENTS.md「不以自审冒充交叉审查」的镜像情形：也不得以缺失冒充已评审）；
+  ③ 自审加严的条目一律标注**自审**，宁可显得评审机会少一次，也不要让它看起来多一次。
+- **判别信号（可复用）**：评审产物文件大小异常（几 KB / 只有工具调用无正文）、或"发现项"读起来正好是
+  我自己刚想到的东西 —— 两者都提示归属可能被污染。
+
+## 混合行尾的文档被脚本按"检测到的单一行尾"整份重写，会造出几万行幽灵 diff（eol-flatten-ghost-diff，2026-09-27）
+
+- **症状**：`git diff --numstat` 报 `.quality-gates.md` `5509 5492`（整文件重写），而 `--ignore-cr-at-eol` 只报 `17 0`。
+  真实内容只加了 17 行。后果不止是难看的 diff：此后任何并发会话合并该文件都会得到"整文件冲突"。
+- **根因**：`core.autocrlf=false`（本仓按字节存），而本仓文档**每个文件的基线不一样** —— 实测 blob：
+  `.quality-gates.md` / PRD / openspec `tasks.md` 是纯 LF，`CHANGELOG.md` / `learnings.md` 是纯 CRLF。
+  脚本里 `const eol = s.includes("\r\n") ? "\r\n" : "\n"` 再 `lines.join(eol)` 的写法，对**混合**文件等于
+  把另一半行尾全改一遍；`readFileSync + 纯字符串替换`才安全（只动锚点那几行）。
+- **强制做法**：① 脚本改文档时**禁止整文件 join**，用锚点级 `split/replace`；确需重建时按**逐行原始行尾**回写
+  （见 `scripts` 侧手法：以 `git show HEAD:<file>` 为底，逐行取该行原本的结尾，新增行继承前一行）。
+  ② 提交前**必须**跑一次两口径对账：`git diff --numstat` vs `git diff --ignore-cr-at-eol --numstat`，
+  两个数差得远就是行尾被改了。③ commit/status 里那句 `LF will be replaced by CRLF the next time Git touches it`
+  就是这件事的即时告警，不是噪声。
+- **同族第二落点**：三方合并"置顶型文档"时，`以 main 为底 + 把本分支新增行插回顶部` 的多重集手法对
+  CHANGELOG / gates / learnings 正确，但对**双方各自更新了同一条目**的章节（本次是 OPS §5 的未执行清单）
+  会失败 —— 那里必须**语义合成**（我侧升级为实测状态、KMS 条目取 main 的已落地版本、丢掉的行要能说出
+  它是"main 已改写"还是"我侧原创"）。验收脚本必须分两侧统计丢失，并允许"祖先里有 + main 里没有"这一类。
+
+## 置顶型文档做 union 合并时，「每一行都不少」的断言抓不到「多出来的重复行」（topdoc-union-duplication-blindspot，2026-09-27，cloud-flag-visual）
+
+- **场景**：`CHANGELOG.md` / `.quality-gates.md` / `learnings.md` 都是「新条目插顶部」。两条 PR 各自 prepend
+  时 git 必冲突，正确解法是把两侧块都留下（union），并用多重集断言「两侧的每一行都至少保留原次数」。
+- **这把锁的盲区是单向上的**：它只证「没丢」，不证「没多」。本轮实测：我方要把一个**四行**的 bullet
+  换行首（改用例数 6→17），脚本只 `removeOnce` 了首行，剩下三条续行原地留下 ⇒ 结果里同一句话出现两遍，
+  而「不少行」断言**照样通过**（它看见的行都在）。表现是文档里凭空多出一段无主续行，读起来像截断。
+- **补法（本轮起用）**：union 合并的验收要同时跑三个方向
+  ① 少行：两侧每一非空行都必须在结果中出现 ≥ 原次数（原有做法）；
+  ② 多行：结果里**任何一条重复的非空行**都要能被解释 —— 要么原文件本来就有这么多次，要么在 declared 清单里；
+  ③ 结构：块内每个 `- ` 项目符号到下一个 `- ` / `#` 之间不得出现「以两个空格开头但上一行不是同一 bullet」的孤儿续行。
+  ②③ 都不难写，难的是**想不到要写** —— 判据：凡是「我把一个多行结构整体换掉」的编辑，必须数一遍行数差。
+- **同类前科（同一天的第二起）**：上一轮同样的 prepend 手法还留下过两个**空的 `### 为什么` / `### 做了什么` 标题**
+  和一张被甩到块尾的**表格表头**（`.quality-gates.md` 的 `| 门禁 | 状态 | … |`）。它们同样不会让「不少行」变红。
+  ⇒ 置顶型文档合并完必须**用眼睛读一遍被合并的那个块**（约 50 行），不能只看断言绿。
+

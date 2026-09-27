@@ -201,6 +201,36 @@ describe('视觉视图门禁', () => {
     }
   })
 
+  it('同一路由只改 query 时必须强制重载（组件实例复用会让 onMounted 不再跑）', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-reuse-'))
+    const runner = createRunner(tempDir)
+    runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
+    runner.page.reload = vi.fn().mockResolvedValue(undefined)
+    try {
+      await runner._navigateToRoute('/accounts?mpFlag=account_cloud_sync=1', '.accounts-page')
+      expect(runner.page.reload).toHaveBeenCalledTimes(1)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('换路由（path 变了）不得触发多余重载 —— 那会改写既有 18 条基线的拍摄条件', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-noreuse-'))
+    const runner = createRunner(tempDir)
+    runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
+    runner.page.reload = vi.fn().mockResolvedValue(undefined)
+    try {
+      await runner._navigateToRoute('/publish', '.publish-page')
+      expect(runner.page.reload).toHaveBeenCalledTimes(0)
+      // 同一路由且 query 也没变 ⇒ 同样不该重载
+      runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
+      await runner._navigateToRoute('/accounts', '.accounts-page')
+      expect(runner.page.reload).toHaveBeenCalledTimes(0)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('首次导航停留在 about:blank 时不访问受限存储', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-blank-state-reset-'))
     const runner = createRunner(tempDir)
