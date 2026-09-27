@@ -73,6 +73,14 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
+// 会话凭证恢复侧（Cookie 注回 session / webContents、账号分区 Cookie 读取与合并）
+// 单一实现已拆到 ./account-session-restore；本文件只负责在它之上绑定自己私有的路径段校验，
+// 并保持 module.exports 的名字与签名不变（IPC 与 bootstrap/container 的合同面）。
+const sessionRestore = require('./account-session-restore')
+
+function getAccountPartitionCookies (platform, accountId) {
+  return sessionRestore.getAccountPartitionCookies(platform, accountId, { isSafePathSegment })
+}
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -509,7 +517,7 @@ async function checkLoginStatus (platform, accountId) {
   const credentials = loadSavedCredentials(accountId, platform)
   const encryptedCookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
   const partitionCookies = await getAccountPartitionCookies(platform, accountId)
-  const cookies = mergeCookies(encryptedCookies, partitionCookies)
+  const cookies = sessionRestore.mergeCookies(encryptedCookies, partitionCookies)
   const localStorageData = credentials?.localStorage && typeof credentials.localStorage === 'object' && !Array.isArray(credentials.localStorage)
     ? credentials.localStorage
     : {}
@@ -591,7 +599,7 @@ async function checkLoginStatus (platform, accountId) {
       // 注入 Cookie
       if (cookies.length > 0) await page.context().addCookies(cookies)
       if (Object.keys(localStorageData).length > 0) {
-        await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
+        await page.addInitScript(sessionRestore.buildLocalStorageRestoreScript(localStorageData))
       }
 
       // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速。
@@ -761,60 +769,8 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies) {
   }
 }
 
-/**
- * 恢复 Cookie 到 Electron session
- * 基于参考产品逆向分析 restoreCookies
- */
-function restoreCookies (session, cookies, baseUrl) {
-  let _restoreFailed = 0
-  const promises = cookies.map(cookie => {
-    try {
-      const { name, value, domain, path, secure, httpOnly, expirationDate, sameSite } = cookie
-      return session.cookies.set({
-        url: baseUrl || `https://${domain || 'localhost'}`,
-        name: name || '',
-        value: value || '',
-        domain: domain || undefined,
-        path: path || '/',
-        secure: secure !== false,
-        httpOnly: httpOnly || false,
-        expirationDate: expirationDate || undefined,
-        sameSite: sameSite || 'Unspecified',
-      }).catch(e => {
-        _restoreFailed += 1
-        log.warn('AccountManager', 'restoreCookies: cookie set failed name=' + (name || '') + ' err=' + (e && e.message))
-      })
-    } catch {
-      return Promise.resolve()
-    }
-  })
-  return Promise.all(promises).then(results => {
-    if (_restoreFailed > 0) log.warn('AccountManager', 'restoreCookies: ' + _restoreFailed + '/' + cookies.length + ' cookies failed to restore')
-    return results
-  })
-}
 
-/**
- * 恢复 localStorage 到 webContents
- * 基于参考产品逆向分析 restoreLocalStorage
- */
-function restoreLocalStorage (webContents, localStorageObj) {
-  if (!localStorageObj || typeof localStorageObj !== 'object') return Promise.resolve()
-  
-  const items = Object.entries(localStorageObj)
-  if (items.length === 0) return Promise.resolve()
 
-  // 安全修复：原 escape 顺序错误（先替换单引号导致 \'; 注入）
-  // 改用 JSON.stringify 整体序列化，杜绝字符串拼接注入
-  const script = buildLocalStorageRestoreScript(Object.fromEntries(items))
-
-  return webContents.executeJavaScript(script).catch(() => {})
-}
-
-function buildLocalStorageRestoreScript (localStorageObj) {
-  const json = JSON.stringify(localStorageObj || {})
-  return `(function(){var d=${json};Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch(e){}})})()`
-}
 
 /**
  * 从主进程本地存储读取账号凭证，禁止通过 preload 暴露给渲染进程。
@@ -918,14 +874,14 @@ async function openSavedAccount (accountId, platform, opts = {}) {
   
   // 有 session 时恢复 cookies
   try {
-    await restoreCookies(session, cookies, baseUrl)
+    await sessionRestore.restoreCookies(session, cookies, baseUrl)
   } catch (e) {
     log.warn('AccountManager', `restoreCookies failed: ${e.message}`)
   }
   
   const webContents = opts.webContents || mainWindow?.webContents
   if (webContents && Object.keys(localStorageData).length > 0) {
-    await restoreLocalStorage(webContents, localStorageData)
+    await sessionRestore.restoreLocalStorage(webContents, localStorageData)
   }
   return { isLoggedIn: true, accountInfo, localStorageData }
 }
@@ -994,58 +950,9 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   return false
 }
 
-/**
- * 延迟获取 Electron session 模块（便于测试注入，缺 mock 时安全降级为 null）。
- */
-function _electronSession () {
-  try {
-    const electron = require('electron')
-    return electron && electron.session && typeof electron.session.fromPartition === 'function' ? electron.session : null
-  } catch (_) {
-    return null
-  }
-}
 
-/**
- * 读取账号 session 分区（persist:account-{id}）中属于该平台的 Cookie。
- * 这是「用户在内嵌浏览器登录后、加密凭证尚未回写」时唯一的登录态证据来源。
- * Electron 的 Session.cookies 只有 get/set/remove/flush（**没有 getAll**）。
- * @param {string} platform
- * @param {string} accountId
- * @returns {Promise<Array>} 读取失败返回空数组（由调用方按三态处理，不臆断结论）
- */
-async function getAccountPartitionCookies (platform, accountId) {
-  if (!isSafePathSegment(accountId)) return []
-  const ses = _electronSession()
-  if (!ses) return []
-  try {
-    const viewSession = ses.fromPartition('persist:account-' + accountId)
-    if (!viewSession || !viewSession.cookies || typeof viewSession.cookies.get !== 'function') return []
-    const all = await viewSession.cookies.get({})
-    if (!Array.isArray(all)) return []
-    return typeof isPlatformCookieDomain === 'function' && platform
-      ? all.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
-      : all
-  } catch (e) {
-    log.warn('AccountManager', 'getAccountPartitionCookies failed ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
-    return []
-  }
-}
 
 /** 按 name+domain 去重合并两组 Cookie，前者优先（加密凭证更贴近保存时点）。 */
-function mergeCookies (primary, extra) {
-  const seen = new Set()
-  const merged = []
-  for (const list of [primary, extra]) {
-    for (const cookie of (Array.isArray(list) ? list : [])) {
-      const key = String((cookie && cookie.name) || '') + '@' + String((cookie && cookie.domain) || '')
-      if (!cookie || !cookie.name || seen.has(key)) continue
-      seen.add(key)
-      merged.push(cookie)
-    }
-  }
-  return merged
-}
 
 /**
  * 固化登录态到唯一真源（后端 accounts.json 的 status 字段）。
@@ -1241,15 +1148,15 @@ module.exports = {
   extractAccountInfoFromWebContents,
   refreshProfileFromPage,
   refreshProfileFromHttpApi,
-  restoreCookies,
-  restoreLocalStorage,
+  restoreCookies: sessionRestore.restoreCookies,
+  restoreLocalStorage: sessionRestore.restoreLocalStorage,
   loadSavedCredentials,
   getAccountProxyStatus,
   setAccountProxy,
   openSavedAccount,
   checkLocalCredentials,
   getAccountPartitionCookies,
-  mergeCookies,
+  mergeCookies: sessionRestore.mergeCookies,
   persistLoginState,
   setAccountActive,
   renameAccount,

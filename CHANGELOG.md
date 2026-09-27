@@ -1,3 +1,30 @@
+# [未发布] refactor(accounts): 会话凭证恢复侧从 account-manager.js 拆出（2026-09-27，split-account-manager-session-restore）
+
+### 变更
+- **新增 `apps/desktop/electron/publishers/account-session-restore.js`（132 行）**：`restoreCookies` / `restoreLocalStorage` / `buildLocalStorageRestoreScript` / `_electronSession` / `getAccountPartitionCookies` / `mergeCookies` 六个函数**逐字平移**自 `publishers/account-manager.js`。拆出的两条理由与同目录先例 `account-name-write.js` 一致：① 关注点不同（「已保存凭证怎么注回 session/webContents、分区里现在有哪些 Cookie」 vs 「怎么登录、怎么检测、怎么发布」）；② 门禁——`account-manager.js` 在 `.github/scripts/max-lines-baseline.json` 挂账 1061 + 容差 200 = 上限 1261，而实测已写到 **1260 行，只剩 1 行余量**，任何后续改动都会撞 `LEDGER_GREW`。
+- **`account-manager.js` 1260 → 1166 行**（余量 1 → 95）。内部调用点一律改走**模块对象** `sessionRestore.X(...)`，刻意不做 require 期解构——本仓已两次证明「解构成本地绑定」会让测试里的 `vi.spyOn` 拦不到、静默走真实实现。
+- **依赖注入与 fail-closed**：`getAccountPartitionCookies` 需要的路径段校验 `isSafePathSegment` 由调用点注入（`{ isSafePathSegment }`），新模块**不**反向 require `account-manager`（CJS 循环会拿到半初始化导出，症状是只在加载顺序变化时偶发的 `is not a function`）。未注入或注入非函数时**返回空数组**（fail-closed），即「忘了注入」不会被放宽成放过任意 accountId。
+- **公开面零变化**：`module.exports` 中 `restoreCookies` / `restoreLocalStorage` / `mergeCookies` 以 `名字: sessionRestore.名字` 显式重绑定（同一函数对象），`getAccountPartitionCookies` 仍是本地两参包装函数；IPC 合同面、`bootstrap/phase*.js` 与 `core/container.js` 的引用方式均未改。日志前缀仍为 `AccountManager`。
+
+### 为什么这样做（不是顺手清理）
+纯重构最容易翻车的地方是「移动后测试仍绿，但绿的是一组从没真正跑到这些分支的测试」。因此顺序被强制为：先在**未改动**的实现上写特征测试并实测全绿（前提，不是结果）→ 再移动 → 同一套断言一字不改仍全绿 → 再做变异反证。拆分缝也不靠直觉：对 40 个顶层函数测量了「是否导出／文件内部调用次数／测试提及次数」，选中的簇内部依赖只有 `log`/`path`/`isSafePathSegment`、**无任何真实跨模块消费方**；被放弃的「资料刷新簇」有 `http-login-checker.js` 与 `account-manager-extract-info.test.js` 两处真实消费方，另开一单。
+
+### 测试
+- 新增 `account-session-restore.test.js` **22 例**：`restoreCookies` 的逐条默认值补齐 / `baseUrl` 覆盖 / 部分失败计数与两条 warn / 同步抛错不外抛；`restoreLocalStorage` 的非对象与空对象短路、注入脚本逐字形态、含引号换行的值必须整体 JSON 序列化（并新增 **Array 入参会产出数字键** 这一既有行为用例，来自 QM-6 Warning）；`getAccountPartitionCookies` 的非法 accountId fail-closed / 按平台根域过滤（含后缀伪装域被排除）/ session 形状不符 / 读取抛错 warn + `[]` / 非数组返回 / 宿主无 session；`mergeCookies` 的 `name+domain` 去重与**前者优先**。
+- 模块边界合同锁 3 例：新模块非注释代码行内不得出现 `require('./account-manager')`；`account-manager.js` 不得再自带这 5 个被移走的定义且导出仍是同一函数对象；未注入校验时必须 fail-closed。
+- **反证 7 条**：移动前 4 条（mergeCookies 优先级倒置 → 2 红；去掉 accountId 校验 → 1 红；去掉失败计数 → 1 红；去掉空对象短路 → 1 红）；移动后 3 条（去掉注入式校验 → 2 红；优先级倒置 → 2 红；断掉导出重绑定 → 1 红）。全部按字节还原（sha256 一致）。
+- 回归：`electron/publishers/` 9 files / 226 passed；desktop 全量 676 files / **12037 passed / 1 failed / 3 skipped**（唯一失败＝既有已知 flake `feedback.test.js` 的 `EPERM symlink`）；`check-max-lines` rc=0。
+- QM-1：先 `build:vue` 产出 `dist/index.html` 再 `--win --dir --publish never --config.electronDist=...`，rc=0 且无 `⨯`；asar 内确认含新模块与本 worktree 的 `dist/index.html`；隔离 `--user-data-dir` 启动 14 秒存活、`stderr` 0 字节、日志出现 `主窗口已显示` ×2，禁用模式（`Failed to load platform config`/`PluginLoader`/`ENOTDIR`/`Cannot find module`/`ERR_FILE_NOT_FOUND`）命中 0。残留 ERROR 为隔离 profile 无许可证/无 python/回调端口被并发实例占用，属既有环境产物。
+
+### QM-6 双模型外部评审
+- claude 侧：**0 Critical / 1 Warning / 8 Info**。逐条核对后采纳两条：Warning（`restoreLocalStorage` 未覆盖 Array 入参）→ 补特征用例钉住现状而不改语义；Info（注释写「6 个」而校验实为 5 个）→ 注释精确化。其余 Info 为确认项（无循环 require、两参签名保留、日志前缀不变、去重优先级逐字保留、`buildLocalStorageRestoreScript` 本就未导出）。
+- opencode 侧：已知 `external_directory` 自动拒绝导致三连败，本轮未重复尝试，按 AGENTS.md「3 次全败才跳过」**如实登记为未完整通过**，不以本地自审冒充双模型。
+
+### 文档
+- 新增 openspec change `split-account-manager-session-restore`（proposal / design / specs delta / tasks 四件，`openspec validate --strict` 通过）。
+- `01-docs/learnings.md` 新增「纯平移重构」条目；`.quality-gates.md` 回填执行记录。
+
+
 # [未发布] test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d
 
 ### 做了什么
