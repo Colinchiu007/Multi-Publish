@@ -14,19 +14,18 @@ const TEST_SUFFIXES = [".test.js", ".test.mjs", ".test.sh", ".test.ps1"]
 const SCAN_DIRS = ["scripts", path.join(".github", "scripts")]
 
 // 欠账登记：path -> 不可省略的原因。只能缩小，新增即红（与 platform-definitions 棘轮同形）。
-// 2026-09-27 实测：scripts 下 7 条 PowerShell 测试在 .github/workflows 里零命中，
-// 其中两条仅由本机 bootstrap 自检调用；其余能否在 CI runner 上跑尚未逐个实测，
-// 故先登记欠账而非直接接线（接线前必须先证明它在 runner 上可跑且无真机副作用）。
+// 2026-09-27 把 scripts 下 7 条 PowerShell 测试逐个实跑分档（pwsh 7.6 与 Windows PowerShell 5.1
+// 各跑一遍）后，6 条已接进 Gate 2d / 2d-b；只剩这一条，理由是硬的而不是"没试过"。
 const KNOWN_UNWIRED = {
-  "scripts/applive-foreign-audit.test.ps1": "本机脚本；是否可在 CI runner 上跑未实测，接线前需逐个判定",
-  "scripts/mp-worktree-health.test.ps1": "本机脚本；是否可在 CI runner 上跑未实测，接线前需逐个判定",
-  "scripts/session-guard.test.ps1": "本机脚本；是否可在 CI runner 上跑未实测，接线前需逐个判定",
   "scripts/session-isolation-automation.test.ps1":
-    "仅由本机 scripts/bootstrap-write-guard.ps1 自检调用；会注册计划任务/起 watcher，属真机副作用，未在 CI",
-  "scripts/session-write-guard.test.ps1":
-    "仅由本机 scripts/bootstrap-write-guard.ps1 自检调用；依赖计划任务与 watcher 实态，未在 CI",
-  "scripts/start-desktop-profile-lock.test.ps1": "需起真实桌面进程；是否可在 CI runner 上跑未实测",
-  "scripts/worktree-fs-longpath.test.ps1": "需真实长路径 worktree 环境；是否可在 CI runner 上跑未实测",
+    "内部直接调用 install-session-isolation-task.ps1 注册**真实**计划任务（跨会话共享的机器状态），" +
+    "且本机非提权实跑 HRESULT 0x80070005 拒绝访问（AtLogOn 任务需提权注册）⇒ 接进 CI 要么恒误红、要么真改 runner 状态。" +
+    "接线前提：把注册动作注入为假实现或隔离 task path，另立 change 处理",
+  "scripts/worktree-fs-longpath.test.ps1":
+    "负控「未加 \\\\?\\ 前缀的 IO.Directory::Delete 应当失败」绑的是**该进程是否处于长路径生效状态**，" +
+    "不是 shell 版本：本机（LongPathsEnabled 缺失=关）在 5.1 下成立、在 pwsh 7 下因清单 longPathAware 意外成功；" +
+    "CI runner 上实测（run 36313053992 / step Gate 2d-b，shell: powershell 5.1）同样 FAIL ... unexpectedly succeeded - fixture too shallow。" +
+    "接线前提：先让该断言按运行时探测长路径状态来分档，另立 change 处理",
 }
 
 function listTestFiles(root) {

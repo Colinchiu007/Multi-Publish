@@ -103,6 +103,23 @@ jobs:
           bash scripts/session-init.test.sh
           node scripts/check-unwired-tests.js
 
+      # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
+      # 分档依据：本机 pwsh 7.6 与 Windows PowerShell 5.1 各跑一遍 + **本步在 runner 上的首跑结果**。
+      # 下面 5 条在 runner 的 pwsh 7 下 rc=0；其中 applive-foreign-audit 与 start-desktop-profile-lock
+      # 带小写 `#requires -Version 7`，在 5.1 下是 ScriptRequiresUnmatchedPSVersion 根本没执行
+      # （grep 时 `-i` 才能命中，按 `#Requires` 大写找会漏）。
+      # worktree-fs-longpath 曾在此之后加一步 `shell: powershell` 单独跑，实测在 runner 上仍红
+      # （同一条负控「未加 \\?\ 前缀的 IO.Directory::Delete 应当失败」unexpectedly succeeded），
+      # 已撤下并登记进 scripts/check-unwired-tests.js 的 KNOWN_UNWIRED。
+      - name: "Gate 2d - PowerShell locks never collected by CI (pwsh 7)"
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/applive-foreign-audit.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
+
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |

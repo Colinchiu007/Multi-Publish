@@ -1,3 +1,19 @@
+# [未发布] test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d
+
+### 做了什么
+- 上一轮扩域后 `KNOWN_UNWIRED` 里躺着 7 条 PowerShell 测试（都是"写了但从未执行"）。本轮逐个实跑分档，6 条接进 CI，只剩 1 条有硬理由不接。
+- 新增 Gate 2d（`shell: pwsh`）跑 `applive-foreign-audit` / `mp-worktree-health` / `session-guard` / `session-write-guard` / `start-desktop-profile-lock`；新增 Gate 2d-b（`shell: powershell`）单独跑 `worktree-fs-longpath`。本机按 CI 原语整跑 40s 全绿（末行 `WORKTREE_FS_LONGPATH_TEST_OK`）。
+- `session-isolation-automation.test.ps1` 留在欠账并把理由换成实测证据：它内部直接调 `install-session-isolation-task.ps1` 注册**真实**计划任务，且非提权实跑 `HRESULT 0x80070005`；接进 CI 要么恒误红、要么真改 runner 状态。
+- `scripts/check-unwired-tests.js` 的欠账清单由 7 条缩到 1 条（棘轮只能缩小），`AGENTS.md` 的 CI 收集口径同步改写为两条可复用的运行时事实。
+
+### 两条值得单独记的运行时事实（都是本轮实测出来的，不是先验）
+1. **小写 `#requires`**：`applive-foreign-audit.test.ps1` 与 `start-desktop-profile-lock.test.ps1` 带 `#requires -Version 7`，在 Windows PowerShell 5.1 下不是"测试失败"而是根本没执行（`ScriptRequiresUnmatchedPSVersion`）。我第一次用大写 `Requires` grep 命中 0，差点据此判"没有版本门槛、是测试本身坏了"。
+2. **负控绑的是"长路径是否对该进程生效"，不是 shell 版本**：`worktree-fs-longpath.test.ps1` 断言"不加 `\\?\` 前缀的 `IO.Directory::Delete` 应当失败"。本机（`LongPathsEnabled` 缺失=关）在 5.1 下成立、在 pwsh 7 下因清单带 `longPathAware` 而意外成功；于是本 PR 一度给它单独一步 `shell: powershell`。**该判断被 runner 推翻**：run `36313053992` 的 `Gate 2d-b` 步骤在同一条断言上报 `FAIL ... unexpectedly succeeded - fixture too shallow`。已撤下该步骤并按证据登记欠账。由此立口径：**判定 PowerShell 测试能否接进 CI，本机实跑只能筛掉"必然不行"的，绿灯与否只有 runner 本身算数。**
+
+### 验证
+- 反证四次：摘掉 Gate 2d 里一条 pwsh 点名→棘轮真实仓库断言红；把 `worktree-fs-longpath` 从 2d-b 挪走→红；给它加一条新欠账豁免→报 `TEST_EXEMPTION_STALE`（它已接线）；把 `session-isolation-automation` 的豁免摘掉→红（证明那条欠账确实在承重）。
+- `node scripts/check-unwired-tests.js` → 41 文件 / 0 违规；棘轮 8 passed；`.github/scripts/workflow-contract.test.js` 23 passed。
+- 顺带披露：判定过程中我在共享根直接跑过一次 `session-isolation-automation.test.ps1`，它确实走了注册路径并以 `0x80070005` 被拒；事后回读两个计划任务仍 `State=Ready`、注册定义未被改动（非提权注册失败即无副作用）。这也是"跑任何可能改共享机器状态的测试前先读它会不会动手"的现成反例。
 # [未发布] fix(账号云镜像): 收口 CI 抓出的两处本 PR 自身缺口 —— 锁的 unhandledRejection 逃逸与两个语义码未登记展示层（2026-09-27）
 ### 根因（首跑 4 条红全部由本 PR 引入，不是既有噪声）
 - **串行锁把 section 的失败留在了队尾链上**：`state.tail = state.tail.then(run, run)` 在"本等待者是最后一名排队者"
