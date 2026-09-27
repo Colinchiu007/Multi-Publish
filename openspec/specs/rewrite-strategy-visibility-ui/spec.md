@@ -4,7 +4,7 @@
 桌面端「文案改写」页（RewriteView）的改写策略可见性：用户能看到、能选择、发起前能预览自动匹配结果。
 ## Requirements
 ### Requirement: 策略选择区块
-RewriteView 配置区必须提供「策略选择」：自动匹配（默认选中）与手动选择两种模式；选择手动时渲染策略下拉框，列出所有启用策略（内置 + 远程下发）。
+RewriteView 配置区 SHALL 提供「策略选择」：自动匹配（默认选中）与手动选择两种模式；选择手动时渲染策略下拉框，列出所有启用策略（内置 + 远程下发）。
 
 #### Scenario: 默认自动匹配
 - **WHEN** 用户打开文案改写页
@@ -19,7 +19,7 @@ RewriteView 配置区必须提供「策略选择」：自动匹配（默认选�
 - **THEN** 下拉仅含占位项，改写仍可发起（走自动匹配）
 
 ### Requirement: 自动匹配预览
-自动模式下，页面必须在发起改写前显示当前 userSettings 将匹配的策略名（推荐列表第一名）；目标平台变化时自动刷新。
+自动模式下，页面 SHALL 在发起改写前显示当前 userSettings 将匹配的策略名（推荐列表第一名）；目标平台变化时自动刷新。
 
 #### Scenario: 挂载后预览
 - **WHEN** 页面加载完成且推荐接口可用
@@ -34,7 +34,7 @@ RewriteView 配置区必须提供「策略选择」：自动匹配（默认选�
 - **THEN** 预览显示占位「--」，不报错、不阻塞改写
 
 ### Requirement: 改写传参契约
-发起改写时：手动模式传所选 strategyId（未选传 null）；自动模式显式传 null。引擎收到 null 走 StrategyMatcher 自动匹配。
+发起改写时：手动模式 SHALL 传所选 strategyId（未选传 null）；自动模式 SHALL 显式传 null。引擎收到 null 走 StrategyMatcher 自动匹配。
 
 #### Scenario: 手动选择后发起
 - **WHEN** 用户手动选中策略 S 并发起改写
@@ -45,7 +45,7 @@ RewriteView 配置区必须提供「策略选择」：自动匹配（默认选�
 - **THEN** aiRewrite 参数含 strategyId=null
 
 ### Requirement: i18n 成对
-新增用户可见文案必须 zh/en 成对写入 locales，渲染端不新增硬编码中文字符串。
+新增用户可见文案 SHALL zh/en 成对写入 locales，渲染端不新增硬编码中文字符串。
 
 #### Scenario: locale 同步
 - **WHEN** CI Gate 7 检查 locale 同步
