@@ -39,8 +39,15 @@ KnowledgeContextBuilder.buildFullContext SHALL 变更为 async；构造 opts 新
 - **WHEN** extractSync 产出 ≥ 2 个关键词
 - **THEN** 不发起 LLM 调用
 
-## MODIFIED Requirements
-
 ### Requirement: 爆款风格注入
 
 注入内容 SHALL 从浅层特征（标题模式+前100字+标签）升级为模式卡片聚合风格指导：检索 Top3 爆款加载模式卡片，聚合输出钩子建议（含标题公式）、情绪曲线、叙事结构、CTA、金句参考；卡片缺失或 failed 的条目回退浅层特征，全部缺失整体回退。
+#### Scenario: 模式卡片聚合注入
+
+- **WHEN** 改写检索命中 Top3 爆款且其模式卡片可用
+- **THEN** 注入聚合的钩子建议（含标题公式）、情绪曲线、叙事结构、CTA、金句参考，替代浅层特征
+
+#### Scenario: 卡片缺失回退浅层
+
+- **WHEN** 命中的某爆款模式卡片缺失或 status=failed
+- **THEN** 该条目回退浅层特征注入；若全部命中条目卡片皆缺失则整体回退浅层特征
