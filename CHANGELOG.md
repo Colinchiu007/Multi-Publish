@@ -14,7 +14,9 @@
 - 反证六次实测变红，每次 `git checkout HEAD -- <单文件>` 恢复后复绿：① 判定函数退回不认 `./` → 红 1；② toutiao 换回旧手绘 polygon 版 → 红 3（根 fill / 几何图元禁令 / 全 path）；③ 组件里重新抄一份 `isIconUrl` → 红 1（结构锁）；④ 图标撑到超内联预算 → 红 1；⑤ 拿掉某渲染点底衬类 → 红 1；⑥ 删全局底衬的 `background` → 红 1。
 - 回归锁 `usePlatformIconUrl.test.js` 131 例；受影响范围 53 个测试文件 986 passed / 1 skipped；`vite build` 通过；4 处既有 `vi.mock` 改 partial mock 透传真实判定函数。
 - 渲染实图自检（playwright 出四段对照表）：确认 12 枚真实品牌标正确、百家号「百」字在 24px 下可辨、暗色无底衬时 TikTok/X 确实不可见、加底衬后 15 枚全部可读。
-- ⚠️ 残留：视觉基线 `accounts-list.png` 必然像素超阈。按 QM-4 规则 7「基线只能取自 CI 产物」，本条不随 PR 提交本地截图，须在 CI 出图后自证「新基线 vs 同次 CI 渲染 = 0 px」再更新。
+- 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
+- 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
+- ⚠️ 残留：`publish-history` 与 `collection` 两个基线须按 QM-4 规则 7 从 CI artifact 取图更新（禁止用本地截图），本条不随 PR 提交本地基线。
 # [未发布] test(ci): 新增「测试文件未接 CI 收集」棘轮，收编 7 条从未执行过的死锁
 
 ### 做了什么
