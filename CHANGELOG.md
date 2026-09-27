@@ -1,3 +1,25 @@
+# [未发布] fix(ci): 多命令 run 步骤必须 fail-fast —— 上一条 PR 交付的 Gate 2d 是装饰性门禁
+
+### 症状（runner 日志实证，run 36313053992 / step 11）
+`Gate 2d` 用 `shell: pwsh`，一个 `run: |` 里串了 5 条测试。日志时间线：
+`session-write-guard.test.ps1` 抛 `FAIL: shared status stays clean after tracked restore` → 下一条测试照跑并打 `PROFILE_LOCK_TEST_OK` → 步骤 success → QG Static success → `Gate Result` success → **PR 照合并**。
+PowerShell 步骤只取最后一条命令的 `$LASTEXITCODE`，所以前 4 条的失败全被吞掉。
+
+### 做了什么
+- 新增 `scripts/check-step-failfast.js`：含 ≥2 条测试命令的 `run:` 块必须 fail-fast —— `shell: bash`（GitHub 默认 `bash -e -o pipefail`）或正文里自查 `$LASTEXITCODE`；`workflows` 目录缺失/为空直接抛错；欠账清单**钉成空数组**（不许用豁免绕过，只能改成 bash）。
+- `Gate 2b`（长期存在的同类洞，6 条 `node --test`）与 `Gate 2d` 改为 `shell: bash`；全仓 4 个多测试步骤现已全部 fail-fast。
+- `session-write-guard.test.ps1` 从 Gate 2d 撤下并登记欠账：它不是被误红，是**在 runner 上本就红**（此前一直被吞）。疑与 CRLF/autocrlf 下的 `git restore` 差异有关，另立 change 修。
+- 两个棘轮都接进 Gate 2c。
+
+### 为什么值得单开一轮
+上一条 PR 的立意就是"测试没接进 CI 等于没写"，结果我接进去的那一步自身不 fail-fast —— 收集齐了，执行结果却不上报。这比没接更糟：它给出绿色的假安心。
+
+### 验证
+- **直接反证（决定性）**：按 Gate 2d 完全相同的调用形状跑 `bash -ec 'pwsh -Command "exit 1"; pwsh -Command "Write-Host REACHED_SECOND"'` → `REACHED_SECOND` **未打印**、rc=1，证明改法真的会中止步骤。
+- 棘轮自身 6 passed（含"pwsh 多命令必须红 / bash 放行 / 自查 $LASTEXITCODE 放行 / 单条命令不受约束 / 空 workflow 集合抛错 / 真实仓库违规为 0 且清单为空"）。
+- 反证另五次：把 Gate 2b 的 `shell: bash` 摘掉→报该步骤违规；把 Gate 2d 的 4 条命令删到 1 条→stepsScanned 变化被真实仓库断言抓住；给它加一条豁免→清单非空即红；把 `check-step-failfast.test.js` 从 Gate 2c 摘掉→接线棘轮报它未接线；改松 TEST_INVOCATION 使其永不匹配→"应解析出 1 个多测试步骤"的规模下界红。
+- 整跑：`bash -ec` 下 Gate 2b+2c+2d 全绿、113s（hooks PASS=10 / PASS=23、session-init PASS=13、4 条 ps1 rc=0、两套棘轮 rc=0）；`workflow-contract` 23 passed。
+
 # [未发布] test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d
 
 ### 做了什么
