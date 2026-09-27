@@ -29,6 +29,20 @@
   读 `runSupplementaryTests()` 的返回值 `{total,passed}` 才拿到正证据。判据：跑这类套件必须拿到
   total/passed 数字，不能只看 exit code 0。
 
+# [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
+
+### 做了什么
+- PR #2501 已合并（`56ac1c40`）。回填基线后的复跑 run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`）：`QG Visual` **19 条全 `PASSED`、通过率 100.0%**，
+  其中 `accounts-list-flag-on` 在产物 `reports/report-*.json` 里为 `status:"PASSED", misMatchPercentage: 0`
+  ⇒ PRD §17.4 步骤 3「必须报该视图 0 px 差异」**达成**，该视图自此成为硬门禁的一部分。
+- **纠正一处取证口径（写进 PRD §17.4）**：`run-pixel-tests.js` 的 stdout 只打 `PASSED` / `FAILED`，
+  **不打印差异率**（实测该 job 日志里 `misMatch` / `差异率` 命中 0 次）。因此"日志说 PASSED"只等价于
+  "差异低于 `PIXEL_THRESHOLD=0.06`"，**不等价于 0 px**。上一轮我在文档里写"0 px 由下一轮 CI 证明"时，
+  默认了"下一轮日志会给出这个数字"——它不会；真要去证，只能下载产物读 report JSON。本轮就是这么做的。
+- openspec 归档 `add-cloud-account-sync` 的 tasks：§6 那条"基线仍需重新采集"的过期勾选纠为已完成并附证据，
+  「未执行清单 / 残留」两张表的同名行同步收口（历史登记文字按既有约定保留不删）。
+
+
 # [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
 - 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
