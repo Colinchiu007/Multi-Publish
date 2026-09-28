@@ -170,6 +170,28 @@ function isAvailable () {
 }
 
 /**
+ * Windows 托盘气泡通知（publish-progress-ux：发布运行中关窗转托盘时提示后台语义）。
+ * 仅 Windows 且托盘存活且宿主支持 displayBalloon 时调用；其余平台/环境静默跳过
+ * （非 Windows 降级，见 PRD-PUBLISH-PROGRESS-UX §9 R5）。
+ * @param {string} title
+ * @param {string} content
+ */
+function showBalloon (title, content) {
+  if (process.platform !== 'win32') return false
+  if (!tray || typeof tray.displayBalloon !== 'function') return false
+  const safeTitle = typeof title === 'string' ? title.slice(0, 64) : ''
+  const safeContent = typeof content === 'string' ? content.slice(0, 256) : ''
+  if (!safeTitle && !safeContent) return false
+  try {
+    tray.displayBalloon({ title: safeTitle, content: safeContent })
+    return true
+  } catch (e) {
+    log.warn('Tray', 'displayBalloon failed: ' + (e && e.message))
+    return false
+  }
+}
+
+/**
  * 注册托盘相关 IPC 处理
  *
  * 安全：tray:flash / tray:set-tooltip 是同步 IPC（ipcMain.on），
@@ -202,6 +224,7 @@ module.exports = {
   init,
   flashTray,
   setTooltip,
+  showBalloon,
   destroy,
   isAvailable,
   resolveTrayIcon,
