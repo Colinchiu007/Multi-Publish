@@ -1,3 +1,26 @@
+# [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
+
+### 为什么
+- 对照参考产品的同类弹窗后，发现我们三处摩擦点：标题是陈述式（读起来像功能名而非提问）、
+  「本机 N 个」被整张平台明细列表与「云端 M 个」隔开（用户要靠记忆比较）、弹窗主按钮与账号页
+  入口按钮共用同一个文案键（两处界面同名不同物）。
+
+### 做了什么
+- `cloudSyncTitle` → 「是否与云端账号同步？」（en 同步改）。
+- 摘要正文把两个计数并入 `[data-testid="cloud-digest-counts"]` 一行（flex + wrap + baseline），
+  平台明细移到其下；文案缩短为「云端 {total} 个 / 本机 {local} 个」。
+- 新增 `cloudSyncConfirm: 同步账号` 供弹窗主按钮使用；`cloudSync: 同步云端` 留给账号页入口，
+  并由测试钉住"改弹窗不得连带改入口名"。
+- 补一条锁 `两个计数并排在同一个父节点，且标题为疑问句、主按钮动宾明确`：本文件其余断言都走
+  `tk(key)` ⇒ **文案改错它们抓不到**，这条刻意断言字面量与父子结构（zh/en 成对由 locale 门禁守）。
+  **反证**：M1 把标题改回陈述句 ⇒ `Failed Tests 1`，红的正是这条新锁；M2 把计数容器 testid 改名 ⇒
+  同样只红这一条；两次变异均按原字节回写并复绿。
+- **刻意没做**：参考产品的「不再提示」。它是产品决策不是文案（要定义关掉什么、要持久化、要有恢复入口），
+  已写进 PRD §10.6 并单独立项。
+
+验证：`src/features/accounts/` + `Accounts.test.js` 共 11 文件全绿；`check-locale-sync` 的
+`--pair-base` / `--keys`（1227 键）/ `--cjk` 三项 PASS；eslint `--quiet` rc=0；`pnpm run build:vue` rc=0（模板编译）。
+
 # [未发布] fix(session-isolation): installer 支持一次性 -TaskPath，并对生产路径的 -Unregister fail closed（2026-09-28，guard-task-path）
 
 ### 变更
@@ -49,6 +72,7 @@
 - 变异反证均已实跑：退回中部横带几何 ⇒ 红；把暗罩调淡为 0.45 ⇒ 红；删 `pointer-events` ⇒ 红。还原后 40 passed / 1 skipped。
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
+
 
 # [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
 

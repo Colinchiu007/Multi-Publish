@@ -154,6 +154,24 @@ describe('AccountCloudSyncDialog — 摘要态', () => {
     expect(wrapper.get('[data-testid="cloud-digest-privacy"]').text()).toBe(tk('accountsPage.cloudDigestPrivacy'))
   })
 
+  it('两个计数并排在同一个父节点，且标题为疑问句、主按钮动宾明确', async () => {
+    // 本文件其余断言都走 tk(key) 解析 ⇒ 文案改错它们抓不到，所以这条刻意断言**字面量与父子结构**
+    // （zh/en 成对由 check-locale-sync --pair-base 守）。
+    const wrapper = mountDialog()
+    await flush()
+
+    const counts = wrapper.get('[data-testid="cloud-digest-counts"]')
+    expect(counts.find('[data-testid="cloud-digest-total"]').exists()).toBe(true)
+    expect(counts.find('[data-testid="cloud-digest-local"]').exists()).toBe(true)
+    // 平台明细必须在计数行之外：并排的意义就是"先看到两个数，再决定要不要看明细"
+    expect(counts.find('[data-testid="cloud-digest-platforms"]').exists()).toBe(false)
+
+    expect(i18n.global.t('accountsPage.cloudSyncTitle').endsWith('？')).toBe(true)
+    expect(i18n.global.t('accountsPage.cloudSyncConfirm')).toBe('同步账号')
+    // 弹窗确认动作改名，不得连带改掉账号页那个入口按钮的名字
+    expect(i18n.global.t('accountsPage.cloudSync')).toBe('同步云端')
+  })
+
   it('平台分布顺序稳定：count 降序、platform 升序，不依赖响应数组顺序', async () => {
     const wrapper = mountDialog()
     await flush()
