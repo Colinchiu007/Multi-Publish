@@ -1,9 +1,22 @@
-# [未发布] docs(openspec): #2566 合并后收口 —— 主规格同步、远程同步证据回填、tasks 状态如实化（2026-09-29，governor-2566-closeout）
+# [未发布] feat(门禁记录): 让「执行记录整块缺远程同步行」不再隐形——最新一篇强制带行，历史缺口只做可见（2026-09-28，gate-record-row-required）
 
 ### 变更
-- `openspec archive governor-quota-reserve`：把两条 MODIFIED Requirement 同步进主规格（`openspec/specs/story2video/model-call-scheduler`、`openspec/specs/ops-center/rate-limit-verifier`，`Totals: +0 ~2 -0`），change 落 `openspec/changes/archive/2026-09-29-governor-quota-reserve`。跑 CLI 前先核实主 spec 确实未同步（grep 新短语 0 命中），避免把手工同步过的规格再跑一遍造成重复。
-- `.quality-gates.md`：#2566 那条执行记录此前**整条缺失** `| 远程同步 |` 行（写于 PR 未合并时），现按既有口径补为 PASS 证据 —— `mergedAt=2026-09-28T16:36:48Z`、merge SHA `0f5c8ea2…`（`gh pr view` 与 `git log origin/main --grep` 两路同 SHA）、`git ls-remote --heads origin governor-quota-reserve` 返回 0 行。
-- 归档内的 `tasks.md`：5.4/6.1/6.2/6.3 由 `[ ]` 改为 `[x]` 并写明取证方式（含「模拟器不覆盖并发维度」已在 PR 描述中声明的实测行号、9 轮置顶冲突与 v8 解析器判据、孤立 CR 曾使 numstat 失真 462/462 vs 真实 7/51）。
+- `scripts/check-gate-record-debt.js` 新增覆盖检测：`collect()` 返回 `recordCount / recordsWithoutRow / topRecord / topRecordMissingRow`，并强制**最顶部那篇执行记录必须含 `远程同步` 行**；历史缺席篇数照旧打印但**不拦截**。`format()` 的提示改为点名两种合法写法（已合并按 PASS 口径回填；未合并写 PENDING 且同 PR 登记 `gate-record-debt-ledger.json`）。
+- 顺带修 `loadLedger()` 忽略参数的缺陷：测试一直按 `loadLedger(root)` 调用而无参实现永远读生产清单，夹具里的 ledger 形同不存在（"给了路径却拿到真仓状态"，属假绿通道）。现在认参数，并有一条用例断言夹具与真实清单可区分。
+- `scripts/check-gate-record-debt.test.js` 新增 7 条（8 → 15）：顶部缺行判红并点名、历史缺行只可见、**结构性章节不计入执行记录**、覆盖判据不得随行尾漂、`loadLedger` 认参数、真仓自检。该文件已由 #2561 接进 `Gate 2c`，未新增文件故无需重新接线。
+
+### 为什么（实测，不是推测）
+- #2561 的棘轮只管「已存在的行是否收口」。实测 origin/main：316 篇形如执行记录的 `## ` 标题里 **192 篇整块没有这一行**，而门禁 `RC=0` 报 OK。缺席比说谎更糟——说谎的记录下一个人看得见并会去核，缺席的记录连怀疑对象都没有。
+- 「执行记录」不能按"所有 `## ` 标题"算：321 个标题里有 **5 个是结构性章节**（固定强制门禁／提交前自检清单／强制卡点规则／违规处理／质量节拍阶段对照），它们永远不该有这一行，不排除就恒红。判据取 `^本次执行记录` 前缀 或 标题含日期，得 316 篇，与独立统计逐数吻合（316 / 192 / 128）。
+- 强制面刻意只收「最顶部一篇」而非「全部」：记录按惯例插在文件顶部，所以"最新一篇"定义良好、零基线、零清单维护，也不会一上线就红 192 条而逼人放宽阈值。**已知漏洞如实写进代码注释**：新记录若被插在非顶部位置拦不住。
+
+### 验证
+- `node --test scripts/check-gate-record-debt.test.js` ⇒ 15 passed / 0 failed。
+- 变异反证 4 格（驱动带前置锚点断言 + 每条 try/finally 还原 + 每轮 clean 断言）：强制项恒 false ⇒ 2 红；分类退化为"所有 ## 都是记录" ⇒ 1 红；可见项恒空 ⇒ 2 红；`loadLedger` 退回忽略参数 ⇒ 1 红；收尾还原 byteEqual=true、复跑 15/15。
+- 反证驱动自身先失效过一次并已记入 `.quality-gates.md`：v1 循环中途抛异常且无 finally 还原，把源码留在变异态，v1 第二次运行遂以变异版本为基线，四条结果全部无效（只有 `same=false` 和锚点 0 命中在报警）。据此重写 v2。
+- 本 PR 自己的门禁记录按新规则写成 `PENDING` 并在同一条 PR 里登记 ledger —— 即这条新锁的第一次现场生效。
+
+---
 
 # [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
 

@@ -7,7 +7,10 @@ import { dirname, join } from 'node:path'
  * T1-5 图标使用守卫（源码级，参照 Home.todo-guard / shell-mode-6a 先例）
  *
  * 规则（docs/frontend-interaction-spec.md 图标语义）：
- * 1. **功能图标位**（按钮/标题装饰/卡片图标/导航项）禁止 emoji，一律 @element-plus/icons-vue；
+ * 1. **功能图标位**（按钮/标题装饰/卡片图标/导航项）禁止 emoji；首选 @element-plus/icons-vue，
+ *    该库缺字形时允许内联 SVG（先例：`components/icons/` 下导航三键与加载指示器，几何取自 Lucide/ISC，
+ *    许可声明见 apps/desktop/THIRD-PARTY-NOTICES.md）。**本卡约束的是「不得用 emoji 充当功能图标」，
+ *    不是「只能用一个图标库」**——混用本身不违规，emoji 才违规；
  * 2. **状态类 emoji 允许**：✅ ❌ ⚠️ ⏳ 🔄（表达结果/进行中，不是功能图标）；
  * 3. **内容/文案类 emoji 允许**：营销话术、引导语、元信息标签（👍 💬 🏷 等语义化修饰）；
  * 4. 本卡先行收敛 4 个文件（Intelligence/Dashboard/ViralAnalysis/Collection），
@@ -42,6 +45,10 @@ const FILES = [
   'components/TitleAssistantPanel.vue',
   'components/TrendingPanel.vue',
   'components/ViralLibraryTable.vue',
+  'components/icons/ArrowLeftIcon.vue',
+  'components/icons/ArrowRightIcon.vue',
+  'components/icons/ReloadIcon.vue',
+  'components/icons/SpinnerIcon.vue',
   'views/Accounts.vue',
   'views/AutoPipelineView.vue',
   'views/CopyLibraryView.vue',

@@ -1553,3 +1553,96 @@ describe('page-manager 事件订阅按 subscriberId 精确删除', () => {
     expect(wm._senderSubscribers.get(sender).has(id)).toBe(false)
   })
 })
+
+describe('WebviewManager 标签转圈收口（did-start-loading / did-stop-loading 配对）', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+
+  function broadcastsOf (wm, eventName) {
+    return wm.mainWindow.webContents.send.mock.calls
+      .filter(function (c) { return c[0] === 'page-manager:' + eventName })
+      .map(function (c) { return c[1] && c[1].data })
+  }
+
+  function createLoadedTab () {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const tabId = wm.createNewTabPage({ url: 'https://cp.kuaishou.com/article/manage/video', platform: 'kuaishou' })
+    return { wm, tabId, view: wm._tabViews.get(tabId) }
+  }
+
+  it('导航失败/中止（只有 did-stop-loading、无 did-finish-load）时加载态必须收口', () => {
+    const { wm, tabId, view } = createLoadedTab()
+
+    view.webContents._handlers['did-start-loading']()
+    expect(wm._tabStates.get(tabId).loading).toBe(true)
+
+    // 主框架导航失败或被中止时，Chromium 只发 did-fail-load + did-stop-loading，
+    // 永不调发 did-finish-load；loading 若只在 did-finish-load 收口，徽标即永久卡住。
+    expect(typeof view.webContents._handlers['did-finish-load']).toBe('function')
+    view.webContents._handlers['did-stop-loading']()
+
+    expect(wm._tabStates.get(tabId).loading).toBe(false)
+    expect(
+      broadcastsOf(wm, 'tab-finished-loading').some(function (d) {
+        return d && d.tabId === tabId && d.loading === false
+      })
+    ).toBe(true)
+  })
+
+  it('导航失败收口后 getAllTabs 不得再回报 loading=true', () => {
+    const { wm, tabId, view } = createLoadedTab()
+    view.webContents._handlers['did-start-loading']()
+    view.webContents._handlers['did-stop-loading']()
+
+    const row = wm.getAllTabs().find(function (t) { return t.tabId === tabId })
+    expect(row.loading).toBe(false)
+  })
+
+  it('渲染进程崩溃后不得留下永久转圈的标签', () => {
+    const { wm, tabId, view } = createLoadedTab()
+    view.webContents._handlers['did-start-loading']()
+    expect(wm._tabStates.get(tabId).loading).toBe(true)
+
+    // 崩溃后不会再有任何加载事件，必须就地收口
+    view.webContents._handlers['render-process-gone']({}, { reason: 'crashed' })
+
+    expect(wm._tabStates.get(tabId).loading).toBe(false)
+  })
+
+  it('did-stop-loading 不得把无定论的标签状态凭空点亮（未 start 过也保持 false）', () => {
+    const { wm, tabId, view } = createLoadedTab()
+    view.webContents._handlers['did-stop-loading']()
+    expect(wm._tabStates.get(tabId).loading).toBe(false)
+  })
+
+  it('结构锁：loading 收口只挂在 did-stop-loading，did-finish-load 不得再写 loading', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'webview-manager', 'tab-lifecycle.js'), 'utf8')
+    expect(src).toMatch(/on\('did-stop-loading'/)
+
+    // 本文件注册了两次 did-finish-load（登录补注入路径 + _setupNav），必须按 _setupNav 定域，
+    // 否则 indexOf 取到第一个、切片切错处理器，锁会因「目标串根本不在切片里」而恒真。
+    const navAt = src.indexOf('_setupNav (tabId, view)')
+    expect(navAt).toBeGreaterThan(-1)
+    const navBody = src.slice(navAt)
+
+    const finishAt = navBody.indexOf("on('did-finish-load'")
+    expect(finishAt).toBeGreaterThan(-1)
+    const nextHandler = navBody.indexOf('view.webContents.on(', finishAt + 10)
+    const finishBlock = navBody.slice(finishAt, nextHandler === -1 ? navBody.length : nextHandler)
+    // 先确认锁的确实是这个处理器（锚点未命中不得退化成恒真）
+    expect(finishBlock).toMatch(/_maybeScheduleAutoSave/)
+    expect(finishBlock).not.toMatch(/state\.loading\s*=/)
+
+    const startAt = navBody.indexOf("on('did-start-loading'")
+    const stopAt = navBody.indexOf("on('did-stop-loading'")
+    expect(startAt).toBeGreaterThan(-1)
+    expect(stopAt).toBeGreaterThan(startAt)
+  })
+
+  it('结构锁：_broadcastNav 必须携带 loading，渲染层不得凭猜测收口', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'webview-manager', 'event-bus.js'), 'utf8')
+    expect(src).toMatch(/loading:\s*state\.loading/)
+  })
+})

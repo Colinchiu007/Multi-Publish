@@ -16,7 +16,14 @@
         <img v-else-if="getPlatformIconUrl(tab)" :src="getPlatformIconUrl(tab)" class="tab-icon-img" :alt="getTabLabel(tab)" width="16" height="16" aria-hidden="true">
         <el-icon class="tab-icon" v-else aria-hidden="true"><Monitor /></el-icon>
         <span class="tab-title" :title="tab.title || tab.url">{{ tab.title || getTabLabel(tab) }}</span>
-        <span v-if="tab.loading" class="tab-spinner" aria-hidden="true">⟳</span>
+        <span
+          v-if="tab.loading"
+          class="tab-spinner"
+          role="img"
+          :title="t('common.loading')"
+          :aria-label="t('common.loading')"
+          :data-testid="`tab-loading-${tab.tabId}`"
+        ><SpinnerIcon :size="12" /></span>
         <span
           v-if="tab.credentialSaveState === 'unsaved'"
           class="tab-unsaved-dot"
@@ -56,6 +63,7 @@ import { useTabStore } from '@/stores/tab'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+import SpinnerIcon from './icons/SpinnerIcon.vue'
 
 const { t } = useI18n()
 
@@ -175,14 +183,20 @@ const { tabs, activeTabId } = storeToRefs(tabStore)
 
 .tab-spinner {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
   animation: spin 1s linear infinite;
-  font-size: var(--font-size-xs);
   color: var(--color-primary);
 }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 转圈属装饰性动效：系统要求减少动效时停转，开口圆环本身仍可辨为加载指示 */
+@media (prefers-reduced-motion: reduce) {
+  .tab-spinner { animation: none; }
 }
 
 .tab-close {

@@ -46,7 +46,7 @@
 
 - [x] 6.1 已交付：PR #2566（分支 `governor-quota-reserve`，worktree `mp-governor-quota-reserve`）。提交前 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐项一致，并逐字节扫描孤立 CR —— 本轮实测过一次 `\r\r\n` 把 governor 翻成 `i/-text`，numstat 报 462/462 而真实内容改动只有 7/51：**两口径对账对孤立 CR 失明**，必须补字节扫描
 - [x] 6.2 auto-merge（SQUASH）挂着跑完；置顶文档冲突共 **9 轮**（最后一次 `CHANGELOG.md` / `.quality-gates.md` / `01-docs/learnings.md` 三份同轮相撞），每轮用 `resolve-merge-v8.mjs` 解：全文包含以 `origin/main` 为基准，HEAD 侧只强制「自己的新增行」（上游有权改写它继承来的行，否则会把别人的合法改写误报成丢失），并验 tail 为 HEAD 或 main 的内容域后缀 + 上游块首行恰好出现一次 + markers=0。放行判据由**独立校验器**（与解析器不同代码路径）对两条父提交各跑全文非空行多重集包含，各 0 丢失
-- [x] 6.3 已回读并销账：`mergedAt=2026-09-28T16:36:48Z`、`mergeCommit=0f5c8ea2208ea52ee4e551627b3b93bc7e580c33`（`gh pr view` 与 `git log origin/main` 尾锚 `(#2566)` 两路同一 SHA 与时间）；`git ls-remote --heads origin governor-quota-reserve` 返回 0 行证远端分支已删；main 上该 merge 实含 14 个文件。`.quality-gates.md` 里本条记录的 `远程同步` 行此前整条缺失（写于 PR 未合并时），已由收口 PR 补为 PASS 证据
+- [x] 6.3 已回读证据，**置顶文档的回填已移出收口 PR**（改由后续 docs PR 落地）：回读结果为 `mergedAt=2026-09-28T16:36:48Z`、`mergeCommit=0f5c8ea2208ea52ee4e551627b3b93bc7e580c33`（`gh pr view` 与 `git log origin/main` 尾锚 `(#2566)` 两路同 SHA 与时间）、`git ls-remote --heads origin governor-quota-reserve` 返回 0 行证远端分支已删；main 上该 merge 实含 14 个文件。**为什么把 `.quality-gates.md` 的回填行挪走**：本收口 PR 第 4 轮合并 main 时三份置顶文档全冲突，每解一轮要重烧约 20 分钟全量 CI；而 #2589 同一轮已按同一策略把置顶改动移出代码 PR。挪走后的好处是"回填时 PR 已合并 ⇒ `远程同步` 行可直写 PASS"，不需要 PENDING、也不需要往 `gate-record-debt-ledger.json` 加一条留给下一个会话销的欠账。**留给后续 docs PR 的清单**：① 给 governor-quota-reserve 那条执行记录补 `| 远程同步 | PASS |…|` 行（该记录此前整条缺失这一行）；② `CHANGELOG.md` 的收口条目；③ 与 #2589 的回填同批做，避免再撞一轮。
 
 ## 7. 门禁驱动的新增工作（CI 首轮红之后补记，非原计划）
 

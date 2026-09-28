@@ -39,6 +39,8 @@ module.exports = {
       title: state.title,
       canGoBack: state.canGoBack,
       canGoForward: state.canGoForward,
+      // 渲染层据此收口导航栏转圈；缺席时不得凭猜测改写（SPA 路由切换期间可能仍在加载）
+      loading: state.loading,
       homeShell: !!state.homeShell,
       spaRoute: state.spaRoute || ''
     })

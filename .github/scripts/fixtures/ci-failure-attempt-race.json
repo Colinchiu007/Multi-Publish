@@ -1,0 +1,184 @@
+{
+  "source": {
+    "note": "真实竞态样本：attempt 1 = failure（#2572 于 10:39:10Z 开单），attempt 2 = success ⇒ handler 按\"最新 attempt\"取数时看到零失败作业",
+    "runId": 36405013013,
+    "runName": "Electron CI",
+    "event": "pull_request",
+    "headBranch": "rename-guard-task-paths",
+    "latestAttempt": 2,
+    "issueNumber": 2572,
+    "collectedAt": "2026-09-28T16:59:18.450Z"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "jobs": [
+        {
+          "id": 108871540367,
+          "name": "electron-tests",
+          "conclusion": "failure",
+          "started_at": "2026-09-28T09:48:00Z",
+          "completed_at": "2026-09-28T10:36:01Z",
+          "check_run_url": "https://api.github.com/repos/Colinchiu007/mulpub/check-runs/108871540367",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v4",
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup pnpm",
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node.js",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies",
+              "conclusion": "success"
+            },
+            {
+              "name": "Restore required JavaScript runtimes",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify Electron checksum pin (win32, windows-latest)",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Electron runtime",
+              "conclusion": "success"
+            },
+            {
+              "name": "Unit tests (Vitest, non-Electron, single-worker deterministic)",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Vitest failure diagnostics",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Electron smoke test (headless, windows-latest)",
+              "conclusion": null
+            },
+            {
+              "name": "Build Vue frontend",
+              "conclusion": null
+            },
+            {
+              "name": "Dependency check",
+              "conclusion": null
+            },
+            {
+              "name": "Circular dependency check",
+              "conclusion": null
+            },
+            {
+              "name": "Post Setup Node.js",
+              "conclusion": null
+            },
+            {
+              "name": "Post Setup pnpm",
+              "conclusion": null
+            },
+            {
+              "name": "Post Run actions/checkout@v4",
+              "conclusion": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": 2,
+      "jobs": [
+        {
+          "id": 108890302220,
+          "name": "electron-tests",
+          "conclusion": "success",
+          "started_at": "2026-09-28T10:38:02Z",
+          "completed_at": "2026-09-28T10:40:32Z",
+          "check_run_url": "https://api.github.com/repos/Colinchiu007/mulpub/check-runs/108890302220",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v4",
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup pnpm",
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node.js",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies",
+              "conclusion": "success"
+            },
+            {
+              "name": "Restore required JavaScript runtimes",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify Electron checksum pin (win32, windows-latest)",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Electron runtime",
+              "conclusion": "success"
+            },
+            {
+              "name": "Unit tests (Vitest, non-Electron, single-worker deterministic)",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Vitest failure diagnostics",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Electron smoke test (headless, windows-latest)",
+              "conclusion": "success"
+            },
+            {
+              "name": "Build Vue frontend",
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency check",
+              "conclusion": "success"
+            },
+            {
+              "name": "Circular dependency check",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node.js",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup pnpm",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v4",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
