@@ -22,18 +22,21 @@
  * @param {object} [input]
  * @param {string} [input.platform] 目标平台（默认 process.platform，测试可注入）
  * @param {boolean} [input.hasRunningPipeline] 主进程是否存在运行中的编排流水线
+ * @param {boolean} [input.hasRunningPublish] 主进程是否存在运行中/排队的发布任务（publish-progress-ux）
  * @param {boolean} [input.trayAvailable] 系统托盘是否可用
  * @returns {boolean}
  */
 function shouldHideToTrayOnClose({
   platform = process.platform,
   hasRunningPipeline = false,
+  hasRunningPublish = false,
   trayAvailable = false,
 } = {}) {
   // macOS：关闭窗口不退出应用是系统约定，无需托盘拦截（窗口正常关闭，进程保留在 Dock）。
   if (platform === 'darwin') return false
-  // Windows/Linux：运行任务 + 托盘可用 → 隐藏到托盘后台继续；任一缺失照旧关闭/退出。
-  return Boolean(hasRunningPipeline && trayAvailable)
+  // Windows/Linux：运行任务（流水线或发布，任一）+ 托盘可用 → 隐藏到托盘后台继续；
+  // 任一缺失照旧关闭（window-all-closed → before-quit 清理链）。
+  return Boolean((hasRunningPipeline || hasRunningPublish) && trayAvailable)
 }
 
 module.exports = { shouldHideToTrayOnClose }

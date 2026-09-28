@@ -112,6 +112,7 @@ resumeEmbeddedViews: (owner) => ipcRenderer.invoke('page-manager:resume-embedded
 | PipelineBackgroundToast | 右下 toast | ⚠️ 会被盖住 | 残余限制（见 §6） |
 | UpdateNotification | 浮层通知 | ⚠️ 会被盖住 | 残余限制（见 §6） |
 | ElMessage / ElNotification（全局） | 顶部/角落短暂浮层 | ⚠️ 会被盖住 | 残余限制（见 §6） |
+| PublishProgressPanel（2026-09-28 新增，publish-progress-ux） | 右下角非模态常驻浮动卡/胶囊（发布进度） | ⚠️ 会被盖住 | **显式不接入**（非模态：无遮罩、不阻塞交互、无交互闭环；与 §6 同类，负向测试锁 `PublishProgressPanel.test.js` 断言源码不出现 suspendEmbeddedViewsForOverlay；若未来加模态确认须按 §8 接入） |
 
 ## 6. 已知残余限制（显式记录）
 

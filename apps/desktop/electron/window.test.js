@@ -609,6 +609,72 @@ describe('window — createWindow', () => {
     expect(shouldHide).toBe(true)
   })
 
+  it('publish-progress-ux：仅发布任务运行中（无流水线）+ 托盘可用 → 隐藏到托盘并气泡提示', () => {
+    context.pipelineEngine = { hasRunningOrchestration: vi.fn(() => false) }
+    context.taskQueue = { getStatus: vi.fn(() => ({ running: [{ id: 't1' }], queue: [{ id: 't2' }] })) }
+    context.systemTray = { init: vi.fn(), isAvailable: vi.fn(() => true), showBalloon: vi.fn() }
+    createWindow(context)
+    const win = lastWindow()
+    const hideSpy = vi.spyOn(win, 'hide')
+    const event = { preventDefault: vi.fn() }
+    win._handlers['close'](event)
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(hideSpy).toHaveBeenCalledTimes(1)
+    expect(context.systemTray.showBalloon).toHaveBeenCalledTimes(1)
+    expect(context.systemTray.showBalloon).toHaveBeenCalledWith(
+      '发布仍在后台进行',
+      expect.stringContaining('请勿退出程序'),
+    )
+  })
+
+  it('publish-progress-ux：发布运行中但托盘对象无 showBalloon（向后兼容）→ 仍隐藏不抛错', () => {
+    context.pipelineEngine = { hasRunningOrchestration: vi.fn(() => false) }
+    context.taskQueue = { getStatus: vi.fn(() => ({ running: [{ id: 't1' }], queue: [] })) }
+    context.systemTray = { init: vi.fn(), isAvailable: vi.fn(() => true) }
+    createWindow(context)
+    const win = lastWindow()
+    const hideSpy = vi.spyOn(win, 'hide')
+    const event = { preventDefault: vi.fn() }
+    expect(() => win._handlers['close'](event)).not.toThrow()
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(hideSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('publish-progress-ux：流水线运行 + 发布排队为空 → 隐藏但走流水线日志分支（不气泡）', () => {
+    context.pipelineEngine = { hasRunningOrchestration: vi.fn(() => true) }
+    context.taskQueue = { getStatus: vi.fn(() => ({ running: [], queue: [] })) }
+    context.systemTray = { init: vi.fn(), isAvailable: vi.fn(() => true), showBalloon: vi.fn() }
+    createWindow(context)
+    const win = lastWindow()
+    const event = { preventDefault: vi.fn() }
+    win._handlers['close'](event)
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(context.systemTray.showBalloon).not.toHaveBeenCalled()
+  })
+
+  it('publish-progress-ux：taskQueue.getStatus 抛错 → 守卫按无发布任务处理（不阻塞关闭决策）', () => {
+    const windowModule = require('./window.js')
+    const shouldHide = windowModule.shouldHideToTray({
+      pipelineEngine: { hasRunningOrchestration: () => false },
+      taskQueue: { getStatus: () => { throw new Error('boom') } },
+      systemTray: { isAvailable: () => true },
+    }, 'win32')
+    expect(shouldHide).toBe(false)
+  })
+
+  it('publish-progress-ux：context 无 taskQueue（向后兼容）→ 决策与旧口径一致', () => {
+    const windowModule = require('./window.js')
+    expect(windowModule.shouldHideToTray({
+      pipelineEngine: { hasRunningOrchestration: () => true },
+      systemTray: { isAvailable: () => true },
+    }, 'win32')).toBe(true)
+    expect(windowModule.shouldHideToTray({
+      pipelineEngine: { hasRunningOrchestration: () => false },
+      systemTray: { isAvailable: () => true },
+    }, 'win32')).toBe(false)
+  })
+
   it('调用 hotkeys.register', () => {
     createWindow(context)
     expect(context.hotkeys.register).toHaveBeenCalledTimes(1)

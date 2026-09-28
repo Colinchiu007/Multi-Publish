@@ -21,6 +21,10 @@ try {
 const pythonBridge = require('./services/python-bridge')
 const { createContainer } = require('./core/container.setup')
 const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')
+const {
+  createPublishProgressEmitter,
+  createTaskProgressRouter,
+} = require('./services/publish-progress-events')
 const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
 const { startBridges } = require('./bootstrap/phase2-bridges')
 const { extractContext } = require('./bootstrap/phase1-context')
@@ -79,6 +83,21 @@ function createAppContext() {
   // 保留原位：taskQueue.setExecutor 闭包（依赖 getMainWin + publisherRouter + rpaViewManager，高风险）
   const { taskQueue, publisherRouter, rpaViewManager, store,
     history, publishMonitor, publishImpactTracker, AccountManager, riskSuspender } = ctx
+
+  // publish-progress-ux：进度事件富化层（单一发射点）+ platform→taskId 归属路由。
+  // rpaViewManager.onProgress 是单槽回调——全局只注册一次（此前每任务覆盖，
+  // 3 并发任务互相抢占回调导致进度跨归属），回调内经 router 解析当前归属。
+  const progressEmitter = createPublishProgressEmitter({ getMainWin })
+  const taskProgressRouter = createTaskProgressRouter()
+  rpaViewManager.onProgress((data) => {
+    if (!data || typeof data.platform !== 'string') return
+    const taskId = taskProgressRouter.resolve(data.platform)
+    if (!taskId) return
+    progressEmitter.emit(taskId, data.platform, 'progress', {
+      stage: data.stage, percent: data.percent, batchId: null,
+    })
+  })
+
   taskQueue.setExecutor(async (task, context = {}) => {
     if (context.signal?.aborted) throw new Error('任务已取消')
     const platform = task.platform
@@ -87,24 +106,30 @@ function createAppContext() {
     if (riskSuspender && riskSuspender.isSuspended(platform, taskAccountId)) {
       throw new RiskSuspendedError(platform, taskAccountId)
     }
-    const emitProgress = (stage) => {
-      const win = getMainWin()
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('publish:progress', { platform, stage, taskId: task.id })
-      }
-    }
-    emitProgress('准备发布...')
+    // publish-progress-ux：任务开始边界事件（对齐账号批量检测 start/done 双边界先例）
+    taskProgressRouter.register(platform, task.id)
+    progressEmitter.emit(task.id, platform, 'start', {
+      stage: '准备发布...', percent: 0, batchId: task.batchId || null,
+    })
     const publisher = publisherRouter.createPublisher(platform, {
       rpaViewManager, store, pythonBridge, accountManager: AccountManager,
     })
-    rpaViewManager.onProgress(({ stage }) => { emitProgress(stage) })
+    // API 直连轨（ApiPublisher）经 options.onProgress 补发进度（此前该轨完全静默）；
+    // RPA 轨进度走 rpaViewManager 全局回调链，不消费本参数。
+    const onPublisherProgress = (pct, msg) => {
+      progressEmitter.emit(task.id, platform, 'progress', {
+        stage: msg, percent: pct, batchId: task.batchId || null,
+      })
+    }
     try {
-      const result = await publisher.publish(task, { signal: context.signal })
-      emitProgress('✓ 发布成功')
+      const result = await publisher.publish(task, { signal: context.signal, onProgress: onPublisherProgress })
+      // 终态事件单一来源是 phase4-events 的 task:success/task:failed（executor 不再重复发送）
       return result
     } catch (e) {
       log.error('Executor', 'Publish failed for ' + platform + ': ' + errorMessage(e))
       throw e
+    } finally {
+      taskProgressRouter.unregister(platform, task.id)
     }
   })
 
@@ -112,6 +137,7 @@ function createAppContext() {
   wireTaskQueueEvents({
     taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, riskSuspender,
     store: ctx.store || (ctx.container && ctx.container.get('store')),
+    progressEmitter,
   })
 
   return ctx
