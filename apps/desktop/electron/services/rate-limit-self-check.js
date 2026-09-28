@@ -94,7 +94,13 @@ async function runSelfCheck (params) {
       // 假 adapter 不应产生网络调用；若未来接入真实 adapter，此处计数
       if (result && result.noNetwork === undefined) networkCalls += 1
     } catch (e) {
-      if (e && e.code === ERROR_CODES.QUOTA_EXCEEDED) quotaExceeded += 1
+      if (e && e.code === ERROR_CODES.QUOTA_EXCEEDED) {
+        quotaExceeded += 1
+        // 被准入拒的请求一次都没执行，但仍必须留一条时间线：否则「超额」只能靠
+        // requestCount - timeline.length 反推，而同一请求既写 completed 又被计成超额时，
+        // 两个计数器会同时偏高、无法归因（CI 满载下那次随机红就是这个形态）。
+        timeline.push({ req: i, started_at: null, finished_at: null, state: 'quota_exceeded', queue_wait_ms: 0, cooldown_wait_ms: 0 })
+      }
       // 注入的 RATE_LIMITED 已在 task 内计数
     }
   }))
