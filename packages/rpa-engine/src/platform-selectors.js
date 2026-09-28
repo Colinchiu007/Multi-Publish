@@ -104,7 +104,11 @@ module.exports = {
       // AI 生成内容声明：快手发布页的 AI 创作声明控件选择器
       ai_declaration_checkbox: ['input[type="checkbox"][id*="ai"]', 'input[type="checkbox"][name*="ai"]', 'input[type="checkbox"][class*="ai"]', 'label:has-text("AI") input[type="checkbox"]', '[class*="declare"] input[type="checkbox"]', '[class*="声明"] input[type="checkbox"]'],
       ai_declaration_label: ['label:has-text("AI 生成")', 'label:has-text("AI生成")', 'span:has-text("AI 生成")', 'span:has-text("AI生成")', '[class*="ai"] label', '[class*="declare"] label'],
-      publish_btn: ['button:has-text("发布")', 'button:has-text("发表")', 'span:has-text("发 布")', 'span:has-text("发布")', 'span:has-text("立即投稿")', '[class*="submit"]', '[class*="publish"] button'],
+      // publish_btn 首位为活体实证的精确提交钮（2026-09-28 D2 正向证据，rpa-captures/snapshot-005）：
+      // 上传完成后的编辑页真提交钮是裸 <span>立即发布</span>（无 class/id/data 属性）；
+      // 旧候选 span:has-text("发布") 与顶导航「发布作品」/「定时发布」三重歧义，点错对象 → responses=0。
+      // 精确文案候选唯一命中真钮；旧候选保留在后兜底（页面改版回退）。
+      publish_btn: ['span:has-text("立即发布")', 'button:has-text("发布")', 'button:has-text("发表")', 'span:has-text("发 布")', 'span:has-text("发布")', 'span:has-text("立即投稿")', '[class*="submit"]', '[class*="publish"] button'],
     },
     toutiao: {
       write_btn: ['a:has-text("发表文章")', 'button:has-text("写文章")', '[class*="write"]'],

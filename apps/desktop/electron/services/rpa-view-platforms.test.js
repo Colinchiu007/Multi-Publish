@@ -660,9 +660,15 @@ describe('rpa-view-platforms — 快手/B站 发布选择器数据契约', () =>
     expect(S.kuaishou.desc_textarea[0]).toBe('#work-description-edit')
   })
 
-  it('kuaishou：publish_btn 首候选必须带 button 标签限定（防提示文案抢中）', () => {
-    expect(S.kuaishou.publish_btn[0]).toMatch(/^button:has-text\("发(布|表)"\)$/)
-    expect(S.kuaishou.publish_btn[0]).not.toMatch(/^span:/)
+  it('kuaishou：publish_btn 首候选为活体实证的精确文案真钮（2026-09-28 D2 证据）', () => {
+    // 活体取证（d2-live-verdict-20260928.md + d2-live-evidence-20260928-snapshot005.json）：
+    // 上传后编辑页真提交钮是裸 <span>立即发布</span>（无 class/id/data）。旧锁「首候选必须
+    // button 标签限定」基于真钮是 <button> 的假设——2026-09-28 实测推翻（真钮是 span，
+    // button 系候选全部超时）。防提示文案误匹配的本意由精确文案承接：
+    // 「立即发布」不被任何已知提示文案（发布成功次数/在粉丝浏览高峰期发布等）包含。
+    expect(S.kuaishou.publish_btn[0]).toBe('span:has-text("立即发布")')
+    // button 标签限定候选保留在兜底序列（页面改版回退路径）
+    expect(S.kuaishou.publish_btn).toContain('button:has-text("发布")')
   })
 
   it('bilibili：title_input 含实测命中的 placeholder 约束候选', () => {
