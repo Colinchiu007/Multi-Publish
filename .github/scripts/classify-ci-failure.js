@@ -123,7 +123,10 @@ function classifyFailure(input) {
   // 不带 attempt 的端点会给出新一次的结论（实测 #2572 就是这样开出一张空标题单的）。
   const attemptGiven = input.runAttempt !== undefined && input.runAttempt !== null && input.runAttempt !== '';
   const attemptText = attemptGiven ? `attempt ${input.runAttempt}` : 'attempt 未知（读的是最新 attempt，重跑后可能已不是失败那一次）';
-  let evidence = `${workflowName} / ${rootJob || '(未定位到失败作业)'} / ${rootStep || '(未定位到失败步骤)'} / ${exitText} / ${attemptText}`;
+  // 无作业时不得写「未定位到失败步骤」——那不是"步骤没定位到"，是**根本没有作业可定位**，
+  // 两种空的原因不同，混写会让下一个读者去找不存在的步骤。
+  const stepText = rootJob === null ? '(无作业可定位)' : (rootStep || '(未定位到失败步骤)');
+  let evidence = `${workflowName} / ${rootJob || '(未定位到失败作业)'} / ${stepText} / ${exitText} / ${attemptText}`;
   if (root && rootStep === null) {
     const hint = firstUnfinishedStep(root);
     if (hint) evidence += ` / 首个非成功步骤: ${hint}（仅线索，未判定）`;
@@ -139,7 +142,14 @@ function classifyFailure(input) {
     type = 'doc-sync-drift';
   } else if (rootJob === null) {
     type = 'ci-failure';
-  } else if (SETUP_STEP_RE.test(rootStep || '')) {
+  } else if (rootStep === null) {
+    // 作业红、但**没有任何一个步骤红** ⇒ 拿不到"失败发生在哪一步"的证据。此时不得凭
+    // 作业名里含 "test" 就判 test-failure：真实断言失败一定会把一个步骤标成 failure
+    // （12 条真实样本夹具逐条核实过），没有红步骤说明作业是被整体掐掉的（取消 / runner
+    // 掉线 / 超时墙之外）。判 ci-failure 不是偷懒——它让读者去查"作业为什么没了"，
+    // 而不是去翻一条并不存在的失败断言。这正是标识符对上 ≠ 病因对上那类错误的落点。
+    type = 'ci-failure';
+  } else if (SETUP_STEP_RE.test(rootStep)) {
     type = 'setup-failure';
   } else if (looksLikeTest(rootJob, rootStep)) {
     type = 'test-failure';

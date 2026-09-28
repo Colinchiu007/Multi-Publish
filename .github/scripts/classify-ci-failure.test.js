@@ -325,6 +325,9 @@ test('作业红而无 failure 步骤时：根因给作业名 + 诚实标签，�
     logExcerpts: [],
   });
   assert.equal(v.rootJob, 'electron-tests', '有失败作业时根因不得为空');
+  // 作业名含 "test" 但**没有红步骤**时不得判 test-failure：真实断言失败一定会把一个步骤
+  // 标成 failure（夹具 12 条样本逐条核实），没有红步骤 = 作业被整体掐掉，病因未知。
+  assert.equal(v.type, 'ci-failure', `拿不到步骤级证据时不得凭作业名定性病因，实际判成 ${v.type}`);
   const title = buildDedupTitle(v);
   assert.doesNotMatch(title, /- \/ -/, `标题不得留空占位：${title}`);
   assert.match(title, /未定位到失败步骤/, title);
@@ -344,6 +347,10 @@ test('一个失败作业都定位不到时（重跑竞态残留），标题与�
   assert.match(title, /未定位到失败作业/, title);
   assert.match(v.signature, /::none::/, v.signature);
   assert.match(v.evidence, /attempt 2/, `evidence 要带上 attempt，便于认出重跑，实际：${v.evidence}`);
+  // 无作业时不得写「未定位到失败步骤」——那是"有作业、步骤没定位到"的另一种空，
+  // 两种空的原因不同，混写会让下一个读者去找一条并不存在的步骤。
+  assert.doesNotMatch(v.evidence, /未定位到失败步骤/, `无作业时的空位措辞不得与"无步骤"混写：${v.evidence}`);
+  assert.match(v.evidence, /无作业可定位/, v.evidence);
 });
 
 const HANDLER = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ci-failure-handler.yml'), 'utf8');
