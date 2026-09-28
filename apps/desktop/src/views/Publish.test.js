@@ -758,6 +758,124 @@ describe("PublishView — extra coverage", () => {
     expect(() => w.vm.handleVideoFileExceed([])).not.toThrow();
   });
 
+  // ── 视频选择反馈差异化（PRD-VIDEO-SELECT-FEEDBACK-2026-09-28）──
+  it("first video selection shows a named success toast and fills videoFileMeta", async () => {
+    const { ElMessage } = await import("element-plus");
+    ElMessage.success.mockClear();
+    const w = await createWrapper();
+    const raw = { name: "01.mp4", type: "video/mp4", size: 12 };
+
+    await w.vm.handleVideoFileChange({ raw, name: raw.name });
+
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+    expect(w.vm.videoFileMeta).toEqual({ name: "01.mp4", sizeBytes: 12, formatLabel: "MP4" });
+    expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining("01.mp4"));
+  });
+
+  it("reselecting a different video shows a replacement toast with old and new names", async () => {
+    const { ElMessage } = await import("element-plus");
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    window.electronAPI.getPathForFile.mockReturnValueOnce("D:/media/02.mp4");
+    ElMessage.success.mockClear();
+
+    await w.vm.handleVideoFileChange({ raw: { name: "02.mp4", type: "video/mp4", size: 20 }, name: "02.mp4" });
+
+    expect(w.vm.article.video_path).toBe("D:/media/02.mp4");
+    expect(w.vm.videoFileMeta.name).toBe("02.mp4");
+    const text = ElMessage.success.mock.calls[0][0];
+    expect(text).toContain("02.mp4");
+    expect(text).toContain("01.mp4");
+  });
+
+  it("reselecting the same video shows an info toast instead of success", async () => {
+    const { ElMessage } = await import("element-plus");
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    ElMessage.info.mockClear();
+    ElMessage.success.mockClear();
+
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+
+    expect(ElMessage.info).toHaveBeenCalledWith(expect.stringContaining("01.mp4"));
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+  });
+
+  it("oversize video (>500MB) is rejected up front and keeps the previous selection", async () => {
+    const { ElMessage } = await import("element-plus");
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    ElMessage.warning.mockClear();
+
+    await w.vm.handleVideoFileChange({ raw: { name: "big.mp4", type: "video/mp4", size: 600 * 1024 * 1024 }, name: "big.mp4" });
+
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+    expect(w.vm.videoFileMeta.name).toBe("01.mp4");
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("500MB"));
+  });
+
+  it("remove clears videoFileMeta along with video_path", async () => {
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    expect(w.vm.videoFileMeta).not.toBeNull();
+
+    w.vm.handleVideoFileRemove();
+
+    expect(w.vm.article.video_path).toBe("");
+    expect(w.vm.videoFileMeta).toBeNull();
+  });
+
+  it("card remove button clears the el-upload list and selection state", async () => {
+    const w = await createWrapper();
+    const clearFiles = vi.fn();
+    w.vm.videoUploadRef = { clearFiles };
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+
+    w.vm.handleVideoCardRemove();
+
+    expect(clearFiles).toHaveBeenCalledTimes(1);
+    expect(w.vm.article.video_path).toBe("");
+    expect(w.vm.videoFileMeta).toBeNull();
+  });
+
+  it("video mode renders the persistent selected card after selection", async () => {
+    await router.push("/?type=video");
+    const w = await createWrapper();
+    expect(w.find('[data-testid="video-selected-card"]').exists()).toBe(false);
+
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 25 * 1024 * 1024 }, name: "01.mp4" });
+    await nextTick();
+
+    const card = w.find('[data-testid="video-selected-card"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("01.mp4");
+    expect(card.text()).toContain("25.00 MB");
+  });
+
+  it("video_path restored from query (no File meta) still renders the card with basename fallback", async () => {
+    await router.push("/?type=video&video_path=" + encodeURIComponent("D:/media/restored.mov"));
+    const w = await createWrapper();
+    await flushPromises();
+    await nextTick();
+
+    const card = w.find('[data-testid="video-selected-card"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("restored.mov");
+  });
+
+  it("triggerVideoReselect clicks the hidden file input of el-upload", async () => {
+    const w = await createWrapper();
+    const click = vi.fn();
+    const querySelector = vi.fn(() => ({ click }));
+    w.vm.videoUploadRef = { $el: { querySelector } };
+
+    w.vm.triggerVideoReselect();
+
+    expect(querySelector).toHaveBeenCalledWith('input[type="file"]');
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it("封面提取结果使用当前语言的提示文案", async () => {
     const w = await createWrapper();
     w.vm.article.video_path = "D:/source.mp4";
