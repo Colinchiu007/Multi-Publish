@@ -151,5 +151,10 @@
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。",
     "status": "PENDING",
     "line": 24
+  },
+  "本次执行记录：CCG 双模型外部评审补跑——发布能力注册表（publish-capability-registry，2026-10-08）": {
+    "reason": "本 PR（#2588）自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填者＝下一个会话，按 git log origin/main --grep=(#2588) 取证回填后必须删除本条，否则判陈旧登记。",
+    "status": "PENDING",
+    "line": 2
   }
 }

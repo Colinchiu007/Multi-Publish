@@ -286,6 +286,25 @@ describe('publish-capabilities — 差异化字段定义', () => {
     fields.push({ key: 'injected' })
     expect(getPlatformOverrideFields('zhihu').length).toBe(6)
   })
+
+  it('CCG W5 回归：副本深拷贝——突变 options/default 不污染注册表', () => {
+    const first = getPlatformOverrideFields('zhihu')
+    const declareField = first.find(f => f.key === 'declare')
+    const topicsField = first.find(f => f.key === 'topics')
+    // 突变返回副本的 options 选项对象与 default 数组
+    declareField.options[0].value = 999
+    declareField.options.push({ value: 888, label: '注入' })
+    topicsField.default.push('注入话题')
+    // 后续调用不得看到任何突变（浅拷贝会经共享引用泄漏）
+    const second = getPlatformOverrideFields('zhihu')
+    expect(second.find(f => f.key === 'declare').options[0].value).toBe(0)
+    expect(second.find(f => f.key === 'declare').options.length).toBe(6)
+    expect(second.find(f => f.key === 'topics').default).toEqual([])
+    // 双版本同口径（ESM 侧同样不得泄漏）
+    const browserFields = browserModule.getPlatformOverrideFields('zhihu')
+    browserFields.find(f => f.key === 'declare').options[0].value = 777
+    expect(browserModule.getPlatformOverrideFields('zhihu').find(f => f.key === 'declare').options[0].value).toBe(0)
+  })
 })
 
 describe('publish-capabilities — 通用主表单字段支持矩阵', () => {
@@ -381,5 +400,17 @@ describe('publish-capabilities — 注册表结构自检与双版本 parity', ()
     expect(browserModule.getFieldSupport('visibility')).toEqual(getFieldSupport('visibility'))
     expect(browserModule.getPlatformOverrideFields('zhihu', { uiOnly: true }))
       .toEqual(getPlatformOverrideFields('zhihu', { uiOnly: true }))
+  })
+
+  it('CCG codex Info2：双版本全平台穷举 parity（防 ESM 孪生局部漂移）', () => {
+    for (const platform of ALL_PLATFORMS) {
+      expect(browserModule.getPlatformPublishMeta(platform)).toEqual(getPlatformPublishMeta(platform))
+      expect(browserModule.isNoTitlePlatform(platform)).toBe(isNoTitlePlatform(platform))
+      expect(browserModule.getPlatformContentLimit(platform)).toEqual(getPlatformContentLimit(platform))
+      expect(browserModule.getPlatformOverrideFields(platform)).toEqual(getPlatformOverrideFields(platform))
+      expect(browserModule.getPlatformOverrideFields(platform, { uiOnly: true }))
+        .toEqual(getPlatformOverrideFields(platform, { uiOnly: true }))
+    }
+    expect(browserModule.getCommonFormFields()).toEqual(getCommonFormFields())
   })
 })

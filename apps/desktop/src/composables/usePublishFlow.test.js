@@ -900,6 +900,56 @@ describe('usePublishFlow — composable setup', () => {
     })
   })
 
+  it('CCG codex W1 回归：注册表面板字段全链路透传（不再被硬编码白名单丢弃）', async () => {
+    // 事故形态：旧 normalizePlatformOverrides 只保留知乎/抖音/公众号少数字段，
+    // B站分区/YouTube 可见性/TikTok 隐私/百家号原创/公众号摘要等面板字段在
+    // IPC 组装前被静默丢弃——UI 可编辑但发布不生效（两侧测试各自全绿，只有
+    // 全链路才暴露）。
+    selectedPlatforms.value = ['bilibili', 'youtube', 'tiktok', 'baijiahao', 'wechat_mp']
+    selectedAccounts.value = {
+      bilibili: 'bili-1', youtube: 'yt-1', tiktok: 'tt-1', baijiahao: 'bj-1', wechat_mp: 'wx-1',
+    }
+    const diffEdits = reactive({
+      bilibili: { title: '', content: '', category: 21, copyright: 1, collectionId: 12345 },
+      youtube: { title: '', content: '', categoryId: '22', privacy: 'unlisted', playlistId: 'PLabc123' },
+      tiktok: { title: '', content: '', privacyLevel: 'FRIENDS' },
+      baijiahao: { title: '', content: '', original: true, locationName: '北京·三里屯', collectionIdText: '99:合集名' },
+      wechat_mp: { title: '', content: '', digest: '这是摘要', openComment: false },
+    })
+    const r = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled, diffEdits })
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockPublishBatch.mock.calls[0][1].platformOverrides).toEqual({
+      bilibili: { title: '', content: '', category: 21, copyright: 1, collectionId: 12345 },
+      youtube: { title: '', content: '', categoryId: '22', privacy: 'unlisted', playlistId: 'PLabc123' },
+      tiktok: { title: '', content: '', privacyLevel: 'FRIENDS' },
+      baijiahao: { title: '', content: '', original: true, locationName: '北京·三里屯', collectionIdText: '99:合集名' },
+      wechat_mp: { title: '', content: '', digest: '这是摘要', openComment: false },
+    })
+  })
+
+  it('CCG codex W1 回归：非法值按注册表规则剔除（select 越界/空文本/空 tags）', async () => {
+    selectedPlatforms.value = ['bilibili', 'youtube', 'zhihu']
+    selectedAccounts.value = { bilibili: 'bili-1', youtube: 'yt-1', zhihu: 'zh-1' }
+    const diffEdits = reactive({
+      bilibili: { title: '', content: '', category: 'hack', copyright: 9 },
+      youtube: { title: '', content: '', privacy: 'invalid', playlistId: '   ' },
+      zhihu: { title: '', content: '', topics: [] },
+    })
+    const r = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled, diffEdits })
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    // 非法 select 值/空白文本/空 tags 全部剔除后条目无任何有效差异 → 整体不进 payload
+    //（与旧语义一致：无 title/content 且无有效特有字段的覆盖项不产生 IPC 条目）
+    expect(mockPublishBatch.mock.calls[0][1].platformOverrides).toEqual({})
+  })
+
   it('平台内容超过限制时在 IPC 前阻止发布', async () => {
     selectedPlatforms.value = ['xiaohongshu']
     selectedAccounts.value = { xiaohongshu: ['xhs-1'] }

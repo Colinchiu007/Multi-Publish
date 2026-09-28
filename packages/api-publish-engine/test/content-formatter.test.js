@@ -85,18 +85,19 @@ test("under limit", () => {
 });
 
 // ---- truncateTitle ----
+// 2026-10-08 CCG 评审（W4）同步注册表口径：douyin 55（旧 30）、xiaohongshu 20（旧 40）
 console.log("\n--- truncateTitle ---");
-test("douyin: 30 chars max", () => {
-  const r = truncateTitle("douyin", "a".repeat(50));
-  assertEqual(r.length, 30);
+test("douyin: 55 chars max（注册表口径，旧值 30 已废）", () => {
+  const r = truncateTitle("douyin", "a".repeat(60));
+  assertEqual(r.length, 55);
 });
 test("bilibili: 80 chars max", () => {
   const r = truncateTitle("bilibili", "b".repeat(100));
   assertEqual(r.length, 80);
 });
-test("xiaohongshu: 40 chars max", () => {
-  const r = truncateTitle("xiaohongshu", "c".repeat(60));
-  assertEqual(r.length, 40);
+test("xiaohongshu: 20 chars max（注册表口径，旧值 40 已废）", () => {
+  const r = truncateTitle("xiaohongshu", "c".repeat(40));
+  assertEqual(r.length, 20);
 });
 test("null title", () => {
   assertEqual(truncateTitle("douyin", null), "");
@@ -104,11 +105,12 @@ test("null title", () => {
 
 // ---- formatContent full pipeline ----
 console.log("\n--- formatContent ---");
-test("formatContent: douyin full pipeline", () => {
+test("formatContent: douyin full pipeline（标题 40 ≤ 注册表 55 不截断）", () => {
   const td = formatContent("douyin", {
     title: "a".repeat(40), content: "b".repeat(1500), tags: ["科技", "AI"]
   });
-  assertEqual(td.title.length, 30);
+  // CCG W4 事故场景回归：40 字标题经渲染层（注册表 55）放行后不得被引擎截到旧值 30
+  assertEqual(td.title.length, 40);
   assertEqual(td.content.length, 1000);
   assertEqual(td.tags, ["#科技", "#AI"]);
 });
