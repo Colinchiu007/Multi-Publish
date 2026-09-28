@@ -1,3 +1,20 @@
+# [未发布] fix(session-isolation): installer 支持一次性 -TaskPath，并对生产路径的 -Unregister fail closed（2026-09-28，guard-task-path）
+
+### 变更
+- `scripts/install-session-isolation-task.ps1` 新增 `-TaskPath`（默认仍是生产路径 `\Multi-Publish\`）与 `-AllowLiveUnregister`：`-Unregister` 打向生产路径时**默认拒绝**并非零退出，指引调用方改用一次性路径。同时补齐 Task Scheduler 的路径口径（首尾都要有反斜杠，否则 `Get-ScheduledTask -TaskPath` 返回空集，`-Unregister` 会报"删了 0 条"这种可疑的"成功"）。
+- 注册与反注册一律**以产物判成败**：每次 `Register-ScheduledTask` 后用 `Get-ScheduledTask` 核实任务确实存在，反注册后核实确实清空；失败时给出可执行指引（AtLogOn 触发器需 `Start-Process -Verb RunAs` 提权）。原实现只看管道到 `Out-Null` 之后的隐式状态，而该 cmdlet 抛的是**非终止错误、不写 `$LASTEXITCODE`** —— 只看 rc 会把"一条都没注册上"报成成功。
+- 新增 `scripts/install-session-isolation-task.test.ps1`（7 条，**不做任何注册动作**，因此与提权无关、可接 CI）并接入 Gate 2d：拒绝生产路径 `-Unregister`、拒绝信息点名逃生开关、被拒后真任务列表逐条不变（以产物判）、一次性路径放行、参数面存在（读 `Get-Command` 而非 grep 文本）、不带尾斜杠同样被拒。
+- `check-unwired-tests.js` 里 `session-isolation-automation.test.ps1` 的欠账理由换成实测事实：未知量已收窄为"runner 进程令牌是否提权"。
+
+### 为什么现在才做（一次自伤的账）
+写这条守卫的动机来自本轮我自己造成的一次事故：为反证"拒绝逻辑有牙"，把该判断临时改成 `if ($false)` 后照原样跑测试，而测试里正有一条拿**默认生产路径**调 `-Unregister` —— 守卫被我亲手绕过的那一刻，两条在跑的计划任务真被删除（含共享根实时写保护）。Health 可非提权恢复；AtLogOn 写保护任务恢复必须提权，因此当时只能半恢复。第二版沙箱反证又因为只替换了带尾斜杠的路径字面量、漏掉不带尾斜杠那一处而再次波及真任务。两次是同一类错误：**削弱破坏性动作的守卫时，仍让代码走到它保护的那个动作上**。修法即本条：默认拒绝 + 可注入路径，让自检与测试没有第二条路可走。
+
+### 门禁与反证
+- 本机 `pwsh 7.6` 与 `Windows PowerShell 5.1` 各 `rc=0 / 7 条 PASS`。过程中两个自引入缺陷被真实抓到并修掉：① 往 5.1 执行的脚本里写中文注释 —— 无 BOM UTF-8 被按 ANSI 解，直接解析失败；② `Check (…).Count -eq 0 '…'` 少一层外层括号，PowerShell 把 `-eq 0` 当成后续实参传给函数，比较成立仍判假（这一条在 CI 上会因为"没有任务"而恒红）。
+- 反证改在**完全沙箱**里做：把 installer 与测试各复制到 TEMP，复制体内所有 `Multi-Publish` 字样一律换成一次性探针路径，每格开始前向探针文件夹注册一个动作仅为 `cmd /c exit 0` 的空任务。结果：A 守卫在位 `rc=0 / 7 PASS` 且探针任务存活；B 拆掉拒绝分支 `rc=1 / pass=0`，且**探针任务被真删**（证明拒绝分支是唯一屏障）；C 去掉尾斜杠归一后红在"不带尾斜杠也要被拒"那条（证明归一是承重的）。三格全程生产文件夹快照逐字不变、复制体外的源文件 sha 未变、探针文件夹已清空。
+- 同 PR 自跑：`check-unwired-tests.js` → 检查域内测试文件 43 个 / OK（新测试已接线）；`check-step-failfast.js` → 4 个多测试步骤 OK；`--test` 三件 41 passed / 0 failed。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
 # [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
 
 ### 现象与根因
