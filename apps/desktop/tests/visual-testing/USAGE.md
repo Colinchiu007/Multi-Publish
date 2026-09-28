@@ -113,7 +113,12 @@ reports/mp-pixel-diff/
 它是外部人工验收阻断，不纳入 `test:visual:pixel`、`test:all:visual` 或常规 CI；不得用
 Multi-Publish 自身的基准图替代。捕获时固定窗口尺寸、显示缩放和登录状态，且不得读取或提交凭据。
 
-### 5. 发版前必跑：全量回归（94 用例 = 44 视图 + 50 工作流）
+### 5. 发版前必跑：全量回归（103 用例 = 54 视图 + 49 工作流）
+
+命令指向聚合器 `scripts/run-all-visual.js`：它直接引用四套模块导出的注册表（不自抄清单），
+逐套隔离执行——**任何一套红都不会中止后面三套**，所以 CI artifact 始终含全部四套的截图；
+每套输出一行 `[VISUAL-SUMMARY] suite=<id> total= passed= failed= elapsed_ms=`，
+运行器起不来这类「一条结论都没有」的套件记 `aborted=1`，不会谎报成失败数。
 
 ```bash
 npm run test:all:visual
@@ -126,6 +131,11 @@ npm run test:visual:ci
 ```
 
 CI 自动完成:装 Playwright → 启 Vite → 跑像素对比 → 生成 Agent 报告 → 上传 artifact。
+
+两条流水线分工不同：`quality-gate.yml` 的 `QG Visual`（Gate 7）是 **PR 阻断门禁**，只跑 `run-pixel-tests.js` 的
+`pixelTests`；`.github/workflows/visual-test.yml`（main push / dispatch）额外跑**全量四套**并把截图落 artifact，
+该步骤此刻 `continue-on-error: true` 是刻意的**基线采集**——工作流基线尚未按 CI 同源重建，提前接进判定就是给 main
+挂长期假红。升级为阻断门禁的前提见 `openspec/changes/visual-all-baseline-ci/`。
 
 ---
 

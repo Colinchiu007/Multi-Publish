@@ -54,13 +54,15 @@ tests/visual-testing/
 | `npm run test:visual:pixel` | 像素对比测试（无需 API Key）✅ |
 | `npm run test:visual:agent` | 生成 Agent 视觉判断报告（无需 Key）✅ |
 | `npm run test:visual:update-baseline` | 更新基线截图 |
-| `npm run test:all:visual` | 全量回归（94 用例） |
+| `npm run test:all:visual` | 全量回归（103 用例 = 54 视图 + 49 工作流），由 `scripts/run-all-visual.js` 逐套隔离跑完：一套红不会停后面三套，每套输出一行 `[VISUAL-SUMMARY]` |
 
 ## 强制规则（MUST）
 
 1. **pre-commit 不集成视觉测试**（触发频率过高，且需要 dev server）
 2. **PR 合入前必须通过** `npm run test:visual:pixel`，非零退出码禁止合入
 3. **发版前必须通过** `npm run test:all:visual`
+   （2026-09-28 起 Visual Tests workflow 每次 main push / dispatch 已代跑并落 `visual-test-reports` artifact，
+   但该步骤此刻 `continue-on-error: true`：**是基线采集，不是门禁**——工作流基线尚未按 CI 同源重建）
 4. **baseline 更新需人工审核** diff 图，确认是预期变化后再覆盖
 5. **改完 UI 必须跑 `--single` 自测** + 看 `screenshots/*-current.png` 确认
 

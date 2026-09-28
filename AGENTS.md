@@ -650,6 +650,10 @@ Code review 时除逻辑正确性外，必须逐项检查：
 > ⚠️ **视觉用例有两份清单**：`views/all-views.visual.test.js` 的 `viewTests`（`test:visual` / `test:all:visual` / `--single`）
 > 与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 只执行这一份**）。只登记前者会得到一条必然的"绿"，
 > 它等于没跑。新增像素用例必须两处都登记，并以「CI 日志里该用例名出现次数 > 0」为通过证据。
+> 
+> **全量四套注册表**（views / supplementary-views / workflows / supplementary-workflows）由 `scripts/run-all-visual.js` 单点聚合：
+> 聚合器直接 `require` 各模块的导出数组（`toBe` 引用相等由 `visual-ci.test.js` 锁），**不得另抄一份清单**；
+> 每套输出一行 `[VISUAL-SUMMARY] suite=<id> total= passed= failed= elapsed_ms=`，这是"这套用例真的在 CI 上跑过"的唯一现场证据。
 
 - **PR 合入前（必须通过）**：像素对比核心视图，无需 API Key
 
@@ -657,7 +661,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
   cd apps/desktop && npm run test:visual:pixel
   ```
 
-- **发版前（人工核查项，非自动硬门禁）**：完整回归（94 个测试：44 视图 + 50 工作流）
+- **发版前（人工核查项，非自动硬门禁）**：完整回归（103 个测试：35 + 19 视图 + 31 + 18 工作流）由 `tests/visual-testing/scripts/run-all-visual.js` 逐套隔离执行——**一套红不会停掉后面三套**（旧 `a && b && c && d` 串联会让"CI 产物里有没有这套截图"取决于前一套的成败）
 
   ```bash
   npm run test:all:visual
@@ -722,7 +726,7 @@ npm run test:visual:pixel
 # 像素失败后生成 Agent 判断报告
 npm run test:visual:agent
 
-# 发版前(必跑,94 用例全量)
+# 发版前(必跑,103 用例全量;逐套隔离,一套红不停后面三套)
 npm run test:all:visual
 ```
 
@@ -730,11 +734,13 @@ npm run test:all:visual
 
 1. **pre-commit 不集成**视觉测试(需 dev server,触发频率过高)
 2. **PR 合入前必须通过** `npm run test:visual:pixel`(非零退出码禁止合入)
-3. **发版前人工确认**已跑 `npm run test:all:visual` 且无未审核的回归（**当前 `scripts/release-gate.mjs` 未将视觉回归纳入硬门禁**，它只核验版本 bump + CHANGELOG 收口 + 破坏性变更级别；因此本条是人工核查项而非自动拦截。若要将其升级为「必须通过」的硬门禁，需先给 release-gate 接入视觉回归结果标记的硬检查，并定义时长预算/flaky/基线策略）
+3. **发版前人工确认**已跑 `npm run test:all:visual` 且无未审核的回归（**当前 `scripts/release-gate.mjs` 未将视觉回归纳入硬门禁**，它只核验版本 bump + CHANGELOG 收口 + 破坏性变更级别；因此本条是人工核查项而非自动拦截。若要将其升级为「必须通过」的硬门禁，需先给 release-gate 接入视觉回归结果标记的硬检查，并定义时长预算/flaky/基线策略）。
+   自 2026-09-28 起全量四套**已由 CI 每次 main push / dispatch 代跑**（Visual Tests workflow 的 `Full visual suites` 步骤，产物在 `visual-test-reports` artifact），人工核查项从此不必每次手跑；但该步骤**刻意 `continue-on-error: true`**——现有工作流基线不同源（实测同屏两态差 0.16%、仓库基线 vs CI 渲染差 3.82% ⇒ 不可判据），提前接进判定就是给 main 挂长期假红。升级为阻断门禁的两个前提见 `openspec/changes/visual-all-baseline-ci/`，反断言必须与同源基线同 PR。
 4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
 5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view\_image 看图判断
 6. 所有命令必须在 `apps/desktop/` 目录下执行
 7. **基线必须与比对环境同源（MUST）**：`test:visual:pixel` 在 CI 用 `windows-latest` + CI 的 Chromium/字体渲染做比对，因此**基线只能取自 CI 产物**（`quality-gate-visual-reports` artifact 里的 `screenshots/<view>-current.png`），**禁止**把本地 `test:visual:update-baseline` 截出的图直接提交。反例实测：`accounts-list.png` 曾在本地机器上捕获并入库，与 CI 渲染产生 **3.659%** 的全页文字亚像素重影差异（两次不同分支 CI run 之间比对为 **0 px**，证明 CI 渲染是确定性的），而 `PIXEL_THRESHOLD=0.06` 是**全页**容差——门禁因此长期被环境噪声吃掉、对局部回归近乎失明。判据：换/补基线后必须自证「新基线 vs 同一次 CI 渲染 = 0 px」，并确认差异中**属于本次代码改动的比例**（分区统计），不能让噪声占大头却报「PASSED」。
+   `test:all:visual` 的四套用例同理：其**唯一** CI 产物来源是 Visual Tests workflow（main push / dispatch）上传的 `visual-test-reports` artifact，本机截图不得提交为基线；该步骤跑完前一套红也会跑完后三套，所以 artifact 始终含全部四套的截图。
 
 ### 失败处理流程
 
