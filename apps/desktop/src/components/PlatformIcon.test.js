@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 
 // Mock usePlatformIconUrl to return empty → SVG 不回退到字母渲染
-vi.mock("@/composables/usePlatformIconUrl", () => ({
+vi.mock("@/composables/usePlatformIconUrl", async (importOriginal) => ({
+  ...(await importOriginal()),
   getPlatformIconUrl: () => "",
   platformIconUrl: () => "",
 }));

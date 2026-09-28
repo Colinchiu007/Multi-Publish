@@ -119,6 +119,14 @@ body {
   font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
 }
 
+/* 平台图标底衬：品牌标里有纯黑（Twitter/X、TikTok），暗色主题下 --canvas 变深会让它们直接隐身。
+   统一坐在浅底上，与文字回退分支 .platform-icon 的底色保持同一处理。
+   尺寸与圆角仍由各调用点决定，本类只负责底衬；新增图标渲染点必须带上它。 */
+.mp-platform-icon {
+  background: #f1f0ff;
+  object-fit: contain;
+}
+
 /* --- 顶部导航 --- */
 .cohere-topnav {
   position: fixed;

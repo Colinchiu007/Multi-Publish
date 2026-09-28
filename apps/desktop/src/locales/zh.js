@@ -1230,6 +1230,7 @@ export default {
     dragVideo: '拖拽视频文件到这里，或 ',
     clickSelect: '点击选择',
     videoTip: '支持 mp4/mov/avi，最大 500MB',
+    videoSelected: '已选择视频文件',
     modeVideo: '视频发布',
     modeArticle: '图文发布',
     videoDescLabel: '视频描述',
