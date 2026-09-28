@@ -1,3 +1,21 @@
+# [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
+
+### 变更
+- 新增 `scripts/check-gate-record-debt.js` + `scripts/gate-record-debt-ledger.json`，并接入 `quality-gate.yml` 的 `Gate 2c`：扫描 `.quality-gates.md` 的「远程同步」状态列，凡未收口且没带原因登记的行一律判红。
+- 三条口径都按「未知即红」写：状态列是**自由文本**（实测 127 行里有 22 种写法），所以判定用闭合词表（`PASS`/`N/A`/`✅`/`已…`），换一个新词写"差不多好了"照样算未收口；登记键用**所属记录标题**（从 `（…，slug，date）` 抽 slug 只覆盖 319 篇里的 160 篇且撞 4 次，不能当键），标题漂移会同时报「未登记欠账」与「陈旧登记」两条红；回填一条记录必须顺手删掉它的登记项 —— 这条耦合保证清单只会缩小。
+- 回填本会话自己造的 4 条记录（#2516 / #2521 / #2538 / #2551）为既有 PASS 口径，字段全部**离线取证**：merge SHA 与时间来自 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，远端分支已删来自 `git ls-remote --heads origin <branch>` 返回 0 行。其余 28 条属并发会话的记录，**只登记不代改、不臆造 SHA**。
+- 顺带修一处文案漂移：实现从内联 `KNOWN_UNSYNCED` 改成 JSON 清单后，报错信息还指着那个已不存在的符号名 —— 指向不存在的东西的提示语，比没有提示更容易把人带偏。
+
+### 为什么这算机制而不是打扫
+本仓 `.quality-gates.md` 的「远程同步」行本意是"合并后回来补证据"，95 条确实被补过（约定是活的），但近期 32 条停在那里没人管，且**没有任何东西会因此变红**。后果不是难看：已合并的记录顶着 PENDING，下一个会话读到就是"这活儿没干完"，于是重复诊断、重复开工 —— 与 learnings 记过的「装饰性门禁」「记录性断言」是同一类病：状态写下来了，却没有任何东西消费它。
+
+### 门禁与反证
+- TDD 先红：9 条用例先跑 `Cannot find module`；实现后 `node --test scripts/check-gate-record-debt.test.js` ⇒ 9 passed / 0 failed。
+- 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
+- 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
+- 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
+
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
 ### 为什么
