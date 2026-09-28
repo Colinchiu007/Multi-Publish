@@ -496,10 +496,21 @@ article.publishTime 非空 → validateScheduleEntries（未来时间/≤30 天/
 2. **location（3 平台）**、**goods（4 平台）**、**activity（3 平台）**：差异化区字段补 UI。
 3. 平台独有高价值项：B站弹幕开关、百家号三图封面、知乎赞赏、微博投票、抖音合作投稿。
 
-## 十二、残余限制
+## 十二、残余限制（2026-10-08 CCG 评审后更新）
 
-- 引擎 `content-formatter.js` 第三份限制表未合并（引擎零依赖约束，另立 change；本轮以契约测试锁无标题清单一致性）。
-- `platforms.yaml` max_title/max_content 未收敛（主进程配置面，涉及 RPA compose 截断链路）。
-- Twitter/TikTok 适配器为源码结构锁（execute 需网络/OAuth 无法单测直跑）。
+- ~~引擎 `content-formatter.js` 第三份限制表未合并~~ → **已收口（CCG claude W4/codex W5）**：两表同步注册表口径 + 契约锁 `content-formatter-registry-sync.test.js`（引擎零依赖约束下用测试依赖锁漂移，先例 no-title-contract）；无标题平台标题在引擎管线不单独截断（合并后由 contentMax 管辖）。
+- `platforms.yaml` max_title/max_content 未收敛（主进程配置面，RPA compose 截断仍读 YAML；CCG 登记，另立 change）。
+- Twitter/TikTok 适配器为源码结构锁（execute 需网络/OAuth 无法单测直跑；建议提取纯函数属引擎重构面，另立 change）。
 - 批量模式（batchMode）表单未加支持度徽标与无标题提示（单篇两分支已覆盖；批量属简化流）。
 - EverOS HTTP 检索通道受服务端 cascade 卡死影响（add+flush 成功、search 空）；md-first 直写已兜底，cascade 恢复后自动索引。
+- 校验层 String() 强转 vs 合成函数丢弃非字符串的类型边界差异（CCG codex W4 登记：UI 输入恒为字符串，无真实触发路径）。
+
+## 十三、CCG 双模型评审记录（2026-10-08 补跑）
+
+两路（claude 前端路 / codex 后端路）`codeagent-wrapper --lite` 并行派发，findings 逐条处置回写 `.quality-gates.md`。**关键产出**：
+
+1. **codex W1（实质 Critical）**：`normalizePlatformOverrides` 硬编码白名单丢弃注册表面板字段（UI 可编辑但发布不生效）→ 改注册表驱动归一化（§5.1 数据流补：buildArticleData 的 platformOverrides 归一化按注册表字段与类型执行，与面板 normalizeValue 同口径）。
+2. **codex Info3 暴露真实缺口**：`caption_textarea` 不在 `_publish_generic` 编辑器候选链 → instagram/tiktok 标题合并路径从未生效 → 候选链补齐（§5.3 表 DOM RPA 行的适用平台含 instagram/tiktok）。
+3. 其余采纳修复：合并公式统一 `\n` + 按码点截断（DOM RPA/面板/校验层三处）、content-formatter 同步+锁、注册表副本深拷贝、全平台穷举 parity。
+
+**评审方法论沉淀**：跨层缺陷（面板 emit ✓ / 路由直传 ✓ / 全链路 ✗）只有双模型外部评审暴露——两侧各自全绿时，中间的组装层（normalizePlatformOverrides）是盲区；「UI 可编辑但发布不生效」类 Bug 的回归锁必须打在全链路（panel → normalize → IPC payload）。

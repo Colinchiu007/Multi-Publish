@@ -574,6 +574,28 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     expect(written.indexOf('标题A')).toBeLessThan(written.indexOf('正文B'))
   })
 
+  it('无标题平台（instagram）携带标题时同样跳过 title_input（CCG codex Info3：DOM-only 平台行为锁）', async () => {
+    const context = createGenericContext(['[aria-label*="caption"] textarea'])
+    const igConfig = {
+      publish_url: 'https://www.instagram.com/',
+      has_api: false,
+      success_patterns: [],
+      selectors: {
+        title_input: ['input[placeholder*="标题"]'],
+        caption_textarea: ['[aria-label*="caption"] textarea'],
+        publish_btn: ['button:has-text("分享")'],
+      },
+    }
+    await platformsMixin._publish_generic.call(context, win, { title: '标题A', content: '正文B' }, 'instagram', igConfig)
+
+    expect(context._waitForElement.mock.calls.map((c) => c[1])).not.toContain('input[placeholder*="标题"]')
+    const editorCalls = context._fillInput.mock.calls.filter(([, sel]) => sel === '[aria-label*="caption"] textarea')
+    expect(editorCalls.length).toBeGreaterThan(0)
+    const written = String(editorCalls[0][2])
+    expect(written).toContain('标题A')
+    expect(written.indexOf('标题A')).toBeLessThan(written.indexOf('正文B'))
+  })
+
   it('结构锁：_publish_generic 以注册表 isNoTitlePlatform 守卫 title_input 解析', () => {
     const body = getGenericBody()
     const guardIdx = body.indexOf('isNoTitlePlatform(platform)')

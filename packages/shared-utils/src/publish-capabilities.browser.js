@@ -58,7 +58,13 @@ export function getPlatformOverrideFields (platformId, options = {}) {
   const list = options.uiOnly
     ? fields.filter(field => field.uiExposed && field.status === 'implemented')
     : [...fields]
-  return list.map(field => ({ ...field }))
+  // 深拷贝（options 选项对象与 default 数组一并复制）：浅拷贝会让调用方通过
+  // 返回值突变污染冻结的全局注册表（CCG 评审 W5 实锤：options 共享引用可突变）。
+  return list.map(field => ({
+    ...field,
+    ...(Array.isArray(field.options) ? { options: field.options.map(option => ({ ...option })) } : {}),
+    ...(Array.isArray(field.default) ? { default: [...field.default] } : {}),
+  }))
 }
 
 export function getCommonFormFields () {
