@@ -366,6 +366,38 @@ describe('视觉工作流执行器', () => {
     expect(runner.pixelDiff.updateBaseline).not.toHaveBeenCalled()
   })
 
+  it('运行器启动失败必须标 runnerLaunchFailed，不得让上层把整套读成「全红」', async () => {
+    // 生产侧的锁：聚合器只认 result.runnerLaunchFailed 这一个字段，而「套件在启动失败时到底有没有置它」
+    // 只有跑真 runWorkflowSuite 才能证明 —— 在聚合器测试里手搓 {runnerLaunchFailed: true} 不构成证据。
+    const workflows = ['wf-a', 'wf-b'].map(name => ({
+      name,
+      route: '/accounts',
+      steps: [{ action: 'screenshot', name: '最终状态' }],
+      baseline: 'approved-state',
+      verify: { method: 'pixel', threshold: 0.05 },
+    }))
+    const close = vi.fn().mockResolvedValue(undefined)
+
+    const result = await workflowRunner.runWorkflowSuite(workflows, {
+      runnerFactory: () => ({
+        launch: vi.fn().mockRejectedValue(new Error('browserType.launch: boom')),
+        close,
+      }),
+      validationOptions: {
+        routePaths: ['/accounts'],
+        sourceText: '',
+        baselineExists: () => true,
+      },
+      silent: true,
+    })
+
+    expect(result.runnerLaunchFailed).toBe(true)
+    // 回填仍逐条存在（人类可读），且条数必须与用例数相等，否则上层按「账不平」处理
+    expect(result.results).toHaveLength(2)
+    expect(result.failed).toBe(2)
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it('像素差异会落实为套件失败计数', async () => {
     const runner = {
       launch: vi.fn().mockResolvedValue(undefined),

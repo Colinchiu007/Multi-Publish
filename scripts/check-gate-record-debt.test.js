@@ -41,6 +41,46 @@ function fixture(rows, opt = {}) {
   return dir
 }
 
+test('同一条记录被写两遍必须判红（单向包含判据抓不到重复）', () => {
+  const dir = fixture([
+    { head: '记录甲（alpha，2026-09-28）', status: 'PASS' },
+    { head: '记录甲（alpha，2026-09-28）', status: 'PASS' },
+  ])
+  const r = checker.collect({ root: dir, ledger: {}, duplicatesAllowed: new Set() })
+  assert.strictEqual(r.duplicates.length, 1, JSON.stringify(r.duplicates))
+  assert.strictEqual(r.duplicates[0].count, 2)
+  assert.match(r.duplicates[0].text, /记录甲/)
+  assert.match(checker.format(r), /同一条执行记录被写了两遍/)
+})
+
+test('允许清单只能缩小：清单内的历史重复不报，其余重复一律报', () => {
+  const dir = fixture([
+    { head: '历史重复（legacy，2026-08-19）', status: 'PASS' },
+    { head: '历史重复（legacy，2026-08-19）', status: 'PASS' },
+    { head: '新写的重复（fresh，2026-09-28）', status: 'PASS' },
+    { head: '新写的重复（fresh，2026-09-28）', status: 'PASS' },
+  ])
+  const r = checker.collect({
+    root: dir,
+    ledger: {},
+    duplicatesAllowed: new Set(['历史重复（legacy，2026-08-19）']),
+  })
+  assert.strictEqual(r.duplicates.length, 1, JSON.stringify(r.duplicates))
+  assert.match(r.duplicates[0].text, /新写的重复/)
+})
+
+test('真实仓库：允许清单里的历史重复确实仍然存在（清单不得变成无人认领的死条目）', () => {
+  const r = checker.collect({ root: path.join(__dirname, '..') })
+  assert.deepStrictEqual(r.duplicates, [], JSON.stringify(r.duplicates))
+  const heads = new Set()
+  for (const line of fs.readFileSync(path.join(__dirname, '..', '.quality-gates.md'), 'utf8').split('\n')) {
+    if (/^## /.test(line)) heads.add(checker.normalize(line.slice(3)))
+  }
+  for (const allowed of checker.DUPLICATE_HEADINGS_ALLOWED) {
+    assert.ok(heads.has(allowed), `允许清单里的 ${allowed} 在文件里已找不到 ⇒ 该历史重复已被清理，必须把条目一并删掉（清单只能缩小）`)
+  }
+})
+
 test('全 PASS 的记录不产生欠账，也不报陈旧登记', () => {
   const dir = fixture([
     { head: '记录甲（alpha，2026-09-28）', status: 'PASS', evidence: 'PR #9001 squash 合并' },
