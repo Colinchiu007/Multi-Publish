@@ -5,7 +5,7 @@ TBD - created by archiving change copy-library-primary-menu. Update Purpose afte
 ## Requirements
 ### Requirement: 一级菜单文案库入口
 
-侧边栏一级导航在「采集」与「文案改写」之间显示「文案库」菜单项，点击进入 /copy-library 页面。
+侧边栏一级导航 SHALL 在「采集」与「文案改写」之间显示「文案库」菜单项，点击进入 /copy-library 页面。
 
 #### Scenario: 菜单渲染与路由
 - WHEN 应用启动
@@ -15,7 +15,7 @@ TBD - created by archiving change copy-library-primary-menu. Update Purpose afte
 
 ### Requirement: 四来源聚合
 
-文案库页面聚合采集正文、改写文案、草稿、视频创作文案四个来源，按 createdAt 倒序统一展示。
+文案库页面 SHALL 聚合采集正文、改写文案、草稿、视频创作文案四个来源，按 createdAt 倒序统一展示。
 
 #### Scenario: 全部来源加载
 - WHEN 4 个来源均有数据
@@ -31,7 +31,7 @@ TBD - created by archiving change copy-library-primary-menu. Update Purpose afte
 
 ### Requirement: 来源筛选与搜索
 
-文案库页面提供来源筛选按钮组和关键词搜索框，筛选与搜索可叠加。
+文案库页面 SHALL 提供来源筛选按钮组和关键词搜索框，筛选与搜索可叠加。
 
 #### Scenario: 按来源筛选
 - WHEN 点击「视频创作」筛选按钮
@@ -43,7 +43,7 @@ TBD - created by archiving change copy-library-primary-menu. Update Purpose afte
 
 ### Requirement: 双入口数据一致
 
-一级文案库页面与采集页文案库 tab 共享同一数据层 composable，删除等写操作经磁盘重读保证最终一致。
+一级文案库页面与采集页文案库 tab SHALL 共享同一数据层 composable，删除等写操作经磁盘重读保证最终一致。
 
 #### Scenario: 采集页与一级页面共享数据层
 - WHEN 在一级页面删除改写文案

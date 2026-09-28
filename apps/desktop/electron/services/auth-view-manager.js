@@ -15,6 +15,7 @@ const {
   PLATFORM_LOGIN_URLS,
   hasPlatformSessionCookie,
   hasPlatformSessionCookieMarkers,
+  sessionCookieNames,
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -48,16 +49,24 @@ function normalizeIndexedDBSnapshot(value) {
   }
 }
 
+// 已声明标记却被拒 = 标记集可能收得太窄（平台改名、或登录走了另一条路）。
+// 这条是唯一的现场线索：没有它，收紧门禁会把「用户登录不上」变成日志零痕迹的静默失败。
+function logDeclaredMarkerMiss (platform, cookies) {
+  const names = sessionCookieNames(cookies)
+  log.info('AuthView', `declared session-marker missed for ${platform}: ` +
+    `cookies=${names.length} names=${names.join(',')}`)
+}
+
 // 待取证平台的现场证据：登录完成时记下 Cookie 名（**只记名字，绝不记值**）。
-// 未声明会话标记的平台（小红书/抖音/Instagram/Facebook 等，清单见 platform-definitions
+// 未声明会话标记的平台（Instagram/Facebook/YouTube/知乎，清单见 platform-definitions
 // 的棘轮锁）目前只能靠 URL 判定登录完成，补标记需要真实登录态取证——这一行就是
 // 把取证材料从 DevTools 手工抄录变成应用自身日志产出，登录一次即得一次样本。
-// 注意：这里刻意不收紧判定（不加 hasPlatformSessionCookieMarkers 硬门禁），否则 14 个
+// 注意：未声明的平台沿用宽松行为；已声明的平台若被门禁拒绝，走 logDeclaredMarkerMiss
+// 留下 Cookie 名现场——收紧与可诊断必须同时到位，否则收紧密度直接变成静默失败。
 // 未取证平台会立刻无法登录，属于「用打断功能换取形式统一」。
 function logPendingSessionEvidence (platform, cookies) {
   if (hasPlatformSessionCookieMarkers(platform)) return
-  const names = [...new Set((Array.isArray(cookies) ? cookies : [])
-    .map(cookie => cookie && cookie.name).filter(Boolean))].slice(0, 40)
+  const names = sessionCookieNames(cookies)
   log.info('AuthView', `pending session-marker evidence for ${platform}: cookies=${names.length} names=${names.join(',')}`)
 }
 
@@ -65,7 +74,10 @@ function hasCapturedCredentials(authData, platform) {
   if (!authData || typeof authData !== 'object' || Array.isArray(authData)) return false
   // 平台声明了会话标记时，「采集到任何东西」不再足够：登录页同样会写入埋点 Cookie 与
   // localStorage（快手实测登录页即有 9 个 Cookie），必须命中真实登录态标记才算登录完成。
-  if (!hasPlatformSessionCookie(platform, authData.cookies)) return false
+  if (!hasPlatformSessionCookie(platform, authData.cookies)) {
+    if (hasPlatformSessionCookieMarkers(platform)) logDeclaredMarkerMiss(platform, authData.cookies)
+    return false
+  }
   const hasCookies = Array.isArray(authData.cookies) && authData.cookies.length > 0
   const hasLocalStorage = Boolean(
     authData.localStorage &&

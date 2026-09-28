@@ -18,7 +18,7 @@ const supplementaryViewTests = [
     checks: [
       check('欢迎页面', 'h2:has-text("欢迎使用社媒管家")', '显示首次运行欢迎页面'),
       check('开始按钮', 'button:has-text("开始配置")', '显示开始配置按钮'),
-      check('步骤指示', '.cohere-card [style*="border-radius"]', '显示步骤进度指示器'),
+      check('步骤指示', '.fr-dots .fr-dot', '显示步骤进度指示器'),
     ],
   },
   {
@@ -26,7 +26,7 @@ const supplementaryViewTests = [
     route: '/dashboard',
     waitFor: '.page-title:has-text("数据看板")',
     checks: [
-      check('数据卡片', '.cohere-stat-grid .cohere-stat-card', '显示数据统计卡片'),
+      check('数据卡片', '.stats-grid .stat-card', '显示数据统计卡片'),
       check('数据区域', '.cohere-section-title:has-text("各平台数据")', '显示平台数据区域'),
       check('刷新入口', 'button:has-text("刷新")', '显示数据刷新入口'),
     ],
@@ -164,15 +164,11 @@ const supplementaryViewTests = [
       check('确认弹窗', '.el-dialog:has-text("确认删除")', '点击后显示删除确认弹窗'),
     ],
   },
-  {
-    name: 'monitor-settings-dialog',
-    route: '/monitor',
-    waitFor: '.page-title:has-text("分屏监控")',
-    checks: [
-      check('监控面板', '.page-title:has-text("分屏监控")', '显示监控页面'),
-      check('设置入口', '.layout-toggle, button:has-text("添加监控")', '显示布局或监控配置入口'),
-    ],
-  },
+  // 曾有一条 monitor-settings-dialog（route `/monitor`）—— 已删除：渲染层路由表里从来没有 /monitor
+  // （`src/router/index.js` 全集 30+ 条路径逐个核对，只有 `/keywords` 指向 KeywordMonitorView，
+  //  是"关键词监控"不是"分屏监控"）。分屏监控是主进程 WebContentsView 的布局能力，浏览器态
+  //  视觉 runner 无 IPC 宿主，永远拍不到它 —— 留着就是一条恒红的死用例（实测 `/monitor` 渲染
+  //  出的正文长度为 0）。它的真覆盖在 electron 侧的 webview-manager 单测，不在这里。
   {
     name: 'collection-confirm-dialog',
     route: '/collection',
@@ -184,32 +180,32 @@ const supplementaryViewTests = [
   },
   {
     name: 'sidebar-platform-list',
-    route: '/',
-    waitFor: '.cohere-sidebar',
+    route: '/accounts',
+    waitFor: '.platform-filter-panel',
     checks: [
-      check('侧边栏', '.cohere-sidebar', '显示平台账号侧边栏'),
-      check('平台图标', '.cohere-platform-item .platform-icon', '显示平台图标'),
-      check('搜索框', '.cohere-sidebar-search input', '显示平台搜索框'),
-      check('状态指示', '.cohere-platform-item .platform-status', '显示平台状态'),
+      check('平台面板', '.platform-filter-panel', '显示平台筛选面板（原侧栏平台列表的现居处）'),
+      check('平台图标', '.platform-filter-icon', '显示平台首字图标'),
+      check('搜索框', '.platform-filter-panel input', '显示平台/分组搜索框'),
+      check('状态指示', '.platform-filter-panel strong', '显示每个平台的账号计数'),
     ],
   },
   {
     name: 'nav-active-state',
     route: '/accounts',
-    waitFor: '.nav-item.active:has-text("账号管理")',
+    waitFor: '.mp-primary-item.active:has-text("账号")',
     checks: [
-      check('导航高亮', '.nav-item.active:has-text("账号管理")', '高亮当前导航'),
-      check('侧边栏联动', '.cohere-sidebar', '账号页保留平台侧边栏'),
+      check('导航高亮', '.mp-primary-item.active:has-text("账号")', '高亮当前导航'),
+      check('侧边栏联动', '.mp-sidebar', '账号页保留主导航侧栏'),
     ],
   },
   {
     name: 'app-header-status',
     route: '/',
-    waitFor: '.cohere-topnav',
+    waitFor: '.nav-bar',
     checks: [
-      check('品牌标识', '.cohere-topnav .brand', '显示品牌标识'),
-      check('运行状态', '.cohere-topnav .status-indicator', '显示服务运行状态'),
-      check('升级按钮', '.cohere-topnav .pro-btn', '非 Pro 用户显示升级按钮'),
+      check('品牌标识', '.mp-sidebar-logo', '显示品牌标识'),
+      check('运行状态', '.mp-sidebar-service', '显示后端服务运行状态'),
+      check('升级入口', '.mp-sidebar-footer', '侧栏底部显示登录/版本与升级入口'),
     ],
   },
 ];
