@@ -104,6 +104,13 @@ class VisualTestRunner {
       appPresent: 'unavailable',
       appMounted: 'unavailable',
       appTextLength: 'unavailable',
+      // 「选择器等不到」有三种完全不同的成因，只看前五项分不开：
+      // ① 页面根本没渲染 ② 渲染了但目标控件所在容器没渲染 ③ 控件本该渲染却被业务开关挡住
+      accountsPagePresent: 'unavailable',
+      commandBarTestids: 'unavailable',
+      flagParamInUrl: 'unavailable',
+      entryScripts: 'unavailable',
+      channelState: 'unavailable',
     };
 
     try {
@@ -117,13 +124,42 @@ class VisualTestRunner {
     try {
       return {
         ...diagnostics,
-        ...await this.page.evaluate(() => {
+        ...await this.page.evaluate(async () => {
           const app = document.querySelector('#app');
+          // 让应用自己回答「通道开着吗、参数解析成了什么」—— 这是唯一能区分
+          // "环境变量没进 vite 进程" 与 "进了但判定没通过" 两种情况的手段。
+          // 两条踩过的坑：① 不能用 import.meta（page.evaluate 是经典脚本上下文，会直接语法错）；
+          // ② 必须**先 await 再放进返回对象** —— 把 async IIFE 直接当属性值，Playwright 序列化
+          //    时它就是个 Promise，日志里会变成没用的 [object Object]（本地实测抓到过）。
+          let channelState = 'unavailable';
+          try {
+            const m = await import('/composables/useFeatureFlag.js');
+            const raw = (window.location.hash || '').split('?')[1]
+              || (window.location.search || '').replace(/^\?/, '');
+            const got = [...m.parseDevFlagOverrides(raw).entries()]
+              .map(([flagKey, on]) => `${flagKey}=${on}`).join(',');
+            channelState = `enabled=${m.devFlagChannelEnabled()} parsed=[${got}]`;
+          } catch (error) {
+            channelState = `unavailable (${error.message})`;
+          }
           return {
             hash: window.location.hash,
             appPresent: Boolean(app),
             appMounted: Boolean(app?.hasAttribute('data-v-app')),
             appTextLength: (app?.textContent || '').trim().length,
+            // 页面是否真渲染 + 命令栏里实际存在哪些按钮：直接区分「整条命令栏没渲染」与
+            // 「只有这一个按钮没渲染」（后者才说明是业务开关没开）
+            accountsPagePresent: Boolean(document.querySelector('.accounts-page')),
+            commandBarTestids: [...document.querySelectorAll('.account-controls [data-testid]')]
+              .map((el) => el.getAttribute('data-testid')).join('|') || '(none)',
+            flagParamInUrl: /mpFlag=/.test(window.location.hash) ? 'in-hash'
+              : /mpFlag=/.test(window.location.search) ? 'in-search' : 'absent',
+            channelState,
+            // 直接回报页面加载了哪些脚本入口（不做启发式猜测）：dev 服务下是 `/main.js` +
+            // `/@vite/client`，构建产物下是 `./assets/*.js`。这决定 import.meta.env.DEV 的取值，
+            // 没有这一项就只能靠猜 CI 当时在服务什么。
+            entryScripts: [...document.querySelectorAll('script[src]')]
+              .map((el) => el.getAttribute('src')).join('|').slice(0, 160) || '(none)',
           };
         }),
       };
@@ -165,6 +201,11 @@ class VisualTestRunner {
         + `url=${diagnostics.url}；hash=${diagnostics.hash}；`
         + `appPresent=${diagnostics.appPresent}；appMounted=${diagnostics.appMounted}；`
         + `appTextLength=${diagnostics.appTextLength}`
+        + `；accountsPagePresent=${diagnostics.accountsPagePresent}`
+        + `；flagParamInUrl=${diagnostics.flagParamInUrl}`
+        + `；entryScripts=${diagnostics.entryScripts}`
+        + `；channelState=${diagnostics.channelState}`
+        + `；commandBarTestids=${diagnostics.commandBarTestids}`
         + (diagnostics.diagnosticsError ? `；diagnosticsError=${diagnostics.diagnosticsError}` : ''),
       );
       timeoutError.code = stage === 'Vue 挂载'
@@ -175,14 +216,53 @@ class VisualTestRunner {
     }
   }
 
+  /**
+   * 目标 URL 与当前 URL 是否"只有 fragment 里的 query 在变、路由 path 不变"。
+   * 这种导航会被 vue-router 复用组件实例，挂在 onMounted 上的读取不会再跑。
+   * 只在能确定判定为 true 时才触发 reload —— 判不出来一律返回 false（保持既有行为）。
+   */
+  _isSameRouteQueryOnlyNav (targetUrl) {
+    if (typeof this.page?.url !== 'function') return false;
+    let current;
+    let next;
+    try {
+      current = new URL(this.page.url());
+      next = new URL(targetUrl);
+    } catch (_) {
+      return false;
+    }
+    if (current.protocol !== next.protocol || current.host !== next.host) return false;
+    if (current.pathname !== next.pathname) return false;
+    const split = (hash) => {
+      const raw = String(hash || '').replace(/^#/, '');
+      const at = raw.indexOf('?');
+      return at < 0 ? { path: raw, query: '' } : { path: raw.slice(0, at), query: raw.slice(at + 1) };
+    };
+    const a = split(current.hash);
+    const b = split(next.hash);
+    if (!a.path || a.path !== b.path) return false;
+    return a.query !== b.query;
+  }
+
   async _navigateToRoute(route, readySelector, expectedRoute = route, destinationUrl = null) {
     const normalizedBase = this.url.replace(/\/$/, '');
     const expectedHash = '#' + expectedRoute;
     await this._resetBrowserState();
-    await this.page.goto(destinationUrl || `${normalizedBase}/#${route}`, {
+    const targetUrl = destinationUrl || `${normalizedBase}/#${route}`;
+    // 同一路由只改 query ⇒ vue-router **复用组件实例** ⇒ onMounted 不再跑第二遍。
+    // 本仓是 hash 路由，pathname 恒为 /，所以判据只能落在 fragment 的 path 段上。
+    // 症状（实测）：accounts-list 跑完之后紧跟 accounts-list-flag-on，按钮永不出现、就绪超时；
+    // 单独跑同一条则通过 —— 纯函数说"该开"，但组件根本没重新读参数。
+    const reusedComponent = this._isSameRouteQueryOnlyNav(targetUrl);
+    await this.page.goto(targetUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
+    if (reusedComponent) {
+      // 强制一次真实文档加载，让这条用例拍到的是"该路由首次加载"的样子，
+      // 而不是上一条用例留下的组件实例状态。
+      await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    }
     await this._waitForApplicationReady(expectedHash, readySelector);
     if (typeof this.page.evaluate === 'function') {
       await this.page.evaluate(async () => {

@@ -1,6 +1,8 @@
 # Regression tests for scripts/worktree-fs-longpath.ps1
 #
-# Run under the shell that owns the defect: Windows PowerShell 5.1.
+# Run under either shell - the file self-probes the running process's long-path capability
+# (see Get-LongPathCapability) instead of assuming one:
+#   pwsh       -NoProfile -ExecutionPolicy Bypass -File scripts\worktree-fs-longpath.test.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\worktree-fs-longpath.test.ps1
 #
 # These encode the three things that broke on 2026-09-23 while removing
@@ -36,6 +38,29 @@ function New-DeepTree([string]$base, [int]$segments, [int]$filesPerLeaf) {
     }
     # each segment directory contributes itself plus the file entries below it
     return [pscustomobject]@{ Deepest = $p; ExpectedEntries = $segments + $filesPerLeaf }
+}
+
+# Probe: make ONE unprefixed CreateDirectory call on a path that certainly exceeds MAX_PATH.
+# Success means this process may use long paths; a throw means it may not. We deliberately do
+# not infer the answer from the registry or from a manifest - both have to be read, and reading
+# them does not prove what applies to *this* process. Only the real out-of-bounds call is the
+# referee. The registry value is still read and printed, purely so the log line is explainable.
+# NOTE: comments in this file stay ASCII - it is BOM-less UTF-8, and Windows PowerShell 5.1
+# decodes BOM-less UTF-8 as ANSI, so non-ASCII bytes here corrupt parsing (measured: ParserError).
+function Get-LongPathCapability([string]$ProbeRoot) {
+    $reg = 0
+    try {
+        $v = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -ErrorAction Stop).LongPathsEnabled
+        if ($null -ne $v) { $reg = [int]$v }
+    } catch { $reg = 0 }
+    # same depth as section 6: 12 segments x 43 chars, always past 260
+    $p = Join-Path $ProbeRoot 'cap-probe'
+    for ($i = 0; $i -lt 12; $i++) { $p = $p + '\' + ('seg' + $i) + ('x' * 40) }
+    $capable = $false
+    $note = ''
+    try { [void][System.IO.Directory]::CreateDirectory($p); $capable = $true } catch { $note = $_.Exception.GetType().Name }
+    if ($capable) { [void](Remove-FsDirectory $p) }
+    return [pscustomobject]@{ Registry = $reg; Capable = $capable; Depth = $p.Length; Note = $note }
 }
 
 $work = Join-Path $env:TEMP ('wtfslp-' + [guid]::NewGuid().ToString('N'))
@@ -96,13 +121,32 @@ try {
     $r1 = Remove-FsDirectory $d1
     Check 'Remove-FsDirectory deletes a tree beyond MAX_PATH' ($r1.Ok -and -not (Test-FsEntry $d1)) "ok=$($r1.Ok) err=$($r1.Error)"
 
-    # the plain .NET call without the prefix must still fail here, otherwise the fixture is
-    # not exercising the defect at all
+    # Whether the UNPREFIXED recursive .NET delete can cross MAX_PATH depends on the process
+    # running this test, not on the shell's name: it is governed by the LongPathsEnabled registry
+    # value AND by whether this exe's manifest declares longPathAware (pwsh 7 does, Windows
+    # PowerShell 5.1 does not), and .NET Framework 4.6.2+ adds the prefix itself once the OS
+    # opt-in is on. Measured three environments, three outcomes: this machine under 5.1 fails,
+    # this machine under pwsh 7 succeeds, and on the CI runner BOTH shells succeed
+    # (run 36313053992 / step Gate 2d-b, shell: powershell 5.1). Hard-coding either expectation
+    # therefore produces a false red in the other one, so we probe this process first:
+    #   - process cannot take long paths  => the unprefixed delete MUST fail; that failure is
+    #     what proves the fixture is deep enough for the positive control to mean anything
+    #   - process can take long paths     => this cell cannot judge depth (section 2's
+    #     depth>260 hard assertion does that instead); we only assert the outcome agrees with
+    #     the probe, which still catches a genuinely anomalous environment (e.g. a held handle)
+    # The triple is printed on every run so the next tuning has data instead of guesses.
+    $cap = Get-LongPathCapability -ProbeRoot $work
+    Write-Host ("  (probe) LongPathsEnabled={0} processCapable={1} sampleDepth={2} note={3}" -f $cap.Registry, $cap.Capable, $cap.Depth, $cap.Note)
     $d2 = Join-Path $work 'del-baseline'
     [void](New-DeepTree $d2 12 2)
     $plainFailed = $false
     try { [System.IO.Directory]::Delete($d2, $true) } catch { $plainFailed = $true }
-    Check 'unprefixed IO.Directory::Delete still fails on the same fixture' ($plainFailed) 'it unexpectedly succeeded - fixture too shallow'
+    Write-Host ("  (probe) unprefixedDeleteFailed={0}" -f $plainFailed)
+    if ($cap.Capable) {
+        Check 'unprefixed delete outcome matches the probed process capability' (-not $plainFailed) 'probe said the process CAN take long paths, but the unprefixed delete failed'
+    } else {
+        Check 'unprefixed IO.Directory::Delete still fails on the same fixture' ($plainFailed) 'it unexpectedly succeeded - fixture too shallow'
+    }
     [void](Remove-FsDirectory $d2)
 
     # ---- 7) robocopy mirror fallback ----

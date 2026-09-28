@@ -1194,7 +1194,8 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.setAccountManager(makeAccountManager())
-    const t1 = createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin' }).tabId
+    const t1 = createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin',
+      cookies: [{ name: 'sessionid', value: 'SID-1', domain: '.douyin.com' }], }).tabId
     const t2 = createUnsavedAccountTab(wm, {
       accountId: 'a2', platform: 'kuaishou', cookies: [{ name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' }],
     }).tabId
@@ -1215,7 +1216,8 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
       updateCapturedAccount: vi.fn((platform) => platform === 'douyin'
         ? Promise.reject(new Error('boom')) : Promise.resolve()),
     })
-    createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin' })
+    createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin',
+      cookies: [{ name: 'sessionid', value: 'SID-1', domain: '.douyin.com' }] })
     const t2 = createUnsavedAccountTab(wm, {
       accountId: 'a2', platform: 'kuaishou', cookies: [{ name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' }],
     }).tabId

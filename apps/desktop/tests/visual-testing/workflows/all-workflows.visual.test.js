@@ -50,11 +50,11 @@ const workflowTests = [
   {
     name: 'accounts-search-clear', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'waitFor', selector: '.page-title' },
+      { action: 'waitFor', selector: '.accounts-page' },
       { action: 'fill', selector: 'input[aria-label="搜索账号或平台"]', value: '知乎' },
       { action: 'click', selector: 'button.clear-search' },
       { action: 'waitForSelector', selector: 'button.clear-search', state: 'hidden' },
-      { action: 'click', selector: '.page-title' },
+      { action: 'click', selector: '.accounts-page' },
       { action: 'screenshot', name: '清空搜索后的账号列表' },
     ],
   },
@@ -66,7 +66,7 @@ const workflowTests = [
       { action: 'waitFor', selector: '.filter-tabs button[role="tab"]:nth-child(2).active' },
       { action: 'click', selector: '.filter-tabs button[role="tab"]:nth-child(1)' },
       { action: 'waitFor', selector: '.filter-tabs button[role="tab"]:nth-child(1).active' },
-      { action: 'click', selector: '.page-title' },
+      { action: 'click', selector: '.accounts-page' },
       { action: 'screenshot', name: '恢复全部账号筛选' },
     ],
   },
@@ -78,34 +78,30 @@ const workflowTests = [
       { action: 'waitFor', selector: '.filter-tabs button[role="tab"]:nth-child(3).active' },
       { action: 'click', selector: '.filter-tabs button[role="tab"]:nth-child(1)' },
       { action: 'waitFor', selector: '.filter-tabs button[role="tab"]:nth-child(1).active' },
-      { action: 'click', selector: '.page-title' },
+      { action: 'click', selector: '.accounts-page' },
       { action: 'screenshot', name: '恢复全部账号筛选' },
     ],
   },
   {
     name: 'accounts-add-dialog-cancel', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'waitFor', selector: '.page-actions' },
-      { action: 'click', selector: '.page-actions button:has-text("添加账号")' },
+      { action: 'waitFor', selector: '.account-command-bar' },
+      { action: 'click', selector: '[data-testid="account-add"]' },
       { action: 'waitFor', selector: '.ui-modal-overlay' },
       { action: 'click', selector: '.ui-modal-close' },
       { action: 'waitForSelector', selector: '.ui-modal-overlay', state: 'hidden' },
-      { action: 'click', selector: '.page-title' },
+      { action: 'click', selector: '.accounts-page' },
       { action: 'screenshot', name: '取消添加后的账号列表' },
     ],
   },
-  {
-    name: 'accounts-group-dialog-close', route: '/accounts', baseline: 'accounts-list',
-    steps: [
-      { action: 'waitFor', selector: '.page-actions' },
-      { action: 'click', selector: '.page-actions button:has-text("分组管理")' },
-      { action: 'waitFor', selector: '.ui-modal-overlay' },
-      { action: 'click', selector: '.ui-modal-close' },
-      { action: 'waitForSelector', selector: '.ui-modal-overlay', state: 'hidden' },
-      { action: 'click', selector: '.page-title' },
-      { action: 'screenshot', name: '关闭分组管理后的账号列表' },
-    ],
-  },
+  // 曾有一条 accounts-group-dialog-close（点 .page-actions 里的「分组管理」→ 关弹窗）。已删除，两条原因：
+  // ① 产品形态变了 —— 分组管理不再是弹窗，而是 shell 模块导航（MpModuleNav.vue:38）以 ?tab=groups
+  //    打开的**内联面板** AccountGroupsPanel；② 改成面板断言后仍无法像素比对：本套件有
+  //    [SCREENSHOT_REQUIRED] 契约（每条用例必须有一步 screenshot），而它那一屏是分组面板态，
+  //    与任何既有基线都不同源（实测拿 accounts-list 基线比 = 差 2.26%），且 test:all:visual 没有
+  //    CI job ⇒ 按 QM-4 第 7 条拿不到合法基线。曾试过只留结构断言，被该契约当场拦下
+  //    （[SCREENSHOT_REQUIRED] accounts-groups-panel 没有截图步骤），说明删用例而不是留一条恒红/恒假
+  //    的用例才是正解。分组面板的真覆盖在 AccountGroupsPanel 的组件单测，不在这里。
 
   // 一键发布：编辑字段或打开辅助面板后恢复默认发布表单。
   {
@@ -131,9 +127,9 @@ const workflowTests = [
   {
     name: 'publish-platform-search-reset', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'waitFor', selector: 'input[placeholder="搜索平台..."]' },
-      { action: 'fill', selector: 'input[placeholder="搜索平台..."]', value: '微博' },
-      { action: 'fill', selector: 'input[placeholder="搜索平台..."]', value: '' },
+      { action: 'waitFor', selector: 'input[placeholder="搜索平台或账号"]' },
+      { action: 'fill', selector: 'input[placeholder="搜索平台或账号"]', value: '微博' },
+      { action: 'fill', selector: 'input[placeholder="搜索平台或账号"]', value: '' },
       { action: 'click', selector: '.page-title' },
       { action: 'screenshot', name: '清空平台搜索后的发布表单' },
     ],
@@ -151,8 +147,8 @@ const workflowTests = [
   {
     name: 'publish-template-panel-toggle', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'waitFor', selector: 'button.cohere-btn-ghost:has-text("📝 模板")' },
-      { action: 'click', selector: 'button.cohere-btn-ghost:has-text("📝 模板")' },
+      { action: 'waitFor', selector: 'button:has-text("模板")' },
+      { action: 'click', selector: 'button:has-text("模板")' },
       { action: 'waitFor', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")' },
       { action: 'click', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")' },
       { action: 'waitForSelector', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")', state: 'hidden' },

@@ -173,8 +173,24 @@ function normalizeHost (value) {
 // 与凭证入库都必须命中其中至少一个非空值；未声明的平台沿用既有行为。
 // 新增标记键必须以真实登录态 DevTools/CDP 实测取证为准，且不得混入设备/埋点标识
 // （did、_did、wid、divid 等一律不可用）。
+// 2026-09-27 起，下方除 kuaishou 外的三个平台按同一手法取证：负向基线由本机自建——用与主进程
+// 同版本的 electron.exe、复刻 configureUserAgentFallback 的 UA 净化，在全新隔离分区匿名访问
+// 各平台登录页与创作者首页，采集「不登录也会种」的 Cookie 名；正向样本取自本机登录视图分区
+// （persist:auth-<平台>-<ts>，只读，绝不读取值）。标记 = 正向独有 ∧ 匿名基线没有 ∧ 语义上是
+// 会话身份。据此排除的埋点/设备类噪声见测试里的匿名基线夹具（抖音 ttwid/s_v_web_id/bit_env、
+// B 站 buvid3/b_nut/**bili_ticket**、小红书 a1/webId/gid/websectiga 等）。
+// 知乎按同一手法实测后**故意不声明** Cookie 标记：登录视图内 .zhihu.com 域没有任何会话 Cookie
+// （A−B 唯一独有项是验证码票据 captcha_ticket_v2），声明它会把每次知乎登录都判成失败。
 const PLATFORM_SESSION_COOKIE_MARKERS = {
   kuaishou: ['kuaishou.web.cp.api_st', 'userId', 'bUserId'],
+  // 抖音：passport 登录成功后才下发的会话/身份四件套（均 httpOnly）。
+  // 不取 sid_guard/session_tlb_tag/ssid_ucp_v1（分片提示）、passport_mfa_token（MFA 阶段 ≠ 登录
+  // 完成）、odin_tt/d_ticket/n_mh（设备与 passport 流程产物）。
+  douyin: ['sessionid', 'sessionid_ss', 'sid_tt', 'uid_tt'],
+  // B 站：SESSDATA 是会话票据，DedeUserID 只在已登录时出现；bili_ticket 匿名也会种，不可用。
+  bilibili: ['SESSDATA', 'DedeUserID'],
+  // 小红书创作平台：两个键由服务端在登录写入（httpOnly），名字本身即 access token 与用户 id。
+  xiaohongshu: ['access-token-creator.xiaohongshu.com', 'x-user-id-creator.xiaohongshu.com'],
 }
 
 /**
@@ -195,6 +211,19 @@ function hasPlatformSessionCookieMarkers (platform) {
  * @param {Array<{name?: string, value?: string}>} cookies
  * @returns {boolean} 未声明标记的平台返回 true（不改变既有行为）
  */
+/**
+ * 会话证据日志共用的 Cookie 名投影：去重、限量，**只出名字、绝不出值**。
+ * 四处「声明了标记就必须命中」的门禁（auth-view-manager / qrcode-login /
+ * credential-saver / account-manager captureCookies）的 reject 日志统一用它——
+ * 收紧门禁之后，没有名字现场就无法区分「用户没登录」与「标记收得太窄」。
+ * @param {Array<{name?: string}>} cookies
+ * @returns {string[]}
+ */
+function sessionCookieNames (cookies) {
+  return [...new Set((Array.isArray(cookies) ? cookies : [])
+    .map(cookie => cookie && cookie.name).filter(Boolean))].slice(0, 40)
+}
+
 function hasPlatformSessionCookie (platform, cookies) {
   const markers = PLATFORM_SESSION_COOKIE_MARKERS[platform]
   if (!Array.isArray(markers) || markers.length === 0) return true
@@ -375,6 +404,7 @@ module.exports = {
   hasPlatformLsSessionMarker,
   hasPlatformSessionCookie,
   hasPlatformSessionCookieMarkers,
+  sessionCookieNames,
   isPlatformLoginSuccessUrl,
   isPlatformLeftLoginPage,
   isPlatformCookieDomain,

@@ -10,6 +10,182 @@
 - `functional-runner.test.js` 新增 6 条「瞬时噪音卫生覆盖逐路由收口」合同：断言点、收口点（刻意不产生任何重载事件）、预算不得全清、与 allowed 并存、非该码不得扩大，外加一条读源码的结构锁（卫生必须同时存在于断言点与收口点）。`run-all.test.js` 新建 5 条失败检查点命名合同，其中整行输出用 `deepEqual` 精确断言而非 `toContain`。
 - 两条反证均已实跑：把卫生退化为 no-op ⇒ `functional-runner.test.js` 7 红；把打印侧退回只读 `name` / `details` ⇒ `run-all.test.js` 4 红（「suite 形状」那条按设计不受影响）。两次都以 sha256 逐字还原。
 
+
+# [未发布] test(视觉门禁): 修掉补充视图里 5 处过期选择器并删 1 条死用例，首次跑完 QM-4 全量 104 例（2026-09-28，cloud-flag-registry-drift）
+
+### 做了什么
+- `supplementary-views.visual.test.js`：5 处选择器随渲染层外壳改名而漂移，逐条**先用真浏览器探测**再改：
+  `first-run/步骤指示` `.cohere-card [style*="border-radius"]` ⇒ `.fr-dots .fr-dot`（实测 4）；
+  `dashboard/数据卡片` `.cohere-stat-grid .cohere-stat-card` ⇒ `.stats-grid .stat-card`（实测 4）；
+  `sidebar-platform-list` 整条从 `/` + `.cohere-sidebar*` 迁到 `/accounts` + `.platform-filter-*`
+  （平台账号列表的现居处）；`nav-active-state` `.nav-item.active` ⇒ `.mp-primary-item.active:has-text("账号")`；
+  `app-header-status` `.cohere-topnav*` ⇒ `.nav-bar` + `.mp-sidebar-logo|-service|-footer`。
+- 删除 `monitor-settings-dialog`：它等的 `/monitor` 路由**在渲染层路由表里从来不存在**（`src/router/index.js`
+  全集逐条核对，只有 `/keywords` 指向 `KeywordMonitorView`，那是"关键词监控"不是"分屏监控"）。
+  分屏监控是主进程 `WebContentsView` 的布局能力，浏览器态视觉 runner 无 IPC 宿主，实测该路由渲染出的
+  正文长度为 0。留 5 行注释说明去向（真覆盖在 `webview-manager` 单测），不留恒红死用例。
+- 总数锁随之 105 → 104（`condition-waiting.test.js`）。
+
+### QM-4 全量首跑的**真实**结果（此前从未有人完整跑过）
+| 套件 | 结果 | 说明 |
+| --- | --- | --- |
+| `all-views` 35 | 全绿 | 需先修上一条 PR 的 `first-run` 选择器；否则该套件的 `&&` 链把后面三套全带走 |
+| `supplementary-views` 19 | 19/19 | 本条修完后实测返回 `{total:19,passed:19}` |
+| `all-workflows` 32 | **24/32** | 8 条红：5 条等 `/accounts` 的 `.page-title`/`.page-actions`（该页无此类名）、1 条等 `input[placeholder="搜索平台..."]`、1 条等 `button.cohere-btn-ghost:has-text("📝 模板")`，均为选择器漂移；第 8 条 `dashboard-benchmark-title-reset` 是**真像素差 10.9% > 阈值 1%**，不是选择器问题，单独立项 |
+| `supplementary-workflows` 18 | 18/18 | 实测返回 `{total:18,passed:18}` |
+
+- **同轮把 `all-workflows` 的 8 条红一并收口**（原登记为后续项，实测就在本 PR 里做掉了 7 条）：
+  `/accounts` 的可见页头已改成 `<h1 class="sr-only">`（`Accounts.vue:3`），`.page-title` / `.page-actions`
+  在该页**只存在于 CSS**（`:1236-1239`）⇒ 5 条用例改锚到实测存在的 `.accounts-page` /
+  `.account-command-bar` / `[data-testid="account-add"]`；`publish-platform-search-reset` 的 placeholder
+  改成实测的「搜索平台或账号」；`publish-template-panel-toggle` 的按钮不再带 📝 前缀，
+  改锚 `button:has-text("模板")`（点击后 `✕ 关闭`=1、再点回 0 已实测）。**每处新选择器都先用真浏览器探测命中数**。
+  `accounts-group-dialog-close` 删除：分组管理已不是弹窗，而是 shell 模块导航以 `?tab=groups` 打开的
+  内联面板；改成面板断言后仍过不了本套件的 `[SCREENSHOT_REQUIRED]` 契约（那一屏与任何既有基线都不同源，
+  实测拿 `accounts-list` 比 = 差 2.26%，而 `test:all:visual` 没有 CI job ⇒ 按 QM-4 第 7 条拿不到合法基线）。
+  留 8 行注释说明去向。**曾先试「只留结构断言」，被该契约当场拦下** —— 说明删用例优于留一条恒红/恒假的用例。
+  结果：`all-workflows` 32 → **31 条，30 绿 1 红**。
+- **顺带揪出一条「把坏选择器钉成契约」的测试**：`electron/tests/visual-workflow-runner.test.js` 的
+  「账号工作流使用当前筛选器和命令按钮的稳定选择器」直接断言 `click .page-actions button:has-text("添加账号")`
+  与 `.page-actions button:has-text("分组管理")` —— 这两个类名在 `Accounts.vue` 模板里**根本不存在**
+  （页头是 `<h1 class="sr-only">`，两个名字只在 CSS:1236-1239 出现）。该契约只读注册表对象、从不跑浏览器，
+  所以能与真渲染**同时绿**，把漂移固化成了契约（AGENTS.md「测试断言不得反向固化错误行为」的现例）。
+  我改注册表后 CI 才红（`QG Unit Tests`/`QG Coverage`/`Desktop Shards 1+2` 四条同源）—— 这条红是**改动
+  正确的证据**，不是回归。已把断言改钉到实测存在的 `[data-testid="account-add"]`、对已删除的分组用例
+  改为 `toBeUndefined()` 留痕，并补一条正向锁：账号系工作流的 selector **不得再出现**
+  `.page-title` / `.page-actions`。
+- **唯一剩下的红是 `dashboard-benchmark-title-reset`（差 10.9%），已证不是选择器问题也不是回归**：
+  同一屏「未操作 vs fill+clear 后」只差 **0.16%**，而「仓库基线 vs 未操作」差 **3.82%** ⇒ 差值几乎全部来自基线
+  与本机渲染环境不同源。同轮还观测到 `create-quick-text-reset` 在三次运行里 2 绿 1 红（7.39%），
+  进一步说明**这套工作流基线整体不具备可判据性** —— 要修的是「给它一个 CI job」，不是把阈值调大。
+合计 104 例首跑：96 绿 8 红。8 红**已在本 PR 内一并收口**（见上一条），收口后为 103 例、102 绿 1 红。
+
+### 顺带记一条框架缺陷（未修）
+- `supplementary-views` / `all-workflows` 的成功路径**一行结果都不打**（`runViewSuite` 只在失败时
+  throw 聚合信息），所以"跑完了"与"什么都没跑"在 stdout 上长得一样 —— 本次是靠 `require` 该模块
+  读 `runSupplementaryTests()` 的返回值 `{total,passed}` 才拿到正证据。判据：跑这类套件必须拿到
+  total/passed 数字，不能只看 exit code 0。
+
+# [未发布] feat(login-state): 抖音/B站/小红书补上会话凭证标记，并把「取证」变成可自建的实测差集（2026-09-27，declare-platform-session-markers）
+
+### 变更
+- `PLATFORM_SESSION_COOKIE_MARKERS` 新增 douyin（`sessionid`/`sessionid_ss`/`sid_tt`/`uid_tt`）、bilibili（`SESSDATA`/`DedeUserID`）、xiaohongshu（`access-token-creator.xiaohongshu.com`/`x-user-id-creator.xiaohongshu.com`）。裸域名成功模式缺标记清单由 7 项缩小为 4 项（`facebook`/`instagram`/`youtube`/`zhihu`）。
+- 新增 `sessionCookieNames(cookies)` 于 shared-utils 并导出：四处「声明标记即实际将拦」的门禁（`auth-view-manager` / `qrcode-login` / `credential-saver` / `account-manager.captureCookies`）的拒绝日志统一只出 Cookie **名字**、绝不出值；`auth-view-manager` 另加 `logDeclaredMarkerMiss`，使「已声明却被拒」留下现场。
+- `SESSION_MARKER_SHAPE` 泛化为接纳 `uid_tt` / `SESSDATA` / `x-user-id-*`（`user[-_.]?id`、`(^|[._-])sess`、`(^|[._-])uid([._-]|$)`）。
+- `platform-definitions.test.js` 新增 `session-marker evidence contract`：A/B 夹具由脚本从实测产物生成，锁「A−B 差集逐字」「匿名基线判未登录」「登录视图判已登录」「每个标记 ∈A 且 ∉B」；另加形态负控 40 项与「形态过、实测不过」墓碑名单。
+
+### 取证方法（本轮的主要增量）
+负向证据不必等用户登录：用与主进程**同版本**的 `electron.exe`（43.1.1 / Chrome 150）、复刻 `configureUserAgentFallback` 的 UA 净化，在全新隔离分区匿名访问各平台「登录页 + 创作者首页」取 Cookie 名；正向证据取本机 `auth-auth-<平台>-<ts>` 分区（`account-<id>` 分区常年 0 条，不可当正向样本）。基线有效性自证：B 内必须出现该平台公认匿名 Cookie（知乎 `d_c0`、B 站 `buvid3`、小红书 `a1`/`webId`、抖音 `ttwid`），否则页面未渲染、差集虚高。
+
+### 一项刻意不做
+**知乎不声明 Cookie 标记**：实测其登录视图 `.zhihu.com` 域 8 个 Cookie 全为匿名可读类，A−B 唯一独有项是验证码票据 `captcha_ticket_v2`，`z_c0` 在 A/B 两侧都不存在。给它声明任何 Cookie 标记会把每次真实登录判成失败；知乎只能走 `PLATFORM_LS_SESSION_MARKERS` 侧取证。该「刻意不声明」由断言钉住，以免被后人当遗漏随手补上。
+
+### 门禁与反证
+- 4 条变异反证均实测变红并字节还原：标记表清空 → 6 红（含棘轮与取证契约）；`sessionCookieNames` 退化恒空 → 1 红；删 `logDeclaredMarkerMiss` 调用 → 1 红；把 qrcode 那条日志的 `+` 退回相邻模板串 → **仅新加的 reject 用例红（1 failed / 16 passed）**。
+- 全量 `apps/desktop` electron 测试：7808 passed / 1 failed，唯一红为 `feedback.test.js` 的 `EPERM symlink`，已在未含本改动的 main 上实测复现（既有机器级失败，需开发者模式或提权才能建符号链接）。
+- QM-6 双模型（claude + opencode）**独立**命中同一 Critical：`qrcode-login.js` 拒绝分支的日志语句是两个相邻模板字符串、缺 `+`，被解析为 tag 函数调用，`node --check` 通过但运行时必 `TypeError`，且原测试无一执行该分支。已修复并补一条真跑该路径的用例作锁。
+
+### 已知风险与未覆盖
+- 这三平台从「门禁恒过」变为「实际将拦」。正向证据来自历史登录视图分区，**未**做一次新登录的真机复核；若标记集偏窄，用户会看到硬失败，唯一线索是本轮补的 `names=` 日志。
+- `credential-saver` 的 `names=` 日志仍无可执行锁：该模块经 vite SSR 管道 `require('../logger')`，绕过测试的 `__registerMock('./logger')` 注册表（spy 与具名 mock 均抓不到，仅在 stdout 见到一次真日志）。已在 openspec tasks 2.5b 登记。
+- 评审 W2（`_scheduleAutoCompletion` 的 warn 不含 names）经核查**不采纳**：同一路径上 `hasCapturedCredentials` 已对已声明平台调用 `logDeclaredMarkerMiss`，名字在紧邻的 info 行内，属级别一致性而非信息缺失。
+
+
+# [未发布] test(worktree-fs-longpath): 长路径负控改由运行时探针推导期望，回接 Gate 2d（2026-09-27，longpath-probe）
+
+### 变更
+- `scripts/worktree-fs-longpath.test.ps1` 新增 `Get-LongPathCapability`：在一条必然超过 MAX_PATH 的深路径上做一次**不带前缀**的 `CreateDirectory`，用真实结果判定"本进程能否走长路径"，再据此选择第 6 节负控的期望——不能走 ⇒ 仍要求「未加前缀必须失败」（失败才证明夹具够深）；能走 ⇒ 只要求结果与探针一致（不一致即真异常）。三元组 `LongPathsEnabled / processCapable / unprefixedDeleteFailed` 每次都打印留痕。
+- 文件头从「必须跑在 5.1」改为「两档 shell 皆可，自带探针」；本文件注释保持 ASCII——它是无 BOM UTF-8，Windows PowerShell 5.1 会把非 ASCII 字节按 ANSI 解，实测插入中文注释会让 5.1 直接 `ParserError`。
+- Gate 2d 回接本测试（5 → 6 条）；`KNOWN_UNWIRED` 2 → 1 条（只剩计划任务那条），`check-unwired-tests.test.js` 钉住清单的断言同步缩小。
+
+### 为什么不是"再等 runner 告诉你"
+上一轮这条被判成"只有 runner 本身算数"而挂欠账。这次分辨清楚了：决定它成败的是**进程级长路径能力**，本机两档 shell 恰好各命中一侧（pwsh 7 清单带 `longPathAware` ⇒ 能走；5.1 不带 ⇒ 不能走），所以两种期望在本机**都**可测——挂欠账会让这个文件另外 27 条与长路径无关的检查（扫描器深浅、junction 不穿透、`Resolve-RemoveDisposition` 真值表、进程持有者分类）永久不进 CI。
+
+### 门禁与反证
+- 本机实跑：`pwsh 7.6` 与 `Windows PowerShell 5.1` 各 `rc=0 / 28 PASS`，且两档分别走到不同支路（pwsh 打 `processCapable=True`、5.1 打 `processCapable=False note=MethodInvocationException`）。
+- 三格变异全部实测变红并 sha256 逐字还原：CP-1 把分支写死成"必须失败"（即假装没有探针）⇒ pwsh 下红，原文正是历史 CI 那句 `it unexpectedly succeeded - fixture too shallow`；CP-2 让探针谎称 capable ⇒ 5.1 下红（`probe said the process CAN take long paths, but the unprefixed delete failed`）；CP-3 把主体 `Remove-FsDirectory` 改成 no-op ⇒ 第 6 节正控红（`ok=True err=MUTATION no-op`），证明本文件真正的牙在正控上、不依赖那侧环境。
+- 同 PR 自跑：`check-unwired-tests.js`（42 个测试文件 OK）、`check-step-failfast.js`（4 个多测试步骤 OK）、`--test` 三件 8 + 6 + 23 passed。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
+
+# [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
+
+### 做了什么
+- PR #2501 已合并（`56ac1c40`）。回填基线后的复跑 run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`）：`QG Visual` **19 条全 `PASSED`、通过率 100.0%**，
+  其中 `accounts-list-flag-on` 在产物 `reports/report-*.json` 里为 `status:"PASSED", misMatchPercentage: 0`
+  ⇒ PRD §17.4 步骤 3「必须报该视图 0 px 差异」**达成**，该视图自此成为硬门禁的一部分。
+- **纠正一处取证口径（写进 PRD §17.4）**：`run-pixel-tests.js` 的 stdout 只打 `PASSED` / `FAILED`，
+  **不打印差异率**（实测该 job 日志里 `misMatch` / `差异率` 命中 0 次）。因此"日志说 PASSED"只等价于
+  "差异低于 `PIXEL_THRESHOLD=0.06`"，**不等价于 0 px**。上一轮我在文档里写"0 px 由下一轮 CI 证明"时，
+  默认了"下一轮日志会给出这个数字"——它不会；真要去证，只能下载产物读 report JSON。本轮就是这么做的。
+- openspec 归档 `add-cloud-account-sync` 的 tasks：§6 那条"基线仍需重新采集"的过期勾选纠为已完成并附证据，
+  「未执行清单 / 残留」两张表的同名行同步收口（历史登记文字按既有约定保留不删）。
+
+
+# [未发布] feat(视觉门禁): 补上 flag 开启态的渲染通道与视图用例，让【同步云端】按钮第一次可被 CI 基线覆盖（2026-09-27）
+- 入口由运营 feature flag 控制且 fail-closed（ADR-0006），CI 的 `QG Visual` 没有运营中心 ⇒ 按钮永不渲染。
+  原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
+  （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
+### 做了什么
+- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
+  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
+  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
+  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
+  它只改界面开关键，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
+- **归属澄清（不得把自审项记成评审发现）**：协议门、白名单、非法值 warn、用例改名这四项是评审之后
+  **自审补严/自审判断**；外部评审实际提出的是 hash 路由丢参（C1，完全成立）、`options.dev` 可短路 DEV 判断（W2）、
+  非开发态用例显式传参等于没锁默认路径（W5）、四种解析语义未钉住（I4），以及 W3（开发态 UI 与运营授权可能
+  不一致）—— W3 经评估不在本 PR 修，理由与前置条件写在 PRD §17.2。前端模型那一路未产出任何结论。
+- **warn 文案改 ASCII**：`QG Static` 的渲染端硬编码中文基线扫描实测拦在 `useFeatureFlag.js:64`（新增的中文
+  `console.warn`）。这条 warn 是给开发者看控制台的、不是 UI 文案，所以改英文而不是塞进 locale —— 本地
+  `node .github/scripts/check-locale-sync.js --cjk` 由 FAIL 转 `PASS（无新增硬编码）`。
+- **真正根因（以及一次错误结论的撤回）**：`QG Visual` 连续三轮红在"等按钮超时"。我一度判定为
+  "CI 的 vite 进程带 `NODE_ENV=production` ⇒ `import.meta.env.DEV=false`"，理由是本地用该环境变量起
+  vite dev 能复现同一症状。**这个判定是错的** —— 在 Gate 7 里打印进程侧取值后实测
+  `VITE_MP_DEV_FLAG_OVERRIDE=[1] NODE_ENV=[]`、页面侧 `channelState=enabled=true`（DEV 并未被压掉）。
+- **实际根因是 harness 的组件复用盲区**：本仓 hash 路由下 `#/accounts` → `#/accounts?mpFlag=…` 属于
+  "同一路由只改 query"，vue-router **复用组件实例** ⇒ `onMounted` 不重跑 ⇒ `refreshCloudSyncFlag()`
+  根本没被再调用。本地用 `PIXEL_ONLY` 控制顺序即可决定性复现：单独跑通过（只红在缺基线），
+  紧跟在 `accounts-list` 之后跑则逐字复现 CI 的超时 —— 差别只有顺序，不是环境。
+- 修法：`test-runner.js` 新增 `_isSameRouteQueryOnlyNav()`，命中时在 `goto` 后强制 `page.reload()`，
+  让每条用例拍到的都是"该路由首次加载"。判定刻意做窄（换路由不重载），以免改写既有 18 条基线的
+  拍摄条件。回归锁 2 条（该重载 / 不该重载各一条，`test-runner.test.js` 18 → 20 例）+ 反证（把 `if (reusedComponent)` 改成恒 false ⇒ 前者红）。
+- `VITE_MP_DEV_FLAG_OVERRIDE` 这层构建期开关**保留**，但定位改回它实际的价值：显式 opt-in、不依赖
+  环境巧合（正式包既非 DEV 也不注入该变量 ⇒ 分支被静态折叠）；它不是本次失败的修法。同时纠正一处
+  过度声称：诊断里的 `channelState` 调的是纯函数，只证明"解析与开关判定正确"，不证明"组件真的重新读过参数"。
+- `useFeatureFlag.test.js` 补 11 条（该文件用例数 6 → 17）：解析边界（含 `=yes`/空值/无 `=`/白名单外一律不覆盖，
+  并按后端模型 I4 补锁 encoded `=`、key 大小写、非法项在后不清掉前一合法值、值内再带 `=` 这四种确定语义；
+  覆盖命中不发请求、`0` 强制关闭、非开发态完全无视该通道、`file:` 协议不生效、非法值必须 warn、
+  无覆盖参数时保持 fail-closed；另有 `VITE_MP_DEV_FLAG_OVERRIDE` 开关两侧各一条）。
+- 新增视图用例 `accounts-list-flag-on`，**两处清单都登记**：`views/all-views.visual.test.js` 的 `viewTests`
+  （`--single` / 全量路径）与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 实际执行的是这一份**）。
+  首版只登记了前者，于是 `QG Visual` 的绿对本特性完全无意义 —— 实测该 job 日志里 18 个视图各出现一次全 `PASSED`，
+  而我的用例名出现 0 次。等待选择器直接指向 `[data-testid="account-cloud-sync"]`
+  ——渲染不出来就是用例失败，而不是"截一张没有按钮的图当基线"。
+- **基线入库踩到一个静默陷阱**：根 `.gitignore` 有 `*.png`，而 `base-screenshots/.gitignore` 的白名单是
+  **逐个点名**的 `!<file>.png`。新基线 `accounts-list-flag-on.png` 落盘后 `git status` 不显示、`git add`
+  静默不收（`git check-ignore -v` 指到 `*.png`）—— 表现不是报错而是"基线永远缺"。已登记该文件，并加锁
+  `visual-ci.test.js`「pixelTests 每条用例的基线都必须被白名单放行」（20 → 21 例，反证：摘掉白名单行即红）。
+  锁当场查出既有缺口：`publish-history.png` 被跟踪却从未登记在白名单里，已补。
+- 同一条错误归因当时还写在**三处非文档位置**：`useFeatureFlag.js` 里 `devFlagChannelEnabled` 的头注释、
+  用例名「显式构建期开关打开时…（CI 的 vite 带 NODE_ENV=production）」、以及 `quality-gate.yml` Gate 7 的
+  `env:` 注释。三处一并改为撤回式表述（写明被证伪的取值与真正根因）—— 只改文档不改代码注释，
+  下一个人读源码时仍会把这个结论捡回来。
+### 结论 / 待办
+- **CI 首轮红的连带项（不得只盯着预期的那条）**：同一个 run 里 `QG Unit Tests` / `QG Desktop Shards 1+2` /
+  `QG Coverage` 也红，共同原因是 `condition-waiting.test.js` 的**视觉用例总数锁**（104）——本 PR 新增一条视图
+  用例使总数变 105。属 AGENTS.md「门禁断言随实现迁移同步」的漏更，已同步标题与断言（本地复现
+  `expected 105 to be 104` 后才改，改后 23 例全绿）。同轮 `rate-limit-self-check.test.js` 那条红**未认领**：
+  本 PR 未触碰 `electron/services/`，该用例按真实 `setTimeout` 计并发，本机连跑 6/6 绿，登记为 CI 满载抖动待查。
+- 基线**不能在本 PR 之外伪造**：首跑必然报 `ERR_VISUAL_BASELINE_MISSING`（这条红的作用是产出 CI 渲染图）。
+  实测 run 36330609534 正是如此：**18 条既有视图全 PASSED、唯一红就是本用例缺基线**，随后从该 run 的
+  `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png`（1920×1080，人工核对图内确有「同步云端」按钮）。
+  **本 PR 合入前的最后一道**：复跑 CI，`QG Visual` 必须报该视图 **0 px** 差异（自证基线与比对环境同源）。
+  随后从 `quality-gate-visual-reports` 产物回填 `accounts-list-flag-on.png` 并复跑要求 0 px。
+- 顺手记下（只记实测过的部分）：USAGE §5 写"44 视图"，而 `all-views.visual.test.js` 的 `routeView(` 注册实为 35 条
+  （本 PR 后 36），另有 `supplementary-views.visual.test.js` 以对象数组注册 20 条；AGENTS.md 同一段又写"43 用例：23 核心 + 20
+  补充" —— 三个数互不相同，属既有文档漂移。工作流侧条数本次未精确核对（`name:` 命中含步骤名），不给总数，只给真实增量。
+
 # [未发布] test(ci): session-write-guard 夹具改成与真实工作树同形，收掉「runner 红、本机绿」那条欠账（2026-09-27，write-guard-eol）
 
 ### 变更
@@ -27,6 +203,7 @@
 - 同 PR 自跑：`node scripts/check-unwired-tests.js`（42 个测试文件，OK）、`node scripts/check-step-failfast.js`（4 个多测试步骤，OK）、`node --test scripts/check-unwired-tests.test.js scripts/check-step-failfast.test.js .github/scripts/workflow-contract.test.js`（8+6+23 passed）、`scripts/verify-worktree-deps.js` OK。
 - AGENTS.md：更正「绿灯与否只有 runner 本身算数」的适用边界（**可配置维度**必须先用 `GIT_CONFIG_GLOBAL` 之类手段在本机复现，不得记成欠账），新增 MUST「断言 `git status` 干净度的测试夹具，必须自己声明 EOL 档并把索引交给 checkout」。
 - QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不冒充通过）。
+
 
 # [未发布] refactor(accounts): 会话凭证恢复侧从 account-manager.js 拆出（2026-09-27，split-account-manager-session-restore）
 
