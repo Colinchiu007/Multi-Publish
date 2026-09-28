@@ -119,6 +119,16 @@ function waitForVite(remainingMs) {
           ELECTRON_USER_DATA_DIR: electronUserDataDir,
           // 主进程按该端口加载 renderer + IPC 来源校验，避免回退到 5174 连到别的 worktree
           DEV_SERVER_PORT: String(vitePort),
+          // #2459：bridge 侧端口必须一并下发。不下发时 app-config.js 一律回落到
+          // 8299/8013/8002/8004/16521 这组共享默认值，并发 worktree 的第二个实例
+          // 后端 uvicorn bind 失败（10048）而健康检查被**第一个实例的后端**应答，
+          // 于是表现为"起来了"但请求实际路由到别人的数据目录。
+          // resolveDevPorts 已让显式环境变量优先于派生值，所以这里回写是幂等的。
+          BACKEND_PORT: String(devPorts.backend),
+          PROMPT_PORT: String(devPorts.prompt),
+          SPLITTER_PORT: String(devPorts.splitter),
+          ALIGNER_PORT: String(devPorts.aligner),
+          CALLBACK_SERVER_PORT: String(devPorts.callback),
         }),
       });
       electron.on('spawn', () => {
