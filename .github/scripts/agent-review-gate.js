@@ -38,6 +38,24 @@ function readJson(filePath) {
   }
 }
 
+/**
+ * 判定"LLM 裁判没有产出结论"而非"产出了结论但需人工"。
+ *
+ * 依据是 agent-judge 的 `_heuristicVerdict` 形状（packages/ai-autonomous-tester/src/agent/
+ * agent-judge.js）：解析失败时它写入 `_parseError` 并把原始输出放进 `_rawOutput`；
+ * 空返回时 `_rawOutput` 为空白串、`items` 为 []。
+ *
+ * 报告里没有 `coverage._verdict` 时一律返回 false —— 历史报告/其他形状不得被凭空判成
+ * 空结论，那会把一个本来正常的 advisory 变成新状态，掩盖真实差异。
+ */
+function judgeVerdictMissing(report) {
+  const verdict = report && report.coverage && report.coverage._verdict;
+  if (!verdict || typeof verdict !== "object") return false;
+  if (typeof verdict._parseError === "string" && verdict._parseError.trim() !== "") return true;
+  if (Array.isArray(verdict.items) && verdict.items.length > 0) return false;
+  return typeof verdict._rawOutput === "string" && verdict._rawOutput.trim() === "";
+}
+
 function evaluation(exitCode, status, message) {
   return { exitCode, status, message };
 }
@@ -96,6 +114,16 @@ function evaluateAutonomousGate({ reportDir, auditExitCode, hasOpenAiKey, starte
   // 未覆盖全部 PRD 的 PR 都必然出现，与本次改动质量无关）。统一按报告型处理，
   // 上传报告供人工抽查，但不再让单次审计决定合并。
   if (report.overall === "NEED_HUMAN") {
+    // 但「裁判根本没出结论」不是同一种 NEED_HUMAN：实测最近 5 次 main run 的审计产物
+    // 全部是 parseError="Empty text" + items=[]，即 LLM 空返回，覆盖率从未被评估过。
+    // 把它并进 advisory 会让 Gate 9 恒绿却零信息量，因此单独命名状态，让 CI annotation
+    // 与人工抽查都能看出"这次审计没跑成"。
+    // ⚠️ 刻意仍返回 exit 0：autonomous 在 Gate Result 的 needs 里、Gate Result 是 main 的
+    // 必需检查，而在 LLM 端点恢复可用之前判红等于永久卡死全仓合并。阻塞化的前提是
+    // 「端点可用」被实测证明，那一步单独做（见 issue #907）。
+    if (judgeVerdictMissing(report)) {
+      return evaluation(0, "AUDIT_NO_VERDICT", "Autonomous coverage audit produced no judge verdict (empty LLM output); green here does NOT mean coverage was audited. Blocking this requires the LLM endpoint to be proven available first.");
+    }
     return evaluation(0, "PROMPT_REVIEW_REQUIRED", "Autonomous coverage audit needs human review; report uploaded as advisory.");
   }
   if (report.overall === "PASS") {
