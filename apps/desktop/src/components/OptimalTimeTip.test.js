@@ -74,4 +74,33 @@ describe('OptimalTimeTip', () => {
     await vi.advanceTimersByTimeAsync(600);
     expect(w.text()).toContain('10:00');
   });
+
+  // ── openspec/changes/optimize-publish-right-rail：空态收敛为提示行 ──
+  it('数据不足时渲染单行提示而非完整结果卡', async () => {
+    vi.mocked(intelligenceGetOptimalTime).mockResolvedValue({ code: 0, data: { recommendation: { topHours: [] } } });
+    const w = mount(OptimalTimeTip, { props: { keyword: '' } });
+    await w.setProps({ keyword: 'test' });
+    await vi.advanceTimersByTimeAsync(600);
+
+    const emptyRow = w.get('[data-testid="optimal-time-empty"]');
+    expect(emptyRow.text()).toContain('数据不足');
+    // 一行收敛：不渲染完整结果卡结构
+    expect(w.text()).not.toContain('推荐发布时段');
+    expect(w.text()).not.toContain('其他推荐时段');
+    expect(w.text()).not.toContain('数据来源分布');
+  });
+
+  it('数据不足提示行可展开详情', async () => {
+    vi.mocked(intelligenceGetOptimalTime).mockResolvedValue({ code: 0, data: { recommendation: { topHours: [] } } });
+    const w = mount(OptimalTimeTip, { props: { keyword: '' } });
+    await w.setProps({ keyword: 'test' });
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(w.find('[data-testid="optimal-time-empty-detail"]').exists()).toBe(false);
+    await w.find('[data-testid="optimal-time-empty-toggle"]').trigger('click');
+    expect(w.find('[data-testid="optimal-time-empty-detail"]').exists()).toBe(true);
+    // 再次点击收起
+    await w.find('[data-testid="optimal-time-empty-toggle"]').trigger('click');
+    expect(w.find('[data-testid="optimal-time-empty-detail"]').exists()).toBe(false);
+  });
 });

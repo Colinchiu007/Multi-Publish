@@ -1,117 +1,78 @@
-# [未发布] fix(session-isolation): 写保护计划任务路径与隔离区目录从 Multi-Publish 收口到 Mulpub（2026-09-28，rename-guard-task-paths）
+# [未发布] feat(发布): 视频发布页右栏信息架构重排——任务闭环置顶、智能面板贴邻字段（optimize-publish-right-rail）
 
 ### 变更
-- 计划任务文件夹 `\Multi-Publish\` → `\Mulpub\`：install-session-isolation-task.ps1 的默认 `-TaskPath` 与生产路径守卫、mp-worktree-health.ps1 / bootstrap-write-guard.ps1 的任务查询、install-session-isolation-task.test.ps1 的 live 路径常量与无尾斜杠探针、AGENTS.md 约束段、docs/session-isolation-automation.md、.quality-rhythm/integrations/env-checklist.md。
-- 隔离区与报告目录 `%LOCALAPPDATA%\Multi-Publish\session-isolation\` → `%LOCALAPPDATA%\Mulpub\session-isolation\`：guard-shared-root-writes.ps1 隔离区默认、mp-worktree-health.ps1 报告与隔离区、installer / bootstrap 的报告路径。
-- 修复 #2551 重构遗留的两处「以产物判成败」半成品：`Register-Checked` 的 `$got` 与 Unregister 分支的 `$left` 此前从未赋值——前者在 `$ErrorActionPreference='Stop'` 下会让安装器**注册完 Health 就终止**（AtLogOn Write Guard 永远到不了，bootstrap [3/5] 因此必红），后者让反注册校验恒空转。两处均补上 `Get-ScheduledTask` 产物查询。
-- `session-isolation-automation.test.ps1` 重构：注册/注销全部改到一次性 `-TaskPath`（落实 2026-09-28 AGENTS.md「自检与测试必须用它」约束；旧版直接打生产路径，配合 `$got` bug 一跑就会半拆活体守护）；断言改为按产物分档——提权宿主双任务注册且 rc=0，非提权宿主 AtLogOn 被系统拒绝时安装器必须非零退出并点名 RunAs；子进程输出经放宽作用域的 `2>&1` 捕获（5.1 NativeCommandError 陷阱，同 install-session-isolation-task.test.ps1 的口径）。
-- 顺带收口 #2559 漏网的 4 处双反斜杠路径形态（`projects\\Multi-Publish`，当时的单分隔符正则匹配不到）：01-docs/ui-reference/scripts/capture.js、apps/desktop/tests/e2e-qr-login.js、e2e-interactive-login.js（3 处）。
+- `apps/desktop/src/views/Publish.vue`：单篇模式右栏（flex-side）重排——发布目标卡（含保存草稿/草稿箱/快速发布/取消任务）移至右栏**第一块**（sticky 保留为滚动兜底），发布进度/草稿箱/结果卡紧随其后；三个智能辅助面板全部迁出右栏、下沉左栏（flex-main）贴邻所服务字段：**标签建议→标签/话题输入后、最佳发布时间→定时发布后、标题助手→标题输入后**（video/article 两模式同口径）。1920×1140 实测取证：旧布局「快速发布」按钮被三个面板挤出首屏、左栏 63% 视口高度后全空白；新布局主行动无需滚动即可见、左栏空白被辅助面板就地利用。
+- `apps/desktop/src/components/TagSuggester.vue`：新增 `platforms` prop（string[]）——标签建议请求跟随用户在发布目标中勾选的平台（旧实现硬编码 zhihu/weibo/xiaohongshu/bilibili/toutiao 五平台，用户选快手时建议与目标脱节）；空数组/未传回退全量目录；platforms 与 content 共用同一 800ms 防抖。建议标签（关键词/相关话题/平台内容/流量/回退合并五处）全部可点击，emit `apply-tag` 由父级去重追加进标签输入。错误态从红色文本块收敛为**一行提示 + 行内重试按钮**。
+- `apps/desktop/src/components/OptimalTimeTip.vue`：「数据不足」空态从整卡死胡同文案降级为**一行提示 + 可展开详情**（默认收起，展开后说明原因与替代路径）；keyword 变化时收起详情态。
+- 新增 `apps/desktop/src/composables/usePanelVisibilityPrefs.js`：面板显隐记忆（localStorage key `publish.panelVisibility.v1`，白名单键 tagSuggester/titleAssistant），读写全 try/catch——隐私模式/配额/损坏 JSON 一律降级默认值（标签建议展开、标题助手收起，与旧行为一致），未知键与非法类型忽略。
+- `apps/desktop/src/locales/zh.js` + `en.js` 成对新增：`tagSuggest.retry`/`tagSuggest.applyTagHint`、`publishPage.optimalTimeNoData`/`optimalTimeNoDataDetail`（避开并发分支 fix-title-assistant-relevance 的 `intelligence.*` 键空间，合并冲突可自动解决；本 change 不触碰 TitleAssistantPanel.vue 组件本体）。
+- OpenSpec change `openspec/changes/optimize-publish-right-rail/`（proposal/specs/design/tasks 四产物，validate 通过）：新能力 `publish-page-right-rail`（7 条 Requirement）+ 修改 `mp-ue-closure`「发布页主操作可见」（从「滚动时 sticky」强化为「初始视口内无需滚动即可见」）。
 
-### 为什么
-- 仓库目录与 GitHub 仓库均已改名 Mulpub（#2515 / #2559），写保护基础设施是最后仍以 Multi-Publish 命名的机器态目录；两套命名并存让「任务在哪、隔离区在哪」需要额外记忆。
-- 机器态迁移在 PR 合并后按「先注册 \Mulpub\ 新任务（AtLogOn 需 UAC 提权）→ 停旧 watcher → pull 共享根（watcher 在场时 pull 会触发隔离风暴）→ 迁移隔离区数据 → 启新 watcher → 注销 \Multi-Publish\ 旧任务」执行，写保护中断窗口压缩到 pull 期间且每步以 `Get-ScheduledTask` 产物核验。
+### 测试
+- `usePanelVisibilityPrefs.test.js` 7 条：默认值/写读回/读写异常降级/未知键忽略/损坏 JSON/写入白名单。
+- `TagSuggester.test.js` 23 条（+7）：platforms 联动请求、空数组回退全量、未传回退、platforms 变化防抖重请求、关键词/平台标签点击 emit、错误态一行收敛 + 重试恢复。既有「hot heat badge」用例的选择器由 `w.find('[title]')`（取第一个，被新增的点击提示 title 干扰）收紧为 `[title*="匹配热门话题"]`（按内容精确匹配，保持原意图）。
+- `OptimalTimeTip.test.js` 9 条（+2）：数据不足一行提示（不渲染推荐时段/来源分布）、展开/收起详情。
+- `Publish.test.js` 59 条（+6）：右栏第一块为 publish-action-card、三面板不在 flex-side、贴邻顺序（compareDocumentPosition 断言标签建议在 #publish-tags 后/最佳发布时间在 datetime-local 后/标题助手入口在标题后）、platforms 探针 stub 断言联动与清空回退、apply-tag 去重追加、localStorage 记忆初始化与持久化、无记录用默认。既有 `.flex-side [data-testid="publish-action-card"]` 断言天然兼容。
+- 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过——空表单态新旧布局渲染一致（面板按内容阈值隐藏，右栏只剩操作卡），基线无需重截；布局差异态由真实浏览器验证覆盖：新增 `tests/visual-testing/scripts/verify-publish-rail-layout.js`（hash 路由 + e2e fixture mock + Playwright chromium）在 dev server 上断言 13/13 全绿（右栏第一块/三面板在左栏不在右栏/三组贴邻顺序）。
+- 相关套件回归：views-deep2 / views-coverage / icon-usage / TagSuggester / OptimalTimeTip / usePanelVisibilityPrefs 共 88/88 绿；eslint 改动文件 0 error 0 warning；`check-locale-sync --keys` PASS（1233 keys）。
+- 全量 vitest 12236 通过 / 4 失败——失败均为 story2video pipeline 引擎存量问题（`story2video-manual-assets.test.js > manual 模式在 compose 前插入 finalize_assets` 已在干净基线 f8033fbf 复现同样失败，与本分支无关）。
 
-### 验证
-- install-session-isolation-task.test.ps1 → rc=0 / 7 PASS（本机 \Mulpub\ 尚无任务，NOTE 分支如实报告 runner 态边界）
-- session-isolation-automation.test.ps1 → rc=0 / 18 PASS（非提权分支实证：Health 在一次性路径注册成功、AtLogOn 被拒后安装器 fail closed 并给出 RunAs 指引——同时证明 `$got` 修复后安装器能走到 Write Guard 注册步）
-- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
-
-# [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
-
-### 变更
-- `AGENTS.md`「行尾（CRLF）不是噪声：改前先认基线，改后必须保持」第①句后半，由「脚本改写时按原文件行尾回写（`split(/\r?\n/)` + 检测到的 eol 再 join）」改为「**逐行保留各自的行尾**（`split('\n')` 之后不碰任何一行 —— `\r` 本就是行内容的一部分 —— 再 `join('\n')`）」，并显式禁止「探测多数派 eol 后统一回写」。同句「合并正解」里的 `+ 还原 CRLF` 是同一个错的第二个落点，改为「逐行保留 main 那一行原本的结尾（不得统一成一种）」。
-
-### 为什么（实测，不是推断）
-- 本仓这两份置顶文档的 **blob 本身就是混行尾**。行尾分布经「各行类之和 = 总行数」与「`\r` 加总 = 文件 CR 总数」双重自洽校验：`CHANGELOG.md` 14391 行 = 14365 行单 `\r` + 2 行 LF-only + 24 行双 `\r`；`01-docs/learnings.md` 16446 行 = 16437 + 3 + 6。
-- 对**原文不做任何增删**、只走一次「剥净行尾 `\r` → 按探测到的 eol join」往返，`CHANGELOG.md` 凭空被改写 **27 行**、`learnings.md` **10 行**；逐行原样 join 同一往返为 **0 行**。旧口径因此会稳定造出该纪律第②项专门要抓的幽灵行 —— 本条 PR 的实测过程本身就是这样中招一次（`+1 / −1`）后才定位到根因的。
-- 其中第 27 行是**文件末行**：`lines.join(eol) + '\n'` 会把末行的 `\r` 整体吃掉（末行分隔符本是 `eol`，尾部只补了 `'\n'`）。这是 join 式的第二个独立缺陷，与混行尾无关，实测叠加 1 行 ⇒ 27 / 10。
-
-### 未改动的一条（自我更正）
-- 本文第①条的测法 `git show <ref>:<file> | grep -c $'\r'` **有效，未改**。曾有一条内部结论主张它会被 `text=auto` 污染而假报 CRLF；实测 `git show <rev>:<path>` 输出的是裸 blob、不做 smudge 转换（三个文件与 `git cat-file blob` 逐字节一致），故该主张已被否证并撤回。
-
-### 验证
-- 本条目自身即按修正后的口径写入：`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径一致且删除列为 0（已有行一行未动）。
-- `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
-
----
-
-# [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
+# [未发布] feat(发布): 视频发布页右栏信息架构重排——任务闭环置顶、智能面板贴邻字段（optimize-publish-right-rail）
 
 ### 变更
-- 新增 `scripts/check-gate-record-debt.js` + `scripts/gate-record-debt-ledger.json`，并接入 `quality-gate.yml` 的 `Gate 2c`：扫描 `.quality-gates.md` 的「远程同步」状态列，凡未收口且没带原因登记的行一律判红。
-- 三条口径都按「未知即红」写：状态列是**自由文本**（实测 127 行里有 22 种写法），所以判定用闭合词表（`PASS`/`N/A`/`✅`/`已…`），换一个新词写"差不多好了"照样算未收口；登记键用**所属记录标题**（从 `（…，slug，date）` 抽 slug 只覆盖 319 篇里的 160 篇且撞 4 次，不能当键），标题漂移会同时报「未登记欠账」与「陈旧登记」两条红；回填一条记录必须顺手删掉它的登记项 —— 这条耦合保证清单只会缩小。
-- 回填本会话自己造的 4 条记录（#2516 / #2521 / #2538 / #2551）为既有 PASS 口径，字段全部**离线取证**：merge SHA 与时间来自 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，远端分支已删来自 `git ls-remote --heads origin <branch>` 返回 0 行。其余 28 条属并发会话的记录，**只登记不代改、不臆造 SHA**。
-- 顺带修一处文案漂移：实现从内联 `KNOWN_UNSYNCED` 改成 JSON 清单后，报错信息还指着那个已不存在的符号名 —— 指向不存在的东西的提示语，比没有提示更容易把人带偏。
+- `apps/desktop/src/views/Publish.vue`：单篇模式右栏（flex-side）重排——发布目标卡（含保存草稿/草稿箱/快速发布/取消任务）移至右栏**第一块**（sticky 保留为滚动兜底），发布进度/草稿箱/结果卡紧随其后；三个智能辅助面板全部迁出右栏、下沉左栏（flex-main）贴邻所服务字段：**标签建议→标签/话题输入后、最佳发布时间→定时发布后、标题助手→标题输入后**（video/article 两模式同口径）。1920×1140 实测取证：旧布局「快速发布」按钮被三个面板挤出首屏、左栏 63% 视口高度后全空白；新布局主行动无需滚动即可见、左栏空白被辅助面板就地利用。
+- `apps/desktop/src/components/TagSuggester.vue`：新增 `platforms` prop（string[]）——标签建议请求跟随用户在发布目标中勾选的平台（旧实现硬编码 zhihu/weibo/xiaohongshu/bilibili/toutiao 五平台，用户选快手时建议与目标脱节）；空数组/未传回退全量目录；platforms 与 content 共用同一 800ms 防抖。建议标签（关键词/相关话题/平台内容/流量/回退合并五处）全部可点击，emit `apply-tag` 由父级去重追加进标签输入。错误态从红色文本块收敛为**一行提示 + 行内重试按钮**。
+- `apps/desktop/src/components/OptimalTimeTip.vue`：「数据不足」空态从整卡死胡同文案降级为**一行提示 + 可展开详情**（默认收起，展开后说明原因与替代路径）；keyword 变化时收起详情态。
+- 新增 `apps/desktop/src/composables/usePanelVisibilityPrefs.js`：面板显隐记忆（localStorage key `publish.panelVisibility.v1`，白名单键 tagSuggester/titleAssistant），读写全 try/catch——隐私模式/配额/损坏 JSON 一律降级默认值（标签建议展开、标题助手收起，与旧行为一致），未知键与非法类型忽略。
+- `apps/desktop/src/locales/zh.js` + `en.js` 成对新增：`tagSuggest.retry`/`tagSuggest.applyTagHint`、`publishPage.optimalTimeNoData`/`optimalTimeNoDataDetail`（避开并发分支 fix-title-assistant-relevance 的 `intelligence.*` 键空间，合并冲突可自动解决；本 change 不触碰 TitleAssistantPanel.vue 组件本体）。
+- OpenSpec change `openspec/changes/optimize-publish-right-rail/`（proposal/specs/design/tasks 四产物，validate 通过）：新能力 `publish-page-right-rail`（7 条 Requirement）+ 修改 `mp-ue-closure`「发布页主操作可见」（从「滚动时 sticky」强化为「初始视口内无需滚动即可见」）。
 
-### 为什么这算机制而不是打扫
-本仓 `.quality-gates.md` 的「远程同步」行本意是"合并后回来补证据"，95 条确实被补过（约定是活的），但近期 32 条停在那里没人管，且**没有任何东西会因此变红**。后果不是难看：已合并的记录顶着 PENDING，下一个会话读到就是"这活儿没干完"，于是重复诊断、重复开工 —— 与 learnings 记过的「装饰性门禁」「记录性断言」是同一类病：状态写下来了，却没有任何东西消费它。
+### 测试
+- `usePanelVisibilityPrefs.test.js` 7 条：默认值/写读回/读写异常降级/未知键忽略/损坏 JSON/写入白名单。
+- `TagSuggester.test.js` 23 条（+7）：platforms 联动请求、空数组回退全量、未传回退、platforms 变化防抖重请求、关键词/平台标签点击 emit、错误态一行收敛 + 重试恢复。既有「hot heat badge」用例的选择器由 `w.find('[title]')`（取第一个，被新增的点击提示 title 干扰）收紧为 `[title*="匹配热门话题"]`（按内容精确匹配，保持原意图）。
+- `OptimalTimeTip.test.js` 9 条（+2）：数据不足一行提示（不渲染推荐时段/来源分布）、展开/收起详情。
+- `Publish.test.js` 59 条（+6）：右栏第一块为 publish-action-card、三面板不在 flex-side、贴邻顺序（compareDocumentPosition 断言标签建议在 #publish-tags 后/最佳发布时间在 datetime-local 后/标题助手入口在标题后）、platforms 探针 stub 断言联动与清空回退、apply-tag 去重追加、localStorage 记忆初始化与持久化、无记录用默认。既有 `.flex-side [data-testid="publish-action-card"]` 断言天然兼容。
+- 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过——空表单态新旧布局渲染一致（面板按内容阈值隐藏，右栏只剩操作卡），基线无需重截；布局差异态由真实浏览器验证覆盖：新增 `tests/visual-testing/scripts/verify-publish-rail-layout.js`（hash 路由 + e2e fixture mock + Playwright chromium）在 dev server 上断言 13/13 全绿（右栏第一块/三面板在左栏不在右栏/三组贴邻顺序）。
+- 相关套件回归：views-deep2 / views-coverage / icon-usage / TagSuggester / OptimalTimeTip / usePanelVisibilityPrefs 共 88/88 绿；eslint 改动文件 0 error 0 warning；`check-locale-sync --keys` PASS（1233 keys）。
+- 全量 vitest 12236 通过 / 4 失败——失败均为 story2video pipeline 引擎存量问题（`story2video-manual-assets.test.js > manual 模式在 compose 前插入 finalize_assets` 已在干净基线 f8033fbf 复现同样失败，与本分支无关）。
 
-### 门禁与反证
-- TDD 先红：9 条用例先跑 `Cannot find module`；实现后 `node --test scripts/check-gate-record-debt.test.js` ⇒ 9 passed / 0 failed。
-- 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
-- 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
-- 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
-
-# [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
-
-### 为什么
-- 对照参考产品的同类弹窗后，发现我们三处摩擦点：标题是陈述式（读起来像功能名而非提问）、
-  「本机 N 个」被整张平台明细列表与「云端 M 个」隔开（用户要靠记忆比较）、弹窗主按钮与账号页
-  入口按钮共用同一个文案键（两处界面同名不同物）。
-
-### 做了什么
-- `cloudSyncTitle` → 「是否与云端账号同步？」（en 同步改）。
-- 摘要正文把两个计数并入 `[data-testid="cloud-digest-counts"]` 一行（flex + wrap + baseline），
-  平台明细移到其下；文案缩短为「云端 {total} 个 / 本机 {local} 个」。
-- 新增 `cloudSyncConfirm: 同步账号` 供弹窗主按钮使用；`cloudSync: 同步云端` 留给账号页入口，
-  并由测试钉住"改弹窗不得连带改入口名"。
-- 补一条锁 `两个计数并排在同一个父节点，且标题为疑问句、主按钮动宾明确`：本文件其余断言都走
-  `tk(key)` ⇒ **文案改错它们抓不到**，这条刻意断言字面量与父子结构（zh/en 成对由 locale 门禁守）。
-  **反证**：M1 把标题改回陈述句 ⇒ `Failed Tests 1`，红的正是这条新锁；M2 把计数容器 testid 改名 ⇒
-  同样只红这一条；两次变异均按原字节回写并复绿。
-- **刻意没做**：参考产品的「不再提示」。它是产品决策不是文案（要定义关掉什么、要持久化、要有恢复入口），
-  已写进 PRD §10.6 并单独立项。
-
-验证：`src/features/accounts/` + `Accounts.test.js` 共 11 文件全绿；`check-locale-sync` 的
-`--pair-base` / `--keys`（1227 键）/ `--cjk` 三项 PASS；eslint `--quiet` rc=0；`pnpm run build:vue` rc=0（模板编译）。
-
-# [未发布] fix(session-isolation): installer 支持一次性 -TaskPath，并对生产路径的 -Unregister fail closed（2026-09-28，guard-task-path）
+# [未发布] feat(发布): 视频发布页右栏信息架构重排——任务闭环置顶、智能面板贴邻字段（optimize-publish-right-rail）
 
 ### 变更
-- `scripts/install-session-isolation-task.ps1` 新增 `-TaskPath`（默认仍是生产路径 `\Multi-Publish\`）与 `-AllowLiveUnregister`：`-Unregister` 打向生产路径时**默认拒绝**并非零退出，指引调用方改用一次性路径。同时补齐 Task Scheduler 的路径口径（首尾都要有反斜杠，否则 `Get-ScheduledTask -TaskPath` 返回空集，`-Unregister` 会报"删了 0 条"这种可疑的"成功"）。
-- 注册与反注册一律**以产物判成败**：每次 `Register-ScheduledTask` 后用 `Get-ScheduledTask` 核实任务确实存在，反注册后核实确实清空；失败时给出可执行指引（AtLogOn 触发器需 `Start-Process -Verb RunAs` 提权）。原实现只看管道到 `Out-Null` 之后的隐式状态，而该 cmdlet 抛的是**非终止错误、不写 `$LASTEXITCODE`** —— 只看 rc 会把"一条都没注册上"报成成功。
-- 新增 `scripts/install-session-isolation-task.test.ps1`（7 条，**不做任何注册动作**，因此与提权无关、可接 CI）并接入 Gate 2d：拒绝生产路径 `-Unregister`、拒绝信息点名逃生开关、被拒后真任务列表逐条不变（以产物判）、一次性路径放行、参数面存在（读 `Get-Command` 而非 grep 文本）、不带尾斜杠同样被拒。
-- `check-unwired-tests.js` 里 `session-isolation-automation.test.ps1` 的欠账理由换成实测事实：未知量已收窄为"runner 进程令牌是否提权"。
+- `apps/desktop/src/views/Publish.vue`：单篇模式右栏（flex-side）重排——发布目标卡（含保存草稿/草稿箱/快速发布/取消任务）移至右栏**第一块**（sticky 保留为滚动兜底），发布进度/草稿箱/结果卡紧随其后；三个智能辅助面板全部迁出右栏、下沉左栏（flex-main）贴邻所服务字段：**标签建议→标签/话题输入后、最佳发布时间→定时发布后、标题助手→标题输入后**（video/article 两模式同口径）。1920×1140 实测取证：旧布局「快速发布」按钮被三个面板挤出首屏、左栏 63% 视口高度后全空白；新布局主行动无需滚动即可见、左栏空白被辅助面板就地利用。
+- `apps/desktop/src/components/TagSuggester.vue`：新增 `platforms` prop（string[]）——标签建议请求跟随用户在发布目标中勾选的平台（旧实现硬编码 zhihu/weibo/xiaohongshu/bilibili/toutiao 五平台，用户选快手时建议与目标脱节）；空数组/未传回退全量目录；platforms 与 content 共用同一 800ms 防抖。建议标签（关键词/相关话题/平台内容/流量/回退合并五处）全部可点击，emit `apply-tag` 由父级去重追加进标签输入。错误态从红色文本块收敛为**一行提示 + 行内重试按钮**。
+- `apps/desktop/src/components/OptimalTimeTip.vue`：「数据不足」空态从整卡死胡同文案降级为**一行提示 + 可展开详情**（默认收起，展开后说明原因与替代路径）；keyword 变化时收起详情态。
+- 新增 `apps/desktop/src/composables/usePanelVisibilityPrefs.js`：面板显隐记忆（localStorage key `publish.panelVisibility.v1`，白名单键 tagSuggester/titleAssistant），读写全 try/catch——隐私模式/配额/损坏 JSON 一律降级默认值（标签建议展开、标题助手收起，与旧行为一致），未知键与非法类型忽略。
+- `apps/desktop/src/locales/zh.js` + `en.js` 成对新增：`tagSuggest.retry`/`tagSuggest.applyTagHint`、`publishPage.optimalTimeNoData`/`optimalTimeNoDataDetail`（避开并发分支 fix-title-assistant-relevance 的 `intelligence.*` 键空间，合并冲突可自动解决；本 change 不触碰 TitleAssistantPanel.vue 组件本体）。
+- OpenSpec change `openspec/changes/optimize-publish-right-rail/`（proposal/specs/design/tasks 四产物，validate 通过）：新能力 `publish-page-right-rail`（7 条 Requirement）+ 修改 `mp-ue-closure`「发布页主操作可见」（从「滚动时 sticky」强化为「初始视口内无需滚动即可见」）。
 
-### 为什么现在才做（一次自伤的账）
-写这条守卫的动机来自本轮我自己造成的一次事故：为反证"拒绝逻辑有牙"，把该判断临时改成 `if ($false)` 后照原样跑测试，而测试里正有一条拿**默认生产路径**调 `-Unregister` —— 守卫被我亲手绕过的那一刻，两条在跑的计划任务真被删除（含共享根实时写保护）。Health 可非提权恢复；AtLogOn 写保护任务恢复必须提权，因此当时只能半恢复。第二版沙箱反证又因为只替换了带尾斜杠的路径字面量、漏掉不带尾斜杠那一处而再次波及真任务。两次是同一类错误：**削弱破坏性动作的守卫时，仍让代码走到它保护的那个动作上**。修法即本条：默认拒绝 + 可注入路径，让自检与测试没有第二条路可走。
+### 测试
+- `usePanelVisibilityPrefs.test.js` 7 条：默认值/写读回/读写异常降级/未知键忽略/损坏 JSON/写入白名单。
+- `TagSuggester.test.js` 23 条（+7）：platforms 联动请求、空数组回退全量、未传回退、platforms 变化防抖重请求、关键词/平台标签点击 emit、错误态一行收敛 + 重试恢复。既有「hot heat badge」用例的选择器由 `w.find('[title]')`（取第一个，被新增的点击提示 title 干扰）收紧为 `[title*="匹配热门话题"]`（按内容精确匹配，保持原意图）。
+- `OptimalTimeTip.test.js` 9 条（+2）：数据不足一行提示（不渲染推荐时段/来源分布）、展开/收起详情。
+- `Publish.test.js` 59 条（+6）：右栏第一块为 publish-action-card、三面板不在 flex-side、贴邻顺序（compareDocumentPosition 断言标签建议在 #publish-tags 后/最佳发布时间在 datetime-local 后/标题助手入口在标题后）、platforms 探针 stub 断言联动与清空回退、apply-tag 去重追加、localStorage 记忆初始化与持久化、无记录用默认。既有 `.flex-side [data-testid="publish-action-card"]` 断言天然兼容。
+- 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过——空表单态新旧布局渲染一致（面板按内容阈值隐藏，右栏只剩操作卡），基线无需重截；布局差异态由真实浏览器验证覆盖：新增 `tests/visual-testing/scripts/verify-publish-rail-layout.js`（hash 路由 + e2e fixture mock + Playwright chromium）在 dev server 上断言 13/13 全绿（右栏第一块/三面板在左栏不在右栏/三组贴邻顺序）。
+- 相关套件回归：views-deep2 / views-coverage / icon-usage / TagSuggester / OptimalTimeTip / usePanelVisibilityPrefs 共 88/88 绿；eslint 改动文件 0 error 0 warning；`check-locale-sync --keys` PASS（1233 keys）。
+- 全量 vitest 12236 通过 / 4 失败——失败均为 story2video pipeline 引擎存量问题（`story2video-manual-assets.test.js > manual 模式在 compose 前插入 finalize_assets` 已在干净基线 f8033fbf 复现同样失败，与本分支无关）。
 
-### 门禁与反证
-- 本机 `pwsh 7.6` 与 `Windows PowerShell 5.1` 各 `rc=0 / 7 条 PASS`。过程中两个自引入缺陷被真实抓到并修掉：① 往 5.1 执行的脚本里写中文注释 —— 无 BOM UTF-8 被按 ANSI 解，直接解析失败；② `Check (…).Count -eq 0 '…'` 少一层外层括号，PowerShell 把 `-eq 0` 当成后续实参传给函数，比较成立仍判假（这一条在 CI 上会因为"没有任务"而恒红）。
-- 反证改在**完全沙箱**里做：把 installer 与测试各复制到 TEMP，复制体内所有 `Multi-Publish` 字样一律换成一次性探针路径，每格开始前向探针文件夹注册一个动作仅为 `cmd /c exit 0` 的空任务。结果：A 守卫在位 `rc=0 / 7 PASS` 且探针任务存活；B 拆掉拒绝分支 `rc=1 / pass=0`，且**探针任务被真删**（证明拒绝分支是唯一屏障）；C 去掉尾斜杠归一后红在"不带尾斜杠也要被拒"那条（证明归一是承重的）。三格全程生产文件夹快照逐字不变、复制体外的源文件 sha 未变、探针文件夹已清空。
-- 同 PR 自跑：`check-unwired-tests.js` → 检查域内测试文件 43 个 / OK（新测试已接线）；`check-step-failfast.js` → 4 个多测试步骤 OK；`--test` 三件 41 passed / 0 failed。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
-- **首跑即在 CI 变红，红点在我自己的新断言上**（run 36388005361 / step `Gate 2d`）：`Compare-Object` 报「无法将 Null 值绑定到 `-ReferenceObject`」。根因不在比较，而在**快照函数的隐式输出把空数组摊平成 `$null`** —— 实测 Windows PowerShell 5.1：`function F { @(...) }` 对调用方是 NULL，而 `, @()` 与调用点 `@(F)` 才是长度 0 的 `Object[]`；`Compare-Object @() @()` 本身正常。CI runner 上 `Multi-Publish` 根本不存在，于是「被拒后真任务列表逐条不变」那条从未在等价状态下被跑过，而我此前只在本机（有 2 条真任务）验过。
-- **修法取结构而非记律**：快照函数不再返回值，改写 `$script:` 作用域变量，比较对象换成任务名排序后 `-join '|'` 的字符串（串既不会为 null 也不摊平），`Compare-Object` 与 `-SyncWindow 0` 一并删除。同时把 `finally` 里的「检出真任务变化只打红字」升级为**失败**——原实现检出灾难仍 `rc=0`，属装饰性断言的第二种落点。
-- **成对反证：把 runner 态在本地造出来，不靠 CI 碰运气**。旧版（`git show HEAD:` 那份）+ 零任务 ⇒ `rc=1`，红点与 CI 同一处（`zero-old.ps1:77` 的 null 绑定）；新版 + 零任务 ⇒ `rc=0 / 7 PASS` 并打印 `NOTE: no live \Multi-Publish\ task on this host …`；新版 + 本机 2 条真任务 ⇒ `rc=0 / 7 PASS` 并打印 `PROVED: 2 live task(s) survived the refused -Unregister`。`pwsh 7.6` 与 `Windows PowerShell 5.1` 各一遍。反证夹具要把 `$installer` 绑回 worktree 的真实脚本，否则复制到 TEMP 后 `$PSScriptRoot\..` 不是仓库、拒绝分支走的是另一条错误路径（第一版就被 `fatal: not a git repository` 骗过一次，看着像修复失败，其实测的是另一件事）。**CI 本身就是这条回归的常驻锁**：runner 天生零任务，重新引入「返回空数组的快照函数」会当场变红。
-- **恢复写保护任务时顺带实测到两条运行态事实**：① `-Watch` 没有单实例锁，提权重注册会与上一版注册留下的 watcher 进程**并存**，两份 FileSystemWatcher 对同一次拦截各写一条 `violations.jsonl`；清理时按 `-like '*guard-shared-root-writes*'` 过滤 `Win32_Process` 会把**执行查询的自己**算进去（自己的命令行就含该串），必须排除 `$PID` 并匹配 `-Watch` 实参。② 注册 AtLogOn 需要提权，但 `Start-ScheduledTask` 拉起已注册的任务**不需要**——收掉重复后以任务本身重启 watcher，`mp-worktree-health.ps1` 回读 `taskRegistered=true / running=true / ok=true`、`health_rc=0`，证据取产物而非启动命令的 rc。
-- **本次合并顺带修掉了我上一轮解冲突造成的一处行尾损伤**：`CHANGELOG.md` 的 blob 里除 CRLF 外还夹着 **2 行裸 LF**（该文件含 NUL 字节，git 判为二进制、跳过归一，所以每一行尾都是内容）。上一轮用 `split(/\r?\n/)` + 单一 eol 重排解冲突，把这 2 行压成了 CRLF（实测 merge-base 与 origin/main 均为 `bareLF=2`，而我的分支头是 `0`）。本轮解析器改为「我的字节块原样 + main 的字节全文原样」，并对**尾部与 main 逐字相等**做硬断言，`bareLF(out/main)=2/2` 才允许写盘；顺带把 `learnings.md` 的 3 行裸 LF 一并守住。验收一律「对 origin/main 比」而非「对 HEAD 比」：三个置顶文档对 main 都是纯新增（`21/0`、`8/0`、`25/0`），且 `--numstat` 与 `--ignore-cr-at-eol --numstat` 完全一致。
-
-# [未发布] test(登录门禁): 四处 names= 现场全部拿到可执行锁，并修掉一条「单跑绿、全量恒 0 次」的日志接缝
+# [未发布] feat(发布): 视频发布页右栏信息架构重排——任务闭环置顶、智能面板贴邻字段（optimize-publish-right-rail）
 
 ### 变更
-- `webview-manager.test.js`：logger mock 由「每轮 `beforeEach` 新建」改为**模块作用域的稳定对象 + 每轮 `mockReset()`**。
-  `credential-saver` 在 require 期就把 `log` 绑成本地引用，每轮新建时它冻在第一份上，而用例里 `require('./logger')` 拿到的是最新一份。
-- 新增三条日志锁：`credential-saver`（补上归档件登记的 tasks 2.5b 欠账）、`qrcode-login`、`account-manager.captureCookies`。
-  每条锁两个方向：拒绝日志必须含 `names=<逐个 Cookie 名>`，且 Cookie **值**不得出现在日志里。
-- 反证六条全部实跑：摘 `names=`（三处各一次）、把 Cookie 值写进日志、改掉日志文案、把稳定 mock 退回每轮新建；
-  每条都只让对应那一例变红，还原后源文件 md5 一致。
+- `apps/desktop/src/views/Publish.vue`：单篇模式右栏（flex-side）重排——发布目标卡（含保存草稿/草稿箱/快速发布/取消任务）移至右栏**第一块**（sticky 保留为滚动兜底），发布进度/草稿箱/结果卡紧随其后；三个智能辅助面板全部迁出右栏、下沉左栏（flex-main）贴邻所服务字段：**标签建议→标签/话题输入后、最佳发布时间→定时发布后、标题助手→标题输入后**（video/article 两模式同口径）。1920×1140 实测取证：旧布局「快速发布」按钮被三个面板挤出首屏、左栏 63% 视口高度后全空白；新布局主行动无需滚动即可见、左栏空白被辅助面板就地利用。
+- `apps/desktop/src/components/TagSuggester.vue`：新增 `platforms` prop（string[]）——标签建议请求跟随用户在发布目标中勾选的平台（旧实现硬编码 zhihu/weibo/xiaohongshu/bilibili/toutiao 五平台，用户选快手时建议与目标脱节）；空数组/未传回退全量目录；platforms 与 content 共用同一 800ms 防抖。建议标签（关键词/相关话题/平台内容/流量/回退合并五处）全部可点击，emit `apply-tag` 由父级去重追加进标签输入。错误态从红色文本块收敛为**一行提示 + 行内重试按钮**。
+- `apps/desktop/src/components/OptimalTimeTip.vue`：「数据不足」空态从整卡死胡同文案降级为**一行提示 + 可展开详情**（默认收起，展开后说明原因与替代路径）；keyword 变化时收起详情态。
+- 新增 `apps/desktop/src/composables/usePanelVisibilityPrefs.js`：面板显隐记忆（localStorage key `publish.panelVisibility.v1`，白名单键 tagSuggester/titleAssistant），读写全 try/catch——隐私模式/配额/损坏 JSON 一律降级默认值（标签建议展开、标题助手收起，与旧行为一致），未知键与非法类型忽略。
+- `apps/desktop/src/locales/zh.js` + `en.js` 成对新增：`tagSuggest.retry`/`tagSuggest.applyTagHint`、`publishPage.optimalTimeNoData`/`optimalTimeNoDataDetail`（避开并发分支 fix-title-assistant-relevance 的 `intelligence.*` 键空间，合并冲突可自动解决；本 change 不触碰 TitleAssistantPanel.vue 组件本体）。
+- OpenSpec change `openspec/changes/optimize-publish-right-rail/`（proposal/specs/design/tasks 四产物，validate 通过）：新能力 `publish-page-right-rail`（7 条 Requirement）+ 修改 `mp-ue-closure`「发布页主操作可见」（从「滚动时 sticky」强化为「初始视口内无需滚动即可见」）。
 
-### 为什么值得单列一条
-"这条锁到底有没有在跑"才是本轮的收获。同一个断言在 `-t` 单跑与全文件跑给出**相反答案**，而 CI 收编的是全量：
-我先是据此把「抓不到」当实现缺陷登记成欠账，又在 AGENTS.md 里写下「该推断已被否证」——两次都没跑全量。
-现按实测把口径改成「必须在 runner 真实采用的那种跑法下跑一次」，并把判据写成可执行锁。
+### 测试
+- `usePanelVisibilityPrefs.test.js` 7 条：默认值/写读回/读写异常降级/未知键忽略/损坏 JSON/写入白名单。
+- `TagSuggester.test.js` 23 条（+7）：platforms 联动请求、空数组回退全量、未传回退、platforms 变化防抖重请求、关键词/平台标签点击 emit、错误态一行收敛 + 重试恢复。既有「hot heat badge」用例的选择器由 `w.find('[title]')`（取第一个，被新增的点击提示 title 干扰）收紧为 `[title*="匹配热门话题"]`（按内容精确匹配，保持原意图）。
+- `OptimalTimeTip.test.js` 9 条（+2）：数据不足一行提示（不渲染推荐时段/来源分布）、展开/收起详情。
+- `Publish.test.js` 59 条（+6）：右栏第一块为 publish-action-card、三面板不在 flex-side、贴邻顺序（compareDocumentPosition 断言标签建议在 #publish-tags 后/最佳发布时间在 datetime-local 后/标题助手入口在标题后）、platforms 探针 stub 断言联动与清空回退、apply-tag 去重追加、localStorage 记忆初始化与持久化、无记录用默认。既有 `.flex-side [data-testid="publish-action-card"]` 断言天然兼容。
+- 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过——空表单态新旧布局渲染一致（面板按内容阈值隐藏，右栏只剩操作卡），基线无需重截；布局差异态由真实浏览器验证覆盖：新增 `tests/visual-testing/scripts/verify-publish-rail-layout.js`（hash 路由 + e2e fixture mock + Playwright chromium）在 dev server 上断言 13/13 全绿（右栏第一块/三面板在左栏不在右栏/三组贴邻顺序）。
+- 相关套件回归：views-deep2 / views-coverage / icon-usage / TagSuggester / OptimalTimeTip / usePanelVisibilityPrefs 共 88/88 绿；eslint 改动文件 0 error 0 warning；`check-locale-sync --keys` PASS（1233 keys）。
+- 全量 vitest 12236 通过 / 4 失败——失败均为 story2video pipeline 引擎存量问题（`story2video-manual-assets.test.js > manual 模式在 compose 前插入 finalize_assets` 已在干净基线 f8033fbf 复现同样失败，与本分支无关）。
 
 # [未发布] feat(账号): 失效头像遮罩从「中部一条黑带」改为「铺满整颗头像 + 白字居中」
 
@@ -127,7 +88,6 @@
 - 变异反证均已实跑：退回中部横带几何 ⇒ 红；把暗罩调淡为 0.45 ⇒ 红；删 `pointer-events` ⇒ 红。还原后 40 passed / 1 skipped。
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
-
 
 # [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
 
