@@ -18,8 +18,8 @@
 
 ```
 tests/visual-testing/
-├── views/                # 单视图快照测试 (43 用例：23 核心 + 20 补充)
-├── workflows/            # 多步工作流测试 (50 用例：32 核心 + 18 补充)
+├── views/                # 单视图快照测试 (54 用例：35 核心 + 19 补充)
+├── workflows/            # 多步工作流测试 (49 用例：31 核心 + 18 补充)
 ├── providers/            # 检测器
 │   ├── pixel-diff.js     # 像素对比（默认）
 │   └── ocr.js            # OCR 文字提取

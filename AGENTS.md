@@ -699,8 +699,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 ```
 apps/desktop/tests/visual-testing/
-├── views/        # 单视图快照(43 用例：23 核心 + 20 补充)
-├── workflows/    # 多步工作流(50 用例：32 核心 + 18 补充)
+├── views/        # 单视图快照(54 用例：35 核心 + 19 补充)
+├── workflows/    # 多步工作流(49 用例：31 核心 + 18 补充)
 ├── providers/    # 本地检测器:像素对比 + OCR
 ├── base-screenshots/  # 基准图(8 张核心视图)
 └── reports/      # diff 图 + judge-report.md + JSON

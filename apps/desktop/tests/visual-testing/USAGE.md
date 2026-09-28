@@ -16,8 +16,8 @@
 
 ```
 apps/desktop/tests/visual-testing/
-├── views/              # 单视图快照测试 (44 个用例：24 核心 + 20 补充)
-├── workflows/          # 多步工作流测试 (50 个用例：32 核心 + 18 补充)
+├── views/              # 单视图快照测试 (54 个用例：35 核心 + 19 补充)
+├── workflows/          # 多步工作流测试 (49 个用例：31 核心 + 18 补充)
 ├── providers/          # 检测器（全部本地运行）
 │   ├── pixel-diff.js   # Resemble.js 像素对比（默认）
 │   └── ocr.js          # Tesseract.js OCR 文字提取
