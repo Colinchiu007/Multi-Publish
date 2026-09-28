@@ -9,7 +9,7 @@
 ## 2. 测试（TDD，先写先红）
 
 - [x] `src/composables/useCoverPreview.test.js`（新增 17 例）：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、竞态两类（迟到成功 / 迟到失败）、卸载后不写状态、`reload()`
-- [x] `src/views/Publish.test.js` 新增「封面缩略图与放大预览」11 例：提取与 AI 生成两入口写入即出图、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效
+- [x] `src/views/Publish.test.js` 新增「封面缩略图与放大预览」12 例：提取与 AI 生成两入口写入即出图、草稿恢复（入口 5）经 `loadDraft` 真实路径出图、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效
 - [x] `src/views/Publish.test.js` 夹具同步：两处 `electronAPI` 块补 `readCoverData` 与 `pageManager.{suspend,resume}EmbeddedViews`；`stubs` 补 `teleport: true`（`UiModal` Teleport 到 body，否则取不到弹窗节点）
 - [x] `src/overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配；断言释放走 `finally`、卸载兜底、不得以字面量塞 owner）
 - [x] `src/components/CoverCropDialog.test.js` 作为复用后回归（未降低断言强度）

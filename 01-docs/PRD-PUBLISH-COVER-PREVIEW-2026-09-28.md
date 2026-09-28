@@ -266,7 +266,7 @@
 | 层级 | 覆盖 | 说明 |
 |---|---|---|
 | 单元 | `apps/desktop/src/composables/useCoverPreview.test.js` | §4.2 全部规则逐条 + §4.3 竞态（用受控 promise 手动放行旧请求，断言其结果被丢弃）+ 导出完整性断言 |
-| 组件 | `apps/desktop/src/views/Publish.test.js`（扩展） | 五个入口写入后缩略图 src 更新；点击开合；键盘触发；失败降级；删除清空；视频与图文两个封面行各自可达 |
+| 组件 | `apps/desktop/src/views/Publish.test.js`（扩展 12 例） | 五个入口写入后缩略图 src 更新（含入口 5 走 `loadDraft` 真实路径）；点击开合；键盘触发；失败降级；删除清空；视频与图文两个封面行各自可达 |
 | 组件 | `apps/desktop/src/components/CoverCropDialog.test.js`（回归） | 改为复用 composable 后行为不变（成功出图 / `code:1` 出错误态） |
 | 结构 | `apps/desktop/src/overlay-view-suspension.test.js`（扩展） | 三个 owner 各一条接入断言，含「release 走 finally」 |
 | 结构 | `apps/desktop/src/index.test.js`（回归） | CSP 未被放宽 |

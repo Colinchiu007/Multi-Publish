@@ -24,7 +24,7 @@
 
 ### 测试
 - 新增 `useCoverPreview.test.js` 17 例：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、**竞态（迟到成功与迟到失败均不得倒灌）**、卸载后不写状态、`reload()`。
-- 新增 `Publish.test.js`「封面缩略图与放大预览」11 例：提取/AI 生成两个入口写入即出图、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效。
+- 新增 `Publish.test.js`「封面缩略图与放大预览」12 例：提取/AI 生成两个入口写入即出图、**草稿恢复（入口 5，不经任何按钮）**、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效。
 - `overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配）。
 - **四条变异反证均实跑变红并字节还原**：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不再上抛 `open` ⇒ 1 红；把释放挪出 `finally` ⇒ 1 红（正是新结构锁）。
 - 回归：`Publish.test.js` + `CoverCropDialog.test.js` + `useCoverPreview.test.js` = 88 passed；`overlay-view-suspension` + `shell-mode-6b` = 19 passed；`views-deep2` + `views-coverage` = 16 passed；`index.test.js`（CSP 守卫）通过；`vite build` 通过（模板编译）；eslint 改动文件零告警；`verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内。

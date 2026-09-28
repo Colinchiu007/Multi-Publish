@@ -965,6 +965,32 @@ describe("PublishView — extra coverage", () => {
       expect(w.find('[data-testid="cover-thumbnail-unavailable"]').exists()).toBe(false);
     });
 
+    it("草稿恢复的封面也出缩略图（入口 5：不经任何按钮，正是「挂在字段上」要保住的场景）", async () => {
+      window.electronAPI.draftList.mockResolvedValue({
+        code: 0,
+        data: [{
+          id: "draft-cover",
+          title: "草稿标题",
+          content: "草稿正文",
+          platforms: ["zhihu"],
+          cover_path: "D:/drafts/restored-cover.jpg",
+        }],
+      });
+      const w = await createWrapper();
+      current = w;
+      w.vm.activeMode = "video";
+      await nextTick();
+      await w.vm.loadDrafts();
+      await flushPromises();
+
+      await w.vm.loadDraft("draft-cover");
+      await nextTick();
+      await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(true));
+
+      expect(w.vm.article.cover_path).toBe("D:/drafts/restored-cover.jpg");
+      expect(w.get('[data-testid="cover-thumbnail"] img').attributes("src")).toBe("data:image/jpeg;base64,COVER");
+    });
+
     it("图文发布形态的封面行同样出缩略图并可放大（同一字段共用同一份预览）", async () => {
       const w = await createWrapper();
       current = w;
