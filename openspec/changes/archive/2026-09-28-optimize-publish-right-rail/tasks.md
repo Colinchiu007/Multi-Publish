@@ -27,4 +27,6 @@
 - [x] 5.3 `node .github/scripts/check-locale-sync.js --keys` 通过（1233 keys 成对）
 - [x] 5.4 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过（空表单态新旧布局渲染一致，基线无需重截）；布局差异态由真实浏览器验证 `verify-publish-rail-layout.js` 13/13 全绿覆盖
 - [x] 5.5 全量 `vitest run` 回归通过（12236 通过 / 4 失败均为存量问题：story2video-manual-assets、feedback、network-egress-guard×2 已全部在干净基线 f8033fbf 复现同样失败，与本分支无关）
-- [ ] 5.6 分支提交、推送、PR、CI 全绿、合并回 main；openspec archive + CCG task 归档 + 质量节拍复盘三同步
+- [x] 5.6 分支提交、推送、PR、CI 全绿、合并回 main；openspec archive + CCG task 归档 + 质量节拍复盘三同步
+  - PR #2564 三轮 CI 全绿后 squash 合并（merge commit 00c0e0b3）；期间因并发会话 main 持续前进触发三次 CHANGELOG 头部条目冲突，均按「字节前插」纪律 rebase 解决
+  - 归档提交：openspec-archive-optimize-publish-right-rail 分支
