@@ -1621,14 +1621,22 @@ describe('WebviewManager 标签转圈收口（did-start-loading / did-stop-loadi
     const src = fs.readFileSync(path.join(__dirname, 'webview-manager', 'tab-lifecycle.js'), 'utf8')
     expect(src).toMatch(/on\('did-stop-loading'/)
 
-    const finishAt = src.indexOf("on('did-finish-load'")
+    // 本文件注册了两次 did-finish-load（登录补注入路径 + _setupNav），必须按 _setupNav 定域，
+    // 否则 indexOf 取到第一个、切片切错处理器，锁会因「目标串根本不在切片里」而恒真。
+    const navAt = src.indexOf('_setupNav (tabId, view)')
+    expect(navAt).toBeGreaterThan(-1)
+    const navBody = src.slice(navAt)
+
+    const finishAt = navBody.indexOf("on('did-finish-load'")
     expect(finishAt).toBeGreaterThan(-1)
-    const nextHandler = src.indexOf('view.webContents.on(', finishAt + 10)
-    const finishBlock = src.slice(finishAt, nextHandler === -1 ? src.length : nextHandler)
+    const nextHandler = navBody.indexOf('view.webContents.on(', finishAt + 10)
+    const finishBlock = navBody.slice(finishAt, nextHandler === -1 ? navBody.length : nextHandler)
+    // 先确认锁的确实是这个处理器（锚点未命中不得退化成恒真）
+    expect(finishBlock).toMatch(/_maybeScheduleAutoSave/)
     expect(finishBlock).not.toMatch(/state\.loading\s*=/)
 
-    const startAt = src.indexOf("on('did-start-loading'")
-    const stopAt = src.indexOf("on('did-stop-loading'")
+    const startAt = navBody.indexOf("on('did-start-loading'")
+    const stopAt = navBody.indexOf("on('did-stop-loading'")
     expect(startAt).toBeGreaterThan(-1)
     expect(stopAt).toBeGreaterThan(startAt)
   })
