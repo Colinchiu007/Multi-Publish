@@ -1,6 +1,6 @@
 # api-publish-chain (delta: kuaishou-w3-live-fix)
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 生产路由 API-first 凭证解析（auth 分区兜底）
 
