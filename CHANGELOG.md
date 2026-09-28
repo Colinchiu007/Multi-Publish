@@ -1,3 +1,23 @@
+# [未发布] ci(docs-only): 纯文档 PR 的 CI 短路与质量节拍快速通道（2026-10-08，docs-only-ci-shortcircuit）
+
+### 变更
+- 新增 `scripts/classify-docs-only.js`：docs-only 判定**单一真源**（导出 `CI_IGNORED_PATHS` 白名单 + `isDocsOnly` 判定 + merge-base diff CLI；fail-closed：空 diff / git 失败 / 混合变更一律全量）。`classify-docs-only.test.js` 14 例锁白名单内容、匹配语义（`*.md` 仅根目录，与 GitHub paths 文档字面语义对齐）、fail-closed 与 CLI 行为。
+- `quality-gate.yml` / `electron-ci.yml` / `build.yml`：新增轻量 changes job（ubuntu，merge-base 判定）+ 全部重型 job 的 **job 级** docs-only 短路（`if: needs.changes.outputs.docs-only != 'true'`）；gate-result 纳入 changes 结论（判定 job 自身红即拦，不静默放行）。红线不变：pull_request 触发级 paths-ignore 仍被禁止（PR #2151 死锁）；被跳过 job 显示 skipped（GitHub 视为满足 required check）；tag-only release job 豁免（发布链路不变）。
+- `doc-gate.yml`：doc-sync job 换 ubuntu-latest（只跑 bash 脚本 + gh CLI，释放 Windows 并发额度；触发与门禁语义不变）。
+- `workflow-contract.test.js`：`CI_IGNORED_PATHS` 真源迁移至脚本（import 断言，禁止两份清单漂移）+ 新增短路接线防再犯锁（摘 changes job / 摘任一重型 job 条件即红）。
+- `AGENTS.md`：新增「docs-only 快速通道」——判定走同一 CLI；保留门禁（行尾对账 / 品牌残留 Gate 12 / 文档同步 / 远程同步）；跳过 QM-1/2/4/TDD/QM-6；附 `.quality-gates.md` 精简记录模板（4-5 行）。
+
+### 为什么
+- 纯文档 PR 必须经 PR 落地（分层规则），但 `pull_request` 无路径过滤（PR #2151 死锁后刻意如此）⇒ 每个纯文档 PR 跑满 10+ 台 Windows runner、墙钟 20–40 分钟，90% 检查对文档无意义；push 侧已有 paths-ignore 承认分层，PR 侧因 required check 语义无法用触发级过滤。
+- job 级短路是唯一两全解：workflow 照常触发（required check context 全部出现），重型 job 显示 skipped（GitHub 视为满足）。
+
+### 验证
+- `node --test scripts/classify-docs-only.test.js` 14/14；`node --test .github/scripts/workflow-contract.test.js` 26/26；`node scripts/check-unwired-tests.js` 46 文件 OK
+- 变异反证 4 条全红全还原：摘 static-gates 短路条件 / 摘 changes 输出 → 契约红；判定恒 false / 白名单混入 apps/** → classify 红；每条 sha256 还原一致后复绿
+- 行尾对账：8 个改动文件 numstat 两口径一致；CHANGELOG / .quality-gates 字节级前插（NUL 数与 CRLF 计数守恒）
+- 详见 openspec/changes/docs-only-ci-shortcircuit/（proposal / specs / design / tasks 4/4）
+
+---
 # [未发布] docs(publish): 发布能力注册表 PRD 深化二轮 + 记忆三路补全（2026-10-08，publish-capability-docs）
 
 ### 变更

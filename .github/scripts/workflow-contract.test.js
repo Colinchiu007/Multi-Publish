@@ -3,6 +3,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const yaml = require('js-yaml');
+// docs-only 短路判定单一真源（change: docs-only-ci-shortcircuit）：
+// 白名单真源在 scripts/classify-docs-only.js，本契约测试从它 import 并断言
+// 三个全量 workflow 的 push.paths-ignore 与其一致——禁止两份清单漂移。
+const { CI_IGNORED_PATHS } = require(path.join(__dirname, '..', '..', 'scripts', 'classify-docs-only.js'));
 
 const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 const qualityGatePath = path.join(__dirname, '..', 'workflows', 'quality-gate.yml');
@@ -190,19 +194,8 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(workflow, /agent-review-gate\.test\.js/);
 });
 
-const CI_IGNORED_PATHS = [
-  '01-docs/**',
-  'docs/**',
-  '*.md',
-  'LICENSE',
-  '.gitignore',
-  '.editorconfig',
-  '.ccg/**',
-  '.claude/**',
-  '.hermes/**',
-  '.agents/**',
-  'openspec/**',
-];
+// CI_IGNORED_PATHS 真源已迁移至 scripts/classify-docs-only.js（见文件头部 import）；
+// 此处不再内嵌第二份清单——两份必然漂移，漂移即「push 跳过但 PR 不短路」或反之。
 
 test('CI 路径门控：全量 workflow 的 main PR 不得用 paths-ignore 跳过必需检查', () => {
   const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
@@ -247,6 +240,90 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
       wf.on.push['paths-ignore'],
       CI_IGNORED_PATHS,
       `${name} 的 push.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// docs-only 短路接线防再犯锁（change: docs-only-ci-shortcircuit）
+// 摘掉 changes job、或从任一重型 job 摘掉 docs-only 条件 => 本组断言变红。
+// 反证已实跑：摘 changes job / 摘 static-gates 的 if 各红一条；还原后全绿。
+// ---------------------------------------------------------------------------
+test('docs-only 短路：quality-gate 的 changes job 存在且产出 docs-only 输出', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const changes = wf.jobs.changes;
+  assert.ok(changes, 'changes job 必须存在（docs-only 判定入口）');
+  assert.equal(changes['runs-on'], 'ubuntu-latest', '判定只依赖 git+node，必须用 ubuntu（不占 Windows 并发额度）');
+  assert.match(
+    JSON.stringify(changes.outputs),
+    /docs-only/,
+    'changes job 必须输出 docs-only 供重型 job 条件消费',
+  );
+  const step = changes.steps.find((s) => s.id === 'classify');
+  assert.ok(step, 'classify 步骤必须存在');
+  assert.match(step.run, /classify-docs-only\.js/, '判定必须走单一真源脚本（禁止内联第二份判定）');
+  assert.match(step.run, /github\.event_name.*pull_request/, '非 PR 事件必须显式 false（全量执行）');
+});
+
+test('docs-only 短路：全部重型 job 挂 needs: [changes] 且条件为 docs-only != true', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const heavy = [
+    'static-gates',
+    'unit-tests',
+    'desktop-shards',
+    'coverage',
+    'business-api-postgres',
+    'visual',
+    'e2e',
+    'autonomous',
+  ];
+  for (const name of heavy) {
+    const job = wf.jobs[name];
+    assert.ok(job, `${name} job 必须存在`);
+    assert.deepEqual(job.needs, ['changes'], `${name} 必须 needs: [changes]`);
+    assert.equal(
+      job.if,
+      "needs.changes.outputs.docs-only != 'true'",
+      `${name} 必须带 docs-only 短路条件（纯文档 PR 跳过、混合 PR 全量）`,
+    );
+  }
+  // gate-result 必须聚合 changes 的结论：判定 job 自身红（git 取证失败）时不得静默放行
+  const gateResult = wf.jobs['gate-result'];
+  assert.ok(gateResult.needs.includes('changes'), 'gate-result 必须依赖 changes（判定失败即拦）');
+  const step = gateResult.steps.find((s) => s.name === 'Gate result');
+  assert.match(step.run, /needs\.changes\.result/, 'changes 结论必须进入 gate-result 聚合表');
+});
+
+test('docs-only 短路：electron-ci 与 build 的 job 级条件同样接线', () => {
+  for (const name of ['electron-ci.yml', 'build.yml']) {
+    const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
+    const jobNames = Object.keys(wf.jobs);
+    assert.ok(jobNames.length > 0, `${name} 必须有 job`);
+    for (const jn of jobNames) {
+      const job = wf.jobs[jn];
+      if (jn === 'changes') continue;
+      // 豁免：tag-only 发布 job（如 build.yml 的 release）。它 needs: [build] 间接依赖
+      // changes，且 tag push 是非 PR 事件 => docs-only 恒 false => build 全量 => release
+      // 正常执行；给它加 docs-only 条件反而会破坏 tag 条件的单一职责。
+      const isTagOnlyJob =
+        typeof job.if === 'string' &&
+        /startsWith\(github\.ref,\s*'refs\/tags\/v'\)/.test(job.if) &&
+        Array.isArray(job.needs) &&
+        job.needs.includes('build');
+      if (isTagOnlyJob) continue;
+      assert.equal(
+        job.if,
+        "needs.changes.outputs.docs-only != 'true'",
+        `${name} 的 ${jn} 必须带 docs-only 短路条件`,
+      );
+      assert.deepEqual(job.needs, ['changes'], `${name} 的 ${jn} 必须 needs: [changes]`);
+    }
+    const changes = wf.jobs.changes;
+    assert.ok(changes, `${name} 必须有 changes 判定 job`);
+    assert.match(
+      JSON.stringify(changes.outputs),
+      /docs-only/,
+      `${name} 的 changes job 必须输出 docs-only`,
     );
   }
 });
@@ -319,8 +396,8 @@ test('gate-result 必须真正聚合上游结论（不得退回只 echo 不判�
   assert.equal(job.if, 'always()', 'gate-result 必须带 if: always()');
   assert.deepEqual(
     job.needs,
-    ['static-gates', 'unit-tests', 'desktop-shards', 'coverage', 'business-api-postgres', 'visual', 'e2e', 'autonomous'],
-    'gate-result 必须聚合全部上游 job',
+    ['changes', 'static-gates', 'unit-tests', 'desktop-shards', 'coverage', 'business-api-postgres', 'visual', 'e2e', 'autonomous'],
+    'gate-result 必须聚合全部上游 job（含 docs-only 判定 job：它红了必须有人拦）',
   );
   const step = job.steps.find(s => s.name === 'Gate result');
   assert.ok(step, 'Gate result 步骤必须存在');

@@ -35,8 +35,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # --- docs-only 短路判定（change: docs-only-ci-shortcircuit；与 quality-gate.yml 同模式）---
+  # 红线不变：pull_request 触发级 paths-ignore 仍被 workflow-contract.test.js 禁止（PR #2151 死锁）。
+  # PR 上本 workflow 剩余开销是 install + Electron 下载 + 冒烟 + build Vue + deps/circular
+  # （桌面 vitest 已收敛为仅 main push），对纯文档 PR 全部无意义 => job 级短路。
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # merge-base diff 需要完整历史
+
+      - name: Detect docs-only changes
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs-only=false" >> "$GITHUB_OUTPUT"
+            echo "docs-only=false (non-PR event: full run)"
+            exit 0
+          fi
+          BASE="${{ github.event.pull_request.base.sha }}"
+          node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
+
   electron-tests:
     runs-on: windows-latest
+    needs: [changes]
+    # docs-only 短路：纯文档 PR 跳过（skipped 满足 required check；混合 PR 全量不变）
+    if: needs.changes.outputs.docs-only != 'true'
     # 预算不得倒挂（#2458）：本 job 的显式上限之和 = Install dependencies 10 +
     # Install Electron runtime 10 + 串行单测步骤内层 timeout 35 = 55 分钟，
     # 再加 checkout/setup/媒体工具 restore/冒烟/构建等无上限步骤。
