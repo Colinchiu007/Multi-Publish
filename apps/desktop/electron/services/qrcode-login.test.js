@@ -451,4 +451,68 @@ describe('QrCodeLogin 凭证边界', () => {
     expect(qrCodeLogin.currentPlatform).toBeNull()
     await expect(loginPromise).resolves.toBeInstanceOf(Error)
   })
+
+  // ── 2026-09-28 非全屏登录页显示不全：zoom-to-fit 接线（login-view-fit.js）──
+  // 与 AuthViewManager 同根因：扫码页固定内容宽 > 非全屏视图宽时页面被裁。
+  // 接线点：did-finish-load 立即适配 + 500ms 延迟复测（会话级定时器，随 _closeSession
+  // 清理）；_positionView（resize/侧栏路径）同步适配。
+  describe('扫码视图宽度自适应（zoom-to-fit）接线', () => {
+    it('did-finish-load 立即适配并安排 500ms 延迟复测', async () => {
+      const fitModule = require('./login-view-fit')
+      const fitSpy = vi.spyOn(fitModule, 'fitLoginViewZoomSafe').mockResolvedValue(undefined)
+      const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+      qrCodeLogin.setMainWindow(createMainWindow())
+      const pending = qrCodeLogin.openLogin('kuaishou', 0).catch(function () {})
+      // openLogin 的 _positionView 在打开时已适配一次（页面未加载，探针 no-op）
+      const openedCalls = fitSpy.mock.calls.length
+      expect(openedCalls).toBeGreaterThanOrEqual(1)
+
+      createdViews[0].handlers['did-finish-load']({})
+      expect(fitSpy.mock.calls.length).toBe(openedCalls + 1)
+      expect(fitSpy).toHaveBeenLastCalledWith(createdViews[0], expect.objectContaining({ tag: 'QrCodeLogin' }))
+
+      await vi.advanceTimersByTimeAsync(600)
+      expect(fitSpy.mock.calls.length).toBe(openedCalls + 2)
+
+      qrCodeLogin.close()
+      await pending
+      fitSpy.mockRestore()
+    })
+
+    it('_closeSession 后延迟复测不再触发（会话定时器随关闭清理）', async () => {
+      const fitModule = require('./login-view-fit')
+      const fitSpy = vi.spyOn(fitModule, 'fitLoginViewZoomSafe').mockResolvedValue(undefined)
+      const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+      qrCodeLogin.setMainWindow(createMainWindow())
+      const pending = qrCodeLogin.openLogin('kuaishou', 0).catch(function () {})
+      const openedCalls = fitSpy.mock.calls.length
+
+      createdViews[0].handlers['did-finish-load']({})
+      expect(fitSpy.mock.calls.length).toBe(openedCalls + 1)
+
+      qrCodeLogin.close()
+      await pending
+      await vi.advanceTimersByTimeAsync(600)
+      // 复测定时器已随会话清理：计数不再增长
+      expect(fitSpy.mock.calls.length).toBe(openedCalls + 1)
+
+      fitSpy.mockRestore()
+    })
+
+    it('_positionView（resize / 侧栏宽度路径）同步触发适配', async () => {
+      const fitModule = require('./login-view-fit')
+      const fitSpy = vi.spyOn(fitModule, 'fitLoginViewZoomSafe').mockResolvedValue(undefined)
+      const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+      qrCodeLogin.setMainWindow(createMainWindow())
+      const pending = qrCodeLogin.openLogin('kuaishou', 0).catch(function () {})
+      const before = fitSpy.mock.calls.length
+
+      qrCodeLogin._onWindowResize()
+      expect(fitSpy.mock.calls.length).toBeGreaterThan(before)
+
+      qrCodeLogin.close()
+      await pending
+      fitSpy.mockRestore()
+    })
+  })
 })

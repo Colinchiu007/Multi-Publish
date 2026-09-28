@@ -897,4 +897,82 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
     log.mockRestore()
     warnSpy.mockRestore()
   })
+
+  // ── 2026-09-28 非全屏登录页显示不全：zoom-to-fit 接线（login-view-fit.js）──
+  // 根因：快手等平台登录页是固定内容宽布局（≈1335 DIP），非全屏窗口的登录视图
+  // （如 1051 DIP）装不下 → 页面横向溢出、右侧被裁。接线点：did-finish-load 立即
+  // 适配 + 500ms 延迟复测；_positionView（resize/侧栏宽度路径）同步适配；
+  // close() 清理复测定时器。
+  describe('登录视图宽度自适应（zoom-to-fit）接线', () => {
+    it('did-finish-load 立即适配；500ms 延迟复测不产生恢复抖动（端到端真实 fit）', async () => {
+      const { view, handlers } = wireView()
+      // 真实 fit 所需宿主方法（d.ts 已核实归属 WebContents）；探针按脚本区分，
+      // 加载前空白页 scrollWidth == 视口宽（1051），加载后为快手页宽（1335）。
+      let pageLoaded = false
+      let appliedZoom = 1
+      view.getBounds = function () { return { x: 200, y: 76, width: 1051, height: 800 } }
+      view.webContents.executeJavaScript = vi.fn(function (script) {
+        if (!String(script).includes('scrollWidth')) return Promise.resolve({})
+        return Promise.resolve(pageLoaded ? 1335 : 1051)
+      })
+      view.webContents.getZoomFactor = vi.fn(function () { return appliedZoom })
+      view.webContents.setZoomFactor = vi.fn(function (z) { appliedZoom = z })
+      const { manager, pending } = openLogin()
+
+      // openLogin 的 _positionView 会在页面加载前探针一次（空白页 → no-op）
+      await vi.advanceTimersByTimeAsync(0)
+      expect(view.webContents.setZoomFactor).not.toHaveBeenCalled()
+
+      pageLoaded = true
+      handlers['did-finish-load']()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(view.webContents.setZoomFactor).toHaveBeenCalledTimes(1)
+      expect(view.webContents.setZoomFactor).toHaveBeenCalledWith(1051 / 1335)
+
+      // 500ms 延迟复测：宽度未变 + 0.787 下恰好容纳 → 不恢复、不抖动
+      await vi.advanceTimersByTimeAsync(600)
+      expect(view.webContents.setZoomFactor).toHaveBeenCalledTimes(1)
+
+      manager.close()
+      await pending
+    })
+
+    it('_positionView（resize / 侧栏宽度路径）同步触发适配', async () => {
+      const fitModule = require('./login-view-fit')
+      const fitSpy = vi.spyOn(fitModule, 'fitLoginViewZoomSafe').mockResolvedValue(undefined)
+      const manager = new AuthViewManager()
+      manager.mainWindow = createMainWindow()
+      manager.currentView = createView()
+
+      manager._positionView()
+      expect(fitSpy).toHaveBeenCalledTimes(1)
+      expect(fitSpy).toHaveBeenCalledWith(manager.currentView, expect.objectContaining({ tag: 'AuthView' }))
+
+      manager._onWindowResize()
+      expect(fitSpy).toHaveBeenCalledTimes(2)
+
+      fitSpy.mockRestore()
+    })
+
+    it('close() 清理延迟复测定时器（复测不得打到已关闭的视图）', async () => {
+      const fitModule = require('./login-view-fit')
+      const fitSpy = vi.spyOn(fitModule, 'fitLoginViewZoomSafe').mockResolvedValue(undefined)
+      const { handlers } = wireView()
+      const { manager, pending } = openLogin()
+      // openLogin 的 _positionView 在打开时已适配一次（页面未加载，探针 no-op）
+      const openedCalls = fitSpy.mock.calls.length
+      expect(openedCalls).toBeGreaterThanOrEqual(1)
+
+      handlers['did-finish-load']()
+      expect(fitSpy.mock.calls.length).toBe(openedCalls + 1)
+
+      manager.close()
+      await pending
+      await vi.advanceTimersByTimeAsync(600)
+      // 复测定时器已被 close 清理：计数不再增长
+      expect(fitSpy.mock.calls.length).toBe(openedCalls + 1)
+
+      fitSpy.mockRestore()
+    })
+  })
 })
