@@ -20,6 +20,19 @@
 - QM-1 / QM-4：N/A（diff 仅 `scripts/` 两个 JS + AGENTS/CHANGELOG/.quality-gates）。
 - QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
 
+# [未发布] test(e2e): 瞬时噪音卫生补上「逐路由收口」这条路径，并修掉 CI 里的 ✗ undefined
+
+### 变更
+- `apps/desktop/tests/e2e/helpers/functional-runner.js`：`_discardTransientConsoleNoise()` 从「重载分支的副作用」改为按错误码 + 每路由预算的独立判定，并新增挂在 `expectNoConsoleError()`（断言点）与 `generateReport()`（逐路由收口点）。#2491 现场是一个只改 1 行 `tasks.md` 的 docs PR，在 model-providers 的逐路由检查阶段撞上 vite HMR websocket 的 `net::ERR_NO_BUFFER_SPACE` —— 应用早已就绪、不在重载循环里，噪音原样留在 `consoleErrors`，被 `final-report.js:114` 的 `consoleErrors === 0` 硬判据作废整条 E2E；`Gate Result` 自 #2410 转真聚合后，这颗从「烦人」升级成随机阻断合并（同 commit 重跑即绿，实测两次）。
+- 卫生带上限 `TRANSIENT_CONSOLE_NOISE_BUDGET`（默认 3，`MP_E2E_TRANSIENT_NOISE_BUDGET` 可调）：无上限清理会把「持续性 socket 耗尽」伪装成健康，违反「测试断言不得反向固化错误行为」。被清掉的条目一律落 `recoveredTransientErrors` 进产物（`recoveredConsoleErrors`），不伪造成没发生过；`allowed` 白名单语义保持不变、并存而非替换。
+- `apps/desktop/tests/e2e/helpers/run-all.js`：`logRouteFailure()` 原先固定读 `c.name` / `c.details`，而 `FunctionalRunner` 的 `expectText` / `expectVisible` / `expectNoConsoleError` 只写 `kind` + `text` / `selector` / `errors` —— 第二类失败项在 CI 日志里变成 `✗ undefined`，详情段对该生产者永不出现。改为 `describeFailedCheck()` 按两种生产者形状回落并导出。
+- `.github/workflows/quality-gate.yml`：Gate 2d 新增 `node apps/desktop/tests/e2e/helpers/run-all.test.js`，按 #2511 的口径显式捕获 `$LASTEXITCODE` 并 fail-fast。
+
+### 测试
+- `functional-runner.test.js` 新增 6 条「瞬时噪音卫生覆盖逐路由收口」合同：断言点、收口点（刻意不产生任何重载事件）、预算不得全清、与 allowed 并存、非该码不得扩大，外加一条读源码的结构锁（卫生必须同时存在于断言点与收口点）。`run-all.test.js` 新建 5 条失败检查点命名合同，其中整行输出用 `deepEqual` 精确断言而非 `toContain`。
+- 两条反证均已实跑：把卫生退化为 no-op ⇒ `functional-runner.test.js` 7 红；把打印侧退回只读 `name` / `details` ⇒ `run-all.test.js` 4 红（「suite 形状」那条按设计不受影响）。两次都以 sha256 逐字还原。
+
+
 # [未发布] test(视觉门禁): 修掉补充视图里 5 处过期选择器并删 1 条死用例，首次跑完 QM-4 全量 104 例（2026-09-28，cloud-flag-registry-drift）
 
 ### 做了什么
