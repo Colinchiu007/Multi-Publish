@@ -17695,3 +17695,16 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **回归锁**：`api-task-data.test.js`（9 例形状契约）、`rpa-view-manager.test.js`（API-first 形状断言）、`phase4-events.test.js`（真实方法调用断言）、`phase10-service-tests.test.js`（kuaishou skipped 断言）。门禁：受影响 5+5 suites 238 tests 全绿；QM-1 三件套全过（asar 解包实证三处修复在包内）。
 
 **残余（后续）**：监控的 cookies 空缺是全平台潜在设计缺口（凭证不随任务走）——待状态查询端点有证据时连同 kuaishou 专用 POST 查询一并补。
+
+## API 轨签名默认路径合同——注册表回退与命令名透传（2026-09-28 活体 6.3 裁决，随本 PR）
+
+活体 6.3 裁决（第二轮发布实测）暴露的 API 轨第四层缺陷收口：`kuaishou-video: 签名页未就绪（no signer injected）`——API 轨启动、形状翻译通过后，在求签第一步失败回退 DOM 轨。根因有二：
+
+| # | 缺陷 | 根因 | 修复 |
+|---|---|---|---|
+| ① | 链无 signer 即抛「no signer injected」 | 构造器文档契约「缺省走进程内注册表」**从未实现**——`this.signer` 为空直接抛错；桌面两个调用方（rpa-view-manager/publisher-router）都不显式传 signer | `_sign` 缺省回退 `registry.sign`（注册表的 `kuaishou.ns-sig3-browser` 委托 browserPageProvider 单例——bridge 由桌面装配层注入，运行应用里已装配） |
+| ② | 注册表路径命令名不匹配 | registry 的 `kuaishou.ns-sig3-browser` 实现调 `provider.sign('kuaishou.ns-sig3')`（Tier-A 名），桌面装配（BRIDGE_COMMANDS）注册的是带 `-browser` 后缀的本名——provider 白名单必然 unknown command | impl 按注册名透传（`kuaishou.ns-sig3-browser` / `xiaohongshu.x-s-browser`） |
+
+**降级语义保持**：注册表路径的「签名页未就绪」（bridge 未注入/未验证/降级）经链的 catch 映射 `signerNotReady` → 上层 api-then-dom 降级 DOM 轨——与原直接抛错同一降级出口，只是晚一层（provider 的 not-ready 而非链的）。
+
+**回归锁**：`signer-default-path.test.js` 4 例（命令名透传 / 链缺省走注册表 / not-ready 映射 / 显式 signer 优先）。门禁：引擎全量 32 files 262 tests 全绿；QM-1 三件套全过（asar 解包实证两处修复在包内）。
