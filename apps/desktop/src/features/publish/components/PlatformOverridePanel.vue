@@ -31,7 +31,7 @@
               type="text"
               :maxlength="platform.titleMax || undefined"
               placeholder="使用默认标题"
-              @input="updateField(platform.id, 'title', $event.target.value)"
+              @input="updateField(platform.id, TITLE_CONTENT_FIELDS.title, $event.target.value)"
             />
           </label>
           <label class="override-field">
@@ -42,121 +42,49 @@
               :maxlength="platform.contentMax || undefined"
               rows="4"
               placeholder="使用默认正文"
-              @input="updateField(platform.id, 'content', $event.target.value)"
+              @input="updateField(platform.id, TITLE_CONTENT_FIELDS.content, $event.target.value)"
             />
           </label>
-          <template v-if="platform.id === 'zhihu'">
-            <label class="override-field">
-              <span>评论权限</span>
-              <select
-                :data-testid="'override-comment-permission-' + platform.id"
-                :value="getValue(platform.id, 'commentPermission')"
-                @change="updateField(platform.id, 'commentPermission', $event.target.value)"
-              >
-                <option value="anyone">允许所有人评论</option>
-              </select>
+
+          <!-- 注册表驱动的平台特有字段（publish-capabilities.json 单一真源）：
+               新增平台/字段只需在注册表登记，本组件零代码接入。 -->
+          <template v-for="field in fieldsFor(platform.id)" :key="platform.id + ':' + field.key">
+            <label v-if="field.type === 'checkbox'" class="override-check">
+              <input
+                :data-testid="testId(platform.id, field.key)"
+                :checked="Boolean(getValue(platform.id, field.key))"
+                type="checkbox"
+                @change="updateField(platform.id, field, $event.target.checked)"
+              />
+              <span>{{ field.label }}</span>
             </label>
-            <label class="override-field">
-              <span>创作声明</span>
+
+            <label v-else-if="field.type === 'select'" class="override-field">
+              <span>{{ field.label }}</span>
               <select
-                :data-testid="'override-declare-' + platform.id"
-                :value="getValue(platform.id, 'declare')"
-                @change="updateField(platform.id, 'declare', $event.target.value)"
+                :data-testid="testId(platform.id, field.key)"
+                :value="getValue(platform.id, field.key)"
+                @change="updateField(platform.id, field, $event.target.value)"
               >
-                <option v-for="statement in zhihuStatements" :key="statement.value" :value="statement.value">
-                  {{ statement.label }}
+                <option v-for="option in field.options" :key="String(option.value)" :value="option.value">
+                  {{ option.label }}
                 </option>
               </select>
             </label>
-            <label class="override-field">
-              <span>话题</span>
+
+            <label v-else-if="field.type === 'tags'" class="override-field">
+              <span>{{ field.label }}</span>
               <input
-                :data-testid="'override-topics-' + platform.id"
-                :value="getValue(platform.id, 'topics').join(', ')
-                "
+                :data-testid="testId(platform.id, field.key)"
+                :value="getValue(platform.id, field.key).join(', ')"
                 type="text"
-                placeholder="用逗号分隔话题"
-                @input="updateField(platform.id, 'topics', $event.target.value)"
+                :placeholder="field.placeholder"
+                @input="updateField(platform.id, field, $event.target.value)"
               />
             </label>
-            <label class="override-check">
-              <input
-                :data-testid="'override-draft-' + platform.id"
-                :checked="Boolean(getValue(platform.id, 'draft'))"
-                type="checkbox"
-                @change="updateField(platform.id, 'draft', $event.target.checked)"
-              />
-              <span>保存为草稿</span>
-            </label>
-          </template>
-          <template v-else-if="platform.id === 'douyin'">
-            <label class="override-check">
-              <input
-                :data-testid="'override-draft-' + platform.id"
-                :checked="Boolean(getValue(platform.id, 'draft'))"
-                type="checkbox"
-                @change="updateField(platform.id, 'draft', $event.target.checked)"
-              />
-              <span>保存为草稿</span>
-            </label>
-          </template>
-          <template v-else-if="platform.id === 'wechat_mp'">
-            <label class="override-field">
-              <span>摘要 <small>最多 120 字，留空自动取正文开头</small></span>
-              <textarea
-                :data-testid="'override-digest-' + platform.id"
-                :value="getValue(platform.id, 'digest')"
-                rows="2"
-                maxlength="120"
-                placeholder="公众号图文摘要（选填）"
-                @input="updateField(platform.id, 'digest', $event.target.value)"
-              />
-            </label>
-            <label class="override-check">
-              <input
-                :data-testid="'override-mass-send-' + platform.id"
-                :checked="Boolean(getValue(platform.id, 'massSend'))"
-                type="checkbox"
-                @change="updateField(platform.id, 'massSend', $event.target.checked)"
-              />
-              <span>保存草稿后群发</span>
-            </label>
-            <label class="override-check">
-              <input
-                :data-testid="'override-open-comment-' + platform.id"
-                :checked="getValue(platform.id, 'openComment') !== false"
-                type="checkbox"
-                @change="updateField(platform.id, 'openComment', $event.target.checked)"
-              />
-              <span>开启留言（评论）</span>
-            </label>
-          </template>
-          <template v-else-if="platform.id === 'bilibili'">
-            <label class="override-field">
-              <span>分区</span>
-              <select
-                :data-testid="'override-category-' + platform.id"
-                :value="getValue(platform.id, 'category')"
-                @change="updateField(platform.id, 'category', $event.target.value)"
-              >
-                <option v-for="cat in bilibiliCategories" :key="cat.value" :value="cat.value">
-                  {{ cat.label }}
-                </option>
-              </select>
-            </label>
-            <label class="override-field">
-              <span>版权声明</span>
-              <select
-                :data-testid="'override-copyright-' + platform.id"
-                :value="getValue(platform.id, 'copyright')"
-                @change="updateField(platform.id, 'copyright', $event.target.value)"
-              >
-                <option :value="2">转载</option>
-                <option :value="1">自制</option>
-              </select>
-            </label>
-            <label class="override-field">
-              <span>加入合集（可选）</span>
+
+            <label v-else-if="field.type === 'collection'" class="override-field">
+              <span>{{ field.label }}</span>
               <div class="collection-picker">
                 <button
                   type="button"
@@ -167,12 +95,12 @@
                 >{{ collectionLoading[platform.id] ? '拉取中…' : '拉取我的合集' }}</button>
                 <select
                   :data-testid="'override-collection-id-' + platform.id"
-                  :value="getValue(platform.id, 'collectionId')"
-                  @change="updateField(platform.id, 'collectionId', $event.target.value)"
+                  :value="getValue(platform.id, field.key)"
+                  @change="updateField(platform.id, field, $event.target.value)"
                 >
                   <option value="">不加入合集</option>
-                  <option v-if="!collectionOptions[platform.id] || collectionOptions[platform.id].length === 0" :value="getValue(platform.id, 'collectionId')">
-                    {{ getValue(platform.id, 'collectionId') ? 'ID: ' + getValue(platform.id, 'collectionId') : '（先拉取或手输）' }}
+                  <option v-if="!collectionOptions[platform.id] || collectionOptions[platform.id].length === 0" :value="getValue(platform.id, field.key)">
+                    {{ getValue(platform.id, field.key) ? 'ID: ' + getValue(platform.id, field.key) : '（先拉取或手输）' }}
                   </option>
                   <option v-for="col in collectionOptions[platform.id] || []" :key="col.id" :value="col.id">
                     {{ col.name }}（{{ col.id }}）
@@ -181,101 +109,33 @@
               </div>
               <input
                 :data-testid="'override-collection-id-input-' + platform.id"
-                :value="getValue(platform.id, 'collectionId')"
+                :value="getValue(platform.id, field.key)"
                 type="text"
-                inputmode="numeric"
-                placeholder="或手输合集 ID"
-                @input="updateField(platform.id, 'collectionId', $event.target.value)"
+                :maxlength="field.maxLen || undefined"
+                :placeholder="field.placeholder"
+                @input="updateField(platform.id, field, $event.target.value)"
               />
             </label>
-          </template>
-          <template v-else-if="platform.id === 'youtube'">
-            <label class="override-field">
-              <span>分类</span>
-              <select
-                :data-testid="'override-category-id-' + platform.id"
-                :value="getValue(platform.id, 'categoryId')"
-                @change="updateField(platform.id, 'categoryId', $event.target.value)"
-              >
-                <option v-for="cat in youtubeCategories" :key="cat.value" :value="cat.value">
-                  {{ cat.label }}
-                </option>
-              </select>
-            </label>
-            <label class="override-field">
-              <span>可见性</span>
-              <select
-                :data-testid="'override-privacy-' + platform.id"
-                :value="getValue(platform.id, 'privacy')"
-                @change="updateField(platform.id, 'privacy', $event.target.value)"
-              >
-                <option value="public">公开</option>
-                <option value="unlisted">不公开列出</option>
-                <option value="private">私享</option>
-              </select>
-            </label>
-            <label class="override-field">
-              <span>播放列表（可选，填播放列表 ID）</span>
-              <input
-                :data-testid="'override-playlist-id-' + platform.id"
-                :value="getValue(platform.id, 'playlistId')"
-                type="text"
-                placeholder="播放列表 ID，如 PLabc123"
-                @input="updateField(platform.id, 'playlistId', $event.target.value)"
+
+            <label v-else class="override-field">
+              <span>{{ field.label }} <small v-if="field.hint">{{ field.hint }}</small></span>
+              <textarea
+                v-if="field.type === 'textarea'"
+                :data-testid="testId(platform.id, field.key)"
+                :value="getValue(platform.id, field.key)"
+                :maxlength="field.maxLen || undefined"
+                rows="2"
+                :placeholder="field.placeholder"
+                @input="updateField(platform.id, field, $event.target.value)"
               />
-            </label>
-          </template>
-          <template v-else-if="platform.id === 'tiktok'">
-            <label class="override-field">
-              <span>可见性</span>
-              <select
-                :data-testid="'override-privacy-level-' + platform.id"
-                :value="getValue(platform.id, 'privacyLevel')"
-                @change="updateField(platform.id, 'privacyLevel', $event.target.value)"
-              >
-                <option value="PUBLIC">所有人可见</option>
-                <option value="FRIENDS">朋友可见</option>
-                <option value="PRIVATE">仅自己可见</option>
-              </select>
-            </label>
-          </template>
-          <template v-else-if="platform.id === 'baijiahao'">
-            <label class="override-check">
               <input
-                :data-testid="'override-original-' + platform.id"
-                :checked="Boolean(getValue(platform.id, 'original'))"
-                type="checkbox"
-                @change="updateField(platform.id, 'original', $event.target.checked)"
-              />
-              <span>原创声明</span>
-            </label>
-            <label class="override-field">
-              <span>位置（可选，留空不声明）</span>
-              <input
-                :data-testid="'override-location-' + platform.id"
-                :value="getValue(platform.id, 'locationName')"
+                v-else
+                :data-testid="testId(platform.id, field.key)"
+                :value="getValue(platform.id, field.key)"
                 type="text"
-                placeholder="如：北京·三里屯"
-                @input="updateField(platform.id, 'locationName', $event.target.value)"
-              />
-            </label>
-            <label class="override-field">
-              <span>加入合集（可选）</span>
-              <div class="collection-picker">
-                <button
-                  type="button"
-                  class="collection-picker__btn"
-                  :data-testid="'override-collection-fetch-' + platform.id"
-                  :disabled="collectionLoading[platform.id]"
-                  @click="fetchCollections(platform.id)"
-                >{{ collectionLoading[platform.id] ? '拉取中…' : '拉取我的合集' }}</button>
-              </div>
-              <input
-                :data-testid="'override-collection-id-' + platform.id"
-                :value="getValue(platform.id, 'collectionIdText')"
-                type="text"
-                placeholder="格式：合集ID 或 合集ID:名称"
-                @input="updateField(platform.id, 'collectionIdText', $event.target.value)"
+                :maxlength="field.maxLen || undefined"
+                :placeholder="field.placeholder"
+                @input="updateField(platform.id, field, $event.target.value)"
               />
             </label>
           </template>
@@ -288,6 +148,7 @@
 <script setup>
 import { reactive } from 'vue'
 import { listPlatformCollections } from '@/api/publisher'
+import { getPlatformOverrideFields } from '@multi-publish/shared-utils/src/publish-capabilities'
 
 const props = defineProps({
   platforms: { type: Array, default: () => [] },
@@ -295,6 +156,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+// 标题/正文是所有平台的通用覆盖字段（不属于注册表平台特有字段），
+// 以虚拟字段定义参与统一的 normalize 管线。
+const TITLE_CONTENT_FIELDS = Object.freeze({
+  title: Object.freeze({ key: 'title', type: 'text', label: '标题', default: '' }),
+  content: Object.freeze({ key: 'content', type: 'textarea', label: '正文', default: '' }),
+})
 
 // P3-7：合集列表拉取状态
 const collectionOptions = reactive({})
@@ -315,100 +183,65 @@ async function fetchCollections (platformId) {
   }
 }
 
-const zhihuStatements = [
-  { value: 0, label: '无申明' },
-  { value: 1, label: '包含剧透' },
-  { value: 2, label: '包含医疗建议' },
-  { value: 3, label: '虚构创作' },
-  { value: 4, label: '包含理财内容' },
-  { value: 5, label: '包含 AI 辅助创作' },
-]
+// 注册表字段查询缓存（注册表数据冻结，缓存安全；避免模板每次重渲染复制数组）
+const fieldsCache = new Map()
 
-// B站分区（tid）：常用分区映射（参考产品 subCategory.sourceId → parseInt → tid）
-const bilibiliCategories = [
-  { value: 21, label: '日常' },
-  { value: 17, label: '单机游戏' },
-  { value: 171, label: '电子竞技' },
-  { value: 124, label: '影视' },
-  { value: 231, label: '科技·数码·手机' },
-  { value: 138, label: '搞笑' },
-  { value: 119, label: '鬼畜' },
-  { value: 217, label: '动物圈' },
-  { value: 207, label: '时尚' },
-  { value: 251, label: '资讯' },
-]
-
-// YouTube 分类（categoryId）：常用分类（默认 22 = People & Blogs）
-const youtubeCategories = [
-  { value: '22', label: '人物与博客' },
-  { value: '10', label: '音乐' },
-  { value: '20', label: '游戏' },
-  { value: '24', label: '娱乐' },
-  { value: '28', label: '科技' },
-  { value: '27', label: '教育' },
-  { value: '17', label: '体育' },
-  { value: '19', label: '旅行' },
-  { value: '23', label: '喜剧' },
-  { value: '25', label: '新闻政治' },
-]
-
-function defaultOverride (platformId) {
-  if (platformId === 'zhihu') {
-    return { title: '', content: '', commentPermission: 'anyone', declare: 0, topics: [], draft: false }
+/**
+ * 平台差异化字段（仅 uiExposed && status=implemented，来自注册表单一真源）。
+ * @param {string} platformId
+ * @returns {object[]}
+ */
+function fieldsFor (platformId) {
+  if (!fieldsCache.has(platformId)) {
+    fieldsCache.set(platformId, getPlatformOverrideFields(platformId, { uiOnly: true }))
   }
-  if (platformId === 'bilibili') return { title: '', content: '', category: 21, copyright: 2, collectionId: '' }
-  if (platformId === 'youtube') return { title: '', content: '', categoryId: '22', privacy: 'public', playlistId: '' }
-  if (platformId === 'tiktok') return { title: '', content: '', privacyLevel: 'PUBLIC' }
-  if (platformId === 'baijiahao') return { title: '', content: '', original: false, locationName: '', collectionIdText: '' }
-  if (platformId === 'wechat_mp') return { title: '', content: '', digest: '', massSend: false, openComment: true }
-  return { title: '', content: '' }
+  return fieldsCache.get(platformId)
 }
 
-function normalizeValue (platformId, field, value) {
-  if (platformId === 'zhihu' && field === 'declare') {
-    const number = Number(value)
-    return Number.isInteger(number) && number >= 0 && number <= 5 ? number : 0
+/**
+ * testid 约定：override-{kebab(key)}-{platformId}（与历史测试钉死的形态一致）。
+ */
+function testId (platformId, key) {
+  return 'override-' + String(key).replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase() + '-' + platformId
+}
+
+function defaultOverride (platformId) {
+  const base = { title: '', content: '' }
+  for (const field of fieldsFor(platformId)) {
+    base[field.key] = Array.isArray(field.default) ? [...field.default] : field.default
   }
-  if (platformId === 'zhihu' && field === 'commentPermission') return 'anyone'
-  if (platformId === 'zhihu' && field === 'topics') {
+  return base
+}
+
+// collection 类型字段的取值形状规则（值形状属代码级契约，不进注册表数据）：
+// B站合集 ID 必须是纯数字字符串转 Number；百家号合集输入保持 'ID' 或 'ID:名称' 文本。
+const COLLECTION_NORMALIZERS = {
+  'bilibili:collectionId': value => (/^\d+$/.test(String(value || '').trim()) ? Number(String(value).trim()) : ''),
+  'baijiahao:collectionIdText': value => String(value || '').slice(0, 100),
+}
+
+/**
+ * 按字段定义归一化输入值。select 以选项值集校验并保留原始类型
+ * （知乎 declare/B站分区为 number，YouTube 分类为 string）；
+ * checkbox 转 Boolean；tags 拆分去重；text/textarea 截断到 maxLen。
+ */
+function normalizeValue (platformId, field, value) {
+  const key = field ? field.key : ''
+  const type = field ? field.type : 'text'
+  if (type === 'checkbox') return Boolean(value)
+  if (type === 'select') {
+    const options = (field && Array.isArray(field.options)) ? field.options : []
+    const matched = options.find(option => String(option.value) === String(value))
+    return matched ? matched.value : field.default
+  }
+  if (type === 'tags') {
     return [...new Set(String(value || '').split(/[,，]/).map(item => item.trim()).filter(Boolean))]
   }
-  if ((platformId === 'zhihu' || platformId === 'douyin') && field === 'draft') return Boolean(value)
-  if (platformId === 'wechat_mp' && field === 'massSend') return Boolean(value)
-  if (platformId === 'wechat_mp' && field === 'digest') return String(value || '').slice(0, 120)
-  if (platformId === 'wechat_mp' && field === 'openComment') return Boolean(value)
-  if (platformId === 'bilibili' && field === 'category') {
-    const n = Number(value)
-    return Number.isInteger(n) && n > 0 ? n : 21
-  }
-  if (platformId === 'bilibili' && field === 'copyright') {
-    const n = Number(value)
-    return n === 1 || n === 2 ? n : 2
-  }
-  if (platformId === 'bilibili' && field === 'collectionId') {
-    const s = String(value || '').trim()
-    return /^\d+$/.test(s) ? Number(s) : ''
-  }
-  if (platformId === 'youtube' && field === 'categoryId') {
-    const s = String(value || '').trim()
-    return /^\d{1,2}$/.test(s) ? s : '22'
-  }
-  if (platformId === 'youtube' && field === 'privacy') {
-    return ['public', 'unlisted', 'private'].includes(value) ? value : 'public'
-  }
-  if (platformId === 'tiktok' && field === 'privacyLevel') {
-    return ['PUBLIC', 'PRIVATE', 'FRIENDS'].includes(value) ? value : 'PUBLIC'
-  }
-  if (platformId === 'youtube' && field === 'playlistId') {
-    return String(value || '').trim().slice(0, 60)
-  }
-  if (platformId === 'baijiahao' && field === 'original') return Boolean(value)
-  if (platformId === 'baijiahao' && field === 'locationName') return String(value || '').slice(0, 60)
-  // 百家号合集输入：'ID' 或 'ID:名称' → collection 对象
-  if (platformId === 'baijiahao' && field === 'collectionIdText') {
-    return String(value || '').slice(0, 100)
-  }
-  return value
+  const collectionNormalizer = COLLECTION_NORMALIZERS[platformId + ':' + key]
+  if (collectionNormalizer) return collectionNormalizer(value)
+  const maxLen = Number(field && field.maxLen)
+  const text = String(value ?? '')
+  return maxLen > 0 ? text.slice(0, maxLen) : text
 }
 
 function cloneModel () {
@@ -419,10 +252,10 @@ function isEnabled (platformId) {
   return Boolean(props.modelValue && props.modelValue[platformId])
 }
 
-function getValue (platformId, field) {
+function getValue (platformId, fieldKey) {
   const current = props.modelValue?.[platformId]
-  if (current && current[field] !== undefined) return current[field]
-  return defaultOverride(platformId)[field] ?? ''
+  if (current && current[fieldKey] !== undefined) return current[fieldKey]
+  return defaultOverride(platformId)[fieldKey] ?? ''
 }
 
 function toggle (platformId) {
@@ -433,11 +266,12 @@ function toggle (platformId) {
 }
 
 function updateField (platformId, field, value) {
+  const key = field ? field.key : value
   const next = cloneModel()
   next[platformId] = {
     ...defaultOverride(platformId),
     ...(next[platformId] || {}),
-    [field]: normalizeValue(platformId, field, value),
+    [key]: normalizeValue(platformId, field, value),
   }
   emit('update:modelValue', next)
 }

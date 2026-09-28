@@ -153,6 +153,17 @@ describe("publish-monitor", () => {
       t.stop();
     });
 
+    it("kuaishou 干净跳过（graphql 端点不支持通用 GET 轮询，不再 12 连 error）", () => {
+      // 根因（2026-09-28 活体残余③）：kuaishou 的 CHECK_URLS 是 graphql 端点，
+      // checkPublishStatus 用 GET+id 打它必然协议错误；且 cookies 取自
+      // task.article（恒空）。无已验证的快手状态查询端点前，诚实跳过。
+      const cb = vi.fn();
+      const m = require("./publish-monitor");
+      const t = m.createMonitorTask({ postId: "3xvsedz34m82ppi", platform: "kuaishou", callback: cb });
+      expect(cb).toHaveBeenCalledWith(expect.objectContaining({ status: "skipped" }));
+      t.stop();
+    });
+
     it("handles missing platform", () => {
       const cb = vi.fn();
       const m = require("./publish-monitor");

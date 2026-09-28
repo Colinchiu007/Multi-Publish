@@ -28,13 +28,13 @@
 
     powershell -ExecutionPolicy Bypass -File scripts/mp-worktree-health.ps1 -RequireClean -RequireHooks
 
-检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Multi-Publish\session-isolation\health.json，不写入仓库。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
+检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Mulpub\session-isolation\health.json，不写入仓库。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
 
 ## 实时写保护
 
 写保护由 scripts/guard-shared-root-writes.ps1 执行，随当前用户登录自动启动。它监听共享主目录，把 apps/、packages/、ops-center/、config/、.github/ 等运行时路径下非 gitignored 的新建/修改/删除文件移入：
 
-    %LOCALAPPDATA%\Multi-Publish\session-isolation\quarantine\
+    %LOCALAPPDATA%\Mulpub\session-isolation\quarantine\
 
 tracked 文件会从 HEAD 精确恢复，违规记录追加到同一目录的 violations.jsonl。docs/、01-docs/、scripts/、openspec/、.ccg/、.agent_context/、.hermes/ 及根级流程文档保持可写；node_modules/、dist/ 等 gitignored 构建产物不会被误隔离。文件被占用时只做有界重试并保留原文件，不会覆盖或删除数据。
 
@@ -56,7 +56,7 @@ worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store
 
 查看任务：
 
-    Get-ScheduledTask -TaskPath '\Multi-Publish\'
+    Get-ScheduledTask -TaskPath '\Mulpub\'
 
 移除任务（同时移除健康巡检与写保护）：
 
@@ -84,7 +84,7 @@ worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store
     powershell -ExecutionPolicy Bypass -File scripts/session-isolation-automation.test.ps1
     powershell -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
 
-自检覆盖脚本存在性、当前主目录健康状态、报告写出、main/primary 识别、计划任务注册后稳定指向共享主目录 scripts 的合同，以及写保护的隔离/恢复/放行行为。自检最后会重新注册任务，避免验证本身关闭持续守护。
+自检覆盖脚本存在性、当前主目录健康状态、报告写出、main/primary 识别、计划任务注册后稳定指向共享主目录 scripts 的合同，以及写保护的隔离/恢复/放行行为。计划任务注册/注销全部发生在一次性 `-TaskPath` 上，绝不触碰生产任务（`\Mulpub\`），自检因此不会关闭持续守护；非提权宿主上 AtLogOn 写保护任务注册被系统拒绝时，安装器必须以非零退出并给出提权重跑指引——该失败路径同样是被断言的合同。
 
 ## 边界
 

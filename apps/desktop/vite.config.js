@@ -38,6 +38,10 @@ export default defineConfig({
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/platform-definitions.browser.js'),
       '@multi-publish/shared-utils/src/account-name-guard':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/account-name-guard.browser.js'),
+      // 发布能力注册表（publish-capability-registry）：渲染进程消费 ESM 孪生版，
+      // 数据单一来源 publish-capabilities.json（CJS/ESM 双版本 parity 测试锁定）。
+      '@multi-publish/shared-utils/src/publish-capabilities':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/publish-capabilities.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

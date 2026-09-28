@@ -18,6 +18,189 @@
 
 ---
 
+# [未发布] fix(模型调用): 5h 额度窗口在并发下超额发起真实调用 → 改为准入即占额度（2026-09-28，governor-quota-reserve）
+
+### 为什么
+- 这条原先登记为「`rate-limit-self-check` 在 CI 满载下的计时抖动」（不认领的待查项）。实测否证了那个定性：
+  它不是抖动，而是 `ApiUsageGovernor` 的真实缺陷。判据是把度量从「`g.run` 是否 resolve」换成
+  「task 体内自增的执行次数」——后者才是「是否真的打了一次 provider」的唯一代理。
+- 根因：`_preflightTokenBudget` 只读 `win.used`，而 `used` 只在 task **完成之后**由 `_recordUsage` 递增。
+  `maxConcurrent > 1` 时多个在途请求对同一份过期快照同时通过预检，**真实调用已发出**，随后才被
+  `_assertTokenBudget` 事后拒绝。这违反该函数注释自述的「避免超限请求先消耗真实调用」，也违反
+  `ops-center/rate-limit-verifier` 已声明的「预检即拒、不消耗执行」。
+- 原登记的修法（把测试改成假时钟让它稳定）**会把这个 Bug 钉成契约**，属 AGENTS.md「测试断言不得
+  反向固化错误行为」。
+
+### 复现与修复后的量化对照（limit=2 / n=6，12 次重复，真实定时器）
+| maxConcurrent | 修前真实执行 | 修后真实执行 |
+| --- | --- | --- |
+| 1 | 2 | 2 |
+| 2 | **3** | 2 |
+| 4 | **5** | 2 |
+
+`limit=3 / maxConcurrent=4 / n=7` 修前真实执行在 12 轮里出现 **5 与 6 两种值**（这就是 CI 随机红的来源：
+同一个请求既写了 `completed` 时间线又被计成超额，两个计数器同时偏高）；修后恒为 3，
+且 `executedButRejected`（已执行却被事后拒）在 12 格矩阵里全部为 0。
+
+### 变更
+- 准入/归还逻辑按行数门禁拆出为 `apps/desktop/electron/services/token-budget-windows.js`（governor 主文件因这套逻辑越过
+  500 行；`check-max-lines` 要求「新代码不得引入超大文件」）。承载原因的注释随代码一起搬走，
+  结构锁改为跨两文件取锚点（7 个锚点），并对「governor 侧只准薄委托」本身加了断言。
+- `apps/desktop/electron/services/api-usage-governor.js`：`field: 'requests'` 的窗口改为**原子检查并预留**
+  （准入通过即 `used += 1`），预留点在并发槽内、重试循环之前，故一次调用只占一次；整次调用最终失败
+  才归还（attempt 级归还会让 429 退避期间额度被插走）；归还按**窗口代次**（`startedAt`）生效，
+  换代即跳过。准入本身必须是**两遍式**——第一遍纯判定、第二遍统一提交；逐窗口「边检查边 +1」会让
+  后一个窗口判满时抛错，而那时预留凭据还没返回给调用方（调用方的归还只覆盖重试失败），
+  前一个窗口已 +1 的那几份就永久泄漏。这一条是 QM-6 外部评审指出并自带实测后补的。`_recordUsage` 不再对 requests 递增，`_assertTokenBudget` 显式跳过 requests。
+- `token` 类窗口（`total_tokens` 等）**保持后置记账不变**——成本要响应回来才知道，无法预扣。
+- `apps/desktop/electron/services/rate-limit-self-check.js`：被准入拒的请求现在也写一条
+  `state='quota_exceeded'`、`started_at=null` 的时间线，使 `completed + quota_exceeded == requestCount`
+  成为可检查的守恒式（原先只能靠「时间线少了几条」反推，不可归因）。
+- 新增 7 条回归锁（`api-usage-governor.test.js` 6 条 + `rate-limit-self-check.test.js` 1 条）与 1 条结构锁。
+  `rate-limit-self-check` 的 5h 用例改为**并发构造 + 假时钟**，不再依赖墙钟。
+
+### 影响
+- 行为只会更保守：原先「多跑的那几次」是本不该发生的真实调用。没有任何既有用例依赖旧行为
+  （6 文件 213 例全绿，含 `model-call-scheduler` / `model-provider-governor` / `story2video-stages`）。
+- 契约见 `openspec/changes/governor-quota-reserve/`；模拟器为单线程顺序模型，本就满足新语义，
+  对拍结论需显式声明**并发维度不由模拟器覆盖**。
+
+# [未发布] ci(docs-only): 纯文档 PR 的 CI 短路与质量节拍快速通道（2026-10-08，docs-only-ci-shortcircuit）
+
+### 变更
+- 新增 `scripts/classify-docs-only.js`：docs-only 判定**单一真源**（导出 `CI_IGNORED_PATHS` 白名单 + `isDocsOnly` 判定 + merge-base diff CLI；fail-closed：空 diff / git 失败 / 混合变更一律全量）。`classify-docs-only.test.js` 14 例锁白名单内容、匹配语义（`*.md` 仅根目录，与 GitHub paths 文档字面语义对齐）、fail-closed 与 CLI 行为。
+- `quality-gate.yml` / `electron-ci.yml` / `build.yml`：新增轻量 changes job（ubuntu，merge-base 判定）+ 全部重型 job 的 **job 级** docs-only 短路（`if: needs.changes.outputs.docs-only != 'true'`）；gate-result 纳入 changes 结论（判定 job 自身红即拦，不静默放行）。红线不变：pull_request 触发级 paths-ignore 仍被禁止（PR #2151 死锁）；被跳过 job 显示 skipped（GitHub 视为满足 required check）；tag-only release job 豁免（发布链路不变）。
+- `doc-gate.yml`：doc-sync job 换 ubuntu-latest（只跑 bash 脚本 + gh CLI，释放 Windows 并发额度；触发与门禁语义不变）。
+- `workflow-contract.test.js`：`CI_IGNORED_PATHS` 真源迁移至脚本（import 断言，禁止两份清单漂移）+ 新增短路接线防再犯锁（摘 changes job / 摘任一重型 job 条件即红）。
+- `AGENTS.md`：新增「docs-only 快速通道」——判定走同一 CLI；保留门禁（行尾对账 / 品牌残留 Gate 12 / 文档同步 / 远程同步）；跳过 QM-1/2/4/TDD/QM-6；附 `.quality-gates.md` 精简记录模板（4-5 行）。
+
+### 为什么
+- 纯文档 PR 必须经 PR 落地（分层规则），但 `pull_request` 无路径过滤（PR #2151 死锁后刻意如此）⇒ 每个纯文档 PR 跑满 10+ 台 Windows runner、墙钟 20–40 分钟，90% 检查对文档无意义；push 侧已有 paths-ignore 承认分层，PR 侧因 required check 语义无法用触发级过滤。
+- job 级短路是唯一两全解：workflow 照常触发（required check context 全部出现），重型 job 显示 skipped（GitHub 视为满足）。
+
+### 验证
+- `node --test scripts/classify-docs-only.test.js` 14/14；`node --test .github/scripts/workflow-contract.test.js` 26/26；`node scripts/check-unwired-tests.js` 46 文件 OK
+- 变异反证 4 条全红全还原：摘 static-gates 短路条件 / 摘 changes 输出 → 契约红；判定恒 false / 白名单混入 apps/** → classify 红；每条 sha256 还原一致后复绿
+- 行尾对账：8 个改动文件 numstat 两口径一致；CHANGELOG / .quality-gates 字节级前插（NUL 数与 CRLF 计数守恒）
+- 详见 openspec/changes/docs-only-ci-shortcircuit/（proposal / specs / design / tasks 4/4）
+
+---
+# [未发布] docs(publish): 发布能力注册表 PRD 深化二轮 + 记忆三路补全（2026-10-08，publish-capability-docs）
+
+### 变更
+- `01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md` 深化为可执行粒度（用户要求「尽量写详细」）：§四 数据校验补校验调用点执行顺序、每平台消息模板、无标题合并边界用例矩阵、百家号自动截断流、结构自检规则表、契约锁三向口径；§五 流程补视频/图文模式用户操作流与数据流、无标题各链路处理点汇总表、草稿往返、定时、批量六条子流程；§六 功能逻辑补通用字段逐项逻辑与六类控件归一化规则；§七 交互逻辑补状态矩阵与条件显示规则；§八 显示项补 locales/校验消息/数据层文案/组件 chrome/testid 五张完整清单；新增 §九 注册表维护 SOP（新增平台/字段步骤 + 必跑测试 + 三条红线）。
+- `AGENTS.md` QM-2 新增「发布能力注册表单一真源合同」：修改 publish-capabilities.json 的必跑测试清单（shared-utils 58 例 + 引擎契约锁 + 面板快照 + contract 对齐）、无标题清单三处同步要求、渲染层限制表禁止回写独立常量、Gate 7/Gate 12 红线。
+- `01-docs/learnings.md` 置顶补 3 条交付轮教训：取证文档写竞品品牌名撞 Gate 12（本地先跑门禁比等 CI 便宜两个数量级）；置顶文档 union 合并要顺带修 main 的 squash 损伤（双侧 lost=0 对账）；EverOS add 成功 ≠ 可检索（写后必须读回验证，md 直写兜底）。
+- 记忆三路补全：EverOS episode 追加交付轮条目（ep_20260928_00000006）+ atomic_fact 追加 5 条（注册表模式/无标题契约/语义分类/逆向取证方法/门禁与兜底红线，af_20260928_00000098-102）。
+
+### 验证
+- 纯文档变更（01-docs/ + AGENTS.md + CHANGELOG.md），无运行时路径；PRD 结构经 markdown 标题层级自检（§一至§十二连续无跳级）。
+- 修复首轮遗留：PRD 专项文档被 `.gitignore:259-260`（/01-docs/*.md）静默忽略、`git add -A` 未收录（既有 PRD-*.md 是规则前已跟踪）——按先例 `git add -f` 补入（505 行），首轮 CHANGELOG/主 PRD 的断链随之修复；教训入 learnings（新增交付物提交后必须 `git ls-tree HEAD` 验证 blob 在库）。
+
+---
+
+# [未发布] feat(publish): 发布能力注册表——15 平台发布内容项单一真源 + 无标题平台标题入描述首行（2026-10-08，publish-capability-registry）
+
+### 变更
+- **新增注册表（单一真源）**：`packages/shared-utils/src/publish-capabilities.json`（数据）+ `publish-capabilities.js`（CJS）+ `publish-capabilities.browser.js`（ESM 孪生，parity 测试锁定）。声明 15 平台 titleMode（title | caption）、内容限制、差异化字段定义（key/semantic/status/type/options/default/uiExposed）、通用主表单字段支持矩阵。新增平台/差异化字段只改 JSON，差异化面板零代码接入。
+- **通用内容 3+ 阈值分类（用户确认）**：按语义能力跨平台计数（≥3 → common；=2 → semiCommon；=1 → unique），计算属性非手写标签。语义对齐而非字段名对齐（YouTube privacy ≡ TikTok privacyLevel ≡ visibility）。
+- **参考产品 4.13.19 逆向取证扩充矩阵（用户指定参考）**：可见性 5 平台（+抖音/快手/微博）、位置 3 平台、商品 4 平台、合集 5 平台、平台活动 3 平台；全量收录平台独有项（B站弹幕开关、百家号三图封面/副标题/自荐、知乎目录/赞赏、微博投票、快手禁止同城/同框/小程序、视频号挂链接、抖音合作投稿/横版封面/章节/同步头条）为 `platform-capable`（带 note 证据，UI 不暴露）。
+- **无标题平台标题→描述首行（用户核心需求）**：视频号 API 链 `buildShipinhaoPostData` 修复标题丢弃 Bug（旧 `content ?? title` 有正文时丢标题）；Twitter/微博/TikTok 适配器同口径合并；快手链既有行为保持。DOM RPA `_publish_generic` 对注册表无标题平台显式跳过 title_input 解析（省首次候选 10s 超时，替代选择器解析失败的隐式回退）。
+- **渲染层接入**：`publish-contract.js` 限制表改注册表派生（对外 API 不变；修复 douyin contentMax 0→1000、tiktok caption 2200、补齐视频号/快手 1000 与 facebook 63206）；`validatePlatformContent` 对无标题平台校验「标题+换行+正文」合并长度（文案含「标题计入首行」）。
+- **UI（视频/图文两分支）**：通用字段支持度徽标（N/15 平台支持）；选中无标题平台时标题区提示「标题将作为描述首行插入：{平台}」；`PlatformOverridePanel.vue` 8 平台硬编码 v-if 链重构为注册表数据驱动渲染（六类控件），既有字段零丢失（快照测试）。locales zh/en 成对新增 `fieldSupport` / `noTitleHint`。
+- **跨包契约锁**：`packages/api-publish-engine/test/no-title-contract.test.js`——A 清单锁（注册表无标题清单精确等于 6 平台，缩水即红）/ B 行为锁（清单内引擎平台实际合并）/ C 反向锁（bilibili 等有标题平台不合并）。引擎侧 require 注册表属测试依赖，零依赖约束不变。
+
+### 为什么
+- 平台发布能力元数据此前分散在 4 处硬编码且互相矛盾（渲染层限制表 vs platforms.yaml vs 差异化 UI v-if 链 vs 引擎截断表）；无标题平台（6 个）在 API 链上标题被静默丢弃，DOM 链靠选择器解析失败隐式回退（不可声明、不可测、白等 10s）。
+- 机制选型（用户确认）：声明式注册表而非数据库——平台能力是随版本发布的代码级事实，注册表可被 CI 契约测试直接锁死。
+
+### 验证
+- shared-utils `publish-capabilities.test.js` 58/58（meta 完整性/清单精确/分类计算/compose 边界/双版本 parity/结构自检）
+- `publish-contract.test.js` 22/22；`PlatformOverridePanel.test.js` 10/10；`Publish.test.js` 54/54；`rpa-view-platforms.test.js` 43/43（含 weibo 行为锁与快手断言反转）
+- api-publish-engine 全量 `run-tests.js` 通过（含 `no-title-contract.test.js` 8/8 与 `shipinhao-adapter.test.js` 新语义更新）
+- 桌面发布面 13 文件 348/348；shared-utils 全量 394 通过
+- 详见 [01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md) 与 [openspec/changes/publish-capability-registry](openspec/changes/publish-capability-registry/)
+
+---
+
+# [未发布] fix(标题参考): 数据源收窄 + 相关性门禁，修掉「高互动参考」清一色 GitHub issue 垃圾
+### 变更
+
+- `apps/desktop/electron/services/content-intelligence-utils.js`：新增 `tokenizeContentWords`（拉丁词按词 + CJK 相邻二元组）与 `sharesContentWord`（标题-查询实词重叠判定）；停用表 `CONTENT_STOPWORDS` 收敛到一处，并补中文高频**二元组**虚词（`可以/我们/你们/他们/什么/怎么/这个/那个`）——单字停用表覆盖不到二元组。
+- `apps/desktop/electron/services/content-intelligence.js`：`search()` 出口新增**相关性门禁**，正文命中但标题零重叠的结果一律剔除并计入新字段 `droppedIrrelevant`；门禁挂在 `engagement` 排序**之前**，使按下标取 `results[0]` 的 `searchMentions` 一并受益。`searchTitles()` 源域收窄为常量 `TITLE_SOURCES = ['reddit','hackernews']`，不再继承 GitHub；调用方显式传 `sources` 时仍尊重调用方。
+- `apps/desktop/electron/services/content-intelligence-analysis.js`：`_extractPatterns` 改用共用分词；计数口径从「出现总次数」改为 **document frequency**（一个词素出现在几条标题里）；并列时按词素字典序，渲染顺序不再随机漂移。
+- `apps/desktop/src/components/TitleAssistantPanel.vue`：来源标签从 `v-else → "GitHub"` 兜底改为显式映射（未知源如实回显其标识、`source` 缺失则不渲染）；新增「暂未找到同类高互动标题」空态，并按 `droppedIrrelevant` 区分「源真的没响应」与「有响应但都不算同类」两种解释。
+- `apps/desktop/src/locales/zh.js` / `en.js`：新增 3 个成对 key（`titleAssistantEmpty` / `titleAssistantEmptyHint` / `titleAssistantFiltered`，含 `{n}` 插值）。
+- `content-intelligence.js`：相关性门禁的**判据字段按消费者声明**（`opts.relevanceOn`，默认 `["title"]`）——`searchMentions()` 走 `MENTION_RELEVANCE_ON = ["title","snippet","author"]`，因为真实转载提及的词出现在**对方正文**里而非对方标题里，只看标题会把 `totalMentions` 静默少算（QM-6 后端评审 W1）；`relevanceOn` **进缓存键**，否则两种口径共用同一 query 时互相串用对方的过滤结果（M8 反证）。
+- 门禁日志只记计数与形状（`dropped/before`、`queryLen`、`tokens`、`on=`），**不记 query 原文**——`searchTitles` 的 query 就是用户尚未发布的草稿标题，而 logger 只脱敏凭证、不脱敏用户文本（W3）。
+- `tokenizeContentWords` 改用 `/\p{Script=Han}{2,}/gu` 并**按码点**取相邻二元组：BMP 区间表漏扩展 B 平面，纯扩展平面汉字查询会切成空 token 集从而**整体绕过门禁**，且按 UTF-16 单元切片会把代理对切成半个字符（W2）；分词前先剥离 URL 与 HTML 实体，否则两条无关标题会因共享同一域名而通过门禁（Info）。
+- `Intelligence.vue`：主题情报页空态补 `description`，在门禁归零时区分「源无响应」与「已过滤 N 条」，不再一律提示「暂无结果，试试其他关键词」把原因推给用户（QM-6 前端评审 W1）。
+- `TitleAssistantPanel.vue`：空态两分支各带结构类名 `--filtered` / `--source`，测试按类名断言而非按 locale 文案字面量断言（文案改写不该把正确实现判红）。
+- `tests/content-intelligence.test.js`：`mockSubMethods` 默认 `mockResolvedValue([])`——裸 `vi.fn()` 返回 `undefined` 会让 `Promise.allSettled` + `flatMap` 收到 `[undefined]` 并在门禁处抛 `Cannot read properties of undefined`，本轮两次踩到。
+- `01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md`：新建该功能的首份完整规格（数据源矩阵、门禁判据与边界、分词口径、交互流程、显示项、全量提示文字、验收标准、反证矩阵、已知限制）——**此前 PRD 里没有任何一条关于「标题参考」的契约**，只有 §9.2 一个 8 行桩。
+- `01-docs/PRD.md` §9.2：补数据源与相关性契约指针。
+
+### 根因（三层，缺一即残留）
+
+实测取证（2026-09-28 本机直连公开 API）：中文视频标题「三步学会做红烧肉」查 `api.github.com/search/issues` 返回 `total_count: 3595`，首条标题是「旧文归档 · 2024 年 2 月」——**与查询零词重叠**（命中在正文）；HN 对「红烧肉」`nbHits: 0`；Reddit 空响应。
+
+- **R1 源域**：`searchTitles` 复用通用 `search()`，继承了含 GitHub 的默认源。GitHub 是代码托管站，issue 标题由仓库维护者书写，不是内容标题语料。
+- **R2 校验**：`search()` 出口没有「标题是否真的与查询同类」这道判据。三个源的接口匹配的都是正文，正文命中即入榜。
+- **R3 分词**：`_extractPatterns` 按空白/标点切词，中文无空格 ⇒ 整句被切成一个"词"，于是「申请加入请在这里评论」以"高频词"身份渲染给用户。
+
+用户看到的 `homepage / Gitalk Demo / ActNotify~>Bilibili / Daily weather email` **不是测试数据、也不是 mock**，是真实 GitHub issue 与仓库名——GitHub 是唯一"有结果"的源，所以排序后五条清一色打上 GitHub 标签。
+
+### 测试
+
+- `content-intelligence-utils.test.js` +8 例：二元组**精确数组**断言（`红烧肉 → ["红烧","烧肉"]`）、与旧实现的切词对照、停用词/纯数字/去重/空值、实测事故标题判不相关、真同类判相关、查询无内容词时不改语义。
+- `tests/content-intelligence.test.js` `searchTitles` describe 重写 +10 例：源域锁（`_searchGitHub` 未被调用）、通用 `search()` 仍保留 GitHub（不误伤情报页）、显式 `sources` 不被覆盖、事故场景 `results` 精确等于真同类那一条 + `droppedIrrelevant=2`、`patterns` 在样本不足时为 `null`、标题缺失按不相关、门禁挂在共用层使 `searchMentions` 受益；`_extractPatterns` describe +3 例（不含整句、不含二元组虚词、并列顺序唯一、doc frequency 口径、样本不足返回 null）。
+- `TitleAssistantPanel.test.js` +3 例：未知源不得兜底成 GitHub、空态文案 + 过滤条数、源无响应时的数据源说明。
+- **修掉三处把 Bug 钉成契约的既有断言**：① 原 `searchTitles` 用例把 `_searchGitHub.mockResolvedValue([])`，真实事故路径在夹具下永远观察不到；② 原组件用例用 `source:"github"` 并断言 `toContain("GitHub")` 为正确渲染；③ `deduplicates by title prefix` 用例查询写 `'test'` 与夹具标题零重叠，被门禁正确判为不相关——该用例测去重不测门禁，改查询为 `'duplicate'` 并补 `droppedIrrelevant===0` 断言。
+- **反证矩阵（逐条实跑，跑完按字节还原）**：M1 摘门禁 → 3 红；M2 github 放回源域 → 5 红；M3 退回空白切词 → 2 红；M4 退回 `v-else GitHub` → 1 红。
+- QM-1 离线打包：`build:vue` + `electron-builder --win --dir` 双 rc=0、`⨯` 计数 0、asar 含 `/dist/index.html` 与四个 `content-intelligence*` 服务文件、包内 `node --check` 通过、新逻辑逐条签名命中、renderer chunk 含新文案。
+- 实测 `content-intelligence-utils` 16/16、`tests/content-intelligence` 43/43、`TitleAssistantPanel` 10/10、`electron/services/content-intelligence` 8/8、`Intelligence` 16/16、`views-coverage2` 7/7 全绿；`check-locale-sync --pair-base` 与 `--cjk` 双 PASS。
+
+### 已知限制
+
+中文题材修好后最常见的正确表现就是「暂未找到同类高互动标题」——数据源只有三个英文开发者平台。这是诚实而非修坏；要让该功能对中文创作者真正有用，需另立需求接入中文内容平台标题语料。二元组非真分词，跨词边界的 `入请`/`在这` 仍会产出，靠 document frequency 排序压制。
+
+# [未发布] feat(发布): 视频发布页右栏信息架构重排——任务闭环置顶、智能面板贴邻字段（optimize-publish-right-rail）
+
+### 变更
+- `apps/desktop/src/views/Publish.vue`：单篇模式右栏（flex-side）重排——发布目标卡（含保存草稿/草稿箱/快速发布/取消任务）移至右栏**第一块**（sticky 保留为滚动兜底），发布进度/草稿箱/结果卡紧随其后；三个智能辅助面板全部迁出右栏、下沉左栏（flex-main）贴邻所服务字段：**标签建议→标签/话题输入后、最佳发布时间→定时发布后、标题助手→标题输入后**（video/article 两模式同口径）。1920×1140 实测取证：旧布局「快速发布」按钮被三个面板挤出首屏、左栏 63% 视口高度后全空白；新布局主行动无需滚动即可见、左栏空白被辅助面板就地利用。
+- `apps/desktop/src/components/TagSuggester.vue`：新增 `platforms` prop（string[]）——标签建议请求跟随用户在发布目标中勾选的平台（旧实现硬编码 zhihu/weibo/xiaohongshu/bilibili/toutiao 五平台，用户选快手时建议与目标脱节）；空数组/未传回退全量目录；platforms 与 content 共用同一 800ms 防抖。建议标签（关键词/相关话题/平台内容/流量/回退合并五处）全部可点击，emit `apply-tag` 由父级去重追加进标签输入。错误态从红色文本块收敛为**一行提示 + 行内重试按钮**。
+- `apps/desktop/src/components/OptimalTimeTip.vue`：「数据不足」空态从整卡死胡同文案降级为**一行提示 + 可展开详情**（默认收起，展开后说明原因与替代路径）；keyword 变化时收起详情态。
+- 新增 `apps/desktop/src/composables/usePanelVisibilityPrefs.js`：面板显隐记忆（localStorage key `publish.panelVisibility.v1`，白名单键 tagSuggester/titleAssistant），读写全 try/catch——隐私模式/配额/损坏 JSON 一律降级默认值（标签建议展开、标题助手收起，与旧行为一致），未知键与非法类型忽略。
+- `apps/desktop/src/locales/zh.js` + `en.js` 成对新增：`tagSuggest.retry`/`tagSuggest.applyTagHint`、`publishPage.optimalTimeNoData`/`optimalTimeNoDataDetail`（避开并发分支 fix-title-assistant-relevance 的 `intelligence.*` 键空间，合并冲突可自动解决；本 change 不触碰 TitleAssistantPanel.vue 组件本体）。
+- OpenSpec change `openspec/changes/optimize-publish-right-rail/`（proposal/specs/design/tasks 四产物，validate 通过）：新能力 `publish-page-right-rail`（7 条 Requirement）+ 修改 `mp-ue-closure`「发布页主操作可见」（从「滚动时 sticky」强化为「初始视口内无需滚动即可见」）。
+
+### 测试
+- `usePanelVisibilityPrefs.test.js` 7 条：默认值/写读回/读写异常降级/未知键忽略/损坏 JSON/写入白名单。
+- `TagSuggester.test.js` 23 条（+7）：platforms 联动请求、空数组回退全量、未传回退、platforms 变化防抖重请求、关键词/平台标签点击 emit、错误态一行收敛 + 重试恢复。既有「hot heat badge」用例的选择器由 `w.find('[title]')`（取第一个，被新增的点击提示 title 干扰）收紧为 `[title*="匹配热门话题"]`（按内容精确匹配，保持原意图）。
+- `OptimalTimeTip.test.js` 9 条（+2）：数据不足一行提示（不渲染推荐时段/来源分布）、展开/收起详情。
+- `Publish.test.js` 59 条（+6）：右栏第一块为 publish-action-card、三面板不在 flex-side、贴邻顺序（compareDocumentPosition 断言标签建议在 #publish-tags 后/最佳发布时间在 datetime-local 后/标题助手入口在标题后）、platforms 探针 stub 断言联动与清空回退、apply-tag 去重追加、localStorage 记忆初始化与持久化、无记录用默认。既有 `.flex-side [data-testid="publish-action-card"]` 断言天然兼容。
+- 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过——空表单态新旧布局渲染一致（面板按内容阈值隐藏，右栏只剩操作卡），基线无需重截；布局差异态由真实浏览器验证覆盖：新增 `tests/visual-testing/scripts/verify-publish-rail-layout.js`（hash 路由 + e2e fixture mock + Playwright chromium）在 dev server 上断言 13/13 全绿（右栏第一块/三面板在左栏不在右栏/三组贴邻顺序）。
+- 相关套件回归：views-deep2 / views-coverage / icon-usage / TagSuggester / OptimalTimeTip / usePanelVisibilityPrefs 共 88/88 绿；eslint 改动文件 0 error 0 warning；`check-locale-sync --keys` PASS（1233 keys）。
+- 全量 vitest 12236 通过 / 4 失败——失败均为 story2video pipeline 引擎存量问题（`story2video-manual-assets.test.js > manual 模式在 compose 前插入 finalize_assets` 已在干净基线 f8033fbf 复现同样失败，与本分支无关）。
+
+# [未发布] fix(session-isolation): 写保护计划任务路径与隔离区目录从 Multi-Publish 收口到 Mulpub（2026-09-28，rename-guard-task-paths）
+
+### 变更
+- 计划任务文件夹 `\Multi-Publish\` → `\Mulpub\`：install-session-isolation-task.ps1 的默认 `-TaskPath` 与生产路径守卫、mp-worktree-health.ps1 / bootstrap-write-guard.ps1 的任务查询、install-session-isolation-task.test.ps1 的 live 路径常量与无尾斜杠探针、AGENTS.md 约束段、docs/session-isolation-automation.md、.quality-rhythm/integrations/env-checklist.md。
+- 隔离区与报告目录 `%LOCALAPPDATA%\Multi-Publish\session-isolation\` → `%LOCALAPPDATA%\Mulpub\session-isolation\`：guard-shared-root-writes.ps1 隔离区默认、mp-worktree-health.ps1 报告与隔离区、installer / bootstrap 的报告路径。
+- 修复 #2551 重构遗留的两处「以产物判成败」半成品：`Register-Checked` 的 `$got` 与 Unregister 分支的 `$left` 此前从未赋值——前者在 `$ErrorActionPreference='Stop'` 下会让安装器**注册完 Health 就终止**（AtLogOn Write Guard 永远到不了，bootstrap [3/5] 因此必红），后者让反注册校验恒空转。两处均补上 `Get-ScheduledTask` 产物查询。
+- `session-isolation-automation.test.ps1` 重构：注册/注销全部改到一次性 `-TaskPath`（落实 2026-09-28 AGENTS.md「自检与测试必须用它」约束；旧版直接打生产路径，配合 `$got` bug 一跑就会半拆活体守护）；断言改为按产物分档——提权宿主双任务注册且 rc=0，非提权宿主 AtLogOn 被系统拒绝时安装器必须非零退出并点名 RunAs；子进程输出经放宽作用域的 `2>&1` 捕获（5.1 NativeCommandError 陷阱，同 install-session-isolation-task.test.ps1 的口径）。
+- 顺带收口 #2559 漏网的 4 处双反斜杠路径形态（`projects\\Multi-Publish`，当时的单分隔符正则匹配不到）：01-docs/ui-reference/scripts/capture.js、apps/desktop/tests/e2e-qr-login.js、e2e-interactive-login.js（3 处）。
+
+### 为什么
+- 仓库目录与 GitHub 仓库均已改名 Mulpub（#2515 / #2559），写保护基础设施是最后仍以 Multi-Publish 命名的机器态目录；两套命名并存让「任务在哪、隔离区在哪」需要额外记忆。
+- 机器态迁移在 PR 合并后按「先注册 \Mulpub\ 新任务（AtLogOn 需 UAC 提权）→ 停旧 watcher → pull 共享根（watcher 在场时 pull 会触发隔离风暴）→ 迁移隔离区数据 → 启新 watcher → 注销 \Multi-Publish\ 旧任务」执行，写保护中断窗口压缩到 pull 期间且每步以 `Get-ScheduledTask` 产物核验。
+
+### 验证
+- install-session-isolation-task.test.ps1 → rc=0 / 7 PASS（本机 \Mulpub\ 尚无任务，NOTE 分支如实报告 runner 态边界）
+- session-isolation-automation.test.ps1 → rc=0 / 18 PASS（非提权分支实证：Health 在一次性路径注册成功、AtLogOn 被拒后安装器 fail closed 并给出 RunAs 指引——同时证明 `$got` 修复后安装器能走到 Write Guard 注册步）
+- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
+
 # [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
 
 ### 变更
@@ -36,7 +219,7 @@
 - `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
 
 ---
-
+
 # [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
 
 ### 变更
@@ -53,7 +236,7 @@
 - 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
 - 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
 - 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
 
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
@@ -129,7 +312,6 @@
 - 变异反证均已实跑：退回中部横带几何 ⇒ 红；把暗罩调淡为 0.45 ⇒ 红；删 `pointer-events` ⇒ 红。还原后 40 passed / 1 skipped。
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
-
 
 # [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
 
