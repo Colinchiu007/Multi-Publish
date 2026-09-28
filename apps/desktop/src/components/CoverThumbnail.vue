@@ -88,7 +88,7 @@ const { t } = useI18n()
 }
 .cover-thumbnail:hover .cover-thumbnail__zoom,
 .cover-thumbnail:focus-visible .cover-thumbnail__zoom { opacity: 1; }
-.cover-thumbnail:focus-visible { outline: 2px solid var(--color-primary, #5048e5); outline-offset: 2px; }
+.cover-thumbnail:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .cover-thumbnail--state {
   display: flex;
   align-items: center;
