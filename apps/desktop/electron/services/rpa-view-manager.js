@@ -18,6 +18,7 @@ const { supportsApi, publishViaApi, apiRouter } = require('@multi-publish/api-pu
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 const { collectAuthPartitionCookies } = require('./auth-partition')
+const { buildApiTaskData } = require('./api-task-data')
 
 // 桥接 api-publish-engine 的 CancelToken（参考产品复用：阶段级可恢复取消）
 const { CancelToken } = require('@multi-publish/api-publish-engine/src/base-adapter')
@@ -77,8 +78,13 @@ class RpaViewManager {
             log.warn('RpaView', 'API publish cookie fallback empty (no platform cookies in auth partition) platform=' + platform + ' accountId=' + (acctId || '(none)'))
           }
         }
+        // 形状翻译（2026-09-28 活体残余①修复）：适配器契约要求 taskData.video.path
+        // （嵌套）而 article 是扁平 video_path——裸 article 直传会让 kuaishou/bilibili
+        // 等视频平台 API 轨全部 fail-closed（taskData.video.path required）。
+        // 与 publisher-router 共用单一翻译实现（api-task-data.js）。
+        const taskData = buildApiTaskData(article)
         const apiResult = await Promise.race([
-          publishViaApi(platform, article, cookie, {
+          publishViaApi(platform, taskData, cookie, {
             onProgress: (pct, msg) => this._emitProgress(platform, msg, pct)
           }),
           new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })

@@ -43,6 +43,35 @@ describe('RpaViewManager API 路由', () => {
     expect(publishViaApi).toHaveBeenCalledTimes(1)
   })
 
+  it('API-first 分支把 article 翻译为适配器契约的 taskData（video_path → video.path）', async () => {
+    // 根因（2026-09-28 活体）：裸 article 直传导致 kuaishou 适配器
+    // fail-closed（taskData.video.path required）→ 回退 DOM 轨。
+    shouldUseApi.mockReturnValue(true)
+    supportsApi.mockReturnValue(true)
+    publishViaApi.mockResolvedValue({ success: true, publishId: 'api-v' })
+    const manager = new RpaViewManager()
+
+    await manager.publish(
+      'kuaishou',
+      {
+        title: '视频标题', content: '描述', tags: ['tag1'],
+        video_path: 'D:\\v\\01.mp4', cover_path: 'D:\\v\\cover.png',
+        draft: false, aiGenerated: true,
+      },
+      { cookies: [{ name: 'k', value: 'v' }] },
+      1000,
+    )
+
+    expect(publishViaApi).toHaveBeenCalledTimes(1)
+    const sentTaskData = publishViaApi.mock.calls[0][1]
+    expect(sentTaskData.video).toEqual({ path: 'D:\\v\\01.mp4', duration: 0, width: 0, height: 0 })
+    expect(sentTaskData.title).toBe('视频标题')
+    expect(sentTaskData.cover).toBe('D:\\v\\cover.png')
+    expect(sentTaskData.tags).toEqual(['tag1'])
+    // 裸 article 的扁平字段不得泄漏进 taskData
+    expect(sentTaskData.video_path).toBeUndefined()
+  })
+
   it('has_api 关闭时即使存在适配器也直接走 RPA', async () => {
     shouldUseApi.mockReturnValue(false)
     supportsApi.mockReturnValue(true)
