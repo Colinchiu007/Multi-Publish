@@ -54,5 +54,5 @@
 - [x] 7.4 视觉回归：既有像素基线无回归；面板状态基线（框架可注入态则新增，否则按口径如实登记）
 - [x] 7.5 QM-1 打包验证：`electron-builder --win --dir --publish never` + asar 清单含新模块 + 启动 8 秒 stderr 无新错（打包脏化的 preload bundle 按 R2 精确还原）
 - [x] 7.6 `.quality-gates.md` 置顶执行记录（含 QM-5 五步 + 反证矩阵 + 行尾对账）
-- [ ] 7.7 提交推送 + `gh pr create --auto --squash` + CI 绿 + auto-merge 合并确认
-- [ ] 7.8 记忆三路写入（内置记忆 / 外部记忆 learnings.jsonl / EverOS）+ 回读确认
+- [x] 7.7 提交推送 + `gh pr create --auto --squash` + CI 绿 + auto-merge 合并确认
+- [x] 7.8 记忆三路写入（内置记忆 / 外部记忆 learnings.jsonl / EverOS）+ 回读确认
