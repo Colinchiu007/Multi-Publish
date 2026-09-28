@@ -43,6 +43,7 @@
 - [x] 4c.4 **Critical #4（抛错但 `failures: []` 被算成全通过）** — 成立，已修：`failed === 0` 的抛错同样记 `aborted`；补断言「抛错但一条都没归因，同样不是全通过」
 - [x] 4c.5 **Warning #1（契约只匹配字符串，没锁服务生命周期 / 顺序 / 退出码 / 上传 always）** — 成立，已补：YAML 解析后逐步断言采集步骤在 Playwright 安装与前端构建之后（且先确认这两个前置步骤存在，防 findIndex=-1 把顺序锁降级成永真）、`exit $captureExit` 存在、`upload.if === always()`；反证 N2（改名前置步骤）/N3b（摘掉上传的 if）各红一次
 - [x] 4c.6 **Warning #2（workflows 分支信任 `results.length` 当 total）** — 成立，total 一律取注册表长度，条数不等即 aborted
+- [x] 4c.8 **自我补锁（生产侧信号字段不能只被 mock 证明）**：`runnerLaunchFailed` 此前只在聚合器测试里手搓，等于替对方改签名那类假绿；现补 `visual-workflow-runner.test.js` 一条跑**真 runWorkflowSuite**（launch 恒 reject）断言 `runnerLaunchFailed=true` + 回填条数与用例数相等（23 passed）；反证：删掉置位那行 ⇒ 该条变红
 - [ ] 4c.7 **Warning #3（无逐套/逐步超时，挂死会吃满 job 超时并阻断上传）** — 未修，如实登记：聚合器无法从外部安全中断一次挂死的 Playwright 调用（强行 kill 会留下未清理的浏览器进程）；现状缓解是 main push 实测四套合计约 81 秒 vs job 预算 20 分钟，且步骤退出码现在会如实变警告（4c.2）。若将来出现挂死证据，再按证据加带清理的硬超时
 
 ## 5. 后续（本 change 明确不做）
