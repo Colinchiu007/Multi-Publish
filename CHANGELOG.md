@@ -1,3 +1,27 @@
+# [未发布] feat(publish): 发布能力注册表——15 平台发布内容项单一真源 + 无标题平台标题入描述首行（2026-10-08，publish-capability-registry）
+
+### 变更
+- **新增注册表（单一真源）**：`packages/shared-utils/src/publish-capabilities.json`（数据）+ `publish-capabilities.js`（CJS）+ `publish-capabilities.browser.js`（ESM 孪生，parity 测试锁定）。声明 15 平台 titleMode（title | caption）、内容限制、差异化字段定义（key/semantic/status/type/options/default/uiExposed）、通用主表单字段支持矩阵。新增平台/差异化字段只改 JSON，差异化面板零代码接入。
+- **通用内容 3+ 阈值分类（用户确认）**：按语义能力跨平台计数（≥3 → common；=2 → semiCommon；=1 → unique），计算属性非手写标签。语义对齐而非字段名对齐（YouTube privacy ≡ TikTok privacyLevel ≡ visibility）。
+- **蚁小二 4.13.19 逆向取证扩充矩阵（用户指定参考）**：可见性 5 平台（+抖音/快手/微博）、位置 3 平台、商品 4 平台、合集 5 平台、平台活动 3 平台；全量收录平台独有项（B站弹幕开关、百家号三图封面/副标题/自荐、知乎目录/赞赏、微博投票、快手禁止同城/同框/小程序、视频号挂链接、抖音合作投稿/横版封面/章节/同步头条）为 `platform-capable`（带 note 证据，UI 不暴露）。
+- **无标题平台标题→描述首行（用户核心需求）**：视频号 API 链 `buildShipinhaoPostData` 修复标题丢弃 Bug（旧 `content ?? title` 有正文时丢标题）；Twitter/微博/TikTok 适配器同口径合并；快手链既有行为保持。DOM RPA `_publish_generic` 对注册表无标题平台显式跳过 title_input 解析（省首次候选 10s 超时，替代选择器解析失败的隐式回退）。
+- **渲染层接入**：`publish-contract.js` 限制表改注册表派生（对外 API 不变；修复 douyin contentMax 0→1000、tiktok caption 2200、补齐视频号/快手 1000 与 facebook 63206）；`validatePlatformContent` 对无标题平台校验「标题+换行+正文」合并长度（文案含「标题计入首行」）。
+- **UI（视频/图文两分支）**：通用字段支持度徽标（N/15 平台支持）；选中无标题平台时标题区提示「标题将作为描述首行插入：{平台}」；`PlatformOverridePanel.vue` 8 平台硬编码 v-if 链重构为注册表数据驱动渲染（六类控件），既有字段零丢失（快照测试）。locales zh/en 成对新增 `fieldSupport` / `noTitleHint`。
+- **跨包契约锁**：`packages/api-publish-engine/test/no-title-contract.test.js`——A 清单锁（注册表无标题清单精确等于 6 平台，缩水即红）/ B 行为锁（清单内引擎平台实际合并）/ C 反向锁（bilibili 等有标题平台不合并）。引擎侧 require 注册表属测试依赖，零依赖约束不变。
+
+### 为什么
+- 平台发布能力元数据此前分散在 4 处硬编码且互相矛盾（渲染层限制表 vs platforms.yaml vs 差异化 UI v-if 链 vs 引擎截断表）；无标题平台（6 个）在 API 链上标题被静默丢弃，DOM 链靠选择器解析失败隐式回退（不可声明、不可测、白等 10s）。
+- 机制选型（用户确认）：声明式注册表而非数据库——平台能力是随版本发布的代码级事实，注册表可被 CI 契约测试直接锁死。
+
+### 验证
+- shared-utils `publish-capabilities.test.js` 58/58（meta 完整性/清单精确/分类计算/compose 边界/双版本 parity/结构自检）
+- `publish-contract.test.js` 22/22；`PlatformOverridePanel.test.js` 10/10；`Publish.test.js` 54/54；`rpa-view-platforms.test.js` 43/43（含 weibo 行为锁与快手断言反转）
+- api-publish-engine 全量 `run-tests.js` 通过（含 `no-title-contract.test.js` 8/8 与 `shipinhao-adapter.test.js` 新语义更新）
+- 桌面发布面 13 文件 348/348；shared-utils 全量 394 通过
+- 详见 [01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md) 与 [openspec/changes/publish-capability-registry](openspec/changes/publish-capability-registry/)
+
+---
+
 # [未发布] fix(session-isolation): 写保护计划任务路径与隔离区目录从 Multi-Publish 收口到 Mulpub（2026-09-28，rename-guard-task-paths）
 
 ### 变更

@@ -205,17 +205,80 @@ describe('publish contract', () => {
    })
   })
 
-  it('未设置差异内容时校验默认文章并接受边界值', () => {
+  it('未设置差异内容时校验默认文章并接受边界值（无标题平台按合并口径）', () => {
+    // twitter 为无标题平台：标题合并进正文首行（'标题\n' + 277 字符 = 280）恰好在限。
     expect(validatePlatformContent({
       platforms: ['twitter'],
-      article: { title: '标题', content: 'x'.repeat(280) },
+      article: { title: '标题', content: 'x'.repeat(277) },
       platformOverrides: {},
     })).toEqual({ valid: true })
 
+    // 合并后超限：'标题\n' + 281 字符 = 284 > 280，field 为 content（合并口径）。
     expect(validatePlatformContent({
       platforms: ['twitter'],
       article: { title: '标题', content: 'x'.repeat(281) },
       platformOverrides: {},
-    })).toMatchObject({ valid: false, platform: 'twitter', field: 'content' })
+    })).toMatchObject({ valid: false, platform: 'twitter', field: 'content', limit: 280, actual: 284 })
+  })
+
+  it('无标题平台合并校验：仅标题/仅正文/两者皆空均不误报', () => {
+    // 仅标题（发布链路会把标题作为描述全文）
+    expect(validatePlatformContent({
+      platforms: ['weibo'],
+      article: { title: '只有标题', content: '' },
+      platformOverrides: {},
+    })).toEqual({ valid: true })
+    // 仅正文
+    expect(validatePlatformContent({
+      platforms: ['tencent_video'],
+      article: { title: '', content: '正文'.repeat(300) },
+      platformOverrides: {},
+    })).toEqual({ valid: true })
+    // 两者皆空
+    expect(validatePlatformContent({
+      platforms: ['kuaishou'],
+      article: { title: '', content: '' },
+      platformOverrides: {},
+    })).toEqual({ valid: true })
+  })
+
+  it('无标题平台合并超限的提示文案包含「标题计入首行」', () => {
+    const result = validatePlatformContent({
+      platforms: ['instagram'],
+      article: { title: '标题', content: 'x'.repeat(2200) },
+      platformOverrides: {},
+    })
+    expect(result.valid).toBe(false)
+    expect(result.message).toBe('Instagram正文最多 2200 个字符（标题计入首行），当前 2203 个')
+  })
+
+  it('有标题平台不合并：标题与正文分别校验', () => {
+    // xiaohongshu 有标题：title 21 字超 20 上限仍按 title 字段报错（不合并）
+    const result = validatePlatformContent({
+      platforms: ['xiaohongshu'],
+      article: { title: '超'.repeat(21), content: '正文' },
+      platformOverrides: {},
+    })
+    expect(result).toMatchObject({ valid: false, field: 'title', limit: 20 })
+  })
+
+  it('无标题平台差异化覆盖内容同样按合并口径校验', () => {
+    const result = validatePlatformContent({
+      platforms: ['tiktok'],
+      article: { title: '默认标题', content: '默认正文' },
+      platformOverrides: { tiktok: { title: '覆盖标题', content: 'c'.repeat(2200) } },
+    })
+    expect(result).toMatchObject({ valid: false, platform: 'tiktok', field: 'content', actual: 2205 })
+  })
+
+  it('平台限制来自发布能力注册表（douyin/tiktok 修复项生效）', () => {
+    // 旧表 douyin contentMax=0（不校验）→ 注册表 1000
+    expect(getPlatformContentLimit('douyin')).toEqual({ titleMax: 55, contentMax: 1000 })
+    // 旧表 tiktok title 2200/content 0 → 注册表 caption 语义 content 2200
+    expect(getPlatformContentLimit('tiktok')).toEqual({ titleMax: 0, contentMax: 2200 })
+    // 旧表缺条目回落默认 5000 → 注册表补齐
+    expect(getPlatformContentLimit('tencent_video')).toEqual({ titleMax: 0, contentMax: 1000 })
+    expect(getPlatformContentLimit('kuaishou')).toEqual({ titleMax: 0, contentMax: 1000 })
+    expect(getPlatformContentLimit('facebook')).toEqual({ titleMax: 100, contentMax: 63206 })
   })
 })

@@ -1283,6 +1283,9 @@ export default {
     aiDeclaration: 'Content creation declaration',
     aiDeclarationHint: 'This content is AI-generated (declare truthfully to avoid violations)',
     diffContent: 'Platform-specific content',
+    // Publish capability registry (publish-capability-registry): common field support + no-title platform hint
+    fieldSupport: '{count}/{total} platforms',
+    noTitleHint: 'Title will be inserted as the first line of the description: {platforms}',
     collapse: 'Collapse',
     expand: 'Expand',
     showTagSuggest: '# Show tag suggestions',

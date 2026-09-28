@@ -213,11 +213,18 @@
                   </div>
                 </div>
                 <div class="cohere-form-item">
-                  <label class="cohere-form-label">{{ t('publishPage.title') }}</label>
+                  <label class="cohere-form-label">
+                    {{ t('publishPage.title') }}
+                    <span v-if="fieldSupportText('title')" class="field-support-badge" data-testid="field-support-title">{{ fieldSupportText('title') }}</span>
+                  </label>
                   <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
+                  <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
                 </div>
                 <div class="cohere-form-item">
-                  <label class="cohere-form-label">{{ t('publishPage.videoDescLabel') }}</label>
+                  <label class="cohere-form-label">
+                    {{ t('publishPage.videoDescLabel') }}
+                    <span v-if="fieldSupportText('content')" class="field-support-badge" data-testid="field-support-content">{{ fieldSupportText('content') }}</span>
+                  </label>
                   <UiInput data-testid="publish-desc" type="textarea" v-model="article.content" :placeholder="t('publishPage.videoDescPlaceholder')" :rows="4" />
                 </div>
                 <div class="cohere-form-item">
@@ -255,25 +262,40 @@
                 </div>
                 <div class="cohere-form-item publish-metadata-grid">
                   <div>
-                    <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
+                    <label class="cohere-form-label">
+                      {{ t('publishPage.tags') }}
+                      <span v-if="fieldSupportText('tags')" class="field-support-badge" data-testid="field-support-tags">{{ fieldSupportText('tags') }}</span>
+                    </label>
                     <UiInput v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
                   </div>
                   <div>
-                    <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
+                    <label class="cohere-form-label">
+                      {{ t('publishPage.topics') }}
+                      <span v-if="fieldSupportText('topics')" class="field-support-badge">{{ fieldSupportText('topics') }}</span>
+                    </label>
                     <UiInput v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
                   </div>
                   <div>
-                    <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
+                    <label class="cohere-form-label">
+                      {{ t('publishPage.mentions') }}
+                      <span v-if="fieldSupportText('mentions')" class="field-support-badge">{{ fieldSupportText('mentions') }}</span>
+                    </label>
                     <UiInput v-model="mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
                   </div>
                 </div>
                 <div class="cohere-form-item">
-                  <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
+                  <label class="cohere-form-label">
+                    {{ t('publishPage.schedule') }}
+                    <span v-if="fieldSupportText('schedule')" class="field-support-badge">{{ fieldSupportText('schedule') }}</span>
+                  </label>
                   <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                   <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
                 </div>
                 <div class="cohere-form-item">
-                  <label class="cohere-form-label">{{ t('publishPage.aiDeclaration') }}</label>
+                  <label class="cohere-form-label">
+                    {{ t('publishPage.aiDeclaration') }}
+                    <span v-if="fieldSupportText('aiGenerated')" class="field-support-badge">{{ fieldSupportText('aiGenerated') }}</span>
+                  </label>
                   <label class="ai-declaration-row" data-testid="ai-declaration">
                     <input type="checkbox" v-model="article.aiGenerated" class="coral-check" data-testid="ai-declaration-checkbox" />
                     <span>{{ t('publishPage.aiDeclarationHint') }}</span>
@@ -294,7 +316,10 @@
             <div class="cohere-form">
               <div class="cohere-form-item">
                 <div class="title-row">
-                  <label class="cohere-form-label no-margin-bottom">{{ t('publishPage.title') }}</label>
+                  <label class="cohere-form-label no-margin-bottom">
+                    {{ t('publishPage.title') }}
+                    <span v-if="fieldSupportText('title')" class="field-support-badge" data-testid="field-support-title">{{ fieldSupportText('title') }}</span>
+                  </label>
                   <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1">
                     {{ showTemplatePicker ? t('publishPage.close') : t('publishPage.template') }}
                   </button>
@@ -310,6 +335,7 @@
                   </button>
                 </div>
                 <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" />
+                <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
               </div>
               <div v-if="showTemplatePicker && templateTargetIdx < 0" class="stack-gap">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
@@ -372,25 +398,40 @@
               </div>
               <div class="cohere-form-item publish-metadata-grid">
                 <div>
-                  <label class="cohere-form-label" for="publish-tags">{{ t('publishPage.tags') }}</label>
+                  <label class="cohere-form-label" for="publish-tags">
+                    {{ t('publishPage.tags') }}
+                    <span v-if="fieldSupportText('tags')" class="field-support-badge" data-testid="field-support-tags">{{ fieldSupportText('tags') }}</span>
+                  </label>
                   <UiInput id="publish-tags" v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
                 </div>
                 <div>
-                  <label class="cohere-form-label" for="publish-topics">{{ t('publishPage.topics') }}</label>
+                  <label class="cohere-form-label" for="publish-topics">
+                    {{ t('publishPage.topics') }}
+                    <span v-if="fieldSupportText('topics')" class="field-support-badge">{{ fieldSupportText('topics') }}</span>
+                  </label>
                   <UiInput id="publish-topics" v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
                 </div>
                 <div>
-                  <label class="cohere-form-label" for="publish-mentions">{{ t('publishPage.mentions') }}</label>
+                  <label class="cohere-form-label" for="publish-mentions">
+                    {{ t('publishPage.mentions') }}
+                    <span v-if="fieldSupportText('mentions')" class="field-support-badge">{{ fieldSupportText('mentions') }}</span>
+                  </label>
                   <UiInput id="publish-mentions" v-model="mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
                 </div>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
+                <label class="cohere-form-label">
+                  {{ t('publishPage.schedule') }}
+                  <span v-if="fieldSupportText('schedule')" class="field-support-badge">{{ fieldSupportText('schedule') }}</span>
+                </label>
                 <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                 <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">{{ t('publishPage.aiDeclaration') }}</label>
+                <label class="cohere-form-label">
+                  {{ t('publishPage.aiDeclaration') }}
+                  <span v-if="fieldSupportText('aiGenerated')" class="field-support-badge">{{ fieldSupportText('aiGenerated') }}</span>
+                </label>
                 <label class="ai-declaration-row" data-testid="ai-declaration">
                   <input type="checkbox" v-model="article.aiGenerated" class="coral-check" data-testid="ai-declaration-checkbox" />
                   <span>{{ t('publishPage.aiDeclarationHint') }}</span>
@@ -599,10 +640,12 @@ import { useBatchPublish } from '@/composables/useBatchPublish'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
   getPlatformContentLimit,
+  getPlatformLabel,
   normalizePublishFile,
   normalizePublishMentions,
   normalizePublishStringList,
 } from '@/features/publish/publish-contract'
+import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META } from '@multi-publish/shared-utils/src/publish-capabilities'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
@@ -887,6 +930,24 @@ const selectedOverridePlatforms = computed(() => {
     .map(platform => ({ ...platform, ...getPlatformContentLimit(platform.id) }))
 })
 
+// ── 通用字段支持度标注 + 无标题平台标题提示（publish-capability-registry 单一真源）──
+// 通用 ≠ 全部支持：每个通用字段显示「N/总平台数 支持」徽标（分母取注册表平台
+// 总数，与能力矩阵口径一致）；无标题平台（视频号/快手/微博/X/Instagram/TikTok）
+// 的发布链路会把标题作为描述首行插入，选中任一无标题平台时在标题输入区提示
+// 该行为（openspec/changes/publish-capability-registry）。
+const commonFormFields = getCommonFormFields()
+const registryPlatformCount = Object.keys(PLATFORM_PUBLISH_META).length
+function fieldSupportText (fieldKey) {
+  const field = commonFormFields.find(item => item.key === fieldKey)
+  if (!field) return ''
+  return t('publishPage.fieldSupport', { count: field.platforms.length, total: registryPlatformCount })
+}
+const noTitleHint = computed(() => {
+  const noTitleSelected = selectedPlatforms.value.filter(id => isNoTitlePlatform(id))
+  if (noTitleSelected.length === 0) return ''
+  return t('publishPage.noTitleHint', { platforms: noTitleSelected.map(id => getPlatformLabel(id)).join('、') })
+})
+
 const {
   showDraftList,
   drafts,
@@ -1155,6 +1216,9 @@ defineExpose({
 .input-max-260 { max-width: 260px; }
 .input-max-300 { max-width: 300px; }
 .publish-time-hint { font-size: var(--font-size-xs); color: var(--muted); margin-left: 8px; }
+/* 通用字段支持度徽标 + 无标题平台标题提示（publish-capability-registry） */
+.field-support-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; font-size: var(--font-size-xs, 11px); color: var(--action-blue, #1890ff); background: color-mix(in srgb, var(--action-blue, #1890ff) 10%, transparent); vertical-align: middle; }
+.no-title-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }

@@ -1284,6 +1284,9 @@ export default {
     aiDeclaration: '内容创作声明',
     aiDeclarationHint: '本内容由 AI 生成（如实声明，避免违规）',
     diffContent: '平台差异化内容',
+    // 发布能力注册表（publish-capability-registry）：通用字段支持度 + 无标题平台提示
+    fieldSupport: '{count}/{total} 平台支持',
+    noTitleHint: '标题将作为描述首行插入：{platforms}',
     collapse: '收起',
     expand: '展开',
     showTagSuggest: '# 显示标签建议',
