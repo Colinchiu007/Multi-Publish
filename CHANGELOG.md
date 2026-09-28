@@ -30,6 +30,25 @@
 - 回归：`Publish.test.js` + `CoverCropDialog.test.js` + `useCoverPreview.test.js` = 88 passed；`overlay-view-suspension` + `shell-mode-6b` = 19 passed；`views-deep2` + `views-coverage` = 16 passed；`index.test.js`（CSP 守卫）通过；`vite build` 通过（模板编译）；eslint 改动文件零告警；`verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内。
 - 行尾对账：四份共享文档均按**字节前插/追加**，未触碰任何既有行；`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等（无幽灵行）。
 
+# [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
+
+### 变更
+- `AGENTS.md`「行尾（CRLF）不是噪声：改前先认基线，改后必须保持」第①句后半，由「脚本改写时按原文件行尾回写（`split(/\r?\n/)` + 检测到的 eol 再 join）」改为「**逐行保留各自的行尾**（`split('\n')` 之后不碰任何一行 —— `\r` 本就是行内容的一部分 —— 再 `join('\n')`）」，并显式禁止「探测多数派 eol 后统一回写」。同句「合并正解」里的 `+ 还原 CRLF` 是同一个错的第二个落点，改为「逐行保留 main 那一行原本的结尾（不得统一成一种）」。
+
+### 为什么（实测，不是推断）
+- 本仓这两份置顶文档的 **blob 本身就是混行尾**。行尾分布经「各行类之和 = 总行数」与「`\r` 加总 = 文件 CR 总数」双重自洽校验：`CHANGELOG.md` 14391 行 = 14365 行单 `\r` + 2 行 LF-only + 24 行双 `\r`；`01-docs/learnings.md` 16446 行 = 16437 + 3 + 6。
+- 对**原文不做任何增删**、只走一次「剥净行尾 `\r` → 按探测到的 eol join」往返，`CHANGELOG.md` 凭空被改写 **27 行**、`learnings.md` **10 行**；逐行原样 join 同一往返为 **0 行**。旧口径因此会稳定造出该纪律第②项专门要抓的幽灵行 —— 本条 PR 的实测过程本身就是这样中招一次（`+1 / −1`）后才定位到根因的。
+- 其中第 27 行是**文件末行**：`lines.join(eol) + '\n'` 会把末行的 `\r` 整体吃掉（末行分隔符本是 `eol`，尾部只补了 `'\n'`）。这是 join 式的第二个独立缺陷，与混行尾无关，实测叠加 1 行 ⇒ 27 / 10。
+
+### 未改动的一条（自我更正）
+- 本文第①条的测法 `git show <ref>:<file> | grep -c $'\r'` **有效，未改**。曾有一条内部结论主张它会被 `text=auto` 污染而假报 CRLF；实测 `git show <rev>:<path>` 输出的是裸 blob、不做 smudge 转换（三个文件与 `git cat-file blob` 逐字节一致），故该主张已被否证并撤回。
+
+### 验证
+- 本条目自身即按修正后的口径写入：`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径一致且删除列为 0（已有行一行未动）。
+- `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
+
+---
+
 # [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
 
 ### 变更
