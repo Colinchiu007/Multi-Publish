@@ -23,8 +23,13 @@ let wired = null
 function setupSignerAssembly (electronDeps) {
   if (wired) return wired
   const { ipcMain, BrowserWindow } = electronDeps
-  // 与引擎发布链同一 provider 单例（design §1：装配层注入 bridge）
-  const { browserPageProvider } = require('@multi-publish/api-publish-engine/src/signer')
+  // 与引擎发布链同一 provider 单例（design §1：装配层注入 bridge）。
+  // require 路径修正（2026-09-28 活体 6.3 最终层）：'src/signer' 被 Node 解析到
+  // 门面 src/signer.js（文件优先于目录），门面不导出 browserPageProvider——
+  // provider 恒 undefined、setBridge 被 if 守卫静默跳过、注册日志照常打（假绿），
+  // 引擎单例永远无 bridge（链的注册表路径必然「bridge not injected」）。
+  // 直指 src/signer/index 拿单例真身（与链的 registry 同一模块实例）。
+  const { browserPageProvider } = require('@multi-publish/api-publish-engine/src/signer/index')
   const manager = createSignerPageManager({ BrowserWindow })
   const assembly = createSignerAssembly({
     BrowserWindow,

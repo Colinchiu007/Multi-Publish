@@ -1,15 +1,70 @@
 {
-  "generatedBy": "scripts one-off (see PR description)",
+  "generatedBy": "本文件由一次性脚本从真实 Actions API 载荷生成（见 PR 说明）；禁止手抄改形",
+  "pinnedShapes": [
+    {
+      "runId": 36376827835,
+      "shape": "timeout(1) 掐掉的预算墙：annotation exit code 124"
+    },
+    {
+      "runId": 36373602269,
+      "shape": "同上，第二条独立提交 ⇒ 证明签名跨提交稳定"
+    },
+    {
+      "runId": 34748565851,
+      "shape": "真实断言失败：同一步骤 exit 1，不得被判成超时墙"
+    },
+    {
+      "runId": 34743117899,
+      "shape": "同上第二条"
+    },
+    {
+      "runId": 36317993376,
+      "shape": "根因作业 + Gate Result 汇总作业同时红"
+    },
+    {
+      "runId": 36268229139,
+      "shape": "同上（另一片）"
+    },
+    {
+      "runId": 36371128742,
+      "shape": "Doc Sync Gate：exit 1，只能靠作业/步骤名分类"
+    },
+    {
+      "runId": 36160133536,
+      "shape": "同上第二条"
+    },
+    {
+      "runId": 36401422504,
+      "shape": "生产误判样本：装依赖步骤被步骤名里的 \"test\" 判成 test-failure（issue #2568）"
+    },
+    {
+      "runId": 35492423609,
+      "shape": "Build Vue frontend 步骤红：属环境/构建，不是测试"
+    },
+    {
+      "runId": 35373583526,
+      "shape": "同上第二条"
+    },
+    {
+      "runId": 36396712049,
+      "shape": "rollup-only 形状：重跑后真实失败作业已不在当前 attempt，只剩 Gate Result 红（生产 issue #2565 的那个 run）"
+    }
+  ],
   "samples": [
     {
       "source": {
         "workflowFile": "electron-ci.yml",
-        "displayTitle": "feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身 (#2504)",
         "runId": 36376827835,
+        "shape": "timeout(1) 掐掉的预算墙：annotation exit code 124",
+        "displayTitle": "feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身 (#2504)",
+        "runName": "Electron CI",
         "runAttempt": 1,
+        "conclusion": "failure",
         "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36376827835",
         "headSha": "dbe0b2f8fa1eac6c9df7a66c30f3f98b55558b5c",
-        "collectedAt": "2026-09-28T07:27:10.562Z"
+        "runStartedAt": "2026-09-28T04:14:00Z",
+        "runUpdatedAt": "2026-09-28T04:36:10Z",
+        "collectedAt": "2026-09-28T09:55:24.478Z"
       },
       "failedJobs": [
         {
@@ -62,12 +117,17 @@
     {
       "source": {
         "workflowFile": "electron-ci.yml",
-        "displayTitle": "fix(scripts): 统一共享数据锚点路径到 Mulpub 仓库根 (#2515)",
         "runId": 36373602269,
+        "shape": "同上，第二条独立提交 ⇒ 证明签名跨提交稳定",
+        "displayTitle": "fix(scripts): 统一共享数据锚点路径到 Mulpub 仓库根 (#2515)",
+        "runName": "Electron CI",
         "runAttempt": 1,
+        "conclusion": "failure",
         "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36373602269",
         "headSha": "3ff26d5443a271fbefc644510248ed880ff9b2f8",
-        "collectedAt": "2026-09-28T07:27:12.441Z"
+        "runStartedAt": "2026-09-28T03:24:35Z",
+        "runUpdatedAt": "2026-09-28T03:48:39Z",
+        "collectedAt": "2026-09-28T09:55:27.354Z"
       },
       "failedJobs": [
         {
@@ -119,13 +179,144 @@
     },
     {
       "source": {
-        "workflowFile": "quality-gate.yml",
-        "displayTitle": "test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d (#2502)",
-        "runId": 36317993376,
+        "workflowFile": "electron-ci.yml",
+        "runId": 34748565851,
+        "shape": "真实断言失败：同一步骤 exit 1，不得被判成超时墙",
+        "displayTitle": "feat(hot-topics): favorites tab, favorite/unfavorite, topic summary h…",
+        "runName": "Electron CI",
         "runAttempt": 1,
+        "conclusion": "failure",
+        "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/34748565851",
+        "headSha": "721c1dbf70b02179af856cbf3777e6308c3f441f",
+        "runStartedAt": "2026-09-13T08:50:06Z",
+        "runUpdatedAt": "2026-09-13T09:03:26Z",
+        "collectedAt": "2026-09-28T09:55:30.130Z"
+      },
+      "failedJobs": [
+        {
+          "id": 103700862933,
+          "name": "electron-tests",
+          "conclusion": "failure",
+          "started_at": "2026-09-13T08:50:10Z",
+          "completed_at": "2026-09-13T09:03:22Z",
+          "steps": [
+            {
+              "name": "Unit tests (Vitest, non-Electron, single-worker deterministic)",
+              "conclusion": "failure"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "jobId": 103700862933,
+          "jobName": "electron-tests",
+          "list": [
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/721c1dbf70b02179af856cbf3777e6308c3f441f/.github",
+              "start_line": 2,
+              "start_column": null,
+              "end_line": 2,
+              "end_column": null,
+              "annotation_level": "warning",
+              "title": "",
+              "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+              "raw_details": ""
+            },
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/721c1dbf70b02179af856cbf3777e6308c3f441f/.github",
+              "start_line": 61846,
+              "start_column": null,
+              "end_line": 61846,
+              "end_column": null,
+              "annotation_level": "failure",
+              "title": "",
+              "message": "Process completed with exit code 1.",
+              "raw_details": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": {
+        "workflowFile": "electron-ci.yml",
+        "runId": 34743117899,
+        "shape": "同上第二条",
+        "displayTitle": "feat(ResultView): 新增查看文案按钮，弹窗展示全部文案并支持复制",
+        "runName": "Electron CI",
+        "runAttempt": 1,
+        "conclusion": "failure",
+        "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/34743117899",
+        "headSha": "02d23fcf85495ec87d6c7e9952b0b45b32312cac",
+        "runStartedAt": "2026-09-13T06:35:25Z",
+        "runUpdatedAt": "2026-09-13T06:48:20Z",
+        "collectedAt": "2026-09-28T09:55:32.921Z"
+      },
+      "failedJobs": [
+        {
+          "id": 103686094369,
+          "name": "electron-tests",
+          "conclusion": "failure",
+          "started_at": "2026-09-13T06:35:37Z",
+          "completed_at": "2026-09-13T06:48:19Z",
+          "steps": [
+            {
+              "name": "Unit tests (Vitest, non-Electron, single-worker deterministic)",
+              "conclusion": "failure"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "jobId": 103686094369,
+          "jobName": "electron-tests",
+          "list": [
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/02d23fcf85495ec87d6c7e9952b0b45b32312cac/.github",
+              "start_line": 2,
+              "start_column": null,
+              "end_line": 2,
+              "end_column": null,
+              "annotation_level": "warning",
+              "title": "",
+              "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+              "raw_details": ""
+            },
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/02d23fcf85495ec87d6c7e9952b0b45b32312cac/.github",
+              "start_line": 61846,
+              "start_column": null,
+              "end_line": 61846,
+              "end_column": null,
+              "annotation_level": "failure",
+              "title": "",
+              "message": "Process completed with exit code 1.",
+              "raw_details": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": {
+        "workflowFile": "quality-gate.yml",
+        "runId": 36317993376,
+        "shape": "根因作业 + Gate Result 汇总作业同时红",
+        "displayTitle": "test(ci): 把 6 条从未在 CI 跑的 PowerShell 锁按运行时分档接进 Gate 2d (#2502)",
+        "runName": "quality-gate",
+        "runAttempt": 1,
+        "conclusion": "failure",
         "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36317993376",
         "headSha": "c57fcb10a69a3687ebf46815eb6fac79671d46e7",
-        "collectedAt": "2026-09-28T07:27:17.315Z"
+        "runStartedAt": "2026-09-27T12:08:24Z",
+        "runUpdatedAt": "2026-09-27T12:32:49Z",
+        "collectedAt": "2026-09-28T09:55:37.161Z"
       },
       "failedJobs": [
         {
@@ -209,12 +400,17 @@
     {
       "source": {
         "workflowFile": "quality-gate.yml",
-        "displayTitle": "fix(ci): gate-result 由「只 echo 不判定」改为真实聚合上游结论 (#2410)",
         "runId": 36268229139,
+        "shape": "同上（另一片）",
+        "displayTitle": "fix(ci): gate-result 由「只 echo 不判定」改为真实聚合上游结论 (#2410)",
+        "runName": "quality-gate",
         "runAttempt": 1,
+        "conclusion": "failure",
         "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36268229139",
         "headSha": "655acd0c9a73a52473b086fda17c060ee17ab585",
-        "collectedAt": "2026-09-28T07:27:20.465Z"
+        "runStartedAt": "2026-09-26T20:04:19Z",
+        "runUpdatedAt": "2026-09-26T20:29:08Z",
+        "collectedAt": "2026-09-28T09:55:41.542Z"
       },
       "failedJobs": [
         {
@@ -298,12 +494,17 @@
     {
       "source": {
         "workflowFile": "doc-gate.yml",
-        "displayTitle": "fix(publish): 视频上传区补齐 limit=1 三件套——重选静默丢弃/删除状态残留/选择零反馈",
         "runId": 36371128742,
+        "shape": "Doc Sync Gate：exit 1，只能靠作业/步骤名分类",
+        "displayTitle": "fix(publish): 视频上传区补齐 limit=1 三件套——重选静默丢弃/删除状态残留/选择零反馈",
+        "runName": "Doc Sync Gate",
         "runAttempt": 1,
+        "conclusion": "failure",
         "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36371128742",
         "headSha": "a042ad30fb8ec111068f7c600e11c4f37518cddb",
-        "collectedAt": "2026-09-28T07:27:25.688Z"
+        "runStartedAt": "2026-09-28T02:46:48Z",
+        "runUpdatedAt": "2026-09-28T02:52:16Z",
+        "collectedAt": "2026-09-28T09:55:45.223Z"
       },
       "failedJobs": [
         {
@@ -356,12 +557,17 @@
     {
       "source": {
         "workflowFile": "doc-gate.yml",
-        "displayTitle": "feat(member-center): 会员中心七栏壳 + 消息/设备前端接线（A1，含A2单源并入）",
         "runId": 36160133536,
+        "shape": "同上第二条",
+        "displayTitle": "feat(member-center): 会员中心七栏壳 + 消息/设备前端接线（A1，含A2单源并入）",
+        "runName": "Doc Sync Gate",
         "runAttempt": 1,
+        "conclusion": "failure",
         "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36160133536",
         "headSha": "814726aca3e8637621ec6c6224070e357bf423a4",
-        "collectedAt": "2026-09-28T07:27:27.817Z"
+        "runStartedAt": "2026-09-25T16:20:32Z",
+        "runUpdatedAt": "2026-09-25T16:24:45Z",
+        "collectedAt": "2026-09-28T09:55:47.875Z"
       },
       "failedJobs": [
         {
@@ -401,6 +607,246 @@
               "start_line": 53,
               "start_column": null,
               "end_line": 53,
+              "end_column": null,
+              "annotation_level": "failure",
+              "title": "",
+              "message": "Process completed with exit code 1.",
+              "raw_details": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": {
+        "workflowFile": "gui-test.yml",
+        "runId": 36401422504,
+        "shape": "生产误判样本：装依赖步骤被步骤名里的 \"test\" 判成 test-failure（issue #2568）",
+        "displayTitle": "fix(模型调用): 5h 额度并发下超额发起真实调用 → 准入即占额度",
+        "runName": "GUI Tests",
+        "runAttempt": 1,
+        "conclusion": "failure",
+        "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36401422504",
+        "headSha": "f2ae3ab1c8dc0c2182aeff65cfb6ea60d77166cf",
+        "runStartedAt": "2026-09-28T09:06:45Z",
+        "runUpdatedAt": "2026-09-28T09:16:35Z",
+        "collectedAt": "2026-09-28T09:55:50.542Z"
+      },
+      "failedJobs": [
+        {
+          "id": 108859948016,
+          "name": "gui-test",
+          "conclusion": "failure",
+          "started_at": "2026-09-28T09:12:34Z",
+          "completed_at": "2026-09-28T09:16:34Z",
+          "steps": [
+            {
+              "name": "Install Python backend runtime and test dependencies",
+              "conclusion": "failure"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "jobId": 108859948016,
+          "jobName": "gui-test",
+          "list": [
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/f2ae3ab1c8dc0c2182aeff65cfb6ea60d77166cf/.github",
+              "start_line": 2,
+              "start_column": null,
+              "end_line": 2,
+              "end_column": null,
+              "annotation_level": "warning",
+              "title": "",
+              "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5, actions/upload-artifact@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+              "raw_details": ""
+            },
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/f2ae3ab1c8dc0c2182aeff65cfb6ea60d77166cf/.github",
+              "start_line": 44,
+              "start_column": null,
+              "end_line": 44,
+              "end_column": null,
+              "annotation_level": "failure",
+              "title": "",
+              "message": "Process completed with exit code 1.",
+              "raw_details": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": {
+        "workflowFile": "gui-test.yml",
+        "runId": 35492423609,
+        "shape": "Build Vue frontend 步骤红：属环境/构建，不是测试",
+        "displayTitle": "fix(profile-menu): remove duplicate status note in unauthenticated state",
+        "runName": "GUI Tests",
+        "runAttempt": 1,
+        "conclusion": "failure",
+        "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/35492423609",
+        "headSha": "1b710092e1be21c2d68e1a11ceed9183053ecbfd",
+        "runStartedAt": "2026-09-20T05:44:04Z",
+        "runUpdatedAt": "2026-09-20T05:46:29Z",
+        "collectedAt": "2026-09-28T09:55:53.172Z"
+      },
+      "failedJobs": [
+        {
+          "id": 106029533731,
+          "name": "gui-test",
+          "conclusion": "failure",
+          "started_at": "2026-09-20T05:44:07Z",
+          "completed_at": "2026-09-20T05:46:28Z",
+          "steps": [
+            {
+              "name": "Build Vue frontend",
+              "conclusion": "failure"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "jobId": 106029533731,
+          "jobName": "gui-test",
+          "list": [
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/1b710092e1be21c2d68e1a11ceed9183053ecbfd/.github",
+              "start_line": 2,
+              "start_column": null,
+              "end_line": 2,
+              "end_column": null,
+              "annotation_level": "warning",
+              "title": "",
+              "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5, actions/upload-artifact@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+              "raw_details": ""
+            },
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/1b710092e1be21c2d68e1a11ceed9183053ecbfd/.github",
+              "start_line": 39,
+              "start_column": null,
+              "end_line": 39,
+              "end_column": null,
+              "annotation_level": "failure",
+              "title": "",
+              "message": "Process completed with exit code 1.",
+              "raw_details": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": {
+        "workflowFile": "gui-test.yml",
+        "runId": 35373583526,
+        "shape": "同上第二条",
+        "displayTitle": "fix(rewrite): 双模型审查修复——软删除重建500/内置回退/同步失效引擎缓存/审计污染 (#2015)",
+        "runName": "GUI Tests",
+        "runAttempt": 1,
+        "conclusion": "failure",
+        "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/35373583526",
+        "headSha": "73ccdf29a22f87981e21c4ce930f99f5f5345093",
+        "runStartedAt": "2026-09-18T17:18:49Z",
+        "runUpdatedAt": "2026-09-18T17:24:47Z",
+        "collectedAt": "2026-09-28T09:55:56.175Z"
+      },
+      "failedJobs": [
+        {
+          "id": 105692987369,
+          "name": "gui-test",
+          "conclusion": "failure",
+          "started_at": "2026-09-18T17:22:20Z",
+          "completed_at": "2026-09-18T17:24:47Z",
+          "steps": [
+            {
+              "name": "Build Vue frontend",
+              "conclusion": "failure"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "jobId": 105692987369,
+          "jobName": "gui-test",
+          "list": [
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/73ccdf29a22f87981e21c4ce930f99f5f5345093/.github",
+              "start_line": 2,
+              "start_column": null,
+              "end_line": 2,
+              "end_column": null,
+              "annotation_level": "warning",
+              "title": "",
+              "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5, actions/upload-artifact@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+              "raw_details": ""
+            },
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/73ccdf29a22f87981e21c4ce930f99f5f5345093/.github",
+              "start_line": 48,
+              "start_column": null,
+              "end_line": 48,
+              "end_column": null,
+              "annotation_level": "failure",
+              "title": "",
+              "message": "Process completed with exit code 1.",
+              "raw_details": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": {
+        "workflowFile": "quality-gate.yml",
+        "runId": 36396712049,
+        "shape": "rollup-only 形状：重跑后真实失败作业已不在当前 attempt，只剩 Gate Result 红（生产 issue #2565 的那个 run）",
+        "displayTitle": "fix(标题参考): 数据源收窄 + 标题级相关性门禁，修掉「高互动参考」清一色 GitHub issue",
+        "runName": "quality-gate",
+        "runAttempt": 2,
+        "conclusion": "cancelled",
+        "htmlUrl": "https://github.com/Colinchiu007/mulpub/actions/runs/36396712049",
+        "headSha": "d00998c2ecc63f4a8454c564176ba5645e035fef",
+        "runStartedAt": "2026-09-28T09:03:05Z",
+        "runUpdatedAt": "2026-09-28T09:12:42Z",
+        "collectedAt": "2026-09-28T09:55:59.107Z"
+      },
+      "failedJobs": [
+        {
+          "id": 108859381071,
+          "name": "Gate Result",
+          "conclusion": "failure",
+          "started_at": "2026-09-28T09:12:39Z",
+          "completed_at": "2026-09-28T09:12:41Z",
+          "steps": [
+            {
+              "name": "Gate result",
+              "conclusion": "failure"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "jobId": 108859381071,
+          "jobName": "Gate Result",
+          "list": [
+            {
+              "path": ".github",
+              "blob_href": "https://github.com/Colinchiu007/mulpub/blob/d00998c2ecc63f4a8454c564176ba5645e035fef/.github",
+              "start_line": 41,
+              "start_column": null,
+              "end_line": 41,
               "end_column": null,
               "annotation_level": "failure",
               "title": "",

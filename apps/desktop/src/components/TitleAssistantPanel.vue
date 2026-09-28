@@ -46,10 +46,21 @@
           <div style="font-size: var(--font-size-xs);line-height:1.3;margin-bottom:2px">{{ t.title }}</div>
           <div style="font-size: var(--font-size-xs);color:var(--muted)">
             <span :style="{ color: scoreColor(t.engagement) }" ><el-icon><TrendCharts /></el-icon> {{ t.engagement.toFixed(1) }}</span>
-            <span v-if="t.source === 'reddit'" style="margin-left:6px">Reddit</span>
-            <span v-else-if="t.source === 'hackernews'" style="margin-left:6px">HN</span>
-            <span v-else style="margin-left:6px">GitHub</span>
+            <span v-if="sourceLabel(t.source)" style="margin-left:6px">{{ sourceLabel(t.source) }}</span>
           </div>
+        </div>
+      </div>
+
+      <!-- 空态：有响应但没有一条通过相关性门禁时，如实说明而不是硬凑列表。
+           两个分支各带一个结构类名，供测试按「渲染了哪一支」断言，而不是按 locale 文案字面量断言
+           （AGENTS.md：渲染端测试断言结构/键，文案改写不应把正确的实现判成红）。 -->
+      <div v-else class="ta-section ta-empty">
+        <div>{{ $t('intelligence.titleAssistantEmpty') }}</div>
+        <div v-if="data.droppedIrrelevant > 0" class="ta-empty-hint ta-empty-hint--filtered">
+          {{ $t('intelligence.titleAssistantFiltered', { n: data.droppedIrrelevant }) }}
+        </div>
+        <div v-else class="ta-empty-hint ta-empty-hint--source">
+          {{ $t('intelligence.titleAssistantEmptyHint') }}
         </div>
       </div>
     </div>
@@ -73,6 +84,19 @@ const emit = defineEmits(['close'])
 const loading = ref(false)
 const data = ref(null)
 const error = ref(null)
+
+// 来源标签按显式映射渲染。旧实现是 `v-else → "GitHub"`，任何未列举的 source
+// 都会被贴上 GitHub 的牌子 —— 品牌名不是兜底值，标错等于给用户假证据。
+const SOURCE_LABELS = {
+  reddit: 'Reddit',
+  hackernews: 'HN',
+  github: 'GitHub',
+}
+
+function sourceLabel (source) {
+  if (!source) return ''
+  return SOURCE_LABELS[source] || String(source)
+}
 
 function scoreColor (score) {
   if (score >= 2.0) return '#2e7d32'
@@ -101,6 +125,7 @@ watch(() => props.title, (newVal) => {
         data.value = {
           patterns: analysis.patterns,
           suggestion: analysis.suggestion,
+          droppedIrrelevant: Number(payload.droppedIrrelevant) || 0,
           titles: (payload.results || []).slice(0, 6),
         }
       } else {
@@ -153,4 +178,16 @@ watch(() => props.visible, (v) => {
   border-bottom: 1px solid var(--border, var(--border));
 }
 .ta-ref-item:last-child { border-bottom: none; }
+.ta-empty {
+  text-align: center;
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+.ta-empty-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: .8;
+}
 </style>

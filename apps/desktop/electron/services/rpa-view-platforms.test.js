@@ -525,8 +525,10 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     expect(String(written)).toContain('正文B')
     // 正文步骤不得再把同一编辑器覆写为纯正文（否则标题丢失）
     expect(context._fillInput.mock.calls.some(([, , v]) => String(v) === '正文B')).toBe(false)
-    // 候选回退确实试过标题候选
-    expect(context._waitForElement.mock.calls.map((c) => c[1])).toContain('input[placeholder*="标题"]')
+    // 2026-10-08 注册表驱动（publish-capability-registry）：快手是无标题平台，
+    // title_input 候选不再被解析（旧隐式回退靠选择器解析失败，白等 10s 超时）；
+    // 标题直接经编辑器合并路径写入描述首行。
+    expect(context._waitForElement.mock.calls.map((c) => c[1])).not.toContain('input[placeholder*="标题"]')
   })
 
   it('有独立标题字段时：标题进标题框、正文进编辑器，互不合并', async () => {
@@ -546,6 +548,40 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     const descCall = context._fillInput.mock.calls.find(([, sel]) => sel === '[contenteditable="true"]')
     expect(descCall).toBeTruthy()
     expect(String(descCall[2])).toContain('正文B')
+  })
+
+  it('无标题平台（weibo）携带标题时不解析 title_input，标题合并进编辑器描述首行', async () => {
+    const context = createGenericContext(['.publisher_text textarea'])
+    const weiboConfig = {
+      publish_url: 'https://weibo.com/upload',
+      has_api: false,
+      success_patterns: [],
+      selectors: {
+        // 选择器表里存在 title_input 候选（历史遗留），但注册表判定 weibo 无标题，
+        // 必须被显式跳过——不允许再靠解析失败隐式回退。
+        title_input: ['input[placeholder*="标题"]'],
+        content_textarea: ['.publisher_text textarea'],
+        publish_btn: ['button:has-text("发布")'],
+      },
+    }
+    await platformsMixin._publish_generic.call(context, win, { title: '标题A', content: '正文B' }, 'weibo', weiboConfig)
+
+    expect(context._waitForElement.mock.calls.map((c) => c[1])).not.toContain('input[placeholder*="标题"]')
+    const editorCalls = context._fillInput.mock.calls.filter(([, sel]) => sel === '.publisher_text textarea')
+    expect(editorCalls.length).toBeGreaterThan(0)
+    const written = String(editorCalls[0][2])
+    expect(written).toContain('标题A')
+    expect(written.indexOf('标题A')).toBeLessThan(written.indexOf('正文B'))
+  })
+
+  it('结构锁：_publish_generic 以注册表 isNoTitlePlatform 守卫 title_input 解析', () => {
+    const body = getGenericBody()
+    const guardIdx = body.indexOf('isNoTitlePlatform(platform)')
+    const resolveIdx = body.indexOf('await this._resolveSelector(win, sel.title_input')
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(resolveIdx).toBeGreaterThan(-1)
+    // 守卫必须出现在 title_input 解析之前
+    expect(guardIdx).toBeLessThan(resolveIdx)
   })
 
   it('上传完成判定：含“上传中/剩余时间/百分比未满”负向信号，默认预算 ≥15 分钟', () => {

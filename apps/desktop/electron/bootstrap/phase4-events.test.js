@@ -12,7 +12,7 @@ describe('phase4-events', () => {
       taskQueue,
       history,
       publishMonitor: { createMonitorTask: vi.fn() },
-      publishImpactTracker: { addTracking: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
       getMainWin: () => null,
     })
 
@@ -30,6 +30,36 @@ describe('phase4-events', () => {
     )
   })
 
+  it('发布成功调用 tracker 真实方法 scheduleImpactTracking（含 platform）', () => {
+    // 根因（2026-09-28 活体残余②）：调用方调 addTracking——真实类只有
+    // scheduleImpactTracking（publish-impact-tracker.js），旧测试 mock 了
+    // 不存在的方法名，mock-现实漂移让 TypeError 逃逸到产线。
+    const taskQueue = new EventEmitter()
+    const scheduleImpactTracking = vi.fn()
+    wireTaskQueueEvents({
+      taskQueue,
+      history: { addRecord: vi.fn() },
+      publishMonitor: { createMonitorTask: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking },
+      getMainWin: () => null,
+    })
+
+    taskQueue.emit('task:success', {
+      id: 'task-impact',
+      platform: 'kuaishou',
+      article: { title: '影响力追踪标题', keywords: ['kw1'] },
+      result: {},
+    })
+
+    expect(scheduleImpactTracking).toHaveBeenCalledTimes(1)
+    expect(scheduleImpactTracking).toHaveBeenCalledWith({
+      articleId: 'task-impact',
+      title: '影响力追踪标题',
+      keywords: ['kw1'],
+      platform: 'kuaishou',
+    })
+  })
+
   it('风控命中的发布失败额外发 publish:risk-hold IPC', () => {
     const taskQueue = new EventEmitter()
     const send = vi.fn()
@@ -38,7 +68,7 @@ describe('phase4-events', () => {
       taskQueue,
       history: { addRecord: vi.fn() },
       publishMonitor: { createMonitorTask: vi.fn() },
-      publishImpactTracker: { addTracking: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
       getMainWin: () => win,
     })
     taskQueue.emit('task:failed', { id: 't-risk', platform: 'baijiahao', article: { accountId: 'acc-9' }, error: '触发风控，请稍后再试' })
@@ -55,7 +85,7 @@ describe('phase4-events', () => {
       taskQueue,
       history: { addRecord: vi.fn() },
       publishMonitor: { createMonitorTask: vi.fn() },
-      publishImpactTracker: { addTracking: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
       getMainWin: () => win,
     })
     taskQueue.emit('task:failed', { id: 't-plain', platform: 'zhihu', article: {}, error: '平台 Cookie 缺失（账号未登录）' })
@@ -72,7 +102,7 @@ describe('phase4-events', () => {
       taskQueue,
       history: { addRecord: vi.fn() },
       publishMonitor: { createMonitorTask: vi.fn() },
-      publishImpactTracker: { addTracking: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
       getMainWin: () => win,
       riskSuspender,
     })
@@ -93,7 +123,7 @@ describe('phase4-events', () => {
       taskQueue,
       history: { addRecord: vi.fn() },
       publishMonitor: { createMonitorTask: vi.fn() },
-      publishImpactTracker: { addTracking: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
       getMainWin: () => win,
       riskSuspender,
     })
@@ -111,7 +141,7 @@ describe('phase4-events', () => {
       taskQueue,
       history: { addRecord: vi.fn() },
       publishMonitor: { createMonitorTask: vi.fn() },
-      publishImpactTracker: { addTracking: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
       getMainWin: () => win,
     })
     taskQueue.emit('task:failed', { id: 't-na', platform: 'toutiao', article: {}, error: '触发风控' })

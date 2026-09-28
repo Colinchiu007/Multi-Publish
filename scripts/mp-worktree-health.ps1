@@ -11,7 +11,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = '',
-    [string]$ReportPath = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Multi-Publish\session-isolation\health.json'),
+    [string]$ReportPath = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\health.json'),
     [string]$WorktreeRoot = '',
     [string]$GitPath = '',
     [switch]$RequireClean,
@@ -83,13 +83,13 @@ foreach ($name in @('pre-commit','post-checkout')) {
     $hookResults += [ordered]@{ name=$name; sourceExists=[bool]$sourceBytes; installedExists=[bool]$installedBytes; identical=$identical; match=$prefixMatch; appendedBytes=$appendedBytes }
 }
 
-$guardTask = Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
+$guardTask = Get-ScheduledTask -TaskPath '\Mulpub\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
 $guardRunning = $false
 if ($guardTask) {
     $guardProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' })
     $guardRunning = $guardProcs.Count -gt 0
 }
-$quarantineRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Multi-Publish\session-isolation\quarantine'
+$quarantineRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\quarantine'
 $guardFiles = @()
 $violationCount = 0
 if (Test-Path -LiteralPath $quarantineRoot) {

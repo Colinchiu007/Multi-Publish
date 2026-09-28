@@ -32,11 +32,35 @@
 
 ## 会话隔离自动入口与持续守护
 
-运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动；该入口会校验共享主目录、安装 hooks，并创建独立 worktree（默认 `<仓库父目录>/mp-worktrees`，路径可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）。共享根目录健康检查由 scripts/mp-worktree-health.ps1 执行，Windows 当前用户计划任务由 scripts/install-session-isolation-task.ps1 注册。该脚本自 2026-09-28 起有两个新约束：`-TaskPath` 可指向一次性路径（**自检与测试必须用它**），而 `-Unregister` 打向生产路径 `\Multi-Publish\` 一律拒绝、须显式加 `-AllowLiveUnregister`。原因是「先 `-Unregister`、随后重注册因提权失败」会把共享根实时写保护**静默拆掉**：AtLogOn 触发器非提权注册一律 `PermissionDenied / HRESULT 0x80070005`（同一次探针里非 AtLogOn 的健康巡检任务可正常注册并删除，所以提权门槛精确只在 AtLogOn 那一格）。注册结果一律以 `Get-ScheduledTask` 产物为准，**不得看 rc**：`Register-ScheduledTask` 失败抛的是非终止错误、不写 `$LASTEXITCODE`，只看 rc 会把「一条都没注册上」报成成功（本仓实测踩过两次）。**接线进 CI 的机器态断言，必须先在「runner 态」本机跑一遍**——CI runner 上 `\Multi-Publish\` 根本不存在，而 PowerShell 里 `function F { @(...) }` 的隐式输出会把空数组**摊平成 `$null`**（实测 5.1：`(F1)` 为 NULL，`,` 前缀与调用点 `@(F1)` 才是 Object[] 长度 0），于是 `Compare-Object $a $b` 报「无法将 Null 值绑定到 -ReferenceObject」；正解是让快照函数**不返回任何东西**、改写 `$script:` 变量并用 `-join '|'` 的字符串比较（串不可能为 null 也不会摊平）。另两条同场实测：`-Watch` 没有单实例锁，重新注册计划任务会与既存 watcher **并存**（两份 FileSystemWatcher 各记一条 violation）；注册 AtLogOn 需要提权，但 `Start-ScheduledTask` 拉起已注册的任务**不需要**——用任务本身重启 watcher 是唯一有产物的路径。完整说明见 docs/session-isolation-automation.md。不得把运行时代码任务直接绑定到共享仓库根；新电脑克隆后先运行 `scripts/bootstrap-write-guard.ps1` 完成 hooks、计划任务、watcher 与自检，仅安装质量节拍 skill 不会自动启用该机制。
+运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动；该入口会校验共享主目录、安装 hooks，并创建独立 worktree（默认 `<仓库父目录>/mp-worktrees`，路径可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）。共享根目录健康检查由 scripts/mp-worktree-health.ps1 执行，Windows 当前用户计划任务由 scripts/install-session-isolation-task.ps1 注册。该脚本自 2026-09-28 起有两个新约束：`-TaskPath` 可指向一次性路径（**自检与测试必须用它**），而 `-Unregister` 打向生产路径 `\Mulpub\` 一律拒绝、须显式加 `-AllowLiveUnregister`。原因是「先 `-Unregister`、随后重注册因提权失败」会把共享根实时写保护**静默拆掉**：AtLogOn 触发器非提权注册一律 `PermissionDenied / HRESULT 0x80070005`（同一次探针里非 AtLogOn 的健康巡检任务可正常注册并删除，所以提权门槛精确只在 AtLogOn 那一格）。注册结果一律以 `Get-ScheduledTask` 产物为准，**不得看 rc**：`Register-ScheduledTask` 失败抛的是非终止错误、不写 `$LASTEXITCODE`，只看 rc 会把「一条都没注册上」报成成功（本仓实测踩过两次）。**接线进 CI 的机器态断言，必须先在「runner 态」本机跑一遍**——CI runner 上 `\Mulpub\` 根本不存在，而 PowerShell 里 `function F { @(...) }` 的隐式输出会把空数组**摊平成 `$null`**（实测 5.1：`(F1)` 为 NULL，`,` 前缀与调用点 `@(F1)` 才是 Object[] 长度 0），于是 `Compare-Object $a $b` 报「无法将 Null 值绑定到 -ReferenceObject」；正解是让快照函数**不返回任何东西**、改写 `$script:` 变量并用 `-join '|'` 的字符串比较（串不可能为 null 也不会摊平）。另两条同场实测：`-Watch` 没有单实例锁，重新注册计划任务会与既存 watcher **并存**（两份 FileSystemWatcher 各记一条 violation）；注册 AtLogOn 需要提权，但 `Start-ScheduledTask` 拉起已注册的任务**不需要**——用任务本身重启 watcher 是唯一有产物的路径。完整说明见 docs/session-isolation-automation.md。不得把运行时代码任务直接绑定到共享仓库根；新电脑克隆后先运行 `scripts/bootstrap-write-guard.ps1` 完成 hooks、计划任务、watcher 与自检，仅安装质量节拍 skill 不会自动启用该机制。
 
-- **⛔ 共享主目录实时写保护**：共享仓库根下 `apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径禁止直接落盘；`scripts/guard-shared-root-writes.ps1` 由 Windows 计划任务 `Session Isolation Write Guard`（AtLogOn）常驻监听，非 gitignored 文件移入 `%LOCALAPPDATA%\Multi-Publish\session-isolation\quarantine\`，tracked 文件从 HEAD 精确恢复并写 `violations.jsonl`；放行 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.agent_context/`、`.hermes/` 及根级流程文档。任务开始与提交前必须确认 Write Guard 任务已注册且 watcher 运行、共享根保持 main clean。
+- **⛔ 共享主目录实时写保护**：共享仓库根下 `apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径禁止直接落盘；`scripts/guard-shared-root-writes.ps1` 由 Windows 计划任务 `Session Isolation Write Guard`（AtLogOn）常驻监听，非 gitignored 文件移入 `%LOCALAPPDATA%\Mulpub\session-isolation\quarantine\`，tracked 文件从 HEAD 精确恢复并写 `violations.jsonl`；放行 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.agent_context/`、`.hermes/` 及根级流程文档。任务开始与提交前必须确认 Write Guard 任务已注册且 watcher 运行、共享根保持 main clean。
 
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
+
+### docs-only 快速通道（2026-10，change: docs-only-ci-shortcircuit）
+
+纯文档/流程变更走精简门禁。判定**必须**用单一真源脚本（与 CI changes job 同一实现，禁止人工目测、禁止第二份白名单）：
+
+```
+node scripts/classify-docs-only.js --base=origin/main --head=HEAD
+```
+
+- 判定 `docs-only=true`（全部改动文件命中文档白名单 `CI_IGNORED_PATHS`，与 push paths-ignore 同源）：
+  - **保留门禁**（文档 PR 的真实风险面，一条不省）：①变更类型与隔离声明（就地编辑 + PR 落地，不进 worktree）；②行尾/编码对账（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致）；③品牌残留 `node scripts/check-no-brand-residue.js`（文档里如实写竞品名会打红，正解写「参考产品」）；④doc-gate 文档同步检查；⑤CHANGELOG 收口（如适用）；⑥远程同步（PR 合并核对）。
+  - **跳过**（与运行时无关）：QM-1 打包、QM-2 代码必检项、QM-4 视觉、TDD（无代码）、QM-6 双模型评审。
+  - CI 侧由各全量 workflow 的 `changes` job 自动短路重型 job（job 级 `if`，skipped 满足 required check；触发级 paths-ignore 仍是禁区），无需人工干预。
+- 判定 `false`（混合 PR，含任一代码/依赖/CI 路径）→ 完整质量节拍，不得借道本通道；改 `.github/workflows/`、`scripts/` 工具脚本自身的 PR 属混合 PR。
+- `.quality-gates.md` 记录用精简模板（判定证据必须写入）：
+
+```
+## 本次执行记录：<标题>（<slug>，<date>）【docs-only】
+- 判定：node scripts/classify-docs-only.js --base=origin/main → docs-only=true（files=N：<文件清单>）
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING→PASS
+- 备注（可选）
+```
+
+- 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
@@ -437,6 +461,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **生产依赖闭包**：生产入口静态加载的每个第三方包必须由所属 workspace 在 `dependencies` 中直接声明；根工作区或其他包的传递依赖不算满足。发布前必须执行 `npm pack --dry-run` 并从隔离 runner/安装目录加载真实入口。
 
+- **聚合外部搜索源的展示面必须有语义相关性判据，来源标签禁止兜底品牌名**：任何从第三方搜索 API（本项目为 Reddit / Hacker News / GitHub）取列表展示给用户的功能，两条不可省：① **标题级相关性门禁** —— 这些接口匹配的是**正文**，实测中文视频标题「三步学会做红烧肉」查 GitHub issues 返回 `total_count:3595`、首条标题「旧文归档 · 2024 年 2 月」与查询零词重叠；判据必须挂在**共用出口**（`ContentIntelligence.search()`）且在 `engagement` **排序之前** —— 挂在排序后，按下标取 `results[0]` 的下游（`searchMentions` 的 `topSource`/`topEngagement`）仍会拿到垃圾；挂在单个调用点，则每加一个入口就要重抄一份。② **可归因的来源标签** —— 显式映射已知源，未知源如实回显其标识，`source` 缺失则不渲染；**禁止 `v-else → "GitHub"` 这类兜底品牌名**，那等于给用户假证据，且让「标签打错」与「结果真的来自该源」两种情况在界面上无法区分。另：接第三方源时先问「这个源的 `title` 字段，语义上是不是我要展示的那类 `title`」—— GitHub issue 的标题是议题标题，不是内容作品标题，**字段名相同 ≠ 语义相同**。词素切分唯一实现是 `apps/desktop/electron/services/content-intelligence-utils.js` 的 `tokenizeContentWords`（拉丁词 + CJK 相邻二元组）：**中文按空白/标点切会把整句当成一个词**（实测把「申请加入请在这里评论」渲染成"同类标题高频词"并建议用户加进标题），门禁与高频词统计 MUST 共用该实现，禁止第二份切词逻辑（**该"MUST 共用"的范围限于这两者**：`_extractKeywords` 服务的是整篇正文 + 单文档词频，把长串 CJK 展开成二元组会把「人工智能」拆成碎片喂给标签推荐，因此**刻意保留另一口径**，其函数注释已指向本条与专项 PRD §11.5 —— 不要把它当遗漏"顺手收敛")；跨标题共性词按 **document frequency**（出现在几条标题里）计数，不按出现总次数，并列时按词素字典序以保证渲染稳定。查询本身切不出内容词时**不设判据、原样放行**（无判据可依不得改变既有语义）。判据看哪些字段是**按消费者声明的策略**（`opts.relevanceOn`，默认 `["title"]`；`searchMentions` 用 `["title","snippet","author"]`，因为真实转载提及的词在**对方正文**里而非对方标题里，只看标题会把 `totalMentions` 静默少算）——共用层收敛的是**机制**不是**策略**，且策略**必须进缓存键**，否则两种策略共用同一 query 必有一方拿到错的那份。分词必须用 `/\p{Script=Han}{2,}/gu` + **按码点**取二元组（BMP 区间表漏扩展平面 ⇒ 纯扩展平面查询切成空 token 集会把门禁**整体绕过**；按 UTF-16 单元切片会把代理对切成半个字符），且分词前必须剥离 URL 与 HTML 实体（否则两条无关标题因共享域名而过判）。门禁日志**禁止记 query 原文** —— `searchTitles` 的 query 就是用户尚未发布的草稿标题，logger 只脱敏凭证不脱敏用户文本，只记计数与长度。空态属产品契约：无相关结果时如实显示「暂未找到同类高互动标题」并按 `droppedIrrelevant` 区分「源无响应」与「都不相关」，**不得硬凑列表** —— 一条垃圾建议比没有建议更伤，用户会照抄。回归锁：`content-intelligence-utils.test.js`（二元组**精确数组**断言）、`tests/content-intelligence.test.js`（源域锁 + 事故场景 `results` 精确等于真同类那一条 + 门禁在共用层使 `searchMentions` 受益）、`TitleAssistantPanel.test.js`（未知源不得显示 GitHub、空态文案与过滤条数）。反证四条已实跑：摘门禁 3 红 / github 回源域 5 红 / 退回空白切词 2 红 / 退回 `v-else GitHub` 1 红。详见 `01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md`。
+
 - **批量 IPC 进度双边界与超时预算契约**：任何逐条循环调用异步检测/网络任务的 IPC handler，若向渲染层广播进度，必须同时覆盖 `start`（in-flight，检测体执行前）与 `done`（完成后）两个边界；只在 `await` 之后广播会让进度语义退化为「已完成数」，单个慢任务使遮罩长时间静止（视觉上等同卡死）。批量任务必须声明并发上限与单任务硬超时（均可用环境变量覆盖以便排障），超时结果语义（计入失效 / 跳过 / 重试）须在 PRD 中写明；用 `Promise.race` 实现超时时必须保留「超时后原任务迟到的 reject 不产生 unhandledRejection」的回归测试。回归锁：`apps/desktop/electron/ipc-handlers/account-batch-check.test.js`（断言检测体执行期间该账号只收到过 start）。
 - **Docker runner 文件集**：修改 Dockerfile 或其构建上下文时，必须按最终 runner stage 的本地 `COPY` 清单构造隔离 staging，并加载真实入口验证完整 require 链；Docker daemon 可用时还必须真实 build、启动容器并验证 `/ready`，静态合同不能替代镜像启动。
 
@@ -480,6 +506,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 锁把并发问题换成排队问题，排队没有上限就是新的死法（本轮 ⑥⑦ 两处后果由外部双模型评审独立命中，自审漏掉）。另配一条**注入真实现的跨模块契约锁**：`cloud-account-restore.test.js` 把真 `AccountManager.persistLoginState` 装进恢复流，断言后端真收到 `PATCH /api/accounts/<id>`。原因——本轮修掉的正是「夹具按调用方想象的形状收参数」（`(accountId, patch)` 收位置签名的调用），于是 status 恒为 undefined、真源一次都没写、全绿躺了一整轮，连 warn 都没有（返回值被丢弃，只有 throw 才落日志）。这是「契约夹具不得替对方剥壳」的第三种落点：**替对方改签名**。跨模块调用新增/修改时，MUST 同时有一条用真实现的用例，并把该调用做反证（退回错误形状必须变红）。
 
 - **E2E fixture 断言渲染语义**：路由/工作流测试不得用内部枚举值断言已经过本地化或格式化的 UI 文案。优先使用稳定状态 class/testid 加用户可见文本，并在 UI 映射函数变更时同步运行受影响路由用例。
+
+- **发布能力注册表单一真源合同（publish-capability-registry，2026-10-08）**：15 平台发布提交内容项（titleMode/内容限制/差异化字段/通用字段支持矩阵）的单一真源是 `packages/shared-utils/src/publish-capabilities.json`（CJS `publish-capabilities.js` 与 ESM `publish-capabilities.browser.js` 双版本消费同一份 JSON，parity 测试锁导出一致）。修改该 JSON 后必须运行：shared-utils `__tests__/publish-capabilities.test.js`（58 例，含 15 平台完整性与无标题清单精确断言）+ `packages/api-publish-engine/test/no-title-contract.test.js`（跨包契约锁）+ apps/desktop 的 `PlatformOverridePanel.test.js`（字段快照）与 `publish-contract.test.js`（限制对齐）。**无标题平台清单（titleMode=caption：视频号/快手/微博/X/Instagram/TikTok 共 6 个）变更必须三处同步**：DOM RPA 行为（rpa-view-platforms 结构锁）、引擎链合并行为（shipinhao/kuaishou/twitter/weibo/tiktok）、契约锁 A 清单断言——任何一处漂移 CI 变红。渲染层 `publish-contract.js` 的平台内容限制必须从注册表派生，MUST NOT 再维护独立限制常量表。注册表标签文案存放于共享数据层（apps/desktop/src 的 CJK 基线扫描不覆盖 packages/shared-utils，PLATFORM_NAMES 先例），但 apps/desktop/src 新增用户可见文案仍必须 zh/en 成对进 locales（Gate 7）；取证 note 不得写竞品品牌名（Gate 12，用中性称谓「参考产品」）。详见 [01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md) §九（维护 SOP）。
 
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。
 

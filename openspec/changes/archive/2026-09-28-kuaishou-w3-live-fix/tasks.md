@@ -19,6 +19,6 @@
 
 - [x] 3.1 全量：桌面 vitest 受影响 suites（5 suites 83 tests 绿，含 publisher-router 回归）+ api-publish-engine run-tests（31 files 258 tests 绿）+ Gate 7 locales（--pair-base origin/main PASS，无新增文案）+ Gate 17 IPC 守卫（PASS，注册点 428/显式守卫 66.8%/不可判定 0）+ ESLint（0 error，5 warning 均为 HEAD 既有代码）
 - [x] 3.2 QM-1 打包三件套：首轮仅 `electron-builder --dir` 漏 renderer（asar 无 `\dist\index.html`，exe 启动报 ERR_FILE_NOT_FOUND）→ 改用 `pnpm run build:dir`（vite build + builder）重打；复测三件套全过（asar 含 dist/index.html + auth-partition.js；asar extract 后 require 链 rpa-engine OK、相对依赖 fs 核实存在；exe 10s 存活 stderr 零输出）。fonts/.playwright-browsers 缺失警告为 worktree 无可选资源，预期内
-- [ ] 3.3 commit + push + PR + CI 盯守全绿
+- [x] 3.3 commit + push + PR + CI 盯守全绿（两轮：#2554 一轮候选 + #2569 二轮定案 `div:has-text("发布")`，均 CI 全绿自动合并；二轮修正一轮对发布时间单选项的误判）
 - [x] 3.4 证据收编：`live-verdict-20260926.md`、`live-run-20260926-applog.txt`、`live-run-20260926-progress.json` 已从共享根收编入 `01-docs/rpa-api-publish/evidence/api-w3-kuaishou/` 随本 PR 提交；D2 侦察证据 `selector-probe-20260926.md`/`-authview.png`（.md/.png 被 gitignore，按 spike-verdict.md 先例 `git add -f`）+ `-shell.json` 一并登记
-- [ ] 3.5 （用户在场）6.3 活体重跑：D1 后 API 链可达 + D2 后 DOM 兜底可点；通过后回写 W3 tasks 6.1/6.3 收口
+- [x] 3.5 （用户在场）6.3 活体重跑：D1 后 API 链可达 + D2 后 DOM 兜底可点；通过后回写 W3 tasks 6.1/6.3 收口（2026-09-28 18:43 活体通过：用户授权 CDP 代操作，真实发布流上传 01.mp4 → 填表 → 点击底栏 `<div>发布</div>`（二轮定案候选 exactLeaf 唯一命中）→ **发布成功**，作品 ID `3xvsedz34m82ppi`、URL `https://m.gifshow.com/fw/photo/3xvsedz34m82ppi`（HTTP 200 实证在线）；DOM 兜底可点 ✓。D1 API 链：本轮 API 轨因 `taskData.video.path required` 回退 DOM 轨——API 轨数据形状缺陷另行登记，engine-w3 6.3（API 轨活体裁决）保持开放）

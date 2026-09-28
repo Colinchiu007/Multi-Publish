@@ -245,6 +245,25 @@ describe("PublishView", () => {
     expect(w.text()).toContain("批量模式");
   });
 
+  it("通用字段支持度徽标与无标题平台标题提示（publish-capability-registry）", async () => {
+    const w = await createWrapper();
+    // 支持度徽标：标题字段覆盖注册表全部 15 平台
+    const badge = w.find('[data-testid="field-support-title"]');
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toContain("15/15");
+    // 标签字段徽标来自注册表支持矩阵（图文分支）
+    expect(w.find('[data-testid="field-support-tags"]').text()).toContain("11/15");
+    // 默认选中 wechat_mp（有标题平台）：不显示无标题提示
+    expect(w.find('[data-testid="no-title-hint"]').exists()).toBe(false);
+    // 选中无标题平台（视频号）后显示「标题将作为描述首行」提示
+    w.vm.selectedPlatforms.push("tencent_video");
+    await nextTick();
+    const hint = w.find('[data-testid="no-title-hint"]');
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("视频号");
+    expect(hint.text()).toContain("描述首行");
+  });
+
   it("选择发布类型后的路由参数会保留在编辑器上下文", async () => {
     await router.push('/?type=video')
     const w = await createWrapper()
@@ -1049,6 +1068,163 @@ describe("PublishView — extra coverage", () => {
     });
   });
 
+});
+
+// ── openspec/changes/optimize-publish-right-rail：右栏任务闭环优先 + 面板贴邻字段 ──
+describe("PublishView — 右栏信息架构与面板联动", () => {
+  // 捕获 TagSuggester props 的探针 stub：默认 stub（true）不透传 props，无法断言平台联动。
+  const TagSuggesterProbe = {
+    props: ["content", "platforms"],
+    emits: ["close", "apply-tag"],
+    template: `<div class="tag-suggester-probe" data-testid="tag-suggester-stub" :data-platforms="(platforms || []).join(',')">
+      <button type="button" data-testid="probe-apply-tag" @click="$emit('apply-tag', '新标签')">apply</button>
+    </div>`,
+  };
+
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.localStorage.clear();
+    window.electronAPI = {
+      publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      getPathForFile: vi.fn().mockReturnValue('D:/media/from-file-api.mp4'),
+      sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
+      offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
+      offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
+      onProgress: vi.fn(() => vi.fn()),
+      batchCreate: vi.fn().mockResolvedValue({ code: 0, data: { id: "batch1" } }),
+      batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
+      batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
+      onBatchProgress: vi.fn(() => vi.fn()),
+      draftSave: vi.fn().mockResolvedValue({ code: 0 }),
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
+      storeGetSetting: vi.fn().mockResolvedValue(null),
+      storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
+    };
+    mockAccountLoad.mockClear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  async function createLayoutWrapper() {
+    const w = mount(PublishView, {
+      global: {
+        plugins: [router, createPinia(), i18n],
+        components: { UiButton, UiInput },
+        stubs: {
+          "el-checkbox-group": { template: "<div><slot/></div>" },
+          "el-checkbox": { template: "<label><input type='checkbox' /><slot/></label>" },
+          "el-upload": { template: "<div><slot/></div>" },
+          "el-icon": { template: "<span><slot/></span>" },
+          TagSuggester: TagSuggesterProbe,
+          OptimalTimeTip: true,
+          TitleAssistantPanel: true,
+          ArticleEditor: true,
+          TemplatePicker: true,
+          UpgradeModal: true,
+          AiWriterPanel: true,
+        },
+      },
+    });
+    await nextTick();
+    return w;
+  }
+
+  function followsInDocument(wrapper, selectorA, selectorB) {
+    const a = wrapper.element.querySelector(selectorA);
+    const b = wrapper.element.querySelector(selectorB);
+    if (!a || !b) return null;
+    return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  it("右栏第一块为发布目标卡，智能面板不在右栏", async () => {
+    const w = await createLayoutWrapper();
+    w.vm.article.title = "这是一段足够长的测试标题";
+    await nextTick();
+
+    const side = w.get(".flex-side");
+    expect(side.element.firstElementChild.getAttribute("data-testid")).toBe("publish-action-card");
+    expect(side.find('[data-testid="tag-suggester-stub"]').exists()).toBe(false);
+    expect(side.find("optimal-time-tip-stub").exists()).toBe(false);
+    expect(side.find("title-assistant-panel-stub").exists()).toBe(false);
+  });
+
+  it("智能面板贴邻左栏对应字段", async () => {
+    const w = await createLayoutWrapper();
+    w.vm.article.title = "这是一段足够长的测试标题";
+    await nextTick();
+
+    const main = w.get(".flex-main");
+    expect(main.find('[data-testid="tag-suggester-stub"]').exists()).toBe(true);
+    expect(main.find("optimal-time-tip-stub").exists()).toBe(true);
+    // 标签建议位于标签输入之后
+    expect(followsInDocument(w, "#publish-tags", '[data-testid="tag-suggester-stub"]')).toBe(true);
+    // 最佳发布时间位于定时发布输入之后
+    expect(followsInDocument(w, 'input[type="datetime-local"]', "optimal-time-tip-stub")).toBe(true);
+    // 标题助手入口位于标题输入之后
+    expect(followsInDocument(w, '[data-testid="publish-title"]', '[data-testid="title-assistant-toggle"]')).toBe(true);
+  });
+
+  it("标签建议平台跟随所选发布目标", async () => {
+    const w = await createLayoutWrapper();
+    w.vm.article.title = "这是一段足够长的测试标题";
+    await nextTick();
+
+    const probe = w.get('[data-testid="tag-suggester-stub"]');
+    // 初始传当前所选平台（夹具默认预选 wechat_mp）
+    expect(probe.attributes("data-platforms")).toBe(w.vm.selectedPlatforms.join(","));
+
+    // 增选平台后联动更新
+    w.vm.togglePlatform("zhihu");
+    await nextTick();
+    expect(probe.attributes("data-platforms")).toBe(w.vm.selectedPlatforms.join(","));
+    expect(probe.attributes("data-platforms")).toContain("zhihu");
+
+    // 取消全部选择后传空数组（组件内部回退全量目录）
+    for (const p of [...w.vm.selectedPlatforms]) {
+      w.vm.togglePlatform(p);
+    }
+    await nextTick();
+    expect(probe.attributes("data-platforms")).toBe("");
+  });
+
+  it("点击建议标签去重追加进标签输入", async () => {
+    const w = await createLayoutWrapper();
+    w.vm.article.title = "这是一段足够长的测试标题";
+    await nextTick();
+
+    await w.get('[data-testid="probe-apply-tag"]').trigger("click");
+    expect(w.vm.article.tags).toEqual(["新标签"]);
+    // 再次点击同一标签不产生重复
+    await w.get('[data-testid="probe-apply-tag"]').trigger("click");
+    expect(w.vm.article.tags).toEqual(["新标签"]);
+  });
+
+  it("面板显隐状态经 localStorage 记忆", async () => {
+    window.localStorage.setItem(
+      "publish.panelVisibility.v1",
+      JSON.stringify({ tagSuggester: false, titleAssistant: true })
+    );
+    const w = await createLayoutWrapper();
+    expect(w.vm.showTagPanel).toBe(false);
+    expect(w.vm.showTitlePanel).toBe(true);
+
+    w.vm.showTagPanel = true;
+    await nextTick();
+    const stored = JSON.parse(window.localStorage.getItem("publish.panelVisibility.v1"));
+    expect(stored.tagSuggester).toBe(true);
+    expect(stored.titleAssistant).toBe(true);
+  });
+
+  it("无 localStorage 记录时使用默认显隐状态", async () => {
+    const w = await createLayoutWrapper();
+    expect(w.vm.showTagPanel).toBe(true);
+    expect(w.vm.showTitlePanel).toBe(false);
+  });
 });
 
 });

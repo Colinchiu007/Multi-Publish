@@ -53,6 +53,21 @@ function buildXArguments (o) {
 }
 
 /**
+ * 无标题平台描述合成：视频号发布面只有 description（post_create 请求体无标题
+ * 字段），发布页填写的标题必须作为描述首行插入（openspec/changes/
+ * publish-capability-registry，用户 2026-10-08 确认）。与 DOM RPA
+ * _composeEditorCaption 及快手链 buildKuaishouCaption 语义对齐。
+ * 旧实现 `td.content == null ? td.title : td.content` 在有正文时直接丢弃标题。
+ * @param {object} td taskData（读 title / content）
+ * @returns {string}
+ */
+function composeShipinhaoDescription (td) {
+  const title = typeof td.title === 'string' ? td.title.trim() : ''
+  const content = td.content == null ? '' : String(td.content).trim()
+  return [title, content].filter(part => part.length > 0).join('\n')
+}
+
+/**
  * 构造 post_create/post_draft 投稿体（纯函数，供链与薄适配器共用）。
  * @param {object} taskData {title, content, video:{width,height,duration}}
  * @param {{uploadId, videoInfo}} upload 上传产物（videoId=uploadId，url 取自 videoInfo）
@@ -64,7 +79,7 @@ function buildShipinhaoPostData (taskData, upload, ids) {
   const vi = (upload && upload.videoInfo) || {}
   const mediaUrl = vi.url || (vi.data && vi.data.url) || ''
   return {
-    description: String(td.content == null ? td.title : td.content),
+    description: composeShipinhaoDescription(td),
     media: { videoId: (upload && upload.uploadId) || '', url: mediaUrl, width: v.width, height: v.height, duration: v.duration },
     location: null,
     timestamp: getTimeStamp(13),
@@ -249,6 +264,7 @@ module.exports = {
   ShipinhaoVideoError,
   buildXArguments,
   buildShipinhaoPostData,
+  composeShipinhaoDescription,
   getTimeStamp,
   md5Hex,
   DEFAULT_API_BASE,

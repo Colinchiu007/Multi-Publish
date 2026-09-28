@@ -17,6 +17,7 @@ vi.mock("@/api/publisher", () => ({
 
 import { intelligenceSearch, intelligenceSearchTitles } from "@/api/publisher";
 import IntelligenceView from "./Intelligence.vue";
+import EmptyState from "@/components/EmptyState.vue";
 
 describe("IntelligenceView", () => {
   beforeEach(() => {
@@ -180,5 +181,40 @@ describe("IntelligenceView", () => {
     w.vm.insertRef(ref);
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
+  });
+
+  // 相关性门禁挂在 search() 共用出口 ⇒ 情报页也会因过滤而归零。
+  // 归零时若仍只报「暂无结果，试试其他关键词」，就把"源有响应"谎称成"你没搜对"，
+  // 用户会反复换关键词排障。这两条锁住两种归零必须可区分。
+  it("情报页结果被门禁过滤为空时，空态必须带上被过滤条数", async () => {
+    vi.mocked(intelligenceSearch).mockResolvedValue({
+      code: 0,
+      data: { total: 0, results: [], droppedIrrelevant: 7, timestamp: "2026-09-28T10:00:00Z" }
+    });
+    vi.mocked(intelligenceSearchTitles).mockResolvedValue({ code: 0, data: { titleAnalysis: null } });
+    const w = createView();
+    await nextTick();
+    w.vm.query = "AI trends";
+    await w.vm.doSearch();
+    await nextTick();
+    const empty = w.findComponent(EmptyState);
+    expect(empty.exists()).toBe(true);
+    expect(empty.props("description")).toContain("7");
+  });
+
+  it("源真的无响应时情报页不得谎称已过滤", async () => {
+    vi.mocked(intelligenceSearch).mockResolvedValue({
+      code: 0,
+      data: { total: 0, results: [], timestamp: "2026-09-28T10:00:00Z" }
+    });
+    vi.mocked(intelligenceSearchTitles).mockResolvedValue({ code: 0, data: { titleAnalysis: null } });
+    const w = createView();
+    await nextTick();
+    w.vm.query = "AI trends";
+    await w.vm.doSearch();
+    await nextTick();
+    const empty = w.findComponent(EmptyState);
+    expect(empty.exists()).toBe(true);
+    expect(empty.props("description")).toBe("");
   });
 });
