@@ -2687,6 +2687,10 @@ export default {
     categoryEducation: '教育',
     categorySocial: '社交',
     titleAssistantTitle: '标题参考',
+    titleAssistantEmpty: '暂未找到同类高互动标题',
+    titleAssistantEmptyHint: '同类标题数据来自 Reddit 与 Hacker News 的公开标题，中文题材暂无命中属正常情况。',
+    titleAssistantFiltered: '已过滤 {n} 条正文命中、但标题与当前内容不相关的结果',
+    searchFilteredNote: '数据源有响应，但 {n} 条结果的标题与关键词不相关，已按相关性过滤。',
     trendingTitle: '热门趋势',
   },
 

@@ -61,7 +61,13 @@
           </span>
         </div>
 
-        <EmptyState v-if="result.total === 0" :title="$t('emptyStates.intelligence.title')" />
+        <EmptyState
+          v-if="result.total === 0"
+          :title="$t('emptyStates.intelligence.title')"
+          :description="result.droppedIrrelevant > 0
+            ? $t('intelligence.searchFilteredNote', { n: result.droppedIrrelevant })
+            : ''"
+        />
 
         <div v-for="item in result.results" :key="`${item.source}-${item.id}`"
           class="intel-item"
