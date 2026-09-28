@@ -431,4 +431,208 @@ describe('P1 调度可观测性（排队/冷却计数）', () => {
     // 单请求无排队；即使有也最多计 1 次（外层），内层不计时
     expect(snap.p3.queuedCount).toBeLessThanOrEqual(1)
   })
+
+describe('requests 额度窗口的并发准入原子性（governor-quota-reserve）', () => {
+  // 这些用例的存在理由：既有额度测试全部是「await p1; await p2; …」串行构造，
+  // 于是 win.used 在每次预检时都已是新鲜的，`maxConcurrent > 1` 下的超额执行从未被观测到。
+  // 度量一律取「task 体内自增的执行次数」——它才是「是否真的打了一次 provider」的唯一代理，
+  // 只看 g.run 的 resolve/reject 会把「已执行却被事后断言拒」读成「未执行」。
+  const META = { type: 'llm', providerId: 'p', model: 'm' }
+
+  const makeGovernor = ({ maxConcurrent, windows, retry429 = 1 }) => {
+    const g = new ApiUsageGovernor({})
+    // rpm 取大值：把 RPM 时间槽的错峰开销压到 0.6ms，使它不掩盖也不参与本组用例的判定
+    g.setLimits('p:llm:m', { maxConcurrent, rpm: 100000, cooldownMs: 1000, retry429 })
+    g.setTokenWindows('p:llm:m', windows)
+    return g
+  }
+
+  const boom = () => {
+    const e = new Error('provider 侧非额度错误')
+    e.code = 'BOOM'
+    return e
+  }
+
+  /** 一次并发提交 n 个必然成功的请求，返回（真实执行次数, ok 次数, 额度拒次数） */
+  const concurrentSuccess = async ({ g, n }) => {
+    let executed = 0
+    const codes = []
+    const ps = []
+    for (let i = 0; i < n; i += 1) {
+      ps.push(g.run(META, async () => {
+        executed += 1
+        // task 内必须 await：否则 4 路在途不会真正重叠，预检会被记账顺序串行化
+        await new Promise((r) => { setTimeout(r, 50) })
+        return { ok: true }
+      }).then(() => codes.push('ok'), (e) => codes.push(e && e.code)))
+    }
+    const settled = Promise.all(ps)
+    await vi.advanceTimersByTimeAsync(10000)
+    await settled
+    return {
+      executed,
+      ok: codes.filter((c) => c === 'ok').length,
+      quota: codes.filter((c) => c === 'QUOTA_EXCEEDED').length,
+    }
+  }
+
+  it('并发提交时真实执行次数恰好等于 limit，其余一次都未执行', async () => {
+    vi.useFakeTimers()
+    const g = makeGovernor({
+      maxConcurrent: 4,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 3, field: 'requests' }],
+    })
+    const r = await concurrentSuccess({ g, n: 7 })
+    expect(r.executed).toBe(3)
+    expect(r.ok).toBe(3)
+    expect(r.quota).toBe(4)
+  })
+
+  it('同参数重复多轮，每轮结果都必须是 limit/limit/n-limit（非确定即 FAIL）', async () => {
+    vi.useFakeTimers()
+    for (let round = 0; round < 8; round += 1) {
+      const g = makeGovernor({
+        maxConcurrent: 4,
+        windows: [{ windowMs: 5 * 3600 * 1000, limit: 3, field: 'requests' }],
+      })
+      const r = await concurrentSuccess({ g, n: 7 })
+      expect(r, 'round ' + round).toMatchObject({ executed: 3, ok: 3, quota: 4 })
+    }
+  })
+
+  it('失败的调用归还额度：窗口计的是成功次数，不是已发起次数', async () => {
+    vi.useFakeTimers()
+    const g = makeGovernor({
+      maxConcurrent: 1,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 2, field: 'requests' }],
+    })
+    const callOnce = async (task) => {
+      const p = g.run(META, task).then(() => 'ok', (e) => e && e.code)
+      await vi.advanceTimersByTimeAsync(10000)
+      return p
+    }
+    expect(await callOnce(async () => ({ ok: true }))).toBe('ok')
+    expect(await callOnce(async () => { throw boom() })).toBe('BOOM')
+    // 上一次失败必须把这次占用还回来，否则第三个成功调用会被误拒
+    expect(await callOnce(async () => ({ ok: true }))).toBe('ok')
+    expect(await callOnce(async () => ({ ok: true }))).toBe('QUOTA_EXCEEDED')
+  })
+
+  it('429 退避重试是同一次调用，窗口只占 1 次', async () => {
+    vi.useFakeTimers()
+    const g = makeGovernor({
+      maxConcurrent: 1,
+      retry429: 2,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 1, field: 'requests' }],
+    })
+    const callOnce = async (task) => {
+      const p = g.run(META, task).then(() => 'ok', (e) => e && e.code)
+      await vi.advanceTimersByTimeAsync(30000)
+      return p
+    }
+    let attempts = 0
+    expect(await callOnce(async () => {
+      attempts += 1
+      if (attempts === 1) throw new ProviderError(ERROR_CODES.RATE_LIMITED, '429')
+      return { ok: true }
+    })).toBe('ok')
+    expect(attempts).toBe(2)
+    // 若重试被计成两次占用，这第三次断言会提前拿到 QUOTA_EXCEEDED；反过来若把预留挪进
+    // 每个 attempt，第二次尝试自己就会被预检拒 → 上一条不再返回 'ok'
+    expect(await callOnce(async () => ({ ok: true }))).toBe('QUOTA_EXCEEDED')
+  })
+
+  it('窗口换代后，迟到的失败归还不许动新窗口的计数', async () => {
+    vi.useFakeTimers()
+    const g = makeGovernor({
+      maxConcurrent: 2,
+      windows: [{ windowMs: 1000, limit: 1, field: 'requests' }],
+    })
+    let releaseA
+    const gateA = new Promise((r) => { releaseA = r })
+    let executedB = 0
+    // A 被放行后一直挂在 gate 上，跨过一次窗口过期
+    const pA = g.run(META, async () => {
+      await gateA
+      throw boom()
+    }).then(() => 'ok', (e) => e && e.code)
+    await vi.advanceTimersByTimeAsync(100)
+    // 窗口过期换代
+    await vi.advanceTimersByTimeAsync(2000)
+    // B 落在新窗口里并成功
+    const pB = g.run(META, async () => { executedB += 1; return { ok: true } })
+      .then(() => 'ok', (e) => e && e.code)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await pB).toBe('ok')
+    expect(executedB).toBe(1)
+    // A 此刻才失败：它的归还只准作用于自己那一代窗口
+    releaseA()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await pA).toBe('BOOM')
+    // 新窗口已被 B 占满 → C 必须被拒。无代次校验的实现会把 B 的计数抹成 0 而放行 C
+    const pC = g.run(META, async () => ({ ok: true })).then(() => 'ok', (e) => e && e.code)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await pC).toBe('QUOTA_EXCEEDED')
+  })
+
+  it('token 计数窗口仍走事后记账：先执行、成本回来才判超额', async () => {
+    vi.useFakeTimers()
+    const g = makeGovernor({
+      maxConcurrent: 1,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 1000, field: 'total_tokens' }],
+    })
+    const callOnce = async (task) => {
+      const p = g.run(META, task).then(() => 'ok', (e) => e && e.code)
+      await vi.advanceTimersByTimeAsync(10000)
+      return p
+    }
+    let executed = 0
+    const code = await callOnce(async () => {
+      executed += 1
+      return { usage: { total_tokens: 2000 } }
+    })
+    expect(executed).toBe(1)
+    expect(code).toBe('QUOTA_EXCEEDED')
+    // 事后断言不得对 requests 窗口生效，但这里必须对 token 窗口继续生效
+    const g2 = makeGovernor({
+      maxConcurrent: 1,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 1000, field: 'total_tokens' }],
+    })
+    let executed2 = 0
+    const code2 = await g2.run(META, async () => { executed2 += 1; return { usage: { total_tokens: 500 } } })
+      .then(() => 'ok', (e) => e && e.code)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(code2).toBe('ok')
+    expect(executed2).toBe(1)
+  })
+})
+
+  it('结构锁：requests 窗口的计数只发生在准入这一处', () => {
+    // 行为用例能抓到「准入 +1 之外又记账 +1」（'失败的调用归还额度' 会红），
+    // 但「事后断言重新对 requests 生效」在当前实现里是行为 no-op，只能靠读源码守住。
+    // 这不是用记录性断言代替跑流程——流程已由本 describe 的 6 条真跑覆盖，这里只钉「单点计数」这一结构。
+    // 锚点一律取**方法定义串**（带 ' {'）：'_reserveTokenBudget(key, st)' 这种写法会先命中
+    // _runWithGovernance 里的调用点，切片就会反向。
+    const fs = require('node:fs')
+    const src = fs.readFileSync(require.resolve('./api-usage-governor.js'), 'utf8')
+    const cut = (from, to) => {
+      const i = src.indexOf(from)
+      const j = src.indexOf(to)
+      expect(i, '找不到定义 ' + from).toBeGreaterThan(-1)
+      expect(j, '找不到定义 ' + to).toBeGreaterThan(i)
+      return src.slice(i, j)
+    }
+    const record = cut('_recordUsage(key, st, limits, result) {', '_reserveTokenBudget(key, st) {')
+    expect(record).toMatch(/if \(win\.field === 'requests'\) continue/)
+    const reserve = cut('_reserveTokenBudget(key, st) {', '_releaseTokenBudget(reservations) {')
+    expect(reserve).toMatch(/win\.used >= win\.limit\) throw this\._quotaExceeded/)
+    expect(reserve).toMatch(/win\.used \+= 1/)
+    const budget = cut('_assertTokenBudget(key, st) {', 'async _executeWithRetry(key, st, limits, task) {')
+    expect(budget).toMatch(/if \(win\.field === 'requests'\) continue/)
+    // 预留必须落在重试循环之外：重试体内出现预留 = 每次 attempt 重复占用额度
+    expect(budget).not.toMatch(/_reserveTokenBudget/)
+    const governance = cut('const reservations = this._reserveTokenBudget(key, st)', 'st.active -= 1')
+    expect(governance).toMatch(/catch \(err\)/)
+    expect(governance).toMatch(/this\._releaseTokenBudget\(reservations\)/)
+  })
 })

@@ -1,3 +1,45 @@
+# [未发布] fix(模型调用): 5h 额度窗口在并发下超额发起真实调用 → 改为准入即占额度（2026-09-28，governor-quota-reserve）
+
+### 为什么
+- 这条原先登记为「`rate-limit-self-check` 在 CI 满载下的计时抖动」（不认领的待查项）。实测否证了那个定性：
+  它不是抖动，而是 `ApiUsageGovernor` 的真实缺陷。判据是把度量从「`g.run` 是否 resolve」换成
+  「task 体内自增的执行次数」——后者才是「是否真的打了一次 provider」的唯一代理。
+- 根因：`_preflightTokenBudget` 只读 `win.used`，而 `used` 只在 task **完成之后**由 `_recordUsage` 递增。
+  `maxConcurrent > 1` 时多个在途请求对同一份过期快照同时通过预检，**真实调用已发出**，随后才被
+  `_assertTokenBudget` 事后拒绝。这违反该函数注释自述的「避免超限请求先消耗真实调用」，也违反
+  `ops-center/rate-limit-verifier` 已声明的「预检即拒、不消耗执行」。
+- 原登记的修法（把测试改成假时钟让它稳定）**会把这个 Bug 钉成契约**，属 AGENTS.md「测试断言不得
+  反向固化错误行为」。
+
+### 复现与修复后的量化对照（limit=2 / n=6，12 次重复，真实定时器）
+| maxConcurrent | 修前真实执行 | 修后真实执行 |
+| --- | --- | --- |
+| 1 | 2 | 2 |
+| 2 | **3** | 2 |
+| 4 | **5** | 2 |
+
+`limit=3 / maxConcurrent=4 / n=7` 修前真实执行在 12 轮里出现 **5 与 6 两种值**（这就是 CI 随机红的来源：
+同一个请求既写了 `completed` 时间线又被计成超额，两个计数器同时偏高）；修后恒为 3，
+且 `executedButRejected`（已执行却被事后拒）在 12 格矩阵里全部为 0。
+
+### 变更
+- `apps/desktop/electron/services/api-usage-governor.js`：`field: 'requests'` 的窗口改为**原子检查并预留**
+  （准入通过即 `used += 1`），预留点在并发槽内、重试循环之前，故一次调用只占一次；整次调用最终失败
+  才归还（attempt 级归还会让 429 退避期间额度被插走）；归还按**窗口代次**（`startedAt`）生效，
+  换代即跳过。`_recordUsage` 不再对 requests 递增，`_assertTokenBudget` 显式跳过 requests。
+- `token` 类窗口（`total_tokens` 等）**保持后置记账不变**——成本要响应回来才知道，无法预扣。
+- `apps/desktop/electron/services/rate-limit-self-check.js`：被准入拒的请求现在也写一条
+  `state='quota_exceeded'`、`started_at=null` 的时间线，使 `completed + quota_exceeded == requestCount`
+  成为可检查的守恒式（原先只能靠「时间线少了几条」反推，不可归因）。
+- 新增 7 条回归锁（`api-usage-governor.test.js` 6 条 + `rate-limit-self-check.test.js` 1 条）与 1 条结构锁。
+  `rate-limit-self-check` 的 5h 用例改为**并发构造 + 假时钟**，不再依赖墙钟。
+
+### 影响
+- 行为只会更保守：原先「多跑的那几次」是本不该发生的真实调用。没有任何既有用例依赖旧行为
+  （6 文件 213 例全绿，含 `model-call-scheduler` / `model-provider-governor` / `story2video-stages`）。
+- 契约见 `openspec/changes/governor-quota-reserve/`；模拟器为单线程顺序模型，本就满足新语义，
+  对拍结论需显式声明**并发维度不由模拟器覆盖**。
+
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
 ### 为什么

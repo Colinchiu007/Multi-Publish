@@ -232,9 +232,19 @@ class ApiUsageGovernor {
       tick = Date.now()
       await this._waitCooldown(key, st, limits)
       obs.cooldownMs += Date.now() - tick
-      // 执行前预检额度窗口：已满则立即拒绝，避免继续消耗真实 provider 调用
-      this._preflightTokenBudget(key, st)
-      return await this._executeWithRetry(key, st, limits, task)
+      // 执行前准入额度窗口：按请求次数计的窗口在放行的同一时刻即占额度。
+      // 原实现是「只读预检 + 成功后记账」，而记账发生在 task 完成之后，于是 maxConcurrent > 1 时
+      // 多个在途请求会同时读到同一份未更新计数并一起放行——真实调用已发出，随后才被事后断言拒。
+      // 位置刻意在并发信号量之内、_executeWithRetry 之前：一次调用只预留一次，重试不重复预留。
+      const reservations = this._reserveTokenBudget(key, st)
+      try {
+        return await this._executeWithRetry(key, st, limits, task)
+      } catch (err) {
+        // 整次调用最终失败才归还。若在 attempt 级归还，429 退避等待期间这份额度会被别的
+        // 请求插走，超额只是概率变小而不是消失。对任何最终错误一律归还，不按分类挑选。
+        this._releaseTokenBudget(reservations)
+        throw err
+      }
     } finally {
       st.active -= 1
       this._pump(key, st)
@@ -367,30 +377,60 @@ class ApiUsageGovernor {
         win.used = 0
         win.startedAt = now
       }
-      // field='requests'：按请求次数计数（每次调用 +1），无需 usage 字段（如 5 小时限额次数）
-      const delta = win.field === 'requests'
-        ? 1
-        : Number(usage?.[win.field] ?? usage?.total_tokens ?? 0)
+      // field='requests' 的计数已在准入时完成（_reserveTokenBudget），此处再 +1 就是双重计数；
+      // 这里只保留上面的过期重置。其余字段（token 数等）成本要响应回来才知道，仍在此记账。
+      if (win.field === 'requests') continue
+      const delta = Number(usage?.[win.field] ?? usage?.total_tokens ?? 0)
       win.used += Number.isFinite(delta) ? delta : 0
     }
   }
 
-  /** 只读预检：窗口已满（未过期）时立即拒绝，不修改任何状态（避免超限请求先消耗真实调用） */
-  _preflightTokenBudget(key, st) {
+  /**
+   * 额度窗口准入。按请求次数计的窗口做**原子的检查并预留**：判定通过的同一时刻即 used += 1，
+   * 因此并发在途请求读到的一定是已含自己的计数，第 limit+1 个起根本不会去执行真实调用。
+   * 按 token 数计的窗口无法预扣（成本未知），保持只读预检 + 事后记账。
+   * @returns {Array<{win: object, startedAt: number}>} 本次调用拿到的预留凭据（按窗口代次）
+   */
+  _reserveTokenBudget(key, st) {
     const windows = this._usageWindows(key, st)
-    if (!windows || windows.length === 0) return
+    const reservations = []
+    if (!windows || windows.length === 0) return reservations
     const now = Date.now()
     for (const win of windows) {
-      if (now - win.startedAt >= win.windowMs) continue // 已过期，由记账路径重置
-      if (win.used >= win.limit) {
-        const label = win.windowMs >= 7 * 24 * 3600 * 1000 ? '每周' : (win.windowMs >= 3600 * 1000 ? '每 5 小时' : '当前周期')
-        throw new ProviderError(
-          ERROR_CODES.QUOTA_EXCEEDED,
-          '该模型 API 的' + label + ' token 额度（' + win.limit + '）已用完，请检查套餐额度或更换模型后再试。',
-          { providerId: key },
-        )
+      const isRequests = win.field === 'requests'
+      if (now - win.startedAt >= win.windowMs) {
+        // 过期窗口：requests 由准入自己重置（否则永不计数）；token 类留给记账路径重置
+        if (!isRequests) continue
+        win.used = 0
+        win.startedAt = now
       }
+      if (win.used >= win.limit) throw this._quotaExceeded(key, win)
+      if (!isRequests) continue
+      win.used += 1
+      reservations.push({ win, startedAt: win.startedAt })
     }
+    return reservations
+  }
+
+  /**
+   * 归还预留。只作用于自己那一代窗口：窗口若在调用期间过期并被重置，新计数里并没有这次占用，
+   * 减它会把新窗口打穿到负数——所以代次不符一律跳过。
+   */
+  _releaseTokenBudget(reservations) {
+    if (!reservations || reservations.length === 0) return
+    for (const r of reservations) {
+      if (r.win.startedAt !== r.startedAt) continue
+      r.win.used = Math.max(0, r.win.used - 1)
+    }
+  }
+
+  _quotaExceeded(key, win) {
+    const label = win.windowMs >= 7 * 24 * 3600 * 1000 ? '每周' : (win.windowMs >= 3600 * 1000 ? '每 5 小时' : '当前周期')
+    return new ProviderError(
+      ERROR_CODES.QUOTA_EXCEEDED,
+      '该模型 API 的' + label + ' token 额度（' + win.limit + '）已用完，请检查套餐额度或更换模型后再试。',
+      { providerId: key },
+    )
   }
 
   _assertTokenBudget(key, st) {
@@ -404,16 +444,11 @@ class ApiUsageGovernor {
         win.startedAt = now
         continue
       }
-      // 执行后断言：仅当「已超上限」（used > limit）才抛——第 limit 次成功调用应被允许，
-      // 与 _preflightTokenBudget 的「used >= limit 即拒」（第 limit+1 个起拒绝）语义对齐（2026-08-12 对拍审计）。
-      if (win.used > win.limit) {
-        const label = win.windowMs >= 7 * 24 * 3600 * 1000 ? '每周' : (win.windowMs >= 3600 * 1000 ? '每 5 小时' : '当前周期')
-        throw new ProviderError(
-          ERROR_CODES.QUOTA_EXCEEDED,
-          '该模型 API 的' + label + ' token 额度（' + win.limit + '）已用完，请检查套餐额度或更换模型后再试。',
-          { providerId: key },
-        )
-      }
+      // requests 窗口已在准入时占额度，used > limit 是不可达状态。这里继续对它生效就等于把
+      // 「真实调用已发出、随后才判超额」重新请回来——正是本次修复要消灭的形态。
+      // token 类仍靠这条事后断言兜底（2026-08-12 对拍审计语义不变）。
+      if (win.field === 'requests') continue
+      if (win.used > win.limit) throw this._quotaExceeded(key, win)
     }
   }
 
