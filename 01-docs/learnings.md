@@ -74,6 +74,11 @@
   改完除两口径 numstat 外，还要跑 eslint 的 `no-irregular-whitespace`——它是这类「字节被重新解释」
   的专用探针。还原后用 md5 比对确认变异反证没留残留。
 
+## PR 处于 DIRTY（冲突）状态会整体阻断 pull_request CI 触发；合并输出截断会让冲突标记静默入库（publish-capability-ccg-review 合并马拉松，2026-10-08）
+
+- **DIRTY 阻断 CI 触发是全或无的**：PR 与 main 冲突时（merge ref 无法计算），push 的 synchronize 事件**静默不触发任何 workflow**——实测连续两次推送 + close/reopen 全部零 run（API 查 `head_sha` 的 `total_count=0`，GitHub 状态页全绿、他方 PR 正常触发）。判据：**推送后 5 分钟仍无任何 run，先查 `mergeStateStatus` 是否 DIRTY**，是则先解冲突再谈 CI；workflow_dispatch 能跑（走分支 ref）但**不挂 PR 检查**，不能替代。本仓 main 高频推进（他方会话每 15–30 分钟合一个 PR），CI 25–30 分钟的窗口期内 main 大概率再动——合并马拉松是常态，唯一解法是「CI 绿了发现 DIRTY → 立即合并推送重跑」，别指望一次过。
+- **合并输出必须看全，解冲突脚本的检查必须 gate 住 commit**：`git merge ... | Select-Object -Last 4` 把 `.quality-gates.md` 的 CONFLICT 行切掉了（git 按字母序输出，点文件在最前），于是只解了 CHANGELOG/ledger，gates 带着 `<<<<<<<` 标记入库（下一轮脚本打印 `markers: true` 但没拦住推送，又推了一次）。判据：① 解冲突后**必须**跑 `node scripts/check-gate-record-debt.js` 且以 rc=0 作为 commit 的前置条件（打印不算，gate 才算）；② 对含标记的文件做 union 时，源必须取**已验证无标记**的历史提交，不能取当前 HEAD（它可能就是带标记的那个）；③ PowerShell 管道截断 native 输出时用 `Select-String -Pattern "CONFLICT"` 全量过滤，不要 `Select-Object -Last N`。
+
 ## git add -A 会静默跳过 .gitignore 命中的新文件——核心交付物可能从未入库（publish-capability-docs，2026-10-08）
 
 - **`.gitignore:259-260` 忽略 `/01-docs/*.md` 与 `/01-docs/**/*.md`，既有 PRD-*.md 是规则生效前已跟踪才在库里；新增的 PRD 专项文档被 `git add -A` 静默跳过（提交输出里没有它的 create mode，但 31 files changed 的数字让人不会逐个核对）**。后果：首轮 PR 的核心文档交付物从未进仓库，而 CHANGELOG 与主 PRD 头部的链接指向不存在的文件——链接断链直到二轮才发现。判据：**新增文档类交付物提交后必须 `git ls-tree HEAD -- <路径>` 或 `git show HEAD:<路径> | head` 验证 blob 真的在库里**；`git status` 干净不等于交付完整（ignored 文件在 status 里根本不出现）。修复：按既有 PRD 文件先例 `git add -f` 强制收录。
