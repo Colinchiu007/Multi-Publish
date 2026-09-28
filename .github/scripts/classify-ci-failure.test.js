@@ -35,22 +35,31 @@ function inputFrom(sample, workflowName) {
 const electronSamples = FIXTURE.samples.filter(s => s.source.workflowFile === 'electron-ci.yml');
 const qualitySamples = FIXTURE.samples.filter(s => s.source.workflowFile === 'quality-gate.yml');
 const docSamples = FIXTURE.samples.filter(s => s.source.workflowFile === 'doc-gate.yml');
+const guiSamples = FIXTURE.samples.filter(s => s.source.workflowFile === 'gui-test.yml');
 
-test('夹具本身必须是真实形状（防止将来有人手抄改形）', () => {
-  assert.ok(electronSamples.length >= 2, '需要至少两条 Electron CI 真实样本');
-  assert.ok(qualitySamples.length >= 1, '需要至少一条 quality-gate 真实样本');
-  assert.ok(docSamples.length >= 1, '需要至少一条 Doc Sync Gate 真实样本');
-  // 真实载荷里这两类互斥：超时墙 = 124，其余 = 1
-  const codes = new Set(
-    electronSamples.flatMap(s => s.annotations.flatMap(a => a.list.map(x => x.message)))
-      .map(m => (m.match(/exit code (\d+)/) || [])[1])
-      .filter(Boolean)
-  );
-  assert.deepEqual([...codes].sort(), ['124'], 'Electron CI 样本必须覆盖 exit 124（timeout(1) 的约定码）');
+const hasExit = (sample, code) => sample.annotations.some(a => a.list.some(x => x.message.includes(`exit code ${code}.`)));
+// 同一个步骤名（Unit tests…）在真实数据里既有 124 也有 1 —— 这正是"判据必须是 exit code，
+// 不能是步骤名"的实证来源，所以两类都要留在夹具里并分开断言。
+const budgetSamples = electronSamples.filter(s => hasExit(s, 124));
+const assertionSamples = electronSamples.filter(s => !hasExit(s, 124) && hasExit(s, 1));
+const shardSamples = qualitySamples.filter(s => s.failedJobs.some(j => /^QG Desktop Shards/.test(j.name)));
+const rollupOnlySamples = qualitySamples.filter(s => s.failedJobs.every(j => j.name === 'Gate Result'));
+
+test('夹具必须逐形状齐备（防止将来有人手抄改形或删样本）', () => {
+  for (const [label, list, min] of [
+    ['Electron CI 预算墙（exit 124）', budgetSamples, 1],
+    ['Electron CI 真实断言失败（同步骤 exit 1）', assertionSamples, 1],
+    ['quality-gate 根因 + rollup 同时红', shardSamples, 1],
+    ['quality-gate 只剩 rollup 红', rollupOnlySamples, 1],
+    ['Doc Sync Gate（exit 1）', docSamples, 1],
+    ['GUI Tests 环境/安装步骤红', guiSamples, 2],
+  ]) {
+    assert.ok(list.length >= min, `夹具缺少形状「${label}」：需要 ≥${min} 条，实际 ${list.length} 条`);
+  }
 });
 
 test('#2458 的预算墙被判成 ci-timeout-budget，而不是无限张 ci-failure', () => {
-  for (const sample of electronSamples) {
+  for (const sample of budgetSamples) {
     const v = classifyFailure(inputFrom(sample, 'Electron CI'));
     assert.equal(v.type, 'ci-timeout-budget');
     assert.equal(v.exitCode, 124);
@@ -63,11 +72,24 @@ test('#2458 的预算墙被判成 ci-timeout-budget，而不是无限张 ci-fail
   }
 });
 
+test('同一个步骤名下的真实断言失败不得被冒充成预算墙（判据是 exit code 不是步骤名）', () => {
+  for (const sample of assertionSamples) {
+    const v = classifyFailure(inputFrom(sample, 'Electron CI'));
+    assert.equal(v.exitCode, 1, '夹具必须确实是 exit 1，否则这条对照不成立');
+    assert.notEqual(v.type, 'ci-timeout-budget');
+    assert.equal(v.type, 'test-failure');
+    assert.equal(v.rootStep, 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
+    assert.equal(v.trackedIn, null, '真实测试回归必须照常开单，不得藏进基础设施跟踪项');
+    assert.equal(v.fileIssue, true);
+  }
+});
+
 test('去重键必须跨提交稳定 —— 两条不同 run 的同因失败要落在同一个签名上', () => {
-  assert.notEqual(electronSamples[0].source.runId, electronSamples[1].source.runId, '夹具得是两次真实 run');
-  assert.notEqual(electronSamples[0].source.headSha, electronSamples[1].source.headSha, '夹具得是两个不同提交');
-  const a = classifyFailure(inputFrom(electronSamples[0], 'Electron CI'));
-  const b = classifyFailure(inputFrom(electronSamples[1], 'Electron CI'));
+  assert.ok(budgetSamples.length >= 2, '需要两条独立的 124 样本才有意义');
+  assert.notEqual(budgetSamples[0].source.runId, budgetSamples[1].source.runId, '夹具得是两次真实 run');
+  assert.notEqual(budgetSamples[0].source.headSha, budgetSamples[1].source.headSha, '夹具得是两个不同提交');
+  const a = classifyFailure(inputFrom(budgetSamples[0], 'Electron CI'));
+  const b = classifyFailure(inputFrom(budgetSamples[1], 'Electron CI'));
   assert.equal(a.signature, b.signature);
   assert.equal(buildDedupTitle(a), buildDedupTitle(b));
   // 标题里**不得**再出现 sha —— 那正是"每个失败提交一张单"的根因
@@ -83,8 +105,46 @@ test('Doc Sync Gate 的红按 job/步骤名分类（它的退出码和真实测�
   assert.equal(v.fileIssue, true, '漂移仍要有人知道，但只开一张、后续追评');
 });
 
+test('环境/安装步骤红不得被步骤名里的 "test" 判成测试失败（生产误判 #2568 的形状）', () => {
+  const install = guiSamples.find(s => s.failedJobs[0].steps.some(x => /Install .*test dependencies/.test(x.name)));
+  assert.ok(install, '夹具必须含"装依赖"步骤红的真实样本');
+  const v = classifyFailure(inputFrom(install, 'GUI Tests'));
+  assert.equal(v.type, 'setup-failure', '这是环境装配失败，不是测试回归');
+  assert.equal(v.rootJob, 'gui-test');
+  assert.match(v.rootStep, /Install Python backend runtime/);
+  assert.equal(v.exitCode, 1);
+  assert.equal(v.fileIssue, true);
+
+  const build = guiSamples.find(s => s.failedJobs[0].steps.some(x => /^Build /.test(x.name)));
+  assert.ok(build, '夹具必须含 Build 步骤红的真实样本');
+  assert.equal(classifyFailure(inputFrom(build, 'GUI Tests')).type, 'setup-failure');
+
+  // 负控：setup 规则**不得**把真正的测试失败一起吃掉（同一夹具里的 electron exit-1 样本）
+  for (const s of assertionSamples) {
+    assert.equal(classifyFailure(inputFrom(s, 'Electron CI')).type, 'test-failure');
+  }
+  // 也不得吃掉覆盖率卡点这类"名字像检查、实质是质量门禁红"的形状
+  const coverageShaped = {
+    workflowName: 'quality-gate', runId: 1, headSha: 'a'.repeat(40),
+    failedJobs: [{ id: 1, name: 'QG Coverage', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] }],
+    annotations: [{ jobId: 1, jobName: 'QG Coverage', list: [{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }] }],
+  };
+  assert.equal(classifyFailure(coverageShaped).type, 'test-failure');
+});
+
+test('只剩 rollup 作业红时也要报出作业名，不得输出 null / null 的空标题', () => {
+  const sample = rollupOnlySamples[0];
+  const v = classifyFailure(inputFrom(sample, 'quality-gate'));
+  assert.equal(v.rootJob, 'Gate Result', '有rollup可报时不得把根因留空');
+  assert.equal(v.type, 'ci-failure');
+  assert.equal(v.fileIssue, true);
+  const title = buildDedupTitle(v);
+  assert.doesNotMatch(title, /null/, `标题不得含空占位: ${title}`);
+  assert.match(title, /Gate Result/, `标题应报出可归因的作业名: ${title}`);
+});
+
 test('quality-gate 的根因作业不得选成 Gate Result（它只是 needs 的汇总）', () => {
-  for (const sample of qualitySamples) {
+  for (const sample of shardSamples) {
     const names = sample.failedJobs.map(j => j.name);
     assert.ok(names.includes('Gate Result'), '夹具须包含 rollup 作业才有意义');
     const v = classifyFailure(inputFrom(sample, 'quality-gate'));
