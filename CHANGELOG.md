@@ -1,3 +1,15 @@
+# [未发布]
+
+### 变更
+
+- **债务登记：`max-lines-baseline.json` 的 `Publish.vue` 登记值 1333 → 1515（= main 实况）**。
+  登记值停在 1333，而 main 上 `apps/desktop/src/views/Publish.vue` 实测已 1515 行 —— 这 +182 是已合进 main
+  的上游改动、从未登记。容差 200 ⇒ 天花板 1533，main 自己只剩 18 行余量，于是任何再动该文件的 PR 一律
+  `LEDGER_GREW` 红，与它加了什么无关。本次把登记值对齐实况，属**接受已发生的漂移，不是清理债务**；
+  该文件仍是 1515 行巨型组件，拆分另行登记为 OPEN 债务（见 `.quality-gates.md` 本条记录）。
+
+---
+
 # [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
 
 ### 变更

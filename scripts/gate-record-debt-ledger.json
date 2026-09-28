@@ -151,5 +151,9 @@
     "reason": "本 PR（#2588）自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填者＝下一个会话，按 git log origin/main --grep=(#2588) 取证回填后必须删除本条，否则判陈旧登记。",
     "status": "PENDING",
     "line": 2
+  },
+  "本次执行记录：债务登记值对齐 main 实况（max-lines-baseline-sync，2026-09-28）": {
+    "reason": "本 PR 自己尚未合并，无法取证 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记。合并后由后续 docs PR 按 `git log origin/main --grep=(#<本PR号>)` 离线取证回填 merge SHA 与时间，并**删除本登记项**（不删则同时报「未登记欠账」与「陈旧登记」两条红）。",
+    "status": "PENDING"
   }
 }
