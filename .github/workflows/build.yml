@@ -27,8 +27,39 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # --- docs-only 短路判定（change: docs-only-ci-shortcircuit；与 quality-gate.yml 同模式）---
+  # 红线不变：pull_request 触发级 paths-ignore 仍被 workflow-contract.test.js 禁止（PR #2151 死锁）。
+  # build job 的快速检查（冒烟/deps/circular/build Vue）对纯文档 PR 无意义 => job 级短路；
+  # job 内既有的 package-relevant 步骤级检测保留不动（管打包步骤，与本短路正交）。
+  # tag push（v*）是非 PR 事件 => 恒 false => 发布链路不变。
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # merge-base diff 需要完整历史
+
+      - name: Detect docs-only changes
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs-only=false" >> "$GITHUB_OUTPUT"
+            echo "docs-only=false (non-PR event: full run)"
+            exit 0
+          fi
+          BASE="${{ github.event.pull_request.base.sha }}"
+          node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
+
   build:
     runs-on: windows-latest
+    needs: [changes]
+    # docs-only 短路：纯文档 PR 跳过（skipped 满足 required check；混合 PR 全量不变）
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 60
     outputs:
       package-relevant: ${{ steps.changes.outputs.package-relevant }}

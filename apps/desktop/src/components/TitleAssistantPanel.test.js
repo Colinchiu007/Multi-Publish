@@ -67,9 +67,12 @@ describe("TitleAssistantPanel", () => {
           patterns: [["AI", 4], ["技术", 3]],
           suggestion: { tip: "建议使用数字增强吸引力" }
         },
+        // 注意：这里不得再出现 source:"github" 的条目 —— 「标题参考」的源域已收窄到
+        // reddit/hackernews（GitHub issue 标题不是同类标题）。原版把 github 条目
+        // 断言成正确渲染，等于把事故形态钉成了契约。
         results: [
           { id: 1, title: "2024 AI发展趋势", engagement: 3.2, source: "reddit" },
-          { id: 2, title: "深度学习入门指南", engagement: 1.5, source: "github" }
+          { id: 2, title: "深度学习入门指南", engagement: 1.5, source: "hackernews" }
         ]
       }
     });
@@ -83,7 +86,71 @@ describe("TitleAssistantPanel", () => {
     expect(w.text()).toContain("2024 AI发展趋势");
     expect(w.text()).toContain("深度学习入门指南");
     expect(w.text()).toContain("Reddit");
-    expect(w.text()).toContain("GitHub");
+    expect(w.text()).toContain("HN");
+    expect(w.text()).not.toContain("GitHub");
+  });
+
+  it("未知来源不得兜底显示成 GitHub（品牌名不是缺省值）", async () => {
+    intelligenceSearchTitles.mockResolvedValue({
+      code: 0,
+      data: {
+        titleAnalysis: { patterns: null, suggestion: null },
+        results: [
+          { id: 9, title: "某条来自新源的高互动标题", engagement: 2.4, source: "bilibili" },
+          { id: 10, title: "某条没有来源标注的标题", engagement: 1.8 }
+        ]
+      }
+    });
+    const w = mount(TitleAssistantPanel, { props: { visible: true, title: "" } });
+    await nextTick();
+    await w.setProps({ title: "高互动标题" });
+    await new Promise(r => setTimeout(r, 900));
+    await nextTick();
+    expect(w.text()).not.toContain("GitHub");
+    // 未知源如实回显其标识，不臆造品牌
+    expect(w.text()).toContain("bilibili");
+    expect(w.text()).toContain("2.4");
+  });
+
+  it("有响应但全部被相关性门禁剔除时，如实显示空态与过滤条数", async () => {
+    intelligenceSearchTitles.mockResolvedValue({
+      code: 0,
+      data: {
+        titleAnalysis: { patterns: null, suggestion: null },
+        droppedIrrelevant: 3,
+        results: []
+      }
+    });
+    const w = mount(TitleAssistantPanel, { props: { visible: true, title: "" } });
+    await nextTick();
+    await w.setProps({ title: "三步学会做红烧肉" });
+    await new Promise(r => setTimeout(r, 900));
+    await nextTick();
+    expect(w.text()).toContain("暂未找到同类高互动标题");
+    // 按结构类名断言"渲染的是哪一支说明"，不按 locale 文案字面量断言（文案改写不该把正确实现判红）
+    expect(w.find(".ta-empty-hint--filtered").exists()).toBe(true);
+    expect(w.find(".ta-empty-hint--source").exists()).toBe(false);
+    // {n} 插值必须真的带上数字
+    expect(w.find(".ta-empty-hint--filtered").text()).toContain("3");
+    // 空态下不得残留任何列表结构
+    expect(w.find(".ta-ref-item").exists()).toBe(false);
+    expect(w.find(".ta-empty").exists()).toBe(true);
+  });
+
+  it("源完全无响应时显示数据源说明，而不是空白面板", async () => {
+    intelligenceSearchTitles.mockResolvedValue({
+      code: 0,
+      data: { titleAnalysis: { patterns: null, suggestion: null }, results: [] }
+    });
+    const w = mount(TitleAssistantPanel, { props: { visible: true, title: "" } });
+    await nextTick();
+    await w.setProps({ title: "三步学会做红烧肉" });
+    await new Promise(r => setTimeout(r, 900));
+    await nextTick();
+    expect(w.text()).toContain("暂未找到同类高互动标题");
+    expect(w.find(".ta-empty-hint--source").exists()).toBe(true);
+    expect(w.find(".ta-empty-hint--filtered").exists()).toBe(false);
+    expect(w.find(".ta-ref-item").exists()).toBe(false);
   });
 
   it("emits close on close button click", async () => {

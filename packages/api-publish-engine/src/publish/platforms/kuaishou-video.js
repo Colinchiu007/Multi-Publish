@@ -130,14 +130,13 @@ class KuaishouVideoChain {
   }
 
   /** 求签：仅经注册表 command；签名页未就绪 → err.signerNotReady（上层降级 unsupported）；
-   *  结果本地断言：非空字符串且长度 ≥40（design §3），否则 fail-closed 抛错 */
+   *  结果本地断言：非空字符串且长度 ≥40（design §3），否则 fail-closed 抛错。
+   *  缺省走进程内注册表（构造器文档契约，2026-09-28 活体 6.3 补实现）：registry 的
+   *  kuaishou.ns-sig3-browser 委托 browserPageProvider 单例（bridge 由桌面装配层注入）——
+   *  桌面调用方（rpa-view-manager/publisher-router）不显式传 signer 时 API 轨此前在
+   *  第一步就 fail（no signer injected），注册表路径让装配好的 bridge 真正可达。 */
   async _sign (url, params, type, opts) {
-    const signer = this.signer
-    if (typeof signer !== 'function') {
-      const err = new Error('kuaishou-video: 签名页未就绪（no signer injected；bridge 由桌面装配层注入）')
-      err.signerNotReady = true
-      throw err
-    }
+    const signer = this.signer || ((cmd, payload) => registry.sign(cmd, payload))
     const payload = { url, type: type || 'json', params, accountId: (opts && opts.accountId) || undefined }
     let sig
     try {

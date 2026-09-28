@@ -15,9 +15,10 @@
       {{ t('tagSuggest.emptyContent') }}
     </div>
 
-    <!-- Error -->
-    <div v-else-if="error" style="padding:12px 0;font-size: var(--font-size-sm);color:var(--coral)">
-      {{ error }}
+    <!-- Error：一行收敛提示 + 行内重试（空态收敛契约：不渲染整卡结果结构） -->
+    <div v-else-if="error" class="tag-error-row" data-testid="tag-suggester-error">
+      <span class="tag-error-text">⚠ {{ error }}</span>
+      <button class="cohere-btn-ghost tag-retry-button" @click="retry">{{ t('tagSuggest.retry') }}</button>
     </div>
 
     <!-- Results -->
@@ -27,9 +28,12 @@
         <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:6px">提取关键词：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           <span v-for="kw in suggestions.keywords" :key="kw"
-            class="cohere-tag"
+            class="cohere-tag suggested-tag"
             :class="kw.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
-            style="font-size: var(--font-size-xs);padding:2px 8px;border-radius:4px">
+            data-testid="suggested-tag"
+            :title="t('tagSuggest.applyTagHint')"
+            style="font-size: var(--font-size-xs);padding:2px 8px;border-radius:4px"
+            @click="$emit('apply-tag', kw)">
             {{ kw }}
           </span>
         </div>
@@ -40,8 +44,11 @@
         <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:6px">相关话题：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           <span v-for="term in suggestions.relatedTerms" :key="term"
-            class="cohere-tag cohere-tag-info"
-            style="font-size: var(--font-size-xs);padding:2px 8px;border-radius:4px">
+            class="cohere-tag cohere-tag-info suggested-tag"
+            data-testid="suggested-tag"
+            :title="t('tagSuggest.applyTagHint')"
+            style="font-size: var(--font-size-xs);padding:2px 8px;border-radius:4px"
+            @click="$emit('apply-tag', term)">
             {{ term }}
           </span>
         </div>
@@ -63,8 +70,11 @@
             <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px"><el-icon><EditPen /></el-icon> {{ t('tagSuggest.contentTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
               <span v-for="tag in g.detail.content" :key="'c-'+tag"
-                class="cohere-tag cohere-tag-info"
-                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px">
+                class="cohere-tag cohere-tag-info suggested-tag"
+                data-testid="suggested-tag"
+                :title="t('tagSuggest.applyTagHint')"
+                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px"
+                @click="$emit('apply-tag', tag)">
                 {{ tag }}
               </span>
             </div>
@@ -72,9 +82,11 @@
             <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px"><el-icon><TrendCharts /></el-icon> {{ t('tagSuggest.trafficTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px">
               <span v-for="tag in g.detail.traffic" :key="'t-'+tag"
-                class="cohere-tag cohere-tag-success"
-                :title="hotTitle(g.platform, tag)"
-                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px">
+                class="cohere-tag cohere-tag-success suggested-tag"
+                data-testid="suggested-tag"
+                :title="hotTitle(g.platform, tag) || t('tagSuggest.applyTagHint')"
+                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px"
+                @click="$emit('apply-tag', tag)">
                 {{ tag }}<sup v-if="hotHeat(g.platform, tag) != null" class="heat-badge">{{ hotHeat(g.platform, tag) }}</sup>
               </span>
             </div>
@@ -84,9 +96,12 @@
           <template v-else>
             <div style="display:flex;flex-wrap:wrap;gap:4px">
               <span v-for="tag in g.tags" :key="tag"
-                class="cohere-tag"
+                class="cohere-tag suggested-tag"
                 :class="tag.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
-                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px">
+                data-testid="suggested-tag"
+                :title="t('tagSuggest.applyTagHint')"
+                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px"
+                @click="$emit('apply-tag', tag)">
                 {{ tag }}
               </span>
             </div>
@@ -124,9 +139,12 @@ import { intelligenceSuggestTags } from '@/api/publisher'
 
 const props = defineProps({
   content: { type: String, required: true },
+  // 发布目标联动（openspec optimize-publish-right-rail）：请求平台跟随用户勾选；
+  // 空数组/未传时回退全量目录，保证未选平台时面板不出空态。
+  platforms: { type: Array, default: () => [] },
 })
 
-defineEmits(['close'])
+defineEmits(['close', 'apply-tag'])
 
 const { t } = useI18n()
 
@@ -135,6 +153,16 @@ const error = ref(null)
 const suggestions = ref(null)
 const platformStore = usePlatformStore()
 platformStore.load()
+
+// 全量建议平台目录：platforms prop 为空时的回退范围（保持既有行为）。
+const FULL_SUGGESTION_PLATFORMS = ['zhihu', 'weibo', 'xiaohongshu', 'bilibili', 'toutiao']
+
+const requestPlatforms = computed(() => {
+  const list = Array.isArray(props.platforms)
+    ? props.platforms.filter((p) => typeof p === 'string' && p)
+    : []
+  return list.length > 0 ? list : FULL_SUGGESTION_PLATFORMS
+})
 
 function platformLabel (key) {
   return platformStore.getLabel(key) || key
@@ -172,33 +200,44 @@ function hotTitle (platform, tag) {
 let debounceTimer = null
 // R20 修复：组件卸载时清理 debounce timer
 onBeforeUnmount(() => { if (debounceTimer) clearTimeout(debounceTimer) })
-watch(() => props.content, (newVal) => {
+
+async function runAnalysis (content) {
+  loading.value = true
+  error.value = null
+  try {
+    const res = await intelligenceSuggestTags(content, {
+      platforms: requestPlatforms.value,
+    })
+    const data = res?.code === 0 ? res.data : null
+    if (data && data.keywords) {
+      suggestions.value = data
+    } else {
+      suggestions.value = { keywords: [], relatedTerms: [], byPlatform: {} }
+    }
+  } catch {
+    error.value = t('tagSuggest.analysisFailed')
+    suggestions.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+// 显式重试：用户点击错误行上的重试按钮，绕过防抖立即重新分析。
+function retry () {
+  const content = props.content
+  if (!content || content.trim().length < 3) return
+  runAnalysis(content)
+}
+
+// content 与 platforms 共用同一防抖：任一变化只重置计时器，避免请求风暴。
+watch([() => props.content, () => props.platforms], ([newVal]) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   if (!newVal || newVal.trim().length < 3) {
     suggestions.value = null
     error.value = null
     return
   }
-  debounceTimer = setTimeout(async () => {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await intelligenceSuggestTags(newVal, {
-        platforms: ['zhihu', 'weibo', 'xiaohongshu', 'bilibili', 'toutiao'],
-      })
-      const data = res?.code === 0 ? res.data : null
-      if (data && data.keywords) {
-        suggestions.value = data
-      } else {
-        suggestions.value = { keywords: [], relatedTerms: [], byPlatform: {} }
-      }
-    } catch (e) {
-      error.value = t('tagSuggest.analysisFailed')
-      suggestions.value = null
-    } finally {
-      loading.value = false
-    }
-  }, 800)
+  debounceTimer = setTimeout(() => runAnalysis(newVal), 800)
 })
 
 async function copyPlatformTags (platform, tags) {
@@ -231,4 +270,18 @@ async function copyPlatformTags (platform, tags) {
 }
 .src-ok { color: var(--success, #2e7d32); }
 .src-warn { color: var(--coral); }
+/* 空态收敛：错误提示一行呈现，重试按钮行内可达 */
+.tag-error-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: var(--font-size-sm);
+  color: var(--coral);
+}
+.tag-retry-button { font-size: var(--font-size-xs); padding: 2px 8px; white-space: nowrap; }
+/* 点击填入：建议标签可点击 */
+.suggested-tag { cursor: pointer; }
+.suggested-tag:hover { opacity: 0.8; outline: 1px dashed var(--coral); }
 </style>

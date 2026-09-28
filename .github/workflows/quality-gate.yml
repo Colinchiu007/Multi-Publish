@@ -27,9 +27,42 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # --- docs-only 短路判定（change: docs-only-ci-shortcircuit）---
+  # 红线不变：pull_request 触发级 paths-ignore 仍被 workflow-contract.test.js 禁止
+  # （PR #2151 死锁：触发级过滤会让 required check 永不产生）。本 job 是 job 级短路：
+  # workflow 照常触发 => 所有 required check context 都出现；被 if 跳过的 job 显示
+  # skipped => required check 视为满足；gate-result 的 $allowed 含 'skipped' 即为此口径。
+  # 判定真源是 scripts/classify-docs-only.js（fail-closed：空 diff / git 失败 / 混合
+  # 变更一律 false=全量）。git 失败时本 job 红，gate-result 会拦（不静默放行）。
+  changes:
+    name: QG Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # merge-base diff 需要完整历史（与 build.yml package-relevant 同模式）
+
+      - name: Detect docs-only changes
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs-only=false" >> "$GITHUB_OUTPUT"
+            echo "docs-only=false (non-PR event: full run)"
+            exit 0
+          fi
+          BASE="${{ github.event.pull_request.base.sha }}"
+          node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
+
   static-gates:
     name: QG Static
     runs-on: windows-latest
+    needs: [changes]
+    # docs-only 短路：纯文档 PR 跳过重型 job（skipped 满足 required check）
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -108,6 +141,8 @@ jobs:
           node scripts/check-step-failfast.js
           node --test scripts/check-gate-record-debt.test.js
           node scripts/check-gate-record-debt.js
+          # docs-only 短路判定单一真源的回归锁（change: docs-only-ci-shortcircuit）
+          node --test scripts/classify-docs-only.test.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
@@ -322,6 +357,8 @@ jobs:
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -443,6 +480,8 @@ jobs:
   desktop-shards:
     name: QG Desktop Shards
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -540,6 +579,8 @@ jobs:
   coverage:
     name: QG Coverage
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -567,6 +608,8 @@ jobs:
   visual:
     name: QG Visual
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -700,6 +743,8 @@ jobs:
   e2e:
     name: QG Browser E2E
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -801,6 +846,8 @@ jobs:
   autonomous:
     name: QG Autonomous
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -906,6 +953,8 @@ jobs:
     # 因此这是独立的 ubuntu-latest job，而不是塞进 windows 的 unit-tests（AGENTS.md
     # 「Docker runner 文件集 / PostgreSQL migration 最小权限」同族口径）。
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 15
     services:
       postgres:
@@ -966,7 +1015,7 @@ jobs:
   gate-result:
     name: Gate Result
     runs-on: windows-latest
-    needs: [static-gates, unit-tests, desktop-shards, coverage, business-api-postgres, visual, e2e, autonomous]
+    needs: [changes, static-gates, unit-tests, desktop-shards, coverage, business-api-postgres, visual, e2e, autonomous]
     if: always()
     timeout-minutes: 5
     steps:
@@ -978,6 +1027,7 @@ jobs:
         shell: pwsh
         run: |
           $results = [ordered]@{
+            'changes'        = '${{ needs.changes.result }}'
             'static-gates'   = '${{ needs.static-gates.result }}'
             'unit-tests'     = '${{ needs.unit-tests.result }}'
             'desktop-shards' = '${{ needs.desktop-shards.result }}'

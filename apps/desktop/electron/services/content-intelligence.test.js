@@ -52,10 +52,28 @@ describe("ContentIntelligence", () => {
   describe("search", () => {
     it("returns cached results if available and fresh", async () => {
       const cached = { results: ["item1"], timestamp: Date.now() };
-      ci._searchCache.set("search:test:reddit,hackernews,github:10", cached);
+      // 缓存键末段是相关性门禁的判据档位（relevanceOn）。它必须在键里 —— 否则
+      // searchTitles（只看 title）与 searchMentions（看 title+snippet+author）
+      // 用同一个 query 时会互相串用对方的过滤结果。
+      ci._searchCache.set("search:test:reddit,hackernews,github:10:title", cached);
       const result = await ci.search("test");
       expect(result).toEqual(cached.results);
       expect(mockAxios.get).not.toHaveBeenCalled();
+    });
+
+    it("不同 relevanceOn 档位必须落在不同缓存键上", async () => {
+      const keys = [];
+      const record = (key) => keys.push(key);
+      ci._setCache = (key) => record(key);
+      ci._getCached = () => null;
+
+      await ci.search("test", { noCache: true });
+      await ci.search("test", { noCache: true, relevanceOn: ["title", "snippet"] });
+
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).not.toEqual(keys[1]);
+      expect(keys[0].endsWith(":title")).toBe(true);
+      expect(keys[1].endsWith(":title+snippet")).toBe(true);
     });
 
     it("returns structured object for null query", async () => {

@@ -14,7 +14,13 @@ class WeiboAdapter extends BasePlatformAdapter {
   async uploadVideo(td, cookie) { const r = await upload({...td, platform: "weibo"}, cookie); return r?.video || null; }
   async uploadCover(td, cookie) { const r = await upload({...td, platform: "weibo"}, cookie); return r?.cover || null; }
   buildPostData(t) {
-    return { title: t.title || "", content: t.content || "", tags: (t.tags||[]).join(",") };
+    // 微博是无标题平台（openspec/changes/publish-capability-registry）：发布面
+    // 只有正文字段，发布页填写的标题必须作为正文首行插入（与 DOM RPA
+    // _composeEditorCaption / 快手链 caption 语义对齐），否则标题被丢弃。
+    const title = typeof t.title === "string" ? t.title.trim() : "";
+    const content = t.content == null ? "" : String(t.content).trim();
+    const composed = [title, content].filter(part => part.length > 0).join("\n");
+    return { title: t.title || "", content: composed, tags: (t.tags||[]).join(",") };
   }
   async publish(cookie, postData) {
     const h = this.getHeaders(cookie);

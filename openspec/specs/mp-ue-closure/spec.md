@@ -52,11 +52,16 @@ TBD - created by archiving change task-051-mp-closure. Update Purpose after arch
 
 ### Requirement: 发布页主操作可见
 
-单篇发布页 SHALL 在桌面长表单滚动时保持发布/保存草稿主操作区可见，并在窄屏下不遮挡表单内容。
+单篇发布页 SHALL 将发布/保存草稿主操作区置于右栏首位，在桌面初始视口内无需滚动即可见；长表单滚动时保持 sticky 可见；窄屏下不遮挡表单内容。
+
+#### Scenario: 桌面初始视口
+
+- **WHEN** 桌面视口（宽度大于 1080px）下发布页加载完成
+- **THEN** 发布目标卡作为右栏第一块渲染，快速发布按钮无需滚动即可见
 
 #### Scenario: 桌面滚动
 
-- **WHEN** 发布页次级面板内容超过视口高度
+- **WHEN** 发布页内容超过视口高度并发生滚动
 - **THEN** 主操作区 sticky 定位，按钮仍可操作
 
 #### Scenario: 移动窄屏

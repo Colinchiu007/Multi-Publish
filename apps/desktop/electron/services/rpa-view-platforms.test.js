@@ -525,8 +525,10 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     expect(String(written)).toContain('正文B')
     // 正文步骤不得再把同一编辑器覆写为纯正文（否则标题丢失）
     expect(context._fillInput.mock.calls.some(([, , v]) => String(v) === '正文B')).toBe(false)
-    // 候选回退确实试过标题候选
-    expect(context._waitForElement.mock.calls.map((c) => c[1])).toContain('input[placeholder*="标题"]')
+    // 2026-10-08 注册表驱动（publish-capability-registry）：快手是无标题平台，
+    // title_input 候选不再被解析（旧隐式回退靠选择器解析失败，白等 10s 超时）；
+    // 标题直接经编辑器合并路径写入描述首行。
+    expect(context._waitForElement.mock.calls.map((c) => c[1])).not.toContain('input[placeholder*="标题"]')
   })
 
   it('有独立标题字段时：标题进标题框、正文进编辑器，互不合并', async () => {
@@ -546,6 +548,40 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     const descCall = context._fillInput.mock.calls.find(([, sel]) => sel === '[contenteditable="true"]')
     expect(descCall).toBeTruthy()
     expect(String(descCall[2])).toContain('正文B')
+  })
+
+  it('无标题平台（weibo）携带标题时不解析 title_input，标题合并进编辑器描述首行', async () => {
+    const context = createGenericContext(['.publisher_text textarea'])
+    const weiboConfig = {
+      publish_url: 'https://weibo.com/upload',
+      has_api: false,
+      success_patterns: [],
+      selectors: {
+        // 选择器表里存在 title_input 候选（历史遗留），但注册表判定 weibo 无标题，
+        // 必须被显式跳过——不允许再靠解析失败隐式回退。
+        title_input: ['input[placeholder*="标题"]'],
+        content_textarea: ['.publisher_text textarea'],
+        publish_btn: ['button:has-text("发布")'],
+      },
+    }
+    await platformsMixin._publish_generic.call(context, win, { title: '标题A', content: '正文B' }, 'weibo', weiboConfig)
+
+    expect(context._waitForElement.mock.calls.map((c) => c[1])).not.toContain('input[placeholder*="标题"]')
+    const editorCalls = context._fillInput.mock.calls.filter(([, sel]) => sel === '.publisher_text textarea')
+    expect(editorCalls.length).toBeGreaterThan(0)
+    const written = String(editorCalls[0][2])
+    expect(written).toContain('标题A')
+    expect(written.indexOf('标题A')).toBeLessThan(written.indexOf('正文B'))
+  })
+
+  it('结构锁：_publish_generic 以注册表 isNoTitlePlatform 守卫 title_input 解析', () => {
+    const body = getGenericBody()
+    const guardIdx = body.indexOf('isNoTitlePlatform(platform)')
+    const resolveIdx = body.indexOf('await this._resolveSelector(win, sel.title_input')
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(resolveIdx).toBeGreaterThan(-1)
+    // 守卫必须出现在 title_input 解析之前
+    expect(guardIdx).toBeLessThan(resolveIdx)
   })
 
   it('上传完成判定：含“上传中/剩余时间/百分比未满”负向信号，默认预算 ≥15 分钟', () => {
@@ -660,15 +696,16 @@ describe('rpa-view-platforms — 快手/B站 发布选择器数据契约', () =>
     expect(S.kuaishou.desc_textarea[0]).toBe('#work-description-edit')
   })
 
-  it('kuaishou：publish_btn 首候选为活体实证的精确文案真钮（2026-09-28 D2 证据）', () => {
-    // 活体取证（d2-live-verdict-20260928.md + d2-live-evidence-20260928-snapshot005.json）：
-    // 上传后编辑页真提交钮是裸 <span>立即发布</span>（无 class/id/data）。旧锁「首候选必须
-    // button 标签限定」基于真钮是 <button> 的假设——2026-09-28 实测推翻（真钮是 span，
-    // button 系候选全部超时）。防提示文案误匹配的本意由精确文案承接：
-    // 「立即发布」不被任何已知提示文案（发布成功次数/在粉丝浏览高峰期发布等）包含。
-    expect(S.kuaishou.publish_btn[0]).toBe('span:has-text("立即发布")')
+  it('kuaishou：publish_btn 首候选为活体实证的底栏提交钮 div:has-text("发布")（2026-09-28 D2 二轮取证定案）', () => {
+    // 二轮活体取证（发布流实测 + 账号标签注入探测）：真提交钮是底栏 <div>发布</div>
+    // （裸 div，全页唯一直接文本为「发布」的元素，兄弟 <div>取消</div>）。
+    // 一轮锁「span:has-text("立即发布")」误把发布时间单选项当提交钮（活体点击点错对象
+    // responses=0）；解析器 exactLeaf 层使 div:has-text("发布") 唯一命中真钮。
+    expect(S.kuaishou.publish_btn[0]).toBe('div:has-text("发布")')
     // button 标签限定候选保留在兜底序列（页面改版回退路径）
     expect(S.kuaishou.publish_btn).toContain('button:has-text("发布")')
+    // 单选项诱饵必须移除（点击只切换定时模式，不触发发布）
+    expect(S.kuaishou.publish_btn).not.toContain('span:has-text("立即发布")')
   })
 
   it('bilibili：title_input 含实测命中的 placeholder 约束候选', () => {

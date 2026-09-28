@@ -33,6 +33,7 @@ const VITEST_FILES = new Set([
   'risk-suspender.test.js',
   'publish-service.test.js',
   'signer.test.js',
+  'signer-default-path.test.js',
   'tiktok.test.js',
   'twitter.test.js',
   'youtube.test.js',
