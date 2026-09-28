@@ -59,6 +59,19 @@ vi.mock('element-plus', function () {
   }
 })
 
+// publish-progress-ux：全局进度 store mock（reactive 使 composable 可读 sessions）
+const mockRegisterSession = vi.hoisted(() => vi.fn())
+vi.mock('@/stores/publishProgress', async () => {
+  const { reactive } = await import('vue')
+  const store = reactive({
+    sessions: [],
+    panelVisible: false,
+    panelMinimized: false,
+    registerSession: mockRegisterSession,
+  })
+  return { usePublishProgressStore: () => store }
+})
+
 import { reactive } from 'vue'
 import { useBatchPublish } from '../composables/useBatchPublish'
 
@@ -409,11 +422,21 @@ describe('useBatchPublish — composable setup', () => {
 
     expect(r.batchPublishing.value).toBe(false)
   })
-  it('取消全局进度订阅抛错时不掩盖已提交批次并保持锁到终态', async () => {
+  it('publish-progress-ux：batchExecute 成功后登记全局会话（batchId 归属），不再订阅页面级 onProgress', async () => {
+    // 旧缺陷：阶段级本地监听在 finally 无条件注销，而批次任务此后才真正执行——
+    // 阶段事件本就无人接收（死代码）。新契约：全局 store 承载，页面零阶段订阅。
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(mockRegisterSession).toHaveBeenCalledTimes(1)
+    expect(mockRegisterSession).toHaveBeenCalledWith(expect.objectContaining({ batchId: 'batch1' }))
+    expect(mockOnProgress).not.toHaveBeenCalled()
+  })
+  it('batch-complete 事件到达后解除发布锁（终态解锁不依赖已删除的阶段订阅清理）', async () => {
     let emitBatchProgress
-    mockOnProgress.mockReturnValueOnce(function () {
-      throw new Error('取消订阅失败')
-    })
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
     window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
       emitBatchProgress = callback
@@ -657,9 +680,7 @@ describe('useBatchPublish — composable setup', () => {
     expect(mockBatchCreate).toHaveBeenCalledTimes(1)
   })
 
-  it('批次响应缺少 data 时记录失败并释放全局进度订阅', async () => {
-    const unsubscribe = vi.fn()
-    mockOnProgress.mockReturnValueOnce(unsubscribe)
+  it('批次响应缺少 data 时记录失败（publish-progress-ux：阶段订阅已删除，无页面级订阅可释放）', async () => {
     mockBatchCreate.mockResolvedValueOnce({ code: 0 })
     const r = useBatchPublish({ article, licenseStore })
     r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
@@ -668,7 +689,7 @@ describe('useBatchPublish — composable setup', () => {
 
     expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
     expect(r.batchProgress.value.at(-1).text).toContain('批量发布失败')
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(mockOnProgress).not.toHaveBeenCalled()
   })
 
   it('Electron API 缺失时记录失败而不是向调用方抛错', async () => {
@@ -683,10 +704,8 @@ describe('useBatchPublish — composable setup', () => {
     expect(r.batchProgress.value.at(-1).text).toContain('批量发布失败')
   })
 
-  it('执行批次失败时记录错误并释放两个进度订阅', async () => {
-    const unsubscribe = vi.fn()
+  it('执行批次失败时记录错误并释放批量进度订阅（阶段订阅已删除）', async () => {
     const unsubscribeBatch = vi.fn()
-    mockOnProgress.mockReturnValueOnce(unsubscribe)
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
     window.electronAPI.onBatchProgress.mockReturnValueOnce(unsubscribeBatch)
     window.electronAPI.batchExecute.mockRejectedValueOnce(new Error('执行失败'))
@@ -697,14 +716,12 @@ describe('useBatchPublish — composable setup', () => {
 
     expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
     expect(r.batchProgress.value.at(-1).text).toContain('执行失败')
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+    expect(mockOnProgress).not.toHaveBeenCalled()
   })
 
-  it('执行接口返回业务失败时显示后端消息、不提示提交成功并释放订阅', async () => {
-    const unsubscribe = vi.fn()
+  it('执行接口返回业务失败时显示后端消息、不提示提交成功并释放批量订阅', async () => {
     const unsubscribeBatch = vi.fn()
-    mockOnProgress.mockReturnValueOnce(unsubscribe)
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
     window.electronAPI.onBatchProgress.mockReturnValueOnce(unsubscribeBatch)
     window.electronAPI.batchExecute.mockResolvedValueOnce({
@@ -721,7 +738,6 @@ describe('useBatchPublish — composable setup', () => {
     expect(r.batchProgress.value.at(-1).text).not.toContain('执行失败：账号未登录')
     expect(r.batchProgress.value.at(-1).text).toContain('登录')
     expect(r.batchProgress.value.some(function (item) { return item.text.includes('已提交发布') })).toBe(false)
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
   })
 

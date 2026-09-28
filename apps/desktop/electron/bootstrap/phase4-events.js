@@ -13,6 +13,7 @@
 const log = require('../services/logger')
 const { isRiskBlocked } = require('../services/publish-risk')
 const { isRiskSuspendedMessage } = require('../services/risk-suspender-store')
+const { createPublishProgressEmitter } = require('../services/publish-progress-events')
 
 /**
  * 接线 taskQueue 事件监听
@@ -24,15 +25,16 @@ const { isRiskSuspendedMessage } = require('../services/risk-suspender-store')
  * @param {object} [deps.store] - 效果闭环：tracked_content 登记（可选）
  * @param {Function} deps.getMainWin
  * @param {object} [deps.riskSuspender] - 风控挂起守卫（desktop-risk-suspender，可选）
+ * @param {object} [deps.progressEmitter] - 进度事件发射器（可选，缺省自建；publish-progress-ux）
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter }) {
+  // publish-progress-ux：四事件统一走富化 emitter（phase/stageKey/percent/batchId/timestamp），
+  // 既有字段（platform/taskId/stage/result/error/remainingWait）原样保留，向后兼容加法。
+  const emitter = progressEmitter || createPublishProgressEmitter({ getMainWin })
   taskQueue.on('task:success', (task) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '✓ 发布成功', taskId: task.id, result: task.result,
-      })
-    }
+    emitter.emit(task.id, task.platform, 'success', {
+      stage: '✓ 发布成功', percent: 100, result: task.result, batchId: task.batchId || null,
+    })
     const ownerSubject = task.owner_subject
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
@@ -89,11 +91,18 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
   })
 
   taskQueue.on('task:failed', (task) => {
+    emitter.emit(task.id, task.platform, 'failed', {
+      stage: '✗ 发布失败: ' + task.error, percent: 100, error: task.error, batchId: task.batchId || null,
+    })
+    // publish-progress-ux（G8 修复）：失败必须落发布历史——此前 task:failed 只发事件不落库，
+    // 失败结果在任何页面都查不到（历史页 failed 过滤器实际只匹配监控回调写入的记录）。
+    // addRecord 内建 try/catch，写入失败不阻塞发布主流程。
+    history.addRecord({
+      platform: task.platform, title: task.article?.title || '', taskId: task.id,
+      status: 'failed', result: null, error: task.error,
+    }, task.owner_subject)
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '✗ 发布失败: ' + task.error, taskId: task.id, error: task.error,
-      })
       if (isRiskBlocked(task.error) && !isRiskSuspendedMessage(task.error)) {
         const accountId = (task.article && task.article.accountId) || null
         // §5 enforcement：风控命中 → 平台/账号即时挂起（resume 仅显式），并广播全量挂起清单供前端刷新
@@ -111,23 +120,17 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
   })
 
   taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      const minutes = Math.ceil(remainingWait / 60000)
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '⏳ 发布间隔限制，等待 ' + minutes + ' 分钟后重试',
-        taskId: task.id, remainingWait,
-      })
-    }
+    emitter.emit(task.id, task.platform, 'blocked', {
+      stage: '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试',
+      remainingWait, batchId: task.batchId || null,
+    })
   })
 
   taskQueue.on('task:retry', (task) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '⟳ 重试中... (剩余 ' + task.retriesLeft + ' 次)', taskId: task.id,
-      })
-    }
+    emitter.emit(task.id, task.platform, 'retry', {
+      stage: '⟳ 重试中... (剩余 ' + task.retriesLeft + ' 次)',
+      retriesLeft: task.retriesLeft, batchId: task.batchId || null,
+    })
   })
 }
 
