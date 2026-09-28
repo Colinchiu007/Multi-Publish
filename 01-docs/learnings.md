@@ -1,3 +1,8 @@
+## git add -A 会静默跳过 .gitignore 命中的新文件——核心交付物可能从未入库（publish-capability-docs，2026-10-08）
+
+- **`.gitignore:259-260` 忽略 `/01-docs/*.md` 与 `/01-docs/**/*.md`，既有 PRD-*.md 是规则生效前已跟踪才在库里；新增的 PRD 专项文档被 `git add -A` 静默跳过（提交输出里没有它的 create mode，但 31 files changed 的数字让人不会逐个核对）**。后果：首轮 PR 的核心文档交付物从未进仓库，而 CHANGELOG 与主 PRD 头部的链接指向不存在的文件——链接断链直到二轮才发现。判据：**新增文档类交付物提交后必须 `git ls-tree HEAD -- <路径>` 或 `git show HEAD:<路径> | head` 验证 blob 真的在库里**；`git status` 干净不等于交付完整（ignored 文件在 status 里根本不出现）。修复：按既有 PRD 文件先例 `git add -f` 强制收录。
+- **同族预防**：凡「仓库有目录级 ignore 规则 + 该目录下既有文件被跟踪」的组合（本仓 01-docs、scripts 均是），新增文件时先 `git check-ignore -v <路径>` 探一下；命中就明确决定 force-add（进库）或改放行白名单，不允许「add -A 之后看 status 干净就收工」。
+
 ## 取证文档写竞品品牌名会撞 Gate 12；置顶文档 union 合并要顺带修 main 的 squash 损伤；EverOS add 成功不等于可检索（publish-capability-registry 交付轮，2026-10-08）
 
 - **写取证文档的那一刻就该用中性称谓（品牌门禁，Gate 12）**：注册表 note 与 PRD/CHANGELOG 里直接写参考产品品牌名，CI 品牌残留门禁报 55 处命中、本地修复 62 处。判据：凡引用竞品逆向材料，落盘前先过一遍 `node scripts/check-no-brand-residue.js`；本机目录路径含品牌词时按可复现定位法先例描述（「目录名含品牌词按红线不入库」），不抄路径字面量。这条门禁本地跑一次 <10s，比等 25 分钟 CI 红一轮便宜两个数量级。

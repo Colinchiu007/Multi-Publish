@@ -8,6 +8,7 @@
 
 ### 验证
 - 纯文档变更（01-docs/ + AGENTS.md + CHANGELOG.md），无运行时路径；PRD 结构经 markdown 标题层级自检（§一至§十二连续无跳级）。
+- 修复首轮遗留：PRD 专项文档被 `.gitignore:259-260`（/01-docs/*.md）静默忽略、`git add -A` 未收录（既有 PRD-*.md 是规则前已跟踪）——按先例 `git add -f` 补入（505 行），首轮 CHANGELOG/主 PRD 的断链随之修复；教训入 learnings（新增交付物提交后必须 `git ls-tree HEAD` 验证 blob 在库）。
 
 ---
 
