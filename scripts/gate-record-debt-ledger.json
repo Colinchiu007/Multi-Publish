@@ -1,4 +1,9 @@
 {
+  "本次执行记录：发布页「标题参考」把 GitHub issue 当同类标题 → 数据源收窄 + 标题级相关性门禁（fix-title-assistant-relevance，2026-09-28）": {
+    "reason": "本 PR 自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填者＝下一个会话，回填后必须删除本条，否则判陈旧登记。",
+    "status": "PENDING",
+    "line": 24
+  },
   "本次执行记录：「远程同步」欠账棘轮（.quality-gates.md 状态列）+ 回填本会话四条记录（机制加固，gate-record-debt，2026-09-28）": {
     "reason": "本 PR 自己写的行：合并前无法取证（这正是 PENDING 的语义）。回填者＝下一个会话，回填后必须删除本条，否则判陈旧登记。",
     "status": "PENDING",
