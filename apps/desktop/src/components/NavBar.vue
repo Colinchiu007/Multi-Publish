@@ -76,7 +76,14 @@
     </div>
 
     <div class="nav-bar-right">
-      <span v-if="loading" class="nav-loading" aria-label="加载中"><SpinnerIcon :size="14" /></span>
+      <span
+        v-if="loading"
+        class="nav-loading"
+        role="img"
+        :title="t('common.loading')"
+        :aria-label="t('common.loading')"
+        data-testid="nav-loading"
+      ><SpinnerIcon :size="14" /></span>
       <button
         v-if="isLoginTab"
         type="button"

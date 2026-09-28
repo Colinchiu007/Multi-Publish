@@ -201,23 +201,20 @@ view.webContents.on('did-finish-load', ...)    // state.loading = false ← 收�
 
 | 位置 | 出现条件 | 形状 | 尺寸 | 颜色 | 悬停提示 | 无障碍 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 标签徽标 `TabBar` | `tab.loading === true` | `SpinnerIcon`（开口圆环） | 12px | `var(--color-primary)` | `t('tabBar.loadingBadge')` | `role="img"` + `aria-label`；`data-testid="tab-loading-<tabId>"` |
-| 导航栏 `NavBar` | `loading === true`（即活动标签在加载） | `SpinnerIcon` | 14px | `#6b7280`（沿用原值，见 §7） | 无（原实现亦无） | 外层 `span` 保留 `aria-label="加载中"` |
+| 标签徽标 `TabBar` | `tab.loading === true` | `SpinnerIcon`（开口圆环） | 12px | `var(--color-primary)` | `t('common.loading')` | `role="img"` + `aria-label`；`data-testid="tab-loading-<tabId>"` |
+| 导航栏 `NavBar` | `loading === true`（即活动标签在加载） | `SpinnerIcon` | 14px | `#6b7280`（沿用原值，见 §7 R-2） | `t('common.loading')` | `role="img"` + `aria-label`（原实现为裸 `aria-label="加载中"` 且**无 `role`**，见下） |
 
 - 旋转：`animation: spin 1s linear infinite`，**保持不变**（1s 线性是浏览器惯例节奏，本次只换形状）。
 - **`prefers-reduced-motion: reduce` 时停止旋转**（本次新增）。开口圆环本身仍可被辨认为加载指示，不丢失信息。
 - 图标内部 `<svg>` 一律 `aria-hidden="true"`（装饰性），语义由外层容器承载，避免屏幕阅读器重复播报。
-- 标签徽标改为 `role="img"` + 本地化 `aria-label`（原实现为 `aria-hidden="true"`，即加载态对辅助技术完全不可见）。这是可访问性净增，不属回归。
+- 两处徽标统一为 `role="img"` + 本地化 `aria-label`。原实现两处都不可靠：`TabBar` 是 `aria-hidden="true"`（加载态对辅助技术完全不可见），`NavBar` 是**裸 `<span aria-label="加载中">` 而无 `role`**——`aria-label` 挂在无角色的 generic 元素上不保证被辅助技术暴露，等于写了不生效。这是可访问性净增，不属回归。
 
-#### 4.4.3 提示文字（locale 全表）
+#### 4.4.3 提示文字（locale）
 
-新增键必须 zh/en 成对（CI Gate 7 `check-locale-sync.js` 拦截）：
+**未新增任何 locale 键。** 两处加载提示复用既有且 zh/en 已成对的 `common.loading`（zh `加载中...` / en `Loading...`），避免为同一语义再造一键（Gate 7 `check-locale-sync.js` 的成对要求因此天然满足，且不产生死键）。
 
-| 键 | zh | en | 消费位置 |
-| --- | --- | --- | --- |
-| `tabBar.loadingBadge` | `页面加载中` | `Page loading` | `TabBar.vue` 徽标 `title` + `aria-label` |
+顺带修正：`NavBar.vue` 的加载提示原为**硬编码中文 `加载中`**，现改走 `t('common.loading')`。`title="后退/前进/刷新"` 等其余硬编码中文属既有状态，本次未改动其值（见 §7 R-3）。
 
-未新增其它文案。`NavBar.vue` 的 `aria-label="加载中"` 与 `title="后退/前进/刷新"` 为**既有硬编码中文字符串**，本次未改动其值、也未新增，故不触发渲染层 CJK 基线扫描的新增判定（见 §7 残留）。
 
 ### 4.5 图标资源规范与第三方许可
 
@@ -302,7 +299,7 @@ view.webContents.on('did-finish-load', ...)    // state.loading = false ← 收�
 | --- | --- | --- |
 | R-1 | 「返回首页」仍是 `HomeFilled`（Element Plus 实心），与三颗 Lucide 线性图标不同套 | 用户在范围确认时明确**未勾选**「地址栏复制/搜索与首页图标」。现状是「三颗线 + 一颗实心」，视觉上仍存不齐。后续若统一，需一并处理 `Search`/`CopyDocument`/`Check` 三颗，并重跑视觉基线。 |
 | R-2 | `NavBar.vue` 的 `.nav-btn` / `.nav-loading` 仍用硬编码灰 `#6b7280`/`#9ca3af`/`#374151`，未走设计 token | 属既有技术债，且 `TabBar.test.js` 已有「去硬编码灰」的结构锁只覆盖 TabBar 未覆盖 NavBar。只迁一处会让两栏口径更不一致；应连同结构锁一起迁，独立成一次变更。 |
-| R-3 | `NavBar.vue` 的 `title="后退"` 等与 `aria-label="加载中"` 是硬编码中文，未进 locales | 本次未新增、未改动这些字符串的值。迁移属 i18n 收口专项。 |
+| R-3 | `NavBar.vue` 的 `title="后退"` / `"前进"` / `"刷新"` / `"返回首页"` 与 `aria-label="复制网址"` 仍是硬编码中文，未进 locales | 本次只把**自己动过的那一处**（加载提示）改走 `t('common.loading')`；其余字符串的值未改动，迁移属 i18n 收口专项，不应混进一次图标变更。 |
 | R-4 | 视觉门禁对本次改动**结构性失明**：`pixelTests` 19 条无一打开浏览器标签，且图标占页面积 < 0.1% | 要真正覆盖需新增「浏览器标签 + 加载中」像素用例，且基线只能取自 CI 产物（AGENTS.md QM-4 规则 7）。已登记为后续项，本次不以「视觉套件绿」冒充「图标改动被视觉覆盖」。 |
 | R-5 | 挂起子资源永不 settle 的站点仍会持续转圈（§4.1 残留限制） | 与浏览器行为一致；加超时会让指示器说谎。 |
 
@@ -323,13 +320,13 @@ view.webContents.on('did-finish-load', ...)    // state.loading = false ← 收�
 - `apps/desktop/src/components/icons/ReloadIcon.vue`（新）
 - `apps/desktop/src/components/icons/SpinnerIcon.vue`（新）
 
-**测试（5）**
+**测试（6）**
 
-- `apps/desktop/src/stores/tab.test.js`、`apps/desktop/src/components/TabBar.test.js`、`apps/desktop/src/components/NavBar.test.js`、`apps/desktop/electron/services/webview-manager.test.js`、`apps/desktop/src/components/icons/nav-icons.test.js`（新）
+- `apps/desktop/src/stores/tab.test.js`、`apps/desktop/src/components/TabBar.test.js`、`apps/desktop/src/components/NavBar.test.js`、`apps/desktop/electron/services/webview-manager.test.js`、`apps/desktop/src/components/icons/nav-icons.test.js`（新）、`apps/desktop/src/icon-usage.test.js`（登记 4 个新图标文件并澄清「本卡约束 emoji 而非限定图标库」）
 
-**文案（2）**
+**文案（0）**
 
-- `apps/desktop/src/locales/zh.js`、`en.js` — 成对新增 `tabBar.loadingBadge`
+- 无。两处加载提示复用既有 `common.loading`（zh/en 已成对），未新增 locale 键。
 
 **文档（3）**
 

@@ -68,7 +68,6 @@ export default {
     saveAccountPulseHint: '登录完成，记得保存账号',
   },
   tabBar: {
-    loadingBadge: '页面加载中',
     unsavedBadge: '登录未保存',
     closeUnsavedTitle: '关闭未保存的登录',
     closeUnsavedMessage: '该账号登录凭证尚未保存，直接关闭将丢失本次登录。是否保存后关闭？',

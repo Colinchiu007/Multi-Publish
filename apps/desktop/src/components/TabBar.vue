@@ -20,8 +20,8 @@
           v-if="tab.loading"
           class="tab-spinner"
           role="img"
-          :title="t('tabBar.loadingBadge')"
-          :aria-label="t('tabBar.loadingBadge')"
+          :title="t('common.loading')"
+          :aria-label="t('common.loading')"
           :data-testid="`tab-loading-${tab.tabId}`"
         ><SpinnerIcon :size="12" /></span>
         <span
