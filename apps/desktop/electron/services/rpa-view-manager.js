@@ -19,6 +19,7 @@ const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 const { collectAuthPartitionCookies } = require('./auth-partition')
 const { buildApiTaskData } = require('./api-task-data')
+const { bindSignerCookie } = require('../signer/provider')
 
 // 桥接 api-publish-engine 的 CancelToken（参考产品复用：阶段级可恢复取消）
 const { CancelToken } = require('@multi-publish/api-publish-engine/src/base-adapter')
@@ -83,9 +84,22 @@ class RpaViewManager {
         // 等视频平台 API 轨全部 fail-closed（taskData.video.path required）。
         // 与 publisher-router 共用单一翻译实现（api-task-data.js）。
         const taskData = buildApiTaskData(article)
+        // 签名页多账号隔离（2026-09-28 活体 6.3 第六层）：sessionKey=accountId 必须
+        // 随 opts 下传（链 payload.accountId → 装配 ctx.sessionKey，缺则 fail-closed
+        // 「missing sessionKey」）；且求签前 bindSignerCookie 预绑账号 cookie
+        // （in-proc，cookie 明文不经 renderer IPC 往返——provider.js 契约）。
+        const signerAccountId = (article && article.accountId) || (authData && authData.accountId) || null
+        if (signerAccountId && cookie) {
+          try {
+            bindSignerCookie(platform, signerAccountId, cookie)
+          } catch (e) {
+            log.warn('RpaView', 'signer cookie bind failed platform=' + platform + ' accountId=' + signerAccountId + ' err=' + e.message)
+          }
+        }
         const apiResult = await Promise.race([
           publishViaApi(platform, taskData, cookie, {
-            onProgress: (pct, msg) => this._emitProgress(platform, msg, pct)
+            onProgress: (pct, msg) => this._emitProgress(platform, msg, pct),
+            accountId: signerAccountId || undefined,
           }),
           new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
         ]);
