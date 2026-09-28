@@ -17708,3 +17708,15 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **降级语义保持**：注册表路径的「签名页未就绪」（bridge 未注入/未验证/降级）经链的 catch 映射 `signerNotReady` → 上层 api-then-dom 降级 DOM 轨——与原直接抛错同一降级出口，只是晚一层（provider 的 not-ready 而非链的）。
 
 **回归锁**：`signer-default-path.test.js` 4 例（命令名透传 / 链缺省走注册表 / not-ready 映射 / 显式 signer 优先）。门禁：引擎全量 32 files 262 tests 全绿；QM-1 三件套全过（asar 解包实证两处修复在包内）。
+
+## 签名页 bridge 装配接线修正——provider 单例解析陷阱（2026-09-28 活体 6.3 最终层，随本 PR）
+
+活体 6.3 裁决（第三轮发布实测）暴露的 API 轨第五层缺陷收口：`browser-page-provider: bridge not injected`——注册表回退（#2580）生效后，链到达 provider 单例，但 bridge 从未注入。
+
+**根因（双模块解析陷阱）**：`signer/provider.js` 的 `require('@multi-publish/api-publish-engine/src/signer')` 被 Node 解析到**门面 `src/signer.js`**（文件优先于目录）——门面只导出 `{ registry, getDouyinSignature, getKuaishouSignature }`，**不导出 `browserPageProvider`** → `provider` 恒 `undefined` → `registerSignerAssembly` 的 `if (provider && ...)` 守卫**静默跳过 `setBridge`** → 注册日志照常打（「signer assembly registered」假绿）→ 引擎 provider 单例永远无 bridge。
+
+**修复**：require 直指 `src/signer/index`（provider 单例真身——与链的 registry 同一模块实例）。
+
+**回归锁**：`electron/tests/signer-provider.test.js` 2 例（装配后引擎单例 sign 不再报 bridge not injected——错误推进到 manager 层 fail-closed；signer IPC 三通道注册）。此前 provider.js **零测试覆盖**（装配接线从未被测过——本缺陷的逃逸面）。门禁：signer 相关 4 suites 91 tests 全绿；QM-1 三件套全过（asar 解包实证 provider.js 修正）。
+
+**活体 6.3 裁决链全景（五层，逐层修复逐层验证）**：形状翻译（#2578）→ 注册表回退 + 命令名透传（#2580）→ **bridge 装配接线（本 PR）**。每层修复后下一层暴露——API 轨首次全链贯通待本修复合并后的下一轮活体验证。
