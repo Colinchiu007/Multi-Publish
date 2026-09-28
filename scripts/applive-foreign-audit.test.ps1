@@ -29,7 +29,7 @@ $procs = @(
   # 105: suffix lookalike -> must NOT match
   (FakeProc 105 $exeOut '--user-data-dir=D:\Data\projects\Mulpub\shared-user-data-2 --x'),
   # 106: truncated prefix -> must NOT match
-  (FakeProc 106 $exeOut '--user-data-dir=D:\Data\projects\Multi-Publish\shared-user-da --x'),
+  (FakeProc 106 $exeOut '--user-data-dir=D:\Data\projects\Mulpub\shared-user-da --x'),
   # 107: unrelated electron without the profile flag -> must NOT match
   (FakeProc 107 $exeOut '--other-flag=1 --x')
 )
