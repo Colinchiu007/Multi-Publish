@@ -3,7 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 
-const PROJECT_ROOT = "D:/Data/projects/Multi-Publish";
+const PROJECT_ROOT = "D:/Data/projects/Mulpub";
 const EL = path.join(PROJECT_ROOT, "node_modules", "electron", "dist", "electron.exe");
 const MAIN = path.join(PROJECT_ROOT, "apps", "desktop", "electron", "main.js");
 const SS = path.join(PROJECT_ROOT, "apps", "desktop", "tests", "screenshots");

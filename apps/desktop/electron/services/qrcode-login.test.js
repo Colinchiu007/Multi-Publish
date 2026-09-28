@@ -83,6 +83,25 @@ describe('QrCodeLogin 凭证边界', () => {
     expect(__electronMock.WebContentsView).not.toHaveBeenCalled()
   })
 
+  // 2.5b 同族锁：扫码入口的拒绝路径同样要可诊断——日志只记 Cookie 名，值一律不得出现。
+  it('扫码拒绝时 warn 必须带 names= 现场（且只记名字不记值）', async () => {
+    const warnSpy = vi.spyOn(require('./logger'), 'warn').mockImplementation(function () {})
+    const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0)
+    loginPromise.catch(() => {})
+    const anon = ['did', 'wid'].map(name => ({ name, value: 'anon-value' }))
+    await expect(qrCodeLogin._onLoginSuccess(
+      { cookies: anon, localStorage: {}, accountName: '快手' },
+      qrCodeLogin._activeSession,
+    )).rejects.toThrow('未检测到登录态，请在手机上确认登录后重试')
+    const missed = warnSpy.mock.calls.map(c => String(c[1])).filter(l => l.includes('no session evidence'))
+    expect(missed.length).toBe(1)
+    expect(missed[0]).toContain('names=did,wid')
+    expect(missed[0]).not.toContain('anon-value')
+    warnSpy.mockRestore()
+  })
+
   it('扫码会话只有匿名埋点 Cookie 时必须拒绝入库（同时锁住 reject 分支的可执行性）', async () => {
     // 2026-09-27 QM-6 评审在这条 reject 分支的日志语句里抓到一个「两个模板字符串相邻、缺 +」的写法：
     // 它能过 node --check（被解析成把前一个模板当后一个的 tag 函数），却在运行时必抛 TypeError。

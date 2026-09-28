@@ -37,9 +37,11 @@ const PRUNE_DIRS = [".git", "node_modules", "dist", "dist-electron", "coverage",
 // 可配置就能在本机用 GIT_CONFIG_GLOBAL 指到临时配置文件复现，不属于"只有 runner 知道"那一类。
 const KNOWN_UNWIRED = {
   "scripts/session-isolation-automation.test.ps1":
-    "内部直接调用 install-session-isolation-task.ps1 注册**真实**计划任务（跨会话共享的机器状态），" +
-    "且本机非提权实跑 HRESULT 0x80070005 拒绝访问（AtLogOn 任务需提权注册）⇒ 接进 CI 要么恒误红、要么真改 runner 状态。" +
-    "接线前提：把注册动作注入为假实现或隔离 task path，另立 change 处理",
+    "注册动作内部调 Register-ScheduledTask，其中写保护任务用的是 AtLogOn 触发器：实测非提权一律" +
+    " PermissionDenied / HRESULT 0x80070005（同一次探针里，非 AtLogOn 的健康巡检任务注册成功并可" +
+    "干净删除，所以提权门槛精确只在 AtLogOn 那一格）。接进 CI 的未知量因此收窄成“runner 的进程令牌" +
+    "是否提权”。接线前提已就位一半：installer 自本 PR 起支持 -TaskPath 一次性路径，测试再也" +
+    "不可能删掉生产任务；剩下的是一次带留痕的 runner 实测，用来确定 AtLogOn 在 runner 上能否注册"
 }
 
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。

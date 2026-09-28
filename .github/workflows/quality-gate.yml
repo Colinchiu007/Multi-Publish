@@ -139,13 +139,14 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/worktree-fs-longpath.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js
           node .github/scripts/check-hardcoded-secrets.js
 
       # --- Gate 6: IPC bridge completeness ---
