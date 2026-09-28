@@ -30,16 +30,26 @@
 - [x] 核实 CSP：`img-src` 已含 `data:` ⇒ 零 CSP 改动；`index.test.js` 守卫保持通过
 - [x] 核实 E2E 契约：`[data-testid="cover-state"]` 的 `dataset.coverPath` 原样保留并被用例断言
 
-## 5. 验证与门禁
+## 5. 自查追加：home-shell 内嵌实例不得挂起（本 change 的前置正确性条件）
 
-- [x] `useCoverPreview` + `Publish` + `CoverCropDialog` = 88 passed
-- [x] `overlay-view-suspension` + `shell-mode-6b` = 19 passed
+- [x] `src/composables/useEmbeddedViewSuspension.js`：新增 `isHomeShellRuntime()` 守卫，判据按调用时刻读取 `window.location.search`
+- [x] `src/overlay-view-suspension.test.js` 新增 4 例：壳态 no-op 且不发 IPC / 主窗口行为不变 / 判据不得导入期冻结 / 参数值须严格为 `1`
+- [x] 变异反证：守卫改成恒不命中 ⇒ 恰好那 2 条变红，字节还原一致
+- [x] PRD 新增 §7.5.1；CHANGELOG 与 learnings 补条目（纯插入，删除数 0）
+- [x] 文档拼接工具坑修正：字符串下标与 Buffer 字节长度不可混用；自证断言必须用**可逆性**判据（摘掉插入块后与原文件 `equals`），并以 `git diff --numstat` 删除数为 0 对账
+
+## 6. 验证与门禁
+
+- [x] `useCoverPreview` + `Publish` + `CoverCropDialog` = 88 passed（实现阶段）
+- [x] `overlay-view-suspension`（含新增 4 例 home-shell 守卫）+ `shell-mode-6b` = 23 passed
 - [x] `views-deep2` + `views-coverage` = 16 passed（其余挂载 Publish 的套件）
+- [x] **渲染层全量 `vitest run src` = 223 文件 / 3866 passed | 2 skipped，零失败**（home-shell 守卫落地后重跑；按 AGENTS.md 口径，接缝类判断必须在 runner 真实采用的全量跑法下验证，`-t` 单跑不构成证据）
 - [x] `check-locale-sync --pair-base`（成对）与 `--cjk`（无新增硬编码）双 PASS
+- [x] `check-docs-sync.sh`（Doc Sync 门禁）本地预跑 PASS
 - [x] eslint 改动文件零告警；`vite build` 通过（模板编译）
 - [x] `verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内
-- [x] 四条变异反证实跑变红并断言字节还原：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不上抛 `open` ⇒ 1 红；释放挪出 `finally` ⇒ 1 红
+- [x] 五条变异反证实跑变红并断言字节还原：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不上抛 `open` ⇒ 1 红；释放挪出 `finally` ⇒ 1 红；home-shell 守卫恒不命中 ⇒ 2 红
 - [x] 四份共享文档按字节前插/追加，`git diff --numstat` 删除数为 0，且与 `--ignore-cr-at-eol --numstat` 逐文件相等
 - [x] QM-1 打包 N/A：`git diff --name-only origin/main...HEAD` 不含 `electron/` 与 `rpa-engine/`
-- [ ] QM-6 双模型外部评审（backend=codex / frontend=claude）
+- [ ] QM-6 双模型外部评审（backend=codex / frontend=claude）：前端已回（0 Critical / 2 Warning / 4 Info，处置见 PRD §13），后端待回
 - [ ] 真机 Electron 窗口目视验证（本机另一会话已占用应用单例锁与 dev 端口，未擅自起第二个实例；留待桌面验收）

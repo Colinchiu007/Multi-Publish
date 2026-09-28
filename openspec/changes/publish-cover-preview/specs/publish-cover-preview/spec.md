@@ -97,6 +97,8 @@
 
 内嵌 `WebContentsView` 是压在渲染 DOM 之上的原生图层，CSS z-index 对其无效。发布页封面流程中的每个应用级模态 SHALL 各持唯一 owner 经 `useEmbeddedViewSuspension` 挂起与恢复：`publish-cover-preview`、`publish-cover-crop-dialog`、`publish-ai-cover-dialog`。释放 SHALL 走 `finally`，组件卸载 SHALL 兜底释放，且 SHALL NOT 复用其它浮层的 owner。
 
+守卫 SHALL 落在 `useEmbeddedViewSuspension` 本身而非各浮层调用点：主进程任一时刻只让活动标签视图可见，因此内嵌主页实例内的模态不会被别的视图盖住，而「隐藏全部视图」反而会隐藏它自己。
+
 #### Scenario: 打开即挂起、关闭即释放
 
 - **WHEN** 打开放大预览，随后关闭
@@ -106,6 +108,16 @@
 
 - **WHEN** 关闭动作自身抛出异常
 - **THEN** 挂起仍被释放
+
+#### Scenario: 内嵌主页实例必须跳过挂起
+
+- **WHEN** 浮层运行于「+新标签」创建的内嵌主页实例（其本身即为一张 `WebContentsView`）
+- **THEN** 挂起与释放均直接 no-op，不发起 IPC —— 否则主进程 `_hideAllTabs()` 会连承载该模态的视图一起隐藏，内容区整块空白且弹窗无法关闭
+
+#### Scenario: 壳态判据不得在模块导入期冻结
+
+- **WHEN** 同一已导入模块的上下文从主窗口切换为内嵌主页实例
+- **THEN** 后续挂起调用立即停止发起 IPC（判据按调用时刻读取）
 
 ### Requirement: 新增文案必须 zh/en 成对且无死键
 
