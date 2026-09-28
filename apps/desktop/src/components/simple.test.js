@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 
-vi.mock("@/composables/usePlatformIconUrl", () => ({
+vi.mock("@/composables/usePlatformIconUrl", async (importOriginal) => ({
+  ...(await importOriginal()),
   getPlatformIconUrl: () => "",
   platformIconUrl: () => "",
 }));

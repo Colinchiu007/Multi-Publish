@@ -1,7 +1,7 @@
 <template>
   <section class="account-platform-group" :aria-labelledby="headingId">
     <header class="platform-group-header">
-      <img v-if="isIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img" :alt="platformLabel" width="36" height="36" aria-hidden="true">
+      <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img mp-platform-icon" :alt="platformLabel" width="36" height="36" aria-hidden="true">
 <div v-else class="platform-mark" aria-hidden="true">{{ platformIcon }}</div>
       <div class="platform-heading">
         <h2 :id="headingId">{{ platformLabel }}</h2>
@@ -86,6 +86,7 @@
 import { computed, ref } from 'vue'
 import { CircleCheck, Connection, Delete, Link, Plus, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import { isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 const props = defineProps({
   group: { type: Object, required: true },
@@ -143,9 +144,6 @@ function formatDate (value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN')
 }
 
-function isIconUrl (value) {
-  return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http'))
-}
 </script>
 
 <style scoped>

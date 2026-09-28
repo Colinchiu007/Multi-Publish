@@ -8,6 +8,25 @@
 ### 为什么值得单列一条教训
 主 spec 同步的第一版实现把整份文本 `split(换行).join(检测到的行尾)` 后再追加，结果对一份本就 LF/CRLF 混用的文件产生了 `raw=226/95` 的"整文件重写"假象（`-w` 看是 131/0，内容其实只增不删）。改为**只做字节级前缀保留 + 尾部追加**后，`raw` 与 `--ignore-cr-at-eol` 同时给出 132/0。教训：同步型写入必须保证「原字节是结果的逐字前缀/后缀」，任何对整份文件的重排都会把行尾问题伪装成内容问题。
 
+# [未发布] feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身
+
+### 做了什么
+- 重写 `apps/desktop/src/assets/platforms/` 全部 15 个 svg。旧资产是手绘几何拼块（今日头条是闪电 polygon、微博是同心圆、快手是矩形+圆、**抖音与 TikTok 两个文件内容几乎相同**），这是账号卡片「风格不统一」的根因。新资产：11 个取 Simple Icons v16（CC0-1.0）官方 path 与官方 source 品牌色；今日头条取 Iconify `icon-park:jinritoutiao`（Apache-2.0，48×48 经 `scale(0.5)` 归一）；抖音/百家号/视频号手工绘制示意标并在文件注释标注「非官方矢量」。
+- 来源取证：Simple Icons 覆盖 11/15，缺 douyin/toutiao/baijiahao/tencent_video。进一步扫了 Iconify 全部 238 个集合（含 `thesvg-color` MIT 4896 枚、字节 `icon-park` Apache-2.0、`arcticons`），只有今日头条以 `jinritoutiao` 存在，**抖音/百家号/视频号全网零覆盖**。参考产品 4.0 逆向包（46 文件）无任何平台图标资产，只有 `index.cjs:263` 的 37 个平台 key 命名规范可借鉴。
+- 色值取证：视频号 `#FA9D3B` 实测自 channels.weixin.qq.com 页面样式；百家号 `#3855D5` 实测自官方登录页（`baijiahao.baidu.com` → `/builder/theme/bjh/login`，页面标题「百家号」）渲染后 DOM 的 computed style，**187 个元素命中、为最高频饱和色**（次高 `#2E82FF` 百度系蓝 ×9）。这条是**二次取证纠正的**：静态 HTML 抓不到（纯 JS 壳，只有 `theme-color #000000`），我最初凭"百度系品牌蓝"写了 `#2932E1` 并标注待核实，后用 playwright 真渲染才拿到实测值——两者不同，说明那次凭记忆确实会写错。
+- 把散在 6 个组件里、逐字同形的 `isIconUrl()` 收敛为 `usePlatformIconUrl` 导出的 `isPlatformIconUrl`，并补 `./` 前缀识别。`vite.config.js` 的 `base` 为 `'./'`，一旦某个 svg 超过 `assetsInlineLimit`（4096B）就不再内联为 data URI 而是产出 `./assets/x.svg`；旧判定不认它，组件会走 v-else 的 `<span>{{ icon }}</span>` 分支**把路径字符串当文字渲染到卡片上**。实测确认当前 15 个 svg 仍全部内联为 `data:image/svg+xml`（最大小红书 3762B，距上限仅 334B——所以这条不是假想风险）。真源 `PLATFORM_ICONS` 的历史裸相对值（`platforms/x.svg`）继续判 false，避免渲染成破图。
+- 修暗色主题下黑图标隐身：新增全局 `.mp-platform-icon` 底衬类，7 个图标渲染点全部接入。归属已核实为**既有缺陷**（旧 `twitter.svg` 本就是 `fill="#000"`，15 个旧图标无一使用 `currentColor`），本次换标把它放大而非引入。抖音改为青 `#25F4EE` 偏左下 / 红 `#FE2C55` 偏右上 / 黑主体居中的三层重影，与 TikTok 的单色音符拉开区分度。
+
+### 为什么
+用户反馈账号卡片图标不像各平台的标志。根因不是「图标太小」而是那 15 个文件从来不是品牌标。选 Simple Icons 是因为它是 CC0、24×24 单 path、且直接给出官方 source 色，能一处解决「形」和「色」两件事；三个国内平台全网无覆盖只能自绘，因此把「不得用 polygon/rect/circle 拼」写成锁，防止将来有人退回旧画法却以为自己在做品牌标。
+
+### 验证
+- 反证六次实测变红，每次 `git checkout HEAD -- <单文件>` 恢复后复绿：① 判定函数退回不认 `./` → 红 1；② toutiao 换回旧手绘 polygon 版 → 红 3（根 fill / 几何图元禁令 / 全 path）；③ 组件里重新抄一份 `isIconUrl` → 红 1（结构锁）；④ 图标撑到超内联预算 → 红 1；⑤ 拿掉某渲染点底衬类 → 红 1；⑥ 删全局底衬的 `background` → 红 1。
+- 回归锁 `usePlatformIconUrl.test.js` 131 例；受影响范围 53 个测试文件 986 passed / 1 skipped；`vite build` 通过；4 处既有 `vi.mock` 改 partial mock 透传真实判定函数。
+- 渲染实图自检（playwright 出四段对照表）：确认 12 枚真实品牌标正确、百家号「百」字在 24px 下可辨、暗色无底衬时 TikTok/X 确实不可见、加底衬后 15 枚全部可读。
+- 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
+- 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
+- **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
 # [未发布] fix(dev-isolation): bridge 端口纳入按-worktree 派生，启动器探活改为验进程归属
 
 ### 变更
