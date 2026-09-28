@@ -15,7 +15,7 @@
 - [x] 2.3 shared-utils 新增并导出 `sessionCookieNames`，四处门禁统一使用
 - [x] 2.4 `auth-view-manager` 新增 `logDeclaredMarkerMiss`（已声明却被拒 ⇒ 留名字现场）
 - [x] 2.5 `account-manager` / `auth-view-manager` 的 reject 日志接上共用名字投影（有测试锁）
-- [ ] 2.5b `qrcode-login` / `credential-saver` 的 reject 日志已补 `names=`，但**尚无可执行锁**。
+- [x] 2.5b 已收口（2026-09-28，PR 见 CHANGELOG「四处 names= 现场全部拿到可执行锁」）：`credential-saver` / `qrcode-login` / `account-manager.captureCookies` 三条日志锁补齐，各锁两方向（`names=` 必须含逐个 Cookie 名、Cookie 值不得出现），`auth-view-manager` 早在 #2527 已有。当初登记为「无可执行锁」的真实原因是**日志接缝**：`beforeEach` 每轮新建 logger mock，与被测模块 require 期冻结的本地绑定不是同一实例 ⇒ 断言单跑绿、全文件跑恒 0 次；改为模块作用域稳定 mock + 每轮 `mockReset()` 后锁才可跑（反证：退回每轮新建立刻红）。
       实测仅覆盖 `credential-saver`：它经 vite SSR 管道 `require('../logger')`，绕过测试的
       `__registerMock('./logger')` 注册表，spy 与具名 mock 都抓不到（只在 vitest stdout 看到一次真日志）。
       `qrcode-login` 侧**未做同样实验**，是否同因待测；需要另找注入缝或显式 mock 路径。
