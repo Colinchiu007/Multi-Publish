@@ -16,7 +16,7 @@
  */
 'use strict'
 
-const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapters/_base/provider-error')
+const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapters/_base/provider-error')
 const { quotaExceededError, reserveRequestsBudget, releaseRequestsBudget } = require('./token-budget-windows')
 const { AsyncLocalStorage } = require('async_hooks')
 
