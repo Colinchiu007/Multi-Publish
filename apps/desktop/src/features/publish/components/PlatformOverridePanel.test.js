@@ -170,7 +170,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
     await wrapper.get('[data-testid="override-original-baijiahao"]').setValue(true)
     await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
-    await wrapper.get('[data-testid="override-location-baijiahao"]').setValue('北京·三里屯')
+    await wrapper.get('[data-testid="override-location-name-baijiahao"]').setValue('北京·三里屯')
 
     const latest = wrapper.emitted('update:modelValue').at(-1)[0]
     expect(latest.tiktok.privacyLevel).toBe('FRIENDS')

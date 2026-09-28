@@ -37,7 +37,14 @@ class TwitterAdapter {
       var auth = this._getAuth();
 
       // Create tweet via API v2
-      var tweetBody = { text: taskData.content || taskData.title || "" };
+      // X 是无标题平台（openspec/changes/publish-capability-registry）：推文只有
+      // text 一个正文字段，发布页填写的标题必须作为 text 首行插入。旧实现
+      // `content || title` 在有正文时直接丢弃标题。
+      var tweetText = [taskData.title, taskData.content]
+        .map(function (part) { return typeof part === "string" ? part.trim() : ""; })
+        .filter(function (part) { return part.length > 0; })
+        .join("\n");
+      var tweetBody = { text: tweetText };
 
       var result = await this._apiPost("/2/tweets", tweetBody, auth);
       return { success: true, platform: "twitter", publishId: result.data && result.data.id, tweetResult: result };

@@ -18,6 +18,10 @@ log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM
 const log = require('./logger')
 const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+// 发布能力注册表（openspec/changes/publish-capability-registry）：无标题平台
+// 清单单一真源——这些平台没有独立标题输入框（视频号/快手/微博/X/Instagram/TikTok），
+// 标题经 _composeEditorCaption 合并进编辑器描述首行。
+const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
 const { ProgressThrottle } = require('./rpa-progress-throttle')
@@ -347,7 +351,15 @@ const platformsMixin = {
     // title（逐候选回退 + 无独立标题字段时写进编辑器）
     log.info('RpaView', '[' + platform + '] title input hasTitle=' + Boolean(article.title) + ' titleType=' + typeof article.title + ' selectorCount=' + (sel.title_input ? sel.title_input.length : 0))
     const editorCandidates = sel.editor || sel.content_textarea || sel.textarea || sel.desc_textarea
-    const titleSel = article.title ? await this._resolveSelector(win, sel.title_input, 10000, 3000) : null
+    // 无标题平台（注册表 titleMode=caption：视频号/快手/微博/X/Instagram/TikTok）：
+    // 平台发布页没有独立标题输入框，显式跳过 title_input 选择器解析（省去首次候选
+    // 10s 超时——此前靠选择器解析失败的隐式回退，行为正确但不可声明、白等超时），
+    // 标题直接经下方编辑器合并路径写入描述首行（_composeEditorCaption）。
+    const noTitlePlatform = isNoTitlePlatform(platform)
+    const titleSel = (article.title && !noTitlePlatform) ? await this._resolveSelector(win, sel.title_input, 10000, 3000) : null
+    if (noTitlePlatform && article.title) {
+      log.info('RpaView', '[' + platform + '] no-title platform (registry), skip title_input resolution, title merges into editor caption')
+    }
     // 快手 live DOM 实锤（2026-09 取证 d4-1-kuaishou.json）：编辑页没有独立标题框，
     // 标题/描述共用 div#work-description-edit[contenteditable]。此时标题与正文合并
     // 一次性写进编辑器，后面的正文步骤必须跳过，否则标题被纯正文覆写丢失。

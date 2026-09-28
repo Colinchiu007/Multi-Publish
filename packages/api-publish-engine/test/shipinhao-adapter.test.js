@@ -20,10 +20,12 @@ describe('shipinhao tencent_video adapter (§4.4 变薄委托 ShipinhaoVideoChai
     expect(c.finderUin).toBe('UIN1')
   })
 
-  it('buildPostData 委托链纯函数：media.videoId 取 uploadId、url 取 videoInfo、description 取 content、finderIds 透传', () => {
+  it('buildPostData 委托链纯函数：media.videoId 取 uploadId、url 取 videoInfo、description 以标题为首行、finderIds 透传', () => {
     const td = { title: 'T', content: '正文C', finderId: 'FID1', finderUin: 'UIN1', video: { width: 1080, height: 1920, duration: 12 } }
     const pd = a.buildPostData(td, { video: { uploadId: 'VID_UPLOAD_1', videoInfo: { url: 'https://v.qq.com/x.mp4' } } })
-    expect(pd.description).toBe('正文C')
+    // 视频号是无标题平台（publish-capability-registry）：标题必须作为 description
+    // 首行插入（旧实现 `content ?? title` 在有正文时丢弃标题，2026-10-08 修复）。
+    expect(pd.description).toBe('T\n正文C')
     expect(pd.media.videoId).toBe('VID_UPLOAD_1')
     expect(pd.media.url).toBe('https://v.qq.com/x.mp4')
     expect(pd.media.width).toBe(1080)
@@ -34,7 +36,7 @@ describe('shipinhao tencent_video adapter (§4.4 变薄委托 ShipinhaoVideoChai
     expect(pd.reqScene).toBe(7)
   })
 
-  it('buildPostData content 缺失回退 title；无 finderUin 回退 finderId', () => {
+  it('buildPostData content 缺失时 description 即标题；无 finderUin 回退 finderId', () => {
     const pd = a.buildPostData({ title: '只有标题', finderId: 'FID1' }, {})
     expect(pd.description).toBe('只有标题')
     expect(pd.media.videoId).toBe('')

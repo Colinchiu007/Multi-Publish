@@ -228,6 +228,25 @@ describe("PublishView", () => {
     expect(w.text()).toContain("批量模式");
   });
 
+  it("通用字段支持度徽标与无标题平台标题提示（publish-capability-registry）", async () => {
+    const w = await createWrapper();
+    // 支持度徽标：标题字段覆盖注册表全部 15 平台
+    const badge = w.find('[data-testid="field-support-title"]');
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toContain("15/15");
+    // 标签字段徽标来自注册表支持矩阵（图文分支）
+    expect(w.find('[data-testid="field-support-tags"]').text()).toContain("11/15");
+    // 默认选中 wechat_mp（有标题平台）：不显示无标题提示
+    expect(w.find('[data-testid="no-title-hint"]').exists()).toBe(false);
+    // 选中无标题平台（视频号）后显示「标题将作为描述首行」提示
+    w.vm.selectedPlatforms.push("tencent_video");
+    await nextTick();
+    const hint = w.find('[data-testid="no-title-hint"]');
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("视频号");
+    expect(hint.text()).toContain("描述首行");
+  });
+
   it("选择发布类型后的路由参数会保留在编辑器上下文", async () => {
     await router.push('/?type=video')
     const w = await createWrapper()

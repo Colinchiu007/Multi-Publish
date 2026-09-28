@@ -1,5 +1,14 @@
 // @ts-check
 
+// 发布能力注册表（openspec/changes/publish-capability-registry）：
+// 平台内容限制与无标题平台清单的单一真源在 shared-utils。
+// 渲染进程经 Vite alias 消费 publish-capabilities.browser.js（ESM），
+// vitest 经 node_modules 解析 CJS 版——两版本导出同名同构（parity 测试锁定）。
+import {
+  getPlatformContentLimit as getRegistryContentLimit,
+  isNoTitlePlatform,
+} from '@multi-publish/shared-utils/src/publish-capabilities'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_MAX_SCHEDULE_DAYS = 30
 const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000
@@ -21,26 +30,6 @@ const PLATFORM_LABELS = Object.freeze({
   instagram: 'Instagram',
   facebook: 'Facebook',
 })
-
-const PLATFORM_CONTENT_LIMITS = Object.freeze({
-  weibo: { titleMax: 0, contentMax: 2000 },
-  wechat_mp: { titleMax: 64, contentMax: 20000 },
-  zhihu: { titleMax: 50, contentMax: 100000 },
-  douyin: { titleMax: 55, contentMax: 0 },
-  bilibili: { titleMax: 80, contentMax: 2000 },
-  xiaohongshu: { titleMax: 20, contentMax: 1000 },
-  toutiao: { titleMax: 30, contentMax: 100000 },
-  // 百家号标题按 UTF-8 字节数校验（后端 Math.floor(utf8Bytes/3) > 49 拒绝，
-  // 即 utf8Bytes >= 150 拒绝），安全上限 149 字节。实测 50 个中文字符（150 字节）
-  // 被拒，50 字符混合（140 字节）与 49 中文+1 英文（148 字节）成功。
-  baijiahao: { titleMaxBytes: 149, contentMax: 100000 },
-  youtube: { titleMax: 100, contentMax: 5000 },
-  tiktok: { titleMax: 2200, contentMax: 0 },
-  twitter: { titleMax: 0, contentMax: 280 },
-  instagram: { titleMax: 0, contentMax: 2200 },
-})
-
-const DEFAULT_CONTENT_LIMITS = Object.freeze({ titleMax: 100, contentMax: 5000 })
 
 /**
  * 将旧版单值账号选择和新版多选值统一为去重后的字符串数组。
@@ -249,12 +238,15 @@ export function getPlatformLabel (platformId) {
 
 /**
  * 返回平台标题/正文限制的副本，调用方不能修改全局契约。
+ * 数据源：发布能力注册表（shared-utils publish-capabilities，单一真源）。
+ * 百家号标题按 UTF-8 字节数校验（后端 Math.floor(utf8Bytes/3) > 49 拒绝，
+ * 即 utf8Bytes >= 150 拒绝），安全上限 149 字节。实测 50 个中文字符（150 字节）
+ * 被拒，50 字符混合（140 字节）与 49 中文+1 英文（148 字节）成功。
  * @param {unknown} platformId
  * @returns {{ titleMax?: number, titleMaxBytes?: number, contentMax: number }}
  */
 export function getPlatformContentLimit (platformId) {
-  const limit = PLATFORM_CONTENT_LIMITS[platformId] || DEFAULT_CONTENT_LIMITS
-  return { titleMax: limit.titleMax, titleMaxBytes: limit.titleMaxBytes, contentMax: limit.contentMax }
+  return getRegistryContentLimit(platformId)
 }
 
 /**
@@ -342,8 +334,14 @@ export function validatePublishTargets (targets) {
 
 /**
  * 按平台校验默认文章或差异化文章内容。
+ *
+ * 无标题平台（注册表 titleMode=caption：视频号/快手/微博/X/Instagram/TikTok）
+ * 的发布链路会把标题作为描述首行插入（composeNoTitleDescription），因此
+ * 校验口径为「标题 + 换行 + 正文」的合并长度对 contentMax；标题本身不再
+ * 单独校验（这些平台没有独立标题字段）。有标题平台保持逐字段校验。
+ *
  * @param {{ platforms?: unknown, article?: Record<string, unknown>, platformOverrides?: Record<string, unknown> }} options
- * @returns {{ valid: boolean, platform?: string, field?: string, limit?: number, actual?: number, message?: string }}
+ * @returns {{ valid: boolean, platform?: string, field?: string, limit?: number, actual?: number, unit?: string, message?: string }}
  */
 export function validatePlatformContent ({ platforms, article = {}, platformOverrides = {} } = {}) {
   const uniquePlatforms = [...new Set(Array.isArray(platforms) ? platforms : [])]
@@ -355,6 +353,28 @@ export function validatePlatformContent ({ platforms, article = {}, platformOver
       : {}
     const title = String(override.title || article.title || '')
     const content = String(override.content || article.content || '')
+
+    // 无标题平台：标题合并进描述首行，只校验合并后的正文长度。
+    if (isNoTitlePlatform(platform)) {
+      const combined = [title, content]
+        .map(part => part.trim())
+        .filter(Boolean)
+        .join('\n')
+      const length = Array.from(combined).length
+      if (limit.contentMax > 0 && length > limit.contentMax) {
+        return {
+          valid: false,
+          platform,
+          field: 'content',
+          limit: limit.contentMax,
+          actual: length,
+          unit: '个字符',
+          message: `${getPlatformLabel(platform)}正文最多 ${limit.contentMax} 个字符（标题计入首行），当前 ${length} 个`,
+        }
+      }
+      continue
+    }
+
     // 百家号标题按 UTF-8 字节数校验（titleMaxBytes），其余平台按字符数（titleMax）。
     const titleLimit = limit.titleMaxBytes !== undefined
       ? { max: limit.titleMaxBytes, unit: '字节' }

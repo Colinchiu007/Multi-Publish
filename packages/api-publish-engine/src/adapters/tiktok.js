@@ -32,11 +32,18 @@ class TikTokAdapter {
       }
 
       // Publish
+      // TikTok 是无标题平台（openspec/changes/publish-capability-registry）：
+      // DOM 上传页只有 caption（2200 含话题），发布页填写的标题必须作为
+      // description 首行插入，否则标题被丢弃。
+      var composedDescription = [taskData.title, taskData.content]
+        .map(function (part) { return typeof part === "string" ? part.trim() : ""; })
+        .filter(function (part) { return part.length > 0; })
+        .join("\n");
       var publishRes = await this._apiPost("/video/publish/", {
         access_token: token,
         post_info: {
           title: taskData.title || "",
-          description: taskData.content || "",
+          description: composedDescription,
           privacy_level: taskData.privacy || "PUBLIC",
         },
       });

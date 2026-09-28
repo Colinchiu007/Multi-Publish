@@ -20,6 +20,9 @@ const ContentQualityGate = require('./content-quality-gate')
 const PublishIntervalGuard = require('./publish-interval-guard')
 const { createScheduler } = require('./scheduler')
 const publishHistory = require('./publish-history')
+// 发布能力注册表（openspec/changes/publish-capability-registry）：15 平台发布
+// 提交内容项单一真源（titleMode/内容限制/差异化字段/语义分类）。
+const publishCapabilities = require('./publish-capabilities')
 
 module.exports = {
   TaskQueue,
@@ -38,4 +41,5 @@ module.exports = {
   createScheduler,
   // P1-10: 发布历史此前未从入口导出，导致调用方各自 require 内部路径、依赖治理无从下手
   publishHistory,
+  publishCapabilities,
 }
