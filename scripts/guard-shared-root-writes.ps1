@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = '',
-    [string]$QuarantineRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Multi-Publish\session-isolation\quarantine'),
+    [string]$QuarantineRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\quarantine'),
     [string]$GitPath = '',
     [string[]]$ProcessPaths,
     [switch]$Watch,

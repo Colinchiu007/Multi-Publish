@@ -1,3 +1,21 @@
+# [未发布] fix(session-isolation): 写保护计划任务路径与隔离区目录从 Multi-Publish 收口到 Mulpub（2026-09-28，rename-guard-task-paths）
+
+### 变更
+- 计划任务文件夹 `\Multi-Publish\` → `\Mulpub\`：install-session-isolation-task.ps1 的默认 `-TaskPath` 与生产路径守卫、mp-worktree-health.ps1 / bootstrap-write-guard.ps1 的任务查询、install-session-isolation-task.test.ps1 的 live 路径常量与无尾斜杠探针、AGENTS.md 约束段、docs/session-isolation-automation.md、.quality-rhythm/integrations/env-checklist.md。
+- 隔离区与报告目录 `%LOCALAPPDATA%\Multi-Publish\session-isolation\` → `%LOCALAPPDATA%\Mulpub\session-isolation\`：guard-shared-root-writes.ps1 隔离区默认、mp-worktree-health.ps1 报告与隔离区、installer / bootstrap 的报告路径。
+- 修复 #2551 重构遗留的两处「以产物判成败」半成品：`Register-Checked` 的 `$got` 与 Unregister 分支的 `$left` 此前从未赋值——前者在 `$ErrorActionPreference='Stop'` 下会让安装器**注册完 Health 就终止**（AtLogOn Write Guard 永远到不了，bootstrap [3/5] 因此必红），后者让反注册校验恒空转。两处均补上 `Get-ScheduledTask` 产物查询。
+- `session-isolation-automation.test.ps1` 重构：注册/注销全部改到一次性 `-TaskPath`（落实 2026-09-28 AGENTS.md「自检与测试必须用它」约束；旧版直接打生产路径，配合 `$got` bug 一跑就会半拆活体守护）；断言改为按产物分档——提权宿主双任务注册且 rc=0，非提权宿主 AtLogOn 被系统拒绝时安装器必须非零退出并点名 RunAs；子进程输出经放宽作用域的 `2>&1` 捕获（5.1 NativeCommandError 陷阱，同 install-session-isolation-task.test.ps1 的口径）。
+- 顺带收口 #2559 漏网的 4 处双反斜杠路径形态（`projects\\Multi-Publish`，当时的单分隔符正则匹配不到）：01-docs/ui-reference/scripts/capture.js、apps/desktop/tests/e2e-qr-login.js、e2e-interactive-login.js（3 处）。
+
+### 为什么
+- 仓库目录与 GitHub 仓库均已改名 Mulpub（#2515 / #2559），写保护基础设施是最后仍以 Multi-Publish 命名的机器态目录；两套命名并存让「任务在哪、隔离区在哪」需要额外记忆。
+- 机器态迁移在 PR 合并后按「先注册 \Mulpub\ 新任务（AtLogOn 需 UAC 提权）→ 停旧 watcher → pull 共享根（watcher 在场时 pull 会触发隔离风暴）→ 迁移隔离区数据 → 启新 watcher → 注销 \Multi-Publish\ 旧任务」执行，写保护中断窗口压缩到 pull 期间且每步以 `Get-ScheduledTask` 产物核验。
+
+### 验证
+- install-session-isolation-task.test.ps1 → rc=0 / 7 PASS（本机 \Mulpub\ 尚无任务，NOTE 分支如实报告 runner 态边界）
+- session-isolation-automation.test.ps1 → rc=0 / 18 PASS（非提权分支实证：Health 在一次性路径注册成功、AtLogOn 被拒后安装器 fail closed 并给出 RunAs 指引——同时证明 `$got` 修复后安装器能走到 Write Guard 注册步）
+- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
+
 # [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
 
 ### 变更
@@ -16,7 +34,7 @@
 - `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
 
 ---
-
+
 # [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
 
 ### 变更
@@ -33,7 +51,7 @@
 - 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
 - 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
 - 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
 
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
