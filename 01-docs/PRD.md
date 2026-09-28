@@ -17681,3 +17681,42 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 回归锁：`platform-selectors.test.js`（首位 + 诱饵不得在列双断言）、`rpa-selector-utils.test.js`
 活体 fixture 5 例、`rpa-view-platforms.test.js` 数据契约锁。证据：
 `01-docs/rpa-api-publish/evidence/api-w3-kuaishou/d2-live-verdict-20260928-round2.md`。
+
+## 快手发布链活体残余三缺陷修复（2026-09-28 活体验收暴露，随本 PR）
+
+活体验收（`live-acceptance-pass-20260928.md`）发布成功后登记的三个残余缺陷，本 PR 收口：
+
+| # | 缺陷（产线签名） | 根因 | 修复 |
+|---|---|---|---|
+| ① | `API publish kuaishou: taskData.video.path required`（API 轨回退 DOM 轨） | `rpa-view-manager` API-first 分支把裸 `article`（扁平 `video_path`）直传 `publishViaApi`，适配器契约要求 `taskData.video.path`（嵌套）——kuaishou/bilibili 等视频平台 API 轨全部 fail-closed；`publisher-router` 一直正确构造（内联映射），两路形状漂移 | 提取共享翻译器 `api-task-data.js#buildApiTaskData`（article → taskData 单一实现），RpaView 与 router 共用消灭漂移；router 内联映射重构为共用（行为等价） |
+| ② | `ImpactTracker: publishImpactTracker.addTracking is not a function` | `phase4-events` 调 `addTracking`——真实类只有 `scheduleImpactTracking`（`publish-impact-tracker.js`）；旧测试 mock 了不存在的方法名，mock-现实漂移让 TypeError 逃逸到产线 | 调用改为真实方法名 + 补 `platform` 字段；6 处测试 mock 同步改真名（消灭漂移通道）+ 新增真实调用断言 |
+| ③ | `PublishMonitor Poll 1/12 → error`（12 连 error 污染发布历史） | kuaishou 的 CHECK_URLS 是 graphql 端点，通用 GET+id 轮询协议形状错误；且监控 cookies 取自 `task.article`（恒空，凭证在 authData 不随任务走） | 无已验证的快手状态查询端点前，kuaishou 从 CHECK_URLS 移除——干净跳过（skipped）不再 error 刷屏；根因与补回路径已注释在代码 |
+
+**回归锁**：`api-task-data.test.js`（9 例形状契约）、`rpa-view-manager.test.js`（API-first 形状断言）、`phase4-events.test.js`（真实方法调用断言）、`phase10-service-tests.test.js`（kuaishou skipped 断言）。门禁：受影响 5+5 suites 238 tests 全绿；QM-1 三件套全过（asar 解包实证三处修复在包内）。
+
+**残余（后续）**：监控的 cookies 空缺是全平台潜在设计缺口（凭证不随任务走）——待状态查询端点有证据时连同 kuaishou 专用 POST 查询一并补。
+
+## API 轨签名默认路径合同——注册表回退与命令名透传（2026-09-28 活体 6.3 裁决，随本 PR）
+
+活体 6.3 裁决（第二轮发布实测）暴露的 API 轨第四层缺陷收口：`kuaishou-video: 签名页未就绪（no signer injected）`——API 轨启动、形状翻译通过后，在求签第一步失败回退 DOM 轨。根因有二：
+
+| # | 缺陷 | 根因 | 修复 |
+|---|---|---|---|
+| ① | 链无 signer 即抛「no signer injected」 | 构造器文档契约「缺省走进程内注册表」**从未实现**——`this.signer` 为空直接抛错；桌面两个调用方（rpa-view-manager/publisher-router）都不显式传 signer | `_sign` 缺省回退 `registry.sign`（注册表的 `kuaishou.ns-sig3-browser` 委托 browserPageProvider 单例——bridge 由桌面装配层注入，运行应用里已装配） |
+| ② | 注册表路径命令名不匹配 | registry 的 `kuaishou.ns-sig3-browser` 实现调 `provider.sign('kuaishou.ns-sig3')`（Tier-A 名），桌面装配（BRIDGE_COMMANDS）注册的是带 `-browser` 后缀的本名——provider 白名单必然 unknown command | impl 按注册名透传（`kuaishou.ns-sig3-browser` / `xiaohongshu.x-s-browser`） |
+
+**降级语义保持**：注册表路径的「签名页未就绪」（bridge 未注入/未验证/降级）经链的 catch 映射 `signerNotReady` → 上层 api-then-dom 降级 DOM 轨——与原直接抛错同一降级出口，只是晚一层（provider 的 not-ready 而非链的）。
+
+**回归锁**：`signer-default-path.test.js` 4 例（命令名透传 / 链缺省走注册表 / not-ready 映射 / 显式 signer 优先）。门禁：引擎全量 32 files 262 tests 全绿；QM-1 三件套全过（asar 解包实证两处修复在包内）。
+
+## 签名页 bridge 装配接线修正——provider 单例解析陷阱（2026-09-28 活体 6.3 最终层，随本 PR）
+
+活体 6.3 裁决（第三轮发布实测）暴露的 API 轨第五层缺陷收口：`browser-page-provider: bridge not injected`——注册表回退（#2580）生效后，链到达 provider 单例，但 bridge 从未注入。
+
+**根因（双模块解析陷阱）**：`signer/provider.js` 的 `require('@multi-publish/api-publish-engine/src/signer')` 被 Node 解析到**门面 `src/signer.js`**（文件优先于目录）——门面只导出 `{ registry, getDouyinSignature, getKuaishouSignature }`，**不导出 `browserPageProvider`** → `provider` 恒 `undefined` → `registerSignerAssembly` 的 `if (provider && ...)` 守卫**静默跳过 `setBridge`** → 注册日志照常打（「signer assembly registered」假绿）→ 引擎 provider 单例永远无 bridge。
+
+**修复**：require 直指 `src/signer/index`（provider 单例真身——与链的 registry 同一模块实例）。
+
+**回归锁**：`electron/tests/signer-provider.test.js` 2 例（装配后引擎单例 sign 不再报 bridge not injected——错误推进到 manager 层 fail-closed；signer IPC 三通道注册）。此前 provider.js **零测试覆盖**（装配接线从未被测过——本缺陷的逃逸面）。门禁：signer 相关 4 suites 91 tests 全绿；QM-1 三件套全过（asar 解包实证 provider.js 修正）。
+
+**活体 6.3 裁决链全景（五层，逐层修复逐层验证）**：形状翻译（#2578）→ 注册表回退 + 命令名透传（#2580）→ **bridge 装配接线（本 PR）**。每层修复后下一层暴露——API 轨首次全链贯通待本修复合并后的下一轮活体验证。

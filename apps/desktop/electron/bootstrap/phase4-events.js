@@ -57,8 +57,12 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       const title = task.article?.title
       const content = task.article?.content || title
       if (title && content) {
-        publishImpactTracker.addTracking({
+        // 2026-09-28 活体残余②修复：真实类方法是 scheduleImpactTracking
+        // （publish-impact-tracker.js），旧调用 addTracking 不存在——
+        // TypeError 被下方 catch 吞成 warn（产线日志「addTracking is not a function」）。
+        publishImpactTracker.scheduleImpactTracking({
           articleId: task.id, title, keywords: task.article?.keywords || [title],
+          platform: task.platform,
         })
         log.info('ImpactTracker', 'Started tracking "' + title + '"')
       }

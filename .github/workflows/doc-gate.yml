@@ -21,7 +21,10 @@ concurrency:
 jobs:
   doc-sync:
     name: 文档同步检查
-    runs-on: windows-latest
+    # 2026-10 docs-only-ci-shortcircuit：本 job 只跑 bash 脚本 + gh CLI（check-docs-sync /
+    # draft-changelog），无 Windows 依赖 => ubuntu-latest（更快且释放 Windows 并发额度）。
+    # 触发与门禁语义不变：对所有 main PR 运行真实文档门禁（workflow-contract.test.js 锁定）。
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
