@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
   [string]$Worktree = 'D:/Data/projects/mp-worktrees/mp-app-live2',
-  [string]$Profile  = 'D:/Data/projects/Multi-Publish/shared-user-data'
+  [string]$Profile  = 'D:/Data/projects/Mulpub/shared-user-data'
 )
 $ErrorActionPreference = 'Stop'
 function Write-Info($m){ Write-Host $m }
@@ -31,7 +31,7 @@ if (Test-Path -LiteralPath $pyExe) {
 }
 
 # repo root via git common-dir (parent of shared .git)
-$repoRoot = 'D:/Data/projects/Multi-Publish'
+$repoRoot = 'D:/Data/projects/Mulpub'
 try {
   $common = (git -C $Worktree rev-parse --git-common-dir 2>$null)
   if ($common) { $repoRoot = Split-Path (Resolve-Path $common).Path }
@@ -44,7 +44,11 @@ $portsJson = & $nodeExe -e 'const { resolveDevPorts } = require(process.argv[1])
 $ports = $portsJson | ConvertFrom-Json
 $vitePort = [int]$ports.vite
 $cdpPort = [int]$ports.cdp
-Write-Info ("ports vite=" + $vitePort + " cdp=" + $cdpPort)
+# #2459: backend port is now derived per worktree (see dev-ports.js), so the probe
+# below must target OUR port. A hardcoded 8299 would either be answered by another
+# session's backend (false START_CONTRACT_OK) or by nobody (success reported as failure).
+$backendPort = [int]$ports.backend
+Write-Info ("ports vite=" + $vitePort + " cdp=" + $cdpPort + " backend=" + $backendPort)
 
 # stop existing electron from this worktree (single-instance)
 # Normalize separators: process Path uses backslashes while callers may pass
@@ -90,7 +94,7 @@ Start-Sleep -Seconds 2
 # form `set "VAR=val"` so values never carry trailing whitespace.
 $desktopDir = Join-Path $Worktree 'apps/desktop'
 $Profile = $Profile.Trim()
-$inner = 'set "PATH=' + $nodeDir + ';%PATH%" & set "MP_VITE_PORT=' + $vitePort + '" & set "MP_CDP_PORT=' + $cdpPort + '" & set "ELECTRON_USER_DATA_DIR=' + $Profile + '" & set "MP_PYTHON=' + $pyExe + '" & set "MP_CDP_ALLOW_ALL_ORIGINS=1" & cd /d "' + $desktopDir + '" & node scripts/dev.js'
+$inner = 'set "PATH=' + $nodeDir + ';%PATH%" & set "MP_VITE_PORT=' + $vitePort + '" & set "MP_CDP_PORT=' + $cdpPort + '" & set "BACKEND_PORT=' + $backendPort + '" & set "ELECTRON_USER_DATA_DIR=' + $Profile + '" & set "MP_PYTHON=' + $pyExe + '" & set "MP_CDP_ALLOW_ALL_ORIGINS=1" & cd /d "' + $desktopDir + '" & node scripts/dev.js'
 $cmdLine = "cmd.exe /c $inner"
 Write-Info ("launch cmd: " + $cmdLine)
 
@@ -142,19 +146,42 @@ if ($win) {
   }
 }
 
-# verify main backend (python, port 8299) actually came up: a visible window
+# verify main backend (python) actually came up: a visible window
 # alone does NOT prove services are healthy (see 2026-09-20 trailing-space bug)
+#
+# #2459: "someone is listening on that port" is NOT a success criterion. With
+# concurrent sessions that listener is usually ANOTHER worktree's backend, so this
+# instance fails to bind while the launcher reports START_CONTRACT_OK and its requests
+# get routed into someone else's data directory. Ownership must be proven per process:
+# take the Listen OwningProcess and require its command line to contain this worktree.
+function Get-BackendListenerOwnership {
+  param([int]$Port, [string]$WorktreePath)
+  foreach ($conn in @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) {
+    $procId = [int]$conn.OwningProcess
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+    if (-not $proc) { continue }
+    # ordinal Contains, not -like: [ ] * ? inside a path would be read as wildcards
+    $cmd = [string]$proc.CommandLine
+    $mine = $cmd.Contains($WorktreePath) -or $cmd.Contains($WorktreePath.Replace('/', '\'))
+    return [PSCustomObject]@{ Pid = $procId; Name = [string]$proc.Name; Mine = [bool]$mine }
+  }
+  return $null
+}
+
 $backendOk = $false
 $beDeadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $beDeadline) {
-  $listen = Get-NetTCPConnection -LocalPort 8299 -State Listen -ErrorAction SilentlyContinue
-  if ($listen) { $backendOk = $true; break }
+  $owner = Get-BackendListenerOwnership -Port $backendPort -WorktreePath $Worktree
+  if ($owner) {
+    if ($owner.Mine) { $backendOk = $true; break }
+    Write-Info ('BACKEND_PORT_HELD_BY_OTHER pid=' + $owner.Pid + ' exe=' + $owner.Name + ' port=' + $backendPort)
+  }
   Start-Sleep -Seconds 3
 }
 if ($backendOk) {
-  Write-Info 'MAIN_BACKEND_LISTENING port=8299'
+  Write-Info ("MAIN_BACKEND_LISTENING port=" + $backendPort + " (owned by this worktree)")
   Write-Info 'START_CONTRACT_OK'
 } else {
-  Write-Info 'WARN: MAIN_BACKEND_NOT_LISTENING port=8299 within 60s; check shared-user-data/logs/app-*.log for PythonBridge errors'
+  Write-Info ('WARN: MAIN_BACKEND_NOT_LISTENING port=' + $backendPort + ' within 60s (ownership not proven); check shared-user-data/logs/app-*.log for PythonBridge errors')
   Write-Info 'WARN: if a window from a PREVIOUS launch is still visible, it is a stale instance; this launch did not take over (see LOCK_HOLDER_CANDIDATES)'
 }

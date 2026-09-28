@@ -19,7 +19,57 @@
 - 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
 - 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
 - QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
-
+
+# [未发布] docs(openspec): 归档登录态两件 change 并把 6 条 Requirement 同步进主 spec（2026-09-28，openspec-archive-login-state）
+
+### 变更
+- `openspec/changes/split-account-manager-session-restore`（#2514）与 `declare-platform-session-markers`（#2527）移入 `openspec/changes/archive/2026-09-28-*`。
+- `openspec/specs/desktop/spec.md` 的 Requirement 由 7 条增至 13 条：新增「账号会话凭证恢复模块边界」「纯平移重构必须先有特征测试并有反证」「会话标记键名必须由自建匿名基线与真实登录视图的差集取证」「形态正向契约必须随标记集泛化并携带负控」「收紧登录门禁必须同时提供可归因现场」「裸域名成功模式的会话标记缺口清单只能缩小」。正文逐字搬运自各自 delta，未重写文案。
+- 两件 change 的 `tasks.md` 里已过期未勾项按**可核对证据**补齐（QM-1 / QM-6 降级登记 / QM-4 N/A 判据 / 文档回写 / PR 合并与 main 复验 / 归档本身）；两处真实残留保持未勾：下一步「资料刷新簇」拆分、`credential-saver` 的 `names=` 日志缺可执行锁。
+
+### 为什么值得单列一条教训
+主 spec 同步的第一版实现把整份文本 `split(换行).join(检测到的行尾)` 后再追加，结果对一份本就 LF/CRLF 混用的文件产生了 `raw=226/95` 的"整文件重写"假象（`-w` 看是 131/0，内容其实只增不删）。改为**只做字节级前缀保留 + 尾部追加**后，`raw` 与 `--ignore-cr-at-eol` 同时给出 132/0。教训：同步型写入必须保证「原字节是结果的逐字前缀/后缀」，任何对整份文件的重排都会把行尾问题伪装成内容问题。
+
+# [未发布] feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身
+
+### 做了什么
+- 重写 `apps/desktop/src/assets/platforms/` 全部 15 个 svg。旧资产是手绘几何拼块（今日头条是闪电 polygon、微博是同心圆、快手是矩形+圆、**抖音与 TikTok 两个文件内容几乎相同**），这是账号卡片「风格不统一」的根因。新资产：11 个取 Simple Icons v16（CC0-1.0）官方 path 与官方 source 品牌色；今日头条取 Iconify `icon-park:jinritoutiao`（Apache-2.0，48×48 经 `scale(0.5)` 归一）；抖音/百家号/视频号手工绘制示意标并在文件注释标注「非官方矢量」。
+- 来源取证：Simple Icons 覆盖 11/15，缺 douyin/toutiao/baijiahao/tencent_video。进一步扫了 Iconify 全部 238 个集合（含 `thesvg-color` MIT 4896 枚、字节 `icon-park` Apache-2.0、`arcticons`），只有今日头条以 `jinritoutiao` 存在，**抖音/百家号/视频号全网零覆盖**。参考产品 4.0 逆向包（46 文件）无任何平台图标资产，只有 `index.cjs:263` 的 37 个平台 key 命名规范可借鉴。
+- 色值取证：视频号 `#FA9D3B` 实测自 channels.weixin.qq.com 页面样式；百家号 `#3855D5` 实测自官方登录页（`baijiahao.baidu.com` → `/builder/theme/bjh/login`，页面标题「百家号」）渲染后 DOM 的 computed style，**187 个元素命中、为最高频饱和色**（次高 `#2E82FF` 百度系蓝 ×9）。这条是**二次取证纠正的**：静态 HTML 抓不到（纯 JS 壳，只有 `theme-color #000000`），我最初凭"百度系品牌蓝"写了 `#2932E1` 并标注待核实，后用 playwright 真渲染才拿到实测值——两者不同，说明那次凭记忆确实会写错。
+- 把散在 6 个组件里、逐字同形的 `isIconUrl()` 收敛为 `usePlatformIconUrl` 导出的 `isPlatformIconUrl`，并补 `./` 前缀识别。`vite.config.js` 的 `base` 为 `'./'`，一旦某个 svg 超过 `assetsInlineLimit`（4096B）就不再内联为 data URI 而是产出 `./assets/x.svg`；旧判定不认它，组件会走 v-else 的 `<span>{{ icon }}</span>` 分支**把路径字符串当文字渲染到卡片上**。实测确认当前 15 个 svg 仍全部内联为 `data:image/svg+xml`（最大小红书 3762B，距上限仅 334B——所以这条不是假想风险）。真源 `PLATFORM_ICONS` 的历史裸相对值（`platforms/x.svg`）继续判 false，避免渲染成破图。
+- 修暗色主题下黑图标隐身：新增全局 `.mp-platform-icon` 底衬类，7 个图标渲染点全部接入。归属已核实为**既有缺陷**（旧 `twitter.svg` 本就是 `fill="#000"`，15 个旧图标无一使用 `currentColor`），本次换标把它放大而非引入。抖音改为青 `#25F4EE` 偏左下 / 红 `#FE2C55` 偏右上 / 黑主体居中的三层重影，与 TikTok 的单色音符拉开区分度。
+
+### 为什么
+用户反馈账号卡片图标不像各平台的标志。根因不是「图标太小」而是那 15 个文件从来不是品牌标。选 Simple Icons 是因为它是 CC0、24×24 单 path、且直接给出官方 source 色，能一处解决「形」和「色」两件事；三个国内平台全网无覆盖只能自绘，因此把「不得用 polygon/rect/circle 拼」写成锁，防止将来有人退回旧画法却以为自己在做品牌标。
+
+### 验证
+- 反证六次实测变红，每次 `git checkout HEAD -- <单文件>` 恢复后复绿：① 判定函数退回不认 `./` → 红 1；② toutiao 换回旧手绘 polygon 版 → 红 3（根 fill / 几何图元禁令 / 全 path）；③ 组件里重新抄一份 `isIconUrl` → 红 1（结构锁）；④ 图标撑到超内联预算 → 红 1；⑤ 拿掉某渲染点底衬类 → 红 1；⑥ 删全局底衬的 `background` → 红 1。
+- 回归锁 `usePlatformIconUrl.test.js` 131 例；受影响范围 53 个测试文件 986 passed / 1 skipped；`vite build` 通过；4 处既有 `vi.mock` 改 partial mock 透传真实判定函数。
+- 渲染实图自检（playwright 出四段对照表）：确认 12 枚真实品牌标正确、百家号「百」字在 24px 下可辨、暗色无底衬时 TikTok/X 确实不可见、加底衬后 15 枚全部可读。
+- 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
+- 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
+- **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
+# [未发布] fix(dev-isolation): bridge 端口纳入按-worktree 派生，启动器探活改为验进程归属
+
+### 变更
+- `apps/desktop/scripts/dev-ports.js`：`resolveDevPorts` 现在除 vite/cdp 外还派生 `backend`/`prompt`/`splitter`/`aligner`/`callback` 五个 bridge 端口（各自一条宽 2800 的不重叠带：18300 / 21100 / 23900 / 26700 / 29500，同一 worktree 共享同一哈希偏移 ⇒ 整组可复现、间距恒定，全部落在 18300-32299，高于既有静态端口、低于 Windows 动态端口起始 49152）。非 worktree 路径（主仓库/CI）保持 8299/8013/8002/8004/16521 不变。
+- 显式的原生环境变量（`app-config.js` 认的那批）优先于派生 —— 顺序反了就会被 `dev.js` 的回写覆掉，而显式设 `BACKEND_PORT` 正是撞车时唯一的逃生阀。
+- 顺带修 `parsePort` 一个恒假式守卫：它写的是 `String(n) !== String(parseInt(raw, 10))`，而 `n` 就是 `parseInt(raw, 10)` —— 自己跟自己比恒 false，于是 `'8299.5'`、`'8299abc'` 被静默接受成 8299（用户以为换了端口，实际没换）。改为 `^\d+$` + 范围校验；首尾空白按 cmd `set "K=V"` 的历史坑继续容忍；空串仍按"未设置"回落而不抛错。
+- `apps/desktop/scripts/dev.js`：把派生出的五个端口下发给 Electron 主进程。此前不下发 ⇒ 主进程一律回落共享默认值，并发会话第二个实例的 python 后端 `uvicorn` bind 失败（`[Errno 10048]`，实测反复重启）。
+- `scripts/mp-applive-launcher.ps1`：探活端口取自派生结果，且**归属必须验到进程级** —— 取 Listen 的 `OwningProcess`、读其命令行并要求包含本 worktree 路径（ordinal `Contains`，不用 `-like`，因为路径里的 `[ ] * ?` 会被当通配符）。这不是可选加固：派生之后若仍硬编码探 8299，那个 listener 极可能是**别人的**后端，启动器会打印 `START_CONTRACT_OK` 而本实例请求实际路由到别人的数据目录。该文件保持纯 ASCII 无 BOM（Windows PowerShell 5.1 会把无 BOM 的 UTF-8 中文注释按 ANSI 读）。
+
+### 测试
+- `dev-ports.test.js` +7（16/16 通过）：默认路径不变、五个端口各离开默认值并落在自己带内、确定性、真实 fleet 内 backend 两两不撞、带间偏移恒定且不与 vite/cdp 重叠、部分覆盖只影响被指定的那个端口、非法值拒绝（含 `8299.5` / `8299abc`）。
+- 另加一条读源码的结构锁：启动器不得再出现 `-LocalPort 8299`，必须用 `$ports.backend` 并具备 `OwningProcess` 归属校验。它放在**已被 CI 显式点名**的 `dev-ports.test.js`（`quality-gate.yml:77`），刻意不为 `.ps1` 新建测试文件去再踩一次 PowerShell 运行时分档。
+- 三条反证实跑：忠实还原旧 `parsePort` ⇒ 1 红；bridge 端口不派生（恒回落） ⇒ 3 红；启动器换回 HEAD 版 ⇒ 结构锁红。三者均以 sha256 逐字还原。第一次尝试注入"旧 parsePort"时我只替换了 `if` 行、留下了新版的 `const n = Number(s)`，于是变异体仍然拒绝 `8299.5`、测试 0 红 —— 那是**变异不忠实**而不是锁有效，已重做。
+
+### 未做（#2459 保持 open）
+- 档 2：`python-bridge.js` 的 `PORT_IN_USE` 回退在"端口被占"场景下是死代码（`spawn` 的 `'error'` 不覆盖子进程自己 bind 失败退出，走的是 `'exit'` ⇒ 消息不匹配 ⇒ `break` ⇒ 外层从同一端口重来 = 活锁）。修法要动子进程生命周期与 stderr 取证，值得单独一轮。
+- 档 3：健康检查的所有权握手（后端生成 nonce、桥接层比对）。这一档需要 python-backend 配合，且 issue 自己标注为"仅从代码读出、本次未实测"的潜在面。
+
+
+
+
 # [未发布] test(ci): 接线棘轮的扫描域从「两个写死目录」扩成全仓，并新增「嵌套 workflow 永不执行」判据（2026-09-28，unwired-domain-wide）
 
 ### 变更

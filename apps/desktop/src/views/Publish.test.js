@@ -697,6 +697,48 @@ describe("PublishView — extra coverage", () => {
     expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
   });
 
+  it("video upload selection shows success feedback (no silent registration)", async () => {
+    const { ElMessage } = await import("element-plus");
+    ElMessage.success.mockClear();
+    const w = await createWrapper();
+    const raw = { name: "01.mp4", type: "video/mp4", size: 12 };
+
+    await w.vm.handleVideoFileChange({ raw, name: raw.name });
+
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+    expect(ElMessage.success).toHaveBeenCalled();
+  });
+
+  it("video upload remove handler clears video_path (list delete keeps state in sync)", async () => {
+    const w = await createWrapper();
+    w.vm.article.video_path = "D:/old.mp4";
+
+    w.vm.handleVideoFileRemove();
+
+    expect(w.vm.article.video_path).toBe("");
+  });
+
+  it("video upload exceed handler replaces the file instead of silent drop (limit=1 reselect)", async () => {
+    const w = await createWrapper();
+    const clearFiles = vi.fn();
+    const handleStart = vi.fn();
+    w.vm.videoUploadRef = { clearFiles, handleStart };
+    const file = { name: "02.mp4", type: "video/mp4", size: 10 };
+
+    w.vm.handleVideoFileExceed([file]);
+
+    expect(clearFiles).toHaveBeenCalledTimes(1);
+    expect(handleStart).toHaveBeenCalledWith(file);
+  });
+
+  it("video upload exceed handler is fail-safe without ref or files", async () => {
+    const w = await createWrapper();
+    w.vm.videoUploadRef = null;
+
+    expect(() => w.vm.handleVideoFileExceed(null)).not.toThrow();
+    expect(() => w.vm.handleVideoFileExceed([])).not.toThrow();
+  });
+
   it("封面提取结果使用当前语言的提示文案", async () => {
     const w = await createWrapper();
     w.vm.article.video_path = "D:/source.mp4";
