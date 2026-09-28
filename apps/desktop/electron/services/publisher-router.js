@@ -472,6 +472,9 @@ class ApiPublisher {
     const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
     const signal = options && options.signal
     if (signal && signal.aborted) throw new Error('任务已取消')
+    // publish-progress-ux：API 直连轨此前完全静默——executor 传入的 onProgress
+    // 透传给引擎（base-adapter execute 模板按 (percent, message) 回调）。
+    const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null
 
     const videoPath = article.video_path
     // 图文 vs 视频分流：无 video_path 即图文（百家号/头条号只发图文，Q14，见 PRD §12.8）
@@ -493,6 +496,7 @@ class ApiPublisher {
       timeout: this.route.timeout,
       draft: article.draft === true,
       signal,
+      ...(onProgress ? { onProgress } : {}),
     })
     if (signal && signal.aborted) throw new Error('任务已取消')
     if (!result || !result.success) throw new Error((result && result.error) || 'API 发布失败')
