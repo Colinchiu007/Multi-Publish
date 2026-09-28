@@ -13,7 +13,7 @@
  *   4. preload（page-manager.js + index.bundle.js）暴露 suspendEmbeddedViews / resumeEmbeddedViews
  *   5. 渲染层 composable + App.vue（设置弹窗、关闭确认护栏）/ MpSidebar（升级弹窗）接入
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -146,6 +146,82 @@ describe('弹窗互斥：静态链路完整性', () => {
     // 三处一律经命名常量传 owner：出现字面量即意味着有人绕过登记直接塞了个 owner
     expect(cropSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
     expect(publishSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+  })
+})
+
+describe('弹窗互斥：内嵌主页壳态（home-shell）不得挂起', () => {
+  // 根因：home-shell 实例本身就是一张 WebContentsView。主进程任一时刻只让活动标签
+  // 可见（全仓 setVisible(true) 仅 layout.js 一处，且只作用于 activeView），所以它
+  // 内部的应用级模态不会被别的标签视图盖住；反而一挂起会经 _hideAllTabs() 把自己藏掉
+  // —— 用户表现为「点缩略图后内容区整块空白」。
+  // 同族守卫已存在于 App.vue 的 setShellMode（if (isHomeShell) return），本条补齐挂起路径。
+  async function loadComposable () {
+    vi.resetModules()
+    return (await import('@/composables/useEmbeddedViewSuspension'))
+  }
+
+  function setUrl (search) {
+    // 必须给出带 pathname 的完整相对路径：replaceState 传裸 '#/x' 只替换 fragment、
+    // **保留既有 query**，那样「清空」清不掉 mp-home-shell=1，守卫会被上一条用例污染。
+    window.history.replaceState({}, '', `/${search}#/publish`)
+  }
+
+  let calls
+  beforeEach(() => {
+    calls = []
+    window.electronAPI = {
+      pageManager: {
+        suspendEmbeddedViews: (owner) => { calls.push(['suspend', owner]); return Promise.resolve(true) },
+        resumeEmbeddedViews: (owner) => { calls.push(['resume', owner]); return Promise.resolve(true) },
+      },
+    }
+  })
+
+  afterEach(() => {
+    setUrl('')
+    delete window.electronAPI
+  })
+
+  it('home-shell 壳态下 suspend 直接 no-op：不发 IPC、不占 owner 计数', async () => {
+    setUrl('?mp-home-shell=1')
+    const mod = await loadComposable()
+
+    await expect(mod.suspendEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(false)
+    expect(calls).toEqual([])
+    // 释放同样 no-op，且不得因为「没挂起过」而误发恢复
+    await expect(mod.releaseEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('主窗口壳态下行为不变：仍按 owner 各发一次挂起与恢复', async () => {
+    setUrl('')
+    const mod = await loadComposable()
+
+    await expect(mod.suspendEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(true)
+    expect(calls).toEqual([['suspend', 'publish-cover-preview']])
+    await expect(mod.releaseEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(true)
+    expect(calls).toEqual([
+      ['suspend', 'publish-cover-preview'],
+      ['resume', 'publish-cover-preview'],
+    ])
+  })
+
+  it('壳态判据按调用时刻读取，不得在模块导入期冻结', async () => {
+    setUrl('')
+    const mod = await loadComposable()
+    await expect(mod.suspendEmbeddedViewsForOverlay('owner-a')).resolves.toBe(true)
+
+    // 同一已导入模块下切换到 home-shell：后续挂起必须立刻停止发 IPC
+    setUrl('?mp-home-shell=1')
+    await expect(mod.suspendEmbeddedViewsForOverlay('owner-b')).resolves.toBe(false)
+    expect(calls.filter((c) => c[1] === 'owner-b')).toEqual([])
+  })
+
+  it('home-shell 参数值必须严格为 1，其他值不得误判为壳态', async () => {
+    setUrl('?mp-home-shell=0')
+    const mod = await loadComposable()
+    await expect(mod.suspendEmbeddedViewsForOverlay('owner-c')).resolves.toBe(true)
+    expect(calls).toEqual([['suspend', 'owner-c']])
   })
 })
 

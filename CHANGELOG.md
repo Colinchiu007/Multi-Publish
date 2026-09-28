@@ -11,6 +11,9 @@
 - 放大预览走 `UiModal`（`size="xl"` + 显式 `close-on-esc`）+ 原生 `<img>`，与仓库既有约定一致（全仓无 `el-image` / `ElImageViewer`）。视频与图文两个封面行共用**同一份** composable 实例与**同一个**弹窗节点。
 - 图文封面行**刻意不加 flex 包裹层**：`.cohere-form-item` 是列向 flex，`el-upload` 靠 `align-items: stretch` 占满宽，套一层行向容器会让它退化成内容宽 —— 那会造成与本功能无关的 `publish-form` 像素基线位移。
 - 按 AGENTS.md 浮层互斥合同登记**三个 owner**：`publish-cover-preview`（本次新增）、`publish-cover-crop-dialog` 与 `publish-ai-cover-dialog`（同一封面流程的**既有漏项**，一并补上 —— 新浮层守规矩、旁边的不守等于把同一个 Bug 留在原地）。释放一律走 `finally`，`onBeforeUnmount` 兜底。
+- **修掉一条自查发现的既有危害（自审，非评审产出）**：发布页可运行在「+新标签」的**内嵌主页实例**里，而该实例本身就是一张 `WebContentsView`。主进程任一时刻只让活动标签可见（全仓 `setVisible(true)` 仅 `webview-manager/layout.js:160` 一处、且只作用于 `activeView`），所以它内部的应用级模态不会被别的视图盖住；而 `suspendEmbeddedViewsForOverlay` → `_hideAllTabs()` 无差别遍历 `_tabViews` 隐藏，会**把承载弹窗的那张视图自己藏掉** —— 表现为「点缩略图后内容区整块空白」，且弹窗不可见因而无法关闭。该危害在 `App.vue` 的 `setShellMode` 路径早已有守卫（`if (isHomeShell) return`），挂起路径却没有；`home-shell-preload.bundle.js:928` 确实暴露了 `suspendEmbeddedViews`（esbuild 把 `preload/index.js` 整体内联），路径可达。
+- 修复落在 `useEmbeddedViewSuspension.js` 本身：新增 `isHomeShellRuntime()` 守卫，判据**按调用时刻**读取 `window.location.search`（不得在模块导入期冻结求值，否则真实导航后失效）。放 composable 而非各调用点，顺带收口 `AccountCloudSyncDialog` 的同类既有暴露。回归锁 4 例（壳态 no-op / 主窗口行为不变 / 判据不得导入期冻结 / 参数值须严格为 `1`），变异反证「守卫恒不命中」⇒ 恰好 2 条变红。
+
 - locale：`publishPage.coverPreview.{title,hint,ariaLabel,loading,unavailable}` zh/en 成对新增，插在 `coverCrop` 之后保持行位对称。
 
 ### 明确不做（附理由）

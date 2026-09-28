@@ -205,6 +205,18 @@
 
 口径：owner 唯一、suspend/release 成对、释放一律走 `finally`、不得复用他人 owner（否则 ref-count 会吞掉别人的释放）。三者在 `apps/desktop/src/overlay-view-suspension.test.js` 各登记一条接入断言。
 
+### 7.5.1 home-shell 内嵌实例必须跳过挂起（本次实测发现并修复）
+
+发布页可以运行在「+新标签」创建的**内嵌主页实例**里（`App.vue` 的 `isHomeShell` 分支渲染 `router-view`），而该实例**本身就是一张 `WebContentsView`**。
+
+主进程任一时刻只让活动标签可见——实证：全仓 `setVisible(true)` 仅 `webview-manager/layout.js:160` 一处，且只作用于 `activeView`。因此内嵌实例里的应用级模态**不会**被别的标签视图盖住，挂起是不必要的；更糟的是 `suspendEmbeddedViewsForOverlay` → `_hideAllTabs()` 会遍历 `_tabViews` 无差别 `setVisible(false)`，**把承载弹窗的那张视图自己也藏掉** —— 用户表现为「点缩略图后内容区整块空白」，且弹窗因不可见而无法点击关闭。
+
+该危害在 `App.vue` 的 `setShellMode` 路径早已被识别并守卫（`if (isHomeShell) return`，注释原文即「会让主进程隐藏包括它自己在内的全部视图」），但**挂起路径没有对应守卫**。`home-shell-preload.bundle.js:928` 确实暴露了 `suspendEmbeddedViews`（esbuild 把 `preload/index.js` 整体内联进 home-shell bundle），所以这条路径可达，不是理论风险。
+
+修复落在 `useEmbeddedViewSuspension.js` 本身而非各调用点：新增 `isHomeShellRuntime()` 守卫，判据**按调用时刻**读取 `window.location.search`（不得在模块导入期冻结求值，否则真实导航后守卫失效）。放在 composable 里而非各浮层里，是为了让 `AccountCloudSyncDialog`（同为路由页内的居中模态、同样可从内嵌实例到达）的既有同类暴露一并收口 —— 该收口属本 composable 契约的修正，不是本需求的附带功能。
+
+残留限制（如实记录）：登录视图与扫码视图不在 `_tabViews` 内，理论上可与内嵌实例并存；但二者活动时活动标签已不是主页实例，用户无法在其上点击封面缩略图，故不为其另加判据。
+
 ## 8. 提示文字（locale，zh/en 成对）
 
 新增键位于 `publishPage` 块内、紧随 `coverCrop` 之后，保持 zh/en 行位对称（CI Gate 7 `check-locale-sync.js` 强制成对）：
