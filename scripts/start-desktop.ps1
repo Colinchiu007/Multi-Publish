@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   Multi-Publish 桌面启动契约：保证每次启动 = 最新代码 + 正确工作区。
@@ -16,7 +16,7 @@
   目标 worktree 绝对路径；默认 = 本脚本所在仓库根。
 
 .PARAMETER Profile
-  ELECTRON_USER_DATA_DIR（默认 D:\tmp\Multi-Publish-debug-profile）。
+  ELECTRON_USER_DATA_DIR（默认共享锚点 D:\Data\projects\Mulpub\shared-user-data）。
 
 .PARAMETER NoSync
   跳过 git fetch + ff-only 同步。
@@ -46,7 +46,7 @@
 [CmdletBinding()]
 param(
   [string]$Worktree = '',
-  [string]$Profile = 'D:\tmp\Multi-Publish-debug-profile',
+  [string]$Profile = 'D:\Data\projects\Mulpub\shared-user-data',
   [switch]$NoSync,
   [switch]$NoDepsCheck,
   [switch]$InvalidateViteCache,
