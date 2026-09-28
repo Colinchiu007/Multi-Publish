@@ -41,19 +41,27 @@ const DOC_SYNC_MARKERS = {
   rootStep: '检查文档同步（硬门禁）',
 };
 
+// 环境装配类动作：失败发生在"装/建/取/收尾"这一层，不在"跑测试"这一层。
+// **必须排在 looksLikeTest 之前判**：GUI Tests 的
+// `Install Python backend runtime and test dependencies`（真实 run 36401422504 → 生产单 #2568）
+// 步骤名里带 "test"、作业名 `gui-test` 里也带 "test"，只看名字会把一次 pip 失败报成测试回归。
+const SETUP_STEP_RE = /^(install|setup|set up|restore|build|checkout|cache|download|prepare|configure|post)\b/i;
+
 function firstFailedStep(job) {
   const steps = (job && job.steps) || [];
   const failed = steps.filter(s => s && s.conclusion === 'failure');
   return failed.length ? failed[0].name : null;
 }
 
-/** 选根因作业：排除汇总作业，按名字排序取第一个（API 顺序会变，签名不能跟着漂）。 */
+/** 选根因作业：先排除汇总作业，按名字排序取第一个（API 顺序会变，签名不能跟着漂）。
+ *  全都排完为空时（真实失败作业已被重跑冲掉，只剩 rollup 红），退回按名字排序的第一个作业 ——
+ *  报出 rollup 也比输出 `null / null` 的空标题有用，且标题仍可稳定去重。 */
 function pickRootJob(failedJobs) {
-  const candidates = (failedJobs || [])
-    .filter(j => j && j.name && !ROLLUP_JOBS.has(j.name))
+  const all = (failedJobs || []).filter(j => j && j.name)
     .slice()
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return candidates.length ? candidates[0] : null;
+  const candidates = all.filter(j => !ROLLUP_JOBS.has(j.name));
+  return candidates.length ? candidates[0] : (all[0] || null);
 }
 
 function exitCodeFor(annotations, jobName) {
@@ -111,6 +119,8 @@ function classifyFailure(input) {
     type = 'doc-sync-drift';
   } else if (rootJob === null) {
     type = 'ci-failure';
+  } else if (SETUP_STEP_RE.test(rootStep || '')) {
+    type = 'setup-failure';
   } else if (looksLikeTest(rootJob, rootStep)) {
     type = 'test-failure';
   } else {
