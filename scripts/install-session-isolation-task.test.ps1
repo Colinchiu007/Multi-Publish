@@ -40,7 +40,28 @@ function RunInstaller([string[]]$argsList) {
 }
 
 $livePath = '\Multi-Publish\'
-$liveBefore = @(Get-ScheduledTask -TaskPath $livePath -ErrorAction SilentlyContinue | ForEach-Object { $_.TaskName })
+
+# Snapshot the live task path into SCRIPT-SCOPE variables instead of returning a value.
+# Root cause of the CI red (run 36388005361 / step Gate 2d): a function whose last statement
+# is `@(...)` hands its CALLER a $null, because the automatic output pipeline unrolls an empty
+# array. Measured on 5.1: `function F1 { @() }` -> `(F1)` is NULL, while `, @()` in the body and
+# `@(F1)` at the call site both give Object[] of length 0. A call-site wrap would have fixed
+# this run, but it leaves the burden on every future caller; taking no return value removes it.
+# On a CI runner \Multi-Publish\ simply does not exist, so the snapshot is empty and
+# Compare-Object then refused to bind null to -ReferenceObject.
+# A joined signature string cannot be null and cannot flatten, so the set compare needs no
+# array at all.
+function Set-LiveSnapshot {
+    $names = @(Get-ScheduledTask -TaskPath $livePath -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.TaskName } | Sort-Object)
+    $script:liveSig = ($names -join '|')
+    $script:liveCount = $names.Count
+}
+
+Set-LiveSnapshot
+$liveBeforeSig = $script:liveSig
+$liveBeforeCount = $script:liveCount
+Write-Host "LIVE_TASK_COUNT=$liveBeforeCount names=[$($liveBeforeSig -replace '\|', ',')]"
 
 try {
     # 1) -Unregister aimed at the production path must be refused without the explicit switch
@@ -49,12 +70,8 @@ try {
     Check ($refused.text -match 'AllowLiveUnregister') 'refusal names the escape hatch' $refused.text.Substring(0, [Math]::Min(200, $refused.text.Length))
 
     # 2) The refusal must not have deleted anything - judged by the artifact, not by rc.
-    #    The comparison needs its own parentheses: without them PowerShell binds the bare
-    #    value as $cond and passes -eq/0 along as the following arguments (measured: a
-    #    passing comparison still reported FAIL, and 0 live tasks would red out on CI).
-    $liveAfter = @(Get-ScheduledTask -TaskPath $livePath -ErrorAction SilentlyContinue | ForEach-Object { $_.TaskName })
-    $untouched = (@(Compare-Object ($liveBefore | Sort-Object) ($liveAfter | Sort-Object) -SyncWindow 0).Count -eq 0)
-    Check $untouched 'live tasks untouched by the refused call' "before=$($liveBefore -join ',') after=$($liveAfter -join ',')"
+    Set-LiveSnapshot
+    Check ($script:liveSig -ceq $liveBeforeSig) 'live tasks untouched by the refused call' "before=[$liveBeforeSig] after=[$($script:liveSig)]"
 
     # 3) A throwaway path is allowed through (no production task can be reached by accident).
     $scratch = '\MulpubNonexistent-UnitProbe-XYZ\'
@@ -73,8 +90,18 @@ try {
 
     Write-Host "PASS: $passed install-session-isolation-task checks" -ForegroundColor Green
 } finally {
-    $liveEnd = @(Get-ScheduledTask -TaskPath $livePath -ErrorAction SilentlyContinue | ForEach-Object { $_.TaskName })
-    if ((Compare-Object ($liveBefore | Sort-Object) ($liveEnd | Sort-Object) -SyncWindow 0 | Measure-Object).Count -ne 0) {
-        Write-Host "LIVE TASKS CHANGED during the test run: before=$($liveBefore -join ',') end=$($liveEnd -join ',')" -ForegroundColor Red
+    Set-LiveSnapshot
+    if ($script:liveSig -cne $liveBeforeSig) {
+        $msg = "LIVE TASKS CHANGED during the test run: before=[$liveBeforeSig] end=[$($script:liveSig)]"
+        Write-Host $msg -ForegroundColor Red
+        throw $msg
+    }
+    # Be honest about coverage instead of letting it read as a strong pass: on a CI runner
+    # \Multi-Publish\ does not exist at all, so "nothing was deleted" can only be proven on a
+    # developer machine. The signature compare still proves the refused call created nothing.
+    if ($liveBeforeCount -eq 0) {
+        Write-Host 'NOTE: no live \Multi-Publish\ task on this host - the deletion guard was exercised only as "no task created either"; the destructive case needs a dev machine'
+    } else {
+        Write-Host "PROVED: $liveBeforeCount live \Multi-Publish\ task(s) survived the refused -Unregister"
     }
 }

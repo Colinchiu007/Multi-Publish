@@ -14,6 +14,10 @@
 - 反证改在**完全沙箱**里做：把 installer 与测试各复制到 TEMP，复制体内所有 `Multi-Publish` 字样一律换成一次性探针路径，每格开始前向探针文件夹注册一个动作仅为 `cmd /c exit 0` 的空任务。结果：A 守卫在位 `rc=0 / 7 PASS` 且探针任务存活；B 拆掉拒绝分支 `rc=1 / pass=0`，且**探针任务被真删**（证明拒绝分支是唯一屏障）；C 去掉尾斜杠归一后红在"不带尾斜杠也要被拒"那条（证明归一是承重的）。三格全程生产文件夹快照逐字不变、复制体外的源文件 sha 未变、探针文件夹已清空。
 - 同 PR 自跑：`check-unwired-tests.js` → 检查域内测试文件 43 个 / OK（新测试已接线）；`check-step-failfast.js` → 4 个多测试步骤 OK；`--test` 三件 41 passed / 0 failed。
 - QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+- **首跑即在 CI 变红，红点在我自己的新断言上**（run 36388005361 / step `Gate 2d`）：`Compare-Object` 报「无法将 Null 值绑定到 `-ReferenceObject`」。根因不在比较，而在**快照函数的隐式输出把空数组摊平成 `$null`** —— 实测 Windows PowerShell 5.1：`function F { @(...) }` 对调用方是 NULL，而 `, @()` 与调用点 `@(F)` 才是长度 0 的 `Object[]`；`Compare-Object @() @()` 本身正常。CI runner 上 `Multi-Publish` 根本不存在，于是「被拒后真任务列表逐条不变」那条从未在等价状态下被跑过，而我此前只在本机（有 2 条真任务）验过。
+- **修法取结构而非记律**：快照函数不再返回值，改写 `$script:` 作用域变量，比较对象换成任务名排序后 `-join '|'` 的字符串（串既不会为 null 也不摊平），`Compare-Object` 与 `-SyncWindow 0` 一并删除。同时把 `finally` 里的「检出真任务变化只打红字」升级为**失败**——原实现检出灾难仍 `rc=0`，属装饰性断言的第二种落点。
+- **成对反证：把 runner 态在本地造出来，不靠 CI 碰运气**。旧版（`git show HEAD:` 那份）+ 零任务 ⇒ `rc=1`，红点与 CI 同一处（`zero-old.ps1:77` 的 null 绑定）；新版 + 零任务 ⇒ `rc=0 / 7 PASS` 并打印 `NOTE: no live \Multi-Publish\ task on this host …`；新版 + 本机 2 条真任务 ⇒ `rc=0 / 7 PASS` 并打印 `PROVED: 2 live task(s) survived the refused -Unregister`。`pwsh 7.6` 与 `Windows PowerShell 5.1` 各一遍。反证夹具要把 `$installer` 绑回 worktree 的真实脚本，否则复制到 TEMP 后 `$PSScriptRoot\..` 不是仓库、拒绝分支走的是另一条错误路径（第一版就被 `fatal: not a git repository` 骗过一次，看着像修复失败，其实测的是另一件事）。**CI 本身就是这条回归的常驻锁**：runner 天生零任务，重新引入「返回空数组的快照函数」会当场变红。
+- **恢复写保护任务时顺带实测到两条运行态事实**：① `-Watch` 没有单实例锁，提权重注册会与上一版注册留下的 watcher 进程**并存**，两份 FileSystemWatcher 对同一次拦截各写一条 `violations.jsonl`；清理时按 `-like '*guard-shared-root-writes*'` 过滤 `Win32_Process` 会把**执行查询的自己**算进去（自己的命令行就含该串），必须排除 `$PID` 并匹配 `-Watch` 实参。② 注册 AtLogOn 需要提权，但 `Start-ScheduledTask` 拉起已注册的任务**不需要**——收掉重复后以任务本身重启 watcher，`mp-worktree-health.ps1` 回读 `taskRegistered=true / running=true / ok=true`、`health_rc=0`，证据取产物而非启动命令的 rc。
 
 # [未发布] feat(账号): 失效头像遮罩从「中部一条黑带」改为「铺满整颗头像 + 白字居中」
 
