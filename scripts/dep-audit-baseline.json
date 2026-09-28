@@ -371,6 +371,32 @@
       ],
       "decision": "no-fix-available",
       "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-3wwx-pv8p-q78v",
+      "module": "undici",
+      "severity": "moderate",
+      "patched": ">=7.29.1",
+      "roots": [
+        "apps__desktop",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-29 新公告（本日所有 PR 的审计门禁连带撞红，与业务改动无关）。undici 为 Node 传递依赖，修复版 >=7.29.1；升级动作留给专项依赖任务（audit-batch-5），不在业务修复 PR 内夹带。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-qw65-cvwx-89v3",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.7",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-29 新公告（同上，连带撞红）。fast-uri 为 remotion-composer 链传递依赖，零直接引用；升级动作留给专项依赖任务（audit-batch-5）。"
     }
   ]
 }
