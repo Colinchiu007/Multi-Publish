@@ -9,13 +9,14 @@ export default {
   // ─── 账号云镜像同步（PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §10.4，与 zh.js 行序一致）───
   // 错误文案键落位说明见 zh.js 同段注释：flat 点分键不会被 vue-i18n 命中，故为 cloudSyncErr.<group>。
   cloudSync: 'Sync to Cloud',
+  cloudSyncConfirm: 'Sync Accounts',
   cloudSyncBusy: 'Syncing…',
-  cloudSyncTitle: 'Sync to Cloud',
+  cloudSyncTitle: 'Sync your accounts with the cloud?',
   cloudSyncAria: 'Sync accounts to the cloud',
   cloudDigestLoading: 'Loading your cloud accounts…',
-  cloudDigestTotal: '{total} accounts in the cloud',
+  cloudDigestTotal: '{total} in the cloud',
   cloudDigestEmpty: 'No cloud accounts yet, this run uploads your first mirror',
-  cloudDigestLocal: '{local} local accounts will take part',
+  cloudDigestLocal: '{local} on this device',
   cloudDigestTombstone: '{count} deleted accounts will not be restored',
   cloudDigestPrivacy: 'Sign-in credentials are encrypted before upload, and all cloud data can be cleared in one click',
   cloudDigestFailed: 'Cannot load cloud account info, please check the network and retry',
