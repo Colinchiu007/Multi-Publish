@@ -38,6 +38,30 @@
 
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
 
+### docs-only 快速通道（2026-10，change: docs-only-ci-shortcircuit）
+
+纯文档/流程变更走精简门禁。判定**必须**用单一真源脚本（与 CI changes job 同一实现，禁止人工目测、禁止第二份白名单）：
+
+```
+node scripts/classify-docs-only.js --base=origin/main --head=HEAD
+```
+
+- 判定 `docs-only=true`（全部改动文件命中文档白名单 `CI_IGNORED_PATHS`，与 push paths-ignore 同源）：
+  - **保留门禁**（文档 PR 的真实风险面，一条不省）：①变更类型与隔离声明（就地编辑 + PR 落地，不进 worktree）；②行尾/编码对账（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致）；③品牌残留 `node scripts/check-no-brand-residue.js`（文档里如实写竞品名会打红，正解写「参考产品」）；④doc-gate 文档同步检查；⑤CHANGELOG 收口（如适用）；⑥远程同步（PR 合并核对）。
+  - **跳过**（与运行时无关）：QM-1 打包、QM-2 代码必检项、QM-4 视觉、TDD（无代码）、QM-6 双模型评审。
+  - CI 侧由各全量 workflow 的 `changes` job 自动短路重型 job（job 级 `if`，skipped 满足 required check；触发级 paths-ignore 仍是禁区），无需人工干预。
+- 判定 `false`（混合 PR，含任一代码/依赖/CI 路径）→ 完整质量节拍，不得借道本通道；改 `.github/workflows/`、`scripts/` 工具脚本自身的 PR 属混合 PR。
+- `.quality-gates.md` 记录用精简模板（判定证据必须写入）：
+
+```
+## 本次执行记录：<标题>（<slug>，<date>）【docs-only】
+- 判定：node scripts/classify-docs-only.js --base=origin/main → docs-only=true（files=N：<文件清单>）
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING→PASS
+- 备注（可选）
+```
+
+- 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
+
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
 - **远程同步**：任务标记 completed 前必须核对关联 PR 已合并或记录 remoteStatus，禁止基于滞后状态做重复工作。
