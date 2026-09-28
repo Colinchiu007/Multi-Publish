@@ -106,13 +106,18 @@ async function run(r) {
     && expired.maskStyle?.background === 'rgba(0, 0, 0, 0.55)'
     && expired.maskStyle?.color === 'rgb(255, 255, 255)',
     expired.maskStyle);
-  const inside = expired.avatarBox && expired.maskBox
-    && expired.maskBox.w <= expired.avatarBox.w + 1
-    && expired.maskBox.y >= expired.avatarBox.y - 1
-    && (expired.maskBox.y + expired.maskBox.h) <= (expired.avatarBox.y + expired.avatarBox.h) + 1;
-  await record(r, '遮罩落在头像圆内（被 overflow:hidden 裁切）',
-    inside && expired.avatarOverflow === 'hidden' && expired.avatarPosition === 'relative',
+  // 遮罩必须与头像盒重合（铺满整颗头像），不再是中部一条横带。
+  // 容差 3px：inset:0 对齐的是 padding box，而 getBoundingClientRect 含 .account-avatar 的 1px 边框，
+  // 两侧各差 1px 属预期，不得为此放宽到「大致重合」。
+  const EPSILON = 3;
+  const sameBox = (a, b) => Math.abs(a.x - b.x) <= EPSILON && Math.abs(a.y - b.y) <= EPSILON
+    && Math.abs(a.w - b.w) <= EPSILON && Math.abs(a.h - b.h) <= EPSILON;
+  const coversAvatar = expired.avatarBox && expired.maskBox && sameBox(expired.maskBox, expired.avatarBox);
+  await record(r, '遮罩铺满整颗头像（与头像盒重合，被 overflow:hidden 裁成圆形）',
+    coversAvatar && expired.avatarOverflow === 'hidden' && expired.avatarPosition === 'relative',
     { avatarBox: expired.avatarBox, maskBox: expired.maskBox, overflow: expired.avatarOverflow, position: expired.avatarPosition });
+  await record(r, '遮罩不拦截点击（pointer-events: none）',
+    expired.maskStyle?.pointerEvents === 'none', { pointerEvents: expired.maskStyle?.pointerEvents });
   await record(r, '失效卡片头像旁不再出现旧徽章（R2）', expired.badgeCount === 0, { badgeCount: expired.badgeCount });
 
   // R3：有效卡片

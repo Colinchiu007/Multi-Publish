@@ -27,6 +27,19 @@ function mountCard (props = {}) {
   })
 }
 
+/** 把 .vue 里某条 CSS 规则解析成「属性 → 值」映射，供逐属性结构断言使用；规则缺失即抛错，不允许静默跳过。 */
+function readCssDeclarations (vueSrc, selector) {
+  const start = vueSrc.indexOf(selector)
+  if (start === -1) throw new Error(`CSS 规则缺失: ${selector}`)
+  const body = vueSrc.slice(vueSrc.indexOf('{', start) + 1, vueSrc.indexOf('}', start))
+  const decls = {}
+  // 按 ; 切分而非按行切分：本仓 .vue 存在 CRLF 基线，逐行正则会因 \r 全部失配
+  for (const [, prop, value] of body.matchAll(/([a-z-]+)\s*:\s*([^;]+)/g)) {
+    decls[prop] = value.trim()
+  }
+  return decls
+}
+
 describe('AccountManagementCard', () => {
   it('选择框提供账号名称并上抛选择和收藏事件', async () => {
     const wrapper = mountCard()
@@ -127,17 +140,28 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('.account-avatar .avatar-status-mask').text()).toBe('已失效')
   })
 
-  it('遮罩样式契约：头像为定位容器，遮罩绝对定位覆盖并自带半透明底', () => {
-    // JSDOM 不应用 scoped CSS，布局契约改为读源码断言
+  it('遮罩样式契约：铺满整颗头像、白字居中，并保留半透明黑底与点击穿透', () => {
+    // JSDOM 不应用 scoped CSS，布局契约改为读源码逐属性断言
     const vueSrc = fs.readFileSync('./src/features/accounts/components/AccountManagementCard.vue', 'utf8')
     const avatarRule = vueSrc.slice(vueSrc.indexOf('.account-avatar {'), vueSrc.indexOf('.account-avatar img'))
-    const maskRule = vueSrc.slice(vueSrc.indexOf('.account-avatar .avatar-status-mask'))
+    const mask = readCssDeclarations(vueSrc, '.account-avatar .avatar-status-mask')
 
     expect(avatarRule).toContain('position: relative;')
     expect(avatarRule).toContain('overflow: hidden;')
-    expect(maskRule).toContain('position: absolute;')
-    expect(maskRule).toContain('background: rgba(0, 0, 0, 0.55);')
-    expect(maskRule).toContain('color: #fff;')
+
+    // 遮罩必须铺满整颗圆形头像，不得退回「中部一条横带」的旧几何
+    expect(mask.position).toBe('absolute')
+    expect(mask.inset).toBe('0')
+    for (const bandOnly of ['top', 'right', 'left', 'transform', 'padding']) {
+      expect(mask).not.toHaveProperty(bandOnly)
+    }
+    // 「已失效」落在头像正中
+    expect(mask.display).toBe('grid')
+    expect(mask['place-items']).toBe('center')
+    // 0.55 是白字对比度 ≥4.5:1 的下界（头像为纯白时仍达标），调淡即不达标
+    expect(mask.background).toBe('rgba(0, 0, 0, 0.55)')
+    expect(mask.color).toBe('#fff')
+    expect(mask['pointer-events']).toBe('none')
   })
 
   it('历史脏值 inactive / offline 不再谎称「已登录」，统一落到未检查兜底', () => {
