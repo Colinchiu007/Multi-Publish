@@ -8,6 +8,41 @@
 ### 为什么值得单列一条教训
 主 spec 同步的第一版实现把整份文本 `split(换行).join(检测到的行尾)` 后再追加，结果对一份本就 LF/CRLF 混用的文件产生了 `raw=226/95` 的"整文件重写"假象（`-w` 看是 131/0，内容其实只增不删）。改为**只做字节级前缀保留 + 尾部追加**后，`raw` 与 `--ignore-cr-at-eol` 同时给出 132/0。教训：同步型写入必须保证「原字节是结果的逐字前缀/后缀」，任何对整份文件的重排都会把行尾问题伪装成内容问题。
 
+# [未发布] test(ci): 接线棘轮的扫描域从「两个写死目录」扩成全仓，并新增「嵌套 workflow 永不执行」判据（2026-09-28，unwired-domain-wide）
+
+### 变更
+- `scripts/check-unwired-tests.js`：删掉写死的 `SCAN_DIRS = ["scripts", ".github/scripts"]`，改为自仓库根遍历（不跟随链接、剪枝 `node_modules`/`dist`/`coverage` 等），再减去**两张必须带理由的显式排除表** —— `WORKSPACE_COVERED`（`apps/`、`packages/`、`ops-center/`，由 vitest 按 workspace 收集）与 `VENDORED_MIRROR`（`.quality-rhythm/`，上游技能制品的 vendored 副本）。两张表 + `KNOWN_NESTED_WORKFLOWS` 在测试侧一律 `deepEqual` 钉住，只能缩小。
+- 新增判据 `NESTED_WORKFLOW_NOT_EXECUTED` / `NESTED_WORKFLOW_ACK_STALE`：任何 `.../.github/workflows/*.yml` 落在子目录即红。GitHub 只调度仓库**顶层**的 `.github/workflows/`，嵌套那份是**永远不会被执行**的配置副本——它的危害不是"没跑测试"，而是**看起来像门禁**。
+- 遍历遇到读不动的目录一律抛错（`无法枚举目录 …（遍历不完整时本门禁拒绝判定）`），不允许静默 `continue`：不完整的遍历判绿与 R3 链接扫描 Depth-3 漏检是同一颗雷。
+- 测试 8 → 12 条：新增"嵌套未承认必须红""承认后放行且文件消失即过时""排除表只挡测试域、不把同级 `scripts/` 一起吞掉""遍历不完整必须抛错"，并把两张排除表与承认清单钉进真实仓库断言。
+
+### 根因（这条是 #2493 那条 MUST 的第二个落点）
+#2493 把"测试没接 CI"变成棘轮时，域是按**目录白名单**定的，于是域的边界本身成了盲区：`.quality-rhythm/.github/scripts/tpl-contract.test.js` 在两个目录之外，棘轮从未看过它；而它旁边那份 `mechanism-check.yml` 里明写着 `node --test .github/scripts/tpl-contract.test.js`，任何人读到都会认为这条锁在跑。实测：GitHub 不调度嵌套 workflow，所以这条锁从 vendoring 那天起就是零执行。
+
+### 门禁与反证
+- 本机：`node scripts/check-unwired-tests.js` → `检查域内测试文件 42 个 / OK`（扩域后规模未变，说明本仓此前确实只有那 42 个域内测试，副本内那 1 个被显式分类）；`node --test scripts/check-unwired-tests.test.js` → 12 passed / 0 failed；`check-step-failfast.js` 不受影响（未新增 workflow 步骤，两文件已在 Gate 2c 点名）。
+- 五格变异全部实测变红，每格改完以 sha256 逐字还原：
+  - **CP-1 新旧对照**（最直接的证据）：在 `tools/` 放一个未接线的 `*.test.js`，同一仓库同一探针下**旧口径 rc=0 完全看不见**、**新口径 rc=1 报出"未接线 tools/cp1-blind-spot.test.js"**。
+  - CP-2 摘掉 `VENDORED_MIRROR` → rc=1，报出副本内那份 tpl-contract 未接线（证明排除是在"分类"而非"漏看"）。
+  - CP-3 清空 `KNOWN_NESTED_WORKFLOWS` → rc=1，报"嵌套 workflow 永不执行 .quality-rhythm/.github/workflows/mechanism-check.yml"。
+  - CP-4 从 `WORKSPACE_COVERED` 摘掉 `apps/` → 域规模 42 → **738**、报出 688 条未接线，且钉住排除表的单测 **2 条红**。
+  - CP-5 把遍历的 `throw` 换成 `continue` → 新增那条"遍历不完整必须抛错"的单测红（1 条）。
+- QM-1 / QM-4：N/A（diff 仅 `scripts/` 两个 JS + AGENTS/CHANGELOG/.quality-gates）。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
+# [未发布] test(e2e): 瞬时噪音卫生补上「逐路由收口」这条路径，并修掉 CI 里的 ✗ undefined
+
+### 变更
+- `apps/desktop/tests/e2e/helpers/functional-runner.js`：`_discardTransientConsoleNoise()` 从「重载分支的副作用」改为按错误码 + 每路由预算的独立判定，并新增挂在 `expectNoConsoleError()`（断言点）与 `generateReport()`（逐路由收口点）。#2491 现场是一个只改 1 行 `tasks.md` 的 docs PR，在 model-providers 的逐路由检查阶段撞上 vite HMR websocket 的 `net::ERR_NO_BUFFER_SPACE` —— 应用早已就绪、不在重载循环里，噪音原样留在 `consoleErrors`，被 `final-report.js:114` 的 `consoleErrors === 0` 硬判据作废整条 E2E；`Gate Result` 自 #2410 转真聚合后，这颗从「烦人」升级成随机阻断合并（同 commit 重跑即绿，实测两次）。
+- 卫生带上限 `TRANSIENT_CONSOLE_NOISE_BUDGET`（默认 3，`MP_E2E_TRANSIENT_NOISE_BUDGET` 可调）：无上限清理会把「持续性 socket 耗尽」伪装成健康，违反「测试断言不得反向固化错误行为」。被清掉的条目一律落 `recoveredTransientErrors` 进产物（`recoveredConsoleErrors`），不伪造成没发生过；`allowed` 白名单语义保持不变、并存而非替换。
+- `apps/desktop/tests/e2e/helpers/run-all.js`：`logRouteFailure()` 原先固定读 `c.name` / `c.details`，而 `FunctionalRunner` 的 `expectText` / `expectVisible` / `expectNoConsoleError` 只写 `kind` + `text` / `selector` / `errors` —— 第二类失败项在 CI 日志里变成 `✗ undefined`，详情段对该生产者永不出现。改为 `describeFailedCheck()` 按两种生产者形状回落并导出。
+- `.github/workflows/quality-gate.yml`：Gate 2d 新增 `node apps/desktop/tests/e2e/helpers/run-all.test.js`，按 #2511 的口径显式捕获 `$LASTEXITCODE` 并 fail-fast。
+
+### 测试
+- `functional-runner.test.js` 新增 6 条「瞬时噪音卫生覆盖逐路由收口」合同：断言点、收口点（刻意不产生任何重载事件）、预算不得全清、与 allowed 并存、非该码不得扩大，外加一条读源码的结构锁（卫生必须同时存在于断言点与收口点）。`run-all.test.js` 新建 5 条失败检查点命名合同，其中整行输出用 `deepEqual` 精确断言而非 `toContain`。
+- 两条反证均已实跑：把卫生退化为 no-op ⇒ `functional-runner.test.js` 7 红；把打印侧退回只读 `name` / `details` ⇒ `run-all.test.js` 4 红（「suite 形状」那条按设计不受影响）。两次都以 sha256 逐字还原。
+
+
 # [未发布] test(视觉门禁): 修掉补充视图里 5 处过期选择器并删 1 条死用例，首次跑完 QM-4 全量 104 例（2026-09-28，cloud-flag-registry-drift）
 
 ### 做了什么
