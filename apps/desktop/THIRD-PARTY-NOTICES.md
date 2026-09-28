@@ -35,4 +35,3 @@ Multi-Publish 未修改随包分发的 FFmpeg/ffprobe 二进制。公开分发�
 按上游 LICENSE 声明，`arrow-left` 与 `arrow-right` 属自 Feather 项目派生的图标，该部分另受 MIT License 约束，Copyright (c) 2013-present Cole Bemis；上游 LICENSE 原文中包含其完整条款。`rotate-cw` 与 `loader-circle` 不在上游列出的 Feather 派生清单内，仅受 ISC 约束。
 
 本仓库对上述几何做了两处适配：移除 `width`/`height`/`xmlns` 等固定属性，改由组件的 `size` prop 驱动；其余 `viewBox`、`fill`、`stroke`、`stroke-width`、`stroke-linecap`、`stroke-linejoin` 与各 `path` 的 `d` 值均保持上游原样，未做重绘。
-
