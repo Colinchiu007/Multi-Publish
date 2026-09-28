@@ -17,6 +17,22 @@
 - 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
 - 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
 - **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
+# [未发布] test(worktree-fs-longpath): 长路径负控改由运行时探针推导期望，回接 Gate 2d（2026-09-27，longpath-probe）
+
+### 变更
+- `scripts/worktree-fs-longpath.test.ps1` 新增 `Get-LongPathCapability`：在一条必然超过 MAX_PATH 的深路径上做一次**不带前缀**的 `CreateDirectory`，用真实结果判定"本进程能否走长路径"，再据此选择第 6 节负控的期望——不能走 ⇒ 仍要求「未加前缀必须失败」（失败才证明夹具够深）；能走 ⇒ 只要求结果与探针一致（不一致即真异常）。三元组 `LongPathsEnabled / processCapable / unprefixedDeleteFailed` 每次都打印留痕。
+- 文件头从「必须跑在 5.1」改为「两档 shell 皆可，自带探针」；本文件注释保持 ASCII——它是无 BOM UTF-8，Windows PowerShell 5.1 会把非 ASCII 字节按 ANSI 解，实测插入中文注释会让 5.1 直接 `ParserError`。
+- Gate 2d 回接本测试（5 → 6 条）；`KNOWN_UNWIRED` 2 → 1 条（只剩计划任务那条），`check-unwired-tests.test.js` 钉住清单的断言同步缩小。
+
+### 为什么不是"再等 runner 告诉你"
+上一轮这条被判成"只有 runner 本身算数"而挂欠账。这次分辨清楚了：决定它成败的是**进程级长路径能力**，本机两档 shell 恰好各命中一侧（pwsh 7 清单带 `longPathAware` ⇒ 能走；5.1 不带 ⇒ 不能走），所以两种期望在本机**都**可测——挂欠账会让这个文件另外 27 条与长路径无关的检查（扫描器深浅、junction 不穿透、`Resolve-RemoveDisposition` 真值表、进程持有者分类）永久不进 CI。
+
+### 门禁与反证
+- 本机实跑：`pwsh 7.6` 与 `Windows PowerShell 5.1` 各 `rc=0 / 28 PASS`，且两档分别走到不同支路（pwsh 打 `processCapable=True`、5.1 打 `processCapable=False note=MethodInvocationException`）。
+- 三格变异全部实测变红并 sha256 逐字还原：CP-1 把分支写死成"必须失败"（即假装没有探针）⇒ pwsh 下红，原文正是历史 CI 那句 `it unexpectedly succeeded - fixture too shallow`；CP-2 让探针谎称 capable ⇒ 5.1 下红（`probe said the process CAN take long paths, but the unprefixed delete failed`）；CP-3 把主体 `Remove-FsDirectory` 改成 no-op ⇒ 第 6 节正控红（`ok=True err=MUTATION no-op`），证明本文件真正的牙在正控上、不依赖那侧环境。
+- 同 PR 自跑：`check-unwired-tests.js`（42 个测试文件 OK）、`check-step-failfast.js`（4 个多测试步骤 OK）、`--test` 三件 8 + 6 + 23 passed。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
 # [未发布] docs(视觉门禁): flag 开启态基线达成 0 px，并纠正一条"日志 PASSED 当成 0 px"的取证口径（2026-09-28，cloud-flag-baseline-close）
 
 ### 做了什么
