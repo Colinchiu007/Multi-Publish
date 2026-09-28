@@ -6,11 +6,11 @@
 
 **非目标**：引擎侧限制表合并、platforms.yaml 收敛、未暴露能力的 UI 化（见 proposal Out of Scope）。
 
-## 1.5 证据源：蚁小二 4.13.19 逆向取证（2026-10-08 用户指定参考）
+## 1.5 证据源：参考产品 4.13.19 逆向取证（2026-10-08 用户指定参考）
 
-用户指定参考蚁小二逆向代码（本机 `D:\Data\逆向工程_蚁小二4.0`，主进程 bundle `packages/main/dist/index.cjs` 8.4MB）核对漏项。从 bundle 提取各平台 buildPostData 证据后，注册表矩阵显著扩充：
+用户指定参考参考产品逆向代码（本机逆向工程目录，目录名含品牌词按 Gate 12 红线不入库，主进程 bundle `packages/main/dist/index.cjs` 8.4MB）核对漏项。从 bundle 提取各平台 buildPostData 证据后，注册表矩阵显著扩充：
 
-| 语义能力 | 蚁小二证据（新增平台） | 对注册表的影响 |
+| 语义能力 | 参考产品证据（新增平台） | 对注册表的影响 |
 | --- | --- | --- |
 | visibility 可见性 | 抖音 `visibility_type`、快手 `photoStatus`、微博 `visible` | 2 → **5 平台**（+YouTube/TikTok），升级为 common |
 | location 位置 | 快手 `poiId/latitude/longitude`、视频号 `getShipinhaoLocation` | 1 → **3 平台**，升级为 common |
@@ -22,7 +22,7 @@
 | music 配乐 | 抖音 `music_id`、视频号 `getShipinhaoMusicList` | 新增 semiCommon |
 | 平台独有 | 抖音合作投稿/横竖双封面/章节/同步头条、B站弹幕开关/精选评论/字幕、百家号三图封面/副标题/粉丝关注引导/自荐/转载声明、知乎目录/赞赏、微博投票/声明、快手禁止同城/同框/小程序、视频号挂链接 | 全量收录为 unique（uiExposed: false） |
 
-注册表以 `status: implemented | platform-capable` 区分「本仓已实现」与「平台支持但未暴露（蚁小二取证）」；platform-capable 字段必须带 note 证据说明（结构自检强制）。分类计数覆盖两种状态（用户规则是平台共性，不是实现状态）。
+注册表以 `status: implemented | platform-capable` 区分「本仓已实现」与「平台支持但未暴露（参考产品取证）」；platform-capable 字段必须带 note 证据说明（结构自检强制）。分类计数覆盖两种状态（用户规则是平台共性，不是实现状态）。
 
 ## 2. 机制选型（用户已确认）
 

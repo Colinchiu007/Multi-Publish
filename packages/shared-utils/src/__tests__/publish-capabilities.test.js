@@ -120,7 +120,7 @@ describe('publish-capabilities — 语义分类（3+ 阈值）', () => {
     expect(classifyPublishFields().common.map(f => f.semantic)).toContain('collection')
   })
 
-  it('可见性语义 5 平台 → common（蚁小二证据：抖音/快手/微博也支持）', () => {
+  it('可见性语义 5 平台 → common（参考产品证据：抖音/快手/微博也支持）', () => {
     const support = getFieldSupport('visibility')
     expect(support.count).toBe(5)
     expect(support.platforms.sort()).toEqual(['douyin', 'kuaishou', 'tiktok', 'weibo', 'youtube'])
@@ -257,7 +257,7 @@ describe('publish-capabilities — 差异化字段定义', () => {
     expect(xhsGoods.uiExposed).toBe(false)
   })
 
-  it('蚁小二证据字段标记 platform-capable 且不进 UI 渲染集', () => {
+  it('参考产品证据字段标记 platform-capable 且不进 UI 渲染集', () => {
     const douyinVisibility = getPlatformOverrideFields('douyin').find(f => f.key === 'visibilityType')
     expect(douyinVisibility.status).toBe('platform-capable')
     expect(douyinVisibility.uiExposed).toBe(false)

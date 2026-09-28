@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "comment": "发布能力注册表 — 15 平台发布提交内容项单一真源（openspec/changes/publish-capability-registry）。数据由 CJS（publish-capabilities.js，主进程/Node）与 ESM（publish-capabilities.browser.js，渲染进程）双版本共同消费，禁止在两侧复制本文件内容。通用内容判定阈值：语义能力 ≥3 平台 → common；=2 → semiCommon；=1 → unique（用户 2026-10-08 确认）。status 语义：implemented = 本仓代码当前真实消费该字段；platform-capable = 平台 API 支持但本仓未暴露（证据：蚁小二 4.13.19 逆向 bundle D:/Data/逆向工程_蚁小二4.0/packages/main/dist/index.cjs，2026-10-08 提取证）。标签文案沿用 PLATFORM_NAMES 先例存放于共享数据层（apps/desktop/src 的 CI CJK 基线扫描不覆盖本目录）。",
+  "comment": "发布能力注册表 — 15 平台发布提交内容项单一真源（openspec/changes/publish-capability-registry）。数据由 CJS（publish-capabilities.js，主进程/Node）与 ESM（publish-capabilities.browser.js，渲染进程）双版本共同消费，禁止在两侧复制本文件内容。通用内容判定阈值：语义能力 ≥3 平台 → common；=2 → semiCommon；=1 → unique（用户 2026-10-08 确认）。status 语义：implemented = 本仓代码当前真实消费该字段；platform-capable = 平台 API 支持但本仓未暴露（证据：参考产品 4.13.19 逆向 bundle（本机逆向工程目录的 packages/main/dist/index.cjs，目录名含品牌词按 Gate 12 红线不入库，可复现定位法寻回），2026-10-08 提取证）。标签文案沿用 PLATFORM_NAMES 先例存放于共享数据层（apps/desktop/src 的 CI CJK 基线扫描不覆盖本目录）。",
   "platforms": {
     "wechat_mp": { "titleMode": "title", "limits": { "titleMax": 64, "contentMax": 20000 } },
     "zhihu": { "titleMode": "title", "limits": { "titleMax": 50, "contentMax": 100000 } },
@@ -70,7 +70,7 @@
       "semantic": "images",
       "label": "图片",
       "platforms": ["wechat_mp", "zhihu", "weibo", "xiaohongshu", "toutiao", "twitter", "instagram", "facebook"],
-      "note": "微博单帖图片上限 18 张（蚁小二取证：images.slice(0,18)）"
+      "note": "微博单帖图片上限 18 张（参考产品取证：images.slice(0,18)）"
     },
     {
       "key": "schedule",
@@ -102,15 +102,15 @@
       ] },
       { "key": "topics", "semantic": "topics", "status": "implemented", "type": "tags", "label": "话题", "default": [], "uiExposed": true, "placeholder": "用逗号分隔话题" },
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": true },
-      { "key": "tableOfContents", "semantic": "table-of-contents", "status": "platform-capable", "type": "checkbox", "label": "目录", "default": false, "uiExposed": false, "note": "知乎 /api/v4/content/publish 的 table_of_contents_enabled（蚁小二取证：contentsTables）" },
-      { "key": "appreciate", "semantic": "appreciate", "status": "platform-capable", "type": "checkbox", "label": "允许赞赏", "default": false, "uiExposed": false, "note": "知乎 appreciate.can_reward（蚁小二取证）" }
+      { "key": "tableOfContents", "semantic": "table-of-contents", "status": "platform-capable", "type": "checkbox", "label": "目录", "default": false, "uiExposed": false, "note": "知乎 /api/v4/content/publish 的 table_of_contents_enabled（参考产品取证：contentsTables）" },
+      { "key": "appreciate", "semantic": "appreciate", "status": "platform-capable", "type": "checkbox", "label": "允许赞赏", "default": false, "uiExposed": false, "note": "知乎 appreciate.can_reward（参考产品取证）" }
     ],
     "weibo": [
       { "key": "visible", "semantic": "visibility", "status": "platform-capable", "type": "select", "label": "可见性", "default": 0, "uiExposed": false, "options": [
         { "value": 0, "label": "公开" }, { "value": 1, "label": "仅自己可见" }, { "value": 6, "label": "好友圈" }
-      ], "note": "微博发布体 visible 字段（蚁小二取证：weiboPublishMicroArticle $e.visible）" },
-      { "key": "vote", "semantic": "vote", "status": "platform-capable", "type": "object", "label": "投票", "default": null, "uiExposed": false, "note": "微博发布体 vote 字段（蚁小二取证）" },
-      { "key": "mblogStatement", "semantic": "mblog-statement", "status": "platform-capable", "type": "text", "label": "微博声明", "default": "", "uiExposed": false, "note": "微博发布体 mblog_statement（蚁小二取证）" }
+      ], "note": "微博发布体 visible 字段（参考产品取证：weiboPublishMicroArticle $e.visible）" },
+      { "key": "vote", "semantic": "vote", "status": "platform-capable", "type": "object", "label": "投票", "default": null, "uiExposed": false, "note": "微博发布体 vote 字段（参考产品取证）" },
+      { "key": "mblogStatement", "semantic": "mblog-statement", "status": "platform-capable", "type": "text", "label": "微博声明", "default": "", "uiExposed": false, "note": "微博发布体 mblog_statement（参考产品取证）" }
     ],
     "douyin": [
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": true },
@@ -118,42 +118,42 @@
       { "key": "taskId", "semantic": "platform-task", "status": "implemented", "type": "text", "label": "任务/活动", "default": "", "uiExposed": false, "note": "hot_sentence/flashMobInfo 透传（P3-2），UI 未暴露" },
       { "key": "visibilityType", "semantic": "visibility", "status": "platform-capable", "type": "select", "label": "可见性", "default": 0, "uiExposed": false, "options": [
         { "value": 0, "label": "公开" }, { "value": 1, "label": "私密" }, { "value": 2, "label": "好友可见" }
-      ], "note": "抖音 buildPostData_v2 item.common.visibility_type（蚁小二取证）" },
-      { "key": "download", "semantic": "download", "status": "platform-capable", "type": "checkbox", "label": "允许下载", "default": true, "uiExposed": false, "note": "抖音 buildPostData_v2 item.common.download（蚁小二取证）" },
-      { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object-list", "label": "平台活动", "default": [], "uiExposed": false, "note": "抖音 <activity> 标签 + item.common.activity，上限 5 个（蚁小二取证）" },
-      { "key": "musicInfo", "semantic": "music", "status": "platform-capable", "type": "object", "label": "配乐", "default": null, "uiExposed": false, "note": "抖音 item.common.music_id/music_end_time（蚁小二取证）" },
-      { "key": "cooperationInfo", "semantic": "cooperation", "status": "platform-capable", "type": "object-list", "label": "合作投稿(@合作者)", "default": [], "uiExposed": false, "note": "抖音 item.cooperation.co_info（蚁小二取证）" },
-      { "key": "horizontalCover", "semantic": "horizontal-cover", "status": "platform-capable", "type": "image", "label": "横版封面", "default": null, "uiExposed": false, "note": "抖音 item.cover.horizontal_custom_cover_image_*（蚁小二取证：与竖版封面分开传）" },
-      { "key": "chapter", "semantic": "chapter", "status": "platform-capable", "type": "object", "label": "章节", "default": null, "uiExposed": false, "note": "抖音 item.chapter（蚁小二取证）" },
-      { "key": "shouldSync", "semantic": "sync-cross-post", "status": "platform-capable", "type": "checkbox", "label": "同步到头条", "default": false, "uiExposed": false, "note": "抖音 item.sync.sync_to_toutiao（蚁小二取证）" }
+      ], "note": "抖音 buildPostData_v2 item.common.visibility_type（参考产品取证）" },
+      { "key": "download", "semantic": "download", "status": "platform-capable", "type": "checkbox", "label": "允许下载", "default": true, "uiExposed": false, "note": "抖音 buildPostData_v2 item.common.download（参考产品取证）" },
+      { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object-list", "label": "平台活动", "default": [], "uiExposed": false, "note": "抖音 <activity> 标签 + item.common.activity，上限 5 个（参考产品取证）" },
+      { "key": "musicInfo", "semantic": "music", "status": "platform-capable", "type": "object", "label": "配乐", "default": null, "uiExposed": false, "note": "抖音 item.common.music_id/music_end_time（参考产品取证）" },
+      { "key": "cooperationInfo", "semantic": "cooperation", "status": "platform-capable", "type": "object-list", "label": "合作投稿(@合作者)", "default": [], "uiExposed": false, "note": "抖音 item.cooperation.co_info（参考产品取证）" },
+      { "key": "horizontalCover", "semantic": "horizontal-cover", "status": "platform-capable", "type": "image", "label": "横版封面", "default": null, "uiExposed": false, "note": "抖音 item.cover.horizontal_custom_cover_image_*（参考产品取证：与竖版封面分开传）" },
+      { "key": "chapter", "semantic": "chapter", "status": "platform-capable", "type": "object", "label": "章节", "default": null, "uiExposed": false, "note": "抖音 item.chapter（参考产品取证）" },
+      { "key": "shouldSync", "semantic": "sync-cross-post", "status": "platform-capable", "type": "checkbox", "label": "同步到头条", "default": false, "uiExposed": false, "note": "抖音 item.sync.sync_to_toutiao（参考产品取证）" }
     ],
     "xiaohongshu": [
       { "key": "goods", "semantic": "goods", "status": "implemented", "type": "object-list", "label": "商品", "default": [], "uiExposed": false, "note": "shopping_cart 透传（P3-1），UI 未暴露" }
     ],
     "tencent_video": [
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": false, "note": "API 链 post_draft（私密优先）实现草稿语义" },
-      { "key": "location", "semantic": "location", "status": "platform-capable", "type": "object", "label": "位置", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoLocation（蚁小二取证）" },
-      { "key": "collection", "semantic": "collection", "status": "platform-capable", "type": "object", "label": "合集", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoCollection（蚁小二取证）" },
-      { "key": "goods", "semantic": "goods", "status": "platform-capable", "type": "object", "label": "商品", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoGoods（蚁小二取证）" },
-      { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object", "label": "平台活动", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoActivity（蚁小二取证）" },
-      { "key": "musicInfo", "semantic": "music", "status": "platform-capable", "type": "object", "label": "配乐", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoMusicList（蚁小二取证）" },
-      { "key": "link", "semantic": "link-attach", "status": "platform-capable", "type": "text", "label": "挂链接", "default": "", "uiExposed": false, "note": "视频号 checkLinkValid + linkTitle（蚁小二取证：shipinhaoPublishVideo S.link）" }
+      { "key": "location", "semantic": "location", "status": "platform-capable", "type": "object", "label": "位置", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoLocation（参考产品取证）" },
+      { "key": "collection", "semantic": "collection", "status": "platform-capable", "type": "object", "label": "合集", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoCollection（参考产品取证）" },
+      { "key": "goods", "semantic": "goods", "status": "platform-capable", "type": "object", "label": "商品", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoGoods（参考产品取证）" },
+      { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object", "label": "平台活动", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoActivity（参考产品取证）" },
+      { "key": "musicInfo", "semantic": "music", "status": "platform-capable", "type": "object", "label": "配乐", "default": null, "uiExposed": false, "note": "视频号 getShipinhaoMusicList（参考产品取证）" },
+      { "key": "link", "semantic": "link-attach", "status": "platform-capable", "type": "text", "label": "挂链接", "default": "", "uiExposed": false, "note": "视频号 checkLinkValid + linkTitle（参考产品取证：shipinhaoPublishVideo S.link）" }
     ],
     "kuaishou": [
-      { "key": "location", "semantic": "location", "status": "platform-capable", "type": "object", "label": "位置", "default": null, "uiExposed": false, "note": "快手提交体 poiId/latitude/longitude（蚁小二取证）" },
+      { "key": "location", "semantic": "location", "status": "platform-capable", "type": "object", "label": "位置", "default": null, "uiExposed": false, "note": "快手提交体 poiId/latitude/longitude（参考产品取证）" },
       { "key": "visibilityType", "semantic": "visibility", "status": "platform-capable", "type": "select", "label": "可见性", "default": 1, "uiExposed": false, "options": [
         { "value": 1, "label": "公开" }, { "value": 2, "label": "仅自己可见" }
-      ], "note": "快手提交体 photoStatus（蚁小二取证：photoStatus==1 为 notPublic 的列表反查口径，发布默认 1）" },
+      ], "note": "快手提交体 photoStatus（参考产品取证：photoStatus==1 为 notPublic 的列表反查口径，发布默认 1）" },
       { "key": "downloadType", "semantic": "download", "status": "platform-capable", "type": "select", "label": "下载权限", "default": 0, "uiExposed": false, "options": [
         { "value": 0, "label": "默认" }, { "value": 2, "label": "禁止下载" }
-      ], "note": "快手提交体 downloadType==2（蚁小二取证）" },
-      { "key": "disableNearbyShow", "semantic": "disable-nearby", "status": "platform-capable", "type": "checkbox", "label": "禁止同城展示", "default": false, "uiExposed": false, "note": "快手提交体 disableNearbyShow（蚁小二取证）" },
-      { "key": "allowSameFrame", "semantic": "same-frame", "status": "platform-capable", "type": "checkbox", "label": "允许同框", "default": false, "uiExposed": false, "note": "快手提交体 allowSameFrame（蚁小二取证）" },
-      { "key": "miniAppInfo", "semantic": "mini-app", "status": "platform-capable", "type": "object", "label": "小程序", "default": null, "uiExposed": false, "note": "快手 miniAppInfo.associateTaskId（蚁小二取证）" },
-      { "key": "goods", "semantic": "goods", "status": "platform-capable", "type": "object", "label": "商品", "default": null, "uiExposed": false, "note": "快手 goods.associateTaskId（蚁小二取证）" },
-      { "key": "collectionId", "semantic": "collection", "status": "platform-capable", "type": "text", "label": "合集", "default": "", "uiExposed": false, "note": "快手提交体 collectionId（蚁小二取证）" },
-      { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object", "label": "平台活动", "default": null, "uiExposed": false, "note": "快手话题携带 activityId 时 setActivityResponse 领取活动（蚁小二取证）" },
-      { "key": "declareInfo", "semantic": "creation-declaration", "status": "platform-capable", "type": "object", "label": "声明", "default": null, "uiExposed": false, "note": "快手提交体 declareInfo.source（蚁小二取证：source!=4 时透传）" }
+      ], "note": "快手提交体 downloadType==2（参考产品取证）" },
+      { "key": "disableNearbyShow", "semantic": "disable-nearby", "status": "platform-capable", "type": "checkbox", "label": "禁止同城展示", "default": false, "uiExposed": false, "note": "快手提交体 disableNearbyShow（参考产品取证）" },
+      { "key": "allowSameFrame", "semantic": "same-frame", "status": "platform-capable", "type": "checkbox", "label": "允许同框", "default": false, "uiExposed": false, "note": "快手提交体 allowSameFrame（参考产品取证）" },
+      { "key": "miniAppInfo", "semantic": "mini-app", "status": "platform-capable", "type": "object", "label": "小程序", "default": null, "uiExposed": false, "note": "快手 miniAppInfo.associateTaskId（参考产品取证）" },
+      { "key": "goods", "semantic": "goods", "status": "platform-capable", "type": "object", "label": "商品", "default": null, "uiExposed": false, "note": "快手 goods.associateTaskId（参考产品取证）" },
+      { "key": "collectionId", "semantic": "collection", "status": "platform-capable", "type": "text", "label": "合集", "default": "", "uiExposed": false, "note": "快手提交体 collectionId（参考产品取证）" },
+      { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object", "label": "平台活动", "default": null, "uiExposed": false, "note": "快手话题携带 activityId 时 setActivityResponse 领取活动（参考产品取证）" },
+      { "key": "declareInfo", "semantic": "creation-declaration", "status": "platform-capable", "type": "object", "label": "声明", "default": null, "uiExposed": false, "note": "快手提交体 declareInfo.source（参考产品取证：source!=4 时透传）" }
     ],
     "toutiao": [],
     "bilibili": [
@@ -165,10 +165,10 @@
       { "key": "copyright", "semantic": "originality", "status": "implemented", "type": "select", "label": "版权声明", "default": 2, "uiExposed": true, "options": [{ "value": 2, "label": "转载" }, { "value": 1, "label": "自制" }] },
       { "key": "collectionId", "semantic": "collection", "status": "implemented", "type": "collection", "label": "加入合集（可选）", "default": "", "uiExposed": true, "placeholder": "或手输合集 ID" },
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": false, "note": "API 链 /x/vupre/web/draft/add（私密优先）实现草稿语义" },
-      { "key": "upCloseReply", "semantic": "comment-control", "status": "platform-capable", "type": "checkbox", "label": "关闭评论", "default": false, "uiExposed": false, "note": "B站提交体 up_close_reply（蚁小二取证）" },
-      { "key": "upCloseDanmu", "semantic": "danmu-control", "status": "platform-capable", "type": "checkbox", "label": "关闭弹幕", "default": false, "uiExposed": false, "note": "B站提交体 up_close_danmu（蚁小二取证）" },
-      { "key": "upSelectionReply", "semantic": "selection-reply", "status": "platform-capable", "type": "checkbox", "label": "精选评论", "default": false, "uiExposed": false, "note": "B站提交体 up_selection_reply（蚁小二取证）" },
-      { "key": "subtitleOpen", "semantic": "subtitle-caption", "status": "platform-capable", "type": "checkbox", "label": "字幕开关", "default": false, "uiExposed": false, "note": "B站提交体 subtitle.open（蚁小二取证）" }
+      { "key": "upCloseReply", "semantic": "comment-control", "status": "platform-capable", "type": "checkbox", "label": "关闭评论", "default": false, "uiExposed": false, "note": "B站提交体 up_close_reply（参考产品取证）" },
+      { "key": "upCloseDanmu", "semantic": "danmu-control", "status": "platform-capable", "type": "checkbox", "label": "关闭弹幕", "default": false, "uiExposed": false, "note": "B站提交体 up_close_danmu（参考产品取证）" },
+      { "key": "upSelectionReply", "semantic": "selection-reply", "status": "platform-capable", "type": "checkbox", "label": "精选评论", "default": false, "uiExposed": false, "note": "B站提交体 up_selection_reply（参考产品取证）" },
+      { "key": "subtitleOpen", "semantic": "subtitle-caption", "status": "platform-capable", "type": "checkbox", "label": "字幕开关", "default": false, "uiExposed": false, "note": "B站提交体 subtitle.open（参考产品取证）" }
     ],
     "baijiahao": [
       { "key": "original", "semantic": "originality", "status": "implemented", "type": "checkbox", "label": "原创声明", "default": false, "uiExposed": true },
@@ -176,11 +176,11 @@
       { "key": "collectionIdText", "semantic": "collection", "status": "implemented", "type": "collection", "label": "加入合集（可选）", "maxLen": 100, "default": "", "uiExposed": true, "placeholder": "格式：合集ID 或 合集ID:名称" },
       { "key": "coverLayout", "semantic": "cover-layout", "status": "platform-capable", "type": "select", "label": "封面布局", "default": "one", "uiExposed": false, "options": [
         { "value": "one", "label": "单图封面" }, { "value": "three", "label": "三图封面" }
-      ], "note": "百家号提交体 cover_layout/cover_images（蚁小二取证：≥3 图自动 three）" },
-      { "key": "subTitle", "semantic": "subtitle", "status": "platform-capable", "type": "text", "label": "副标题", "default": "", "uiExposed": false, "note": "百家号提交体 subtitle（蚁小二取证）" },
-      { "key": "fansAttention", "semantic": "fans-attention", "status": "platform-capable", "type": "checkbox", "label": "粉丝关注引导", "default": false, "uiExposed": false, "note": "百家号提交体 is_attention/is_attention_precent（蚁小二取证）" },
-      { "key": "selfRecommend", "semantic": "self-recommend", "status": "platform-capable", "type": "checkbox", "label": "自荐", "default": false, "uiExposed": false, "note": "百家号提交体 selfRecommend（蚁小二取证）" },
-      { "key": "reprintInfo", "semantic": "reprint-info", "status": "platform-capable", "type": "object", "label": "转载声明（原作者/原文链接）", "default": null, "uiExposed": false, "note": "百家号 original===2 时 announce_info.tp_author/tp_url（蚁小二取证）" }
+      ], "note": "百家号提交体 cover_layout/cover_images（参考产品取证：≥3 图自动 three）" },
+      { "key": "subTitle", "semantic": "subtitle", "status": "platform-capable", "type": "text", "label": "副标题", "default": "", "uiExposed": false, "note": "百家号提交体 subtitle（参考产品取证）" },
+      { "key": "fansAttention", "semantic": "fans-attention", "status": "platform-capable", "type": "checkbox", "label": "粉丝关注引导", "default": false, "uiExposed": false, "note": "百家号提交体 is_attention/is_attention_precent（参考产品取证）" },
+      { "key": "selfRecommend", "semantic": "self-recommend", "status": "platform-capable", "type": "checkbox", "label": "自荐", "default": false, "uiExposed": false, "note": "百家号提交体 selfRecommend（参考产品取证）" },
+      { "key": "reprintInfo", "semantic": "reprint-info", "status": "platform-capable", "type": "object", "label": "转载声明（原作者/原文链接）", "default": null, "uiExposed": false, "note": "百家号 original===2 时 announce_info.tp_author/tp_url（参考产品取证）" }
     ],
     "youtube": [
       { "key": "categoryId", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "22", "uiExposed": true, "options": [

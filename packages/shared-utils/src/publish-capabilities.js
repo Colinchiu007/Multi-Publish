@@ -10,7 +10,7 @@
  *   - PLATFORM_PUBLISH_META：15 平台 titleMode（title | caption）+ 内容限制
  *   - 无标题平台（titleMode=caption）：标题必须合并进描述首行（composeNoTitleDescription）
  *   - 语义分类：≥3 平台 → common；=2 → semiCommon；=1 → unique（计算属性，非手写标签）
- *   - status：implemented（本仓已实现）/ platform-capable（平台支持但未暴露，蚁小二取证）
+ *   - status：implemented（本仓已实现）/ platform-capable（平台支持但未暴露，参考产品取证）
  *
  * 修改字段/新增平台时只改 JSON；本文件的函数层保持纯计算。
  */

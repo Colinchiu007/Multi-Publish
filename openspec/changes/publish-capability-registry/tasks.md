@@ -5,7 +5,7 @@
   - [x] 1.2 `packages/shared-utils/src/publish-capabilities.js`（CJS）实现至绿
   - [x] 1.3 `packages/shared-utils/src/publish-capabilities.browser.js`（ESM 孪生，读同一份 JSON）+ 导出完整性/parity 测试
   - [x] 1.4 shared-utils index.js 导出登记（publishCapabilities）
-  - [x] 1.5 蚁小二 4.13.19 逆向取证扩充矩阵（用户指定参考）：visibility 5 平台 / location 3 / goods 4 / collection 5 / activity 3 + 20+ 平台独有项（status=platform-capable + note 证据）
+  - [x] 1.5 参考产品 4.13.19 逆向取证扩充矩阵（用户指定参考）：visibility 5 平台 / location 3 / goods 4 / collection 5 / activity 3 + 20+ 平台独有项（status=platform-capable + note 证据）
 
 - [x] 2. 渲染层接入
   - [x] 2.1 `publish-contract.js`：limits 改注册表派生（对外 API 不变）；`validatePlatformContent` 无标题平台合并长度校验 + 新用例（22/22 绿）
@@ -20,10 +20,10 @@
   - [x] 3.4 `packages/api-publish-engine/test/no-title-contract.test.js`：A 清单 / B 行为 / C 反向三向契约锁（8/8 绿，含反证口径）
 
 - [x] 4. 文档
-  - [x] 4.1 `01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md`：全量能力矩阵（含蚁小二取证项）、数据校验、流程、功能/交互逻辑、显示项、提示文字、测试验收、roadmap
+  - [x] 4.1 `01-docs/PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md`：全量能力矩阵（含参考产品取证项）、数据校验、流程、功能/交互逻辑、显示项、提示文字、测试验收、roadmap
   - [x] 4.2 主 PRD 登记（功能文档列表）+ CHANGELOG 追加
   - [x] 4.3 `01-docs/learnings.md` 置顶经验条目（5 条，+8/-0 干净落地）
-  - [x] 4.4 design.md 补蚁小二证据源章节（§1.5）
+  - [x] 4.4 design.md 补参考产品证据源章节（§1.5）
 
 - [x] 5. 记忆三路
   - [x] 5.1 内置记忆（会话目标状态锚点，goal 持续跟踪）

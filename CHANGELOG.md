@@ -3,7 +3,7 @@
 ### 变更
 - **新增注册表（单一真源）**：`packages/shared-utils/src/publish-capabilities.json`（数据）+ `publish-capabilities.js`（CJS）+ `publish-capabilities.browser.js`（ESM 孪生，parity 测试锁定）。声明 15 平台 titleMode（title | caption）、内容限制、差异化字段定义（key/semantic/status/type/options/default/uiExposed）、通用主表单字段支持矩阵。新增平台/差异化字段只改 JSON，差异化面板零代码接入。
 - **通用内容 3+ 阈值分类（用户确认）**：按语义能力跨平台计数（≥3 → common；=2 → semiCommon；=1 → unique），计算属性非手写标签。语义对齐而非字段名对齐（YouTube privacy ≡ TikTok privacyLevel ≡ visibility）。
-- **蚁小二 4.13.19 逆向取证扩充矩阵（用户指定参考）**：可见性 5 平台（+抖音/快手/微博）、位置 3 平台、商品 4 平台、合集 5 平台、平台活动 3 平台；全量收录平台独有项（B站弹幕开关、百家号三图封面/副标题/自荐、知乎目录/赞赏、微博投票、快手禁止同城/同框/小程序、视频号挂链接、抖音合作投稿/横版封面/章节/同步头条）为 `platform-capable`（带 note 证据，UI 不暴露）。
+- **参考产品 4.13.19 逆向取证扩充矩阵（用户指定参考）**：可见性 5 平台（+抖音/快手/微博）、位置 3 平台、商品 4 平台、合集 5 平台、平台活动 3 平台；全量收录平台独有项（B站弹幕开关、百家号三图封面/副标题/自荐、知乎目录/赞赏、微博投票、快手禁止同城/同框/小程序、视频号挂链接、抖音合作投稿/横版封面/章节/同步头条）为 `platform-capable`（带 note 证据，UI 不暴露）。
 - **无标题平台标题→描述首行（用户核心需求）**：视频号 API 链 `buildShipinhaoPostData` 修复标题丢弃 Bug（旧 `content ?? title` 有正文时丢标题）；Twitter/微博/TikTok 适配器同口径合并；快手链既有行为保持。DOM RPA `_publish_generic` 对注册表无标题平台显式跳过 title_input 解析（省首次候选 10s 超时，替代选择器解析失败的隐式回退）。
 - **渲染层接入**：`publish-contract.js` 限制表改注册表派生（对外 API 不变；修复 douyin contentMax 0→1000、tiktok caption 2200、补齐视频号/快手 1000 与 facebook 63206）；`validatePlatformContent` 对无标题平台校验「标题+换行+正文」合并长度（文案含「标题计入首行」）。
 - **UI（视频/图文两分支）**：通用字段支持度徽标（N/15 平台支持）；选中无标题平台时标题区提示「标题将作为描述首行插入：{平台}」；`PlatformOverridePanel.vue` 8 平台硬编码 v-if 链重构为注册表数据驱动渲染（六类控件），既有字段零丢失（快照测试）。locales zh/en 成对新增 `fieldSupport` / `noTitleHint`。
