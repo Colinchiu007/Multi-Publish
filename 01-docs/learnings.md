@@ -1,3 +1,14 @@
+## git add -A 会静默跳过 .gitignore 命中的新文件——核心交付物可能从未入库（publish-capability-docs，2026-10-08）
+
+- **`.gitignore:259-260` 忽略 `/01-docs/*.md` 与 `/01-docs/**/*.md`，既有 PRD-*.md 是规则生效前已跟踪才在库里；新增的 PRD 专项文档被 `git add -A` 静默跳过（提交输出里没有它的 create mode，但 31 files changed 的数字让人不会逐个核对）**。后果：首轮 PR 的核心文档交付物从未进仓库，而 CHANGELOG 与主 PRD 头部的链接指向不存在的文件——链接断链直到二轮才发现。判据：**新增文档类交付物提交后必须 `git ls-tree HEAD -- <路径>` 或 `git show HEAD:<路径> | head` 验证 blob 真的在库里**；`git status` 干净不等于交付完整（ignored 文件在 status 里根本不出现）。修复：按既有 PRD 文件先例 `git add -f` 强制收录。
+- **同族预防**：凡「仓库有目录级 ignore 规则 + 该目录下既有文件被跟踪」的组合（本仓 01-docs、scripts 均是），新增文件时先 `git check-ignore -v <路径>` 探一下；命中就明确决定 force-add（进库）或改放行白名单，不允许「add -A 之后看 status 干净就收工」。
+
+## 取证文档写竞品品牌名会撞 Gate 12；置顶文档 union 合并要顺带修 main 的 squash 损伤；EverOS add 成功不等于可检索（publish-capability-registry 交付轮，2026-10-08）
+
+- **写取证文档的那一刻就该用中性称谓（品牌门禁，Gate 12）**：注册表 note 与 PRD/CHANGELOG 里直接写参考产品品牌名，CI 品牌残留门禁报 55 处命中、本地修复 62 处。判据：凡引用竞品逆向材料，落盘前先过一遍 `node scripts/check-no-brand-residue.js`；本机目录路径含品牌词时按可复现定位法先例描述（「目录名含品牌词按红线不入库」），不抄路径字面量。这条门禁本地跑一次 <10s，比等 25 分钟 CI 红一轮便宜两个数量级。
+- **main 的 squash 合并会静默丢置顶文档条目；解冲突按 union 纪律要顺带修复（合并纪律）**：实测 main 在近期 squash 合并中丢了 6 条 CHANGELOG 置顶条目（session-isolation/agents-eol/远程同步/cloud-sync/installer-taskpath/登录门禁），且 optimize 条目被归档提交累积复制 4 份。解冲突按仓库置顶文档 union 纪律（两侧父提交非空行多重集 lost=0、字节级操作保混行尾）时，顺带恢复丢失条目、去重累积条目（去重部分在豁免表登记，自检脚本可复现）。判据：置顶文档解冲突后必须跑双侧 lost=0 对账，不能只看冲突标记消失。
+- **外部记忆服务「写成功」与「可检索」是两件事（EverOS 运行态）**：HTTP `POST /api/v2/memory/add` 返回 accumulated、`flush` 返回 extracted（带 request_id），但 search/get 全空——服务端 cascade optimize 卡死（健康检查 364 连败），提取结果落不了检索索引。md-first 设计下直写 episode/atomic_fact markdown（按既有条目格式逐字节追加 + 更新 front-matter entry_count/last_appended_at）是可靠兜底，cascade 恢复后自动索引。判据：调用外部记忆后必须做一次**读回验证**（search 或 get），读不回就换直写通道；「接口返回成功」不是证据。
+
 ## 平台能力元数据的「四处各写一份」必然漂移；无标题平台的正确行为藏在「选择器解析失败」的隐式回退里（publish-capability-registry，2026-10-08）
 
 - **同一份平台元数据被四处各写一份时，漂移不是风险而是时间问题（架构）**：发布内容限制同时活在渲染层 PLATFORM_CONTENT_LIMITS、platforms.yaml、差异化面板 v-if 链、引擎 content-formatter 四处，实测三处互相矛盾（douyin contentMax 0 vs 1000；tiktok title 2200 vs 150；weibo title 0 vs 120）。收敛为「JSON 数据单一来源 + CJS/ESM 双版本消费 + parity 测试」后，新增平台/字段只改 JSON。判据：凡是「同一事实有 ≥2 份手写副本」的地方，先问哪份是权威、其余怎么派生；派生不出来的那份就是下一个事故。
