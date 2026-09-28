@@ -1,3 +1,23 @@
+# [未发布] feat(publish): 视频文件选择反馈深度优化——常驻成功卡片 + 差异化提示 + 500MB 选前校验（2026-09-28，video-select-feedback）
+
+### 变更
+
+- **问题**：视频发布页选择本地视频后，唯一反馈是视口顶部 3 秒消失的 toast + 上传列表一行灰字小 chip，上传区零视觉变化——首次使用者普遍误判「点了没反应」；再次选择与首次提示完全相同，无法确认替换生效；UI 提示「最大 500MB」却从未在选择时校验。
+- **常驻成功卡片**：新增 `SelectedVideoCard.vue`（视频发布模式与图文含视频平台分支共用）——成功绿边框卡片显示文件名（加粗）、格式化大小（复用 `utils/bytes.js`）、格式徽标，自带「更换视频」「移除」操作；上传区选中后转绿实线边框，卡片随 `:key` 变更重播入场动画。
+- **差异化提示**（纯逻辑模块 `utils/video-selection-feedback.js` 单一来源 `classifyVideoSelection`）：首次选择 success「✅ 已选择视频：{name}」；替换不同文件 success「已替换为新视频：{name}（原：{previous}）」；重选同一文件降级 info「当前已是该视频」（状态零变化不报成功，避免虚假变更感）；超限拦截 warning「超过 500MB 上限（当前 {size}）」，且不覆盖旧选择。
+- **500MB 选前校验**：`VIDEO_MAX_BYTES` 常量 + `isVideoOversize`，选择时立即拦截反馈（此前延迟到发布才失败）；非法 size（NaN/负数/缺失）不拦截，交路径解析兜底。
+- **状态同步**：`video_path`（唯一真源）+ `videoFileMeta`（卡片元信息）+ `videoUploadFileList`（el-upload v-model:file-list）三者同步变更；卡片移除走 `clearFiles` + 清状态单入口；`triggerVideoReselect` 经隐藏 file input 重开对话框；query/草稿恢复（无 File 元信息）卡片降级为路径推导 basename + 「大小未知」。
+- **i18n**：zh/en 成对新增 `videoSelectedNamed` / `videoReplaced` / `videoReselectSame` / `videoTooLarge` / `videoCard.*`（message function 插值，走 notifyCore 防泄漏与 notify:log 上报）。
+
+### 验证
+
+- `video-selection-feedback.test.js` 14/14（500MB 临界/非法值、形态分类全路径、元信息提取兜底）
+- `SelectedVideoCard.test.js` 5/5（空态不渲染/元信息渲染/降级渲染/事件/英文 locale）
+- `Publish.test.js` 69/69（新增 9 例：首次命名 toast、替换双名、同文件 info、超限保留旧选择、移除清空、卡片移除 clearFiles、视频模式卡片 DOM、query 恢复降级、triggerVideoReselect）
+- 详见 [01-docs/PRD-VIDEO-SELECT-FEEDBACK-2026-09-28.md](01-docs/PRD-VIDEO-SELECT-FEEDBACK-2026-09-28.md)
+
+---
+
 # [未发布] feat(门禁记录): 让「执行记录整块缺远程同步行」不再隐形——最新一篇强制带行，历史缺口只做可见（2026-09-28，gate-record-row-required）
 
 ### 变更
