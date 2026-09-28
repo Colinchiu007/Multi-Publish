@@ -45,9 +45,14 @@ function normalize(s) {
   return s.replace(/\r$/, '').trim()
 }
 
-function loadLedger() {
-  if (!fs.existsSync(LEDGER_FILE)) return {}
-  const raw = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8'))
+function loadLedger(root) {
+  // 必须认参数：测试一直按 `loadLedger(root)` 调用，而无参实现会永远读真实清单，
+  // 于是"给了夹具目录却拿到生产 ledger"—— 静默读生产，属假绿通道。
+  const file = root
+    ? path.join(root, 'scripts', path.basename(LEDGER_FILE))
+    : LEDGER_FILE
+  if (!fs.existsSync(file)) return {}
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
   const out = {}
   for (const [heading, entry] of Object.entries(raw)) {
     const reason = typeof entry === 'string' ? entry : entry && entry.reason
@@ -92,6 +97,26 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
 
   if (rowCount === 0) throw new Error(`未找到任何 远程同步 行（${file}）——空遍历不得判为"零欠账"`)
 
+  // ── 覆盖检测：本文件原有机制只管「已存在的行是否收口」，对「整条记录根本没有这一行」
+  //    完全失明。实测 origin/main 2026-09-28：316 篇形如执行记录的 `## ` 标题里有 **192 篇**
+  //    没有 远程同步行，而门禁照样 RC=0 报 OK —— 缺席比说谎更糟，说谎至少下一个人看得见。
+  //
+  // 「执行记录」的判据（不是所有 ## 都是记录）：`^本次执行记录` 或标题含日期。
+  // 实测 321 个 ## 标题里 316 个符合，剩下 5 个是结构性章节（固定强制门禁 / 提交前自检清单 /
+  // 强制卡点规则 / 违规处理 / 质量节拍阶段对照），它们永远不该有这一行，必须排除。
+  const blocks = headings.map((h, k) => ({
+    ...h,
+    end: k + 1 < headings.length ? headings[k + 1].line : lines.length,
+  }))
+  const isRecordHeading = (t) => /^本次执行记录/.test(t) || /20\d\d-\d\d-\d\d/.test(t)
+  const records = blocks.filter(b => isRecordHeading(b.text))
+  const recordsWithoutRow = records.filter(b => !lines.slice(b.line, b.end).some(l => ROW_RE.test(l)))
+  // 强制项只有一条：**最顶部**那篇执行记录必须带这一行。记录按惯例插在文件顶部，所以"最新一篇"
+  // 定义良好、无需基线、无需清单维护。已知漏洞如实记下：若某会话把新记录插在了非顶部位置，
+  // 本条拦不住；历史 192 篇也不追溯（只做可见，不拦截），否则一上线就红成不可用。
+  const topRecord = records[0] || null
+  const topRecordMissingRow = !!topRecord && !lines.slice(topRecord.line, topRecord.end).some(l => ROW_RE.test(l))
+
   // 标题计数：同一 ## 标题出现两次即"同一条记录被写了两遍"，除明确登记的历史重复外一律判红
   const headingCounts = new Map()
   for (const h of headings) headingCounts.set(h.text, (headingCounts.get(h.text) || 0) + 1)
@@ -102,12 +127,30 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
 
   const stale = Object.keys(ledger).filter(h => !seen.has(h))
   const registered = Object.keys(ledger).filter(h => seen.has(h))
-  return { rowCount, headingCount: headings.length, open, stale, registered, duplicates }
+  return {
+    rowCount,
+    headingCount: headings.length,
+    recordCount: records.length,
+    recordsWithoutRow,
+    topRecord,
+    topRecordMissingRow,
+    open,
+    stale,
+    registered,
+    duplicates,
+  }
 }
 
 function format(r) {
   const out = []
-  out.push(`远程同步行 ${r.rowCount} 条 / 记录 ${r.headingCount} 篇 / 已登记欠账 ${r.registered.length} 条`)
+  out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条`)
+  out.push(`（可见项，不拦截：其中 ${r.recordsWithoutRow.length} 篇执行记录整块没有 远程同步 行，属历史缺口）`)
+  if (r.topRecordMissingRow) {
+    out.push(`❌ 最顶部的执行记录缺 远程同步 行：「${r.topRecord.text}」`)
+    out.push('   新记录必须带这一行。两种合法写法：① 已合并 ⇒ 按既有 PASS 口径回填 merge SHA 与时间；'
+      + '② 尚未合并 ⇒ 写 PENDING，并**同一条 PR 里**往 gate-record-debt-ledger.json 按本篇标题登记原因'
+      + '（回填时顺手删除该登记项，否则报陈旧）。')
+  }
   if (r.open.length) {
     out.push(`❌ 未登记的欠账 ${r.open.length} 条（新增未收口行必须带原因进 ${path.basename(LEDGER_FILE)}）：`)
     for (const o of r.open) out.push(`  L${o.line} [${o.status}] ${o.heading}`)
@@ -121,7 +164,9 @@ function format(r) {
     for (const d of r.duplicates) out.push(`  x${d.count} ${d.text}`)
     out.push('  处理：删掉多余那半（逐字节切除、不得整文件统一行尾），并把清理结果写进本次记录')
   }
-  if (!r.open.length && !r.stale.length && !r.duplicates.length) out.push('OK: 所有未收口的 远程同步 行均已登记，且清单无陈旧项、记录标题无重复')
+  if (!r.open.length && !r.stale.length && !r.duplicates.length && !r.topRecordMissingRow) {
+    out.push('OK: 顶部记录带行，所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复')
+  }
   return out.join('\n')
 }
 
@@ -129,7 +174,7 @@ function main() {
   const root = path.resolve(__dirname, '..')
   const r = collect({ root })
   console.log(format(r))
-  if (r.open.length || r.stale.length || r.duplicates.length) process.exit(1)
+  if (r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow) process.exit(1)
 }
 
 module.exports = { collect, format, loadLedger, normalize, GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED }

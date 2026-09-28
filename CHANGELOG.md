@@ -21,6 +21,26 @@
 - **本 PR 只是建立产物来源**：采集步骤此刻刻意非阻断，同源基线重建（需人工审核 diff 图）与「升级为阻断门禁 + 反契约断言」是后续独立 PR；逐套硬超时未做（无挂死证据，强行 kill 会留下未清理的浏览器进程），已如实登记。
 - 顺带把本 PR 自己踩到的自我损坏补成门禁：`.quality-gates.md` 里同一条 `## 记录标题` 出现两遍即 CI 判红（`scripts/check-gate-record-debt.js` 新增 `duplicates` 判据；2026-08-19 的 error-message-fix 那条历史重复进 `DUPLICATE_HEADINGS_ALLOWED`，清单只能缩小并由用例反向钉住"条目必须仍能在文件里找到"）。起因是本 PR 的执行记录与 CHANGELOG 条目一度各写了两遍，而合并校验器的单向包含判据对"多出一份"天生失明。
 
+# [未发布] feat(门禁记录): 让「执行记录整块缺远程同步行」不再隐形——最新一篇强制带行，历史缺口只做可见（2026-09-28，gate-record-row-required）
+
+### 变更
+- `scripts/check-gate-record-debt.js` 新增覆盖检测：`collect()` 返回 `recordCount / recordsWithoutRow / topRecord / topRecordMissingRow`，并强制**最顶部那篇执行记录必须含 `远程同步` 行**；历史缺席篇数照旧打印但**不拦截**。`format()` 的提示改为点名两种合法写法（已合并按 PASS 口径回填；未合并写 PENDING 且同 PR 登记 `gate-record-debt-ledger.json`）。
+- 顺带修 `loadLedger()` 忽略参数的缺陷：测试一直按 `loadLedger(root)` 调用而无参实现永远读生产清单，夹具里的 ledger 形同不存在（"给了路径却拿到真仓状态"，属假绿通道）。现在认参数，并有一条用例断言夹具与真实清单可区分。
+- `scripts/check-gate-record-debt.test.js` 新增 7 条（8 → 15）：顶部缺行判红并点名、历史缺行只可见、**结构性章节不计入执行记录**、覆盖判据不得随行尾漂、`loadLedger` 认参数、真仓自检。该文件已由 #2561 接进 `Gate 2c`，未新增文件故无需重新接线。
+
+### 为什么（实测，不是推测）
+- #2561 的棘轮只管「已存在的行是否收口」。实测 origin/main：316 篇形如执行记录的 `## ` 标题里 **192 篇整块没有这一行**，而门禁 `RC=0` 报 OK。缺席比说谎更糟——说谎的记录下一个人看得见并会去核，缺席的记录连怀疑对象都没有。
+- 「执行记录」不能按"所有 `## ` 标题"算：321 个标题里有 **5 个是结构性章节**（固定强制门禁／提交前自检清单／强制卡点规则／违规处理／质量节拍阶段对照），它们永远不该有这一行，不排除就恒红。判据取 `^本次执行记录` 前缀 或 标题含日期，得 316 篇，与独立统计逐数吻合（316 / 192 / 128）。
+- 强制面刻意只收「最顶部一篇」而非「全部」：记录按惯例插在文件顶部，所以"最新一篇"定义良好、零基线、零清单维护，也不会一上线就红 192 条而逼人放宽阈值。**已知漏洞如实写进代码注释**：新记录若被插在非顶部位置拦不住。
+
+### 验证
+- `node --test scripts/check-gate-record-debt.test.js` ⇒ 15 passed / 0 failed。
+- 变异反证 4 格（驱动带前置锚点断言 + 每条 try/finally 还原 + 每轮 clean 断言）：强制项恒 false ⇒ 2 红；分类退化为"所有 ## 都是记录" ⇒ 1 红；可见项恒空 ⇒ 2 红；`loadLedger` 退回忽略参数 ⇒ 1 红；收尾还原 byteEqual=true、复跑 15/15。
+- 反证驱动自身先失效过一次并已记入 `.quality-gates.md`：v1 循环中途抛异常且无 finally 还原，把源码留在变异态，v1 第二次运行遂以变异版本为基线，四条结果全部无效（只有 `same=false` 和锚点 0 命中在报警）。据此重写 v2。
+- 本 PR 自己的门禁记录按新规则写成 `PENDING` 并在同一条 PR 里登记 ledger —— 即这条新锁的第一次现场生效。
+
+---
+
 # [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
 
 ### 变更
@@ -124,6 +144,28 @@
 
 ---
 
+
+# [未发布] feat(publish): 发布进度全局反馈面板——富化进度事件 + 可最小化后台运行 + 失败落历史 + 关窗转托盘（2026-09-28，publish-progress-ux）
+
+### 变更
+- **主进程事件富化（向后兼容加法）**：新增 `electron/services/publish-progress-events.js` 单一实现——`publish:progress` payload 新增 `phase`（start/progress/success/failed/retry/blocked 生命周期双边界）/`stageKey`（9 值规范枚举，两引擎 40+ 英文阶段串封闭映射）/`percent`/`batchId`/`timestamp`/`retriesLeft`，既有字段原样保留。executor 发任务开始边界事件；`rpaViewManager.onProgress` 单槽回调改全局注册一次 + platform→taskId 路由（修 3 并发任务进度跨归属）；ApiPublisher 直连轨（bilibili/baijiahao）经 `options.onProgress` 补发进度（此前完全静默）；percent 不再在转发层丢弃。
+- **渲染层全局承载**：新增 pinia store `src/stores/publishProgress.js`（App 级一次性订阅、多会话任务列表、渲染层重载经 `queue:status` 领养孤儿任务、终态吸收、会话级「重试失败项」）+ `PublishProgressPanel.vue`（App.vue 全局挂载，右下非模态浮动卡 ↔ 最小化常驻胶囊；首次隐藏一次性 toast「发布将在后台继续进行，请勿关闭应用软件」，胶囊常驻勿关提示；状态文字+图标双通道；步骤链 准备→上传→填写→提交→校验→完成）。
+- **修复监听器毫秒级死亡 bug**：usePublishFlow/useBatchPublish 的页面级 `publish:progress` 订阅在 `finally` 无条件注销，而 `publish:batch` IPC 同步入队毫秒级返回——任务执行期间全部事件无人接收，用户只见「任务已加入队列」、不知道发布是否成功。订阅所有权上移 store；页面结果卡改由会话终态驱动（全部成功/部分失败汇总文案）。
+- **失败落历史**：`phase4-events.js` task:failed 补 `history.addRecord({status:'failed', error})`——此前失败结果在任何页面都查不到，历史页 failed 过滤器形同虚设。
+- **关窗转托盘**：`window-close-policy` 新增 `hasRunningPublish` 判据（running+queue>0）；发布运行中点 ✕ 隐藏到托盘后台继续 + Windows 气泡「发布仍在后台进行，请勿退出程序」（system-tray 新增 `showBalloon`，非 Windows 静默降级）；无任务时关窗语义不变。
+- i18n zh/en 成对新增 `publishPage.publishProgressPanel.*` 38 键 + `publishFlow.resultAllSuccess`/`resultPartial`；主 PRD §6.7 + 文件头索引 + §19.2 交叉引用；浮层通查清单补登（面板非模态显式不接入互斥合同）。
+
+### 为什么
+- 用户反馈「点击发布后不知道到了什么环节、进展如何」：进度反馈全部绑死 /publish 页面内、切页即失明。侦察实证 10 条链路缺口（监听器死亡 / percent 全链路丢弃 / API 直连轨静默 / 并发跨归属 / 阶段文案英文硬编码 / 无开始边界 / 失败不落历史 / 关窗不保护 / 频控事件纯文本），全部带路径:行号见 PRD §1。
+- 机制选型：加法式富化（不动 TaskQueue 编排语义、不动 ROUTE_TABLE、无新 IPC 通道）+ 全局 store 承载（复用 UpdateNotification/PipelineBackgroundToast 全局挂载先例）+ 托盘复用流水线方案 A 先例——零新基建。
+
+### 验证
+- 主进程：publish-stage-map 22 + publish-progress-events 18 + phase4-events 12 + window-close-policy 12 + window 新增 6 + system-tray 新增 4 + bootstrap 新增 2（含 platform→taskId 路由归属锁）全绿
+- 渲染层：publishProgress store 19 + PublishProgressPanel 11 + usePublishFlow 62（含「不再订阅」回归锁与会话终态驱动）+ useBatchPublish 55 + Publish.test 71 全绿
+- QM-1 打包 / locale sync / 视觉回归 / 全量 vitest：见 `.quality-gates.md` 本次执行记录
+- 详见 [01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) 与 [openspec/changes/publish-progress-ux](openspec/changes/publish-progress-ux)
+
+---
 # [未发布] feat(publish): 发布能力注册表——15 平台发布内容项单一真源 + 无标题平台标题入描述首行（2026-10-08，publish-capability-registry）
 
 ### 变更

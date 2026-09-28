@@ -25,7 +25,6 @@ import {
   batchGet,
   retryTask,
   onBatchProgress,
-  onProgress,
 } from '@/api/publisher'
 import {
   buildPublishTargets,
@@ -36,6 +35,7 @@ import {
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
+import { usePublishProgressStore } from '@/stores/publishProgress'
 
 let _keyCounter = 1
 
@@ -75,6 +75,8 @@ export function useBatchPublish(options) {
     options.batchStatusPollMaxAttempts,
     DEFAULT_BATCH_STATUS_POLL_MAX_ATTEMPTS,
   )
+  // publish-progress-ux：全局进度 store（会话登记；进度事件由 App 级订阅接收）
+  const publishProgressStore = usePublishProgressStore()
   // 主动操作登录门：批量发布前未登录 → 弹登录引导，登录成功后继续
   const { ensureLogin } = useLoginGate()
   // 统一通知通道（D1 决策）：toast/确认框走 useNotify，进度条文案走 resolveNotifyText
@@ -299,7 +301,6 @@ export function useBatchPublish(options) {
     if (!(await ensureLogin({ message: '批量发布功能需要登录后使用，是否立即登录？' }))) return
     batchPublishing.value = true
 
-    let offProgress
     let keepPublishingLock = false
     try {
       // 验证每篇文章
@@ -372,13 +373,10 @@ export function useBatchPublish(options) {
       clearBatchTracking()
       batchProgress.value = []
       failedBatchTasks.value = []
-      offProgress = onProgress(function (data) {
-        batchProgress.value.push({
-          text: progressText('publishPage.batchNotify.progressStage', { platform: data.platform, stage: data.stage }),
-          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          type: data.type || 'primary',
-        })
-      })
+      // publish-progress-ux：阶段级本地监听已删除——该监听在 finally 无条件注销，
+      // 而 batchExecute 返回后任务才真正执行，阶段事件本就无人接收（死代码）。
+      // 阶段进度由全局 store 的 App 级订阅承载（PublishProgressPanel）；本页保留
+      // batch:progress 任务级监听 + batchGet 有界轮询驱动页面进度卡。
 
       const createRes = await batchCreate(toPlainJson({
         name: progressText('publishPage.batchNotify.batchNamePrefix') + new Date().toLocaleDateString('zh-CN'),
@@ -500,6 +498,12 @@ export function useBatchPublish(options) {
         if (!executeRes || executeRes.code !== 0) {
           throw new Error((executeRes && executeRes.message) || '批量执行失败')
         }
+        // publish-progress-ux：登记全局会话（按 batchId 归属）——全局面板跨路由跟踪，
+        // 任务条目由进度事件按 batchId 动态归入（PRD-PUBLISH-PROGRESS-UX §5.4）
+        publishProgressStore.registerSession({
+          batchId,
+          title: progressText('publishPage.batchNotify.batchNamePrefix') + new Date().toLocaleDateString('zh-CN'),
+        })
         const executeContract = executeRes.data && typeof executeRes.data === 'object'
           ? executeRes.data
           : executeRes
@@ -576,17 +580,6 @@ export function useBatchPublish(options) {
       })
     } finally {
       if (!keepPublishingLock) batchPublishing.value = false
-      if (typeof offProgress === 'function') {
-        try {
-          offProgress()
-        } catch (cleanupError) {
-          batchProgress.value.push({
-            text: progressText('publishPage.batchNotify.progressCleanupFailed', { message: (cleanupError && cleanupError.message) || progressText('publishPage.batchNotify.unknownError') }),
-            time: new Date().toLocaleTimeString('zh-CN'),
-            type: 'warning',
-          })
-        }
-      }
     }
   }
 

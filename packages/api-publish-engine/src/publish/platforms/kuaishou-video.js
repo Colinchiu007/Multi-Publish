@@ -260,7 +260,14 @@ class KuaishouVideoChain {
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
-      throw new KuaishouVideoError('kuaishou-video: ' + url + ' HTTP ' + res.status, errorCode.io_error)
+      // 诊断增强（2026-09-28 活体 6.3 第七层）：complete 400 的响应体携带服务端
+      // 拒绝原因（此前被丢弃只剩状态码，无法诊断 API 契约差异）。截断防日志爆炸。
+      let bodyHint = ''
+      try {
+        const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+        bodyHint = raw ? ' body=' + String(raw).slice(0, 200) : ''
+      } catch (_) { /* 序列化失败不掩盖原始状态码 */ }
+      throw new KuaishouVideoError('kuaishou-video: ' + url + ' HTTP ' + res.status + bodyHint, errorCode.io_error)
     }
     return res.data
   }
