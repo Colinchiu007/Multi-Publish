@@ -68,6 +68,7 @@ export default {
     saveAccountPulseHint: 'Signed in — remember to save the account',
   },
   tabBar: {
+    loadingBadge: 'Page loading',
     unsavedBadge: 'Login not saved',
     closeUnsavedTitle: 'Close unsaved login',
     closeUnsavedMessage: 'The login credentials for this account are not saved yet. Closing now will lose this login. Save before closing?',

@@ -10,7 +10,7 @@
         data-testid="nav-back"
         @click="$emit('go-back')"
       >
-        ←
+        <ArrowLeftIcon :size="16" />
       </button>
       <button
         type="button"
@@ -21,7 +21,7 @@
         data-testid="nav-forward"
         @click="$emit('go-forward')"
       >
-        →
+        <ArrowRightIcon :size="16" />
       </button>
       <button
         v-if="!isHome"
@@ -32,7 +32,7 @@
         data-testid="nav-reload"
         @click="$emit('reload')"
       >
-        ⟳
+        <ReloadIcon :size="16" />
       </button>
       <button
         type="button"
@@ -76,7 +76,7 @@
     </div>
 
     <div class="nav-bar-right">
-      <span v-if="loading" class="nav-loading" aria-label="加载中">⟳</span>
+      <span v-if="loading" class="nav-loading" aria-label="加载中"><SpinnerIcon :size="14" /></span>
       <button
         v-if="isLoginTab"
         type="button"
@@ -96,6 +96,10 @@
 import { Check, CopyDocument, HomeFilled, Search } from '@element-plus/icons-vue'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import ArrowLeftIcon from './icons/ArrowLeftIcon.vue'
+import ArrowRightIcon from './icons/ArrowRightIcon.vue'
+import ReloadIcon from './icons/ReloadIcon.vue'
+import SpinnerIcon from './icons/SpinnerIcon.vue'
 
 const { t } = useI18n()
 
@@ -293,8 +297,9 @@ async function copyUrl() {
 }
 
 .nav-loading {
+  display: inline-flex;
+  align-items: center;
   animation: spin 1s linear infinite;
-  font-size: var(--font-size-sm);
   color: #6b7280;
 }
 
@@ -331,6 +336,7 @@ async function copyUrl() {
 
 @media (prefers-reduced-motion: reduce) {
   .save-account-btn--pulse { animation: none; }
+  .nav-loading { animation: none; }
 }
 
 @keyframes spin {
