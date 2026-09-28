@@ -46,7 +46,18 @@
 - [x] 4c.8 **自我补锁（生产侧信号字段不能只被 mock 证明）**：`runnerLaunchFailed` 此前只在聚合器测试里手搓，等于替对方改签名那类假绿；现补 `visual-workflow-runner.test.js` 一条跑**真 runWorkflowSuite**（launch 恒 reject）断言 `runnerLaunchFailed=true` + 回填条数与用例数相等（23 passed）；反证：删掉置位那行 ⇒ 该条变红
 - [ ] 4c.7 **Warning #3（无逐套/逐步超时，挂死会吃满 job 超时并阻断上传）** — 未修，如实登记：聚合器无法从外部安全中断一次挂死的 Playwright 调用（强行 kill 会留下未清理的浏览器进程）；现状缓解是 main push 实测四套合计约 81 秒 vs job 预算 20 分钟，且步骤退出码现在会如实变警告（4c.2）。若将来出现挂死证据，再按证据加带清理的硬超时
 
+## 4d. 自我损坏的收口：同一条记录被写了两遍（合并 main 时才发现）
+
+- [x] 4d.1 现象：本 PR 的 `.quality-gates.md` 记录与 `CHANGELOG.md` 条目各有**两份逐字节相同**的副本（自 030f1d89 起）。合并校验器抓不到——它的判据是「两边的每一行都至少保留原次数」，属**单向包含**，对"多出一份"天生失明
+- [x] 4d.2 机制化：`scripts/check-gate-record-debt.js` 新增「同一 `## ` 记录标题出现 >1 次即判红」；历史那条（error-message-fix，2026-08-19）进 `DUPLICATE_HEADINGS_ALLOWED`，并由用例断言"清单里的条目必须仍能在文件里找到"（清单只能缩小，不许变成无人认领的死条目）
+- [x] 4d.3 清理用逐字节切除：在 latin1 域取偏移（utf8 字符下标与 `Buffer.subarray` 字节偏移混用，在含 CJK 的文件上会切错位置——差点踩中）；断言「切除点前后两侧逐字节相同 + NUL/loneCR/bareLF 计数不变」
+- [x] 4d.4 第一次尝试的副作用被抓到：去重脚本把 21 个既有裸 LF 统一成 CRLF（正是 AGENTS.md 禁止的整文件行尾改写），EOL 审计当场显示 `bareLF 21→0`；改用字节切除后 `bareLF=21` 保持不变
+- [x] 4d.5 三层反证（全部实跑）：`duplicates` 恒空 ⇒ 单测红 2 条；允许清单清空 ⇒ 真实仓库用例红；**运行器层**把首个 `## ` 标题追加到文件末尾 ⇒ `node scripts/check-gate-record-debt.js` rc=1 并打印 `x2 …`，按字节还原后 rc=0 —— 这层必要，因为把 `main()` 里的 `|| r.duplicates.length` 摘掉时 12 条单测仍全绿（退出码接线不在单测覆盖面上）
+- [x] 4d.6 变异脚本自身的坑记档：对 CRLF 源文件用 `'\n'` 拼锚点 ⇒ 零命中（零命中 ≠ 锁没抓住，必须先归一到 LF 域）；`.replace` 只换第一处 ⇒ 曾把变异打在像素门禁步骤上而误报"锁没抓住"
+
 ## 5. 后续（本 change 明确不做）
+
+
 
 - [ ] 5.1 用 CI artifact 重建 views/workflows 同源基线（人工审核 diff 图，QM-4 规则 4）
 - [ ] 5.2 基线同源后，把采集步骤升级为阻断门禁并反转契约断言

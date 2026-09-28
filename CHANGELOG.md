@@ -19,27 +19,7 @@
 ### 影响与未覆盖
 - views/workflows 两套注册表自此有了唯一的 CI 产物来源（Visual Tests workflow 的 `visual-test-reports` artifact），QM-4 第 7 条对它们第一次可执行。
 - **本 PR 只是建立产物来源**：采集步骤此刻刻意非阻断，同源基线重建（需人工审核 diff 图）与「升级为阻断门禁 + 反契约断言」是后续独立 PR；逐套硬超时未做（无挂死证据，强行 kill 会留下未清理的浏览器进程），已如实登记。
-# [未发布] test(visual): 全量四套视觉用例接入 CI 基线采集 —— 逐套隔离聚合器 + 可解析汇总（2026-09-28，visual-all-baseline-ci，PR #2589）
-
-### 根因（第一性原因）
-- QM-4 第 7 条要求「视觉基线只能取自 CI 产物」，但**全量视觉从未在 CI 上跑过**：`quality-gate.yml` 的 `QG Visual` 只执行 `run-pixel-tests.js` 的 `pixelTests`（17 条），`.github/workflows/visual-test.yml` 同样只跑 `test:visual:pixel`；`test:all:visual`（103 条）只写在 AGENTS.md 的「发版前人工核查项」里，没有任何 CI 产物来源。后果在 `fix-all-workflows-selector-drift` 收口时被量化：`dashboard-benchmark-title-reset` 报差 10.88%，而同屏「未操作 vs 操作后」只差 0.16%、「仓库基线 vs CI 渲染」差 3.82% —— 差值来自基线与环境不同源，当时留下的登记项正解就是「给 `test:all:visual` 加 CI job，没有靠调大阈值蒙混」。
-- 第二个同源缺陷藏在命令形态里：`test:all:visual` 是 `a && b && c && d` 串联，**第一套红时后面三套一次都不跑**，于是「artifact 里有没有这套用例的截图」取决于前一套的成败——正是要被消除的那种依赖。
-
-### 变更
-- 新增唯一聚合器 `apps/desktop/tests/visual-testing/scripts/run-all-visual.js`：直接 `require` 四套模块导出的注册表（`toBe` 引用相等，禁止第二份清单），逐套隔离执行；每套输出一行 `[VISUAL-SUMMARY] suite=<id> total= passed= failed= elapsed_ms=`，末尾 `[VISUAL-ALL-SUMMARY]`；CLI 另写 `reports/visual-all-summary.json`，使 artifact 内可不扒日志判定逐套结论。
-- 归一化口径 fail-closed：抛出错误但 `failures` 为空（一条都没归因）、套件返回形状不认识、或**结论条数与注册表条数不等**，一律 `aborted=1` 且 `failed=0`；`total` 只取注册表长度，禁止「就近取一个数」当结果（`{results: [], failed: 0}` 这类假绿由外部评审实测命中后修掉）。用例总数与注册表不等时不得反推分母。
-- `apps/desktop/package.json`：`test:all:visual` 改指向聚合器；文档口径同步纠正为 **103 条 = 54 视图 + 49 工作流**（AGENTS.md/README/USAGE 此前写的 94、44+50 已与注册表漂移）。
-- `.github/workflows/visual-test.yml`（main push / dispatch）新增 `Full visual suites (baseline capture, non-blocking)` 步骤：`if: always()` + `continue-on-error: true`，**自带 Vite 生命周期**（独立端口 5175、就绪轮询、`taskkill` 收口，因像素门禁步骤已在自己的 `finally` 里杀掉 5174），并带出聚合器退出码使采集失败显示为**可见警告**而非绿色通过；job env 补 `VITE_MP_DEV_FLAG_OVERRIDE: "1"` 与 QG Visual 取同一渲染态（否则 flag 开启态用例的基线又不同源）。
-
-### 回归锁与反证
-- 契约锁三处：`workflow-contract.test.js`（采集步骤存在且刻意非阻断 / 像素门禁未被降级 / 服务生命周期与步骤顺序 / 退出码带出 / 上传 `if: always()` / 采集日志名匹配 artifact 通配 / 两条流水线渲染参数一致）、`apps/desktop/tests/visual-ci.test.js`（注册表引用相等 / 首套红不中止后面三套 / 汇总行逐字 `toEqual` / `aborted` 与 `failed` 不混同 / 账不平即 aborted / 注入时钟验耗时算术）、`condition-waiting.test.js`（脚本指向聚合器 + 103 条）。
-- 反证共 10 次，每次**实测变红后按字节还原**：聚合器退回「首套失败即中止」、未知形状默认全通过、忽略 `runnerLaunchFailed`、`total` 用 `results.length`、不写报告文件、采集复用 5174、漏 `taskkill`、env 指回 5174、摘掉 `exit $captureExit`、改名 `Build Vue frontend`（暴露并修掉「findIndex=-1 使顺序锁永真」的自锁缺陷）、摘掉上传步骤 `if: always()`、删掉 flag env。
-- 真跑证据（本机 vite + 四套真实用例，非 mock，共三次）：`[VISUAL-ALL-SUMMARY] suites=4 total=103 passed=102 failed=1 aborted=0`，逐套 `elapsed_ms=21976/21841/24682/8857`；唯一红是已登记的 `dashboard-benchmark-title-reset`。据此 `timeout-minutes: 20` 保持不变（有实测才不动它）。
-- QM-6 双模型外部评审（codex 后端 + claude 前端）：后端报 4 条 Critical，其中「采集无 Vite」在交付态已由自查先行修复（两份评审读的是修复前 diff，如实标注不成立于交付态），其余三条（退出码未带出使失败染绿、`{results:[],failed:0}` 假绿、`failures:[]` 假绿）全部成立并已修 + 补反证；前端 1 条 Critical（同一 Vite 问题）+ 3 条 Warning 已处置。逐条对账见 `openspec/changes/visual-all-baseline-ci/tasks.md` 4b/4c。
-
-### 影响与未覆盖
-- views/workflows 两套注册表自此有了唯一的 CI 产物来源（Visual Tests workflow 的 `visual-test-reports` artifact），QM-4 第 7 条对它们第一次可执行。
-- **本 PR 只是建立产物来源**：采集步骤此刻刻意非阻断，同源基线重建（需人工审核 diff 图）与「升级为阻断门禁 + 反契约断言」是后续独立 PR；逐套硬超时未做（无挂死证据，强行 kill 会留下未清理的浏览器进程），已如实登记。
+- 顺带把本 PR 自己踩到的自我损坏补成门禁：`.quality-gates.md` 里同一条 `## 记录标题` 出现两遍即 CI 判红（`scripts/check-gate-record-debt.js` 新增 `duplicates` 判据；2026-08-19 的 error-message-fix 那条历史重复进 `DUPLICATE_HEADINGS_ALLOWED`，清单只能缩小并由用例反向钉住"条目必须仍能在文件里找到"）。起因是本 PR 的执行记录与 CHANGELOG 条目一度各写了两遍，而合并校验器的单向包含判据对"多出一份"天生失明。
 
 # [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
 
