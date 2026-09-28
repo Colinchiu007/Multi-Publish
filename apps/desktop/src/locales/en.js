@@ -1229,6 +1229,7 @@ export default {
     dragVideo: 'Drag video here, or ',
     clickSelect: 'click to select',
     videoTip: 'Supports mp4/mov/avi, max 500MB',
+    videoSelected: 'Video file selected',
     modeVideo: 'Video',
     modeArticle: 'Article',
     videoDescLabel: 'Video Description',
