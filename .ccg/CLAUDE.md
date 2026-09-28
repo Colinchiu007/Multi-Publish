@@ -121,7 +121,7 @@
 | `get-current-datetime.md` | `get-current-datetime` | 🕐 执行日期命令并仅返回原始输出（无格式、无说明、无并行） |
 | `team-architect.md` | `team-architect` | 🏗 架构师：扫描代码库，综合多模型分析，输出架构蓝图和文件分配矩阵（v1.8.3+） |
 | `team-qa.md` | `team-qa` | 🧪 QA 工程师：检测测试框架，编写测试，运行全量测试 + lint + typecheck（v1.8.3+） |
-| `team-reviewer.md` | `team-reviewer` | 🔬 代码审查员：综合 Codex/Gemini 审查结果，分级输出 Critical/Warning/Info（v1.8.3+） |
+| `team-reviewer.md` | `team-reviewer` | 🔬 代码审查员：综合多模型审查结果，分级输出 Critical/Warning/Info（v1.8.3+） |
 
 ---
 
