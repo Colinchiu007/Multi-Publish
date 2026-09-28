@@ -115,6 +115,25 @@ async function runFlows() {
 }
 
 /**
+ * 失败检查点的可读者。checks 有两种生产者、两种形状，日志读取侧必须都覆盖：
+ * - route-functional-suite.js 的检查有 `name` / `details`；
+ * - FunctionalRunner 的 expectText / expectVisible / expectNoConsoleError 只写
+ *   `kind` + `text` / `selector` / `errors`，从不写 `name`。
+ * 原先固定读 `c.name` / `c.details` 会让第二类打印成 `✗ undefined` 且详情段永不出现
+ * （#2491 现场即如此），CI 日志看不出坏的是哪一条断言。
+ */
+function describeFailedCheck(c) {
+  const subject = c.name || c.text || c.selector || c.kind || 'unnamed check';
+  let detail = c.details;
+  if (detail === undefined || detail === null) {
+    detail = Array.isArray(c.errors) && c.errors.length > 0
+      ? `${c.errors.length} 项: ${c.errors[0]}`
+      : '';
+  }
+  return { subject, detail: String(detail) };
+}
+
+/**
  * 路由/流失败时打印详细失败信息（check 名称 + console error + page error），
  * 让 CI 日志可直接定位失败项，而不是只有 passed/total 数量。
  */
@@ -124,7 +143,8 @@ function logRouteFailure(name, report) {
   if (failedChecks.length > 0) {
     console.log(`    ── ${name} 失败检查点 (${failedChecks.length}) ──`);
     for (const c of failedChecks) {
-      console.log(`      ✗ ${c.name}${c.details ? ' | ' + JSON.stringify(c.details) : ''}`);
+      const { subject, detail } = describeFailedCheck(c);
+      console.log(`      ✗ ${subject}${detail ? ' | ' + detail : ''}`);
     }
   }
   if (report.consoleErrors && report.consoleErrors.length > 0) {
@@ -195,5 +215,7 @@ module.exports = {
   runWithConcurrency,
   parseConcurrency,
   validateMode,
-  expectedResultCount
+  expectedResultCount,
+  describeFailedCheck,
+  logRouteFailure
 };
