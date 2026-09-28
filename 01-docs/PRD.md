@@ -17614,3 +17614,23 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **回归锁**：`platform-selectors.test.js`（首位断言 + 旧候选兜底断言）+ `rpa-selector-utils.test.js` 活体 fixture 4 例（精确命中 / 旧候选歧义演示 / 登录页负例 / 空表单负例）。证据入档：`01-docs/rpa-api-publish/evidence/api-w3-kuaishou/d2-live-verdict-20260928.md` + `d2-live-evidence-20260928-snapshot005.json`。
 
 **残余**：活体发布验收（3.5 / api-publish-engine-w3 6.3）待本修复合并后重跑一次真实发布；API 轨 `taskData.video.path required` 为另一独立缺陷，另行登记。
+
+## 快手发布提交钮选择器合同——二轮取证修正（kuaishou-w3-live-fix D2 定案，2026-09-28 二轮）
+
+同日早前合同（PR #2554）把「发布时间」单选项 `<span>立即发布</span>` 误判为提交钮，部署后活体复测
+仍 `responses=0`。二轮取证（发布流实测 + 账号标签注入探测，全标签叶子文本搜索）定案：
+
+| 项 | 一轮结论（已推翻） | 二轮定案 |
+|---|---|---|
+| 真提交钮 | `<span>立即发布</span>` | **底栏 `<div>发布</div>`**（裸 div，全页唯一直接文本为「发布」的元素，兄弟 `<div>取消</div>`） |
+| 立即发布 span | 误判为提交钮 | 发布时间单选项（诱饵，已从候选移除） |
+| 首位候选 | `span:has-text("立即发布")` | **`div:has-text("发布")`**（解析器 exactLeaf 层唯一命中） |
+
+**取证方法论教训**：一轮采集面只扫 `button/[role=button]/a` + 含「发布」的 span——底栏提交钮是裸
+`<div>`，两个采集面都漏。**提交钮取证的采集面必须覆盖全部标签（叶子文本精确匹配），不能预设按钮
+的标签形态。**二轮探测方法（零发布副作用）：`pageManager.createNewTabPage({url, platform, accountId})`
+开凭证注入标签 + CDP `DOM.setFileInputFiles` 注入视频触发编辑态 + DOM 域全标签搜索。
+
+回归锁：`platform-selectors.test.js`（首位 + 诱饵不得在列双断言）、`rpa-selector-utils.test.js`
+活体 fixture 5 例、`rpa-view-platforms.test.js` 数据契约锁。证据：
+`01-docs/rpa-api-publish/evidence/api-w3-kuaishou/d2-live-verdict-20260928-round2.md`。
