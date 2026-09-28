@@ -1,14 +1,4 @@
 {
-  "本次执行记录：把最后一条未接线 PowerShell 测试接进 Gate 2d——改夹具不改断言（机制加固，automation-task-probe，2026-09-29）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。",
-    "status": "PENDING",
-    "line": 24
-  },
-  "本次执行记录：发布页「标题参考」把 GitHub issue 当同类标题 → 数据源收窄 + 标题级相关性门禁（fix-title-assistant-relevance，2026-09-28）": {
-    "reason": "本 PR 自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填者＝下一个会话，回填后必须删除本条，否则判陈旧登记。",
-    "status": "PENDING",
-    "line": 24
-  },
   "本次执行记录：非全屏窗口登录页显示不全 → 登录视图 zoom-to-fit（fix-login-view-fit，2026-09-28）": {
     "reason": "同日其他会话的记录，本会话未对其 PR 收口取证；不代改。",
     "status": "PENDING",
@@ -148,5 +138,10 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
+  },
+  "本次执行记录：把最后一条未接线 PowerShell 测试接进 Gate 2d——改夹具不改断言（机制加固，automation-task-probe，2026-09-29）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。",
+    "status": "PENDING",
+    "line": 24
   }
 }
