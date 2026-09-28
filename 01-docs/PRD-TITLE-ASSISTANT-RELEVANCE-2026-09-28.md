@@ -71,7 +71,7 @@ R1 是本次症状的直接成因，R2 是系统性漏洞（换一个源就会�
 | --- | --- | --- | --- |
 | 主题情报页 | `search(query, opts)` | `reddit` + `hackernews` + `github`（默认全开） | 用户找的是"某主题在讨论什么"，GitHub issue 是合法讨论载体 |
 | **标题参考面板** | `searchTitles(title)` | **`reddit` + `hackernews`**（`TITLE_SOURCES` 白名单） | 需要的是"同类内容的标题"，issue 标题不属于该类别 |
-| 发布后提及追踪 | `searchMentions(keywords)` | 默认全开 | 找"谁转载/提到了我"，GitHub 上的引用是有效信号 |
+| 发布后提及追踪 | `searchMentions(keywords)` | 默认全开，但判据字段放宽为 `title+snippet+author` | 找"谁转载/提到了我"，我的词常只出现在对方**正文**里；只看标题会把真实提及静默丢掉（见 §4.2） |
 | 热门趋势 | `fetchTrending()` | 默认全开 | 无查询词 ⇒ 不适用相关性门禁（见 §4.2 边界） |
 
 调用方显式传入非空 `opts.sources` 时**一律尊重调用方**，白名单只是缺省值，不是强制锁。
@@ -81,21 +81,40 @@ R1 是本次症状的直接成因，R2 是系统性漏洞（换一个源就会�
 **位置**：`search()` 内，`Promise.allSettled` 汇聚之后、`engagement` 排序之前。
 放在排序前，是为了让下游按 `results[0]` 取 `topSource` / `topEngagement` 的 `searchMentions` 同样拿到相关结果 —— 门禁若挂在排序后，`topSource` 仍可能来自一条垃圾。
 
-**判据**：结果标题与查询**至少共享一个内容词**（按 §4.3 的分词口径）。
+**判据**：结果的**判据字段**与查询**至少共享一个内容词**（按 §4.3 的分词口径）。
+
+判据字段是**按消费者**声明的（`opts.relevanceOn`，默认 `['title']`）：
+
+| 消费者 | relevanceOn | 为什么 |
+| --- | --- | --- |
+| `search()`（主题情报页） | `['title']`（默认） | 展示的是"同类内容的标题" |
+| `searchTitles()`（标题助手） | `['title']`（默认） | 同上 |
+| `searchMentions()`（发布后提及追踪） | `['title','snippet','author']`（`MENTION_RELEVANCE_ON`） | **别人转载我时，我的标题词通常出现在对方正文里，而不是对方标题里**。若沿用只看 title 的判据，真实提及会被全部丢掉，`totalMentions` / `topSource` / `topEngagement` 静默少算 |
 
 ```
 queryTokens = Set(tokenizeContentWords(query))
 if queryTokens 非空:
-    kept   = results.filter(r => sharesContentWord(r.title, queryTokens))
-    dropped = results.length - kept.length
+    before = results.length
+    kept   = results.filter(r => relevanceOn.some(f => sharesContentWord(r[f], queryTokens)))
+    droppedIrrelevant = before - kept.length
 ```
+
+**`relevanceOn` 必须进缓存键**（实测键形如 `search:<query>:<sources>:<limit>:<relevanceOn.join('+')>`）。
+否则 `searchTitles` 与 `searchMentions` 用同一个 query 时会互相串用对方的过滤结果 ——
+一个只看标题、一个看正文，共用一条缓存必然有一方拿到错的那份。
+回归锁：`content-intelligence.test.js`「不同 relevanceOn 档位必须落在不同缓存键上」，
+反证「把 relevanceOn 从键里摘掉」实测 2 条变红。
+
+**日志隐私**：门禁日志**只记计数与形状**（`dropped/before`、`queryLen`、`tokens`、`on=`），
+**禁止记 query 原文** —— `searchTitles` 的 query 就是用户的草稿标题，属尚未发布的业务内容，
+而 `logger` 只脱敏凭证、不脱敏用户文本。
 
 **边界与不变量**：
 
 | 情形 | 行为 | 理由 |
 | --- | --- | --- |
 | 查询切不出内容词（如纯数字 `2024`、纯标点） | **不设判据，原样放行**，`droppedIrrelevant = 0` | 没有判据可依时不改变既有语义，避免新增一种失败模式 |
-| 结果 `title` 缺失 / 空串 / 非字符串 | **判为不相关，剔除** | 判据挂在标题上；正文命中不构成"同类标题"（不得凭 `snippet` 放行） |
+| 结果的某个判据字段缺失 / 空串 / 非字符串 | 该字段判为不相关；**只要有一个判据字段命中即保留** | 判据挂在声明的字段集上；`title` 缺失但 `snippet` 命中，在提及追踪口径下仍算真实提及 |
 | 全部结果被剔除 | `results: []`、`total: 0`、`droppedIrrelevant: N` | 渲染层据此走空态（§7、§8） |
 | 缓存 | 门禁结果随 `search()` 输出一起进 5 分钟缓存 | 判据对同一 query 确定，缓存不产生漂移 |
 
@@ -108,11 +127,19 @@ if queryTokens 非空:
 
 | 文本类型 | 切法 | 例子 |
 | --- | --- | --- |
+| 预处理 | 先剥离 URL（`https?://\S+`）与 HTML 实体（`&[a-z][a-z0-9#]*;`），再分词 | 不剥的话两条无关标题会因为**共享同一个域名**而通过门禁（实测 `https://example.com/path&amp;🚀` 会产出 `https`/`example`/`com`/`amp` 四个"词"） |
 | 拉丁词 | `/[a-z0-9][a-z0-9'+-]*/g`，长度 ≥2，剔除纯数字与停用词 | `How to learn AI in 2026` → `how, learn, ai` |
-| CJK 连串（`㐀-` / `一-鿿` / `豈-`，长度 ≥2） | **相邻二元组**（bigram） | `红烧肉` → `红烧, 烧肉` |
-| 单个 CJK 字符 | **不产出** | 单字区分度不足，且多为虚词 |
+| 汉字连串 | `/\p{Script=Han}{2,}/gu`，按**码点**取相邻二元组 | `红烧肉` → `红烧, 烧肉` |
+| 单个汉字 | **不产出** | 单字区分度不足，且多为虚词 |
+
+**为什么用 `\p{Script=Han}` 而不是 BMP 区间表**：区间表 `[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]`
+漏掉扩展 B 平面及以后（U+20000+）。实测 `𠀀𠀁红烧肉` 在区间表下只产出 `红烧, 烧肉`；
+更糟的是**纯扩展平面汉字的查询会切成空 token 集 ⇒ 门禁被整体绕过**（`queryTokens.size === 0`
+走"不设判据"分支）。同时按 UTF-16 单元 `slice(i, i+2)` 会把一个代理对**切成半个字符**产出非法字符串 ——
+必须 `Array.from(run)` 后按码点组二元组。
 
 **为什么是二元组**：不引入分词器依赖的前提下，这是唯一能让「红烧 / 烧肉」这类真实词素浮出来的最小单位。整句当一个词是本次事故的直接表现；引入 jieba 级依赖则违反"能不用第三方就不用"的架构原则。
+代价是会产生 `的教`、`入请` 这类跨词边界的噪声二元组 —— 不逐个排除（`好看` 的 `好` 也在单字停用表里，按"任一字为停用词即排除"会误杀真词），改由 document frequency 排序压制。
 
 **停用表**（`CONTENT_STOPWORDS`，一处维护）：英文虚词 + 中文单字虚词 + **中文高频二元组虚词**（`可以 / 我们 / 你们 / 他们 / 什么 / 怎么 / 这个 / 那个`）。最后一类是必要的：单字停用表覆盖不到二元组，`申请加入我们的群` 会产出 `我们` 这种无信息量高频词。
 
@@ -241,8 +268,19 @@ if queryTokens 非空:
 | M2 | 把 `github` 放回 `TITLE_SOURCES` | **5 条变红** |
 | M3 | `_extractPatterns` 退回按空白切词 | **2 条变红** |
 | M4 | 来源标签退回 `v-else → GitHub` | **1 条变红** |
+| M5 | 摘掉情报页空态的 `description` 绑定 | **1 条变红**（18 中） |
+| M6 | 面板不再透传 `droppedIrrelevant`（恒 0） | **1 条变红**（10 中） |
+| M7 | `MENTION_RELEVANCE_ON` 退回只看 `title` | **2 条变红**（46 中） |
+| M8 | 缓存键退回不含 `relevanceOn` | **2 条变红**（9 中） |
+| M9 | CJK 正则退回 BMP 区间表 | **1 条变红**（18 中） |
+| M10 | 退回不剥离 URL / HTML 实体 | **1 条变红**（18 中） |
 
-四条变异跑完均按字节还原（`restored byte-identical: true`）。
+十条变异跑完均 `restored byte-identical: true`。
+
+**探针自身两次失效（记为方法论，不当结论用）**：① 首版 VERDICT 解析式没匹配 vitest 4 的
+`Tests  N failed | M passed` 汇总行，把已经变红的四条误报成 "GREEN (锁失效)" ——
+判为**探针坏而非锁坏**，修解析器后重跑取可信读数；② M5 首版锚点用 `\n` 构造，而
+`Intelligence.vue` 是纯 CRLF（278/278），导致 anchor 匹配 0 次而 ABORT —— 改为按文件实际行尾构造。
 
 **同时修掉的两处"把 Bug 钉成契约"的既有断言**：
 
@@ -259,6 +297,9 @@ if queryTokens 非空:
 3. **无请求竞态守卫**。防抖已覆盖绝大多数输入场景，极端慢网下旧响应可能覆盖新响应。
 4. **门禁对 `snippet` 无关**：只看标题。若未来某源标题字段语义不是"内容标题"，需按 §4.1 矩阵调整该功能的源域，而不是放宽门禁。
 5. **同形缺陷仍存在于 `_extractKeywords`（本次未修，如实登记）**：`content-intelligence-analysis.js` 的 `_extractKeywords` 用其 CJK 连串正则（`content-intelligence-analysis.js:86`，实测字面量 `/[一-鿿㐀-䶿豈-﫿]{2,}/g`）把**整段 CJK 连串当成一个词**，与本次 R3 是同一形状的问题。它服务的是「智能标签建议 / 引用查找 / 最优发布时间」，判据是**单文档内词频**（与 §4.4 的跨标题 document frequency 不是同一口径），因此没有并入 `tokenizeContentWords`。若将来要收敛，替换点是 `tokenizeContentWords` 一处，但必须同时重跑 `tag-suggest` 与 `getOptimalTime` 的既有断言 —— 那是一次独立的行为变更，不属于本 Bug 的修复范围。
+6. **`search()` 输出的 `sources` 字段是一段 no-op 过滤（既有，未动）**：它拿 `sources` 的每个元素回查同一个 `sources` 数组，恒等返回输入，包括未知源名。因此 `output.sources` 实际含义是「请求了哪些源」而不是「哪些源成功返回」。与本次修复无关，故未在同一 PR 里顺手改，登记待独立处理。
+7. **情报页结果卡的 `:href` 未做协议校验（既有安全面，未动）**：`Intelligence.vue` 把外部返回的 `item.url` 直接绑到 `:href`，而 HN 的 `url` 是任意值，`javascript:` 之类会成为可点击链接。本 PR 触及的文本渲染面已核实安全（Vue `{{ }}` 自动转义、无 `v-html`），但这条**先于本 PR 存在**，应单独提 PR 加 `http:`/`https:` 白名单校验，不在这里混改。
+8. **带参 locale 文案与 `.ccg/spec/frontend/index.md:39` 冲突（规格滞后于代码）**：该规格要求「带参文案必须写成 Message Function，不能写成含 `{name}` 的普通字符串」，但实测 `zh.js` 有 **98 条**普通 `{param}` 字符串，且 `i18n/index.js` 的 `toMessageFunctions` 在运行时支持它们（本 PR 用例亦实测 `{n}` 插值渲染成功）。本 PR 因此**跟随既有约定**写普通 `{n}` —— 改成 Message Function 会让它成为 98 条里唯一的异类。规格与代码谁为准需单独裁决。
 
 ## 12. 后续建议（不在本次范围）
 

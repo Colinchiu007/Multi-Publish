@@ -115,6 +115,36 @@ describe("content-intelligence-utils", () => {
       expect(tokenizeContentWords(undefined)).toEqual([]);
       expect(tokenizeContentWords(123)).toEqual([]);
     });
+
+    it("补充平面汉字必须按码点成二元组，不得切成半个字符或漏掉", async () => {
+      const { tokenizeContentWords } = await import("../services/content-intelligence-utils");
+      // 𠀀(U+20000) / 𠀁(U+20001) 在 BMP 区间表之外，且各占两个 UTF-16 代理单元。
+      // 旧实现用 \u3400-\u4dbf\u4e00-\u9fff... 区间 + slice(i,i+2) 会同时踩到
+      // "整段不匹配"和"把代理对切成半个字符"两个错。
+      expect(tokenizeContentWords("𠀀𠀁红烧肉")).toEqual(["𠀀𠀁", "𠀁红", "红烧", "烧肉"]);
+      // 关键回归：纯补充平面查询旧实现会切成空集 ⇒ 门禁被整体绕过
+      const tokens = tokenizeContentWords("𠀀𠀁𠀂");
+      expect(tokens).toEqual(["𠀀𠀁", "𠀁𠀂"]);
+      expect(tokens.length).toBeGreaterThan(0);
+      // 每个词素都必须是完整码点组合（长度按码点算为 2）
+      for (const w of tokens) expect(Array.from(w).length).toBe(2);
+    });
+
+    it("URL 与 HTML 实体不得成为「内容词」（否则共享域名即算同类）", async () => {
+      const { tokenizeContentWords, sharesContentWord } =
+        await import("../services/content-intelligence-utils");
+      expect(tokenizeContentWords("https://example.com/path&amp;🚀")).toEqual([]);
+      // 「的教」是跨词边界的噪声二元组 —— 这是二元组方案的已知代价（专项 PRD §11.2），
+      // 靠 document frequency 排序压制，不在此处逐个排除。
+      expect(tokenizeContentWords("看 https://example.com 的教程")).toEqual(["的教", "教程"]);
+      expect(tokenizeContentWords("a &lt;b&gt; tag")).toEqual(["tag"]);
+      // 两条标题只共享一个 URL 时不得判为同类 —— URL 已被剥离，只剩各自的中文词
+      const q = new Set(tokenizeContentWords("https://example.com 红烧肉"));
+      expect([...q]).toEqual(["红烧", "烧肉"]);
+      expect(sharesContentWord("https://example.com 完全无关的话题", q)).toBe(false);
+      // 而真正共享内容词的仍须判为同类
+      expect(sharesContentWord("https://example.com 红烧肉的做法", q)).toBe(true);
+    });
   });
 
   describe("sharesContentWord（相关性门禁）", () => {

@@ -46,6 +46,15 @@ const analysisMixin = require('./content-intelligence-analysis')
  */
 const TITLE_SOURCES = ['reddit', 'hackernews']
 
+/**
+ * 提及追踪的相关性判据字段。
+ *
+ * ⚠️ 与标题助手**刻意不同**：别人转载/提到我的内容时，我的标题词通常出现在
+ * **正文**里而不是对方的标题里。若沿用只看 title 的判据，会把真实提及全部丢掉，
+ * totalMentions / topSource / topEngagement 随之静默少算。
+ */
+const MENTION_RELEVANCE_ON = ['title', 'snippet', 'author']
+
 class ContentIntelligence {
   constructor (store) {
     this._axios = null
@@ -98,12 +107,18 @@ class ContentIntelligence {
    * @param {string[]} [opts.sources] — ['reddit','hackernews','github'] or subset
    * @param {number} [opts.limit=10] — Results per source
    * @param {boolean} [opts.noCache=false] — Skip cache
+   * @param {string[]} [opts.relevanceOn=['title']] — 相关性门禁看哪些字段
    * @returns {Promise<object>} { results, sources, total }
    */
   async search (query, opts = {}) {
     const sources = opts.sources || ['reddit', 'hackernews', 'github']
     const limit = opts.limit || 10
-    const cacheKey = `search:${query}:${sources.join(',')}:${limit}`
+    // 门禁的判据字段是**按消费者**变化的（见 relevanceOn 注释），因此它必须进缓存键 ——
+    // 否则 searchMentions 与 searchTitles 用了同一个 query 就会互相串用对方的过滤结果。
+    const relevanceOn = (Array.isArray(opts.relevanceOn) && opts.relevanceOn.length > 0)
+      ? opts.relevanceOn
+      : ['title']
+    const cacheKey = `search:${query}:${sources.join(',')}:${limit}:${relevanceOn.join('+')}`
 
     if (!opts.noCache) {
       const cached = this._getCached(cacheKey)
@@ -119,18 +134,23 @@ class ContentIntelligence {
       .flatMap(r => r.status === 'fulfilled' ? r.value : [])
 
     // ── 相关性门禁 ────────────────────────────────────────────────
-    // 三个源检索的都是正文：标题与查询零重叠的结果不是"同类内容"，是噪声。
-    // 放在 sort 之前，保证下游（含 searchMentions 的 topSource/topEngagement）
-    // 拿到的 results[0] 也是相关的。查询本身切不出内容词时不设判据、原样放行。
+    // 三个源检索的都是正文：判据字段与查询零重叠的结果不是"相关内容"，是噪声。
+    // 放在 sort 之前，保证按下标取 results[0] 的下游拿到的也是相关的。
+    // 查询本身切不出内容词时不设判据、原样放行（无判据可依不得改变既有语义）。
     const queryTokens = new Set(tokenizeContentWords(query))
     let droppedIrrelevant = 0
     if (queryTokens.size > 0) {
       const before = results.length
-      results = results.filter(r => sharesContentWord(r.title, queryTokens))
+      results = results.filter(r =>
+        relevanceOn.some(field => sharesContentWord(r[field], queryTokens)))
       droppedIrrelevant = before - results.length
       if (droppedIrrelevant > 0) {
+        // 只记计数与形状，**不记 query 原文**：searchTitles 的 query 就是用户的草稿标题，
+        // 是尚未发布的业务内容，而 logger 只脱敏凭证、不脱敏用户文本。
         log.info('ContentIntelligence',
-          `relevance gate: dropped ${droppedIrrelevant}/${before} results for query "${query}"`)
+          `relevance gate: dropped ${droppedIrrelevant}/${before} results ` +
+          `(queryLen=${String(query == null ? '' : query).length}, ` +
+          `tokens=${queryTokens.size}, on=${relevanceOn.join('+')})`)
       }
     }
 
@@ -204,7 +224,12 @@ class ContentIntelligence {
 
   async searchMentions (keywords, opts = {}) {
     // keywords can be: title + brand name + author name
-    const result = await this.search(keywords, { ...opts, limit: 8 })
+    // 判据放宽到正文/作者：真实提及往往只在对方正文里出现我的词（见 MENTION_RELEVANCE_ON）
+    const result = await this.search(keywords, {
+      ...opts,
+      relevanceOn: opts.relevanceOn || MENTION_RELEVANCE_ON,
+      limit: 8,
+    })
 
     // After T+24h, mark vs earlier results for trend direction
     return {

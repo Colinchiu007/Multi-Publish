@@ -28,12 +28,16 @@ function createCI () {
 }
 
 function mockSubMethods (ci) {
-  ci._searchReddit = vi.fn()
-  ci._searchHN = vi.fn()
-  ci._searchGitHub = vi.fn()
-  ci._fetchRedditTrending = vi.fn()
-  ci._fetchHNTrending = vi.fn()
-  ci._fetchGitHubTrending = vi.fn()
+  // 裸 vi.fn() 返回 undefined，会让 search() 里的 Promise.allSettled + flatMap 收到
+  // [undefined] 并在相关性门禁处抛 "Cannot read properties of undefined (reading 'title')"。
+  // 各 _search* 的真实契约就是"失败也返回数组"，所以夹具默认给空数组；
+  // 需要数据的用例再自行 mockResolvedValue 覆盖。
+  ci._searchReddit = vi.fn().mockResolvedValue([])
+  ci._searchHN = vi.fn().mockResolvedValue([])
+  ci._searchGitHub = vi.fn().mockResolvedValue([])
+  ci._fetchRedditTrending = vi.fn().mockResolvedValue([])
+  ci._fetchHNTrending = vi.fn().mockResolvedValue([])
+  ci._fetchGitHubTrending = vi.fn().mockResolvedValue([])
 }
 
 function makeRedditItem (overrides) {
@@ -576,6 +580,67 @@ describe('ContentIntelligence', () => {
       expect(result.analysis.topSource).toBe('reddit')
       // topSource 取自 results[0]；若门禁未生效，无关那条会因 engagement 更高排在前
       expect(result.results.map(r => r.title)).toEqual(['我的红烧肉文章被转载了'])
+    })
+
+    it('提及追踪必须保留「只在正文里提到我」的结果（判据字段按消费者分档）', async () => {
+      const ci = createCI()
+      mockSubMethods(ci)
+      // 真实形态：对方标题写的是自己的话，我的标题词只出现在正文里。
+      // 若沿用标题助手那套"只看 title"的判据，这条会被丢掉 ⇒ totalMentions 静默少算。
+      ci._searchReddit.mockResolvedValue([
+        makeRedditItem({
+          title: '今天看到一篇很有意思的转载',
+          snippet: '全文转自我自己的 红烧肉 教程，作者是我',
+          engagement: 2.2,
+          id: 'r-body'
+        })
+      ])
+      ci._searchHN.mockResolvedValue([])
+      ci._searchGitHub.mockResolvedValue([])
+
+      const result = await ci.searchMentions('红烧肉')
+      expect(result.total).toBe(1)
+      expect(result.droppedIrrelevant).toBe(0)
+      expect(result.analysis.totalMentions).toBe(1)
+      expect(result.analysis.topSource).toBe('reddit')
+    })
+
+    it('同一批数据在标题助手口径下必须仍被丢弃（两档判据不得互相污染）', async () => {
+      const ci = createCI()
+      mockSubMethods(ci)
+      const bodyOnly = makeRedditItem({
+        title: '今天看到一篇很有意思的转载',
+        snippet: '全文转自我自己的 红烧肉 教程',
+        engagement: 2.2,
+        id: 'r-body'
+      })
+      ci._searchReddit.mockResolvedValue([bodyOnly])
+      ci._searchHN.mockResolvedValue([])
+
+      const asTitle = await ci.searchTitles('红烧肉', { noCache: true })
+      expect(asTitle.results).toEqual([])
+      expect(asTitle.droppedIrrelevant).toBe(1)
+
+      const asMention = await ci.searchMentions('红烧肉', { noCache: true })
+      expect(asMention.results.map(r => r.id)).toEqual(['r-body'])
+    })
+
+    it('relevanceOn 必须进缓存键，否则两种口径互相串用结果', async () => {
+      const ci = createCI()
+      mockSubMethods(ci)
+      ci._searchReddit.mockResolvedValue([makeRedditItem({
+        title: '无关标题', snippet: '红烧肉 在正文里', engagement: 2.0, id: 'r-body'
+      })])
+      ci._searchHN.mockResolvedValue([])
+      ci._searchGitHub.mockResolvedValue([])
+
+      // 先以"只看正文以外"的窄口径填充缓存
+      const narrow = await ci.search('红烧肉', { relevanceOn: ['title'] })
+      expect(narrow.results).toEqual([])
+      // 再以宽口径查同一 query：若 relevanceOn 没进缓存键，这里会命中上面那条空结果
+      const wide = await ci.search('红烧肉', { relevanceOn: ['title', 'snippet'] })
+      expect(wide.results.map(r => r.id)).toEqual(['r-body'])
+      expect(ci._searchReddit).toHaveBeenCalledTimes(2)
     })
   })
 

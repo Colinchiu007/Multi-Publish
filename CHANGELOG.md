@@ -7,6 +7,12 @@
 - `apps/desktop/electron/services/content-intelligence-analysis.js`：`_extractPatterns` 改用共用分词；计数口径从「出现总次数」改为 **document frequency**（一个词素出现在几条标题里）；并列时按词素字典序，渲染顺序不再随机漂移。
 - `apps/desktop/src/components/TitleAssistantPanel.vue`：来源标签从 `v-else → "GitHub"` 兜底改为显式映射（未知源如实回显其标识、`source` 缺失则不渲染）；新增「暂未找到同类高互动标题」空态，并按 `droppedIrrelevant` 区分「源真的没响应」与「有响应但都不算同类」两种解释。
 - `apps/desktop/src/locales/zh.js` / `en.js`：新增 3 个成对 key（`titleAssistantEmpty` / `titleAssistantEmptyHint` / `titleAssistantFiltered`，含 `{n}` 插值）。
+- `content-intelligence.js`：相关性门禁的**判据字段按消费者声明**（`opts.relevanceOn`，默认 `["title"]`）——`searchMentions()` 走 `MENTION_RELEVANCE_ON = ["title","snippet","author"]`，因为真实转载提及的词出现在**对方正文**里而非对方标题里，只看标题会把 `totalMentions` 静默少算（QM-6 后端评审 W1）；`relevanceOn` **进缓存键**，否则两种口径共用同一 query 时互相串用对方的过滤结果（M8 反证）。
+- 门禁日志只记计数与形状（`dropped/before`、`queryLen`、`tokens`、`on=`），**不记 query 原文**——`searchTitles` 的 query 就是用户尚未发布的草稿标题，而 logger 只脱敏凭证、不脱敏用户文本（W3）。
+- `tokenizeContentWords` 改用 `/\p{Script=Han}{2,}/gu` 并**按码点**取相邻二元组：BMP 区间表漏扩展 B 平面，纯扩展平面汉字查询会切成空 token 集从而**整体绕过门禁**，且按 UTF-16 单元切片会把代理对切成半个字符（W2）；分词前先剥离 URL 与 HTML 实体，否则两条无关标题会因共享同一域名而通过门禁（Info）。
+- `Intelligence.vue`：主题情报页空态补 `description`，在门禁归零时区分「源无响应」与「已过滤 N 条」，不再一律提示「暂无结果，试试其他关键词」把原因推给用户（QM-6 前端评审 W1）。
+- `TitleAssistantPanel.vue`：空态两分支各带结构类名 `--filtered` / `--source`，测试按类名断言而非按 locale 文案字面量断言（文案改写不该把正确实现判红）。
+- `tests/content-intelligence.test.js`：`mockSubMethods` 默认 `mockResolvedValue([])`——裸 `vi.fn()` 返回 `undefined` 会让 `Promise.allSettled` + `flatMap` 收到 `[undefined]` 并在门禁处抛 `Cannot read properties of undefined`，本轮两次踩到。
 - `01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md`：新建该功能的首份完整规格（数据源矩阵、门禁判据与边界、分词口径、交互流程、显示项、全量提示文字、验收标准、反证矩阵、已知限制）——**此前 PRD 里没有任何一条关于「标题参考」的契约**，只有 §9.2 一个 8 行桩。
 - `01-docs/PRD.md` §9.2：补数据源与相关性契约指针。
 

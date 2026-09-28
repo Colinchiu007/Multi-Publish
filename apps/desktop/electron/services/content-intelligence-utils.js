@@ -70,8 +70,13 @@ function calculateHourDistribution(items) {
 // 这里对拉丁文按词切，对 CJK 连串按相邻二元组展开——二元组是在不引入分词器
 // 依赖的前提下，唯一能让「红烧 / 烧肉」这类真实词素浮出来的最小单位。
 
-const CJK_RUN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]{2,}/g;
+const CJK_RUN_RE = /\p{Script=Han}{2,}/gu;
 const LATIN_WORD_RE = /[a-z0-9][a-z0-9'+-]*/g;
+// URL 与 HTML 实体不是"内容词"：不先剥掉的话，两条毫无关系的标题会因为共享
+// 同一个域名或同一段转义残留而通过相关性门禁（实测 'https://example.com/path&amp;x'
+// 会产出 https / example / com / amp 四个词）。
+const URL_RE = /https?:\/\/\S+/gi;
+const HTML_ENTITY_RE = /&[a-z][a-z0-9#]*;/gi;
 
 const CONTENT_STOPWORDS = new Set([
   // English
@@ -99,7 +104,7 @@ const CONTENT_STOPWORDS = new Set([
  */
 function tokenizeContentWords(text) {
   if (!text || typeof text !== "string") return [];
-  const lowered = text.toLowerCase();
+  const lowered = text.toLowerCase().replace(URL_RE, " ").replace(HTML_ENTITY_RE, " ");
   const out = new Set();
 
   for (const m of lowered.matchAll(LATIN_WORD_RE)) {
@@ -111,9 +116,11 @@ function tokenizeContentWords(text) {
   }
 
   for (const m of lowered.matchAll(CJK_RUN_RE)) {
-    const run = m[0];
-    for (let i = 0; i + 1 < run.length; i++) {
-      const bg = run.slice(i, i + 2);
+    // 必须按**码点**取相邻二元组：按 UTF-16 单元切片会把补充平面汉字（如 𠀀，
+    // 占两个代理单元）切成半个字符，既不是词也不是合法字符串。
+    const cps = Array.from(m[0]);
+    for (let i = 0; i + 1 < cps.length; i++) {
+      const bg = cps[i] + cps[i + 1];
       if (CONTENT_STOPWORDS.has(bg)) continue;
       out.add(bg);
     }
