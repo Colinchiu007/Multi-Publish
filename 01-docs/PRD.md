@@ -17580,3 +17580,22 @@ is_default: 1
 > 口径提醒：门禁统计行数字用的是 `fs.readFileSync(...).split('\n').length`（尾部换行也计一行），
 > 因此 `LogsSettings.vue` 的墓碑值是 **469** 而不是编辑器显示的 468。所有行数判定都必须用门禁自身坐标系，
 > 不允许混用 `wc -l` 或编辑器计数。
+
+## 视频上传区交互合同（2026-09-28 Bug 修复）
+
+**用户报告**：一键发布页选视频文件后「没有任何反应和反馈」。真机 CDP 取证还原：第一次选择实际成功（`video_path` 已落位、「从视频提取封面」按钮已渲染、列表项显示文件名），但三个缺陷叠加造成「无反应」体感——
+
+1. `el-upload limit=1` 未配 `on-exceed`：第二次及以后选文件被组件**静默丢弃**（CDP `DOM.setFileInputFiles` 注入实测：零事件零输出），是「没反应」的直接原因（引入点 `57082dde`）；
+2. 未配 `on-remove`：列表删除后 `video_path` 不同步清空，发布仍带旧视频；
+3. 选择成功无主动反馈（仅列表小字），用户误判「没选上」而反复重选、撞上静默丢弃。
+
+**交互合同（PR #2540 起）**：
+
+| 交互 | 行为 |
+|---|---|
+| 选择视频文件成功 | `video_path` 落位 + 成功 toast（`publishPage.videoSelected`，zh/en 成对） |
+| 已选 1 个文件后再选新文件 | **替换**（on-exceed → clearFiles + handleStart 重走 on-change 链），不再静默丢弃 |
+| 删除列表中的文件 | `video_path` 同步清空（on-remove），列表与表单状态一致 |
+| 路径解析失败 | 清空 `video_path` + 警告 toast（`story2video.media_path_unresolved`，既有行为不变） |
+
+video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回归锁：`Publish.test.js` 5 例（成功反馈 / 删除同步 / 重选替换 / 无 ref 与空文件 fail-safe / 既有路径解析）。审查口径：**任何 el-upload `limit=1` 必配 on-change + on-exceed + on-remove 三件套**。
