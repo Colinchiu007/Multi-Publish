@@ -191,12 +191,15 @@
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
                   <el-upload
+                    ref="videoUploadRef"
                     drag
                     :auto-upload="false"
                     :limit="1"
                     accept="video/*"
                     class="video-upload-zone"
                     :on-change="handleVideoFileChange"
+                    :on-remove="handleVideoFileRemove"
+                    :on-exceed="handleVideoFileExceed"
                   >
                     <el-icon class="el-icon--upload" :size="48"><upload-filled /></el-icon>
                     <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
@@ -345,7 +348,7 @@
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
                 <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
-                <el-upload drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange">
+                <el-upload ref="videoUploadRef" drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange" :on-remove="handleVideoFileRemove" :on-exceed="handleVideoFileExceed">
                   <el-icon class="el-icon--upload"><upload-filled /></el-icon>
                   <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                   <template #tip><div class="el-upload__tip">{{ t('publishPage.videoTip') }}</div></template>
@@ -609,6 +612,9 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const { notifySuccess, notifyWarning } = useNotify()
+// 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
+// limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
+const videoUploadRef = ref(null)
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
 // 2026-09 合并发布类型：image/wechat 为历史类型值，归一化为 article（向后兼容旧链接）。
 // 白名单只保留 video/article 两个真实入口。
@@ -733,6 +739,22 @@ async function handleVideoFileChange (file) {
     return
   }
   article.video_path = path
+  // 选择成功要有可感知反馈——此前只有列表小字，用户极易误判「没选上」而反复重选。
+  notifySuccess('publishPage.videoSelected')
+}
+
+function handleVideoFileRemove () {
+  // el-upload 内部列表删除后同步清 video_path，防止「列表已空但发布仍带旧视频」。
+  article.video_path = ''
+}
+
+function handleVideoFileExceed (files) {
+  // limit=1 时重选即替换：先清内部列表再走标准 on-change 链（handleStart 会再触发
+  // handleVideoFileChange）。不处理时 el-upload 会静默丢弃新文件——正是「选了没反应」的根因。
+  const upload = videoUploadRef.value
+  if (!upload || !files || !files[0]) return
+  if (typeof upload.clearFiles === 'function') upload.clearFiles()
+  if (typeof upload.handleStart === 'function') upload.handleStart(files[0])
 }
 
 async function handleCoverFileChange (file) {
@@ -1059,6 +1081,9 @@ defineExpose({
   handleImageFileChange,
   handleImageFileRemove,
   handleVideoFileChange,
+  handleVideoFileRemove,
+  handleVideoFileExceed,
+  videoUploadRef,
   handleCoverFileChange,
   handleCoverFileRemove,
   templateTargetIdx,
