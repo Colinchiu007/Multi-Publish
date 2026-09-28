@@ -2,11 +2,6 @@
   "本次执行记录：门禁记录覆盖检测——最新一篇执行记录必须带「远程同步」行，历史缺口只做可见（机制加固，gate-record-row-required，2026-09-28）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按 #2561 立的口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 `git log origin/main --grep='(#NNNN)$'` 离线取证回填，并删除本登记项（不删则报陈旧登记）。"
   },
-  "本次执行记录：发布页「标题参考」把 GitHub issue 当同类标题 → 数据源收窄 + 标题级相关性门禁（fix-title-assistant-relevance，2026-09-28）": {
-    "reason": "本 PR 自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填者＝下一个会话，回填后必须删除本条，否则判陈旧登记。",
-    "status": "PENDING",
-    "line": 24
-  },
   "本次执行记录：非全屏窗口登录页显示不全 → 登录视图 zoom-to-fit（fix-login-view-fit，2026-09-28）": {
     "reason": "同日其他会话的记录，本会话未对其 PR 收口取证；不代改。",
     "status": "PENDING",
