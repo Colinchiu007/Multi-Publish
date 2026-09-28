@@ -23,7 +23,9 @@
 
 - [x] 4.1 AGENTS.md QM-4：`test:all:visual` 语义变化、基线来源改为 Visual Tests workflow 的 artifact、升级门禁的两个前提
 - [x] 4.2 `apps/desktop/tests/visual-testing/README.md` / `USAGE.md` 命令表同步（94→103 条口径 + 两条流水线分工）
-- [x] 4.3 CHANGELOG / `.quality-gates.md` 记录（字节级前插：原字节为新文件逐字节后缀、NUL 数不变、CR 计数守恒；`git diff --numstat` 为 42/0 与 48/0 的纯新增）+ 账本登记本条 PENDING 欠账（`check-gate-record-debt.js` rc=0，欠账 30 条）
+- [ ] 4.3 CHANGELOG / `.quality-gates.md` 执行记录 / 账本登记 **移出本 PR**，改由合并后的单篇 docs PR 一次性回填
+  - 原因（实测 3 轮 CI 作废换来的）：本 PR 同时改 `CHANGELOG.md` / `.quality-gates.md` / `gate-record-debt-ledger.json` 三份**置顶插入型**文件时，main 每前进一次本 PR 就变 DIRTY，每次解冲突都要重烧一整轮全量 CI（约 20 分钟）。把置顶文档改动全部推迟到"合并之后"的那篇 docs PR：代码 PR 不再与 main 抢那三份文件，docs PR 又能以 PASS 直写（不需要 PENDING 与账本登记项），于是既没有乒乓、也没有需要事后销账的欠账。
+  - 回填内容清单（供下一个会话照抄，全部可离线取证）：① `CHANGELOG.md` 本 PR 条目；② `.quality-gates.md` 执行记录（其 `远程同步` 行直接写 PASS：`git log origin/main` 尾锚 `(#2589)` 取 merge SHA 与时间、`git ls-remote --heads origin visual-all-ci` 返回 0 行）；③ 若该 docs PR 自己也写 PENDING 行，才需要往账本加登记项（本条设计下应当不需要）
 
 ## 4b. QM-6 外部评审处理（claude 前端模型 + codex 后端模型）
 
