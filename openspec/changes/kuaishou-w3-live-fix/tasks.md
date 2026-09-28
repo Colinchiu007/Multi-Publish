@@ -12,7 +12,7 @@
 - [x] 2.1 活体只读侦察（CDP auth 视图，零发布副作用）：已登记 `01-docs/rpa-api-publish/evidence/api-w3-kuaishou/selector-probe-20260926.md`。**结论：快手登录态已失效（/profile 渲染登出营销页），发布页不可达；D2 定性从"选择器漂移"修正为"登录态失效阻断"，选择器刷新需重登后复测才能定夺**
 - [x] 2.1b （解锁项，需用户扫码）快手重登后复跑 probe-d2-diag.js 枚举发布页真实按钮 DOM，再判定 2.2/2.3 是否需要改动（2026-09-28 活体完成：用户过滑块登录 + 真实发布流全程被值守捕获器记录，38 张快照；上传后编辑页真提交钮实证为裸 `<span>立即发布</span>`，判定 (A) 选择器漏配——`d2-live-verdict-20260928.md` + `d2-live-evidence-20260928-snapshot005.json`）
 - [x] 2.2 红测：`platform-selectors` kuaishou publish_btn 新文案命中 + 旧文案尾部兜底 + 负例（登录页/未就绪不误命中），对齐 platform-definitions.test.js 负例形态（`platform-selectors.test.js` 首位断言 + 兜底断言；`rpa-selector-utils.test.js` 活体 fixture 4 例：精确命中/旧候选歧义演示/登录页负例/空表单负例）
-- [x] 2.3 实现：按 2.1 取证刷新 `packages/rpa-engine/src/platform-selectors.js` kuaishou `publish_btn` 候选序列（首位新增 `span:has-text("立即发布")`，旧 7 候选保留兜底）
+- [x] 2.3 实现：按取证刷新 `packages/rpa-engine/src/platform-selectors.js` kuaishou `publish_btn` 候选序列（一轮 #2554 首位 `span:has-text("立即发布")` 被二轮取证推翻——那是发布时间单选项；二轮定案首位 `div:has-text("发布")`（底栏裸 div 真钮，全页唯一直接文本命中）并移除单选项诱饵，见 `d2-live-verdict-20260928-round2.md`）
 - [x] 2.4 rpa-engine run-tests 全绿（3 files 221 tests 全绿 + 解析器回归锁 13/13）
 
 ## 3. 门禁与交付

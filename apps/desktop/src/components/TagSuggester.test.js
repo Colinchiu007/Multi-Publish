@@ -269,9 +269,9 @@ describe("TagSuggester", () => {
     // heat badge number present for matched traffic tag
     expect(w.text()).toContain("92");
     expect(w.text()).toContain("88");
-    const hotSpan = w.find('[title]');
+    // 建议标签现在都带「点击填入」title；热度提示须按内容精确匹配而非取第一个 [title]
+    const hotSpan = w.find('[title*="匹配热门话题"]');
     expect(hotSpan.exists()).toBe(true);
-    expect(hotSpan.attributes("title")).toContain("匹配热门话题");
   });
 
   it("copies merged content+traffic tags from grouped platform", async () => {
@@ -292,5 +292,121 @@ describe("TagSuggester", () => {
     expect(clipboardMock).toHaveBeenCalledWith("知乎 科技 知乎热榜");
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
+  });
+});
+
+// ── openspec/changes/optimize-publish-right-rail：平台联动 + 点击填入 + 空态收敛 ──
+describe("TagSuggester — 平台联动与点击填入", () => {
+  const FULL_CATALOG = ["zhihu", "weibo", "xiaohongshu", "bilibili", "toutiao"];
+
+  let i18n;
+  beforeEach(() => {
+    vi.mocked(intelligenceSuggestTags).mockReset();
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue({ code: 0, data: successResponse() });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setActivePinia(createPinia());
+    i18n = makeI18n("zh");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function mountWithPlatforms(platforms) {
+    return mount(TagSuggester, {
+      props: { content: "", platforms },
+      attachTo: document.body,
+      global: { plugins: [i18n] },
+    });
+  }
+
+  it("请求只携带所选平台", async () => {
+    const w = mountWithPlatforms(["kuaishou", "xiaohongshu"]);
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+    expect(intelligenceSuggestTags).toHaveBeenCalledWith("这是一篇测试文章内容", {
+      platforms: ["kuaishou", "xiaohongshu"],
+    });
+  });
+
+  it("空平台数组回退全量目录", async () => {
+    const w = mountWithPlatforms([]);
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+    expect(intelligenceSuggestTags).toHaveBeenCalledWith("这是一篇测试文章内容", {
+      platforms: FULL_CATALOG,
+    });
+  });
+
+  it("未传 platforms prop 时回退全量目录", async () => {
+    const w = mount(TagSuggester, {
+      props: { content: "" },
+      attachTo: document.body,
+      global: { plugins: [i18n] },
+    });
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+    expect(intelligenceSuggestTags).toHaveBeenCalledWith("这是一篇测试文章内容", {
+      platforms: FULL_CATALOG,
+    });
+  });
+
+  it("platforms 变化经防抖重新请求", async () => {
+    const w = mountWithPlatforms(["zhihu"]);
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+    expect(intelligenceSuggestTags).toHaveBeenCalledTimes(1);
+
+    await w.setProps({ platforms: ["weibo", "bilibili"] });
+    vi.advanceTimersByTime(900);
+    await nextTick();
+    expect(intelligenceSuggestTags).toHaveBeenCalledTimes(2);
+    expect(intelligenceSuggestTags).toHaveBeenLastCalledWith("这是一篇测试文章内容", {
+      platforms: ["weibo", "bilibili"],
+    });
+  });
+
+  it("点击关键词标签 emit apply-tag", async () => {
+    const w = mountWithPlatforms([]);
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+
+    const keywordTag = w.findAll('[data-testid="suggested-tag"]').find(el => el.text() === "#测试");
+    expect(keywordTag).toBeDefined();
+    await keywordTag.trigger("click");
+    expect(w.emitted("apply-tag")).toBeTruthy();
+    expect(w.emitted("apply-tag")[0]).toEqual(["#测试"]);
+  });
+
+  it("点击平台内容标签 emit apply-tag", async () => {
+    const w = mountWithPlatforms([]);
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+
+    const platformTag = w.findAll('[data-testid="suggested-tag"]').find(el => el.text() === "科技");
+    expect(platformTag).toBeDefined();
+    await platformTag.trigger("click");
+    expect(w.emitted("apply-tag")[0]).toEqual(["科技"]);
+  });
+
+  it("错误态渲染为一行提示并带重试按钮", async () => {
+    vi.mocked(intelligenceSuggestTags).mockRejectedValue(new Error("API error"));
+    const w = mountWithPlatforms([]);
+    await nextTick();
+    await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
+
+    const errorRow = w.get('[data-testid="tag-suggester-error"]');
+    expect(errorRow.text()).toContain("标签分析失败");
+    // 一行收敛：错误行内直接提供重试，不再渲染完整结果结构
+    expect(w.text()).not.toContain("提取关键词");
+    expect(w.text()).not.toContain("各平台标签");
+
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue({ code: 0, data: successResponse() });
+    const retryBtn = w.findAll("button").find(b => b.text().includes("重试"));
+    expect(retryBtn).toBeDefined();
+    await retryBtn.trigger("click");
+    vi.advanceTimersByTime(900);
+    await nextTick();
+    expect(w.text()).toContain("提取关键词");
   });
 });

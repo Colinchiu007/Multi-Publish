@@ -120,7 +120,7 @@ Invoke-RepoScript 'install-session-isolation-task.ps1' @('-Minutes', "$Minutes",
 
 Write-Host ""
 Write-Host "[4/5] Starting Write Guard watcher..."
-$guardTask = Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
+$guardTask = Get-ScheduledTask -TaskPath '\Mulpub\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
 if (-not $guardTask) { throw 'Write Guard 计划任务注册失败' }
 $running = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' }).Count -gt 0
 if (-not $running) {
@@ -136,13 +136,13 @@ Write-Host "Write Guard watcher is running"
 
 Write-Host ""
 Write-Host "[5/5] Health gate..."
-$report = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Multi-Publish\session-isolation\bootstrap-health.json'
+$report = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\bootstrap-health.json'
 Invoke-RepoScript 'mp-worktree-health.ps1' @('-Root', $primary, '-ReportPath', $report, '-WorktreeRoot', $worktreeRoot, '-GitPath', $git, '-RequireClean', '-RequireHooks', '-RequirePrimary', '-RequireWriteGuard', '-Quiet')
 
 Write-Host ""
 Write-Host "Bootstrap OK: hooks installed, tasks registered, watcher running, health ok=true" -ForegroundColor Green
 Write-Host "Verify anytime:"
 Write-Host "  powershell -ExecutionPolicy Bypass -File scripts/mp-worktree-health.ps1 -RequireWriteGuard"
-Write-Host "  Get-ScheduledTask -TaskPath '\Multi-Publish\'"
+Write-Host "  Get-ScheduledTask -TaskPath '\Mulpub\'"
 Write-Host "First runtime task:"
 Write-Host "  powershell -ExecutionPolicy Bypass -File scripts/start-mp-task.ps1 -TaskName <kebab-case>"

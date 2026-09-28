@@ -63,7 +63,7 @@ node integrations/install-mechanism.js <项目> --yes
 
 - [ ] 共享仓库根为 `main` 且干净；运行时代码任务默认落在 `<repo-parent>/mp-worktrees/mp-<task>`
 - [ ] `powershell -ExecutionPolicy Bypass -File scripts/bootstrap-write-guard.ps1` 退出码 0，输出 Bootstrap OK
-- [ ] `Get-ScheduledTask -TaskPath '\Multi-Publish\'` 同时包含 `Session Isolation Health` 与 `Session Isolation Write Guard`
+- [ ] `Get-ScheduledTask -TaskPath '\Mulpub\'` 同时包含 `Session Isolation Health` 与 `Session Isolation Write Guard`
 - [ ] `scripts/mp-worktree-health.ps1 -RequireWriteGuard` 退出码 0（watcher 运行、main clean、hooks 一致、无 outside worktree）
 - [ ] 自检均为 PASS：`scripts/session-write-guard.test.ps1`、`scripts/session-isolation-automation.test.ps1`
 - [ ] 首个任务通过 `scripts/start-mp-task.ps1 -TaskName <kebab-case>` 启动，worktree 落在可解析隔离根

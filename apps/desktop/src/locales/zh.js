@@ -1281,6 +1281,8 @@ export default {
     },
     schedule: '定时发布',
     scheduleHint: '留空 = 立即发布',
+    optimalTimeNoData: '数据不足，暂无发布时间建议',
+    optimalTimeNoDataDetail: '当前关键词的发布数据样本不足，无法统计最佳时段。发布更多内容积累数据后可自动分析，也可直接用定时发布手动指定时间。',
     aiDeclaration: '内容创作声明',
     aiDeclarationHint: '本内容由 AI 生成（如实声明，避免违规）',
     diffContent: '平台差异化内容',
@@ -2709,6 +2711,8 @@ export default {
     hotMatch: '匹配热门话题: {tag}（热度 {heat}）',
     emptyContent: '输入内容后自动分析标签',
     analysisFailed: '标签分析失败',
+    retry: '重试',
+    applyTagHint: '点击填入标签',
     tagsCopied: (ctx) => '已复制 ' + ctx.named('platform') + ' 标签',
   },
 
