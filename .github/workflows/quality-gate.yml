@@ -139,6 +139,7 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/worktree-fs-longpath.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
 
