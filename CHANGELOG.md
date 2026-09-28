@@ -13,6 +13,28 @@
 
 
 
+
+# [未发布] fix(dev-isolation): bridge 端口纳入按-worktree 派生，启动器探活改为验进程归属
+
+### 变更
+- `apps/desktop/scripts/dev-ports.js`：`resolveDevPorts` 现在除 vite/cdp 外还派生 `backend`/`prompt`/`splitter`/`aligner`/`callback` 五个 bridge 端口（各自一条宽 2800 的不重叠带：18300 / 21100 / 23900 / 26700 / 29500，同一 worktree 共享同一哈希偏移 ⇒ 整组可复现、间距恒定，全部落在 18300-32299，高于既有静态端口、低于 Windows 动态端口起始 49152）。非 worktree 路径（主仓库/CI）保持 8299/8013/8002/8004/16521 不变。
+- 显式的原生环境变量（`app-config.js` 认的那批）优先于派生 —— 顺序反了就会被 `dev.js` 的回写覆掉，而显式设 `BACKEND_PORT` 正是撞车时唯一的逃生阀。
+- 顺带修 `parsePort` 一个恒假式守卫：它写的是 `String(n) !== String(parseInt(raw, 10))`，而 `n` 就是 `parseInt(raw, 10)` —— 自己跟自己比恒 false，于是 `'8299.5'`、`'8299abc'` 被静默接受成 8299（用户以为换了端口，实际没换）。改为 `^\d+$` + 范围校验；首尾空白按 cmd `set "K=V"` 的历史坑继续容忍；空串仍按"未设置"回落而不抛错。
+- `apps/desktop/scripts/dev.js`：把派生出的五个端口下发给 Electron 主进程。此前不下发 ⇒ 主进程一律回落共享默认值，并发会话第二个实例的 python 后端 `uvicorn` bind 失败（`[Errno 10048]`，实测反复重启）。
+- `scripts/mp-applive-launcher.ps1`：探活端口取自派生结果，且**归属必须验到进程级** —— 取 Listen 的 `OwningProcess`、读其命令行并要求包含本 worktree 路径（ordinal `Contains`，不用 `-like`，因为路径里的 `[ ] * ?` 会被当通配符）。这不是可选加固：派生之后若仍硬编码探 8299，那个 listener 极可能是**别人的**后端，启动器会打印 `START_CONTRACT_OK` 而本实例请求实际路由到别人的数据目录。该文件保持纯 ASCII 无 BOM（Windows PowerShell 5.1 会把无 BOM 的 UTF-8 中文注释按 ANSI 读）。
+
+### 测试
+- `dev-ports.test.js` +7（16/16 通过）：默认路径不变、五个端口各离开默认值并落在自己带内、确定性、真实 fleet 内 backend 两两不撞、带间偏移恒定且不与 vite/cdp 重叠、部分覆盖只影响被指定的那个端口、非法值拒绝（含 `8299.5` / `8299abc`）。
+- 另加一条读源码的结构锁：启动器不得再出现 `-LocalPort 8299`，必须用 `$ports.backend` 并具备 `OwningProcess` 归属校验。它放在**已被 CI 显式点名**的 `dev-ports.test.js`（`quality-gate.yml:77`），刻意不为 `.ps1` 新建测试文件去再踩一次 PowerShell 运行时分档。
+- 三条反证实跑：忠实还原旧 `parsePort` ⇒ 1 红；bridge 端口不派生（恒回落） ⇒ 3 红；启动器换回 HEAD 版 ⇒ 结构锁红。三者均以 sha256 逐字还原。第一次尝试注入"旧 parsePort"时我只替换了 `if` 行、留下了新版的 `const n = Number(s)`，于是变异体仍然拒绝 `8299.5`、测试 0 红 —— 那是**变异不忠实**而不是锁有效，已重做。
+
+### 未做（#2459 保持 open）
+- 档 2：`python-bridge.js` 的 `PORT_IN_USE` 回退在"端口被占"场景下是死代码（`spawn` 的 `'error'` 不覆盖子进程自己 bind 失败退出，走的是 `'exit'` ⇒ 消息不匹配 ⇒ `break` ⇒ 外层从同一端口重来 = 活锁）。修法要动子进程生命周期与 stderr 取证，值得单独一轮。
+- 档 3：健康检查的所有权握手（后端生成 nonce、桥接层比对）。这一档需要 python-backend 配合，且 issue 自己标注为"仅从代码读出、本次未实测"的潜在面。
+
+
+
+
 # [未发布] test(ci): 接线棘轮的扫描域从「两个写死目录」扩成全仓，并新增「嵌套 workflow 永不执行」判据（2026-09-28，unwired-domain-wide）
 
 ### 变更

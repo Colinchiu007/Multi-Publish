@@ -13,11 +13,11 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/mp-anchor-health.ps1
-#   ... -RepoRoot D:\Data\projects\Multi-Publish
+#   ... -RepoRoot D:\Data\projects\Mulpub
 # Pure ASCII.
 [CmdletBinding()]
 param(
-  [string]$RepoRoot = 'D:\Data\projects\Multi-Publish',
+  [string]$RepoRoot = 'D:\Data\projects\Mulpub',
   [int]$BackupStaleDays = 7
 )
 $ErrorActionPreference = 'Continue'
