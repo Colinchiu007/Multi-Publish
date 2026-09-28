@@ -1,3 +1,9 @@
+# [未发布] docs(openspec): #2566 合并后收口 —— 主规格同步、远程同步证据回填、tasks 状态如实化（2026-09-29，governor-2566-closeout）
+
+### 变更
+- `openspec archive governor-quota-reserve`：把两条 MODIFIED Requirement 同步进主规格（`openspec/specs/story2video/model-call-scheduler`、`openspec/specs/ops-center/rate-limit-verifier`，`Totals: +0 ~2 -0`），change 落 `openspec/changes/archive/2026-09-29-governor-quota-reserve`。跑 CLI 前先核实主 spec 确实未同步（grep 新短语 0 命中），避免把手工同步过的规格再跑一遍造成重复。
+- `.quality-gates.md`：#2566 那条执行记录此前**整条缺失** `| 远程同步 |` 行（写于 PR 未合并时），现按既有口径补为 PASS 证据 —— `mergedAt=2026-09-28T16:36:48Z`、merge SHA `0f5c8ea2…`（`gh pr view` 与 `git log origin/main --grep` 两路同 SHA）、`git ls-remote --heads origin governor-quota-reserve` 返回 0 行。
+- 归档内的 `tasks.md`：5.4/6.1/6.2/6.3 由 `[ ]` 改为 `[x]` 并写明取证方式（含「模拟器不覆盖并发维度」已在 PR 描述中声明的实测行号、9 轮置顶冲突与 v8 解析器判据、孤立 CR 曾使 numstat 失真 462/462 vs 真实 7/51）。
 # [未发布] fix(模型调用): 5h 额度窗口在并发下超额发起真实调用 → 改为准入即占额度（2026-09-28，governor-quota-reserve）
 
 ### 为什么

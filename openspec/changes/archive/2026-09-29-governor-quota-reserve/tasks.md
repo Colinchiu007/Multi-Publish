@@ -40,13 +40,13 @@
 - [x] 5.1 QM-6 双模型外部评审（模型名从 `~/.claude/.ccg/config.toml` 的 `[routing]` 读，不照抄 AGENTS.md），Critical 修完、Warning 逐条处置
 - [x] 5.2 `01-docs/learnings.md` 记录逃逸链：既有额度测试为何全是串行、`completed` 与 `quota_exceeded` 同时偏高为何不可归因、以及「把 flaky 测试改成假时钟」如何险些把 Bug 钉成契约
 - [x] 5.3 `CHANGELOG.md` 与 `.quality-gates.md` 执行记录（含复现矩阵数字、四条反证的变红用例名）
-- [ ] 5.4 若 `openspec/specs/` 主规格需同步，按归档流程处理；PR 描述里显式声明「模拟器不覆盖并发维度」
+- [x] 5.4 已同步并归档：`npx openspec archive governor-quota-reserve --yes` ⇒ `story2video/model-call-scheduler` 与 `ops-center/rate-limit-verifier` 各 `~1 modified`（`Totals: +0 ~2 -0`），主 spec 现含「准入即占额度」「requests 窗口并发不超支」「失败的调用归还额度」「窗口换代不得污染新窗口」「5h 额度预检在并发下同样成立」；change 落 `archive/2026-09-29-governor-quota-reserve`。跑 CLI 前先 grep 确认主 spec 确实未同步（新短语 0 命中），避免对手工已同步的规格再跑一遍。PR #2566 描述已声明「并发维度不由运营后台的 Python 模拟器覆盖」（它是单线程顺序模型，本就满足新语义），实测在 body 第 81/83 行
 
 ## 6. 交付
 
-- [ ] 6.1 行尾与 numstat 两口径对账后提交、推分支、开 PR
-- [ ] 6.2 CI 全绿后确认 auto-merge；置顶文档冲突按纯 union 解并用「两条父提交各跑全文非空行多重集包含」放行
-- [ ] 6.3 合并后回读 `mergedAt`/`mergeCommit` 与 main 上的实际内容，再销账
+- [x] 6.1 已交付：PR #2566（分支 `governor-quota-reserve`，worktree `mp-governor-quota-reserve`）。提交前 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐项一致，并逐字节扫描孤立 CR —— 本轮实测过一次 `\r\r\n` 把 governor 翻成 `i/-text`，numstat 报 462/462 而真实内容改动只有 7/51：**两口径对账对孤立 CR 失明**，必须补字节扫描
+- [x] 6.2 auto-merge（SQUASH）挂着跑完；置顶文档冲突共 **9 轮**（最后一次 `CHANGELOG.md` / `.quality-gates.md` / `01-docs/learnings.md` 三份同轮相撞），每轮用 `resolve-merge-v8.mjs` 解：全文包含以 `origin/main` 为基准，HEAD 侧只强制「自己的新增行」（上游有权改写它继承来的行，否则会把别人的合法改写误报成丢失），并验 tail 为 HEAD 或 main 的内容域后缀 + 上游块首行恰好出现一次 + markers=0。放行判据由**独立校验器**（与解析器不同代码路径）对两条父提交各跑全文非空行多重集包含，各 0 丢失
+- [x] 6.3 已回读并销账：`mergedAt=2026-09-28T16:36:48Z`、`mergeCommit=0f5c8ea2208ea52ee4e551627b3b93bc7e580c33`（`gh pr view` 与 `git log origin/main` 尾锚 `(#2566)` 两路同一 SHA 与时间）；`git ls-remote --heads origin governor-quota-reserve` 返回 0 行证远端分支已删；main 上该 merge 实含 14 个文件。`.quality-gates.md` 里本条记录的 `远程同步` 行此前整条缺失（写于 PR 未合并时），已由收口 PR 补为 PASS 证据
 
 ## 7. 门禁驱动的新增工作（CI 首轮红之后补记，非原计划）
 
