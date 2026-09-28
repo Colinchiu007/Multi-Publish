@@ -445,14 +445,12 @@ function formatDate (value) {
 .account-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .account-avatar svg { width: 27px; height: 27px; }
 
-/* 失效遮罩：半透明黑带横跨头像中部，白字「已失效」，随圆形头像裁切 */
+/* 失效遮罩：半透明黑铺满整颗头像，白字「已失效」居中，随圆形头像裁切 */
 .account-avatar .avatar-status-mask {
   position: absolute;
-  top: 55%;
-  right: 0;
-  left: 0;
-  transform: translateY(-50%);
-  padding: 1px 0;
+  inset: 0;
+  display: grid;
+  place-items: center;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   font-size: var(--font-size-xs, 12px);
