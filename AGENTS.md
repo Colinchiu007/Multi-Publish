@@ -518,7 +518,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **跨实例事件订阅按 id 精确注销**：主进程中任何「渲染实例订阅集合」（`WebviewManager._subscribers` 等）都是**多 SPA 实例共享**的，注销 IPC 必须只按调用方自身的 `subscriberId` 删除，**一律禁止无 id 时 `clear()` 全清**，也禁止用 `Date.now()` 等粗粒度值作 id（同毫秒两实例取到同一 id，`Set` 去重后共享一条，任一方注销即误删另一方）。渲染层 store 必须在 `init()` 保存主进程下发的 id，并在 `dispose()` 原样回传；preload 包装函数不得丢弃该参数。回归锁：`apps/desktop/electron/services/webview-manager.test.js`「page-manager 事件订阅按 subscriberId 精确删除」+ `apps/desktop/src/stores/tab.test.js` dispose 回传用例。症状特征：原生 `WebContentsView` 照常显示（登录页/网页出现在当前标签区域），但 TabBar 不再出现新标签，且重启应用即恢复——遇到先查订阅集合大小，不要误判为标签注册逻辑失效。
 
 - **Windows 路径身份断言**：生产代码返回 canonical 路径时，测试必须对实际值和期望值同时调用 `fs.realpathSync.native()` 后比较；不得用原始字符串、`path.resolve()` 或 `path.normalize()` 判断 8.3 短路径与长路径是否为同一文件，也不得为消除平台差异而放宽受控根、符号链接或越界检查。
-- **行尾（CRLF）不是噪声：改前先认基线，改后必须保持**（2026-09-27 事故补写）：本仓 `CHANGELOG.md`、`01-docs/learnings.md` 等文档**在 blob 里就是 CRLF**，而新建的 JS/MD 文件多为 LF。用脚本或编辑器把 CRLF 文件整体写成 LF，git 会把**每一行**判为改动：本次 PR 的 diff 从内容级 13k 行膨胀到 42k 行，且此后**任何**并发会话合并这两个文件都会得到"整文件冲突"（两边都像重写了全文）—— 表现为"置顶型文档反复撞车"，真实原因却是行尾被改写。三条纪律：① 动手前先测基线 `git show <ref>:<file> | grep -c $'\r'`（或 `node -e` 数 `\r\n`），脚本改写时**按原文件行尾回写**（`split(/\r?\n/)` + 检测到的 eol 再 join）；② 提交前对账 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat`，**两个数差得远就是行尾被改**，别把幽灵行当成果；③ `git status`/commit 输出里的 `warning: in the working copy of 'X', LF will be replaced by CRLF the next time Git touches it` 不是噪声，它就是这件事的即时告警（本轮把它当作风控提示忽略了）。合并这类文件时的正解不是 union 硬合（那会把整份文件复制两遍，且"每行都在"的多重集对账依然通过），而是 `git show origin/main:<file>` 为底 + 只把自己的新增行插回去 + 还原 CRLF，并用多重集断言"两边的每一行都至少保留原次数"。
+- **行尾（CRLF）不是噪声：改前先认基线，改后必须保持**（2026-09-27 事故补写）：本仓 `CHANGELOG.md`、`01-docs/learnings.md` 等文档**在 blob 里就是 CRLF**，而新建的 JS/MD 文件多为 LF。用脚本或编辑器把 CRLF 文件整体写成 LF，git 会把**每一行**判为改动：本次 PR 的 diff 从内容级 13k 行膨胀到 42k 行，且此后**任何**并发会话合并这两个文件都会得到"整文件冲突"（两边都像重写了全文）—— 表现为"置顶型文档反复撞车"，真实原因却是行尾被改写。三条纪律：① 动手前先测基线 `git show <ref>:<file> | grep -c $'\r'`（或 `node -e` 数 `\r\n`），脚本改写时**逐行保留各自的行尾**（`split('\n')` 之后不碰任何一行 —— `\r` 本就是行内容的一部分 —— 再 `join('\n')`）；**禁止「探测多数派 eol 后统一回写」**，因为本仓这些 blob 自身就是混行尾，2026-09-28 实测行尾分布：`CHANGELOG.md` 14391 行 = 14365 行单 `\r` + **2 行 LF-only** + **24 行双 `\r`**，`01-docs/learnings.md` 16446 行 = 16437 + 3 + 6（两个数均经「各行类之和=总行数」与「`\r` 加总=文件 CR 总数」双重自洽校验）。统一回写会一次性改写 **26 行**（learnings 为 9 行）—— 即 ② 要抓的幽灵行，量级远超"一行"。**另有第二个独立缺陷**：若写成 `lines.join(eol) + '\n'`，文件**末行**的 `\r` 会被整体吃掉（末行分隔符是 `eol` 而尾部只补了 `'\n'`），实测再叠 1 行 ⇒ 27 / 10；要保留末行就得 `+ eol`，而这正说明"统一回写"没有一处是对的。② 提交前对账 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat`，**两个数差得远就是行尾被改**，别把幽灵行当成果；③ `git status`/commit 输出里的 `warning: in the working copy of 'X', LF will be replaced by CRLF the next time Git touches it` 不是噪声，它就是这件事的即时告警（本轮把它当作风控提示忽略了）。合并这类文件时的正解不是 union 硬合（那会把整份文件复制两遍，且"每行都在"的多重集对账依然通过），而是 `git show origin/main:<file>` 为底 + 只把自己的新增行插回去 + **逐行保留 main 那一行原本的结尾（不得统一成一种）**，并用多重集断言"两边的每一行都至少保留原次数"。
 
 - **文件系统测试隔离**：测试不得把可写状态固定到仓库内共享文件。并行会话或重复 runner 可能同时执行时，必须使用 `os.tmpdir()` 下带 PID/随机标识的独立路径；原子写测试需在 setup/teardown 同时清理 final 与 `.tmp` 文件。
 
@@ -787,17 +787,17 @@ npm run test:all:visual
 
 #### 执行方式（双模型并行，禁止串行）
 
-用 `codeagent-wrapper` 并行启动两个后端模型审查实现 diff（`run_in_background: true`，同一条消息两个调用）：
+用 `codeagent-wrapper` 并行启动后端模型与前端模型两路审查，审查实现 diff（`run_in_background: true`，同一条消息两个调用）。**模型名不在本文档写死**：调用前先读 `~/.claude/.ccg/config.toml`（该文件不在本仓；本仓 `.ccg/codex/config.toml` 是另一回事）的 `[routing.backend].primary` 与 `[routing.frontend].primary`，把下面两处的 `<BACKEND_PRIMARY>` / `<FRONTEND_PRIMARY>` 替换为读到的值：
 
 ```
 # 后端模型（逻辑/安全/规格合规审查）
-codeagent-wrapper --backend claude --lite "审查 <change> 实现：正确性/边界/安全/规格合规" <workdir>
+codeagent-wrapper --backend <BACKEND_PRIMARY> --lite "审查 <change> 实现：正确性/边界/安全/规格合规" <workdir>
 
 # 前端模型（模式/可维护性/集成风险审查）
-codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
+codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
 ```
 
-> 后端模型（claude）与前端模型（opencode）由 `.ccg/config.toml` 的 `[routing]` 配置决定；前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
+> 两路实际用哪个模型，唯一真源是 `~/.claude/.ccg/config.toml` 的 `[routing]`；本文档不复制其值，历史上抄写的示例值（曾写成 claude / opencode）已与配置脱节，照抄会跑错模型。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
 
 #### 评审输出与处理
 

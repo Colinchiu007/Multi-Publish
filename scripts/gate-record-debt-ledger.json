@@ -4,11 +4,6 @@
     "status": "PENDING",
     "line": 24
   },
-  "本次执行记录：「远程同步」欠账棘轮（.quality-gates.md 状态列）+ 回填本会话四条记录（机制加固，gate-record-debt，2026-09-28）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（这正是 PENDING 的语义）。回填者＝下一个会话，回填后必须删除本条，否则判陈旧登记。",
-    "status": "PENDING",
-    "line": 20
-  },
   "本次执行记录：非全屏窗口登录页显示不全 → 登录视图 zoom-to-fit（fix-login-view-fit，2026-09-28）": {
     "reason": "同日其他会话的记录，本会话未对其 PR 收口取证；不代改。",
     "status": "PENDING",
