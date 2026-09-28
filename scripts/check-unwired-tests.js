@@ -35,14 +35,18 @@ const PRUNE_DIRS = [".git", "node_modules", "dist", "dist-electron", "coverage",
 // session-write-guard 曾在欠账里（runner 红、本机绿），根因是夹具与真实工作树不同形，已修并回接：
 // 判「runner 端差异」时先问这一维是不是**可配置的**（git 全局配置、shell、环境变量都算），
 // 可配置就能在本机用 GIT_CONFIG_GLOBAL 指到临时配置文件复现，不属于"只有 runner 知道"那一类。
-const KNOWN_UNWIRED = {
-  "scripts/session-isolation-automation.test.ps1":
-    "注册动作内部调 Register-ScheduledTask，其中写保护任务用的是 AtLogOn 触发器：实测非提权一律" +
-    " PermissionDenied / HRESULT 0x80070005（同一次探针里，非 AtLogOn 的健康巡检任务注册成功并可" +
-    "干净删除，所以提权门槛精确只在 AtLogOn 那一格）。接进 CI 的未知量因此收窄成“runner 的进程令牌" +
-    "是否提权”。接线前提已就位一半：installer 自本 PR 起支持 -TaskPath 一次性路径，测试再也" +
-    "不可能删掉生产任务；剩下的是一次带留痕的 runner 实测，用来确定 AtLogOn 在 runner 上能否注册"
-}
+// 2026-09-29：最后一条 session-isolation-automation.test.ps1 已销账，清单归零。
+// 它的旧登记理由有两处过期，在此记下以免有人照旧口径重新挂欠账：
+//   ① "未知量是 runner 进程令牌是否提权" —— 不成立。该测试自己就按实测分两条支路
+//     （AtLogOn 注册成功 ⇒ 断言两条任务在；被 0x80070005 拒绝 ⇒ 断言 installer fail-closed
+//     且输出点名 RunAs），所以它不依赖提权与否，两条支路都该绿。
+//   ② 真阻塞根本不是计划任务，而是**前三条断言要求的工作树形态 CI 不给**：
+//     actions/checkout 是 detached HEAD（健康检查 -RequirePrimary 硬要 branch=main）、
+//     CI 从不装 hooks。正解是不改断言、改夹具：Gate 2d 在 $RUNNER_TEMP 造一个自有临时
+//     clone（checkout -B main + 复制两个 hook）再在里面跑；本机以同样配方复现过，
+//     两档 shell 各 18 条 PASS。
+// 清单空了不等于机制可以拆：它一拆，"新写一条测试不接线"就又回到无人发现的状态。
+const KNOWN_UNWIRED = {}
 
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。
 // 这类文件的危害不是"没跑测试"，而是**看起来像门禁**：正文里写着 node --test，读的人以为
