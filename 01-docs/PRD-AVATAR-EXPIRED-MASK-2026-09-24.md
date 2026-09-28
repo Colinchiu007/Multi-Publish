@@ -18,7 +18,7 @@
 
 | 编号 | 规则 | 验收方式 |
 |------|------|----------|
-| **R1** | `status` 判定为失效（`expired`）时，头像图片上叠加半透明遮罩带，遮罩内白字「已失效」 | E2E 计算样式 + 几何断言；单测类名/文案断言 |
+| **R1** | `status` 判定为失效（`expired`）时，半透明遮罩**铺满整颗头像**，白字「已失效」居中 | E2E 计算样式 + 几何断言；单测类名/文案断言 |
 | **R2** | 失效态下，头像旁（头像下方/右侧）的旧「已失效」徽章**不再渲染**——同一信息只出现一次 | 失效卡片内 `.login-badge` 数量必须为 0 |
 | **R3** | 有登录态（`online`）的「已登录」徽章**保持原样**，头像不加遮罩 | 有效卡片 `hasMask === false && badgeCount === 1 && text === '已登录'` |
 
@@ -102,25 +102,26 @@ const statusAriaLabel = computed(() =>
 | 属性 | 值 | 依据 |
 |------|-----|------|
 | `position` | `absolute` | 相对 `.account-avatar`（`relative`）定位 |
-| `top` / `transform` | `top: 55%` + `translateY(-50%)` | 横带中心落在头像纵向 55% 处，对齐效果图「中部略偏下」 |
-| `left` / `right` | `0` | 横向铺满头像直径，被 `overflow: hidden` 裁成弓形（与效果图一致） |
-| `background` | `rgba(0, 0, 0, 0.55)` | 半透明黑，保证任意头像底色上白字对比度 ≥ 4.5:1 |
+| `inset` | `0` | 遮罩与头像 padding box 重合 → 整颗头像均匀压暗；圆形由头像自身 `border-radius: 50%` + `overflow: hidden` 裁切，遮罩不必自带圆角 |
+| `display` / `place-items` | `grid` / `center` | 「已失效」落在头像正中，不再靠 `top: 55%` + `translateY(-50%)` 手动定位 |
+| `background` | `rgba(0, 0, 0, 0.55)` | **不得调淡**：0.55 是白字对比度 ≥ 4.5:1 的下界（最坏情况=纯白头像，实测 4.77:1；0.45 只有约 3.4:1，破 WCAG AA） |
 | `color` | `#fff` | — |
 | `font-size` | `var(--font-size-xs, 12px)` | 走字号 token（CI `check-font-size-scale` 要求） |
-| `line-height` / `padding` | `16px` / `1px 0` | 实测渲染带高 18px（62px 头像的 29%） |
-| `text-align` | `center` | — |
-| `white-space` | `nowrap` | 「已失效」三字不换行；短文案不会溢出成多行 |
+| `line-height` | `16px` | — |
+| `text-align` / `white-space` | `center` / `nowrap` | 「已失效」三字不换行；超长译文以头像中心对称溢出，由 `overflow: hidden` 两侧等量裁切（旧横带是 `left:0` 单向溢出，只裁右边） |
 | `pointer-events` | `none` | **不拦截点击**：卡片整体可点（打开创作者中心）、批量模式可勾选，遮罩不能变成点击障碍 |
 | 语言适配 | 直接复用 `statusLabel()` | en 为 `Invalid`（7 字符）仍可在 60px 宽内单行显示 |
 
+> `inset: 0` 对齐的是 padding box，而 `getBoundingClientRect()` 含 `.account-avatar` 的 1px 边框，两侧各差 1px（共 2px）属预期；E2E 因此取 3px 容差，不得为凑整数而放宽到「大致重合」。
+
 ### 3.5 两种视图一致性
 
-网格视图与列表视图共用同一组件，差异只在 CSS 布局方向（`Accounts.vue` 列表模式把 `.account-profile` 改为 `flex-direction: row`）。实测：
+网格视图与列表视图共用同一组件，差异只在 CSS 布局方向（`Accounts.vue` 列表模式把 `.account-profile` 改为 `flex-direction: row`）。2026-09-28 遮罩改为铺满后实测：
 
 | 视图 | 头像盒 | 遮罩盒 | 结论 |
 |------|--------|--------|------|
-| 网格 | 62×62 @ (609,297) | 60×18 @ (610,322) | 遮罩水平居中、垂直落在圆内 |
-| 列表 | 46.7×62 @ (661,325) | 44.7×18 @ (662,350) | 遮罩随头像宽度自适应铺满，仍无徽章 |
+| 网格 | 62×62 @ (609,287) | 60×60 @ (610,288) | 遮罩与头像 padding box 重合（四边各差 1px 边框），整颗头像均匀压暗 |
+| 列表 | 46.7×62 @ (661,297) | 44.7×60 @ (662,298) | 同上随头像宽度自适应铺满，仍无徽章 |
 
 ---
 
@@ -175,7 +176,7 @@ const statusAriaLabel = computed(() =>
 | `已登录账号保留头像旁的「已登录」徽章，头像不加遮罩` | R3 |
 | `未确认与异常状态仍走徽章，不吃遮罩语义（遮罩只代表失效）` | 范围界定（§1.1），遍历 `unverified`/`error`/`unknown` |
 | `头像图片加载失败回落占位图标时，失效遮罩仍然显示` | §3.2 与 #2290 共存 |
-| `遮罩样式契约：头像为定位容器，遮罩绝对定位覆盖并自带半透明底` | §3.4 样式契约（JSDOM 不应用 scoped CSS，故读 `.vue` 源码断言，沿用 `Accounts.test.js` 既有惯例） |
+| `遮罩样式契约：铺满整颗头像、白字居中，并保留半透明黑底与点击穿透` | §3.4 样式契约（JSDOM 不应用 scoped CSS，故把规则解析成「属性→值」映射做逐属性 `toBe` 断言，并对 `top`/`right`/`left`/`transform`/`padding` 五个「横带专属」属性做**缺席**断言——退回横带即红） |
 
 同时把既有失效用例名中的「徽章」改为「状态」，避免用例名与新实现矛盾。
 
@@ -187,12 +188,13 @@ const statusAriaLabel = computed(() =>
 2. 遮罩存在且文本「已失效」
 3. `role=status` 与 `aria-label="账号登录状态：已失效"`
 4. `position:absolute` + `background: rgba(0, 0, 0, 0.55)` + `color: rgb(255, 255, 255)`
-5. 遮罩盒落在头像盒内，且头像 `overflow: hidden` + `position: relative`
-6. 失效卡片 `.login-badge` 数量为 0（R2）
-7. 有效卡片无遮罩、徽章数 1、文本「已登录」（R3）
-8. 列表视图切换后规则一致
-9. 零 console error / 零 page error
-10–11. 截图存证 `01-expired-mask-and-active-badge.png`、`02-list-view-mask.png`
+5. 遮罩盒与头像盒**重合**（3px 容差，见 §3.4 尾注），且头像 `overflow: hidden` + `position: relative`
+6. 遮罩 `pointer-events: none`（不拦截点击）
+7. 失效卡片 `.login-badge` 数量为 0（R2）
+8. 有效卡片无遮罩、徽章数 1、文本「已登录」（R3）
+9. 列表视图切换后规则一致
+10. 零 console error / 零 page error
+11–12. 截图存证 `01-expired-mask-and-active-badge.png`、`02-list-view-mask.png`
 
 执行方式（需 dev server 在 `TEST_URL`，默认 `http://127.0.0.1:5174`）：
 
@@ -232,3 +234,22 @@ node tests/e2e/specs/account-avatar-expired-mask.js
 | 改「去登录」按钮文案或位置 | 不在需求范围 |
 | 首页失效横幅、发布前校验提示 | 属另一显示面（`Home.vue` / 发布门禁），本次不动 |
 | 观察项 | 若后续产品要求「未确认」也用头像载体（如问号角标），需重新设计 `showAvatarMask` 为 kind→载体映射表，而非再加布尔量 |
+
+---
+
+## 10. 变更记录
+
+### 10.1 2026-09-28：遮罩几何由「中部横带」改为「铺满整颗头像」
+
+用户反馈（附截图）：失效账号头像「应该加上一个透明的遮罩效果」。§3.4 初版实现的是仅盖住头像纵向 29% 的一条横带，头像其余部分完全不受遮，与「整颗头像被遮罩」的直觉不符。
+
+| 项 | 初版（2026-09-24） | 现行（2026-09-28） |
+|----|-------------------|-------------------|
+| 几何 | `top: 55%` + `translateY(-50%)` + `left/right: 0`，实测 60×18 | `inset: 0`，实测 60×60（padding box 铺满） |
+| 文字定位 | 横带内 `text-align: center` | `display: grid` + `place-items: center`，落在圆心 |
+| 半透明度 | `rgba(0, 0, 0, 0.55)` | **不变** |
+| 超长译文溢出 | `left: 0` 单向，只裁右侧 | 中心对称，两侧等量裁切 |
+
+**为什么半透明度不动**：曾拟调淡为 `0.45` 以减弱「压黑」感，但 §3.4 记录的 0.55 是白字对比度 ≥ 4.5:1 的下界——最坏情况（头像为纯白）0.55 实测 4.77:1、0.45 只剩约 3.4:1，直接破 WCAG AA。遮罩面积从 29% 扩大到 100% 后，这个下界反而更常被打到（浅色头像整颗变灰），因此**只改几何、不动颜色**。
+
+R1 / R2 / R3 三条规则本身不变，改的只是 R1 的遮罩面积；`showAvatarMask` 仍是唯一分流开关，判定逻辑 `accountStatusKind` 一字未动。

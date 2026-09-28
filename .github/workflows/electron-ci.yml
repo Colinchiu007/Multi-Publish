@@ -91,11 +91,14 @@ jobs:
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         if: github.event_name != 'pull_request'
         run: |
-          # 预算必须挂实测分布，不能挂魔数（#2458）：串行单 worker 的自然耗时实测区间为
-          # 18m44s ~ 21m32s（main 近 14 次运行里 8 次撞墙），旧预算 20m 距观测到的最大值只剩
-          # 约 1 分钟 ⇒ 任何 runner 抖动、任何 PR 往这套件加测试都会把它推过去。
-          # 抬到 35m 属**单调放宽**（不会让任何原本通过的运行变红），但它是「接受余量不足」
-          # 而不是「修好了根因」：真正的根因修法是按 --shard 把这一轮切开（issue 档 2）。
+          # 预算必须挂**步骤级**实测，不能挂魔数，也不能拿 job 级总时长当步骤基线（#2458）。
+          # 步骤健康耗时实测 794s（run 36380533567 / main push bef5fb72 的自证行
+          # `elapsed=794s budget=2100s rc=0`），被替换掉的旧墙是 1200s。真实红因是 runner
+          # 负载把步骤耗时放大到越过旧墙（main 近 14 次运行里 8 次 exit 124），而不是
+          # "自然耗时已贴着墙" —— 794s 对 1200s 本来还有约 33% 余量。
+          # 层级混淆的完整依据与两个数字的出处：docs/electron-ci-step-budget-baseline.md。
+          # 2100s ≈ 健康步骤耗时 ×2.6 ≈ 旧墙 ×1.75，属**单调放宽**（不会让任何原本通过的运行
+          # 变红），但仍不是「修好了根因」：根因修法是按 --shard 把这一轮切开（issue 档 2）。
           # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
           # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
           BUDGET_SECONDS=2100
