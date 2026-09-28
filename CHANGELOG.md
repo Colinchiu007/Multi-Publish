@@ -18,7 +18,24 @@
 - `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
 - 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
 - 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
-- QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
+- QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
+# [未发布] ci(electron-ci): 串行单测预算从魔数改为挂实测，并让超时能自证
+
+### 变更
+- `.github/workflows/electron-ci.yml`：`Unit tests (Vitest, non-Electron, single-worker deterministic)` 步骤的 `timeout --signal=TERM --kill-after=30s 20m` 改为变量化预算 `BUDGET_SECONDS=2100`（35m）；job 级 `timeout-minutes` 45 → 70。**两者必须一起改**：`10 + 10 + 35 = 55 > 45`，只抬内层会让 Actions 的 job killer 先开火，症状（日志切在 `Post job cleanup`、无 vitest 摘要）与原病一模一样 —— 那正是 #2458 的失效模式，等于换了个施动者。
+- 超时自证：输出经 `tee` 落 `electron-ci-unit-tests.log`，退出码读 `${PIPESTATUS[0]}`（`cmd | tee` 之后 `$?` 是 tee 的、恒 0），`rc=124` 时打印 `elapsed/budget`、已完成测试行数、摘要行数（应为 2，为 0 即整轮没跑完）与末段输出，不再需要人下几百 MB 日志反推。
+- 如实登记：35m 属**单调放宽**（不会让任何原本通过的运行变红），它是「接受余量不足」而非「修好根因」。根因是串行单 worker 要跑约 11700+ 条测试、自然耗时实测 18m44s~21m32s；正解是按 `--shard` 切开（issue 档 2）与给 CI Failure Handler 加 `ci-timeout-budget` 归类（档 4），**两条均未在本 PR 做**，#2458 保持 open。
+
+### 测试
+- `apps/desktop/tests/gui-ci-exit-contract.test.js` 新增结构锁「Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂」：预算 ≥ 实测上界 21m32s × 1.5、禁止 `kill-after=30s 20m` 复活、必须含 `PIPESTATUS` 与 `TIMEOUT_BUDGET_EXCEEDED`、job 级必须大于「其余显式 `timeout-minutes` 之和 + 本步骤预算」。
+- 同步更新被本次改动合法打破的断言：`timeout-minutes` 45 → 70（AGENTS.md「门禁断言随平台/实现迁移同步」）。本地 `gui-ci-exit-contract.test.js` **32/32 通过**。
+- 反证已实跑：把 workflow 换回旧版 ⇒ 3 条同时变红（新锁 + watchdog 那条 + job 级那条），随后按 sha256 逐字还原（两份哈希一致）。
+
+
+
+
+
+
 
 # [未发布] docs(openspec): 归档登录态两件 change 并把 6 条 Requirement 同步进主 spec（2026-09-28，openspec-archive-login-state）
 

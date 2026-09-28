@@ -37,7 +37,13 @@ concurrency:
 jobs:
   electron-tests:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # 预算不得倒挂（#2458）：本 job 的显式上限之和 = Install dependencies 10 +
+    # Install Electron runtime 10 + 串行单测步骤内层 timeout 35 = 55 分钟，
+    # 再加 checkout/setup/媒体工具 restore/冒烟/构建等无上限步骤。
+    # 旧值 45 已经贴着这个上界 —— 只把内层 20m 抬到 35m 而不抬 job 级，
+    # 结果是「不可归因的 job 级超时」取代「不可归因的步骤级 exit 124」，
+    # 失败模式没修，只是换了个掐掉它的层。70 = 55 + 约 15 分钟其它步骤余量。
+    timeout-minutes: 70
     defaults:
       run:
         shell: bash
@@ -85,10 +91,35 @@ jobs:
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         if: github.event_name != 'pull_request'
         run: |
-          timeout --signal=TERM --kill-after=30s 20m \
+          # 预算必须挂实测分布，不能挂魔数（#2458）：串行单 worker 的自然耗时实测区间为
+          # 18m44s ~ 21m32s（main 近 14 次运行里 8 次撞墙），旧预算 20m 距观测到的最大值只剩
+          # 约 1 分钟 ⇒ 任何 runner 抖动、任何 PR 往这套件加测试都会把它推过去。
+          # 抬到 35m 属**单调放宽**（不会让任何原本通过的运行变红），但它是「接受余量不足」
+          # 而不是「修好了根因」：真正的根因修法是按 --shard 把这一轮切开（issue 档 2）。
+          # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
+          # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
+          BUDGET_SECONDS=2100
+          LOG=electron-ci-unit-tests.log
+          START=$(date +%s)
+          timeout --signal=TERM --kill-after=30s ${BUDGET_SECONDS}s \
             pnpm --filter @multi-publish/desktop test -- \
             --maxWorkers=1 --no-file-parallelism --reporter=verbose \
-            --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000
+            --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000 2>&1 | tee "$LOG"
+          # 必须读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的退出码（恒 0），
+          # 直接判 $? 会把超时和断言失败一起吞成成功。
+          RC=${PIPESTATUS[0]}
+          END=$(date +%s)
+          ELAPSED=$((END - START))
+          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"
+          if [ "${RC}" -eq 124 ]; then
+            echo "TIMEOUT_BUDGET_EXCEEDED：本轮被步骤级 timeout 掐断，不是断言失败。"
+            echo "自证判据：日志里没有 vitest 摘要行（Test Files ... / Tests ...），说明整轮没跑完。"
+            grep -cE '^[[:space:]]+[✓×↓-]' "$LOG" | sed 's/^/已完成测试行数: /' || true
+            grep -cE '^ *(Test Files|Tests) ' "$LOG" | sed 's/^/摘要行数(应为 2): /' || true
+            tail -n 8 "$LOG" | sed 's/^/末段输出: /' || true
+            echo "下一步应该是把这一轮按 --shard 切开，而不是继续加大预算。"
+          fi
+          exit "${RC}"
 
       - name: Vitest failure diagnostics
         if: failure()
