@@ -106,6 +106,8 @@ jobs:
           bash scripts/session-init.test.sh
           node --test scripts/check-step-failfast.test.js
           node scripts/check-step-failfast.js
+          node --test scripts/check-gate-record-debt.test.js
+          node scripts/check-gate-record-debt.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
