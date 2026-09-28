@@ -55,7 +55,7 @@ description: '按规范执行 + 多模型协作 + 归档'
    EOF
    ```
 
-   **会话复用**：保存返回的 `SESSION_ID:`（{{BACKEND_PRIMARY}} → `CODEX_PROTO_SESSION`，{{FRONTEND_PRIMARY}} → `GEMINI_PROTO_SESSION`），Step 7 审查时复用。
+   **会话复用**：保存返回的 `SESSION_ID:`（{{BACKEND_PRIMARY}} → `CODEX_PROTO_SESSION`，{{FRONTEND_PRIMARY}} → `FRONTEND_PROTO_SESSION`），Step 7 审查时复用。
 
 5. **Rewrite Prototype to Production Code**
    Upon receiving diff patch, **NEVER apply directly**. Rewrite by:
@@ -93,7 +93,7 @@ description: '按规范执行 + 多模型协作 + 归档'
    **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
    ```
    Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}{{KIMI_MODEL_FLAG}}{{OPENCODE_MODEL_FLAG}}resume <GEMINI_PROTO_SESSION> - \"{{WORKDIR}}\" <<'EOF'\nReview the implementation changes:\n- Maintainability: readability, complexity\n- Patterns: consistency with project style\n- Integration: cross-module impacts\nOUTPUT: JSON with findings\nEOF",
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}{{KIMI_MODEL_FLAG}}{{OPENCODE_MODEL_FLAG}}resume <FRONTEND_PROTO_SESSION> - \"{{WORKDIR}}\" <<'EOF'\nReview the implementation changes:\n- Maintainability: readability, complexity\n- Patterns: consistency with project style\n- Integration: cross-module impacts\nOUTPUT: JSON with findings\nEOF",
      run_in_background: true,
      timeout: 300000,
      description: "{{FRONTEND_PRIMARY}}: maintainability/patterns review"
@@ -103,7 +103,7 @@ description: '按规范执行 + 多模型协作 + 归档'
    **Step 7.2**: After BOTH Bash calls return task IDs, wait for results with TWO TaskOutput calls:
    ```
    TaskOutput({ task_id: "<codex_task_id>", block: true, timeout: 600000 })
-   TaskOutput({ task_id: "<gemini_task_id>", block: true, timeout: 600000 })
+   TaskOutput({ task_id: "<frontend_task_id>", block: true, timeout: 600000 })
    ```
 
    ⛔ **前端模型失败必须重试**：若前端模型调用失败，最多重试 2 次（间隔 5 秒）。3 次全败才跳过。
