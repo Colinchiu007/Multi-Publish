@@ -5101,6 +5101,48 @@ Task Queue → 各平台发布器 → 发布完成
 - window.open 拦截仅在 tab 内导航 http/https URL；`new-window` disposition 仍拒绝（保持默认行为）
 - 与参考产品逆向分析代码 (`index.cjs:120753-120793`) 对齐：普通 tab 内 target=_blank/前景标签默认在当前 tab 内 loadURL
 
+### 18.2.5 2026-09-29 导航区图标体系与标签页加载态收口
+
+**问题**：
+
+1. 标签页的转圈徽标自 `941b17f1`（2026-08-10）诞生起就从未被实时事件熄灭过：主进程广播的 `tab-loading` / `tab-finished-loading` 只改写 `navigation`，从不写回 `tabs[].loading`，而 `TabBar.vue` 读的正是后者；徽标只能靠「建/关/切标签」时的全量快照偶然纠正，于是页面早已渲染完仍在转圈。
+2. 主进程 `loading` 的收口点挂在 `did-finish-load` 上，而该事件只在**主框架成功**加载时触发；导航失败或被中止（`did-fail-load` / `ERR_ABORTED`）时永不调发，`state.loading` 永久停在 `true`。修复前全仓 `did-stop-loading` 使用次数为 0。
+3. 后退 / 前进 / 刷新三个按钮的「图标」其实是裸 Unicode 字符 `←` `→` `⟳`，形态完全由系统字体决定；两处转圈同样是 `⟳` + CSS 旋转，**不是 gif**（全仓 assets 与 public 下无任何 .gif）。
+
+**修复**：
+
+| 能力 | 实现与合同 | 状态 |
+|------|-----------|------|
+| 加载态唯一收口点 | `tab-lifecycle._setupNav` 改用 `did-stop-loading`（electron.d.ts 原文即「the spinner of the tab stopped spinning」，与 `did-start-loading` 成对且覆盖失败路径）；`did-finish-load` 只保留 `initialRedirectPhase` 解除与 `_maybeScheduleAutoSave`，**不得**再写 `state.loading` | 本地已实现 |
+| 崩溃兜底 | `render-process-gone` 就地收口（此后不会再有任何加载事件），且仅在原值为 `true` 时广播 | 本地已实现 |
+| 渲染层接线 | `tab.js` 新增 `_applyLoading(data)` 作为两个加载事件的共用出口：按 `tabId` 写回 `tabs[].loading`（驱动标签徽标）+ 活动标签同步 `navigation.loading`（驱动导航栏转圈） | 本地已实现 |
+| 第三套口径收敛 | `_broadcastNav` 载荷新增 `loading` 字段；渲染层按广播值收口，**字段缺席则保持现状**（原实现硬编码 `false`，SPA 路由切换会把真在加载的转圈误熄灭） | 本地已实现 |
+| 导航三键图标 | 新增 `src/components/icons/` 四个内联 SVG 组件（Lucide ISC 几何，24×24 网格 / `stroke-width=2` / 圆头描边），替换 `←` `→` `⟳` 裸字形；不新增 npm 依赖、不改 `pnpm-lock.yaml` | 本地已实现 |
+| 转圈形状与动效 | 两处 `⟳` 换为 `SpinnerIcon`（开口圆环），旋转节奏 1s linear 不变；新增 `prefers-reduced-motion: reduce` 停转降级 | 本地已实现 |
+
+**数据校验**：
+
+- `data.tabId` 缺失 → 直接返回，不改任何状态
+- `data.loading` 非 boolean（`undefined` / `null` / 字符串）→ 直接返回；**禁止**用 `!!` 猜测，否则「载荷破坏」会被当成「加载结束」而静默熄灭真在加载的转圈
+- `tabId` 不在 `tabs[]` 中（标签刚被关闭）→ 跳过列表写入，仍允许更新 `navigation`
+- 过期 `getAllTabs` 快照与实时事件的竞态 → 复用既有版本化 `_tabLiveUpdates` 覆盖保护（`update.version > requestVersion` 才生效），防徽标被过期快照复活或误灭
+- home 虚拟标签与登录标签各自的静态投影恒为 `loading: false`，不参与本状态机
+- 刻意**不加**超时兜底：挂起子资源永不 settle 的站点会持续转圈，与浏览器行为一致；超时强灭等于让指示器说谎
+
+**显示项**：
+
+- 标签徽标：仅 `tab.loading === true` 时渲染，12px，`var(--color-primary)`；`data-testid="tab-loading-<tabId>"`
+- 导航栏转圈：仅活动标签 `loading === true` 时渲染，14px
+- 导航三键：16px SVG，`data-testid` 与禁用条件（`canGoBack` / `canGoForward`）均不变；标签栏 36px、导航栏 40px 高度不变（主进程 `WebContentsView TOP=76px` 契约）
+- 后台（非活动）标签加载仍点亮该标签徽标，与浏览器行为一致
+
+**提示文字**：
+
+- 新增 locale 键 `tabBar.loadingBadge`（zh `页面加载中` / en `Page loading`，成对提交过 Gate 7），用作标签徽标的 `title` 悬停提示与 `aria-label`（原实现为 `aria-hidden="true"`，加载态对辅助技术完全不可见）
+- 图标几何的第三方许可声明落 `apps/desktop/THIRD-PARTY-NOTICES.md`「Lucide 图标」章节（ISC + 其中 arrow-left/arrow-right 另受 Feather MIT 约束）
+
+**完整口径**（状态机图、逃逸链、六条反证变异实测、验收标准 AC-1..AC-9、已知残留 R-1..R-5）见 `01-docs/PRD-BROWSER-NAV-ICONS-LOADING-2026-09-29.md`。
+
 ### 18.3 设计与代码分层
 
 ```text
