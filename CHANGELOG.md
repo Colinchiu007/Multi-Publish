@@ -13,6 +13,21 @@
 我先是据此把「抓不到」当实现缺陷登记成欠账，又在 AGENTS.md 里写下「该推断已被否证」——两次都没跑全量。
 现按实测把口径改成「必须在 runner 真实采用的那种跑法下跑一次」，并把判据写成可执行锁。
 
+# [未发布] feat(账号): 失效头像遮罩从「中部一条黑带」改为「铺满整颗头像 + 白字居中」
+
+### 变更
+- `apps/desktop/src/features/accounts/components/AccountManagementCard.vue`：`.avatar-status-mask` 的几何由 `top: 55%` + `right/left: 0` + `transform: translateY(-50%)` + `padding: 1px 0`（横带高 18px，仅盖住头像纵向 29%）改为 `inset: 0` + `display: grid` + `place-items: center`，整颗头像被均匀压暗、「已失效」落在圆心。
+- **半透明度保持 `rgba(0, 0, 0, 0.55)` 不变**：0.55 是 PRD §3.4 记录的白字对比度 ≥ 4.5:1 下界（最坏情况=纯白头像实测 4.77:1）。曾拟调淡为 0.45，实测对比度只剩约 3.4:1、破 WCAG AA，故只改几何不动颜色。
+- 圆形裁切仍完全由头像自身的 `border-radius: 50%` + `overflow: hidden` 承担，遮罩不自带圆角；超长译文（en `Invalid`）的溢出由旧的单向裁切（`left: 0`，只裁右）变为中心对称裁切。
+- `apps/desktop/tests/e2e/specs/account-avatar-expired-mask.js`：几何判据由「遮罩盒落在头像盒内」收紧为「遮罩盒与头像盒重合」（容差 3px —— `inset: 0` 对齐 padding box 而 `getBoundingClientRect()` 含 1px 边框，两侧各差 1px 属预期，不得为凑整放宽）；补一条 `pointer-events: none` 独立断言（PRD §6 早已声明该契约，此前 E2E 只采集未断言）。
+- `01-docs/PRD-AVATAR-EXPIRED-MASK-2026-09-24.md`：R1、§3.4 视觉规格表、§3.5 实测盒、§7.1 用例名、§7.2 断言清单同步为铺满口径，并追加 §10 变更记录。
+
+### 测试
+- `AccountManagementCard.test.js` 的样式契约从 3 条 `toContain` 升级为**逐属性 `toBe` + 5 条缺席断言**：新增 `readCssDeclarations()` 把 `.vue` 里的规则解析成「属性→值」映射（按 `;` 切分而非按行——本仓 `.vue` 存在 CRLF 基线，逐行正则会被 `\r` 全部失配，实测第一版即因此解析出空映射），再断言 `inset: 0` / `display: grid` / `place-items: center` / `background` / `color` / `pointer-events`，并对 `top`/`right`/`left`/`transform`/`padding` 五个「横带专属」属性断言**缺席**。
+- 变异反证均已实跑：退回中部横带几何 ⇒ 红；把暗罩调淡为 0.45 ⇒ 红；删 `pointer-events` ⇒ 红。还原后 40 passed / 1 skipped。
+- 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
+- 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
+
 # [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
 
 ### 现象与根因
