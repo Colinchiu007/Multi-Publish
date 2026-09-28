@@ -192,11 +192,13 @@
                   <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
                   <el-upload
                     ref="videoUploadRef"
+                    v-model:file-list="videoUploadFileList"
                     drag
                     :auto-upload="false"
                     :limit="1"
                     accept="video/*"
                     class="video-upload-zone"
+                    :class="{ 'has-selected-video': Boolean(article.video_path) }"
                     :on-change="handleVideoFileChange"
                     :on-remove="handleVideoFileRemove"
                     :on-exceed="handleVideoFileExceed"
@@ -205,6 +207,12 @@
                     <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                     <template #tip><div class="el-upload__tip">{{ t('publishPage.dragVideoHint') }}</div></template>
                   </el-upload>
+                  <SelectedVideoCard
+                    :path="article.video_path"
+                    :info="videoFileMeta"
+                    @replace="triggerVideoReselect"
+                    @remove="handleVideoCardRemove"
+                  />
                   <div class="video-ai-entry">
                     <UiButton variant="ghost" size="sm" data-testid="goto-ai-video-btn" @click="router.push('/create')">
                       {{ t('publishPage.aiVideoEntry') }}
@@ -399,11 +407,17 @@
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
                 <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
-                <el-upload ref="videoUploadRef" drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange" :on-remove="handleVideoFileRemove" :on-exceed="handleVideoFileExceed">
+                <el-upload ref="videoUploadRef" v-model:file-list="videoUploadFileList" drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange" :on-remove="handleVideoFileRemove" :on-exceed="handleVideoFileExceed">
                   <el-icon class="el-icon--upload"><upload-filled /></el-icon>
                   <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                   <template #tip><div class="el-upload__tip">{{ t('publishPage.videoTip') }}</div></template>
                 </el-upload>
+                <SelectedVideoCard
+                  :path="article.video_path"
+                  :info="videoFileMeta"
+                  @replace="triggerVideoReselect"
+                  @remove="handleVideoCardRemove"
+                />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">{{ t('publishPage.cover') }}</label>
@@ -670,14 +684,17 @@ import {
 import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META } from '@multi-publish/shared-utils/src/publish-capabilities'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
+import SelectedVideoCard from '@/features/publish/components/SelectedVideoCard.vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
+import { formatBytes } from '@/utils/bytes'
+import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const { notifySuccess, notifyWarning } = useNotify()
+const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -742,6 +759,10 @@ const article = reactive({
 })
 const imageFileList = ref([])
 const coverFileList = ref([])
+// 视频上传列表（el-upload v-model:file-list）与已选视频元信息（卡片展示用）。
+// 草稿恢复等路径只有 video_path 没有 File 对象时 videoFileMeta 为 null，卡片退化为路径推导展示。
+const videoUploadFileList = ref([])
+const videoFileMeta = ref(null)
 const tagsText = computed({
   get: () => normalizePublishStringList(article.tags).join(', '),
   set: value => { article.tags = normalizePublishStringList(value) },
@@ -798,20 +819,49 @@ async function handleImageFileRemove (_file, fileList) {
 }
 
 async function handleVideoFileChange (file) {
+  const raw = file?.raw || file
   const path = await resolveUploadFilePath(file)
+  const prevPath = article.video_path
+  const kind = classifyVideoSelection({ prevPath, nextPath: path, sizeBytes: raw?.size })
+  if (kind === 'oversize') {
+    // 500MB 超限：选前拦截，不覆盖旧选择，toast 带实际大小（此前只在发布时才失败）
+    notifyWarning('publishPage.videoTooLarge', { params: { size: formatBytes(raw?.size) } })
+    return
+  }
   if (!path) {
     article.video_path = ''
+    videoFileMeta.value = null
     notifyWarning('story2video.media_path_unresolved', { params: { kindLabel: t('publishPage.videoFile') } })
     return
   }
+  const prevName = videoFileMeta.value?.name || ''
   article.video_path = path
-  // 选择成功要有可感知反馈——此前只有列表小字，用户极易误判「没选上」而反复重选。
-  notifySuccess('publishPage.videoSelected')
+  videoFileMeta.value = describeVideoFile({ name: raw?.name || file?.name, path, type: raw?.type || file?.type, size: raw?.size ?? file?.size })
+  if (kind === 'first') {
+    notifySuccess('publishPage.videoSelectedNamed', { params: { name: videoFileMeta.value.name } })
+  } else if (kind === 'replaced') {
+    notifySuccess('publishPage.videoReplaced', { params: { name: videoFileMeta.value.name, previous: prevName } })
+  } else {
+    notifyInfo('publishPage.videoReselectSame', { params: { name: videoFileMeta.value.name } })
+  }
 }
 
 function handleVideoFileRemove () {
-  // el-upload 内部列表删除后同步清 video_path，防止「列表已空但发布仍带旧视频」。
   article.video_path = ''
+  videoFileMeta.value = null
+}
+
+function handleVideoCardRemove () {
+  const upload = videoUploadRef.value
+  if (upload && typeof upload.clearFiles === 'function') upload.clearFiles()
+  handleVideoFileRemove()
+}
+
+function triggerVideoReselect () {
+  const upload = videoUploadRef.value
+  const root = upload?.$el || upload
+  const input = root?.querySelector?.('input[type="file"]')
+  if (input) input.click()
 }
 
 function handleVideoFileExceed (files) {
@@ -1180,6 +1230,10 @@ defineExpose({
   handleVideoFileRemove,
   handleVideoFileExceed,
   videoUploadRef,
+  videoFileMeta,
+  videoUploadFileList,
+  triggerVideoReselect,
+  handleVideoCardRemove,
   handleCoverFileChange,
   handleCoverFileRemove,
   templateTargetIdx,
@@ -1292,6 +1346,9 @@ defineExpose({
 .publish-mode-tab.active { background: var(--coral, #f56c6c); color: #fff; }
 .video-upload-zone :deep(.el-upload-dragger) { padding: 40px 20px; border: 2px dashed var(--border-light, #dcdfe6); border-radius: 12px; }
 .video-upload-zone :deep(.el-upload-dragger:hover) { border-color: var(--coral, #f56c6c); }
+/* 已选视频后上传区转为成功态边框，与下方 SelectedVideoCard 形成完整反馈（此前选前选后零视觉差异） */
+.video-upload-zone.has-selected-video :deep(.el-upload-dragger) { border-color: var(--success, #67c23a); border-style: solid; background: rgba(103, 194, 58, 0.04); }
+.video-upload-zone.has-selected-video :deep(.el-icon--upload) { color: var(--success, #67c23a); }
 .video-upload-zone :deep(.el-icon--upload) { font-size: 48px; color: var(--muted, #909399); margin-bottom: 8px; }
 .video-cover-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .publish-drafts-page {

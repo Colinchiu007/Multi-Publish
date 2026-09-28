@@ -56,8 +56,19 @@ export const useTabStore = defineStore('tabs', () => {
     _tabLiveUpdates.set(data.tabId, {
       version: ++_tabUpdateVersion,
       title: typeof data.title === 'string' ? data.title : previous?.title,
-      url: typeof data.url === 'string' ? data.url : previous?.url
+      url: typeof data.url === 'string' ? data.url : previous?.url,
+      loading: typeof data.loading === 'boolean' ? data.loading : previous?.loading
     })
+  }
+
+  // 加载态必须写进「标签列表里那一条」——TabBar 的转圈徽标读的是 tabs[].loading，
+  // 只改 navigation 会让后台标签的徽标一直停在上一次全量快照的值上（转圈卡死的根因）。
+  function _applyLoading(data) {
+    if (!data?.tabId || typeof data.loading !== 'boolean') return
+    _recordTabUpdate(data)
+    const tab = tabs.value.find(t => t.tabId === data.tabId)
+    if (tab) tab.loading = data.loading
+    if (data.tabId === activeTabId.value) navigation.value.loading = data.loading
   }
 
   function _applyNewerTabUpdate(tab, requestVersion) {
@@ -66,7 +77,8 @@ export const useTabStore = defineStore('tabs', () => {
     return {
       ...tab,
       ...(update.title !== undefined ? { title: update.title } : {}),
-      ...(update.url !== undefined ? { url: update.url } : {})
+      ...(update.url !== undefined ? { url: update.url } : {}),
+      ...(update.loading !== undefined ? { loading: update.loading } : {})
     }
   }
 
@@ -151,16 +163,8 @@ export const useTabStore = defineStore('tabs', () => {
         if (data?.tabId) activeTabId.value = data.tabId
         return Promise.all([_refreshTabs(data?.tabId || null), _refreshNavigation()])
       }),
-      api.on('tab-loading', (data) => {
-        if (data?.tabId === activeTabId.value) {
-          navigation.value.loading = true
-        }
-      }),
-      api.on('tab-finished-loading', (data) => {
-        if (data?.tabId === activeTabId.value) {
-          navigation.value.loading = false
-        }
-      }),
+      api.on('tab-loading', (data) => _applyLoading(data)),
+      api.on('tab-finished-loading', (data) => _applyLoading(data)),
       api.on('tab-title-updated', (data) => {
         if (!data?.tabId) return
         _recordTabUpdate(data)
@@ -188,7 +192,9 @@ export const useTabStore = defineStore('tabs', () => {
             title: data.title || '',
             canGoBack: !!data.canGoBack,
             canGoForward: !!data.canGoForward,
-            loading: false
+            // 广播未携带 loading 时保持现状：SPA 路由切换期间页面可能仍在加载，
+            // 一律写 false 会把真在加载的转圈误熄灭。
+            loading: typeof data.loading === 'boolean' ? data.loading : navigation.value.loading
           }
         }
       })

@@ -462,3 +462,116 @@ describe("useTabStore home-shell 聚焦态与 spaRoute 同步（方案 B 侧边�
     expect(api.unsubscribeEvents).toHaveBeenCalledWith(null);
   });
 });
+
+describe("useTabStore 标签加载态收口", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  afterEach(() => {
+    delete window.electronAPI;
+  });
+
+  it("活动标签开始加载时同时点亮标签徽标与导航栏", async () => {
+    const { api, handlers } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+    await store.init();
+
+    handlers.get("tab-loading")({ tabId: "btab-1", loading: true });
+
+    expect(store.tabs.find((tab) => tab.tabId === "btab-1").loading).toBe(true);
+    expect(store.navigation.loading).toBe(true);
+  });
+
+  it("后台标签加载只点亮该标签徽标，不影响导航栏", async () => {
+    const { api, handlers } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+    await store.init();
+
+    handlers.get("tab-loading")({ tabId: "btab-2", loading: true });
+
+    expect(store.tabs.find((tab) => tab.tabId === "btab-2").loading).toBe(true);
+    expect(store.tabs.find((tab) => tab.tabId === "btab-1").loading).toBe(false);
+    expect(store.navigation.loading).toBe(false);
+  });
+
+  it("加载结束事件必须熄灭对应标签徽标（转圈卡死回归）", async () => {
+    const { api, handlers } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+    await store.init();
+
+    handlers.get("tab-loading")({ tabId: "btab-2", loading: true });
+    expect(store.tabs.find((tab) => tab.tabId === "btab-2").loading).toBe(true);
+    handlers.get("tab-finished-loading")({ tabId: "btab-2", loading: false });
+
+    expect(store.tabs.find((tab) => tab.tabId === "btab-2").loading).toBe(false);
+  });
+
+  it("活动标签加载结束同时熄灭导航栏", async () => {
+    const { api, handlers } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+    await store.init();
+
+    handlers.get("tab-loading")({ tabId: "btab-1", loading: true });
+    handlers.get("tab-finished-loading")({ tabId: "btab-1", loading: false });
+
+    expect(store.navigation.loading).toBe(false);
+    expect(store.tabs.find((tab) => tab.tabId === "btab-1").loading).toBe(false);
+  });
+
+  it("列表刷新期间收到的加载事件不会被过期列表响应覆盖", async () => {
+    const staleResponse = createDeferred();
+    const getAllTabs = vi
+      .fn()
+      .mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { tabId: "home", url: "", title: "首页", loading: false, canGoBack: false, canGoForward: false, isActive: false, isHome: true },
+          createTabData("btab-1", "抖音创作者中心", true),
+          createTabData("btab-2", "快手创作者服务"),
+        ],
+      })
+      .mockReturnValueOnce(staleResponse.promise);
+    const { api, handlers } = createPageManagerApi({ getAllTabs });
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+    await store.init();
+
+    handlers.get("tab-created")();
+    handlers.get("tab-loading")({ tabId: "btab-2", loading: true });
+    staleResponse.resolve({
+      code: 0,
+      data: [
+        { tabId: "home", url: "", title: "首页", loading: false, canGoBack: false, canGoForward: false, isActive: false, isHome: true },
+        createTabData("btab-1", "抖音创作者中心", true),
+        createTabData("btab-2", "快手创作者服务"),
+      ],
+    });
+    await Promise.all([staleResponse.promise]);
+    await Promise.resolve();
+
+    expect(store.tabs.find((tab) => tab.tabId === "btab-2").loading).toBe(true);
+  });
+
+  it("导航变更广播携带 loading 时按广播值收口，缺席时不得凭猜测改写", async () => {
+    const { api, handlers } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+    await store.init();
+
+    handlers.get("tab-loading")({ tabId: "btab-1", loading: true });
+    handlers.get("navigation-changed")({ tabId: "btab-1", url: "https://btab-1.example.test", title: "抖音", loading: true });
+    expect(store.navigation.loading).toBe(true);
+
+    handlers.get("navigation-changed")({ tabId: "btab-1", url: "https://btab-1.example.test/r", title: "抖音" });
+    expect(store.navigation.loading).toBe(true);
+
+    handlers.get("navigation-changed")({ tabId: "btab-1", url: "https://btab-1.example.test/r2", title: "抖音", loading: false });
+    expect(store.navigation.loading).toBe(false);
+  });
+});

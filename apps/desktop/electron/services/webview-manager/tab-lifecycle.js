@@ -309,15 +309,34 @@ module.exports = {
       self._broadcast('tab-loading', { tabId: tabId, url: state.url, loading: true })
     })
 
-    view.webContents.on('did-finish-load', function () {
+    // 标签转圈的官方配对事件：electron.d.ts 把本事件注释为
+    // "Corresponds to the points in time when the spinner of the tab stopped spinning"，
+    // 与 did-start-loading 成对；导航失败/被中止时同样会触发，因此是唯一完备的收口点。
+    view.webContents.on('did-stop-loading', function () {
       if (!self._tabStates.has(tabId)) return
       var state = self._tabStates.get(tabId)
       state.loading = false
       state.canGoBack = view.webContents.canGoBack()
       state.canGoForward = view.webContents.canGoForward()
       self._broadcast('tab-finished-loading', { tabId: tabId, url: state.url, loading: false })
+    })
+
+    // did-finish-load 只在主框架「成功」加载时触发，失败/中止路径永不调发，
+    // 因此不得在此收口 loading（否则徽标永久转圈）；此处只保留与加载指示无关的职责。
+    view.webContents.on('did-finish-load', function () {
+      if (!self._tabStates.has(tabId)) return
+      var state = self._tabStates.get(tabId)
       if (state.initialRedirectPhase) state.initialRedirectPhase = false
       self._maybeScheduleAutoSave(tabId, state)
+    })
+
+    // 渲染进程消失后再不会有任何加载事件，必须就地收口。
+    view.webContents.on('render-process-gone', function () {
+      if (!self._tabStates.has(tabId)) return
+      var state = self._tabStates.get(tabId)
+      if (!state.loading) return
+      state.loading = false
+      self._broadcast('tab-finished-loading', { tabId: tabId, url: state.url, loading: false })
     })
 
       view.webContents.on('page-title-updated', function (event, title) {

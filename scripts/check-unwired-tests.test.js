@@ -166,9 +166,19 @@ test("真实仓库：检查域非空、欠账清单已钉住且无违规", () =>
   assert.deepEqual(
     Object.keys(checker.KNOWN_UNWIRED).sort(),
     [
-      "scripts/session-isolation-automation.test.ps1",
+      // 2026-09-29：最后一条 session-isolation-automation.test.ps1 已接进 Gate 2d（夹具 = CI 侧
+      // 自有的临时 clone：checkout -B main + 复制两个 hook），清单清空。
+      // 这里刻意继续用 deepEqual 钉成"恰好等于"而不是改成 <=/长度比较：
+      // 清单变空**不代表**机制可以拆——任何新增豁免会当场变红，而删掉本断言会让"回归成
+      // 无人发现的状态"重新变成可行路径。
     ].sort(),
     "欠账清单只能缩小；新增豁免须先在门禁里明确接受（棘轮与 platform-definitions 同形）",
+  )
+  // 空清单的另一半证明：那条销过账的文件仍在检查域内（不是靠把它排除出域来"清零"的），
+  // 且下面的 violations 为空即意味着它确实被 workflow 正文点名了。
+  assert.ok(
+    r.files.includes("scripts/session-isolation-automation.test.ps1"),
+    "已销账的测试必须仍在检查域内，否则「清单归零」可以靠缩小域来作弊",
   )
   for (const [file, reason] of Object.entries(checker.KNOWN_UNWIRED)) {
     assert.ok(String(reason).trim().length > 10, `豁免 ${file} 缺少可用原因`)

@@ -46,8 +46,9 @@ function createPageManagerApi(ipcRenderer) {
       resumeEmbeddedViews: (owner) => ipcRenderer.invoke('page-manager:resume-embedded-views', owner),
 
       /**
-       * 监听导航状态变化（URL/标题/前进后退状态）
-       * callback 收到 { tabId, url, title, canGoBack, canGoForward }
+       * 监听导航状态变化（URL/标题/前进后退/加载态）
+       * callback 收到 { tabId, url, title, canGoBack, canGoForward, loading }
+       * loading 缺席时渲染层必须保持现状，不得凭猜测收口转圈。
        */
       onNavigationChanged: (cb) => {
         const h = (_, payload) => cb(payload?.data || payload)
