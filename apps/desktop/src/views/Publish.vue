@@ -220,6 +220,13 @@
                   <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
                   <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
                 </div>
+                <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
+                <div v-if="showTitlePanel || article.title.length > 5" class="cohere-form-item">
+                  <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" />
+                  <div v-if="!showTitlePanel && article.title.length > 5" class="stack-center">
+                    <UiButton variant="ghost" size="sm" data-testid="title-assistant-toggle" @click="showTitlePanel = true">{{ t('publishPage.titleReference') }}</UiButton>
+                  </div>
+                </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">
                     {{ t('publishPage.videoDescLabel') }}
@@ -283,6 +290,13 @@
                     <UiInput v-model="mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
                   </div>
                 </div>
+                <!-- 智能标签建议：贴邻标签/话题输入，平台跟随所选发布目标（openspec optimize-publish-right-rail） -->
+                <div v-if="combinedContent.length > 3" class="cohere-form-item">
+                  <TagSuggester v-if="showTagPanel" :content="combinedContent" :platforms="selectedPlatforms" @close="showTagPanel = false" @apply-tag="applySuggestedTag" />
+                  <div v-else class="stack-center">
+                    <UiButton variant="ghost" size="sm" @click="showTagPanel = true">{{ t('publishPage.showTagSuggest') }}</UiButton>
+                  </div>
+                </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">
                     {{ t('publishPage.schedule') }}
@@ -290,6 +304,10 @@
                   </label>
                   <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                   <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+                </div>
+                <!-- 最佳发布时间：贴邻定时发布字段（openspec optimize-publish-right-rail） -->
+                <div v-if="article.title.length > 2" class="cohere-form-item">
+                  <OptimalTimeTip :keyword="article.title" />
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">
@@ -336,6 +354,13 @@
                 </div>
                 <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" />
                 <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
+              </div>
+              <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
+              <div v-if="showTitlePanel || article.title.length > 5" class="cohere-form-item">
+                <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" />
+                <div v-if="!showTitlePanel && article.title.length > 5" class="stack-center">
+                  <UiButton variant="ghost" size="sm" data-testid="title-assistant-toggle" @click="showTitlePanel = true">{{ t('publishPage.titleReference') }}</UiButton>
+                </div>
               </div>
               <div v-if="showTemplatePicker && templateTargetIdx < 0" class="stack-gap">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
@@ -419,6 +444,13 @@
                   <UiInput id="publish-mentions" v-model="mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
                 </div>
               </div>
+              <!-- 智能标签建议：贴邻标签/话题输入，平台跟随所选发布目标（openspec optimize-publish-right-rail） -->
+              <div v-if="combinedContent.length > 3" class="cohere-form-item">
+                <TagSuggester v-if="showTagPanel" :content="combinedContent" :platforms="selectedPlatforms" @close="showTagPanel = false" @apply-tag="applySuggestedTag" />
+                <div v-else class="stack-center">
+                  <UiButton variant="ghost" size="sm" @click="showTagPanel = true">{{ t('publishPage.showTagSuggest') }}</UiButton>
+                </div>
+              </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">
                   {{ t('publishPage.schedule') }}
@@ -426,6 +458,10 @@
                 </label>
                 <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                 <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+              </div>
+              <!-- 最佳发布时间：贴邻定时发布字段（openspec optimize-publish-right-rail） -->
+              <div v-if="article.title.length > 2" class="cohere-form-item">
+                <OptimalTimeTip :keyword="article.title" />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">
@@ -454,21 +490,7 @@
           </template>
         </div>
         <div class="flex-side">
-          <!-- 智能标签建议 -->
-          <TagSuggester v-if="showTagPanel && combinedContent.length > 3" :content="combinedContent" class="stack-gap" @close="showTagPanel = false" />
-          <div v-if="!showTagPanel && combinedContent.length > 3" class="stack-gap stack-center">
-            <UiButton variant="ghost" size="sm" @click="showTagPanel = true">{{ t('publishPage.showTagSuggest') }}</UiButton>
-          </div>
-
-          <!-- 最佳发布时间 -->
-          <OptimalTimeTip v-if="article.title.length > 2" :keyword="article.title" class="stack-gap" />
-
-          <!-- 标题助手 -->
-          <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" class="stack-gap" />
-          <div v-if="!showTitlePanel && article.title.length > 5" class="stack-gap stack-center">
-            <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">{{ t('publishPage.titleReference') }}</UiButton>
-          </div>
-
+          <!-- 任务闭环区置顶（openspec optimize-publish-right-rail）：发布目标+主操作首屏可见，sticky 兜底 -->
           <div class="cohere-card cohere-card-static publish-action-card" data-testid="publish-action-card">
             <div class="cohere-form cohere-form-gap">
               <div class="cohere-form-label">{{ t('publishPage.publishTarget') }}</div>
@@ -650,6 +672,7 @@ import PlatformOverridePanel from '@/features/publish/components/PlatformOverrid
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
+import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
 
 const route = useRoute()
 const router = useRouter()
@@ -903,11 +926,23 @@ async function handleGenerateAiCover () {
   }
 }
 
-const showTagPanel = ref(true)
-const showTitlePanel = ref(false)
+// 面板显隐记忆（openspec optimize-publish-right-rail）：初始值读 localStorage，变更即持久化；
+// localStorage 不可用时 composable 内部降级默认值（标签建议展开、标题助手收起）。
+const initialPanelPrefs = readPanelVisibilityPrefs()
+const showTagPanel = ref(initialPanelPrefs.tagSuggester)
+const showTitlePanel = ref(initialPanelPrefs.titleAssistant)
+watch([showTagPanel, showTitlePanel], ([tagVisible, titleVisible]) => {
+  writePanelVisibilityPrefs({ tagSuggester: tagVisible, titleAssistant: titleVisible })
+})
 const showAiWriter = ref(false)
 const showUpgradeModal = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
+
+// 标签建议点击填入：追加进标签输入并去重（normalizePublishStringList 内部 Set 去重）。
+function applySuggestedTag (tag) {
+  if (typeof tag !== 'string' || !tag.trim()) return
+  article.tags = normalizePublishStringList([...article.tags, tag.trim()])
+}
 
 // ── composables ──────────────────────────
 const {

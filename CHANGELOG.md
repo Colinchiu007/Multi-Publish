@@ -22,6 +22,66 @@
 
 ---
 
+# [未发布] fix(标题参考): 数据源收窄 + 相关性门禁，修掉「高互动参考」清一色 GitHub issue 垃圾
+### 变更
+
+- `apps/desktop/electron/services/content-intelligence-utils.js`：新增 `tokenizeContentWords`（拉丁词按词 + CJK 相邻二元组）与 `sharesContentWord`（标题-查询实词重叠判定）；停用表 `CONTENT_STOPWORDS` 收敛到一处，并补中文高频**二元组**虚词（`可以/我们/你们/他们/什么/怎么/这个/那个`）——单字停用表覆盖不到二元组。
+- `apps/desktop/electron/services/content-intelligence.js`：`search()` 出口新增**相关性门禁**，正文命中但标题零重叠的结果一律剔除并计入新字段 `droppedIrrelevant`；门禁挂在 `engagement` 排序**之前**，使按下标取 `results[0]` 的 `searchMentions` 一并受益。`searchTitles()` 源域收窄为常量 `TITLE_SOURCES = ['reddit','hackernews']`，不再继承 GitHub；调用方显式传 `sources` 时仍尊重调用方。
+- `apps/desktop/electron/services/content-intelligence-analysis.js`：`_extractPatterns` 改用共用分词；计数口径从「出现总次数」改为 **document frequency**（一个词素出现在几条标题里）；并列时按词素字典序，渲染顺序不再随机漂移。
+- `apps/desktop/src/components/TitleAssistantPanel.vue`：来源标签从 `v-else → "GitHub"` 兜底改为显式映射（未知源如实回显其标识、`source` 缺失则不渲染）；新增「暂未找到同类高互动标题」空态，并按 `droppedIrrelevant` 区分「源真的没响应」与「有响应但都不算同类」两种解释。
+- `apps/desktop/src/locales/zh.js` / `en.js`：新增 3 个成对 key（`titleAssistantEmpty` / `titleAssistantEmptyHint` / `titleAssistantFiltered`，含 `{n}` 插值）。
+- `content-intelligence.js`：相关性门禁的**判据字段按消费者声明**（`opts.relevanceOn`，默认 `["title"]`）——`searchMentions()` 走 `MENTION_RELEVANCE_ON = ["title","snippet","author"]`，因为真实转载提及的词出现在**对方正文**里而非对方标题里，只看标题会把 `totalMentions` 静默少算（QM-6 后端评审 W1）；`relevanceOn` **进缓存键**，否则两种口径共用同一 query 时互相串用对方的过滤结果（M8 反证）。
+- 门禁日志只记计数与形状（`dropped/before`、`queryLen`、`tokens`、`on=`），**不记 query 原文**——`searchTitles` 的 query 就是用户尚未发布的草稿标题，而 logger 只脱敏凭证、不脱敏用户文本（W3）。
+- `tokenizeContentWords` 改用 `/\p{Script=Han}{2,}/gu` 并**按码点**取相邻二元组：BMP 区间表漏扩展 B 平面，纯扩展平面汉字查询会切成空 token 集从而**整体绕过门禁**，且按 UTF-16 单元切片会把代理对切成半个字符（W2）；分词前先剥离 URL 与 HTML 实体，否则两条无关标题会因共享同一域名而通过门禁（Info）。
+- `Intelligence.vue`：主题情报页空态补 `description`，在门禁归零时区分「源无响应」与「已过滤 N 条」，不再一律提示「暂无结果，试试其他关键词」把原因推给用户（QM-6 前端评审 W1）。
+- `TitleAssistantPanel.vue`：空态两分支各带结构类名 `--filtered` / `--source`，测试按类名断言而非按 locale 文案字面量断言（文案改写不该把正确实现判红）。
+- `tests/content-intelligence.test.js`：`mockSubMethods` 默认 `mockResolvedValue([])`——裸 `vi.fn()` 返回 `undefined` 会让 `Promise.allSettled` + `flatMap` 收到 `[undefined]` 并在门禁处抛 `Cannot read properties of undefined`，本轮两次踩到。
+- `01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md`：新建该功能的首份完整规格（数据源矩阵、门禁判据与边界、分词口径、交互流程、显示项、全量提示文字、验收标准、反证矩阵、已知限制）——**此前 PRD 里没有任何一条关于「标题参考」的契约**，只有 §9.2 一个 8 行桩。
+- `01-docs/PRD.md` §9.2：补数据源与相关性契约指针。
+
+### 根因（三层，缺一即残留）
+
+实测取证（2026-09-28 本机直连公开 API）：中文视频标题「三步学会做红烧肉」查 `api.github.com/search/issues` 返回 `total_count: 3595`，首条标题是「旧文归档 · 2024 年 2 月」——**与查询零词重叠**（命中在正文）；HN 对「红烧肉」`nbHits: 0`；Reddit 空响应。
+
+- **R1 源域**：`searchTitles` 复用通用 `search()`，继承了含 GitHub 的默认源。GitHub 是代码托管站，issue 标题由仓库维护者书写，不是内容标题语料。
+- **R2 校验**：`search()` 出口没有「标题是否真的与查询同类」这道判据。三个源的接口匹配的都是正文，正文命中即入榜。
+- **R3 分词**：`_extractPatterns` 按空白/标点切词，中文无空格 ⇒ 整句被切成一个"词"，于是「申请加入请在这里评论」以"高频词"身份渲染给用户。
+
+用户看到的 `homepage / Gitalk Demo / ActNotify~>Bilibili / Daily weather email` **不是测试数据、也不是 mock**，是真实 GitHub issue 与仓库名——GitHub 是唯一"有结果"的源，所以排序后五条清一色打上 GitHub 标签。
+
+### 测试
+
+- `content-intelligence-utils.test.js` +8 例：二元组**精确数组**断言（`红烧肉 → ["红烧","烧肉"]`）、与旧实现的切词对照、停用词/纯数字/去重/空值、实测事故标题判不相关、真同类判相关、查询无内容词时不改语义。
+- `tests/content-intelligence.test.js` `searchTitles` describe 重写 +10 例：源域锁（`_searchGitHub` 未被调用）、通用 `search()` 仍保留 GitHub（不误伤情报页）、显式 `sources` 不被覆盖、事故场景 `results` 精确等于真同类那一条 + `droppedIrrelevant=2`、`patterns` 在样本不足时为 `null`、标题缺失按不相关、门禁挂在共用层使 `searchMentions` 受益；`_extractPatterns` describe +3 例（不含整句、不含二元组虚词、并列顺序唯一、doc frequency 口径、样本不足返回 null）。
+- `TitleAssistantPanel.test.js` +3 例：未知源不得兜底成 GitHub、空态文案 + 过滤条数、源无响应时的数据源说明。
+- **修掉三处把 Bug 钉成契约的既有断言**：① 原 `searchTitles` 用例把 `_searchGitHub.mockResolvedValue([])`，真实事故路径在夹具下永远观察不到；② 原组件用例用 `source:"github"` 并断言 `toContain("GitHub")` 为正确渲染；③ `deduplicates by title prefix` 用例查询写 `'test'` 与夹具标题零重叠，被门禁正确判为不相关——该用例测去重不测门禁，改查询为 `'duplicate'` 并补 `droppedIrrelevant===0` 断言。
+- **反证矩阵（逐条实跑，跑完按字节还原）**：M1 摘门禁 → 3 红；M2 github 放回源域 → 5 红；M3 退回空白切词 → 2 红；M4 退回 `v-else GitHub` → 1 红。
+- QM-1 离线打包：`build:vue` + `electron-builder --win --dir` 双 rc=0、`⨯` 计数 0、asar 含 `/dist/index.html` 与四个 `content-intelligence*` 服务文件、包内 `node --check` 通过、新逻辑逐条签名命中、renderer chunk 含新文案。
+- 实测 `content-intelligence-utils` 16/16、`tests/content-intelligence` 43/43、`TitleAssistantPanel` 10/10、`electron/services/content-intelligence` 8/8、`Intelligence` 16/16、`views-coverage2` 7/7 全绿；`check-locale-sync --pair-base` 与 `--cjk` 双 PASS。
+
+### 已知限制
+
+中文题材修好后最常见的正确表现就是「暂未找到同类高互动标题」——数据源只有三个英文开发者平台。这是诚实而非修坏；要让该功能对中文创作者真正有用，需另立需求接入中文内容平台标题语料。二元组非真分词，跨词边界的 `入请`/`在这` 仍会产出，靠 document frequency 排序压制。
+
+# [未发布] feat(发布): 视频发布页右栏信息架构重排——任务闭环置顶、智能面板贴邻字段（optimize-publish-right-rail）
+
+### 变更
+- `apps/desktop/src/views/Publish.vue`：单篇模式右栏（flex-side）重排——发布目标卡（含保存草稿/草稿箱/快速发布/取消任务）移至右栏**第一块**（sticky 保留为滚动兜底），发布进度/草稿箱/结果卡紧随其后；三个智能辅助面板全部迁出右栏、下沉左栏（flex-main）贴邻所服务字段：**标签建议→标签/话题输入后、最佳发布时间→定时发布后、标题助手→标题输入后**（video/article 两模式同口径）。1920×1140 实测取证：旧布局「快速发布」按钮被三个面板挤出首屏、左栏 63% 视口高度后全空白；新布局主行动无需滚动即可见、左栏空白被辅助面板就地利用。
+- `apps/desktop/src/components/TagSuggester.vue`：新增 `platforms` prop（string[]）——标签建议请求跟随用户在发布目标中勾选的平台（旧实现硬编码 zhihu/weibo/xiaohongshu/bilibili/toutiao 五平台，用户选快手时建议与目标脱节）；空数组/未传回退全量目录；platforms 与 content 共用同一 800ms 防抖。建议标签（关键词/相关话题/平台内容/流量/回退合并五处）全部可点击，emit `apply-tag` 由父级去重追加进标签输入。错误态从红色文本块收敛为**一行提示 + 行内重试按钮**。
+- `apps/desktop/src/components/OptimalTimeTip.vue`：「数据不足」空态从整卡死胡同文案降级为**一行提示 + 可展开详情**（默认收起，展开后说明原因与替代路径）；keyword 变化时收起详情态。
+- 新增 `apps/desktop/src/composables/usePanelVisibilityPrefs.js`：面板显隐记忆（localStorage key `publish.panelVisibility.v1`，白名单键 tagSuggester/titleAssistant），读写全 try/catch——隐私模式/配额/损坏 JSON 一律降级默认值（标签建议展开、标题助手收起，与旧行为一致），未知键与非法类型忽略。
+- `apps/desktop/src/locales/zh.js` + `en.js` 成对新增：`tagSuggest.retry`/`tagSuggest.applyTagHint`、`publishPage.optimalTimeNoData`/`optimalTimeNoDataDetail`（避开并发分支 fix-title-assistant-relevance 的 `intelligence.*` 键空间，合并冲突可自动解决；本 change 不触碰 TitleAssistantPanel.vue 组件本体）。
+- OpenSpec change `openspec/changes/optimize-publish-right-rail/`（proposal/specs/design/tasks 四产物，validate 通过）：新能力 `publish-page-right-rail`（7 条 Requirement）+ 修改 `mp-ue-closure`「发布页主操作可见」（从「滚动时 sticky」强化为「初始视口内无需滚动即可见」）。
+
+### 测试
+- `usePanelVisibilityPrefs.test.js` 7 条：默认值/写读回/读写异常降级/未知键忽略/损坏 JSON/写入白名单。
+- `TagSuggester.test.js` 23 条（+7）：platforms 联动请求、空数组回退全量、未传回退、platforms 变化防抖重请求、关键词/平台标签点击 emit、错误态一行收敛 + 重试恢复。既有「hot heat badge」用例的选择器由 `w.find('[title]')`（取第一个，被新增的点击提示 title 干扰）收紧为 `[title*="匹配热门话题"]`（按内容精确匹配，保持原意图）。
+- `OptimalTimeTip.test.js` 9 条（+2）：数据不足一行提示（不渲染推荐时段/来源分布）、展开/收起详情。
+- `Publish.test.js` 59 条（+6）：右栏第一块为 publish-action-card、三面板不在 flex-side、贴邻顺序（compareDocumentPosition 断言标签建议在 #publish-tags 后/最佳发布时间在 datetime-local 后/标题助手入口在标题后）、platforms 探针 stub 断言联动与清空回退、apply-tag 去重追加、localStorage 记忆初始化与持久化、无记录用默认。既有 `.flex-side [data-testid="publish-action-card"]` 断言天然兼容。
+- 视觉回归：`PIXEL_ONLY=publish-form` 像素门禁 1/1 通过——空表单态新旧布局渲染一致（面板按内容阈值隐藏，右栏只剩操作卡），基线无需重截；布局差异态由真实浏览器验证覆盖：新增 `tests/visual-testing/scripts/verify-publish-rail-layout.js`（hash 路由 + e2e fixture mock + Playwright chromium）在 dev server 上断言 13/13 全绿（右栏第一块/三面板在左栏不在右栏/三组贴邻顺序）。
+- 相关套件回归：views-deep2 / views-coverage / icon-usage / TagSuggester / OptimalTimeTip / usePanelVisibilityPrefs 共 88/88 绿；eslint 改动文件 0 error 0 warning；`check-locale-sync --keys` PASS（1233 keys）。
+- 全量 vitest 12236 通过 / 4 失败——失败均为 story2video pipeline 引擎存量问题（`story2video-manual-assets.test.js > manual 模式在 compose 前插入 finalize_assets` 已在干净基线 f8033fbf 复现同样失败，与本分支无关）。
+
 # [未发布] fix(session-isolation): 写保护计划任务路径与隔离区目录从 Multi-Publish 收口到 Mulpub（2026-09-28，rename-guard-task-paths）
 
 ### 变更
@@ -151,7 +211,6 @@
 - 变异反证均已实跑：退回中部横带几何 ⇒ 红；把暗罩调淡为 0.45 ⇒ 红；删 `pointer-events` ⇒ 红。还原后 40 passed / 1 skipped。
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
-
 
 # [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
 
