@@ -6,8 +6,11 @@
  * 修的是这件事：handler 的「解析 CI 失败原因」步骤原本是个常量
  * （`FAILURE_TYPE=ci-failure` / `AUTO_FIXABLE=true`，从不看真实载荷），去重键又是
  * `ci-failure-<head_sha>`，于是每个失败提交都开一张新单、正文里连"红在哪个作业哪一步"都没有。
- * 2026-09-28 实测：`labels=ci-failure` 的 open 单 ≥200 张（8 天），其中 `Electron CI` 那
- * 58 张的失败步骤全是 #2458 那道已被修掉的 20m 预算墙。
+ * 2026-09-28 实测：`labels=ci-failure` 的 open 单 **790 张**（累计 950 / 已闭 160），
+ * 跨 2026-08-13→09-28。先前写的「≥200 张（8 天）」是翻页翻到截断就收口，不是总数。
+ * 另：我一度按"失败步骤名"判定 `Electron CI` 那一档全是 #2458 那道预算墙——那是**标识符匹配
+ * 不是病因匹配**：同一步骤名在真实数据里既有 exit 124（墙掐掉）也有 exit 1（真实断言失败）。
+ * 分层抽样 100 张重测得 test-failure 18 : ci-timeout-budget 2，只有带 124 证据的 46 张被关。
  *
  * 判据一律来自真实载荷（jobs + check-run annotations），**不从步骤名猜退出码**：
  * 实测 `timeout(1)` 掐掉的作业会留下 `Process completed with exit code 124.` 这条 annotation，
@@ -17,6 +20,10 @@
  * 分类只会**缩窄**噪声：任何不认识的形状都回落到 `ci-failure`（= 改动前的行为），
  * 保证不会因为加了分类器而丢掉一条真实故障。
  */
+
+// 一次事件最多下几份 job 日志（单份实测 5 MB）；超出的作业签名退化成 test=unknown，
+// 但退化会写进签名与 evidence，不会被误当成"同一个成因"。
+const MAX_LOG_JOBS = 3;
 
 // 汇总型作业：它们红是因为 needs 里上游红，本身不是根因，不得当根因、也不得进签名。
 const ROLLUP_JOBS = new Set(['Gate Result']);
@@ -83,6 +90,34 @@ function exitCodeFor(annotations, jobName) {
       const m = EXIT_CODE_RE.exec((a && a.message) || '');
       if (m) return Number(m[1]);
     }
+  }
+  return null;
+}
+
+/**
+ * 从真实 vitest 日志里取第一条失败用例。
+ * 为什么需要它：`QG Coverage / Gate 5` 这一步跑的是**全量**测试，签名只到「作业+步骤」的话，
+ * 不同测试的失败会被并进同一张单 —— 实测该签名下堆了 342 张单、里面至少三种不同病因
+ * （`rpa-view-platforms` 选择器契约、`visual-workflow-runner` 稳定选择器、
+ *  `pixel-diff-baseline-guard` 在 coverage 插桩下超 10s 预算）。那不是降噪，是藏信息。
+ * 取不到就返回 null，由调用方在签名里显式标 `test=unknown`，不得凭空造测试名。
+ */
+function extractFailingTest(logText) {
+  const text = String(logText == null ? '' : logText);
+  for (const line of text.split(/\r?\n/)) {
+    const bare = line.replace(/\x1b\[[0-9;]*m/g, '').replace(/^\S+Z\s?/, '');
+    const m = /FAIL\s+(.+?)\s*>\s*(.+)/.exec(bare);
+    if (m) return { file: m[1].trim(), name: m[2].trim().replace(/\s+/g, ' ') };
+  }
+  return null;
+}
+
+function excerptForRoot(input, root) {
+  if (!root) return null;
+  for (const e of input.logExcerpts || []) {
+    if (!e) continue;
+    if (root.id !== undefined && e.jobId === root.id) return e;
+    if (e.jobName && e.jobName === root.name) return e;
   }
   return null;
 }
@@ -161,6 +196,14 @@ function classifyFailure(input) {
   // 也不能把该步骤里可能的真实测试回归藏进基础设施单（那是用分类器丢信息）。
   const trackedIn = type === 'ci-timeout-budget' ? trackerFor({ workflowName, rootJob, rootStep }) : null;
 
+  // 测试类步骤必须把"具体哪条测试"取进签名：同一步骤下的不同病因不能并成一张单。
+  const isTestStep = rootJob !== null && looksLikeTest(rootJob, rootStep);
+  const failingTest = isTestStep ? extractFailingTest((excerptForRoot(input, root) || {}).text) : null;
+  const testKey = !isTestStep ? null : (failingTest ? `${failingTest.file}::${failingTest.name.slice(0, 60)}` : 'unknown');
+  if (isTestStep) {
+    evidence += failingTest ? ` / FAIL ${failingTest.file} > ${failingTest.name}` : ' / 测试名未取得（日志无 FAIL 行或日志不可读）';
+  }
+
   // 已经有跟踪项的已知形状不再开单，改由 handler 在跟踪项下追评（保留复发可见性）。
   const fileIssue = trackedIn === null;
 
@@ -170,23 +213,27 @@ function classifyFailure(input) {
     rootJob,
     rootStep,
     exitCode,
+    failingTest,
     trackedIn,
     fileIssue,
     evidence,
     // 汇总作业刻意不进签名：同一次回归有没有带动 Gate Result 红，不该产生两个签名
     // 定位不到步骤时签名给 `none`（而不是空串或 `-`）：去重键必须能区分"确实没有失败步骤"
     // 和"整个载荷没取到"，否则两类不同的未知会被并成一张单。
-    signature: `${workflowName}::${rootJob || 'no-job'}::${rootStep || 'none'}::exit=${exitCode === null ? 'unknown' : exitCode}`,
+    signature: `${workflowName}::${rootJob || 'no-job'}::${rootStep || 'none'}::exit=${exitCode === null ? 'unknown' : exitCode}${testKey ? `::test=${testKey}` : ''}`,
   };
 }
 
-/** 去重标题：不含 sha，同因复发命中同一张单。
- *  定位不到时给**诚实标签**而不是 `- / -` —— 空占位比旧标题信息更少，等于把"我不知道"
- *  伪装成"这就是成因"（真实事故：#2572 标题 `ci-failure[ci-failure] Electron CI: - / -`）。 */
+/** 去重标题：不含 sha，同因复发命中同一张单。两条独立的约束同时成立：
+ *  ① 测试类失败必须带上测试文件，否则一个跑全量的步骤会把所有不同病因并成一张单
+ *     （实测该签名下堆过 342 张）；
+ *  ② 定位不到时给**诚实标签**而不是 `- / -` —— 空占位比旧标题信息更少，等于把"我不知道"
+ *     伪装成"这就是成因"（真实事故：#2572 标题 `ci-failure[ci-failure] Electron CI: - / -`）。 */
 function buildDedupTitle(verdict) {
   const job = verdict.rootJob || '(未定位到失败作业)';
   const step = verdict.rootStep || (verdict.rootJob ? '(未定位到失败步骤)' : '(无步骤可定位)');
-  return `ci-failure[${verdict.type}] ${verdict.workflowName || '-'}: ${job} / ${step}`
+  const t = verdict.failingTest ? ` :: ${verdict.failingTest.file}` : '';
+  return `ci-failure[${verdict.type}] ${verdict.workflowName || '-'}: ${job} / ${step}${t}`
     .slice(0, 255);
 }
 
@@ -208,6 +255,7 @@ async function collectEvidence({ repo, runId, workflowName, runAttempt, runGh })
   const failed = (parsed.jobs || []).filter(j => j.conclusion === 'failure');
 
   const failedJobs = failed.map(j => ({
+    id: j.id,
     name: j.name,
     conclusion: j.conclusion,
     // 丢掉 success/skipped，但**保留没有结论的步骤**（conclusion 为 null）：
@@ -234,7 +282,23 @@ async function collectEvidence({ repo, runId, workflowName, runAttempt, runGh })
     annotations.push({ jobId: job.id, jobName: job.name, list: JSON.parse(annRaw) });
   }
 
-  return { workflowName, runId, runAttempt: attemptGiven ? Number(runAttempt) : null, failedJobs, annotations };
+  // 只有"跑测试"的失败作业才值得下日志（单份可达 5MB）：装依赖/构建/文档同步这类
+  // 步骤的病因全在步骤名里，取日志既贵又不增加可归因性。
+  const logExcerpts = [];
+  const testLike = failedJobs.filter(j => (j.steps || []).some(s => looksLikeTest(j.name, s.name)));
+  for (const job of testLike.slice(0, MAX_LOG_JOBS)) {
+    let log = null;
+    try {
+      log = runGh(['api', '--allow-escape-sequences', `repos/${repo}/actions/jobs/${job.id}/logs`]);
+    } catch (err) {
+      process.stderr.write(`WARN classify-ci-failure: log unavailable job=${job.name}: ${err.message}\n`);
+      continue;
+    }
+    if (!log) continue;
+    logExcerpts.push({ jobId: job.id, jobName: job.name, text: log });
+  }
+
+  return { workflowName, runId, runAttempt: attemptGiven ? Number(runAttempt) : null, failedJobs, annotations, logExcerpts };
 }
 
 function toOutputLines(verdict, extra) {
@@ -247,6 +311,7 @@ function toOutputLines(verdict, extra) {
     ROOT_STEP: verdict.rootStep,
     EXIT_CODE: verdict.exitCode,
     TRACKED_IN: verdict.trackedIn,
+    FAILING_TEST: verdict.failingTest ? `${verdict.failingTest.file} > ${verdict.failingTest.name}` : '',
     FILE_ISSUE: verdict.fileIssue ? 'true' : 'false',
     EVIDENCE: verdict.evidence,
   };
@@ -285,4 +350,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { classifyFailure, buildDedupTitle, collectEvidence, toOutputLines, ROLLUP_JOBS };
+module.exports = { classifyFailure, buildDedupTitle, collectEvidence, toOutputLines, extractFailingTest, ROLLUP_JOBS };

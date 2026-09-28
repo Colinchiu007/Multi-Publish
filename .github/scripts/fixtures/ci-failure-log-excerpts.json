@@ -1,0 +1,120 @@
+{
+  "generatedBy": "从真实 job 日志截取（见 PR 说明）；同一测试-runner 步骤下的三种不同病因",
+  "samples": [
+    {
+      "source": {
+        "runId": 36388552901,
+        "jobId": 108819086458,
+        "why": "rpa-view-platforms 选择器契约断言失败（QG Coverage 步骤内）",
+        "logBytes": 5799084,
+        "collectedAt": "2026-09-28T16:35:09.183Z"
+      },
+      "failLines": [
+        " FAIL  electron/services/rpa-view-platforms.test.js > rpa-view-platforms — 快手/B站 发布选择器数据契约 > kuaishou：publish_btn 首候选必须带 button 标签限定（防提示文案抢中）"
+      ],
+      "summaryLines": [
+        " Test Files  1 failed | 676 passed | 1 skipped (678)",
+        "      Tests  1 failed | 12221 passed | 3 skipped (12225)"
+      ],
+      "excerptLines": [
+        " ✓ electron/tests/check-asar.test.js > check-asar > 将 Windows 归档路径归一化后识别必需入口 3ms",
+        " ✓ src/composables/useIdentity.test.js > useIdentity > 导出模板使用的完整身份属性和方法 9ms",
+        " ✓ src/router/index.test.js > 应用路由 > 发布导航默认指向发布记录，编辑器保持独立入口 4ms",
+        "",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        "",
+        " FAIL  electron/services/rpa-view-platforms.test.js > rpa-view-platforms — 快手/B站 发布选择器数据契约 > kuaishou：publish_btn 首候选必须带 button 标签限定（防提示文案抢中）",
+        "AssertionError: expected 'span:has-text(\"立即发布\")' to match /^button:has-text\\(\"发(布|表)\"\\)$/",
+        "",
+        "- Expected:",
+        "/^button:has-text\\(\"发(布|表)\"\\)$/",
+        "",
+        "+ Received:",
+        "\"span:has-text(\\\"立即发布\\\")\"",
+        "",
+        " ❯ electron/services/rpa-view-platforms.test.js:664:39",
+        "    662|",
+        "    663|   it('kuaishou：publish_btn 首候选必须带 button 标签限定（防提示文案抢中）', () => {",
+        "    664|     expect(S.kuaishou.publish_btn[0]).toMatch(/^button:has-text\\(\"发(布|…",
+        "       |                                       ^"
+      ]
+    },
+    {
+      "source": {
+        "runId": 36343824358,
+        "jobId": 108688931322,
+        "why": "visual-workflow-runner 稳定选择器断言失败（同一步骤）",
+        "logBytes": 5769995,
+        "collectedAt": "2026-09-28T16:35:35.956Z"
+      },
+      "failLines": [
+        " FAIL  electron/tests/visual-workflow-runner.test.js > 视觉工作流执行器 > 账号工作流使用当前筛选器和命令按钮的稳定选择器"
+      ],
+      "summaryLines": [
+        " Test Files  1 failed | 674 passed | 1 skipped (676)",
+        "      Tests  1 failed | 12055 passed | 3 skipped (12059)"
+      ],
+      "excerptLines": [
+        " ✓ electron/tests/check-asar.test.js > check-asar > 将 Windows 归档路径归一化后识别必需入口 3ms",
+        " ✓ src/composables/useIdentity.test.js > useIdentity > 导出模板使用的完整身份属性和方法 10ms",
+        " ✓ src/router/index.test.js > 应用路由 > 发布导航默认指向发布记录，编辑器保持独立入口 5ms",
+        "",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        "",
+        " FAIL  electron/tests/visual-workflow-runner.test.js > 视觉工作流执行器 > 账号工作流使用当前筛选器和命令按钮的稳定选择器",
+        "TypeError: Cannot read properties of undefined (reading 'steps')",
+        " ❯ electron/tests/visual-workflow-runner.test.js:61:62",
+        "     59|     const activeSteps = byName['accounts-active-filter-reset'].steps",
+        "     60|     const addSteps = byName['accounts-add-dialog-cancel'].steps",
+        "     61|     const groupSteps = byName['accounts-group-dialog-close'].steps",
+        "       |                                                              ^",
+        "     62|",
+        "     63|     expect(searchSteps).toEqual(expect.arrayContaining([",
+        "",
+        "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯",
+        "",
+        "",
+        " Test Files  1 failed | 674 passed | 1 skipped (676)"
+      ]
+    },
+    {
+      "source": {
+        "runId": 35559119993,
+        "jobId": 106208433965,
+        "why": "pixel-diff-baseline-guard 在 coverage 插桩下超 10s 预算（同一步骤，第三种病因）",
+        "logBytes": 5152991,
+        "collectedAt": "2026-09-28T16:36:01.949Z"
+      },
+      "failLines": [
+        " FAIL  tests/visual-testing/pixel-diff-baseline-guard.test.js > baseline-content-guard > 现存全部真实基线均通过守卫（阈值校准）"
+      ],
+      "summaryLines": [
+        "Error: Test timed out in 10000ms.",
+        " Test Files  1 failed | 560 passed | 1 skipped (562)",
+        "      Tests  1 failed | 10377 passed | 2 skipped (10380)"
+      ],
+      "excerptLines": [
+        " ✓ electron/tests/check-asar.test.js > check-asar > 将 Windows 归档路径归一化后识别必需入口 3ms",
+        " ✓ src/composables/useIdentity.test.js > useIdentity > 导出模板使用的完整身份属性和方法 9ms",
+        " ✓ src/router/index.test.js > 应用路由 > 发布导航默认指向发布记录，编辑器保持独立入口 4ms",
+        "",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        "",
+        " FAIL  tests/visual-testing/pixel-diff-baseline-guard.test.js > baseline-content-guard > 现存全部真实基线均通过守卫（阈值校准）",
+        "Error: Test timed out in 10000ms.",
+        "If this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".",
+        " ❯ tests/visual-testing/pixel-diff-baseline-guard.test.js:62:5",
+        "     60|   const KNOWN_EMPTY_BASELINES = [\"analytics-overview.png\"];",
+        "     61|",
+        "     62|   it(\"现存全部真实基线均通过守卫（阈值校准）\", () => {",
+        "       |     ^",
+        "     63|     const dir = path.join(__dirname, \"base-screenshots\");",
+        "     64|     const files = fs",
+        "",
+        "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯",
+        "",
+        ""
+      ]
+    }
+  ]
+}

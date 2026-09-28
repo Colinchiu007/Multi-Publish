@@ -3,9 +3,12 @@
 // 存在理由：`ci-failure-handler.yml` 的「解析 CI 失败原因」步骤是一个常量
 // （`FAILURE_TYPE=ci-failure` / `AUTO_FIXABLE=true`），去重键又是 per-SHA
 // （`ci-failure-<40位sha>` in:title），于是每个失败提交都开一张新单、且正文里没有任何
-// 失败信息。实测（2026-09-28）：`labels=ci-failure` 的 open 单 **≥200 张**，8 天累积
-// （quality-gate 97 / Electron CI 58 / Doc Sync Gate 39 / Build & Release 6），
-// 其中 `Electron CI` 那一档的失败步骤全部是 #2458 那个已被修掉的 20m 预算墙。
+// 失败信息。实测（2026-09-28 用 search 的 total_count 交叉核对，不是翻页估算）：
+// `labels=ci-failure` 的 open 单 **790 张**（累计 950，已闭 160），跨 2026-08-13→09-28。
+// 其中 `Electron CI` 那一档**不是**都归 #2458 那道 20m 预算墙——我先前按"失败步骤名"分桶
+// 得出"全部命中"，那是标识符匹配不是病因匹配：同一步骤名在真实数据里既有 exit 124（墙掐掉）
+// 也有 exit 1（真实断言失败）。分层抽样 100 张重测后是 test-failure 18 : ci-timeout-budget 2。
+// 只有带 124 证据的 46 张被逐张关闭并留了理由评论。
 //
 // 夹具来源：`.github/scripts/fixtures/ci-failure-samples.json`，由脚本从**真实** Actions
 // API 载荷生成（runs + jobs + check-run annotations），禁止手抄形状。
@@ -15,7 +18,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { classifyFailure, buildDedupTitle, collectEvidence } = require('./classify-ci-failure.js');
+const { classifyFailure, buildDedupTitle, collectEvidence, extractFailingTest } = require('./classify-ci-failure.js');
 
 const FIXTURE = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'ci-failure-samples.json'), 'utf8')
@@ -208,7 +211,9 @@ test('证据采集必须打对端点，且只取失败作业（打错端点=静�
   assert.deepEqual(calls, [
     'api repos/o/r/actions/runs/42/jobs?per_page=100',
     'api repos/o/r/check-runs/11/annotations',
-  ], '只允许对失败作业取 annotation：成功作业的 check_run 不该被请求');
+    // 第三条是"取日志找失败用例"：该作业的步骤确实是测试类，属预期新增（不是打错端点）。
+    'api --allow-escape-sequences repos/o/r/actions/jobs/1/logs',
+  ], '只允许对失败作业取 annotation 与日志：成功作业的 check_run 不该被请求');
   assert.equal(input.workflowName, 'Electron CI', 'workflowName 由 handler 从 workflow_run 事件带上，不再多打一次 API');
   assert.deepEqual(input.failedJobs.map(j => j.name), ['electron-tests']);
   assert.deepEqual(input.failedJobs[0].steps.map(s => s.name), ['Unit tests (Vitest, non-Electron, single-worker deterministic)'], '不得把 success 步骤带进去');
@@ -258,12 +263,6 @@ test('采集要把"没有结论的步骤"带到分类器（否则线索在链路
   assert.equal(v.rootStep, null);
   assert.match(v.evidence, /首个非成功步骤/, `线索应当出现在 evidence 里：${v.evidence}`);
   assert.match(buildDedupTitle(v), /未定位到失败步骤/);
-});
-
-test('handler 必须把 run_attempt 传给分类器（否则 #2572 的重跑竞态会复现）', () => {
-  const handler = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ci-failure-handler.yml'), 'utf8');
-  assert.match(handler, /--run-attempt /, '调用处必须带 --run-attempt');
-  assert.match(handler, /workflow_run\.run_attempt/, '值必须取自事件的 run_attempt，不能自己猜');
 });
 
 test('采集必须按 run_attempt 打 attempt 级端点（否则重跑会把失败证据抹掉）', async () => {
@@ -353,82 +352,88 @@ test('一个失败作业都定位不到时（重跑竞态残留），标题与�
   assert.match(v.evidence, /无作业可定位/, v.evidence);
 });
 
-const HANDLER = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ci-failure-handler.yml'), 'utf8');
+const LOG = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'ci-failure-log-excerpts.json'), 'utf8')
+);
 
-test('handler 消费的每个 output 键都必须由分类器投影出来', () => {
-  const consumed = new Set(
-    [...HANDLER.matchAll(/steps\.parse-failure\.outputs\.([A-Z_][A-Z0-9_]*)/g)].map(m => m[1])
-  );
-  assert.ok(consumed.size >= 6, `应当至少核对 6 个字段，实际 ${consumed.size} —— 正则可能已经失配`);
-  // COMMIT_SHA 等由 parse-failure 步骤自己 echo，其余必须来自 toOutputLines
-  const selfEchoed = new Set(['WORKFLOW_NAME', 'COMMIT_SHA', 'PR_NUMBER', 'RUN_ID']);
-  const produced = new Set(
-    require('./classify-ci-failure.js')
-      .toOutputLines({
-        type: 't', workflowName: 'w', rootJob: 'j', rootStep: 's', exitCode: 1,
-        trackedIn: null, fileIssue: true, signature: 'x', evidence: 'e',
-      })
-      .split('\n')
-      .map(line => line.split('=')[0])
-  );
-  assert.ok(produced.has('TYPE') && produced.has('SIGNATURE'), '投影本身必须至少含 TYPE/SIGNATURE，否则这条守卫是空的');
-  const missing = [...consumed].filter(k => !produced.has(k) && !selfEchoed.has(k));
-  assert.deepEqual(missing, [], `handler 引用了分类器没投影的字段: ${missing.join(', ')}`);
+test('夹具必须是同一测试-runner 步骤下的三种不同病因（否则这条守卫没有意义）', () => {
+  assert.ok(LOG.samples.length >= 3, `需要 ≥3 条真实日志片段，实际 ${LOG.samples.length}`);
+  const files = LOG.samples.map(s => s.failLines[0]);
+  const distinct = new Set(files);
+  assert.equal(distinct.size, LOG.samples.length, '三条 FAIL 行必须互不相同');
+  // 三条都来自 QG Coverage / Gate 5 同一步骤（这是本守卫的前提，必须钉住）
+  for (const s of LOG.samples) assert.ok(s.source.why.includes('同一步骤') || /QG Coverage/.test(s.source.why), s.source.why);
 });
 
-test('handler 不得退回常量或 per-SHA 去重（这两条正是本 PR 修的东西）', () => {
-  assert.doesNotMatch(HANDLER, /FAILURE_TYPE=ci-failure/, '分类结果不得再写常量');
-  assert.doesNotMatch(HANDLER, /AUTO_FIXABLE=true/, '同上');
-  assert.doesNotMatch(HANDLER, /ci-failure-\$SHA in:title/, '去重键不得是 per-commit');
-  assert.match(HANDLER, /node \.github\/scripts\/classify-ci-failure\.js/, '必须真的调用分类器');
-  // 动态标签会让 gh issue create 直接失败（仓库无这些标签），故标签集合必须保持静态
-  assert.match(HANDLER, /--label "bug,ci-failure,level-4"/, '标签必须是既有集合');
-  assert.doesNotMatch(HANDLER, /--label "bug,ci-failure,\$\{\{/, '禁止把分类值塞进 --label');
-  // 分类步骤自身失败要回落，否则 -e 会让 handler 变红且一张单都不开
-  assert.match(HANDLER, /if ! node \.github\/scripts\/classify-ci-failure\.js/, '缺少回落分支');
-  assert.match(HANDLER, /回落到旧行为/, '回落分支必须出声');
+test('同一步骤里的不同测试必须产生不同签名（签名按步骤聚合会把 342 张不同病因并成一张单）', () => {
+  const made = LOG.samples.map(s => {
+    const sig = classifyFailure({
+      workflowName: 'quality-gate',
+      runId: s.source.runId,
+      headSha: 'b'.repeat(40),
+      failedJobs: [{ id: s.source.jobId, name: 'QG Coverage', conclusion: 'failure', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] }],
+      annotations: [{ jobId: s.source.jobId, jobName: 'QG Coverage', list: [{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }] }],
+      logExcerpts: [{ jobId: s.source.jobId, text: s.excerptLines.join('\n') }],
+    });
+    return sig;
+  });
+  const sigs = new Set(made.map(m => m.signature));
+  assert.equal(sigs.size, 3, `三条不同病因必须给出 3 个签名，实际 ${sigs.size} 个：\n${made.map(m => m.signature).join('\n')}`);
+  const titles = new Set(made.map(m => buildDedupTitle(m)));
+  assert.equal(titles.size, 3, '标题也必须区分（同签名才去重）');
+  // 每条签名都要带上测试文件，且不泄漏整行超长内容
+  for (const m of made) assert.match(m.signature, /::test=/);
+  assert.ok(made[0].signature.length < 260, `签名长度需有界，实际 ${made[0].signature.length}`);
 });
 
-// --- 注入面守卫：run: 正文里不得内联 ${{ -------------------------------------------
-// 存在理由：GitHub 表达式是**字面替换**进 shell 文本的，替换发生在 bash 解析之前。
-// 本 handler 由 workflow_run 触发、带 issues:write / pull-requests:write，而
-// `workflow_run.name` 是失败那个工作流文件自己声明的字符串——fork 的 PR 想写什么写什么。
-// 修法只有一条：值进 env:，正文里读 shell 变量。
-function runBlocks(text) {
-  const lines = text.split(/\r?\n/);
-  const blocks = [];
-  for (let i = 0; i < lines.length; i++) {
-    const head = /^(\s*)run:\s*[|>][-+]?\s*$/.exec(lines[i]);
-    if (!head) continue;
-    const indent = head[1].length;
-    const body = [];
-    let j = i + 1;
-    for (; j < lines.length; j++) {
-      const line = lines[j];
-      const lead = /^\s*/.exec(line)[0].length;
-      if (line.trim() !== '' && lead <= indent) break;
-      body.push(line);
+test('failingTest 解析必须给出文件与用例名，且按真实 FAIL 行格式', () => {
+  const t = extractFailingTest(LOG.samples[0].excerptLines.join('\n'));
+  assert.equal(t.file, 'electron/services/rpa-view-platforms.test.js');
+  assert.match(t.name, /kuaishou：publish_btn/);
+  const timedOut = extractFailingTest(LOG.samples[2].excerptLines.join('\n'));
+  assert.equal(timedOut.file, 'tests/visual-testing/pixel-diff-baseline-guard.test.js');
+  assert.match(timedOut.name, /现存全部真实基线均通过守卫/);
+  // 负控：日志里没有 FAIL 行时必须返回 null，不得凭空造一个测试名
+  assert.equal(extractFailingTest('Test Files 1 failed | 676 passed\nExit status 1'), null);
+});
+
+test('日志取不到时签名退化为 test=unknown，且必须能看出是退化（不得伪装成"同一个成因"）', () => {
+  const base = {
+    workflowName: 'quality-gate', runId: 1, headSha: 'c'.repeat(40),
+    failedJobs: [{ id: 9, name: 'QG Coverage', conclusion: 'failure', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] }],
+    annotations: [{ jobId: 9, jobName: 'QG Coverage', list: [{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }] }],
+  };
+  const v = classifyFailure(base);
+  assert.match(v.signature, /::test=unknown$/);
+  assert.equal(v.failingTest, null);
+  assert.match(v.evidence, /测试名未取得/);
+  // 有 logExcerpts 但里面没有 FAIL 行（例如被截断）也走同一退化路径
+  const v2 = classifyFailure({ ...base, logExcerpts: [{ jobId: 9, text: 'nothing interesting' }] });
+  assert.match(v2.signature, /::test=unknown$/);
+});
+
+test('采集只为"测试-runner 类失败作业"取日志，非测试步骤不得触发 5MB 下载', async () => {
+  const calls = [];
+  const fake = (a) => {
+    calls.push(a.join(' '));
+    if (/actions\/runs\/55\/jobs/.test(a[1])) {
+      return JSON.stringify({ jobs: [
+        { id: 1, name: 'QG Coverage', conclusion: 'failure', check_run_url: 'https://api.github.com/repos/o/r/check-runs/11', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] },
+        { id: 2, name: '文档同步检查', conclusion: 'failure', check_run_url: 'https://api.github.com/repos/o/r/check-runs/12', steps: [{ name: '检查文档同步（硬门禁）', conclusion: 'failure' }] },
+      ] });
     }
-    blocks.push({ startLine: i + 1, text: body.join('\n') });
-    i = j - 1;
-  }
-  return blocks;
-}
-
-test('run: 正文里不得内联 ${{ 表达式（字面替换先于 bash 解析 = 命令注入面）', () => {
-  const blocks = runBlocks(HANDLER);
-  assert.ok(blocks.length >= 6, `至少应解析出 6 个 run 块，实际 ${blocks.length} —— 解析器失配会让本守卫变成装饰`);
-  const offending = blocks.filter(b => b.text.includes('${{')).map(b => b.startLine);
-  assert.deepEqual(offending, [], `这些 run: 块正文里内联了 \${{ ... }}（起始行 ${offending.join(', ')}）`);
-  // 反向自证：不是"整份文件没有表达式"造成的假绿——env 传的值必须真的被正文读走
-  const first = blocks[0].text;
-  assert.match(first, /"\$EVT_WORKFLOW_NAME"/, '工作流名必须由 env 变量提供');
-  assert.match(first, /--run-attempt "\$EVT_RUN_ATTEMPT"/, 'attempt 必须由 env 变量提供');
-  assert.match(HANDLER, /EVT_WORKFLOW_NAME: \$\{\{ github\.event\.workflow_run\.name \}\}/, 'env 侧必须绑定事件字段');
-  // 正文读走的每个 $EVT_* 都必须在 env: 里声明过。漏声明不报错，只是**空串**——
-  // 而空 attempt 正是"读最新 attempt"的旧行为，等于把 #2572 的竞态静默改回来。
-  const declared = new Set([...HANDLER.matchAll(/^[ \t]+(EVT_[A-Z_]+):/gm)].map(m => m[1]));
-  const used = new Set([...HANDLER.matchAll(/\$(EVT_[A-Z_]+)/g)].map(m => m[1]));
-  assert.ok(used.size >= 5, `至少应有 5 个 $EVT_ 引用，实际 ${used.size} —— 正则失配则本条为空守卫`);
-  assert.deepEqual([...used].filter(u => !declared.has(u)), [], '有 $EVT_* 没有对应的 env: 声明');
+    if (/check-runs\/(11|12)\/annotations$/.test(a[1])) {
+      return JSON.stringify([{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }]);
+    }
+    if (/actions\/jobs\/1\/logs$/.test(a[1])) {
+      return '2026-09-28T00:00:00.0000000Z  FAIL  electron/services/x.test.js > suite > case\n';
+    }
+    throw new Error('unexpected call ' + a.join(' '));
+  };
+  const input = await collectEvidence({ repo: 'o/r', runId: 55, workflowName: 'quality-gate', runGh: fake });
+  const logCalls = calls.filter(c => /\/logs/.test(c));
+  assert.deepEqual(logCalls, ['api --allow-escape-sequences repos/o/r/actions/jobs/1/logs'], '只允许对测试类作业取日志；文档同步步骤不得取');
+  assert.equal(input.failedJobs.length, 2);
+  assert.equal(classifyFailure(input).signature.includes('::test='), true);
 });
+

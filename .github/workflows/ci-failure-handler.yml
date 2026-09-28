@@ -161,6 +161,7 @@ jobs:
           EXIT_CODE: ${{ steps.parse-failure.outputs.EXIT_CODE }}
           SIGNATURE: ${{ steps.parse-failure.outputs.SIGNATURE }}
           EVIDENCE: ${{ steps.parse-failure.outputs.EVIDENCE }}
+          FAILING_TEST: ${{ steps.parse-failure.outputs.FAILING_TEST }}
           TITLE: ${{ steps.parse-failure.outputs.TITLE }}
           ACTOR: ${{ github.actor }}
         run: |
@@ -182,13 +183,14 @@ jobs:
           - 根因作业: $ROOT_JOB
           - 根因步骤: $ROOT_STEP
           - 进程退出码: $EXIT_CODE
+          - 失败用例: ${FAILING_TEST:-未识别（该步骤非测试类，或日志里没有 FAIL 行）}
           - 去重签名: \`$SIGNATURE\`
 
           取证: $EVIDENCE
 
           > 同一签名再次失败不再重复开单，会追评在本单下。
           > 旧版这里写的是常量「失败类型: ci-failure / 可自动修复: 是」，且去重键是 per-commit，
-          > 于是同一个根因每个提交开一张单（实测 2026-09-28 累积 ≥200 张 open）。
+          > 于是同一个根因每个提交开一张单（实测 2026-09-28 open 单 790 张，跨 2026-08-13→09-28）。
 
           ---
 
