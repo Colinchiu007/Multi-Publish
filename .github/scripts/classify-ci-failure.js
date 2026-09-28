@@ -53,6 +53,18 @@ function firstFailedStep(job) {
   return failed.length ? failed[0].name : null;
 }
 
+/**
+ * 作业红但没有任何 `conclusion === 'failure'` 的步骤时（真实形状：run 36405013013
+ * attempt 1 —— `electron-tests` = failure，`Unit tests` 是 skipped，之后 7 个步骤是 null），
+ * 取第一个"非 success 且非 skipped"的步骤当**线索**。
+ * 它只能当线索：`null` 意为"没报告结论"，不等于"这一步失败了"，所以标签里必须写"未判定"。
+ */
+function firstUnfinishedStep(job) {
+  const steps = (job && job.steps) || [];
+  const odd = steps.filter(s => s && s.conclusion !== 'success' && s.conclusion !== 'skipped' && s.conclusion !== 'failure');
+  return odd.length ? odd[0].name : null;
+}
+
 /** 选根因作业：先排除汇总作业，按名字排序取第一个（API 顺序会变，签名不能跟着漂）。
  *  全都排完为空时（真实失败作业已被重跑冲掉，只剩 rollup 红），退回按名字排序的第一个作业 ——
  *  报出 rollup 也比输出 `null / null` 的空标题有用，且标题仍可稳定去重。 */
@@ -107,7 +119,15 @@ function classifyFailure(input) {
   const exitCode = rootJob === null ? null : exitCodeFor(input.annotations, rootJob);
 
   const exitText = exitCode === null ? '无 exit-code annotation' : `exit code ${exitCode}`;
-  const evidence = `${workflowName} / ${rootJob || '(无失败作业)'} / ${rootStep || '(无失败步骤)'} / ${exitText}`;
+  // attempt 必须留在证据里：handler 是在 `workflow_run` 完成后跑的，若中途有人重跑，
+  // 不带 attempt 的端点会给出新一次的结论（实测 #2572 就是这样开出一张空标题单的）。
+  const attemptGiven = input.runAttempt !== undefined && input.runAttempt !== null && input.runAttempt !== '';
+  const attemptText = attemptGiven ? `attempt ${input.runAttempt}` : 'attempt 未知（读的是最新 attempt，重跑后可能已不是失败那一次）';
+  let evidence = `${workflowName} / ${rootJob || '(未定位到失败作业)'} / ${rootStep || '(未定位到失败步骤)'} / ${exitText} / ${attemptText}`;
+  if (root && rootStep === null) {
+    const hint = firstUnfinishedStep(root);
+    if (hint) evidence += ` / 首个非成功步骤: ${hint}（仅线索，未判定）`;
+  }
 
   let type;
   if (exitCode === 124) {
@@ -144,13 +164,19 @@ function classifyFailure(input) {
     fileIssue,
     evidence,
     // 汇总作业刻意不进签名：同一次回归有没有带动 Gate Result 红，不该产生两个签名
-    signature: `${workflowName}::${rootJob || '-'}::${rootStep || '-'}::exit=${exitCode === null ? 'unknown' : exitCode}`,
+    // 定位不到步骤时签名给 `none`（而不是空串或 `-`）：去重键必须能区分"确实没有失败步骤"
+    // 和"整个载荷没取到"，否则两类不同的未知会被并成一张单。
+    signature: `${workflowName}::${rootJob || 'no-job'}::${rootStep || 'none'}::exit=${exitCode === null ? 'unknown' : exitCode}`,
   };
 }
 
-/** 去重标题：不含 sha，同因复发命中同一张单。 */
+/** 去重标题：不含 sha，同因复发命中同一张单。
+ *  定位不到时给**诚实标签**而不是 `- / -` —— 空占位比旧标题信息更少，等于把"我不知道"
+ *  伪装成"这就是成因"（真实事故：#2572 标题 `ci-failure[ci-failure] Electron CI: - / -`）。 */
 function buildDedupTitle(verdict) {
-  return `ci-failure[${verdict.type}] ${verdict.workflowName || '-'}: ${verdict.rootJob || '-'} / ${verdict.rootStep || '-'}`
+  const job = verdict.rootJob || '(未定位到失败作业)';
+  const step = verdict.rootStep || (verdict.rootJob ? '(未定位到失败步骤)' : '(无步骤可定位)');
+  return `ci-failure[${verdict.type}] ${verdict.workflowName || '-'}: ${job} / ${step}`
     .slice(0, 255);
 }
 
@@ -158,17 +184,26 @@ function buildDedupTitle(verdict) {
  * 从 Actions API 组装分类器输入。`runGh` 注入以便单测喂真实形状载荷；生产入口传 gh CLI。
  * 失败作业之外的 check-run 一律不请求（既省配额，也避免把成功作业的 annotation 混进来）。
  */
-async function collectEvidence({ repo, runId, workflowName, runGh }) {
-  const jobsRaw = runGh(['api', `repos/${repo}/actions/runs/${runId}/jobs?per_page=100`]);
-  if (!jobsRaw) throw new Error(`CI-FAILURE-EVIDENCE_UNAVAILABLE jobs run=${runId}`);
+async function collectEvidence({ repo, runId, workflowName, runAttempt, runGh }) {
+  // `run_attempt` 必须带上：不带 attempt 的 jobs 端点只返回**最新一次**，而 handler 是在
+  // run 完成后才被触发的 —— 中间只要有人重跑（实测 #2572 就是这么发生的），失败作业就整体消失，
+  // 分类器会退化成"零失败作业"并开出一张空标题单。
+  const attemptGiven = runAttempt !== undefined && runAttempt !== null && runAttempt !== '';
+  const jobsPath = attemptGiven
+    ? `repos/${repo}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`
+    : `repos/${repo}/actions/runs/${runId}/jobs?per_page=100`;
+  const jobsRaw = runGh(['api', jobsPath]);
+  if (!jobsRaw) throw new Error(`CI-FAILURE-EVIDENCE_UNAVAILABLE jobs run=${runId} attempt=${attemptGiven ? runAttempt : 'latest'}`);
   const parsed = JSON.parse(jobsRaw);
   const failed = (parsed.jobs || []).filter(j => j.conclusion === 'failure');
 
   const failedJobs = failed.map(j => ({
     name: j.name,
     conclusion: j.conclusion,
-    // 分类器只吃失败步骤；成功步骤带进来会让签名随"后来哪一步成功了"漂移
-    steps: (j.steps || []).filter(s => s.conclusion === 'failure')
+    // 丢掉 success/skipped，但**保留没有结论的步骤**（conclusion 为 null）：
+    // 真实形状里"作业红、无 failure 步骤"就是靠这些 null 步骤看出来的（run 36405013013 attempt 1）。
+    // 根因步骤仍只认 conclusion===failure，签名不会因为多带了几个 null 而漂。
+    steps: (j.steps || []).filter(s => s.conclusion !== 'success' && s.conclusion !== 'skipped')
       .map(s => ({ name: s.name, conclusion: s.conclusion })),
   }));
 
@@ -189,7 +224,7 @@ async function collectEvidence({ repo, runId, workflowName, runGh }) {
     annotations.push({ jobId: job.id, jobName: job.name, list: JSON.parse(annRaw) });
   }
 
-  return { workflowName, runId, failedJobs, annotations };
+  return { workflowName, runId, runAttempt: attemptGiven ? Number(runAttempt) : null, failedJobs, annotations };
 }
 
 function toOutputLines(verdict, extra) {
@@ -218,15 +253,16 @@ if (require.main === module) {
   const repo = get('--repo');
   const runId = get('--run-id');
   const workflowName = get('--workflow');
+  const runAttempt = get('--run-attempt');
   const outFile = get('--output');
   if (!repo || !runId || !outFile) {
-    process.stderr.write('usage: classify-ci-failure.js --repo <o/r> --run-id <id> --workflow <name> --output <GITHUB_OUTPUT>\n');
+    process.stderr.write('usage: classify-ci-failure.js --repo <o/r> --run-id <id> --workflow <name> [--run-attempt <n>] --output <GITHUB_OUTPUT>\n');
     process.exit(2);
   }
   const { execFileSync } = require('node:child_process');
   const fs = require('node:fs');
   const runGh = (a) => execFileSync('gh', a, { maxBuffer: 64 * 1024 * 1024 }).toString();
-  collectEvidence({ repo, runId, workflowName, runGh })
+  collectEvidence({ repo, runId, workflowName, runAttempt, runGh })
     .then((input) => {
       const verdict = classifyFailure(input);
       fs.appendFileSync(outFile, toOutputLines(verdict) + '\n', 'utf8');

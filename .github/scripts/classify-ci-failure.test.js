@@ -229,6 +229,123 @@ test('采集端单次 API 失败必须原样抛出而不是降级成"无失败�
 // --- 接线守卫：handler 与分类器之间的字段合同 ---------------------------------------
 // 分类器的输出键与 workflow 里 `steps.parse-failure.outputs.X` 是**手工对齐**的两份清单，
 // 漏一处的症状是"那个字段静默变空串"（GH011 之类都不会报），所以读源码逐个核对。
+const RACE = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'ci-failure-attempt-race.json'), 'utf8')
+);
+
+// —— #2572 的竞态：handler 读的是"最新 attempt"，重跑成功后就看不到任何失败作业 ——
+test('采集要把"没有结论的步骤"带到分类器（否则线索在链路上就丢了）', async () => {
+  // 真实形状取自 run 36405013013 attempt 1：作业 failure、Unit tests 被 skipped、后续步骤 conclusion 为 null
+  const a1 = RACE.attempts.find(x => x.attempt === 1);
+  const et1 = a1.jobs.find(j => j.name === 'electron-tests');
+  assert.ok(et1.steps.some(s => s.conclusion === null || s.conclusion === undefined),
+    '夹具必须确实含"无结论步骤"，否则这条链路守卫是空的');
+  const fake = (a) => {
+    if (/jobs(\?|$)/.test(a[1])) return JSON.stringify({ jobs: a1.jobs });
+    if (/annotations$/.test(a[1])) return JSON.stringify([{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }]);
+    if (/\/logs$/.test(a[1])) return 'nothing\n';
+    throw new Error('unexpected call ' + a.join(' '));
+  };
+  const input = await collectEvidence({ repo: 'o/r', runId: RACE.source.runId, workflowName: 'Electron CI', runAttempt: 1, runGh: fake });
+  const steps = input.failedJobs[0].steps;
+  // ① success / skipped 一律不带（否则签名会随"后来哪些步骤跑成功了"漂移）
+  assert.equal(steps.some(s => s.conclusion === 'success' || s.conclusion === 'skipped'), false, JSON.stringify(steps));
+  // ② 无结论的步骤必须留着 —— 它是"作业红但没有 failure 步骤"唯一的现场
+  assert.ok(steps.length >= 1, '放宽口径没生效：无结论步骤被丢掉了');
+  // ③ 端到端：这条输入必须能让分类器给出诚实标签 + 线索
+  const v = classifyFailure({ ...input, workflowName: 'Electron CI' });
+  assert.equal(v.rootJob, 'electron-tests');
+  assert.equal(v.rootStep, null);
+  assert.match(v.evidence, /首个非成功步骤/, `线索应当出现在 evidence 里：${v.evidence}`);
+  assert.match(buildDedupTitle(v), /未定位到失败步骤/);
+});
+
+test('handler 必须把 run_attempt 传给分类器（否则 #2572 的重跑竞态会复现）', () => {
+  const handler = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ci-failure-handler.yml'), 'utf8');
+  assert.match(handler, /--run-attempt /, '调用处必须带 --run-attempt');
+  assert.match(handler, /workflow_run\.run_attempt/, '值必须取自事件的 run_attempt，不能自己猜');
+});
+
+test('采集必须按 run_attempt 打 attempt 级端点（否则重跑会把失败证据抹掉）', async () => {
+  const calls = [];
+  const fake = (a) => {
+    calls.push(a.join(' '));
+    if (/actions\/runs\/77\/attempts\/1\/jobs/.test(a[1])) {
+      return JSON.stringify({ jobs: RACE.attempts[0].jobs });
+    }
+    if (/actions\/runs\/77\/jobs/.test(a[1])) {
+      // 这就是 bug 的形状：不带 attempt 的端点返回的是**最新 attempt**（已 success）
+      return JSON.stringify({ jobs: RACE.attempts[1].jobs });
+    }
+    if (/check-runs\/\d+\/annotations$/.test(a[1])) {
+      return JSON.stringify([{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }]);
+    }
+    if (/\/logs$/.test(a[1])) return 'no FAIL line here\n';
+    throw new Error('unexpected gh call: ' + a.join(' '));
+  };
+  const input = await collectEvidence({ repo: 'o/r', runId: 77, workflowName: 'Electron CI', runAttempt: 1, runGh: fake });
+  assert.ok(calls.some(c => /attempts\/1\/jobs/.test(c)), `必须打 attempt 级端点，实际调用：\n${calls.join('\n')}`);
+  assert.deepEqual(input.failedJobs.map(j => j.name), ['electron-tests'], 'attempt 1 的真实失败作业必须被带出来');
+  assert.equal(input.runAttempt, 1, 'attempt 号要随输入带下去，便于 evidence 自证');
+});
+
+test('不带 runAttempt 时退回最新 attempt，但必须把"可能不是失败那一次"写进 evidence', async () => {
+  const calls = [];
+  const fake = (a) => {
+    calls.push(a.join(' '));
+    if (/actions\/runs\/78\/jobs/.test(a[1])) return JSON.stringify({ jobs: RACE.attempts[1].jobs });
+    return JSON.stringify([]);
+  };
+  const input = await collectEvidence({ repo: 'o/r', runId: 78, workflowName: 'Electron CI', runGh: fake });
+  assert.equal(calls.some(c => /attempts\//.test(c)), false, '没给 attempt 就不得凭空猜一个');
+  const v = classifyFailure({ ...input, workflowName: 'Electron CI' });
+  assert.match(v.evidence, /attempt/, `无 attempt 信息时要留痕，实际：${v.evidence}`);
+});
+
+test('夹具本身：同一 run 的 attempt 1 是 failure 且没有 failure 步骤，attempt 2 是 success', () => {
+  const a1 = RACE.attempts.find(x => x.attempt === 1);
+  const a2 = RACE.attempts.find(x => x.attempt === 2);
+  assert.ok(a1 && a2, '夹具必须两个 attempt 齐备');
+  const et1 = a1.jobs.find(j => j.name === 'electron-tests');
+  const et2 = a2.jobs.find(j => j.name === 'electron-tests');
+  assert.equal(et1.conclusion, 'failure');
+  assert.equal(et2.conclusion, 'success');
+  assert.equal(et1.steps.filter(s => s.conclusion === 'failure').length, 0, '真实形状：作业红但没有 failure 步骤');
+  assert.ok(et1.steps.filter(s => s.conclusion !== 'success' && s.conclusion !== 'skipped').length >= 1);
+  assert.equal(RACE.source.issueNumber, 2572, '夹具必须绑定它来自的那张真实单');
+});
+
+test('作业红而无 failure 步骤时：根因给作业名 + 诚实标签，不得输出 "- / -"', () => {
+  const a1 = RACE.attempts.find(x => x.attempt === 1);
+  const et1 = a1.jobs.find(j => j.name === 'electron-tests');
+  const v = classifyFailure({
+    workflowName: 'Electron CI', runId: RACE.source.runId, runAttempt: 1, headSha: 'd'.repeat(40),
+    failedJobs: [{ id: et1.id, name: et1.name, conclusion: et1.conclusion, steps: et1.steps.filter(s => s.conclusion !== 'success' && s.conclusion !== 'skipped') }],
+    annotations: [{ jobId: et1.id, jobName: et1.name, list: [{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }] }],
+    logExcerpts: [],
+  });
+  assert.equal(v.rootJob, 'electron-tests', '有失败作业时根因不得为空');
+  const title = buildDedupTitle(v);
+  assert.doesNotMatch(title, /- \/ -/, `标题不得留空占位：${title}`);
+  assert.match(title, /未定位到失败步骤/, title);
+  // 提示（不是结论）：首个非成功非 skipped 步骤要出现在 evidence 里，并标明它只是线索
+  assert.match(v.evidence, /首个非成功步骤/);
+  assert.match(v.evidence, /Electron smoke test/);
+});
+
+test('一个失败作业都定位不到时（重跑竞态残留），标题与签名都要说明这一点', () => {
+  const v = classifyFailure({
+    workflowName: 'Electron CI', runId: 1, runAttempt: 2, headSha: 'e'.repeat(40),
+    failedJobs: [], annotations: [], logExcerpts: [],
+  });
+  assert.equal(v.type, 'ci-failure');
+  const title = buildDedupTitle(v);
+  assert.doesNotMatch(title, /- \/ -/, title);
+  assert.match(title, /未定位到失败作业/, title);
+  assert.match(v.signature, /::none::/, v.signature);
+  assert.match(v.evidence, /attempt 2/, `evidence 要带上 attempt，便于认出重跑，实际：${v.evidence}`);
+});
+
 const HANDLER = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ci-failure-handler.yml'), 'utf8');
 
 test('handler 消费的每个 output 键都必须由分类器投影出来', () => {
@@ -263,4 +380,48 @@ test('handler 不得退回常量或 per-SHA 去重（这两条正是本 PR 修�
   // 分类步骤自身失败要回落，否则 -e 会让 handler 变红且一张单都不开
   assert.match(HANDLER, /if ! node \.github\/scripts\/classify-ci-failure\.js/, '缺少回落分支');
   assert.match(HANDLER, /回落到旧行为/, '回落分支必须出声');
+});
+
+// --- 注入面守卫：run: 正文里不得内联 ${{ -------------------------------------------
+// 存在理由：GitHub 表达式是**字面替换**进 shell 文本的，替换发生在 bash 解析之前。
+// 本 handler 由 workflow_run 触发、带 issues:write / pull-requests:write，而
+// `workflow_run.name` 是失败那个工作流文件自己声明的字符串——fork 的 PR 想写什么写什么。
+// 修法只有一条：值进 env:，正文里读 shell 变量。
+function runBlocks(text) {
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  for (let i = 0; i < lines.length; i++) {
+    const head = /^(\s*)run:\s*[|>][-+]?\s*$/.exec(lines[i]);
+    if (!head) continue;
+    const indent = head[1].length;
+    const body = [];
+    let j = i + 1;
+    for (; j < lines.length; j++) {
+      const line = lines[j];
+      const lead = /^\s*/.exec(line)[0].length;
+      if (line.trim() !== '' && lead <= indent) break;
+      body.push(line);
+    }
+    blocks.push({ startLine: i + 1, text: body.join('\n') });
+    i = j - 1;
+  }
+  return blocks;
+}
+
+test('run: 正文里不得内联 ${{ 表达式（字面替换先于 bash 解析 = 命令注入面）', () => {
+  const blocks = runBlocks(HANDLER);
+  assert.ok(blocks.length >= 6, `至少应解析出 6 个 run 块，实际 ${blocks.length} —— 解析器失配会让本守卫变成装饰`);
+  const offending = blocks.filter(b => b.text.includes('${{')).map(b => b.startLine);
+  assert.deepEqual(offending, [], `这些 run: 块正文里内联了 \${{ ... }}（起始行 ${offending.join(', ')}）`);
+  // 反向自证：不是"整份文件没有表达式"造成的假绿——env 传的值必须真的被正文读走
+  const first = blocks[0].text;
+  assert.match(first, /"\$EVT_WORKFLOW_NAME"/, '工作流名必须由 env 变量提供');
+  assert.match(first, /--run-attempt "\$EVT_RUN_ATTEMPT"/, 'attempt 必须由 env 变量提供');
+  assert.match(HANDLER, /EVT_WORKFLOW_NAME: \$\{\{ github\.event\.workflow_run\.name \}\}/, 'env 侧必须绑定事件字段');
+  // 正文读走的每个 $EVT_* 都必须在 env: 里声明过。漏声明不报错，只是**空串**——
+  // 而空 attempt 正是"读最新 attempt"的旧行为，等于把 #2572 的竞态静默改回来。
+  const declared = new Set([...HANDLER.matchAll(/^[ \t]+(EVT_[A-Z_]+):/gm)].map(m => m[1]));
+  const used = new Set([...HANDLER.matchAll(/\$(EVT_[A-Z_]+)/g)].map(m => m[1]));
+  assert.ok(used.size >= 5, `至少应有 5 个 $EVT_ 引用，实际 ${used.size} —— 正则失配则本条为空守卫`);
+  assert.deepEqual([...used].filter(u => !declared.has(u)), [], '有 $EVT_* 没有对应的 env: 声明');
 });
