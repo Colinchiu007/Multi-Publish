@@ -577,6 +577,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **删除 story2video 项目必须级联清理持久化 run-state 快照**：`story2video:delete-project` 只移除项目索引并尽力清理项目目录，但「已中断/失败/暂停」的编排 run 以 `RunStateStore` 快照（`userData/run-state/<runId>.json`）持久化，`pipelineHistory()` 会从快照重新加载。删除项目时必须同步调用 `runStateStore.remove(projectId)`（runId 与 projectId 同源），否则删除后重进历史页该任务会再次出现。回归测试必须用真实 `RunStateStore`（os.tmpdir 隔离目录）断言删除项目后 `load(projectId)` 为 null、`listRunning()/listFailed()` 为空；快照清理失败仅告警不阻断项目删除。详见 [story2video.test.js](apps/desktop/electron/ipc-handlers/story2video.test.js) 级联清理用例。
 
+- **宿主事件的置位与收口必须取自同一对语义，且状态订阅必须写回「实际被渲染的那份状态」（MUST）**（2026-09-29 标签转圈卡死复盘，缺陷存续约 50 天）：给宿主事件（Electron `webContents` / 浏览器 / 子进程）做布尔状态机时，两条都不可省：① **配对性**——置位与收口必须取自宿主文档里语义成对的那两个事件，不得按「看起来像结束」挑。Electron 的 `did-start-loading` / `did-stop-loading` 在 `electron.d.ts` 里的原文注释就是「the spinner of the tab started / stopped spinning」，而 `did-finish-load` **只在主框架成功时**触发、失败与被中止（`did-fail-load` / `ERR_ABORTED`）路径上永不调发，用它收口 `loading` 必然永久卡住；崩溃类还须补 `render-process-gone` 就地收口（此后不会再有任何事件）。② **接线**——订阅回调写的字段必须就是渲染端读取的那一份。本案主进程广播的 `tab-loading` / `tab-finished-loading` 只改写 `navigation.loading`，而 `TabBar` 的徽标读的是 `tabs[].loading`（唯一来源是全量快照 `getAllTabs()`），于是徽标**自诞生起从未被实时熄灭过**，只在切标签时偶然纠正。判据手法：给任一「有事件、有订阅、有 UI」的指示器收尾时，必须从 UI 实际读的字段**反查写入者清单**（`grep` 该字段名），链路不通即缺陷；同一字段出现第二套写法（本案 `onNavigationChanged` 还把 `loading` 硬编码成 `false`）即口径分裂，必须收敛为「载荷带真值 + 字段缺席则保持现状」，**禁止**用 `!!data.loading` 把「载荷破坏」当成「结束」。另注：宿主事件回调被测试**当作夹具触发器**使用（只为驱动副作用链而 fire 某回调、不断言该回调自身的语义效果）时，「置位后收口永不到来」这一组合在测试里根本不可表示——本案单元/集成/视觉/审查四层同时漏过，视觉层还因图标占页面积 < 0.1% 对回归结构性失明。回归锁与六条反证变异见 `01-docs/PRD-BROWSER-NAV-ICONS-LOADING-2026-09-29.md` §3、§6。
+
 ### QM-3：测试策略
 
 - 单元测试（1830 passed | 10 skipped）：覆盖核心业务逻辑 ✅

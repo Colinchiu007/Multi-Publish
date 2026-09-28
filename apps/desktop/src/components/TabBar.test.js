@@ -76,3 +76,40 @@ describe('TabBar 样式精致化契约（去硬编码灰、改用设计 token）
     expect(tabbarSrc).toMatch(/\.tab-icon-img\s*\{/)
   })
 })
+
+describe('TabBar 加载态徽标（转圈只在真加载中出现）', () => {
+  function mountWithLoading (flags) {
+    const store = useTabStore()
+    store.tabs = [
+      { tabId: 'home', url: '', title: '首页', isHome: true, loading: false },
+      { tabId: 't1', url: 'https://creator.douyin.com/', title: '抖音', isHome: false, loading: flags[0] },
+      { tabId: 't2', url: 'https://cp.kuaishou.com/article/manage/video', title: '快手', isHome: false, loading: flags[1] },
+    ]
+    store.activeTabId = 'home'
+    return mount(TabBar, { global: { plugins: [i18n] } })
+  }
+
+  it('仅 loading=true 的标签渲染 spinner，其余标签不渲染', () => {
+    const w = mountWithLoading([true, false])
+    expect(w.get('[data-testid="tab-t1"]').find('.tab-spinner').exists()).toBe(true)
+    expect(w.get('[data-testid="tab-t2"]').find('.tab-spinner').exists()).toBe(false)
+    expect(w.findAll('.tab-spinner')).toHaveLength(1)
+  })
+
+  it('全部标签加载完毕时不得残留任何 spinner', () => {
+    const w = mountWithLoading([false, false])
+    expect(w.findAll('.tab-spinner')).toHaveLength(0)
+  })
+
+  it('spinner 必须是 SVG 图标组件，不得是裸 Unicode 字形', () => {
+    const w = mountWithLoading([true, false])
+    const spinner = w.get('.tab-spinner')
+    expect(spinner.find('svg').exists()).toBe(true)
+    expect(spinner.text()).toBe('')
+  })
+
+  it('结构锁：TabBar.vue 源码不得再出现裸字形 ⟳，且 spinner 动画有 reduced-motion 降级', () => {
+    expect(tabbarSrc).not.toMatch(/⟳/)
+    expect(tabbarSrc).toMatch(/prefers-reduced-motion/)
+  })
+})
