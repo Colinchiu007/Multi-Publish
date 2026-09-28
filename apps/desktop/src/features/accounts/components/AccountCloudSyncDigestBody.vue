@@ -1,6 +1,10 @@
 <template>
   <div class="cloud-digest-body">
-    <p class="cloud-sync-line cloud-digest-total" data-testid="cloud-digest-total">{{ digestTotalText }}</p>
+    <!-- 两个数并排：用户要判断的是「本机 vs 云端」，中间隔一列表就得靠记忆 -->
+    <div class="cloud-digest-counts" data-testid="cloud-digest-counts">
+      <p class="cloud-sync-line cloud-digest-total" data-testid="cloud-digest-total">{{ digestTotalText }}</p>
+      <p class="cloud-sync-line cloud-digest-local" data-testid="cloud-digest-local">{{ t('accountsPage.cloudDigestLocal', { local: localCount }) }}</p>
+    </div>
 
     <ul v-if="platformRows.length" class="cloud-digest-platforms" data-testid="cloud-digest-platforms">
       <li
@@ -23,7 +27,6 @@
       </li>
     </ul>
 
-    <p class="cloud-sync-line cloud-digest-local" data-testid="cloud-digest-local">{{ t('accountsPage.cloudDigestLocal', { local: localCount }) }}</p>
     <p
       v-if="digest && digest.tombstones > 0"
       class="cloud-sync-line cloud-digest-tombstone"
@@ -91,6 +94,8 @@ const platformRows = computed(() => {
    内部各行也必须保持 space-3 间距，否则拆分子组件会悄悄改变视觉。 */
 .cloud-digest-body { display: flex; flex-direction: column; gap: var(--apple-space-3); }
 .cloud-sync-line { margin: 0; color: var(--apple-ink-secondary); font-size: var(--apple-size-sm); line-height: 1.5; }
+.cloud-digest-counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--apple-space-2) var(--apple-space-5); }
+.cloud-digest-counts .cloud-sync-line { margin: 0; }
 .cloud-digest-total { color: var(--apple-ink-primary); font-weight: var(--apple-weight-semibold); }
 .cloud-digest-platforms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--apple-space-1); }
 .cloud-digest-platform { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: var(--apple-space-2); color: var(--apple-ink-secondary); font-size: var(--apple-size-sm); }

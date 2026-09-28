@@ -12,13 +12,16 @@ export default {
   // 因此沿用同命名空间 accountCheckStatus 的「错误码→文案」嵌套表先例，落为 cloudSyncErr.<分组名>
   // （分组而非逐码：见 AccountCloudSyncDialog.vue 的 ERROR_CODE_GROUPS 与 §7.5 码表）。
   cloudSync: '同步云端',
+  // 弹窗主按钮独立文案键：入口按钮叫「同步云端」（标识功能），确认动作要的是动宾明确的
+  // 「同步账号」。两者共用一个键会让两处界面同名不同物，且改一处文案会连带改掉另一处。
+  cloudSyncConfirm: '同步账号',
   cloudSyncBusy: '同步中…',
-  cloudSyncTitle: '同步到云端',
+  cloudSyncTitle: '是否与云端账号同步？',
   cloudSyncAria: '同步账号到云端',
   cloudDigestLoading: '正在获取云端账号信息…',
-  cloudDigestTotal: '云端现有 {total} 个账号',
+  cloudDigestTotal: '云端 {total} 个',
   cloudDigestEmpty: '云端还没有账号，本次将首次上传',
-  cloudDigestLocal: '本机 {local} 个账号将参与同步',
+  cloudDigestLocal: '本机 {local} 个',
   cloudDigestTombstone: '其中 {count} 个已删除账号不会被恢复',
   cloudDigestPrivacy: '登录凭证将加密后上传；可在需要时一键清除云端数据',
   cloudDigestFailed: '无法获取云端账号信息，请检查网络后重试',
