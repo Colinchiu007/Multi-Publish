@@ -18,6 +18,28 @@
 
 ---
 
+# [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
+
+### 变更
+- `apps/desktop/src/styles/cohere-design-system.css` 的 `.mp-platform-icon` 去掉无条件 `background: #f1f0ff`，改为只有 `[data-theme="dark"] .mp-platform-icon` 保留该底衬。浅色主题下图标恢复全透明、直接贴在卡片上。
+- `usePlatformIconUrl.test.js` 的底衬锁由一条无锚点子串匹配换成**按选择器精确取声明块**，并拆成两条独立断言：基础规则内**不得**出现 `background`（这是本次修的缺陷本身）、暗色作用域规则**必须**存在且含 `background`（这是当初修"黑图标隐身"的手段，不能被回退掉）。133 passed。
+
+### 根因（不是格式问题）
+- 用户反馈"图案都有灰色背景"，怀疑是透明图标没处理好。实测排除该假设：15 个 SVG 里**没有任何背景图元**（`rect/circle/ellipse/polygon/line` 计数为 0，也正是形态锁禁掉的那几种），根元素只有 `fill` ⇒ 背景本来就全透明。
+- 灰块来自**我自己加的底衬**：它当初只为解决"暗色下 `--canvas` 压深后 X / TikTok 的纯黑标隐身"，却被写成对所有主题无条件生效，于是浅色卡片上每个图标都顶着一块淡紫灰。属我的实现缺陷，不是资产缺陷。
+- 旧断言 `/\.mp-platform-icon\s*\{[^}]*background:/` 是无锚点子串匹配 —— 底衬挪进暗色作用域后它**仍然命中暗色那条规则**，所以对"浅色又长出灰块"这个回归完全免疫。这正是本仓「文本结构断言必须精确」那条 MUST 针对的形态，本轮据实改写。
+- 写测试过程中 `cssBlock` 一度把基础规则解析成 `null`：`}` 与选择器之间夹着 `/* … */` 注释，`\s*` 跨不过去。修法是先剥注释再匹配（与 SVG 侧 `svgOnly` 同一招）。
+
+### 未一并改动的不对称（如实记）
+- 文字回退分支 `.platform-icon`（`AccountManagementCard.vue:387`）仍带 `background:#f1f0ff` + `border-radius:6px`。换标后 15 个平台全部有图标 URL，该分支基本不再渲染；它的色块是"字母头像"设计本身的一部分，去掉等于改另一个视觉决策，故不动，留此记录。
+
+### 验证
+- `node --test` 等价：`pnpm exec vitest run src/composables/usePlatformIconUrl.test.js` ⇒ 133 passed / 0 failed。
+- 变异反证两格（对**已提交**基线做还原）：把 `background` 放回基础规则 ⇒ "浅色主题不得铺底衬"变红；删掉暗色作用域规则 ⇒ "暗色主题必须保留底衬"变红。两格各自精确命中目标断言，还原后复跑全绿。
+- 视觉门禁影响：本改动只动图标小面积区域的底色，远低于 CI 的全页阈值，预期不改基线；仍以 CI 产物报告为准，不以"应该过"当证据。
+
+---
+
 # [未发布] fix(模型调用): 5h 额度窗口在并发下超额发起真实调用 → 改为准入即占额度（2026-09-28，governor-quota-reserve）
 
 ### 为什么
