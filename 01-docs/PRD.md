@@ -17599,3 +17599,25 @@ is_default: 1
 | 路径解析失败 | 清空 `video_path` + 警告 toast（`story2video.media_path_unresolved`，既有行为不变） |
 
 video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回归锁：`Publish.test.js` 5 例（成功反馈 / 删除同步 / 重选替换 / 无 ref 与空文件 fail-safe / 既有路径解析）。审查口径：**任何 el-upload `limit=1` 必配 on-change + on-exceed + on-remove 三件套**。
+## 发布页封面缩略图与放大预览（2026-09-28 新增）
+
+> 完整规格（数据校验 / 交互流程 / 显示项 / 提示文字 / 性能实测 / 验收标准 / 测试策略 / 决策记录）见
+> **`01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md`**；本节只登记入口与不可省略的口径。
+
+**需求**：一键发布页选择封面后必须**看到封面**。此前【从视频提取封面】【AI 生成封面】只在 `el-upload` 文本列表里留一行文件名，用户无法确认取到的是哪一帧或生成了什么，只能盲发。
+
+**三条不可省略的口径**：
+
+1. **预览挂在 `article.cover_path` 上，不挂在按钮回调上。** 封面有五个写入口（提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上一次覆盖；挂在回调上必然漏「草稿恢复」，且以后每加一个入口再漏一次 —— 漏掉的那次不会报错。
+2. **「本地绝对路径 → 可渲染 URL」的剥信封只允许一处实现**：`apps/desktop/src/composables/useCoverPreview.js`。渲染层 CSP 的 `img-src` 不含 `file:`，必须经主进程 `cover:read-data` 转 dataURL；该剥离（`res.data.dataUrl || res.dataUrl`）原先散在裁剪弹窗内部，现已迁入 composable 并由裁剪弹窗复用。禁止再抄第二份。
+3. **迟到的旧响应必须整段丢弃。** 用户可连续点「提取 → AI 生成 → 裁剪」，若旧请求后到并把缩略图刷成上一张，那是**错误的证据**，比没有缩略图更糟。实现为自增序号 + 写状态前比对，`onScopeDispose` 作废在途请求。
+
+**显示与交互**：缩略图 144×81、`object-fit: cover`、`cursor: zoom-in`、`role=button` + `tabindex=0` + Enter/Space 可达；三态互斥（加载中 / 有图 / 读取失败）。失败态保留占位框并把原因挂 `title`，**不得整块消失**（会让用户以为「封面没设置上」而重复点击生成）。点击打开 `UiModal`（`size="xl"`、`Esc`/遮罩/× 三种关闭），显示文件名与原始像素尺寸；预览打开期间换封面必须收起弹窗。
+
+**浮层互斥（AGENTS.md MUST）**：本流程三个应用级模态各持唯一 owner 并成对释放（释放走 `finally`、`onBeforeUnmount` 兜底）：`publish-cover-preview`、`publish-cover-crop-dialog`、`publish-ai-cover-dialog`。后两者是本次一并补登记的既有漏项。
+
+**明确不做**：不预览远程「封面图片链接」（避免向任意第三方域名发出可追踪请求，且 `http://` 会被 CSP 拦成破图）；不加主进程体积门禁（实测 20 MB 仅 25.6 ms，见 PRD §9）；不引入 `sharp`（桌面工作区未声明，违反生产依赖闭包）。
+
+**已知限制**：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框 `accept="image/*"`，故 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**（裁剪弹窗一直如此，本次让它可见）。
+
+**回归锁**：`useCoverPreview.test.js`（17 例，含竞态与导出完整性）、`Publish.test.js`「封面缩略图与放大预览」（11 例）、`CoverCropDialog.test.js`（复用 composable 后行为不变）、`overlay-view-suspension.test.js`（三 owner 结构锁）。四条变异反证均实测变红。E2E 既有契约 `[data-testid="cover-state"]` 必须原样保留。
