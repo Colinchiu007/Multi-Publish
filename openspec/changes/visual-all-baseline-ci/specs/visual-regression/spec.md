@@ -4,7 +4,12 @@
 
 `test:all:visual` SHALL 指向唯一聚合脚本（`apps/desktop/tests/visual-testing/scripts/run-all-visual.js`），MUST NOT 用 `&&` 串联四套套件文件。聚合器 SHALL 从四套用例模块取注册表（与模块导出的数组引用相等，禁止复制第二份清单），并 SHALL 逐套隔离执行：**任一套件失败或抛错都不得中止后续套件**——「CI 产物里有没有这套用例的截图」不得取决于前一套的成败。
 
-每套 SHALL 输出一行 `[VISUAL-SUMMARY] suite=<id> total=<n> passed=<n> failed=<n> elapsed_ms=<n>`，全部通过时不得省略；末尾 SHALL 输出 `[VISUAL-ALL-SUMMARY] suites=<n> total=<n> passed=<n> failed=<n> aborted=<n>`。运行器起不来等「一条结论都没有」的异常 SHALL 记 `aborted=1` 且 `failed=0`，MUST NOT 把未知谎报成失败数。CLI 退出码 SHALL 在存在 `failed>0` 或 `aborted>0` 时为 `1`（人工「全绿才算过」的合同不变）。
+每套 SHALL 输出一行 `[VISUAL-SUMMARY] suite=<id> total=<n> passed=<n> failed=<n> elapsed_ms=<n>`，全部通过时不得省略；末尾 SHALL 输出 `[VISUAL-ALL-SUMMARY] suites=<n> total=<n> passed=<n> failed=<n> aborted=<n>`。运行器起不来、返回形状不认识等「一条结论都没有」的情形 SHALL 记 `aborted=1` 且 `failed=0`，MUST NOT 把未知谎报成失败数，也 MUST NOT 默认成「全通过」（fail-closed：「没拿到结论」不是「没有失败」）。
+用例总数 SHALL 只取注册表长度，MUST NOT 由套件返回的条数反推（否则套件加条目就能改动总数口径）。
+套件若以「不抛错、把每条回填 FAILED」的形态表达**启动失败**（`all-workflows` 的既有契约），SHALL 由该套件显式标 `runnerLaunchFailed` 供聚合器判 `aborted`，MUST NOT 让同一根因在不同套件被分类成 `failed=全部` 与 `aborted=1` 两种结论。
+CLI 退出码 SHALL 在存在 `failed>0` 或 `aborted>0` 时为 `1`（人工「全绿才算过」的合同不变）；CLI SHALL 另把同一份汇总写入 `reports/visual-all-summary.json`，使 artifact 内可不扒日志就判定逐套结论。
+
+套件返回的**结论条数必须与注册表条数相等**；不等（少产出一条、或用多余条目反推总数）SHALL 判 `aborted`，MUST NOT「就近取一个数」当作结果。抛出错误但 `failures` 为空（一条都没归因）同样 SHALL 判 `aborted`。
 
 #### Scenario: 第一套红仍跑完四套
 
@@ -28,7 +33,8 @@
 
 ### Requirement: CI 必须有全量视觉的产物来源，且在基线同源重建前不得升级为门禁
 
-`visual-test.yml`（main push / workflow_dispatch）SHALL 含一个执行全量聚合器的步骤，该步骤 SHALL 同时声明 `if: always()`（像素门禁红时也必须采集）与 `continue-on-error: true`（**当前刻意非阻断**）；像素门禁步骤 SHALL NOT 被降级为非阻断；同一 workflow SHALL 继续上传覆盖 `apps/desktop/tests/visual-testing/screenshots` 的 artifact，该 artifact 是 views/workflows 两套注册表基线的唯一同源来源（QM-4 第 7 条：禁止把本机截图提交为基线）。
+`visual-test.yml`（main push / workflow_dispatch）SHALL 含一个执行全量聚合器的步骤，该步骤 SHALL 同时声明 `if: always()`（像素门禁红时也必须采集）与 `continue-on-error: true`（**当前刻意非阻断**）；
+它 SHALL 自带 dev server 生命周期（自己 `Start-Process`、自己等就绪、自己 `taskkill`，端口与像素门禁分离），并 SHALL 把聚合器退出码带到步骤末尾 `exit`——`continue-on-error` 只有在步骤**非零退出**时才把它显示为可见警告，正文以日志语句收尾会让整批采集失败染成绿色通过。上传步骤 SHALL 亦 `if: always()`。；像素门禁步骤 SHALL NOT 被降级为非阻断；同一 workflow SHALL 继续上传覆盖 `apps/desktop/tests/visual-testing/screenshots` 的 artifact，该 artifact 是 views/workflows 两套注册表基线的唯一同源来源（QM-4 第 7 条：禁止把本机截图提交为基线）。
 
 将其升级为阻断门禁 MUST 满足两个前提并在同一 PR 内完成：① 提交按该 artifact 重建的同源基线（经人工审核 diff 图）；② 同步反转契约测试中「采集步骤必须 `continue-on-error: true`」的断言。缺少任一前提即视为把不可判据的基线挂成 main 上的长期假红。
 
@@ -41,6 +47,12 @@
 
 - **WHEN** 未提交同源基线就摘掉采集步骤的 `continue-on-error`
 - **THEN** `workflow-contract.test.js` 失败（断言要求该标记存在，反转它必须与同源基线同 PR）
+
+#### Scenario: 采集步骤自带服务生命周期
+
+- **WHEN** 采集步骤复用像素门禁那台 Vite（像素步骤已在自己的 `finally` 里 `taskkill`）
+- **THEN** 视为不可用——GitHub 每个步骤是独立进程树，四套用例会对着不存在的端口跑成 103 条连接失败，而 `continue-on-error` 会把这种"整批空跑"染成黄色而非红色
+- **THEN** 契约测试要求采集步骤自己 `Start-Process` 起服务、自己等就绪、自己 `taskkill`，且 `TEST_URL` 端口与像素门禁分离
 
 #### Scenario: 两条流水线渲染同一个应用状态
 

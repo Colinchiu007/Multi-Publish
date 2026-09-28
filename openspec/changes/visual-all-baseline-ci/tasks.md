@@ -21,9 +21,29 @@
 
 ## 4. 文档
 
-- [ ] 4.1 AGENTS.md QM-4：`test:all:visual` 语义变化、基线来源改为 Visual Tests workflow 的 artifact、升级门禁的两个前提
-- [ ] 4.2 `apps/desktop/tests/visual-testing/README.md` / `USAGE.md` 命令表同步
-- [ ] 4.3 CHANGELOG / `.quality-gates.md` 记录（置顶插入，逐行保留原行尾）
+- [x] 4.1 AGENTS.md QM-4：`test:all:visual` 语义变化、基线来源改为 Visual Tests workflow 的 artifact、升级门禁的两个前提
+- [x] 4.2 `apps/desktop/tests/visual-testing/README.md` / `USAGE.md` 命令表同步（94→103 条口径 + 两条流水线分工）
+- [x] 4.3 CHANGELOG / `.quality-gates.md` 记录（字节级前插：原字节为新文件逐字节后缀、NUL 数不变、CR 计数守恒；`git diff --numstat` 为 42/0 与 48/0 的纯新增）+ 账本登记本条 PENDING 欠账（`check-gate-record-debt.js` rc=0，欠账 30 条）
+
+## 4b. QM-6 外部评审处理（claude 前端模型 + codex 后端模型）
+
+- [x] 4b.1 **Critical**：采集步骤没有 Vite（像素步骤已在 finally 里 taskkill，复用即 103 条连接失败且被 continue-on-error 染黄）→ 采集步骤改为自带 Start-Process/就绪轮询/taskkill 与独立端口 5175；此缺陷在评审返回前已由自查命中并修复，评审读的是修复前 diff
+- [x] 4b.2 **Warning**：`all-workflows` 从不抛错，启动失败会被算成「整套全红」而非 `aborted` → 该套件补 `runnerLaunchFailed` 信号，聚合器据此判 aborted
+- [x] 4b.3 **Warning**：`normalizeOutcome` 对不认识的结果形状默认「全通过」（fail-open）→ 改为 aborted，并补用例覆盖
+- [x] 4b.4 **Warning**：workflows 分支用 `results.length` 当 total → total 一律取注册表长度（results 多条目不得反向定义总数）
+- [x] 4b.5 **Info**：套件结论只在 stdout → CLI 另写 `reports/visual-all-summary.json`，与 `ci-pixel-results.json` 同处，artifact 内可直接判定
+- [x] 4b.6 **Info**：`vi.useFakeTimers()` 使 `elapsed_ms=0` 只验格式不验算术 → 聚合器开 `now` 注入缝，测试用固定时钟验 `3500-1000=2500`
+- [x] 4b.7 反证四条各自实测变红后还原：未知形状默认全通过 / 忽略 runnerLaunchFailed / total 用 results.length / 不写报告文件；另三条服务生命周期反证（复用 5174 / 漏 taskkill / env 指回 5174）
+
+## 4c. QM-6 后端模型（codex）评审处理
+
+- [x] 4c.1 **Critical #1（Vite 被像素步骤的 finally 杀掉，采集对着不存在的端口跑）** — 不成立于交付态：两位评审读的都是修复前 diff，该缺陷在评审返回前已由自查命中并按「采集步骤自带服务生命周期」修掉，并有 3 条反证（复用 5174 / 漏 taskkill / env 指回 5174 各红一次）
+- [x] 4c.2 **Critical #2（正文以 Write-Host 收尾 ⇒ PowerShell 恒退 0 ⇒ 采集整批失败显示成绿色通过）** — 成立，已修：`$captureExit` 初值 1、捕获聚合器 rc、末尾 `exit $captureExit`，让 continue-on-error 把它显示为**可见警告**；反证 N1 摘掉 exit 行即红
+- [x] 4c.3 **Critical #3（未知/对不上账的成功返回被算成全通过，实测 `{results: [], failed: 0}` 假绿）** — 成立，已修：`results.length` 与注册表条数不等、或自报 total 与注册表不等 ⇒ 一律 `aborted`；反证见 4b 的 M-A/M-C 与新增断言
+- [x] 4c.4 **Critical #4（抛错但 `failures: []` 被算成全通过）** — 成立，已修：`failed === 0` 的抛错同样记 `aborted`；补断言「抛错但一条都没归因，同样不是全通过」
+- [x] 4c.5 **Warning #1（契约只匹配字符串，没锁服务生命周期 / 顺序 / 退出码 / 上传 always）** — 成立，已补：YAML 解析后逐步断言采集步骤在 Playwright 安装与前端构建之后（且先确认这两个前置步骤存在，防 findIndex=-1 把顺序锁降级成永真）、`exit $captureExit` 存在、`upload.if === always()`；反证 N2（改名前置步骤）/N3b（摘掉上传的 if）各红一次
+- [x] 4c.6 **Warning #2（workflows 分支信任 `results.length` 当 total）** — 成立，total 一律取注册表长度，条数不等即 aborted
+- [ ] 4c.7 **Warning #3（无逐套/逐步超时，挂死会吃满 job 超时并阻断上传）** — 未修，如实登记：聚合器无法从外部安全中断一次挂死的 Playwright 调用（强行 kill 会留下未清理的浏览器进程）；现状缓解是 main push 实测四套合计约 81 秒 vs job 预算 20 分钟，且步骤退出码现在会如实变警告（4c.2）。若将来出现挂死证据，再按证据加带清理的硬超时
 
 ## 5. 后续（本 change 明确不做）
 
