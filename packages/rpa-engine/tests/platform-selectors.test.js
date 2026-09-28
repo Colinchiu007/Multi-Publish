@@ -111,17 +111,24 @@ describe('PLATFORM_PUBLISH_SELECTORS', () => {
     }
   )
 
-  // —— kuaishou publish_btn 活体实证候选（2026-09-28 D2 正向证据） ——
-  // 活体捕获（上传完成后的编辑页，rpa-captures/snapshot-005）：真提交钮是裸
-  // <span>立即发布</span>（无 class/id/data 属性）；同页顶导航 <span>发布作品</span> 与
-  // <span>定时发布</span> 都含「发布」——旧候选 span:has-text("发布") 三重歧义，
-  // 解析器点错对象 → responses=0（两轮活体发布失败签名一致）。
-  test('kuaishou publish_btn 首位为活体实证的精确提交钮 span:has-text("立即发布")', () => {
+  // —— kuaishou publish_btn 活体实证候选（2026-09-28 D2 二轮取证定案） ——
+  // 一轮取证（snapshot-005）误判 <span>立即发布</span> 为提交钮——二轮活体验证（发布流实测 +
+  // 账号标签注入探测）证明它是「发布时间」单选项；真提交钮是底栏 <div>发布</div>（裸 div、
+  // 全页唯一直接文本为「发布」的元素，兄弟为 <div>取消</div>）。首位改为 div:has-text("发布")
+  // （解析器 exactLeaf 层唯一命中）；单选项诱饵候选必须从列表移除。
+  test('kuaishou publish_btn 首位为活体实证的底栏提交钮 div:has-text("发布")', () => {
     const sel = PLATFORM_PUBLISH_SELECTORS.kuaishou
-    expect(sel.publish_btn[0]).toBe('span:has-text("立即发布")')
+    expect(sel.publish_btn[0]).toBe('div:has-text("发布")')
     // 旧候选保留在列表内兜底（页面改版回退路径）
     expect(sel.publish_btn).toContain('span:has-text("发布")')
     expect(sel.publish_btn).toContain('button:has-text("发布")')
+  })
+
+  test('kuaishou publish_btn 不得含发布时间单选项诱饵 span:has-text("立即发布")', () => {
+    const sel = PLATFORM_PUBLISH_SELECTORS.kuaishou
+    // 「立即发布」是发布时间区的单选项（radio），点击只切换定时模式，不触发发布 API——
+    // 一轮取证误判其为提交钮导致活体点击点错对象（responses=0），必须移除。
+    expect(sel.publish_btn).not.toContain('span:has-text("立即发布")')
   })
 
   // —— 视频平台上传按钮字段（各平台命名不同） ——
