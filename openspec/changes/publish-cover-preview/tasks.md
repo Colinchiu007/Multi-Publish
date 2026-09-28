@@ -1,0 +1,45 @@
+# Tasks — publish-cover-preview
+
+## 1. 规格先行
+
+- [x] `01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md`（12 节：问题与根因 / 目标与明确不做 / 方案选型 / 功能逻辑 / 显示项 / 交互流程 / 数据校验与安全 / 提示文字 zh-en 对照 / 性能实测 / 验收标准 / 测试策略 / 决策记录）
+- [x] `01-docs/PRD.md` 尾部追加指针节，登记三条不可省略口径
+- [x] 本 change（proposal / design / specs delta / tasks）
+
+## 2. 测试（TDD，先写先红）
+
+- [x] `src/composables/useCoverPreview.test.js`（新增 17 例）：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、竞态两类（迟到成功 / 迟到失败）、卸载后不写状态、`reload()`
+- [x] `src/views/Publish.test.js` 新增「封面缩略图与放大预览」11 例：提取与 AI 生成两入口写入即出图、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效
+- [x] `src/views/Publish.test.js` 夹具同步：两处 `electronAPI` 块补 `readCoverData` 与 `pageManager.{suspend,resume}EmbeddedViews`；`stubs` 补 `teleport: true`（`UiModal` Teleport 到 body，否则取不到弹窗节点）
+- [x] `src/overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配；断言释放走 `finally`、卸载兜底、不得以字面量塞 owner）
+- [x] `src/components/CoverCropDialog.test.js` 作为复用后回归（未降低断言强度）
+
+## 3. 实现
+
+- [x] `src/composables/useCoverPreview.js`（新增）：`cover:read-data` 剥信封唯一实现 + 自增序号竞态守卫 + `onScopeDispose` 作废在途 + `unavailableKey` 可选措辞
+- [x] `src/components/CoverThumbnail.vue`（新增）：144×81、`object-fit: cover`、`cursor: zoom-in`、三态互斥、`role=button` + `tabindex=0` + Enter/Space、失败态保留占位框并挂 `title`
+- [x] `src/views/Publish.vue`：`useCoverPreview(() => article.cover_path)` 单实例；视频与图文两个封面行各插入 `CoverThumbnail`（`el-upload` 兄弟节点，图文侧刻意不加 flex 包裹层）；`UiModal` 放大预览（文件名 + 原始尺寸）；预览中换封面自动收起
+- [x] `src/views/Publish.vue`：浮层互斥 owner `publish-cover-preview` 与 `publish-ai-cover-dialog`，释放走 `finally` + `onBeforeUnmount` 兜底
+- [x] `src/components/CoverCropDialog.vue`：改用 `useCoverPreview`（删除内部重复的剥信封实现与命令式 `loadImage()`），补 owner `publish-cover-crop-dialog`，`previewUrl` 变化时复位 `imgNatural`
+- [x] `src/locales/{zh,en}.js`：`publishPage.coverPreview.{title,hint,ariaLabel,loading,unavailable}` 成对新增，插在 `coverCrop` 之后保持行位对称
+
+## 4. 决策证据（不得只写结论）
+
+- [x] 实测否决自己提的防御性门禁：0.3 / 2 / 8 / 20 MB 封面 `readFileSync`+`base64` = 0.9 / 1.9 / 6.7 / 25.6 ms ⇒ 撤销主进程 `maxBytes` 方案，数字留在 PRD §9
+- [x] 核实 `sharp` 不可用：`apps/desktop/package.json` 未声明（仅 `packages/shared-utils` 声明），按「生产依赖闭包」排除
+- [x] 核实 CSP：`img-src` 已含 `data:` ⇒ 零 CSP 改动；`index.test.js` 守卫保持通过
+- [x] 核实 E2E 契约：`[data-testid="cover-state"]` 的 `dataset.coverPath` 原样保留并被用例断言
+
+## 5. 验证与门禁
+
+- [x] `useCoverPreview` + `Publish` + `CoverCropDialog` = 88 passed
+- [x] `overlay-view-suspension` + `shell-mode-6b` = 19 passed
+- [x] `views-deep2` + `views-coverage` = 16 passed（其余挂载 Publish 的套件）
+- [x] `check-locale-sync --pair-base`（成对）与 `--cjk`（无新增硬编码）双 PASS
+- [x] eslint 改动文件零告警；`vite build` 通过（模板编译）
+- [x] `verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内
+- [x] 四条变异反证实跑变红并断言字节还原：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不上抛 `open` ⇒ 1 红；释放挪出 `finally` ⇒ 1 红
+- [x] 四份共享文档按字节前插/追加，`git diff --numstat` 删除数为 0，且与 `--ignore-cr-at-eol --numstat` 逐文件相等
+- [x] QM-1 打包 N/A：`git diff --name-only origin/main...HEAD` 不含 `electron/` 与 `rpa-engine/`
+- [ ] QM-6 双模型外部评审（backend=codex / frontend=claude）
+- [ ] 真机 Electron 窗口目视验证（本机另一会话已占用应用单例锁与 dev 端口，未擅自起第二个实例；留待桌面验收）
