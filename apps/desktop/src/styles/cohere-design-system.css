@@ -119,12 +119,17 @@ body {
   font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
 }
 
-/* 平台图标底衬：品牌标里有纯黑（Twitter/X、TikTok），暗色主题下 --canvas 变深会让它们直接隐身。
-   统一坐在浅底上，与文字回退分支 .platform-icon 的底色保持同一处理。
+/* 平台图标底衬：**只在暗色主题下需要**。品牌标里有纯黑（Twitter/X、TikTok），
+   暗色把 --canvas 压到 #1a1a1e 后它们会直接隐身，所以给一个浅色实心底衬把可读性买回来。
+   浅色主题下卡片本身是浅色，所有品牌色（含纯黑）都已可读——此处若也铺 background，
+   每个图标都会顶着一块淡紫灰方片，属视觉缺陷（2026-09-29 用户反馈"图案都有灰色背景"）。
    尺寸与圆角仍由各调用点决定，本类只负责底衬；新增图标渲染点必须带上它。 */
 .mp-platform-icon {
-  background: #f1f0ff;
   object-fit: contain;
+}
+
+[data-theme="dark"] .mp-platform-icon {
+  background: #f1f0ff;
 }
 
 /* --- 顶部导航 --- */
