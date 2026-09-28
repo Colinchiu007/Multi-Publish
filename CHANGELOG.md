@@ -1,3 +1,23 @@
+# [未发布] test(session-isolation): 把最后一条未接线的 PowerShell 测试接进 CI——不改断言，改夹具（automation-task-probe）
+
+### 变更
+- `scripts/check-unwired-tests.js` 的 `KNOWN_UNWIRED` **归零**（原唯一一条 `session-isolation-automation.test.ps1` 已接线）；配套真仓断言继续用 `deepEqual` 钉成「恰好等于」，并补一条「该文件必须仍在检查域内」——否则『清单归零』可以靠把文件排出域来作弊。
+- `.github/workflows/quality-gate.yml` 的 `Gate 2d` 增第 8 条：先在 `$RUNNER_TEMP` 造一个**自有临时 clone**（`git clone --no-hardlinks` → `checkout -B main` → 把 `scripts/hooks/{pre-commit,post-checkout}` 复制进它的 `.git/hooks`），再在 clone 内跑 `session-isolation-automation.test.ps1`。整体仍是 `shell: bash`（fail-fast 不变）。
+
+### 为什么需要那个 clone（而不是把断言放宽）
+该测试前 10 条断言调 `mp-worktree-health.ps1 -RequireClean -RequireHooks -RequirePrimary`，而 `mp-worktree-health.ps1:106` 在 `-RequirePrimary` 下要求 `branch -eq 'main'`；`actions/checkout` 在 pull_request 事件里给的是 **detached HEAD**，且 CI 从不安装 hooks（全新 clone 里 `installedExists=False ⇒ ok=False`）。三条前提没有一条是产品缺陷，全部是"CI 的检出形态 ≠ 守卫实际运行的形态"。所以正解是**把环境造成那个形态**，而不是放宽断言或加 `skip`——后者会让这条锁在 CI 上永久静默通过，正是本仓反复登记的「装饰性门禁」。
+
+### 顺带纠正两处过期口径（写进门禁注释，避免有人照旧推理重新挂欠账）
+- 旧登记理由说「接进 CI 的未知量是 runner 进程令牌是否提权」。**不成立**：该测试自己按实测分两条支路（AtLogOn 注册成功 ⇒ 断言两条任务在；被 `0x80070005` 拒绝 ⇒ 断言 installer fail-closed 且输出点名 `RunAs`），因此两种 runner 形态都该绿，不需要先做一次"带留痕实测"来定生死。
+- 我在 #2551 说过「默认拒绝 + 可注入路径，让自检没有第二条路可走」。**说过头了**：那条守卫只约束 `install-session-isolation-task.ps1 -Unregister`，挡不住绕过脚本直调 `Unregister-ScheduledTask` 或在别处 `-Force` 重注册后失败的路径。本轮实测本机 `Multi-Publish` 两条任务已在他处会话时段里消失（`prod_tasks=0`）而 watcher 进程仍存活（另有 PID），即"任务没了、保护看着还在"，属**静默降级**，需要独立的检测面而不是更强的写入拒绝。
+
+### 验证
+- 本机以**同一配方**复现 CI 态后实跑：临时 clone 内健康检查 `primary=true / branch=main / clean=true`、`rc=0`，目标测试 `pwsh 7.6` 与 `Windows PowerShell 5.1` **各 18 条 PASS**。
+- 判定「谁删了生产任务」用的是先量后跑再量的对照：跑之前 `prod=0`、跑之后 `prod=0`、scratch 无残留 ⇒ 该测试**不是**元凶（它的注册/注销全程只碰一次性 `-TaskPath`）。
+- 反证：从 `Gate 2d` 摘掉接线行 ⇒ `check-unwired-tests.js` 点名该文件判红；把 `KNOWN_UNWIRED` 清空但**不**接线 ⇒ 同一条红（销账与接线必须同时发生）。`node --test scripts/check-unwired-tests.test.js` ⇒ 12 passed / 0 failed。
+- `--depth 1` 在本地路径克隆里被 git 忽略（实测 warning），所以配方里不写它——写了就是一条不生效还误导人的参数。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
 # [未发布] fix(模型调用): 5h 额度窗口在并发下超额发起真实调用 → 改为准入即占额度（2026-09-28，governor-quota-reserve）
 
 ### 为什么

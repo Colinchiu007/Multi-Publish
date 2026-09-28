@@ -169,6 +169,21 @@ jobs:
       # autocrlf=true 复现 runner 档位后，两 shell × 有/无全局身份 4 组组合各 34 条全绿。
       # 本步骤整体用 shell: bash —— 旧版用 pwsh 时，前一条测试抛 FAIL 后步骤仍报 success
       # （实测 run 36313053992 的 step 11 之后继续跑完并绿），等于装饰性门禁。
+      #
+      # 上面那句「下面 6 条」是历史注释（写时确为 6 条），现在共 8 条。第 7 条
+      # install-session-isolation-task 由 #2551 接入、其"零计划任务"档在 runner 上实测过
+      # （run 36390636981 打印 LIVE_TASK_COUNT=0 + 7 条 PASS）。第 8 条是本 PR 接入的
+      # session-isolation-automation：它前 10 条断言要求"主工作区 + 分支名为 main + hooks 已装"，
+      # 而后 8 条要求"能注册计划任务但不得碰生产路径"。CI 给的三样都不满足 ——
+      # actions/checkout 是 detached HEAD（健康检查 line 106 的 -RequirePrimary 硬要 branch=main）、
+      # CI 从不装 hooks、PR 合并流程也不会装。⛔ 所以**不改断言，改夹具**：在 $RUNNER_TEMP 里
+      # 造一个自有临时 clone（--no-hardlinks 防与 job 工作区共享对象），checkout -B main 并复制
+      # scripts/hooks/{pre-commit,post-checkout} 进它的 .git/hooks，然后在 clone 内跑测试。
+      # 该配方已在本机把 runner 态复现出来实跑过（两档 shell 各 18 条 PASS，健康检查
+      # primary=true/branch=main/clean=true）；"注册成功 vs 0x80070005 拒绝"两条支路测试自己
+      # 会按实测选期望（#2521 那条口径），因此不依赖 runner 令牌是否提权。
+      # 注：--depth 在本地路径克隆里会被 git 忽略（实测 warning），所以不写它——
+      # 写了就是一条不生效还误导人的参数。
       - name: "Gate 2d - PowerShell locks never collected by CI (pwsh 7)"
         shell: bash
         run: |
@@ -179,6 +194,15 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/worktree-fs-longpath.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
+          # 第 8 条：夹具 = $RUNNER_TEMP 下的临时 clone（分支名 main + 两个 hook 就位）
+          ISO="$RUNNER_TEMP/mp-iso-fixture"
+          rm -rf "$ISO"
+          git clone -q --no-hardlinks "$(pwd -W)" "$ISO"
+          git -C "$ISO" checkout -q -B main
+          COMMON=$(git -C "$ISO" rev-parse --path-format=absolute --git-common-dir)
+          cp "$ISO/scripts/hooks/pre-commit" "$COMMON/hooks/pre-commit"
+          cp "$ISO/scripts/hooks/post-checkout" "$COMMON/hooks/post-checkout"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File "$ISO/scripts/session-isolation-automation.test.ps1"
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
