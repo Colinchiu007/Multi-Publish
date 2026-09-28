@@ -199,3 +199,47 @@ test("自主审计忽略本轮开始前残留的 NEED_HUMAN 报告", () => {
     assert.equal(successWithStaleReport.status, "MISSING_REPORT");
   });
 });
+
+// ---- #907：裁判没出结论 ≠ 真·需人工复核 ----
+// 实测（2026-09-28，最近 5 次 main run 的 quality-gate-autonomous-reports 产物）：
+//   5/5 全部 parseError="Empty text"、_rawOutput=""、items=[]、coverage.summary.total=0
+// 即 LLM 裁判在 CI 上**一次都没产出结论**，而 agent-review-gate 把它和"真需人工"一起
+// 判成 PROMPT_REVIEW_REQUIRED + exit 0 ⇒ 绿的 Gate 9 完全不表达"审计没跑成"。
+// 这里只把两者**区分开**（状态名 + CI annotation），刻意**不改成阻塞**：
+// autonomous 在 Gate Result 的 needs 里、Gate Result 是必需检查，此刻判红等于永久卡死全仓合并。
+test("自主审计：裁判空返回必须报 AUDIT_NO_VERDICT，且仍不阻塞", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { decision: "NEED_HUMAN", items: [], _parseError: "Empty text", _rawOutput: "" } },
+    });
+    const noVerdict = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(noVerdict.status, "AUDIT_NO_VERDICT");
+    assert.equal(noVerdict.exitCode, 0);
+    assert.match(noVerdict.message, /does NOT mean coverage was audited/);
+
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-1.json"));
+    writeJson(reportDir, "autonomous-e2e-report-2.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { decision: "NEED_HUMAN", items: [{ feature: "feat_x", status: "missing" }], _rawOutput: '{"decision":"NEED_HUMAN"}' } },
+    });
+    const realAdvisory = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(realAdvisory.status, "PROMPT_REVIEW_REQUIRED");
+    assert.equal(realAdvisory.exitCode, 0);
+  });
+});
+
+test("自主审计：只有空白输出也算空结论，缺字段的旧报告保持原行为", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { decision: "NEED_HUMAN", items: [], _rawOutput: "   \n " } },
+    });
+    assert.equal(evaluateAutonomousGate({ reportDir, auditExitCode: 1 }).status, "AUDIT_NO_VERDICT");
+
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-1.json"));
+    writeJson(reportDir, "autonomous-e2e-report-2.json", { overall: "NEED_HUMAN" });
+    assert.equal(evaluateAutonomousGate({ reportDir, auditExitCode: 1 }).status, "PROMPT_REVIEW_REQUIRED",
+      "报告里没有 _verdict 字段时不得凭空判成空结论（历史形状保持原行为）");
+  });
+});

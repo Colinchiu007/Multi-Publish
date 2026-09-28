@@ -340,23 +340,30 @@ describe('GUI/CI 工作流门禁契约', () => {
   });
 
   /**
-   * #2458：串行单 worker 那一轮的步骤级预算。
+   * #2458：串行单 worker 那一轮的**步骤级**预算。
    *
-   * 旧状态是 `timeout ... 20m` 这个**没挂任何实测依据的魔数**，而自然耗时实测区间为
-   * 18m44s ~ 21m32s（main 近 14 次运行 8 次撞墙，日志被切在 Post job cleanup、
-   * 没有任何 vitest 摘要行 ⇒ exit 124 而非断言失败）。20m 距观测最大值只剩约 1 分钟，
-   * 每加一条测试都在加剧它。这里同时钉三件事：预算够、超时能自证、且不与 job 级倒挂。
+   * 依据只能取步骤级实测：`timeout(1)` 约束的就是这一步，而 job 级总时长还含两次
+   * install / checkout / 冒烟，拿它当步骤基线会系统性高估（层级混淆的来龙去脉与
+   * 两组数字都记在 docs/electron-ci-step-budget-baseline.md）：
+   *   - 步骤健康耗时 794 s（run 36380533567，main push `bef5fb72` 的自证行
+   *     `[electron-ci-timeout-budget] elapsed=794s budget=2100s rc=0`）；
+   *   - 被替换掉的旧墙 1200 s（`--kill-after=30s 20m`）。
+   * 真实红因是 runner 负载把步骤耗时放大到越过 1200 s + 超时不可归因，
+   * 不是"自然耗时已贴墙"（794 s 对 1200 s 还有约 33% 余量）。
    */
   it('Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂', () => {
     const { source, workflow } = readWorkflow('electron-ci.yml');
     const job = workflow.jobs['electron-tests'];
     const unitStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 1) 预算必须有实测分布支撑：≥ 观测到的自然耗时上界 × 1.5
+    // 1) 预算挂在步骤级实测上：既要对被替换的旧墙有实质余量，也要覆盖健康耗时的倍数
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
-    const measuredPMaxSeconds = 21 * 60 + 32; // 21m32s，见 issue #2458 的 main 运行表
-    expect(budgetSeconds).toBeGreaterThanOrEqual(measuredPMaxSeconds * 1.5);
-    // 旧魔数不得复活（它是「贴着一堵墙再留 1 分钟」的那种写法）
+    const measuredStepElapsedSeconds = 794; // 自证行实测，不是 job 总时长
+    const retiredWallSeconds = 20 * 60;     // 旧魔数 20m
+    expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds);
+    expect(budgetSeconds).toBeGreaterThanOrEqual(retiredWallSeconds * 1.5);
+    expect(budgetSeconds).toBeGreaterThanOrEqual(measuredStepElapsedSeconds * 2);
+    // 旧魔数不得复活（它的问题不是"比自然耗时只多 1 分钟"，而是既无实测依据、红时又不可归因）
     expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
 
     // 2) 超时必须能自证，而不是让人再去下 7MB 日志反推

@@ -1401,6 +1401,28 @@ describe('captureCookies 登录完成判据与会话凭证门禁（第 4 个入�
   beforeEach(() => { process.env.MP_ACCOUNT_LOGIN_POLL_MS = '5' })
   afterEach(() => { delete process.env.MP_ACCOUNT_LOGIN_POLL_MS })
 
+  // 2.5b 同族锁：第 4 个入库入口的拒绝路径也必须留 Cookie 名现场，且值不得进日志。
+  it('captureCookies 拒绝时 warn 必须带 names= 现场（且只记名字不记值）', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const warnSpy = vi.spyOn(require('../services/logger'), 'warn').mockImplementation(function () {})
+    const accountManager = loadAccountManager()
+    mockPlaywrightPage({
+      selectorHits: true,
+      cookies: [
+        { name: 'did', value: 'anon' },
+        { name: 'wid', value: 'anon' },
+        { name: 'kwssectoken', value: 'anon' },
+      ],
+    })
+    await expect(accountManager.captureCookies('kuaishou', LOGIN_TIMEOUT_MS)).rejects.toThrow('未检测到登录态')
+    const missed = warnSpy.mock.calls.map(c => String(c[1])).filter(l => l.includes('session evidence missing'))
+    expect(missed.length).toBe(1)
+    expect(missed[0]).toContain('names=did,wid,kwssectoken')
+    expect(missed[0]).not.toContain('anon')
+    warnSpy.mockRestore()
+  })
+
   it('快手只采到埋点 Cookie 时抛错，不返回可入库凭证', async () => {
     global.__enableElectronMock()
     global.__resetElectronMock()
