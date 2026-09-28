@@ -47,12 +47,22 @@ jobs:
         id: parse-failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 事件载荷一律走 env，不在 run: 正文里内联 ${{ }}。GitHub 做的是**字面替换**，
+          # 而 `workflow_run.name` 由失败那个工作流文件自己声明 —— fork 的 PR 想写什么
+          # 写什么，里面一个双引号就能把整段 bash 截断接上任意命令（本 handler 有 issues:
+          # write / pull-requests: write）。下面两个步骤早就按这条口径写了注释，这里曾是漏项。
+          EVT_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          EVT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          EVT_REPO: ${{ github.repository }}
         run: |
-          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
-          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
-          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
-          RUN_ID="${{ github.event.workflow_run.id }}"
-          REPO="${{ github.repository }}"
+          WORKFLOW_NAME="$EVT_WORKFLOW_NAME"
+          COMMIT_SHA="$EVT_HEAD_SHA"
+          PR_NUMBER="$EVT_PR_NUMBER"
+          RUN_ID="$EVT_RUN_ID"
+          REPO="$EVT_REPO"
 
           echo "WORKFLOW_NAME=$WORKFLOW_NAME" >> $GITHUB_OUTPUT
           echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_OUTPUT
@@ -64,7 +74,8 @@ jobs:
           # 本仓 bash 默认带 -e，不兜底会让 handler 直接变红、一张单都不开 —— 那是
           # 用"少噪声"换来"丢故障"，方向反了。
           if ! node .github/scripts/classify-ci-failure.js \
-              --repo "$REPO" --run-id "$RUN_ID" --workflow "$WORKFLOW_NAME" --output "$GITHUB_OUTPUT"; then
+              --repo "$REPO" --run-id "$RUN_ID" --workflow "$WORKFLOW_NAME" \
+              --run-attempt "$EVT_RUN_ATTEMPT" --output "$GITHUB_OUTPUT"; then
             echo "WARN classify-ci-failure 不可用，回落到旧行为（照常开单，签名退化为分类器不可用）" >&2
             {
               echo "TYPE=ci-failure"
@@ -83,13 +94,13 @@ jobs:
         id: check-duplicate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: ${{ steps.parse-failure.outputs.TITLE }}
+          TRACKED_IN: ${{ steps.parse-failure.outputs.TRACKED_IN }}
         run: |
           # 去重键从 `ci-failure-<sha>` 换成**签名标题**：同因复发命中同一张单。
-          # 旧写法使每个失败提交开一张新单 —— 实测 2026-09-28 累积 open 单 ≥200 张
-          # （8 天），其中 Electron CI 那 58 张全是 #2458 那道已修的 20m 预算墙。
+          # 旧写法使每个失败提交开一张新单 —— 实测 2026-09-28 累积 open 单 790 张
+          # （跨 2026-08-13→09-28），其中 Electron CI 那批全是 #2458 那道 20m 预算墙。
           # 带方括号/冒号的标题必须整体加引号做短语检索，否则 GitHub search 会当语法解析。
-          TITLE="${{ steps.parse-failure.outputs.TITLE }}"
-          TRACKED_IN="${{ steps.parse-failure.outputs.TRACKED_IN }}"
           EXISTING=$(gh issue list \
             --search "\"$TITLE\" in:title" \
             --state all \
@@ -179,7 +190,7 @@ jobs:
 
           > 同一签名再次失败不再重复开单，会追评在本单下。
           > 旧版这里写的是常量「失败类型: ci-failure / 可自动修复: 是」，且去重键是 per-commit，
-          > 于是同一个根因每个提交开一张单（实测 2026-09-28 累积 ≥200 张 open）。
+          > 于是同一个根因每个提交开一张单（实测 2026-09-28 open 单 790 张，跨 2026-08-13→09-28）。
 
           ---
 
@@ -208,9 +219,8 @@ jobs:
         if: steps.parse-failure.outputs.PR_NUMBER != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.parse-failure.outputs.PR_NUMBER }}
         run: |
-          PR="${{ steps.parse-failure.outputs.PR_NUMBER }}"
-
           cat > ./ci-pr-comment.md << 'PR_COMMENT_END'
           ## Level 4: CI 失败已检测
 
