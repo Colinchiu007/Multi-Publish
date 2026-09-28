@@ -22,22 +22,28 @@ var TAG_STYLES = {
 };
 
 // ---- 内容截断上限（字符数） ----
+// 2026-10-08 CCG 评审（W4）同步：值对齐 packages/shared-utils/src/publish-capabilities.json
+// 注册表（单一真源）；引擎零依赖约束下不能运行时 import 注册表，改由
+// test/content-formatter-registry-sync.test.js 契约锁钉住两表一致（漂移即红）。
+// 无标题平台（weibo/tencent_video/kuaishou/tiktok/twitter/instagram）：标题合并进
+// 描述（由各适配器 compose），标题不单独截断（title 上限设 100000 = no-op），
+// 合并后长度由 contentMax 管辖。百家号标题按 UTF-8 字节 149 上限（≈49 中文字符）。
 var CONTENT_LIMITS = {
-  douyin: 1000, kuaishou: 1000, xiaohongshu: 1000,
-  weibo: 2000, bilibili: 2000,
-  toutiao: 5000, baijiahao: 5000,
-  zhihu: 100000, wechat_mp: 50000,
+  wechat_mp: 20000, zhihu: 100000, weibo: 2000,
+  douyin: 1000, xiaohongshu: 1000, tencent_video: 1000, kuaishou: 1000,
+  toutiao: 100000, bilibili: 2000, baijiahao: 100000,
+  youtube: 5000, tiktok: 2200, twitter: 280, instagram: 2200, facebook: 63206,
 };
 
 // ---- 标题截断上限（字符数） ----
 var TITLE_LIMITS = {
-  douyin: 30, kuaishou: 30,
-  xiaohongshu: 40,
-  toutiao: 50, baijiahao: 50,
-  wechat_mp: 64,
-  bilibili: 80,
-  zhihu: 100,
-  weibo: 120,
+  wechat_mp: 64, zhihu: 50,
+  douyin: 55, xiaohongshu: 20,
+  toutiao: 30, bilibili: 80, baijiahao: 49,
+  youtube: 100, facebook: 100,
+  // 无标题平台：标题合并进描述，不单独截断（no-op 上限）
+  weibo: 100000, tencent_video: 100000, kuaishou: 100000,
+  tiktok: 100000, twitter: 100000, instagram: 100000,
 };
 
 var DEFAULT_CONTENT_LIMIT = 10000;

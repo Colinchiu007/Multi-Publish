@@ -1,3 +1,23 @@
+# [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
+
+### 变更
+- **评审执行**：用户指令补跑 CCG 双模型评审（claude 前端路 + codex 后端路，`codeagent-wrapper --lite` 并行派发同一消息，diff 锚点 PR #2576 + #2579）；claude 5W+6I、codex 5W+3I，findings 逐条核实处置回写 `.quality-gates.md`。
+- **🔴 codex W1（实质 Critical）**：`usePublishFlow.normalizePlatformOverrides` 硬编码白名单把 B站分区/版权/合集、YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、公众号摘要/评论开关等注册表面板字段在 IPC 组装前**静默丢弃**（UI 可编辑但发布不生效；两侧测试各自全绿，只有全链路暴露）→ 改注册表驱动归一化（与面板同口径）+ 2 条全链路回归。
+- **claude W1+W2/codex W2**：`_composeEditorCaption` 统一 `join('\n')` + 按码点截断（原 `\n\n` + UTF-16 slice 可切代理对）。
+- **claude W3**：`validatePlatformContent` 无标题合并复用 `composeNoTitleDescription`（消灭第二份内联实现）。
+- **claude W4/codex W5**：引擎 `content-formatter` 两表同步注册表口径（douyin title 30→55、xiaohongshu 40→20、wechat_mp content 50000→20000 等；无标题平台标题不单独截断）+ 新契约锁 `content-formatter-registry-sync.test.js` 6 例（含 douyin 40 字标题事故场景回归）。
+- **claude W5**：`getPlatformOverrideFields` 深拷贝 options/default（浅拷贝共享引用可突变污染注册表，实测实锤）+ 突变隔离回归（双版本）。
+- **codex W3**：面板 text/collection 截断改按码点（不切代理对）。
+- **codex Info3 暴露真实缺口**：`caption_textarea`（instagram/tiktok 描述输入）不在 `_publish_generic` 编辑器候选链——两平台标题合并路径从未生效 → 候选链补齐 + instagram 行为锁。
+- **codex Info2**：parity 测试升级全平台穷举（meta/isNoTitle/limits/overrideFields×2/commonFormFields）。
+- 登记不改 6 项（各带理由）：类型强转边界（无 UI 触发路径）、platforms.yaml 收敛（另立 change）、statuses 语义（JSDoc）、weibo title 透传（下游未用）、Twitter/TikTok 源码结构锁（execute 需网络）、RPA 截断来源（残余限制）。
+
+### 验证
+- shared-utils 全量 396（注册表 60 例）；桌面发布面 11 文件 294/294（usePublishFlow 62 例含 W1 全链路回归）；rpa-view-platforms 44/44；引擎全量 exit 0（含新契约锁 6/6 与旧值断言按注册表口径更新）
+- 安全维度两路评审均无发现（Vue 文本插值无 v-html、IPC 无凭证泄漏）
+
+---
+
 # [未发布] feat(publish): 视频文件选择反馈深度优化——常驻成功卡片 + 差异化提示 + 500MB 选前校验（2026-09-28，video-select-feedback）
 
 ### 变更

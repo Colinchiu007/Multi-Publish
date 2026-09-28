@@ -43,6 +43,7 @@ import {
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
+import { getPlatformOverrideFields } from '@multi-publish/shared-utils/src/publish-capabilities'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
 const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
@@ -60,6 +61,50 @@ function toPlainJson(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+// 注册表字段查询缓存（注册表数据冻结，缓存安全）
+const overrideFieldsCache = new Map()
+
+function platformOverrideFieldsFor (platform) {
+  if (!overrideFieldsCache.has(platform)) {
+    overrideFieldsCache.set(platform, getPlatformOverrideFields(platform, { uiOnly: true }))
+  }
+  return overrideFieldsCache.get(platform)
+}
+
+/**
+ * 按注册表字段定义归一化单个覆盖值（与 PlatformOverridePanel.normalizeValue 同口径）。
+ * 返回 undefined 表示该字段无有效值（不进 payload）。
+ */
+function normalizeOverrideValue (field, raw) {
+  if (field.type === 'checkbox') {
+    return typeof raw === 'boolean' ? raw : undefined
+  }
+  if (field.type === 'select') {
+    const options = Array.isArray(field.options) ? field.options : []
+    const matched = options.find(option => String(option.value) === String(raw))
+    return matched ? matched.value : undefined
+  }
+  if (field.type === 'tags') {
+    if (!Array.isArray(raw)) return undefined
+    const list = [...new Set(raw.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()))]
+    return list.length > 0 ? list : undefined
+  }
+  if (field.type === 'collection') {
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
+    if (typeof raw === 'string' && raw.trim()) return raw.trim()
+    return undefined
+  }
+  // text / textarea：非空才透传；maxLen 按码点截断（不切断代理对）
+  if (typeof raw !== 'string' || !raw.trim()) return undefined
+  const text = raw.trim()
+  const maxLen = Number(field.maxLen)
+  if (maxLen > 0) {
+    const chars = Array.from(text)
+    return chars.length > maxLen ? chars.slice(0, maxLen).join('') : text
+  }
+  return text
+}
+
 function normalizePlatformOverrides (overrides) {
   if (!overrides || typeof overrides !== 'object') return {}
   return Object.fromEntries(Object.entries(overrides).flatMap(([platform, value]) => {
@@ -68,24 +113,19 @@ function normalizePlatformOverrides (overrides) {
       title: typeof value.title === 'string' ? value.title : '',
       content: typeof value.content === 'string' ? value.content : '',
     }
-    if (platform === 'zhihu') {
-      const declaration = Number(value.declare)
-      normalized.commentPermission = 'anyone'
-      normalized.declare = Number.isInteger(declaration) && declaration >= 0 && declaration <= 5
-        ? declaration
-        : 0
-      const topics = Array.isArray(value.topics)
-        ? [...new Set(value.topics.filter(topic => typeof topic === 'string').map(topic => topic.trim()).filter(Boolean))]
-        : []
-      if (topics.length > 0) normalized.topics = topics
-      if (value.draft === true) normalized.draft = true
-    } else if (platform === 'douyin') {
-      if (value.draft === true) normalized.draft = true
-    } else if (platform === 'wechat_mp') {
-      if (value.massSend === true) normalized.massSend = true
+    // 注册表驱动的平台特有字段归一化（CCG codex W1 修复，2026-10-08）：
+    // 旧硬编码白名单只保留知乎/抖音/公众号少数字段，B站分区/版权/合集、
+    // YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、
+    // 公众号摘要/评论开关等注册表面板字段在 IPC 组装前被静默丢弃——
+    // UI 可编辑但发布不生效。现按注册表字段与类型归一化，与面板同口径。
+    for (const field of platformOverrideFieldsFor(platform)) {
+      const normalizedValue = normalizeOverrideValue(field, value[field.key])
+      if (normalizedValue !== undefined) normalized[field.key] = normalizedValue
     }
-    const hasExecutableOption = normalized.draft === true || normalized.massSend === true
-    if (!normalized.title && !normalized.content && platform !== 'zhihu' && !hasExecutableOption) return []
+    // 无任何有效差异内容（标题/正文/任一特有字段）的条目不进 payload
+    const hasPayload = Boolean(normalized.title || normalized.content)
+      || Object.keys(normalized).some(key => key !== 'title' && key !== 'content')
+    if (!hasPayload) return []
     return [[platform, normalized]]
   }))
 }
