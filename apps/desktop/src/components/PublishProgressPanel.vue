@@ -71,51 +71,11 @@
                 : t('publishPage.publishProgressPanel.sessionRunning') }}
             </span>
           </div>
-          <div
+          <PublishProgressTaskRow
             v-for="taskId in session.taskOrder"
             :key="taskId"
-            class="ppp__task"
-            data-testid="publish-progress-task"
-            :class="'ppp__task--' + session.tasks[taskId].phase"
-          >
-            <span class="ppp__task-platform">{{ platformLabel(session.tasks[taskId].platform) }}</span>
-            <span class="ppp__task-status" :class="'ppp__status--' + session.tasks[taskId].phase">
-              <el-icon v-if="session.tasks[taskId].phase === 'success'"><CircleCheckFilled /></el-icon>
-              <el-icon v-else-if="session.tasks[taskId].phase === 'failed'"><CircleCloseFilled /></el-icon>
-              <el-icon v-else-if="session.tasks[taskId].phase === 'retry'"><RefreshRight /></el-icon>
-              <el-icon v-else-if="session.tasks[taskId].phase === 'blocked' || session.tasks[taskId].phase === 'queued'"><Clock /></el-icon>
-              <el-icon v-else class="ppp__spin"><Loading /></el-icon>
-              {{ statusLabel(session.tasks[taskId].phase) }}
-            </span>
-            <span v-if="showStepChain(session.tasks[taskId])" class="ppp__steps">
-              <span
-                v-for="step in STEP_CHAIN"
-                :key="step"
-                class="ppp__step"
-                :class="{ 'ppp__step--current': session.tasks[taskId].stageKey === step, 'ppp__step--past': isPastStep(session.tasks[taskId].stageKey, step) }"
-              >
-                {{ stageLabel(step) }}
-              </span>
-            </span>
-            <span v-else class="ppp__task-detail">
-              <template v-if="session.tasks[taskId].stageKey === 'detail' && session.tasks[taskId].stage">
-                {{ session.tasks[taskId].stage }}
-              </template>
-            </span>
-            <span v-if="session.tasks[taskId].percent !== null && session.tasks[taskId].percent !== undefined" class="ppp__task-percent">
-              {{ session.tasks[taskId].percent }}%
-            </span>
-            <span v-if="session.tasks[taskId].phase === 'blocked' && session.tasks[taskId].remainingWait" class="ppp__task-wait">
-              {{ t('publishPage.publishProgressPanel.blockedWaitMinutes', { minutes: Math.max(1, Math.ceil(session.tasks[taskId].remainingWait / 60000)) }) }}
-            </span>
-            <span
-              v-if="session.tasks[taskId].phase === 'failed' && session.tasks[taskId].error"
-              class="ppp__task-error"
-              :title="session.tasks[taskId].error"
-            >
-              {{ truncateError(session.tasks[taskId].error) }}
-            </span>
-          </div>
+            :task="session.tasks[taskId]"
+          />
           <button
             v-if="session.status === 'done' && store.sessionFailedCount(session.id) > 0"
             type="button"
@@ -171,22 +131,21 @@
  *
  * 首次隐藏教育：minimize 时 consumeFirstHideToast() 为 true → 一次性 toast
  * （localStorage 记忆）；之后由胶囊常驻提示承担持续提醒。
+ * 任务行渲染拆分至 PublishProgressTaskRow.vue（CI 逐文件行数门禁 < 500 行）。
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
-  CircleCheckFilled, CircleCloseFilled, Clock, Close, Loading, Minus, RefreshRight,
+  CircleCheckFilled, Close, Loading, Minus, RefreshRight,
 } from '@element-plus/icons-vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
+import PublishProgressTaskRow from './PublishProgressTaskRow.vue'
 
 const { t } = useI18n()
 const store = usePublishProgressStore()
 
 store.init()
-
-/** 步骤链（stageKey 顺序，当前高亮；waiting/retry/blocked/failed/detail 以状态标签表达不进链） */
-const STEP_CHAIN = ['prepare', 'upload', 'fill', 'submit', 'verify', 'done']
 
 const progressWidth = computed(() => {
   const { done, total } = store.aggregate
@@ -194,55 +153,10 @@ const progressWidth = computed(() => {
   return Math.round((done / total) * 100) + '%'
 })
 
-function platformLabel(platform) {
-  if (!platform) return ''
-  const key = 'home.platforms.' + platform
-  const translated = t(key)
-  // 缺 key 时 vue-i18n 返回 key 原文——回退平台原始 id（不泄漏 key 形态）
-  return typeof translated === 'string' && translated !== key ? translated : platform
-}
-
-function statusLabel(phase) {
-  const map = {
-    queued: 'statusQueued',
-    start: 'statusRunning',
-    progress: 'statusRunning',
-    retry: 'statusRetry',
-    blocked: 'statusBlocked',
-    success: 'statusSuccess',
-    failed: 'statusFailed',
-  }
-  return t('publishPage.publishProgressPanel.' + (map[phase] || 'statusRunning'))
-}
-
-function stageLabel(stageKey) {
-  const map = {
-    prepare: 'stagePrepare', upload: 'stageUpload', fill: 'stageFill',
-    submit: 'stageSubmit', verify: 'stageVerify', waiting: 'stageWaiting',
-    done: 'stageDone', failed: 'stageFailed', detail: 'stageDetail',
-  }
-  return t('publishPage.publishProgressPanel.' + (map[stageKey] || 'stageDetail'))
-}
-
 function sessionTitle(session) {
   if (session.title) return session.title
   if (session.recovered) return t('publishPage.publishProgressPanel.recoveredTitle')
   return t('publishPage.publishProgressPanel.sessionTitleFallback')
-}
-
-function showStepChain(task) {
-  return (task.phase === 'start' || task.phase === 'progress') && STEP_CHAIN.includes(task.stageKey)
-}
-
-function isPastStep(current, step) {
-  const currentIdx = STEP_CHAIN.indexOf(current)
-  const stepIdx = STEP_CHAIN.indexOf(step)
-  return currentIdx >= 0 && stepIdx >= 0 && stepIdx < currentIdx
-}
-
-function truncateError(error) {
-  const text = String(error || '')
-  return text.length > 120 ? text.slice(0, 120) + '…' : text
 }
 
 function handleMinimize() {
@@ -430,80 +344,6 @@ async function handleRetry(session) {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
-}
-
-.ppp__task {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px var(--spacing-2);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.ppp__task-platform {
-  min-width: 56px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.ppp__task-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.ppp__status--success { color: var(--color-success); }
-.ppp__status--failed { color: var(--color-danger); }
-.ppp__status--retry,
-.ppp__status--blocked { color: var(--color-warning); }
-.ppp__status--start,
-.ppp__status--progress { color: var(--color-primary); }
-
-.ppp__steps {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.ppp__step {
-  padding: 0 4px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-}
-
-.ppp__step--past {
-  color: var(--color-text-secondary);
-}
-
-.ppp__step--current {
-  color: var(--color-primary);
-  background: var(--color-primary-light, rgba(80, 72, 229, 0.1));
-  font-weight: 600;
-}
-
-.ppp__task-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 160px;
-}
-
-.ppp__task-percent {
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-secondary);
-}
-
-.ppp__task-wait {
-  color: var(--color-warning);
-}
-
-.ppp__task-error {
-  flex: 1 1 100%;
-  color: var(--color-danger);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .ppp__retry-btn {
