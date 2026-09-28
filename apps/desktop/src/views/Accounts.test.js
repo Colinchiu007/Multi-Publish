@@ -5,7 +5,8 @@ import { setActivePinia, createPinia } from "pinia";
 import fs from "fs";
 import i18n from "@/i18n";
 
-vi.mock("@/composables/usePlatformIconUrl", () => ({
+vi.mock("@/composables/usePlatformIconUrl", async (importOriginal) => ({
+  ...(await importOriginal()),
   getPlatformIconUrl: () => "",
   platformIconUrl: () => "",
 }));
