@@ -36,6 +36,11 @@ const MAX_NAVIGATION_ATTEMPTS = 2;
 const MAX_APP_READY_RELOADS = 2;
 // 严格就绪判据超时后，回退到旧宽松判据的重试预算（只在超时情形触发，不吞其他错误）。
 const ROUTE_OUTLET_FALLBACK_TIMEOUT = 3000;
+// 每条路由允许被卫生清掉的瞬时噪音上限。Windows runner 上的 socket 缓冲区耗尽既可能是
+// 一次抖动（1~2 条），也可能是持续打满（一整条路由的资源全挂）；无上限清理会把后者伪装成
+// 健康，违反「测试断言不得反向固化错误行为」。留预算而不是留布尔开关，是为了让持续故障
+// 一定能在产物里留下 consoleErrors。
+const TRANSIENT_CONSOLE_NOISE_BUDGET = Number(process.env.MP_E2E_TRANSIENT_NOISE_BUDGET || 3);
 
 // 「等待就绪超时」的两种来源：Playwright 自己的等待超时，以及本 runner 在预算被
 // 前序步骤耗尽时抛出的错误。两者都必须能被重载路径识别，否则该路径永远不触发。
@@ -289,17 +294,32 @@ class FunctionalRunner {
   }
 
   /**
-   * 重载会丢弃本次尝试的页面状态，因此属于瞬时网络故障的 console 噪音不再作为
-   * 失败判据 —— 但它必须留在 recoveredTransientErrors 里进产物（发生过什么可查），
-   * 不得伪造成「没发生过」。非瞬时的 console 错误一律留在清单，重载成功也照样红。
+   * 按错误码把瞬时网络噪音移出失败判据清单，并落进 recoveredTransientErrors 留痕。
+   *
+   * 两个调用点，缺一不可，且**不是**重载事件的副作用：
+   * - waitForAppReady 的重载分支：旧页面状态随重载丢弃，噪音属于本次失败的直接产物；
+   * - expectNoConsoleError / generateReport：应用早已就绪、噪音在逐路由检查阶段自己冒出来
+   *   （#2491 现场即 vite HMR websocket 撞 ERR_NO_BUFFER_SPACE）。只挂前者 = 路由阶段噪音
+   *   直通 `consoleErrors === 0` 硬判据，一次本机 socket 抖动随机阻断合并。
+   * 发生过什么必须可查，所以只移出、不销毁；非该码的 console 错误一律留在清单，
+   * 重载成功也照样红；超出 TRANSIENT_CONSOLE_NOISE_BUDGET 的部分同样留下，
+   * 否则「持续性 socket 耗尽」会被全量清理伪装成健康。
+   *
+   * @returns {number} 本次移出的条数
    */
   _discardTransientConsoleNoise() {
     const kept = [];
+    let discarded = 0;
     for (const entry of this.consoleErrors) {
-      if (entry.text.includes(TRANSIENT_NETWORK_ERROR)) this.recoveredTransientErrors.push(entry);
-      else kept.push(entry);
+      if (entry.text.includes(TRANSIENT_NETWORK_ERROR) && discarded < TRANSIENT_CONSOLE_NOISE_BUDGET) {
+        this.recoveredTransientErrors.push(entry);
+        discarded += 1;
+      } else {
+        kept.push(entry);
+      }
     }
     this.consoleErrors = kept;
+    return discarded;
   }
 
   /** 等待指定选择器出现 */
@@ -338,6 +358,9 @@ class FunctionalRunner {
 
   /** 通用检查：断言无 console error */
   async expectNoConsoleError(allowed = []) {
+    // 先过一次卫生再判：allowed 白名单语义不变（并存而非替换），否则应用已就绪之后
+    // 路由检查阶段自己冒出的瞬时噪音会把整条 E2E 判红（#2491）。
+    this._discardTransientConsoleNoise();
     const blocked = this.consoleErrors.filter(function (e) {
       return !allowed.some(function (a) { return e.text.includes(a); });
     });
@@ -530,6 +553,10 @@ class FunctionalRunner {
 
   /** 生成报告 */
   generateReport() {
+    // 逐路由收口时再过一次卫生：不是每条 spec 都会调 expectNoConsoleError()，
+    // 而 final-report.js 的状态判据直接读 report.consoleErrors.length —— 不在这里收口，
+    // 没显式断言的路由照样会被一次 socket 抖动作废。
+    this._discardTransientConsoleNoise();
     const passed = this.checks.filter((c) => c.passed).length;
     const failed = this.checks.length - passed;
     return {
@@ -562,4 +589,4 @@ function assert(cond, msg) {
   if (!cond) throw new Error('ASSERT FAIL: ' + msg);
 }
 
-module.exports = { FunctionalRunner, assert };
+module.exports = { FunctionalRunner, assert, TRANSIENT_CONSOLE_NOISE_BUDGET };
