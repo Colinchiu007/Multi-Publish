@@ -114,7 +114,7 @@ describe("publish/platforms/kuaishou-video", () => {
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
-  test("分片上传：Content-Range 偏移/总量 + upload_token/fragment_id + application/stream + 结果契约 checksum", async () => {
+  test("分片上传：Content-Range 偏移/总量 + upload_token/fragment_id + application/octet-stream + 结果契约 checksum", async () => {
     const srv = await startSrv();
     const file = writeTemp(3000);
     try {
@@ -126,13 +126,17 @@ describe("publish/platforms/kuaishou-video", () => {
       expect(parts[1].url).toContain("fragment_id=2");
       expect(parts[0].headers["content-range"]).toBe("bytes 0-2047/3000");
       expect(parts[1].headers["content-range"]).toBe("bytes 2048-2999/3000");
-      expect(parts[0].headers["content-type"]).toBe("application/stream");
+      // 2026-09-29 网络级取证（rpa-captures/upload-network-capture.json）：真实浏览器
+      // 分片 Content-Type 是 application/octet-stream（旧切片 §1.3 的 application/stream
+      // 为过时读数）——错误 Content-Type 疑似破坏上传会话状态，complete 裸 400。
+      expect(parts[0].headers["content-type"]).toBe("application/octet-stream");
       expect(parts[0].byteLength).toBe(2048);
-      // complete：fragment_count/upload_token + 空 body
+      // complete：fragment_count/upload_token + 空 body + 浏览器一致 Accept
       const done = srv.requestsFor(/api\/upload\/complete/)[0];
       expect(done.url).toContain("fragment_count=2");
       expect(done.url).toContain("upload_token=UTOK");
       expect(done.byteLength).toBe(0);
+      expect(done.headers["accept"]).toBe("application/json, text/plain, */*");
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
