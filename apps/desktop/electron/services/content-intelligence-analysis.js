@@ -10,7 +10,7 @@
  *      this.search()           — 主类提供的跨平台搜索入口
  *      this._extractKeywords() — 本 mixin 内部方法
  */
-const { calculateStats } = require('./content-intelligence-utils')
+const { calculateStats, tokenizeContentWords } = require('./content-intelligence-utils')
 const { suggestTagsWithLLM } = require('./tag-suggest')
 const { suggestFallback } = require('./tag-suggest/fallback-extractor')
 const log = require('./logger')
@@ -23,34 +23,22 @@ const analysisMixin = {
     const highEng = results.filter(r => r.engagement > 1.0)
     if (highEng.length < 2) return null
 
-    // Simple frequency analysis
+    // 词素切分复用 content-intelligence-utils 的 CJK 感知分词。
+    // 旧实现按空白/标点切，中文整句会变成一个"词"，实测把 GitHub issue 的
+    // 「申请加入请在这里评论」当成同类标题高频词渲染给用户。
+    //
+    // 计数口径 = 出现在多少条标题里（document frequency），不是出现总次数：
+    // 同一条标题里重复三次的词不代表是同类标题的共性。
+    // 并列时按词素字典序，保证同一批结果每次渲染顺序一致。
     const wordFreq = {}
-    const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'of', 'in', 'to',
-      'for', 'and', 'or', 'on', 'at', 'by', 'with', 'from', 'as', 'it', 'its',
-      'that', 'this', 'these', 'those', 'be', 'been', 'being', 'have', 'has',
-      'had', 'do', 'does', 'did', 'will', 'would', 'can', 'could', 'may', 'might',
-      'shall', 'should', 'about', 'into', 'through', 'during', 'before', 'after',
-      'above', 'below', 'up', 'down', 'out', 'off', 'over', 'under', 'again',
-      'further', 'then', 'once', 'here', 'there', 'all', 'each', 'every',
-      'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor',
-      'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very',
-      // Chinese stop words
-      '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一',
-      '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着',
-      '没有', '看', '好', '自己', '这', '他', '她', '它', '们',
-    ])
-
     for (const r of highEng) {
-      const words = r.title.toLowerCase().split(/[\s,.\-!?/\\()[\]{}":;]+/)
-      for (const w of words) {
-        if (w.length > 1 && !stopWords.has(w) && !/^\d+$/.test(w)) {
-          wordFreq[w] = (wordFreq[w] || 0) + 1
-        }
+      for (const w of new Set(tokenizeContentWords(r.title))) {
+        wordFreq[w] = (wordFreq[w] || 0) + 1
       }
     }
 
     const sorted = Object.entries(wordFreq)
-      .sort((a, b) => b[1] - a[1])
+      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
       .slice(0, 5)
 
     return sorted.length > 0 ? sorted : null
@@ -85,6 +73,14 @@ const analysisMixin = {
    * @param {string} text
    * @param {number} [maxKeywords=8]
    * @returns {string[]}
+   *
+   * ⚠️ 这里**刻意没有**改用 tokenizeContentWords（标题用的 CJK 相邻二元组），不是遗漏：
+   * 本函数的输入是**整篇正文**、判据是**单文档内词频**（服务 suggestTags / findReferences /
+   * getOptimalTime），长串 CJK 在这里通常是词或短语，展开成二元组会把「人工智能」拆成
+   * 「人工 / 工智 / 智能」这类碎片喂给标签推荐。而 tokenizeContentWords 服务的是
+   * **短标题 + 跨标题重叠**，两个口径不可互换。
+   * 收敛为单一分词器属独立行为变更，须同时重跑 tag-suggest 与 getOptimalTime 的既有断言；
+   * 登记在 01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md §11.5。
    */
   _extractKeywords (text, maxKeywords = 8) {
     if (!text || text.length < 3) return []

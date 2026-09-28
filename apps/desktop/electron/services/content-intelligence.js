@@ -14,6 +14,10 @@
  *   - Hacker News: Algolia API
  *   - GitHub: Issues/Releases API（60 req/h 未认证足够 MVP）
  *
+ * ⛔ 三个源检索的都是**正文**而非标题。相关性门禁（search 出口）因此是
+ * 全引擎的硬约束，不是标题助手局部的补丁：实测中文视频标题查 GitHub issues
+ * 命中 3595 条、首条标题「旧文归档 · 2024 年 2 月」与查询零重叠。
+ *
  * 架构重构（2026-07-16）：按职责拆分为 2 个 mixin，通过 Object.assign 注入 prototype。
  *   - content-intelligence-sources.js   — 数据源 fetch 逻辑（_engagementScore / _search* / _fetch*Trending）
  *   - content-intelligence-analysis.js  — 分析逻辑（_extractPatterns / _extractKeywords / suggestTags / findReferences / getBenchmark / getOptimalTime）
@@ -23,14 +27,24 @@
  *
  * 与 rpa-view-manager.js 和 store/index.js 的 mixin 模式一致，保证 require('./content-intelligence') 接口不变。
  */
-// eslint-disable-next-line no-unused-vars
-const { calculateStats, deduplicateResults, calculateHourDistribution } = require('./content-intelligence-utils')
+const { tokenizeContentWords, sharesContentWord } = require('./content-intelligence-utils')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 const sourcesMixin = require('./content-intelligence-sources')
 const analysisMixin = require('./content-intelligence-analysis')
+
+/**
+ * 「同类标题」可用的数据源白名单。
+ *
+ * GitHub 是代码托管站，其 issue 标题由仓库维护者书写（实测命中：Gitalk 演示仓库
+ * 置顶 issue「申请加入请在这里评论 （也可以直接发 Pull Request）」、
+ * 「Gitalk Demo」「ActNotify~>Bilibili」「Daily weather email」），
+ * 对内容创作者的标题优化没有任何参考价值，故标题助手不启用该源。
+ * 主题情报页（search 默认源）保留 GitHub —— 那里用户找的是"讨论"而非"标题"。
+ */
+const TITLE_SOURCES = ['reddit', 'hackernews']
 
 class ContentIntelligence {
   constructor (store) {
@@ -101,8 +115,24 @@ class ContentIntelligence {
     if (sources.includes('hackernews')) tasks.push(this._searchHN(query, limit))
     if (sources.includes('github')) tasks.push(this._searchGitHub(query, limit))
 
-    const results = (await Promise.allSettled(tasks))
+    let results = (await Promise.allSettled(tasks))
       .flatMap(r => r.status === 'fulfilled' ? r.value : [])
+
+    // ── 相关性门禁 ────────────────────────────────────────────────
+    // 三个源检索的都是正文：标题与查询零重叠的结果不是"同类内容"，是噪声。
+    // 放在 sort 之前，保证下游（含 searchMentions 的 topSource/topEngagement）
+    // 拿到的 results[0] 也是相关的。查询本身切不出内容词时不设判据、原样放行。
+    const queryTokens = new Set(tokenizeContentWords(query))
+    let droppedIrrelevant = 0
+    if (queryTokens.size > 0) {
+      const before = results.length
+      results = results.filter(r => sharesContentWord(r.title, queryTokens))
+      droppedIrrelevant = before - results.length
+      if (droppedIrrelevant > 0) {
+        log.info('ContentIntelligence',
+          `relevance gate: dropped ${droppedIrrelevant}/${before} results for query "${query}"`)
+      }
+    }
 
     // Sort by engagement
     results.sort((a, b) => b.engagement - a.engagement)
@@ -111,7 +141,9 @@ class ContentIntelligence {
     const seen = new Set()
     const deduped = []
     for (const r of results) {
-      const key = r.title.slice(0, 40).toLowerCase().trim()
+      // 兜底空标题：门禁在「查询切不出内容词」时按设计跳过判据，此时 title 缺失的
+      // 结果会一路走到这里（utils 的 deduplicateResults 本就有该兜底，内联版此前没有）。
+      const key = (r.title || '').slice(0, 40).toLowerCase().trim()
       if (!seen.has(key)) {
         seen.add(key)
         deduped.push(r)
@@ -127,6 +159,9 @@ class ContentIntelligence {
         return true
       }),
       total: deduped.length,
+      // 被相关性门禁判为"正文命中但标题不相关"而剔除的条数。渲染层用它区分
+      // 「一个源都没响应」与「有结果但都不算同类」，两者给用户的解释不同。
+      droppedIrrelevant,
       results: deduped.slice(0, limit * 2),
       timestamp: new Date().toISOString(),
     }
@@ -139,10 +174,17 @@ class ContentIntelligence {
   //
   // Takes the draft title and searches for similar content.
   // Returns engagement data for similar titles to guide optimization.
+  //
+  // 源域比通用 search() 窄：GitHub 的 issue 标题是仓库维护产物，不是内容标题
+  // （见 TITLE_SOURCES 注释里的实测命中），放进「高互动参考」等于给用户看垃圾。
 
   async searchTitles (title, opts = {}) {
     // Use the title itself as the query
-    const result = await this.search(title, { ...opts, limit: 6 })
+    const result = await this.search(title, {
+      ...opts,
+      sources: opts.sources || TITLE_SOURCES,
+      limit: 6,
+    })
 
     // Extract key patterns
     const patterns = this._extractPatterns(result.results)

@@ -1,3 +1,39 @@
+# [未发布] fix(标题参考): 数据源收窄 + 相关性门禁，修掉「高互动参考」清一色 GitHub issue 垃圾
+
+### 变更
+
+- `apps/desktop/electron/services/content-intelligence-utils.js`：新增 `tokenizeContentWords`（拉丁词按词 + CJK 相邻二元组）与 `sharesContentWord`（标题-查询实词重叠判定）；停用表 `CONTENT_STOPWORDS` 收敛到一处，并补中文高频**二元组**虚词（`可以/我们/你们/他们/什么/怎么/这个/那个`）——单字停用表覆盖不到二元组。
+- `apps/desktop/electron/services/content-intelligence.js`：`search()` 出口新增**相关性门禁**，正文命中但标题零重叠的结果一律剔除并计入新字段 `droppedIrrelevant`；门禁挂在 `engagement` 排序**之前**，使按下标取 `results[0]` 的 `searchMentions` 一并受益。`searchTitles()` 源域收窄为常量 `TITLE_SOURCES = ['reddit','hackernews']`，不再继承 GitHub；调用方显式传 `sources` 时仍尊重调用方。
+- `apps/desktop/electron/services/content-intelligence-analysis.js`：`_extractPatterns` 改用共用分词；计数口径从「出现总次数」改为 **document frequency**（一个词素出现在几条标题里）；并列时按词素字典序，渲染顺序不再随机漂移。
+- `apps/desktop/src/components/TitleAssistantPanel.vue`：来源标签从 `v-else → "GitHub"` 兜底改为显式映射（未知源如实回显其标识、`source` 缺失则不渲染）；新增「暂未找到同类高互动标题」空态，并按 `droppedIrrelevant` 区分「源真的没响应」与「有响应但都不算同类」两种解释。
+- `apps/desktop/src/locales/zh.js` / `en.js`：新增 3 个成对 key（`titleAssistantEmpty` / `titleAssistantEmptyHint` / `titleAssistantFiltered`，含 `{n}` 插值）。
+- `01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md`：新建该功能的首份完整规格（数据源矩阵、门禁判据与边界、分词口径、交互流程、显示项、全量提示文字、验收标准、反证矩阵、已知限制）——**此前 PRD 里没有任何一条关于「标题参考」的契约**，只有 §9.2 一个 8 行桩。
+- `01-docs/PRD.md` §9.2：补数据源与相关性契约指针。
+
+### 根因（三层，缺一即残留）
+
+实测取证（2026-09-28 本机直连公开 API）：中文视频标题「三步学会做红烧肉」查 `api.github.com/search/issues` 返回 `total_count: 3595`，首条标题是「旧文归档 · 2024 年 2 月」——**与查询零词重叠**（命中在正文）；HN 对「红烧肉」`nbHits: 0`；Reddit 空响应。
+
+- **R1 源域**：`searchTitles` 复用通用 `search()`，继承了含 GitHub 的默认源。GitHub 是代码托管站，issue 标题由仓库维护者书写，不是内容标题语料。
+- **R2 校验**：`search()` 出口没有「标题是否真的与查询同类」这道判据。三个源的接口匹配的都是正文，正文命中即入榜。
+- **R3 分词**：`_extractPatterns` 按空白/标点切词，中文无空格 ⇒ 整句被切成一个"词"，于是「申请加入请在这里评论」以"高频词"身份渲染给用户。
+
+用户看到的 `homepage / Gitalk Demo / ActNotify~>Bilibili / Daily weather email` **不是测试数据、也不是 mock**，是真实 GitHub issue 与仓库名——GitHub 是唯一"有结果"的源，所以排序后五条清一色打上 GitHub 标签。
+
+### 测试
+
+- `content-intelligence-utils.test.js` +8 例：二元组**精确数组**断言（`红烧肉 → ["红烧","烧肉"]`）、与旧实现的切词对照、停用词/纯数字/去重/空值、实测事故标题判不相关、真同类判相关、查询无内容词时不改语义。
+- `tests/content-intelligence.test.js` `searchTitles` describe 重写 +10 例：源域锁（`_searchGitHub` 未被调用）、通用 `search()` 仍保留 GitHub（不误伤情报页）、显式 `sources` 不被覆盖、事故场景 `results` 精确等于真同类那一条 + `droppedIrrelevant=2`、`patterns` 在样本不足时为 `null`、标题缺失按不相关、门禁挂在共用层使 `searchMentions` 受益；`_extractPatterns` describe +3 例（不含整句、不含二元组虚词、并列顺序唯一、doc frequency 口径、样本不足返回 null）。
+- `TitleAssistantPanel.test.js` +3 例：未知源不得兜底成 GitHub、空态文案 + 过滤条数、源无响应时的数据源说明。
+- **修掉三处把 Bug 钉成契约的既有断言**：① 原 `searchTitles` 用例把 `_searchGitHub.mockResolvedValue([])`，真实事故路径在夹具下永远观察不到；② 原组件用例用 `source:"github"` 并断言 `toContain("GitHub")` 为正确渲染；③ `deduplicates by title prefix` 用例查询写 `'test'` 与夹具标题零重叠，被门禁正确判为不相关——该用例测去重不测门禁，改查询为 `'duplicate'` 并补 `droppedIrrelevant===0` 断言。
+- **反证矩阵（逐条实跑，跑完按字节还原）**：M1 摘门禁 → 3 红；M2 github 放回源域 → 5 红；M3 退回空白切词 → 2 红；M4 退回 `v-else GitHub` → 1 红。
+- QM-1 离线打包：`build:vue` + `electron-builder --win --dir` 双 rc=0、`⨯` 计数 0、asar 含 `/dist/index.html` 与四个 `content-intelligence*` 服务文件、包内 `node --check` 通过、新逻辑逐条签名命中、renderer chunk 含新文案。
+- 实测 `content-intelligence-utils` 16/16、`tests/content-intelligence` 43/43、`TitleAssistantPanel` 10/10、`electron/services/content-intelligence` 8/8、`Intelligence` 16/16、`views-coverage2` 7/7 全绿；`check-locale-sync --pair-base` 与 `--cjk` 双 PASS。
+
+### 已知限制
+
+中文题材修好后最常见的正确表现就是「暂未找到同类高互动标题」——数据源只有三个英文开发者平台。这是诚实而非修坏；要让该功能对中文创作者真正有用，需另立需求接入中文内容平台标题语料。二元组非真分词，跨词边界的 `入请`/`在这` 仍会产出，靠 document frequency 排序压制。
+
 # [未发布] feat(账号): 失效头像遮罩从「中部一条黑带」改为「铺满整颗头像 + 白字居中」
 
 ### 变更

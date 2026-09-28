@@ -2684,6 +2684,10 @@ export default {
     categoryEducation: 'Education',
     categorySocial: 'Social',
     titleAssistantTitle: 'Title reference',
+    titleAssistantEmpty: 'No comparable high-engagement titles found',
+    titleAssistantEmptyHint: 'Comparable titles come from public Reddit and Hacker News posts; no match for Chinese topics is normal.',
+    titleAssistantFiltered: 'Filtered {n} results that matched the body text but not the title',
+    searchFilteredNote: 'The sources did respond, but {n} results were filtered out because their titles are unrelated to your keywords.',
     trendingTitle: 'Trending topics',
   },
 
