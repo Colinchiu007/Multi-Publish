@@ -17,6 +17,7 @@ const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config'
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
 const { getConfigPath } = require('./config-resolver')
+const { buildApiTaskData } = require('./api-task-data')
 
 // 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 // mode: 鍙戝竷寮曟搸
@@ -483,43 +484,10 @@ class ApiPublisher {
     }
 
     const publishViaApi = this.publishApi || require('@multi-publish/api-publish-engine/src/index').publishViaApi
-    const taskData = {
-      title: article.title,
-      content: article.content,
-      tags: article.tags,
-      draft: article.draft === true,
-      // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选
-      aiGenerated: article.aiGenerated !== false,
-    }
-    if (!isArticle) {
-      taskData.video = {
-        path: videoPath,
-        duration: Number(videoInfo.duration) || 0,
-        width: Number(videoInfo.width),
-        height: Number(videoInfo.height),
-      }
-      if (article.cover_path) taskData.cover = article.cover_path
-    } else {
-      // 图文：正文内联图片与作者透传给文章链消费
-      if (Array.isArray(article.images) && article.images.length) taskData.images = article.images
-      if (article.author) taskData.author = article.author
-    }
-    // P0-3：平台特有字段透传到 API taskData（adapter 按需消费；B站 tid/copyright、
-    // YouTube categoryId/privacy、TikTok privacy_level、百家号 original/location）
-    if (article.category !== undefined) taskData.category = article.category
-    if (article.copyright !== undefined) taskData.copyright = article.copyright
-    if (article.categoryId !== undefined) taskData.categoryId = article.categoryId
-    if (article.privacy !== undefined) taskData.privacy = article.privacy
-    if (article.privacyLevel !== undefined) taskData.privacyLevel = article.privacyLevel
-    if (article.original !== undefined) taskData.original = article.original
-    if (article.location !== undefined) taskData.location = article.location
-    // P2-1：合集/播放列表透传
-    if (article.collectionId !== undefined) taskData.collectionId = article.collectionId
-    if (article.playlistId !== undefined) taskData.playlistId = article.playlistId
-    if (article.collection !== undefined) taskData.collection = article.collection
-    // P3-1/P3-2/P3-4：商品/任务/投票/交叉发布透传到 API taskData
-    if (article.goods !== undefined) taskData.goods = article.goods
-    if (article.taskId !== undefined) taskData.taskId = article.taskId
+    // 形状翻译单一实现（api-task-data.js）：与 rpa-view-manager API-first 分支共用，
+    // 防两路映射漂移（2026-09-28 活体残余①——RpaView 侧曾裸传 article 导致
+    // 视频平台 API 轨 fail-closed）。
+    const taskData = buildApiTaskData(article, videoInfo)
 
     const result = await publishViaApi(platform, taskData, cookie, {
       timeout: this.route.timeout,

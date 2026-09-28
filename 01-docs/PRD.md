@@ -17681,3 +17681,17 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 回归锁：`platform-selectors.test.js`（首位 + 诱饵不得在列双断言）、`rpa-selector-utils.test.js`
 活体 fixture 5 例、`rpa-view-platforms.test.js` 数据契约锁。证据：
 `01-docs/rpa-api-publish/evidence/api-w3-kuaishou/d2-live-verdict-20260928-round2.md`。
+
+## 快手发布链活体残余三缺陷修复（2026-09-28 活体验收暴露，随本 PR）
+
+活体验收（`live-acceptance-pass-20260928.md`）发布成功后登记的三个残余缺陷，本 PR 收口：
+
+| # | 缺陷（产线签名） | 根因 | 修复 |
+|---|---|---|---|
+| ① | `API publish kuaishou: taskData.video.path required`（API 轨回退 DOM 轨） | `rpa-view-manager` API-first 分支把裸 `article`（扁平 `video_path`）直传 `publishViaApi`，适配器契约要求 `taskData.video.path`（嵌套）——kuaishou/bilibili 等视频平台 API 轨全部 fail-closed；`publisher-router` 一直正确构造（内联映射），两路形状漂移 | 提取共享翻译器 `api-task-data.js#buildApiTaskData`（article → taskData 单一实现），RpaView 与 router 共用消灭漂移；router 内联映射重构为共用（行为等价） |
+| ② | `ImpactTracker: publishImpactTracker.addTracking is not a function` | `phase4-events` 调 `addTracking`——真实类只有 `scheduleImpactTracking`（`publish-impact-tracker.js`）；旧测试 mock 了不存在的方法名，mock-现实漂移让 TypeError 逃逸到产线 | 调用改为真实方法名 + 补 `platform` 字段；6 处测试 mock 同步改真名（消灭漂移通道）+ 新增真实调用断言 |
+| ③ | `PublishMonitor Poll 1/12 → error`（12 连 error 污染发布历史） | kuaishou 的 CHECK_URLS 是 graphql 端点，通用 GET+id 轮询协议形状错误；且监控 cookies 取自 `task.article`（恒空，凭证在 authData 不随任务走） | 无已验证的快手状态查询端点前，kuaishou 从 CHECK_URLS 移除——干净跳过（skipped）不再 error 刷屏；根因与补回路径已注释在代码 |
+
+**回归锁**：`api-task-data.test.js`（9 例形状契约）、`rpa-view-manager.test.js`（API-first 形状断言）、`phase4-events.test.js`（真实方法调用断言）、`phase10-service-tests.test.js`（kuaishou skipped 断言）。门禁：受影响 5+5 suites 238 tests 全绿；QM-1 三件套全过（asar 解包实证三处修复在包内）。
+
+**残余（后续）**：监控的 cookies 空缺是全平台潜在设计缺口（凭证不随任务走）——待状态查询端点有证据时连同 kuaishou 专用 POST 查询一并补。

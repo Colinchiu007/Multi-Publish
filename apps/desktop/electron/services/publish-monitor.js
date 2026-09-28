@@ -19,7 +19,11 @@ const CHECK_URLS = {
   bilibili: 'https://api.bilibili.com/x/web-interface/archive/space',
   zhihu: 'https://www.zhihu.com/api/v4/articles',
   xiaohongshu: 'https://creator.xiaohongshu.com/api/content/list',
-  kuaishou: 'https://cp.kuaishou.com/graphql',
+  // kuaishou 已移除（2026-09-28 活体残余③）：其状态查询是 cp.kuaishou.com/graphql
+  // 的 POST 查询，通用 GET+id 轮询协议形状错误（必然 error）；且监控 cookies 取自
+  // task.article（恒空，凭证在 authData 不随任务走）。无已验证的快手状态查询
+  // 端点前诚实跳过（skipped），不 12 连 error 污染发布历史。待有端点证据后
+  // 以专用 POST 查询实现补回。
   toutiao: 'https://mp.toutiao.com/profile_v4/graphic/publishing',
   youtube: 'https://www.googleapis.com/youtube/v3/videos',
 }
