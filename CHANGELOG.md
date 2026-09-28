@@ -15,10 +15,47 @@
 - 内容：`grep -rna "Codex（前端\|Codex 前端"` 在 `.ccg/`、`AGENTS.md` 均 0 命中；安装副本改前/改后行数 97/112 不变，diff 仅含改名行、无增删行。
 - QM-1 / QM-4：N/A（diff 仅 `.ccg/**` + `AGENTS.md` + 两份顶层文档）。
 - QM-6：N/A —— 纯文档/流程变更，按 AGENTS.md 不强制。
-- ⚠️ 已知脆弱点：`~/.claude/**/ccg/*` 是 `ccg i` 的产物，下次重装会把措辞打回上游模板的 `Gemini`；本仓 `.ccg/` 那份同理会在下次「chore(ccg): 升级」被上游模板覆盖。
+- ⚠️ 落地时与 #2550/#2551/#2552 的前插撞车（`DIRTY`），改用「我的块字节 + 新底字节」逐字拼接解决，顺带修回 CHANGELOG 那 2 条裸 LF 行曾被脚本 `join` 写成 CRLF 的问题。已知脆弱点：`~/.claude/**/ccg/*` 是 `ccg i` 的产物，下次重装会把措辞打回上游模板的 `Gemini`；本仓 `.ccg/` 那份同理会在下次「chore(ccg): 升级」被上游模板覆盖。
 
 ### 遗留
 - 刻意不在本次做的同类清扫（避免把 vendored 镜像改成大面积本地分叉）：`.ccg/engine/model-router.md`、`.ccg/hooks/skill-router.js`、`.ccg/prompts/gemini/`、`.ccg/commands-legacy/**` 仍含 Gemini 字样；`.ccg/CLAUDE.md:325` 的 `{{FRONTEND_PRIMARY}}` 默认值 `gemini` 是上游默认值，属快照事实，未改。
+
+# [未发布] fix(session-isolation): installer 支持一次性 -TaskPath，并对生产路径的 -Unregister fail closed（2026-09-28，guard-task-path）
+
+### 变更
+- `scripts/install-session-isolation-task.ps1` 新增 `-TaskPath`（默认仍是生产路径 `\Multi-Publish\`）与 `-AllowLiveUnregister`：`-Unregister` 打向生产路径时**默认拒绝**并非零退出，指引调用方改用一次性路径。同时补齐 Task Scheduler 的路径口径（首尾都要有反斜杠，否则 `Get-ScheduledTask -TaskPath` 返回空集，`-Unregister` 会报"删了 0 条"这种可疑的"成功"）。
+- 注册与反注册一律**以产物判成败**：每次 `Register-ScheduledTask` 后用 `Get-ScheduledTask` 核实任务确实存在，反注册后核实确实清空；失败时给出可执行指引（AtLogOn 触发器需 `Start-Process -Verb RunAs` 提权）。原实现只看管道到 `Out-Null` 之后的隐式状态，而该 cmdlet 抛的是**非终止错误、不写 `$LASTEXITCODE`** —— 只看 rc 会把"一条都没注册上"报成成功。
+- 新增 `scripts/install-session-isolation-task.test.ps1`（7 条，**不做任何注册动作**，因此与提权无关、可接 CI）并接入 Gate 2d：拒绝生产路径 `-Unregister`、拒绝信息点名逃生开关、被拒后真任务列表逐条不变（以产物判）、一次性路径放行、参数面存在（读 `Get-Command` 而非 grep 文本）、不带尾斜杠同样被拒。
+- `check-unwired-tests.js` 里 `session-isolation-automation.test.ps1` 的欠账理由换成实测事实：未知量已收窄为"runner 进程令牌是否提权"。
+
+### 为什么现在才做（一次自伤的账）
+写这条守卫的动机来自本轮我自己造成的一次事故：为反证"拒绝逻辑有牙"，把该判断临时改成 `if ($false)` 后照原样跑测试，而测试里正有一条拿**默认生产路径**调 `-Unregister` —— 守卫被我亲手绕过的那一刻，两条在跑的计划任务真被删除（含共享根实时写保护）。Health 可非提权恢复；AtLogOn 写保护任务恢复必须提权，因此当时只能半恢复。第二版沙箱反证又因为只替换了带尾斜杠的路径字面量、漏掉不带尾斜杠那一处而再次波及真任务。两次是同一类错误：**削弱破坏性动作的守卫时，仍让代码走到它保护的那个动作上**。修法即本条：默认拒绝 + 可注入路径，让自检与测试没有第二条路可走。
+
+### 门禁与反证
+- 本机 `pwsh 7.6` 与 `Windows PowerShell 5.1` 各 `rc=0 / 7 条 PASS`。过程中两个自引入缺陷被真实抓到并修掉：① 往 5.1 执行的脚本里写中文注释 —— 无 BOM UTF-8 被按 ANSI 解，直接解析失败；② `Check (…).Count -eq 0 '…'` 少一层外层括号，PowerShell 把 `-eq 0` 当成后续实参传给函数，比较成立仍判假（这一条在 CI 上会因为"没有任务"而恒红）。
+- 反证改在**完全沙箱**里做：把 installer 与测试各复制到 TEMP，复制体内所有 `Multi-Publish` 字样一律换成一次性探针路径，每格开始前向探针文件夹注册一个动作仅为 `cmd /c exit 0` 的空任务。结果：A 守卫在位 `rc=0 / 7 PASS` 且探针任务存活；B 拆掉拒绝分支 `rc=1 / pass=0`，且**探针任务被真删**（证明拒绝分支是唯一屏障）；C 去掉尾斜杠归一后红在"不带尾斜杠也要被拒"那条（证明归一是承重的）。三格全程生产文件夹快照逐字不变、复制体外的源文件 sha 未变、探针文件夹已清空。
+- 同 PR 自跑：`check-unwired-tests.js` → 检查域内测试文件 43 个 / OK（新测试已接线）；`check-step-failfast.js` → 4 个多测试步骤 OK；`--test` 三件 41 passed / 0 failed。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+- **首跑即在 CI 变红，红点在我自己的新断言上**（run 36388005361 / step `Gate 2d`）：`Compare-Object` 报「无法将 Null 值绑定到 `-ReferenceObject`」。根因不在比较，而在**快照函数的隐式输出把空数组摊平成 `$null`** —— 实测 Windows PowerShell 5.1：`function F { @(...) }` 对调用方是 NULL，而 `, @()` 与调用点 `@(F)` 才是长度 0 的 `Object[]`；`Compare-Object @() @()` 本身正常。CI runner 上 `Multi-Publish` 根本不存在，于是「被拒后真任务列表逐条不变」那条从未在等价状态下被跑过，而我此前只在本机（有 2 条真任务）验过。
+- **修法取结构而非记律**：快照函数不再返回值，改写 `$script:` 作用域变量，比较对象换成任务名排序后 `-join '|'` 的字符串（串既不会为 null 也不摊平），`Compare-Object` 与 `-SyncWindow 0` 一并删除。同时把 `finally` 里的「检出真任务变化只打红字」升级为**失败**——原实现检出灾难仍 `rc=0`，属装饰性断言的第二种落点。
+- **成对反证：把 runner 态在本地造出来，不靠 CI 碰运气**。旧版（`git show HEAD:` 那份）+ 零任务 ⇒ `rc=1`，红点与 CI 同一处（`zero-old.ps1:77` 的 null 绑定）；新版 + 零任务 ⇒ `rc=0 / 7 PASS` 并打印 `NOTE: no live \Multi-Publish\ task on this host …`；新版 + 本机 2 条真任务 ⇒ `rc=0 / 7 PASS` 并打印 `PROVED: 2 live task(s) survived the refused -Unregister`。`pwsh 7.6` 与 `Windows PowerShell 5.1` 各一遍。反证夹具要把 `$installer` 绑回 worktree 的真实脚本，否则复制到 TEMP 后 `$PSScriptRoot\..` 不是仓库、拒绝分支走的是另一条错误路径（第一版就被 `fatal: not a git repository` 骗过一次，看着像修复失败，其实测的是另一件事）。**CI 本身就是这条回归的常驻锁**：runner 天生零任务，重新引入「返回空数组的快照函数」会当场变红。
+- **恢复写保护任务时顺带实测到两条运行态事实**：① `-Watch` 没有单实例锁，提权重注册会与上一版注册留下的 watcher 进程**并存**，两份 FileSystemWatcher 对同一次拦截各写一条 `violations.jsonl`；清理时按 `-like '*guard-shared-root-writes*'` 过滤 `Win32_Process` 会把**执行查询的自己**算进去（自己的命令行就含该串），必须排除 `$PID` 并匹配 `-Watch` 实参。② 注册 AtLogOn 需要提权，但 `Start-ScheduledTask` 拉起已注册的任务**不需要**——收掉重复后以任务本身重启 watcher，`mp-worktree-health.ps1` 回读 `taskRegistered=true / running=true / ok=true`、`health_rc=0`，证据取产物而非启动命令的 rc。
+- **本次合并顺带修掉了我上一轮解冲突造成的一处行尾损伤**：`CHANGELOG.md` 的 blob 里除 CRLF 外还夹着 **2 行裸 LF**（该文件含 NUL 字节，git 判为二进制、跳过归一，所以每一行尾都是内容）。上一轮用 `split(/\r?\n/)` + 单一 eol 重排解冲突，把这 2 行压成了 CRLF（实测 merge-base 与 origin/main 均为 `bareLF=2`，而我的分支头是 `0`）。本轮解析器改为「我的字节块原样 + main 的字节全文原样」，并对**尾部与 main 逐字相等**做硬断言，`bareLF(out/main)=2/2` 才允许写盘；顺带把 `learnings.md` 的 3 行裸 LF 一并守住。验收一律「对 origin/main 比」而非「对 HEAD 比」：三个置顶文档对 main 都是纯新增（`21/0`、`8/0`、`25/0`），且 `--numstat` 与 `--ignore-cr-at-eol --numstat` 完全一致。
+
+# [未发布] test(登录门禁): 四处 names= 现场全部拿到可执行锁，并修掉一条「单跑绿、全量恒 0 次」的日志接缝
+
+### 变更
+- `webview-manager.test.js`：logger mock 由「每轮 `beforeEach` 新建」改为**模块作用域的稳定对象 + 每轮 `mockReset()`**。
+  `credential-saver` 在 require 期就把 `log` 绑成本地引用，每轮新建时它冻在第一份上，而用例里 `require('./logger')` 拿到的是最新一份。
+- 新增三条日志锁：`credential-saver`（补上归档件登记的 tasks 2.5b 欠账）、`qrcode-login`、`account-manager.captureCookies`。
+  每条锁两个方向：拒绝日志必须含 `names=<逐个 Cookie 名>`，且 Cookie **值**不得出现在日志里。
+- 反证六条全部实跑：摘 `names=`（三处各一次）、把 Cookie 值写进日志、改掉日志文案、把稳定 mock 退回每轮新建；
+  每条都只让对应那一例变红，还原后源文件 md5 一致。
+
+### 为什么值得单列一条
+"这条锁到底有没有在跑"才是本轮的收获。同一个断言在 `-t` 单跑与全文件跑给出**相反答案**，而 CI 收编的是全量：
+我先是据此把「抓不到」当实现缺陷登记成欠账，又在 AGENTS.md 里写下「该推断已被否证」——两次都没跑全量。
+现按实测把口径改成「必须在 runner 真实采用的那种跑法下跑一次」，并把判据写成可执行锁。
 
 # [未发布] feat(账号): 失效头像遮罩从「中部一条黑带」改为「铺满整颗头像 + 白字居中」
 

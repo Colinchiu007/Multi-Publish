@@ -12,10 +12,16 @@ __enableElectronMock()
 let WebviewManager, AUTH_TAB_ID
 const credentialLoadMock = vi.fn(() => null)
 
+// logger mock 必须是跨用例稳定的同一对象：credential-saver 等在 require 期就把 log 绑成
+// 本地引用，每轮新建 mock 会让「已冻结的那个实例」与用例里 require 到的实例不是同一个，
+// 于是日志断言只在单跑时成立、全量跑恒为 0 次（实测踩过）。
+const loggerMock = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
+
 beforeEach(async () => {
   vi.resetModules()
   __resetElectronMock()
-  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
+  Object.values(loggerMock).forEach(fn => fn.mockReset())
+  __registerMock('./logger', loggerMock)
   __registerMock('./credential-store', { loadCredential: credentialLoadMock })
   patchViewAndSessionMocks()
   const mod = await import('./webview-manager.js')
@@ -1247,6 +1253,32 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     expect(result).toMatchObject({ ok: false, reason: 'session-evidence-missing', platform: 'kuaishou' })
     expect(accountManager.updateCapturedAccount).not.toHaveBeenCalled()
     expect(wm._tabStates.get(tabId).credentialSaveState).toBe('unsaved')
+  })
+
+  // 2.5b 回归锁：把某平台从「未声明（门禁恒过）」收紧为「声明（门禁实际会拦）」时，
+  // 拒绝路径必须同时可诊断——当场留下 Cookie 名现场，否则「标记收得太窄」会演化成
+  // 用户不可见的静默登录失败。日志只记名字，Cookie 值一律不得进日志。
+  it('凭证门禁拒绝时 warn 必须带 names= 现场（且只记名字不记值）', async () => {
+    const warnSpy = loggerMock.warn
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const accountManager = makeAccountManager()
+    wm.setAccountManager(accountManager)
+    const { tabId } = createUnsavedAccountTab(wm, {
+      accountId: 'a-ks-log',
+      platform: 'kuaishou',
+      cookies: [{ name: 'did', value: 'anon', domain: '.kuaishou.com' }, { name: 'wid', value: 'anon', domain: '.kuaishou.com' }],
+    })
+
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result).toMatchObject({ ok: false, reason: 'session-evidence-missing' })
+
+    const missed = warnSpy.mock.calls.map(c => String(c[1])).filter(l => l.includes('session evidence missing'))
+    expect(missed.length).toBe(1)
+    expect(missed[0]).toContain('names=did,wid')
+    expect(missed[0]).toContain('cookies=2')
+    expect(missed[0]).not.toContain('anon')
   })
 })
 
