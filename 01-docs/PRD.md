@@ -17720,6 +17720,19 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **回归锁**：`electron/tests/signer-provider.test.js` 2 例（装配后引擎单例 sign 不再报 bridge not injected——错误推进到 manager 层 fail-closed；signer IPC 三通道注册）。此前 provider.js **零测试覆盖**（装配接线从未被测过——本缺陷的逃逸面）。门禁：signer 相关 4 suites 91 tests 全绿；QM-1 三件套全过（asar 解包实证 provider.js 修正）。
 
 **活体 6.3 裁决链全景（五层，逐层修复逐层验证）**：形状翻译（#2578）→ 注册表回退 + 命令名透传（#2580）→ **bridge 装配接线（本 PR）**。每层修复后下一层暴露——API 轨首次全链贯通待本修复合并后的下一轮活体验证。
+
+## API 轨签名页 sessionKey 与 cookie 预绑合同（2026-09-28 活体 6.3 第六层，随本 PR）
+
+活体 6.3 裁决（第四轮发布实测）第六层：bridge 接通（#2582）后，签名页多账号隔离 fail-closed（`missing sessionKey`）。两处接线缺口：
+
+| # | 缺口 | 修复 |
+|---|---|---|
+| ① | sessionKey=accountId 必须随 opts 下传（链 payload.accountId → 装配 ctx.sessionKey）——rpa-view-manager 的 publishViaApi opts 此前只有 onProgress | API-first 分支 opts 下传 `accountId`（article.accountId 优先，authData.accountId 兜底） |
+| ② | `bindSignerCookie`（provider.js 契约：发布链求签前绑定账号 cookie，in-proc 不经 renderer）**零生产调用方**——cookieStore 恒空，签名页无登录态 | API-first 分支求签前 `bindSignerCookie(platform, accountId, cookie)`（guarded，失败 warn 不阻断） |
+
+**回归锁**：`rpa-view-manager.test.js`（opts.accountId 下传 + cookie 预绑双断言）。门禁：3 suites 16 tests 全绿；QM-1 三件套全过（asar 解包实证两处接线在包内）。
+
+**活体 6.3 裁决链全景（六层，逐层修复逐层验证）**：形状翻译（#2578）→ 注册表回退 + 命令名透传（#2580）→ bridge 装配接线（#2582）→ **sessionKey + cookie 预绑（本 PR）**。每层修复后下一层暴露——API 轨全链贯通待本合并后的下一轮活体验证。
 ## 发布页封面缩略图与放大预览（2026-09-28 新增）
 
 > 完整规格（数据校验 / 交互流程 / 显示项 / 提示文字 / 性能实测 / 验收标准 / 测试策略 / 决策记录）见
