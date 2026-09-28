@@ -65,7 +65,7 @@ const { t } = useI18n()
   background: #1f2126;
   cursor: zoom-in;
 }
-.cover-thumbnail img {
+.cover-thumbnail__img {
   width: 100%;
   height: 100%;
   object-fit: cover;

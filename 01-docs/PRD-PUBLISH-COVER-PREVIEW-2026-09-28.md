@@ -110,7 +110,7 @@
 | 光标 | `cursor: zoom-in` |
 | 悬停 | 右上角出现放大镜角标 |
 | 可访问性 | `role="button"`、`tabindex="0"`、`aria-label` 取 locale、`Enter`/`Space` 可触发、`:focus-visible` 有描边 |
-| 稳定标识 | `data-testid="cover-thumbnail"`，并挂 `data-cover-src="local"` 便于测试区分来源 |
+| 稳定标识 | `data-testid="cover-thumbnail"` |
 
 ### 5.2 加载态 / 失败态
 
@@ -273,3 +273,18 @@ E2E 既有契约不得破坏：`tests/e2e/one-click-publish-e2e.js` 与 `real-vi
 | 失败态保留占位框 + 文件名 | 消除「以为没设置上」的重复点击 | 失败即隐藏整块 |
 | 一并补登记裁剪弹窗与 AI 封面浮层的挂起 | 同一封面流程的三个模态必须一致，否则新浮层守规矩、旁边的不守 | 只给自己新增的弹窗加 |
 | 不预览远程 `cover_url` | 避免可追踪信标与 `http` 破图 | 直接 `<img :src="cover_url">` |
+
+## 13. 外部评审处置记录（QM-6，2026-09-28）
+
+前端模型（claude）给出 6 条发现（0 Critical / 2 Warning / 4 Info）。逐条判定，**不盲从也不沉默拒绝**：
+
+| 编号 | 发现 | 判定 | 处置 |
+|---|---|---|---|
+| I3 | `CoverThumbnail.vue` 模板写了 `cover-thumbnail__img`，但 CSS 用元素选择器 `.cover-thumbnail img`，类名是死的 | **成立** | CSS 选择器改为 `.cover-thumbnail__img`，消除死类名 |
+| I4 | 本 PRD §5.1 规定了 `data-cover-src="local"`，实现里没有 | **成立（规格/实现漂移，责任在本 PRD）** | 该属性无任何消费者，属投机规格 → **从 §5.1 删除**，而不是为实现补死代码 |
+| W1 | `coverFileList[].url` 写的是本地绝对路径，看着像 URL 却永远渲染不出来；本 PRD §1 把它列为根因却未收敛 | **成立** | 三处赋值删除 `url` 字段（`el-upload` text 形态只用 `name`，全仓无其他消费者），并在保留的那一处写明「不写 url」的原因 |
+| I1 | 裁剪弹窗与发布页各持一个 `useCoverPreview` 实例，同一 `cover_path` 会各发一次 IPC、各存一份 dataURL | **不采纳** | 评审建议的 prop/inject 注入会让 `CoverCropDialog` 失去独立可测性（其现有测试直接以 `imagePath` 挂载），换来的只是省一次实测 25 ms 的读盘。代价是弹窗打开期间多驻留一份 base64，属瞬时、有界。 |
+| I2 | 三段 `suspend/release` 样板可提取为 `useOverlaySuspension(owner)` | **不采纳** | `overlay-view-suspension.test.js` 的结构锁是**按函数名逐块取源码**断言的（该文件自带注释：不用跨函数懒惰匹配，否则锁会在实现被拆开时假绿）。提取成工厂后，锁失去读者，只剩「某个 composable 里大概有这段」。三处显式是刻意的。 |
+| W2 | `closeCoverPreview` 的 `finally` 里 `await` 可能向 `watch` 回调抛未处理拒绝 | **不成立**（评审自身已在复查后降级为 Info） | 复核 `releaseEmbeddedViewsForOverlay`：其内部 `try/catch` + `console.warn` 确实吞掉了 `invokePageManager` 的 reject，不会冒泡。不再加第二层 `try/catch` —— 那是对着已被兜住的路径建防御。 |
+
+**方法论留痕**：I4 是本次最有价值的一条 —— 它不是代码缺陷，而是**我自己写的规格里有一项从未落地**。若按「实现优先」顺手补个 `data-cover-src`，就是给一个无消费者的属性写死代码；正确动作是删规格。判据：**该字段有没有真实读者**，而不是「规格写了就得实现」。

@@ -832,7 +832,9 @@ function onCoverCropSuccess (data) {
   if (data?.path) {
     article.cover_path = data.path
     article.cover_file = { path: data.path, name: 'video-cover-crop.jpg' }
-    coverFileList.value = [{ name: 'video-cover-crop.jpg', url: data.path, path: data.path }]
+    // 不写 url：el-upload 的 text 形态只用 name，而一个看着像 URL 的本地绝对路径
+    // 是陷阱（渲染层 CSP 的 img-src 不含 file:，它永远渲染不出来）。
+    coverFileList.value = [{ name: 'video-cover-crop.jpg', path: data.path }]
     notifySuccess('publishPage.coverExtracted')
   }
 }
@@ -927,7 +929,7 @@ async function handleExtractVideoCover () {
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'video-cover.jpg' }
-      coverFileList.value = [{ name: 'video-cover.jpg', url: coverPath, path: coverPath }]
+      coverFileList.value = [{ name: 'video-cover.jpg', path: coverPath }]
       notifySuccess('publishPage.coverExtracted')
     } else {
       notifyWarning('publishPage.coverExtractFailed', {
@@ -988,7 +990,7 @@ async function handleGenerateAiCover () {
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'ai-cover.png' }
-      coverFileList.value = [{ name: 'ai-cover.png', url: coverPath, path: coverPath }]
+      coverFileList.value = [{ name: 'ai-cover.png', path: coverPath }]
       notifySuccess('publishPage.aiCoverGenerated')
       showAiCoverDialog.value = false
     } else {
