@@ -17,6 +17,28 @@
 - 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
 - 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
 - **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
+# [未发布] test(ci): 接线棘轮的扫描域从「两个写死目录」扩成全仓，并新增「嵌套 workflow 永不执行」判据（2026-09-28，unwired-domain-wide）
+
+### 变更
+- `scripts/check-unwired-tests.js`：删掉写死的 `SCAN_DIRS = ["scripts", ".github/scripts"]`，改为自仓库根遍历（不跟随链接、剪枝 `node_modules`/`dist`/`coverage` 等），再减去**两张必须带理由的显式排除表** —— `WORKSPACE_COVERED`（`apps/`、`packages/`、`ops-center/`，由 vitest 按 workspace 收集）与 `VENDORED_MIRROR`（`.quality-rhythm/`，上游技能制品的 vendored 副本）。两张表 + `KNOWN_NESTED_WORKFLOWS` 在测试侧一律 `deepEqual` 钉住，只能缩小。
+- 新增判据 `NESTED_WORKFLOW_NOT_EXECUTED` / `NESTED_WORKFLOW_ACK_STALE`：任何 `.../.github/workflows/*.yml` 落在子目录即红。GitHub 只调度仓库**顶层**的 `.github/workflows/`，嵌套那份是**永远不会被执行**的配置副本——它的危害不是"没跑测试"，而是**看起来像门禁**。
+- 遍历遇到读不动的目录一律抛错（`无法枚举目录 …（遍历不完整时本门禁拒绝判定）`），不允许静默 `continue`：不完整的遍历判绿与 R3 链接扫描 Depth-3 漏检是同一颗雷。
+- 测试 8 → 12 条：新增"嵌套未承认必须红""承认后放行且文件消失即过时""排除表只挡测试域、不把同级 `scripts/` 一起吞掉""遍历不完整必须抛错"，并把两张排除表与承认清单钉进真实仓库断言。
+
+### 根因（这条是 #2493 那条 MUST 的第二个落点）
+#2493 把"测试没接 CI"变成棘轮时，域是按**目录白名单**定的，于是域的边界本身成了盲区：`.quality-rhythm/.github/scripts/tpl-contract.test.js` 在两个目录之外，棘轮从未看过它；而它旁边那份 `mechanism-check.yml` 里明写着 `node --test .github/scripts/tpl-contract.test.js`，任何人读到都会认为这条锁在跑。实测：GitHub 不调度嵌套 workflow，所以这条锁从 vendoring 那天起就是零执行。
+
+### 门禁与反证
+- 本机：`node scripts/check-unwired-tests.js` → `检查域内测试文件 42 个 / OK`（扩域后规模未变，说明本仓此前确实只有那 42 个域内测试，副本内那 1 个被显式分类）；`node --test scripts/check-unwired-tests.test.js` → 12 passed / 0 failed；`check-step-failfast.js` 不受影响（未新增 workflow 步骤，两文件已在 Gate 2c 点名）。
+- 五格变异全部实测变红，每格改完以 sha256 逐字还原：
+  - **CP-1 新旧对照**（最直接的证据）：在 `tools/` 放一个未接线的 `*.test.js`，同一仓库同一探针下**旧口径 rc=0 完全看不见**、**新口径 rc=1 报出"未接线 tools/cp1-blind-spot.test.js"**。
+  - CP-2 摘掉 `VENDORED_MIRROR` → rc=1，报出副本内那份 tpl-contract 未接线（证明排除是在"分类"而非"漏看"）。
+  - CP-3 清空 `KNOWN_NESTED_WORKFLOWS` → rc=1，报"嵌套 workflow 永不执行 .quality-rhythm/.github/workflows/mechanism-check.yml"。
+  - CP-4 从 `WORKSPACE_COVERED` 摘掉 `apps/` → 域规模 42 → **738**、报出 688 条未接线，且钉住排除表的单测 **2 条红**。
+  - CP-5 把遍历的 `throw` 换成 `continue` → 新增那条"遍历不完整必须抛错"的单测红（1 条）。
+- QM-1 / QM-4：N/A（diff 仅 `scripts/` 两个 JS + AGENTS/CHANGELOG/.quality-gates）。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记）。
+
 # [未发布] test(e2e): 瞬时噪音卫生补上「逐路由收口」这条路径，并修掉 CI 里的 ✗ undefined
 
 ### 变更
