@@ -5141,7 +5141,7 @@ Task Queue → 各平台发布器 → 发布完成
 - 新增 locale 键 `tabBar.loadingBadge`（zh `页面加载中` / en `Page loading`，成对提交过 Gate 7），用作标签徽标的 `title` 悬停提示与 `aria-label`（原实现为 `aria-hidden="true"`，加载态对辅助技术完全不可见）
 - 图标几何的第三方许可声明落 `apps/desktop/THIRD-PARTY-NOTICES.md`「Lucide 图标」章节（ISC + 其中 arrow-left/arrow-right 另受 Feather MIT 约束）
 
-**完整口径**（状态机图、逃逸链、六条反证变异实测、验收标准 AC-1..AC-9、已知残留 R-1..R-5）见 `01-docs/PRD-BROWSER-NAV-ICONS-LOADING-2026-09-29.md`。
+**完整口径**（状态机图、逃逸链、六条反证变异实测、验收标准 AC-1..AC-9、已知残留 R-1..R-8）见 `01-docs/PRD-BROWSER-NAV-ICONS-LOADING-2026-09-29.md`。
 
 ### 18.3 设计与代码分层
 
