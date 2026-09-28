@@ -189,7 +189,7 @@
     "publish": {
       "provider": "github",
       "owner": "Colinchiu007",
-      "repo": "Multi-Publish"
+      "repo": "mulpub"
     }
   }
 }
