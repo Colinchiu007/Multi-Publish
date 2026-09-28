@@ -32,6 +32,9 @@ const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+// 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：与 AuthViewManager 同根因，
+// 固定内容宽的扫码页在非全屏视图中横向溢出被裁，按需缩小 zoomFactor（见 login-view-fit.js）
+const loginViewFit = require('./login-view-fit')
 // 独立窗口已不再需要（改为内嵌主窗口）
 
 // 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
@@ -183,6 +186,18 @@ class QrCodeLogin {
         // 初始重定向链结束，此后导航才可能是用户登录成功的信号
         loginSession.initialRedirectPhase = false
         log.info('QrCodeLogin', `Page loaded for ${platform}, starting QR detection`)
+        // 宽度自适应（2026-09-28 非全屏登录页显示不全）：立即适配一次，
+        // 再安排 500ms 延迟复测 —— 字体/插画晚到可能改变页面实际宽度。
+        loginViewFit.fitLoginViewZoomSafe(view, { tag: 'QrCodeLogin' })
+        if (loginSession.fitRetimer) clearTimeout(loginSession.fitRetimer)
+        loginSession.fitRetimer = setTimeout(() => {
+          loginSession.fitRetimer = null
+          // 会话可能已关闭；只对仍活跃的会话视图复测
+          if (this._isSessionActive(loginSession) && loginSession.view === view) {
+            loginViewFit.fitLoginViewZoomSafe(view, { tag: 'QrCodeLogin' })
+          }
+        }, 500)
+        if (loginSession.fitRetimer && loginSession.fitRetimer.unref) loginSession.fitRetimer.unref()
         // 快手 passport 默认可能落在密码登录或已失效二维码页；先把页面切到
         // 可扫码状态，再由轮询负责捕获新的二维码图像。
         this._startQrPagePreparation(loginSession)
@@ -590,10 +605,14 @@ class QrCodeLogin {
    * 登录视图布局（TabBar+NavBar 下方），与浏览器标签定位一致。
    * 尺寸来源必须是窗口客户区（getContentBounds），不能用 getBounds() 外框尺寸，
    * 否则视图右侧滚动条与底部内容会被窗口边框裁掉（见 view-bounds.js）。
+   * 每次重定位后做一次宽度自适应：固定内容宽的扫码页在窄视图（非全屏窗口）
+   * 中会横向溢出被裁，zoom-to-fit 按需缩小到整页可见（见 login-view-fit.js）。
    */
   _positionView () {
     if (!this.currentView || !this.mainWindow) return
     this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth))
+    // 宽度自适应（旁路：失败只告警，不得影响扫码登录链路；页面未加载时探针为 no-op）
+    loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'QrCodeLogin' })
   }
 
   /**
@@ -613,6 +632,10 @@ class QrCodeLogin {
     if (loginSession.extractTimer) {
       clearTimeout(loginSession.extractTimer)
       loginSession.extractTimer = null
+    }
+    if (loginSession.fitRetimer) {
+      clearTimeout(loginSession.fitRetimer)
+      loginSession.fitRetimer = null
     }
 
     if (loginSession.view) {

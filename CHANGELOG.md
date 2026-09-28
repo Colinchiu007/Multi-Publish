@@ -1,3 +1,24 @@
+# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
+
+### 现象与根因
+- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
+- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
+- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
+
+### 变更
+- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
+  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
+  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
+  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
+- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
+- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
+- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
+
+### 测试与取证
+- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
+- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
+- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
+- QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
 # [未发布] ci(electron-ci): 串行单测预算从魔数改为挂实测，并让超时能自证
 
 ### 变更
