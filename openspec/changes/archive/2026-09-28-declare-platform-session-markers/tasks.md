@@ -37,7 +37,7 @@
 - [x] 4.1 AGENTS.md「平台登录成功判定合同」补：标记取证三条件、基线自证、知乎 Cookie 不适用、泛化必须带负控
 - [x] 4.2 CHANGELOG / learnings 置顶条目
 - [x] 4.3 QM-6 双模型外部评审记录
-- [ ] 4.4 PR + CI 绿 + 合并后核对 main
+- [x] 4.4 PR #2527 已合并（main 8de0da5e，17 pass / 0 fail）；合并后复验：9 个验证文件 blob 与分支逐字节一致、针对性测试 180 例重跑全绿、check-max-lines 与 check-unwired-tests rc=0、main 上棘轮清单为 4 项
 
 ## 5. 遗留（不在本 change 内完成）
 

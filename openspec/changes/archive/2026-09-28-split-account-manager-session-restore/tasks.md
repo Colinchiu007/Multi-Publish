@@ -28,13 +28,13 @@
 - [x] T3.3 desktop 全量回归；已知既有 flake（`feedback.test.js` EPERM symlink）须单独定责，不得认领也不得放行
 - [x] T3.4 `node .github/scripts/check-max-lines.js` rc=0；记录 `account-manager.js` 行数变化与剩余余量；**不得**改基线数字掩盖
 - [x] T3.5 结构合同锁生效：新模块 require 列表不含 `./account-manager`；`account-manager.js` 内不再出现这 6 个函数定义
-- [ ] T3.6 QM-1 本地打包（先 `build:vue` 产出 `dist/`，再 `--win --dir --publish never --config.electronDist=...`），asar 内含新模块文件，`asar extract` 后 require 入口链通过
-- [ ] T3.7 QM-6 双模型外部评审（本仓 opencode 侧已知不可用，须如实登记降级而非谎称双模型通过）
-- [ ] T3.8 视觉回归：本 change 无 UI 文件改动，须显式记 N/A 及判据（`git diff --name-only` 无 `.vue/.css`）
+- [x] T3.6 QM-1 本地打包 —— 证据：`.quality-gates.md` 本单记录行「QM-1 打包 | PASS」（先 build:vue 再 --dir --config.electronDist）
+- [x] T3.7 QM-6 —— 证据：同记录行「QM-6 双模型外部评审 | 部分完成（如实登记）」：claude 0 Critical/1 Warning/8 Info 并采纳 2 条；opencode 因 wrapper external_directory 不可用，登记为降级而非谎称双模型通过
+- [x] T3.8 QM-4 视觉 —— 证据：同记录行「QM-4 视觉回归 | N/A（已给判据）」：diff 全为 Node 侧 .js 与 markdown，无 .vue/.css
 
 ## 4. 收口
 
-- [ ] T4.1 `.quality-gates.md` 执行记录 + `CHANGELOG.md` + `01-docs/learnings.md`（若过程产生新教训）
-- [ ] T4.2 PR + CI 全绿后合入；合入后 main 上做一次行为断言复验
-- [ ] T4.3 `openspec archive split-account-manager-session-restore`（并处理与主 spec 的同步，注意归档目录 validate 恒报 No deltas 的已知现象）
+- [x] T4.1 文档回写 —— 证据：main 上 CHANGELOG 第 7 条「refactor(accounts): 会话凭证恢复侧从 account-manager.js 拆出」、learnings「纯平移重构的两个沉默失败面」、.quality-gates 本单记录均在位
+- [x] T4.2 PR #2514 已合入 main（e2223ef8）。本单在 main 内容上重跑复验：「account-manager.js」1168 行、新模块「account-session-restore.js」132 行、特征测试 + 登录态回写测试共 31 例全绿（2 files passed）；并确认 account-manager 内保留的同名符号是 2 行委托 「sessionRestore.getAccountPartitionCookies(...)」（不含 fromPartition，故非重复实现）。
+- [x] T4.3 已随本 PR 归档为 archive/2026-09-28-split-account-manager-session-restore，并把 2 条 ADDED Requirement 逐字并入 openspec/specs/desktop/spec.md（7 → 13 条，原字节逐字为前缀，raw 与 --ignore-cr-at-eol 同为纯插入）
 - [ ] T4.4 登记第二步：资料刷新簇（`extractAccountInfo` 等，需同步改 `http-login-checker.js` 与 `account-manager-extract-info.test.js` 两处消费方）
