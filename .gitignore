@@ -125,6 +125,7 @@ scripts/*.js
 !scripts/sync-platform-config.test.js
 !scripts/check-unwired-tests.js
 !scripts/check-step-failfast.js
+!scripts/check-gate-record-debt.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.
