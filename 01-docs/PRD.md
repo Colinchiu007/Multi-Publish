@@ -17646,3 +17646,18 @@ is_default: 1
 | 路径解析失败 | 清空 `video_path` + 警告 toast（`story2video.media_path_unresolved`，既有行为不变） |
 
 video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回归锁：`Publish.test.js` 5 例（成功反馈 / 删除同步 / 重选替换 / 无 ref 与空文件 fail-safe / 既有路径解析）。审查口径：**任何 el-upload `limit=1` 必配 on-change + on-exceed + on-remove 三件套**。
+
+## 快手发布提交钮选择器合同——活体正向证据落地（kuaishou-w3-live-fix D2，2026-09-28）
+
+**六年悬案闭环**：快手发布链「点击发布后 responses=0」的根因，经 2026-09-28 活体发布流全程捕获（用户过滑块登录 + 真实上传 01.mp4 + 填表 + 发布，38 张 CDP DOM 快照）实证为 **(A) 选择器漏配**：上传完成后的编辑页真提交钮是裸 `<span>立即发布</span>`（无 class/id/data 属性），7 个既有候选中只有 `span:has-text("发布")` 能命中且三重歧义（顶导航「发布作品」/真钮「立即发布」/「定时发布」都含「发布」），解析器点错对象 → 点击空转 → 零发布 API 请求。(B) 上传守卫问题被同轮日志排除（守卫正常：上传完成→填表→才发布）。
+
+**选择器合同（本 PR 起）**：
+
+| 候选位 | 选择器 | 依据 |
+|---|---|---|
+| 首位 | `span:has-text("立即发布")` | 活体实证真钮精确文案，唯一命中、零歧义 |
+| 兜底 2-8 | 旧 7 候选原样保留 | 页面改版回退路径（`button:has-text("发布")` 等） |
+
+**回归锁**：`platform-selectors.test.js`（首位断言 + 旧候选兜底断言）+ `rpa-selector-utils.test.js` 活体 fixture 4 例（精确命中 / 旧候选歧义演示 / 登录页负例 / 空表单负例）。证据入档：`01-docs/rpa-api-publish/evidence/api-w3-kuaishou/d2-live-verdict-20260928.md` + `d2-live-evidence-20260928-snapshot005.json`。
+
+**残余**：活体发布验收（3.5 / api-publish-engine-w3 6.3）待本修复合并后重跑一次真实发布；API 轨 `taskData.video.path required` 为另一独立缺陷，另行登记。

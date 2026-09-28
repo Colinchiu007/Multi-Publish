@@ -1,0 +1,139 @@
+{
+  "idx": 5,
+  "url": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+  "title": "快手创作者服务平台",
+  "capturedAt": "2026-09-28T06:18:46.543Z",
+  "htmlLen": 786584,
+  "textLen": 1098,
+  "textHead": "快手创作者服务平台 请开启浏览器的 JavaScript 功能，否则页面无法正常工作 账号正常 0 数据下载中，请在下载中心查看进度 近7天的下载记录 命运石 3 粉丝 8 关注 0 获赞 账号认证 退出登录 命运石 发布作品 首页 内容管理 作品管理 合集管理 创建合集 互动管理 评论管理 数据中心 数据概览 作品分析 直播数据 粉丝分析 成长中心 创作服务 创作灵感 我的灵感 活动中心 热点榜单 创作学院 其他服务 音乐人 作品推广 推广资源管理 创建直播 快手创作者服务平台-micro 发布视频 作品描述 智能文案 智能话题 好友 推荐: #一个片段让我看了全部 #一个片段看完了整部电影 #一个片段看完整个电影 #我的时代你的时代 全部 活动推荐 精选 凛冬下的罪恶二创大赛 去领取 领取后才可添加 精选 最后孤屋二创大赛 去领取 领取后才可添加 全部 封面设置 封面设置 智能推荐封面 PK封面 作者服务 选择服务类型 关联成功可获得更多收益 作者声明 为作品添加补充说明 添加地点 请选择所在地区 请输入视频详细地址，让同城老铁看见你 发布设置 互动设置 允许别人跟我拍同框 允许下",
+  "hasAccountName": true,
+  "buttonsCount": 10,
+  "pubBtns": [
+    {
+      "tag": "span",
+      "class": "",
+      "text": "发布作品",
+      "outerHead": "<span data-v-08ce92df=\"\">发布作品</span>"
+    },
+    {
+      "tag": "span",
+      "class": "",
+      "text": "立即发布",
+      "outerHead": "<span>立即发布</span>"
+    },
+    {
+      "tag": "span",
+      "class": "",
+      "text": "定时发布",
+      "outerHead": "<span>定时发布<img data-cdn-hooked=\"true\" src=\"data:image/svg+xml,%3csvg%20width='14'%20height='14'%20viewBox='0%200%2014%2014'%20fill='none'%20xmlns='http://www.w3.org/2000/svg'%3e%3cg%20clip-path='url(%23clip0_2343_81350)'%3e%3cmask%20id='mask0_2343_81350'%20style='mask-type:alpha'%20maskUnits='userSpaceOnUse'%20x='0'%20y='0'%20width='14'%20height='14'%3e%3cpath%20d='M0%200H14V14H0V0Z'%20fill='white"
+    }
+  ],
+  "buttons": [
+    {
+      "tag": "a",
+      "class": "header-logo-wrapper router-link-active",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<a data-v-36ab8784=\"\" href=\"/\" class=\"header-logo-wrapper router-link-active\"><div data-v-36ab8784=\"\" class=\"header-logo\"><img data-cdn-hooked=\"true\" data-v-36ab8784=\"\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAagAAAA0CAMAAADov1x+AAADAFBMVEVMaXFWVlZWVlZXV1dVVVVaWlpVVVVVVVVWVlZVVVVVVVVVVVVWVlZVVVVXV1dWVlZaWlpYWFhWVlZWVlaAgID///9WVlZXV1dWVlZVVVVWVlZVVVVVVVVVVVX/SQZWVlZWVlZVVVVVVVVgYGBWVlZY"
+    },
+    {
+      "tag": "button",
+      "class": "el-dialog__headerbtn",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<button type=\"button\" aria-label=\"Close\" class=\"el-dialog__headerbtn\"><i class=\"el-dialog__close el-icon el-icon-close\"></i></button>"
+    },
+    {
+      "tag": "button",
+      "class": "ant-switch ant-switch-small",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<button type=\"button\" role=\"switch\" aria-checked=\"false\" class=\"ant-switch ant-switch-small\"><div class=\"ant-switch-handle\"></div><span class=\"ant-switch-inner\"></span></button>"
+    },
+    {
+      "tag": "a",
+      "class": "",
+      "id": "",
+      "text": "京ICP备15023266号-136",
+      "disabled": false,
+      "outerHead": "<a data-v-45f2d53c=\"\" target=\"_blank\" rel=\"nofollow\" href=\"https://beian.miit.gov.cn/#/Integrated/index\" style=\"color: rgb(144, 144, 144);\"> 京ICP备15023266号-136 </a>"
+    },
+    {
+      "tag": "a",
+      "class": "license",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<a data-v-45f2d53c=\"\" target=\"_blank\" rel=\"nofollow\" href=\"http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010802038443\"><span data-v-45f2d53c=\"\" class=\"license\"></span></a>"
+    },
+    {
+      "tag": "a",
+      "class": "police-link",
+      "id": "",
+      "text": "京公网安备11010802038443号",
+      "disabled": false,
+      "outerHead": "<a data-v-45f2d53c=\"\" target=\"_blank\" rel=\"nofollow\" href=\"http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010802038443\" class=\"police-link\"><span data-v-45f2d53c=\"\" class=\"police\"></span> 京公网安备11010802038443号 </a>"
+    },
+    {
+      "tag": "button",
+      "class": "el-dialog__headerbtn",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<button type=\"button\" aria-label=\"Close\" class=\"el-dialog__headerbtn\"><i class=\"el-dialog__close el-icon el-icon-close\"></i></button>"
+    },
+    {
+      "tag": "button",
+      "class": "el-button confirm__btn el-button--primary el-button--medium is-disabled",
+      "id": "",
+      "text": "确定",
+      "disabled": true,
+      "outerHead": "<button disabled=\"disabled\" type=\"button\" class=\"el-button confirm__btn el-button--primary el-button--medium is-disabled\"><!----><!----><span> 确定 </span></button>"
+    },
+    {
+      "tag": "div",
+      "class": "_close_d7f44_29",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<div class=\"_close_d7f44_29\" aria-label=\"Skip\" data-action=\"skip\" role=\"button\" title=\"Skip\"></div>"
+    },
+    {
+      "tag": "button",
+      "class": "react-joyride__beacon",
+      "id": "",
+      "text": "",
+      "disabled": false,
+      "outerHead": "<button class=\"react-joyride__beacon\" type=\"button\" aria-label=\"Open the dialog\" title=\"Open the dialog\" style=\"background-color: transparent; border: 0px; border-radius: 0px; color: rgb(85, 85, 85); cursor: pointer; font-size: 16px; line-height: 1; padding: 8px; appearance: none; display: inline-block; height: 36px; position: relative; width: 36px; z-index: 100;\"><span style=\"animation: 1.2s ease"
+    }
+  ],
+  "spanPublish": [
+    {
+      "tag": "span",
+      "class": "",
+      "text": "发布作品",
+      "outerHead": "<span data-v-08ce92df=\"\">发布作品</span>"
+    },
+    {
+      "tag": "span",
+      "class": "",
+      "text": "立即发布",
+      "outerHead": "<span>立即发布</span>"
+    },
+    {
+      "tag": "span",
+      "class": "",
+      "text": "定时发布",
+      "outerHead": "<span>定时发布<img data-cdn-hooked=\"true\" src=\"data:image/svg+xml,%3csvg%20width='14'%20height='14'%20viewBox='0%200%2014%2014'%20fill='none'%20xmlns='http://www.w3.org/2000/svg'%3e%3cg%20clip-path='url(%23clip0_2343_81350)'%3e%3cmask%20id='mask0_2343_81350'%20style='mask-type:alpha'%20maskUnits='userSpaceOnUse'%20x='0'%20y='0'%20width='14'%20height='14'%3e%3cpath%20d='M0%200H14V14H0V0Z'%20fill='white"
+    },
+    {
+      "tag": "span",
+      "class": "",
+      "text": "确定",
+      "outerHead": "<span> 确定 </span>"
+    }
+  ]
+}

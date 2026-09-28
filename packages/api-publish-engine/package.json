@@ -28,7 +28,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Colinchiu007/Multi-Publish.git",
+    "url": "git+https://github.com/Colinchiu007/mulpub.git",
     "directory": "packages/api-publish-engine"
   },
   "keywords": [
@@ -40,9 +40,9 @@
     "rpa"
   ],
   "bugs": {
-    "url": "https://github.com/Colinchiu007/Multi-Publish/issues"
+    "url": "https://github.com/Colinchiu007/mulpub/issues"
   },
-  "homepage": "https://github.com/Colinchiu007/Multi-Publish/tree/main/packages/api-publish-engine",
+  "homepage": "https://github.com/Colinchiu007/mulpub/tree/main/packages/api-publish-engine",
   "publishConfig": {
     "access": "public"
   },

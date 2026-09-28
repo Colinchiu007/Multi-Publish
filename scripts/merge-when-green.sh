@@ -17,7 +17,7 @@ POLL=30
 
 # repo slug（用于 REST 合并 API）
 REPO="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#.*github\.com[:/]([^/]+/[^/]+)\.git$#\1#')"
-[[ -z "$REPO" ]] && REPO="${GH_REPO:-Colinchiu007/Multi-Publish}"
+[[ -z "$REPO" ]] && REPO="${GH_REPO:-Colinchiu007/mulpub}"
 
 # 1) 状态检查（mergeable 可能为 UNKNOWN，重试等待计算完）
 STATE=$(gh pr view "$PR" --json state --jq '.state' 2>/dev/null)

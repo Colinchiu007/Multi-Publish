@@ -103,7 +103,7 @@ Write-Host "[OK] Found window: $($script:hwnd)" -ForegroundColor Green
 Start-Sleep -Milliseconds 500
 
 # Output directory
-$outDir = "D:\Data\projects\Multi-Publish\01-docs\ui-reference\screenshots\full-app"
+$outDir = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\full-app"
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
 
 # Screenshot current state first

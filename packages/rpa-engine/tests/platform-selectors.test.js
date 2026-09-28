@@ -111,6 +111,19 @@ describe('PLATFORM_PUBLISH_SELECTORS', () => {
     }
   )
 
+  // —— kuaishou publish_btn 活体实证候选（2026-09-28 D2 正向证据） ——
+  // 活体捕获（上传完成后的编辑页，rpa-captures/snapshot-005）：真提交钮是裸
+  // <span>立即发布</span>（无 class/id/data 属性）；同页顶导航 <span>发布作品</span> 与
+  // <span>定时发布</span> 都含「发布」——旧候选 span:has-text("发布") 三重歧义，
+  // 解析器点错对象 → responses=0（两轮活体发布失败签名一致）。
+  test('kuaishou publish_btn 首位为活体实证的精确提交钮 span:has-text("立即发布")', () => {
+    const sel = PLATFORM_PUBLISH_SELECTORS.kuaishou
+    expect(sel.publish_btn[0]).toBe('span:has-text("立即发布")')
+    // 旧候选保留在列表内兜底（页面改版回退路径）
+    expect(sel.publish_btn).toContain('span:has-text("发布")')
+    expect(sel.publish_btn).toContain('button:has-text("发布")')
+  })
+
   // —— 视频平台上传按钮字段（各平台命名不同） ——
   const VIDEO_UPLOAD_FIELDS = {
     douyin:        ['upload_btn', 'file_input'],
