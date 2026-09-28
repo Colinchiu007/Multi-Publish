@@ -701,38 +701,47 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
   })
 
   it('结构锁：requests 窗口的计数只发生在准入这一处', () => {
-    // 行为用例能抓到「准入 +1 之外又记账 +1」（'失败的调用归还额度' 会红），
+    // 行为用例能抓到「准入 +1 之外又记账 +1」（失败的调用归还额度 会红），
     // 但「事后断言重新对 requests 生效」在当前实现里是行为 no-op，只能靠读源码守住。
     // 这不是用记录性断言代替跑流程——流程已由本 describe 的用例真跑覆盖，这里只钉结构。
-    // 锚点一律取**方法定义串**（带 ' {'）：'_reserveTokenBudget(key, st)' 这种写法会先命中
-    // _runWithGovernance 里的调用点，切片就会反向。
+    // 拆分后逻辑分布在两个文件：锚点必须逐文件取，跨文件 indexOf 会命中到不相干的定义。
     const fs = require('node:fs')
-    const src = fs.readFileSync(require.resolve('./api-usage-governor.js'), 'utf8')
-    const cut = (from, to) => {
-      const i = src.indexOf(from)
-      const j = src.indexOf(to)
-      expect(i, '找不到定义 ' + from).toBeGreaterThan(-1)
-      expect(j, '找不到定义 ' + to).toBeGreaterThan(i)
-      return src.slice(i, j)
+    const gov = fs.readFileSync(require.resolve('./api-usage-governor.js'), 'utf8')
+    const win = fs.readFileSync(require.resolve('./token-budget-windows.js'), 'utf8')
+    const cut = (src, from, to) => {
+      const a = src.indexOf(from)
+      const b = src.indexOf(to)
+      expect(a, '找不到定义 ' + from).toBeGreaterThan(-1)
+      expect(b, from + ' 之后找不到 ' + to).toBeGreaterThan(a)
+      return src.slice(a, b)
     }
-    const record = cut('_recordUsage(key, st, limits, result) {', '_reserveTokenBudget(key, st) {')
-    expect(record).toMatch(/if \(win\.field === 'requests'\) continue/)
-    const reserve = cut('_reserveTokenBudget(key, st) {', '_releaseTokenBudget(reservations) {')
-    expect(reserve).toMatch(/baseUsed >= win\.limit\) throw this\._quotaExceeded/)
-    expect(reserve).toMatch(/win\.used \+= 1/)
-    // 准入必须「先全部判定、再统一提交」：两阶段各有容器，且提交段位于所有 throw 之后。
-    // 逐窗口边检查边 +1 会让后一个窗口判满时，前一个窗口的预留永久泄漏
-    // （调用方的归还只覆盖 _executeWithRetry 失败，而那时凭据还没返回）。
+    const SPLIT_NOTE = '  // 额度窗口的准入与归还逻辑拆到 token-budget-windows.js'
+    // ① 记账侧不得再对 requests +1
+    expect(cut(gov, '_recordUsage(key, st, limits, result) {', SPLIT_NOTE))
+      .toMatch(/if \(win\.field === 'requests'\) continue/)
+    // ② 事后断言侧不得对 requests 生效
+    const budget = cut(gov, '_assertTokenBudget(key, st) {', 'async _executeWithRetry(key, st, limits, task) {')
+    expect(budget).toMatch(/if \(win\.field === 'requests'\) continue/)
+    // ③ 预留必须落在重试循环之外：重试体内出现预留 = 每次 attempt 重复占用额度。
+    //    切片必须覆盖 _executeWithRetry 的**函数体**——只截到函数头的话这条断言对
+    //    「把预留挪进重试循环」完全免疫（上一版就是这种自证断言）。
+    const retry = cut(gov, 'async _executeWithRetry(key, st, limits, task) {', 'module.exports')
+    expect(retry).not.toMatch(/_reserveTokenBudget|reserveRequestsBudget/)
+    // ④ governor 侧只准薄委托：准入逻辑的唯一实现点在拆分出的模块里
+    expect(cut(gov, '_reserveTokenBudget(key, st) {', '  _releaseTokenBudget(reservations) {'))
+      .toMatch(/return reserveRequestsBudget\(key, this\._usageWindows\(key, st\)\)/)
+    // ⑤ 模块侧：准入必须是「先全部判定、再统一提交」，否则后窗判满抛错时前窗预留永久泄漏
+    const reserve = cut(win, 'function reserveRequestsBudget (', 'function releaseRequestsBudget (')
     expect(reserve).toMatch(/const plans = \[\]/)
     expect(reserve).toMatch(/for \(const plan of plans\)/)
-    expect(reserve.indexOf('throw this._quotaExceeded')).toBeLessThan(reserve.indexOf('plan.win.used += 1'))
-    const budget = cut('_assertTokenBudget(key, st) {', 'async _executeWithRetry(key, st, limits, task) {')
-    expect(budget).toMatch(/if \(win\.field === 'requests'\) continue/)
-    // 重试体内不得出现预留：否则每次 attempt 重复占用额度。切片必须覆盖 _executeWithRetry 的
-    // **函数体**——只截到函数头的话，这条断言对「把预留挪进重试循环」完全免疫，是自证断言。
-    const retry = cut('async _executeWithRetry(key, st, limits, task) {', 'module.exports')
-    expect(retry).not.toMatch(/_reserveTokenBudget/)
-    const governance = cut('const reservations = this._reserveTokenBudget(key, st)', 'st.active -= 1')
+    expect(reserve).toMatch(/baseUsed >= win\.limit\) throw quotaExceededError/)
+    expect(reserve).toMatch(/win\.used \+= 1/)
+    expect(reserve.indexOf('throw quotaExceededError')).toBeLessThan(reserve.indexOf('plan.win.used += 1'))
+    // ⑥ 模块侧：归还按窗口代次生效
+    const release = cut(win, 'function releaseRequestsBudget (', 'module.exports')
+    expect(release).toMatch(/if \(r\.win\.startedAt !== r\.startedAt\) continue/)
+    // ⑦ 治理链：预留之后必须紧跟「整次失败才归还」的 catch
+    const governance = cut(gov, 'const reservations = this._reserveTokenBudget(key, st)', 'st.active -= 1')
     expect(governance).toMatch(/catch \(err\)/)
     expect(governance).toMatch(/this\._releaseTokenBudget\(reservations\)/)
   })

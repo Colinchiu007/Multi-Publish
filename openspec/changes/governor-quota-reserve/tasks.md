@@ -47,3 +47,12 @@
 - [ ] 6.1 行尾与 numstat 两口径对账后提交、推分支、开 PR
 - [ ] 6.2 CI 全绿后确认 auto-merge；置顶文档冲突按纯 union 解并用「两条父提交各跑全文非空行多重集包含」放行
 - [ ] 6.3 合并后回读 `mergedAt`/`mergeCommit` 与 main 上的实际内容，再销账
+
+## 7. 门禁驱动的新增工作（CI 首轮红之后补记，非原计划）
+
+- [x] 7.1 取 CI job 日志定位真因：聚合债务指标在 CI 也 PASS，红在同一步后续的 `check-max-lines.js`（`NEW_OVER_LIMIT: api-usage-governor.js 508 行`）。本机只跑了 `check-debt-budget.js` 就宣布"债务 PASS"是漏检——同一 step 串多条命令时必须逐条自跑
+- [x] 7.2 按门禁指示拆分：`token-budget-windows.js`（准入/归还/超额错误），governor 留薄委托；承载原因的注释随代码搬走
+- [x] 7.3 结构锁跨两文件重布线（7 个锚点），并新增「governor 侧只准薄委托」断言
+- [x] 7.4 拆分后重跑反证 F（把**模块**里的准入退回单遍）：恰好红 2 条，还原 md5 一致
+- [x] 7.5 行数与债务双门禁转绿（462 < 500；超限文件 98 = 挂账 98）
+- [x] 7.6 QM-1 重打包：必须验证**新文件进了 asar**（`files` glob 覆盖正是这条门禁的存在理由），并复跑 require 链与 8s 启动

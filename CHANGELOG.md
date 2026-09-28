@@ -23,6 +23,9 @@
 且 `executedButRejected`（已执行却被事后拒）在 12 格矩阵里全部为 0。
 
 ### 变更
+- 准入/归还逻辑按行数门禁拆出为 `apps/desktop/electron/services/token-budget-windows.js`（governor 主文件因这套逻辑越过
+  500 行；`check-max-lines` 要求「新代码不得引入超大文件」）。承载原因的注释随代码一起搬走，
+  结构锁改为跨两文件取锚点（7 个锚点），并对「governor 侧只准薄委托」本身加了断言。
 - `apps/desktop/electron/services/api-usage-governor.js`：`field: 'requests'` 的窗口改为**原子检查并预留**
   （准入通过即 `used += 1`），预留点在并发槽内、重试循环之前，故一次调用只占一次；整次调用最终失败
   才归还（attempt 级归还会让 429 退避期间额度被插走）；归还按**窗口代次**（`startedAt`）生效，
