@@ -1,10 +1,10 @@
 # ops-center/monorepo-integration Specification
 
 ## Purpose
-ops-center 正式并入 Multi-Publish monorepo 后的开发与交付契约。
+ops-center 正式并入 Multi-Publish monorepo 后的开发与交付契约：backend 以 pytest 为门禁、frontend 以 npm run build 为门禁，两者独立可验证，内容与冻结源仓库保持一致。
 ## Requirements
 ### Requirement: 子项目开发与验证契约
-ops-center 在 Multi-Publish 内必须保持独立可验证：backend pytest 门禁（cd ops-center/backend && pytest）、frontend build（npm run build）、内容与冻结源仓库一致。
+ops-center 在 Multi-Publish 内 SHALL 保持独立可验证：backend pytest 门禁（cd ops-center/backend && pytest）、frontend build（npm run build）、内容与冻结源仓库一致。
 
 #### Scenario: 后端门禁
 - **WHEN** 修改 ops-center/backend 代码

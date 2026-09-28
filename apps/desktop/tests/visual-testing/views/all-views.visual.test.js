@@ -20,7 +20,7 @@ const viewTests = [
   routeView('prompt-eval', '/prompt-eval', '.prompt-eval-page h1:has-text("提示词优化效果评估")'),
   routeView('home-default', '/', '.mp-home .mp-home-welcome'),
   routeView('comments-list', '/comments', '.cohere-main .page-title:has-text("评论管理")'),
-  routeView('first-run', '/first-run', '.cohere-main h2:has-text("欢迎使用社媒管家")'),
+  routeView('first-run', '/first-run', '.fullscreen-main h2:has-text("欢迎使用社媒管家")'),
   routeView(
     'publish-form',
     '/publish',
@@ -44,6 +44,16 @@ const viewTests = [
     ],
   ),
   routeView('accounts-list', '/accounts', '.mp-workspace .accounts-page'),
+  // 账号云镜像入口的**开启态**（ADR-0006 默认关闭 + CI 无运营中心 ⇒ 上一行的绿只证明"未开启态无回归"）。
+  // waitFor 直接指向按钮本身：渲染不出来就是这条用例失败，而不是"截了一张没有按钮的图当基线"。
+  // 基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条），故首次运行必然报 ERR_VISUAL_BASELINE_MISSING，
+  // 由那次 run 的 quality-gate-visual-reports 产物回填 —— 不得用本机截图代替。
+  routeView(
+    'accounts-list-flag-on',
+    '/accounts?mpFlag=account_cloud_sync=1',
+    '.mp-workspace .accounts-page [data-testid="account-cloud-sync"]',
+    '同步云端入口已渲染',
+  ),
   routeView('dashboard', '/dashboard', '.cohere-main .page-title:has-text("数据看板")'),
   routeView('collection', '/collection', '.cohere-main .collection-tab-btn.active'),
   routeView('copy-library', '/copy-library', '.copy-library-page [data-testid="copy-library-title"]'),

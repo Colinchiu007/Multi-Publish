@@ -58,7 +58,6 @@ describe('视觉工作流执行器', () => {
     const searchSteps = byName['accounts-search-clear'].steps
     const activeSteps = byName['accounts-active-filter-reset'].steps
     const addSteps = byName['accounts-add-dialog-cancel'].steps
-    const groupSteps = byName['accounts-group-dialog-close'].steps
 
     expect(searchSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ action: 'fill', selector: 'input[aria-label="搜索账号或平台"]' }),
@@ -69,14 +68,18 @@ describe('视觉工作流执行器', () => {
       expect.objectContaining({ action: 'waitFor', selector: '.filter-tabs button[role="tab"]:nth-child(2).active' }),
     ]))
     expect(addSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ action: 'click', selector: '.page-actions button:has-text("添加账号")' }),
+      expect.objectContaining({ action: 'click', selector: '[data-testid="account-add"]' }),
     ]))
-    expect(groupSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ action: 'click', selector: '.page-actions button:has-text("分组管理")' }),
-    ]))
+    // 曾断言 `click .page-actions button:has-text("分组管理")` —— 那是**把不存在的选择器钉成契约**：
+    // Accounts.vue:3 的页头是 `<h1 class="sr-only">`，该页模板里没有 .page-actions / .page-title
+    // （只在 CSS:1236-1239 出现），所以这条契约只读注册表对象、从不跑浏览器，才会与真渲染同时"绿"。
+    // 分组管理已改由 shell 模块导航以 ?tab=groups 打开内联面板，视觉工作流无法合法基线化 ⇒ 用例删除。
+    expect(byName['accounts-group-dialog-close']).toBeUndefined()
 
     const selectors = accountWorkflows.flatMap(item => item.steps.map(step => step.selector || ''))
     expect(JSON.stringify(selectors)).not.toMatch(/filter-chips|cohere-filter-chip|search-clear|cohere-btn-primary|cohere-btn-ghost/)
+    // 正向锁：/accounts 的页头是 sr-only h1 ⇒ 任何账号工作流都不该再等 .page-title/.page-actions
+    expect(JSON.stringify(selectors)).not.toMatch(/\.page-title|\.page-actions/)
   })
 
   it('执行文件上传和日期输入动作', async () => {

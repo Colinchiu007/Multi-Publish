@@ -110,6 +110,8 @@ describe('AuthViewManager 凭证边界', () => {
   })
 
   it('用户确认完成登录时，缺会话标记必须报错而不是入库', async () => {
+    // 2026-09-27：收紧会话标记必须同时可诊断——被拒时要留下 Cookie 名现场。
+    const infoSpy = vi.spyOn(require('./logger'), 'info').mockImplementation(function () {})
     const manager = new AuthViewManager()
     manager.mainWindow = createMainWindow()
     manager.currentPlatform = 'kuaishou'
@@ -117,20 +119,28 @@ describe('AuthViewManager 凭证边界', () => {
     manager._resolveLogin = vi.fn()
 
     await expect(manager.completeLogin()).rejects.toThrow('未检测到登录凭证')
+    const missed = infoSpy.mock.calls.map(c => String(c[1]))
+      .find(l => l.includes('declared session-marker missed'))
+    expect(missed).toContain('kuaishou')
+    expect(missed).toContain('did')
+    // 值一律不得进日志（'anon' 是这里唯一那条 Cookie 的值）
+    expect(missed).not.toContain('anon')
     expect(manager._resolveLogin).not.toHaveBeenCalled()
   })
 
   it('未声明会话标记的平台完成登录时记下待取证证据（只记 Cookie 名，不记值）', async () => {
     // 取证纪律：这条日志是「哪个平台该补 PLATFORM_SESSION_COOKIE_MARKERS」的现场材料，
     // 值一律不得进日志；已声明标记的平台不得产出（否则会把「已在把关」误报成欠账）。
+    // 样本平台从 xiaohongshu 换成 zhihu：2026-09-27 小红书已声明标记，不再是「未声明」的代表；
+    // 知乎是实测确认 Cookie 侧无会话凭证、刻意保持未声明的那个。
     const infoSpy = vi.spyOn(require('./logger'), 'info').mockImplementation(function () {})
     const pendingManager = new AuthViewManager()
     pendingManager.mainWindow = createMainWindow()
     pendingManager.currentView = createView([
-      { name: 'web_session_probe', value: 'SECRET-VALUE-42', domain: '.xiaohongshu.com' },
+      { name: 'web_session_probe', value: 'SECRET-VALUE-42', domain: '.zhihu.com' },
     ])
-    pendingManager.currentPlatform = 'xiaohongshu'
-    pendingManager.currentAccountId = 'auth-xiaohongshu-1'
+    pendingManager.currentPlatform = 'zhihu'
+    pendingManager.currentAccountId = 'auth-zhihu-1'
     pendingManager._resolveLogin = vi.fn()
 
     await expect(pendingManager.completeLogin()).resolves.toBe(true)
@@ -138,7 +148,7 @@ describe('AuthViewManager 凭证边界', () => {
     const evidence = infoSpy.mock.calls
       .map(call => String(call[1]))
       .find(line => line.includes('pending session-marker evidence'))
-    expect(evidence).toContain('xiaohongshu')
+    expect(evidence).toContain('zhihu')
     expect(evidence).toContain('web_session_probe')
     expect(evidence).not.toContain('SECRET-VALUE-42')
 

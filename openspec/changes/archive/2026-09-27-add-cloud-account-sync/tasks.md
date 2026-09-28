@@ -56,6 +56,7 @@
 - [x] 6.3 结构锁：`preload.test.js` 方法清单、`overlay-view-suspension.test.js` owner、locale 成对（CI Gate 7）、sender guard 覆盖（CI Gate 17）、自旋让出（CI Gate 19）
 - [x] 6.4 `network-egress-guard` 合规：所有新测试只打 `os.tmpdir()` 自建回环服务，禁真实出站
 - [x] 6.5 QM-1 本地打包验证（改了 `apps/desktop/electron/`）：`build:vue` + `electron-builder --win --dir` 退出 0；asar 清单含 `electron/services/cloud-account-{sync,core,conflict,tombstone}.js`、`electron/ipc-handlers/cloud-account.js`、`electron/publishers/platform-uid.js` 与 `dist/index.html`；解包后 require 链六个模块全部加载成功且 `ipc-handlers/cloud-account.js` 与源码逐字节一致；打包产物启动 12 秒，stderr 仅 ICU fd 一行既有噪声，无 `Failed to load platform config` / `PluginLoader.*mkdir` / `ENOTDIR.*app.asar` / `Cannot find module` / updater 网络栈
+- [x] 6.6 视觉回归 **已收口（2026-09-27，cloud-flag-visual）**：新增开发态覆盖通道 `?mpFlag=account_cloud_sync=1`（仅 DEV 生效、只认明确布尔、命中即不查运营中心）与视图用例 `accounts-list-flag-on`（waitFor 指向按钮本身），基线按 QM-4 第 7 条从 CI 产物回填。以下为原登记内容（保留，不删）：
 - [ ] 6.6 视觉回归**部分证据已具备、结论未达成**：CI `QG Visual` 在 PR #2461 为绿，且 `apps/desktop/tests/visual-testing/views/all-views.visual.test.js:46` 确有 `accounts-list` 用例与 `base-screenshots/accounts-list.png` 基线。但入口 flag `account_cloud_sync` 默认关闭且「缺失/不可达一律关闭」（`Accounts.vue:62`、ADR-0006），CI 环境无运营中心 ⇒ 按钮根本不渲染，**该绿只证明「未开启态无回归」，不构成新按钮的视觉还原证据**。仍缺：flag 开启态基线（AGENTS.md QM-4 第 7 条要求基线取自 CI 产物）+ 一次开启态重跑。
 - [x] 6.7 QM-6 CCG 双模型外部评审已执行（claude 后端视角 + opencode 前端视角并行；dsh 因缺 DEEPSEEK_API_KEY 不可用），2 个 Critical 全修、数据校验/安全类 Warning 全修，逐条处置见 §9
 - [x] 6.8 `.quality-gates.md` 自检清单与评审记录已落盘：一节「2026-09-27 账号云镜像同步【同步云端】（PR #2461 / openspec change `add-cloud-account-sync`）」，含 QM-1 打包与 12 秒启动 stderr 采集、QM-6 双模型逐条处置、真库 7/7、各门禁清单与未执行项登记
@@ -73,7 +74,7 @@
 
 - [ ] 3.6 八平台真凭据线级取证（保留未勾选）：小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否严格等于平台原生主键 —— 仓库内无实测证据；未命中即走 `uid-unavailable` 跳过上行。
 - [x] 6.5 QM-1 已执行（见上；证据为本次干净工作树下的 `--dir` 产物与 12 秒启动 stderr 采集）。
-- [ ] 6.6 视觉回归：`accounts-list` 基线在 flag **开启态**下仍需重新采集（基线只能取自 CI 产物，AGENTS.md QM-4 第 7 条）。CI `QG Visual` 已绿，但 flag 默认关、按钮不渲染，该绿不是新按钮的证据——详见 §6 同条目的取证说明。
+- [x] 6.6 视觉回归：`accounts-list` 基线在 flag **开启态**下已重新采集并达成 0 px（run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`） 产物 `reports/report-*.json` 给出 `misMatchPercentage: 0`；基线取自 CI 产物，符合 AGENTS.md QM-4 第 7 条）。原登记文字保留：`accounts-list` 基线在 flag 开启态下曾需重新采集，CI `QG Visual` 的旧绿不是新按钮的证据。
 - [x] 6.7 QM-6 已执行：两个独立外部模型各出一份结论，处置见 §9；「双模型并行」这一轮真实满足，未以自审冒充。
 - [x] 6.8 `.quality-gates.md` 自检清单与评审记录已落盘（见该文件 2026-09-27「账号云镜像同步【同步云端】」一节）。
 - [x] 7.3 运维文档已落地（生产 ECS 发布与 `production-smoke` 仍未执行，登记在运维文档 §5，不得当作已完成）。
@@ -248,7 +249,7 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 | 项 | 未做的原因 | 影响面 |
 | --- | --- | --- |
 | ~~3.6 八平台 uid 真凭证线级取证~~ **已执行（2026-09-27）**：实测合并键覆盖率 2/8，其余走 `uid-unavailable` 未污染合并键 | 见 §12.3 与 PRD §16.1 | 合并键覆盖率；结论已反转原假设（不是"多数可取"） |
-| 6.6 flag 开启态视觉基线 | CI 无运营中心 ⇒ 按钮不渲染，`QG Visual` 的绿不构成新按钮证据 | 视觉回归覆盖面 |
+| ~~6.6 flag 开启态视觉基线~~ **已收口** | 覆盖通道 `mpFlag` + 用例 `accounts-list-flag-on` 已进 CI 两份清单，基线取自 CI 产物且 `misMatchPercentage: 0` | 视觉回归覆盖面 |
 | ~~`/sync` 响应缺 `Cache-Control: no-store`~~ **已收口（2026-09-27）** | 出口常量 `NO_STORE` 覆盖云账号面三处出线点；真 HTTP 线级锁 + 两条分离变异反证 | 安全项已关闭；生产网关缓存行为仍未现场验证 |
 | ~~`ipc-handlers/cloud-account.js` 直测~~ **已补（2026-09-27）** | `ipc-handlers/cloud-account.test.js` 20 例（fail-closed / sender / 异常不逃逸 / 接线合同），三条独立变异反证 | IPC 边界回归强度已建立；真机 IPC 往返仍未做 |
 | ~~主进程「同步中 × 批量检测」互斥~~ **已收口（2026-09-27，cloud-sync-residuals）** | `services/account-state-lock.js` 按 accountId 串行三个检测入口（定期 / 单账号 / 批量）与恢复写入；顺带修掉「恢复侧用对象形调用位置签名函数」导致的断链——真源从未被写，而夹具替被调方改了签名所以全绿；6 条变异反证均实测变红 | 登录态真源竞态已关闭；真机 Electron 内 IPC 往返仍未做 |
@@ -284,7 +285,7 @@ CI 回来两个红：`QG Static` 与 `QG Business API Postgres`。逐条下日�
 | --- | --- | --- |
 | 3.6 八平台 uid 真凭证线级取证 | **已执行**：合并键覆盖率实测 2/8，其余走 `uid-unavailable` 未污染合并键 | PRD §16.1 |
 | 真机 Electron 内 IPC 全链路往返 | **部分执行**：五通道可达 + 信封/fail-closed/确认守卫实测；成功路径仍待有含该面的服务端 | PRD §16.2 |
-| flag 开启态视觉基线（6.6） | 仍未做（需要 CI 侧渲染开启态，基线只能取自 CI 产物） | — |
+| flag 开启态视觉基线（6.6） | **已做**（PR #2501 → `56ac1c40`；复跑 run 36333496740 / job 108659817848（head `c8490f22`，PR #2501 已合并为 `56ac1c40`） 报 0 px） | — |
 | QM-4 全量视觉回归 | 本机跑不了：Playwright chromium headless shell 未安装；且按 QM-4 第 7 条，本机基线也不得作为提交基线 | — |
 
 > 上面两行的"已执行/部分执行"不改动 §12.1 原表的措辞历史，只在此处登记去向。

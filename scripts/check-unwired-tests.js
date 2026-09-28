@@ -15,7 +15,7 @@ const SCAN_DIRS = ["scripts", path.join(".github", "scripts")]
 
 // 欠账登记：path -> 不可省略的原因。只能缩小，新增即红（与 platform-definitions 棘轮同形）。
 // 2026-09-27 把 scripts 下 7 条 PowerShell 测试逐个实跑分档（本机 pwsh 7.6 / PS 5.1 各一遍，
-// 再以 runner 首跑为准）：5 条接进 Gate 2d，2 条按硬证据登记欠账（不是"没试过"）。
+// 再以 runner 首跑为准）：6 条接进 Gate 2d，1 条按硬证据登记欠账（不是"没试过"）。
 // session-write-guard 曾在欠账里（runner 红、本机绿），根因是夹具与真实工作树不同形，已修并回接：
 // 判「runner 端差异」时先问这一维是不是**可配置的**（git 全局配置、shell、环境变量都算），
 // 可配置就能在本机用 GIT_CONFIG_GLOBAL 指到临时配置文件复现，不属于"只有 runner 知道"那一类。
@@ -24,11 +24,6 @@ const KNOWN_UNWIRED = {
     "内部直接调用 install-session-isolation-task.ps1 注册**真实**计划任务（跨会话共享的机器状态），" +
     "且本机非提权实跑 HRESULT 0x80070005 拒绝访问（AtLogOn 任务需提权注册）⇒ 接进 CI 要么恒误红、要么真改 runner 状态。" +
     "接线前提：把注册动作注入为假实现或隔离 task path，另立 change 处理",
-  "scripts/worktree-fs-longpath.test.ps1":
-    "负控「未加 \\\\?\\ 前缀的 IO.Directory::Delete 应当失败」绑的是**该进程是否处于长路径生效状态**，" +
-    "不是 shell 版本：本机（LongPathsEnabled 缺失=关）在 5.1 下成立、在 pwsh 7 下因清单 longPathAware 意外成功；" +
-    "CI runner 上实测（run 36313053992 / step Gate 2d-b，shell: powershell 5.1）同样 FAIL ... unexpectedly succeeded - fixture too shallow。" +
-    "接线前提：先让该断言按运行时探测长路径状态来分档，另立 change 处理",
 }
 function listTestFiles(root) {
   const found = []
