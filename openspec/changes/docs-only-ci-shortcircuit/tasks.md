@@ -31,4 +31,4 @@
 
 - [x] 6.1 `.quality-gates.md` 执行记录 + CHANGELOG 条目 + 行尾对账（numstat 两口径一致）
 - [x] 6.2 提交（pre-commit 分支守卫自动声明）、推分支、开 PR、CI 全绿
-- [ ] 6.3 合并后第一个纯文档 PR 实证 skipped required check 语义（mergeStateStatus 不 BLOCK），回填本记录远程同步行
+- [ ] 6.3 合并后第一个纯文档 PR 实证 skipped required check 语义（mergeStateStatus 不 BLOCK）。远程同步行已回填（PR #2581 squash 合并 `a48820a0`，2026-09-28T15:15:35Z，远端分支已删，runner 留痕见 `.quality-gates.md`）；skipped 实证留给下一个自然纯文档 PR，届时勾选本项
