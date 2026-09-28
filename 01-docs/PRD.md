@@ -17753,3 +17753,11 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **回归锁**：`rpa-view-manager.test.js`（opts.accountId 下传 + cookie 预绑双断言）。门禁：3 suites 16 tests 全绿；QM-1 三件套全过（asar 解包实证两处接线在包内）。
 
 **活体 6.3 裁决链全景（六层，逐层修复逐层验证）**：形状翻译（#2578）→ 注册表回退 + 命令名透传（#2580）→ bridge 装配接线（#2582）→ **sessionKey + cookie 预绑（本 PR）**。每层修复后下一层暴露——API 轨全链贯通待本合并后的下一轮活体验证。
+
+## 快手 API 链 upload/complete 400 诊断合同（2026-09-28 活体 6.3 第七层，随本 PR）
+
+活体 6.3 裁决（第五轮发布实测）第七层：API 轨六层接线全通（形状→注册表→bridge→sessionKey/cookie→签名→分片上传）后，真实链推进到 `upload/complete`——HTTP 400（服务端拒绝）。此前 `_uploadPost` 丢弃响应体只抛状态码，无法诊断 API 契约差异。
+
+**合同**：上传类端点（fragment/complete/cover/list）的非 2xx 错误信息**必须携带服务端响应体**（截断 200 字符防日志爆炸；序列化失败不掩盖原始状态码）——只有状态码的报错无法定位契约差异，本轮实测 400 无 body 即无法裁决是参数形状、token 状态还是端点语义问题。
+
+**回归锁**：引擎全量 32 files 262 tests（既有链测试无精确匹配断言被破坏）。QM-1 build:dir exit 0（asar 解包实证 bodyHint 在包内）。
