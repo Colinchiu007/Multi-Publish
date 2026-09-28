@@ -71,6 +71,8 @@
     <UpdateNotification />
     <SettingsDialog :visible="showSettingsDialog" @close="closeSettingsDialog" />
     <PipelineBackgroundToast />
+    <!-- 发布进度全局面板（publish-progress-ux）：App 级常驻，setup 内完成事件订阅 -->
+    <PublishProgressPanel />
   </div>
 </template>
 
@@ -85,6 +87,7 @@ import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import BackToTop from '@/components/BackToTop.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
+import PublishProgressPanel from '@/components/PublishProgressPanel.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

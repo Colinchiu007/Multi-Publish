@@ -13,6 +13,7 @@ __electronMock.Tray = function MockTray () {
   this.setImage = vi.fn()
   this.on = vi.fn(() => this)
   this.destroy = vi.fn()
+  this.displayBalloon = vi.fn()
   trayInstances.push(this)
 }
 
@@ -231,5 +232,49 @@ describe('SystemTray 窗口行为', () => {
     handler()
     expect(win.restore).not.toHaveBeenCalled()
     expect(win.show).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SystemTray showBalloon（publish-progress-ux）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    __resetElectronMock()
+    trayInstances.length = 0
+    systemTray.destroy()
+    systemTray.init(createMainWindow())
+  })
+
+  afterEach(() => {
+    systemTray.destroy()
+  })
+
+  it('托盘存活时调用 displayBalloon 并截断超长文案', () => {
+    const ok = systemTray.showBalloon('发布仍在后台进行', '发布任务正在后台继续执行，请勿退出程序。')
+    expect(ok).toBe(true)
+    const trayInstance = trayInstances[trayInstances.length - 1]
+    expect(trayInstance.displayBalloon).toHaveBeenCalledTimes(1)
+    expect(trayInstance.displayBalloon).toHaveBeenCalledWith({
+      title: '发布仍在后台进行',
+      content: '发布任务正在后台继续执行，请勿退出程序。',
+    })
+  })
+
+  it('title/content 截断到 64/256 字符', () => {
+    systemTray.showBalloon('x'.repeat(100), 'y'.repeat(300))
+    const trayInstance = trayInstances[trayInstances.length - 1]
+    const arg = trayInstance.displayBalloon.mock.calls[0][0]
+    expect(arg.title.length).toBe(64)
+    expect(arg.content.length).toBe(256)
+  })
+
+  it('托盘销毁后（不可用）返回 false 不抛错', () => {
+    systemTray.destroy()
+    expect(systemTray.showBalloon('t', 'c')).toBe(false)
+  })
+
+  it('title 与 content 均为空 → 拒绝调用', () => {
+    expect(systemTray.showBalloon('', '')).toBe(false)
+    const trayInstance = trayInstances[trayInstances.length - 1]
+    expect(trayInstance.displayBalloon).not.toHaveBeenCalled()
   })
 })

@@ -70,6 +70,15 @@
 - **main 的 squash 合并会静默丢置顶文档条目；解冲突按 union 纪律要顺带修复（合并纪律）**：实测 main 在近期 squash 合并中丢了 6 条 CHANGELOG 置顶条目（session-isolation/agents-eol/远程同步/cloud-sync/installer-taskpath/登录门禁），且 optimize 条目被归档提交累积复制 4 份。解冲突按仓库置顶文档 union 纪律（两侧父提交非空行多重集 lost=0、字节级操作保混行尾）时，顺带恢复丢失条目、去重累积条目（去重部分在豁免表登记，自检脚本可复现）。判据：置顶文档解冲突后必须跑双侧 lost=0 对账，不能只看冲突标记消失。
 - **外部记忆服务「写成功」与「可检索」是两件事（EverOS 运行态）**：HTTP `POST /api/v2/memory/add` 返回 accumulated、`flush` 返回 extracted（带 request_id），但 search/get 全空——服务端 cascade optimize 卡死（健康检查 364 连败），提取结果落不了检索索引。md-first 设计下直写 episode/atomic_fact markdown（按既有条目格式逐字节追加 + 更新 front-matter entry_count/last_appended_at）是可靠兜底，cascade 恢复后自动索引。判据：调用外部记忆后必须做一次**读回验证**（search 或 get），读不回就换直写通道；「接口返回成功」不是证据。
 
+## 发布进度监听器的生命周期必须绑定「任务生命周期」而不是「点击处理函数」；只断言清理机制的测试会把缺陷钉成契约（publish-progress-ux，2026-09-28）
+
+- **① 根因溯源（第一性引入点）**：单篇发布的 `publish:progress` 监听器在 `usePublishFlow.js` 的 `finally` 无条件 `off()`，而 `publish:batch` IPC 是同步入队毫秒级返回——任务实际执行期间发出的全部阶段/成败事件**无人接收**，用户点击发布后的最终反馈只有「✓ 已添加 N 个任务 / 任务已加入队列」，永远不知道发布是否成功。git 追溯：无条件 `finally off()` 自原始 Publish.vue 发布流程即存在（composable 拆分 commit `9353cc8c` 原样带入）；`939e236e` 曾引入「全部完成才注销」的条件注销与注释（**正确意图**），但 finally 使其成为死代码；`11bf8747` 的「只释放一次进度订阅」测试把清理机制钉成契约。形态：**清理逻辑写在了错误的生命周期层——IPC 往返时长 ≠ 任务生命周期**。
+- **② 逃逸分析（逐层为什么没拦住）**：单元层——「只释放一次」断言锁的是清理机制而非用户可见结果（「进度事件在 IPC 返回后仍应到达渲染层」从未被断言），把监听器短命钉成期望行为；集成/E2E 层无「发布后进度事件到达渲染层」的断言；视觉层无法覆盖时序行为。五层全部放行，缺陷在全绿测试下存活至今。
+- **③ 系统性漏洞**：类型 B（测试质量不足——断言实现细节而非行为结果）+ 类型 D（流程缺失——发布进度反馈从未有 PRD 契约可比对，审查无锚点）。
+- **④ 修复 + 回归保护**：订阅所有权上移全局 store（`src/stores/publishProgress.js` App 级一次性订阅，面板随 App.vue 常驻不卸载）。回归锁三把：`usePublishFlow.test.js`「不再订阅 onProgress」（防页面级订阅复活）、`publishProgress.test.js`「IPC 返回后到达的事件仍更新状态」（行为结果锁）、`PublishProgressPanel.test.js` 非模态负向锁。
+- **⑤ 预防措施**：AGENTS.md QM-2 新增「发布进度事件双边界与富化契约」条目；`PRD-PUBLISH-PROGRESS-UX-2026-09-28.md` §6.1 建立事件 payload 契约（发射层单一实现、渲染层禁第二份映射）。
+- **可迁移判据：凡「订阅/资源生命周期」与「触发它的用户动作生命周期」不一致的代码，先问订阅该活多久——把清理写进动作的 finally 等于把订阅寿命钉死在动作时长上；而测试若只断言「清理被调用」，锁住的是机制不是结果。写清理测试前先写一条「资源存活期间其产出可见」的行为断言。**
+
 ## 平台能力元数据的「四处各写一份」必然漂移；无标题平台的正确行为藏在「选择器解析失败」的隐式回退里（publish-capability-registry，2026-10-08）
 
 - **同一份平台元数据被四处各写一份时，漂移不是风险而是时间问题（架构）**：发布内容限制同时活在渲染层 PLATFORM_CONTENT_LIMITS、platforms.yaml、差异化面板 v-if 链、引擎 content-formatter 四处，实测三处互相矛盾（douyin contentMax 0 vs 1000；tiktok title 2200 vs 150；weibo title 0 vs 120）。收敛为「JSON 数据单一来源 + CJS/ESM 双版本消费 + parity 测试」后，新增平台/字段只改 JSON。判据：凡是「同一事实有 ≥2 份手写副本」的地方，先问哪份是权威、其余怎么派生；派生不出来的那份就是下一个事故。

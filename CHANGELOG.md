@@ -133,6 +133,28 @@
 
 ---
 
+
+# [未发布] feat(publish): 发布进度全局反馈面板——富化进度事件 + 可最小化后台运行 + 失败落历史 + 关窗转托盘（2026-09-28，publish-progress-ux）
+
+### 变更
+- **主进程事件富化（向后兼容加法）**：新增 `electron/services/publish-progress-events.js` 单一实现——`publish:progress` payload 新增 `phase`（start/progress/success/failed/retry/blocked 生命周期双边界）/`stageKey`（9 值规范枚举，两引擎 40+ 英文阶段串封闭映射）/`percent`/`batchId`/`timestamp`/`retriesLeft`，既有字段原样保留。executor 发任务开始边界事件；`rpaViewManager.onProgress` 单槽回调改全局注册一次 + platform→taskId 路由（修 3 并发任务进度跨归属）；ApiPublisher 直连轨（bilibili/baijiahao）经 `options.onProgress` 补发进度（此前完全静默）；percent 不再在转发层丢弃。
+- **渲染层全局承载**：新增 pinia store `src/stores/publishProgress.js`（App 级一次性订阅、多会话任务列表、渲染层重载经 `queue:status` 领养孤儿任务、终态吸收、会话级「重试失败项」）+ `PublishProgressPanel.vue`（App.vue 全局挂载，右下非模态浮动卡 ↔ 最小化常驻胶囊；首次隐藏一次性 toast「发布将在后台继续进行，请勿关闭应用软件」，胶囊常驻勿关提示；状态文字+图标双通道；步骤链 准备→上传→填写→提交→校验→完成）。
+- **修复监听器毫秒级死亡 bug**：usePublishFlow/useBatchPublish 的页面级 `publish:progress` 订阅在 `finally` 无条件注销，而 `publish:batch` IPC 同步入队毫秒级返回——任务执行期间全部事件无人接收，用户只见「任务已加入队列」、不知道发布是否成功。订阅所有权上移 store；页面结果卡改由会话终态驱动（全部成功/部分失败汇总文案）。
+- **失败落历史**：`phase4-events.js` task:failed 补 `history.addRecord({status:'failed', error})`——此前失败结果在任何页面都查不到，历史页 failed 过滤器形同虚设。
+- **关窗转托盘**：`window-close-policy` 新增 `hasRunningPublish` 判据（running+queue>0）；发布运行中点 ✕ 隐藏到托盘后台继续 + Windows 气泡「发布仍在后台进行，请勿退出程序」（system-tray 新增 `showBalloon`，非 Windows 静默降级）；无任务时关窗语义不变。
+- i18n zh/en 成对新增 `publishPage.publishProgressPanel.*` 38 键 + `publishFlow.resultAllSuccess`/`resultPartial`；主 PRD §6.7 + 文件头索引 + §19.2 交叉引用；浮层通查清单补登（面板非模态显式不接入互斥合同）。
+
+### 为什么
+- 用户反馈「点击发布后不知道到了什么环节、进展如何」：进度反馈全部绑死 /publish 页面内、切页即失明。侦察实证 10 条链路缺口（监听器死亡 / percent 全链路丢弃 / API 直连轨静默 / 并发跨归属 / 阶段文案英文硬编码 / 无开始边界 / 失败不落历史 / 关窗不保护 / 频控事件纯文本），全部带路径:行号见 PRD §1。
+- 机制选型：加法式富化（不动 TaskQueue 编排语义、不动 ROUTE_TABLE、无新 IPC 通道）+ 全局 store 承载（复用 UpdateNotification/PipelineBackgroundToast 全局挂载先例）+ 托盘复用流水线方案 A 先例——零新基建。
+
+### 验证
+- 主进程：publish-stage-map 22 + publish-progress-events 18 + phase4-events 12 + window-close-policy 12 + window 新增 6 + system-tray 新增 4 + bootstrap 新增 2（含 platform→taskId 路由归属锁）全绿
+- 渲染层：publishProgress store 19 + PublishProgressPanel 11 + usePublishFlow 62（含「不再订阅」回归锁与会话终态驱动）+ useBatchPublish 55 + Publish.test 71 全绿
+- QM-1 打包 / locale sync / 视觉回归 / 全量 vitest：见 `.quality-gates.md` 本次执行记录
+- 详见 [01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) 与 [openspec/changes/publish-progress-ux](openspec/changes/publish-progress-ux)
+
+---
 # [未发布] feat(publish): 发布能力注册表——15 平台发布内容项单一真源 + 无标题平台标题入描述首行（2026-10-08，publish-capability-registry）
 
 ### 变更

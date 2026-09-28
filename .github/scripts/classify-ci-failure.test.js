@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { classifyFailure, buildDedupTitle, collectEvidence } = require('./classify-ci-failure.js');
+const { classifyFailure, buildDedupTitle, collectEvidence, extractFailingTest } = require('./classify-ci-failure.js');
 
 const FIXTURE = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'ci-failure-samples.json'), 'utf8')
@@ -208,7 +208,9 @@ test('证据采集必须打对端点，且只取失败作业（打错端点=静�
   assert.deepEqual(calls, [
     'api repos/o/r/actions/runs/42/jobs?per_page=100',
     'api repos/o/r/check-runs/11/annotations',
-  ], '只允许对失败作业取 annotation：成功作业的 check_run 不该被请求');
+    // 第三条是"取日志找失败用例"：该作业的步骤确实是测试类，属预期新增（不是打错端点）。
+    'api --allow-escape-sequences repos/o/r/actions/jobs/1/logs',
+  ], '只允许对失败作业取 annotation 与日志：成功作业的 check_run 不该被请求');
   assert.equal(input.workflowName, 'Electron CI', 'workflowName 由 handler 从 workflow_run 事件带上，不再多打一次 API');
   assert.deepEqual(input.failedJobs.map(j => j.name), ['electron-tests']);
   assert.deepEqual(input.failedJobs[0].steps.map(s => s.name), ['Unit tests (Vitest, non-Electron, single-worker deterministic)'], '不得把 success 步骤带进去');
@@ -264,3 +266,89 @@ test('handler 不得退回常量或 per-SHA 去重（这两条正是本 PR 修�
   assert.match(HANDLER, /if ! node \.github\/scripts\/classify-ci-failure\.js/, '缺少回落分支');
   assert.match(HANDLER, /回落到旧行为/, '回落分支必须出声');
 });
+
+const LOG = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'ci-failure-log-excerpts.json'), 'utf8')
+);
+
+test('夹具必须是同一测试-runner 步骤下的三种不同病因（否则这条守卫没有意义）', () => {
+  assert.ok(LOG.samples.length >= 3, `需要 ≥3 条真实日志片段，实际 ${LOG.samples.length}`);
+  const files = LOG.samples.map(s => s.failLines[0]);
+  const distinct = new Set(files);
+  assert.equal(distinct.size, LOG.samples.length, '三条 FAIL 行必须互不相同');
+  // 三条都来自 QG Coverage / Gate 5 同一步骤（这是本守卫的前提，必须钉住）
+  for (const s of LOG.samples) assert.ok(s.source.why.includes('同一步骤') || /QG Coverage/.test(s.source.why), s.source.why);
+});
+
+test('同一步骤里的不同测试必须产生不同签名（签名按步骤聚合会把 342 张不同病因并成一张单）', () => {
+  const made = LOG.samples.map(s => {
+    const sig = classifyFailure({
+      workflowName: 'quality-gate',
+      runId: s.source.runId,
+      headSha: 'b'.repeat(40),
+      failedJobs: [{ id: s.source.jobId, name: 'QG Coverage', conclusion: 'failure', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] }],
+      annotations: [{ jobId: s.source.jobId, jobName: 'QG Coverage', list: [{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }] }],
+      logExcerpts: [{ jobId: s.source.jobId, text: s.excerptLines.join('\n') }],
+    });
+    return sig;
+  });
+  const sigs = new Set(made.map(m => m.signature));
+  assert.equal(sigs.size, 3, `三条不同病因必须给出 3 个签名，实际 ${sigs.size} 个：\n${made.map(m => m.signature).join('\n')}`);
+  const titles = new Set(made.map(m => buildDedupTitle(m)));
+  assert.equal(titles.size, 3, '标题也必须区分（同签名才去重）');
+  // 每条签名都要带上测试文件，且不泄漏整行超长内容
+  for (const m of made) assert.match(m.signature, /::test=/);
+  assert.ok(made[0].signature.length < 260, `签名长度需有界，实际 ${made[0].signature.length}`);
+});
+
+test('failingTest 解析必须给出文件与用例名，且按真实 FAIL 行格式', () => {
+  const t = extractFailingTest(LOG.samples[0].excerptLines.join('\n'));
+  assert.equal(t.file, 'electron/services/rpa-view-platforms.test.js');
+  assert.match(t.name, /kuaishou：publish_btn/);
+  const timedOut = extractFailingTest(LOG.samples[2].excerptLines.join('\n'));
+  assert.equal(timedOut.file, 'tests/visual-testing/pixel-diff-baseline-guard.test.js');
+  assert.match(timedOut.name, /现存全部真实基线均通过守卫/);
+  // 负控：日志里没有 FAIL 行时必须返回 null，不得凭空造一个测试名
+  assert.equal(extractFailingTest('Test Files 1 failed | 676 passed\nExit status 1'), null);
+});
+
+test('日志取不到时签名退化为 test=unknown，且必须能看出是退化（不得伪装成"同一个成因"）', () => {
+  const base = {
+    workflowName: 'quality-gate', runId: 1, headSha: 'c'.repeat(40),
+    failedJobs: [{ id: 9, name: 'QG Coverage', conclusion: 'failure', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] }],
+    annotations: [{ jobId: 9, jobName: 'QG Coverage', list: [{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }] }],
+  };
+  const v = classifyFailure(base);
+  assert.match(v.signature, /::test=unknown$/);
+  assert.equal(v.failingTest, null);
+  assert.match(v.evidence, /测试名未取得/);
+  // 有 logExcerpts 但里面没有 FAIL 行（例如被截断）也走同一退化路径
+  const v2 = classifyFailure({ ...base, logExcerpts: [{ jobId: 9, text: 'nothing interesting' }] });
+  assert.match(v2.signature, /::test=unknown$/);
+});
+
+test('采集只为"测试-runner 类失败作业"取日志，非测试步骤不得触发 5MB 下载', async () => {
+  const calls = [];
+  const fake = (a) => {
+    calls.push(a.join(' '));
+    if (/actions\/runs\/55\/jobs/.test(a[1])) {
+      return JSON.stringify({ jobs: [
+        { id: 1, name: 'QG Coverage', conclusion: 'failure', check_run_url: 'https://api.github.com/repos/o/r/check-runs/11', steps: [{ name: 'Gate 5 - Test coverage check', conclusion: 'failure' }] },
+        { id: 2, name: '文档同步检查', conclusion: 'failure', check_run_url: 'https://api.github.com/repos/o/r/check-runs/12', steps: [{ name: '检查文档同步（硬门禁）', conclusion: 'failure' }] },
+      ] });
+    }
+    if (/check-runs\/(11|12)\/annotations$/.test(a[1])) {
+      return JSON.stringify([{ annotation_level: 'failure', message: 'Process completed with exit code 1.' }]);
+    }
+    if (/actions\/jobs\/1\/logs$/.test(a[1])) {
+      return '2026-09-28T00:00:00.0000000Z  FAIL  electron/services/x.test.js > suite > case\n';
+    }
+    throw new Error('unexpected call ' + a.join(' '));
+  };
+  const input = await collectEvidence({ repo: 'o/r', runId: 55, workflowName: 'quality-gate', runGh: fake });
+  const logCalls = calls.filter(c => /\/logs/.test(c));
+  assert.deepEqual(logCalls, ['api --allow-escape-sequences repos/o/r/actions/jobs/1/logs'], '只允许对测试类作业取日志；文档同步步骤不得取');
+  assert.equal(input.failedJobs.length, 2);
+  assert.equal(classifyFailure(input).signature.includes('::test='), true);
+});
+
