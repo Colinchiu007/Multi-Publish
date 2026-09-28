@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
-const { FunctionalRunner } = require('./functional-runner');
+const { FunctionalRunner, TRANSIENT_CONSOLE_NOISE_BUDGET } = require('./functional-runner');
 
 function createRunner({ navigationResults }) {
   const runner = new FunctionalRunner({ url: 'http://127.0.0.1:5174' });
@@ -534,6 +534,96 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
  * 因此把挂载逻辑收敛为 attachPageObservers(page)，用假 page 验证注册的事件与采集形状，
  * 并用源码锁保证 launch() 确实走这个方法（而不是另起一套内联监听）。
  */
+/**
+ * 瞬时 console 噪音卫生必须覆盖「逐路由收口」，而不是只作为重载分支的副作用。
+ *
+ * #2491 现场：一个只改 1 行 tasks.md 的 docs PR，在 model-providers 路由的逐路由检查里
+ * 撞上 vite HMR websocket 的 net::ERR_NO_BUFFER_SPACE —— 应用**早已就绪**，所以根本不在
+ * waitForAppReady 的重载循环里，既没有重载预算、也没人调 _discardTransientConsoleNoise()，
+ * 该条目原样留在 consoleErrors ⇒ expectNoConsoleError 判失败 + final-report 的
+ * `consoleErrors === 0` 硬判据一起红。Gate Result 自 #2410 起是真聚合，于是这颗从「烦人」
+ * 升级成「随机阻断合并」（同 commit 重跑即绿，已实测两次）。
+ */
+describe('FunctionalRunner 瞬时噪音卫生覆盖逐路由收口', () => {
+  const ROUTE_STAGE_TEXT = "WebSocket connection to 'ws://127.0.0.1:5174/?token=x' failed: " +
+    'WebSocket opening handshake failed: net::ERR_NO_BUFFER_SPACE';
+
+  /** 造一个「应用已就绪、路由检查阶段自己冒噪音」的 runner —— 刻意不产生任何重载事件。 */
+  function createRouteStageRunner(entries) {
+    const runner = new FunctionalRunner({ url: 'http://127.0.0.1:5174' });
+    runner.specName = 'model-providers';
+    for (const text of entries) runner.consoleErrors.push({ text, at: Date.now() });
+    return runner;
+  }
+
+  it('断言点：路由检查阶段只有瞬时噪音时 expectNoConsoleError 必须判通过并留痕', async () => {
+    const runner = createRouteStageRunner([ROUTE_STAGE_TEXT]);
+
+    assert.equal(await runner.expectNoConsoleError(), true, '一次本机 socket 缓冲区抖动不得判红');
+    assert.deepEqual(runner.consoleErrors, [], '瞬时噪音不得留在失败判据清单里');
+    assert.deepEqual(runner.recoveredTransientErrors.map((e) => e.text), [ROUTE_STAGE_TEXT],
+      '清掉必须留痕，不得伪造成没发生过');
+  });
+
+  it('收口点：没走过任何一次重载时，generateReport 也必须过一次卫生', () => {
+    const runner = createRouteStageRunner([ROUTE_STAGE_TEXT]);
+    const report = runner.generateReport();
+
+    assert.deepEqual(report.consoleErrors, [], '产物里的 consoleErrors 不得再计入该噪音');
+    assert.deepEqual(report.recoveredConsoleErrors.map((e) => e.text), [ROUTE_STAGE_TEXT]);
+    assert.deepEqual(report.transientRecoveries, [],
+      '本用例刻意不产生重载 —— 卫生不得依附重载事件才生效');
+  });
+
+  it('预算：持续性 socket 耗尽时超出预算的条目必须留下判红（不得全清）', async () => {
+    const flood = new Array(TRANSIENT_CONSOLE_NOISE_BUDGET + 2).fill(ROUTE_STAGE_TEXT);
+    const runner = createRouteStageRunner(flood);
+
+    assert.equal(await runner.expectNoConsoleError(), false,
+      '同一错误码灌满一整条路由时是真故障，不得被卫生吞成健康');
+    assert.equal(runner.recoveredTransientErrors.length, TRANSIENT_CONSOLE_NOISE_BUDGET);
+    assert.equal(runner.consoleErrors.length, 2, '超出预算的条目必须原样留在清单里');
+  });
+
+  it('并存：allowed 白名单语义不变，卫生只做减法不替换它', async () => {
+    const runner = createRouteStageRunner(['TypeError: boom', ROUTE_STAGE_TEXT]);
+
+    assert.equal(await runner.expectNoConsoleError(['TypeError']), true,
+      'allowed 命中的真实错误继续按既有口径放行，瞬时噪音按错误码清');
+    assert.deepEqual(runner.recoveredTransientErrors.map((e) => e.text), [ROUTE_STAGE_TEXT]);
+  });
+
+  it('不得扩大：非该码的 console 错误一律留在清单并判红', async () => {
+    const runner = createRouteStageRunner(['TypeError: boom']);
+
+    assert.equal(await runner.expectNoConsoleError(), false);
+    const report = runner.generateReport();
+    assert.deepEqual(report.consoleErrors.map((e) => e.text), ['TypeError: boom']);
+    assert.deepEqual(report.recoveredConsoleErrors, [], '非该码错误不得进入留痕');
+  });
+
+  /**
+   * 结构锁：本 issue 的根因就是「接线漏了一处」，而接线漂移在单测里表现为
+   * 「新路径没测到」而非「断言失败」，所以直接读源码钉调用点。
+   */
+  it('卫生必须同时挂在断言点与收口点，不得只存在于重载分支', () => {
+    const fs = require('fs');
+    const source = fs.readFileSync(require.resolve('./functional-runner'), 'utf8');
+
+    const expectBody = source.slice(
+      source.indexOf('async expectNoConsoleError('),
+      source.indexOf('async expectNoPageError('));
+    const reportBody = source.slice(
+      source.indexOf('generateReport() {'),
+      source.indexOf('saveReport(report)'));
+
+    assert.match(expectBody, /this\._discardTransientConsoleNoise\(\)/,
+      '断言点必须先过一次卫生，否则路由阶段噪音直通判红');
+    assert.match(reportBody, /this\._discardTransientConsoleNoise\(\)/,
+      '收口点同样必须过一次卫生');
+  });
+});
+
 describe('FunctionalRunner 页面观测挂载合同', () => {
   function createFakePage() {
     const handlers = {};
