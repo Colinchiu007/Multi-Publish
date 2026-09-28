@@ -1,3 +1,13 @@
+# [未发布] docs(openspec): 归档登录态两件 change 并把 6 条 Requirement 同步进主 spec（2026-09-28，openspec-archive-login-state）
+
+### 变更
+- `openspec/changes/split-account-manager-session-restore`（#2514）与 `declare-platform-session-markers`（#2527）移入 `openspec/changes/archive/2026-09-28-*`。
+- `openspec/specs/desktop/spec.md` 的 Requirement 由 7 条增至 13 条：新增「账号会话凭证恢复模块边界」「纯平移重构必须先有特征测试并有反证」「会话标记键名必须由自建匿名基线与真实登录视图的差集取证」「形态正向契约必须随标记集泛化并携带负控」「收紧登录门禁必须同时提供可归因现场」「裸域名成功模式的会话标记缺口清单只能缩小」。正文逐字搬运自各自 delta，未重写文案。
+- 两件 change 的 `tasks.md` 里已过期未勾项按**可核对证据**补齐（QM-1 / QM-6 降级登记 / QM-4 N/A 判据 / 文档回写 / PR 合并与 main 复验 / 归档本身）；两处真实残留保持未勾：下一步「资料刷新簇」拆分、`credential-saver` 的 `names=` 日志缺可执行锁。
+
+### 为什么值得单列一条教训
+主 spec 同步的第一版实现把整份文本 `split(换行).join(检测到的行尾)` 后再追加，结果对一份本就 LF/CRLF 混用的文件产生了 `raw=226/95` 的"整文件重写"假象（`-w` 看是 131/0，内容其实只增不删）。改为**只做字节级前缀保留 + 尾部追加**后，`raw` 与 `--ignore-cr-at-eol` 同时给出 132/0。教训：同步型写入必须保证「原字节是结果的逐字前缀/后缀」，任何对整份文件的重排都会把行尾问题伪装成内容问题。
+
 # [未发布] feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身
 
 ### 做了什么
