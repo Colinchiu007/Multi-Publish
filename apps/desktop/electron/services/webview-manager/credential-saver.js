@@ -4,7 +4,7 @@
  * Cookie/localStorage 提取、自动保存、批量保存
  */
 const log = require('../logger')
-const { hasPlatformSessionCookie, isPlatformLoginSuccessUrl } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { hasPlatformSessionCookie, isPlatformLoginSuccessUrl, sessionCookieNames } = require('@multi-publish/shared-utils/src/platform-definitions')
 const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const { AUTO_SAVE_DEBOUNCE_MS } = require('./constants')
 
@@ -94,7 +94,7 @@ module.exports = {
     // 契约：平台声明了会话标记时，未命中非空标记一律不入库、保持 unsaved。
     // 登录页也会写入埋点 Cookie（2026-09-25 快手假成功），"有 Cookie"不等于"已登录"。
     if (!hasPlatformSessionCookie(platform, cookies)) {
-      log.warn('WebviewManager', 'saveAccountTabCredentials: session evidence missing for ' + platform + ':' + accountId + ' cookies=' + cookies.length + '，保持 unsaved')
+      log.warn('WebviewManager', 'saveAccountTabCredentials: session evidence missing for ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' names=' + sessionCookieNames(cookies).join(',') + '，保持 unsaved')
       return { ok: false, reason: 'session-evidence-missing', accountId: accountId, platform: platform }
     }
     try {

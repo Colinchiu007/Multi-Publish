@@ -1,10 +1,10 @@
 # ops-center/system-health Specification
 
 ## Purpose
-运营后台一键诊断云服务健康（业务 API / Logto / 存储 / 自定义目标）。
+运营后台「系统健康」页一键并发诊断各云服务健康：业务 API、Logto OIDC、存储可写性与 OPS_HEALTH_TARGETS 自定义目标，返回单项耗时与总体徽章，供运维快速定位故障。
 ## Requirements
 ### Requirement: 只读健康探针
-`GET /api/v1/system/health`（admin）：并发执行只读探测（自身 /api/v1/health、业务 API health+ready、Logto OIDC discovery、存储可写、OPS_HEALTH_TARGETS 自定义目标），单项 ≤5s 超时，返回 {name, ok, latency_ms, detail} + overall（ok/degraded/error）。未配置 URL 的项状态 skipped 不计失败。
+`GET /api/v1/system/health`（admin）SHALL 并发执行只读探测（自身 /api/v1/health、业务 API health+ready、Logto OIDC discovery、存储可写、OPS_HEALTH_TARGETS 自定义目标），单项 ≤5s 超时，返回 {name, ok, latency_ms, detail} + overall（ok/degraded/error）。未配置 URL 的项状态 skipped 不计失败。
 
 #### Scenario: 探测结果
 - **WHEN** 所有已配置目标可达
@@ -21,7 +21,7 @@
 - **THEN** 403
 
 ### Requirement: 前端巡检页
-「系统健康」页：一键巡检（异步 loading）、结果表（服务/状态/耗时/详情）、总体徽章；首次进入自动巡检。
+「系统健康」页 SHALL 提供一键巡检（异步 loading）、结果表（服务/状态/耗时/详情）、总体徽章；首次进入自动巡检。
 
 #### Scenario: 交互
 - **WHEN** 点击巡检

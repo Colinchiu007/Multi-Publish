@@ -1,4 +1,27 @@
+## RENAMED Requirements
+
+- FROM: ### Requirement: 交互动效与可访问性
+- TO: ### Requirement: 背景视觉与可访问性
+
 ## MODIFIED Requirements
+
+### Requirement: 背景视觉与可访问性
+
+静态背景卡 SHALL 保持双层暗色遮罩以保证文字对比度，背景层对辅助技术隐藏（aria-hidden），卡片保留 role=button/aria-label/键盘操作；悬停/焦点动效 SHALL 在 prefers-reduced-motion 下降级。
+
+#### Scenario: 可读性与无障碍
+- **WHEN** 卡片渲染静态背景图
+- **THEN** 前景文字为浅色且背景有暗色遮罩，背景图 aria-hidden，卡片键盘可达
+
+#### Scenario: 悬停与焦点反馈
+- **WHEN** 鼠标悬停或键盘 Tab 聚焦某卡片
+- **THEN** 卡片出现明确视觉反馈，背景图轻微缩放且文字对比度不下降
+
+#### Scenario: 减少动态偏好
+- **WHEN** 系统启用 prefers-reduced-motion: reduce
+- **THEN** 入场/悬停动效关闭或显著降级
+
+## ADDED Requirements
 
 ### Requirement: 卡片背景为打包内置静态资源
 
@@ -24,14 +47,12 @@
 - **WHEN** 渲染进程或外部调用方尝试调用 `pipeline-card:backgrounds` 或 `pipelineCardBackgrounds`
 - **THEN** 该通道/方法不存在（preload 无该方法、主进程未注册该通道），不影响其他功能
 
-### Requirement: 背景视觉与可访问性
+## REMOVED Requirements
 
-静态背景卡 SHALL 保持双层暗色遮罩以保证文字对比度，背景层对辅助技术隐藏（aria-hidden），卡片保留 role=button/aria-label/键盘操作；悬停/焦点动效 SHALL 在 prefers-reduced-motion 下降级。
+### Requirement: MiniMax 差异化卡片背景
 
-#### Scenario: 可读性与无障碍
-- **WHEN** 卡片渲染静态背景图
-- **THEN** 前景文字为浅色且背景有暗色遮罩，背景图 aria-hidden，卡片键盘可达
+### Requirement: 卡片背景安全边界
 
-#### Scenario: 减少动态偏好
-- **WHEN** 系统启用 prefers-reduced-motion: reduce
-- **THEN** 入场/悬停动效关闭或显著降级
+### Requirement: IPC 输入校验与失败语义
+
+### Requirement: 文案本地化
