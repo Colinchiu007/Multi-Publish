@@ -86,7 +86,7 @@
           data-testid="cloud-sync-start"
           :disabled="digestState !== 'ready' || effectiveLocalCount === 0"
           @click="startSync"
-        >{{ t('accountsPage.cloudSync') }}</UiButton>
+        >{{ t('accountsPage.cloudSyncConfirm') }}</UiButton>
       </template>
       <template v-else>
         <UiButton v-if="!terminal" variant="ghost" data-testid="cloud-sync-background" @click="requestClose">
