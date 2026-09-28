@@ -68,11 +68,14 @@ const browserPageProvider = createBrowserPageProvider()
 
 // Tier-B 备选 command（本地公式不变，spike S0 验证后决定走哪个）：
 // 未注入 bridge 时求签自动 fail-closed 抛「签名页未就绪」
+// 命令名透传修正（2026-09-28 活体 6.3）：桌面装配（signer-assembly BRIDGE_COMMANDS）
+// 注册的命令是带 -browser 后缀的本名——此前实现传 Tier-A 名（kuaishou.ns-sig3），
+// provider 白名单必然 unknown command。impl 收不到自己的注册名，此处按注册名透传。
 registry.register('kuaishou.ns-sig3-browser', async (payload) => {
-  return browserPageProvider.sign('kuaishou.ns-sig3', payload)
+  return browserPageProvider.sign('kuaishou.ns-sig3-browser', payload)
 })
 registry.register('xiaohongshu.x-s-browser', async (payload) => {
-  return browserPageProvider.sign('xiaohongshu.x-s', payload)
+  return browserPageProvider.sign('xiaohongshu.x-s-browser', payload)
 })
 
 module.exports = { registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list, browserPageProvider }
