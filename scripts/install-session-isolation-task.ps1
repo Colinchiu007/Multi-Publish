@@ -7,7 +7,7 @@ param(
     # Task folder. Defaults to the production path; tests and troubleshooting should pass
     # a throwaway path so that neither registration nor -Unregister can touch the tasks
     # other sessions are actually relying on.
-    [string]$TaskPath = '\Multi-Publish\',
+    [string]$TaskPath = '\Mulpub\',
     # -Unregister aimed at the production path requires this switch. Without it, an
     # "unregister, re-register, and the re-registration fails for lack of elevation"
     # sequence would silently remove the shared-root write guard.
@@ -41,9 +41,9 @@ if (-not $git -or -not (Test-Path -LiteralPath $git)) {
 $repo = (& $git -C $scriptRepo worktree list --porcelain | Where-Object { $_ -like 'worktree *' } | Select-Object -First 1).Substring(9)
 $health = Join-Path $repo 'scripts/mp-worktree-health.ps1'
 $guardScript = Join-Path $repo 'scripts/guard-shared-root-writes.ps1'
-$report = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Multi-Publish\session-isolation\health.json'
+$report = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\health.json'
 if ($Unregister) {
-    if ($TaskPath -eq '\Multi-Publish\' -and -not $AllowLiveUnregister) {
+    if ($TaskPath -eq '\Mulpub\' -and -not $AllowLiveUnregister) {
         Write-Error ("Refusing to unregister tasks under the production path $TaskPath - these are " +
             "the live shared-root write guard and health check other sessions depend on. If they are " +
             "removed and the re-registration then fails (an AtLogOn trigger needs elevation; measured " +
@@ -58,6 +58,7 @@ if ($Unregister) {
     # Judge by the artifact, never by rc: a non-terminating cmdlet error does not set
     # $LASTEXITCODE, so rc alone would report "deleted nothing" as success - measured on
     # the registration side of this very script.
+    $left = @(Get-ScheduledTask -TaskPath $TaskPath -ErrorAction SilentlyContinue)
     if ($left.Count -gt 0) {
         Write-Error ("Tasks still exist after un-registering: " + (($left | ForEach-Object { $_.TaskName }) -join ", "))
         exit 1
@@ -82,6 +83,7 @@ function Register-Checked {
     }
     # Same rule here: registration is judged by whether the task actually exists, not by
     # rc, because the cmdlet's non-terminating error leaves $LASTEXITCODE untouched (0).
+    $got = Get-ScheduledTask -TaskName $Name -TaskPath $Path -ErrorAction SilentlyContinue
     if (-not $got) {
                 Write-Error ("Task was not registered: $Name ($TriggerKind, path $Path). " +
                     "An AtLogOn trigger must be registered elevated, e.g. " +

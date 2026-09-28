@@ -19,9 +19,21 @@
       {{ error }}
     </div>
 
-    <!-- Not enough data -->
-    <div v-else-if="notEnoughData" style="padding:12px 0;font-size: var(--font-size-xs);color:var(--muted);text-align:center">
-      数据不足，无法分析最佳发布时间
+    <!-- Not enough data：一行收敛提示 + 可展开详情（空态收敛契约：不渲染完整结果卡） -->
+    <div v-else-if="notEnoughData" data-testid="optimal-time-empty">
+      <div class="ott-empty-row">
+        <span class="ott-empty-text">⏰ {{ $t('publishPage.optimalTimeNoData') }}</span>
+        <button
+          class="cohere-btn-ghost"
+          data-testid="optimal-time-empty-toggle"
+          @click="showEmptyDetail = !showEmptyDetail"
+        >
+          {{ showEmptyDetail ? $t('publishPage.collapse') : $t('publishPage.expand') }}
+        </button>
+      </div>
+      <div v-if="showEmptyDetail" class="ott-empty-detail" data-testid="optimal-time-empty-detail">
+        {{ $t('publishPage.optimalTimeNoDataDetail') }}
+      </div>
     </div>
 
     <!-- Results -->
@@ -87,6 +99,8 @@ const loading = ref(false)
 const error = ref(null)
 const data = ref(null)
 const notEnoughData = ref(false)
+// 空态详情展开状态：默认收起，保证「数据不足」只占一行。
+const showEmptyDetail = ref(false)
 
 const topHours = computed(() => {
   if (!data.value || !data.value.topHours) return []
@@ -104,6 +118,7 @@ let debounceTimer = null
 onBeforeUnmount(() => { if (debounceTimer) clearTimeout(debounceTimer) })
 watch(() => props.keyword, (newVal) => {
   if (debounceTimer) clearTimeout(debounceTimer)
+  showEmptyDetail.value = false
   if (!newVal || newVal.trim().length < 2) {
     data.value = null
     error.value = null
@@ -145,4 +160,26 @@ watch(() => props.keyword, (newVal) => {
 </script>
 
 <style scoped>
+/* 空态收敛：数据不足只占一行，详情按需展开 */
+.ott-empty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+.ott-empty-text {
+  font-size: var(--font-size-xs);
+  color: var(--muted);
+}
+.ott-empty-detail {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--soft-stone, #f8f8fa);
+  font-size: var(--font-size-xs);
+  color: var(--muted);
+  line-height: 1.5;
+}
 </style>

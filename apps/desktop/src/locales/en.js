@@ -1280,6 +1280,8 @@ export default {
     },
     schedule: 'Schedule',
     scheduleHint: 'Leave empty = publish now',
+    optimalTimeNoData: 'Not enough data for a posting-time suggestion yet',
+    optimalTimeNoDataDetail: 'There is not enough publishing data for this keyword to determine an optimal hour. Publish more content to accumulate data, or set a scheduled time manually.',
     aiDeclaration: 'Content creation declaration',
     aiDeclarationHint: 'This content is AI-generated (declare truthfully to avoid violations)',
     diffContent: 'Platform-specific content',
@@ -2704,6 +2706,8 @@ export default {
     hotMatch: 'Matched trending topic: {tag} (heat {heat})',
     emptyContent: 'Tags are analyzed automatically after you enter content',
     analysisFailed: 'Tag analysis failed',
+    retry: 'Retry',
+    applyTagHint: 'Click to apply this tag',
     tagsCopied: (ctx) => 'Copied ' + ctx.named('platform') + ' tags',
   },
 

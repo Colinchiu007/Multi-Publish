@@ -1,7 +1,7 @@
 # Regression tests for scripts/install-session-isolation-task.ps1
 #
 # Scope: the deterministic part only - the guard that keeps a caller from wiping the LIVE
-# \Multi-Publish\ tasks, the -TaskPath escape hatch, and the parameter surface.
+# \Mulpub\ tasks, the -TaskPath escape hatch, and the parameter surface.
 # Deliberately NO task registration happens here: registering the write-guard task needs an
 # AtLogOn trigger, which fails for a non-elevated process (measured: PermissionDenied /
 # HRESULT 0x80070005), so anything that registers would be environment-dependent and could not
@@ -39,7 +39,7 @@ function RunInstaller([string[]]$argsList) {
     }
 }
 
-$livePath = '\Multi-Publish\'
+$livePath = '\Mulpub\'
 
 # Snapshot the live task path into SCRIPT-SCOPE variables instead of returning a value.
 # Root cause of the CI red (run 36388005361 / step Gate 2d): a function whose last statement
@@ -47,7 +47,7 @@ $livePath = '\Multi-Publish\'
 # array. Measured on 5.1: `function F1 { @() }` -> `(F1)` is NULL, while `, @()` in the body and
 # `@(F1)` at the call site both give Object[] of length 0. A call-site wrap would have fixed
 # this run, but it leaves the burden on every future caller; taking no return value removes it.
-# On a CI runner \Multi-Publish\ simply does not exist, so the snapshot is empty and
+# On a CI runner \Mulpub\ simply does not exist, so the snapshot is empty and
 # Compare-Object then refused to bind null to -ReferenceObject.
 # A joined signature string cannot be null and cannot flatten, so the set compare needs no
 # array at all.
@@ -85,7 +85,7 @@ try {
 
     # 5) The live path is refused even when written without the trailing backslash,
     #    otherwise normalisation would hand the guard a bypass.
-    $noSlash = RunInstaller @('-Unregister', '-TaskPath', '\Multi-Publish')
+    $noSlash = RunInstaller @('-Unregister', '-TaskPath', '\Mulpub')
     Check ($noSlash.rc -ne 0) 'live path is refused without a trailing backslash too' "rc=$($noSlash.rc)"
 
     Write-Host "PASS: $passed install-session-isolation-task checks" -ForegroundColor Green
@@ -97,11 +97,11 @@ try {
         throw $msg
     }
     # Be honest about coverage instead of letting it read as a strong pass: on a CI runner
-    # \Multi-Publish\ does not exist at all, so "nothing was deleted" can only be proven on a
+    # \Mulpub\ does not exist at all, so "nothing was deleted" can only be proven on a
     # developer machine. The signature compare still proves the refused call created nothing.
     if ($liveBeforeCount -eq 0) {
-        Write-Host 'NOTE: no live \Multi-Publish\ task on this host - the deletion guard was exercised only as "no task created either"; the destructive case needs a dev machine'
+        Write-Host 'NOTE: no live \Mulpub\ task on this host - the deletion guard was exercised only as "no task created either"; the destructive case needs a dev machine'
     } else {
-        Write-Host "PROVED: $liveBeforeCount live \Multi-Publish\ task(s) survived the refused -Unregister"
+        Write-Host "PROVED: $liveBeforeCount live \Mulpub\ task(s) survived the refused -Unregister"
     }
 }
