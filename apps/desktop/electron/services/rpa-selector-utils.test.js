@@ -76,3 +76,36 @@ describe('rpa-selector-utils — :has-text 文本匹配优先级', () => {
     expect(el.tagName.toLowerCase()).toBe('button')
   })
 })
+
+describe('rpa-selector-utils — 快手 2026-09-28 活体发布页真提交钮（D2 正向证据）', () => {
+  // 活体捕获（上传完成后的编辑页）：真提交钮是裸 <span>立即发布</span>（无 class/id/data）；
+  // 同页还有顶导航 <span data-v-...>发布作品</span> 与 <span>定时发布</span>。
+  // 旧候选 span:has-text("发布") 三重歧义 → 解析器点错对象 → responses=0。
+  const livePage = [
+    '<span data-v-08ce92df="">发布作品</span>',
+    '<span>立即发布</span>',
+    '<span>定时发布</span>',
+  ].join('')
+
+  it('span:has-text("立即发布") 精确命中真提交钮（唯一、零歧义）', () => {
+    const el = resolveWith('span:has-text("立即发布")', livePage)
+    expect(el).toBeTruthy()
+    expect((el.textContent || '').trim()).toBe('立即发布')
+  })
+
+  it('旧候选 span:has-text("发布") 三重歧义：命中其一但不保证是真钮（失败根因演示）', () => {
+    const el = resolveWith('span:has-text("发布")', livePage)
+    expect(el).toBeTruthy()
+    expect(['发布作品', '立即发布', '定时发布']).toContain((el.textContent || '').trim())
+  })
+
+  it('登录页无「立即发布」文案，新候选不误命中', () => {
+    const loginPage = '<span>扫码登录</span><span>密码登录</span><button>登录</button>'
+    expect(resolveWith('span:has-text("立即发布")', loginPage)).toBeNull()
+  })
+
+  it('未就绪（空表单）页面无提交钮，新候选返回 null 由调用方走候选链', () => {
+    const emptyForm = '<div class="upload-zone">拖拽视频到这里</div>'
+    expect(resolveWith('span:has-text("立即发布")', emptyForm)).toBeNull()
+  })
+})
