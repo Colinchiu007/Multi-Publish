@@ -229,3 +229,41 @@
 
 
 
+
+## 11. 本地启动与「admin 登录不上」分诊（2026-09-29）
+
+### 11.1 启动口径
+
+- 后端：`cd ops-center/backend && uvicorn main:app --host 127.0.0.1 --port 8010`（开发入口 `python main.py` 同样只绑回环）。
+- 生产：`deploy/ops-center.service` 的 `ExecStart` 显式 `--host 127.0.0.1`，`deploy/nginx-ops.conf` 反代 `127.0.0.1:8010`。**不要**改成 `0.0.0.0` 来「让别的机器能访问」——登录由本服务自签发管理员会话，绑全网卡等于把 `/api/auth/login` 的爆破面交给局域网。
+- 前端：`cd ops-center/frontend && npm run dev`（`strictPort` 固定 5173，`/api/auth`、`/api/v1`、`/api` 全部代理到 :8010）。
+
+### 11.2 分诊三步（症状相同、根因不同，别先动口令）
+
+| 观测 | 含义 | 下一步 |
+|------|------|--------|
+| `curl http://127.0.0.1:8010/api/v1/health` → 连接被拒（`http_code=000`）；经 5173 打 `/api/auth/login` → **500 空 body** | 后端进程不在（最常见） | 先起后端，不要改口令 |
+| 登录返回 **401** | 用户名或密码不匹配（用户不存在也返回 401） | 核对 `.env` 与 `admins.password_hash`（见 11.3） |
+| 登录返回 **503**「未配置管理员账号」 | `admins` 表为空且未配 `OPS_ADMIN_USERNAME/PASSWORD` | 检查 `.env`；若库被清空过，重启会按 `.env` 重新 seed |
+| 登录返回 **429** | 内存限速命中（5 次/60 秒） | 等 60 秒或重启进程即清，无库表可查 |
+
+启动耗时注意：`uvicorn` 起来后 `t≈5s` 可能仍返回 500（正在 `Initializing database...`），`t≈10s` 才 200；就绪探测必须轮询，不要单次 6 秒超时就判失败。
+
+### 11.3 凭据核对（只读、不打印口令）
+
+存储格式为 `pbkdf2_sha256$iterations$salt_hex$hash_hex`。用只读连接取出哈希，再按同样参数复算比对，**只输出布尔值**：
+
+```
+sqlite3.connect("file:data/config.db?mode=ro", uri=True)
+  → select password_hash from admins where username = ?
+hashlib.pbkdf2_hmac("sha256", <.env 口令>.encode(), bytes.fromhex(salt), int(iterations))
+  → hmac.compare_digest(digest, expected)
+```
+
+注意 `ensure_admin_seeded` 只在建表首启时写入，**不会**把 `.env` 的新口令同步进已有行；反之清空 `admins` 后重启会按 `.env` 重新 seed。
+
+### 11.4 数据库文件的可变性（清理磁盘前必读）
+
+- 运行库是 `data/config.db` + `config.db-wal`（WAL 模式）。WAL 未落盘时，主文件可以只有 4KB 而**全部数据都在 `-wal` 里**（实测 37 张表的数据压在 0.8MB WAL 内属正常状态）。
+- 因此**删除或移动 `-wal` 等于删库**。做「清理临时文件」这类操作时，`*-wal`/`*-shm` 一律不在可删清单内；要备份就整组一起拷（或先用 `PRAGMA wal_checkpoint(TRUNCATE)` 收拢）。
+- 该路径是**相对当前工作目录**解析的：在不同目录/ worktree 里启动服务，用的是各自独立的 `data/config.db`——排障时先确认进程的实际 cwd。
