@@ -106,6 +106,47 @@ describe('弹窗互斥：静态链路完整性', () => {
     // 不得复用其它浮层的 owner（否则 ref-count 会把别人的释放吞掉）
     expect(src).not.toMatch(/suspendEmbeddedViewsForOverlay\(['"](?!account-cloud-sync-dialog)/)
   })
+
+  // owner 登记表：发布页封面流程的三个模态浮层（PRD-PUBLISH-COVER-PREVIEW-2026-09-28 §7.5）。
+  // 裁剪弹窗与 AI 封面浮层是本次一并补登记的既有漏项 —— 同一封面行里新浮层守规矩、
+  // 旁边的不守，等于把同一个 Bug 留在原地。
+  it('发布页封面流程：放大预览 / 裁剪弹窗 / AI 封面浮层各自持唯一 owner 并成对释放', () => {
+    const cropSrc = fs.readFileSync(path.join(ROOT, 'src/components/CoverCropDialog.vue'), 'utf8')
+    const publishSrc = fs.readFileSync(path.join(ROOT, 'src/views/Publish.vue'), 'utf8')
+
+    expect(cropSrc).toMatch(/const OVERLAY_OWNER = ['"]publish-cover-crop-dialog['"]/)
+    expect(publishSrc).toMatch(/const COVER_PREVIEW_OVERLAY_OWNER = ['"]publish-cover-preview['"]/)
+    expect(publishSrc).toMatch(/const AI_COVER_OVERLAY_OWNER = ['"]publish-ai-cover-dialog['"]/)
+
+    // 逐函数取块（不用跨函数的懒惰匹配，否则锁会在实现被拆开时假绿）
+    const cropSuspend = cropSrc.match(/async function suspendOverlay \(\) \{[\s\S]*?\n\}/)
+    const cropRelease = cropSrc.match(/async function releaseOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(cropSuspend && cropSuspend[0]).toContain('await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(cropRelease && cropRelease[0]).toContain('await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(cropSrc).toMatch(/onBeforeUnmount\(\(\) => \{ releaseOverlay\(\) \}\)/)
+
+    const previewSuspend = publishSrc.match(/async function suspendCoverPreviewOverlay \(\) \{[\s\S]*?\n\}/)
+    const previewRelease = publishSrc.match(/async function releaseCoverPreviewOverlay \(\) \{[\s\S]*?\n\}/)
+    const previewClose = publishSrc.match(/async function closeCoverPreview \(\) \{[\s\S]*?\n\}/)
+    expect(previewSuspend && previewSuspend[0]).toContain('await suspendEmbeddedViewsForOverlay(COVER_PREVIEW_OVERLAY_OWNER)')
+    expect(previewRelease && previewRelease[0]).toContain('await releaseEmbeddedViewsForOverlay(COVER_PREVIEW_OVERLAY_OWNER)')
+    // 释放必须在 finally：关闭动作本身抛错不得残留挂起计数
+    expect(previewClose && previewClose[0]).toMatch(/try \{[\s\S]*?\} finally \{[\s\S]*?await releaseCoverPreviewOverlay\(\)/)
+
+    const aiSuspend = publishSrc.match(/async function suspendAiCoverOverlay \(\) \{[\s\S]*?\n\}/)
+    const aiRelease = publishSrc.match(/async function releaseAiCoverOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(aiSuspend && aiSuspend[0]).toContain('await suspendEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)')
+    expect(aiRelease && aiRelease[0]).toContain('await releaseEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)')
+
+    // 卸载兜底：两个 owner 都不得残留
+    const unmount = publishSrc.match(/onBeforeUnmount\(\(\) => \{[\s\S]*?\n\}\)/)
+    expect(unmount && unmount[0]).toContain('releaseCoverPreviewOverlay()')
+    expect(unmount && unmount[0]).toContain('releaseAiCoverOverlay()')
+
+    // 三处一律经命名常量传 owner：出现字面量即意味着有人绕过登记直接塞了个 owner
+    expect(cropSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+    expect(publishSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+  })
 })
 
 describe('弹窗互斥：WebviewManager 行为（mock）', () => {

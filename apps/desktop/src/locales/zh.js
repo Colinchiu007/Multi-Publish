@@ -1279,6 +1279,13 @@ export default {
         r43: '4:3',
       },
     },
+    coverPreview: {
+      title: '封面预览',
+      hint: '点击缩略图可放大查看',
+      ariaLabel: '放大查看封面',
+      loading: '封面加载中…',
+      unavailable: '封面预览不可用',
+    },
     schedule: '定时发布',
     scheduleHint: '留空 = 立即发布',
     aiDeclaration: '内容创作声明',
