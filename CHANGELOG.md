@@ -11,7 +11,7 @@
 
 ### 修复与证据
 - 开发入口改为 `host="127.0.0.1"`（端口 8010 保持不动，nginx 与 vite 两侧都写死它）。
-- `tests/conftest.py` 在**导入期**就把 `OPS_DB_PATH`/`OPS_CONFIG_OUTPUT_DIR` 兜底到会话级临时目录（宿主显式设置仍优先），取消「谁先导入谁定绑」这条脆弱前提；并在清库动作**开始之前**用纯谓词 `is_safe_reset_target()` 拒绝仓库内目标，违反即 `RuntimeError`（不允许「先清完再报」）。
+- `tests/conftest.py` 在**导入期**就把 `OPS_DB_PATH`/`OPS_CONFIG_OUTPUT_DIR` 兜底到会话级临时目录（宿主显式设置仍优先），**收窄**「谁先导入谁定绑」这条脆弱前提——`setdefault` 只兜住未显式赋值的模块，自己写 `OPS_DB_PATH` 的模块仍然是定绑者，所以下面那道纯谓词防线不能省；并在清库动作**开始之前**用纯谓词 `is_safe_reset_target()` 拒绝仓库内目标，违反即 `RuntimeError`（不允许「先清完再报」）。
 - 新增回归锁 `tests/test_main_dev_bind.py`（3 例）与 `tests/test_conftest_db_isolation.py`（3 例）。手法要点：前者用 `runpy.run_path(run_name="__main__")` **真跑**入口代码、只把 `uvicorn.run` 换成探针，断言它**实际收到的** host 实参；后者用**真子进程 + 从环境里弹掉 `OPS_DB_PATH`** 跑一次收集，读出 `settings.db_path` 的实际绑定结果——都不是「断言源码里出现了某个字符串」那种记录性锁。
 - 红→绿对照（修复前先跑一次，确认锁真的会红）：4 failed，报错原文含 `把库绑到了仓库内路径 …\ops-center\backend\data\config.db` 与 `'0.0.0.0' not in {'0.0.0.0', '::'}`；实现后同两文件 6 passed。
 - 真场景对照：同一条命令、同一个环境（弹掉 `OPS_DB_PATH` 单跑 `test_security_config.py`），标记行修复前 1→0、修复后 **1→1**。反证只在 worktree 自己的 `data/config.db` 上做，共享根的库全程未被指向。

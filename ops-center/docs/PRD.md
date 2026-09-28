@@ -371,7 +371,7 @@ CREATE TABLE config_group_items (
 | 配置项读取（项目配置、feature-gates） | ✅ | ✅ |
 | 配置项写入 / 批量 / 密钥写 / 快照写 | ❌ 403 | ✅ |
 
-> 说明（2026-09-29 按实现纠正）：自持登录后**唯一**的签发路径是 `auth_service.create_access_token`，其 payload 恒带 `role: "admin"`；
+> 说明（2026-09-29 按实现纠正）：自持登录后**当前唯一**的签发路径是（截至 2026-09；若将来新增其它签发方，本条与下表口径需同步重评） `auth_service.create_access_token`，其 payload 恒带 `role: "admin"`；
 > 因此下表「已登录（任意 role）」一列在当前实现下**与 admin 列等价**（不存在非 admin 的签发方）。该分级表保留为鉴权合同（`require_admin` 仍实际拦截写面），不是对现状的角色描述。
 
 **环境一致性检查语义（2026-08-09 修订）**：

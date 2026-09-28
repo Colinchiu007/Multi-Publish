@@ -34,19 +34,20 @@ def pytest_collection_finish(session):
 
 def _run_collection_probe(module_name: str) -> Path:
     """在**全新环境**（弹掉 OPS_DB_PATH）里真跑一次 pytest 收集，返回 settings.db_path。"""
-    plugin_dir = Path(tempfile.mkdtemp(prefix="ops_dbprobe_"))
-    (plugin_dir / "mp_db_probe.py").write_text(_PROBE_PLUGIN, encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="ops_dbprobe_") as tmpdir:
+        plugin_dir = Path(tmpdir)
+        (plugin_dir / "mp_db_probe.py").write_text(_PROBE_PLUGIN, encoding="utf-8")
 
-    env = os.environ.copy()
-    env.pop("OPS_DB_PATH", None)          # 模拟开发者新开 shell：没有任何库路径注入
-    env.pop("OPS_CONFIG_OUTPUT_DIR", None)
-    env["PYTHONPATH"] = str(plugin_dir) + os.pathsep + env.get("PYTHONPATH", "")
+        env = os.environ.copy()
+        env.pop("OPS_DB_PATH", None)          # 模拟开发者新开 shell：没有任何库路径注入
+        env.pop("OPS_CONFIG_OUTPUT_DIR", None)
+        env["PYTHONPATH"] = str(plugin_dir) + os.pathsep + env.get("PYTHONPATH", "")
 
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", f"tests/{module_name}",
-         "--collect-only", "-q", "-p", "mp_db_probe", "--no-header"],
-        cwd=str(BACKEND_ROOT), env=env, capture_output=True, text=True, timeout=180,
-    )
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", f"tests/{module_name}",
+             "--collect-only", "-q", "-p", "mp_db_probe", "--no-header"],
+            cwd=str(BACKEND_ROOT), env=env, capture_output=True, text=True, timeout=180,
+        )
     out = proc.stdout + proc.stderr
     hits = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("PROBE_DB_PATH=")]
     assert hits, f"探针未输出 PROBE_DB_PATH（rc={proc.returncode}）：\n{out[-2000:]}"
