@@ -1,25 +1,3 @@
-# [未发布] docs(ccg): 去 Gemini 命名收口——前端那一路不再被写成 Codex，QM-6 模型名改为读 config（2026-09-28，ccg-drop-gemini-naming）
-
-### 变更
-- `.ccg/commands/agents/team-architect.md`、`team-reviewer.md`：职责描述与示例输出里的模型名统一为「后端模型 / 前端模型」。此前工作区把 `Gemini（前端视角）` 直接改成了 `Codex（前端视角）`，而本机 `.ccg/config.toml` 的实际路由是 `backend=codex / frontend=claude`——两路同名会让「双模型交叉审查」在字面上退化成同一个模型跑两遍。
-- `.ccg/commands/spec-{impl,plan,research,review}.md`：保留既有改名 `GEMINI_PROTO_SESSION → FRONTEND_PROTO_SESSION`、`<gemini_task_id> → <frontend_task_id>`（模型无关，前端换成谁都成立）。
-- `.ccg/CLAUDE.md`：agent 索引行同步为「综合多模型审查结果」，与该文件 frontmatter 的 description 一致。
-- `AGENTS.md` QM-6：命令示例里的 `--backend claude` / `--backend opencode` 改为 `<BACKEND_PRIMARY>` / `<FRONTEND_PRIMARY>` 占位，并写明唯一真源是 `.ccg/config.toml` 的 `[routing]`、本文档不复制其值（原示例两条都与现行配置相反，照抄会跑错模型）；顺带修掉「并行启动两个**后端**模型」这句笔误。
-- 本机 `~/.claude/agents/ccg/` 两份同名文件按其原有 LF 回写为同一内容（安装副本才是实际被加载的那份）。
-
-### 根因
-仓库 `.ccg/` 是上游 `ccg-workflow` 的 vendored 快照（HEAD 版与 npm 包 v3.6.7 的 `templates/` 逐字相同）。本机安装副本于 2026-09-27 23:25 被改成通用命名，2026-09-28 12:12 又在共享根做了一次**选择性回灌**：只把措辞搬进模板、保留 `{{FRONTEND_PRIMARY}}` 占位符。回灌把安装副本里那句错字（`Codex（前端视角）`）一并带进版本控制，而本地与远程所有 ref 都不含它——改动只活在共享根工作区。
-
-### 门禁与反证
-- 行尾：三份 CRLF 文档改后 `bareLF=0`，`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等（未把 CRLF 写成 LF）。
-- 内容：`grep -rna "Codex（前端\|Codex 前端"` 在 `.ccg/`、`AGENTS.md` 均 0 命中；安装副本改前/改后行数 97/112 不变，diff 仅含改名行、无增删行。
-- QM-1 / QM-4：N/A（diff 仅 `.ccg/**` + `AGENTS.md` + 两份顶层文档）。
-- QM-6：N/A —— 纯文档/流程变更，按 AGENTS.md 不强制。
-- ⚠️ 落地时与 #2550/#2551/#2552 的前插撞车（`DIRTY`），改用「我的块字节 + 新底字节」逐字拼接解决，顺带修回 CHANGELOG 那 2 条裸 LF 行曾被脚本 `join` 写成 CRLF 的问题。已知脆弱点：`~/.claude/**/ccg/*` 是 `ccg i` 的产物，下次重装会把措辞打回上游模板的 `Gemini`；本仓 `.ccg/` 那份同理会在下次「chore(ccg): 升级」被上游模板覆盖。
-
-### 遗留
-- 刻意不在本次做的同类清扫（避免把 vendored 镜像改成大面积本地分叉）：`.ccg/engine/model-router.md`、`.ccg/hooks/skill-router.js`、`.ccg/prompts/gemini/`、`.ccg/commands-legacy/**` 仍含 Gemini 字样；`.ccg/CLAUDE.md:325` 的 `{{FRONTEND_PRIMARY}}` 默认值 `gemini` 是上游默认值，属快照事实，未改。
-
 # [未发布] fix(session-isolation): installer 支持一次性 -TaskPath，并对生产路径的 -Unregister fail closed（2026-09-28，guard-task-path）
 
 ### 变更
