@@ -18,6 +18,28 @@
 
 ---
 
+# [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
+
+### 变更
+- `apps/desktop/src/styles/cohere-design-system.css` 的 `.mp-platform-icon` 去掉无条件 `background: #f1f0ff`，改为只有 `[data-theme="dark"] .mp-platform-icon` 保留该底衬。浅色主题下图标恢复全透明、直接贴在卡片上。
+- `usePlatformIconUrl.test.js` 的底衬锁由一条无锚点子串匹配换成**按选择器精确取声明块**，并拆成两条独立断言：基础规则内**不得**出现 `background`（这是本次修的缺陷本身）、暗色作用域规则**必须**存在且含 `background`（这是当初修"黑图标隐身"的手段，不能被回退掉）。133 passed。
+
+### 根因（不是格式问题）
+- 用户反馈"图案都有灰色背景"，怀疑是透明图标没处理好。实测排除该假设：15 个 SVG 里**没有任何背景图元**（`rect/circle/ellipse/polygon/line` 计数为 0，也正是形态锁禁掉的那几种），根元素只有 `fill` ⇒ 背景本来就全透明。
+- 灰块来自**我自己加的底衬**：它当初只为解决"暗色下 `--canvas` 压深后 X / TikTok 的纯黑标隐身"，却被写成对所有主题无条件生效，于是浅色卡片上每个图标都顶着一块淡紫灰。属我的实现缺陷，不是资产缺陷。
+- 旧断言 `/\.mp-platform-icon\s*\{[^}]*background:/` 是无锚点子串匹配 —— 底衬挪进暗色作用域后它**仍然命中暗色那条规则**，所以对"浅色又长出灰块"这个回归完全免疫。这正是本仓「文本结构断言必须精确」那条 MUST 针对的形态，本轮据实改写。
+- 写测试过程中 `cssBlock` 一度把基础规则解析成 `null`：`}` 与选择器之间夹着 `/* … */` 注释，`\s*` 跨不过去。修法是先剥注释再匹配（与 SVG 侧 `svgOnly` 同一招）。
+
+### 未一并改动的不对称（如实记）
+- 文字回退分支 `.platform-icon`（`AccountManagementCard.vue:387`）仍带 `background:#f1f0ff` + `border-radius:6px`。换标后 15 个平台全部有图标 URL，该分支基本不再渲染；它的色块是"字母头像"设计本身的一部分，去掉等于改另一个视觉决策，故不动，留此记录。
+
+### 验证
+- `node --test` 等价：`pnpm exec vitest run src/composables/usePlatformIconUrl.test.js` ⇒ 133 passed / 0 failed。
+- 变异反证两格（对**已提交**基线做还原）：把 `background` 放回基础规则 ⇒ "浅色主题不得铺底衬"变红；删掉暗色作用域规则 ⇒ "暗色主题必须保留底衬"变红。两格各自精确命中目标断言，还原后复跑全绿。
+- 视觉门禁影响：本改动只动图标小面积区域的底色，远低于 CI 的全页阈值，预期不改基线；仍以 CI 产物报告为准，不以"应该过"当证据。
+
+---
+
 # [未发布] fix(模型调用): 5h 额度窗口在并发下超额发起真实调用 → 改为准入即占额度（2026-09-28，governor-quota-reserve）
 
 ### 为什么
@@ -99,6 +121,28 @@
 
 ---
 
+
+# [未发布] feat(publish): 发布进度全局反馈面板——富化进度事件 + 可最小化后台运行 + 失败落历史 + 关窗转托盘（2026-09-28，publish-progress-ux）
+
+### 变更
+- **主进程事件富化（向后兼容加法）**：新增 `electron/services/publish-progress-events.js` 单一实现——`publish:progress` payload 新增 `phase`（start/progress/success/failed/retry/blocked 生命周期双边界）/`stageKey`（9 值规范枚举，两引擎 40+ 英文阶段串封闭映射）/`percent`/`batchId`/`timestamp`/`retriesLeft`，既有字段原样保留。executor 发任务开始边界事件；`rpaViewManager.onProgress` 单槽回调改全局注册一次 + platform→taskId 路由（修 3 并发任务进度跨归属）；ApiPublisher 直连轨（bilibili/baijiahao）经 `options.onProgress` 补发进度（此前完全静默）；percent 不再在转发层丢弃。
+- **渲染层全局承载**：新增 pinia store `src/stores/publishProgress.js`（App 级一次性订阅、多会话任务列表、渲染层重载经 `queue:status` 领养孤儿任务、终态吸收、会话级「重试失败项」）+ `PublishProgressPanel.vue`（App.vue 全局挂载，右下非模态浮动卡 ↔ 最小化常驻胶囊；首次隐藏一次性 toast「发布将在后台继续进行，请勿关闭应用软件」，胶囊常驻勿关提示；状态文字+图标双通道；步骤链 准备→上传→填写→提交→校验→完成）。
+- **修复监听器毫秒级死亡 bug**：usePublishFlow/useBatchPublish 的页面级 `publish:progress` 订阅在 `finally` 无条件注销，而 `publish:batch` IPC 同步入队毫秒级返回——任务执行期间全部事件无人接收，用户只见「任务已加入队列」、不知道发布是否成功。订阅所有权上移 store；页面结果卡改由会话终态驱动（全部成功/部分失败汇总文案）。
+- **失败落历史**：`phase4-events.js` task:failed 补 `history.addRecord({status:'failed', error})`——此前失败结果在任何页面都查不到，历史页 failed 过滤器形同虚设。
+- **关窗转托盘**：`window-close-policy` 新增 `hasRunningPublish` 判据（running+queue>0）；发布运行中点 ✕ 隐藏到托盘后台继续 + Windows 气泡「发布仍在后台进行，请勿退出程序」（system-tray 新增 `showBalloon`，非 Windows 静默降级）；无任务时关窗语义不变。
+- i18n zh/en 成对新增 `publishPage.publishProgressPanel.*` 38 键 + `publishFlow.resultAllSuccess`/`resultPartial`；主 PRD §6.7 + 文件头索引 + §19.2 交叉引用；浮层通查清单补登（面板非模态显式不接入互斥合同）。
+
+### 为什么
+- 用户反馈「点击发布后不知道到了什么环节、进展如何」：进度反馈全部绑死 /publish 页面内、切页即失明。侦察实证 10 条链路缺口（监听器死亡 / percent 全链路丢弃 / API 直连轨静默 / 并发跨归属 / 阶段文案英文硬编码 / 无开始边界 / 失败不落历史 / 关窗不保护 / 频控事件纯文本），全部带路径:行号见 PRD §1。
+- 机制选型：加法式富化（不动 TaskQueue 编排语义、不动 ROUTE_TABLE、无新 IPC 通道）+ 全局 store 承载（复用 UpdateNotification/PipelineBackgroundToast 全局挂载先例）+ 托盘复用流水线方案 A 先例——零新基建。
+
+### 验证
+- 主进程：publish-stage-map 22 + publish-progress-events 18 + phase4-events 12 + window-close-policy 12 + window 新增 6 + system-tray 新增 4 + bootstrap 新增 2（含 platform→taskId 路由归属锁）全绿
+- 渲染层：publishProgress store 19 + PublishProgressPanel 11 + usePublishFlow 62（含「不再订阅」回归锁与会话终态驱动）+ useBatchPublish 55 + Publish.test 71 全绿
+- QM-1 打包 / locale sync / 视觉回归 / 全量 vitest：见 `.quality-gates.md` 本次执行记录
+- 详见 [01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) 与 [openspec/changes/publish-progress-ux](openspec/changes/publish-progress-ux)
+
+---
 # [未发布] feat(publish): 发布能力注册表——15 平台发布内容项单一真源 + 无标题平台标题入描述首行（2026-10-08，publish-capability-registry）
 
 ### 变更

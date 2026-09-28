@@ -150,4 +150,77 @@ describe('phase4-events', () => {
   })
 })
 
+describe('phase4-events — 进度事件富化契约（publish-progress-ux）', () => {
+  function wire(send) {
+    const taskQueue = new EventEmitter()
+    const history = { addRecord: vi.fn() }
+    wireTaskQueueEvents({
+      taskQueue,
+      history,
+      publishMonitor: { createMonitorTask: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+      getMainWin: () => ({ isDestroyed: () => false, webContents: { send } }),
+    })
+    return { taskQueue, history }
+  }
+
+  function progressPayloads(send) {
+    return send.mock.calls.filter((c) => c[0] === 'publish:progress').map((c) => c[1])
+  }
+
+  it('task:success → publish:progress 富化：phase=success、stageKey=done、percent=100、timestamp', () => {
+    const send = vi.fn()
+    const { taskQueue } = wire(send)
+    taskQueue.emit('task:success', {
+      id: 't-s1', platform: 'bilibili', article: { title: '富化' }, result: { url: 'https://b' }, batchId: 'batch-1',
+    })
+    const payload = progressPayloads(send).at(-1)
+    expect(payload).toEqual(expect.objectContaining({
+      platform: 'bilibili', taskId: 't-s1', stage: '✓ 发布成功',
+      phase: 'success', stageKey: 'done', percent: 100, batchId: 'batch-1',
+      result: { url: 'https://b' },
+    }))
+    expect(typeof payload.timestamp).toBe('number')
+  })
+
+  it('task:failed → 富化 phase=failed + 落发布历史（status=failed 含 error）', () => {
+    const send = vi.fn()
+    const { taskQueue, history } = wire(send)
+    taskQueue.emit('task:failed', {
+      id: 't-f1', platform: 'zhihu', owner_subject: 'user-f', article: { title: '失败标题' }, error: '平台 Cookie 缺失',
+    })
+    const payload = progressPayloads(send).at(-1)
+    expect(payload).toEqual(expect.objectContaining({
+      platform: 'zhihu', taskId: 't-f1', phase: 'failed', stageKey: 'failed', percent: 100, error: '平台 Cookie 缺失',
+    }))
+    // G8 修复：失败必须落历史（此前 task:failed 不调 addRecord，失败在任何页面不可查）
+    expect(history.addRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: 'zhihu', taskId: 't-f1', title: '失败标题', status: 'failed', error: '平台 Cookie 缺失',
+      }),
+      'user-f',
+    )
+  })
+
+  it('publish:blocked → 富化 phase=blocked、stageKey=waiting、remainingWait 透传', () => {
+    const send = vi.fn()
+    const { taskQueue } = wire(send)
+    taskQueue.emit('publish:blocked', { task: { id: 't-b1', platform: 'douyin' }, remainingWait: 240000 })
+    const payload = progressPayloads(send).at(-1)
+    expect(payload).toEqual(expect.objectContaining({
+      platform: 'douyin', taskId: 't-b1', phase: 'blocked', stageKey: 'waiting', remainingWait: 240000,
+    }))
+  })
+
+  it('task:retry → 富化 phase=retry、retriesLeft 结构化透传', () => {
+    const send = vi.fn()
+    const { taskQueue } = wire(send)
+    taskQueue.emit('task:retry', { id: 't-r1', platform: 'weibo', retriesLeft: 2 })
+    const payload = progressPayloads(send).at(-1)
+    expect(payload).toEqual(expect.objectContaining({
+      platform: 'weibo', taskId: 't-r1', phase: 'retry', stageKey: 'waiting', retriesLeft: 2,
+    }))
+  })
+})
+
 

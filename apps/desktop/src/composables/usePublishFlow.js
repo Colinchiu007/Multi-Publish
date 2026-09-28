@@ -14,7 +14,7 @@
  *   - selectedAccounts: ref<{[platformId]: accountId}>
  *   - precheckEnabled: ref<boolean>
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import i18n from '@/i18n'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from './useLoginGate'
@@ -22,7 +22,6 @@ import { useNotify } from './useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import {
   publishBatch,
-  onProgress,
   sensitiveCheck,
   offlineStatus,
   offlineAddToCache,
@@ -45,6 +44,7 @@ import {
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
 import { getPlatformOverrideFields } from '@multi-publish/shared-utils/src/publish-capabilities'
+import { usePublishProgressStore } from '@/stores/publishProgress'
 
 const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
 const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
@@ -168,6 +168,44 @@ export function usePublishFlow(options) {
   const activeScheduleIds = ref([])
   let precheckInitialized = false
   let loadingPrecheckPreference = false
+
+  // publish-progress-ux：进度状态由全局 store 承载（App 级订阅，不随本组件卸载死亡）。
+  // 本 composable 只做两件事：IPC 返回后登记会话；watch 会话终态驱动页面结果卡。
+  const publishProgressStore = usePublishProgressStore()
+
+  /** 当前发布动作对应的 store 会话（按 activeTaskIds 归属） */
+  const activeSession = computed(() => {
+    const ids = activeTaskIds.value
+    if (!ids || ids.length === 0) return null
+    return publishProgressStore.sessions.find(
+      (s) => ids.some((id) => Object.prototype.hasOwnProperty.call(s.tasks, id)),
+    ) || null
+  })
+
+  // 会话终态 → 页面结果卡 + 时间线汇总条目（修复「用户不知道发布是否成功」的页面呈现）
+  watch(() => activeSession.value && activeSession.value.status, (status) => {
+    if (!status || status !== 'done') return
+    const session = activeSession.value
+    const tasks = Object.values(session.tasks)
+    const succeeded = tasks.filter((t) => t.phase === 'success').length
+    const failed = tasks.filter((t) => t.phase === 'failed').length
+    const firstUrl = tasks.find((t) => t.phase === 'success' && t.result && typeof t.result.url === 'string' && t.result.url)
+    if (failed === 0) {
+      result.value = {
+        success: true,
+        message: progressText('publishPage.publishFlow.resultAllSuccess', { count: succeeded }),
+        url: (firstUrl && firstUrl.result.url) || '',
+      }
+      addProgress(result.value.message, 'success')
+    } else {
+      result.value = {
+        success: false,
+        message: progressText('publishPage.publishFlow.resultPartial', { succeeded, failed }),
+        url: '',
+      }
+      addProgress(result.value.message, 'danger')
+    }
+  })
 
   watch(precheckEnabled, value => {
     if (!precheckInitialized || loadingPrecheckPreference) return
@@ -380,9 +418,6 @@ export function usePublishFlow(options) {
     result.value = null
     activeTaskIds.value = []
     activeScheduleIds.value = []
-    let off
-    const doneTaskIds = new Set()
-    let taskTotal = 0
 
     try {
       // 敏感词预检
@@ -436,23 +471,9 @@ export function usePublishFlow(options) {
         return
       }
 
-      off = onProgress(function (data) {
-        addProgress(progressText('publishPage.batchNotify.progressStage', { platform: data.platform, stage: data.stage }))
-        // 后台任务结果实时回填（task:success / task:failed），全部完成才注销监听
-        if (!data.taskId || !data.stage) return
-        const isFinal = data.stage.indexOf('✓') === 0 || data.stage.indexOf('✗') === 0
-        if (!isFinal) return
-        doneTaskIds.add(data.taskId)
-        if (data.stage.indexOf('✓') === 0) {
-          result.value = { success: true, message: progressText('publishPage.publishFlow.publishSuccessMessage', { platform: data.platform }), url: (data.result && data.result.url) || '' }
-        } else {
-          result.value = { success: false, message: data.platform + ' ' + data.stage, url: '' }
-        }
-        if (taskTotal > 0 && doneTaskIds.size >= taskTotal && typeof off === 'function') {
-          off()
-        }
-      })
-
+      // publish-progress-ux：本地进度监听已删除（原 finally 无条件 off() 使监听器在
+      // IPC 毫秒级返回后即死亡——任务执行期间全部事件无人接收，用户不知道发布是否成功）。
+      // 进度事件由全局 store 的 App 级订阅接收；此处只登记会话。
       addProgress(progressText('publishPage.publishFlow.publishTargets', { count: targets.length }), 'info')
       const payload = toPlainJson({ targets, data })
       const res = await publishBatch(payload.targets, payload.data)
@@ -460,10 +481,14 @@ export function usePublishFlow(options) {
         activeTaskIds.value = Array.isArray(res.data && res.data.taskIds)
           ? res.data.taskIds.slice()
           : []
-        taskTotal = activeTaskIds.value.length
-        const count = taskTotal || ''
+        const count = activeTaskIds.value.length
         addProgress(progressText('publishPage.publishFlow.taskAdded', { count }), 'success')
         result.value = { success: true, message: res.message || progressText('publishPage.publishFlow.taskQueued'), url: '' }
+        // 登记进全局进度 store：全局面板自动展开、跨路由持续跟踪、终态驱动上方 watch
+        publishProgressStore.registerSession({
+          taskIds: activeTaskIds.value,
+          title: (data && data.title) || article.title || '',
+        })
       } else {
         const message = formatUserError(res, { fallback: progressText('publishPage.publishFlow.publishFailedTitle') }).message
         addProgress(progressText('publishPage.publishFlow.publishFailedProgress', { message }), 'danger')
@@ -477,7 +502,6 @@ export function usePublishFlow(options) {
       await notifyFailure(progressText('publishPage.publishFlow.publishErrorTitle'), message)
     } finally {
       publishing.value = false
-      if (typeof off === 'function') off()
     }
   }
 

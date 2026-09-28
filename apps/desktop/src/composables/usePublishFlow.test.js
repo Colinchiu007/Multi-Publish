@@ -74,9 +74,23 @@ vi.mock('element-plus', function () {
   }
 })
 
+// publish-progress-ux：全局进度 store mock（reactive 使 composable 的 watch 能触发）
+const mockRegisterSession = vi.hoisted(() => vi.fn())
+vi.mock('@/stores/publishProgress', async () => {
+  const { reactive } = await import('vue')
+  const store = reactive({
+    sessions: [],
+    panelVisible: false,
+    panelMinimized: false,
+    registerSession: mockRegisterSession,
+  })
+  return { usePublishProgressStore: () => store }
+})
+
 import { reactive, ref } from 'vue'
 import i18n from '@/i18n'
 import { usePublishFlow } from '../composables/usePublishFlow'
+import { usePublishProgressStore } from '@/stores/publishProgress'
 
 describe('usePublishFlow — composable setup', () => {
   let article
@@ -91,6 +105,7 @@ describe('usePublishFlow — composable setup', () => {
     selectedPlatforms = { value: ['wechat_mp'] }
     selectedAccounts = { value: { wechat_mp: 'acc1' } }
     precheckEnabled = { value: false }
+    usePublishProgressStore().sessions = []
 
     // 默认成功响应
     mockOnProgress.mockReturnValue(function () {})
@@ -755,30 +770,86 @@ describe('usePublishFlow — composable setup', () => {
     expect(r.publishing.value).toBe(false)
   })
 
-  it('发布成功后只释放一次进度订阅', async () => {
-    const unsubscribe = vi.fn()
-    mockOnProgress.mockReturnValueOnce(unsubscribe)
+  it('publish-progress-ux：不再订阅页面级 onProgress（监听器死亡 bug 回归锁）', async () => {
+    // 旧缺陷：本地监听器在 finally 无条件 off()，而 publishBatch IPC 毫秒级返回——
+    // 任务执行期间全部进度/成败事件无人接收，用户不知道发布是否成功。
+    // 新契约：订阅所有权上移全局 store，页面 composable 零订阅。
     const r = createFlow()
     article.title = '标题'
     article.content = '正文'
 
     await r.handlePublish()
 
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(mockOnProgress).not.toHaveBeenCalled()
   })
 
-  it('发布抛错后仍只释放一次进度订阅', async () => {
-    const unsubscribe = vi.fn()
-    mockOnProgress.mockReturnValueOnce(unsubscribe)
-    mockPublishBatch.mockRejectedValueOnce(new Error('IPC 不可用'))
+  it('publish-progress-ux：publishBatch 成功后登记全局会话（taskIds + 标题）', async () => {
+    mockPublishBatch.mockResolvedValueOnce({ code: 0, data: { taskIds: ['t1', 't2'] }, message: 'ok' })
     const r = createFlow()
-    article.title = '标题'
+    article.title = '会话标题'
     article.content = '正文'
 
     await r.handlePublish()
 
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-    expect(r.result.value).toEqual({ success: false, message: 'IPC 不可用' })
+    expect(mockRegisterSession).toHaveBeenCalledTimes(1)
+    expect(mockRegisterSession).toHaveBeenCalledWith(expect.objectContaining({
+      taskIds: ['t1', 't2'],
+      title: '会话标题',
+    }))
+    expect(r.activeTaskIds.value).toEqual(['t1', 't2'])
+  })
+
+  it('publish-progress-ux：会话终态驱动结果卡（全部成功）', async () => {
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+    await r.handlePublish()
+    expect(r.result.value.success).toBe(true) // 入队确认（终态由会话 watch 驱动）
+
+    // 模拟全局 store 会话终态：t1 成功
+    const { usePublishProgressStore } = await import('@/stores/publishProgress')
+    const store = usePublishProgressStore()
+    store.sessions = [{
+      id: 's-1', batchId: null, title: '标题', status: 'done', finishedAt: Date.now(),
+      tasks: {
+        t1: { taskId: 't1', platform: 'wechat_mp', phase: 'success', stageKey: 'done', stage: '✓ 发布成功', percent: 100, result: { url: 'https://article' }, error: null, remainingWait: null, retriesLeft: null, startedAt: 1, endedAt: 2, lastEventAt: 2 },
+      },
+      taskOrder: ['t1'],
+      log: [],
+    }]
+    await nextTick()
+    await nextTick()
+
+    expect(r.result.value.success).toBe(true)
+    expect(r.result.value.message).toBe('发布完成：1 个平台全部成功')
+    expect(r.result.value.url).toBe('https://article')
+    expect(r.progress.value.at(-1).text).toBe('发布完成：1 个平台全部成功')
+    expect(r.progress.value.at(-1).type).toBe('success')
+  })
+
+  it('publish-progress-ux：会话终态驱动结果卡（部分失败）', async () => {
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+    await r.handlePublish()
+
+    const { usePublishProgressStore } = await import('@/stores/publishProgress')
+    const store = usePublishProgressStore()
+    store.sessions = [{
+      id: 's-2', batchId: null, title: '标题', status: 'done', finishedAt: Date.now(),
+      tasks: {
+        t1: { taskId: 't1', platform: 'wechat_mp', phase: 'success', stageKey: 'done', stage: '✓ 发布成功', percent: 100, result: { url: '' }, error: null, remainingWait: null, retriesLeft: null, startedAt: 1, endedAt: 2, lastEventAt: 2 },
+        t2: { taskId: 't2', platform: 'zhihu', phase: 'failed', stageKey: 'failed', stage: '✗ 发布失败: 超时', percent: 100, result: null, error: '超时', remainingWait: null, retriesLeft: null, startedAt: 1, endedAt: 2, lastEventAt: 2 },
+      },
+      taskOrder: ['t1', 't2'],
+      log: [],
+    }]
+    await nextTick()
+    await nextTick()
+
+    expect(r.result.value.success).toBe(false)
+    expect(r.result.value.message).toBe('发布完成：1 个成功，1 个失败')
+    expect(r.progress.value.at(-1).type).toBe('danger')
   })
 
   it('只透传有实际差异内容的平台覆盖项', async () => {

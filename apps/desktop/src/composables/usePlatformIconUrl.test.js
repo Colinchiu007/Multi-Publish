@@ -189,7 +189,33 @@ describe('图标底衬接线合同', () => {
     expect(withIconGuard.length).toBeGreaterThanOrEqual(6)
   })
 
+  // 按选择器精确取声明块：旧断言 `\.mp-platform-icon\s*\{[^}]*background:` 是无锚点子串匹配，
+  // 一旦底衬挪进 `[data-theme="dark"] .mp-platform-icon {…}` 它就仍然命中 —— 于是"浅色主题
+  // 又长出灰方块"这个真回归能完整绕过它（2026-09-29 用户反馈即此形态）。
+  function cssBlock (selector) {
+    // 必须先剥注释：`}` 与选择器之间常夹着 /* … */ 说明块，靠 `\s*` 跨不过去，
+    // 于是基础规则会被解析成 null（实测踩过一次，症状是"断言红但看起来像代码写错了"）。
+    const css = designSystemCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const m = new RegExp('(?:^|\\})\\s*' + esc + '\\s*\\{([^}]*)\\}').exec(css)
+    return m ? m[1] : null
+  }
+
+  it('浅色主题不得给图标铺实心底衬（用户反馈的"灰色背景"就是它）', () => {
+    const base = cssBlock('.mp-platform-icon')
+    expect(base, '全局样式里必须存在 .mp-platform-icon 基础规则').not.toBeNull()
+    expect(base).not.toMatch(/background/)
+    // 保留尺寸无关职责：本类只管底衬，几何仍归调用点
+    expect(base).toMatch(/object-fit\s*:\s*contain/)
+  })
+
+  it('暗色主题必须保留浅底衬，否则 X / TikTok 的纯黑标会隐身', () => {
+    const dark = cssBlock('[data-theme="dark"] .mp-platform-icon')
+    expect(dark, '暗色作用域的底衬规则不能删——它是当初修黑图标隐身的唯一手段').not.toBeNull()
+    expect(dark).toMatch(/background\s*:/)
+  })
+
   it('底衬定义在全局样式里，不是各组件各抄一份', () => {
-    expect(designSystemCss).toMatch(/\.mp-platform-icon\s*\{[^}]*background:/)
+    expect(designSystemCss).toMatch(/\.mp-platform-icon\s*\{[^}]*\}/)
   })
 })
