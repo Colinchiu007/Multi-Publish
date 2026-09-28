@@ -602,29 +602,15 @@
     @success="onCoverCropSuccess"
     @error="onCoverCropError"
   />
-  <!-- 封面放大预览（PRD-PUBLISH-COVER-PREVIEW §5.3）：与缩略图、裁剪弹窗共用同一封面真源 -->
-  <UiModal
-    v-if="showCoverPreview"
+  <!-- 封面放大预览（PRD-PUBLISH-COVER-PREVIEW §5.3）：与缩略图、裁剪弹窗共用同一封面真源。
+       挂起/释放、文件名与原始尺寸都在组件内部，本视图只持有「开合」这一个状态。 -->
+  <CoverPreviewDialog
     :visible="showCoverPreview"
-    :title="t('publishPage.coverPreview.title')"
-    size="xl"
-    test-id="cover-preview-dialog"
-    :close-on-esc="true"
-    @close="closeCoverPreview"
-  >
-    <div class="cover-preview-body">
-      <img
-        v-if="coverPreviewUrl"
-        data-testid="cover-preview-image"
-        class="cover-preview-image"
-        :src="coverPreviewUrl"
-        :alt="t('publishPage.coverPreview.title')"
-        @load="onCoverPreviewLoad"
-      >
-      <div v-else class="cover-preview-empty">{{ coverPreviewError || t('publishPage.coverPreview.unavailable') }}</div>
-      <p v-if="coverPreviewMeta" class="cover-preview-meta">{{ coverPreviewMeta }}</p>
-    </div>
-  </UiModal>
+    :data-url="coverPreviewUrl"
+    :error="coverPreviewError"
+    :path="article.cover_path"
+    @close="showCoverPreview = false"
+  />
   <!-- P2-2：AI 封面生成对话框（复用 asset-generator 生图引擎） -->
   <div v-if="showAiCoverDialog" class="ai-cover-overlay" data-testid="ai-cover-dialog">
     <div class="ai-cover-modal">
@@ -694,7 +680,7 @@ import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
 import CoverCropDialog from '@/components/CoverCropDialog.vue'
 import CoverThumbnail from '@/components/CoverThumbnail.vue'
-import UiModal from '@/components/UiModal.vue'
+import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
 import { useCoverPreview } from '@/composables/useCoverPreview'
 import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
@@ -912,80 +898,20 @@ function onCoverCropError (message) {
 // ─── 封面缩略图与放大预览（01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md）───
 // 预览挂在 article.cover_path 上，而不是挂在各按钮回调上：封面有五个写入口
 // （提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上才不会漏接线。
-const COVER_PREVIEW_OVERLAY_OWNER = 'publish-cover-preview'
 const {
   dataUrl: coverPreviewUrl,
   error: coverPreviewError,
   loading: coverPreviewLoading,
 } = useCoverPreview(() => article.cover_path)
+// 开合状态留在本视图；「换封面即收起」与内嵌视图挂起/释放都在 CoverPreviewDialog 内部按 visible 收敛。
 const showCoverPreview = ref(false)
-const coverPreviewSize = ref(null)
-let coverPreviewHeld = false
 
-async function suspendCoverPreviewOverlay () {
-  if (coverPreviewHeld) return
-  coverPreviewHeld = true
-  try {
-    await suspendEmbeddedViewsForOverlay(COVER_PREVIEW_OVERLAY_OWNER)
-  } catch (_) {
-    coverPreviewHeld = false
-  }
-}
-
-async function releaseCoverPreviewOverlay () {
-  if (!coverPreviewHeld) return
-  coverPreviewHeld = false
-  await releaseEmbeddedViewsForOverlay(COVER_PREVIEW_OVERLAY_OWNER)
-}
-
-// 内嵌 WebContentsView 是压在渲染 DOM 之上的原生图层，z-index 无效：
-// 放大弹窗打开前必须先挂起，否则会被浏览器/登录标签整块盖住。
-async function openCoverPreview () {
+function openCoverPreview () {
   if (!coverPreviewUrl.value) return
-  coverPreviewSize.value = null
-  await suspendCoverPreviewOverlay()
   showCoverPreview.value = true
 }
 
-async function closeCoverPreview () {
-  try {
-    showCoverPreview.value = false
-  } finally {
-    // 释放挂起一律走 finally（AGENTS.md overlay 合同），关闭动作本身抛错不得残留计数
-    await releaseCoverPreviewOverlay()
-  }
-}
-
-const coverPreviewFileName = computed(() => {
-  const raw = String(article.cover_path || '')
-  if (!raw) return ''
-  const parts = raw.split(/[\\/]/)
-  return parts[parts.length - 1] || raw
-})
-
-const coverPreviewMeta = computed(() => {
-  const bits = []
-  if (coverPreviewFileName.value) bits.push(coverPreviewFileName.value)
-  if (coverPreviewSize.value) bits.push(`${coverPreviewSize.value.width}×${coverPreviewSize.value.height}`)
-  return bits.join(' · ')
-})
-
-function onCoverPreviewLoad (event) {
-  const width = event?.target?.naturalWidth
-  const height = event?.target?.naturalHeight
-  coverPreviewSize.value = width && height ? { width, height } : null
-}
-
-// 换封面时收起放大弹窗：弹窗里的图必须等于真源，
-// 让用户确认一张已被替换的旧图比没有预览更糟。
-watch(() => article.cover_path, () => {
-  if (showCoverPreview.value) closeCoverPreview()
-})
-
-onBeforeUnmount(() => {
-  releaseCoverPreviewOverlay()
-  releaseAiCoverOverlay()
-})
+onBeforeUnmount(releaseAiCoverOverlay)
 
 async function handleExtractVideoCover () {
   if (!article.video_path) return
@@ -1524,10 +1450,6 @@ defineExpose({
 .publish-media-upload { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .media-upload-trigger { min-height: 32px; padding: 5px 12px; border: 1px solid #d9dce8; border-radius: 6px; background: var(--color-bg-card); color: #4d5574; font-size: var(--font-size-xs); cursor: pointer; }
 .media-upload-trigger:hover { border-color: #5048e5; color: #5048e5; }
-.cover-preview-body { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.cover-preview-image { max-width: 100%; max-height: 70vh; object-fit: contain; background: #1f2126; border-radius: 6px; }
-.cover-preview-empty { padding: 32px 12px; color: var(--color-danger, #d93025); font-size: var(--font-size-sm); }
-.cover-preview-meta { margin: 0; color: var(--muted, #73777d); font-size: var(--font-size-xs); word-break: break-all; text-align: center; }
 .publish-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .publish-metadata-grid > div { min-width: 0; }
 

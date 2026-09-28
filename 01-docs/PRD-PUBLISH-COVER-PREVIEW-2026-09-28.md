@@ -3,7 +3,7 @@
 > **立项日期**：2026-09-28
 > **状态**：已实现（本 PR）
 > **关联**：`01-docs/PRD.md` §「视频上传区交互合同（2026-09-28）」的续篇；`01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md`（浮层互斥合同）
-> **代码位置**：`apps/desktop/src/composables/useCoverPreview.js`、`apps/desktop/src/views/Publish.vue`、`apps/desktop/src/components/CoverCropDialog.vue`
+> **代码位置**：`apps/desktop/src/composables/useCoverPreview.js`（取数与竞态）、`apps/desktop/src/components/CoverThumbnail.vue`（缩略图三态）、`apps/desktop/src/components/CoverPreviewDialog.vue`（放大弹窗）、`apps/desktop/src/views/Publish.vue`（接线）、`apps/desktop/src/components/CoverCropDialog.vue`（改为复用同一 composable）
 
 ---
 
@@ -159,13 +159,17 @@
                               │                        （文件名行仍在）
                      单击 / Enter / Space
                               │
+                    visible = true（父视图只改这一个状态）
+                              │
                    挂起内嵌视图(publish-cover-preview)
                               │
                      打开 UiModal 放大查看
                               │
               × / 遮罩 / Esc / 封面路径又变化
                               │
-                   finally 释放内嵌视图挂起 → 关闭
+                     emit close → visible = false
+                              │
+                   释放内嵌视图挂起（组件销毁另有兜底）
 ```
 
 ## 7. 数据校验与安全
@@ -197,13 +201,20 @@
 
 放大弹窗是应用级居中模态，而内嵌 `WebContentsView`（浏览器/登录标签）是压在渲染 DOM 之上的原生图层，CSS z-index 对其无效。因此必须经 `useEmbeddedViewSuspension` 挂起/恢复：
 
-| owner | 归属浮层 | 本次 |
-|---|---|---|
-| `publish-cover-preview` | 新增的封面放大弹窗 | 新增 |
-| `publish-cover-crop-dialog` | `CoverCropDialog`（同封面行的裁剪弹窗） | 补登记（既有漏项） |
-| `publish-ai-cover-dialog` | 发布页 AI 生成封面浮层（`position: fixed; inset: 0`） | 补登记（既有漏项） |
+| owner | 归属浮层 | 归属文件 | 本次 |
+|---|---|---|---|
+| `publish-cover-preview` | 新增的封面放大弹窗 | `components/CoverPreviewDialog.vue` | 新增 |
+| `publish-cover-crop-dialog` | `CoverCropDialog`（同封面行的裁剪弹窗） | `components/CoverCropDialog.vue` | 补登记（既有漏项） |
+| `publish-ai-cover-dialog` | 发布页 AI 生成封面浮层（`position: fixed; inset: 0`） | `views/Publish.vue` | 补登记（既有漏项） |
 
-口径：owner 唯一、suspend/release 成对、释放一律走 `finally`、不得复用他人 owner（否则 ref-count 会吞掉别人的释放）。三者在 `apps/desktop/src/overlay-view-suspension.test.js` 各登记一条接入断言。
+口径：owner 唯一、suspend/release 成对、不得复用他人 owner（否则 ref-count 会吞掉别人的释放）。三者在 `apps/desktop/src/overlay-view-suspension.test.js` 各登记一条接入断言。
+
+**释放的两种成立形态**（AGENTS.md 原文写的是「释放走 `finally`」，此处按实现如实区分，不是放宽）：
+
+- **状态驱动型**（本次三个 owner 全部属于这一型）：owner 挂在浮层的持有组件上，`watch(visible)` 一个出口收开合 —— `true` 挂起、`false` 释放，再加 `onBeforeUnmount` 兜底（覆盖「父组件直接 `v-if` 掉本组件 / 路由切走，`visible` 不经过 `false`」这条路径）。这两条并起来是穷尽的：关闭动作本身只是置一个 ref 或 `emit('close')`，没有任何可抛的 `await` 夹在中间，所以不需要 `try/finally`；**但少了 `onBeforeUnmount` 就是残留挂起计数**，结构锁逐条点名。
+- **控制流型**（既有先例 `account-cloud-sync-dialog`）：释放在函数体内发生、其后还有语句（关闭时先 `unsubscribeProgress()` 再释放），必须 `try/finally`。
+
+判据：新登记 owner 时先问「释放是状态出口还是控制流中间步」，后者才要求 `finally`；把前者硬写成 `finally` 反而要人为造一个可抛点。
 
 ### 7.5.1 home-shell 内嵌实例必须跳过挂起（本次实测发现并修复）
 
@@ -268,7 +279,7 @@
 | 单元 | `apps/desktop/src/composables/useCoverPreview.test.js` | §4.2 全部规则逐条 + §4.3 竞态（用受控 promise 手动放行旧请求，断言其结果被丢弃）+ 导出完整性断言 |
 | 组件 | `apps/desktop/src/views/Publish.test.js`（扩展 12 例） | 五个入口写入后缩略图 src 更新（含入口 5 走 `loadDraft` 真实路径）；点击开合；键盘触发；失败降级；删除清空；视频与图文两个封面行各自可达 |
 | 组件 | `apps/desktop/src/components/CoverCropDialog.test.js`（回归） | 改为复用 composable 后行为不变（成功出图 / `code:1` 出错误态） |
-| 结构 | `apps/desktop/src/overlay-view-suspension.test.js`（扩展） | 三个 owner 各一条接入断言，含「release 走 finally」 |
+| 结构 | `apps/desktop/src/overlay-view-suspension.test.js`（扩展） | 三个 owner 各一条接入断言：按**逐函数取块**读源码，断言挂起/释放成对、owner 走命名常量、`watch(visible)` 收开合、`onBeforeUnmount` 兜底在位 |
 | 结构 | `apps/desktop/src/index.test.js`（回归） | CSP 未被放宽 |
 | 视觉 | QM-4 | 发布页缩略图为动态内容（取决于用户选的封面），**不得**新增像素基线用例；仅跑既有核心视图像素回归确认无布局回归 |
 
@@ -284,6 +295,8 @@ E2E 既有契约不得破坏：`tests/e2e/one-click-publish-e2e.js` 与 `real-vi
 | 不加体积门禁 | §9 实测 | 主进程 `maxBytes`（连带 preload bundle 重建 + QM-1 打包，收益为零） |
 | 失败态保留占位框 + 文件名 | 消除「以为没设置上」的重复点击 | 失败即隐藏整块 |
 | 一并补登记裁剪弹窗与 AI 封面浮层的挂起 | 同一封面流程的三个模态必须一致，否则新浮层守规矩、旁边的不守 | 只给自己新增的弹窗加 |
+| 放大弹窗抽为 `CoverPreviewDialog.vue`（初版原写在 `Publish.vue` 内） | 债务门禁 `LEDGER_GREW` 实测拦下：`Publish.vue` 登记值 1333、容差 200，本次接线后到 1608（膨胀 276）。拆分后 1530 行回到容差内，且与旁边的 `CoverCropDialog.vue` 同构 | 用 `--update` 抬基线 —— `check-max-lines.js` 明确「不抬高已有登记值，存量膨胀交给 `LEDGER_GREW` 判定而不是悄悄改基线」，`--update --rewrite` 更会掩盖别人的漂移 |
+| 拆分后释放改为状态驱动（`watch(visible)` + `onBeforeUnmount`），不再 `try/finally` | 见 §7.5：关闭只是 `emit('close')`，中间没有可抛的 `await`；owner 随组件走才能真正成对 | 保留 `finally` 形态 ⇒ 释放逻辑留在父视图，`Publish.vue` 回不到容差内 |
 | 不预览远程 `cover_url` | 避免可追踪信标与 `http` 破图 | 直接 `<img :src="cover_url">` |
 
 ## 13. 外部评审处置记录（QM-6，2026-09-28）

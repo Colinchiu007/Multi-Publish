@@ -95,7 +95,7 @@
 
 ### Requirement: 封面流程的模态浮层必须挂起内嵌视图
 
-内嵌 `WebContentsView` 是压在渲染 DOM 之上的原生图层，CSS z-index 对其无效。发布页封面流程中的每个应用级模态 SHALL 各持唯一 owner 经 `useEmbeddedViewSuspension` 挂起与恢复：`publish-cover-preview`、`publish-cover-crop-dialog`、`publish-ai-cover-dialog`。释放 SHALL 走 `finally`，组件卸载 SHALL 兜底释放，且 SHALL NOT 复用其它浮层的 owner。
+内嵌 `WebContentsView` 是压在渲染 DOM 之上的原生图层，CSS z-index 对其无效。发布页封面流程中的每个应用级模态 SHALL 各持唯一 owner 经 `useEmbeddedViewSuspension` 挂起与恢复：`publish-cover-preview`（归 `CoverPreviewDialog.vue`）、`publish-cover-crop-dialog`（归 `CoverCropDialog.vue`）、`publish-ai-cover-dialog`（归 `Publish.vue`）。owner SHALL NOT 以字面量塞进调用点（必须经命名常量）。释放 SHALL 被**穷尽保证**，成立形态按实现方式二选一：浮层由 `visible` 状态驱动时，`watch(visible)` 的开合两分支 SHALL 分别挂起与释放，且组件卸载 SHALL 兜底释放（覆盖父组件直接 `v-if` 掉本组件、`visible` 不经过 `false` 的路径）；释放在函数体内发生且其后还有语句时，SHALL 走 `finally`。
 
 守卫 SHALL 落在 `useEmbeddedViewSuspension` 本身而非各浮层调用点：主进程任一时刻只让活动标签视图可见，因此内嵌主页实例内的模态不会被别的视图盖住，而「隐藏全部视图」反而会隐藏它自己。
 

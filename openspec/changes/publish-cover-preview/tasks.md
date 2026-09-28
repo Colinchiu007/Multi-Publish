@@ -11,7 +11,7 @@
 - [x] `src/composables/useCoverPreview.test.js`（新增 17 例）：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、竞态两类（迟到成功 / 迟到失败）、卸载后不写状态、`reload()`
 - [x] `src/views/Publish.test.js` 新增「封面缩略图与放大预览」12 例：提取与 AI 生成两入口写入即出图、草稿恢复（入口 5）经 `loadDraft` 真实路径出图、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效
 - [x] `src/views/Publish.test.js` 夹具同步：两处 `electronAPI` 块补 `readCoverData` 与 `pageManager.{suspend,resume}EmbeddedViews`；`stubs` 补 `teleport: true`（`UiModal` Teleport 到 body，否则取不到弹窗节点）
-- [x] `src/overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配；断言释放走 `finally`、卸载兜底、不得以字面量塞 owner）
+- [x] `src/overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配；断言 `watch(visible)` 开合成对、`onBeforeUnmount` 兜底在位、不得以字面量塞 owner）
 - [x] `src/components/CoverCropDialog.test.js` 作为复用后回归（未降低断言强度）
 
 ## 3. 实现
@@ -19,7 +19,7 @@
 - [x] `src/composables/useCoverPreview.js`（新增）：`cover:read-data` 剥信封唯一实现 + 自增序号竞态守卫 + `onScopeDispose` 作废在途 + `unavailableKey` 可选措辞
 - [x] `src/components/CoverThumbnail.vue`（新增）：144×81、`object-fit: cover`、`cursor: zoom-in`、三态互斥、`role=button` + `tabindex=0` + Enter/Space、失败态保留占位框并挂 `title`
 - [x] `src/views/Publish.vue`：`useCoverPreview(() => article.cover_path)` 单实例；视频与图文两个封面行各插入 `CoverThumbnail`（`el-upload` 兄弟节点，图文侧刻意不加 flex 包裹层）；`UiModal` 放大预览（文件名 + 原始尺寸）；预览中换封面自动收起
-- [x] `src/views/Publish.vue`：浮层互斥 owner `publish-cover-preview` 与 `publish-ai-cover-dialog`，释放走 `finally` + `onBeforeUnmount` 兜底
+- [x] `src/views/Publish.vue`：浮层互斥 owner `publish-cover-preview` 与 `publish-ai-cover-dialog`；预览的挂起/释放后随组件迁入 `CoverPreviewDialog.vue`（见 §7），AI 封面浮层仍由本视图按 `watch` + `onBeforeUnmount` 成对释放
 - [x] `src/components/CoverCropDialog.vue`：改用 `useCoverPreview`（删除内部重复的剥信封实现与命令式 `loadImage()`），补 owner `publish-cover-crop-dialog`，`previewUrl` 变化时复位 `imgNatural`
 - [x] `src/locales/{zh,en}.js`：`publishPage.coverPreview.{title,hint,ariaLabel,loading,unavailable}` 成对新增，插在 `coverCrop` 之后保持行位对称
 

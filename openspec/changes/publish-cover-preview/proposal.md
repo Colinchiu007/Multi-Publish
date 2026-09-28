@@ -15,7 +15,7 @@
 - **新增 `apps/desktop/src/composables/useCoverPreview.js`**：把「本地绝对路径 → dataURL」的剥信封（`res.data.dataUrl || res.dataUrl`）收敛为**唯一实现**，并带自增序号**竞态守卫**（迟到的旧响应必须整段丢弃）。
 - **`CoverCropDialog.vue` 改为复用该 composable**，删除其内部那份重复的剥离实现；命令式 `loadImage()` 由「路径 getter 带上 `visible`」等价替代。
 - **新增 `apps/desktop/src/components/CoverThumbnail.vue`**：144×81 缩略图，三态互斥（加载中 / 有图 / 读取失败），`role=button` + `tabindex=0` + Enter/Space 可达。
-- **封面放大预览**：`UiModal`（`size="xl"` + `close-on-esc`）+ 原生 `<img>`，显示文件名与原始像素尺寸；预览打开期间换封面必须收起弹窗。
+- **封面放大预览**：独立组件 `CoverPreviewDialog.vue`，内部用 `UiModal`（`size="xl"` + `close-on-esc`）+ 原生 `<img>`，显示文件名与原始像素尺寸；预览打开期间换封面必须收起弹窗。
 - **视频与图文两个封面行都接入**，共用同一份 composable 实例与同一个弹窗节点。
 - **浮层互斥合同补登记三个 owner**：`publish-cover-preview`（新增）、`publish-cover-crop-dialog` 与 `publish-ai-cover-dialog`（后两者是同一封面流程的**既有漏项**，一并补上）。
 
