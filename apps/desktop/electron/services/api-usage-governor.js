@@ -389,25 +389,36 @@ class ApiUsageGovernor {
    * 额度窗口准入。按请求次数计的窗口做**原子的检查并预留**：判定通过的同一时刻即 used += 1，
    * 因此并发在途请求读到的一定是已含自己的计数，第 limit+1 个起根本不会去执行真实调用。
    * 按 token 数计的窗口无法预扣（成本未知），保持只读预检 + 事后记账。
+   *
+   * 必须分两遍：第一遍只做判定、第二遍统一提交。逐窗口「边检查边 +1」会在后面的窗口判满时抛错，
+   * 而预留凭据此刻还没返回给调用方（调用方只在 _executeWithRetry 失败时归还），前面窗口已经 +1
+   * 的那几份就**永久泄漏**——配了多个窗口的 provider 会让宽窗白吃额度。
    * @returns {Array<{win: object, startedAt: number}>} 本次调用拿到的预留凭据（按窗口代次）
    */
   _reserveTokenBudget(key, st) {
     const windows = this._usageWindows(key, st)
-    const reservations = []
-    if (!windows || windows.length === 0) return reservations
+    if (!windows || windows.length === 0) return []
     const now = Date.now()
+    // 第一遍：纯判定，不修改任何窗口状态
+    const plans = []
     for (const win of windows) {
       const isRequests = win.field === 'requests'
-      if (now - win.startedAt >= win.windowMs) {
-        // 过期窗口：requests 由准入自己重置（否则永不计数）；token 类留给记账路径重置
-        if (!isRequests) continue
-        win.used = 0
-        win.startedAt = now
-      }
-      if (win.used >= win.limit) throw this._quotaExceeded(key, win)
+      const expired = now - win.startedAt >= win.windowMs
+      if (expired && !isRequests) continue // token 类过期仍由记账路径重置
+      const baseUsed = expired ? 0 : win.used
+      if (baseUsed >= win.limit) throw this._quotaExceeded(key, win)
       if (!isRequests) continue
-      win.used += 1
-      reservations.push({ win, startedAt: win.startedAt })
+      plans.push({ win, expired })
+    }
+    // 第二遍：统一提交。此段不会再抛错，因此不存在「部分预留」
+    const reservations = []
+    for (const plan of plans) {
+      if (plan.expired) {
+        plan.win.used = 0
+        plan.win.startedAt = now
+      }
+      plan.win.used += 1
+      reservations.push({ win: plan.win, startedAt: plan.win.startedAt })
     }
     return reservations
   }

@@ -26,7 +26,9 @@
 - `apps/desktop/electron/services/api-usage-governor.js`：`field: 'requests'` 的窗口改为**原子检查并预留**
   （准入通过即 `used += 1`），预留点在并发槽内、重试循环之前，故一次调用只占一次；整次调用最终失败
   才归还（attempt 级归还会让 429 退避期间额度被插走）；归还按**窗口代次**（`startedAt`）生效，
-  换代即跳过。`_recordUsage` 不再对 requests 递增，`_assertTokenBudget` 显式跳过 requests。
+  换代即跳过。准入本身必须是**两遍式**——第一遍纯判定、第二遍统一提交；逐窗口「边检查边 +1」会让
+  后一个窗口判满时抛错，而那时预留凭据还没返回给调用方（调用方的归还只覆盖重试失败），
+  前一个窗口已 +1 的那几份就永久泄漏。这一条是 QM-6 外部评审指出并自带实测后补的。`_recordUsage` 不再对 requests 递增，`_assertTokenBudget` 显式跳过 requests。
 - `token` 类窗口（`total_tokens` 等）**保持后置记账不变**——成本要响应回来才知道，无法预扣。
 - `apps/desktop/electron/services/rate-limit-self-check.js`：被准入拒的请求现在也写一条
   `state='quota_exceeded'`、`started_at=null` 的时间线，使 `completed + quota_exceeded == requestCount`

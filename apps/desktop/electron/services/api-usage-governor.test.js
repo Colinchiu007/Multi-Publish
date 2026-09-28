@@ -431,6 +431,7 @@ describe('P1 调度可观测性（排队/冷却计数）', () => {
     // 单请求无排队；即使有也最多计 1 次（外层），内层不计时
     expect(snap.p3.queuedCount).toBeLessThanOrEqual(1)
   })
+})
 
 describe('requests 额度窗口的并发准入原子性（governor-quota-reserve）', () => {
   // 这些用例的存在理由：既有额度测试全部是「await p1; await p2; …」串行构造，
@@ -605,12 +606,62 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
     expect(code2).toBe('ok')
     expect(executed2).toBe(1)
   })
-})
+
+  it('多窗口部分已满时不得留下半份额预留（准入必须原子）', async () => {
+    vi.useFakeTimers()
+    const g = new ApiUsageGovernor({})
+    g.setLimits('p:llm:m', { maxConcurrent: 1, rpm: 100000, cooldownMs: 1000, retry429: 1 })
+    // 宽窗 10 + 紧窗 1：从第 2 个请求起必然在**第二个**窗口被判满。若准入是边检查边 +1，
+    // 第一个窗口就会被一次次「失败准入」白吃额度（变异实测 used 涨到 4）。
+    g.setTokenWindows('p:llm:m', [
+      { windowMs: 5 * 3600 * 1000, limit: 10, field: 'requests' },
+      { windowMs: 5 * 3600 * 1000, limit: 1, field: 'requests' },
+    ])
+    const callOnce = async () => {
+      const p = g.run(META, async () => ({ ok: true })).then(() => 'ok', (e) => e && e.code)
+      await vi.advanceTimersByTimeAsync(10000)
+      return p
+    }
+    expect(await callOnce()).toBe('ok')
+    expect(await callOnce()).toBe('QUOTA_EXCEEDED')
+    expect(await callOnce()).toBe('QUOTA_EXCEEDED')
+    expect(await callOnce()).toBe('QUOTA_EXCEEDED')
+    // 这里读内部窗口状态：泄漏不体现在「本次调用成功/失败」上（紧窗本来就一直在拒），
+    // 公开 API 在不人为改配置的前提下观测不到，故直接断言计数本身。
+    const ws = g._usageWindows('p:llm:m', g._stateFor('p:llm:m'))
+    expect(ws.map((w) => w.used)).toEqual([1, 1])
+  })
+
+  it('provider 级共享窗口在多 model key 并发下同样不超支', async () => {
+    vi.useFakeTimers()
+    // 生产路径是 providerId 级注入（见 model-provider-manager._applyGovernorLimits）：
+    // 额度窗口跨 type:model key 共享，而并发信号量按 key 各自独立 —— 这是另一种形状。
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p', { maxConcurrent: 4, rpm: 100000, cooldownMs: 1000, retry429: 1 })
+    g.setProviderTokenWindows('p', [{ windowMs: 5 * 3600 * 1000, limit: 3, field: 'requests' }])
+    let executed = 0
+    const codes = []
+    const ps = []
+    for (let i = 0; i < 8; i += 1) {
+      const model = 'm' + (i % 3)
+      ps.push(g.run({ type: 'llm', providerId: 'p', model }, async () => {
+        executed += 1
+        await new Promise((r) => { setTimeout(r, 50) })
+        return { ok: true }
+      }).then(() => codes.push('ok'), (e) => codes.push(e && e.code)))
+    }
+    const settled = Promise.all(ps)
+    await vi.advanceTimersByTimeAsync(10000)
+    await settled
+    expect(executed).toBe(3)
+    expect(codes.filter((c) => c === 'ok')).toHaveLength(3)
+    expect(codes.filter((c) => c === 'QUOTA_EXCEEDED')).toHaveLength(5)
+  })
 
   it('结构锁：requests 窗口的计数只发生在准入这一处', () => {
     // 行为用例能抓到「准入 +1 之外又记账 +1」（'失败的调用归还额度' 会红），
     // 但「事后断言重新对 requests 生效」在当前实现里是行为 no-op，只能靠读源码守住。
-    // 这不是用记录性断言代替跑流程——流程已由本 describe 的 6 条真跑覆盖，这里只钉「单点计数」这一结构。
+    // 这不是用记录性断言代替跑流程——流程已由本 describe 的用例真跑覆盖，这里只钉结构。
     // 锚点一律取**方法定义串**（带 ' {'）：'_reserveTokenBudget(key, st)' 这种写法会先命中
     // _runWithGovernance 里的调用点，切片就会反向。
     const fs = require('node:fs')
@@ -625,12 +676,20 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
     const record = cut('_recordUsage(key, st, limits, result) {', '_reserveTokenBudget(key, st) {')
     expect(record).toMatch(/if \(win\.field === 'requests'\) continue/)
     const reserve = cut('_reserveTokenBudget(key, st) {', '_releaseTokenBudget(reservations) {')
-    expect(reserve).toMatch(/win\.used >= win\.limit\) throw this\._quotaExceeded/)
+    expect(reserve).toMatch(/baseUsed >= win\.limit\) throw this\._quotaExceeded/)
     expect(reserve).toMatch(/win\.used \+= 1/)
+    // 准入必须「先全部判定、再统一提交」：两阶段各有容器，且提交段位于所有 throw 之后。
+    // 逐窗口边检查边 +1 会让后一个窗口判满时，前一个窗口的预留永久泄漏
+    // （调用方的归还只覆盖 _executeWithRetry 失败，而那时凭据还没返回）。
+    expect(reserve).toMatch(/const plans = \[\]/)
+    expect(reserve).toMatch(/for \(const plan of plans\)/)
+    expect(reserve.indexOf('throw this._quotaExceeded')).toBeLessThan(reserve.indexOf('plan.win.used += 1'))
     const budget = cut('_assertTokenBudget(key, st) {', 'async _executeWithRetry(key, st, limits, task) {')
     expect(budget).toMatch(/if \(win\.field === 'requests'\) continue/)
-    // 预留必须落在重试循环之外：重试体内出现预留 = 每次 attempt 重复占用额度
-    expect(budget).not.toMatch(/_reserveTokenBudget/)
+    // 重试体内不得出现预留：否则每次 attempt 重复占用额度。切片必须覆盖 _executeWithRetry 的
+    // **函数体**——只截到函数头的话，这条断言对「把预留挪进重试循环」完全免疫，是自证断言。
+    const retry = cut('async _executeWithRetry(key, st, limits, task) {', 'module.exports')
+    expect(retry).not.toMatch(/_reserveTokenBudget/)
     const governance = cut('const reservations = this._reserveTokenBudget(key, st)', 'st.active -= 1')
     expect(governance).toMatch(/catch \(err\)/)
     expect(governance).toMatch(/this\._releaseTokenBudget\(reservations\)/)

@@ -37,7 +37,7 @@
 
 ## 5. 评审与文档
 
-- [ ] 5.1 QM-6 双模型外部评审（模型名从 `~/.claude/.ccg/config.toml` 的 `[routing]` 读，不照抄 AGENTS.md），Critical 修完、Warning 逐条处置
+- [x] 5.1 QM-6 双模型外部评审（模型名从 `~/.claude/.ccg/config.toml` 的 `[routing]` 读，不照抄 AGENTS.md），Critical 修完、Warning 逐条处置
 - [x] 5.2 `01-docs/learnings.md` 记录逃逸链：既有额度测试为何全是串行、`completed` 与 `quota_exceeded` 同时偏高为何不可归因、以及「把 flaky 测试改成假时钟」如何险些把 Bug 钉成契约
 - [x] 5.3 `CHANGELOG.md` 与 `.quality-gates.md` 执行记录（含复现矩阵数字、四条反证的变红用例名）
 - [ ] 5.4 若 `openspec/specs/` 主规格需同步，按归档流程处理；PR 描述里显式声明「模拟器不覆盖并发维度」
