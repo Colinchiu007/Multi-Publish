@@ -96,7 +96,7 @@ if ($failed.Count -gt 0) {
 
 # 4) 全部通过 -> 合并（REST API 直接合并，无需 --yes，原子且可靠）
 $repo = (gh pr view $PrNumber --json repository --jq '.repository.nameWithOwner' 2>$null)
-if (-not $repo) { $repo = 'Colinchiu007/Multi-Publish' }
+if (-not $repo) { $repo = 'Colinchiu007/mulpub' }
 $mergeApiArgs = @('-X', 'PUT', "repos/$repo/pulls/$PrNumber/merge", '-f', "merge_method=$Method")
 if ($DeleteBranch) { $mergeApiArgs += @('-f', 'delete_branch=true') }
 Write-Host "==> 所有 CI 检查通过，合并 PR #$PrNumber ($Method)$(if ($DeleteBranch) { ' 并删除分支' })..." -ForegroundColor Green
