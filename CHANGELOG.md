@@ -13,6 +13,74 @@
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
 
+# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
+
+### 现象与根因
+- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
+- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
+- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
+
+### 变更
+- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
+  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
+  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
+  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
+- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
+- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
+- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
+
+### 测试与取证
+- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
+- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
+- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
+- QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
+# [未发布] ci(electron-ci): 串行单测预算从魔数改为挂实测，并让超时能自证
+
+### 变更
+- `.github/workflows/electron-ci.yml`：`Unit tests (Vitest, non-Electron, single-worker deterministic)` 步骤的 `timeout --signal=TERM --kill-after=30s 20m` 改为变量化预算 `BUDGET_SECONDS=2100`（35m）；job 级 `timeout-minutes` 45 → 70。**两者必须一起改**：`10 + 10 + 35 = 55 > 45`，只抬内层会让 Actions 的 job killer 先开火，症状（日志切在 `Post job cleanup`、无 vitest 摘要）与原病一模一样 —— 那正是 #2458 的失效模式，等于换了个施动者。
+- 超时自证：输出经 `tee` 落 `electron-ci-unit-tests.log`，退出码读 `${PIPESTATUS[0]}`（`cmd | tee` 之后 `$?` 是 tee 的、恒 0），`rc=124` 时打印 `elapsed/budget`、已完成测试行数、摘要行数（应为 2，为 0 即整轮没跑完）与末段输出，不再需要人下几百 MB 日志反推。
+- 如实登记：35m 属**单调放宽**（不会让任何原本通过的运行变红），它是「接受余量不足」而非「修好根因」。根因是串行单 worker 要跑约 11700+ 条测试、自然耗时实测 18m44s~21m32s；正解是按 `--shard` 切开（issue 档 2）与给 CI Failure Handler 加 `ci-timeout-budget` 归类（档 4），**两条均未在本 PR 做**，#2458 保持 open。
+
+### 测试
+- `apps/desktop/tests/gui-ci-exit-contract.test.js` 新增结构锁「Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂」：预算 ≥ 实测上界 21m32s × 1.5、禁止 `kill-after=30s 20m` 复活、必须含 `PIPESTATUS` 与 `TIMEOUT_BUDGET_EXCEEDED`、job 级必须大于「其余显式 `timeout-minutes` 之和 + 本步骤预算」。
+- 同步更新被本次改动合法打破的断言：`timeout-minutes` 45 → 70（AGENTS.md「门禁断言随平台/实现迁移同步」）。本地 `gui-ci-exit-contract.test.js` **32/32 通过**。
+- 反证已实跑：把 workflow 换回旧版 ⇒ 3 条同时变红（新锁 + watchdog 那条 + job 级那条），随后按 sha256 逐字还原（两份哈希一致）。
+
+
+
+
+
+
+
+# [未发布] docs(openspec): 归档登录态两件 change 并把 6 条 Requirement 同步进主 spec（2026-09-28，openspec-archive-login-state）
+
+### 变更
+- `openspec/changes/split-account-manager-session-restore`（#2514）与 `declare-platform-session-markers`（#2527）移入 `openspec/changes/archive/2026-09-28-*`。
+- `openspec/specs/desktop/spec.md` 的 Requirement 由 7 条增至 13 条：新增「账号会话凭证恢复模块边界」「纯平移重构必须先有特征测试并有反证」「会话标记键名必须由自建匿名基线与真实登录视图的差集取证」「形态正向契约必须随标记集泛化并携带负控」「收紧登录门禁必须同时提供可归因现场」「裸域名成功模式的会话标记缺口清单只能缩小」。正文逐字搬运自各自 delta，未重写文案。
+- 两件 change 的 `tasks.md` 里已过期未勾项按**可核对证据**补齐（QM-1 / QM-6 降级登记 / QM-4 N/A 判据 / 文档回写 / PR 合并与 main 复验 / 归档本身）；两处真实残留保持未勾：下一步「资料刷新簇」拆分、`credential-saver` 的 `names=` 日志缺可执行锁。
+
+### 为什么值得单列一条教训
+主 spec 同步的第一版实现把整份文本 `split(换行).join(检测到的行尾)` 后再追加，结果对一份本就 LF/CRLF 混用的文件产生了 `raw=226/95` 的"整文件重写"假象（`-w` 看是 131/0，内容其实只增不删）。改为**只做字节级前缀保留 + 尾部追加**后，`raw` 与 `--ignore-cr-at-eol` 同时给出 132/0。教训：同步型写入必须保证「原字节是结果的逐字前缀/后缀」，任何对整份文件的重排都会把行尾问题伪装成内容问题。
+
+# [未发布] feat(账号管理): 平台图标换成标准品牌图标，并修掉暗色下黑图标隐身
+
+### 做了什么
+- 重写 `apps/desktop/src/assets/platforms/` 全部 15 个 svg。旧资产是手绘几何拼块（今日头条是闪电 polygon、微博是同心圆、快手是矩形+圆、**抖音与 TikTok 两个文件内容几乎相同**），这是账号卡片「风格不统一」的根因。新资产：11 个取 Simple Icons v16（CC0-1.0）官方 path 与官方 source 品牌色；今日头条取 Iconify `icon-park:jinritoutiao`（Apache-2.0，48×48 经 `scale(0.5)` 归一）；抖音/百家号/视频号手工绘制示意标并在文件注释标注「非官方矢量」。
+- 来源取证：Simple Icons 覆盖 11/15，缺 douyin/toutiao/baijiahao/tencent_video。进一步扫了 Iconify 全部 238 个集合（含 `thesvg-color` MIT 4896 枚、字节 `icon-park` Apache-2.0、`arcticons`），只有今日头条以 `jinritoutiao` 存在，**抖音/百家号/视频号全网零覆盖**。参考产品 4.0 逆向包（46 文件）无任何平台图标资产，只有 `index.cjs:263` 的 37 个平台 key 命名规范可借鉴。
+- 色值取证：视频号 `#FA9D3B` 实测自 channels.weixin.qq.com 页面样式；百家号 `#3855D5` 实测自官方登录页（`baijiahao.baidu.com` → `/builder/theme/bjh/login`，页面标题「百家号」）渲染后 DOM 的 computed style，**187 个元素命中、为最高频饱和色**（次高 `#2E82FF` 百度系蓝 ×9）。这条是**二次取证纠正的**：静态 HTML 抓不到（纯 JS 壳，只有 `theme-color #000000`），我最初凭"百度系品牌蓝"写了 `#2932E1` 并标注待核实，后用 playwright 真渲染才拿到实测值——两者不同，说明那次凭记忆确实会写错。
+- 把散在 6 个组件里、逐字同形的 `isIconUrl()` 收敛为 `usePlatformIconUrl` 导出的 `isPlatformIconUrl`，并补 `./` 前缀识别。`vite.config.js` 的 `base` 为 `'./'`，一旦某个 svg 超过 `assetsInlineLimit`（4096B）就不再内联为 data URI 而是产出 `./assets/x.svg`；旧判定不认它，组件会走 v-else 的 `<span>{{ icon }}</span>` 分支**把路径字符串当文字渲染到卡片上**。实测确认当前 15 个 svg 仍全部内联为 `data:image/svg+xml`（最大小红书 3762B，距上限仅 334B——所以这条不是假想风险）。真源 `PLATFORM_ICONS` 的历史裸相对值（`platforms/x.svg`）继续判 false，避免渲染成破图。
+- 修暗色主题下黑图标隐身：新增全局 `.mp-platform-icon` 底衬类，7 个图标渲染点全部接入。归属已核实为**既有缺陷**（旧 `twitter.svg` 本就是 `fill="#000"`，15 个旧图标无一使用 `currentColor`），本次换标把它放大而非引入。抖音改为青 `#25F4EE` 偏左下 / 红 `#FE2C55` 偏右上 / 黑主体居中的三层重影，与 TikTok 的单色音符拉开区分度。
+
+### 为什么
+用户反馈账号卡片图标不像各平台的标志。根因不是「图标太小」而是那 15 个文件从来不是品牌标。选 Simple Icons 是因为它是 CC0、24×24 单 path、且直接给出官方 source 色，能一处解决「形」和「色」两件事；三个国内平台全网无覆盖只能自绘，因此把「不得用 polygon/rect/circle 拼」写成锁，防止将来有人退回旧画法却以为自己在做品牌标。
+
+### 验证
+- 反证六次实测变红，每次 `git checkout HEAD -- <单文件>` 恢复后复绿：① 判定函数退回不认 `./` → 红 1；② toutiao 换回旧手绘 polygon 版 → 红 3（根 fill / 几何图元禁令 / 全 path）；③ 组件里重新抄一份 `isIconUrl` → 红 1（结构锁）；④ 图标撑到超内联预算 → 红 1；⑤ 拿掉某渲染点底衬类 → 红 1；⑥ 删全局底衬的 `background` → 红 1。
+- 回归锁 `usePlatformIconUrl.test.js` 131 例；受影响范围 53 个测试文件 986 passed / 1 skipped；`vite build` 通过；4 处既有 `vi.mock` 改 partial mock 透传真实判定函数。
+- 渲染实图自检（playwright 出四段对照表）：确认 12 枚真实品牌标正确、百家号「百」字在 24px 下可辨、暗色无底衬时 TikTok/X 确实不可见、加底衬后 15 枚全部可读。
+- 视觉门禁实跑（本地 dev server 独立起在 5199，未借用他人端口——5174 那份代码不含本次改动，实测 `grep mp-platform-icon` = 0）：`accounts-list` **PASSED，misMatch 仅 0.116%**（阈值 1%）。15 枚图标全部更换也只占这个量级，说明**全页像素容差对「小面积图标改动」天然失明**，这条门禁守不住本类回归（与 QM-4 规则 7 已记录的「`PIXEL_THRESHOLD` 是全页容差」同源）。真正超阈的是 `publish-history` 2.61% 与 `collection` 1.61%（两者也渲染平台图标并新增底衬）。
+- 三视图归属做了改动前后对照（`git checkout 3d9f38bd -- apps/desktop/src` 跑同一组后 `checkout HEAD --` 还原）：`home-baseline` **改动前就红 1.43%**、改动后 1.45%，属 main 既有红、非本 PR 引入；`publish-history` / `collection` 改动前均 PASSED，其红是本 PR 的预期变化。
+- **CI 视觉门禁实测 100% 通过（`[GATE-7] All visual tests passed`），本 PR 无需更新任何基线** —— 但原因不是"改动安全"：CI 把 `PIXEL_THRESHOLD` 覆盖为 **0.06（6%）**（`test-runner.js:56` 代码默认是 0.01），本地那三个红（1.45% / 2.61% / 1.61%）在 6% 下全部静默。叠加上一条的 0.4% 面积天花板，结论是**这类图标改动实际不受任何视觉门禁保护**，唯一承重的是 `usePlatformIconUrl.test.js` 的形态锁。要让视觉门禁真正管住图标，需按区域 mask 或给图标区单设阈值（本 PR 不做，已登记）。
 # [未发布] fix(dev-isolation): bridge 端口纳入按-worktree 派生，启动器探活改为验进程归属
 
 ### 变更

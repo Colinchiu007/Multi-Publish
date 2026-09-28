@@ -50,6 +50,31 @@ export function getPlatformIconUrl(platformId) {
  * @param {string} platformId - 平台标识
  * @returns {string} 图标 URL
  */
-export function platformIconUrl(platformId) {
+export function platformIconUrl (platformId) {
   return getPlatformIconUrl(platformId)
+}
+
+/**
+ * 判断一个图标值是否应当按 <img> 渲染，否则按文字渲染。
+ *
+ * 必须认 './' 相对产物：vite.config.js 的 base 为 './'，一旦某个 svg 长大到超过
+ * Vite 的 assetsInlineLimit（默认 4096B），它就不再内联为 data URI 而是产出
+ * ./assets/x.svg；不认这个前缀时组件会走 v-else 的 <span>{{ icon }}</span> 分支，
+ * 把路径字符串当文字直接显示到卡片上。
+ *
+ * 同时必须拒绝真源 PLATFORM_ICONS 的历史值（"platforms/douyin.svg" 这类裸相对名）：
+ * 它不是可解析 URL，当成 URL 渲染得到的是破图，比回退成文字更难看懂。
+ *
+ * @param {unknown} value - 图标值（URL / data URI / emoji / 首字回退）
+ * @returns {boolean}
+ */
+export function isPlatformIconUrl (value) {
+  if (typeof value !== 'string') return false
+  const v = value.trim()
+  if (!v) return false
+  return v.startsWith('./')
+    || v.startsWith('/')
+    || v.startsWith('data:')
+    || v.startsWith('http://')
+    || v.startsWith('https://')
 }

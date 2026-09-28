@@ -28,6 +28,9 @@ const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLogi
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+// 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：固定内容宽的登录页
+// （如快手 ≈1335 DIP）在非全屏视图（如 1051 DIP）中横向溢出被裁，按需缩小 zoomFactor
+const loginViewFit = require('./login-view-fit')
 // auth-window.js 独立窗口工厂已不再需要（认证视图改为内嵌主窗口全屏标签）
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
@@ -126,6 +129,8 @@ class AuthViewManager {
     this._loginWindowResizeCleanup = null
     /** @type {(() => void) | null} 保留签名兼容（auth-window factory 已不再使用） */
     this._syncLoginViewBounds = null
+    /** @type {NodeJS.Timeout | null} 登录页宽度自适应的延迟复测定时器（close 时清理） */
+    this._loginFitRetimer = null
   }
 
   /**
@@ -141,11 +146,15 @@ class AuthViewManager {
    * 登录视图全屏布局（TabBar+NavBar 下方），对齐参考产品全屏标签体验。
    * 尺寸来源必须是窗口客户区（getContentBounds），不能用 getBounds() 外框尺寸，
    * 否则视图右侧滚动条与底部内容会被窗口边框裁掉（见 view-bounds.js）。
+   * 每次重定位后做一次宽度自适应：固定内容宽的登录页在窄视图（非全屏窗口）
+   * 中会横向溢出被裁，zoom-to-fit 按需缩小到整页可见（见 login-view-fit.js）。
    */
   _positionView() {
     if (!this.currentView || !this.mainWindow) return
     // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域
     this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT))
+    // 宽度自适应（旁路：失败只告警，不得影响登录链路；页面未加载时探针为 no-op）
+    loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'AuthView' })
   }
 
   /** 显示登录视图（虚拟标签切换回来时调用） */
@@ -377,6 +386,16 @@ class AuthViewManager {
         log.info('AuthView', 'login page finished after ' + (Date.now() - loadStartedAt) +
           'ms platform=' + platform + ' ' + this._throttleProbeOf(view))
         if (attempt && attempt.initialRedirectPhase) attempt.initialRedirectPhase = false
+        // 宽度自适应（2026-09-28 非全屏登录页显示不全）：立即适配一次，
+        // 再安排 500ms 延迟复测 —— 字体/插画晚到可能改变页面实际宽度。
+        loginViewFit.fitLoginViewZoomSafe(view, { tag: 'AuthView' })
+        if (this._loginFitRetimer) clearTimeout(this._loginFitRetimer)
+        this._loginFitRetimer = setTimeout(() => {
+          this._loginFitRetimer = null
+          // 视图可能已被关闭/替换；只对当前登录视图复测
+          if (this.currentView === view) loginViewFit.fitLoginViewZoomSafe(view, { tag: 'AuthView' })
+        }, 500)
+        if (this._loginFitRetimer && this._loginFitRetimer.unref) this._loginFitRetimer.unref()
       })
 
       // CDP 检测（主检测方式）— 与 URL 路径一致：初始加载完成前不判定登录成功
@@ -487,6 +506,7 @@ class AuthViewManager {
     if (this._loginTimeout) { clearTimeout(this._loginTimeout); this._loginTimeout = null }
     if (this._cdpExtractTimer) { clearTimeout(this._cdpExtractTimer); this._cdpExtractTimer = null }
     if (this._urlExtractTimer) { clearTimeout(this._urlExtractTimer); this._urlExtractTimer = null }
+    if (this._loginFitRetimer) { clearTimeout(this._loginFitRetimer); this._loginFitRetimer = null }
     if (this.currentView) {
       try {
         if (this._escHandler && this._escView) {
