@@ -457,13 +457,19 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
   /** 一次并发提交 n 个必然成功的请求，返回（真实执行次数, ok 次数, 额度拒次数） */
   const concurrentSuccess = async ({ g, n }) => {
     let executed = 0
+    let inflight = 0
+    let maxInflight = 0
     const codes = []
     const ps = []
     for (let i = 0; i < n; i += 1) {
       ps.push(g.run(META, async () => {
         executed += 1
-        // task 内必须 await：否则 4 路在途不会真正重叠，预检会被记账顺序串行化
+        // task 内必须 await：否则 4 路在途不会真正重叠，预检会被记账顺序串行化。
+        // 这件事不靠注释自证——maxInflight 被断言 >= 2，谁把 await 删掉用例立刻红。
+        inflight += 1
+        if (inflight > maxInflight) maxInflight = inflight
         await new Promise((r) => { setTimeout(r, 50) })
+        inflight -= 1
         return { ok: true }
       }).then(() => codes.push('ok'), (e) => codes.push(e && e.code)))
     }
@@ -472,6 +478,7 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
     await settled
     return {
       executed,
+      maxInflight,
       ok: codes.filter((c) => c === 'ok').length,
       quota: codes.filter((c) => c === 'QUOTA_EXCEEDED').length,
     }
@@ -487,6 +494,8 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
     expect(r.executed).toBe(3)
     expect(r.ok).toBe(3)
     expect(r.quota).toBe(4)
+    // 夹具有效性：并发必须真的重叠过，否则本用例退化成串行、对目标缺陷永久免疫
+    expect(r.maxInflight).toBeGreaterThanOrEqual(2)
   })
 
   it('同参数重复多轮，每轮结果都必须是 limit/limit/n-limit（非确定即 FAIL）', async () => {
@@ -498,6 +507,7 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
       })
       const r = await concurrentSuccess({ g, n: 7 })
       expect(r, 'round ' + round).toMatchObject({ executed: 3, ok: 3, quota: 4 })
+      expect(r.maxInflight, 'round ' + round + ' 的夹具未真正并发').toBeGreaterThanOrEqual(2)
     }
   })
 
@@ -640,22 +650,54 @@ describe('requests 额度窗口的并发准入原子性（governor-quota-reserve
     g.setProviderLimits('p', { maxConcurrent: 4, rpm: 100000, cooldownMs: 1000, retry429: 1 })
     g.setProviderTokenWindows('p', [{ windowMs: 5 * 3600 * 1000, limit: 3, field: 'requests' }])
     let executed = 0
+    let inflight = 0
+    let maxInflight = 0
     const codes = []
     const ps = []
     for (let i = 0; i < 8; i += 1) {
       const model = 'm' + (i % 3)
       ps.push(g.run({ type: 'llm', providerId: 'p', model }, async () => {
         executed += 1
+        inflight += 1
+        if (inflight > maxInflight) maxInflight = inflight
         await new Promise((r) => { setTimeout(r, 50) })
+        inflight -= 1
         return { ok: true }
       }).then(() => codes.push('ok'), (e) => codes.push(e && e.code)))
     }
     const settled = Promise.all(ps)
     await vi.advanceTimersByTimeAsync(10000)
     await settled
+    expect(maxInflight).toBeGreaterThanOrEqual(2)
     expect(executed).toBe(3)
     expect(codes.filter((c) => c === 'ok')).toHaveLength(3)
     expect(codes.filter((c) => c === 'QUOTA_EXCEEDED')).toHaveLength(5)
+  })
+
+  it('requests 窗口的超额提示说「请求次数额度」而非 token 额度', async () => {
+    vi.useFakeTimers()
+    const g = makeGovernor({
+      maxConcurrent: 1,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 1, field: 'requests' }],
+    })
+    // 假时钟下必须先推进计时器再 await，否则 g.run 里的 RPM 时间槽永不触发 —— 用例挂到超时
+    const call = (gov, task) => {
+      const p = gov.run(META, task).then(() => null, (e) => e)
+      return vi.advanceTimersByTimeAsync(10000).then(() => p)
+    }
+    expect(await call(g, async () => ({ ok: true }))).toBe(null)
+    const err = await call(g, async () => ({ ok: true }))
+    expect(err && err.code).toBe('QUOTA_EXCEEDED')
+    expect(err.message).toContain('请求次数额度（1）')
+    expect(err.message).not.toContain('token 额度')
+    // token 类窗口仍应说 token
+    const g2 = makeGovernor({
+      maxConcurrent: 1,
+      windows: [{ windowMs: 5 * 3600 * 1000, limit: 100, field: 'total_tokens' }],
+    })
+    const err2 = await call(g2, async () => ({ usage: { total_tokens: 500 } }))
+    expect(err2 && err2.code).toBe('QUOTA_EXCEEDED')
+    expect(err2.message).toContain('token 额度')
   })
 
   it('结构锁：requests 窗口的计数只发生在准入这一处', () => {

@@ -10,7 +10,8 @@
  *   - 收到 429 后进入冷却期（cooldownUntil），配合重试退避
  *   - 错误分类：rate（429，冷却+退避重试）/ quota（额度耗尽，不重试，明确提示）/
  *     transient（超时/网络，短退避重试）/ content_policy / other（不重试）
- *   - 可选 token 额度窗口（5h / 周），按 usage 累计，超限立即拒绝并给出明确原因
+ *   - 可选额度窗口（5h / 周）：按 usage 累计（token 类，成本回来后记账、事后断言）或
+ *     按请求次数计（requests 类，准入时原子占额度：先全部判定、再统一提交），超限给出明确原因
  *   - 429 自适应：限流后按 0.75 系数下调本 provider 的 RPM 预算，成功后缓慢恢复
  */
 'use strict'
@@ -190,7 +191,7 @@ class ApiUsageGovernor {
     const nextHeld = held ? new Set(held) : new Set()
     nextHeld.add(key)
     // P0-8 被动诊断挂钩（proposal-v3 §2）：治理链出口单点 catch-rethrow，
-    // 覆盖 _pace/冷却/排队超时/retry429/额度预检后置全部 rate/quota 出口；
+    // 覆盖 _pace/冷却/排队超时/retry429/额度准入拒绝/事后额度断言全部 rate/quota 出口；
     // 错误对象原样传播（identity 不变），诊断内部永不抛（双保险 try/catch）。
     return _reentrant.run(nextHeld, () => this._runWithGovernance(meta, task, key)).catch((err) => {
       try {
@@ -377,8 +378,10 @@ class ApiUsageGovernor {
         win.used = 0
         win.startedAt = now
       }
-      // field='requests' 的计数已在准入时完成（_reserveTokenBudget），此处再 +1 就是双重计数；
-      // 这里只保留上面的过期重置。其余字段（token 数等）成本要响应回来才知道，仍在此记账。
+      // field='requests' 的计数已在准入时完成（_reserveTokenBudget），此处再 +1 就是双重计数。
+      // 上面的过期重置仍要保留：短窗口可能在「准入之后、记账之前」二次过期，此时必须由记账路径
+      // 推进代次，否则后续准入与事后断言都会读到陈旧代次。其余字段（token 数等）成本要响应回来
+      // 才知道，仍在此记账。
       if (win.field === 'requests') continue
       const delta = Number(usage?.[win.field] ?? usage?.total_tokens ?? 0)
       win.used += Number.isFinite(delta) ? delta : 0
@@ -424,7 +427,8 @@ class ApiUsageGovernor {
   }
 
   /**
-   * 归还预留。只作用于自己那一代窗口：窗口若在调用期间过期并被重置，新计数里并没有这次占用，
+   * 归还**requests 类**窗口的预留（token 类没有预留，凭据数组对它们是空的）。
+   * 只作用于自己那一代窗口：窗口若在调用期间过期并被重置，新计数里并没有这次占用，
    * 减它会把新窗口打穿到负数——所以代次不符一律跳过。
    */
   _releaseTokenBudget(reservations) {
@@ -437,9 +441,12 @@ class ApiUsageGovernor {
 
   _quotaExceeded(key, win) {
     const label = win.windowMs >= 7 * 24 * 3600 * 1000 ? '每周' : (win.windowMs >= 3600 * 1000 ? '每 5 小时' : '当前周期')
+    // requests 窗口计的是**请求次数**（coding plan 的 5h 次数限额），说成 "token 额度" 会把用户
+    // 引向「去买更多 token」这种错误处置；两类窗口的语义不同，文案必须分开。
+    const unit = win.field === 'requests' ? '请求次数额度' : 'token 额度'
     return new ProviderError(
       ERROR_CODES.QUOTA_EXCEEDED,
-      '该模型 API 的' + label + ' token 额度（' + win.limit + '）已用完，请检查套餐额度或更换模型后再试。',
+      '该模型 API 的' + label + ' ' + unit + '（' + win.limit + '）已用完，请检查套餐额度或更换模型后再试。',
       { providerId: key },
     )
   }
@@ -457,7 +464,8 @@ class ApiUsageGovernor {
       }
       // requests 窗口已在准入时占额度，used > limit 是不可达状态。这里继续对它生效就等于把
       // 「真实调用已发出、随后才判超额」重新请回来——正是本次修复要消灭的形态。
-      // token 类仍靠这条事后断言兜底（2026-08-12 对拍审计语义不变）。
+      // 阈值语义（2026-08-12 与模拟器对拍审计，token 类不变）：准入用 >=（第 limit+1 个起拒，
+      // 第 limit 个放行），事后断言用 >（第 limit 次成功调用仍被允许，只有真超出才追认失败）。
       if (win.field === 'requests') continue
       if (win.used > win.limit) throw this._quotaExceeded(key, win)
     }
