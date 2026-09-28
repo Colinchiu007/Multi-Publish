@@ -345,7 +345,38 @@ describe('bootstrap — createAppContext', () => {
     )
   })
 
-  it('任务执行器把 AbortSignal 传给发布器', async () => {
+  it('rpaViewManager.onProgress 全局注册一次，进度事件经 platform→taskId 路由富化（publish-progress-ux）', async () => {
+    // beforeEach 已调 createAppContext()：单槽回调只注册一次（此前每任务覆盖 → 3 并发任务互相抢占跨归属）
+    expect(context.rpaViewManager.onProgress).toHaveBeenCalledTimes(1)
+    const progressCallback = context.rpaViewManager.onProgress.mock.calls[0][0]
+    const activeWindow = {
+      isDestroyed: vi.fn(function () { return false }),
+      webContents: { send: vi.fn() },
+    }
+    // start + progress 两次发射都要命中同一存活窗口（mockReturnValueOnce 会被首事件耗尽）
+    __electronMock.BrowserWindow.getAllWindows.mockReturnValue([activeWindow])
+    const publisher = { publish: vi.fn().mockResolvedValue({ ok: true }) }
+    mockPublisherRouter.createPublisher.mockReturnValueOnce(publisher)
+    const executor = mockTaskQueue.setExecutor.mock.calls.at(-1)[0]
+
+    const publishPromise = executor({ id: 'task-route', platform: 'douyin' })
+    // 任务执行期间引擎上报进度（含 percent——此前转发层只取 stage 丢弃 percent）
+    progressCallback({ platform: 'douyin', stage: 'uploading video...', percent: 20 })
+    await publishPromise
+
+    const progressCalls = activeWindow.webContents.send.mock.calls.filter((c) => c[0] === 'publish:progress')
+    const routed = progressCalls.find((c) => c[1].stage === 'uploading video...')
+    expect(routed).toBeTruthy()
+    expect(routed[1]).toEqual(expect.objectContaining({
+      taskId: 'task-route', platform: 'douyin', phase: 'progress', stageKey: 'upload', percent: 20,
+    }))
+    // 任务结束后路由注销：同平台后续进度不再归属该任务（不误发）
+    activeWindow.webContents.send.mockClear()
+    progressCallback({ platform: 'douyin', stage: 'verifying...', percent: 95 })
+    expect(activeWindow.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('任务执行器把 AbortSignal 与 onProgress 传给发布器（publish-progress-ux）', async () => {
     const context = createAppContext()
     const publisher = { publish: vi.fn().mockResolvedValue({ ok: true }) }
     mockPublisherRouter.createPublisher.mockReturnValueOnce(publisher)
@@ -356,7 +387,7 @@ describe('bootstrap — createAppContext', () => {
 
     expect(publisher.publish).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'task-signal' }),
-      { signal: controller.signal },
+      { signal: controller.signal, onProgress: expect.any(Function) },
     )
     expect(mockPublisherRouter.createPublisher).toHaveBeenCalledWith(
       'weibo',
