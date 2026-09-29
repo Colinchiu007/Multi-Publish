@@ -250,3 +250,38 @@ https://mp.weixin.qq.com/mp/fereport?action=csp_report
 - 真机手机扫码下的 cancel 对照（唯一能证伪 §13.3-3 的实验，需要用户手机）。
 - `tencent_video` 同法复测（其出码标记 `getqrcode` 不覆盖该平台，§11 已记）。
 - `persist:auth-*` 分区 GC 与 asar 打进 439 个 `*.test.js` 两项遗留（另案）。
+## 14. §13.5 登记的启动链缺陷已修（2026-09-30，`fix-dev-launcher-cdp-origins` / PR #2695）
+
+§13.5 写的「`MP_CDP_ALLOW_ALL_ORIGINS=1` 没落到 electron 命令行」当场被归因成"WMI 不继承环境变量"，**那个归因是错的**。真取证只有一条命令：
+
+```
+git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'   →  0 命中
+```
+
+即 `dev-launcher.js` 里**从来没有实现**这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、本文档链上的 `PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md` 与 `learnings.md` 四处都写着「dev-launcher.js 已加该开关，不设则 CDP 403」。**文档承诺了一个不存在的特性**，于是"按文档设了变量照样 403"会把每一个后来人重新引向同一条错误归因 —— 这正是本轮要收的口。
+
+### 14.1 修的内容
+
+- `apps/desktop/scripts/dev-launcher.js`：新增 `resolveAllowAllOrigins(env)`（默认关；`trim` 后必须恰好为 `'1'`）；`buildElectronArgs` 增 `allowAllOrigins` 形参，开启时追加 `--remote-allow-origins=*`，且追加位置必须在 `desktopDir` **之前**（既有测试钉住"数组末位是应用路径"）。
+- `apps/desktop/scripts/dev.js`：**单次**读取该值 → 传给 `buildElectronArgs` → 在 `electron.on('spawn')` 里打印现场。`trim` 是为了兼容 `cmd /c set "VAR=1 "` 折进值里的尾随空格（本仓在 `ELECTRON_USER_DATA_DIR` 上真踩过）；只认 `'1'` 是为了让"默认关"不能被 `true`/数字绕过。
+
+### 14.2 证据
+
+- `node --test` 四个 CI 点名文件（`dev-ports / dev-launcher / dev-exit-log / electron-runtime-env`）→ **tests 50 / pass 50 / fail 0**。
+- 四条变异反证，各只让对应那条锁变红：dev.js 不传参 → 1 红；删掉追加行 → 1 红；判据退化成 `!!raw` → 1 红；删掉留痕 → 1 红。还原后 10/10 绿，三个文件与备份**字节级一致**。
+- 真机 A/B（同 worktree、隔离 profile、专属 bridge 端口 8453/16553/8033/8022/8014，避免应答到别人实例的 8299）：
+
+| `MP_CDP_ALLOW_ALL_ORIGINS` | electron argv | 不带 Origin | 带 Origin | 带恶意 Origin |
+| --- | --- | --- | --- | --- |
+| `0` | 无该开关 | OPEN | **HTTP 403** | **HTTP 403** |
+| `1` | `--remote-allow-origins=*` | OPEN | **OPEN** | **OPEN** |
+
+  不带 Origin 两档都 OPEN ⇒ 差异维度被隔离在这条开关本身，不是进程、不是时序。这也解释了 §13 当时为什么必须"不发 Origin 头"才连得上。
+
+### 14.3 边界与交付拆分
+
+- 开关**默认关**，开启后任意站点都能连该进程的 DevTools WebSocket（origin 校验存在正是为此），所以它只用于本机排障，不得进 CI/生产默认值。
+- 只动 dev 启动链，未改 `apps/desktop/electron/` 与打包配置 ⇒ QM-1 前提不成立。
+- **QM-6 双模型外部评审未执行**：两条 arm 本机均不可用，一手错误已登记进 `.quality-gates.md` 本轮记录 —— `codex exited with status 1`，底层 `codex exec` 真因为 `404 ... CC Switch local proxy failed while handling Codex endpoint /responses`（路由到的 provider 无 Responses API）；`claude exited with status 1`，直接 `claude -p` 零输出。
+- **CHANGELOG 条目不在本 PR**：置顶型 `CHANGELOG.md` 在开发期间被并发会话连续撞车（两次 `CONFLICTING`），按既有止血口径把该条目移出本 PR 以把冲突面降到 0，内容保留在提交 `5d4b3215` 里，由后续 docs PR 与 `远程同步` 回填同批带上（同时销账 `scripts/gate-record-debt-ledger.json` 的登记项）。
+

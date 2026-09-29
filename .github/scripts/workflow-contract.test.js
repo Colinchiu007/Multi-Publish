@@ -204,9 +204,15 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.match(unitTestStep, /WaitForExit\(1800000\)/);
   assert.match(unitTestStep, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   assert.doesNotMatch(unitTestStep, /--maxWorkers=1|--reporter=verbose|--testTimeout=10000/);
-  assert.match(unitTestStep, /function Get-TestProcessTree/);
-  assert.match(unitTestStep, /Get-TestProcessTree -RootProcessId \$testProcess\.Id/);
-  assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id\)/);
+  // 进程树遍历已收敛到 scripts/get-test-process-tree.ps1（带 PID 复用防护 + 可注入进程表的锁）。
+  // 旧断言锁的是"步骤里内联了一份 function Get-TestProcessTree"，那正是本次要消灭的形态：
+  // 同一份只按数字 ParentProcessId 递归的实现被抄成两份，实测把 csrss/winlogon/dwm 认成
+  // 残留测试子进程后逐个 taskkill /F（run 36519025075 attempt 1）。因此这里改成锁三件事：
+  // 引用共享实现、必须传时间锚点、**不得再内联第二份**。
+  assert.match(unitTestStep, /get-test-process-tree\.ps1/);
+  assert.match(unitTestStep, /\$launchMark = Get-Date/);
+  assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id -NotBefore \$launchMark\)/);
+  assert.doesNotMatch(unitTestStep, /function Get-TestProcessTree/);
   assert.match(unitTestStep, /Gate 4 left child processes alive after pnpm exited/);
   assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
@@ -445,8 +451,16 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   assert.match(src, /--maxWorkers=1/);
   assert.match(src, /--no-file-parallelism/);
   assert.match(src, /--testTimeout=10000/);
-  // shard watchdog 必须有契约守护（W3）
-  assert.match(src, /function Get-TestProcessTree/);
+  // shard watchdog 必须有契约守护（W3）。与 Gate 4 同源：锁共享实现 + 时间锚点，
+  // 并锁"全文件不得再内联第二份 Get-TestProcessTree"（两份拷贝正是本次事故的放大器）。
+  const shardStep = src.match(
+    /- name: "Desktop tests shard[\s\S]*?(?=\n\s*# ---|\n\s*- name: |\n\n\s*coverage:)/,
+  )?.[0];
+  assert.ok(shardStep, 'Desktop tests shard 步骤必须存在');
+  assert.match(shardStep, /get-test-process-tree\.ps1/);
+  assert.match(shardStep, /\$launchMark = Get-Date/);
+  assert.match(shardStep, /-NotBefore \$launchMark/);
+  assert.doesNotMatch(src, /function Get-TestProcessTree/);
   assert.match(src, /WaitForExit\(1800000\)/);
   assert.match(src, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
