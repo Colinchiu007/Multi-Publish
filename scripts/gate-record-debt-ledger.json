@@ -1,9 +1,4 @@
 {
-  "本次执行记录：置顶文档欠账回填（#2589 / #2598 / #2566 三条）+ 代码 PR 不碰置顶文档的流程定档（topdoc-backfill-2589，2026-09-29）": {
-    "reason": "本 PR 自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填后必须删除本条，否则判陈旧登记。",
-    "status": "PENDING",
-    "line": 1
-  },
   "本次执行记录：回填 #2504 缺行 + 补写 #2595 缺席记录 + #2570 销账（backfill-gate-record-evidence，2026-09-28）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 `git log origin/main --grep='(#NNNN)$'` 离线取证回填并删除本登记项（不删则报陈旧登记）。"
   },
