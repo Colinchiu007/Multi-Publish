@@ -68,6 +68,9 @@ export function platformIconUrl (platformId) {
  * @param {unknown} value - 图标值（URL / data URI / emoji / 首字回退）
  * @returns {boolean}
  */
+// 注意：这是**图标资源**加载白名单（允许 data: 与相对路径），与渲染层「能不能把 URL 绑成
+// 可点击锚点」的判据 @multi-publish/shared-utils/src/safe-http-url 是**不同问题轴**，不可互换，
+// 也不要"顺手收敛"成一份 —— 合并会让图标功能退化。见 PRD-HREF-SCHEME-GUARD-2026-09-29 §5.1。
 export function isPlatformIconUrl (value) {
   if (typeof value !== 'string') return false
   const v = value.trim()

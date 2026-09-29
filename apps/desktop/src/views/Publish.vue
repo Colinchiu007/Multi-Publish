@@ -598,7 +598,8 @@
               {{ t('publishPage.retryPublish') }}
             </UiButton>
             <div v-if="result.url" class="result-link-row">
-              <a :href="result.url" target="_blank" class="result-link">{{ t('publishPage.viewArticle') }}</a>
+              <a v-if="safeHttpUrl(result.url)" :href="safeHttpUrl(result.url)" target="_blank" rel="noopener" class="result-link">{{ t('publishPage.viewArticle') }}</a>
+              <span v-else class="result-link">{{ result.url }}</span>
               <button @click="copyUrl(result.url)" class="copy-url-button" :class="{ 'is-copied': copied }">
                 {{ copied ? t('publishPage.copied') : t('publishPage.copyLink') }}
               </button>
@@ -673,6 +674,7 @@
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
