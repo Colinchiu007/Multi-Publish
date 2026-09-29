@@ -98,9 +98,6 @@ describe("store IPC handlers", () => {
       "store:add-publish-record",
       "store:list-publish-history",
       "store:get-publish-stats",
-      "store:add-scheduled-task",
-      "store:list-scheduled-tasks",
-      "store:delete-task",
       "store:get-setting",
       "store:set-setting",
       "store:list-callback-logs",
@@ -412,7 +409,6 @@ describe("store IPC handlers", () => {
     ["store:get-default-account", ["github"]],
     ["store:list-publish-history", [{}]],
     ["store:get-publish-stats", []],
-    ["store:list-scheduled-tasks", []],
     ["store:get-setting", ["theme"]],
     ["store:list-callback-logs", [10]],
     ["draftList", []],
@@ -457,48 +453,9 @@ describe("store IPC handlers", () => {
     });
   });
 
-  describe("store:add-scheduled-task", () => {
-    it("returns id on success", async () => {
-      mockStore.addScheduledTask.mockReturnValue("task123");
-      const task = { platform: "github", time: "2026-07-06T10:00:00Z" };
-      const result = await ipcMain._callHandler("store:add-scheduled-task", task);
-      expect(result).toEqual({ code: 0, data: { id: "task123" } });
-      expect(mockStore.addScheduledTask).toHaveBeenCalledWith(task);
-    });
-
-    it("returns code -1 on failure", async () => {
-      mockStore.addScheduledTask.mockReturnValue(null);
-      const result = await ipcMain._callHandler("store:add-scheduled-task", {});
-      expect(result).toEqual({ code: -1, data: { id: null } });
-    });
-  });
-
-  describe("store:list-scheduled-tasks", () => {
-    it("returns scheduled tasks", async () => {
-      const tasks = [{ id: "task1" }];
-      mockStore.listScheduledTasks.mockReturnValue(tasks);
-      const result = await ipcMain._callHandler("store:list-scheduled-tasks");
-      expect(result).toEqual({ code: 0, data: tasks });
-    });
-  });
-
-  describe("store:delete-task", () => {
-    it("deletes and returns code 0", async () => {
-      mockStore.deleteTask.mockReturnValue(true);
-      const result = await ipcMain._callHandler("store:delete-task", "task1");
-      expect(result).toEqual({ code: 0, data: true });
-      expect(mockStore.deleteTask).toHaveBeenCalledWith("task1");
-    });
-
-    it("returns validation/not-found errors instead of false success", async () => {
-      const invalid = await ipcMain._callHandler("store:delete-task", "");
-      mockStore.deleteTask.mockReturnValue(false);
-      const missing = await ipcMain._callHandler("store:delete-task", "missing");
-
-      expect(invalid).toEqual({ code: -2, message: "任务 ID 不能为空" });
-      expect(missing).toEqual({ code: -10, message: "定时任务不存在" });
-    });
-  });
+  // 2026-10-02 死路径清理：store:add-scheduled-task / store:list-scheduled-tasks /
+  // store:delete-task 三个 IPC 已删除（零渲染层调用；定时发布真源是 JSONL + BatchManager）。
+  // 原 describe 随接口一并移除；`scheduled_tasks` 表本身仍由迁移与账号级联删除使用。
 
   describe("store:get-setting", () => {
     it("returns setting value", async () => {
@@ -547,9 +504,6 @@ describe("store IPC handlers", () => {
       await ipcMain._callHandler("store:add-publish-record", { id: "history-1" });
       await ipcMain._callHandler("store:list-publish-history", {});
       await ipcMain._callHandler("store:get-publish-stats");
-      await ipcMain._callHandler("store:add-scheduled-task", { id: "task-1" });
-      await ipcMain._callHandler("store:list-scheduled-tasks");
-      await ipcMain._callHandler("store:delete-task", "task-1");
 
       expect(mockStore.addAccount).toHaveBeenCalledWith({ id: "acc1" }, "user-a");
       expect(mockStore.getAccount).toHaveBeenCalledWith("acc1", "user-a");
@@ -557,9 +511,6 @@ describe("store IPC handlers", () => {
       expect(mockStore.addPublishRecord).toHaveBeenCalledWith({ id: "history-1" }, "user-a");
       expect(mockStore.listPublishHistory).toHaveBeenCalledWith({}, "user-a");
       expect(mockStore.getPublishStats).toHaveBeenCalledWith("user-a");
-      expect(mockStore.addScheduledTask).toHaveBeenCalledWith({ id: "task-1" }, "user-a");
-      expect(mockStore.listScheduledTasks).toHaveBeenCalledWith("user-a");
-      expect(mockStore.deleteTask).toHaveBeenCalledWith("task-1", "user-a");
     });
 
   it("身份服务存在但 sub 缺失时拒绝读取 legacy 数据", async () => {
@@ -654,21 +605,6 @@ describe("store IPC handlers", () => {
       expect(mockStore.setSetting).not.toHaveBeenCalled();
       expect(mockStore.getUserSetting).toHaveBeenCalledWith("theme", null, "user-a");
       expect(mockStore.setUserSetting).toHaveBeenCalledWith("theme", "dark", "user-a");
-    });
-
-    it("删除不存在或不属于当前用户的任务返回 NOT_FOUND", async () => {
-      const identityService = {
-        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
-      };
-      ipcMain = createMockIpcMain();
-      mockStore = createMockStore();
-      mockStore.deleteTask.mockReturnValue(false);
-      registerHandlers(ipcMain, { store: mockStore, identityService });
-
-      const result = await ipcMain._callHandler("store:delete-task", "task-from-b");
-
-      expect(result).toMatchObject({ code: -10, data: false });
-      expect(mockStore.deleteTask).toHaveBeenCalledWith("task-from-b", "user-a");
     });
 
     it("设置默认账号时拒绝跨用户后端回退，也不写 legacy setting", async () => {
@@ -834,4 +770,57 @@ describe("store.js — 登录态与启用态正交", () => {
     expect(result).toEqual({ code: 0, data: true });
     expect(mockStore.updateAccount).toHaveBeenCalledWith("acc1", { name: "新名称" });
   });
+});
+
+describe("定时任务真源结构锁（防死路径复活 / 防第二份真源）", () => {
+  // 2026-10-02 死路径清理的防再犯锁。
+  // 背景：SQLite `scheduled_tasks` 表曾被包装成 3 个 store IPC 对外暴露，
+  // 而**零渲染层调用**；定时发布真源是 JSONL（scheduler:*）与 BatchManager（batch:*）。
+  // 留着这条死路径的风险是「下一个人把它当真源接新功能」→ 两份真源必然漂移。
+  const fs = require('fs')
+  const path = require('path')
+  const ROOT = path.resolve(__dirname, '..', '..')
+
+  it("preload 不得再暴露 scheduled_tasks 的 store 桥接", () => {
+    const src = fs.readFileSync(path.join(ROOT, 'electron/preload/account.js'), 'utf8')
+    const code = src.split(/\r?\n/).filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    for (const name of ['storeAddScheduledTask', 'storeListScheduledTasks', 'storeDeleteTask']) {
+      expect(code).not.toContain(name)
+    }
+  })
+
+  it("主进程不得再注册 scheduled_tasks 的 store IPC", () => {
+    const src = fs.readFileSync(path.join(ROOT, 'electron/ipc-handlers/store.js'), 'utf8')
+    const code = src.split(/\r?\n/).filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    for (const ch of ['store:add-scheduled-task', 'store:list-scheduled-tasks', 'store:delete-task']) {
+      expect(code).not.toContain(ch)
+    }
+  })
+
+  it("渲染层不得调用 scheduled_tasks 的 store 桥接（真源是 scheduler:* / batch:*）", () => {
+    const SRC = path.join(ROOT, 'src')
+    const files = []
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules') continue
+        const p = path.join(dir, entry.name)
+        if (entry.isDirectory()) walk(p)
+        else if (/\.(js|vue)$/.test(entry.name)) files.push(p)
+      }
+    }
+    walk(SRC)
+    // 反失明：解析退化成空集合时本锁会假绿
+    expect(files.length).toBeGreaterThan(100)
+    const hits = files.filter(f => /storeAddScheduledTask|storeListScheduledTasks|storeDeleteTask/.test(fs.readFileSync(f, 'utf8')))
+    expect(hits.map(f => path.relative(ROOT, f))).toEqual([])
+  })
+
+  it("定时任务真源入口在位（scheduler:* 单篇 + batch:schedule/cancel 批量）", () => {
+    const schedulerSrc = fs.readFileSync(path.join(ROOT, 'electron/ipc-handlers/scheduler.js'), 'utf8')
+    expect(schedulerSrc).toContain("'scheduler:create'")
+    expect(schedulerSrc).toContain("'scheduler:cancel'")
+    const batchSrc = fs.readFileSync(path.join(ROOT, 'electron/services/batch-manager.js'), 'utf8')
+    expect(batchSrc).toContain("'batch:schedule'")
+    expect(batchSrc).toContain("'batch:cancel'")
+  })
 });

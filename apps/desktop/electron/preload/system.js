@@ -241,6 +241,7 @@ function createSystemApi(ipcRenderer) {
     batchList: () => ipcRenderer.invoke('batch:list'),
     batchGet: (id) => ipcRenderer.invoke('batch:get', id),
     batchDelete: (id) => ipcRenderer.invoke('batch:delete', id),
+    batchCancel: (id) => ipcRenderer.invoke('batch:cancel', id),
     batchDuplicateArticle: (article) => ipcRenderer.invoke('batch:duplicate-article', article),
     onBatchProgress: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)

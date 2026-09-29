@@ -170,6 +170,19 @@
               <Refresh class="batch-retry-icon" />
               {{ retryingFailed ? t('publishPage.retrying') : t('publishPage.retryFailedCount', { count: failedBatchTasks.length }) }}
             </UiButton>
+            <!-- 取消排期：与单篇日历取消入口对齐。仅当本会话确有排期成功批次时出现，
+                 按钮文案与主进程 batch:cancel 语义一致（清定时器 + 状态置 cancelled）。 -->
+            <UiButton
+              v-if="scheduledBatchId"
+              variant="secondary"
+              size="sm"
+              data-testid="cancel-scheduled-batch"
+              :title="t('publishPage.batchNotify.cancelSchedule')"
+              @click="cancelScheduledBatch"
+            >
+              <Close class="batch-retry-icon" />
+              {{ t('publishPage.batchNotify.cancelSchedule') }}
+            </UiButton>
           </div>
           <ul class="cohere-timeline">
             <li v-for="item in batchProgress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
@@ -684,7 +697,7 @@ import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { useRiskStore } from '@/stores/risk'
 import { useAccountStore } from '@/stores/accounts'
-import { CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { Close, CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -1211,6 +1224,7 @@ const {
   batchProgress,
   failedBatchTasks,
   retryingFailed,
+  scheduledBatchId,
   templateTargetIdx,
   showTemplatePicker,
   batchDone,
@@ -1220,6 +1234,7 @@ const {
   removeArticle,
   duplicateArticle,
   handleBatchPublish,
+  cancelScheduledBatch,
   retryFailedBatch,
   applyTemplate,
   checkBatchAccess,
