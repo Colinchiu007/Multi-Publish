@@ -1796,11 +1796,56 @@ handlePublish
 - 权益门控：`scheduled-publish` 属 PRO_FEATURES（license-manager）；免费版升级弹窗提示
   「解锁全平台发布、批量发布、定时发布、AI 写作等能力」。
 
-#### 6.3.11 离线行为（按实现修正）
+#### 6.3.11 离线行为（2026-10-02 第二轮修订：缓存形状同源 + 批量对齐）
 
-- **创建时离线：** 进离线缓存，提示已缓存（不创建定时任务）。
-- **到点时离线：** 任务照常入队执行，发布失败按任务队列重试策略（默认重试 2 次）后标 failed 落历史。
-  （原文「断网标记 missed」与实现不符，按实现修正为失败重试语义。）
+**创建时离线（单篇与批量）：**
+- 单篇：`handlePublish` 检测 `offlineStatus()` → `offlineAddToCache({ targets, data })` → 提示「已离线缓存，网络恢复后自动发布」。
+- 批量：`handleBatchPublish` **逐篇** `offlineAddToCache({ targets, data })` → 提示「已离线缓存 {count} 篇文章，网络恢复后自动发布」（2026-10-02 新增；此前批量**完全无离线检测**，离线时按在线硬发到任务队列，必然全量失败）。
+- 缓存写入失败：danger 级提示并中止（不静默当作成功）。
+- 提交负载单一实现：`buildBatchArticlePayload(a)` 同时供在线 `batchCreate` 与离线缓存使用——两份必然漂移，漂移表现为「离线重放出去的文章字段与用户确认时看到的不一致」。
+
+**缓存写入形状与重放形状同源（2026-10-02 P1 修复）：**
+渲染层写入的是**嵌套**形状 `{ targets: [{platform, accountId}], data }`，而 `offline-manager.processCachedTasks` 原先只认**扁平** `task.platform && task.article`。两者不同源 ⇒ 嵌套条目 `platform` 为 `undefined` ⇒ 被永久留在缓存、**网络恢复后永不重放**（静默堆积；既有测试全部使用扁平夹具，故该缺陷从未被覆盖）。
+修复：`expandCachedTask(task)` 成为两种形状的**唯一展开点**——扁平原样透传（存量缓存向后兼容）、嵌套按 targets 逐条展开为 `{platform, article: data, accountId}`、无法识别返回空数组（调用方留缓存，不静默丢弃）。
+
+**重放原子性：** 一条缓存的**全部** target 入队成功才计入重放数并移出缓存；任一 target 抛错则整条保留。部分成功后移出会**丢失未入队的平台**（不可逆），而留在缓存最坏只是重放一次已成功的平台。
+
+**目标归一化：** 离线缓存的 targets 必须是 `{platform, accountId}` 对象数组（`buildCacheTargets`）。未接入账号目录时 `getArticleTargets` 返回**字符串数组**（`['wechat_mp']`），字符串 target 无法被重放展开识别 → 会写出永远重放不了的畸形条目。
+
+**到点时离线：** 任务照常入队执行，发布失败按任务队列重试策略（默认重试 2 次）后标 failed 落历史。
+（原文「断网标记 missed」与实现不符，按实现修正为失败重试语义。）
+
+#### 6.3.12 批量排期定时器生命周期与取消契约（2026-10-02 新增）
+
+**定时器索引唯一真源**：`BatchManager._timers` 为 `Map<batchId, Set<timer>>`。
+按批次索引是硬要求——原为 `Set<timer>`（无批次维度）**直接导致两个发布正确性缺陷**：
+
+| 缺陷 | 现象 | 根因 | 反证实测 |
+|------|------|------|---------|
+| **幽灵发布** | `batch:delete` 删除排期批次后，到点**仍然发布** | 只删 SQLite 记录、不清内存定时器；且 Set 结构下想清也定位不到该批次 | 删除后 `queue.add` 仍被调用 1 次 |
+| **重复发布** | 同一批次重复排期 → 到点发布多次 | `scheduleBatch` 每次调用把新 timer 累加进同一 Set，无批次级去重 | 3 次调用产生 3 个定时器 |
+
+**契约（5 条）：**
+1. `_clearBatchTimers(batchId)` 是**唯一定时器清除点**（取消 / 删除 / 去重三处复用；禁止维护第二份 batchId→timer 映射，两份必然漂移）。
+2. `scheduleBatch(batchId)` 入口先清同批次旧定时器 → **幂等排期**（UI 重复点发布、restore 与手动排期叠加都不产生重复定时器）。
+3. `batch:delete` 必须**先清定时器再删记录**（顺序不可颠倒）。
+4. `cancelBatch(batchId)`：清定时器 + 状态置 `cancelled`（记录保留可查，不物理删除）；未登记定时器时返回 `false`（不误报成功）。
+5. `stopAll()`：遍历全部批次清空（应用退出调用）。
+
+**取消排期入口（渲染层）：** 批量发布进度区「取消排期」按钮，由 `useBatchPublish.scheduledBatchId` 驱动：
+- **排期成功才置值**（失败不留「可取消」的幽灵状态）；
+- `cancelScheduledBatch()` 调 `batch:cancel`，**失败保留** `scheduledBatchId` 供重试并提示失败；
+- 渲染层**不自标记成功**（取消结果以主进程返回为准——只改状态不清定时器就是幽灵发布的同族风险）；
+- 非排期批次（立即执行）按钮不出现，调用无副作用。
+
+**提示文字（zh；en 成对维护）：** `cancelSchedule`「取消排期」/ `scheduleCancelled`「已取消排期」/ `cancelScheduleFailed`「取消排期失败，请重试」/ `offlineCached`「已离线缓存 {count} 篇文章，网络恢复后自动发布」/ `offlineCacheFailed`「离线缓存失败」。
+
+#### 6.3.13 SQLite `scheduled_tasks` 表与死路径清理（2026-10-02）
+
+- **真源唯一**：定时发布真源是 JSONL `scheduled-tasks.jsonl`（`scheduler:create/list/cancel`，单篇）+ `BatchManager`（`batch:schedule/cancel/delete`，批量）。
+- **已删除的死路径**：3 个 store IPC（`store:add-scheduled-task` / `store:list-scheduled-tasks` / `store:delete-task`）+ 3 个 preload 桥接（`storeAddScheduledTask` / `storeListScheduledTasks` / `storeDeleteTask`）——**零渲染层调用**（全仓 grep 只有测试引用）。保留它们等于对外暴露一条「看起来能管理定时任务、实际没有任何界面在用」的假接口，且诱使后来者把它当第二真源。
+- **保留的表**：SQLite `scheduled_tasks` 仍被 `base-store.migrateFromJsonl`（历史 JSONL→SQLite 迁移）写入、被 `account-store` 删除账号时级联清理读取；`scheduler-store.js` 顶部已加 ⛔ dead-path 标注说明真源与保留原因。
+- **防再犯结构锁（4 例）**：`ipc-handlers/store.test.js` 断言 preload 不得再暴露、主进程不得再注册、渲染层不得调用（含扫描域规模下界反失明断言）、真源入口（`scheduler:create/cancel` + `batch:schedule/cancel`）在位。
 
 ### 6.4 多平台批量发布（v1.1.0）
 
@@ -10594,11 +10639,56 @@ handlePublish
 - 权益门控：`scheduled-publish` 属 PRO_FEATURES（license-manager）；免费版升级弹窗提示
   「解锁全平台发布、批量发布、定时发布、AI 写作等能力」。
 
-#### 6.3.11 离线行为（按实现修正）
+#### 6.3.11 离线行为（2026-10-02 第二轮修订：缓存形状同源 + 批量对齐）
 
-- **创建时离线：** 进离线缓存，提示已缓存（不创建定时任务）。
-- **到点时离线：** 任务照常入队执行，发布失败按任务队列重试策略（默认重试 2 次）后标 failed 落历史。
-  （原文「断网标记 missed」与实现不符，按实现修正为失败重试语义。）
+**创建时离线（单篇与批量）：**
+- 单篇：`handlePublish` 检测 `offlineStatus()` → `offlineAddToCache({ targets, data })` → 提示「已离线缓存，网络恢复后自动发布」。
+- 批量：`handleBatchPublish` **逐篇** `offlineAddToCache({ targets, data })` → 提示「已离线缓存 {count} 篇文章，网络恢复后自动发布」（2026-10-02 新增；此前批量**完全无离线检测**，离线时按在线硬发到任务队列，必然全量失败）。
+- 缓存写入失败：danger 级提示并中止（不静默当作成功）。
+- 提交负载单一实现：`buildBatchArticlePayload(a)` 同时供在线 `batchCreate` 与离线缓存使用——两份必然漂移，漂移表现为「离线重放出去的文章字段与用户确认时看到的不一致」。
+
+**缓存写入形状与重放形状同源（2026-10-02 P1 修复）：**
+渲染层写入的是**嵌套**形状 `{ targets: [{platform, accountId}], data }`，而 `offline-manager.processCachedTasks` 原先只认**扁平** `task.platform && task.article`。两者不同源 ⇒ 嵌套条目 `platform` 为 `undefined` ⇒ 被永久留在缓存、**网络恢复后永不重放**（静默堆积；既有测试全部使用扁平夹具，故该缺陷从未被覆盖）。
+修复：`expandCachedTask(task)` 成为两种形状的**唯一展开点**——扁平原样透传（存量缓存向后兼容）、嵌套按 targets 逐条展开为 `{platform, article: data, accountId}`、无法识别返回空数组（调用方留缓存，不静默丢弃）。
+
+**重放原子性：** 一条缓存的**全部** target 入队成功才计入重放数并移出缓存；任一 target 抛错则整条保留。部分成功后移出会**丢失未入队的平台**（不可逆），而留在缓存最坏只是重放一次已成功的平台。
+
+**目标归一化：** 离线缓存的 targets 必须是 `{platform, accountId}` 对象数组（`buildCacheTargets`）。未接入账号目录时 `getArticleTargets` 返回**字符串数组**（`['wechat_mp']`），字符串 target 无法被重放展开识别 → 会写出永远重放不了的畸形条目。
+
+**到点时离线：** 任务照常入队执行，发布失败按任务队列重试策略（默认重试 2 次）后标 failed 落历史。
+（原文「断网标记 missed」与实现不符，按实现修正为失败重试语义。）
+
+#### 6.3.12 批量排期定时器生命周期与取消契约（2026-10-02 新增）
+
+**定时器索引唯一真源**：`BatchManager._timers` 为 `Map<batchId, Set<timer>>`。
+按批次索引是硬要求——原为 `Set<timer>`（无批次维度）**直接导致两个发布正确性缺陷**：
+
+| 缺陷 | 现象 | 根因 | 反证实测 |
+|------|------|------|---------|
+| **幽灵发布** | `batch:delete` 删除排期批次后，到点**仍然发布** | 只删 SQLite 记录、不清内存定时器；且 Set 结构下想清也定位不到该批次 | 删除后 `queue.add` 仍被调用 1 次 |
+| **重复发布** | 同一批次重复排期 → 到点发布多次 | `scheduleBatch` 每次调用把新 timer 累加进同一 Set，无批次级去重 | 3 次调用产生 3 个定时器 |
+
+**契约（5 条）：**
+1. `_clearBatchTimers(batchId)` 是**唯一定时器清除点**（取消 / 删除 / 去重三处复用；禁止维护第二份 batchId→timer 映射，两份必然漂移）。
+2. `scheduleBatch(batchId)` 入口先清同批次旧定时器 → **幂等排期**（UI 重复点发布、restore 与手动排期叠加都不产生重复定时器）。
+3. `batch:delete` 必须**先清定时器再删记录**（顺序不可颠倒）。
+4. `cancelBatch(batchId)`：清定时器 + 状态置 `cancelled`（记录保留可查，不物理删除）；未登记定时器时返回 `false`（不误报成功）。
+5. `stopAll()`：遍历全部批次清空（应用退出调用）。
+
+**取消排期入口（渲染层）：** 批量发布进度区「取消排期」按钮，由 `useBatchPublish.scheduledBatchId` 驱动：
+- **排期成功才置值**（失败不留「可取消」的幽灵状态）；
+- `cancelScheduledBatch()` 调 `batch:cancel`，**失败保留** `scheduledBatchId` 供重试并提示失败；
+- 渲染层**不自标记成功**（取消结果以主进程返回为准——只改状态不清定时器就是幽灵发布的同族风险）；
+- 非排期批次（立即执行）按钮不出现，调用无副作用。
+
+**提示文字（zh；en 成对维护）：** `cancelSchedule`「取消排期」/ `scheduleCancelled`「已取消排期」/ `cancelScheduleFailed`「取消排期失败，请重试」/ `offlineCached`「已离线缓存 {count} 篇文章，网络恢复后自动发布」/ `offlineCacheFailed`「离线缓存失败」。
+
+#### 6.3.13 SQLite `scheduled_tasks` 表与死路径清理（2026-10-02）
+
+- **真源唯一**：定时发布真源是 JSONL `scheduled-tasks.jsonl`（`scheduler:create/list/cancel`，单篇）+ `BatchManager`（`batch:schedule/cancel/delete`，批量）。
+- **已删除的死路径**：3 个 store IPC（`store:add-scheduled-task` / `store:list-scheduled-tasks` / `store:delete-task`）+ 3 个 preload 桥接（`storeAddScheduledTask` / `storeListScheduledTasks` / `storeDeleteTask`）——**零渲染层调用**（全仓 grep 只有测试引用）。保留它们等于对外暴露一条「看起来能管理定时任务、实际没有任何界面在用」的假接口，且诱使后来者把它当第二真源。
+- **保留的表**：SQLite `scheduled_tasks` 仍被 `base-store.migrateFromJsonl`（历史 JSONL→SQLite 迁移）写入、被 `account-store` 删除账号时级联清理读取；`scheduler-store.js` 顶部已加 ⛔ dead-path 标注说明真源与保留原因。
+- **防再犯结构锁（4 例）**：`ipc-handlers/store.test.js` 断言 preload 不得再暴露、主进程不得再注册、渲染层不得调用（含扫描域规模下界反失明断言）、真源入口（`scheduler:create/cancel` + `batch:schedule/cancel`）在位。
 
 ### 6.4 多平台批量发布（v1.1.0）
 

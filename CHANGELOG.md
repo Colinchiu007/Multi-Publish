@@ -1,3 +1,44 @@
+# [未发布] fix(定时发布): 批量幽灵发布/重复排期/离线缓存永不重放/取消入口 + scheduled_tasks 死路径清理（2026-10-02，harden-batch-schedule）
+
+### 现象与根因（4 缺陷 + 1 清理，均为首轮 #2655 之后的第二轮发现）
+
+- **b1 幽灵发布（P1）**：`batch:delete` 只删 SQLite 记录、**不清内存定时器**，且 `_timers` 原为 `Set<timer>`（无 batchId 索引，想清也定位不到）。用户删除已排期批次后 `setTimeout` 仍在，**到点照样发布**。反证实测：删除后 `queue.add` 仍被调用 **1 次**。
+- **b2 重复排期（P1）**：`scheduleBatch` 每次调用都为未来文章注册新 timer 并累加进同一 Set，无批次级去重。UI 重复点发布 / restore 与手动排期叠加 ⇒ 重复定时器 ⇒ **同一文章重复发布**。反证实测：3 次调用产生 **3 个**定时器。
+- **b3 批量无取消入口（P2）**：`batchCancel` 的 IPC 与 preload 桥接都不存在，批量排期后没有任何界面能取消，用户只能干等到点——与单篇已有日历取消入口不对等。
+- **b4 离线机制整体失效（既有 P1，本轮新发现）**：渲染层（单篇与批量）写入**嵌套**形状 `{ targets, data }`，而 `offline-manager.processCachedTasks` 判据是**扁平** `task.platform && task.article` ⇒ 嵌套条目 `platform` 为 `undefined` ⇒ 被永久留在缓存、**网络恢复后永不重放**。批量发布本身还完全无离线检测。既有测试全部用扁平夹具，该缺陷从未被覆盖（又一次「夹具形状 ≠ 生产写入形状」）。
+- **scheduled_tasks 死路径（P3 清理）**：SQLite `scheduled_tasks` 表被包装成 3 个 store IPC + 3 个 preload 桥接对外暴露，但**零渲染层调用**（全仓只有测试引用）。留着会诱使后来者把它当真源 → 写出第二份真源、与 JSONL 必然漂移。
+
+### 变更
+
+- **定时器索引重构（修 b1+b2）**：`_timers` 从 `Set<timer>` 改为 `Map<batchId, Set<timer>>`；新增 `_clearBatchTimers(batchId)` 作**唯一定时器清除点**（取消/删除/去重三处复用）；`scheduleBatch` 入口先清同批次旧定时器（幂等排期）；timer 回调按 Set 自删；`batch:delete` **先清定时器再删记录**。
+- **取消排期（修 b3）**：`BatchManager.cancelBatch()`（清定时器 + 状态置 `cancelled`，记录保留；未登记定时器返回 false 不误报成功）+ `batch:cancel` IPC + preload `batchCancel` + `api/publisher.batchCancel` + `useBatchPublish.cancelScheduledBatch()`（失败保留 id 供重试、不自标记成功）+ `Publish.vue`「取消排期」按钮（`scheduledBatchId` 驱动，排期成功才出现）。locales `cancelSchedule` / `scheduleCancelled` / `cancelScheduleFailed` zh/en 成对。
+- **离线形状同源（修 b4a）**：`offline-manager.expandCachedTask()` 成为两种形状的**唯一展开点**（扁平原样透传向后兼容 + 嵌套按 targets 逐条展开 + 无法识别留缓存）；重放原子性 = 一条缓存的全部 target 成功才计数并移出，任一失败整条保留（不丢平台、不虚报）。
+- **批量离线检测（修 b4b）**：`handleBatchPublish` 在创建批次前检测离线，离线时逐篇 `offlineAddToCache` 并提示，不硬发；失败 danger 提示不静默。提取 `buildBatchArticlePayload(a)`（在线与离线**共用**构造，防漂移）+ `buildCacheTargets(a)`（目标归一化为对象，字符串目标无法被重放识别）。locales `offlineCached` / `offlineCacheFailed` zh/en 成对。
+- **死路径清理**：删 3 个 store IPC + 3 个 preload 桥接；**保留** `scheduled_tasks` 表（`migrateFromJsonl` 仍写入、`account-store` 删账号级联清理仍读取）；`scheduler-store.js` 加 ⛔ dead-path 标注；新增**结构锁 4 例**（preload/主进程/渲染层三面禁复活 + 真源入口在位，含扫描域规模下界反失明断言）；重打包 2 个 preload bundle。
+
+### 明确不做（附理由）
+
+- **不删 `scheduler-store.js` 的 5 个方法**：`store-snapshot` / `store-owner-isolation` 两个测试用它们守护「该表数据按 owner 隔离」的语义；删方法需重写这两个测试，收益（少 5 个无调用者方法）不匹配风险。真正的风险（有人把死路径当真源）已由「删 IPC + 删桥接 + 结构锁 + dead-path 标注」四重覆盖，完整清理登记为后续项（须与两个测试重写同批）。
+- **不改 `getArticleTargets` 复用为缓存目标源**：它是 `batchCreate` 的既有宽松契约（未接账号目录时返回字符串数组，主进程 `resolvePlatform` 能同时吃两种形态）；改它会波及在线提交路径。故离线缓存专用 `buildCacheTargets` 归一化。
+- **不给批量离线做「一次 IPC 传全部文章」的聚合接口**：离线是罕见路径且 N = 文章数（通常 <10），逐篇写入换来的是与单篇完全同源的缓存形状（同一 `expandCachedTask` 展开点）。
+
+### 测试（TDD，先红后绿）
+
+- `batch-manager.test.js` +7：重复排期不产生重复定时器（**RED 实证 `expected 3 to be 1`**）、cancelBatch 清定时器+置 cancelled、只影响目标批次、未登记返回 false、`batch:delete` 幽灵发布回归锁（**RED 实证删除后仍被调用 1 次**）、`batch:cancel` IPC、stopAll Map 结构回归。
+- `offline-manager.test.js` +5：嵌套形状按 targets 展开（**RED 实证返回 0 = 永不重放**）、嵌套条目重放后移出缓存、扁平+嵌套共存、无法识别留缓存、单 target 失败整条保留。
+- `useBatchPublish.test.js` +5：离线逐篇缓存不创建批次、缓存失败提示失败、排期成功才暴露 `scheduledBatchId`、取消失败保留 id、非排期批次无副作用；另把 `offlineStatus`/`offlineAddToCache` 从**死 mock** 改为 `window.electronAPI` 转发（原 mock 无法控制，等于测不到离线分支）。
+- `ipc-handlers/store.test.js` +4：死路径结构锁（三面 + 真源入口）。
+- 计数同步 4 处：preload system 148→149（+batchCancel）、account 52→49、总键 337→334、`ACCOUNT_METHODS` 51→48。
+- 回归：本次改动面全跑 731 passed（9 文件）；QM-1 打包 exit 0 + asar 解包实证修复代码在位 + 启动 8 秒无致命 stderr。
+
+### QM-6 双模型评审（降级记录）
+
+按 AGENTS.md「子代理降级」纪律派发两路外部评审，**两路均因上游额度 403 不可用**：
+- `claude -p` → `403 今日订阅额度已用尽或未配置订阅（与 API Key 无关）`
+- `codex exec` → 同因（CC Switch 本地代理转发上游，`upstream_status: HTTP 403`），且 codex 沙箱 policy 拦截 shell、无法执行 `git show`
+
+处置：**不盲等**，降级为主代理对抗性自审——本轮自审实际产出 b1/b2/b4a 三个新缺陷，强度不低于形式化评审。两路不可用的事实与证据行已写入 `.quality-gates.md` 与 PR 描述，**不记为「评审通过」**，也不把自审冒充为第二路独立评审。
+
 # [未发布] feat(publish-progress): 进度浮窗视觉/UE 精化——dot-stepper 降噪 + 取消链路端到端 + 完成自动收敛（2026-09-29，publish-progress-panel-refine / PR #2658）
 
 ### 根因（第一性原因）
