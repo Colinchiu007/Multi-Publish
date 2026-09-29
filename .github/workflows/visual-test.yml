@@ -94,12 +94,11 @@ jobs:
               # 复用同一台 Vite / 同一渲染环境（与浅色同源，满足 QM-4 第 7 条的同源口径）。
               # 读的是 `<view>-dark.png` 基线，与浅色 `<view>.png` 互不覆盖。
               #
-              # ⚠️ staged（暂时不阻断）：仓库尚无暗色基线，直接阻断会让 main 常红。
-              #    待「从本 workflow 的 artifact 取出同源暗色截图并入库」完成后，
-              #    删除下面的 continue-on-error 转为阻断门禁 —— 与 Gate 7b 的历史处置同形
-              #    （见本文件下方 Gate 7b 注释：先刻意 continue-on-error，同源基线就绪后摘掉）。
+              # 2026-09-29：**已由 staged 转阻断**。19 张同源暗色基线入库（#2709）后的首次运行实测
+              # `像素结果[light]: 19/19 通过，0 失败` + `像素结果[dark]: 19/19 通过，0 失败`
+              # （run 36636378488 @ 2452b4a4），满足转阻断前提 —— 与 Gate 7b 的历史处置同形。
               pnpm.cmd run test:visual:pixel:dark
-              if ($LASTEXITCODE -ne 0) { Write-Host "::warning::暗色像素门禁未通过（批次 1 staged，待同源暗色基线入库后转阻断）" }
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             } finally {
               Pop-Location
             }

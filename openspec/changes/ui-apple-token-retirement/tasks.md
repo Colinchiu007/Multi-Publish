@@ -173,7 +173,8 @@
 - [x] 删除 `apple-design-tokens.css` 与 `tokens.css` 的 17 个 `--color-apple-*` 槽位（别名层 93 行整文件删除；槽位区块替换为退役说明注释）
 - [x] 移除 alias 层导入（**实测唯一导入方是 `cohere-design-system.css:1`** 的 `@import`，已移除；`main.js` 无导入）
 - [x] 新增静态门禁：`var(--apple-` 命中数必须为 0，非 0 则 CI 失败并列出行号（基线已归零 `appleAlias: 0`；并新增**「钉 0」回归锁**断言基线值恒为 0，防止被静默抬高）
-- [ ] 全量基线（浅 + 暗）跑一遍通过 → **待同源取证**（浅色走本批次 PR 的 artifact；暗色需 `visual-test.yml`）
+- [x] 全量基线（浅 + 暗）跑一遍通过：**已取证**。暗色基线入库（#2709，19 张）后的首次 `visual-test.yml` 运行（run `36636378488` @ `2452b4a4`）实测
+  `像素结果[light]: 19/19 通过，0 失败` + `像素结果[dark]: 19/19 通过，0 失败` ⇒ 该步骤**已由 staged 转阻断**（`if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`）
 - [x] `cohere-design-system.css` 的 `--ink` / `--muted` 收敛为对 `tokens.css` 的纯转发（暗色 `--ink`: #e8e8ed → `var(--color-text-primary)`，**值等价**；`--muted`: #88889a → `var(--color-text-secondary)`(#b4b2c6)，**变亮 = 暗色可读性提升**，属披露项）。`--surface` 浅色块本就纯转发、暗色块无独立值，无需改动
 
 ### 批次 6 实测结果（2026-09-29）
