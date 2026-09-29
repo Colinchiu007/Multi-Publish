@@ -1,5 +1,20 @@
 # [未发布] fix(定时发布): 全链路验证修复——批量定时重启恢复、历史定时模式标记、日历取消入口（2026-10-02，fix-scheduled-publish-gaps）
 
+- **fix(history)：发布历史失败记录渲染失败原因（publish-history-error-detail）**。
+  `task:failed` 落库的 `error` 字段（publish-progress-ux G8 数据链路）此前只到 API 层——历史页列表卡片
+  只显示红色「发布失败」徽标与失败计数，失败原因只能翻主进程日志。本次渲染侧收口：
+  - 列表卡片：失败组且 `error` 非空时渲染失败原因行（`.record-error`，`data-testid="record-error-{id}"`），
+    单行截断 + `title` 悬停全文，色系与 `status-badge.failed` 同（#b42318）；
+  - 详情弹窗：失败组紧跟「状态」行渲染「失败原因」格（`data-testid="detail-error-reason"`，跨双列、
+    `word-break: break-all` + `pre-wrap` 完整展示长错误），无 `error` 字段时占位「未记录失败原因」；
+  - 成功/进行中记录两处均不渲染；错误文本原样透传不翻译（引擎层技术短语，翻译失真）；
+  - i18n zh/en 成对新增 `historyPage.detailErrorReason` / `historyPage.errorUnknown`（CI Gate 7）。
+  回归锁：`PublishHistory.test.js` +5 用例（卡片显示 / 成功不渲染 / 详情显示 / 无 error 占位 / 既有
+  「详情无 result 不渲染行」不回归），34/34 绿。完整合同：PRD-PUBLISH-PROGRESS-UX §5.7、主 PRD §6.7。
+
+---
+
+
 ### 现象与根因（5 项，按严重度）
 
 - **P1 批量定时重启丢失（静默数据丢失）**：`BatchManager.scheduleBatch` 只用内存 `setTimeout`（`this._timers`），应用退出即丢；`batch_jobs` 表 status='scheduled' 的批次重启后无人重新武装，排期文章**永不发布**且无任何提示。PRD §6.3 声称的「支持 App 关闭后重启恢复」对批量路径不成立。根因：scheduleBatch 设计时只考虑运行时排期，无恢复路径。

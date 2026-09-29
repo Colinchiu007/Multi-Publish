@@ -1776,6 +1776,8 @@ export default {
     detailPublisher: '发布人',
     detailPlatform: '平台',
     detailStatus: '状态',
+    detailErrorReason: '失败原因',
+    errorUnknown: '未记录失败原因',
     detailContentType: '内容类型',
     detailMode: '发布模式',
     detailDeliveryMode: '发布方式',
