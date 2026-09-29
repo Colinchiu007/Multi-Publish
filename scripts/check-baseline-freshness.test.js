@@ -114,3 +114,64 @@ test('缺 --renders 时退出码为 1，不得默认通过', () => {
   assert.ok(typeof code === 'number');
   assert.equal(logs.length, 0);
 });
+
+
+
+// 夹具：只让一小块不同 ⇒ 漂移落在预算内（默认 pngOf 的两张差 3511 px，会直接超出 200 预算，
+// 那样测的是"超预算"而不是"预算内"，两条断言会互相顶掉）。
+function pngWithBlock (seed, block) {
+  const p = new PNG({ width: 64, height: 64 })
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const i = ((y * 64) + x) << 2
+      const inBlock = x < 6 && y < 6
+      const ink = inBlock ? (block ? 0 : 128) : ((x + y + seed) % 7) < 3 ? 20 : 240
+      p.data[i] = ink; p.data[i + 1] = ink; p.data[i + 2] = ink; p.data[i + 3] = 255
+    }
+  }
+  return PNG.sync.write(p)
+}
+
+test('已登记动态视图在预算内不报违规、只出声；超出预算报 DYNAMIC_BUDGET_EXCEEDED', () => {
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    // 注意：KNOWN_DYNAMIC / KNOWN_UNCOVERED 的键**含 .png 后缀**，而 findRender 收的是去后缀名，
+    // 所以渲染文件路径直接用键本身拼，不要再 + '.png'（否则文件名变成 x.png.png ⇒ 被判成无渲染）。
+    const name = Object.keys(D.KNOWN_DYNAMIC)[0]
+    const budget = D.KNOWN_DYNAMIC[name].maxDriftPx
+    fs.writeFileSync(path.join(baselines, name), pngWithBlock(1, false))
+    fs.writeFileSync(path.join(renders, name), pngWithBlock(1, true))
+    const inside = D.evaluateFreshness(baselines, renders)
+    const drift = inside.rows[0].driftPx
+    assert.ok(drift > 0, '夹具必须真的产生漂移，否则这条测试是空的')
+    assert.ok(drift <= budget, `夹具漂移 ${drift} 应落在预算 ${budget} 内`)
+    assert.deepEqual(inside.violations, [], '预算内不得报违规（否则门禁会永久红）')
+    assert.equal(inside.notes.length, 1)
+    assert.match(inside.notes[0], /^DYNAMIC_ALLOWED: /)
+    const saved = D.KNOWN_DYNAMIC[name].maxDriftPx
+    try {
+      D.KNOWN_DYNAMIC[name].maxDriftPx = drift - 1
+      const over = D.evaluateFreshness(baselines, renders)
+      assert.equal(over.violations.length, 1)
+      assert.match(over.violations[0], /^DYNAMIC_BUDGET_EXCEEDED: /)
+      assert.equal(over.notes.length, 0)
+    } finally {
+      D.KNOWN_DYNAMIC[name].maxDriftPx = saved
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('例外按文件名逐个生效：未登记视图不得共享别人的预算', () => {
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    const dynamic = Object.keys(D.KNOWN_DYNAMIC)[0]
+    fs.writeFileSync(path.join(baselines, dynamic), pngWithBlock(1, false))
+    fs.writeFileSync(path.join(renders, dynamic), pngWithBlock(1, true))
+    fs.writeFileSync(path.join(baselines, 'other.png'), pngWithBlock(1, false))
+    fs.writeFileSync(path.join(renders, 'other.png'), pngWithBlock(1, true))
+    const r = D.evaluateFreshness(baselines, renders)
+    assert.equal(r.violations.length, 1, '只允许未登记那张报红')
+    assert.match(r.violations[0], /^BASELINE_STALE: other.png/)
+    assert.equal(r.notes.length, 1)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

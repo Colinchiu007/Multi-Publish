@@ -41,13 +41,30 @@ function findRender (rendersDir, name) {
 }
 
 /**
- * @returns {{violations: string[], uncovered: string[], checked: number, rows: object[]}}
+ * 已登记的「跨 run 不稳定」视图：这些页面 UI 含实时值，其基线在数学上不可复现。
+ * 与 KNOWN_UNCOVERED 同族纪律 —— 必须带实测理由与**漂移预算**，清单只能缩小；
+ * 超出预算照红：例外只承认「这一处会变」，不承认「它会变多少都行」。
+ *
+ * 实测依据（2026-09-30）：46 个视图 × 两次 CI run 两两对照，只有 keyword-monitor 不稳定，
+ * 差 140 px，位置 (463,411)→(520,418)，内容是「最后检查: <ISO 时间戳>  采样: N 条」；
+ * 其余 45 张跨 run 逐字节相同。正解是给该视图接确定性时钟（另案），不是提阈值或遮区域。
+ */
+const KNOWN_DYNAMIC = {
+  'keyword-monitor.png': {
+    maxDriftPx: 200,
+    reason: '视图含实时「最后检查」ISO 时间戳（精确到毫秒），跨 run 必然不同；实测两次 CI run 差 140 px',
+  },
+};
+
+/**
+ * @returns {{violations: string[], uncovered: string[], notes: string[], checked: number, rows: object[]}}
  */
 function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0) {
   const { PNG, pixelmatch } = deps || loadDeps();
   const names = fs.readdirSync(baselinesDir).filter((f) => f.endsWith('.png')).sort();
   const violations = [];
   const uncovered = [];
+  const notes = [];
   const rows = [];
   for (const name of names) {
     const hit = findRender(rendersDir, name.replace(/\.png$/, ''));
@@ -68,12 +85,20 @@ function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0) {
     }
     const driftPx = pixelmatch(a.data, b.data, null, a.width, a.height, { threshold: 0.1 });
     rows.push({ name, driftPx, from: hit.from, pct: +((100 * driftPx) / (a.width * a.height)).toFixed(3) });
+    const dynamic = KNOWN_DYNAMIC[name];
     if (driftPx > maxDriftPx) {
-      violations.push(`BASELINE_STALE: ${name} 与同一次 CI 渲染差 ${driftPx} px（${((100 * driftPx) / (a.width * a.height)).toFixed(3)}%）`
-        + ` —— 基线必须由 CI artifact 的渲染重建（QM-4 第 7 条），本机 test:visual:update-baseline 的产物不得提交`);
+      if (dynamic && driftPx <= dynamic.maxDriftPx) {
+        notes.push(`DYNAMIC_ALLOWED: ${name} 差 ${driftPx} px ≤ 已登记预算 ${dynamic.maxDriftPx} px（${dynamic.reason}）`);
+      } else if (dynamic) {
+        violations.push(`DYNAMIC_BUDGET_EXCEEDED: ${name} 差 ${driftPx} px，超出已登记预算 ${dynamic.maxDriftPx} px`
+          + ` —— 登记理由是「${dynamic.reason}」；变这么多说明该处行为已改，须重新取证而非抬预算`);
+      } else {
+        violations.push(`BASELINE_STALE: ${name} 与同一次 CI 渲染差 ${driftPx} px（${((100 * driftPx) / (a.width * a.height)).toFixed(3)}%）`
+          + ` —— 基线必须由 CI artifact 的渲染重建（QM-4 第 7 条），本机 test:visual:update-baseline 的产物不得提交`);
+      }
     }
   }
-  return { violations, uncovered, checked: names.length, rows };
+  return { violations, uncovered, notes, checked: names.length, rows };
 }
 
 function main (argv = process.argv.slice(2)) {
@@ -90,15 +115,28 @@ function main (argv = process.argv.slice(2)) {
     console.error('缺 --renders 时无法判定（不得默认通过）。');
     return 1;
   }
-  const { violations, uncovered, checked, rows } = evaluateFreshness(baselinesDir, rendersDir, null, maxDriftPx);
-  const stale = rows.filter((r) => typeof r.driftPx === 'number' && r.driftPx > maxDriftPx);
-  console.log(`基线新鲜度：检查 ${checked} 张 / 偏离 ${stale.length} 张 / CI 无渲染 ${uncovered.length} 张`);
-  for (const r of stale) console.log(`  ❌ ${r.name} ${r.driftPx} px (${r.pct}%) 来源=${r.from}`);
-  for (const v of violations) if (!v.startsWith('BASELINE_STALE')) console.log('  ❌ ' + v);
-  if (!violations.length) console.log('✅ 全部被跟踪基线逐像素等于本次 CI 渲染');
+  const { violations, uncovered, notes, checked, rows } = evaluateFreshness(baselinesDir, rendersDir, null, maxDriftPx);
+  const drifted = rows.filter((r) => typeof r.driftPx === 'number' && r.driftPx > maxDriftPx);
+  // 已登记且在预算内的动态漂移只出声、不打 ❌ —— 否则 rc=0 与满屏 ❌ 同时出现，
+  // 读日志的人会按 ❌ 计数判断成败，等于把"允许"显示成"失败"。
+  const allowed = new Set(notes.map((n) => n.replace(/^DYNAMIC_ALLOWED: ([^ ]+) .*/, '$1')));
+  const offending = drifted.filter((r) => !allowed.has(r.name));
+  console.log(`基线新鲜度：检查 ${checked} 张 / 违规 ${offending.length} 张 / 登记内动态漂移 ${allowed.size} 张 / CI 无渲染 ${uncovered.length} 张`);
+  for (const r of offending) console.log(`  ❌ ${r.name} ${r.driftPx} px (${r.pct}%) 来源=${r.from}`);
+  for (const v of violations) {
+    if (v.startsWith('BASELINE_STALE') || v.startsWith('DYNAMIC_ALLOWED')) continue;
+    console.log('  ❌ ' + v);
+  }
+  for (const n of notes) console.log('  ⚠️  ' + n);
+  // 结论文案必须与实际漂移集合一致：存在任何非零漂移时不得说"全部逐像素相等"。
+  if (!violations.length) {
+    console.log(drifted.length
+      ? `✅ 除 ${drifted.length} 张已登记动态视图外，其余 ${checked - drifted.length - uncovered.length} 张逐像素等于本次 CI 渲染`
+      : `✅ 全部 ${checked - uncovered.length} 张有渲染的基线逐像素等于本次 CI 渲染`);
+  }
   return violations.length ? 1 : 0;
 }
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { evaluateFreshness, findRender, loadDeps, KNOWN_UNCOVERED, main };
+module.exports = { evaluateFreshness, findRender, loadDeps, KNOWN_UNCOVERED, KNOWN_DYNAMIC, main };
