@@ -5,12 +5,14 @@ const mockOnProgress = vi.hoisted(() => vi.fn())
 const mockOnBatchProgress = vi.hoisted(() => vi.fn())
 const mockGetQueueStatus = vi.hoisted(() => vi.fn())
 const mockRetryTask = vi.hoisted(() => vi.fn())
+const mockCancelTask = vi.hoisted(() => vi.fn())
 
 vi.mock('@/api/publisher', () => ({
   onProgress: (...args) => mockOnProgress(...args),
   onBatchProgress: (...args) => mockOnBatchProgress(...args),
   getQueueStatus: (...args) => mockGetQueueStatus(...args),
   retryTask: (...args) => mockRetryTask(...args),
+  cancelTask: (...args) => mockCancelTask(...args),
 }))
 
 const STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
@@ -36,9 +38,11 @@ describe('publishProgress store — 全局承载（publish-progress-ux）', () =
     mockOnBatchProgress.mockReset()
     mockGetQueueStatus.mockReset()
     mockRetryTask.mockReset()
+    mockCancelTask.mockReset()
     mockOnProgress.mockReturnValue(() => {})
     mockOnBatchProgress.mockReturnValue(() => {})
     mockGetQueueStatus.mockResolvedValue({ code: 0, data: { running: [], queue: [] } })
+    mockCancelTask.mockResolvedValue({ code: 0, data: true })
     window.localStorage.clear()
   })
 
@@ -246,5 +250,136 @@ describe('publishProgress store — 全局承载（publish-progress-ux）', () =
     expect(store.sessions[0].title).toBe('b')
     store.dismissSession(store.sessions[0].id)
     expect(store.sessions).toHaveLength(0)
+  })
+})
+
+describe('publishProgress store — cancelled 相位与取消/单任务重试（publish-progress-panel-refine）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockOnProgress.mockReset()
+    mockOnBatchProgress.mockReset()
+    mockGetQueueStatus.mockReset()
+    mockRetryTask.mockReset()
+    mockCancelTask.mockReset()
+    mockOnProgress.mockReturnValue(() => {})
+    mockOnBatchProgress.mockReturnValue(() => {})
+    mockGetQueueStatus.mockResolvedValue({ code: 0, data: { running: [], queue: [] } })
+    mockCancelTask.mockResolvedValue({ code: 0, data: true })
+    mockRetryTask.mockResolvedValue({ code: 0, data: { taskId: 't-new', retryOf: 't-old' } })
+    window.localStorage.clear()
+  })
+
+  async function makeStore() {
+    const { usePublishProgressStore } = await import('./publishProgress')
+    return usePublishProgressStore()
+  }
+
+  it('cancelled 事件：任务转 cancelled 终态、计入 aggregate.cancelled、会话可 done', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1', 't-2'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'cancelled', stage: '⊘ 已取消', stageKey: 'detail', percent: null }))
+    expect(store.sessions[0].tasks['t-1'].phase).toBe('cancelled')
+    expect(store.sessions[0].status).toBe('running')
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'success', stageKey: 'done' }))
+    expect(store.sessions[0].status).toBe('done')
+    expect(store.aggregate).toMatchObject({ total: 2, done: 2, succeeded: 1, failed: 0, cancelled: 1 })
+    expect(store.hasRunning).toBe(false)
+  })
+
+  it('cancelled 是吸收态：迟到 progress 事件不回退（页面级取消后浮窗不再永远进行中）', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    // 真实 emitter 对 cancelled 不给默认 percent（defaultPercentForPhase 仅 success/failed=100）
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'cancelled', stage: '⊘ 已取消', percent: null }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', stage: 'uploading video...', stageKey: 'upload', percent: 60 }))
+    const task = store.sessions[0].tasks['t-1']
+    expect(task.phase).toBe('cancelled')
+    expect(task.percent).toBe(null)
+  })
+
+  it('cancelRunning：对全部非终态任务逐个调 queue:cancel，返回 {ok,fail}，终态任务不动', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-run', 't-queue', 't-done'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-run', phase: 'progress', stageKey: 'upload' }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-done', phase: 'success', stageKey: 'done' }))
+    mockCancelTask.mockResolvedValue({ code: 0, data: true })
+
+    const result = await store.cancelRunning()
+
+    expect(mockCancelTask).toHaveBeenCalledTimes(2)
+    expect(mockCancelTask).toHaveBeenCalledWith('t-run')
+    expect(mockCancelTask).toHaveBeenCalledWith('t-queue')
+    expect(result).toMatchObject({ ok: 2, fail: 0 })
+  })
+
+  it('cancelRunning：IPC 拒绝的任务计入 fail；无在途任务时 no-op', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1', 't-2'], title: 'x' })
+    mockCancelTask.mockImplementation(async (id) => (id === 't-1' ? { code: 0, data: true } : { code: -1, message: 'not found' }))
+    const result = await store.cancelRunning()
+    expect(result).toMatchObject({ ok: 1, fail: 1 })
+
+    // 全部终态 → no-op
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'cancelled', stage: '⊘ 已取消' }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'success', stageKey: 'done' }))
+    mockCancelTask.mockClear()
+    const result2 = await store.cancelRunning()
+    expect(mockCancelTask).not.toHaveBeenCalled()
+    expect(result2).toMatchObject({ ok: 0, fail: 0 })
+  })
+
+  it('cancelRunning 防重入：进行中再次调用直接返回', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    let resolveFirst
+    mockCancelTask.mockImplementation(() => new Promise((r) => { resolveFirst = r }))
+    const first = store.cancelRunning()
+    const second = await store.cancelRunning()
+    expect(second).toMatchObject({ ok: 0, fail: 0 })
+    expect(mockCancelTask).toHaveBeenCalledTimes(1)
+    resolveFirst({ code: 0, data: true })
+    await expect(first).resolves.toMatchObject({ ok: 1, fail: 0 })
+    expect(store.cancelling).toBe(false)
+  })
+
+  it('cancelRunning 后任务状态由转发的 cancelled 事件收敛（事件单一来源，不自标记）', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    await store.cancelRunning()
+    // IPC 返回时任务尚未终态（事件异步到达）——状态更新只认事件
+    expect(store.sessions[0].tasks['t-1'].phase).toBe('queued')
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'cancelled', stage: '⊘ 已取消' }))
+    expect(store.sessions[0].tasks['t-1'].phase).toBe('cancelled')
+    expect(store.sessions[0].status).toBe('done')
+  })
+
+  it('retryOne：单任务重试以新 taskId 替换，其余任务不受影响', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-f1', 't-f2'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-f1', phase: 'failed', stageKey: 'failed', error: 'a' }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-f2', phase: 'failed', stageKey: 'failed', error: 'b' }))
+    mockRetryTask.mockResolvedValueOnce({ code: 0, data: { taskId: 't-f1-new', retryOf: 't-f1' } })
+
+    const result = await store.retryOne(store.sessions[0].id, 't-f1')
+
+    expect(mockRetryTask).toHaveBeenCalledTimes(1)
+    expect(mockRetryTask).toHaveBeenCalledWith('t-f1')
+    expect(result).toMatchObject({ ok: 1, fail: 0 })
+    const session = store.sessions[0]
+    expect(session.tasks['t-f1']).toBeUndefined()
+    expect(session.tasks['t-f1-new'].phase).toBe('queued')
+    expect(session.tasks['t-f2'].phase).toBe('failed') // 未被波及
+    expect(session.status).toBe('running')
+  })
+
+  it('retryOne：非 failed 任务/不存在会话 no-op；与 retryFailed 共享防重入', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done' }))
+    const result = await store.retryOne(store.sessions[0].id, 't-1')
+    expect(result).toMatchObject({ ok: 0, fail: 0 })
+    expect(mockRetryTask).not.toHaveBeenCalled()
+    const result2 = await store.retryOne('no-such-session', 't-1')
+    expect(result2).toMatchObject({ ok: 0, fail: 0 })
   })
 })

@@ -1225,6 +1225,9 @@ export default {
     retrying: '重新提交中...',
     retryFailedCount: (ctx) => '重新发布失败任务 (' + ctx.named('count') + ')',
     // 发布进度全局面板（publish-progress-ux，2026-09-28；契约见 PRD-PUBLISH-PROGRESS-UX §8.4）
+    // 2026-09-29 publish-progress-panel-refine：汇总改成功口径（summarySucceeded 取代
+    // summaryDone）、fallback 标题带时间（sessionTitleTimeFallback 取代 sessionTitleFallback）、
+    // 新增 cancelled 相位/取消入口/单任务重试/复制错误文案。
     publishProgressPanel: {
       title: '发布进度',
       minimize: '最小化（后台继续）',
@@ -1236,9 +1239,10 @@ export default {
       pillRunning: (ctx) => '发布中 ' + ctx.named('done') + '/' + ctx.named('total'),
       pillDone: (ctx) => '发布完成 ' + ctx.named('done') + '/' + ctx.named('total'),
       pillFailedPart: (ctx) => '，' + ctx.named('count') + ' 个失败',
-      summaryDone: (ctx) => '已完成 ' + ctx.named('done') + '/' + ctx.named('total'),
+      summarySucceeded: (ctx) => '成功 ' + ctx.named('succeeded') + '/' + ctx.named('total'),
       summaryFailed: (ctx) => '· ' + ctx.named('count') + ' 个失败',
-      sessionTitleFallback: '发布任务',
+      summaryCancelled: (ctx) => '· ' + ctx.named('count') + ' 个已取消',
+      sessionTitleTimeFallback: (ctx) => '发布 · ' + ctx.named('time'),
       recoveredTitle: '恢复跟踪的发布任务',
       sessionRunning: '进行中',
       sessionDone: '已完成',
@@ -1248,6 +1252,7 @@ export default {
       statusBlocked: '等待间隔',
       statusSuccess: '成功',
       statusFailed: '失败',
+      statusCancelled: '已取消',
       stagePrepare: '准备',
       stageUpload: '上传',
       stageFill: '填写',
@@ -1260,6 +1265,14 @@ export default {
       retryFailed: (ctx) => '重试失败项（' + ctx.named('count') + '）',
       retrying: '重试中…',
       retryPartial: (ctx) => ctx.named('ok') + ' 个已重新入队，' + ctx.named('fail') + ' 个重试失败',
+      retryTask: '重试此任务',
+      copyError: '复制错误信息',
+      copied: '已复制到剪贴板',
+      copyFailed: '复制失败',
+      cancelAll: '取消全部任务',
+      cancelConfirm: '确认取消？',
+      cancelling: '取消中…',
+      cancelPartial: (ctx) => ctx.named('ok') + ' 个已取消，' + ctx.named('fail') + ' 个取消失败',
       clearFinished: '清除已完成',
       emptyRunning: '暂无进行中的发布',
       blockedWaitMinutes: (ctx) => '等待 ' + ctx.named('minutes') + ' 分钟后重试',

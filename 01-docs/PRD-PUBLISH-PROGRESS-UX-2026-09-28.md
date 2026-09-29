@@ -2,6 +2,7 @@
 
 - **日期**：2026-09-28
 - **状态**：实施中（openspec change：`openspec/changes/publish-progress-ux/`）
+- **修订**：2026-09-29 publish-progress-panel-refine（openspec change：`openspec/changes/publish-progress-panel-refine/`）——面板视觉/UE 精化 + `cancelled` 相位 + 取消入口 + 自动收敛；本文件契约表已同步修订（§5.1/§5.2/§6.1/§7/§8.1-§8.4/§12），专题 PRD 见 `01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md`
 - **关联**：`01-docs/PRD.md` §六（发布流程）新增 6.7；`01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md` §5 通查清单补登；先例合同：`01-docs/PRD.md`「视频创作后台运行与并发合同」§3a.2
 - **一句话**：点击发布后，用户在任何页面都能看到「到了什么环节、进展如何」，可以最小化让发布后台继续（明确提示勿关应用），失败可见可重试，关窗转托盘不丢任务。
 
@@ -111,6 +112,7 @@ queued ──start──► start ──progress──► progress ⇄ retry（�
 - executor：开始时 `router.register(platform, task.id)` + `emitter.emit(task.id, platform, 'start', { stage: '准备发布...', stageKey: 'prepare', percent: 0 })`；finally `router.unregister(platform, task.id)`；向 `publisher.publish(task, { signal, onProgress })` 传入 `(pct, msg) => emitter.emit(task.id, platform, 'progress', { stage: msg, percent: pct })`（仅 ApiPublisher 消费）。
 - 删除 executor 内 `emitProgress('✓ 发布成功')`（`bootstrap.js:103`）——终态单一来源是 phase4-events 的 `task:success`（现状两处重复发送，收敛为一处）。
 - `phase4-events.js`：四事件改走 emitter（payload 见 §7）；`task:failed` 补 `history.addRecord({ platform, title: task.article?.title || '', taskId: task.id, status: 'failed', result: null, error: task.error }, task.owner_subject)`。
+- `phase4-events.js`（panel-refine 修订）：`task:cancelled` → `emitter.emit(taskId, platform, 'cancelled', { stage: '⊘ 已取消', batchId })`——TaskQueue 取消任务（pending 移除/running 协作中止两路径）都发该事件，但此前无人转发，页面级取消后浮窗永远「进行中」；取消不落历史、不触发风控挂起（取消不是失败）。
 
 ### 5.2 渲染层全局 store（`src/stores/publishProgress.js`，pinia）
 
@@ -142,10 +144,12 @@ _listenersBound: boolean       // init() 幂等
 - `handleProgressEvent(data)`：校验（§6.4）→ 定位会话（taskId 命中 → batchId 命中 → 建孤儿会话）→ 更新 TaskState（相位迁移按 §4.3 吸收态规则）→ 追加 log → 会话终态判定（全部任务 success/failed → `status='done'`）→ 若面板最小化且会话刚终态 → 汇总 toast（§8.4 T7）。
 - `handleBatchEvent(data)`：`batch-complete` → 对应会话补终态兜底（以事件计数为准，不覆盖已有任务终态）；`task-complete` → 更新对应任务（与 progress 事件冗余容错）。
 - `retryFailed(sessionId)`：收集会话内 `phase==='failed'` 任务 → 逐个 `retryTask(taskId)`（IPC）→ 成功的以返回的新 taskId 替换原条目（`phase:'queued'`，清 error/result）→ 会话 `status='running'`；返回 `{ ok, fail }` 计数。进行中防重入（`retrying` 标志）。
+- `retryOne(sessionId, taskId)`（panel-refine 新增）：单任务级重试——与 retryFailed 共享 `_retryOne` 路径与 `retrying` 防重入；失败行内联「重试此任务」入口。
+- `cancelRunning()`（panel-refine 新增）：对全部会话内非终态任务逐个 `cancelTask(taskId)`（IPC `queue:cancel`，`Promise.allSettled`）→ 返回 `{ ok, fail }`；`cancelling` 防重入；无在途任务 no-op。任务状态更新以转发的 `phase:'cancelled'` 事件为单一来源——本动作只发取消请求与汇总计数，不自行改写任务相位（不自造第二份真相）。
 - `minimizePanel()` / `expandPanel()` / `dismissSession(id)` / `clearFinished()`。
 - `consumeFirstHideToast()`：首次最小化时返回 true 并持久化标志（供面板组件弹一次性 toast）。
 
-**Getters**：`hasRunning`（任一会话 running）、`aggregate`（全部会话合计 done/total/failed）、`activeSessions`、`sessionFailedCount(id)`。
+**Getters**：`hasRunning`（任一会话 running）、`aggregate`（全部会话合计 done/total/succeeded/failed/**cancelled**——panel-refine 新增 cancelled 计数，done=succeeded+failed+cancelled）、`activeSessions`、`sessionFailedCount(id)`。
 
 ### 5.3 全局面板（`src/components/PublishProgressPanel.vue`）
 
@@ -188,7 +192,7 @@ _listenersBound: boolean       // init() 幂等
 | `platform` | string | ✓ | 非空字符串 | 既有字段 |
 | `taskId` | string | ✓ | 非空字符串 | 既有字段 |
 | `stage` | string | ✓ | 非空字符串 | 既有字段；原始阶段文本（未知串透传给 UI 作明细行） |
-| `phase` | enum | ✓ | `start`/`progress`/`success`/`failed`/`retry`/`blocked` | **新增**；非法值按 `progress` 处理并 warn |
+| `phase` | enum | ✓ | `start`/`progress`/`success`/`failed`/`retry`/`blocked`/`cancelled`（panel-refine 新增终态） | **新增**；非法值按 `progress` 处理并 warn |
 | `stageKey` | enum | ✓ | 9 值枚举（§6.3） | **新增**；非法值按 `detail` 处理 |
 | `percent` | number\|null | ✓ | `null` 或 0-100 有限数 | **新增**；越界/NaN → `null` |
 | `batchId` | string\|null | ✓ | 非空字符串或 `null` | **新增**；批量轨会话归属 |
@@ -251,6 +255,7 @@ _listenersBound: boolean       // init() 幂等
 | `batch:progress`（`preload/system.js` `onBatchProgress`） | 主→渲染 | 不变（store 新增消费方） |
 | `queue:status`（`getQueueStatus`） | 渲染→主 | 不变（store init 领养孤儿用） |
 | `queue:retry`（`retryTask`） | 渲染→主 | 不变（面板「重试失败项」复用；返回 `{ taskId: 新id, retryOf }`） |
+| `queue:cancel`（`cancelTask`） | 渲染→主 | 不变（panel-refine：浮窗 footer「取消全部任务」新增消费方；任务状态经 `task:cancelled` 转发收敛） |
 | `publish:batch` / `batch:create` / `batch:execute` | 渲染→主 | 不变 |
 
 ## 8. 交互逻辑与显示项
@@ -269,35 +274,38 @@ _listenersBound: boolean       // init() 幂等
 ```
 - 自动展开仅发生在 `registerSession`（用户主动发布）；孤儿领养/事件到达**不**自动弹面板（不打扰），仅胶囊态下更新胶囊、或面板已展开时更新内容。
 - 完成态浮卡保留汇总 + 「重试失败项」（有失败时）+ 关闭按钮。
+- **自动收敛（panel-refine 新增）**：全部任务成功（`failed===0 && cancelled===0`）且面板展开时，完成跃迁（hasRunning true→false）后 5 秒无指针操作 → 自动最小化为胶囊（不弹首次隐藏 toast）；面板内任意 pointerdown、新会话开始（hasRunning 回 true）、组件卸载 → 取消收敛；用户事后手动展开完成态面板**不**触发（展开即被收回是骚扰）；存在失败/取消任务**不**收敛（不遮蔽恢复入口）。
 
-### 8.2 显示项逐条（展开浮卡）
+### 8.2 显示项逐条（展开浮卡；panel-refine 修订版）
 
 | 区域 | 显示项 | 数据源 | 说明 |
 |---|---|---|---|
-| 头部 | 标题「发布进度」+ 运行徽标（进行中会话数） | store.hasRunning | 文字+图标 |
-| 头部 | 最小化按钮（—） | — | aria-label = minimize 文案；点击 → 胶囊 |
-| 头部 | 关闭按钮（×） | store.hasRunning | 运行中 disabled（tooltip 说明）；完成后 = 清除已完成会话 |
-| 汇总行 | `已完成 N/M · F 失败` + 微型进度条（percent 均值） | aggregate | 进度条 aria |
-| 会话块 | 会话标题（文章标题/批次名/恢复会话标题）+ 会话状态徽标（进行中/已完成） | session | |
-| 任务行 | 平台名（平台显示名映射，与发布历史页同源） | task.platform | |
-| 任务行 | 状态标签（§8.3）+ 图标 | task.phase | 文字+图标双通道 |
-| 任务行 | 当前阶段标签（stageKey → locale）+ percent（有值时 `NN%`） | task.stageKey/percent | stageKey=detail 时显示原始 stage 文本 |
-| 任务行 | 步骤链指示（准备→上传→填写→提交→校验→完成，当前高亮） | task.stageKey | 6 步链，waiting/failed/retry 以状态标签表达不进链 |
-| 任务行 | 失败错误消息行（红字，截断 120 字符 + title 全文） | task.error | 仅 failed |
+| 头部 | 标题「发布进度」+ 运行徽标 | store.hasRunning | 文字+图标 |
+| 头部 | 最小化按钮（—）/ 关闭按钮（×） | — | 运行中关闭 disabled（tooltip 说明） |
+| 汇总行 | `成功 {succeeded}/{total} · F 失败 · C 已取消` + 微型进度条 | aggregate | panel-refine：成功数直给（failed/cancelled 不计入「已完成」口径）；进度条填充按 done/total（已处理比例，含失败/取消） |
+| 会话块 | 会话标题 + 状态徽标（点+文字） | session | **仅多会话**渲染（分组卡）；单会话扁平化（无卡中卡嵌套、无会话徽标——与头部徽标重复）；无标题会话 fallback 标题带创建时间「发布 · HH:MM」 |
+| 任务行 | 固定网格：平台名 | 状态（图标+文字） | 步骤/明细/错误（flex） | 百分比（右对齐，仅运行行） | 操作 | task | panel-refine：列位稳定不跳动 |
+| 任务行 | 状态文字承载「最具体状态」：运行行显示当前阶段词（如「上传」），非笼统「进行中」 | task.stageKey/phase | 消除「进行中+上传+40%」三重表达冗余 |
+| 任务行 | dot-stepper：6 圆点+连线（过去实心灰、当前主色+脉冲、未来空心），仅当前步一个词 | task.stageKey | panel-refine：取代整链 6 词文字；queued 不预渲染步骤链；waiting/retry/blocked/failed/cancelled 以状态标签表达不进链 |
+| 任务行 | percent（`NN%`，仅 start/progress 相位） | task.percent | panel-refine：success 不显示 100%（终态图标已表达，四重冗余去重） |
+| 任务行 | 失败错误消息（红字，截断 120 字符 + title 全文） | task.error | 仅 failed |
+| 任务行 | 内联操作：「重试此任务」+「复制错误信息」图标按钮 | task | panel-refine：仅 failed；复制完整错误文本入剪贴板（成功/失败 toast 反馈，不静默） |
 | 任务行 | 频控等待提示（`等待 N 分钟`，由 remainingWait 换算） | task.remainingWait | 仅 blocked |
-| 会话块 | 「重试失败项（F）」按钮 | sessionFailedCount | 完成态且有失败；点击 → store.retryFailed；进行中 disabled |
-| 底部 | 常驻提示「发布后台进行中，请勿关闭应用」 | store.hasRunning | 仅运行中显示 |
+| 任务行 | 「已取消」中性态（图标 muted + 文字中性，非失败红态） | task.phase=cancelled | panel-refine |
+| 会话块 | 「重试失败项（F）」按钮 | sessionFailedCount | 完成态且有失败；批量重试入口（与单任务重试并存） |
+| 底部 footer | 警示条「发布后台进行中，请勿关闭应用」（warning-soft 底+图标+500 字重）+「取消全部任务」文本按钮 | store.hasRunning | panel-refine：操作约束从 xs/muted 脚注升为警示条（层级倒挂修正）；取消为两步内联确认（首次点击进入 4 秒确认窗口，再点执行；超时/运行结束退出确认态）；仅运行中显示 |
 
-### 8.3 状态标签映射（phase → 标签+图标）
+### 8.3 状态标签映射（phase → 标签+图标；panel-refine：图标着语义色，文字统一中性）
 
-| phase | 标签（zh） | 图标 | 颜色语义（token） |
+| phase | 标签（zh） | 图标 | 颜色语义（token，仅图标） |
 |---|---|---|---|
 | queued | 排队中 | ○ | `--color-text-muted` |
-| start/progress | 进行中 | ◐（旋转，reduced-motion 关闭） | `--color-primary` |
+| start/progress | 当前阶段词（如「上传」） | ◐（旋转，reduced-motion 关闭） | `--color-primary` |
 | retry | 重试中 | ⟳ | `--color-warning` |
 | blocked | 等待间隔 | ⏳ | `--color-warning` |
-| success | 成功 | ✓ | `--color-success` |
+| success | 成功 | ✓（pop-in 入场） | `--color-success` |
 | failed | 失败 | ✗ | `--color-danger` |
+| cancelled（panel-refine） | 已取消 | ⊘ | `--color-text-muted`（中性，非失败红态） |
 
 ### 8.4 提示文字全表（zh / en，locales `publishPage.publishProgressPanel.*`）
 
@@ -313,9 +321,10 @@ _listenersBound: boolean       // init() 幂等
 | `pillRunning` | 发布中 {done}/{total} | Publishing {done}/{total} |
 | `pillDone` | 发布完成 {done}/{total} | Done {done}/{total} |
 | `pillFailedPart` | ，{count} 个失败 | , {count} failed |
-| `summaryDone` | 已完成 {done}/{total} | {done}/{total} completed |
+| `summarySucceeded`（panel-refine，取代 summaryDone） | 成功 {succeeded}/{total} | {succeeded}/{total} succeeded |
 | `summaryFailed` | · {count} 个失败 | · {count} failed |
-| `sessionTitleFallback` | 发布任务 | Publish tasks |
+| `summaryCancelled`（panel-refine） | · {count} 个已取消 | · {count} cancelled |
+| `sessionTitleTimeFallback`（panel-refine，取代 sessionTitleFallback） | 发布 · {time} | Publish · {time} |
 | `recoveredTitle` | 恢复跟踪的发布任务 | Recovered publish tasks |
 | `sessionRunning` | 进行中 | Running |
 | `sessionDone` | 已完成 | Finished |
@@ -325,6 +334,7 @@ _listenersBound: boolean       // init() 幂等
 | `statusBlocked` | 等待间隔 | Rate-limited |
 | `statusSuccess` | 成功 | Succeeded |
 | `statusFailed` | 失败 | Failed |
+| `statusCancelled`（panel-refine） | 已取消 | Cancelled |
 | `stagePrepare` | 准备 | Prepare |
 | `stageUpload` | 上传 | Upload |
 | `stageFill` | 填写 | Fill |
@@ -337,6 +347,14 @@ _listenersBound: boolean       // init() 幂等
 | `retryFailed` | 重试失败项（{count}） | Retry failed ({count}) |
 | `retrying` | 重试中… | Retrying… |
 | `retryPartial` | {ok} 个已重新入队，{fail} 个重试失败 | {ok} re-queued, {fail} failed to retry |
+| `retryTask`（panel-refine） | 重试此任务 | Retry this task |
+| `copyError`（panel-refine） | 复制错误信息 | Copy error |
+| `copied`（panel-refine） | 已复制到剪贴板 | Copied to clipboard |
+| `copyFailed`（panel-refine） | 复制失败 | Copy failed |
+| `cancelAll`（panel-refine） | 取消全部任务 | Cancel all tasks |
+| `cancelConfirm`（panel-refine） | 确认取消？ | Confirm cancel? |
+| `cancelling`（panel-refine） | 取消中… | Cancelling… |
+| `cancelPartial`（panel-refine） | {ok} 个已取消，{fail} 个取消失败 | {ok} cancelled, {fail} failed to cancel |
 | `clearFinished` | 清除已完成 | Clear finished |
 | `emptyRunning` | 暂无进行中的发布 | No active publishes |
 | `blockedWaitMinutes` | 等待 {minutes} 分钟后重试 | Retrying after {minutes} min |
@@ -401,10 +419,11 @@ _listenersBound: boolean       // init() 幂等
 | 单元（主） | `electron/bootstrap/phase4-events.test.js`（扩展） | 四事件富化字段；task:failed 落历史（**反证：摘 addRecord 必红**） |
 | 单元（主） | `electron/services/window-close-policy.test.js`（扩展） | hasRunningPublish 三变量矩阵 |
 | 单元（渲染） | `src/stores/publishProgress.test.js` | §5.2 全动作/getter + §9 异常态 R2-R4/R7-R9/R12 |
-| 单元（渲染） | `src/components/PublishProgressPanel.test.js` | 两态渲染、首次 toast 一次性、常驻提示、重试按钮、非模态负向锁 |
+| 单元（渲染） | `src/components/PublishProgressPanel.test.js` | 两态渲染、首次 toast 一次性、常驻提示、重试按钮、非模态负向锁；panel-refine 扩展：dot-stepper 结构/queued 无链/success 无 100%/cancelled 中性态/汇总成功口径/单会话扁平/多会话分组/fallback 标题带时间/footer 取消两步流（fake timers）/自动收敛触发与豁免（失败/取消/交互/手动展开）/复制错误 toast |
 | 单元（渲染） | `src/composables/usePublishFlow.test.js`（改写） | **不再订阅 onProgress**（G1 回归锁）+ registerSession + 终态驱动结果卡 |
 | 单元（渲染） | `src/composables/useBatchPublish.test.js`（改写） | 阶段监听已删 + registerSession(batchId) + 页面卡不回归 |
-| 视觉 | 既有像素基线 | /publish 等既有视图无回归 |
+| 单元（主） | `electron/bootstrap.test.js`（panel-refine 扩展） | taskQueue.on 注册 5 事件（含 task:cancelled） |
+| 视觉 | 既有像素基线 | /publish 等既有视图无回归；浮窗为 Teleport 动态浮层不在基线内（按口径如实登记） |
 | 打包 | QM-1 | electron-builder --win --dir + asar 清单含新模块 + 启动 8 秒 |
 
 **反证矩阵（变异测试，每条实跑后还原）**：① 摘 phase4-events 的 addRecord → failed 落历史测试红；② mapStageToKey 未知串改抛错 → detail 透传测试红；③ store 终态吸收态守卫摘除 → 迟到事件回退测试红；④ 面板引入 suspendEmbeddedViewsForOverlay → 非模态负向锁红；⑤ window-close-policy 摘 hasRunningPublish → 矩阵红；⑥ usePublishFlow 恢复本地 onProgress 订阅 → 「不再订阅」锁红。

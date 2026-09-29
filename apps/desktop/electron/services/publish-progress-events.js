@@ -22,8 +22,10 @@ const STAGE_KEY_ENUM = [
   'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'done', 'failed', 'detail',
 ]
 
-/** 事件相位（生命周期边界，对齐账号批量检测 start/done 双边界先例） */
-const PHASE_ENUM = ['start', 'progress', 'success', 'failed', 'retry', 'blocked']
+/** 事件相位（生命周期边界，对齐账号批量检测 start/done 双边界先例）。
+ * cancelled（publish-progress-panel-refine）：取消终态——TaskQueue 取消任务时发
+ * task:cancelled，经 phase4-events 转发；渲染层以中性「已取消」态呈现（非失败红态）。 */
+const PHASE_ENUM = ['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'cancelled']
 
 /**
  * 已知阶段串 → stageKey 封闭映射表。

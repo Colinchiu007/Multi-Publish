@@ -8,6 +8,7 @@
       data-testid="publish-progress-panel"
       role="region"
       :aria-label="t('publishPage.publishProgressPanel.title')"
+      @pointerdown="cancelAutoCollapse"
     >
       <div class="ppp__header">
         <span class="ppp__title">
@@ -44,10 +45,15 @@
         </span>
       </div>
 
+      <!-- 汇总行（publish-progress-panel-refine）：成功数直给（failed/cancelled 不计入
+           「已完成」口径），失败/取消单列；进度条填充仍按已处理比例（含失败/取消） -->
       <div class="ppp__summary" data-testid="publish-progress-summary">
-        <span>{{ t('publishPage.publishProgressPanel.summaryDone', { done: store.aggregate.done, total: store.aggregate.total }) }}</span>
+        <span>{{ t('publishPage.publishProgressPanel.summarySucceeded', { succeeded: store.aggregate.succeeded, total: store.aggregate.total }) }}</span>
         <span v-if="store.aggregate.failed > 0" class="ppp__summary-failed">
           {{ t('publishPage.publishProgressPanel.summaryFailed', { count: store.aggregate.failed }) }}
+        </span>
+        <span v-if="store.aggregate.cancelled > 0" class="ppp__summary-cancelled">
+          {{ t('publishPage.publishProgressPanel.summaryCancelled', { count: store.aggregate.cancelled }) }}
         </span>
         <span class="ppp__bar" role="progressbar"
           :aria-valuenow="store.aggregate.total > 0 ? Math.round(store.aggregate.done / store.aggregate.total * 100) : 0"
@@ -62,10 +68,17 @@
       </div>
 
       <div v-else class="ppp__sessions">
-        <div v-for="session in store.sessions" :key="session.id" class="ppp__session">
-          <div class="ppp__session-head">
+        <!-- 单会话扁平（去卡中卡嵌套/去会话徽标重复）；多会话分组卡+点徽标 -->
+        <div
+          v-for="session in store.sessions"
+          :key="session.id"
+          class="ppp__session"
+          :class="{ 'ppp__session--flat': isSingleSession }"
+        >
+          <div v-if="!isSingleSession" class="ppp__session-head">
             <span class="ppp__session-title" :title="sessionTitle(session)">{{ sessionTitle(session) }}</span>
-            <span class="ppp__badge" :class="session.status === 'done' ? 'ppp__badge--done' : 'ppp__badge--running'">
+            <span class="ppp__session-badge" :class="session.status === 'done' ? 'ppp__session-badge--done' : 'ppp__session-badge--running'">
+              <span class="ppp__session-badge-dot"></span>
               {{ session.status === 'done'
                 ? t('publishPage.publishProgressPanel.sessionDone')
                 : t('publishPage.publishProgressPanel.sessionRunning') }}
@@ -75,6 +88,8 @@
             v-for="taskId in session.taskOrder"
             :key="taskId"
             :task="session.tasks[taskId]"
+            @retry="handleTaskRetry(session, taskId)"
+            @copy-error="handleCopyError"
           />
           <button
             v-if="session.status === 'done' && store.sessionFailedCount(session.id) > 0"
@@ -92,8 +107,28 @@
         </div>
       </div>
 
-      <div v-if="store.hasRunning" class="ppp__hint" data-testid="publish-progress-hint">
-        {{ t('publishPage.publishProgressPanel.hintRunning') }}
+      <!-- footer（publish-progress-panel-refine）：警示条承载「勿关应用」操作约束（原
+           xs/muted 脚注层级倒挂修正），与取消入口同置一行；取消为两步内联确认（免模态，
+           不触碰浮层互斥合同——模态确认弹窗属应用级模态浮层，接入即触发互斥合同） -->
+      <div v-if="store.hasRunning" class="ppp__footer" data-testid="publish-progress-footer">
+        <span class="ppp__hint" data-testid="publish-progress-hint">
+          <el-icon><WarningFilled /></el-icon>
+          {{ t('publishPage.publishProgressPanel.hintRunning') }}
+        </span>
+        <button
+          type="button"
+          class="ppp__cancel-btn"
+          :class="{ 'ppp__cancel-btn--confirm': cancelConfirming }"
+          data-testid="publish-progress-cancel"
+          :disabled="store.cancelling"
+          @click="handleCancelClick"
+        >
+          {{ store.cancelling
+            ? t('publishPage.publishProgressPanel.cancelling')
+            : (cancelConfirming
+              ? t('publishPage.publishProgressPanel.cancelConfirm')
+              : t('publishPage.publishProgressPanel.cancelAll')) }}
+        </button>
       </div>
     </div>
 
@@ -129,15 +164,24 @@
  * 非模态：无遮罩、不阻塞交互，按 PRD-OVERLAY-VIEW-SUSPENSION §6 口径显式不接入
  * 浮层互斥合同（负向测试锁见 PublishProgressPanel.test.js）。
  *
+ * publish-progress-panel-refine 重构（2026-09-29）：
+ * - 汇总口径改「成功 N/M」直给（failed/cancelled 不再计入「已完成」）。
+ * - 单会话扁平化（无卡中卡/无会话徽标重复）；fallback 会话标题带创建时间。
+ * - footer 警示条 + 「取消全部任务」两步内联确认（复用 queue:cancel；任务状态由
+ *   转发的 phase:'cancelled' 事件收敛——事件单一来源，面板不自标记）。
+ * - 完成自动收敛：全部成功且无失败/取消、面板展开、5 秒无指针操作 → 自动最小化
+ *   （不弹首次隐藏 toast）；面板交互/新会话开始即取消；失败/取消在场不收敛。
+ * - 单任务内联重试/复制错误（TaskRow emit 上抛，本组件持有 store 与剪贴板副作用）。
+ *
  * 首次隐藏教育：minimize 时 consumeFirstHideToast() 为 true → 一次性 toast
  * （localStorage 记忆）；之后由胶囊常驻提示承担持续提醒。
  * 任务行渲染拆分至 PublishProgressTaskRow.vue（CI 逐文件行数门禁 < 500 行）。
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
-  CircleCheckFilled, Close, Loading, Minus, RefreshRight,
+  CircleCheckFilled, Close, Loading, Minus, RefreshRight, WarningFilled,
 } from '@element-plus/icons-vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 import PublishProgressTaskRow from './PublishProgressTaskRow.vue'
@@ -147,16 +191,25 @@ const store = usePublishProgressStore()
 
 store.init()
 
+/** 完成自动收敛延迟（publish-progress-panel-refine D3） */
+const AUTO_COLLAPSE_DELAY_MS = 5000
+/** 取消两步确认窗口（超时自动退出确认态，防误触滞留） */
+const CANCEL_CONFIRM_WINDOW_MS = 4000
+
 const progressWidth = computed(() => {
   const { done, total } = store.aggregate
   if (!total) return '0%'
   return Math.round((done / total) * 100) + '%'
 })
 
+const isSingleSession = computed(() => store.sessions.length === 1)
+
 function sessionTitle(session) {
   if (session.title) return session.title
   if (session.recovered) return t('publishPage.publishProgressPanel.recoveredTitle')
-  return t('publishPage.publishProgressPanel.sessionTitleFallback')
+  const time = new Date(session.createdAt || Date.now())
+    .toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return t('publishPage.publishProgressPanel.sessionTitleTimeFallback', { time })
 }
 
 function handleMinimize() {
@@ -186,6 +239,119 @@ async function handleRetry(session) {
     })
   }
 }
+
+/** 单任务内联重试（TaskRow @retry 上抛；纯展示组件不持 store） */
+async function handleTaskRetry(session, taskId) {
+  const result = await store.retryOne(session.id, taskId)
+  if (result && (result.ok > 0 || result.fail > 0)) {
+    ElMessage({
+      message: t('publishPage.publishProgressPanel.retryPartial', { ok: result.ok, fail: result.fail }),
+      type: result.fail > 0 ? 'warning' : 'success',
+      duration: 4000,
+    })
+  }
+}
+
+/** 复制完整错误文本（TaskRow @copy-error 上抛；剪贴板失败如实 toast，不静默） */
+async function handleCopyError(error) {
+  const text = String(error || '')
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage({ message: t('publishPage.publishProgressPanel.copied'), type: 'success', duration: 2500 })
+  } catch {
+    ElMessage({ message: t('publishPage.publishProgressPanel.copyFailed'), type: 'error', duration: 2500 })
+  }
+}
+
+// ─── 取消全部在途任务（两步内联确认，publish-progress-panel-refine） ──
+
+const cancelConfirming = ref(false)
+let cancelConfirmTimer = null
+
+function resetCancelConfirm() {
+  if (cancelConfirmTimer) {
+    clearTimeout(cancelConfirmTimer)
+    cancelConfirmTimer = null
+  }
+  cancelConfirming.value = false
+}
+
+function handleCancelClick() {
+  if (store.cancelling) return
+  if (!cancelConfirming.value) {
+    // 第一步：进入确认态（不调 IPC）；4 秒窗口防误触滞留
+    cancelConfirming.value = true
+    cancelConfirmTimer = setTimeout(resetCancelConfirm, CANCEL_CONFIRM_WINDOW_MS)
+    return
+  }
+  // 第二步：执行取消
+  resetCancelConfirm()
+  void handleCancelAll()
+}
+
+async function handleCancelAll() {
+  const result = await store.cancelRunning()
+  if (result && (result.ok > 0 || result.fail > 0)) {
+    ElMessage({
+      message: t('publishPage.publishProgressPanel.cancelPartial', { ok: result.ok, fail: result.fail }),
+      type: result.fail > 0 ? 'warning' : 'info',
+      duration: 4000,
+    })
+  }
+}
+
+// 运行结束（footer 消失）时退出确认态，避免下次运行残留「确认取消？」
+watch(() => store.hasRunning, (running) => {
+  if (!running) resetCancelConfirm()
+})
+
+// ─── 完成自动收敛（publish-progress-panel-refine D3） ──────────────
+
+let autoCollapseTimer = null
+
+function clearAutoCollapseTimer() {
+  if (autoCollapseTimer) {
+    clearTimeout(autoCollapseTimer)
+    autoCollapseTimer = null
+  }
+}
+
+/** 面板内任意指针交互 → 取消收敛（用户在看，收回是骚扰） */
+function cancelAutoCollapse() {
+  clearAutoCollapseTimer()
+}
+
+function autoCollapseEligible() {
+  const { failed, cancelled } = store.aggregate
+  return store.panelVisible
+    && !store.panelMinimized
+    && !store.hasRunning
+    && store.sessions.length > 0
+    && failed === 0
+    && cancelled === 0
+}
+
+// 只在「完成跃迁」（hasRunning true→false）触发；用户事后手动展开不触发
+watch(() => store.hasRunning, (running, prev) => {
+  if (running) {
+    clearAutoCollapseTimer()
+    return
+  }
+  if (prev !== true) return
+  if (!autoCollapseEligible()) return
+  clearAutoCollapseTimer()
+  autoCollapseTimer = setTimeout(() => {
+    autoCollapseTimer = null
+    // 触发时复核资格（期间可能失败/新会话/手动收纳）
+    if (autoCollapseEligible()) store.minimizePanel()
+  }, AUTO_COLLAPSE_DELAY_MS)
+})
+
+onBeforeUnmount(() => {
+  clearAutoCollapseTimer()
+  resetCancelConfirm()
+})
 </script>
 
 <style scoped>
@@ -241,11 +407,6 @@ async function handleRetry(session) {
   background: var(--color-primary-light, rgba(80, 72, 229, 0.1));
 }
 
-.ppp__badge--done {
-  color: var(--color-success);
-  background: rgba(103, 194, 58, 0.12);
-}
-
 .ppp__actions {
   display: flex;
   gap: 4px;
@@ -289,6 +450,10 @@ async function handleRetry(session) {
   color: var(--color-danger);
 }
 
+.ppp__summary-cancelled {
+  color: var(--color-text-muted);
+}
+
 .ppp__bar {
   position: relative;
   flex: 1 1 100%;
@@ -330,6 +495,13 @@ async function handleRetry(session) {
   background: var(--color-bg-inset);
 }
 
+/* 单会话扁平（publish-progress-panel-refine）：去卡中卡嵌套 */
+.ppp__session--flat {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
 .ppp__session-head {
   display: flex;
   align-items: center;
@@ -344,6 +516,27 @@ async function handleRetry(session) {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
+}
+
+/* 会话徽标（publish-progress-panel-refine）：点+文字，去色块底（状态色收敛） */
+.ppp__session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.ppp__session-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+.ppp__session-badge--done .ppp__session-badge-dot {
+  background: var(--color-success);
 }
 
 .ppp__retry-btn {
@@ -372,12 +565,60 @@ async function handleRetry(session) {
   cursor: not-allowed;
 }
 
-.ppp__hint {
-  padding-top: var(--spacing-2);
-  border-top: 1px solid var(--color-border);
+/* footer 警示条（publish-progress-panel-refine）：操作约束从 xs/muted 脚注升为
+   warning-soft 底警示条——层级倒挂修正 */
+.ppp__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
   margin-top: var(--spacing-2);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft, #fef3c7);
+}
+
+.ppp__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.ppp__hint .el-icon {
+  color: var(--color-warning);
+}
+
+.ppp__cancel-btn {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ppp__cancel-btn:hover:not(:disabled) {
+  background: var(--color-danger-soft, #fef0f0);
+}
+
+.ppp__cancel-btn--confirm {
+  background: var(--color-danger);
+  color: var(--color-on-primary, #ffffff);
+}
+
+.ppp__cancel-btn--confirm:hover:not(:disabled) {
+  background: var(--color-danger);
+}
+
+.ppp__cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 最小化胶囊 */
