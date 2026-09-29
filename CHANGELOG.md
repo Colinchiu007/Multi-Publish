@@ -1,3 +1,42 @@
+# [未发布] fix(运营后台): 调度模拟器不再把注入 429 的请求记成完成；完成顺序升为对拍硬判定（2026-09-29，#2626 / fix-simulator-429-completion-state）
+
+## 修复
+
+- `ops-center/backend/services/scheduler_simulator.py`：注入 429 的那条请求改记 `state=rate_limited`、`finished_at=None`。
+  此前它先按 `completed` 记账（含 `finish_heap` push 与 `used_5h += 1`）、**之后**再补一次 `rate_limited_count += 1`，
+  于是同一条请求有两种身份；运营后台「调度验证」详情与 `timeline_json` 里的完成数因此**虚高 1**
+  （一次注入 429 的模拟跑，显示"完成 6 个"实际只有 5 个）。429 的语义是"被拒、没做成"，真实侧是对的。
+- 本次**只改身份标签**：槽位占用（`finish_heap` / `executing_now`）、5h 额度（准入即占额度，见 #2566）
+  与墙钟结束时刻（`end_times`）四条逐字不动 —— 动了任何一条都会连带挪动 `max_concurrent_observed` /
+  `total_duration_ms`，把一次身份纠正变成三个指标同时漂移。该边界由
+  `test_injected_429_is_not_completed_but_keeps_accounting` 钉住（四个基准值取自改动前对同组参数的实测）。
+
+## 门禁
+
+- `scripts/compare-scheduler-models.js`：把**完成顺序计入 pass**（规格本来要求相等，`runParity` 却从不比较 ——
+  一条从不执行的 SHALL 比没有这条 SHALL 更危险）。CLI 与 vitest 的留痕改为每次打印两侧序列本身，
+  红了能直接看出谁多/少哪一项。
+- 升级前先做饥饿实验（不默认"顺序大概是确定的"）：与 `test_scheduler_parity.test.js` 同一套 `withBlocker()`，
+  四档 block 时长（间隔的 1.2/2/4/8 倍）各 2 次 + 3 次无饥饿对照 ⇒ **8/8 饥饿样本完成顺序不变**，
+  而同批 `max_concurrent_observed` 已 = 模型值 + 1（即同一次饥饿足以让并发观测失真、不足以打乱顺序）。
+  机制前提「各组 `requestDurationMs` 统一 ⇒ 到期顺序 == 准入顺序」写进规格、代码注释与 docs；
+  引入非均匀时长 / 真实网络延迟时前提失效，必须重新取证，**不得把判据放宽成"只比长度"来消红**。
+- 删除 #2632 留下的「锁住分歧存在」过渡断言（修好后它必然失效，继续留着就是把已知缺陷钉成正确行为）。
+- 五条变异反证逐个实跑并断言字节还原一致：只回退 `state` ⇒ python 红 2；完整回退注入分支 ⇒ **vitest 红 1**
+  （证明硬判定真的抓得到原缺陷）；从 `checks` 摘掉该项 ⇒ vitest 红 1；判据退化成只比长度 ⇒ node 红 1；
+  越范围摘掉 `finish_heap` push ⇒ python 红 11。
+
+## 文档
+
+- `docs/parity-concurrency-measurement-noise.md`：新增四档饥饿实测表、判据前提与失效条件，
+  并把两处**仍未修**的口径分歧登记在案（429 的槽位占用时长 ≈0ms vs `duration`；`cooldown_until` 起点），
+  写明它们在何种参数下会显形、届时不得靠放宽方向性判据绕过。
+- `openspec/specs/desktop/model-call-observability/spec.md`：完成顺序纳入硬判定并写明前提；
+  原「锁住分歧」场景改为**墓碑**（规格工具不支持在 MODIFIED 中丢弃场景标题，丢弃即 ERROR），
+  其可执行含义转为负向：任何人把"分歧必须存在"或"只打印不判定"写回来，一律否决。
+
+---
+
 # [未发布] fix(设置页): 浅色模式主按钮 hover/禁用态隐形——EP 主题桥接补齐浅色兜底（2026-09-29，#2627）
 
 ### 现象与根因

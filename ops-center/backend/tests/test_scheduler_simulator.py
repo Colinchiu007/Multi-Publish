@@ -1,7 +1,7 @@
 """scheduler_simulator 单元测试 — 与桌面端 ApiUsageGovernor 契约对拍的确定性模拟器。"""
 import pytest
 
-from services.scheduler_simulator import clamp_concurrency, simulate
+from services.scheduler_simulator import _build_assertions, clamp_concurrency, simulate
 
 
 def test_clamp_concurrency_formula():
@@ -144,9 +144,60 @@ def test_semaphore_waiter_deadline_long_cooldown():
     assert m["rate_limited_count"] == 4
     assert m["cooldown_count"] >= 1
     states = [t["state"] for t in r["timeline"]]
-    # 注入 429 的 req3 记账为 rate_limited_count（状态 completed）；排队超时 3 个状态为 rate_limited
-    assert states.count("rate_limited") == 3
-    assert states.count("completed") == 5
+    # 注入 429 的 req3 语义是"被拒、没做成"：与真实侧同一身份 rate_limited（不再记 completed）；
+    # 排队超时 3 个 + 注入 1 个 = 4 条 rate_limited 状态；8 - 4 = 4 条 completed。
+    assert states.count("rate_limited") == 4
+    assert states.count("completed") == 4
     # 被拒请求 deadline 墙钟 = 到达时刻 + 30s；total 墙钟 ≥ 冷却后最后完成时刻
     assert m["total_duration_ms"] >= 30000
 
+def test_injected_429_is_not_completed_but_keeps_accounting():
+    """#2626：注入 429 的那条请求身份必须是 rate_limited（真实侧从未完成）。
+
+    这条用例有两层，缺一不可：
+    ① 身份：state / finished_at / 「completed 序列里不含它」；
+    ② **边界**：只改身份，槽位占用、墙钟与两个计数四项必须逐项不变。
+       下面四个基准值取自改动前对同一组参数的实测（design.md §D2），
+       它们是这组断言的全部依据。有人"顺手把堆记账也改真实"时，这里当场红 ——
+       那属于另一件事（真实侧 429 占用 ≈0ms vs 模拟器占满 duration，已登记在 #2626 评论）。
+    """
+    params = dict(rpm=120, max_concurrent=2, request_count=6, request_duration_ms=20,
+                  inject_429_at=3, cooldown_ms=300)
+    r = simulate(params)
+    inj = next(t for t in r["timeline"] if t["req"] == 3)
+
+    # ① 身份
+    assert inj["state"] == "rate_limited"
+    assert inj["finished_at"] is None
+    completed = [t["req"] for t in r["timeline"] if t["state"] == "completed"]
+    assert completed == [1, 2, 4, 5, 6]  # 与真实侧 runSelfCheck 的完成序列同一形状
+
+    # ② 边界：占用过（started_at 有值），但四项指标不得跟着身份一起漂
+    assert inj["started_at"] == 1000
+    m = r["metrics"]
+    assert m["max_concurrent_observed"] == 1
+    assert m["total_duration_ms"] == 2811
+    assert m["rate_limited_count"] == 1
+    assert m["cooldown_count"] == 0
+
+def test_fifo_assertion_survives_rejected_requests():
+    """#2626 的直接后果：被拒请求不再计入 completed，FIFO 判据必须改为"序号单调不减"。
+
+    原判据 `order == 1..N` 隐含了"每个请求都会完成"，于是 max_concurrent=1 + 注入 429
+    这组**顺序本来是对的**配置会被判成 FIFO 失败 —— 运营者在验证详情里看到一条假失败。
+    负控直接把乱序 timeline 喂给 `_build_assertions`，证明改后的判据不是恒真。
+    """
+    r = simulate(dict(rpm=6, max_concurrent=1, request_count=4, request_duration_ms=20,
+                      inject_429_at=2, cooldown_ms=300))
+    fifo = {a["name"]: a for a in r["assertions"]}["fifo"]
+    assert fifo["pass"] is True
+    assert fifo["actual"] == [1, 3, 4]           # 被拒的 req2 不在完成序列里
+
+    out_of_order = [
+        {"req": 2, "state": "completed", "started_at": 0},
+        {"req": 1, "state": "completed", "started_at": 10},
+        {"req": 3, "state": "completed", "started_at": 20},
+    ]
+    neg = {a["name"]: a for a in _build_assertions(r["config"], 1, 0, 1, 0, 0, out_of_order)}["fifo"]
+    assert neg["pass"] is False                   # 真乱序仍必须被抓到
+    assert neg["actual"] == [2, 1, 3]

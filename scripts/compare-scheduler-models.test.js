@@ -17,7 +17,7 @@ const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 
 const {
-  durationTolerance, concurrencyCheck, deferralEvidence, completionOrder,
+  durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionOrderMatches,
   effectiveMaxConcurrent, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO,
 } = require('./compare-scheduler-models')
 // 上限解析必须与被测侧同源：本文件断言"对拍侧不抄第二份 clamp 公式"，
@@ -268,6 +268,37 @@ describe('completionOrder — 完成顺序的取数口径', () => {
       { req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }, { req: 2, state: 'completed' },
     ]), [1, 2])
   })
+
+describe('completionOrderMatches — 完成顺序按逐元素而非长度（#2626 升为硬判定）', () => {
+  it('逐元素相等 ⇒ true（含空序列对空序列）', () => {
+    assert.equal(completionOrderMatches([1, 2, 4, 5, 6], [1, 2, 4, 5, 6]), true)
+    assert.equal(completionOrderMatches([], []), true)
+  })
+
+  it('同长度但顺序不同 ⇒ false —— 这条判据不能退化成"只比长度"', () => {
+    // [1,2] vs [2,1] 正是要抓的形状：把它判成相同就等于守卫不存在
+    assert.equal(completionOrderMatches([1, 2], [2, 1]), false)
+    assert.equal(completionOrderMatches([1, 2, 3], [1, 3, 2]), false)
+  })
+
+  it('长度不同 ⇒ false（一侧多算/漏算完成项，#2626 的真实形状）', () => {
+    assert.equal(completionOrderMatches([1, 2, 3, 4, 5, 6], [1, 2, 4, 5, 6]), false)
+  })
+
+  it('任一入参非数组 ⇒ false（fail closed，缺信息不得当成一致）', () => {
+    assert.equal(completionOrderMatches(undefined, [1]), false)
+    assert.equal(completionOrderMatches([1], null), false)
+    assert.equal(completionOrderMatches('123', [1]), false)
+  })
+
+  it('与 completionOrder 的取数口径串起来：被 429 拒掉的条目不得出现在任一侧序列', () => {
+    const sim = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }])
+    const real = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }])
+    assert.equal(completionOrderMatches(sim, real), true)
+    // 模拟器若仍把 req3 记成 completed，两侧形状立刻不等（这就是 #2626 的捕获路径）
+    assert.equal(completionOrderMatches([1, 3], [1]), false)
+  })
+})
   it('非数组入参返回空数组而不是抛错', () => {
     assert.deepEqual(completionOrder(undefined), [])
   })

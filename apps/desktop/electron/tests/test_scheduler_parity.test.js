@@ -47,18 +47,17 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
         + ' python=' + JSON.stringify(r.python) + ' real=' + JSON.stringify(r.real)).toBe(true)
     }
 
-    // 过渡守卫（#2626）：本轮真的去比了一遍完成顺序，当场抓到一个模型分歧 —— 模拟器把注入
-    // 429 的请求记成 completed，真实侧记 rate_limited（该请求从未完成）。runParity 暂未把它
-    // 并入 pass（那是 #2626 的修复范围，不该塞进本判据 PR），但这里**锁住分歧存在**，
-    // 使它不可能被静默吞掉。
-    // ⚠️ #2626 修好后本断言会失效（两侧都变成 [1,2,4,5,6]），那时必须连同注释一起删除，
-    //    并把 completion_order 纳入 runParity 的 checks —— 留着它就是一条把已知缺陷钉成
-    //    正确行为的契约断言。
+    // #2626 已修：模拟器不再把注入 429 的那条记成 completed。完成顺序自该单起**计入 pass**
+    // （由上面 `expect(r.pass).toBe(true)` 真正承重），所以这里**不再**断言"分歧存在" ——
+    // 那条过渡守卫的本职是"修复前别让分歧被静默吞掉"，修好后继续留着就是把已知缺陷钉成正确行为。
     const inj = results.find((r) => r.name === 'inject-429')
     expect(inj, 'inject-429 必须仍在 must-pass 的 CASES 里（上面已断言，这里兜第二层）').toBeTruthy()
-    expect(inj.completionOrder.simulated).toEqual([1, 2, 3, 4, 5, 6])
+    // 序列本身也要钉死：只断言"两侧相等"会放过"两侧同时错"的形状
+    // （例如取数口径被改成恒定返回空序列，那两边当然相等）。
+    expect(inj.completionOrder.simulated).toEqual([1, 2, 4, 5, 6])
     expect(inj.completionOrder.real).toEqual([1, 2, 4, 5, 6])
-    expect(inj.completionOrderDiverges, '探测器不再报分歧 ⇒ #2626 已修，请删掉本过渡守卫').toBe(true)
+    expect(inj.completionOrderDiverges, '两侧完成顺序又分歧了 ⇒ 要么模拟器回归到记 completed，要么真实侧形状变了').toBe(false)
+    expect(inj.checks.completion_order, 'completion_order 必须已在 runParity 的 checks 里（摘掉它 = 把硬判定降级回只打印）').toBe(true)
   }, 120000)
 
   it('已知差异用例差异值与记录一致（interval==duration 临界测量噪声，防漂移）', async () => {

@@ -55,6 +55,30 @@ function completionOrder (timeline) {
 }
 
 /**
+ * 完成顺序是否一致：**逐元素**比较，不是只比长度。
+ *
+ * 为什么可以升为硬判定（别改成更宽的判据）：事件帧饥饿会让并发观测虚高 1（#2606），
+ * 但不会改变完成顺序 —— 各组用例的 `requestDurationMs` 统一 ⇒ 到期时刻的顺序 == 准入顺序，
+ * 帧被阻塞时一批定时器同时变成"已过期"，Node 仍按到期时刻排程回调，相对次序不变。
+ * 实测依据（四档饥饿下完成顺序 8/8 不变、而同批并发观测已虚高 1）只维护一份，
+ * 见 docs/parity-concurrency-measurement-noise.md「为什么顺序可以当硬判定」那节；
+ * 这里不复述数字 —— 复述就会产生第二份真源，改了表忘了改注释，注释就变成假证据。
+ *
+ * ⚠ 这条判据的前提就是"时长统一"。给某组引入非均匀时长 / 真实网络延迟 / 抖动 adapter 时，
+ * 前提失效，必须先重新取证再决定它是否继续承重，不得靠放宽本函数来消红
+ * （只比长度就是把 `[#1,#2]` 与 `[#2,#1]` 判成相同，那正是它要抓的形状）。
+ *
+ * @param {number[]} simulated 模拟器完成序（非负整数序列）
+ * @param {number[]} real      真实侧完成序
+ * @returns {boolean} 逐元素相等为 true；任一入参非数组 ⇒ false（fail closed，不当成一致）
+ */
+function completionOrderMatches (simulated, real) {
+  if (!Array.isArray(simulated) || !Array.isArray(real)) return false
+  if (simulated.length !== real.length) return false
+  return simulated.every((v, i) => v === real[i])
+}
+
+/**
  * 「+1 是不是回调推迟造成的」的因果证据。
  *
  * 为什么必须有它：只凭 `real = sim + 1 且 ≤ 上限` 就豁免，等于把**两种成因相反**的形状
@@ -253,10 +277,11 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
       rate_limited_count: real.metrics.rate_limited_count === py.rate_limited_count,
       quota_exceeded_count: real.metrics.quota_exceeded_count === py.quota_exceeded_count,
       total_duration_ms: Math.abs(real.metrics.total_duration_ms - py.total_duration_ms) <= allowed,
-      // 完成顺序**暂不**并入 pass：本轮把它真的比了一遍，立刻抓到一个模型分歧
-      // （注入 429 的请求：模拟器记 completed，真实侧记 rate_limited），那是独立的一张单，
-      // 不该塞进这条判据 PR 扩大爆炸半径。这里继续**计算并打印**，并由测试锁住
-      // "探测器能发现它"，所以它不是被删掉的守卫，而是尚未升级成硬判定的已知分歧。
+      // 完成顺序自 #2626 起**计入 pass**（规格把它列为"必须相等"的计数与顺序类指标，
+      // 而一条只打印、不计入判定的 SHALL 等于没有守卫）。
+      // 它之所以可以硬判定，依据是"时长统一 ⇒ 饥饿不改变相对次序"的实测，见上方
+      // completionOrderMatches 的注释与 docs；不要把这里改成"只比长度"来消红。
+      completion_order: completionOrderMatches(simOrder, realOrder),
     }
     results.push({
       name: c.name,
@@ -271,7 +296,8 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
       concurrency: conc,
       deferralEvidence: evidence,
       completionOrder: { simulated: simOrder, real: realOrder },
-      completionOrderDiverges: !(simOrder.length === realOrder.length && simOrder.every((v, i) => v === realOrder[i])),
+      // 与 checks.completion_order 共用同一实现：两份判据就是两个口径，迟早漂移
+      completionOrderDiverges: !completionOrderMatches(simOrder, realOrder),
       noiseBypass: conc.noiseBypass,
       pass: Object.values(checks).every(Boolean),
     })
@@ -315,11 +341,11 @@ async function main () {
       + ' 推迟证据=' + (r.deferralEvidence.observed ? '有' : '无')
       + ' 最大跨度=' + r.deferralEvidence.maxSpanMs + 'ms'
       + (r.noiseBypass ? '  [噪声豁免命中] ' + r.concurrency.reason : ''))
-    if (r.completionOrderDiverges) {
-      console.log('  完成顺序分歧（未计入 pass，见跟踪单）: sim=' + JSON.stringify(r.completionOrder.simulated)
-        + ' real=' + JSON.stringify(r.completionOrder.real))
-    }
-    if (!r.pass && r.concurrency && !r.concurrency.pass) console.log('  maxc 判红原因 :', r.concurrency.reason)
+    // 完成顺序**每次**都打印两侧序列本身（不再只在分歧时打）：红了以后要能一眼看出是谁
+    // 少了/多了哪一项，只报一个布尔值等于把归因成本推给下一次复跑。
+    console.log('  顺序   : sim=' + JSON.stringify(r.completionOrder.simulated)
+      + ' real=' + JSON.stringify(r.completionOrder.real)
+      + (r.completionOrderDiverges ? '  [分歧 ⇒ 已计入判据]' : ''))
     if (!r.pass && r.concurrency && !r.concurrency.pass) console.log('  maxc 判红原因 :', r.concurrency.reason)
     if (!r.pass) ok = false
   }
@@ -336,7 +362,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionOrderMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })
