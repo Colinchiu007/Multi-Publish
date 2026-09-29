@@ -23,6 +23,53 @@
 - 立项与六维度详写：`01-docs/PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md`；roadmap 差距表第 7 项状态回写。
 
 ---
+# [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
+- `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
+- 后果不是"少个便利"，是**把人引向错误的归因**：按文档设了变量照样 403，排查者会去查「WMI 不继承环境变量」「launcher 没透传」，而真相是特性缺失。本轮真机 A/B 取数时就是靠「WebSocket 不发 Origin 头」绕过去的（已登记在 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §13.5）。
+
+### 修法
+- `dev-launcher.js`：新增 `resolveAllowAllOrigins(env)`；`buildElectronArgs` 增 `allowAllOrigins` 形参，开启时追加 `--remote-allow-origins=*`，且**必须排在 desktopDir 之前**（desktopDir 是应用路径，永远末位）。
+- `dev.js`：**单次**读取该值 → 传给 `buildElectronArgs` → 在 `electron.on('spawn')` 里打印现场（AGENTS.md「静默配置失败必须留日志」；只在开启时打印，默认关不污染日志）。
+
+### 判据为什么是「trim 后恰好 '1'」
+`cmd /c set "VAR=1 "` 会把尾随空格折进值里（本仓在 `ELECTRON_USER_DATA_DIR` 上真踩过，launcher 注释已记），不 trim 就等于开关静默失效；而接受 `true` / 数字 1 会让「默认关」这条安全前提可被随手绕过。两个方向各锁一条用例。
+
+### 验证（全部本轮实跑）
+- `node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js` → **tests 50 / pass 50 / fail 0**，与 `quality-gate.yml:110` 的点名口径逐字一致（不是"应该会被收集"）。
+- 四条变异各自只让对应那条锁变红：unwire（dev.js 不传参）→ 1 红；no-op push（删掉追加行）→ 1 红；loose（判据退化成 `!!raw`）→ 1 红；删留痕 → 1 红。每次还原后 10/10 绿、三个文件与备份**字节级一致**（`cmp -s`）。
+- 真机 A/B（同 worktree、隔离 profile、专属 bridge 端口 8453/16553/8033/8022/8014，避免应答到别人实例的 8299）：
+
+| `MP_CDP_ALLOW_ALL_ORIGINS` | electron argv | 不带 Origin | 带 Origin | 带恶意 Origin |
+| --- | --- | --- | --- | --- |
+| `0` | 无 `--remote-allow-origins` | OPEN | **HTTP 403** | **HTTP 403** |
+| `1` | `--remote-allow-origins=*` | OPEN | **OPEN** | **OPEN** |
+
+  不带 Origin 两档都 OPEN ⇒ 差异维度被隔离在这条开关上，而不是进程或时序。
+
+### 边界
+- 只动 dev 启动链（`apps/desktop/scripts/`），未改 `electron/` 运行时代码与打包配置，QM-1 前提不成立；`apps/desktop/electron/` 零改动。
+- 开关**默认关**：开启后任意站点都能连该进程的 DevTools WebSocket（这正是 Chromium origin 校验存在的原因），因此它只用于本机排障，不得进生产/CI 默认值。
+- 收尾已按 worktree 路径精确停掉验证实例并删除隔离 profile（`D:\tmp\mp-cdp-verify-profile`），未触碰其他会话的实例与数据目录。
+
+# [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
+
+### 现象与根因
+- `QG Desktop Shards` / `Gate 4` 在 pnpm 退出后跑一段「有没有漏下测试子进程」的检查，判定非空即 `throw`，并**对结果逐个 `taskkill /T /F`**。实测 run 36519025075 attempt 1：**12517 个测试全部通过**，该检查却报出 `csrss.exe / winlogon.exe / fontdrvhost.exe / dwm.exe` 四个"残留子进程"。
+- 根因：`quality-gate.yml` 的 Gate 4 与 Desktop shards **各内联了一份** `Get-TestProcessTree`，只按数字 `ParentProcessId` 递归，而种子是**已经退出的 pnpm 的 PID**。Windows 会回收退出进程的 PID，`Win32_Process.ParentProcessId` 又只是存下来的数字而非活链接 —— 于是任何把该数字记作自己父亲的长命进程都会被认成后代。两份拷贝还意味着任何修复都要改两处并持续漂移。
+
+### 变更
+- 防护不变量：**子进程创建时间不得早于其父进程**。选它而不是进程名/镜像路径黑名单，因为该不变量与名字和路径都无关 —— 真实泄漏的 node/electron/python 子进程一定晚于其父启动（不会被漏），而开机期进程永远早于任何 runner 进程（不可能被认成后代）。「路径必须在 workspace 下」会漏工具缓存里的 node.exe，故不采用。
+- 两处内联拷贝收敛为 `scripts/get-test-process-tree.ps1`（带 `-Processes` 注入点做到确定性测试、`-NotBefore` 时间锚点由调用方在 `Start-Process` **之前**取 `Get-Date`，与 `Win32_Process.CreationDate` 同为本机钟、不跨 API 比时间）。调用点在脚本缺失时**硬失败**，不得静默退回旧实现。
+- 新增 `scripts/get-test-process-tree.test.ps1`（8 条，接进 Gate 2d）。其中第 6 条是**反失明**断言：关掉防护时同一 fixture 必须复现误判，否则第 1–3 条只是"集合恰好为空"；第 8 条起一个真实子进程走 `Get-CimInstance` 实路，因为 1–7 只喂注入表，抓不到「CIM 时间与本机钟不可比 ⇒ 把所有进程都拒掉」这种恒绿形态。
+- 同步更新 `workflow-contract.test.js` 中 4 条锁死旧形态（"步骤里内联了一份函数"）的断言 —— 不更新会**恒红**；改为锁「引用共享实现 + 必带 `-NotBefore` + 全文件不得再内联第二份」。
+
+### 证据
+- 本机 pwsh 7 与 Windows PowerShell 5.1 各 8/8 PASS；`check-ps1-bom` 9/9、Gate 3 契约 76/76、unwired / failfast / debt-budget 全 rc=0。
+- 反证两条实跑：把时间防护改成恒不成立 → 第 1 条立刻报 `6064,6548,6864,7004`（正是事故那四个 PID）；把内联定义塞回 workflow → 新增的 `doesNotMatch` 锁变红。均按字节还原。
+- runner 现场：合并后首次 main 检查打印 `[process-tree] scanned=134 descendants=0 rejected-by-time=0` —— 误判消失，且未把真实子进程一并拒掉。
+- 一次自伤如实记：首版测试文件含**一条**中文注释而无 BOM，被仓库自己的 `check-ps1-bom.js` 抓红（PS 5.1 把无 BOM 的 UTF-8 .ps1 按 ANSI 读）。直接原因是本地只跑了 unwired / failfast / debt-budget，**漏跑这一条门禁**。
 
 # [未发布] docs(publish): 平台端点取证清单——审核回查 / 平台草稿列表的 verified 提升判据（2026-10-09，audit-requery-evidence-checklist）
 
