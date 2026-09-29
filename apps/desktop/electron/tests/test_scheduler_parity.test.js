@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 
-const { runParity, runKnownDiffs, concurrencyCheck, effectiveMaxConcurrent, pythonMetrics, CASES, KNOWN_DIFF_CASES } = require('../../../../scripts/compare-scheduler-models')
+const { runParity, runKnownDiffs, concurrencyCheck, deferralEvidence, effectiveMaxConcurrent, pythonMetrics, CASES, KNOWN_DIFF_CASES } = require('../../../../scripts/compare-scheduler-models')
 const { runSelfCheck } = require('../services/rate-limit-self-check')
 
 describe('scheduler 模拟器与真实 governor 对拍', () => {
@@ -30,6 +30,13 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
         + ' real=' + r.real.total_duration_ms
         + ' diff=' + r.diffTotalDurationMs
         + ' allowed=' + r.allowedTotalDurationMs
+        // maxc 三元值 + 豁免是否命中也要进这条 CI 留痕：CLI 路径打印了、vitest 路径不打印，
+        // 等于"CI 上静默命中豁免"没人看得见 —— 观察者必须报告自己看不见的那部分。
+        + ' maxc=' + r.python.max_concurrent_observed + '→' + r.real.max_concurrent_observed
+        + '/cap=' + r.maxConcurrent
+        + ' 推迟证据=' + (r.deferralEvidence.observed ? '有' : '无') + '(' + r.deferralEvidence.maxSpanMs + 'ms)'
+        + ' noiseBypass=' + r.noiseBypass
+        + ' 完成顺序分歧=' + r.completionOrderDiverges
         + ' pass=' + r.pass)
       // 失败信息必须带上「实际生效容差」与「本次差值」：上一轮 main 红时只给了 python/real
       // 两个 JSON，看不出 1653ms 是超了 1500 还是超了比例，排障要回头翻脚本。
@@ -39,6 +46,19 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
         + ' allowedTotalDurationMs=' + r.allowedTotalDurationMs
         + ' python=' + JSON.stringify(r.python) + ' real=' + JSON.stringify(r.real)).toBe(true)
     }
+
+    // 过渡守卫（#2626）：本轮真的去比了一遍完成顺序，当场抓到一个模型分歧 —— 模拟器把注入
+    // 429 的请求记成 completed，真实侧记 rate_limited（该请求从未完成）。runParity 暂未把它
+    // 并入 pass（那是 #2626 的修复范围，不该塞进本判据 PR），但这里**锁住分歧存在**，
+    // 使它不可能被静默吞掉。
+    // ⚠️ #2626 修好后本断言会失效（两侧都变成 [1,2,4,5,6]），那时必须连同注释一起删除，
+    //    并把 completion_order 纳入 runParity 的 checks —— 留着它就是一条把已知缺陷钉成
+    //    正确行为的契约断言。
+    const inj = results.find((r) => r.name === 'inject-429')
+    expect(inj, 'inject-429 必须仍在 must-pass 的 CASES 里（上面已断言，这里兜第二层）').toBeTruthy()
+    expect(inj.completionOrder.simulated).toEqual([1, 2, 3, 4, 5, 6])
+    expect(inj.completionOrder.real).toEqual([1, 2, 4, 5, 6])
+    expect(inj.completionOrderDiverges, '探测器不再报分歧 ⇒ #2626 已修，请删掉本过渡守卫').toBe(true)
   }, 120000)
 
   it('已知差异用例差异值与记录一致（interval==duration 临界测量噪声，防漂移）', async () => {
@@ -50,50 +70,6 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
   }, 120000)
 })
 
-/**
- * 并发判据合同（spec: desktop/model-call-observability「模拟器与真实 governor 对拍」）。
- *
- * 为什么单独立一组纯数据用例：判据本身必须是可判定、可反证的真值表，不能只在"真跑了 47s
- * 对拍"时被动暴露。#2606 那次 main 红就是这条判据把**测量口径**当成了**契约漂移**——
- * `max_concurrent_observed` 由"任务开始到其完成回调真正执行"的窗口计出，事件帧被饿到
- * 接近相邻起始间隔时，前一个 20ms 调用的递减被推迟，真实侧就会比确定性模拟器多报 1，
- * 而多出来的那个 1 从未越过配置上限（2 ≤ maxConcurrent=2）。
- */
-describe('并发观测判据合同（上限不变量 + 单侧有界噪声）', () => {
-  it('相等时通过，且不算命中噪声豁免', () => {
-    const r = concurrencyCheck({ simulated: 2, real: 2, maxConcurrent: 2 })
-    expect(r.pass).toBe(true)
-    expect(r.noiseBypass).toBe(false)
-  })
-
-  it('真实侧比模型多 1 且未越上限 ⇒ 通过，但必须如实标出命中豁免', () => {
-    const r = concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 2 })
-    expect(r.pass, JSON.stringify(r)).toBe(true)
-    expect(r.noiseBypass, '豁免不得静默生效，否则没人知道这次是靠噪声口径过的').toBe(true)
-  })
-
-  it('多 1 但同时越过配置上限 ⇒ 判红（上限不变量任何情况不放宽）', () => {
-    const r = concurrencyCheck({ simulated: 2, real: 3, maxConcurrent: 2 })
-    expect(r.pass, '2+1=3 已超上限 2，必须红：' + JSON.stringify(r)).toBe(false)
-  })
-
-  it('真实侧低于模型 ⇒ 判红（该方向的偏差只能来自调度行为差异）', () => {
-    const r = concurrencyCheck({ simulated: 2, real: 1, maxConcurrent: 2 })
-    expect(r.pass, JSON.stringify(r)).toBe(false)
-  })
-
-  it('多 2 及以上 ⇒ 判红（豁免只到 +1，不是万能容差）', () => {
-    expect(concurrencyCheck({ simulated: 1, real: 3, maxConcurrent: 4 }).pass).toBe(false)
-  })
-
-  // 这条是判据设计的关键后果，不能只靠推导：cap=1 的用例（rpm30-concurrency1）里
-  // 豁免被上限夹住后**等价于仍要求相等**，否则"+1"就把真实的单并发违约吃掉了。
-  it('配置上限为 1 时 +1 豁免必须失效（被上限夹住 ⇒ 等价严格相等）', () => {
-    const r = concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 1 })
-    expect(r.pass, 'maxConcurrent=1 时观测到 2 就是违约，必须红：' + JSON.stringify(r)).toBe(false)
-    expect(concurrencyCheck({ simulated: 1, real: 1, maxConcurrent: 1 }).pass).toBe(true)
-  })
-})
 
 /**
  * 饥饿阈值两档（spec 新增的两个 Scenario 的可执行证据）。
@@ -109,41 +85,93 @@ describe('并发观测的饥饿阈值（证明 +1 来自回调推迟，不是给
   const P = { rpm: 120, maxConcurrent: 2, requestCount: 6, requestDurationMs: 20, inject429At: 3, cooldownMs: 300 }
   const GAP_MS = 60000 / P.rpm
 
+  // 返回 { result, maxLagMs }：maxLagMs 是**实测**到的本 tick 最大延迟（含我们自己注入的阻塞
+  // 与宿主环境额外施加的饥饿）。低档要不要要求"必须等于模型值"，只能由这个实测值决定 ——
+  // 用注入名义值当依据会在满载 CI 上造假红（环境自己就能饿到 500ms，#2606 正是这么红的）。
   function withBlocker (blockMs, everyMs, fn) {
     let armed = true
+    let maxLagMs = 0
+    let expectedAt = Date.now() + everyMs
     const h = setInterval(() => {
+      const now = Date.now()
+      const lag = now - expectedAt
+      if (lag > maxLagMs) maxLagMs = lag
+      expectedAt = now + everyMs
       if (!armed) return
-      const t = Date.now()
+      const t = now
       while (Date.now() - t < blockMs) { /* 同步占用当前 tick，模拟 CI 满载下的帧饥饿 */ }
     }, everyMs)
     return Promise.resolve()
       .then(fn)
+      .then((result) => ({ result, maxLagMs }))
       .finally(() => { armed = false; clearInterval(h) })
   }
 
   it('低档饥饿不产生重叠；高档饥饿必现 +1 且始终不越上限', async () => {
     const sim = pythonMetrics(P).max_concurrent_observed
     const cap = effectiveMaxConcurrent(P)
+    // 判定"是否真的没饿到阈值"的分界：起始间隔的一半。低于它不可能让一次 20ms 调用
+    // 的完成回调推迟到下一次放行之后。
+    const LAG_BOUND_MS = Math.floor(GAP_MS / 2)
 
-    const low = await withBlocker(Math.floor(GAP_MS / 12), 250, () => runSelfCheck(P))
-    const high = await withBlocker(Math.ceil(GAP_MS * 1.2), 300, () => runSelfCheck(P))
+    const lowRun = await withBlocker(Math.floor(GAP_MS / 12), 250, () => runSelfCheck(P))
+    const highRun = await withBlocker(Math.ceil(GAP_MS * 1.2), 300, () => runSelfCheck(P))
+    const low = lowRun.result
+    const high = highRun.result
 
-    // 每次跑都打印两档实测值与档别，让"这条锁在测什么"事后可判读（否则下次没人知道）
-    console.log('[parity-noise] gap=' + GAP_MS + 'ms sim=' + sim + ' cap=' + cap
-      + ' low(' + Math.floor(GAP_MS / 12) + 'ms)=' + low.metrics.max_concurrent_observed
-      + ' high(' + Math.ceil(GAP_MS * 1.2) + 'ms)=' + high.metrics.max_concurrent_observed)
+    // 每次跑都打印两档实测值 + 实测帧延迟，让"这条锁在测什么"事后可判读（否则下次没人知道）
+    console.log('[parity-noise] gap=' + GAP_MS + 'ms bound=' + LAG_BOUND_MS
+      + ' sim=' + sim + ' cap=' + cap
+      + ' low(' + Math.floor(GAP_MS / 12) + 'ms,lag=' + lowRun.maxLagMs + 'ms)=' + low.metrics.max_concurrent_observed
+      + ' high(' + Math.ceil(GAP_MS * 1.2) + 'ms,lag=' + highRun.maxLagMs + 'ms)=' + high.metrics.max_concurrent_observed)
 
-    // 低档：只要求"不越上限、不比模型多超过 1"。故意**不**断言它必须等于 sim ——
-    // CI 自己就可能饿到 500ms（#2606 就是这么红的），把那条写进来等于新造一个假红源。
-    const lowVerdict = concurrencyCheck({ simulated: sim, real: low.metrics.max_concurrent_observed, maxConcurrent: cap })
+    const evOpt = { requestDurationMs: P.requestDurationMs, interStartMs: GAP_MS }
+    const lowEv = deferralEvidence(low.timeline, evOpt)
+    const highEv = deferralEvidence(high.timeline, evOpt)
+    console.log('[parity-noise] 推迟证据 bound=' + lowEv.boundMs
+      + ' low=' + JSON.stringify({ o: lowEv.observed, maxSpan: lowEv.maxSpanMs })
+      + ' high=' + JSON.stringify({ o: highEv.observed, maxSpan: highEv.maxSpanMs, d: highEv.detail }))
+
+    const lowVerdict = concurrencyCheck({
+      simulated: sim, real: low.metrics.max_concurrent_observed, maxConcurrent: cap, evidence: lowEv,
+    })
     expect(lowVerdict.pass, '低档实测越界：' + JSON.stringify(lowVerdict)).toBe(true)
+    // spec Scenario「饥饿不足阈值时不得掩盖真实差异」的可执行版本：**条件化于实测延迟**。
+    // 真没饿到阈值 ⇒ 必须等于模型值（+1 不许被当成万能容差）；环境自己饿过了头 ⇒ 本轮
+    // 不主张这条，并把原因打印出来 —— 这不是放弃断言，而是把断言的前提写进判据。
+    if (lowRun.maxLagMs < LAG_BOUND_MS) {
+      expect(low.metrics.max_concurrent_observed,
+        '实测帧延迟 ' + lowRun.maxLagMs + 'ms < 阈值 ' + LAG_BOUND_MS + 'ms，此时不该出现重叠')
+        .toBe(sim)
+      expect(lowVerdict.noiseBypass, '未达阈值却命中豁免 ⇒ 阈值判断与实测矛盾，需重新取证').toBe(false)
+      // 证据侧也要自洽：没有 +1 的时候不该凭空报出"回调被推迟"
+      expect(lowEv.observed, '低档不该探到推迟证据：' + lowEv.detail).toBe(false)
+    } else {
+      console.log('[parity-noise] 低档本轮跳过「必须相等」：宿主自身帧延迟 ' + lowRun.maxLagMs + 'ms 已达阈值')
+    }
 
     // 高档：饥饿由本用例工程化，结果必须**恰好**是 sim + 1 ⇒ 证明豁免分支真的会被走到
+    //
+    // 这条精确断言之所以安全，是因为本组 cap=2 而 sim=1 ⇒ real 只可能取 1 或 2，
+    // 没有第三个值可漂。**复制到更高 cap 的用例时不要照抄**：cap=4 下同一批饥饿可能同时
+    // 推迟两个回调（real 可为 2 或 3），精确值就会在 CI 上 flake —— 那种场合改用
+    // concurrencyCheck 的 noiseBypass，而不是断言具体数值。
     expect(high.metrics.max_concurrent_observed, '高档饥饿未复现 +1（机制变了，判据依据要重新取证）')
       .toBe(sim + 1)
-    const highVerdict = concurrencyCheck({ simulated: sim, real: high.metrics.max_concurrent_observed, maxConcurrent: cap })
+    // 因果证据必须同时到位：只有"+1"而没有"被拉长的窗口与其它调用重叠"，
+    // 就分不清是回调推迟还是 governor 提前放行 —— 后者是真回归，不得豁免。
+    expect(highEv.observed, '高档出现 +1 却探不到推迟证据 ⇒ 判据依据需重新取证：'
+      + JSON.stringify(highEv)).toBe(true)
+    const highVerdict = concurrencyCheck({
+      simulated: sim, real: high.metrics.max_concurrent_observed, maxConcurrent: cap, evidence: highEv,
+    })
     expect(highVerdict.pass).toBe(true)
     expect(highVerdict.noiseBypass, '高档必须命中豁免，否则说明这条豁免是死分支').toBe(true)
+    // 反面对照：把证据摘掉，同一个 +1 必须判红 —— 证明豁免是靠证据挣来的，不是白给的。
+    expect(concurrencyCheck({
+      simulated: sim, real: high.metrics.max_concurrent_observed, maxConcurrent: cap,
+      evidence: { observed: false, maxSpanMs: highEv.maxSpanMs, requestDurationMs: P.requestDurationMs, detail: '' },
+    }).pass, '无证据的 +1 竟然通过了 ⇒ 因果门是空的').toBe(false)
     // 越上限的不变量在两个档都不能破（不断言总耗时：慢机器上挂钟会漂，那属于 duration 判据的辖区）
     expect(low.metrics.max_concurrent_observed).toBeLessThanOrEqual(cap)
     expect(high.metrics.max_concurrent_observed).toBeLessThanOrEqual(cap)
