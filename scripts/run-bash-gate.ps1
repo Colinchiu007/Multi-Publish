@@ -1,4 +1,4 @@
-# 在 Git for Windows Bash 中执行仓库 .sh 门禁脚本（如 scripts/check-docs-sync.sh）。
+﻿# 在 Git for Windows Bash 中执行仓库 .sh 门禁脚本（如 scripts/check-docs-sync.sh）。
 # 解决两个本机陷阱：
 #   1) 裸 bash 解析到 WSL shim（C:\windows\system32\bash.exe），WSL git 无法穿透
 #      worktree .git 指针里的 Windows 路径（gitdir: D:/...）；

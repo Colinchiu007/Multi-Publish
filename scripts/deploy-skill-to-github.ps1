@@ -1,4 +1,4 @@
-# 部署更新后的 SKILL.md 到 GitHub 仓库
+﻿# 部署更新后的 SKILL.md 到 GitHub 仓库
 # 一键执行：powershell -File scripts/deploy-skill-to-github.ps1
 
 $source = "d:\Data\projects\Mulpub\SKILL.md"
