@@ -10,6 +10,20 @@ vi.mock("@/stores/platforms", () => ({
   })
 }));
 
+const notifyConfirmMock = vi.fn();
+const notifySuccessMock = vi.fn();
+const notifyErrorMock = vi.fn();
+vi.mock("@/composables/useNotify", () => ({
+  useNotify: () => ({
+    notify: vi.fn(),
+    notifyError: notifyErrorMock,
+    notifySuccess: notifySuccessMock,
+    notifyWarning: vi.fn(),
+    notifyInfo: vi.fn(),
+    notifyConfirm: notifyConfirmMock,
+  }),
+}));
+
 import CalendarView from "./Calendar.vue";
 
 const originalTimeZone = process.env.TZ;
@@ -238,6 +252,145 @@ describe("CalendarView — full coverage", () => {
     const w = mount(CalendarView, { global: { plugins: [createPinia()] } });
     await nextTick();
     expect(w.vm.loading).toBe(false);
+  });
+});
+
+describe("CalendarView — 定时任务取消（排期管理闭环）", () => {
+  let schedulerCancel;
+  let schedulerList;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    notifyConfirmMock.mockResolvedValue(true);
+    schedulerList = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    schedulerCancel = vi.fn().mockResolvedValue({ code: 0, data: true });
+    window.electronAPI = {
+      schedulerList,
+      schedulerCancel,
+      historyList: vi.fn().mockResolvedValue({ code: 0, data: { records: [] } }),
+    };
+  });
+
+  async function mountWithPendingTask(task) {
+    const w = mount(CalendarView, { global: { plugins: [createPinia()] } });
+    // 先让 onMounted 的 loadData（异步 schedulerList/historyList 回写
+    // scheduledTasks/publishHistory）完成，避免它覆盖测试随后设置的 vm 数据。
+    await nextTick();
+    await vi.runAllTimersAsync();
+    await nextTick();
+    return w;
+  }
+
+  async function selectScheduledDay(w) {
+    w.vm.currentYear = 2026;
+    w.vm.currentMonth = 6;
+    w.vm.scheduledTasks = [{
+      id: "sched-1",
+      title: "定时文章",
+      publishTime: "2026-07-15T10:00:00",
+      platform: "weixin",
+      status: "pending",
+    }];
+    w.vm.selectedDate = "2026-07-15";
+    await nextTick();
+    return w;
+  }
+
+  it("pending 定时事件显示取消按钮，点击后确认并调用 schedulerCancel，成功后刷新列表", async () => {
+    const w = await mountWithPendingTask();
+    await selectScheduledDay(w);
+    const listCallsBefore = schedulerList.mock.calls.length;
+
+    const button = w.find('[data-testid="cancel-schedule-sched-1"]');
+    expect(button.exists()).toBe(true);
+    await button.trigger("click");
+    await vi.runAllTimersAsync();
+    await nextTick();
+
+    expect(notifyConfirmMock).toHaveBeenCalled();
+    expect(schedulerCancel).toHaveBeenCalledWith("sched-1");
+    expect(schedulerList.mock.calls.length).toBeGreaterThan(listCallsBefore);
+    expect(notifySuccessMock).toHaveBeenCalled();
+  });
+
+  it("确认弹窗被取消时不调用 schedulerCancel", async () => {
+    notifyConfirmMock.mockResolvedValue(false);
+    const w = await mountWithPendingTask();
+    await selectScheduledDay(w);
+
+    await w.find('[data-testid="cancel-schedule-sched-1"]').trigger("click");
+    await nextTick();
+
+    expect(schedulerCancel).not.toHaveBeenCalled();
+  });
+
+  it("schedulerCancel 返回失败时提示错误且不刷新", async () => {
+    schedulerCancel.mockResolvedValue({ code: -1, message: "任务不存在" });
+    const w = await mountWithPendingTask();
+    await selectScheduledDay(w);
+    const listCallsBefore = schedulerList.mock.calls.length;
+
+    await w.find('[data-testid="cancel-schedule-sched-1"]').trigger("click");
+    await vi.runAllTimersAsync();
+    await nextTick();
+
+    expect(notifyErrorMock).toHaveBeenCalled();
+    expect(schedulerList.mock.calls.length).toBe(listCallsBefore);
+  });
+
+  it("历史事件（success/failed）不显示取消按钮", async () => {
+    const w = await mountWithPendingTask();
+    await selectScheduledDay(w);
+    w.vm.publishHistory = [{ id: "h1", title: "已发布", timestamp: "2026-07-15T09:00:00", success: true, platform: "weixin" }];
+    await nextTick();
+
+    expect(w.find('[data-testid="cancel-schedule-h1"]').exists()).toBe(false);
+  });
+
+  it("非 pending 状态的定时条目不显示取消按钮（executed 已进历史，cancelled 不再可取消）", async () => {
+    const w = await mountWithPendingTask();
+    w.vm.currentYear = 2026;
+    w.vm.currentMonth = 6;
+    w.vm.scheduledTasks = [
+      { id: "sched-done", title: "已执行", publishTime: "2026-07-15T10:00:00", platform: "weixin", status: "executed" },
+      { id: "sched-cancelled", title: "已取消", publishTime: "2026-07-15T11:00:00", platform: "weixin", status: "cancelled" },
+    ];
+    w.vm.selectedDate = "2026-07-15";
+    await nextTick();
+
+    expect(w.find('[data-testid="cancel-schedule-sched-done"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cancel-schedule-sched-cancelled"]').exists()).toBe(false);
+  });
+
+  it("cancelled/executed 状态的定时条目不再渲染为 ⏰ 待发事件（避免已取消任务仍显示为待发布）", async () => {
+    const w = await mountWithPendingTask();
+    w.vm.currentYear = 2026;
+    w.vm.currentMonth = 6;
+    w.vm.scheduledTasks = [
+      { id: "sched-pending", title: "待发布", publishTime: "2026-07-15T10:00:00", platform: "weixin", status: "pending" },
+      { id: "sched-cancelled", title: "已取消", publishTime: "2026-07-15T11:00:00", platform: "weixin", status: "cancelled" },
+      { id: "sched-executed", title: "已执行", publishTime: "2026-07-15T12:00:00", platform: "weixin", status: "executed" },
+    ];
+    w.vm.selectedDate = "2026-07-15";
+    await nextTick();
+
+    const events = w.vm.getEventsForDate("2026-07-15");
+    expect(events.map(e => e.id)).toEqual(["sched-pending"]);
+  });
+
+  it("无 id 的定时条目不渲染取消按钮（防御脏数据）", async () => {
+    const w = await mountWithPendingTask();
+    w.vm.currentYear = 2026;
+    w.vm.currentMonth = 6;
+    w.vm.scheduledTasks = [{ title: "无 ID", publishTime: "2026-07-15T10:00:00", platform: "weixin", status: "pending" }];
+    w.vm.selectedDate = "2026-07-15";
+    await nextTick();
+
+    const buttons = w.findAll('[data-testid^="cancel-schedule-"]');
+    expect(buttons.length).toBe(0);
   });
 });
 

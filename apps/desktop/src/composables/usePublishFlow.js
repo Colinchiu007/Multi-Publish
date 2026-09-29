@@ -505,25 +505,10 @@ export function usePublishFlow(options) {
     }
   }
 
-  async function cancelPublish () {
-    const taskIds = activeTaskIds.value.slice()
-    const scheduleIds = activeScheduleIds.value.slice()
-    if (taskIds.length === 0 && scheduleIds.length === 0) {
-      notifyInfo('publishPage.noActiveTasks', { message: i18n.global.t('publishPage.noActiveTasks') })
-      return { success: false, cancelled: 0 }
-    }
-    const results = await Promise.all([
-      ...taskIds.map(id => cancelTask(id)),
-      ...scheduleIds.map(id => schedulerCancel(id)),
-    ])
-    const cancelled = results.filter(item => item && item.code === 0 && item.data !== false).length
-    activeTaskIds.value = []
-    activeScheduleIds.value = []
-    addProgress(progressText('publishPage.publishFlow.cancelledCount', { count: cancelled }), 'warning')
-    result.value = { success: false, cancelled, message: progressText('publishPage.publishFlow.taskCancelled') }
-    return { success: cancelled > 0, cancelled }
-  }
-
+  // 2026-10-02 定时发布验证修复：删除 aa7e7cf0（2026-08-23）替换式重构残留的旧版
+  // cancelPublish（Promise.all 版）。JS 函数声明后者覆盖前者，旧版一直是死代码，
+  // fdd30498（2026-08-30）的通知迁移甚至误改在死副本上。保留下方 allSettled 版
+  // （失败任务保留 ID 供重试），结构锁见 usePublishFlow.test.js「单一定义结构锁」。
   async function cancelPublish () {
     const taskIds = activeTaskIds.value.slice()
     const scheduleIds = activeScheduleIds.value.slice()

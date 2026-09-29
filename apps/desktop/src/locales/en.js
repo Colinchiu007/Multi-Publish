@@ -1668,6 +1668,16 @@ export default {
       accountInfo: 'Account owner info',
     },
   },
+  calendarPage: {
+    // Publish calendar — scheduled task cancel entry (2026-10-02 scheduled publish audit)
+    cancelSchedule: 'Cancel schedule',
+    cancelScheduleTitle: 'Cancel scheduled publish',
+    cancelScheduleConfirm: 'Cancel this scheduled task? It will not be published at the scheduled time.',
+    cancelScheduleConfirmButton: 'Cancel schedule',
+    cancelScheduleCancelButton: 'Keep task',
+    cancelScheduleSuccess: 'Scheduled task cancelled',
+    cancelScheduleFailed: 'Failed to cancel the scheduled task, please retry',
+  },
   historyPage: {
     manualEntryTitle: 'Manual Performance Entry',
     manualEntryCancel: 'Cancel',

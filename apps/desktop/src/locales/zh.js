@@ -1669,6 +1669,16 @@ export default {
       accountInfo: '账号归属信息',
     },
   },
+  calendarPage: {
+    // 发布日历 — 定时任务取消入口（2026-10-02 定时发布验证补齐）
+    cancelSchedule: '取消定时',
+    cancelScheduleTitle: '取消定时发布',
+    cancelScheduleConfirm: '确定取消该定时任务？取消后到点不会发布。',
+    cancelScheduleConfirmButton: '取消定时',
+    cancelScheduleCancelButton: '保留任务',
+    cancelScheduleSuccess: '已取消定时任务',
+    cancelScheduleFailed: '取消定时任务失败，请重试',
+  },
   historyPage: {
     manualEntryTitle: '手动录入表现数据',
     manualEntryCancel: '取消',

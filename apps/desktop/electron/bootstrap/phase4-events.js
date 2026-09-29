@@ -39,6 +39,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'success', result: task.result,
+      // 定时派发任务带 publishMode='scheduled'（scheduler/batch-manager 排期入队时标记），
+      // 历史页「定时发布」过滤器与详情「发布模式」据此区分定时/立即发布。
+      ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, ownerSubject)
     try {
       const postId = task.result?.postId || task.result?.id
@@ -100,6 +103,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'failed', result: null, error: task.error,
+      ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, task.owner_subject)
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
