@@ -1,8 +1,4 @@
 {
-  "本次执行记录：P0-1 审核状态跟踪第一切片（状态机 + 原记录回写 + 醒目展示）（p0-1-audit-status，2026-10-09）": {
-    "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 `git log origin/main --grep='(#NNNN)$'` 离线取证回填并删除本登记项（不删则报陈旧登记）。",
-    "status": "PENDING"
-  },
   "本次执行记录：发布历史失败原因渲染收口（publish-history-error-detail，2026-09-29）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填并删除本登记项（不删则报陈旧登记）。"
   },
