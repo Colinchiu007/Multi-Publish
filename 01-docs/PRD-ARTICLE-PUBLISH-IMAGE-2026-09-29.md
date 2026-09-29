@@ -205,3 +205,59 @@ RPA：   _publish_xiaohongshu(切图文tab+传图) / _publish_kuaishou(tabType=2
 - 两次拆分确保 `rpa-view-platforms.js` 落在 `limit 500 + growthAllowance 200 = 1415` 内：
   ① `rpa-publish-id-extract.js`（publish-id 纯函数）② `rpa-view-navigation-helpers.js`（导航/等待/确认弹窗 + artifact 查询族）
 - 最终主文件 1324 行；含 artifact 族（`_queryBaijiahaoArtifact` / `_parseKuaishouArtifact` / `_findKuaishouArtifact` / `_findPublishedArtifact` + `parseKuaishouArtifactEvidence`）的迁移
+
+## 13. 头条图文链路 + 通用发布确认弹窗（2026-09-30）
+
+### 13.1 头条图文四项根因与处置（全部真机取证）
+
+| # | 根因 | 证据 | 处置 |
+|---|------|------|------|
+| 1 | **双入口缺失 ⇒ 静默回退根地址** | `imagePublishUrls` 无 toutiao ⇒ `getPublishUrl("toutiao","image")` 返回 null ⇒ 回退 `config.publish_url = https://mp.toutiao.com/`（首页）；日志 `no title_input nor editor candidate` + `content editor not found among 4 candidates` + `publish btn not found` | `platform-entries.js` 补 `toutiao: /profile_v4/graphic/publish`、`bilibili: /platform/upload/text/edit` |
+| 2 | **选择器与真实 DOM 失配** | 标题实为 `TEXTAREA[placeholder="请输入文章标题（2～30个字）"]`（w=650 h=36）；正文实为 `DIV.ProseMirror`（w=854 h=500，其 contenteditable 值非字面 `true`）；发布钮为 `预览并发布` | `platform-selectors.js` 三项更新（标题/正文/发布），正文把通用 contenteditable 放宽为属性存在选择器 |
+| 3 | **正文 HTML 字面量** | ProseMirror 走 `_fillInput` 的 focus + `execCommand("insertText")` **纯文本**通道（框架编辑器不接受 innerHTML 直写），Quill 把草稿规范化为 `<p>…</p>` ⇒ 标签变内容 | `_publish_toutiao` 注入前 `stripHtmlToPlainText(article.content)`（该函数由 navigation-helpers 导出） |
+| 4 | **「展示封面」必填未满足** | 封面标签带 `*`；页面**默认选「单图」但封面区为空**（`fileInputs=0`，封面区仅 `+` 占位）⇒ 点发布被校验挡住 | 新增 `uploadCover` hook：主路径传封面图（`hookContext.coverPath`，点 `.article-cover` 唤起 file input）；拿不到入口时按文本点 `label.byte-radio` 选「无封面」 |
+
+**第四项的组件层教训**：封面三选一是 byte-design 的 `LABEL.byte-radio`（内部 input 为隐藏态，`input.closest("label")` 取到的是**外层** label）。
+**直接改 `input.checked` 对 React 受控组件无效**——实测返回 `SELECTED` 但页面仍显示「单图」（属性变了、框架状态没变）。正解是**按文本点 `label.byte-radio`**，实测 `picked=无封面` 生效。
+
+### 13.2 通用发布确认弹窗合同（`_confirmPublishDialog`）
+
+**需求**：多平台在「发布」点击后会插入二次确认层；不点确认则永不提交，表现为 `publish verification timeout`。各平台确认层形态不一（快手的「取 消 / 确 认」、头条的**预览弹窗**）。
+
+**合同（按优先级）**：
+
+| 优先级 | 作用域 | 匹配文案（剥空白后精确等值） | 说明 |
+|-------|--------|---------------------------|------|
+| ① | **可见的** `[class*=modal\|dialog\|drawer]`、`[role=dialog]` **内部** | 确认 / 确定 / 确认发布 / 发布 / 立即发布 / 发布文章 | 限定作用域是**硬要求**：主页面也存在同名主发布按钮，全局匹配会**重复触发发布** |
+| ② | 全局回退 | 确认 / 确定 | 覆盖无 modal 结构的平台（快手既有语义不变） |
+
+**附加合同**：
+- **轮询**：弹窗内容异步渲染，最多 5 次 × 2s；首次返回即记录 `confirm dialog probe:` 便于排障。
+- **只点可见且未禁用**：`offsetParent` 非空、`!disabled`、`getClientRects().length > 0`。页面常并存**禁用态同名按钮**（如快手公告里的「确定」`d=true`），不过滤会误点。
+- **文本比较前统一剥空白**：平台文案可能带空格（「确 认」「发 布」）。
+- **诊断**：`MODAL_NO_MATCH` 时输出各 modal 的截断文本 + 可点按钮文案（≤300 字符），使「弹窗在但按钮名不认识」可直接读出真实按钮名。
+
+### 13.3 双入口契约（`getPublishUrl(platform, type)`）
+
+| 平台 | video | image |
+|------|-------|-------|
+| douyin | `creator-micro/content/upload` | `.../upload?default-tab=3` |
+| kuaishou | `article/publish/video?tabType=1` | `...?tabType=2` |
+| xiaohongshu | `publish/publish?from=menu&target=video` | `publish/publish?from=menu` |
+| bilibili | `platform/upload/video/frame` | **`platform/upload/text/edit`（专栏，本次新增）** |
+| toutiao | `profile_v4/xigua/upload-video` | **`profile_v4/graphic/publish`（文章，本次新增）** |
+| zhihu | `zvideo/upload-video` | `zhuanlan.zhihu.com/write` |
+
+**数据校验**：`getPublishUrl` 未命中返回 `null`；调用方（`_publish_<platform>`）必须以 `publishUrl || config.publish_url` 兜底，且**不得**让兜底值落到平台根地址——根地址的失败症状是「所有选择器都找不到」，极难定位（本次头条即卡数轮）。
+
+### 13.4 交互与提示（用户可见）
+
+- 头条进度：`navigating...` → `filling title...` → `filling content...` → `publishing...` → `verifying...`
+- 头条发布设置页平台侧提示：封面标签带 `*`（必填）、封面区文案「优质的封面有利于推荐，格式支持JPEG、PNG」
+- 失败提示（历史记录）：`publish verification timeout` / `publish btn not found`
+
+### 13.5 残余
+
+1. **头条预览弹窗**：点「预览并发布」后弹预览层（日志 `modals:["预览"]`），需在层内再点提交。§13.2 的 modal 作用域 + 诊断已就位，待真机读出该按钮文案后补入匹配表。
+2. **B站专栏**：入口已补（§13.3），选择器与发布链路待取证。
+3. **公众号**：登录二维码由微信服务端对 Electron 断流（`ERR_CONNECTION_CLOSED`，非应用拦截/代理问题，六项假设实测排除），需改用「使用账号登录」。
