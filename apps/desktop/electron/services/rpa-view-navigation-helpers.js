@@ -125,19 +125,41 @@ const navigationHelpers = {
   // 判据：只点**可见且未禁用**的「确认/确定」——页面常同时存在禁用的同名按钮（如
   // 快手「近7天的下载记录」公告里的确定 d=true），不加 disabled 过滤会误点。
   // 按钮文本可能带空格（「确 认」），比较前统一剥空白。
+  // 2026-09-30 头条补强：点「预览并发布」后**先弹预览弹窗**（日志 `modals:["预览"]`），
+  // 需在弹窗内再点一次「发布」才真正提交。故本函数：
+  //   ① 优先在**可见的 modal/dialog/drawer 作用域内**找提交类文案（确认/确定/确认发布/
+  //      发布/立即发布/发布文章），避免误点主页面那颗同名的主发布按钮（会重复触发）；
+  //   ② 弹窗可能延迟出现，故轮询若干次（每次 2s）而不是只查一次；
+  //   ③ 找不到 modal 时回退到全局「确认/确定」（快手等既有平台行为不变）。
   async _confirmPublishDialog(win, platform) {
+    const MODAL_TEXTS = ['确认', '确定', '确认发布', '发布', '立即发布', '发布文章']
+    const FALLBACK_TEXTS = ['确认', '确定']
     try {
-      const result = await win.webContents.executeJavaScript(
-        '(function(){var hit=[...document.querySelectorAll("button,div,span")].filter(function(e){'
-        + 'var t=(e.innerText||"").replace(/\\s+/g,"");'
-        + 'return (t==="确认"||t==="确定")&&e.offsetParent&&!e.disabled&&e.getClientRects().length>0});'
-        + 'if(hit.length){hit[hit.length-1].click();return "CONFIRMED"}return "NO_DIALOG"})()'
-      )
-      if (result === 'CONFIRMED') {
-        log.info('RpaView', '[' + platform + '] publish confirm dialog clicked')
-        await this._sleep(2500)
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const result = await win.webContents.executeJavaScript(
+          '(function(){'
+          + 'var modalSel=\'[class*="modal"],[class*="Modal"],[class*="dialog"],[class*="Dialog"],[class*="drawer"],[class*="Drawer"],[role="dialog"]\';'
+          + 'var modals=[...document.querySelectorAll(modalSel)].filter(function(e){return e.getClientRects().length>0});'
+          + 'var MODAL=' + JSON.stringify(MODAL_TEXTS) + ';var FB=' + JSON.stringify(FALLBACK_TEXTS) + ';'
+          + 'function norm(e){return (e.innerText||"").replace(/\\s+/g,"")}'
+          + 'function clickable(e){return e.offsetParent&&!e.disabled&&e.getClientRects().length>0}'
+          + 'for(var s=0;s<modals.length;s++){'
+          + '  var bs=[...modals[s].querySelectorAll("button,div,span,a")].filter(function(e){return clickable(e)&&MODAL.indexOf(norm(e))!==-1});'
+          + '  if(bs.length){bs[bs.length-1].click();return "CONFIRMED_IN_MODAL:"+norm(bs[bs.length-1])}'
+          + '}'
+          + 'var hit=[...document.querySelectorAll("button,div,span")].filter(function(e){return clickable(e)&&FB.indexOf(norm(e))!==-1});'
+          + 'if(hit.length){hit[hit.length-1].click();return "CONFIRMED"}'
+          + 'return modals.length?("MODAL_NO_MATCH:"+modals.map(function(m){var bs=[...m.querySelectorAll("button,div,span,a")].filter(clickable).map(function(e){return norm(e)}).filter(Boolean).slice(0,8).join("/");return norm(m).slice(0,40)+"|btns="+bs}).join(" ;; ").slice(0,300)):"NO_DIALOG"})()'
+        )
+        if (result && result.indexOf('CONFIRMED') === 0) {
+          log.info('RpaView', '[' + platform + '] publish confirm dialog clicked: ' + result)
+          await this._sleep(2500)
+          return result
+        }
+        if (attempt === 0) log.info('RpaView', '[' + platform + '] confirm dialog probe: ' + result)
+        await this._sleep(2000)
       }
-      return result
+      return 'NO_CONFIRM'
     } catch (e) {
       log.warn('RpaView', '[' + platform + '] confirm dialog: ' + e.message)
       return null
