@@ -1,3 +1,26 @@
+# [未发布] feat(publish): P0-1 审核状态跟踪第一切片（状态机 + 原记录回写 + 醒目展示）（2026-10-09，p0-1-audit-status）
+
+### 变更
+
+- **审核状态机单一真源**（`packages/shared-utils/src/publish-audit-status.js` CJS + `.browser.js` ESM 孪生 + vite alias）：7 态枚举（published/inAudit/prePublish/deny/notPublic/withdrawn/transferFail）；`mapMonitorStatusToAuditStatus` 只映射**平台明确结论**（published→published、reviewed→inAudit、rejected→deny、draft→prePublish），无定论（error/timeout/skipped/pending/unknown/failed）返回 null；`buildAuditPatch` 产出四键白名单增量；`isAuditAlertStatus` 标记拒绝/下线/转码失败三条醒目态。
+- **原记录就地回写**（`publish-history.js` 新增 `updateRecordAudit`）：发布监控结论**回写原记录**而非 `addRecord` 追加第二条——旧形态让同一次发布在历史里出现两行、`getStats` 重复计数，且原 success 行与审核结论无法关联。按 `id`+`owner_subject` 双匹配定位，只合并白名单键（监控响应里的 `status`/`success`/`result`/`error` 一律不得改写），原子重写（tmp+rename）。
+- **单向证据规则**：`auditStatus` 归一失败/无定论一律**不写任何字节**——「没拿到新证据」不是反证，不得把既有审核结论抹成 unknown（与 `login-state.js` 同族）。监控不可用时历史不会出现伪结论。
+- **phase4-events 接线**：监控回调改走 `buildAuditPatch` + `updateRecordAudit`（不再追加重复行）；无定论只落 info 日志；回写抛错不冒泡（监控旁路不得影响发布主流程）。
+- **历史列表/详情展示**（`PublishHistory.vue`）：列表审核徽标（有合法结论才渲染，拒绝/下线/转码失败标红 + 处置指引 tooltip）；详情新增「审核状态」行（醒目态附指引）与「平台作品 ID」行；无结论不渲染徽标（不得用「无徽标」伪装成「已通过」）；旧记录无字段时行为不变。
+- locales zh/en 成对（7 态标签 + 详情项 + 提醒指引，`historyPage.auditStatus.*`）。
+
+### 验证
+
+- shared-utils 全量 484 passed / 27 files（新增 `publish-audit-status.test.js` 13 例）
+- 桌面受影响面 170/170（`PublishHistory` +11、`phase4-events` +5、`publish-history` +4）
+- locale pair/keys/cjk + 品牌残留 + max-lines 本地 PASS
+
+### 残余（第二切片）
+
+- 回查通道当前不可用：监控 cookies 取 `task.article.cookies`（实测恒空，凭证在 authData 不随任务走）；`CHECK_URLS` 的 GET+id 协议与抖音 `aweme/v1/list/`（需签名 POST）、快手 graphql 形状不符。本切片交付状态机 + 回写 + 展示，实际结论获取率取决于第二切片。
+
+---
+
 # [未发布] fix(定时发布): 批量幽灵发布/重复排期/离线缓存永不重放/取消入口 + scheduled_tasks 死路径清理（2026-10-02，harden-batch-schedule）
 
 ### 现象与根因（4 缺陷 + 1 清理，均为首轮 #2655 之后的第二轮发现）

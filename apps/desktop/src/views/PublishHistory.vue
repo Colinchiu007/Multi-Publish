@@ -222,6 +222,15 @@
             </div>
             <div class="record-delivery">
               <span class="status-badge" :class="statusClass(record)">{{ statusLabel(record) }}</span>
+              <!-- P0-1 审核状态：发布成功后平台仍可能拒绝/下线，这里如实显示审核结论；
+                   拒绝/下线/转码失败醒目标红（无结论的旧记录不渲染徽标）。 -->
+              <span
+                v-if="auditLabel(record)"
+                class="status-badge audit-badge"
+                :class="{ 'is-alert': auditAlert(record) }"
+                :data-testid="`audit-status-${record.id}`"
+                :title="auditHint(record)"
+              >{{ auditLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
               <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
@@ -315,6 +324,16 @@
           <div><dt>{{ t('historyPage.detailPublisher') }}</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>
           <div><dt>{{ t('historyPage.detailPlatform') }}</dt><dd>{{ platformName(selectedRecord.platform) }}</dd></div>
           <div><dt>{{ t('historyPage.detailStatus') }}</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
+          <!-- P0-1 审核状态：有平台结论才渲染（无结论不占位，避免伪造「已通过」暗示）；
+               拒绝/下线/转码失败标红并给出处置指引。 -->
+          <div v-if="auditLabel(selectedRecord)" :class="{ 'record-detail-error': auditAlert(selectedRecord) }">
+            <dt>{{ t('historyPage.detailAuditStatus') }}</dt>
+            <dd :data-testid="'detail-audit-status'">
+              {{ auditLabel(selectedRecord) }}
+              <span v-if="auditAlert(selectedRecord)" class="audit-hint">{{ auditHint(selectedRecord) }}</span>
+            </dd>
+          </div>
+          <div v-if="selectedRecord && selectedRecord.platformWorkId"><dt>{{ t('historyPage.detailPlatformWorkId') }}</dt><dd>{{ selectedRecord.platformWorkId }}</dd></div>
           <!-- 失败原因：紧跟状态行，失败记录必显（无 error 时占位「未记录失败原因」，不空白）；
                成功/进行中记录不渲染。error 文本可能含长堆栈，dd 允许换行完整展示。 -->
           <div v-if="normalizedStatusGroup(selectedRecord) === 'failed'" class="record-detail-error">
@@ -360,6 +379,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
+import { normalizeAuditStatus, isAuditAlertStatus, auditStatusLabelKey } from '@multi-publish/shared-utils/src/publish-audit-status'
 import { CirclePlus, Clock, Close, Delete, Download, FolderOpened, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
@@ -838,6 +858,23 @@ function statusClass (record) {
   return normalizedStatusGroup(record)
 }
 
+// ── P0-1 审核状态（枚举与映射真源在 shared-utils 双孪生，渲染端走 ESM 版）──
+// 只在记录带**合法**审核结论时渲染徽标；无结论（旧记录/监控无定论）不渲染，
+// 避免用「无徽标」伪装成「已通过」。拒绝/下线/转码失败醒目标红。
+function auditValue (record) {
+  return normalizeAuditStatus(record && record.auditStatus)
+}
+function auditLabel (record) {
+  const key = auditStatusLabelKey(record && record.auditStatus)
+  return key ? t(key) : ''
+}
+function auditAlert (record) {
+  return isAuditAlertStatus(record && record.auditStatus)
+}
+function auditHint (record) {
+  return auditAlert(record) ? t('historyPage.auditStatusAlertHint') : ''
+}
+
 function contentTypeValue (record) {
   const value = String(record?.contentType || record?.type || '').toLowerCase()
   if (['video', 'short_video', 'short-video'].includes(value)) return 'video'
@@ -1170,6 +1207,10 @@ onMounted(loadRecords)
 .status-badge.success { background: #e8f7ef; color: #15803d; }
 .status-badge.failed { background: #fcebea; color: #b42318; }
 .status-badge.pending { background: #fff6df; color: #9a6700; }
+/* P0-1 审核状态徽标：正常结论用中性蓝，拒绝/下线/转码失败用警示红并加边框强调 */
+.audit-badge { background: #eaf2fe; color: #1d4ed8; }
+.audit-badge.is-alert { background: #fcebea; color: #b42318; box-shadow: inset 0 0 0 1px #f0a9a2; }
+.audit-hint { margin-left: 6px; color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
 .platform-name { display: inline-flex; align-items: center; gap: 5px; color: #5d5e68; font-size: var(--font-size-xs); font-weight: 600; }
 .delivery-mode-badge { border-radius: 4px; padding: 3px 7px; font-size: var(--font-size-xs); font-weight: 600; }
 .delivery-mode-badge.delivery-mode-api { background: #eaf2fe; color: #1d4ed8; }

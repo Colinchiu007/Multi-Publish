@@ -7,6 +7,7 @@ const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
+const { AUDIT_PATCH_KEYS, normalizeAuditStatus } = require('@multi-publish/shared-utils/src/publish-audit-status')
 
 const MAX_RECORDS = 500
 const TRANSIENT_WINDOWS_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
@@ -169,6 +170,73 @@ function deleteRecords (ids, ownerSubject) {
 }
 
 /**
+ * 审核状态回写：用监控回调的审核增量更新**原记录**（就地更新，不新增行）。
+ *
+ * P0-1 背景：此前监控回调走 addRecord 追加**第二条**记录，导致同一次发布在历史里
+ * 出现两行（一行 success、一行监控态），且原记录的 success 与审核结论无法关联。
+ * 本函数按 id + owner 定位原记录并只合并白名单键（见 AUDIT_PATCH_KEYS）。
+ *
+ * ⛔ 单向证据规则：`auditStatus` 归一失败（无定论/非法值）直接不改任何字节——
+ * 「没拿到新证据」不是反证，不得把既有审核结论抹掉（与 login-state 同族）。
+ *
+ * @param {string} id 目标记录 id
+ * @param {object} patch 审核增量（只取白名单键）
+ * @param {string|undefined} ownerSubject
+ * @returns {{ updated: boolean, record: object|null }}
+ */
+function updateRecordAudit (id, patch, ownerSubject) {
+  const owner = resolveOwnerSubject(ownerSubject)
+  if (owner === null) return { updated: false, record: null }
+  const targetId = typeof id === 'string' ? id.trim() : ''
+  if (!targetId) return { updated: false, record: null }
+
+  const source = patch && typeof patch === 'object' ? patch : {}
+  const auditStatus = normalizeAuditStatus(source.auditStatus)
+  if (auditStatus === null) return { updated: false, record: null }
+
+  const filePath = getHistoryPath()
+  if (!fs.existsSync(filePath)) return { updated: false, record: null }
+
+  const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/)
+  let updatedRecord = null
+  const next = []
+  for (const line of lines) {
+    if (!line.trim()) continue
+    let record = null
+    try { record = JSON.parse(line) } catch { /* 保留无法解析的历史行 */ }
+    if (
+      record && updatedRecord === null &&
+      String(record.id || '') === targetId && matchesOwner(record, owner)
+    ) {
+      updatedRecord = { ...record }
+      for (const key of AUDIT_PATCH_KEYS) {
+        if (source[key] === undefined) continue
+        if (key === 'auditStatus') { updatedRecord.auditStatus = auditStatus; continue }
+        updatedRecord[key] = typeof source[key] === 'string' ? source[key] : String(source[key])
+      }
+      // auditStatus 已归一；确保它一定落库（即使调用方漏传白名单外形态）
+      updatedRecord.auditStatus = auditStatus
+      next.push(JSON.stringify(updatedRecord))
+      continue
+    }
+    next.push(line)
+  }
+
+  if (updatedRecord === null) return { updated: false, record: null }
+
+  const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`
+  try {
+    fs.writeFileSync(tmpPath, next.length ? `${next.join('\n')}\n` : '', 'utf-8')
+    atomicRenameSync(tmpPath, filePath)
+  } finally {
+    if (fs.existsSync(tmpPath)) {
+      try { fs.unlinkSync(tmpPath) } catch (_) { /* 保留主错误 */ }
+    }
+  }
+  return { updated: true, record: updatedRecord }
+}
+
+/**
  * 获取发布统计
  * @returns {object} { total, success, failed, perPlatform, daily }
  */
@@ -215,4 +283,4 @@ function getStats (ownerSubject) {
   }
 }
 
-module.exports = { addRecord, listRecords, getRecord, deleteRecords, getStats }
+module.exports = { addRecord, listRecords, getRecord, deleteRecords, getStats, updateRecordAudit }

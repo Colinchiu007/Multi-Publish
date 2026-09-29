@@ -713,4 +713,73 @@ describe('PublishHistory 发布方式徽标（§6.1）', () => {
     const wrapper = await mountWithMode(null)
     expect(wrapper.find('[data-testid="delivery-mode-rec-mode"]').exists()).toBe(false)
   })
+
+  // P0-1 审核状态：发布成功只代表平台受理，之后仍可能被拒/下线——
+  // 历史列表与详情必须如实显示平台审核结论，拒绝/下线醒目提示；
+  // 无结论（旧记录/监控无定论）不渲染徽标（不得用「无徽标」伪装成「已通过」）。
+  describe('P0-1 审核状态展示', () => {
+    async function mountWithAudit (record) {
+      historyListMock.mockResolvedValue({ code: 0, data: { total: 1, records: [record] } })
+      const wrapper = mountView()
+      await flushHistory()
+      return wrapper
+    }
+    const base = { id: 'audit-1', title: '审核跟踪', platform: 'douyin', status: 'success', timestamp: '2026-10-09T00:00:00.000Z' }
+
+    it('拒绝（deny）显示醒目审核徽标 + 处置指引', async () => {
+      const wrapper = await mountWithAudit({ ...base, auditStatus: 'deny' })
+      const badge = wrapper.get('[data-testid="audit-status-audit-1"]')
+      expect(badge.text()).toBe('审核未通过')
+      expect(badge.classes()).toContain('is-alert')
+      expect(badge.attributes('title')).toContain('创作者中心')
+    })
+
+    it('已上线（published）显示中性徽标（不醒目）', async () => {
+      const wrapper = await mountWithAudit({ ...base, auditStatus: 'published' })
+      const badge = wrapper.get('[data-testid="audit-status-audit-1"]')
+      expect(badge.text()).toBe('已上线')
+      expect(badge.classes()).not.toContain('is-alert')
+    })
+
+    it.each([
+      ['inAudit', '审核中'],
+      ['prePublish', '待发布'],
+      ['notPublic', '未公开'],
+      ['withdrawn', '已下线'],
+      ['transferFail', '转码失败'],
+    ])('审核状态 %s → 文案「%s」', async (auditStatus, label) => {
+      const wrapper = await mountWithAudit({ ...base, auditStatus })
+      expect(wrapper.get('[data-testid="audit-status-audit-1"]').text()).toBe(label)
+    })
+
+    it('拒绝/下线/转码失败三条为醒目态，其余不是', async () => {
+      for (const [status, alert] of [['deny', true], ['withdrawn', true], ['transferFail', true], ['published', false], ['inAudit', false], ['prePublish', false], ['notPublic', false]]) {
+        const wrapper = await mountWithAudit({ ...base, auditStatus: status })
+        const badge = wrapper.get('[data-testid="audit-status-audit-1"]')
+        expect(badge.classes().includes('is-alert'), status).toBe(alert)
+      }
+    })
+
+    it('无审核结论/非法值不渲染徽标（不伪造已通过）', async () => {
+      for (const auditStatus of [undefined, null, '', 'bogus', 'unknown']) {
+        const wrapper = await mountWithAudit({ ...base, ...(auditStatus === undefined ? {} : { auditStatus }) })
+        expect(wrapper.find('[data-testid="audit-status-audit-1"]').exists(), String(auditStatus)).toBe(false)
+      }
+    })
+
+    it('详情弹窗显示审核状态 + 平台作品 ID', async () => {
+      historyGetMock.mockResolvedValue({ code: 0, data: { description: '详情' } })
+      const wrapper = await mountWithAudit({
+        ...base, auditStatus: 'withdrawn', platformWorkId: 'aweme-777',
+        taskId: 't-1', accountCount: 1, taskCount: 1, failedCount: 0,
+      })
+      await wrapper.get('[data-testid="detail-audit-1"]').trigger('click')
+      await flushHistory()
+      const modal = wrapper.get('.record-detail-modal')
+      expect(modal.text()).toContain('审核状态')
+      expect(modal.text()).toContain('已下线')
+      expect(modal.text()).toContain('平台作品 ID')
+      expect(modal.text()).toContain('aweme-777')
+    })
+  })
 })
