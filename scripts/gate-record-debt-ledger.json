@@ -149,10 +149,5 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
-  },
-  "本次执行记录：把文档承诺的 CDP origins 开关补成真实实现（fix-dev-launcher-cdp-origins，2026-09-30）": {
-    "reason": "本 PR 的 远程同步 行处于 PENDING；合并后由后续 docs PR 回填 merge SHA 与 squash 时间，并删除本条登记项（销账与回填必须同一次发生）。",
-    "status": "待回填",
-    "line": 1
   }
 }
