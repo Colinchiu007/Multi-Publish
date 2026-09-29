@@ -141,6 +141,13 @@ describe("publish/platforms/kuaishou-video", () => {
       // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
       // urlencoded body → 裸 400。真实浏览器空 body 不设 Content-Type。
       expect(done.headers["content-type"]).toBeUndefined();
+      // 上传域对齐浏览器（2026-09-29 取证二轮）：跨 registrable domain 不带
+      // kuaishou.com Cookie（同源策略不可带）+ 短 Referer——带外域 Cookie 疑似
+      // 触发边缘 WAF（400 响应无 X-KSLOGID/无 CORS 头 = 边缘级拒绝）。
+      expect(done.headers["cookie"]).toBeUndefined();
+      expect(done.headers["referer"]).toBe("https://cp.kuaishou.com/");
+      expect(parts[0].headers["cookie"]).toBeUndefined();
+      expect(parts[0].headers["referer"]).toBe("https://cp.kuaishou.com/");
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
