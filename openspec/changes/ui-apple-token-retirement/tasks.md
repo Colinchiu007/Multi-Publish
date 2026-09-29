@@ -2,7 +2,25 @@
 
 **状态**：提案已建立，未开始实现。依赖 `story2video-detail-visual-refinement`（2026-09-20 详情页批次）先落地，以便沿用其确立的「新代码禁止消费 `--apple-*`」约束与暗色核对手法。
 
-**基线（动手前重测，勿沿用本文件数字）**：`--apple-*` 消费点 282 处 / 7 文件；`tokens.css` 暗色块仅重定义 31 个变量；`--color-apple-*` 17 个槽位 0 个暗色覆盖。
+**基线（批次 0 重测后回写；本文件历史值 282 处 / 7 文件已过期）**：`--apple-*` 消费点 **337 处 / 10 文件**（2026-09-29 实测，main@e2223ef8），其中 2026-09-20 禁令之后**回潮 57 处 / 4 文件**（`AccountCloudSync*`，PR #2461）；`tokens.css` 暗色块仅重定义 31 个变量；`--color-apple-*` 17 个槽位 0 个暗色覆盖。视觉基线实测 **21 张**（本文件原写 18 张）。
+
+**拍板**：七项开放问题已按推荐值记录于 `decisions.md`（D1–D7）。
+
+## Task 0（批次 0，前置）: 基线重测 + 回潮止血门禁 + 拍板材料
+
+**Status**: pending
+**Risk**: Low（门禁脚本 + 文档；不动运行时代码）
+**Files**: `.github/scripts/check-frontend-consistency.js`、`openspec/changes/ui-apple-token-retirement/tasks.md`（基线回写）、`decisions.md`、独立三栏清单 md
+
+### Acceptance Criteria
+- [ ] 按当时 main 重测 `var(--apple-` 消费面（命中数 / 文件数 / 回潮文件），把实测值与**取证 SHA + 命令**写回本文件「基线」段
+- [ ] `check-frontend-consistency.js` 增加别名回潮检查项（`appleAlias`，**基线制**：命中数 > 基线即 CI 失败，输出文件与行号）
+- [ ] 基线值取实施时实测值；起草期实测为 337 处 / 10 文件、回潮 57 处 / 4 文件（main@e2223ef8）
+- [ ] **门禁自证（反证）**：故意新增 1 处 `var(--apple-` 必须使检查失败并定位到该行；移除后通过
+- [ ] 产出 `history-page.css` 43 个变量的「旧 → 新 → 值差异」三栏清单初稿（放 PR 描述或独立 md，**禁止写进 CSS 注释**）
+- [ ] 七项开放问题拍板落 `decisions.md`（D1–D7），并据此校正 Task 2 文件清单（`--text` 所在 `video-creation-tokens.css`）与 Task 3 范围（含回潮 57 处）
+- [ ] 基线张数漂移同步：Task 1 验收口径按实测 **21 张**浅色基线改写（原写 18 张）
+
 
 ## Task 1: 视觉基线增加暗色通道
 
