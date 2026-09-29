@@ -184,6 +184,63 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(a2.privacy).toBeUndefined()
   })
 
+  // P1-5 语义级可见性：通用区档位（visibilitySemantic）→ 各平台字段值的映射链路。
+  // 映射真源是注册表 semanticValues；平台 override 优先于通用档位。
+  describe("P1-5 语义级可见性映射", () => {
+    const withSemantic = (semantic, extra = {}) => ({ article: { ...baseArticle, visibilitySemantic: semantic, ...extra } })
+
+    it("private 档映射 5 平台各自取值", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "youtube").privacy).toBe("private")
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "tiktok").privacyLevel).toBe("PRIVATE")
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "douyin").visibility_type).toBe(1)
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "kuaishou").visibilityType).toBe(2)
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "weibo").visible).toBe(1)
+    })
+
+    it("public 档映射 5 平台各自取值（含 kuaishou 公开=1 与 douyin 公开=0 的差异）", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "youtube").privacy).toBe("public")
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "tiktok").privacyLevel).toBe("PUBLIC")
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "douyin").visibility_type).toBe(0)
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "kuaishou").visibilityType).toBe(1)
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "weibo").visible).toBe(0)
+    })
+
+    it("friends 档仅三平台有值；快手/YouTube 不支持则不透传（保持平台默认）", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "tiktok").privacyLevel).toBe("FRIENDS")
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "douyin").visibility_type).toBe(2)
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "weibo").visible).toBe(6)
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "kuaishou").visibilityType).toBeUndefined()
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "youtube").privacy).toBeUndefined()
+    })
+
+    it("平台 override 优先于通用档位（单平台细调生效）", () => {
+      const a = routerSrc.buildPublishArticle(
+        withSemantic("private", { platformOverrides: { douyin: { visibilityType: 2 } } }),
+        "douyin",
+      )
+      expect(a.visibility_type).toBe(2)
+    })
+
+    it("空档位/非法档位/无关平台一律不透传", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic(""), "douyin").visibility_type).toBeUndefined()
+      expect(routerSrc.buildPublishArticle(withSemantic("bogus"), "weibo").visible).toBeUndefined()
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "zhihu").visible).toBeUndefined()
+    })
+
+    it("非法平台 override 值被过滤（不落入 payload）", () => {
+      const a = routerSrc.buildPublishArticle(
+        { article: { ...baseArticle, platformOverrides: { kuaishou: { visibilityType: 7 }, weibo: { visible: 99 } } } },
+        "kuaishou",
+      )
+      expect(a.visibilityType).toBeUndefined()
+      const b = routerSrc.buildPublishArticle(
+        { article: { ...baseArticle, platformOverrides: { weibo: { visible: 99 } } } },
+        "weibo",
+      )
+      expect(b.visible).toBeUndefined()
+    })
+  })
+
   it("baijiahao locationName 手输位置转换为 location 对象", () => {
     const a = routerSrc.buildPublishArticle(
       { article: { ...baseArticle, platformOverrides: { baijiahao: { locationName: "北京·三里屯" } } } },

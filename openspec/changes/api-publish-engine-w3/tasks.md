@@ -49,6 +49,17 @@
   - 仍开放：**QM-1 最终包验证**与活体同波（6.3 需真实 Electron 窗口跑发布链，打包产物即验收载体）；本波未触碰 `apps/desktop/electron/`（#2413 基建波已做过 QM-1 三件套）。
 - [ ] 6.2 PR/autoMerge（基建与链可分 PR：基建先行独立可回滚）；CI 全绿自动合并
 - [ ] 6.3 （spike go 时）活体裁决验收（用户在场）：快手真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套入 `evidence/api-w3-kuaishou/`；风控即停绝不换号
+  - 状态（2026-09-29，**定案**）：**未通过 / spike not-go（定案）**。八层证据链见 `evidence/api-w3-kuaishou/api-track-verdict-8layers-network-forensics-20260929.md`：
+    ①–⑥ 本地接线层已修复合并（#2578 形状翻译 / #2580 注册表回退+命令名 / #2582 bridge 双模块陷阱 / #2585 sessionKey+cookie 预绑），
+    ⑦ `upload/complete` 裸 400 经四轮收敛（#2612 Content-Type+Accept → #2621 **axios 对 `data:''` 默认注入 form-urlencoded** 根因 → #2630 上传域无 Cookie+短 Referer → #2653 sec-ch-ua×3+捕获 UA）；
+    **第 11 轮（21:45）终验**以与真实浏览器**逐字一致**的请求头重试完整链，仍在 `upload/complete` 得裸 400（响应缺 `X-KSLOGID`/CORS 头 = 边缘级拒绝）
+    ⇒ 头部级无剩余可收敛空间，差异在**连接/协议层**（TLS 指纹 / HTTP 版本 / QUIC），Node axios（OpenSSL+HTTP/1.1）无法复刻 Chrome（BoringSSL+HTTP/2-3）。
+    **结论：API 轨对快手当前不可用，DOM 轨为正确架构**（11 轮全部兜底发布成功，末条 `3xxqqt4k9xnspcy`）。
+    网络级取证方法与真实浏览器 42 条请求原文见该文档（CDP 挂 Network 域捕获）。
+  - 登录门前置：第 10 轮曾因 `useLoginGate`（`handleBatchPublish` 顶部 `ensureLogin`）在 `signed_out` 下拦截；
+    应用重启后身份态**自动恢复 `authenticated`**（`user.sub=hc2y714slpby`、`source: online`）⇒ 门正常放行，**不构成长期阻塞**（产品决策、非缺陷）。
+  - 后续路径（如需继续投入 API 轨）：① 不再做头部级取证（已穷尽）；② 改**借浏览器传输**（同受信会话内用 `fetch` 发上传域请求，
+    即用浏览器的 TLS/HTTP2-3 栈，而非 Node axios）；③ 保留 DOM 轨为快手默认路径。复跑脚本入口见该文档「终局与后续」节。
 - [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2（两者均在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表——⚠️ 不是 `01-docs/PRD.md`，后者 F12=多平台实时监控、F13=评论管理，与本特性无关；交叉引用原按记忆书写，2026-09-26 核实纠偏）；`openspec archive` + learnings/记忆三投
   - M3 裁决（S0 INCONCLUSIVE / S2a Tier-A 方向成立 / S2b Tier-A GO）与 F13 止步（x-s/x-t 依赖外包服务、页面内可抽取性未经 spike）属**已定决策**，2026-09-26 先行回写 PRD §4/§9/§10 + techdoc v2 §2/§4.2/§6.1/§11，防上下文断联；
   - 活体证据四件套回写（PRD 附录验收表实数据）与 `openspec archive` 仍阻塞于 6.3（用户在场），与 W1 §7.5-7.7 / W2 §6.2-6.4 同形态尾债，建议一次真实账号窗口三波合并验收。

@@ -39,7 +39,47 @@
 
 处置：**不盲等**，降级为主代理对抗性自审——本轮自审实际产出 b1/b2/b4a 三个新缺陷，强度不低于形式化评审。两路不可用的事实与证据行已写入 `.quality-gates.md` 与 PR 描述，**不记为「评审通过」**，也不把自审冒充为第二路独立评审。
 
+# [未发布] feat(publish): P1-5 可见性语义级通用控件（5 平台打通，字段转 implemented）（2026-10-09，publish-page-optimization）
+
+### 变更
+
+- **语义级通用控件**（`PublishVisibilitySelect.vue` + `Publish.vue` 两分支）：通用区一个「可见性」下拉（跟随各平台默认/公开/好友可见/仅自己可见），一次选择映射到所选平台各自字段值；支持数徽标 + 「好友」档对不支持平台（快手/YouTube）如实提示「将保持默认」。`platforms` 为空时整块不渲染（零打扰）。
+- **映射单一真源**（`publish-capabilities.json`）：5 个 visibility 字段新增 `semanticValues`（public/friends/private → 平台值）；shared-utils 新增 `getVisibilityField` / `mapVisibilitySemantic` / `resolveVisibilityOverride` / `getVisibilitySemanticSupport`（CJS+ESM 孪生 + parity 锁）；`validateRegistry` 新增「semanticValues 值必须存在于 options」校验。UI 不持有任何平台取值表。
+- **resolver 打通三平台**（`publisher-router.js`）：抖音 `visibility_type`（0/1/2）、快手 `visibilityType`（1/2）、微博 `visible`（0/1/6）从 override 或通用语义档位取值并校验；YouTube/TikTok 同样接入语义档位。取值优先序：平台 override > 通用档位 > 不设。
+- **微博 adapter 补齐**（`adapters/weibo.js`）：`buildPostData` 透传 `visible`（合法值集 {0,1,6}，非法/缺省不透传）。此前微博可见性全链路缺失。
+- **字段状态提升**：抖音/快手/微博 visibility 由 `platform-capable` 转 `implemented` + `uiExposed: true`（引擎侧早已消费 `visibility_type`/`visibilityType`，本切片补齐桌面侧链路），可在差异化面板单平台细调。
+- 实施发现：缺口不在引擎（抖音/快手链已支持）而在桌面 resolver 与微博 adapter——`01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md` §四 P1-5 已按六维度详写并标记已实现。
+
+### 验证
+
+- shared-utils 全量 469 passed / 26 files（含 P1-5 映射 9 例 + parity 穷举）
+- 桌面受影响面 314/314（`PublishVisibilitySelect` 7 例 + resolver P1-5 6 例 + 既有发布面）
+- 引擎全量 exit 0（`no-title-contract` B-3b 微博 visible 透传）
+- locale pair/keys/cjk + 品牌残留 + max-lines 本地 PASS
 # [未发布] feat(publish-progress): 进度浮窗视觉/UE 精化——dot-stepper 降噪 + 取消链路端到端 + 完成自动收敛（2026-09-29，publish-progress-panel-refine / PR #2658）
+
+- **fix(publish)：图文发布平台修复——公众号 token 链路 + 知乎 Draft.js 可信注入（article-publish-wechat-zhihu）**。
+  E2E「热门选题→一键发布图文」流程中公众号/知乎发布失败的代码级根因修复（实测取证驱动，账号登录态全部有效）：
+  - **公众号**：旧草稿 URL 不带会话 token 被重定向回首页（登录探测误报「登录超时」）。修复：先访问首页提取
+    `token=(\d+)`（无 token fail fast），再用 `appmsg_edit_v2` + token 进 v2 编辑器；`_fillInput` 的 value
+    setter 按 tagName 选原型（旧 `||` 短路链恒取 Input 原型，对 TEXTAREA 抛 Illegal invocation）
+  - **知乎**：四连修——① 导航改 `zhuanlan.zhihu.com/write`（旧 www.zhihu.com/creator/write 选择器全灭）；
+    ② 标题填充改 wrapper 内 textarea 原生 setter（旧 textContent 写在 LABEL 上）；③ 正文改
+    「HTML→纯文本（DOMParser）+ CDP `Input.insertText` 可信注入」（实测：Draft.js 不接受 innerHTML 直写、
+    execCommand 插游离文本、合成事件不信任；唯一有效配方 = JS focus + CDP insertText，`[data-block]` 块出现）；
+    ④ 验证增加 `/p/<id>` URL 模式 + panelGone 禁用原生 querySelector 里的 `:has-text`（Playwright 语法抛
+    SyntaxError）
+  - 新增 `_insertTextTrusted` 通用 helper（CDP debugger 先例同构）；发布页 Quill 编辑器把草稿纯文本规范化为
+    HTML（`<p>…</p>`），注入前页面内转纯文本
+  - 真机验收：公众号草稿保存（appmsgid=100000013）+ 知乎文章发布（/p/2088269867753459986，1078 字纯文本
+    无 HTML 标签、段落换行保留）；单测 55/55（+8 回归锁）
+  - 完整合同（数据校验/流程/交互/验收/其余平台状态表）：`01-docs/PRD-ARTICLE-PUBLISH-FIX-2026-09-29.md`
+
+---
+
+ feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
+
+---
 
 ### 根因（第一性原因）
 - 浮窗「散乱」不是元素多，是三因叠加：同一事实 3~4 次重复表达（✓成功 + 步骤链末端「完成」高亮 + 100% + 会话角标「已完成」）、6 词文字步骤链（N 任务 × 6 词）、flex-wrap 无网格对齐（列位随内容长度跳动）。

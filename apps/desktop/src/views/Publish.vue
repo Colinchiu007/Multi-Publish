@@ -336,6 +336,14 @@
                 <div v-if="article.title.length > 2" class="cohere-form-item">
                   <OptimalTimeTip :keyword="article.title" />
                 </div>
+                <!-- P1-5 语义级可见性：通用区统一档位，映射真源在注册表 semanticValues -->
+                <div class="cohere-form-item">
+                  <PublishVisibilitySelect
+                    v-model="article.visibilitySemantic"
+                    :platforms="visibilitySupportedPlatforms"
+                    :hint="visibilityUnsupportedHint"
+                  />
+                </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">
                     {{ t('publishPage.aiDeclaration') }}
@@ -503,6 +511,14 @@
               <!-- 最佳发布时间：贴邻定时发布字段（openspec optimize-publish-right-rail） -->
               <div v-if="article.title.length > 2" class="cohere-form-item">
                 <OptimalTimeTip :keyword="article.title" />
+              </div>
+              <!-- P1-5 语义级可见性：通用区统一档位，映射真源在注册表 semanticValues -->
+              <div class="cohere-form-item">
+                <PublishVisibilitySelect
+                  v-model="article.visibilitySemantic"
+                  :platforms="visibilitySupportedPlatforms"
+                  :hint="visibilityUnsupportedHint"
+                />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">
@@ -726,8 +742,9 @@ import {
   normalizePublishStringList,
 } from '@/features/publish/publish-contract'
 import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
-import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META } from '@multi-publish/shared-utils/src/publish-capabilities'
+import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META, getVisibilityField, getVisibilitySemanticSupport } from '@multi-publish/shared-utils/src/publish-capabilities'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
+import PublishVisibilitySelect from '@/features/publish/components/PublishVisibilitySelect.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
 import SelectedVideoCard from '@/features/publish/components/SelectedVideoCard.vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
@@ -802,6 +819,10 @@ const article = reactive({
   topics: [],
   mentions: [],
   publishTime: '',
+  // P1-5 语义级可见性：通用区一次选择（public/friends/private）批量映射到所选平台
+  // 各自的可见性字段值（映射真源在注册表 semanticValues，经 resolver 消费）。
+  // 空串 = 跟随各平台默认；平台差异化面板可对单平台细调（override 优先于本档位）。
+  visibilitySemantic: '',
   // AI 生成内容声明：默认勾选（AI 生成内容）。各平台发布时如实声明内容创作方式。
   aiGenerated: true,
 })
@@ -1172,6 +1193,31 @@ const noTitleHint = computed(() => {
   const noTitleSelected = selectedPlatforms.value.filter(id => isNoTitlePlatform(id))
   if (noTitleSelected.length === 0) return ''
   return t('publishPage.noTitleHint', { platforms: noTitleSelected.map(id => getPlatformLabel(id)).join('、') })
+})
+
+// ── P1-5 语义级可见性通用控件 ─────────────────────────────
+// 5 平台可见性字段名与取值各不相同（youtube privacy / tiktok privacyLevel /
+// douyin visibilityType / kuaishou visibilityType / weibo visible）。通用区只暴露
+// 语义档位（公开/好友/私密），映射真源是注册表 semanticValues，由主进程 resolver
+// 按平台消费；平台差异化面板可对单平台细调（override 优先于本档位）。
+const visibilitySemanticSupport = getVisibilitySemanticSupport()
+const visibilitySupportedPlatforms = computed(() =>
+  selectedPlatforms.value.filter(id => !!getVisibilityField(id)))
+const visibilityOptions = computed(() => [
+  { value: '', label: t('publishPage.visibilityDefault') },
+  { value: 'public', label: t('publishPage.visibilityPublic') },
+  { value: 'friends', label: t('publishPage.visibilityFriends') },
+  { value: 'private', label: t('publishPage.visibilityPrivate') },
+])
+// 「好友」档在部分平台无对应值（快手仅公开/仅自己；YouTube 无好友圈）——
+// 如实告知哪些平台会保持默认，不静默丢弃用户选择。
+const visibilityUnsupportedHint = computed(() => {
+  const semantic = article.visibilitySemantic
+  if (!semantic) return ''
+  const unsupported = visibilitySupportedPlatforms.value.filter(
+    id => !(visibilitySemanticSupport[semantic] || []).includes(id))
+  if (unsupported.length === 0) return ''
+  return t('publishPage.visibilityUnsupported', { platforms: unsupported.map(id => getPlatformLabel(id)).join('、') })
 })
 
 const {

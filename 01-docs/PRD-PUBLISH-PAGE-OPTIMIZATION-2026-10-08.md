@@ -3,7 +3,7 @@
 > **立项日期**: 2026-10-08
 > **分析对象**: 视频发布页 + 图文发布页（`apps/desktop/src/views/Publish.vue` 两分支 + 批量模式）
 > **对比基准**: 参考产品 4.13.19（本机逆向工程目录取证；主进程 bundle 8.4MB，其发布页 UI 走远程 Web，本地无界面代码，故页面级对比以其**任务结构、状态模型、引擎行为**为基准）
-> **状态**: 分析完成；P1-4 已实现（本文档同 PR）；P0-1/P0-2/P1-3/P1-5 待立项
+> **状态**: 分析完成；P1-4 / P0-2 / P1-5 已实现（本文档同 PR 链）；P0-1/P1-3/P2 待立项
 > **关联**: [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（字段面注册表，已合并）
 
 ---
@@ -37,7 +37,7 @@
 | 2 | **账号风险前置预检** | -110 风险码族 + 行动指引 | ~~只有登录态三态~~ → **已实现**（2026-10-08 第二切片：目标选择器风控徽标 + 行动指引具体化 + 词表增强，详见 §四 P0-2） | 🔴 P0-2 ✅ |
 | 3 | **平台原生草稿往返** | per-platform draftId 存平台侧可回取 | 草稿只存本地 | 🟠 P1-3 |
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
-| 5 | platform-capable 字段补齐 | visibility(5)/location(3)/goods(4)/activity(3)/download(2)/music(2)+独有项 | 注册表已收录未实现（PRD §十一 roadmap） | 🟠 P1-5 |
+| 5 | platform-capable 字段补齐 | visibility(5)/location(3)/goods(4)/activity(3)/download(2)/music(2)+独有项 | ~~注册表已收录未实现~~ → **visibility 5 平台已打通**（2026-10-09 第三切片：语义级通用控件 + resolver/adapter 补齐 + 字段转 implemented）；其余语义仍待立项 | 🟠 P1-5 ✅ |
 | 6 | 数据回流看板 | 总转评赞/播放/发布总数 + 趋势图 | 无发布后数据回流 | 🟡 P2-6 |
 | 7 | 批量模式字段面 | 任务结构支持全字段 | 批量缺封面/徽标/无标题提示/差异化面板 | 🟡 P2-7 |
 | 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | 无分组 | 🟡 P2-8 |
@@ -197,9 +197,75 @@
 - registry `draft` 语义（5 平台）→ 「存到平台草稿箱」动作 + 平台草稿列表 + 回取编辑
 - 与 P1-4 的本地草稿守卫共存（平台草稿走平台语义，本地草稿走本地语义）
 
-### P1-5 可见性通用控件（registry 语义级映射）
+### P1-5 可见性通用控件（registry 语义级映射）（**2026-10-09 已实现**，publish-page-optimization 第三切片）
 
-- `visibility` 语义（5 平台：YouTube/TikTok implemented + 抖音/快手/微博 platform-capable）→ 通用区语义级控件（公开/私密/好友 → 各平台值映射）
+> 实施时发现：引擎侧**早已支持**抖音/快手可见性透传（`douyin-video.js` 读 `taskData.visibility_type`、`kuaishou-video.js` 读 `td.visibilityType`→`photoStatus`），缺口在**桌面 resolver 不消费**这三平台字段（registry 标 platform-capable）与**微博全链路缺失**（adapter 连 `visible` 都不传）。本切片补齐链路并把字段提升为 implemented。
+
+#### 数据校验
+
+| 校验点 | 规则 | 位置 |
+| --- | --- | --- |
+| 语义档位合法性 | 仅 `public`/`friends`/`private` 三档；非法档位返回 null（不抛错） | `mapVisibilitySemantic` |
+| 档位→平台值一致性 | 注册表 `semanticValues` 声明的每个值必须存在于该字段 `options` 中（`validateRegistry` 拦截） | shared-utils 注册表校验 |
+| 抖音取值域 | `visibility_type ∈ {0,1,2}`（0 公开 / 1 私密 / 2 好友），越界不透传 | `resolvePlatformArticle` |
+| 快手取值域 | `visibilityType ∈ {1,2}`（1 公开 / 2 仅自己），越界不透传 | `resolvePlatformArticle` |
+| 微博取值域 | `visible ∈ {0,1,6}`（0 公开 / 1 仅自己 / 6 好友圈），越界不透传 | resolver + weibo adapter |
+| 好友档平台差异 | 快手/YouTube 无好友档 → 返回 null，**不透传**（保持平台默认）且 UI 如实提示 | `getVisibilitySemanticSupport` + 控件 hint |
+
+#### 流程
+
+```
+通用区选择语义档位（公开/好友/私密/跟随默认）
+  → article.visibilitySemantic
+  → buildArticleData 随 payload（data.visibilitySemantic）
+  → 主进程 resolvePlatformArticle 按平台映射（mapVisibilitySemantic，注册表单一真源）
+     取值优先序：平台 override（差异化面板细调） > 通用档位 > 不设（平台默认）
+  → article.{privacy|privacyLevel|visibility_type|visibilityType|visible}
+  → 引擎 adapter/链消费（YouTube privacyStatus / TikTok privacy_level /
+     抖音 item.common.visibility_type / 快手 photoStatus / 微博 visible）
+```
+
+#### 功能逻辑
+
+- **映射单一真源**：5 平台取值映射只在注册表 `semanticValues` 声明一份，UI 与 resolver 均经 shared-utils 函数读取；UI **不持有**任何平台取值表（控件测试断言 `PUBLIC`/`unlisted` 等平台值不出现在通用区）
+- **两档硬语义 + 一档软语义**：公开/私密为 5 平台全覆盖档位；「好友」为部分平台档位（tiktok/douyin/weibo 支持，kuaishou/youtube 无对应值）
+- **优先级设计**：通用档位是「批量默认」，平台差异化面板的单平台选择优先——用户在面板显式选过就不再被通用档位覆盖（`override.X ?? semanticValue`）
+- **字段状态提升**：抖音/快手/微博 visibility 由 `platform-capable`（平台支持但本仓未暴露）转 `implemented` + `uiExposed: true`——链路已真实消费，可进差异化面板细调；未打通的取证字段（如微博 `vote`、B站 `upCloseDanmu`）继续保持 platform-capable 且不进 UI
+
+#### 交互逻辑
+
+| 交互点 | 行为 |
+| --- | --- |
+| 控件显示条件 | 所选平台中 ≥1 个支持 visibility 语义时显示（`PublishVisibilitySelect` 由 `platforms` 空数组自行隐藏） |
+| 档位选项 | 跟随各平台默认（默认）/ 公开 / 好友可见 / 仅自己可见 |
+| 支持平台徽标 | 「{count} 个所选平台支持」 |
+| 好友档提示 | 当前档位有平台不支持时显示「{platforms} 不支持该档位，将保持默认」（如实告知，不静默丢弃） |
+| 无提示时 | 通用说明「一次设置所选平台的可见性；可在「平台差异化内容」中单独调整」 |
+| 单平台细调 | 差异化面板的可见性 select 优先于通用档位 |
+
+#### 显示项与提示文字（zh/en 成对）
+
+| key | zh |
+| --- | --- |
+| `publishPage.visibility` | 可见性 |
+| `publishPage.visibilitySupport` | {count} 个所选平台支持 |
+| `publishPage.visibilityDefault` | 跟随各平台默认 |
+| `publishPage.visibilityPublic` / `visibilityFriends` / `visibilityPrivate` | 公开 / 好友可见 / 仅自己可见 |
+| `publishPage.visibilityHint` | 一次设置所选平台的可见性；可在「平台差异化内容」中单独调整 |
+| `publishPage.visibilityUnsupported` | {platforms} 不支持该档位，将保持默认 |
+
+#### 测试
+
+- `PublishVisibilitySelect.test.js`（7 例）：无支持平台不渲染 / 四档位渲染与默认值 / 语义标签不暴露平台取值 / 选择只上报事件 / 支持数徽标 / hint 覆盖通用说明 / fallback 通用说明
+- `publish-capabilities.test.js`「P1-5 语义级可见性映射」（9 例）：5 平台字段齐全 / 公开私密全覆盖映射 / 好友档三平台且快手与 YouTube 返回 null / 非法档位与未知平台 fail-closed / `resolveVisibilityOverride` 输出 fieldKey+value / 支持矩阵 / 规模下界 / CJS-ESM 穷举 parity / validateRegistry 拦截 semanticValues 漂移
+- `publisher-router.test.js`「P1-5 语义级可见性映射」（6 例）：private/public 档 5 平台取值（含快手公开=1 与抖音公开=0 的差异）/ friends 档三平台且快手与 YouTube 不透传 / **平台 override 优先于通用档位** / 空档位与非法档位与无关平台不透传 / 非法 override 值被过滤
+- 引擎 `no-title-contract.test.js` B-3b：微博 `visible` 透传（合法值含字符串数字 / 缺省与非法值不透传）
+
+#### 残余限制
+
+- 「跟随各平台默认」不写入任何字段，各平台默认值由平台侧决定（快手 1 公开、抖音 0 公开、YouTube public、TikTok PUBLIC、微博不传＝平台默认）
+- 「好友」档对 YouTube 刻意不降级为 `unlisted`（不公开列出 ≠ 好友可见，语义不同），保持不透传
+- 微博 `visible` 生效依赖平台对 `aj/v6/upload/upload_video` 该字段的接受度（参考产品取证同字段，未经真机验收）
 
 ## 五、残余限制
 

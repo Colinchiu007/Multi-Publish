@@ -25,7 +25,12 @@ class WeiboAdapter extends BasePlatformAdapter {
     // 话题内联描述：已知话题（tags 含描述解析值）单井号 → 微博双井号形态
     const converted = convertInlineTopics("weibo", content, t.tags || []);
     const composed = [title, converted].filter(part => part.length > 0).join("\n");
-    return { title: t.title || "", content: composed, tags: (t.tags||[]).join(",") };
+    const postData = { title: t.title || "", content: composed, tags: (t.tags||[]).join(",") };
+    // P1-5 可见性：微博发布体 visible（0 公开 / 1 仅自己 / 6 好友圈）。
+    // 非法值不透传，交由平台默认（公开）——与 desktop resolver 的合法值集一致。
+    const visible = Number(t.visible);
+    if (visible === 0 || visible === 1 || visible === 6) postData.visible = visible;
+    return postData;
   }
   async publish(cookie, postData) {
     const h = this.getHeaders(cookie);
