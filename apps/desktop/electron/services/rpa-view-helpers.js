@@ -220,7 +220,18 @@ const helpersMixin = {
         files:[path.resolve(filePath)],
         nodeId:queryResult.nodeId,
       })
-      log.info('RpaView','CDP file: '+path.basename(filePath)); return true
+      // 注入结果校验（2026-09-30 快手实测）：部分平台（快手图文上传区）的 input 是
+      // React 受控组件，CDP 的 DOM.setFileInputFiles **不抛错但文件被框架清空**
+      // （实测注入后 input.files.length === 0，页面停在上传区、不进入编辑态）。
+      // 故注入后必须回读 files.length；为 0 视为静默失败 → 回退 DataTransfer 注入。
+      const accepted = await win.webContents.executeJavaScript(
+        '(function(){var i=document.querySelector(' + JSON.stringify(fileSelector) + ');return i&&i.files?i.files.length:0})()'
+      ).catch(() => 0)
+      if (!accepted) {
+        log.warn('RpaView', 'CDP setFileInputFiles 静默失败（files=0），回退 DataTransfer 注入：' + path.basename(filePath))
+        return await this._setFileInputViaJs(win, filePath, fileSelector)
+      }
+      log.info('RpaView','CDP file: '+path.basename(filePath)+' (files='+accepted+')'); return true
     // eslint-disable-next-line no-unused-vars
     } catch (cdpErr) {
       // PRD F10.8: CDP 失败时回退到 JS File API / DataTransfer
@@ -254,6 +265,40 @@ const helpersMixin = {
     await win.webContents.executeJavaScript(js)
     log.info('RpaView', 'JS File API fallback: ' + fileName)
     return true
+  },
+
+  // 拖拽区上传（2026-09-30，参考产品取证）：部分平台（快手图文）的 `input[type=file]`
+  // **两条注入路径都失效**——CDP DOM.setFileInputFiles 不抛错但文件被框架清空、直接给
+  // input.files 赋 DataTransfer 也立即归零（实测 files.length===0，页面停在上传区）。
+  // 正确通道是把文件构造进 DataTransfer 后派发 `DragEvent('drop')` 到**拖拽容器**：
+  // 实测 `#rc-tabs-0-panel-2 div[class^="_dragger-content_"]` 收到 drop 后立刻进入图文
+  // 编辑态（出现 `#work-description-edit` 与「编辑图片 1/31」）。参考产品 renderImage 同款。
+  // 选择器默认取**可见的** dragger-content（视频/图文 tab 各有一个，隐藏的那个不能收事件）。
+  async _dropFilesToDragArea(win, filePath, dragSelector) {
+    filePath = path.resolve(filePath)
+    if (!fs.existsSync(filePath)) throw new Error('File not found: ' + filePath)
+    const base64 = fs.readFileSync(filePath).toString('base64')
+    const fileName = path.basename(filePath)
+    const mimeType = _guessMimeType(fileName)
+    const js = '(function(){' +
+      'var sel=' + JSON.stringify(dragSelector || 'div[class*="dragger-content"]') + ';' +
+      'var cands=[...document.querySelectorAll(sel)].filter(function(e){return e.getClientRects().length>0});' +
+      'var w=cands[cands.length-1]||document.querySelector(sel);' +
+      'if(!w)return "NO_DRAGGER";' +
+      'var b64=' + JSON.stringify(base64) + ';' +
+      'var bin=atob(b64);var n=bin.length;var bytes=new Uint8Array(n);' +
+      'for(var i=0;i<n;i++)bytes[i]=bin.charCodeAt(i);' +
+      'var file=new File([bytes],' + JSON.stringify(fileName) + ',{type:' + JSON.stringify(mimeType) + '});' +
+      'var dt=new DataTransfer();dt.items.add(file);' +
+      'w.dispatchEvent(new DragEvent("drop",{bubbles:true,cancelable:true,dataTransfer:dt}));' +
+      'return "DROPPED"})()'
+    const result = await win.webContents.executeJavaScript(js)
+    if (result === 'DROPPED') {
+      log.info('RpaView', 'drag-area drop: ' + fileName)
+      return true
+    }
+    log.warn('RpaView', 'drag-area drop unavailable: ' + String(result))
+    return false
   },
 
   // 发布点击后的网络证据采集。只在点击发布前短时开启，避免影响页面其它请求。

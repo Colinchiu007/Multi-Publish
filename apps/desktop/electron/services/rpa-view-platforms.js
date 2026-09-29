@@ -68,31 +68,6 @@ function parsePublishResponseEvidence (body, response) {
   return publishIds.length > 0 ? { publishIds } : null
 }
 
-function parseKuaishouArtifactEvidence (body, response) {
-  const status = Number(response?.status)
-  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
-  if (!String(response?.endpoint || '').includes('/rest/cp/works/v2/video/pc/photo/list')) return null
-  try {
-    const json = JSON.parse(String(body || ''))
-    const rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : []
-    const kuaishouArtifacts = rows.map(item => {
-      const postId = normalizePublishId(item && (item.workId || item.photoId || item.id))
-      if (!postId) return null
-      const title = String(item.title || item.caption || '').replace(/#g/g, '').replace(/ g/g, '').trim().slice(0, 512)
-      const rawTime = item.publishTime || item.uploadTime || 0
-      const seconds = Number(String(rawTime).substring(0, 10))
-      return {
-        postId,
-        title,
-        publishedAt: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0,
-        url: 'https://m.gifshow.com/fw/photo/' + postId,
-      }
-    }).filter(Boolean).slice(0, 50)
-    return kuaishouArtifacts.length > 0 ? { kuaishouArtifacts } : null
-  } catch (_) {
-    return null
-  }
-}
 
 const platformsMixin = {
   // ========== P2-B: Config loading ==========
@@ -180,25 +155,30 @@ const platformsMixin = {
     // 小红书/快手/抖音图文要求至少 1 张图片；图片经 article.images（本地文件路径，
     // 渲染层自动生成封面兜底——usePublishFlow IMAGE_TEXT_PLATFORMS）传入。
     // 多图平台（快手支持 31 张）暂传首图：多图需逐张等待上传完成，后续迭代。
+    // 上传通道按平台分流（2026-09-30 快手取证）：**拖拽区优先**——快手图文的
+    // input[type=file] 两条注入路径都失效（CDP 静默清空 / DataTransfer 赋值归零），
+    // 唯一通道是向 dragger-content 派发 DragEvent('drop')；无拖拽容器时回退 input。
     if (!article.video_path && Array.isArray(article.images) && article.images.length > 0 && sel.file_input && sel.file_input.length > 0) {
       retry.addField('image_upload')
       while (!retry.isDone('image_upload')) {
         try {
           this._emitProgress(platform, 'uploading image...', 22)
-          const imgFileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
-          if (imgFileSel) {
+          const dropped = typeof this._dropFilesToDragArea === 'function'
+            ? await this._dropFilesToDragArea(win, article.images[0], sel.drag_area).catch(() => false)
+            : false
+          if (!dropped) {
+            const imgFileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
+            if (!imgFileSel) { if (!retry.retry('image_upload')) break; await this._sleep(2000); continue }
             await this._setFileInput(win, article.images[0], imgFileSel)
-            // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
-            await this._sleep(4000)
-            // 图片上传成功后平台可能自动进入「图片编辑」（裁剪）界面，其模态层遮挡
-            // 发布按钮（2026-09-29 小红书实测：不收起则 button:has-text("发布") 超时）
-            await this._dismissImageEditModal(win, platform)
-            const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
-            if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
-            retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
-          } else {
-            if (!retry.retry('image_upload')) break; await this._sleep(2000)
           }
+          // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
+          await this._sleep(4000)
+          // 图片上传成功后平台可能自动进入「图片编辑」（裁剪）界面，其模态层遮挡
+          // 发布按钮（2026-09-29 小红书实测：不收起则 button:has-text("发布") 超时）
+          await this._dismissImageEditModal(win, platform)
+          const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
+          if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
+          retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
         } catch(e) {
           log.warn('RpaView', '['+platform+'] image upload: '+e.message)
           if (!retry.retry('image_upload')) break; await this._sleep(2000)
@@ -422,6 +402,10 @@ const platformsMixin = {
             } catch (_) { /* ignore */ }
             await this._sleep(1000)
           }
+          // 二次确认弹窗（2026-09-30 快手实测：点发布后弹「取 消 / 确 认」确认框，
+          // 不点确认则永不提交 → publish verification timeout）。此处统一处理，
+          // 无弹窗时为 NO_DIALOG 无副作用。
+          if (typeof this._confirmPublishDialog === 'function') await this._confirmPublishDialog(win, platform)
           if (article.draft && sel.draft_btn) await this._click(win,sel.draft_btn)
           retry.markDone('publish')
           if (throttle.shouldReport(95)) this._emitProgress(platform,'verifying...',95)
@@ -694,106 +678,6 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 
 
-  async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
-    const title = String(context.title || '').trim()
-    const startedAt = Number(context.publishedAt || Date.now())
-    if (!title) return null
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      try {
-        const js = '(async function(){' +
-          'var title = ' + JSON.stringify(title) + ';' +
-          'var startedAt = ' + JSON.stringify(startedAt) + ';' +
-          'var endpoint = "https://baijiahao.baidu.com/pcui/article/lists";' +
-          'for (var page = 0; page < 3; page++) {' +
-            'var params = new URLSearchParams({currentPage:String(page+1),pageSize:"10",type:"video",collection:"publish",search:"",dynamic:"1"});' +
-            'var resp = await fetch(endpoint + "?" + params.toString(), {credentials:"include",headers:{Accept:"application/json, text/plain, */*","X-Requested-With":"XMLHttpRequest"}});' +
-            'if (!resp.ok) continue;' +
-            'var json = await resp.json();' +
-            'var rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : [];' +
-            'for (var i = 0; i < rows.length; i++) {' +
-              'var item = rows[i] || {};' +
-              'var id = item.article_id || item.id;' +
-              'if (!id) continue;' +
-              'var itemTitle = String(item.title || "").trim();' +
-              'var status = String(item.status || "");' +
-              'var publishAt = item.publish_at ? new Date(item.publish_at).getTime() : 0;' +
-              'var inWindow = Number.isFinite(publishAt) && publishAt > 0 && publishAt >= startedAt - 300000 && publishAt <= startedAt + 900000;' +
-              'if (status === "publish" && inWindow && itemTitle === title) {' +
-                'return {postId:String(id),url:item.share_url || "",title:itemTitle,status:status};' +
-              '}' +
-            '}' +
-          '}' +
-          'return null;' +
-        '})()'
-        const found = await win.webContents.executeJavaScript(js)
-        const postId = normalizePublishId(found && found.postId)
-        if (postId) {
-          log.info('RpaView', '[baijiahao] artifact lookup matched id=' + postId.slice(0, 80))
-          return { ...found, postId, url: sanitizePublishResultUrl(found.url) }
-        }
-      } catch (e) {
-        log.warn('RpaView', '[baijiahao] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
-      }
-      if (attempt + 1 < maxAttempts) await this._sleep(3000)
-    }
-    return null
-  },
-
-  _parseKuaishouArtifact(evidence, context) {
-    const title = String(context.title || '').trim()
-    const startedAt = Number(context.publishedAt || Date.now())
-    if (!title) return null
-    for (const entry of evidence || []) {
-      const artifacts = entry && Array.isArray(entry.kuaishouArtifacts) ? entry.kuaishouArtifacts : []
-      for (const item of artifacts) {
-        const postId = normalizePublishId(item && item.postId)
-        if (!postId) continue
-        const itemTitle = String(item.title || '').trim()
-        const publishedAt = Number(item.publishedAt || 0)
-        const inWindow = Number.isFinite(publishedAt) && publishedAt > 0 && publishedAt >= startedAt - 120000 && publishedAt <= startedAt + 900000
-        if (inWindow && itemTitle === title) {
-          return { postId, url: item.url || 'https://m.gifshow.com/fw/photo/' + postId, title: itemTitle }
-        }
-      }
-    }
-    return null
-  },
-
-  async _findKuaishouArtifact(win, context, maxAttempts = 2) {
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      let capture = null
-      try {
-        capture = await this._startPublishNetworkCapture(win, { parseResponseBody: parseKuaishouArtifactEvidence })
-        const statuses = attempt === 0 ? ['1', '2', '3'] : ['1']
-        for (const status of statuses) {
-          try {
-            await this._navigateAndWait(win, 'https://cp.kuaishou.com/article/manage/video?status=' + status, 2000)
-            await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return /作品管理|发布作品|视频管理|内容管理/.test(t)||document.querySelectorAll("a[href*=photo],[data-photo-id],[class*=work-item],[class*=works-list]").length>0}', 15000, 500)
-          } catch (e) { log.warn('RpaView', 'kuaishou manage page: ' + e.message) }
-          await this._sleep(2500)
-          const artifact = this._parseKuaishouArtifact(capture?.evidence || [], context)
-          if (artifact) {
-            log.info('RpaView', '[kuaishou] artifact lookup matched id=' + String(artifact.postId).slice(0, 80))
-            await capture.stop()
-            capture = null
-            return artifact
-          }
-        }
-      } catch (e) {
-        log.warn('RpaView', '[kuaishou] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
-      } finally {
-        if (capture) { try { await capture.stop() } catch (e) { /* ignore */ } }
-      }
-      if (attempt + 1 < maxAttempts) await this._sleep(3000)
-    }
-    return null
-  },
-
-  async _findPublishedArtifact(win, platform, context = {}) {
-    if (platform === 'baijiahao') return await this._queryBaijiahaoArtifact(win, context)
-    if (platform === 'kuaishou') return await this._findKuaishouArtifact(win, context)
-    return null
-  },
 
 
   // ========== Verify publish success ==========
@@ -830,6 +714,14 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         } catch (error) {
           log.warn('RpaView', '[' + platform + '] artifact lookup failed: ' + error.message)
         }
+      }
+      // 2026-09-30 快手图文实测：发布成功后平台跳转到内容管理页并自带 `from=publish` 标记，
+      // 但**图文的作品列表端点与视频不同**（`/rest/cp/works/v2/video/pc/photo/list` 取不到
+      // 图文 ID），于是「发布已成功却判失败」。此处补一条 URL 级成功信号：命中
+      // `from=publish` + `manage` 路径即视为提交成功，postId 用时间戳派生（仅供历史展示）。
+      if (!postId && strictPlatform && /[?&]from=publish(?:&|$)/.test(currentUrl) && /\/manage\//.test(currentUrl)) {
+        postId = 'published-' + Date.now().toString(36)
+        log.info('RpaView', '[' + platform + '] publish success by URL signal (from=publish): ' + sanitizeDiagnosticEndpoint(currentUrl))
       }
       const diagnostics = summarizePublishDiagnostics(stoppedRequests, artifact)
       if (!postId) {
@@ -1290,6 +1182,9 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
     // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
     // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
+    // 2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被
+    // 清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件
+    // （参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1297,6 +1192,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+          drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
       }
       : config
