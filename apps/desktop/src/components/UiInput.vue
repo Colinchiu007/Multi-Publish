@@ -41,27 +41,27 @@ defineEmits(["update:modelValue", "focus", "blur"]);
 <style scoped>
 .ui-input {
   width: 100%;
-  padding: var(--apple-space-2) var(--apple-space-3);
-  border: 1px solid var(--apple-border);
-  border-radius: var(--apple-radius-sm);
-  font-family: var(--apple-font-text);
-  font-size: var(--apple-size-sm);
-  color: var(--apple-ink-primary);
-  background: var(--apple-surface-primary);
-  transition: border-color var(--apple-duration-fast) var(--apple-ease-default),
-              box-shadow var(--apple-duration-fast) var(--apple-ease-default);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  background: var(--color-bg-card);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
   outline: none;
 }
 .ui-input::placeholder {
-  color: var(--apple-ink-tertiary);
+  color: var(--color-text-muted);
 }
 .ui-input:focus {
-  border-color: var(--apple-accent);
-  box-shadow: 0 0 0 2px var(--apple-info-bg);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-info-soft);
 }
 .ui-input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background: var(--apple-surface-secondary);
+  background: var(--color-bg-inset);
 }
 </style>

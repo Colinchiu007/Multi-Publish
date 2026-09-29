@@ -49,12 +49,12 @@ function onClick(event) {
 .ui-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--apple-space-1);
+  gap: var(--spacing-1);
   border: none;
   cursor: pointer;
-  font-family: var(--apple-font-text);
-  font-weight: var(--apple-weight-semibold);
-  transition: all var(--apple-duration-normal) var(--apple-ease-default);
+  font-family: var(--font-family-text);
+  font-weight: var(--font-weight-semibold);
+  transition: all var(--duration-normal) var(--ease-default);
   text-decoration: none;
   line-height: 1;
 }
@@ -79,20 +79,20 @@ function onClick(event) {
 }
 
 /* Sizes */
-.ui-btn-sm { padding: var(--apple-space-1) var(--apple-space-3); font-size: var(--apple-size-sm); border-radius: var(--apple-radius-sm); }
-.ui-btn-md { padding: var(--apple-space-2) var(--apple-space-5); font-size: var(--apple-size-sm); border-radius: var(--apple-radius-sm); }
-.ui-btn-lg { padding: var(--apple-space-3) var(--apple-space-6); font-size: var(--apple-size-base); border-radius: var(--apple-radius-sm); }
+.ui-btn-sm { padding: var(--spacing-1) var(--spacing-3); font-size: var(--font-size-sm); border-radius: var(--radius-sm); }
+.ui-btn-md { padding: var(--spacing-2) var(--spacing-5); font-size: var(--font-size-sm); border-radius: var(--radius-sm); }
+.ui-btn-lg { padding: var(--spacing-3) var(--spacing-6); font-size: var(--font-size-base); border-radius: var(--radius-sm); }
 
 /* Variants */
-.ui-btn-primary { background: var(--apple-accent); color: #fff; }
-.ui-btn-primary:hover:not(:disabled) { background: var(--apple-accent-hover); box-shadow: var(--apple-shadow-sm); }
+.ui-btn-primary { background: var(--color-primary); color: #fff; }
+.ui-btn-primary:hover:not(:disabled) { background: var(--color-primary-hover); box-shadow: var(--shadow-sm); }
 
-.ui-btn-secondary { background: transparent; color: var(--apple-accent); border: 1px solid var(--apple-accent); }
-.ui-btn-secondary:hover:not(:disabled) { background: var(--apple-info-bg); }
+.ui-btn-secondary { background: transparent; color: var(--color-primary); border: 1px solid var(--color-primary); }
+.ui-btn-secondary:hover:not(:disabled) { background: var(--color-info-soft); }
 
-.ui-btn-ghost { background: transparent; color: var(--apple-ink-secondary); }
-.ui-btn-ghost:hover:not(:disabled) { background: var(--apple-surface-tertiary); color: var(--apple-ink-primary); }
+.ui-btn-ghost { background: transparent; color: var(--color-text-secondary); }
+.ui-btn-ghost:hover:not(:disabled) { background: var(--color-bg-inset); color: var(--color-text-primary); }
 
-.ui-btn-danger { background: var(--apple-error); color: #fff; }
-.ui-btn-danger:hover:not(:disabled) { opacity: 0.85; box-shadow: var(--apple-shadow-sm); }
+.ui-btn-danger { background: var(--color-danger); color: #fff; }
+.ui-btn-danger:hover:not(:disabled) { opacity: 0.85; box-shadow: var(--shadow-sm); }
 </style>
