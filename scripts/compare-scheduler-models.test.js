@@ -17,7 +17,7 @@ const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 
 const {
-  durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionOrderMatches,
+  durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches,
   effectiveMaxConcurrent, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO,
 } = require('./compare-scheduler-models')
 // 上限解析必须与被测侧同源：本文件断言"对拍侧不抄第二份 clamp 公式"，
@@ -269,34 +269,45 @@ describe('completionOrder — 完成顺序的取数口径', () => {
     ]), [1, 2])
   })
 
-describe('completionOrderMatches — 完成顺序按逐元素而非长度（#2626 升为硬判定）', () => {
-  it('逐元素相等 ⇒ true（含空序列对空序列）', () => {
-    assert.equal(completionOrderMatches([1, 2, 4, 5, 6], [1, 2, 4, 5, 6]), true)
-    assert.equal(completionOrderMatches([], []), true)
+describe('completionSetMatches — 完成集合（#2626 真正承重的判据）', () => {
+  it('成员相同 ⇒ true（顺序不同也算一致 —— 这是刻意的，不是放宽）', () => {
+    assert.equal(completionSetMatches([1, 2, 4, 5, 6], [1, 2, 4, 5, 6]), true)
+    // 真实侧次序在事件帧饥饿下会翻转（用未排序的 completion_order 实测：12 个饥饿样本里 9 个非升序），
+    // 成员没变就不该判红 —— 否则就是把 #2606 的假红重新引进来。
+    assert.equal(completionSetMatches([1, 2, 3, 4], [1, 2, 4, 3]), true)
+    assert.equal(completionSetMatches([], []), true)
   })
 
-  it('同长度但顺序不同 ⇒ false —— 这条判据不能退化成"只比长度"', () => {
-    // [1,2] vs [2,1] 正是要抓的形状：把它判成相同就等于守卫不存在
-    assert.equal(completionOrderMatches([1, 2], [2, 1]), false)
-    assert.equal(completionOrderMatches([1, 2, 3], [1, 3, 2]), false)
-  })
-
-  it('长度不同 ⇒ false（一侧多算/漏算完成项，#2626 的真实形状）', () => {
-    assert.equal(completionOrderMatches([1, 2, 3, 4, 5, 6], [1, 2, 4, 5, 6]), false)
+  it('成员不同 ⇒ false（一侧把被拒请求算成完成，正是 #2626 的形状）', () => {
+    assert.equal(completionSetMatches([1, 2, 3, 4, 5, 6], [1, 2, 4, 5, 6]), false)
+    assert.equal(completionSetMatches([1, 2], [1, 3]), false)
   })
 
   it('任一入参非数组 ⇒ false（fail closed，缺信息不得当成一致）', () => {
-    assert.equal(completionOrderMatches(undefined, [1]), false)
-    assert.equal(completionOrderMatches([1], null), false)
-    assert.equal(completionOrderMatches('123', [1]), false)
+    assert.equal(completionSetMatches(undefined, [1]), false)
+    assert.equal(completionSetMatches([1], null), false)
+    assert.equal(completionSetMatches('12', [1]), false)
   })
 
-  it('与 completionOrder 的取数口径串起来：被 429 拒掉的条目不得出现在任一侧序列', () => {
-    const sim = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }])
+  it('取数口径串起来：state 被误标成 completed 时集合判据必须抓到', () => {
+    const sim = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'completed' }])
     const real = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }])
-    assert.equal(completionOrderMatches(sim, real), true)
-    // 模拟器若仍把 req3 记成 completed，两侧形状立刻不等（这就是 #2626 的捕获路径）
-    assert.equal(completionOrderMatches([1, 3], [1]), false)
+    assert.equal(completionSetMatches(sim, real), false)
+  })
+})
+
+describe('completionOrderSequenceMatches — 完成序列只留痕、不得升为硬判定', () => {
+  it('逐元素相等 ⇒ true', () => {
+    assert.equal(completionOrderSequenceMatches([1, 2, 4, 5, 6], [1, 2, 4, 5, 6]), true)
+  })
+
+  it('成员相同但顺序不同 ⇒ false —— 正因为它会为饥饿下的正常翻转发红，才不能计入 pass', () => {
+    assert.equal(completionOrderSequenceMatches([1, 2, 3, 4], [1, 2, 4, 3]), false)
+    assert.equal(completionSetMatches([1, 2, 3, 4], [1, 2, 4, 3]), true)
+  })
+
+  it('任一入参非数组 ⇒ false', () => {
+    assert.equal(completionOrderSequenceMatches(undefined, [1]), false)
   })
 })
   it('非数组入参返回空数组而不是抛错', () => {

@@ -201,3 +201,23 @@ def test_fifo_assertion_survives_rejected_requests():
     neg = {a["name"]: a for a in _build_assertions(r["config"], 1, 0, 1, 0, 0, out_of_order)}["fifo"]
     assert neg["pass"] is False                   # 真乱序仍必须被抓到
     assert neg["actual"] == [2, 1, 3]
+
+
+def test_injected_429_still_consumes_5h_quota():
+    """`used_5h` 不进 metrics，所以它的口径由**可见代理** `quota_exceeded_count` 锚定。
+
+    桌面端 2026-09-28 起是"准入即占额度"（#2566）：被 429 拒掉的调用照样消耗 5h 计数。
+    本例在同一组参数下跑"不注入"和"注入 req2"两次，两者的超额起点必须一致（都恰好 3 条被额度拒），
+    并且注入那次的完成集合里不能有 req2。若有人把 `used_5h += 1` 改成"被 429 就不计额度"，
+    超额条数会少 1（req4 会挤进来完成）⇒ 这里当场红。
+    """
+    base = dict(rpm=20, max_concurrent=2, limit_per_5h=3, request_count=6,
+                request_duration_ms=50, exceed_5h=True)
+    plain = simulate(dict(base, inject_429_at=None))
+    with_inj = simulate(dict(base, inject_429_at=2, cooldown_ms=300))
+
+    assert plain["metrics"]["quota_exceeded_count"] == 3
+    assert with_inj["metrics"]["quota_exceeded_count"] == 3   # 被 429 仍占额度 ⇒ 超额起点不移动
+    completed = [t["req"] for t in with_inj["timeline"] if t["state"] == "completed"]
+    assert completed == [1, 3]                                # req2 不在完成集合里
+    assert with_inj["metrics"]["rate_limited_count"] == 1

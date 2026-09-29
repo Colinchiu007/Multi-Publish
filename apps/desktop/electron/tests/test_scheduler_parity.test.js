@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 
-const { runParity, runKnownDiffs, concurrencyCheck, deferralEvidence, effectiveMaxConcurrent, pythonMetrics, CASES, KNOWN_DIFF_CASES } = require('../../../../scripts/compare-scheduler-models')
+const { runParity, runKnownDiffs, concurrencyCheck, deferralEvidence, effectiveMaxConcurrent, pythonMetrics, completionSetMatches, CASES, KNOWN_DIFF_CASES } = require('../../../../scripts/compare-scheduler-models')
 const { runSelfCheck } = require('../services/rate-limit-self-check')
 
 describe('scheduler 模拟器与真实 governor 对拍', () => {
@@ -36,7 +36,8 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
         + '/cap=' + r.maxConcurrent
         + ' 推迟证据=' + (r.deferralEvidence.observed ? '有' : '无') + '(' + r.deferralEvidence.maxSpanMs + 'ms)'
         + ' noiseBypass=' + r.noiseBypass
-        + ' 完成顺序分歧=' + r.completionOrderDiverges
+        + ' 完成集合分歧=' + r.completionSetDiverges
+        + ' 仅次序不同=' + r.completionSequenceDiverges
         + ' pass=' + r.pass)
       // 失败信息必须带上「实际生效容差」与「本次差值」：上一轮 main 红时只给了 python/real
       // 两个 JSON，看不出 1653ms 是超了 1500 还是超了比例，排障要回头翻脚本。
@@ -47,17 +48,19 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
         + ' python=' + JSON.stringify(r.python) + ' real=' + JSON.stringify(r.real)).toBe(true)
     }
 
-    // #2626 已修：模拟器不再把注入 429 的那条记成 completed。完成顺序自该单起**计入 pass**
-    // （由上面 `expect(r.pass).toBe(true)` 真正承重），所以这里**不再**断言"分歧存在" ——
-    // 那条过渡守卫的本职是"修复前别让分歧被静默吞掉"，修好后继续留着就是把已知缺陷钉成正确行为。
+    // #2626 已修：模拟器不再把注入 429 的那条记成 completed。完成**集合**计入 pass；
+    // 完成**序列**只留痕 —— 真实侧次序在事件帧饥饿下会翻转（用未排序的 completion_order 实测
+    // 12 个饥饿样本里 9 个非升序），按序列判等就是把 #2606 的假红重造一遍。
+    // 原先那条"锁住分歧存在"的过渡断言已删除：修好后它必然失效，留着就是把已知缺陷钉成契约。
     const inj = results.find((r) => r.name === 'inject-429')
     expect(inj, 'inject-429 必须仍在 must-pass 的 CASES 里（上面已断言，这里兜第二层）').toBeTruthy()
-    // 序列本身也要钉死：只断言"两侧相等"会放过"两侧同时错"的形状
-    // （例如取数口径被改成恒定返回空序列，那两边当然相等）。
-    expect(inj.completionOrder.simulated).toEqual([1, 2, 4, 5, 6])
-    expect(inj.completionOrder.real).toEqual([1, 2, 4, 5, 6])
-    expect(inj.completionOrderDiverges, '两侧完成顺序又分歧了 ⇒ 要么模拟器回归到记 completed，要么真实侧形状变了').toBe(false)
-    expect(inj.checks.completion_order, 'completion_order 必须已在 runParity 的 checks 里（摘掉它 = 把硬判定降级回只打印）').toBe(true)
+    // 断言用**升序化后的成员集合**，不用原始数组 —— 否则本测试自己就成了饥饿下的假红源。
+    // 同时钉死"被拒那条不在集合里"：只断言两侧相等会放过"两侧同时把它算成完成"。
+    expect([...inj.completionOrder.simulated].sort((a, b) => a - b)).toEqual([1, 2, 4, 5, 6])
+    expect(inj.completionOrder.real, '真实侧必须取 runSelfCheck 返回的实际完成序（非排序投影）').toBeTruthy()
+    expect([...inj.completionOrder.real].sort((a, b) => a - b)).toEqual([1, 2, 4, 5, 6])
+    expect(inj.completionSetDiverges, '完成集合又不一致 ⇒ 要么模拟器回归到记 completed，要么真实侧形状变了').toBe(false)
+    expect(inj.checks.completion_set, 'completion_set 必须已在 runParity 的 checks 里（摘掉它 = 把硬判定降级回只打印）').toBe(true)
   }, 120000)
 
   it('已知差异用例差异值与记录一致（interval==duration 临界测量噪声，防漂移）', async () => {
@@ -174,5 +177,19 @@ describe('并发观测的饥饿阈值（证明 +1 来自回调推迟，不是给
     // 越上限的不变量在两个档都不能破（不断言总耗时：慢机器上挂钟会漂，那属于 duration 判据的辖区）
     expect(low.metrics.max_concurrent_observed).toBeLessThanOrEqual(cap)
     expect(high.metrics.max_concurrent_observed).toBeLessThanOrEqual(cap)
+
+    // 完成**集合**在饥饿下必须稳定，而完成**序列**允许翻转 —— 这条锁的用途是反对未来收紧：
+    // 谁把 completion_set 换回按序列判等，就会与这里给出的现场冲突（序列判等的真凭据是
+    // "饥饿下确实会翻"，见 docs 的实测表；这里只断言恒成立的不变量，不断言"必须翻"，
+    // 否则本机/CI 时序差异会把这条锁自己变成假红源）。
+    const highActual = high.completion_order
+    expect(Array.isArray(highActual), 'runSelfCheck 必须单独返回实际完成序；缺它时判据会退化成读排过序的投影（恒真）').toBe(true)
+    // 被 429 拒掉的 req3 任何时候都不该出现在完成集合里（#2626 的实质）
+    expect([...highActual].sort((a, b) => a - b)).toEqual([1, 2, 4, 5, 6])
+    const highAscending = highActual.every((v, i, a) => i === 0 || a[i - 1] < v)
+    console.log('[parity-noise] 高档真实完成序=' + JSON.stringify(highActual) + ' 升序=' + highAscending
+      + '（非升序即饥饿翻转的现场；升序则说明本轮没饿到，两者都不算失败）')
+    // 集合判据在两档都必须为"不分歧"，序列判据只留痕不参与 r.pass
+    expect(completionSetMatches([...highActual].sort((a, b) => a - b), [1, 2, 4, 5, 6])).toBe(true)
   }, 120000)
 })

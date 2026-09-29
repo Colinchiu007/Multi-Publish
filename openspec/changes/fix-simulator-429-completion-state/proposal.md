@@ -1,4 +1,4 @@
-# Proposal: 模拟器不再把注入 429 的请求记成 completed，并完成顺序升为硬判定
+# Proposal: 模拟器不再把注入 429 的请求记成 completed；完成**集合**升为硬判定、完成**序列**降为留痕
 
 ## Why
 
@@ -26,11 +26,12 @@ SHALL 更危险：读者以为它有守卫（#2632 的过渡守卫只是让它"�
   CLI 与 vitest 的留痕文案同步改掉"未计入 pass"。
 - `apps/desktop/electron/tests/test_scheduler_parity.test.js`：**删除** #2632 留下的那条
   "锁住分歧存在"的过渡断言（修好后它必然失效，留着就是把已知缺陷钉成正确行为），
-  改为断言两侧完成顺序相等且 `checks.completion_order === true`。
-- `docs/parity-concurrency-measurement-noise.md`：新增一节，记录"完成顺序为何可以当硬判定"的实测依据。
-- 主 spec 的「模拟器与真实 governor 对拍」Requirement：把完成顺序从"计数与顺序类"的笼统表述拆出来，
-  写明它的**前提**（各组用例的请求时长统一 ⇒ 顺序由准入序决定 ⇒ 回调推迟不会改变相对顺序，
-  实测见 docs）与**边界**（若将来引入非均匀时长/抖动 adapter，这条前提失效，必须先重新取证再判定）。
+  改为断言两侧完成集合相等且 `checks.completion_set === true`（按成员，不按次序）。
+- `docs/parity-concurrency-measurement-noise.md`：新增一节，记录"为何承重的是集合、序列只能留痕"
+  的实测依据，并完整保留我第一版探针**测了个恒真投影**这一错法。
+- 主 spec 的「模拟器与真实 governor 对拍」Requirement：把"完成"这一指标拆成**集合**与**序列**两条，
+  集合计入 pass、序列明确 SHALL NOT 计入（饥饿下会真实翻转，实测见 docs），并规定
+  取数只能读未排序的实际完成序、缺席即 fail closed（防止退回恒真的排序投影）。
 
 ## Capabilities
 
@@ -49,7 +50,11 @@ SHALL 更危险：读者以为它有守卫（#2632 的过渡守卫只是让它"�
   模拟器占满 `duration`）—— 当前用例参数下对 `max_concurrent_observed` 不可见，已登记在 #2626 评论 §2；
   ② `cooldown_until` 的起点口径（真实侧从抛错时刻起算，模拟器从 `finished` 起算）同样不在本次动。
 - **代码面**：`ops-center/backend/{services,tests}`、`scripts/compare-scheduler-models{,.test}.js`、
-  `apps/desktop/electron/tests/test_scheduler_parity.test.js`、`docs/`、`openspec/`。
-- **风险**：把顺序升为硬判定可能造新假红 —— 已用四档饥饿实验（lag 最高到起始间隔的 7.8 倍、
-  8/8 条样本）实测顺序保持不变，故判据成立的前提写进 spec 与 docs，而不是靠"看起来稳定"。
+  `apps/desktop/electron/services/rate-limit-self-check.js`（**新增返回字段 `completion_order`**，
+  主进程服务文件 ⇒ QM-1 打包门禁适用）、`apps/desktop/electron/tests/test_scheduler_parity.test.js`、
+  `docs/`、`openspec/`。
+- **风险**：判据取数若退化成排序投影，就会变成**恒真守卫（假绿）**——这是我第一版实际踩到的，
+  由 QM-6 后端评审用反例指出。已改为只读 `runSelfCheck` 新增返回的实际完成序、缺席 fail closed，
+  并配 4.7 号变异（摘掉该字段 ⇒ vitest 2 红）证明这条链路真的在承重。
+  另：集合判据本身对饥饿免疫，不会因时序抖动假红（实测翻转的 9 个样本成员集合始终一致）。
 - **无 BREAKING**：不改 IPC 合同、不改数据库 schema、不改前端交互。

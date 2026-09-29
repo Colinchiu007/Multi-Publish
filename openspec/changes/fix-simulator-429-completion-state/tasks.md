@@ -2,9 +2,11 @@
 
 ## 1. 取证（已完成，先记录以免被当成事后补的 justification）
 
-- [x] 1.1 四档饥饿探针实测「完成顺序是否被推迟打乱」：8/8 饥饿样本顺序不变（lag 最高 3908ms，
-      同批 maxc 已 = sim+1），对照 3/3 无饥饿同样不变 ⇒ 顺序可当硬判定，前提为「各组时长统一」。
-      探针文件跑完即删，未进仓。
+- [x] 1.1 饥饿实验做了**两轮**：第一轮读 `completionOrder(real.timeline)` —— 而 timeline 被
+      `runSelfCheck` 按 req 排过序，该读数**恒为升序、不可能变**，所以"12/12 不变"不构成证据
+      （QM-6 后端评审用 `actual=[2,1] ⇒ 投影=[1,2] ⇒ matches 恒真` 的反例指出）。第二轮先让
+      `runSelfCheck` 返回未排序的 `completion_order` 再测：12 个饥饿样本中 **9 个非升序**
+      ⇒ 结论反转为"序列不得计入 pass，只有集合可以"。两轮探针文件均跑完即删，未进仓。
 - [x] 1.2 确认模拟器的第三处分歧（429 槽位占用时长 ≈0ms vs `duration`）在当前参数下不可见，
       已登记于 #2626 评论 §2，本 change 不越范围修。
 - [x] 1.3 读全 `runParity` 与注入分支，确定「只改身份标签、不动堆/额度/墙钟」的四项清单（design §D2）。
@@ -46,10 +48,10 @@
 
 ## 5. 文档与规格
 
-- [x] 5.1 `docs/parity-concurrency-measurement-noise.md` 新增一节：四档饥饿实测表 +
-      「顺序前提 = 时长统一」+ 失效条件，并把 #2632 那条过渡守卫的删除写进变更史。
-- [x] 5.2 主 spec `openspec/specs/desktop/model-call-observability/spec.md` 与增量对齐
-      （完成顺序进硬判定 + 前提/边界 + 新增 3 个 Scenario，删除 #2626 过渡 Scenario）。
+- [x] 5.1 docs 新增一节：第二轮（真实次序）四档实测表 + 第一版探针为何恒真 +
+      「集合承重 / 序列留痕」的定形理由与反对未来收紧的说明，并记录 #2632 过渡守卫的删除。
+- [x] 5.2 主 spec 与增量对齐（完成**集合**进硬判定 + 序列 SHALL NOT 计入 + 取数不得用排序投影 +
+      新增/改写 3 个 Scenario；#2626 过渡 Scenario 因工具不支持丢标题而转为**墓碑**负向契约）。
 - [x] 5.3 `openspec validate fix-simulator-429-completion-state --strict` 通过。
 - [x] 5.4 CHANGELOG 收口（按 CRLF 纪律：`git show origin/main:CHANGELOG.md` 为底 + 只插我的节）。
 - [ ] 5.5 `.quality-gates.md` 执行记录**与代码同 PR**（#2632 那次欠了一次，这次不欠）。
