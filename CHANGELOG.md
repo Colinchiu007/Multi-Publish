@@ -43,6 +43,25 @@
 
 ---
 
+# [未发布] feat(collection): 六平台视频链接采集 + 分享文本 CJK 健壮解析（2026-09-29，collect-video-platforms / PR #2637）
+
+### 根因（第一性原因）
+- 前端路由只覆盖 2/6 平台：`Collection.vue` 的 `VIDEO_PLATFORM_DOMAINS` 仅含抖音/小红书——B站/知乎/视频号/百家号的视频链接全部误走图文采集通道（trafilatura 拿不到视频口播文案）。现有 spec `aggregation-collect-video` 的路由 Requirement 已声明六平台域名，属 **spec-实现漂移**（且该 Requirement 文本与 Scenario「知乎链接走图文」自相矛盾，本次以 Scenario 语义为准修正为路径级路由）。
+- 分享文本解析吞中文（bug 级）：URL 正则按空白截断，实测 `https://v.douyin.com/abc/复制此链接`（URL 与中文无空格粘连）把中文吞进 URL，后端拿到脏链接。
+- 后端 `PLATFORM_DOMAINS` 缺百家号；浏览器降级通道只有抖音配置——小红书 yt-dlp 匿名直连拿不到数据（实测 SSR `noteDetailMap:{}` → "No video formats found"）且该错误不触发降级，小红书视频链接实际不可采集；视频号死于泛化错误，用户不知道是平台不支持。
+
+### 变更
+- **调研先行**：`01-docs/RESEARCH-VIDEO-COLLECT-OPEN-SOURCE-2026-09-29.md`（4 并行子代理逆向 8 个开源项目 + 本机 yt-dlp 2026.08.19 真实链接实测）。平台通道选型：B站/知乎 zvideo yt-dlp 直下（实测全链路通）、百家号纯 HTTP 解析页面内嵌 JSON（实测免登录免签名）、小红书 Playwright 降级（社区验证正路）、视频号如实报不支持（登录墙+视频流加密+解密开源库已下架）。许可证红线：TikTokDownloader（GPL）/ MediaCrawler（非商业）代码零复制，仅取 Apache-2.0/MIT 源（Evil0ctal CJK 排除正则、xhs/BBDown/you-get）与事实知识。
+- 后端：新增 `baijiahao_fetcher.py` 纯 HTTP 通道（花括号配平提取 `window.jsonData`——实测 JSON 后跟 `;window.firstScreenTime`，直接锚定 `</script>` 会匹配失败；`<video src>` 兜底；无视频报 `VIDEOCLONE_NO_VIDEO`、haokan 重定向专属错误）；`video_service.py` 百家号域名白名单 + 视频号前置报 `VIDEOCLONE_CHANNELS_UNSUPPORTED` + classify_download_error 补小红书 "No video formats found"/B站 412/-352 为 ANTI_BOT；`browser_fetcher.py` 小红书降级配置（`use_resolved_url` 直接导航分享 URL 保留 xsec_token、监听 `api/sns/web/v1/feed`、`video.media.stream` 分辨率优先选流、`__INITIAL_STATE__` 回退）+ `_dig` 支持 list 下标。
+- 前端：`Collection.vue` 六平台两级路由（域名级 + 路径级——知乎问题/专栏、B站空间等非视频路径不破坏既有图文采集）；`extractUrlFromShareText` 改 CJK 排除字符类（汉字/CJK 标点/全角/emoji 天然终止匹配）；百家号 NO_VIDEO 提示后落回图文采集链路（collectUrl + collectAndRewrite）；平台标签扩六平台；locales zh/en 成对；`collect-error.js` 新增 `video_channels_unsupported`/`video_no_video` 分类（非重试）。
+- 测试：后端 +41（`test_baijiahao_fetcher.py` 新 13 / `test_browser_fetcher.py` +11 / `test_aggregation_video.py` +17）、前端 +13；真实链路冒烟 5/5 PASS（百家号真实文章解析+下载 6.0MB、视频号报错、B站/知乎探测、抖音 ANTI_BOT 分类）。
+- OpenSpec：`openspec/changes/collect-video-platforms/`（proposal/design/tasks/spec delta）。
+
+### 影响
+- 采集页粘贴 抖音/小红书/B站/知乎 zvideo/百家号 视频链接（或其分享混合文本）→ 走视频管线拿口播文案；知乎问题/专栏等图文链接行为不变；百家号纯文字文章自动回退图文采集；视频号得到明确「需要微信登录态，暂不支持」提示。
+- py-cjk 基线 79→84（视频管线中文错误按既有模式登记，整体迁移 UserVisibleError+locale 属既有债务另立跟踪）。
+- 遗留：小红书真实分享链冒烟待用户侧（xsec_token 时效性，实现按三方一致字段路径 + mock 锁定）。
+
 # [未发布] fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
 
 ### 根因（第一性原因）
