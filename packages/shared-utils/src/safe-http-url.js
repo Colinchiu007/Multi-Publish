@@ -42,7 +42,31 @@ function safeHttpUrl (value) {
   return trimmed
 }
 
+/**
+ * 分享文本 URL 提取（2026-10-08 自 Collection.vue 收敛——渲染层协议正则零字面量合同）。
+ * 从用户粘贴的分享文本中提取全部 http(s) 链接：CJK 字符天然终止匹配（容忍中文/emoji
+ * 混排），尾部粘连标点清理（中英文句读，防止 URL 吞掉句号逗号；URL 体内的括号/引号
+ * 合法保留），末尾经 HTTP_URL_RE（共享判据）复验。提取属「采集」意图；绑定 href 前
+ * 调用方仍须过 safeHttpUrl（双档合同：采集侧收口 + 渲染侧再判）。
+ * @param {unknown} text — 分享文本（任意来源）
+ * @returns {string[]} 提取并清理后的 http(s) URL 列表（无匹配返回 []）
+ */
+const SHARE_TEXT_URL_RE = /https?:\/\/[^\s<>"'`\\\u2018\u2019\u201c\u201d\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef\u{1f000}-\u{1faff}]+/giu
+const SHARE_TEXT_TRAILING_JUNK_RE = /[.,;:!?)\]}>'"\u3001\u3002\uff0c\uff01\uff1f\uff09\u3011\u300b\u201d\u2019]+$/
+
+function extractShareTextUrls (text) {
+  const raw = String(text == null ? '' : text).trim()
+  if (!raw) return []
+  const matches = raw.match(SHARE_TEXT_URL_RE) || []
+  return matches
+    .map((u) => u.replace(SHARE_TEXT_TRAILING_JUNK_RE, ''))
+    .filter((u) => HTTP_URL_RE.test(u))
+}
+
 module.exports = {
   safeHttpUrl,
   HTTP_URL_RE,
+  extractShareTextUrls,
+  SHARE_TEXT_URL_RE,
+  SHARE_TEXT_TRAILING_JUNK_RE,
 }
