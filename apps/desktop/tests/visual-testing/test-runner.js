@@ -264,6 +264,16 @@ class VisualTestRunner {
       await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
     }
     await this._waitForApplicationReady(expectedHash, readySelector);
+    await this.settleForCapture();
+  }
+
+  /**
+   * 截图前的确定性渲染收口：等字体与稳定帧、把动画/过渡归零、回到顶部、等网络空闲。
+   * 视图用例经 _navigateToRoute 调用；工作流用例必须在**每一步截图之前**调用 ——
+   * 否则拍到的是入场过渡的中间态（实测 CI 上 dashboard-benchmark-title-reset 末态
+   * 与 CI 渲染的默认视图差 10.84%，整页半透明且下半屏区块尚未出现）。
+   */
+  async settleForCapture() {
     if (typeof this.page.evaluate === 'function') {
       await this.page.evaluate(async () => {
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
