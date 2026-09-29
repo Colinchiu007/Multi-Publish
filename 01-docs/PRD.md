@@ -17830,3 +17830,11 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 同场清账：`dep-audit-baseline.json` 移除两条已不再命中的公告（GHSA-3wwx-pv8p-q78v / GHSA-qw65-cvwx-89v3——npm 审计数据回落，按 RESOLVED_STILL_BASELINED 门禁清账）。
 
 回归锁：引擎全量 32 files 262 tests（无行为断言被破坏）。
+
+## 快手 complete 请求 Content-Type 根因合同（2026-09-29 活体 6.3 第七层定案，随本 PR）
+
+**请求级诊断定案**（诊断数据嵌入错误消息落应用日志，三轮迭代）：链的 complete 出站请求带 `Content-Type: application/x-www-form-urlencoded`——`data: ''` 触发 axios 默认注入，服务端表单解析器拒绝空 urlencoded body → 裸 400（无响应体）。真实浏览器空 body 不设 Content-Type。
+
+**合同**：空 body 的 POST 必须显式移除 Content-Type（`'Content-Type': null`，axios 语义 null=删除）——禁止依赖「不传 data 就没有 Content-Type」的假设（axios 对 POST 仍会注入默认值）。回归锁：`kuaishou-video-chain.test.js` complete 断言 content-type undefined（红→绿实证）。
+
+**七层裁决链全景**：形状翻译（#2578）→ 注册表回退+命令名（#2580）→ bridge 接线（#2582）→ sessionKey+cookie 预绑（#2585）→ 诊断增强（#2594/#2616/#2619）→ Content-Type/Accept 修正（#2612）→ **Content-Type 默认注入根因（本 PR）**。

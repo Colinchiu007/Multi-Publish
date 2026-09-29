@@ -18,16 +18,17 @@ const rootPackagePath = path.join(__dirname, '..', '..', 'package.json');
 
 // 全量视觉（views + workflows 四套注册表）的像素基线此前在 CI 上没有任何产物来源
 // —— QG Visual 只跑 run-pixel-tests.js 的 pixelTests，而 QM-4 第 7 条禁止拿本地图当基线。
-// 本步骤锁「采集确实接进了 CI」，并锁住它此刻**故意不是门禁**（基线尚未按同源重建，
-// 提前升级会把不可判据的工作流基线变成 main 上的长期假红）。摘掉 continue-on-error 升级门禁时，
-// 必须同步把这里的断言反号，并在 PR 说明里给出同源基线已重建的证据。
+// 本步骤锁「采集确实接进了 CI」，并锁住它此刻**就是阻断门禁**：基线已按 QM-4 第 7 条同源重建
+// （13 条非同源基线换成同一次 CI 渲染，自证「新基线 vs 同一次 CI 渲染 = 0 px」）。
+// 若有人重新加回 continue-on-error，就是把它降级成"只采集不判定"——main 的视觉回归会整体关掉，
+// 必须同 PR 写明基线为何又不可判据了，并同步反号本断言；只改一边会得到恒红或恒绿。
 test('视觉工作流跑全量四套用例并把产物落进可取用的 artifact', () => {
   const wf = yaml.load(fs.readFileSync(workflowPath, 'utf8'));
   const steps = wf.jobs['visual-test'].steps;
   const capture = steps.find(step => /run-all-visual\.js/.test(String(step.run || '')));
 
   assert.ok(capture, 'visual-test.yml 必须有一个步骤执行 tests/visual-testing/scripts/run-all-visual.js');
-  assert.equal(capture['continue-on-error'], true, '全量采集当前是基线采集步骤，不得在未同源基线时阻断 main');
+  assert.notEqual(capture['continue-on-error'], true, '基线已按 QM-4 第 7 条同源重建，全量采集是阻断门禁');
   // 采集失败必须以**非零**退出交给 continue-on-error 变成可见的警告；正文以 Write-Host 收尾时
   // PowerShell 一律退 0，那样"整批采集失败"会显示成绿色通过——唯一的告警通道就没了。
   assert.match(String(capture.run), /\$captureExit = \$LASTEXITCODE/);

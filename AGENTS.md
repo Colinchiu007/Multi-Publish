@@ -743,7 +743,7 @@ npm run test:all:visual
 1. **pre-commit 不集成**视觉测试(需 dev server,触发频率过高)
 2. **PR 合入前必须通过** `npm run test:visual:pixel`(非零退出码禁止合入)
 3. **发版前人工确认**已跑 `npm run test:all:visual` 且无未审核的回归（**当前 `scripts/release-gate.mjs` 未将视觉回归纳入硬门禁**，它只核验版本 bump + CHANGELOG 收口 + 破坏性变更级别；因此本条是人工核查项而非自动拦截。若要将其升级为「必须通过」的硬门禁，需先给 release-gate 接入视觉回归结果标记的硬检查，并定义时长预算/flaky/基线策略）。
-   自 2026-09-28 起全量四套**已由 CI 每次 main push / dispatch 代跑**（Visual Tests workflow 的 `Full visual suites` 步骤，产物在 `visual-test-reports` artifact），人工核查项从此不必每次手跑；但该步骤**刻意 `continue-on-error: true`**——现有工作流基线不同源（实测同屏两态差 0.16%、仓库基线 vs CI 渲染差 3.82% ⇒ 不可判据），提前接进判定就是给 main 挂长期假红。升级为阻断门禁的两个前提见 `openspec/changes/visual-all-baseline-ci/`，反断言必须与同源基线同 PR。
+   自 2026-09-28 起全量四套**已由 CI 每次 main push / dispatch 代跑**（Visual Tests workflow 的 `Full visual suites` 步骤，产物在 `visual-test-reports` artifact），人工核查项从此不必每次手跑；**自 2026-09-29 起该步骤是阻断门禁**——此前刻意 `continue-on-error: true` 的前提（工作流基线不同源：实测同屏两态差 0.16%、仓库基线 vs CI 渲染差 3.82% ⇒ 不可判据）已消除：13 条非同源基线换成同一次 CI 渲染并自证「新基线 vs 同一次 CI 渲染 = 0 px」，`continue-on-error` 与 `.github/scripts/workflow-contract.test.js` 的反向断言**同 PR** 变更。任何重新降级为"只采集不判定"的改动都必须重新论证基线为何不可判据，并同 PR 反号该断言。残余已知噪声：4 条已同源基线仍稳定差 709 px（顶部标签栏动态元素），正解是给 `pixel-diff` provider 加忽略区（mask），**不得**用提阈值消化。
 4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
 5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view\_image 看图判断
 6. 所有命令必须在 `apps/desktop/` 目录下执行
