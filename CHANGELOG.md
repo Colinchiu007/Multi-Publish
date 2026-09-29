@@ -12,6 +12,36 @@
 - **QM-1 因触碰 electron 主进程服务而适用**：实跑 `pnpm run build:dir`（win32 x64 / electron 43.1.1）产出 `dist-electron/win-unpacked/`，`resources/app.asar` 154,282,717 字节；**从产物 asar 抽出该文件 grep 到 `fifoVerdict` 3 处与 `pass: v.pass`**（证明改动进了交付物，不是只在源码里）；启动冒烟主程序存活 12s、**stderr 0 字节**、无平台配置缺失 / 插件目录 mkdir 失败 / asar 内 `ENOTDIR` 任一禁用特征。冒烟前**先核实** `ELECTRON_USER_DATA_DIR` 确实被 `startup-compat.js:8` 读取——否则"隔离 profile"只是我的假设，会撞到共享实例锁与真实用户数据。打包改写的两个 `*.bundle.js` 以精确路径 `git checkout HEAD --` 还原，工作树复核仅剩两个源文件。
 - 同批相邻面回归：`node scripts/compare-scheduler-models.js` ⇒ `PARITY OK`（KNOWN_DIFFS 1 条，属已建档测量噪声）；调度对拍 vitest 用例 1 passed。
 - **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
+# [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
+- `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
+- 后果不是"少个便利"，是**把人引向错误的归因**：按文档设了变量照样 403，排查者会去查「WMI 不继承环境变量」「launcher 没透传」，而真相是特性缺失。本轮真机 A/B 取数时就是靠「WebSocket 不发 Origin 头」绕过去的（已登记在 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §13.5）。
+
+### 修法
+- `dev-launcher.js`：新增 `resolveAllowAllOrigins(env)`；`buildElectronArgs` 增 `allowAllOrigins` 形参，开启时追加 `--remote-allow-origins=*`，且**必须排在 desktopDir 之前**（desktopDir 是应用路径，永远末位）。
+- `dev.js`：**单次**读取该值 → 传给 `buildElectronArgs` → 在 `electron.on('spawn')` 里打印现场（AGENTS.md「静默配置失败必须留日志」；只在开启时打印，默认关不污染日志）。
+
+### 判据为什么是「trim 后恰好 '1'」
+`cmd /c set "VAR=1 "` 会把尾随空格折进值里（本仓在 `ELECTRON_USER_DATA_DIR` 上真踩过，launcher 注释已记），不 trim 就等于开关静默失效；而接受 `true` / 数字 1 会让「默认关」这条安全前提可被随手绕过。两个方向各锁一条用例。
+
+### 验证（全部本轮实跑）
+- `node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js` → **tests 50 / pass 50 / fail 0**，与 `quality-gate.yml:110` 的点名口径逐字一致（不是"应该会被收集"）。
+- 四条变异各自只让对应那条锁变红：unwire（dev.js 不传参）→ 1 红；no-op push（删掉追加行）→ 1 红；loose（判据退化成 `!!raw`）→ 1 红；删留痕 → 1 红。每次还原后 10/10 绿、三个文件与备份**字节级一致**（`cmp -s`）。
+- 真机 A/B（同 worktree、隔离 profile、专属 bridge 端口 8453/16553/8033/8022/8014，避免应答到别人实例的 8299）：
+
+| `MP_CDP_ALLOW_ALL_ORIGINS` | electron argv | 不带 Origin | 带 Origin | 带恶意 Origin |
+| --- | --- | --- | --- | --- |
+| `0` | 无 `--remote-allow-origins` | OPEN | **HTTP 403** | **HTTP 403** |
+| `1` | `--remote-allow-origins=*` | OPEN | **OPEN** | **OPEN** |
+
+  不带 Origin 两档都 OPEN ⇒ 差异维度被隔离在这条开关上，而不是进程或时序。
+
+### 边界
+- 只动 dev 启动链（`apps/desktop/scripts/`），未改 `electron/` 运行时代码与打包配置，QM-1 前提不成立；`apps/desktop/electron/` 零改动。
+- 开关**默认关**：开启后任意站点都能连该进程的 DevTools WebSocket（这正是 Chromium origin 校验存在的原因），因此它只用于本机排障，不得进生产/CI 默认值。
+- 收尾已按 worktree 路径精确停掉验证实例并删除隔离 profile（`D:\tmp\mp-cdp-verify-profile`），未触碰其他会话的实例与数据目录。
+
 # [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
 
 ### 现象与根因
