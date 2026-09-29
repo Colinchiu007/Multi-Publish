@@ -14,9 +14,14 @@
 
 ### 旧 token → 新 token 映射表（P2 迁移依据）
 
+> **状态（2026-09-29）**：本表所列迁移**已全部落地**。`ui-apple-token-retirement`（批次 0–6）已删除
+> `apple-design-tokens.css` 与其 17 个 `--color-apple-*` 收编槽位，`--apple-*` 消费点归零，
+> 回潮由 `check-frontend-consistency.js` 的 `appleAlias` 检查拦截（基线 = 0）。
+> 因此下表的「旧变量」列**仅作历史迁移依据**，新代码一律只写「新 token」列。
+
 | 语义 | 旧变量（来源文件） | 新 token |
 |------|-------------------|----------|
-| 主色 | `--apple-*` 主色系（apple-design-tokens.css）、`--action-blue`、`--primary`（cohere-design-system.css:10）、video-creation 主色系 | `--color-primary` |
+| 主色 | ~~`--apple-*` 主色系（apple-design-tokens.css）~~（**已退役**）、`--action-blue`、`--primary`（cohere-design-system.css:10）、video-creation 主色系 | `--color-primary` |
 | 页面底色 | `--canvas`、`--cohere-black` 等 | `--color-bg-canvas` |
 | 卡片底色 | 各视图 scoped `.card` 内重复定义 | `--color-bg-card` |
 | 正文/次要文字 | `--ink`、`--text-muted` 等 | `--color-text-primary` / `--color-text-secondary` |

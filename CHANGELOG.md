@@ -1,33 +1,29 @@
-# [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+# [未发布] BREAKING（视觉）feat(ui): Apple 令牌双轨退役——全站收敛到 tokens.css 权威令牌（2026-09-29，ui-apple-token-retirement）
 
-### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
-- `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
-- 后果不是"少个便利"，是**把人引向错误的归因**：按文档设了变量照样 403，排查者会去查「WMI 不继承环境变量」「launcher 没透传」，而真相是特性缺失。本轮真机 A/B 取数时就是靠「WebSocket 不发 Origin 头」绕过去的（已登记在 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §13.5）。
+> 本条目为**破坏性视觉变更**：主色与圆角/字号基线改变，既有视觉基线需同源重生成。
 
-### 修法
-- `dev-launcher.js`：新增 `resolveAllowAllOrigins(env)`；`buildElectronArgs` 增 `allowAllOrigins` 形参，开启时追加 `--remote-allow-origins=*`，且**必须排在 desktopDir 之前**（desktopDir 是应用路径，永远末位）。
-- `dev.js`：**单次**读取该值 → 传给 `buildElectronArgs` → 在 `electron.on('spawn')` 里打印现场（AGENTS.md「静默配置失败必须留日志」；只在开启时打印，默认关不污染日志）。
+### 变更
 
-### 判据为什么是「trim 后恰好 '1'」
-`cmd /c set "VAR=1 "` 会把尾随空格折进值里（本仓在 `ELECTRON_USER_DATA_DIR` 上真踩过，launcher 注释已记），不 trim 就等于开关静默失效；而接受 `true` / 数字 1 会让「默认关」这条安全前提可被随手绕过。两个方向各锁一条用例。
+- **主色 Apple 蓝 → 品牌紫**（`#007AFF` → `#5048E5`）：全站按钮与主操作观感变化，是本次唯一用户可感知的破坏性变更。
+- **圆角统一 +2px、xs 字号 11→12px**：采纳 `tokens.css` 权威尺（圆角 6/10/14 → 8/12/16、`--font-size-xs` 12px）；`--apple-radius-pill`(9999) 映射到 `--radius-full`（**不是** `--radius-pill` 32px）。
+- **337 处 `--apple-*` 消费点全部收敛**（批次 0–5）：组件层 88 + 账号云镜像回潮 59（PR #2461 的 4 个组件）+ `history-page.css` 190（43 个变量）。逐项映射与值差异见 `openspec/changes/ui-apple-token-retirement/component-token-map.md` 与 `history-page-token-map.md`；陈旧 fallback 一并剔除（`#1f7a4d`/`#a2650b` 等第三套真相）。
+- **别名层退役**（批次 6）：删除 `apple-design-tokens.css`（93 行）与其**唯一导入** `cohere-design-system.css:1`、删除 `tokens.css` 的 17 个 `--color-apple-*` 收编槽位；`cohere-design-system.css` 暗色 `--ink`/`--muted` 改为对权威 token 的**纯转发**（不再承担暗色救火；`--muted` 由 #88889a 变亮为 `--color-text-secondary`，暗色可读性提升）。
+- **补齐权威语义槽**（批次 2）：`--font-weight-*` / `--font-family-*` / `--leading-*` / `--duration-*` / `--ease-*` / `--spacing-16`；`[data-theme="dark"]` 增补四档文字色（暗色卡片底实测对比度 14.35 / 12.80 / 7.53 / 6.66:1）与 `--color-primary-light`；**修复 `--text` 暗色转发到背景色**的缺陷（2026-09-20 暗色不可读事故根因，改为指向前景 `--ink`）。
+- **回潮门禁**（批次 0/6）：`check-frontend-consistency.js` 新增 `appleAlias` 检查（扫描面含 `styles/*.css`），基线**钉 0**——任何新增 `var(--apple-` 引用立即 CI 失败并列出行号；附「钉 0」回归锁防止基线被抬高。同批修复该门禁三处缺陷：共享基线被抹键（改 merge）、基线缺键静默放行（改 fail-closed）、CSS 块注释盲区（`blockAware`）。
+- **视觉基线暗色通道**（批次 1）：`run-pixel-tests.js` 支持 `THEME=dark`、`<view>-dark.png` 命名与浅色互不覆盖；`visual-test.yml` 在同一 Vite/渲染环境增跑暗色一遍（同源口径）。
 
-### 验证（全部本轮实跑）
-- `node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js` → **tests 50 / pass 50 / fail 0**，与 `quality-gate.yml:110` 的点名口径逐字一致（不是"应该会被收集"）。
-- 四条变异各自只让对应那条锁变红：unwire（dev.js 不传参）→ 1 红；no-op push（删掉追加行）→ 1 红；loose（判据退化成 `!!raw`）→ 1 红；删留痕 → 1 红。每次还原后 10/10 绿、三个文件与备份**字节级一致**（`cmp -s`）。
-- 真机 A/B（同 worktree、隔离 profile、专属 bridge 端口 8453/16553/8033/8022/8014，避免应答到别人实例的 8299）：
+### 验证
 
-| `MP_CDP_ALLOW_ALL_ORIGINS` | electron argv | 不带 Origin | 带 Origin | 带恶意 Origin |
-| --- | --- | --- | --- | --- |
-| `0` | 无 `--remote-allow-origins` | OPEN | **HTTP 403** | **HTTP 403** |
-| `1` | `--remote-allow-origins=*` | OPEN | **OPEN** | **OPEN** |
+- 门禁：`appleAlias` 计数 **339 → 0**；`check-css-var-defined` / `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全 PASS
+- 组件层 96/0（UiButton/UiInput/UiModal/ConfigProfileManager/AccountCloudSyncDialog）、历史页 77/0、`tokens.slots.test.js` 15/0（含 WCAG 对比度断言）、门禁测试 21/0（含「钉 0」锁）、style-guard 9/0
+- 图像基线：批次 3 的 17 张浅色基线经 PR `quality-gate-visual-reports` artifact **同源刷新**（QM-4 第 7 条）
 
-  不带 Origin 两档都 OPEN ⇒ 差异维度被隔离在这条开关上，而不是进程或时序。
+### 残余（登记）
 
-### 边界
-- 只动 dev 启动链（`apps/desktop/scripts/`），未改 `electron/` 运行时代码与打包配置，QM-1 前提不成立；`apps/desktop/electron/` 零改动。
-- 开关**默认关**：开启后任意站点都能连该进程的 DevTools WebSocket（这正是 Chromium origin 校验存在的原因），因此它只用于本机排障，不得进生产/CI 默认值。
-- 收尾已按 worktree 路径精确停掉验证实例并删除隔离 profile（`D:\tmp\mp-cdp-verify-profile`），未触碰其他会话的实例与数据目录。
+- 暗色基线为**首次建立**，待 `visual-test.yml` 在最终态产出后入库（入库后该步骤转阻断门禁）。
+- 顺带发现（不在本 change 范围）：像素门禁阈值 `threshold = 0.1`（允许 10% 像素不同）使本次 19 个视图的实测 misMatch（0.0000%–1.6071%）全部远低于阈值；QG Visual 覆盖 19 个视图而 `run-pixel-tests.js` 声明 22 个 —— 两者均建议单独立项。
 
+---
 # fix(工程门禁): check-ps1-bom 补两条判据 —— 多重 BOM 与「声明 UTF-8 但正文不是合法 UTF-8」（ps1-bom-gate-hardening，2026-09-30）
 
 ### 变更
