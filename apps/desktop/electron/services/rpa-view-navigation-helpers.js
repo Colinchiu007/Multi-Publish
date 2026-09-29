@@ -297,4 +297,4 @@ const navigationHelpers = {
   },
 }
 
-module.exports = { navigationHelpers }
+module.exports = { navigationHelpers, stripHtmlToPlainText }
