@@ -141,5 +141,13 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
+  },
+  "本次执行记录：债务登记值对齐 main 实况（max-lines-baseline-sync，2026-09-28）": {
+    "reason": "本 PR 自己尚未合并，无法取证 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记。合并后由后续 docs PR 按 `git log origin/main --grep=(#<本PR号>)` 离线取证回填 merge SHA 与时间，并**删除本登记项**（不删则同时报「未登记欠账」与「陈旧登记」两条红）。",
+    "status": "PENDING"
+  },
+  "本次执行记录：发布页封面缩略图与点击放大预览（video-cover-thumbnail-preview，2026-09-28）": {
+    "reason": "本 PR 尚未合并，无法取证 merge SHA；按 #2561/#2570 口径写 PENDING 并在同一条 PR 里登记。合并后由后续 docs PR 用 `git log origin/main --grep=\"(#2562)$\"` 取 merge SHA 与时间回填，并删除本登记项（不删会同时报「未登记欠账」与「陈旧登记」两条红）。",
+    "status": "PENDING"
   }
 }

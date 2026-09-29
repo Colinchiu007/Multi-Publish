@@ -137,6 +137,10 @@ describe("publish/platforms/kuaishou-video", () => {
       expect(done.url).toContain("upload_token=UTOK");
       expect(done.byteLength).toBe(0);
       expect(done.headers["accept"]).toBe("application/json, text/plain, */*");
+      // 2026-09-29 请求级诊断定案：data:'' 触发 axios 默认注入
+      // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
+      // urlencoded body → 裸 400。真实浏览器空 body 不设 Content-Type。
+      expect(done.headers["content-type"]).toBeUndefined();
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 

@@ -53,14 +53,14 @@ CI 一次报 10 条工作流红，阈值 1%。**不要**按报错文案归类，
 四条已同源的基线（`dashboard` / `collection` / `create-pipeline` / `create-history`）
 与 CI 渲染仍稳定差 **709 px / 0.034%**，包围盒固定在顶部标签栏 + 面包屑一处。
 这说明该区域有一个动态元素。**不要**用提阈值或换基线消化它——
-应给 `pixel-diff` provider 加忽略区（mask），把动态元素显式排除在比对之外。
+应给 `pixel-diff` provider 加忽略区（mask）——**provider 目前不支持 mask，已核实**，所以这是一件待办，而不是把阈值从 1% 提上去的理由。
 
 ## 4. 相关门禁现状
 
 - `test:all:visual` 已聚合四套共 **103** 例（views 35 + supplementary-views 19 +
   workflows 31 + supplementary-workflows 18），逐套输出
   `[VISUAL-SUMMARY] suite=… total=… passed=… failed=…`。
-- CI 的采集步骤目前是 `continue-on-error: true`（非阻断），因为基线尚未全部同源；
+- CI 的采集步骤**自 2026-09-29 起是阻断门禁**（`Full visual suites (blocking gate)`）。此前它刻意 `continue-on-error: true`，因为基线尚未全部同源；现在 13 条非同源基线已换成同一次 CI 渲染并自证 0 px，于是摘掉该标志，并与 `.github/scripts/workflow-contract.test.js` 的反向断言**同 PR** 变更（加回 `continue-on-error` 会让那条合同测试变红——已实跑反证）。
   摘掉它必须与同源基线**同 PR**（否则会把「基线还没换」变成阻断红）。
   该约束由 `.github/scripts/workflow-contract.test.js` 断言锁住。
 - 基线只能取自 CI artifact `visual-test-reports`（QM-4 第 7 条），禁止提交本地图。

@@ -257,11 +257,13 @@ class KuaishouVideoChain {
   }
 
   async _uploadPost (url) {
+    // 2026-09-29 请求级诊断定案：data:'' 会触发 axios 默认注入
+    // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
+    // urlencoded body → 裸 400（真实浏览器空 body 不设 Content-Type）。
+    // 显式置 null 移除该头（axios 语义：null = 删除），HTTP 层发 Content-Length: 0。
     const res = await this.uploadHttp.request({
       method: 'post', url: this._currentEndpoint + url, data: '',
-      // Accept 修正（2026-09-29 网络级取证）：真实浏览器 complete 发
-      // application/json, text/plain, */*——与浏览器逐字一致。
-      headers: this._baseHeaders({ Accept: 'application/json, text/plain, */*' }),
+      headers: this._baseHeaders({ Accept: 'application/json, text/plain, */*', 'Content-Type': null }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
