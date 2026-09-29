@@ -106,7 +106,8 @@ try {
     Check ($found -eq 1) 'real CIM path finds a live child' `
         ("child=$($child.Id) returned=$(IdsOf $r) mark=$($mark.ToString('o'))")
 } finally {
-    # 无论断言成败都要收掉自己起的进程，否则它变成别人那次 run 的"残留"
+    # Always reap the process this test started, pass or fail: otherwise it becomes the
+    # "leftover child process" some other run's gate reports.
     try { Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue } catch { }
 }
 
