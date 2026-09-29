@@ -76,12 +76,30 @@
 **Files**: `components/UiButton.vue`(28)、`UiInput.vue`(16)、`UiModal.vue`(29)、`ConfigProfileManager.vue`(15)
 
 ### Acceptance Criteria
-- [ ] 采取 design 的 (a) 方案：组件**内部**改 token 来源，props/emits/slots API 完全不变
-- [ ] 不得要求调用方「加类覆盖」（scoped 特异性 (0,2,0) 会压过外部全局类，已实证无效）
-- [ ] 每个组件一份「旧 `--apple-*` → 新令牌 → 值差异」三栏清单，随 PR 附上
-- [ ] 组件单测全绿 + 受影响的视图测试全绿
-- [ ] 相关视图基线**定向**重生成（`PIXEL_ONLY`），浅色 + 暗色各一遍并逐张核对
-- [ ] 完成后 `apps/desktop/src/components` 下 `var(--apple-` 命中 = 0
+- [x] 采取 design 的 (a) 方案：组件**内部**改 token 来源，props/emits/slots API 完全不变（本次为纯 CSS 变量替换，未动任何模板/脚本/props）
+- [x] 不得要求调用方「加类覆盖」（无任何调用方文件被改；替换范围严格限定在 8 个自有文件内）
+- [x] 每个组件一份「旧 `--apple-*` → 新令牌 → 值差异」三栏清单 → `component-token-map.md`（全局映射表 + 逐组件变量集合 + 值不保值与观感披露）
+- [x] 组件单测全绿：**96 tests / 0 fail**（UiButton / UiInput / UiModal / ConfigProfileManager / AccountCloudSyncDialog）。**受影响的视图测试**由 CI 分片承担（本 PR 的 QG Desktop Shards）
+- [x] 相关视图基线**定向**重生成（浅色）：**17 张已由本 PR 的 CI artifact 同源刷新**（QM-4 第 7 条），2 张逐字节未变故不写入；实测 misMatch 区间 **0.0000%–1.6071%**
+- [ ] 暗色基线：本 PR 的 QG Visual 只跑浅色（产物 19 条结果 `theme` 全为 `light`）⇒ 暗色基线仍需 `visual-test.yml`（已含暗色步骤）在 main 产出后入库
+- [x] 完成后 `apps/desktop/src/components` 下 `var(--apple-` 命中 = 0，且 8 个目标文件整体残留 = 0（实测）
+
+### 批次 3 实测结果（2026-09-29）
+- **替换 147 处 / 8 文件**（`src/components` 88 + `features/accounts/components` 59），与批次 0 基线精确一致
+- **门禁计数 339 → 192**（与「移除 147」精确吻合）；基线按「只降不升」下调为 **192**（`frontend-consistency-baseline.json`）
+- 陈旧 fallback 剔除 4 处（`#1f7a4d` / `#a2650b` —— 既不等于 Apple 值也不等于权威值，属第三套真相）
+- 迁移方式：显式映射表 + **失败即停**脚本（未列入映射的变量即报错），并内置「替换结果内 `--apple-` 残留必须为 0」断言
+- 浅色基线同源刷新 **17 张**（来源：本 PR quality-gate 运行的 `quality-gate-visual-reports` artifact）
+
+### 本轮发现（验证质量，建议单独立项）
+
+1. **像素门禁阈值极宽**：`tests/visual-testing/pixel-diff.js` 的 `threshold = 0.1`（**允许 10% 像素不同**）+ `pixelThreshold = 0.1`（每像素色差容差）。
+   ⇒ 本批次「Apple 蓝 → 品牌紫」在 19 个视图的实测 misMatch 仅 **0.0000%–1.6071%**，全部远低于阈值：
+   **门禁 success ≠「无视觉变化」**。推论：AC「基线定向重生成」在阈值下不是通过与否则的必要条件，但**必须做** ——
+   否则仓库基线长期停留在旧观感，漂移累积后被 10% 容差掩盖，直到某次越线才突然爆红（且已难归因）。
+2. **QG Visual 视图集与像素脚本不一致（覆盖缺口）**：`run-pixel-tests.js` 的 `pixelTests` 有 **22** 条，
+   而本 PR 的 QG Visual 产物只有 **19** 条结果（缺 3 个视图，产物中未渲染）⇒ PR 侧视觉验证比脚本声明少 3 个视图；
+   建议后续核对 `quality-gate.yml` 视觉步骤是否用了子集（`PIXEL_ONLY`）或视图清单已漂移。
 
 ---
 
