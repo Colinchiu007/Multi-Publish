@@ -252,7 +252,12 @@ function buildPublishArticle (task, platform) {
     tags,
     draft: resolved.draft ?? resolveBooleanOption({}, resolved.base, 'draft'),
     mentions: processed.mentions,
-    images: processed.images,
+    // 2026-09-29 图文发布修复：article.images（本地文件路径，RPA 上传消费）优先透传——
+    // 旧实现只传 processed.images（HTML 内容提取的 URL），渲染层附加的本地封面被静默丢弃，
+    // 小红书/快手/抖音图文上传拿不到文件。base.images 存在时覆盖，否则保持内容提取语义。
+    images: (Array.isArray(resolved.base.images) && resolved.base.images.length > 0)
+      ? resolved.base.images.map(p => String(p))
+      : processed.images,
     // P1-5：作者字段透传（原仅 wechat_mp RPA 硬编码消费，现全平台透传）
     author: String(resolved.base.author || '').slice(0, 60) || null,
   }

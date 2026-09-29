@@ -160,6 +160,21 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(article.copyright).toBe(1)
   })
 
+  // 2026-09-29 图文发布修复：article.images（本地文件路径，RPA 上传用）必须透传——
+  // 旧实现只传 processed.images（从 HTML 内容提取的 URL），渲染层附加的本地封面被静默丢弃
+  it("article.images 本地文件路径透传（buildPublishArticle 层，图文上传用）", () => {
+    const article = routerSrc.buildPublishArticle({
+      article: { ...baseArticle, images: ["C:/tmp/cover-1.png", "C:/tmp/cover-2.png"], video_path: "" },
+    }, "xiaohongshu")
+    expect(article.images).toEqual(["C:/tmp/cover-1.png", "C:/tmp/cover-2.png"])
+  })
+
+  it("无 base.images 时保持 processed.images（内容提取的 URL，既有语义不回归）", () => {
+    const article = routerSrc.buildPublishArticle({ article: { ...baseArticle } }, "xiaohongshu")
+    // baseArticle 无 images → 走 processed.images（内容无图则空数组）
+    expect(Array.isArray(article.images)).toBe(true)
+  })
+
   it("youtube categoryId/privacy、tiktok privacyLevel、baijiahao original/location 透传（buildPublishArticle 层）", () => {
     const yt = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "10", privacy: "unlisted" } } } }, "youtube")
     expect(yt.categoryId).toBe("10")

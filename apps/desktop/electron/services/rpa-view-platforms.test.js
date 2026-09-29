@@ -341,6 +341,116 @@ describe('rpa-view-helpers — _fillInput 原型选择（2026-09-29 Illegal invo
   })
 })
 
+describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图片上传）', () => {
+  function createImageContext () {
+    return {
+      _emitProgress: vi.fn(),
+      _navigateAndWait: vi.fn().mockResolvedValue(undefined),
+      _waitForElement: vi.fn().mockResolvedValue(true),
+      _setFileInput: vi.fn().mockResolvedValue(true),
+      _click: vi.fn().mockResolvedValue(true),
+      _sleep: vi.fn().mockResolvedValue(undefined),
+      _waitForCondition: vi.fn().mockResolvedValue(true),
+      _waitForResponse: vi.fn().mockResolvedValue(null),
+      _dismissPostNavDialogs: vi.fn().mockResolvedValue(undefined),
+      _waitForVideoUploadComplete: vi.fn().mockResolvedValue(undefined),
+      _fillInput: vi.fn().mockResolvedValue(undefined),
+      _setElementContentSafe: vi.fn().mockResolvedValue(undefined),
+      _getPlatformConfig: vi.fn().mockReturnValue({
+        publish_url: 'https://example.com/config-url',
+        type: 'mixed',
+        has_api: false,
+        selectors: { file_input: ['input[type="file"]'], title_input: ['input[placeholder*="标题"]'], publish_btn: ['button:has-text("发布")'] },
+        success_patterns: [],
+      }),
+      _publish_generic: vi.fn().mockResolvedValue({ success: true, platform: 'test' }),
+      _resolveSelector: vi.fn().mockResolvedValue('input[type="file"]'),
+    }
+  }
+
+  function createWindow (url) {
+    const executeJavaScript = vi.fn().mockResolvedValue(true)
+    return {
+      win: { webContents: { getURL: vi.fn().mockReturnValue(url), getTitle: vi.fn().mockReturnValue(''), executeJavaScript } },
+      executeJavaScript,
+    }
+  }
+
+  it('抖音图文模式：无视频时导航 default-tab=3 并上传首图', async () => {
+    const { win } = createWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = createImageContext()
+
+    await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'],
+    })
+
+    expect(context._navigateAndWait).toHaveBeenCalledWith(win, expect.stringContaining('default-tab=3'))
+    expect(context._setFileInput).toHaveBeenCalledWith(win, 'C:/tmp/cover.png')
+  })
+
+  it('抖音视频模式：保持原上传页 URL，不上传图片', async () => {
+    const { win } = createWindow('https://creator.douyin.com/creator-micro/content/upload')
+    const context = createImageContext()
+
+    await platformsMixin._publish_douyin.call(context, win, {
+      title: '视频标题', video_path: 'D:/video.mp4', images: ['C:/tmp/cover.png'],
+    })
+
+    expect(context._navigateAndWait).toHaveBeenCalledWith(win, 'https://creator.douyin.com/creator-micro/content/upload')
+    expect(context._setFileInput).toHaveBeenCalledWith(win, 'D:/video.mp4')
+    expect(context._setFileInput).not.toHaveBeenCalledWith(win, 'C:/tmp/cover.png')
+  })
+
+  it('快手图文模式：走 tabType=2 URL（getPublishUrl 单一来源）', async () => {
+    const { win } = createWindow('https://cp.kuaishou.com/article/publish/video?tabType=2')
+    const context = createImageContext()
+
+    await platformsMixin._publish_kuaishou.call(context, win, { title: 'T', content: 'C', images: ['C:/img.png'] })
+
+    // 委托 generic 且传入图文 URL（tabType=2）
+    expect(context._publish_generic).toHaveBeenCalledWith(
+      win, expect.objectContaining({ images: ['C:/img.png'] }), 'kuaishou',
+      expect.objectContaining({ publish_url: expect.stringContaining('tabType=2') }),
+    )
+  })
+
+  it('小红书图文模式：preFill 挂 switchImageTab（先切图文 tab 再上传）', async () => {
+    const { win } = createWindow('https://creator.xiaohongshu.com/publish/publish?from=menu')
+    const context = createImageContext()
+
+    await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', content: 'C', images: ['C:/img.png'] })
+
+    expect(context._publish_generic).toHaveBeenCalledWith(
+      win, expect.anything(), 'xiaohongshu',
+      expect.objectContaining({ preFill: 'switchImageTab' }),
+    )
+  })
+
+  it('小红书视频模式：无 preFill（视频 tab 是默认态）', async () => {
+    const { win } = createWindow('https://creator.xiaohongshu.com/publish/publish?from=menu&target=video')
+    const context = createImageContext()
+
+    await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', video_path: 'D:/v.mp4' })
+
+    const call = context._publish_generic.mock.calls[0]
+    expect(call[3].preFill).toBeUndefined()
+    expect(call[3].publish_url).toContain('target=video')
+  })
+
+  it('generic 图片上传：无视频有图时上传首图（image_upload 字段）', async () => {
+    const { win } = createWindow('https://example.com/publish')
+    const context = createImageContext()
+    // 不 mock _publish_generic——直接跑 generic 验证图片上传分支
+    const realGeneric = platformsMixin._publish_generic.bind({ ...context, ...platformsMixin })
+
+    await platformsMixin._publish_generic.call(context, win, {
+      title: 'T', content: 'C', images: ['C:/img1.png', 'C:/img2.png'],
+    }, 'testplatform', context._getPlatformConfig())
+
+    expect(context._setFileInput).toHaveBeenCalledWith(win, 'C:/img1.png', 'input[type="file"]')
+  })
+})
+
 describe('rpa-view-platforms — 发布结果验证', () => {
   it('不会把发布按钮禁用误判为成功', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({

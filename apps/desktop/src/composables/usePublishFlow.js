@@ -30,6 +30,7 @@ import {
   cancelTask,
   storeGetSetting,
   storeSetSetting,
+  generateAiCover,
 } from '@/api/publisher'
 import {
   buildPublishTargets,
@@ -48,6 +49,10 @@ import { usePublishProgressStore } from '@/stores/publishProgress'
 
 const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
 const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
+
+// 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
+// 无图时 handlePublish 自动生成封面兜底——AI 生图优先，cover:generate-ai 内建本地标题卡回退）
+const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin']
 
 function isMarkdownContent(content) {
   return MARKDOWN_RE.test(content) || MARKDOWN_LINK_RE.test(content)
@@ -440,6 +445,30 @@ export function usePublishFlow(options) {
             type: 'warning',
           })
           if (!confirmed) return
+        }
+      }
+
+      // 2026-09-29 图文发布兜底：小红书/快手/抖音图文要求至少 1 张图片；无图时自动生成封面
+      // （AI 生图优先，本地标题卡兜底——cover:generate-ai 已内建回退）。生成失败不阻断发布
+      // （无图平台照常发，图片平台会在引擎层如实报错）；成功则附加进表单（用户可见，透明）。
+      if (!isVideoMode && selectedPlatforms.value.some(p => IMAGE_TEXT_PLATFORMS.includes(p))) {
+        const hasImages = (Array.isArray(article.image_files) && article.image_files.length > 0)
+          || (Array.isArray(article.images) && article.images.length > 0)
+        if (!hasImages && article.title.trim()) {
+          try {
+            addProgress(progressText('publishPage.publishFlow.generatingCover'), 'info')
+            const coverRes = await generateAiCover({ prompt: article.title, ratio: '3:4' })
+            if (coverRes && coverRes.code === 0 && coverRes.data && coverRes.data.coverPath) {
+              const coverFile = normalizePublishFile({ path: coverRes.data.coverPath })
+              if (coverFile) {
+                article.image_files = [coverFile]
+                article.images = [coverFile.path]
+                addProgress(progressText('publishPage.publishFlow.coverGenerated'), 'success')
+              }
+            }
+          } catch (_) {
+            // 封面生成失败不阻断：无图平台照常发布
+          }
         }
       }
 

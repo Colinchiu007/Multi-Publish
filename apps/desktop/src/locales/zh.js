@@ -1414,6 +1414,8 @@ export default {
       sensitiveMessage: (ctx) => '发布内容包含敏感词：' + ctx.named('words') + '，是否仍然发布？',
       sensitiveForcePublish: '强制发布',
       sensitiveModify: '修改',
+      generatingCover: '🖼️ 图文平台需要图片，正在自动生成封面...',
+      coverGenerated: '✓ 封面已生成并附加到内容',
       offlineCached: '网络已断开，任务已缓存',
       offlineProgress: '📡 网络已断开，发布任务已缓存，网络恢复后自动重试',
       scheduleCreated: (ctx) => '⏰ 已创建 ' + ctx.named('count') + ' 个定时任务',

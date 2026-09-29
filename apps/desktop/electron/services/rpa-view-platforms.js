@@ -191,6 +191,21 @@ const platformsMixin = {
       case 'clickWrite':
         await this._click(win, (context&&context.writeSelector)||'button:has-text("写文章")')
         await this._sleep(2000); break
+      case 'switchImageTab': {
+        // 小红书发布页 tabs：上传视频(active) / 上传图文 / 写长文 / 发播客（2026-09-29 实测取证：
+        // publish/publish?from=menu 默认落视频 tab，file input accept 全是视频格式；
+        // .header-tabs 容器加载慢（实测 10s 后才渲染），必须先等它出现再点）。
+        // 点击按文字「图文」匹配（比 children[1] 位置索引抗改版）。
+        const tabsReady = await this._waitForElement(win, '.header-tabs, .creator-tab', 20000)
+        if (tabsReady) {
+          try {
+            await win.webContents.executeJavaScript('(function(){var tabs=[...document.querySelectorAll(".creator-tab, .header-tabs > div")];var img=tabs.find(function(t){return (t.textContent||"").indexOf("图文")!==-1});if(img){img.click();return true}return false})()')
+          } catch (_) { /* 点击失败则继续（可能已在图文 tab） */ }
+        } else {
+          log.warn('RpaView', '[switchImageTab] tab container not found within 20s')
+        }
+        await this._sleep(1800); break
+      }
       default: log.warn('RpaView', 'Unknown hook: ' + hookName)
     }
   },
@@ -230,6 +245,33 @@ const platformsMixin = {
 
     // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
     await this._dismissPostNavDialogs(win, platform)
+
+    // image upload（2026-09-29 图文模式）：无视频但有本地图片时上传首图。
+    // 小红书/快手/抖音图文要求至少 1 张图片；图片经 article.images（本地文件路径，
+    // 渲染层自动生成封面兜底——usePublishFlow IMAGE_TEXT_PLATFORMS）传入。
+    // 多图平台（快手支持 31 张）暂传首图：多图需逐张等待上传完成，后续迭代。
+    if (!article.video_path && Array.isArray(article.images) && article.images.length > 0 && sel.file_input && sel.file_input.length > 0) {
+      retry.addField('image_upload')
+      while (!retry.isDone('image_upload')) {
+        try {
+          this._emitProgress(platform, 'uploading image...', 22)
+          const imgFileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
+          if (imgFileSel) {
+            await this._setFileInput(win, article.images[0], imgFileSel)
+            // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
+            await this._sleep(4000)
+            const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
+            if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
+            retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
+          } else {
+            if (!retry.retry('image_upload')) break; await this._sleep(2000)
+          }
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] image upload: '+e.message)
+          if (!retry.retry('image_upload')) break; await this._sleep(2000)
+        }
+      }
+    }
 
     // video upload（必须先上传后填字段：kuaishou/bilibili 等平台的 publish_url 是
     // 上传落地页，标题/简介字段要等上传完成进入编辑器才渲染；旧顺序先填字段
@@ -929,7 +971,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // eslint-disable-next-line no-unused-vars
     const self = this
     this._emitProgress('douyin','navigating...',5)
-    await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload')
+    // 2026-09-29 图文模式：无视频时走图文上传 tab（default-tab=3，getPublishUrl 单一来源，
+    // 参考产品取证同款）；有视频保持原上传页。
+    const isImageMode = !article.video_path
+    const douyinUrl = isImageMode
+      ? (getPublishUrl('douyin', 'image') || 'https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+      : 'https://creator.douyin.com/creator-micro/content/upload'
+    await this._navigateAndWait(win, douyinUrl)
     if (win.webContents.getURL().includes('login')) { log.warn('RpaView', '[douyin] not logged in url=' + win.webContents.getURL()); return {success:false,error:'douyin not logged in',platform:'douyin'} }
     // 抖音实测（2026-09 d5-douyin.json）：页面叠加“我知道了”引导遮罩，不先关掉会
     // 挡住字段与发布按钮
@@ -942,6 +990,23 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       this._emitProgress('douyin','waiting upload...',30)
       await this._waitForVideoUploadComplete(win,'douyin')
       this._emitProgress('douyin','video uploaded',50)
+    } else if (isImageMode && Array.isArray(article.images) && article.images.length > 0) {
+      // 2026-09-29 图文模式：上传首图（渲染层自动生成封面兜底传入 article.images）
+      this._emitProgress('douyin','uploading image...',20)
+      if (await this._waitForElement(win,'input[type="file"]',15000)) {
+        try {
+          await this._setFileInput(win, article.images[0])
+          await this._sleep(4000)
+          // 图片上传后页面切到发布表单（content/post/image），表单就绪再填字段。
+          // 实测教训：上传后 7ms 即填字段全部落空——页面还在切换，标题/描述填进
+          // 旧 DOM、发布按钮 disabled → 点了没反应 → 65s 超时。
+          const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
+          if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
+          this._emitProgress('douyin','image uploaded',45)
+        } catch (e) { log.warn('RpaView', '[douyin] image upload: ' + e.message) }
+      } else {
+        log.warn('RpaView', '[douyin] no file input (image mode) url=' + win.webContents.getURL())
+      }
     }
 
     if (article.title) {
@@ -1246,8 +1311,39 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     const config = this._getPlatformConfig('xiaohongshu')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
+    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input
+    // accept 全是视频格式）；图文需先点「上传图文」tab（switchImageTab hook，参考产品
+    // renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
+    const isImageMode = contentType === 'image'
     return this._publish_generic(win, article, 'xiaohongshu', {
       ...config,
+      publish_url: publishUrl || config.publish_url,
+      ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
+    })
+  },
+
+  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，
+  // getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
+  async _publish_kuaishou(win, article) {
+    const config = this._getPlatformConfig('kuaishou')
+    const contentType = article.video_path ? 'video' : 'image'
+    const publishUrl = getPublishUrl('kuaishou', contentType)
+    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
+    // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
+    // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
+    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
+    const isImageMode = contentType === 'image'
+    const effectiveConfig = isImageMode
+      ? {
+        ...config,
+        selectors: {
+          ...config.selectors,
+          file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+        },
+      }
+      : config
+    return this._publish_generic(win, article, 'kuaishou', {
+      ...effectiveConfig,
       publish_url: publishUrl || config.publish_url,
     })
   },
