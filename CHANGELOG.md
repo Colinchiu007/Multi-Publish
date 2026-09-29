@@ -1,3 +1,21 @@
+# [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
+
+### 现象与根因
+- `QG Desktop Shards` / `Gate 4` 在 pnpm 退出后跑一段「有没有漏下测试子进程」的检查，判定非空即 `throw`，并**对结果逐个 `taskkill /T /F`**。实测 run 36519025075 attempt 1：**12517 个测试全部通过**，该检查却报出 `csrss.exe / winlogon.exe / fontdrvhost.exe / dwm.exe` 四个"残留子进程"。
+- 根因：`quality-gate.yml` 的 Gate 4 与 Desktop shards **各内联了一份** `Get-TestProcessTree`，只按数字 `ParentProcessId` 递归，而种子是**已经退出的 pnpm 的 PID**。Windows 会回收退出进程的 PID，`Win32_Process.ParentProcessId` 又只是存下来的数字而非活链接 —— 于是任何把该数字记作自己父亲的长命进程都会被认成后代。两份拷贝还意味着任何修复都要改两处并持续漂移。
+
+### 变更
+- 防护不变量：**子进程创建时间不得早于其父进程**。选它而不是进程名/镜像路径黑名单，因为该不变量与名字和路径都无关 —— 真实泄漏的 node/electron/python 子进程一定晚于其父启动（不会被漏），而开机期进程永远早于任何 runner 进程（不可能被认成后代）。「路径必须在 workspace 下」会漏工具缓存里的 node.exe，故不采用。
+- 两处内联拷贝收敛为 `scripts/get-test-process-tree.ps1`（带 `-Processes` 注入点做到确定性测试、`-NotBefore` 时间锚点由调用方在 `Start-Process` **之前**取 `Get-Date`，与 `Win32_Process.CreationDate` 同为本机钟、不跨 API 比时间）。调用点在脚本缺失时**硬失败**，不得静默退回旧实现。
+- 新增 `scripts/get-test-process-tree.test.ps1`（8 条，接进 Gate 2d）。其中第 6 条是**反失明**断言：关掉防护时同一 fixture 必须复现误判，否则第 1–3 条只是"集合恰好为空"；第 8 条起一个真实子进程走 `Get-CimInstance` 实路，因为 1–7 只喂注入表，抓不到「CIM 时间与本机钟不可比 ⇒ 把所有进程都拒掉」这种恒绿形态。
+- 同步更新 `workflow-contract.test.js` 中 4 条锁死旧形态（"步骤里内联了一份函数"）的断言 —— 不更新会**恒红**；改为锁「引用共享实现 + 必带 `-NotBefore` + 全文件不得再内联第二份」。
+
+### 证据
+- 本机 pwsh 7 与 Windows PowerShell 5.1 各 8/8 PASS；`check-ps1-bom` 9/9、Gate 3 契约 76/76、unwired / failfast / debt-budget 全 rc=0。
+- 反证两条实跑：把时间防护改成恒不成立 → 第 1 条立刻报 `6064,6548,6864,7004`（正是事故那四个 PID）；把内联定义塞回 workflow → 新增的 `doesNotMatch` 锁变红。均按字节还原。
+- runner 现场：合并后首次 main 检查打印 `[process-tree] scanned=134 descendants=0 rejected-by-time=0` —— 误判消失，且未把真实子进程一并拒掉。
+- 一次自伤如实记：首版测试文件含**一条**中文注释而无 BOM，被仓库自己的 `check-ps1-bom.js` 抓红（PS 5.1 把无 BOM 的 UTF-8 .ps1 按 ANSI 读）。直接原因是本地只跑了 unwired / failfast / debt-budget，**漏跑这一条门禁**。
+
 # [未发布] docs(publish): 平台端点取证清单——审核回查 / 平台草稿列表的 verified 提升判据（2026-10-09，audit-requery-evidence-checklist）
 
 ### 文档
