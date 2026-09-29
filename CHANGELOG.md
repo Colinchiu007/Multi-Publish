@@ -1,3 +1,32 @@
+# [未发布] feat(publish-progress): 进度浮窗视觉/UE 精化——dot-stepper 降噪 + 取消链路端到端 + 完成自动收敛（2026-09-29，publish-progress-panel-refine / PR #2658）
+
+### 根因（第一性原因）
+- 浮窗「散乱」不是元素多，是三因叠加：同一事实 3~4 次重复表达（✓成功 + 步骤链末端「完成」高亮 + 100% + 会话角标「已完成」）、6 词文字步骤链（N 任务 × 6 词）、flex-wrap 无网格对齐（列位随内容长度跳动）。
+- UE 缺口：取消入口只在页面级不在浮窗内；**取消链路断在主进程**——TaskQueue 取消任务发 `task:cancelled`（task-queue.js:199）但无人转发，页面级取消后浮窗永远「进行中」；失败恢复断在「只能看」（错误截断仅 title 悬浮、无单任务重试/复制）；完成态不自收敛。
+- 层级倒挂：「请勿关闭应用」（唯一操作约束）以 xs/muted 脚注呈现；「发布任务」fallback 占位标题加粗当组标题，多会话无法区分。
+
+### 变更
+- **主进程**：`publish-progress-events.js` PHASE_ENUM + `cancelled`；`phase4-events.js` 新增 `task:cancelled` 转发（`phase:'cancelled'` 中性终态——取消不是失败：不落历史、不挂风控；同时修复页面级取消后浮窗永远「进行中」的既有缺陷）。
+- **store**：PHASE_ENUM/TERMINAL_PHASES + cancelled（吸收态）；aggregate 新增 `cancelled` 计数；`cancelRunning()`（逐任务 `queue:cancel`、`cancelling` 防重入、只发请求不自标记——任务状态更新以转发事件为单一来源）；`retryOne()` 单任务重试（与 retryFailed 共享 `_retryOne` 路径与防重入）。
+- **TaskRow 重构**：dot-stepper（6 圆点+连线：过去实心灰、当前主色+脉冲、未来空心）取代整链 6 词文字；固定网格对齐（平台|状态|中部 flex|百分比右对齐|操作）；状态列承载最具体状态（运行行显示阶段词而非「进行中」）；queued 不预渲染步骤链；success 不显示 100%；cancelled 中性态；failed 行内联「重试此任务」+「复制错误信息」（emit 上抛，组件保持纯展示）；图标着语义色、文字统一中性（四色收敛）。
+- **Panel 重构**：汇总「成功 N/M」直给（failed/cancelled 不计入「已完成」，各自单列）；单会话扁平化（去卡中卡/去会话徽标）、多会话分组卡+点徽标；fallback 标题带时间「发布 · HH:MM」；footer 警示条（warning-soft 底）+「取消全部任务」两步内联确认（4 秒窗口；**不用模态弹窗**——浮窗按 PRD-OVERLAY-VIEW-SUSPENSION §6 显式不接入浮层互斥合同，模态弹窗接入即触发互斥合同）；完成自动收敛（全部成功+5 秒无指针操作→自动最小化，不弹首次隐藏 toast；交互/新会话取消收敛；失败/取消在场不收敛；手动展开完成态不触发）；当前步脉冲+成功图标 pop-in（`prefers-reduced-motion` 全关）。
+- **组件拆分（逐文件行数门禁）**：首次 CI 债务熔断红——`PublishProgressPanel.vue` 688 行 ≥ 500（新代码不得引入超大文件）。拆出 `PublishProgressFooter.vue`（警示条+两步取消状态机，150 行）、`PublishProgressSession.vue`（会话卡：头+任务行+会话级重试，152 行）、`composables/usePublishProgressAutoCollapse.js`（自动收敛计时器，74 行）；Panel 降至 398 行、TaskRow 347 行，`check-max-lines.js` PASS。
+- **locales**：zh/en 成对——`summarySucceeded`（取代 summaryDone）、`summaryCancelled`、`sessionTitleTimeFallback`（取代 sessionTitleFallback）、`statusCancelled`、`cancelAll`/`cancelConfirm`/`cancelling`/`cancelPartial`、`retryTask`/`copyError`/`copied`/`copyFailed`。
+- **文档**：母 PRD `PRD-PUBLISH-PROGRESS-UX-2026-09-28.md` 契约表同步修订（§5.1/§5.2/§6.1/§7/§8.1-§8.4/§12）；新增专题 `01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md`；`AGENTS.md` QM-2 契约条目扩展（cancelled 三处同步 + 禁自标记 + 面板测试锁入清单）；OpenSpec change `openspec/changes/publish-progress-panel-refine/`。
+- **卫生修复**：CHANGELOG.md 历史条目内嵌的字面控制字符（`\x00-\x1f/\x7f` 字节序列，使文件被工具判为二进制、无法用常规编辑器处理）改为转义写法（NUL 计数 1→0）。
+
+### 影响
+- 视觉密度降约一半（6 词/任务 → 1 词+6 点）；取消与失败恢复入口进浮窗；页面级取消后面板如实转「已取消」。
+- 兼容：`phase:'cancelled'` 为加法（旧渲染层收到未知相位按 progress 归一的既有 fail-closed 行为不变）；不改 TaskQueue 编排语义、不改 IPC 形状、stageKey 封闭清单不动、非模态负向锁保持。
+- 组件职责：TaskRow 保持纯展示（props 单向 + emit）；Footer/Session 为 Panel 的子容器；自动收敛计时器归 composable（store 不持计时器，保持纯状态）。
+
+### 验证
+- 回归锁全绿：`publish-stage-map` 52 + `publish-progress-events` 19 + `phase4-events` 15 + `publishProgress` 27 + `PublishProgressPanel` 25 + `usePublishFlow` + `bootstrap` 61（事件计数锁 4→5 同步）+ 受影响面（useBatchPublish/Publish/HotTopics/window/window-close-policy/system-tray）。
+- `check-locale-sync` 三项 PASS（pair/cjk/keys）；ESLint 改动文件 0 error 0 warning；`check-max-lines.js` PASS（拆分后无新增超大文件）。
+- QM-1：`pnpm run build:dir` rc=0；asar 清单含 `electron/services/publish-progress-events.js`；启动 8 秒存活且 stderr 无「Failed to load platform config / PluginLoader.mkdir failed / ENOTDIR.app.asar」；打包脏化的 preload bundle 按 R2 精确还原。
+- CI：全部 required checks 绿；唯一中途红点 `electron/tests/test_scheduler_parity.test.js`（`python simulator failed:` 空 stderr）为 **CI runner 缺 python 环境**的偶发（`compare-scheduler-models.js:213` `spawnSync('python')`），本地复跑 3/3 全绿、与本次 diff 零交集，重跑后 success。
+- QM-6：双模型外部评审**未执行**（如实登记，不以自审冒充）——backend codex 报「Token 额度已用完」（计费阻塞）、frontend claude CLI 连续 3 次 exit 1（重试预算耗尽）。
+
 # [未发布] fix(定时发布): 全链路验证修复——批量定时重启恢复、历史定时模式标记、日历取消入口（2026-10-02，fix-scheduled-publish-gaps）
 
 - **fix(history)：发布历史失败记录渲染失败原因（publish-history-error-detail）**。
@@ -3866,7 +3895,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - **W-2 信号注入可感知**：chip 旁新增「已注入爆款信号（N）」计数标识（`rewritePage.signalBadge` zh/en 成对）。
 - **引擎 W-1 预填来源标记**：本地规则预填的 `last_error` 写 `local-rules prefill (llm failed N times)`（此前清空抹除 LLM 失败诊断痕迹）。
 - **I-1 title_formula 单位保留**：正则交替顺序修正（个月前置于个防截胡）+ 回调捕获组错位修复（单位此前恒丢）→「3个月」→「{N}个月」。
-- **I-3 注入边界加固**：`_sanitizeStringList` 过滤控制字符（ -/），信号条目「」包裹限定语义边界。
+- **I-3 注入边界加固**：`_sanitizeStringList` 过滤控制字符（\x00-\x1f/\x7f），信号条目「」包裹限定语义边界。
 
 ### 验证
 - RewriteView 68/68、pattern-extraction 8/8（新增单位保留断言）、viral-signal 4/4（新增截断边界例）；locale --keys/--cjk PASS。
