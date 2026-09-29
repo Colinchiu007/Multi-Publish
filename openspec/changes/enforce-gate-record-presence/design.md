@@ -63,6 +63,15 @@
 
 **理由**：本 change 要修的是"检查不到的位置"，若把登记搬进一份新的共享 JSON，等于把 #2570 第三轮实测到的那个**唯一冲突文件**复制成判据的日常依赖——共享写归零才是载体迁移的全部意义。派生聚合还顺带消掉"回填一条必须记得删登记项"这条人工耦合：登记字段就在被回填的那篇文件里，改状态即删字段，不可能漂移。
 
+**第二条实测理由（本 change 落地后当场拿到的 A/B，比"撞车"更硬）**：那份共享清单不只是撞车面，它还**整条剥夺写记录之 PR 的快速通道**。两个同类 PR 的现场对照：
+
+| PR | 触碰文件 | CI 实况 | 墙钟 |
+| --- | --- | --- | --- |
+| #2683（本 change 的规划工件） | 5 个 `openspec/**` 新文件 | 19 项检查中 **11 项 skipping**（`QG Static` / `QG Unit Tests` / `QG Coverage` / `QG Desktop Shards` / `QG Visual` / `build` / `electron-tests` 全部被 `changes` job 短路），8 pass | ≈1 分钟，零 re-sync |
+| #2604（回填三条记录） | `.quality-gates.md` + `scripts/gate-record-debt-ledger.json` | 走完整 lane | ≈60 分钟，**3 轮 re-sync** |
+
+归因要精确：`node scripts/classify-docs-only.js --base=… --head=HEAD` 对 #2604 判 `docs-only=false`，**原因不是它改了 `.quality-gates.md`**（根级 `*.md` 命中白名单 `*.md`），而是那份 ledger JSON 不在白名单里（白名单实测只有 `01-docs/** docs/** *.md LICENSE .gitignore .editorconfig .ccg/** .claude/** .hermes/** .agents/** openspec/**`，没有任何 `scripts/**` 条目）。⇒ 现行 SOP 下"写记录"这件事的整条快速通道代价，是**共享清单**强加的，不是巨型 md 强加的。把登记随记录文件走（文件落在 `openspec/**` 内）因此同时买到两样东西：零共享写，以及记录型 PR 回到 docs-only 快速通道。
+
 **代价（如实）**：聚合从"一份可直接读的文件"变成"要扫目录才能得到"。缓解：checker 输出分源计数与清单打印，历史趋势数不因迁移而失真（见 spec「分源计数可比」）。
 
 ### D6 存量 47 条（其中 40 条三处皆无）一次性写入独立文件，不进任何共享清单
