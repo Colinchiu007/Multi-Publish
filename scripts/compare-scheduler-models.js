@@ -55,6 +55,41 @@ function completionOrder (timeline) {
 }
 
 /**
+ * 完成**集合**是否一致（承重判据）。
+ *
+ * 为什么按集合而不是按序列：#2626 的实际缺陷是"被 429 拒掉的请求被算成完成"——那是**成员**问题，
+ * 按集合比较就能抓到，而且它对事件帧饥饿免疫。
+ *
+ * 为什么序列**不能**当硬判定（别再改回去，这是测出来的）：真实侧的完成次序在饥饿下会翻转。
+ * 用 `runSelfCheck` 返回的**未排序** `completion_order` 实测四档饥饿：帧延迟 301/426ms 时
+ * 得到 `[1,2,4,3,…]`，1904–1908ms 与 3914–3931ms 时得到 `[1,2,3,4,6,5,…]`，
+ * 12 个饥饿样本里 **9 个非升序**（机理：前一条调用的回调被推迟到后一条放行之后才执行，
+ * 与 #2606 让并发观测虚高 1 是同一个成因）。按序列做相等判定就是把 #2606 的假红重新引进来。
+ * 数据单一副本见 docs/parity-concurrency-measurement-noise.md。
+ *
+ * @param {number[]} simulated 模拟器完成序
+ * @param {number[]} real      真实侧完成序（**必须**是实际次序那份，不能是排序后的投影）
+ * @returns {boolean} 成员集合相等为 true；任一入参非数组 ⇒ false（fail closed）
+ */
+function completionSetMatches (simulated, real) {
+  if (!Array.isArray(simulated) || !Array.isArray(real)) return false
+  const key = (a) => [...a].sort((x, y) => x - y).join(',')
+  return key(simulated) === key(real)
+}
+
+/**
+ * 完成**序列**是否一致（只留痕，不计入 pass）。
+ *
+ * 保留理由：翻转本身是有信息量的观测（它同时是 +1 并发噪声的成因）。
+ * 但它**不得**升级为硬判定 —— 判据依据与实测见 `completionSetMatches` 的注释与 docs。
+ */
+function completionOrderSequenceMatches (simulated, real) {
+  if (!Array.isArray(simulated) || !Array.isArray(real)) return false
+  if (simulated.length !== real.length) return false
+  return simulated.every((v, i) => v === real[i])
+}
+
+/**
  * 「+1 是不是回调推迟造成的」的因果证据。
  *
  * 为什么必须有它：只凭 `real = sim + 1 且 ≤ 上限` 就豁免，等于把**两种成因相反**的形状
@@ -247,16 +282,18 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
       evidence,
     })
     const simOrder = completionOrder(sim.timeline)
-    const realOrder = completionOrder(real.timeline)
+    // 真实侧**只能**取 runSelfCheck 单独返回的实际完成次序：它返回的 timeline 排过 req 序，
+    // 从那份投影里"重新算完成顺序"会得到恒为升序的假数据 —— 拿它比较等于比较一个常量。
+    // 这里刻意不做兜底：字段缺席就让集合判据 fail closed，而不是退回那个恒真投影。
+    const realOrder = real.completion_order
     const checks = {
       max_concurrent_observed: conc.pass,
       rate_limited_count: real.metrics.rate_limited_count === py.rate_limited_count,
       quota_exceeded_count: real.metrics.quota_exceeded_count === py.quota_exceeded_count,
       total_duration_ms: Math.abs(real.metrics.total_duration_ms - py.total_duration_ms) <= allowed,
-      // 完成顺序**暂不**并入 pass：本轮把它真的比了一遍，立刻抓到一个模型分歧
-      // （注入 429 的请求：模拟器记 completed，真实侧记 rate_limited），那是独立的一张单，
-      // 不该塞进这条判据 PR 扩大爆炸半径。这里继续**计算并打印**，并由测试锁住
-      // "探测器能发现它"，所以它不是被删掉的守卫，而是尚未升级成硬判定的已知分歧。
+      // 完成**集合**计入 pass（#2626 的形状就是成员错判：被 429 拒掉的请求被算成完成）。
+      // 完成**序列**不计入 —— 它在饥饿下会真实翻转（实测 9/12），按序列判等就是重造 #2606 的假红。
+      completion_set: completionSetMatches(simOrder, realOrder),
     }
     results.push({
       name: c.name,
@@ -270,8 +307,11 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
       // 命中豁免必须留痕：静默通过的容差是下一轮"为什么这条不红"的起点。
       concurrency: conc,
       deferralEvidence: evidence,
-      completionOrder: { simulated: simOrder, real: realOrder },
-      completionOrderDiverges: !(simOrder.length === realOrder.length && simOrder.every((v, i) => v === realOrder[i])),
+      completionOrder: { simulated: simOrder, real: Array.isArray(realOrder) ? realOrder : null },
+      // 承重的那条：集合是否一致（与 checks 共用同一实现，避免两份判据口径漂移）
+      completionSetDiverges: !completionSetMatches(simOrder, realOrder),
+      // 只留痕：序列翻转在饥饿下是真实且正常的观测，不构成判定
+      completionSequenceDiverges: !completionOrderSequenceMatches(simOrder, realOrder),
       noiseBypass: conc.noiseBypass,
       pass: Object.values(checks).every(Boolean),
     })
@@ -315,11 +355,12 @@ async function main () {
       + ' 推迟证据=' + (r.deferralEvidence.observed ? '有' : '无')
       + ' 最大跨度=' + r.deferralEvidence.maxSpanMs + 'ms'
       + (r.noiseBypass ? '  [噪声豁免命中] ' + r.concurrency.reason : ''))
-    if (r.completionOrderDiverges) {
-      console.log('  完成顺序分歧（未计入 pass，见跟踪单）: sim=' + JSON.stringify(r.completionOrder.simulated)
-        + ' real=' + JSON.stringify(r.completionOrder.real))
-    }
-    if (!r.pass && r.concurrency && !r.concurrency.pass) console.log('  maxc 判红原因 :', r.concurrency.reason)
+    // 每次都打印两侧序列本身：红了要能一眼看出是谁多/少哪一项，只报布尔值等于把归因推给复跑。
+    // 序列不一致但集合一致时明确标"仅次序（饥饿下属正常）"，免得下一个人把留痕当判据去收紧。
+    console.log('  完成   : sim=' + JSON.stringify(r.completionOrder.simulated)
+      + ' real=' + JSON.stringify(r.completionOrder.real)
+      + (r.completionSetDiverges ? '  [集合不一致 ⇒ 已计入判据]'
+        : (r.completionSequenceDiverges ? '  [仅次序不同（饥饿下属正常，不计入判据）]' : '')))
     if (!r.pass && r.concurrency && !r.concurrency.pass) console.log('  maxc 判红原因 :', r.concurrency.reason)
     if (!r.pass) ok = false
   }
@@ -336,7 +377,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })

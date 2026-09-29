@@ -1,3 +1,37 @@
+## 话题的「输入框字段」与「描述文本」谁是真源，决定整条发布链的数据流——对齐参考产品模型后，剥离/转换必须按平台三态分流且只准单一实现（publish-topic-inline-description，2026-10-09）
+
+- **「标签/话题输入框 + 引擎按平台拼 tags」的隐式模型，在话题本就内联描述的平台必然丢数据（模型对齐）**：
+  抖音/快手/视频号的话题在平台 API 里就是描述文本的内联片段（抖音 text_extra 标记 hashtag 位置、
+  视频号 description 双井号），没有独立字段。本仓旧实现 tags 数组在这三个平台被静默丢弃——用户填了
+  话题，发出去的内容里根本没有。参考产品 4.13.19 逆向取证（bundle 主进程）：话题以 `<topic>` 内联
+  描述富文本、发布时各平台隐性转换、fail-closed 验证。对齐后「描述为真源」：UI 追加管道把话题
+  内联进描述，引擎按平台三态消费（内联保留/双井号转换/剥离独立字段）。
+
+- **剥离话题用「已知话题精确匹配」而不是形态正则，是防误伤代码片段的关键（解析口径）**：`#include`、
+  `#define` 与 `#美食探店` 在文本形态上无法用正则区分（都是 `#` + 非空白字符）。正解：剥离/转换/
+  位置标记都只处理 knownTopics（tags 数组，主进程已合并描述解析值）精确匹配的片段——代码片段不在
+  清单里永不误伤，用户手动打的话题经主进程单井号解析并入清单后同样覆盖。
+
+- **话题井号的前置边界与 URL 片段是同一族陷阱（CCG claude 路评审发现）**：`https://x.com#tag` 里的
+  `#tag` 与话题 `#tag` 文本形态完全相同，唯一区分是井号前是否为空白/开头。所有话题匹配（渲染层
+  remove/extract + 引擎 strip/convert/findPositions）都必须带前置边界 `(^|\s)`，否则 URL 锚点被
+  误删/误转/误标位置。这与「外链协议判据」同族：**井号/协议这类上下文敏感 token，判据必须带位置
+  约束，不能只看字面**。
+
+- **RichTextProcessor 只解析双井号 `#名#`，单井号 `#名` 的解析缺口要在主进程合并层补齐（解析缺口）**：
+  UI 追加管道写入的是单井号形态（抖音/快手/小红书通用），若主进程只靠 RichTextProcessor 解析，
+  单井号话题进不了 tags 数组——剥离型平台的独立字段会丢、抖音 text_extra 标记不到。补法：
+  buildPublishArticle 的三合一合并加入 extractInlineTopicNames（content-formatter 单一实现）。
+
+- **行为变更的契约测试要同步更新到新语义，且在 CHANGELOG 里明示「旧数据兼容性损失」（行为变更纪律）**：
+  快手「tags 拼进 caption」是已锁定的既有行为，新模型下话题已内联 content、再拼即双份重复。去掉
+  拼接后三处旧断言更新为新语义，旧草稿 tags 残留值不再进内联型平台描述——这是真源语义的
+  有意取舍，不是回归。
+
+- **引擎 run-tests.js 的 VITEST_FILES 是硬编码白名单，新增 vitest 风格测试文件必须登记（测试接线）**：
+  契约锁文件用 vitest import 写就，node 直跑必挂；不在白名单里会被分到 direct 组以 node 执行。
+  判据：新测试文件跑 `node scripts/run-tests.js` 全量确认收录（通过清单出现文件名），vitest 直跑
+  绿不算数——同族纪律见「新增测试文件必须看见它被执行过」。
 ## 外部可控 URL 绑进可点击锚点前必须验协议，且"全仓清点"漏一种后缀就会把错误实况写成契约（fix-href-scheme-guard，2026-09-29）
 
 - **第一性根因不是"少了一个校验"，是"同一判定被抄成多份而无人接线"**：`hot-topics/channels.js` 里早就有一份语义完全正确的 `sanitizeUrl`（注释写着"仅 http/https，其他协议返回 null"），但它只在热榜解析器内、且属主进程私有；采集侧 `content-intelligence-sources.js` 把 `d.url` 原样透出，六条渲染链照字段名直绑 `:href`，于是一个正确实现的存在**掩盖**了六处缺失。修法不是"在被报的那个页面加判据"，而是先问"仓里谁已经在判同一件事、为什么没接上"。（PRD: `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`）
@@ -16616,3 +16650,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **实际后果（若不证伪）**：按「未开工」重复实施 = 重复删除已删文件（空 diff）、重复生成 15 张图、重复改 locales——纯浪费且在 account 热域制造真实冲突（add-account-name-source 的后续 PR #2514 已引用其 account-name-write.js 作先例）。
 - **规约（接手任何交接清单的固定动作）**：对清单里每一条「未开工/待办」，先做三件只读取证再规划工作——① `git merge-base --is-ancestor <合并提交> origin/main`（合并是否在主干）；② `git log -S "<关键符号>"`（交付物是否在代码里）；③ openspec change 目录是否已在 `changes/archive/`。**「未勾选框计数」≠「未交付」**：tasks.md 复选框是流程工件，滞后于代码事实是常态（本批 3 个 change 全部如此）。
 - **落地**：4 个大件各派一个只读拆解代理做证伪 + 技术拆解（报告存 `.agent_context/breakdowns/`，机器本地）；证伪结论与证据已固化进 PR 描述（#2530/#2531/#2532）——其中 2 个「假未开工」转为归档收口 PR、1 个已在档无需动作、1 个真未开工项（ui-apple-token-retirement，L 复杂度）正确地停在「等用户拍板 7 个开放问题」。拆解报告本体在 gitignored 目录会随机器丢失，**有跨机价值的结论必须进 PR 描述或 learnings，不能只存 .agent_context**。
+## 非交互 bash 不加载 /etc/profile：PATH 缺 Git\usr\bin 时 dirname/cygpath/awk 全灭，worktree 入口静默失败（fix-bash-dirname-wsl-guard，2026-09-29）
+
+- **非交互/非登录 bash 的 PATH 只继承 Windows PATH（POSIX 化），不加载 /etc/profile（第一性根因）**：`start-mp-task.ps1` 用 `& $bash $initScript $TaskName` 调 Git Bash，后者不读 profile ⇒ PATH 里没有 `/usr/bin`（dirname/cygpath/awk 都在那），`session-init.sh: line 6: dirname: command not found`（exit 127），worktree 未建成就中止。实测对照：`bash -c 'command -v dirname'` → not found（127）；`bash -lc` → `/usr/bin/dirname`（0）。`.quality-gates.md` 已两次记录同款事故（PATH 缺 `Git\usr\bin`），此前只临时前置 PATH 治标——**「临时补 PATH」是治标，因为下个会话/下台机器又缺**。
+- **bash 内建 `$BASH` 不依赖 PATH，是定位自身 bin 目录的唯一可靠锚点（自愈手法）**：`${BASH%/*}` 即 Git for Windows 的 `/usr/bin`，把该目录前置进 PATH 即可让非交互 bash 找到 dirname/cygpath/awk。WSL bash 无此目录结构（system32 下没有 usr/bin），自愈不会误伤。三个 sh 入口（session-init / gwm-task / session-cleanup）顶部统一加这段。
+- **PowerShell 侧探测链只 `Test-Path` 存在性，等于没校验身份（审查盲区）**：`-GitBash` / `MP_GIT_BASH` 可被指向 `C:\WINDOWS\system32\bash.exe`（WSL shim）而无人拦。身份校验判据：路径须匹配 `<GitRoot>\usr\bin\bash.exe` 或 `<GitRoot>\bin\bash.exe`，且同根 `usr\bin\dirname.exe` 存在——这是 Git for Windows 的目录指纹，WSL shim 天然不符。
+- **结构锁要锁「函数体非 no-op」，只锁函数名和调用点会被恒真实现骗过（反证教训）**：第一版身份校验锁只断言 `Test-GitBashIdentity` 存在 + 调用点存在，把函数体改成 `return $true` 后**全绿**——锁没在跑。补上「函数体必须包含 `Test-Path.*dirname\.exe`」才变红。反证纪律：任何防再犯锁必须做「把锁改成 no-op 立刻变红」的变异，且变异要打在**锁声称守卫的那层**。
+- **Git Bash 下 `$TMP`/`$TEMP` 是 Windows 路径（C:\...），与 `mktemp -d` 返回的 POSIX 路径（/tmp/...）不一致（测试夹具坑）**：`session-init.test.sh` 原用 `TMP="${TMPDIR:-/tmp}/..."` 但 `$TMP` 是 Windows 路径，后续 `$TMP/repo` 全部落空（`/repo/base.txt: No such file or directory`）。正解：`TMP="$(mktemp -d ...)"` 直接取 mktemp 的 POSIX 输出，不再引用 Windows 的 `$TMP`。
+- **CI 用 ubuntu 系统 bash 跑 sh 测试，天然带 /usr/bin，永远不会暴露 Windows 非交互 bash 的 PATH 缺失（逃逸链）**：`session-init.test.sh` 在 CI 全绿 ≠ 本机可用。Windows 侧验证必须显式构造「git 可用、dirname 缺失」的 PATH（`PATH=/c/Program Files/Git/cmd:/c/WINDOWS/system32:...`）再跑，才能复现故障现场。

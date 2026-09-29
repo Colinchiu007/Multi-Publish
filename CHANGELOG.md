@@ -1,3 +1,48 @@
+# [未发布] fix(运营后台): 调度模拟器不再把注入 429 的请求记成完成；完成集合升为对拍硬判定（2026-09-29，#2626 / fix-simulator-429-completion-state）
+
+## 修复
+
+- `ops-center/backend/services/scheduler_simulator.py`：注入 429 的那条请求改记 `state=rate_limited`、`finished_at=None`。
+  此前它先按 `completed` 记账（含 `finish_heap` push 与 `used_5h += 1`）、**之后**再补一次 `rate_limited_count += 1`，
+  于是同一条请求有两种身份；运营后台「调度验证」详情与 `timeline_json` 里的完成数因此**虚高 1**
+  （一次注入 429 的模拟跑，显示"完成 6 个"实际只有 5 个）。429 的语义是"被拒、没做成"，真实侧是对的。
+- 本次**只改身份标签**：槽位占用（`finish_heap` / `executing_now`）、5h 额度（准入即占额度，见 #2566）
+  与墙钟结束时刻（`end_times`）四条逐字不动 —— 动了任何一条都会连带挪动 `max_concurrent_observed` /
+  `total_duration_ms`，把一次身份纠正变成三个指标同时漂移。该边界由
+  `test_injected_429_is_not_completed_but_keeps_accounting` 钉住（四个基准值取自改动前对同组参数的实测）。
+
+## 门禁
+
+- `scripts/compare-scheduler-models.js`：把**完成集合计入 pass**（规格本来要求相等，`runParity` 却从不比较 ——
+  一条从不执行的 SHALL 比没有这条 SHALL 更危险）。CLI 与 vitest 的留痕改为每次打印两侧完成序本身，
+  红了能直接看出谁多/少哪一项。
+- 升级前先做饥饿实验（不默认"顺序大概是确定的"）：与 `test_scheduler_parity.test.js` 同一套 `withBlocker()`，
+  **第一版实验是无效的**：探针读的 `completionOrder(real.timeline)` 来自一份被 `runSelfCheck`
+  按 `req` 排过序的 timeline，该读数恒为升序 ⇒ "顺序 12/12 不变"只是恒真式的复读，不构成证据
+  （QM-6 后端评审以 `actual=[2,1] ⇒ 投影=[1,2] ⇒ 判据恒真` 的反例指出）。修法：`runSelfCheck` 现在
+  单独返回未排序的实际完成序 `completion_order`，对拍侧只读它、缺席即 fail closed。
+  用真实次序重测四档饥饿（每档 3 次）⇒ **12 个样本中 9 个非升序**（如 `[1,2,4,3,…]`、`[1,2,3,4,6,5,…]`），
+  机理与 #2606 同源（前一条调用的回调被推迟到后一条放行之后）。**结论因此反转**：
+  按序列判等就是重造 #2606 的假红，只有**集合**判据可以硬判定 —— #2626 的实质本就是成员问题，
+  集合既抓得住又对饥饿免疫。序列改为留痕，并明确标注"仅次序不同"，防止下一个人把它当待收紧项。
+- 删除 #2632 留下的「锁住分歧存在」过渡断言（修好后它必然失效，继续留着就是把已知缺陷钉成正确行为）。
+- 七条变异反证逐个实跑并断言字节还原一致：只回退 `state` ⇒ python 红 3；完整回退注入分支 ⇒ **vitest 红 1**
+  （证明集合判据真的抓得到原缺陷）；从 `checks` 摘掉 `completion_set` ⇒ vitest 红 1；集合判据退化成只比长度
+  ⇒ node 红 1；越范围摘掉 `finish_heap` push ⇒ python 红 12；`fifo` 退回 `1..N` ⇒ python 红 1；
+  **摘掉 `runSelfCheck` 返回的 `completion_order` ⇒ vitest 红 2**（证明"缺席就 fail closed、绝不退回
+  排序投影"这条链路真的在承重，而不是写在注释里当装饰）。
+
+## 文档
+
+- `docs/parity-concurrency-measurement-noise.md`：新增四档饥饿实测表、判据前提与失效条件，
+  并把两处**仍未修**的口径分歧登记在案（429 的槽位占用时长 ≈0ms vs `duration`；`cooldown_until` 起点），
+  写明它们在何种参数下会显形、届时不得靠放宽方向性判据绕过。
+- `openspec/specs/desktop/model-call-observability/spec.md`：完成顺序纳入硬判定并写明前提；
+  原「锁住分歧」场景改为**墓碑**（规格工具不支持在 MODIFIED 中丢弃场景标题，丢弃即 ERROR），
+  其可执行含义转为负向：任何人把"分歧必须存在"或"只打印不判定"写回来，一律否决。
+
+---
+
 # [未发布] feat(collection): 六平台视频链接采集 + 分享文本 CJK 健壮解析（2026-09-29，collect-video-platforms / PR #2637）
 
 ### 根因（第一性原因）
@@ -148,6 +193,27 @@
 
 ---
 
+# [未发布] feat(publish): 话题内联描述——标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复（2026-10-09，publish-topic-inline-description）
+
+### 变更
+- **模型对齐参考产品 4.13.19（逆向取证，PRD §2）**：描述文本成为话题唯一真源——标签/话题输入框降级为「快速添加入口」，添加后以 `#话题` 内联描述尾部（所见即所得）；发布时平台格式差异隐性转换，用户无感知。
+- **渲染层追加管道（纯函数单一实现）**：新增 `apps/desktop/src/features/publish/topic-inline.js`（appendTopicsToContent / removeTopicFromContent / extractInlineTopics，词边界去重、空格分隔、Markdown 安全）；`Publish.vue` 视频/图文两分支 + `useBatchPublish` 批量分支三入口统一接线（话题框/标签框 set、TagSuggester apply-tag、历史视频跳转 query.tags）；同步单向（框→描述），描述手动编辑不回写（发布以描述解析为准，主进程三合一去重防双份）。
+- **引擎格式转换单一实现**：`content-formatter.js` 新增 extractInlineTopicNames / stripTopicsFromContent / convertInlineTopics / findInlineTopicPositions（已知话题精确匹配防误伤代码片段 `#include`）；15 平台三态矩阵——内联保留 8（douyin/kuaishou/xiaohongshu/tiktok/twitter/instagram/youtube/facebook）、内联转换双井号 3（weibo/tencent_video/baijiahao）、剥离独立字段 4（bilibili/zhihu/toutiao/wechat_mp）。
+- **🔴 抖音话题丢弃修复**：`douyin-video.js` content_desc 保留内联话题 + `text_extra` 位置标记段（字符偏移、hashtag_id=0 纯文本话题，实体回填列 P2）；旧实现 `text_extra: []` 恒空——用户填的话题发到抖音的内容里不存在。
+- **🔴 视频号话题丢弃修复**：`shipinhao-video.js` description 经 convertInlineTopics 转微信系双井号 `#话题#`；旧实现描述只合并标题+正文，话题静默丢失。
+- **快手行为变更**：caption 不再拼 tags 数组（话题已内联 content，再拼双份重复；描述为真源语义，旧草稿 tags 残留值不再进内联型平台描述）；no-title-contract B-2 契约同步更新。
+- **主进程合并增强**：`publisher-router.js` buildPublishArticle 的 tags 三合一合并加入描述单井号话题解析（RichTextProcessor 只解析双井号形态，单井号经 content-formatter 补齐——「描述为真源」对手动编辑/追加的话题都成立）。
+- **跨包契约锁**：新增 `topic-inline-contract.test.js`（15 平台三态矩阵清单锁 + 12 项行为锁 + 剥离完整性 + 代码片段不误伤 + 单一实现结构锁）；双向反证实跑：摘 bilibili 剥离调用 → 2 红、摘抖音 text_extra 标记 → 1 红，还原后 15/15 绿。
+- i18n：zh/en 成对更新 tagsPlaceholder/topicsPlaceholder（「添加后自动带入描述，多个用逗号分隔」）。
+
+### 验证
+- 渲染层：topic-inline 20/20、Publish 75/75（含 6 条接线新用例）、发布面 13 文件 299/299；locale Gate 7 pair + CJK 双 PASS
+- 引擎：run-tests 33 文件全绿（content-formatter 45/45 含 17 条新用例、契约锁 15/15、no-title-contract 8/8 更新后语义）
+- 主进程：publisher-router 57/57（合并逻辑增强无回归）
+- 反证：bilibili strip 摘除 2 红 / douyin text_extra 摘除 1 红 / 还原复绿（变异-还原全流程字节级）
+- 详见 [01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md)（立项 PR #2631）
+
+---
 # [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
 
 ### 变更

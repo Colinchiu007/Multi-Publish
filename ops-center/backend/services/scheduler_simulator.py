@@ -196,15 +196,33 @@ def simulate(params: dict) -> dict:
         entry["started_at"] = int(t)
         started_times.append(int(t))
         finished = int(t + duration)
-        entry["finished_at"] = finished
-        entry["state"] = "completed"
-        heapq.heappush(finish_heap, finished)
-        executing_now += 1
+        injected = inject_at is not None and i == inject_at
+        # **身份**与真实侧对齐（只到身份为止）：被 429 拒掉的请求从未完成。真实侧
+        # （rate-limit-self-check.js:75-79）在 `await sleep` 之前抛 ProviderError，该条
+        # `state='rate_limited'`、`finished_at=null`；这里原来先记 completed 再补一次
+        # rate_limited_count，于是同一条请求有两种身份，运营后台把 timeline 呈现给运营者时
+        # "完成数"虚高 1。
+        #
+        # 只改这两个字段。下面四行刻意逐字不动，理由写在行内 —— 它们不是"标签"，
+        # 动了就会连带挪动 max_concurrent_observed / total_duration_ms，把一次身份纠正
+        # 变成三个指标同时漂移、失败不可归因。锚定用例见
+        # tests/test_scheduler_simulator.py::test_injected_429_is_not_completed_but_keeps_accounting。
+        #
+        # ⚠ 不要据此认为"429 语义已完全对齐"。仍有两处**未对齐**、且当前用例参数下不可见，
+        # 已在 docs/parity-concurrency-measurement-noise.md 登记：
+        #   ① 占用时长：真实侧抛错即释放（≈0ms），这里占满 duration；
+        #   ② 冷却起点：`cooldown_until` / `factor_curve.t` 从 finished 起算，真实侧从抛错时刻起算。
+        # 新增 `duration ≥ 60000/rpm` 的 429 用例时 ① 会显形（表现为 real < simulated 的硬红），
+        # 届时必须正面处理，**不得**靠放宽 concurrencyCheck 的方向性判据绕过。
+        entry["state"] = "rate_limited" if injected else "completed"
+        entry["finished_at"] = None if injected else finished
+        heapq.heappush(finish_heap, finished)  # 占用"发生过"这一侧与真实一致（真实侧也是先 active += 1 再抛错）
+        executing_now += 1                     # 与上面的 push 配对；摘掉即改变并发观测口径
         max_concurrent_observed = max(max_concurrent_observed, executing_now)
-        used_5h += 1
-        end_times.append(finished)
+        used_5h += 1                           # 准入即占额度（#2566）：被 429 的调用照样消耗 5h 计数
+        end_times.append(finished)             # 墙钟口径：真实侧的 429 判定同样发生在挂钟推进之后
         # 记账：注入 429 → 冷却 + 自适应下调；否则缓慢恢复
-        if inject_at is not None and i == inject_at:
+        if injected:
             cooldown_until = finished + cooldown_ms
             rate_factor = max(RATE_FACTOR_MIN, rate_factor * RATE_ADAPT_FACTOR)
             rate_limited_count += 1
@@ -277,9 +295,13 @@ def _build_assertions(cfg, mc_observed, rl_count, throughput, max_wait, quota_co
     if cfg["max_concurrent"] == 1:
         completed = [t for t in timeline if t["state"] == "completed"]
         order = [t["req"] for t in sorted(completed, key=lambda t: t["started_at"])]
-        ok = order == list(range(1, len(completed) + 1))
+        # FIFO 的正确判据是「完成次序不早于到达次序」= 序号单调不减，**不是** `1..N`。
+        # 写成 1..N 隐含了"每个请求都会完成"：注入 429 的请求身份改对之后（#2626），
+        # max_concurrent=1 + inject_429 这组配置会给出 completed=[1,3,4]，
+        # 于是把"顺序本来是对的"判成 FIFO 失败 —— 运营者会在验证详情里看到一条假失败。
+        ok = order == sorted(order)
         results.append({
-            "name": "fifo", "pass": ok, "actual": order[:10], "expected": "1..N",
-            "message": "并发=1 时按到达顺序完成",
+            "name": "fifo", "pass": ok, "actual": order[:10], "expected": "完成序号单调不减（= 到达序）",
+            "message": "并发=1 时按到达顺序完成（被拒请求不计入，故不要求序号连续）",
         })
     return results

@@ -14,6 +14,9 @@
  */
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
+// 话题内联描述（publish-topic-inline-description）：百家号是内联转换型平台——
+// 描述里的 `#话题` 发布时隐性转换成 `#话题#` 拼正文（参考产品取证口径），转换用单一实现
+const { convertInlineTopics } = require('../../content-formatter')
 
 const DEFAULT_BASE_URL = 'https://baijiahao.baidu.com'
 const HOST = 'baijiahao.baidu.com'
@@ -134,7 +137,8 @@ class BaijiahaoArticleChain {
   buildArticleFormData (taskData) {
     const params = new URLSearchParams()
     params.set('title', truncateTitle(taskData.title))
-    params.set('content', String(taskData.content == null ? '' : taskData.content))
+    // 话题内联描述：已知话题（tags 含描述解析值）单井号 → 百家号双井号形态拼正文
+    params.set('content', convertInlineTopics('baijiahao', String(taskData.content == null ? '' : taskData.content), taskData.tags || []))
     params.set('category', String(taskData.category == null ? '未分类' : taskData.category))
     params.set('reward_money', '0')
     params.set('is_pay_column', '0')

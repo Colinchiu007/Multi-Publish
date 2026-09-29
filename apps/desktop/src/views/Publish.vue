@@ -98,11 +98,11 @@
             <div class="cohere-form-item batch-metadata-grid">
               <div>
                 <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
-                <UiInput v-model="a.tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
+                <UiInput :model-value="a.tagsText" @update:model-value="value => setBatchTagsText(a, value)" :placeholder="t('publishPage.tagsPlaceholder')" />
               </div>
               <div>
                 <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
-                <UiInput v-model="a.topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                <UiInput :model-value="a.topicsText" @update:model-value="value => setBatchTopicsText(a, value)" :placeholder="t('publishPage.topicsPlaceholder')" />
               </div>
               <div>
                 <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
@@ -712,6 +712,7 @@ import {
   normalizePublishMentions,
   normalizePublishStringList,
 } from '@/features/publish/publish-contract'
+import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
 import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META } from '@multi-publish/shared-utils/src/publish-capabilities'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
@@ -797,13 +798,57 @@ const coverFileList = ref([])
 // 草稿恢复等路径只有 video_path 没有 File 对象时 videoFileMeta 为 null，卡片退化为路径推导展示。
 const videoUploadFileList = ref([])
 const videoFileMeta = ref(null)
+// 话题内联描述（publish-topic-inline-description）：标签/话题输入框是「快速添加入口」，
+// 添加后以 `#话题` 追加进描述尾部（所见即所得）；删除时从描述移除对应片段。
+// 同步方向单向（框 → 描述）：用户在描述框手动编辑话题不回写输入框，发布时以描述解析为准
+// （主进程 mergeUniqueStrings 三合一去重天然防双份）。PRD §3.5。
+function syncTopicsToContent (prev, next) {
+  if (prev.length === next.length && prev.every((name, index) => name === next[index])) return
+  const added = next.filter(name => !prev.includes(name))
+  const removed = prev.filter(name => !next.includes(name))
+  let content = article.content
+  for (const name of removed) content = removeTopicFromContent(content, name)
+  article.content = appendTopicsToContent(content, added)
+}
+// 批量模式同口径（publish-topic-inline-description）：每篇文章的标签/话题输入
+// 同样经追加管道同步各自 content（手写双向绑定，v-model 无法挂同步钩子）。
+function syncBatchTopicsToContent (batchArticle, prevText, nextText) {
+  const prev = normalizePublishStringList(prevText)
+  const next = normalizePublishStringList(nextText)
+  if (prev.length === next.length && prev.every((name, index) => name === next[index])) return
+  const added = next.filter(name => !prev.includes(name))
+  const removed = prev.filter(name => !next.includes(name))
+  let content = batchArticle.content
+  for (const name of removed) content = removeTopicFromContent(content, name)
+  batchArticle.content = appendTopicsToContent(content, added)
+}
+function setBatchTagsText (batchArticle, value) {
+  const prev = batchArticle.tagsText
+  batchArticle.tagsText = value
+  syncBatchTopicsToContent(batchArticle, prev, value)
+}
+function setBatchTopicsText (batchArticle, value) {
+  const prev = batchArticle.topicsText
+  batchArticle.topicsText = value
+  syncBatchTopicsToContent(batchArticle, prev, value)
+}
 const tagsText = computed({
   get: () => normalizePublishStringList(article.tags).join(', '),
-  set: value => { article.tags = normalizePublishStringList(value) },
+  set: value => {
+    const prev = normalizePublishStringList(article.tags)
+    const next = normalizePublishStringList(value)
+    article.tags = next
+    syncTopicsToContent(prev, next)
+  },
 })
 const topicsText = computed({
   get: () => normalizePublishStringList(article.topics).join(', '),
-  set: value => { article.topics = normalizePublishStringList(value) },
+  set: value => {
+    const prev = normalizePublishStringList(article.topics)
+    const next = normalizePublishStringList(value)
+    article.topics = next
+    syncTopicsToContent(prev, next)
+  },
 })
 const mentionsText = computed({
   get: () => normalizePublishMentions(article.mentions).map(item => item.text).join(', '),
@@ -1068,10 +1113,13 @@ const showAiWriter = ref(false)
 const showUpgradeModal = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
-// 标签建议点击填入：追加进标签输入并去重（normalizePublishStringList 内部 Set 去重）。
+// 标签建议点击填入：追加进标签输入并去重（normalizePublishStringList 内部 Set 去重）；
+// 同步经追加管道带入描述（三入口统一：话题框 / 标签建议 / 历史视频跳转）。
 function applySuggestedTag (tag) {
   if (typeof tag !== 'string' || !tag.trim()) return
+  const prev = normalizePublishStringList(article.tags)
   article.tags = normalizePublishStringList([...article.tags, tag.trim()])
+  syncTopicsToContent(prev, normalizePublishStringList(article.tags))
 }
 
 // ── composables ──────────────────────────
@@ -1242,7 +1290,12 @@ function applyHistoryVideoQuery () {
   const content = decode(query.content)
   if (content) article.content = content
   const tags = decode(query.tags)
-  if (tags) article.tags = normalizePublishStringList(tags)
+  if (tags) {
+    const prev = normalizePublishStringList(article.tags)
+    article.tags = normalizePublishStringList(tags)
+    // 历史视频跳转携带的标签同样经追加管道带入描述（三入口统一）
+    syncTopicsToContent(prev, normalizePublishStringList(article.tags))
+  }
   // 历史视频发布走视频首帧封面，不携带自定义封面（百家号 API 不支持）
   article.cover_url = ''
   article.cover_path = ''
@@ -1304,6 +1357,9 @@ defineExpose({
   tagsText,
   topicsText,
   mentionsText,
+  applySuggestedTag,
+  setBatchTagsText,
+  setBatchTopicsText,
   handleImageFileChange,
   handleImageFileRemove,
   handleVideoFileChange,

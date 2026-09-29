@@ -503,7 +503,7 @@ import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
-import { safeHttpUrl, extractShareTextUrls } from '@multi-publish/shared-utils/src/safe-http-url'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -857,11 +857,21 @@ const VIDEO_PLATFORM_HOST_PATTERNS = [
   /(^|\.)baijiahao\.baidu\.com$/i,
   /(^|\.)mbd\.baidu\.com$/i,
 ]
-// CJK 排除字符类与尾部标点清理已收敛到 shared-utils（safe-http-url 双孪生，
-// 渲染层协议正则零字面量合同）；本文件只保留视频平台 host 判定（非协议正则）。
-// 提取属「采集」意图：绑定 href 前仍过 safeHttpUrl（双档合同）。
+// CJK 排除字符类：空白/引号/尖括号/反斜杠 + 弯引号 + CJK 标点 + CJK 扩展A + 汉字 + 全角 + emoji
+// （u flag 是 \u{...} 语法的前提）
+const SHARE_TEXT_URL_RE = /https?:\/\/[^\s<>"'`\\\u2018\u2019\u201c\u201d\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef\u{1f000}-\u{1faff}]+/giu
+// 尾部粘连标点清理（中英文句读，防止 URL 吞掉句号逗号；URL 体内的括号/引号合法保留）
+const SHARE_TEXT_TRAILING_JUNK_RE = /[.,;:!?)\]}>'"\u3001\u3002\uff0c\uff01\uff1f\uff09\u3011\u300b\u201d\u2019]+$/
 function extractUrlFromShareText (text) {
-  const cleaned = extractShareTextUrls(text)
+  const raw = String(text || '').trim()
+  if (!raw) return ''
+  // 提取全部 http(s) 链接（CJK 字符天然终止匹配，容忍中文/emoji 混排）
+  const matches = raw.match(SHARE_TEXT_URL_RE) || []
+  if (!matches.length) return ''
+  const cleaned = matches
+    .map((u) => u.replace(SHARE_TEXT_TRAILING_JUNK_RE, ''))
+    // 协议校验走共享判据（href-scheme-contract 单一口径；#2637 遗漏的一处，2026-10-09 补齐）
+    .filter((u) => safeHttpUrl(u))
   if (!cleaned.length) return ''
   // 优先返回视频平台链接
   for (const url of cleaned) {
