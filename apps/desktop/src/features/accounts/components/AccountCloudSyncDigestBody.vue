@@ -92,15 +92,15 @@ const platformRows = computed(() => {
 <style scoped>
 /* 与父级 .cloud-sync-dialog 同一纵向节奏：本块整体是父级的一个 flex 子项，
    内部各行也必须保持 space-3 间距，否则拆分子组件会悄悄改变视觉。 */
-.cloud-digest-body { display: flex; flex-direction: column; gap: var(--apple-space-3); }
-.cloud-sync-line { margin: 0; color: var(--apple-ink-secondary); font-size: var(--apple-size-sm); line-height: 1.5; }
-.cloud-digest-counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--apple-space-2) var(--apple-space-5); }
+.cloud-digest-body { display: flex; flex-direction: column; gap: var(--spacing-3); }
+.cloud-sync-line { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; }
+.cloud-digest-counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--spacing-2) var(--spacing-5); }
 .cloud-digest-counts .cloud-sync-line { margin: 0; }
-.cloud-digest-total { color: var(--apple-ink-primary); font-weight: var(--apple-weight-semibold); }
-.cloud-digest-platforms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--apple-space-1); }
-.cloud-digest-platform { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: var(--apple-space-2); color: var(--apple-ink-secondary); font-size: var(--apple-size-sm); }
-.cloud-digest-platform-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; background: var(--apple-surface-tertiary); font-size: var(--apple-size-xs); }
+.cloud-digest-total { color: var(--color-text-primary); font-weight: var(--font-weight-semibold); }
+.cloud-digest-platforms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--spacing-1); }
+.cloud-digest-platform { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-2); color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.cloud-digest-platform-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; background: var(--color-bg-inset); font-size: var(--font-size-xs); }
 .cloud-digest-platform-icon-img { width: 20px; height: 20px; object-fit: contain; }
-.cloud-digest-platform-count { color: var(--apple-ink-primary); font-size: var(--apple-size-sm); }
-.cloud-sync-hint { margin: 0; padding: var(--apple-space-2) var(--apple-space-3); border-radius: var(--apple-radius-sm); background: var(--apple-surface-tertiary); color: var(--apple-ink-secondary); font-size: var(--apple-size-xs); line-height: 1.5; }
+.cloud-digest-platform-count { color: var(--color-text-primary); font-size: var(--font-size-sm); }
+.cloud-sync-hint { margin: 0; padding: var(--spacing-2) var(--spacing-3); border-radius: var(--radius-sm); background: var(--color-bg-inset); color: var(--color-text-secondary); font-size: var(--font-size-xs); line-height: 1.5; }
 </style>

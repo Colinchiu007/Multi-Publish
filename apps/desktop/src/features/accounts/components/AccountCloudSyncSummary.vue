@@ -38,13 +38,13 @@ const { t } = useI18n()
 </script>
 
 <style scoped>
-.cloud-sync-summary { padding-top: var(--apple-space-2); border-top: 1px solid var(--apple-border-subtle); display: flex; flex-direction: column; gap: var(--apple-space-2); }
-.cloud-sync-summary-text { margin: 0; font-size: var(--apple-size-sm); font-weight: var(--apple-weight-semibold); color: var(--apple-ink-primary); }
-.cloud-sync-summary-error { margin: 0; font-size: var(--apple-size-sm); color: var(--apple-error); }
-.cloud-sync-summary-stopped { margin: 0; font-size: var(--apple-size-xs); color: var(--apple-ink-secondary); }
-.cloud-sync-summary-stats { display: flex; flex-wrap: wrap; gap: var(--apple-space-2); font-size: var(--apple-size-xs); }
-.is-success { color: var(--apple-success, #1f7a4d); }
-.is-muted { color: var(--apple-ink-secondary); }
-.is-warning { color: var(--apple-warning, #a2650b); }
-.is-danger { color: var(--apple-error); }
+.cloud-sync-summary { padding-top: var(--spacing-2); border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: var(--spacing-2); }
+.cloud-sync-summary-text { margin: 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); color: var(--color-text-primary); }
+.cloud-sync-summary-error { margin: 0; font-size: var(--font-size-sm); color: var(--color-danger); }
+.cloud-sync-summary-stopped { margin: 0; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.cloud-sync-summary-stats { display: flex; flex-wrap: wrap; gap: var(--spacing-2); font-size: var(--font-size-xs); }
+.is-success { color: var(--color-success); }
+.is-muted { color: var(--color-text-secondary); }
+.is-warning { color: var(--color-warning); }
+.is-danger { color: var(--color-danger); }
 </style>
