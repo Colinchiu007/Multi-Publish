@@ -19,6 +19,32 @@
 
 ---
 
+# [未发布] BREAKING（视觉）feat(ui): Apple 令牌双轨退役——全站收敛到 tokens.css 权威令牌（2026-09-29，ui-apple-token-retirement）
+
+> 本条目为**破坏性视觉变更**：主色与圆角/字号基线改变，既有视觉基线需同源重生成。
+
+### 变更
+
+- **主色 Apple 蓝 → 品牌紫**（`#007AFF` → `#5048E5`）：全站按钮与主操作观感变化，是本次唯一用户可感知的破坏性变更。
+- **圆角统一 +2px、xs 字号 11→12px**：采纳 `tokens.css` 权威尺（圆角 6/10/14 → 8/12/16、`--font-size-xs` 12px）；`--apple-radius-pill`(9999) 映射到 `--radius-full`（**不是** `--radius-pill` 32px）。
+- **337 处 `--apple-*` 消费点全部收敛**（批次 0–5）：组件层 88 + 账号云镜像回潮 59（PR #2461 的 4 个组件）+ `history-page.css` 190（43 个变量）。逐项映射与值差异见 `openspec/changes/ui-apple-token-retirement/component-token-map.md` 与 `history-page-token-map.md`；陈旧 fallback 一并剔除（`#1f7a4d`/`#a2650b` 等第三套真相）。
+- **别名层退役**（批次 6）：删除 `apple-design-tokens.css`（93 行）与其**唯一导入** `cohere-design-system.css:1`、删除 `tokens.css` 的 17 个 `--color-apple-*` 收编槽位；`cohere-design-system.css` 暗色 `--ink`/`--muted` 改为对权威 token 的**纯转发**（不再承担暗色救火；`--muted` 由 #88889a 变亮为 `--color-text-secondary`，暗色可读性提升）。
+- **补齐权威语义槽**（批次 2）：`--font-weight-*` / `--font-family-*` / `--leading-*` / `--duration-*` / `--ease-*` / `--spacing-16`；`[data-theme="dark"]` 增补四档文字色（暗色卡片底实测对比度 14.35 / 12.80 / 7.53 / 6.66:1）与 `--color-primary-light`；**修复 `--text` 暗色转发到背景色**的缺陷（2026-09-20 暗色不可读事故根因，改为指向前景 `--ink`）。
+- **回潮门禁**（批次 0/6）：`check-frontend-consistency.js` 新增 `appleAlias` 检查（扫描面含 `styles/*.css`），基线**钉 0**——任何新增 `var(--apple-` 引用立即 CI 失败并列出行号；附「钉 0」回归锁防止基线被抬高。同批修复该门禁三处缺陷：共享基线被抹键（改 merge）、基线缺键静默放行（改 fail-closed）、CSS 块注释盲区（`blockAware`）。
+- **视觉基线暗色通道**（批次 1）：`run-pixel-tests.js` 支持 `THEME=dark`、`<view>-dark.png` 命名与浅色互不覆盖；`visual-test.yml` 在同一 Vite/渲染环境增跑暗色一遍（同源口径）。
+
+### 验证
+
+- 门禁：`appleAlias` 计数 **339 → 0**；`check-css-var-defined` / `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全 PASS
+- 组件层 96/0（UiButton/UiInput/UiModal/ConfigProfileManager/AccountCloudSyncDialog）、历史页 77/0、`tokens.slots.test.js` 15/0（含 WCAG 对比度断言）、门禁测试 21/0（含「钉 0」锁）、style-guard 9/0
+- 图像基线：批次 3 的 17 张浅色基线经 PR `quality-gate-visual-reports` artifact **同源刷新**（QM-4 第 7 条）
+
+### 残余（登记）
+
+- 暗色基线为**首次建立**，待 `visual-test.yml` 在最终态产出后入库（入库后该步骤转阻断门禁）。
+- 顺带发现（不在本 change 范围）：像素门禁阈值 `threshold = 0.1`（允许 10% 像素不同）使本次 19 个视图的实测 misMatch（0.0000%–1.6071%）全部远低于阈值；QG Visual 覆盖 19 个视图而 `run-pixel-tests.js` 声明 22 个 —— 两者均建议单独立项。
+
+---
 # fix(工程门禁): check-ps1-bom 补两条判据 —— 多重 BOM 与「声明 UTF-8 但正文不是合法 UTF-8」（ps1-bom-gate-hardening，2026-09-30）
 
 ### 变更
