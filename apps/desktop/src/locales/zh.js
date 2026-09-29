@@ -1366,6 +1366,15 @@ export default {
     // 发布能力注册表（publish-capability-registry）：通用字段支持度 + 无标题平台提示
     fieldSupport: '{count}/{total} 平台支持',
     noTitleHint: '标题将作为描述首行插入：{platforms}',
+    // P1-5 语义级可见性通用控件：通用区只暴露语义档位，平台取值由注册表映射
+    visibility: '可见性',
+    visibilitySupport: '{count} 个所选平台支持',
+    visibilityDefault: '跟随各平台默认',
+    visibilityPublic: '公开',
+    visibilityFriends: '好友可见',
+    visibilityPrivate: '仅自己可见',
+    visibilityHint: '一次设置所选平台的可见性；可在「平台差异化内容」中单独调整',
+    visibilityUnsupported: '{platforms} 不支持该档位，将保持默认',
     collapse: '收起',
     expand: '展开',
     showTagSuggest: '# 显示标签建议',

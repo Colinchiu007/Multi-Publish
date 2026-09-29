@@ -106,9 +106,9 @@
       { "key": "appreciate", "semantic": "appreciate", "status": "platform-capable", "type": "checkbox", "label": "允许赞赏", "default": false, "uiExposed": false, "note": "知乎 appreciate.can_reward（参考产品取证）" }
     ],
     "weibo": [
-      { "key": "visible", "semantic": "visibility", "status": "platform-capable", "type": "select", "label": "可见性", "default": 0, "uiExposed": false, "options": [
+      { "key": "visible", "semantic": "visibility", "status": "implemented", "type": "select", "label": "可见性", "default": 0, "uiExposed": true, "options": [
         { "value": 0, "label": "公开" }, { "value": 1, "label": "仅自己可见" }, { "value": 6, "label": "好友圈" }
-      ], "note": "微博发布体 visible 字段（参考产品取证：weiboPublishMicroArticle $e.visible）" },
+      ], "semanticValues": { "public": 0, "friends": 6, "private": 1 }, "note": "微博发布体 visible 字段（参考产品取证：weiboPublishMicroArticle $e.visible）；2026-10-09 P1-5 打通 resolver→adapter 链路后转 implemented" },
       { "key": "vote", "semantic": "vote", "status": "platform-capable", "type": "object", "label": "投票", "default": null, "uiExposed": false, "note": "微博发布体 vote 字段（参考产品取证）" },
       { "key": "mblogStatement", "semantic": "mblog-statement", "status": "platform-capable", "type": "text", "label": "微博声明", "default": "", "uiExposed": false, "note": "微博发布体 mblog_statement（参考产品取证）" }
     ],
@@ -116,9 +116,9 @@
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": true },
       { "key": "goods", "semantic": "goods", "status": "implemented", "type": "object-list", "label": "商品", "default": [], "uiExposed": false, "note": "goodsInfoList 透传（publisher-router P3-1），UI 未暴露" },
       { "key": "taskId", "semantic": "platform-task", "status": "implemented", "type": "text", "label": "任务/活动", "default": "", "uiExposed": false, "note": "hot_sentence/flashMobInfo 透传（P3-2），UI 未暴露" },
-      { "key": "visibilityType", "semantic": "visibility", "status": "platform-capable", "type": "select", "label": "可见性", "default": 0, "uiExposed": false, "options": [
+      { "key": "visibilityType", "semantic": "visibility", "status": "implemented", "type": "select", "label": "可见性", "default": 0, "uiExposed": true, "options": [
         { "value": 0, "label": "公开" }, { "value": 1, "label": "私密" }, { "value": 2, "label": "好友可见" }
-      ], "note": "抖音 buildPostData_v2 item.common.visibility_type（参考产品取证）" },
+      ], "semanticValues": { "public": 0, "friends": 2, "private": 1 }, "note": "抖音 buildPostData_v2 item.common.visibility_type（参考产品取证）；2026-10-09 P1-5 打通 resolver→引擎链 taskData.visibility_type 后转 implemented" },
       { "key": "download", "semantic": "download", "status": "platform-capable", "type": "checkbox", "label": "允许下载", "default": true, "uiExposed": false, "note": "抖音 buildPostData_v2 item.common.download（参考产品取证）" },
       { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object-list", "label": "平台活动", "default": [], "uiExposed": false, "note": "抖音 <activity> 标签 + item.common.activity，上限 5 个（参考产品取证）" },
       { "key": "musicInfo", "semantic": "music", "status": "platform-capable", "type": "object", "label": "配乐", "default": null, "uiExposed": false, "note": "抖音 item.common.music_id/music_end_time（参考产品取证）" },
@@ -141,9 +141,9 @@
     ],
     "kuaishou": [
       { "key": "location", "semantic": "location", "status": "platform-capable", "type": "object", "label": "位置", "default": null, "uiExposed": false, "note": "快手提交体 poiId/latitude/longitude（参考产品取证）" },
-      { "key": "visibilityType", "semantic": "visibility", "status": "platform-capable", "type": "select", "label": "可见性", "default": 1, "uiExposed": false, "options": [
+      { "key": "visibilityType", "semantic": "visibility", "status": "implemented", "type": "select", "label": "可见性", "default": 1, "uiExposed": true, "options": [
         { "value": 1, "label": "公开" }, { "value": 2, "label": "仅自己可见" }
-      ], "note": "快手提交体 photoStatus（参考产品取证：photoStatus==1 为 notPublic 的列表反查口径，发布默认 1）" },
+      ], "semanticValues": { "public": 1, "private": 2 }, "note": "快手提交体 photoStatus（参考产品取证：photoStatus==1 为 notPublic 的列表反查口径，发布默认 1）；2026-10-09 P1-5 打通 resolver→引擎链 td.visibilityType 后转 implemented" },
       { "key": "downloadType", "semantic": "download", "status": "platform-capable", "type": "select", "label": "下载权限", "default": 0, "uiExposed": false, "options": [
         { "value": 0, "label": "默认" }, { "value": 2, "label": "禁止下载" }
       ], "note": "快手提交体 downloadType==2（参考产品取证）" },
@@ -190,13 +190,13 @@
       ] },
       { "key": "privacy", "semantic": "visibility", "status": "implemented", "type": "select", "label": "可见性", "default": "public", "uiExposed": true, "options": [
         { "value": "public", "label": "公开" }, { "value": "unlisted", "label": "不公开列出" }, { "value": "private", "label": "私享" }
-      ] },
+      ], "semanticValues": { "public": "public", "private": "private" } },
       { "key": "playlistId", "semantic": "collection", "status": "implemented", "type": "text", "label": "播放列表（可选，填播放列表 ID）", "maxLen": 60, "default": "", "uiExposed": true, "placeholder": "播放列表 ID，如 PLabc123" }
     ],
     "tiktok": [
       { "key": "privacyLevel", "semantic": "visibility", "status": "implemented", "type": "select", "label": "可见性", "default": "PUBLIC", "uiExposed": true, "options": [
         { "value": "PUBLIC", "label": "所有人可见" }, { "value": "FRIENDS", "label": "朋友可见" }, { "value": "PRIVATE", "label": "仅自己可见" }
-      ] }
+      ], "semanticValues": { "public": "PUBLIC", "friends": "FRIENDS", "private": "PRIVATE" } }
     ],
     "twitter": [],
     "instagram": [],

@@ -285,6 +285,9 @@ export function usePublishFlow(options) {
     // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选。
     // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
     data.aiGenerated = article.aiGenerated !== false
+    // P1-5 语义级可见性：通用区档位随 article 流入 payload，由主进程 resolver
+    // 按注册表 semanticValues 映射到各平台字段值（平台 override 仍优先）。
+    if (article.visibilitySemantic) data.visibilitySemantic = article.visibilitySemantic
     if (imageFiles.length > 0) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles

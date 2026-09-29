@@ -1,3 +1,20 @@
+# [未发布] feat(publish): P1-5 可见性语义级通用控件（5 平台打通，字段转 implemented）（2026-10-09，publish-page-optimization）
+
+### 变更
+
+- **语义级通用控件**（`PublishVisibilitySelect.vue` + `Publish.vue` 两分支）：通用区一个「可见性」下拉（跟随各平台默认/公开/好友可见/仅自己可见），一次选择映射到所选平台各自字段值；支持数徽标 + 「好友」档对不支持平台（快手/YouTube）如实提示「将保持默认」。`platforms` 为空时整块不渲染（零打扰）。
+- **映射单一真源**（`publish-capabilities.json`）：5 个 visibility 字段新增 `semanticValues`（public/friends/private → 平台值）；shared-utils 新增 `getVisibilityField` / `mapVisibilitySemantic` / `resolveVisibilityOverride` / `getVisibilitySemanticSupport`（CJS+ESM 孪生 + parity 锁）；`validateRegistry` 新增「semanticValues 值必须存在于 options」校验。UI 不持有任何平台取值表。
+- **resolver 打通三平台**（`publisher-router.js`）：抖音 `visibility_type`（0/1/2）、快手 `visibilityType`（1/2）、微博 `visible`（0/1/6）从 override 或通用语义档位取值并校验；YouTube/TikTok 同样接入语义档位。取值优先序：平台 override > 通用档位 > 不设。
+- **微博 adapter 补齐**（`adapters/weibo.js`）：`buildPostData` 透传 `visible`（合法值集 {0,1,6}，非法/缺省不透传）。此前微博可见性全链路缺失。
+- **字段状态提升**：抖音/快手/微博 visibility 由 `platform-capable` 转 `implemented` + `uiExposed: true`（引擎侧早已消费 `visibility_type`/`visibilityType`，本切片补齐桌面侧链路），可在差异化面板单平台细调。
+- 实施发现：缺口不在引擎（抖音/快手链已支持）而在桌面 resolver 与微博 adapter——`01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md` §四 P1-5 已按六维度详写并标记已实现。
+
+### 验证
+
+- shared-utils 全量 469 passed / 26 files（含 P1-5 映射 9 例 + parity 穷举）
+- 桌面受影响面 314/314（`PublishVisibilitySelect` 7 例 + resolver P1-5 6 例 + 既有发布面）
+- 引擎全量 exit 0（`no-title-contract` B-3b 微博 visible 透传）
+- locale pair/keys/cjk + 品牌残留 + max-lines 本地 PASS
 # [未发布] feat(publish-progress): 进度浮窗视觉/UE 精化——dot-stepper 降噪 + 取消链路端到端 + 完成自动收敛（2026-09-29，publish-progress-panel-refine / PR #2658）
 
 - **fix(publish)：图文发布平台修复——公众号 token 链路 + 知乎 Draft.js 可信注入（article-publish-wechat-zhihu）**。

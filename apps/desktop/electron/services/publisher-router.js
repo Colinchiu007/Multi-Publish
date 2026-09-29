@@ -22,6 +22,8 @@ const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/ric
 const { extractInlineTopicNames } = require('@multi-publish/api-publish-engine/src/content-formatter')
 const { getConfigPath } = require('./config-resolver')
 const { buildApiTaskData } = require('./api-task-data')
+// P1-5 语义级可见性：语义档位（public/friends/private）→ 平台字段值的单一真源在注册表层。
+const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publish-capabilities')
 
 // 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 // mode: 鍙戝竷寮曟搸
@@ -116,6 +118,21 @@ function override_digest (resolved) {
   return o.digest ?? resolved.base.digest ?? ''
 }
 
+/**
+ * P1-5 通用区语义档位 → 该平台可见性字段值（无档位/该平台不支持该档位时返回 undefined，
+ * 使调用点的 `?? ` 链继续回落到「不设」）。语义档位来自 taskData.visibilitySemantic，
+ * 映射真源在注册表 semanticValues（mapVisibilitySemantic），此处不重复映射表。
+ * @param {object} base
+ * @param {string} platform
+ * @returns {unknown|undefined}
+ */
+function semanticVisibilityValue (base, platform) {
+  const semantic = String((base && base.visibilitySemantic) || '').trim()
+  if (!semantic) return undefined
+  const mapped = mapVisibilitySemantic(platform, semantic)
+  return mapped === null ? undefined : mapped
+}
+
 function resolvePlatformArticle (task, platform) {
   const base = task && task.article && typeof task.article === 'object' ? task.article : {}
   const overrides = base.platformOverrides && typeof base.platformOverrides === 'object'
@@ -139,6 +156,19 @@ function resolvePlatformArticle (task, platform) {
     resolved.draft = resolveBooleanOption(override, base, 'draft')
   } else if (platform === 'douyin') {
     resolved.draft = resolveBooleanOption(override, base, 'draft')
+    // P1-5 可见性：抖音 item.common.visibility_type（0 公开 / 1 私密 / 2 好友）。
+    // 引擎链读 taskData.visibility_type（douyin-video.js run/buildPostData），故键名用 snake。
+    // 取值优先序：平台 override > 通用区语义档位映射 > 不设（用平台默认）
+    const vt = Number(override.visibilityType ?? base.visibilityType ?? semanticVisibilityValue(base, platform))
+    if (vt === 0 || vt === 1 || vt === 2) resolved.visibility_type = vt
+  } else if (platform === 'weibo') {
+    // P1-5 可见性：微博发布体 visible（0 公开 / 1 仅自己 / 6 好友圈）
+    const visible = Number(override.visible ?? base.visible ?? semanticVisibilityValue(base, platform))
+    if (visible === 0 || visible === 1 || visible === 6) resolved.visible = visible
+  } else if (platform === 'kuaishou') {
+    // P1-5 可见性：快手提交体 photoStatus（1 公开 / 2 仅自己）——引擎链读 td.visibilityType
+    const vt = Number(override.visibilityType ?? base.visibilityType ?? semanticVisibilityValue(base, platform))
+    if (vt === 1 || vt === 2) resolved.visibilityType = vt
   } else if (platform === 'wechat_mp') {
     resolved.massSend = resolveBooleanOption(override, base, 'massSend')
   }
@@ -154,11 +184,11 @@ function resolvePlatformArticle (task, platform) {
     // YouTube 分类 categoryId + 可见性 privacy（public/unlisted/private）
     const categoryId = String(override.categoryId ?? base.categoryId ?? '').trim()
     if (/^\d{1,2}$/.test(categoryId)) resolved.categoryId = categoryId
-    const privacy = String(override.privacy ?? base.privacy ?? '').trim()
+    const privacy = String(override.privacy ?? base.privacy ?? semanticVisibilityValue(base, platform) ?? '').trim()
     if (privacy === 'public' || privacy === 'unlisted' || privacy === 'private') resolved.privacy = privacy
   } else if (platform === 'tiktok') {
     // TikTok 可见性 privacy_level（PUBLIC/PRIVATE/FRIENDS）
-    const privacyLevel = String(override.privacyLevel ?? base.privacyLevel ?? '').trim()
+    const privacyLevel = String(override.privacyLevel ?? base.privacyLevel ?? semanticVisibilityValue(base, platform) ?? '').trim()
     if (privacyLevel === 'PUBLIC' || privacyLevel === 'PRIVATE' || privacyLevel === 'FRIENDS') resolved.privacyLevel = privacyLevel
   } else if (platform === 'baijiahao') {
     // 百家号原创声明（original truthy → original_status=2）与位置
@@ -251,6 +281,10 @@ function buildPublishArticle (task, platform) {
     if (resolved.privacy !== undefined) article.privacy = resolved.privacy
   }
   if (platform === 'tiktok' && resolved.privacyLevel !== undefined) article.privacyLevel = resolved.privacyLevel
+  // P1-5 可见性：抖音/快手/微博三平台把语义映射值透传为引擎各自消费的字段名
+  if (platform === 'douyin' && resolved.visibility_type !== undefined) article.visibility_type = resolved.visibility_type
+  if (platform === 'kuaishou' && resolved.visibilityType !== undefined) article.visibilityType = resolved.visibilityType
+  if (platform === 'weibo' && resolved.visible !== undefined) article.visible = resolved.visible
   if (platform === 'baijiahao') {
     if (resolved.original !== undefined) article.original = resolved.original
     if (resolved.location !== undefined) article.location = resolved.location
