@@ -1,4 +1,4 @@
-# capture-mp.ps1 — 参考产品 4.0 桌面应用截图脚本
+﻿# capture-mp.ps1 — 参考产品 4.0 桌面应用截图脚本
 # 使用 Win32 API (FindWindow + PrintWindow) 截图 Electron 桌面应用
 # 用法: .\capture-mp.ps1 [-OutputDir <path>] [-Maximize] [-ClickNav <navIndex>]
 

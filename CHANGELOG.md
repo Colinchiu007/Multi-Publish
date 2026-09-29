@@ -34,6 +34,56 @@
 - `usePublishFlow.test.js` +1：cancelPublish 单一定义结构锁（先红：当前 2 处定义；删后绿：1 处）。
 - 回归：apps/desktop 全量 vitest + packages/shared-utils 全量 vitest 通过；PRD 行尾对账（numstat 两口径一致）。
 
+# [未发布] fix(工程门禁): 15 个含中文的 .ps1 补 UTF-8 BOM + 新增编码声明门禁（Windows PowerShell 5.1 按 ANSI 解码会让入口脚本整体不可解析）
+
+## 现象（不是显示问题，是功能性中断）
+
+- Windows PowerShell 5.1（`powershell.exe`，本仓所有 `.ps1` 入口的实际宿主）读取**无 BOM** 的
+  `.ps1` 时按系统 ANSI 码页（本机 cp936）解码，而不是 UTF-8。中文注释/字符串被逐字节重新解释，
+  一旦某个多字节序列含 `'` `"` `{` `}` 的字节，**整个脚本 tokenize 失败**。
+- 触发点：`start-mp-task.ps1`（会话隔离入口，负责创建任务 worktree）在 `248b924c` 之后
+  报 `ParserError: 表达式或语句中缺少“}”` ⇒ **所有新的运行时代码任务开不出 worktree**。
+  今天下午还能用，一次正常合入后就坏了 —— 因为该提交往无 BOM 的文件里加了中文。
+- 全仓清单（`git ls-files -- "*.ps1"` 48 个）：含非 ASCII 且无 BOM 的 **15 个**，
+  其中在当前字节下**实测已不可解析**的 **8 个**（`start-mp-task.ps1` / `start-desktop.ps1` /
+  `merge-when-green.ps1` / `run-bash-gate.ps1` / `mp-capture.ps1` /
+  `start-desktop-profile-lock.test.ps1` / `capture-mp.ps1` / `capture-mp-simple.ps1`）。
+  另 7 个今天"侥幸能 parse"，但同一行中文改动就会让它们加入名单 —— 所以一并补。
+- 为什么长期没被发现：`pwsh` 7 默认按 UTF-8 读，**看不见这个差异**；本机与 CI 用 pwsh 7 跑的
+  那些 .ps1 测试全绿，而 `powershell.exe` 这条路径没有任何门禁覆盖。
+
+## 修复
+
+- 15 个文件**只前置 3 字节 `EF BB BF`**，内容逐字不变（脚本断言"去掉 BOM 后与原字节 `equals`"、
+  并拒绝造成双 BOM 的情形）。不做任何"统一行尾"，每行原结尾保持原样。
+- 等价性由实测证明而非声称：同一份 PS 5.1 tokenize 审计在补 BOM 前 `TOTAL_BROKEN=8/15`，
+  补后 **`TOTAL_BROKEN=0/15`**（且每个文件 `utf8err=0 ansierr=0`）。
+
+## 门禁（新增，防复发）
+
+- `.github/scripts/check-ps1-bom.js`：判据一条 —— **含非 ASCII 的 tracked `.ps1` 必须带 UTF-8 BOM**；
+  纯 ASCII 无 BOM 放过（否则会把一半文件无谓改掉）。三条 fail-closed：
+  ① `git ls-files` 失败或返回 0 个 `.ps1` 一律抛错（不完整的遍历报"全绿"是最坏情况）；
+  ② index 里有、工作树读不到 ⇒ 记为 offender 而非静默跳过；③ 入参只收真 `Buffer`
+  （`typeof buf.length` 那种"看着像类型检查"的写法会放过字符串，而字符串上 `buf[i] > 0x7f`
+  比的是字符不是字节 ⇒ 中文会被判成干净 ⇒ 静默放行。这一条是我今天真的写错后被自己的
+  fixture 抓住的，CP5 就是它）。
+- 接线：`.github/workflows/quality-gate.yml` Gate 2b（`shell: bash`，每个 PR 都跑）。
+- 反证六条逐个实跑并断言字节还原一致：CP1 摘掉真文件的 BOM ⇒ 红 1 且**点名该文件**；
+  CP2 新增"含中文、无 BOM"的 .ps1 ⇒ 红 1；CP3 判据改成恒真 ⇒ 红 2；
+  CP4 空枚举不再抛 ⇒ 红 1；CP5 类型守卫退回 `typeof buf.length` ⇒ 红 1；
+  CP6 摘掉 workflow 接线 ⇒ `check-unwired-tests` 红 1 并点名本测试文件。
+  （CP2 要点：判据读 `git ls-files`，临时文件必须进 index 才会被枚举 —— 与 CI 的真实形态一致。）
+
+## 未修（登记）
+
+- 没有给 `.ps1` 加"必须能被 `powershell.exe` tokenize"的直接门禁：那要在 CI 起 PS 5.1，
+  且 BOM 已是它的充分条件。等价性用本地实测证明，理由与限制写在门禁头注释与本节。
+- `pwsh` 7 与 PS 5.1 的行为差异仍在（前者宽容、后者严格），本门禁选择"按最宿主声明编码"，
+  而不是放宽到"两边都能跑"。
+
+---
+
 # [未发布] fix(运营后台): 调度模拟器不再把注入 429 的请求记成完成；完成集合升为对拍硬判定（2026-09-29，#2626 / fix-simulator-429-completion-state）
 
 ## 修复
@@ -173,6 +223,13 @@
 
 ### 变更
 
+- **feat(publish) P0-2 风控挂起发布页可见性 + 行动指引具体化 + 词表增强**（发布页优化 roadmap 第二切片）：
+  - 目标选择器风控徽标（`PublishTargetSelector.vue` + `Publish.vue` 接 `useRiskStore`）：挂起账号/平台行显示「⚠ 风控挂起」+ 行动指引 tooltip——发布前可见，而非发布时被派发前置守卫拦截才知道；组件保持哑组件（props 注入），键语义与 risk-suspender-store 一致（平台级覆盖全部账号）。
+  - 行动指引具体化（参考产品 -110 口径）：通知/挂起提示/恢复确认从「前往平台侧确认」改为具体动作——「前往该平台创作者中心手动发布一篇内容完成验证，然后在账号管理页解除挂起」；locales zh/en 成对（badge/guidance 新键 + body/suspended/resumeConfirm 更新）。
+  - 词表增强（桌面 `publish-risk.js` + 引擎 `publish-mode-runner.js` 两侧同义）：RISK_RE += `canvas illegal` + `账号存在风险`（参考产品取证）；刻意不加「服务异常」等宽泛词（测试 misses 侧钉住该决策）。
+  - 实施发现：仓库已有完整风控体系（W1 §5/§6），真实差距为可见性/指引/词表三点——PRD-PUBLISH-PAGE-OPTIMIZATION §四 P0-2 已按六维度详写并标记已实现。
+  - 验证：桌面受影响面 246/246（选择器 +5、publish-risk +1）；引擎全量 exit 0（mode-runner +1）；locale pair/keys/cjk + 品牌 PASS。
+
 - **债务登记：`max-lines-baseline.json` 的 `Publish.vue` 登记值 1333 → 1515（= main 实况）**。
   登记值停在 1333，而 main 上 `apps/desktop/src/views/Publish.vue` 实测已 1515 行 —— 这 +182 是已合进 main
   的上游改动、从未登记。容差 200 ⇒ 天花板 1533，main 自己只剩 18 行余量，于是任何再动该文件的 PR 一律
@@ -241,6 +298,19 @@
 - 主进程：publisher-router 57/57（合并逻辑增强无回归）
 - 反证：bilibili strip 摘除 2 红 / douyin text_extra 摘除 1 红 / 还原复绿（变异-还原全流程字节级）
 - 详见 [01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md)（立项 PR #2631）
+
+---
+# [未发布] docs(publish): 话题内联描述模型立项——PRD + OpenSpec change 五件套（2026-10-09，publish-topic-inline-description）
+
+### 变更
+- **立项背景**：发布页标签/话题输入框与描述框割裂（用户看不到最终平台内容形态），且抖音/视频号两条链路把 tags 静默丢弃（`douyin-video.js` content_desc 只取正文且 `text_extra: []` 恒空、`shipinhao-video.js` description 只合并标题+正文）——用户填的话题发到这两个最主流视频平台的内容里不存在。
+- **用户决策（2026-10-09）**：完全按参考产品 4.13.19 逆向取证逻辑实现——标签/话题添加后直接体现在视频描述输入框（描述文本为话题真源、所见即所得）；平台格式差异（微博双井号等）在发布时隐性转换。
+- **逆向取证**（用户提供目录，主进程 bundle `packages/main/dist/index.cjs`）：话题以 `<topic>` 内联描述富文本、发布时各平台隐性转换（小红书/视频号 `#名[话题]#` + hash_tag 结构化、微博 `#名#`、知乎 `<a>`+topic_id）、话题验证 fail-closed（查不到平台实体删节点）——取证结论全量落 PRD §2（品牌词按 Gate 12 红线不入库）。
+- **产物**：`01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md`（方案设计 / 15 平台格式转换矩阵 / 交互逻辑 / 测试验收 / roadmap）+ `openspec/changes/publish-topic-inline-description/`（proposal / design / tasks / spec delta / .openspec.yaml 五件套）+ 主 PRD 功能文档列表登记。
+
+### 验证
+- docs-only 门禁四项：行尾对账两口径一致（PRD.md 3/1 = 3/1）| 品牌残留 PASS（6441 tracked 文件）| 文档同步（纯文档 PR 无代码变更，doc-gate 不触发）| 远程同步 PENDING（PR 合并后回填）。
+- 实现见 PR #2640（已合并，squash 0dc2d98a）。
 
 ---
 # [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）

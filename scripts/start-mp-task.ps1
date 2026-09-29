@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     创建并打开 Multi-Publish 的独立任务 worktree。
 .DESCRIPTION

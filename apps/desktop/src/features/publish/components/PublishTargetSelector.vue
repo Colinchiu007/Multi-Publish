@@ -15,6 +15,13 @@
               @change="$emit('toggle-platform', platform.id)"
             />
             <span>{{ platform.label }}</span>
+            <span
+              v-if="isPlatformRiskSuspended(platform.id)"
+              class="target-account__risk"
+              :data-testid="'target-platform-risk-flag-' + platform.id"
+              :title="riskGuidanceText"
+              role="status"
+            >{{ riskBadgeText }}</span>
           </label>
 
           <div v-if="selectedPlatforms.includes(platform.id)" class="target-accounts">
@@ -40,6 +47,13 @@
                   data-testid="target-account-disabled-flag"
                   role="status"
                 >{{ disabledFlagText }}</span>
+                <span
+                  v-if="isAccountRiskSuspended(platform.id, account.id)"
+                  class="target-account__risk"
+                  :data-testid="'target-account-risk-flag-' + platform.id + '-' + account.id"
+                  :title="riskGuidanceText"
+                  role="status"
+                >{{ riskBadgeText }}</span>
               </label>
             </template>
             <span v-else class="target-accounts__empty">请先添加账号</span>
@@ -68,6 +82,9 @@ const props = defineProps({
   selectedPlatforms: { type: Array, default: () => [] },
   selectedAccounts: { type: Object, default: () => ({}) },
   disabled: { type: Boolean, default: false },
+  /** 风控挂起清单（P0-2 发布页可见性）：[{platform, accountId}]，accountId 为 null 表示平台级挂起。
+   *  数据源是 useRiskStore（Publish.vue 注入），组件保持哑组件不直接耦合 store。 */
+  riskSuspended: { type: Array, default: () => [] },
 })
 
 defineEmits(['toggle-platform', 'toggle-account'])
@@ -92,6 +109,25 @@ const filteredGroups = computed(() => {
 
 const disabledFlagText = computed(() => i18n.global.t('accountsPage.accountCardLabels.disabledFlag'))
 
+// P0-2 风控挂起可见性：挂起清单判账号级/平台级命中（与 risk-suspender-store 键语义一致——
+// 平台级（accountId==null）命中该平台所有账号；账号级仅命中对应账号）。
+const riskBadgeText = computed(() => i18n.global.t('publish.riskHold.badge'))
+const riskGuidanceText = computed(() => i18n.global.t('publish.riskHold.guidance'))
+
+function isAccountRiskSuspended (platformId, accountId) {
+  return (props.riskSuspended || []).some(entry => {
+    if (!entry || entry.platform !== platformId) return false
+    // 平台级挂起（accountId==null）覆盖该平台全部账号
+    if (entry.accountId == null) return true
+    return entry.accountId === accountId
+  })
+}
+
+function isPlatformRiskSuspended (platformId) {
+  return (props.riskSuspended || []).some(entry =>
+    entry && entry.platform === platformId && entry.accountId == null)
+}
+
 function isAccountSelected (platformId, accountId) {
   const value = props.selectedAccounts?.[platformId]
   return Array.isArray(value) ? value.includes(accountId) : value === accountId
@@ -114,4 +150,5 @@ function isAccountSelected (platformId, accountId) {
 .target-account__default { color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); }
 .target-account.is-disabled { opacity: 0.6; cursor: not-allowed; }
 .target-account__disabled { color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
+.target-account__risk { color: var(--el-color-warning, #e6a23c); font-size: var(--font-size-xs); cursor: help; }
 </style>

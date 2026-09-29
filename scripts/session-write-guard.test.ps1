@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $guard = Join-Path $root 'scripts/guard-shared-root-writes.ps1'
 if (-not (Test-Path -LiteralPath $guard)) { throw 'guard script missing: ' + $guard }

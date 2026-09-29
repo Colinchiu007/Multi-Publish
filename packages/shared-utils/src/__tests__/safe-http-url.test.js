@@ -94,14 +94,34 @@ describe('CJS/ESM 孪生 parity', () => {
       return Object.keys(ns).filter(k => !(k === 'default' && isInteropDefault)).sort()
     }
     expect(apiKeys(esmGuard)).toEqual(apiKeys(cjsGuard))
-    // 且两侧都必须真的暴露这两个 API（键集相同但都缺 safeHttpUrl 也算漂移）
-    expect(apiKeys(esmGuard)).toEqual(['HTTP_URL_RE', 'safeHttpUrl'])
+    // 且两侧都必须真的暴露这组 API（键集相同但都缺 safeHttpUrl 也算漂移）
+    expect(apiKeys(esmGuard)).toEqual(['HTTP_URL_RE', 'SHARE_TEXT_TRAILING_JUNK_RE', 'SHARE_TEXT_URL_RE', 'extractShareTextUrls', 'safeHttpUrl'])
     // 反证预留：如果哪天 CJS 侧新增导出而孪生没补，上面第一条就会红
-    expect(typeof cjsGuard.default === 'object' ? Object.keys(cjsGuard.default).sort() : []).toEqual(['HTTP_URL_RE', 'safeHttpUrl'])
+    expect(typeof cjsGuard.default === 'object' ? Object.keys(cjsGuard.default).sort() : []).toEqual(['HTTP_URL_RE', 'SHARE_TEXT_TRAILING_JUNK_RE', 'SHARE_TEXT_URL_RE', 'extractShareTextUrls', 'safeHttpUrl'])
   })
 
   it.each(TABLE)('孪生对同一输入必须给出同一结论：%o → %o', (input, expected) => {
     expect(esmGuard.safeHttpUrl(input)).toBe(expected)
     expect(esmGuard.safeHttpUrl(input)).toBe(cjsGuard.safeHttpUrl(input))
+  })
+
+  // 2026-10-08 分享文本 URL 提取（自 Collection.vue 收敛）：两个新正则也必须逐字同源
+  it('孪生的分享文本提取正则必须逐字同源（source+flags）', () => {
+    expect(esmGuard.SHARE_TEXT_URL_RE.source).toBe(cjsGuard.SHARE_TEXT_URL_RE.source)
+    expect(esmGuard.SHARE_TEXT_URL_RE.flags).toBe(cjsGuard.SHARE_TEXT_URL_RE.flags)
+    expect(esmGuard.SHARE_TEXT_TRAILING_JUNK_RE.source).toBe(cjsGuard.SHARE_TEXT_TRAILING_JUNK_RE.source)
+    expect(esmGuard.SHARE_TEXT_TRAILING_JUNK_RE.flags).toBe(cjsGuard.SHARE_TEXT_TRAILING_JUNK_RE.flags)
+  })
+
+  it('extractShareTextUrls：CJK 终止 + 尾部标点清理 + 孪生同结论', () => {
+    const shareText = '看看这个 https://video.example.com/watch?v=abc123。还有 https://b.example/x（备用）'
+    const expected = ['https://video.example.com/watch?v=abc123', 'https://b.example/x']
+    expect(cjsGuard.extractShareTextUrls(shareText)).toEqual(expected)
+    expect(esmGuard.extractShareTextUrls(shareText)).toEqual(expected)
+    // 中文紧贴 URL → CJK 终止匹配（不吞中文）
+    expect(cjsGuard.extractShareTextUrls('链接https://a.example/x结束')).toEqual(['https://a.example/x'])
+    expect(cjsGuard.extractShareTextUrls('')).toEqual([])
+    expect(cjsGuard.extractShareTextUrls(null)).toEqual([])
+    expect(cjsGuard.extractShareTextUrls('无链接文本')).toEqual([])
   })
 })

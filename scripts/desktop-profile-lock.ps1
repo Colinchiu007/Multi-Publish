@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   识别占用指定 ELECTRON_USER_DATA_DIR profile 的 Electron 进程，并按
