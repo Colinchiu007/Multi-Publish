@@ -2,8 +2,19 @@
 # Integration tests for session-init.sh and gwm-task.sh.
 set -u
 
-SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# 2026-10：非交互 bash 不加载 /etc/profile，PATH 缺 Git\usr\bin 时 dirname/mktemp/rm
+# 全部找不到（实测 `dirname: command not found`）。用 bash 内建 $BASH 定位自身
+# /usr/bin 并前置 PATH 自愈（见 session-init.sh 同款注释）。
+BASH_BIN_DIR="${BASH%/*}"
+case "$PATH:" in
+    *"$BASH_BIN_DIR:"*) ;;
+    *) export PATH="$BASH_BIN_DIR:$PATH" ;;
+esac
+
+# Git Bash 下 $TMP/$TEMP 是 Windows 路径（C:\...），与 mktemp 返回的 POSIX 路径
+# （/tmp/...）不一致，导致后续 $TMP 引用全部落空。统一用 mktemp 的 POSIX 输出。
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ccg-session-init-XXXXXX")"
+SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 trap 'rm -rf "$TMP"' EXIT
 
 PASS=0

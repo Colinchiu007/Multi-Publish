@@ -3,6 +3,18 @@
 # Usage: bash scripts/session-init.sh [task-name]
 set -euo pipefail
 
+# 2026-10：非交互/非登录 bash（start-mp-task.ps1 的 `& $bash $script` 调用方式）不加载
+# /etc/profile，PATH 只继承 Windows PATH（POSIX 化）。本机 Windows PATH 不含 Git\usr\bin，
+# 而 dirname/cygpath/awk 都在那里 → 实测 `dirname: command not found`（exit 127），
+# worktree 未建成就失败。$BASH 是 bash 内建变量（不依赖 PATH），其所在目录即 Git for
+# Windows 的 /usr/bin；把该目录前置进 PATH 即可自愈。WSL bash 无此目录结构，此自愈
+# 不会误伤（见 start-mp-task.ps1 的 bash 身份校验）。
+BASH_BIN_DIR="${BASH%/*}"
+case "$PATH:" in
+    *"$BASH_BIN_DIR:"*) ;;
+    *) export PATH="$BASH_BIN_DIR:$PATH" ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # 2026-09-15：本机 harness 设有 MSYS_NO_PATHCONV=1 / MSYS2_ARG_CONV_EXCL=*，
 # git -C 的 POSIX 路径参数（/d/...）不会被转换 → "not a git repository"。

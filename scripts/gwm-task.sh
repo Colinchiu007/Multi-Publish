@@ -9,6 +9,15 @@
 
 set -euo pipefail
 
+# 2026-10：非交互 bash 不加载 /etc/profile，PATH 只继承 Windows PATH（POSIX 化），
+# 缺 Git\usr\bin 时 dirname/cygpath/awk 全部找不到（实测 `dirname: command not found`）。
+# 用 bash 内建 $BASH 定位自身 /usr/bin 并前置 PATH 自愈（见 session-init.sh 同款注释）。
+BASH_BIN_DIR="${BASH%/*}"
+case "$PATH:" in
+    *"$BASH_BIN_DIR:"*) ;;
+    *) export PATH="$BASH_BIN_DIR:$PATH" ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # 2026-09-15：MSYS_NO_PATHCONV=1 环境下 git -C 的 POSIX 路径参数不转换（见 session-init.sh 同款注释）
 GIT_ROOT_ARG="$(cygpath -m "$SCRIPT_DIR/.." 2>/dev/null || echo "$SCRIPT_DIR/..")"
