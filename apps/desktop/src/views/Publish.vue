@@ -257,6 +257,12 @@
                       <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
                       <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                     </el-upload>
+                    <CoverThumbnail
+                      :data-url="coverPreviewUrl"
+                      :error="coverPreviewError"
+                      :loading="coverPreviewLoading"
+                      @open="openCoverPreview"
+                    />
                     <UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
                       {{ t('publishPage.extractCover') }}
                     </UiButton>
@@ -433,6 +439,14 @@
                   <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
                   <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                 </el-upload>
+                <!-- 不加 flex 包裹层：.cohere-form-item 是列向 flex，el-upload 靠 align-items:stretch
+                     占满宽；套一层行向容器会让它退化成内容宽，产生与本功能无关的基线位移。 -->
+                <CoverThumbnail
+                  :data-url="coverPreviewUrl"
+                  :error="coverPreviewError"
+                  :loading="coverPreviewLoading"
+                  @open="openCoverPreview"
+                />
                 <UiInput v-model="article.cover_url" :placeholder="t('publishPage.coverUrlPlaceholder')" />
               </div>
               <div class="cohere-form-item publish-metadata-grid">
@@ -602,6 +616,15 @@
     @success="onCoverCropSuccess"
     @error="onCoverCropError"
   />
+  <!-- 封面放大预览（PRD-PUBLISH-COVER-PREVIEW §5.3）：与缩略图、裁剪弹窗共用同一封面真源。
+       挂起/释放、文件名与原始尺寸都在组件内部，本视图只持有「开合」这一个状态。 -->
+  <CoverPreviewDialog
+    :visible="showCoverPreview"
+    :data-url="coverPreviewUrl"
+    :error="coverPreviewError"
+    :path="article.cover_path"
+    @close="showCoverPreview = false"
+  />
   <!-- P2-2：AI 封面生成对话框（复用 asset-generator 生图引擎） -->
   <div v-if="showAiCoverDialog" class="ai-cover-overlay" data-testid="ai-cover-dialog">
     <div class="ai-cover-modal">
@@ -649,7 +672,7 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
@@ -670,6 +693,10 @@ import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
 import CoverCropDialog from '@/components/CoverCropDialog.vue'
+import CoverThumbnail from '@/components/CoverThumbnail.vue'
+import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
+import { useCoverPreview } from '@/composables/useCoverPreview'
+import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
@@ -907,7 +934,9 @@ function onCoverCropSuccess (data) {
   if (data?.path) {
     article.cover_path = data.path
     article.cover_file = { path: data.path, name: 'video-cover-crop.jpg' }
-    coverFileList.value = [{ name: 'video-cover-crop.jpg', url: data.path, path: data.path }]
+    // 不写 url：el-upload 的 text 形态只用 name，而一个看着像 URL 的本地绝对路径
+    // 是陷阱（渲染层 CSP 的 img-src 不含 file:，它永远渲染不出来）。
+    coverFileList.value = [{ name: 'video-cover-crop.jpg', path: data.path }]
     notifySuccess('publishPage.coverExtracted')
   }
 }
@@ -915,6 +944,24 @@ function onCoverCropSuccess (data) {
 function onCoverCropError (message) {
   notifyWarning('publishPage.coverCrop.cropFailed', { message: message || t('publishPage.coverCrop.cropFailed') })
 }
+
+// ─── 封面缩略图与放大预览（01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md）───
+// 预览挂在 article.cover_path 上，而不是挂在各按钮回调上：封面有五个写入口
+// （提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上才不会漏接线。
+const {
+  dataUrl: coverPreviewUrl,
+  error: coverPreviewError,
+  loading: coverPreviewLoading,
+} = useCoverPreview(() => article.cover_path)
+// 开合状态留在本视图；「换封面即收起」与内嵌视图挂起/释放都在 CoverPreviewDialog 内部按 visible 收敛。
+const showCoverPreview = ref(false)
+
+function openCoverPreview () {
+  if (!coverPreviewUrl.value) return
+  showCoverPreview.value = true
+}
+
+onBeforeUnmount(releaseAiCoverOverlay)
 
 async function handleExtractVideoCover () {
   if (!article.video_path) return
@@ -924,7 +971,7 @@ async function handleExtractVideoCover () {
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'video-cover.jpg' }
-      coverFileList.value = [{ name: 'video-cover.jpg', url: coverPath, path: coverPath }]
+      coverFileList.value = [{ name: 'video-cover.jpg', path: coverPath }]
       notifySuccess('publishPage.coverExtracted')
     } else {
       notifyWarning('publishPage.coverExtractFailed', {
@@ -945,6 +992,32 @@ const showAiCoverDialog = ref(false)
 const aiCoverGenerating = ref(false)
 const aiCoverForm = reactive({ prompt: '', style: 'cinematic', ratio: '16:9' })
 
+// AI 封面浮层是 `position: fixed; inset: 0` 的应用级模态，同样压在原生 WebContentsView
+// 之下（z-index 对原生图层无效），必须与放大预览各持一个 owner 挂起/恢复。
+const AI_COVER_OVERLAY_OWNER = 'publish-ai-cover-dialog'
+let aiCoverOverlayHeld = false
+
+async function suspendAiCoverOverlay () {
+  if (aiCoverOverlayHeld) return
+  aiCoverOverlayHeld = true
+  try {
+    await suspendEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)
+  } catch (_) {
+    aiCoverOverlayHeld = false
+  }
+}
+
+async function releaseAiCoverOverlay () {
+  if (!aiCoverOverlayHeld) return
+  aiCoverOverlayHeld = false
+  await releaseEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)
+}
+
+watch(showAiCoverDialog, (open) => {
+  if (open) suspendAiCoverOverlay()
+  else releaseAiCoverOverlay()
+})
+
 async function handleGenerateAiCover () {
   if (aiCoverGenerating.value) return
   const prompt = aiCoverForm.prompt.trim()
@@ -959,7 +1032,7 @@ async function handleGenerateAiCover () {
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'ai-cover.png' }
-      coverFileList.value = [{ name: 'ai-cover.png', url: coverPath, path: coverPath }]
+      coverFileList.value = [{ name: 'ai-cover.png', path: coverPath }]
       notifySuccess('publishPage.aiCoverGenerated')
       showAiCoverDialog.value = false
     } else {

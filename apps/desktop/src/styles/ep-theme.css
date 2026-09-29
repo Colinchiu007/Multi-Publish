@@ -7,8 +7,10 @@
 :root {
   /* 主色桥接：EP 默认 #409eff → tokens --color-primary */
   --el-color-primary: var(--color-primary);
-  --el-color-primary-light-3: var(--color-primary-dark-tint);
-  --el-color-primary-light-5: var(--color-primary-dark-tint);
+  /* --color-primary-dark-tint 只在 [data-theme="dark"] 定义，浅色必须兜底，
+   * 否则 var() 解析失败会让主按钮 hover/禁用态退化为透明底 + 白字（整体隐形）。 */
+  --el-color-primary-light-3: var(--color-primary-dark-tint, var(--color-primary-hover));
+  --el-color-primary-light-5: var(--color-primary-dark-tint, var(--color-primary-hover));
   --el-color-primary-light-7: var(--color-primary-light);
   --el-color-primary-light-8: var(--color-primary-light);
   --el-color-primary-light-9: var(--color-primary-light);
@@ -34,8 +36,8 @@
   --el-border-color-lighter: var(--color-border);
   --el-border-color-hover: var(--color-primary);
 
-  /* 填充/背景桥接 */
-  --el-fill-color: var(--color-bg-hover);
+  /* 填充/背景桥接（--color-bg-hover 全仓无定义，与 light/lighter 同档收编到 bg-inset） */
+  --el-fill-color: var(--color-bg-inset);
   --el-fill-color-light: var(--color-bg-inset);
   --el-fill-color-lighter: var(--color-bg-inset);
   --el-bg-color: var(--color-bg-canvas);

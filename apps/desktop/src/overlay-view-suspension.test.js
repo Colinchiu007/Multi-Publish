@@ -13,7 +13,7 @@
  *   4. preload（page-manager.js + index.bundle.js）暴露 suspendEmbeddedViews / resumeEmbeddedViews
  *   5. 渲染层 composable + App.vue（设置弹窗、关闭确认护栏）/ MpSidebar（升级弹窗）接入
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -105,6 +105,126 @@ describe('弹窗互斥：静态链路完整性', () => {
     expect(unmountBlock && unmountBlock[0]).toContain('releaseOverlay()')
     // 不得复用其它浮层的 owner（否则 ref-count 会把别人的释放吞掉）
     expect(src).not.toMatch(/suspendEmbeddedViewsForOverlay\(['"](?!account-cloud-sync-dialog)/)
+  })
+
+  // owner 登记表：发布页封面流程的三个模态浮层（PRD-PUBLISH-COVER-PREVIEW-2026-09-28 §7.5）。
+  // 裁剪弹窗与 AI 封面浮层是本次一并补登记的既有漏项 —— 同一封面行里新浮层守规矩、
+  // 旁边的不守，等于把同一个 Bug 留在原地。
+  it('发布页封面流程：放大预览 / 裁剪弹窗 / AI 封面浮层各自持唯一 owner 并成对释放', () => {
+    const cropSrc = fs.readFileSync(path.join(ROOT, 'src/components/CoverCropDialog.vue'), 'utf8')
+    const previewSrc = fs.readFileSync(path.join(ROOT, 'src/components/CoverPreviewDialog.vue'), 'utf8')
+    const publishSrc = fs.readFileSync(path.join(ROOT, 'src/views/Publish.vue'), 'utf8')
+
+    expect(cropSrc).toMatch(/const OVERLAY_OWNER = ['"]publish-cover-crop-dialog['"]/)
+    expect(previewSrc).toMatch(/const OVERLAY_OWNER = ['"]publish-cover-preview['"]/)
+    expect(publishSrc).toMatch(/const AI_COVER_OVERLAY_OWNER = ['"]publish-ai-cover-dialog['"]/)
+
+    // 逐函数取块（不用跨函数的懒惰匹配，否则锁会在实现被拆开时假绿）
+    const cropSuspend = cropSrc.match(/async function suspendOverlay \(\) \{[\s\S]*?\n\}/)
+    const cropRelease = cropSrc.match(/async function releaseOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(cropSuspend && cropSuspend[0]).toContain('await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(cropRelease && cropRelease[0]).toContain('await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(cropSrc).toMatch(/onBeforeUnmount\(\(\) => \{ releaseOverlay\(\) \}\)/)
+
+    // 放大预览与裁剪弹窗同构：owner 随组件走，开合由 visible 驱动，卸载再兜一层。
+    const previewSuspend = previewSrc.match(/async function suspendOverlay \(\) \{[\s\S]*?\n\}/)
+    const previewRelease = previewSrc.match(/async function releaseOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(previewSuspend && previewSuspend[0]).toContain('await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(previewRelease && previewRelease[0]).toContain('await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(previewSrc).toMatch(/onBeforeUnmount\(\(\) => \{ releaseOverlay\(\) \}\)/)
+    // 开合两条路径必须由同一个 watch 收口，且 immediate 覆盖「以 visible=true 首次挂载」
+    expect(previewSrc).toMatch(
+      /watch\(\(\) => props\.visible,[\s\S]*?if \(open\) \{[\s\S]*?suspendOverlay\(\)[\s\S]*?\} else \{[\s\S]*?releaseOverlay\(\)[\s\S]*?\}, \{ immediate: true \}\)/,
+    )
+
+    const aiSuspend = publishSrc.match(/async function suspendAiCoverOverlay \(\) \{[\s\S]*?\n\}/)
+    const aiRelease = publishSrc.match(/async function releaseAiCoverOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(aiSuspend && aiSuspend[0]).toContain('await suspendEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)')
+    expect(aiRelease && aiRelease[0]).toContain('await releaseEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)')
+
+    // 卸载兜底：AI 封面浮层的 owner 由本视图持有，销毁不得残留
+    expect(publishSrc).toMatch(/onBeforeUnmount\(releaseAiCoverOverlay\)/)
+
+    // 三处一律经命名常量传 owner：出现字面量即意味着有人绕过登记直接塞了个 owner
+    expect(cropSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+    expect(previewSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+    expect(publishSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+  })
+})
+
+describe('弹窗互斥：内嵌主页壳态（home-shell）不得挂起', () => {
+  // 根因：home-shell 实例本身就是一张 WebContentsView。主进程任一时刻只让活动标签
+  // 可见（全仓 setVisible(true) 仅 layout.js 一处，且只作用于 activeView），所以它
+  // 内部的应用级模态不会被别的标签视图盖住；反而一挂起会经 _hideAllTabs() 把自己藏掉
+  // —— 用户表现为「点缩略图后内容区整块空白」。
+  // 同族守卫已存在于 App.vue 的 setShellMode（if (isHomeShell) return），本条补齐挂起路径。
+  async function loadComposable () {
+    vi.resetModules()
+    return (await import('@/composables/useEmbeddedViewSuspension'))
+  }
+
+  function setUrl (search) {
+    // 必须给出带 pathname 的完整相对路径：replaceState 传裸 '#/x' 只替换 fragment、
+    // **保留既有 query**，那样「清空」清不掉 mp-home-shell=1，守卫会被上一条用例污染。
+    window.history.replaceState({}, '', `/${search}#/publish`)
+  }
+
+  let calls
+  beforeEach(() => {
+    calls = []
+    window.electronAPI = {
+      pageManager: {
+        suspendEmbeddedViews: (owner) => { calls.push(['suspend', owner]); return Promise.resolve(true) },
+        resumeEmbeddedViews: (owner) => { calls.push(['resume', owner]); return Promise.resolve(true) },
+      },
+    }
+  })
+
+  afterEach(() => {
+    setUrl('')
+    delete window.electronAPI
+  })
+
+  it('home-shell 壳态下 suspend 直接 no-op：不发 IPC、不占 owner 计数', async () => {
+    setUrl('?mp-home-shell=1')
+    const mod = await loadComposable()
+
+    await expect(mod.suspendEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(false)
+    expect(calls).toEqual([])
+    // 释放同样 no-op，且不得因为「没挂起过」而误发恢复
+    await expect(mod.releaseEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('主窗口壳态下行为不变：仍按 owner 各发一次挂起与恢复', async () => {
+    setUrl('')
+    const mod = await loadComposable()
+
+    await expect(mod.suspendEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(true)
+    expect(calls).toEqual([['suspend', 'publish-cover-preview']])
+    await expect(mod.releaseEmbeddedViewsForOverlay('publish-cover-preview')).resolves.toBe(true)
+    expect(calls).toEqual([
+      ['suspend', 'publish-cover-preview'],
+      ['resume', 'publish-cover-preview'],
+    ])
+  })
+
+  it('壳态判据按调用时刻读取，不得在模块导入期冻结', async () => {
+    setUrl('')
+    const mod = await loadComposable()
+    await expect(mod.suspendEmbeddedViewsForOverlay('owner-a')).resolves.toBe(true)
+
+    // 同一已导入模块下切换到 home-shell：后续挂起必须立刻停止发 IPC
+    setUrl('?mp-home-shell=1')
+    await expect(mod.suspendEmbeddedViewsForOverlay('owner-b')).resolves.toBe(false)
+    expect(calls.filter((c) => c[1] === 'owner-b')).toEqual([])
+  })
+
+  it('home-shell 参数值必须严格为 1，其他值不得误判为壳态', async () => {
+    setUrl('?mp-home-shell=0')
+    const mod = await loadComposable()
+    await expect(mod.suspendEmbeddedViewsForOverlay('owner-c')).resolves.toBe(true)
+    expect(calls).toEqual([['suspend', 'owner-c']])
   })
 })
 

@@ -1,3 +1,35 @@
+# [未发布] feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
+
+### 现象与根因
+- 一键发布页点【从视频提取封面】/【AI 生成封面】后，封面只在 `el-upload` 文本列表里显示一行文件名（`video-co...` + 对勾），**没有任何图像**。用户无法确认取到的是哪一帧（黑帧 / 片头 / 字幕条）、AI 生成的是什么、裁剪构图对不对，只能盲发或另开文件管理器查看临时目录。
+- 根因是双层的：① `el-upload` 未设 `list-type`，默认 `text` 形态只渲染文件名；② 写入 `coverFileList` 的 `url` 字段是**本地绝对路径**而不是可加载 URL —— 渲染层 CSP（`apps/desktop/src/index.html:8`）的 `img-src` 不含 `file:`，所以即使改成 `picture` 形态也是破图。
+
+### 变更
+- **预览挂在 `article.cover_path` 上，不挂在各按钮回调上**：封面有五个写入口（提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上一次覆盖全部，新增入口不会再被漏接线。这也是「AI 生成封面也要一样处理」的落地方式 —— 不是再抄一份逻辑。
+- 新增 `apps/desktop/src/composables/useCoverPreview.js`：把「本地绝对路径 → dataURL」的**剥信封**（`res.data.dataUrl || res.dataUrl`）收敛为唯一实现，并让 `CoverCropDialog.vue` 改为复用它。此前该剥离只存在于裁剪弹窗内部，抄第二份必然漂移。带自增序号**竞态守卫**：连续「提取 → AI 生成」时迟到的旧响应必须整段丢弃，否则缩略图显示上一张 —— 那是比没有缩略图更糟的**错误证据**。
+- 新增 `apps/desktop/src/components/CoverThumbnail.vue`：144×81、`object-fit: cover`、`cursor: zoom-in`、`role=button` + `tabindex=0` + Enter/Space。三态互斥（加载中 / 有图 / 读取失败）；失败态**刻意保留占位框**并把具体原因挂在 `title`，而不是整块消失 —— 整块消失会让用户以为「封面没设置上」而重复点击生成。缩略图是 `el-upload` 的**兄弟节点**而非插槽内容（`el-upload` 在单测里被 stub 成 `<div><slot/></div>`，插槽内的东西对测试不可见）。
+- 放大预览走 `UiModal`（`size="xl"` + 显式 `close-on-esc`）+ 原生 `<img>`，与仓库既有约定一致（全仓无 `el-image` / `ElImageViewer`）。视频与图文两个封面行共用**同一份** composable 实例与**同一个**弹窗节点。
+- 图文封面行**刻意不加 flex 包裹层**：`.cohere-form-item` 是列向 flex，`el-upload` 靠 `align-items: stretch` 占满宽，套一层行向容器会让它退化成内容宽 —— 那会造成与本功能无关的 `publish-form` 像素基线位移。
+- 按 AGENTS.md 浮层互斥合同登记**三个 owner**：`publish-cover-preview`（本次新增）、`publish-cover-crop-dialog` 与 `publish-ai-cover-dialog`（同一封面流程的**既有漏项**，一并补上 —— 新浮层守规矩、旁边的不守等于把同一个 Bug 留在原地）。释放一律走 `finally`，`onBeforeUnmount` 兜底。
+- **修掉一条自查发现的既有危害（自审，非评审产出）**：发布页可运行在「+新标签」的**内嵌主页实例**里，而该实例本身就是一张 `WebContentsView`。主进程任一时刻只让活动标签可见（全仓 `setVisible(true)` 仅 `webview-manager/layout.js:160` 一处、且只作用于 `activeView`），所以它内部的应用级模态不会被别的视图盖住；而 `suspendEmbeddedViewsForOverlay` → `_hideAllTabs()` 无差别遍历 `_tabViews` 隐藏，会**把承载弹窗的那张视图自己藏掉** —— 表现为「点缩略图后内容区整块空白」，且弹窗不可见因而无法关闭。该危害在 `App.vue` 的 `setShellMode` 路径早已有守卫（`if (isHomeShell) return`），挂起路径却没有；`home-shell-preload.bundle.js:928` 确实暴露了 `suspendEmbeddedViews`（esbuild 把 `preload/index.js` 整体内联），路径可达。
+- 修复落在 `useEmbeddedViewSuspension.js` 本身：新增 `isHomeShellRuntime()` 守卫，判据**按调用时刻**读取 `window.location.search`（不得在模块导入期冻结求值，否则真实导航后失效）。放 composable 而非各调用点，顺带收口 `AccountCloudSyncDialog` 的同类既有暴露。回归锁 4 例（壳态 no-op / 主窗口行为不变 / 判据不得导入期冻结 / 参数值须严格为 `1`），变异反证「守卫恒不命中」⇒ 恰好 2 条变红。
+
+- locale：`publishPage.coverPreview.{title,hint,ariaLabel,loading,unavailable}` zh/en 成对新增，插在 `coverCrop` 之后保持行位对称。
+
+### 明确不做（附理由）
+- **不加主进程体积门禁**：实测 20 MB 封面 `readFileSync` + `base64` 仅 **25.6 ms**（0.3/2/8/20 MB = 0.9/1.9/6.7/25.6 ms），不构成卡顿；而为它改 `electron/` 会连带 preload bundle 重建 + QM-1 打包，爆炸半径远大于收益。数字与判据见 `01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md` §9。
+- **不引入 `sharp` 生成小尺寸缩略图**：`sharp` 只由 `packages/shared-utils` 声明，桌面工作区 `apps/desktop/package.json` 未声明，按 AGENTS.md「生产依赖闭包」属违规。
+- **不预览远程「封面图片链接」（`cover_url`）**：会为渲染一张第三方图向任意用户输入的域名发请求，等于给对方一个可追踪信标；且 `http://` 链接会被 CSP 拦成破图。
+- 已知限制（非本次引入）：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框是 `accept="image/*"`，所以 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**。裁剪弹窗一直如此，本次让它可见，故写入文档以免被当成新 Bug。
+
+### 测试
+- 新增 `useCoverPreview.test.js` 17 例：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、**竞态（迟到成功与迟到失败均不得倒灌）**、卸载后不写状态、`reload()`。
+- 新增 `Publish.test.js`「封面缩略图与放大预览」12 例：提取/AI 生成两个入口写入即出图、**草稿恢复（入口 5，不经任何按钮）**、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效。
+- `overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配）。
+- **四条变异反证均实跑变红并字节还原**：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不再上抛 `open` ⇒ 1 红；把释放挪出 `finally` ⇒ 1 红（正是新结构锁）。
+- 回归：`Publish.test.js` + `CoverCropDialog.test.js` + `useCoverPreview.test.js` = 88 passed；`overlay-view-suspension` + `shell-mode-6b` = 19 passed；`views-deep2` + `views-coverage` = 16 passed；`index.test.js`（CSP 守卫）通过；`vite build` 通过（模板编译）；eslint 改动文件零告警；`verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内。
+- 行尾对账：四份共享文档均按**字节前插/追加**，未触碰任何既有行；`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等（无幽灵行）。
+
 # [未发布]
 
 ### 变更
@@ -26,6 +58,19 @@
 ### 影响
 - #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
 - 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
+
+# [未发布] feat(publish): 定时×草稿互斥守卫（发布页优化 roadmap 第一项 P1-4）+ 对比参考产品的差距分析文档（2026-10-08，publish-page-optimization）
+
+### 变更
+- **P1-4 定时×草稿互斥**（`usePublishDrafts.js`）：本地草稿是静态快照不会自动发布——带定时时间保存草稿会让用户误以为「到点自动发」。双侧守卫：①保存侧 ElMessageBox 互斥确认（清除定时并保存 / 保留定时保存，双按钮都保存）；②加载侧清除已过期定时时间并提示（避免下一次发布被 validateScheduleEntries 以「定时时间已过去」静默拒绝）。参考产品在引擎层硬拒绝（pubType 互斥）；本地草稿语义更宽（WIP 快照），改为确认+清除而非硬拒绝。
+- **分析文档** `01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md`（force-add，.gitignore 白名单制）：对比参考产品 4.13.19 的 8 项差距清单（P0-1 审核状态跟踪★最大差距/P0-2 账号风险预检/P1-3 平台草稿往返/P1-4 本项已实现/P1-5 可见性通用控件/P2 数据回流/批量字段面/账号分组），含证据出处（16 态审核模型 + aweme_id 回查口径 + -110 风险码族）、P1-4 六维度详写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）、后续项立项要点。
+- locales zh/en 成对新增 5 键（scheduleConflictTitle/Message/Clear/Keep + staleScheduleCleared）。
+
+### 验证
+- `usePublishDrafts.test.js` 11/11（含 5 条 P1-4 回归：确认清除/取消保留/无定时不弹/过期清除/未来保留）
+- locale 成对门禁（pair-base/keys/cjk）、品牌残留、行尾对账本地 PASS
+
+---
 
 # [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
 
