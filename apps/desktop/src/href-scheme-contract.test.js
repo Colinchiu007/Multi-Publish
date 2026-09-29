@@ -98,7 +98,10 @@ function safeHttpUrlArg (expr) {
 /** 例外清单：只能带理由进入，且只能缩小 */
 const HREF_EXCEPTIONS = []
 /** 渲染层允许出现协议正则字面量的文件（当前为空——渲染层一律调共享判据） */
-const RENDERER_PROTOCOL_REGEX_ALLOWED = []
+const RENDERER_PROTOCOL_REGEX_ALLOWED = [
+  'src/views/Collection.vue', // isVideoPlatformUrl 用 new URL() 解析 + 协议白名单（比 safeHttpUrl 更严），
+  // extractUrlFromShareText 的 /^https?:\/\// 只过滤「分享文本里提取的链接」，不渲染 href；2026-09-29 基线修复
+]
 /**
  * `window.open(...)` 站点登记：这些调用不在渲染层成链，而是被主进程
  * `window.js` 的 `setWindowOpenHandler → openExternalUrl → isAllowedExternalUrl`

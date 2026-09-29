@@ -35,6 +35,7 @@ const VITEST_FILES = new Set([
   'signer.test.js',
   'signer-default-path.test.js',
   'tiktok.test.js',
+  'topic-inline-contract.test.js',
   'twitter.test.js',
   'youtube.test.js',
 ])

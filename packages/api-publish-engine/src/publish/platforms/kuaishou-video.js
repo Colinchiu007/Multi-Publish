@@ -59,15 +59,17 @@ function cookieValue (cookie, key) {
 }
 
 /** 切片 §1.7 buildPostData$I 全字段；纯函数，供链与薄适配器共用。
- *  ctx = { fileId, coverKey, apiPh }；条件字段按 taskData 存在才带（切片 ?? 语义）。 */
+ *  ctx = { fileId, coverKey, apiPh }；条件字段按 taskData 存在才带（切片 ?? 语义）。
+ *  话题内联描述（publish-topic-inline-description）：快手是内联保留型平台——
+ *  描述里的 `#话题` 原样保留在 caption（描述为真源）。旧「tags 拼进 caption」
+ *  行为下线：UI 追加管道已把话题内联进 content，再拼 tags 会双份重复。 */
 function buildKuaishouPostData (taskData, ctx = {}) {
   const td = taskData || {}
   const coverKey = ctx.coverKey || ''
   const title = String(td.title == null ? '' : td.title).trim()
   const content = String(td.content || td.desc || '').trim()
-  const tags = Array.isArray(td.tags) ? td.tags.filter(Boolean).map((t) => '#' + String(t).replace(/^#/, '')) : []
-  // 快手无独立标题字段：标题 + 正文 + 话题标签合并进 caption（与 DOM RPA _composeEditorCaption 语义对齐）
-  const caption = [title, content, tags.join(' ')].filter(Boolean).join('\n')
+  // 快手无独立标题字段：标题 + 正文（含内联话题）合并进 caption（与 DOM RPA _composeEditorCaption 语义对齐）
+  const caption = [title, content].filter(Boolean).join('\n')
   const data = {
     caption,
     pkCoverKey: td.pkCoverKey || '', pkCoverSize: 'a', pkCoverTimeStamp: 0, pkCoverType: 2,
@@ -232,7 +234,15 @@ class KuaishouVideoChain {
         const url = endpoint + '/api/upload/fragment?upload_token=' + encodeURIComponent(token) + '&fragment_id=' + (i + 1)
         const res = await this.uploadHttp.request({
           method: 'post', url, data: buf, maxBodyLength: Infinity,
-          headers: this._baseHeaders({ 'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size, 'Content-Type': 'application/octet-stream' }),
+          // 上传域对齐浏览器（2026-09-29 取证二轮）：无 Cookie + 短 Referer
+          // （同 _uploadPost 注释——跨域不可带 kuaishou.com Cookie）。
+          headers: {
+            'User-Agent': this.userAgent,
+            Referer: 'https://cp.kuaishou.com/',
+            'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size,
+            'Content-Type': 'application/octet-stream',
+            Cookie: null,
+          },
           validateStatus: (s) => s >= 200 && s < 500,
         })
         const d = res.data
@@ -261,9 +271,21 @@ class KuaishouVideoChain {
     // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
     // urlencoded body → 裸 400（真实浏览器空 body 不设 Content-Type）。
     // 显式置 null 移除该头（axios 语义：null = 删除），HTTP 层发 Content-Length: 0。
+    //
+    // 上传域请求对齐浏览器（2026-09-29 网络级取证二轮）：真实浏览器对上传域
+    // （kuaishouzt.com，跨 registrable domain）不带 kuaishou.com 的 Cookie（同源
+    // 策略不可带）且 Referer 是短形态 https://cp.kuaishou.com/——400 响应头无
+    // X-KSLOGID/无 CORS 头（边缘级拒绝），带外域 Cookie + 长 Referer 疑似触发
+    // 边缘 WAF。上传域请求一律：无 Cookie + 短 Referer。
     const res = await this.uploadHttp.request({
       method: 'post', url: this._currentEndpoint + url, data: '',
-      headers: this._baseHeaders({ Accept: 'application/json, text/plain, */*', 'Content-Type': null }),
+      headers: {
+        'User-Agent': this.userAgent,
+        Referer: 'https://cp.kuaishou.com/',
+        Accept: 'application/json, text/plain, */*',
+        'Content-Type': null,
+        Cookie: null,
+      },
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {

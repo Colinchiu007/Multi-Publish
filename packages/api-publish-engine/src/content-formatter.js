@@ -128,4 +128,128 @@ function replacePlaceholders(text, topics, mentions) {
   return result
 }
 
-module.exports = { formatContent, formatTags, truncateContent, truncateTitle, replacePlaceholders };
+// ============================================================
+// 话题内联描述（publish-topic-inline-description）
+// 描述文本是话题唯一真源：UI 追加管道把话题以 `#话题` 内联进描述，
+// 引擎侧按平台三态处理——内联保留 / 内联转换（双井号）/ 剥离独立字段。
+// 三个函数是唯一实现，各适配器只调用，禁止自抄（契约锁
+// test/topic-inline-contract.test.js）。
+// ============================================================
+
+/** 转义正则特殊字符（话题名拼进动态正则用） */
+function escapeTopicName(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 已知话题清单归一化：接受字符串或 {name} 对象数组，剔空 */
+function normalizeKnownTopics(knownTopics) {
+  var list = Array.isArray(knownTopics) ? knownTopics : [];
+  var names = [];
+  for (var i = 0; i < list.length; i++) {
+    var name = typeof list[i] === "string" ? list[i] : (list[i] && list[i].name) || "";
+    if (name) names.push(String(name));
+  }
+  return names;
+}
+
+/**
+ * 解析描述文本中的内联话题名（单井号 `#话题` 与双井号 `#话题#` 都识别，
+ * 名字不含井号；`#` 后需至少一个非空白非井号字符，孤立井号不产生话题）。
+ * 前置边界：井号前须为文本开头或空白——URL 片段（`https://x.com#tag`）
+ * 里的井号不是话题（CCG claude 路评审修复，2026-10-09）。
+ * @param {string} content 描述文本
+ * @returns {string[]} 话题名数组（按出现顺序，不去重）
+ */
+function extractInlineTopicNames(content) {
+  if (!content) return [];
+  var tokens = String(content).match(/(^|\s)#[^\s#]+/g) || [];
+  var names = [];
+  for (var i = 0; i < tokens.length; i++) names.push(tokens[i].trim().slice(1));
+  return names;
+}
+
+/**
+ * 从描述剥离已知话题片段（独立字段型平台用：B站/知乎/头条/百家号/公众号）。
+ * 只剥离 knownTopics 精确匹配的话题（词边界完整匹配），未列出的话题留在
+ * 描述——防误伤代码片段（如 `#include`）、URL 片段与用户正文里的普通井号。
+ * 双井号形态（`#话题#`）剥离时连同尾井号；移除后收拢分隔空白。
+ * @param {string} content 描述文本
+ * @param {Array} knownTopics 已知话题（字符串或 {name} 对象）
+ * @returns {{content: string, topics: string[]}} 剥离后的描述与实际剥离出的话题名
+ */
+function stripTopicsFromContent(content, knownTopics) {
+  var text = String(content == null ? "" : content);
+  var removed = [];
+  var names = normalizeKnownTopics(knownTopics);
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    // 前置边界 (^|\s)：井号前须为开头或空白，URL 片段里的 #tag 不受影响
+    var pattern = "(^|\\s)#" + escapeTopicName(name) + "#?(?=\\s|$)(\\s?)";
+    var hit = false;
+    text = text.replace(new RegExp(pattern, "g"), function(full, before, after) {
+      hit = true;
+      if (before && after) return before;
+      return "";
+    });
+    if (hit) removed.push(name);
+  }
+  return { content: text, topics: removed };
+}
+
+/** 双井号内联平台（微信系/微博系/百家号话题形态——参考产品取证：话题 `#名#` 拼正文） */
+var DOUBLE_HASH_PLATFORMS = { weibo: true, tencent_video: true, baijiahao: true };
+
+/**
+ * 内联型平台的话题格式转换（发布时隐性转换，用户无感知）：
+ * weibo/tencent_video 把描述里的 `#话题` 转成 `#话题#`（双井号），
+ * 其余内联平台原样返回。只转换 knownTopics 精确匹配的话题（词边界 +
+ * 前置边界：井号前须为开头或空白，URL 片段不误转），已是双井号的形态不重复加井号。
+ * @param {string} platform 平台标识
+ * @param {string} content 描述文本
+ * @param {Array} knownTopics 已知话题（字符串或 {name} 对象）
+ * @returns {string} 转换后的描述
+ */
+function convertInlineTopics(platform, content, knownTopics) {
+  var text = String(content == null ? "" : content);
+  if (!DOUBLE_HASH_PLATFORMS[platform]) return text;
+  var names = normalizeKnownTopics(knownTopics);
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    var pattern = "(^|\\s)#" + escapeTopicName(name) + "#?(?=\\s|$)";
+    text = text.replace(new RegExp(pattern, "g"), "$1#" + name + "#");
+  }
+  return text;
+}
+
+/**
+ * 扫描已知话题在描述文本中的位置段（抖音 text_extra 等位置标记消费）。
+ * 偏移按字符口径（JS string index，中文按 1 计）；双井号形态 end 含尾井号；
+ * 多话题按出现位置排序；同一话题多次出现全部标记。
+ * 前置边界：井号前须为开头或空白（URL 片段不产生虚假位置段）。
+ * @param {string} content 描述文本
+ * @param {Array} knownTopics 已知话题（字符串或 {name} 对象）
+ * @returns {Array<{name: string, start: number, end: number}>} 位置段列表
+ */
+function findInlineTopicPositions(content, knownTopics) {
+  var text = String(content == null ? "" : content);
+  var positions = [];
+  var names = normalizeKnownTopics(knownTopics);
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    var pattern = "(^|\\s)#" + escapeTopicName(name) + "#?(?=\\s|$)";
+    var re = new RegExp(pattern, "g");
+    var match;
+    while ((match = re.exec(text)) !== null) {
+      // match 含前导边界捕获（^ 匹配空串或一个空白），start 越过前导
+      var lead = match[1] || "";
+      positions.push({ name: name, start: match.index + lead.length, end: match.index + match[0].length });
+    }
+  }
+  positions.sort(function (a, b) { return a.start - b.start; });
+  return positions;
+}
+
+module.exports = {
+  formatContent, formatTags, truncateContent, truncateTitle, replacePlaceholders,
+  extractInlineTopicNames, stripTopicsFromContent, convertInlineTopics, findInlineTopicPositions,
+};

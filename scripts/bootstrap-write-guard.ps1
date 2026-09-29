@@ -62,20 +62,39 @@ function Resolve-GitPath {
 
 function Resolve-GitBash {
     param([string]$Configured)
+    # 身份校验：Git for Windows 的 bash.exe 必在 <GitRoot>\usr\bin\bash.exe 或
+    # <GitRoot>\bin\bash.exe，且同根 usr\bin\dirname.exe 存在；WSL shim
+    # （system32\bash.exe）路径模式不符，直接拒绝（裸 bash 解析到 WSL 时
+    # 无 dirname/cygpath/awk，session-init.sh 会以 `dirname: command not found` 失败）。
+    function Test-GitBashIdentity([string]$candidate) {
+        if (-not $candidate -or -not (Test-Path -LiteralPath $candidate)) { return $false }
+        $gitRoot = $null
+        foreach ($rel in @('usr\bin\bash.exe', 'bin\bash.exe')) {
+            if ($candidate -like "*\$rel") {
+                $gitRoot = $candidate.Substring(0, $candidate.Length - $rel.Length).TrimEnd('\')
+                break
+            }
+        }
+        if (-not $gitRoot) { return $false }
+        return (Test-Path -LiteralPath (Join-Path $gitRoot 'usr\bin\dirname.exe'))
+    }
     if (-not $Configured -and $env:MP_GIT_BASH) { $Configured = $env:MP_GIT_BASH }
+    if ($Configured -and -not (Test-GitBashIdentity $Configured)) {
+        throw "指定的 bash 不是 Git for Windows Bash（$Configured）；请通过 -GitBash / MP_GIT_BASH 指定 <GitRoot>\usr\bin\bash.exe，禁止使用 WSL/裸 bash"
+    }
     if (-not $Configured) {
         $gitCmd = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($gitCmd -and $gitCmd.Source) {
             $candidate = Join-Path (Split-Path (Split-Path $gitCmd.Source -Parent) -Parent) 'usr\bin\bash.exe'
-            if (Test-Path -LiteralPath $candidate) { $Configured = $candidate }
+            if (Test-GitBashIdentity $candidate) { $Configured = $candidate }
         }
     }
     if (-not $Configured) {
         foreach ($candidate in @('C:\Program Files\Git\usr\bin\bash.exe','C:\Program Files (x86)\Git\usr\bin\bash.exe','D:\Program Files\Git\usr\bin\bash.exe')) {
-            if (Test-Path -LiteralPath $candidate) { $Configured = $candidate; break }
+            if (Test-GitBashIdentity $candidate) { $Configured = $candidate; break }
         }
     }
-    if (-not $Configured -or -not (Test-Path -LiteralPath $Configured)) {
+    if (-not $Configured) {
         throw '找不到 Git for Windows Bash；请安装 Git for Windows，或通过 -GitBash / MP_GIT_BASH 指定'
     }
     return $Configured

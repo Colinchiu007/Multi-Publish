@@ -101,3 +101,63 @@ test('回归护栏：不得重新出现「Stop 生效期间」的 native 捕获'
   const early = captureLines().filter((item) => item.line < firstRelaxed.line);
   assert.deepEqual(early, [], '放宽之前的捕获点同样会被良性 stderr 打断：' + JSON.stringify(early));
 });
+
+// ---- bash 身份校验锁（2026-10：dirname: command not found 事故）----
+// 事故：非交互 bash 不加载 /etc/profile，PATH 只继承 Windows PATH（POSIX 化），
+// 本机 Windows PATH 不含 Git\usr\bin → dirname/cygpath/awk 全部找不到，
+// session-init.sh 以 `dirname: command not found`（exit 127）失败，worktree 未建成。
+// 修复两层：① bash 侧用内建 $BASH 定位 /usr/bin 前置 PATH 自愈；
+// ② PowerShell 侧对 -GitBash / MP_GIT_BASH 做 Git for Windows 身份校验，WSL/裸 bash 直接拒绝。
+// 本锁静态断言这两层都存在；把修复改成 no-op 会立刻变红。
+
+test('bash 身份校验：脚本必须包含 Test-GitBashIdentity 且校验 usr\\bin\\dirname.exe', () => {
+  const text = lines.join('\n');
+  assert.ok(/function\s+Test-GitBashIdentity/.test(text), '必须存在 Test-GitBashIdentity 函数');
+  assert.ok(/usr\\bin\\bash\.exe/.test(text), '身份校验必须识别 <GitRoot>\\usr\\bin\\bash.exe 布局');
+  assert.ok(/usr\\bin\\dirname\.exe/.test(text), '身份校验必须以同根 usr\\bin\\dirname.exe 存在为判据（Git for Windows 特征）');
+  assert.ok(/WSL/.test(text), '拒绝信息必须点名 WSL（防裸 bash 解析到 WSL shim）');
+  assert.ok(
+    /-GitBash\s*\/\s*MP_GIT_BASH|MP_GIT_BASH\s*\/\s*-GitBash/.test(text) || /MP_GIT_BASH/.test(text),
+    '身份校验必须覆盖 -GitBash / MP_GIT_BASH 两条显式指定路径'
+  );
+  // 函数体必须真实包含 dirname.exe 存在性校验（防把函数改成恒真 no-op）
+  const fnMatch = text.match(/function\s+Test-GitBashIdentity\(\[string\]\$candidate\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(fnMatch, 'Test-GitBashIdentity 函数体可解析');
+  assert.ok(
+    /Test-Path.*dirname\.exe/.test(fnMatch[1]),
+    'Test-GitBashIdentity 函数体必须包含 dirname.exe 的 Test-Path 校验（防恒真 no-op）'
+  );
+});
+
+test('bash 身份校验：显式指定的 bash 必须通过身份校验才被采用', () => {
+  const text = lines.join('\n');
+  assert.ok(
+    /if\s*\(\s*\$bash\s*-and\s*-not\s*\(\s*Test-GitBashIdentity\s*\$bash\s*\)\s*\)/.test(text) ||
+    /if\s*\(\s*\$bash\s*-and\s*-not\s*\(\s*Test-GitBashIdentity/.test(text),
+    '显式指定的 $bash 必须先过 Test-GitBashIdentity，未过即 throw'
+  );
+  assert.ok(
+    /throw\s+".*不是 Git for Windows Bash/.test(text) || /throw\s+'.*不是 Git for Windows Bash/.test(text),
+    '身份校验失败必须 throw 明确错误'
+  );
+});
+
+test('bash 身份校验：自动探测候选也必须通过身份校验', () => {
+  const text = lines.join('\n');
+  const autoCandidates = text.match(/Test-GitBashIdentity\s+\$candidate/g) || [];
+  assert.ok(autoCandidates.length >= 2, '自动探测（git 派生 + 硬编码候选）都必须用 Test-GitBashIdentity 校验，实际 ' + autoCandidates.length);
+});
+
+test('bash 自愈：session-init.sh / gwm-task.sh / session-cleanup.sh 必须前置 $BASH 目录到 PATH', () => {
+  for (const script of ['session-init.sh', 'gwm-task.sh', 'session-cleanup.sh']) {
+    const sh = fs.readFileSync(path.join(__dirname, script), 'utf8');
+    assert.ok(
+      /\$\{BASH%\/\*\}/.test(sh),
+      `${script} 必须用 bash 内建 $BASH 定位自身目录（不依赖 PATH）`
+    );
+    assert.ok(
+      /BASH_BIN_DIR/.test(sh) && /PATH=/.test(sh),
+      `${script} 必须把 BASH_BIN_DIR 前置进 PATH`
+    );
+  }
+});
