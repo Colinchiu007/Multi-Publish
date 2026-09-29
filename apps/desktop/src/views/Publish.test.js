@@ -427,9 +427,12 @@ describe("PublishView", () => {
     w.vm.article.publishTime = "2026-07-21T12:00";
     w.vm.selectedAccounts = { wechat_mp: ["acc1"] };
     w.vm.replaceDiffEdits({ wechat_mp: { title: "微信标题", content: "" } });
+    // P1-4 定时×草稿互斥：带定时保存会弹确认；本用例验证「保留定时保存」侧的完整往返
+    ElMessageBox.confirm.mockRejectedValueOnce(new Error("cancel"));
 
     await w.vm.saveDraft();
 
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1);
     expect(window.electronAPI.draftSave).toHaveBeenCalledWith(expect.objectContaining({
       title: "完整草稿",
       author: "作者",

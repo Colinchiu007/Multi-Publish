@@ -55,6 +55,11 @@ export default {
     loaded: 'Draft loaded',
     deleteFailed: 'Failed to delete draft',
     deleted: 'Draft deleted',
+    scheduleConflictTitle: 'Scheduled publish vs. draft',
+    scheduleConflictMessage: 'A scheduled publish time is set ({time}). A draft is a local snapshot and will NOT publish automatically at that time — scheduling only takes effect when you click "Quick Publish". Clear the schedule before saving?',
+    scheduleConflictClear: 'Clear schedule & save',
+    scheduleConflictKeep: 'Keep schedule & save',
+    staleScheduleCleared: 'The scheduled publish time in this draft ({time}) has already passed and was cleared; set it again before publishing',
   },
   nav: {
     home: 'Home',

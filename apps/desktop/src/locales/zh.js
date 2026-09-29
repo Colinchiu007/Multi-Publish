@@ -55,6 +55,11 @@ export default {
     loaded: '已加载草稿',
     deleteFailed: '草稿删除失败',
     deleted: '草稿已删除',
+    scheduleConflictTitle: '定时发布与草稿',
+    scheduleConflictMessage: '已设置定时发布时间（{time}）。草稿是本地快照，不会在定时时间自动发布——定时只在点击「一键发布」时进入调度队列。保存前清除定时时间？',
+    scheduleConflictClear: '清除定时并保存',
+    scheduleConflictKeep: '保留定时保存',
+    staleScheduleCleared: '草稿中的定时发布时间（{time}）已过期，已清除；发布前请重新设置',
   },
   nav: {
     home: '首页',
