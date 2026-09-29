@@ -123,15 +123,25 @@
 
 ## Task 5: `history-page.css` 190 处（最大一块）
 
-**Status**: pending
+**Status**: done（基线逐张核对项待同源取证，见 AC）
 **Risk**: High
 **Files**: `apps/desktop/src/styles/history-page.css`
 
 ### Acceptance Criteria
-- [ ] 先产出 43 个变量的「旧 → 新 → 值差异」清单并拍板圆角/字号取尺（design Decision Point 1）
-- [ ] 单文件单 PR，不与其它收敛混提
-- [ ] 历史视图浅色 + 暗色基线定向重生成，逐张肉眼核对
-- [ ] `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全绿
+- [x] 先产出 43 个变量的「旧 → 新 → 值差异」清单并拍板圆角/字号取尺 → `history-page-token-map.md`（批次 0 产出）+ `decisions.md` D1（采纳 `tokens.css` 权威尺）
+- [x] 单文件单 PR，不与其它收敛混提（本 PR 仅 `history-page.css` + 基线 + 本文件）
+- [ ] 历史视图浅色 + 暗色基线定向重生成，逐张肉眼核对 → **待同源取证**（浅色走本 PR 的 QG Visual artifact；暗色需 `visual-test.yml`，本 PR 的 QG Visual 只跑浅色）
+- [x] `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全绿；**另有 `check-css-var-defined` PASS**（本次最严的一条：43 个映射目标全部有定义，间接验证批次 2 补的槽齐备）
+
+### 批次 5 实测结果（2026-09-29）
+- **替换 190 处 / 1 文件 / 43 个不同变量**，与批次 0 三栏清单的计数**精确一致**（该文件残留 = 0）
+- **门禁计数 339 → 149**（与「移除 190」精确吻合）；基线按「只降不升」下调为 **149**
+- 无 fallback 需剔除（该文件 190 处均为裸 `var(--apple-x)` 形态）
+- `check-css-var-defined` PASS ⇒ 43 个映射目标全部真实存在（映射表未凭空造槽）
+- `PublishHistory.test.js` + `history-utils.test.js` **77 / 0 fail**
+- 命名陷阱处置：`--apple-radius-pill`(9999px) → **`--radius-full`**（9999px），**不是** `--radius-pill`(32px)
+- 表面槽 → `--color-bg-inset`（沿用 `ep-theme.css` 既有先例口径）；边框槽保持序关系（`border-subtle` → `--color-border`）
+- 状态底色 `-bg` → 权威 `-soft` 系列（半透明 → 不透明，观感差异已在 `history-page-token-map.md` 披露）
 
 ---
 
