@@ -96,16 +96,16 @@ jobs:
             if (-not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
           }
 
-      # Gate 7b：全量视觉（views + workflows 四套注册表）基线采集。**非门禁**——continue-on-error 是刻意的：
-      # 这套用例的像素基线此前从没有在 CI 上生成过（QG Visual 只跑 run-pixel-tests.js 的 pixelTests），
-      # 而 QM-4 第 7 条禁止用本地图当基线（实测仓库基线 vs CI 渲染差 3.82%、同屏两态只差 0.16%，
-      # 说明现有工作流基线整体不可判据）。先让它每天在 main push 上跑完并落 artifacts，
-      # 待基线按同源重建后再摘掉 continue-on-error 升级为门禁——提前升级只会制造长期假红。
+      # Gate 7b：全量视觉（views + workflows 四套注册表）—— **阻断门禁**。
+      # 2026-09-29 起基线已按 QM-4 第 7 条从 CI artifact 重建（13 条非同源基线换成同一次 CI 渲染，
+      # 自证「新基线 vs 同一次 CI 渲染 = 0 px」），故摘掉此前刻意的 continue-on-error。
+      # 历史依据（保留以免下一个人重新推导）：这套用例的基线此前从没在 CI 上生成过，
+      # QG Visual 只跑 run-pixel-tests.js 的 pixelTests，而 QM-4 第 7 条禁止拿本地图当基线；
+      # 未同源前实测「同屏两态差 0.16%、仓库基线 vs CI 渲染差 3.82%」⇒ 当时接进判定就是长期假红。
       # 逐套隔离由 tests/visual-testing/scripts/run-all-visual.js 保证：任何一套红都不停后面三套，
       # 因此 artifacts 始终含全部四套的截图；每套输出一行 [VISUAL-SUMMARY]（含耗时，是超时预算的实测来源）。
-      - name: Full visual suites (baseline capture, non-blocking)
+      - name: Full visual suites (blocking gate)
         if: always()
-        continue-on-error: true
         shell: pwsh
         env:
           # 上一步的像素门禁在自己的 finally 里已经把 5174 的 Vite 关掉了（GitHub 每个步骤是独立进程树），

@@ -8,7 +8,7 @@
 - [x] 2.1 `visual-test.yml` 新增「Full visual suites (baseline capture, non-blocking)」步骤：`if: always()` + `continue-on-error: true`
 - [x] 2.2 确认像素门禁步骤未被降级、artifact 上传仍覆盖 `tests/visual-testing/screenshots`（由契约测试锁住，不靠肉眼）
 - [x] 2.4 `visual-test.yml` job env 补 `VITE_MP_DEV_FLAG_OVERRIDE: "1"`（与 QG Visual 同一渲染态，否则 flag 开启态用例的基线又不同源），并由渲染参数一致性契约锁住（反证：删掉该行 ⇒ workflow-contract 红）
-- [ ] 2.3 CI 首跑后按 `[VISUAL-SUMMARY] elapsed_ms` 复核 `timeout-minutes: 20` 是否够用（本机实测四套合计约 86s，暂不改）
+- [x] 2.3 CI 首跑后按 `[VISUAL-SUMMARY] elapsed_ms` 复核 `timeout-minutes: 20` 是否够用（run `36504531944` 实测四套 `21793 / 18137 / 22713 / 6761` ms，合计约 69.4s ⇒ 预算 20 分钟余量充足，不改）
 
 ## 3. 回归锁与反证
 
@@ -61,5 +61,5 @@
 
 
 
-- [ ] 5.1 用 CI artifact 重建 views/workflows 同源基线（人工审核 diff 图，QM-4 规则 4）
-- [ ] 5.2 基线同源后，把采集步骤升级为阻断门禁并反转契约断言
+- [x] 5.1 用 CI artifact 重建 views/workflows 同源基线（人工审核 diff 图，QM-4 规则 4）—— 取 run `36504531944` 的 `visual-test-reports` artifact，按「基线 vs CI默认视图 / CI默认视图 vs CI末态 / 基线 vs CI末态」三列差链把 10 条红分成两类：9 条为基线非同源（1.119% / 2.160%），1 条为工作流截图绕过确定性收口（由 #2614 修，合并后该条转绿，残差逐条等于第一列 ⇒ 分类被独立复证）。据此重建 13 条漂移 ≥0.1% 的基线，自证「新基线 vs 同一次 CI 渲染 = 0 px」全部成立；4 条已同源者保持未动（残余 709 px 顶部标签栏动态元素，待 mask）；5 条（home-baseline / settings-general / login-form / analytics-overview / create-story2video-detail）CI 无同名渲染，仍来源不明 —— 作为本 change 的剩余欠账如实保留。
+- [x] 5.2 基线同源后，把采集步骤升级为阻断门禁并反转契约断言—— 同 PR 内摘掉 `continue-on-error: true`、步骤改名 `Full visual suites (blocking gate)`，并把 `workflow-contract.test.js` 的 `assert.equal(..., true)` 反为 `assert.notEqual(..., true)`；27 条合同测试全绿，反证「加回 continue-on-error」→ 红 1 条。
