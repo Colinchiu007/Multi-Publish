@@ -97,8 +97,11 @@ function auditStatusLabelKey (value) {
  */
 const AUDIT_PATCH_KEYS = Object.freeze(['auditStatus', 'monitorStatus', 'platformWorkId', 'auditedAt'])
 
+/** 落库字符串字段上限：值来自网络响应，截断防超长内容污染历史文件与渲染。 */
+const AUDIT_STRING_MAX = Object.freeze({ monitorStatus: 32, platformWorkId: 128, auditedAt: 40 })
+
 /**
- * 从监控回调结果构造**安全**的审核增量补丁（只取白名单键 + 归一状态）。
+ * 从监控回调结果构造**安全**的审核增量补丁（只取白名单键 + 归一状态 + 长度上限）。
  * @param {{status?: unknown, postId?: unknown}} monitorResult
  * @param {string} [nowIso]
  * @returns {{auditStatus: string, monitorStatus: string, platformWorkId: string, auditedAt: string}|null}
@@ -108,12 +111,15 @@ function buildAuditPatch (monitorResult, nowIso) {
   const result = monitorResult && typeof monitorResult === 'object' ? monitorResult : {}
   const auditStatus = mapMonitorStatusToAuditStatus(result.status)
   if (auditStatus === null) return null
-  const postId = result.postId == null ? '' : String(result.postId).trim()
+  const cut = (value, max) => {
+    const text = value == null ? '' : String(value).trim()
+    return text.length > max ? text.slice(0, max) : text
+  }
   return {
     auditStatus,
-    monitorStatus: String(result.status || '').trim(),
-    platformWorkId: postId,
-    auditedAt: typeof nowIso === 'string' && nowIso ? nowIso : new Date().toISOString(),
+    monitorStatus: cut(result.status, AUDIT_STRING_MAX.monitorStatus),
+    platformWorkId: cut(result.postId, AUDIT_STRING_MAX.platformWorkId),
+    auditedAt: cut(typeof nowIso === 'string' && nowIso ? nowIso : new Date().toISOString(), AUDIT_STRING_MAX.auditedAt),
   }
 }
 
@@ -125,5 +131,6 @@ module.exports = {
   isAuditAlertStatus,
   auditStatusLabelKey,
   AUDIT_PATCH_KEYS,
+  AUDIT_STRING_MAX,
   buildAuditPatch,
 }

@@ -1461,6 +1461,12 @@ export default {
       cancelButton: '取消',
       progressStage: (ctx) => '[' + ctx.named('platform') + '] ' + ctx.named('stage'),
       progressScheduled: (ctx) => '✅ 已排期 ' + ctx.named('count') + ' 篇文章',
+      // 离线检测与取消排期（与单篇语义对齐，2026-10-02 第二轮加固）
+      offlineCached: (ctx) => '已离线缓存 ' + ctx.named('count') + ' 篇文章，网络恢复后自动发布',
+      offlineCacheFailed: '离线缓存失败',
+      cancelSchedule: '取消排期',
+      scheduleCancelled: '已取消排期',
+      cancelScheduleFailed: '取消排期失败，请重试',
       progressFailed: (ctx) => '❌ 批量发布失败: ' + ctx.named('message'),
       progressCleanupFailed: (ctx) => '⚠️ 全局进度监听清理失败: ' + ctx.named('message'),
       progressRetryFailed: (ctx) => '✗ [' + ctx.named('platform') + '] ' + ctx.named('title') + ': ' + ctx.named('message'),

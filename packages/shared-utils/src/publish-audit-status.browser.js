@@ -50,15 +50,20 @@ export function auditStatusLabelKey (value) {
 
 export const AUDIT_PATCH_KEYS = Object.freeze(['auditStatus', 'monitorStatus', 'platformWorkId', 'auditedAt'])
 
+export const AUDIT_STRING_MAX = Object.freeze({ monitorStatus: 32, platformWorkId: 128, auditedAt: 40 })
+
 export function buildAuditPatch (monitorResult, nowIso) {
   const result = monitorResult && typeof monitorResult === 'object' ? monitorResult : {}
   const auditStatus = mapMonitorStatusToAuditStatus(result.status)
   if (auditStatus === null) return null
-  const postId = result.postId == null ? '' : String(result.postId).trim()
+  const cut = (value, max) => {
+    const text = value == null ? '' : String(value).trim()
+    return text.length > max ? text.slice(0, max) : text
+  }
   return {
     auditStatus,
-    monitorStatus: String(result.status || '').trim(),
-    platformWorkId: postId,
-    auditedAt: typeof nowIso === 'string' && nowIso ? nowIso : new Date().toISOString(),
+    monitorStatus: cut(result.status, AUDIT_STRING_MAX.monitorStatus),
+    platformWorkId: cut(result.postId, AUDIT_STRING_MAX.platformWorkId),
+    auditedAt: cut(typeof nowIso === 'string' && nowIso ? nowIso : new Date().toISOString(), AUDIT_STRING_MAX.auditedAt),
   }
 }

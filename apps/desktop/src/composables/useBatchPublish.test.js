@@ -41,14 +41,16 @@ vi.mock('@/api/publisher', function () {
     onProgress: mockOnProgress,
     batchExecute: (...args) => window.electronAPI?.batchExecute?.(...args),
     batchSchedule: (...args) => window.electronAPI?.batchSchedule?.(...args),
+    batchCancel: (...args) => window.electronAPI?.batchCancel?.(...args),
     batchGet: (...args) => window.electronAPI?.batchGet?.(...args),
     onBatchProgress: (callback) => window.electronAPI?.onBatchProgress?.(callback),
     // 其他 API 不用，但需要导出避免 import 错误
     publishBatch: vi.fn(),
     sensitiveCheck: vi.fn(),
     storeGetSetting: vi.fn(),
-    offlineStatus: vi.fn(),
-    offlineAddToCache: vi.fn(),
+    // 离线检测与单篇对齐：走 window.electronAPI 转发，测试可控制（原为死 mock 无法控制）
+    offlineStatus: (...args) => window.electronAPI?.offlineStatus?.(...args),
+    offlineAddToCache: (...args) => window.electronAPI?.offlineAddToCache?.(...args),
   }
 })
 
@@ -93,6 +95,9 @@ describe('useBatchPublish — composable setup', () => {
       batchSchedule: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
       batchExecute: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
       onBatchProgress: vi.fn(function () { return vi.fn() }),
+      // 默认在线：现有用例不受离线分支影响（离线用例自行覆写）
+      offlineStatus: vi.fn(function () { return Promise.resolve({ code: 0, data: { offline: false } }) }),
+      offlineAddToCache: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
     }
   })
 
@@ -362,9 +367,11 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
 
     const firstPublish = r.handleBatchPublish()
-    // 主动操作登录门为异步：等待登录门通过并进入 batchPublishing 锁后再断言
-    await Promise.resolve()
-    await Promise.resolve()
+    // 主动操作登录门与离线检测均为异步：等待到 batchCreate 真正被调用再断言，
+    // 不数 microtask 拍数（离线检测的引入会改变拍数，数拍数的断言是脆的）。
+    await vi.waitFor(function () {
+      expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+    })
     expect(r.batchPublishing.value).toBe(true)
     const secondPublish = r.handleBatchPublish()
     await secondPublish
@@ -951,5 +958,102 @@ describe('useBatchPublish — composable setup', () => {
     expect(mockElMessage.error).toHaveBeenCalledWith('批量发布状态确认超时，请在任务记录中查看最终结果')
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('useBatchPublish — 离线检测与取消排期（与单篇语义对齐）', () => {
+  let originalElectronAPI
+  let article
+  let licenseStore
+
+  beforeEach(() => {
+    originalElectronAPI = window.electronAPI
+    vi.clearAllMocks()
+    article = reactive({ title: '', content: '' })
+    licenseStore = { isPro: true }
+    mockBatchCreate.mockResolvedValue({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI = {
+      batchSchedule: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
+      batchCancel: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
+      batchExecute: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
+      onBatchProgress: vi.fn(function () { return vi.fn() }),
+      offlineStatus: vi.fn(function () { return Promise.resolve({ code: 0, data: { offline: false } }) }),
+      offlineAddToCache: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
+    }
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    window.electronAPI = originalElectronAPI
+  })
+
+  it('离线时逐篇进离线缓存且不创建批量任务（不把离线当在线硬发）', async () => {
+    window.electronAPI.offlineStatus.mockResolvedValue({ code: 0, data: { offline: true } })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [
+      { title: '文章A', content: '正文A', platforms: ['wechat_mp'] },
+      { title: '文章B', content: '正文B', platforms: ['zhihu'] },
+    ]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()
+    expect(window.electronAPI.offlineAddToCache).toHaveBeenCalledTimes(2)
+    expect(window.electronAPI.offlineAddToCache).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: expect.any(Array),
+        data: expect.objectContaining({ title: '文章A' }),
+      }),
+    )
+  })
+
+  it('离线缓存写入失败时提示失败，不静默当作成功', async () => {
+    window.electronAPI.offlineStatus.mockResolvedValue({ code: 0, data: { offline: true } })
+    window.electronAPI.offlineAddToCache.mockResolvedValue({ code: -1, message: '磁盘写入失败' })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(r.batchProgress.value.some(function (item) { return item.type === 'danger' })).toBe(true)
+  })
+
+  it('排期成功后暴露 scheduledBatchId，取消排期调用 batchCancel 并清除状态', async () => {
+    window.electronAPI.batchCancel = vi.fn(function () { return Promise.resolve({ code: 0 }) })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['wechat_mp'], publishTime: futurePublishTime() }]
+
+    await r.handleBatchPublish()
+    expect(r.scheduledBatchId.value).toBe('batch1')
+
+    await r.cancelScheduledBatch()
+
+    expect(window.electronAPI.batchCancel).toHaveBeenCalledWith('batch1')
+    expect(r.scheduledBatchId.value).toBe(null)
+  })
+
+  it('取消排期失败时保留 scheduledBatchId 供重试，并提示失败', async () => {
+    window.electronAPI.batchCancel = vi.fn(function () { return Promise.resolve({ code: -1, message: '该批次未在排期中' }) })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['wechat_mp'], publishTime: futurePublishTime() }]
+
+    await r.handleBatchPublish()
+    await r.cancelScheduledBatch()
+
+    expect(r.scheduledBatchId.value).toBe('batch1')
+    expect(mockElMessage.error).toHaveBeenCalled()
+  })
+
+  it('非排期批次（立即执行）不暴露 scheduledBatchId，取消排期无副作用', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(r.scheduledBatchId.value).toBe(null)
+    await r.cancelScheduledBatch()
+    expect(window.electronAPI.batchCancel).not.toHaveBeenCalled()
   })
 })

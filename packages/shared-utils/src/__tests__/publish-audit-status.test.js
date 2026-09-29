@@ -93,6 +93,16 @@ describe('publish-audit-status — buildAuditPatch（落库增量）', () => {
   it('缺 postId 时 platformWorkId 为空串（不写 undefined）', () => {
     expect(cjs.buildAuditPatch({ status: 'draft' }, NOW).platformWorkId).toBe('')
   })
+
+  it('字符串字段截断到上限（网络响应不得用超长值污染历史与渲染）', () => {
+    const longId = 'x'.repeat(500)
+    const patch = cjs.buildAuditPatch({ status: 'published', postId: longId }, NOW)
+    expect(patch.platformWorkId.length).toBe(cjs.AUDIT_STRING_MAX.platformWorkId)
+    expect(patch.monitorStatus.length).toBeLessThanOrEqual(cjs.AUDIT_STRING_MAX.monitorStatus)
+    expect(cjs.AUDIT_STRING_MAX.platformWorkId).toBe(128)
+    // 孪生同口径
+    expect(esm.buildAuditPatch({ status: 'published', postId: longId }, NOW).platformWorkId.length).toBe(128)
+  })
 })
 
 describe('publish-audit-status — CJS/ESM 孪生 parity', () => {

@@ -97,7 +97,6 @@ const ACCOUNT_METHODS = [
   'onOAuthOpened', 'onOAuthCompleted', 'onOAuthFailed', 'onOAuthClosed',
   'storeAddAccount', 'storeGetAccount', 'storeListAccounts', 'storeDeleteAccount',
   'storeAddPublishRecord', 'storeListPublishHistory', 'storeGetPublishStats',
-  'storeAddScheduledTask', 'storeListScheduledTasks', 'storeDeleteTask',
   'storeGetSetting', 'storeSetSetting', 'storeListCallbackLogs',
 ]
 
@@ -203,13 +202,13 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(123)
   })
 
-  it('account 模块应导出 52 个方法（47 + 账号云同步 5，openspec add-cloud-account-sync）', () => {
+  it('account 模块应导出 49 个方法（52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(52)
+    expect(Object.keys(r).length).toBe(49)
   })
 
-  it('system 模块应导出 148 个方法', () => {
+  it('system 模块应导出 149 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -220,12 +219,13 @@ describe('preload 子模块方法数', () => {
     // + opsCenterSyncAppMenu（#1839 运营中心侧边栏显隐排序下发）
     // + onUploadProgress（#1853 分片上传实时进度事件）
     // + onOpsCenterRuntimeUpdated（2026-09-25 运营配置变更后广播，侧边栏免重启刷新）
+    // + batchCancel（2026-10-02 批量排期取消：清定时器 + 状态置 cancelled，与 batch:delete 区分）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(148)
+    expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 336（331 = accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除 + A1 identitySessions/identitySessionsRevokeOthers/identityNotifications/identityNotificationsMarkRead + onOpsCenterRuntimeUpdated + accountRename；336 = 上一基线 331 + 账号云同步 5，openspec add-cloud-account-sync）', () => {
-    expect(Object.keys(api).length).toBe(336)
+  it('合并后 api 总键数应为 334（337 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理；336 = 上一基线 331 + 账号云同步 5，openspec add-cloud-account-sync；337 = 336 + batchCancel 批量排期取消）', () => {
+    expect(Object.keys(api).length).toBe(334)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -238,8 +238,8 @@ describe('preload 子模块方法数', () => {
     ]))
   })
 
-  it('ACCOUNT_METHODS 常量长度应为 51（46 + 账号云同步 5：accountsCloudDigest/Sync/Disconnect/SyncAbort + onAccountsCloudSyncProgress）', () => {
-    expect(ACCOUNT_METHODS.length).toBe(51)
+  it('ACCOUNT_METHODS 常量长度应为 48（51 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
+    expect(ACCOUNT_METHODS.length).toBe(48)
   })
 
   it('SYSTEM_METHODS 常量长度应为 134', () => {
