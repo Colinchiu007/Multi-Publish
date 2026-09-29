@@ -17816,3 +17816,9 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **取证方法**（可复用）：`capture-ks-upload-network.js` 在发布流期间挂所有 `cp.kuaishou.com` 目标的 CDP Network 域，捕获 upload 端点的 URL/headers/postData——真实序列 tips/show → config → domain/list → pre → fragment → complete(200) → finish → cover/view → frameUpload → recTag 全量入档。
 
 **回归锁**：`kuaishou-video-chain.test.js` 分片用例断言 `application/octet-stream` + complete 的 Accept（红→绿实证）。门禁：引擎全量 32 files 262 tests 全绿；QM-1 三件套全过（asar 实证两处修正）。
+
+## 快手上传链请求级诊断合同（2026-09-29 活体 6.3 第七层二轮，随本 PR）
+
+第七层二轮：Content-Type/Accept 修正（#2612）后 `upload/complete` 仍裸 400（响应体空）。**合同**：上传类端点失败时必须记录完整出站请求（URL、请求头——cookie 脱敏为长度、响应头、响应体）——只有状态码的报错无法与真实浏览器请求（`rpa-captures/upload-network-capture.json`）做逐字对比，契约差异无从定位。
+
+纯诊断增强（不改变行为）。回归锁：引擎全量 32 files 262 tests（无行为断言被破坏）。
