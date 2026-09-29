@@ -23,6 +23,12 @@ vi.mock('../services/offline-manager', () => ({
   addToCache: vi.fn(),
 }))
 
+// 本地封面兜底：cover:generate-ai 的两例通过 **依赖注入** 传 localCoverGenerator 替身
+// （见 handler 的 deps.localCoverGenerator），因此测试完全不加载 sharp 原生模块。
+// 动机（2026-09-30 CI 实证）：真实 sharp 首载在高负载 runner 上 >30s，即使显式 30s 超时仍被打穿
+// （Run 36599422044 / 36610213345 Shards 2/2），且 vi.mock('sharp') 在分片模式下不生效。
+// 本地渲染的真实性（PNG 尺寸/比例/折行/边界）由 local-cover-generator.test.js 覆盖。
+
 // 启用 electron mock，withSenderCheck 通过 require('electron').app 读取 isPackaged
 __enableElectronMock()
 
@@ -201,11 +207,10 @@ describe('publish IPC 可信来源正常工作', () => {
       expect(r2.message).toContain('500')
     })
 
-    // 超时预算 30s：这两例走真实 sharp 渲染（SVG→PNG 1080x1440），CI 串行模式
-    // （test:coverage --maxWorkers=1 --no-file-parallelism）下首次加载 sharp + 渲染
-    // 会超过 vitest 默认 10s（2026-09-29 CI 实测 timed out），故显式放预算。
-    it('assetGenerator 未注入时回退本地封面生成（SVG→sharp→PNG，2026-09-29 图文发布兜底）', async () => {
-      const deps = createMockDeps()
+    // 依赖注入 localCoverGenerator 替身：两例毫秒级完成，不触碰 sharp
+    it('assetGenerator 未注入时回退本地封面生成（2026-09-29 图文发布兜底）', async () => {
+      const generateLocalCover = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/multi-publish-cover-local/cover-probe.png' } }))
+      const deps = createMockDeps({ localCoverGenerator: { generateLocalCover } })
       const ipcMain = createMockIpcMain()
       registerHandlers(ipcMain, deps)
       const handler = ipcMain._get('cover:generate-ai')
@@ -214,17 +219,17 @@ describe('publish IPC 可信来源正常工作', () => {
 
       // 无 AI 生图 provider 时不再报「服务不可用」，而是本地标题卡兜底成功
       expect(result.code).toBe(0)
-      expect(result.data.coverPath).toMatch(/multi-publish-cover-local[\\/].*\.png$/)
-      expect(fs.existsSync(result.data.coverPath)).toBe(true)
-      // 清理产物
-      try { fs.unlinkSync(result.data.coverPath) } catch (_) { /* ignore */ }
-    }, 30000)
+      expect(result.data.coverPath).toBe('C:/tmp/multi-publish-cover-local/cover-probe.png')
+      // 兜底被真实调用且带上标题与比例（ratio 白名单内原样透传）
+      expect(generateLocalCover).toHaveBeenCalledWith('city night', expect.objectContaining({ ratio: '3:4' }))
+    })
 
     it('assetGenerator 生成失败时也回退本地封面（不因 AI 失败阻断发布链路）', async () => {
+      const generateLocalCover = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/multi-publish-cover-local/cover-probe2.png' } }))
       const assetGenerator = {
         generateImage: vi.fn(async () => ({ code: -1, message: '上游生图失败' })),
       }
-      const deps = createMockDeps({ assetGenerator })
+      const deps = createMockDeps({ assetGenerator, localCoverGenerator: { generateLocalCover } })
       const ipcMain = createMockIpcMain()
       registerHandlers(ipcMain, deps)
       const handler = ipcMain._get('cover:generate-ai')
@@ -232,9 +237,10 @@ describe('publish IPC 可信来源正常工作', () => {
       const result = await handler(TRUSTED_EVENT, { prompt: 'city night' })
 
       expect(result.code).toBe(0)
-      expect(result.data.coverPath).toMatch(/multi-publish-cover-local[\\/].*\.png$/)
-      try { fs.unlinkSync(result.data.coverPath) } catch (_) { /* ignore */ }
-    }, 30000)
+      expect(result.data.coverPath).toBe('C:/tmp/multi-publish-cover-local/cover-probe2.png')
+      expect(assetGenerator.generateImage).toHaveBeenCalled()
+      expect(generateLocalCover).toHaveBeenCalled()
+    })
   })
 
   // P3-7：合集列表拉取（collection:list）

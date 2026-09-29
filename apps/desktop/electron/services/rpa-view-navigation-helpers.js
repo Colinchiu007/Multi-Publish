@@ -63,6 +63,31 @@ const navigationHelpers = {
     return chars.length > limit ? chars.slice(0, limit).join('') : composed
   },
 
+  // ========== 图片上传后的「图片编辑」模态层收起 ==========
+  // 2026-09-29 实测（小红书图文）：图片上传成功后平台自动进入图片编辑（裁剪）界面——
+  // 模态层文本「图片编辑 裁剪 模版 贴纸 文字 滤镜 比例 … 裁剪设置 滚动鼠标滚轮或触控板
+  // 可缩放图片 完成」。该原生层遮挡「发布」按钮，不收起则发布按钮选择器必然超时
+  // （实测 button:has-text("发布") 3s timeout → publish verification failed）。
+  // 优先点「完成」（保留默认比例），回退「取消/关闭/×」。
+  async _dismissImageEditModal(win, platform) {
+    try {
+      const result = await win.webContents.executeJavaScript(
+        '(function(){var t=(document.body&&document.body.innerText)||"";'
+        + 'if(!/裁剪设置|可缩放图片|图片编辑/.test(t))return "NO_EDIT_MODAL";'
+        + 'var pick=function(txt){return [...document.querySelectorAll("button,div,span")].filter(function(e){return (e.innerText||"").trim()===txt&&e.offsetParent})};'
+        + 'var done=pick("完成");if(done.length){done[done.length-1].click();return "DISMISSED"}'
+        + 'var cancel=pick("取消").concat(pick("关闭"),pick("×"));if(cancel.length){cancel[cancel.length-1].click();return "CANCELLED"}'
+        + 'return "MODAL_NO_CLOSE"})()'
+      )
+      if (result && result !== 'NO_EDIT_MODAL') log.info('RpaView', '[' + platform + '] image-edit modal: ' + result)
+      if (result === 'DISMISSED' || result === 'CANCELLED') await this._sleep(1500)
+      return result
+    } catch (e) {
+      log.warn('RpaView', '[' + platform + '] image-edit modal: ' + e.message)
+      return null
+    }
+  },
+
   // ========== 视频上传完成强判定 ==========
   // 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
   // 导致还在上传落地页就继续填字段/点发布，全部失败（2026-09 smoke4 实锤）。
