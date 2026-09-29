@@ -1461,6 +1461,12 @@ export default {
       cancelButton: 'Cancel',
       progressStage: (ctx) => '[' + ctx.named('platform') + '] ' + ctx.named('stage'),
       progressScheduled: (ctx) => '✅ Scheduled ' + ctx.named('count') + ' article(s)',
+      // Offline detection & schedule cancel (parity with single-article, 2026-10-02 hardening)
+      offlineCached: (ctx) => 'Cached ' + ctx.named('count') + ' article(s) offline; they will publish automatically once the network is back',
+      offlineCacheFailed: 'Failed to cache offline',
+      cancelSchedule: 'Cancel schedule',
+      scheduleCancelled: 'Schedule cancelled',
+      cancelScheduleFailed: 'Failed to cancel the schedule, please retry',
       progressFailed: (ctx) => '❌ Batch publish failed: ' + ctx.named('message'),
       progressCleanupFailed: (ctx) => '⚠️ Global progress listener cleanup failed: ' + ctx.named('message'),
       progressRetryFailed: (ctx) => '✗ [' + ctx.named('platform') + '] ' + ctx.named('title') + ': ' + ctx.named('message'),

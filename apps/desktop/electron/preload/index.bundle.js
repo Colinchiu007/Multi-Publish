@@ -422,9 +422,9 @@ var require_account = __commonJS({
         storeAddPublishRecord: (record) => ipcRenderer2.invoke("store:add-publish-record", record),
         storeListPublishHistory: (opts) => ipcRenderer2.invoke("store:list-publish-history", opts),
         storeGetPublishStats: () => ipcRenderer2.invoke("store:get-publish-stats"),
-        storeAddScheduledTask: (task) => ipcRenderer2.invoke("store:add-scheduled-task", task),
-        storeListScheduledTasks: () => ipcRenderer2.invoke("store:list-scheduled-tasks"),
-        storeDeleteTask: (id) => ipcRenderer2.invoke("store:delete-task", id),
+        // 2026-10-02 死路径清理：storeAddScheduledTask / storeListScheduledTasks / storeDeleteTask
+        // 三个桥接已删除（对应 IPC 一并删除）。定时发布的真源是 JSONL scheduled-tasks.jsonl
+        // （scheduler:create/list/cancel）与 BatchManager（batch:*），与 SQLite scheduled_tasks 表无关。
         storeGetSetting: (key) => ipcRenderer2.invoke("store:get-setting", key),
         storeSetSetting: (key, value) => ipcRenderer2.invoke("store:set-setting", key, value),
         storeListCallbackLogs: (limit) => ipcRenderer2.invoke("store:list-callback-logs", limit)
@@ -635,6 +635,7 @@ var require_system = __commonJS({
         batchList: () => ipcRenderer2.invoke("batch:list"),
         batchGet: (id) => ipcRenderer2.invoke("batch:get", id),
         batchDelete: (id) => ipcRenderer2.invoke("batch:delete", id),
+        batchCancel: (id) => ipcRenderer2.invoke("batch:cancel", id),
         batchDuplicateArticle: (article) => ipcRenderer2.invoke("batch:duplicate-article", article),
         onBatchProgress: (cb) => {
           const h = (_, d) => cb(d);

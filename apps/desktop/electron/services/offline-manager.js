@@ -83,6 +83,41 @@ function setOwnerSubjectProvider(provider) {
   _ownerSubjectProvider = provider || null
 }
 
+/**
+ * 把一条缓存条目展开为可入队的任务负载数组。
+ *
+ * 缓存写入形状与重放形状必须同源：渲染层（单篇与批量）写入的是**嵌套**形状
+ * `{ targets: [{platform, accountId}], data }`，而历史实现的判据只看**扁平**
+ * `task.platform && task.article` —— 两者不同源，嵌套条目 `platform` 为 undefined，
+ * 于是被永久留在缓存、网络恢复后**永不重放**（静默堆积）。
+ *
+ * 本函数是两种形状的**唯一展开点**：扁平原样透传（存量缓存向后兼容），
+ * 嵌套按 targets 逐条展开；无法识别的条目返回空数组（由调用方留缓存，不静默丢弃）。
+ * @param {object} task
+ * @returns {Array<{platform: string, article: object, accountId: string|null}>}
+ */
+function expandCachedTask(task) {
+  if (!task || typeof task !== "object" || Array.isArray(task)) return []
+  if (typeof task.platform === "string" && task.platform.trim() &&
+    task.article && typeof task.article === "object" && !Array.isArray(task.article)) {
+    return [{ platform: task.platform, article: task.article, accountId: task.accountId || null }]
+  }
+  if (Array.isArray(task.targets) && task.data && typeof task.data === "object" && !Array.isArray(task.data)) {
+    return task.targets
+      .filter(function(target) {
+        return target && typeof target.platform === "string" && target.platform.trim()
+      })
+      .map(function(target) {
+        return {
+          platform: target.platform,
+          article: task.data,
+          accountId: target.accountId || task.data.accountId || null,
+        }
+      })
+  }
+  return []
+}
+
 function processCachedTasks() {
   if (!_taskQueue || _isOffline) return 0
   const ownerSubject = getCurrentOwnerSubject()
@@ -93,13 +128,14 @@ function processCachedTasks() {
   let count = 0
   const remainingTasks = allTasks.filter(task => !taskBelongsToOwner(task, ownerSubject))
   tasks.forEach(function(task) {
-    if (task.platform && task.article) {
-      const payload = {
-        platform: task.platform,
-        article: task.article,
-        accountId: task.accountId || null,
-      }
-      try {
+    // 形状展开唯一入口：扁平（存量）与嵌套（渲染层实际写入）都归一为逐 target 负载。
+    const payloads = expandCachedTask(task)
+    if (payloads.length === 0) {
+      remainingTasks.push(task)
+      return
+    }
+    try {
+      for (const payload of payloads) {
         if (ownerSubject !== undefined) {
           if (typeof _taskQueue.addForOwner !== "function") {
             throw new Error("任务队列不支持租户隔离入队")
@@ -115,13 +151,13 @@ function processCachedTasks() {
         } else {
           _taskQueue.add(payload)
         }
-        count++
-      } catch (error) {
-        remainingTasks.push(task)
-        log.warn("offline", "Failed to re-queue cached task: " + error.message)
       }
-    } else {
+      // 单个条目的全部 target 都入队成功才计入重放数、才从缓存移除；
+      // 任一 target 失败则整条留缓存（不部分丢失、不虚报成功）。
+      count += payloads.length
+    } catch (error) {
       remainingTasks.push(task)
+      log.warn("offline", "Failed to re-queue cached task: " + error.message)
     }
   })
   saveCache(remainingTasks)

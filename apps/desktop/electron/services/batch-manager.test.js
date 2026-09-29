@@ -388,3 +388,172 @@ describe('BatchManager.restoreScheduledBatches — 重启恢复排期批次', ()
     expect(() => deniedManager.restoreScheduledBatches()).toThrow('登录会话缺少用户标识')
   })
 })
+
+describe('BatchManager 定时器生命周期 — 幽灵发布与重复排期回归', () => {
+  // 缺陷背景（2026-10-02 第二轮验证）：
+  //   b1 幽灵发布：`batch:delete` 只删 DB 记录、不清内存定时器 → 用户删除排期后，
+  //      setTimeout 仍在，到点照样发布。且 `_timers` 原为 Set<timer>（无 batchId 索引），
+  //      想清也定位不到该批次的定时器。
+  //   b2 重复排期：scheduleBatch 每次调用都为未来文章注册新 timer 并累加，
+  //      重复调用（UI 重复点发布 / restore 与 scheduleBatch 叠加）⇒ 重复定时器 ⇒ 重复发布。
+  // 修复：`_timers` 改为 Map<batchId, Set<timer>>，scheduleBatch 先清同批次旧定时器，
+  //       新增 cancelBatch，batch:delete 先清定时器再删记录。
+  beforeEach(() => {
+    vi.clearAllMocks()
+    __resetElectronMock()
+    BatchManager.setTaskQueue(null)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-02T08:00:00.000Z'))
+    const win = new __electronMock.BrowserWindow()
+    win.webContents.send = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    BatchManager.setTaskQueue(null)
+  })
+
+  function createTimerStore (jobs) {
+    return {
+      listBatchJobs: vi.fn(function () { return jobs }),
+      getBatchJob: vi.fn(function (id) { return jobs.find(function (j) { return j.id === id }) || null }),
+      updateBatchJob: vi.fn(function (id, updates) {
+        const job = jobs.find(function (j) { return j.id === id })
+        if (job) Object.assign(job, updates)
+        return Boolean(job)
+      }),
+      deleteBatchJob: vi.fn(function (id) {
+        const idx = jobs.findIndex(function (j) { return j.id === id })
+        if (idx === -1) return false
+        jobs.splice(idx, 1)
+        return true
+      }),
+    }
+  }
+
+  function futureBatch (id, offsetMs = 60_000, platform = 'wechat_mp') {
+    return {
+      id,
+      status: 'scheduled',
+      articles: [{ title: '文章', content: '正文', platforms: [platform], publishTime: new Date(Date.now() + offsetMs).toISOString() }],
+    }
+  }
+
+  it('b2：重复调用 scheduleBatch 不产生重复定时器，到点只入队一次', async () => {
+    const store = createTimerStore([futureBatch('batch-1')])
+    const queue = createQueue(function () { return 'task-1' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    expect(manager.scheduleBatch('batch-1')).toBe(true)
+    expect(manager.scheduleBatch('batch-1')).toBe(true)
+    expect(manager.scheduleBatch('batch-1')).toBe(true)
+
+    expect(vi.getTimerCount()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(60_001)
+    expect(queue.add).toHaveBeenCalledTimes(1)
+    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ batchId: 'batch-1', publishMode: 'scheduled' }))
+  })
+
+  it('cancelBatch 清掉该批次定时器并把状态改为 cancelled：到点不再入队、记录保留可查', async () => {
+    const jobs = [futureBatch('batch-1')]
+    const store = createTimerStore(jobs)
+    const queue = createQueue(function () { return 'task-1' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    manager.scheduleBatch('batch-1')
+    expect(manager.cancelBatch('batch-1')).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(60_001)
+    expect(queue.add).not.toHaveBeenCalled()
+    expect(store.updateBatchJob).toHaveBeenCalledWith('batch-1', { status: 'cancelled' }, undefined)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].status).toBe('cancelled')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cancelBatch 只影响目标批次：其他批次的定时器照常到点入队', async () => {
+    const store = createTimerStore([futureBatch('batch-1'), futureBatch('batch-2', 90_000, 'zhihu')])
+    const queue = createQueue(function () { return 'task-x' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    manager.scheduleBatch('batch-1')
+    manager.scheduleBatch('batch-2')
+    expect(vi.getTimerCount()).toBe(2)
+
+    expect(manager.cancelBatch('batch-1')).toBe(true)
+    expect(vi.getTimerCount()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(60_001)
+    expect(queue.add).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(queue.add).toHaveBeenCalledTimes(1)
+    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ batchId: 'batch-2' }))
+  })
+
+  it('cancelBatch 对未登记批次的返回 false（无定时器也不误报成功）', () => {
+    const store = createTimerStore([futureBatch('batch-1')])
+    const manager = new BatchManager(store)
+    BatchManager.setTaskQueue(createQueue(function () { return 't' }))
+
+    expect(manager.cancelBatch('batch-1')).toBe(false)
+  })
+
+  it('b1 幽灵发布回归锁：batch:delete 先清定时器再删记录，删除后到点不再入队', async () => {
+    const jobs = [futureBatch('batch-1')]
+    const store = createTimerStore(jobs)
+    const queue = createQueue(function () { return 'task-1' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+    manager.registerIpcHandlers(__electronMock.ipcMain)
+
+    manager.scheduleBatch('batch-1')
+    expect(vi.getTimerCount()).toBe(1)
+
+    const res = await __electronMock.ipcMain._handlers['batch:delete']({}, 'batch-1')
+    expect(res).toMatchObject({ code: 0 })
+    expect(jobs).toHaveLength(0)
+
+    await vi.advanceTimersByTimeAsync(60_001)
+    expect(queue.add).not.toHaveBeenCalled()
+  })
+
+  it('batch:cancel IPC 返回取消结果：取消后到点不入队', async () => {
+    const jobs = [futureBatch('batch-1')]
+    const store = createTimerStore(jobs)
+    const queue = createQueue(function () { return 'task-1' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+    manager.registerIpcHandlers(__electronMock.ipcMain)
+
+    manager.scheduleBatch('batch-1')
+    const res = await __electronMock.ipcMain._handlers['batch:cancel']({}, 'batch-1')
+
+    expect(res).toMatchObject({ code: 0 })
+    await vi.advanceTimersByTimeAsync(60_001)
+    expect(queue.add).not.toHaveBeenCalled()
+    expect(jobs[0].status).toBe('cancelled')
+  })
+
+  it('stopAll 清空全部批次定时器（Map 结构回归），清空后取消不再误报成功', async () => {
+    const store = createTimerStore([futureBatch('batch-1'), futureBatch('batch-2', 90_000, 'zhihu')])
+    const queue = createQueue(function () { return 'task-y' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    manager.scheduleBatch('batch-1')
+    manager.scheduleBatch('batch-2')
+    expect(vi.getTimerCount()).toBe(2)
+
+    manager.stopAll()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(manager.cancelBatch('batch-1')).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(queue.add).not.toHaveBeenCalled()
+  })
+})

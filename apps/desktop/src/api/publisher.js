@@ -322,6 +322,10 @@ export async function batchList() { return invokeWithFallback("batchList", {  co
 
 export async function batchDelete(id) { return invoke("batchDelete", id) }
 
+// 取消排期：清该批次定时器 + 状态置 cancelled（记录保留）。主进程 batch:cancel。
+// 与单篇 schedulerCancel 语义对齐——是「排期后想取消」的唯一入口。
+export async function batchCancel(id) { return invokeWithFallback("batchCancel", { code: -1, message: 'electronAPI not available' }, id) }
+
 export function onBatchProgress(callback) { return bridgeOn("BatchProgress", callback) }
 
 // ─── 支付 API ─────────────────────────────

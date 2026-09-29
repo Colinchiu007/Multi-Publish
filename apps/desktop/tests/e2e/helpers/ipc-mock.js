@@ -791,16 +791,8 @@
       total: state.publishHistory.length
     })),
     storeGetPublishStats: makeHandler('storeGetPublishStats', async () => ok(state.stats)),
-    storeAddScheduledTask: makeHandler('storeAddScheduledTask', async (t) => {
-      const task = Object.assign({ id: 'st_' + Date.now(), status: 'pending' }, t);
-      state.schedulerTasks.push(task);
-      return ok(task);
-    }),
-    storeListScheduledTasks: makeHandler('storeListScheduledTasks', async () => ok(state.schedulerTasks)),
-    storeDeleteTask: makeHandler('storeDeleteTask', async (id) => {
-      state.schedulerTasks = state.schedulerTasks.filter(function (t) { return t.id !== id; });
-      return ok(true);
-    }),
+    // 2026-10-02 死路径清理：storeAddScheduledTask / storeListScheduledTasks / storeDeleteTask
+    // 三个 mock 随对应 IPC 一并移除（零渲染层调用；定时发布真源是 JSONL + BatchManager）。
     storeGetSetting: makeHandler('storeGetSetting', async (key) => ok({
       'drafts': JSON.stringify(state.articles),
       'default_llm': 'preset_openai',
