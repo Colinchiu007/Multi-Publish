@@ -120,24 +120,10 @@
   --color-warning-soft: #fef3c7;
   --color-canvas-translucent: rgba(255, 255, 255, 0.95);
   --color-module-nav-text: #8b8e9a;
-  /* apple 系（与全局语义色值不同的历史色，前缀保留域归属） */
-  --color-apple-surface-secondary: #f5f5f7;
-  --color-apple-surface-tertiary: #e8e8ed;
-  --color-apple-ink-primary: #1d1d1f;
-  --color-apple-ink-secondary: #6e6e73;
-  --color-apple-ink-tertiary: #aeaeb2;
-  --color-apple-accent: #007aff;
-  --color-apple-accent-hover: #0056cc;
-  --color-apple-success: #34c759;
-  --color-apple-success-bg: rgba(52, 199, 89, 0.10);
-  --color-apple-warning: #ff9500;
-  --color-apple-warning-bg: rgba(255, 149, 0, 0.10);
-  --color-apple-error: #ff3b30;
-  --color-apple-error-bg: rgba(255, 59, 48, 0.10);
-  --color-apple-info: #007aff;
-  --color-apple-info-bg: rgba(0, 122, 255, 0.10);
-  --color-apple-border: #d2d2d7;
-  --color-apple-border-subtle: #e5e5ea;
+  /* 批次 6（2026-09-29）：原 17 个 `--color-apple-*` 收编槽位已随别名层退役一并删除。
+   * 全部消费者已收敛到语义权威槽（accent→--color-primary、ink-*→--color-text-*、
+   * surface-*→--color-bg-*、成功/警告/错误/信息→--color-{success,warning,danger,info}-*）。
+   * 回潮由 `check-frontend-consistency.js` 的 appleAlias 检查拦截（基线 = 0）。 */
   /* 分析分值语义色（原 ViralAnalysis.scoreColor 硬编码，T1-3a 收编） */
   --color-score-high: #e74c3c;
   --color-score-mid: #e67e22;

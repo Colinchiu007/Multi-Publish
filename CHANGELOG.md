@@ -1,3 +1,39 @@
+# [未发布] docs(publish): 平台端点取证清单——审核回查 / 平台草稿列表的 verified 提升判据（2026-10-09，audit-requery-evidence-checklist）
+
+### 文档
+
+- 新增 `01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md`：把「候选平台提升为已验证」所需的**三项证据**（端点 URL / 参数名与取值来源 / 鉴权方式）写在纸面上，并给出 8 个平台的逐项清单（当前候选与已知缺口、需要的证据、参考产品已取证口径、通过判据）、取证记录模板（含脱敏与「无定论」必填）、证据齐备后的三处代码改动与验收清单。
+- 存在理由：P0-1 第二切片已把端点能力诚实分级（`verified` 显式为空），但「为什么不能用、怎样才算能用」此前只散落在代码注释与 PRD 残余限制里；本清单把它变成**可执行、可勾选**的取证流程，避免下一个会话重复发现「端点形状不对」。
+- 同时服务 P1-3（平台草稿列表）：多数平台的草稿列表与作品列表是同一端点家族，一次取证可记录两项用途。
+- 登记于 `01-docs/PRD.md` 功能文档索引。
+
+### 验证
+
+- docs-only 快速通道判定 + 品牌残留 + 行尾对账本地 PASS（无运行时代码变更）
+
+---
+
+# [未发布] fix(publish): P0-1 第二切片——审核回查凭证修复 + 端点能力分级（2026-10-09，p0-1-audit-requery）
+
+### 修复
+
+- **凭证恒空缺陷**（真实根因，代码证据）：`phase4-events` 建发布监控任务时传 `task.article?.cookies || ''`，而全仓**只此一处读取、从无任何写入**——监控历来用空 cookie 轮询，必然 401/重定向，12 次重试后 timeout（第一切片之前还会把这个 error 伪造成一条 `status='error'` 的历史记录）。登录态真实落在 Electron auth 分区（`credential-store` 只存 `localStorage + accountInfo`，**不含 cookie**）。
+  - 新增 `electron/services/publish-audit-requery.js`：`resolveAuditRequeryCookies` 优先任务自带（非空才用）→ 否则复用既有 `collectAuthPartitionCookies`（`auth-partition.js`，含平台域过滤 + 同名去重 + 失败降级空）只读补齐 → 两处皆空返回 `none`；读取失败/畸形一律降级 `none`，绝不冒泡。
+- **必然失败的重试风暴**：凭证拿不到一律**不建监控任务**（旧形态每次发布对每个平台空跑 12 次请求 ≈ 2 分钟）。
+- **端点未验证的诚实分级**（`AUDIT_REQUERY_VERIFIED_PLATFORMS` / `AUDIT_REQUERY_CANDIDATE_PLATFORMS`）：`verified` 当前**为空**（本仓尚无任何平台的审核回查真机证据，端点 + 参数名 + 鉴权方式三项齐备才算）；候选平台默认参与探索性轮询，可用 `MP_AUDIT_REQUERY_CANDIDATES=0` 关闭。候选表与 `publish-monitor.CHECK_URLS` 键集由 **parity 测试锁**，防「新增端点忘登记候选」（静默永不回查）与「登记候选却无端点」（决策 start 但监控侧 skipped 的假绿）两种漂移。
+- **异步门不得产生 unhandledRejection**：策略层调用挂 `.catch`（该缺陷由测试的 unhandled-error 预警发现并修复）；`wireTaskQueueEvents` 新增可选 `auditRequery` 依赖（默认真实实现）以便注入测试替身。
+
+### 验证
+
+- 桌面受影响面 99/99（`publish-audit-requery` 13 例新增、`phase4-events` +4）
+- locale keys（1306）/cjk + 品牌残留 + max-lines 本地 PASS
+
+### 残余
+
+- `verified` 为空是当前真实状态：提升某平台需三项证据（端点 URL + 正确参数名——B站需 `mid`、微博需 `uid`，非通用 `id`；鉴权方式——抖音签名 POST、YouTube OAuth）。在此之前候选平台回查多为 `pending→timeout`，第一切片的单向证据规则保证这不会写入任何伪状态。
+
+---
+
 # [未发布] BREAKING（视觉）feat(ui): Apple 令牌双轨退役——全站收敛到 tokens.css 权威令牌（2026-09-29，ui-apple-token-retirement）
 
 > 本条目为**破坏性视觉变更**：主色与圆角/字号基线改变，既有视觉基线需同源重生成。
@@ -38,6 +74,22 @@
 - **未纳入本条的评审意见**（如实登记，不假装已解决）：门禁读的是**工作树**而非 blob；`git ls-files` 只看 cached（新文件进 index 前不受保护，属 CI 形态的自然边界）；纯 ASCII 却带 BOM 不报（是 diff 噪声，不是缺陷）。
 - **一条方法论记录**（比上面任何一条更长命）：本轮曾把「外部评审的某条发现」当作事实去核对，实际在本仓 **grep 不到对应代码**（`[Text.Encoding]::Default` 在全仓 `.ps1` 命中 0 处，且没有任何 `.ps1` 写 CHANGELOG）。判据：**评审结论必须先在它自己的产物里 grep 到、再到代码里 grep 到**，两条都成立才允许进入修复清单；否则就是把猜测钉成待办。
 # [未发布] feat(publish): P0-1 审核状态跟踪第一切片（状态机 + 原记录回写 + 醒目展示）（2026-10-09，p0-1-audit-status）
+
+- **feat(xiaohongshu)：图文改为落平台草稿箱（收图片编辑弹窗 + 不点发布）**。
+  需求调整：小红书图文不必走到完全发布，只需把内容（标题+正文+图片）存进平台草稿箱，
+  用户回头在草稿箱里自行确认发布；视频模式保持原发布链路。三处修复（真机取证）：
+  - **图片编辑弹窗**（新增 `_dismissImageEditModal`）：图片上传成功后小红书自动进入
+    图片编辑（裁剪）界面，模态层「图片编辑 裁剪 … 裁剪设置 … 完成」压住发布按钮——
+    实测 `button:has-text("发布")` 3s 超时 → 发布验证失败；现上传后检测并点「完成」收起
+  - **草稿模式**（`config.draftOnly`）：generic 新增分支——跳过发布按钮查找，点显式存
+    草稿钮（若有 `sel.draft_btn`），否则等自动草稿保存落库（编辑页「编辑于 刚刚」、
+    侧边栏草稿箱计数 +1），返回 `{ success:true, draft:true, draftSaved }`
+  - `_publish_xiaohongshu` 图文模式传 `draftOnly:true`
+  - 验收：发布历史 `status=success`（15s）+ **草稿箱计数 0→1**（真机复核）；
+    单测 232/232；完整设计见 `01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md` §11
+
+---
+
 
 ### 变更
 
@@ -102,33 +154,6 @@
 处置：**不盲等**，降级为主代理对抗性自审——本轮自审实际产出 b1/b2/b4a 三个新缺陷，强度不低于形式化评审。两路不可用的事实与证据行已写入 `.quality-gates.md` 与 PR 描述，**不记为「评审通过」**，也不把自审冒充为第二路独立评审。
 
 # [未发布] feat(publish): P1-5 可见性语义级通用控件（5 平台打通，字段转 implemented）（2026-10-09，publish-page-optimization）
-
-- **feat(publish)：图文发布图片链路——本地封面生成 + 自动附图 + 图片上传（image-platforms）**。
-  E2E「热门选题→一键发布图文」流程中小红书/快手/抖音图文发布失败的根因修复（图文平台强制要求
-  至少 1 张图片，此前无图即失败）：
-  - **本地封面生成器**（local-cover-generator.js）：SVG（标题文字+渐变背景）→ sharp → PNG，
-    零生图模型/零新增依赖；`cover:generate-ai` 在无 AI 生图 provider（assetGenerator 未注入）
-    或生成失败时自动兜底（实测 cc-switch 代理 `/images/generations` 上游 404，无生图端点）
-  - **渲染端自动附图**（usePublishFlow）：发布到小红书/快手/抖音且无图时，发布前自动生成
-    封面并附加进表单（进度时间线「🖼️ 图文平台需要图片，正在自动生成封面...」→「✓ 封面已生成
-    并附加到内容」）；生成失败不阻断发布
-  - **Router 图片透传修复**：`buildPublishArticle` 旧实现只传 HTML 内容提取的 URL，渲染层
-    附加的本地封面被静默丢弃；现 `article.images`（本地文件路径）优先透传
-  - **RPA 图片上传 + 双入口 URL**：generic 流程新增图片上传分支；小红书图文 tab 切换
-    （switchImageTab hook，等容器渲染后按文字点击）；快手新增 `_publish_kuaishou` 按内容类型
-    选 tabType=1/2 + 图片 input 用 `[accept*=image]` 精确选择（实测首个 input 恒为视频通道）；
-    抖音按 `default-tab=3` 选图文 URL + 图片上传后等发布表单就绪再填字段（实测教训：上传后
-    7ms 即填字段全部落空）
-  - 验收：封面自动生成 ✅（时间线文案实测）；快手 CDP 图片上传成功 ✅（CDP file: img_*.png）；
-    抖音切到 `content/post/image` 发布表单 ✅；小红书 file input accept 变图片格式 ✅；
-    单测 212/212（+18 回归锁用例）
-  - 完整合同（数据校验/流程/交互/验收/限制/状态表）：`01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md`
-
----
-
- fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
-
----
 
 ### 变更
 

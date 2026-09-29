@@ -16,6 +16,15 @@ const { generateLocalCover } = require('./local-cover-generator')
 
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'local-cover-test-'))
 
+// CI 高负载下 sharp 原生模块**首载**可 >30s（Run 36615452794 Shards 1/2 实测：首个用例
+// 30s 超时，而渲染本身毫秒级）。在 beforeAll 里预热一次并给足预算，使各用例只承担渲染耗时。
+beforeAll(async () => {
+  const sharp = require('sharp')
+  await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#000"/></svg>'))
+    .png()
+    .toBuffer()
+}, 180000)
+
 function cleanup () {
   for (const f of fs.readdirSync(TMP_DIR)) {
     try { fs.unlinkSync(path.join(TMP_DIR, f)) } catch (_) { /* ignore */ }
@@ -40,7 +49,7 @@ describe('local-cover-generator — 本地封面生成（SVG→sharp→PNG）', 
     expect(meta.format).toBe('png')
     expect(meta.width).toBe(1080)
     expect(meta.height).toBe(1440)
-  }, 30000)
+  }, 60000)
 
   it('16:9 横版 1920x1080', async () => {
     const result = await generateLocalCover('测试标题', {
@@ -52,7 +61,7 @@ describe('local-cover-generator — 本地封面生成（SVG→sharp→PNG）', 
     const meta = await sharp(result.data.path).metadata()
     expect(meta.width).toBe(1920)
     expect(meta.height).toBe(1080)
-  }, 30000)
+  }, 60000)
 
   it('长标题自动折行（>12 字分行，不溢出画布）', async () => {
     const longTitle = '接力夺冠姑娘们把国旗叠得方方正正北京大学禁止赴风景名胜区开会'
@@ -65,13 +74,13 @@ describe('local-cover-generator — 本地封面生成（SVG→sharp→PNG）', 
     const sharp = require('sharp')
     const meta = await sharp(result.data.path).metadata()
     expect(meta.format).toBe('png')
-  }, 30000)
+  }, 60000)
 
   it('空标题边界：不崩溃，产出合法 PNG（占位文案）', async () => {
     const result = await generateLocalCover('', { outputDir: TMP_DIR })
     expect(result.code).toBe(0)
     expect(fs.existsSync(result.data.path)).toBe(true)
-  }, 30000)
+  }, 60000)
 
   it('超长标题（>200 字）截断到 60 字内不崩溃', async () => {
     const hugeTitle = '超'.repeat(300)
@@ -80,11 +89,11 @@ describe('local-cover-generator — 本地封面生成（SVG→sharp→PNG）', 
     const sharp = require('sharp')
     const meta = await sharp(result.data.path).metadata()
     expect(meta.format).toBe('png')
-  }, 30000)
+  }, 60000)
 
   it('两次生成产出不同文件（时间戳+随机后缀防覆盖）', async () => {
     const r1 = await generateLocalCover('标题A', { outputDir: TMP_DIR })
     const r2 = await generateLocalCover('标题A', { outputDir: TMP_DIR })
     expect(r1.data.path).not.toBe(r2.data.path)
-  }, 30000)
+  }, 60000)
 })
