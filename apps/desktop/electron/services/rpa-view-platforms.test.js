@@ -5,6 +5,18 @@
 const fs = require('fs')
 const platformsMixin = require('./rpa-view-platforms')
 
+// 2026-09-29：rpa-view-platforms.js 两次拆分（rpa-publish-id-extract.js / rpa-view-navigation-helpers.js），
+// 结构锁需读「主文件 + 拆分文件」的合并文本，否则被拆走的方法会断锁。
+function readPlatformsSource () {
+  const main = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+  const parts = [main]
+  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers']) {
+    try { parts.push(fs.readFileSync(require.resolve(rel), 'utf-8')) } catch (_) { /* 拆分文件可缺省 */ }
+  }
+  return parts.join('\n')
+}
+
+
 function createVerifyContext (executeJavaScript, options = {}) {
   return {
     _emitProgress: vi.fn(),
@@ -31,7 +43,7 @@ function createWechatContext() {
 
 describe('rpa-view-platforms — 结构约束', () => {
   it('wechat_mp 发布方法只定义一次，避免 pending stub 覆盖风险', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const definitions = source.match(/async\s+_publish_wechat_mp\s*\(/g) || []
 
     expect(definitions).toHaveLength(1)
@@ -669,7 +681,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
   // 只有在视频上传完成并进入编辑器后才渲染；旧顺序先填字段后上传，
   // 导致 title/desc 选择器必然 3×10s timeout（smoke3 日志实锤）。
   function getGenericBody () {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _publish_generic')
     const end = source.indexOf('\n  // ========== ', start + 10)
     return source.slice(start, end > 0 ? end : undefined)
@@ -689,7 +701,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
     expect(body).toContain('_dismissPostNavDialogs')
     // 清理必须发生在填字段之前
     expect(body.indexOf('_dismissPostNavDialogs')).toBeLessThan(body.indexOf("'filling title...'"))
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     expect(source).toMatch(/_dismissPostNavDialogs\s*\(/)
     // 快手草稿弹窗两按钮（放弃/继续编辑）与通用引导按钮（我知道了/知道了）都在处理范围内
     expect(source).toContain('放弃')
@@ -708,7 +720,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
   // 不用 progress class），导致还在上传落地页就点发布→全部失败。统一改为
   // 共享的强判定：进度元素不可见 且（可见 video 预览 或 已跳转编辑页 URL）。
   it('视频上传完成强判定存在于 generic 与 douyin 两条链路', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     expect(source).toMatch(/async\s+_waitForVideoUploadComplete\s*\(/)
     const genericStart = source.indexOf('async _publish_generic')
     const genericEnd = source.indexOf('\n  // ========== ', genericStart + 10)
@@ -734,7 +746,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
 // ③ 多候选选择器只取 [0] 是结构性缺陷（页面改版即全链失败）。
 describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（live DOM 取证）', () => {
   function getGenericBody () {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _publish_generic')
     const end = source.indexOf('\n  // ========== ', start + 10)
     return source.slice(start, end > 0 ? end : undefined)
@@ -794,7 +806,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   })
 
   it('generic：_resolveSelector 定义存在且遍历全部候选', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _resolveSelector')
     expect(start).toBeGreaterThan(-1)
     const body = source.slice(start, start + 1200)
@@ -895,7 +907,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   })
 
   it('上传完成判定：含“上传中/剩余时间/百分比未满”负向信号，默认预算 ≥15 分钟', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _waitForVideoUploadComplete')
     const body = source.slice(start, source.indexOf('\n  // ========== ', start + 10))
     expect(body).toMatch(/上传中/)
@@ -905,7 +917,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   })
 
   it('douyin 专用链路也先清理引导遮罩（实测页面带“我知道了”）', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _publish_douyin')
     const body = source.slice(start, source.indexOf('\n  // ========== ', start + 10))
     expect(body).toContain('_dismissPostNavDialogs')
@@ -915,7 +927,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   // 占位「请选择符合您视频内容的创作声明」是带 * 的必填项，不选会被服务端拒；
   // 同时风控短信弹窗会盖住投稿区。两条都必须处理才能把 RPA 兜底链路跑完。
   it('_prepBilibili：先选创作声明并清理短信验证弹窗', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _prepBilibili')
     const body = source.slice(start, source.indexOf('\n  async _', start + 10))
     expect(body).toContain('_selectContentDeclaration')
