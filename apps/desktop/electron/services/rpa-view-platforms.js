@@ -122,8 +122,17 @@ const platformsMixin = {
         let handled = false
         if (coverPath) {
           try {
+            // 封面区是延迟渲染的（实测首次查询 `.article-cover-add` 为 null、回退成 CLICKED_COVER
+            // 后点的是 radio group 容器 → 无 file input）。故先等上传钮出现再点。
+            const coverReady = await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
+            if (!coverReady) log.warn('RpaView', '[uploadCover] 封面区未在 12s 内出现，仍尝试点击')
             const entry = await win.webContents.executeJavaScript(
-              '(function(){var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}var cover=document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
+              // 2026-09-30 真机取证：封面「+」的真实元素是 **`.article-cover-add`**
+              // （位于 `.article-cover-images-wrap` 内，图标为 SVG 故无文本；
+              //  此前按 `innerText === "+"` 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
+              '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
+              + 'var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}'
+              + 'var cover=document.querySelector(\'.article-cover-images-wrap\')||document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
             )
             log.info('RpaView', '[uploadCover] entry=' + entry)
             await this._sleep(2000)
