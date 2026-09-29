@@ -161,3 +161,47 @@ RPA：   _publish_xiaohongshu(切图文tab+传图) / _publish_kuaishou(tabType=2
 **残余（非阻塞）**：`_dismissImageEditModal` 实测返回 `MODAL_NO_CLOSE`（该弹窗的「完成」
 不是 `button/div/span` 的纯文本节点，或位于 shadow/iframe 内）——因草稿模式不点发布，
 弹窗不阻塞落库；若将来要做「直接发布」，需重新取证该弹窗的关闭控件。
+
+## 12. 快手 / 抖音图文「真实发布」（2026-09-30）
+
+**需求口径**：除小红书外，其他平台的发布必须是**真实发布**（小红书按用户指定只落草稿箱）。
+
+### 12.1 最终状态（真机 E2E）
+
+| 平台 | 状态 | 成功信号 | 证据 |
+|------|------|---------|------|
+| 微信公众号 | ✅ 草稿保存 | appmsgid 递增 | appmsgid=100000013 |
+| 知乎 | ✅ 文章发布 | URL `/p/\d+` | /p/2088269867753459986 |
+| 小红书 | ✅ 草稿箱（用户指定） | 草稿箱计数 +1 | 0→1 复核 |
+| **快手** | ✅ **真实发布** | URL `from=publish` | manage/video?status=2&from=publish |
+| **抖音** | ✅ **真实发布** | API `aweme/create` 响应 | 日志 `API success` |
+
+### 12.2 快手：五项根因与处置
+
+| # | 根因（真机取证） | 处置 |
+|---|-----------------|------|
+| 1 | 图文上传区 `input[type=file]` **两条注入路径都失效**：CDP `DOM.setFileInputFiles` 不抛错但文件被框架清空（回读 `files.length===0`）；直接赋 `DataTransfer` 也立即归零 | 新增 `_dropFilesToDragArea`：向拖拽容器（`#rc-tabs-0-panel-2 div[class^="_dragger-content_"]`）派发 `DragEvent('drop')`——参考产品 `kuaishouImageRun` 同款。generic 改为**拖拽区优先、input 回退** |
+| 2 | 描述字数越界：实测计数器 **x/500**，配置 `max_content: 1000` 让合并文案（标题+正文 921 字）越界，表单红字「作品描述超过字数限制」阻断提交 | 改 `max_content: 480`（留 20 字边距：截断到 500 时平台仍显示 505/500） |
+| 3 | 描述里出现 `<p>` 字面量：正文来自发布页 Quill（携带 `<p>…</p>`），而平台描述是纯文本语义 | 新增 `stripHtmlToPlainText`，块级标签收口为换行 |
+| 4 | 点「发布」后弹二次确认框（「取 消 / 确 认」，另有禁用态「确定」），不点确认则永不提交 → `publish verification timeout` | 新增 `_confirmPublishDialog`：只点**可见且未禁用**的确认/确定（文本带空格「确 认」比较前剥空白） |
+| 5 | 「已发布却判失败」：跳转 `manage/video?status=2&from=publish`，但图文作品列表端点与视频不同（`/rest/cp/works/v2/video/pc/photo/list` 取不到图文 ID） | 补 URL 级成功信号：命中 `from=publish` + `manage` 路径即判成功 |
+
+### 12.3 抖音：三项根因与处置
+
+| # | 根因（真机取证） | 处置 |
+|---|-----------------|------|
+| 1 | `_setFileInput` 的结果校验把「input 已从 DOM 消失」误判为失败（抖音上传后页面立刻切到 `content/post/image`，input 随之移除）→ 误触发回退 → 回退也找不到 input 而抛 `No file input found (JS fallback)` | 修正语义：`querySelector` 返回 null 记 **-1 = 页面已切换 = 上传被接受**；只有 input 仍在但 `files.length===0` 才回退 DataTransfer |
+| 2 | `default-tab=3` 有时**直接落 `content/post/image` 编辑页**（`enter_from=publish_page&type=new`，RPA 持久分区带历史状态时更常见），上传页 `input[type=file]` 已不在 DOM，旧实现等 15s 超时即放弃 | 三通道兜底：① 上传页 file input → ② 编辑页「继续添加/添加图片」触发的 input → ③ 重新导航回上传页再注入 |
+| 3 | `content/post/image` 编辑页**没有独立标题输入框**（只有「作品描述」contenteditable，计数器 0/20 与 0/1000），旧实现找 `input[placeholder*=标题]` 抛 `input not found` | 图文模式标题合并进描述首行（与快手同口径）；视频模式保持原独立标题填充 |
+
+### 12.4 交互与提示（用户可见）
+
+- 进度阶段：`uploading image...` → `image uploaded` → `filling desc...` → `publishing...` →（抖音）`API success`
+- 快手描述超限时，平台表单会显示红字「作品描述超过字数限制」——本地已在 480 字处截断，不再触达该错误
+- 发布历史记录 `status=success` 并带平台回传 URL（快手为 manage 页、抖音为编辑页 URL）
+
+### 12.5 行数门禁（工程治理）
+
+- 两次拆分确保 `rpa-view-platforms.js` 落在 `limit 500 + growthAllowance 200 = 1415` 内：
+  ① `rpa-publish-id-extract.js`（publish-id 纯函数）② `rpa-view-navigation-helpers.js`（导航/等待/确认弹窗 + artifact 查询族）
+- 最终主文件 1324 行；含 artifact 族（`_queryBaijiahaoArtifact` / `_parseKuaishouArtifact` / `_findKuaishouArtifact` / `_findPublishedArtifact` + `parseKuaishouArtifactEvidence`）的迁移
