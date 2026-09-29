@@ -7,13 +7,13 @@
 
 /**
  * 构造 Electron 开发启动参数（不含 node/electron 可执行文件本身）。
- * @param {{ electronUserDataDir: string, electronCacheDir: string, desktopDir: string, cdpPort?: number, platform?: NodeJS.Platform }} options
+ * @param {{ electronUserDataDir: string, electronCacheDir: string, desktopDir: string, cdpPort?: number, platform?: NodeJS.Platform, allowAllOrigins?: boolean }} options
  * @returns {string[]}
  */
-function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort = 9222, platform = process.platform }) {
+function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort = 9222, platform = process.platform, allowAllOrigins = false }) {
   // Windows 无可用 GPU 时，进程内 GPU + SwiftShader 会让窗口只合成背景层。
   // 显式禁用 GPU 与 GPU 合成，走软件合成，否则 Electron 窗口显示空白。
-  return [
+  const switches = [
     `--user-data-dir=${electronUserDataDir}`,
     `--disk-cache-dir=${electronCacheDir}`,
     '--no-sandbox',
@@ -23,8 +23,11 @@ function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, 
     '--use-gl=angle',
     '--use-angle=swiftshader',
     '--enable-unsafe-swiftshader',
-    desktopDir,
   ]
+  // 外部 CDP 客户端（诊断脚本 / agent）握手时带 Origin 头，Chromium 的 origin 校验会直接 403。
+  // 只在显式开启时放行，且必须排在 desktopDir 之前 —— desktopDir 是应用路径，永远保持末位。
+  if (allowAllOrigins === true) switches.push('--remote-allow-origins=*')
+  return [...switches, desktopDir]
 }
 
 /**
@@ -46,4 +49,18 @@ function resolveUserDataDir(env = process.env) {
   return configured || DEFAULT_USER_DATA_DIR
 }
 
-module.exports = { buildElectronArgs, resolveUserDataDir, DEFAULT_USER_DATA_DIR }
+/**
+ * 解析「外部 CDP 放行任意 Origin」开关，默认关。
+ * 判据严格：trim 后必须恰好为 '1'。
+ * trim 是因为 `cmd /c set "VAR=1 "` 会把尾随空格折进值里（本仓在 ELECTRON_USER_DATA_DIR
+ * 上真踩过），宽松解析会让开关静默失效；不接受 'true' / 数字 1，是为了让「默认关」这条
+ * 安全前提不能被随手绕过。
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean}
+ */
+function resolveAllowAllOrigins(env = process.env) {
+  const raw = typeof env.MP_CDP_ALLOW_ALL_ORIGINS === 'string' ? env.MP_CDP_ALLOW_ALL_ORIGINS.trim() : ''
+  return raw === '1'
+}
+
+module.exports = { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, DEFAULT_USER_DATA_DIR }
