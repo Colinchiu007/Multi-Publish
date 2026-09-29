@@ -564,3 +564,161 @@ def test_collect_video_download_failed_error_code(monkeypatch, tmp_path):
         svc.collect_video(CollectVideoRequest(url="https://v.douyin.com/abc/"))
     assert exc_info.value.code == "ASR_DOWNLOAD_FAILED"
     assert "模型下载失败" in exc_info.value.message
+
+
+# ── 7. 六平台扩展（2026-09-29，collect-video-platforms） ──────────────────
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://baijiahao.baidu.com/s?id=1877446299628255783", "baijiahao"),
+    ("https://mbd.baidu.com/newspage/data/xxx", "baijiahao"),
+])
+def test_detect_platform_baijiahao(url, expected):
+    from multi_publish.aggregation.video_service import detect_platform
+    assert detect_platform(url) == expected
+
+
+def test_collect_video_channels_unsupported(monkeypatch):
+    """视频号链接 → 前置明确报错（需微信登录态），不进 yt-dlp 管线、不需要 ASR 引擎。"""
+    from multi_publish.aggregation import video_service
+    from multi_publish.aggregation.models import CollectVideoRequest
+
+    svc = video_service.VideoCollectService()
+    # yt-dlp 与 ASR 引擎均不应被触达：任一被调用即抛错
+    def no_ytdlp(*a, **kw):
+        raise AssertionError("channels 链接不应进入 yt-dlp 管线")
+    monkeypatch.setattr(video_service, "_run_subprocess", no_ytdlp)
+    monkeypatch.setattr(video_service, "get_asr_engine", lambda name=None: (_ for _ in ()).throw(
+        AssertionError("channels 链接不应检查 ASR 引擎")))
+
+    with pytest.raises(video_service.VideoCollectError) as exc_info:
+        svc.collect_video(CollectVideoRequest(url="https://channels.weixin.qq.com/web/shares/video/123"))
+    assert exc_info.value.code == "VIDEOCLONE_CHANNELS_UNSUPPORTED"
+    assert "视频号" in exc_info.value.message
+    assert "微信" in exc_info.value.message
+
+
+def _patch_baijiahao_success(monkeypatch, calls):
+    """mock 百家号通道：fetcher 返回元数据 + download_video_file 落盘占位。"""
+    from multi_publish.aggregation import video_service
+
+    def fake_fetch(url):
+        calls["fetch"].append(url)
+        return {
+            "title": "百家号视频文章",
+            "author": "人民日报",
+            "duration": 100.0,
+            "play_url": "https://vd3.bdstatic.com/mda-test.mp4",
+            "referer": "https://baijiahao.baidu.com/s?id=1",
+        }
+
+    def fake_download(play_url, referer, target):
+        calls["download"].append((play_url, referer))
+        target.write_bytes(b"FAKE_MP4")
+
+    monkeypatch.setattr(video_service, "fetch_baijiahao_video", fake_fetch)
+    monkeypatch.setattr(video_service, "download_video_file", fake_download)
+
+
+def test_collect_video_baijiahao_success(tmp_path, monkeypatch):
+    """百家号含视频文章 → 纯 HTTP 通道（不经 yt-dlp），全管线返回 platform=baijiahao。"""
+    from multi_publish.aggregation import video_service
+    from multi_publish.aggregation.models import CollectVideoRequest
+    from multi_publish.aggregation.asr_engine import AsrResult
+
+    svc = video_service.VideoCollectService()
+    calls = {"fetch": [], "download": []}
+    _patch_baijiahao_success(monkeypatch, calls)
+
+    # yt-dlp 探测/下载不应发生（ffprobe/ffmpeg 走 _run_subprocess，允许）
+    ytdlp_calls = []
+
+    def fake_run(cmd, timeout=None, **kwargs):
+        if "--dump-json" in cmd or (cmd and cmd[0] in ("yt-dlp",) and "--dump-json" not in cmd):
+            ytdlp_calls.append(list(cmd))
+        if "-select_streams" in cmd:
+            return _make_completed(0, stdout=json.dumps({"streams": [{"codec_type": "audio"}]}))
+        return _make_completed(0)  # ffmpeg
+
+    def fake_stat(self, *a, **kw):
+        st = MagicMock(); st.st_size = 1024; return st
+
+    fake_engine = MagicMock()
+    fake_engine.is_available.return_value = True
+    monkeypatch.setattr(video_service, "_run_subprocess", fake_run)
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    monkeypatch.setattr(video_service, "get_asr_engine", lambda name=None: fake_engine)
+    monkeypatch.setattr(video_service.VideoCollectService, "_transcribe_with_timeout",
+                        lambda self, eng, p: AsrResult(
+                            text="百家号视频转写文案", language="zh", duration_seconds=100.0,
+                            segments=[], engine="faster_whisper"))
+
+    result = svc.collect_video(CollectVideoRequest(url="https://baijiahao.baidu.com/s?id=1877446299628255783"))
+
+    assert result.media_type == "video"
+    assert result.title == "百家号视频文章"
+    assert result.content == "百家号视频转写文案"
+    assert result.metadata["platform"] == "baijiahao"
+    assert result.metadata["fetch_channel"] == "baijiahao-http"
+    assert result.duration == 100.0
+    assert calls["fetch"] == ["https://baijiahao.baidu.com/s?id=1877446299628255783"]
+    assert calls["download"] == [("https://vd3.bdstatic.com/mda-test.mp4", "https://baijiahao.baidu.com/s?id=1")]
+    assert ytdlp_calls == []  # 百家号不经 yt-dlp
+
+
+def test_collect_video_baijiahao_no_video(monkeypatch):
+    """百家号纯文字文章 → VIDEOCLONE_NO_VIDEO（前端据此回退图文采集）。"""
+    from multi_publish.aggregation import video_service
+    from multi_publish.aggregation.models import CollectVideoRequest
+    from multi_publish.aggregation.baijiahao_fetcher import BaijiahaoFetchError
+
+    svc = video_service.VideoCollectService()
+    monkeypatch.setattr(video_service, "fetch_baijiahao_video",
+                        lambda url: (_ for _ in ()).throw(BaijiahaoFetchError("no_video", "该链接不含视频")))
+    fake_engine = MagicMock()
+    fake_engine.is_available.return_value = True
+    monkeypatch.setattr(video_service, "get_asr_engine", lambda name=None: fake_engine)
+
+    with pytest.raises(video_service.VideoCollectError) as exc_info:
+        svc.collect_video(CollectVideoRequest(url="https://baijiahao.baidu.com/s?id=1"))
+    assert exc_info.value.code == "VIDEOCLONE_NO_VIDEO"
+
+
+def test_collect_video_baijiahao_haokan(monkeypatch):
+    """百家号纯视频链接 302 到好看视频 → 专属错误码（非 no_video，不触发图文回退）。"""
+    from multi_publish.aggregation import video_service
+    from multi_publish.aggregation.models import CollectVideoRequest
+    from multi_publish.aggregation.baijiahao_fetcher import BaijiahaoFetchError
+
+    svc = video_service.VideoCollectService()
+    monkeypatch.setattr(video_service, "fetch_baijiahao_video",
+                        lambda url: (_ for _ in ()).throw(BaijiahaoFetchError("haokan", "该链接为好看视频专链，暂不支持自动采集")))
+    fake_engine = MagicMock()
+    fake_engine.is_available.return_value = True
+    monkeypatch.setattr(video_service, "get_asr_engine", lambda name=None: fake_engine)
+
+    with pytest.raises(video_service.VideoCollectError) as exc_info:
+        svc.collect_video(CollectVideoRequest(url="https://baijiahao.baidu.com/s?id=1877582293125962418"))
+    assert exc_info.value.code == "VIDEOCLONE_LINK_UNAVAILABLE"
+    assert "好看视频" in exc_info.value.message
+
+
+def test_classify_download_error_anti_bot_extensions():
+    """2026-09-29 扩展：小红书 No video formats found / B站 412/-352 → ANTI_BOT（触发浏览器降级）。"""
+    from multi_publish.aggregation.video_service import classify_download_error
+
+    assert classify_download_error("ERROR: [XiaoHongShu] 6411: No video formats found!")[0] == "VIDEOCLONE_LINK_ANTI_BOT"
+    assert classify_download_error("ERROR: HTTP Error 412: Precondition Failed")[0] == "VIDEOCLONE_LINK_ANTI_BOT"
+    assert classify_download_error("ERROR: bilibili API error code -352")[0] == "VIDEOCLONE_LINK_ANTI_BOT"
+
+
+def test_invalid_platform_message_lists_all_six_platforms():
+    """不支持平台报错文案覆盖六平台（含百家号）。"""
+    from multi_publish.aggregation import video_service
+    from multi_publish.aggregation.models import CollectVideoRequest
+
+    svc = video_service.VideoCollectService()
+    with pytest.raises(video_service.VideoCollectError) as exc_info:
+        svc.collect_video(CollectVideoRequest(url="https://example.com/video"))
+    assert exc_info.value.code == "VIDEOCLONE_INVALID_PLATFORM"
+    assert "百家号" in exc_info.value.message
+    assert "视频号" in exc_info.value.message
