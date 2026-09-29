@@ -295,6 +295,97 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
     taskQueue.emit('task:cancelled', { id: 't-c2', platform: 'weibo' })
     expect(history.addRecord).not.toHaveBeenCalled()
   })
+
+  // P0-1 审核状态（2026-10-09）：监控结论**回写原记录**，不再追加第二条；
+  // 无定论（error/timeout/skipped/pending）保持原记录不变。
+  describe('P0-1 审核状态回写', () => {
+    function wireWithMonitor () {
+      const taskQueue = new EventEmitter()
+      const history = { addRecord: vi.fn(() => ({ id: 'h-1' })), updateRecordAudit: vi.fn(() => ({ updated: true })) }
+      const monitorCalls = []
+      wireTaskQueueEvents({
+        taskQueue,
+        history,
+        publishMonitor: {
+          createMonitorTask: vi.fn((opts) => { monitorCalls.push(opts); return { stop: vi.fn() } }),
+        },
+        publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+        getMainWin: () => null,
+      })
+      return { taskQueue, history, monitorCalls }
+    }
+
+    function emitSuccess (taskQueue) {
+      taskQueue.emit('task:success', {
+        id: 'task-audit-1', owner_subject: 'user-a', platform: 'douyin',
+        article: { title: '审核跟踪' }, result: { postId: 'aweme-42' },
+      })
+    }
+
+    it('明确结论（rejected）回写原记录，不追加重复行', () => {
+      const { taskQueue, history, monitorCalls } = wireWithMonitor()
+      emitSuccess(taskQueue)
+      expect(history.addRecord).toHaveBeenCalledTimes(1) // 仅成功那条
+      expect(monitorCalls).toHaveLength(1)
+
+      monitorCalls[0].callback({ status: 'rejected', postId: 'aweme-42' })
+
+      expect(history.updateRecordAudit).toHaveBeenCalledTimes(1)
+      const [id, patch, owner] = history.updateRecordAudit.mock.calls[0]
+      expect(id).toBe('task-audit-1')
+      expect(owner).toBe('user-a')
+      expect(patch).toEqual(expect.objectContaining({
+        auditStatus: 'deny', monitorStatus: 'rejected', platformWorkId: 'aweme-42',
+      }))
+      expect(typeof patch.auditedAt).toBe('string')
+      // 关键：不新增第二条记录（旧形态 addRecord 追加导致同一次发布两行）
+      expect(history.addRecord).toHaveBeenCalledTimes(1)
+    })
+
+    it('inAudit / published / prePublish 各自映射正确', () => {
+      for (const [monitorStatus, expected] of [['reviewed', 'inAudit'], ['published', 'published'], ['draft', 'prePublish']]) {
+        const { taskQueue, history, monitorCalls } = wireWithMonitor()
+        emitSuccess(taskQueue)
+        monitorCalls[0].callback({ status: monitorStatus, postId: 'p1' })
+        expect(history.updateRecordAudit.mock.calls[0][1].auditStatus, monitorStatus).toBe(expected)
+      }
+    })
+
+    it('无定论状态（error/timeout/skipped/pending）一律不改写原记录', () => {
+      for (const inconclusive of ['error', 'timeout', 'skipped', 'pending', 'unknown', 'failed']) {
+        const { taskQueue, history, monitorCalls } = wireWithMonitor()
+        emitSuccess(taskQueue)
+        monitorCalls[0].callback({ status: inconclusive, postId: 'p1' })
+        expect(history.updateRecordAudit, inconclusive + ' 不得回写').not.toHaveBeenCalled()
+        expect(history.addRecord, inconclusive + ' 不得追加').toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('updateRecordAudit 抛错不冒泡（监控旁路不得影响发布主流程）', () => {
+      const taskQueue = new EventEmitter()
+      const history = {
+        addRecord: vi.fn(),
+        updateRecordAudit: vi.fn(() => { throw new Error('disk full') }),
+      }
+      const monitorCalls = []
+      wireTaskQueueEvents({
+        taskQueue, history,
+        publishMonitor: { createMonitorTask: vi.fn((opts) => { monitorCalls.push(opts); return { stop: vi.fn() } }) },
+        publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+        getMainWin: () => null,
+      })
+      emitSuccess(taskQueue)
+      expect(() => monitorCalls[0].callback({ status: 'rejected', postId: 'p1' })).not.toThrow()
+    })
+
+    it('无 postId 时不建监控任务（无可查锚点）', () => {
+      const { taskQueue, monitorCalls } = wireWithMonitor()
+      taskQueue.emit('task:success', {
+        id: 'task-no-postid', platform: 'weibo', article: { title: 'T' }, result: {},
+      })
+      expect(monitorCalls).toHaveLength(0)
+    })
+  })
 })
 
 

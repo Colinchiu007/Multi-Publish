@@ -16,6 +16,8 @@ const { isRiskBlocked } = require('../services/publish-risk')
 const { isRiskSuspendedMessage } = require('../services/risk-suspender-store')
 const { createPublishProgressEmitter } = require('../services/publish-progress-events')
 const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
+// P0-1 审核状态：监控状态 → 审核状态的映射与落库补丁单一真源（shared-utils，渲染端走 ESM 孪生）。
+const { buildAuditPatch } = require('@multi-publish/shared-utils/src/publish-audit-status')
 
 /**
  * 接线 taskQueue 事件监听
@@ -52,10 +54,23 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           postId, platform: task.platform, cookies: task.article?.cookies || '',
           callback: (monitorResult) => {
             log.info('PublishMonitor', 'Monitor result for ' + task.platform + ':' + postId + ': ' + monitorResult.status)
-            history.addRecord({
-              platform: task.platform, title: task.article?.title || '',
-              taskId: task.id, status: monitorResult.status, result: monitorResult,
-            }, ownerSubject)
+            // P0-1（2026-10-09）：审核结论**回写原记录**，不再 addRecord 追加第二条
+            // （旧形态让同一次发布在历史里出现两行，且原 success 行与审核结论无法关联）。
+            // buildAuditPatch 只在平台给出**明确结论**时产出补丁（无定论/error/timeout/
+            // skipped 返回 null）——「没拿到新证据」不是反证，不得抹掉既有审核结论。
+            const patch = buildAuditPatch(monitorResult)
+            if (!patch) {
+              log.info('PublishMonitor', 'Inconclusive audit status for ' + task.platform + ':' + postId + ' (' + monitorResult.status + ')，保持原记录不变')
+              return
+            }
+            try {
+              const { updated } = history.updateRecordAudit(task.id, patch, ownerSubject)
+              if (!updated) {
+                log.warn('PublishMonitor', 'Audit update skipped (record not found): ' + task.id)
+              }
+            } catch (e) {
+              log.warn('PublishMonitor', 'Failed to update audit status: ' + e.message)
+            }
           },
         })
       }

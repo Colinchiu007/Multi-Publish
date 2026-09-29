@@ -24,6 +24,95 @@ describe("publish-history", () => {
     expect(typeof ph.getRecord).toBe("function");
     expect(typeof ph.getStats).toBe("function");
     expect(typeof ph.deleteRecords).toBe("function");
+    expect(typeof ph.updateRecordAudit).toBe("function");
+  });
+
+  // P0-1 审核状态：监控结论回写**原记录**（就地更新），不新增行。
+  // 用独立临时目录，避免污染上方按 owner 精确断言集合的用例。
+  describe("updateRecordAudit（审核状态回写）", () => {
+    const auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-audit-test-"));
+    afterAll(() => {
+      try { fs.rmSync(auditDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+    function freshHistory () {
+      vi.resetModules();
+      process.env.PH_TEST_DATA_DIR = auditDir;
+      return require("../services/publish-history");
+    }
+    function lines (ph) {
+      const p = path.join(auditDir, "publish-history.jsonl");
+      return fs.existsSync(p) ? fs.readFileSync(p, "utf-8").split(/\r?\n/).filter(Boolean) : [];
+    }
+
+    it("明确结论就地更新原记录且不新增行", () => {
+      const ph = freshHistory();
+      const rec = ph.addRecord({ platform: "douyin", title: "审核", status: "success" }, "user-a");
+      const before = lines(ph).length;
+
+      const { updated, record } = ph.updateRecordAudit(
+        rec.id,
+        { auditStatus: "deny", monitorStatus: "rejected", platformWorkId: "aweme-9", auditedAt: "2026-10-09T00:00:00.000Z" },
+        "user-a",
+      );
+
+      expect(updated).toBe(true);
+      expect(record.auditStatus).toBe("deny");
+      expect(record.platformWorkId).toBe("aweme-9");
+      // 行数不变（旧形态 addRecord 会追加第二条）
+      expect(lines(ph).length).toBe(before);
+      // 落盘可读回，且主流程字段未被污染
+      const reread = ph.listRecords({ limit: 50 }, "user-a").records.find(r => r.id === rec.id);
+      expect(reread.auditStatus).toBe("deny");
+      expect(reread.status).toBe("success");
+      expect(reread.monitorStatus).toBe("rejected");
+    });
+
+    it("无定论/非法 auditStatus 一律不改任何字节（单向证据规则）", () => {
+      const ph = freshHistory();
+      const rec = ph.addRecord({ platform: "weibo", title: "不变", status: "success" }, "user-a");
+      const before = lines(ph).join("\n");
+
+      for (const bad of [null, undefined, "unknown", "bogus", "", 42]) {
+        const r = ph.updateRecordAudit(rec.id, { auditStatus: bad, platformWorkId: "x" }, "user-a");
+        expect(r.updated, String(bad)).toBe(false);
+      }
+      expect(lines(ph).join("\n")).toBe(before);
+    });
+
+    it("只吸收白名单键（监控响应不得越权改写 status/result/error）", () => {
+      const ph = freshHistory();
+      const rec = ph.addRecord({ platform: "weibo", title: "T", status: "success", success: true }, "user-a");
+
+      ph.updateRecordAudit(rec.id, {
+        auditStatus: "withdrawn",
+        status: "failed",
+        success: false,
+        error: "注入",
+        result: { hacked: true },
+        platformWorkId: "w-1",
+      }, "user-a");
+
+      const reread = ph.listRecords({ limit: 50 }, "user-a").records.find(r => r.id === rec.id);
+      expect(reread.auditStatus).toBe("withdrawn");
+      expect(reread.platformWorkId).toBe("w-1");
+      expect(reread.status).toBe("success");
+      expect(reread.success).toBe(true);
+      expect(reread.error).toBeUndefined();
+      expect(reread.result).toBeUndefined();
+    });
+
+    it("owner 不匹配/记录不存在/非法 id 一律不改", () => {
+      const ph = freshHistory();
+      const rec = ph.addRecord({ platform: "zhihu", title: "隔离", status: "success" }, "user-b");
+      const patch = { auditStatus: "deny", platformWorkId: "x" };
+
+      expect(ph.updateRecordAudit(rec.id, patch, "user-c").updated).toBe(false);
+      expect(ph.updateRecordAudit("nonexistent", patch, "user-b").updated).toBe(false);
+      expect(ph.updateRecordAudit("", patch, "user-b").updated).toBe(false);
+      expect(ph.updateRecordAudit(null, patch, "user-b").updated).toBe(false);
+      const reread = ph.listRecords({ limit: 50 }, "user-b").records.find(r => r.id === rec.id);
+      expect(reread.auditStatus).toBeUndefined();
+    });
   });
 
   it("addRecord returns object with id, timestamp, and merged fields", () => {

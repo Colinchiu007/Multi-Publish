@@ -3,7 +3,7 @@
 > **立项日期**: 2026-10-08
 > **分析对象**: 视频发布页 + 图文发布页（`apps/desktop/src/views/Publish.vue` 两分支 + 批量模式）
 > **对比基准**: 参考产品 4.13.19（本机逆向工程目录取证；主进程 bundle 8.4MB，其发布页 UI 走远程 Web，本地无界面代码，故页面级对比以其**任务结构、状态模型、引擎行为**为基准）
-> **状态**: 分析完成；P1-4 / P0-2 / P1-5 已实现（本文档同 PR 链）；P0-1/P1-3/P2 待立项
+> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（第一切片）已实现（本文档同 PR 链）；P0-1 回查通道第二切片 / P1-3 / P2 待立项
 > **关联**: [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（字段面注册表，已合并）
 
 ---
@@ -33,7 +33,7 @@
 
 | # | 差距 | 参考产品形态 | 本仓现状 | 优先级 |
 | --- | --- | --- | --- | --- |
-| 1 | **发布后平台审核状态跟踪** | 16 态 + 主动回查平台作品列表 | 发布历史 3 态（success/failed/pending），终态即终点；「发布成功」后内容被审核拒绝/仅自己可见/转码失败/被下线**用户完全不可见** | 🔴 P0-1 |
+| 1 | **发布后平台审核状态跟踪** | 16 态 + 主动回查平台作品列表 | ~~发布历史 3 态，终态即终点~~ → **状态机 + 原记录回写 + 展示已落地**（2026-10-09 第四切片：7 态枚举 + 监控结论就地回写 + 历史/详情徽标 + 拒绝下线醒目提醒）；**回查通道可用性待第二切片**（凭证传递 + 端点证据） | 🔴 P0-1 ◐ |
 | 2 | **账号风险前置预检** | -110 风险码族 + 行动指引 | ~~只有登录态三态~~ → **已实现**（2026-10-08 第二切片：目标选择器风控徽标 + 行动指引具体化 + 词表增强，详见 §四 P0-2） | 🔴 P0-2 ✅ |
 | 3 | **平台原生草稿往返** | per-platform draftId 存平台侧可回取 | 草稿只存本地 | 🟠 P1-3 |
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
@@ -127,12 +127,71 @@
 
 ## 四、后续项立项要点（P0/P1/P2）
 
-### P0-1 审核状态跟踪（建议下一个大 change）
+### P0-1 审核状态跟踪（**2026-10-09 第一切片已实现**，publish-page-optimization 第四切片）
 
-- **状态机**：发布历史增加 `auditStatus` 列（枚举对齐参考产品 16 态裁剪：published/inAudit/prePublish/deny/notPublic/withdrawn/transferFail(转码失败)/unknown）
-- **回查通道**：按平台回查创作者中心作品列表（`aweme_id`/`docId` 匹配 + `status_value` 映射——参考产品实测口径）；定时任务轮询 + 状态变化通知
-- **显示**：历史列表状态列（含平台差异图标）、详情页状态时间线、拒绝/下线醒目提醒
-- **依赖**：发布结果需落 `platformWorkId`（当前部分链路已回传 url，需补 workId）
+> 实施时发现：仓库**已有** `publish-monitor.js`（发布后轮询创作者中心）与 phase4-events 的监控回调，但三处缺陷使其未形成可用链路：① 监控回调走 `addRecord` 追加**第二条**历史记录——同一次发布在历史里出现两行，原 success 行与审核结论无法关联；② 监控状态是英文散值（published/reviewed/rejected…），没有统一枚举，渲染层无从渲染；③ 监控结果只写 `status` 字段，不落平台作品 ID。本切片修这三处并补齐展示与提醒。
+>
+> **第一切片范围**：状态机 + 原记录就地回写 + 历史/详情展示 + 醒目提醒。**第二切片（待立项）**：回查通道可用性——监控 cookies 取自 `task.article.cookies`（实测恒空，凭证在 authData 不随任务走）且 `CHECK_URLS` 的通用 GET+id 协议与抖音/快手真实接口形状不符；需按平台补凭证传递与端点证据。
+
+#### 数据校验
+
+| 校验点 | 规则 | 位置 |
+| --- | --- | --- |
+| 审核状态枚举 | 7 态白名单（published/inAudit/prePublish/deny/notPublic/withdrawn/transferFail）；非法值 `normalizeAuditStatus` 返回 null | `publish-audit-status.js`（shared-utils 双孪生） |
+| 监控状态映射 | 只映射**平台明确结论**（published→published、reviewed→inAudit、rejected→deny、draft→prePublish）；其余（error/timeout/skipped/pending/unknown/failed 及未知取值）返回 `null` | `mapMonitorStatusToAuditStatus` |
+| 回写白名单 | 落库补丁只含 `auditStatus`/`monitorStatus`/`platformWorkId`/`auditedAt` 四键；监控响应里的 `status`/`success`/`result`/`error` 一律不得改写（发布成功与否只能由发布链路改写） | `AUDIT_PATCH_KEYS` + `updateRecordAudit` |
+| 未知状态不落库 | `auditStatus` 归一失败 → `updateRecordAudit` 不写任何字节 | `publish-history.js` |
+| 记录归属 | 就地回写必须 `id` + `owner_subject` 双匹配（跨用户不可改写） | `updateRecordAudit` |
+
+#### 流程
+
+```
+发布成功（task:success）
+  → 落历史原记录（status=success）+ 建监控任务（postId 存在时）
+  → 监控回调（platform 明确结论）
+      → buildAuditPatch：映射 + 白名单 + 归一（无定论返回 null）
+      → history.updateRecordAudit(task.id, patch, owner)
+          → 按 id+owner 定位原记录 → 合并白名单键 → 原子重写 JSONL（tmp+rename）
+  → 渲染层历史列表/详情读取 auditStatus → 徽标（拒绝/下线/转码失败标红 + 处置指引）
+```
+
+#### 功能逻辑
+
+- **单向证据规则**：只有平台给出明确结论才改写记录；`error`/`timeout`/`skipped`/`pending`/`unknown` 一律保持原记录不变——「没拿到新证据」不是反证（与 `login-state.js` 同族）。这条决定了监控不可用时历史不会出现「审核状态=未知」的伪结论。
+- **不追加重复行**：监控结论回写原记录（旧形态每次监控追加一行，历史被污染且统计口径失真——`getStats` 会把同一次发布计两次）。
+- **枚举裁剪自参考产品 16 态**：只保留本仓有取证路径的 7 态；未取证状态不造字段（`notSuitableForPublicity`/`customWithdrawn`/`executeFail`/`waitExecute` 等暂不纳入）。
+- **平台作品 ID 落库**：`platformWorkId` 来自监控回调的 `postId`，是第二切片「按作品回查」的锚点。
+
+#### 交互逻辑
+
+| 交互点 | 行为 |
+| --- | --- |
+| 列表审核徽标 | 有**合法**审核结论才渲染；拒绝/下线/转码失败标红（`is-alert`，含内描边强调）+ tooltip「请在平台创作者中心确认并处理」 |
+| 无结论 | 不渲染徽标（不得用「无徽标」伪装成「已通过」） |
+| 详情弹窗 | 有结论时新增「审核状态」行（醒目态附处置指引）；有 `platformWorkId` 时新增「平台作品 ID」行 |
+| 旧记录 | 无 `auditStatus` 字段的历史记录渲染行为完全不变（向后兼容） |
+
+#### 显示项与提示文字（zh/en 成对）
+
+| key | zh |
+| --- | --- |
+| `historyPage.detailAuditStatus` | 审核状态 |
+| `historyPage.detailPlatformWorkId` | 平台作品 ID |
+| `historyPage.auditStatusAlertHint` | 请在平台创作者中心确认并处理 |
+| `historyPage.auditStatus.published` / `.inAudit` / `.prePublish` / `.deny` / `.notPublic` / `.withdrawn` / `.transferFail` | 已上线 / 审核中 / 待发布 / 审核未通过 / 未公开 / 已下线 / 转码失败 |
+
+#### 测试
+
+- `publish-audit-status.test.js`（13 例）：7 态枚举无重复 / 明确结论映射（含大小写与空白容忍）/ 无定论 6 值 + 非字符串一律 null / 白名单校验 / 提醒态三红四不红 / label key 单一持有 / `buildAuditPatch` 白名单与缺 postId / 无定论返回 null / CJS-ESM 穷举 parity / 规模下界
+- `publish-history.test.js` +4：明确结论就地更新且**行数不变** / 无定论与非法值不改任何字节（字节级对照）/ 只吸收白名单键（注入 `status`/`success`/`result`/`error` 全部被拒）/ owner 与 id 不匹配不改
+- `phase4-events.test.js` +5：rejected→deny 回写且**不追加重复行** / inAudit-published-prePublish 三态映射 / 6 个无定论状态一律不回写不追加 / `updateRecordAudit` 抛错不冒泡 / 无 postId 不建监控任务
+- `PublishHistory.test.js` +11：拒绝醒目徽标 + 指引 / 已上线中性徽标 / 五态文案逐一 / 三红四不红矩阵 / 无结论与非法值不渲染 / 详情显示审核状态与平台作品 ID
+
+#### 残余限制
+
+- **回查通道当前不可用**（第二切片）：监控 cookies 取 `task.article.cookies`（实测恒空，凭证在 authData 不随任务走）；`CHECK_URLS` 的 GET+id 协议与抖音 `aweme/v1/list/`（需签名 POST）、快手 graphql 形状不符（快手已按诚实跳过处理）。因此本切片交付的是**状态机 + 回写 + 展示**；实际审核结论的获取率取决于第二切片。
+- 未纳入 `notSuitableForPublicity`（不宜公开）/`customWithdrawn`（自定义撤回）等参考产品状态——无本仓取证路径。
+- 状态变化通知（toast/推送）未做：本切片用历史列表/详情徽标呈现；变化通知需与第二切片的轮询节奏一起设计。
 
 ### P0-2 账号风险预检（**2026-10-08 已实现**，publish-page-optimization 第二切片）
 
