@@ -1,3 +1,20 @@
+# [未发布] fix(设置页): 浅色模式主按钮 hover/禁用态隐形——EP 主题桥接补齐浅色兜底（2026-09-29，#2627）
+
+### 现象与根因
+- 设置页 → 模型设置 → 多模态模型「默认」→「设为默认」确认弹窗中，【确定】按钮**鼠标悬停时整块隐形**（白底白字），未悬停时与【取消】按钮均正常。
+- 根因不在组件而在主题桥接层：`apps/desktop/src/styles/ep-theme.css` 把 Element Plus 主按钮 hover 档 `--el-color-primary-light-3` 与禁用/描边档 `-light-5` 桥接到 `--color-primary-dark-tint`，而该 token **只在 `tokens.css` 的 `[data-theme="dark"]` 块里定义**。浅色下无兜底的 `var()` 是 guaranteed-invalid，依赖它的声明按 *invalid at computed-value time* 退化为 `initial` —— `background-color` 变透明、`border-color` 变 `currentColor`，而 `.el-button--primary` 的文字仍是 `--el-color-white`，于是按钮整体"消失"。
+
+### 变更
+- 两行补浅色兜底 `var(--color-primary-dark-tint, var(--color-primary-hover))`：暗色解析值逐字不变（`#7b74ff`），浅色 hover 得 `#603af9`（与常态 `#5048E5` 可辨）。沿用仓库既有兜底惯例（`hot-topics-list.css:11` 已明文规定该 token 必须带兜底使用）；**没有**在 `:root` 新增同名 token —— 那会把所有「浅色用主色、暗色用亮化档」的消费点一起改掉，属更大范围的视觉回归。
+- 同根因第三处一并修：`--el-fill-color: var(--color-bg-hover)` 里的 `--color-bg-hover` **全仓从未定义**（唯一一次出现就是这一行），现与 `-light` / `-lighter` 同档收编到 `--color-bg-inset`。该行此前恒为 invalid（等于没生效），修复后 EP 文本按钮 `:active` 一类瞬时填充底色才真正解析出值。
+- 新增 `apps/desktop/src/styles/ep-theme.tokens.test.js`（4 例，纯 CSS 契约、无需浏览器）：按 `:root` / `[data-theme="dark"]` **分别**求解 `var()` 链，断言桥接层每个无兜底引用在浅色单独可解析、hover 档与常态主色区分、暗色档不变。
+
+### 为什么既有门禁没拦住
+- `sidebar.tokens.test.js` 已有「引用的 token 全部在 tokens.css 定义」的锁，但它把 `:root` 与 `[data-theme="dark"]` **合并成一张表**再判存在性 —— 对「只在暗色定义的 token 被浅色层消费」这一形态完全免疫。新锁按主题分别求解补齐这一格。
+- 视觉回归对这三态结构性失明：hover / 禁用 / `:active` 都不在快照基线的采集状态内。
+- 反证两条均实测变红：单行摘掉 `light-3` 兜底 → 2 红 / 2 绿（另 2 例仍绿，说明判据特定而非恒失败）；`--el-fill-color` 退回 `--color-bg-hover` → 2 红 / 2 绿。
+- Chromium 实测（Playwright，修复前 → 后）：浅色 hover `rgba(0,0,0,0)` → `rgb(96,58,249)`；浅色禁用态同上；暗色 hover/禁用 `#7b74ff` 逐字未变。
+
 # [未发布] feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
 
 ### 现象与根因
@@ -58,6 +75,19 @@
 ### 影响
 - #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
 - 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
+
+# [未发布] feat(publish): 定时×草稿互斥守卫（发布页优化 roadmap 第一项 P1-4）+ 对比参考产品的差距分析文档（2026-10-08，publish-page-optimization）
+
+### 变更
+- **P1-4 定时×草稿互斥**（`usePublishDrafts.js`）：本地草稿是静态快照不会自动发布——带定时时间保存草稿会让用户误以为「到点自动发」。双侧守卫：①保存侧 ElMessageBox 互斥确认（清除定时并保存 / 保留定时保存，双按钮都保存）；②加载侧清除已过期定时时间并提示（避免下一次发布被 validateScheduleEntries 以「定时时间已过去」静默拒绝）。参考产品在引擎层硬拒绝（pubType 互斥）；本地草稿语义更宽（WIP 快照），改为确认+清除而非硬拒绝。
+- **分析文档** `01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md`（force-add，.gitignore 白名单制）：对比参考产品 4.13.19 的 8 项差距清单（P0-1 审核状态跟踪★最大差距/P0-2 账号风险预检/P1-3 平台草稿往返/P1-4 本项已实现/P1-5 可见性通用控件/P2 数据回流/批量字段面/账号分组），含证据出处（16 态审核模型 + aweme_id 回查口径 + -110 风险码族）、P1-4 六维度详写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）、后续项立项要点。
+- locales zh/en 成对新增 5 键（scheduleConflictTitle/Message/Clear/Keep + staleScheduleCleared）。
+
+### 验证
+- `usePublishDrafts.test.js` 11/11（含 5 条 P1-4 回归：确认清除/取消保留/无定时不弹/过期清除/未来保留）
+- locale 成对门禁（pair-base/keys/cjk）、品牌残留、行尾对账本地 PASS
+
+---
 
 # [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
 
