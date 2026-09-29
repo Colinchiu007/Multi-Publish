@@ -1,3 +1,9 @@
+## 逐文件行数门禁会因「扩展既有组件」在 CI 阶段才变红；环境性失败与代码失败的归因口径（publish-progress-panel-refine，2026-09-29）
+
+- **给既有大文件加功能前要先估行数，行数门禁不是提交后才发现的事**：`PublishProgressPanel.vue` 原 446 行（<500 合规），本次功能增量把它推到 688 行 → CI 债务熔断 `NEW_OVER_LIMIT` 硬红（`growthAllowance=200` 只容忍 +200 以内的增长，+242 越线）。本地 260 测试全绿、ESLint 0 warning 都拦不住它——**行数门禁是结构维度的锁，行为层测试对它天然失明**。判据：给既有组件加交互逻辑/样式（+100 行量级）时，动手前先数行数并规划拆分（区块拆子组件 + 计时器/状态机拆 composable），不要等 CI 报红再拆。本次拆出 `PublishProgressFooter.vue`(150) / `PublishProgressSession.vue`(152) / `composables/usePublishProgressAutoCollapse.js`(74) 后 Panel 降到 398 行，`check-max-lines.js` 本地即可预验。
+- **CI 红的归因走「错误形态 → 外部依赖定位 → 本地隔离复跑 → diff 交集」四步，直接重跑是掩盖**：本次 `test_scheduler_parity.test.js` 报 `python simulator failed: `（**空 stderr**）——空消息本身就是判据：断言失败会打 diff，空 stderr 指向 `spawnSync('python', …)`（`scripts/compare-scheduler-models.js:213`）的外部依赖缺失。本地同 worktree 复跑该文件 3/3 全绿（六组对拍 + 已知差异 + 并发饥饿，77 秒）+ 与本次 diff **零文件交集** ⇒ 判定 CI runner 环境性，`gh run rerun --failed` 后转 success。反向同族纪律（learnings 已有「隔离复跑是分界线」）：隔离复跑仍红 ⇒ 真回归，必须修，不得重跑掩盖。
+- **QM-6 外部评审不可用时如实登记「未执行」，不得以自审冒充通过**：本次 backend（codex）返回「您的Token额度已用完」（计费硬阻塞，非瞬时可重试）、frontend（claude）CLI 连续 3 次 `exited with status 1`（重试预算耗尽后跳过）。正解是把两个具体失败原因与重试次数写进门禁记录（可复核、可补做），而不是把「本地测试全绿」当成外部交叉审查的等价物——后者的价值恰恰在于它不是自己。
+- **置顶文档里内嵌的字面控制字符会让文件被判为二进制、进而让常规编辑工具失效**：`CHANGELOG.md` 的 NUL 与 `01-docs/learnings.md` 的两处 NUL 都源自「条目正文里写了控制字符区间」（`\x00-\x1f/\x7f` 被写成了真字节；`- commit 063a226:` 的首字符 `0` 被写成 NUL）。症状是 `edit` 类工具直接拒绝写入（判 binary），只能改走 `[System.IO.File]::WriteAllText` + UTF8(no BOM) 才落得下去。判据：**写「控制字符/正则/转义」这类正文时一律写转义文本**，不要粘贴真字节；发现 NUL 时先取证上下文再按原意还原（本次分别还原为 `\x00-\x1f/\x7f` 与 `063a226`），并在门禁记录里写明 NUL 计数变化。
 ## 定时发布全链路验证：PRD 声称的「重启恢复」只对单篇成立、接口暴露 ≠ 功能闭环、mock 带字段掩盖生产从不写入、替换式重构残留死函数（fix-scheduled-publish-gaps，2026-10-02）
 
 - **「持久化、重启恢复」这类 PRD 合同必须逐路径验证，不能按代表性路径放行**：PRD §6.3 写「支持 App 关闭后重启恢复」，单篇路径（scheduler.restore）确实有；但批量路径（BatchManager.scheduleBatch）只用内存 `setTimeout`，重启后 `batch_jobs` 里 status='scheduled' 的批次**永不发布**且无任何提示——静默数据丢失在「功能已实现 ✅」的表格行下躺了很久。判据：文档里每个「持久化/恢复/重试」承诺都要问「哪几条路径会写这个状态？每条路径谁负责读回？」，一条路径一个证据。
@@ -5525,7 +5531,7 @@ if (api.getVersion) {
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
 - commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
-- commit  63a226: fix: �汾����ʾ�޸�
+- commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
 - commit decb3db: docs: ����ʮ���ָ��� �� �����ܽ�
 - commit d5ce0a7: docs: ����ʮ���ָ��� �� Electron Ӧ�ô�����֤
@@ -12146,7 +12152,7 @@ if (api.getVersion) {
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
 - commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
-- commit  63a226: fix: �汾����ʾ�޸�
+- commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
 - commit decb3db: docs: ����ʮ���ָ��� �� �����ܽ�
 - commit d5ce0a7: docs: ����ʮ���ָ��� �� Electron Ӧ�ô�����֤
