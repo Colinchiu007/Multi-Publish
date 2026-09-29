@@ -17822,3 +17822,11 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 第七层二轮：Content-Type/Accept 修正（#2612）后 `upload/complete` 仍裸 400（响应体空）。**合同**：上传类端点失败时必须记录完整出站请求（URL、请求头——cookie 脱敏为长度、响应头、响应体）——只有状态码的报错无法与真实浏览器请求（`rpa-captures/upload-network-capture.json`）做逐字对比，契约差异无从定位。
 
 纯诊断增强（不改变行为）。回归锁：引擎全量 32 files 262 tests（无行为断言被破坏）。
+
+## 快手上传链诊断走错误消息本体合同（2026-09-29 活体 6.3 第七层三轮，随本 PR）
+
+**合同**：引擎内嵌诊断（非 logger 旁路）必须走错误消息本体——桌面装配里链的 logger 是 console（stdout 不可见），而 `KuaishouVideoError` 消息经 rpa-view-manager 的 catch 必然落应用日志。诊断内容：完整出站 URL + 请求头（cookie 脱敏为长度）+ 响应头，截断防日志爆炸。
+
+同场清账：`dep-audit-baseline.json` 移除两条已不再命中的公告（GHSA-3wwx-pv8p-q78v / GHSA-qw65-cvwx-89v3——npm 审计数据回落，按 RESOLVED_STILL_BASELINED 门禁清账）。
+
+回归锁：引擎全量 32 files 262 tests（无行为断言被破坏）。
