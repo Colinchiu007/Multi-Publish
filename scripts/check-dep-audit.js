@@ -157,8 +157,10 @@ function writeBaseline (found, old, p) {
  * 核心判定（纯函数，用例注入假扫描结果）。
  * @returns {{violations: string[], scannedCount: number}}
  */
-function evaluate (baseline, found, today) {
+function evaluate (baseline, found, today, scannedSources) {
   const now = today || new Date().toISOString().slice(0, 10);
+  // 只对本轮真的扫过的域判"已不再命中"，否则缺扫描器会被读成基线腐化（假红）。
+  const scanned = scannedSources ? new Set(scannedSources) : null;
   const violations = [];
   const list = (baseline && baseline.advisories) || [];
   const ledger = new Map(list.map((e) => [e.source + '/' + e.id, e]));
@@ -180,6 +182,7 @@ function evaluate (baseline, found, today) {
   }
 
   for (const item of list) {
+    if (scanned && !scanned.has(item.source)) continue;
     const key = item.source + '/' + item.id;
     if (!hits.has(key)) {
       violations.push('RESOLVED_STILL_BASELINED: ' + key + ' 已不再命中（多半已升级），请 --update 清账');
@@ -196,15 +199,24 @@ function evaluate (baseline, found, today) {
   return { violations, scannedCount: found.length, ledgerCount: list.length };
 }
 
-function main () {
-  const args = process.argv.slice(2);
-  const isUpdate = args.includes('--update');
-  const isJson = args.includes('--json');
-  const registry = process.env.NPM_AUDIT_REGISTRY || DEFAULT_REGISTRY;
-  const runners = createDefaultRunners(registry);
+/**
+ * 门禁主体。runners / 基线路径 / 输出全部可注入，使「某一域扫描器缺失时另一域照常判违规」
+ * 这条能被用例真跑覆盖 —— 原先 main() 直接读 process.argv 与真实 pnpm/pip-audit，
+ * 短路行为没有测试可见的入口，于是"整体 return 0"的假绿在 9 条单测下躺了一整轮。
+ * @returns {number} 退出码
+ */
+function runCheck (opts = {}) {
+  const isUpdate = !!opts.isUpdate;
+  const isJson = !!opts.isJson;
+  const log = opts.log || ((...a) => console.log(...a));
+  const error = opts.error || ((...a) => console.error(...a));
+  const registry = opts.registry || process.env.NPM_AUDIT_REGISTRY || DEFAULT_REGISTRY;
+  const runners = opts.runners || createDefaultRunners(registry);
+  const bp = opts.baselinePath || BASELINE_PATH;
 
   const results = {};
   const unavailable = [];
+  const scannedSources = [];
   for (const source of ['npm', 'pip']) {
     const res = runners[source]();
     if (!res || !res.ok) {
@@ -212,50 +224,67 @@ function main () {
       results[source] = [];
       continue;
     }
+    scannedSources.push(source);
     results[source] = source === 'npm' ? parseNpmAudit(res.json) : parsePipAudit(res.json);
   }
   const found = results.npm.concat(results.pip);
-
-  if (unavailable.length && !isUpdate) {
-    console.log('::warning::SCANNER_UNAVAILABLE: ' + unavailable.join(' ') + ' —— 本轮不判失败，周计划任务为权威来源');
-    if (isJson) console.log(JSON.stringify({ unavailable, violations: [] }, null, 2));
-    return 0;
-  }
-  if (unavailable.length) {
-    console.error('扫描器不可用，拒绝写基线：' + unavailable.join(' '));
+  // 两域都没扫成 ⇒ 本轮没有任何判据，不得报通过（否则扫描器配置坏掉会演化成"全绿"）。
+  if (!scannedSources.length) {
+    error('扫描器全部不可用，本轮无判据 ⇒ 按失败处理：' + unavailable.join(' '));
     return 1;
   }
 
-  const bp = BASELINE_PATH;
+  // 写基线必须两域齐全：writeBaseline 按 found 原样落盘，缺域会把另一域的挂账静默抹掉。
+  if (unavailable.length && isUpdate) {
+    error('扫描器不可用，拒绝写基线：' + unavailable.join(' '));
+    return 1;
+  }
+  // 检查路径不得整体短路：原先「任一扫描器不可用 ⇒ return 0」会让本机没有 pip-audit 时
+  // npm 侧的新公告连读都没读就判通过（2026-09-28 两条新公告在本地被静默放过）。
+  if (unavailable.length) {
+    log('::warning::SCANNER_UNAVAILABLE: ' + unavailable.join(' ')
+      + ' —— 该域本轮不判（其挂账条目也不判成"已不再命中"），已扫描域照常判违规');
+  }
+
   const base = readBaseline(bp);
   if (isUpdate) {
     const body = writeBaseline(found, base, bp);
-    console.log('基线已写入', bp, '（' + body.advisories.length + ' 条；新增条目 decision=TODO 必须补结论）');
+    log('基线已写入', bp, '（' + body.advisories.length + ' 条；新增条目 decision=TODO 必须补结论）');
     return 0;
   }
   if (!base) {
-    console.log('未找到基线，正在生成：' + bp);
+    if (unavailable.length) {
+      error('扫描器不可用，拒绝生成半份基线：' + unavailable.join(' '));
+      return 1;
+    }
+    log('未找到基线，正在生成：' + bp);
     writeBaseline(found, null, bp);
-    console.log('已生成，请补齐 decision/note 后再次运行以执行门禁。');
+    log('已生成，请补齐 decision/note 后再次运行以执行门禁。');
     return 0;
   }
 
-  const { violations, scannedCount, ledgerCount } = evaluate(base, found);
+  const { violations, scannedCount, ledgerCount } = evaluate(base, found, undefined, scannedSources);
   if (isJson) {
-    console.log(JSON.stringify({ scannedCount, ledgerCount, found: sortEntries(found), violations }, null, 2));
+    log(JSON.stringify({ scannedCount, ledgerCount, found: sortEntries(found), violations }, null, 2));
   } else {
-    console.log('=== 依赖漏洞审计门禁 ===');
-    console.log('npm=' + results.npm.length + ' pip=' + results.pip.length + ' 命中=' + scannedCount + ' 挂账=' + ledgerCount);
-    for (const v of violations) console.log('❌ ' + v);
-    if (!violations.length) console.log('✅ 无新增已知漏洞公告，基线与现实一致且结论完整。');
+    log('=== 依赖漏洞审计门禁 ===');
+    log('npm=' + results.npm.length + ' pip=' + results.pip.length + ' 命中=' + scannedCount + ' 挂账=' + ledgerCount);
+    for (const v of violations) log('❌ ' + v);
+    if (!violations.length) log('✅ 无新增已知漏洞公告，基线与现实一致且结论完整。');
   }
   return violations.length ? 1 : 0;
+}
+
+function main () {
+  const args = process.argv.slice(2);
+  return runCheck({ isUpdate: args.includes('--update'), isJson: args.includes('--json') });
 }
 
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
   evaluate,
+  runCheck,
   parseNpmAudit,
   parsePipAudit,
   readBaseline,
