@@ -176,7 +176,11 @@ jobs:
       # 本步骤整体用 shell: bash —— 旧版用 pwsh 时，前一条测试抛 FAIL 后步骤仍报 success
       # （实测 run 36313053992 的 step 11 之后继续跑完并绿），等于装饰性门禁。
       #
-      # 上面那句「下面 6 条」是历史注释（写时确为 6 条），现在共 8 条。第 7 条
+      # 上面那句「下面 6 条」是历史注释（写时确为 6 条），现在共 9 条。第 9 条是本 PR 接入的
+      # get-test-process-tree：它把 Gate 4 / Desktop shards 那段进程树遍历的 PID 复用误判钉成
+      # 确定性夹具（注入进程表，不碰任何真实进程），反证 = 把时间防护改成恒不成立，第 1 条
+      # 断言立刻报出 csrss/winlogon/fontdrvhost/dwm 四个 PID。本机 pwsh 7 与 5.1 各 7 条 PASS。
+      # 第 7 条
       # install-session-isolation-task 由 #2551 接入、其"零计划任务"档在 runner 上实测过
       # （run 36390636981 打印 LIVE_TASK_COUNT=0 + 7 条 PASS）。第 8 条是本 PR 接入的
       # session-isolation-automation：它前 10 条断言要求"主工作区 + 分支名为 main + hooks 已装"，
@@ -200,6 +204,7 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/worktree-fs-longpath.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop-profile-lock.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/get-test-process-tree.test.ps1
           # 第 8 条：夹具 = $RUNNER_TEMP 下的临时 clone（分支名 main + 两个 hook 就位）
           ISO="$RUNNER_TEMP/mp-iso-fixture"
           rm -rf "$ISO"
@@ -434,27 +439,14 @@ jobs:
       - name: "Gate 4 - Workspace unit tests"
         shell: pwsh
         run: |
-          function Get-TestProcessTree {
-            param([int] $RootProcessId)
-
-            $processes = @(Get-CimInstance Win32_Process)
-            $processIds = [System.Collections.Generic.HashSet[int]]::new()
-            [void] $processIds.Add($RootProcessId)
-            $foundChild = $true
-
-            while ($foundChild) {
-              $foundChild = $false
-              foreach ($process in $processes) {
-                if ($processIds.Contains([int] $process.ParentProcessId) -and $processIds.Add([int] $process.ProcessId)) {
-                  $foundChild = $true
-                }
-              }
-            }
-
-            $processes |
-              Where-Object { $processIds.Contains([int] $_.ProcessId) } |
-              Select-Object ProcessId, ParentProcessId, Name
-          }
+          # 进程树遍历收敛到 scripts/get-test-process-tree.ps1：旧的内联版本只按数字 ParentProcessId
+          # 递归，根 pnpm 退出后该 PID 会被回收，实测（run 36519025075 attempt 1）把 csrss.exe /
+          # winlogon.exe / fontdrvhost.exe / dwm.exe 认成"残留测试子进程"，随后对它们逐个 taskkill /F。
+          # 缺文件必须硬失败——静默跳过等于把这条防护降级成装饰性门禁。
+          $treeLib = if ($env:GITHUB_WORKSPACE) { Join-Path $env:GITHUB_WORKSPACE 'scripts/get-test-process-tree.ps1' }
+            else { Join-Path (Get-Location) 'scripts/get-test-process-tree.ps1' }
+          if (-not (Test-Path -LiteralPath $treeLib)) { throw "缺少进程树防护脚本: $treeLib" }
+          . $treeLib
 
           if ($env:TEST_MODE -eq "affected") {
             # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起 30 分钟超时
@@ -477,23 +469,24 @@ jobs:
           } else {
             $testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")
           }
+          $launchMark = Get-Date
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList $testArgs `
             -NoNewWindow -PassThru
 
           if (-not $testProcess.WaitForExit(1800000)) {
             Write-Host "Gate 4 exceeded its 30-minute execution budget."
-            Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
+            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Gate 4 timed out; terminated the pnpm process tree."
           }
 
           if ($testProcess.ExitCode -ne 0) {
-            Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
+            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             exit $testProcess.ExitCode
           }
 
-          $remainingTestProcesses = @(Get-TestProcessTree -RootProcessId $testProcess.Id)
+          $remainingTestProcesses = @(Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark)
           if ($remainingTestProcesses.Count -gt 0) {
             Write-Host "Gate 4 completed but left test child processes alive."
             $remainingTestProcesses | Format-Table -AutoSize
@@ -545,28 +538,16 @@ jobs:
       - name: "Desktop tests shard ${{ matrix.shard }}"
         shell: pwsh
         run: |
-          function Get-TestProcessTree {
-            param([int] $RootProcessId)
+          # 进程树遍历收敛到 scripts/get-test-process-tree.ps1：旧的内联版本只按数字 ParentProcessId
+          # 递归，根 pnpm 退出后该 PID 会被回收，实测（run 36519025075 attempt 1）把 csrss.exe /
+          # winlogon.exe / fontdrvhost.exe / dwm.exe 认成"残留测试子进程"，随后对它们逐个 taskkill /F。
+          # 缺文件必须硬失败——静默跳过等于把这条防护降级成装饰性门禁。
+          $treeLib = if ($env:GITHUB_WORKSPACE) { Join-Path $env:GITHUB_WORKSPACE 'scripts/get-test-process-tree.ps1' }
+            else { Join-Path (Get-Location) 'scripts/get-test-process-tree.ps1' }
+          if (-not (Test-Path -LiteralPath $treeLib)) { throw "缺少进程树防护脚本: $treeLib" }
+          . $treeLib
 
-            $processes = @(Get-CimInstance Win32_Process)
-            $processIds = [System.Collections.Generic.HashSet[int]]::new()
-            [void] $processIds.Add($RootProcessId)
-            $foundChild = $true
-
-            while ($foundChild) {
-              $foundChild = $false
-              foreach ($process in $processes) {
-                if ($processIds.Contains([int] $process.ParentProcessId) -and $processIds.Add([int] $process.ProcessId)) {
-                  $foundChild = $true
-                }
-              }
-            }
-
-            $processes |
-              Where-Object { $processIds.Contains([int] $_.ProcessId) } |
-              Select-Object ProcessId, ParentProcessId, Name
-          }
-
+          $launchMark = Get-Date
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList @(
               "--filter",
@@ -585,17 +566,17 @@ jobs:
 
           if (-not $testProcess.WaitForExit(1800000)) {
             Write-Host "Desktop shard exceeded its 30-minute execution budget."
-            Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
+            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Desktop shard timed out; terminated the pnpm process tree."
           }
 
           if ($testProcess.ExitCode -ne 0) {
-            Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
+            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             exit $testProcess.ExitCode
           }
 
-          $remainingTestProcesses = @(Get-TestProcessTree -RootProcessId $testProcess.Id)
+          $remainingTestProcesses = @(Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark)
           if ($remainingTestProcesses.Count -gt 0) {
             Write-Host "Desktop shard completed but left test child processes alive."
             $remainingTestProcesses | Format-Table -AutoSize
