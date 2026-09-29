@@ -30,6 +30,22 @@
 
 # [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
 
+- **feat(publish)：快手 / 抖音图文真实发布打通（kuaishou + douyin）**。
+  按「除小红书外其他平台必须真实发布」的口径，把两个图文平台从「上传即失败」推进到真机发布成功：
+  - **快手**（五项根因）：图文上传区 `input[type=file]` 两条注入路径都失效 → 改为向拖拽容器派发
+    `DragEvent('drop')`（参考产品同款）；描述字数上限 `max_content` 1000→480（实测计数器 x/500，
+    截断到 500 时平台仍显示 505/500）；新增 `stripHtmlToPlainText` 消除描述里的 `<p>` 字面量；
+    新增 `_confirmPublishDialog` 点发布后的二次确认框；补 URL 级成功信号（`from=publish` + `manage` 路径，
+    因图文作品列表端点与视频不同，此前「已发布却判失败」）
+  - **抖音**（三项根因）：修正 `_setFileInput` 结果校验语义（input 从 DOM 消失 = 页面已切换 = 上传被接受，
+    此前误判失败并触发无效回退）；三通道上传兜底（上传页 input → 编辑页「添加图片」→ 回上传页）；
+    图文模式标题合并进描述（编辑页无独立标题框）
+  - 验收：快手 `status=success`（url 含 `from=publish`）；抖音 `status=success`（日志 `API success`）；
+    单测 99/99；主文件两次拆分后 1324 行（LEDGER 通过）
+  - 完整合同：`01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md` §12
+
+---
+
 ### 现象与根因
 - `QG Desktop Shards` / `Gate 4` 在 pnpm 退出后跑一段「有没有漏下测试子进程」的检查，判定非空即 `throw`，并**对结果逐个 `taskkill /T /F`**。实测 run 36519025075 attempt 1：**12517 个测试全部通过**，该检查却报出 `csrss.exe / winlogon.exe / fontdrvhost.exe / dwm.exe` 四个"残留子进程"。
 - 根因：`quality-gate.yml` 的 Gate 4 与 Desktop shards **各内联了一份** `Get-TestProcessTree`，只按数字 `ParentProcessId` 递归，而种子是**已经退出的 pnpm 的 PID**。Windows 会回收退出进程的 PID，`Win32_Process.ParentProcessId` 又只是存下来的数字而非活链接 —— 于是任何把该数字记作自己父亲的长命进程都会被认成后代。两份拷贝还意味着任何修复都要改两处并持续漂移。
