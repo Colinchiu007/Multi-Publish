@@ -15,7 +15,7 @@
 
 const { spawnSync } = require('child_process')
 const path = require('path')
-const { runSelfCheck } = require('../apps/desktop/electron/services/rate-limit-self-check')
+const { runSelfCheck, clampConcurrency } = require('../apps/desktop/electron/services/rate-limit-self-check')
 
 /**
  * total_duration_ms 的容差口径。
@@ -41,6 +41,53 @@ const PARITY_TOLERANCE_RATIO = 0.1
 function durationTolerance (expectedMs) {
   const base = Number.isFinite(expectedMs) && expectedMs > 0 ? expectedMs : 0
   return Math.ceil(PARITY_TOLERANCE_FLOOR_MS + base * PARITY_TOLERANCE_RATIO)
+}
+
+/**
+ * 并发观测的判据：上限不变量 + **单侧**有界测量噪声。
+ *
+ * 为什么不写成相等（这是 #2606 的根因，别再改回去）：
+ * `max_concurrent_observed` 在真实侧是「任务开始 → 其完成回调真正执行」这段窗口里计出来的
+ * （`rate-limit-self-check.js` 的 active +1 / 回调里 −1）。所以它的上界由**事件帧**决定，
+ * 不由调度决定：帧被饿到接近相邻请求起始间隔时，前一个调用的递减被推迟，与下一次放行挤进
+ * 同一批 tick，就会比确定性模拟器多报 1。
+ *
+ * 阈值实验（inject-429：rpm=120 ⇒ 起始间隔 500ms，单次 20ms，上限 2；本机）：
+ *   空载同进程 24 次                ⇒ 全为 1（时间线 0/512/1002/1511/2014/2670，严格串行）
+ *   12 个独立 CPU 压力进程          ⇒ 仍为 1，耗时只漂 18ms（排除「机器忙」这种含糊解释）
+ *   同进程阻塞 40ms / 每 250ms      ⇒ 仍为 1（低于阈值不翻 ⇒ 判据不是「有点抖就算」）
+ *   同进程阻塞 600ms / 每 300ms     ⇒ 全为 2，时间线出现 `started=0 finished=600`
+ *                                     （20ms 的调用被记成 600ms，即回调被推迟的直接证据）
+ * 只有跨过相邻起始间隔（≈500ms）才重叠 ⇒ 机制可证伪，不是猜测。
+ *
+ * 关键：**多出来的 1 从未越过配置上限**（2 ≤ maxConcurrent=2），产品侧自检第 133 行本来就
+ * 按 `≤ maxConcurrent` 断言。所以本函数把「上限」当不可放宽的不变量，把「与模型的差」当
+ * 只允许真实侧偏高的有界噪声；真实侧低于模型属调度行为差异，照常判红。
+ * `maxConcurrent=1` 的用例里豁免被上限夹住 ⇒ 等价于仍要求相等，这不是特例而是同一条判据的后果。
+ */
+const MAX_CONCURRENCY_NOISE = 1
+
+function concurrencyCheck ({ simulated, real, maxConcurrent }) {
+  if (!Number.isFinite(simulated) || !Number.isFinite(real) || !Number.isFinite(maxConcurrent)) {
+    return { pass: false, noiseBypass: false, reason: `判据入参非有限数：simulated=${simulated} real=${real} maxConcurrent=${maxConcurrent}` }
+  }
+  // 上限先夹住豁免：这条顺序不能反，反了 cap=1 时 "1+1 未超上限" 会被判成噪声而放过违约。
+  if (real > maxConcurrent) {
+    return { pass: false, noiseBypass: false, reason: `真实侧观测并发 ${real} 越过配置上限 ${maxConcurrent}（不变量，任何情况不放宽）` }
+  }
+  if (real < simulated) {
+    return { pass: false, noiseBypass: false, reason: `真实侧 ${real} 低于模拟器 ${simulated}：该方向的偏差不可能来自回调推迟，按调度行为回归处理` }
+  }
+  if (real === simulated) return { pass: true, noiseBypass: false, reason: '' }
+  if (real - simulated <= MAX_CONCURRENCY_NOISE) {
+    return { pass: true, noiseBypass: true, reason: `命中单侧有界噪声：simulated=${simulated} real=${real} ≤ 上限 ${maxConcurrent}（差 ${real - simulated} ≤ ${MAX_CONCURRENCY_NOISE}）` }
+  }
+  return { pass: false, noiseBypass: false, reason: `偏差 ${real - simulated} 超过允许的单侧噪声 ${MAX_CONCURRENCY_NOISE}` }
+}
+
+// 上限一律由被测侧自己解析，禁止在此抄第二份 clamp 公式（两份必然漂移）。
+function effectiveMaxConcurrent (params) {
+  return params.maxConcurrent ?? clampConcurrency(params.rpm)
 }
 
 const CASES = [
@@ -101,8 +148,13 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
     // 下限取调用方传入值（默认 1500ms），并按期望耗时放大比例余量；
     // 分母必须是 py.total_duration_ms（预测值），不得用 real，见 durationTolerance 注释。
     const allowed = Math.max(toleranceMs, durationTolerance(py.total_duration_ms))
+    const conc = concurrencyCheck({
+      simulated: py.max_concurrent_observed,
+      real: real.metrics.max_concurrent_observed,
+      maxConcurrent: effectiveMaxConcurrent(c.params),
+    })
     const checks = {
-      max_concurrent_observed: real.metrics.max_concurrent_observed === py.max_concurrent_observed,
+      max_concurrent_observed: conc.pass,
       rate_limited_count: real.metrics.rate_limited_count === py.rate_limited_count,
       quota_exceeded_count: real.metrics.quota_exceeded_count === py.quota_exceeded_count,
       total_duration_ms: Math.abs(real.metrics.total_duration_ms - py.total_duration_ms) <= allowed,
@@ -114,6 +166,9 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
       checks,
       allowedTotalDurationMs: allowed,
       diffTotalDurationMs: real.metrics.total_duration_ms - py.total_duration_ms,
+      // 命中豁免必须留痕：静默通过的容差是下一轮"为什么这条不红"的起点。
+      concurrency: conc,
+      noiseBypass: conc.noiseBypass,
       pass: Object.values(checks).every(Boolean),
     })
   }
@@ -148,6 +203,13 @@ async function main () {
     console.log('  python :', JSON.stringify(r.python))
     console.log('  real   :', JSON.stringify(r.real))
     console.log('  checks :', JSON.stringify(r.checks))
+    // 每次都打印并发三元值（而不只在失败时）：判据是否被频繁命中，需要的是一段时间的分布，
+    // 不是某一个红样本 —— 与 durationTolerance 注释里那条教训同源。
+    console.log('  maxc   : sim=' + r.python.max_concurrent_observed
+      + ' real=' + r.real.max_concurrent_observed
+      + ' cap=' + effectiveMaxConcurrent(CASES.find((x) => x.name === r.name).params)
+      + (r.noiseBypass ? '  [噪声豁免命中] ' + r.concurrency.reason : ''))
+    if (!r.pass && r.concurrency && !r.concurrency.pass) console.log('  maxc 判红原因 :', r.concurrency.reason)
     if (!r.pass) ok = false
   }
   const known = await runKnownDiffs()
@@ -163,7 +225,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, effectiveMaxConcurrent, pythonMetrics, MAX_CONCURRENCY_NOISE, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })
