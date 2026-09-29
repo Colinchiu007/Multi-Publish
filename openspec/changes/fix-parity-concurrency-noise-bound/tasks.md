@@ -101,15 +101,24 @@
 
 ## 6. 规格与文档收口
 
-- [ ] 6.1 实现合入后把 delta 同步进 `openspec/specs/desktop/model-call-observability/spec.md`（sync 后核对：MODIFIED 已带入、其余 Requirement 与原有 Scenario 未被吞）
-- [ ] 6.2 度量口径结论落一条**新建** `docs/` 文件（不碰 CHANGELOG.md / 01-docs/learnings.md 这三份置顶文档：它们是字节存储且极易连撞多轮，每撞一次作废整条 CI）
-- [ ] 6.3 在 #2606 上回填根因与判据变更：单样本事实（近 100 次 Electron CI 仅 1 红）、阈值实验数据、为何不是 governor 缺陷（2 ≤ 上限、产品侧自检本来就断 `≤ maxConcurrent`）、以及「未把用例移出判定」的说明
-- [ ] 6.4 QM-6 双模型外部评审（本改动触及状态机/判据，属中风险）：按 `~/.claude/.ccg/config.toml` 的 `[routing]` 取模型名跑后端 + 前端两路，Critical 修完才合；**未执行就如实登记，不得谎称跑过**
+- [x] 6.1 delta 已同步进 `openspec/specs/desktop/model-call-observability/spec.md`
+  → 同 PR 内完成（不等归档）：Requirement 改为三类口径 + 新增 4 条 Scenario + #2626 过渡场景；
+    其余 Requirement 与原有 Scenario 未被吞（diff 只覆盖该 Requirement 至文件尾，36/11）。
+- [x] 6.2 度量口径结论落**新建** `docs/parity-concurrency-measurement-noise.md`
+  → 未碰 CHANGELOG.md / 01-docs/learnings.md 这两份置顶文档（字节存储 + 极易连撞多轮，
+    每撞一次作废整条 CI）。文档内含阈值表、判据次序、探测器第一版的错法、#2626 的来龙去脉。
+- [x] 6.3 #2606 已回填根因 / 阈值实验 / 为何不是 governor 缺陷 / 为何不移出判定 / 复发率分母
+  → 见该单评论；#2626 另立一单，带完整修复方向与验收（含"必须同步改掉把错标签钉成契约的
+    `test_scheduler_simulator.py:147-148`"）。
+- [x] 6.4 QM-6 双模型外部评审**已执行**（backend=codex / frontend=claude，并行，非串行）
+  → 1 Critical + 7 Warning + 多条 Info，逐条处置见本节 4A；Critical 与全部 Warning 已修，
+    无一条以"不影响功能"搪塞。两路原始输出留档 `D:/tmp/qm6-backend.txt`、`qm6-frontend.txt`。
 
 ## 7. 交付
 
 - [ ] 7.1 worktree 内提交（PowerShell 原生 `D:\` 路径做 git 写），push 前自跑 `check-max-lines`（pre-commit 不拦它）
-- [ ] 7.2 开 PR 并挂 SQUASH auto-merge，**回读**确认 autoMergeRequest 存在
+- [x] 7.2 开 PR #2632 并挂 SQUASH auto-merge，已**回读**确认（enabledAt 2026-09-29T04:13:41Z）
+- [x] 7.2b 新发现的独立缺陷另立 **#2626**（模拟器把被 429 拒掉的请求记成 completed），未混进本 PR
 - [ ] 7.3 合并后核对 main 上判据内容（取并集后的判定函数 + 两档实验用例都在），再按 R1–R7 用 `scripts/safe-worktree-remove.ps1` 清理，分支删除前先做内容包含证明
 - [ ] 7.4 处置后的取证口径要摆正：本用例复发率 ≈1/18 main push（见 design.md 的分母推导），**主证据是 3.1 那条能主动制造跨阈值重叠的机制回归锁**，不是「后面几次 main push 没红」。CI 观察只作旁证，且必须回看 `[parity]` 逐组留痕里 `noiseBypass` 命中时的 sim/real/上限三元值是否合理（若出现 `real > maxConcurrent` 说明真有新问题，不得当噪声放过）
 - [ ] 7.5 在 #2606 上把「为什么不是 governor 缺陷」与「为什么不移出判定」写清，并附本次的阈值实验数据；同时把该单的关闭原因如实标注为「判据口径修正」，不要让读者以为调度 bug 被修掉了
