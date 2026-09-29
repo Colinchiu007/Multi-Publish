@@ -119,9 +119,19 @@
 
 ## Task 6: 删除别名层并加回潮门禁
 
-**Status**: pending
+**Status**: pending（**硬依赖批次 3/4/5 全部合并** —— 别名层被删而消费者仍在时，`var(--apple-*)` 会整条声明失效）
 **Risk**: Medium
-**Files**: `styles/apple-design-tokens.css`、`styles/tokens.css`、`.github/scripts/check-frontend-consistency.js`、`main.js`
+**Files**: `apps/desktop/src/styles/apple-design-tokens.css`、`styles/tokens.css`、`styles/cohere-design-system.css`、`.github/scripts/check-frontend-consistency.js`、`views/Dashboard.style-guard.test.js`
+
+### 执行前清点（2026-09-29 实测于批次 4 合并后的 main@8b95e3e1）
+
+| 目标 | 实测 | 处置 |
+|---|---|---|
+| 别名层导入方 | **仅 1 处**：`cohere-design-system.css:1` 的 `@import './apple-design-tokens.css';`（**`main.js` 并无导入**，原 AC 里对 main.js 的描述已过期 —— 别名层经 cohere 间接引入） | 删文件 + 删该 `@import` |
+| `--color-apple-*` 出现处 | **35 处** = `tokens.css` 17 个定义 + 别名层 18 个转发（**无第三方消费者**，与批次 0 清点一致） | 删 17 个槽位；别名层整文件删除 |
+| cohere 暗色救火值 | 暗色块 `--ink: #e8e8ed`（L1553）、`--muted: #88889a`（L1562）；浅色块本就纯转发（L39/43/49） | 暗色两处改为对权威 `--color-text-*` 的纯转发 |
+| 测试中的文件名引用 | `views/Dashboard.style-guard.test.js:145` 的全局 CSS 文件名清单含 `apple-design-tokens.css` | 同步从清单移除 |
+| 门禁升级 | 现为基线制（`appleAlias` 只降不升，基线 339→…） | 升级为**命中数必须 = 0**；基线键相应收敛 |
 
 ### Acceptance Criteria
 - [ ] `var(--apple-` 在 `apps/desktop/src/**` 命中 = 0（含 `main.js` 的导入）
