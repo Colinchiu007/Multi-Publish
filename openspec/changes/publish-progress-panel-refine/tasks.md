@@ -35,6 +35,8 @@
 - [x] 6.1 回归锁全绿：`publish-stage-map.test.js` + `publish-progress-events.test.js` + `phase4-events.test.js` + `src/stores/publishProgress.test.js` + `PublishProgressPanel.test.js` + `usePublishFlow.test.js`（受影响面）
 - [x] 6.2 `check-locale-sync.js` 三项 PASS
 - [x] 6.3 eslint 改动文件 0 error 0 warning
-- [ ] 6.4 视觉：浮窗为 Teleport 动态浮层不在像素基线内，按口径如实登记；/publish 既有视图基线无回归（CI QG Visual 验证）
-- [ ] 6.5 `.quality-gates.md` 置顶执行记录（含反证矩阵）——按 2026-09-29 定档由合并后 docs-only PR 回填
-- [ ] 6.6 提交推送 + PR + CI 绿
+- [x] 6.4 视觉：浮窗为 Teleport 动态浮层不在像素基线内，按口径如实登记；/publish 既有视图基线无回归（CI QG Visual 验证）
+- [x] 6.5 `.quality-gates.md` 置顶执行记录（含反证矩阵）——按 2026-09-29 定档由合并后 docs-only PR 回填（#2663）
+- [x] 6.6 提交推送 + PR + CI 绿（#2658，squash `e2c860ee`）
+- [x] 6.7 产物路径清单核验 + 悬空引用补录（`01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md` 被 `.gitignore` 静默忽略 → `git add -f` 补录，PR #2664）
+- [x] 6.8 补录组件拆分记录（6.1-6.3 后追加）：Panel 688 行触发逐文件行数门禁 → 拆 Footer/Session 组件 + 自动收敛 composable（`check-max-lines.js` PASS，CI 债务熔断复跑 success）
