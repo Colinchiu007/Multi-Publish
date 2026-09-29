@@ -34,6 +34,51 @@
 - `usePublishFlow.test.js` +1：cancelPublish 单一定义结构锁（先红：当前 2 处定义；删后绿：1 处）。
 - 回归：apps/desktop 全量 vitest + packages/shared-utils 全量 vitest 通过；PRD 行尾对账（numstat 两口径一致）。
 
+# [未发布] fix(运营后台): 调度模拟器不再把注入 429 的请求记成完成；完成集合升为对拍硬判定（2026-09-29，#2626 / fix-simulator-429-completion-state）
+
+## 修复
+
+- `ops-center/backend/services/scheduler_simulator.py`：注入 429 的那条请求改记 `state=rate_limited`、`finished_at=None`。
+  此前它先按 `completed` 记账（含 `finish_heap` push 与 `used_5h += 1`）、**之后**再补一次 `rate_limited_count += 1`，
+  于是同一条请求有两种身份；运营后台「调度验证」详情与 `timeline_json` 里的完成数因此**虚高 1**
+  （一次注入 429 的模拟跑，显示"完成 6 个"实际只有 5 个）。429 的语义是"被拒、没做成"，真实侧是对的。
+- 本次**只改身份标签**：槽位占用（`finish_heap` / `executing_now`）、5h 额度（准入即占额度，见 #2566）
+  与墙钟结束时刻（`end_times`）四条逐字不动 —— 动了任何一条都会连带挪动 `max_concurrent_observed` /
+  `total_duration_ms`，把一次身份纠正变成三个指标同时漂移。该边界由
+  `test_injected_429_is_not_completed_but_keeps_accounting` 钉住（四个基准值取自改动前对同组参数的实测）。
+
+## 门禁
+
+- `scripts/compare-scheduler-models.js`：把**完成集合计入 pass**（规格本来要求相等，`runParity` 却从不比较 ——
+  一条从不执行的 SHALL 比没有这条 SHALL 更危险）。CLI 与 vitest 的留痕改为每次打印两侧完成序本身，
+  红了能直接看出谁多/少哪一项。
+- 升级前先做饥饿实验（不默认"顺序大概是确定的"）：与 `test_scheduler_parity.test.js` 同一套 `withBlocker()`，
+  **第一版实验是无效的**：探针读的 `completionOrder(real.timeline)` 来自一份被 `runSelfCheck`
+  按 `req` 排过序的 timeline，该读数恒为升序 ⇒ "顺序 12/12 不变"只是恒真式的复读，不构成证据
+  （QM-6 后端评审以 `actual=[2,1] ⇒ 投影=[1,2] ⇒ 判据恒真` 的反例指出）。修法：`runSelfCheck` 现在
+  单独返回未排序的实际完成序 `completion_order`，对拍侧只读它、缺席即 fail closed。
+  用真实次序重测四档饥饿（每档 3 次）⇒ **12 个样本中 9 个非升序**（如 `[1,2,4,3,…]`、`[1,2,3,4,6,5,…]`），
+  机理与 #2606 同源（前一条调用的回调被推迟到后一条放行之后）。**结论因此反转**：
+  按序列判等就是重造 #2606 的假红，只有**集合**判据可以硬判定 —— #2626 的实质本就是成员问题，
+  集合既抓得住又对饥饿免疫。序列改为留痕，并明确标注"仅次序不同"，防止下一个人把它当待收紧项。
+- 删除 #2632 留下的「锁住分歧存在」过渡断言（修好后它必然失效，继续留着就是把已知缺陷钉成正确行为）。
+- 七条变异反证逐个实跑并断言字节还原一致：只回退 `state` ⇒ python 红 3；完整回退注入分支 ⇒ **vitest 红 1**
+  （证明集合判据真的抓得到原缺陷）；从 `checks` 摘掉 `completion_set` ⇒ vitest 红 1；集合判据退化成只比长度
+  ⇒ node 红 1；越范围摘掉 `finish_heap` push ⇒ python 红 12；`fifo` 退回 `1..N` ⇒ python 红 1；
+  **摘掉 `runSelfCheck` 返回的 `completion_order` ⇒ vitest 红 2**（证明"缺席就 fail closed、绝不退回
+  排序投影"这条链路真的在承重，而不是写在注释里当装饰）。
+
+## 文档
+
+- `docs/parity-concurrency-measurement-noise.md`：新增四档饥饿实测表、判据前提与失效条件，
+  并把两处**仍未修**的口径分歧登记在案（429 的槽位占用时长 ≈0ms vs `duration`；`cooldown_until` 起点），
+  写明它们在何种参数下会显形、届时不得靠放宽方向性判据绕过。
+- `openspec/specs/desktop/model-call-observability/spec.md`：完成顺序纳入硬判定并写明前提；
+  原「锁住分歧」场景改为**墓碑**（规格工具不支持在 MODIFIED 中丢弃场景标题，丢弃即 ERROR），
+  其可执行含义转为负向：任何人把"分歧必须存在"或"只打印不判定"写回来，一律否决。
+
+---
+
 # [未发布] feat(collection): 六平台视频链接采集 + 分享文本 CJK 健壮解析（2026-09-29，collect-video-platforms / PR #2637）
 
 ### 根因（第一性原因）

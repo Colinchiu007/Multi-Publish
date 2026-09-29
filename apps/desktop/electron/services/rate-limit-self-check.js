@@ -123,6 +123,9 @@ async function runSelfCheck (params) {
     engine: 'real-governor',
     metrics,
     assertions,
+    // `timeline` 被按 req 排过序（UI 与对拍都要稳定展示），因此它**不能**用来还原真实完成次序 ——
+    // 拿它再过滤 completed 只会得到一个恒为升序的投影。完成次序由下面的 completion_order 单独承载。
+    completion_order: completionOrder,
     timeline: timeline.sort((a, b) => a.req - b.req),
   }
 }
