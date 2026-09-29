@@ -59,15 +59,17 @@ function cookieValue (cookie, key) {
 }
 
 /** 切片 §1.7 buildPostData$I 全字段；纯函数，供链与薄适配器共用。
- *  ctx = { fileId, coverKey, apiPh }；条件字段按 taskData 存在才带（切片 ?? 语义）。 */
+ *  ctx = { fileId, coverKey, apiPh }；条件字段按 taskData 存在才带（切片 ?? 语义）。
+ *  话题内联描述（publish-topic-inline-description）：快手是内联保留型平台——
+ *  描述里的 `#话题` 原样保留在 caption（描述为真源）。旧「tags 拼进 caption」
+ *  行为下线：UI 追加管道已把话题内联进 content，再拼 tags 会双份重复。 */
 function buildKuaishouPostData (taskData, ctx = {}) {
   const td = taskData || {}
   const coverKey = ctx.coverKey || ''
   const title = String(td.title == null ? '' : td.title).trim()
   const content = String(td.content || td.desc || '').trim()
-  const tags = Array.isArray(td.tags) ? td.tags.filter(Boolean).map((t) => '#' + String(t).replace(/^#/, '')) : []
-  // 快手无独立标题字段：标题 + 正文 + 话题标签合并进 caption（与 DOM RPA _composeEditorCaption 语义对齐）
-  const caption = [title, content, tags.join(' ')].filter(Boolean).join('\n')
+  // 快手无独立标题字段：标题 + 正文（含内联话题）合并进 caption（与 DOM RPA _composeEditorCaption 语义对齐）
+  const caption = [title, content].filter(Boolean).join('\n')
   const data = {
     caption,
     pkCoverKey: td.pkCoverKey || '', pkCoverSize: 'a', pkCoverTimeStamp: 0, pkCoverType: 2,

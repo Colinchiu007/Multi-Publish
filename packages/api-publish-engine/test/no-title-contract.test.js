@@ -83,10 +83,16 @@ test('B-1) tencent_video（视频号 API 链）：标题作为 description 首�
   assert.notEqual(legacy.description, '正文C')
 })
 
-test('B-2) kuaishou（快手 API 链）：既有合并行为保持（标题首行 + 正文 + 话题）', () => {
-  const data = buildKuaishouPostData({ title: '标题T', content: '正文C', tags: ['话题'] })
-  assert.equal(data.caption, '标题T\n正文C\n#话题')
+test('B-2) kuaishou（快手 API 链）：标题首行 + 正文（含内联话题）合并；话题内联后不再拼 tags', () => {
+  // 话题内联描述（publish-topic-inline-description）：描述为话题真源——话题以
+  // `#话题` 内联在 content 里（UI 追加管道），caption 不再把 tags 数组拼进来
+  // （旧「tags 拼进 caption」会造成描述+字段双份重复，2026-10-09 下线）。
+  const data = buildKuaishouPostData({ title: '标题T', content: '正文C #话题', tags: ['话题'] })
+  assert.equal(data.caption, '标题T\n正文C #话题')
   assert.ok(data.caption.startsWith('标题T'))
+  // 无话题时与旧形态兼容（标题 + 正文）
+  const plain = buildKuaishouPostData({ title: '标题T', content: '正文C' })
+  assert.equal(plain.caption, '标题T\n正文C')
 })
 
 test('B-3) weibo（微博适配器）：buildPostData 正文以标题为首行', () => {

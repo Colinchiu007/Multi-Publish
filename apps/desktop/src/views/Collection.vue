@@ -870,7 +870,8 @@ function extractUrlFromShareText (text) {
   if (!matches.length) return ''
   const cleaned = matches
     .map((u) => u.replace(SHARE_TEXT_TRAILING_JUNK_RE, ''))
-    .filter((u) => /^https?:\/\//i.test(u))
+    // 协议校验走共享判据（href-scheme-contract 单一口径；#2637 遗漏的一处，2026-10-09 补齐）
+    .filter((u) => safeHttpUrl(u))
   if (!cleaned.length) return ''
   // 优先返回视频平台链接
   for (const url of cleaned) {
