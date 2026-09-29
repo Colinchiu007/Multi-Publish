@@ -140,9 +140,9 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
   });
 
   it("阴影/表面 token 必须有全局定义（未定义 var → 声明失效卡隐形）", () => {
-    // 设计 token 合法定义源：tokens.css（唯一来源）+ 历史全局文件（cohere/apple，存量槽位）
+    // 设计 token 合法定义源：tokens.css（唯一来源）+ cohere 全局文件（批次 6 起别名层已删除）
     const stylesDir = path.join(__dirname, "..", "styles");
-    const globalCss = ["tokens.css", "cohere-design-system.css", "apple-design-tokens.css"]
+    const globalCss = ["tokens.css", "cohere-design-system.css"]
       .map((f) => readFileSync(path.join(stylesDir, f), "utf8"))
       .join("\n");
     // 收集 scoped 块中引用的全部 var(--x)（排除带 fallback 的 var(--x, …) 可一并检查，从严：全部要求定义）
