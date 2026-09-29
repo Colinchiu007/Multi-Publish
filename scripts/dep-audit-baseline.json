@@ -108,6 +108,20 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-9qh4-3jw8-366w",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-c83g-rgw3-j3cx",
       "module": "browserslist",
       "severity": "high",
@@ -134,6 +148,34 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-gr2m-v5gq-v685",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-j84w-jfhq-vhvj",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-mh99-v99m-4gvg",
       "module": "brace-expansion",
       "severity": "high",
@@ -143,6 +185,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-qmv3-fv6v-rmhq",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.5.0",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.5.0）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
     },
     {
       "source": "npm",

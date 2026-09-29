@@ -88,6 +88,19 @@ test('PATTERNS 覆盖三个契约维度', () => {
   assert.deepEqual(Object.keys(PATTERNS).sort(), ['appleAlias', 'rendererIpcDirect', 'windowConfirm']);
 });
 
+// ---- 批次 6：别名层退役后的「钉 0」锁 ----
+
+test('别名回潮门禁基线必须钉在 0（任何新增 var(--apple- 引用都应立即 CI 失败）', () => {
+  const baseline = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'frontend-consistency-baseline.json'), 'utf8'),
+  );
+  assert.equal(
+    baseline.appleAlias,
+    0,
+    '批次 6 起 appleAlias 基线必须为 0：抬高基线等于给别名层回潮开后门（门禁语义 = 命中数必须为 0）',
+  );
+});
+
 // ---- 批次 0：别名回潮门禁（ui-apple-token-retirement）----
 
 test('appleAlias：检出 CSS 中的 var(--apple- 消费（含文件与行号）', () => {

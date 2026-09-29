@@ -162,12 +162,19 @@
 | 门禁升级 | 现为基线制（`appleAlias` 只降不升，基线 339→…） | 升级为**命中数必须 = 0**；基线键相应收敛 |
 
 ### Acceptance Criteria
-- [ ] `var(--apple-` 在 `apps/desktop/src/**` 命中 = 0（含 `main.js` 的导入）
-- [ ] 删除 `apple-design-tokens.css` 与 `tokens.css` 的 17 个 `--color-apple-*` 槽位
-- [ ] 移除 `main.js` / `cohere-design-system.css` 中对 alias 层的导入
-- [ ] 新增静态门禁：`var(--apple-` 命中数必须为 0，非 0 则 CI 失败并列出行号
-- [ ] 全量基线（浅 + 暗）跑一遍通过
-- [ ] `cohere-design-system.css` 的 `--ink` / `--muted` / `--surface` 收敛为对 `tokens.css` 的纯转发，不再承担暗色救火
+- [x] `var(--apple-` 在 `apps/desktop/src/**` 命中 = 0（**实测 0**，且 `apple-design-tokens` / `--color-apple-` 引用同为 0；`main.js` 本无导入，见清点表纠偏）
+- [x] 删除 `apple-design-tokens.css` 与 `tokens.css` 的 17 个 `--color-apple-*` 槽位（别名层 93 行整文件删除；槽位区块替换为退役说明注释）
+- [x] 移除 alias 层导入（**实测唯一导入方是 `cohere-design-system.css:1`** 的 `@import`，已移除；`main.js` 无导入）
+- [x] 新增静态门禁：`var(--apple-` 命中数必须为 0，非 0 则 CI 失败并列出行号（基线已归零 `appleAlias: 0`；并新增**「钉 0」回归锁**断言基线值恒为 0，防止被静默抬高）
+- [ ] 全量基线（浅 + 暗）跑一遍通过 → **待同源取证**（浅色走本批次 PR 的 artifact；暗色需 `visual-test.yml`）
+- [x] `cohere-design-system.css` 的 `--ink` / `--muted` 收敛为对 `tokens.css` 的纯转发（暗色 `--ink`: #e8e8ed → `var(--color-text-primary)`，**值等价**；`--muted`: #88889a → `var(--color-text-secondary)`(#b4b2c6)，**变亮 = 暗色可读性提升**，属披露项）。`--surface` 浅色块本就纯转发、暗色块无独立值，无需改动
+
+### 批次 6 实测结果（2026-09-29）
+
+- **残留引用 0 处**：`apps/desktop/src/**` 内 `apple-design-tokens` / `--color-apple-` / `var(--apple-` 全为 0
+- 门禁：`frontend-consistency` PASS（`appleAlias: 0 / 基线 0`）、`check-css-var-defined` PASS、`check-color-literals` PASS、`check-font-size-scale` PASS
+- 测试：`check-frontend-consistency.test.js` **21 / 0 fail**（含新增「钉 0」锁）；`Dashboard.style-guard.test.js` **9 / 0 fail**（读真实 CSS 文件，验证清单同步无误）
+- 执行方式：清点表驱动 + **失败即停**脚本（4 处编辑各自带前置形态断言，任一形态变化即报错不盲改）
 
 ---
 

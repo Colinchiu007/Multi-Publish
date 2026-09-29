@@ -190,6 +190,9 @@ const platformsMixin = {
             await this._setFileInput(win, article.images[0], imgFileSel)
             // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
             await this._sleep(4000)
+            // 图片上传成功后平台可能自动进入「图片编辑」（裁剪）界面，其模态层遮挡
+            // 发布按钮（2026-09-29 小红书实测：不收起则 button:has-text("发布") 超时）
+            await this._dismissImageEditModal(win, platform)
             const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
             if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
             retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
@@ -375,7 +378,27 @@ const platformsMixin = {
     }
 
     // publish button
-    log.info('RpaView', '['+platform+'] DIAG[publish2] pubBtn=' + (sel.publish_btn ? sel.publish_btn.length : 'NONE') + ' cfgHasApi=' + (config.has_api) + ' prePublishHook=' + String(config.prePublishHook||''))
+    log.info('RpaView', '['+platform+'] DIAG[publish2] pubBtn=' + (sel.publish_btn ? sel.publish_btn.length : 'NONE') + ' cfgHasApi=' + (config.has_api) + ' prePublishHook=' + String(config.prePublishHook||'') + ' draftOnly=' + Boolean(config.draftOnly))
+    // 草稿模式（2026-09-29 需求：小红书图文只需落到平台草稿箱，用户回头自行扫码发布）：
+    // 不点发布按钮，改为「触发/等待平台自动草稿保存」后即返回草稿成功。小红书编辑页
+    // 有自动草稿保存（页面显示「编辑于 刚刚」，侧边栏草稿箱计数 +1），因此填完字段后
+    // 等待落库即可；若平台另提供显式存草稿钮（sel.draft_btn）则优先点它。
+    if (config.draftOnly) {
+      this._emitProgress(platform, 'saving draft...', 90)
+      if (sel.draft_btn && sel.draft_btn.length > 0) {
+        for (const cand of sel.draft_btn) {
+          try {
+            if (await this._click(win, cand)) { log.info('RpaView', '[' + platform + '] draft button clicked: ' + cand); break }
+          } catch (_) { /* 候选失效继续下一个 */ }
+        }
+      }
+      // 等自动保存落库（编辑页「编辑于 刚刚」/「已保存」/草稿计数变化）
+      const draftSaved = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return /编辑于|已保存|草稿/.test(t)}', 20000, 1500)
+      await this._sleep(3000)
+      log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(draftSaved) + ' url=' + (win.webContents.getURL() || ''))
+      this._emitProgress(platform, 'draft saved', 100)
+      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(draftSaved) }
+    }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
       while (!retry.isDone('publish')) {
@@ -1249,6 +1272,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
+      // 2026-09-29 需求调整（用户指定）：小红书图文只落到平台草稿箱，不点发布。
+      // 小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），
+      // 填完标题/正文/图片后等落库即可；用户回头扫码在草稿箱里自行发布。
+      // 视频模式保持原发布链路（草稿箱对视频无此约定）。
+      ...(isImageMode ? { draftOnly: true } : {}),
     })
   },
 
