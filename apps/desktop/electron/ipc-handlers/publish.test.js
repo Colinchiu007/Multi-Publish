@@ -29,7 +29,7 @@ vi.mock('../services/offline-manager', () => ({
 // 真实渲染（PNG 尺寸/比例/折行/边界）由 local-cover-generator.test.js 覆盖。
 vi.mock('sharp', () => {
   const toFileMock = vi.fn(async (p) => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // vi.mock 工厂在模块图早期执行，此处只能用 require 取 fs（ESM import 尚未可用）
     const nodeFs = require('node:fs')
     nodeFs.writeFileSync(p, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
   })
