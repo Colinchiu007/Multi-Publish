@@ -63,7 +63,7 @@ scheduler.dispatch / BatchManager.scheduleBatch（标记源头）
 | 取消按钮误触发（用户手滑） | notifyConfirm 确认弹窗 + cancellingId 防重 |
 | locale 漏配（zh/en 不成对） | CI Gate 7 check-locale-sync 拦截；本次成对提交 |
 
-## 与参考产品（蚁小二）的对照结论
+## 与参考产品的对照结论
 
 参考产品采用**平台侧定时**：B站 `publish_time`（秒级时间戳，13 位毫秒除 1e3 / 10 位截断）、
 微博 `schedule_timestamp` + `getXinlangweiboSchedulePostFrequency` 定时配额检查（无配额报
