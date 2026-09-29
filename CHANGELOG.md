@@ -34,6 +34,45 @@
 - `usePublishFlow.test.js` +1：cancelPublish 单一定义结构锁（先红：当前 2 处定义；删后绿：1 处）。
 - 回归：apps/desktop 全量 vitest + packages/shared-utils 全量 vitest 通过；PRD 行尾对账（numstat 两口径一致）。
 
+# [未发布] fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
+
+### 根因（第一性原因）
+- `content-intelligence-sources.js` 自内容情报模块引入起就把第三方响应的 `url` 原样透出（`url: d.url || 本站兜底`），渲染层照字段名直绑 `<a :href>`。而 **Vue 3 不净化 href**（v2 的 `isUnsafeURL` 守卫在 v3 已移除），本应用渲染进程又持有 `window.electronAPI` ⇒ HN Algolia 的 `url` 由提交人任意填写，一条 `javascript:` 点下去即在特权上下文执行任意 JS。
+- 同一条判定在仓内被抄成多份却互不相认：`hot-topics/channels.js` 的 `sanitizeUrl`（注释明写"仅 http/https"）只服务热榜；`bootstrap/phase4-events.js` 又抄一份决定 `Publish.vue` 的 `result.url`；`Collection.vue` 用户输入校验是第三份。六条展示链**一份都没接**。
+
+### 变更
+- 单一判据 `packages/shared-utils/src/safe-http-url.js`（CJS）+ `safe-http-url.browser.js`（ESM，`vite.config.js` alias 指过去）+ parity 锁，照 platform-definitions / account-name-guard / publish-capabilities 三先例。判据只做 `http(s)://` **前缀白名单**，不做"清洗后放行"；协议相对 `//host` 与缺协议一律 `null`。
+- 双档防线：采集侧第一站收口（HN 非法回落 `https://news.ycombinator.com/item?id=`，GitHub/Reddit 非法即 `null`）+ 渲染侧绑定 `:href` 前再判。六个站点不通过即**不产出锚点、保留等样式纯文本**；补齐 `Publish.vue` / `FilmEngineeringView.vue` 缺的 `rel="noopener"`。
+- 收敛四份同用途拷贝：`channels.js`、`content-intelligence-sources.js`、`phase4-events.js`、`Collection.vue`。按 sink 分的三种策略（成链下限 / OS 打开面更严含拒 userinfo / 图标资源允许 data:）**显式不合并**，源码注释互指。
+- 三把新锁：`apps/desktop/src/href-scheme-contract.test.js`（全仓 `src/**/*.vue` 扫 `:href=`，覆盖四种绑定形态、禁 `:[href]` 与 `v-bind="{href}"` 绕过、`target=_blank` 必带 noopener、`v-if` 与 `:href` 必须同一表达式、`window.open` 站点登记）；`content-intelligence-sources.test.js`（采集侧行为锁，补结构锁"只查 import"的盲区）；`safe-http-url.test.js`（判定表 + 孪生 parity 含导出集合）。
+- 文档：新增 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`（威胁模型 / 判定表 / 三策略对照 / 全仓 37 处实况分类清点 / AC-1..AC-12 / 20 条反证矩阵 / QM-6 逐条处置）；`AGENTS.md` QM-2 新增硬规则；`01-docs/PRD.md` 新增 §9.2.2。
+
+### 影响
+- 用户可见变化只有一种：上游返回非法协议 URL 时，原来那条"能点但会执行脚本"的链接变成同样式纯文本（内容不丢）。正常数据下界面无任何变化——**CI 产物逐视图对照 main 的 Δ 全为 0.0000%**（19 视图，含 `intelligence` 0.1935%、`collection` 1.6071% 两条 main 上同值的既有漂移）。
+- `phase4-events.js` 收敛后，发布结果 URL 的"能否成为链接"与渲染层同口径，不再可能出现"主进程放行、渲染层拒绝"的口径分裂。
+
+### 验证
+- `Test Files 2 failed | 687 passed | 1 skipped (690)`；两条红均为既有（`feedback.test.js` Windows symlink EPERM；`story2video-manual-assets.test.js` 在**不含本改动的干净 main `633ee1c2`** 上跑出同一条断言同一条红，与本 PR diff 零文件交集）。
+- 20 条变异反证全部指名变红、逐字节还原；QM-1 解包产物取证 7/7 PASS；QG Visual pass 且与 main 逐视图 Δ=0；CI `21 pass / 0 fail / 1 skipping`；三个新测试文件在 CI 日志里均有 ✓ 执行现场（`safe-http-url.test.js (61 tests)` 等）。
+- QM-6 双模型（codex + claude）无 Critical；5 Warning 全部落地，其中两条为**实质代码收敛**而非补测试。
+
+# [未发布] fix(设置页): 浅色模式主按钮 hover/禁用态隐形——EP 主题桥接补齐浅色兜底（2026-09-29，#2627）
+
+### 现象与根因
+- 设置页 → 模型设置 → 多模态模型「默认」→「设为默认」确认弹窗中，【确定】按钮**鼠标悬停时整块隐形**（白底白字），未悬停时与【取消】按钮均正常。
+- 根因不在组件而在主题桥接层：`apps/desktop/src/styles/ep-theme.css` 把 Element Plus 主按钮 hover 档 `--el-color-primary-light-3` 与禁用/描边档 `-light-5` 桥接到 `--color-primary-dark-tint`，而该 token **只在 `tokens.css` 的 `[data-theme="dark"]` 块里定义**。浅色下无兜底的 `var()` 是 guaranteed-invalid，依赖它的声明按 *invalid at computed-value time* 退化为 `initial` —— `background-color` 变透明、`border-color` 变 `currentColor`，而 `.el-button--primary` 的文字仍是 `--el-color-white`，于是按钮整体"消失"。
+
+### 变更
+- 两行补浅色兜底 `var(--color-primary-dark-tint, var(--color-primary-hover))`：暗色解析值逐字不变（`#7b74ff`），浅色 hover 得 `#603af9`（与常态 `#5048E5` 可辨）。沿用仓库既有兜底惯例（`hot-topics-list.css:11` 已明文规定该 token 必须带兜底使用）；**没有**在 `:root` 新增同名 token —— 那会把所有「浅色用主色、暗色用亮化档」的消费点一起改掉，属更大范围的视觉回归。
+- 同根因第三处一并修：`--el-fill-color: var(--color-bg-hover)` 里的 `--color-bg-hover` **全仓从未定义**（唯一一次出现就是这一行），现与 `-light` / `-lighter` 同档收编到 `--color-bg-inset`。该行此前恒为 invalid（等于没生效），修复后 EP 文本按钮 `:active` 一类瞬时填充底色才真正解析出值。
+- 新增 `apps/desktop/src/styles/ep-theme.tokens.test.js`（4 例，纯 CSS 契约、无需浏览器）：按 `:root` / `[data-theme="dark"]` **分别**求解 `var()` 链，断言桥接层每个无兜底引用在浅色单独可解析、hover 档与常态主色区分、暗色档不变。
+
+### 为什么既有门禁没拦住
+- `sidebar.tokens.test.js` 已有「引用的 token 全部在 tokens.css 定义」的锁，但它把 `:root` 与 `[data-theme="dark"]` **合并成一张表**再判存在性 —— 对「只在暗色定义的 token 被浅色层消费」这一形态完全免疫。新锁按主题分别求解补齐这一格。
+- 视觉回归对这三态结构性失明：hover / 禁用 / `:active` 都不在快照基线的采集状态内。
+- 反证两条均实测变红：单行摘掉 `light-3` 兜底 → 2 红 / 2 绿（另 2 例仍绿，说明判据特定而非恒失败）；`--el-fill-color` 退回 `--color-bg-hover` → 2 红 / 2 绿。
+- Chromium 实测（Playwright，修复前 → 后）：浅色 hover `rgba(0,0,0,0)` → `rgb(96,58,249)`；浅色禁用态同上；暗色 hover/禁用 `#7b74ff` 逐字未变。
+
 # [未发布] feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
 
 ### 现象与根因
@@ -94,6 +133,19 @@
 ### 影响
 - #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
 - 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
+
+# [未发布] feat(publish): 定时×草稿互斥守卫（发布页优化 roadmap 第一项 P1-4）+ 对比参考产品的差距分析文档（2026-10-08，publish-page-optimization）
+
+### 变更
+- **P1-4 定时×草稿互斥**（`usePublishDrafts.js`）：本地草稿是静态快照不会自动发布——带定时时间保存草稿会让用户误以为「到点自动发」。双侧守卫：①保存侧 ElMessageBox 互斥确认（清除定时并保存 / 保留定时保存，双按钮都保存）；②加载侧清除已过期定时时间并提示（避免下一次发布被 validateScheduleEntries 以「定时时间已过去」静默拒绝）。参考产品在引擎层硬拒绝（pubType 互斥）；本地草稿语义更宽（WIP 快照），改为确认+清除而非硬拒绝。
+- **分析文档** `01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md`（force-add，.gitignore 白名单制）：对比参考产品 4.13.19 的 8 项差距清单（P0-1 审核状态跟踪★最大差距/P0-2 账号风险预检/P1-3 平台草稿往返/P1-4 本项已实现/P1-5 可见性通用控件/P2 数据回流/批量字段面/账号分组），含证据出处（16 态审核模型 + aweme_id 回查口径 + -110 风险码族）、P1-4 六维度详写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）、后续项立项要点。
+- locales zh/en 成对新增 5 键（scheduleConflictTitle/Message/Clear/Keep + staleScheduleCleared）。
+
+### 验证
+- `usePublishDrafts.test.js` 11/11（含 5 条 P1-4 回归：确认清除/取消保留/无定时不弹/过期清除/未来保留）
+- locale 成对门禁（pair-base/keys/cjk）、品牌残留、行尾对账本地 PASS
+
+---
 
 # [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
 
@@ -391,7 +443,8 @@
 ### 验证
 - install-session-isolation-task.test.ps1 → rc=0 / 7 PASS（本机 \Mulpub\ 尚无任务，NOTE 分支如实报告 runner 态边界）
 - session-isolation-automation.test.ps1 → rc=0 / 18 PASS（非提权分支实证：Health 在一次性路径注册成功、AtLogOn 被拒后安装器 fail closed 并给出 RunAs 指引——同时证明 `$got` 修复后安装器能走到 Write Guard 注册步）
-- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
+- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
+
 
 # [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
 
@@ -411,7 +464,8 @@
 - `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
 
 ---
-
+
+
 # [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
 
 ### 变更
@@ -428,7 +482,8 @@
 - 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
 - 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
 - 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
+
 
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
@@ -505,26 +560,46 @@
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
 
-# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
-
-### 现象与根因
-- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
-- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
-- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
-
-### 变更
-- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
-  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
-  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
-  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
-- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
-- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
-- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
-
-### 测试与取证
-- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
-- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
-- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
+# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
+
+
+
+### 现象与根因
+
+- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
+
+- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
+
+- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
+
+
+
+### 变更
+
+- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
+
+  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
+
+  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
+
+  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
+
+- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
+
+- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
+
+- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
+
+
+
+### 测试与取证
+
+- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
+
+- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
+
+- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
+
 - QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
 # [未发布] ci(electron-ci): 串行单测预算从魔数改为挂实测，并让超时能自证
 
@@ -745,10 +820,14 @@
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
   （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
 ### 做了什么
-- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
-  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
-  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
-  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
+- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
+
+  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
+
+  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
+
+  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
+
   它只改界面开关键，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
 - **归属澄清（不得把自审项记成评审发现）**：协议门、白名单、非法值 warn、用例改名这四项是评审之后
   **自审补严/自审判断**；外部评审实际提出的是 hash 路由丢参（C1，完全成立）、`options.dev` 可短路 DEV 判断（W2）、

@@ -427,9 +427,12 @@ describe("PublishView", () => {
     w.vm.article.publishTime = "2026-07-21T12:00";
     w.vm.selectedAccounts = { wechat_mp: ["acc1"] };
     w.vm.replaceDiffEdits({ wechat_mp: { title: "微信标题", content: "" } });
+    // P1-4 定时×草稿互斥：带定时保存会弹确认；本用例验证「保留定时保存」侧的完整往返
+    ElMessageBox.confirm.mockRejectedValueOnce(new Error("cancel"));
 
     await w.vm.saveDraft();
 
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1);
     expect(window.electronAPI.draftSave).toHaveBeenCalledWith(expect.objectContaining({
       title: "完整草稿",
       author: "作者",
@@ -1345,4 +1348,26 @@ describe("PublishView — 右栏信息架构与面板联动", () => {
   });
 });
 
+  it('发布结果链接非 http/https 时不成链；成链时必须带 rel="noopener"（PRD-HREF-SCHEME-GUARD）', async () => {
+    const w = await createWrapper();
+    w.vm.article.title = "Test";
+    w.vm.article.content = "Content";
+    await w.vm.handlePublish();
+    await nextTick();
+    expect(w.vm.result.success).toBe(true);
+
+    w.vm.result.url = "https://weibo.com/detail/1";
+    await nextTick();
+    const link = w.find("a.result-link");
+    expect(link.exists()).toBe(true);
+    expect(link.attributes("href")).toBe("https://weibo.com/detail/1");
+    expect(link.attributes("rel")).toBe("noopener");
+
+    w.vm.result.url = "javascript:alert(1)";
+    await nextTick();
+    expect(w.find("a.result-link").exists()).toBe(false);
+    const plain = w.find("span.result-link");
+    expect(plain.exists()).toBe(true);
+    expect(plain.text()).toBe("javascript:alert(1)");
+  });
 });

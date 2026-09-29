@@ -100,4 +100,16 @@ describe("TrendingPanel", () => {
     expect(w.text()).toContain("HN post");
     expect(w.text()).not.toContain("Reddit post");
   });
+  it('热榜 url 非 http/https 时不产出锚点，标题降级为纯文本（PRD-HREF-SCHEME-GUARD）', async () => {
+    vi.mocked(intelligenceFetchTrending).mockResolvedValue([
+      { title: "Good post", source: "hackernews", url: "https://news.ycombinator.com/item?id=2", upvotes: 10, comments: 1, engagementScore: 1.0 },
+      { title: "Evil post", source: "hackernews", url: "javascript:alert(1)", upvotes: 20, comments: 2, engagementScore: 2.0 },
+    ]);
+    const w = mount(TrendingPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    expect(w.findAll("a").map(a => a.attributes("href"))).toEqual(["https://news.ycombinator.com/item?id=2"]);
+    expect(w.html()).not.toContain("javascript:");
+    expect(w.text()).toContain("Evil post");
+  });
 });

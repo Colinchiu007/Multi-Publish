@@ -147,4 +147,25 @@ describe("ReferenceFinder", () => {
       url: "https://example.com/test"
     });
   });
+  it('参考结果 url 非 http/https 时不产出锚点（PRD-HREF-SCHEME-GUARD）', async () => {
+    vi.mocked(intelligenceFindReferences).mockResolvedValue({
+      code: 0,
+      data: {
+        references: [
+          { title: "安全参考", url: "https://example.com/ok", source: "知乎", engagement: "1.2k", snippet: "", relevance: 40 },
+          { title: "恶意参考", url: "data:text-html-base64-PHNjcmlwdD4=", source: "CSDN", engagement: "856", snippet: "", relevance: 30 },
+        ]
+      }
+    });
+    const w = mount(ReferenceFinder, { props: { visible: true, searchText: "" } });
+    await nextTick();
+    const input = w.find("input");
+    await input.setValue("参考");
+    await nextTick();
+    const searchBtn = w.findAll("button").filter(b => b.text().includes("搜索"));
+    await searchBtn[0].trigger("click");
+    await nextTick();
+    expect(w.findAll("a").map(a => a.attributes("href"))).toEqual(["https://example.com/ok"]);
+    expect(w.text()).toContain("恶意参考");
+  });
 });
