@@ -265,6 +265,19 @@ class KuaishouVideoChain {
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
+      // 请求级诊断（2026-09-29 第七层二轮）：complete 400 的完整出站请求与响应头
+      // 入日志（cookie 脱敏为长度），供与真实浏览器请求逐字对比。
+      const safeHeaders = {}
+      for (const [k, v] of Object.entries(res.config && res.config.headers || {})) {
+        safeHeaders[k] = /cookie/i.test(k) ? '<' + String(v).length + ' chars>' : v
+      }
+      this.logger.error('kuaishou-video', 'upload-diag ' + JSON.stringify({
+        url: this._currentEndpoint + url,
+        reqHeaders: safeHeaders,
+        status: res.status,
+        resHeaders: res.headers,
+        body: typeof res.data === 'string' ? res.data.slice(0, 300) : JSON.stringify(res.data),
+      }))
       // 诊断增强（2026-09-28 活体 6.3 第七层）：complete 400 的响应体携带服务端
       // 拒绝原因（此前被丢弃只剩状态码，无法诊断 API 契约差异）。截断防日志爆炸。
       let bodyHint = ''
