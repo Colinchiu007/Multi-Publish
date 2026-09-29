@@ -1348,7 +1348,6 @@ describe("PublishView — 右栏信息架构与面板联动", () => {
   });
 });
 
-D
   it('发布结果链接非 http/https 时不成链；成链时必须带 rel="noopener"（PRD-HREF-SCHEME-GUARD）', async () => {
     const w = await createWrapper();
     w.vm.article.title = "Test";
