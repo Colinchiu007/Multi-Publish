@@ -138,3 +138,115 @@ test('registry 口径：audit 必须走官方源（npmmirror 无 audit 端点）
   assert.ok(src.includes("'--registry=' + registry"), 'audit 调用必须显式带 registry');
   assert.ok(src.includes("process.env.NPM_AUDIT_REGISTRY || DEFAULT_REGISTRY"));
 });
+
+function npmJsonOf (ids) {
+  const advisories = {};
+  ids.forEach((id, n) => {
+    advisories[n + 1] = { github_advisory_id: id, module_name: 'm-' + id, severity: 'high', patched_versions: '>=9.9.9', findings: [{ version: '1.0.0', paths: ['apps__desktop>x>m-' + id] }] };
+  });
+  return { advisories };
+}
+
+function writeTempBaseline (name, body) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), name + '-'));
+  const file = path.join(dir, 'dep-audit-baseline.json');
+  fs.writeFileSync(file, JSON.stringify(body, null, 2) + '\n', 'utf8');
+  return { dir, file };
+}
+
+test('pip 扫描器缺失时，npm 域的新公告仍必须判红（不得整体短路 return 0）', () => {
+  const { dir, file } = writeTempBaseline('dep-npm-only', {
+    reviewBy: FUTURE,
+    advisories: [ledger('npm', 'GHSA-known')],
+  });
+  try {
+    const out = [];
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known', 'GHSA-brand-new']) }),
+        pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.ok(out.some((l) => l.includes('NEW_ADVISORY: npm/GHSA-brand-new')),
+      'npm 域的新公告必须被报出，实际输出：\n' + out.join('\n'));
+    assert.ok(out.some((l) => l.includes('SCANNER_UNAVAILABLE')), '缺失扫描器仍要出声');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})
+
+test('缺失域的挂账条目不得被判成「已不再命中」（防假红）', () => {
+  const { dir, file } = writeTempBaseline('dep-pip-skip', {
+    reviewBy: FUTURE,
+    advisories: [ledger('npm', 'GHSA-known'), ledger('pip', 'PYSEC-keep')],
+  });
+  try {
+    const out = [];
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known']) }),
+        pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+      },
+    });
+    assert.equal(code, 0, '实际输出：\n' + out.join('\n'));
+    assert.ok(!out.some((l) => l.includes('RESOLVED_STILL_BASELINED: pip/')),
+      '未扫描的域不得被判成基线腐化');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})
+
+test('两个扫描器都不可用 ⇒ 本轮无判据，按失败处理', () => {
+  const { dir, file } = writeTempBaseline('dep-none', {
+    reviewBy: FUTURE,
+    advisories: [ledger('npm', 'GHSA-known')],
+  });
+  try {
+    const out = [];
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: false, error: 'audit endpoint 不存在' }),
+        pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.ok(out.some((l) => l.includes('无判据')), '必须出声说明是"没有判据"而不是"没有漏洞"');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})
+
+test('--update 在任一扫描器缺失时拒绝写基线，且基线字节不变', () => {
+  const { dir, file } = writeTempBaseline('dep-update-guard', {
+    reviewBy: FUTURE,
+    advisories: [ledger('npm', 'GHSA-known'), ledger('pip', 'PYSEC-keep')],
+  });
+  try {
+    const pristine = fs.readFileSync(file);
+    const out = [];
+    const code = D.runCheck({
+      baselinePath: file,
+      isUpdate: true,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known']) }),
+        pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.ok(Buffer.compare(pristine, fs.readFileSync(file)) === 0, 'writeBaseline 会把未扫描域抹掉，必须拒写');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})

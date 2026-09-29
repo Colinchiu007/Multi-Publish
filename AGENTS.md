@@ -577,6 +577,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **删除 story2video 项目必须级联清理持久化 run-state 快照**：`story2video:delete-project` 只移除项目索引并尽力清理项目目录，但「已中断/失败/暂停」的编排 run 以 `RunStateStore` 快照（`userData/run-state/<runId>.json`）持久化，`pipelineHistory()` 会从快照重新加载。删除项目时必须同步调用 `runStateStore.remove(projectId)`（runId 与 projectId 同源），否则删除后重进历史页该任务会再次出现。回归测试必须用真实 `RunStateStore`（os.tmpdir 隔离目录）断言删除项目后 `load(projectId)` 为 null、`listRunning()/listFailed()` 为空；快照清理失败仅告警不阻断项目删除。详见 [story2video.test.js](apps/desktop/electron/ipc-handlers/story2video.test.js) 级联清理用例。
 
+- **宿主事件的置位与收口必须取自同一对语义，且状态订阅必须写回「实际被渲染的那份状态」（MUST）**（2026-09-29 标签转圈卡死复盘，缺陷存续约 50 天）：给宿主事件（Electron `webContents` / 浏览器 / 子进程）做布尔状态机时，两条都不可省：① **配对性**——置位与收口必须取自宿主文档里语义成对的那两个事件，不得按「看起来像结束」挑。Electron 的 `did-start-loading` / `did-stop-loading` 在 `electron.d.ts` 里的原文注释就是「the spinner of the tab started / stopped spinning」，而 `did-finish-load` **只在主框架成功时**触发、失败与被中止（`did-fail-load` / `ERR_ABORTED`）路径上永不调发，用它收口 `loading` 必然永久卡住；崩溃类还须补 `render-process-gone` 就地收口（此后不会再有任何事件）。② **接线**——订阅回调写的字段必须就是渲染端读取的那一份。本案主进程广播的 `tab-loading` / `tab-finished-loading` 只改写 `navigation.loading`，而 `TabBar` 的徽标读的是 `tabs[].loading`（唯一来源是全量快照 `getAllTabs()`），于是徽标**自诞生起从未被实时熄灭过**，只在切标签时偶然纠正。判据手法：给任一「有事件、有订阅、有 UI」的指示器收尾时，必须从 UI 实际读的字段**反查写入者清单**（`grep` 该字段名），链路不通即缺陷；同一字段出现第二套写法（本案 `onNavigationChanged` 还把 `loading` 硬编码成 `false`）即口径分裂，必须收敛为「载荷带真值 + 字段缺席则保持现状」，**禁止**用 `!!data.loading` 把「载荷破坏」当成「结束」。另注：宿主事件回调被测试**当作夹具触发器**使用（只为驱动副作用链而 fire 某回调、不断言该回调自身的语义效果）时，「置位后收口永不到来」这一组合在测试里根本不可表示——本案单元/集成/视觉/审查四层同时漏过，视觉层还因图标占页面积 < 0.1% 对回归结构性失明。回归锁与六条反证变异见 `01-docs/PRD-BROWSER-NAV-ICONS-LOADING-2026-09-29.md` §3、§6。
+
 ### QM-3：测试策略
 
 - 单元测试（1830 passed | 10 skipped）：覆盖核心业务逻辑 ✅
@@ -600,6 +602,11 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **一个 `run:` 块里塞多条测试命令时，必须用 `shell: bash`（MUST）**：PowerShell 步骤**不会**在中间某条命令非零退出时中止 —— 只有最后一条命令的 `$LASTEXITCODE` 决定步骤成败。后果是"前 5 个门禁红、第 6 个绿 ⇒ 步骤照绿"，一条看起来在守、实际恒绿的装饰门禁。实测：`quality-gate.yml` 的 `Gate 2d`（`shell: pwsh`）里 `session-write-guard.test.ps1` 抛 `FAIL: shared status stays clean after tracked restore` 之后，后续测试照跑、步骤照 success、PR 照合并（run `36313053992` / step 11）。GitHub 的 `shell: bash` 默认带 `-e -o pipefail`，任一非零即中止；确需 pwsh 时必须在正文里显式 `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`。判据由 `scripts/check-step-failfast.js` 强制（含 ≥2 条测试命令的 run 块若非 fail-fast 即红，欠账清单保持为空）。同源教训：**判定"某测试在 CI 里到底成不成"，本机实跑只能筛掉必然不行的**——但"只有 runner 本身算数"只适用于本机复现不了的维度；`core.autocrlf` 这类可配置维度必须先用 `GIT_CONFIG_GLOBAL` 在本机复现，别把可修的差异记成欠账（本仓实测：写保护恢复断言属可复现、已修；长路径负控属 runner 清单态、仍挂欠账）。
 
 - **断言 `git status` 干净度的测试夹具，必须自己声明 EOL 档并把索引交给 checkout（MUST）**：守卫 `guard-shared-root-writes.ps1` 恢复 tracked 文件走 `git restore --source=HEAD --worktree`。它的测试夹具原来用 `git init` + `git add` 现场造仓库，于是量的不是守卫而是 git 的换行启发式。实测 8 格（{混合行尾, 单 LF} × {无属性, `* text=auto`} × {autocrlf false, true}）：`init`+`add` 形态 5 格在恢复后报脏，`clone` 形态 8 格全干净，且**「纯 `git restore`」与「经守卫恢复」逐格完全相同**——守卫无责。三条口径：① 被测工作树必须由 `git clone`/`checkout` 建立（`git add` 现场造的索引不带 git 的转换状态）；② EOL 档位由**夹具自己提交的 `.gitattributes`** 声明，`text eol=lf` 与 `text eol=crlf` 两档都跑，禁止让结论依赖宿主 `core.autocrlf`（真仓根是 `* text=auto`，其落地形态恰好由宿主配置决定，这正是"本机绿 CI 红"的来源）；③ 夹具内写文件一律 `[IO.File]::WriteAllText` 显式 LF，禁止 `Set-Content -Encoding UTF8`（5.1 加 BOM、pwsh 7 不加，同一夹具两个 shell 两种字节；且它会在值尾再补一个宿主换行，写出 `'\n\r\n` 混合行尾——就是那 5 格的触发条件）。配套：断言"恢复成功"必须**读工作树内容**，禁止读 `git show HEAD:<path>`——HEAD 里永远是被覆盖前的版本，守卫什么都不做该断言也通过（本仓上一条即是装饰性断言，反证：把守卫恢复动作摘掉后 `git show` 版仍绿、读工作树版变红）。
+
+- **测试在 CI 上跑不过时，有且只有两条正解，且共同禁止"放宽断言 / 加 skip / 改记欠账"（MUST）**：判「是环境不对还是断言不对」之前，先分清这两类，因为它们的修法**方向相反**——
+  ① **夹具该更像真实形态** ⇒ 把环境造成那个形态，别改断言。适用：断言依赖 git 索引 / EOL / 分支名 / hooks 等"由检出方式决定"的前提。先例三连：`session-write-guard.test.ps1` 改成 `git clone` 出工作树 + 夹具自声明 `.gitattributes`（#2516）；`session-isolation-automation.test.ps1` 因 `mp-worktree-health.ps1:106` 在 `-RequirePrimary` 下硬要 `branch==main` 而 CI 给的是 detached HEAD，正解是在 `$RUNNER_TEMP` 造一个**自有临时 clone**（`checkout -B main` + 复制两个 hook）后在里面跑（本轮）；共享根写保护的反证一律用 `%TEMP%` 临时仓库跑同一段代码。
+  ② **期望该由实测推导** ⇒ 断言的期望值来自**本进程当场探测到的能力**，两条支路各自成立。适用：结论绑在"这台机器/这个 exe 有没有某能力"上，而不是绑在某个可配置形态上。先例：`worktree-fs-longpath.test.ps1` 那条「未加 `\\?\` 前缀必须失败」的负控，实际由注册表 `LongPathsEnabled` + 该 exe 清单 `longPathAware` 共同决定（pwsh 7 带、5.1 不带），本机/runner 三方不一致 ⇒ 改成运行时探针先测能力再选期望，深浅由 `depth>260` 硬断言守住（#2521）。
+  **共同禁止项**：放宽断言、`skip`/`return` 早退、把文件从检查域里摘掉、或再登记成欠账来"让它不红"。这些都是把锁拆掉还留一盏绿灯——本仓把它记作「装饰性门禁」。三条判据：(a) 每次跑必须**打印本次走的是哪条支路 + 关键实测值**（如 `LIVE_TASK_COUNT=0`、`(probe) processCapable=True depth=628`），否则下次没人知道它测了什么；(b) 归因先问**这一维可否本地配置**（`GIT_CONFIG_GLOBAL`、环境变量、shell），可配置就必须本地复现（见 [[project-mulpub-runner-only-red-attribution]]），不许直接挂"只有 runner 知道"；(c) 销账与接线**必须同一次发生**——清空白名单而不点名进 workflow，或接线了而白名单还留着，都当场红（`check-unwired-tests.js` 用 `deepEqual` 钉死清单内容，另加「已销账文件必须仍在检查域内」防"排出域作弊"）。
 
 - **文本结构断言（MUST）**：凡断言**文本结构**（换行 / 分段 / 分隔符 / 字段顺序 / 序列化格式）的测试，必须**至少一条 `toBe` / `toEqual` 精确断言或结构断言**（如 `expect(out.split("\n")).toEqual([...])`），`toContain` 仅可作为补充。原因：纯 `toContain` 子串匹配对结构性回归**完全免疫** —— 正文被压成一整行时每个子串依然命中（2026-09-16 采集页正文换行全丢即由此逃逸，见 `01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`）。新增/修改文本提取、解析、格式化类代码时必须同时补一条精确断言，并用「修复前实现副本」实测确认该断言能抓住 Bug。
 
@@ -651,6 +658,10 @@ Code review 时除逻辑正确性外，必须逐项检查：
 > ⚠️ **视觉用例有两份清单**：`views/all-views.visual.test.js` 的 `viewTests`（`test:visual` / `test:all:visual` / `--single`）
 > 与 `scripts/run-pixel-tests.js` 的 `pixelTests`（**`QG Visual` Gate 7 只执行这一份**）。只登记前者会得到一条必然的"绿"，
 > 它等于没跑。新增像素用例必须两处都登记，并以「CI 日志里该用例名出现次数 > 0」为通过证据。
+> 
+> **全量四套注册表**（views / supplementary-views / workflows / supplementary-workflows）由 `scripts/run-all-visual.js` 单点聚合：
+> 聚合器直接 `require` 各模块的导出数组（`toBe` 引用相等由 `visual-ci.test.js` 锁），**不得另抄一份清单**；
+> 每套输出一行 `[VISUAL-SUMMARY] suite=<id> total= passed= failed= elapsed_ms=`，这是"这套用例真的在 CI 上跑过"的唯一现场证据。
 
 - **PR 合入前（必须通过）**：像素对比核心视图，无需 API Key
 
@@ -658,7 +669,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
   cd apps/desktop && npm run test:visual:pixel
   ```
 
-- **发版前（人工核查项，非自动硬门禁）**：完整回归（94 个测试：44 视图 + 50 工作流）
+- **发版前（人工核查项，非自动硬门禁）**：完整回归（103 个测试：35 + 19 视图 + 31 + 18 工作流）由 `tests/visual-testing/scripts/run-all-visual.js` 逐套隔离执行——**一套红不会停掉后面三套**（旧 `a && b && c && d` 串联会让"CI 产物里有没有这套截图"取决于前一套的成败）
 
   ```bash
   npm run test:all:visual
@@ -696,8 +707,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 ```
 apps/desktop/tests/visual-testing/
-├── views/        # 单视图快照(43 用例：23 核心 + 20 补充)
-├── workflows/    # 多步工作流(50 用例：32 核心 + 18 补充)
+├── views/        # 单视图快照(54 用例：35 核心 + 19 补充)
+├── workflows/    # 多步工作流(49 用例：31 核心 + 18 补充)
 ├── providers/    # 本地检测器:像素对比 + OCR
 ├── base-screenshots/  # 基准图(8 张核心视图)
 └── reports/      # diff 图 + judge-report.md + JSON
@@ -723,7 +734,7 @@ npm run test:visual:pixel
 # 像素失败后生成 Agent 判断报告
 npm run test:visual:agent
 
-# 发版前(必跑,94 用例全量)
+# 发版前(必跑,103 用例全量;逐套隔离,一套红不停后面三套)
 npm run test:all:visual
 ```
 
@@ -731,11 +742,13 @@ npm run test:all:visual
 
 1. **pre-commit 不集成**视觉测试(需 dev server,触发频率过高)
 2. **PR 合入前必须通过** `npm run test:visual:pixel`(非零退出码禁止合入)
-3. **发版前人工确认**已跑 `npm run test:all:visual` 且无未审核的回归（**当前 `scripts/release-gate.mjs` 未将视觉回归纳入硬门禁**，它只核验版本 bump + CHANGELOG 收口 + 破坏性变更级别；因此本条是人工核查项而非自动拦截。若要将其升级为「必须通过」的硬门禁，需先给 release-gate 接入视觉回归结果标记的硬检查，并定义时长预算/flaky/基线策略）
+3. **发版前人工确认**已跑 `npm run test:all:visual` 且无未审核的回归（**当前 `scripts/release-gate.mjs` 未将视觉回归纳入硬门禁**，它只核验版本 bump + CHANGELOG 收口 + 破坏性变更级别；因此本条是人工核查项而非自动拦截。若要将其升级为「必须通过」的硬门禁，需先给 release-gate 接入视觉回归结果标记的硬检查，并定义时长预算/flaky/基线策略）。
+   自 2026-09-28 起全量四套**已由 CI 每次 main push / dispatch 代跑**（Visual Tests workflow 的 `Full visual suites` 步骤，产物在 `visual-test-reports` artifact），人工核查项从此不必每次手跑；但该步骤**刻意 `continue-on-error: true`**——现有工作流基线不同源（实测同屏两态差 0.16%、仓库基线 vs CI 渲染差 3.82% ⇒ 不可判据），提前接进判定就是给 main 挂长期假红。升级为阻断门禁的两个前提见 `openspec/changes/visual-all-baseline-ci/`，反断言必须与同源基线同 PR。
 4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
 5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view\_image 看图判断
 6. 所有命令必须在 `apps/desktop/` 目录下执行
 7. **基线必须与比对环境同源（MUST）**：`test:visual:pixel` 在 CI 用 `windows-latest` + CI 的 Chromium/字体渲染做比对，因此**基线只能取自 CI 产物**（`quality-gate-visual-reports` artifact 里的 `screenshots/<view>-current.png`），**禁止**把本地 `test:visual:update-baseline` 截出的图直接提交。反例实测：`accounts-list.png` 曾在本地机器上捕获并入库，与 CI 渲染产生 **3.659%** 的全页文字亚像素重影差异（两次不同分支 CI run 之间比对为 **0 px**，证明 CI 渲染是确定性的），而 `PIXEL_THRESHOLD=0.06` 是**全页**容差——门禁因此长期被环境噪声吃掉、对局部回归近乎失明。判据：换/补基线后必须自证「新基线 vs 同一次 CI 渲染 = 0 px」，并确认差异中**属于本次代码改动的比例**（分区统计），不能让噪声占大头却报「PASSED」。
+   `test:all:visual` 的四套用例同理：其**唯一** CI 产物来源是 Visual Tests workflow（main push / dispatch）上传的 `visual-test-reports` artifact，本机截图不得提交为基线；该步骤跑完前一套红也会跑完后三套，所以 artifact 始终含全部四套的截图。
 
 ### 失败处理流程
 

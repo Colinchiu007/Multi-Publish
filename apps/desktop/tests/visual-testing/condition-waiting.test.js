@@ -144,26 +144,20 @@ describe('视觉测试条件等待合同', () => {
     expect(ipcMock).toContain('visualProviders');
   });
 
-  it('完整视觉命令聚合四套用例并覆盖 103 个场景', () => {
+  it('完整视觉命令指向聚合器，且聚合器覆盖四套注册表的 103 个场景', () => {
     const packageJson = require('../../package.json');
-    const { viewTests } = require('./views/all-views.visual.test');
-    const { supplementaryViewTests } = require('./views/supplementary-views.visual.test');
-    const { workflowTests } = require('./workflows/all-workflows.visual.test');
-    const { supplementaryWorkflowTests } = require('./workflows/supplementary-workflows.visual.test');
+    const { visualSuites } = require('./scripts/run-all-visual');
     const command = packageJson.scripts['test:all:visual'];
 
-    expect(command).toContain('views/all-views.visual.test.js');
-    expect(command).toContain('views/supplementary-views.visual.test.js');
-    expect(command).toContain('workflows/all-workflows.visual.test.js');
-    expect(command).toContain('workflows/supplementary-workflows.visual.test.js');
+    expect(command).toBe('node tests/visual-testing/scripts/run-all-visual.js');
+    // 指到聚合器而不是 `a && b && c && d` 串联：串联时第一套红会让后面三套一次都不跑，
+    // "CI 产物里有没有这套用例的截图"就会取决于前一套的成败，QM-4 第 7 条的基线同源无从执行。
+    expect(visualSuites.map(suite => suite.id)).toEqual([
+      'views', 'supplementary-views', 'workflows', 'supplementary-workflows',
+    ]);
     // 总数随用例注册表增删而变，改这里的前提是"确实新增/下线了一条用例"；
-    // 它锁的是"四套注册表都被命令聚合到、且没有整批没加载"（少加载一整套会一次差几十条）。
-    expect(
-      viewTests.length
-        + supplementaryViewTests.length
-        + workflowTests.length
-        + supplementaryWorkflowTests.length,
-    ).toBe(103);
+    // 它锁的是"四套注册表都被聚合到、且没有整批没加载"（少加载一整套会一次差几十条）。
+    expect(visualSuites.reduce((sum, suite) => sum + suite.registry.length, 0)).toBe(103);
   });
 
   it('浏览器原生文本变化轮询只使用标准 CSS 选择器', () => {

@@ -215,12 +215,17 @@ const platformsMixin = {
 
   // 无独立标题字段的平台（快手作品描述）：标题与正文合并成一段文案写进编辑器，
   // 长度按平台 max_content 截断（快手 1000），避免后续正文填充把标题覆写掉。
+  // 2026-10-08 CCG 评审（W1/W2）统一口径：合并分隔符从 '\n\n' 收敛为 '\n'、
+  // 截断从 UTF-16 slice 改为按码点（不切断代理对），与注册表
+  // composeNoTitleDescription 及引擎各链（shipinhao/twitter/weibo/tiktok）一致。
   _composeEditorCaption(article, maxLen) {
     const limit = Number(maxLen) > 0 ? Number(maxLen) : 2000
     const parts = [article && article.title, article && article.content]
       .filter((v) => typeof v === 'string' && v.trim().length > 0)
       .map((v) => v.trim())
-    return parts.join('\n\n').slice(0, limit)
+    const composed = parts.join('\n')
+    const chars = Array.from(composed)
+    return chars.length > limit ? chars.slice(0, limit).join('') : composed
   },
 
   // ========== 视频上传完成强判定 ==========
@@ -350,7 +355,10 @@ const platformsMixin = {
 
     // title（逐候选回退 + 无独立标题字段时写进编辑器）
     log.info('RpaView', '[' + platform + '] title input hasTitle=' + Boolean(article.title) + ' titleType=' + typeof article.title + ' selectorCount=' + (sel.title_input ? sel.title_input.length : 0))
-    const editorCandidates = sel.editor || sel.content_textarea || sel.textarea || sel.desc_textarea
+    // caption_textarea（instagram/tiktok 的描述输入）纳入候选链：这两个无标题平台
+    // 的标题合并路径依赖编辑器候选解析（CCG codex Info3 行为锁暴露的缺口——
+    // 此前 caption_textarea 不在链里，instagram/tiktok 的标题从未进入合并路径）
+    const editorCandidates = sel.editor || sel.content_textarea || sel.textarea || sel.desc_textarea || sel.caption_textarea
     // 无标题平台（注册表 titleMode=caption：视频号/快手/微博/X/Instagram/TikTok）：
     // 平台发布页没有独立标题输入框，显式跳过 title_input 选择器解析（省去首次候选
     // 10s 超时——此前靠选择器解析失败的隐式回退，行为正确但不可声明、白等超时），

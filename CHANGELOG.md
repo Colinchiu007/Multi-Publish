@@ -30,6 +30,106 @@
 - 回归：`Publish.test.js` + `CoverCropDialog.test.js` + `useCoverPreview.test.js` = 88 passed；`overlay-view-suspension` + `shell-mode-6b` = 19 passed；`views-deep2` + `views-coverage` = 16 passed；`index.test.js`（CSP 守卫）通过；`vite build` 通过（模板编译）；eslint 改动文件零告警；`verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内。
 - 行尾对账：四份共享文档均按**字节前插/追加**，未触碰任何既有行；`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等（无幽灵行）。
 
+# [未发布]
+
+### 变更
+
+- **债务登记：`max-lines-baseline.json` 的 `Publish.vue` 登记值 1333 → 1515（= main 实况）**。
+  登记值停在 1333，而 main 上 `apps/desktop/src/views/Publish.vue` 实测已 1515 行 —— 这 +182 是已合进 main
+  的上游改动、从未登记。容差 200 ⇒ 天花板 1533，main 自己只剩 18 行余量，于是任何再动该文件的 PR 一律
+  `LEDGER_GREW` 红，与它加了什么无关。本次把登记值对齐实况，属**接受已发生的漂移，不是清理债务**；
+  该文件仍是 1515 行巨型组件，拆分另行登记为 OPEN 债务（见 `.quality-gates.md` 本条记录）。
+
+---
+
+# [未发布] docs(gates): 回填 #2589 / #2598 的置顶文档欠账（2026-09-29，topdoc-backfill-2589）
+
+### 根因（第一性原因）
+- 代码 PR 只要碰 `CHANGELOG.md` / `.quality-gates.md` / `scripts/gate-record-debt-ledger.json` 这三份「新条目插顶部」的文件，main 每前进一次该 PR 就 `mergeStateStatus=DIRTY`，每解一轮冲突要重烧一整轮约 20 分钟的全量 CI。实测：#2589 因此作废 3 轮、#2598 第 4 轮三份全冲突。两个 PR 遂把置顶改动整体移出（`git checkout --theirs`，相对合并基零改动），代价就是本条要还的账。
+
+### 变更
+- `.quality-gates.md`：新增两篇执行记录（`visual-all-baseline-ci` / `governor-2566-closeout`），两者的 `远程同步` 行**直接写 PASS** —— 记录写于 PR 已合并之后，merge SHA 与时间可离线取证（`git log origin/main` 尾锚 `(#2589)` = `54b529d3…`、`(#2598)` = `5ea5df82…`，各自与 `gh pr view` 两路同 SHA；两个远端分支 `ls-remote --heads` 均返回 0 行）。相比原方案**少两笔长期欠账**：不再需要 PENDING 行，也就不需要往账本 JSON 加登记项。
+- `.quality-gates.md`：给 `governor-quota-reserve`（#2566）那条执行记录补上此前**整条缺失**的 `| 远程同步 | PASS |…|` 行（该记录写于 PR 未合并时，且当时没有门禁盯"缺行"），证据同上口径为 `0f5c8ea2…` / `2026-09-28T16:36:48Z`。
+- `CHANGELOG.md`：补 #2589（全量四套视觉接入 CI 基线采集）与 #2598（#2566 openspec 归档与主规格同步）两条本应在各自 PR 里写入的条目。
+- 记录内容按 **main push 首跑的 runner 实测**写，而不是本机三次跑的推论：`[VISUAL-ALL-SUMMARY] suites=4 total=103 passed=93 failed=10 aborted=0`，逐套 `elapsed_ms=21588/17896/21800/6791`（约 68 秒 ≪ 20 分钟预算 ⇒ 预算不改）；10 条红里 9 条差异率 1.07%–2.26%、仅 1 条是已登记的 `dashboard-benchmark-title-reset` 10.88% ⇒ 首次给出「工作流基线不同源」的 runner 侧量化证据，也是 change tasks 5.1 的直接依据。
+- 新增一条取证口径：`continue-on-error: true` 的步骤即使 rc=1，API 里 `steps[].conclusion` 仍报 `success` ⇒ 「步骤绿」既不能证明采集成功、也不能证明它跑过；判据固定为日志里的 `[VISUAL-SUMMARY]` / `[VISUAL-ALL-SUMMARY]` 行 + artifact 文件清单（实测 `visual-test-reports` 23,461,800 字节含 `reports/visual-all-summary.json` 与 `screenshots/` 96 条目）。
+- 本 docs PR 自己的执行记录按既有模板新增，其 `远程同步` 行此刻只能 PENDING，已同 PR 往 `scripts/gate-record-debt-ledger.json` 登记原因（回填者须删除该登记项，清单只能缩小）。
+
+### 影响
+- #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
+- 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
+
+# [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
+
+### 变更
+- `.quality-gates.md` CCG 评审记录的「远程同步」行 PENDING → PASS 回填（squash `633ee1c2`，2026-09-28T22:11:00Z，`git log origin/main --grep='(#2588)$'` 取证）；`gate-record-debt-ledger.json` 同步删除登记项（30 条，无陈旧）。
+- `01-docs/learnings.md` 置顶 +2 条：① PR DIRTY（冲突）状态整体阻断 pull_request CI 触发（synchronize 事件静默不触发，workflow_dispatch 不挂 PR 检查不能替代；推送后 5 分钟零 run 先查 mergeStateStatus）；② 合并输出截断让冲突标记静默入库（`Select-Object -Last 4` 切掉点文件的 CONFLICT 行；解冲突脚本的 markers/debt 检查必须 gate 住 commit，union 源必须取已验证无标记的历史提交）。
+
+### 验证
+- docs-only：`node scripts/check-gate-record-debt.js` rc=0（顶部记录带行、无陈旧登记）；品牌残留 PASS。
+
+---
+
+# [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
+
+### 变更
+- **评审执行**：用户指令补跑 CCG 双模型评审（claude 前端路 + codex 后端路，`codeagent-wrapper --lite` 并行派发同一消息，diff 锚点 PR #2576 + #2579）；claude 5W+6I、codex 5W+3I，findings 逐条核实处置回写 `.quality-gates.md`。
+- **🔴 codex W1（实质 Critical）**：`usePublishFlow.normalizePlatformOverrides` 硬编码白名单把 B站分区/版权/合集、YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、公众号摘要/评论开关等注册表面板字段在 IPC 组装前**静默丢弃**（UI 可编辑但发布不生效；两侧测试各自全绿，只有全链路暴露）→ 改注册表驱动归一化（与面板同口径）+ 2 条全链路回归。
+- **claude W1+W2/codex W2**：`_composeEditorCaption` 统一 `join('\n')` + 按码点截断（原 `\n\n` + UTF-16 slice 可切代理对）。
+- **claude W3**：`validatePlatformContent` 无标题合并复用 `composeNoTitleDescription`（消灭第二份内联实现）。
+- **claude W4/codex W5**：引擎 `content-formatter` 两表同步注册表口径（douyin title 30→55、xiaohongshu 40→20、wechat_mp content 50000→20000 等；无标题平台标题不单独截断）+ 新契约锁 `content-formatter-registry-sync.test.js` 6 例（含 douyin 40 字标题事故场景回归）。
+- **claude W5**：`getPlatformOverrideFields` 深拷贝 options/default（浅拷贝共享引用可突变污染注册表，实测实锤）+ 突变隔离回归（双版本）。
+- **codex W3**：面板 text/collection 截断改按码点（不切代理对）。
+- **codex Info3 暴露真实缺口**：`caption_textarea`（instagram/tiktok 描述输入）不在 `_publish_generic` 编辑器候选链——两平台标题合并路径从未生效 → 候选链补齐 + instagram 行为锁。
+- **codex Info2**：parity 测试升级全平台穷举（meta/isNoTitle/limits/overrideFields×2/commonFormFields）。
+- 登记不改 6 项（各带理由）：类型强转边界（无 UI 触发路径）、platforms.yaml 收敛（另立 change）、statuses 语义（JSDoc）、weibo title 透传（下游未用）、Twitter/TikTok 源码结构锁（execute 需网络）、RPA 截断来源（残余限制）。
+
+### 验证
+- shared-utils 全量 396（注册表 60 例）；桌面发布面 11 文件 294/294（usePublishFlow 62 例含 W1 全链路回归）；rpa-view-platforms 44/44；引擎全量 exit 0（含新契约锁 6/6 与旧值断言按注册表口径更新）
+- 安全维度两路评审均无发现（Vue 文本插值无 v-html、IPC 无凭证泄漏）
+
+---
+
+# [未发布] feat(publish): 视频文件选择反馈深度优化——常驻成功卡片 + 差异化提示 + 500MB 选前校验（2026-09-28，video-select-feedback）
+
+### 变更
+
+- **问题**：视频发布页选择本地视频后，唯一反馈是视口顶部 3 秒消失的 toast + 上传列表一行灰字小 chip，上传区零视觉变化——首次使用者普遍误判「点了没反应」；再次选择与首次提示完全相同，无法确认替换生效；UI 提示「最大 500MB」却从未在选择时校验。
+- **常驻成功卡片**：新增 `SelectedVideoCard.vue`（视频发布模式与图文含视频平台分支共用）——成功绿边框卡片显示文件名（加粗）、格式化大小（复用 `utils/bytes.js`）、格式徽标，自带「更换视频」「移除」操作；上传区选中后转绿实线边框，卡片随 `:key` 变更重播入场动画。
+- **差异化提示**（纯逻辑模块 `utils/video-selection-feedback.js` 单一来源 `classifyVideoSelection`）：首次选择 success「✅ 已选择视频：{name}」；替换不同文件 success「已替换为新视频：{name}（原：{previous}）」；重选同一文件降级 info「当前已是该视频」（状态零变化不报成功，避免虚假变更感）；超限拦截 warning「超过 500MB 上限（当前 {size}）」，且不覆盖旧选择。
+- **500MB 选前校验**：`VIDEO_MAX_BYTES` 常量 + `isVideoOversize`，选择时立即拦截反馈（此前延迟到发布才失败）；非法 size（NaN/负数/缺失）不拦截，交路径解析兜底。
+- **状态同步**：`video_path`（唯一真源）+ `videoFileMeta`（卡片元信息）+ `videoUploadFileList`（el-upload v-model:file-list）三者同步变更；卡片移除走 `clearFiles` + 清状态单入口；`triggerVideoReselect` 经隐藏 file input 重开对话框；query/草稿恢复（无 File 元信息）卡片降级为路径推导 basename + 「大小未知」。
+- **i18n**：zh/en 成对新增 `videoSelectedNamed` / `videoReplaced` / `videoReselectSame` / `videoTooLarge` / `videoCard.*`（message function 插值，走 notifyCore 防泄漏与 notify:log 上报）。
+
+### 验证
+
+- `video-selection-feedback.test.js` 14/14（500MB 临界/非法值、形态分类全路径、元信息提取兜底）
+- `SelectedVideoCard.test.js` 5/5（空态不渲染/元信息渲染/降级渲染/事件/英文 locale）
+- `Publish.test.js` 69/69（新增 9 例：首次命名 toast、替换双名、同文件 info、超限保留旧选择、移除清空、卡片移除 clearFiles、视频模式卡片 DOM、query 恢复降级、triggerVideoReselect）
+- 详见 [01-docs/PRD-VIDEO-SELECT-FEEDBACK-2026-09-28.md](01-docs/PRD-VIDEO-SELECT-FEEDBACK-2026-09-28.md)
+
+---
+
+# [未发布] feat(门禁记录): 让「执行记录整块缺远程同步行」不再隐形——最新一篇强制带行，历史缺口只做可见（2026-09-28，gate-record-row-required）
+
+### 变更
+- `scripts/check-gate-record-debt.js` 新增覆盖检测：`collect()` 返回 `recordCount / recordsWithoutRow / topRecord / topRecordMissingRow`，并强制**最顶部那篇执行记录必须含 `远程同步` 行**；历史缺席篇数照旧打印但**不拦截**。`format()` 的提示改为点名两种合法写法（已合并按 PASS 口径回填；未合并写 PENDING 且同 PR 登记 `gate-record-debt-ledger.json`）。
+- 顺带修 `loadLedger()` 忽略参数的缺陷：测试一直按 `loadLedger(root)` 调用而无参实现永远读生产清单，夹具里的 ledger 形同不存在（"给了路径却拿到真仓状态"，属假绿通道）。现在认参数，并有一条用例断言夹具与真实清单可区分。
+- `scripts/check-gate-record-debt.test.js` 新增 7 条（8 → 15）：顶部缺行判红并点名、历史缺行只可见、**结构性章节不计入执行记录**、覆盖判据不得随行尾漂、`loadLedger` 认参数、真仓自检。该文件已由 #2561 接进 `Gate 2c`，未新增文件故无需重新接线。
+
+### 为什么（实测，不是推测）
+- #2561 的棘轮只管「已存在的行是否收口」。实测 origin/main：316 篇形如执行记录的 `## ` 标题里 **192 篇整块没有这一行**，而门禁 `RC=0` 报 OK。缺席比说谎更糟——说谎的记录下一个人看得见并会去核，缺席的记录连怀疑对象都没有。
+- 「执行记录」不能按"所有 `## ` 标题"算：321 个标题里有 **5 个是结构性章节**（固定强制门禁／提交前自检清单／强制卡点规则／违规处理／质量节拍阶段对照），它们永远不该有这一行，不排除就恒红。判据取 `^本次执行记录` 前缀 或 标题含日期，得 316 篇，与独立统计逐数吻合（316 / 192 / 128）。
+- 强制面刻意只收「最顶部一篇」而非「全部」：记录按惯例插在文件顶部，所以"最新一篇"定义良好、零基线、零清单维护，也不会一上线就红 192 条而逼人放宽阈值。**已知漏洞如实写进代码注释**：新记录若被插在非顶部位置拦不住。
+
+### 验证
+- `node --test scripts/check-gate-record-debt.test.js` ⇒ 15 passed / 0 failed。
+- 变异反证 4 格（驱动带前置锚点断言 + 每条 try/finally 还原 + 每轮 clean 断言）：强制项恒 false ⇒ 2 红；分类退化为"所有 ## 都是记录" ⇒ 1 红；可见项恒空 ⇒ 2 红；`loadLedger` 退回忽略参数 ⇒ 1 红；收尾还原 byteEqual=true、复跑 15/15。
+- 反证驱动自身先失效过一次并已记入 `.quality-gates.md`：v1 循环中途抛异常且无 finally 还原，把源码留在变异态，v1 第二次运行遂以变异版本为基线，四条结果全部无效（只有 `same=false` 和锚点 0 命中在报警）。据此重写 v2。
+- 本 PR 自己的门禁记录按新规则写成 `PENDING` 并在同一条 PR 里登记 ledger —— 即这条新锁的第一次现场生效。
+
+---
+
 # [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
 
 ### 变更

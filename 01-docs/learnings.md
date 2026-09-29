@@ -16,6 +16,39 @@
 - **组件位置一搬家，所有「按源码结构取块」的锁必须跟着搬，且旧位置的反证对新结构不构成证据（本轮复发风险最高的静默失效）**：原本钉在 `Publish.vue` 的 `COVER_PREVIEW_OVERLAY_OWNER` / `closeCoverPreview` / `suspendCoverPreviewOverlay` 三条断言在拆分后全部指向不存在的符号 —— 若只把正则改成读新文件就收工，锁看起来还在，实际守的是一个空壳。正确动作有两步：① 断言搬家（改读 `CoverPreviewDialog.vue` 的 `OVERLAY_OWNER` / `suspendOverlay` / `releaseOverlay` / `watch(visible)`）；② **重跑变异**，因为「1 红 / 4 红」这些数字是旧结构下的测量。本次重测：摘 `else` 分支释放 ⇒ **4 红**（结构锁 + 3 条行为用例），删 `onBeforeUnmount` ⇒ **1 红**，owner 复用 `settings-dialog` ⇒ **1 红**。另加一条**正控**（不施加变异必须 rc=0 且报出 passed 计数）：第一次跑时我的 `FAIL` 行正则没匹配上 vitest 的输出格式，三条变异全报「rc=1 但无 FAIL 行」，靠 `Tests 4 failed | 84 passed` 那行才确认变异真的被抓 —— **「探针无值」仍然是先怀疑探针，不是先宣布失败**。
 
 
+## 交互反馈只有「瞬时通知」一维时，用户必然误判没反应——补齐常驻态与元信息两维，差异化按「状态是否真变」分级（video-select-feedback，2026-09-28）
+
+- **「点了没反应」的第一性根因是反馈维度缺失，不是反馈不够醒目（反馈设计）**：视频选择后其实有 toast
+  （视口顶部 3s）也有 file-list 小字 chip，但用户视线焦点停在上传区——恰是唯一零变化的地方。判据：
+  操作位置与反馈位置分离 + 反馈会消失 + 操作区无状态变化，三者叠加必然产生「没反应」误判。
+  补法是三维度齐上：瞬时 toast（带文件名）+ 常驻成功卡片（文件名/大小/格式 + 更换/移除操作）+
+  操作区本身转成功态（绿实线边框）。
+
+- **差异化提示的分级判据是「状态是否真的变化」，不是「用户做了动作」（提示分级）**：换文件 = 状态变化 →
+  success 且双名对照（新名 + 原名，直接回答「旧文件真的被换掉了吗」）；同文件重选 = 状态零变化 →
+  降级 info（报 success 会制造虚假变更感）；超限 = 被拒绝 → warning 且**不覆盖旧选择**（静默替换或
+  延迟到提交才报错，都会让用户在错误状态下继续填半天表单）。否决「每次重选弹确认框」：打断心流，
+  且 limit=1 替换语义本就符合预期。
+
+- **UI 文案写了约束而代码不校验 = 契约谎言（校验时机）**：上传区提示「最大 500MB」存在数月但
+  `handleVideoFileChange` 从未校验，用户选了超大文件当时无感知、发布才失败。判据：凡 UI 文案声明的
+  约束（大小/格式/数量），必须在**用户做出该动作的瞬间**给反馈，而不是延迟到下游（发布/提交）。
+  非法值（NaN/负数/缺失）不拦截，交由路径解析兜底——两道校验不要抢同一类失败。
+
+- **反馈形态判定抽成纯函数，视图层只做映射（结构）**：`classifyVideoSelection({prevPath, nextPath,
+  sizeBytes})` 返回 oversize/unresolved/first/replaced/reselected 五值枚举，无 Vue/i18n 依赖，
+  14 例边界单测直接锁死；Publish.vue 拿枚举映射 toast 级别与文案。好处：两处上传区（视频发布模式 +
+  图文含视频平台分支）共用同一判定链，天然不会漂移出第二种口径。
+
+- **二进制文档（含历史 NUL 字节）的前置式冲突，解法是「checkout --ours + 字节级重前置」（变基纪律）**：
+  CHANGELOG/.quality-gates 被 git 按二进制处理，rebase 时无法三方合并。正解：`git checkout --ours`
+  取 main 版本（含他人新条目）→ 用「原字节前缀 + 新块 + 原字节后缀」脚本重前置自己的块 → add 后
+  `rebase --continue`。绝不手改冲突标记区（二进制文件的标记区是整文件）。
+
+- **PR 处于 CONFLICTING 时 CI 根本不触发——「push 了但没 run」先查 mergeable（CI 排障）**：本轮
+  push 后 `gh run list` 为空、`gh pr checks` 报 no checks，一度误判为 CI 故障。实况是 main 前进了
+  3 个 PR 导致冲突，GitHub 对冲突 PR 不启动 pull_request 工作流。判据：push 后无 run + mergeable
+  非 MERGEABLE = 先解冲突再强推，别等 CI。
 ## 把 flaky 测试改成假时钟之前，先问「它报的随机性是不是产品行为」——本条里答案是 yes，于是修测试就成了钉 Bug（governor-quota-reserve，2026-09-28）
 
 - **登记为「CI 满载计时抖动」的红灯，可能是一条被误诊的产品缺陷（诊断纪律）**：这条在 `.quality-gates.md`
@@ -58,6 +91,11 @@
   判据：改文本文件一律**同域读写**（utf8 读 utf8 写），或者干脆用 `git show HEAD:<file>` 为底重建；
   改完除两口径 numstat 外，还要跑 eslint 的 `no-irregular-whitespace`——它是这类「字节被重新解释」
   的专用探针。还原后用 md5 比对确认变异反证没留残留。
+
+## PR 处于 DIRTY（冲突）状态会整体阻断 pull_request CI 触发；合并输出截断会让冲突标记静默入库（publish-capability-ccg-review 合并马拉松，2026-10-08）
+
+- **DIRTY 阻断 CI 触发是全或无的**：PR 与 main 冲突时（merge ref 无法计算），push 的 synchronize 事件**静默不触发任何 workflow**——实测连续两次推送 + close/reopen 全部零 run（API 查 `head_sha` 的 `total_count=0`，GitHub 状态页全绿、他方 PR 正常触发）。判据：**推送后 5 分钟仍无任何 run，先查 `mergeStateStatus` 是否 DIRTY**，是则先解冲突再谈 CI；workflow_dispatch 能跑（走分支 ref）但**不挂 PR 检查**，不能替代。本仓 main 高频推进（他方会话每 15–30 分钟合一个 PR），CI 25–30 分钟的窗口期内 main 大概率再动——合并马拉松是常态，唯一解法是「CI 绿了发现 DIRTY → 立即合并推送重跑」，别指望一次过。
+- **合并输出必须看全，解冲突脚本的检查必须 gate 住 commit**：`git merge ... | Select-Object -Last 4` 把 `.quality-gates.md` 的 CONFLICT 行切掉了（git 按字母序输出，点文件在最前），于是只解了 CHANGELOG/ledger，gates 带着 `<<<<<<<` 标记入库（下一轮脚本打印 `markers: true` 但没拦住推送，又推了一次）。判据：① 解冲突后**必须**跑 `node scripts/check-gate-record-debt.js` 且以 rc=0 作为 commit 的前置条件（打印不算，gate 才算）；② 对含标记的文件做 union 时，源必须取**已验证无标记**的历史提交，不能取当前 HEAD（它可能就是带标记的那个）；③ PowerShell 管道截断 native 输出时用 `Select-String -Pattern "CONFLICT"` 全量过滤，不要 `Select-Object -Last N`。
 
 ## git add -A 会静默跳过 .gitignore 命中的新文件——核心交付物可能从未入库（publish-capability-docs，2026-10-08）
 

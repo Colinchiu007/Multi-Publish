@@ -41,6 +41,46 @@ function fixture(rows, opt = {}) {
   return dir
 }
 
+test('同一条记录被写两遍必须判红（单向包含判据抓不到重复）', () => {
+  const dir = fixture([
+    { head: '记录甲（alpha，2026-09-28）', status: 'PASS' },
+    { head: '记录甲（alpha，2026-09-28）', status: 'PASS' },
+  ])
+  const r = checker.collect({ root: dir, ledger: {}, duplicatesAllowed: new Set() })
+  assert.strictEqual(r.duplicates.length, 1, JSON.stringify(r.duplicates))
+  assert.strictEqual(r.duplicates[0].count, 2)
+  assert.match(r.duplicates[0].text, /记录甲/)
+  assert.match(checker.format(r), /同一条执行记录被写了两遍/)
+})
+
+test('允许清单只能缩小：清单内的历史重复不报，其余重复一律报', () => {
+  const dir = fixture([
+    { head: '历史重复（legacy，2026-08-19）', status: 'PASS' },
+    { head: '历史重复（legacy，2026-08-19）', status: 'PASS' },
+    { head: '新写的重复（fresh，2026-09-28）', status: 'PASS' },
+    { head: '新写的重复（fresh，2026-09-28）', status: 'PASS' },
+  ])
+  const r = checker.collect({
+    root: dir,
+    ledger: {},
+    duplicatesAllowed: new Set(['历史重复（legacy，2026-08-19）']),
+  })
+  assert.strictEqual(r.duplicates.length, 1, JSON.stringify(r.duplicates))
+  assert.match(r.duplicates[0].text, /新写的重复/)
+})
+
+test('真实仓库：允许清单里的历史重复确实仍然存在（清单不得变成无人认领的死条目）', () => {
+  const r = checker.collect({ root: path.join(__dirname, '..') })
+  assert.deepStrictEqual(r.duplicates, [], JSON.stringify(r.duplicates))
+  const heads = new Set()
+  for (const line of fs.readFileSync(path.join(__dirname, '..', '.quality-gates.md'), 'utf8').split('\n')) {
+    if (/^## /.test(line)) heads.add(checker.normalize(line.slice(3)))
+  }
+  for (const allowed of checker.DUPLICATE_HEADINGS_ALLOWED) {
+    assert.ok(heads.has(allowed), `允许清单里的 ${allowed} 在文件里已找不到 ⇒ 该历史重复已被清理，必须把条目一并删掉（清单只能缩小）`)
+  }
+})
+
 test('全 PASS 的记录不产生欠账，也不报陈旧登记', () => {
   const dir = fixture([
     { head: '记录甲（alpha，2026-09-28）', status: 'PASS', evidence: 'PR #9001 squash 合并' },
@@ -114,7 +154,118 @@ test('文件缺失必须抛错而不是静默通过', () => {
   assert.throws(() => checker.collect({ root: path.join(os.tmpdir(), 'definitely-not-here-9x7'), ledger: {} }), /不存在/)
 })
 
-// ---- the real CI assertion: the repo's own file must be clean against its own ledger ----
+// ---- 覆盖检测：整块缺 远程同步行 的历史缺口只做可见，最新一篇必须带行 ----
+//
+// 加这一段的原因（实测，非推断）：原实现只审计「已存在的行是否收口」，对「记录根本没有这一行」
+// 完全失明。origin/main 2026-09-28 上 316 篇执行记录里 192 篇没有这一行，而门禁 RC=0 报 OK。
+// 缺席比说谎更糟：说谎的记录下一个人看得见，缺席的记录连怀疑的对象都没有。
+//
+// 强制面刻意收窄成「最顶部一篇记录必须有行」：记录按惯例插在文件顶部 ⇒ "最新一篇" 定义良好，
+// 无需基线、无需清单维护、也不会一上线就红 192 条。
+// 已知漏洞（如实记录，不假装已闭合）：新记录若被插在非顶部位置，本条拦不住。
+
+function mixFixture(blocks, opt = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-cov-'))
+  const lines = []
+  for (const b of blocks) {
+    lines.push(`## ${b.head}`)
+    lines.push('')
+    if (b.row !== null) {
+      lines.push('| 门禁 | 状态 | Fresh 证据 |')
+      lines.push('|------|------|-----------|')
+      lines.push(`| 远程同步 | ${b.row} | ${b.evidence || '—'} |`)
+      lines.push('')
+    }
+    if (b.body) lines.push(b.body, '')
+  }
+  const text = opt.crlf ? lines.join('\r\n') : lines.join('\n')
+  fs.writeFileSync(path.join(dir, '.quality-gates.md'), text, 'utf8')
+  return dir
+}
+
+test('最顶部执行记录缺 远程同步 行 ⇒ 判红，且点名该记录标题与两种合法写法', () => {
+  const dir = mixFixture([
+    { head: '本次执行记录：新功能甲（feat-a，2026-09-28）', row: null },
+    { head: '本次执行记录：旧功能乙（feat-b，2026-09-27）', row: 'PASS', evidence: 'PR #9002 合并' },
+  ])
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.topRecordMissingRow, true)
+  assert.match(r.topRecord.text, /新功能甲/)
+  assert.strictEqual(r.recordsWithoutRow.length, 1)
+  const msg = checker.format(r)
+  assert.match(msg, /最顶部的执行记录缺 远程同步 行/)
+  assert.match(msg, /gate-record-debt-ledger\.json/, '提示必须指向登记路径，否则作者只能猜')
+  assert.match(msg, /PENDING/)
+})
+
+test('顶部记录带行时，历史缺行的记录只报可见、不判红（否则一上线就红 192 条而不可用）', () => {
+  const dir = mixFixture([
+    { head: '本次执行记录：最新（newest，2026-09-28）', row: 'PENDING', evidence: '待合并' },
+    { head: '本次执行记录：历史一（h1，2026-09-01）', row: null },
+    { head: '本次执行记录：历史二（h2，2026-08-01）', row: null },
+  ])
+  const ledger = { '本次执行记录：最新（newest，2026-09-28）': '本 PR 合并后由后续 docs PR 回填并删除本条' }
+  const r = checker.collect({ root: dir, ledger })
+  assert.strictEqual(r.topRecordMissingRow, false)
+  assert.strictEqual(r.recordsWithoutRow.length, 2, '历史缺口必须被数出来')
+  assert.match(checker.format(r), /2 篇执行记录整块没有 远程同步 行/)
+  assert.strictEqual(r.open.length + r.stale.length, 0)
+  assert.match(checker.format(r), /^OK/m, '历史缺行不得让门禁判红')
+})
+
+test('结构性章节（无日期、非「本次执行记录」前缀）不计入执行记录，缺行不误报', () => {
+  // 实测 origin/main：321 个 ## 标题里 5 个是 固定强制门禁 / 提交前自检清单 / 强制卡点规则 /
+  // 违规处理 / 质量节拍阶段对照 —— 它们永远不会有这一行，若计入则判据恒红。
+  const dir = mixFixture([
+    { head: '本次执行记录：真记录（real，2026-09-28）', row: 'PASS', evidence: 'PR #9003' },
+    { head: '违规处理', row: null, body: '违反强制检查视为流程违规。' },
+    { head: '提交前自检清单（必须全部勾选）', row: null },
+  ])
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.recordCount, 1, '结构章节不得算执行记录')
+  assert.strictEqual(r.headingCount, 3)
+  assert.strictEqual(r.topRecordMissingRow, false)
+  assert.strictEqual(r.recordsWithoutRow.length, 0)
+})
+
+test('覆盖判据不得随行尾漂（同一内容 CRLF 检出与 LF blob 必须同结论）', () => {
+  const blocks = [
+    { head: '本次执行记录：甲（a，2026-09-28）', row: null },
+    { head: '本次执行记录：乙（b，2026-09-27）', row: 'PASS' },
+  ]
+  const a = checker.collect({ root: mixFixture(blocks, { crlf: false }), ledger: {} })
+  const b = checker.collect({ root: mixFixture(blocks, { crlf: true }), ledger: {} })
+  assert.strictEqual(a.topRecordMissingRow, true)
+  assert.strictEqual(b.topRecordMissingRow, a.topRecordMissingRow)
+  assert.strictEqual(b.recordsWithoutRow.length, a.recordsWithoutRow.length)
+})
+
+test('loadLedger 必须认参数：传夹具目录时不得静默读真实清单', () => {
+  // 该测试文件一直按 loadLedger(root) 调用，而旧实现签名是无参 —— 于是永远读生产 ledger，
+  // 夹具里的 ledger 形同不存在（"给了路径却拿到真仓状态"，属假绿通道）。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-ledger-arg-'))
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'scripts', 'gate-record-debt-ledger.json'),
+    JSON.stringify({ '记录甲': '夹具里的原因' }),
+    'utf8',
+  )
+  assert.deepStrictEqual(checker.loadLedger(dir), { 记录甲: '夹具里的原因' })
+  assert.deepStrictEqual(checker.loadLedger(path.join(dir, 'nowhere')), {})
+  assert.notDeepStrictEqual(checker.loadLedger(dir), checker.loadLedger(),
+    '夹具 ledger 与真实 ledger 必须能被区分开，否则参数是装饰')
+})
+
+test('真仓：顶部执行记录必须带 远程同步 行（这条是本增强的落地自检）', () => {
+  const root = path.resolve(__dirname, '..')
+  const r = checker.collect({ root, ledger: checker.loadLedger() })
+  assert.ok(r.topRecord, '一篇执行记录都识别不到 ⇒ 分类判据坏了，不是通过')
+  assert.ok(r.recordCount > 50, `识别到的执行记录数异常小：${r.recordCount}`)
+  assert.strictEqual(r.topRecordMissingRow, false,
+    `最新记录「${r.topRecord && r.topRecord.text}」缺 远程同步 行`)
+})
+
+
 test('真仓：每一条未收口的 远程同步 行都必须已登记，且登记清单里不得有已回填的陈旧项', () => {
   const root = path.resolve(__dirname, '..')
   const ledger = checker.loadLedger(root)

@@ -216,7 +216,10 @@ class KuaishouVideoChain {
     return { token, endpoint: this.uploadScheme + '//' + host }
   }
 
-  /** Step 2：分片上传（不签）：Content-Range bytes s-e/total，application/stream → checksum 必填（切片 §1.3） */
+  /** Step 2：分片上传（不签）：Content-Range bytes s-e/total → checksum 必填（切片 §1.3）。
+   *  Content-Type 修正（2026-09-29 网络级取证）：真实浏览器发 application/octet-stream
+   *  （旧切片的 application/stream 为过时读数）——错误 Content-Type 疑似破坏上传会话
+   *  状态（fragment 仍返回 checksum），complete 裸 400。 */
   async uploadFragments (filePath, size, token, endpoint, opts) {
     const total = Math.max(1, Math.ceil(size / this.partSize))
     const fh = fs.openSync(filePath, 'r')
@@ -229,7 +232,7 @@ class KuaishouVideoChain {
         const url = endpoint + '/api/upload/fragment?upload_token=' + encodeURIComponent(token) + '&fragment_id=' + (i + 1)
         const res = await this.uploadHttp.request({
           method: 'post', url, data: buf, maxBodyLength: Infinity,
-          headers: this._baseHeaders({ 'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size, 'Content-Type': 'application/stream' }),
+          headers: this._baseHeaders({ 'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size, 'Content-Type': 'application/octet-stream' }),
           validateStatus: (s) => s >= 200 && s < 500,
         })
         const d = res.data
@@ -254,20 +257,34 @@ class KuaishouVideoChain {
   }
 
   async _uploadPost (url) {
+    // 2026-09-29 请求级诊断定案：data:'' 会触发 axios 默认注入
+    // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
+    // urlencoded body → 裸 400（真实浏览器空 body 不设 Content-Type）。
+    // 显式置 null 移除该头（axios 语义：null = 删除），HTTP 层发 Content-Length: 0。
     const res = await this.uploadHttp.request({
       method: 'post', url: this._currentEndpoint + url, data: '',
-      headers: this._baseHeaders(),
+      headers: this._baseHeaders({ Accept: 'application/json, text/plain, */*', 'Content-Type': null }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
-      // 诊断增强（2026-09-28 活体 6.3 第七层）：complete 400 的响应体携带服务端
-      // 拒绝原因（此前被丢弃只剩状态码，无法诊断 API 契约差异）。截断防日志爆炸。
+      // 请求级诊断（2026-09-29 第七层三轮）：诊断数据嵌入错误消息本体——链的 logger
+      // 在桌面装配里是 console（stdout 不可见），而错误消息经 rpa-view-manager 的
+      // catch 落应用日志。cookie 脱敏为长度，截断防日志爆炸。
+      const safeHeaders = {}
+      for (const [k, v] of Object.entries(res.config && res.config.headers || {})) {
+        safeHeaders[k] = /cookie/i.test(k) ? '<' + String(v).length + 'c>' : v
+      }
+      let diag = ''
+      try {
+        diag = ' [diag req=' + JSON.stringify({ url: this._currentEndpoint + url, reqHeaders: safeHeaders }) +
+          ' resHeaders=' + JSON.stringify(res.headers || {}) + ']'
+      } catch (_) { /* 序列化失败不掩盖原始状态码 */ }
       let bodyHint = ''
       try {
         const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
         bodyHint = raw ? ' body=' + String(raw).slice(0, 200) : ''
       } catch (_) { /* 序列化失败不掩盖原始状态码 */ }
-      throw new KuaishouVideoError('kuaishou-video: ' + url + ' HTTP ' + res.status + bodyHint, errorCode.io_error)
+      throw new KuaishouVideoError('kuaishou-video: ' + url + ' HTTP ' + res.status + bodyHint + diag, errorCode.io_error)
     }
     return res.data
   }

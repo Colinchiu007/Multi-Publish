@@ -78,8 +78,8 @@ test("execute calls formatContent for douyin platform", async () => {
     "cookie"
   );
   assertEqual(r.success, true);
-  // 验证 formatContent 被调用：title 应截断到 30
-  assertEqual(capturedTaskData.title.length, 30);
+  // 验证 formatContent 被调用：title 40 字 ≤ 注册表 55 不截断（CCG W4：旧值 30 已同步注册表 55）
+  assertEqual(capturedTaskData.title.length, 40);
   assertEqual(capturedTaskData.content.length, 1000);
   assertEqual(capturedTaskData.tags[0], "#科技");
 });
