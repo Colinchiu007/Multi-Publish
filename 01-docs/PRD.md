@@ -18144,3 +18144,14 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **已知限制**：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框 `accept="image/*"`，故 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**（裁剪弹窗一直如此，本次让它可见）。
 
 **回归锁**：`useCoverPreview.test.js`（17 例，含竞态与导出完整性）、`Publish.test.js`「封面缩略图与放大预览」（12 例）、`CoverCropDialog.test.js`（复用 composable 后行为不变）、`overlay-view-suspension.test.js`（三 owner 结构锁）。五条变异反证均实测变红，且各配正控（不施加变异须报出 passed 计数）——先证明探针可信再谈缺陷。E2E 既有契约 `[data-testid="cover-state"]` 必须原样保留。
+
+## 快手上传域请求头对齐合同（2026-09-29 活体 6.3 第七层二轮定案，随本 PR）
+
+**请求级诊断二轮定案**：Content-Type 移除后 complete 仍裸 400——诊断响应头显示**边缘级拒绝**（无 X-KSLOGID/无 CORS 头，未到应用层）。剩余差异锁定两处：
+
+| 差异 | 真实浏览器 | 链（修复前） |
+|---|---|---|
+| Cookie | **无**（上传域 kuaishouzt.com 跨 registrable domain，同源策略不可带 kuaishou.com Cookie） | 带全量外域 Cookie——疑似触发边缘 WAF |
+| Referer | 短形态 `https://cp.kuaishou.com/` | 发布页长 Referer |
+
+**合同**：上传域（跨 registrable domain）请求一律无 Cookie + 短 Referer（与浏览器逐字一致）；cp.kuaishou.com 域请求（pre/finish/submit/list）保持带 Cookie + 长 Referer（同域合法且已实证可用）。回归锁：`kuaishou-video-chain.test.js` 分片/complete 断言 cookie undefined + 短 referer（红→绿实证）。

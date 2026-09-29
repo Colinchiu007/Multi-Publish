@@ -34,6 +34,25 @@
 - `usePublishFlow.test.js` +1：cancelPublish 单一定义结构锁（先红：当前 2 处定义；删后绿：1 处）。
 - 回归：apps/desktop 全量 vitest + packages/shared-utils 全量 vitest 通过；PRD 行尾对账（numstat 两口径一致）。
 
+# [未发布] feat(collection): 六平台视频链接采集 + 分享文本 CJK 健壮解析（2026-09-29，collect-video-platforms / PR #2637）
+
+### 根因（第一性原因）
+- 前端路由只覆盖 2/6 平台：`Collection.vue` 的 `VIDEO_PLATFORM_DOMAINS` 仅含抖音/小红书——B站/知乎/视频号/百家号的视频链接全部误走图文采集通道（trafilatura 拿不到视频口播文案）。现有 spec `aggregation-collect-video` 的路由 Requirement 已声明六平台域名，属 **spec-实现漂移**（且该 Requirement 文本与 Scenario「知乎链接走图文」自相矛盾，本次以 Scenario 语义为准修正为路径级路由）。
+- 分享文本解析吞中文（bug 级）：URL 正则按空白截断，实测 `https://v.douyin.com/abc/复制此链接`（URL 与中文无空格粘连）把中文吞进 URL，后端拿到脏链接。
+- 后端 `PLATFORM_DOMAINS` 缺百家号；浏览器降级通道只有抖音配置——小红书 yt-dlp 匿名直连拿不到数据（实测 SSR `noteDetailMap:{}` → "No video formats found"）且该错误不触发降级，小红书视频链接实际不可采集；视频号死于泛化错误，用户不知道是平台不支持。
+
+### 变更
+- **调研先行**：`01-docs/RESEARCH-VIDEO-COLLECT-OPEN-SOURCE-2026-09-29.md`（4 并行子代理逆向 8 个开源项目 + 本机 yt-dlp 2026.08.19 真实链接实测）。平台通道选型：B站/知乎 zvideo yt-dlp 直下（实测全链路通）、百家号纯 HTTP 解析页面内嵌 JSON（实测免登录免签名）、小红书 Playwright 降级（社区验证正路）、视频号如实报不支持（登录墙+视频流加密+解密开源库已下架）。许可证红线：TikTokDownloader（GPL）/ MediaCrawler（非商业）代码零复制，仅取 Apache-2.0/MIT 源（Evil0ctal CJK 排除正则、xhs/BBDown/you-get）与事实知识。
+- 后端：新增 `baijiahao_fetcher.py` 纯 HTTP 通道（花括号配平提取 `window.jsonData`——实测 JSON 后跟 `;window.firstScreenTime`，直接锚定 `</script>` 会匹配失败；`<video src>` 兜底；无视频报 `VIDEOCLONE_NO_VIDEO`、haokan 重定向专属错误）；`video_service.py` 百家号域名白名单 + 视频号前置报 `VIDEOCLONE_CHANNELS_UNSUPPORTED` + classify_download_error 补小红书 "No video formats found"/B站 412/-352 为 ANTI_BOT；`browser_fetcher.py` 小红书降级配置（`use_resolved_url` 直接导航分享 URL 保留 xsec_token、监听 `api/sns/web/v1/feed`、`video.media.stream` 分辨率优先选流、`__INITIAL_STATE__` 回退）+ `_dig` 支持 list 下标。
+- 前端：`Collection.vue` 六平台两级路由（域名级 + 路径级——知乎问题/专栏、B站空间等非视频路径不破坏既有图文采集）；`extractUrlFromShareText` 改 CJK 排除字符类（汉字/CJK 标点/全角/emoji 天然终止匹配）；百家号 NO_VIDEO 提示后落回图文采集链路（collectUrl + collectAndRewrite）；平台标签扩六平台；locales zh/en 成对；`collect-error.js` 新增 `video_channels_unsupported`/`video_no_video` 分类（非重试）。
+- 测试：后端 +41（`test_baijiahao_fetcher.py` 新 13 / `test_browser_fetcher.py` +11 / `test_aggregation_video.py` +17）、前端 +13；真实链路冒烟 5/5 PASS（百家号真实文章解析+下载 6.0MB、视频号报错、B站/知乎探测、抖音 ANTI_BOT 分类）。
+- OpenSpec：`openspec/changes/collect-video-platforms/`（proposal/design/tasks/spec delta）。
+
+### 影响
+- 采集页粘贴 抖音/小红书/B站/知乎 zvideo/百家号 视频链接（或其分享混合文本）→ 走视频管线拿口播文案；知乎问题/专栏等图文链接行为不变；百家号纯文字文章自动回退图文采集；视频号得到明确「需要微信登录态，暂不支持」提示。
+- py-cjk 基线 79→84（视频管线中文错误按既有模式登记，整体迁移 UserVisibleError+locale 属既有债务另立跟踪）。
+- 遗留：小红书真实分享链冒烟待用户侧（xsec_token 时效性，实现按三方一致字段路径 + mock 锁定）。
+
 # [未发布] fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
 
 ### 根因（第一性原因）
@@ -443,8 +462,7 @@
 ### 验证
 - install-session-isolation-task.test.ps1 → rc=0 / 7 PASS（本机 \Mulpub\ 尚无任务，NOTE 分支如实报告 runner 态边界）
 - session-isolation-automation.test.ps1 → rc=0 / 18 PASS（非提权分支实证：Health 在一次性路径注册成功、AtLogOn 被拒后安装器 fail closed 并给出 RunAs 指引——同时证明 `$got` 修复后安装器能走到 Write Guard 注册步）
-- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
-
+- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
 
 # [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
 
@@ -464,8 +482,7 @@
 - `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
 
 ---
-
-
+
 # [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
 
 ### 变更
@@ -482,8 +499,7 @@
 - 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
 - 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
 - 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
-
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
 
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
@@ -560,46 +576,26 @@
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
 
-# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
-
-
-
-### 现象与根因
-
-- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
-
-- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
-
-- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
-
-
-
-### 变更
-
-- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
-
-  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
-
-  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
-
-  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
-
-- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
-
-- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
-
-- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
-
-
-
-### 测试与取证
-
-- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
-
-- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
-
-- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
-
+# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
+
+### 现象与根因
+- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
+- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
+- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
+
+### 变更
+- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
+  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
+  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
+  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
+- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
+- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
+- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
+
+### 测试与取证
+- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
+- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
+- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
 - QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
 # [未发布] ci(electron-ci): 串行单测预算从魔数改为挂实测，并让超时能自证
 
@@ -820,14 +816,10 @@
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
   （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
 ### 做了什么
-- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
-
-  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
-
-  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
-
-  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
-
+- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
+  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
+  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
+  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
   它只改界面开关键，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
 - **归属澄清（不得把自审项记成评审发现）**：协议门、白名单、非法值 warn、用例改名这四项是评审之后
   **自审补严/自审判断**；外部评审实际提出的是 hash 路由丢参（C1，完全成立）、`options.dev` 可短路 DEV 判断（W2）、
