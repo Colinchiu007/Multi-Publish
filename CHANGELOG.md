@@ -1,5 +1,21 @@
 # [未发布] feat(publish): P0-1 审核状态跟踪第一切片（状态机 + 原记录回写 + 醒目展示）（2026-10-09，p0-1-audit-status）
 
+- **feat(xiaohongshu)：图文改为落平台草稿箱（收图片编辑弹窗 + 不点发布）**。
+  需求调整：小红书图文不必走到完全发布，只需把内容（标题+正文+图片）存进平台草稿箱，
+  用户回头在草稿箱里自行确认发布；视频模式保持原发布链路。三处修复（真机取证）：
+  - **图片编辑弹窗**（新增 `_dismissImageEditModal`）：图片上传成功后小红书自动进入
+    图片编辑（裁剪）界面，模态层「图片编辑 裁剪 … 裁剪设置 … 完成」压住发布按钮——
+    实测 `button:has-text("发布")` 3s 超时 → 发布验证失败；现上传后检测并点「完成」收起
+  - **草稿模式**（`config.draftOnly`）：generic 新增分支——跳过发布按钮查找，点显式存
+    草稿钮（若有 `sel.draft_btn`），否则等自动草稿保存落库（编辑页「编辑于 刚刚」、
+    侧边栏草稿箱计数 +1），返回 `{ success:true, draft:true, draftSaved }`
+  - `_publish_xiaohongshu` 图文模式传 `draftOnly:true`
+  - 验收：发布历史 `status=success`（15s）+ **草稿箱计数 0→1**（真机复核）；
+    单测 232/232；完整设计见 `01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md` §11
+
+---
+
+
 ### 变更
 
 - **审核状态机单一真源**（`packages/shared-utils/src/publish-audit-status.js` CJS + `.browser.js` ESM 孪生 + vite alias）：7 态枚举（published/inAudit/prePublish/deny/notPublic/withdrawn/transferFail）；`mapMonitorStatusToAuditStatus` 只映射**平台明确结论**（published→published、reviewed→inAudit、rejected→deny、draft→prePublish），无定论（error/timeout/skipped/pending/unknown/failed）返回 null；`buildAuditPatch` 产出四键白名单增量；`isAuditAlertStatus` 标记拒绝/下线/转码失败三条醒目态。
