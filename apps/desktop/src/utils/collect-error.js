@@ -18,6 +18,7 @@ const NON_RETRYABLE = new Set([
   'invalid_url', 'internal_url', 'protocol',
   'video_too_long', 'video_file_too_large', 'no_audio_track', 'asr_engine_unavailable',
   'video_private', 'video_membership', 'video_region', 'video_invalid_platform', 'asr_empty',
+  'video_channels_unsupported', 'video_no_video',
 ])
 
 /**
@@ -90,6 +91,13 @@ export function classifyCollectError(input) {
   }
   if (message.includes('VIDEOCLONE_LINK_ANTI_BOT') || (message.includes('平台风控') && fromVideoPipeline)) {
     return result('video_anti_bot')
+  }
+  // 2026-09-29（collect-video-platforms）：视频号明确不支持 / 百家号文章无视频
+  if (message.includes('VIDEOCLONE_CHANNELS_UNSUPPORTED')) {
+    return result('video_channels_unsupported')
+  }
+  if (message.includes('VIDEOCLONE_NO_VIDEO')) {
+    return result('video_no_video')
   }
   if (message.includes('VIDEOCLONE_INVALID_PLATFORM') || (message.includes('仅支持抖音/小红书') && fromVideoPipeline)) {
     return result('video_invalid_platform')

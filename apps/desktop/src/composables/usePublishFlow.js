@@ -14,7 +14,7 @@
  *   - selectedAccounts: ref<{[platformId]: accountId}>
  *   - precheckEnabled: ref<boolean>
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import i18n from '@/i18n'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from './useLoginGate'
@@ -22,7 +22,6 @@ import { useNotify } from './useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import {
   publishBatch,
-  onProgress,
   sensitiveCheck,
   offlineStatus,
   offlineAddToCache,
@@ -31,6 +30,7 @@ import {
   cancelTask,
   storeGetSetting,
   storeSetSetting,
+  generateAiCover,
 } from '@/api/publisher'
 import {
   buildPublishTargets,
@@ -44,9 +44,15 @@ import {
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
+import { getPlatformOverrideFields } from '@multi-publish/shared-utils/src/publish-capabilities'
+import { usePublishProgressStore } from '@/stores/publishProgress'
 
 const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
 const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
+
+// 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
+// 无图时 handlePublish 自动生成封面兜底——AI 生图优先，cover:generate-ai 内建本地标题卡回退）
+const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin']
 
 function isMarkdownContent(content) {
   return MARKDOWN_RE.test(content) || MARKDOWN_LINK_RE.test(content)
@@ -60,6 +66,50 @@ function toPlainJson(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+// 注册表字段查询缓存（注册表数据冻结，缓存安全）
+const overrideFieldsCache = new Map()
+
+function platformOverrideFieldsFor (platform) {
+  if (!overrideFieldsCache.has(platform)) {
+    overrideFieldsCache.set(platform, getPlatformOverrideFields(platform, { uiOnly: true }))
+  }
+  return overrideFieldsCache.get(platform)
+}
+
+/**
+ * 按注册表字段定义归一化单个覆盖值（与 PlatformOverridePanel.normalizeValue 同口径）。
+ * 返回 undefined 表示该字段无有效值（不进 payload）。
+ */
+function normalizeOverrideValue (field, raw) {
+  if (field.type === 'checkbox') {
+    return typeof raw === 'boolean' ? raw : undefined
+  }
+  if (field.type === 'select') {
+    const options = Array.isArray(field.options) ? field.options : []
+    const matched = options.find(option => String(option.value) === String(raw))
+    return matched ? matched.value : undefined
+  }
+  if (field.type === 'tags') {
+    if (!Array.isArray(raw)) return undefined
+    const list = [...new Set(raw.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()))]
+    return list.length > 0 ? list : undefined
+  }
+  if (field.type === 'collection') {
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
+    if (typeof raw === 'string' && raw.trim()) return raw.trim()
+    return undefined
+  }
+  // text / textarea：非空才透传；maxLen 按码点截断（不切断代理对）
+  if (typeof raw !== 'string' || !raw.trim()) return undefined
+  const text = raw.trim()
+  const maxLen = Number(field.maxLen)
+  if (maxLen > 0) {
+    const chars = Array.from(text)
+    return chars.length > maxLen ? chars.slice(0, maxLen).join('') : text
+  }
+  return text
+}
+
 function normalizePlatformOverrides (overrides) {
   if (!overrides || typeof overrides !== 'object') return {}
   return Object.fromEntries(Object.entries(overrides).flatMap(([platform, value]) => {
@@ -68,24 +118,19 @@ function normalizePlatformOverrides (overrides) {
       title: typeof value.title === 'string' ? value.title : '',
       content: typeof value.content === 'string' ? value.content : '',
     }
-    if (platform === 'zhihu') {
-      const declaration = Number(value.declare)
-      normalized.commentPermission = 'anyone'
-      normalized.declare = Number.isInteger(declaration) && declaration >= 0 && declaration <= 5
-        ? declaration
-        : 0
-      const topics = Array.isArray(value.topics)
-        ? [...new Set(value.topics.filter(topic => typeof topic === 'string').map(topic => topic.trim()).filter(Boolean))]
-        : []
-      if (topics.length > 0) normalized.topics = topics
-      if (value.draft === true) normalized.draft = true
-    } else if (platform === 'douyin') {
-      if (value.draft === true) normalized.draft = true
-    } else if (platform === 'wechat_mp') {
-      if (value.massSend === true) normalized.massSend = true
+    // 注册表驱动的平台特有字段归一化（CCG codex W1 修复，2026-10-08）：
+    // 旧硬编码白名单只保留知乎/抖音/公众号少数字段，B站分区/版权/合集、
+    // YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、
+    // 公众号摘要/评论开关等注册表面板字段在 IPC 组装前被静默丢弃——
+    // UI 可编辑但发布不生效。现按注册表字段与类型归一化，与面板同口径。
+    for (const field of platformOverrideFieldsFor(platform)) {
+      const normalizedValue = normalizeOverrideValue(field, value[field.key])
+      if (normalizedValue !== undefined) normalized[field.key] = normalizedValue
     }
-    const hasExecutableOption = normalized.draft === true || normalized.massSend === true
-    if (!normalized.title && !normalized.content && platform !== 'zhihu' && !hasExecutableOption) return []
+    // 无任何有效差异内容（标题/正文/任一特有字段）的条目不进 payload
+    const hasPayload = Boolean(normalized.title || normalized.content)
+      || Object.keys(normalized).some(key => key !== 'title' && key !== 'content')
+    if (!hasPayload) return []
     return [[platform, normalized]]
   }))
 }
@@ -128,6 +173,44 @@ export function usePublishFlow(options) {
   const activeScheduleIds = ref([])
   let precheckInitialized = false
   let loadingPrecheckPreference = false
+
+  // publish-progress-ux：进度状态由全局 store 承载（App 级订阅，不随本组件卸载死亡）。
+  // 本 composable 只做两件事：IPC 返回后登记会话；watch 会话终态驱动页面结果卡。
+  const publishProgressStore = usePublishProgressStore()
+
+  /** 当前发布动作对应的 store 会话（按 activeTaskIds 归属） */
+  const activeSession = computed(() => {
+    const ids = activeTaskIds.value
+    if (!ids || ids.length === 0) return null
+    return publishProgressStore.sessions.find(
+      (s) => ids.some((id) => Object.prototype.hasOwnProperty.call(s.tasks, id)),
+    ) || null
+  })
+
+  // 会话终态 → 页面结果卡 + 时间线汇总条目（修复「用户不知道发布是否成功」的页面呈现）
+  watch(() => activeSession.value && activeSession.value.status, (status) => {
+    if (!status || status !== 'done') return
+    const session = activeSession.value
+    const tasks = Object.values(session.tasks)
+    const succeeded = tasks.filter((t) => t.phase === 'success').length
+    const failed = tasks.filter((t) => t.phase === 'failed').length
+    const firstUrl = tasks.find((t) => t.phase === 'success' && t.result && typeof t.result.url === 'string' && t.result.url)
+    if (failed === 0) {
+      result.value = {
+        success: true,
+        message: progressText('publishPage.publishFlow.resultAllSuccess', { count: succeeded }),
+        url: (firstUrl && firstUrl.result.url) || '',
+      }
+      addProgress(result.value.message, 'success')
+    } else {
+      result.value = {
+        success: false,
+        message: progressText('publishPage.publishFlow.resultPartial', { succeeded, failed }),
+        url: '',
+      }
+      addProgress(result.value.message, 'danger')
+    }
+  })
 
   watch(precheckEnabled, value => {
     if (!precheckInitialized || loadingPrecheckPreference) return
@@ -207,6 +290,9 @@ export function usePublishFlow(options) {
     // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选。
     // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
     data.aiGenerated = article.aiGenerated !== false
+    // P1-5 语义级可见性：通用区档位随 article 流入 payload，由主进程 resolver
+    // 按注册表 semanticValues 映射到各平台字段值（平台 override 仍优先）。
+    if (article.visibilitySemantic) data.visibilitySemantic = article.visibilitySemantic
     if (imageFiles.length > 0) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
@@ -340,9 +426,6 @@ export function usePublishFlow(options) {
     result.value = null
     activeTaskIds.value = []
     activeScheduleIds.value = []
-    let off
-    const doneTaskIds = new Set()
-    let taskTotal = 0
 
     try {
       // 敏感词预检
@@ -362,6 +445,30 @@ export function usePublishFlow(options) {
             type: 'warning',
           })
           if (!confirmed) return
+        }
+      }
+
+      // 2026-09-29 图文发布兜底：小红书/快手/抖音图文要求至少 1 张图片；无图时自动生成封面
+      // （AI 生图优先，本地标题卡兜底——cover:generate-ai 已内建回退）。生成失败不阻断发布
+      // （无图平台照常发，图片平台会在引擎层如实报错）；成功则附加进表单（用户可见，透明）。
+      if (!isVideoMode && selectedPlatforms.value.some(p => IMAGE_TEXT_PLATFORMS.includes(p))) {
+        const hasImages = (Array.isArray(article.image_files) && article.image_files.length > 0)
+          || (Array.isArray(article.images) && article.images.length > 0)
+        if (!hasImages && article.title.trim()) {
+          try {
+            addProgress(progressText('publishPage.publishFlow.generatingCover'), 'info')
+            const coverRes = await generateAiCover({ prompt: article.title, ratio: '3:4' })
+            if (coverRes && coverRes.code === 0 && coverRes.data && coverRes.data.coverPath) {
+              const coverFile = normalizePublishFile({ path: coverRes.data.coverPath })
+              if (coverFile) {
+                article.image_files = [coverFile]
+                article.images = [coverFile.path]
+                addProgress(progressText('publishPage.publishFlow.coverGenerated'), 'success')
+              }
+            }
+          } catch (_) {
+            // 封面生成失败不阻断：无图平台照常发布
+          }
         }
       }
 
@@ -396,23 +503,9 @@ export function usePublishFlow(options) {
         return
       }
 
-      off = onProgress(function (data) {
-        addProgress(progressText('publishPage.batchNotify.progressStage', { platform: data.platform, stage: data.stage }))
-        // 后台任务结果实时回填（task:success / task:failed），全部完成才注销监听
-        if (!data.taskId || !data.stage) return
-        const isFinal = data.stage.indexOf('✓') === 0 || data.stage.indexOf('✗') === 0
-        if (!isFinal) return
-        doneTaskIds.add(data.taskId)
-        if (data.stage.indexOf('✓') === 0) {
-          result.value = { success: true, message: progressText('publishPage.publishFlow.publishSuccessMessage', { platform: data.platform }), url: (data.result && data.result.url) || '' }
-        } else {
-          result.value = { success: false, message: data.platform + ' ' + data.stage, url: '' }
-        }
-        if (taskTotal > 0 && doneTaskIds.size >= taskTotal && typeof off === 'function') {
-          off()
-        }
-      })
-
+      // publish-progress-ux：本地进度监听已删除（原 finally 无条件 off() 使监听器在
+      // IPC 毫秒级返回后即死亡——任务执行期间全部事件无人接收，用户不知道发布是否成功）。
+      // 进度事件由全局 store 的 App 级订阅接收；此处只登记会话。
       addProgress(progressText('publishPage.publishFlow.publishTargets', { count: targets.length }), 'info')
       const payload = toPlainJson({ targets, data })
       const res = await publishBatch(payload.targets, payload.data)
@@ -420,10 +513,14 @@ export function usePublishFlow(options) {
         activeTaskIds.value = Array.isArray(res.data && res.data.taskIds)
           ? res.data.taskIds.slice()
           : []
-        taskTotal = activeTaskIds.value.length
-        const count = taskTotal || ''
+        const count = activeTaskIds.value.length
         addProgress(progressText('publishPage.publishFlow.taskAdded', { count }), 'success')
         result.value = { success: true, message: res.message || progressText('publishPage.publishFlow.taskQueued'), url: '' }
+        // 登记进全局进度 store：全局面板自动展开、跨路由持续跟踪、终态驱动上方 watch
+        publishProgressStore.registerSession({
+          taskIds: activeTaskIds.value,
+          title: (data && data.title) || article.title || '',
+        })
       } else {
         const message = formatUserError(res, { fallback: progressText('publishPage.publishFlow.publishFailedTitle') }).message
         addProgress(progressText('publishPage.publishFlow.publishFailedProgress', { message }), 'danger')
@@ -437,29 +534,13 @@ export function usePublishFlow(options) {
       await notifyFailure(progressText('publishPage.publishFlow.publishErrorTitle'), message)
     } finally {
       publishing.value = false
-      if (typeof off === 'function') off()
     }
   }
 
-  async function cancelPublish () {
-    const taskIds = activeTaskIds.value.slice()
-    const scheduleIds = activeScheduleIds.value.slice()
-    if (taskIds.length === 0 && scheduleIds.length === 0) {
-      notifyInfo('publishPage.noActiveTasks', { message: i18n.global.t('publishPage.noActiveTasks') })
-      return { success: false, cancelled: 0 }
-    }
-    const results = await Promise.all([
-      ...taskIds.map(id => cancelTask(id)),
-      ...scheduleIds.map(id => schedulerCancel(id)),
-    ])
-    const cancelled = results.filter(item => item && item.code === 0 && item.data !== false).length
-    activeTaskIds.value = []
-    activeScheduleIds.value = []
-    addProgress(progressText('publishPage.publishFlow.cancelledCount', { count: cancelled }), 'warning')
-    result.value = { success: false, cancelled, message: progressText('publishPage.publishFlow.taskCancelled') }
-    return { success: cancelled > 0, cancelled }
-  }
-
+  // 2026-10-02 定时发布验证修复：删除 aa7e7cf0（2026-08-23）替换式重构残留的旧版
+  // cancelPublish（Promise.all 版）。JS 函数声明后者覆盖前者，旧版一直是死代码，
+  // fdd30498（2026-08-30）的通知迁移甚至误改在死副本上。保留下方 allSettled 版
+  // （失败任务保留 ID 供重试），结构锁见 usePublishFlow.test.js「单一定义结构锁」。
   async function cancelPublish () {
     const taskIds = activeTaskIds.value.slice()
     const scheduleIds = activeScheduleIds.value.slice()

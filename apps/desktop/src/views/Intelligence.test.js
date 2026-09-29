@@ -217,4 +217,28 @@ describe("IntelligenceView", () => {
     expect(empty.exists()).toBe(true);
     expect(empty.props("description")).toBe("");
   });
+  // PRD-HREF-SCHEME-GUARD：第三方 API 的 url 字段由提交人可控，非 http/https 一律不得成链
+  it('结果 url 不是 http/https 时不产出锚点，标题降级为纯文本且内容不丢', async () => {
+    const w = createView();
+    w.vm.result = {
+      query: "红烧肉",
+      total: 2,
+      droppedIrrelevant: 0,
+      sources: [],
+      timestamp: 0,
+      results: [
+        { source: "hackernews", id: "safe", title: "安全标题", url: "https://news.ycombinator.com/item?id=1",
+          author: "a", engagement: 1.2, upvotes: 1, comments: 0, snippet: "" },
+        { source: "hackernews", id: "bad", title: "恶意标题", url: "javascript:window.electronAPI.store.set('pwned','1')",
+          author: "b", engagement: 2.0, upvotes: 9, comments: 9, snippet: "" },
+      ],
+    };
+    await nextTick();
+    const links = w.findAll("a.int-link");
+    expect(links).toHaveLength(1);
+    expect(links[0].attributes("href")).toBe("https://news.ycombinator.com/item?id=1");
+    expect(w.html()).not.toContain("javascript:");
+    const plain = w.findAll("span.int-link").map(s => s.text());
+    expect(plain).toContain("恶意标题");
+  });
 });

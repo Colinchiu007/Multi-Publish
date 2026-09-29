@@ -8,6 +8,137 @@
 - **顺带一条症状学**：「登录不上」的用户表述**不能**推断成「密码错」。本仓 ops-center 的登录由自身 :8010 承载，vite 代理在后端缺席时给的是 **500 空 body**，与 401 在界面上完全同形。固定三步：`curl` 直连看有没有 `000`；经代理看是 500 还是 401；只有 401 才轮到核凭据（429 是进程内存限速，重启即清、库里没有表可查）。
 - **另一条同形陷阱**：`ensure_admin_seeded` 只在 `admins` 表为空时创建、**从不更新已有行**，所以 `.env` 里的口令与库里的哈希可以长期脱钩——「改了 .env 登不上」和「删了库重启又能用旧口令」是同一个原因的两面。
 
+## 定时发布第二轮加固：同根缺陷靠数据结构识别、形状不同源会静默永不生效、删对外接口与删内部方法的价值不等（harden-batch-schedule，2026-10-02）
+
+- **两个看似无关的缺陷可能有同一个数据结构根因，改结构比改两处逻辑更彻底**：`BatchManager` 的「幽灵发布」（删批次后仍发布）与「重复排期」（重复调用产生重复定时器）表象不同，根因都是 `_timers = Set<timer>` **没有批次维度**——于是「按批次清除」在数据结构上就不可表达。改成 `Map<batchId, Set<timer>>` 后，一个清除点（`_clearBatchTimers`）同时支撑取消/删除/去重三处。判据：修多个缺陷前先问「它们是否共享一个表达力不足的类型」。
+- **「写入形状 ≠ 读取形状」是静默失效的高发形态，本仓已第三次踩**（前两次：跨包响应信封谁剥壳、publishMode 死过滤器）：渲染层写嵌套 `{targets, data}`，`processCachedTasks` 判扁平 `task.platform && task.article` ⇒ 嵌套条目 `platform` 为 `undefined` ⇒ **永久留在缓存、永不重放**，且**既有测试全用扁平夹具**所以缺陷不可表示。判据：**每个"写入-读取"配对必须问「夹具用的是哪一侧的形状」**；两侧形状不同源时，正确的修法是在**读取侧**加一个唯一展开点（兼容存量），而不是改写入侧让存量数据失效。
+- **重放的原子性按「哪种失败不可逆」选**：一条缓存的多个 target 中部分入队成功后若移出缓存，会**永久丢失未入队的平台**（不可逆）；而整条保留最坏只是重放一次已成功的平台（可被幂等吸收）。判据：不确定时选「可重复」而非「可丢失」。
+- **死路径清理要按层评估价值，不是一刀切全删**：3 个 store IPC + 3 个 preload 桥接**零生产调用** ⇒ 删（消除对外暴露面 + 误用诱因，改动可控）；而 `scheduler-store.js` 的 5 个方法虽同样无调用者，却是 `store-owner-isolation`/`store-snapshot` 两个测试守护「表的 owner 隔离」语义的**载体** ⇒ 保留 + ⛔ dead-path 标注 + 结构锁。判据：**删之前先问「谁在为它写测试、那些测试守的是什么别的东西」**；把剩余清理登记为后续项（须与测试重写同批），并在交付说明里讲清边界与理由。
+- **「接口存在但零调用」比「接口不存在」更危险**：前者会诱使后来者把它当作可用真源（这里是「SQLite scheduled_tasks 表」），从而写出与 JSONL 真源**必然漂移**的第二份实现。处置组合拳：删对外面 + 保留数据面 + 源码顶部 ⛔ 标注 + 结构锁断言三面禁复活 + 真源入口在位断言。
+- **外部评审通路不可用时按纪律降级，不盲等也不冒充**：`claude -p` 与 `codex exec` **两路均 403**（上游订阅额度用尽）；codex 另遭沙箱 policy 拦截 shell、连 `git show` 都跑不了（`--commit` 与自定义 prompt 还互斥）。按 AGENTS.md「子代理降级」：立即转主代理对抗性自审，把**不可用的事实与证据行**写进门禁记录与 PR 描述，**不记为「评审通过」**。本轮自审产出 3 个真实缺陷（b1/b2/b4a），说明降级路径的产出强度可以不低于形式化评审——但两者**不可互相冒充**。
+- **数 microtask 拍数的测试是脆的，加一个 `await` 就碎**：在 `batchCreate` 前插入 `await offlineStatus()` 后，既有用例「等 2 个 microtask 再断言 batchCreate 已调用」立刻失败。正解不是加拍数（下次再插一个 await 又碎），而是改成条件等待（`vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1))`）——**断言"最终发生"而不是"第几拍发生"**。
+- **文件头注释里的方法清单不会随删除自动更新**：删了 3 个 preload 桥接后，文件头注释仍列着它们，导致「grep 检查是否删干净」**误报未删**（命中注释文本）。同族：结构锁必须**跳过注释行**再断言（`!/^\s*(\/\/|\*|\/\*)/`），否则锁会被自己的说明文字打红；删除类改动要把「文件头清单」当作待同步产物。
+
+## 逐文件行数门禁会因「扩展既有组件」在 CI 阶段才变红；环境性失败与代码失败的归因口径（publish-progress-panel-refine，2026-09-29）
+
+- **给既有大文件加功能前要先估行数，行数门禁不是提交后才发现的事**：`PublishProgressPanel.vue` 原 446 行（<500 合规），本次功能增量把它推到 688 行 → CI 债务熔断 `NEW_OVER_LIMIT` 硬红（`growthAllowance=200` 只容忍 +200 以内的增长，+242 越线）。本地 260 测试全绿、ESLint 0 warning 都拦不住它——**行数门禁是结构维度的锁，行为层测试对它天然失明**。判据：给既有组件加交互逻辑/样式（+100 行量级）时，动手前先数行数并规划拆分（区块拆子组件 + 计时器/状态机拆 composable），不要等 CI 报红再拆。本次拆出 `PublishProgressFooter.vue`(150) / `PublishProgressSession.vue`(152) / `composables/usePublishProgressAutoCollapse.js`(74) 后 Panel 降到 398 行，`check-max-lines.js` 本地即可预验。
+- **CI 红的归因走「错误形态 → 外部依赖定位 → 本地隔离复跑 → diff 交集」四步，直接重跑是掩盖**：本次 `test_scheduler_parity.test.js` 报 `python simulator failed: `（**空 stderr**）——空消息本身就是判据：断言失败会打 diff，空 stderr 指向 `spawnSync('python', …)`（`scripts/compare-scheduler-models.js:213`）的外部依赖缺失。本地同 worktree 复跑该文件 3/3 全绿（六组对拍 + 已知差异 + 并发饥饿，77 秒）+ 与本次 diff **零文件交集** ⇒ 判定 CI runner 环境性，`gh run rerun --failed` 后转 success。反向同族纪律（learnings 已有「隔离复跑是分界线」）：隔离复跑仍红 ⇒ 真回归，必须修，不得重跑掩盖。
+- **QM-6 外部评审不可用时如实登记「未执行」，不得以自审冒充通过**：本次 backend（codex）返回「您的Token额度已用完」（计费硬阻塞，非瞬时可重试）、frontend（claude）CLI 连续 3 次 `exited with status 1`（重试预算耗尽后跳过）。正解是把两个具体失败原因与重试次数写进门禁记录（可复核、可补做），而不是把「本地测试全绿」当成外部交叉审查的等价物——后者的价值恰恰在于它不是自己。
+- **改大体积/混合行尾的置顶文档禁止「整文件重写」——行尾/编码两口径对账会当场 FAIL**：本次对 `01-docs/learnings.md`（1.9MB、16677 行、行尾本就是**混合**的：origin/main blob 实测 `CR=16634 LF=16675`）做了两件事，结果截然不同：① 用 `edit` 工具插入 4 条教训 → 工具把整个工作区文件写成 **LF-only**（实测 `CRLF=6 LF-only=16671`），`git add` 后 blob 与 origin 整体不同 → `git diff --numstat` 报 **16632/16630**，而 `--ignore-cr-at-eol --numstat` 只显示真实的 **8/6** —— 两口径不一致，本就 FAIL；② 改用「原字节后缀强校验」口径（`git cat-file blob origin/main:<path>` 取原始字节 → 只在文件头前插新条目字节 → 既有字节一个不动）→ diff 回到 **7/0**，两口径完全一致。判据：**动这类文件只能用字节级前插 + 前后各做一次 CR/LF/NUL 计数校验**，不得用会重写整文件行尾的手段（编辑工具、全文正则替换、`Set-Content`）；`CHANGELOG.md` 的 NUL 之所以能顺手修（NUL 1→0、diff 仍 30/1），是因为它体量小且改动本来就落在同一批行上，属「同批同行」而非「整文件重写」。
+- **`.gitignore` 的 `/01-docs/*.md` 会静默吞掉新建 PRD：`git add -A` 不报错但文件不入库，留下悬空引用**：本仓 `.gitignore:260-261` 忽略 `/01-docs/*.md` 与 `/01-docs/**/*.md`（立意是「本地分析/交付产物」，而 374 个既有 PRD 是规则之前入库的、不受影响）。本次新建 `01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md` 后 `git add -A` + commit 全程 0 报错，直到合并后按路径核验产物才发现 **MISS**——而母 PRD 头部、CHANGELOG、门禁记录三处都已引用它。判据：**凡在 `01-docs/` 新建 `.md`，提交后必须用 `git cat-file -e origin/main:<path>`（或 `git ls-files`）逐文件核验落地，不能以「commit 成功」代替「文件已在库」**；被忽略文件要 `git add -f`。同族纪律：交付核验要按**最终产物路径清单**逐条取证（本仓已有「文件存在 ≠ 被执行过」的同型教训——只看 `node --check` 不算跑过测试）。
+## 逐文件行数门禁会因「扩展既有组件」在 CI 阶段才变红；环境性失败与代码失败的归因口径（publish-progress-panel-refine，2026-09-29）
+
+- **给既有大文件加功能前要先估行数，行数门禁不是提交后才发现的事**：`PublishProgressPanel.vue` 原 446 行（<500 合规），本次功能增量把它推到 688 行 → CI 债务熔断 `NEW_OVER_LIMIT` 硬红（`growthAllowance=200` 只容忍 +200 以内的增长，+242 越线）。本地 260 测试全绿、ESLint 0 warning 都拦不住它——**行数门禁是结构维度的锁，行为层测试对它天然失明**。判据：给既有组件加交互逻辑/样式（+100 行量级）时，动手前先数行数并规划拆分（区块拆子组件 + 计时器/状态机拆 composable），不要等 CI 报红再拆。本次拆出 `PublishProgressFooter.vue`(150) / `PublishProgressSession.vue`(152) / `composables/usePublishProgressAutoCollapse.js`(74) 后 Panel 降到 398 行，`check-max-lines.js` 本地即可预验。
+- **CI 红的归因走「错误形态 → 外部依赖定位 → 本地隔离复跑 → diff 交集」四步，直接重跑是掩盖**：本次 `test_scheduler_parity.test.js` 报 `python simulator failed: `（**空 stderr**）——空消息本身就是判据：断言失败会打 diff，空 stderr 指向 `spawnSync('python', …)`（`scripts/compare-scheduler-models.js:213`）的外部依赖缺失。本地同 worktree 复跑该文件 3/3 全绿（六组对拍 + 已知差异 + 并发饥饿，77 秒）+ 与本次 diff **零文件交集** ⇒ 判定 CI runner 环境性，`gh run rerun --failed` 后转 success。反向同族纪律（learnings 已有「隔离复跑是分界线」）：隔离复跑仍红 ⇒ 真回归，必须修，不得重跑掩盖。
+- **QM-6 外部评审不可用时如实登记「未执行」，不得以自审冒充通过**：本次 backend（codex）返回「您的Token额度已用完」（计费硬阻塞，非瞬时可重试）、frontend（claude）CLI 连续 3 次 `exited with status 1`（重试预算耗尽后跳过）。正解是把两个具体失败原因与重试次数写进门禁记录（可复核、可补做），而不是把「本地测试全绿」当成外部交叉审查的等价物——后者的价值恰恰在于它不是自己。
+- **置顶文档里内嵌的字面控制字符会让文件被判为二进制、进而让常规编辑工具失效**：`CHANGELOG.md` 的 NUL 与 `01-docs/learnings.md` 的两处 NUL 都源自「条目正文里写了控制字符区间」（`\x00-\x1f/\x7f` 被写成了真字节；`- commit 063a226:` 的首字符 `0` 被写成 NUL）。症状是 `edit` 类工具直接拒绝写入（判 binary），只能改走 `[System.IO.File]::WriteAllText` + UTF8(no BOM) 才落得下去。判据：**写「控制字符/正则/转义」这类正文时一律写转义文本**，不要粘贴真字节；发现 NUL 时先取证上下文再按原意还原（本次分别还原为 `\x00-\x1f/\x7f` 与 `063a226`），并在门禁记录里写明 NUL 计数变化。
+## 定时发布全链路验证：PRD 声称的「重启恢复」只对单篇成立、接口暴露 ≠ 功能闭环、mock 带字段掩盖生产从不写入、替换式重构残留死函数（fix-scheduled-publish-gaps，2026-10-02）
+
+- **「持久化、重启恢复」这类 PRD 合同必须逐路径验证，不能按代表性路径放行**：PRD §6.3 写「支持 App 关闭后重启恢复」，单篇路径（scheduler.restore）确实有；但批量路径（BatchManager.scheduleBatch）只用内存 `setTimeout`，重启后 `batch_jobs` 里 status='scheduled' 的批次**永不发布**且无任何提示——静默数据丢失在「功能已实现 ✅」的表格行下躺了很久。判据：文档里每个「持久化/恢复/重试」承诺都要问「哪几条路径会写这个状态？每条路径谁负责读回？」，一条路径一个证据。
+- **「IPC 已暴露但无 UI 消费」是接口层的死代码，比代码缺失更隐蔽**：`schedulerCancel` 从 preload 到渲染层 API 全链路存在，但没有任何界面调用它——用户排期后唯一取消路径是发布页会话内的内存态 `activeScheduleIds`（离开页面即丢）。接口存在让「能力已具备」的错觉成立。判据：验证功能完整性时按**用户操作闭环**走（用户能创建 → 能查看 → 能取消 → 能看到结果），不按接口清单走。
+- **渲染端 mock 夹具带字段、生产写入方从不写 = 死过滤器（mock-现实漂移的又一形态）**：历史页「定时发布」过滤器读 `record.publishMode`，测试夹具手写了 `publishMode: 'scheduled'` 所以 UI 测试全绿；但生产代码（phase4-events.addRecord）从不写该字段，且 `TaskQueue._add` 白名单会丢弃自定义字段——过滤器在产线恒空。同族纪律（AGENTS.md 已有「契约夹具不得替对方剥壳」）：**夹具里出现的每个字段都要问「生产写入方在哪一行写它」**，答不上来就是 mock 造出来的能力。
+- **JS 函数声明重复（后者覆盖前者）无 lint 规则拦截、行为测试恒测新版——只有源码结构锁能防**：`aa7e7cf0` 新增 allSettled 版 `cancelPublish` 未删旧 Promise.all 版，旧版成死代码；`fdd30498` 的通知迁移甚至**误改在死副本上**（改死代码不会变红，维护者以为改的是活代码）。逃逸链：无 lint 规则（重复声明合法）→ 行为测试全绿（测的永远是后者）→ 审查盲区。修复配「单一定义结构锁」（源码正则断言定义次数 == 1）。判据：**替换式重构（新增同名函数/导出）必须同 commit 删除旧版**；防再犯锁要落在源码结构上，因为行为层永远测不出「多了一份死代码」。
+- **管道 `cmd | Select-Object` 会吃掉 vitest 真实退出码（本轮又踩 AGENTS.md 已有口径的坑）**：全量回归命令写成 `pnpm exec vitest run 2>&1 | Select-String ... | Select-Object -First 30`，PowerShell 管道返回**末段 cmdlet** 的退出码（恒 0）——7 个失败 + exit 0 的假绿。正解：`2>&1 | Out-File` 落盘后判 `$LASTEXITCODE`，再从文件里 grep 失败清单。同族：`cmd | tail` / `cmd | head` 在 bash 里同样吃 rc。
+- **全量回归的失败归因要区分「负载抖动」与「真回归」，隔离复跑是分界线**：与 electron-builder 打包并发跑全量时 `Publish.test.js` 2 失败 + `accounts-compile` 导入超时；单独复跑 82/82 全过——是并发 CPU 争抢导致的超时抖动。已知既有红（feedback symlink EPERM / story2video-manual-assets，#2628 CHANGELOG 记录在案）与本 diff 零文件交集。判据：全量出现新失败时先**单独复跑该文件**，隔离通过 → 环境抖动；隔离仍红 → 真回归。
+- **并发会话共享 git 状态时的 stash 是危险操作，检测到他人活跃立即恢复**：为过 clean-root 门禁精确 stash 了 4 个脚本文件，stash 后 `git status` 立即冒出 5 个**他人**正在编辑的新文件——stash 与他人写操作在竞争同一 index。处置：立即 `stash pop` 恢复他人 WIP（零干扰），改用 `git worktree add`（不触碰主工作区工作树的原子操作，与 gwm-task.sh 内部同一命令）创建隔离。判据：**stash 前后各做一次 status 快照，diff 出现非预期变化立即 pop**。
+
+## 话题的「输入框字段」与「描述文本」谁是真源，决定整条发布链的数据流——对齐参考产品模型后，剥离/转换必须按平台三态分流且只准单一实现（publish-topic-inline-description，2026-10-09）
+
+- **「标签/话题输入框 + 引擎按平台拼 tags」的隐式模型，在话题本就内联描述的平台必然丢数据（模型对齐）**：
+  抖音/快手/视频号的话题在平台 API 里就是描述文本的内联片段（抖音 text_extra 标记 hashtag 位置、
+  视频号 description 双井号），没有独立字段。本仓旧实现 tags 数组在这三个平台被静默丢弃——用户填了
+  话题，发出去的内容里根本没有。参考产品 4.13.19 逆向取证（bundle 主进程）：话题以 `<topic>` 内联
+  描述富文本、发布时各平台隐性转换、fail-closed 验证。对齐后「描述为真源」：UI 追加管道把话题
+  内联进描述，引擎按平台三态消费（内联保留/双井号转换/剥离独立字段）。
+
+- **剥离话题用「已知话题精确匹配」而不是形态正则，是防误伤代码片段的关键（解析口径）**：`#include`、
+  `#define` 与 `#美食探店` 在文本形态上无法用正则区分（都是 `#` + 非空白字符）。正解：剥离/转换/
+  位置标记都只处理 knownTopics（tags 数组，主进程已合并描述解析值）精确匹配的片段——代码片段不在
+  清单里永不误伤，用户手动打的话题经主进程单井号解析并入清单后同样覆盖。
+
+- **话题井号的前置边界与 URL 片段是同一族陷阱（CCG claude 路评审发现）**：`https://x.com#tag` 里的
+  `#tag` 与话题 `#tag` 文本形态完全相同，唯一区分是井号前是否为空白/开头。所有话题匹配（渲染层
+  remove/extract + 引擎 strip/convert/findPositions）都必须带前置边界 `(^|\s)`，否则 URL 锚点被
+  误删/误转/误标位置。这与「外链协议判据」同族：**井号/协议这类上下文敏感 token，判据必须带位置
+  约束，不能只看字面**。
+
+- **RichTextProcessor 只解析双井号 `#名#`，单井号 `#名` 的解析缺口要在主进程合并层补齐（解析缺口）**：
+  UI 追加管道写入的是单井号形态（抖音/快手/小红书通用），若主进程只靠 RichTextProcessor 解析，
+  单井号话题进不了 tags 数组——剥离型平台的独立字段会丢、抖音 text_extra 标记不到。补法：
+  buildPublishArticle 的三合一合并加入 extractInlineTopicNames（content-formatter 单一实现）。
+
+- **行为变更的契约测试要同步更新到新语义，且在 CHANGELOG 里明示「旧数据兼容性损失」（行为变更纪律）**：
+  快手「tags 拼进 caption」是已锁定的既有行为，新模型下话题已内联 content、再拼即双份重复。去掉
+  拼接后三处旧断言更新为新语义，旧草稿 tags 残留值不再进内联型平台描述——这是真源语义的
+  有意取舍，不是回归。
+
+- **引擎 run-tests.js 的 VITEST_FILES 是硬编码白名单，新增 vitest 风格测试文件必须登记（测试接线）**：
+  契约锁文件用 vitest import 写就，node 直跑必挂；不在白名单里会被分到 direct 组以 node 执行。
+  判据：新测试文件跑 `node scripts/run-tests.js` 全量确认收录（通过清单出现文件名），vitest 直跑
+  绿不算数——同族纪律见「新增测试文件必须看见它被执行过」。
+## 外部可控 URL 绑进可点击锚点前必须验协议，且"全仓清点"漏一种后缀就会把错误实况写成契约（fix-href-scheme-guard，2026-09-29）
+
+- **第一性根因不是"少了一个校验"，是"同一判定被抄成多份而无人接线"**：`hot-topics/channels.js` 里早就有一份语义完全正确的 `sanitizeUrl`（注释写着"仅 http/https，其他协议返回 null"），但它只在热榜解析器内、且属主进程私有；采集侧 `content-intelligence-sources.js` 把 `d.url` 原样透出，六条渲染链照字段名直绑 `:href`，于是一个正确实现的存在**掩盖**了六处缺失。修法不是"在被报的那个页面加判据"，而是先问"仓里谁已经在判同一件事、为什么没接上"。（PRD: `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`）
+- **逃逸链（四层同时失守）**：单元测试——六个组件的既有夹具**全部使用合法 `https://`**，所以"上游污染"这一维在测试里根本不可表示；集成测试——同期只断言相关性不断言协议；视觉回归——危险 URL 不出现在基线夹具里，且像素门禁对局部条件渲染结构性失明；代码审查——QM-2 清单此前没有"外部可控 URL 成链必须验协议"这一条。归类：**测试场景缺失 + 审查盲区**。
+- **⛔ 方法论主课：清点脚本漏扫 `.vue`，我把错误实况写进了契约**。第一版"谁自带协议正则"的全仓清点只匹配 `.(js|mjs|cjs)`，得出"只有 2 份是判据、其余 9 处不相关"，据此在 PRD/AGENTS 写下 AC-9「主进程任何文件不得再自带 `/^https?:/`」。暴露方式是**我自己新加的锁**：渲染层全域禁协议正则的测试当场逮出 `src/views/Collection.vue`。含 `.vue` 重扫后是 **1846 文件 / 37 处命中**，绝大多数意图不同（剥协议取 host、判绝对性走分支、网络取回守卫、issuer/proxy 强制 https、图片 URL 白名单）。两条口径：① 任何以"全仓扫到 N 处"为前提的契约，扫描必须显式覆盖**全部可执行后缀**，且**读不到的目录必须抛错而不是静默跳过**；② 结论必须报**实读文件数**，只报命中数无法区分"真没有"与"没扫到"。
+- **"全仓禁止某正则"是不可实现的判据，按 sink 分策略才是可执行的**：最终落到 AC-9a（渲染层全域禁自带协议正则，白名单为空）+ AC-9b（主进程成链侧**文件清单**逐个断言引用共享实现，清单只能缩小）。同时保留三份不同策略且**显式不合并**：`safeHttpUrl`（成链下限）/ `window.js` 的 `isAllowedExternalUrl`（OS 打开面，`new URL()` + 拒绝 userinfo，**更严**，合并进来等于放松）/ `isPlatformIconUrl`（图标必须能吃 `data:` 与相对路径）。三者互相在源码注释里指向，防后来者"顺手收敛"。
+- **降级语义必须写清"不产出锚点、保留文本"**：既不渲染成"看着能点、点了没反应"的死链接（那比没有链接更伤信任），也不整项消失（文本保留是人工核对上游脏数据的唯一线索）。这条被写成 AC-12 的结构判据：`v-if` 与 `:href` 必须取**同一个**判据表达式——只锁 `:href` 的话，弱化 `v-if` 不会变红，而安全边界其实没破（Vue 会移除 null 属性），破掉的只是可观测语义，最容易被无声改掉。
+- **接缝类（本仓新的一条）**：`apps/desktop/vitest.config.js` 的 alias **只有 `@`**，没有 shared-utils 的 `.browser.js` 那组（`vite.config.js` 有）。于是渲染端 import 在单测里解析到 **CJS**、生产构建解析到 **ESM 孪生** ⇒ "改坏孪生/摘掉 alias"单测全绿，且因 `build.commonjsOptions` 会把 CJS 自动转 ESM，**生产也不崩**，只静默退回另一份实现。兜底必须两把：parity 锁按 `regex.source`+`flags` 比两份实现并要求整张判定表同结论（含**导出集合**一致，`default` 这类 interop 键要按"值等价"判据剔除而非无条件 filter，否则把真写了 default 的情况藏掉）+ 一条**读 `vite.config.js` 源码**断言 alias 成条在位且该行非注释。反证实测：摘掉 alias 只有源码锁红、组件用例完全无感。
+- **反证驱动自身两次坏探针（判据比结论更可疑）**：① 按 `/^\s*[×✗]\s+/` 数红条，vitest 4 的失败行带 ANSI 前缀 ⇒ 8 条真红（汇总写着 `10 failed`）被判成"锁失效"；改成 `out.replace(/\x1b\[[0-9;]*m/g,''')` 后读汇总行 `N failed` 做 **cause-match**（rc≠0 只证明"有东西坏了"）。② 按 CRLF 构造锚点而目标文件其实是 LF ⇒ `ANCHOR-MISS`。都不是锁坏，是探针坏。
+- **外部评审是对 commit 快照发言的，必须逐条区分状态**：两路评审基于 `b9e7ad06`，其中「alias 锁只是子串检查」在我下一版 `14a17ea9` 已修完并配反证 —— 记作"已在下一版闭环"，不是待办。同时**不得把评审当权威直接照抄**：它说"主进程任何文件不得自带该正则"时，正确答案是先实测 37 处分布再改写判据范围，而不是建一张 9 项白名单硬凑。
+- **视觉回归要拿对照组而不是拿"门禁绿了"**：本仓基线与 CI 渲染非同源（实测仓库 vs CI 3.82%），单看一次通过率说明不了什么。做法是下载**合并前 main 那次 push 的同名 artifact**，逐视图比对 Δ —— 本次 19 视图 Δ 全 0.0000%，`intelligence` 0.1935% 与 `collection` 1.6071% 在 main 上一模一样，才敢写"像素中性"。
+- **两条流程性收益（本仓已定档）**：① 代码 PR 不带 `CHANGELOG.md` / `.quality-gates.md` / 账本 这三份置顶文档，回填单篇 docs PR 做 —— 本次全程零冲突乒乓，而同 PR 里就地插入的 `AGENTS.md` bullet 与 `PRD.md` §9.2.2 都 auto-merge 干净，唯一冲突是一处 import 行（main 侧加了 `onBeforeUnmount`）。② 置顶文档插入用「byte 0 前置 + 原字节后缀」强判据，且 PRD.md 的锚点必须按**同一拼接段内唯一**判定（实测 `### 9.3 爆款分析` 在两份拼接文档里各出现一次，行号下界不足以区分）。
+## 把预览挂在「字段」而不是「按钮」上；用实测数字否决自己提的防御性门禁；反证 harness 的锚点必须行尾自适应（video-cover-thumbnail-preview，2026-09-28）
+
+- **同一字段有多个写入口时，展示逻辑必须挂在字段上而不是逐个回调（防漏接线的结构手法）**：封面路径有五个写入口（提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复）。挂在按钮上要么漏掉「草稿恢复」，要么以后每加一个入口就漏一次 —— 而且漏掉的那次**不会报错**。挂在 `article.cover_path` 的 `watch(immediate)` 上一次覆盖，新增入口自动生效。判据：写「这个 UI 事实的唯一真源是哪个字段」，而不是「哪些操作会改它」。
+- **防御性门禁要先量再建，量完可能就不必建（用实测否决自己的设计）**：本想让自动加载缩略图前加主进程 `maxBytes` 门禁，理由是「20MB 封面 base64 会卡住主进程」。实测 0.3/2/8/20 MB 的 `readFileSync`+`base64` = **0.9 / 1.9 / 6.7 / 25.6 ms** —— 风险不成立，而代价是改 `electron/` 连带 preload bundle 重建 + QM-1 打包 + IPC 契约测试。**爆炸半径大于收益的防御就是负债**。数字必须留在 PRD 里，否则下一个人会重新猜一遍并猜向另一边。
+- **反证脚本的锚点必须行尾自适应，否则「0 命中」会被误读成「锁很稳」（探针坏了 ≠ 无缺陷）**：本仓 `.vue`/`.js` 工作树是纯 CRLF，反证 harness 里用 `'\n'` 拼多行锚点 → `hits=0` → 脚本按设计跳过变异，输出看起来像「跑过了但没红」。三条口径：① 先 `detectEol(buf)` 再拼锚点；② 锚点命中数**不等于 1 就 abort 并非零退出**（0 命中和 2 命中都说明变异没被正确施加）；③ 变异后必须**断言字节还原一致**，否则一次 harness 崩溃就把源码留在变异态。同族坑见「probe 输出 `?`/空 = 探针坏了」。
+- **给列向 flex 的子项套一层行向 flex 容器，会让它从「满宽」退化成「内容宽」（视觉基线陷阱）**：`.cohere-form-item` 是 `flex-direction: column` + `align-items: stretch`，`el-upload` 因此占满宽。为了并排放缩略图而套 `display:flex` 包裹层后，`el-upload` 变成行向 flex item（`flex: 0 1 auto`）→ 宽度按内容 → `publish-form.png` 基线出现与本功能无关的位移。做法：缩略图作为列内**兄弟节点**插入（`width` 显式给定时不受 stretch 影响），零包裹层。
+- **被 stub 的组件插槽里的内容对单测不可见（测试可达性要参与布局决策）**：`Publish.test.js` 把 `el-upload` stub 成 `{ template: "<div><slot/></div>" }`。若把缩略图放进它的插槽，11 条用例全部取不到节点；作为 `el-upload` 的兄弟节点则可。同类：任何「为了测试可达而调整 DOM 位置」的决定都要在代码里留一句原因，否则下一个人会「顺手」挪回插槽。
+- **同一流程里只给自己新增的浮层守规矩，会把既有漏项原地留下（一致性优先于最小 diff）**：AGENTS.md 浮层互斥合同要求应用级模态挂起内嵌 `WebContentsView`。本次新增 1 个弹窗，但同一条封面流程里的裁剪弹窗与 AI 封面浮层一直没有挂起 —— 只补自己那条会得到「新浮层守规矩、旁边的不守」。判据：**按功能流程划范围，不按「谁引入的」划范围**；同时把补登记的既漏项在 PR 说明里单独列出，不与新功能混为「顺手改」。
+- **夹具必须与真实签名逐字同形，否则测不到任何东西**：`handleGenerateAiCover()` 无入参、读 `aiCoverForm` reactive 表单；按「传对象」写夹具会直接命中 `prompt.length < 2` 的早退分支，于是「AI 生成后出缩略图」这条用例对着一个从未执行的函数断言并全绿。同族：`cover-state` 只存在于视频封面行，在图文模式下断言它 = 测试自己前提写错。
+- **给「共享原生图层」加互斥时，必须逐个排查所有能承载同一 DOM 的宿主上下文（home-shell 案例）**：应用级模态挂起内嵌 `WebContentsView` 的守卫，在主窗口里是对的，在内嵌主页实例里是**反的** —— 那个实例本身就是一张视图，「隐藏全部视图」会把它自己藏掉。判据不是「这段代码在哪些路由被调用」，而是「同一份 DOM 可能被宿主在几种原生图层里，每种里『隐藏全部』的含义是否还成立」。本仓对 `setShellMode` 早已写 `if (isHomeShell) return`，同族危害在挂起路径上却没人补 —— **一个危害一旦被识别，必须横向问「还有哪条路径会触发同一效果」**。本条不是评审提的，是自查 `setVisible(true)` 的全部落点（只有一处、只作用于 `activeView`）才逼出来的：**别用「评审没提」当「不存在」**。
+- **jsdom 里清 query 不能用裸 hash：`replaceState({}, '', '#/x')` 只替换 fragment、保留既有 query（测试夹具坑）**：写「主窗口上下文」用例时以为清空了 URL，实际上一条用例的 `?mp-home-shell=1` 还在，于是守卫恒命中、两条断言反向失败，看起来像实现有 Bug。正解是给出带 pathname 的完整相对路径 `/` + search + `#/route`。同族：`isHomeShellSearch` 的注释早就警告 hash 导航会污染 `location.search`，这次是在**它的测试侧**又踩了一遍。
+- **CSS `var(--token, #hex)` 的「兜底值」同样计入历史品牌色字面量基线，Gate 14 会因此红（2026-09-28 实测，本仓 CI）**：我在 `CoverThumbnail.vue` 写了 `outline: 2px solid var(--color-primary, #5048e5)`，自觉「已经用了语义 token」，但 `check-color-literals.js` 扫的是**字面量出现次数**，兜底里的 `#5048e5` 一样被数进去 ⇒ `当前 130 / 基线 129` 直接 fail。正解：`tokens.css` 里 `--color-primary` 本就有定义（:14），**兜底是多余的**，写成 `var(--color-primary)` 即可；仓库里 `UiSlider.vue:180` 的 focus 描边也是无兜底写法。**口径**：新增 CSS 颜色一律 `var(--语义名)` 不带 hex 兜底；只有该 token 确实可能缺失时才允许兜底，且必须同 PR 跑 `--update-baseline` 并展示基线 diff，不能靠悄悄抬基线混过去。顺带确认该脚本只扫 `apps/desktop/src` 与 `ops-center/frontend/src` 下的 `.vue/.css`，**不扫 markdown**，所以在文档里引用坏值举例是安全的。另记一条通用坑：Gate 14 是 **fail-fast 步骤**，它一红就把 15 / 15b / 15c / 16 / 17 / 18 / 19 全 skip 掉 —— 修完必须把后面这些**一起在本地补跑**（workflow 注释里就写了「本地同口径」命令），否则会把「只修了一个红」当成「CI 会绿」。
+- **字节级文档拼接：字符串下标与 Buffer 字节长度不可混用，且「用同一套错误偏移做的自证」是恒真断言（本轮实测踩过）**：`text.indexOf(anchor)` 给 UTF-16 下标，`Buffer.byteLength` 给字节数，CJK 文本里两者不等，`orig.slice(0, idx + aBuf.length)` 会切在字符中间；而随后拿同样表达式去断言「前缀未变」必然通过 —— 探针不会失败，就等于没有探针。正解：全程 `buf.indexOf(Buffer.from(anchor,'utf8'))` 取字节偏移，纯 Buffer 拼接，并用**可逆性**做判据（从结果里摘掉插入块后必须与原文件 `equals`）。本轮就是被 `git diff --numstat` 的删除数不为 0 暴露的 —— 这条对账必须做。
+- **债务门禁 `LEDGER_GREW` 在这一型下没有「抬基线」分支，正解只有拆分；而且脚本的行数口径比 `wc -l` 多 1（2026-09-28 实测，本仓 CI）**：`Publish.vue` 登记 1333 + 容差 200，CI 报「膨胀 276」。逐 ref 实量（`git show <ref>:<file>` 数行，**不要用 diff 计数**）：origin/main 已是 **1457** —— 别的会话累计 +124，**登记值本就滞后**；我这一侧 +151 ⇒ 1608。三条口径：① `--update` 在源码里明确「不抬高已有登记值（存量膨胀交给 `LEDGER_GREW` 判定，而不是悄悄改基线）」，`--update --rewrite` 的注释自陈「会掩盖别人的漂移」⇒ 门禁的意图就是要拆，不是让你抬；② 判成败**以脚本复跑输出为准**，它的口径是 `split('\n').length`，我第一次降到 `wc -l = 1533`（正好 = 1333+200）仍报 201；③ 拆的落点选「本来就该是兄弟组件的那块」—— 放大弹窗（模板 + 挂起/释放 + 展示派生量 + scoped 样式）迁为 `CoverPreviewDialog.vue`，`Publish.vue` 1608 → 1530，新增文件 113 行，同时与旁边的 `CoverCropDialog.vue` 同构。**反例**：压缩自己写的注释去凑行数属于做样子，只适合净增十来行的场合。
+- **「释放走 `finally`」不是一种形态而是两种，混用会造出恒真的伪防御（AGENTS.md 浮层互斥合同）**：合同原文写「释放走 `finally`」，但浮层挂起有两种成立方式。**状态驱动型**（本次三个 owner）：关闭只是置 ref 或 `emit('close')`，中间没有可抛的 `await`，`try/finally` 无处可放；穷尽性来自**两条路径的并集** —— `watch(visible)` 的 false 分支 + `onBeforeUnmount`（后者专门覆盖「父组件直接 `v-if` 掉本组件 / 路由切走，`visible` 不经过 `false`」）。少了后者就是残留挂起计数，所以结构锁必须逐条点名这两条。**控制流型**（先例 `account-cloud-sync-dialog`：关闭时先 `unsubscribeProgress()` 再释放）才必须 `finally`。判据：新登记 owner 先问「释放是状态出口还是控制流中间步」；把前者硬写成 `finally` 反而要人为造一个可抛点。**同时如实记下我为此付出的代价**：旧写法是 `await suspend()` 之后才置 visible，模态绝不会在原生 `WebContentsView` 仍可见时先画出来；新写法由组件内 `watch` 驱动，IPC 是 async ⇒ 理论上有一瞬遮挡。选它是因为旁边两个浮层本来就是这个形态（一致性优先），且现有测试只锁「被调用」不锁顺序 —— 真机若闪遮，回到 `await suspend` 先行。
+- **组件位置一搬家，所有「按源码结构取块」的锁必须跟着搬，且旧位置的反证对新结构不构成证据（本轮复发风险最高的静默失效）**：原本钉在 `Publish.vue` 的 `COVER_PREVIEW_OVERLAY_OWNER` / `closeCoverPreview` / `suspendCoverPreviewOverlay` 三条断言在拆分后全部指向不存在的符号 —— 若只把正则改成读新文件就收工，锁看起来还在，实际守的是一个空壳。正确动作有两步：① 断言搬家（改读 `CoverPreviewDialog.vue` 的 `OVERLAY_OWNER` / `suspendOverlay` / `releaseOverlay` / `watch(visible)`）；② **重跑变异**，因为「1 红 / 4 红」这些数字是旧结构下的测量。本次重测：摘 `else` 分支释放 ⇒ **4 红**（结构锁 + 3 条行为用例），删 `onBeforeUnmount` ⇒ **1 红**，owner 复用 `settings-dialog` ⇒ **1 红**。另加一条**正控**（不施加变异必须 rc=0 且报出 passed 计数）：第一次跑时我的 `FAIL` 行正则没匹配上 vitest 的输出格式，三条变异全报「rc=1 但无 FAIL 行」，靠 `Tests 4 failed | 84 passed` 那行才确认变异真的被抓 —— **「探针无值」仍然是先怀疑探针，不是先宣布失败**。
+
+
+## 交互反馈只有「瞬时通知」一维时，用户必然误判没反应——补齐常驻态与元信息两维，差异化按「状态是否真变」分级（video-select-feedback，2026-09-28）
+
+- **「点了没反应」的第一性根因是反馈维度缺失，不是反馈不够醒目（反馈设计）**：视频选择后其实有 toast
+  （视口顶部 3s）也有 file-list 小字 chip，但用户视线焦点停在上传区——恰是唯一零变化的地方。判据：
+  操作位置与反馈位置分离 + 反馈会消失 + 操作区无状态变化，三者叠加必然产生「没反应」误判。
+  补法是三维度齐上：瞬时 toast（带文件名）+ 常驻成功卡片（文件名/大小/格式 + 更换/移除操作）+
+  操作区本身转成功态（绿实线边框）。
+
+- **差异化提示的分级判据是「状态是否真的变化」，不是「用户做了动作」（提示分级）**：换文件 = 状态变化 →
+  success 且双名对照（新名 + 原名，直接回答「旧文件真的被换掉了吗」）；同文件重选 = 状态零变化 →
+  降级 info（报 success 会制造虚假变更感）；超限 = 被拒绝 → warning 且**不覆盖旧选择**（静默替换或
+  延迟到提交才报错，都会让用户在错误状态下继续填半天表单）。否决「每次重选弹确认框」：打断心流，
+  且 limit=1 替换语义本就符合预期。
+
+- **UI 文案写了约束而代码不校验 = 契约谎言（校验时机）**：上传区提示「最大 500MB」存在数月但
+  `handleVideoFileChange` 从未校验，用户选了超大文件当时无感知、发布才失败。判据：凡 UI 文案声明的
+  约束（大小/格式/数量），必须在**用户做出该动作的瞬间**给反馈，而不是延迟到下游（发布/提交）。
+  非法值（NaN/负数/缺失）不拦截，交由路径解析兜底——两道校验不要抢同一类失败。
+
+- **反馈形态判定抽成纯函数，视图层只做映射（结构）**：`classifyVideoSelection({prevPath, nextPath,
+  sizeBytes})` 返回 oversize/unresolved/first/replaced/reselected 五值枚举，无 Vue/i18n 依赖，
+  14 例边界单测直接锁死；Publish.vue 拿枚举映射 toast 级别与文案。好处：两处上传区（视频发布模式 +
+  图文含视频平台分支）共用同一判定链，天然不会漂移出第二种口径。
+
+- **二进制文档（含历史 NUL 字节）的前置式冲突，解法是「checkout --ours + 字节级重前置」（变基纪律）**：
+  CHANGELOG/.quality-gates 被 git 按二进制处理，rebase 时无法三方合并。正解：`git checkout --ours`
+  取 main 版本（含他人新条目）→ 用「原字节前缀 + 新块 + 原字节后缀」脚本重前置自己的块 → add 后
+  `rebase --continue`。绝不手改冲突标记区（二进制文件的标记区是整文件）。
+
+- **PR 处于 CONFLICTING 时 CI 根本不触发——「push 了但没 run」先查 mergeable（CI 排障）**：本轮
+  push 后 `gh run list` 为空、`gh pr checks` 报 no checks，一度误判为 CI 故障。实况是 main 前进了
+  3 个 PR 导致冲突，GitHub 对冲突 PR 不启动 pull_request 工作流。判据：push 后无 run + mergeable
+  非 MERGEABLE = 先解冲突再强推，别等 CI。
 ## 把 flaky 测试改成假时钟之前，先问「它报的随机性是不是产品行为」——本条里答案是 yes，于是修测试就成了钉 Bug（governor-quota-reserve，2026-09-28）
 
 - **登记为「CI 满载计时抖动」的红灯，可能是一条被误诊的产品缺陷（诊断纪律）**：这条在 `.quality-gates.md`
@@ -51,6 +182,11 @@
   改完除两口径 numstat 外，还要跑 eslint 的 `no-irregular-whitespace`——它是这类「字节被重新解释」
   的专用探针。还原后用 md5 比对确认变异反证没留残留。
 
+## PR 处于 DIRTY（冲突）状态会整体阻断 pull_request CI 触发；合并输出截断会让冲突标记静默入库（publish-capability-ccg-review 合并马拉松，2026-10-08）
+
+- **DIRTY 阻断 CI 触发是全或无的**：PR 与 main 冲突时（merge ref 无法计算），push 的 synchronize 事件**静默不触发任何 workflow**——实测连续两次推送 + close/reopen 全部零 run（API 查 `head_sha` 的 `total_count=0`，GitHub 状态页全绿、他方 PR 正常触发）。判据：**推送后 5 分钟仍无任何 run，先查 `mergeStateStatus` 是否 DIRTY**，是则先解冲突再谈 CI；workflow_dispatch 能跑（走分支 ref）但**不挂 PR 检查**，不能替代。本仓 main 高频推进（他方会话每 15–30 分钟合一个 PR），CI 25–30 分钟的窗口期内 main 大概率再动——合并马拉松是常态，唯一解法是「CI 绿了发现 DIRTY → 立即合并推送重跑」，别指望一次过。
+- **合并输出必须看全，解冲突脚本的检查必须 gate 住 commit**：`git merge ... | Select-Object -Last 4` 把 `.quality-gates.md` 的 CONFLICT 行切掉了（git 按字母序输出，点文件在最前），于是只解了 CHANGELOG/ledger，gates 带着 `<<<<<<<` 标记入库（下一轮脚本打印 `markers: true` 但没拦住推送，又推了一次）。判据：① 解冲突后**必须**跑 `node scripts/check-gate-record-debt.js` 且以 rc=0 作为 commit 的前置条件（打印不算，gate 才算）；② 对含标记的文件做 union 时，源必须取**已验证无标记**的历史提交，不能取当前 HEAD（它可能就是带标记的那个）；③ PowerShell 管道截断 native 输出时用 `Select-String -Pattern "CONFLICT"` 全量过滤，不要 `Select-Object -Last N`。
+
 ## git add -A 会静默跳过 .gitignore 命中的新文件——核心交付物可能从未入库（publish-capability-docs，2026-10-08）
 
 - **`.gitignore:259-260` 忽略 `/01-docs/*.md` 与 `/01-docs/**/*.md`，既有 PRD-*.md 是规则生效前已跟踪才在库里；新增的 PRD 专项文档被 `git add -A` 静默跳过（提交输出里没有它的 create mode，但 31 files changed 的数字让人不会逐个核对）**。后果：首轮 PR 的核心文档交付物从未进仓库，而 CHANGELOG 与主 PRD 头部的链接指向不存在的文件——链接断链直到二轮才发现。判据：**新增文档类交付物提交后必须 `git ls-tree HEAD -- <路径>` 或 `git show HEAD:<路径> | head` 验证 blob 真的在库里**；`git status` 干净不等于交付完整（ignored 文件在 status 里根本不出现）。修复：按既有 PRD 文件先例 `git add -f` 强制收录。
@@ -61,6 +197,15 @@
 - **写取证文档的那一刻就该用中性称谓（品牌门禁，Gate 12）**：注册表 note 与 PRD/CHANGELOG 里直接写参考产品品牌名，CI 品牌残留门禁报 55 处命中、本地修复 62 处。判据：凡引用竞品逆向材料，落盘前先过一遍 `node scripts/check-no-brand-residue.js`；本机目录路径含品牌词时按可复现定位法先例描述（「目录名含品牌词按红线不入库」），不抄路径字面量。这条门禁本地跑一次 <10s，比等 25 分钟 CI 红一轮便宜两个数量级。
 - **main 的 squash 合并会静默丢置顶文档条目；解冲突按 union 纪律要顺带修复（合并纪律）**：实测 main 在近期 squash 合并中丢了 6 条 CHANGELOG 置顶条目（session-isolation/agents-eol/远程同步/cloud-sync/installer-taskpath/登录门禁），且 optimize 条目被归档提交累积复制 4 份。解冲突按仓库置顶文档 union 纪律（两侧父提交非空行多重集 lost=0、字节级操作保混行尾）时，顺带恢复丢失条目、去重累积条目（去重部分在豁免表登记，自检脚本可复现）。判据：置顶文档解冲突后必须跑双侧 lost=0 对账，不能只看冲突标记消失。
 - **外部记忆服务「写成功」与「可检索」是两件事（EverOS 运行态）**：HTTP `POST /api/v2/memory/add` 返回 accumulated、`flush` 返回 extracted（带 request_id），但 search/get 全空——服务端 cascade optimize 卡死（健康检查 364 连败），提取结果落不了检索索引。md-first 设计下直写 episode/atomic_fact markdown（按既有条目格式逐字节追加 + 更新 front-matter entry_count/last_appended_at）是可靠兜底，cascade 恢复后自动索引。判据：调用外部记忆后必须做一次**读回验证**（search 或 get），读不回就换直写通道；「接口返回成功」不是证据。
+
+## 发布进度监听器的生命周期必须绑定「任务生命周期」而不是「点击处理函数」；只断言清理机制的测试会把缺陷钉成契约（publish-progress-ux，2026-09-28）
+
+- **① 根因溯源（第一性引入点）**：单篇发布的 `publish:progress` 监听器在 `usePublishFlow.js` 的 `finally` 无条件 `off()`，而 `publish:batch` IPC 是同步入队毫秒级返回——任务实际执行期间发出的全部阶段/成败事件**无人接收**，用户点击发布后的最终反馈只有「✓ 已添加 N 个任务 / 任务已加入队列」，永远不知道发布是否成功。git 追溯：无条件 `finally off()` 自原始 Publish.vue 发布流程即存在（composable 拆分 commit `9353cc8c` 原样带入）；`939e236e` 曾引入「全部完成才注销」的条件注销与注释（**正确意图**），但 finally 使其成为死代码；`11bf8747` 的「只释放一次进度订阅」测试把清理机制钉成契约。形态：**清理逻辑写在了错误的生命周期层——IPC 往返时长 ≠ 任务生命周期**。
+- **② 逃逸分析（逐层为什么没拦住）**：单元层——「只释放一次」断言锁的是清理机制而非用户可见结果（「进度事件在 IPC 返回后仍应到达渲染层」从未被断言），把监听器短命钉成期望行为；集成/E2E 层无「发布后进度事件到达渲染层」的断言；视觉层无法覆盖时序行为。五层全部放行，缺陷在全绿测试下存活至今。
+- **③ 系统性漏洞**：类型 B（测试质量不足——断言实现细节而非行为结果）+ 类型 D（流程缺失——发布进度反馈从未有 PRD 契约可比对，审查无锚点）。
+- **④ 修复 + 回归保护**：订阅所有权上移全局 store（`src/stores/publishProgress.js` App 级一次性订阅，面板随 App.vue 常驻不卸载）。回归锁三把：`usePublishFlow.test.js`「不再订阅 onProgress」（防页面级订阅复活）、`publishProgress.test.js`「IPC 返回后到达的事件仍更新状态」（行为结果锁）、`PublishProgressPanel.test.js` 非模态负向锁。
+- **⑤ 预防措施**：AGENTS.md QM-2 新增「发布进度事件双边界与富化契约」条目；`PRD-PUBLISH-PROGRESS-UX-2026-09-28.md` §6.1 建立事件 payload 契约（发射层单一实现、渲染层禁第二份映射）。
+- **可迁移判据：凡「订阅/资源生命周期」与「触发它的用户动作生命周期」不一致的代码，先问订阅该活多久——把清理写进动作的 finally 等于把订阅寿命钉死在动作时长上；而测试若只断言「清理被调用」，锁住的是机制不是结果。写清理测试前先写一条「资源存活期间其产出可见」的行为断言。**
 
 ## 平台能力元数据的「四处各写一份」必然漂移；无标题平台的正确行为藏在「选择器解析失败」的隐式回退里（publish-capability-registry，2026-10-08）
 
@@ -5414,7 +5559,7 @@ if (api.getVersion) {
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
 - commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
-- commit  63a226: fix: �汾����ʾ�޸�
+- commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
 - commit decb3db: docs: ����ʮ���ָ��� �� �����ܽ�
 - commit d5ce0a7: docs: ����ʮ���ָ��� �� Electron Ӧ�ô�����֤
@@ -12035,7 +12180,7 @@ if (api.getVersion) {
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
 - commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
-- commit  63a226: fix: �汾����ʾ�޸�
+- commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
 - commit decb3db: docs: ����ʮ���ָ��� �� �����ܽ�
 - commit d5ce0a7: docs: ����ʮ���ָ��� �� Electron Ӧ�ô�����֤
@@ -16549,3 +16694,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **实际后果（若不证伪）**：按「未开工」重复实施 = 重复删除已删文件（空 diff）、重复生成 15 张图、重复改 locales——纯浪费且在 account 热域制造真实冲突（add-account-name-source 的后续 PR #2514 已引用其 account-name-write.js 作先例）。
 - **规约（接手任何交接清单的固定动作）**：对清单里每一条「未开工/待办」，先做三件只读取证再规划工作——① `git merge-base --is-ancestor <合并提交> origin/main`（合并是否在主干）；② `git log -S "<关键符号>"`（交付物是否在代码里）；③ openspec change 目录是否已在 `changes/archive/`。**「未勾选框计数」≠「未交付」**：tasks.md 复选框是流程工件，滞后于代码事实是常态（本批 3 个 change 全部如此）。
 - **落地**：4 个大件各派一个只读拆解代理做证伪 + 技术拆解（报告存 `.agent_context/breakdowns/`，机器本地）；证伪结论与证据已固化进 PR 描述（#2530/#2531/#2532）——其中 2 个「假未开工」转为归档收口 PR、1 个已在档无需动作、1 个真未开工项（ui-apple-token-retirement，L 复杂度）正确地停在「等用户拍板 7 个开放问题」。拆解报告本体在 gitignored 目录会随机器丢失，**有跨机价值的结论必须进 PR 描述或 learnings，不能只存 .agent_context**。
+## 非交互 bash 不加载 /etc/profile：PATH 缺 Git\usr\bin 时 dirname/cygpath/awk 全灭，worktree 入口静默失败（fix-bash-dirname-wsl-guard，2026-09-29）
+
+- **非交互/非登录 bash 的 PATH 只继承 Windows PATH（POSIX 化），不加载 /etc/profile（第一性根因）**：`start-mp-task.ps1` 用 `& $bash $initScript $TaskName` 调 Git Bash，后者不读 profile ⇒ PATH 里没有 `/usr/bin`（dirname/cygpath/awk 都在那），`session-init.sh: line 6: dirname: command not found`（exit 127），worktree 未建成就中止。实测对照：`bash -c 'command -v dirname'` → not found（127）；`bash -lc` → `/usr/bin/dirname`（0）。`.quality-gates.md` 已两次记录同款事故（PATH 缺 `Git\usr\bin`），此前只临时前置 PATH 治标——**「临时补 PATH」是治标，因为下个会话/下台机器又缺**。
+- **bash 内建 `$BASH` 不依赖 PATH，是定位自身 bin 目录的唯一可靠锚点（自愈手法）**：`${BASH%/*}` 即 Git for Windows 的 `/usr/bin`，把该目录前置进 PATH 即可让非交互 bash 找到 dirname/cygpath/awk。WSL bash 无此目录结构（system32 下没有 usr/bin），自愈不会误伤。三个 sh 入口（session-init / gwm-task / session-cleanup）顶部统一加这段。
+- **PowerShell 侧探测链只 `Test-Path` 存在性，等于没校验身份（审查盲区）**：`-GitBash` / `MP_GIT_BASH` 可被指向 `C:\WINDOWS\system32\bash.exe`（WSL shim）而无人拦。身份校验判据：路径须匹配 `<GitRoot>\usr\bin\bash.exe` 或 `<GitRoot>\bin\bash.exe`，且同根 `usr\bin\dirname.exe` 存在——这是 Git for Windows 的目录指纹，WSL shim 天然不符。
+- **结构锁要锁「函数体非 no-op」，只锁函数名和调用点会被恒真实现骗过（反证教训）**：第一版身份校验锁只断言 `Test-GitBashIdentity` 存在 + 调用点存在，把函数体改成 `return $true` 后**全绿**——锁没在跑。补上「函数体必须包含 `Test-Path.*dirname\.exe`」才变红。反证纪律：任何防再犯锁必须做「把锁改成 no-op 立刻变红」的变异，且变异要打在**锁声称守卫的那层**。
+- **Git Bash 下 `$TMP`/`$TEMP` 是 Windows 路径（C:\...），与 `mktemp -d` 返回的 POSIX 路径（/tmp/...）不一致（测试夹具坑）**：`session-init.test.sh` 原用 `TMP="${TMPDIR:-/tmp}/..."` 但 `$TMP` 是 Windows 路径，后续 `$TMP/repo` 全部落空（`/repo/base.txt: No such file or directory`）。正解：`TMP="$(mktemp -d ...)"` 直接取 mktemp 的 POSIX 输出，不再引用 Windows 的 `$TMP`。
+- **CI 用 ubuntu 系统 bash 跑 sh 测试，天然带 /usr/bin，永远不会暴露 Windows 非交互 bash 的 PATH 缺失（逃逸链）**：`session-init.test.sh` 在 CI 全绿 ≠ 本机可用。Windows 侧验证必须显式构造「git 可用、dirname 缺失」的 PATH（`PATH=/c/Program Files/Git/cmd:/c/WINDOWS/system32:...`）再跑，才能复现故障现场。

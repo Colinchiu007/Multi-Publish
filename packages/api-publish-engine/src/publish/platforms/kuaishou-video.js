@@ -59,15 +59,17 @@ function cookieValue (cookie, key) {
 }
 
 /** 切片 §1.7 buildPostData$I 全字段；纯函数，供链与薄适配器共用。
- *  ctx = { fileId, coverKey, apiPh }；条件字段按 taskData 存在才带（切片 ?? 语义）。 */
+ *  ctx = { fileId, coverKey, apiPh }；条件字段按 taskData 存在才带（切片 ?? 语义）。
+ *  话题内联描述（publish-topic-inline-description）：快手是内联保留型平台——
+ *  描述里的 `#话题` 原样保留在 caption（描述为真源）。旧「tags 拼进 caption」
+ *  行为下线：UI 追加管道已把话题内联进 content，再拼 tags 会双份重复。 */
 function buildKuaishouPostData (taskData, ctx = {}) {
   const td = taskData || {}
   const coverKey = ctx.coverKey || ''
   const title = String(td.title == null ? '' : td.title).trim()
   const content = String(td.content || td.desc || '').trim()
-  const tags = Array.isArray(td.tags) ? td.tags.filter(Boolean).map((t) => '#' + String(t).replace(/^#/, '')) : []
-  // 快手无独立标题字段：标题 + 正文 + 话题标签合并进 caption（与 DOM RPA _composeEditorCaption 语义对齐）
-  const caption = [title, content, tags.join(' ')].filter(Boolean).join('\n')
+  // 快手无独立标题字段：标题 + 正文（含内联话题）合并进 caption（与 DOM RPA _composeEditorCaption 语义对齐）
+  const caption = [title, content].filter(Boolean).join('\n')
   const data = {
     caption,
     pkCoverKey: td.pkCoverKey || '', pkCoverSize: 'a', pkCoverTimeStamp: 0, pkCoverType: 2,
@@ -216,7 +218,10 @@ class KuaishouVideoChain {
     return { token, endpoint: this.uploadScheme + '//' + host }
   }
 
-  /** Step 2：分片上传（不签）：Content-Range bytes s-e/total，application/stream → checksum 必填（切片 §1.3） */
+  /** Step 2：分片上传（不签）：Content-Range bytes s-e/total → checksum 必填（切片 §1.3）。
+   *  Content-Type 修正（2026-09-29 网络级取证）：真实浏览器发 application/octet-stream
+   *  （旧切片的 application/stream 为过时读数）——错误 Content-Type 疑似破坏上传会话
+   *  状态（fragment 仍返回 checksum），complete 裸 400。 */
   async uploadFragments (filePath, size, token, endpoint, opts) {
     const total = Math.max(1, Math.ceil(size / this.partSize))
     const fh = fs.openSync(filePath, 'r')
@@ -229,7 +234,10 @@ class KuaishouVideoChain {
         const url = endpoint + '/api/upload/fragment?upload_token=' + encodeURIComponent(token) + '&fragment_id=' + (i + 1)
         const res = await this.uploadHttp.request({
           method: 'post', url, data: buf, maxBodyLength: Infinity,
-          headers: this._baseHeaders({ 'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size, 'Content-Type': 'application/stream' }),
+          headers: this._uploadHeaders({
+            'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size,
+            'Content-Type': 'application/octet-stream',
+          }),
           validateStatus: (s) => s >= 200 && s < 500,
         })
         const d = res.data
@@ -253,14 +261,57 @@ class KuaishouVideoChain {
     }
   }
 
+  /** 上传域请求头（2026-09-29 取证三轮：与捕获的真实浏览器请求逐字一致）：
+   *  无 Cookie（跨 registrable domain 不可带）+ 短 Referer + sec-ch-ua 三件套 +
+   *  捕获 UA（Chrome/150）。这是头部级对齐的最后一层——再往下的差异在传输层
+   *  （TLS 指纹/HTTP 版本），Node axios 无法复刻。 */
+  _uploadHeaders (extra) {
+    return Object.assign({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.114 Safari/537.36',
+      Referer: 'https://cp.kuaishou.com/',
+      Accept: 'application/json, text/plain, */*',
+      'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      Cookie: null,
+    }, extra || {})
+  }
+
   async _uploadPost (url) {
+    // 2026-09-29 请求级诊断定案：data:'' 会触发 axios 默认注入
+    // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
+    // urlencoded body → 裸 400（真实浏览器空 body 不设 Content-Type）。
+    // 显式置 null 移除该头（axios 语义：null = 删除），HTTP 层发 Content-Length: 0。
+    //
+    // 上传域请求对齐浏览器（2026-09-29 网络级取证二轮）：真实浏览器对上传域
+    // （kuaishouzt.com，跨 registrable domain）不带 kuaishou.com 的 Cookie（同源
+    // 策略不可带）且 Referer 是短形态 https://cp.kuaishou.com/——400 响应头无
+    // X-KSLOGID/无 CORS 头（边缘级拒绝），带外域 Cookie + 长 Referer 疑似触发
+    // 边缘 WAF。上传域请求一律：无 Cookie + 短 Referer。
     const res = await this.uploadHttp.request({
       method: 'post', url: this._currentEndpoint + url, data: '',
-      headers: this._baseHeaders(),
+      headers: this._uploadHeaders({ 'Content-Type': null }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
-      throw new KuaishouVideoError('kuaishou-video: ' + url + ' HTTP ' + res.status, errorCode.io_error)
+      // 请求级诊断（2026-09-29 第七层三轮）：诊断数据嵌入错误消息本体——链的 logger
+      // 在桌面装配里是 console（stdout 不可见），而错误消息经 rpa-view-manager 的
+      // catch 落应用日志。cookie 脱敏为长度，截断防日志爆炸。
+      const safeHeaders = {}
+      for (const [k, v] of Object.entries(res.config && res.config.headers || {})) {
+        safeHeaders[k] = /cookie/i.test(k) ? '<' + String(v).length + 'c>' : v
+      }
+      let diag = ''
+      try {
+        diag = ' [diag req=' + JSON.stringify({ url: this._currentEndpoint + url, reqHeaders: safeHeaders }) +
+          ' resHeaders=' + JSON.stringify(res.headers || {}) + ']'
+      } catch (_) { /* 序列化失败不掩盖原始状态码 */ }
+      let bodyHint = ''
+      try {
+        const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+        bodyHint = raw ? ' body=' + String(raw).slice(0, 200) : ''
+      } catch (_) { /* 序列化失败不掩盖原始状态码 */ }
+      throw new KuaishouVideoError('kuaishou-video: ' + url + ' HTTP ' + res.status + bodyHint + diag, errorCode.io_error)
     }
     return res.data
   }

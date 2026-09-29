@@ -161,11 +161,38 @@ const helpersMixin = {
     const sv=JSON.stringify(val)
     const resolveJs = buildResolveElementCode(sel)
     // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化，移除 script/on*= 事件
-    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}));return true}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return true}}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+    // 2026-09-29 Illegal invocation 修复：value setter 必须按元素 tagName 选原型——
+    // 旧写法「Input 原型?.set || Textarea 原型?.set」两个 descriptor 都存在、恒取 Input 的，
+    // 对 TEXTAREA（公众号 v2 编辑器 #title 实测）调用 Input 原型 setter 直接抛 Illegal invocation。
+    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}));return true}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return true}}var _proto=el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;let ns=Object.getOwnPropertyDescriptor(_proto,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
   },
   async _click(win, sel) {
     const resolveJs = buildResolveElementCode(sel)
     return await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');el.click();return true})()')
+  },
+
+  // ========== CDP trusted text insertion ==========
+  // 2026-09-29 实测（知乎写页取证，evidence 见 01-docs/PRD-ARTICLE-PUBLISH-FIX-2026-09-29.md）：
+  // Draft.js/ProseMirror 类框架编辑器不接受 innerHTML 直写（框架状态为空、发布空文），
+  // execCommand 合成事件也不被框架状态接受；唯一可信注入通道是 CDP Input.insertText
+  // （走浏览器输入管线，框架收到真实 beforeinput/input 并入状态）。
+  // 边界：本机 Electron WebContentsView 上 Input.dispatchKeyEvent 不可达（document 级
+  // 监听 0 事件，2026-09-29 实测），键盘模拟一律不用；段落分隔以 \n 保留在块内
+  // （contenteditable pre-wrap 渲染为换行）。调用方须先 JS focus 目标编辑器。
+  async _insertTextTrusted(win, text) {
+    const value = String(text == null ? '' : text)
+    if (!value) return false
+    const dbg = win.webContents.debugger
+    // eslint-disable-next-line no-unused-vars
+    try { await dbg.attach('1.3') } catch (e) { /* ignore（已附加） */ }
+    try {
+      await dbg.sendCommand('Input.insertText', { text: value })
+      log.info('RpaView', 'CDP insertText: ' + value.length + ' chars')
+      return true
+    } catch (e) {
+      log.warn('RpaView', 'CDP insertText failed: ' + (e && e.message))
+      return false
+    } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
   },
 
   // ========== CDP file upload ==========

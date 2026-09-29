@@ -19,6 +19,668 @@
 - 文档同步：AGENTS.md 目录树里「登录经 platform-orchestrator /api/auth」按 `grep -na` 全仓 sweep 纠正（并补一条 MUST：删数据类夹具自身必须 fail-closed 校验目标在仓库外）；`ops-center/docs/PRD.md` §6.4 认证方案整段改为自持口径（PBKDF2-SHA256/200000、HS256 8h、Cookie+CSRF 头、内存限速、fail-closed、`ensure_admin_seeded` 只建不改），并如实标注鉴权分级表里「已登录（任意 role）」一列在当前唯一签发路径下与 admin 等价；`ops-center/docs/OPERATIONS.md` 新增 §11 本地启动/分诊/凭据核对/WAL 不可删。
 - 运维事实留痕：`data/config.db` 主文件可以长期只有 4KB，全部数据压在未落盘的 `config.db-wal`（实测约 0.8MB、37 张表）里——属 SQLite 正常行为，但**删 `-wal` 等于删库**，清理临时文件时 `*-wal`/`*-shm` 不在可删清单内。
 
+# [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
+- `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
+- 后果不是"少个便利"，是**把人引向错误的归因**：按文档设了变量照样 403，排查者会去查「WMI 不继承环境变量」「launcher 没透传」，而真相是特性缺失。本轮真机 A/B 取数时就是靠「WebSocket 不发 Origin 头」绕过去的（已登记在 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §13.5）。
+
+### 修法
+- `dev-launcher.js`：新增 `resolveAllowAllOrigins(env)`；`buildElectronArgs` 增 `allowAllOrigins` 形参，开启时追加 `--remote-allow-origins=*`，且**必须排在 desktopDir 之前**（desktopDir 是应用路径，永远末位）。
+- `dev.js`：**单次**读取该值 → 传给 `buildElectronArgs` → 在 `electron.on('spawn')` 里打印现场（AGENTS.md「静默配置失败必须留日志」；只在开启时打印，默认关不污染日志）。
+
+### 判据为什么是「trim 后恰好 '1'」
+`cmd /c set "VAR=1 "` 会把尾随空格折进值里（本仓在 `ELECTRON_USER_DATA_DIR` 上真踩过，launcher 注释已记），不 trim 就等于开关静默失效；而接受 `true` / 数字 1 会让「默认关」这条安全前提可被随手绕过。两个方向各锁一条用例。
+
+### 验证（全部本轮实跑）
+- `node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js` → **tests 50 / pass 50 / fail 0**，与 `quality-gate.yml:110` 的点名口径逐字一致（不是"应该会被收集"）。
+- 四条变异各自只让对应那条锁变红：unwire（dev.js 不传参）→ 1 红；no-op push（删掉追加行）→ 1 红；loose（判据退化成 `!!raw`）→ 1 红；删留痕 → 1 红。每次还原后 10/10 绿、三个文件与备份**字节级一致**（`cmp -s`）。
+- 真机 A/B（同 worktree、隔离 profile、专属 bridge 端口 8453/16553/8033/8022/8014，避免应答到别人实例的 8299）：
+
+| `MP_CDP_ALLOW_ALL_ORIGINS` | electron argv | 不带 Origin | 带 Origin | 带恶意 Origin |
+| --- | --- | --- | --- | --- |
+| `0` | 无 `--remote-allow-origins` | OPEN | **HTTP 403** | **HTTP 403** |
+| `1` | `--remote-allow-origins=*` | OPEN | **OPEN** | **OPEN** |
+
+  不带 Origin 两档都 OPEN ⇒ 差异维度被隔离在这条开关上，而不是进程或时序。
+
+### 边界
+- 只动 dev 启动链（`apps/desktop/scripts/`），未改 `electron/` 运行时代码与打包配置，QM-1 前提不成立；`apps/desktop/electron/` 零改动。
+- 开关**默认关**：开启后任意站点都能连该进程的 DevTools WebSocket（这正是 Chromium origin 校验存在的原因），因此它只用于本机排障，不得进生产/CI 默认值。
+- 收尾已按 worktree 路径精确停掉验证实例并删除隔离 profile（`D:\tmp\mp-cdp-verify-profile`），未触碰其他会话的实例与数据目录。
+
+# [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
+
+### 现象与根因
+- `QG Desktop Shards` / `Gate 4` 在 pnpm 退出后跑一段「有没有漏下测试子进程」的检查，判定非空即 `throw`，并**对结果逐个 `taskkill /T /F`**。实测 run 36519025075 attempt 1：**12517 个测试全部通过**，该检查却报出 `csrss.exe / winlogon.exe / fontdrvhost.exe / dwm.exe` 四个"残留子进程"。
+- 根因：`quality-gate.yml` 的 Gate 4 与 Desktop shards **各内联了一份** `Get-TestProcessTree`，只按数字 `ParentProcessId` 递归，而种子是**已经退出的 pnpm 的 PID**。Windows 会回收退出进程的 PID，`Win32_Process.ParentProcessId` 又只是存下来的数字而非活链接 —— 于是任何把该数字记作自己父亲的长命进程都会被认成后代。两份拷贝还意味着任何修复都要改两处并持续漂移。
+
+### 变更
+- 防护不变量：**子进程创建时间不得早于其父进程**。选它而不是进程名/镜像路径黑名单，因为该不变量与名字和路径都无关 —— 真实泄漏的 node/electron/python 子进程一定晚于其父启动（不会被漏），而开机期进程永远早于任何 runner 进程（不可能被认成后代）。「路径必须在 workspace 下」会漏工具缓存里的 node.exe，故不采用。
+- 两处内联拷贝收敛为 `scripts/get-test-process-tree.ps1`（带 `-Processes` 注入点做到确定性测试、`-NotBefore` 时间锚点由调用方在 `Start-Process` **之前**取 `Get-Date`，与 `Win32_Process.CreationDate` 同为本机钟、不跨 API 比时间）。调用点在脚本缺失时**硬失败**，不得静默退回旧实现。
+- 新增 `scripts/get-test-process-tree.test.ps1`（8 条，接进 Gate 2d）。其中第 6 条是**反失明**断言：关掉防护时同一 fixture 必须复现误判，否则第 1–3 条只是"集合恰好为空"；第 8 条起一个真实子进程走 `Get-CimInstance` 实路，因为 1–7 只喂注入表，抓不到「CIM 时间与本机钟不可比 ⇒ 把所有进程都拒掉」这种恒绿形态。
+- 同步更新 `workflow-contract.test.js` 中 4 条锁死旧形态（"步骤里内联了一份函数"）的断言 —— 不更新会**恒红**；改为锁「引用共享实现 + 必带 `-NotBefore` + 全文件不得再内联第二份」。
+
+### 证据
+- 本机 pwsh 7 与 Windows PowerShell 5.1 各 8/8 PASS；`check-ps1-bom` 9/9、Gate 3 契约 76/76、unwired / failfast / debt-budget 全 rc=0。
+- 反证两条实跑：把时间防护改成恒不成立 → 第 1 条立刻报 `6064,6548,6864,7004`（正是事故那四个 PID）；把内联定义塞回 workflow → 新增的 `doesNotMatch` 锁变红。均按字节还原。
+- runner 现场：合并后首次 main 检查打印 `[process-tree] scanned=134 descendants=0 rejected-by-time=0` —— 误判消失，且未把真实子进程一并拒掉。
+- 一次自伤如实记：首版测试文件含**一条**中文注释而无 BOM，被仓库自己的 `check-ps1-bom.js` 抓红（PS 5.1 把无 BOM 的 UTF-8 .ps1 按 ANSI 读）。直接原因是本地只跑了 unwired / failfast / debt-budget，**漏跑这一条门禁**。
+
+# [未发布] docs(publish): 平台端点取证清单——审核回查 / 平台草稿列表的 verified 提升判据（2026-10-09，audit-requery-evidence-checklist）
+
+### 文档
+
+- 新增 `01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md`：把「候选平台提升为已验证」所需的**三项证据**（端点 URL / 参数名与取值来源 / 鉴权方式）写在纸面上，并给出 8 个平台的逐项清单（当前候选与已知缺口、需要的证据、参考产品已取证口径、通过判据）、取证记录模板（含脱敏与「无定论」必填）、证据齐备后的三处代码改动与验收清单。
+- 存在理由：P0-1 第二切片已把端点能力诚实分级（`verified` 显式为空），但「为什么不能用、怎样才算能用」此前只散落在代码注释与 PRD 残余限制里；本清单把它变成**可执行、可勾选**的取证流程，避免下一个会话重复发现「端点形状不对」。
+- 同时服务 P1-3（平台草稿列表）：多数平台的草稿列表与作品列表是同一端点家族，一次取证可记录两项用途。
+- 登记于 `01-docs/PRD.md` 功能文档索引。
+
+### 验证
+
+- docs-only 快速通道判定 + 品牌残留 + 行尾对账本地 PASS（无运行时代码变更）
+
+---
+
+# [未发布] fix(publish): P0-1 第二切片——审核回查凭证修复 + 端点能力分级（2026-10-09，p0-1-audit-requery）
+
+### 修复
+
+- **凭证恒空缺陷**（真实根因，代码证据）：`phase4-events` 建发布监控任务时传 `task.article?.cookies || ''`，而全仓**只此一处读取、从无任何写入**——监控历来用空 cookie 轮询，必然 401/重定向，12 次重试后 timeout（第一切片之前还会把这个 error 伪造成一条 `status='error'` 的历史记录）。登录态真实落在 Electron auth 分区（`credential-store` 只存 `localStorage + accountInfo`，**不含 cookie**）。
+  - 新增 `electron/services/publish-audit-requery.js`：`resolveAuditRequeryCookies` 优先任务自带（非空才用）→ 否则复用既有 `collectAuthPartitionCookies`（`auth-partition.js`，含平台域过滤 + 同名去重 + 失败降级空）只读补齐 → 两处皆空返回 `none`；读取失败/畸形一律降级 `none`，绝不冒泡。
+- **必然失败的重试风暴**：凭证拿不到一律**不建监控任务**（旧形态每次发布对每个平台空跑 12 次请求 ≈ 2 分钟）。
+- **端点未验证的诚实分级**（`AUDIT_REQUERY_VERIFIED_PLATFORMS` / `AUDIT_REQUERY_CANDIDATE_PLATFORMS`）：`verified` 当前**为空**（本仓尚无任何平台的审核回查真机证据，端点 + 参数名 + 鉴权方式三项齐备才算）；候选平台默认参与探索性轮询，可用 `MP_AUDIT_REQUERY_CANDIDATES=0` 关闭。候选表与 `publish-monitor.CHECK_URLS` 键集由 **parity 测试锁**，防「新增端点忘登记候选」（静默永不回查）与「登记候选却无端点」（决策 start 但监控侧 skipped 的假绿）两种漂移。
+- **异步门不得产生 unhandledRejection**：策略层调用挂 `.catch`（该缺陷由测试的 unhandled-error 预警发现并修复）；`wireTaskQueueEvents` 新增可选 `auditRequery` 依赖（默认真实实现）以便注入测试替身。
+
+### 验证
+
+- 桌面受影响面 99/99（`publish-audit-requery` 13 例新增、`phase4-events` +4）
+- locale keys（1306）/cjk + 品牌残留 + max-lines 本地 PASS
+
+### 残余
+
+- `verified` 为空是当前真实状态：提升某平台需三项证据（端点 URL + 正确参数名——B站需 `mid`、微博需 `uid`，非通用 `id`；鉴权方式——抖音签名 POST、YouTube OAuth）。在此之前候选平台回查多为 `pending→timeout`，第一切片的单向证据规则保证这不会写入任何伪状态。
+
+---
+
+# [未发布] BREAKING（视觉）feat(ui): Apple 令牌双轨退役——全站收敛到 tokens.css 权威令牌（2026-09-29，ui-apple-token-retirement）
+
+> 本条目为**破坏性视觉变更**：主色与圆角/字号基线改变，既有视觉基线需同源重生成。
+
+### 变更
+
+- **主色 Apple 蓝 → 品牌紫**（`#007AFF` → `#5048E5`）：全站按钮与主操作观感变化，是本次唯一用户可感知的破坏性变更。
+- **圆角统一 +2px、xs 字号 11→12px**：采纳 `tokens.css` 权威尺（圆角 6/10/14 → 8/12/16、`--font-size-xs` 12px）；`--apple-radius-pill`(9999) 映射到 `--radius-full`（**不是** `--radius-pill` 32px）。
+- **337 处 `--apple-*` 消费点全部收敛**（批次 0–5）：组件层 88 + 账号云镜像回潮 59（PR #2461 的 4 个组件）+ `history-page.css` 190（43 个变量）。逐项映射与值差异见 `openspec/changes/ui-apple-token-retirement/component-token-map.md` 与 `history-page-token-map.md`；陈旧 fallback 一并剔除（`#1f7a4d`/`#a2650b` 等第三套真相）。
+- **别名层退役**（批次 6）：删除 `apple-design-tokens.css`（93 行）与其**唯一导入** `cohere-design-system.css:1`、删除 `tokens.css` 的 17 个 `--color-apple-*` 收编槽位；`cohere-design-system.css` 暗色 `--ink`/`--muted` 改为对权威 token 的**纯转发**（不再承担暗色救火；`--muted` 由 #88889a 变亮为 `--color-text-secondary`，暗色可读性提升）。
+- **补齐权威语义槽**（批次 2）：`--font-weight-*` / `--font-family-*` / `--leading-*` / `--duration-*` / `--ease-*` / `--spacing-16`；`[data-theme="dark"]` 增补四档文字色（暗色卡片底实测对比度 14.35 / 12.80 / 7.53 / 6.66:1）与 `--color-primary-light`；**修复 `--text` 暗色转发到背景色**的缺陷（2026-09-20 暗色不可读事故根因，改为指向前景 `--ink`）。
+- **回潮门禁**（批次 0/6）：`check-frontend-consistency.js` 新增 `appleAlias` 检查（扫描面含 `styles/*.css`），基线**钉 0**——任何新增 `var(--apple-` 引用立即 CI 失败并列出行号；附「钉 0」回归锁防止基线被抬高。同批修复该门禁三处缺陷：共享基线被抹键（改 merge）、基线缺键静默放行（改 fail-closed）、CSS 块注释盲区（`blockAware`）。
+- **视觉基线暗色通道**（批次 1）：`run-pixel-tests.js` 支持 `THEME=dark`、`<view>-dark.png` 命名与浅色互不覆盖；`visual-test.yml` 在同一 Vite/渲染环境增跑暗色一遍（同源口径）。
+
+### 验证
+
+- 门禁：`appleAlias` 计数 **339 → 0**；`check-css-var-defined` / `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全 PASS
+- 组件层 96/0（UiButton/UiInput/UiModal/ConfigProfileManager/AccountCloudSyncDialog）、历史页 77/0、`tokens.slots.test.js` 15/0（含 WCAG 对比度断言）、门禁测试 21/0（含「钉 0」锁）、style-guard 9/0
+- 图像基线：批次 3 的 17 张浅色基线经 PR `quality-gate-visual-reports` artifact **同源刷新**（QM-4 第 7 条）
+
+### 残余（登记）
+
+- 暗色基线为**首次建立**，待 `visual-test.yml` 在最终态产出后入库（入库后该步骤转阻断门禁）。
+- 顺带发现（不在本 change 范围）：像素门禁阈值 `threshold = 0.1`（允许 10% 像素不同）使本次 19 个视图的实测 misMatch（0.0000%–1.6071%）全部远低于阈值；QG Visual 覆盖 19 个视图而 `run-pixel-tests.js` 声明 22 个 —— 两者均建议单独立项。
+
+---
+# fix(工程门禁): check-ps1-bom 补两条判据 —— 多重 BOM 与「声明 UTF-8 但正文不是合法 UTF-8」（ps1-bom-gate-hardening，2026-09-30）
+
+### 变更
+
+- **背景**：#2656 的门禁只问「开头有没有 UTF-8 BOM」，而**有 BOM 不等于声明成立**。QM-6 外部评审（codex 后端模型）与本地实测各自独立命中同一个漏判面：双 BOM 的文件、以及「补了 BOM 但正文其实是 GBK 字节」的文件都被判绿。
+- **判据从一条变三条**（`inspectBuffer` 返回 `reason`）：① `missing-bom` 含非 ASCII 且无 BOM（#2656 的原缺陷）；② `double-bom` 前导 BOM 不止一个 —— 第 2 个不是编码声明而是内容字符 U+FEFF；③ `invalid-utf8` 声明是 UTF-8 而正文过不了严格解码。③ 同时是「只前置 BOM、不转码」这类修复动作**自身的守卫**：真遇 GBK 文件必须变红，而不是产出一个「有 BOM 的坏文件」。
+- **②③ 的边界由实测推导，不是猜的**：双 BOM + 中文正文 ⇒ Windows PowerShell 5.1 与 pwsh 7 **都** ParseFile 报错且运行期 throw；双 BOM + 纯 ASCII 正文 ⇒ 能 parse 但**执行仍 throw**（CommandNotFoundException）。所以 ② 的判据**不看**正文是否含非 ASCII —— 只看 BOM 个数。取证脚本 `bom-edge-probe2.ps1` / `bom-edge-probe3.ps1`。
+- **`nonAscii` 改为只数正文**：BOM 自身就是 3 个 `>0x7F` 字节，算进去既让现场数字虚高，又让「②③ 只在含非 ASCII 时才查」这种收窄变异退化成语义 no-op（反证跑不出红 = 白建一条锁）。这一条是反证 CP-F 第一次报「红数 0」逼出来的。
+- **修法提示按判据分开**（`FIX_HINT`）：三条判据的修法方向互不相同（补 BOM / 删多余 BOM / 转码），给错比不给更糟 —— 对 ③「再补一个 BOM」会让文件离能用更远。结构锁钉住 `FIX_HINT` 的键集合必须与判据同步增删。
+- **反证 7 条逐个实跑并断言字节还原一致**：CP-A 退回单条判据 ⇒ 4 红；CP-B 多重 BOM 压成「最多一个」⇒ 3 红；CP-C 严格解码退化成非 fatal 档 ⇒ 3 红；CP-D offender 丢掉真实 `reason` ⇒ 1 红；CP-E 改错 `FIX_HINT` 键名 ⇒ 1 红；CP-F `nonAscii` 把 BOM 算进去 ⇒ 1 红；CP-G 双 BOM 判据差一（只抓 ≥3）⇒ 3 红。每条都打印**变红的具体测试名**做归因，而不只打印红数（"identifier-match ≠ cause-match"）。
+- **真仓库现状**（48 个 tracked `.ps1`，按 blob 取证）：27 个带 UTF-8 BOM（#2656 补 15 + 历史已有 12），0 个非 ASCII 缺 BOM、0 个双 BOM、0 个正文非法 UTF-8、0 个 UTF-16 BOM。新判据在真实数据上不产生误伤，这是它可接 CI 的前提。
+- **未纳入本条的评审意见**（如实登记，不假装已解决）：门禁读的是**工作树**而非 blob；`git ls-files` 只看 cached（新文件进 index 前不受保护，属 CI 形态的自然边界）；纯 ASCII 却带 BOM 不报（是 diff 噪声，不是缺陷）。
+- **一条方法论记录**（比上面任何一条更长命）：本轮曾把「外部评审的某条发现」当作事实去核对，实际在本仓 **grep 不到对应代码**（`[Text.Encoding]::Default` 在全仓 `.ps1` 命中 0 处，且没有任何 `.ps1` 写 CHANGELOG）。判据：**评审结论必须先在它自己的产物里 grep 到、再到代码里 grep 到**，两条都成立才允许进入修复清单；否则就是把猜测钉成待办。
+# [未发布] feat(publish): P0-1 审核状态跟踪第一切片（状态机 + 原记录回写 + 醒目展示）（2026-10-09，p0-1-audit-status）
+
+- **feat(xiaohongshu)：图文改为落平台草稿箱（收图片编辑弹窗 + 不点发布）**。
+  需求调整：小红书图文不必走到完全发布，只需把内容（标题+正文+图片）存进平台草稿箱，
+  用户回头在草稿箱里自行确认发布；视频模式保持原发布链路。三处修复（真机取证）：
+  - **图片编辑弹窗**（新增 `_dismissImageEditModal`）：图片上传成功后小红书自动进入
+    图片编辑（裁剪）界面，模态层「图片编辑 裁剪 … 裁剪设置 … 完成」压住发布按钮——
+    实测 `button:has-text("发布")` 3s 超时 → 发布验证失败；现上传后检测并点「完成」收起
+  - **草稿模式**（`config.draftOnly`）：generic 新增分支——跳过发布按钮查找，点显式存
+    草稿钮（若有 `sel.draft_btn`），否则等自动草稿保存落库（编辑页「编辑于 刚刚」、
+    侧边栏草稿箱计数 +1），返回 `{ success:true, draft:true, draftSaved }`
+  - `_publish_xiaohongshu` 图文模式传 `draftOnly:true`
+  - 验收：发布历史 `status=success`（15s）+ **草稿箱计数 0→1**（真机复核）；
+    单测 232/232；完整设计见 `01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md` §11
+
+---
+
+
+### 变更
+
+- **审核状态机单一真源**（`packages/shared-utils/src/publish-audit-status.js` CJS + `.browser.js` ESM 孪生 + vite alias）：7 态枚举（published/inAudit/prePublish/deny/notPublic/withdrawn/transferFail）；`mapMonitorStatusToAuditStatus` 只映射**平台明确结论**（published→published、reviewed→inAudit、rejected→deny、draft→prePublish），无定论（error/timeout/skipped/pending/unknown/failed）返回 null；`buildAuditPatch` 产出四键白名单增量；`isAuditAlertStatus` 标记拒绝/下线/转码失败三条醒目态。
+- **原记录就地回写**（`publish-history.js` 新增 `updateRecordAudit`）：发布监控结论**回写原记录**而非 `addRecord` 追加第二条——旧形态让同一次发布在历史里出现两行、`getStats` 重复计数，且原 success 行与审核结论无法关联。按 `id`+`owner_subject` 双匹配定位，只合并白名单键（监控响应里的 `status`/`success`/`result`/`error` 一律不得改写），原子重写（tmp+rename）。
+- **单向证据规则**：`auditStatus` 归一失败/无定论一律**不写任何字节**——「没拿到新证据」不是反证，不得把既有审核结论抹成 unknown（与 `login-state.js` 同族）。监控不可用时历史不会出现伪结论。
+- **phase4-events 接线**：监控回调改走 `buildAuditPatch` + `updateRecordAudit`（不再追加重复行）；无定论只落 info 日志；回写抛错不冒泡（监控旁路不得影响发布主流程）。
+- **历史列表/详情展示**（`PublishHistory.vue`）：列表审核徽标（有合法结论才渲染，拒绝/下线/转码失败标红 + 处置指引 tooltip）；详情新增「审核状态」行（醒目态附指引）与「平台作品 ID」行；无结论不渲染徽标（不得用「无徽标」伪装成「已通过」）；旧记录无字段时行为不变。
+- locales zh/en 成对（7 态标签 + 详情项 + 提醒指引，`historyPage.auditStatus.*`）。
+
+### 验证
+
+- shared-utils 全量 484 passed / 27 files（新增 `publish-audit-status.test.js` 13 例）
+- 桌面受影响面 170/170（`PublishHistory` +11、`phase4-events` +5、`publish-history` +4）
+- locale pair/keys/cjk + 品牌残留 + max-lines 本地 PASS
+
+### 残余（第二切片）
+
+- 回查通道当前不可用：监控 cookies 取 `task.article.cookies`（实测恒空，凭证在 authData 不随任务走）；`CHECK_URLS` 的 GET+id 协议与抖音 `aweme/v1/list/`（需签名 POST）、快手 graphql 形状不符。本切片交付状态机 + 回写 + 展示，实际结论获取率取决于第二切片。
+
+---
+
+# [未发布] fix(定时发布): 批量幽灵发布/重复排期/离线缓存永不重放/取消入口 + scheduled_tasks 死路径清理（2026-10-02，harden-batch-schedule）
+
+### 现象与根因（4 缺陷 + 1 清理，均为首轮 #2655 之后的第二轮发现）
+
+- **b1 幽灵发布（P1）**：`batch:delete` 只删 SQLite 记录、**不清内存定时器**，且 `_timers` 原为 `Set<timer>`（无 batchId 索引，想清也定位不到）。用户删除已排期批次后 `setTimeout` 仍在，**到点照样发布**。反证实测：删除后 `queue.add` 仍被调用 **1 次**。
+- **b2 重复排期（P1）**：`scheduleBatch` 每次调用都为未来文章注册新 timer 并累加进同一 Set，无批次级去重。UI 重复点发布 / restore 与手动排期叠加 ⇒ 重复定时器 ⇒ **同一文章重复发布**。反证实测：3 次调用产生 **3 个**定时器。
+- **b3 批量无取消入口（P2）**：`batchCancel` 的 IPC 与 preload 桥接都不存在，批量排期后没有任何界面能取消，用户只能干等到点——与单篇已有日历取消入口不对等。
+- **b4 离线机制整体失效（既有 P1，本轮新发现）**：渲染层（单篇与批量）写入**嵌套**形状 `{ targets, data }`，而 `offline-manager.processCachedTasks` 判据是**扁平** `task.platform && task.article` ⇒ 嵌套条目 `platform` 为 `undefined` ⇒ 被永久留在缓存、**网络恢复后永不重放**。批量发布本身还完全无离线检测。既有测试全部用扁平夹具，该缺陷从未被覆盖（又一次「夹具形状 ≠ 生产写入形状」）。
+- **scheduled_tasks 死路径（P3 清理）**：SQLite `scheduled_tasks` 表被包装成 3 个 store IPC + 3 个 preload 桥接对外暴露，但**零渲染层调用**（全仓只有测试引用）。留着会诱使后来者把它当真源 → 写出第二份真源、与 JSONL 必然漂移。
+
+### 变更
+
+- **定时器索引重构（修 b1+b2）**：`_timers` 从 `Set<timer>` 改为 `Map<batchId, Set<timer>>`；新增 `_clearBatchTimers(batchId)` 作**唯一定时器清除点**（取消/删除/去重三处复用）；`scheduleBatch` 入口先清同批次旧定时器（幂等排期）；timer 回调按 Set 自删；`batch:delete` **先清定时器再删记录**。
+- **取消排期（修 b3）**：`BatchManager.cancelBatch()`（清定时器 + 状态置 `cancelled`，记录保留；未登记定时器返回 false 不误报成功）+ `batch:cancel` IPC + preload `batchCancel` + `api/publisher.batchCancel` + `useBatchPublish.cancelScheduledBatch()`（失败保留 id 供重试、不自标记成功）+ `Publish.vue`「取消排期」按钮（`scheduledBatchId` 驱动，排期成功才出现）。locales `cancelSchedule` / `scheduleCancelled` / `cancelScheduleFailed` zh/en 成对。
+- **离线形状同源（修 b4a）**：`offline-manager.expandCachedTask()` 成为两种形状的**唯一展开点**（扁平原样透传向后兼容 + 嵌套按 targets 逐条展开 + 无法识别留缓存）；重放原子性 = 一条缓存的全部 target 成功才计数并移出，任一失败整条保留（不丢平台、不虚报）。
+- **批量离线检测（修 b4b）**：`handleBatchPublish` 在创建批次前检测离线，离线时逐篇 `offlineAddToCache` 并提示，不硬发；失败 danger 提示不静默。提取 `buildBatchArticlePayload(a)`（在线与离线**共用**构造，防漂移）+ `buildCacheTargets(a)`（目标归一化为对象，字符串目标无法被重放识别）。locales `offlineCached` / `offlineCacheFailed` zh/en 成对。
+- **死路径清理**：删 3 个 store IPC + 3 个 preload 桥接；**保留** `scheduled_tasks` 表（`migrateFromJsonl` 仍写入、`account-store` 删账号级联清理仍读取）；`scheduler-store.js` 加 ⛔ dead-path 标注；新增**结构锁 4 例**（preload/主进程/渲染层三面禁复活 + 真源入口在位，含扫描域规模下界反失明断言）；重打包 2 个 preload bundle。
+
+### 明确不做（附理由）
+
+- **不删 `scheduler-store.js` 的 5 个方法**：`store-snapshot` / `store-owner-isolation` 两个测试用它们守护「该表数据按 owner 隔离」的语义；删方法需重写这两个测试，收益（少 5 个无调用者方法）不匹配风险。真正的风险（有人把死路径当真源）已由「删 IPC + 删桥接 + 结构锁 + dead-path 标注」四重覆盖，完整清理登记为后续项（须与两个测试重写同批）。
+- **不改 `getArticleTargets` 复用为缓存目标源**：它是 `batchCreate` 的既有宽松契约（未接账号目录时返回字符串数组，主进程 `resolvePlatform` 能同时吃两种形态）；改它会波及在线提交路径。故离线缓存专用 `buildCacheTargets` 归一化。
+- **不给批量离线做「一次 IPC 传全部文章」的聚合接口**：离线是罕见路径且 N = 文章数（通常 <10），逐篇写入换来的是与单篇完全同源的缓存形状（同一 `expandCachedTask` 展开点）。
+
+### 测试（TDD，先红后绿）
+
+- `batch-manager.test.js` +7：重复排期不产生重复定时器（**RED 实证 `expected 3 to be 1`**）、cancelBatch 清定时器+置 cancelled、只影响目标批次、未登记返回 false、`batch:delete` 幽灵发布回归锁（**RED 实证删除后仍被调用 1 次**）、`batch:cancel` IPC、stopAll Map 结构回归。
+- `offline-manager.test.js` +5：嵌套形状按 targets 展开（**RED 实证返回 0 = 永不重放**）、嵌套条目重放后移出缓存、扁平+嵌套共存、无法识别留缓存、单 target 失败整条保留。
+- `useBatchPublish.test.js` +5：离线逐篇缓存不创建批次、缓存失败提示失败、排期成功才暴露 `scheduledBatchId`、取消失败保留 id、非排期批次无副作用；另把 `offlineStatus`/`offlineAddToCache` 从**死 mock** 改为 `window.electronAPI` 转发（原 mock 无法控制，等于测不到离线分支）。
+- `ipc-handlers/store.test.js` +4：死路径结构锁（三面 + 真源入口）。
+- 计数同步 4 处：preload system 148→149（+batchCancel）、account 52→49、总键 337→334、`ACCOUNT_METHODS` 51→48。
+- 回归：本次改动面全跑 731 passed（9 文件）；QM-1 打包 exit 0 + asar 解包实证修复代码在位 + 启动 8 秒无致命 stderr。
+
+### QM-6 双模型评审（降级记录）
+
+按 AGENTS.md「子代理降级」纪律派发两路外部评审，**两路均因上游额度 403 不可用**：
+- `claude -p` → `403 今日订阅额度已用尽或未配置订阅（与 API Key 无关）`
+- `codex exec` → 同因（CC Switch 本地代理转发上游，`upstream_status: HTTP 403`），且 codex 沙箱 policy 拦截 shell、无法执行 `git show`
+
+处置：**不盲等**，降级为主代理对抗性自审——本轮自审实际产出 b1/b2/b4a 三个新缺陷，强度不低于形式化评审。两路不可用的事实与证据行已写入 `.quality-gates.md` 与 PR 描述，**不记为「评审通过」**，也不把自审冒充为第二路独立评审。
+
+# [未发布] feat(publish): P1-5 可见性语义级通用控件（5 平台打通，字段转 implemented）（2026-10-09，publish-page-optimization）
+
+### 变更
+
+- **语义级通用控件**（`PublishVisibilitySelect.vue` + `Publish.vue` 两分支）：通用区一个「可见性」下拉（跟随各平台默认/公开/好友可见/仅自己可见），一次选择映射到所选平台各自字段值；支持数徽标 + 「好友」档对不支持平台（快手/YouTube）如实提示「将保持默认」。`platforms` 为空时整块不渲染（零打扰）。
+- **映射单一真源**（`publish-capabilities.json`）：5 个 visibility 字段新增 `semanticValues`（public/friends/private → 平台值）；shared-utils 新增 `getVisibilityField` / `mapVisibilitySemantic` / `resolveVisibilityOverride` / `getVisibilitySemanticSupport`（CJS+ESM 孪生 + parity 锁）；`validateRegistry` 新增「semanticValues 值必须存在于 options」校验。UI 不持有任何平台取值表。
+- **resolver 打通三平台**（`publisher-router.js`）：抖音 `visibility_type`（0/1/2）、快手 `visibilityType`（1/2）、微博 `visible`（0/1/6）从 override 或通用语义档位取值并校验；YouTube/TikTok 同样接入语义档位。取值优先序：平台 override > 通用档位 > 不设。
+- **微博 adapter 补齐**（`adapters/weibo.js`）：`buildPostData` 透传 `visible`（合法值集 {0,1,6}，非法/缺省不透传）。此前微博可见性全链路缺失。
+- **字段状态提升**：抖音/快手/微博 visibility 由 `platform-capable` 转 `implemented` + `uiExposed: true`（引擎侧早已消费 `visibility_type`/`visibilityType`，本切片补齐桌面侧链路），可在差异化面板单平台细调。
+- 实施发现：缺口不在引擎（抖音/快手链已支持）而在桌面 resolver 与微博 adapter——`01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md` §四 P1-5 已按六维度详写并标记已实现。
+
+### 验证
+
+- shared-utils 全量 469 passed / 26 files（含 P1-5 映射 9 例 + parity 穷举）
+- 桌面受影响面 314/314（`PublishVisibilitySelect` 7 例 + resolver P1-5 6 例 + 既有发布面）
+- 引擎全量 exit 0（`no-title-contract` B-3b 微博 visible 透传）
+- locale pair/keys/cjk + 品牌残留 + max-lines 本地 PASS
+# [未发布] feat(publish-progress): 进度浮窗视觉/UE 精化——dot-stepper 降噪 + 取消链路端到端 + 完成自动收敛（2026-09-29，publish-progress-panel-refine / PR #2658）
+
+- **fix(publish)：图文发布平台修复——公众号 token 链路 + 知乎 Draft.js 可信注入（article-publish-wechat-zhihu）**。
+  E2E「热门选题→一键发布图文」流程中公众号/知乎发布失败的代码级根因修复（实测取证驱动，账号登录态全部有效）：
+  - **公众号**：旧草稿 URL 不带会话 token 被重定向回首页（登录探测误报「登录超时」）。修复：先访问首页提取
+    `token=(\d+)`（无 token fail fast），再用 `appmsg_edit_v2` + token 进 v2 编辑器；`_fillInput` 的 value
+    setter 按 tagName 选原型（旧 `||` 短路链恒取 Input 原型，对 TEXTAREA 抛 Illegal invocation）
+  - **知乎**：四连修——① 导航改 `zhuanlan.zhihu.com/write`（旧 www.zhihu.com/creator/write 选择器全灭）；
+    ② 标题填充改 wrapper 内 textarea 原生 setter（旧 textContent 写在 LABEL 上）；③ 正文改
+    「HTML→纯文本（DOMParser）+ CDP `Input.insertText` 可信注入」（实测：Draft.js 不接受 innerHTML 直写、
+    execCommand 插游离文本、合成事件不信任；唯一有效配方 = JS focus + CDP insertText，`[data-block]` 块出现）；
+    ④ 验证增加 `/p/<id>` URL 模式 + panelGone 禁用原生 querySelector 里的 `:has-text`（Playwright 语法抛
+    SyntaxError）
+  - 新增 `_insertTextTrusted` 通用 helper（CDP debugger 先例同构）；发布页 Quill 编辑器把草稿纯文本规范化为
+    HTML（`<p>…</p>`），注入前页面内转纯文本
+  - 真机验收：公众号草稿保存（appmsgid=100000013）+ 知乎文章发布（/p/2088269867753459986，1078 字纯文本
+    无 HTML 标签、段落换行保留）；单测 55/55（+8 回归锁）
+  - 完整合同（数据校验/流程/交互/验收/其余平台状态表）：`01-docs/PRD-ARTICLE-PUBLISH-FIX-2026-09-29.md`
+
+---
+
+ feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
+
+---
+
+### 根因（第一性原因）
+- 浮窗「散乱」不是元素多，是三因叠加：同一事实 3~4 次重复表达（✓成功 + 步骤链末端「完成」高亮 + 100% + 会话角标「已完成」）、6 词文字步骤链（N 任务 × 6 词）、flex-wrap 无网格对齐（列位随内容长度跳动）。
+- UE 缺口：取消入口只在页面级不在浮窗内；**取消链路断在主进程**——TaskQueue 取消任务发 `task:cancelled`（task-queue.js:199）但无人转发，页面级取消后浮窗永远「进行中」；失败恢复断在「只能看」（错误截断仅 title 悬浮、无单任务重试/复制）；完成态不自收敛。
+- 层级倒挂：「请勿关闭应用」（唯一操作约束）以 xs/muted 脚注呈现；「发布任务」fallback 占位标题加粗当组标题，多会话无法区分。
+
+### 变更
+- **主进程**：`publish-progress-events.js` PHASE_ENUM + `cancelled`；`phase4-events.js` 新增 `task:cancelled` 转发（`phase:'cancelled'` 中性终态——取消不是失败：不落历史、不挂风控；同时修复页面级取消后浮窗永远「进行中」的既有缺陷）。
+- **store**：PHASE_ENUM/TERMINAL_PHASES + cancelled（吸收态）；aggregate 新增 `cancelled` 计数；`cancelRunning()`（逐任务 `queue:cancel`、`cancelling` 防重入、只发请求不自标记——任务状态更新以转发事件为单一来源）；`retryOne()` 单任务重试（与 retryFailed 共享 `_retryOne` 路径与防重入）。
+- **TaskRow 重构**：dot-stepper（6 圆点+连线：过去实心灰、当前主色+脉冲、未来空心）取代整链 6 词文字；固定网格对齐（平台|状态|中部 flex|百分比右对齐|操作）；状态列承载最具体状态（运行行显示阶段词而非「进行中」）；queued 不预渲染步骤链；success 不显示 100%；cancelled 中性态；failed 行内联「重试此任务」+「复制错误信息」（emit 上抛，组件保持纯展示）；图标着语义色、文字统一中性（四色收敛）。
+- **Panel 重构**：汇总「成功 N/M」直给（failed/cancelled 不计入「已完成」，各自单列）；单会话扁平化（去卡中卡/去会话徽标）、多会话分组卡+点徽标；fallback 标题带时间「发布 · HH:MM」；footer 警示条（warning-soft 底）+「取消全部任务」两步内联确认（4 秒窗口；**不用模态弹窗**——浮窗按 PRD-OVERLAY-VIEW-SUSPENSION §6 显式不接入浮层互斥合同，模态弹窗接入即触发互斥合同）；完成自动收敛（全部成功+5 秒无指针操作→自动最小化，不弹首次隐藏 toast；交互/新会话取消收敛；失败/取消在场不收敛；手动展开完成态不触发）；当前步脉冲+成功图标 pop-in（`prefers-reduced-motion` 全关）。
+- **组件拆分（逐文件行数门禁）**：首次 CI 债务熔断红——`PublishProgressPanel.vue` 688 行 ≥ 500（新代码不得引入超大文件）。拆出 `PublishProgressFooter.vue`（警示条+两步取消状态机，150 行）、`PublishProgressSession.vue`（会话卡：头+任务行+会话级重试，152 行）、`composables/usePublishProgressAutoCollapse.js`（自动收敛计时器，74 行）；Panel 降至 398 行、TaskRow 347 行，`check-max-lines.js` PASS。
+- **locales**：zh/en 成对——`summarySucceeded`（取代 summaryDone）、`summaryCancelled`、`sessionTitleTimeFallback`（取代 sessionTitleFallback）、`statusCancelled`、`cancelAll`/`cancelConfirm`/`cancelling`/`cancelPartial`、`retryTask`/`copyError`/`copied`/`copyFailed`。
+- **文档**：母 PRD `PRD-PUBLISH-PROGRESS-UX-2026-09-28.md` 契约表同步修订（§5.1/§5.2/§6.1/§7/§8.1-§8.4/§12）；新增专题 `01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md`；`AGENTS.md` QM-2 契约条目扩展（cancelled 三处同步 + 禁自标记 + 面板测试锁入清单）；OpenSpec change `openspec/changes/publish-progress-panel-refine/`。
+- **卫生修复**：CHANGELOG.md 历史条目内嵌的字面控制字符（`\x00-\x1f/\x7f` 字节序列，使文件被工具判为二进制、无法用常规编辑器处理）改为转义写法（NUL 计数 1→0）。
+
+### 影响
+- 视觉密度降约一半（6 词/任务 → 1 词+6 点）；取消与失败恢复入口进浮窗；页面级取消后面板如实转「已取消」。
+- 兼容：`phase:'cancelled'` 为加法（旧渲染层收到未知相位按 progress 归一的既有 fail-closed 行为不变）；不改 TaskQueue 编排语义、不改 IPC 形状、stageKey 封闭清单不动、非模态负向锁保持。
+- 组件职责：TaskRow 保持纯展示（props 单向 + emit）；Footer/Session 为 Panel 的子容器；自动收敛计时器归 composable（store 不持计时器，保持纯状态）。
+
+### 验证
+- 回归锁全绿：`publish-stage-map` 52 + `publish-progress-events` 19 + `phase4-events` 15 + `publishProgress` 27 + `PublishProgressPanel` 25 + `usePublishFlow` + `bootstrap` 61（事件计数锁 4→5 同步）+ 受影响面（useBatchPublish/Publish/HotTopics/window/window-close-policy/system-tray）。
+- `check-locale-sync` 三项 PASS（pair/cjk/keys）；ESLint 改动文件 0 error 0 warning；`check-max-lines.js` PASS（拆分后无新增超大文件）。
+- QM-1：`pnpm run build:dir` rc=0；asar 清单含 `electron/services/publish-progress-events.js`；启动 8 秒存活且 stderr 无「Failed to load platform config / PluginLoader.mkdir failed / ENOTDIR.app.asar」；打包脏化的 preload bundle 按 R2 精确还原。
+- CI：全部 required checks 绿；唯一中途红点 `electron/tests/test_scheduler_parity.test.js`（`python simulator failed:` 空 stderr）为 **CI runner 缺 python 环境**的偶发（`compare-scheduler-models.js:213` `spawnSync('python')`），本地复跑 3/3 全绿、与本次 diff 零交集，重跑后 success。
+- QM-6：双模型外部评审**未执行**（如实登记，不以自审冒充）——backend codex 报「Token 额度已用完」（计费阻塞）、frontend claude CLI 连续 3 次 exit 1（重试预算耗尽）。
+
+# [未发布] fix(定时发布): 全链路验证修复——批量定时重启恢复、历史定时模式标记、日历取消入口（2026-10-02，fix-scheduled-publish-gaps）
+
+- **fix(history)：发布历史失败记录渲染失败原因（publish-history-error-detail）**。
+  `task:failed` 落库的 `error` 字段（publish-progress-ux G8 数据链路）此前只到 API 层——历史页列表卡片
+  只显示红色「发布失败」徽标与失败计数，失败原因只能翻主进程日志。本次渲染侧收口：
+  - 列表卡片：失败组且 `error` 非空时渲染失败原因行（`.record-error`，`data-testid="record-error-{id}"`），
+    单行截断 + `title` 悬停全文，色系与 `status-badge.failed` 同（#b42318）；
+  - 详情弹窗：失败组紧跟「状态」行渲染「失败原因」格（`data-testid="detail-error-reason"`，跨双列、
+    `word-break: break-all` + `pre-wrap` 完整展示长错误），无 `error` 字段时占位「未记录失败原因」；
+  - 成功/进行中记录两处均不渲染；错误文本原样透传不翻译（引擎层技术短语，翻译失真）；
+  - i18n zh/en 成对新增 `historyPage.detailErrorReason` / `historyPage.errorUnknown`（CI Gate 7）。
+  回归锁：`PublishHistory.test.js` +5 用例（卡片显示 / 成功不渲染 / 详情显示 / 无 error 占位 / 既有
+  「详情无 result 不渲染行」不回归），34/34 绿。完整合同：PRD-PUBLISH-PROGRESS-UX §5.7、主 PRD §6.7。
+
+---
+
+
+### 现象与根因（5 项，按严重度）
+
+- **P1 批量定时重启丢失（静默数据丢失）**：`BatchManager.scheduleBatch` 只用内存 `setTimeout`（`this._timers`），应用退出即丢；`batch_jobs` 表 status='scheduled' 的批次重启后无人重新武装，排期文章**永不发布**且无任何提示。PRD §6.3 声称的「支持 App 关闭后重启恢复」对批量路径不成立。根因：scheduleBatch 设计时只考虑运行时排期，无恢复路径。
+- **P1 发布历史无法标记定时模式（死过滤器）**：历史页「定时发布」过滤器与详情「发布模式」读 `record.publishMode`，但生产代码从不写该字段——`phase4-events.addRecord` 只写 platform/title/taskId/status/result/error；且 `TaskQueue._add` 白名单会丢弃自定义字段，即使上游标记也传不到终态事件。用户无法区分定时/立即发布。
+- **P2 日历无取消入口**：唯一取消路径是发布页会话内 `cancelPublish`（`activeScheduleIds` 内存态，离开页面即丢）；`schedulerCancel` IPC 已暴露但无 UI 消费。用户排期后无法从任何界面取消。
+- **P2 日历显示已取消/已执行任务**：`getEventsForDate` 把所有 `scheduledTasks` 渲染为 ⏰ 待发事件，cancelled/executed 状态的任务看起来「还会发布」。
+- **P2 usePublishFlow 重复函数定义**：`aa7e7cf0`（2026-08-23）新增 `Promise.allSettled` 版 `cancelPublish` 时未删旧 `Promise.all` 版，旧版成死代码（JS 函数声明后者覆盖前者）；`fdd30498`（2026-08-30）的通知迁移甚至误改在死副本上。逃逸分析：函数声明重复无 lint 规则拦截、行为测试全绿（测的永远是新版）——只有源码结构断言能防再犯。
+
+### 变更
+
+- **批量定时重启恢复（P1）**：新增 `BatchManager.restoreScheduledBatches(ownerSubject)`——遍历 `batch_jobs` status='scheduled' 批次复用 `scheduleBatch` 重臂定时器；过期文章立即入队（catch-up，与单篇 `scheduler.restore` 语义一致）；单批次异常逐批 try/catch 只记 warn。`phase3-services.restoreForOwner` 与 `scheduler.restore` 同点位接线（身份模式同 owner 语义；恢复属旁路，失败不阻断启动）。
+- **发布历史定时模式标记（P1，打通 4 个丢字段点）**：`scheduler.dispatch` 与 `BatchManager.scheduleBatch`（立即/定时两路径）入队任务带 `publishMode:'scheduled'`；`TaskQueue._add` / `getPendingTasks` / `serialize`（running 映射）白名单透传（崩溃恢复 deserialize 后不丢）；`phase4-events` 的 `task:success` / `task:failed` 写历史时有值才带（立即发布不写字段，渲染端缺省即 immediate）。
+- **日历取消入口（P2）**：`Calendar.vue` 待发事件（⏰ pending）行内「取消定时」按钮 → `notifyConfirm` 确认弹窗（「确定取消该定时任务？取消后到点不会发布。」）→ `schedulerCancel(id)` → 成功 toast「已取消定时任务」+ 刷新 / 失败 toast「取消定时任务失败，请重试」不刷新；`cancellingId` 防重复点击。文案 `calendarPage.*` zh/en 成对入 locales。
+- **日历状态过滤（P2）**：⏰ 只显示 pending/dispatching（及无 status 历史数据，向后兼容）；executed/failed 由发布历史承载（✅/❌）；cancelled 不显示。取消按钮仅 pending（dispatching 是认领瞬态且 `scheduler.cancel` 只认 pending）。
+- **删除重复 cancelPublish（P2）**：删 `Promise.all` 死代码版，保留 `allSettled` 版（失败任务保留 ID 供重试）+ 根因注释；`usePublishFlow.test.js` 新增「单一定义结构锁」（源码级正则断言）。
+- **PRD §6.3 全链路重写**：架构决策对照表（本地定时器 vs 参考产品平台侧定时：B站 `publish_time`/微博 `schedule_timestamp`+配额/一点号 `prePub`）、入口交互、数据校验表（含全部提示文字）、创建/派发/恢复/取消流程图、日历显示规则、持久化与权益、离线行为按实现修正（原文「断网标记 missed」与实现不符，修正为失败重试语义）。
+
+### 明确不做（附理由）
+
+- **不迁移到平台侧定时（参考产品方案）**：需逐平台适配（B站秒级时间戳、微博定时配额检查、一点号 prePub、定时不能存草稿等约束），爆炸半径大；本地方案零适配 + 统一取消 + 离线可控。差异与取舍写入 PRD §6.3.1，平台侧定时作为未来增强方向记录。
+- **不给立即发布写 `publishMode:'immediate'` 占位**：渲染端 `publishModeValue` 缺省即 immediate；写占位会让存量历史记录（无该字段）与新记录语义分叉。
+- **不在 dispatching 状态给取消按钮**：`scheduler.cancel` 只认 pending（`updateStatus(id,'cancelled','pending')`），dispatching 点击必失败；dispatching 是认领瞬态（重启即重置为 pending），显示按钮只会制造失败交互。
+
+### 测试（TDD，先红后绿：15 个新测试先全部 RED 再 GREEN）
+
+- `batch-manager.test.js` +5：重启重臂且未到点不入队、到点带 publishMode 入队、过期立即入队（catch-up）、无 scheduled 返回 0、单批次异常不阻断、身份模式 owner 隔离 + fail-closed。
+- `scheduler.test.js` +1（派发任务带 publishMode）+3 处精确形状断言同步（合同有意变更）。
+- `task-queue.test.js` +1：白名单透传（scheduled 保留 / 立即发布为 null）。
+- `phase4-events.test.js` +2：定时任务 success/failed 均写 publishMode；立即发布不写字段。
+- `phase3-services.test.js` +2：restoreScheduledBatches 在 scheduler.restore 之后调用（顺序断言）；恢复抛错不阻断启动（warn）。
+- `Calendar.test.js` +7：取消闭环（确认→调用→刷新→成功 toast）、确认拒绝不调用、失败提示不刷新、历史事件无按钮、非 pending 无按钮、cancelled/executed 不渲染为 ⏰、无 id 防御。
+- `usePublishFlow.test.js` +1：cancelPublish 单一定义结构锁（先红：当前 2 处定义；删后绿：1 处）。
+- 回归：apps/desktop 全量 vitest + packages/shared-utils 全量 vitest 通过；PRD 行尾对账（numstat 两口径一致）。
+
+# [未发布] fix(工程门禁): 15 个含中文的 .ps1 补 UTF-8 BOM + 新增编码声明门禁（Windows PowerShell 5.1 按 ANSI 解码会让入口脚本整体不可解析）
+
+## 现象（不是显示问题，是功能性中断）
+
+- Windows PowerShell 5.1（`powershell.exe`，本仓所有 `.ps1` 入口的实际宿主）读取**无 BOM** 的
+  `.ps1` 时按系统 ANSI 码页（本机 cp936）解码，而不是 UTF-8。中文注释/字符串被逐字节重新解释，
+  一旦某个多字节序列含 `'` `"` `{` `}` 的字节，**整个脚本 tokenize 失败**。
+- 触发点：`start-mp-task.ps1`（会话隔离入口，负责创建任务 worktree）在 `248b924c` 之后
+  报 `ParserError: 表达式或语句中缺少“}”` ⇒ **所有新的运行时代码任务开不出 worktree**。
+  今天下午还能用，一次正常合入后就坏了 —— 因为该提交往无 BOM 的文件里加了中文。
+- 全仓清单（`git ls-files -- "*.ps1"` 48 个）：含非 ASCII 且无 BOM 的 **15 个**，
+  其中在当前字节下**实测已不可解析**的 **8 个**（`start-mp-task.ps1` / `start-desktop.ps1` /
+  `merge-when-green.ps1` / `run-bash-gate.ps1` / `mp-capture.ps1` /
+  `start-desktop-profile-lock.test.ps1` / `capture-mp.ps1` / `capture-mp-simple.ps1`）。
+  另 7 个今天"侥幸能 parse"，但同一行中文改动就会让它们加入名单 —— 所以一并补。
+- 为什么长期没被发现：`pwsh` 7 默认按 UTF-8 读，**看不见这个差异**；本机与 CI 用 pwsh 7 跑的
+  那些 .ps1 测试全绿，而 `powershell.exe` 这条路径没有任何门禁覆盖。
+
+## 修复
+
+- 15 个文件**只前置 3 字节 `EF BB BF`**，内容逐字不变（脚本断言"去掉 BOM 后与原字节 `equals`"、
+  并拒绝造成双 BOM 的情形）。不做任何"统一行尾"，每行原结尾保持原样。
+- 等价性由实测证明而非声称：同一份 PS 5.1 tokenize 审计在补 BOM 前 `TOTAL_BROKEN=8/15`，
+  补后 **`TOTAL_BROKEN=0/15`**（且每个文件 `utf8err=0 ansierr=0`）。
+
+## 门禁（新增，防复发）
+
+- `.github/scripts/check-ps1-bom.js`：判据一条 —— **含非 ASCII 的 tracked `.ps1` 必须带 UTF-8 BOM**；
+  纯 ASCII 无 BOM 放过（否则会把一半文件无谓改掉）。三条 fail-closed：
+  ① `git ls-files` 失败或返回 0 个 `.ps1` 一律抛错（不完整的遍历报"全绿"是最坏情况）；
+  ② index 里有、工作树读不到 ⇒ 记为 offender 而非静默跳过；③ 入参只收真 `Buffer`
+  （`typeof buf.length` 那种"看着像类型检查"的写法会放过字符串，而字符串上 `buf[i] > 0x7f`
+  比的是字符不是字节 ⇒ 中文会被判成干净 ⇒ 静默放行。这一条是我今天真的写错后被自己的
+  fixture 抓住的，CP5 就是它）。
+- 接线：`.github/workflows/quality-gate.yml` Gate 2b（`shell: bash`，每个 PR 都跑）。
+- 反证六条逐个实跑并断言字节还原一致：CP1 摘掉真文件的 BOM ⇒ 红 1 且**点名该文件**；
+  CP2 新增"含中文、无 BOM"的 .ps1 ⇒ 红 1；CP3 判据改成恒真 ⇒ 红 2；
+  CP4 空枚举不再抛 ⇒ 红 1；CP5 类型守卫退回 `typeof buf.length` ⇒ 红 1；
+  CP6 摘掉 workflow 接线 ⇒ `check-unwired-tests` 红 1 并点名本测试文件。
+  （CP2 要点：判据读 `git ls-files`，临时文件必须进 index 才会被枚举 —— 与 CI 的真实形态一致。）
+
+## 未修（登记）
+
+- 没有给 `.ps1` 加"必须能被 `powershell.exe` tokenize"的直接门禁：那要在 CI 起 PS 5.1，
+  且 BOM 已是它的充分条件。等价性用本地实测证明，理由与限制写在门禁头注释与本节。
+- `pwsh` 7 与 PS 5.1 的行为差异仍在（前者宽容、后者严格），本门禁选择"按最宿主声明编码"，
+  而不是放宽到"两边都能跑"。
+
+---
+
+# [未发布] fix(运营后台): 调度模拟器不再把注入 429 的请求记成完成；完成集合升为对拍硬判定（2026-09-29，#2626 / fix-simulator-429-completion-state）
+
+## 修复
+
+- `ops-center/backend/services/scheduler_simulator.py`：注入 429 的那条请求改记 `state=rate_limited`、`finished_at=None`。
+  此前它先按 `completed` 记账（含 `finish_heap` push 与 `used_5h += 1`）、**之后**再补一次 `rate_limited_count += 1`，
+  于是同一条请求有两种身份；运营后台「调度验证」详情与 `timeline_json` 里的完成数因此**虚高 1**
+  （一次注入 429 的模拟跑，显示"完成 6 个"实际只有 5 个）。429 的语义是"被拒、没做成"，真实侧是对的。
+- 本次**只改身份标签**：槽位占用（`finish_heap` / `executing_now`）、5h 额度（准入即占额度，见 #2566）
+  与墙钟结束时刻（`end_times`）四条逐字不动 —— 动了任何一条都会连带挪动 `max_concurrent_observed` /
+  `total_duration_ms`，把一次身份纠正变成三个指标同时漂移。该边界由
+  `test_injected_429_is_not_completed_but_keeps_accounting` 钉住（四个基准值取自改动前对同组参数的实测）。
+
+## 门禁
+
+- `scripts/compare-scheduler-models.js`：把**完成集合计入 pass**（规格本来要求相等，`runParity` 却从不比较 ——
+  一条从不执行的 SHALL 比没有这条 SHALL 更危险）。CLI 与 vitest 的留痕改为每次打印两侧完成序本身，
+  红了能直接看出谁多/少哪一项。
+- 升级前先做饥饿实验（不默认"顺序大概是确定的"）：与 `test_scheduler_parity.test.js` 同一套 `withBlocker()`，
+  **第一版实验是无效的**：探针读的 `completionOrder(real.timeline)` 来自一份被 `runSelfCheck`
+  按 `req` 排过序的 timeline，该读数恒为升序 ⇒ "顺序 12/12 不变"只是恒真式的复读，不构成证据
+  （QM-6 后端评审以 `actual=[2,1] ⇒ 投影=[1,2] ⇒ 判据恒真` 的反例指出）。修法：`runSelfCheck` 现在
+  单独返回未排序的实际完成序 `completion_order`，对拍侧只读它、缺席即 fail closed。
+  用真实次序重测四档饥饿（每档 3 次）⇒ **12 个样本中 9 个非升序**（如 `[1,2,4,3,…]`、`[1,2,3,4,6,5,…]`），
+  机理与 #2606 同源（前一条调用的回调被推迟到后一条放行之后）。**结论因此反转**：
+  按序列判等就是重造 #2606 的假红，只有**集合**判据可以硬判定 —— #2626 的实质本就是成员问题，
+  集合既抓得住又对饥饿免疫。序列改为留痕，并明确标注"仅次序不同"，防止下一个人把它当待收紧项。
+- 删除 #2632 留下的「锁住分歧存在」过渡断言（修好后它必然失效，继续留着就是把已知缺陷钉成正确行为）。
+- 七条变异反证逐个实跑并断言字节还原一致：只回退 `state` ⇒ python 红 3；完整回退注入分支 ⇒ **vitest 红 1**
+  （证明集合判据真的抓得到原缺陷）；从 `checks` 摘掉 `completion_set` ⇒ vitest 红 1；集合判据退化成只比长度
+  ⇒ node 红 1；越范围摘掉 `finish_heap` push ⇒ python 红 12；`fifo` 退回 `1..N` ⇒ python 红 1；
+  **摘掉 `runSelfCheck` 返回的 `completion_order` ⇒ vitest 红 2**（证明"缺席就 fail closed、绝不退回
+  排序投影"这条链路真的在承重，而不是写在注释里当装饰）。
+
+## 文档
+
+- `docs/parity-concurrency-measurement-noise.md`：新增四档饥饿实测表、判据前提与失效条件，
+  并把两处**仍未修**的口径分歧登记在案（429 的槽位占用时长 ≈0ms vs `duration`；`cooldown_until` 起点），
+  写明它们在何种参数下会显形、届时不得靠放宽方向性判据绕过。
+- `openspec/specs/desktop/model-call-observability/spec.md`：完成顺序纳入硬判定并写明前提；
+  原「锁住分歧」场景改为**墓碑**（规格工具不支持在 MODIFIED 中丢弃场景标题，丢弃即 ERROR），
+  其可执行含义转为负向：任何人把"分歧必须存在"或"只打印不判定"写回来，一律否决。
+
+---
+
+# [未发布] feat(collection): 六平台视频链接采集 + 分享文本 CJK 健壮解析（2026-09-29，collect-video-platforms / PR #2637）
+
+### 根因（第一性原因）
+- 前端路由只覆盖 2/6 平台：`Collection.vue` 的 `VIDEO_PLATFORM_DOMAINS` 仅含抖音/小红书——B站/知乎/视频号/百家号的视频链接全部误走图文采集通道（trafilatura 拿不到视频口播文案）。现有 spec `aggregation-collect-video` 的路由 Requirement 已声明六平台域名，属 **spec-实现漂移**（且该 Requirement 文本与 Scenario「知乎链接走图文」自相矛盾，本次以 Scenario 语义为准修正为路径级路由）。
+- 分享文本解析吞中文（bug 级）：URL 正则按空白截断，实测 `https://v.douyin.com/abc/复制此链接`（URL 与中文无空格粘连）把中文吞进 URL，后端拿到脏链接。
+- 后端 `PLATFORM_DOMAINS` 缺百家号；浏览器降级通道只有抖音配置——小红书 yt-dlp 匿名直连拿不到数据（实测 SSR `noteDetailMap:{}` → "No video formats found"）且该错误不触发降级，小红书视频链接实际不可采集；视频号死于泛化错误，用户不知道是平台不支持。
+
+### 变更
+- **调研先行**：`01-docs/RESEARCH-VIDEO-COLLECT-OPEN-SOURCE-2026-09-29.md`（4 并行子代理逆向 8 个开源项目 + 本机 yt-dlp 2026.08.19 真实链接实测）。平台通道选型：B站/知乎 zvideo yt-dlp 直下（实测全链路通）、百家号纯 HTTP 解析页面内嵌 JSON（实测免登录免签名）、小红书 Playwright 降级（社区验证正路）、视频号如实报不支持（登录墙+视频流加密+解密开源库已下架）。许可证红线：TikTokDownloader（GPL）/ MediaCrawler（非商业）代码零复制，仅取 Apache-2.0/MIT 源（Evil0ctal CJK 排除正则、xhs/BBDown/you-get）与事实知识。
+- 后端：新增 `baijiahao_fetcher.py` 纯 HTTP 通道（花括号配平提取 `window.jsonData`——实测 JSON 后跟 `;window.firstScreenTime`，直接锚定 `</script>` 会匹配失败；`<video src>` 兜底；无视频报 `VIDEOCLONE_NO_VIDEO`、haokan 重定向专属错误）；`video_service.py` 百家号域名白名单 + 视频号前置报 `VIDEOCLONE_CHANNELS_UNSUPPORTED` + classify_download_error 补小红书 "No video formats found"/B站 412/-352 为 ANTI_BOT；`browser_fetcher.py` 小红书降级配置（`use_resolved_url` 直接导航分享 URL 保留 xsec_token、监听 `api/sns/web/v1/feed`、`video.media.stream` 分辨率优先选流、`__INITIAL_STATE__` 回退）+ `_dig` 支持 list 下标。
+- 前端：`Collection.vue` 六平台两级路由（域名级 + 路径级——知乎问题/专栏、B站空间等非视频路径不破坏既有图文采集）；`extractUrlFromShareText` 改 CJK 排除字符类（汉字/CJK 标点/全角/emoji 天然终止匹配）；百家号 NO_VIDEO 提示后落回图文采集链路（collectUrl + collectAndRewrite）；平台标签扩六平台；locales zh/en 成对；`collect-error.js` 新增 `video_channels_unsupported`/`video_no_video` 分类（非重试）。
+- 测试：后端 +41（`test_baijiahao_fetcher.py` 新 13 / `test_browser_fetcher.py` +11 / `test_aggregation_video.py` +17）、前端 +13；真实链路冒烟 5/5 PASS（百家号真实文章解析+下载 6.0MB、视频号报错、B站/知乎探测、抖音 ANTI_BOT 分类）。
+- OpenSpec：`openspec/changes/collect-video-platforms/`（proposal/design/tasks/spec delta）。
+
+### 影响
+- 采集页粘贴 抖音/小红书/B站/知乎 zvideo/百家号 视频链接（或其分享混合文本）→ 走视频管线拿口播文案；知乎问题/专栏等图文链接行为不变；百家号纯文字文章自动回退图文采集；视频号得到明确「需要微信登录态，暂不支持」提示。
+- py-cjk 基线 79→84（视频管线中文错误按既有模式登记，整体迁移 UserVisibleError+locale 属既有债务另立跟踪）。
+- 遗留：小红书真实分享链冒烟待用户侧（xsec_token 时效性，实现按三方一致字段路径 + mock 锁定）。
+
+# [未发布] fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
+
+### 根因（第一性原因）
+- `content-intelligence-sources.js` 自内容情报模块引入起就把第三方响应的 `url` 原样透出（`url: d.url || 本站兜底`），渲染层照字段名直绑 `<a :href>`。而 **Vue 3 不净化 href**（v2 的 `isUnsafeURL` 守卫在 v3 已移除），本应用渲染进程又持有 `window.electronAPI` ⇒ HN Algolia 的 `url` 由提交人任意填写，一条 `javascript:` 点下去即在特权上下文执行任意 JS。
+- 同一条判定在仓内被抄成多份却互不相认：`hot-topics/channels.js` 的 `sanitizeUrl`（注释明写"仅 http/https"）只服务热榜；`bootstrap/phase4-events.js` 又抄一份决定 `Publish.vue` 的 `result.url`；`Collection.vue` 用户输入校验是第三份。六条展示链**一份都没接**。
+
+### 变更
+- 单一判据 `packages/shared-utils/src/safe-http-url.js`（CJS）+ `safe-http-url.browser.js`（ESM，`vite.config.js` alias 指过去）+ parity 锁，照 platform-definitions / account-name-guard / publish-capabilities 三先例。判据只做 `http(s)://` **前缀白名单**，不做"清洗后放行"；协议相对 `//host` 与缺协议一律 `null`。
+- 双档防线：采集侧第一站收口（HN 非法回落 `https://news.ycombinator.com/item?id=`，GitHub/Reddit 非法即 `null`）+ 渲染侧绑定 `:href` 前再判。六个站点不通过即**不产出锚点、保留等样式纯文本**；补齐 `Publish.vue` / `FilmEngineeringView.vue` 缺的 `rel="noopener"`。
+- 收敛四份同用途拷贝：`channels.js`、`content-intelligence-sources.js`、`phase4-events.js`、`Collection.vue`。按 sink 分的三种策略（成链下限 / OS 打开面更严含拒 userinfo / 图标资源允许 data:）**显式不合并**，源码注释互指。
+- 三把新锁：`apps/desktop/src/href-scheme-contract.test.js`（全仓 `src/**/*.vue` 扫 `:href=`，覆盖四种绑定形态、禁 `:[href]` 与 `v-bind="{href}"` 绕过、`target=_blank` 必带 noopener、`v-if` 与 `:href` 必须同一表达式、`window.open` 站点登记）；`content-intelligence-sources.test.js`（采集侧行为锁，补结构锁"只查 import"的盲区）；`safe-http-url.test.js`（判定表 + 孪生 parity 含导出集合）。
+- 文档：新增 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`（威胁模型 / 判定表 / 三策略对照 / 全仓 37 处实况分类清点 / AC-1..AC-12 / 20 条反证矩阵 / QM-6 逐条处置）；`AGENTS.md` QM-2 新增硬规则；`01-docs/PRD.md` 新增 §9.2.2。
+
+### 影响
+- 用户可见变化只有一种：上游返回非法协议 URL 时，原来那条"能点但会执行脚本"的链接变成同样式纯文本（内容不丢）。正常数据下界面无任何变化——**CI 产物逐视图对照 main 的 Δ 全为 0.0000%**（19 视图，含 `intelligence` 0.1935%、`collection` 1.6071% 两条 main 上同值的既有漂移）。
+- `phase4-events.js` 收敛后，发布结果 URL 的"能否成为链接"与渲染层同口径，不再可能出现"主进程放行、渲染层拒绝"的口径分裂。
+
+### 验证
+- `Test Files 2 failed | 687 passed | 1 skipped (690)`；两条红均为既有（`feedback.test.js` Windows symlink EPERM；`story2video-manual-assets.test.js` 在**不含本改动的干净 main `633ee1c2`** 上跑出同一条断言同一条红，与本 PR diff 零文件交集）。
+- 20 条变异反证全部指名变红、逐字节还原；QM-1 解包产物取证 7/7 PASS；QG Visual pass 且与 main 逐视图 Δ=0；CI `21 pass / 0 fail / 1 skipping`；三个新测试文件在 CI 日志里均有 ✓ 执行现场（`safe-http-url.test.js (61 tests)` 等）。
+- QM-6 双模型（codex + claude）无 Critical；5 Warning 全部落地，其中两条为**实质代码收敛**而非补测试。
+
+# [未发布] fix(设置页): 浅色模式主按钮 hover/禁用态隐形——EP 主题桥接补齐浅色兜底（2026-09-29，#2627）
+
+### 现象与根因
+- 设置页 → 模型设置 → 多模态模型「默认」→「设为默认」确认弹窗中，【确定】按钮**鼠标悬停时整块隐形**（白底白字），未悬停时与【取消】按钮均正常。
+- 根因不在组件而在主题桥接层：`apps/desktop/src/styles/ep-theme.css` 把 Element Plus 主按钮 hover 档 `--el-color-primary-light-3` 与禁用/描边档 `-light-5` 桥接到 `--color-primary-dark-tint`，而该 token **只在 `tokens.css` 的 `[data-theme="dark"]` 块里定义**。浅色下无兜底的 `var()` 是 guaranteed-invalid，依赖它的声明按 *invalid at computed-value time* 退化为 `initial` —— `background-color` 变透明、`border-color` 变 `currentColor`，而 `.el-button--primary` 的文字仍是 `--el-color-white`，于是按钮整体"消失"。
+
+### 变更
+- 两行补浅色兜底 `var(--color-primary-dark-tint, var(--color-primary-hover))`：暗色解析值逐字不变（`#7b74ff`），浅色 hover 得 `#603af9`（与常态 `#5048E5` 可辨）。沿用仓库既有兜底惯例（`hot-topics-list.css:11` 已明文规定该 token 必须带兜底使用）；**没有**在 `:root` 新增同名 token —— 那会把所有「浅色用主色、暗色用亮化档」的消费点一起改掉，属更大范围的视觉回归。
+- 同根因第三处一并修：`--el-fill-color: var(--color-bg-hover)` 里的 `--color-bg-hover` **全仓从未定义**（唯一一次出现就是这一行），现与 `-light` / `-lighter` 同档收编到 `--color-bg-inset`。该行此前恒为 invalid（等于没生效），修复后 EP 文本按钮 `:active` 一类瞬时填充底色才真正解析出值。
+- 新增 `apps/desktop/src/styles/ep-theme.tokens.test.js`（4 例，纯 CSS 契约、无需浏览器）：按 `:root` / `[data-theme="dark"]` **分别**求解 `var()` 链，断言桥接层每个无兜底引用在浅色单独可解析、hover 档与常态主色区分、暗色档不变。
+
+### 为什么既有门禁没拦住
+- `sidebar.tokens.test.js` 已有「引用的 token 全部在 tokens.css 定义」的锁，但它把 `:root` 与 `[data-theme="dark"]` **合并成一张表**再判存在性 —— 对「只在暗色定义的 token 被浅色层消费」这一形态完全免疫。新锁按主题分别求解补齐这一格。
+- 视觉回归对这三态结构性失明：hover / 禁用 / `:active` 都不在快照基线的采集状态内。
+- 反证两条均实测变红：单行摘掉 `light-3` 兜底 → 2 红 / 2 绿（另 2 例仍绿，说明判据特定而非恒失败）；`--el-fill-color` 退回 `--color-bg-hover` → 2 红 / 2 绿。
+- Chromium 实测（Playwright，修复前 → 后）：浅色 hover `rgba(0,0,0,0)` → `rgb(96,58,249)`；浅色禁用态同上；暗色 hover/禁用 `#7b74ff` 逐字未变。
+
+# [未发布] feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
+
+### 现象与根因
+- 一键发布页点【从视频提取封面】/【AI 生成封面】后，封面只在 `el-upload` 文本列表里显示一行文件名（`video-co...` + 对勾），**没有任何图像**。用户无法确认取到的是哪一帧（黑帧 / 片头 / 字幕条）、AI 生成的是什么、裁剪构图对不对，只能盲发或另开文件管理器查看临时目录。
+- 根因是双层的：① `el-upload` 未设 `list-type`，默认 `text` 形态只渲染文件名；② 写入 `coverFileList` 的 `url` 字段是**本地绝对路径**而不是可加载 URL —— 渲染层 CSP（`apps/desktop/src/index.html:8`）的 `img-src` 不含 `file:`，所以即使改成 `picture` 形态也是破图。
+
+### 变更
+- **预览挂在 `article.cover_path` 上，不挂在各按钮回调上**：封面有五个写入口（提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上一次覆盖全部，新增入口不会再被漏接线。这也是「AI 生成封面也要一样处理」的落地方式 —— 不是再抄一份逻辑。
+- 新增 `apps/desktop/src/composables/useCoverPreview.js`：把「本地绝对路径 → dataURL」的**剥信封**（`res.data.dataUrl || res.dataUrl`）收敛为唯一实现，并让 `CoverCropDialog.vue` 改为复用它。此前该剥离只存在于裁剪弹窗内部，抄第二份必然漂移。带自增序号**竞态守卫**：连续「提取 → AI 生成」时迟到的旧响应必须整段丢弃，否则缩略图显示上一张 —— 那是比没有缩略图更糟的**错误证据**。
+- 新增 `apps/desktop/src/components/CoverThumbnail.vue`：144×81、`object-fit: cover`、`cursor: zoom-in`、`role=button` + `tabindex=0` + Enter/Space。三态互斥（加载中 / 有图 / 读取失败）；失败态**刻意保留占位框**并把具体原因挂在 `title`，而不是整块消失 —— 整块消失会让用户以为「封面没设置上」而重复点击生成。缩略图是 `el-upload` 的**兄弟节点**而非插槽内容（`el-upload` 在单测里被 stub 成 `<div><slot/></div>`，插槽内的东西对测试不可见）。
+- 放大预览走 `UiModal`（`size="xl"` + 显式 `close-on-esc`）+ 原生 `<img>`，与仓库既有约定一致（全仓无 `el-image` / `ElImageViewer`）。视频与图文两个封面行共用**同一份** composable 实例与**同一个**弹窗节点。
+- 图文封面行**刻意不加 flex 包裹层**：`.cohere-form-item` 是列向 flex，`el-upload` 靠 `align-items: stretch` 占满宽，套一层行向容器会让它退化成内容宽 —— 那会造成与本功能无关的 `publish-form` 像素基线位移。
+- 按 AGENTS.md 浮层互斥合同登记**三个 owner**：`publish-cover-preview`（本次新增）、`publish-cover-crop-dialog` 与 `publish-ai-cover-dialog`（同一封面流程的**既有漏项**，一并补上 —— 新浮层守规矩、旁边的不守等于把同一个 Bug 留在原地）。释放一律走 `finally`，`onBeforeUnmount` 兜底。
+- **修掉一条自查发现的既有危害（自审，非评审产出）**：发布页可运行在「+新标签」的**内嵌主页实例**里，而该实例本身就是一张 `WebContentsView`。主进程任一时刻只让活动标签可见（全仓 `setVisible(true)` 仅 `webview-manager/layout.js:160` 一处、且只作用于 `activeView`），所以它内部的应用级模态不会被别的视图盖住；而 `suspendEmbeddedViewsForOverlay` → `_hideAllTabs()` 无差别遍历 `_tabViews` 隐藏，会**把承载弹窗的那张视图自己藏掉** —— 表现为「点缩略图后内容区整块空白」，且弹窗不可见因而无法关闭。该危害在 `App.vue` 的 `setShellMode` 路径早已有守卫（`if (isHomeShell) return`），挂起路径却没有；`home-shell-preload.bundle.js:928` 确实暴露了 `suspendEmbeddedViews`（esbuild 把 `preload/index.js` 整体内联），路径可达。
+- 修复落在 `useEmbeddedViewSuspension.js` 本身：新增 `isHomeShellRuntime()` 守卫，判据**按调用时刻**读取 `window.location.search`（不得在模块导入期冻结求值，否则真实导航后失效）。放 composable 而非各调用点，顺带收口 `AccountCloudSyncDialog` 的同类既有暴露。回归锁 4 例（壳态 no-op / 主窗口行为不变 / 判据不得导入期冻结 / 参数值须严格为 `1`），变异反证「守卫恒不命中」⇒ 恰好 2 条变红。
+
+- locale：`publishPage.coverPreview.{title,hint,ariaLabel,loading,unavailable}` zh/en 成对新增，插在 `coverCrop` 之后保持行位对称。
+
+### 明确不做（附理由）
+- **不加主进程体积门禁**：实测 20 MB 封面 `readFileSync` + `base64` 仅 **25.6 ms**（0.3/2/8/20 MB = 0.9/1.9/6.7/25.6 ms），不构成卡顿；而为它改 `electron/` 会连带 preload bundle 重建 + QM-1 打包，爆炸半径远大于收益。数字与判据见 `01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md` §9。
+- **不引入 `sharp` 生成小尺寸缩略图**：`sharp` 只由 `packages/shared-utils` 声明，桌面工作区 `apps/desktop/package.json` 未声明，按 AGENTS.md「生产依赖闭包」属违规。
+- **不预览远程「封面图片链接」（`cover_url`）**：会为渲染一张第三方图向任意用户输入的域名发请求，等于给对方一个可追踪信标；且 `http://` 链接会被 CSP 拦成破图。
+- 已知限制（非本次引入）：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框是 `accept="image/*"`，所以 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**。裁剪弹窗一直如此，本次让它可见，故写入文档以免被当成新 Bug。
+
+### 测试
+- 新增 `useCoverPreview.test.js` 17 例：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、**竞态（迟到成功与迟到失败均不得倒灌）**、卸载后不写状态、`reload()`。
+- 新增 `Publish.test.js`「封面缩略图与放大预览」12 例：提取/AI 生成两个入口写入即出图、**草稿恢复（入口 5，不经任何按钮）**、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效。
+- `overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配）。
+- **四条变异反证均实跑变红并字节还原**：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不再上抛 `open` ⇒ 1 红；把释放挪出 `finally` ⇒ 1 红（正是新结构锁）。
+- 回归：`Publish.test.js` + `CoverCropDialog.test.js` + `useCoverPreview.test.js` = 88 passed；`overlay-view-suspension` + `shell-mode-6b` = 19 passed；`views-deep2` + `views-coverage` = 16 passed；`index.test.js`（CSP 守卫）通过；`vite build` 通过（模板编译）；eslint 改动文件零告警；`verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内。
+- 行尾对账：四份共享文档均按**字节前插/追加**，未触碰任何既有行；`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等（无幽灵行）。
+
+# [未发布]
+
+### 变更
+
+- **feat(publish) P0-2 风控挂起发布页可见性 + 行动指引具体化 + 词表增强**（发布页优化 roadmap 第二切片）：
+  - 目标选择器风控徽标（`PublishTargetSelector.vue` + `Publish.vue` 接 `useRiskStore`）：挂起账号/平台行显示「⚠ 风控挂起」+ 行动指引 tooltip——发布前可见，而非发布时被派发前置守卫拦截才知道；组件保持哑组件（props 注入），键语义与 risk-suspender-store 一致（平台级覆盖全部账号）。
+  - 行动指引具体化（参考产品 -110 口径）：通知/挂起提示/恢复确认从「前往平台侧确认」改为具体动作——「前往该平台创作者中心手动发布一篇内容完成验证，然后在账号管理页解除挂起」；locales zh/en 成对（badge/guidance 新键 + body/suspended/resumeConfirm 更新）。
+  - 词表增强（桌面 `publish-risk.js` + 引擎 `publish-mode-runner.js` 两侧同义）：RISK_RE += `canvas illegal` + `账号存在风险`（参考产品取证）；刻意不加「服务异常」等宽泛词（测试 misses 侧钉住该决策）。
+  - 实施发现：仓库已有完整风控体系（W1 §5/§6），真实差距为可见性/指引/词表三点——PRD-PUBLISH-PAGE-OPTIMIZATION §四 P0-2 已按六维度详写并标记已实现。
+  - 验证：桌面受影响面 246/246（选择器 +5、publish-risk +1）；引擎全量 exit 0（mode-runner +1）；locale pair/keys/cjk + 品牌 PASS。
+
+- **债务登记：`max-lines-baseline.json` 的 `Publish.vue` 登记值 1333 → 1515（= main 实况）**。
+  登记值停在 1333，而 main 上 `apps/desktop/src/views/Publish.vue` 实测已 1515 行 —— 这 +182 是已合进 main
+  的上游改动、从未登记。容差 200 ⇒ 天花板 1533，main 自己只剩 18 行余量，于是任何再动该文件的 PR 一律
+  `LEDGER_GREW` 红，与它加了什么无关。本次把登记值对齐实况，属**接受已发生的漂移，不是清理债务**；
+  该文件仍是 1515 行巨型组件，拆分另行登记为 OPEN 债务（见 `.quality-gates.md` 本条记录）。
+
+---
+
+# [未发布] docs(gates): 回填 #2589 / #2598 的置顶文档欠账（2026-09-29，topdoc-backfill-2589）
+
+### 根因（第一性原因）
+- 代码 PR 只要碰 `CHANGELOG.md` / `.quality-gates.md` / `scripts/gate-record-debt-ledger.json` 这三份「新条目插顶部」的文件，main 每前进一次该 PR 就 `mergeStateStatus=DIRTY`，每解一轮冲突要重烧一整轮约 20 分钟的全量 CI。实测：#2589 因此作废 3 轮、#2598 第 4 轮三份全冲突。两个 PR 遂把置顶改动整体移出（`git checkout --theirs`，相对合并基零改动），代价就是本条要还的账。
+
+### 变更
+- `.quality-gates.md`：新增两篇执行记录（`visual-all-baseline-ci` / `governor-2566-closeout`），两者的 `远程同步` 行**直接写 PASS** —— 记录写于 PR 已合并之后，merge SHA 与时间可离线取证（`git log origin/main` 尾锚 `(#2589)` = `54b529d3…`、`(#2598)` = `5ea5df82…`，各自与 `gh pr view` 两路同 SHA；两个远端分支 `ls-remote --heads` 均返回 0 行）。相比原方案**少两笔长期欠账**：不再需要 PENDING 行，也就不需要往账本 JSON 加登记项。
+- `.quality-gates.md`：给 `governor-quota-reserve`（#2566）那条执行记录补上此前**整条缺失**的 `| 远程同步 | PASS |…|` 行（该记录写于 PR 未合并时，且当时没有门禁盯"缺行"），证据同上口径为 `0f5c8ea2…` / `2026-09-28T16:36:48Z`。
+- `CHANGELOG.md`：补 #2589（全量四套视觉接入 CI 基线采集）与 #2598（#2566 openspec 归档与主规格同步）两条本应在各自 PR 里写入的条目。
+- 记录内容按 **main push 首跑的 runner 实测**写，而不是本机三次跑的推论：`[VISUAL-ALL-SUMMARY] suites=4 total=103 passed=93 failed=10 aborted=0`，逐套 `elapsed_ms=21588/17896/21800/6791`（约 68 秒 ≪ 20 分钟预算 ⇒ 预算不改）；10 条红里 9 条差异率 1.07%–2.26%、仅 1 条是已登记的 `dashboard-benchmark-title-reset` 10.88% ⇒ 首次给出「工作流基线不同源」的 runner 侧量化证据，也是 change tasks 5.1 的直接依据。
+- 新增一条取证口径：`continue-on-error: true` 的步骤即使 rc=1，API 里 `steps[].conclusion` 仍报 `success` ⇒ 「步骤绿」既不能证明采集成功、也不能证明它跑过；判据固定为日志里的 `[VISUAL-SUMMARY]` / `[VISUAL-ALL-SUMMARY]` 行 + artifact 文件清单（实测 `visual-test-reports` 23,461,800 字节含 `reports/visual-all-summary.json` 与 `screenshots/` 96 条目）。
+- 本 docs PR 自己的执行记录按既有模板新增，其 `远程同步` 行此刻只能 PENDING，已同 PR 往 `scripts/gate-record-debt-ledger.json` 登记原因（回填者须删除该登记项，清单只能缩小）。
+
+### 影响
+- #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
+- 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
+
+# [未发布] feat(publish): 定时×草稿互斥守卫（发布页优化 roadmap 第一项 P1-4）+ 对比参考产品的差距分析文档（2026-10-08，publish-page-optimization）
+
+### 变更
+- **P1-4 定时×草稿互斥**（`usePublishDrafts.js`）：本地草稿是静态快照不会自动发布——带定时时间保存草稿会让用户误以为「到点自动发」。双侧守卫：①保存侧 ElMessageBox 互斥确认（清除定时并保存 / 保留定时保存，双按钮都保存）；②加载侧清除已过期定时时间并提示（避免下一次发布被 validateScheduleEntries 以「定时时间已过去」静默拒绝）。参考产品在引擎层硬拒绝（pubType 互斥）；本地草稿语义更宽（WIP 快照），改为确认+清除而非硬拒绝。
+- **分析文档** `01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md`（force-add，.gitignore 白名单制）：对比参考产品 4.13.19 的 8 项差距清单（P0-1 审核状态跟踪★最大差距/P0-2 账号风险预检/P1-3 平台草稿往返/P1-4 本项已实现/P1-5 可见性通用控件/P2 数据回流/批量字段面/账号分组），含证据出处（16 态审核模型 + aweme_id 回查口径 + -110 风险码族）、P1-4 六维度详写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）、后续项立项要点。
+- locales zh/en 成对新增 5 键（scheduleConflictTitle/Message/Clear/Keep + staleScheduleCleared）。
+
+### 验证
+- `usePublishDrafts.test.js` 11/11（含 5 条 P1-4 回归：确认清除/取消保留/无定时不弹/过期清除/未来保留）
+- locale 成对门禁（pair-base/keys/cjk）、品牌残留、行尾对账本地 PASS
+
+---
+
+# [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
+
+### 变更
+- `.quality-gates.md` CCG 评审记录的「远程同步」行 PENDING → PASS 回填（squash `633ee1c2`，2026-09-28T22:11:00Z，`git log origin/main --grep='(#2588)$'` 取证）；`gate-record-debt-ledger.json` 同步删除登记项（30 条，无陈旧）。
+- `01-docs/learnings.md` 置顶 +2 条：① PR DIRTY（冲突）状态整体阻断 pull_request CI 触发（synchronize 事件静默不触发，workflow_dispatch 不挂 PR 检查不能替代；推送后 5 分钟零 run 先查 mergeStateStatus）；② 合并输出截断让冲突标记静默入库（`Select-Object -Last 4` 切掉点文件的 CONFLICT 行；解冲突脚本的 markers/debt 检查必须 gate 住 commit，union 源必须取已验证无标记的历史提交）。
+
+### 验证
+- docs-only：`node scripts/check-gate-record-debt.js` rc=0（顶部记录带行、无陈旧登记）；品牌残留 PASS。
+
+---
+
+# [未发布] feat(publish): 话题内联描述——标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复（2026-10-09，publish-topic-inline-description）
+
+### 变更
+- **模型对齐参考产品 4.13.19（逆向取证，PRD §2）**：描述文本成为话题唯一真源——标签/话题输入框降级为「快速添加入口」，添加后以 `#话题` 内联描述尾部（所见即所得）；发布时平台格式差异隐性转换，用户无感知。
+- **渲染层追加管道（纯函数单一实现）**：新增 `apps/desktop/src/features/publish/topic-inline.js`（appendTopicsToContent / removeTopicFromContent / extractInlineTopics，词边界去重、空格分隔、Markdown 安全）；`Publish.vue` 视频/图文两分支 + `useBatchPublish` 批量分支三入口统一接线（话题框/标签框 set、TagSuggester apply-tag、历史视频跳转 query.tags）；同步单向（框→描述），描述手动编辑不回写（发布以描述解析为准，主进程三合一去重防双份）。
+- **引擎格式转换单一实现**：`content-formatter.js` 新增 extractInlineTopicNames / stripTopicsFromContent / convertInlineTopics / findInlineTopicPositions（已知话题精确匹配防误伤代码片段 `#include`）；15 平台三态矩阵——内联保留 8（douyin/kuaishou/xiaohongshu/tiktok/twitter/instagram/youtube/facebook）、内联转换双井号 3（weibo/tencent_video/baijiahao）、剥离独立字段 4（bilibili/zhihu/toutiao/wechat_mp）。
+- **🔴 抖音话题丢弃修复**：`douyin-video.js` content_desc 保留内联话题 + `text_extra` 位置标记段（字符偏移、hashtag_id=0 纯文本话题，实体回填列 P2）；旧实现 `text_extra: []` 恒空——用户填的话题发到抖音的内容里不存在。
+- **🔴 视频号话题丢弃修复**：`shipinhao-video.js` description 经 convertInlineTopics 转微信系双井号 `#话题#`；旧实现描述只合并标题+正文，话题静默丢失。
+- **快手行为变更**：caption 不再拼 tags 数组（话题已内联 content，再拼双份重复；描述为真源语义，旧草稿 tags 残留值不再进内联型平台描述）；no-title-contract B-2 契约同步更新。
+- **主进程合并增强**：`publisher-router.js` buildPublishArticle 的 tags 三合一合并加入描述单井号话题解析（RichTextProcessor 只解析双井号形态，单井号经 content-formatter 补齐——「描述为真源」对手动编辑/追加的话题都成立）。
+- **跨包契约锁**：新增 `topic-inline-contract.test.js`（15 平台三态矩阵清单锁 + 12 项行为锁 + 剥离完整性 + 代码片段不误伤 + 单一实现结构锁）；双向反证实跑：摘 bilibili 剥离调用 → 2 红、摘抖音 text_extra 标记 → 1 红，还原后 15/15 绿。
+- i18n：zh/en 成对更新 tagsPlaceholder/topicsPlaceholder（「添加后自动带入描述，多个用逗号分隔」）。
+
+### 验证
+- 渲染层：topic-inline 20/20、Publish 75/75（含 6 条接线新用例）、发布面 13 文件 299/299；locale Gate 7 pair + CJK 双 PASS
+- 引擎：run-tests 33 文件全绿（content-formatter 45/45 含 17 条新用例、契约锁 15/15、no-title-contract 8/8 更新后语义）
+- 主进程：publisher-router 57/57（合并逻辑增强无回归）
+- 反证：bilibili strip 摘除 2 红 / douyin text_extra 摘除 1 红 / 还原复绿（变异-还原全流程字节级）
+- 详见 [01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md)（立项 PR #2631）
+
+---
+# [未发布] docs(publish): 话题内联描述模型立项——PRD + OpenSpec change 五件套（2026-10-09，publish-topic-inline-description）
+
+### 变更
+- **立项背景**：发布页标签/话题输入框与描述框割裂（用户看不到最终平台内容形态），且抖音/视频号两条链路把 tags 静默丢弃（`douyin-video.js` content_desc 只取正文且 `text_extra: []` 恒空、`shipinhao-video.js` description 只合并标题+正文）——用户填的话题发到这两个最主流视频平台的内容里不存在。
+- **用户决策（2026-10-09）**：完全按参考产品 4.13.19 逆向取证逻辑实现——标签/话题添加后直接体现在视频描述输入框（描述文本为话题真源、所见即所得）；平台格式差异（微博双井号等）在发布时隐性转换。
+- **逆向取证**（用户提供目录，主进程 bundle `packages/main/dist/index.cjs`）：话题以 `<topic>` 内联描述富文本、发布时各平台隐性转换（小红书/视频号 `#名[话题]#` + hash_tag 结构化、微博 `#名#`、知乎 `<a>`+topic_id）、话题验证 fail-closed（查不到平台实体删节点）——取证结论全量落 PRD §2（品牌词按 Gate 12 红线不入库）。
+- **产物**：`01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md`（方案设计 / 15 平台格式转换矩阵 / 交互逻辑 / 测试验收 / roadmap）+ `openspec/changes/publish-topic-inline-description/`（proposal / design / tasks / spec delta / .openspec.yaml 五件套）+ 主 PRD 功能文档列表登记。
+
+### 验证
+- docs-only 门禁四项：行尾对账两口径一致（PRD.md 3/1 = 3/1）| 品牌残留 PASS（6441 tracked 文件）| 文档同步（纯文档 PR 无代码变更，doc-gate 不触发）| 远程同步 PENDING（PR 合并后回填）。
+- 实现见 PR #2640（已合并，squash 0dc2d98a）。
+
+---
+# [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
+
+### 变更
+- **评审执行**：用户指令补跑 CCG 双模型评审（claude 前端路 + codex 后端路，`codeagent-wrapper --lite` 并行派发同一消息，diff 锚点 PR #2576 + #2579）；claude 5W+6I、codex 5W+3I，findings 逐条核实处置回写 `.quality-gates.md`。
+- **🔴 codex W1（实质 Critical）**：`usePublishFlow.normalizePlatformOverrides` 硬编码白名单把 B站分区/版权/合集、YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、公众号摘要/评论开关等注册表面板字段在 IPC 组装前**静默丢弃**（UI 可编辑但发布不生效；两侧测试各自全绿，只有全链路暴露）→ 改注册表驱动归一化（与面板同口径）+ 2 条全链路回归。
+- **claude W1+W2/codex W2**：`_composeEditorCaption` 统一 `join('\n')` + 按码点截断（原 `\n\n` + UTF-16 slice 可切代理对）。
+- **claude W3**：`validatePlatformContent` 无标题合并复用 `composeNoTitleDescription`（消灭第二份内联实现）。
+- **claude W4/codex W5**：引擎 `content-formatter` 两表同步注册表口径（douyin title 30→55、xiaohongshu 40→20、wechat_mp content 50000→20000 等；无标题平台标题不单独截断）+ 新契约锁 `content-formatter-registry-sync.test.js` 6 例（含 douyin 40 字标题事故场景回归）。
+- **claude W5**：`getPlatformOverrideFields` 深拷贝 options/default（浅拷贝共享引用可突变污染注册表，实测实锤）+ 突变隔离回归（双版本）。
+- **codex W3**：面板 text/collection 截断改按码点（不切代理对）。
+- **codex Info3 暴露真实缺口**：`caption_textarea`（instagram/tiktok 描述输入）不在 `_publish_generic` 编辑器候选链——两平台标题合并路径从未生效 → 候选链补齐 + instagram 行为锁。
+- **codex Info2**：parity 测试升级全平台穷举（meta/isNoTitle/limits/overrideFields×2/commonFormFields）。
+- 登记不改 6 项（各带理由）：类型强转边界（无 UI 触发路径）、platforms.yaml 收敛（另立 change）、statuses 语义（JSDoc）、weibo title 透传（下游未用）、Twitter/TikTok 源码结构锁（execute 需网络）、RPA 截断来源（残余限制）。
+
+### 验证
+- shared-utils 全量 396（注册表 60 例）；桌面发布面 11 文件 294/294（usePublishFlow 62 例含 W1 全链路回归）；rpa-view-platforms 44/44；引擎全量 exit 0（含新契约锁 6/6 与旧值断言按注册表口径更新）
+- 安全维度两路评审均无发现（Vue 文本插值无 v-html、IPC 无凭证泄漏）
+
+---
+
+# [未发布] feat(publish): 视频文件选择反馈深度优化——常驻成功卡片 + 差异化提示 + 500MB 选前校验（2026-09-28，video-select-feedback）
+
+### 变更
+
+- **问题**：视频发布页选择本地视频后，唯一反馈是视口顶部 3 秒消失的 toast + 上传列表一行灰字小 chip，上传区零视觉变化——首次使用者普遍误判「点了没反应」；再次选择与首次提示完全相同，无法确认替换生效；UI 提示「最大 500MB」却从未在选择时校验。
+- **常驻成功卡片**：新增 `SelectedVideoCard.vue`（视频发布模式与图文含视频平台分支共用）——成功绿边框卡片显示文件名（加粗）、格式化大小（复用 `utils/bytes.js`）、格式徽标，自带「更换视频」「移除」操作；上传区选中后转绿实线边框，卡片随 `:key` 变更重播入场动画。
+- **差异化提示**（纯逻辑模块 `utils/video-selection-feedback.js` 单一来源 `classifyVideoSelection`）：首次选择 success「✅ 已选择视频：{name}」；替换不同文件 success「已替换为新视频：{name}（原：{previous}）」；重选同一文件降级 info「当前已是该视频」（状态零变化不报成功，避免虚假变更感）；超限拦截 warning「超过 500MB 上限（当前 {size}）」，且不覆盖旧选择。
+- **500MB 选前校验**：`VIDEO_MAX_BYTES` 常量 + `isVideoOversize`，选择时立即拦截反馈（此前延迟到发布才失败）；非法 size（NaN/负数/缺失）不拦截，交路径解析兜底。
+- **状态同步**：`video_path`（唯一真源）+ `videoFileMeta`（卡片元信息）+ `videoUploadFileList`（el-upload v-model:file-list）三者同步变更；卡片移除走 `clearFiles` + 清状态单入口；`triggerVideoReselect` 经隐藏 file input 重开对话框；query/草稿恢复（无 File 元信息）卡片降级为路径推导 basename + 「大小未知」。
+- **i18n**：zh/en 成对新增 `videoSelectedNamed` / `videoReplaced` / `videoReselectSame` / `videoTooLarge` / `videoCard.*`（message function 插值，走 notifyCore 防泄漏与 notify:log 上报）。
+
+### 验证
+
+- `video-selection-feedback.test.js` 14/14（500MB 临界/非法值、形态分类全路径、元信息提取兜底）
+- `SelectedVideoCard.test.js` 5/5（空态不渲染/元信息渲染/降级渲染/事件/英文 locale）
+- `Publish.test.js` 69/69（新增 9 例：首次命名 toast、替换双名、同文件 info、超限保留旧选择、移除清空、卡片移除 clearFiles、视频模式卡片 DOM、query 恢复降级、triggerVideoReselect）
+- 详见 [01-docs/PRD-VIDEO-SELECT-FEEDBACK-2026-09-28.md](01-docs/PRD-VIDEO-SELECT-FEEDBACK-2026-09-28.md)
+
+---
+
+# [未发布] feat(门禁记录): 让「执行记录整块缺远程同步行」不再隐形——最新一篇强制带行，历史缺口只做可见（2026-09-28，gate-record-row-required）
+
+### 变更
+- `scripts/check-gate-record-debt.js` 新增覆盖检测：`collect()` 返回 `recordCount / recordsWithoutRow / topRecord / topRecordMissingRow`，并强制**最顶部那篇执行记录必须含 `远程同步` 行**；历史缺席篇数照旧打印但**不拦截**。`format()` 的提示改为点名两种合法写法（已合并按 PASS 口径回填；未合并写 PENDING 且同 PR 登记 `gate-record-debt-ledger.json`）。
+- 顺带修 `loadLedger()` 忽略参数的缺陷：测试一直按 `loadLedger(root)` 调用而无参实现永远读生产清单，夹具里的 ledger 形同不存在（"给了路径却拿到真仓状态"，属假绿通道）。现在认参数，并有一条用例断言夹具与真实清单可区分。
+- `scripts/check-gate-record-debt.test.js` 新增 7 条（8 → 15）：顶部缺行判红并点名、历史缺行只可见、**结构性章节不计入执行记录**、覆盖判据不得随行尾漂、`loadLedger` 认参数、真仓自检。该文件已由 #2561 接进 `Gate 2c`，未新增文件故无需重新接线。
+
+### 为什么（实测，不是推测）
+- #2561 的棘轮只管「已存在的行是否收口」。实测 origin/main：316 篇形如执行记录的 `## ` 标题里 **192 篇整块没有这一行**，而门禁 `RC=0` 报 OK。缺席比说谎更糟——说谎的记录下一个人看得见并会去核，缺席的记录连怀疑对象都没有。
+- 「执行记录」不能按"所有 `## ` 标题"算：321 个标题里有 **5 个是结构性章节**（固定强制门禁／提交前自检清单／强制卡点规则／违规处理／质量节拍阶段对照），它们永远不该有这一行，不排除就恒红。判据取 `^本次执行记录` 前缀 或 标题含日期，得 316 篇，与独立统计逐数吻合（316 / 192 / 128）。
+- 强制面刻意只收「最顶部一篇」而非「全部」：记录按惯例插在文件顶部，所以"最新一篇"定义良好、零基线、零清单维护，也不会一上线就红 192 条而逼人放宽阈值。**已知漏洞如实写进代码注释**：新记录若被插在非顶部位置拦不住。
+
+### 验证
+- `node --test scripts/check-gate-record-debt.test.js` ⇒ 15 passed / 0 failed。
+- 变异反证 4 格（驱动带前置锚点断言 + 每条 try/finally 还原 + 每轮 clean 断言）：强制项恒 false ⇒ 2 红；分类退化为"所有 ## 都是记录" ⇒ 1 红；可见项恒空 ⇒ 2 红；`loadLedger` 退回忽略参数 ⇒ 1 红；收尾还原 byteEqual=true、复跑 15/15。
+- 反证驱动自身先失效过一次并已记入 `.quality-gates.md`：v1 循环中途抛异常且无 finally 还原，把源码留在变异态，v1 第二次运行遂以变异版本为基线，四条结果全部无效（只有 `same=false` 和锚点 0 命中在报警）。据此重写 v2。
+- 本 PR 自己的门禁记录按新规则写成 `PENDING` 并在同一条 PR 里登记 ledger —— 即这条新锁的第一次现场生效。
+
+---
+
 # [未发布] fix(账号管理): 平台图标底衬改为只在暗色主题生效——浅色主题不再顶一块淡紫灰方片（2026-09-29，platform-icon-chip-theme）
 
 ### 变更
@@ -122,6 +784,28 @@
 
 ---
 
+
+# [未发布] feat(publish): 发布进度全局反馈面板——富化进度事件 + 可最小化后台运行 + 失败落历史 + 关窗转托盘（2026-09-28，publish-progress-ux）
+
+### 变更
+- **主进程事件富化（向后兼容加法）**：新增 `electron/services/publish-progress-events.js` 单一实现——`publish:progress` payload 新增 `phase`（start/progress/success/failed/retry/blocked 生命周期双边界）/`stageKey`（9 值规范枚举，两引擎 40+ 英文阶段串封闭映射）/`percent`/`batchId`/`timestamp`/`retriesLeft`，既有字段原样保留。executor 发任务开始边界事件；`rpaViewManager.onProgress` 单槽回调改全局注册一次 + platform→taskId 路由（修 3 并发任务进度跨归属）；ApiPublisher 直连轨（bilibili/baijiahao）经 `options.onProgress` 补发进度（此前完全静默）；percent 不再在转发层丢弃。
+- **渲染层全局承载**：新增 pinia store `src/stores/publishProgress.js`（App 级一次性订阅、多会话任务列表、渲染层重载经 `queue:status` 领养孤儿任务、终态吸收、会话级「重试失败项」）+ `PublishProgressPanel.vue`（App.vue 全局挂载，右下非模态浮动卡 ↔ 最小化常驻胶囊；首次隐藏一次性 toast「发布将在后台继续进行，请勿关闭应用软件」，胶囊常驻勿关提示；状态文字+图标双通道；步骤链 准备→上传→填写→提交→校验→完成）。
+- **修复监听器毫秒级死亡 bug**：usePublishFlow/useBatchPublish 的页面级 `publish:progress` 订阅在 `finally` 无条件注销，而 `publish:batch` IPC 同步入队毫秒级返回——任务执行期间全部事件无人接收，用户只见「任务已加入队列」、不知道发布是否成功。订阅所有权上移 store；页面结果卡改由会话终态驱动（全部成功/部分失败汇总文案）。
+- **失败落历史**：`phase4-events.js` task:failed 补 `history.addRecord({status:'failed', error})`——此前失败结果在任何页面都查不到，历史页 failed 过滤器形同虚设。
+- **关窗转托盘**：`window-close-policy` 新增 `hasRunningPublish` 判据（running+queue>0）；发布运行中点 ✕ 隐藏到托盘后台继续 + Windows 气泡「发布仍在后台进行，请勿退出程序」（system-tray 新增 `showBalloon`，非 Windows 静默降级）；无任务时关窗语义不变。
+- i18n zh/en 成对新增 `publishPage.publishProgressPanel.*` 38 键 + `publishFlow.resultAllSuccess`/`resultPartial`；主 PRD §6.7 + 文件头索引 + §19.2 交叉引用；浮层通查清单补登（面板非模态显式不接入互斥合同）。
+
+### 为什么
+- 用户反馈「点击发布后不知道到了什么环节、进展如何」：进度反馈全部绑死 /publish 页面内、切页即失明。侦察实证 10 条链路缺口（监听器死亡 / percent 全链路丢弃 / API 直连轨静默 / 并发跨归属 / 阶段文案英文硬编码 / 无开始边界 / 失败不落历史 / 关窗不保护 / 频控事件纯文本），全部带路径:行号见 PRD §1。
+- 机制选型：加法式富化（不动 TaskQueue 编排语义、不动 ROUTE_TABLE、无新 IPC 通道）+ 全局 store 承载（复用 UpdateNotification/PipelineBackgroundToast 全局挂载先例）+ 托盘复用流水线方案 A 先例——零新基建。
+
+### 验证
+- 主进程：publish-stage-map 22 + publish-progress-events 18 + phase4-events 12 + window-close-policy 12 + window 新增 6 + system-tray 新增 4 + bootstrap 新增 2（含 platform→taskId 路由归属锁）全绿
+- 渲染层：publishProgress store 19 + PublishProgressPanel 11 + usePublishFlow 62（含「不再订阅」回归锁与会话终态驱动）+ useBatchPublish 55 + Publish.test 71 全绿
+- QM-1 打包 / locale sync / 视觉回归 / 全量 vitest：见 `.quality-gates.md` 本次执行记录
+- 详见 [01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](01-docs/PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) 与 [openspec/changes/publish-progress-ux](openspec/changes/publish-progress-ux)
+
+---
 # [未发布] feat(publish): 发布能力注册表——15 平台发布内容项单一真源 + 无标题平台标题入描述首行（2026-10-08，publish-capability-registry）
 
 ### 变更
@@ -3475,7 +4159,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - **W-2 信号注入可感知**：chip 旁新增「已注入爆款信号（N）」计数标识（`rewritePage.signalBadge` zh/en 成对）。
 - **引擎 W-1 预填来源标记**：本地规则预填的 `last_error` 写 `local-rules prefill (llm failed N times)`（此前清空抹除 LLM 失败诊断痕迹）。
 - **I-1 title_formula 单位保留**：正则交替顺序修正（个月前置于个防截胡）+ 回调捕获组错位修复（单位此前恒丢）→「3个月」→「{N}个月」。
-- **I-3 注入边界加固**：`_sanitizeStringList` 过滤控制字符（ -/），信号条目「」包裹限定语义边界。
+- **I-3 注入边界加固**：`_sanitizeStringList` 过滤控制字符（\x00-\x1f/\x7f），信号条目「」包裹限定语义边界。
 
 ### 验证
 - RewriteView 68/68、pattern-extraction 8/8（新增单位保留断言）、viral-signal 4/4（新增截断边界例）；locale --keys/--cjk PASS。

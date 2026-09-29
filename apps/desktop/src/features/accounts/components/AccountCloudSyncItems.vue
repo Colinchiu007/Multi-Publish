@@ -31,15 +31,15 @@ defineProps({
 </script>
 
 <style scoped>
-.cloud-sync-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--apple-space-1); max-height: 240px; overflow-y: auto; }
-.cloud-sync-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: var(--apple-space-2); font-size: var(--apple-size-sm); color: var(--apple-ink-primary); }
-.cloud-sync-item-platform { color: var(--apple-ink-secondary); }
+.cloud-sync-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--spacing-1); max-height: 240px; overflow-y: auto; }
+.cloud-sync-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: var(--spacing-2); font-size: var(--font-size-sm); color: var(--color-text-primary); }
+.cloud-sync-item-platform { color: var(--color-text-secondary); }
 .cloud-sync-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cloud-sync-item-outcome { font-size: var(--apple-size-xs); }
-.cloud-sync-item-reason { grid-column: 1 / -1; color: var(--apple-ink-secondary); font-size: var(--apple-size-xs); }
+.cloud-sync-item-outcome { font-size: var(--font-size-xs); }
+.cloud-sync-item-reason { grid-column: 1 / -1; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 /* outcome 色调与汇总区共用同一组类名（口径由 useCloudSyncResultModel 的 outcomeClass 决定） */
-.is-success { color: var(--apple-success, #1f7a4d); }
-.is-muted { color: var(--apple-ink-secondary); }
-.is-warning { color: var(--apple-warning, #a2650b); }
-.is-danger { color: var(--apple-error); }
+.is-success { color: var(--color-success); }
+.is-muted { color: var(--color-text-secondary); }
+.is-warning { color: var(--color-warning); }
+.is-danger { color: var(--color-danger); }
 </style>

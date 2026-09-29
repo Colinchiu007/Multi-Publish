@@ -16,7 +16,20 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 
-const { durationTolerance, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO } = require('./compare-scheduler-models')
+const {
+  durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches,
+  effectiveMaxConcurrent, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO,
+} = require('./compare-scheduler-models')
+// 上限解析必须与被测侧同源：本文件断言"对拍侧不抄第二份 clamp 公式"，
+// 所以要拿真实现来比，而不是在这里重写一遍 Math.max/min。
+const { clampConcurrency } = require('../apps/desktop/electron/services/rate-limit-self-check')
+
+// 因果证据夹具：**与真实形状同形**（span 被拉长到 ≥2× 配置时长且窗口重叠），
+// 不是为通过而构造的干净样例 —— 缺证据不许豁免正是本轮评审提的 Critical。
+const deferred = {
+  observed: true, maxSpanMs: 600, requestDurationMs: 20,
+  detail: 'req 1[0→600,span=600] 与 req 2[500→520] 重叠且跨度 ≥ 2×20ms',
+}
 
 describe('durationTolerance — 容差 = 绝对下限 + 比例 × 期望耗时（向上取整）', () => {
   it('短用例由下限主导，只额外获得自身量级的比例余量', () => {
@@ -95,5 +108,209 @@ describe('durationTolerance — 容差 = 绝对下限 + 比例 × 期望耗时�
     assert.equal(PARITY_TOLERANCE_FLOOR_MS, 1500)
     assert.ok(PARITY_TOLERANCE_RATIO >= 0.05 && PARITY_TOLERANCE_RATIO <= 0.2,
       '比例应在 5%~20% 区间：实测抖动 7.9%，留适度余量但不放过真回归')
+  })
+})
+
+/**
+ * concurrencyCheck — 并发观测判据的真值表（#2606）。
+ *
+ * 为什么放这个文件而不是 vitest 那个：本文件测的是**判定函数本身**（纯数据、零依赖、秒级），
+ * 已在 `quality-gate.yml` Gate 2b 的 `node --test` 里、每次 PR 都跑；而
+ * `test_scheduler_parity.test.js` 所在的 `electron-tests` 串行单测步骤带
+ * `if: github.event_name != 'pull_request'` —— **PR 上整步被跳过**。判据合同若只写在那边，
+ * 等于"回归只能在合进 main 之后才发现"。与上面 durationTolerance 口径同处一室也是既有先例。
+ *
+ * 判据来历（不是"抖动就放宽"）：`max_concurrent_observed` 在真实侧由「任务开始 → 其完成回调
+ * 真正执行」的窗口计出，故事件帧被饿到接近相邻请求起始间隔时必然多报 1。同进程饥饿阈值实验
+ * （40ms 不翻 / 600ms 必翻，间隔 500ms）与完整取证见 docs/parity-concurrency-measurement-noise.md。
+ * 关键：**多出来的 1 从未越过配置上限**，而产品侧自检本来就按 `≤ maxConcurrent` 断言。
+ */
+describe('concurrencyCheck — 上限不变量 + 单侧有界噪声', () => {
+  it('相等时通过，且不算命中噪声豁免', () => {
+    const r = concurrencyCheck({ simulated: 2, real: 2, maxConcurrent: 2 })
+    assert.equal(r.pass, true)
+    assert.equal(r.noiseBypass, false)
+  })
+
+  it('真实侧比模型多 1 且有推迟证据 ⇒ 通过，但必须如实标出命中豁免', () => {
+    const r = concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 2, evidence: deferred })
+    assert.equal(r.pass, true, JSON.stringify(r))
+    assert.equal(r.noiseBypass, true, '豁免不得静默生效，否则没人知道这次是靠噪声口径过的')
+  })
+
+  // QM-6 后端评审的 Critical：无条件的 +1 豁免会把"governor 提前放行"这类节奏回归
+  // 钉成契约 —— 它同样给出 real = sim + 1 且 ≤ 上限，但没有任何调用被拖长。
+  it('+1 但没有回调推迟证据 ⇒ 判红（豁免必须有因果证据）', () => {
+    const noEvidence = { observed: false, maxSpanMs: 22, requestDurationMs: 20, detail: '' }
+    const r = concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 2, evidence: noEvidence })
+    assert.equal(r.pass, false, '节奏型回归也会给 +1，缺证据不得放过：' + JSON.stringify(r))
+    assert.equal(r.noiseBypass, false)
+  })
+
+  it('完全不传 evidence ⇒ 与"证据为否"同判（缺信息不得当成有证据）', () => {
+    assert.equal(concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 2 }).pass, false)
+    assert.equal(concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 2, evidence: undefined }).pass, false)
+  })
+
+  it('多 1 但同时越过配置上限 ⇒ 判红（上限不变量任何情况不放宽）', () => {
+    const r = concurrencyCheck({ simulated: 2, real: 3, maxConcurrent: 2, evidence: deferred })
+    assert.equal(r.pass, false, '2+1=3 已超上限 2，必须红：' + JSON.stringify(r))
+  })
+
+  it('真实侧低于模型 ⇒ 判红（该方向的偏差只能来自调度行为差异）', () => {
+    const r = concurrencyCheck({ simulated: 2, real: 1, maxConcurrent: 2, evidence: deferred })
+    assert.equal(r.pass, false, JSON.stringify(r))
+  })
+
+  it('多 2 及以上 ⇒ 判红（豁免只到 +1，不是万能容差）', () => {
+    assert.equal(concurrencyCheck({ simulated: 1, real: 3, maxConcurrent: 4, evidence: deferred }).pass, false)
+  })
+
+  // 这条是判据设计的关键后果，不能只靠推导：cap=1 的用例（rpm30-concurrency1）里
+  // 豁免被上限夹住后**等价于仍要求相等**，否则"+1"就把真实的单并发违约吃掉了。
+  // 也因此「先夹上限、再谈豁免」的顺序不可调换 —— 由变异 M6 证明这条断言不是空的。
+  it('配置上限为 1 时 +1 豁免必须失效（被上限夹住 ⇒ 等价严格相等）', () => {
+    const r = concurrencyCheck({ simulated: 1, real: 2, maxConcurrent: 1, evidence: deferred })
+    assert.equal(r.pass, false, 'maxConcurrent=1 时观测到 2 就是违约，必须红：' + JSON.stringify(r))
+    assert.equal(concurrencyCheck({ simulated: 1, real: 1, maxConcurrent: 1 }).pass, true)
+  })
+
+  it('复现 #2606 的真实形状：sim=1 / real=2 / 上限=2 / 有推迟证据 ⇒ 判通过', () => {
+    // main 4770b0b5 / run 36483489315：inject-429 组 python=1、real=2、该组配置上限=2；
+    // 本机用 600ms 同进程阻塞可稳定复现同一形状（20ms 调用被记成 600ms）。
+    const r = concurrencyCheck({
+      simulated: 1, real: 2,
+      maxConcurrent: effectiveMaxConcurrent({ rpm: 120, maxConcurrent: 2 }),
+      evidence: deferred,
+    })
+    assert.equal(r.pass, true, JSON.stringify(r))
+    assert.equal(r.noiseBypass, true)
+  })
+
+  it('上限缺省时由被测侧 clampConcurrency 解析，不在对拍侧抄第二份公式', () => {
+    for (const rpm of [6, 20, 60, 120]) {
+      assert.equal(effectiveMaxConcurrent({ rpm }), clampConcurrency(rpm), 'rpm=' + rpm)
+    }
+    assert.equal(effectiveMaxConcurrent({ rpm: 120, maxConcurrent: 2 }), 2, '显式配置必须优先于 clamp')
+  })
+
+  // 无效域一律 fail closed。一个导出的真值表函数若接受 simulated=-1 还"通过"，
+  // 下一个调用方就会以为那个绿灯有意义。
+  it('入参非「非负整数 / 上限≥1」⇒ 判红（无效域 fail closed）', () => {
+    for (const bad of [undefined, null, NaN, -1, 1.5, '2']) {
+      assert.equal(concurrencyCheck({ simulated: 1, real: bad, maxConcurrent: 2 }).pass, false,
+        'real=' + String(bad))
+      assert.equal(concurrencyCheck({ simulated: bad, real: 1, maxConcurrent: 2 }).pass, false,
+        'simulated=' + String(bad))
+      assert.equal(concurrencyCheck({ simulated: 1, real: 1, maxConcurrent: bad }).pass, false,
+        'maxConcurrent=' + String(bad))
+    }
+    assert.equal(concurrencyCheck({ simulated: 1, real: 1, maxConcurrent: 0 }).pass, false, '上限 0 不合法')
+    assert.equal(concurrencyCheck().pass, false, '整个入参缺失也必须红，不得抛异常')
+  })
+})
+
+/**
+ * deferralEvidence — 「+1 是不是回调推迟」的因果探测器。
+ *
+ * 它是 Critical 修复的另一半：判据要求证据，那**证据本身必须有真值表**，
+ * 否则"有没有证据"就退化成第二个可以随手糊过去的布尔值。
+ */
+describe('deferralEvidence — 区分"回调被推迟"与"提前放行"', () => {
+  const t = (req, start, end, state = 'completed') => ({ req, started_at: start, finished_at: end, state })
+  // inject-429 那组的真实形状：单次 20ms、rpm=120 ⇒ 相邻起始间隔 500ms
+  const OPT = { requestDurationMs: 20, interStartMs: 500 }
+
+  it('本机高档饥饿的真实形状（20ms 调用占用槽位 600ms > 间隔 500ms）⇒ 有证据', () => {
+    const ev = deferralEvidence([t(1, 0, 600), t(2, 1200, 1220)], OPT)
+    assert.equal(ev.observed, true, JSON.stringify(ev))
+    assert.ok(ev.maxSpanMs >= 600)
+    assert.ok(ev.detail.includes('600'), 'detail 要带上实测跨度，否则事后无法判读：' + ev.detail)
+  })
+
+  it('提前放行型回归（各跨度仍 ≈ 配置时长）⇒ 无证据，不得豁免', () => {
+    const ev = deferralEvidence([t(1, 0, 21), t(2, 5, 26)], OPT)
+    assert.equal(ev.observed, false, '没有超长占用就不是回调推迟：' + JSON.stringify(ev))
+  })
+
+  // 这条专门锁住"第一版探测器的错法"：与后一个调用重叠的往往是**被 429 拒掉、
+  // 永远不会 completed** 的那条，按 completed 过滤就等于看不见真正原因。
+  it('被推迟的是 rate_limited 条目时也必须探到证据（不得只扫 completed）', () => {
+    const ev = deferralEvidence([t(1, 0, 30), t(3, 1000, 1620, 'rate_limited'), t(4, 1650, 1670)], OPT)
+    assert.equal(ev.observed, true, JSON.stringify(ev))
+    assert.ok(ev.detail.includes('rate_limited'), 'detail 应指明被推迟条目的状态：' + ev.detail)
+  })
+
+  it('阈值由参数推导：间隔很短时靠 2× 配置时长兜下界', () => {
+    // rpm=1200 ⇒ 间隔 50ms；2×100ms 配置时长 = 200ms ⇒ bound = 200
+    const ev = deferralEvidence([t(1, 0, 150)], { requestDurationMs: 100, interStartMs: 50 })
+    assert.equal(ev.boundMs, 200, JSON.stringify(ev))
+    assert.equal(ev.observed, false)
+    assert.equal(deferralEvidence([t(1, 0, 201)], { requestDurationMs: 100, interStartMs: 50 }).observed, true)
+  })
+
+  it('空 timeline / 非数组 / 缺字段 ⇒ 判"无证据"而不是抛异常', () => {
+    for (const tl of [undefined, null, [], [{}], [{ req: 1, state: 'rate_limited' }]]) {
+      assert.equal(deferralEvidence(tl, OPT).observed, false, JSON.stringify(tl))
+    }
+  })
+
+  it('配置时长与间隔都缺失 ⇒ bound 为 0 ⇒ 一律无证据（不得凭空造出豁免依据）', () => {
+    assert.equal(deferralEvidence([t(1, 0, 99999)], {}).observed, false)
+    assert.equal(deferralEvidence([t(1, 0, 99999)], undefined).observed, false)
+    assert.equal(deferralEvidence([t(1, 0, 99999)], { requestDurationMs: 0, interStartMs: 0 }).observed, false)
+  })
+})
+
+describe('completionOrder — 完成顺序的取数口径', () => {
+  it('只取 completed 的请求序号，保持时间序', () => {
+    assert.deepEqual(completionOrder([
+      { req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }, { req: 2, state: 'completed' },
+    ]), [1, 2])
+  })
+
+describe('completionSetMatches — 完成集合（#2626 真正承重的判据）', () => {
+  it('成员相同 ⇒ true（顺序不同也算一致 —— 这是刻意的，不是放宽）', () => {
+    assert.equal(completionSetMatches([1, 2, 4, 5, 6], [1, 2, 4, 5, 6]), true)
+    // 真实侧次序在事件帧饥饿下会翻转（用未排序的 completion_order 实测：12 个饥饿样本里 9 个非升序），
+    // 成员没变就不该判红 —— 否则就是把 #2606 的假红重新引进来。
+    assert.equal(completionSetMatches([1, 2, 3, 4], [1, 2, 4, 3]), true)
+    assert.equal(completionSetMatches([], []), true)
+  })
+
+  it('成员不同 ⇒ false（一侧把被拒请求算成完成，正是 #2626 的形状）', () => {
+    assert.equal(completionSetMatches([1, 2, 3, 4, 5, 6], [1, 2, 4, 5, 6]), false)
+    assert.equal(completionSetMatches([1, 2], [1, 3]), false)
+  })
+
+  it('任一入参非数组 ⇒ false（fail closed，缺信息不得当成一致）', () => {
+    assert.equal(completionSetMatches(undefined, [1]), false)
+    assert.equal(completionSetMatches([1], null), false)
+    assert.equal(completionSetMatches('12', [1]), false)
+  })
+
+  it('取数口径串起来：state 被误标成 completed 时集合判据必须抓到', () => {
+    const sim = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'completed' }])
+    const real = completionOrder([{ req: 1, state: 'completed' }, { req: 3, state: 'rate_limited' }])
+    assert.equal(completionSetMatches(sim, real), false)
+  })
+})
+
+describe('completionOrderSequenceMatches — 完成序列只留痕、不得升为硬判定', () => {
+  it('逐元素相等 ⇒ true', () => {
+    assert.equal(completionOrderSequenceMatches([1, 2, 4, 5, 6], [1, 2, 4, 5, 6]), true)
+  })
+
+  it('成员相同但顺序不同 ⇒ false —— 正因为它会为饥饿下的正常翻转发红，才不能计入 pass', () => {
+    assert.equal(completionOrderSequenceMatches([1, 2, 3, 4], [1, 2, 4, 3]), false)
+    assert.equal(completionSetMatches([1, 2, 3, 4], [1, 2, 4, 3]), true)
+  })
+
+  it('任一入参非数组 ⇒ false', () => {
+    assert.equal(completionOrderSequenceMatches(undefined, [1]), false)
+  })
+})
+  it('非数组入参返回空数组而不是抛错', () => {
+    assert.deepEqual(completionOrder(undefined), [])
   })
 })

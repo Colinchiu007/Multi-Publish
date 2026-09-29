@@ -243,3 +243,109 @@ describe("OfflineManager integration", function() {
     expect(persisted[0]).toMatchObject({ owner_subject: "user-a" })
   })
 })
+
+describe("OfflineManager 缓存写入形状与重放形状必须同源（渲染层嵌套形状回归）", function() {
+  // P1 缺陷（2026-10-02 第二轮验证）：
+  //   渲染层单篇离线缓存写入 `{ targets: [{platform, accountId}], data: {...} }`（嵌套形状），
+  //   而 `processCachedTasks` 的判据是**扁平** `task.platform && task.article`。
+  //   两者形状不同源 ⇒ 嵌套条目 platform 为 undefined ⇒ 永久留在缓存、网络恢复后**永不重放**。
+  //   既有测试全部用扁平夹具，所以这个缺陷从未被覆盖（又一次「夹具形状 ≠ 生产写入形状」）。
+  var mockTaskQueue
+
+  beforeEach(function() {
+    vi.clearAllMocks()
+    offlineManager.setOwnerSubjectProvider(null)
+    offlineManager.setTaskQueue(null)
+    mockTaskQueue = { add: vi.fn().mockReturnValue("mock_task_id") }
+  })
+
+  test("嵌套形状（渲染层实际写入）：按 targets 展开重放，每个 target 一条任务", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      {
+        targets: [{ platform: "wechat_mp", accountId: "acc-1" }, { platform: "zhihu", accountId: null }],
+        data: { title: "离线文章", content: "正文" },
+      },
+    ]))
+    offlineManager.setTaskQueue(mockTaskQueue)
+    offlineManager.onNetworkChange(false)
+
+    expect(offlineManager.processCachedTasks()).toBe(2)
+    expect(mockTaskQueue.add).toHaveBeenCalledTimes(2)
+    expect(mockTaskQueue.add).toHaveBeenCalledWith({
+      platform: "wechat_mp",
+      article: { title: "离线文章", content: "正文" },
+      accountId: "acc-1",
+    })
+    expect(mockTaskQueue.add).toHaveBeenCalledWith({
+      platform: "zhihu",
+      article: { title: "离线文章", content: "正文" },
+      accountId: null,
+    })
+  })
+
+  test("嵌套条目重放成功后从缓存移除，不永久堆积", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { targets: [{ platform: "weibo", accountId: null }], data: { title: "A" } },
+    ]))
+    offlineManager.setTaskQueue(mockTaskQueue)
+    offlineManager.onNetworkChange(false)
+
+    expect(offlineManager.processCachedTasks()).toBe(1)
+    var persisted = JSON.parse(fs.writeFileSync.mock.calls[0][1])
+    expect(persisted).toEqual([])
+  })
+
+  test("扁平与嵌套两种形状可共存重放（存量缓存向后兼容）", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { platform: "weibo", article: { title: "扁平" }, accountId: null },
+      { targets: [{ platform: "zhihu", accountId: null }], data: { title: "嵌套" } },
+    ]))
+    offlineManager.setTaskQueue(mockTaskQueue)
+    offlineManager.onNetworkChange(false)
+
+    expect(offlineManager.processCachedTasks()).toBe(2)
+    expect(mockTaskQueue.add).toHaveBeenCalledTimes(2)
+  })
+
+  test("无法识别的条目留在缓存，不静默丢弃也不虚报重放数", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { foo: "bar" },
+      { targets: [], data: { title: "空 targets" } },
+    ]))
+    offlineManager.setTaskQueue(mockTaskQueue)
+    offlineManager.onNetworkChange(false)
+
+    expect(offlineManager.processCachedTasks()).toBe(0)
+    expect(mockTaskQueue.add).not.toHaveBeenCalled()
+    var persisted = JSON.parse(fs.writeFileSync.mock.calls[0][1])
+    expect(persisted).toHaveLength(2)
+  })
+
+  test("嵌套形状某个 target 入队失败时整条留在缓存（不部分丢失）", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { targets: [{ platform: "weibo", accountId: null }, { platform: "zhihu", accountId: null }], data: { title: "A" } },
+    ]))
+    var queue = {
+      add: vi.fn()
+        .mockReturnValueOnce("task-1")
+        .mockImplementationOnce(function () { throw new Error("queue closed") }),
+    }
+    offlineManager.setTaskQueue(queue)
+    offlineManager.onNetworkChange(false)
+
+    expect(offlineManager.processCachedTasks()).toBe(0)
+    var persisted = JSON.parse(fs.writeFileSync.mock.calls[0][1])
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0].targets).toHaveLength(2)
+  })
+})

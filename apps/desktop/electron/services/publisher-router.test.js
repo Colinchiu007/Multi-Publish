@@ -160,6 +160,21 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     expect(article.copyright).toBe(1)
   })
 
+  // 2026-09-29 图文发布修复：article.images（本地文件路径，RPA 上传用）必须透传——
+  // 旧实现只传 processed.images（从 HTML 内容提取的 URL），渲染层附加的本地封面被静默丢弃
+  it("article.images 本地文件路径透传（buildPublishArticle 层，图文上传用）", () => {
+    const article = routerSrc.buildPublishArticle({
+      article: { ...baseArticle, images: ["C:/tmp/cover-1.png", "C:/tmp/cover-2.png"], video_path: "" },
+    }, "xiaohongshu")
+    expect(article.images).toEqual(["C:/tmp/cover-1.png", "C:/tmp/cover-2.png"])
+  })
+
+  it("无 base.images 时保持 processed.images（内容提取的 URL，既有语义不回归）", () => {
+    const article = routerSrc.buildPublishArticle({ article: { ...baseArticle } }, "xiaohongshu")
+    // baseArticle 无 images → 走 processed.images（内容无图则空数组）
+    expect(Array.isArray(article.images)).toBe(true)
+  })
+
   it("youtube categoryId/privacy、tiktok privacyLevel、baijiahao original/location 透传（buildPublishArticle 层）", () => {
     const yt = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "10", privacy: "unlisted" } } } }, "youtube")
     expect(yt.categoryId).toBe("10")
@@ -182,6 +197,63 @@ describe("ApiPublisher（baijiahao api 模式）", () => {
     const a2 = routerSrc.buildPublishArticle({ article: { ...baseArticle, platformOverrides: { youtube: { categoryId: "abc", privacy: "hack" } } } }, "youtube")
     expect(a2.categoryId).toBeUndefined()
     expect(a2.privacy).toBeUndefined()
+  })
+
+  // P1-5 语义级可见性：通用区档位（visibilitySemantic）→ 各平台字段值的映射链路。
+  // 映射真源是注册表 semanticValues；平台 override 优先于通用档位。
+  describe("P1-5 语义级可见性映射", () => {
+    const withSemantic = (semantic, extra = {}) => ({ article: { ...baseArticle, visibilitySemantic: semantic, ...extra } })
+
+    it("private 档映射 5 平台各自取值", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "youtube").privacy).toBe("private")
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "tiktok").privacyLevel).toBe("PRIVATE")
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "douyin").visibility_type).toBe(1)
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "kuaishou").visibilityType).toBe(2)
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "weibo").visible).toBe(1)
+    })
+
+    it("public 档映射 5 平台各自取值（含 kuaishou 公开=1 与 douyin 公开=0 的差异）", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "youtube").privacy).toBe("public")
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "tiktok").privacyLevel).toBe("PUBLIC")
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "douyin").visibility_type).toBe(0)
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "kuaishou").visibilityType).toBe(1)
+      expect(routerSrc.buildPublishArticle(withSemantic("public"), "weibo").visible).toBe(0)
+    })
+
+    it("friends 档仅三平台有值；快手/YouTube 不支持则不透传（保持平台默认）", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "tiktok").privacyLevel).toBe("FRIENDS")
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "douyin").visibility_type).toBe(2)
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "weibo").visible).toBe(6)
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "kuaishou").visibilityType).toBeUndefined()
+      expect(routerSrc.buildPublishArticle(withSemantic("friends"), "youtube").privacy).toBeUndefined()
+    })
+
+    it("平台 override 优先于通用档位（单平台细调生效）", () => {
+      const a = routerSrc.buildPublishArticle(
+        withSemantic("private", { platformOverrides: { douyin: { visibilityType: 2 } } }),
+        "douyin",
+      )
+      expect(a.visibility_type).toBe(2)
+    })
+
+    it("空档位/非法档位/无关平台一律不透传", () => {
+      expect(routerSrc.buildPublishArticle(withSemantic(""), "douyin").visibility_type).toBeUndefined()
+      expect(routerSrc.buildPublishArticle(withSemantic("bogus"), "weibo").visible).toBeUndefined()
+      expect(routerSrc.buildPublishArticle(withSemantic("private"), "zhihu").visible).toBeUndefined()
+    })
+
+    it("非法平台 override 值被过滤（不落入 payload）", () => {
+      const a = routerSrc.buildPublishArticle(
+        { article: { ...baseArticle, platformOverrides: { kuaishou: { visibilityType: 7 }, weibo: { visible: 99 } } } },
+        "kuaishou",
+      )
+      expect(a.visibilityType).toBeUndefined()
+      const b = routerSrc.buildPublishArticle(
+        { article: { ...baseArticle, platformOverrides: { weibo: { visible: 99 } } } },
+        "weibo",
+      )
+      expect(b.visible).toBeUndefined()
+    })
   })
 
   it("baijiahao locationName 手输位置转换为 location 对象", () => {

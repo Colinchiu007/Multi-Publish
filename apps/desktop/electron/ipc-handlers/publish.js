@@ -92,13 +92,32 @@ function registerHandlers(ipcMain, deps) {
         ipcLog('warn', 'cover:generate-ai', 'validation-failed', 'prompt 超过 500 字符')
         return { code: EC.VALIDATION_ERROR, message: '封面描述不能超过 500 字符' }
       }
-      const assetGenerator = deps.assetGenerator
-      if (!assetGenerator || typeof assetGenerator.generateImage !== 'function') {
-        ipcLog('warn', 'cover:generate-ai', 'unavailable', 'assetGenerator 未注入')
-        return { code: EC.REQUEST_ERROR, message: 'AI 生图服务不可用' }
-      }
       const style = ['cinematic', 'realistic', 'cartoon', 'anime', 'cyberpunk', 'watercolor', 'minimalist'].includes(payload.style) ? payload.style : 'cinematic'
       const ratio = ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(payload.ratio) ? payload.ratio : '16:9'
+      const assetGenerator = deps.assetGenerator
+      // 2026-09-29 图文发布兜底：无 AI 生图 provider（assetGenerator 未注入）或 AI 生成失败时，
+      // 回退本地标题卡封面（SVG→sharp→PNG，零生图模型依赖）——小红书/快手/抖音图文要求
+      // 至少 1 张图片，无兜底则「一键发布图文」在这些平台必然失败。
+      const fallbackLocalCover = async (reason) => {
+        try {
+          // 依赖注入（2026-09-30）：deps.localCoverGenerator 可注入替身，使 IPC 合同测试
+          // 无需加载 sharp 原生模块（CI 高负载下首载 >30s，真实 30s 超时仍被打穿）。生产不注入时
+          // 走真实实现；本地渲染的真实性由 local-cover-generator.test.js 覆盖（PNG 尺寸/比例/折行）。
+          const localCoverGenerator = (deps && deps.localCoverGenerator) || require('../services/local-cover-generator')
+          const localResult = await localCoverGenerator.generateLocalCover(prompt, { ratio })
+          if (localResult && localResult.code === 0 && localResult.data && localResult.data.path) {
+            ipcLog('info', 'cover:generate-ai', 'local-fallback', `reason=${reason} path=${localResult.data.path.slice(-80)}`)
+            return { code: 0, data: { coverPath: localResult.data.path }, message: '本地封面生成成功（AI 生图不可用，已用标题卡兜底）' }
+          }
+          return { code: EC.REQUEST_ERROR, message: (localResult && localResult.message) || 'AI 与本地封面生成均失败' }
+        } catch (e) {
+          return { code: EC.REQUEST_ERROR, message: '封面生成失败：' + e.message }
+        }
+      }
+      if (!assetGenerator || typeof assetGenerator.generateImage !== 'function') {
+        ipcLog('info', 'cover:generate-ai', 'fallback', 'assetGenerator 未注入，走本地封面兜底')
+        return await fallbackLocalCover('assetGenerator-unavailable')
+      }
       const path = require('path')
       const os = require('os')
       const outputDir = path.join(os.tmpdir(), 'multi-publish-cover-ai')
@@ -110,8 +129,8 @@ function registerHandlers(ipcMain, deps) {
       })
       if (!result || result.code !== 0 || !result.data || !result.data.path) {
         const msg = (result && result.message) || 'AI 封面生成失败'
-        ipcLog('warn', 'cover:generate-ai', 'failed', `error=${msg} 耗时=${Date.now() - startedAt}ms`)
-        return { code: EC.REQUEST_ERROR, message: msg }
+        ipcLog('warn', 'cover:generate-ai', 'failed', `error=${msg} 耗时=${Date.now() - startedAt}ms，走本地封面兜底`)
+        return await fallbackLocalCover('ai-generate-failed')
       }
       ipcLog('info', 'cover:generate-ai', 'ok', `path=${result.data.path.slice(-80)} 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data: { coverPath: result.data.path }, message: 'AI 封面生成成功' }

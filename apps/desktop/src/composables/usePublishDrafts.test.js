@@ -6,6 +6,7 @@ const {
   mockDraftList,
   mockDraftDelete,
   mockMessage,
+  mockConfirm,
 } = vi.hoisted(() => ({
   mockDraftSave: vi.fn(),
   mockDraftList: vi.fn(),
@@ -15,6 +16,8 @@ const {
     warning: vi.fn(),
     error: vi.fn(),
   },
+  // ElMessageBox.confirm：resolve = 确认（清除定时并保存）；reject = 取消/关闭（保留定时保存）
+  mockConfirm: vi.fn(),
 }))
 
 vi.mock('@/api/publisher', () => ({
@@ -23,7 +26,7 @@ vi.mock('@/api/publisher', () => ({
   draftDelete: mockDraftDelete,
 }))
 
-vi.mock('element-plus', () => ({ ElMessage: mockMessage }))
+vi.mock('element-plus', () => ({ ElMessage: mockMessage, ElMessageBox: { confirm: mockConfirm } }))
 
 import { usePublishDrafts } from './usePublishDrafts'
 
@@ -56,6 +59,8 @@ describe('usePublishDrafts', () => {
     mockDraftSave.mockResolvedValue({ code: 0 })
     mockDraftList.mockResolvedValue({ code: 0, data: [] })
     mockDraftDelete.mockResolvedValue({ code: 0 })
+    // 默认「保留定时保存」（confirm 取消侧），需要清除侧的用例单独 mockResolvedValue
+    mockConfirm.mockRejectedValue(new Error('cancel'))
   })
 
   function createDrafts () {
@@ -67,6 +72,8 @@ describe('usePublishDrafts', () => {
 
     await drafts.saveDraft()
 
+    // publishTime 已设置 → 互斥确认弹出（默认取消=保留定时保存）
+    expect(mockConfirm).toHaveBeenCalledTimes(1)
     expect(mockDraftSave).toHaveBeenCalledTimes(1)
     const payload = mockDraftSave.mock.calls[0][0]
     expect(payload).toMatchObject({
@@ -171,5 +178,75 @@ describe('usePublishDrafts', () => {
 
     expect(mockDraftSave).not.toHaveBeenCalled()
     expect(mockMessage.warning).toHaveBeenCalledWith('标题和内容不能都为空')
+  })
+
+  // ─── P1-4 定时×草稿互斥（2026-10-08 发布页优化 roadmap 第一项）───
+  // 本地草稿是静态快照不会自动发布；带定时保存 → 确认「清除定时并保存」或「保留定时保存」；
+  // 加载过期定时 → 清除并提示，避免下一次发布被 validateScheduleEntries 静默拒绝。
+  it('P1-4：带定时时间保存草稿弹出互斥确认，确认后清除定时再保存', async () => {
+    article.publishTime = '2099-06-01T09:00'
+    mockConfirm.mockResolvedValue(undefined) // 确认 = 清除定时并保存
+    const drafts = createDrafts()
+
+    await drafts.saveDraft()
+
+    expect(mockConfirm).toHaveBeenCalledTimes(1)
+    const confirmArgs = mockConfirm.mock.calls[0]
+    expect(confirmArgs[0]).toContain('2099-06-01T09:00')
+    expect(confirmArgs[0]).toContain('不会在定时时间自动发布')
+    expect(article.publishTime).toBe('')
+    expect(mockDraftSave.mock.calls[0][0].publishTime).toBe('')
+  })
+
+  it('P1-4：互斥确认取消（保留定时保存）时定时字段原样入快照', async () => {
+    article.publishTime = '2099-06-01T09:00'
+    const drafts = createDrafts()
+
+    await drafts.saveDraft()
+
+    expect(mockConfirm).toHaveBeenCalledTimes(1)
+    expect(article.publishTime).toBe('2099-06-01T09:00')
+    expect(mockDraftSave.mock.calls[0][0].publishTime).toBe('2099-06-01T09:00')
+  })
+
+  it('P1-4：未设置定时时保存草稿不弹互斥确认', async () => {
+    article.publishTime = ''
+    const drafts = createDrafts()
+
+    await drafts.saveDraft()
+
+    expect(mockConfirm).not.toHaveBeenCalled()
+    expect(mockDraftSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('P1-4：加载含过期定时时间的草稿时清除定时并提示', async () => {
+    const drafts = createDrafts()
+    drafts.drafts.value = [{
+      id: 'draft-stale-schedule',
+      title: '过期定时草稿',
+      content: '内容',
+      publishTime: '2026-07-21T10:00', // 已过去（相对机器时钟 2026-09-28）
+    }]
+
+    await drafts.loadDraft('draft-stale-schedule')
+
+    expect(article.title).toBe('过期定时草稿')
+    expect(article.publishTime).toBe('')
+    expect(mockMessage.warning).toHaveBeenCalledWith(expect.stringContaining('已过期'))
+  })
+
+  it('P1-4：加载含未来定时时间的草稿时保留定时且不提示', async () => {
+    const drafts = createDrafts()
+    drafts.drafts.value = [{
+      id: 'draft-future-schedule',
+      title: '未来定时草稿',
+      content: '内容',
+      publishTime: '2099-06-01T09:00',
+    }]
+
+    await drafts.loadDraft('draft-future-schedule')
+
+    expect(article.publishTime).toBe('2099-06-01T09:00')
+    expect(mockMessage.warning).not.toHaveBeenCalledWith(expect.stringContaining('已过期'))
   })
 })

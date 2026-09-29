@@ -316,50 +316,14 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('store:add-scheduled-task', withSenderCheck((_, task) => {
-    try {
-      const owner = _getOwnerSubject()
-      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      const id = owner !== undefined ? store.addScheduledTask(task, owner) : store.addScheduledTask(task)
-      return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
-    } catch (e) {
-      return { code: EC.REQUEST_ERROR, message: e.message }
-    }
-  }))
-
-  ipcMain.handle('store:list-scheduled-tasks', withSenderCheck(() => {
-    try {
-      const owner = _getOwnerSubject()
-      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
-      const tasks = owner !== undefined ? store.listScheduledTasks(owner) : store.listScheduledTasks()
-      return { code: 0, data: tasks }
-    } catch (e) {
-      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
-    }
-  }))
-
-  ipcMain.handle('store:delete-task', withSenderCheck((_, id) => {
-    try {
-      if (id === null || id === undefined || id === '') {
-        return { code: EC.VALIDATION_ERROR, message: '任务 ID 不能为空' }
-      }
-      const owner = _getOwnerSubject()
-      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      let deleted
-      if (owner !== undefined) {
-        deleted = store.deleteTask(id, owner)
-      } else {
-        deleted = store.deleteTask(id)
-      }
-      if (!deleted) {
-        if (owner !== undefined) return { code: EC.NOT_FOUND, data: false, message: '定时任务不存在' }
-        return { code: EC.NOT_FOUND, message: '定时任务不存在' }
-      }
-      return { code: 0, data: true }
-    } catch (e) {
-      return { code: EC.REQUEST_ERROR, message: e.message }
-    }
-  }))
+  // 2026-10-02 死路径清理：原先另有 3 个 IPC —— store:add-scheduled-task /
+  // store:list-scheduled-tasks / store:delete-task（经由 store/scheduler-store.js 读写
+  // SQLite scheduled_tasks 表）。它们**零渲染层调用**（全仓 grep 只有测试引用），
+  // 而定时发布的真实调度器走 JSONL `scheduled-tasks.jsonl`（shared-utils/scheduler.js）
+  // 与 BatchManager，二者与 SQLite 表无关。留着等于对外暴露一条「看起来能管理定时任务、
+  // 实际没有任何界面在用」的假接口，故连同 preload 暴露一并删除。
+  // `scheduled_tasks` 表本身保留：base-store.migrateFromJsonl 仍写入、account-store
+  // 删除账号时级联清理仍读取（表是历史迁移载体，不是活的功能面）。
 
   ipcMain.handle('store:get-setting', withSenderCheck((_, key) => {
     try {

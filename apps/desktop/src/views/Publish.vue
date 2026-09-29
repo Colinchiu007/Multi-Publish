@@ -98,11 +98,11 @@
             <div class="cohere-form-item batch-metadata-grid">
               <div>
                 <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
-                <UiInput v-model="a.tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
+                <UiInput :model-value="a.tagsText" @update:model-value="value => setBatchTagsText(a, value)" :placeholder="t('publishPage.tagsPlaceholder')" />
               </div>
               <div>
                 <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
-                <UiInput v-model="a.topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                <UiInput :model-value="a.topicsText" @update:model-value="value => setBatchTopicsText(a, value)" :placeholder="t('publishPage.topicsPlaceholder')" />
               </div>
               <div>
                 <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
@@ -170,6 +170,19 @@
               <Refresh class="batch-retry-icon" />
               {{ retryingFailed ? t('publishPage.retrying') : t('publishPage.retryFailedCount', { count: failedBatchTasks.length }) }}
             </UiButton>
+            <!-- 取消排期：与单篇日历取消入口对齐。仅当本会话确有排期成功批次时出现，
+                 按钮文案与主进程 batch:cancel 语义一致（清定时器 + 状态置 cancelled）。 -->
+            <UiButton
+              v-if="scheduledBatchId"
+              variant="secondary"
+              size="sm"
+              data-testid="cancel-scheduled-batch"
+              :title="t('publishPage.batchNotify.cancelSchedule')"
+              @click="cancelScheduledBatch"
+            >
+              <Close class="batch-retry-icon" />
+              {{ t('publishPage.batchNotify.cancelSchedule') }}
+            </UiButton>
           </div>
           <ul class="cohere-timeline">
             <li v-for="item in batchProgress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
@@ -192,11 +205,13 @@
                   <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
                   <el-upload
                     ref="videoUploadRef"
+                    v-model:file-list="videoUploadFileList"
                     drag
                     :auto-upload="false"
                     :limit="1"
                     accept="video/*"
                     class="video-upload-zone"
+                    :class="{ 'has-selected-video': Boolean(article.video_path) }"
                     :on-change="handleVideoFileChange"
                     :on-remove="handleVideoFileRemove"
                     :on-exceed="handleVideoFileExceed"
@@ -205,6 +220,12 @@
                     <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                     <template #tip><div class="el-upload__tip">{{ t('publishPage.dragVideoHint') }}</div></template>
                   </el-upload>
+                  <SelectedVideoCard
+                    :path="article.video_path"
+                    :info="videoFileMeta"
+                    @replace="triggerVideoReselect"
+                    @remove="handleVideoCardRemove"
+                  />
                   <div class="video-ai-entry">
                     <UiButton variant="ghost" size="sm" data-testid="goto-ai-video-btn" @click="router.push('/create')">
                       {{ t('publishPage.aiVideoEntry') }}
@@ -249,6 +270,12 @@
                       <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
                       <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                     </el-upload>
+                    <CoverThumbnail
+                      :data-url="coverPreviewUrl"
+                      :error="coverPreviewError"
+                      :loading="coverPreviewLoading"
+                      @open="openCoverPreview"
+                    />
                     <UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
                       {{ t('publishPage.extractCover') }}
                     </UiButton>
@@ -308,6 +335,14 @@
                 <!-- 最佳发布时间：贴邻定时发布字段（openspec optimize-publish-right-rail） -->
                 <div v-if="article.title.length > 2" class="cohere-form-item">
                   <OptimalTimeTip :keyword="article.title" />
+                </div>
+                <!-- P1-5 语义级可见性：通用区统一档位，映射真源在注册表 semanticValues -->
+                <div class="cohere-form-item">
+                  <PublishVisibilitySelect
+                    v-model="article.visibilitySemantic"
+                    :platforms="visibilitySupportedPlatforms"
+                    :hint="visibilityUnsupportedHint"
+                  />
                 </div>
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">
@@ -399,11 +434,17 @@
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
                 <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
-                <el-upload ref="videoUploadRef" drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange" :on-remove="handleVideoFileRemove" :on-exceed="handleVideoFileExceed">
+                <el-upload ref="videoUploadRef" v-model:file-list="videoUploadFileList" drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange" :on-remove="handleVideoFileRemove" :on-exceed="handleVideoFileExceed">
                   <el-icon class="el-icon--upload"><upload-filled /></el-icon>
                   <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                   <template #tip><div class="el-upload__tip">{{ t('publishPage.videoTip') }}</div></template>
                 </el-upload>
+                <SelectedVideoCard
+                  :path="article.video_path"
+                  :info="videoFileMeta"
+                  @replace="triggerVideoReselect"
+                  @remove="handleVideoCardRemove"
+                />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">{{ t('publishPage.cover') }}</label>
@@ -419,6 +460,14 @@
                   <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
                   <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                 </el-upload>
+                <!-- 不加 flex 包裹层：.cohere-form-item 是列向 flex，el-upload 靠 align-items:stretch
+                     占满宽；套一层行向容器会让它退化成内容宽，产生与本功能无关的基线位移。 -->
+                <CoverThumbnail
+                  :data-url="coverPreviewUrl"
+                  :error="coverPreviewError"
+                  :loading="coverPreviewLoading"
+                  @open="openCoverPreview"
+                />
                 <UiInput v-model="article.cover_url" :placeholder="t('publishPage.coverUrlPlaceholder')" />
               </div>
               <div class="cohere-form-item publish-metadata-grid">
@@ -463,6 +512,14 @@
               <div v-if="article.title.length > 2" class="cohere-form-item">
                 <OptimalTimeTip :keyword="article.title" />
               </div>
+              <!-- P1-5 语义级可见性：通用区统一档位，映射真源在注册表 semanticValues -->
+              <div class="cohere-form-item">
+                <PublishVisibilitySelect
+                  v-model="article.visibilitySemantic"
+                  :platforms="visibilitySupportedPlatforms"
+                  :hint="visibilityUnsupportedHint"
+                />
+              </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">
                   {{ t('publishPage.aiDeclaration') }}
@@ -500,6 +557,7 @@
                 :selected-platforms="selectedPlatforms"
                 :selected-accounts="selectedAccounts"
                 :disabled="publishing"
+                :risk-suspended="riskStore.suspended"
                 @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
               />
@@ -570,7 +628,8 @@
               {{ t('publishPage.retryPublish') }}
             </UiButton>
             <div v-if="result.url" class="result-link-row">
-              <a :href="result.url" target="_blank" class="result-link">{{ t('publishPage.viewArticle') }}</a>
+              <a v-if="safeHttpUrl(result.url)" :href="safeHttpUrl(result.url)" target="_blank" rel="noopener" class="result-link">{{ t('publishPage.viewArticle') }}</a>
+              <span v-else class="result-link">{{ result.url }}</span>
               <button @click="copyUrl(result.url)" class="copy-url-button" :class="{ 'is-copied': copied }">
                 {{ copied ? t('publishPage.copied') : t('publishPage.copyLink') }}
               </button>
@@ -587,6 +646,15 @@
     @close="showCoverCrop = false"
     @success="onCoverCropSuccess"
     @error="onCoverCropError"
+  />
+  <!-- 封面放大预览（PRD-PUBLISH-COVER-PREVIEW §5.3）：与缩略图、裁剪弹窗共用同一封面真源。
+       挂起/释放、文件名与原始尺寸都在组件内部，本视图只持有「开合」这一个状态。 -->
+  <CoverPreviewDialog
+    :visible="showCoverPreview"
+    :data-url="coverPreviewUrl"
+    :error="coverPreviewError"
+    :path="article.cover_path"
+    @close="showCoverPreview = false"
   />
   <!-- P2-2：AI 封面生成对话框（复用 asset-generator 生图引擎） -->
   <div v-if="showAiCoverDialog" class="ai-cover-overlay" data-testid="ai-cover-dialog">
@@ -635,15 +703,17 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
+import { useRiskStore } from '@/stores/risk'
 import { useAccountStore } from '@/stores/accounts'
-import { CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { Close, CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -656,6 +726,10 @@ import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
 import CoverCropDialog from '@/components/CoverCropDialog.vue'
+import CoverThumbnail from '@/components/CoverThumbnail.vue'
+import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
+import { useCoverPreview } from '@/composables/useCoverPreview'
+import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
@@ -667,17 +741,22 @@ import {
   normalizePublishMentions,
   normalizePublishStringList,
 } from '@/features/publish/publish-contract'
-import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META } from '@multi-publish/shared-utils/src/publish-capabilities'
+import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
+import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META, getVisibilityField, getVisibilitySemanticSupport } from '@multi-publish/shared-utils/src/publish-capabilities'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
+import PublishVisibilitySelect from '@/features/publish/components/PublishVisibilitySelect.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
+import SelectedVideoCard from '@/features/publish/components/SelectedVideoCard.vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
+import { formatBytes } from '@/utils/bytes'
+import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const { notifySuccess, notifyWarning } = useNotify()
+const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -712,6 +791,9 @@ function replaceDiffEdits (next) {
 }
 
 const platformStore = usePlatformStore()
+// P0-2 风控挂起可见性：发布页目标选择器消费权威挂起清单（main.js 已全局 start），
+// 挂起账号/平台在选择器上显示「风控挂起」徽标 + 行动指引 tooltip（发布前可见，而非发布时被拦才知道）。
+const riskStore = useRiskStore()
 platformStore.load()
 const accountStore = useAccountStore()
 const licenseStore = useLicenseStore()
@@ -737,18 +819,70 @@ const article = reactive({
   topics: [],
   mentions: [],
   publishTime: '',
+  // P1-5 语义级可见性：通用区一次选择（public/friends/private）批量映射到所选平台
+  // 各自的可见性字段值（映射真源在注册表 semanticValues，经 resolver 消费）。
+  // 空串 = 跟随各平台默认；平台差异化面板可对单平台细调（override 优先于本档位）。
+  visibilitySemantic: '',
   // AI 生成内容声明：默认勾选（AI 生成内容）。各平台发布时如实声明内容创作方式。
   aiGenerated: true,
 })
 const imageFileList = ref([])
 const coverFileList = ref([])
+// 视频上传列表（el-upload v-model:file-list）与已选视频元信息（卡片展示用）。
+// 草稿恢复等路径只有 video_path 没有 File 对象时 videoFileMeta 为 null，卡片退化为路径推导展示。
+const videoUploadFileList = ref([])
+const videoFileMeta = ref(null)
+// 话题内联描述（publish-topic-inline-description）：标签/话题输入框是「快速添加入口」，
+// 添加后以 `#话题` 追加进描述尾部（所见即所得）；删除时从描述移除对应片段。
+// 同步方向单向（框 → 描述）：用户在描述框手动编辑话题不回写输入框，发布时以描述解析为准
+// （主进程 mergeUniqueStrings 三合一去重天然防双份）。PRD §3.5。
+function syncTopicsToContent (prev, next) {
+  if (prev.length === next.length && prev.every((name, index) => name === next[index])) return
+  const added = next.filter(name => !prev.includes(name))
+  const removed = prev.filter(name => !next.includes(name))
+  let content = article.content
+  for (const name of removed) content = removeTopicFromContent(content, name)
+  article.content = appendTopicsToContent(content, added)
+}
+// 批量模式同口径（publish-topic-inline-description）：每篇文章的标签/话题输入
+// 同样经追加管道同步各自 content（手写双向绑定，v-model 无法挂同步钩子）。
+function syncBatchTopicsToContent (batchArticle, prevText, nextText) {
+  const prev = normalizePublishStringList(prevText)
+  const next = normalizePublishStringList(nextText)
+  if (prev.length === next.length && prev.every((name, index) => name === next[index])) return
+  const added = next.filter(name => !prev.includes(name))
+  const removed = prev.filter(name => !next.includes(name))
+  let content = batchArticle.content
+  for (const name of removed) content = removeTopicFromContent(content, name)
+  batchArticle.content = appendTopicsToContent(content, added)
+}
+function setBatchTagsText (batchArticle, value) {
+  const prev = batchArticle.tagsText
+  batchArticle.tagsText = value
+  syncBatchTopicsToContent(batchArticle, prev, value)
+}
+function setBatchTopicsText (batchArticle, value) {
+  const prev = batchArticle.topicsText
+  batchArticle.topicsText = value
+  syncBatchTopicsToContent(batchArticle, prev, value)
+}
 const tagsText = computed({
   get: () => normalizePublishStringList(article.tags).join(', '),
-  set: value => { article.tags = normalizePublishStringList(value) },
+  set: value => {
+    const prev = normalizePublishStringList(article.tags)
+    const next = normalizePublishStringList(value)
+    article.tags = next
+    syncTopicsToContent(prev, next)
+  },
 })
 const topicsText = computed({
   get: () => normalizePublishStringList(article.topics).join(', '),
-  set: value => { article.topics = normalizePublishStringList(value) },
+  set: value => {
+    const prev = normalizePublishStringList(article.topics)
+    const next = normalizePublishStringList(value)
+    article.topics = next
+    syncTopicsToContent(prev, next)
+  },
 })
 const mentionsText = computed({
   get: () => normalizePublishMentions(article.mentions).map(item => item.text).join(', '),
@@ -798,20 +932,49 @@ async function handleImageFileRemove (_file, fileList) {
 }
 
 async function handleVideoFileChange (file) {
+  const raw = file?.raw || file
   const path = await resolveUploadFilePath(file)
+  const prevPath = article.video_path
+  const kind = classifyVideoSelection({ prevPath, nextPath: path, sizeBytes: raw?.size })
+  if (kind === 'oversize') {
+    // 500MB 超限：选前拦截，不覆盖旧选择，toast 带实际大小（此前只在发布时才失败）
+    notifyWarning('publishPage.videoTooLarge', { params: { size: formatBytes(raw?.size) } })
+    return
+  }
   if (!path) {
     article.video_path = ''
+    videoFileMeta.value = null
     notifyWarning('story2video.media_path_unresolved', { params: { kindLabel: t('publishPage.videoFile') } })
     return
   }
+  const prevName = videoFileMeta.value?.name || ''
   article.video_path = path
-  // 选择成功要有可感知反馈——此前只有列表小字，用户极易误判「没选上」而反复重选。
-  notifySuccess('publishPage.videoSelected')
+  videoFileMeta.value = describeVideoFile({ name: raw?.name || file?.name, path, type: raw?.type || file?.type, size: raw?.size ?? file?.size })
+  if (kind === 'first') {
+    notifySuccess('publishPage.videoSelectedNamed', { params: { name: videoFileMeta.value.name } })
+  } else if (kind === 'replaced') {
+    notifySuccess('publishPage.videoReplaced', { params: { name: videoFileMeta.value.name, previous: prevName } })
+  } else {
+    notifyInfo('publishPage.videoReselectSame', { params: { name: videoFileMeta.value.name } })
+  }
 }
 
 function handleVideoFileRemove () {
-  // el-upload 内部列表删除后同步清 video_path，防止「列表已空但发布仍带旧视频」。
   article.video_path = ''
+  videoFileMeta.value = null
+}
+
+function handleVideoCardRemove () {
+  const upload = videoUploadRef.value
+  if (upload && typeof upload.clearFiles === 'function') upload.clearFiles()
+  handleVideoFileRemove()
+}
+
+function triggerVideoReselect () {
+  const upload = videoUploadRef.value
+  const root = upload?.$el || upload
+  const input = root?.querySelector?.('input[type="file"]')
+  if (input) input.click()
 }
 
 function handleVideoFileExceed (files) {
@@ -857,7 +1020,9 @@ function onCoverCropSuccess (data) {
   if (data?.path) {
     article.cover_path = data.path
     article.cover_file = { path: data.path, name: 'video-cover-crop.jpg' }
-    coverFileList.value = [{ name: 'video-cover-crop.jpg', url: data.path, path: data.path }]
+    // 不写 url：el-upload 的 text 形态只用 name，而一个看着像 URL 的本地绝对路径
+    // 是陷阱（渲染层 CSP 的 img-src 不含 file:，它永远渲染不出来）。
+    coverFileList.value = [{ name: 'video-cover-crop.jpg', path: data.path }]
     notifySuccess('publishPage.coverExtracted')
   }
 }
@@ -865,6 +1030,24 @@ function onCoverCropSuccess (data) {
 function onCoverCropError (message) {
   notifyWarning('publishPage.coverCrop.cropFailed', { message: message || t('publishPage.coverCrop.cropFailed') })
 }
+
+// ─── 封面缩略图与放大预览（01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md）───
+// 预览挂在 article.cover_path 上，而不是挂在各按钮回调上：封面有五个写入口
+// （提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上才不会漏接线。
+const {
+  dataUrl: coverPreviewUrl,
+  error: coverPreviewError,
+  loading: coverPreviewLoading,
+} = useCoverPreview(() => article.cover_path)
+// 开合状态留在本视图；「换封面即收起」与内嵌视图挂起/释放都在 CoverPreviewDialog 内部按 visible 收敛。
+const showCoverPreview = ref(false)
+
+function openCoverPreview () {
+  if (!coverPreviewUrl.value) return
+  showCoverPreview.value = true
+}
+
+onBeforeUnmount(releaseAiCoverOverlay)
 
 async function handleExtractVideoCover () {
   if (!article.video_path) return
@@ -874,7 +1057,7 @@ async function handleExtractVideoCover () {
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'video-cover.jpg' }
-      coverFileList.value = [{ name: 'video-cover.jpg', url: coverPath, path: coverPath }]
+      coverFileList.value = [{ name: 'video-cover.jpg', path: coverPath }]
       notifySuccess('publishPage.coverExtracted')
     } else {
       notifyWarning('publishPage.coverExtractFailed', {
@@ -895,6 +1078,32 @@ const showAiCoverDialog = ref(false)
 const aiCoverGenerating = ref(false)
 const aiCoverForm = reactive({ prompt: '', style: 'cinematic', ratio: '16:9' })
 
+// AI 封面浮层是 `position: fixed; inset: 0` 的应用级模态，同样压在原生 WebContentsView
+// 之下（z-index 对原生图层无效），必须与放大预览各持一个 owner 挂起/恢复。
+const AI_COVER_OVERLAY_OWNER = 'publish-ai-cover-dialog'
+let aiCoverOverlayHeld = false
+
+async function suspendAiCoverOverlay () {
+  if (aiCoverOverlayHeld) return
+  aiCoverOverlayHeld = true
+  try {
+    await suspendEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)
+  } catch (_) {
+    aiCoverOverlayHeld = false
+  }
+}
+
+async function releaseAiCoverOverlay () {
+  if (!aiCoverOverlayHeld) return
+  aiCoverOverlayHeld = false
+  await releaseEmbeddedViewsForOverlay(AI_COVER_OVERLAY_OWNER)
+}
+
+watch(showAiCoverDialog, (open) => {
+  if (open) suspendAiCoverOverlay()
+  else releaseAiCoverOverlay()
+})
+
 async function handleGenerateAiCover () {
   if (aiCoverGenerating.value) return
   const prompt = aiCoverForm.prompt.trim()
@@ -909,7 +1118,7 @@ async function handleGenerateAiCover () {
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'ai-cover.png' }
-      coverFileList.value = [{ name: 'ai-cover.png', url: coverPath, path: coverPath }]
+      coverFileList.value = [{ name: 'ai-cover.png', path: coverPath }]
       notifySuccess('publishPage.aiCoverGenerated')
       showAiCoverDialog.value = false
     } else {
@@ -938,10 +1147,13 @@ const showAiWriter = ref(false)
 const showUpgradeModal = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
-// 标签建议点击填入：追加进标签输入并去重（normalizePublishStringList 内部 Set 去重）。
+// 标签建议点击填入：追加进标签输入并去重（normalizePublishStringList 内部 Set 去重）；
+// 同步经追加管道带入描述（三入口统一：话题框 / 标签建议 / 历史视频跳转）。
 function applySuggestedTag (tag) {
   if (typeof tag !== 'string' || !tag.trim()) return
+  const prev = normalizePublishStringList(article.tags)
   article.tags = normalizePublishStringList([...article.tags, tag.trim()])
+  syncTopicsToContent(prev, normalizePublishStringList(article.tags))
 }
 
 // ── composables ──────────────────────────
@@ -981,6 +1193,31 @@ const noTitleHint = computed(() => {
   const noTitleSelected = selectedPlatforms.value.filter(id => isNoTitlePlatform(id))
   if (noTitleSelected.length === 0) return ''
   return t('publishPage.noTitleHint', { platforms: noTitleSelected.map(id => getPlatformLabel(id)).join('、') })
+})
+
+// ── P1-5 语义级可见性通用控件 ─────────────────────────────
+// 5 平台可见性字段名与取值各不相同（youtube privacy / tiktok privacyLevel /
+// douyin visibilityType / kuaishou visibilityType / weibo visible）。通用区只暴露
+// 语义档位（公开/好友/私密），映射真源是注册表 semanticValues，由主进程 resolver
+// 按平台消费；平台差异化面板可对单平台细调（override 优先于本档位）。
+const visibilitySemanticSupport = getVisibilitySemanticSupport()
+const visibilitySupportedPlatforms = computed(() =>
+  selectedPlatforms.value.filter(id => !!getVisibilityField(id)))
+const visibilityOptions = computed(() => [
+  { value: '', label: t('publishPage.visibilityDefault') },
+  { value: 'public', label: t('publishPage.visibilityPublic') },
+  { value: 'friends', label: t('publishPage.visibilityFriends') },
+  { value: 'private', label: t('publishPage.visibilityPrivate') },
+])
+// 「好友」档在部分平台无对应值（快手仅公开/仅自己；YouTube 无好友圈）——
+// 如实告知哪些平台会保持默认，不静默丢弃用户选择。
+const visibilityUnsupportedHint = computed(() => {
+  const semantic = article.visibilitySemantic
+  if (!semantic) return ''
+  const unsupported = visibilitySupportedPlatforms.value.filter(
+    id => !(visibilitySemanticSupport[semantic] || []).includes(id))
+  if (unsupported.length === 0) return ''
+  return t('publishPage.visibilityUnsupported', { platforms: unsupported.map(id => getPlatformLabel(id)).join('、') })
 })
 
 const {
@@ -1033,6 +1270,7 @@ const {
   batchProgress,
   failedBatchTasks,
   retryingFailed,
+  scheduledBatchId,
   templateTargetIdx,
   showTemplatePicker,
   batchDone,
@@ -1042,6 +1280,7 @@ const {
   removeArticle,
   duplicateArticle,
   handleBatchPublish,
+  cancelScheduledBatch,
   retryFailedBatch,
   applyTemplate,
   checkBatchAccess,
@@ -1112,7 +1351,12 @@ function applyHistoryVideoQuery () {
   const content = decode(query.content)
   if (content) article.content = content
   const tags = decode(query.tags)
-  if (tags) article.tags = normalizePublishStringList(tags)
+  if (tags) {
+    const prev = normalizePublishStringList(article.tags)
+    article.tags = normalizePublishStringList(tags)
+    // 历史视频跳转携带的标签同样经追加管道带入描述（三入口统一）
+    syncTopicsToContent(prev, normalizePublishStringList(article.tags))
+  }
   // 历史视频发布走视频首帧封面，不携带自定义封面（百家号 API 不支持）
   article.cover_url = ''
   article.cover_path = ''
@@ -1174,12 +1418,19 @@ defineExpose({
   tagsText,
   topicsText,
   mentionsText,
+  applySuggestedTag,
+  setBatchTagsText,
+  setBatchTopicsText,
   handleImageFileChange,
   handleImageFileRemove,
   handleVideoFileChange,
   handleVideoFileRemove,
   handleVideoFileExceed,
   videoUploadRef,
+  videoFileMeta,
+  videoUploadFileList,
+  triggerVideoReselect,
+  handleVideoCardRemove,
   handleCoverFileChange,
   handleCoverFileRemove,
   templateTargetIdx,
@@ -1292,6 +1543,9 @@ defineExpose({
 .publish-mode-tab.active { background: var(--coral, #f56c6c); color: #fff; }
 .video-upload-zone :deep(.el-upload-dragger) { padding: 40px 20px; border: 2px dashed var(--border-light, #dcdfe6); border-radius: 12px; }
 .video-upload-zone :deep(.el-upload-dragger:hover) { border-color: var(--coral, #f56c6c); }
+/* 已选视频后上传区转为成功态边框，与下方 SelectedVideoCard 形成完整反馈（此前选前选后零视觉差异） */
+.video-upload-zone.has-selected-video :deep(.el-upload-dragger) { border-color: var(--success, #67c23a); border-style: solid; background: rgba(103, 194, 58, 0.04); }
+.video-upload-zone.has-selected-video :deep(.el-icon--upload) { color: var(--success, #67c23a); }
 .video-upload-zone :deep(.el-icon--upload) { font-size: 48px; color: var(--muted, #909399); margin-bottom: 8px; }
 .video-cover-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .publish-drafts-page {

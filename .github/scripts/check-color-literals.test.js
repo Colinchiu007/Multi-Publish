@@ -63,7 +63,12 @@ test('HISTORY_COLORS 覆盖 6 个历史色且全小写', () => {
 test('真实文件：tokens.css 存在豁免前提（收编槽位区确在其内）', () => {
   const tokens = fs.readFileSync(TOKENS_FILE, 'utf8')
   assert.match(tokens, /历史槽位收编（T1-1 结构收敛）/)
-  assert.match(tokens, /--color-apple-accent:/)
+  // 2026-09-29（批次 6，ui-apple-token-retirement）：apple 系 17 个 `--color-apple-*` 槽位已随别名层
+  // 退役一并删除，原断言 `--color-apple-accent:` 因此失效。改为引用**同一收编区内仍然存在**的
+  // cohere 系槽位，保持「豁免前提非空洞（豁免文件里确实还住着历史色值）」这一守卫意图 ——
+  // 不得因退役而放宽为只查头注释。
+  assert.match(tokens, /--color-secondary:/)
+  assert.match(tokens, /--color-source-reddit:/)
 })
 
 test('真实文件：基线为正数（防脚本静默退化成空扫描假绿）', () => {

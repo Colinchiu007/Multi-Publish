@@ -11,3 +11,8 @@ allowBuilds:
   nx: true
   tesseract.js: true
   better-sqlite3: true
+# 安全修复版下限：GHSA-3wwx-pv8p-q78v (undici) / GHSA-qw65-cvwx-89v3 (fast-uri)
+# pnpm 11 起 overrides 只从本文件读取；package.json 的 pnpm 字段会被忽略并告警。
+overrides:
+  undici: '>=7.29.1'
+  fast-uri: '>=3.1.7'

@@ -16,8 +16,14 @@ const { execFile } = require('child_process')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
+// 话题内联描述（publish-topic-inline-description）：描述文本是话题唯一真源，
+// 主进程合并 tags 时把描述里的单井号内联话题一并并入（RichTextProcessor 只解析
+// 双井号形态），供引擎侧三态处理（内联保留/转换/剥离）与 text_extra 标记消费。
+const { extractInlineTopicNames } = require('@multi-publish/api-publish-engine/src/content-formatter')
 const { getConfigPath } = require('./config-resolver')
 const { buildApiTaskData } = require('./api-task-data')
+// P1-5 语义级可见性：语义档位（public/friends/private）→ 平台字段值的单一真源在注册表层。
+const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publish-capabilities')
 
 // 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 // mode: 鍙戝竷寮曟搸
@@ -112,6 +118,21 @@ function override_digest (resolved) {
   return o.digest ?? resolved.base.digest ?? ''
 }
 
+/**
+ * P1-5 通用区语义档位 → 该平台可见性字段值（无档位/该平台不支持该档位时返回 undefined，
+ * 使调用点的 `?? ` 链继续回落到「不设」）。语义档位来自 taskData.visibilitySemantic，
+ * 映射真源在注册表 semanticValues（mapVisibilitySemantic），此处不重复映射表。
+ * @param {object} base
+ * @param {string} platform
+ * @returns {unknown|undefined}
+ */
+function semanticVisibilityValue (base, platform) {
+  const semantic = String((base && base.visibilitySemantic) || '').trim()
+  if (!semantic) return undefined
+  const mapped = mapVisibilitySemantic(platform, semantic)
+  return mapped === null ? undefined : mapped
+}
+
 function resolvePlatformArticle (task, platform) {
   const base = task && task.article && typeof task.article === 'object' ? task.article : {}
   const overrides = base.platformOverrides && typeof base.platformOverrides === 'object'
@@ -135,6 +156,19 @@ function resolvePlatformArticle (task, platform) {
     resolved.draft = resolveBooleanOption(override, base, 'draft')
   } else if (platform === 'douyin') {
     resolved.draft = resolveBooleanOption(override, base, 'draft')
+    // P1-5 可见性：抖音 item.common.visibility_type（0 公开 / 1 私密 / 2 好友）。
+    // 引擎链读 taskData.visibility_type（douyin-video.js run/buildPostData），故键名用 snake。
+    // 取值优先序：平台 override > 通用区语义档位映射 > 不设（用平台默认）
+    const vt = Number(override.visibilityType ?? base.visibilityType ?? semanticVisibilityValue(base, platform))
+    if (vt === 0 || vt === 1 || vt === 2) resolved.visibility_type = vt
+  } else if (platform === 'weibo') {
+    // P1-5 可见性：微博发布体 visible（0 公开 / 1 仅自己 / 6 好友圈）
+    const visible = Number(override.visible ?? base.visible ?? semanticVisibilityValue(base, platform))
+    if (visible === 0 || visible === 1 || visible === 6) resolved.visible = visible
+  } else if (platform === 'kuaishou') {
+    // P1-5 可见性：快手提交体 photoStatus（1 公开 / 2 仅自己）——引擎链读 td.visibilityType
+    const vt = Number(override.visibilityType ?? base.visibilityType ?? semanticVisibilityValue(base, platform))
+    if (vt === 1 || vt === 2) resolved.visibilityType = vt
   } else if (platform === 'wechat_mp') {
     resolved.massSend = resolveBooleanOption(override, base, 'massSend')
   }
@@ -150,11 +184,11 @@ function resolvePlatformArticle (task, platform) {
     // YouTube 分类 categoryId + 可见性 privacy（public/unlisted/private）
     const categoryId = String(override.categoryId ?? base.categoryId ?? '').trim()
     if (/^\d{1,2}$/.test(categoryId)) resolved.categoryId = categoryId
-    const privacy = String(override.privacy ?? base.privacy ?? '').trim()
+    const privacy = String(override.privacy ?? base.privacy ?? semanticVisibilityValue(base, platform) ?? '').trim()
     if (privacy === 'public' || privacy === 'unlisted' || privacy === 'private') resolved.privacy = privacy
   } else if (platform === 'tiktok') {
     // TikTok 可见性 privacy_level（PUBLIC/PRIVATE/FRIENDS）
-    const privacyLevel = String(override.privacyLevel ?? base.privacyLevel ?? '').trim()
+    const privacyLevel = String(override.privacyLevel ?? base.privacyLevel ?? semanticVisibilityValue(base, platform) ?? '').trim()
     if (privacyLevel === 'PUBLIC' || privacyLevel === 'PRIVATE' || privacyLevel === 'FRIENDS') resolved.privacyLevel = privacyLevel
   } else if (platform === 'baijiahao') {
     // 百家号原创声明（original truthy → original_status=2）与位置
@@ -204,6 +238,9 @@ function buildPublishArticle (task, platform) {
   const tags = mergeUniqueStrings(
     normalizeStringList(resolved.base.tags),
     processed.topics.map(topic => topic.name),
+    // 话题内联描述：描述里的单井号 `#话题`（UI 追加管道写入）同样并入 tags，
+    // 使「描述为真源」对手动编辑/追加的话题都成立（引擎侧按平台三态消费）
+    extractInlineTopicNames(processed.content),
     resolved.topics || [],
   )
   const article = {
@@ -215,7 +252,12 @@ function buildPublishArticle (task, platform) {
     tags,
     draft: resolved.draft ?? resolveBooleanOption({}, resolved.base, 'draft'),
     mentions: processed.mentions,
-    images: processed.images,
+    // 2026-09-29 图文发布修复：article.images（本地文件路径，RPA 上传消费）优先透传——
+    // 旧实现只传 processed.images（HTML 内容提取的 URL），渲染层附加的本地封面被静默丢弃，
+    // 小红书/快手/抖音图文上传拿不到文件。base.images 存在时覆盖，否则保持内容提取语义。
+    images: (Array.isArray(resolved.base.images) && resolved.base.images.length > 0)
+      ? resolved.base.images.map(p => String(p))
+      : processed.images,
     // P1-5：作者字段透传（原仅 wechat_mp RPA 硬编码消费，现全平台透传）
     author: String(resolved.base.author || '').slice(0, 60) || null,
   }
@@ -244,6 +286,10 @@ function buildPublishArticle (task, platform) {
     if (resolved.privacy !== undefined) article.privacy = resolved.privacy
   }
   if (platform === 'tiktok' && resolved.privacyLevel !== undefined) article.privacyLevel = resolved.privacyLevel
+  // P1-5 可见性：抖音/快手/微博三平台把语义映射值透传为引擎各自消费的字段名
+  if (platform === 'douyin' && resolved.visibility_type !== undefined) article.visibility_type = resolved.visibility_type
+  if (platform === 'kuaishou' && resolved.visibilityType !== undefined) article.visibilityType = resolved.visibilityType
+  if (platform === 'weibo' && resolved.visible !== undefined) article.visible = resolved.visible
   if (platform === 'baijiahao') {
     if (resolved.original !== undefined) article.original = resolved.original
     if (resolved.location !== undefined) article.location = resolved.location
@@ -472,6 +518,9 @@ class ApiPublisher {
     const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
     const signal = options && options.signal
     if (signal && signal.aborted) throw new Error('任务已取消')
+    // publish-progress-ux：API 直连轨此前完全静默——executor 传入的 onProgress
+    // 透传给引擎（base-adapter execute 模板按 (percent, message) 回调）。
+    const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null
 
     const videoPath = article.video_path
     // 图文 vs 视频分流：无 video_path 即图文（百家号/头条号只发图文，Q14，见 PRD §12.8）
@@ -493,6 +542,7 @@ class ApiPublisher {
       timeout: this.route.timeout,
       draft: article.draft === true,
       signal,
+      ...(onProgress ? { onProgress } : {}),
     })
     if (signal && signal.aborted) throw new Error('任务已取消')
     if (!result || !result.success) throw new Error((result && result.error) || 'API 发布失败')

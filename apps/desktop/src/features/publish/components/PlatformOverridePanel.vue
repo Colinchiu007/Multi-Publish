@@ -215,9 +215,13 @@ function defaultOverride (platformId) {
 
 // collection 类型字段的取值形状规则（值形状属代码级契约，不进注册表数据）：
 // B站合集 ID 必须是纯数字字符串转 Number；百家号合集输入保持 'ID' 或 'ID:名称' 文本。
+// 截断一律按码点（CCG codex W3：UTF-16 slice 会把 emoji 代理对切成半个字符）。
 const COLLECTION_NORMALIZERS = {
   'bilibili:collectionId': value => (/^\d+$/.test(String(value || '').trim()) ? Number(String(value).trim()) : ''),
-  'baijiahao:collectionIdText': value => String(value || '').slice(0, 100),
+  'baijiahao:collectionIdText': value => {
+    const chars = Array.from(String(value || ''))
+    return chars.length > 100 ? chars.slice(0, 100).join('') : chars.join('')
+  },
 }
 
 /**
@@ -241,7 +245,10 @@ function normalizeValue (platformId, field, value) {
   if (collectionNormalizer) return collectionNormalizer(value)
   const maxLen = Number(field && field.maxLen)
   const text = String(value ?? '')
-  return maxLen > 0 ? text.slice(0, maxLen) : text
+  if (!(maxLen > 0)) return text
+  // 按码点截断（CCG codex W3：UTF-16 slice 会把 emoji 代理对切成半个字符）
+  const chars = Array.from(text)
+  return chars.length > maxLen ? chars.slice(0, maxLen).join('') : text
 }
 
 function cloneModel () {

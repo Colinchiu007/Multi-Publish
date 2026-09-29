@@ -1,4 +1,4 @@
-# capture-mp-simple.ps1 - Screenshot参考产品 window using Win32 API
+﻿# capture-mp-simple.ps1 - Screenshot参考产品 window using Win32 API
 # Usage: powershell -ExecutionPolicy Bypass -File capture-mp-simple.ps1
 
 Add-Type @"

@@ -15,7 +15,7 @@
 
 const { spawnSync } = require('child_process')
 const path = require('path')
-const { runSelfCheck } = require('../apps/desktop/electron/services/rate-limit-self-check')
+const { runSelfCheck, clampConcurrency } = require('../apps/desktop/electron/services/rate-limit-self-check')
 
 /**
  * total_duration_ms 的容差口径。
@@ -43,6 +43,156 @@ function durationTolerance (expectedMs) {
   return Math.ceil(PARITY_TOLERANCE_FLOOR_MS + base * PARITY_TOLERANCE_RATIO)
 }
 
+/**
+ * 完成顺序：两侧 timeline 里 `state === 'completed'` 的请求序号序列。
+ * 规格把"完成顺序"列为必须一致的指标，那它就必须真的被比较 —— 一条从不执行的 SHALL
+ * 比没有这条 SHALL 更危险（读者会以为它有守卫）。
+ */
+function completionOrder (timeline) {
+  return (Array.isArray(timeline) ? timeline : [])
+    .filter((e) => e && e.state === 'completed')
+    .map((e) => e.req)
+}
+
+/**
+ * 完成**集合**是否一致（承重判据）。
+ *
+ * 为什么按集合而不是按序列：#2626 的实际缺陷是"被 429 拒掉的请求被算成完成"——那是**成员**问题，
+ * 按集合比较就能抓到，而且它对事件帧饥饿免疫。
+ *
+ * 为什么序列**不能**当硬判定（别再改回去，这是测出来的）：真实侧的完成次序在饥饿下会翻转。
+ * 用 `runSelfCheck` 返回的**未排序** `completion_order` 实测四档饥饿：帧延迟 301/426ms 时
+ * 得到 `[1,2,4,3,…]`，1904–1908ms 与 3914–3931ms 时得到 `[1,2,3,4,6,5,…]`，
+ * 12 个饥饿样本里 **9 个非升序**（机理：前一条调用的回调被推迟到后一条放行之后才执行，
+ * 与 #2606 让并发观测虚高 1 是同一个成因）。按序列做相等判定就是把 #2606 的假红重新引进来。
+ * 数据单一副本见 docs/parity-concurrency-measurement-noise.md。
+ *
+ * @param {number[]} simulated 模拟器完成序
+ * @param {number[]} real      真实侧完成序（**必须**是实际次序那份，不能是排序后的投影）
+ * @returns {boolean} 成员集合相等为 true；任一入参非数组 ⇒ false（fail closed）
+ */
+function completionSetMatches (simulated, real) {
+  if (!Array.isArray(simulated) || !Array.isArray(real)) return false
+  const key = (a) => [...a].sort((x, y) => x - y).join(',')
+  return key(simulated) === key(real)
+}
+
+/**
+ * 完成**序列**是否一致（只留痕，不计入 pass）。
+ *
+ * 保留理由：翻转本身是有信息量的观测（它同时是 +1 并发噪声的成因）。
+ * 但它**不得**升级为硬判定 —— 判据依据与实测见 `completionSetMatches` 的注释与 docs。
+ */
+function completionOrderSequenceMatches (simulated, real) {
+  if (!Array.isArray(simulated) || !Array.isArray(real)) return false
+  if (simulated.length !== real.length) return false
+  return simulated.every((v, i) => v === real[i])
+}
+
+/**
+ * 「+1 是不是回调推迟造成的」的因果证据。
+ *
+ * 为什么必须有它：只凭 `real = sim + 1 且 ≤ 上限` 就豁免，等于把**两种成因相反**的形状
+ * 合并放过 —— governor 节奏回归（该等 500ms 却提前放行）同样会得到 +1，而那是真回归。
+ *
+ * 判据由机制推导，不是调出来的魔数：某个已占用槽位的**挂钟跨度**超过相邻起始间隔
+ * `interStartMs` 时，前一个调用的释放必然还没发生、后一个就已经放行了 —— 这正是那多出来的 1。
+ * 反过来，提前放行型回归里每个跨度都 ≈ 配置时长，探不到这种超长占用。
+ * 再叠一条 `≥ 2 × requestDurationMs` 的下界，避免 rpm 很大（间隔很短）时把普通定时器抖动当成推迟。
+ *
+ * ⚠️ 不要改用「两个已完成窗口是否重叠」当判据 —— 第一版就是这么写的，然后被自己的机制锁
+ *    当场否证：与后一个调用重叠的往往是那条**被 429 拒掉、永远不会 completed** 的请求，
+ *    按 completed 过滤就等于看不见真正的重叠（高档 maxSpan=600 却报"无证据"）。
+ *
+ * @param {Array} timeline 真实侧 timeline（`started_at` / `finished_at` / `state`）
+ * @param {object} o
+ * @param {number} o.requestDurationMs 单次调用的配置时长
+ * @param {number} o.interStartMs      相邻起始间隔（= 60000 / rpm）
+ */
+const DEFERRAL_MIN_FACTOR = 2
+
+function deferralEvidence (timeline, { requestDurationMs, interStartMs } = {}) {
+  const dur = Number.isFinite(requestDurationMs) && requestDurationMs > 0 ? requestDurationMs : 0
+  const gap = Number.isFinite(interStartMs) && interStartMs > 0 ? interStartMs : 0
+  const bound = Math.max(gap, DEFERRAL_MIN_FACTOR * dur)
+  let worst = null
+  for (const e of (Array.isArray(timeline) ? timeline : [])) {
+    if (!e || !Number.isFinite(e.started_at) || !Number.isFinite(e.finished_at)) continue
+    const span = e.finished_at - e.started_at
+    if (!worst || span > worst.span) worst = { req: e.req, state: e.state, span }
+  }
+  const maxSpan = worst ? worst.span : 0
+  const observed = bound > 0 && maxSpan >= bound
+  return {
+    observed,
+    maxSpanMs: maxSpan,
+    boundMs: bound,
+    requestDurationMs: dur,
+    interStartMs: gap,
+    detail: observed && worst
+      ? `req ${worst.req}(${worst.state}) 占用槽位 ${worst.span}ms ≥ 阈值 ${bound}ms（间隔 ${gap}ms / 配置 ${dur}ms×${DEFERRAL_MIN_FACTOR}）`
+      : '',
+  }
+}
+
+/**
+ * 并发观测的判据：上限不变量 + **带因果证据的单侧**有界测量噪声。
+ *
+ * 为什么不写成相等（#2606 的根因，别再改回去）：该值在真实侧由「任务开始 → 其完成回调真正
+ * 执行」的窗口计出，所以它的上界由**事件帧**决定而不由调度决定 —— 帧被饿到接近相邻请求
+ * 起始间隔时，前一个调用的递减被推迟，就会比确定性模拟器多报 1。**多出来的 1 从不越过
+ * 配置上限**，而产品侧自检第 133 行本来就按 `≤ maxConcurrent` 断言。
+ * 阈值实验数据只维护一份，见 docs/parity-concurrency-measurement-noise.md；其可执行版本是
+ * `test_scheduler_parity.test.js` 的「并发观测的饥饿阈值」，真值表在
+ * `scripts/compare-scheduler-models.test.js`。
+ *
+ * 三条不可让步的次序：
+ *   ① 先夹上限、再谈豁免 —— 反了则 cap=1 的用例（rpm30-concurrency1）会把"观测到 2"当噪声放过；
+ *   ② 豁免必须有 `deferralEvidence.observed` —— 没有因果证据的 +1 一律判红，否则节奏回归
+ *      （提前放行）会被这条判据钉成契约；
+ *   ③ 真实侧低于模型一律判红 —— 回调推迟只会让真实侧偏高，反方向只能是调度行为差异。
+ *
+ * @param {object}  p
+ * @param {number}  p.simulated       模拟器观测并发（非负整数）
+ * @param {number}  p.real            真实自检观测并发（非负整数）
+ * @param {number}  p.maxConcurrent   该组配置上限（≥1 整数）
+ * @param {object}  [p.evidence]      deferralEvidence() 的返回值；缺省视为"无证据" ⇒ 不许豁免
+ * @returns {{pass:boolean, noiseBypass:boolean, reason:string}}
+ */
+const MAX_CONCURRENCY_NOISE = 1
+
+function concurrencyCheck ({ simulated, real, maxConcurrent, evidence } = {}) {
+  if (!Number.isInteger(simulated) || simulated < 0
+    || !Number.isInteger(real) || real < 0
+    || !Number.isInteger(maxConcurrent) || maxConcurrent < 1) {
+    return { pass: false, noiseBypass: false, reason: `判据入参必须是「非负整数 + 上限≥1」：simulated=${simulated} real=${real} maxConcurrent=${maxConcurrent}` }
+  }
+  if (real > maxConcurrent) {
+    return { pass: false, noiseBypass: false, reason: `真实侧观测并发 ${real} 越过配置上限 ${maxConcurrent}（不变量，任何情况不放宽）` }
+  }
+  if (real < simulated) {
+    return { pass: false, noiseBypass: false, reason: `真实侧 ${real} 低于模拟器 ${simulated}：该方向的偏差不可能来自回调推迟，按调度行为回归处理` }
+  }
+  if (real === simulated) return { pass: true, noiseBypass: false, reason: '' }
+  if (real - simulated > MAX_CONCURRENCY_NOISE) {
+    return { pass: false, noiseBypass: false, reason: `偏差 ${real - simulated} 超过允许的单侧噪声 ${MAX_CONCURRENCY_NOISE}` }
+  }
+  // 到这里差值恰为 +1：只有拿得到"回调被推迟"的因果证据才允许豁免。
+  if (!evidence || evidence.observed !== true) {
+    return {
+      pass: false, noiseBypass: false,
+      reason: `+1 但无回调推迟证据（maxSpan=${evidence ? evidence.maxSpanMs : 'n/a'}ms / 配置时长=${evidence ? evidence.requestDurationMs : 'n/a'}ms）：`
+        + '节奏型回归（提前放行）也会给出 +1，缺证据不得豁免',
+    }
+  }
+  return { pass: true, noiseBypass: true, reason: `命中单侧有界噪声（有因果证据）：simulated=${simulated} real=${real} ≤ 上限 ${maxConcurrent}；${evidence.detail || ''}` }
+}
+
+// 上限一律由被测侧自己解析，禁止在此抄第二份 clamp 公式（两份必然漂移）。
+function effectiveMaxConcurrent (params) {
+  return params.maxConcurrent ?? clampConcurrency(params.rpm)
+}
+
 const CASES = [
   { name: 'rpm120-concurrency2', params: { rpm: 120, maxConcurrent: 2, requestCount: 8, requestDurationMs: 20 } },
   { name: 'rpm30-concurrency1', params: { rpm: 30, maxConcurrent: 1, requestCount: 4, requestDurationMs: 20 } },
@@ -58,19 +208,31 @@ const CASES = [
  * - slow-call-concurrency：elevenlabs 慢调用（3s×8，rpm=20，interval==duration 临界）——
  *   模拟器确定性 maxc=1；真实 governor 因定时器时钟误差产生 1ms 级短暂重叠 → maxc=2（测量噪声，非并发能力）。
  *   退出码不因这些差异变为非零；parity 测试断言差异值存在（防漂移）。
+ *
+ * 为什么 `concurrencyCheck` 已经允许 +1，这条**仍然**留在 KNOWN_DIFF 而不并进 CASES：
+ * 它的 +1 是 `interval == duration` 的**结构性常态**（每次都重叠），不是偶发饥饿。
+ * 留在这里的断言是「差值恰好等于 1」，比 CASES 侧「0 ≤ 差 ≤ 1 且 ≤ 上限」的豁免**更严**；
+ * 移过去等于把一条精确断言换成一条宽松判据 —— 降灵敏度，不是收口径。
  */
 const KNOWN_DIFF_CASES = [
   { name: 'slow-call-concurrency', preset: 'elevenlabs', params: { rpm: 20, maxConcurrent: 2, requestCount: 8, requestDurationMs: 3000 } },
 ]
 
-function pythonMetrics (params) {
+/**
+ * 跑运营后台的 Python 模拟器，取一组参数的完整结果 `{ metrics, timeline }`。
+ *
+ * 外部依赖（导出给测试用，但请看清代价）：`python` 必须在 PATH 上，且
+ * `ops-center/backend/services/scheduler_simulator.py` 必须可达 —— 它是子进程，不是纯函数。
+ * @throws {Error} Python 缺失、30s 超时、或模拟器自身校验失败（参数越界等）
+ */
+function pythonSimulate (params) {
   const script = [
     "import json, sys",
     "sys.path.insert(0, 'ops-center/backend')",
     "from services.scheduler_simulator import simulate",
     "p = json.loads(sys.argv[1])",
     "r = simulate(p)",
-    "print(json.dumps(r['metrics']))",
+    "print(json.dumps({'metrics': r['metrics'], 'timeline': r['timeline']}))",
   ].join('\n')
   const pyParams = {
     rpm: params.rpm,
@@ -93,19 +255,45 @@ function pythonMetrics (params) {
   return JSON.parse(lines[lines.length - 1])
 }
 
+function pythonMetrics (params) {
+  return pythonSimulate(params).metrics
+}
+
 async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
   const results = []
   for (const c of CASES) {
-    const py = pythonMetrics(c.params)
+    const sim = pythonSimulate(c.params)
+    const py = sim.metrics
     const real = await runSelfCheck(c.params)
     // 下限取调用方传入值（默认 1500ms），并按期望耗时放大比例余量；
     // 分母必须是 py.total_duration_ms（预测值），不得用 real，见 durationTolerance 注释。
     const allowed = Math.max(toleranceMs, durationTolerance(py.total_duration_ms))
+    const cap = effectiveMaxConcurrent(c.params)
+    // +1 的因果证据取**真实侧** timeline：要判的是"真实侧的回调是否被推迟"。
+    // 阈值两项都取自该组参数本身（间隔 = 60000/rpm），不是调出来的魔数。
+    const evidence = deferralEvidence(real.timeline, {
+      requestDurationMs: c.params.requestDurationMs ?? 20,
+      interStartMs: 60000 / (c.params.rpm || 60),
+    })
+    const conc = concurrencyCheck({
+      simulated: py.max_concurrent_observed,
+      real: real.metrics.max_concurrent_observed,
+      maxConcurrent: cap,
+      evidence,
+    })
+    const simOrder = completionOrder(sim.timeline)
+    // 真实侧**只能**取 runSelfCheck 单独返回的实际完成次序：它返回的 timeline 排过 req 序，
+    // 从那份投影里"重新算完成顺序"会得到恒为升序的假数据 —— 拿它比较等于比较一个常量。
+    // 这里刻意不做兜底：字段缺席就让集合判据 fail closed，而不是退回那个恒真投影。
+    const realOrder = real.completion_order
     const checks = {
-      max_concurrent_observed: real.metrics.max_concurrent_observed === py.max_concurrent_observed,
+      max_concurrent_observed: conc.pass,
       rate_limited_count: real.metrics.rate_limited_count === py.rate_limited_count,
       quota_exceeded_count: real.metrics.quota_exceeded_count === py.quota_exceeded_count,
       total_duration_ms: Math.abs(real.metrics.total_duration_ms - py.total_duration_ms) <= allowed,
+      // 完成**集合**计入 pass（#2626 的形状就是成员错判：被 429 拒掉的请求被算成完成）。
+      // 完成**序列**不计入 —— 它在饥饿下会真实翻转（实测 9/12），按序列判等就是重造 #2606 的假红。
+      completion_set: completionSetMatches(simOrder, realOrder),
     }
     results.push({
       name: c.name,
@@ -113,7 +301,18 @@ async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
       real: real.metrics,
       checks,
       allowedTotalDurationMs: allowed,
+      // 上限随结果一起带出：打印时若回头按 name 去 CASES 里 find，改名就是空指针。
+      maxConcurrent: cap,
       diffTotalDurationMs: real.metrics.total_duration_ms - py.total_duration_ms,
+      // 命中豁免必须留痕：静默通过的容差是下一轮"为什么这条不红"的起点。
+      concurrency: conc,
+      deferralEvidence: evidence,
+      completionOrder: { simulated: simOrder, real: Array.isArray(realOrder) ? realOrder : null },
+      // 承重的那条：集合是否一致（与 checks 共用同一实现，避免两份判据口径漂移）
+      completionSetDiverges: !completionSetMatches(simOrder, realOrder),
+      // 只留痕：序列翻转在饥饿下是真实且正常的观测，不构成判定
+      completionSequenceDiverges: !completionOrderSequenceMatches(simOrder, realOrder),
+      noiseBypass: conc.noiseBypass,
       pass: Object.values(checks).every(Boolean),
     })
   }
@@ -148,6 +347,21 @@ async function main () {
     console.log('  python :', JSON.stringify(r.python))
     console.log('  real   :', JSON.stringify(r.real))
     console.log('  checks :', JSON.stringify(r.checks))
+    // 每次都打印并发三元值（而不只在失败时）：判据是否被频繁命中，需要的是一段时间的分布，
+    // 不是某一个红样本 —— 与 durationTolerance 注释里那条教训同源。
+    console.log('  maxc   : sim=' + r.python.max_concurrent_observed
+      + ' real=' + r.real.max_concurrent_observed
+      + ' cap=' + r.maxConcurrent
+      + ' 推迟证据=' + (r.deferralEvidence.observed ? '有' : '无')
+      + ' 最大跨度=' + r.deferralEvidence.maxSpanMs + 'ms'
+      + (r.noiseBypass ? '  [噪声豁免命中] ' + r.concurrency.reason : ''))
+    // 每次都打印两侧序列本身：红了要能一眼看出是谁多/少哪一项，只报布尔值等于把归因推给复跑。
+    // 序列不一致但集合一致时明确标"仅次序（饥饿下属正常）"，免得下一个人把留痕当判据去收紧。
+    console.log('  完成   : sim=' + JSON.stringify(r.completionOrder.simulated)
+      + ' real=' + JSON.stringify(r.completionOrder.real)
+      + (r.completionSetDiverges ? '  [集合不一致 ⇒ 已计入判据]'
+        : (r.completionSequenceDiverges ? '  [仅次序不同（饥饿下属正常，不计入判据）]' : '')))
+    if (!r.pass && r.concurrency && !r.concurrency.pass) console.log('  maxc 判红原因 :', r.concurrency.reason)
     if (!r.pass) ok = false
   }
   const known = await runKnownDiffs()
@@ -163,7 +377,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })

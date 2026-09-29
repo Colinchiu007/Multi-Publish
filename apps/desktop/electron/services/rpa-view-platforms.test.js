@@ -5,6 +5,18 @@
 const fs = require('fs')
 const platformsMixin = require('./rpa-view-platforms')
 
+// 2026-09-29：rpa-view-platforms.js 两次拆分（rpa-publish-id-extract.js / rpa-view-navigation-helpers.js），
+// 结构锁需读「主文件 + 拆分文件」的合并文本，否则被拆走的方法会断锁。
+function readPlatformsSource () {
+  const main = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+  const parts = [main]
+  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers']) {
+    try { parts.push(fs.readFileSync(require.resolve(rel), 'utf-8')) } catch (_) { /* 拆分文件可缺省 */ }
+  }
+  return parts.join('\n')
+}
+
+
 function createVerifyContext (executeJavaScript, options = {}) {
   return {
     _emitProgress: vi.fn(),
@@ -31,7 +43,7 @@ function createWechatContext() {
 
 describe('rpa-view-platforms — 结构约束', () => {
   it('wechat_mp 发布方法只定义一次，避免 pending stub 覆盖风险', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const definitions = source.match(/async\s+_publish_wechat_mp\s*\(/g) || []
 
     expect(definitions).toHaveLength(1)
@@ -54,7 +66,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
   }
 
   it('保存按钮点击失败时返回失败', async () => {
-    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     const context = createWechatContext()
     context._click.mockResolvedValueOnce(false)
 
@@ -68,7 +80,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
   })
 
   it('保存后 URL 没有媒体 ID 时返回失败', async () => {
-    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit')
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&token=123456')
     const context = createWechatContext()
 
     const result = await platformsMixin._publish_wechat_mp.call(context, win, {})
@@ -81,7 +93,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
   })
 
   it('正常保存草稿时返回成功且不进入群发流程', async () => {
-    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     const context = createWechatContext()
 
     const result = await platformsMixin._publish_wechat_mp.call(context, win, {})
@@ -90,18 +102,20 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
       success: true,
       platform: 'wechat_mp',
     }))
-    expect(context._navigateAndWait).toHaveBeenCalledTimes(1)
+    // 2026-09-29 起导航两次：首页（token 提取）→ v2 编辑器
+    expect(context._navigateAndWait).toHaveBeenCalledTimes(2)
     expect(context._click).toHaveBeenCalledTimes(1)
   })
 
   it('把保存后 URL 中的媒体 ID 传给群发选择器并成功群发', async () => {
-    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     const context = createWechatContext()
 
     const result = await platformsMixin._publish_wechat_mp.call(context, win, { massSend: true })
 
     expect(result.success).toBe(true)
-    expect(context._navigateAndWait).toHaveBeenCalledTimes(2)
+    // 首页 + v2 编辑器 + 群发页 = 3 次导航
+    expect(context._navigateAndWait).toHaveBeenCalledTimes(3)
     const massSendScript = executeJavaScript.mock.calls
       .map(([script]) => script)
       .find((script) => script.includes('appmsgid'))
@@ -111,7 +125,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
   })
 
   it('群发列表找不到已保存草稿时返回失败', async () => {
-    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     // 调用顺序：登录态检测（新）→ 同意勾选 → 群发列表草稿选择
     executeJavaScript
       .mockResolvedValueOnce({ hasTimeout: false, hasLoginPrompt: false })
@@ -130,7 +144,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
   })
 
   it('群发按钮点击失败时返回失败', async () => {
-    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     const context = createWechatContext()
     context._click
       .mockResolvedValueOnce(true)
@@ -146,7 +160,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
   })
 
   it('群发确认按钮点击失败时返回失败', async () => {
-    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345')
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     const context = createWechatContext()
     context._click
       .mockResolvedValueOnce(true)
@@ -160,6 +174,292 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
       platform: 'wechat_mp',
     }))
     expect(result.error).toContain('群发确认')
+  })
+
+  // ── 2026-09-29 图文发布修复：token 提取 + appmsg_edit_v2（实测旧 URL 无 token 被重定向回首页） ──
+  it('先访问首页提取 token，再用 appmsg_edit_v2 带 token 导航编辑器', async () => {
+    const executeJavaScript = vi.fn().mockResolvedValue({ hasTimeout: false, hasLoginPrompt: false })
+    const win = {
+      webContents: {
+        getURL: vi.fn()
+          .mockReturnValueOnce('https://mp.weixin.qq.com/cgi-bin/home?t=home/index&lang=zh_CN&token=1919993708')
+          .mockReturnValue('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=1919993708'),
+        getTitle: vi.fn().mockReturnValue(''),
+        executeJavaScript,
+      },
+    }
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, {})
+
+    expect(result.success).toBe(true)
+    // 第一次导航：首页（token 来源）
+    expect(context._navigateAndWait).toHaveBeenNthCalledWith(1, win, 'https://mp.weixin.qq.com/', 5000)
+    // 第二次导航：v2 编辑器，URL 必须带 token 且用 appmsg_edit_v2
+    const secondNav = context._navigateAndWait.mock.calls[1]
+    expect(secondNav[0]).toBe(win)
+    expect(secondNav[1]).toContain('appmsg_edit_v2')
+    expect(secondNav[1]).toContain('token=1919993708')
+    expect(secondNav[1]).not.toContain('appmsg_edit&')
+  })
+
+  it('首页 URL 无 token 时 fail fast，不盲走旧编辑器 URL', async () => {
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/home?t=home/index&lang=zh_CN')
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, {})
+
+    expect(result).toEqual(expect.objectContaining({
+      success: false,
+      platform: 'wechat_mp',
+    }))
+    expect(result.error).toContain('token')
+    // 只导航了首页一次，没有第二次导航
+    expect(context._navigateAndWait).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('rpa-view-platforms — 知乎发布（2026-09-29 图文修复）', () => {
+  function createZhihuContext () {
+    return {
+      _emitProgress: vi.fn(),
+      _navigateAndWait: vi.fn().mockResolvedValue(undefined),
+      _waitForElement: vi.fn().mockResolvedValue(true),
+      _click: vi.fn().mockResolvedValue(true),
+      _sleep: vi.fn().mockResolvedValue(undefined),
+      _setElementContentSafe: vi.fn().mockResolvedValue(undefined),
+      _insertTextTrusted: vi.fn().mockResolvedValue(true),
+    }
+  }
+
+  function createZhihuWindow (url, executeJavaScriptImpl) {
+    const executeJavaScript = executeJavaScriptImpl || vi.fn().mockResolvedValue(true)
+    return {
+      win: {
+        webContents: {
+          getURL: vi.fn().mockReturnValue(url),
+          getTitle: vi.fn().mockReturnValue(''),
+          executeJavaScript,
+        },
+      },
+      executeJavaScript,
+    }
+  }
+
+  it('导航到 zhuanlan.zhihu.com/write（实测 www.zhihu.com/creator/write 选择器失配）', async () => {
+    const { win } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
+    const context = createZhihuContext()
+
+    await platformsMixin._publish_zhihu.call(context, win, { title: '测试标题', content: '测试正文' })
+
+    expect(context._navigateAndWait).toHaveBeenCalledWith(win, 'https://zhuanlan.zhihu.com/write')
+    expect(context._navigateAndWait).toHaveBeenCalledTimes(1)
+  })
+
+  it('标题填充写入 wrapper 内部 textarea 的 value（原生 setter），不是 label textContent', async () => {
+    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
+    const context = createZhihuContext()
+
+    await platformsMixin._publish_zhihu.call(context, win, { title: '知乎标题测试', content: '正文' })
+
+    // 标题填充脚本必须：① 定位 wrapper 内部 textarea/input ② 用原生 value setter ③ 派发 input 事件
+    const titleScript = executeJavaScript.mock.calls
+      .map(([script]) => script)
+      .find(script => script.includes('知乎标题测试') && script.includes('textarea'))
+    expect(titleScript).toBeTruthy()
+    expect(titleScript).toContain('getOwnPropertyDescriptor')
+    expect(titleScript).toContain("new Event('input'")
+  })
+
+  it('编辑器等待选择器含 public-DraftEditor-content（实测命中）', async () => {
+    const { win } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
+    const context = createZhihuContext()
+
+    await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: 'C' })
+
+    const editorWait = context._waitForElement.mock.calls
+      .map(([, sel]) => String(sel))
+      .find(sel => sel.includes('public-DraftEditor-content'))
+    expect(editorWait).toBeTruthy()
+  })
+
+  it('正文填充走 CDP 可信注入（_insertTextTrusted），不用 innerHTML 直写容器', async () => {
+    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
+    const context = createZhihuContext()
+    // HTML→纯文本转换脚本（含 DOMParser）返回转换后文本；其余调用（focus 等）返回 true
+    executeJavaScript.mockImplementation((script) => {
+      if (String(script).includes('DOMParser')) return Promise.resolve('HTML转换后的纯文本')
+      return Promise.resolve(true)
+    })
+
+    await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: '<p>正文内容测试</p>' })
+
+    // 主路径：可信注入被调用且收到 HTML 转换后的纯文本（不把 <p> 标签注入纯文本编辑器）
+    expect(context._insertTextTrusted).toHaveBeenCalledWith(win, 'HTML转换后的纯文本')
+    // innerHTML 直写不再走主路径（Draft.js 不接受，实测发布空文）
+    expect(context._setElementContentSafe).not.toHaveBeenCalled()
+  })
+
+  it('可信注入失败时回退 innerHTML（不静默丢内容）', async () => {
+    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
+    const context = createZhihuContext()
+    context._insertTextTrusted.mockResolvedValueOnce(false)
+    executeJavaScript.mockImplementation((script) => {
+      if (String(script).includes('DOMParser')) return Promise.resolve('回退纯文本')
+      return Promise.resolve(true)
+    })
+
+    await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: '回退内容' })
+
+    expect(context._insertTextTrusted).toHaveBeenCalled()
+    expect(context._setElementContentSafe).toHaveBeenCalled()
+  })
+
+  it('发布成功判定包含知乎 /p/<id> 文章 URL 模式（实测发布后跳转 zhuanlan.zhihu.com/p/xxx）', async () => {
+    // 发布点击后 URL 已是文章页 → URL 检查应直接判成功，不落入 panelGone 兜底
+    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/p/2088256436652589762/edit')
+    const context = createZhihuContext()
+
+    const result = await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: 'C' })
+
+    expect(result.success).toBe(true)
+    expect(result.url).toContain('/p/')
+  })
+
+  it('panelGone 兜底脚本不得在原生 querySelector 里用 :has-text（实测抛 SyntaxError）', async () => {
+    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
+    const context = createZhihuContext()
+
+    await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: 'C' })
+
+    const panelGoneScript = executeJavaScript.mock.calls
+      .map(([script]) => String(script))
+      .find(script => script.includes('PublishPanel-publish') && script.includes('display'))
+    if (panelGoneScript) {
+      // 若走 panelGone 兜底，脚本必须用 querySelectorAll 文本匹配，不得用 :has-text
+      expect(panelGoneScript).not.toMatch(/querySelector\([^)]*:has-text/)
+    }
+  })
+})
+
+describe('rpa-view-helpers — _fillInput 原型选择（2026-09-29 Illegal invocation 修复）', () => {
+  it('value setter 按元素 tagName 选原型（TEXTAREA 不得用 HTMLInputElement 的 setter）', async () => {
+    const source = fs.readFileSync(require.resolve('./rpa-view-helpers'), 'utf-8')
+    const fillInputBody = source.slice(source.indexOf('async _fillInput'), source.indexOf('async _click'))
+    // 结构锁：必须先按 tagName 分流原型，再取 descriptor
+    expect(fillInputBody).toMatch(/tagName\s*===\s*['"]TEXTAREA['"]/)
+    // 反证旧写法：Input 原型 || Textarea 原型 的短路链不得回归
+    expect(fillInputBody).not.toMatch(/HTMLInputElement\.prototype,\s*["']value["']\)\?\.set\s*\|\|\s*Object\.getOwnPropertyDescriptor\(window\.HTMLTextAreaElement/)
+  })
+})
+
+describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图片上传）', () => {
+  function createImageContext () {
+    return {
+      _emitProgress: vi.fn(),
+      _navigateAndWait: vi.fn().mockResolvedValue(undefined),
+      _waitForElement: vi.fn().mockResolvedValue(true),
+      _setFileInput: vi.fn().mockResolvedValue(true),
+      _click: vi.fn().mockResolvedValue(true),
+      _sleep: vi.fn().mockResolvedValue(undefined),
+      _waitForCondition: vi.fn().mockResolvedValue(true),
+      _waitForResponse: vi.fn().mockResolvedValue(null),
+      _dismissPostNavDialogs: vi.fn().mockResolvedValue(undefined),
+      _waitForVideoUploadComplete: vi.fn().mockResolvedValue(undefined),
+      _fillInput: vi.fn().mockResolvedValue(undefined),
+      _setElementContentSafe: vi.fn().mockResolvedValue(undefined),
+      _getPlatformConfig: vi.fn().mockReturnValue({
+        publish_url: 'https://example.com/config-url',
+        type: 'mixed',
+        has_api: false,
+        selectors: { file_input: ['input[type="file"]'], title_input: ['input[placeholder*="标题"]'], publish_btn: ['button:has-text("发布")'] },
+        success_patterns: [],
+      }),
+      _publish_generic: vi.fn().mockResolvedValue({ success: true, platform: 'test' }),
+      _resolveSelector: vi.fn().mockResolvedValue('input[type="file"]'),
+    }
+  }
+
+  function createWindow (url) {
+    const executeJavaScript = vi.fn().mockResolvedValue(true)
+    return {
+      win: { webContents: { getURL: vi.fn().mockReturnValue(url), getTitle: vi.fn().mockReturnValue(''), executeJavaScript } },
+      executeJavaScript,
+    }
+  }
+
+  it('抖音图文模式：无视频时导航 default-tab=3 并上传首图', async () => {
+    const { win } = createWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = createImageContext()
+
+    await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'],
+    })
+
+    expect(context._navigateAndWait).toHaveBeenCalledWith(win, expect.stringContaining('default-tab=3'))
+    expect(context._setFileInput).toHaveBeenCalledWith(win, 'C:/tmp/cover.png')
+  })
+
+  it('抖音视频模式：保持原上传页 URL，不上传图片', async () => {
+    const { win } = createWindow('https://creator.douyin.com/creator-micro/content/upload')
+    const context = createImageContext()
+
+    await platformsMixin._publish_douyin.call(context, win, {
+      title: '视频标题', video_path: 'D:/video.mp4', images: ['C:/tmp/cover.png'],
+    })
+
+    expect(context._navigateAndWait).toHaveBeenCalledWith(win, 'https://creator.douyin.com/creator-micro/content/upload')
+    expect(context._setFileInput).toHaveBeenCalledWith(win, 'D:/video.mp4')
+    expect(context._setFileInput).not.toHaveBeenCalledWith(win, 'C:/tmp/cover.png')
+  })
+
+  it('快手图文模式：走 tabType=2 URL（getPublishUrl 单一来源）', async () => {
+    const { win } = createWindow('https://cp.kuaishou.com/article/publish/video?tabType=2')
+    const context = createImageContext()
+
+    await platformsMixin._publish_kuaishou.call(context, win, { title: 'T', content: 'C', images: ['C:/img.png'] })
+
+    // 委托 generic 且传入图文 URL（tabType=2）
+    expect(context._publish_generic).toHaveBeenCalledWith(
+      win, expect.objectContaining({ images: ['C:/img.png'] }), 'kuaishou',
+      expect.objectContaining({ publish_url: expect.stringContaining('tabType=2') }),
+    )
+  })
+
+  it('小红书图文模式：preFill 挂 switchImageTab（先切图文 tab 再上传）', async () => {
+    const { win } = createWindow('https://creator.xiaohongshu.com/publish/publish?from=menu')
+    const context = createImageContext()
+
+    await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', content: 'C', images: ['C:/img.png'] })
+
+    expect(context._publish_generic).toHaveBeenCalledWith(
+      win, expect.anything(), 'xiaohongshu',
+      expect.objectContaining({ preFill: 'switchImageTab' }),
+    )
+  })
+
+  it('小红书视频模式：无 preFill（视频 tab 是默认态）', async () => {
+    const { win } = createWindow('https://creator.xiaohongshu.com/publish/publish?from=menu&target=video')
+    const context = createImageContext()
+
+    await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', video_path: 'D:/v.mp4' })
+
+    const call = context._publish_generic.mock.calls[0]
+    expect(call[3].preFill).toBeUndefined()
+    expect(call[3].publish_url).toContain('target=video')
+  })
+
+  it('generic 图片上传：无视频有图时上传首图（image_upload 字段）', async () => {
+    const { win } = createWindow('https://example.com/publish')
+    const context = createImageContext()
+    // 不 mock _publish_generic——直接跑 generic 验证图片上传分支
+    const realGeneric = platformsMixin._publish_generic.bind({ ...context, ...platformsMixin })
+
+    await platformsMixin._publish_generic.call(context, win, {
+      title: 'T', content: 'C', images: ['C:/img1.png', 'C:/img2.png'],
+    }, 'testplatform', context._getPlatformConfig())
+
+    expect(context._setFileInput).toHaveBeenCalledWith(win, 'C:/img1.png', 'input[type="file"]')
   })
 })
 
@@ -381,7 +681,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
   // 只有在视频上传完成并进入编辑器后才渲染；旧顺序先填字段后上传，
   // 导致 title/desc 选择器必然 3×10s timeout（smoke3 日志实锤）。
   function getGenericBody () {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _publish_generic')
     const end = source.indexOf('\n  // ========== ', start + 10)
     return source.slice(start, end > 0 ? end : undefined)
@@ -401,7 +701,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
     expect(body).toContain('_dismissPostNavDialogs')
     // 清理必须发生在填字段之前
     expect(body.indexOf('_dismissPostNavDialogs')).toBeLessThan(body.indexOf("'filling title...'"))
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     expect(source).toMatch(/_dismissPostNavDialogs\s*\(/)
     // 快手草稿弹窗两按钮（放弃/继续编辑）与通用引导按钮（我知道了/知道了）都在处理范围内
     expect(source).toContain('放弃')
@@ -420,7 +720,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
   // 不用 progress class），导致还在上传落地页就点发布→全部失败。统一改为
   // 共享的强判定：进度元素不可见 且（可见 video 预览 或 已跳转编辑页 URL）。
   it('视频上传完成强判定存在于 generic 与 douyin 两条链路', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     expect(source).toMatch(/async\s+_waitForVideoUploadComplete\s*\(/)
     const genericStart = source.indexOf('async _publish_generic')
     const genericEnd = source.indexOf('\n  // ========== ', genericStart + 10)
@@ -446,7 +746,7 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
 // ③ 多候选选择器只取 [0] 是结构性缺陷（页面改版即全链失败）。
 describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（live DOM 取证）', () => {
   function getGenericBody () {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _publish_generic')
     const end = source.indexOf('\n  // ========== ', start + 10)
     return source.slice(start, end > 0 ? end : undefined)
@@ -506,7 +806,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   })
 
   it('generic：_resolveSelector 定义存在且遍历全部候选', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _resolveSelector')
     expect(start).toBeGreaterThan(-1)
     const body = source.slice(start, start + 1200)
@@ -574,6 +874,28 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     expect(written.indexOf('标题A')).toBeLessThan(written.indexOf('正文B'))
   })
 
+  it('无标题平台（instagram）携带标题时同样跳过 title_input（CCG codex Info3：DOM-only 平台行为锁）', async () => {
+    const context = createGenericContext(['[aria-label*="caption"] textarea'])
+    const igConfig = {
+      publish_url: 'https://www.instagram.com/',
+      has_api: false,
+      success_patterns: [],
+      selectors: {
+        title_input: ['input[placeholder*="标题"]'],
+        caption_textarea: ['[aria-label*="caption"] textarea'],
+        publish_btn: ['button:has-text("分享")'],
+      },
+    }
+    await platformsMixin._publish_generic.call(context, win, { title: '标题A', content: '正文B' }, 'instagram', igConfig)
+
+    expect(context._waitForElement.mock.calls.map((c) => c[1])).not.toContain('input[placeholder*="标题"]')
+    const editorCalls = context._fillInput.mock.calls.filter(([, sel]) => sel === '[aria-label*="caption"] textarea')
+    expect(editorCalls.length).toBeGreaterThan(0)
+    const written = String(editorCalls[0][2])
+    expect(written).toContain('标题A')
+    expect(written.indexOf('标题A')).toBeLessThan(written.indexOf('正文B'))
+  })
+
   it('结构锁：_publish_generic 以注册表 isNoTitlePlatform 守卫 title_input 解析', () => {
     const body = getGenericBody()
     const guardIdx = body.indexOf('isNoTitlePlatform(platform)')
@@ -585,7 +907,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   })
 
   it('上传完成判定：含“上传中/剩余时间/百分比未满”负向信号，默认预算 ≥15 分钟', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _waitForVideoUploadComplete')
     const body = source.slice(start, source.indexOf('\n  // ========== ', start + 10))
     expect(body).toMatch(/上传中/)
@@ -595,7 +917,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   })
 
   it('douyin 专用链路也先清理引导遮罩（实测页面带“我知道了”）', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _publish_douyin')
     const body = source.slice(start, source.indexOf('\n  // ========== ', start + 10))
     expect(body).toContain('_dismissPostNavDialogs')
@@ -605,7 +927,7 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
   // 占位「请选择符合您视频内容的创作声明」是带 * 的必填项，不选会被服务端拒；
   // 同时风控短信弹窗会盖住投稿区。两条都必须处理才能把 RPA 兜底链路跑完。
   it('_prepBilibili：先选创作声明并清理短信验证弹窗', () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const source = readPlatformsSource()
     const start = source.indexOf('async _prepBilibili')
     const body = source.slice(start, source.indexOf('\n  async _', start + 10))
     expect(body).toContain('_selectContentDeclaration')

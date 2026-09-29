@@ -287,6 +287,23 @@ describe('PublishHistory', () => {
     expect(detail.get('[data-testid="detail-link"]').attributes('href')).toBe('https://example.com/p/998')
     expect(detail.get('[data-testid="detail-link"]').attributes('rel')).toBe('noopener')
   })
+  it('详情里的历史 url 非 http/https 时不产出锚点，改渲染纯文本（PRD-HREF-SCHEME-GUARD）', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{ id: 'detail-evil', title: '被污染的历史', platform: 'baijiahao', status: 'success', result: { mode: 'api', postId: 'p-1', url: 'javascript:alert(1)' } }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-detail-evil"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.find('[data-testid="detail-link"]').exists()).toBe(false)
+    expect(detail.get('[data-testid="detail-link-plain"]').text()).toBe('javascript:alert(1)')
+    expect(detail.html()).not.toContain('href="javascript')
+  })
   it('详情弹窗无 result 时不渲染发布方式/作品ID/链接行', async () => {
     const wrapper = mountView()
     await flushHistory()
@@ -295,6 +312,62 @@ describe('PublishHistory', () => {
     const detail = wrapper.get('.record-detail-modal')
     expect(detail.text()).not.toContain('发布方式')
     expect(detail.find('[data-testid="detail-link"]').exists()).toBe(false)
+  })
+  it('失败记录在列表卡片显示失败原因（error 字段）', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{
+          id: 'failed-err-1', taskId: 'task-err-1', title: '失败任务', platform: 'zhihu',
+          status: 'failed', error: 'publish timeout',
+        }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    expect(wrapper.get('[data-testid="record-error-failed-err-1"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="record-error-failed-err-1"]').text()).toContain('publish timeout')
+  })
+  it('成功记录不渲染失败原因行', async () => {
+    const wrapper = mountView()
+    await flushHistory()
+    expect(wrapper.find('[data-testid="record-error-record-1"]').exists()).toBe(false)
+  })
+  it('详情弹窗显示失败原因字段（error 字段）', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{
+          id: 'failed-err-2', taskId: 'task-err-2', title: '失败任务', platform: 'kuaishou',
+          status: 'failed', error: 'publish verification timeout',
+        }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-failed-err-2"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.text()).toContain('失败原因')
+    expect(detail.get('[data-testid="detail-error-reason"]').text()).toContain('publish verification timeout')
+  })
+  it('详情弹窗失败记录无 error 字段时显示占位文案而非空白', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{ id: 'failed-noerr', taskId: 'task-noerr', title: '失败任务', platform: 'zhihu', status: 'failed' }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-failed-noerr"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.text()).toContain('失败原因')
+    expect(detail.get('[data-testid="detail-error-reason"]').text()).not.toBe('')
   })
   it('搜索和状态筛选只保留匹配记录', async () => {
     historyListMock.mockResolvedValue({
@@ -639,5 +712,74 @@ describe('PublishHistory 发布方式徽标（§6.1）', () => {
   it('无 result.mode 不显示发布方式徽标', async () => {
     const wrapper = await mountWithMode(null)
     expect(wrapper.find('[data-testid="delivery-mode-rec-mode"]').exists()).toBe(false)
+  })
+
+  // P0-1 审核状态：发布成功只代表平台受理，之后仍可能被拒/下线——
+  // 历史列表与详情必须如实显示平台审核结论，拒绝/下线醒目提示；
+  // 无结论（旧记录/监控无定论）不渲染徽标（不得用「无徽标」伪装成「已通过」）。
+  describe('P0-1 审核状态展示', () => {
+    async function mountWithAudit (record) {
+      historyListMock.mockResolvedValue({ code: 0, data: { total: 1, records: [record] } })
+      const wrapper = mountView()
+      await flushHistory()
+      return wrapper
+    }
+    const base = { id: 'audit-1', title: '审核跟踪', platform: 'douyin', status: 'success', timestamp: '2026-10-09T00:00:00.000Z' }
+
+    it('拒绝（deny）显示醒目审核徽标 + 处置指引', async () => {
+      const wrapper = await mountWithAudit({ ...base, auditStatus: 'deny' })
+      const badge = wrapper.get('[data-testid="audit-status-audit-1"]')
+      expect(badge.text()).toBe('审核未通过')
+      expect(badge.classes()).toContain('is-alert')
+      expect(badge.attributes('title')).toContain('创作者中心')
+    })
+
+    it('已上线（published）显示中性徽标（不醒目）', async () => {
+      const wrapper = await mountWithAudit({ ...base, auditStatus: 'published' })
+      const badge = wrapper.get('[data-testid="audit-status-audit-1"]')
+      expect(badge.text()).toBe('已上线')
+      expect(badge.classes()).not.toContain('is-alert')
+    })
+
+    it.each([
+      ['inAudit', '审核中'],
+      ['prePublish', '待发布'],
+      ['notPublic', '未公开'],
+      ['withdrawn', '已下线'],
+      ['transferFail', '转码失败'],
+    ])('审核状态 %s → 文案「%s」', async (auditStatus, label) => {
+      const wrapper = await mountWithAudit({ ...base, auditStatus })
+      expect(wrapper.get('[data-testid="audit-status-audit-1"]').text()).toBe(label)
+    })
+
+    it('拒绝/下线/转码失败三条为醒目态，其余不是', async () => {
+      for (const [status, alert] of [['deny', true], ['withdrawn', true], ['transferFail', true], ['published', false], ['inAudit', false], ['prePublish', false], ['notPublic', false]]) {
+        const wrapper = await mountWithAudit({ ...base, auditStatus: status })
+        const badge = wrapper.get('[data-testid="audit-status-audit-1"]')
+        expect(badge.classes().includes('is-alert'), status).toBe(alert)
+      }
+    })
+
+    it('无审核结论/非法值不渲染徽标（不伪造已通过）', async () => {
+      for (const auditStatus of [undefined, null, '', 'bogus', 'unknown']) {
+        const wrapper = await mountWithAudit({ ...base, ...(auditStatus === undefined ? {} : { auditStatus }) })
+        expect(wrapper.find('[data-testid="audit-status-audit-1"]').exists(), String(auditStatus)).toBe(false)
+      }
+    })
+
+    it('详情弹窗显示审核状态 + 平台作品 ID', async () => {
+      historyGetMock.mockResolvedValue({ code: 0, data: { description: '详情' } })
+      const wrapper = await mountWithAudit({
+        ...base, auditStatus: 'withdrawn', platformWorkId: 'aweme-777',
+        taskId: 't-1', accountCount: 1, taskCount: 1, failedCount: 0,
+      })
+      await wrapper.get('[data-testid="detail-audit-1"]').trigger('click')
+      await flushHistory()
+      const modal = wrapper.get('.record-detail-modal')
+      expect(modal.text()).toContain('审核状态')
+      expect(modal.text()).toContain('已下线')
+      expect(modal.text()).toContain('平台作品 ID')
+      expect(modal.text()).toContain('aweme-777')
+    })
   })
 })

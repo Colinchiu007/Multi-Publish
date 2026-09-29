@@ -11,6 +11,7 @@
  *      this._engagementScore() — 本 mixin 内部方法
  */
 const log = require('./logger')
+const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
 
 const sourcesMixin = {
   // ── Engagement Normalization ─────────────────────────────────────
@@ -58,7 +59,7 @@ const sourcesMixin = {
             source: 'reddit',
             id: d.id,
             title: d.title,
-            url: `https://reddit.com${d.permalink}`,
+            url: safeHttpUrl(`https://reddit.com${d.permalink}`),
             snippet: d.selftext?.slice(0, 200) || '',
             upvotes: d.ups,
             comments: d.num_comments,
@@ -89,7 +90,7 @@ const sourcesMixin = {
         source: 'hackernews',
         id: String(d.objectID),
         title: d.title,
-        url: d.url || `https://news.ycombinator.com/item?id=${d.objectID}`,
+        url: safeHttpUrl(d.url) || `https://news.ycombinator.com/item?id=${d.objectID}`,
         snippet: '',
         upvotes: d.points || 0,
         comments: d.num_comments || 0,
@@ -119,7 +120,7 @@ const sourcesMixin = {
         source: 'github',
         id: String(d.id),
         title: d.title,
-        url: d.html_url,
+        url: safeHttpUrl(d.html_url),
         snippet: d.body?.slice(0, 200) || '',
         upvotes: d.reactions?.['+1'] || 0,
         comments: d.comments || 0,
@@ -157,7 +158,7 @@ const sourcesMixin = {
             source: 'reddit',
             id: d.id,
             title: d.title,
-            url: `https://reddit.com${d.permalink}`,
+            url: safeHttpUrl(`https://reddit.com${d.permalink}`),
             snippet: d.selftext?.slice(0, 200) || '',
             subreddit: d.subreddit,
             upvotes: d.ups,
@@ -187,7 +188,7 @@ const sourcesMixin = {
         source: 'hackernews',
         id: String(d.objectID),
         title: d.title,
-        url: d.url || `https://news.ycombinator.com/item?id=${d.objectID}`,
+        url: safeHttpUrl(d.url) || `https://news.ycombinator.com/item?id=${d.objectID}`,
         snippet: '',
         upvotes: d.points || 0,
         comments: d.num_comments || 0,
@@ -215,7 +216,7 @@ const sourcesMixin = {
         source: 'github',
         id: String(d.id),
         title: d.full_name,
-        url: d.html_url,
+        url: safeHttpUrl(d.html_url),
         snippet: d.description?.slice(0, 200) || '',
         upvotes: d.stargazers_count || 0,
         comments: d.open_issues_count || 0,

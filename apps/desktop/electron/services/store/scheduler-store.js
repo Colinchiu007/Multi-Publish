@@ -1,6 +1,20 @@
 // @ts-check
 /**
- * scheduler-store — 定时任务功能域 mixin
+ * scheduler-store — 定时任务功能域 mixin（**SQLite scheduled_tasks 表，非定时发布真源**）
+ *
+ * ⛔ 2026-10-02 死路径标注（改动前必读）：
+ *   定时发布的**唯一真源**是 JSONL `scheduled-tasks.jsonl`
+ *   （`packages/shared-utils/src/scheduler.js`，IPC `scheduler:create/list/cancel`）
+ *   与批量排期 `BatchManager`（IPC `batch:schedule/cancel/delete`）。
+ *   本文件操作的 SQLite `scheduled_tasks` 表**没有任何生产读取方**：
+ *   - 写入方只剩 `base-store.migrateFromJsonl`（历史 JSONL → SQLite 的一次性迁移）；
+ *   - 读取方只剩 `account-store` 删除账号时的级联清理（按 owner+platform 删行）。
+ *   原先对外的 3 个 IPC（store:add-scheduled-task / store:list-scheduled-tasks /
+ *   store:delete-task）与 preload 桥接已于 2026-10-02 删除——它们零渲染层调用。
+ *
+ *   因此：**不要**把这些方法当作定时任务真源去接新功能（那会写出第二份真源，
+ *   与 JSONL 必然漂移）；表本身保留仅因迁移与级联删除仍在用。
+ *   完整清理（连方法一起删）需同步重写 store-snapshot / store-owner-isolation 两个测试。
  *
  * 依赖：BaseStore._safeJson（基类提供）
  */

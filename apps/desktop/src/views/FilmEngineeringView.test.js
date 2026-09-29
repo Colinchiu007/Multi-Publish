@@ -166,4 +166,29 @@ describe('FilmEngineeringView configuration profiles', () => {
     expect(wrapper.vm.productionPanelOpen).toBe(true)
   })
 
+  // PRD-HREF-SCHEME-GUARD：元信息里的 projectUrl 属外部数据，非 http/https 不得成链
+  it('来源链接：projectUrl 合法时成链且带 rel=noopener，非法时不成链但文本保留', async () => {
+    composable.status.value = {
+      available: true,
+      filmMeta: { title: 'Film', logline: 'L', durationSec: 60, characters: [], source: { projectUrl: 'https://example.com/proj' } },
+      sceneCount: 0, shotCount: 0, referenceCount: 0,
+    }
+    const w = mountView()
+    await nextTick()
+    const link = w.find('el-link.fe-meta-link')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('href')).toBe('https://example.com/proj')
+    expect(String(link.attributes('rel') || '')).toContain('noopener')
+
+    composable.status.value = {
+      available: true,
+      filmMeta: { title: 'Film', logline: 'L', durationSec: 60, characters: [], source: { projectUrl: 'javascript:alert(1)' } },
+      sceneCount: 0, shotCount: 0, referenceCount: 0,
+    }
+    await nextTick()
+    expect(w.find('el-link.fe-meta-link').exists()).toBe(false)
+    const plain = w.find('span.fe-meta-link')
+    expect(plain.exists()).toBe(true)
+    expect(plain.text()).toBe('javascript:alert(1)')
+  })
 })

@@ -1,0 +1,12 @@
+{
+  "id": "review-tab-nav-icons-loading",
+  "title": "审查 tab-nav-icons-loading 分支实现",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "无",
+  "createdAt": "2026-09-29T00:00:00+08:00",
+  "branch": "tab-nav-icons-loading"
+}

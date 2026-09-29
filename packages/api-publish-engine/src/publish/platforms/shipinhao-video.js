@@ -18,6 +18,9 @@ const crypto = require('crypto')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { chunkTotal, DEFAULT_CHUNK_SIZE } = require('../core/chunker')
 const { errorCode } = require('../../error-codes')
+// 话题内联描述（publish-topic-inline-description）：视频号是内联转换型平台——
+// 描述里的 `#话题` 发布时隐性转换成微信系双井号形态 `#话题#`（用户无感知）
+const { convertInlineTopics } = require('../../content-formatter')
 
 const DEFAULT_API_BASE = 'https://channels.weixin.qq.com'
 const DEFAULT_CDN_BASE = 'https://finderassistancea.video.qq.com'
@@ -58,13 +61,16 @@ function buildXArguments (o) {
  * publish-capability-registry，用户 2026-10-08 确认）。与 DOM RPA
  * _composeEditorCaption 及快手链 buildKuaishouCaption 语义对齐。
  * 旧实现 `td.content == null ? td.title : td.content` 在有正文时直接丢弃标题。
- * @param {object} td taskData（读 title / content）
+ * 话题内联描述（publish-topic-inline-description）：描述里的 `#话题` 经
+ * convertInlineTopics 隐性转换成微信系双井号形态 `#话题#`（用户无感知）。
+ * @param {object} td taskData（读 title / content / tags）
  * @returns {string}
  */
 function composeShipinhaoDescription (td) {
   const title = typeof td.title === 'string' ? td.title.trim() : ''
   const content = td.content == null ? '' : String(td.content).trim()
-  return [title, content].filter(part => part.length > 0).join('\n')
+  const converted = convertInlineTopics('tencent_video', content, td.tags || [])
+  return [title, converted].filter(part => part.length > 0).join('\n')
 }
 
 /**

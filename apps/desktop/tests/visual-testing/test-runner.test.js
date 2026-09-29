@@ -99,6 +99,87 @@ describe('视觉基线门禁', () => {
   })
 })
 
+// ---- 批次 1：暗色基线通道（ui-apple-token-retirement Task 1）----
+describe('暗色基线通道', () => {
+  afterEach(() => {
+    delete process.env.UPDATE_BASELINE
+  })
+
+  it('主题后缀映射：浅色沿用历史命名，暗色独立后缀', () => {
+    expect(VisualTestRunner.themeSuffix('light')).toBe('')
+    expect(VisualTestRunner.themeSuffix(undefined)).toBe('')
+    expect(VisualTestRunner.themeSuffix('dark')).toBe('-dark')
+  })
+
+  it('浅色（默认）保持历史基线与截图命名 —— 既有基线拍摄条件不得被改写', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-theme-light-naming-'))
+    const runner = createRunner(tempDir)
+    process.env.UPDATE_BASELINE = '1'
+
+    try {
+      await runner.pixelRegressionTest('accounts-list', '/accounts')
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'accounts-list.png'))).toBe(true)
+      expect(fs.existsSync(path.join(tempDir, 'screenshots', 'accounts-list-current.png'))).toBe(true)
+      // 不得产出带后缀的同名文件（否则暗色基线会与浅色互相覆盖）
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'accounts-list-dark.png'))).toBe(false)
+      expect(fs.existsSync(path.join(tempDir, 'screenshots', 'accounts-list-dark-current.png'))).toBe(false)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('暗色基线与截图使用 -dark 命名，与浅色互不覆盖', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-theme-dark-naming-'))
+    const runner = createRunner(tempDir)
+    process.env.UPDATE_BASELINE = '1'
+
+    try {
+      await runner.pixelRegressionTest('accounts-list', '/accounts', { theme: 'dark' })
+      await runner.pixelRegressionTest('accounts-list', '/accounts', { theme: 'light' })
+
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'accounts-list-dark.png'))).toBe(true)
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'accounts-list.png'))).toBe(true)
+      expect(fs.existsSync(path.join(tempDir, 'screenshots', 'accounts-list-dark-current.png'))).toBe(true)
+      expect(fs.existsSync(path.join(tempDir, 'screenshots', 'accounts-list-current.png'))).toBe(true)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('主题逐用例显式设置：暗色用例之后的浅色用例必须被重置（不依赖导航重置）', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-theme-reset-'))
+    const runner = createRunner(tempDir)
+    process.env.UPDATE_BASELINE = '1'
+
+    try {
+      await runner.pixelRegressionTest('a-view', '/accounts', { theme: 'dark' })
+      await runner.pixelRegressionTest('b-view', '/accounts')
+
+      // _applyTheme 第二次仍须显式写 light（hash 导航不重载文档，属性会残留）
+      const appliedThemes = runner.page.evaluate.mock.calls
+        .map((call) => call[1])
+        .filter((value) => value === 'dark' || value === 'light')
+      expect(appliedThemes).toEqual(['dark', 'light'])
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('非法主题值一律归一为 light（fail-safe，不产出第二套命名）', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-theme-invalid-'))
+    const runner = createRunner(tempDir)
+    process.env.UPDATE_BASELINE = '1'
+
+    try {
+      await runner.pixelRegressionTest('weird-view', '/accounts', { theme: 'DARK' })
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'weird-view.png'))).toBe(true)
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'weird-view-dark.png'))).toBe(false)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('视觉视图门禁', () => {
   afterEach(() => {
     delete process.env.UPDATE_BASELINE
@@ -359,6 +440,52 @@ describe('视觉应用就绪预算', () => {
 
       expect(failure).toMatchObject({ code: 'ERR_VISUAL_READY_SELECTOR_TIMEOUT' })
       expect(failure.message).toContain('stage=业务选择器(.page-title)')
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('截图前的确定性渲染收口（settleForCapture）', () => {
+  it('按字体稳定帧 → 动画归零 → 回顶部 → settle → networkidle 的序列执行', async () => {
+    const calls = []
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'settle-'))
+    try {
+      const runner = createRunner(tempDir)
+      runner.page = {
+        evaluate: vi.fn(async (fn) => { calls.push('evaluate:' + (fn.name || 'anon')) }),
+        addStyleTag: vi.fn(async ({ content }) => { calls.push('style:' + (/animation:0s/.test(content) ? 'anim-off' : 'other')) }),
+        waitForTimeout: vi.fn(async (ms) => { calls.push('sleep:' + ms) }),
+        waitForLoadState: vi.fn(async (s) => { calls.push('load:' + s) }),
+      }
+      await runner.settleForCapture()
+      expect(calls).toEqual([
+        'evaluate:anon',
+        'style:anim-off',
+        'evaluate:anon',
+        'sleep:300',
+        'load:networkidle',
+      ])
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('视图路径 _navigateToRoute 仍然 await settleForCapture', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'settle-nav-'))
+    try {
+      const runner = createRunner(tempDir)
+      runner._resetBrowserState = vi.fn(async () => {})
+      runner._waitForApplicationReady = vi.fn(async () => {})
+      const settle = vi.fn(async () => {})
+      runner.settleForCapture = settle
+      runner.url = 'http://127.0.0.1:5174'
+      runner.page = {
+        goto: vi.fn(async () => {}),
+        reload: vi.fn(async () => {}),
+      }
+      await runner._navigateToRoute('/dashboard', '.dash')
+      expect(settle).toHaveBeenCalledTimes(1)
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }

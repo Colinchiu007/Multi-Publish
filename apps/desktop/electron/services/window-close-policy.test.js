@@ -65,3 +65,44 @@ describe('window-close-policy — 平台窗口关闭策略', () => {
     expect(shouldHideToTrayOnClose({ platform: 'win32' })).toBe(false)
   })
 })
+
+describe('window-close-policy — 发布任务运行中判据（publish-progress-ux）', () => {
+  it('仅发布运行中（无流水线）+ 托盘可用 → 隐藏到托盘', () => {
+    expect(shouldHideToTrayOnClose({
+      platform: 'win32', hasRunningPipeline: false, hasRunningPublish: true, trayAvailable: true,
+    })).toBe(true)
+  })
+
+  it('仅发布运行中但托盘不可用 → 不拦截', () => {
+    expect(shouldHideToTrayOnClose({
+      platform: 'win32', hasRunningPipeline: false, hasRunningPublish: true, trayAvailable: false,
+    })).toBe(false)
+  })
+
+  it('流水线与发布都无运行 → 不拦截（既有语义不变）', () => {
+    expect(shouldHideToTrayOnClose({
+      platform: 'win32', hasRunningPipeline: false, hasRunningPublish: false, trayAvailable: true,
+    })).toBe(false)
+  })
+
+  it('流水线运行 + 发布运行 → 拦截（任一满足即隐藏）', () => {
+    expect(shouldHideToTrayOnClose({
+      platform: 'win32', hasRunningPipeline: true, hasRunningPublish: true, trayAvailable: true,
+    })).toBe(true)
+  })
+
+  it('hasRunningPublish 缺省时行为与旧契约一致（向后兼容）', () => {
+    expect(shouldHideToTrayOnClose({
+      platform: 'win32', hasRunningPipeline: true, trayAvailable: true,
+    })).toBe(true)
+    expect(shouldHideToTrayOnClose({
+      platform: 'win32', hasRunningPipeline: false, trayAvailable: true,
+    })).toBe(false)
+  })
+
+  it('macOS：发布运行中也不拦截（系统约定）', () => {
+    expect(shouldHideToTrayOnClose({
+      platform: 'darwin', hasRunningPublish: true, trayAvailable: true,
+    })).toBe(false)
+  })
+})

@@ -22,6 +22,10 @@ const aws4 = require('aws4')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
 const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH } = require('../../signer/douyin-ticket-guard')
+// 话题内联描述（publish-topic-inline-description）：抖音是内联保留型平台——
+// 描述里的 `#话题` 原样保留在 content_desc，text_extra 标记话题位置段
+// （hashtag_id=0 纯文本话题，平台话题实体回填属 P2）。位置扫描用 content-formatter 单一实现。
+const { findInlineTopicPositions } = require('../../content-formatter')
 
 const CREATOR_BASE = 'https://creator.douyin.com'
 const VOD_BASE = 'https://vod.bytedanceapi.com'
@@ -76,17 +80,28 @@ function partSizeFor (size) {
 
 /** 构造 create_v2 投稿体；纯函数，供链与薄适配器共用 */
 function buildDouyinPostData (taskData, ctx) {
+  // 话题内联描述：描述里的 #话题 原样进 content_desc（描述为真源），
+  // text_extra 按已知话题（tags 含描述解析值）标记位置段；无话题时空数组（兼容现状）
+  const contentDesc = clean(taskData.content || taskData.desc || '')
+  const textExtra = findInlineTopicPositions(contentDesc, taskData.tags || []).map(pos => ({
+    start: pos.start,
+    end: pos.end,
+    type: 0,
+    user_id: '',
+    hashtag_id: 0,
+    hashtag_name: pos.name,
+  }))
   return {
     item: {
       common: {
         item_title: clean(taskData.title),
-        content_desc: clean(taskData.content || taskData.desc || ''),
+        content_desc: contentDesc,
         video_id: ctx.videoId,
         media_type: 4,
         visibility_type: ctx.visibilityType,
         cover_poster_ids: [],
         poi_name: '',
-        text_extra: [],
+        text_extra: textExtra,
         is_aigc: false,
       },
       cover: { poster: ctx.coverPoster },

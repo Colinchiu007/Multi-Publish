@@ -33,6 +33,9 @@ jobs:
       TEST_URL: http://127.0.0.1:5174
       HEADLESS: "true"
       PIXEL_THRESHOLD: "0.06"
+      # 与 QG Visual（quality-gate.yml Gate 7）取同一个构建期开关：账号页 flag 开启态用例（accounts-list-flag-on）
+      # 在两套流水线里必须渲染同一种页面状态，否则从本 workflow 的 artifact 取来的基线与 QG 的比对环境又不同源了。
+      VITE_MP_DEV_FLAG_OVERRIDE: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -86,12 +89,83 @@ jobs:
             try {
               pnpm.cmd run test:visual:pixel
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+              # 批次 1（ui-apple-token-retirement Task 1）：暗色基线通道增跑一遍。
+              # 复用同一台 Vite / 同一渲染环境（与浅色同源，满足 QM-4 第 7 条的同源口径）。
+              # 读的是 `<view>-dark.png` 基线，与浅色 `<view>.png` 互不覆盖。
+              #
+              # ⚠️ staged（暂时不阻断）：仓库尚无暗色基线，直接阻断会让 main 常红。
+              #    待「从本 workflow 的 artifact 取出同源暗色截图并入库」完成后，
+              #    删除下面的 continue-on-error 转为阻断门禁 —— 与 Gate 7b 的历史处置同形
+              #    （见本文件下方 Gate 7b 注释：先刻意 continue-on-error，同源基线就绪后摘掉）。
+              pnpm.cmd run test:visual:pixel:dark
+              if ($LASTEXITCODE -ne 0) { Write-Host "::warning::暗色像素门禁未通过（批次 1 staged，待同源暗色基线入库后转阻断）" }
             } finally {
               Pop-Location
             }
           } finally {
             if (-not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
           }
+
+      # Gate 7b：全量视觉（views + workflows 四套注册表）—— **阻断门禁**。
+      # 2026-09-29 起基线已按 QM-4 第 7 条从 CI artifact 重建（13 条非同源基线换成同一次 CI 渲染，
+      # 自证「新基线 vs 同一次 CI 渲染 = 0 px」），故摘掉此前刻意的 continue-on-error。
+      # 历史依据（保留以免下一个人重新推导）：这套用例的基线此前从没在 CI 上生成过，
+      # QG Visual 只跑 run-pixel-tests.js 的 pixelTests，而 QM-4 第 7 条禁止拿本地图当基线；
+      # 未同源前实测「同屏两态差 0.16%、仓库基线 vs CI 渲染差 3.82%」⇒ 当时接进判定就是长期假红。
+      # 逐套隔离由 tests/visual-testing/scripts/run-all-visual.js 保证：任何一套红都不停后面三套，
+      # 因此 artifacts 始终含全部四套的截图；每套输出一行 [VISUAL-SUMMARY]（含耗时，是超时预算的实测来源）。
+      - name: Full visual suites (blocking gate)
+        if: always()
+        shell: pwsh
+        env:
+          # 上一步的像素门禁在自己的 finally 里已经把 5174 的 Vite 关掉了（GitHub 每个步骤是独立进程树），
+          # 采集步骤必须自己起一台，否则四套用例会对着一个不存在的端口跑成 103 条连接失败。
+          # 端口独立于像素门禁，还顺带避免像素步骤崩溃残留的 5174 被本步骤误用。
+          # 日志名必须匹配 artifact 上传里的 vite-visual.*.log 通配（写成 vite-visual-all.* 就落不进 artifact，
+          # 采集服务起不来时会只剩一句 throw、没有任何现场）。
+          TEST_URL: http://127.0.0.1:5175
+        run: |
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          # 初值 1：任何提前 throw（服务起不来等）都以非零收口，让步骤显示为警告而不是"静默绿"。
+          $captureExit = 1
+          $viteProcess = Start-Process -FilePath "pnpm.cmd" `
+            -ArgumentList @("exec", "vite", "--host", "127.0.0.1", "--port", "5175") `
+            -WorkingDirectory $desktopDir `
+            -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.all.stdout.log") `
+            -RedirectStandardError (Join-Path $desktopDir "vite-visual.all.stderr.log") `
+            -WindowStyle Hidden -PassThru
+          try {
+            $viteReady = $false
+            for ($i = 1; $i -le 30; $i++) {
+              Start-Sleep -Seconds 1
+              $viteProcess.Refresh()
+              if ($viteProcess.HasExited) { throw "Vite exited before becoming ready (exit=$($viteProcess.ExitCode))" }
+              try {
+                if ((Invoke-WebRequest -Uri "http://127.0.0.1:5175/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
+                  Write-Host "Vite (capture) ready after $i seconds"
+                  $viteReady = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $viteReady) { throw "Vite (capture) never became ready" }
+            Push-Location $desktopDir
+            try {
+              node tests/visual-testing/scripts/run-all-visual.js
+              $captureExit = $LASTEXITCODE
+              Write-Host "[GATE-7b] run-all-visual rc=$captureExit (non-blocking baseline capture)"
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            if ($viteProcess -and -not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
+          }
+
+          # 必须把聚合器的退出码带出来：正文以 Write-Host 收尾时 PowerShell 一律退 0，
+          # 于是"采集整批失败"会显示成绿色通过——continue-on-error 的意义正是让这件事变成**可见的警告**，
+          # 不传码就等于把唯一的告警通道也关掉了。
+          exit $captureExit
 
       - name: Generate Agent visual-judge report
         if: always()

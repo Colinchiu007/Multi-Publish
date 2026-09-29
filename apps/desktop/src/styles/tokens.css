@@ -120,24 +120,10 @@
   --color-warning-soft: #fef3c7;
   --color-canvas-translucent: rgba(255, 255, 255, 0.95);
   --color-module-nav-text: #8b8e9a;
-  /* apple 系（与全局语义色值不同的历史色，前缀保留域归属） */
-  --color-apple-surface-secondary: #f5f5f7;
-  --color-apple-surface-tertiary: #e8e8ed;
-  --color-apple-ink-primary: #1d1d1f;
-  --color-apple-ink-secondary: #6e6e73;
-  --color-apple-ink-tertiary: #aeaeb2;
-  --color-apple-accent: #007aff;
-  --color-apple-accent-hover: #0056cc;
-  --color-apple-success: #34c759;
-  --color-apple-success-bg: rgba(52, 199, 89, 0.10);
-  --color-apple-warning: #ff9500;
-  --color-apple-warning-bg: rgba(255, 149, 0, 0.10);
-  --color-apple-error: #ff3b30;
-  --color-apple-error-bg: rgba(255, 59, 48, 0.10);
-  --color-apple-info: #007aff;
-  --color-apple-info-bg: rgba(0, 122, 255, 0.10);
-  --color-apple-border: #d2d2d7;
-  --color-apple-border-subtle: #e5e5ea;
+  /* 批次 6（2026-09-29）：原 17 个 `--color-apple-*` 收编槽位已随别名层退役一并删除。
+   * 全部消费者已收敛到语义权威槽（accent→--color-primary、ink-*→--color-text-*、
+   * surface-*→--color-bg-*、成功/警告/错误/信息→--color-{success,warning,danger,info}-*）。
+   * 回潮由 `check-frontend-consistency.js` 的 appleAlias 检查拦截（基线 = 0）。 */
   /* 分析分值语义色（原 ViralAnalysis.scoreColor 硬编码，T1-3a 收编） */
   --color-score-high: #e74c3c;
   --color-score-mid: #e67e22;
@@ -168,6 +154,34 @@
   --color-intel-score-mid: #f57c00;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
+
+  /* === 语义槽补齐（批次 2：ui-apple-token-retirement Task 2）===
+   * 迁移 `--apple-*` 消费点之前，这些维度必须先在权威文件有槽位
+   * （desktop-ui-consistency spec：「缺失槽位不得就地写字面量」）。
+   * 取值刻意与别名层 `apple-design-tokens.css` 现值逐字一致
+   * ⇒ 迁移时字重/字体族/行高/动效的渲染不变（本批次为纯新增，零视觉回归）。 */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --font-family-display: 'SF Pro Display', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --font-family-text: 'SF Pro Text', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --font-family-mono: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --ease-default: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 间距补档：间距族此前止于 --spacing-10(40px)，而 history-page.css 用到 64px（批次 5 依赖） */
+  --spacing-16: 64px;
 }
 
 [data-theme="dark"] {
@@ -222,4 +236,21 @@
   --color-sidebar-hover-bg-strong: rgba(255, 255, 255, .08);
   --color-sidebar-active-bg: rgba(123, 116, 255, .18);
   --shadow-sidebar-active: 0 2px 9px rgba(0, 0, 0, .35);
+
+  /* === 暗色文字档补齐（批次 2：ui-apple-token-retirement Task 2）===
+   * 此前 dark 块**完全没有** --color-text-* 覆盖 ⇒ 浅色深字（#1e1b4b 系）落在暗底上不可读，
+   * 而视觉门禁此前没有暗色通道（批次 1 才建），属无人看守的暗色盲区。
+   * 取值与该文件暗色 sidebar 文字档同一实测口径，在暗色卡片底（--color-bg-card = #232329）上：
+   *   strong 14.35:1 / primary 12.80:1 / secondary 7.53:1 / muted 6.7:1（全部 ≥ 4.5:1）
+   * 注意：本注释刻意不写「变量: 值;」形状 —— 契约测试用 `[^;]+;` 抽变量，
+   * 注释里出现该形状会把后面真正的定义整段吞进上一个匹配（实测踩过）。
+   * 回归锁见 src/styles/tokens.slots.test.js（含 WCAG 对比度计算断言）。 */
+  --color-text-strong: #f5f5f7;
+  --color-text-primary: #e8e8ed;
+  --color-text-secondary: #b4b2c6;
+  --color-text-muted: #a9a7bd;
+
+  /* 品牌淡底暗色变体：浅色是浅蓝底 #eff6fb，暗色改为品牌紫半透明叠加
+   * （与 --color-sidebar-active-bg 同口径），否则暗色下仍是浅色底、观感突兀 */
+  --color-primary-light: rgba(123, 116, 255, .18);
 }

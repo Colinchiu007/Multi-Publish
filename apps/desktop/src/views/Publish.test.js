@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
@@ -81,6 +81,8 @@ async function createWrapper() {
       plugins: [router, createPinia(), i18n],
       components: { UiButton, UiInput },
       stubs: {
+        // UiModal 走 Teleport to body，不就地渲染则 wrapper.find 取不到弹窗节点（封面放大预览用例依赖）
+        teleport: true,
         "el-checkbox-group": { template: "<div><slot/></div>" },
         "el-checkbox": { template: "<label><input type='checkbox' /><slot/></label>" },
         "el-upload": { template: "<div><slot/></div>" },
@@ -105,6 +107,14 @@ function findButtonByText(wrapper, text) {
   return button;
 }
 
+// 手动放行的 promise：用于构造「旧请求尚未返回、新请求已完成」的竞态现场
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 describe("PublishView", () => {
   beforeEach(async () => {
     i18n.global.locale.value = "zh";
@@ -127,6 +137,13 @@ describe("PublishView", () => {
       draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
       storeGetSetting: vi.fn().mockResolvedValue(null),
       storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
+      // 封面缩略图：本地路径 → dataURL（PRD-PUBLISH-COVER-PREVIEW §4）
+      readCoverData: vi.fn().mockResolvedValue({ code: 0, data: { dataUrl: "data:image/jpeg;base64,COVER" }, message: "封面读取成功" }),
+      // 浮层互斥合同走 pageManager 命名空间（invokePageManager → api.pageManager[method]）
+      pageManager: {
+        suspendEmbeddedViews: vi.fn().mockResolvedValue(true),
+        resumeEmbeddedViews: vi.fn().mockResolvedValue(true),
+      },
     };
     mockAccountLoad.mockClear();
   });
@@ -410,9 +427,12 @@ describe("PublishView", () => {
     w.vm.article.publishTime = "2026-07-21T12:00";
     w.vm.selectedAccounts = { wechat_mp: ["acc1"] };
     w.vm.replaceDiffEdits({ wechat_mp: { title: "微信标题", content: "" } });
+    // P1-4 定时×草稿互斥：带定时保存会弹确认；本用例验证「保留定时保存」侧的完整往返
+    ElMessageBox.confirm.mockRejectedValueOnce(new Error("cancel"));
 
     await w.vm.saveDraft();
 
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1);
     expect(window.electronAPI.draftSave).toHaveBeenCalledWith(expect.objectContaining({
       title: "完整草稿",
       author: "作者",
@@ -603,6 +623,13 @@ describe("PublishView — extra coverage", () => {
       draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
       storeGetSetting: vi.fn().mockResolvedValue(null),
       storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
+      // 封面缩略图：本地路径 → dataURL（PRD-PUBLISH-COVER-PREVIEW §4）
+      readCoverData: vi.fn().mockResolvedValue({ code: 0, data: { dataUrl: "data:image/jpeg;base64,COVER" }, message: "封面读取成功" }),
+      // 浮层互斥合同走 pageManager 命名空间（invokePageManager → api.pageManager[method]）
+      pageManager: {
+        suspendEmbeddedViews: vi.fn().mockResolvedValue(true),
+        resumeEmbeddedViews: vi.fn().mockResolvedValue(true),
+      },
     };
     mockAccountLoad.mockClear();
   });
@@ -758,6 +785,124 @@ describe("PublishView — extra coverage", () => {
     expect(() => w.vm.handleVideoFileExceed([])).not.toThrow();
   });
 
+  // ── 视频选择反馈差异化（PRD-VIDEO-SELECT-FEEDBACK-2026-09-28）──
+  it("first video selection shows a named success toast and fills videoFileMeta", async () => {
+    const { ElMessage } = await import("element-plus");
+    ElMessage.success.mockClear();
+    const w = await createWrapper();
+    const raw = { name: "01.mp4", type: "video/mp4", size: 12 };
+
+    await w.vm.handleVideoFileChange({ raw, name: raw.name });
+
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+    expect(w.vm.videoFileMeta).toEqual({ name: "01.mp4", sizeBytes: 12, formatLabel: "MP4" });
+    expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining("01.mp4"));
+  });
+
+  it("reselecting a different video shows a replacement toast with old and new names", async () => {
+    const { ElMessage } = await import("element-plus");
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    window.electronAPI.getPathForFile.mockReturnValueOnce("D:/media/02.mp4");
+    ElMessage.success.mockClear();
+
+    await w.vm.handleVideoFileChange({ raw: { name: "02.mp4", type: "video/mp4", size: 20 }, name: "02.mp4" });
+
+    expect(w.vm.article.video_path).toBe("D:/media/02.mp4");
+    expect(w.vm.videoFileMeta.name).toBe("02.mp4");
+    const text = ElMessage.success.mock.calls[0][0];
+    expect(text).toContain("02.mp4");
+    expect(text).toContain("01.mp4");
+  });
+
+  it("reselecting the same video shows an info toast instead of success", async () => {
+    const { ElMessage } = await import("element-plus");
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    ElMessage.info.mockClear();
+    ElMessage.success.mockClear();
+
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+
+    expect(ElMessage.info).toHaveBeenCalledWith(expect.stringContaining("01.mp4"));
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+  });
+
+  it("oversize video (>500MB) is rejected up front and keeps the previous selection", async () => {
+    const { ElMessage } = await import("element-plus");
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    ElMessage.warning.mockClear();
+
+    await w.vm.handleVideoFileChange({ raw: { name: "big.mp4", type: "video/mp4", size: 600 * 1024 * 1024 }, name: "big.mp4" });
+
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+    expect(w.vm.videoFileMeta.name).toBe("01.mp4");
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("500MB"));
+  });
+
+  it("remove clears videoFileMeta along with video_path", async () => {
+    const w = await createWrapper();
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+    expect(w.vm.videoFileMeta).not.toBeNull();
+
+    w.vm.handleVideoFileRemove();
+
+    expect(w.vm.article.video_path).toBe("");
+    expect(w.vm.videoFileMeta).toBeNull();
+  });
+
+  it("card remove button clears the el-upload list and selection state", async () => {
+    const w = await createWrapper();
+    const clearFiles = vi.fn();
+    w.vm.videoUploadRef = { clearFiles };
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
+
+    w.vm.handleVideoCardRemove();
+
+    expect(clearFiles).toHaveBeenCalledTimes(1);
+    expect(w.vm.article.video_path).toBe("");
+    expect(w.vm.videoFileMeta).toBeNull();
+  });
+
+  it("video mode renders the persistent selected card after selection", async () => {
+    await router.push("/?type=video");
+    const w = await createWrapper();
+    expect(w.find('[data-testid="video-selected-card"]').exists()).toBe(false);
+
+    await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 25 * 1024 * 1024 }, name: "01.mp4" });
+    await nextTick();
+
+    const card = w.find('[data-testid="video-selected-card"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("01.mp4");
+    expect(card.text()).toContain("25.00 MB");
+  });
+
+  it("video_path restored from query (no File meta) still renders the card with basename fallback", async () => {
+    await router.push("/?type=video&video_path=" + encodeURIComponent("D:/media/restored.mov"));
+    const w = await createWrapper();
+    await flushPromises();
+    await nextTick();
+
+    const card = w.find('[data-testid="video-selected-card"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("restored.mov");
+  });
+
+  it("triggerVideoReselect clicks the hidden file input of el-upload", async () => {
+    const w = await createWrapper();
+    const click = vi.fn();
+    const querySelector = vi.fn(() => ({ click }));
+    w.vm.videoUploadRef = { $el: { querySelector } };
+
+    w.vm.triggerVideoReselect();
+
+    expect(querySelector).toHaveBeenCalledWith('input[type="file"]');
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it("封面提取结果使用当前语言的提示文案", async () => {
     const w = await createWrapper();
     w.vm.article.video_path = "D:/source.mp4";
@@ -782,6 +927,227 @@ describe("PublishView — extra coverage", () => {
 
     expect(w.vm.article.cover_path).toBe("");
     expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("无法获取所选"));
+  });
+
+  // ─── 封面缩略图与放大预览（01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md）───
+  describe("封面缩略图与放大预览", () => {
+    // useEmbeddedViewSuspension 的 activeOwners 是模块级 Set（跨组件共享去重），
+    // 挂起「恰好一次」的语义在测试内会变成顺序依赖 —— 必须显式卸载释放，
+    // 否则上一条用例残留的 owner 会让下一条的 suspend 不再发 IPC。
+    let current = null;
+    afterEach(async () => {
+      if (current) { current.unmount(); await nextTick(); current = null; }
+    });
+
+    async function mountWithCover(coverPath) {
+      const w = await createWrapper();
+      current = w;
+      // 默认落在图文形态；本组用例的主场景是视频发布页，显式切换以免测到另一行
+      w.vm.activeMode = "video";
+      await nextTick();
+      if (coverPath) {
+        w.vm.article.cover_path = coverPath;
+        await nextTick();
+        await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(true));
+      }
+      return w;
+    }
+
+    it("封面路径落位后出现缩略图，src 为 readCoverData 返回的 dataURL", async () => {
+      const w = await mountWithCover("D:/covers/video-cover.jpg");
+
+      const img = w.get('[data-testid="cover-thumbnail"] img');
+      expect(img.attributes("src")).toBe("data:image/jpeg;base64,COVER");
+      expect(window.electronAPI.readCoverData).toHaveBeenCalledWith("D:/covers/video-cover.jpg");
+    });
+
+    it("【从视频提取封面】写入的封面立即出缩略图（需求主场景）", async () => {
+      const w = await createWrapper();
+      current = w;
+      w.vm.article.video_path = "D:/source.mp4";
+      window.electronAPI.extractVideoCover = vi.fn().mockResolvedValue({ data: { coverPath: "D:/tmp/video-cover.jpg" } });
+
+      await w.vm.handleExtractVideoCover();
+      await nextTick();
+      await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(true));
+
+      expect(w.vm.article.cover_path).toBe("D:/tmp/video-cover.jpg");
+    });
+
+    it("【AI 生成封面】写入的封面同样出缩略图（与提取同口径，不按入口分别实现）", async () => {
+      const w = await createWrapper();
+      current = w;
+      window.electronAPI.generateAiCover = vi.fn().mockResolvedValue({ code: 0, data: { coverPath: "D:/tmp/ai-cover.png" } });
+      // handleGenerateAiCover 无入参，读的是 aiCoverForm 这个 reactive 表单
+      w.vm.aiCoverForm.prompt = "赛博城市夜景";
+
+      await w.vm.handleGenerateAiCover();
+      await nextTick();
+      await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(true));
+
+      expect(w.vm.article.cover_path).toBe("D:/tmp/ai-cover.png");
+      expect(window.electronAPI.readCoverData).toHaveBeenCalledWith("D:/tmp/ai-cover.png");
+    });
+
+    it("连续「提取 → AI 生成」时缩略图最终必须是最后一次的结果（迟到响应不得倒灌）", async () => {
+      const first = deferred();
+      const second = deferred();
+      const w = await createWrapper();
+      current = w;
+      window.electronAPI.readCoverData = vi.fn()
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise);
+
+      w.vm.article.cover_path = "D:/tmp/video-cover.jpg";
+      await nextTick();
+      w.vm.article.cover_path = "D:/tmp/ai-cover.png";
+      await nextTick();
+
+      second.resolve({ code: 0, data: { dataUrl: "data:image/png;base64,NEW" } });
+      await vi.waitFor(() => expect(w.get('[data-testid="cover-thumbnail"] img').attributes("src")).toBe("data:image/png;base64,NEW"));
+
+      first.resolve({ code: 0, data: { dataUrl: "data:image/jpeg;base64,STALE" } });
+      await nextTick();
+      await nextTick();
+
+      expect(w.get('[data-testid="cover-thumbnail"] img').attributes("src")).toBe("data:image/png;base64,NEW");
+    });
+
+    it("点击缩略图打开放大预览，关闭按钮收起并释放内嵌视图挂起", async () => {
+      const w = await mountWithCover("D:/covers/video-cover.jpg");
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(false);
+
+      await w.get('[data-testid="cover-thumbnail"]').trigger("click");
+      await nextTick();
+      await nextTick();
+
+      const dialog = w.get('[data-testid="cover-preview-dialog"]');
+      expect(dialog.exists()).toBe(true);
+      expect(w.get('[data-testid="cover-preview-image"]').attributes("src")).toBe("data:image/jpeg;base64,COVER");
+      expect(window.electronAPI.pageManager.suspendEmbeddedViews).toHaveBeenCalledWith("publish-cover-preview");
+
+      await dialog.get('[data-testid="ui-modal-close"]').trigger("click");
+      await nextTick();
+      await nextTick();
+
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(false);
+      expect(window.electronAPI.pageManager.resumeEmbeddedViews).toHaveBeenCalledWith("publish-cover-preview");
+    });
+
+    it("缩略图可聚焦并用 Enter 打开（键盘不得只服务鼠标）", async () => {
+      const w = await mountWithCover("D:/covers/video-cover.jpg");
+      const thumb = w.get('[data-testid="cover-thumbnail"]');
+      expect(thumb.attributes("role")).toBe("button");
+      expect(thumb.attributes("tabindex")).toBe("0");
+
+      await thumb.trigger("keydown.enter");
+      await nextTick();
+      await nextTick();
+
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(true);
+    });
+
+    it("预览打开期间换封面 → 弹窗关闭（不得显示与真源不符的旧图）", async () => {
+      const w = await mountWithCover("D:/covers/video-cover.jpg");
+      await w.get('[data-testid="cover-thumbnail"]').trigger("click");
+      await nextTick();
+      await nextTick();
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(true);
+
+      w.vm.article.cover_path = "D:/covers/other.jpg";
+      await nextTick();
+      await nextTick();
+
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(false);
+      expect(window.electronAPI.pageManager.resumeEmbeddedViews).toHaveBeenCalledWith("publish-cover-preview");
+    });
+
+    it("预览读取失败 → 显示「封面预览不可用」占位，且发布契约节点仍在", async () => {
+      const w = await createWrapper();
+      current = w;
+      w.vm.activeMode = "video";
+      await nextTick();
+      window.electronAPI.readCoverData = vi.fn().mockResolvedValue({ code: 1, message: "不支持的图片格式: .gif" });
+
+      w.vm.article.cover_path = "D:/covers/anim.gif";
+      await nextTick();
+      await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail-unavailable"]').exists()).toBe(true));
+
+      expect(w.get('[data-testid="cover-thumbnail-unavailable"]').text()).toContain("封面预览不可用");
+      // 具体原因必须留在 title 上，否则排障时现场丢失
+      expect(w.get('[data-testid="cover-thumbnail-unavailable"]').attributes("title")).toBe("不支持的图片格式: .gif");
+      // 隐藏契约节点不得被本次改造挪走（tests/e2e 依赖 dataset.coverPath）
+      expect(w.get('[data-testid="cover-state"]').attributes("data-cover-path")).toBe("D:/covers/anim.gif");
+    });
+
+    it("删除封面 → 缩略图消失且不再持有挂起", async () => {
+      const w = await mountWithCover("D:/covers/video-cover.jpg");
+      await w.get('[data-testid="cover-thumbnail"]').trigger("click");
+      await nextTick();
+      await nextTick();
+
+      w.vm.handleCoverFileRemove();
+      await nextTick();
+      await nextTick();
+
+      expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(false);
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(false);
+      expect(window.electronAPI.pageManager.resumeEmbeddedViews).toHaveBeenCalledWith("publish-cover-preview");
+    });
+
+    it("空封面不发 IPC、不渲染缩略图（正常空态而非错误）", async () => {
+      const w = await createWrapper();
+      current = w;
+      await nextTick();
+
+      expect(window.electronAPI.readCoverData).not.toHaveBeenCalled();
+      expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(false);
+      expect(w.find('[data-testid="cover-thumbnail-unavailable"]').exists()).toBe(false);
+    });
+
+    it("草稿恢复的封面也出缩略图（入口 5：不经任何按钮，正是「挂在字段上」要保住的场景）", async () => {
+      window.electronAPI.draftList.mockResolvedValue({
+        code: 0,
+        data: [{
+          id: "draft-cover",
+          title: "草稿标题",
+          content: "草稿正文",
+          platforms: ["zhihu"],
+          cover_path: "D:/drafts/restored-cover.jpg",
+        }],
+      });
+      const w = await createWrapper();
+      current = w;
+      w.vm.activeMode = "video";
+      await nextTick();
+      await w.vm.loadDrafts();
+      await flushPromises();
+
+      await w.vm.loadDraft("draft-cover");
+      await nextTick();
+      await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(true));
+
+      expect(w.vm.article.cover_path).toBe("D:/drafts/restored-cover.jpg");
+      expect(w.get('[data-testid="cover-thumbnail"] img').attributes("src")).toBe("data:image/jpeg;base64,COVER");
+    });
+
+    it("图文发布形态的封面行同样出缩略图并可放大（同一字段共用同一份预览）", async () => {
+      const w = await createWrapper();
+      current = w;
+      w.vm.activeMode = "article";
+      await nextTick();
+
+      w.vm.article.cover_path = "D:/covers/article.png";
+      await nextTick();
+      await vi.waitFor(() => expect(w.find('[data-testid="cover-thumbnail"]').exists()).toBe(true));
+
+      expect(window.electronAPI.readCoverData).toHaveBeenCalledTimes(1);
+
+      await w.get('[data-testid="cover-thumbnail"]').trigger("click");
+      await nextTick();
+      await nextTick();
+      expect(w.find('[data-testid="cover-preview-dialog"]').exists()).toBe(true);
+    });
   });
 
   it("点击 AI 按钮会打开写作面板", async () => {
@@ -982,4 +1348,131 @@ describe("PublishView — 右栏信息架构与面板联动", () => {
   });
 });
 
-});
+  it('发布结果链接非 http/https 时不成链；成链时必须带 rel="noopener"（PRD-HREF-SCHEME-GUARD）', async () => {
+    const w = await createWrapper();
+    w.vm.article.title = "Test";
+    w.vm.article.content = "Content";
+    await w.vm.handlePublish();
+    await nextTick();
+    expect(w.vm.result.success).toBe(true);
+
+    w.vm.result.url = "https://weibo.com/detail/1";
+    await nextTick();
+    const link = w.find("a.result-link");
+    expect(link.exists()).toBe(true);
+    expect(link.attributes("href")).toBe("https://weibo.com/detail/1");
+    expect(link.attributes("rel")).toBe("noopener");
+
+    w.vm.result.url = "javascript:alert(1)";
+    await nextTick();
+    expect(w.find("a.result-link").exists()).toBe(false);
+    const plain = w.find("span.result-link");
+    expect(plain.exists()).toBe(true);
+    expect(plain.text()).toBe("javascript:alert(1)");
+  });
+
+
+describe("PublishView — 话题内联描述接线（publish-topic-inline-description）", () => {
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {
+      publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      getPathForFile: vi.fn().mockReturnValue('D:/media/from-file-api.mp4'),
+      sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
+      offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
+      offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
+      onProgress: vi.fn(() => vi.fn()),
+      batchCreate: vi.fn().mockResolvedValue({ code: 0, data: { id: "batch1" } }),
+      batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
+      batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
+      onBatchProgress: vi.fn(() => vi.fn()),
+      draftSave: vi.fn().mockResolvedValue({ code: 0 }),
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
+      storeGetSetting: vi.fn().mockResolvedValue(null),
+      storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
+    };
+    mockAccountLoad.mockClear();
+  });
+
+  it("话题框输入后描述尾部追加 #话题（所见即所得）", async () => {
+    const w = await createWrapper();
+    w.vm.article.title = '探店标题';
+    w.vm.article.content = '今天探店';
+    await nextTick();
+
+    w.vm.topicsText = '美食探店, vlog';
+    await nextTick();
+
+    expect(w.vm.article.topics).toEqual(['美食探店', 'vlog']);
+    expect(w.vm.article.content).toBe('今天探店 #美食探店 #vlog');
+  });
+
+  it("话题框删除话题时描述同步移除对应片段", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '今天探店 #美食探店 #vlog';
+    w.vm.article.topics = ['美食探店', 'vlog'];
+    await nextTick();
+
+    w.vm.topicsText = 'vlog';
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('今天探店 #vlog');
+  });
+
+  it("标签框输入同样经追加管道进描述", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文';
+    await nextTick();
+
+    w.vm.tagsText = 'AI';
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('正文 #AI');
+  });
+
+  it("智能标签建议 apply-tag 后描述追加（三入口统一）", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文内容';
+    await nextTick();
+
+    w.vm.applySuggestedTag('新标签');
+    await nextTick();
+
+    expect(w.vm.article.tags).toEqual(['新标签']);
+    expect(w.vm.article.content).toBe('正文内容 #新标签');
+  });
+
+  it("描述已有同话题时输入框再填不产生双份（词边界去重）", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文 #美食探店';
+    await nextTick();
+
+    w.vm.topicsText = '美食探店';
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('正文 #美食探店');
+  });
+
+  it("批量模式标签输入同步该篇 content（各篇独立）", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.addArticle();
+    w.vm.articles[0].content = '第一篇正文';
+    w.vm.articles[1].content = '第二篇正文';
+    await nextTick();
+
+    w.vm.setBatchTagsText(w.vm.articles[0], '美食');
+    w.vm.setBatchTopicsText(w.vm.articles[1], 'vlog');
+    await nextTick();
+
+    expect(w.vm.articles[0].content).toBe('第一篇正文 #美食');
+    expect(w.vm.articles[0].tagsText).toBe('美食');
+    expect(w.vm.articles[1].content).toBe('第二篇正文 #vlog');
+    expect(w.vm.articles[1].topicsText).toBe('vlog');
+  });
+});});

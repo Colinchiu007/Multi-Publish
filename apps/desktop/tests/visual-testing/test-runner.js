@@ -264,6 +264,16 @@ class VisualTestRunner {
       await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
     }
     await this._waitForApplicationReady(expectedHash, readySelector);
+    await this.settleForCapture();
+  }
+
+  /**
+   * 截图前的确定性渲染收口：等字体与稳定帧、把动画/过渡归零、回到顶部、等网络空闲。
+   * 视图用例经 _navigateToRoute 调用；工作流用例必须在**每一步截图之前**调用 ——
+   * 否则拍到的是入场过渡的中间态（实测 CI 上 dashboard-benchmark-title-reset 末态
+   * 与 CI 渲染的默认视图差 10.84%，整页半透明且下半屏区块尚未出现）。
+   */
+  async settleForCapture() {
     if (typeof this.page.evaluate === 'function') {
       await this.page.evaluate(async () => {
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
@@ -392,6 +402,37 @@ class VisualTestRunner {
   }
 
   /**
+   * 主题 → 基线文件名后缀（批次 1：暗色基线通道）
+   * 浅色沿用历史命名（既有 22 条基线不受影响），暗色用独立后缀，二者互不覆盖。
+   */
+  static themeSuffix(theme) {
+    return theme === 'dark' ? '-dark' : ''
+  }
+
+  /**
+   * 把主题写到 DOM（批次 1：暗色基线通道）
+   *
+   * - `data-theme` 是应用唯一的主题开关（`src/composables/useTheme.js` 的 `applyTheme` 写的就是它）
+   * - **每个用例都必须显式设置**：runner 全用例复用同一个 page，hash 导航不重载文档，
+   *   上一用例残留的 `data-theme="dark"` 会让下一个浅色用例拍出暗色图并与浅色基线比红
+   * - 浅色显式写 `"light"` 与「属性缺失」在样式上等价：全仓 77 处 `[data-theme=...]` 选择器
+   *   **全部是 `dark`**，且不存在 `:not([data-theme])` / `[data-theme=""]` / `html:not(...)`
+   *   这类依赖属性存在性的写法（2026-09-29 实测）。因此本改造**不会改写既有浅色基线的拍摄条件**。
+   * - 非法值一律归一为 `light`（fail-safe：不产出第三套命名）
+   */
+  async _applyTheme(theme) {
+    const normalized = theme === 'dark' ? 'dark' : 'light'
+    await this.page.evaluate((value) => {
+      document.documentElement.setAttribute('data-theme', value)
+    }, normalized)
+    // 主题改的是 CSS 变量求值结果 → 等两个稳定帧再截图（与字体/动画稳定帧同源手法）
+    await this.page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    }))
+    return normalized
+  }
+
+  /**
    * 像素对比测试
    */
   async pixelRegressionTest(testName, route, options = {}) {
@@ -407,11 +448,14 @@ class VisualTestRunner {
     if (typeof options.prepare === 'function') {
       await options.prepare(this.page);
     }
+    // 主题在截图前显式落地（暗色通道）；顺序在 prepare 之后，保证页面态与主题一致
+    const theme = await this._applyTheme(options.theme);
+    const themeSuffix = VisualTestRunner.themeSuffix(theme);
     // 等待视口图片就绪，避免懒加载/异步解码导致截图不稳定
     await this._waitForImagesSettled();
     
-    const currentPath = path.join(this.screenshotDir, `${testName}-current.png`);
-    const baselinePath = path.join(this.baselineDir, `${testName}.png`);
+    const currentPath = path.join(this.screenshotDir, `${testName}${themeSuffix}-current.png`);
+    const baselinePath = path.join(this.baselineDir, `${testName}${themeSuffix}.png`);
     
     await this.page.screenshot({ path: currentPath });
     this._throwOnRuntimeErrors(testName, consoleOffset, pageOffset);
@@ -426,24 +470,26 @@ class VisualTestRunner {
           status: 'FAILED',
           reason: error.message,
           route,
+          theme,
         });
         throw error;
       }
 
       await this.pixelDiff.updateBaseline(currentPath, baselinePath);
-      // 保存 meta 信息
-      this.testMeta[testName] = { route, createdAt: new Date().toISOString() };
+      // 保存 meta 信息（key 含主题后缀：同一视图的浅/暗两态不得互相覆盖 meta）
+      this.testMeta[`${testName}${themeSuffix}`] = { route, theme, createdAt: new Date().toISOString() };
       this._saveMeta();
-      this.results.push({ test: testName, status: 'BASELINE_CREATED', route });
-      return { status: 'BASELINE_CREATED', baselinePath };
+      this.results.push({ test: testName, status: 'BASELINE_CREATED', route, theme });
+      return { status: 'BASELINE_CREATED', baselinePath, theme };
     }
     
     // 对比
     const result = await this.pixelDiff.compare(baselinePath, currentPath, testName);
     
     // 保存 meta 信息（包括真实 misMatchPercentage）
-    this.testMeta[testName] = { 
+    this.testMeta[`${testName}${themeSuffix}`] = { 
       route, 
+      theme,
       misMatchPercentage: result.misMatchPercentage,
       threshold: this.pixelDiff.threshold,
       updatedAt: new Date().toISOString()
@@ -455,7 +501,8 @@ class VisualTestRunner {
       status: result.passed ? 'PASSED' : 'FAILED',
       misMatchPercentage: result.misMatchPercentage,
       diffPath: result.diffImagePath,
-      route
+      route,
+      theme
     });
 
     // 对比失败: 主动 throw, 让调用方 (run-pixel-tests.js) 记录 failed 并返回非零退出码

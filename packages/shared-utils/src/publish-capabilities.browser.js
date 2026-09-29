@@ -58,7 +58,49 @@ export function getPlatformOverrideFields (platformId, options = {}) {
   const list = options.uiOnly
     ? fields.filter(field => field.uiExposed && field.status === 'implemented')
     : [...fields]
-  return list.map(field => ({ ...field }))
+  // 深拷贝（options 选项对象与 default 数组一并复制）：浅拷贝会让调用方通过
+  // 返回值突变污染冻结的全局注册表（CCG 评审 W5 实锤：options 共享引用可突变）。
+  return list.map(field => ({
+    ...field,
+    ...(Array.isArray(field.options) ? { options: field.options.map(option => ({ ...option })) } : {}),
+    ...(Array.isArray(field.default) ? { default: [...field.default] } : {}),
+  }))
+}
+
+// ─── P1-5 语义级可见性（通用控件）────────────────────────────────────────────
+// 与 publish-capabilities.js 的 CJS 实现逐字对齐；漂移由 parity 回归拦截。
+const VISIBILITY_SEMANTICS = Object.freeze(['public', 'friends', 'private'])
+
+export function getVisibilityField (platformId) {
+  const fields = OVERRIDE_FIELDS[String(platformId || '')] || []
+  return fields.find(field => field.semantic === 'visibility') || null
+}
+
+export function mapVisibilitySemantic (platformId, semantic) {
+  const key = String(semantic || '')
+  if (!VISIBILITY_SEMANTICS.includes(key)) return null
+  const field = getVisibilityField(platformId)
+  if (!field || !field.semanticValues) return null
+  const value = field.semanticValues[key]
+  return value === undefined ? null : value
+}
+
+export function resolveVisibilityOverride (platformId, semantic) {
+  const field = getVisibilityField(platformId)
+  if (!field) return null
+  const value = mapVisibilitySemantic(platformId, semantic)
+  if (value === null) return null
+  return { fieldKey: field.key, value }
+}
+
+export function getVisibilitySemanticSupport () {
+  const result = {}
+  for (const semantic of VISIBILITY_SEMANTICS) {
+    result[semantic] = Object.keys(OVERRIDE_FIELDS).filter(
+      platformId => mapVisibilitySemantic(platformId, semantic) !== null
+    )
+  }
+  return result
 }
 
 export function getCommonFormFields () {
@@ -165,6 +207,16 @@ export function validateRegistry () {
       }
       if (field.status === 'platform-capable' && !field.note) {
         problems.push(`${platformId}.${field.key}: platform-capable 字段必须带 note 证据`)
+      }
+      // P1-5：semanticValues 声明的平台值必须真实存在于该字段 options 中
+      // （映射到不存在的值会在发布时被归一化回落，用户选择静默失效）
+      if (field.semanticValues) {
+        const optionValues = (field.options || []).map(option => option.value)
+        for (const [semantic, value] of Object.entries(field.semanticValues)) {
+          if (!optionValues.some(optionValue => optionValue === value)) {
+            problems.push(`${platformId}.${field.key}: semanticValues.${semantic} 值 ${JSON.stringify(value)} 不在 options 中`)
+          }
+        }
       }
     }
   }

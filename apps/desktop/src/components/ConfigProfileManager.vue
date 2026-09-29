@@ -454,19 +454,19 @@ watch(() => props.existingProfiles, (value) => {
 <style scoped>
 .config-profile-manager { display: inline-flex; align-items: center; }
 .config-profile-entry-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
-.config-profile-entry { border: 0; background: transparent; color: var(--apple-accent); cursor: pointer; font: inherit; padding: 0; }
+.config-profile-entry { border: 0; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; padding: 0; }
 .config-profile-entry:disabled { opacity: .5; cursor: not-allowed; }
 .config-profile-dialog, .config-profile-list { min-width: 0; }
-.config-profile-hint, .config-profile-state { color: var(--apple-ink-secondary); font-size: var(--apple-size-sm); line-height: 1.5; }
-.config-profile-error { color: var(--apple-error); font-size: var(--apple-size-sm); line-height: 1.5; }
-.config-profile-input { width: 100%; box-sizing: border-box; border: 1px solid var(--apple-border); border-radius: var(--apple-radius-sm); padding: 8px 10px; font: inherit; }
+.config-profile-hint, .config-profile-state { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; }
+.config-profile-error { color: var(--color-danger); font-size: var(--font-size-sm); line-height: 1.5; }
+.config-profile-input { width: 100%; box-sizing: border-box; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: 8px 10px; font: inherit; }
 .config-profile-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.config-profile-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--apple-border-subtle); border-radius: var(--apple-radius-sm); padding: 10px; }
+.config-profile-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 10px; }
 .config-profile-content { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.config-profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--apple-weight-semibold); }
-.config-profile-meta { color: var(--apple-ink-tertiary); font-size: var(--font-size-xs); }
+.config-profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--font-weight-semibold); }
+.config-profile-meta { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .config-profile-actions { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
-.config-profile-actions button { border: 1px solid var(--apple-border); border-radius: var(--apple-radius-sm); background: var(--apple-surface-primary); color: var(--apple-ink-secondary); cursor: pointer; padding: 4px 7px; font-size: var(--font-size-xs); }
+.config-profile-actions button { border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-bg-card); color: var(--color-text-secondary); cursor: pointer; padding: 4px 7px; font-size: var(--font-size-xs); }
 .config-profile-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .config-profile-confirm { line-height: 1.6; }
 .config-profile-confirm strong { margin-left: 4px; }

@@ -49,7 +49,11 @@ function toIpcError (error) {
 class BatchManager {
   constructor (store) {
     this.store = store
-    this._timers = new Set()   // 跟踪 scheduleBatch 创建的所有 setTimeout 句柄
+    // batchId -> Set<timer>：按批次索引定时器，支撑「取消单批次」与「重复排期去重」。
+    // 原为 Set<timer>（无批次索引）直接导致两个真实缺陷：
+    //   b1 幽灵发布：batch:delete 无法定位该批次定时器 → 删记录后 setTimeout 仍在，到点照样发布；
+    //   b2 重复排期：scheduleBatch 重复调用把新 timer 累加进同一个 Set → 重复定时器 → 重复发布。
+    this._timers = new Map()
     this._ownerSubjectProvider = null
   }
 
@@ -119,12 +123,46 @@ class BatchManager {
    * 清理所有排期中的定时器（应用退出时调用）
    */
   stopAll () {
-    const count = this._timers.size
-    for (const timer of this._timers) {
-      clearTimeout(timer)
+    let count = 0
+    for (const timers of this._timers.values()) {
+      for (const timer of timers) {
+        clearTimeout(timer)
+        count += 1
+      }
     }
     this._timers.clear()
     log.info('BatchManager', `Cleared ${count} pending batch timers`)
+  }
+
+  /**
+   * 清除某批次已登记的全部定时器（重复排期去重 / 取消 / 删除三处复用同一定时器索引）。
+   * 定时器索引的唯一真源是 `this._timers`（Map<batchId, Set<timer>>）；禁止在别处
+   * 再维护第二份 batchId→timer 映射，否则取消与去重必然漂移。
+   * @param {string} batchId
+   * @returns {number} 实际被清除的定时器数量
+   */
+  _clearBatchTimers (batchId) {
+    const timers = this._timers.get(batchId)
+    if (!timers) return 0
+    for (const timer of timers) clearTimeout(timer)
+    this._timers.delete(batchId)
+    return timers.size
+  }
+
+  /**
+   * 取消排期批次：清定时器 + 状态置 'cancelled'（记录保留可查，不物理删除）。
+   * 与单篇 `scheduler.cancel` 语义对齐——**必须**在返回 true 前把定时器清干净，
+   * 否则到点仍会入队发布（b1 幽灵发布的同族风险）。
+   * @param {string} batchId
+   * @returns {boolean} 是否真的取消了排期（未登记定时器的批次返回 false，不误报成功）
+   */
+  cancelBatch (batchId) {
+    const ownerSubject = this._requireOwnerSubject()
+    const cleared = this._clearBatchTimers(batchId)
+    if (cleared === 0) return false
+    this.store.updateBatchJob(batchId, { status: 'cancelled' }, ownerSubject)
+    log.info('BatchManager', `Batch ${batchId} cancelled (${cleared} timer(s) cleared)`)
+    return true
   }
 
   /**
@@ -348,6 +386,10 @@ class BatchManager {
     const batch = this.store.getBatchJob(batchId, ownerSubject)
     if (!batch) return false
 
+    // b2 重复排期去重：同一批次重复调用（UI 重复点发布 / restore 与手动排期叠加）时，
+    // 必须先清掉上一次登记的定时器，否则新 timer 累加进同一批次 → 到点重复入队发布。
+    this._clearBatchTimers(batchId)
+
     // R40：复用类静态方法归一化（禁止本地副本，避免与 executeBatch 解析逻辑漂移）
     for (const article of batch.articles) {
       if (!article.publishTime || !article.platforms) continue
@@ -368,7 +410,9 @@ class BatchManager {
         for (const platform of article.platforms) {
           const r = BatchManager.resolvePlatform(platform)
           try {
-            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId }, ownerSubject)
+            // publishMode: 'scheduled' — 排期到点的入队任务标记为定时发布，
+            // phase4-events 写入发布历史后历史页可按「定时发布」过滤。
+            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
             Promise.resolve(queued).catch(error => {
               log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
             })
@@ -380,7 +424,11 @@ class BatchManager {
       }
 
       const timer = setTimeout(() => {
-        this._timers.delete(timer)
+        const registered = this._timers.get(batchId)
+        if (registered) {
+          registered.delete(timer)
+          if (registered.size === 0) this._timers.delete(batchId)
+        }
         try {
           // 边界修复：_taskQueue 可能为 null（与立即发布路径对齐）
           if (!_taskQueue) {
@@ -389,7 +437,7 @@ class BatchManager {
           }
           for (const platform of article.platforms) {
             const r = BatchManager.resolvePlatform(platform)
-            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId }, ownerSubject)
+            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
             Promise.resolve(queued).catch(error => {
               log.error('BatchManager', 'Failed to schedule batch task for ' + batchId + ': ' + error.message)
             })
@@ -400,12 +448,43 @@ class BatchManager {
       }, delay)
       // R28 修复：unref 让定时器不阻止进程退出
       if (timer && timer.unref) timer.unref()
-      this._timers.add(timer)
+      if (!this._timers.has(batchId)) this._timers.set(batchId, new Set())
+      this._timers.get(batchId).add(timer)
     }
 
     this.store.updateBatchJob(batchId, { status: 'scheduled' }, ownerSubject)
     log.info('BatchManager', `Batch ${batchId} scheduled (${batch.articles.length} articles)`)
     return true
+  }
+
+  /**
+   * 重启恢复排期批次（P1 缺陷修复）
+   *
+   * scheduleBatch 只把定时器放在内存（this._timers），应用退出即丢失；
+   * batch_jobs 表里 status='scheduled' 的批次在重启后无人重新武装定时器，
+   * 排期文章永不发布（静默数据丢失）。本方法在启动/登录态就绪后遍历
+   * scheduled 批次并复用 scheduleBatch 重新武装：
+   *   - 未来 publishTime → 重新排期；
+   *   - 已过期 publishTime → 立即入队（catch-up，与单篇 scheduler.restore 语义一致）。
+   * 单批次恢复异常只记 warn，不阻断其余批次。
+   * @param {string} [ownerSubject] 显式 owner（身份模式由调用方传入当前登录用户）
+   * @returns {number} 成功恢复的批次数
+   */
+  restoreScheduledBatches (ownerSubject) {
+    const owner = ownerSubject === undefined ? this._requireOwnerSubject() : normalizeOwnerSubject(ownerSubject)
+    const jobs = this.store.listBatchJobs(owner)
+    let restored = 0
+    for (const job of jobs) {
+      if (!job || job.status !== 'scheduled') continue
+      try {
+        if (this.scheduleBatch(job.id)) restored += 1
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error)
+        log.warn('BatchManager', 'Failed to restore scheduled batch ' + job.id + ': ' + message)
+      }
+    }
+    if (restored > 0) log.info('BatchManager', 'Restored ' + restored + ' scheduled batch(es) after restart')
+    return restored
   }
 
   _emitProgress (batchId, taskId, platform, title, result) {
@@ -477,6 +556,16 @@ class BatchManager {
       } catch (e) { return toIpcError(e) }
     }))
 
+    // 取消排期：清定时器 + 状态置 cancelled（记录保留）。与单篇 scheduler:cancel 对齐，
+    // 是渲染层「取消排期」按钮的唯一入口；未登记定时器的批次返回错误而非假装成功。
+    ipcMain.handle('batch:cancel', withSenderCheck((_, batchId) => {
+      try {
+        return this.cancelBatch(batchId)
+          ? { code: 0 }
+          : { code: EC.REQUEST_ERROR, message: '该批次未在排期中' }
+      } catch (e) { return toIpcError(e) }
+    }))
+
     ipcMain.handle('batch:list', withSenderCheck(() => {
       try {
         const ownerSubject = this._requireOwnerSubject()
@@ -497,6 +586,9 @@ class BatchManager {
     ipcMain.handle('batch:delete', withSenderCheck((_, id) => {
       try {
         const ownerSubject = this._requireOwnerSubject()
+        // b1 幽灵发布修复：必须先清该批次的定时器再删记录。只删 DB 记录时内存
+        // setTimeout 仍在，到点会照常入队发布（实测反证：删除后 queue.add 仍被调用）。
+        this._clearBatchTimers(id)
         return this.store.deleteBatchJob(id, ownerSubject)
           ? { code: 0 }
           : { code: EC.REQUEST_ERROR, message: '未找到' }

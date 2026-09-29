@@ -70,20 +70,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-4cwx-7wf7-3272",
-      "module": "undici",
-      "severity": "high",
-      "patched": ">=7.29.0",
-      "roots": [
-        ".",
-        "apps__desktop",
-        "packages__rpa-engine"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "undici 由 packages/rpa-engine 的 HTTP/浏览器驱动链引入；undici 属 Node fetch 底层，优先级高，升级 PR 提到 >=7.29.0。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-4mjr-xmp4-gh2g",
       "module": "qs",
       "severity": "moderate",
@@ -93,18 +79,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-5jgf-p345-68v8",
-      "module": "fast-uri",
-      "severity": "high",
-      "patched": ">=3.1.6",
-      "roots": [
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "fast-uri 为 ajv（schema 校验）在 packages/remotion-composer 的传递依赖；升级 PR 提到 >=3.1.6。"
     },
     {
       "source": "npm",
@@ -134,29 +108,17 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-7p8r-x3mc-p8w7",
-      "module": "fast-uri",
+      "id": "GHSA-9qh4-3jw8-366w",
+      "module": "electron",
       "severity": "high",
-      "patched": ">=3.1.5",
-      "roots": [
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "fast-uri 第二条公告，与 GHSA-5jgf 同一升级动作覆盖。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-8xcm-r25x-g524",
-      "module": "undici",
-      "severity": "moderate",
-      "patched": ">=7.29.0",
+      "patched": ">=43.4.1",
       "roots": [
         ".",
-        "apps__desktop",
-        "packages__rpa-engine"
+        "packages__rpa-engine",
+        "packages__shared-utils"
       ],
       "decision": "upgrade-tracked",
-      "note": "undici 第二条公告，与 GHSA-4cwx 同一升级动作覆盖。"
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
     },
     {
       "source": "npm",
@@ -169,30 +131,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "browserslist 第二条公告，与 GHSA-73wf 同一升级动作覆盖。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-f65p-4m7j-42xc",
-      "module": "fast-uri",
-      "severity": "high",
-      "patched": ">=3.1.6",
-      "roots": [
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "fast-uri 第三条公告，与 GHSA-5jgf 同一升级动作覆盖。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-fph4-wmhf-6fwf",
-      "module": "fast-uri",
-      "severity": "high",
-      "patched": ">=3.1.6",
-      "roots": [
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "fast-uri 第四条公告，与 GHSA-5jgf 同一升级动作覆盖。"
     },
     {
       "source": "npm",
@@ -210,43 +148,31 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-jqff-g426-hqxp",
-      "module": "fast-uri",
+      "id": "GHSA-gr2m-v5gq-v685",
+      "module": "electron",
       "severity": "high",
-      "patched": ">=3.1.6",
+      "patched": ">=43.4.1",
       "roots": [
-        "packages__remotion-composer"
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
       ],
       "decision": "upgrade-tracked",
-      "note": "fast-uri 第五条公告，与 GHSA-5jgf 同一升级动作覆盖。"
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
     },
     {
       "source": "npm",
-      "id": "GHSA-jr45-8vmc-qm54",
-      "module": "undici",
-      "severity": "moderate",
-      "patched": ">=7.29.0",
+      "id": "GHSA-j84w-jfhq-vhvj",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
       "roots": [
         ".",
-        "apps__desktop",
-        "packages__rpa-engine"
+        "packages__rpa-engine",
+        "packages__shared-utils"
       ],
       "decision": "upgrade-tracked",
-      "note": "undici 第三条公告，与 GHSA-4cwx 同一升级动作覆盖。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-m8rv-5g2x-5cg5",
-      "module": "undici",
-      "severity": "moderate",
-      "patched": ">=7.29.0",
-      "roots": [
-        ".",
-        "apps__desktop",
-        "packages__rpa-engine"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "undici 第四条公告，与 GHSA-4cwx 同一升级动作覆盖。"
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
     },
     {
       "source": "npm",
@@ -259,6 +185,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-qmv3-fv6v-rmhq",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.5.0",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 上游新披露 high 公告（修复版本 >=43.5.0）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
     },
     {
       "source": "npm",
@@ -297,32 +237,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "brace-expansion 第三条公告，与 GHSA-3jxr 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-v2hh-gcrm-f6hx",
-      "module": "fast-uri",
-      "severity": "high",
-      "patched": ">=3.1.4",
-      "roots": [
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "fast-uri 第六条公告，与 GHSA-5jgf 同一升级动作覆盖。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-v3r7-h72x-cjcm",
-      "module": "undici",
-      "severity": "moderate",
-      "patched": ">=7.29.0",
-      "roots": [
-        ".",
-        "apps__desktop",
-        "packages__rpa-engine"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "undici 第五条公告，与 GHSA-4cwx 同一升级动作覆盖。"
     },
     {
       "source": "npm",

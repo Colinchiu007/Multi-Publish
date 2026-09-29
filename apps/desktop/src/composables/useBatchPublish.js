@@ -22,10 +22,12 @@ import {
   batchCreate,
   batchExecute,
   batchSchedule,
+  batchCancel,
   batchGet,
   retryTask,
   onBatchProgress,
-  onProgress,
+  offlineStatus,
+  offlineAddToCache,
 } from '@/api/publisher'
 import {
   buildPublishTargets,
@@ -36,6 +38,7 @@ import {
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
+import { usePublishProgressStore } from '@/stores/publishProgress'
 
 let _keyCounter = 1
 
@@ -75,6 +78,8 @@ export function useBatchPublish(options) {
     options.batchStatusPollMaxAttempts,
     DEFAULT_BATCH_STATUS_POLL_MAX_ATTEMPTS,
   )
+  // publish-progress-ux：全局进度 store（会话登记；进度事件由 App 级订阅接收）
+  const publishProgressStore = usePublishProgressStore()
   // 主动操作登录门：批量发布前未登录 → 弹登录引导，登录成功后继续
   const { ensureLogin } = useLoginGate()
   // 统一通知通道（D1 决策）：toast/确认框走 useNotify，进度条文案走 resolveNotifyText
@@ -93,6 +98,9 @@ export function useBatchPublish(options) {
   const batchProgress = ref([])
   const failedBatchTasks = ref([])
   const retryingFailed = ref(false)
+  // 当前会话已排期成功的批次 id：非 null 时页面显示「取消排期」入口
+  // （与单篇的日历取消入口对齐——排期后必须能取消，否则用户只能干等到点）。
+  const scheduledBatchId = ref(null)
   const templateTargetIdx = ref(-1)
   const showTemplatePicker = ref(false)
   let stopBatchProgress = null
@@ -151,6 +159,48 @@ export function useBatchPublish(options) {
     if (batchMode.value && licenseStore && !licenseStore.isPro) {
       batchMode.value = false
     }
+  }
+
+  /**
+   * 构造单篇文章的批量提交负载。
+   * **单一实现**：在线提交（batchCreate）与离线缓存（offlineAddToCache）必须共用同一份
+   * 构造——两份必然漂移，漂移表现为「离线缓存重放出去的文章字段与用户确认时看到的不一致」。
+   */
+  function buildBatchArticlePayload (a) {
+    return {
+      title: a.title,
+      content: a.content,
+      platforms: getArticleTargets(a),
+      publishTime: a.publishTime || null,
+      precheck: precheckEnabled.value,
+      author: a.author || '',
+      cover_url: a.cover_url || '',
+      cover_path: a.cover_path || '',
+      cover_file: a.cover_file || null,
+      video_path: a.video_path || '',
+      images: normalizePublishFiles(a.image_files || a.images).map(file => file.path),
+      image_files: normalizePublishFiles(a.image_files || a.images),
+      tags: normalizePublishStringList(a.tagsText || a.tags),
+      topics: normalizePublishStringList(a.topicsText || a.topics),
+      mentions: normalizePublishMentions(a.mentionsText || a.mentions),
+      // P0-2：批量 payload 补 AI 声明，与单篇 buildArticleData 的 fail-safe 语义对齐
+      aiGenerated: a.aiGenerated !== false,
+    }
+  }
+
+  /**
+   * 离线缓存的 targets 必须归一化为 `{ platform, accountId }` 对象数组。
+   * `getArticleTargets` 在未接入账号目录时返回**字符串数组**（`['wechat_mp']`），
+   * 而离线重放（offline-manager 的 expandCachedTask）只认带 platform 字段的对象——
+   * 直接复用会把缓存写成永远重放不了的畸形条目。
+   */
+  function buildCacheTargets (a) {
+    return buildPublishTargets(
+      a.platforms || [],
+      a.accounts || a.selectedAccounts || {},
+    ).map(function (target) {
+      return { platform: target.platform, accountId: target.accountId || null }
+    })
   }
 
   function toggleBatchAccount (articleItem, platformId, accountId) {
@@ -299,7 +349,6 @@ export function useBatchPublish(options) {
     if (!(await ensureLogin({ message: '批量发布功能需要登录后使用，是否立即登录？' }))) return
     batchPublishing.value = true
 
-    let offProgress
     let keepPublishingLock = false
     try {
       // 验证每篇文章
@@ -372,37 +421,47 @@ export function useBatchPublish(options) {
       clearBatchTracking()
       batchProgress.value = []
       failedBatchTasks.value = []
-      offProgress = onProgress(function (data) {
+      // publish-progress-ux：阶段级本地监听已删除——该监听在 finally 无条件注销，
+      // 而 batchExecute 返回后任务才真正执行，阶段事件本就无人接收（死代码）。
+      // 阶段进度由全局 store 的 App 级订阅承载（PublishProgressPanel）；本页保留
+      // batch:progress 任务级监听 + batchGet 有界轮询驱动页面进度卡。
+
+      // 离线检测（与单篇 usePublishFlow 对齐）：离线时不硬发，逐篇进离线缓存，
+      // 网络恢复后由 offline-manager 按 `{targets, data}` 形状展开重放。
+      const offlineRes = await offlineStatus()
+      if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
+        let cachedCount = 0
+        for (const a of articles.value) {
+          const cacheRes = await offlineAddToCache(toPlainJson({
+            targets: buildCacheTargets(a),
+            data: buildBatchArticlePayload(a),
+          }))
+          if (!cacheRes || cacheRes.code !== 0 || cacheRes.data === false) {
+            const message = formatUserError(cacheRes, {
+              fallback: progressText('publishPage.batchNotify.offlineCacheFailed'),
+            }).message
+            batchProgress.value.push({
+              text: progressText('publishPage.batchNotify.offlineCacheFailed') + ': ' + message,
+              time: new Date().toLocaleTimeString('zh-CN'),
+              type: 'danger',
+            })
+            notifyError('publishPage.batchNotify.offlineCacheFailed', { message })
+            return
+          }
+          cachedCount += 1
+        }
         batchProgress.value.push({
-          text: progressText('publishPage.batchNotify.progressStage', { platform: data.platform, stage: data.stage }),
-          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          type: data.type || 'primary',
+          text: progressText('publishPage.batchNotify.offlineCached', { count: cachedCount }),
+          time: new Date().toLocaleTimeString('zh-CN'),
+          type: 'warning',
         })
-      })
+        notifyWarning('publishPage.batchNotify.offlineCached', { params: { count: cachedCount } })
+        return
+      }
 
       const createRes = await batchCreate(toPlainJson({
         name: progressText('publishPage.batchNotify.batchNamePrefix') + new Date().toLocaleDateString('zh-CN'),
-        articles: articles.value.map(function (a) {
-          return {
-            title: a.title,
-            content: a.content,
-            platforms: getArticleTargets(a),
-            publishTime: a.publishTime || null,
-            precheck: precheckEnabled.value,
-            author: a.author || '',
-            cover_url: a.cover_url || '',
-            cover_path: a.cover_path || '',
-            cover_file: a.cover_file || null,
-            video_path: a.video_path || '',
-            images: normalizePublishFiles(a.image_files || a.images).map(file => file.path),
-            image_files: normalizePublishFiles(a.image_files || a.images),
-            tags: normalizePublishStringList(a.tagsText || a.tags),
-            topics: normalizePublishStringList(a.topicsText || a.topics),
-            mentions: normalizePublishMentions(a.mentionsText || a.mentions),
-            // P0-2：批量 payload 补 AI 声明，与单篇 buildArticleData 的 fail-safe 语义对齐
-            aiGenerated: a.aiGenerated !== false,
-          }
-        }),
+        articles: articles.value.map(buildBatchArticlePayload),
       }))
 
       if (!createRes || createRes.code !== 0) {
@@ -420,6 +479,8 @@ export function useBatchPublish(options) {
         if (!scheduleRes || scheduleRes.code !== 0) {
           throw new Error((scheduleRes && scheduleRes.message) || progressText('publishPage.batchNotify.scheduleFailedFallback'))
         }
+        // 排期成功才暴露取消入口（失败时不留可取消的幽灵状态）
+        scheduledBatchId.value = batchId
         batchProgress.value.push({
           text: progressText('publishPage.batchNotify.progressScheduled', { count: articles.value.length }),
           time: new Date().toLocaleTimeString('zh-CN'),
@@ -500,6 +561,12 @@ export function useBatchPublish(options) {
         if (!executeRes || executeRes.code !== 0) {
           throw new Error((executeRes && executeRes.message) || '批量执行失败')
         }
+        // publish-progress-ux：登记全局会话（按 batchId 归属）——全局面板跨路由跟踪，
+        // 任务条目由进度事件按 batchId 动态归入（PRD-PUBLISH-PROGRESS-UX §5.4）
+        publishProgressStore.registerSession({
+          batchId,
+          title: progressText('publishPage.batchNotify.batchNamePrefix') + new Date().toLocaleDateString('zh-CN'),
+        })
         const executeContract = executeRes.data && typeof executeRes.data === 'object'
           ? executeRes.data
           : executeRes
@@ -576,17 +643,6 @@ export function useBatchPublish(options) {
       })
     } finally {
       if (!keepPublishingLock) batchPublishing.value = false
-      if (typeof offProgress === 'function') {
-        try {
-          offProgress()
-        } catch (cleanupError) {
-          batchProgress.value.push({
-            text: progressText('publishPage.batchNotify.progressCleanupFailed', { message: (cleanupError && cleanupError.message) || progressText('publishPage.batchNotify.unknownError') }),
-            time: new Date().toLocaleTimeString('zh-CN'),
-            type: 'warning',
-          })
-        }
-      }
     }
   }
 
@@ -594,6 +650,39 @@ export function useBatchPublish(options) {
   watch(batchMode, function (val) {
     if (val && articles.value.length === 0) addArticle()
   })
+
+  /**
+   * 取消当前会话已排期的批次（与单篇日历取消入口对齐）。
+   * 主进程 `batch:cancel` 先清内存定时器、再置状态 cancelled——只置状态不清定时器
+   * 会留下幽灵发布，所以取消结果以主进程返回为准，不由渲染层自标记。
+   * 失败时**保留** scheduledBatchId 供用户重试，不自作主张清空。
+   */
+  async function cancelScheduledBatch () {
+    if (!scheduledBatchId.value) return
+    const batchId = scheduledBatchId.value
+    try {
+      const res = await batchCancel(batchId)
+      if (!res || res.code !== 0) {
+        const message = formatUserError(res, {
+          fallback: progressText('publishPage.batchNotify.cancelScheduleFailed'),
+        }).message
+        notifyError('publishPage.batchNotify.cancelScheduleFailed', { message })
+        return
+      }
+      scheduledBatchId.value = null
+      batchProgress.value.push({
+        text: progressText('publishPage.batchNotify.scheduleCancelled'),
+        time: new Date().toLocaleTimeString('zh-CN'),
+        type: 'warning',
+      })
+      notifySuccess('publishPage.batchNotify.scheduleCancelled')
+    } catch (error) {
+      const message = formatUserError(error, {
+        fallback: progressText('publishPage.batchNotify.cancelScheduleFailed'),
+      }).message
+      notifyError('publishPage.batchNotify.cancelScheduleFailed', { message })
+    }
+  }
 
   return {
     batchMode,
@@ -603,6 +692,7 @@ export function useBatchPublish(options) {
     batchProgress,
     failedBatchTasks,
     retryingFailed,
+    scheduledBatchId,
     templateTargetIdx,
     showTemplatePicker,
     batchDone,
@@ -612,6 +702,7 @@ export function useBatchPublish(options) {
     removeArticle,
     duplicateArticle,
     handleBatchPublish,
+    cancelScheduledBatch,
     retryFailedBatch,
     applyTemplate,
     checkBatchAccess,

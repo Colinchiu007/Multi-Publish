@@ -62,30 +62,43 @@ function createRunner(options = {}) {
   });
 }
 
+/**
+ * 解析本次跑的主题（批次 1：暗色基线通道）。
+ * `THEME=dark` 跑暗色一遍（读 `<view>-dark.png` 基线）；其余/未设一律浅色，
+ * 非法值不抛错也不产出第三套命名 —— 与 runner 侧 `_applyTheme` 的归一化保持同一口径。
+ */
+function resolveTheme(rawTheme = process.env.THEME) {
+  return String(rawTheme || '').trim().toLowerCase() === 'dark' ? 'dark' : 'light';
+}
+
 async function runPixelSuite(tests = pixelTests, options = {}) {
   const runner = options.runner || createRunner(options);
+  const theme = options.theme || resolveTheme();
+  const themeLabel = theme === 'dark' ? 'dark（暗色）' : 'light（浅色）';
   const results = [];
   let fatalError = null;
 
   try {
     await runner.launch();
     for (const test of tests) {
-      console.log(test.name + ' (' + test.route + ')...');
+      console.log(`[${theme}] ` + test.name + ' (' + test.route + ')...');
       try {
         const result = await runner.pixelRegressionTest(test.name, test.route, {
           expectedRoute: test.expectedRoute,
           waitFor: test.waitFor,
           prepare: test.prepare,
+          theme,
         });
         const status = result && result.status === 'BASELINE_CREATED'
           ? 'BASELINE_CREATED'
           : 'PASSED';
-        results.push({ test: test.name, route: test.route, status, result });
+        results.push({ test: test.name, route: test.route, theme, status, result });
         console.log('  ' + status);
       } catch (error) {
         results.push({
           test: test.name,
           route: test.route,
+          theme,
           status: 'FAILED',
           error: error.message,
         });
@@ -112,7 +125,7 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
   const failed = results.filter(result => result.status === 'FAILED').length;
   const baselined = results.filter(result => result.status === 'BASELINE_CREATED').length;
   const passed = results.length - failed - baselined;
-  return { results, failed, passed, baselined };
+  return { results, failed, passed, baselined, theme, themeLabel };
 }
 
 /**
@@ -135,15 +148,17 @@ function selectPixelTests() {
 }
 
 async function main() {
+  const theme = resolveTheme();
   console.log('像素视觉门禁');
+  console.log('主题: ' + theme + (theme === 'dark' ? '（读 <view>-dark.png 基线）' : ''));
   console.log('目标: ' + (process.env.TEST_URL || 'http://127.0.0.1:5174'));
   const tests = selectPixelTests();
   if (tests.length !== pixelTests.length) {
     console.log('子集: ' + tests.map((test) => test.name).join(', '));
   }
-  const summary = await runPixelSuite(tests);
+  const summary = await runPixelSuite(tests, { theme });
   console.log(
-    '像素结果: '
+    '像素结果[' + theme + ']: '
     + (summary.passed + summary.baselined)
     + '/' + summary.results.length
     + ' 通过，' + summary.failed + ' 失败',
@@ -167,5 +182,6 @@ module.exports = {
   pixelTests,
   runPixelSuite,
   selectPixelTests,
+  resolveTheme,
   main,
 };

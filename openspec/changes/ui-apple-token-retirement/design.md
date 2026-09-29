@@ -29,19 +29,33 @@
 ## Sequencing（爆炸半径控制）
 
 ```
+⓪ 批次 0：基线重测 + 回潮止血门禁（只降不升）+ 拍板材料（≤2h，止血管）
 ① 暗色基线通道（测试基建，独立可先行）
 ② tokens.css 补暗色槽 + 补缺失语义槽（新增不改动 → 零视觉回归）
-③ UiButton / UiInput / UiModal / ConfigProfileManager 组件层收敛（回归集中在组件）
+③ UiButton / UiInput / UiModal / ConfigProfileManager 组件层收敛（+ AccountCloudSync* 回潮 57 处）
 ④ create-view.css 2 处弹窗背景
 ⑤ history-page.css 190 处（单文件单 PR，最大一块回归）
-⑥ 删除 --apple-* alias 层与 --color-apple-* 槽位 + 加静态门禁禁止回潮
+⑥ 删除 --apple-* alias 层与 --color-apple-* 槽位 + 门禁升级为「= 0」
 ```
 
 ② 必须在 ⑥ 之前；① 建议在 ③ 之前，否则暗色回归无人看守。
 
+**⓪ 为何前置**（原 tasks.md 没有该批次）：PR #2461 实测在 2026-09-20 禁令之后新增 57 处 `var(--apple-` —— 文档约束无效。门禁若按原计划放 ⑥（最后），中间 6 个批次全程裸奔；故先把命中数**冻结**（只降不升），再逐片还债。
+
+**拍板记录**：本 change 的七项开放问题（圆角/字号取尺、缺失槽补法、`--text` 去留、回潮处置、门禁前置、stitch spec 归属、优先级）按推荐值记录于 `decisions.md`（D1–D7），实施时以该文件为准。
+
 ## Migration Guard
 
-收口完成后 SHALL 增加一条静态检查（并入 `check-frontend-consistency` 或独立脚本）：`apps/desktop/src/**` 中 `var(--apple-` 命中数必须为 0，防止别名层删除后又被手写回来。当前基线：282。
+收口完成后 SHALL 有一条静态检查（并入 `check-frontend-consistency` 或独立脚本）：`apps/desktop/src/**` 中 `var(--apple-` 命中数必须为 0，防止别名层删除后又被手写回来。
+
+**两阶段落地**（批次 0 先冻结、批次 6 再钉死）：
+
+| 阶段 | 批次 | 判据 | 当前基线 |
+|---|---|---|---|
+| 只降不升（止血） | ⓪ | 命中数 **≤** 基线，超出即 CI 失败并列文件行号 | **339 处 / 10 文件**（批次 0 已实施并钉入 `frontend-consistency-baseline.json`；main@4ec7ef42，回潮子集 59 处 / 4 文件） |
+| 钉 0 | ⑥ | 命中数 **= 0** | 0 |
+
+门禁自证：批次 0 已实跑**反证**（植入 2 处 → 341 > 339 且 `FAIL`，同时定位普通行与「注释在前同行」两处；还原 → `PASS`），只证「基线数下降」不构成门禁在跑的证据。
 
 ## Risks
 

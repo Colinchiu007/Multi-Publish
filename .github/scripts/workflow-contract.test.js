@@ -16,6 +16,67 @@ const desktopPackagePath = path.join(__dirname, '..', '..', 'apps', 'desktop', '
 const desktopVitestConfigPath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'vitest.config.js');
 const rootPackagePath = path.join(__dirname, '..', '..', 'package.json');
 
+// 全量视觉（views + workflows 四套注册表）的像素基线此前在 CI 上没有任何产物来源
+// —— QG Visual 只跑 run-pixel-tests.js 的 pixelTests，而 QM-4 第 7 条禁止拿本地图当基线。
+// 本步骤锁「采集确实接进了 CI」，并锁住它此刻**就是阻断门禁**：基线已按 QM-4 第 7 条同源重建
+// （13 条非同源基线换成同一次 CI 渲染，自证「新基线 vs 同一次 CI 渲染 = 0 px」）。
+// 若有人重新加回 continue-on-error，就是把它降级成"只采集不判定"——main 的视觉回归会整体关掉，
+// 必须同 PR 写明基线为何又不可判据了，并同步反号本断言；只改一边会得到恒红或恒绿。
+test('视觉工作流跑全量四套用例并把产物落进可取用的 artifact', () => {
+  const wf = yaml.load(fs.readFileSync(workflowPath, 'utf8'));
+  const steps = wf.jobs['visual-test'].steps;
+  const capture = steps.find(step => /run-all-visual\.js/.test(String(step.run || '')));
+
+  assert.ok(capture, 'visual-test.yml 必须有一个步骤执行 tests/visual-testing/scripts/run-all-visual.js');
+  assert.notEqual(capture['continue-on-error'], true, '基线已按 QM-4 第 7 条同源重建，全量采集是阻断门禁');
+  // 采集失败必须以**非零**退出交给 continue-on-error 变成可见的警告；正文以 Write-Host 收尾时
+  // PowerShell 一律退 0，那样"整批采集失败"会显示成绿色通过——唯一的告警通道就没了。
+  assert.match(String(capture.run), /\$captureExit = \$LASTEXITCODE/);
+  assert.match(String(capture.run), /^( {0,2})exit \$captureExit\s*$/m);
+  assert.doesNotMatch(String(capture.run), /exit 0/);
+  assert.equal(capture.if, 'always()', '第一套像素门禁红时也必须跑完全量，否则基线采集取决于前一套成败');
+  // YAML block scalar 会把整块公共缩进剥掉，所以这里按"行首"匹配（曾按 10 空格匹配而恒不成立）。
+  // 顺序也要钉住：采集必须排在装 Playwright / build:vue 之后，否则对着没有依赖、没有构建产物的 runner 跑
+  const order = steps.map(step => String(step.name || step.uses));
+  const captureIdx = order.findIndex(name => /Full visual suites/.test(name));
+  const buildIdx = order.findIndex(name => /Build Vue frontend/.test(name));
+  const browserIdx = order.findIndex(name => /Install Playwright \+ Chromium/.test(name));
+  // 先确认前置步骤本身存在：findIndex 找不到时返回 -1，`captureIdx > -1` 会恒真，
+  // 于是"步骤被改名"会把顺序锁静默降级成永真断言。
+  assert.ok(buildIdx >= 0, 'visual-test.yml 必须有「Build Vue frontend」步骤（顺序锁的前置）');
+  assert.ok(browserIdx >= 0, 'visual-test.yml 必须有「Install Playwright + Chromium」步骤（顺序锁的前置）');
+  assert.ok(captureIdx > buildIdx && captureIdx > browserIdx,
+    '采集步骤必须排在 Playwright 安装与前端构建之后');
+  assert.match(String(capture.run), /node tests\/visual-testing\/scripts\/run-all-visual\.js/);
+  // 每个步骤是独立进程树，上一步的像素门禁在自己的 finally 里已经关掉了 5174 的 Vite。
+  // 采集步骤若复用那个地址，四套用例是对着一个不存在的端口跑成 103 条连接失败（红得很安静，
+  // 因为步骤本身 continue-on-error）。所以必须自己起一台、自己收掉，且端口与像素门禁分开。
+  assert.match(String(capture.run), /Start-Process -FilePath "pnpm\.cmd"/);
+  assert.match(String(capture.run), /never became ready/);
+  assert.match(String(capture.run), /taskkill \/PID/);
+  assert.match(String(capture.env.TEST_URL), /:5175$/);
+
+  const gate = steps.find(step => /test:visual:pixel/.test(String(step.run || '')));
+  assert.ok(gate, 'visual-test.yml 必须保留像素门禁步骤');
+  assert.notEqual(gate['continue-on-error'], true, '像素门禁不得被降级为非阻断');
+
+  const upload = steps.find(step => String(step.uses || '').startsWith('actions/upload-artifact'));
+  assert.ok(upload, 'visual-test.yml 必须上传截图与报告，否则同源基线无从取得');
+  assert.equal(upload.if, 'always()', '采集红时也必须上传，否则恰恰丢掉最需要看的现场');
+  assert.match(String(upload.with.path), /tests\/visual-testing\/screenshots/);
+
+  // 采集服务起不来时唯一的现场是它自己的 vite 日志；日志名必须落在 artifact 上传的通配里，
+  // 否则报完 "never became ready" 就什么都没留下（写成 vite-visual-all.stdout.log 就不匹配 vite-visual.*.log）。
+  const logNames = String(capture.run).match(/"(vite-visual[^"]*\.log)"/g) || [];
+  assert.ok(logNames.length >= 2, `采集步骤必须重定向 stdout 与 stderr 两份 vite 日志，实得 ${logNames.length} 份`);
+  const uploadPaths = String(upload.with.path);
+  assert.match(uploadPaths, /vite-visual\.\*\.log/, 'artifact 必须上传 vite 日志');
+  for (const raw of logNames) {
+    const name = raw.replace(/"/g, '');
+    assert.match(name, /^vite-visual\.[A-Za-z0-9_-]+\.(stdout|stderr)\.log$/, `${name} 不匹配 artifact 的 vite-visual.*.log 通配`);
+  }
+});
+
 test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8');
 
@@ -38,6 +99,14 @@ test('Quality Gate Gate 7 与视觉工作流使用一致的渲染参数', () => 
   assert.match(gate7, /TEST_URL:\s*http:\/\/127\.0\.0\.1:5174/);
   assert.match(gate7, /HEADLESS:\s*["']?true["']?/);
   assert.match(gate7, /PIXEL_THRESHOLD:\s*["']?0\.06["']?/);
+
+  // 两条流水线必须渲染**同一个应用状态**，否则从 Visual Tests artifact 取来的基线与 QG Visual 的比对环境又不同源
+  // （accounts-list-flag-on 这类 flag 开启态用例对 VITE_MP_DEV_FLAG_OVERRIDE 敏感）。
+  const vtEnv = yaml.load(fs.readFileSync(workflowPath, 'utf8')).jobs['visual-test'].env;
+  assert.equal(vtEnv.TEST_URL, 'http://127.0.0.1:5174');
+  assert.equal(String(vtEnv.HEADLESS), 'true');
+  assert.equal(String(vtEnv.PIXEL_THRESHOLD), '0.06');
+  assert.equal(String(vtEnv.VITE_MP_DEV_FLAG_OVERRIDE), '1', 'flag 开启态用例在两条流水线必须渲染同一种状态');
 });
 
 test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同测试', () => {
@@ -135,9 +204,15 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.match(unitTestStep, /WaitForExit\(1800000\)/);
   assert.match(unitTestStep, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   assert.doesNotMatch(unitTestStep, /--maxWorkers=1|--reporter=verbose|--testTimeout=10000/);
-  assert.match(unitTestStep, /function Get-TestProcessTree/);
-  assert.match(unitTestStep, /Get-TestProcessTree -RootProcessId \$testProcess\.Id/);
-  assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id\)/);
+  // 进程树遍历已收敛到 scripts/get-test-process-tree.ps1（带 PID 复用防护 + 可注入进程表的锁）。
+  // 旧断言锁的是"步骤里内联了一份 function Get-TestProcessTree"，那正是本次要消灭的形态：
+  // 同一份只按数字 ParentProcessId 递归的实现被抄成两份，实测把 csrss/winlogon/dwm 认成
+  // 残留测试子进程后逐个 taskkill /F（run 36519025075 attempt 1）。因此这里改成锁三件事：
+  // 引用共享实现、必须传时间锚点、**不得再内联第二份**。
+  assert.match(unitTestStep, /get-test-process-tree\.ps1/);
+  assert.match(unitTestStep, /\$launchMark = Get-Date/);
+  assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id -NotBefore \$launchMark\)/);
+  assert.doesNotMatch(unitTestStep, /function Get-TestProcessTree/);
   assert.match(unitTestStep, /Gate 4 left child processes alive after pnpm exited/);
   assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
@@ -376,8 +451,16 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   assert.match(src, /--maxWorkers=1/);
   assert.match(src, /--no-file-parallelism/);
   assert.match(src, /--testTimeout=10000/);
-  // shard watchdog 必须有契约守护（W3）
-  assert.match(src, /function Get-TestProcessTree/);
+  // shard watchdog 必须有契约守护（W3）。与 Gate 4 同源：锁共享实现 + 时间锚点，
+  // 并锁"全文件不得再内联第二份 Get-TestProcessTree"（两份拷贝正是本次事故的放大器）。
+  const shardStep = src.match(
+    /- name: "Desktop tests shard[\s\S]*?(?=\n\s*# ---|\n\s*- name: |\n\n\s*coverage:)/,
+  )?.[0];
+  assert.ok(shardStep, 'Desktop tests shard 步骤必须存在');
+  assert.match(shardStep, /get-test-process-tree\.ps1/);
+  assert.match(shardStep, /\$launchMark = Get-Date/);
+  assert.match(shardStep, /-NotBefore \$launchMark/);
+  assert.doesNotMatch(src, /function Get-TestProcessTree/);
   assert.match(src, /WaitForExit\(1800000\)/);
   assert.match(src, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));

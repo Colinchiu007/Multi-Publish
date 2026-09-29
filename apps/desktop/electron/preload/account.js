@@ -16,8 +16,8 @@
  *                 onOAuthOpened / onOAuthCompleted / onOAuthFailed / onOAuthClosed
  *   - 统一数据存储：storeAddAccount / storeGetAccount / storeListAccounts / storeDeleteAccount
  *                   storeAddPublishRecord / storeListPublishHistory / storeGetPublishStats
- *                   storeAddScheduledTask / storeListScheduledTasks / storeDeleteTask
  *                   storeGetSetting / storeSetSetting / storeListCallbackLogs
+ *                   （scheduled_tasks 的 3 个桥接已于 2026-10-02 死路径清理删除）
  */
 
 /**
@@ -119,9 +119,9 @@ function createAccountApi(ipcRenderer) {
     storeAddPublishRecord: (record) => ipcRenderer.invoke('store:add-publish-record', record),
     storeListPublishHistory: (opts) => ipcRenderer.invoke('store:list-publish-history', opts),
     storeGetPublishStats: () => ipcRenderer.invoke('store:get-publish-stats'),
-    storeAddScheduledTask: (task) => ipcRenderer.invoke('store:add-scheduled-task', task),
-    storeListScheduledTasks: () => ipcRenderer.invoke('store:list-scheduled-tasks'),
-    storeDeleteTask: (id) => ipcRenderer.invoke('store:delete-task', id),
+    // 2026-10-02 死路径清理：storeAddScheduledTask / storeListScheduledTasks / storeDeleteTask
+    // 三个桥接已删除（对应 IPC 一并删除）。定时发布的真源是 JSONL scheduled-tasks.jsonl
+    // （scheduler:create/list/cancel）与 BatchManager（batch:*），与 SQLite scheduled_tasks 表无关。
     storeGetSetting: (key) => ipcRenderer.invoke('store:get-setting', key),
     storeSetSetting: (key, value) => ipcRenderer.invoke('store:set-setting', key, value),
     storeListCallbackLogs: (limit) => ipcRenderer.invoke('store:list-callback-logs', limit),

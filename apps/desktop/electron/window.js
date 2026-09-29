@@ -82,6 +82,12 @@ function isAllowedMainWindowUrl(url) {
   return isTrustedSender({ senderFrame: { url } }, app)
 }
 
+// 本函数与 packages/shared-utils/src/safe-http-url.js 是**按 sink 分的两种策略**，刻意不合并：
+//   · safeHttpUrl —— 渲染层把数据绑成 <a :href> 的**下限**判据（仅 http/https 前缀）；
+//   · 本函数     —— 交给操作系统打开（shell.openExternal）的**更严**判据：走 new URL() 解析，
+//                    且额外拒绝带 username/password 的 URL。把它收敛成 safeHttpUrl 等于放松这个面。
+// 口径与理由见 01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md §5.1；
+// 「本函数必须继续拒绝 userinfo、必须继续存在」由 apps/desktop/src/href-scheme-contract.test.js 钉住。
 function isAllowedExternalUrl(rawUrl) {
   if (typeof rawUrl !== 'string') return false
   try {
@@ -121,11 +127,11 @@ function errorMessage(error) {
 }
 
 /**
- * 关闭窗口时是否应隐藏到托盘（方案A：运行中的编排流水线在后台继续）。
+ * 关闭窗口时是否应隐藏到托盘（方案A：运行中的编排流水线/发布任务在后台继续）。
  *
  * 平台决策集中在 services/window-close-policy.js：
- * - Windows/Linux：托盘可用 且 有运行中编排任务 → 拦截 close 隐藏到托盘后台继续；
- *   二者缺一时照旧关闭/退出，避免无托盘环境下窗口关闭后进程无法恢复。
+ * - Windows/Linux：托盘可用 且 有运行中任务（流水线或发布，任一）→ 拦截 close 隐藏到
+ *   托盘后台继续；二者缺一时照旧关闭/退出，避免无托盘环境下窗口关闭后进程无法恢复。
  * - macOS：关闭窗口不退出应用是系统约定（app 留在 Dock、window-all-closed 不退出、
  *   activate 重建窗口），因此不拦截 close，让窗口正常关闭、任务继续后台运行。
  *
@@ -137,6 +143,7 @@ function shouldHideToTray(context, platform = process.platform) {
   if (!context || typeof context !== 'object') return false
   const pipelineEngine = context.pipelineEngine
   const systemTray = context.systemTray
+  const taskQueue = context.taskQueue
   if (!pipelineEngine || typeof pipelineEngine.hasRunningOrchestration !== 'function') return false
   if (!systemTray || typeof systemTray.isAvailable !== 'function') return false
   let hasRunningPipeline
@@ -146,9 +153,21 @@ function shouldHideToTray(context, platform = process.platform) {
     log.warn('window', '检测运行中任务失败：' + errorMessage(error))
     return false
   }
+  // publish-progress-ux：发布任务运行中（含排队）同样转托盘后台继续；
+  // 守卫口径与流水线同款（getStatus 异常按无任务处理，不阻塞关闭）。
+  let hasRunningPublish = false
+  try {
+    const status = typeof taskQueue?.getStatus === 'function' ? taskQueue.getStatus() : null
+    const runningCount = Array.isArray(status?.running) ? status.running.length : 0
+    const queuedCount = Array.isArray(status?.queue) ? status.queue.length : 0
+    hasRunningPublish = runningCount + queuedCount > 0
+  } catch (error) {
+    log.warn('window', '检测运行中发布任务失败：' + errorMessage(error))
+  }
   return shouldHideToTrayOnClose({
     platform,
     hasRunningPipeline,
+    hasRunningPublish,
     trayAvailable: systemTray.isAvailable(),
   })
 }
@@ -282,13 +301,27 @@ function createWindow(context) {
   mainWindow.on('closed', () => {
     if (showFallbackTimer) clearTimeout(showFallbackTimer)
   })
-  // 方案A：运行中的编排流水线在后台继续——关闭窗口时隐藏到托盘而非退出进程。
+  // 方案A：运行中的编排流水线/发布任务在后台继续——关闭窗口时隐藏到托盘而非退出进程。
   // 托盘不可用或无运行任务时照旧关闭（window-all-closed → before-quit 清理链）。
   mainWindow.on('close', (event) => {
     if (shouldHideToTray(context)) {
       if (event && typeof event.preventDefault === 'function') event.preventDefault()
       mainWindow.hide()
-      log.info('window', '运行中有流水线任务，窗口隐藏到托盘继续后台执行')
+      // publish-progress-ux：发布运行中隐藏到托盘时气泡提示后台语义（Windows-only，
+      // system-tray.showBalloon 内建平台守卫；非 Windows 静默降级）。
+      let hasRunningPublish = false
+      try {
+        const status = typeof context.taskQueue?.getStatus === 'function' ? context.taskQueue.getStatus() : null
+        const runningCount = Array.isArray(status?.running) ? status.running.length : 0
+        const queuedCount = Array.isArray(status?.queue) ? status.queue.length : 0
+        hasRunningPublish = runningCount + queuedCount > 0
+      } catch { /* getStatus 异常按无发布任务处理（不气泡，走流水线日志分支） */ }
+      if (hasRunningPublish && typeof context.systemTray?.showBalloon === 'function') {
+        context.systemTray.showBalloon('发布仍在后台进行', '发布任务正在后台继续执行，请勿退出程序。点击托盘图标可恢复窗口。')
+        log.info('window', '发布任务运行中，窗口隐藏到托盘继续后台执行')
+      } else {
+        log.info('window', '运行中有流水线任务，窗口隐藏到托盘继续后台执行')
+      }
     }
   })
   mainWindow.on('resize', () => {

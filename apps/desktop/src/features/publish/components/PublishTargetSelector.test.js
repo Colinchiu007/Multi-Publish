@@ -138,4 +138,89 @@ describe('PublishTargetSelector', () => {
       expect(wrapper.findAll('[data-testid^="account-zhihu-"]').length).toBe(0)
     })
   })
+
+  // P0-2 风控挂起可见性（发布页优化 roadmap）：挂起账号/平台在选择器上显示徽标 +
+  // 行动指引 tooltip（发布前可见，而非发布时被派发前置守卫拦截才知道）。
+  // 键语义与 risk-suspender-store 一致：平台级（accountId==null）覆盖全部账号；账号级仅命中对应账号。
+  describe('风控挂起徽标（riskSuspended 注入）', () => {
+    const riskGroups = [{
+      label: '国内平台',
+      items: [{
+        id: 'zhihu',
+        label: '知乎',
+        accounts: [{ id: 'zh-1', name: '主账号' }, { id: 'zh-2', name: '副账号' }],
+      }],
+    }]
+
+    it('账号级挂起：命中账号显示徽标，未命中账号不显示', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: riskGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          riskSuspended: [{ platform: 'zhihu', accountId: 'zh-1', reason: 'risk_blocked', at: 1 }],
+        },
+      })
+
+      expect(wrapper.get('[data-testid="target-account-risk-flag-zhihu-zh-1"]').text()).toBe('⚠ 风控挂起')
+      expect(wrapper.find('[data-testid="target-account-risk-flag-zhihu-zh-2"]').exists()).toBe(false)
+    })
+
+    it('平台级挂起（accountId==null）：该平台全部账号都显示徽标，平台行也显示', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: riskGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          riskSuspended: [{ platform: 'zhihu', accountId: null, reason: 'risk_blocked', at: 1 }],
+        },
+      })
+
+      expect(wrapper.get('[data-testid="target-account-risk-flag-zhihu-zh-1"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="target-account-risk-flag-zhihu-zh-2"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="target-platform-risk-flag-zhihu"]').text()).toBe('⚠ 风控挂起')
+    })
+
+    it('徽标带行动指引 tooltip（参考产品口径：去创作者中心验证）', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: riskGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          riskSuspended: [{ platform: 'zhihu', accountId: 'zh-1', reason: 'risk_blocked', at: 1 }],
+        },
+      })
+
+      const title = wrapper.get('[data-testid="target-account-risk-flag-zhihu-zh-1"]').attributes('title')
+      expect(title).toContain('创作者中心')
+      expect(title).toContain('解除挂起')
+    })
+
+    it('无挂起清单时零徽标（零打扰）', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: riskGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          riskSuspended: [],
+        },
+      })
+
+      expect(wrapper.findAll('[data-testid^="target-account-risk-flag"]').length).toBe(0)
+      expect(wrapper.findAll('[data-testid^="target-platform-risk-flag"]').length).toBe(0)
+    })
+
+    it('其它平台的挂起不牵连本平台', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: riskGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          riskSuspended: [{ platform: 'douyin', accountId: null, reason: 'risk_blocked', at: 1 }],
+        },
+      })
+
+      expect(wrapper.findAll('[data-testid^="target-account-risk-flag-zhihu"]').length).toBe(0)
+    })
+  })
 })

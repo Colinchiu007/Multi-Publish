@@ -41,6 +41,143 @@ describe('visual-ci 像素门禁', () => {
       .toBe('http://127.0.0.1:5176')
   })
 
+  it('全量视觉聚合器按单一来源覆盖四套注册表，id 顺序即 CI 日志顺序', () => {
+    const { visualSuites } = require('./visual-testing/scripts/run-all-visual')
+    const { viewTests } = require('./visual-testing/views/all-views.visual.test.js')
+    const { supplementaryViewTests } = require('./visual-testing/views/supplementary-views.visual.test.js')
+    const { workflowTests } = require('./visual-testing/workflows/all-workflows.visual.test.js')
+    const { supplementaryWorkflowTests } = require('./visual-testing/workflows/supplementary-workflows.visual.test.js')
+
+    expect(visualSuites.map(suite => suite.id)).toEqual([
+      'views', 'supplementary-views', 'workflows', 'supplementary-workflows',
+    ])
+    // 引用相等而非长度相等：聚合器一旦自己抄一份清单，注册表就会漂移成两份真源
+    expect(visualSuites[0].registry).toBe(viewTests)
+    expect(visualSuites[1].registry).toBe(supplementaryViewTests)
+    expect(visualSuites[2].registry).toBe(workflowTests)
+    expect(visualSuites[3].registry).toBe(supplementaryWorkflowTests)
+  })
+
+  it('第一套红不得中止后面三套，且逐套汇总行格式精确', async () => {
+    const { runAllVisualSuites } = require('./visual-testing/scripts/run-all-visual')
+    const callOrder = []
+    const failedSuiteError = new Error('单视图视觉门禁失败: home: boom')
+    failedSuiteError.failures = [{ test: 'home', error: failedSuiteError }]
+    const suites = [
+      {
+        id: 'views',
+        registry: [{ name: 'home' }, { name: 'publish' }],
+        run: async () => { callOrder.push('views'); throw failedSuiteError },
+      },
+      {
+        id: 'supplementary-views',
+        registry: [{ name: 'first-run' }],
+        run: async () => { callOrder.push('supplementary-views'); return { total: 1, passed: 1 } },
+      },
+      {
+        id: 'workflows',
+        registry: [{ name: 'wf-a' }, { name: 'wf-b' }],
+        // all-workflows 的既有契约：不抛错，返回 {results, failed}
+        run: async () => {
+          callOrder.push('workflows')
+          return { results: [{ test: 'wf-a', status: 'PASSED' }, { test: 'wf-b', status: 'FAILED' }], failed: 1 }
+        },
+      },
+      {
+        id: 'supplementary-workflows',
+        registry: [{ name: 'wf-c' }],
+        // 运行器起不来：没有任何一条结论，不得谎报成"这一套全红"
+        run: async () => { callOrder.push('supplementary-workflows'); throw new Error('browserType.launch: boom') },
+      },
+    ]
+
+    vi.useFakeTimers()
+    try {
+      const lines = []
+      const summary = await runAllVisualSuites({ suites, log: line => lines.push(line) })
+
+      expect(callOrder).toEqual(['views', 'supplementary-views', 'workflows', 'supplementary-workflows'])
+      expect(lines).toEqual([
+        '[VISUAL-SUMMARY] suite=views total=2 passed=1 failed=1 elapsed_ms=0',
+        '[VISUAL-SUMMARY] suite=supplementary-views total=1 passed=1 failed=0 elapsed_ms=0',
+        '[VISUAL-SUMMARY] suite=workflows total=2 passed=1 failed=1 elapsed_ms=0',
+        '[VISUAL-SUMMARY] suite=supplementary-workflows total=1 passed=0 failed=0 elapsed_ms=0 aborted=1',
+        '[VISUAL-ALL-SUMMARY] suites=4 total=6 passed=3 failed=2 aborted=1',
+      ])
+      expect(summary).toMatchObject({ total: 6, passed: 3, failed: 2, aborted: 1 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('形状不认识 / 启动失败一律 aborted，绝不默认「全通过」', () => {
+    const { normalizeOutcome } = require('./visual-testing/scripts/run-all-visual')
+    const suite = { id: 'workflows', registry: [{ name: 'a' }, { name: 'b' }], run: async () => ({}) }
+
+    // all-workflows 既有契约是不抛错、把每条回填 FAILED；必须靠 runnerLaunchFailed 区分「全红」与「没有结论」
+    expect(normalizeOutcome(suite, { results: [{ status: 'FAILED' }, { status: 'FAILED' }], failed: 2, runnerLaunchFailed: true }, null, 1))
+      .toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+    expect(normalizeOutcome(suite, { results: [{ status: 'FAILED' }, { status: 'PASSED' }], failed: 1 }, null, 1))
+      .toEqual({ total: 2, passed: 1, failed: 1, aborted: false, elapsedMs: 1 })
+    expect(normalizeOutcome(suite, undefined, null, 1)).toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+    expect(normalizeOutcome(suite, { passed: 2 }, null, 1)).toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+    // 套件自报的条数与注册表对不上 = 账不平，不得「就近取数」当结论
+    expect(normalizeOutcome(suite, { total: 9, passed: 9 }, null, 1)).toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+    expect(normalizeOutcome(suite, { results: [], failed: 0 }, null, 1)).toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+    expect(normalizeOutcome(suite, { results: [{ status: 'PASSED' }].concat([{ status: 'PASSED' }, { status: 'PASSED' }]), failed: 0 }, null, 1))
+      .toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+    // 抛错但一条都没归因，同样不是「全通过」
+    expect(normalizeOutcome(suite, null, Object.assign(new Error('boom'), { failures: [] }), 1))
+      .toEqual({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 1 })
+  })
+
+  it('耗时按注入时钟如实计算，results 条数不得反过来定义用例总数，报告可落文件', async () => {
+    const fs = require('node:fs')
+    const os = require('node:os')
+    const path = require('node:path')
+    const { runAllVisualSuites } = require('./visual-testing/scripts/run-all-visual')
+    const ticks = [1000, 3500]
+    const suites = [{
+      id: 'workflows',
+      registry: [{ name: 'a' }, { name: 'b' }, { name: 'c' }],
+      run: async () => ({ results: [{ status: 'PASSED' }, { status: 'PASSED' }, { status: 'FAILED' }], failed: 1 }),
+    }]
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-all-report-'))
+    const reportPath = path.join(dir, 'reports', 'visual-all-summary.json')
+    const lines = []
+
+    try {
+      const summary = await runAllVisualSuites({
+        suites,
+        log: line => lines.push(line),
+        now: () => { const t = ticks.shift(); return t === undefined ? 3500 : t },
+        reportPath,
+      })
+      expect(lines).toEqual([
+        '[VISUAL-SUMMARY] suite=workflows total=3 passed=2 failed=1 elapsed_ms=2500',
+        '[VISUAL-ALL-SUMMARY] suites=1 total=3 passed=2 failed=1 aborted=0',
+      ])
+      expect(summary.suites[0].total).toBe(3)
+      expect(summary.suites[0].aborted).toBe(false)
+      expect(JSON.parse(fs.readFileSync(reportPath, 'utf8'))).toEqual(summary)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('汇总不猜数：用例数超出注册表时按注册表收口，异常无 failures 时记 aborted', () => {
+    const { normalizeOutcome, formatSummaryLine } = require('./visual-testing/scripts/run-all-visual')
+    const suite = { id: 'views', registry: [{ name: 'a' }, { name: 'b' }], run: async () => ({}) }
+    const tooMany = new Error('boom')
+    tooMany.failures = [{}, {}, {}]
+
+    expect(normalizeOutcome(suite, null, tooMany, 5)).toEqual({ total: 2, passed: 0, failed: 2, aborted: false, elapsedMs: 5 })
+    expect(formatSummaryLine({ total: 2, passed: 0, failed: 2, aborted: false, elapsedMs: 5 }, 'views'))
+      .toBe('[VISUAL-SUMMARY] suite=views total=2 passed=0 failed=2 elapsed_ms=5')
+    expect(formatSummaryLine({ total: 2, passed: 0, failed: 0, aborted: true, elapsedMs: 5 }, 'views'))
+      .toBe('[VISUAL-SUMMARY] suite=views total=2 passed=0 failed=0 elapsed_ms=5 aborted=1')
+  })
+
   it('本轮像素报告保留自身的截图和差异工件路径', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ci-report-'))
     const outputPath = path.join(tempDir, 'pixel-results.json')

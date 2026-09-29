@@ -83,10 +83,16 @@ test('B-1) tencent_video（视频号 API 链）：标题作为 description 首�
   assert.notEqual(legacy.description, '正文C')
 })
 
-test('B-2) kuaishou（快手 API 链）：既有合并行为保持（标题首行 + 正文 + 话题）', () => {
-  const data = buildKuaishouPostData({ title: '标题T', content: '正文C', tags: ['话题'] })
-  assert.equal(data.caption, '标题T\n正文C\n#话题')
+test('B-2) kuaishou（快手 API 链）：标题首行 + 正文（含内联话题）合并；话题内联后不再拼 tags', () => {
+  // 话题内联描述（publish-topic-inline-description）：描述为话题真源——话题以
+  // `#话题` 内联在 content 里（UI 追加管道），caption 不再把 tags 数组拼进来
+  // （旧「tags 拼进 caption」会造成描述+字段双份重复，2026-10-09 下线）。
+  const data = buildKuaishouPostData({ title: '标题T', content: '正文C #话题', tags: ['话题'] })
+  assert.equal(data.caption, '标题T\n正文C #话题')
   assert.ok(data.caption.startsWith('标题T'))
+  // 无话题时与旧形态兼容（标题 + 正文）
+  const plain = buildKuaishouPostData({ title: '标题T', content: '正文C' })
+  assert.equal(plain.caption, '标题T\n正文C')
 })
 
 test('B-3) weibo（微博适配器）：buildPostData 正文以标题为首行', () => {
@@ -97,6 +103,20 @@ test('B-3) weibo（微博适配器）：buildPostData 正文以标题为首行',
   // 仅标题时正文即标题（旧实现会得到空串）
   const titleOnly = adapter.buildPostData({ title: '标题T' })
   assert.equal(titleOnly.content, '标题T')
+})
+
+test('B-3b) weibo（微博适配器）：visible 可见性透传（P1-5）', () => {
+  const adapter = new WeiboAdapter()
+  // 合法值透传（0 公开 / 1 仅自己 / 6 好友圈）
+  assert.equal(adapter.buildPostData({ title: 'T', visible: 1 }).visible, 1)
+  assert.equal(adapter.buildPostData({ title: 'T', visible: 6 }).visible, 6)
+  assert.equal(adapter.buildPostData({ title: 'T', visible: 0 }).visible, 0)
+  // 字符串数字同样接受（payload 经 JSON 往返后可能为字符串）
+  assert.equal(adapter.buildPostData({ title: 'T', visible: '6' }).visible, 6)
+  // 非法值/缺省一律不透传（交平台默认，不产出错误可见性）
+  assert.ok(!('visible' in adapter.buildPostData({ title: 'T' })))
+  assert.ok(!('visible' in adapter.buildPostData({ title: 'T', visible: 99 })))
+  assert.ok(!('visible' in adapter.buildPostData({ title: 'T', visible: 'hack' })))
 })
 
 test('B-4) twitter（X 适配器）：execute 的推文 text 以标题为首行（源码结构锁）', () => {

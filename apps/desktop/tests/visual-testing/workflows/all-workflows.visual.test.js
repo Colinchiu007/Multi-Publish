@@ -592,6 +592,7 @@ async function captureWorkflowScreenshot(runner, workflow, step, screenshotIndex
   const threshold = resolveThreshold(workflow, step);
 
   ensureDir(screenshotDir);
+  await runner.settleForCapture();
   await runner.page.screenshot({ path: currentPath, fullPage: true });
 
   if (!baselineExists(baselinePath)) {
@@ -732,6 +733,9 @@ async function runWorkflowSuite(tests, options = {}) {
   }
 
   let runner = null;
+  // 浏览器起不来时本套件不抛错（既有契约），而是把每条用例回填成 FAILED；
+  // 那是"一条结论都没有"而不是"31 条全红"，必须显式告诉聚合器，否则 aborted 与 failed 会被混同。
+  let runnerLaunchFailed = false;
   if (runnableTests.length > 0) {
     runner = options.runner || (options.runnerFactory
       ? options.runnerFactory()
@@ -758,6 +762,7 @@ async function runWorkflowSuite(tests, options = {}) {
         }
       }
     } catch (error) {
+      runnerLaunchFailed = true;
       for (const test of runnableTests) {
         if (!results.some(result => result.test === test.name)) {
           results.push({ test: test.name, status: 'FAILED', error: `视觉运行器启动失败: ${error.message}` });
@@ -770,7 +775,7 @@ async function runWorkflowSuite(tests, options = {}) {
 
   const failed = results.filter(result => result.status === 'FAILED').length;
   log(`\n工作流结果: ${results.length - failed}/${results.length} 通过，${failed} 失败\n`);
-  return { results, failed };
+  return { results, failed, runnerLaunchFailed };
 }
 
 async function runAllWorkflowTests() {

@@ -5,6 +5,7 @@
 // 渲染进程经 Vite alias 消费 publish-capabilities.browser.js（ESM），
 // vitest 经 node_modules 解析 CJS 版——两版本导出同名同构（parity 测试锁定）。
 import {
+  composeNoTitleDescription,
   getPlatformContentLimit as getRegistryContentLimit,
   isNoTitlePlatform,
 } from '@multi-publish/shared-utils/src/publish-capabilities'
@@ -355,11 +356,10 @@ export function validatePlatformContent ({ platforms, article = {}, platformOver
     const content = String(override.content || article.content || '')
 
     // 无标题平台：标题合并进描述首行，只校验合并后的正文长度。
+    // 合并口径复用注册表 composeNoTitleDescription（CCG 评审 W3：禁止第二份
+    // 内联合并实现——任何一方单独修改会导致校验与实际合成行为漂移）。
     if (isNoTitlePlatform(platform)) {
-      const combined = [title, content]
-        .map(part => part.trim())
-        .filter(Boolean)
-        .join('\n')
+      const combined = composeNoTitleDescription(title, content)
       const length = Array.from(combined).length
       if (limit.contentMax > 0 && length > limit.contentMax) {
         return {

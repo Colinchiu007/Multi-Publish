@@ -32,6 +32,10 @@ describe('outcomeOfResult 结果归一', () => {
     expect(outcomeOfResult({ error: 'socket hang up' })).toBe('transient_error')
     expect(outcomeOfResult(null)).toBe('transient_error')
   })
+  it('P0-2 词表增强：参考产品取证的风控特征串 → risk_blocked（与桌面侧 publish-risk 同义）', () => {
+    expect(outcomeOfResult({ error: 'canvas illegal' })).toBe('risk_blocked')
+    expect(outcomeOfResult({ error: '官方检测到您的账号存在风险，请先前往创作者中心发布作品' })).toBe('risk_blocked')
+  })
 })
 
 describe('publishWithMode：dom-only 轨', () => {

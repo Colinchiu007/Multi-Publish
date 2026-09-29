@@ -114,7 +114,7 @@ describe("publish/platforms/kuaishou-video", () => {
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
-  test("分片上传：Content-Range 偏移/总量 + upload_token/fragment_id + application/stream + 结果契约 checksum", async () => {
+  test("分片上传：Content-Range 偏移/总量 + upload_token/fragment_id + application/octet-stream + 结果契约 checksum", async () => {
     const srv = await startSrv();
     const file = writeTemp(3000);
     try {
@@ -126,13 +126,34 @@ describe("publish/platforms/kuaishou-video", () => {
       expect(parts[1].url).toContain("fragment_id=2");
       expect(parts[0].headers["content-range"]).toBe("bytes 0-2047/3000");
       expect(parts[1].headers["content-range"]).toBe("bytes 2048-2999/3000");
-      expect(parts[0].headers["content-type"]).toBe("application/stream");
+      // 2026-09-29 网络级取证（rpa-captures/upload-network-capture.json）：真实浏览器
+      // 分片 Content-Type 是 application/octet-stream（旧切片 §1.3 的 application/stream
+      // 为过时读数）——错误 Content-Type 疑似破坏上传会话状态，complete 裸 400。
+      expect(parts[0].headers["content-type"]).toBe("application/octet-stream");
       expect(parts[0].byteLength).toBe(2048);
-      // complete：fragment_count/upload_token + 空 body
+      // complete：fragment_count/upload_token + 空 body + 浏览器一致 Accept
       const done = srv.requestsFor(/api\/upload\/complete/)[0];
       expect(done.url).toContain("fragment_count=2");
       expect(done.url).toContain("upload_token=UTOK");
       expect(done.byteLength).toBe(0);
+      expect(done.headers["accept"]).toBe("application/json, text/plain, */*");
+      // 2026-09-29 请求级诊断定案：data:'' 触发 axios 默认注入
+      // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
+      // urlencoded body → 裸 400。真实浏览器空 body 不设 Content-Type。
+      expect(done.headers["content-type"]).toBeUndefined();
+      // 上传域对齐浏览器（2026-09-29 取证二轮）：跨 registrable domain 不带
+      // kuaishou.com Cookie（同源策略不可带）+ 短 Referer——带外域 Cookie 疑似
+      // 触发边缘 WAF（400 响应无 X-KSLOGID/无 CORS 头 = 边缘级拒绝）。
+      expect(done.headers["cookie"]).toBeUndefined();
+      expect(done.headers["referer"]).toBe("https://cp.kuaishou.com/");
+      expect(parts[0].headers["cookie"]).toBeUndefined();
+      expect(parts[0].headers["referer"]).toBe("https://cp.kuaishou.com/");
+      // 头部精确对齐（2026-09-29 取证三轮）：真实浏览器带 sec-ch-ua 三件套 +
+      // Chrome/150 UA——这是与捕获请求逐字一致的最后头部差异（再往下是传输层）。
+      expect(done.headers["sec-ch-ua"]).toBe('"Not;A=Brand";v="8", "Chromium";v="150"');
+      expect(done.headers["sec-ch-ua-mobile"]).toBe("?0");
+      expect(done.headers["sec-ch-ua-platform"]).toBe('"Windows"');
+      expect(done.headers["user-agent"]).toContain("Chrome/150");
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 

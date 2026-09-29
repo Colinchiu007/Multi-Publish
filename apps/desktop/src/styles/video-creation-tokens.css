@@ -199,8 +199,12 @@
     --ep-border-light: #2a2a2e;
     --ep-bg: #1a1a1e;
 
-    /* --- 通用变量映射（暗色模式） --- */
+    /* 通用变量映射（暗色模式） */
     --border: var(--ep-border, #363637);
-    --text: var(--ep-bg, #1a1a1e);
+    /* 2026-09-29 修复（批次 2 / D3）：原为 `var(--ep-bg, #1a1a1e)` —— 文字色转发到**背景** token，
+     * 深字落深底完全不可读（2026-09-20 详情页暗色事故根因）。改为与浅色 --text 结构对称地指向前景
+     * `--ink`（暗色下为 #e8e8ed），fallback 同样取可读亮色：在 --ep-bg #1a1a1e 上 14.21:1。
+     * 回归锁：src/styles/tokens.slots.test.js 的「--text 暗色缺陷回归锁」。 */
+    --text: var(--ink, #e8e8ed);
     --primary-bg: var(--ep-primary-light, #1a2632);
 }

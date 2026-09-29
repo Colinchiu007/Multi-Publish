@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div>
     <div class="cohere-page-header">
       <div>
@@ -503,6 +503,7 @@ import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -837,10 +838,12 @@ onUnmounted(() => {
   if (asrInstallUnsubscribe) { asrInstallUnsubscribe(); asrInstallUnsubscribe = null }
 })
 
-// ===== 分享文本链接解析（2026-09-19）=====
-// 抖音/小红书等平台的「复制链接」是「文案 + emoji + 短链 + 引导语」的混合文本，
+// ===== 分享文本链接解析（2026-09-19；2026-09-29 六平台扩展 + CJK 排除字符类）=====
+// 抖音/小红书/B站/知乎/视频号/百家号的「复制链接」是「文案 + emoji + 短链 + 引导语」的混合文本，
 // 直接当 URL 用会解析失败。采集前先提取真实 http(s) 链接：
-// - 多链接时优先取视频平台域名（douyin/xiaohongshu/bilibili/zhihu/channels）
+// - URL 匹配字符类排除 CJK 字符/标点/全角/emoji（借鉴 Evil0ctal Apache-2.0 方案）：
+//   中文天然终止匹配，修复「URL 与中文无空格粘连」时中文被吞进 URL 的缺陷
+// - 多链接时优先取视频平台域名（douyin/xiaohongshu/bilibili/zhihu/channels/baijiahao）
 // - 提取后回填输入框（用户可见真实链接），短链保持原样交后端 302 解析
 const VIDEO_PLATFORM_HOST_PATTERNS = [
   /(^|\.)douyin\.com$/i,
@@ -851,15 +854,25 @@ const VIDEO_PLATFORM_HOST_PATTERNS = [
   /(^|\.)b23\.tv$/i,
   /(^|\.)zhihu\.com$/i,
   /(^|\.)channels\.weixin\.qq\.com$/i,
+  /(^|\.)baijiahao\.baidu\.com$/i,
+  /(^|\.)mbd\.baidu\.com$/i,
 ]
+// CJK 排除字符类：空白/引号/尖括号/反斜杠 + 弯引号 + CJK 标点 + CJK 扩展A + 汉字 + 全角 + emoji
+// （u flag 是 \u{...} 语法的前提）
+const SHARE_TEXT_URL_RE = /https?:\/\/[^\s<>"'`\\\u2018\u2019\u201c\u201d\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef\u{1f000}-\u{1faff}]+/giu
+// 尾部粘连标点清理（中英文句读，防止 URL 吞掉句号逗号；URL 体内的括号/引号合法保留）
+const SHARE_TEXT_TRAILING_JUNK_RE = /[.,;:!?)\]}>'"\u3001\u3002\uff0c\uff01\uff1f\uff09\u3011\u300b\u201d\u2019]+$/
 function extractUrlFromShareText (text) {
   const raw = String(text || '').trim()
   if (!raw) return ''
-  // 提取全部 http(s) 链接（容忍中文/emoji 混排与尾部标点）
-  const matches = raw.match(/https?:\/\/[^\s"'<>）)】\]]+/gi) || []
+  // 提取全部 http(s) 链接（CJK 字符天然终止匹配，容忍中文/emoji 混排）
+  const matches = raw.match(SHARE_TEXT_URL_RE) || []
   if (!matches.length) return ''
-  // 清理尾部常见粘连标点
-  const cleaned = matches.map((u) => u.replace(/[。，,；;！!？?）)\]]+$/g, ''))
+  const cleaned = matches
+    .map((u) => u.replace(SHARE_TEXT_TRAILING_JUNK_RE, ''))
+    // 协议校验走共享判据（href-scheme-contract 单一口径；#2637 遗漏的一处，2026-10-09 补齐）
+    .filter((u) => safeHttpUrl(u))
+  if (!cleaned.length) return ''
   // 优先返回视频平台链接
   for (const url of cleaned) {
     try {
@@ -1014,15 +1027,24 @@ const ERROR_CODES = {
   BACKEND_UNAVAILABLE: -5,
 }
 const RETRYABLE_CODES = new Set([-1, -2, -3, -5, -7])
-// 抖音/小红书域名 → 视频采集通道（hostname 精确匹配，避免正则误判）
-const VIDEO_PLATFORM_DOMAINS = ['douyin.com', 'v.douyin.com', 'xiaohongshu.com', 'www.xiaohongshu.com', 'xhslink.com']
+// 视频通道路由（2026-09-29 六平台扩展）：域名级（整站视频/短链）+ 路径级（域名下仅特定路径是视频页）
+// 知乎问题/专栏、B站空间等非视频路径继续走图文链路，不破坏既有采集
+const VIDEO_DOMAIN_SUFFIXES = ['douyin.com', 'iesdouyin.com', 'xiaohongshu.com', 'xhslink.com', 'b23.tv', 'channels.weixin.qq.com']
+const VIDEO_PATH_RULES = [
+  { suffix: 'bilibili.com', prefix: '/video/' },
+  { suffix: 'zhihu.com', prefix: '/zvideo/' },
+  { suffix: 'baijiahao.baidu.com', prefix: '/s' },  // 文章页可能内嵌视频；无视频时后端报 NO_VIDEO 回退图文
+  { suffix: 'mbd.baidu.com', prefix: '/' },         // 百家号移动分享页
+]
 function isVideoPlatformUrl (url) {
   const u = String(url || '').trim()
   try {
     const parsed = new URL(u)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
     const host = parsed.hostname.toLowerCase()
-    return VIDEO_PLATFORM_DOMAINS.includes(host) || host.endsWith('.douyin.com') || host.endsWith('.xiaohongshu.com')
+    const hostMatches = (domain) => host === domain || host.endsWith('.' + domain)
+    if (VIDEO_DOMAIN_SUFFIXES.some(hostMatches)) return true
+    return VIDEO_PATH_RULES.some((r) => hostMatches(r.suffix) && parsed.pathname.startsWith(r.prefix))
   } catch { return false }
 }
 function formatVideoDuration (seconds) {
@@ -1032,9 +1054,16 @@ function formatVideoDuration (seconds) {
   const s = total % 60
   return m + ':' + String(s).padStart(2, '0')
 }
-const PLATFORM_KEYS = ['douyin', 'xiaohongshu']
+const PLATFORM_KEYS = ['douyin', 'xiaohongshu', 'bilibili', 'zhihu', 'channels', 'baijiahao']
 function platformLabel (platform) {
-  const key = { douyin: 'collection.platformDouyin', xiaohongshu: 'collection.platformXiaohongshu' }[platform]
+  const key = {
+    douyin: 'collection.platformDouyin',
+    xiaohongshu: 'collection.platformXiaohongshu',
+    bilibili: 'collection.platformBilibili',
+    zhihu: 'collection.platformZhihu',
+    channels: 'collection.platformChannels',
+    baijiahao: 'collection.platformBaijiahao',
+  }[platform]
   if (key) return resolveNotifyText(key).text
   return PLATFORM_KEYS.includes(platform) ? platform : (platform || '')
 }
@@ -1071,6 +1100,13 @@ function stopVideoStageProgression () {
   videoStageTimers.forEach(t => clearTimeout(t))
   videoStageTimers = []
   videoCollectStage.value = ''
+}
+
+// 百家号文章不含视频（后端 VIDEOCLONE_NO_VIDEO，detail 形如
+// "VIDEOCLONE_NO_VIDEO: 该链接不含视频"）→ 提示后落回图文采集链路，不报错中断
+function isNoVideoCollectError (res) {
+  const message = String((res && res.message) || '')
+  return message.includes('VIDEOCLONE_NO_VIDEO')
 }
 
 // 采集错误细分提示：按 classifyCollectError 的 reason 渲染「具体原因 + 建议」文案，
@@ -1149,12 +1185,12 @@ async function collectUrl () {
   }
   // 分享文本解析：粘贴的是「文案+短链+引导语」混合文本时，先提取真实链接
   const trimmedInput = linkUrl.value.trim()
-  if (/\s/.test(trimmedInput) || !/^https?:\/\//i.test(trimmedInput)) {
+  if (/\s/.test(trimmedInput) || safeHttpUrl(trimmedInput) === null) {
     const extracted = extractUrlFromShareText(trimmedInput)
     if (extracted) {
       linkUrl.value = extracted
       notifyInfo('collection.shareLinkExtracted')
-    } else if (!/^https?:\/\//i.test(trimmedInput)) {
+    } else if (safeHttpUrl(trimmedInput) === null) {
       // 无 http 前缀且提取不到链接 → 走原有图文链路报错
       notifyWarning('collection.shareLinkNone')
       return
@@ -1166,7 +1202,7 @@ async function collectUrl () {
   collectError.value = null
   try {
     const trimmedUrl = linkUrl.value.trim()
-    // 抖音/小红书链接 → 视频采集通道（下载 + ASR 转写）
+    // 六平台视频链接（抖音/小红书/B站/知乎 zvideo/视频号/百家号）→ 视频采集通道（下载 + ASR 转写）
     if (isVideoPlatformUrl(trimmedUrl)) {
       if (api && api.aggregationCollectVideo) {
         startVideoStageProgression()
@@ -1176,44 +1212,56 @@ async function collectUrl () {
         } finally {
           stopVideoStageProgression()
         }
+        let noVideoFallback = false
         if (res && res.code !== undefined && res.code !== 0) {
           // -6 ASR 引擎不可用 → 弹出安装引导弹窗（自动 pip 安装 + 模型下载）
           if (res.code === -6) {
             openAsrInstallDialog(linkUrl.value.trim())
             return
           }
-          collectError.value = { code: res.code, message: res.message }
-          notifyError('collection.collectFailed', { message: formatUserError(res, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
-          return
-        }
-        if (res && res.title) {
-          const item = {
-            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            title: res.title,
-            content: res.content || res.transcript || '',
-            description: (res.content || res.transcript || '').slice(0, 120),
-            source: collectSourceType.value,
-            sourceUrl: linkUrl.value,
-            wordCount: res.word_count || 0,
-            mediaType: res.media_type || 'video',
-            duration: res.duration || 0,
-            platform: (res.metadata && res.metadata.platform) || '',
+          // 百家号文章不含视频（VIDEOCLONE_NO_VIDEO）→ 提示后落回图文采集链路
+          // （stealth → aggregation → url-collector），不报错中断
+          if (isNoVideoCollectError(res)) {
+            notifyInfo('collection.fallbackToArticle')
+            noVideoFallback = true
+          } else {
+            collectError.value = { code: res.code, message: res.message }
+            notifyError('collection.collectFailed', { message: formatUserError(res, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+            return
           }
-          collectedResult.value = item
-          addedToViral.value = false
-          collectedItems.value.unshift(item)
-          saveCollectedItems()
-          notifySuccess('collection.collectSuccess')
+        }
+        if (!noVideoFallback) {
+          if (res && res.title) {
+            const item = {
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              title: res.title,
+              content: res.content || res.transcript || '',
+              description: (res.content || res.transcript || '').slice(0, 120),
+              source: collectSourceType.value,
+              sourceUrl: linkUrl.value,
+              wordCount: res.word_count || 0,
+              mediaType: res.media_type || 'video',
+              duration: res.duration || 0,
+              platform: (res.metadata && res.metadata.platform) || '',
+            }
+            collectedResult.value = item
+            addedToViral.value = false
+            collectedItems.value.unshift(item)
+            saveCollectedItems()
+            notifySuccess('collection.collectSuccess')
+            return
+          }
+          collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
+          notifyError('collection.collectFailed', { message: collectError.value.message })
           return
         }
-        collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
-        notifyError('collection.collectFailed', { message: collectError.value.message })
+        // noVideoFallback：落回下方图文采集链路继续
+      } else {
+        // 视频通道不可用 → 不回退到图文采集（图文链路无法处理视频），直接提示
+        collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
+        notifyWarning('collection.collectUnavailable')
         return
       }
-      // 视频通道不可用 → 不回退到图文采集（图文链路无法处理视频），直接提示
-      collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
-      notifyWarning('collection.collectUnavailable')
-      return
     }
     // 反爬站点（知乎/百家号）→ 直接走 Node stealth 浏览器通道，跳过 Python 聚合层裸连
     if (api && api.urlCollectFetch && await needsStealthRoute(api, trimmedUrl)) {
@@ -1323,7 +1371,7 @@ async function collectAndRewrite () {
   collectedResult.value = null
   try {
     const trimmedUrl = linkUrl.value.trim()
-    // 抖音/小红书链接 → 视频采集通道（与 collectUrl 一致），转写文案作为改写输入
+    // 六平台视频链接 → 视频采集通道（与 collectUrl 一致），转写文案作为改写输入
     if (isVideoPlatformUrl(trimmedUrl)) {
       if (!api.aggregationCollectVideo) {
         collectError.value = { code: -99, message: resolveNotifyText('collection.collectUnavailable').text }
@@ -1337,57 +1385,67 @@ async function collectAndRewrite () {
       } finally {
         stopVideoStageProgression()
       }
+      let noVideoFallback = false
       if (videoRes && videoRes.code !== undefined && videoRes.code !== 0) {
-        collectError.value = { code: videoRes.code, message: videoRes.message }
-        notifyError('collection.collectFailed', { message: formatUserError(videoRes, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
-        return
-      }
-      if (videoRes && videoRes.title) {
-        const videoItem = {
-          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          title: videoRes.title,
-          content: videoRes.content || videoRes.transcript || '',
-          description: (videoRes.content || videoRes.transcript || '').slice(0, 120),
-          source: collectSourceType.value,
-          sourceUrl: linkUrl.value,
-          wordCount: videoRes.word_count || 0,
-          mediaType: videoRes.media_type || 'video',
-          duration: videoRes.duration || 0,
-          platform: (videoRes.metadata && videoRes.metadata.platform) || '',
+        // 百家号文章不含视频（VIDEOCLONE_NO_VIDEO）→ 提示后落回图文采集链路（与 collectUrl 一致）
+        if (isNoVideoCollectError(videoRes)) {
+          notifyInfo('collection.fallbackToArticle')
+          noVideoFallback = true
+        } else {
+          collectError.value = { code: videoRes.code, message: videoRes.message }
+          notifyError('collection.collectFailed', { message: formatUserError(videoRes, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
+          return
         }
-        collectedResult.value = videoItem
-        addedToViral.value = false
-        collectedItems.value.unshift(videoItem)
-        saveCollectedItems()
-        notifySuccess('collection.collectSuccess')
-        // Step 2: 用转写文案自动改写
-        collecting.value = false
-        rewriting.value = true
-        try {
-          const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
-          if (rewrite && rewrite.result_content) {
-            rewriteResult.value = rewrite.result_content
-            recordRewriteToLibrary(rewrite.result_content, videoItem)
-            notifySuccess('collection.rewriteSuccess')
-          } else {
-            // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
-            // 禁止把后端原始 message（可能含环境变量名等技术细节）直出 UI（user-facing-messages 规范）
-            const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
-            const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
-            rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
-            notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+      }
+      if (!noVideoFallback) {
+        if (videoRes && videoRes.title) {
+          const videoItem = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            title: videoRes.title,
+            content: videoRes.content || videoRes.transcript || '',
+            description: (videoRes.content || videoRes.transcript || '').slice(0, 120),
+            source: collectSourceType.value,
+            sourceUrl: linkUrl.value,
+            wordCount: videoRes.word_count || 0,
+            mediaType: videoRes.media_type || 'video',
+            duration: videoRes.duration || 0,
+            platform: (videoRes.metadata && videoRes.metadata.platform) || '',
           }
-        } catch (e) {
-          rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
-          notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
-        } finally {
-          rewriting.value = false
+          collectedResult.value = videoItem
+          addedToViral.value = false
+          collectedItems.value.unshift(videoItem)
+          saveCollectedItems()
+          notifySuccess('collection.collectSuccess')
+          // Step 2: 用转写文案自动改写
+          collecting.value = false
+          rewriting.value = true
+          try {
+            const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
+            if (rewrite && rewrite.result_content) {
+              rewriteResult.value = rewrite.result_content
+              recordRewriteToLibrary(rewrite.result_content, videoItem)
+              notifySuccess('collection.rewriteSuccess')
+            } else {
+              // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
+              // 禁止把后端原始 message（可能含环境变量名等技术细节）直出 UI（user-facing-messages 规范）
+              const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
+              const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+              rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
+              notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+            }
+          } catch (e) {
+            rewriteError.value = { code: -99, message: formatUserError(e, { fallback: resolveNotifyText('collection.rewriteFailed').text }).message }
+            notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+          } finally {
+            rewriting.value = false
+          }
+          return
         }
+        collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
+        notifyError('collection.collectFailed', { message: collectError.value.message })
         return
       }
-      collectError.value = { code: -99, message: resolveNotifyText('collection.collectFailed').text }
-      notifyError('collection.collectFailed', { message: collectError.value.message })
-      return
+      // noVideoFallback：落回下方图文采集链路继续
     }
     // 反爬站点（知乎/百家号）→ 直接走 Node stealth 浏览器通道采集，跳过 Python 聚合层裸连
     if (api.urlCollectFetch && await needsStealthRoute(api, trimmedUrl)) {
