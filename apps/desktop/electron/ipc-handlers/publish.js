@@ -100,8 +100,11 @@ function registerHandlers(ipcMain, deps) {
       // 至少 1 张图片，无兜底则「一键发布图文」在这些平台必然失败。
       const fallbackLocalCover = async (reason) => {
         try {
-          const { generateLocalCover } = require('../services/local-cover-generator')
-          const localResult = await generateLocalCover(prompt, { ratio })
+          // 依赖注入（2026-09-30）：deps.localCoverGenerator 可注入替身，使 IPC 合同测试
+          // 无需加载 sharp 原生模块（CI 高负载下首载 >30s，真实 30s 超时仍被打穿）。生产不注入时
+          // 走真实实现；本地渲染的真实性由 local-cover-generator.test.js 覆盖（PNG 尺寸/比例/折行）。
+          const localCoverGenerator = (deps && deps.localCoverGenerator) || require('../services/local-cover-generator')
+          const localResult = await localCoverGenerator.generateLocalCover(prompt, { ratio })
           if (localResult && localResult.code === 0 && localResult.data && localResult.data.path) {
             ipcLog('info', 'cover:generate-ai', 'local-fallback', `reason=${reason} path=${localResult.data.path.slice(-80)}`)
             return { code: 0, data: { coverPath: localResult.data.path }, message: '本地封面生成成功（AI 生图不可用，已用标题卡兜底）' }
