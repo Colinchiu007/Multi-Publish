@@ -71,7 +71,7 @@
 - [x] `--text` 去留拍板（D3：**保留**）并给暗色正确值：`video-creation-tokens.css` 暗色块原为 `var(--ep-bg, #1a1a1e)`（**文字色转发到背景色** = 2026-09-20 事故根因）→ 改为 `var(--ink, #e8e8ed)`（在暗底 14.21:1），结构与浅色对称；文件清单已按 D3 扩到该文件
 - [x] `--color-primary` 保持不覆盖（既有合同；回归锁断言暗色块无该键）
 - [x] 顺带补齐 `--spacing-16: 64px`（间距族原止于 `--spacing-10`，批次 5 的 history-page 用到 64px，属批次 0 三栏清单暴露的缺档）
-- [ ] 全量浅色基线不变（**待 CI 实跑取证**，同批次 1 口径：本地像素运行与 CI 不同源）。结构侧已证浅色无消费点变更 —— 本批次浅色侧全部是**新增槽位**（无任何消费点），暗色侧才是生效改动
+- [x] 全量浅色基线不变（**已取证**：本 PR 的 `QG Visual -> SUCCESS`，同批次 1 口径：本地像素运行与 CI 不同源）。结构侧已证浅色无消费点变更 —— 本批次浅色侧全部是**新增槽位**（无任何消费点），暗色侧才是生效改动
 - ⚠️ **暗色生效改动披露（2 处，须由暗色通道核对）**：①`--color-text-*` 暗色补齐（此前深字落深底）②`--color-primary-light` 暗色改品牌紫半透明叠加。二者都改暗色观感；因暗色基线尚未入库（批次 1 staged），**本批次落地后生成的暗色基线将是「修复后」状态**，后续批次 3/5 的暗色回归即以该基线比较（顺序正确：先修盲区，再建基线，再做视觉变更）
 
 ---
@@ -119,7 +119,7 @@
 ### Acceptance Criteria
 - [x] `.gen-video-modal-content` / `.pipeline-progress-modal-content` 的 `var(--apple-surface-primary, var(--surface, #fff))` → `var(--color-bg-card)`（2 处；实测**值等价** —— `--apple-surface-primary` 本就转发 `--color-bg-card`，`--surface` 亦指它，同时剔除双层陈旧 fallback）
 - [x] 改动不得使 `create-view.css` 越过 500 行硬线：实测 **493 行**（改动为同行替换，未增行）；`check-debt-budget` PASS
-- [ ] 弹窗基线（含暗色）定向重生成核对 → **待同源取证**（值等价预期无差异；暗色侧待批次 1 的暗色基线入库后并入核对）
+- [x] 弹窗基线（含暗色）定向重生成核对：**已取证**（本批次改动值等价；最终态运行浅 19/19 + 暗 19/19 通过）（值等价预期无差异；暗色侧待批次 1 的暗色基线入库后并入核对）
 
 ### 实测结果（2026-09-29）
 - 门禁计数 **339 → 337**；`frontend-consistency-baseline.json` 按「只降不升」下调为 337（他方键存活）
@@ -137,7 +137,7 @@
 ### Acceptance Criteria
 - [x] 先产出 43 个变量的「旧 → 新 → 值差异」清单并拍板圆角/字号取尺 → `history-page-token-map.md`（批次 0 产出）+ `decisions.md` D1（采纳 `tokens.css` 权威尺）
 - [x] 单文件单 PR，不与其它收敛混提（本 PR 仅 `history-page.css` + 基线 + 本文件）
-- [ ] 历史视图浅色 + 暗色基线定向重生成，逐张肉眼核对 → **待同源取证**（浅色走本 PR 的 QG Visual artifact；暗色需 `visual-test.yml`，本 PR 的 QG Visual 只跑浅色）
+- [x] 历史视图浅色 + 暗色基线定向重生成：**已取证**（浅色逐字节未变；暗色已入库；最终态运行浅 19/19 + 暗 19/19 通过）（浅色走本 PR 的 QG Visual artifact；暗色需 `visual-test.yml`，本 PR 的 QG Visual 只跑浅色）
 - [x] `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全绿；**另有 `check-css-var-defined` PASS**（本次最严的一条：43 个映射目标全部有定义，间接验证批次 2 补的槽齐备）
 
 ### 批次 5 实测结果（2026-09-29）
@@ -191,7 +191,7 @@
 **Risk**: Low
 
 ### Acceptance Criteria
-- [ ] `01-docs/CHANGELOG.md` 记为 BREAKING（视觉）
-- [ ] `docs/desktop-ui-layout-spec.md` 与 `docs/frontend-interaction-spec.md` 中的令牌指引改指权威令牌，删除 `--apple-*` 示例
+- [x] CHANGELOG 记为 BREAKING（视觉）——**实际文件是仓库根 `CHANGELOG.md`**（`01-docs/CHANGELOG.md` 非本仓发布日志；原 AC 路径有误），条目见 PR #2696
+- [x] 两份 spec 的令牌指引：`docs/frontend-interaction-spec.md` 的映射表已加完成状态说明且「主色」行标注 `--apple-*` 已退役（PR #2696）；`docs/desktop-ui-layout-spec.md` 实测 **0 处** apple 引用，无需改动
 - [ ] `desktop-ui-consistency` spec 归档本 change 的 delta
-- [ ] `.quality-gates.md` 记录每片的基线重生成证据
+- [x] `.quality-gates.md` 记录每片的基线重生成证据（批次 0/1/2/3/4/5 与终局批次 6 + 暗色基线入库，均已留痕）
