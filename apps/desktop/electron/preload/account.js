@@ -16,8 +16,8 @@
  *                 onOAuthOpened / onOAuthCompleted / onOAuthFailed / onOAuthClosed
  *   - 统一数据存储：storeAddAccount / storeGetAccount / storeListAccounts / storeDeleteAccount
  *                   storeAddPublishRecord / storeListPublishHistory / storeGetPublishStats
- *                   storeAddScheduledTask / storeListScheduledTasks / storeDeleteTask
  *                   storeGetSetting / storeSetSetting / storeListCallbackLogs
+ *                   （scheduled_tasks 的 3 个桥接已于 2026-10-02 死路径清理删除）
  */
 
 /**
