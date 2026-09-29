@@ -1081,9 +1081,21 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   // ========== P2-D: wechat_mp — iframe save-draft + mass-send ==========
   async _publish_wechat_mp(win, article) {
     this._emitProgress('wechat_mp','navigating to draft...',5)
-    // Direct draft edit URL
+    // 2026-09-29 图文发布修复（实测取证）：旧 appmsg_edit URL 不带 token 会被重定向回首页，
+    // 登录探测随即误报「登录超时」——公众号后台所有 cgi-bin 页面都要求会话 token。
+    // 正确链路（参考产品同款做法）：先访问首页 → 从落地 URL 提取 token →
+    // 用 appmsg_edit_v2 + token 进入新版编辑器（实测该页 #title textarea 与
+    // .ProseMirror contenteditable 均在，旧版 iframe ueditor 兜底保留）。
+    await this._navigateAndWait(win,'https://mp.weixin.qq.com/',5000)
+    const homeUrl = String(win.webContents.getURL() || '')
+    const tokenMatch = /token=(\d+)/.exec(homeUrl)
+    if (!tokenMatch) {
+      log.warn('RpaView','[wechat_mp] session token not found in home url='+homeUrl)
+      return { success:false, error:'微信公众号会话 token 获取失败，请重新登录', platform:'wechat_mp' }
+    }
+    const editUrl = 'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=77&createType=0&token=' + tokenMatch[1] + '&lang=zh_CN'
     // 加长稳定等待：新版后台为 SPA，编辑器与保存按钮延迟挂载
-    await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=10&create=1',5000)
+    await this._navigateAndWait(win, editUrl, 5000)
 
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('connect'))
@@ -1327,23 +1339,53 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
   async _publish_zhihu(win, article) {
     this._emitProgress('zhihu','navigating to write page...',5)
-    await this._navigateAndWait(win,'https://www.zhihu.com/creator/write')
+    // 2026-09-29 图文发布修复（实测取证）：www.zhihu.com/creator/write 落地页与
+    // .WriteIndex-titleInput 等选择器失配（15s 超时全灭）；zhuanlan.zhihu.com/write
+    // 实测选择器全命中（LABEL.WriteIndex-titleInput 包 TEXTAREA.Input +
+    // .public-DraftEditor-content[contenteditable] + 发布 button）。
+    await this._navigateAndWait(win,'https://zhuanlan.zhihu.com/write')
     if (win.webContents.getURL().includes('signin')||win.webContents.getURL().includes('login'))
       { log.warn('RpaView', '[zhihu] not logged in url=' + win.webContents.getURL()); return {success:false,error:'zhihu not logged in',platform:'zhihu'} }
     this._emitProgress('zhihu','waiting for editor...',15)
     if (!(await this._waitForElement(win,'.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title',15000)))
       { log.warn('RpaView', '[zhihu] editor not loaded url=' + win.webContents.getURL()); return {success:false,error:'zhihu: editor not loaded',platform:'zhihu'} }
+    // 正文编辑器就绪等待（实测 .public-DraftEditor-content 命中；Draft.js 挂载晚于标题框）
+    await this._waitForElement(win,'.public-DraftEditor-content, .DraftEditor-root, [contenteditable="true"]',10000)
     if (article.title) {
       this._emitProgress('zhihu','filling title...',30)
       try {
+        // 2026-09-29 修复：.WriteIndex-titleInput 是 LABEL wrapper（Input-wrapper--multiline），
+        // 旧实现 ti.textContent=标题 写在 label 上、真实输入框从未收到值。
+        // 正解：定位 wrapper 内部 textarea/input，用原生 value setter + input/change 事件。
         const tj = JSON.stringify(article.title)
-        await win.webContents.executeJavaScript("(function(){let ti=document.querySelector('.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title');if(!ti)return false;ti.focus();ti.textContent="+tj+";ti.dispatchEvent(new Event('input',{bubbles:true}));ti.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
+        await win.webContents.executeJavaScript("(function(){var w=document.querySelector('.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title');var ti=w?w.querySelector('textarea, input'):null;if(!ti)ti=document.querySelector('textarea[placeholder*=\"标题\"], input[placeholder*=\"标题\"]');if(!ti)return false;ti.focus();var proto=ti.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;var d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(ti,"+tj+");else ti.value="+tj+";ti.dispatchEvent(new Event('input',{bubbles:true}));ti.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
       } catch(e) { log.warn('RpaView','zhihu title: '+e.message) }
     }
     if (article.content) {
       this._emitProgress('zhihu','filling content...',50)
       try {
-        await this._setElementContentSafe(win, '.DraftEditor-root, .Editable-editor, .ql-editor, [contenteditable="true"]', article.content)
+        // 2026-09-29 修复：Draft.js 不接受 innerHTML 直写容器（.DraftEditor-root 是容器非
+        // contenteditable，实测 innerHTML 写入后框架状态为空、发布出空文）；也不接受
+        // execCommand 合成分块。正解（实测取证）：JS focus .public-DraftEditor-content →
+        // CDP Input.insertText 可信注入（框架收到真实 beforeinput 并入状态）。
+        // 内容格式：发布页编辑器是 Quill（content-type=html），article.content 到达时已被
+        // 规范化为 HTML（<p>…</p>）；Draft.js 是纯文本编辑器，注入前先在页面内转纯文本
+        // （<p> 段落 → \n\n 分隔，textContent 保留段内换行）。
+        const plainContent = await win.webContents.executeJavaScript('(function(){var html=' + JSON.stringify(String(article.content)) + ';if(!/<[a-z][\\s\\S]*>/i.test(html))return html;try{var doc=new DOMParser().parseFromString(html,\'text/html\');var paras=[...doc.querySelectorAll(\'p,div,h1,h2,h3,h4,li,blockquote,pre\')];if(paras.length>0)return paras.map(function(p){return p.textContent.trim()}).filter(Boolean).join(\'\\n\\n\');return doc.body.textContent}catch(e){return html.replace(/<[^>]+>/g,\'\')}})()')
+        const focused = await win.webContents.executeJavaScript('(function(){var ed=document.querySelector(\'.public-DraftEditor-content, [contenteditable="true"]\');if(!ed)return false;ed.focus();return document.activeElement===ed})()')
+        if (focused) {
+          const inserted = await this._insertTextTrusted(win, plainContent)
+          if (inserted) {
+            // input 事件兜底同步（部分框架监听 input 而非 beforeinput）
+            await win.webContents.executeJavaScript('(function(){var ed=document.querySelector(\'.public-DraftEditor-content, [contenteditable="true"]\');if(ed)ed.dispatchEvent(new Event(\'input\',{bubbles:true}));return true})()').catch(function(){ /* ignore */ })
+          } else {
+            log.warn('RpaView', 'zhihu content: trusted insert failed, fallback to innerHTML')
+            await this._setElementContentSafe(win, '.DraftEditor-root, .Editable-editor, .ql-editor, [contenteditable="true"]', plainContent)
+          }
+        } else {
+          log.warn('RpaView', 'zhihu content: editor focus failed, fallback to innerHTML')
+          await this._setElementContentSafe(win, '.DraftEditor-root, .Editable-editor, .ql-editor, [contenteditable="true"]', plainContent)
+        }
       } catch(e) { log.warn('RpaView','zhihu content: '+e.message) }
     }
     this._emitProgress('zhihu','publishing...',80)
@@ -1364,11 +1406,15 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       this._emitProgress('zhihu','verifying...',95)
       await this._sleep(3000)
       const curUrl = win.webContents.getURL()
-      if (curUrl.includes('success')||curUrl.includes('publish')||curUrl.includes('article')) {
+      // 2026-09-29 实测：知乎发布成功后跳转 zhuanlan.zhihu.com/p/<id>（文章页），
+      // 旧检查只认 success/publish/article 三个子串，/p/ 模式漏判 → 已发布却报失败。
+      if (curUrl.includes('success')||curUrl.includes('publish')||curUrl.includes('article')||/\/p\/\d+/.test(curUrl)) {
         this._emitProgress('zhihu','published!',100)
         return {success:true,url:curUrl,platform:'zhihu'}
       }
-      const panelGone = await win.webContents.executeJavaScript("(function(){let pb=document.querySelector('button:has-text(\u005c\u0022\\u53d1\\u5e03\u005c\u0022), .PublishPanel-publish');return !pb||getComputedStyle(pb).display==='none';})()")
+      // 2026-09-29 修复：panelGone 兜底不得在原生 querySelector 里用 :has-text（Playwright
+      // 专属语法，实测抛 SyntaxError 使整个验证 catch 成「Script failed」）；改 querySelectorAll 文本匹配。
+      const panelGone = await win.webContents.executeJavaScript("(function(){var pb=[...document.querySelectorAll('button')].find(function(b){return (b.innerText||'').trim()==='发布'})||document.querySelector('.PublishPanel-publish');return !pb||getComputedStyle(pb).display==='none';})()")
       if (panelGone) {
         this._emitProgress('zhihu','published!',100)
         return {success:true,url:curUrl,platform:'zhihu'}
