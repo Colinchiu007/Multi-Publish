@@ -1,3 +1,25 @@
+# [未发布] fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
+
+### 根因（第一性原因）
+- `content-intelligence-sources.js` 自内容情报模块引入起就把第三方响应的 `url` 原样透出（`url: d.url || 本站兜底`），渲染层照字段名直绑 `<a :href>`。而 **Vue 3 不净化 href**（v2 的 `isUnsafeURL` 守卫在 v3 已移除），本应用渲染进程又持有 `window.electronAPI` ⇒ HN Algolia 的 `url` 由提交人任意填写，一条 `javascript:` 点下去即在特权上下文执行任意 JS。
+- 同一条判定在仓内被抄成多份却互不相认：`hot-topics/channels.js` 的 `sanitizeUrl`（注释明写"仅 http/https"）只服务热榜；`bootstrap/phase4-events.js` 又抄一份决定 `Publish.vue` 的 `result.url`；`Collection.vue` 用户输入校验是第三份。六条展示链**一份都没接**。
+
+### 变更
+- 单一判据 `packages/shared-utils/src/safe-http-url.js`（CJS）+ `safe-http-url.browser.js`（ESM，`vite.config.js` alias 指过去）+ parity 锁，照 platform-definitions / account-name-guard / publish-capabilities 三先例。判据只做 `http(s)://` **前缀白名单**，不做"清洗后放行"；协议相对 `//host` 与缺协议一律 `null`。
+- 双档防线：采集侧第一站收口（HN 非法回落 `https://news.ycombinator.com/item?id=`，GitHub/Reddit 非法即 `null`）+ 渲染侧绑定 `:href` 前再判。六个站点不通过即**不产出锚点、保留等样式纯文本**；补齐 `Publish.vue` / `FilmEngineeringView.vue` 缺的 `rel="noopener"`。
+- 收敛四份同用途拷贝：`channels.js`、`content-intelligence-sources.js`、`phase4-events.js`、`Collection.vue`。按 sink 分的三种策略（成链下限 / OS 打开面更严含拒 userinfo / 图标资源允许 data:）**显式不合并**，源码注释互指。
+- 三把新锁：`apps/desktop/src/href-scheme-contract.test.js`（全仓 `src/**/*.vue` 扫 `:href=`，覆盖四种绑定形态、禁 `:[href]` 与 `v-bind="{href}"` 绕过、`target=_blank` 必带 noopener、`v-if` 与 `:href` 必须同一表达式、`window.open` 站点登记）；`content-intelligence-sources.test.js`（采集侧行为锁，补结构锁"只查 import"的盲区）；`safe-http-url.test.js`（判定表 + 孪生 parity 含导出集合）。
+- 文档：新增 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`（威胁模型 / 判定表 / 三策略对照 / 全仓 37 处实况分类清点 / AC-1..AC-12 / 20 条反证矩阵 / QM-6 逐条处置）；`AGENTS.md` QM-2 新增硬规则；`01-docs/PRD.md` 新增 §9.2.2。
+
+### 影响
+- 用户可见变化只有一种：上游返回非法协议 URL 时，原来那条"能点但会执行脚本"的链接变成同样式纯文本（内容不丢）。正常数据下界面无任何变化——**CI 产物逐视图对照 main 的 Δ 全为 0.0000%**（19 视图，含 `intelligence` 0.1935%、`collection` 1.6071% 两条 main 上同值的既有漂移）。
+- `phase4-events.js` 收敛后，发布结果 URL 的"能否成为链接"与渲染层同口径，不再可能出现"主进程放行、渲染层拒绝"的口径分裂。
+
+### 验证
+- `Test Files 2 failed | 687 passed | 1 skipped (690)`；两条红均为既有（`feedback.test.js` Windows symlink EPERM；`story2video-manual-assets.test.js` 在**不含本改动的干净 main `633ee1c2`** 上跑出同一条断言同一条红，与本 PR diff 零文件交集）。
+- 20 条变异反证全部指名变红、逐字节还原；QM-1 解包产物取证 7/7 PASS；QG Visual pass 且与 main 逐视图 Δ=0；CI `21 pass / 0 fail / 1 skipping`；三个新测试文件在 CI 日志里均有 ✓ 执行现场（`safe-http-url.test.js (61 tests)` 等）。
+- QM-6 双模型（codex + claude）无 Critical；5 Warning 全部落地，其中两条为**实质代码收敛**而非补测试。
+
 # [未发布] fix(设置页): 浅色模式主按钮 hover/禁用态隐形——EP 主题桥接补齐浅色兜底（2026-09-29，#2627）
 
 ### 现象与根因
