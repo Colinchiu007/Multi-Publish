@@ -15,6 +15,19 @@
 - #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
 - 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
 
+# [未发布] feat(publish): 定时×草稿互斥守卫（发布页优化 roadmap 第一项 P1-4）+ 对比参考产品的差距分析文档（2026-10-08，publish-page-optimization）
+
+### 变更
+- **P1-4 定时×草稿互斥**（`usePublishDrafts.js`）：本地草稿是静态快照不会自动发布——带定时时间保存草稿会让用户误以为「到点自动发」。双侧守卫：①保存侧 ElMessageBox 互斥确认（清除定时并保存 / 保留定时保存，双按钮都保存）；②加载侧清除已过期定时时间并提示（避免下一次发布被 validateScheduleEntries 以「定时时间已过去」静默拒绝）。参考产品在引擎层硬拒绝（pubType 互斥）；本地草稿语义更宽（WIP 快照），改为确认+清除而非硬拒绝。
+- **分析文档** `01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md`（force-add，.gitignore 白名单制）：对比参考产品 4.13.19 的 8 项差距清单（P0-1 审核状态跟踪★最大差距/P0-2 账号风险预检/P1-3 平台草稿往返/P1-4 本项已实现/P1-5 可见性通用控件/P2 数据回流/批量字段面/账号分组），含证据出处（16 态审核模型 + aweme_id 回查口径 + -110 风险码族）、P1-4 六维度详写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）、后续项立项要点。
+- locales zh/en 成对新增 5 键（scheduleConflictTitle/Message/Clear/Keep + staleScheduleCleared）。
+
+### 验证
+- `usePublishDrafts.test.js` 11/11（含 5 条 P1-4 回归：确认清除/取消保留/无定时不弹/过期清除/未来保留）
+- locale 成对门禁（pair-base/keys/cjk）、品牌残留、行尾对账本地 PASS
+
+---
+
 # [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
 
 ### 变更

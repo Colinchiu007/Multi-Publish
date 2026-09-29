@@ -56,10 +56,41 @@ export function usePublishDrafts ({
   platformOverrides,
 }) {
   // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
-  const { notifyError, notifySuccess, notifyWarning } = useNotify()
+  const { notifyError, notifySuccess, notifyWarning, notifyConfirm } = useNotify()
   const showDraftList = ref(false)
   const drafts = ref([])
   const loadingDrafts = ref(false)
+
+  // 定时×草稿互斥守卫（P1-4，2026-10-08 发布页优化 roadmap 第一项）：
+  // 本地草稿是静态快照，不会在定时时间自动触发发布——定时只在点击「一键发布」时
+  // 进入调度队列。参考产品在引擎层硬拒绝「定时发布不能存草稿」（pubType 互斥）；
+  // 本地草稿语义更宽（WIP 快照），改为保存前确认 + 加载时清除过期定时，消灭
+  // 「存了带定时的草稿就以为到点自动发」的误解路径。
+  async function confirmScheduleDraftConflict () {
+    const time = String(article.publishTime || '').trim()
+    if (!time) return false
+    // 确认 = 清除定时并保存；取消/关闭 = 保留定时保存（两种选择都保存，仅定时字段不同）
+    const clearSchedule = await notifyConfirm('publishDrafts.scheduleConflictMessage', {
+      params: { time },
+      title: t('publishDrafts.scheduleConflictTitle'),
+      confirmButtonText: t('publishDrafts.scheduleConflictClear'),
+      cancelButtonText: t('publishDrafts.scheduleConflictKeep'),
+      type: 'warning',
+    })
+    return clearSchedule
+  }
+
+  // 加载侧守卫：草稿里的定时时间若已过期，静默恢复会让下一次发布被
+  // validateScheduleEntries 拒绝（「定时时间已过去」）且用户不知情——
+  // 恢复时直接清除并提示。
+  function clearStaleDraftSchedule (draft) {
+    const time = String((draft && draft.publishTime) || '').trim()
+    if (!time) return
+    const ts = Date.parse(time)
+    if (Number.isNaN(ts) || ts > Date.now()) return
+    article.publishTime = ''
+    notifyWarning('publishDrafts.staleScheduleCleared', { message: t('publishDrafts.staleScheduleCleared', { time }) })
+  }
 
   function buildDraftSnapshot () {
     const snapshot = {
@@ -84,6 +115,8 @@ export function usePublishDrafts ({
         ? (Array.isArray(draft[field]) ? toPlainJson(draft[field]) : [])
         : (draft[field] || '')
     }
+    // 定时×草稿互斥（P1-4）：恢复后清除已过期的定时时间（见 clearStaleDraftSchedule）
+    clearStaleDraftSchedule(draft)
     selectedPlatforms.value = Array.isArray(draft.platforms)
       ? toPlainJson(draft.platforms)
       : []
@@ -117,6 +150,10 @@ export function usePublishDrafts ({
     if (!String(article.title || '').trim() && !String(article.content || '').trim()) {
       notifyWarning('publishDrafts.emptyTitleContent', { message: t('publishDrafts.emptyTitleContent') })
       return false
+    }
+    // 定时×草稿互斥（P1-4）：带定时时间保存 → 用户选择「清除定时并保存」或「保留定时保存」
+    if (await confirmScheduleDraftConflict()) {
+      article.publishTime = ''
     }
     try {
       const result = await draftSave(buildDraftSnapshot())
