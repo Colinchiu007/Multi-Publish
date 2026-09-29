@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Wait for a PR's CI checks to pass, then merge. Safe replacement for `gh pr merge --auto`,
   which merges immediately on private/free repos because required status checks cannot be set.

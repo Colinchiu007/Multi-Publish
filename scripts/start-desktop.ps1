@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   Multi-Publish 桌面启动契约：保证每次启动 = 最新代码 + 正确工作区。

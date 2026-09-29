@@ -1,3 +1,53 @@
+# [未发布] fix(工程门禁): 15 个含中文的 .ps1 补 UTF-8 BOM + 新增编码声明门禁（Windows PowerShell 5.1 按 ANSI 解码会让入口脚本整体不可解析）
+
+## 现象（不是显示问题，是功能性中断）
+
+- Windows PowerShell 5.1（`powershell.exe`，本仓所有 `.ps1` 入口的实际宿主）读取**无 BOM** 的
+  `.ps1` 时按系统 ANSI 码页（本机 cp936）解码，而不是 UTF-8。中文注释/字符串被逐字节重新解释，
+  一旦某个多字节序列含 `'` `"` `{` `}` 的字节，**整个脚本 tokenize 失败**。
+- 触发点：`start-mp-task.ps1`（会话隔离入口，负责创建任务 worktree）在 `248b924c` 之后
+  报 `ParserError: 表达式或语句中缺少“}”` ⇒ **所有新的运行时代码任务开不出 worktree**。
+  今天下午还能用，一次正常合入后就坏了 —— 因为该提交往无 BOM 的文件里加了中文。
+- 全仓清单（`git ls-files -- "*.ps1"` 48 个）：含非 ASCII 且无 BOM 的 **15 个**，
+  其中在当前字节下**实测已不可解析**的 **8 个**（`start-mp-task.ps1` / `start-desktop.ps1` /
+  `merge-when-green.ps1` / `run-bash-gate.ps1` / `mp-capture.ps1` /
+  `start-desktop-profile-lock.test.ps1` / `capture-mp.ps1` / `capture-mp-simple.ps1`）。
+  另 7 个今天"侥幸能 parse"，但同一行中文改动就会让它们加入名单 —— 所以一并补。
+- 为什么长期没被发现：`pwsh` 7 默认按 UTF-8 读，**看不见这个差异**；本机与 CI 用 pwsh 7 跑的
+  那些 .ps1 测试全绿，而 `powershell.exe` 这条路径没有任何门禁覆盖。
+
+## 修复
+
+- 15 个文件**只前置 3 字节 `EF BB BF`**，内容逐字不变（脚本断言"去掉 BOM 后与原字节 `equals`"、
+  并拒绝造成双 BOM 的情形）。不做任何"统一行尾"，每行原结尾保持原样。
+- 等价性由实测证明而非声称：同一份 PS 5.1 tokenize 审计在补 BOM 前 `TOTAL_BROKEN=8/15`，
+  补后 **`TOTAL_BROKEN=0/15`**（且每个文件 `utf8err=0 ansierr=0`）。
+
+## 门禁（新增，防复发）
+
+- `.github/scripts/check-ps1-bom.js`：判据一条 —— **含非 ASCII 的 tracked `.ps1` 必须带 UTF-8 BOM**；
+  纯 ASCII 无 BOM 放过（否则会把一半文件无谓改掉）。三条 fail-closed：
+  ① `git ls-files` 失败或返回 0 个 `.ps1` 一律抛错（不完整的遍历报"全绿"是最坏情况）；
+  ② index 里有、工作树读不到 ⇒ 记为 offender 而非静默跳过；③ 入参只收真 `Buffer`
+  （`typeof buf.length` 那种"看着像类型检查"的写法会放过字符串，而字符串上 `buf[i] > 0x7f`
+  比的是字符不是字节 ⇒ 中文会被判成干净 ⇒ 静默放行。这一条是我今天真的写错后被自己的
+  fixture 抓住的，CP5 就是它）。
+- 接线：`.github/workflows/quality-gate.yml` Gate 2b（`shell: bash`，每个 PR 都跑）。
+- 反证六条逐个实跑并断言字节还原一致：CP1 摘掉真文件的 BOM ⇒ 红 1 且**点名该文件**；
+  CP2 新增"含中文、无 BOM"的 .ps1 ⇒ 红 1；CP3 判据改成恒真 ⇒ 红 2；
+  CP4 空枚举不再抛 ⇒ 红 1；CP5 类型守卫退回 `typeof buf.length` ⇒ 红 1；
+  CP6 摘掉 workflow 接线 ⇒ `check-unwired-tests` 红 1 并点名本测试文件。
+  （CP2 要点：判据读 `git ls-files`，临时文件必须进 index 才会被枚举 —— 与 CI 的真实形态一致。）
+
+## 未修（登记）
+
+- 没有给 `.ps1` 加"必须能被 `powershell.exe` tokenize"的直接门禁：那要在 CI 起 PS 5.1，
+  且 BOM 已是它的充分条件。等价性用本地实测证明，理由与限制写在门禁头注释与本节。
+- `pwsh` 7 与 PS 5.1 的行为差异仍在（前者宽容、后者严格），本门禁选择"按最宿主声明编码"，
+  而不是放宽到"两边都能跑"。
+
+---
+
 # [未发布] fix(运营后台): 调度模拟器不再把注入 429 的请求记成完成；完成集合升为对拍硬判定（2026-09-29，#2626 / fix-simulator-429-completion-state）
 
 ## 修复

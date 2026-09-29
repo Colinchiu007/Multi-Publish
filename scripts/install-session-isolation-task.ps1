@@ -1,4 +1,4 @@
-<# Registers or removes the per-user Windows session-isolation tasks (health + write guard). #>
+﻿<# Registers or removes the per-user Windows session-isolation tasks (health + write guard). #>
 [CmdletBinding()]
 param(
     [switch]$Unregister,

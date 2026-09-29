@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     一键启用 Multi-Publish 共享主目录会话隔离写保护。
 .DESCRIPTION
