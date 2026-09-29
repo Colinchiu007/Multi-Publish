@@ -108,6 +108,18 @@ describe('Scheduler 共享实现', () => {
     )
   })
 
+  it('到点派发的任务带 publishMode scheduled（发布历史可区分定时/立即发布）', async () => {
+    const taskQueue = { add: vi.fn(() => 'queue-task-mode') }
+    scheduler.setTaskQueue(taskQueue)
+
+    scheduler.create({ platform: 'wechat', article: { title: '定时文章' }, publishTime: futureTime() })
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(taskQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: 'wechat', publishMode: 'scheduled' }),
+    )
+  })
+
   it('身份模式下队列缺少 addForOwner 时拒绝降级为无归属入队', async () => {
     scheduler.setOwnerSubjectProvider(() => 'user-a')
     const taskQueue = { add: vi.fn(() => 'legacy-task') }
@@ -222,7 +234,8 @@ describe('Scheduler 共享实现', () => {
     await vi.advanceTimersByTimeAsync(10_000)
 
     expect(taskQueue.add).toHaveBeenCalledOnce()
-    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'wechat', article: { title: 'A' } })
+    // publishMode: 'scheduled' — 定时派发任务的模式标记（写发布历史用）
+    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'wechat', article: { title: 'A' }, publishMode: 'scheduled' })
     expect(scheduler.list().find(task => task.id === entry.id).status).toBe('executed')
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -405,7 +418,7 @@ describe('Scheduler 共享实现', () => {
     expect(vi.getTimerCount()).toBe(1)
     await vi.advanceTimersByTimeAsync(10_000)
     expect(taskQueue.add).toHaveBeenCalledOnce()
-    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'wechat', article: { title: 'P' } })
+    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'wechat', article: { title: 'P' }, publishMode: 'scheduled' })
   })
 
   it('restore 同时恢复 pending 与进程中断遗留的 dispatching 任务', async () => {
@@ -422,8 +435,8 @@ describe('Scheduler 共享实现', () => {
     await vi.advanceTimersByTimeAsync(10_000)
 
     expect(taskQueue.add).toHaveBeenCalledTimes(2)
-    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'wechat', article: { title: 'P' } })
-    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'douyin', article: { title: 'D' } })
+    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'wechat', article: { title: 'P' }, publishMode: 'scheduled' })
+    expect(taskQueue.add).toHaveBeenCalledWith({ platform: 'douyin', article: { title: 'D' }, publishMode: 'scheduled' })
     expect(scheduler.list().filter(task => task.status === 'executed')).toHaveLength(2)
   })
 

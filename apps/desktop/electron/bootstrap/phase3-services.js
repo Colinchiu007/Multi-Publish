@@ -234,6 +234,17 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       if (identityService && typeof subject !== 'string') return 0
       const restored = identityService ? scheduler.restore(subject) : scheduler.restore()
       if (restored > 0) log.info('Scheduler', 'Restored ' + restored + ' pending tasks')
+      // P1 修复：批量排期批次重启恢复。scheduleBatch 的定时器只在内存，
+      // 重启后 scheduled 批次无人重新武装 → 排期文章永不发布（静默数据丢失）。
+      // 与 scheduler.restore 同点位、同 owner 语义；恢复属旁路，失败不阻断启动。
+      if (batchManager && typeof batchManager.restoreScheduledBatches === 'function') {
+        try {
+          const restoredBatches = batchManager.restoreScheduledBatches(identityService ? subject : undefined)
+          if (restoredBatches > 0) log.info('BatchManager', 'Restored ' + restoredBatches + ' scheduled batch(es)')
+        } catch (error) {
+          log.warn('BatchManager', 'Failed to restore scheduled batches: ' + errorMessage(error))
+        }
+      }
       return restored
     }
     restoreForOwner(identityService && identityService.getState())

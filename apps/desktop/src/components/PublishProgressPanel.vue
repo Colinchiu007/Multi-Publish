@@ -8,6 +8,7 @@
       data-testid="publish-progress-panel"
       role="region"
       :aria-label="t('publishPage.publishProgressPanel.title')"
+      @pointerdown="cancelAutoCollapse"
     >
       <div class="ppp__header">
         <span class="ppp__title">
@@ -44,10 +45,14 @@
         </span>
       </div>
 
+      <!-- 汇总行（panel-refine）：成功数直给（failed/cancelled 不计入「已完成」口径），单列 -->
       <div class="ppp__summary" data-testid="publish-progress-summary">
-        <span>{{ t('publishPage.publishProgressPanel.summaryDone', { done: store.aggregate.done, total: store.aggregate.total }) }}</span>
+        <span>{{ t('publishPage.publishProgressPanel.summarySucceeded', { succeeded: store.aggregate.succeeded, total: store.aggregate.total }) }}</span>
         <span v-if="store.aggregate.failed > 0" class="ppp__summary-failed">
           {{ t('publishPage.publishProgressPanel.summaryFailed', { count: store.aggregate.failed }) }}
+        </span>
+        <span v-if="store.aggregate.cancelled > 0" class="ppp__summary-cancelled">
+          {{ t('publishPage.publishProgressPanel.summaryCancelled', { count: store.aggregate.cancelled }) }}
         </span>
         <span class="ppp__bar" role="progressbar"
           :aria-valuenow="store.aggregate.total > 0 ? Math.round(store.aggregate.done / store.aggregate.total * 100) : 0"
@@ -62,39 +67,18 @@
       </div>
 
       <div v-else class="ppp__sessions">
-        <div v-for="session in store.sessions" :key="session.id" class="ppp__session">
-          <div class="ppp__session-head">
-            <span class="ppp__session-title" :title="sessionTitle(session)">{{ sessionTitle(session) }}</span>
-            <span class="ppp__badge" :class="session.status === 'done' ? 'ppp__badge--done' : 'ppp__badge--running'">
-              {{ session.status === 'done'
-                ? t('publishPage.publishProgressPanel.sessionDone')
-                : t('publishPage.publishProgressPanel.sessionRunning') }}
-            </span>
-          </div>
-          <PublishProgressTaskRow
-            v-for="taskId in session.taskOrder"
-            :key="taskId"
-            :task="session.tasks[taskId]"
-          />
-          <button
-            v-if="session.status === 'done' && store.sessionFailedCount(session.id) > 0"
-            type="button"
-            class="ppp__retry-btn"
-            data-testid="publish-progress-retry-failed"
-            :disabled="store.retrying"
-            @click="handleRetry(session)"
-          >
-            <el-icon><RefreshRight /></el-icon>
-            {{ store.retrying
-              ? t('publishPage.publishProgressPanel.retrying')
-              : t('publishPage.publishProgressPanel.retryFailed', { count: store.sessionFailedCount(session.id) }) }}
-          </button>
-        </div>
+        <PublishProgressSession
+          v-for="session in store.sessions"
+          :key="session.id"
+          :session="session"
+          :single="isSingleSession"
+          @retry="handleTaskRetry"
+          @copy-error="handleCopyError"
+          @retry-failed="handleRetry"
+        />
       </div>
 
-      <div v-if="store.hasRunning" class="ppp__hint" data-testid="publish-progress-hint">
-        {{ t('publishPage.publishProgressPanel.hintRunning') }}
-      </div>
+      <PublishProgressFooter />
     </div>
 
     <!-- 最小化胶囊：常驻勿关提示（后台运行语义） -->
@@ -122,25 +106,25 @@
 /**
  * PublishProgressPanel —— 发布进度全局面板（publish-progress-ux，2026-09-28）
  *
- * 挂载：App.vue 根级全局唯一实例（与 UpdateNotification / PipelineBackgroundToast
- * 同级），setup 内 store.init() 完成 App 级事件订阅（订阅生命周期 == 应用生命周期）。
+ * 挂载：App.vue 根级全局唯一实例，setup 内 store.init() 完成 App 级事件订阅。
+ * 形态：展开浮卡（会话×任务×步骤状态）↔ 最小化胶囊；非模态（不接入浮层互斥合同）。
  *
- * 形态：展开浮卡（会话×任务×步骤状态）↔ 最小化胶囊（微型汇总 + 常驻勿关提示）。
- * 非模态：无遮罩、不阻塞交互，按 PRD-OVERLAY-VIEW-SUSPENSION §6 口径显式不接入
- * 浮层互斥合同（负向测试锁见 PublishProgressPanel.test.js）。
- *
- * 首次隐藏教育：minimize 时 consumeFirstHideToast() 为 true → 一次性 toast
- * （localStorage 记忆）；之后由胶囊常驻提示承担持续提醒。
- * 任务行渲染拆分至 PublishProgressTaskRow.vue（CI 逐文件行数门禁 < 500 行）。
+ * publish-progress-panel-refine 重构（2026-09-29）：
+ * - 汇总口径改「成功 N/M」直给；单会话扁平化；fallback 会话标题带时间。
+ * - footer 警示条 + 取消入口（PublishProgressFooter.vue）；单任务重试/复制（TaskRow emit 上抛）。
+ * - 完成自动收敛（usePublishProgressAutoCollapse.js）；@pointerdown 取消收敛。
+ * - 会话卡拆出 PublishProgressSession.vue（逐文件行数门禁拆分承载面）。
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
-  CircleCheckFilled, Close, Loading, Minus, RefreshRight,
+  CircleCheckFilled, Close, Loading, Minus,
 } from '@element-plus/icons-vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
-import PublishProgressTaskRow from './PublishProgressTaskRow.vue'
+import { usePublishProgressAutoCollapse } from '@/composables/usePublishProgressAutoCollapse'
+import PublishProgressFooter from './PublishProgressFooter.vue'
+import PublishProgressSession from './PublishProgressSession.vue'
 
 const { t } = useI18n()
 const store = usePublishProgressStore()
@@ -153,11 +137,7 @@ const progressWidth = computed(() => {
   return Math.round((done / total) * 100) + '%'
 })
 
-function sessionTitle(session) {
-  if (session.title) return session.title
-  if (session.recovered) return t('publishPage.publishProgressPanel.recoveredTitle')
-  return t('publishPage.publishProgressPanel.sessionTitleFallback')
-}
+const isSingleSession = computed(() => store.sessions.length === 1)
 
 function handleMinimize() {
   store.minimizePanel()
@@ -186,6 +166,39 @@ async function handleRetry(session) {
     })
   }
 }
+
+/** 单任务内联重试（Session/TaskRow @retry 上抛 session+taskId） */
+async function handleTaskRetry(session, taskId) {
+  const result = await store.retryOne(session.id, taskId)
+  if (result && (result.ok > 0 || result.fail > 0)) {
+    ElMessage({
+      message: t('publishPage.publishProgressPanel.retryPartial', { ok: result.ok, fail: result.fail }),
+      type: result.fail > 0 ? 'warning' : 'success',
+      duration: 4000,
+    })
+  }
+}
+
+/** 复制完整错误文本（TaskRow @copy-error 上抛；剪贴板失败如实 toast） */
+async function handleCopyError(error) {
+  const text = String(error || '')
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage({ message: t('publishPage.publishProgressPanel.copied'), type: 'success', duration: 2500 })
+  } catch {
+    ElMessage({ message: t('publishPage.publishProgressPanel.copyFailed'), type: 'error', duration: 2500 })
+  }
+}
+
+const { cancelAutoCollapse } = usePublishProgressAutoCollapse({
+  hasRunning: computed(() => store.hasRunning),
+  panelVisible: computed(() => store.panelVisible),
+  panelMinimized: computed(() => store.panelMinimized),
+  aggregate: () => store.aggregate,
+  sessionCount: () => store.sessions.length,
+  minimizePanel: () => store.minimizePanel(),
+})
 </script>
 
 <style scoped>
@@ -241,11 +254,6 @@ async function handleRetry(session) {
   background: var(--color-primary-light, rgba(80, 72, 229, 0.1));
 }
 
-.ppp__badge--done {
-  color: var(--color-success);
-  background: rgba(103, 194, 58, 0.12);
-}
-
 .ppp__actions {
   display: flex;
   gap: 4px;
@@ -289,6 +297,10 @@ async function handleRetry(session) {
   color: var(--color-danger);
 }
 
+.ppp__summary-cancelled {
+  color: var(--color-text-muted);
+}
+
 .ppp__bar {
   position: relative;
   flex: 1 1 100%;
@@ -318,66 +330,6 @@ async function handleRetry(session) {
   flex-direction: column;
   gap: var(--spacing-3);
   overflow-y: auto;
-}
-
-.ppp__session {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-1);
-  padding: var(--spacing-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-inset);
-}
-
-.ppp__session-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-2);
-}
-
-.ppp__session-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.ppp__retry-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  align-self: flex-start;
-  margin-top: var(--spacing-1);
-  padding: 3px 10px;
-  border: 1px solid var(--color-border-strong, var(--color-border));
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-card);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-}
-
-.ppp__retry-btn:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.ppp__retry-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ppp__hint {
-  padding-top: var(--spacing-2);
-  border-top: 1px solid var(--color-border);
-  margin-top: var(--spacing-2);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
 }
 
 /* 最小化胶囊 */

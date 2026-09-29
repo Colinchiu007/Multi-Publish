@@ -1,4 +1,4 @@
-# 并行运行 opencode + Claude 双模型架构分析
+﻿# 并行运行 opencode + Claude 双模型架构分析
 param()
 $ErrorActionPreference = 'Continue'
 

@@ -138,6 +138,9 @@ class TaskQueue extends EventEmitter {
       owner_subject: ownerSubject,
       batchId: task.batchId || null,
       accountId: task.accountId ?? task.article?.accountId ?? null,
+      // 发布模式标记（'scheduled' = 定时派发）：白名单透传到终态事件，
+      // phase4-events 据此写入发布历史；立即发布为 null（不参与过滤语义）。
+      publishMode: task.publishMode || null,
       retry: task.retry ?? this.defaultRetry,
       timeout: task.timeout ?? this.defaultTimeout,
       status: 'pending',    // pending | running | success | failed | cancelled
@@ -245,6 +248,9 @@ class TaskQueue extends EventEmitter {
       owner_subject: t.owner_subject,
       batchId: t.batchId || null,
       accountId: t.accountId || null,
+      // 发布模式标记随队列状态持久化：崩溃恢复（deserialize ...task 展开）后
+      // 定时派发任务仍带 'scheduled'，终态写历史时不丢模式。
+      publishMode: t.publishMode || null,
       retry: t.retry,
       timeout: t.timeout,
       retriesLeft: t.retriesLeft,
@@ -266,6 +272,7 @@ class TaskQueue extends EventEmitter {
         owner_subject: t.owner_subject,
         batchId: t.batchId || null,
         accountId: t.accountId || null,
+        publishMode: t.publishMode || null,
         retry: t.retry,
         timeout: t.timeout,
         retriesLeft: t.retriesLeft,

@@ -179,6 +179,9 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       const task = {
         platform: entry.platform,
         article: entry.article,
+        // 定时派发的任务带 publishMode 标记：phase4-events 会把它写进发布历史，
+        // 历史页「定时发布」过滤器与详情「发布模式」据此区分定时/立即发布。
+        publishMode: 'scheduled',
         ...(accountId === null ? {} : { accountId }),
         ...(entry.owner_subject === undefined ? {} : { owner_subject: entry.owner_subject }),
       }

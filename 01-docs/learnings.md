@@ -1,3 +1,26 @@
+## 逐文件行数门禁会因「扩展既有组件」在 CI 阶段才变红；环境性失败与代码失败的归因口径（publish-progress-panel-refine，2026-09-29）
+
+- **给既有大文件加功能前要先估行数，行数门禁不是提交后才发现的事**：`PublishProgressPanel.vue` 原 446 行（<500 合规），本次功能增量把它推到 688 行 → CI 债务熔断 `NEW_OVER_LIMIT` 硬红（`growthAllowance=200` 只容忍 +200 以内的增长，+242 越线）。本地 260 测试全绿、ESLint 0 warning 都拦不住它——**行数门禁是结构维度的锁，行为层测试对它天然失明**。判据：给既有组件加交互逻辑/样式（+100 行量级）时，动手前先数行数并规划拆分（区块拆子组件 + 计时器/状态机拆 composable），不要等 CI 报红再拆。本次拆出 `PublishProgressFooter.vue`(150) / `PublishProgressSession.vue`(152) / `composables/usePublishProgressAutoCollapse.js`(74) 后 Panel 降到 398 行，`check-max-lines.js` 本地即可预验。
+- **CI 红的归因走「错误形态 → 外部依赖定位 → 本地隔离复跑 → diff 交集」四步，直接重跑是掩盖**：本次 `test_scheduler_parity.test.js` 报 `python simulator failed: `（**空 stderr**）——空消息本身就是判据：断言失败会打 diff，空 stderr 指向 `spawnSync('python', …)`（`scripts/compare-scheduler-models.js:213`）的外部依赖缺失。本地同 worktree 复跑该文件 3/3 全绿（六组对拍 + 已知差异 + 并发饥饿，77 秒）+ 与本次 diff **零文件交集** ⇒ 判定 CI runner 环境性，`gh run rerun --failed` 后转 success。反向同族纪律（learnings 已有「隔离复跑是分界线」）：隔离复跑仍红 ⇒ 真回归，必须修，不得重跑掩盖。
+- **QM-6 外部评审不可用时如实登记「未执行」，不得以自审冒充通过**：本次 backend（codex）返回「您的Token额度已用完」（计费硬阻塞，非瞬时可重试）、frontend（claude）CLI 连续 3 次 `exited with status 1`（重试预算耗尽后跳过）。正解是把两个具体失败原因与重试次数写进门禁记录（可复核、可补做），而不是把「本地测试全绿」当成外部交叉审查的等价物——后者的价值恰恰在于它不是自己。
+- **改大体积/混合行尾的置顶文档禁止「整文件重写」——行尾/编码两口径对账会当场 FAIL**：本次对 `01-docs/learnings.md`（1.9MB、16677 行、行尾本就是**混合**的：origin/main blob 实测 `CR=16634 LF=16675`）做了两件事，结果截然不同：① 用 `edit` 工具插入 4 条教训 → 工具把整个工作区文件写成 **LF-only**（实测 `CRLF=6 LF-only=16671`），`git add` 后 blob 与 origin 整体不同 → `git diff --numstat` 报 **16632/16630**，而 `--ignore-cr-at-eol --numstat` 只显示真实的 **8/6** —— 两口径不一致，本就 FAIL；② 改用「原字节后缀强校验」口径（`git cat-file blob origin/main:<path>` 取原始字节 → 只在文件头前插新条目字节 → 既有字节一个不动）→ diff 回到 **7/0**，两口径完全一致。判据：**动这类文件只能用字节级前插 + 前后各做一次 CR/LF/NUL 计数校验**，不得用会重写整文件行尾的手段（编辑工具、全文正则替换、`Set-Content`）；`CHANGELOG.md` 的 NUL 之所以能顺手修（NUL 1→0、diff 仍 30/1），是因为它体量小且改动本来就落在同一批行上，属「同批同行」而非「整文件重写」。
+- **`.gitignore` 的 `/01-docs/*.md` 会静默吞掉新建 PRD：`git add -A` 不报错但文件不入库，留下悬空引用**：本仓 `.gitignore:260-261` 忽略 `/01-docs/*.md` 与 `/01-docs/**/*.md`（立意是「本地分析/交付产物」，而 374 个既有 PRD 是规则之前入库的、不受影响）。本次新建 `01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md` 后 `git add -A` + commit 全程 0 报错，直到合并后按路径核验产物才发现 **MISS**——而母 PRD 头部、CHANGELOG、门禁记录三处都已引用它。判据：**凡在 `01-docs/` 新建 `.md`，提交后必须用 `git cat-file -e origin/main:<path>`（或 `git ls-files`）逐文件核验落地，不能以「commit 成功」代替「文件已在库」**；被忽略文件要 `git add -f`。同族纪律：交付核验要按**最终产物路径清单**逐条取证（本仓已有「文件存在 ≠ 被执行过」的同型教训——只看 `node --check` 不算跑过测试）。
+## 逐文件行数门禁会因「扩展既有组件」在 CI 阶段才变红；环境性失败与代码失败的归因口径（publish-progress-panel-refine，2026-09-29）
+
+- **给既有大文件加功能前要先估行数，行数门禁不是提交后才发现的事**：`PublishProgressPanel.vue` 原 446 行（<500 合规），本次功能增量把它推到 688 行 → CI 债务熔断 `NEW_OVER_LIMIT` 硬红（`growthAllowance=200` 只容忍 +200 以内的增长，+242 越线）。本地 260 测试全绿、ESLint 0 warning 都拦不住它——**行数门禁是结构维度的锁，行为层测试对它天然失明**。判据：给既有组件加交互逻辑/样式（+100 行量级）时，动手前先数行数并规划拆分（区块拆子组件 + 计时器/状态机拆 composable），不要等 CI 报红再拆。本次拆出 `PublishProgressFooter.vue`(150) / `PublishProgressSession.vue`(152) / `composables/usePublishProgressAutoCollapse.js`(74) 后 Panel 降到 398 行，`check-max-lines.js` 本地即可预验。
+- **CI 红的归因走「错误形态 → 外部依赖定位 → 本地隔离复跑 → diff 交集」四步，直接重跑是掩盖**：本次 `test_scheduler_parity.test.js` 报 `python simulator failed: `（**空 stderr**）——空消息本身就是判据：断言失败会打 diff，空 stderr 指向 `spawnSync('python', …)`（`scripts/compare-scheduler-models.js:213`）的外部依赖缺失。本地同 worktree 复跑该文件 3/3 全绿（六组对拍 + 已知差异 + 并发饥饿，77 秒）+ 与本次 diff **零文件交集** ⇒ 判定 CI runner 环境性，`gh run rerun --failed` 后转 success。反向同族纪律（learnings 已有「隔离复跑是分界线」）：隔离复跑仍红 ⇒ 真回归，必须修，不得重跑掩盖。
+- **QM-6 外部评审不可用时如实登记「未执行」，不得以自审冒充通过**：本次 backend（codex）返回「您的Token额度已用完」（计费硬阻塞，非瞬时可重试）、frontend（claude）CLI 连续 3 次 `exited with status 1`（重试预算耗尽后跳过）。正解是把两个具体失败原因与重试次数写进门禁记录（可复核、可补做），而不是把「本地测试全绿」当成外部交叉审查的等价物——后者的价值恰恰在于它不是自己。
+- **置顶文档里内嵌的字面控制字符会让文件被判为二进制、进而让常规编辑工具失效**：`CHANGELOG.md` 的 NUL 与 `01-docs/learnings.md` 的两处 NUL 都源自「条目正文里写了控制字符区间」（`\x00-\x1f/\x7f` 被写成了真字节；`- commit 063a226:` 的首字符 `0` 被写成 NUL）。症状是 `edit` 类工具直接拒绝写入（判 binary），只能改走 `[System.IO.File]::WriteAllText` + UTF8(no BOM) 才落得下去。判据：**写「控制字符/正则/转义」这类正文时一律写转义文本**，不要粘贴真字节；发现 NUL 时先取证上下文再按原意还原（本次分别还原为 `\x00-\x1f/\x7f` 与 `063a226`），并在门禁记录里写明 NUL 计数变化。
+## 定时发布全链路验证：PRD 声称的「重启恢复」只对单篇成立、接口暴露 ≠ 功能闭环、mock 带字段掩盖生产从不写入、替换式重构残留死函数（fix-scheduled-publish-gaps，2026-10-02）
+
+- **「持久化、重启恢复」这类 PRD 合同必须逐路径验证，不能按代表性路径放行**：PRD §6.3 写「支持 App 关闭后重启恢复」，单篇路径（scheduler.restore）确实有；但批量路径（BatchManager.scheduleBatch）只用内存 `setTimeout`，重启后 `batch_jobs` 里 status='scheduled' 的批次**永不发布**且无任何提示——静默数据丢失在「功能已实现 ✅」的表格行下躺了很久。判据：文档里每个「持久化/恢复/重试」承诺都要问「哪几条路径会写这个状态？每条路径谁负责读回？」，一条路径一个证据。
+- **「IPC 已暴露但无 UI 消费」是接口层的死代码，比代码缺失更隐蔽**：`schedulerCancel` 从 preload 到渲染层 API 全链路存在，但没有任何界面调用它——用户排期后唯一取消路径是发布页会话内的内存态 `activeScheduleIds`（离开页面即丢）。接口存在让「能力已具备」的错觉成立。判据：验证功能完整性时按**用户操作闭环**走（用户能创建 → 能查看 → 能取消 → 能看到结果），不按接口清单走。
+- **渲染端 mock 夹具带字段、生产写入方从不写 = 死过滤器（mock-现实漂移的又一形态）**：历史页「定时发布」过滤器读 `record.publishMode`，测试夹具手写了 `publishMode: 'scheduled'` 所以 UI 测试全绿；但生产代码（phase4-events.addRecord）从不写该字段，且 `TaskQueue._add` 白名单会丢弃自定义字段——过滤器在产线恒空。同族纪律（AGENTS.md 已有「契约夹具不得替对方剥壳」）：**夹具里出现的每个字段都要问「生产写入方在哪一行写它」**，答不上来就是 mock 造出来的能力。
+- **JS 函数声明重复（后者覆盖前者）无 lint 规则拦截、行为测试恒测新版——只有源码结构锁能防**：`aa7e7cf0` 新增 allSettled 版 `cancelPublish` 未删旧 Promise.all 版，旧版成死代码；`fdd30498` 的通知迁移甚至**误改在死副本上**（改死代码不会变红，维护者以为改的是活代码）。逃逸链：无 lint 规则（重复声明合法）→ 行为测试全绿（测的永远是后者）→ 审查盲区。修复配「单一定义结构锁」（源码正则断言定义次数 == 1）。判据：**替换式重构（新增同名函数/导出）必须同 commit 删除旧版**；防再犯锁要落在源码结构上，因为行为层永远测不出「多了一份死代码」。
+- **管道 `cmd | Select-Object` 会吃掉 vitest 真实退出码（本轮又踩 AGENTS.md 已有口径的坑）**：全量回归命令写成 `pnpm exec vitest run 2>&1 | Select-String ... | Select-Object -First 30`，PowerShell 管道返回**末段 cmdlet** 的退出码（恒 0）——7 个失败 + exit 0 的假绿。正解：`2>&1 | Out-File` 落盘后判 `$LASTEXITCODE`，再从文件里 grep 失败清单。同族：`cmd | tail` / `cmd | head` 在 bash 里同样吃 rc。
+- **全量回归的失败归因要区分「负载抖动」与「真回归」，隔离复跑是分界线**：与 electron-builder 打包并发跑全量时 `Publish.test.js` 2 失败 + `accounts-compile` 导入超时；单独复跑 82/82 全过——是并发 CPU 争抢导致的超时抖动。已知既有红（feedback symlink EPERM / story2video-manual-assets，#2628 CHANGELOG 记录在案）与本 diff 零文件交集。判据：全量出现新失败时先**单独复跑该文件**，隔离通过 → 环境抖动；隔离仍红 → 真回归。
+- **并发会话共享 git 状态时的 stash 是危险操作，检测到他人活跃立即恢复**：为过 clean-root 门禁精确 stash 了 4 个脚本文件，stash 后 `git status` 立即冒出 5 个**他人**正在编辑的新文件——stash 与他人写操作在竞争同一 index。处置：立即 `stash pop` 恢复他人 WIP（零干扰），改用 `git worktree add`（不触碰主工作区工作树的原子操作，与 gwm-task.sh 内部同一命令）创建隔离。判据：**stash 前后各做一次 status 快照，diff 出现非预期变化立即 pop**。
+
 ## 话题的「输入框字段」与「描述文本」谁是真源，决定整条发布链的数据流——对齐参考产品模型后，剥离/转换必须按平台三态分流且只准单一实现（publish-topic-inline-description，2026-10-09）
 
 - **「标签/话题输入框 + 引擎按平台拼 tags」的隐式模型，在话题本就内联描述的平台必然丢数据（模型对齐）**：
@@ -5515,7 +5538,7 @@ if (api.getVersion) {
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
 - commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
-- commit  63a226: fix: �汾����ʾ�޸�
+- commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
 - commit decb3db: docs: ����ʮ���ָ��� �� �����ܽ�
 - commit d5ce0a7: docs: ����ʮ���ָ��� �� Electron Ӧ�ô�����֤
@@ -12136,7 +12159,7 @@ if (api.getVersion) {
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
 - commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
-- commit  63a226: fix: �汾����ʾ�޸�
+- commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
 - commit decb3db: docs: ����ʮ���ָ��� �� �����ܽ�
 - commit d5ce0a7: docs: ����ʮ���ָ��� �� Electron Ӧ�ô�����֤

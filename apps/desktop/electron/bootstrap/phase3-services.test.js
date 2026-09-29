@@ -40,6 +40,7 @@ function makeMockDeps(overrides) {
   }
   const mockBatchManager = {
     setOwnerSubjectProvider: vi.fn(),
+    restoreScheduledBatches: vi.fn(() => 0),
   }
   const mockStore = {
     init: vi.fn(() => true),
@@ -176,6 +177,27 @@ describe('phase3-services.startServices', () => {
     const deps = makeMockDeps()
     await startServices(deps)
     expect(deps.scheduler.restore).toHaveBeenCalled()
+  })
+
+  it('启动时恢复排期批次：batchManager.restoreScheduledBatches 在 scheduler.restore 之后被调用（P1：批量定时重启丢失）', async () => {
+    const deps = makeMockDeps()
+    const batchManager = deps.container.get('batchManager')
+    await startServices(deps)
+    expect(batchManager.restoreScheduledBatches).toHaveBeenCalledTimes(1)
+    const schedulerOrder = deps.scheduler.restore.mock.invocationCallOrder[0]
+    const batchOrder = batchManager.restoreScheduledBatches.mock.invocationCallOrder[0]
+    expect(batchOrder).toBeGreaterThan(schedulerOrder)
+  })
+
+  it('排期批次恢复抛错不阻断启动（旁路 try/catch 记 warn）', async () => {
+    const deps = makeMockDeps()
+    const batchManager = deps.container.get('batchManager')
+    batchManager.restoreScheduledBatches.mockImplementation(() => { throw new Error('owner 缺失') })
+    await expect(startServices(deps)).resolves.toBeTruthy()
+    expect(log.warn).toHaveBeenCalledWith(
+      'BatchManager',
+      expect.stringContaining('owner 缺失'),
+    )
   })
 
   it('savedState 存在时 taskQueue.deserialize 被调用', async () => {

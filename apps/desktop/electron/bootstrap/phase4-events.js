@@ -7,6 +7,7 @@
  * - task:failed → 发布失败通知（风控命中 → 同步登记挂起，§5 enforcement）
  * - publish:blocked → 发布间隔限制通知
  * - task:retry → 重试通知
+ * - task:cancelled → 取消终态转发（publish-progress-panel-refine；不落历史不挂风控）
  *
  * 验收标准 BUGFIX-PLAN Bug-1: phase 文件 ≤ 80 行
  */
@@ -40,6 +41,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'success', result: task.result,
+      // 定时派发任务带 publishMode='scheduled'（scheduler/batch-manager 排期入队时标记），
+      // 历史页「定时发布」过滤器与详情「发布模式」据此区分定时/立即发布。
+      ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, ownerSubject)
     try {
       const postId = task.result?.postId || task.result?.id
@@ -101,6 +105,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'failed', result: null, error: task.error,
+      ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, task.owner_subject)
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
@@ -131,6 +136,15 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     emitter.emit(task.id, task.platform, 'retry', {
       stage: '⟳ 重试中... (剩余 ' + task.retriesLeft + ' 次)',
       retriesLeft: task.retriesLeft, batchId: task.batchId || null,
+    })
+  })
+
+  // publish-progress-panel-refine：取消终态转发——TaskQueue cancel()（pending 移除与
+  // running 协作中止两路径）都发 task:cancelled，但此前无人转发到渲染层：页面级取消后
+  // 全局面板永远显示「进行中」。取消不是失败：不落发布历史、不触发风控挂起。
+  taskQueue.on('task:cancelled', (task) => {
+    emitter.emit(task.id, task.platform, 'cancelled', {
+      stage: '⊘ 已取消', batchId: task.batchId || null,
     })
   })
 }

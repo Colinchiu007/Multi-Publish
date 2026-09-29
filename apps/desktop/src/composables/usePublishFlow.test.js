@@ -92,6 +92,23 @@ import i18n from '@/i18n'
 import { usePublishFlow } from '../composables/usePublishFlow'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
+describe('usePublishFlow — cancelPublish 单一定义结构锁', () => {
+  // 根因（2026-08-23 aa7e7cf0）：新增 Promise.allSettled 版 cancelPublish 时未删除
+  // 旧 Promise.all 版，JS 函数声明后者覆盖前者，旧版成死代码；2026-08-30 fdd30498
+  // 的通知迁移甚至误改在死副本上。函数声明重复无 lint 规则拦截、行为测试全绿，
+  // 只有结构锁能防再犯。
+  // 路径写法沿用仓库先例（ProfileMenu.test.js / PublishHistory.test.js）：
+  // jsdom 环境下 fileURLToPath(import.meta.url) 会抛 "The URL must be of scheme file"。
+  it('源文件中 cancelPublish 函数定义只出现一次', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    const sourcePath = resolve(process.cwd(), 'src/composables/usePublishFlow.js')
+    const source = readFileSync(sourcePath, 'utf-8')
+    const definitions = source.match(/async function cancelPublish\s*\(/g) || []
+    expect(definitions).toHaveLength(1)
+  })
+})
+
 describe('usePublishFlow — composable setup', () => {
   let article
   let selectedPlatforms

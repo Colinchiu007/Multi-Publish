@@ -118,6 +118,12 @@ jobs:
           node --test scripts/openspec-sync-check.test.js
           # 质量节拍 vendored 契约镜像（.quality-rhythm/）与 openspec 真源的漂移锁
           node --test scripts/quality-rhythm-spec-mirror.test.js
+          # Windows PowerShell 5.1 读**无 BOM** 的 .ps1 时按 ANSI 码页解码，中文注释/字符串可让
+          # 整个脚本 tokenize 失败（实测 2026-09-29：15 个含非 ASCII 的 .ps1 里 8 个已不可解析，
+          # 其中包括会话隔离入口 start-mp-task.ps1 ⇒ 所有新任务的 worktree 都开不出来，
+          # 而 pwsh 7 默认 UTF-8 看不见这件事）。判据与三条 fail-closed 约束见 .github/scripts/check-ps1-bom.js
+          node --test .github/scripts/check-ps1-bom.test.js
+          node .github/scripts/check-ps1-bom.js
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，
