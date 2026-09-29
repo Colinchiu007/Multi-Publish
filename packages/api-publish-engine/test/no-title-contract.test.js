@@ -105,6 +105,20 @@ test('B-3) weibo（微博适配器）：buildPostData 正文以标题为首行',
   assert.equal(titleOnly.content, '标题T')
 })
 
+test('B-3b) weibo（微博适配器）：visible 可见性透传（P1-5）', () => {
+  const adapter = new WeiboAdapter()
+  // 合法值透传（0 公开 / 1 仅自己 / 6 好友圈）
+  assert.equal(adapter.buildPostData({ title: 'T', visible: 1 }).visible, 1)
+  assert.equal(adapter.buildPostData({ title: 'T', visible: 6 }).visible, 6)
+  assert.equal(adapter.buildPostData({ title: 'T', visible: 0 }).visible, 0)
+  // 字符串数字同样接受（payload 经 JSON 往返后可能为字符串）
+  assert.equal(adapter.buildPostData({ title: 'T', visible: '6' }).visible, 6)
+  // 非法值/缺省一律不透传（交平台默认，不产出错误可见性）
+  assert.ok(!('visible' in adapter.buildPostData({ title: 'T' })))
+  assert.ok(!('visible' in adapter.buildPostData({ title: 'T', visible: 99 })))
+  assert.ok(!('visible' in adapter.buildPostData({ title: 'T', visible: 'hack' })))
+})
+
 test('B-4) twitter（X 适配器）：execute 的推文 text 以标题为首行（源码结构锁）', () => {
   // execute 需要网络与 OAuth 环境变量，无法在单测直跑；按本仓结构锁先例读源码钉住
   // 合并形态，并确保旧「content || title 丢弃标题」形态不复存在。

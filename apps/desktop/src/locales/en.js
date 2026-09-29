@@ -1352,6 +1352,16 @@ export default {
     // Publish capability registry (publish-capability-registry): common field support + no-title platform hint
     fieldSupport: '{count}/{total} platforms',
     noTitleHint: 'Title will be inserted as the first line of the description: {platforms}',
+    // P1-5 semantic visibility control: the common area only exposes semantic levels;
+    // per-platform values come from the registry mapping.
+    visibility: 'Visibility',
+    visibilitySupport: '{count} selected platform(s) supported',
+    visibilityDefault: 'Follow each platform default',
+    visibilityPublic: 'Public',
+    visibilityFriends: 'Friends only',
+    visibilityPrivate: 'Only me',
+    visibilityHint: 'Applies to all selected platforms; fine-tune per platform under "Per-platform content"',
+    visibilityUnsupported: '{platforms} do not support this level and will keep their default',
     collapse: 'Collapse',
     expand: 'Expand',
     showTagSuggest: '# Show tag suggestions',

@@ -108,6 +108,69 @@ function getPlatformOverrideFields (platformId, options = {}) {
   }))
 }
 
+// ─── P1-5 语义级可见性（通用控件）────────────────────────────────────────────
+// 5 平台的 visibility 语义字段值各不相同（youtube privacy / tiktok privacyLevel /
+// douyin visibilityType / kuaishou visibilityType / weibo visible），用户不应逐平台
+// 理解平台取值。注册表每个 visibility 字段的 semanticValues 声明该平台的语义档位
+// 映射（public/friends/private → 平台值）；本层是映射的单一真源，UI 与 resolver
+// 一律经此处取值，禁止各写一份映射表。
+const VISIBILITY_SEMANTICS = Object.freeze(['public', 'friends', 'private'])
+
+/**
+ * 平台的 visibility 语义字段定义（含 semanticValues），无该语义返回 null。
+ * @param {unknown} platformId
+ * @returns {object|null}
+ */
+function getVisibilityField (platformId) {
+  const fields = OVERRIDE_FIELDS[String(platformId || '')] || []
+  return fields.find(field => field.semantic === 'visibility') || null
+}
+
+/**
+ * 语义档位 → 平台字段值的运行时映射。该平台不支持该档位（如快手/YouTube 无
+ * 好友档）或档位非法一律返回 null（fail-closed，调用点据此跳过该平台）。
+ * @param {unknown} platformId
+ * @param {unknown} semantic public | friends | private
+ * @returns {unknown|null}
+ */
+function mapVisibilitySemantic (platformId, semantic) {
+  const key = String(semantic || '')
+  if (!VISIBILITY_SEMANTICS.includes(key)) return null
+  const field = getVisibilityField(platformId)
+  if (!field || !field.semanticValues) return null
+  const value = field.semanticValues[key]
+  return value === undefined ? null : value
+}
+
+/**
+ * 语义档位 → { fieldKey, value }（通用控件写 override 模型的完整指令）。
+ * 平台不支持该档位返回 null。
+ * @param {unknown} platformId
+ * @param {unknown} semantic
+ * @returns {{ fieldKey: string, value: unknown } | null}
+ */
+function resolveVisibilityOverride (platformId, semantic) {
+  const field = getVisibilityField(platformId)
+  if (!field) return null
+  const value = mapVisibilitySemantic(platformId, semantic)
+  if (value === null) return null
+  return { fieldKey: field.key, value }
+}
+
+/**
+ * 各语义档位支持的平台清单（通用控件渲染与能力矩阵用）。
+ * @returns {{ public: string[], friends: string[], private: string[] }}
+ */
+function getVisibilitySemanticSupport () {
+  const result = {}
+  for (const semantic of VISIBILITY_SEMANTICS) {
+    result[semantic] = Object.keys(OVERRIDE_FIELDS).filter(
+      platformId => mapVisibilitySemantic(platformId, semantic) !== null
+    )
+  }
+  return result
+}
+
 /**
  * 通用主表单字段支持矩阵（冻结副本）。
  * @returns {object[]}
@@ -243,6 +306,16 @@ function validateRegistry () {
       if (field.status === 'platform-capable' && !field.note) {
         problems.push(`${platformId}.${field.key}: platform-capable 字段必须带 note 证据`)
       }
+      // P1-5：semanticValues 声明的平台值必须真实存在于该字段 options 中
+      // （映射到不存在的值会在发布时被归一化回落，用户选择静默失效）
+      if (field.semanticValues) {
+        const optionValues = (field.options || []).map(option => option.value)
+        for (const [semantic, value] of Object.entries(field.semanticValues)) {
+          if (!optionValues.some(optionValue => optionValue === value)) {
+            problems.push(`${platformId}.${field.key}: semanticValues.${semantic} 值 ${JSON.stringify(value)} 不在 options 中`)
+          }
+        }
+      }
     }
   }
   for (const field of data.commonFormFields) {
@@ -268,4 +341,9 @@ module.exports = {
   classifyPublishFields,
   composeNoTitleDescription,
   validateRegistry,
+  // P1-5 语义级可见性
+  getVisibilityField,
+  mapVisibilitySemantic,
+  resolveVisibilityOverride,
+  getVisibilitySemanticSupport,
 }

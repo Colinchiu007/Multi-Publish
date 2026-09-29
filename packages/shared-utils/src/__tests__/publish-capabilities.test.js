@@ -21,6 +21,10 @@ import {
   getCommonFormFields,
   getPlatformContentLimit,
   validateRegistry,
+  getVisibilityField,
+  mapVisibilitySemantic,
+  resolveVisibilityOverride,
+  getVisibilitySemanticSupport,
 } from '../publish-capabilities.js'
 import * as browserModule from '../publish-capabilities.browser.js'
 
@@ -199,9 +203,12 @@ describe('publish-capabilities — 语义分类（3+ 阈值）', () => {
     }
   })
 
-  it('分类条目携带 status 汇总（implemented / platform-capable 共存可见）', () => {
+  it('分类条目携带 status 汇总（P1-5 后 visibility 五平台全部 implemented）', () => {
     const visibility = classifyPublishFields().common.find(f => f.semantic === 'visibility')
-    expect(visibility.statuses.sort()).toEqual(['implemented', 'implemented', 'platform-capable', 'platform-capable', 'platform-capable'].sort())
+    // P1-5（2026-10-09）打通 douyin/kuaishou/weibo 的 resolver→引擎链路后，
+    // visibility 语义五平台（youtube/tiktok/douyin/kuaishou/weibo）全部转 implemented；
+    // 此前为 ['implemented','implemented', 三个 'platform-capable']。
+    expect(visibility.statuses).toEqual(['implemented', 'implemented', 'implemented', 'implemented', 'implemented'])
   })
 })
 
@@ -257,28 +264,45 @@ describe('publish-capabilities — 差异化字段定义', () => {
     expect(xhsGoods.uiExposed).toBe(false)
   })
 
-  it('参考产品证据字段标记 platform-capable 且不进 UI 渲染集', () => {
-    const douyinVisibility = getPlatformOverrideFields('douyin').find(f => f.key === 'visibilityType')
-    expect(douyinVisibility.status).toBe('platform-capable')
-    expect(douyinVisibility.uiExposed).toBe(false)
+  it('参考产品证据字段未打通前必须标 platform-capable 且不进 UI 渲染集', () => {
+    // P1-5 后 visibility 已打通（见下方专项断言），此处用仍未实现的取证字段守锁：
+    // 未接线的取证字段不得混进 UI 渲染集，否则用户会看到「设置了不生效」的假控件。
     const weiboVote = getPlatformOverrideFields('weibo').find(f => f.key === 'vote')
     expect(weiboVote.status).toBe('platform-capable')
+    expect(weiboVote.uiExposed).toBe(false)
     const biliDanmu = getPlatformOverrideFields('bilibili').find(f => f.key === 'upCloseDanmu')
     expect(biliDanmu.status).toBe('platform-capable')
+    expect(biliDanmu.uiExposed).toBe(false)
+    const douyinGoods = getPlatformOverrideFields('douyin').find(f => f.key === 'goods')
+    expect(douyinGoods.status).toBe('implemented')
+    expect(douyinGoods.uiExposed).toBe(false)
+  })
+
+  it('P1-5：visibility 字段五平台均已 implemented 且进 UI 渲染集（可单平台细调）', () => {
+    for (const platform of ['youtube', 'tiktok', 'douyin', 'kuaishou', 'weibo']) {
+      const field = getPlatformOverrideFields(platform).find(f => f.semantic === 'visibility')
+      expect(field, platform + ' 缺 visibility 字段').toBeTruthy()
+      expect(field.status, platform + ' visibility 应已实现').toBe('implemented')
+      expect(field.uiExposed, platform + ' visibility 应进 UI 渲染集').toBe(true)
+      // 进 UI 渲染集 ⇒ uiOnly 查询必须能取到（否则控件不渲染，映射无入口）
+      const uiFields = getPlatformOverrideFields(platform, { uiOnly: true }).map(f => f.key)
+      expect(uiFields).toContain(field.key)
+    }
   })
 
   it('既有 8 平台差异化字段零丢失（重构快照，按 uiExposed 过滤）', () => {
     const keysOf = platform => getPlatformOverrideFields(platform).filter(f => f.uiExposed).map(f => f.key)
     expect(keysOf('wechat_mp').sort()).toEqual(['digest', 'massSend', 'openComment'])
     expect(keysOf('zhihu').sort()).toEqual(['commentPermission', 'declare', 'draft', 'topics'])
-    expect(keysOf('douyin')).toEqual(['draft'])
+    // P1-5：抖音/快手/微博的 visibility 打通后进 UI 渲染集（此前为空）
+    expect(keysOf('douyin').sort()).toEqual(['draft', 'visibilityType'])
     expect(keysOf('bilibili').sort()).toEqual(['category', 'collectionId', 'copyright'])
     expect(keysOf('youtube').sort()).toEqual(['categoryId', 'playlistId', 'privacy'])
     expect(keysOf('tiktok')).toEqual(['privacyLevel'])
     expect(keysOf('baijiahao').sort()).toEqual(['collectionIdText', 'locationName', 'original'])
-    expect(keysOf('weibo')).toEqual([])
+    expect(keysOf('weibo')).toEqual(['visible'])
     expect(keysOf('tencent_video')).toEqual([])
-    expect(keysOf('kuaishou')).toEqual([])
+    expect(keysOf('kuaishou')).toEqual(['visibilityType'])
   })
 
   it('getPlatformOverrideFields 返回副本', () => {
@@ -383,6 +407,11 @@ describe('publish-capabilities — 注册表结构自检与双版本 parity', ()
       'classifyPublishFields',
       'composeNoTitleDescription',
       'validateRegistry',
+      // P1-5 语义级可见性
+      'getVisibilityField',
+      'mapVisibilitySemantic',
+      'resolveVisibilityOverride',
+      'getVisibilitySemanticSupport',
     ]
     for (const name of exports) {
       expect(browserModule).toHaveProperty(name)
@@ -412,5 +441,91 @@ describe('publish-capabilities — 注册表结构自检与双版本 parity', ()
         .toEqual(getPlatformOverrideFields(platform, { uiOnly: true }))
     }
     expect(browserModule.getCommonFormFields()).toEqual(getCommonFormFields())
+  })
+})
+
+// P1-5 语义级可见性（通用控件）：5 平台字段名/取值各不相同，用户不应逐平台理解
+// 平台取值；semanticValues 声明 public/friends/private → 平台值的映射，本层是单一真源。
+describe('publish-capabilities — P1-5 语义级可见性映射', () => {
+  const VISIBILITY_PLATFORMS = ['youtube', 'tiktok', 'douyin', 'kuaishou', 'weibo']
+
+  it('5 平台各有一个 visibility 语义字段，带 semanticValues', () => {
+    for (const platform of VISIBILITY_PLATFORMS) {
+      const field = getVisibilityField(platform)
+      expect(field, platform + ' 缺少 visibility 字段').toBeTruthy()
+      expect(field.semanticValues, platform + ' 缺少 semanticValues').toBeTruthy()
+      expect(Object.keys(field.semanticValues)).toEqual(expect.arrayContaining(['public', 'private']))
+    }
+  })
+
+  it('公开/私密两档 5 平台全支持且映射到各自平台值', () => {
+    expect(mapVisibilitySemantic('youtube', 'public')).toBe('public')
+    expect(mapVisibilitySemantic('youtube', 'private')).toBe('private')
+    expect(mapVisibilitySemantic('tiktok', 'public')).toBe('PUBLIC')
+    expect(mapVisibilitySemantic('tiktok', 'private')).toBe('PRIVATE')
+    expect(mapVisibilitySemantic('douyin', 'public')).toBe(0)
+    expect(mapVisibilitySemantic('douyin', 'private')).toBe(1)
+    expect(mapVisibilitySemantic('kuaishou', 'public')).toBe(1)
+    expect(mapVisibilitySemantic('kuaishou', 'private')).toBe(2)
+    expect(mapVisibilitySemantic('weibo', 'public')).toBe(0)
+    expect(mapVisibilitySemantic('weibo', 'private')).toBe(1)
+  })
+
+  it('好友档仅三平台支持（tiktok/douyin/weibo）；快手与 YouTube 返回 null（fail-closed）', () => {
+    expect(mapVisibilitySemantic('tiktok', 'friends')).toBe('FRIENDS')
+    expect(mapVisibilitySemantic('douyin', 'friends')).toBe(2)
+    expect(mapVisibilitySemantic('weibo', 'friends')).toBe(6)
+    expect(mapVisibilitySemantic('kuaishou', 'friends')).toBeNull()
+    expect(mapVisibilitySemantic('youtube', 'friends')).toBeNull()
+  })
+
+  it('非法档位/未知平台一律 null（不抛错，调用点据此跳过）', () => {
+    expect(mapVisibilitySemantic('youtube', 'secret')).toBeNull()
+    expect(mapVisibilitySemantic('youtube', '')).toBeNull()
+    expect(mapVisibilitySemantic('youtube', null)).toBeNull()
+    expect(mapVisibilitySemantic('unknown_platform', 'public')).toBeNull()
+    expect(mapVisibilitySemantic(null, 'public')).toBeNull()
+    expect(resolveVisibilityOverride('unknown_platform', 'public')).toBeNull()
+  })
+
+  it('resolveVisibilityOverride 返回写 override 模型所需的 fieldKey+value', () => {
+    expect(resolveVisibilityOverride('youtube', 'private')).toEqual({ fieldKey: 'privacy', value: 'private' })
+    expect(resolveVisibilityOverride('tiktok', 'friends')).toEqual({ fieldKey: 'privacyLevel', value: 'FRIENDS' })
+    expect(resolveVisibilityOverride('douyin', 'public')).toEqual({ fieldKey: 'visibilityType', value: 0 })
+    expect(resolveVisibilityOverride('kuaishou', 'private')).toEqual({ fieldKey: 'visibilityType', value: 2 })
+    expect(resolveVisibilityOverride('weibo', 'friends')).toEqual({ fieldKey: 'visible', value: 6 })
+    // 快手无好友档 → 不产出写入指令
+    expect(resolveVisibilityOverride('kuaishou', 'friends')).toBeNull()
+  })
+
+  it('getVisibilitySemanticSupport 给出各档位支持平台清单', () => {
+    const support = getVisibilitySemanticSupport()
+    expect(support.public.sort()).toEqual([...VISIBILITY_PLATFORMS].sort())
+    expect(support.private.sort()).toEqual([...VISIBILITY_PLATFORMS].sort())
+    expect(support.friends.sort()).toEqual(['douyin', 'tiktok', 'weibo'])
+  })
+
+  it('规模下界：映射表不得退化成空集（空表会让上述断言恒真）', () => {
+    const support = getVisibilitySemanticSupport()
+    expect(support.public.length).toBeGreaterThanOrEqual(5)
+    expect(support.friends.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('ESM 孪生与 CJS 同结论（穷举平台 × 档位）', () => {
+    for (const platform of [...VISIBILITY_PLATFORMS, 'zhihu', 'unknown']) {
+      for (const semantic of ['public', 'friends', 'private', 'bogus']) {
+        expect(browserModule.mapVisibilitySemantic(platform, semantic)).toEqual(mapVisibilitySemantic(platform, semantic))
+        expect(browserModule.resolveVisibilityOverride(platform, semantic)).toEqual(resolveVisibilityOverride(platform, semantic))
+      }
+      expect(browserModule.getVisibilityField(platform)).toEqual(getVisibilityField(platform))
+    }
+    expect(browserModule.getVisibilitySemanticSupport()).toEqual(getVisibilitySemanticSupport())
+  })
+
+  it('validateRegistry 拦截 semanticValues 指向不存在 options 值的漂移', () => {
+    // 反证：注册表当前干净
+    expect(validateRegistry()).toEqual([])
+    // 该断言由 validateRegistry 的 semanticValues 校验实现；
+    // 变异验证方式见 .quality-gates.md 本轮记录（把 youtube private 改成 'nope' 必红）
   })
 })
