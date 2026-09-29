@@ -1,4 +1,9 @@
 {
+  "本次执行记录：撤回一条「生产计划任务已消失」的错误结论——探针打在改名前的旧坐标上（retract-guard-claim，2026-09-29）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。",
+    "status": "PENDING",
+    "line": 16
+  },
   "本次执行记录：回填 #2504 缺行 + 补写 #2595 缺席记录 + #2570 销账（backfill-gate-record-evidence，2026-09-28）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 `git log origin/main --grep='(#NNNN)$'` 离线取证回填并删除本登记项（不删则报陈旧登记）。"
   },
