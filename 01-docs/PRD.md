@@ -17838,3 +17838,14 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **合同**：空 body 的 POST 必须显式移除 Content-Type（`'Content-Type': null`，axios 语义 null=删除）——禁止依赖「不传 data 就没有 Content-Type」的假设（axios 对 POST 仍会注入默认值）。回归锁：`kuaishou-video-chain.test.js` complete 断言 content-type undefined（红→绿实证）。
 
 **七层裁决链全景**：形状翻译（#2578）→ 注册表回退+命令名（#2580）→ bridge 接线（#2582）→ sessionKey+cookie 预绑（#2585）→ 诊断增强（#2594/#2616/#2619）→ Content-Type/Accept 修正（#2612）→ **Content-Type 默认注入根因（本 PR）**。
+
+## 快手上传域请求头对齐合同（2026-09-29 活体 6.3 第七层二轮定案，随本 PR）
+
+**请求级诊断二轮定案**：Content-Type 移除后 complete 仍裸 400——诊断响应头显示**边缘级拒绝**（无 X-KSLOGID/无 CORS 头，未到应用层）。剩余差异锁定两处：
+
+| 差异 | 真实浏览器 | 链（修复前） |
+|---|---|---|
+| Cookie | **无**（上传域 kuaishouzt.com 跨 registrable domain，同源策略不可带 kuaishou.com Cookie） | 带全量外域 Cookie——疑似触发边缘 WAF |
+| Referer | 短形态 `https://cp.kuaishou.com/` | 发布页长 Referer |
+
+**合同**：上传域（跨 registrable domain）请求一律无 Cookie + 短 Referer（与浏览器逐字一致）；cp.kuaishou.com 域请求（pre/finish/submit/list）保持带 Cookie + 长 Referer（同域合法且已实证可用）。回归锁：`kuaishou-video-chain.test.js` 分片/complete 断言 cookie undefined + 短 referer（红→绿实证）。
