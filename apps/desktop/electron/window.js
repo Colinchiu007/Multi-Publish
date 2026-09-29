@@ -82,6 +82,12 @@ function isAllowedMainWindowUrl(url) {
   return isTrustedSender({ senderFrame: { url } }, app)
 }
 
+// 本函数与 packages/shared-utils/src/safe-http-url.js 是**按 sink 分的两种策略**，刻意不合并：
+//   · safeHttpUrl —— 渲染层把数据绑成 <a :href> 的**下限**判据（仅 http/https 前缀）；
+//   · 本函数     —— 交给操作系统打开（shell.openExternal）的**更严**判据：走 new URL() 解析，
+//                    且额外拒绝带 username/password 的 URL。把它收敛成 safeHttpUrl 等于放松这个面。
+// 口径与理由见 01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md §5.1；
+// 「本函数必须继续拒绝 userinfo、必须继续存在」由 apps/desktop/src/href-scheme-contract.test.js 钉住。
 function isAllowedExternalUrl(rawUrl) {
   if (typeof rawUrl !== 'string') return false
   try {

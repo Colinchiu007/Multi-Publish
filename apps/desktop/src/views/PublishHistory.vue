@@ -311,7 +311,7 @@
           <div><dt>{{ t('historyPage.detailMode') }}</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
           <div v-if="deliveryModeValue(selectedRecord)"><dt>{{ t('historyPage.detailDeliveryMode') }}</dt><dd>{{ deliveryModeLabel(selectedRecord) }}</dd></div>
           <div v-if="resultValue(selectedRecord, 'postId')"><dt>{{ t('historyPage.detailPostId') }}</dt><dd>{{ resultValue(selectedRecord, 'postId') }}</dd></div>
-          <div v-if="resultValue(selectedRecord, 'url')"><dt>{{ t('historyPage.detailLink') }}</dt><dd><a :href="resultValue(selectedRecord, 'url')" target="_blank" rel="noopener" class="detail-link" data-testid="detail-link">{{ resultValue(selectedRecord, 'url') }}</a></dd></div>
+          <div v-if="resultValue(selectedRecord, 'url')"><dt>{{ t('historyPage.detailLink') }}</dt><dd><a v-if="safeHttpUrl(resultValue(selectedRecord, 'url'))" :href="safeHttpUrl(resultValue(selectedRecord, 'url'))" target="_blank" rel="noopener" class="detail-link" data-testid="detail-link">{{ resultValue(selectedRecord, 'url') }}</a><span v-else class="detail-link" data-testid="detail-link-plain">{{ resultValue(selectedRecord, 'url') }}</span></dd></div>
           <div><dt>{{ t('historyPage.detailTime') }}</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
           <div><dt>{{ t('historyPage.detailAccounts') }}</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
           <div><dt>{{ t('historyPage.detailTasks') }}</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
@@ -345,6 +345,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { CirclePlus, Clock, Close, Delete, Download, FolderOpened, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'

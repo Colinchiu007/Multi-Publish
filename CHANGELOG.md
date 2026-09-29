@@ -1,3 +1,74 @@
+# [未发布] fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
+
+### 根因（第一性原因）
+- `content-intelligence-sources.js` 自内容情报模块引入起就把第三方响应的 `url` 原样透出（`url: d.url || 本站兜底`），渲染层照字段名直绑 `<a :href>`。而 **Vue 3 不净化 href**（v2 的 `isUnsafeURL` 守卫在 v3 已移除），本应用渲染进程又持有 `window.electronAPI` ⇒ HN Algolia 的 `url` 由提交人任意填写，一条 `javascript:` 点下去即在特权上下文执行任意 JS。
+- 同一条判定在仓内被抄成多份却互不相认：`hot-topics/channels.js` 的 `sanitizeUrl`（注释明写"仅 http/https"）只服务热榜；`bootstrap/phase4-events.js` 又抄一份决定 `Publish.vue` 的 `result.url`；`Collection.vue` 用户输入校验是第三份。六条展示链**一份都没接**。
+
+### 变更
+- 单一判据 `packages/shared-utils/src/safe-http-url.js`（CJS）+ `safe-http-url.browser.js`（ESM，`vite.config.js` alias 指过去）+ parity 锁，照 platform-definitions / account-name-guard / publish-capabilities 三先例。判据只做 `http(s)://` **前缀白名单**，不做"清洗后放行"；协议相对 `//host` 与缺协议一律 `null`。
+- 双档防线：采集侧第一站收口（HN 非法回落 `https://news.ycombinator.com/item?id=`，GitHub/Reddit 非法即 `null`）+ 渲染侧绑定 `:href` 前再判。六个站点不通过即**不产出锚点、保留等样式纯文本**；补齐 `Publish.vue` / `FilmEngineeringView.vue` 缺的 `rel="noopener"`。
+- 收敛四份同用途拷贝：`channels.js`、`content-intelligence-sources.js`、`phase4-events.js`、`Collection.vue`。按 sink 分的三种策略（成链下限 / OS 打开面更严含拒 userinfo / 图标资源允许 data:）**显式不合并**，源码注释互指。
+- 三把新锁：`apps/desktop/src/href-scheme-contract.test.js`（全仓 `src/**/*.vue` 扫 `:href=`，覆盖四种绑定形态、禁 `:[href]` 与 `v-bind="{href}"` 绕过、`target=_blank` 必带 noopener、`v-if` 与 `:href` 必须同一表达式、`window.open` 站点登记）；`content-intelligence-sources.test.js`（采集侧行为锁，补结构锁"只查 import"的盲区）；`safe-http-url.test.js`（判定表 + 孪生 parity 含导出集合）。
+- 文档：新增 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`（威胁模型 / 判定表 / 三策略对照 / 全仓 37 处实况分类清点 / AC-1..AC-12 / 20 条反证矩阵 / QM-6 逐条处置）；`AGENTS.md` QM-2 新增硬规则；`01-docs/PRD.md` 新增 §9.2.2。
+
+### 影响
+- 用户可见变化只有一种：上游返回非法协议 URL 时，原来那条"能点但会执行脚本"的链接变成同样式纯文本（内容不丢）。正常数据下界面无任何变化——**CI 产物逐视图对照 main 的 Δ 全为 0.0000%**（19 视图，含 `intelligence` 0.1935%、`collection` 1.6071% 两条 main 上同值的既有漂移）。
+- `phase4-events.js` 收敛后，发布结果 URL 的"能否成为链接"与渲染层同口径，不再可能出现"主进程放行、渲染层拒绝"的口径分裂。
+
+### 验证
+- `Test Files 2 failed | 687 passed | 1 skipped (690)`；两条红均为既有（`feedback.test.js` Windows symlink EPERM；`story2video-manual-assets.test.js` 在**不含本改动的干净 main `633ee1c2`** 上跑出同一条断言同一条红，与本 PR diff 零文件交集）。
+- 20 条变异反证全部指名变红、逐字节还原；QM-1 解包产物取证 7/7 PASS；QG Visual pass 且与 main 逐视图 Δ=0；CI `21 pass / 0 fail / 1 skipping`；三个新测试文件在 CI 日志里均有 ✓ 执行现场（`safe-http-url.test.js (61 tests)` 等）。
+- QM-6 双模型（codex + claude）无 Critical；5 Warning 全部落地，其中两条为**实质代码收敛**而非补测试。
+
+# [未发布] fix(设置页): 浅色模式主按钮 hover/禁用态隐形——EP 主题桥接补齐浅色兜底（2026-09-29，#2627）
+
+### 现象与根因
+- 设置页 → 模型设置 → 多模态模型「默认」→「设为默认」确认弹窗中，【确定】按钮**鼠标悬停时整块隐形**（白底白字），未悬停时与【取消】按钮均正常。
+- 根因不在组件而在主题桥接层：`apps/desktop/src/styles/ep-theme.css` 把 Element Plus 主按钮 hover 档 `--el-color-primary-light-3` 与禁用/描边档 `-light-5` 桥接到 `--color-primary-dark-tint`，而该 token **只在 `tokens.css` 的 `[data-theme="dark"]` 块里定义**。浅色下无兜底的 `var()` 是 guaranteed-invalid，依赖它的声明按 *invalid at computed-value time* 退化为 `initial` —— `background-color` 变透明、`border-color` 变 `currentColor`，而 `.el-button--primary` 的文字仍是 `--el-color-white`，于是按钮整体"消失"。
+
+### 变更
+- 两行补浅色兜底 `var(--color-primary-dark-tint, var(--color-primary-hover))`：暗色解析值逐字不变（`#7b74ff`），浅色 hover 得 `#603af9`（与常态 `#5048E5` 可辨）。沿用仓库既有兜底惯例（`hot-topics-list.css:11` 已明文规定该 token 必须带兜底使用）；**没有**在 `:root` 新增同名 token —— 那会把所有「浅色用主色、暗色用亮化档」的消费点一起改掉，属更大范围的视觉回归。
+- 同根因第三处一并修：`--el-fill-color: var(--color-bg-hover)` 里的 `--color-bg-hover` **全仓从未定义**（唯一一次出现就是这一行），现与 `-light` / `-lighter` 同档收编到 `--color-bg-inset`。该行此前恒为 invalid（等于没生效），修复后 EP 文本按钮 `:active` 一类瞬时填充底色才真正解析出值。
+- 新增 `apps/desktop/src/styles/ep-theme.tokens.test.js`（4 例，纯 CSS 契约、无需浏览器）：按 `:root` / `[data-theme="dark"]` **分别**求解 `var()` 链，断言桥接层每个无兜底引用在浅色单独可解析、hover 档与常态主色区分、暗色档不变。
+
+### 为什么既有门禁没拦住
+- `sidebar.tokens.test.js` 已有「引用的 token 全部在 tokens.css 定义」的锁，但它把 `:root` 与 `[data-theme="dark"]` **合并成一张表**再判存在性 —— 对「只在暗色定义的 token 被浅色层消费」这一形态完全免疫。新锁按主题分别求解补齐这一格。
+- 视觉回归对这三态结构性失明：hover / 禁用 / `:active` 都不在快照基线的采集状态内。
+- 反证两条均实测变红：单行摘掉 `light-3` 兜底 → 2 红 / 2 绿（另 2 例仍绿，说明判据特定而非恒失败）；`--el-fill-color` 退回 `--color-bg-hover` → 2 红 / 2 绿。
+- Chromium 实测（Playwright，修复前 → 后）：浅色 hover `rgba(0,0,0,0)` → `rgb(96,58,249)`；浅色禁用态同上；暗色 hover/禁用 `#7b74ff` 逐字未变。
+
+# [未发布] feat(发布页): 封面缩略图与点击放大预览，统一覆盖五个封面写入口（2026-09-28，video-cover-thumbnail-preview）
+
+### 现象与根因
+- 一键发布页点【从视频提取封面】/【AI 生成封面】后，封面只在 `el-upload` 文本列表里显示一行文件名（`video-co...` + 对勾），**没有任何图像**。用户无法确认取到的是哪一帧（黑帧 / 片头 / 字幕条）、AI 生成的是什么、裁剪构图对不对，只能盲发或另开文件管理器查看临时目录。
+- 根因是双层的：① `el-upload` 未设 `list-type`，默认 `text` 形态只渲染文件名；② 写入 `coverFileList` 的 `url` 字段是**本地绝对路径**而不是可加载 URL —— 渲染层 CSP（`apps/desktop/src/index.html:8`）的 `img-src` 不含 `file:`，所以即使改成 `picture` 形态也是破图。
+
+### 变更
+- **预览挂在 `article.cover_path` 上，不挂在各按钮回调上**：封面有五个写入口（提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上一次覆盖全部，新增入口不会再被漏接线。这也是「AI 生成封面也要一样处理」的落地方式 —— 不是再抄一份逻辑。
+- 新增 `apps/desktop/src/composables/useCoverPreview.js`：把「本地绝对路径 → dataURL」的**剥信封**（`res.data.dataUrl || res.dataUrl`）收敛为唯一实现，并让 `CoverCropDialog.vue` 改为复用它。此前该剥离只存在于裁剪弹窗内部，抄第二份必然漂移。带自增序号**竞态守卫**：连续「提取 → AI 生成」时迟到的旧响应必须整段丢弃，否则缩略图显示上一张 —— 那是比没有缩略图更糟的**错误证据**。
+- 新增 `apps/desktop/src/components/CoverThumbnail.vue`：144×81、`object-fit: cover`、`cursor: zoom-in`、`role=button` + `tabindex=0` + Enter/Space。三态互斥（加载中 / 有图 / 读取失败）；失败态**刻意保留占位框**并把具体原因挂在 `title`，而不是整块消失 —— 整块消失会让用户以为「封面没设置上」而重复点击生成。缩略图是 `el-upload` 的**兄弟节点**而非插槽内容（`el-upload` 在单测里被 stub 成 `<div><slot/></div>`，插槽内的东西对测试不可见）。
+- 放大预览走 `UiModal`（`size="xl"` + 显式 `close-on-esc`）+ 原生 `<img>`，与仓库既有约定一致（全仓无 `el-image` / `ElImageViewer`）。视频与图文两个封面行共用**同一份** composable 实例与**同一个**弹窗节点。
+- 图文封面行**刻意不加 flex 包裹层**：`.cohere-form-item` 是列向 flex，`el-upload` 靠 `align-items: stretch` 占满宽，套一层行向容器会让它退化成内容宽 —— 那会造成与本功能无关的 `publish-form` 像素基线位移。
+- 按 AGENTS.md 浮层互斥合同登记**三个 owner**：`publish-cover-preview`（本次新增）、`publish-cover-crop-dialog` 与 `publish-ai-cover-dialog`（同一封面流程的**既有漏项**，一并补上 —— 新浮层守规矩、旁边的不守等于把同一个 Bug 留在原地）。释放一律走 `finally`，`onBeforeUnmount` 兜底。
+- **修掉一条自查发现的既有危害（自审，非评审产出）**：发布页可运行在「+新标签」的**内嵌主页实例**里，而该实例本身就是一张 `WebContentsView`。主进程任一时刻只让活动标签可见（全仓 `setVisible(true)` 仅 `webview-manager/layout.js:160` 一处、且只作用于 `activeView`），所以它内部的应用级模态不会被别的视图盖住；而 `suspendEmbeddedViewsForOverlay` → `_hideAllTabs()` 无差别遍历 `_tabViews` 隐藏，会**把承载弹窗的那张视图自己藏掉** —— 表现为「点缩略图后内容区整块空白」，且弹窗不可见因而无法关闭。该危害在 `App.vue` 的 `setShellMode` 路径早已有守卫（`if (isHomeShell) return`），挂起路径却没有；`home-shell-preload.bundle.js:928` 确实暴露了 `suspendEmbeddedViews`（esbuild 把 `preload/index.js` 整体内联），路径可达。
+- 修复落在 `useEmbeddedViewSuspension.js` 本身：新增 `isHomeShellRuntime()` 守卫，判据**按调用时刻**读取 `window.location.search`（不得在模块导入期冻结求值，否则真实导航后失效）。放 composable 而非各调用点，顺带收口 `AccountCloudSyncDialog` 的同类既有暴露。回归锁 4 例（壳态 no-op / 主窗口行为不变 / 判据不得导入期冻结 / 参数值须严格为 `1`），变异反证「守卫恒不命中」⇒ 恰好 2 条变红。
+
+- locale：`publishPage.coverPreview.{title,hint,ariaLabel,loading,unavailable}` zh/en 成对新增，插在 `coverCrop` 之后保持行位对称。
+
+### 明确不做（附理由）
+- **不加主进程体积门禁**：实测 20 MB 封面 `readFileSync` + `base64` 仅 **25.6 ms**（0.3/2/8/20 MB = 0.9/1.9/6.7/25.6 ms），不构成卡顿；而为它改 `electron/` 会连带 preload bundle 重建 + QM-1 打包，爆炸半径远大于收益。数字与判据见 `01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md` §9。
+- **不引入 `sharp` 生成小尺寸缩略图**：`sharp` 只由 `packages/shared-utils` 声明，桌面工作区 `apps/desktop/package.json` 未声明，按 AGENTS.md「生产依赖闭包」属违规。
+- **不预览远程「封面图片链接」（`cover_url`）**：会为渲染一张第三方图向任意用户输入的域名发请求，等于给对方一个可追踪信标；且 `http://` 链接会被 CSP 拦成破图。
+- 已知限制（非本次引入）：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框是 `accept="image/*"`，所以 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**。裁剪弹窗一直如此，本次让它可见，故写入文档以免被当成新 Bug。
+
+### 测试
+- 新增 `useCoverPreview.test.js` 17 例：导出完整性、空/非字符串不发 IPC、两种信封形状、`code!==0`、`code===0` 但 dataUrl 缺失、reject、同步抛错、无 `electronAPI`、`unavailableKey` 切换、**竞态（迟到成功与迟到失败均不得倒灌）**、卸载后不写状态、`reload()`。
+- 新增 `Publish.test.js`「封面缩略图与放大预览」12 例：提取/AI 生成两个入口写入即出图、**草稿恢复（入口 5，不经任何按钮）**、迟到响应不倒灌、点击与 Enter 打开、关闭释放挂起、预览中换封面自动收起、失败降级且 `cover-state` 契约节点仍在、删除清空、空封面不发 IPC、图文行同样生效。
+- `overlay-view-suspension.test.js` 新增三 owner 结构锁（逐函数取块，不用跨函数懒惰匹配）。
+- **四条变异反证均实跑变红并字节还原**：拆竞态守卫 ⇒ 3 红；owner 复用 `settings-dialog` ⇒ 1 红；缩略图不再上抛 `open` ⇒ 1 红；把释放挪出 `finally` ⇒ 1 红（正是新结构锁）。
+- 回归：`Publish.test.js` + `CoverCropDialog.test.js` + `useCoverPreview.test.js` = 88 passed；`overlay-view-suspension` + `shell-mode-6b` = 19 passed；`views-deep2` + `views-coverage` = 16 passed；`index.test.js`（CSP 守卫）通过；`vite build` 通过（模板编译）；eslint 改动文件零告警；`verify-worktree-deps` OK；`check-max-lines` 与 `check-debt-budget` 均在基线内。
+- 行尾对账：四份共享文档均按**字节前插/追加**，未触碰任何既有行；`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等（无幽灵行）。
+
 # [未发布]
 
 ### 变更

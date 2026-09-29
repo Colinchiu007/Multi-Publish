@@ -4771,6 +4771,26 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 
 **已知限制（须向用户诚实）**：数据源只有三个英文开发者平台，因此**中文题材修好后最常见的正确表现就是空态**。要让该功能对中文短视频创作者真正有用，需另立需求接入中文内容平台的标题语料（见专项 PRD §11–§12）。
 
+#### 9.2.2 外链协议校验契约（2026-09-29 补写，href-scheme-guard）
+
+> 完整规格见 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`。本节只登记主文档必须常驻的口径。
+> §9.2.1 收口的是「这条结果与用户内容**是否相关**」，本节收口的是「这条 URL **能不能被点**」——两段共用同一条数据链路，判据互相不可替代。
+
+| 项 | 契约 |
+| -- | ---- |
+| 单一判据 | `packages/shared-utils/src/safe-http-url.js`（CJS，主进程）/ `safe-http-url.browser.js`（ESM，渲染进程，`vite.config.js` alias 指过去）；禁止第二份 `/^https?:/` |
+| 放行条件 | 仅 `http://` 与 `https://` 前缀（大小写不敏感），返回 trim 后的**原串**，绝不重编码 |
+| 一律拒绝 | `javascript:` / `data:` / `vbscript:` / `file:`、协议相对 `//host`、缺协议 `example.com`、`https:x`、`https:/x`、非字符串、空串 |
+| 双档防线 | ① 采集侧：`content-intelligence-sources.js` 在离开第三方响应的第一站收口，HN 非法时回落 `https://news.ycombinator.com/item?id=<objectID>`（本站拼、必然安全），GitHub/Reddit 非法即 `null`；② 渲染侧：绑定 `:href` 前再判一次 |
+| 降级显示 | 不产出锚点，**保留等样式纯文本**（`.int-link` / `.result-link` / `.detail-link-plain` 等），不许整项消失、不许留"能点但无反应"的死链接；`FilmEngineeringView` 的 `el-link` 同口径 |
+| 显示项 | 六个站点：内容情报结果列表、热榜面板、参考检索面板、发布结果回链、发布历史详情、影片工程元信息 |
+| 交互逻辑 | 「作为参考」「插入」「复制链接」不受协议校验影响（它们只取 `title` 或照常复制文本）；安全链接仍 `target="_blank"` + `rel="noopener"` |
+| 提示文字 | **无新增**（AGENTS.md 禁止死键：正常数据下该状态不出现；将来若加提示必须 zh/en 成对进 locales，且不得复用采集入口的 `collectError.protocol` —— 那是用户手填失败、语义不同） |
+| 为什么是真漏洞 | Vue 3 移除了 v2 的 `isUnsafeURL` href 守卫；本应用渲染进程持有 `window.electronAPI`（账号/凭证/发布/文件路径）；HN·Reddit·GitHub 的 url 字段由提交人完全可控 ⇒ 点一下即特权上下文执行任意 JS |
+| 判据范围 | 实测全仓 1846 个文件中 37 处含同类写法，**多数是不同意图**（剥协议取 host、判绝对性走分支、网络取回守卫、issuer/proxy/baseURL 强制 https），一律不纳入本锁；已收敛的同用途拷贝为 `channels.js` / `phase4-events.js` / `Collection.vue` / `content-intelligence-sources.js`。范围定义见专项 PRD §5.2 |
+| 回归锁 | `packages/shared-utils/src/__tests__/safe-http-url.test.js`（判定表 + 孪生 parity，含导出集合 parity）、`apps/desktop/src/href-scheme-contract.test.js`（全仓 `:href=` 结构棘轮，含扫描域非空与命中数下界两条反失明断言）、`apps/desktop/electron/services/content-intelligence-sources.test.js`（采集侧行为锁，补结构锁盲区） |
+| 已知接缝 | `vitest.config.js` 不含该 alias：单测解析 CJS、生产解析 ESM 孪生；摘掉 alias 只有结构锁会红，故 parity 锁与 alias 源码锁必须同时在位 |
+
 ### 9.3 爆款分析
 
 ```
@@ -17838,3 +17858,25 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **合同**：空 body 的 POST 必须显式移除 Content-Type（`'Content-Type': null`，axios 语义 null=删除）——禁止依赖「不传 data 就没有 Content-Type」的假设（axios 对 POST 仍会注入默认值）。回归锁：`kuaishou-video-chain.test.js` complete 断言 content-type undefined（红→绿实证）。
 
 **七层裁决链全景**：形状翻译（#2578）→ 注册表回退+命令名（#2580）→ bridge 接线（#2582）→ sessionKey+cookie 预绑（#2585）→ 诊断增强（#2594/#2616/#2619）→ Content-Type/Accept 修正（#2612）→ **Content-Type 默认注入根因（本 PR）**。
+## 发布页封面缩略图与放大预览（2026-09-28 新增）
+
+> 完整规格（数据校验 / 交互流程 / 显示项 / 提示文字 / 性能实测 / 验收标准 / 测试策略 / 决策记录）见
+> **`01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md`**；本节只登记入口与不可省略的口径。
+
+**需求**：一键发布页选择封面后必须**看到封面**。此前【从视频提取封面】【AI 生成封面】只在 `el-upload` 文本列表里留一行文件名，用户无法确认取到的是哪一帧或生成了什么，只能盲发。
+
+**三条不可省略的口径**：
+
+1. **预览挂在 `article.cover_path` 上，不挂在按钮回调上。** 封面有五个写入口（提取 / AI 生成 / 裁剪 / 手动选择 / 草稿恢复），挂在字段上一次覆盖；挂在回调上必然漏「草稿恢复」，且以后每加一个入口再漏一次 —— 漏掉的那次不会报错。
+2. **「本地绝对路径 → 可渲染 URL」的剥信封只允许一处实现**：`apps/desktop/src/composables/useCoverPreview.js`。渲染层 CSP 的 `img-src` 不含 `file:`，必须经主进程 `cover:read-data` 转 dataURL；该剥离（`res.data.dataUrl || res.dataUrl`）原先散在裁剪弹窗内部，现已迁入 composable 并由裁剪弹窗复用。禁止再抄第二份。
+3. **迟到的旧响应必须整段丢弃。** 用户可连续点「提取 → AI 生成 → 裁剪」，若旧请求后到并把缩略图刷成上一张，那是**错误的证据**，比没有缩略图更糟。实现为自增序号 + 写状态前比对，`onScopeDispose` 作废在途请求。
+
+**显示与交互**：缩略图 144×81、`object-fit: cover`、`cursor: zoom-in`、`role=button` + `tabindex=0` + Enter/Space 可达；三态互斥（加载中 / 有图 / 读取失败）。失败态保留占位框并把原因挂 `title`，**不得整块消失**（会让用户以为「封面没设置上」而重复点击生成）。点击打开独立组件 `CoverPreviewDialog.vue`（内部 `UiModal`，`size="xl"`、`Esc`/遮罩/× 三种关闭），显示文件名与原始像素尺寸；预览打开期间换封面必须收起弹窗。
+
+**浮层互斥（AGENTS.md MUST）**：本流程三个应用级模态各持唯一 owner 并成对释放。三者都是**状态驱动型**——`watch(visible)` 的 true/false 分支负责挂起与释放，`onBeforeUnmount` 兜底「父组件直接 `v-if` 掉本组件、`visible` 不经过 `false`」这条路径；`try/finally` 只适用于释放发生在函数体中间的那种浮层（先例 `account-cloud-sync-dialog`）。边界与判据见专项 PRD §7.5。owner：`publish-cover-preview`、`publish-cover-crop-dialog`、`publish-ai-cover-dialog`。后两者是本次一并补登记的既有漏项。
+
+**明确不做**：不预览远程「封面图片链接」（避免向任意第三方域名发出可追踪请求，且 `http://` 会被 CSP 拦成破图）；不加主进程体积门禁（实测 20 MB 仅 25.6 ms，见 PRD §9）；不引入 `sharp`（桌面工作区未声明，违反生产依赖闭包）。
+
+**已知限制**：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框 `accept="image/*"`，故 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**（裁剪弹窗一直如此，本次让它可见）。
+
+**回归锁**：`useCoverPreview.test.js`（17 例，含竞态与导出完整性）、`Publish.test.js`「封面缩略图与放大预览」（12 例）、`CoverCropDialog.test.js`（复用 composable 后行为不变）、`overlay-view-suspension.test.js`（三 owner 结构锁）。五条变异反证均实测变红，且各配正控（不施加变异须报出 passed 计数）——先证明探针可信再谈缺陷。E2E 既有契约 `[data-testid="cover-state"]` 必须原样保留。

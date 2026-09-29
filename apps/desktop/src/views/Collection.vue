@@ -503,6 +503,7 @@ import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -1149,12 +1150,12 @@ async function collectUrl () {
   }
   // 分享文本解析：粘贴的是「文案+短链+引导语」混合文本时，先提取真实链接
   const trimmedInput = linkUrl.value.trim()
-  if (/\s/.test(trimmedInput) || !/^https?:\/\//i.test(trimmedInput)) {
+  if (/\s/.test(trimmedInput) || safeHttpUrl(trimmedInput) === null) {
     const extracted = extractUrlFromShareText(trimmedInput)
     if (extracted) {
       linkUrl.value = extracted
       notifyInfo('collection.shareLinkExtracted')
-    } else if (!/^https?:\/\//i.test(trimmedInput)) {
+    } else if (safeHttpUrl(trimmedInput) === null) {
       // 无 http 前缀且提取不到链接 → 走原有图文链路报错
       notifyWarning('collection.shareLinkNone')
       return

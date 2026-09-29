@@ -14,6 +14,7 @@ const log = require('../services/logger')
 const { isRiskBlocked } = require('../services/publish-risk')
 const { isRiskSuspendedMessage } = require('../services/risk-suspender-store')
 const { createPublishProgressEmitter } = require('../services/publish-progress-events')
+const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
 
 /**
  * 接线 taskQueue 事件监听
@@ -75,7 +76,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       if (store && typeof store.addTrackedContent === 'function') {
         const result = task.result || {}
         const postId = result.postId || result.publishId || ''
-        const url = typeof result.url === 'string' && /^https?:\/\//.test(result.url) ? result.url : ''
+        const url = safeHttpUrl(result.url) || ''
         const hasAnchor = Boolean(postId || url)
         store.addTrackedContent({
           platform: task.platform,
