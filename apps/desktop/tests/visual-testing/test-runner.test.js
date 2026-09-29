@@ -364,3 +364,49 @@ describe('视觉应用就绪预算', () => {
     }
   })
 })
+
+describe('截图前的确定性渲染收口（settleForCapture）', () => {
+  it('按字体稳定帧 → 动画归零 → 回顶部 → settle → networkidle 的序列执行', async () => {
+    const calls = []
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'settle-'))
+    try {
+      const runner = createRunner(tempDir)
+      runner.page = {
+        evaluate: vi.fn(async (fn) => { calls.push('evaluate:' + (fn.name || 'anon')) }),
+        addStyleTag: vi.fn(async ({ content }) => { calls.push('style:' + (/animation:0s/.test(content) ? 'anim-off' : 'other')) }),
+        waitForTimeout: vi.fn(async (ms) => { calls.push('sleep:' + ms) }),
+        waitForLoadState: vi.fn(async (s) => { calls.push('load:' + s) }),
+      }
+      await runner.settleForCapture()
+      expect(calls).toEqual([
+        'evaluate:anon',
+        'style:anim-off',
+        'evaluate:anon',
+        'sleep:300',
+        'load:networkidle',
+      ])
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('视图路径 _navigateToRoute 仍然 await settleForCapture', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'settle-nav-'))
+    try {
+      const runner = createRunner(tempDir)
+      runner._resetBrowserState = vi.fn(async () => {})
+      runner._waitForApplicationReady = vi.fn(async () => {})
+      const settle = vi.fn(async () => {})
+      runner.settleForCapture = settle
+      runner.url = 'http://127.0.0.1:5174'
+      runner.page = {
+        goto: vi.fn(async () => {}),
+        reload: vi.fn(async () => {}),
+      }
+      await runner._navigateToRoute('/dashboard', '.dash')
+      expect(settle).toHaveBeenCalledTimes(1)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})

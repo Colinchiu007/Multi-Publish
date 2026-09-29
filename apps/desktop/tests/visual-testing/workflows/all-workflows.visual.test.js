@@ -592,6 +592,7 @@ async function captureWorkflowScreenshot(runner, workflow, step, screenshotIndex
   const threshold = resolveThreshold(workflow, step);
 
   ensureDir(screenshotDir);
+  await runner.settleForCapture();
   await runner.page.screenshot({ path: currentPath, fullPage: true });
 
   if (!baselineExists(baselinePath)) {

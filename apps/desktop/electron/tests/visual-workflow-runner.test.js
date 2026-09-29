@@ -217,7 +217,11 @@ describe('视觉工作流执行器', () => {
       misMatchPercentage: 4.9,
       diffImagePath: 'diff.png',
     })
-    const runner = { page, pixelDiff: { compare } }
+    const runner = {
+      page,
+      settleForCapture: vi.fn().mockResolvedValue(undefined),
+      pixelDiff: { compare },
+    }
     const workflow = {
       name: 'visual-result',
       route: '/accounts',
@@ -275,6 +279,7 @@ describe('视觉工作流执行器', () => {
             fs.copyFileSync(reviewedBaseline, currentPath)
           }),
         },
+        settleForCapture: vi.fn().mockResolvedValue(undefined),
         pixelDiff,
       }
       const result = await workflowRunner.executeWorkflow(runner, {
@@ -337,6 +342,7 @@ describe('视觉工作流执行器', () => {
         goto: vi.fn().mockResolvedValue(undefined),
         screenshot: vi.fn().mockResolvedValue(undefined),
       },
+      settleForCapture: vi.fn().mockResolvedValue(undefined),
       pixelDiff: {
         compare: vi.fn().mockResolvedValue({
           misMatchPercentage: 5.01,
@@ -406,6 +412,7 @@ describe('视觉工作流执行器', () => {
         goto: vi.fn().mockResolvedValue(undefined),
         screenshot: vi.fn().mockResolvedValue(undefined),
       },
+      settleForCapture: vi.fn().mockResolvedValue(undefined),
       pixelDiff: {
         compare: vi.fn().mockResolvedValue({ misMatchPercentage: 8.2 }),
       },
@@ -446,6 +453,7 @@ describe('视觉工作流执行器', () => {
         goto: vi.fn().mockResolvedValue(undefined),
         screenshot: vi.fn().mockResolvedValue(undefined),
       },
+      settleForCapture: vi.fn().mockResolvedValue(undefined),
       pixelDiff: {
         compare: vi.fn().mockResolvedValue({ skipped: true, reason: '不可用', passed: true }),
       },
@@ -481,5 +489,31 @@ describe('E2E 统一入口', () => {
       consoleErrors: [{}],
       pageErrors: [],
     } })).toBe(true)
+  })
+})
+
+describe('工作流截图前的确定性渲染收口', () => {
+  it('captureWorkflowScreenshot 必须在 page.screenshot 之前调用 settleForCapture', async () => {
+    const calls = []
+    const runner = {
+      settleForCapture: vi.fn(async () => { calls.push('settle') }),
+      page: { screenshot: vi.fn(async () => { calls.push('shot') }) },
+      pixelDiff: {
+        compare: vi.fn(async () => ({ misMatchPercentage: 0, passed: true })),
+      },
+    }
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-settle-'))
+    try {
+      await workflowRunner.captureWorkflowScreenshot(runner, {
+        name: 'settle-order',
+        route: '/dashboard',
+        baseline: 'no-such-baseline',
+        steps: [{ action: 'screenshot', name: '末态' }],
+      }, 0, { baselineDir: tempDir, screenshotDir: tempDir })
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+    expect(calls).toEqual(['settle', 'shot'])
+    expect(runner.settleForCapture).toHaveBeenCalledTimes(1)
   })
 })

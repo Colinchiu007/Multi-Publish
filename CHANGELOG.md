@@ -15,6 +15,17 @@
 - #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
 - 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
 
+# [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
+
+### 变更
+- `.quality-gates.md` CCG 评审记录的「远程同步」行 PENDING → PASS 回填（squash `633ee1c2`，2026-09-28T22:11:00Z，`git log origin/main --grep='(#2588)$'` 取证）；`gate-record-debt-ledger.json` 同步删除登记项（30 条，无陈旧）。
+- `01-docs/learnings.md` 置顶 +2 条：① PR DIRTY（冲突）状态整体阻断 pull_request CI 触发（synchronize 事件静默不触发，workflow_dispatch 不挂 PR 检查不能替代；推送后 5 分钟零 run 先查 mergeStateStatus）；② 合并输出截断让冲突标记静默入库（`Select-Object -Last 4` 切掉点文件的 CONFLICT 行；解冲突脚本的 markers/debt 检查必须 gate 住 commit，union 源必须取已验证无标记的历史提交）。
+
+### 验证
+- docs-only：`node scripts/check-gate-record-debt.js` rc=0（顶部记录带行、无陈旧登记）；品牌残留 PASS。
+
+---
+
 # [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
 
 ### 变更

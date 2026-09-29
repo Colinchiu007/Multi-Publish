@@ -216,7 +216,10 @@ class KuaishouVideoChain {
     return { token, endpoint: this.uploadScheme + '//' + host }
   }
 
-  /** Step 2：分片上传（不签）：Content-Range bytes s-e/total，application/stream → checksum 必填（切片 §1.3） */
+  /** Step 2：分片上传（不签）：Content-Range bytes s-e/total → checksum 必填（切片 §1.3）。
+   *  Content-Type 修正（2026-09-29 网络级取证）：真实浏览器发 application/octet-stream
+   *  （旧切片的 application/stream 为过时读数）——错误 Content-Type 疑似破坏上传会话
+   *  状态（fragment 仍返回 checksum），complete 裸 400。 */
   async uploadFragments (filePath, size, token, endpoint, opts) {
     const total = Math.max(1, Math.ceil(size / this.partSize))
     const fh = fs.openSync(filePath, 'r')
@@ -229,7 +232,7 @@ class KuaishouVideoChain {
         const url = endpoint + '/api/upload/fragment?upload_token=' + encodeURIComponent(token) + '&fragment_id=' + (i + 1)
         const res = await this.uploadHttp.request({
           method: 'post', url, data: buf, maxBodyLength: Infinity,
-          headers: this._baseHeaders({ 'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size, 'Content-Type': 'application/stream' }),
+          headers: this._baseHeaders({ 'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size, 'Content-Type': 'application/octet-stream' }),
           validateStatus: (s) => s >= 200 && s < 500,
         })
         const d = res.data
@@ -256,7 +259,9 @@ class KuaishouVideoChain {
   async _uploadPost (url) {
     const res = await this.uploadHttp.request({
       method: 'post', url: this._currentEndpoint + url, data: '',
-      headers: this._baseHeaders(),
+      // Accept 修正（2026-09-29 网络级取证）：真实浏览器 complete 发
+      // application/json, text/plain, */*——与浏览器逐字一致。
+      headers: this._baseHeaders({ Accept: 'application/json, text/plain, */*' }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
