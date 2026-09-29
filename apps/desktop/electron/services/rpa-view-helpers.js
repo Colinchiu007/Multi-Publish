@@ -223,11 +223,13 @@ const helpersMixin = {
       // 注入结果校验（2026-09-30 快手实测）：部分平台（快手图文上传区）的 input 是
       // React 受控组件，CDP 的 DOM.setFileInputFiles **不抛错但文件被框架清空**
       // （实测注入后 input.files.length === 0，页面停在上传区、不进入编辑态）。
-      // 故注入后必须回读 files.length；为 0 视为静默失败 → 回退 DataTransfer 注入。
+      // 语义区分（抖音实测补强）：input **已从 DOM 消失**（返回 -1）通常是页面已切到
+      // 编辑态 = 上传被接受，不能判失败（否则会误触发回退，而回退也找不到 input → 抛错）；
+      // 只有 input 仍在但 files 为 0 才是真静默失败，此时回退 DataTransfer 注入。
       const accepted = await win.webContents.executeJavaScript(
-        '(function(){var i=document.querySelector(' + JSON.stringify(fileSelector) + ');return i&&i.files?i.files.length:0})()'
-      ).catch(() => 0)
-      if (!accepted) {
+        '(function(){var i=document.querySelector(' + JSON.stringify(fileSelector) + ');if(!i)return -1;return i.files?i.files.length:0})()'
+      ).catch(() => -1)
+      if (accepted === 0) {
         log.warn('RpaView', 'CDP setFileInputFiles 静默失败（files=0），回退 DataTransfer 注入：' + path.basename(filePath))
         return await this._setFileInputViaJs(win, filePath, fileSelector)
       }

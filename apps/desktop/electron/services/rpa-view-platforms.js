@@ -837,24 +837,47 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       this._emitProgress('douyin','video uploaded',50)
     } else if (isImageMode && Array.isArray(article.images) && article.images.length > 0) {
       // 2026-09-29 图文模式：上传首图（渲染层自动生成封面兜底传入 article.images）
+      // 2026-09-30 实测补强：`default-tab=3` 有时**直接落到 content/post/image 编辑页**
+      // （`enter_from=publish_page&type=new`，RPA 持久分区带历史状态时更常见），此时上传页的
+      // `input[type=file]` 已从 DOM 移除——旧实现等 15s 超时即放弃（日志 `No file input found`）。
+      // 三通道兜底：① 上传页 file input → ② 编辑页「继续添加/添加图片」触发的 input →
+      // ③ 重新导航回上传页再注入。
       this._emitProgress('douyin','uploading image...',20)
-      if (await this._waitForElement(win,'input[type="file"]',15000)) {
-        try {
-          await this._setFileInput(win, article.images[0])
-          await this._sleep(4000)
-          // 图片上传后页面切到发布表单（content/post/image），表单就绪再填字段。
-          // 实测教训：上传后 7ms 即填字段全部落空——页面还在切换，标题/描述填进
-          // 旧 DOM、发布按钮 disabled → 点了没反应 → 65s 超时。
-          const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
-          if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
-          this._emitProgress('douyin','image uploaded',45)
-        } catch (e) { log.warn('RpaView', '[douyin] image upload: ' + e.message) }
+      const tryInjectImage = async () => {
+        if (!(await this._waitForElement(win,'input[type="file"]',8000))) return false
+        try { await this._setFileInput(win, article.images[0]); return true } catch (e) { log.warn('RpaView','[douyin] image inject: '+e.message); return false }
+      }
+      let uploaded = await tryInjectImage()
+      if (!uploaded) {
+        const clicked = await win.webContents.executeJavaScript('(function(){var b=[...document.querySelectorAll("button,div,span")].filter(function(e){var t=(e.innerText||"").trim();return /^(继续添加|添加图片|上传图片|点击上传)$/.test(t)&&e.getClientRects().length>0});if(b.length){b[0].click();return "CLICKED"}return "NO_BUTTON"})()').catch(() => 'ERR')
+        log.info('RpaView', '[douyin] add-image button: ' + clicked)
+        await this._sleep(1500)
+        uploaded = await tryInjectImage()
+      }
+      if (!uploaded) {
+        log.warn('RpaView', '[douyin] all channels failed, re-navigate to upload page url=' + win.webContents.getURL())
+        await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload?default-tab=3', 3000)
+        await this._dismissPostNavDialogs(win, 'douyin')
+        uploaded = await tryInjectImage()
+      }
+      if (uploaded) {
+        await this._sleep(4000)
+        // 图片上传后页面切到发布表单（content/post/image），表单就绪再填字段。
+        // 实测教训：上传后 7ms 即填字段全部落空——页面还在切换，标题/描述填进
+        // 旧 DOM、发布按钮 disabled → 点了没反应 → 65s 超时。
+        const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
+        if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
+        this._emitProgress('douyin','image uploaded',45)
       } else {
-        log.warn('RpaView', '[douyin] no file input (image mode) url=' + win.webContents.getURL())
+        log.warn('RpaView', '[douyin] image upload failed on all channels url=' + win.webContents.getURL())
       }
     }
 
-    if (article.title) {
+    // 标题：**图文模式没有独立标题输入框**（2026-09-30 实测 content/post/image 编辑页
+    // 只有「作品描述」contenteditable，计数器 0/20 是标题态、0/1000 是描述），旧实现找
+    // `input[placeholder*=标题]` 必然失败并抛 `input not found`。图文模式下标题改为合并进
+    // 描述首行（与快手同口径）；视频模式保持原独立标题填充。
+    if (article.title && !isImageMode) {
       this._emitProgress('douyin','filling title...',55)
       if (await this._waitForElement(win,'[class*="input"], [class*="title"]',10000)) {
         try {
@@ -864,13 +887,18 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
     }
 
-    if (article.content) {
-      this._emitProgress('douyin','filling desc...',65)
-      try {
-        const dj=JSON.stringify(article.content)
-        // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化
-        await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+dj+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
-      } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
+    {
+      const descSource = isImageMode && article.title
+        ? [article.title, article.content].filter((v) => typeof v === 'string' && v.trim()).join('\n')
+        : article.content
+      if (descSource) {
+        this._emitProgress('douyin','filling desc...',65)
+        try {
+          const dj=JSON.stringify(descSource)
+          // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化
+          await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+dj+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
+        } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
+      }
     }
 
     if (article.cover_path) {
