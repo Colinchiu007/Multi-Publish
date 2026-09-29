@@ -1,4 +1,7 @@
 {
+  "本次执行记录：回填 #2626 / #2656 / #2687 三条执行记录（gate-records-backfill，2026-09-30）【docs-only】": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后必须删除本条，否则报陈旧登记。取证口径沿用同批：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin gate-records-backfill 返回 0 行证远端分支已删。"
+  },
   "本次执行记录：发布历史失败原因渲染收口（publish-history-error-detail，2026-09-29）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填并删除本登记项（不删则报陈旧登记）。"
   },
