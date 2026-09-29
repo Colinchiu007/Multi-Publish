@@ -89,6 +89,17 @@ jobs:
             try {
               pnpm.cmd run test:visual:pixel
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+              # 批次 1（ui-apple-token-retirement Task 1）：暗色基线通道增跑一遍。
+              # 复用同一台 Vite / 同一渲染环境（与浅色同源，满足 QM-4 第 7 条的同源口径）。
+              # 读的是 `<view>-dark.png` 基线，与浅色 `<view>.png` 互不覆盖。
+              #
+              # ⚠️ staged（暂时不阻断）：仓库尚无暗色基线，直接阻断会让 main 常红。
+              #    待「从本 workflow 的 artifact 取出同源暗色截图并入库」完成后，
+              #    删除下面的 continue-on-error 转为阻断门禁 —— 与 Gate 7b 的历史处置同形
+              #    （见本文件下方 Gate 7b 注释：先刻意 continue-on-error，同源基线就绪后摘掉）。
+              pnpm.cmd run test:visual:pixel:dark
+              if ($LASTEXITCODE -ne 0) { Write-Host "::warning::暗色像素门禁未通过（批次 1 staged，待同源暗色基线入库后转阻断）" }
             } finally {
               Pop-Location
             }

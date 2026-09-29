@@ -30,6 +30,8 @@
     "test:visual:quick": "node tests/visual-testing/views/all-views.visual.test.js --single home-default",
     "test:all:visual": "node tests/visual-testing/scripts/run-all-visual.js",
     "test:visual:pixel": "node tests/visual-testing/scripts/run-pixel-tests.js",
+    "test:visual:pixel:dark": "cross-env THEME=dark node tests/visual-testing/scripts/run-pixel-tests.js",
+    "test:visual:pixel:dark:update-baseline": "cross-env THEME=dark UPDATE_BASELINE=1 node tests/visual-testing/scripts/run-pixel-tests.js",
     "test:visual:mp:capture": "node tests/visual-testing/scripts/capture-mp-current.js",
     "test:visual:mp": "node tests/visual-testing/scripts/compare-mp.js",
     "test:visual:agent": "node tests/visual-testing/scripts/agent-visual-judge.js",
