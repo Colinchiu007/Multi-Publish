@@ -234,15 +234,10 @@ class KuaishouVideoChain {
         const url = endpoint + '/api/upload/fragment?upload_token=' + encodeURIComponent(token) + '&fragment_id=' + (i + 1)
         const res = await this.uploadHttp.request({
           method: 'post', url, data: buf, maxBodyLength: Infinity,
-          // 上传域对齐浏览器（2026-09-29 取证二轮）：无 Cookie + 短 Referer
-          // （同 _uploadPost 注释——跨域不可带 kuaishou.com Cookie）。
-          headers: {
-            'User-Agent': this.userAgent,
-            Referer: 'https://cp.kuaishou.com/',
+          headers: this._uploadHeaders({
             'Content-Range': 'bytes ' + start + '-' + (start + len - 1) + '/' + size,
             'Content-Type': 'application/octet-stream',
-            Cookie: null,
-          },
+          }),
           validateStatus: (s) => s >= 200 && s < 500,
         })
         const d = res.data
@@ -266,6 +261,22 @@ class KuaishouVideoChain {
     }
   }
 
+  /** 上传域请求头（2026-09-29 取证三轮：与捕获的真实浏览器请求逐字一致）：
+   *  无 Cookie（跨 registrable domain 不可带）+ 短 Referer + sec-ch-ua 三件套 +
+   *  捕获 UA（Chrome/150）。这是头部级对齐的最后一层——再往下的差异在传输层
+   *  （TLS 指纹/HTTP 版本），Node axios 无法复刻。 */
+  _uploadHeaders (extra) {
+    return Object.assign({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.114 Safari/537.36',
+      Referer: 'https://cp.kuaishou.com/',
+      Accept: 'application/json, text/plain, */*',
+      'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      Cookie: null,
+    }, extra || {})
+  }
+
   async _uploadPost (url) {
     // 2026-09-29 请求级诊断定案：data:'' 会触发 axios 默认注入
     // Content-Type: application/x-www-form-urlencoded——服务端表单解析器拒绝空
@@ -279,13 +290,7 @@ class KuaishouVideoChain {
     // 边缘 WAF。上传域请求一律：无 Cookie + 短 Referer。
     const res = await this.uploadHttp.request({
       method: 'post', url: this._currentEndpoint + url, data: '',
-      headers: {
-        'User-Agent': this.userAgent,
-        Referer: 'https://cp.kuaishou.com/',
-        Accept: 'application/json, text/plain, */*',
-        'Content-Type': null,
-        Cookie: null,
-      },
+      headers: this._uploadHeaders({ 'Content-Type': null }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
     if (res.status >= 400) {
