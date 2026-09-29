@@ -3,7 +3,7 @@
 > **立项日期**: 2026-10-08
 > **分析对象**: 视频发布页 + 图文发布页（`apps/desktop/src/views/Publish.vue` 两分支 + 批量模式）
 > **对比基准**: 参考产品 4.13.19（本机逆向工程目录取证；主进程 bundle 8.4MB，其发布页 UI 走远程 Web，本地无界面代码，故页面级对比以其**任务结构、状态模型、引擎行为**为基准）
-> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（第一切片）已实现（本文档同 PR 链）；P0-1 回查通道第二切片 / P1-3 / P2 待立项
+> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（两切片）已实现（本文档同 PR 链）；P1-3 / P2 待立项
 > **关联**: [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（字段面注册表，已合并）
 
 ---
@@ -33,7 +33,7 @@
 
 | # | 差距 | 参考产品形态 | 本仓现状 | 优先级 |
 | --- | --- | --- | --- | --- |
-| 1 | **发布后平台审核状态跟踪** | 16 态 + 主动回查平台作品列表 | ~~发布历史 3 态，终态即终点~~ → **状态机 + 原记录回写 + 展示已落地**（2026-10-09 第四切片：7 态枚举 + 监控结论就地回写 + 历史/详情徽标 + 拒绝下线醒目提醒）；**回查通道可用性待第二切片**（凭证传递 + 端点证据） | 🔴 P0-1 ◐ |
+| 1 | **发布后平台审核状态跟踪** | 16 态 + 主动回查平台作品列表 | ~~发布历史 3 态，终态即终点~~ → **状态机 + 原记录回写 + 展示 + 回查通道**（2026-10-09 第四/五切片：7 态枚举 + 就地回写 + 徽标提醒 + 凭证修复（auth 分区只读补齐）+ 端点能力分级）；各平台端点形状需真机证据方可提升为 `verified` | 🔴 P0-1 ✅（端点取证待办） |
 | 2 | **账号风险前置预检** | -110 风险码族 + 行动指引 | ~~只有登录态三态~~ → **已实现**（2026-10-08 第二切片：目标选择器风控徽标 + 行动指引具体化 + 词表增强，详见 §四 P0-2） | 🔴 P0-2 ✅ |
 | 3 | **平台原生草稿往返** | per-platform draftId 存平台侧可回取 | 草稿只存本地 | 🟠 P1-3 |
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
@@ -187,9 +187,60 @@
 - `phase4-events.test.js` +5：rejected→deny 回写且**不追加重复行** / inAudit-published-prePublish 三态映射 / 6 个无定论状态一律不回写不追加 / `updateRecordAudit` 抛错不冒泡 / 无 postId 不建监控任务
 - `PublishHistory.test.js` +11：拒绝醒目徽标 + 指引 / 已上线中性徽标 / 五态文案逐一 / 三红四不红矩阵 / 无结论与非法值不渲染 / 详情显示审核状态与平台作品 ID
 
+#### 残余限制（→ 第二切片已处置，见下）
+
+- **回查通道**：本切片交付的是**状态机 + 回写 + 展示**；凭证与端点问题由第二切片处置（见下节）。
+
+### P0-1 第二切片：回查通道凭证修复 + 端点能力分级（**2026-10-09 已实现**）
+
+> 根因两条，均在实施时用代码证据确认：
+> 1. **凭证恒空**：`phase4-events` 建监控任务时传 `task.article?.cookies || ''`，而全仓**只此一处读取、从无任何写入**——监控历来用空 cookie 轮询，必然 401/重定向，12 次重试后 timeout（第一切片之前还会把这个 error 伪造成一条 `status='error'` 的历史记录）。登录态真实落在 Electron auth 分区（`credential-store` 只存 `localStorage + accountInfo`，**不含 cookie**）。
+> 2. **端点未验证**：`publish-monitor` 的 `CHECK_URLS` 是通用 `GET ?id=<postId>` 形态，与各平台真实接口并不一致（抖音是需签名的 POST、快手是 graphql 且已诚实跳过、YouTube 需 OAuth 而非 cookie、头条那条实为 HTML 页面）。
+
+#### 数据校验
+
+| 校验点 | 规则 | 位置 |
+| --- | --- | --- |
+| 凭证优先序 | 任务自带非空 → 用它；否则只读 auth 分区补齐；两处都空 → `none` | `resolveAuditRequeryCookies` |
+| 凭证读取失败 | 读取器抛错/返回畸形 → 降级 `none`（绝不冒泡） | 同上 |
+| 平台为空 | 不尝试读取，直接 `none` | 同上 |
+| accountId 归一 | 缺省传 `null`（便于下游拼分区名，不传 `undefined`） | 同上 |
+| 能力分级 | `verified`（证据齐备，当前为空）/ `candidate`（有端点未验证）/ `unsupported`（表外） | `AUDIT_REQUERY_*` 表 |
+| 候选表与端点表一致 | 候选平台键集必须**逐一等于** `publish-monitor.CHECK_URLS` 的键集（parity 测试锁） | `publish-audit-requery.test.js` |
+| 探索开关 | `MP_AUDIT_REQUERY_CANDIDATES=0/false/off/no` 关闭候选轮询（默认开） | `allowCandidateRequery` |
+
+#### 流程
+
+```
+task:success（有 postId）
+  → resolveAuditRequeryCookies（自带 → auth 分区只读补齐 → none）
+  → decideAuditRequery（no-cookies / verified / candidate / candidates-disabled / unsupported-platform）
+      ✗ start=false → 只落一条 info 日志，**不建监控任务**（消灭必然失败的重试风暴）
+      ✓ start=true  → createMonitorTask（带真实 cookie）
+            → 回调 → buildAuditPatch → updateRecordAudit（第一切片链路不变）
+```
+
+#### 功能逻辑
+
+- **凭证来源修复**：新模块 `publish-audit-requery.js` 复用既有 `collectAuthPartitionCookies`（`auth-partition.js`，含平台域过滤 + 同名去重 + 失败降级空；该模块本就是为「登录态只落在 auth 分区」这一根因写的）——**不新写第二份 cookie 采集逻辑**。
+- **不发起必然失败的请求**：凭证拿不到一律不建监控任务。旧形态每次发布对每个平台发 12 次空凭证请求（10s 间隔 ≈ 2 分钟）后才 timeout。
+- **能力分级而非静默降级**：`verified=[]` 显式标注「本仓尚无任何平台的审核回查真机证据」；候选表与端点表 parity 锁防止「新增端点忘了登记候选」（该平台静默永不回查）与「登记了候选却没有端点」（决策说 start 但监控侧直接 skipped 的假绿）两种漂移。
+- **策略层可注入**：`wireTaskQueueEvents` 新增可选 `auditRequery` 依赖（默认真实实现），测试注入替身，避免测试强依赖 electron session。
+- **异步门不阻塞发布**：门是 `void ... .catch(...)`——策略层抛错绝不变成 `unhandledRejection`（该缺陷由测试预警发现并修复）。
+
+#### 交互逻辑
+
+无用户可见交互变化：审核状态仍经第一切片的徽标/详情呈现。变化在后台——**不再有「每次发布都空跑 2 分钟」的重试风暴**，且审核回查只在凭证可得时发生。
+
+#### 测试
+
+- `publish-audit-requery.test.js`（13 例）：自带优先且不触碰 auth 分区 / 自带空时从 auth 分区补齐（断言入参 platform+accountId）/ 两处皆空 → none / 读取抛错与返回畸形降级 none / 平台空不读取 / accountId 缺省传 null / 无凭证不查 / 候选平台默认参查 / 四档开关值关闭候选 / 表外平台 unsupported / verified 表为空 / 候选表规模下界 / **与 CHECK_URLS 的 parity**
+- `phase4-events.test.js` +4：凭证拿不到不建任务 / unsupported 与 candidates-disabled 不建任务 / 凭证解析结果透传（含 accountId 定位 auth 分区）/ 凭证解析抛错不冒泡且不建任务
+
 #### 残余限制
 
-- **回查通道当前不可用**（第二切片）：监控 cookies 取 `task.article.cookies`（实测恒空，凭证在 authData 不随任务走）；`CHECK_URLS` 的 GET+id 协议与抖音 `aweme/v1/list/`（需签名 POST）、快手 graphql 形状不符（快手已按诚实跳过处理）。因此本切片交付的是**状态机 + 回写 + 展示**；实际审核结论的获取率取决于第二切片。
+- **`verified` 表为空是当前真实状态**：把某平台提升为 verified 需要三项证据——端点 URL + 参数名（如 B站需 `mid`、微博需 `uid`，不是通用的 `id`）+ 鉴权方式（抖音需签名 POST、YouTube 需 OAuth）。在这三项齐备前，候选平台的回查结果多为 `pending→timeout`（第一切片的单向证据规则保证这不会写入任何伪状态）。
+- 未做「手动刷新审核状态」入口：后台轮询已足够；若要加，应复用本模块的凭证解析与分级（避免第二份策略）。
 - 未纳入 `notSuitableForPublicity`（不宜公开）/`customWithdrawn`（自定义撤回）等参考产品状态——无本仓取证路径。
 - 状态变化通知（toast/推送）未做：本切片用历史列表/详情徽标呈现；变化通知需与第二切片的轮询节奏一起设计。
 

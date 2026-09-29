@@ -18,6 +18,13 @@ const { createPublishProgressEmitter } = require('../services/publish-progress-e
 const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
 // P0-1 审核状态：监控状态 → 审核状态的映射与落库补丁单一真源（shared-utils，渲染端走 ESM 孪生）。
 const { buildAuditPatch } = require('@multi-publish/shared-utils/src/publish-audit-status')
+// P0-1 第二切片：审核回查的凭证解析与能力分级（凭证恒空缺陷修复 + 端点未验证的诚实分级）。
+const { resolveAuditRequeryCookies, decideAuditRequery } = require('../services/publish-audit-requery')
+
+const defaultAuditRequery = {
+  resolveCookies: (params) => resolveAuditRequeryCookies(params),
+  decide: (params) => decideAuditRequery(params),
+}
 
 /**
  * 接线 taskQueue 事件监听
@@ -31,10 +38,63 @@ const { buildAuditPatch } = require('@multi-publish/shared-utils/src/publish-aud
  * @param {object} [deps.riskSuspender] - 风控挂起守卫（desktop-risk-suspender，可选）
  * @param {object} [deps.progressEmitter] - 进度事件发射器（可选，缺省自建；publish-progress-ux）
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery }) {
   // publish-progress-ux：四事件统一走富化 emitter（phase/stageKey/percent/batchId/timestamp），
   // 既有字段（platform/taskId/stage/result/error/remainingWait）原样保留，向后兼容加法。
   const emitter = progressEmitter || createPublishProgressEmitter({ getMainWin })
+  // P0-1 第二切片：审核回查的策略层（凭证解析 + 能力分级）；测试可注入替身。
+  const requery = auditRequery || defaultAuditRequery
+
+  /**
+   * 审核回查启动门：解析凭证 → 能力分级 → 通过才建监控任务。
+   * 任何失败只 warn（旁路绝不冒泡影响发布主流程）。
+   */
+  async function startAuditRequery (task, postId, ownerSubject) {
+    let cookies = ''
+    let source = 'none'
+    try {
+      const resolved = await requery.resolveCookies({
+        platform: task.platform,
+        accountId: task.article?.accountId || task.accountId || null,
+        providedCookies: task.article?.cookies || '',
+      })
+      cookies = (resolved && typeof resolved.cookies === 'string') ? resolved.cookies : ''
+      source = (resolved && resolved.source) || 'none'
+    } catch (e) {
+      // 凭证解析属旁路：失败按「拿不到」处理，绝不冒泡（发布主流程不受影响）
+      log.warn('PublishMonitor', 'audit requery cookie resolution failed: ' + (e && e.message))
+      return
+    }
+    const decision = requery.decide({ platform: task.platform, cookies })
+    if (!decision.start) {
+      // 凭证缺失/端点未验证/探索开关关闭 —— 一律不建任务，避免「必然失败的重试风暴」
+      log.info('PublishMonitor', '审核回查跳过 [' + task.platform + ']: ' + decision.reason + '（cookie 来源=' + source + '）')
+      return
+    }
+    publishMonitor.createMonitorTask({
+      postId, platform: task.platform, cookies,
+      callback: (monitorResult) => {
+        log.info('PublishMonitor', 'Monitor result for ' + task.platform + ':' + postId + ': ' + monitorResult.status)
+        // P0-1 第一切片：审核结论**回写原记录**，不再 addRecord 追加第二条
+        // （旧形态让同一次发布在历史里出现两行，且原 success 行与审核结论无法关联）。
+        // buildAuditPatch 只在平台给出**明确结论**时产出补丁（无定论/error/timeout/
+        // skipped 返回 null）——「没拿到新证据」不是反证，不得抹掉既有审核结论。
+        const patch = buildAuditPatch(monitorResult)
+        if (!patch) {
+          log.info('PublishMonitor', 'Inconclusive audit status for ' + task.platform + ':' + postId + ' (' + monitorResult.status + ')，保持原记录不变')
+          return
+        }
+        try {
+          const { updated } = history.updateRecordAudit(task.id, patch, ownerSubject)
+          if (!updated) {
+            log.warn('PublishMonitor', 'Audit update skipped (record not found): ' + task.id)
+          }
+        } catch (e) {
+          log.warn('PublishMonitor', 'Failed to update audit status: ' + e.message)
+        }
+      },
+    })
+  }
   taskQueue.on('task:success', (task) => {
     emitter.emit(task.id, task.platform, 'success', {
       stage: '✓ 发布成功', percent: 100, result: task.result, batchId: task.batchId || null,
@@ -50,28 +110,12 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     try {
       const postId = task.result?.postId || task.result?.id
       if (postId) {
-        publishMonitor.createMonitorTask({
-          postId, platform: task.platform, cookies: task.article?.cookies || '',
-          callback: (monitorResult) => {
-            log.info('PublishMonitor', 'Monitor result for ' + task.platform + ':' + postId + ': ' + monitorResult.status)
-            // P0-1（2026-10-09）：审核结论**回写原记录**，不再 addRecord 追加第二条
-            // （旧形态让同一次发布在历史里出现两行，且原 success 行与审核结论无法关联）。
-            // buildAuditPatch 只在平台给出**明确结论**时产出补丁（无定论/error/timeout/
-            // skipped 返回 null）——「没拿到新证据」不是反证，不得抹掉既有审核结论。
-            const patch = buildAuditPatch(monitorResult)
-            if (!patch) {
-              log.info('PublishMonitor', 'Inconclusive audit status for ' + task.platform + ':' + postId + ' (' + monitorResult.status + ')，保持原记录不变')
-              return
-            }
-            try {
-              const { updated } = history.updateRecordAudit(task.id, patch, ownerSubject)
-              if (!updated) {
-                log.warn('PublishMonitor', 'Audit update skipped (record not found): ' + task.id)
-              }
-            } catch (e) {
-              log.warn('PublishMonitor', 'Failed to update audit status: ' + e.message)
-            }
-          },
+        // P0-1 第二切片：先解析凭证（任务自带→auth 分区只读补齐）再决定是否回查。
+        // 凭证拿不到就**不建监控任务**——旧形态传 `article.cookies`（全仓从未写入）导致
+        // 每次发布都发 12 次必然失败的请求后再 timeout。异步门不阻塞发布主流程；
+        // `.catch` 必须挂（策略层抛错不得变成 unhandledRejection）。
+        void startAuditRequery(task, postId, ownerSubject).catch((e) => {
+          log.warn('PublishMonitor', 'audit requery gating failed: ' + (e && e.message))
         })
       }
     } catch (e) { log.warn('PublishMonitor', 'Failed to start monitor: ' + e.message) }
