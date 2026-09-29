@@ -225,6 +225,14 @@
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
               <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
+            <!-- 失败原因：task:failed 落库的 error 字段（publish-progress-ux G8 数据链路的渲染侧收口）。
+                 单行截断 + title 悬停全文；无 error 的旧失败记录不渲染该行（详情弹窗有占位）。 -->
+            <p
+              v-if="recordErrorText(record)"
+              class="record-error"
+              :data-testid="`record-error-${record.id}`"
+              :title="recordErrorText(record)"
+            >{{ recordErrorText(record) }}</p>
           </div>
           <div class="record-stats" :aria-label="t('historyPage.statsAria')">
             <div><span>{{ t('historyPage.metricAccounts') }}</span><strong>{{ metricValue(record.accountCount, 1) }}</strong></div>
@@ -307,6 +315,12 @@
           <div><dt>{{ t('historyPage.detailPublisher') }}</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>
           <div><dt>{{ t('historyPage.detailPlatform') }}</dt><dd>{{ platformName(selectedRecord.platform) }}</dd></div>
           <div><dt>{{ t('historyPage.detailStatus') }}</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
+          <!-- 失败原因：紧跟状态行，失败记录必显（无 error 时占位「未记录失败原因」，不空白）；
+               成功/进行中记录不渲染。error 文本可能含长堆栈，dd 允许换行完整展示。 -->
+          <div v-if="normalizedStatusGroup(selectedRecord) === 'failed'" class="record-detail-error">
+            <dt>{{ t('historyPage.detailErrorReason') }}</dt>
+            <dd data-testid="detail-error-reason">{{ selectedRecord.error || t('historyPage.errorUnknown') }}</dd>
+          </div>
           <div><dt>{{ t('historyPage.detailContentType') }}</dt><dd>{{ contentTypeLabel(selectedRecord) }}</dd></div>
           <div><dt>{{ t('historyPage.detailMode') }}</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
           <div v-if="deliveryModeValue(selectedRecord)"><dt>{{ t('historyPage.detailDeliveryMode') }}</dt><dd>{{ deliveryModeLabel(selectedRecord) }}</dd></div>
@@ -796,6 +810,16 @@ function normalizedStatusGroup (record) {
   return 'pending'
 }
 
+/**
+ * 列表卡片失败原因文本：仅失败组渲染；error 非字符串或空白时返回空串（卡片不渲染该行，
+ * 详情弹窗侧由 errorUnknown 占位兜底）。截断展示由 CSS 负责，全文经 title 悬停可见。
+ */
+function recordErrorText (record) {
+  if (normalizedStatusGroup(record) !== 'failed') return ''
+  const error = record?.error
+  return typeof error === 'string' && error.trim() ? error.trim() : ''
+}
+
 function statusLabel (record) {
   const labels = {
     success: 'statusAllSuccess',
@@ -1151,6 +1175,8 @@ onMounted(loadRecords)
 .delivery-mode-badge.delivery-mode-api { background: #eaf2fe; color: #1d4ed8; }
 .delivery-mode-badge.delivery-mode-dom { background: #f1f0f7; color: #5b21b6; }
 .delivery-mode-badge.delivery-mode-fallback { background: #fff6df; color: #9a6700; }
+/* 失败原因行：与 status-badge.failed 同色系（#b42318）；单行截断防长错误顶开卡片布局，全文经 title 悬停 */
+.record-error { margin: 6px 0 0; font-size: var(--font-size-xs); color: #b42318; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .record-stats { min-width: 430px; display: grid; grid-template-columns: repeat(8, minmax(42px, 1fr)); border-left: 1px solid var(--border-light, #efeff2); padding-left: 14px; }
 .record-stats div { min-width: 0; display: flex; align-items: center; flex-direction: column; gap: 7px; text-align: center; }
@@ -1226,6 +1252,9 @@ onMounted(loadRecords)
 .record-detail-grid dd { margin: 5px 0 0; color: #252a45; font-size: var(--font-size-sm); }
 .detail-link { color: #1d4ed8; text-decoration: none; word-break: break-all; }
 .detail-link:hover { text-decoration: underline; }
+/* 失败原因格：跨双列（错误文本常为长句/堆栈，单列截断不可读）；dd 允许换行完整展示 */
+.record-detail-error { grid-column: 1 / -1; }
+.record-detail-error dd { color: #b42318; word-break: break-all; white-space: pre-wrap; }
 .record-detail-content { grid-column: 1 / -1; }
 .record-detail-state { padding: 44px 24px; color: #68708b; text-align: center; }
 @media (max-width: 640px) { .record-detail-grid { grid-template-columns: 1fr; } .record-detail-content { grid-column: auto; } .record-title-row { align-items: flex-start; flex-direction: column; } }

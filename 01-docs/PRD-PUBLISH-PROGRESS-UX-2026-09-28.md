@@ -179,6 +179,43 @@ _listenersBound: boolean       // init() 幂等
 
 `phase4-events.js` task:failed 分支补 `history.addRecord`（§5.1）。写入失败不阻塞发布主流程（addRecord 内建 try/catch，`publish-history.js:90-97`）。历史页 failed 过滤器（`PublishHistory.vue` 状态过滤）自此可见失败记录。
 
+### 5.7 失败原因渲染收口（2026-09-29，publish-history-error-detail）
+
+> G8 只打通了「失败落历史」的数据链路（executor → task:failed → addRecord(error) → JSONL → historyList API 原样返回 `error` 字段），渲染侧从未消费该字段——用户在历史页看到红色「发布失败」徽标与失败计数，但失败原因只能翻主进程日志。本节把 `error` 字段的展示钉进历史页合同。
+
+**数据校验（渲染侧，`PublishHistory.vue` `recordErrorText(record)`）**：
+- 仅 `normalizedStatusGroup(record) === 'failed'`（status ∈ {failed, error} 或 `success === false`）的记录参与；success/pending 记录一律返回空串、不渲染。
+- `record.error` 非字符串或空白（trim 后空）→ 返回空串：**列表卡片不渲染失败原因行**（旧行记录可能无 error 字段，卡片保持原布局）；**详情弹窗显示占位文案**（见下），两处行为刻意不对称——卡片宁缺勿占行，详情必答「为什么失败」。
+- `error` 为非空字符串 → trim 后原样透传（不截断、不转义、不翻译——错误文本来自引擎层，多为英文技术短语，翻译反而失真）。
+
+**流程**：`historyList` IPC 返回记录（含 `error` 字段）→ 列表渲染时逐条经 `recordErrorText` 判定 → 卡片行/详情字段两处消费；用户点「详情」→ `historyGet` 取全量记录 → 详情弹窗按同一 `normalizedStatusGroup` 判定渲染失败原因格。
+
+**功能逻辑**：
+- 列表卡片：失败原因行渲染在 `.record-delivery`（状态徽标/发布方式/平台名）之后，`data-testid="record-error-{record.id}"`，`title` 属性携带全文（悬停可见）。
+- 详情弹窗：失败原因格紧跟「状态」行，`data-testid="detail-error-reason"`；跨双列（`grid-column: 1 / -1`）。
+- 成功/进行中记录：两处均不渲染失败原因（无占位、无空行）。
+
+**交互逻辑**：
+- 列表卡片行：单行截断（`text-overflow: ellipsis`），防长错误文本顶开卡片布局；悬停 `title` 显示全文。
+- 详情弹窗格：允许换行完整展示（`word-break: break-all; white-space: pre-wrap`）——错误文本可能含长堆栈，截断不可读。
+- 失败原因行/格与「重试」按钮（既有 `retry-{record.id}`）视觉相邻，构成「看原因 → 重试」闭环。
+
+**显示项**：
+| 位置 | 显示项 | 条件 | 样式 |
+|------|--------|------|------|
+| 列表卡片 | 失败原因文本（单行截断 + title 全文） | 失败组 且 error 非空 | `.record-error`：`#b42318`（与 status-badge.failed 同色系）、font-size-xs |
+| 详情弹窗 | 「失败原因」标签 + error 全文（可换行） | 失败组（无论 error 有无） | `.record-detail-error`：跨双列、dd `#b42318` |
+| 详情弹窗 | 占位文案「未记录失败原因」 | 失败组 且 error 空/缺失 | 同上格，文案走 locales |
+
+**提示文字（locales `historyPage.*`，zh/en 成对）**：
+| 键 | zh | en |
+|----|----|----|
+| `detailErrorReason` | 失败原因 | Failure reason |
+| `errorUnknown` | 未记录失败原因 | Failure reason not recorded |
+
+**验收标准**：
+① 失败记录（含 error）在历史列表卡片显示失败原因单行，悬停可见全文；② 详情弹窗显示「失败原因」字段与 error 全文；③ 失败记录无 error 字段时详情弹窗显示「未记录失败原因」占位，卡片不渲染该行；④ 成功记录两处均不渲染失败原因；⑤ zh/en 文案成对（CI Gate 7）。回归锁：`PublishHistory.test.js` 5 个用例（卡片显示/成功不渲染/详情显示/无 error 占位/详情无 result 行既有用例不回归）。
+
 ## 6. 数据模型与校验
 
 ### 6.1 `publish:progress` payload 契约（向后兼容加法）

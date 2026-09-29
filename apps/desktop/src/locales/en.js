@@ -1775,6 +1775,8 @@ export default {
     detailPublisher: 'Publisher',
     detailPlatform: 'Platform',
     detailStatus: 'Status',
+    detailErrorReason: 'Failure reason',
+    errorUnknown: 'Failure reason not recorded',
     detailContentType: 'Content type',
     detailMode: 'Publish mode',
     detailDeliveryMode: 'Delivery mode',

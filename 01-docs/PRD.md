@@ -1933,6 +1933,7 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 - **问题**：点击发布后用户不知道到了什么环节、进展如何——进度反馈绑死在 /publish 页面内，且单篇发布的进度监听器在 IPC 返回后毫秒级注销（任务执行期间全部阶段/成败事件无人接收，用户只见「任务已加入队列」，不知道发布是否成功）；切页即失明；percent 全链路丢弃；API 直连轨（bilibili/baijiahao）完全静默；阶段文案英文硬编码直出中文用户；发布失败不落历史（任何页面不可查）；发布中关窗不保护任务。
 - **方案**：主进程事件富化（`publish:progress` 新增 `phase`/`stageKey`/`percent`/`batchId`/`timestamp` 结构化字段，向后兼容加法，映射单一实现于 `publish-progress-events.js`）+ 渲染层全局 `publishProgress` pinia store（App 级一次性订阅，多会话任务列表，渲染层重载经 `queue:status` 领养孤儿任务）+ App.vue 全局挂载 `PublishProgressPanel`（右下非模态浮动卡，可最小化为常驻胶囊；首次隐藏一次性 toast「发布将在后台继续进行，请勿关闭应用软件」，胶囊常驻勿关提示）+ 失败落发布历史（`status:'failed'` 含 error）+ 会话级「重试失败项」+ 发布运行中关窗转托盘后台继续（复用流水线托盘先例 + Windows 气泡提示）。
 - **显示项**：全局汇总（已完成 N/M · F 失败 + 微型进度条）；会话×任务行（平台名 + 状态标签文字+图标双通道 + 步骤链「准备→上传→填写→提交→校验→完成」当前高亮 + percent + 失败错误行 + 频控等待提示）；最小化胶囊（发布中 N/M + 勿关提示，完成后 N 成功 M 失败）。
+- **失败原因渲染收口（2026-09-29）**：历史页列表卡片与详情弹窗消费 `error` 字段——卡片失败原因行（单行截断 + title 全文，`record-error-{id}`）、详情「失败原因」格（跨双列可换行，无 error 时占位「未记录失败原因」）；成功/进行中不渲染；zh/en 成对（`historyPage.detailErrorReason` / `errorUnknown`）。完整合同见 PRD-PUBLISH-PROGRESS-UX §5.7。
 - **不改**：TaskQueue 编排语义（并发 3 / 自动重试 2 / 失败不中断整批）、ROUTE_TABLE、跨重启恢复（`deserialize` 既有能力，仅如实呈现其语义）。
 
 ## 七、视频创作流程

@@ -313,6 +313,62 @@ describe('PublishHistory', () => {
     expect(detail.text()).not.toContain('发布方式')
     expect(detail.find('[data-testid="detail-link"]').exists()).toBe(false)
   })
+  it('失败记录在列表卡片显示失败原因（error 字段）', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{
+          id: 'failed-err-1', taskId: 'task-err-1', title: '失败任务', platform: 'zhihu',
+          status: 'failed', error: 'publish timeout',
+        }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    expect(wrapper.get('[data-testid="record-error-failed-err-1"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="record-error-failed-err-1"]').text()).toContain('publish timeout')
+  })
+  it('成功记录不渲染失败原因行', async () => {
+    const wrapper = mountView()
+    await flushHistory()
+    expect(wrapper.find('[data-testid="record-error-record-1"]').exists()).toBe(false)
+  })
+  it('详情弹窗显示失败原因字段（error 字段）', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{
+          id: 'failed-err-2', taskId: 'task-err-2', title: '失败任务', platform: 'kuaishou',
+          status: 'failed', error: 'publish verification timeout',
+        }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-failed-err-2"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.text()).toContain('失败原因')
+    expect(detail.get('[data-testid="detail-error-reason"]').text()).toContain('publish verification timeout')
+  })
+  it('详情弹窗失败记录无 error 字段时显示占位文案而非空白', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{ id: 'failed-noerr', taskId: 'task-noerr', title: '失败任务', platform: 'zhihu', status: 'failed' }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-failed-noerr"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.text()).toContain('失败原因')
+    expect(detail.get('[data-testid="detail-error-reason"]').text()).not.toBe('')
+  })
   it('搜索和状态筛选只保留匹配记录', async () => {
     historyListMock.mockResolvedValue({
       code: 0,
