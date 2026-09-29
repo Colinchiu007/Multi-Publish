@@ -60,9 +60,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getApi } from '@/api/electron-bridge'
+import { useCoverPreview } from '@/composables/useCoverPreview'
+import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import UiModal from './UiModal.vue'
 import UiButton from './UiButton.vue'
 
@@ -74,8 +76,12 @@ const emit = defineEmits(['close', 'success', 'error'])
 
 const { t } = useI18n()
 
-const previewUrl = ref('')
-const loadError = ref('')
+const activeImagePath = computed(() => (props.visible ? props.imagePath : ''))
+// 「本地路径 → dataURL」的剥信封口径唯一实现在 useCoverPreview；
+// 路径 getter 里带上 visible，等价于原先「仅在弹窗打开时加载」的命令式 loadImage。
+const { dataUrl: previewUrl, error: loadError } = useCoverPreview(activeImagePath, {
+  unavailableKey: 'publishPage.coverCrop.loadFailed',
+})
 const cropping = ref(false)
 const imgEl = ref(null)
 const imgNatural = ref(null)
@@ -102,24 +108,9 @@ const cropBoxStyle = computed(() => ({
   height: cropBox.value.height + 'px',
 }))
 
-function loadImage () {
-  loadError.value = ''
-  previewUrl.value = ''
-  imgNatural.value = null
-  if (!props.imagePath) return
-  getApi()?.readCoverData?.(props.imagePath)
-    .then((res) => {
-      const url = res?.data?.dataUrl || res?.dataUrl || ''
-      if (!url) {
-        loadError.value = res?.message || t('publishPage.coverCrop.loadFailed')
-        return
-      }
-      previewUrl.value = url
-    })
-    .catch((e) => {
-      loadError.value = typeof e?.message === 'string' ? e.message : t('publishPage.coverCrop.loadFailed')
-    })
-}
+// 换图（重新打开或切换封面）后必须先丢掉上一张的像素尺寸，
+// 否则裁剪框会按旧图的缩放比例映射到新图上，rect 落到图外。
+watch(previewUrl, () => { imgNatural.value = null })
 
 function onImageLoad () {
   const img = imgEl.value
@@ -214,12 +205,35 @@ async function confirmCrop () {
   }
 }
 
-onMounted(() => {
-  if (props.visible) loadImage()
-})
-watch(() => props.visible, (v) => {
-  if (v) loadImage()
-})
+// ─── 浮层互斥（AGENTS.md overlay view suspension 合同）────────────────
+// 本弹窗是应用级居中模态。内嵌 WebContentsView（浏览器/登录标签）是压在渲染 DOM
+// 之上的原生图层，CSS z-index 对其无效，不挂起就会被整块盖住。
+const OVERLAY_OWNER = 'publish-cover-crop-dialog'
+let overlayHeld = false
+
+async function suspendOverlay () {
+  if (overlayHeld) return
+  overlayHeld = true
+  try {
+    await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)
+  } catch (_) {
+    overlayHeld = false
+  }
+}
+
+async function releaseOverlay () {
+  if (!overlayHeld) return
+  overlayHeld = false
+  await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)
+}
+
+watch(() => props.visible, (open) => {
+  if (open) suspendOverlay()
+  else releaseOverlay()
+}, { immediate: true })
+
+// 组件销毁不得残留挂起计数
+onBeforeUnmount(() => { releaseOverlay() })
 </script>
 
 <style scoped>
