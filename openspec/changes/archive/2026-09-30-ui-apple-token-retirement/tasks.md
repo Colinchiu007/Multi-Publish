@@ -194,5 +194,5 @@
 ### Acceptance Criteria
 - [x] CHANGELOG 记为 BREAKING（视觉）——**实际文件是仓库根 `CHANGELOG.md`**（`01-docs/CHANGELOG.md` 非本仓发布日志；原 AC 路径有误），条目见 PR #2696
 - [x] 两份 spec 的令牌指引：`docs/frontend-interaction-spec.md` 的映射表已加完成状态说明且「主色」行标注 `--apple-*` 已退役（PR #2696）；`docs/desktop-ui-layout-spec.md` 实测 **0 处** apple 引用，无需改动
-- [ ] `desktop-ui-consistency` spec 归档本 change 的 delta
+- [x] `desktop-ui-consistency` spec 归档本 change 的 delta（**已归档**为 `2026-09-30-ui-apple-token-retirement`；delta 并入 `openspec/specs/desktop-ui-consistency/spec.md`：+1 新增、~1 修改）
 - [x] `.quality-gates.md` 记录每片的基线重生成证据（批次 0/1/2/3/4/5 与终局批次 6 + 暗色基线入库，均已留痕）
