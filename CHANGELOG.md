@@ -1,3 +1,20 @@
+# [未发布] docs(gates): 回填 #2589 / #2598 的置顶文档欠账（2026-09-29，topdoc-backfill-2589）
+
+### 根因（第一性原因）
+- 代码 PR 只要碰 `CHANGELOG.md` / `.quality-gates.md` / `scripts/gate-record-debt-ledger.json` 这三份「新条目插顶部」的文件，main 每前进一次该 PR 就 `mergeStateStatus=DIRTY`，每解一轮冲突要重烧一整轮约 20 分钟的全量 CI。实测：#2589 因此作废 3 轮、#2598 第 4 轮三份全冲突。两个 PR 遂把置顶改动整体移出（`git checkout --theirs`，相对合并基零改动），代价就是本条要还的账。
+
+### 变更
+- `.quality-gates.md`：新增两篇执行记录（`visual-all-baseline-ci` / `governor-2566-closeout`），两者的 `远程同步` 行**直接写 PASS** —— 记录写于 PR 已合并之后，merge SHA 与时间可离线取证（`git log origin/main` 尾锚 `(#2589)` = `54b529d3…`、`(#2598)` = `5ea5df82…`，各自与 `gh pr view` 两路同 SHA；两个远端分支 `ls-remote --heads` 均返回 0 行）。相比原方案**少两笔长期欠账**：不再需要 PENDING 行，也就不需要往账本 JSON 加登记项。
+- `.quality-gates.md`：给 `governor-quota-reserve`（#2566）那条执行记录补上此前**整条缺失**的 `| 远程同步 | PASS |…|` 行（该记录写于 PR 未合并时，且当时没有门禁盯"缺行"），证据同上口径为 `0f5c8ea2…` / `2026-09-28T16:36:48Z`。
+- `CHANGELOG.md`：补 #2589（全量四套视觉接入 CI 基线采集）与 #2598（#2566 openspec 归档与主规格同步）两条本应在各自 PR 里写入的条目。
+- 记录内容按 **main push 首跑的 runner 实测**写，而不是本机三次跑的推论：`[VISUAL-ALL-SUMMARY] suites=4 total=103 passed=93 failed=10 aborted=0`，逐套 `elapsed_ms=21588/17896/21800/6791`（约 68 秒 ≪ 20 分钟预算 ⇒ 预算不改）；10 条红里 9 条差异率 1.07%–2.26%、仅 1 条是已登记的 `dashboard-benchmark-title-reset` 10.88% ⇒ 首次给出「工作流基线不同源」的 runner 侧量化证据，也是 change tasks 5.1 的直接依据。
+- 新增一条取证口径：`continue-on-error: true` 的步骤即使 rc=1，API 里 `steps[].conclusion` 仍报 `success` ⇒ 「步骤绿」既不能证明采集成功、也不能证明它跑过；判据固定为日志里的 `[VISUAL-SUMMARY]` / `[VISUAL-ALL-SUMMARY]` 行 + artifact 文件清单（实测 `visual-test-reports` 23,461,800 字节含 `reports/visual-all-summary.json` 与 `screenshots/` 96 条目）。
+- 本 docs PR 自己的执行记录按既有模板新增，其 `远程同步` 行此刻只能 PENDING，已同 PR 往 `scripts/gate-record-debt-ledger.json` 登记原因（回填者须删除该登记项，清单只能缩小）。
+
+### 影响
+- #2589 / #2598 的历史与实际落地内容之间不再有"标题说补了证据、main 上却没有"的缺口；`check-gate-record-debt.js`（现含重复标题判红）在回填后 rc=0。
+- 流程结论已写进记忆与 #2589 / #2598 的 PR 评论：**代码 PR 不带置顶文档改动，回填单篇做**，因为它既消灭 CI 乒乓、又让记录能以 PASS 落地。
+
 # [未发布] docs(gates): CCG 评审记录远程同步回填（#2588 已合并 633ee1c2）+ 两条合并马拉松教训（2026-10-08，publish-capability-ccg-backfill）
 
 ### 变更
