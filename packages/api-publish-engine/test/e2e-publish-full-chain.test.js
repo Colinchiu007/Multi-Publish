@@ -98,10 +98,11 @@ describe('E2E 快手 API 发布全链路（委托视频链）', () => {
   let adapter
   beforeEach(() => { adapter = new KuaishouAdapter() })
 
-  it('buildPostData 默认 AI 生成（ai_generated=1）', () => {
-    const postData = adapter.buildPostData({ title: 'E2E 快手', content: 'AI 生成', tags: ['测试'] })
+  it('buildPostData 默认 AI 生成（ai_generated=1）；话题内联后 caption 不拼 tags', () => {
+    // 话题内联描述（publish-topic-inline-description）：话题以 `#话题` 内联进 content（描述为真源）
+    const postData = adapter.buildPostData({ title: 'E2E 快手', content: 'AI 生成 #测试', tags: ['测试'] })
     expect(postData.ai_generated).toBe(1)
-    expect(postData.caption).toBe('E2E 快手\nAI 生成\n#测试')
+    expect(postData.caption).toBe('E2E 快手\nAI 生成 #测试')
   })
 
   it('execute 委托视频链 run，返回 publishId', async () => {

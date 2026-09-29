@@ -1348,6 +1348,7 @@ describe("PublishView — 右栏信息架构与面板联动", () => {
   });
 });
 
+D
   it('发布结果链接非 http/https 时不成链；成链时必须带 rel="noopener"（PRD-HREF-SCHEME-GUARD）', async () => {
     const w = await createWrapper();
     w.vm.article.title = "Test";
@@ -1370,4 +1371,109 @@ describe("PublishView — 右栏信息架构与面板联动", () => {
     expect(plain.exists()).toBe(true);
     expect(plain.text()).toBe("javascript:alert(1)");
   });
-});
+
+
+describe("PublishView — 话题内联描述接线（publish-topic-inline-description）", () => {
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {
+      publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      getPathForFile: vi.fn().mockReturnValue('D:/media/from-file-api.mp4'),
+      sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
+      offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
+      offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
+      onProgress: vi.fn(() => vi.fn()),
+      batchCreate: vi.fn().mockResolvedValue({ code: 0, data: { id: "batch1" } }),
+      batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
+      batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
+      onBatchProgress: vi.fn(() => vi.fn()),
+      draftSave: vi.fn().mockResolvedValue({ code: 0 }),
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
+      storeGetSetting: vi.fn().mockResolvedValue(null),
+      storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
+    };
+    mockAccountLoad.mockClear();
+  });
+
+  it("话题框输入后描述尾部追加 #话题（所见即所得）", async () => {
+    const w = await createWrapper();
+    w.vm.article.title = '探店标题';
+    w.vm.article.content = '今天探店';
+    await nextTick();
+
+    w.vm.topicsText = '美食探店, vlog';
+    await nextTick();
+
+    expect(w.vm.article.topics).toEqual(['美食探店', 'vlog']);
+    expect(w.vm.article.content).toBe('今天探店 #美食探店 #vlog');
+  });
+
+  it("话题框删除话题时描述同步移除对应片段", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '今天探店 #美食探店 #vlog';
+    w.vm.article.topics = ['美食探店', 'vlog'];
+    await nextTick();
+
+    w.vm.topicsText = 'vlog';
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('今天探店 #vlog');
+  });
+
+  it("标签框输入同样经追加管道进描述", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文';
+    await nextTick();
+
+    w.vm.tagsText = 'AI';
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('正文 #AI');
+  });
+
+  it("智能标签建议 apply-tag 后描述追加（三入口统一）", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文内容';
+    await nextTick();
+
+    w.vm.applySuggestedTag('新标签');
+    await nextTick();
+
+    expect(w.vm.article.tags).toEqual(['新标签']);
+    expect(w.vm.article.content).toBe('正文内容 #新标签');
+  });
+
+  it("描述已有同话题时输入框再填不产生双份（词边界去重）", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文 #美食探店';
+    await nextTick();
+
+    w.vm.topicsText = '美食探店';
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('正文 #美食探店');
+  });
+
+  it("批量模式标签输入同步该篇 content（各篇独立）", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.addArticle();
+    w.vm.articles[0].content = '第一篇正文';
+    w.vm.articles[1].content = '第二篇正文';
+    await nextTick();
+
+    w.vm.setBatchTagsText(w.vm.articles[0], '美食');
+    w.vm.setBatchTopicsText(w.vm.articles[1], 'vlog');
+    await nextTick();
+
+    expect(w.vm.articles[0].content).toBe('第一篇正文 #美食');
+    expect(w.vm.articles[0].tagsText).toBe('美食');
+    expect(w.vm.articles[1].content).toBe('第二篇正文 #vlog');
+    expect(w.vm.articles[1].topicsText).toBe('vlog');
+  });
+});});

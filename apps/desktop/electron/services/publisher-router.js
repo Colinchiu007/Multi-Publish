@@ -16,6 +16,10 @@ const { execFile } = require('child_process')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
+// 话题内联描述（publish-topic-inline-description）：描述文本是话题唯一真源，
+// 主进程合并 tags 时把描述里的单井号内联话题一并并入（RichTextProcessor 只解析
+// 双井号形态），供引擎侧三态处理（内联保留/转换/剥离）与 text_extra 标记消费。
+const { extractInlineTopicNames } = require('@multi-publish/api-publish-engine/src/content-formatter')
 const { getConfigPath } = require('./config-resolver')
 const { buildApiTaskData } = require('./api-task-data')
 
@@ -204,6 +208,9 @@ function buildPublishArticle (task, platform) {
   const tags = mergeUniqueStrings(
     normalizeStringList(resolved.base.tags),
     processed.topics.map(topic => topic.name),
+    // 话题内联描述：描述里的单井号 `#话题`（UI 追加管道写入）同样并入 tags，
+    // 使「描述为真源」对手动编辑/追加的话题都成立（引擎侧按平台三态消费）
+    extractInlineTopicNames(processed.content),
     resolved.topics || [],
   )
   const article = {

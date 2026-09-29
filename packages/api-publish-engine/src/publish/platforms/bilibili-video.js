@@ -19,6 +19,9 @@ const fs = require('fs')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { chunkTotal, DEFAULT_CHUNK_SIZE } = require('../core/chunker')
 const { errorCode } = require('../../error-codes')
+// 话题内联描述（publish-topic-inline-description）：B站是独立字段型平台——
+// 话题从描述剥离进 tag 字段（描述与字段无双份重复），剥离用 content-formatter 单一实现
+const { stripTopicsFromContent } = require('../../content-formatter')
 
 const API_BASE = 'https://member.bilibili.com'
 const UPLOAD_REFERER = 'https://member.bilibili.com/platform/upload/video/frame'
@@ -66,9 +69,11 @@ function cleanBilibiliText (t) {
 /** 构造 add/v3 投稿体（去「自动发布」水印）；纯函数，供链与薄适配器共用 */
 function buildBilibiliPostData (taskData, upload) {
   const tags = (taskData.tags || []).map((t) => (typeof t === 'string' ? t : t.name)).filter(Boolean)
+  // 话题内联描述：描述里已知话题剥离（B站话题走 tag 独立字段，描述不重复携带）
+  const stripped = stripTopicsFromContent(taskData.content || taskData.desc, tags)
   return {
     copyright: 1, source: '', tid: Number(taskData.category || taskData.tid) || 21, title: cleanBilibiliText(taskData.title),
-    desc: cleanBilibiliText(taskData.content || taskData.desc), desc_format_id: 0, tag: tags.join(','), dynamic: '',
+    desc: cleanBilibiliText(stripped.content), desc_format_id: 0, tag: tags.join(','), dynamic: '',
     cover: taskData.coverUrl || '', no_reprint: 1, act_reserve_create: 0, lossless_music: 0, no_disturbance: 0,
     recreate: -1, web_os: 1, interactive: 0, open_elec: 0, subtitle: { lan: '', open: 0 },
     videos: [{ cid: (upload && upload.bizId) || 0, desc: '', title: taskData.title || '', filename: (upload && upload.objBase) || '' }],

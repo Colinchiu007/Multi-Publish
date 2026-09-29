@@ -129,6 +129,109 @@ test("formatContent: unknown platform uses defaults", () => {
   assertEqual(td.tags, ["#tag1"]);
 });
 
+// ---- 话题内联描述（publish-topic-inline-description）----
+// extractInlineTopicNames / stripTopicsFromContent / convertInlineTopics
+// 单一实现（各适配器只调用，禁止自抄——契约锁见 topic-inline-contract.test.js）
+console.log("\n--- topic inline (publish-topic-inline-description) ---");
+
+let extractInlineTopicNames, stripTopicsFromContent, convertInlineTopics, findInlineTopicPositions;
+try {
+  const m2 = require("../src/content-formatter");
+  extractInlineTopicNames = m2.extractInlineTopicNames;
+  stripTopicsFromContent = m2.stripTopicsFromContent;
+  convertInlineTopics = m2.convertInlineTopics;
+  findInlineTopicPositions = m2.findInlineTopicPositions;
+} catch (e) { /* 模块缺失时保持 undefined，下列用例变红 */ }
+
+test("extractInlineTopicNames: 单井号话题提取", () => {
+  assertEqual(extractInlineTopicNames("正文 #美食探店 #vlog 结尾"), ["美食探店", "vlog"]);
+});
+test("extractInlineTopicNames: 双井号话题提取时剥离尾井号", () => {
+  assertEqual(extractInlineTopicNames("正文 #美食探店# 结尾"), ["美食探店"]);
+});
+test("extractInlineTopicNames: 无话题与孤立井号返回空数组", () => {
+  assertEqual(extractInlineTopicNames("正文没有任何话题"), []);
+  assertEqual(extractInlineTopicNames(""), []);
+  assertEqual(extractInlineTopicNames("C 语言的 # include 写法 #"), []);
+});
+
+test("stripTopicsFromContent: 剥离已知话题（中间位置收拢空白）", () => {
+  const r = stripTopicsFromContent("正文 #美食探店 #vlog", ["美食探店"]);
+  assertEqual(r.content, "正文 #vlog");
+  assertEqual(r.topics, ["美食探店"]);
+});
+test("stripTopicsFromContent: 剥离已知话题（尾部连同前导空白）", () => {
+  const r = stripTopicsFromContent("正文 #美食探店", ["美食探店"]);
+  assertEqual(r.content, "正文");
+  assertEqual(r.topics, ["美食探店"]);
+});
+test("stripTopicsFromContent: 双井号形态剥离时连同尾井号", () => {
+  const r = stripTopicsFromContent("正文 #美食探店#", ["美食探店"]);
+  assertEqual(r.content, "正文");
+});
+test("stripTopicsFromContent: 未列出的话题不剥离（留在描述）", () => {
+  const r = stripTopicsFromContent("正文 #美食探店 #vlog", ["vlog"]);
+  assertEqual(r.content, "正文 #美食探店");
+  assertEqual(r.topics, ["vlog"]);
+});
+test("stripTopicsFromContent: 代码片段 #include 不误伤（不在已知清单）", () => {
+  const r = stripTopicsFromContent("代码 #include <stdio.h> 结尾", ["美食"]);
+  assertEqual(r.content, "代码 #include <stdio.h> 结尾");
+  assertEqual(r.topics, []);
+});
+test("stripTopicsFromContent: 词边界——#AI 不误匹配 #AI技术", () => {
+  const r = stripTopicsFromContent("正文 #AI技术", ["AI"]);
+  assertEqual(r.content, "正文 #AI技术");
+  assertEqual(r.topics, []);
+});
+test("stripTopicsFromContent: 对象形态话题（{name}）同样支持", () => {
+  const r = stripTopicsFromContent("正文 #美食探店", [{ name: "美食探店" }]);
+  assertEqual(r.content, "正文");
+});
+
+test("convertInlineTopics: weibo 单井号转双井号", () => {
+  assertEqual(convertInlineTopics("weibo", "正文 #美食探店", ["美食探店"]), "正文 #美食探店#");
+});
+test("convertInlineTopics: tencent_video 单井号转双井号", () => {
+  assertEqual(convertInlineTopics("tencent_video", "正文 #美食探店", ["美食探店"]), "正文 #美食探店#");
+});
+test("convertInlineTopics: 其余内联平台原样返回", () => {
+  assertEqual(convertInlineTopics("douyin", "正文 #美食探店", ["美食探店"]), "正文 #美食探店");
+  assertEqual(convertInlineTopics("kuaishou", "正文 #美食探店", ["美食探店"]), "正文 #美食探店");
+});
+test("convertInlineTopics: 未列出的话题不转换", () => {
+  assertEqual(convertInlineTopics("weibo", "正文 #vlog", ["美食探店"]), "正文 #vlog");
+});
+test("convertInlineTopics: 已双井号形态不重复加井号", () => {
+  assertEqual(convertInlineTopics("weibo", "正文 #美食探店#", ["美食探店"]), "正文 #美食探店#");
+});
+test("convertInlineTopics: 词边界——#AI 不误转换 #AI技术", () => {
+  assertEqual(convertInlineTopics("weibo", "正文 #AI技术", ["AI"]), "正文 #AI技术");
+});
+
+test("findInlineTopicPositions: 已知话题位置段（字符偏移，中文按 1 计）", () => {
+  // '今天探店 #美食探店 太好吃了'：'#美食探店' 起于索引 5，长度 5 → end=10（开区间）
+  const r = findInlineTopicPositions("今天探店 #美食探店 太好吃了", ["美食探店"]);
+  assertEqual(r, [{ name: "美食探店", start: 5, end: 10 }]);
+});
+test("findInlineTopicPositions: 多话题按出现位置排序", () => {
+  const r = findInlineTopicPositions("正文 #vlog 中段 #美食探店", ["美食探店", "vlog"]);
+  assertEqual(r, [{ name: "vlog", start: 3, end: 8 }, { name: "美食探店", start: 12, end: 17 }]);
+});
+test("findInlineTopicPositions: 双井号形态 end 含尾井号", () => {
+  const r = findInlineTopicPositions("正文 #美食探店#", ["美食探店"]);
+  assertEqual(r, [{ name: "美食探店", start: 3, end: 9 }]);
+});
+test("findInlineTopicPositions: 未列出话题与词边界不产生位置段", () => {
+  assertEqual(findInlineTopicPositions("正文 #vlog", ["美食探店"]), []);
+  assertEqual(findInlineTopicPositions("正文 #AI技术", ["AI"]), []);
+  assertEqual(findInlineTopicPositions("代码 #include <stdio.h>", ["美食"]), []);
+});
+test("findInlineTopicPositions: 同一话题多次出现全部标记", () => {
+  const r = findInlineTopicPositions("#a #a", ["a"]);
+  assertEqual(r, [{ name: "a", start: 0, end: 2 }, { name: "a", start: 3, end: 5 }]);
+});
+
 console.log("\n========== Result ==========");
 console.log("  Passed: " + passed + " / " + (passed + failed));
 console.log("  Failed: " + failed + " / " + (passed + failed));
