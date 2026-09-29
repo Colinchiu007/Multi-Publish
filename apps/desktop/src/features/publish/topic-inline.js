@@ -10,8 +10,10 @@
  * 话题名内不允许空白，井号会破坏嵌套）。
  */
 
-/** 话题内联片段的正则源（单井号形态；双井号 `#名#` 的尾 # 不属于名字） */
-const TOPIC_TOKEN = /#[^\s#]+/g
+/** 话题内联片段的正则源（单井号形态；双井号 `#名#` 的尾 # 不属于名字）。
+ *  前置边界 `(^|\s)`：井号前必须是文本开头或空白——URL 片段（`https://x.com#tag`）
+ *  里的井号不是话题，不得误判（CCG claude 路评审修复，2026-10-09）。 */
+const TOPIC_TOKEN = /(^|\s)#[^\s#]+/g
 
 /**
  * 规范化话题名：剥离井号与全部空白字符（含首尾）。
@@ -37,7 +39,8 @@ function escapeRegExp (value) {
 export function extractInlineTopics (content) {
   const text = String(content == null ? '' : content)
   const matches = text.match(TOPIC_TOKEN) || []
-  return matches.map(token => token.slice(1))
+  // match 含前导空白（^|\s 捕获），trim 后剥井号取名字
+  return matches.map(token => token.trim().slice(1))
 }
 
 /**
@@ -76,7 +79,8 @@ export function removeTopicFromContent (content, name) {
   const text = String(content == null ? '' : content)
   const clean = normalizeTopicName(name)
   if (!clean) return text
-  const pattern = '(\\s?)#' + escapeRegExp(clean) + '#?(?=\\s|$)(\\s?)'
+  // 前置边界 (^|\s)：井号前须为开头或空白，URL 片段里的 #tag 不受影响
+  const pattern = '(^|\\s)#' + escapeRegExp(clean) + '#?(?=\\s|$)(\\s?)'
   return text.replace(new RegExp(pattern, 'g'), (full, before, after) => {
     if (before && after) return before
     return ''

@@ -232,6 +232,27 @@ test("findInlineTopicPositions: 同一话题多次出现全部标记", () => {
   assertEqual(r, [{ name: "a", start: 0, end: 2 }, { name: "a", start: 3, end: 5 }]);
 });
 
+// ---- URL 片段防护（CCG claude 路评审修复，2026-10-09）----
+// 井号前须为开头或空白：URL 片段（https://x.com#tag）里的 #tag 不是话题
+console.log("\n--- URL fragment guard (CCG review fix) ---");
+
+test("extractInlineTopicNames: URL 片段里的 #tag 不产生话题", () => {
+  assertEqual(extractInlineTopicNames("See https://x.com#tag #tag"), ["tag"]);
+  assertEqual(extractInlineTopicNames("https://x.com#section"), []);
+});
+test("stripTopicsFromContent: 不误剥 URL 片段里的同名锚点", () => {
+  const r = stripTopicsFromContent("See https://x.com#tag #tag", ["tag"]);
+  assertEqual(r.content, "See https://x.com#tag");
+  assertEqual(r.topics, ["tag"]);
+});
+test("convertInlineTopics: 不误转换 URL 片段里的 #tag", () => {
+  assertEqual(convertInlineTopics("weibo", "See https://x.com#tag #tag", ["tag"]), "See https://x.com#tag #tag#");
+});
+test("findInlineTopicPositions: URL 片段不产生虚假位置段", () => {
+  const r = findInlineTopicPositions("See https://x.com#tag #tag", ["tag"]);
+  assertEqual(r, [{ name: "tag", start: 22, end: 26 }]);
+});
+
 console.log("\n========== Result ==========");
 console.log("  Passed: " + passed + " / " + (passed + failed));
 console.log("  Failed: " + failed + " / " + (passed + failed));

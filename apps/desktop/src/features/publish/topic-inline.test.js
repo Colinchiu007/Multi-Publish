@@ -101,4 +101,20 @@ describe('extractInlineTopics（解析描述内联话题）', () => {
   it('孤立的井号不产生话题', () => {
     expect(extractInlineTopics('C 语言的 # include 写法 #')).toEqual([])
   })
+
+  it('URL 片段里的 #tag 不产生话题（前置边界：井号前须为开头或空白）', () => {
+    expect(extractInlineTopics('See https://x.com#tag #tag')).toEqual(['tag'])
+    expect(extractInlineTopics('https://x.com#section')).toEqual([])
+  })
+})
+
+describe('URL 片段防护（CCG claude 路评审修复，2026-10-09）', () => {
+  it('removeTopicFromContent 不误删 URL 片段里的同名锚点', () => {
+    expect(removeTopicFromContent('See https://x.com#tag #tag', 'tag')).toBe('See https://x.com#tag')
+  })
+
+  it('appendTopicsToContent 去重不把 URL 片段误判为已有话题', () => {
+    // URL 里的 #tag 不是话题 → 追加真正的 #tag
+    expect(appendTopicsToContent('See https://x.com#tag', ['tag'])).toBe('See https://x.com#tag #tag')
+  })
 })
