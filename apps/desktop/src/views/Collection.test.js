@@ -268,12 +268,15 @@ describe("CollectionView", () => {
   });
 
   it("collectUrl 反爬安全验证页 → 回退 urlCollectFetch 而非误报成功", async () => {
+    // 2026-09-29 起百家号链接先走视频通道（无视频回退 stealth），不再经聚合层；
+    // 本回归用通用文章站点验证「安全验证页不得当成功」的语义仍然成立
     window.electronAPI = {
       aggregationCollect: vi.fn().mockResolvedValue({
         title: "百度安全验证",
         content: "网络不给力，请稍后重试",
         word_count: 0,
       }),
+      urlCollectNeedsStealth: vi.fn().mockResolvedValue({ code: 0, data: { needsStealth: false } }),
       urlCollectFetch: vi.fn().mockResolvedValue({
         code: 0,
         data: { title: "真实文章标题", content: "真实正文内容" },
@@ -281,10 +284,10 @@ describe("CollectionView", () => {
     };
     const w = mountCollection();
     await nextTick();
-    w.vm.linkUrl = "https://baijiahao.baidu.com/s?id=123";
+    w.vm.linkUrl = "https://www.sohu.com/a/123";
     await w.vm.collectUrl();
     // 不应把「百度安全验证」当成功结果，而应回退到 Node 端 stealth 采集
-    expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith("https://baijiahao.baidu.com/s?id=123");
+    expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith("https://www.sohu.com/a/123");
     expect(w.vm.collectedResult).toBeTruthy();
     expect(w.vm.collectedResult.title).toBe("真实文章标题");
   });
@@ -631,6 +634,181 @@ describe("CollectionView", () => {
     await w.vm.collectUrl();
     expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
     expect(window.electronAPI.aggregationCollectVideo).not.toHaveBeenCalled();
+  });
+
+  // ── 六平台视频链接扩展 + 分享文本健壮解析（2026-09-29，collect-video-platforms） ──
+
+  it("extractUrlFromShareText URL 与中文无空格粘连 → 不吞中文（CJK 排除字符类）", async () => {
+    const w = mountCollection();
+    expect(w.vm.extractUrlFromShareText("https://v.douyin.com/abc/复制此链接打开抖音")).toBe("https://v.douyin.com/abc/");
+    expect(w.vm.extractUrlFromShareText("看这个https://www.xiaohongshu.com/explore/abc?xsec_token=x&xsec_source=app_share复制此链接")).toBe("https://www.xiaohongshu.com/explore/abc?xsec_token=x&xsec_source=app_share");
+    expect(w.vm.extractUrlFromShareText("【标题】https://b23.tv/abc1234复制此链接，打开哔哩哔哩App观看")).toBe("https://b23.tv/abc1234");
+  });
+
+  it("extractUrlFromShareText 用户目标原文（抖音完整分享文本）→ 提取真实短链", async () => {
+    const w = mountCollection();
+    const text = "0.02 P@x.FH 05/09 :6pm ATl:/ 当你在2026年再次听到这首歌（第5集）# ladygaga # pokerface # 高中生 https://v.douyin.com/vknKdeN_naU/ 复制此链接，打开Dou音搜索，直接观看视频！";
+    expect(w.vm.extractUrlFromShareText(text)).toBe("https://v.douyin.com/vknKdeN_naU/");
+  });
+
+  it("extractUrlFromShareText 百家号分享文本 → 提取百家号链接", async () => {
+    const w = mountCollection();
+    const text = "标题文字 https://baijiahao.baidu.com/s?id=1877446299628255783 复制此链接，打开百度App查看";
+    expect(w.vm.extractUrlFromShareText(text)).toBe("https://baijiahao.baidu.com/s?id=1877446299628255783");
+  });
+
+  it("extractUrlFromShareText 尾部标点清理与多链接优先视频平台", async () => {
+    const w = mountCollection();
+    expect(w.vm.extractUrlFromShareText("https://example.com/page。")).toBe("https://example.com/page");
+    // 多链接时优先视频平台域名
+    expect(w.vm.extractUrlFromShareText("先看 https://example.com/a 再看 https://www.zhihu.com/zvideo/123。")).toBe("https://www.zhihu.com/zvideo/123");
+    expect(w.vm.extractUrlFromShareText("先看 https://example.com/a 再看 https://b23.tv/xyz/。")).toBe("https://b23.tv/xyz/");
+  });
+
+  it("isVideoPlatformUrl 六平台矩阵（域名级 + 路径级）", async () => {
+    const w = mountCollection();
+    // 域名级（整站视频/短链）
+    expect(w.vm.isVideoPlatformUrl("https://v.douyin.com/abc/")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.douyin.com/video/730")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.iesdouyin.com/share/video/123")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.xiaohongshu.com/explore/x")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://xhslink.com/x")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://b23.tv/abc123")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://channels.weixin.qq.com/web/shares/video/123")).toBe(true);
+    // 路径级（域名下仅特定路径是视频页）
+    expect(w.vm.isVideoPlatformUrl("https://www.bilibili.com/video/BV1GJ411x7h7")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://www.zhihu.com/zvideo/1342930761977176064")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://baijiahao.baidu.com/s?id=1877446299628255783")).toBe(true);
+    expect(w.vm.isVideoPlatformUrl("https://mbd.baidu.com/newspage/data/xxx")).toBe(true);
+    // 负向：非视频路径继续走图文链路（不破坏既有采集）
+    expect(w.vm.isVideoPlatformUrl("https://www.zhihu.com/question/1")).toBe(false);
+    expect(w.vm.isVideoPlatformUrl("https://zhuanlan.zhihu.com/p/123")).toBe(false);
+    expect(w.vm.isVideoPlatformUrl("https://space.bilibili.com/12345")).toBe(false);
+    expect(w.vm.isVideoPlatformUrl("https://example.com")).toBe(false);
+    expect(w.vm.isVideoPlatformUrl("not a url")).toBe(false);
+  });
+
+  it("collectUrl B站视频链接 → 走视频通道（yt-dlp 原生支持）", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "B站视频", content: "文案", transcript: "文案", word_count: 2,
+        media_type: "video", duration: 212, metadata: { platform: "bilibili" },
+      }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://www.bilibili.com/video/BV1GJ411x7h7";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://www.bilibili.com/video/BV1GJ411x7h7" });
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(w.vm.collectedResult.platform).toBe("bilibili");
+  });
+
+  it("collectUrl 知乎 zvideo 链接 → 走视频通道", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "知乎视频", content: "文案", media_type: "video", duration: 146, metadata: { platform: "zhihu" },
+      }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://www.zhihu.com/zvideo/1342930761977176064";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://www.zhihu.com/zvideo/1342930761977176064" });
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+  });
+
+  it("collectUrl 百家号文章链接 → 走视频通道", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "百家号视频", content: "文案", media_type: "video", duration: 100, metadata: { platform: "baijiahao" },
+      }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://baijiahao.baidu.com/s?id=1877446299628255783";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://baijiahao.baidu.com/s?id=1877446299628255783" });
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+  });
+
+  it("collectUrl 百家号文章无视频（VIDEOCLONE_NO_VIDEO）→ 提示后回退图文采集链路", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -422, status: 422,
+        message: "VIDEOCLONE_NO_VIDEO: 该链接不含视频",
+      }),
+      urlCollectNeedsStealth: vi.fn().mockResolvedValue({ code: 0, data: { needsStealth: true } }),
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 0, data: { title: "图文标题", content: "图文正文内容", word_count: 7 } }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://baijiahao.baidu.com/s?id=123";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalled();
+    // NO_VIDEO 不报错中断 → 落回 stealth 图文链路继续采集
+    expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith("https://baijiahao.baidu.com/s?id=123");
+    expect(w.vm.collectError).toBeFalsy();
+    expect(w.vm.collectedResult).toBeTruthy();
+    expect(w.vm.collectedResult.title).toBe("图文标题");
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.info).toHaveBeenCalled();
+  });
+
+  it("collectUrl 视频号链接 → 显示「暂不支持」明确错误（不落图文）", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      urlCollectFetch: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        code: -422, status: 422,
+        message: "VIDEOCLONE_CHANNELS_UNSUPPORTED: 视频号视频需要微信登录态，暂不支持自动采集，请更换其他平台链接",
+      }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://channels.weixin.qq.com/web/shares/video/123";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalled();
+    expect(w.vm.collectError).toBeTruthy();
+    expect(w.vm.collectErrorDetail).toContain("视频号");
+    expect(window.electronAPI.urlCollectFetch).not.toHaveBeenCalled();
+  });
+
+  it("collectAndRewrite B站视频链接 → 走视频通道并用转写文案改写", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn().mockResolvedValue({
+        title: "B站视频", content: "转写文案内容", transcript: "转写文案内容", word_count: 6,
+        media_type: "video", duration: 60, metadata: { platform: "bilibili" },
+      }),
+      aiRewrite: vi.fn().mockResolvedValue({ result_content: "改写结果", code: 0 }),
+      storeSetSetting: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "https://www.bilibili.com/video/BV1xx411c7mD";
+    await w.vm.collectAndRewrite();
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://www.bilibili.com/video/BV1xx411c7mD" });
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(window.electronAPI.aiRewrite).toHaveBeenCalled();
+  });
+
+  it("platformLabel 六平台标签渲染", async () => {
+    const w = mountCollection();
+    expect(w.vm.platformLabel("douyin")).toBe("抖音");
+    expect(w.vm.platformLabel("xiaohongshu")).toBe("小红书");
+    expect(w.vm.platformLabel("bilibili")).toBe("哔哩哔哩");
+    expect(w.vm.platformLabel("zhihu")).toBe("知乎");
+    expect(w.vm.platformLabel("channels")).toBe("视频号");
+    expect(w.vm.platformLabel("baijiahao")).toBe("百家号");
   });
 
   // ── 视频采集错误细分提示（回归：具体提示曾被 unknown 通用文案吞掉） ──

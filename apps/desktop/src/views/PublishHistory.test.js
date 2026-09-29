@@ -287,6 +287,23 @@ describe('PublishHistory', () => {
     expect(detail.get('[data-testid="detail-link"]').attributes('href')).toBe('https://example.com/p/998')
     expect(detail.get('[data-testid="detail-link"]').attributes('rel')).toBe('noopener')
   })
+  it('详情里的历史 url 非 http/https 时不产出锚点，改渲染纯文本（PRD-HREF-SCHEME-GUARD）', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{ id: 'detail-evil', title: '被污染的历史', platform: 'baijiahao', status: 'success', result: { mode: 'api', postId: 'p-1', url: 'javascript:alert(1)' } }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-detail-evil"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.find('[data-testid="detail-link"]').exists()).toBe(false)
+    expect(detail.get('[data-testid="detail-link-plain"]').text()).toBe('javascript:alert(1)')
+    expect(detail.html()).not.toContain('href="javascript')
+  })
   it('详情弹窗无 result 时不渲染发布方式/作品ID/链接行', async () => {
     const wrapper = mountView()
     await flushHistory()

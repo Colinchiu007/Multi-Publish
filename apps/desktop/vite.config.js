@@ -42,6 +42,10 @@ export default defineConfig({
       // 数据单一来源 publish-capabilities.json（CJS/ESM 双版本 parity 测试锁定）。
       '@multi-publish/shared-utils/src/publish-capabilities':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/publish-capabilities.browser.js'),
+      // href 协议校验（PRD-HREF-SCHEME-GUARD）：渲染进程消费 ESM 孪生版，
+      // CJS/ESM 判据由 shared-utils 的 parity 回归锁同源。
+      '@multi-publish/shared-utils/src/safe-http-url':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/safe-http-url.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

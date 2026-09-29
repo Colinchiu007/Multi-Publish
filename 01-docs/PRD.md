@@ -4771,6 +4771,26 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 
 **已知限制（须向用户诚实）**：数据源只有三个英文开发者平台，因此**中文题材修好后最常见的正确表现就是空态**。要让该功能对中文短视频创作者真正有用，需另立需求接入中文内容平台的标题语料（见专项 PRD §11–§12）。
 
+#### 9.2.2 外链协议校验契约（2026-09-29 补写，href-scheme-guard）
+
+> 完整规格见 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`。本节只登记主文档必须常驻的口径。
+> §9.2.1 收口的是「这条结果与用户内容**是否相关**」，本节收口的是「这条 URL **能不能被点**」——两段共用同一条数据链路，判据互相不可替代。
+
+| 项 | 契约 |
+| -- | ---- |
+| 单一判据 | `packages/shared-utils/src/safe-http-url.js`（CJS，主进程）/ `safe-http-url.browser.js`（ESM，渲染进程，`vite.config.js` alias 指过去）；禁止第二份 `/^https?:/` |
+| 放行条件 | 仅 `http://` 与 `https://` 前缀（大小写不敏感），返回 trim 后的**原串**，绝不重编码 |
+| 一律拒绝 | `javascript:` / `data:` / `vbscript:` / `file:`、协议相对 `//host`、缺协议 `example.com`、`https:x`、`https:/x`、非字符串、空串 |
+| 双档防线 | ① 采集侧：`content-intelligence-sources.js` 在离开第三方响应的第一站收口，HN 非法时回落 `https://news.ycombinator.com/item?id=<objectID>`（本站拼、必然安全），GitHub/Reddit 非法即 `null`；② 渲染侧：绑定 `:href` 前再判一次 |
+| 降级显示 | 不产出锚点，**保留等样式纯文本**（`.int-link` / `.result-link` / `.detail-link-plain` 等），不许整项消失、不许留"能点但无反应"的死链接；`FilmEngineeringView` 的 `el-link` 同口径 |
+| 显示项 | 六个站点：内容情报结果列表、热榜面板、参考检索面板、发布结果回链、发布历史详情、影片工程元信息 |
+| 交互逻辑 | 「作为参考」「插入」「复制链接」不受协议校验影响（它们只取 `title` 或照常复制文本）；安全链接仍 `target="_blank"` + `rel="noopener"` |
+| 提示文字 | **无新增**（AGENTS.md 禁止死键：正常数据下该状态不出现；将来若加提示必须 zh/en 成对进 locales，且不得复用采集入口的 `collectError.protocol` —— 那是用户手填失败、语义不同） |
+| 为什么是真漏洞 | Vue 3 移除了 v2 的 `isUnsafeURL` href 守卫；本应用渲染进程持有 `window.electronAPI`（账号/凭证/发布/文件路径）；HN·Reddit·GitHub 的 url 字段由提交人完全可控 ⇒ 点一下即特权上下文执行任意 JS |
+| 判据范围 | 实测全仓 1846 个文件中 37 处含同类写法，**多数是不同意图**（剥协议取 host、判绝对性走分支、网络取回守卫、issuer/proxy/baseURL 强制 https），一律不纳入本锁；已收敛的同用途拷贝为 `channels.js` / `phase4-events.js` / `Collection.vue` / `content-intelligence-sources.js`。范围定义见专项 PRD §5.2 |
+| 回归锁 | `packages/shared-utils/src/__tests__/safe-http-url.test.js`（判定表 + 孪生 parity，含导出集合 parity）、`apps/desktop/src/href-scheme-contract.test.js`（全仓 `:href=` 结构棘轮，含扫描域非空与命中数下界两条反失明断言）、`apps/desktop/electron/services/content-intelligence-sources.test.js`（采集侧行为锁，补结构锁盲区） |
+| 已知接缝 | `vitest.config.js` 不含该 alias：单测解析 CJS、生产解析 ESM 孪生；摘掉 alias 只有结构锁会红，故 parity 锁与 alias 源码锁必须同时在位 |
+
 ### 9.3 爆款分析
 
 ```
@@ -17860,3 +17880,14 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **已知限制**：主进程 `readImageAsDataUrl` 扩展名白名单只有 `.jpg/.jpeg/.png/.webp`，而封面框 `accept="image/*"`，故 `.gif`/`.bmp` 封面会显示「封面预览不可用」但**发布照常**（裁剪弹窗一直如此，本次让它可见）。
 
 **回归锁**：`useCoverPreview.test.js`（17 例，含竞态与导出完整性）、`Publish.test.js`「封面缩略图与放大预览」（12 例）、`CoverCropDialog.test.js`（复用 composable 后行为不变）、`overlay-view-suspension.test.js`（三 owner 结构锁）。五条变异反证均实测变红，且各配正控（不施加变异须报出 passed 计数）——先证明探针可信再谈缺陷。E2E 既有契约 `[data-testid="cover-state"]` 必须原样保留。
+
+## 快手上传域请求头对齐合同（2026-09-29 活体 6.3 第七层二轮定案，随本 PR）
+
+**请求级诊断二轮定案**：Content-Type 移除后 complete 仍裸 400——诊断响应头显示**边缘级拒绝**（无 X-KSLOGID/无 CORS 头，未到应用层）。剩余差异锁定两处：
+
+| 差异 | 真实浏览器 | 链（修复前） |
+|---|---|---|
+| Cookie | **无**（上传域 kuaishouzt.com 跨 registrable domain，同源策略不可带 kuaishou.com Cookie） | 带全量外域 Cookie——疑似触发边缘 WAF |
+| Referer | 短形态 `https://cp.kuaishou.com/` | 发布页长 Referer |
+
+**合同**：上传域（跨 registrable domain）请求一律无 Cookie + 短 Referer（与浏览器逐字一致）；cp.kuaishou.com 域请求（pre/finish/submit/list）保持带 Cookie + 长 Referer（同域合法且已实证可用）。回归锁：`kuaishou-video-chain.test.js` 分片/complete 断言 cookie undefined + 短 referer（红→绿实证）。
