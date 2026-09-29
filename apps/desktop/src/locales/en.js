@@ -1226,6 +1226,9 @@ export default {
     retrying: 'Resubmitting...',
     retryFailedCount: (ctx) => 'Retry failed tasks (' + ctx.named('count') + ')',
     // Publish progress global panel (publish-progress-ux, 2026-09-28; contract: PRD-PUBLISH-PROGRESS-UX §8.4)
+    // 2026-09-29 publish-progress-panel-refine: success-first summary (summarySucceeded
+    // replaces summaryDone), time-stamped fallback title (sessionTitleTimeFallback replaces
+    // sessionTitleFallback), cancelled phase / cancel entry / per-task retry / copy-error copy.
     publishProgressPanel: {
       title: 'Publish Progress',
       minimize: 'Minimize (runs in background)',
@@ -1237,9 +1240,10 @@ export default {
       pillRunning: (ctx) => 'Publishing ' + ctx.named('done') + '/' + ctx.named('total'),
       pillDone: (ctx) => 'Done ' + ctx.named('done') + '/' + ctx.named('total'),
       pillFailedPart: (ctx) => ', ' + ctx.named('count') + ' failed',
-      summaryDone: (ctx) => ctx.named('done') + '/' + ctx.named('total') + ' completed',
+      summarySucceeded: (ctx) => ctx.named('succeeded') + '/' + ctx.named('total') + ' succeeded',
       summaryFailed: (ctx) => '· ' + ctx.named('count') + ' failed',
-      sessionTitleFallback: 'Publish tasks',
+      summaryCancelled: (ctx) => '· ' + ctx.named('count') + ' cancelled',
+      sessionTitleTimeFallback: (ctx) => 'Publish · ' + ctx.named('time'),
       recoveredTitle: 'Recovered publish tasks',
       sessionRunning: 'Running',
       sessionDone: 'Finished',
@@ -1249,6 +1253,7 @@ export default {
       statusBlocked: 'Rate-limited',
       statusSuccess: 'Succeeded',
       statusFailed: 'Failed',
+      statusCancelled: 'Cancelled',
       stagePrepare: 'Prepare',
       stageUpload: 'Upload',
       stageFill: 'Fill',
@@ -1261,6 +1266,14 @@ export default {
       retryFailed: (ctx) => 'Retry failed (' + ctx.named('count') + ')',
       retrying: 'Retrying…',
       retryPartial: (ctx) => ctx.named('ok') + ' re-queued, ' + ctx.named('fail') + ' failed to retry',
+      retryTask: 'Retry this task',
+      copyError: 'Copy error',
+      copied: 'Copied to clipboard',
+      copyFailed: 'Copy failed',
+      cancelAll: 'Cancel all tasks',
+      cancelConfirm: 'Confirm cancel?',
+      cancelling: 'Cancelling…',
+      cancelPartial: (ctx) => ctx.named('ok') + ' cancelled, ' + ctx.named('fail') + ' failed to cancel',
       clearFinished: 'Clear finished',
       emptyRunning: 'No active publishes',
       blockedWaitMinutes: (ctx) => 'Retrying after ' + ctx.named('minutes') + ' min',

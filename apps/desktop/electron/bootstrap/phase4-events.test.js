@@ -281,6 +281,20 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
       platform: 'weibo', taskId: 't-r1', phase: 'retry', stageKey: 'waiting', retriesLeft: 2,
     }))
   })
+
+  it('task:cancelled → 富化 phase=cancelled（取消终态经发射层单一来源转发，publish-progress-panel-refine）', () => {
+    const send = vi.fn()
+    const { taskQueue, history } = wire(send)
+    taskQueue.emit('task:cancelled', { id: 't-c1', platform: 'douyin', batchId: 'batch-1' })
+    const payload = progressPayloads(send).at(-1)
+    expect(payload).toEqual(expect.objectContaining({
+      platform: 'douyin', taskId: 't-c1', phase: 'cancelled', batchId: 'batch-1',
+    }))
+    // 取消不是失败：不得落发布历史（历史只记 success/failed，取消不入库）
+    history.addRecord.mockClear()
+    taskQueue.emit('task:cancelled', { id: 't-c2', platform: 'weibo' })
+    expect(history.addRecord).not.toHaveBeenCalled()
+  })
 })
 
 

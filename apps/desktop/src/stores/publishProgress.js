@@ -18,6 +18,7 @@ import {
   onBatchProgress,
   getQueueStatus,
   retryTask,
+  cancelTask,
 } from '@/api/publisher'
 
 /** 会话列表上限：超出裁剪最旧已完成会话；全 running 不裁剪（宁多勿丢） */
@@ -25,11 +26,13 @@ export const MAX_SESSIONS = 5
 /** 首次隐藏教育 toast 的 localStorage 键 */
 export const FIRST_HIDE_TOAST_STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
 
-const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked'])
+/** cancelled（publish-progress-panel-refine）：取消终态——主进程 phase4-events
+ * 转发 TaskQueue 的 task:cancelled；中性态（非失败红态），计入终态与 aggregate。 */
+const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'cancelled'])
 const STAGE_KEY_ENUM = new Set([
   'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'done', 'failed', 'detail',
 ])
-const TERMINAL_PHASES = new Set(['success', 'failed'])
+const TERMINAL_PHASES = new Set(['success', 'failed', 'cancelled'])
 
 let _sessionCounter = 0
 
@@ -55,6 +58,8 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
   const panelMinimized = ref(false)
   const firstHideToastShown = ref(false)
   const retrying = ref(false)
+  /** 取消全部在途任务进行中（防重入，publish-progress-panel-refine） */
+  const cancelling = ref(false)
 
   let listenersBound = false
   let offProgress = null
@@ -236,6 +241,34 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
 
   // ─── 重试失败项 ──────────────────────────────────────────────
 
+  /**
+   * 单任务重试共享路径（publish-progress-panel-refine 拆出）：
+   * 经 `queue:retry` IPC 重发并以新 taskId 替换原条目（phase:'queued'，清 error/result）。
+   * @returns {Promise<{ok:number,fail:number}>}
+   */
+  async function _retryOne(session, taskId) {
+    const task = session.tasks[taskId]
+    if (!task || task.phase !== 'failed') return { ok: 0, fail: 0 }
+    try {
+      const res = await retryTask(taskId)
+      if (res && res.code === 0 && res.data && typeof res.data.taskId === 'string' && res.data.taskId) {
+        const newTaskId = res.data.taskId
+        if (!session.tasks[newTaskId]) {
+          const platform = task.platform
+          delete session.tasks[taskId]
+          session.taskOrder = session.taskOrder.filter((x) => x !== taskId)
+          _ensureTask(session, newTaskId, platform)
+          return { ok: 1, fail: 0 }
+        }
+        // 重复重试：新 taskId 已存在，跳过
+        return { ok: 1, fail: 0 }
+      }
+      return { ok: 0, fail: 1 }
+    } catch {
+      return { ok: 0, fail: 1 }
+    }
+  }
+
   async function retryFailed(sessionId) {
     const session = sessions.value.find((s) => s.id === sessionId)
     if (!session || retrying.value) return { ok: 0, fail: 0 }
@@ -246,30 +279,65 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     let fail = 0
     try {
       for (const id of failedIds) {
-        try {
-          const res = await retryTask(id)
-          if (res && res.code === 0 && res.data && typeof res.data.taskId === 'string' && res.data.taskId) {
-            const newTaskId = res.data.taskId
-            if (!session.tasks[newTaskId]) {
-              const platform = session.tasks[id].platform
-              delete session.tasks[id]
-              session.taskOrder = session.taskOrder.filter((x) => x !== id)
-              _ensureTask(session, newTaskId, platform)
-              ok += 1
-            } else {
-              // 重复重试：新 taskId 已存在，跳过
-              ok += 1
-            }
-          } else {
-            fail += 1
-          }
-        } catch {
-          fail += 1
-        }
+        const r = await _retryOne(session, id)
+        ok += r.ok
+        fail += r.fail
       }
       _recomputeSessionStatus(session)
     } finally {
       retrying.value = false
+    }
+    return { ok, fail }
+  }
+
+  /**
+   * 单任务级重试（publish-progress-panel-refine）：失败行内联「重试此任务」入口。
+   * 与 retryFailed 共享 retrying 防重入与 _retryOne 路径。
+   */
+  async function retryOne(sessionId, taskId) {
+    const session = sessions.value.find((s) => s.id === sessionId)
+    if (!session || retrying.value) return { ok: 0, fail: 0 }
+    const task = session.tasks[taskId]
+    if (!task || task.phase !== 'failed') return { ok: 0, fail: 0 }
+    retrying.value = true
+    let result = { ok: 0, fail: 0 }
+    try {
+      result = await _retryOne(session, taskId)
+      _recomputeSessionStatus(session)
+    } finally {
+      retrying.value = false
+    }
+    return result
+  }
+
+  // ─── 取消全部在途任务（publish-progress-panel-refine） ────────
+
+  /**
+   * 对全部会话内非终态任务逐个调用 `queue:cancel`（防重入）。
+   * 任务状态更新以主进程转发的 `phase:'cancelled'` 事件为单一来源——
+   * 本动作只发取消请求与汇总计数，不自行改写任务相位（不自造第二份真相）。
+   * @returns {Promise<{ok:number,fail:number}>}
+   */
+  async function cancelRunning() {
+    if (cancelling.value) return { ok: 0, fail: 0 }
+    const ids = []
+    for (const s of sessions.value) {
+      for (const id of Object.keys(s.tasks)) {
+        if (!TERMINAL_PHASES.has(s.tasks[id].phase)) ids.push(id)
+      }
+    }
+    if (ids.length === 0) return { ok: 0, fail: 0 }
+    cancelling.value = true
+    let ok = 0
+    let fail = 0
+    try {
+      const results = await Promise.allSettled(ids.map((id) => cancelTask(id)))
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value && r.value.code === 0 && r.value.data !== false) ok += 1
+        else fail += 1
+      }
+    } finally {
+      cancelling.value = false
     }
     return { ok, fail }
   }
@@ -341,14 +409,15 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     let done = 0
     let succeeded = 0
     let failed = 0
+    let cancelled = 0
     for (const s of sessions.value) {
       for (const id of Object.keys(s.tasks)) {
         total += 1
         const task = s.tasks[id]
-        if (task.phase === 'success') { done += 1; succeeded += 1 } else if (task.phase === 'failed') { done += 1; failed += 1 }
+        if (task.phase === 'success') { done += 1; succeeded += 1 } else if (task.phase === 'failed') { done += 1; failed += 1 } else if (task.phase === 'cancelled') { done += 1; cancelled += 1 }
       }
     }
-    return { total, done, succeeded, failed }
+    return { total, done, succeeded, failed, cancelled }
   })
 
   function sessionFailedCount(sessionId) {
@@ -363,11 +432,14 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     panelMinimized,
     firstHideToastShown,
     retrying,
+    cancelling,
     init,
     registerSession,
     handleProgressEvent,
     handleBatchEvent,
     retryFailed,
+    retryOne,
+    cancelRunning,
     dismissSession,
     clearFinished,
     minimizePanel,

@@ -84,6 +84,16 @@ describe('createPublishProgressEmitter — payload 契约', () => {
     expect(win.webContents.send.mock.calls[3][1].percent).toBe(null)
   })
 
+  it('cancelled 事件：相位原样透传（不被归一为 progress），percent 缺省 null（publish-progress-panel-refine）', () => {
+    const win = makeWin()
+    const emitter = createPublishProgressEmitter({ getMainWin: () => win })
+    emitter.emit('t-c', 'weibo', 'cancelled', { stage: '⊘ 已取消' })
+    const payload = win.webContents.send.mock.calls[0][1]
+    expect(payload).toEqual(expect.objectContaining({
+      phase: 'cancelled', stage: '⊘ 已取消', percent: null,
+    }))
+  })
+
   it('非法 phase 归一为 progress（防御纵深）', () => {
     const win = makeWin()
     const emitter = createPublishProgressEmitter({ getMainWin: () => win })
