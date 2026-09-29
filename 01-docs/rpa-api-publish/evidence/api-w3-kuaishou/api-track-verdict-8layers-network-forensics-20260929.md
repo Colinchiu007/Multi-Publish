@@ -1,13 +1,14 @@
 # engine-w3 6.3 API 轨活体裁决——八层证据链 + 网络级取证（2026-09-28/29）
 
-> 裁决结论：**API 轨未通过（spike not-go）**。八层中七层本地缺陷已修复合并（含网络级取证驱动的
-> complete 请求头对齐），真实链已推进到 `upload/complete`；服务端对该请求的**裸 400（无响应体）**
-> 在头部级对齐穷尽后仍在，根因指向传输层（TLS 指纹 / HTTP 版本），Node axios 无法复刻。
-> DOM 轨每轮兜底发布成功（发布链完全可用）。
+> 裁决结论（**定案**）：**API 轨未通过（spike not-go）**。八层中七层本地缺陷已修复合并（含网络级
+> 取证驱动的 complete 请求头对齐），真实链已推进到 `upload/complete`；服务端对该请求的**裸 400
+> （无响应体）**在**头部级对齐逐字穷尽后仍然存在**（第 11 轮活体终验实证，见下），根因收敛到
+> **传输层**（TLS 指纹 / HTTP 协议版本 / QUIC）——Node axios（OpenSSL + HTTP/1.1）无法复刻
+> Chrome（BoringSSL + HTTP/2-3）。**API 轨对快手当前不可用，DOM 轨为正确架构**（每轮兜底发布成功）。
 >
-> **当前额外阻塞（2026-09-29 新增）**：应用已上线「主动操作登录门」（`useLoginGate`），
-> 发布前需应用身份登录（Logto）；实测身份态 `signed_out` ⇒ 活体发布暂不可自动触发，
-> 需用户登录后继续。详见末节「当前阻塞与续跑步骤」。
+> **登录门前置的解除记录**：第 10 轮曾因「主动操作登录门」（`useLoginGate`）拦截而 `signed_out`
+> 无法触发；应用重启后身份态自动恢复 `authenticated`（`user.sub=hc2y714slpby`，`source: online`）
+> ⇒ 登录门正常放行，**不构成长期阻塞**（该门为产品决策，非缺陷）。
 
 ## 活体发布时间线（用户授权 CDP 代操作，间隔均 ≥18min）
 
@@ -22,11 +23,29 @@
 | 7 | 07:33 | 同（诊断增强上线） | ⑦ 请求级诊断 | #2616 / #2619 |
 | 8 | 10:07 | 同（诊断可见：Content-Type 默认注入） | ⑦ 根因：axios 注入 form-urlencoded | #2612 / #2621 |
 | 9 | 14:41 | 同（无 Cookie + 短 Referer 后仍 400） | ⑦ 边缘级拒绝确认 | #2630 |
-| 10 | 20:06 起 | 需登录（登录门拦截，未能触发） | ⑧ 应用身份登录门 | — |
+| 10 | 20:06 | 登录门拦截（`signed_out`，未触发） | ⑧ 应用身份登录门 | — |
+| 11 | **21:45** | **逐字对齐后仍 `upload/complete HTTP 400`** → **传输层定案** | ⑦ 终局 | #2653（sec-ch-ua×3 + 捕获 UA） |
+
+**第 11 轮（终验）出站请求头逐字证据**（app 日志 `API publish kuaishou` 诊断载荷，与真实浏览器一致）：
+
+```
+Accept:            application/json, text/plain, */*
+Content-Type:      null（已移除，避免 axios 默认注入 form-urlencoded）
+User-Agent:        …Chrome/150.0.7871.114…（与捕获的浏览器 UA 同）
+Referer:           https://cp.kuaishou.com/
+sec-ch-ua:         "Not;A=Brand";v="8", "Chromium";v="150"
+sec-ch-ua-mobile:  ?0
+sec-ch-ua-platform:"Windows"
+Cookie:            已移除（跨 registrable domain 不可带，单测证 wire 已剔除）
+→ 响应：HTTP 400 / content-length: 0 / 无 X-KSLOGID / 无 CORS 头（边缘级拒绝）
+         alt-svc: quic=":8443"（该边缘支持 QUIC/HTTP3）
+```
+
+⇒ 请求与真实浏览器**逐字一致仍被拒**，故头部不再有可收敛空间；差异只能在**连接/协议层**。
 
 每轮 DOM 轨兜底发布成功（作品 ID：3xvsedz34m82ppi / 3xfs9s628wkrp44 / 3xwdmnvysinp94e /
 3xu9x8aypjhsque / 3xnvb9cqf6b23de / 3xh9ks8utgmqx9c / 3xcm2eirufjcgcg / 3x67aq378avwzac /
-3xsed6zvzpmqtkg / 3ximt6fbg9abpsc）。
+3xsed6zvzpmqtkg / 3ximt6fbg9abpsc / 3xxqqt4k9xnspcy）。
 
 ## 网络级取证（新增方法，可复用）
 
@@ -72,26 +91,27 @@ upload/complete(200) → upload/finish → cover/view → frameUpload → recTag
 **保持未勾**（spike not-go）：API 轨未完成发布。裁决证据完整——八层中七层已修复（每层独立 PR +
 回归锁），第 7 层已把**头部级差异穷尽**，剩余候选为传输层；第 8 层为产品登录门（非缺陷）。
 
-## 当前阻塞与续跑步骤（2026-09-29）
+## 终局与后续（2026-09-29 定案）
 
-**阻塞**：发布前需应用身份登录（`useLoginGate`），实测身份态：
-```json
-{"status":"signed_out","user":null,"entitlement":null}
-```
-（CDP 探针 `probe-identity2.js`：`window.electronAPI.identityGetState()`）
+**登录门阻塞已解除**：第 10 轮的 `signed_out` 经应用重启后自动恢复为 `authenticated`
+（`user.sub=hc2y714slpby`、`source: online`）⇒ 登录门正常放行，第 11 轮终验得以执行。
+（登录门是产品决策、非缺陷；当时状态为会话未加载而非不可登录。）
 
-登录为**用户凭证操作**（Logto OAuth），代操作不可为。
+**终局**：第 11 轮以**与真实浏览器逐字一致的请求头**重试完整链，仍在 `upload/complete` 得到
+裸 400 ⇒ 头部级无剩余可收敛空间，差异在连接/协议层。**API 轨对快手当前不可用，DOM 轨为正确架构**
+（11 轮全部兜底发布成功）。
 
-**续跑步骤**（用户登录后）：
-1. 应用内完成身份登录（`identitySignIn` / UI「登录」）
-2. `node .agent_context/w3livefix-staging/drive-publish-step1.js`（导航）
-3. `drive-publish-step2.js`（注入视频 + 标题 + 勾选快手）
-4. `drive-publish-step4.js`（点「一键发布」）
-5. 观察 `shared-user-data/logs/app-<date>.log`：`using API publish engine...` 后**无** `API failed, falling back to RPA`
-   ⇒ API 轨贯通；若仍 `upload/complete HTTP 400` ⇒ 传输层结论成立，按证据归档（API 轨对快手不适用，DOM 轨为正确架构）
+**建议的后续路径**（如需继续投入 API 轨，按性价比排序）：
+1. **不再投入头部级取证**（已穷尽；本链共 4 轮、多 PR 归零于同一 400）
+2. 若必须走 API：改为**借浏览器传输**——在同一受信会话内用 `fetch` 发上传域请求（CDP 驱动或页面内
+   `fetch`），即"用浏览器的 TLS/HTTP2/3 栈发链的请求"，而非 Node axios
+3. **保留 DOM 轨为快手默认发布路径**（11/11 成功、含风控兜底与回查），API 轨仅在具备浏览器传输
+   能力时再评估
 
-**注意**：应用重启后页面可能空白，需 `probe-renderer-health.js` 触发一次 reload 再驱动；
-发布页若被登录/权益确认框遮挡，先 `dismiss-modals.js` 关闭（但登录门本身需真实登录，不能绕过）。
+**复跑入口（脚本已留档，`.agent_context/w3livefix-staging/`）**：`drive-publish-step1/2/4.js`
+（导航→注入→发布）、`capture-ks-upload-network.js`（网络取证）、`probe-renderer-health.js`
+（空白页自愈 reload）、`probe-identity2/3.js`（身份态）、`dismiss-modals.js`（模态遮挡清理）。
+应用重启后页面可能空白，先跑 `probe-renderer-health.js` 触发 reload 再驱动。
 
 ## 附：同场验证的修复
 
