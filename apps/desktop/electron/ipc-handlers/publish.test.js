@@ -23,6 +23,21 @@ vi.mock('../services/offline-manager', () => ({
   addToCache: vi.fn(),
 }))
 
+// 本地封面兜底的两例只验证「AI 不可用 → 走本地兜底 + 产物落盘 + 返回路径」的契约，不承担
+// 真实 sharp 渲染的性能——CI 高负载下真实 sharp 首载 + 1080x1440 渲染使 30s 超时仍被打穿
+// （Run 36599422044 Shards 2/2）。这里 mock sharp 的 toFile 只写 1 字节占位文件（不渲染图像），
+// 真实渲染（PNG 尺寸/比例/折行/边界）由 local-cover-generator.test.js 覆盖。
+vi.mock('sharp', () => {
+  const toFileMock = vi.fn(async (p) => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodeFs = require('node:fs')
+    nodeFs.writeFileSync(p, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+  })
+  const pngMock = vi.fn(() => ({ toFile: toFileMock }))
+  const sharpMock = vi.fn(() => ({ png: pngMock }))
+  return { default: sharpMock }
+})
+
 // 启用 electron mock，withSenderCheck 通过 require('electron').app 读取 isPackaged
 __enableElectronMock()
 
@@ -201,10 +216,8 @@ describe('publish IPC 可信来源正常工作', () => {
       expect(r2.message).toContain('500')
     })
 
-    // 超时预算 30s：这两例走真实 sharp 渲染（SVG→PNG 1080x1440），CI 串行模式
-    // （test:coverage --maxWorkers=1 --no-file-parallelism）下首次加载 sharp + 渲染
-    // 会超过 vitest 默认 10s（2026-09-29 CI 实测 timed out），故显式放预算。
-    it('assetGenerator 未注入时回退本地封面生成（SVG→sharp→PNG，2026-09-29 图文发布兜底）', async () => {
+    // sharp 已 mock（只写占位字节不渲染），故这两例验证契约且毫秒级完成
+    it('assetGenerator 未注入时回退本地封面生成（2026-09-29 图文发布兜底）', async () => {
       const deps = createMockDeps()
       const ipcMain = createMockIpcMain()
       registerHandlers(ipcMain, deps)
@@ -212,13 +225,12 @@ describe('publish IPC 可信来源正常工作', () => {
 
       const result = await handler(TRUSTED_EVENT, { prompt: 'city night', ratio: '3:4' })
 
-      // 无 AI 生图 provider 时不再报「服务不可用」，而是本地标题卡兜底成功
+      // 无 AI 生图 provider 时不再报「服务不可用」，而是本地标题卡兜底成功且产物落盘
       expect(result.code).toBe(0)
       expect(result.data.coverPath).toMatch(/multi-publish-cover-local[\\/].*\.png$/)
       expect(fs.existsSync(result.data.coverPath)).toBe(true)
-      // 清理产物
       try { fs.unlinkSync(result.data.coverPath) } catch (_) { /* ignore */ }
-    }, 30000)
+    })
 
     it('assetGenerator 生成失败时也回退本地封面（不因 AI 失败阻断发布链路）', async () => {
       const assetGenerator = {
@@ -233,8 +245,9 @@ describe('publish IPC 可信来源正常工作', () => {
 
       expect(result.code).toBe(0)
       expect(result.data.coverPath).toMatch(/multi-publish-cover-local[\\/].*\.png$/)
+      expect(assetGenerator.generateImage).toHaveBeenCalled()
       try { fs.unlinkSync(result.data.coverPath) } catch (_) { /* ignore */ }
-    }, 30000)
+    })
   })
 
   // P3-7：合集列表拉取（collection:list）
