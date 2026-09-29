@@ -207,6 +207,19 @@
 - 详见 [01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md)（立项 PR #2631）
 
 ---
+# [未发布] docs(publish): 话题内联描述模型立项——PRD + OpenSpec change 五件套（2026-10-09，publish-topic-inline-description）
+
+### 变更
+- **立项背景**：发布页标签/话题输入框与描述框割裂（用户看不到最终平台内容形态），且抖音/视频号两条链路把 tags 静默丢弃（`douyin-video.js` content_desc 只取正文且 `text_extra: []` 恒空、`shipinhao-video.js` description 只合并标题+正文）——用户填的话题发到这两个最主流视频平台的内容里不存在。
+- **用户决策（2026-10-09）**：完全按参考产品 4.13.19 逆向取证逻辑实现——标签/话题添加后直接体现在视频描述输入框（描述文本为话题真源、所见即所得）；平台格式差异（微博双井号等）在发布时隐性转换。
+- **逆向取证**（用户提供目录，主进程 bundle `packages/main/dist/index.cjs`）：话题以 `<topic>` 内联描述富文本、发布时各平台隐性转换（小红书/视频号 `#名[话题]#` + hash_tag 结构化、微博 `#名#`、知乎 `<a>`+topic_id）、话题验证 fail-closed（查不到平台实体删节点）——取证结论全量落 PRD §2（品牌词按 Gate 12 红线不入库）。
+- **产物**：`01-docs/PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md`（方案设计 / 15 平台格式转换矩阵 / 交互逻辑 / 测试验收 / roadmap）+ `openspec/changes/publish-topic-inline-description/`（proposal / design / tasks / spec delta / .openspec.yaml 五件套）+ 主 PRD 功能文档列表登记。
+
+### 验证
+- docs-only 门禁四项：行尾对账两口径一致（PRD.md 3/1 = 3/1）| 品牌残留 PASS（6441 tracked 文件）| 文档同步（纯文档 PR 无代码变更，doc-gate 不触发）| 远程同步 PENDING（PR 合并后回填）。
+- 实现见 PR #2640（已合并，squash 0dc2d98a）。
+
+---
 # [未发布] fix(publish): CCG 双模型外部评审补跑——8 项采纳修复（含面板字段 IPC 丢弃 Critical）+ 6 项登记（2026-10-08，publish-capability-ccg-review）
 
 ### 变更
