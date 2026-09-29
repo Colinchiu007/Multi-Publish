@@ -15,6 +15,32 @@ const { spawnSync } = require("node:child_process")
 const ROOT = path.join(__dirname, "..")
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8")
 
+// 本机跑夹具需要 Git for Windows Bash（裸 bash 可能解析到 WSL，且本机 PATH 无 bash）。
+// 与 start-mp-task.ps1 同一探测链：MP_GIT_BASH 覆盖 → git 派生 → 硬编码候选。
+// CI（ubuntu）上系统 bash 在 PATH，直接可用。
+function resolveGitBash() {
+  if (process.env.MP_GIT_BASH) return process.env.MP_GIT_BASH
+  const candidates = []
+  try {
+    const { execFileSync } = require("node:child_process")
+    const git = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
+    if (git) candidates.push(path.join(git, "..", "..", "usr", "bin", "bash.exe"))
+  } catch {}
+  candidates.push(
+    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+    "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
+    "D:\\Program Files\\Git\\usr\\bin\\bash.exe",
+  )
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      // 身份校验：Git for Windows 的 bash 同根必须有 usr\bin\dirname.exe（WSL shim 无此布局）
+      const gitRoot = c.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$|[\\/]bin[\\/]bash\.exe$/, "")
+      if (gitRoot && fs.existsSync(path.join(gitRoot, "usr", "bin", "dirname.exe"))) return c
+    }
+  }
+  return "bash" // CI/类 Unix：系统 bash
+}
+
 // 只针对「命令式命名」的两种写法；AGENTS.md 里记述事故的 `git worktree add -b codex/...`
 // 属于历史根因叙述，不是口径，不得被本锁误伤。
 const MANDATE_PATTERNS = [/codex\/<task-name>/, /的 codex\/ 分支/]
@@ -55,7 +81,7 @@ test("前缀语义那一支必须真被执行（实跑夹具，而不是 grep �
   // 反证实测：把 scenario_opt_in_prefix 从调用清单里删掉、只留定义，
   // 任何按文本 grep `MP_BRANCH_PREFIX=` 的断言都会假绿。唯一可信判据是它跑出来的结果行。
   const script = path.join(ROOT, "scripts", "session-init.test.sh")
-  const out = spawnSync(process.env.MP_GIT_BASH || "bash", [script], { encoding: "utf8" })
+  const out = spawnSync(resolveGitBash(), [script], { encoding: "utf8" })
   const text = `${out.stdout || ""}${out.stderr || ""}`
   assert.equal(out.status, 0, `session-init.test.sh 未全绿：\n${text}`)
   assert.match(text, /PASS: MP_BRANCH_PREFIX opts into a prefixed branch/, "MP_BRANCH_PREFIX 那一支没有被真正执行（定义在但未被调用？）")
