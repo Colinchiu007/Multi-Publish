@@ -25,6 +25,13 @@ const GATE_FILE = '.quality-gates.md'
 const ROW_RE = /^\|\s*远程同步\s*\|/
 const HEADING_RE = /^## /
 
+// 第二源（change enforce-gate-record-presence D5）：每 PR 一篇记录文件，欠账登记写在文件自身的
+// frontmatter 里。下划线开头的文件（_TEMPLATE.md 等）与 _exempt/ 子目录不参与记录计数——
+// 模板自己就带一行 `| 远程同步 | PENDING |`，把它当记录扫就是一条永远的红。
+const RECORDS_REL = path.join('openspec', 'records')
+const RECORD_FIELD_REASON = 'sync_reason'
+const RECORD_FIELD_OWNER = 'sync_backfill_owner'
+
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
 
@@ -64,7 +71,63 @@ function loadLedger(root) {
   return out
 }
 
-function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED } = {}) {
+// ── 第二源：openspec/records/*.md ────────────────────────────────────────────
+// 缺席与读不动都必须抛错：一个不完整的遍历判出来是"零条违规"，那是假绿（与 worktree
+// 链接扫描 R3 同形）。允许"目录存在但没有记录文件"——那是载体迁移的起点状态，不是扫描失败。
+function listRecordFiles(recordsRoot) {
+  if (!fs.existsSync(recordsRoot)) {
+    throw new Error(`记录目录不存在：${recordsRoot}（openspec/records/ 缺失即 enforce-gate-record-presence tasks 1.1 未落地，不得当成"零条记录"通过）`)
+  }
+  let dirents
+  try {
+    dirents = fs.readdirSync(recordsRoot, { withFileTypes: true })
+  } catch (e) {
+    throw new Error(`无法枚举记录目录 ${recordsRoot}：${e.message}`)
+  }
+  return dirents
+    .filter(d => d.isFile() && d.name.endsWith('.md') && !d.name.startsWith('_'))
+    .map(d => d.name)
+    .sort()
+}
+
+// frontmatter 只取 `---` 与 `---` 之间的 `key: value`；`#` 开头的注释行忽略（模板里要写说明）。
+function readFrontmatter(text) {
+  const out = {}
+  const lines = text.split('\n')
+  if ((lines[0] || '').replace(/\r$/, '') !== '---') return { fm: out, hasFm: false }
+  for (let i = 1; i < lines.length; i++) {
+    const raw = lines[i].replace(/\r$/, '')
+    if (raw === '---') break
+    if (/^\s*#/.test(raw) || !raw.trim()) continue
+    const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(raw)
+    if (m) out[m[1]] = m[2].trim()
+  }
+  return { fm: out, hasFm: true }
+}
+
+function readRecord(recordsRoot, fileName) {
+  const text = fs.readFileSync(path.join(recordsRoot, fileName), 'utf8')
+  const name = fileName.replace(/\.md$/, '')
+  const { fm } = readFrontmatter(text)
+  const rowLine = text.split('\n').find(l => ROW_RE.test(l))
+  const status = rowLine ? (rowLine.split('|').map(normalize)[2] || '') : null
+  const reason = fm[RECORD_FIELD_REASON]
+  const owner = fm[RECORD_FIELD_OWNER]
+  const hasAnyRegistration = Object.prototype.hasOwnProperty.call(fm, RECORD_FIELD_REASON)
+    || Object.prototype.hasOwnProperty.call(fm, RECORD_FIELD_OWNER)
+  return {
+    name,
+    fileName,
+    rowPresent: !!rowLine,
+    status,
+    closed: !!rowLine && CLOSED_RE.test(status),
+    hasRegistration: hasAnyRegistration,
+    reasonMissing: !reason || !String(reason).trim(),
+    ownerMissing: !owner || !String(owner).trim(),
+  }
+}
+
+function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, recordsRoot = path.join(root, RECORDS_REL) } = {}) {
   const file = path.join(root, GATE_FILE)
   if (!fs.existsSync(file)) throw new Error(`${GATE_FILE} 不存在：${file}`)
   const lines = fs.readFileSync(file, 'utf8').split('\n')
@@ -91,7 +154,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     if (!heading) heading = '(文件首个 ## 之前，无法归属)'
     seen.add(heading)
     if (!Object.prototype.hasOwnProperty.call(ledger, heading)) {
-      open.push({ line: i + 1, status, heading, evidence: cells[3] || '' })
+      open.push({ line: i + 1, status, heading, evidence: cells[3] || '', source: 'legacy' })
     }
   }
 
@@ -127,6 +190,43 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
 
   const stale = Object.keys(ledger).filter(h => !seen.has(h))
   const registered = Object.keys(ledger).filter(h => seen.has(h))
+
+  // ── 文件源扫描 ──
+  const fileNames = listRecordFiles(recordsRoot)
+  // 键形态重叠检查：文件名键与历史标题键共处一套语义会互相误伤（一把清单喂两套判据），
+  // 任一文件名与历史 ledger 键全等即当场报错，不允许静默二选一。
+  for (const fn of fileNames) {
+    const key = fn.replace(/\.md$/, '')
+    if (Object.prototype.hasOwnProperty.call(ledger, key)) {
+      throw new Error(`两源键形态重叠：「${key}」既是记录文件名又是历史标题登记键，必须改名消除歧义`)
+    }
+  }
+  const missingRecordRows = []
+  const staleRecordFields = []
+  let recordsFromFiles = 0
+  for (const fn of fileNames) {
+    const rec = readRecord(recordsRoot, fn)
+    recordsFromFiles++
+    if (!rec.rowPresent) {
+      missingRecordRows.push({ file: rec.fileName, reason: '整块缺 远程同步 行' })
+      continue
+    }
+    if (rec.closed) {
+      // 回填后必须删掉登记字段：允许两者共存就等于把"记得删登记项"这条人工耦合原样搬进新载体
+      if (rec.hasRegistration) staleRecordFields.push(`${rec.fileName}（已 ${rec.status} 却仍留 ${RECORD_FIELD_REASON}/${RECORD_FIELD_OWNER}）`)
+      continue
+    }
+    // 未收口：登记随文件走，两个字段都必须非空，否则就是没登记
+    if (rec.reasonMissing || rec.ownerMissing) {
+      const why = rec.reasonMissing && rec.ownerMissing ? '缺登记字段'
+        : rec.reasonMissing ? `缺非空 ${RECORD_FIELD_REASON}` : `缺非空 ${RECORD_FIELD_OWNER}`
+      open.push({ line: 0, status: rec.status, heading: `${rec.fileName}（${why}）`, evidence: '', source: 'records' })
+    }
+  }
+
+  const rowCountAll = rowCount + fileNames.length
+  if (rowCountAll === 0) throw new Error(`两源都读到 0 条 远程同步 记录（${file} + ${recordsRoot}）——空遍历不得判为"零欠账"`)
+
   return {
     rowCount,
     headingCount: headings.length,
@@ -134,6 +234,9 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     recordsWithoutRow,
     topRecord,
     topRecordMissingRow,
+    recordsFromFiles,
+    missingRecordRows,
+    staleRecordFields,
     open,
     stale,
     registered,
@@ -143,8 +246,16 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
 
 function format(r) {
   const out = []
-  out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条`)
+  out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条 / 记录文件 ${r.recordsFromFiles} 篇（两源分列，不可合并成一个趋势数）`)
   out.push(`（可见项，不拦截：其中 ${r.recordsWithoutRow.length} 篇执行记录整块没有 远程同步 行，属历史缺口）`)
+  if (r.missingRecordRows.length) {
+    out.push(`❌ 记录文件整块缺 远程同步 行 ${r.missingRecordRows.length} 篇（每篇都必须独立可查，不再只查最顶部一篇）：`)
+    for (const m of r.missingRecordRows) out.push(`  ${m.file} —— ${m.reason}`)
+  }
+  if (r.staleRecordFields.length) {
+    out.push(`❌ 已回填却仍留登记字段的记录 ${r.staleRecordFields.length} 篇（回填后请删除这两个字段）：`)
+    for (const s of r.staleRecordFields) out.push(`  ${s}`)
+  }
   if (r.topRecordMissingRow) {
     out.push(`❌ 最顶部的执行记录缺 远程同步 行：「${r.topRecord.text}」`)
     out.push('   新记录必须带这一行。两种合法写法：① 已合并 ⇒ 按既有 PASS 口径回填 merge SHA 与时间；'
@@ -164,8 +275,9 @@ function format(r) {
     for (const d of r.duplicates) out.push(`  x${d.count} ${d.text}`)
     out.push('  处理：删掉多余那半（逐字节切除、不得整文件统一行尾），并把清理结果写进本次记录')
   }
-  if (!r.open.length && !r.stale.length && !r.duplicates.length && !r.topRecordMissingRow) {
-    out.push('OK: 顶部记录带行，所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复')
+  if (!r.open.length && !r.stale.length && !r.duplicates.length && !r.topRecordMissingRow
+    && !r.missingRecordRows.length && !r.staleRecordFields.length) {
+    out.push('OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留')
   }
   return out.join('\n')
 }
@@ -174,9 +286,15 @@ function main() {
   const root = path.resolve(__dirname, '..')
   const r = collect({ root })
   console.log(format(r))
-  if (r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow) process.exit(1)
+  if (r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow
+    || r.missingRecordRows.length || r.staleRecordFields.length) process.exit(1)
 }
 
-module.exports = { collect, format, loadLedger, normalize, GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED }
+module.exports = {
+  collect, format, loadLedger, normalize,
+  listRecordFiles, readRecord, readFrontmatter,
+  RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER,
+  GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED,
+}
 
 if (require.main === module) main()
