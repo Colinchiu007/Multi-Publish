@@ -38,6 +38,8 @@ const {
   sanitizeDiagnosticEndpoint,
   sanitizePublishResultUrl,
 } = require('./rpa-publish-id-extract')
+// 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
+const { navigationHelpers } = require('./rpa-view-navigation-helpers')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
@@ -93,78 +95,6 @@ function parseKuaishouArtifactEvidence (body, response) {
 }
 
 const platformsMixin = {
-  // ========== 导航后弹窗清理 ==========
-  // 平台上传落地页会叠加草稿恢复弹窗（快手：继续编辑/放弃）与功能引导遮罩
-  // （抖音/B站：我知道了/知道了），不先关掉会遮挡上传区与表单，导致字段选择器
-  // 全部 timeout（2026-09 E2E 实锤：快手草稿弹窗遮挡发布流程）。
-  // 草稿冲突优先点「放弃」（丢弃陈旧草稿，本次上传走全新流程）；只有「继续编辑」时点它。
-  async _dismissPostNavDialogs(win, platform) {
-    try {
-      const dismissed = await win.webContents.executeJavaScript(
-        '(function(){var clicked=[];' +
-        'var visible=function(e){return e&&e.offsetParent&&(e.innerText||"").trim().length<=12};' +
-        'var find=function(txt){return [...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){return visible(e)&&(e.innerText||"").trim()===txt})};' +
-        'var giveup=find("放弃");if(giveup.length){giveup[giveup.length-1].click();clicked.push("放弃")}' +
-        'else{var cont=find("继续编辑");if(cont.length){cont[cont.length-1].click();clicked.push("继续编辑")}}' +
-        'var acks=find("我知道了").concat(find("知道了"));for(var i=0;i<acks.length;i++){acks[i].click();clicked.push((acks[i].innerText||"").trim())}' +
-        'return clicked.join(",")})()'
-      )
-      if (dismissed) log.info('RpaView', '[' + platform + '] post-nav dialogs dismissed: ' + String(dismissed))
-    } catch (e) { log.warn('RpaView', '[' + platform + '] post-nav dialogs: ' + e.message) }
-  },
-
-  // ========== 选择器候选回退 ==========
-  // 旧实现只用 candidates[0]：平台改版或落地页差异会让首个候选不存在，整条链路
-  // 直接 timeout（2026-09 live DOM 实锤：快手编辑页根本没有 input[placeholder*="标题"]，
-  // 标题与作品描述同为 div#work-description-edit[contenteditable]）。必须逐候选尝试。
-  // 首个候选给完整预算（等 SPA 渲染），其余候选快速判定存在与否。
-  async _resolveSelector(win, selectors, firstTimeoutMs, restTimeoutMs) {
-    const list = (Array.isArray(selectors) ? selectors : [selectors]).filter((s) => typeof s === 'string' && s.length > 0)
-    for (let i = 0; i < list.length; i++) {
-      const cand = list[i]
-      // eslint-disable-next-line no-await-in-loop
-      if (await this._waitForElement(win, cand, i === 0 ? (firstTimeoutMs || 8000) : (restTimeoutMs || 2500))) return cand
-    }
-    return null
-  },
-
-  // 无独立标题字段的平台（快手作品描述）：标题与正文合并成一段文案写进编辑器，
-  // 长度按平台 max_content 截断（快手 1000），避免后续正文填充把标题覆写掉。
-  // 2026-10-08 CCG 评审（W1/W2）统一口径：合并分隔符从 '\n\n' 收敛为 '\n'、
-  // 截断从 UTF-16 slice 改为按码点（不切断代理对），与注册表
-  // composeNoTitleDescription 及引擎各链（shipinhao/twitter/weibo/tiktok）一致。
-  _composeEditorCaption(article, maxLen) {
-    const limit = Number(maxLen) > 0 ? Number(maxLen) : 2000
-    const parts = [article && article.title, article && article.content]
-      .filter((v) => typeof v === 'string' && v.trim().length > 0)
-      .map((v) => v.trim())
-    const composed = parts.join('\n')
-    const chars = Array.from(composed)
-    return chars.length > limit ? chars.slice(0, limit).join('') : composed
-  },
-
-  // ========== 视频上传完成强判定 ==========
-  // 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
-  // 导致还在上传落地页就继续填字段/点发布，全部失败（2026-09 smoke4 实锤）。
-  // v2 收紧：blob 本地预览注入瞬间就存在，不能算完成（smoke5 实锤）。
-  // v3（2026-09 smoke6 实锤）：快手 25s 即误判完成，因为页内存在 https 广告 video。
-  // 因此加入平台通用的“正在上传”负向信号：上传中…/剩余时间：/转码中/可见进度条
-  // 任一命中就继续等；预算也拉到 15 分钟（实测 B站 96MB 上传超 10 分钟）。
-  async _waitForVideoUploadComplete(win, platform, timeoutMs) {
-    await this._sleep(25000) // 最低稳定期：80MB 视频不可能 25s 内传完，防 blob 预览/首拍误判
-    const cond = 'function(){var t=(document.body&&document.body.innerText)||"";'
-      + 'var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading],[class*=percent],[class*=Percent]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;'
-      + 'var m=t.match(/(\\d{1,3})\\s*%/);var pct=m?Number(m[1]):-1;'
-      + 'var uploading=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t)||pv>0||(pct>=0&&pct<100);'
-      + 'if(uploading)return false;'
-      + 'var vv=[...document.querySelectorAll("video")].some(function(v){var s=v.currentSrc||v.src||"";return s.indexOf("https:")===0&&v.getClientRects().length>0});'
-      + 'var ed=!!document.querySelector(\'input[placeholder*="标题"],textarea[placeholder],[contenteditable="true"]\');'
-      + 'return vv||ed||location.href.indexOf("post/video")!==-1}'
-    const ok = await this._waitForCondition(win, cond, timeoutMs || 900000, 3000)
-    if (!ok) log.warn('RpaView', '[' + platform + '] video upload-complete signal not detected (preview/url), continuing best-effort')
-    return ok
-  },
-
   // ========== P2-B: Config loading ==========
   _getPlatformConfig(platform) {
     if (!_platformConfigInstance) {
@@ -191,6 +121,21 @@ const platformsMixin = {
       case 'clickWrite':
         await this._click(win, (context&&context.writeSelector)||'button:has-text("写文章")')
         await this._sleep(2000); break
+      case 'switchImageTab': {
+        // 小红书发布页 tabs：上传视频(active) / 上传图文 / 写长文 / 发播客（2026-09-29 实测取证：
+        // publish/publish?from=menu 默认落视频 tab，file input accept 全是视频格式；
+        // .header-tabs 容器加载慢（实测 10s 后才渲染），必须先等它出现再点）。
+        // 点击按文字「图文」匹配（比 children[1] 位置索引抗改版）。
+        const tabsReady = await this._waitForElement(win, '.header-tabs, .creator-tab', 20000)
+        if (tabsReady) {
+          try {
+            await win.webContents.executeJavaScript('(function(){var tabs=[...document.querySelectorAll(".creator-tab, .header-tabs > div")];var img=tabs.find(function(t){return (t.textContent||"").indexOf("图文")!==-1});if(img){img.click();return true}return false})()')
+          } catch (_) { /* 点击失败则继续（可能已在图文 tab） */ }
+        } else {
+          log.warn('RpaView', '[switchImageTab] tab container not found within 20s')
+        }
+        await this._sleep(1800); break
+      }
       default: log.warn('RpaView', 'Unknown hook: ' + hookName)
     }
   },
@@ -230,6 +175,33 @@ const platformsMixin = {
 
     // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
     await this._dismissPostNavDialogs(win, platform)
+
+    // image upload（2026-09-29 图文模式）：无视频但有本地图片时上传首图。
+    // 小红书/快手/抖音图文要求至少 1 张图片；图片经 article.images（本地文件路径，
+    // 渲染层自动生成封面兜底——usePublishFlow IMAGE_TEXT_PLATFORMS）传入。
+    // 多图平台（快手支持 31 张）暂传首图：多图需逐张等待上传完成，后续迭代。
+    if (!article.video_path && Array.isArray(article.images) && article.images.length > 0 && sel.file_input && sel.file_input.length > 0) {
+      retry.addField('image_upload')
+      while (!retry.isDone('image_upload')) {
+        try {
+          this._emitProgress(platform, 'uploading image...', 22)
+          const imgFileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
+          if (imgFileSel) {
+            await this._setFileInput(win, article.images[0], imgFileSel)
+            // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
+            await this._sleep(4000)
+            const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
+            if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
+            retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
+          } else {
+            if (!retry.retry('image_upload')) break; await this._sleep(2000)
+          }
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] image upload: '+e.message)
+          if (!retry.retry('image_upload')) break; await this._sleep(2000)
+        }
+      }
+    }
 
     // video upload（必须先上传后填字段：kuaishou/bilibili 等平台的 publish_url 是
     // 上传落地页，标题/简介字段要等上传完成进入编辑器才渲染；旧顺序先填字段
@@ -929,7 +901,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // eslint-disable-next-line no-unused-vars
     const self = this
     this._emitProgress('douyin','navigating...',5)
-    await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload')
+    // 2026-09-29 图文模式：无视频时走图文上传 tab（default-tab=3，getPublishUrl 单一来源，
+    // 参考产品取证同款）；有视频保持原上传页。
+    const isImageMode = !article.video_path
+    const douyinUrl = isImageMode
+      ? (getPublishUrl('douyin', 'image') || 'https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+      : 'https://creator.douyin.com/creator-micro/content/upload'
+    await this._navigateAndWait(win, douyinUrl)
     if (win.webContents.getURL().includes('login')) { log.warn('RpaView', '[douyin] not logged in url=' + win.webContents.getURL()); return {success:false,error:'douyin not logged in',platform:'douyin'} }
     // 抖音实测（2026-09 d5-douyin.json）：页面叠加“我知道了”引导遮罩，不先关掉会
     // 挡住字段与发布按钮
@@ -942,6 +920,23 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       this._emitProgress('douyin','waiting upload...',30)
       await this._waitForVideoUploadComplete(win,'douyin')
       this._emitProgress('douyin','video uploaded',50)
+    } else if (isImageMode && Array.isArray(article.images) && article.images.length > 0) {
+      // 2026-09-29 图文模式：上传首图（渲染层自动生成封面兜底传入 article.images）
+      this._emitProgress('douyin','uploading image...',20)
+      if (await this._waitForElement(win,'input[type="file"]',15000)) {
+        try {
+          await this._setFileInput(win, article.images[0])
+          await this._sleep(4000)
+          // 图片上传后页面切到发布表单（content/post/image），表单就绪再填字段。
+          // 实测教训：上传后 7ms 即填字段全部落空——页面还在切换，标题/描述填进
+          // 旧 DOM、发布按钮 disabled → 点了没反应 → 65s 超时。
+          const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
+          if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
+          this._emitProgress('douyin','image uploaded',45)
+        } catch (e) { log.warn('RpaView', '[douyin] image upload: ' + e.message) }
+      } else {
+        log.warn('RpaView', '[douyin] no file input (image mode) url=' + win.webContents.getURL())
+      }
     }
 
     if (article.title) {
@@ -1246,8 +1241,39 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     const config = this._getPlatformConfig('xiaohongshu')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
+    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input
+    // accept 全是视频格式）；图文需先点「上传图文」tab（switchImageTab hook，参考产品
+    // renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
+    const isImageMode = contentType === 'image'
     return this._publish_generic(win, article, 'xiaohongshu', {
       ...config,
+      publish_url: publishUrl || config.publish_url,
+      ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
+    })
+  },
+
+  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，
+  // getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
+  async _publish_kuaishou(win, article) {
+    const config = this._getPlatformConfig('kuaishou')
+    const contentType = article.video_path ? 'video' : 'image'
+    const publishUrl = getPublishUrl('kuaishou', contentType)
+    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
+    // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
+    // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
+    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
+    const isImageMode = contentType === 'image'
+    const effectiveConfig = isImageMode
+      ? {
+        ...config,
+        selectors: {
+          ...config.selectors,
+          file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+        },
+      }
+      : config
+    return this._publish_generic(win, article, 'kuaishou', {
+      ...effectiveConfig,
       publish_url: publishUrl || config.publish_url,
     })
   },
@@ -1342,4 +1368,5 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 }
 
-module.exports = platformsMixin
+// 合并抽出的导航/等待 helper（Object.assign 保序：本文件同名方法优先）
+module.exports = Object.assign(platformsMixin, navigationHelpers)

@@ -1414,6 +1414,8 @@ export default {
       sensitiveMessage: (ctx) => 'Content contains sensitive words: ' + ctx.named('words') + '. Publish anyway?',
       sensitiveForcePublish: 'Force Publish',
       sensitiveModify: 'Edit',
+      generatingCover: '🖼️ Image required for image-text platforms, generating cover...',
+      coverGenerated: '✓ Cover generated and attached',
       offlineCached: 'Network disconnected, task cached',
       offlineProgress: '📡 Network disconnected, publish task cached, will auto-retry when network recovers',
       scheduleCreated: (ctx) => '⏰ Created ' + ctx.named('count') + ' scheduled task(s)',

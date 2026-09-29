@@ -64,6 +64,33 @@
 
 # [未发布] feat(publish): P1-5 可见性语义级通用控件（5 平台打通，字段转 implemented）（2026-10-09，publish-page-optimization）
 
+- **feat(publish)：图文发布图片链路——本地封面生成 + 自动附图 + 图片上传（image-platforms）**。
+  E2E「热门选题→一键发布图文」流程中小红书/快手/抖音图文发布失败的根因修复（图文平台强制要求
+  至少 1 张图片，此前无图即失败）：
+  - **本地封面生成器**（local-cover-generator.js）：SVG（标题文字+渐变背景）→ sharp → PNG，
+    零生图模型/零新增依赖；`cover:generate-ai` 在无 AI 生图 provider（assetGenerator 未注入）
+    或生成失败时自动兜底（实测 cc-switch 代理 `/images/generations` 上游 404，无生图端点）
+  - **渲染端自动附图**（usePublishFlow）：发布到小红书/快手/抖音且无图时，发布前自动生成
+    封面并附加进表单（进度时间线「🖼️ 图文平台需要图片，正在自动生成封面...」→「✓ 封面已生成
+    并附加到内容」）；生成失败不阻断发布
+  - **Router 图片透传修复**：`buildPublishArticle` 旧实现只传 HTML 内容提取的 URL，渲染层
+    附加的本地封面被静默丢弃；现 `article.images`（本地文件路径）优先透传
+  - **RPA 图片上传 + 双入口 URL**：generic 流程新增图片上传分支；小红书图文 tab 切换
+    （switchImageTab hook，等容器渲染后按文字点击）；快手新增 `_publish_kuaishou` 按内容类型
+    选 tabType=1/2 + 图片 input 用 `[accept*=image]` 精确选择（实测首个 input 恒为视频通道）；
+    抖音按 `default-tab=3` 选图文 URL + 图片上传后等发布表单就绪再填字段（实测教训：上传后
+    7ms 即填字段全部落空）
+  - 验收：封面自动生成 ✅（时间线文案实测）；快手 CDP 图片上传成功 ✅（CDP file: img_*.png）；
+    抖音切到 `content/post/image` 发布表单 ✅；小红书 file input accept 变图片格式 ✅；
+    单测 212/212（+18 回归锁用例）
+  - 完整合同（数据校验/流程/交互/验收/限制/状态表）：`01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md`
+
+---
+
+ fix(content-intelligence): 外链协议校验收口——六处 :href 走共享判据，并收敛四份同用途拷贝（2026-09-29，fix-href-scheme-guard / PR #2628）
+
+---
+
 ### 变更
 
 - **语义级通用控件**（`PublishVisibilitySelect.vue` + `Publish.vue` 两分支）：通用区一个「可见性」下拉（跟随各平台默认/公开/好友可见/仅自己可见），一次选择映射到所选平台各自字段值；支持数徽标 + 「好友」档对不支持平台（快手/YouTube）如实提示「将保持默认」。`platforms` 为空时整块不渲染（零打扰）。

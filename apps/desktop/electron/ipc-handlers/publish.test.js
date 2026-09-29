@@ -7,6 +7,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import fs from 'node:fs'
 import { createAccessControlledIpcMain } from './license-access-control'
 
 // Mock logger 防止真实日志污染
@@ -200,17 +201,40 @@ describe('publish IPC 可信来源正常工作', () => {
       expect(r2.message).toContain('500')
     })
 
-    it('assetGenerator 未注入时返回服务不可用', async () => {
+    // 超时预算 30s：这两例走真实 sharp 渲染（SVG→PNG 1080x1440），CI 串行模式
+    // （test:coverage --maxWorkers=1 --no-file-parallelism）下首次加载 sharp + 渲染
+    // 会超过 vitest 默认 10s（2026-09-29 CI 实测 timed out），故显式放预算。
+    it('assetGenerator 未注入时回退本地封面生成（SVG→sharp→PNG，2026-09-29 图文发布兜底）', async () => {
       const deps = createMockDeps()
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, { prompt: 'city night', ratio: '3:4' })
+
+      // 无 AI 生图 provider 时不再报「服务不可用」，而是本地标题卡兜底成功
+      expect(result.code).toBe(0)
+      expect(result.data.coverPath).toMatch(/multi-publish-cover-local[\\/].*\.png$/)
+      expect(fs.existsSync(result.data.coverPath)).toBe(true)
+      // 清理产物
+      try { fs.unlinkSync(result.data.coverPath) } catch (_) { /* ignore */ }
+    }, 30000)
+
+    it('assetGenerator 生成失败时也回退本地封面（不因 AI 失败阻断发布链路）', async () => {
+      const assetGenerator = {
+        generateImage: vi.fn(async () => ({ code: -1, message: '上游生图失败' })),
+      }
+      const deps = createMockDeps({ assetGenerator })
       const ipcMain = createMockIpcMain()
       registerHandlers(ipcMain, deps)
       const handler = ipcMain._get('cover:generate-ai')
 
       const result = await handler(TRUSTED_EVENT, { prompt: 'city night' })
 
-      expect(result.code).toBe(-1)
-      expect(result.message).toContain('不可用')
-    })
+      expect(result.code).toBe(0)
+      expect(result.data.coverPath).toMatch(/multi-publish-cover-local[\\/].*\.png$/)
+      try { fs.unlinkSync(result.data.coverPath) } catch (_) { /* ignore */ }
+    }, 30000)
   })
 
   // P3-7：合集列表拉取（collection:list）
