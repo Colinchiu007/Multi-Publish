@@ -149,10 +149,5 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
-  },
-  "本次执行记录：批量定时加固 + scheduled_tasks 死路径清理（harden-batch-schedule，2026-10-02）": {
-    "reason": "本 PR（harden-batch-schedule）尚未合并，无法回填 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 `git log origin/main --grep='(#NNNN)$'` 离线取证回填并删除本登记项（不删则报陈旧登记）。",
-    "status": "PENDING",
-    "line": 25
   }
 }
