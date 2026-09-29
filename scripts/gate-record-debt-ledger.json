@@ -1,4 +1,8 @@
 {
+  "本次执行记录：P2-7 批量模式字段面——UI/payload/主进程三层同时收口（batch-mode-field-surface，2026-10-09）": {
+    "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填 PASS 并删除本登记项（不删则报陈旧登记）。",
+    "stat": "pending-self"
+  },
   "本次执行记录：发布历史失败原因渲染收口（publish-history-error-detail，2026-09-29）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填并删除本登记项（不删则报陈旧登记）。"
   },

@@ -1442,7 +1442,15 @@ export default {
       resultPartial: (ctx) => '发布完成：' + ctx.named('succeeded') + ' 个成功，' + ctx.named('failed') + ' 个失败',
     },
     // 批量发布通知（useBatchPublish 试点迁移，2026-08-30）
+    batchFieldSurface: {
+      sectionTitle: '扩展字段面',
+      coverHint: '每篇文章可单独设置封面；未设置的条目按平台默认处理',
+      diffHint: '只为本篇所选平台单独调整标题/正文与差异化字段，不影响其他文章',
+      noPlatformHint: '本篇尚未选择平台，差异化设置将在选择平台后可见',
+      clearCover: '清除封面',
+    },
     batchNotify: {
+      contentInvalid: (ctx) => '「' + ctx.named('title') + '」' + ctx.named('message'),
       retrySuccess: (ctx) => '已重新提交 ' + ctx.named('accepted') + ' 个失败任务',
       retryPartial: (ctx) => '已重新提交 ' + ctx.named('accepted') + ' 个任务，' + ctx.named('remaining') + ' 个任务仍失败',
       retryFailed: '失败任务重新提交失败',

@@ -557,3 +557,118 @@ describe('BatchManager 定时器生命周期 — 幽灵发布与重复排期回�
     expect(queue.add).not.toHaveBeenCalled()
   })
 })
+
+// P2-7 批量模式字段面：派发层不得再手工裁剪 article 键。
+// 缺陷原形：executeBatch 用 5 键白名单（title/content/author/cover_url/video_path）入队，
+// 而同一文件的 scheduleBatch 是整包透传 —— 同一批文章「设了定时就带封面、立即发布就没封面」，
+// 且渲染层新加的 tags/topics/mentions/contentFormat/platformOverrides/visibilitySemantic
+// 在立即执行路径上被静默丢弃（本地全绿、无任何日志）。
+describe('BatchManager P2-7 派发层字段面（executeBatch ↔ scheduleBatch parity）', () => {
+  /** 渲染层 buildBatchArticlePayload 落库后的真实形态（含条目级扩展字段面） */
+  function fullStoredArticle (extra = {}) {
+    return {
+      title: '标题',
+      content: '正文',
+      contentFormat: 'markdown',
+      platforms: ['wechat_mp'],
+      publishTime: null,
+      precheck: true,
+      author: '作者',
+      cover_url: 'https://example.com/a.png',
+      cover_path: 'D:/a.png',
+      cover_file: { path: 'D:/a.png', name: 'a.png' },
+      video_path: 'D:/v.mp4',
+      images: ['D:/1.png'],
+      image_files: [{ path: 'D:/1.png' }],
+      tags: ['标签'],
+      topics: ['话题'],
+      mentions: [{ name: '张三', text: '@张三' }],
+      aiGenerated: false,
+      platformOverrides: { wechat_mp: { title: '覆盖标题', content: '' } },
+      visibilitySemantic: 'private',
+      ...extra,
+    }
+  }
+
+  function setupWindow () {
+    const win = new __electronMock.BrowserWindow()
+    win.webContents.send = vi.fn()
+    return win
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    __resetElectronMock()
+    BatchManager.setTaskQueue(null)
+    setupWindow()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('executeBatch 入队携带全部字段（旧白名单会在此变红）', async () => {
+    const stored = fullStoredArticle()
+    const store = createStore([stored])
+    const queue = createQueue(() => 'task-1')
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    await manager.executeBatch('batch-1')
+
+    expect(queue.add).toHaveBeenCalledTimes(1)
+    const enqueued = queue.add.mock.calls[0][0]
+    expect(enqueued.article).toEqual({ ...stored, accountId: null })
+    // 逐个点名本切片修复的键：白名单形态下这些一律丢失
+    for (const key of [
+      'cover_path', 'cover_file', 'images', 'image_files', 'tags', 'topics',
+      'mentions', 'aiGenerated', 'contentFormat', 'platformOverrides', 'visibilitySemantic',
+    ]) {
+      expect(enqueued.article, `入队任务必须携带 ${key}`).toHaveProperty(key)
+    }
+  })
+
+  it('executeBatch 与 scheduleBatch 携带同一字段面（parity 锁，一条路径单独丢键即红）', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-29T08:00:00.000Z'))
+
+    const immediateStore = createStore([fullStoredArticle()])
+    const immediateQueue = createQueue(() => 'task-now')
+    BatchManager.setTaskQueue(immediateQueue)
+    await new BatchManager(immediateStore).executeBatch('batch-1')
+
+    const future = new Date(Date.now() + 60_000).toISOString()
+    const scheduleStore = createStore([fullStoredArticle({ publishTime: future })])
+    const scheduleQueue = createQueue(() => 'task-later')
+    BatchManager.setTaskQueue(scheduleQueue)
+    const scheduleManager = new BatchManager(scheduleStore)
+    scheduleManager.scheduleBatch('batch-1')
+    await vi.advanceTimersByTimeAsync(60_001)
+
+    expect(immediateQueue.add).toHaveBeenCalledTimes(1)
+    expect(scheduleQueue.add).toHaveBeenCalledTimes(1)
+    const immediateKeys = Object.keys(immediateQueue.add.mock.calls[0][0].article).sort()
+    const scheduleKeys = Object.keys(scheduleQueue.add.mock.calls[0][0].article).sort()
+    expect(immediateKeys).toEqual(scheduleKeys)
+
+    // accountId 必须落进 article：resolveAccountForPublish 读的是 article.accountId，
+    // 只放 task 顶层会让排期批次回退到平台默认账号的凭证（本条锁住该缺陷）
+    const immediateArticle = immediateQueue.add.mock.calls[0][0].article
+    const scheduleArticle = scheduleQueue.add.mock.calls[0][0].article
+    expect('accountId' in immediateArticle).toBe(true)
+    expect('accountId' in scheduleArticle).toBe(true)
+    expect(immediateArticle.accountId).toEqual(scheduleArticle.accountId)
+  })
+
+  it('accountId 由派发目标覆盖条目自带值（防「批次里残留的账号」冒充本次目标）', async () => {
+    const store = createStore([fullStoredArticle({ accountId: 'stale-account', platforms: [{ platform: 'wechat_mp', accountId: 'wx-target' }] })])
+    const queue = createQueue(() => 'task-1')
+    BatchManager.setTaskQueue(queue)
+
+    await new BatchManager(store).executeBatch('batch-1')
+
+    const enqueued = queue.add.mock.calls[0][0]
+    expect(enqueued.accountId).toBe('wx-target')
+    expect(enqueued.article.accountId).toBe('wx-target')
+  })
+})

@@ -3,7 +3,7 @@
 > **立项日期**: 2026-10-08
 > **分析对象**: 视频发布页 + 图文发布页（`apps/desktop/src/views/Publish.vue` 两分支 + 批量模式）
 > **对比基准**: 参考产品 4.13.19（本机逆向工程目录取证；主进程 bundle 8.4MB，其发布页 UI 走远程 Web，本地无界面代码，故页面级对比以其**任务结构、状态模型、引擎行为**为基准）
-> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（两切片）已实现（本文档同 PR 链）；P1-3 / P2 待立项
+> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（两切片）/ P2-7 已实现（本文档同 PR 链）；P1-3 / P2-6 / P2-8 待立项
 > **关联**: [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（字段面注册表，已合并）
 
 ---
@@ -39,7 +39,7 @@
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
 | 5 | platform-capable 字段补齐 | visibility(5)/location(3)/goods(4)/activity(3)/download(2)/music(2)+独有项 | ~~注册表已收录未实现~~ → **visibility 5 平台已打通**（2026-10-09 第三切片：语义级通用控件 + resolver/adapter 补齐 + 字段转 implemented）；其余语义仍待立项 | 🟠 P1-5 ✅ |
 | 6 | 数据回流看板 | 总转评赞/播放/发布总数 + 趋势图 | 无发布后数据回流 | 🟡 P2-6 |
-| 7 | 批量模式字段面 | 任务结构支持全字段 | 批量缺封面/徽标/无标题提示/差异化面板 | 🟡 P2-7 |
+| 7 | 批量模式字段面 | 任务结构支持全字段 | ~~批量缺封面/徽标/无标题提示/差异化面板~~ → **已实现**（2026-10-09 第六切片：三层同时收口——UI 字段面 + payload 键集与单篇同口径 + 主进程 `executeBatch` 白名单砍键修复，详见 §六 与 [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)） | 🟡 P2-7 ✅ |
 | 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | 无分组 | 🟡 P2-8 |
 
 **核心结论**：字段面已反超；真正差距集中在**发布后的世界**——审核状态跟踪（P0-1）是矩阵工具的核心价值分水岭，参考产品把「发布成功」当起点，我们目前当终点。
@@ -376,6 +376,16 @@ task:success（有 postId）
 - 「跟随各平台默认」不写入任何字段，各平台默认值由平台侧决定（快手 1 公开、抖音 0 公开、YouTube public、TikTok PUBLIC、微博不传＝平台默认）
 - 「好友」档对 YouTube 刻意不降级为 `unlisted`（不公开列出 ≠ 好友可见，语义不同），保持不透传
 - 微博 `visible` 生效依赖平台对 `aj/v6/upload/upload_video` 该字段的接受度（参考产品取证同字段，未经真机验收）
+
+### P2-7 批量模式字段面（**2026-10-09 已实现**，publish-page-optimization 第六切片）
+
+> 详写见 [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)（六维度全量）。此处只记结论与差距表纠偏。
+
+- **差距表原判据需纠偏**：原文写「批量缺封面/徽标/无标题提示/差异化面板」，把它当成 UI 缺口。实施时勘察发现是**三层同时断**——主进程 `batch-manager.executeBatch` 用 5 键手工白名单入队（同文件 `scheduleBatch` 却整包透传），渲染层批量 payload 比单篇少 `contentFormat`/`platformOverrides`/`visibilitySemantic` 三键，UI 层 `cover_*` 等字段**只有读点、没有写点**。只补 UI 会得到一组「填了不生效」的装饰性输入框。
+- **parity 锁当场命中第二颗雷**：排期路径整包透传 article，却不把本次派发目标写进 `article.accountId`，而 `publisher-router.resolveAccountForPublish` 读的正是 `article.accountId`（缺失即回退平台默认账号凭证）⇒ **同平台多账号的批量排期会拿错账号凭证**。三条派发点已收敛到 `buildEnqueuedArticle(article, accountId)` 一处实现。
+- **判据下沉**：单篇字段面判据（支持度徽标 / 无标题提示 / 可见性支持清单 / 差异化面板规格）原内联在 `Publish.vue` 且只认全局 `selectedPlatforms`；现下沉为 `usePublishFieldSurface`（按传入平台清单计算），单篇与批量同一份，两模式不可能口径漂移；同时给 `Publish.vue` 净减 27 行（该文件距 `LEDGER_GREW` 上限原本只剩 4 行）。
+- **交付面**：条目级封面（手选 + 预览 + 清除 + URL）、通用字段支持度徽标、无标题平台首行提示、平台差异化内容面板、可见性语义档位、Markdown 内容格式判定、注册表内容限制校验（批量此前完全不调 `validatePlatformContent`）。
+- **反证四条均已实跑**（整包透传退回白名单 ⇒ 红 2；override 归一 no-op ⇒ 红 1；内容校验恒通过 ⇒ 红 2；无标题提示忽略入参清单 ⇒ 红 3），每条变异后逐字节还原并校验 SHA。
 
 ## 五、残余限制
 

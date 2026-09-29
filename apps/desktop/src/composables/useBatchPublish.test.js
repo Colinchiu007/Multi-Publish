@@ -628,22 +628,20 @@ describe('useBatchPublish — composable setup', () => {
     await r.handleBatchPublish()
 
     expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+    // P2-7：键集与单篇 buildArticleData 同口径——封面/图片/标签/话题/@好友 一律
+    // 「有值才挂键」（此前恒发空数组/空串，与单篇形状不一致）；新增
+    // contentFormat / platformOverrides 两键（visibilitySemantic 有值才挂）。
     expect(mockBatchCreate.mock.calls[0][0].articles).toEqual([{
       title: '标题',
       content: '正文',
+      contentFormat: 'html',
+      platformOverrides: {},
       platforms: ['wechat_mp', 'zhihu'],
       publishTime,
       precheck: true,
       author: '',
       cover_url: '',
-      cover_path: '',
-      cover_file: null,
       video_path: '',
-      images: [],
-      image_files: [],
-      tags: [],
-      topics: [],
-      mentions: [],
       // P0-2：批量 payload 含 AI 声明（fail-safe 默认 true）
       aiGenerated: true,
     }])
@@ -1055,5 +1053,220 @@ describe('useBatchPublish — 离线检测与取消排期（与单篇语义对�
     expect(r.scheduledBatchId.value).toBe(null)
     await r.cancelScheduledBatch()
     expect(window.electronAPI.batchCancel).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * P2-7 批量模式字段面
+ *
+ * 三条锁各自对应一个真实缺陷形态：
+ * ① 条目结构必须有写点（此前 cover_* 只有读点、没有写点 ⇒ 恒为空，「字段恒空」诊断法）；
+ * ② payload 必须与单篇同口径（此前少 contentFormat / platformOverrides / visibilitySemantic）；
+ * ③ 提交前必须过注册表内容限制校验（此前批量完全不调 validatePlatformContent，
+ *    超长内容由平台侧报错，用户在进度流里只看到一条模糊失败）。
+ */
+describe('useBatchPublish — P2-7 批量条目字段面', () => {
+  let article
+  let licenseStore
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    article = reactive({ title: '', content: '' })
+    licenseStore = { isPro: true }
+    window.electronAPI = {
+      batchSchedule: vi.fn(() => Promise.resolve({ code: 0 })),
+      batchExecute: vi.fn(() => Promise.resolve({ code: 0 })),
+      onBatchProgress: vi.fn(() => vi.fn()),
+      offlineStatus: vi.fn(() => Promise.resolve({ code: 0, data: { offline: false } })),
+      offlineAddToCache: vi.fn(() => Promise.resolve({ code: 0 })),
+    }
+    mockBatchCreate.mockResolvedValue({ code: 0, data: { id: 'batch-p27' } })
+  })
+
+  afterEach(() => {
+    delete window.electronAPI
+  })
+
+  function publishedArticle () {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp'],
+      publishTime: '',
+    }]
+    return r
+  }
+
+  it('新条目结构自带 platformOverrides / visibilitySemantic（面板与档位有落点）', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.addArticle()
+    const fresh = r.articles.value[r.articles.value.length - 1]
+    expect(fresh.platformOverrides).toEqual({})
+    expect(fresh.visibilitySemantic).toBe('')
+  })
+
+  it('setBatchArticleCover 写 cover_file + cover_path；解析失败不改动既有封面', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.addArticle()
+    const a = r.articles.value[r.articles.value.length - 1]
+
+    expect(r.setBatchArticleCover(a, { path: 'D:/cover.png', name: 'cover.png' })).toBe(true)
+    expect(a.cover_path).toBe('D:/cover.png')
+    expect(a.cover_file).toEqual({ path: 'D:/cover.png', name: 'cover.png' })
+
+    // 假描述符必须返回 false 且保持原值：把「解析失败」写成空串等于伪装成用户清空封面
+    expect(r.setBatchArticleCover(a, null)).toBe(false)
+    expect(r.setBatchArticleCover(a, { name: 'no-path.png' })).toBe(false)
+    expect(a.cover_path).toBe('D:/cover.png')
+  })
+
+  it('clearBatchArticleCover 一次清掉三个封面入口（file/path/url 不得残留半值）', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.addArticle()
+    const a = r.articles.value[r.articles.value.length - 1]
+    a.cover_url = 'https://example.com/a.png'
+    r.setBatchArticleCover(a, { path: 'D:/cover.png' })
+
+    r.clearBatchArticleCover(a)
+    expect(a.cover_file).toBeNull()
+    expect(a.cover_path).toBe('')
+    expect(a.cover_url).toBe('')
+  })
+
+  it('setBatchArticleVisibility 只接受三个语义档位与清空，非法值保持现状', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.addArticle()
+    const a = r.articles.value[r.articles.value.length - 1]
+
+    r.setBatchArticleVisibility(a, 'private')
+    expect(a.visibilitySemantic).toBe('private')
+    r.setBatchArticleVisibility(a, 'PUBLICS')
+    expect(a.visibilitySemantic).toBe('private')
+    r.setBatchArticleVisibility(a, '')
+    expect(a.visibilitySemantic).toBe('')
+  })
+
+  it('setBatchArticleOverrides 深拷贝：源对象后续变化不污染条目，两条目互不共享', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.addArticle()
+    r.addArticle()
+    const [first, second] = r.articles.value
+    const panelPayload = { wechat_mp: { title: '覆盖', content: '' } }
+
+    r.setBatchArticleOverrides(first, panelPayload)
+    panelPayload.wechat_mp.title = '面板随后改了'
+    expect(first.platformOverrides.wechat_mp.title).toBe('覆盖')
+
+    r.setBatchArticleOverrides(second, {})
+    expect(second.platformOverrides).toEqual({})
+    expect(first.platformOverrides.wechat_mp.title).toBe('覆盖')
+  })
+
+  it('duplicateArticle 携带条目级字段面且为深拷贝，复制不带排期', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.addArticle()
+    const origin = r.articles.value[0]
+    origin.title = '原标题'
+    origin.content = '正文'
+    origin.platforms = ['wechat_mp']
+    origin.visibilitySemantic = 'friends'
+    origin.platformOverrides = { wechat_mp: { title: '覆盖标题', content: '' } }
+    origin.publishTime = futurePublishTime()
+
+    r.duplicateArticle(0)
+    const copy = r.articles.value[1]
+    expect(copy.visibilitySemantic).toBe('friends')
+    expect(copy.platformOverrides).toEqual({ wechat_mp: { title: '覆盖标题', content: '' } })
+    expect(copy.platformOverrides).not.toBe(origin.platformOverrides)
+    copy.platformOverrides.wechat_mp.title = '副本改的'
+    expect(origin.platformOverrides.wechat_mp.title).toBe('覆盖标题')
+    expect(copy.publishTime).toBe('')
+  })
+
+  it('payload 携带新字段：Markdown 判定 / 差异化归一 / 可见性档位 / 封面归一', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '# 标题',
+      content: '**加粗**正文',
+      platforms: ['wechat_mp'],
+      cover_file: { path: 'D:/c.png', name: 'c.png' },
+      platformOverrides: { wechat_mp: { title: '', content: '' }, zhihu: { title: '知乎覆盖', content: '' } },
+      visibilitySemantic: 'private',
+    }]
+
+    await r.handleBatchPublish()
+
+    const payload = mockBatchCreate.mock.calls[0][0].articles[0]
+    expect(payload.contentFormat).toBe('markdown')
+    expect(payload.visibilitySemantic).toBe('private')
+    // 空覆盖条目被剔除（冗余覆盖会改写平台默认），非空条目保留
+    expect(payload.platformOverrides).toEqual({ zhihu: { title: '知乎覆盖', content: '' } })
+    expect(payload.cover_path).toBe('D:/c.png')
+    expect(payload.cover_file).toEqual({ path: 'D:/c.png', name: 'c.png' })
+  })
+
+  it('无可见性档位时不挂该键（与单篇「有值才挂」同口径，不得发 undefined）', async () => {
+    const r = publishedArticle()
+    await r.handleBatchPublish()
+    const payload = mockBatchCreate.mock.calls[0][0].articles[0]
+    expect('visibilitySemantic' in payload).toBe(false)
+  })
+
+  it('内容超出注册表限制时整批中止且不创建批次（此前批量完全不调校验）', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '小红书标题',
+      // 小红书正文上限（注册表 contentMax）由共用工单给出，这里用远超任何平台上限的长度
+      content: '长'.repeat(5000),
+      platforms: ['xiaohongshu'],
+      publishTime: '',
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('小红书标题'))
+  })
+
+  it('差异化面板里的超长覆盖内容同样被拦（校验对象是实际要发布的内容，不是表单值）', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '合规标题',
+      content: '合规正文',
+      platforms: ['douyin'],
+      publishTime: '',
+      // 抖音正文上限 1000（注册表），表单正文合规、但本篇的差异化覆盖超限
+      platformOverrides: { douyin: { title: '', content: '正文'.repeat(600) } },
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('合规标题'))
+  })
+
+  it('接线守卫：批量 payload 键集必须覆盖单篇 buildArticleData 的全部键（漏一键即红）', async () => {
+    const fs = require('fs')
+    const path = require('path')
+    const root = path.resolve(__dirname, '..', '..')
+
+    function keysOf (file, fnName) {
+      const src = fs.readFileSync(path.join(root, file), 'utf8')
+      const start = src.indexOf('function ' + fnName)
+      expect(start, file + ' 里找不到 ' + fnName + '（实现被改名/删除，锁不得静默放行）').toBeGreaterThan(-1)
+      const body = src.slice(start, start + 3000)
+      const literalKeys = [...body.matchAll(/^\s{6}([a-zA-Z][\w]*):/gm)].map(m => m[1])
+      const assignedKeys = [...body.matchAll(/data\.([a-zA-Z][\w]*)\s*=/g)].map(m => m[1])
+      return new Set([...literalKeys, ...assignedKeys])
+    }
+
+    const singleKeys = keysOf('src/composables/usePublishFlow.js', 'buildArticleData')
+    const batchKeys = keysOf('src/composables/useBatchPublish.js', 'buildBatchArticlePayload')
+    // 规模下界：解析退化成小集合时（正则失配）本条先红，避免假绿
+    expect(singleKeys.size).toBeGreaterThan(8)
+    expect(batchKeys.size).toBeGreaterThan(8)
+    const missing = [...singleKeys].filter(key => !batchKeys.has(key))
+    expect(missing, '批量 payload 缺少单篇已有字段：' + missing.join(',')).toEqual([])
   })
 })
