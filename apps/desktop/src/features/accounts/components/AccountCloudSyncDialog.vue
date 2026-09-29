@@ -464,13 +464,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.cloud-sync-dialog { display: flex; flex-direction: column; gap: var(--apple-space-3); }
-.cloud-sync-line { margin: 0; color: var(--apple-ink-secondary); font-size: var(--apple-size-sm); line-height: 1.5; }
-.cloud-digest-error { color: var(--apple-error); }
+.cloud-sync-dialog { display: flex; flex-direction: column; gap: var(--spacing-3); }
+.cloud-sync-line { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; }
+.cloud-digest-error { color: var(--color-danger); }
 
-.cloud-sync-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--apple-space-2); }
-.cloud-sync-progress-text { color: var(--apple-ink-primary); font-size: var(--apple-size-sm); font-weight: var(--apple-weight-semibold); }
-.cloud-sync-elapsed { color: var(--apple-ink-secondary); font-size: var(--apple-size-xs); }
+.cloud-sync-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-2); }
+.cloud-sync-progress-text { color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.cloud-sync-elapsed { color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 /* 进度条样式口径复用 Accounts.vue 的 .batch-check-bar（同名 scoped 规则，两处视觉一致） */
 .batch-check-bar { width: 100%; height: 6px; overflow: hidden; border-radius: 3px; background: #f0f0f5; }
 .batch-check-bar-inner { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #6a62f0, #5048e5); transition: width 0.3s ease; }

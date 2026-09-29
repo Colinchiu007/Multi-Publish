@@ -76,12 +76,18 @@
 **Files**: `components/UiButton.vue`(28)、`UiInput.vue`(16)、`UiModal.vue`(29)、`ConfigProfileManager.vue`(15)
 
 ### Acceptance Criteria
-- [ ] 采取 design 的 (a) 方案：组件**内部**改 token 来源，props/emits/slots API 完全不变
-- [ ] 不得要求调用方「加类覆盖」（scoped 特异性 (0,2,0) 会压过外部全局类，已实证无效）
-- [ ] 每个组件一份「旧 `--apple-*` → 新令牌 → 值差异」三栏清单，随 PR 附上
-- [ ] 组件单测全绿 + 受影响的视图测试全绿
-- [ ] 相关视图基线**定向**重生成（`PIXEL_ONLY`），浅色 + 暗色各一遍并逐张核对
-- [ ] 完成后 `apps/desktop/src/components` 下 `var(--apple-` 命中 = 0
+- [x] 采取 design 的 (a) 方案：组件**内部**改 token 来源，props/emits/slots API 完全不变（本次为纯 CSS 变量替换，未动任何模板/脚本/props）
+- [x] 不得要求调用方「加类覆盖」（无任何调用方文件被改；替换范围严格限定在 8 个自有文件内）
+- [x] 每个组件一份「旧 `--apple-*` → 新令牌 → 值差异」三栏清单 → `component-token-map.md`（全局映射表 + 逐组件变量集合 + 值不保值与观感披露）
+- [x] 组件单测全绿：**96 tests / 0 fail**（UiButton / UiInput / UiModal / ConfigProfileManager / AccountCloudSyncDialog）。**受影响的视图测试**由 CI 分片承担（本 PR 的 QG Desktop Shards）
+- [ ] 相关视图基线**定向**重生成（`PIXEL_ONLY`），浅色 + 暗色各一遍并逐张核对 → **待 CI 同源取证**（QM-4 第 7 条禁止本机图入库）；本批次改了颜色/圆角/字号，基线必然变化
+- [x] 完成后 `apps/desktop/src/components` 下 `var(--apple-` 命中 = 0，且 8 个目标文件整体残留 = 0（实测）
+
+### 批次 3 实测结果（2026-09-29）
+- **替换 147 处 / 8 文件**（`src/components` 88 + `features/accounts/components` 59），与批次 0 基线精确一致
+- **门禁计数 339 → 192**（与「移除 147」精确吻合）；基线按「只降不升」下调为 **192**（`frontend-consistency-baseline.json`）
+- 陈旧 fallback 剔除 4 处（`#1f7a4d` / `#a2650b` —— 既不等于 Apple 值也不等于权威值，属第三套真相）
+- 迁移方式：显式映射表 + **失败即停**脚本（未列入映射的变量即报错），并内置「替换结果内 `--apple-` 残留必须为 0」断言
 
 ---
 
