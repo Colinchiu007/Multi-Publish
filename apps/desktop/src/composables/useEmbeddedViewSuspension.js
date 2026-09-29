@@ -14,17 +14,40 @@
  *   - 释放必须走 releaseXxx 且 owner 匹配，未知 owner 释放无效（防计数漂移）。
  */
 import { invokePageManager } from '@/api/electron-bridge'
+import { isHomeShellSearch } from '@/utils/home-shell'
 
 /** 本渲染实例当前持有挂起的 owner 集合（模块级，跨组件共享去重） */
 const activeOwners = new Set()
 
 /**
+ * 当前渲染上下文是否为「+新标签」内嵌主页实例。
+ *
+ * 必须在每次调用时读取，不得在模块导入期求值 —— 同一 JS realm 里 URL 可变，
+ * 冻结求值会让守卫在真实导航后失效。
+ *
+ * 为什么 home-shell 里必须 no-op：该实例本身就是一张 WebContentsView，而主进程
+ * 任一时刻只让活动标签可见（`setVisible(true)` 全仓仅 layout.js 一处、且只作用于
+ * activeView）。因此它内部的应用级模态不会被别的标签视图盖住，挂起是不必要的；
+ * 更糟的是 `_hideAllTabs()` 会连它自己一起隐藏，用户表现为「打开弹窗后内容区整块空白」。
+ * App.vue 对 setShellMode 早已有同源守卫（`if (isHomeShell) return`），此处补齐挂起路径。
+ */
+function isHomeShellRuntime () {
+  if (typeof window === 'undefined' || !window.location) return false
+  try {
+    return isHomeShellSearch(window.location.search)
+  } catch (_) {
+    return false
+  }
+}
+
+/**
  * 浮层打开：挂起全部内嵌视图（浏览器标签 + 登录视图 + 扫码视图）。
  * @param {string} owner 浮层标识
- * @returns {Promise<boolean>} 是否实际发起了挂起（重复调用/环境不可用返回 false）
+ * @returns {Promise<boolean>} 是否实际发起了挂起（重复调用/环境不可用/内嵌主页壳态返回 false）
  */
 export async function suspendEmbeddedViewsForOverlay (owner) {
   if (!owner || activeOwners.has(owner)) return false
+  if (isHomeShellRuntime()) return false
   activeOwners.add(owner)
   try {
     await invokePageManager('suspendEmbeddedViews', owner)

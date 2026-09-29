@@ -1328,6 +1328,13 @@ export default {
         r43: '4:3',
       },
     },
+    coverPreview: {
+      title: 'Cover preview',
+      hint: 'Click the thumbnail to enlarge',
+      ariaLabel: 'Enlarge cover preview',
+      loading: 'Loading cover…',
+      unavailable: 'Cover preview unavailable',
+    },
     schedule: 'Schedule',
     scheduleHint: 'Leave empty = publish now',
     optimalTimeNoData: 'Not enough data for a posting-time suggestion yet',
