@@ -29,6 +29,9 @@ const TABLE = [
   ['JaVaScRiPt:alert(1)', null],
   ['jav&#x61;script:alert(1)', null],
   ['java\tscript:alert(1)', null],
+  // 前缀锚定性反例：判据缺 `^` 时这两条会漏（QM-6 后端 Warning-1）
+  ['javascript:https://evil.example', null],
+  ['xhttps://evil.example', null],
   ['data:text/html;base64,PHNjcmlwdD4=', null],
   ['vbscript:msgbox(1)', null],
   ['file:///C:/Windows/win.ini', null],
@@ -72,6 +75,29 @@ describe('CJS/ESM 孪生 parity', () => {
   it('两个孪生的判据正则必须逐字同源', () => {
     expect(esmGuard.HTTP_URL_RE.source).toBe(cjsGuard.HTTP_URL_RE.source)
     expect(esmGuard.HTTP_URL_RE.flags).toBe(cjsGuard.HTTP_URL_RE.flags)
+  })
+
+  it('导出集合必须一致（QM-6 Warning-2：只比判据会漏"仅 CJS 侧新增导出"这条生产崩溃路径）', () => {
+    // 渲染端 import 的是 ESM 孪生（vite alias），单测因 vitest.config 无该 alias 而解析到 CJS。
+    // 于是"CJS 新增了 isSafeScheme 而孪生没补"在单测里完全不可见，生产构建才报 undefined is not a function。
+    //
+    // CJS 被 ESM 加载时命名空间会多出一个 `default`（实测其值是 `module.exports` 那个对象，
+    // 与命名空间包装对象**不是同一个引用**，所以不能用 `ns.default === ns` 判自指）。
+    // 判据改用**值等价**：`default` 必须镜像同一组导出（每个键的值都等于命名空间上的同名值），
+    // 才认定为加载器产物并剔除；若有人真写了 `export default …`，等价条件不成立 ⇒ 本断言当场变红。
+    // 不做无条件 filter('default')，那是把这一类漂移直接藏进断言里。
+    function apiKeys (ns) {
+      const d = ns.default
+      const isInteropDefault = !!d && typeof d === 'object' &&
+        Object.keys(ns).filter(k => k !== 'default').every(k => d[k] === ns[k]) &&
+        Object.keys(d).every(k => ns[k] === d[k])
+      return Object.keys(ns).filter(k => !(k === 'default' && isInteropDefault)).sort()
+    }
+    expect(apiKeys(esmGuard)).toEqual(apiKeys(cjsGuard))
+    // 且两侧都必须真的暴露这两个 API（键集相同但都缺 safeHttpUrl 也算漂移）
+    expect(apiKeys(esmGuard)).toEqual(['HTTP_URL_RE', 'safeHttpUrl'])
+    // 反证预留：如果哪天 CJS 侧新增导出而孪生没补，上面第一条就会红
+    expect(typeof cjsGuard.default === 'object' ? Object.keys(cjsGuard.default).sort() : []).toEqual(['HTTP_URL_RE', 'safeHttpUrl'])
   })
 
   it.each(TABLE)('孪生对同一输入必须给出同一结论：%o → %o', (input, expected) => {

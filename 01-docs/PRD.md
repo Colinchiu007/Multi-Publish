@@ -4787,7 +4787,8 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 | 交互逻辑 | 「作为参考」「插入」「复制链接」不受协议校验影响（它们只取 `title` 或照常复制文本）；安全链接仍 `target="_blank"` + `rel="noopener"` |
 | 提示文字 | **无新增**（AGENTS.md 禁止死键：正常数据下该状态不出现；将来若加提示必须 zh/en 成对进 locales，且不得复用采集入口的 `collectError.protocol` —— 那是用户手填失败、语义不同） |
 | 为什么是真漏洞 | Vue 3 移除了 v2 的 `isUnsafeURL` href 守卫；本应用渲染进程持有 `window.electronAPI`（账号/凭证/发布/文件路径）；HN·Reddit·GitHub 的 url 字段由提交人完全可控 ⇒ 点一下即特权上下文执行任意 JS |
-| 回归锁 | `packages/shared-utils/src/__tests__/safe-http-url.test.js`（判定表 + 孪生 parity）、`apps/desktop/src/href-scheme-contract.test.js`（全仓 `:href=` 结构棘轮，含扫描域非空与命中数下界两条反失明断言）、`apps/desktop/electron/services/content-intelligence-sources.test.js`（采集侧行为锁，补结构锁盲区） |
+| 判据范围 | 实测全仓 1846 个文件中 37 处含同类写法，**多数是不同意图**（剥协议取 host、判绝对性走分支、网络取回守卫、issuer/proxy/baseURL 强制 https），一律不纳入本锁；已收敛的同用途拷贝为 `channels.js` / `phase4-events.js` / `Collection.vue` / `content-intelligence-sources.js`。范围定义见专项 PRD §5.2 |
+| 回归锁 | `packages/shared-utils/src/__tests__/safe-http-url.test.js`（判定表 + 孪生 parity，含导出集合 parity）、`apps/desktop/src/href-scheme-contract.test.js`（全仓 `:href=` 结构棘轮，含扫描域非空与命中数下界两条反失明断言）、`apps/desktop/electron/services/content-intelligence-sources.test.js`（采集侧行为锁，补结构锁盲区） |
 | 已知接缝 | `vitest.config.js` 不含该 alias：单测解析 CJS、生产解析 ESM 孪生；摘掉 alias 只有结构锁会红，故 parity 锁与 alias 源码锁必须同时在位 |
 
 ### 9.3 爆款分析
