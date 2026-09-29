@@ -269,7 +269,7 @@ RPA：   _publish_xiaohongshu(切图文tab+传图) / _publish_kuaishou(tabType=2
 点击刷新无反应；**用邮箱密码登录后仍需扫码验证身份（安全保护页 `bizlogin?action=validate`），该页二维码同样加载不出**。
 **关键线索：同一页面在系统浏览器中正常** —— 指向**应用环境差异**，而非服务端策略。
 
-### 14.2 参考产品（参考产品）的关键做法
+### 14.2 参考产品的关键做法
 | 项 | 参考产品做法 | 出处 |
 |----|-------------|------|
 | 微信**登录页 URL** | `https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`（**专用登录页**） | `PlatformAuthorizeConfig.authorizeUrl` / `entryUrl` |
