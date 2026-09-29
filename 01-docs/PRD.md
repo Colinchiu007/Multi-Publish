@@ -18158,3 +18158,10 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 | Referer | 短形态 `https://cp.kuaishou.com/` | 发布页长 Referer |
 
 **合同**：上传域（跨 registrable domain）请求一律无 Cookie + 短 Referer（与浏览器逐字一致）；cp.kuaishou.com 域请求（pre/finish/submit/list）保持带 Cookie + 长 Referer（同域合法且已实证可用）。回归锁：`kuaishou-video-chain.test.js` 分片/complete 断言 cookie undefined + 短 referer（红→绿实证）。
+## 快手上传域头部精确对齐合同（2026-09-29 活体 6.3 第七层三轮，随本 PR）
+
+**取证三轮**：Cookie/Referer/Content-Type 全对齐后 complete 仍裸 400。剩余唯一头部差异：真实浏览器带 sec-ch-ua 三件套 + Chrome/150 UA。
+
+**合同**：上传域请求（分片/complete）头部与捕获的真实浏览器请求**逐字一致**（`_uploadHeaders` helper：无 Cookie + 短 Referer + Accept + sec-ch-ua×3 + 捕获 UA）。**这是头部级对齐的最后一层**——若仍 400，根因在传输层（TLS 指纹/HTTP 版本），Node axios 无法复刻，API 轨需浏览器传输（DOM 轨即正确架构），按证据归档裁决。
+
+回归锁：`kuaishou-video-chain.test.js` 断言 sec-ch-ua 三件套 + Chrome/150 UA（红→绿实证）。

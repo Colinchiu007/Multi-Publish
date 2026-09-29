@@ -148,6 +148,12 @@ describe("publish/platforms/kuaishou-video", () => {
       expect(done.headers["referer"]).toBe("https://cp.kuaishou.com/");
       expect(parts[0].headers["cookie"]).toBeUndefined();
       expect(parts[0].headers["referer"]).toBe("https://cp.kuaishou.com/");
+      // 头部精确对齐（2026-09-29 取证三轮）：真实浏览器带 sec-ch-ua 三件套 +
+      // Chrome/150 UA——这是与捕获请求逐字一致的最后头部差异（再往下是传输层）。
+      expect(done.headers["sec-ch-ua"]).toBe('"Not;A=Brand";v="8", "Chromium";v="150"');
+      expect(done.headers["sec-ch-ua-mobile"]).toBe("?0");
+      expect(done.headers["sec-ch-ua-platform"]).toBe('"Windows"');
+      expect(done.headers["user-agent"]).toContain("Chrome/150");
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
