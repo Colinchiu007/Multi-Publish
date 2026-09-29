@@ -61,7 +61,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 ```
 
 - 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
-- 进白名单的前提锁（2026-09-29 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。
+- 进白名单的前提锁（2026-09-30 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
