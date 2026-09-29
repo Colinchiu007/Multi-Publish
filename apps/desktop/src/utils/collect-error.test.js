@@ -211,4 +211,15 @@ describe('classifyCollectError', () => {
     expect(r.reason).toBe('asr_download_failed')
     expect(r.retryable).toBe(true) // 网络类失败重试有意义（换镜像/网络恢复后）
   })
+
+  // ── 六平台扩展（2026-09-29，collect-video-platforms） ──
+
+  it('classifies channels unsupported and no_video (non-retryable, message passthrough)', () => {
+    const r1 = classifyCollectError('VIDEOCLONE_CHANNELS_UNSUPPORTED: 视频号视频需要微信登录态，暂不支持自动采集')
+    expect(r1.reason).toBe('video_channels_unsupported')
+    expect(r1.retryable).toBe(false)
+    const r2 = classifyCollectError('VIDEOCLONE_NO_VIDEO: 该链接不含视频')
+    expect(r2.reason).toBe('video_no_video')
+    expect(r2.retryable).toBe(false)
+  })
 })
