@@ -50,21 +50,20 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
    * 任何失败只 warn（旁路绝不冒泡影响发布主流程）。
    */
   async function startAuditRequery (task, postId, ownerSubject) {
-    let cookies = ''
-    let source = 'none'
+    let resolved
     try {
-      const resolved = await requery.resolveCookies({
+      resolved = await requery.resolveCookies({
         platform: task.platform,
         accountId: task.article?.accountId || task.accountId || null,
         providedCookies: task.article?.cookies || '',
       })
-      cookies = (resolved && typeof resolved.cookies === 'string') ? resolved.cookies : ''
-      source = (resolved && resolved.source) || 'none'
     } catch (e) {
       // 凭证解析属旁路：失败按「拿不到」处理，绝不冒泡（发布主流程不受影响）
       log.warn('PublishMonitor', 'audit requery cookie resolution failed: ' + (e && e.message))
       return
     }
+    const cookies = (resolved && typeof resolved.cookies === 'string') ? resolved.cookies : ''
+    const source = (resolved && resolved.source) || 'none'
     const decision = requery.decide({ platform: task.platform, cookies })
     if (!decision.start) {
       // 凭证缺失/端点未验证/探索开关关闭 —— 一律不建任务，避免「必然失败的重试风暴」
