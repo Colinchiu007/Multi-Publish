@@ -39,7 +39,7 @@ const {
   sanitizePublishResultUrl,
 } = require('./rpa-publish-id-extract')
 // 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
-const { navigationHelpers } = require('./rpa-view-navigation-helpers')
+const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
@@ -110,6 +110,45 @@ const platformsMixin = {
           log.warn('RpaView', '[switchImageTab] tab container not found within 20s')
         }
         await this._sleep(1800); break
+      }
+      case 'uploadCover': {
+        // 2026-09-30 头条取证（发布设置页）：「展示封面」必填，页面**默认选中「单图」**
+        // 但封面区为空（只有 + 占位）→ 点「预览并发布」被必填校验挡住（症状：verification timeout）。
+        // 先尝试直接提供封面图（满足「单图」语义，且头条有封面利于推荐）；
+        // 若封面上传入口拿不到，则退而选「无封面」（头条允许无封面发布）。
+        // 注：仅用 executeJavaScript 改 radio 的 checked 会被 React 受控状态覆盖
+        // （实测返回 SELECTED 但页面仍是「单图」），故主路径走上传播入。
+        const coverPath = context && context.coverPath
+        let handled = false
+        if (coverPath) {
+          try {
+            const entry = await win.webContents.executeJavaScript(
+              '(function(){var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}var cover=document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
+            )
+            log.info('RpaView', '[uploadCover] entry=' + entry)
+            await this._sleep(2000)
+            if (await this._waitForElement(win, 'input[type="file"]', 8000)) {
+              await this._setFileInput(win, coverPath)
+              await this._sleep(4000)
+              handled = true
+              log.info('RpaView', '[uploadCover] injected ' + String(coverPath).slice(-40))
+            } else {
+              log.warn('RpaView', '[uploadCover] 点击后未出现 file input')
+            }
+          } catch (e) { log.warn('RpaView', '[uploadCover] ' + e.message) }
+        }
+        if (!handled) {
+          try {
+            // 真机取证（2026-09-30）：封面三选一是 byte-design 的 `LABEL.byte-radio`
+            // （内部 input 为隐藏态，且 `input.closest('label')` 取到的是外层 label）。
+            // 故**直接按文本选 label** 点击，再回读 input.checked 确认 React 已接受。
+            const r = await win.webContents.executeJavaScript(
+              '(function(){var ls=[...document.querySelectorAll(\'label.byte-radio\')].filter(function(l){return /无封面/.test(l.innerText||\'\')});if(!ls.length)return \'NO_LABEL\';ls[0].click();var rs=[...document.querySelectorAll(\'input[type=radio]\')];var picked=rs.filter(function(x){return x.checked}).map(function(x){return (x.closest(\'label\')||x.parentElement||{}).innerText}).join(\'|\');return \'CLICKED picked=\'+picked})()'
+            )
+            log.info('RpaView', '[uploadCover] no-cover fallback=' + r)
+          } catch (e) { log.warn('RpaView', '[uploadCover] no-cover ' + e.message) }
+        }
+        await this._sleep(1500); break
       }
       default: log.warn('RpaView', 'Unknown hook: ' + hookName)
     }
@@ -1227,6 +1266,32 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     return this._publish_generic(win, article, 'kuaishou', {
       ...effectiveConfig,
       publish_url: publishUrl || config.publish_url,
+    })
+  },
+
+  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
+  // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
+  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到
+  // （实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`
+  //  + `publish btn not found`，三次重试后 `publish failed ... url=`）。
+  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
+  async _publish_toutiao(win, article) {
+    const config = this._getPlatformConfig('toutiao')
+    const contentType = article.video_path ? 'video' : 'image'
+    const publishUrl = getPublishUrl('toutiao', contentType)
+    // 正文：头条编辑器是 ProseMirror，`_fillInput` 对 contenteditable 走
+    // focus + execCommand('insertText') 的**纯文本**通道（框架编辑器不接受 innerHTML 直写），
+    // 而发布页 Quill 会把草稿正文规范化为 HTML（`<p>…</p>`）——不剥离就会让 `<p>` 以
+    // **字面量**出现在文章正文里（真机 verify snapshot 实证：`<p>上个月，朋友神神秘秘地…`）。
+    // 与快手同口径复用 stripHtmlToPlainText。
+    const plainContent = stripHtmlToPlainText(article && article.content)
+    return this._publish_generic(win, { ...article, content: plainContent }, 'toutiao', {
+      ...config,
+      publish_url: publishUrl || config.publish_url,
+      // 「展示封面」必填且默认选「单图」但封面为空（真机取证）→ 发布前传入封面图，
+      // 拿不到上传入口时回退选「无封面」，否则点「预览并发布」被必填校验挡住。
+      prePublishHook: 'uploadCover',
+      hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
     })
   },
 
