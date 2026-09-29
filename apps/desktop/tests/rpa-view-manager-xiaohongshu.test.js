@@ -82,7 +82,13 @@ describe('RpaViewManager 小红书发布', () => {
       expect.any(Object),
       article,
       'xiaohongshu',
-      publishConfig,
+      // 2026-09-29 图文链路：无 video_path 时进入图文模式，config 额外携带
+      // preFill='switchImageTab'（publish/publish?from=menu 默认落视频 tab，
+      // 必须先点「上传图文」；实测 file input accept 才从视频格式变为图片格式）
+      expect.objectContaining({
+        preFill: 'switchImageTab',
+        publish_url: publishConfig.publish_url,
+      }),
     )
     expect(result).toMatchObject({ success: true, platform: 'xiaohongshu' })
   })
