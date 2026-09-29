@@ -71,7 +71,8 @@
         <!-- Title -->
         <div style="margin-bottom: 6px;">
           <a
-            :href="item.url"
+            v-if="safeHttpUrl(item.url)"
+            :href="safeHttpUrl(item.url)"
             target="_blank"
             rel="noopener noreferrer"
             style="color: var(--text); text-decoration: none; font-size: var(--font-size-sm); font-weight: 500; line-height: 1.4;"
@@ -80,6 +81,7 @@
           >
             {{ item.title }}
           </a>
+          <span v-else style="color: var(--text); font-size: var(--font-size-sm); font-weight: 500; line-height: 1.4;">{{ item.title }}</span>
         </div>
 
         <!-- Stats row -->
@@ -111,6 +113,7 @@
 <script setup>
 import { TrendCharts } from '@element-plus/icons-vue'
 import { ref, computed, onMounted } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { intelligenceFetchTrending } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 

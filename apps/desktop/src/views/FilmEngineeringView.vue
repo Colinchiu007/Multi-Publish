@@ -38,9 +38,10 @@
           <el-tag size="small" type="info">{{ t('filmEngineering.stats.scenes') }} {{ status.sceneCount }}</el-tag>
           <el-tag size="small" type="info">{{ t('filmEngineering.stats.shots') }} {{ status.shotCount }}</el-tag>
           <el-tag size="small" type="info">{{ t('filmEngineering.stats.references') }} {{ status.referenceCount }}</el-tag>
-          <el-link v-if="status.filmMeta.source && status.filmMeta.source.projectUrl" :href="status.filmMeta.source.projectUrl" target="_blank" type="primary" class="fe-meta-link">
+          <el-link v-if="safeHttpUrl(status.filmMeta.source && status.filmMeta.source.projectUrl)" :href="safeHttpUrl(status.filmMeta.source && status.filmMeta.source.projectUrl)" target="_blank" rel="noopener" type="primary" class="fe-meta-link">
             {{ t('filmEngineering.source') }}
           </el-link>
+          <span v-else-if="status.filmMeta.source && status.filmMeta.source.projectUrl" class="fe-meta-link">{{ status.filmMeta.source.projectUrl }}</span>
         </div>
         <div v-if="status.filmMeta.characters && status.filmMeta.characters.length" class="fe-meta-row">
           <span class="fe-meta-label">{{ t('filmEngineering.characters') }}：</span>
@@ -447,6 +448,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { useI18n } from 'vue-i18n'
 import { useFilmEngineering } from '@/composables/useFilmEngineering'
 import ConfigProfileManager from '@/components/ConfigProfileManager.vue'

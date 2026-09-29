@@ -86,10 +86,11 @@
                 </span>
                 <span class="int-note">{{ item.author }}</span>
               </div>
-              <a :href="item.url" target="_blank" rel="noopener"
+              <a v-if="safeHttpUrl(item.url)" :href="safeHttpUrl(item.url)" target="_blank" rel="noopener"
                 class="int-link">
                 {{ item.title }}
               </a>
+              <span v-else class="int-link">{{ item.title }}</span>
               <div v-if="item.snippet" class="int-snippet">
                 {{ item.snippet.slice(0, 150) }}<span v-if="item.snippet.length > 150">...</span>
               </div>
@@ -142,6 +143,7 @@ import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 // eslint-disable-next-line no-unused-vars
 import { ref, computed } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { DocumentCopy, DataLine, EditPen, InfoFilled, Search } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import TrendingPanel from '@/components/TrendingPanel.vue'

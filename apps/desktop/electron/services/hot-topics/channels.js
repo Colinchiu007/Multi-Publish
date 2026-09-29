@@ -12,6 +12,8 @@
  */
 
 /** HTML 实体解码（百度/tophub HTML 渠道用） */
+const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
+
 function decodeHtmlEntities(text) {
   return String(text || '')
     .replace(/&amp;/g, '&')
@@ -23,13 +25,8 @@ function decodeHtmlEntities(text) {
     .trim()
 }
 
-/** 安全 URL：仅 http/https，其他协议返回 null */
-function sanitizeUrl(url) {
-  const u = String(url || '').trim()
-  if (!u) return null
-  if (/^https?:\/\//i.test(u)) return u
-  return null
-}
+/** 安全 URL：判据收敛到共享单一实现（PRD-HREF-SCHEME-GUARD），本处只做名字适配 */
+const sanitizeUrl = safeHttpUrl
 
 /** 知乎热榜 JSON：data[].question.title / data[].target.title（实测 2026-09 两种结构） */
 function parseZhihu(json) {

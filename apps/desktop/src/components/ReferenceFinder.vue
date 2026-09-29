@@ -42,12 +42,13 @@
         style="padding:var(--space-sm);background:#f8f9fa;border-radius:6px;border:1px solid var(--border)">
         <!-- Title -->
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-sm);margin-bottom:4px">
-          <a :href="ref.url" target="_blank" rel="noopener"
+          <a v-if="safeHttpUrl(ref.url)" :href="safeHttpUrl(ref.url)" target="_blank" rel="noopener"
             style="font-size: var(--font-size-sm);font-weight:600;color:var(--action-blue);text-decoration:none;flex:1;min-width:0"
             @mouseover="e => e.target.style.textDecoration = 'underline'"
             @mouseout="e => e.target.style.textDecoration = 'none'">
             {{ ref.title }}
           </a>
+          <span v-else style="font-size: var(--font-size-sm);font-weight:600;color:var(--action-blue);flex:1;min-width:0">{{ ref.title }}</span>
           <button class="cohere-btn-ghost" @click="insertReference(ref)" style="font-size: var(--font-size-xs);padding:2px 8px;white-space:nowrap">
             插入
           </button>
@@ -90,6 +91,7 @@
 <script setup>
 import UiModal from "../components/UiModal.vue";
 import { ref, watch } from 'vue'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { intelligenceFindReferences } from '@/api/publisher'
 import { reportError } from '@/utils/report-error'
 

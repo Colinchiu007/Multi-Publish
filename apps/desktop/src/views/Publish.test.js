@@ -1100,4 +1100,26 @@ describe("PublishView — 右栏信息架构与面板联动", () => {
   });
 });
 
+  it('发布结果链接非 http/https 时不成链；成链时必须带 rel="noopener"（PRD-HREF-SCHEME-GUARD）', async () => {
+    const w = await createWrapper();
+    w.vm.article.title = "Test";
+    w.vm.article.content = "Content";
+    await w.vm.handlePublish();
+    await nextTick();
+    expect(w.vm.result.success).toBe(true);
+
+    w.vm.result.url = "https://weibo.com/detail/1";
+    await nextTick();
+    const link = w.find("a.result-link");
+    expect(link.exists()).toBe(true);
+    expect(link.attributes("href")).toBe("https://weibo.com/detail/1");
+    expect(link.attributes("rel")).toBe("noopener");
+
+    w.vm.result.url = "javascript:alert(1)";
+    await nextTick();
+    expect(w.find("a.result-link").exists()).toBe(false);
+    const plain = w.find("span.result-link");
+    expect(plain.exists()).toBe(true);
+    expect(plain.text()).toBe("javascript:alert(1)");
+  });
 });
