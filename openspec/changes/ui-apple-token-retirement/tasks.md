@@ -51,15 +51,17 @@
 
 **Status**: pending
 **Risk**: Low（**只新增、不改动既有值 → 零视觉回归**）
-**Files**: `apps/desktop/src/styles/tokens.css`
+**Files**: `apps/desktop/src/styles/tokens.css`、`apps/desktop/src/styles/video-creation-tokens.css`（D3：`--text` 定义在此，非 tokens.css）、`apps/desktop/src/styles/tokens.slots.test.js`（契约测试）
 
 ### Acceptance Criteria
-- [ ] 新增 `--font-weight-regular/medium/semibold/bold`、`--font-family-display/text/mono`、`--leading-tight/normal/relaxed`、`--duration-fast/normal/slow`、`--ease-default/spring/in-out`
-- [ ] 新增通用阴影级差 `--shadow-sm/md/lg`，色相与既有 `--shadow-float` 的 `rgba(30,27,75,α)` 口径一致
-- [ ] `[data-theme="dark"]` 增补 `--color-text-strong` / `--color-text-primary` / `--color-text-secondary` / `--color-text-muted` / `--color-primary-light`
-- [ ] `--text` 去留拍板：保留则给暗色值，废弃则清空消费点（当前 `.s2v-btn-secondary` 曾因此踩坑）
-- [ ] `--color-primary` 保持不覆盖（既有合同）
-- [ ] 全量浅色基线不变（证明是纯新增）
+- [x] 新增 `--font-weight-regular/medium/semibold/bold`、`--font-family-display/text/mono`、`--leading-tight/normal/relaxed`、`--duration-fast/normal/slow`、`--ease-default/spring/in-out`（取值与别名层现值逐字一致 ⇒ 迁移时字体/字重/行高/动效渲染不变）
+- [x] 新增通用阴影级差 `--shadow-sm/md/lg`，色相与既有 `--shadow-float` 的 `rgba(30,27,75,α)` 口径一致（**实测本已存在**于浅色与暗色块，本批次只做口径核对并加回归锁，不重复新增）
+- [x] `[data-theme="dark"]` 增补 `--color-text-strong` / `--color-text-primary` / `--color-text-secondary` / `--color-text-muted` / `--color-primary-light`（暗色卡片底上实测对比度 14.35 / 12.80 / 7.53 / 6.66 :1，全部 ≥ 4.5:1；回归锁含 WCAG 计算断言）
+- [x] `--text` 去留拍板（D3：**保留**）并给暗色正确值：`video-creation-tokens.css` 暗色块原为 `var(--ep-bg, #1a1a1e)`（**文字色转发到背景色** = 2026-09-20 事故根因）→ 改为 `var(--ink, #e8e8ed)`（在暗底 14.21:1），结构与浅色对称；文件清单已按 D3 扩到该文件
+- [x] `--color-primary` 保持不覆盖（既有合同；回归锁断言暗色块无该键）
+- [x] 顺带补齐 `--spacing-16: 64px`（间距族原止于 `--spacing-10`，批次 5 的 history-page 用到 64px，属批次 0 三栏清单暴露的缺档）
+- [ ] 全量浅色基线不变（**待 CI 实跑取证**，同批次 1 口径：本地像素运行与 CI 不同源）。结构侧已证浅色无消费点变更 —— 本批次浅色侧全部是**新增槽位**（无任何消费点），暗色侧才是生效改动
+- ⚠️ **暗色生效改动披露（2 处，须由暗色通道核对）**：①`--color-text-*` 暗色补齐（此前深字落深底）②`--color-primary-light` 暗色改品牌紫半透明叠加。二者都改暗色观感；因暗色基线尚未入库（批次 1 staged），**本批次落地后生成的暗色基线将是「修复后」状态**，后续批次 3/5 的暗色回归即以该基线比较（顺序正确：先修盲区，再建基线，再做视觉变更）
 
 ---
 
