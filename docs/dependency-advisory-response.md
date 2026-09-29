@@ -47,19 +47,28 @@ overrides:
 `pnpm update fast-uri` 只把 `ajv@8.18.0` 那条链提到 3.1.8，`ajv@8.20.0` 的 snapshot
 仍停在 3.1.3，审计照红。`overrides` 声明的是下限，后续 `pnpm install` 不会把它漂回去。
 
-## 3. ⚠️ 本机跑 `scripts/check-dep-audit.js` 会得到假绿
+## 3. 扫描器缺失时按域独立评估（原为整体短路的假绿，已修）
 
-`check-dep-audit.js` 在 `main()` 里对两个扫描器（npm / pip）做**联合可用性判定**：
-只要任一个不可用，就打印 `SCANNER_UNAVAILABLE` 并 `return 0`，**另一个扫描器的结果
-也不再评估**（见 `scripts/check-dep-audit.js` 的 `if (unavailable.length && !isUpdate)` 分支）。
+**修前的行为**：`main()` 对两个扫描器（npm / pip）做**联合可用性判定**——只要任一个不可用，
+就打印 `SCANNER_UNAVAILABLE` 并 `return 0`，**另一个扫描器的结果也不再评估**。本机通常没有
+`pip-audit`，于是「本地跑过依赖审计门禁 ✅」这句话对 npm 侧完全无意义：它连 `pnpm audit`
+的输出都没读。2026-09-28 那两条新公告就是这样在本地被静默放过的。
 
-本机通常没有 `pip-audit`，于是「本地跑过依赖审计门禁 ✅」这句话对 npm 侧完全无意义——
-它连 `pnpm audit` 都没有判读。本仓 CI 有 `pip-audit`，所以 CI 的结论仍然可信。
+**现在的口径**（`runCheck()`，判定主体已从 `main()` 抽出并全部可注入）：
 
-- 现在起：验证依赖修复一律用第 1 节的 `pnpm audit --prod --json` 原始命令，不要以
-  `node scripts/check-dep-audit.js` 的本机退出码为证据。
-- 待修（另开 PR）：两个扫描域各自独立评估——缺失的那个不判、存在的那个照常判违规，
-  而不是整体短路。
+| 情形 | 退出码 | 说明 |
+| --- | --- | --- |
+| 两域都可用 | 有违规即 1 | 与从前一致 |
+| 仅一域缺失 | **另一域照常判违规** | 缺失域出声（`SCANNER_UNAVAILABLE`），但其挂账条目**不得**被判成 `RESOLVED_STILL_BASELINED`（未扫不等于已修） |
+| 两域都缺失 | **1** | 本轮没有任何判据，不得报通过——否则"扫描器配置坏了"会演化成全绿 |
+| `--update` 且任一域缺失 | **1 且基线字节不变** | `writeBaseline` 按 `found` 原样落盘，缺域会把另一域的挂账静默抹掉 |
+| 基线不存在且任一域缺失 | **1** | 同上，拒绝生成半份基线 |
+
+判据仍建议交叉核对第 1 节的原始命令，但**本机退出码现在是有意义的**。
+
+回归锁 4 条（`scripts/check-dep-audit.test.js`，接在 `dep-audit.yml` 的 `node --test`），
+每条都做过变异反证：退回整体 `return 0` → 红 1 条；摘掉「缺失域跳过」→ 红 1 条；
+把「无判据即失败」改成恒假 → 红 1 条；摘掉 `--update` 拒写守卫 → 红 1 条。
 
 ## 4. 响应顺序
 
