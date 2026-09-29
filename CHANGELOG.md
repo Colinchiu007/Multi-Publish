@@ -1,3 +1,16 @@
+# fix(工程门禁): check-ps1-bom 补两条判据 —— 多重 BOM 与「声明 UTF-8 但正文不是合法 UTF-8」（ps1-bom-gate-hardening，2026-09-30）
+
+### 变更
+
+- **背景**：#2656 的门禁只问「开头有没有 UTF-8 BOM」，而**有 BOM 不等于声明成立**。QM-6 外部评审（codex 后端模型）与本地实测各自独立命中同一个漏判面：双 BOM 的文件、以及「补了 BOM 但正文其实是 GBK 字节」的文件都被判绿。
+- **判据从一条变三条**（`inspectBuffer` 返回 `reason`）：① `missing-bom` 含非 ASCII 且无 BOM（#2656 的原缺陷）；② `double-bom` 前导 BOM 不止一个 —— 第 2 个不是编码声明而是内容字符 U+FEFF；③ `invalid-utf8` 声明是 UTF-8 而正文过不了严格解码。③ 同时是「只前置 BOM、不转码」这类修复动作**自身的守卫**：真遇 GBK 文件必须变红，而不是产出一个「有 BOM 的坏文件」。
+- **②③ 的边界由实测推导，不是猜的**：双 BOM + 中文正文 ⇒ Windows PowerShell 5.1 与 pwsh 7 **都** ParseFile 报错且运行期 throw；双 BOM + 纯 ASCII 正文 ⇒ 能 parse 但**执行仍 throw**（CommandNotFoundException）。所以 ② 的判据**不看**正文是否含非 ASCII —— 只看 BOM 个数。取证脚本 `bom-edge-probe2.ps1` / `bom-edge-probe3.ps1`。
+- **`nonAscii` 改为只数正文**：BOM 自身就是 3 个 `>0x7F` 字节，算进去既让现场数字虚高，又让「②③ 只在含非 ASCII 时才查」这种收窄变异退化成语义 no-op（反证跑不出红 = 白建一条锁）。这一条是反证 CP-F 第一次报「红数 0」逼出来的。
+- **修法提示按判据分开**（`FIX_HINT`）：三条判据的修法方向互不相同（补 BOM / 删多余 BOM / 转码），给错比不给更糟 —— 对 ③「再补一个 BOM」会让文件离能用更远。结构锁钉住 `FIX_HINT` 的键集合必须与判据同步增删。
+- **反证 7 条逐个实跑并断言字节还原一致**：CP-A 退回单条判据 ⇒ 4 红；CP-B 多重 BOM 压成「最多一个」⇒ 3 红；CP-C 严格解码退化成非 fatal 档 ⇒ 3 红；CP-D offender 丢掉真实 `reason` ⇒ 1 红；CP-E 改错 `FIX_HINT` 键名 ⇒ 1 红；CP-F `nonAscii` 把 BOM 算进去 ⇒ 1 红；CP-G 双 BOM 判据差一（只抓 ≥3）⇒ 3 红。每条都打印**变红的具体测试名**做归因，而不只打印红数（"identifier-match ≠ cause-match"）。
+- **真仓库现状**（48 个 tracked `.ps1`，按 blob 取证）：27 个带 UTF-8 BOM（#2656 补 15 + 历史已有 12），0 个非 ASCII 缺 BOM、0 个双 BOM、0 个正文非法 UTF-8、0 个 UTF-16 BOM。新判据在真实数据上不产生误伤，这是它可接 CI 的前提。
+- **未纳入本条的评审意见**（如实登记，不假装已解决）：门禁读的是**工作树**而非 blob；`git ls-files` 只看 cached（新文件进 index 前不受保护，属 CI 形态的自然边界）；纯 ASCII 却带 BOM 不报（是 diff 噪声，不是缺陷）。
+- **一条方法论记录**（比上面任何一条更长命）：本轮曾把「外部评审的某条发现」当作事实去核对，实际在本仓 **grep 不到对应代码**（`[Text.Encoding]::Default` 在全仓 `.ps1` 命中 0 处，且没有任何 `.ps1` 写 CHANGELOG）。判据：**评审结论必须先在它自己的产物里 grep 到、再到代码里 grep 到**，两条都成立才允许进入修复清单；否则就是把猜测钉成待办。
 # [未发布] feat(publish): P0-1 审核状态跟踪第一切片（状态机 + 原记录回写 + 醒目展示）（2026-10-09，p0-1-audit-status）
 
 ### 变更
