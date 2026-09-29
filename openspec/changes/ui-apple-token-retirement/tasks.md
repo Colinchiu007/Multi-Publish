@@ -40,10 +40,14 @@
 **Files**: `apps/desktop/tests/visual-testing/scripts/run-pixel-tests.js`、`test-runner.js`
 
 ### Acceptance Criteria
-- [ ] runner 支持主题参数（如 `THEME=dark`），注入 `data-theme="dark"` 后逐视图截图
-- [ ] 基线命名区分主题（`<view>.png` / `<view>-dark.png`），互不覆盖
-- [ ] CI GATE-7 增跑暗色一遍，失败信息与浅色同格式
-- [ ] 既有 18 张浅色基线在改造后仍逐张通过（证明改造零视觉影响）
+- [x] runner 支持主题参数（`THEME=dark`），注入 `data-theme="dark"` 后逐视图截图（`run-pixel-tests.js` 的 `resolveTheme()` + `test-runner.js` 的 `_applyTheme()`；非法值归一为 `light`）
+- [x] 基线命名区分主题（`<view>.png` / `<view>-dark.png`），互不覆盖（`VisualTestRunner.themeSuffix()`；浅色沿用历史命名，meta key 亦带后缀防互相覆盖）
+- [x] CI 增跑暗色一遍，失败信息与浅色同格式（`visual-test.yml` 像素步骤内 `test:visual:pixel:dark`；**当前为 staged 不阻断** —— 仓库尚无暗色基线，直接阻断会常红，待同源暗色基线入库后摘掉该 staged 处置转阻断，与本文件 Gate 7b 的历史处置同形）
+- [ ] 既有 22 张浅色基线在改造后仍逐张通过（**待 CI 实跑取证**：本仓既有结论「本地渲染 vs CI 渲染差 3.82%」，本地像素运行不能作为同源证据；结构侧已证浅色拍摄条件未变 —— 全仓 77 处 `[data-theme=...]` 选择器全为 `dark`，无 `:not([data-theme])` / `[data-theme=""]` 这类依赖属性存在性的写法，故显式写 `light` 与属性缺失在样式上等价）
+
+### 批次 1 交接口径（供后续取证）
+- **同源暗色基线怎么来**：`visual-test.yml` 已把 `screenshots/`（含 `*-dark-current.png`）作为 artifact 上传；跑一次该 workflow → 取 artifact 里的暗色截图入库为 `base-screenshots/<view>-dark.png`（QM-4 第 7 条：禁止拿本地图当基线）。
+- 本地生成通道（仅排障用，**不得据此入库**）：`pnpm --filter desktop run test:visual:pixel:dark:update-baseline`
 
 ---
 
