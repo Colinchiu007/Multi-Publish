@@ -393,11 +393,11 @@
 .gen-video-modal-content,
 .pipeline-progress-modal-content { min-width: 0; }
 .gen-video-modal-content .stage-progress,
-.pipeline-progress-modal-content .stage-progress { position: relative; top: auto; z-index: auto; background: var(--apple-surface-primary, var(--surface, #fff)); padding: 0; margin: 0; }
+.pipeline-progress-modal-content .stage-progress { position: relative; top: auto; z-index: auto; background: var(--color-bg-card); padding: 0; margin: 0; }
 .gen-video-modal-content .stages-list,
 .pipeline-progress-modal-content .stages-list { max-height: none; overflow: visible; gap: 10px; }
 .gen-video-modal-content .stages-sticky-header,
-.pipeline-progress-modal-content .stages-sticky-header { position: sticky; top: 0; z-index: 1; padding: 4px 0 10px; background: var(--apple-surface-primary, var(--surface, #fff)); }
+.pipeline-progress-modal-content .stages-sticky-header { position: sticky; top: 0; z-index: 1; padding: 4px 0 10px; background: var(--color-bg-card); }
 .gen-video-modal-content .stage-status,
 .pipeline-progress-modal-content .stage-status { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: right; }
 .pipeline-progress-basic { display: flex; align-items: center; gap: 10px; margin: 12px 0 16px; color: var(--text, #333); font-size: var(--font-size-sm); font-weight: 600; }

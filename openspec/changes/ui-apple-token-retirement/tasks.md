@@ -87,14 +87,19 @@
 
 ## Task 4: `create-view.css` 弹窗域 2 处
 
-**Status**: pending
+**Status**: done（基线核对项待同源取证，见 AC）
 **Risk**: Low
 **Files**: `apps/desktop/src/styles/create-view.css`
 
 ### Acceptance Criteria
-- [ ] `.gen-video-modal-content` / `.pipeline-progress-modal-content` 的 `var(--apple-surface-primary, var(--surface, #fff))` → `var(--color-bg-card)`
-- [ ] 注意 `create-view.css` 现 496 行，改动不得使其越过 500 行硬线（`check-debt-budget` 的 `filesOver500` 余量仅 1）
-- [ ] 弹窗基线（含暗色）定向重生成核对
+- [x] `.gen-video-modal-content` / `.pipeline-progress-modal-content` 的 `var(--apple-surface-primary, var(--surface, #fff))` → `var(--color-bg-card)`（2 处；实测**值等价** —— `--apple-surface-primary` 本就转发 `--color-bg-card`，`--surface` 亦指它，同时剔除双层陈旧 fallback）
+- [x] 改动不得使 `create-view.css` 越过 500 行硬线：实测 **493 行**（改动为同行替换，未增行）；`check-debt-budget` PASS
+- [ ] 弹窗基线（含暗色）定向重生成核对 → **待同源取证**（值等价预期无差异；暗色侧待批次 1 的暗色基线入库后并入核对）
+
+### 实测结果（2026-09-29）
+- 门禁计数 **339 → 337**；`frontend-consistency-baseline.json` 按「只降不升」下调为 337（他方键存活）
+- `create-view.css` `--apple-` 残留 = **0**
+- `check-css-var-defined` / `check-color-literals` / `check-debt-budget` 全 PASS；`CreateView.test.js` **286 / 0 fail**
 
 ---
 
