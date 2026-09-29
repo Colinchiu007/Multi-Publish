@@ -43,7 +43,14 @@
 - [x] runner 支持主题参数（`THEME=dark`），注入 `data-theme="dark"` 后逐视图截图（`run-pixel-tests.js` 的 `resolveTheme()` + `test-runner.js` 的 `_applyTheme()`；非法值归一为 `light`）
 - [x] 基线命名区分主题（`<view>.png` / `<view>-dark.png`），互不覆盖（`VisualTestRunner.themeSuffix()`；浅色沿用历史命名，meta key 亦带后缀防互相覆盖）
 - [x] CI 增跑暗色一遍，失败信息与浅色同格式（`visual-test.yml` 像素步骤内 `test:visual:pixel:dark`；**当前为 staged 不阻断** —— 仓库尚无暗色基线，直接阻断会常红，待同源暗色基线入库后摘掉该 staged 处置转阻断，与本文件 Gate 7b 的历史处置同形）
-- [ ] 既有 22 张浅色基线在改造后仍逐张通过（**待 CI 实跑取证**：本仓既有结论「本地渲染 vs CI 渲染差 3.82%」，本地像素运行不能作为同源证据；结构侧已证浅色拍摄条件未变 —— 全仓 77 处 `[data-theme=...]` 选择器全为 `dark`，无 `:not([data-theme])` / `[data-theme=""]` 这类依赖属性存在性的写法，故显式写 `light` 与属性缺失在样式上等价）
+- [x] 既有 22 张浅色基线在改造后仍逐张通过（**已取证**：批次 1 PR 的 `QG Visual -> SUCCESS`，以及最终态同源运行的浅色像素门禁 PASS。本仓既有结论「本地渲染 vs CI 渲染差 3.82%」，本地像素运行不作为同源证据；结构侧已证浅色拍摄条件未变 —— 全仓 77 处 `[data-theme=...]` 选择器全为 `dark`，无 `:not([data-theme])` / `[data-theme=""]` 这类依赖属性存在性的写法，故显式写 `light` 与属性缺失在样式上等价）
+
+### 暗色基线首次入库（批次 1 收口，2026-09-29）
+
+- **19 张 `<view>-dark.png` 同源入库**：来源 `visual-test.yml` run `36628790736`（head `e20a87cb`，已核验提交链**含批次 6**）
+- 同批浅色**差异刷新 3 张**（`home-baseline`/`keyword-monitor`/`publish-form`），其余 16 张逐字节未变故不写入
+- **实测踩到并修复一个静默陷阱**：根 `.gitignore` 的 `*.png` 使暗色基线落盘后 `git status` **完全不显示**、`git add` 也静默不收 ⇒ 按该目录既有口径**逐名登记 19 条否定规则**；并把 `tests/visual-ci.test.js` 原有的「pixelTests 基线必须被 `.gitignore` 显式放行」锁**扩展到暗色**（原锁只覆盖浅色 ⇒ 同一失败面只在一半上生效）
+- 门禁证据：`visual-ci` + `pixel-diff-baseline-guard` **36 / 0 fail**（内容守卫逐个校验目录内 41 张基线）
 
 ### 批次 1 交接口径（供后续取证）
 - **同源暗色基线怎么来**：`visual-test.yml` 已把 `screenshots/`（含 `*-dark-current.png`）作为 artifact 上传；跑一次该 workflow → 取 artifact 里的暗色截图入库为 `base-screenshots/<view>-dark.png`（QM-4 第 7 条：禁止拿本地图当基线）。
@@ -81,7 +88,7 @@
 - [x] 每个组件一份「旧 `--apple-*` → 新令牌 → 值差异」三栏清单 → `component-token-map.md`（全局映射表 + 逐组件变量集合 + 值不保值与观感披露）
 - [x] 组件单测全绿：**96 tests / 0 fail**（UiButton / UiInput / UiModal / ConfigProfileManager / AccountCloudSyncDialog）。**受影响的视图测试**由 CI 分片承担（本 PR 的 QG Desktop Shards）
 - [x] 相关视图基线**定向**重生成（浅色）：**17 张已由本 PR 的 CI artifact 同源刷新**（QM-4 第 7 条），2 张逐字节未变故不写入；实测 misMatch 区间 **0.0000%–1.6071%**
-- [ ] 暗色基线：本 PR 的 QG Visual 只跑浅色（产物 19 条结果 `theme` 全为 `light`）⇒ 暗色基线仍需 `visual-test.yml`（已含暗色步骤）在 main 产出后入库
+- [x] 暗色基线：**19 张已由最终态同源运行入库**（落盘与收口见上方「暗色基线首次入库（批次 1 收口）」节）
 - [x] 完成后 `apps/desktop/src/components` 下 `var(--apple-` 命中 = 0，且 8 个目标文件整体残留 = 0（实测）
 
 ### 批次 3 实测结果（2026-09-29）
