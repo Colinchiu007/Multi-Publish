@@ -26,108 +26,23 @@ const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
+// 2026-09-29 拆分：发布成功判定的 publish-id 提取工具（纯函数）——
+// rpa-view-platforms.js 超逐文件行数门禁（check-max-lines LEDGER_GREW），
+// 抽到独立文件 rpa-publish-id-extract.js，主文件 require 使用，零行为变化。
+const {
+  normalizePublishId,
+  collectPublishIds,
+  extractPublishIdFromUrl,
+  extractPublishIdsFromResponseBody,
+  extractPublishIdFromEvidence,
+  sanitizeDiagnosticEndpoint,
+  sanitizePublishResultUrl,
+} = require('./rpa-publish-id-extract')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
 
-const PUBLISH_ID_KEYS = /(?:post|article|media|content|clue|work|video|photo|material|resource|publish)[_-]?id$/i
-const PUBLISH_ID_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/
-const PUBLISH_ID_NAV_WORDS = new Set(['article', 'articles', 'content', 'manage', 'video', 'edit', 'publish', 'list', 'lists', 'page', 'media', 'photo', 'clue', 'builder', 'pcui', 'status', 'create', 'upload', 'works', 'work', 'new', 'draft', 'detail', 'index', 'home'])
 const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou'])
-const SENSITIVE_URL_QUERY_KEY = /(?:token|auth|cookie|session|signature|sign|credential|secret|ticket|code|sid)/i
-
-function normalizePublishId (value) {
-  if (value === null || value === undefined) return null
-  const id = String(value).trim()
-  if (!id || id.length > 160 || id.toLowerCase().startsWith('task_') || /^(?:true|false|null|undefined)$/i.test(id) || PUBLISH_ID_NAV_WORDS.has(id.toLowerCase()) || !PUBLISH_ID_VALUE.test(id)) return null
-  return id
-}
-
-function collectPublishIds (value, key, ids) {
-  if (value === null || value === undefined) return
-  if (Array.isArray(value)) {
-    value.forEach(item => collectPublishIds(item, key, ids))
-    return
-  }
-  if (typeof value !== 'object') {
-    if (PUBLISH_ID_KEYS.test(String(key || ''))) {
-      const id = normalizePublishId(value)
-      if (id) ids.push(id)
-    }
-    return
-  }
-  Object.entries(value).forEach(([childKey, childValue]) => collectPublishIds(childValue, childKey, ids))
-}
-
-function extractPublishIdFromUrl (url) {
-  if (!url) return null
-  try {
-    const parsed = new URL(url)
-    const params = [...parsed.searchParams.entries()]
-    for (const [key, value] of params) {
-      if (PUBLISH_ID_KEYS.test(key)) {
-        const id = normalizePublishId(value)
-        if (id) return id
-      }
-    }
-    const parts = parsed.pathname.split('/').filter(Boolean)
-    for (let index = 0; index < parts.length - 1; index += 1) {
-      if (!/(?:post|article|media|content|clue|work)/i.test(parts[index])) continue
-      const id = normalizePublishId(parts[index + 1])
-      if (id) return id
-    }
-  } catch (_) { /* 页面 URL 可能暂时不是绝对 URL */ }
-  return null
-}
-
-function extractPublishIdsFromResponseBody (body) {
-  const ids = []
-  try {
-    collectPublishIds(JSON.parse(String(body || '')), '', ids)
-  } catch (_) {
-    const matches = String(body || '').match(/(?:post|article|media|content|clue|work|video|photo|material|resource|publish)[_-]?(?:id)?["'=:\s]+([A-Za-z0-9][A-Za-z0-9._:-]{3,})/ig) || []
-    matches.forEach(match => {
-      const value = match.split(/["'=:\s]+/).pop()
-      const id = normalizePublishId(value)
-      if (id) ids.push(id)
-    })
-  }
-  return [...new Set(ids)]
-}
-
-function extractPublishIdFromEvidence (evidence = []) {
-  const ids = []
-  ;(Array.isArray(evidence) ? evidence : []).forEach(item => {
-    if (!item || typeof item !== 'object') return
-    ;(Array.isArray(item.publishIds) ? item.publishIds : []).forEach(value => {
-      const id = normalizePublishId(value)
-      if (id) ids.push(id)
-    })
-  })
-  return [...new Set(ids)][0] || null
-}
-
-function sanitizeDiagnosticEndpoint (url) {
-  try {
-    const parsed = new URL(String(url || ''))
-    return parsed.origin + parsed.pathname
-  } catch (_) {
-    return ''
-  }
-}
-
-function sanitizePublishResultUrl (url) {
-  try {
-    const parsed = new URL(String(url || ''))
-    for (const key of [...parsed.searchParams.keys()]) {
-      if (SENSITIVE_URL_QUERY_KEY.test(key)) parsed.searchParams.delete(key)
-    }
-    parsed.hash = ''
-    return parsed.toString()
-  } catch (_) {
-    return ''
-  }
-}
 
 function summarizePublishDiagnostics (records, artifact) {
   const source = Array.isArray(records) ? records : []
