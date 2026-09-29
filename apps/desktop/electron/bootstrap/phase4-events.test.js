@@ -298,11 +298,16 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
 
   // P0-1 审核状态（2026-10-09）：监控结论**回写原记录**，不再追加第二条；
   // 无定论（error/timeout/skipped/pending）保持原记录不变。
+  // 第二切片：建监控任务前先过「凭证解析 + 能力分级」门（异步）；测试注入策略替身。
   describe('P0-1 审核状态回写', () => {
-    function wireWithMonitor () {
+    const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
+
+    function wireWithMonitor (overrides = {}) {
       const taskQueue = new EventEmitter()
       const history = { addRecord: vi.fn(() => ({ id: 'h-1' })), updateRecordAudit: vi.fn(() => ({ updated: true })) }
       const monitorCalls = []
+      const resolveCookies = overrides.resolveCookies || (async () => ({ cookies: 'c=1', source: 'provided' }))
+      const decide = overrides.decide || (() => ({ start: true, reason: 'candidate' }))
       wireTaskQueueEvents({
         taskQueue,
         history,
@@ -311,20 +316,22 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
         },
         publishImpactTracker: { scheduleImpactTracking: vi.fn() },
         getMainWin: () => null,
+        auditRequery: { resolveCookies, decide },
       })
       return { taskQueue, history, monitorCalls }
     }
 
-    function emitSuccess (taskQueue) {
+    async function emitSuccess (taskQueue) {
       taskQueue.emit('task:success', {
         id: 'task-audit-1', owner_subject: 'user-a', platform: 'douyin',
         article: { title: '审核跟踪' }, result: { postId: 'aweme-42' },
       })
+      await flush()
     }
 
-    it('明确结论（rejected）回写原记录，不追加重复行', () => {
+    it('明确结论（rejected）回写原记录，不追加重复行', async () => {
       const { taskQueue, history, monitorCalls } = wireWithMonitor()
-      emitSuccess(taskQueue)
+      await emitSuccess(taskQueue)
       expect(history.addRecord).toHaveBeenCalledTimes(1) // 仅成功那条
       expect(monitorCalls).toHaveLength(1)
 
@@ -342,47 +349,101 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
       expect(history.addRecord).toHaveBeenCalledTimes(1)
     })
 
-    it('inAudit / published / prePublish 各自映射正确', () => {
+    it('inAudit / published / prePublish 各自映射正确', async () => {
       for (const [monitorStatus, expected] of [['reviewed', 'inAudit'], ['published', 'published'], ['draft', 'prePublish']]) {
         const { taskQueue, history, monitorCalls } = wireWithMonitor()
-        emitSuccess(taskQueue)
+        await emitSuccess(taskQueue)
         monitorCalls[0].callback({ status: monitorStatus, postId: 'p1' })
         expect(history.updateRecordAudit.mock.calls[0][1].auditStatus, monitorStatus).toBe(expected)
       }
     })
 
-    it('无定论状态（error/timeout/skipped/pending）一律不改写原记录', () => {
+    it('无定论状态（error/timeout/skipped/pending）一律不改写原记录', async () => {
       for (const inconclusive of ['error', 'timeout', 'skipped', 'pending', 'unknown', 'failed']) {
         const { taskQueue, history, monitorCalls } = wireWithMonitor()
-        emitSuccess(taskQueue)
+        await emitSuccess(taskQueue)
         monitorCalls[0].callback({ status: inconclusive, postId: 'p1' })
         expect(history.updateRecordAudit, inconclusive + ' 不得回写').not.toHaveBeenCalled()
         expect(history.addRecord, inconclusive + ' 不得追加').toHaveBeenCalledTimes(1)
       }
     })
 
-    it('updateRecordAudit 抛错不冒泡（监控旁路不得影响发布主流程）', () => {
-      const taskQueue = new EventEmitter()
+    it('updateRecordAudit 抛错不冒泡（监控旁路不得影响发布主流程）', async () => {
+      const { taskQueue, monitorCalls } = wireWithMonitor({
+        resolveCookies: async () => ({ cookies: 'c=1', source: 'provided' }),
+      })
+      monitorCalls.length = 0
+      const taskQueue2 = taskQueue
       const history = {
         addRecord: vi.fn(),
         updateRecordAudit: vi.fn(() => { throw new Error('disk full') }),
       }
-      const monitorCalls = []
+      // 重新接线以替换 history（上面 wireWithMonitor 的 history 不回写抛错）
+      const monitorCalls2 = []
       wireTaskQueueEvents({
-        taskQueue, history,
-        publishMonitor: { createMonitorTask: vi.fn((opts) => { monitorCalls.push(opts); return { stop: vi.fn() } }) },
+        taskQueue: taskQueue2, history,
+        publishMonitor: { createMonitorTask: vi.fn((opts) => { monitorCalls2.push(opts); return { stop: vi.fn() } }) },
         publishImpactTracker: { scheduleImpactTracking: vi.fn() },
         getMainWin: () => null,
+        auditRequery: { resolveCookies: async () => ({ cookies: 'c=1', source: 'provided' }), decide: () => ({ start: true, reason: 'candidate' }) },
       })
-      emitSuccess(taskQueue)
-      expect(() => monitorCalls[0].callback({ status: 'rejected', postId: 'p1' })).not.toThrow()
+      taskQueue2.emit('task:success', {
+        id: 'task-audit-boom', owner_subject: 'user-a', platform: 'douyin',
+        article: { title: '抛错' }, result: { postId: 'p1' },
+      })
+      await flush()
+      expect(() => monitorCalls2[0].callback({ status: 'rejected', postId: 'p1' })).not.toThrow()
     })
 
-    it('无 postId 时不建监控任务（无可查锚点）', () => {
+    it('无 postId 时不建监控任务（无可查锚点）', async () => {
       const { taskQueue, monitorCalls } = wireWithMonitor()
       taskQueue.emit('task:success', {
         id: 'task-no-postid', platform: 'weibo', article: { title: 'T' }, result: {},
       })
+      await flush()
+      expect(monitorCalls).toHaveLength(0)
+    })
+
+    // P0-1 第二切片：凭证/能力门——不通过就不建监控任务（消灭「必然失败的重试风暴」）
+    it('凭证拿不到（no-cookies）不建监控任务', async () => {
+      const { taskQueue, monitorCalls } = wireWithMonitor({
+        resolveCookies: async () => ({ cookies: '', source: 'none' }),
+        decide: () => ({ start: false, reason: 'no-cookies' }),
+      })
+      await emitSuccess(taskQueue)
+      expect(monitorCalls).toHaveLength(0)
+    })
+
+    it('端点未验证/探索开关关闭（unsupported/candidates-disabled）不建监控任务', async () => {
+      for (const reason of ['unsupported-platform', 'candidates-disabled']) {
+        const { taskQueue, monitorCalls } = wireWithMonitor({
+          decide: () => ({ start: false, reason }),
+        })
+        await emitSuccess(taskQueue)
+        expect(monitorCalls, reason).toHaveLength(0)
+      }
+    })
+
+    it('凭证解析结果透传给监控任务（含 accountId 定位 auth 分区）', async () => {
+      let seenParams = null
+      const { taskQueue, monitorCalls } = wireWithMonitor({
+        resolveCookies: async (params) => { seenParams = params; return { cookies: 'z_c0=tok', source: 'auth-partition' } },
+      })
+      taskQueue.emit('task:success', {
+        id: 'task-cookie', owner_subject: 'user-a', platform: 'zhihu',
+        article: { title: '凭证', accountId: 'acc-9' }, result: { postId: 'p-1' },
+      })
+      await flush()
+      expect(seenParams).toEqual(expect.objectContaining({ platform: 'zhihu', accountId: 'acc-9' }))
+      expect(monitorCalls).toHaveLength(1)
+      expect(monitorCalls[0].cookies).toBe('z_c0=tok')
+    })
+
+    it('凭证解析抛错不冒泡且不建任务（旁路不得影响发布主流程）', async () => {
+      const { taskQueue, monitorCalls } = wireWithMonitor({
+        resolveCookies: async () => { throw new Error('session gone') },
+      })
+      await emitSuccess(taskQueue)
       expect(monitorCalls).toHaveLength(0)
     })
   })
