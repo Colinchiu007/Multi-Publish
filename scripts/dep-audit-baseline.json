@@ -229,6 +229,62 @@
       ],
       "decision": "no-fix-available",
       "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-9qh4-3jw8-366w",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 是本仓开发期依赖且版本被**显式锁定在 43.1.1**（apps/desktop devDependencies + 装机脚本 scripts/ensure-electron.js 与 CI 的 electron 二进制下载口径都锚定该版本），修复版要求 >=43.4.1。本轮不升级的理由：跨 minor 升级会同时影响 ① electron-builder 打包产物（QM-1 三件套：asar 清单 / require 链 / 8s 存活）② 捆绑的 Playwright Chromium 解析路径 ③ 主进程 API 兼容（本仓大量 WebContentsView / session / IPC 用法），必须单独一批做「升级 + QM-1 + GUI 用例」验证，不能搭在 UI 令牌退役批次里顺带升。跟踪动作：登记为 upgrade-tracked，由依赖批次的专项任务执行 43.1.1 → >=43.4.1 升级并复跑 QM-1。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-gr2m-v5gq-v685",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 是本仓开发期依赖且版本被**显式锁定在 43.1.1**（apps/desktop devDependencies + 装机脚本 scripts/ensure-electron.js 与 CI 的 electron 二进制下载口径都锚定该版本），修复版要求 >=43.4.1。本轮不升级的理由：跨 minor 升级会同时影响 ① electron-builder 打包产物（QM-1 三件套：asar 清单 / require 链 / 8s 存活）② 捆绑的 Playwright Chromium 解析路径 ③ 主进程 API 兼容（本仓大量 WebContentsView / session / IPC 用法），必须单独一批做「升级 + QM-1 + GUI 用例」验证，不能搭在 UI 令牌退役批次里顺带升。跟踪动作：登记为 upgrade-tracked，由依赖批次的专项任务执行 43.1.1 → >=43.4.1 升级并复跑 QM-1。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-j84w-jfhq-vhvj",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.4.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 是本仓开发期依赖且版本被**显式锁定在 43.1.1**（apps/desktop devDependencies + 装机脚本 scripts/ensure-electron.js 与 CI 的 electron 二进制下载口径都锚定该版本），修复版要求 >=43.4.1。本轮不升级的理由：跨 minor 升级会同时影响 ① electron-builder 打包产物（QM-1 三件套：asar 清单 / require 链 / 8s 存活）② 捆绑的 Playwright Chromium 解析路径 ③ 主进程 API 兼容（本仓大量 WebContentsView / session / IPC 用法），必须单独一批做「升级 + QM-1 + GUI 用例」验证，不能搭在 UI 令牌退役批次里顺带升。跟踪动作：登记为 upgrade-tracked，由依赖批次的专项任务执行 43.1.1 → >=43.4.1 升级并复跑 QM-1。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-qmv3-fv6v-rmhq",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.5.0",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "electron 是本仓开发期依赖且版本被**显式锁定在 43.1.1**（apps/desktop devDependencies + 装机脚本 scripts/ensure-electron.js 与 CI 的 electron 二进制下载口径都锚定该版本），修复版要求 >=43.5.0。本轮不升级的理由：跨 minor 升级会同时影响 ① electron-builder 打包产物（QM-1 三件套：asar 清单 / require 链 / 8s 存活）② 捆绑的 Playwright Chromium 解析路径 ③ 主进程 API 兼容（本仓大量 WebContentsView / session / IPC 用法），必须单独一批做「升级 + QM-1 + GUI 用例」验证，不能搭在 UI 令牌退役批次里顺带升。跟踪动作：登记为 upgrade-tracked，由依赖批次的专项任务执行 43.1.1 → >=43.5.0 升级并复跑 QM-1。"
     }
   ]
 }
