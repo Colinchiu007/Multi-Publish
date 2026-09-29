@@ -2,6 +2,13 @@
 
 ### 变更
 
+- **feat(publish) P0-2 风控挂起发布页可见性 + 行动指引具体化 + 词表增强**（发布页优化 roadmap 第二切片）：
+  - 目标选择器风控徽标（`PublishTargetSelector.vue` + `Publish.vue` 接 `useRiskStore`）：挂起账号/平台行显示「⚠ 风控挂起」+ 行动指引 tooltip——发布前可见，而非发布时被派发前置守卫拦截才知道；组件保持哑组件（props 注入），键语义与 risk-suspender-store 一致（平台级覆盖全部账号）。
+  - 行动指引具体化（参考产品 -110 口径）：通知/挂起提示/恢复确认从「前往平台侧确认」改为具体动作——「前往该平台创作者中心手动发布一篇内容完成验证，然后在账号管理页解除挂起」；locales zh/en 成对（badge/guidance 新键 + body/suspended/resumeConfirm 更新）。
+  - 词表增强（桌面 `publish-risk.js` + 引擎 `publish-mode-runner.js` 两侧同义）：RISK_RE += `canvas illegal` + `账号存在风险`（参考产品取证）；刻意不加「服务异常」等宽泛词（测试 misses 侧钉住该决策）。
+  - 实施发现：仓库已有完整风控体系（W1 §5/§6），真实差距为可见性/指引/词表三点——PRD-PUBLISH-PAGE-OPTIMIZATION §四 P0-2 已按六维度详写并标记已实现。
+  - 验证：桌面受影响面 246/246（选择器 +5、publish-risk +1）；引擎全量 exit 0（mode-runner +1）；locale pair/keys/cjk + 品牌 PASS。
+
 - **债务登记：`max-lines-baseline.json` 的 `Publish.vue` 登记值 1333 → 1515（= main 实况）**。
   登记值停在 1333，而 main 上 `apps/desktop/src/views/Publish.vue` 实测已 1515 行 —— 这 +182 是已合进 main
   的上游改动、从未登记。容差 200 ⇒ 天花板 1533，main 自己只剩 18 行余量，于是任何再动该文件的 PR 一律

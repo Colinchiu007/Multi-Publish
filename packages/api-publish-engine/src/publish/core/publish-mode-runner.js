@@ -13,7 +13,9 @@
  */
 const { decideRoute, normalizeMode, ROUTES, REASON } = require('./publish-mode')
 
-const RISK_RE = /风控|risk|滑块|601|10000015|frequent|频繁|verify|验证/i
+// 2026-10-08 P0-2 词表增强（参考产品 4.13.19 逆向取证）：canvas illegal（抖音/西瓜风控特征）
+// 与「账号存在风险」（参考产品风控提示原文）；与桌面侧 publish-risk.js RISK_RE 保持同义。
+const RISK_RE = /风控|risk|滑块|601|10000015|frequent|频繁|verify|验证|canvas illegal|账号存在风险/i
 const LOGIN_RE = /登录|未登录|登陆|cookie.*(expired|失效|过期)|login|session|auth.*(fail|expired)|未授权/i
 const UNSUPPORTED_RE = /unsupported|not.?supported|暂不支持|无.?api|no.?api/i
 

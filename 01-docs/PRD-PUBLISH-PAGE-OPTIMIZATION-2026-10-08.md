@@ -34,7 +34,7 @@
 | # | 差距 | 参考产品形态 | 本仓现状 | 优先级 |
 | --- | --- | --- | --- | --- |
 | 1 | **发布后平台审核状态跟踪** | 16 态 + 主动回查平台作品列表 | 发布历史 3 态（success/failed/pending），终态即终点；「发布成功」后内容被审核拒绝/仅自己可见/转码失败/被下线**用户完全不可见** | 🔴 P0-1 |
-| 2 | **账号风险前置预检** | -110 风险码族 + 行动指引 | 只有登录态三态（active/expired/unverified）；风控账号走到发布中途才失败 | 🔴 P0-2 |
+| 2 | **账号风险前置预检** | -110 风险码族 + 行动指引 | ~~只有登录态三态~~ → **已实现**（2026-10-08 第二切片：目标选择器风控徽标 + 行动指引具体化 + 词表增强，详见 §四 P0-2） | 🔴 P0-2 ✅ |
 | 3 | **平台原生草稿往返** | per-platform draftId 存平台侧可回取 | 草稿只存本地 | 🟠 P1-3 |
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
 | 5 | platform-capable 字段补齐 | visibility(5)/location(3)/goods(4)/activity(3)/download(2)/music(2)+独有项 | 注册表已收录未实现（PRD §十一 roadmap） | 🟠 P1-5 |
@@ -134,11 +134,63 @@
 - **显示**：历史列表状态列（含平台差异图标）、详情页状态时间线、拒绝/下线醒目提醒
 - **依赖**：发布结果需落 `platformWorkId`（当前部分链路已回传 url，需补 workId）
 
-### P0-2 账号风险预检
+### P0-2 账号风险预检（**2026-10-08 已实现**，publish-page-optimization 第二切片）
 
-- **风控码映射表**：从参考产品 -110 码族 + 本仓实测积累（注册表或独立映射文件）
-- **预检时机**：发布前对已选账号做风险探测（轻量：登录检测通道复用 + 风控特征）
-- **显示**：目标选择器账号行风险标记 + 「去创作者中心验证」指引
+> 实施时发现：仓库已有完整风控体系（W1 §5/§6 切片——`publish-risk.js` 识别 + `risk-suspender-store.js` 挂起 + 派发前置守卫 + 账号页 RiskSuspendedBanner 恢复入口）。真实差距收敛为三点：**发布页目标选择器无风控可见性**（选中挂起账号要到发布时才被拦）、**指引模糊**（「前往平台侧确认」vs 参考产品的具体动作指引）、**词表缺参考产品取证特征**。本切片补齐这三点。
+
+#### 数据校验
+
+| 校验点 | 规则 | 位置 |
+| --- | --- | --- |
+| 账号级挂起判定 | 清单条目 `platform === platformId && accountId === accountId` | `PublishTargetSelector.isAccountRiskSuspended` |
+| 平台级挂起判定 | 清单条目 `platform === platformId && accountId == null`（覆盖该平台全部账号，与 risk-suspender-store 键语义一致） | `PublishTargetSelector.isPlatformRiskSuspended` |
+| 风控识别词表 | RISK_RE += `canvas illegal`（抖音/西瓜特征串）+ `账号存在风险`（参考产品原文）；**刻意不加**「服务异常」等宽泛词（普通服务端错误会误判成风控） | `publish-risk.js` + 引擎 `publish-mode-runner.js`（两侧同义） |
+| 非字符串输入 | `isRiskBlocked(非字符串)` 安全返回 false（既有行为不变） | `publish-risk.js` |
+
+#### 流程
+
+```
+发布失败（task:failed）
+  → isRiskBlocked(task.error) 命中（含新增特征串）
+  → riskSuspender.suspend(platform, accountId) + publish:risk-hold / publish:risk-suspended 广播（既有链路不变）
+  → 渲染层 useRiskStore 权威清单更新（main.js 已全局订阅）
+  → 发布页目标选择器（新增消费点）：挂起账号/平台行显示「⚠ 风控挂起」徽标 + 指引 tooltip
+  → 用户按指引去平台创作者中心验证 → 账号管理页 RiskSuspendedBanner 手动解除（既有链路）
+```
+
+#### 功能逻辑
+
+- **组件保持哑组件**：风控态经 `riskSuspended` props 注入（`Publish.vue` 接 `useRiskStore.suspended`），选择器不直接耦合 store——与既有 `groups/selectedAccounts` 注入模式一致，测试无需 pinia
+- **徽标不禁用复选框**：挂起账号仍可选择（派发前置守卫会拦截），徽标是**可见性层**而非拦截层——避免「静默禁用」的困惑；tooltip 给出完整行动指引
+- **平台级挂起双显**：平台行 + 该平台全部账号行都显示徽标（平台级语义覆盖全部账号）
+- **词表双侧同步**：桌面 `publish-risk.js` 与引擎 `publish-mode-runner.js` 的 RISK_RE 保持同义（既有合同，注释声明）
+
+#### 交互逻辑
+
+| 交互点 | 行为 |
+| --- | --- |
+| 挂起账号行 | 「⚠ 风控挂起」徽标（warning 色，cursor:help），hover 显示完整指引 tooltip |
+| 平台级挂起 | 平台行 + 全部账号行徽标 |
+| 无挂起 | 零徽标零打扰 |
+| 选中挂起账号 | 可选中（不禁用）；发布时被派发前置守卫拦截（既有行为） |
+| 风控命中通知 | notifyWarning 含具体行动指引（创作者中心验证 + 解除挂起路径） |
+| 恢复确认 | resumeConfirm 提示「确保已完成创作者中心验证，否则会再次触发」 |
+
+#### 显示项与提示文字（zh/en 成对）
+
+| key | zh |
+| --- | --- |
+| `publish.riskHold.badge` | ⚠ 风控挂起 |
+| `publish.riskHold.guidance` | 该账号因平台风控已暂停发布。请前往该平台创作者中心手动发布一篇内容完成验证（发布时会弹出验证，通过即可），然后在账号管理页解除挂起。 |
+| `publish.riskHold.body`（更新） | 检测到「{platform}」发布触发风控。请前往该平台创作者中心手动发布一篇内容完成验证（发布时会弹出验证，通过即可），然后在账号管理页解除挂起。 |
+| `publish.riskHold.suspended`（更新） | …已自动暂停后续发布。请前往该平台创作者中心手动发布一篇内容完成验证…然后在账号管理页手动恢复。 |
+| `publish.riskHold.resumeConfirm`（更新） | …请确保已在该平台创作者中心完成验证（手动发布一篇内容并通过验证），否则会再次触发风控暂停。 |
+
+#### 测试（19+20 例新增/更新）
+
+- `PublishTargetSelector.test.js` +5：账号级命中/平台级双显/指引 tooltip 含「创作者中心」与「解除挂起」/无挂起零徽标/跨平台不牵连
+- `publish-risk.test.js` +1：参考产品特征串命中；misses 侧钉住「服务异常」不误判（词表决策的回归锁）
+- `publish-mode-runner.test.js` +1：引擎侧同义特征串命中
 
 ### P1-3 平台原生草稿往返
 

@@ -514,6 +514,7 @@
                 :selected-platforms="selectedPlatforms"
                 :selected-accounts="selectedAccounts"
                 :disabled="publishing"
+                :risk-suspended="riskStore.suspended"
                 @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
               />
@@ -656,6 +657,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
+import { useRiskStore } from '@/stores/risk'
 import { useAccountStore } from '@/stores/accounts'
 import { CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import TagSuggester from '@/components/TagSuggester.vue'
@@ -729,6 +731,9 @@ function replaceDiffEdits (next) {
 }
 
 const platformStore = usePlatformStore()
+// P0-2 风控挂起可见性：发布页目标选择器消费权威挂起清单（main.js 已全局 start），
+// 挂起账号/平台在选择器上显示「风控挂起」徽标 + 行动指引 tooltip（发布前可见，而非发布时被拦才知道）。
+const riskStore = useRiskStore()
 platformStore.load()
 const accountStore = useAccountStore()
 const licenseStore = useLicenseStore()
