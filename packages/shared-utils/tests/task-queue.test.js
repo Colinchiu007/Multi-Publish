@@ -21,6 +21,20 @@ describe('TaskQueue', () => {
     expect(taskId).toMatch(/^task_\d+_\d+$/)
   })
 
+  test('publishMode 透传进队列条目（定时发布标记不得被白名单丢弃）', () => {
+    const queue = new TaskQueue()
+    queue.pause()
+    queue.add({ platform: 'wechat_mp', article: { title: '定时任务' }, publishMode: 'scheduled' })
+    expect(queue.getPendingTasks()).toEqual([
+      expect.objectContaining({ publishMode: 'scheduled' }),
+    ])
+
+    const immediateQueue = new TaskQueue()
+    immediateQueue.pause()
+    immediateQueue.add({ platform: 'wechat_mp', article: { title: '立即任务' } })
+    expect(immediateQueue.getPendingTasks()[0].publishMode).toBeNull()
+  })
+
   test('租户和批次上下文会在入队、重试与持久化时保持不变', async () => {
     const snapshotQueue = new TaskQueue()
     snapshotQueue.setOwnerSubjectProvider(() => 'user-a')

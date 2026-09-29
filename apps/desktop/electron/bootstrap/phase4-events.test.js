@@ -30,6 +30,66 @@ describe('phase4-events', () => {
     )
   })
 
+  it('定时派发任务的 publishMode 写入发布历史（历史页「定时发布」过滤器不再恒空）', () => {
+    const taskQueue = new EventEmitter()
+    const history = { addRecord: vi.fn() }
+    wireTaskQueueEvents({
+      taskQueue,
+      history,
+      publishMonitor: { createMonitorTask: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+      getMainWin: () => null,
+    })
+
+    taskQueue.emit('task:success', {
+      id: 'task-sched',
+      platform: 'wechat_mp',
+      article: { title: '定时发布文章' },
+      result: {},
+      publishMode: 'scheduled',
+    })
+
+    expect(history.addRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-sched', publishMode: 'scheduled' }),
+      undefined,
+    )
+
+    taskQueue.emit('task:failed', {
+      id: 'task-sched-fail',
+      platform: 'zhihu',
+      article: { title: '定时失败文章' },
+      error: '平台拒绝',
+      publishMode: 'scheduled',
+    })
+
+    expect(history.addRecord).toHaveBeenLastCalledWith(
+      expect.objectContaining({ taskId: 'task-sched-fail', publishMode: 'scheduled', status: 'failed' }),
+      undefined,
+    )
+  })
+
+  it('立即发布任务不写 publishMode 字段（保持历史记录原样）', () => {
+    const taskQueue = new EventEmitter()
+    const history = { addRecord: vi.fn() }
+    wireTaskQueueEvents({
+      taskQueue,
+      history,
+      publishMonitor: { createMonitorTask: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+      getMainWin: () => null,
+    })
+
+    taskQueue.emit('task:success', {
+      id: 'task-immediate',
+      platform: 'wechat_mp',
+      article: { title: '立即发布文章' },
+      result: {},
+    })
+
+    const record = history.addRecord.mock.calls[0][0]
+    expect(record.publishMode).toBeUndefined()
+  })
+
   it('发布成功调用 tracker 真实方法 scheduleImpactTracking（含 platform）', () => {
     // 根因（2026-09-28 活体残余②）：调用方调 addTracking——真实类只有
     // scheduleImpactTracking（publish-impact-tracker.js），旧测试 mock 了

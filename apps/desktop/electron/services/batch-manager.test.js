@@ -261,3 +261,130 @@ describe('BatchManager.executeBatch 入队与终态合同', () => {
     expect(store.listBatchJobs).not.toHaveBeenCalled()
   })
 })
+
+describe('BatchManager.restoreScheduledBatches — 重启恢复排期批次', () => {
+  // P1 缺陷回归：scheduleBatch 只用内存 setTimeout，应用重启后 scheduled 批次的
+  // 定时器全部丢失，批次状态永远停在 'scheduled'，文章永不发布（静默数据丢失）。
+  // restoreScheduledBatches 必须在启动时重新武装这些定时器。
+  beforeEach(() => {
+    vi.clearAllMocks()
+    __resetElectronMock()
+    BatchManager.setTaskQueue(null)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-29T08:00:00.000Z'))
+    const win = new __electronMock.BrowserWindow()
+    win.webContents.send = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    BatchManager.setTaskQueue(null)
+  })
+
+  function createRestoreStore (jobs) {
+    return {
+      listBatchJobs: vi.fn(function () { return jobs }),
+      getBatchJob: vi.fn(function (id) { return jobs.find(function (j) { return j.id === id }) || null }),
+      updateBatchJob: vi.fn(function (id, updates) {
+        const job = jobs.find(function (j) { return j.id === id })
+        if (job) Object.assign(job, updates)
+        return Boolean(job)
+      }),
+    }
+  }
+
+  it('重启后为 scheduled 批次重新武装定时器，未到点不入队，到点后带 publishMode 入队', async () => {
+    const publishTime = new Date(Date.now() + 60_000).toISOString()
+    const store = createRestoreStore([
+      { id: 'batch-1', status: 'scheduled', articles: [{ title: '文章', content: '正文', platforms: ['wechat_mp'], publishTime }] },
+    ])
+    const queue = createQueue(function () { return 'task-restored' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    const restored = manager.restoreScheduledBatches()
+
+    expect(restored).toBe(1)
+    expect(queue.add).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(60_001)
+    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'wechat_mp',
+      batchId: 'batch-1',
+      publishMode: 'scheduled',
+    }))
+  })
+
+  it('过期 publishTime 立即入队（catch-up，与单篇 scheduler.restore 语义一致）', async () => {
+    const publishTime = new Date(Date.now() - 30_000).toISOString()
+    const store = createRestoreStore([
+      { id: 'batch-late', status: 'scheduled', articles: [{ title: '迟到文章', content: '正文', platforms: ['zhihu'], publishTime }] },
+    ])
+    const queue = createQueue(function () { return 'task-late' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    const restored = manager.restoreScheduledBatches()
+
+    expect(restored).toBe(1)
+    await Promise.resolve()
+    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'zhihu',
+      batchId: 'batch-late',
+      publishMode: 'scheduled',
+    }))
+  })
+
+  it('没有 scheduled 批次时返回 0 且不武装任何定时器', () => {
+    const store = createRestoreStore([
+      { id: 'batch-done', status: 'done', articles: [] },
+      { id: 'batch-pending', status: 'pending', articles: [{ title: '未排期', content: '正文', platforms: ['wechat_mp'], publishTime: new Date(Date.now() + 60_000).toISOString() }] },
+    ])
+    const queue = createQueue(function () { return 'task-x' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    expect(manager.restoreScheduledBatches()).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(queue.add).not.toHaveBeenCalled()
+  })
+
+  it('单个批次恢复异常不阻断其余批次（逐批 try/catch）', () => {
+    const publishTime = new Date(Date.now() + 60_000).toISOString()
+    const jobs = [
+      { id: 'batch-bad', status: 'scheduled', articles: [{ title: '坏批次', content: '正文', platforms: ['wechat_mp'], publishTime }] },
+      { id: 'batch-good', status: 'scheduled', articles: [{ title: '好批次', content: '正文', platforms: ['zhihu'], publishTime }] },
+    ]
+    const store = createRestoreStore(jobs)
+    store.getBatchJob.mockImplementation(function (id) {
+      if (id === 'batch-bad') throw new Error('数据库读取失败')
+      return jobs.find(function (j) { return j.id === id }) || null
+    })
+    const queue = createQueue(function () { return 'task-y' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    const restored = manager.restoreScheduledBatches()
+
+    expect(restored).toBe(1)
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it('身份模式下按当前 owner 列批次并恢复，owner 缺失时 fail-closed', () => {
+    const publishTime = new Date(Date.now() + 60_000).toISOString()
+    const store = createRestoreStore([
+      { id: 'batch-user', status: 'scheduled', articles: [{ title: '用户批次', content: '正文', platforms: ['wechat_mp'], publishTime }] },
+    ])
+    const queue = createQueue(function () { return 'task-z' })
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+    manager.setOwnerSubjectProvider(() => 'user-a')
+
+    expect(manager.restoreScheduledBatches()).toBe(1)
+    expect(store.listBatchJobs).toHaveBeenCalledWith('user-a')
+
+    const deniedManager = new BatchManager(store)
+    deniedManager.setOwnerSubjectProvider(() => null)
+    expect(() => deniedManager.restoreScheduledBatches()).toThrow('登录会话缺少用户标识')
+  })
+})

@@ -368,7 +368,9 @@ class BatchManager {
         for (const platform of article.platforms) {
           const r = BatchManager.resolvePlatform(platform)
           try {
-            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId }, ownerSubject)
+            // publishMode: 'scheduled' — 排期到点的入队任务标记为定时发布，
+            // phase4-events 写入发布历史后历史页可按「定时发布」过滤。
+            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
             Promise.resolve(queued).catch(error => {
               log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
             })
@@ -389,7 +391,7 @@ class BatchManager {
           }
           for (const platform of article.platforms) {
             const r = BatchManager.resolvePlatform(platform)
-            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId }, ownerSubject)
+            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
             Promise.resolve(queued).catch(error => {
               log.error('BatchManager', 'Failed to schedule batch task for ' + batchId + ': ' + error.message)
             })
@@ -406,6 +408,36 @@ class BatchManager {
     this.store.updateBatchJob(batchId, { status: 'scheduled' }, ownerSubject)
     log.info('BatchManager', `Batch ${batchId} scheduled (${batch.articles.length} articles)`)
     return true
+  }
+
+  /**
+   * 重启恢复排期批次（P1 缺陷修复）
+   *
+   * scheduleBatch 只把定时器放在内存（this._timers），应用退出即丢失；
+   * batch_jobs 表里 status='scheduled' 的批次在重启后无人重新武装定时器，
+   * 排期文章永不发布（静默数据丢失）。本方法在启动/登录态就绪后遍历
+   * scheduled 批次并复用 scheduleBatch 重新武装：
+   *   - 未来 publishTime → 重新排期；
+   *   - 已过期 publishTime → 立即入队（catch-up，与单篇 scheduler.restore 语义一致）。
+   * 单批次恢复异常只记 warn，不阻断其余批次。
+   * @param {string} [ownerSubject] 显式 owner（身份模式由调用方传入当前登录用户）
+   * @returns {number} 成功恢复的批次数
+   */
+  restoreScheduledBatches (ownerSubject) {
+    const owner = ownerSubject === undefined ? this._requireOwnerSubject() : normalizeOwnerSubject(ownerSubject)
+    const jobs = this.store.listBatchJobs(owner)
+    let restored = 0
+    for (const job of jobs) {
+      if (!job || job.status !== 'scheduled') continue
+      try {
+        if (this.scheduleBatch(job.id)) restored += 1
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error)
+        log.warn('BatchManager', 'Failed to restore scheduled batch ' + job.id + ': ' + message)
+      }
+    }
+    if (restored > 0) log.info('BatchManager', 'Restored ' + restored + ' scheduled batch(es) after restart')
+    return restored
   }
 
   _emitProgress (batchId, taskId, platform, title, result) {

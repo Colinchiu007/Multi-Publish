@@ -1,3 +1,39 @@
+# [未发布] fix(定时发布): 全链路验证修复——批量定时重启恢复、历史定时模式标记、日历取消入口（2026-10-02，fix-scheduled-publish-gaps）
+
+### 现象与根因（5 项，按严重度）
+
+- **P1 批量定时重启丢失（静默数据丢失）**：`BatchManager.scheduleBatch` 只用内存 `setTimeout`（`this._timers`），应用退出即丢；`batch_jobs` 表 status='scheduled' 的批次重启后无人重新武装，排期文章**永不发布**且无任何提示。PRD §6.3 声称的「支持 App 关闭后重启恢复」对批量路径不成立。根因：scheduleBatch 设计时只考虑运行时排期，无恢复路径。
+- **P1 发布历史无法标记定时模式（死过滤器）**：历史页「定时发布」过滤器与详情「发布模式」读 `record.publishMode`，但生产代码从不写该字段——`phase4-events.addRecord` 只写 platform/title/taskId/status/result/error；且 `TaskQueue._add` 白名单会丢弃自定义字段，即使上游标记也传不到终态事件。用户无法区分定时/立即发布。
+- **P2 日历无取消入口**：唯一取消路径是发布页会话内 `cancelPublish`（`activeScheduleIds` 内存态，离开页面即丢）；`schedulerCancel` IPC 已暴露但无 UI 消费。用户排期后无法从任何界面取消。
+- **P2 日历显示已取消/已执行任务**：`getEventsForDate` 把所有 `scheduledTasks` 渲染为 ⏰ 待发事件，cancelled/executed 状态的任务看起来「还会发布」。
+- **P2 usePublishFlow 重复函数定义**：`aa7e7cf0`（2026-08-23）新增 `Promise.allSettled` 版 `cancelPublish` 时未删旧 `Promise.all` 版，旧版成死代码（JS 函数声明后者覆盖前者）；`fdd30498`（2026-08-30）的通知迁移甚至误改在死副本上。逃逸分析：函数声明重复无 lint 规则拦截、行为测试全绿（测的永远是新版）——只有源码结构断言能防再犯。
+
+### 变更
+
+- **批量定时重启恢复（P1）**：新增 `BatchManager.restoreScheduledBatches(ownerSubject)`——遍历 `batch_jobs` status='scheduled' 批次复用 `scheduleBatch` 重臂定时器；过期文章立即入队（catch-up，与单篇 `scheduler.restore` 语义一致）；单批次异常逐批 try/catch 只记 warn。`phase3-services.restoreForOwner` 与 `scheduler.restore` 同点位接线（身份模式同 owner 语义；恢复属旁路，失败不阻断启动）。
+- **发布历史定时模式标记（P1，打通 4 个丢字段点）**：`scheduler.dispatch` 与 `BatchManager.scheduleBatch`（立即/定时两路径）入队任务带 `publishMode:'scheduled'`；`TaskQueue._add` / `getPendingTasks` / `serialize`（running 映射）白名单透传（崩溃恢复 deserialize 后不丢）；`phase4-events` 的 `task:success` / `task:failed` 写历史时有值才带（立即发布不写字段，渲染端缺省即 immediate）。
+- **日历取消入口（P2）**：`Calendar.vue` 待发事件（⏰ pending）行内「取消定时」按钮 → `notifyConfirm` 确认弹窗（「确定取消该定时任务？取消后到点不会发布。」）→ `schedulerCancel(id)` → 成功 toast「已取消定时任务」+ 刷新 / 失败 toast「取消定时任务失败，请重试」不刷新；`cancellingId` 防重复点击。文案 `calendarPage.*` zh/en 成对入 locales。
+- **日历状态过滤（P2）**：⏰ 只显示 pending/dispatching（及无 status 历史数据，向后兼容）；executed/failed 由发布历史承载（✅/❌）；cancelled 不显示。取消按钮仅 pending（dispatching 是认领瞬态且 `scheduler.cancel` 只认 pending）。
+- **删除重复 cancelPublish（P2）**：删 `Promise.all` 死代码版，保留 `allSettled` 版（失败任务保留 ID 供重试）+ 根因注释；`usePublishFlow.test.js` 新增「单一定义结构锁」（源码级正则断言）。
+- **PRD §6.3 全链路重写**：架构决策对照表（本地定时器 vs 参考产品平台侧定时：B站 `publish_time`/微博 `schedule_timestamp`+配额/一点号 `prePub`）、入口交互、数据校验表（含全部提示文字）、创建/派发/恢复/取消流程图、日历显示规则、持久化与权益、离线行为按实现修正（原文「断网标记 missed」与实现不符，修正为失败重试语义）。
+
+### 明确不做（附理由）
+
+- **不迁移到平台侧定时（参考产品方案）**：需逐平台适配（B站秒级时间戳、微博定时配额检查、一点号 prePub、定时不能存草稿等约束），爆炸半径大；本地方案零适配 + 统一取消 + 离线可控。差异与取舍写入 PRD §6.3.1，平台侧定时作为未来增强方向记录。
+- **不给立即发布写 `publishMode:'immediate'` 占位**：渲染端 `publishModeValue` 缺省即 immediate；写占位会让存量历史记录（无该字段）与新记录语义分叉。
+- **不在 dispatching 状态给取消按钮**：`scheduler.cancel` 只认 pending（`updateStatus(id,'cancelled','pending')`），dispatching 点击必失败；dispatching 是认领瞬态（重启即重置为 pending），显示按钮只会制造失败交互。
+
+### 测试（TDD，先红后绿：15 个新测试先全部 RED 再 GREEN）
+
+- `batch-manager.test.js` +5：重启重臂且未到点不入队、到点带 publishMode 入队、过期立即入队（catch-up）、无 scheduled 返回 0、单批次异常不阻断、身份模式 owner 隔离 + fail-closed。
+- `scheduler.test.js` +1（派发任务带 publishMode）+3 处精确形状断言同步（合同有意变更）。
+- `task-queue.test.js` +1：白名单透传（scheduled 保留 / 立即发布为 null）。
+- `phase4-events.test.js` +2：定时任务 success/failed 均写 publishMode；立即发布不写字段。
+- `phase3-services.test.js` +2：restoreScheduledBatches 在 scheduler.restore 之后调用（顺序断言）；恢复抛错不阻断启动（warn）。
+- `Calendar.test.js` +7：取消闭环（确认→调用→刷新→成功 toast）、确认拒绝不调用、失败提示不刷新、历史事件无按钮、非 pending 无按钮、cancelled/executed 不渲染为 ⏰、无 id 防御。
+- `usePublishFlow.test.js` +1：cancelPublish 单一定义结构锁（先红：当前 2 处定义；删后绿：1 处）。
+- 回归：apps/desktop 全量 vitest + packages/shared-utils 全量 vitest 通过；PRD 行尾对账（numstat 两口径一致）。
+
 # [未发布] fix(工程门禁): 15 个含中文的 .ps1 补 UTF-8 BOM + 新增编码声明门禁（Windows PowerShell 5.1 按 ANSI 解码会让入口脚本整体不可解析）
 
 ## 现象（不是显示问题，是功能性中断）

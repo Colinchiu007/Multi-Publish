@@ -1,3 +1,13 @@
+## 定时发布全链路验证：PRD 声称的「重启恢复」只对单篇成立、接口暴露 ≠ 功能闭环、mock 带字段掩盖生产从不写入、替换式重构残留死函数（fix-scheduled-publish-gaps，2026-10-02）
+
+- **「持久化、重启恢复」这类 PRD 合同必须逐路径验证，不能按代表性路径放行**：PRD §6.3 写「支持 App 关闭后重启恢复」，单篇路径（scheduler.restore）确实有；但批量路径（BatchManager.scheduleBatch）只用内存 `setTimeout`，重启后 `batch_jobs` 里 status='scheduled' 的批次**永不发布**且无任何提示——静默数据丢失在「功能已实现 ✅」的表格行下躺了很久。判据：文档里每个「持久化/恢复/重试」承诺都要问「哪几条路径会写这个状态？每条路径谁负责读回？」，一条路径一个证据。
+- **「IPC 已暴露但无 UI 消费」是接口层的死代码，比代码缺失更隐蔽**：`schedulerCancel` 从 preload 到渲染层 API 全链路存在，但没有任何界面调用它——用户排期后唯一取消路径是发布页会话内的内存态 `activeScheduleIds`（离开页面即丢）。接口存在让「能力已具备」的错觉成立。判据：验证功能完整性时按**用户操作闭环**走（用户能创建 → 能查看 → 能取消 → 能看到结果），不按接口清单走。
+- **渲染端 mock 夹具带字段、生产写入方从不写 = 死过滤器（mock-现实漂移的又一形态）**：历史页「定时发布」过滤器读 `record.publishMode`，测试夹具手写了 `publishMode: 'scheduled'` 所以 UI 测试全绿；但生产代码（phase4-events.addRecord）从不写该字段，且 `TaskQueue._add` 白名单会丢弃自定义字段——过滤器在产线恒空。同族纪律（AGENTS.md 已有「契约夹具不得替对方剥壳」）：**夹具里出现的每个字段都要问「生产写入方在哪一行写它」**，答不上来就是 mock 造出来的能力。
+- **JS 函数声明重复（后者覆盖前者）无 lint 规则拦截、行为测试恒测新版——只有源码结构锁能防**：`aa7e7cf0` 新增 allSettled 版 `cancelPublish` 未删旧 Promise.all 版，旧版成死代码；`fdd30498` 的通知迁移甚至**误改在死副本上**（改死代码不会变红，维护者以为改的是活代码）。逃逸链：无 lint 规则（重复声明合法）→ 行为测试全绿（测的永远是后者）→ 审查盲区。修复配「单一定义结构锁」（源码正则断言定义次数 == 1）。判据：**替换式重构（新增同名函数/导出）必须同 commit 删除旧版**；防再犯锁要落在源码结构上，因为行为层永远测不出「多了一份死代码」。
+- **管道 `cmd | Select-Object` 会吃掉 vitest 真实退出码（本轮又踩 AGENTS.md 已有口径的坑）**：全量回归命令写成 `pnpm exec vitest run 2>&1 | Select-String ... | Select-Object -First 30`，PowerShell 管道返回**末段 cmdlet** 的退出码（恒 0）——7 个失败 + exit 0 的假绿。正解：`2>&1 | Out-File` 落盘后判 `$LASTEXITCODE`，再从文件里 grep 失败清单。同族：`cmd | tail` / `cmd | head` 在 bash 里同样吃 rc。
+- **全量回归的失败归因要区分「负载抖动」与「真回归」，隔离复跑是分界线**：与 electron-builder 打包并发跑全量时 `Publish.test.js` 2 失败 + `accounts-compile` 导入超时；单独复跑 82/82 全过——是并发 CPU 争抢导致的超时抖动。已知既有红（feedback symlink EPERM / story2video-manual-assets，#2628 CHANGELOG 记录在案）与本 diff 零文件交集。判据：全量出现新失败时先**单独复跑该文件**，隔离通过 → 环境抖动；隔离仍红 → 真回归。
+- **并发会话共享 git 状态时的 stash 是危险操作，检测到他人活跃立即恢复**：为过 clean-root 门禁精确 stash 了 4 个脚本文件，stash 后 `git status` 立即冒出 5 个**他人**正在编辑的新文件——stash 与他人写操作在竞争同一 index。处置：立即 `stash pop` 恢复他人 WIP（零干扰），改用 `git worktree add`（不触碰主工作区工作树的原子操作，与 gwm-task.sh 内部同一命令）创建隔离。判据：**stash 前后各做一次 status 快照，diff 出现非预期变化立即 pop**。
+
 ## 话题的「输入框字段」与「描述文本」谁是真源，决定整条发布链的数据流——对齐参考产品模型后，剥离/转换必须按平台三态分流且只准单一实现（publish-topic-inline-description，2026-10-09）
 
 - **「标签/话题输入框 + 引擎按平台拼 tags」的隐式模型，在话题本就内联描述的平台必然丢数据（模型对齐）**：

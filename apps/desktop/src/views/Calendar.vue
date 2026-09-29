@@ -66,6 +66,17 @@
                 <span class="event-title">{{ e.title || e.article?.title || '(无标题)' }}</span>
               </div>
               <div class="event-platform">{{ e.platform }}</div>
+              <!-- 定时任务取消入口（P2 修复）：此前唯一取消路径是发布页会话内的
+                   cancelPublish（activeScheduleIds 内存态），离开页面即丢，用户排期后
+                   无法从任何 UI 取消。pending 状态才可取消（executed 已进历史、
+                   cancelled 不可再取消、dispatching 认领中取消会失败）。 -->
+              <button
+                v-if="e.type === 'scheduled' && e.id && isPendingSchedule(e)"
+                class="cohere-btn-secondary event-cancel-btn"
+                :data-testid="'cancel-schedule-' + e.id"
+                :disabled="cancellingId === e.id"
+                @click.stop="cancelSchedule(e)"
+              >{{ t('calendarPage.cancelSchedule') }}</button>
             </div>
           </div>
         </div>
@@ -78,11 +89,19 @@
 import { ref, computed, onMounted } from "vue"
 import { getApi } from '@/api/electron-bridge'
 import { usePlatformStore } from "@/stores/platforms"
+import i18n from '@/i18n'
+import { useNotify } from '@/composables/useNotify'
 
 const platformStore = usePlatformStore()
 platformStore.load()
 // eslint-disable-next-line no-unused-vars
 function platformName(id) { return platformStore.getLabel(id) || id }
+
+const { notifyConfirm, notifySuccess, notifyError } = useNotify()
+
+// Calendar 页新增用户可见文案一律走 locales（zh/en 成对，CI 基线扫描拦截
+// 渲染端非 locales 文件新增中文字符串字面量）；页面既有硬编码文案不在本次范围。
+function t(key) { return i18n.global.t(key) }
 
 function formatCalendarDatePart(value) {
   return String(value).padStart(2, "0")
@@ -213,10 +232,13 @@ const selectedDateLabel = computed(() => {
 function getEventsForDate(dateStr) {
   const events = []
   // Add scheduled tasks
+  // 状态过滤（P2 修复）：只有 pending/dispatching（及无 status 的历史数据）才是
+  // 「待发」事件；executed/failed 已由发布历史承载（✅/❌），cancelled 不该再
+  // 显示为 ⏰ 待发布——否则用户看到已取消的任务以为它还会发。
   for (const t of scheduledTasks.value) {
-    if (t.publishTime && toCalendarDateKey(t.publishTime) === dateStr) {
-      events.push({ ...t, type: "scheduled" })
-    }
+    if (!t.publishTime || toCalendarDateKey(t.publishTime) !== dateStr) continue
+    if (t.status && !isPendingSchedule(t) && t.status !== 'dispatching') continue
+    events.push({ ...t, type: "scheduled" })
   }
   // Add history
   for (const r of publishHistory.value) {
@@ -225,6 +247,14 @@ function getEventsForDate(dateStr) {
     }
   }
   return events.sort((a, b) => calendarTimestamp(a.publishTime || a.timestamp) - calendarTimestamp(b.publishTime || b.timestamp))
+}
+
+// pending / 无 status（历史 JSONL 数据）视为可取消的待发排期。
+// dispatching 是派发中的瞬态（认领窗口极短，且 scheduler.cancel 只认 pending），
+// 显示为待发事件但不给取消按钮；executed/failed 已进发布历史；cancelled 不可再取消。
+function isPendingSchedule(task) {
+  const status = task && task.status
+  return !status || status === 'pending'
 }
 
 function formatEventTime(e) {
@@ -279,6 +309,43 @@ async function loadData() {
   // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
   finally { loading.value = false }
+}
+
+// ── 定时任务取消（P2 修复：排期管理闭环）──────────────────────────────
+// 此前唯一取消路径是发布页会话内的 cancelPublish（activeScheduleIds 内存态），
+// 离开页面即丢。这里补上持久入口：日历 → 待发事件 → 取消按钮 → schedulerCancel。
+const cancellingId = ref(null)
+
+async function cancelSchedule(event) {
+  if (!event || event.type !== 'scheduled' || !event.id) return
+  if (cancellingId.value) return
+  const confirmed = await notifyConfirm('calendarPage.cancelScheduleConfirm', {
+    title: t('calendarPage.cancelScheduleTitle'),
+    confirmButtonText: t('calendarPage.cancelScheduleConfirmButton'),
+    cancelButtonText: t('calendarPage.cancelScheduleCancelButton'),
+    type: 'warning',
+  })
+  if (!confirmed) return
+  cancellingId.value = event.id
+  try {
+    const api = getApi()
+    if (!api || typeof api.schedulerCancel !== 'function') {
+      notifyError('calendarPage.cancelScheduleFailed', { fallback: t('calendarPage.cancelScheduleFailed') })
+      return
+    }
+    const res = await api.schedulerCancel(event.id)
+    if (!res || res.code !== 0 || res.data === false) {
+      notifyError('calendarPage.cancelScheduleFailed', { fallback: t('calendarPage.cancelScheduleFailed') })
+      return
+    }
+    notifySuccess('calendarPage.cancelScheduleSuccess')
+    await loadData()
+  // eslint-disable-next-line no-unused-vars
+  } catch (e) {
+    notifyError('calendarPage.cancelScheduleFailed', { fallback: t('calendarPage.cancelScheduleFailed') })
+  } finally {
+    cancellingId.value = null
+  }
 }
 
 onMounted(() => {
@@ -402,5 +469,10 @@ onMounted(() => {
   font-size: var(--font-size-xs);
   color: var(--muted);
   margin-top: 2px;
+}
+.event-cancel-btn {
+  margin-top: 6px;
+  padding: 2px 10px;
+  font-size: var(--font-size-xs);
 }
 </style>
