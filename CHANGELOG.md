@@ -190,6 +190,19 @@
 - **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
 
+- **fix(selector)：`:has-text` 选择器退化为「标签第一个元素」的全局根因**。`rpa-selector-utils.js`
+  生成的解析代码先执行 `document.querySelector(selector.split(":has-text")[0])`，而该调用在真实页面
+  **必然成功**（返回页面第一个同标签元素）并直接 `return`，使精心实现的 `_findByText`
+  （精确 / 叶子精确 / 包含 / 任意包含 四级择优）**从未被调用** ⇒ 所有 `xxx:has-text("...")` 候选
+  实际都点在与意图无关的控件上（头条「预览并发布」点不动、只存草稿即由此而来）。
+  修复：含文本谓词（`:has-text(` / `^text=`）时不得回落到 base 的 `querySelector`。
+- **fix(selectors)：收紧头条发布按钮候选**。根因修复后 `button:has-text("发布")` 在无精确匹配时会走
+  **包含**匹配 ⇒ 命中「**定时发布**」等危险控件；仅保留文本明确的候选
+  （`预览并发布` / `.publish-btn` / `确认发布`）。
+- **真机取证（头条提交链路）**：注入 `fetch`/`XMLHttpRequest` hook 后确认 —— 发布接口为
+  `POST https://mp.toutiao.com/mp/agw/article/publish`；**填内容后点「预览并发布」确实发出提交请求**，
+  而**空内容时无任何请求**（站方校验拦下）⇒ 头条链路本身可用，残留问题在「填充是否被页面接受」一侧。
+
 - **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
   `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /
   尺寸 / 该点**最顶层元素**（`elementsFromPoint`），并一并输出全页可见按钮。
