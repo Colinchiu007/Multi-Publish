@@ -24,6 +24,7 @@
 - **I1 已修（边缘）**：判定下沉为共享实现 `src/utils/account-status.js` 的 `accountStatusKind`。卡片展示层原本做 `trim().toLowerCase()`、行为层写严格 `=== 'expired'`，两个口径分叉 ⇒ 「卡片显示已失效」与「点卡片仍按已登录恢复旧凭证」可以同时成立。`AccountManagementCard.vue` 删掉本地副本改为 import 同一份，并新增「全仓 `function accountStatusKind` 恰好一份、且在 utils 下」结构锁。
 - **W4 部分修（可维护性）**：结构锁升级为跨文件 —— `src/views` 下凡带 `accountId` 的 `createTab` 调用点必须声明 `cleanSession`（覆盖 Home 批量登录入口，新入口漏写即红）。Home 批量登录仍保留 `cleanSession: true` 字面量（其目标集合本身全是失效账号），未强行改判定，登记为残余。
 - **W3 / I2 登记不修**：库里脏 `expired` 会让仍有效账号被强制重登 —— 属 fail-open 方向的 UX 回归（凭证不丢、扫码即自愈、同账号其它标签会被一并清登）；反向（失效凭证被恢复）是硬失败且无自愈路径，故维持现方向，不在本 PR 引入批量检测活体证据作判据。
+- **依赖基线挂账（外部事件，非本 PR 引入）**：18:16Z 起 `依赖漏洞审计门禁` 因 12 条新 axios 公告（修复版 >=1.20.0）转红 —— 同分支 15:51Z 那轮 SUCCESS、同一时刻另一在途 PR（head `bb4d2e4d`）同样命中、本 PR 未改任何依赖/lockfile ⇒ 属公告库刷新。已按该门禁自身口径在 `scripts/dep-audit-baseline.json` 登记 12 条 `decision=upgrade-tracked` 并逐条写 note；升级 axios 需连同 HTTP 调用链回归，属独立跟踪项。
 - 新增 `src/utils/account-status.test.js`（输入矩阵：三态 + 错误态字面命中 / 大小写与空白归一化 / 历史脏值 `inactive`/`offline` 落 unknown / 字段缺失与脏类型不抛 / 已确认失效集合命中 / 集合缺失或非 Set 不抛 / 单一实现结构锁）。
 
 ### 遗留（不夹带）
