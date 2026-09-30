@@ -1,3 +1,22 @@
+# [未发布] ci(质量门禁): 账本 JSON 进 docs-only 白名单——门禁先搬进不会被短路的 changes job（2026-09-30，docs-only-gate-ledger，PR #2718）
+
+### 动因是一条实测成本
+- #2624 只为落地 24 行的记录更正，烧了 **7 个全量 CI 窗口**——因为它碰 `scripts/gate-record-debt-ledger.json`，而该路径不在 `CI_IGNORED_PATHS` 里
+- 直接加白名单会制造沉默漏洞：账本的校验门禁 `check-gate-record-debt.js` 原本住在 `static-gates`，而整个 `static-gates` 被 `needs.changes.outputs.docs-only != 'true'` 门控 ⇒ 白名单一放开，「回填记录必须顺手删掉登记项」这条耦合对纯文档 PR 永久失明，而纯文档 PR 恰是唯一会改账本的 PR 类型
+
+### 修法：两件事必须同 PR，并由一条锁绑死
+- `quality-gate.yml`：账本检测（其单测 + 门禁本体）从 Gate 2c 搬进无条件执行的 `changes` job，位置在「非 PR 事件早退」`exit 0` **之前** ⇒ main push 那一档同样覆盖
+- `CI_IGNORED_PATHS` 只加**这一个精确路径**（不给 `scripts/**`），三个全量 workflow 的 `push.paths-ignore` 同步（与白名单同源，`workflow-contract.test.js` 的 `deepEqual` 钉住）
+- 前提锁（`scripts/classify-docs-only.test.js`）：「账本 JSON 在名单内 ⇒ 它的门禁必须在 `changes` job 且早于早退」，并把**前提本身**也钉住——白名单被悄悄摘掉时同样变红，不留无人解读的遗留接线
+- 五格变异全部实跑变红、每格按 md5 回读还原：摘白名单条目 3 红 / 只摘 `build.yml` 一条 paths-ignore 1 红 / 摘掉 `changes` job 两行接线 1 红 / 放宽成 `scripts/**` 4 红 / 接线挪到早退之后 1 红
+- AGENTS.md docs-only 通道新增通用不变量（"进白名单的前提锁"），不只针对这个文件
+
+### 效果与遗留
+- 回填型 PR 的文件清单（`.quality-gates.md` + `CHANGELOG.md` + 账本 JSON + `openspec/**`）本地实测 `docs-only=true`
+- #2581 自己列出的唯一待实测点——「skipped 满足 required check、ruleset 不 BLOCK」——**已由 #2712 / #2715 两条已合并 PR 实测**（三条重型 job 全 SKIPPED、`Gate Result` SUCCESS、状态 MERGED），本条不必再等实证；本 PR 的增量是把同一待遇从「只碰 `*.md`」扩到账本 JSON，使「回填 + 销账」这一类第一次进入快速通道
+- runner 现场（合并 head `f14a4063`，run 36653088306 **attempt 1** / job 109691433753 / step「Detect docs-only changes」）：`远程同步行 168 条 / 执行记录 363 篇 / 已登记欠账 34 条 / 记录文件 1 篇（两源分列）` → `OK: 顶部记录带行…` → `docs-only=false`，证明搬进 `changes` job 的账本门禁在**不被短路的 job** 里真跑
+- 发现并登记一条同源漏洞（属在途 change `enforce-gate-record-presence`，非本 PR 引入、也未越界代改）：它新接的 `Gate 2c2`（`check-pr-exec-record.js`）位于被 docs-only 短路的 `static-gates`，而其输入含 `openspec/records/**`（已在白名单）——现在 advisory 无妨，一旦删掉 `--mode=advisory` 转阻断，最容易"整篇没写记录"的纯文档 PR 恰好不受它管
+- 本条目的日期按本地日记（记录写作时 UTC 仍是 09-29）；同一 PR 里标题、账本键、AGENTS 引用三处日期同步改过，因为账本键是从记录标题去掉 `## ` 推导的，只改一处会同时报「未登记欠账 + 陈旧登记」两条红
 # fix(自检门禁): 真实 governor 的 fifo 断言不再硬编码通过——补三态判据与接线证明（#2648，2026-09-30）
 
 ### 变更
