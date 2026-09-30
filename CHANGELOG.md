@@ -14,6 +14,15 @@
 - **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
 
+- **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
+  `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /
+  尺寸 / 该点**最顶层元素**（`elementsFromPoint`），并一并输出全页可见按钮。
+  真机读数 `PUB_STATE=预览并发布[dis=false, vis=true, wh=130x36, topHit=创…]` ⇒
+  按钮未禁用且可见，但该坐标处最顶层元素并非按钮本身 —— 据此把「发布未生效」的排查
+  收敛到三条候选：浮层遮挡 / 按钮在视口外致 `elementsFromPoint` 误报 /
+  `pubBtn=5` 候选里实际选中的不是真正的提交控件。
+  诊断写在**应用代码**内（target 与时机均正确），比外部脚本可靠。
+
 ### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
 - `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
 - 后果不是"少个便利"，是**把人引向错误的归因**：按文档设了变量照样 403，排查者会去查「WMI 不继承环境变量」「launcher 没透传」，而真相是特性缺失。本轮真机 A/B 取数时就是靠「WebSocket 不发 Origin 头」绕过去的（已登记在 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §13.5）。
