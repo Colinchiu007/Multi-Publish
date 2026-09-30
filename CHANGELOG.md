@@ -1,3 +1,60 @@
+# [未发布] feat(门禁): 基线新鲜度门禁（漂移即红）+ 采集层钉住页面时钟，删掉「漂移预算」这条弯路（2026-10-01，visual-baseline-freshness-gate）
+
+### 做了什么
+- 新增 `scripts/check-baseline-freshness.js`（+ 10 例 `node:test`）：断言每张被跟踪基线**逐像素等于同一次 run 的 CI 渲染**，接在 Visual Tests 采集步骤之后以阻断形态运行，并先跑自身单测；`--renders` 缺失时 rc=1（无判据不得默认通过）。
+- 新增 `test-runner.js::_installCaptureClock()`：在建页之后、任何导航之前调 `page.clock.setFixedTime()`，把页面时钟钉到固定时刻（`VISUAL_CAPTURE_FIXED_TIME_ISO=off` 可关；非法值抛错；宿主缺该 API 时 warn 出声）。
+- 用钉住后的 CI artifact 重建 5 张时钟驱动基线（`calendar` / `calendar-dark` / `home-baseline` / `keyword-monitor` / `keyword-monitor-dark`），逐张自证 0 px；`KNOWN_DYNAMIC` 清空并由用例断言「必须为空」。
+
+### 为什么必须有它
+- 把脚本指向 **origin/main 的基线 × main tip 自身那次 CI 渲染**，当场报出 **8 张违规**（`collection` 1.573%、`create-editor`/`create-history`/`create-pipeline`/`intelligence` **各精确 4013 px / 0.194%**、`create-result` 0.298%、`dashboard` 0.008%、`keyword-monitor-dark` 0.006%），而同一次 run 的阻断门禁是 success —— 6% 全页阈值对 0.194% 完全失明。
+- 四张不同视图漂移量**精确相等**、包围盒同一条带 y422–878 ⇒ 是同一共享元素（新平台项进列表）在四页各渲染一次，不是噪声。
+
+### 一条被推翻的旧结论（连错三次才收敛）
+- 「709 px 是顶部标签栏动态元素，正解加 mask」→ 否证（三次 CI 渲染两两 0 px）。
+- 「本仓只有 `keyword-monitor` 一处动态」→ 测量域只写了浅色。
+- 连第 2 条也不完整：所有跨 run 样本**都取自同一自然日**，于是日期驱动的 `calendar`（「今天」高亮）与 `home-baseline`（时段问候「晚上好」→「下午好」）恰好相同、探针看不见。判据：**可重复性测量必须覆盖被测量自身的全部变化周期**。
+- 由此否决我自己上一轮的「漂移预算」方案：预算上界取决于两次 run 隔多久（跨日 `calendar-dark` 一次就要 1.167%），抬到覆盖最坏情形等于对该视图关掉检查。
+
+### 结论
+- 时钟锁三条反证做了因果对账：摘掉 `launch()` 调用 → 只红接线锁 1 条；`_installCaptureClock` 改恒 `null` → 红 3 条；摘掉非法值 `throw` → 红 1 条。
+- 同源证据 run `36751863711`；main 上首个含门禁的 run `36756503645` 两步均 success。
+# [未发布] test(视觉): 用 CI artifact 重建 13 条非同源像素基线，并把全量采集升级为阻断门禁（2026-09-29，visual-baseline-ci-sourced）
+
+### 做了什么
+- 取 run `36504531944` 的 `visual-test-reports` artifact，按「基线 vs CI默认 / CI默认 vs CI末态 / 基线 vs CI末态」三列差链给红分类：9 条为基线非同源、1 条为工作流绕过收口（由 #2614 修）。
+- 重建 13 条漂移 ≥0.1% 的基线，自证「新基线 vs 同一次 CI 渲染 = 0 px」；另把 `home-baseline` 也重建（第 14 条，此前测得 1.454% 却被 views 侧 6% 阈值遮住）。
+- 摘掉采集步骤的 `continue-on-error`、步骤改名 `Full visual suites (blocking gate)`，并同 PR 反转 `workflow-contract.test.js` 的反向断言。
+
+### 一条当时写错、后被 #2714 纠正的结论
+- 本篇曾写「4 条已同源基线稳定差 709 px，是顶部标签栏动态元素，正解给 pixel-diff provider 加 mask」。**不成立**：三次不同时间的 CI 渲染两两 0 px，那四处不存在动态元素；709 只是当时那张陈旧基线的漂移量，换图后同一处变成 175 px。
+- 另纠正本篇自己的一处测量失误：曾报「5 条 CI 无同名渲染」，实际我只核对了视图套件产出的 `<name>.png`，漏了像素门禁产出的 `<name>-current.png`；真正无渲染的是 3 条（autonomous-loop 专属）。
+# [未发布] fix(工程门禁): 依赖审计不再在任一扫描器缺失时整体短路（2026-09-29，dep-audit-per-domain）
+
+### 缺陷
+- `scripts/check-dep-audit.js` 的 `main()` 对 npm / pip 两个扫描器做**联合可用性判定**：只要任一个不可用就打印 `SCANNER_UNAVAILABLE` 并 `return 0`，**另一个扫描器的结果也不再评估**。本机通常没有 `pip-audit`，于是「本地跑过依赖审计门禁 ✅」这句话对 npm 侧完全无意义 —— 它连 `pnpm audit` 都没判读。
+
+### 修法
+- 两个扫描域各自独立评估：缺失的那个不判、存在的那个照常判违规；两个全缺 ⇒ rc=1。
+- `main()` 主体抽成可注入的 `runCheck({...})`，测试数 9 → 13，并做四条变异反证（恢复整体短路 / 全缺判通过 / 扫描器不可用时仍 `--update` / 未扫描域参与腐化判定，均实跑变红）。
+- 基线 20 → 18，由模块自身的 `parseNpmAudit` + `writeBaseline` 生成、pip 条目逐字携带。
+# [未发布] fix(视觉测试): 工作流用例不再绕过确定性收口 —— `settleForCapture()` 提为共用出口（2026-09-29，visual-workflow-settle-capture）
+
+### 缺陷
+- QM-4 全量首跑 8 条红里，7 条是基线不同源，剩下 1 条是 `all-workflows` 在**截图前没有走**那套收口（fonts.ready + 双 rAF + 注入 `transition/animation:0s` + `scrollTo(0,0)` + settle 等待 + networkidle），于是拍到的是中间态。
+
+### 修法
+- 把收口序列从 `_navigateToRoute` 里**纯提取**为 `async settleForCapture()`（+10/0），工作流每一步截图前显式调用。收口必须是共用出口而非内联两处 —— 只挂在导航上，任何「导航后自己再截图」的用例都会绕过它。
+- 修后该条残差逐条等于「基线 vs CI 默认视图」列，分类被独立复证；我此前把它记成「量化为基线问题」是错的，任务描述与 PR 说明都按实测改过。
+# [未发布] chore(依赖): 收敛 undici / fast-uri 公告 —— overrides 必须写在 pnpm-workspace.yaml（2026-09-29，dep-advisory-bump）
+
+### 做了什么
+- `pnpm-workspace.yaml` 增加 `overrides: undici >=7.29.1 / fast-uri >=3.1.7`；`pnpm-lock.yaml` 落到 undici 7.30.0、fast-uri 3.1.8（`+20/-11`）。npm 公告命中 29 → 18，且**扫描包集合前后一致**（只降漏洞、不缩范围）。
+
+### 两条踩坑
+- **pnpm 11 不再读 `package.json` 的 `pnpm.overrides`** —— 第一次尝试写出的是死配置（还带警告）。正解在 workspace 文件里，`package.json` 须改回去。
+- `pnpm update fast-uri` 不收敛（`ajv@8.20.0` 钉住 3.1.3），只能用 overrides 抬。
+- 该 PR 标题曾称「依赖审计阻塞所有 open PR」，属误判：分支保护的必需检查只有 `Gate Result / build / QG Unit Tests / QG Coverage`，`dep-audit.yml` 既非必需也不在 `Gate Result` 的 needs 里。已在 PR 上留更正评论。
+
 # [未发布] test(视觉门禁): 环境缺失单独成码——缺浏览器与 dev server 未起不再伪装成「N 个回归」（2026-09-30，visual-env-preflight）
 
 ### 做了什么
