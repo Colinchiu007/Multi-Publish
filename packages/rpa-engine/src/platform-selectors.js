@@ -113,9 +113,15 @@ module.exports = {
     },
     toutiao: {
       write_btn: ['a:has-text("发表文章")', 'button:has-text("写文章")', '[class*="write"]'],
-      title_input: ['input[placeholder*="标题"]', '.title-input input', '[class*="title"] input'],
-      editor: ['[contenteditable="true"]', '.ql-editor', '.editor-content', '.notranslate'],
-      publish_btn: ['button:has-text("发布")', 'button:has-text("发表")', '.publish-btn', '[class*="submit"]'],
+      // 2026-09-30 真机取证（/profile_v4/graphic/publish）：标题是 **TEXTAREA**
+      // `placeholder="请输入文章标题（2～30个字）"`（w=650,h=36，可见），不是 input——
+      // 旧首选项 `input[placeholder*="标题"]` 永不命中（日志 `no title_input nor editor candidate`）。
+      title_input: ['textarea[placeholder*="文章标题"]', 'textarea[placeholder*="标题"]', 'input[placeholder*="标题"]', '.title-input input'],
+      // 正文是 ProseMirror（`DIV.ProseMirror`，w=854,h=500）；其 contenteditable 值不是字面
+      // "true"，故旧 `[contenteditable="true"]` 落空（日志 `content editor not found among 4 candidates`）。
+      // 显式补 `.ProseMirror` 并把通用 contenteditable 放宽为属性存在选择器。
+      editor: ['.ProseMirror', '[contenteditable="true"]', '[contenteditable]', '.ql-editor', '.editor-content', '.notranslate'],
+      publish_btn: ['button:has-text("预览并发布")', 'button:has-text("发布")', 'button:has-text("发表")', '.publish-btn', '[class*="submit"]'],
     },
     youtube: {
       create_btn: ['#create-icon', 'ytcp-button#create-icon', 'button[aria-label="创建视频"]'],

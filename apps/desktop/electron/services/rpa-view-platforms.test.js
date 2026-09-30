@@ -360,6 +360,10 @@ describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图
       _navigateAndWait: vi.fn().mockResolvedValue(undefined),
       _waitForElement: vi.fn().mockResolvedValue(true),
       _setFileInput: vi.fn().mockResolvedValue(true),
+      // 2026-09-30：图片上传通道改为「拖拽区优先，input 回退」；此 context 模拟
+      // **无拖拽容器**的平台（除快手外），故返回 false 让流程走 input 注入。
+      _dropFilesToDragArea: vi.fn().mockResolvedValue(false),
+      _dismissImageEditModal: vi.fn().mockResolvedValue('NO_EDIT_MODAL'),
       _click: vi.fn().mockResolvedValue(true),
       _sleep: vi.fn().mockResolvedValue(undefined),
       _waitForCondition: vi.fn().mockResolvedValue(true),
@@ -436,6 +440,40 @@ describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图
       win, expect.anything(), 'xiaohongshu',
       expect.objectContaining({ preFill: 'switchImageTab' }),
     )
+  })
+
+  // 2026-09-30 快手取证：快手图文的 input[type=file] 两条注入路径都失效（CDP 静默清空 /
+  // DataTransfer 赋值归零），唯一通道是向 dragger-content 派发 DragEvent('drop')。
+  it('快手图文模式：给出 drag_area 选择器（拖拽上传通道）', async () => {
+    const { win } = createWindow('https://cp.kuaishou.com/article/publish/video?tabType=2')
+    const context = createImageContext()
+
+    await platformsMixin._publish_kuaishou.call(context, win, { title: 'T', content: 'C', images: ['C:/img.png'] })
+
+    expect(context._publish_generic).toHaveBeenCalledWith(
+      win, expect.anything(), 'kuaishou',
+      expect.objectContaining({
+        selectors: expect.objectContaining({
+          drag_area: expect.stringContaining('dragger-content'),
+        }),
+      }),
+    )
+  })
+
+  it('有拖拽容器时优先走拖拽注入（不再调 _setFileInput）', async () => {
+    const { win } = createWindow('https://cp.kuaishou.com/article/publish/video?tabType=2')
+    const context = createImageContext()
+    context._dropFilesToDragArea.mockResolvedValueOnce(true) // 模拟拖拽成功
+    // 直接跑 generic 的图片上传分支
+    await platformsMixin._publish_generic.call(
+      { ...context, ...platformsMixin },
+      win,
+      { title: 'T', content: 'C', images: ['C:/img.png'] },
+      'testplatform',
+      { ...context._getPlatformConfig(), selectors: { ...context._getPlatformConfig().selectors, drag_area: 'div[class*="dragger-content"]' } },
+    )
+    expect(context._dropFilesToDragArea).toHaveBeenCalled()
+    expect(context._setFileInput).not.toHaveBeenCalled()
   })
 
   it('小红书视频模式：无 preFill（视频 tab 是默认态）', async () => {

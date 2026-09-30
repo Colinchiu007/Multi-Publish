@@ -12,7 +12,49 @@
 搬家最容易留下的不是崩溃而是**假绿**。本轮实测到一条新的装饰性门禁生成机制：结构锁用 `src.slice(src.indexOf(A), src.indexOf(B))` 在同一文件内切区间时，B 一旦被搬走，`indexOf` 返回 -1，而 `String.prototype.slice` 把负数终点解释成「从末尾倒数」——区间静默放大到接近整份文件，守卫照样数到 2 次调用、照样绿。
 必须说清楚的是：**本次搬家没有触发它**（保留了同名委托，锚点仍命中）。四种变异的内存模拟显示，删掉委托时旧守卫与新守卫都还绿，当下真正多抓到的是新增的 HTTP 出口计数（旧绿 / 新红）。所以这条加固是**预防性**的；把它写成「已避免事故」就是把没发生的灾难当论据。
 
+# [未发布] ci(质量门禁): 账本 JSON 进 docs-only 白名单——门禁先搬进不会被短路的 changes job（2026-09-30，docs-only-gate-ledger，PR #2718）
+
+### 动因是一条实测成本
+- #2624 只为落地 24 行的记录更正，烧了 **7 个全量 CI 窗口**——因为它碰 `scripts/gate-record-debt-ledger.json`，而该路径不在 `CI_IGNORED_PATHS` 里
+- 直接加白名单会制造沉默漏洞：账本的校验门禁 `check-gate-record-debt.js` 原本住在 `static-gates`，而整个 `static-gates` 被 `needs.changes.outputs.docs-only != 'true'` 门控 ⇒ 白名单一放开，「回填记录必须顺手删掉登记项」这条耦合对纯文档 PR 永久失明，而纯文档 PR 恰是唯一会改账本的 PR 类型
+
+### 修法：两件事必须同 PR，并由一条锁绑死
+- `quality-gate.yml`：账本检测（其单测 + 门禁本体）从 Gate 2c 搬进无条件执行的 `changes` job，位置在「非 PR 事件早退」`exit 0` **之前** ⇒ main push 那一档同样覆盖
+- `CI_IGNORED_PATHS` 只加**这一个精确路径**（不给 `scripts/**`），三个全量 workflow 的 `push.paths-ignore` 同步（与白名单同源，`workflow-contract.test.js` 的 `deepEqual` 钉住）
+- 前提锁（`scripts/classify-docs-only.test.js`）：「账本 JSON 在名单内 ⇒ 它的门禁必须在 `changes` job 且早于早退」，并把**前提本身**也钉住——白名单被悄悄摘掉时同样变红，不留无人解读的遗留接线
+- 五格变异全部实跑变红、每格按 md5 回读还原：摘白名单条目 3 红 / 只摘 `build.yml` 一条 paths-ignore 1 红 / 摘掉 `changes` job 两行接线 1 红 / 放宽成 `scripts/**` 4 红 / 接线挪到早退之后 1 红
+- AGENTS.md docs-only 通道新增通用不变量（"进白名单的前提锁"），不只针对这个文件
+
+### 效果与遗留
+- 回填型 PR 的文件清单（`.quality-gates.md` + `CHANGELOG.md` + 账本 JSON + `openspec/**`）本地实测 `docs-only=true`
+- #2581 自己列出的唯一待实测点——「skipped 满足 required check、ruleset 不 BLOCK」——**已由 #2712 / #2715 两条已合并 PR 实测**（三条重型 job 全 SKIPPED、`Gate Result` SUCCESS、状态 MERGED），本条不必再等实证；本 PR 的增量是把同一待遇从「只碰 `*.md`」扩到账本 JSON，使「回填 + 销账」这一类第一次进入快速通道
+- runner 现场（合并 head `f14a4063`，run 36653088306 **attempt 1** / job 109691433753 / step「Detect docs-only changes」）：`远程同步行 168 条 / 执行记录 363 篇 / 已登记欠账 34 条 / 记录文件 1 篇（两源分列）` → `OK: 顶部记录带行…` → `docs-only=false`，证明搬进 `changes` job 的账本门禁在**不被短路的 job** 里真跑
+- 发现并登记一条同源漏洞（属在途 change `enforce-gate-record-presence`，非本 PR 引入、也未越界代改）：它新接的 `Gate 2c2`（`check-pr-exec-record.js`）位于被 docs-only 短路的 `static-gates`，而其输入含 `openspec/records/**`（已在白名单）——现在 advisory 无妨，一旦删掉 `--mode=advisory` 转阻断，最容易"整篇没写记录"的纯文档 PR 恰好不受它管
+- 本条目的日期按本地日记（记录写作时 UTC 仍是 09-29）；同一 PR 里标题、账本键、AGENTS 引用三处日期同步改过，因为账本键是从记录标题去掉 `## ` 推导的，只改一处会同时报「未登记欠账 + 陈旧登记」两条红
+# fix(自检门禁): 真实 governor 的 fifo 断言不再硬编码通过——补三态判据与接线证明（#2648，2026-09-30）
+
+### 变更
+
+- **修的是装饰性门禁**：`apps/desktop/electron/services/rate-limit-self-check.js` 的 `fifo` 断言自 `94204a04`（2026-08-12）起写作 `pass: true / actual: '-'` 字面量，存续约 50 天。它红了没有任何东西会红、绿了也没有任何东西被证明；逃逸原因不是"测试写得松"，而是**全仓没有任何用例碰过它**（`grep -rn fifo apps/desktop/electron/` 只命中实现那一行，97 行测试文件零覆盖）。来源：#2626 那轮 QM-6 外部评审的前端一路报为既有缺陷并独立建档 #2648，当时刻意不夹带。
+- **判据按「完成序号单调不减」而非「等于 1..N」**：注入 429 的那个请求**不进**完成序，完成集合本来就是子集（实测 `[1,3,4]` 顺序完全正确），按 1..N 判会把一组本来正确的配置判成失败。**这不是推测**——#2626 改 `used_5h` 口径时，同款判据恰好这样误红过一次，本轮直接沿用同一口径。
+- **三态分开且都不静默放过**：① 非数组（字段缺席）= 调用契约破坏 ⇒ 红 + `broken:true`，**不得**当成"没数据"；② 空数组 = 一个样本都没有 ⇒ `pass:true + vacuous:true`，与「登录态只被正/负证据改写：没拿到新证据不是反证」同口径，不得把缺席算成违规；③ 含非整数 = 数据形状坏了 ⇒ 同样 fail closed。
+- **承重数据只能取未排序的实际完成序**：`_buildAssertions` 新增第三个入参 `completionOrder`，取的是 #2626 单独返回的 `completion_order` 字段。**不能**从 `timeline` 推——那份在返回前按 `req` 排过序，是恒为升序的投影。主 spec `model-call-observability` 第 53/80 行早已把这条写成 MUST ⇒ **本 PR 是让 JS 侧真正符合既有规格，不改规格**。
+- **测试补三条**（TDD：先写、实跑 `TypeError: fifoVerdict is not a function` 变红，再实现转 9/9 绿）：① 纯判据形态表（升序过 / `[2,1,3]`、`[1,3,2]` 乱序红 / `[1,3,4]` 子集绿 / 缺席红 / 空数组记 vacuous）；② **接线证明**——`byAssert.fifo.actual` 必须逐字等于 `r.completion_order.join(',')`，写回任何常量（含 `'-'`）都在这里红；③ 注入 429 的端到端场景必须仍绿。
+- **反证 6 条逐个实跑、断言字节还原一致，并打印变红的具体用例名**（做 cause-match 而不是只看红数）：M1 退回 `pass:true` 硬编码 ⇒ 红 1（接线证明）；M2 判据写成 1..N ⇒ 红 2（纯判据 + 注入场景）；M3 字段缺席当放过 ⇒ 红 1（纯判据）；M4 空数组判成违规 ⇒ 红 1（纯判据）；M5 摘掉 `fifoVerdict` 导出 ⇒ 红 1（纯判据）；M6 接线改回排过序的投影 ⇒ 红 1（接线证明）。M6 是 #2626 原始错误的定向复现，它证明"接线"这条锁守的正是那件事。
+- **反证 harness 自己也红了一次（如实记）**：首版六条全报 `-99`。不是"锁没守住"——测试框架把汇总行里的数字包在 ANSI 色码中，正则匹配不到就落进"没解析出来"分支；而**"解析不到"与"确实没红"必须在代码里分成两个值**，否则探针故障会被读成"这条锁无效"，进而诱使人去放宽一条本来有效的门禁（本仓第三次犯同一形状）。补 `stripAnsi` 后六条全部变红；同时归因列原先只匹配一种报告格式，本机实际用的另一种会让"变红的用例"整列空白，补成两种都取。
+- **QM-1 因触碰 electron 主进程服务而适用**：实跑 `pnpm run build:dir`（win32 x64 / electron 43.1.1）产出 `dist-electron/win-unpacked/`，`resources/app.asar` 154,282,717 字节；**从产物 asar 抽出该文件 grep 到 `fifoVerdict` 3 处与 `pass: v.pass`**（证明改动进了交付物，不是只在源码里）；启动冒烟主程序存活 12s、**stderr 0 字节**、无平台配置缺失 / 插件目录 mkdir 失败 / asar 内 `ENOTDIR` 任一禁用特征。冒烟前**先核实** `ELECTRON_USER_DATA_DIR` 确实被 `startup-compat.js:8` 读取——否则"隔离 profile"只是我的假设，会撞到共享实例锁与真实用户数据。打包改写的两个 `*.bundle.js` 以精确路径 `git checkout HEAD --` 还原，工作树复核仅剩两个源文件。
+- 同批相邻面回归：`node scripts/compare-scheduler-models.js` ⇒ `PARITY OK`（KNOWN_DIFFS 1 条，属已建档测量噪声）；调度对拍 vitest 用例 1 passed。
+- **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+- **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
+  `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /
+  尺寸 / 该点**最顶层元素**（`elementsFromPoint`），并一并输出全页可见按钮。
+  真机读数 `PUB_STATE=预览并发布[dis=false, vis=true, wh=130x36, topHit=创…]` ⇒
+  按钮未禁用且可见，但该坐标处最顶层元素并非按钮本身 —— 据此把「发布未生效」的排查
+  收敛到三条候选：浮层遮挡 / 按钮在视口外致 `elementsFromPoint` 误报 /
+  `pubBtn=5` 候选里实际选中的不是真正的提交控件。
+  诊断写在**应用代码**内（target 与时机均正确），比外部脚本可靠。
 
 ### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
 - `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
@@ -43,6 +85,22 @@
 - 收尾已按 worktree 路径精确停掉验证实例并删除隔离 profile（`D:\tmp\mp-cdp-verify-profile`），未触碰其他会话的实例与数据目录。
 
 # [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
+
+- **feat(publish)：快手 / 抖音图文真实发布打通（kuaishou + douyin）**。
+  按「除小红书外其他平台必须真实发布」的口径，把两个图文平台从「上传即失败」推进到真机发布成功：
+  - **快手**（五项根因）：图文上传区 `input[type=file]` 两条注入路径都失效 → 改为向拖拽容器派发
+    `DragEvent('drop')`（参考产品同款）；描述字数上限 `max_content` 1000→480（实测计数器 x/500，
+    截断到 500 时平台仍显示 505/500）；新增 `stripHtmlToPlainText` 消除描述里的 `<p>` 字面量；
+    新增 `_confirmPublishDialog` 点发布后的二次确认框；补 URL 级成功信号（`from=publish` + `manage` 路径，
+    因图文作品列表端点与视频不同，此前「已发布却判失败」）
+  - **抖音**（三项根因）：修正 `_setFileInput` 结果校验语义（input 从 DOM 消失 = 页面已切换 = 上传被接受，
+    此前误判失败并触发无效回退）；三通道上传兜底（上传页 input → 编辑页「添加图片」→ 回上传页）；
+    图文模式标题合并进描述（编辑页无独立标题框）
+  - 验收：快手 `status=success`（url 含 `from=publish`）；抖音 `status=success`（日志 `API success`）；
+    单测 99/99；主文件两次拆分后 1324 行（LEDGER 通过）
+  - 完整合同：`01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md` §12
+
+---
 
 ### 现象与根因
 - `QG Desktop Shards` / `Gate 4` 在 pnpm 退出后跑一段「有没有漏下测试子进程」的检查，判定非空即 `throw`，并**对结果逐个 `taskkill /T /F`**。实测 run 36519025075 attempt 1：**12517 个测试全部通过**，该检查却报出 `csrss.exe / winlogon.exe / fontdrvhost.exe / dwm.exe` 四个"残留子进程"。

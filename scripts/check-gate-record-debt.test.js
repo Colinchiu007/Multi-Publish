@@ -38,6 +38,10 @@ function fixture(rows, opt = {}) {
   const body = lines.join('\n')
   const text = opt.crlf ? body.replace(/\n/g, '\r\n') : body
   fs.writeFileSync(path.join(dir, '.quality-gates.md'), text, 'utf8')
+  // 两源就绪（enforce-gate-record-presence D5）：记录目录必须存在但可以为空——
+  // "目录缺席"在生产里是 fail-closed 红（见下面那组用例），所以夹具也要把它建出来，
+  // 否则 15 条既有测试会集体撞上新守卫，而那是守卫该有的行为，不是测试的错。
+  fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
   return dir
 }
 
@@ -180,6 +184,8 @@ function mixFixture(blocks, opt = {}) {
   }
   const text = opt.crlf ? lines.join('\r\n') : lines.join('\n')
   fs.writeFileSync(path.join(dir, '.quality-gates.md'), text, 'utf8')
+  // 同 fixture()：记录目录必须存在（守卫是无条件的，不给"关掉守卫"这条静默降级通道）
+  fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
   return dir
 }
 
@@ -272,4 +278,132 @@ test('真仓：每一条未收口的 远程同步 行都必须已登记，且登
   const r = checker.collect({ root, ledger })
   assert.strictEqual(r.open.length, 0, `存在未登记的欠账：\n${r.open.map(o => `${o.line} [${o.status}] ${o.heading}`).join('\n')}`)
   assert.strictEqual(r.stale.length, 0, `欠账清单含陈旧项（回填后请删除对应条目）：\n${r.stale.join('\n')}`)
+})
+
+
+// ── 两源：openspec/records/*.md 记录文件（change enforce-gate-record-presence，D5）──
+// 语义与历史单文件同源但键形态不同：历史用「记录标题」当键 + 外部 JSON 清单登记欠账；
+// 新记录用「文件名」当键，欠账登记就写在该文件自己的 frontmatter 里（改状态即删字段，
+// 因此不存在"回填了却忘删登记项"这种漂移）。
+function recFile(dir, name, { row = 'PENDING', withRow = true, fm } = {}) {
+  const p = path.join(dir, 'openspec', 'records', name + '.md')
+  const lines = ['---', `record: ${name}`]
+  if (fm) for (const [k, v] of Object.entries(fm)) lines.push(`${k}: ${v}`)
+  lines.push('---', '', `## 本次执行记录：${name}（${name}，2026-09-29）`, '')
+  lines.push('| 门禁 | 状态 | Fresh 证据 |', '|------|------|-----------|')
+  if (withRow) lines.push(`| 远程同步 | ${row} | 见正文 |`)
+  fs.writeFileSync(p, lines.join('\n') + '\n', 'utf8')
+  return p
+}
+
+test('两源欠账必须合并进同一结论空间：历史未登记行 + 记录文件未登记行都要被列出', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PENDING' }])
+  recFile(dir, 'new-one', { row: 'PENDING' })
+  const r = checker.collect({ root: dir, ledger: {} })
+  const heads = r.open.map(o => o.heading)
+  assert.match(heads.join('\n'), /老记录/, '历史源的未登记欠账必须在')
+  assert.match(heads.join('\n'), /new-one/, '文件源的未登记欠账必须在')
+  assert.strictEqual(r.open.length, 2, JSON.stringify(r.open))
+  assert.deepStrictEqual([...new Set(r.open.map(o => o.source))].sort(), ['legacy', 'records'],
+    '两源必须各自可归因，否则分源计数无从谈起')
+})
+
+test('记录文件自带登记字段即视为已登记，无需外部清单（登记随文件走）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'self-registered', {
+    row: 'PENDING',
+    fm: { sync_reason: '本 PR 尚未合并，无法取证 merge SHA', sync_backfill_owner: '下一个会话' },
+  })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.open.length, 0, `自带登记的文件不该算未登记：${JSON.stringify(r.open)}`)
+  // 这条断言是让本用例在实现前就变红的关键：只断言"没有欠账"的测试，对一个
+  // 完全无视文件源的旧实现也会通过（装饰性绿）。必须同时证明该文件真被读进来了。
+  assert.strictEqual(r.recordsFromFiles, 1, '文件源必须真的被枚举到，否则上一条断言是假绿')
+})
+
+test('登记字段缺失或为空必须判不合规并点名该文件（fail closed，不接受空原因）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'no-fields', { row: 'PENDING' })
+  recFile(dir, 'empty-reason', { row: 'PENDING', fm: { sync_reason: '', sync_backfill_owner: 'x' } })
+  recFile(dir, 'no-owner', { row: 'PENDING', fm: { sync_reason: '有原因', sync_backfill_owner: '' } })
+  const r = checker.collect({ root: dir, ledger: {} })
+  const named = r.open.map(o => o.heading).join('\n')
+  for (const f of ['no-fields', 'empty-reason', 'no-owner']) {
+    assert.match(named, new RegExp(f), `${f} 必须被判为未登记`)
+  }
+  assert.strictEqual(r.open.length, 3, JSON.stringify(r.open))
+})
+
+test('记录文件整块没有 远程同步 行必须判不合规（每篇独立可查，取代"只查顶部一篇"）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'rowless', { withRow: false })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.missingRecordRows.length, 1, JSON.stringify(r.missingRecordRows))
+  assert.match(r.missingRecordRows[0].file, /rowless/)
+  assert.match(checker.format(r), /缺 远程同步 行/)
+})
+
+test('已收口却仍留登记字段判为陈旧字段（回填即删字段，不允许两者共存）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'closed-but-registered', {
+    row: 'PASS',
+    fm: { sync_reason: '已经回填了却没删字段', sync_backfill_owner: 'x' },
+  })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.staleRecordFields.length, 1, JSON.stringify(r.staleRecordFields))
+  assert.match(checker.format(r), /回填后请删除/)
+})
+
+test('记录目录缺席必须抛错，不得当成"零条记录"通过', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  fs.rmSync(path.join(dir, 'openspec', 'records'), { recursive: true, force: true })
+  assert.throws(() => checker.collect({ root: dir, ledger: {} }), /openspec.records/)
+})
+
+test('记录目录读不动（被做成普通文件）必须抛错而不是静默跳过（R3 同款：不完整遍历判绿即假绿）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  fs.rmSync(path.join(dir, 'openspec', 'records'), { recursive: true, force: true })
+  fs.writeFileSync(path.join(dir, 'openspec', 'records'), 'not a directory', 'utf8')
+  assert.throws(() => checker.collect({ root: dir, ledger: {} }), /无法枚举/)
+})
+
+test('两源标识形态不得重叠：文件名键与历史标题键混用时报错（防一把清单喂两套语义）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, '标题长得一样（legacy，2026-09-28）', { row: 'PASS' })
+  assert.throws(
+    () => checker.collect({ root: dir, ledger: { '标题长得一样（legacy，2026-09-28）': '撞键' } }),
+    /键形态|重叠/,
+  )
+})
+
+test('对照轮：只给历史源时既有语义一字不改（词表/shrink-only/陈旧判定均不受两源改造影响）', () => {
+  const dir = fixture([
+    { head: '甲（a，2026-09-28）', status: 'PENDING' },
+    { head: '乙（b，2026-09-28）', status: 'PASS' },
+  ])
+  const ledger = { '甲（a，2026-09-28）': '等合并' }
+  const r = checker.collect({ root: dir, ledger })
+  assert.strictEqual(r.open.length, 0, JSON.stringify(r.open))
+  assert.strictEqual(r.stale.length, 0, JSON.stringify(r.stale))
+  assert.strictEqual(r.recordsFromFiles, 0, '没有记录文件时文件源计数必须为 0')
+  // 摘掉登记项 ⇒ 依旧按老规矩变红（证明改造没把历史判据改成 no-op）
+  const r2 = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r2.open.length, 1)
+})
+
+test('真仓：openspec/records 目录必须已存在（缺失即本 change 的 1.1 未完成，不允许静默降级）', () => {
+  const root = path.resolve(__dirname, '..')
+  assert.ok(fs.existsSync(path.join(root, 'openspec', 'records')),
+    'openspec/records/ 不存在：tasks 1.1 尚未落地')
+})
+
+test('模板与豁免目录不得被当作记录扫描（模板自己就带一行 远程同步，扫它必恒红）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, '_TEMPLATE', { row: 'PENDING' })                       // 下划线开头 = 模板，跳过
+  const exDir = path.join(dir, 'openspec', 'records', '_exempt')
+  fs.mkdirSync(exDir, { recursive: true })
+  fs.writeFileSync(path.join(exDir, '_EXEMPT_TEMPLATE.md'), '---\nrecord: x\n---\n| 远程同步 | PENDING | |\n', 'utf8')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.recordsFromFiles, 0, `模板/豁免不该计入记录数：${JSON.stringify(r)}`)
+  assert.strictEqual(r.open.length, 0)
 })

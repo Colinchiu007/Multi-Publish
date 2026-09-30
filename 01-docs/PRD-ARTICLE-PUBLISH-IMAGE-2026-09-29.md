@@ -161,3 +161,157 @@ RPA：   _publish_xiaohongshu(切图文tab+传图) / _publish_kuaishou(tabType=2
 **残余（非阻塞）**：`_dismissImageEditModal` 实测返回 `MODAL_NO_CLOSE`（该弹窗的「完成」
 不是 `button/div/span` 的纯文本节点，或位于 shadow/iframe 内）——因草稿模式不点发布，
 弹窗不阻塞落库；若将来要做「直接发布」，需重新取证该弹窗的关闭控件。
+
+## 12. 快手 / 抖音图文「真实发布」（2026-09-30）
+
+**需求口径**：除小红书外，其他平台的发布必须是**真实发布**（小红书按用户指定只落草稿箱）。
+
+### 12.1 最终状态（真机 E2E）
+
+| 平台 | 状态 | 成功信号 | 证据 |
+|------|------|---------|------|
+| 微信公众号 | ✅ 草稿保存 | appmsgid 递增 | appmsgid=100000013 |
+| 知乎 | ✅ 文章发布 | URL `/p/\d+` | /p/2088269867753459986 |
+| 小红书 | ✅ 草稿箱（用户指定） | 草稿箱计数 +1 | 0→1 复核 |
+| **快手** | ✅ **真实发布** | URL `from=publish` | manage/video?status=2&from=publish |
+| **抖音** | ✅ **真实发布** | API `aweme/create` 响应 | 日志 `API success` |
+
+### 12.2 快手：五项根因与处置
+
+| # | 根因（真机取证） | 处置 |
+|---|-----------------|------|
+| 1 | 图文上传区 `input[type=file]` **两条注入路径都失效**：CDP `DOM.setFileInputFiles` 不抛错但文件被框架清空（回读 `files.length===0`）；直接赋 `DataTransfer` 也立即归零 | 新增 `_dropFilesToDragArea`：向拖拽容器（`#rc-tabs-0-panel-2 div[class^="_dragger-content_"]`）派发 `DragEvent('drop')`——参考产品 `kuaishouImageRun` 同款。generic 改为**拖拽区优先、input 回退** |
+| 2 | 描述字数越界：实测计数器 **x/500**，配置 `max_content: 1000` 让合并文案（标题+正文 921 字）越界，表单红字「作品描述超过字数限制」阻断提交 | 改 `max_content: 480`（留 20 字边距：截断到 500 时平台仍显示 505/500） |
+| 3 | 描述里出现 `<p>` 字面量：正文来自发布页 Quill（携带 `<p>…</p>`），而平台描述是纯文本语义 | 新增 `stripHtmlToPlainText`，块级标签收口为换行 |
+| 4 | 点「发布」后弹二次确认框（「取 消 / 确 认」，另有禁用态「确定」），不点确认则永不提交 → `publish verification timeout` | 新增 `_confirmPublishDialog`：只点**可见且未禁用**的确认/确定（文本带空格「确 认」比较前剥空白） |
+| 5 | 「已发布却判失败」：跳转 `manage/video?status=2&from=publish`，但图文作品列表端点与视频不同（`/rest/cp/works/v2/video/pc/photo/list` 取不到图文 ID） | 补 URL 级成功信号：命中 `from=publish` + `manage` 路径即判成功 |
+
+### 12.3 抖音：三项根因与处置
+
+| # | 根因（真机取证） | 处置 |
+|---|-----------------|------|
+| 1 | `_setFileInput` 的结果校验把「input 已从 DOM 消失」误判为失败（抖音上传后页面立刻切到 `content/post/image`，input 随之移除）→ 误触发回退 → 回退也找不到 input 而抛 `No file input found (JS fallback)` | 修正语义：`querySelector` 返回 null 记 **-1 = 页面已切换 = 上传被接受**；只有 input 仍在但 `files.length===0` 才回退 DataTransfer |
+| 2 | `default-tab=3` 有时**直接落 `content/post/image` 编辑页**（`enter_from=publish_page&type=new`，RPA 持久分区带历史状态时更常见），上传页 `input[type=file]` 已不在 DOM，旧实现等 15s 超时即放弃 | 三通道兜底：① 上传页 file input → ② 编辑页「继续添加/添加图片」触发的 input → ③ 重新导航回上传页再注入 |
+| 3 | `content/post/image` 编辑页**没有独立标题输入框**（只有「作品描述」contenteditable，计数器 0/20 与 0/1000），旧实现找 `input[placeholder*=标题]` 抛 `input not found` | 图文模式标题合并进描述首行（与快手同口径）；视频模式保持原独立标题填充 |
+
+### 12.4 交互与提示（用户可见）
+
+- 进度阶段：`uploading image...` → `image uploaded` → `filling desc...` → `publishing...` →（抖音）`API success`
+- 快手描述超限时，平台表单会显示红字「作品描述超过字数限制」——本地已在 480 字处截断，不再触达该错误
+- 发布历史记录 `status=success` 并带平台回传 URL（快手为 manage 页、抖音为编辑页 URL）
+
+### 12.5 行数门禁（工程治理）
+
+- 两次拆分确保 `rpa-view-platforms.js` 落在 `limit 500 + growthAllowance 200 = 1415` 内：
+  ① `rpa-publish-id-extract.js`（publish-id 纯函数）② `rpa-view-navigation-helpers.js`（导航/等待/确认弹窗 + artifact 查询族）
+- 最终主文件 1324 行；含 artifact 族（`_queryBaijiahaoArtifact` / `_parseKuaishouArtifact` / `_findKuaishouArtifact` / `_findPublishedArtifact` + `parseKuaishouArtifactEvidence`）的迁移
+
+## 13. 头条图文链路 + 通用发布确认弹窗（2026-09-30）
+
+### 13.1 头条图文四项根因与处置（全部真机取证）
+
+| # | 根因 | 证据 | 处置 |
+|---|------|------|------|
+| 1 | **双入口缺失 ⇒ 静默回退根地址** | `imagePublishUrls` 无 toutiao ⇒ `getPublishUrl("toutiao","image")` 返回 null ⇒ 回退 `config.publish_url = https://mp.toutiao.com/`（首页）；日志 `no title_input nor editor candidate` + `content editor not found among 4 candidates` + `publish btn not found` | `platform-entries.js` 补 `toutiao: /profile_v4/graphic/publish`、`bilibili: /platform/upload/text/edit` |
+| 2 | **选择器与真实 DOM 失配** | 标题实为 `TEXTAREA[placeholder="请输入文章标题（2～30个字）"]`（w=650 h=36）；正文实为 `DIV.ProseMirror`（w=854 h=500，其 contenteditable 值非字面 `true`）；发布钮为 `预览并发布` | `platform-selectors.js` 三项更新（标题/正文/发布），正文把通用 contenteditable 放宽为属性存在选择器 |
+| 3 | **正文 HTML 字面量** | ProseMirror 走 `_fillInput` 的 focus + `execCommand("insertText")` **纯文本**通道（框架编辑器不接受 innerHTML 直写），Quill 把草稿规范化为 `<p>…</p>` ⇒ 标签变内容 | `_publish_toutiao` 注入前 `stripHtmlToPlainText(article.content)`（该函数由 navigation-helpers 导出） |
+| 4 | **「展示封面」必填未满足** | 封面标签带 `*`；页面**默认选「单图」但封面区为空**（`fileInputs=0`，封面区仅 `+` 占位）⇒ 点发布被校验挡住 | 新增 `uploadCover` hook：主路径传封面图（`hookContext.coverPath`，点 `.article-cover` 唤起 file input）；拿不到入口时按文本点 `label.byte-radio` 选「无封面」 |
+
+**第四项的组件层教训**：封面三选一是 byte-design 的 `LABEL.byte-radio`（内部 input 为隐藏态，`input.closest("label")` 取到的是**外层** label）。
+**直接改 `input.checked` 对 React 受控组件无效**——实测返回 `SELECTED` 但页面仍显示「单图」（属性变了、框架状态没变）。正解是**按文本点 `label.byte-radio`**，实测 `picked=无封面` 生效。
+
+### 13.2 通用发布确认弹窗合同（`_confirmPublishDialog`）
+
+**需求**：多平台在「发布」点击后会插入二次确认层；不点确认则永不提交，表现为 `publish verification timeout`。各平台确认层形态不一（快手的「取 消 / 确 认」、头条的**预览弹窗**）。
+
+**合同（按优先级）**：
+
+| 优先级 | 作用域 | 匹配文案（剥空白后精确等值） | 说明 |
+|-------|--------|---------------------------|------|
+| ① | **可见的** `[class*=modal\|dialog\|drawer]`、`[role=dialog]` **内部** | 确认 / 确定 / 确认发布 / 发布 / 立即发布 / 发布文章 | 限定作用域是**硬要求**：主页面也存在同名主发布按钮，全局匹配会**重复触发发布** |
+| ② | 全局回退 | 确认 / 确定 | 覆盖无 modal 结构的平台（快手既有语义不变） |
+
+**附加合同**：
+- **轮询**：弹窗内容异步渲染，最多 5 次 × 2s；首次返回即记录 `confirm dialog probe:` 便于排障。
+- **只点可见且未禁用**：`offsetParent` 非空、`!disabled`、`getClientRects().length > 0`。页面常并存**禁用态同名按钮**（如快手公告里的「确定」`d=true`），不过滤会误点。
+- **文本比较前统一剥空白**：平台文案可能带空格（「确 认」「发 布」）。
+- **诊断**：`MODAL_NO_MATCH` 时输出各 modal 的截断文本 + 可点按钮文案（≤300 字符），使「弹窗在但按钮名不认识」可直接读出真实按钮名。
+
+### 13.3 双入口契约（`getPublishUrl(platform, type)`）
+
+| 平台 | video | image |
+|------|-------|-------|
+| douyin | `creator-micro/content/upload` | `.../upload?default-tab=3` |
+| kuaishou | `article/publish/video?tabType=1` | `...?tabType=2` |
+| xiaohongshu | `publish/publish?from=menu&target=video` | `publish/publish?from=menu` |
+| bilibili | `platform/upload/video/frame` | **`platform/upload/text/edit`（专栏，本次新增）** |
+| toutiao | `profile_v4/xigua/upload-video` | **`profile_v4/graphic/publish`（文章，本次新增）** |
+| zhihu | `zvideo/upload-video` | `zhuanlan.zhihu.com/write` |
+
+**数据校验**：`getPublishUrl` 未命中返回 `null`；调用方（`_publish_<platform>`）必须以 `publishUrl || config.publish_url` 兜底，且**不得**让兜底值落到平台根地址——根地址的失败症状是「所有选择器都找不到」，极难定位（本次头条即卡数轮）。
+
+### 13.4 交互与提示（用户可见）
+
+- 头条进度：`navigating...` → `filling title...` → `filling content...` → `publishing...` → `verifying...`
+- 头条发布设置页平台侧提示：封面标签带 `*`（必填）、封面区文案「优质的封面有利于推荐，格式支持JPEG、PNG」
+- 失败提示（历史记录）：`publish verification timeout` / `publish btn not found`
+
+### 13.5 残余
+
+1. **头条预览弹窗**：点「预览并发布」后弹预览层（日志 `modals:["预览"]`），需在层内再点提交。§13.2 的 modal 作用域 + 诊断已就位，待真机读出该按钮文案后补入匹配表。
+2. **B站专栏**：入口已补（§13.3），选择器与发布链路待取证。
+3. **公众号**：登录二维码由微信服务端对 Electron 断流（`ERR_CONNECTION_CLOSED`，非应用拦截/代理问题，六项假设实测排除），需改用「使用账号登录」。
+
+## 14. 登录承载环境诊断（2026-09-30）
+
+### 14.1 需求与现象
+用户报告：账号管理中打开**微信公众号登录页**，二维码长时间加载不出来，最终显示「二维码加载失败 点击刷新」，
+点击刷新无反应；**用邮箱密码登录后仍需扫码验证身份（安全保护页 `bizlogin?action=validate`），该页二维码同样加载不出**。
+**关键线索：同一页面在系统浏览器中正常** —— 指向**应用环境差异**，而非服务端策略。
+
+### 14.2 参考产品（参考产品）的关键做法
+| 项 | 参考产品做法 | 出处 |
+|----|-------------|------|
+| 微信**登录页 URL** | `https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`（**专用登录页**） | `PlatformAuthorizeConfig.authorizeUrl` / `entryUrl` |
+| **UA** | 显式设置且**逐平台不同**：通用 `Chrome/92.0.4515.131 … Edg/92.0.902.67`；B站 `360/4.6.9 Chrome/138` | `PCAgents` / `UserAgent` |
+| **重试判定** | `isRetryableError` 区分可重试错误；`retryCondition` 条件重试 | 重试中间件 |
+| B站图文 | 走 **API**（`api.bilibili.com/x/article/creative/article/submit`） | `publishBilibiliArticle` |
+
+**实测**：采用参考产品的**登录 URL** 后，登录页**初始态恢复正常**（`failText:false`、二维码占位图已加载），
+但**点「扫码登录」后仍失败** ⇒ URL 只解决初始态。
+
+### 14.3 登录态判定（数据校验口径）
+账号分区 cookie 实测 11 个（`remember_acct/mm_lang/xid/ua_id/wxuin/_clck/_clsk/uuid/noticeLoginFlag`），
+**不含** `slave_sid` / `slave_user` / `bizuin` / `data_ticket` / `cert` ⇒ **账号实际未登录**。
+页面上的「确认成功」是**页面提示**，不等于凭证落地。**判定登录态必须看关键 cookie，不看页面文案。**
+
+### 14.4 九项假设实测排除
+| # | 假设 | 排除证据 |
+|---|------|---------|
+| 1 | 系统代理拦截 | 临时禁用系统代理后仍失败（自带还原） |
+| 2 | UA 字符串异常 | 覆盖为参考产品值后无改善 |
+| 3 | Client Hints brands 缺失 | 覆盖为 `Google Chrome/131,Chromium/131,Not_A Brand/24` 后仍失败 |
+| 4 | `window.chrome` 为空对象 | 注入 `runtime,app,csi,loadTimes` 后仍失败 |
+| 5 | 应用注册请求取消 | `MP_LOGIN_NOISE_CANCEL` 默认关（守卫 + 测试锁） |
+| 6 | `backgroundThrottling` | 已显式 `false` 且有结构锁 |
+| 7 | `outerWidth/Height=0` | 注入修正后仍失败 |
+| 8 | iframe 未加载 | `Page.getFrameTree` 子 frame 存在且 `text/html` |
+| 9 | 第三方 Cookie 被阻止 | `.qq.com` 统计 cookie 可写入 |
+
+### 14.5 网络层定位（本轮最有价值发现）
+失败集中两类：
+- **`localhost.weixin.qq.com:14013/14014/api/check-login` 的 CORS 预检 `ERR_CONNECTION_CLOSED`**
+  （微信 PC 客户端本地探测服务；端口未监听则连接关闭，**浏览器同样失败，不足以解释差异**）；
+- **`ERR_BLOCKED_BY_ORB`**（部分 `Image`/`Other` 资源）。
+
+**成功**的请求：文档 200、`scanloginqrcode?action=getqrcode` 200、`qrconnect` 200、
+`/connect/qrcode/xxx` 200（`image/jpeg`）⇒ **非全量拦截**，但页面仍判定失败并隐藏容器。
+
+**稳定结构事实**：iframe 存在，其**直接父元素** `display:none`、祖父 `fast_login_wrp` 为 `block`
+⇒ **是页面 JS 主动隐藏**；且**只有点「扫码登录」后**才失败（初始态恒正常）。
+
+### 14.6 残余与下一步
+候选差异（尚未取证）：HTTP/2 指纹、TLS 扩展顺序、`localhost` 端口访问策略、
+Electron 对 `sec-fetch-dest: report` 类请求的处理。
+**最快路径**：在系统浏览器打开同一登录页并 F12 复现「点扫码登录」，逐条对比失败请求；
+或用仓内 Playwright Chromium 做同机同网 A/B（唯一变量为浏览器外壳）。
