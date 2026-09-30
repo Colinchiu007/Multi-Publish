@@ -386,26 +386,22 @@ const navigationHelpers = {
   },
 
   // ========== 头条封面上传（2026-09-30 真机实测）==========
-  // 实测事实：点 `.article-cover-add` 后页面出现 **2 个** `input[type=file]`；
-  // 用 CDP `DOM.setFileInputFiles` 注入**第一个**后，**封面区始终没有缩略图**
-  // （`img` 与 `background-image` 均为空）⇒ 页面（React 受控）未接受。
-  // 后果：「展示封面」必填校验拦下提交 ⇒ 作品列表 `total_count: 0`（第 41 轮取证）。
-  // 因此本方法**以「封面区出现缩略图」为唯一成功判据**，并逐个 input 尝试；
-  // 注入走**纯页面内 DataTransfer**（不依赖 CDP nodeId，便于按下标遍历）。
+  // 点 `.article-cover-add` 后出现 **2 个** `input[type=file]`；用 CDP 注入**第一个**后封面区
+  // **始终无缩略图**（React 受控未接受）⇒ 必填校验拦下提交 ⇒ 作品 `total_count: 0`。
+  // 本方法**逐个 input 尝试**，注入走**纯页面内 DataTransfer**（不依赖 CDP nodeId，便于按下标遍历）。
   async _uploadToutiaoCover(win, filePath) {
-    // 2026-09-30 判据收紧：**只认 `img`**。此前把 `background-image !== 'none'` 也算"已有封面"，
-    // 而页面大量元素自带背景图/渐变 ⇒ 恒判 `ALREADY_HAS_COVER` 并**跳过注入**
-    // （实测 `[uploadCover] toutiao result=ALREADY_HAS_COVER`，而此时封面其实一直是空的）。
+    // 2026-09-30 判据收紧 + 删「预判已有封面」短路：旧实现把 `background-image !== 'none'` 也算已有
+    // 封面，且任意 `img`（图标/占位）都算 ⇒ 真正封面为空、必填校验拦下提交。外审 finding #3：**仅删
+    // 短路不够** —— 判据若仍是"有 img"，占位 img 会让首次循环即报 `OK_0`（注入被忽略），旧误报只是
+    // 改名。修法：记录**注入前 img 基线数**，计数增加才算生效。
     const THUMB_FN = 'function(){var w=document.querySelector(".article-cover-images-wrap");'
-      + 'return !!(w && w.querySelector("img"))}'
-    const readThumb = async () => {
-      try { return Boolean(await win.webContents.executeJavaScript('(' + THUMB_FN + ')()')) } catch (_) { return false }
+      + 'if(!w)return -1;return w.querySelectorAll("img").length}'
+    const readThumbCount = async () => {
+      try { return Number(await win.webContents.executeJavaScript('(' + THUMB_FN + ')()')) } catch (_) { return -1 }
     }
-    // 2026-09-30 第 49 轮：**删除"预判已有封面"短路**。封面区只要有任意 `img`（图标/占位/插图）
-    // 就被误判为 `ALREADY_HAS_COVER` 而**跳过注入**，真正封面仍为空 ⇒ 必填校验拦下提交、
-    // 点击发布**零请求**（fetch/XHR 取证）。注入幂等，故直接注入，仅在注入后用 readThumb 判定。
-    // 展开封面编辑区（渲染可能较慢，先等再点）
-    await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
+    const thumbBaseline = await readThumbCount()
+    log.info('RpaView', '[toutiao cover] img 基线=' + thumbBaseline)
+    // 展开封面编辑区（渲染可能较慢，先等再点）    await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
     try {
       const entry = await win.webContents.executeJavaScript(
         '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
@@ -451,10 +447,14 @@ const navigationHelpers = {
         log.warn('RpaView', '[toutiao cover] input#' + i + ' 注入异常: ' + e.message)
       }
       await this._sleep(5000)
-      if (await readThumb()) {
-        log.info('RpaView', '[toutiao cover] 缩略图已出现（input#' + i + '）')
+      // 外审 finding #3：**必须与注入前基线比较**才可信 —— 仅"有 img"会把页面原有占位/图标
+      // 当成注入成功（旧误报改名而非消除）。基线为 -1（无容器）时退回"存在即算"的宽松语义。
+      const nowCount = await readThumbCount()
+      if (nowCount > thumbBaseline || (thumbBaseline < 0 && nowCount > 0)) {
+        log.info('RpaView', '[toutiao cover] 缩略图已出现（input#' + i + '，img ' + thumbBaseline + '→' + nowCount + '）')
         return 'OK_' + i
       }
+      log.warn('RpaView', '[toutiao cover] input#' + i + ' 注入后 img 数未增加（' + thumbBaseline + '→' + nowCount + '），视为未生效')
     }
     log.warn('RpaView', '[toutiao cover] 全部 ' + attempts + ' 个 input 注入后仍未出现缩略图')
     return 'NO_THUMB'

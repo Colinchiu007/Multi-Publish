@@ -140,12 +140,10 @@ const platformsMixin = {
             )
             log.info('RpaView', '[uploadCover] entry=' + entry)
             await this._sleep(2000)
-            // 2026-09-30 修正：旧实现用 `_setFileInput`（CDP 注入**首个** file input）后仅凭
-            // 返回值就置 handled=true，但真机验证封面区**始终没有缩略图**（img/bg-image 均空）
-            // ⇒ 页面未接受 ⇒ 「展示封面」必填校验拦下提交 ⇒ 作品 total_count=0。
-            // 改用头条专用上传：**逐个 file input 尝试 + 以「缩略图出现」为唯一判据**。
+            // 旧实现仅凭 `_setFileInput` 返回值置 handled=true，页面其实未接受；现改为头条专用
+            // 上传（逐个 file input + **以 img 计数增加为判据**），详见 `_uploadToutiaoCover`。
             const coverResult = await this._uploadToutiaoCover(win, coverPath)
-            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0 || coverResult === 'ALREADY_HAS_COVER')
+            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0)
             log.info('RpaView', '[uploadCover] toutiao result=' + coverResult)
           } catch (e) { log.warn('RpaView', '[uploadCover] ' + e.message) }
         }
@@ -304,6 +302,7 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           const titleTarget = titleSel || captionSel
           const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
+          // 读回校验已内建于 `_fillInput`（读回 0 且待填值非空即抛错）。
           await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
@@ -444,9 +443,10 @@ const platformsMixin = {
           }
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
-          // 2026-09-30 头条取证（第 47 轮）结论：`el.click()` 不受遮挡/视口影响，
-          // 故「点了没生效」的唯一解释是**选择器命中了错元素**（`:has-text` 为子串语义）。
-          // 修法：把头条 `publish_btn` 改为**精确文本**候选，见 platform-selectors.js。
+          // 外审更正：`el.click()` 不受遮挡/视口影响，而 `document.querySelector` 对含
+          // `:has-text` 的选择器**本就抛错并回落到文本匹配** ⇒ 真正起作用的修法是
+          // `platform-selectors.js` 里把头条 `publish_btn` 收紧为**文本明确**的候选（避免包含匹配
+          // 命中「定时发布」）。`rpa-selector-utils.js` 的改动是等价防御，非根因。
           await this._click(win,publishSelector)
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {

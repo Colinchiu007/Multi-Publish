@@ -169,8 +169,13 @@ const helpersMixin = {
     // 由调用方据此判定；读回为 0 且待填值非空时打印告警（判据落在页面值上，不落在返回值上）。
     const r = await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");var _ce=el.getAttribute("contenteditable")==="true";if(_ce){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}))}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}))}}else{var _proto=el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;let ns=Object.getOwnPropertyDescriptor(_proto,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}var _rb=_ce?String(el.innerText||"").replace(/\\s+/g,"").length:String(el.value||"").length;return {ok:true,readBack:_rb,ce:_ce}})()')
     const readBack = r && typeof r.readBack === 'number' ? r.readBack : -1
+    // 2026-09-30 外审 finding #2 修复：读回校验**内建**于此（而非仅记日志）——
+    // 此前所有调用点都忽略返回值并无条件 `markDone`，导致「填充未生效」照样进入发布（页面"共 0 字"）。
+    // 现在读回为 0 且待填值非空即**抛错**，由调用方的 catch 走重试分支，不会 markDone。
+    // （`readBack === -1` 表示元素缺失/取值异常，由上方 `input not found` 等路径另行处理，不在此判负。）
     if (readBack === 0 && String(val == null ? '' : val).trim().length > 0) {
       log.warn('RpaView', '[fillInput] 读回为空（填充未生效）sel=' + String(sel).slice(0, 70))
+      throw new Error('fill not applied (readback=0): ' + String(sel).slice(0, 50))
     }
     return readBack
   },

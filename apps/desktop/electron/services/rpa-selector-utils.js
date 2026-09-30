@@ -60,11 +60,13 @@ function buildResolveElementCode (sel) {
     '    return null;',
     '  }',
     '  var _s = ' + s + ';',
-    // 2026-09-30 根因修复（头条「发布点不动」）：`_s` 是 `:has-text` **之前**的部分
-    // （`button:has-text("预览并发布")` → `"button"`），而 `document.querySelector("button")`
-    // 在真实页面上**必然成功**（返回页面第一个 button），使下面的 `_findByText` 永远执行不到
-    // ⇒ 所有 `:has-text(...)` 选择器都退化成了「该标签的第一个元素」，点中的是完全无关的控件。
-    // 正确语义：**含文本谓词时不得回落**到 base 的 querySelector，只能走文本匹配。
+    // ⚠️ 2026-09-30 外审更正（finding #1）：`_s` 是**完整选择器**（`JSON.stringify(sel)`），
+    // **不是** `:has-text` 之前的部分。`document.querySelector("button:has-text(...)")` 会抛
+    // SyntaxError（不支持的伪类）被下方 catch 吞掉，**旧代码本来就会落到 `_findByText`** ——
+    // 即「含文本谓词则跳过 querySelector」对既有选择器是 **no-op**（等价、无害）。
+    // 保留价值：① 显式化意图，不再依赖"抛错被吞"这一隐式路径；② 避免未来出现合法 CSS 里
+    // 字面含 `:has-text(`（如 `[data-x=":has-text(foo)"]`）时被误跳过（当前无此配置，属潜在项）。
+    // **注意**：头条发布行为的变化另有其因 —— 来自 `platform-selectors.js` 的候选收紧。
     '  var _hasTextPredicate = /:has-text\\(/.test(_s) || /^text=/.test(_s);',
     '  if (!_hasTextPredicate) {',
     '    try { var _el = document.querySelector(_s); if (_el) return _el; } catch(e) {}',
