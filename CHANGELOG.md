@@ -1,3 +1,28 @@
+# [未发布] fix(accounts): 失效账号点卡片打开平台页改走干净会话，修复公众号「二维码加载很久后失败」（2026-09-30，wechat-qr-stale-cookie）
+
+### 现象
+账号管理页点失效的微信公众号账号卡片 → 打开 mp.weixin.qq.com → 二维码位置转圈约 1 分多钟后显示「二维码加载失败」，反复重试均如此。今日 21:08/23:xx 两次复现。
+
+### 根因（日志链定案，非推测）
+- 现场：`shared-user-data/logs/app-2026-09-30.log` 21:08:55 `WebviewManager Created new tab: btab-1` + `LoginNetDiag [wechat_mp/29760847]` ⇒ 本次打开走的是**账号分区** `persist:account-29760847`（不是每次新建的 `persist:auth-*`），即「以账号身份开标签」路径；同日无任何 `auth-auth-wechat_mp-*` 分区新建 ⇒ 没走「去登录」的 AuthViewManager 路径。
+- 关键负证据：全天 `grep -c "clean login session"` = **0**，即 `createNewTabPage` 的干净会话分支一次都没进 ⇒ 12 个失效凭证 Cookie 被原样恢复进登录页会话。
+- 出码侧：`qr response #1 after 3610ms status=200 contentLength=redacted`，之后再无第二次出码、无 4xx、无登录成功导航 ⇒ 符合 #1888 已定案的「getqrcode 200 空体（真码 ~7.6KB）」静默拒绝特征。
+- 为什么修过还复发：`cleanSession` 只写在 `openLoginPage` 里，而 **`openLoginPage` 是死代码**（eslint 稳定告警 `1160:16 'openLoginPage' is defined but never used`，全仓零引用）。真正可达的入口是卡片点击 → `openCreatorCenter`，它对 `wechat_mp` 打开的 URL 就是登录页（`PLATFORM_DASHBOARD_URLS.wechat_mp === PLATFORM_LOGIN_URLS.wechat_mp === 'https://mp.weixin.qq.com/'`），但从来没传 `cleanSession`。**免登录机制恰好堵死了失效账号唯一的自救路径。**
+
+### 修复
+- `src/views/Accounts.vue`：抽出单一判定 `needsCleanLoginSession(account)`（`status === 'expired'`），`openCreatorCenter` 与 `openLoginPage` 共用，杜绝入口各自写一份条件后再次漏掉。
+- 语义不变项：active / unverified 账号仍照常恢复凭证免登录；`expired` 才跳过恢复并清空分区残留 Cookie（主进程既有实现）。
+- 自愈闭环：干净会话会把标签置 `credentialSaveState='unsaved'`，扫码成功后 URL 命中 `cgi-bin/home` → `saveAccountTabCredentials` 自动回写真源，账号变回已登录（此前该路径连保存资格都没有）。
+
+### 验证
+- `vitest run src/views/Accounts.test.js` **113/113 全绿**（新增 4 例：失效账号创作者中心/登录页 `cleanSession===true`、active 回归 `false`、unverified 边界 `false`）。
+- **TDD 红灯实测**：把 `openCreatorCenter` 的 `cleanSession` 临时改回 `false` ⇒ 精确 1 红（`AssertionError: expected false to be true`）且只红这一条，还原后 4/4 绿 —— 锁的是本次逃逸点本身，不是顺带变绿。
+- 静态门禁：eslint 两文件 **0 error**（存量 warning 不变，含那条 `openLoginPage` 未使用）；`check-locale-sync --cjk` PASS（1340 < 基线 1489）；`check-ipc-bridge` PASS（400 handlers / 417 preload，0 缺口）；`check-frontend-consistency` PASS；`check-max-lines` 无新增超限；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（CRLF 未污染）。
+
+### 遗留（不夹带）
+- `openLoginPage` 仍无任何调用点（死代码），本次未删除，仅与新入口共用判定；是否接回 UI 或删除另行决定。
+- 「status=active 但实际已死」的账号仍会恢复凭证（既有已知边界，靠 30 分钟周期检测/一键检测修正为 expired 后自动进入干净会话路径）。
+
 # fix(自检门禁): 真实 governor 的 fifo 断言不再硬编码通过——补三态判据与接线证明（#2648，2026-09-30）
 
 ### 变更

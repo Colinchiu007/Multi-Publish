@@ -1911,3 +1911,70 @@ describe("AccountsView — 【同步云端】入口（feature flag / 登录门 /
     expect(_spies.load).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AccountsView — 失效账号打开平台页必须干净会话", () => {
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+    setActivePinia(createPinia());
+    _testAccounts.length = 0;
+    _identityState.isAuthenticated = false;
+    _ensureLogin.mockClear();
+    _ensureLogin.mockImplementation(async () => false);
+    window.electronAPI = {};
+    localStorage.setItem("account-authorization-guide-seen", "1");
+  });
+
+  /** 拿到组件实际使用的 tabStore，拦截 createTab（组件内 createTab 是 store 实例方法） */
+  async function spyCreateTab () {
+    const { useTabStore } = await import("@/stores/tab");
+    const tabs = useTabStore();
+    return vi.spyOn(tabs, "createTab").mockResolvedValue("btab-1");
+  }
+
+  const expiredWx = { id: "29760847", platform: "wechat_mp", status: "expired", account_name: "数字生命丘丘" };
+  const activeWx = { id: "29760848", platform: "wechat_mp", status: "active", account_name: "数字生命丘丘" };
+
+  it("失效账号点卡片打开创作者中心：cleanSession=true（不恢复旧凭证）", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter(expiredWx);
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    // 公众号创作者中心 URL 就是登录页：带旧身份 Cookie 进去必然出「二维码加载失败」
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
+    expect(createTab.mock.calls[0][0].accountId).toBe("29760847");
+  });
+
+  it("失效账号打开登录页：cleanSession=true", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openLoginPage(expiredWx);
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
+  });
+
+  it("有效账号：不启用干净会话，照常恢复凭证免登录（回归保护）", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter(activeWx);
+    await w.vm.openLoginPage(activeWx);
+
+    expect(createTab).toHaveBeenCalledTimes(2);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(false);
+    expect(createTab.mock.calls[1][0].cleanSession).toBe(false);
+  });
+
+  it("未确认态（unverified）不启用干净会话：凭证可能仍有效，不得强制重新登录", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter({ id: "a1", platform: "wechat_mp", status: "unverified" });
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(false);
+  });
+});

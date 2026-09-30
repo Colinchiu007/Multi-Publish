@@ -1115,6 +1115,24 @@ async function openCloudSync () {
 }
 
 /**
+ * 失效账号打开平台页必须用干净会话（跳过凭证恢复 + 清空分区残留 Cookie）。
+ *
+ * 旧身份 Cookie（微信 wxuin 等，有效期可到 2027）会被服务端判定为
+ * 「身份 Cookie ↔ 登录态」不符，在 scanloginqrcode?action=getqrcode 环节返回
+ * 200 空体（真码 ~7.6KB）→ 页面显示「二维码加载失败」（2026-09-16 CDP 取证，
+ * 见 01-docs/BUGFIX-LOGIN-QR-STALE-COOKIE-2026-09-16.md）。也就是说：对失效账号，
+ * 「恢复凭证免登录」恰好堵死了它自己唯一的自救路径。
+ *
+ * 单一判定函数：任何以账号身份打开平台页的入口（创作者中心 / 登录页 / 批量登录）
+ * 都必须共用它 —— 入口各自写一份条件，就是 2026-09-30 这次复发的原因
+ * （openLoginPage 写了，真正可达的 openCreatorCenter 没写）。
+ * 另一半价值：干净会话会把标签置为 unsaved，扫码成功后自动回写凭证，账号自愈。
+ */
+function needsCleanLoginSession (account) {
+  return account?.status === 'expired'
+}
+
+/**
  * 打开创作者中心（在新标签页中全屏显示）
  */
 async function openCreatorCenter(account) {
@@ -1127,7 +1145,16 @@ async function openCreatorCenter(account) {
     notifyWarning('accountsPage.creatorUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
+  // 失效账号以干净会话打开：公众号的创作者中心 URL 就是登录页
+  // （PLATFORM_DASHBOARD_URLS.wechat_mp === PLATFORM_LOGIN_URLS.wechat_mp），
+  // 带旧凭证进去必然撞上「二维码加载失败」，等于点卡片=登不上。
+  await tabStore.createTab({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    cleanSession: needsCleanLoginSession(account),
+    title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }),
+  })
 }
 
 async function openLoginPage (account) {
@@ -1140,10 +1167,13 @@ async function openLoginPage (account) {
     notifyWarning('accountsPage.loginUnsupported')
     return
   }
-  // 失效账号打开登录页必须用干净会话：旧身份 Cookie（如微信 wxuin）会让平台
-  // 在二维码环节静默拒绝（getqrcode 200 空体）；有效账号仍恢复 Cookie 以便免登录
-  const cleanSession = account?.status === 'expired'
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, cleanSession, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
+  await tabStore.createTab({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    cleanSession: needsCleanLoginSession(account),
+    title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }),
+  })
 }
 
 async function removeAccount (account) {
