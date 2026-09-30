@@ -444,6 +444,9 @@ const platformsMixin = {
           }
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          // 2026-09-30 头条取证（第 47 轮）结论：`el.click()` 不受遮挡/视口影响，
+          // 故「点了没生效」的唯一解释是**选择器命中了错元素**（`:has-text` 为子串语义）。
+          // 修法：把头条 `publish_btn` 改为**精确文本**候选，见 platform-selectors.js。
           await this._click(win,publishSelector)
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
