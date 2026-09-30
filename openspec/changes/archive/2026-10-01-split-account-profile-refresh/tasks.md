@@ -42,4 +42,9 @@
       含 QM-6 单侧达成的如实记录
 - [x] 5.3 更新 `openspec/changes/archive/2026-09-28-split-account-manager-session-restore/tasks.md` 的 T4.4 勾（销账必须与实现同 PR）；`max-lines-baseline.json` 按上述结论**不改**
       T4.4 已销账；max-lines 登记值按 design.md 结论不改
-- [ ] 5.4 开 PR → 挂 squash 自动合并 → 顶栏冲突按「整份取上游 + 前置我的字节前缀」自愈 → 合并后在 main 复验并清理工作区/分支
+- [x] 5.4 开 PR → 挂 squash 自动合并 → 顶栏冲突按「整份取上游 + 前置我的字节前缀」自愈 → 合并后在 main 复验并清理工作区/分支
+      实测：PR #2733 squash 合并为 `257f96e3`（2026-09-30T18:55:56Z），顶栏自愈共 3 次（解析器 `BASE` 原先写死旧 sha，
+      会把上游自己前置的节当成我的节 ⇒ 已改为动态取 `merge-base HEAD MERGE_HEAD`）；main 复验按**行级包含**：
+      `.quality-gates.md` 29 行新增/0 缺失、`learnings.md` 9/0、`CHANGELOG.md` 12/0、`AGENTS.md` 1/0，
+      4 个代码与测试文件在 main 上与分支顶点 blob 逐字节相同；远程同步行由 PR #2742（合并为 `165354e1`）回填 PASS 并同 PR 销账；
+      工作区经 `safe-worktree-remove.ps1` 删除（rc=255 → purge_residual → R7 基线一致），两条本地分支按超集证明删除
