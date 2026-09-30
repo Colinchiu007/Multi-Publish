@@ -203,19 +203,6 @@
   `POST https://mp.toutiao.com/mp/agw/article/publish`；**填内容后点「预览并发布」确实发出提交请求**，
   而**空内容时无任何请求**（站方校验拦下）⇒ 头条链路本身可用，残留问题在「填充是否被页面接受」一侧。
 
-- **fix(selector)：`:has-text` 选择器退化为「标签第一个元素」的全局根因**。`rpa-selector-utils.js`
-  生成的解析代码先执行 `document.querySelector(selector.split(":has-text")[0])`，而该调用在真实页面
-  **必然成功**（返回页面第一个同标签元素）并直接 `return`，使精心实现的 `_findByText`
-  （精确 / 叶子精确 / 包含 / 任意包含 四级择优）**从未被调用** ⇒ 所有 `xxx:has-text("...")` 候选
-  实际都点在与意图无关的控件上（头条「预览并发布」点不动、只存草稿即由此而来）。
-  修复：含文本谓词（`:has-text(` / `^text=`）时不得回落到 base 的 `querySelector`。
-- **fix(selectors)：收紧头条发布按钮候选**。根因修复后 `button:has-text("发布")` 在无精确匹配时会走
-  **包含**匹配 ⇒ 命中「**定时发布**」等危险控件；仅保留文本明确的候选
-  （`预览并发布` / `.publish-btn` / `确认发布`）。
-- **真机取证（头条提交链路）**：注入 `fetch`/`XMLHttpRequest` hook 后确认 —— 发布接口为
-  `POST https://mp.toutiao.com/mp/agw/article/publish`；**填内容后点「预览并发布」确实发出提交请求**，
-  而**空内容时无任何请求**（站方校验拦下）⇒ 头条链路本身可用，残留问题在「填充是否被页面接受」一侧。
-
 - **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
   `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /
   尺寸 / 该点**最顶层元素**（`elementsFromPoint`），并一并输出全页可见按钮。
