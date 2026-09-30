@@ -149,7 +149,21 @@ const navigationHelpers = {
           + '}'
           + 'var hit=[...document.querySelectorAll("button,div,span")].filter(function(e){return clickable(e)&&FB.indexOf(norm(e))!==-1});'
           + 'if(hit.length){hit[hit.length-1].click();return "CONFIRMED"}'
-          + 'return modals.length?("MODAL_NO_MATCH:"+modals.map(function(m){var bs=[...m.querySelectorAll("button,div,span,a")].filter(clickable).map(function(e){return norm(e)}).filter(Boolean).slice(0,8).join("/");return norm(m).slice(0,40)+"|btns="+bs}).join(" ;; ").slice(0,300)):"NO_DIALOG"})()'
+          + 'if(!modals.length)return "NO_DIALOG";'
+          // 2026-09-30 头条实测补强：该页（WebContentsView 内）点「预览并发布」后只存草稿，
+          // 说明真正的提交通道不在 modal 作用域内 ⇒ 诊断必须**同时 dump 全页可见按钮**，
+          // 才能看出「点了发布之后页面到底多出了哪个可点控件」。
+          + 'var all=[...document.querySelectorAll("button,div[role=button],a")].filter(clickable).map(function(e){return norm(e)}).filter(Boolean);'
+          + 'var uniq=[...new Set(all)].slice(0,24).join("/");'
+          // 2026-09-30 头条：上一步 dump 显示「点完预览并发布后页面没多出任何提交控件」⇒ 说明**这一击没生效**。
+          // 故进一步 dump **发布类按钮自身状态**：disabled / 尺寸 / 是否被遮挡（取该点最顶层元素）。
+          + 'var pub=[];var cands=[...document.querySelectorAll("button,div[role=button],a")];'
+          + 'for(var i=0;i<cands.length;i++){var e=cands[i];var t=norm(e);'
+          + 'if(!/预览并发布|立即发布|^发布$|提交|确认发布/.test(t))continue;'
+          + 'var r=e.getBoundingClientRect();var top=null;'
+          + 'try{var els=document.elementsFromPoint(r.left+r.width/2,r.top+r.height/2);top=els&&els[0]?String((els[0].innerText||"")||els[0].tagName).trim().slice(0,10):null}catch(_e){}'
+          + 'pub.push(t.slice(0,10)+"[dis="+(!!e.disabled)+",vis="+(r.width>0&&r.height>0)+",wh="+Math.round(r.width)+"x"+Math.round(r.height)+",topHit="+top+"]")}'
+          + 'return "MODAL_NO_MATCH:"+modals.map(function(m){var bs=[...m.querySelectorAll("button,div,span,a")].filter(clickable).map(function(e){return norm(e)}).filter(Boolean).slice(0,8).join("/");return norm(m).slice(0,40)+"|btns="+bs}).join(" ;; ").slice(0,180)+" || PAGE_BTNS="+uniq.slice(0,200)+" || PUB_STATE="+pub.slice(0,4).join(" ;; ")})()'
         )
         if (result && result.indexOf('CONFIRMED') === 0) {
           log.info('RpaView', '[' + platform + '] publish confirm dialog clicked: ' + result)
