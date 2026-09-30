@@ -217,3 +217,85 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 - `probe-sign-behavior.js` —— 载荷门禁 / 确定性 / 三字段独立性
 - `probe-sign-blocks.js` —— 长度递增与同长异文的块结构探测
+
+---
+
+## 7. P1 逆向实测：签名参数与生成者定位
+
+### 7.1 抓到发布请求的完整形态
+
+在头条发布页 hook `fetch`/`XMLHttpRequest` 后，填入标题正文并触发原生提交，捕获：
+
+```
+POST /mp/agw/article/publish?source=mp&type=article&aid=1231&mp_publish_ab_val=0
+headers:
+  Content-Type: application/x-www-form-urlencoded;charset=UTF-8
+  tt-anti-token: JBxWKmZ7a0-1491e424b62587e09a4de90df0a4ec8d617a3f52398193c0bb61f4a4f0381538
+body: source=29&extra={...}&content=<p ...>...</p>&title=...&title_id=...&save=0&...
+```
+
+**签名参数 = 请求头 `tt-anti-token`**，形态 `<11 字符前缀>-<64 位十六进制>`（32 字节）。
+（与参考产品签名服务返回的 48 字符 base64url 形态不同。）
+
+### 7.2 定位生成者（调用栈回溯）
+
+hook `XMLHttpRequest.setRequestHeader` 捕获调用栈：
+
+```
+at XMLHttpRequest.setRequestHeader (<anonymous>)
+ <= .../pgcfe/mp/web/resource/vendors~5fd074ad_e6f7d41c4ca80514.js:436:95112
+ <= Object.f [as forEach] (...:291:11583)
+```
+
+页面加载的字节安全 SDK：
+
+```
+lf-c-flwb.bytetos.com/obj/rc-client-security/web/glue/1.0.0.61/sdk-glue.js
+lf-security.bytegoofy.com/obj/security-secsdk/runtime-v1.0.0.js
+lf-cdn-tos.bytescm.com/obj/static/secsdk/secsdk-lastest.umd.js
+```
+
+暴露的全局对象：`secsdk`（仅 csrf）、`byted_acrawler`、`useWebSecsdkApi`。
+
+### 7.3 决定性验证：宿主 SDK 可直接调用
+
+```js
+Object.keys(window.byted_acrawler)
+// -> ["BytedAcrawler", "getReferer", "init", "sign"]
+
+window.byted_acrawler.sign({ url: "/mp/agw/article/publish" })
+// -> "_02B4Z6wo00f01NiC2hQAAIDBVcKjhi3BMQDYpt6AAFyjC7lTRDfQhIbERl2VWEGXRjvWH8C0-a8blmJ-pP-JdgENS..."
+```
+
+**成功返回签名字符串** => 无需复刻混淆 VM，宿主页面即可产出签名。
+（`sign({url})` 得到 `_02B4Z6wo...` 前缀，与页面实际使用的 `JBxWKmZ7a0-<64hex>` 形态不同，参数形状待探明。）
+
+---
+
+## 8. 三条路线的最终取舍
+
+| 路线 | 做法 | 依赖页面 | 成本 | 结论 |
+|------|------|---------|------|------|
+| P0 | 页面内模拟点击原生提交控件 | 是 | 低 | 可用；受 DOM/弹窗/校验干扰（头条当前卡点） |
+| **P0.5** | **页面内调宿主 SDK 取签 -> 自行发 API** | 是（仅借 SDK） | 低-中 | **推荐**：不依赖 DOM、参数可控、无需复刻算法 |
+| P1 | 剥离 secsdk 离线运行 / 纯本地复现 | 否 | 极高 | 不建议：仍需逆混淆 VM + 持续跟随改版 |
+
+**核心判断：逆向混淆 SDK 的正解不是"读它的代码"，而是"找到它的调用点、直接调用它"。**
+
+### 8.1 已落地实现
+
+`packages/rpa-engine/src/publish-signer.js` 新增 `hostSdkAdapter`（P0.5）：
+
+- 入参 `{ url, query?, body? }` + 上下文 `{ win, sdkPath?, sdkFn? }`；
+- 在宿主页面上下文调用指定 SDK 函数取签名；
+- **软失败**：无句柄/无 SDK/抛错 => 返回 null，由调用方回退 P0，**签名失败绝不阻断发布**；
+- 已注册为 `toutiao_sdk`，可经统一入口调用。
+
+配套单测 6 例（成功 / 无 SDK / 无句柄 / 抛错 / 注册 / 回退），与既有 12 例合计 **18 例全通过**。
+
+### 8.2 待验证项（P0.5 上线前最后一公里）
+
+1. 探明 `sign()` 参数形状，使产出与页面实际使用的 `tt-anti-token` 一致
+   （优先参考 `vendors~...js:436:95112` 附近页面对 SDK 的调用方式）；
+2. 生成签名后自行请求 `article/publish`，验证服务端接受度（cookie/headers 与页面一致）；
+3. 以"先页面内 SDK 取签 -> 失败回退点击"的顺序接入发布流程，灰度观察。
