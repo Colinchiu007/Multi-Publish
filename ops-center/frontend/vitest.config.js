@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config'
 // 不需要 @vitejs/plugin-vue（不渲染 .vue），localStorage 由测试内 mock。
 export default defineConfig({
   test: {
+    setupFiles: ['../../packages/shared-utils/network-egress-guard.setup.js'],
     // 默认 node（纯逻辑用例更快、且 src/stores/menu*.test.js 自带内存版 localStorage）；
     // 需要 DOM/localStorage 的文件在顶部用 `// @vitest-environment jsdom` docblock 单独声明。
     environment: 'node',
