@@ -19,6 +19,13 @@
 - **TDD 红灯实测**：把 `openCreatorCenter` 的 `cleanSession` 临时改回 `false` ⇒ 精确 1 红（`AssertionError: expected false to be true`）且只红这一条，还原后 4/4 绿 —— 锁的是本次逃逸点本身，不是顺带变绿。
 - 静态门禁：eslint 两文件 **0 error**（存量 warning 不变，含那条 `openLoginPage` 未使用）；`check-locale-sync --cjk` PASS（1340 < 基线 1489）；`check-ipc-bridge` PASS（400 handlers / 417 preload，0 缺口）；`check-frontend-consistency` PASS；`check-max-lines` 无新增超限；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（CRLF 未污染）。
 
+### 第二轮：QM-6 外部评审（codex 后端模型）发现项处置（同 PR）
+- **W2 已修（正确性）**：判定补第二路输入 `confirmedExpiredIds` —— 单条 `checkLogin` 只把 id 写进 `checkedExpiredIds`、不回写 `account.status`，`batchCheck` 也仅在返回带 `loginStatus` 时才改写。少了这一路，「刚点完验证就点卡片」仍会带着旧凭证进登录页，事故原地复发。`needsCleanLoginSession(account, confirmedExpiredIds)` 两个入口同步传 `checkedExpiredIds.value`。
+- **I1 已修（边缘）**：判定下沉为共享实现 `src/utils/account-status.js` 的 `accountStatusKind`。卡片展示层原本做 `trim().toLowerCase()`、行为层写严格 `=== 'expired'`，两个口径分叉 ⇒ 「卡片显示已失效」与「点卡片仍按已登录恢复旧凭证」可以同时成立。`AccountManagementCard.vue` 删掉本地副本改为 import 同一份，并新增「全仓 `function accountStatusKind` 恰好一份、且在 utils 下」结构锁。
+- **W4 部分修（可维护性）**：结构锁升级为跨文件 —— `src/views` 下凡带 `accountId` 的 `createTab` 调用点必须声明 `cleanSession`（覆盖 Home 批量登录入口，新入口漏写即红）。Home 批量登录仍保留 `cleanSession: true` 字面量（其目标集合本身全是失效账号），未强行改判定，登记为残余。
+- **W3 / I2 登记不修**：库里脏 `expired` 会让仍有效账号被强制重登 —— 属 fail-open 方向的 UX 回归（凭证不丢、扫码即自愈、同账号其它标签会被一并清登）；反向（失效凭证被恢复）是硬失败且无自愈路径，故维持现方向，不在本 PR 引入批量检测活体证据作判据。
+- 新增 `src/utils/account-status.test.js`（输入矩阵：三态 + 错误态字面命中 / 大小写与空白归一化 / 历史脏值 `inactive`/`offline` 落 unknown / 字段缺失与脏类型不抛 / 已确认失效集合命中 / 集合缺失或非 Set 不抛 / 单一实现结构锁）。
+
 ### 遗留（不夹带）
 - `openLoginPage` 仍无任何调用点（死代码），本次未删除，仅与新入口共用判定；是否接回 UI 或删除另行决定。
 - 「status=active 但实际已死」的账号仍会恢复凭证（既有已知边界，靠 30 分钟周期检测/一键检测修正为 expired 后自动进入干净会话路径）。

@@ -361,6 +361,7 @@ import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/sha
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import { needsCleanLoginSession } from '@/utils/account-status'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
@@ -1115,24 +1116,6 @@ async function openCloudSync () {
 }
 
 /**
- * 失效账号打开平台页必须用干净会话（跳过凭证恢复 + 清空分区残留 Cookie）。
- *
- * 旧身份 Cookie（微信 wxuin 等，有效期可到 2027）会被服务端判定为
- * 「身份 Cookie ↔ 登录态」不符，在 scanloginqrcode?action=getqrcode 环节返回
- * 200 空体（真码 ~7.6KB）→ 页面显示「二维码加载失败」（2026-09-16 CDP 取证，
- * 见 01-docs/BUGFIX-LOGIN-QR-STALE-COOKIE-2026-09-16.md）。也就是说：对失效账号，
- * 「恢复凭证免登录」恰好堵死了它自己唯一的自救路径。
- *
- * 单一判定函数：任何以账号身份打开平台页的入口（创作者中心 / 登录页 / 批量登录）
- * 都必须共用它 —— 入口各自写一份条件，就是 2026-09-30 这次复发的原因
- * （openLoginPage 写了，真正可达的 openCreatorCenter 没写）。
- * 另一半价值：干净会话会把标签置为 unsaved，扫码成功后自动回写凭证，账号自愈。
- */
-function needsCleanLoginSession (account) {
-  return account?.status === 'expired'
-}
-
-/**
  * 打开创作者中心（在新标签页中全屏显示）
  */
 async function openCreatorCenter(account) {
@@ -1152,7 +1135,7 @@ async function openCreatorCenter(account) {
     url,
     platform: account.platform,
     accountId: account.id,
-    cleanSession: needsCleanLoginSession(account),
+    cleanSession: needsCleanLoginSession(account, checkedExpiredIds.value),
     title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }),
   })
 }
@@ -1171,7 +1154,7 @@ async function openLoginPage (account) {
     url,
     platform: account.platform,
     accountId: account.id,
-    cleanSession: needsCleanLoginSession(account),
+    cleanSession: needsCleanLoginSession(account, checkedExpiredIds.value),
     title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }),
   })
 }
