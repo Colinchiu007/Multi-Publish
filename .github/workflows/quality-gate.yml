@@ -413,6 +413,23 @@ jobs:
           node .github/scripts/check-test-microtask-spin.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 20: 测试层出站守卫的接线棘轮（缺陷 G 的全仓化）---
+      # 接入日期：2026-09-30
+      # 事故背景：出站守卫原先只装在 apps/desktop 一侧，packages/*（252 个测试文件）与 ops-center
+      # 全程裸奔 —— 而本仓 nock/msw/setupServer 实测 0 命中，"测试不出网"没有任何传输层兜底，
+      # 漏一处就是一次真出站；真出站挂起时先撞上框架 testTimeout，红里只剩
+      # `Test timed out in 10000ms`，既看不到目标主机也看不出该注入什么。
+      # 本卡点从 `git ls-files` **枚举测试面**（判据来自仓库自身而非印象），逐面要求引用共享 setup；
+      # 接不上的必须带原因进只可缩小的欠账清单。已把守卫收敛为
+      # packages/shared-utils/src/network-egress-guard.js 一处实现，desktop 侧改为复用。
+      # 本地同口径：node .github/scripts/check-test-egress-guard.js
+      - name: "Gate 20 - test egress guard wiring (no real outbound in any suite)"
+        run: |
+          node --test .github/scripts/check-test-egress-guard.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-test-egress-guard.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest
