@@ -261,3 +261,57 @@ RPA：   _publish_xiaohongshu(切图文tab+传图) / _publish_kuaishou(tabType=2
 1. **头条预览弹窗**：点「预览并发布」后弹预览层（日志 `modals:["预览"]`），需在层内再点提交。§13.2 的 modal 作用域 + 诊断已就位，待真机读出该按钮文案后补入匹配表。
 2. **B站专栏**：入口已补（§13.3），选择器与发布链路待取证。
 3. **公众号**：登录二维码由微信服务端对 Electron 断流（`ERR_CONNECTION_CLOSED`，非应用拦截/代理问题，六项假设实测排除），需改用「使用账号登录」。
+
+## 14. 登录承载环境诊断（2026-09-30）
+
+### 14.1 需求与现象
+用户报告：账号管理中打开**微信公众号登录页**，二维码长时间加载不出来，最终显示「二维码加载失败 点击刷新」，
+点击刷新无反应；**用邮箱密码登录后仍需扫码验证身份（安全保护页 `bizlogin?action=validate`），该页二维码同样加载不出**。
+**关键线索：同一页面在系统浏览器中正常** —— 指向**应用环境差异**，而非服务端策略。
+
+### 14.2 参考产品（参考产品）的关键做法
+| 项 | 参考产品做法 | 出处 |
+|----|-------------|------|
+| 微信**登录页 URL** | `https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`（**专用登录页**） | `PlatformAuthorizeConfig.authorizeUrl` / `entryUrl` |
+| **UA** | 显式设置且**逐平台不同**：通用 `Chrome/92.0.4515.131 … Edg/92.0.902.67`；B站 `360/4.6.9 Chrome/138` | `PCAgents` / `UserAgent` |
+| **重试判定** | `isRetryableError` 区分可重试错误；`retryCondition` 条件重试 | 重试中间件 |
+| B站图文 | 走 **API**（`api.bilibili.com/x/article/creative/article/submit`） | `publishBilibiliArticle` |
+
+**实测**：采用参考产品的**登录 URL** 后，登录页**初始态恢复正常**（`failText:false`、二维码占位图已加载），
+但**点「扫码登录」后仍失败** ⇒ URL 只解决初始态。
+
+### 14.3 登录态判定（数据校验口径）
+账号分区 cookie 实测 11 个（`remember_acct/mm_lang/xid/ua_id/wxuin/_clck/_clsk/uuid/noticeLoginFlag`），
+**不含** `slave_sid` / `slave_user` / `bizuin` / `data_ticket` / `cert` ⇒ **账号实际未登录**。
+页面上的「确认成功」是**页面提示**，不等于凭证落地。**判定登录态必须看关键 cookie，不看页面文案。**
+
+### 14.4 九项假设实测排除
+| # | 假设 | 排除证据 |
+|---|------|---------|
+| 1 | 系统代理拦截 | 临时禁用系统代理后仍失败（自带还原） |
+| 2 | UA 字符串异常 | 覆盖为参考产品值后无改善 |
+| 3 | Client Hints brands 缺失 | 覆盖为 `Google Chrome/131,Chromium/131,Not_A Brand/24` 后仍失败 |
+| 4 | `window.chrome` 为空对象 | 注入 `runtime,app,csi,loadTimes` 后仍失败 |
+| 5 | 应用注册请求取消 | `MP_LOGIN_NOISE_CANCEL` 默认关（守卫 + 测试锁） |
+| 6 | `backgroundThrottling` | 已显式 `false` 且有结构锁 |
+| 7 | `outerWidth/Height=0` | 注入修正后仍失败 |
+| 8 | iframe 未加载 | `Page.getFrameTree` 子 frame 存在且 `text/html` |
+| 9 | 第三方 Cookie 被阻止 | `.qq.com` 统计 cookie 可写入 |
+
+### 14.5 网络层定位（本轮最有价值发现）
+失败集中两类：
+- **`localhost.weixin.qq.com:14013/14014/api/check-login` 的 CORS 预检 `ERR_CONNECTION_CLOSED`**
+  （微信 PC 客户端本地探测服务；端口未监听则连接关闭，**浏览器同样失败，不足以解释差异**）；
+- **`ERR_BLOCKED_BY_ORB`**（部分 `Image`/`Other` 资源）。
+
+**成功**的请求：文档 200、`scanloginqrcode?action=getqrcode` 200、`qrconnect` 200、
+`/connect/qrcode/xxx` 200（`image/jpeg`）⇒ **非全量拦截**，但页面仍判定失败并隐藏容器。
+
+**稳定结构事实**：iframe 存在，其**直接父元素** `display:none`、祖父 `fast_login_wrp` 为 `block`
+⇒ **是页面 JS 主动隐藏**；且**只有点「扫码登录」后**才失败（初始态恒正常）。
+
+### 14.6 残余与下一步
+候选差异（尚未取证）：HTTP/2 指纹、TLS 扩展顺序、`localhost` 端口访问策略、
+Electron 对 `sec-fetch-dest: report` 类请求的处理。
+**最快路径**：在系统浏览器打开同一登录页并 F12 复现「点扫码登录」，逐条对比失败请求；
+或用仓内 Playwright Chromium 做同机同网 A/B（唯一变量为浏览器外壳）。

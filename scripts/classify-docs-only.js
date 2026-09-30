@@ -42,6 +42,7 @@ const CI_IGNORED_PATHS = [
   '.hermes/**',
   '.agents/**',
   'openspec/**',
+  'scripts/gate-record-debt-ledger.json',
 ]
 
 function matchesPattern(filePath, pattern) {

@@ -1,3 +1,49 @@
+# [未发布] test(工程门禁): 出站守卫收敛为单一实现并全仓接线，新增 Gate 20 接线棘轮（2026-09-30，test-egress-guard-all-packages）
+
+### 缺陷：守卫只装在 desktop 一侧，packages/* 与 ops-center 全程裸奔
+- `net.Socket.prototype.connect` 的测试期出站拦截原先只存在于 `apps/desktop/test-setup.js`；本仓 `nock`/`msw`/`setupServer` 实测 **0 命中**，没有任何传输层兜底，"测试不出网"全靠逐文件手工注入桩。
+- 后果不是"少一条保险"，是**归因被框架吃掉**：漏一处注入桩就是一次真出站，真出站挂起时先撞上 `testTimeout=10000`，红里只剩 `Test timed out in 10000ms`——既看不到目标主机，也看不出该注入什么（缺陷 G 的原始现场）。
+
+### 修法
+- 守卫实现唯一化：`packages/shared-utils/src/network-egress-guard.js`（`installTestNetworkGuard` / `readConnectTarget` / `isLoopbackHostForTest`），`apps/desktop/test-setup.js` 的 103 行内联实现替换为 7 行复用调用。
+- 装配入口唯一化：`packages/shared-utils/network-egress-guard.setup.js` 一行 `require(...).installTestNetworkGuard()`，供 vitest `setupFiles`、`node --test` 的 `--require` 两种 realm 共用。
+- 接线 13 个测试面：9 个 `packages/*/vitest.config.js` + `packages/story2video-engine/vitest.config.ts` + `packages/ui/vitest.config.ts` + `ops-center/frontend/vitest.config.js` 的 `setupFiles`；`packages/api-publish-engine/scripts/run-tests.js` 直跑子进程加 `--require`（一个测试文件一个子进程，父进程装一次等于没装）；`packages/{video-clone-engine,ai-autonomous-tester}/package.json` 的 test 脚本加 `--require`。
+- 新增 Gate 20 棘轮 `.github/scripts/check-test-egress-guard.js`：从 `git ls-files` **枚举测试面**（判据来自仓库自身而非印象），逐面要求引用共享 setup；接不上的必须带原因进只可缩小的欠账清单。接入 `quality-gate.yml` 的 `static-gates`。
+
+### 一条元教训：棘轮曾把自己的检查对象改没
+- 枚举判据原先写 `script.includes('node --test')`，而接线时正好在 `node` 与 `--test` 之间插了 `--require <setup>` ⇒ 那两个面**从枚举里消失**（不是变红，是不再被检查），测试面从 18 掉到 16 而棘轮照报 PASS。
+- 判据已拆成「命令里有 node」+「有独立的 `--test` 标志」两条，并由夹具锁钉住「两种写法都必须被枚举」。
+
+### 验证（全部本轮实跑）
+- 逐面跑测试：13 个面全部 rc=0，出站拦截命中 0（`D:/tmp/mp-verify-guard-wiring.js`，`ALL_SURFACES_GREEN`）。
+- 共享化回归网：`apps/desktop/electron/services/network-egress-guard.test.js` **6 例不改一字仍绿**；新实现自带 `packages/shared-utils/tests/network-guard.test.js` 10 例（含真 socket 拦截 + loopback 放行 + 幂等 + 读不出目标必须出声）。
+- 门禁自身回归 `.github/scripts/check-test-egress-guard.test.js` **8 例绿**（真实仓库 0 问题自证 + 合法夹具不误拦 + 5 类必须红）。
+- 反证 6/6 实跑变红：M1 枚举判据退回字面串 / M2 摘掉一个面的 `--require` / M3 陈旧登记判据 no-op / M4 枚举退化判据摘掉 / M5 `evaluate` 恒合规 / M6 Gate 20 未接进 workflow；逐个还原后字节级一致。
+- 「配错路径会不会静默放过」实测：把 `setupFiles` 指到不存在的文件，vitest **rc=1 大声失败**，故"该面跑绿"即"该面真的加载了守卫"。
+
+### 遗留
+- `packages/api-publish-engine` 的 vitest 子集仍未挂守卫（该包无 `vitest.config`，vitest CLI 不接受 `--setupFiles`），已带原因登记在只可缩小的欠账清单。
+- pytest 三侧（`packages/python-backend` / `ops-center/backend` / `packages/audio-aligner`）的对等 autouse fixture 为切片 B；`python-backend` 另有 4 个文件依赖未声明的 `respx`，扩跑前须先修依赖声明。
+- QM-6 双模型外部评审本轮未执行：`codex` 经本机 CC Switch 代理对 `/responses` 返回 404（该 provider 无 Responses API），`claude -p` 返回 `429 rpm exhausted`。按纪律降级不冒充，缺口记入 `.quality-gates.md` 对应行。
+# [未发布] ci(质量门禁): 账本 JSON 进 docs-only 白名单——门禁先搬进不会被短路的 changes job（2026-09-30，docs-only-gate-ledger，PR #2718）
+
+### 动因是一条实测成本
+- #2624 只为落地 24 行的记录更正，烧了 **7 个全量 CI 窗口**——因为它碰 `scripts/gate-record-debt-ledger.json`，而该路径不在 `CI_IGNORED_PATHS` 里
+- 直接加白名单会制造沉默漏洞：账本的校验门禁 `check-gate-record-debt.js` 原本住在 `static-gates`，而整个 `static-gates` 被 `needs.changes.outputs.docs-only != 'true'` 门控 ⇒ 白名单一放开，「回填记录必须顺手删掉登记项」这条耦合对纯文档 PR 永久失明，而纯文档 PR 恰是唯一会改账本的 PR 类型
+
+### 修法：两件事必须同 PR，并由一条锁绑死
+- `quality-gate.yml`：账本检测（其单测 + 门禁本体）从 Gate 2c 搬进无条件执行的 `changes` job，位置在「非 PR 事件早退」`exit 0` **之前** ⇒ main push 那一档同样覆盖
+- `CI_IGNORED_PATHS` 只加**这一个精确路径**（不给 `scripts/**`），三个全量 workflow 的 `push.paths-ignore` 同步（与白名单同源，`workflow-contract.test.js` 的 `deepEqual` 钉住）
+- 前提锁（`scripts/classify-docs-only.test.js`）：「账本 JSON 在名单内 ⇒ 它的门禁必须在 `changes` job 且早于早退」，并把**前提本身**也钉住——白名单被悄悄摘掉时同样变红，不留无人解读的遗留接线
+- 五格变异全部实跑变红、每格按 md5 回读还原：摘白名单条目 3 红 / 只摘 `build.yml` 一条 paths-ignore 1 红 / 摘掉 `changes` job 两行接线 1 红 / 放宽成 `scripts/**` 4 红 / 接线挪到早退之后 1 红
+- AGENTS.md docs-only 通道新增通用不变量（"进白名单的前提锁"），不只针对这个文件
+
+### 效果与遗留
+- 回填型 PR 的文件清单（`.quality-gates.md` + `CHANGELOG.md` + 账本 JSON + `openspec/**`）本地实测 `docs-only=true`
+- #2581 自己列出的唯一待实测点——「skipped 满足 required check、ruleset 不 BLOCK」——**已由 #2712 / #2715 两条已合并 PR 实测**（三条重型 job 全 SKIPPED、`Gate Result` SUCCESS、状态 MERGED），本条不必再等实证；本 PR 的增量是把同一待遇从「只碰 `*.md`」扩到账本 JSON，使「回填 + 销账」这一类第一次进入快速通道
+- runner 现场（合并 head `f14a4063`，run 36653088306 **attempt 1** / job 109691433753 / step「Detect docs-only changes」）：`远程同步行 168 条 / 执行记录 363 篇 / 已登记欠账 34 条 / 记录文件 1 篇（两源分列）` → `OK: 顶部记录带行…` → `docs-only=false`，证明搬进 `changes` job 的账本门禁在**不被短路的 job** 里真跑
+- 发现并登记一条同源漏洞（属在途 change `enforce-gate-record-presence`，非本 PR 引入、也未越界代改）：它新接的 `Gate 2c2`（`check-pr-exec-record.js`）位于被 docs-only 短路的 `static-gates`，而其输入含 `openspec/records/**`（已在白名单）——现在 advisory 无妨，一旦删掉 `--mode=advisory` 转阻断，最容易"整篇没写记录"的纯文档 PR 恰好不受它管
+- 本条目的日期按本地日记（记录写作时 UTC 仍是 09-29）；同一 PR 里标题、账本键、AGENTS 引用三处日期同步改过，因为账本键是从记录标题去掉 `## ` 推导的，只改一处会同时报「未登记欠账 + 陈旧登记」两条红
 # fix(自检门禁): 真实 governor 的 fifo 断言不再硬编码通过——补三态判据与接线证明（#2648，2026-09-30）
 
 ### 变更
@@ -13,6 +59,15 @@
 - 同批相邻面回归：`node scripts/compare-scheduler-models.js` ⇒ `PARITY OK`（KNOWN_DIFFS 1 条，属已建档测量噪声）；调度对拍 vitest 用例 1 passed。
 - **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+- **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
+  `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /
+  尺寸 / 该点**最顶层元素**（`elementsFromPoint`），并一并输出全页可见按钮。
+  真机读数 `PUB_STATE=预览并发布[dis=false, vis=true, wh=130x36, topHit=创…]` ⇒
+  按钮未禁用且可见，但该坐标处最顶层元素并非按钮本身 —— 据此把「发布未生效」的排查
+  收敛到三条候选：浮层遮挡 / 按钮在视口外致 `elementsFromPoint` 误报 /
+  `pubBtn=5` 候选里实际选中的不是真正的提交控件。
+  诊断写在**应用代码**内（target 与时机均正确），比外部脚本可靠。
 
 ### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
 - `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
