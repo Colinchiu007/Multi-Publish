@@ -474,7 +474,10 @@ const platformsMixin = {
             log.info('RpaView', '[' + platform + '] publish click failure visibleActionCount=' + Number(visibleActionCount || 0))
           } catch (_) { /* ignore */ }
           if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
-          await this._sleep(1500)
+          // 2026-09-30 风控加固：publish 是**副作用字段**——每次重试都是一次真实的提交尝试，
+          // 原先固定 1.5s 间隔过于密集（实测头条曾连续失败 12 轮，用户明确提出风控风险）。
+          // 改用指数退避（5s → 10s → 20s，cap 45s），给平台留出响应与限流恢复窗口。
+          await this._sleep(retry.backoffMs('publish', { sideEffect: true }))
         }
       }
     }
