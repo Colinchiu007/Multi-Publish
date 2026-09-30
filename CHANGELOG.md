@@ -190,6 +190,14 @@
 - **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
 
+- **docs：新增《签名服务协议分析报告》**（`01-docs/ANALYSIS-SIGN-SERVICE-2026-09-30.md`）。
+  还原参考产品远程签名服务的完整协议（域名 / 端口按平台分配 / 请求体字段 / 响应结构 /
+  `sortQueryString` 前置规范化），并给出**可复用性评估**：
+  协议可还原、服务当前可探活，但**本仓明确不采用直接依赖**（服务条款与合规风险、
+  单点稳定性风险、会把用户 cookie 与待发正文送往第三方）。
+  落地结论：接口层判定与参考产品一致（`mp/agw/article/publish`），
+  前置条件层不可复用 ⇒ 维持**页面内提交**路线（P0）。
+
 - **fix(selector)：`:has-text` 选择器退化为「标签第一个元素」的全局根因**。`rpa-selector-utils.js`
   生成的解析代码先执行 `document.querySelector(selector.split(":has-text")[0])`，而该调用在真实页面
   **必然成功**（返回页面第一个同标签元素）并直接 `return`，使精心实现的 `_findByText`
