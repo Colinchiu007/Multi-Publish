@@ -370,6 +370,76 @@ const navigationHelpers = {
     return null
   },
 
+  // ========== 头条封面上传（2026-09-30 真机实测）==========
+  // 实测事实：点 `.article-cover-add` 后页面出现 **2 个** `input[type=file]`；
+  // 用 CDP `DOM.setFileInputFiles` 注入**第一个**后，**封面区始终没有缩略图**
+  // （`img` 与 `background-image` 均为空）⇒ 页面（React 受控）未接受。
+  // 后果：「展示封面」必填校验拦下提交 ⇒ 作品列表 `total_count: 0`（第 41 轮取证）。
+  // 因此本方法**以「封面区出现缩略图」为唯一成功判据**，并逐个 input 尝试；
+  // 注入走**纯页面内 DataTransfer**（不依赖 CDP nodeId，便于按下标遍历）。
+  async _uploadToutiaoCover(win, filePath) {
+    const THUMB_FN = 'function(){var w=document.querySelector(".article-cover-images-wrap");'
+      + 'if(!w)return false;if(w.querySelector("img"))return true;'
+      + 'return [...w.querySelectorAll("*")].some(function(e){var s=getComputedStyle(e).backgroundImage;return s&&s!=="none"})}'
+    const readThumb = async () => {
+      try { return Boolean(await win.webContents.executeJavaScript('(' + THUMB_FN + ')()')) } catch (_) { return false }
+    }
+    if (await readThumb()) return 'ALREADY_HAS_COVER'
+    // 展开封面编辑区（渲染可能较慢，先等再点）
+    await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
+    try {
+      const entry = await win.webContents.executeJavaScript(
+        '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
+        + 'var w=document.querySelector(\'.article-cover-images-wrap\');if(w){w.click();return \'CLICKED_WRAP\'}return \'NO_ENTRY\'})()'
+      )
+      log.info('RpaView', '[toutiao cover] entry=' + entry)
+    } catch (e) { log.warn('RpaView', '[toutiao cover] entry: ' + e.message) }
+    await this._sleep(2500)
+
+    let b64 = ''
+    let fileName = 'cover.png'
+    let mimeType = 'image/png'
+    try {
+      b64 = require('fs').readFileSync(filePath).toString('base64')
+      fileName = require('path').basename(filePath)
+      // `_guessMimeType` 是主文件（rpa-view-platforms.js）的模块级函数，本文件不可见，
+      // 故此处内联推断（封面只可能是这几种位图）。
+      mimeType = /\.jpe?g$/i.test(fileName) ? 'image/jpeg' : (/\.webp$/i.test(fileName) ? 'image/webp' : 'image/png')
+    } catch (e) {
+      log.warn('RpaView', '[toutiao cover] 读取封面失败: ' + e.message)
+      return 'READ_FAILED'
+    }
+
+    const total = await win.webContents.executeJavaScript('document.querySelectorAll(\'input[type=file]\').length').catch(() => 0)
+    log.info('RpaView', '[toutiao cover] file input 数量=' + total)
+    const attempts = Math.max(1, Number(total) || 1)
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const r = await win.webContents.executeJavaScript(
+          '(function(){var ins=document.querySelectorAll(\'input[type=file]\');var el=ins[' + i + '];'
+          + 'if(!el)return \'NO_INPUT_' + i + '\';'
+          + 'var b64=' + JSON.stringify(b64) + ';var bin=atob(b64);var n=bin.length;var bytes=new Uint8Array(n);'
+          + 'for(var k=0;k<n;k++)bytes[k]=bin.charCodeAt(k);'
+          + 'var f=new File([bytes],' + JSON.stringify(fileName) + ',{type:' + JSON.stringify(mimeType) + '});'
+          + 'var dt=new DataTransfer();dt.items.add(f);el.files=dt.files;'
+          + 'el.dispatchEvent(new Event(\'change\',{bubbles:true}));'
+          + 'el.dispatchEvent(new Event(\'input\',{bubbles:true}));'
+          + 'return \'INJECTED_' + i + '\'})()'
+        )
+        log.info('RpaView', '[toutiao cover] input#' + i + ' -> ' + r)
+      } catch (e) {
+        log.warn('RpaView', '[toutiao cover] input#' + i + ' 注入异常: ' + e.message)
+      }
+      await this._sleep(5000)
+      if (await readThumb()) {
+        log.info('RpaView', '[toutiao cover] 缩略图已出现（input#' + i + '）')
+        return 'OK_' + i
+      }
+    }
+    log.warn('RpaView', '[toutiao cover] 全部 ' + attempts + ' 个 input 注入后仍未出现缩略图')
+    return 'NO_THUMB'
+  },
+
   // 严格平台兜底（2026-09-30 头条实测）：发布后**既不跳转也不返回响应信号**时，
   // 在判超时前主动查一次发布产物。成功则返回可直接返回给上层的成功结果，否则 null。
   // stopCapture 由调用方传入（网络捕获停止器是主文件局部闭包）。

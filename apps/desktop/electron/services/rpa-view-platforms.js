@@ -140,14 +140,13 @@ const platformsMixin = {
             )
             log.info('RpaView', '[uploadCover] entry=' + entry)
             await this._sleep(2000)
-            if (await this._waitForElement(win, 'input[type="file"]', 8000)) {
-              await this._setFileInput(win, coverPath)
-              await this._sleep(4000)
-              handled = true
-              log.info('RpaView', '[uploadCover] injected ' + String(coverPath).slice(-40))
-            } else {
-              log.warn('RpaView', '[uploadCover] 点击后未出现 file input')
-            }
+            // 2026-09-30 修正：旧实现用 `_setFileInput`（CDP 注入**首个** file input）后仅凭
+            // 返回值就置 handled=true，但真机验证封面区**始终没有缩略图**（img/bg-image 均空）
+            // ⇒ 页面未接受 ⇒ 「展示封面」必填校验拦下提交 ⇒ 作品 total_count=0。
+            // 改用头条专用上传：**逐个 file input 尝试 + 以「缩略图出现」为唯一判据**。
+            const coverResult = await this._uploadToutiaoCover(win, coverPath)
+            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0 || coverResult === 'ALREADY_HAS_COVER')
+            log.info('RpaView', '[uploadCover] toutiao result=' + coverResult)
           } catch (e) { log.warn('RpaView', '[uploadCover] ' + e.message) }
         }
         if (!handled) {
