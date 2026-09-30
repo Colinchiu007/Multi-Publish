@@ -44,7 +44,11 @@ const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigati
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
 
-const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou'])
+// 「严格平台」= 只认**发布产物查询**（而非 URL 变化/通用响应）判定成功。
+// 2026-09-30 追加 toutiao：头条发布后**不跳转**（URL 始终停在 /profile_v4/graphic/publish），
+// 默认 success_mode='url' 必然超时；参考产品同款做法是查**作品列表 API** 并检查
+// ArticleAttr.Status（"2"=已发布、"6"=审核中，均视为提交成功）。
+const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao'])
 
 function summarizePublishDiagnostics (records, artifact) {
   const source = Array.isArray(records) ? records : []
@@ -835,6 +839,12 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         return await finish({ stage: 'URL fallback', url: url2 })
       }
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
+    // 2026-09-30 严格平台兜底（头条实测）：发布后**既不跳转也不给响应信号**，
+    // 上面所有分支都不会命中 ⇒ 判超时前主动查一次发布产物（作品列表 API，见 helpers）。
+    if (STRICT_PUBLISH_ID_PLATFORMS.has(platform) && typeof this._strictPublishFallback === 'function') {
+      const hit = await this._strictPublishFallback(win, platform, context, stopNetworkCapture)
+      if (hit) return hit
+    }
     const finalUrl = win.webContents.getURL() || ''
     const stoppedRequests = await stopNetworkCapture()
     // 诊断快照：超时前记录页面关键文本与可见弹窗，帮助区分"弹窗拦截/校验失败/静默成功"
