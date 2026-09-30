@@ -27,8 +27,7 @@ function stripHtmlToPlainText (html) {
   return String(html == null ? '' : html)
     .replace(/<\s*br\s*\/?\s*>/gi, '\n')
     .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|section|article)\s*>/gi, '\n')
-    // 2026-09-30：原 `/<[^>]*>/g` 把**数学比较**当标签吞掉（`如果价格 <100 元就买，>200 就算了。`
-    // → `如果价格 200 就算了。`）。真标签必以 字母/`/`/`!`/`?` 开头，故加首字符约束。
+    // 2026-09-30：原 `/<[^>]*>/g` 把数学比较当标签吞掉（`<100 元` → 丢失）。真标签必以字母//!/? 开头。
     .replace(/<(?=[a-zA-Z/!?])[^>]*>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&lt;/gi, '<')
