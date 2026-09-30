@@ -17,6 +17,14 @@ const fs = require('fs');
 const path = require('path');
 const { buildInitScript } = require('../e2e/helpers/fixture-loader');
 
+// 采集层固定时钟。这几个视图把墙上时钟渲染进了像素：时段问候（晚上好/下午好）、
+// 日历的「今天」高亮、关键词监测的 ISO 毫秒戳。它们的基线在数学上不可复现 ——
+// 任何跨自然日的两次 run 必然不同（实测同日差 441 px、跨日差 24578 px）。
+// 用 clock 钉死 Date 比给每张图登记「漂移预算」更可取：预算上界取决于两次 run 隔多久，本身不可知。
+// setFixedTime 只改 Date.now/new Date()，计时器照常跑（见 playwright-core d.ts 原文），
+// 因此 settleForCapture 的 rAF/setTimeout 不受影响。
+const DEFAULT_CAPTURE_FIXED_TIME_ISO = '2026-01-01T00:00:00.000Z';
+
 const DEFAULT_READY_TIMEOUT = 15000;
 const MIN_READY_TIMEOUT = 1000;
 const MAX_READY_TIMEOUT = 30000;
@@ -78,6 +86,7 @@ class VisualTestRunner {
       await this.context.addInitScript({ content: buildInitScript() });
     }
     this.page = await this.context.newPage();
+    await this._installCaptureClock();
     this.page.on('console', (message) => {
       if (message.type() !== 'error') return;
       const text = message.text();
@@ -299,6 +308,36 @@ class VisualTestRunner {
     try {
       await this.page.waitForLoadState('networkidle', { timeout: 5000 });
     } catch (_) { /* 持续轮询的视图（进度等）永不 idle，忽略超时 */ }
+  }
+
+/**
+   * 把页面时钟钉到固定时刻，使含实时值的视图可复现。
+   * VISUAL_CAPTURE_FIXED_TIME_ISO=off 显式关闭；写了非法值一律抛错 ——
+   * 静默退回"不固定"会把基线重新变成跨日必漂，而没人会去查门禁为什么红。
+   */
+  async _installCaptureClock() {
+    const raw = process.env.VISUAL_CAPTURE_FIXED_TIME_ISO;
+    const v = raw === undefined ? DEFAULT_CAPTURE_FIXED_TIME_ISO : String(raw).trim();
+    if (v === '' || v === 'off') {
+      this.captureFixedTime = null;
+      return null;
+    }
+    const t = new Date(v).getTime();
+    if (Number.isNaN(t)) {
+      throw new Error(
+        `VISUAL_CAPTURE_FIXED_TIME_ISO 不是合法时间：${JSON.stringify(raw)}` +
+        `（期望 ISO 串或 off；不得静默退回未固定）`
+      );
+    }
+    if (!this.page || !this.page.clock || typeof this.page.clock.setFixedTime !== 'function') {
+      // 宿主不提供该 API 时必须出声：否则门禁红了没人知道是采集没钉住
+      console.warn('[visual] page.clock.setFixedTime 不可用，采集时间未固定，含实时值的基线不可复现');
+      this.captureFixedTime = null;
+      return null;
+    }
+    await this.page.clock.setFixedTime(new Date(t));
+    this.captureFixedTime = t;
+    return t;
   }
 
   async _resetBrowserState() {
