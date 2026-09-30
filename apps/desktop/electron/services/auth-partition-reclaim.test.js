@@ -85,6 +85,26 @@ describe('auth-partition-reclaim：形态识别', () => {
     expect(groupKeyOf('auth-auth-wechat_mp-manual')).toBe('auth-auth-wechat_mp-manual')
     expect(groupKeyOf('auth-auth-zhihu-1')).not.toBe(groupKeyOf('auth-auth-zhihu-manual'))
   })
+
+  it('扫码形态 auth-auth-<平台>-<ts>-<seq> 必须与 openLogin 归到同一组（否则每次扫码自成一组、永远删不掉）', () => {
+    // 只剥一段数字会让 qrcode 的三个会话都成为"本组最新"，回收面收不拢；
+    // 分组粒度必须等于 findAuthPartitionDir 的前缀粒度（auth-auth-<平台>-）。
+    expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-12')).toBe('auth-auth-wechat_mp')
+    expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-1')).toBe('auth-auth-wechat_mp')
+    expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-12'))
+      .toBe(groupKeyOf('auth-auth-wechat_mp-1790348243918'))
+    const plan = planReclaim([
+      'auth-auth-wechat_mp-1790348243918-1',
+      'auth-auth-wechat_mp-1790348243918-2',
+      'auth-auth-wechat_mp-1790348243919-1',
+    ])
+    // 字典序末位是 ...-1790348243919-1（与定位端同一口径），其余两份进 victims
+    expect(plan.kept).toEqual(['auth-auth-wechat_mp-1790348243919-1'])
+    expect(plan.victims).toEqual([
+      'auth-auth-wechat_mp-1790348243918-1',
+      'auth-auth-wechat_mp-1790348243918-2',
+    ])
+  })
 })
 
 describe('auth-partition-reclaim：分组保留判据', () => {

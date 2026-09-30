@@ -27,6 +27,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 
 /**
@@ -78,9 +79,23 @@ function isThrowawayPartitionName (name) {
   return THROWAWAY_PREFIXES.some(function (prefix) { return name.startsWith(prefix) })
 }
 
-/** 同组键：剥掉尾部时间戳；名字不以 `-<数字>` 结尾时自成一组（绝不与人合批）。 */
+/**
+ * 同组键：反复剥掉尾部的 `-<数字>` 段。
+ *
+ * 为什么必须反复剥而不是一次：`openLogin` 的目录名是 `auth-auth-<platform>-<ts>`，
+ * 而 `qrcode-login` 的是 `auth-auth-<platform>-<ts>-<seq>`。只剥一段会让**每次扫码各自成一组**，
+ * 于是同平台扫三次得到三个"最新"，一个都删不掉 —— 与定位端 `findAuthPartitionDir` 用的前缀
+ * （`auth-auth-<platform>-`，平台级粒度）不一致，回收面就永远收不拢。分组粒度必须等于前缀粒度。
+ * 名字不以 `-<数字>` 结尾时自成一组（绝不与人合批）。
+ */
 function groupKeyOf (name) {
-  return name.replace(TRAILING_TS_RE, '')
+  let key = name
+  let prev
+  do {
+    prev = key
+    key = key.replace(TRAILING_TS_RE, '')
+  } while (key !== prev && key.length > 0)
+  return key
 }
 
 /**
@@ -262,9 +277,48 @@ function hasCapturedPartition (accountId) {
 }
 
 /**
- * 登录会话终态的回收动作：未取证的会话就地清空（进程内安全），
+ * 「未取证」不等于「没有可用登录态」——清空前必须先看内容。
+ *
+ * 为什么不能无条件清：`close()` 会在用户按 Escape / 手动关闭登录标签时被调用，而这条路径上
+ * 页面**可能已经拿到了真实会话 Cookie**（用户其实登录成功，只是没走自动完成或没点保存）。
+ * 对快手这类「登录态只落分区、未同步进凭证库」的平台（kuaishou-w3-live-fix 根因），
+ * 无条件清就等于亲手抹掉发布兜底唯一可读的那一份 —— 那正是 #2701 要保护的东西。
+ * 口径：读到任何属于该平台的 Cookie 就不清；**探测失败同样不清**（不确定时保守留数据，
+ * 留着的残留可以下次再清，抹掉的凭证找不回来）。
+ * @param {any} partitionSession
+ * @param {string|null|undefined} platform
+ * @param {any} log
+ * @returns {Promise<boolean>} true = 已清空
+ */
+function wipeUnlessUsableAsFallback (partitionSession, platform, log) {
+  if (!partitionSession || typeof partitionSession.clearStorageData !== 'function') {
+    if (log) log.warn('AuthReclaim', 'session wipe skipped: clearStorageData unavailable')
+    return Promise.resolve(false)
+  }
+  const probe = partitionSession.cookies && typeof partitionSession.cookies.get === 'function'
+    ? Promise.resolve(partitionSession.cookies.get({}))
+    : Promise.reject(new Error('cookies.get 不可用'))
+  return probe.then(function (cookies) {
+    if (!Array.isArray(cookies)) throw new Error('cookies.get 返回非数组')
+    const usable = platform
+      ? cookies.filter(function (c) { return isPlatformCookieDomain(platform, c && c.domain) }).length
+      : 0
+    if (usable > 0) {
+      if (log) log.info('AuthReclaim', 'kept partition as publish fallback source: platform='
+        + platform + ' cookies=' + usable)
+      return false
+    }
+    return wipeSessionStorage(partitionSession, log)
+  }).catch(function (e) {
+    if (log) log.warn('AuthReclaim', 'cookie probe failed, partition kept: ' + ((e && e.message) || 'unknown'))
+    return false
+  })
+}
+
+/**
+ * 登录会话终态的回收动作：未取证的会话按内容判定是否清空（进程内安全），
  * 目录本体交给 scheduleReclaim 按「非最新即删」回收。属旁路，任何失败只留日志。
- * @param {{accountId?: string|null, session?: any, captured?: boolean, log?: any, activePartitionNames?: string[]}} opts
+ * @param {{accountId?: string|null, session?: any, platform?: string|null, captured?: boolean, log?: any, activePartitionNames?: string[]}} opts
  */
 function reclaimLoginSession (opts) {
   const o = opts || {}
@@ -276,7 +330,7 @@ function reclaimLoginSession (opts) {
     return null
   }
   const captured = o.captured === true || capturedPartitions.has(name)
-  if (!captured) void wipeSessionStorage(o.session, log)
+  if (!captured) void wipeUnlessUsableAsFallback(o.session, o.platform, log)
   scheduleReclaim({ activePartitionNames: [name] })
   return name
 }
@@ -295,5 +349,6 @@ module.exports = {
   reclaimStaleAuthPartitions,
   scheduleReclaim,
   wipeSessionStorage,
+  wipeUnlessUsableAsFallback,
   reclaimLoginSession,
 }

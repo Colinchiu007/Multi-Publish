@@ -510,6 +510,7 @@ class AuthViewManager {
     // #2701：会话终态就地回收。必须在视图拆除之前取 session（此后拿不到分区句柄）。
     authReclaim.reclaimLoginSession({
       accountId: this.currentAccountId,
+      platform: this.currentPlatform,
       session: this.currentView && this.currentView.webContents ? this.currentView.webContents.session : null,
       log,
     })
@@ -682,7 +683,9 @@ class AuthViewManager {
       return { valid: false, accountName: null }
     } finally {
       // #2701：silent-auth 分区每次调用新建、且不被发布链兜底读取 ⇒ 用完即清并回收目录
-      void authReclaim.wipeSessionStorage(win.webContents ? win.webContents.session : null, log)
+      // 必须 await：静默校验的分区里是「从库里注入回去」的凭证（库仍是真源，清掉可恢复），
+      // 但不等它就销毁窗口会让清空与拆除竞争，静默留下带数据的目录
+      await authReclaim.wipeSessionStorage(win.webContents ? win.webContents.session : null, log)
       authReclaim.scheduleReclaim({})
       try { win.destroy() } catch (_e) { /* ignore */ }
     }

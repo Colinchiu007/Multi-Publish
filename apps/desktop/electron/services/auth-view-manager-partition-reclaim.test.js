@@ -89,6 +89,11 @@ function arrange (cookies = []) {
 
 const WECHAT_COOKIE = [{ name: 'slave_user', value: 'u1', domain: '.mp.weixin.qq.com' }]
 
+// C2 修复后，close() 的清空要走「先探 Cookie 再决定」的异步链；断言前必须排空微任务
+async function flush () {
+  for (let i = 0; i < 12; i += 1) await Promise.resolve()
+}
+
 describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目录上）', () => {
   it('openLogin 开局回收上一轮遗留：非最新删除、最新与账号分区保留', async () => {
     mkPartitionDirs([
@@ -111,40 +116,53 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
     manager.close()
   })
 
-  it('close() 后本次会话真正持有的 session 被清空（递错句柄等于没清）', () => {
+  it('close() 后本次会话真正持有的 session 被清空（递错句柄等于没清）', async () => {
     const { manager, session } = arrange([])
     manager.openLogin('douyin', 0)
     session.clearStorageData.mockClear()
     manager.close()
+    await flush()
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
     expect(session.clearCache).toHaveBeenCalledTimes(1)
   })
 
-  it('取到凭证入库的会话不得被清空——发布链的磁盘兜底要看它', () => {
+  it('取到凭证入库的会话不得被清空——发布链的磁盘兜底要看它', async () => {
     const { manager, session } = arrange(WECHAT_COOKIE)
     manager.openLogin('wechat_mp', 0)
-    manager.completeLogin()
+    await manager.completeLogin()
+    await flush()
     expect(session.clearStorageData).not.toHaveBeenCalled()
   })
 
-  it('超时终态的会话同样走回收（timeout 不是「留着不管」的出口）', () => {
+  it('超时终态的会话同样走回收（timeout 不是「留着不管」的出口）', async () => {
     const { manager, session } = arrange([])
     manager.openLogin('wechat_mp', 5000)
     session.clearStorageData.mockClear()
     const attempt = manager._activeLoginAttempt
     manager._settleLogin(attempt, { timeout: true })
+    await flush()
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
   })
 
-  it('同一会话成功取证后，后续未取证的会话仍会被清（跨会话不串）', () => {
+  it('取消但页面里已有该平台 Cookie 的会话不得被清（C2：取消 ≠ 没有可用登录态）', async () => {
+    const { manager, session } = arrange(WECHAT_COOKIE)
+    manager.openLogin('wechat_mp', 0)
+    session.clearStorageData.mockClear()
+    manager.close()
+    await flush()
+    expect(session.clearStorageData).not.toHaveBeenCalled()
+  })
+
+  it('同一会话成功取证后，后续未取证的会话仍会被清（跨会话不串）', async () => {
     const ok = arrange(WECHAT_COOKIE)
     ok.manager.openLogin('wechat_mp', 0)
-    ok.manager.completeLogin()
+    await ok.manager.completeLogin()
     // 假时钟下 Date.now() 冻结 ⇒ 两次登录会拿到同一 accountId，推进 5ms 才是生产形态
     vi.advanceTimersByTime(5)
     const bad = arrange([])
     bad.manager.openLogin('wechat_mp', 0)
     bad.manager.close()
+    await flush()
     expect(bad.session.clearStorageData).toHaveBeenCalledTimes(1)
   })
 
@@ -189,21 +207,59 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
 
   it('captured=true 时不清存储，但仍调度目录回收', () => {
     const log = { warn: vi.fn(), info: vi.fn() }
-    const session = { clearStorageData: vi.fn(), clearCache: vi.fn() }
+    const session = { clearStorageData: vi.fn(), clearCache: vi.fn(), cookies: { get: vi.fn().mockResolvedValue([]) } }
     reclaimMod().reclaimLoginSession({ accountId: 'auth-x-1', session, captured: true, log })
     expect(session.clearStorageData).not.toHaveBeenCalled()
     expect(reclaimMod().partitionNameOf('auth-x-1')).toBe('auth-auth-x-1')
   })
 
-  it('captured 缺省视为未取证 ⇒ 清存储', () => {
-    const session = { clearStorageData: vi.fn().mockResolvedValue(undefined), clearCache: vi.fn().mockResolvedValue(undefined) }
-    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-2', session })
+  it('未取证且分区里没有该平台 Cookie ⇒ 清存储（真残留）', async () => {
+    const session = {
+      clearStorageData: vi.fn().mockResolvedValue(undefined),
+      clearCache: vi.fn().mockResolvedValue(undefined),
+      cookies: { get: vi.fn().mockResolvedValue([{ name: 'x', value: '1', domain: '.someone-else.example' }]) },
+    }
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-2', session, platform: 'wechat_mp' })
+    await flush()
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
+  })
+
+  it('未取证但分区里有该平台 Cookie ⇒ 一律不清（它是发布兜底唯一可读的那份）', async () => {
+    const log = { warn: vi.fn(), info: vi.fn() }
+    const session = {
+      clearStorageData: vi.fn().mockResolvedValue(undefined),
+      clearCache: vi.fn().mockResolvedValue(undefined),
+      cookies: { get: vi.fn().mockResolvedValue([{ name: 'slave_user', value: 'u', domain: '.mp.weixin.qq.com' }]) },
+    }
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-3', session, platform: 'wechat_mp', log })
+    await flush()
+    expect(session.clearStorageData).not.toHaveBeenCalled()
+    expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('publish fallback source'))
+  })
+
+  it('Cookie 探测失败时**保留**分区（不确定时不销毁可能唯一的凭证副本）', async () => {
+    const log = { warn: vi.fn(), info: vi.fn() }
+    const boom = {
+      clearStorageData: vi.fn(),
+      cookies: { get: vi.fn().mockRejectedValue(new Error('probe boom')) },
+    }
+    const absent = { clearStorageData: vi.fn() }
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-4', session: boom, platform: 'zhihu', log })
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-5', session: absent, platform: 'zhihu', log })
+    await flush()
+    expect(boom.clearStorageData).not.toHaveBeenCalled()
+    expect(absent.clearStorageData).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('probe boom'))
+    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('cookies.get 不可用'))
   })
 
   it('已标记取证的分区名不再被清（跨会话不串）', () => {
     reclaimMod().markCaptured('auth-y-1')
-    const session = { clearStorageData: vi.fn().mockResolvedValue(undefined), clearCache: vi.fn().mockResolvedValue(undefined) }
+    const session = {
+      clearStorageData: vi.fn().mockResolvedValue(undefined),
+      clearCache: vi.fn().mockResolvedValue(undefined),
+      cookies: { get: vi.fn().mockResolvedValue([]) },
+    }
     reclaimMod().reclaimLoginSession({ accountId: 'auth-y-1', session })
     expect(session.clearStorageData).not.toHaveBeenCalled()
   })
