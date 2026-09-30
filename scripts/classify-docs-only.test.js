@@ -43,6 +43,11 @@ test('CI_IGNORED_PATHS 清单内容被钉死（与 push paths-ignore 同源同�
     '.hermes/**',
     '.agents/**',
     'openspec/**',
+    // 欠账账本：它是「门禁的数据」，不是运行时代码。前提见下方
+    // 「进白名单的路径，它自己的门禁必须在 changes job 里无条件跑」那条锁 ——
+    // 没有那条前提，把任何路径放进这份名单都会连带短路掉它自己的检查，
+    // 因为 static-gates 整个 job 被 docs-only != 'true' 门控。
+    'scripts/gate-record-debt-ledger.json',
   ])
 })
 
@@ -120,6 +125,47 @@ test('`*.md` 只匹配根目录：子目录 .md 不命中（除非有显式 dir/
   assert.strictEqual(classifier.isDocsOnly(['scripts/foo.md']), false)
   // 根目录 .md 命中
   assert.strictEqual(classifier.isDocsOnly(['README.md']), true)
+})
+
+// ---------------------------------------------------------------------------
+// 回填/销账型 PR 必须能走 docs-only（否则每个销账 PR 都吃一轮全量重型 job）
+// ---------------------------------------------------------------------------
+
+test('回填 + 销账型 PR（置顶文档 + 账本 JSON）=> true', () => {
+  assert.strictEqual(
+    classifier.isDocsOnly(['.quality-gates.md', 'CHANGELOG.md', 'scripts/gate-record-debt-ledger.json']),
+    true,
+  )
+})
+
+test('账本 JSON 进白名单不得顺带放过 scripts/ 下的代码', () => {
+  // 只放开那一个精确路径，不给目录级豁免
+  assert.strictEqual(classifier.isDocsOnly(['scripts/gate-record-debt-ledger.js']), false)
+  assert.strictEqual(classifier.isDocsOnly(['scripts/check-gate-record-debt.js']), false)
+  assert.strictEqual(classifier.isDocsOnly(['scripts/gate-record-debt-ledger.json.bak']), false)
+  assert.ok(!classifier.CI_IGNORED_PATHS.includes('scripts/**'), 'scripts/** 不得进白名单')
+})
+
+// ---------------------------------------------------------------------------
+// 白名单的前提锁：进名单的路径，它自己的门禁必须在**无条件执行**的 changes job 里跑
+// ---------------------------------------------------------------------------
+
+test('账本 JSON 在名单内 => 它的门禁必须接线进 changes job，且在非 PR 早退之前', () => {
+  assert.ok(
+    classifier.CI_IGNORED_PATHS.includes('scripts/gate-record-debt-ledger.json'),
+    '前提变了：账本不在白名单时这条锁不适用，应连同白名单一起重新评估',
+  )
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8')
+  const job = wf.slice(wf.indexOf('\n  changes:'), wf.indexOf('\n  static-gates:'))
+  assert.ok(job.length > 0, '未取到 changes job 正文')
+  const earlyExit = job.indexOf('exit 0')
+  assert.ok(earlyExit > 0, 'changes job 的非 PR 早退语句不见了 —— 锁的位置判据失效')
+  for (const cmd of ['node scripts/check-gate-record-debt.js', 'node --test scripts/check-gate-record-debt.test.js']) {
+    const at = job.indexOf(cmd)
+    assert.ok(at >= 0, `账本门禁未接线进 changes job：缺 ${cmd} ⇒ 纯文档 PR 会短路 static-gates，从此没人校验账本`)
+    assert.ok(at < earlyExit, `${cmd} 必须在非 PR 早退之前，否则 main push 那一档不再校验账本`)
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -201,4 +247,66 @@ test('CLI：GITHUB_OUTPUT 存在时追加 docs-only=<bool>（CI changes job 消�
   assert.strictEqual(r.code, 0, r.stdout)
   const written = fs.readFileSync(out, 'utf8')
   assert.match(written, /^docs-only=true\n?$/m)
+})
+
+// ── 变更集取源必须只有一份实现（change enforce-gate-record-presence D1 / tasks 3.1）──
+// 为什么要锁：本仓有过"同一个三态映射被抄成三份"的事故（login-state）。"本 PR 改了哪些文件"
+// 一旦被第二个判据自行重实现，两份对 base 的取法就会漂移，出现"同一 PR 在 A 判 docs-only、
+// 在 B 判缺记录"这种不可归因的红。所以取源提为导出，并由下面的锁钉住。
+test('changedFiles 必须被导出，且在真实 git 夹具上返回 merge-base..head 的文件清单', () => {
+  const clf = require('./classify-docs-only.js')
+  assert.strictEqual(typeof clf.changedFiles, 'function', 'changedFiles 未导出：判据只能各自拼 diff')
+  const { dir } = gitRepoFixture({ 'docs/a.md': 'a\n' })
+  const files = clf.changedFiles({ repo: dir, base: 'main', head: 'feature' })
+  assert.deepStrictEqual(files, ['docs/a.md'], JSON.stringify(files))
+})
+
+test('changedFiles 在 base 不可解析时必须抛错，不得返回空数组（空清单会被上层判成"没改文件"）', () => {
+  const clf = require('./classify-docs-only.js')
+  const { dir } = gitRepoFixture({ 'docs/a.md': 'a\n' })
+  assert.throws(
+    () => clf.changedFiles({ repo: dir, base: 'no-such-ref-xyz', head: 'feature' }),
+    /git 取证失败/,
+  )
+})
+
+test('main() 必须走 changedFiles 这一份取源（防止 CLI 与判据各算各的）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'classify-docs-only.js'), 'utf8')
+  const body = src.split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n')
+  assert.match(body, /changedFiles\(\{/, 'main() 未调用 changedFiles')
+  // 真正的不变量是"diff 只取一次"，不是"用了某个具体 flag"：新增记录要判"是不是新文件"，
+  // 所以取源返回 name-status、名字由它派生 —— 若按 flag 计数，改成 --name-status 会让锁
+  // 既可能假绿（0 处 name-only 时旧断言直接不成立）也可能假红。
+  const diffCalls = (body.match(/git\(repo,\s*\['diff'/g) || []).length
+  assert.strictEqual(diffCalls, 1, `git diff 取源出现 ${diffCalls} 处，必须收敛为一处`)
+})
+
+test('changedFileStatuses 必须区分 A/M/D/R（"改了一篇历史记录"不能算"新增了记录"）', () => {
+  const { changedFileStatuses } = require('./classify-docs-only.js')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'name-status-'))
+  const run = (a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' })
+  run(['init', '--quiet', '-b', 'main']); run(['config', 'user.email', 't@e.com']); run(['config', 'user.name', 't'])
+  // 重命名内容必须足够大：git 的相似度启发式对 1 字节文件不判 R（实测第一版夹具就是这样，
+  // 结果 A+D 而非 R —— 那是夹具问题，不是解析问题）。
+  const body = Array.from({ length: 40 }, (_, i) => `line ${i} of shared rename content`).join('\n')
+  fs.writeFileSync(path.join(dir, 'a.js'), '1'); fs.writeFileSync(path.join(dir, 'gone.md'), 'k')
+  fs.writeFileSync(path.join(dir, 'will-rename.md'), body)
+  run(['add', '.']); run(['commit', '--quiet', '-m', 'base'])
+  run(['checkout', '--quiet', '-b', 'feature'])
+  fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'openspec', 'records', 'new-rec.md'), 'x')
+  fs.writeFileSync(path.join(dir, 'a.js'), '2')
+  fs.unlinkSync(path.join(dir, 'gone.md'))
+  fs.writeFileSync(path.join(dir, 'renamed.md'), body); fs.unlinkSync(path.join(dir, 'will-rename.md'))
+  run(['add', '-A']); run(['commit', '--quiet', '-m', 'c'])
+  const got = changedFileStatuses({ repo: dir, base: 'main', head: 'feature' })
+  const flat = got.map((e) => `${e.status} ${e.file}`).sort()
+  assert.ok(got.length >= 4, `解析结果过少（退化成空/半空就是这类 bug 的形状）：${JSON.stringify(flat)}`)
+  assert.ok(flat.includes('A openspec/records/new-rec.md'), `新增记录文件必须是 A：${JSON.stringify(flat)}`)
+  assert.ok(flat.includes('M a.js'), `修改必须是 M：${JSON.stringify(flat)}`)
+  assert.ok(flat.includes('D gone.md'), `删除必须是 D：${JSON.stringify(flat)}`)
+  const r = got.find((e) => /^R/.test(e.status))
+  assert.ok(r, `重命名必须判成 R 且取新路径，不能拆成 A+D：${JSON.stringify(flat)}`)
+  assert.strictEqual(r.file, 'renamed.md', `R 的 file 必须是新路径（旧路径进 from）：${JSON.stringify(r)}`)
+  assert.strictEqual(r.from, 'will-rename.md', `R 的 from 必须是旧路径：${JSON.stringify(r)}`)
 })

@@ -52,7 +52,7 @@
 - [x] 四份共享文档按字节前插/追加，`git diff --numstat` 删除数为 0，且与 `--ignore-cr-at-eol --numstat` 逐文件相等
 - [x] QM-1 打包 N/A：`git diff --name-only origin/main...HEAD` 不含 `electron/` 与 `rpa-engine/`
 - [x] QM-6 双模型外部评审（backend=codex / frontend=claude）：前端已回（0 Critical / 2 Warning / 4 Info，处置见 PRD §13）；**后端终态为缺失** —— `codeagent-wrapper` 报 `codex execution timeout`，累计约 2.5 小时、发现项 0 条、wrapper 日志退出后被清理不可回读。已按「缺失的第二位评审者」而非「审过没问题」登记（`.quality-gates.md` + PR 评论），自审不折算为外部评审。
-- [ ] 真机 Electron 窗口目视验证（本机另一会话已占用应用单例锁与 dev 端口，未擅自起第二个实例；留待桌面验收）
+- [x] 真机 Electron 窗口目视验证：已完成并经用户在本机确认「没问题」（2026-09-30）。证据性质如实登记为**用户目视确认**，不是自动化产物 —— 当时本机另一会话占用应用单例锁与 dev 端口，我未擅自起第二个实例，故本条没有我自己截到的现场图；三个检查点（缩略图出图 / 点击放大 / home-shell 内嵌实例里弹窗不再把承载视图自己藏掉）写在 PR #2562 的评论里。
 
 ## 7. 收口二轮：债务门禁逼出的拆分（CI `债务熔断检查` 红 → 绿）
 

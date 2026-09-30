@@ -11,6 +11,59 @@
 'use strict'
 
 const log = require('./logger')
+const {
+  normalizePublishId,
+  sanitizePublishResultUrl,
+} = require('./rpa-publish-id-extract')
+
+/**
+ * HTML → 纯文本（模块级工具，2026-09-30）。
+ * 用于无标题平台的描述合并：发布页 Quill 编辑器把草稿正文规范化为 HTML
+ * （`<p>…</p>`），而平台描述是纯文本语义（计数器按可见字符算），
+ * 不剥标签会让 `<p>` 以字面量出现在作品描述里（快手截图取证）。
+ * 块级标签收口为换行，避免段落被粘连；三个以上连续换行压成两行。
+ */
+function stripHtmlToPlainText (html) {
+  return String(html == null ? '' : html)
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|section|article)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function parseKuaishouArtifactEvidence (body, response) {
+  const status = Number(response?.status)
+  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
+  if (!String(response?.endpoint || '').includes('/rest/cp/works/v2/video/pc/photo/list')) return null
+  try {
+    const json = JSON.parse(String(body || ''))
+    const rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : []
+    const kuaishouArtifacts = rows.map(item => {
+      const postId = normalizePublishId(item && (item.workId || item.photoId || item.id))
+      if (!postId) return null
+      const title = String(item.title || item.caption || '').replace(/#g/g, '').replace(/ g/g, '').trim().slice(0, 512)
+      const rawTime = item.publishTime || item.uploadTime || 0
+      const seconds = Number(String(rawTime).substring(0, 10))
+      return {
+        postId,
+        title,
+        publishedAt: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0,
+        url: 'https://m.gifshow.com/fw/photo/' + postId,
+      }
+    }).filter(Boolean).slice(0, 50)
+    return kuaishouArtifacts.length > 0 ? { kuaishouArtifacts } : null
+  } catch (_) {
+    return null
+  }
+}
 
 const navigationHelpers = {
   // ========== 导航后弹窗清理 ==========
@@ -49,18 +102,68 @@ const navigationHelpers = {
   },
 
   // 无独立标题字段的平台（快手作品描述）：标题与正文合并成一段文案写进编辑器，
-  // 长度按平台 max_content 截断（快手 1000），避免后续正文填充把标题覆写掉。
+  // 长度按平台 max_content 截断（快手 500），避免后续正文填充把标题覆写掉。
   // 2026-10-08 CCG 评审（W1/W2）统一口径：合并分隔符从 '\n\n' 收敛为 '\n'、
   // 截断从 UTF-16 slice 改为按码点（不切断代理对），与注册表
   // composeNoTitleDescription 及引擎各链（shipinhao/twitter/weibo/tiktok）一致。
+  // 2026-09-30 追加（快手截图取证）：正文来自发布页 Quill 编辑器，携带 HTML 标记
+  // （`<p>…</p>`）。无标题平台的描述是**纯文本**语义——平台计数器按可见字符算，
+  // 且不剥标签会让 `<p>` 以字面量出现在作品描述里。故此处先把 HTML 归一为纯文本。
   _composeEditorCaption(article, maxLen) {
     const limit = Number(maxLen) > 0 ? Number(maxLen) : 2000
-    const parts = [article && article.title, article && article.content]
+    const parts = [article && article.title, stripHtmlToPlainText(article && article.content)]
       .filter((v) => typeof v === 'string' && v.trim().length > 0)
       .map((v) => v.trim())
     const composed = parts.join('\n')
     const chars = Array.from(composed)
     return chars.length > limit ? chars.slice(0, limit).join('') : composed
+  },
+
+  // ========== 发布后的二次确认弹窗 ==========
+  // 2026-09-30 快手实测：点「发布」后弹出确认框（模态层含「取 消」「确 认」两颗按钮，
+  // 另有禁用态的「确定」），不点「确认」则永不提交 → publish verification timeout。
+  // 判据：只点**可见且未禁用**的「确认/确定」——页面常同时存在禁用的同名按钮（如
+  // 快手「近7天的下载记录」公告里的确定 d=true），不加 disabled 过滤会误点。
+  // 按钮文本可能带空格（「确 认」），比较前统一剥空白。
+  // 2026-09-30 头条补强：点「预览并发布」后**先弹预览弹窗**（日志 `modals:["预览"]`），
+  // 需在弹窗内再点一次「发布」才真正提交。故本函数：
+  //   ① 优先在**可见的 modal/dialog/drawer 作用域内**找提交类文案（确认/确定/确认发布/
+  //      发布/立即发布/发布文章），避免误点主页面那颗同名的主发布按钮（会重复触发）；
+  //   ② 弹窗可能延迟出现，故轮询若干次（每次 2s）而不是只查一次；
+  //   ③ 找不到 modal 时回退到全局「确认/确定」（快手等既有平台行为不变）。
+  async _confirmPublishDialog(win, platform) {
+    const MODAL_TEXTS = ['确认', '确定', '确认发布', '发布', '立即发布', '发布文章']
+    const FALLBACK_TEXTS = ['确认', '确定']
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const result = await win.webContents.executeJavaScript(
+          '(function(){'
+          + 'var modalSel=\'[class*="modal"],[class*="Modal"],[class*="dialog"],[class*="Dialog"],[class*="drawer"],[class*="Drawer"],[role="dialog"]\';'
+          + 'var modals=[...document.querySelectorAll(modalSel)].filter(function(e){return e.getClientRects().length>0});'
+          + 'var MODAL=' + JSON.stringify(MODAL_TEXTS) + ';var FB=' + JSON.stringify(FALLBACK_TEXTS) + ';'
+          + 'function norm(e){return (e.innerText||"").replace(/\\s+/g,"")}'
+          + 'function clickable(e){return e.offsetParent&&!e.disabled&&e.getClientRects().length>0}'
+          + 'for(var s=0;s<modals.length;s++){'
+          + '  var bs=[...modals[s].querySelectorAll("button,div,span,a")].filter(function(e){return clickable(e)&&MODAL.indexOf(norm(e))!==-1});'
+          + '  if(bs.length){bs[bs.length-1].click();return "CONFIRMED_IN_MODAL:"+norm(bs[bs.length-1])}'
+          + '}'
+          + 'var hit=[...document.querySelectorAll("button,div,span")].filter(function(e){return clickable(e)&&FB.indexOf(norm(e))!==-1});'
+          + 'if(hit.length){hit[hit.length-1].click();return "CONFIRMED"}'
+          + 'return modals.length?("MODAL_NO_MATCH:"+modals.map(function(m){var bs=[...m.querySelectorAll("button,div,span,a")].filter(clickable).map(function(e){return norm(e)}).filter(Boolean).slice(0,8).join("/");return norm(m).slice(0,40)+"|btns="+bs}).join(" ;; ").slice(0,300)):"NO_DIALOG"})()'
+        )
+        if (result && result.indexOf('CONFIRMED') === 0) {
+          log.info('RpaView', '[' + platform + '] publish confirm dialog clicked: ' + result)
+          await this._sleep(2500)
+          return result
+        }
+        if (attempt === 0) log.info('RpaView', '[' + platform + '] confirm dialog probe: ' + result)
+        await this._sleep(2000)
+      }
+      return 'NO_CONFIRM'
+    } catch (e) {
+      log.warn('RpaView', '[' + platform + '] confirm dialog: ' + e.message)
+      return null
+    }
   },
 
   // ========== 图片上传后的「图片编辑」模态层收起 ==========
@@ -109,6 +212,111 @@ const navigationHelpers = {
     if (!ok) log.warn('RpaView', '[' + platform + '] video upload-complete signal not detected (preview/url), continuing best-effort')
     return ok
   },
+
+  // ========== 发布产物（artifact）查询：把「发布是否真的落地」从响应信号升级为作品列表核对 ==========
+  // 拆分自 rpa-view-platforms.js（2026-09-30，行数门禁）：这些方法只依赖 this._sleep /
+  // this._navigateAndWait / this._waitForCondition / this._startPublishNetworkCapture 与
+  // 模块级 parseKuaishouArtifactEvidence，移出后行为不变。
+  async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
+    const title = String(context.title || '').trim()
+    const startedAt = Number(context.publishedAt || Date.now())
+    if (!title) return null
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const js = '(async function(){' +
+          'var title = ' + JSON.stringify(title) + ';' +
+          'var startedAt = ' + JSON.stringify(startedAt) + ';' +
+          'var endpoint = "https://baijiahao.baidu.com/pcui/article/lists";' +
+          'for (var page = 0; page < 3; page++) {' +
+            'var params = new URLSearchParams({currentPage:String(page+1),pageSize:"10",type:"video",collection:"publish",search:"",dynamic:"1"});' +
+            'var resp = await fetch(endpoint + "?" + params.toString(), {credentials:"include",headers:{Accept:"application/json, text/plain, */*","X-Requested-With":"XMLHttpRequest"}});' +
+            'if (!resp.ok) continue;' +
+            'var json = await resp.json();' +
+            'var rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : [];' +
+            'for (var i = 0; i < rows.length; i++) {' +
+              'var item = rows[i] || {};' +
+              'var id = item.article_id || item.id;' +
+              'if (!id) continue;' +
+              'var itemTitle = String(item.title || "").trim();' +
+              'var status = String(item.status || "");' +
+              'var publishAt = item.publish_at ? new Date(item.publish_at).getTime() : 0;' +
+              'var inWindow = Number.isFinite(publishAt) && publishAt > 0 && publishAt >= startedAt - 300000 && publishAt <= startedAt + 900000;' +
+              'if (status === "publish" && inWindow && itemTitle === title) {' +
+                'return {postId:String(id),url:item.share_url || "",title:itemTitle,status:status};' +
+              '}' +
+            '}' +
+          '}' +
+          'return null;' +
+        '})()'
+        const found = await win.webContents.executeJavaScript(js)
+        const postId = normalizePublishId(found && found.postId)
+        if (postId) {
+          log.info('RpaView', '[baijiahao] artifact lookup matched id=' + postId.slice(0, 80))
+          return { ...found, postId, url: sanitizePublishResultUrl(found.url) }
+        }
+      } catch (e) {
+        log.warn('RpaView', '[baijiahao] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
+      }
+      if (attempt + 1 < maxAttempts) await this._sleep(3000)
+    }
+    return null
+  },
+
+  _parseKuaishouArtifact(evidence, context) {
+    const title = String(context.title || '').trim()
+    const startedAt = Number(context.publishedAt || Date.now())
+    if (!title) return null
+    for (const entry of evidence || []) {
+      const artifacts = entry && Array.isArray(entry.kuaishouArtifacts) ? entry.kuaishouArtifacts : []
+      for (const item of artifacts) {
+        const postId = normalizePublishId(item && item.postId)
+        if (!postId) continue
+        const itemTitle = String(item.title || '').trim()
+        const publishedAt = Number(item.publishedAt || 0)
+        const inWindow = Number.isFinite(publishedAt) && publishedAt > 0 && publishedAt >= startedAt - 120000 && publishedAt <= startedAt + 900000
+        if (inWindow && itemTitle === title) {
+          return { postId, url: item.url || 'https://m.gifshow.com/fw/photo/' + postId, title: itemTitle }
+        }
+      }
+    }
+    return null
+  },
+
+  async _findKuaishouArtifact(win, context, maxAttempts = 2) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      let capture = null
+      try {
+        capture = await this._startPublishNetworkCapture(win, { parseResponseBody: parseKuaishouArtifactEvidence })
+        const statuses = attempt === 0 ? ['1', '2', '3'] : ['1']
+        for (const status of statuses) {
+          try {
+            await this._navigateAndWait(win, 'https://cp.kuaishou.com/article/manage/video?status=' + status, 2000)
+            await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return /作品管理|发布作品|视频管理|内容管理/.test(t)||document.querySelectorAll("a[href*=photo],[data-photo-id],[class*=work-item],[class*=works-list]").length>0}', 15000, 500)
+          } catch (e) { log.warn('RpaView', 'kuaishou manage page: ' + e.message) }
+          await this._sleep(2500)
+          const artifact = this._parseKuaishouArtifact(capture?.evidence || [], context)
+          if (artifact) {
+            log.info('RpaView', '[kuaishou] artifact lookup matched id=' + String(artifact.postId).slice(0, 80))
+            await capture.stop()
+            capture = null
+            return artifact
+          }
+        }
+      } catch (e) {
+        log.warn('RpaView', '[kuaishou] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
+      } finally {
+        if (capture) { try { await capture.stop() } catch (e) { /* ignore */ } }
+      }
+      if (attempt + 1 < maxAttempts) await this._sleep(3000)
+    }
+    return null
+  },
+
+  async _findPublishedArtifact(win, platform, context = {}) {
+    if (platform === 'baijiahao') return await this._queryBaijiahaoArtifact(win, context)
+    if (platform === 'kuaishou') return await this._findKuaishouArtifact(win, context)
+    return null
+  },
 }
 
-module.exports = { navigationHelpers }
+module.exports = { navigationHelpers, stripHtmlToPlainText }

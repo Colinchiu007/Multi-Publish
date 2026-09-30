@@ -598,5 +598,14 @@ describe('视觉用例双清单一致性', () => {
     const missing = pixelTests.map((t) => t.name).filter((n) => !allow.has(`${n}.png`))
     expect(missing, `以下 pixelTests 的基线未被 .gitignore 白名单放行：${missing.join(', ')}`).toEqual([])
   })
-})
+  it('暗色基线同样必须被显式放行（批次 1 建立暗色通道后，同一静默失败面同样存在）', () => {
+    // 2026-09-29（批次 1/6 收口）：暗色基线 `<view>-dark.png` 首次入库时，根 `.gitignore` 的 `*.png`
+    // 同样会静默吞掉它们 —— 与上一条浅色锁是**同一个失败面**。此处对每个 pixelTest 断言深色条目
+    // 也在白名单里，避免「浅色登记了、暗色漏了」这种只在一半面上生效的假绿。
+    const ignorePath = path.join(__dirname, 'visual-testing', 'base-screenshots', '.gitignore')
+    const allow = new Set(fs.readFileSync(ignorePath, 'utf8').split(/\r?\n/)
+      .map((l) => l.trim()).filter((l) => l.startsWith('!')).map((l) => l.slice(1)))
+    const missing = pixelTests.map((t) => t.name).filter((n) => !allow.has(`${n}-dark.png`))
+    expect(missing, `以下 pixelTests 的**暗色**基线未被 .gitignore 白名单放行：${missing.join(', ')}`).toEqual([])
+  })})
 })

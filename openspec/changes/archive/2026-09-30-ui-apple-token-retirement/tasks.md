@@ -43,7 +43,14 @@
 - [x] runner 支持主题参数（`THEME=dark`），注入 `data-theme="dark"` 后逐视图截图（`run-pixel-tests.js` 的 `resolveTheme()` + `test-runner.js` 的 `_applyTheme()`；非法值归一为 `light`）
 - [x] 基线命名区分主题（`<view>.png` / `<view>-dark.png`），互不覆盖（`VisualTestRunner.themeSuffix()`；浅色沿用历史命名，meta key 亦带后缀防互相覆盖）
 - [x] CI 增跑暗色一遍，失败信息与浅色同格式（`visual-test.yml` 像素步骤内 `test:visual:pixel:dark`；**当前为 staged 不阻断** —— 仓库尚无暗色基线，直接阻断会常红，待同源暗色基线入库后摘掉该 staged 处置转阻断，与本文件 Gate 7b 的历史处置同形）
-- [ ] 既有 22 张浅色基线在改造后仍逐张通过（**待 CI 实跑取证**：本仓既有结论「本地渲染 vs CI 渲染差 3.82%」，本地像素运行不能作为同源证据；结构侧已证浅色拍摄条件未变 —— 全仓 77 处 `[data-theme=...]` 选择器全为 `dark`，无 `:not([data-theme])` / `[data-theme=""]` 这类依赖属性存在性的写法，故显式写 `light` 与属性缺失在样式上等价）
+- [x] 既有 22 张浅色基线在改造后仍逐张通过（**已取证**：批次 1 PR 的 `QG Visual -> SUCCESS`，以及最终态同源运行的浅色像素门禁 PASS。本仓既有结论「本地渲染 vs CI 渲染差 3.82%」，本地像素运行不作为同源证据；结构侧已证浅色拍摄条件未变 —— 全仓 77 处 `[data-theme=...]` 选择器全为 `dark`，无 `:not([data-theme])` / `[data-theme=""]` 这类依赖属性存在性的写法，故显式写 `light` 与属性缺失在样式上等价）
+
+### 暗色基线首次入库（批次 1 收口，2026-09-29）
+
+- **19 张 `<view>-dark.png` 同源入库**：来源 `visual-test.yml` run `36628790736`（head `e20a87cb`，已核验提交链**含批次 6**）
+- 同批浅色**差异刷新 3 张**（`home-baseline`/`keyword-monitor`/`publish-form`），其余 16 张逐字节未变故不写入
+- **实测踩到并修复一个静默陷阱**：根 `.gitignore` 的 `*.png` 使暗色基线落盘后 `git status` **完全不显示**、`git add` 也静默不收 ⇒ 按该目录既有口径**逐名登记 19 条否定规则**；并把 `tests/visual-ci.test.js` 原有的「pixelTests 基线必须被 `.gitignore` 显式放行」锁**扩展到暗色**（原锁只覆盖浅色 ⇒ 同一失败面只在一半上生效）
+- 门禁证据：`visual-ci` + `pixel-diff-baseline-guard` **36 / 0 fail**（内容守卫逐个校验目录内 41 张基线）
 
 ### 批次 1 交接口径（供后续取证）
 - **同源暗色基线怎么来**：`visual-test.yml` 已把 `screenshots/`（含 `*-dark-current.png`）作为 artifact 上传；跑一次该 workflow → 取 artifact 里的暗色截图入库为 `base-screenshots/<view>-dark.png`（QM-4 第 7 条：禁止拿本地图当基线）。
@@ -64,7 +71,7 @@
 - [x] `--text` 去留拍板（D3：**保留**）并给暗色正确值：`video-creation-tokens.css` 暗色块原为 `var(--ep-bg, #1a1a1e)`（**文字色转发到背景色** = 2026-09-20 事故根因）→ 改为 `var(--ink, #e8e8ed)`（在暗底 14.21:1），结构与浅色对称；文件清单已按 D3 扩到该文件
 - [x] `--color-primary` 保持不覆盖（既有合同；回归锁断言暗色块无该键）
 - [x] 顺带补齐 `--spacing-16: 64px`（间距族原止于 `--spacing-10`，批次 5 的 history-page 用到 64px，属批次 0 三栏清单暴露的缺档）
-- [ ] 全量浅色基线不变（**待 CI 实跑取证**，同批次 1 口径：本地像素运行与 CI 不同源）。结构侧已证浅色无消费点变更 —— 本批次浅色侧全部是**新增槽位**（无任何消费点），暗色侧才是生效改动
+- [x] 全量浅色基线不变（**已取证**：本 PR 的 `QG Visual -> SUCCESS`，同批次 1 口径：本地像素运行与 CI 不同源）。结构侧已证浅色无消费点变更 —— 本批次浅色侧全部是**新增槽位**（无任何消费点），暗色侧才是生效改动
 - ⚠️ **暗色生效改动披露（2 处，须由暗色通道核对）**：①`--color-text-*` 暗色补齐（此前深字落深底）②`--color-primary-light` 暗色改品牌紫半透明叠加。二者都改暗色观感；因暗色基线尚未入库（批次 1 staged），**本批次落地后生成的暗色基线将是「修复后」状态**，后续批次 3/5 的暗色回归即以该基线比较（顺序正确：先修盲区，再建基线，再做视觉变更）
 
 ---
@@ -81,7 +88,7 @@
 - [x] 每个组件一份「旧 `--apple-*` → 新令牌 → 值差异」三栏清单 → `component-token-map.md`（全局映射表 + 逐组件变量集合 + 值不保值与观感披露）
 - [x] 组件单测全绿：**96 tests / 0 fail**（UiButton / UiInput / UiModal / ConfigProfileManager / AccountCloudSyncDialog）。**受影响的视图测试**由 CI 分片承担（本 PR 的 QG Desktop Shards）
 - [x] 相关视图基线**定向**重生成（浅色）：**17 张已由本 PR 的 CI artifact 同源刷新**（QM-4 第 7 条），2 张逐字节未变故不写入；实测 misMatch 区间 **0.0000%–1.6071%**
-- [ ] 暗色基线：本 PR 的 QG Visual 只跑浅色（产物 19 条结果 `theme` 全为 `light`）⇒ 暗色基线仍需 `visual-test.yml`（已含暗色步骤）在 main 产出后入库
+- [x] 暗色基线：**19 张已由最终态同源运行入库**（落盘与收口见上方「暗色基线首次入库（批次 1 收口）」节）
 - [x] 完成后 `apps/desktop/src/components` 下 `var(--apple-` 命中 = 0，且 8 个目标文件整体残留 = 0（实测）
 
 ### 批次 3 实测结果（2026-09-29）
@@ -112,7 +119,7 @@
 ### Acceptance Criteria
 - [x] `.gen-video-modal-content` / `.pipeline-progress-modal-content` 的 `var(--apple-surface-primary, var(--surface, #fff))` → `var(--color-bg-card)`（2 处；实测**值等价** —— `--apple-surface-primary` 本就转发 `--color-bg-card`，`--surface` 亦指它，同时剔除双层陈旧 fallback）
 - [x] 改动不得使 `create-view.css` 越过 500 行硬线：实测 **493 行**（改动为同行替换，未增行）；`check-debt-budget` PASS
-- [ ] 弹窗基线（含暗色）定向重生成核对 → **待同源取证**（值等价预期无差异；暗色侧待批次 1 的暗色基线入库后并入核对）
+- [x] 弹窗基线（含暗色）定向重生成核对：**已取证**（本批次改动值等价；最终态运行浅 19/19 + 暗 19/19 通过）（值等价预期无差异；暗色侧待批次 1 的暗色基线入库后并入核对）
 
 ### 实测结果（2026-09-29）
 - 门禁计数 **339 → 337**；`frontend-consistency-baseline.json` 按「只降不升」下调为 337（他方键存活）
@@ -130,7 +137,7 @@
 ### Acceptance Criteria
 - [x] 先产出 43 个变量的「旧 → 新 → 值差异」清单并拍板圆角/字号取尺 → `history-page-token-map.md`（批次 0 产出）+ `decisions.md` D1（采纳 `tokens.css` 权威尺）
 - [x] 单文件单 PR，不与其它收敛混提（本 PR 仅 `history-page.css` + 基线 + 本文件）
-- [ ] 历史视图浅色 + 暗色基线定向重生成，逐张肉眼核对 → **待同源取证**（浅色走本 PR 的 QG Visual artifact；暗色需 `visual-test.yml`，本 PR 的 QG Visual 只跑浅色）
+- [x] 历史视图浅色 + 暗色基线定向重生成：**已取证**（浅色逐字节未变；暗色已入库；最终态运行浅 19/19 + 暗 19/19 通过）（浅色走本 PR 的 QG Visual artifact；暗色需 `visual-test.yml`，本 PR 的 QG Visual 只跑浅色）
 - [x] `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` 全绿；**另有 `check-css-var-defined` PASS**（本次最严的一条：43 个映射目标全部有定义，间接验证批次 2 补的槽齐备）
 
 ### 批次 5 实测结果（2026-09-29）
@@ -166,7 +173,8 @@
 - [x] 删除 `apple-design-tokens.css` 与 `tokens.css` 的 17 个 `--color-apple-*` 槽位（别名层 93 行整文件删除；槽位区块替换为退役说明注释）
 - [x] 移除 alias 层导入（**实测唯一导入方是 `cohere-design-system.css:1`** 的 `@import`，已移除；`main.js` 无导入）
 - [x] 新增静态门禁：`var(--apple-` 命中数必须为 0，非 0 则 CI 失败并列出行号（基线已归零 `appleAlias: 0`；并新增**「钉 0」回归锁**断言基线值恒为 0，防止被静默抬高）
-- [ ] 全量基线（浅 + 暗）跑一遍通过 → **待同源取证**（浅色走本批次 PR 的 artifact；暗色需 `visual-test.yml`）
+- [x] 全量基线（浅 + 暗）跑一遍通过：**已取证**。暗色基线入库（#2709，19 张）后的首次 `visual-test.yml` 运行（run `36636378488` @ `2452b4a4`）实测
+  `像素结果[light]: 19/19 通过，0 失败` + `像素结果[dark]: 19/19 通过，0 失败` ⇒ 该步骤**已由 staged 转阻断**（`if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`）
 - [x] `cohere-design-system.css` 的 `--ink` / `--muted` 收敛为对 `tokens.css` 的纯转发（暗色 `--ink`: #e8e8ed → `var(--color-text-primary)`，**值等价**；`--muted`: #88889a → `var(--color-text-secondary)`(#b4b2c6)，**变亮 = 暗色可读性提升**，属披露项）。`--surface` 浅色块本就纯转发、暗色块无独立值，无需改动
 
 ### 批次 6 实测结果（2026-09-29）
@@ -184,7 +192,7 @@
 **Risk**: Low
 
 ### Acceptance Criteria
-- [ ] `01-docs/CHANGELOG.md` 记为 BREAKING（视觉）
-- [ ] `docs/desktop-ui-layout-spec.md` 与 `docs/frontend-interaction-spec.md` 中的令牌指引改指权威令牌，删除 `--apple-*` 示例
-- [ ] `desktop-ui-consistency` spec 归档本 change 的 delta
-- [ ] `.quality-gates.md` 记录每片的基线重生成证据
+- [x] CHANGELOG 记为 BREAKING（视觉）——**实际文件是仓库根 `CHANGELOG.md`**（`01-docs/CHANGELOG.md` 非本仓发布日志；原 AC 路径有误），条目见 PR #2696
+- [x] 两份 spec 的令牌指引：`docs/frontend-interaction-spec.md` 的映射表已加完成状态说明且「主色」行标注 `--apple-*` 已退役（PR #2696）；`docs/desktop-ui-layout-spec.md` 实测 **0 处** apple 引用，无需改动
+- [x] `desktop-ui-consistency` spec 归档本 change 的 delta（**已归档**为 `2026-09-30-ui-apple-token-retirement`；delta 并入 `openspec/specs/desktop-ui-consistency/spec.md`：+1 新增、~1 修改）
+- [x] `.quality-gates.md` 记录每片的基线重生成证据（批次 0/1/2/3/4/5 与终局批次 6 + 暗色基线入库，均已留痕）
