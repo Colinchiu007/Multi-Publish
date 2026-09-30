@@ -43,6 +43,11 @@ test('CI_IGNORED_PATHS 清单内容被钉死（与 push paths-ignore 同源同�
     '.hermes/**',
     '.agents/**',
     'openspec/**',
+    // 欠账账本：它是「门禁的数据」，不是运行时代码。前提见下方
+    // 「进白名单的路径，它自己的门禁必须在 changes job 里无条件跑」那条锁 ——
+    // 没有那条前提，把任何路径放进这份名单都会连带短路掉它自己的检查，
+    // 因为 static-gates 整个 job 被 docs-only != 'true' 门控。
+    'scripts/gate-record-debt-ledger.json',
   ])
 })
 
@@ -120,6 +125,47 @@ test('`*.md` 只匹配根目录：子目录 .md 不命中（除非有显式 dir/
   assert.strictEqual(classifier.isDocsOnly(['scripts/foo.md']), false)
   // 根目录 .md 命中
   assert.strictEqual(classifier.isDocsOnly(['README.md']), true)
+})
+
+// ---------------------------------------------------------------------------
+// 回填/销账型 PR 必须能走 docs-only（否则每个销账 PR 都吃一轮全量重型 job）
+// ---------------------------------------------------------------------------
+
+test('回填 + 销账型 PR（置顶文档 + 账本 JSON）=> true', () => {
+  assert.strictEqual(
+    classifier.isDocsOnly(['.quality-gates.md', 'CHANGELOG.md', 'scripts/gate-record-debt-ledger.json']),
+    true,
+  )
+})
+
+test('账本 JSON 进白名单不得顺带放过 scripts/ 下的代码', () => {
+  // 只放开那一个精确路径，不给目录级豁免
+  assert.strictEqual(classifier.isDocsOnly(['scripts/gate-record-debt-ledger.js']), false)
+  assert.strictEqual(classifier.isDocsOnly(['scripts/check-gate-record-debt.js']), false)
+  assert.strictEqual(classifier.isDocsOnly(['scripts/gate-record-debt-ledger.json.bak']), false)
+  assert.ok(!classifier.CI_IGNORED_PATHS.includes('scripts/**'), 'scripts/** 不得进白名单')
+})
+
+// ---------------------------------------------------------------------------
+// 白名单的前提锁：进名单的路径，它自己的门禁必须在**无条件执行**的 changes job 里跑
+// ---------------------------------------------------------------------------
+
+test('账本 JSON 在名单内 => 它的门禁必须接线进 changes job，且在非 PR 早退之前', () => {
+  assert.ok(
+    classifier.CI_IGNORED_PATHS.includes('scripts/gate-record-debt-ledger.json'),
+    '前提变了：账本不在白名单时这条锁不适用，应连同白名单一起重新评估',
+  )
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8')
+  const job = wf.slice(wf.indexOf('\n  changes:'), wf.indexOf('\n  static-gates:'))
+  assert.ok(job.length > 0, '未取到 changes job 正文')
+  const earlyExit = job.indexOf('exit 0')
+  assert.ok(earlyExit > 0, 'changes job 的非 PR 早退语句不见了 —— 锁的位置判据失效')
+  for (const cmd of ['node scripts/check-gate-record-debt.js', 'node --test scripts/check-gate-record-debt.test.js']) {
+    const at = job.indexOf(cmd)
+    assert.ok(at >= 0, `账本门禁未接线进 changes job：缺 ${cmd} ⇒ 纯文档 PR 会短路 static-gates，从此没人校验账本`)
+    assert.ok(at < earlyExit, `${cmd} 必须在非 PR 早退之前，否则 main push 那一档不再校验账本`)
+  }
 })
 
 // ---------------------------------------------------------------------------

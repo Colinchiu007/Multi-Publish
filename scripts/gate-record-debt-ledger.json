@@ -1,4 +1,9 @@
 {
+  "本次执行记录：账本 JSON 进 docs-only 白名单——同时把它的门禁搬进不被短路的 changes job（机制加固，docs-only-gate-ledger，2026-09-30）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。",
+    "status": "PENDING",
+    "line": 17
+  },
   "本次执行记录：回填 #2626 / #2656 / #2687 三条执行记录（gate-records-backfill，2026-09-30）【docs-only】": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后必须删除本条，否则报陈旧登记。取证口径沿用同批：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin gate-records-backfill 返回 0 行证远端分支已删。"
   },
