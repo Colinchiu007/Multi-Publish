@@ -8,14 +8,25 @@
 const _path = require('path')
 
 /**
+ * 登录会话的分区**目录名**（不含 `persist:` 前缀）。
+ * 单一来源：`openLogin` 的 accountId 形如 `auth-{platform}-{ts}`，拼出来的目录名因此
+ * 是 `auth-auth-{platform}-{ts}` 这个双前缀怪形状——`auth-partition.findAuthPartitionDir`
+ * 与 `auth-partition-reclaim` 都按这个名字识别/回收，禁止再抄第二份。
+ * @param {string} accountId
+ * @returns {string}
+ */
+function authPartitionName(accountId) {
+  return `auth-${accountId}`
+}
+
+/**
  * 创建隔离的 Session 分区
  * @param {string} accountId - 账号 ID
  * @param {{ fromPartition: Function }} sessionModule
  * @returns {import("electron").Session}
  */
 function createSession(accountId, sessionModule) {
-  const partition = `persist:auth-${accountId}`
-  return sessionModule.fromPartition(partition, { cache: true })
+  return sessionModule.fromPartition(`persist:${authPartitionName(accountId)}`, { cache: true })
 }
 
 /**
@@ -197,5 +208,5 @@ function createAuthView(accountId, preloadPath, sessionInstance) {
   })
 }
 
-module.exports = { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView }
+module.exports = { authPartitionName, createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView }
 
