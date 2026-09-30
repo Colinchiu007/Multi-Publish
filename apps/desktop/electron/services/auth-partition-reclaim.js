@@ -175,7 +175,7 @@ function reclaimStaleAuthPartitions (opts) {
     try { realRoot = fsx.realpathSync(root) } catch (_e) { /* 无 realpath 时沿用原根 */ }
     for (const name of plan.victims) {
       const target = path.join(root, name)
-      let realTarget = target
+      let realTarget
       try { realTarget = fsx.realpathSync(target) } catch (_e) { realTarget = target }
       if (path.dirname(realTarget) !== realRoot || path.basename(realTarget) !== name) {
         summary.errors += 1
