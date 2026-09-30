@@ -7,6 +7,7 @@ __enableElectronMock()
 
 let AuthViewManager
 let base
+let reclaimCjs
 
 beforeEach(async () => {
   vi.useFakeTimers()
@@ -19,6 +20,8 @@ beforeEach(async () => {
   __electronMock.app.getPath = vi.fn(() => base)
   const module = await import('./auth-view-manager.js')
   AuthViewManager = module.default || module
+  // 登记表是模块级状态：断言它必须用生产真正拿到的那一份实例（CJS require）
+  reclaimCjs = require('./auth-partition-reclaim.js')
 })
 
 afterEach(() => {
@@ -172,50 +175,83 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
     expect(result.valid).toBe(false)
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
     expect(listed().filter(n => n.startsWith('silent-auth-zhihu-')).length).toBe(1)
+    // 交给 fromPartition 的名字必须同步登记：同一轮里若发生回收，未登记的目录会被 unlink，
+    // 而那正是 Chromium 仍持有的存储目录。
+    const persistName = String(__electronMock.session.fromPartition.mock.calls.slice(-1)[0][0])
+    expect(persistName.startsWith('persist:silent-auth-')).toBe(true)
+    expect(reclaimCjs.livePartitionNames()).toContain(persistName.slice('persist:'.length))
   })
 })
 
 describe('auth-partition-reclaim：登录会话级动作', () => {
-  let reclaimMod
-  let authPartitionName
-  beforeEach(async () => {
-    reclaimMod = await import('./auth-partition-reclaim.js')
-    authPartitionName = (await import('./auth-view-session.js')).authPartitionName
-  })
+  // reclaimMod 与生产同实例（外层 beforeEach 的 CJS require），否则登记表断言会假失败
+  const reclaimMod = () => reclaimCjs
 
   it('captured=true 时不清存储，但仍调度目录回收', () => {
     const log = { warn: vi.fn(), info: vi.fn() }
     const session = { clearStorageData: vi.fn(), clearCache: vi.fn() }
-    reclaimMod.reclaimLoginSession({ accountId: 'auth-x-1', session, captured: true, log })
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-1', session, captured: true, log })
     expect(session.clearStorageData).not.toHaveBeenCalled()
-    expect(reclaimMod.partitionNameOf('auth-x-1')).toBe('auth-auth-x-1')
+    expect(reclaimMod().partitionNameOf('auth-x-1')).toBe('auth-auth-x-1')
   })
 
   it('captured 缺省视为未取证 ⇒ 清存储', () => {
     const session = { clearStorageData: vi.fn().mockResolvedValue(undefined), clearCache: vi.fn().mockResolvedValue(undefined) }
-    reclaimMod.reclaimLoginSession({ accountId: 'auth-x-2', session })
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-x-2', session })
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
   })
 
   it('已标记取证的分区名不再被清（跨会话不串）', () => {
-    reclaimMod.markCaptured('auth-y-1')
+    reclaimMod().markCaptured('auth-y-1')
     const session = { clearStorageData: vi.fn().mockResolvedValue(undefined), clearCache: vi.fn().mockResolvedValue(undefined) }
-    reclaimMod.reclaimLoginSession({ accountId: 'auth-y-1', session })
+    reclaimMod().reclaimLoginSession({ accountId: 'auth-y-1', session })
     expect(session.clearStorageData).not.toHaveBeenCalled()
   })
 
   it('缺 accountId 时如实留痕，不静默当成「没有要回收的」', () => {
     const log = { warn: vi.fn(), info: vi.fn() }
-    expect(reclaimMod.partitionNameOf(null)).toBe(null)
-    reclaimMod.reclaimLoginSession({ accountId: null, session: null, log })
+    expect(reclaimMod().partitionNameOf(null)).toBe(null)
+    reclaimMod().reclaimLoginSession({ accountId: null, session: null, log })
     expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('no partition'))
   })
 
-  it('分区名单一来源：回收端与 createSession 用同一个实现', async () => {
+  it('分区名单一来源：createSession 与回收端用同一个名字', async () => {
     const sessionMod = await import('./auth-view-session.js')
     let seen = null
     sessionMod.createSession('auth-wechat_mp-123', { fromPartition: function (p) { seen = p; return {} } })
-    expect(seen).toBe('persist:' + reclaimMod.partitionNameOf('auth-wechat_mp-123'))
-    expect(reclaimMod.partitionNameOf('auth-wechat_mp-123')).toBe(authPartitionName('auth-wechat_mp-123'))
+    expect(seen).toBe('persist:' + reclaimMod().partitionNameOf('auth-wechat_mp-123'))
+    expect(reclaimMod().partitionNameOf('auth-wechat_mp-123')).toBe('auth-auth-wechat_mp-123')
+  })
+
+  it('createSession 造的分区进入登记表，非末位也不得被删（Session 进程内不销毁）', () => {
+    const sessionMod = require('./auth-view-session.js')
+    mkPartitionDirs(['auth-auth-w-1', 'auth-auth-w-2', 'auth-auth-w-3'])
+    // 模拟本轮刚创建的正是最旧那一份（批量登录并发 / 读侧兜底都会造成这种形状）
+    sessionMod.createSession('auth-w-1', { fromPartition: () => ({}) })
+    expect(reclaimCjs.livePartitionNames()).toContain('auth-auth-w-1')
+    const summary = reclaimCjs.reclaimStaleAuthPartitions({ userDataPath: base })
+    expect(summary.removed).toEqual(['auth-auth-w-2'])
+    const root = path.join(base, 'session', 'Partitions')
+    expect(fs.existsSync(path.join(root, 'auth-auth-w-1'))).toBe(true)
+    expect(fs.existsSync(path.join(root, 'auth-auth-w-3'))).toBe(true)
+  })
+
+  it('发布兜底只读过的分区也必须登记（read 会实例化 Session）', async () => {
+    const authPartition = require('./auth-partition.js')
+    mkPartitionDirs(['auth-auth-zhihu-1'])
+    __electronMock.session.fromPartition = vi.fn(() => ({ cookies: { get: vi.fn().mockResolvedValue([]) } }))
+    await authPartition.collectAuthPartitionCookies('zhihu', null)
+    expect(reclaimCjs.livePartitionNames()).toContain('auth-auth-zhihu-1')
+    const summary = reclaimCjs.reclaimStaleAuthPartitions({ userDataPath: base })
+    expect(summary.removed).toEqual([])
+    expect(fs.existsSync(path.join(base, 'session', 'Partitions', 'auth-auth-zhihu-1'))).toBe(true)
+  })
+
+  it('分区名单一来源：createSession 与回收端用同一个名字', () => {
+    const sessionMod = require('./auth-view-session.js')
+    let seen = null
+    sessionMod.createSession('auth-wechat_mp-123', { fromPartition: function (p) { seen = p; return {} } })
+    expect(seen).toBe('persist:' + reclaimMod().partitionNameOf('auth-wechat_mp-123'))
+    expect(reclaimMod().partitionNameOf('auth-wechat_mp-123')).toBe('auth-auth-wechat_mp-123')
   })
 })

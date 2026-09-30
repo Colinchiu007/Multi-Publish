@@ -25,7 +25,7 @@ const { attachCdpDetection } = require('./auth-view-cdp')
 // 会话级网络诊断：iframe 内的二维码请求失败不会触发外层 webContents 的 did-fail-load，
 // 不挂它就等于对「二维码刷很久」完全无感知
 const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel } = require('./login-network-diagnostics')
-const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView, authPartitionName } = require('./auth-view-session')
+const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
 const authReclaim = require('./auth-partition-reclaim')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
@@ -333,7 +333,7 @@ class AuthViewManager {
 
       const accountId = `auth-${platform}-${Date.now()}`
       // #2701：开局先回收上一轮遗留的临时分区——用户开完登录页直接退出应用时 close() 不会发生
-      authReclaim.scheduleReclaim({ activePartitionNames: [authPartitionName(accountId)] })
+      authReclaim.scheduleReclaim({ activePartitionNames: [authReclaim.partitionNameOf(accountId)] })
       this.currentPlatform = platform
       this.currentAccountId = accountId
       this._resolveLogin = resolve
@@ -628,11 +628,14 @@ class AuthViewManager {
     const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
     if (!loginUrl) return { valid: false, accountName: null }
 
+    // 目录名先算出来：既给 fromPartition，也用于登记 liveness（persist Session 在进程内不销毁）
+    const silentPartitionDir = `silent-auth-${platform}-${Date.now()}`
+    authReclaim.noteLivePartition(silentPartitionDir)
     const win = new BrowserWindow({
       show: false,
       width: 1024, height: 768,
       webPreferences: {
-        session: session.fromPartition(`persist:silent-auth-${platform}-${Date.now()}`, { cache: true }),
+        session: session.fromPartition(`persist:${silentPartitionDir}`, { cache: true }),
         contextIsolation: true, nodeIntegration: false, sandbox: true,
         backgroundThrottling: false, // 该窗全程 show:false，隐藏页会被降频定时器并停掉 rAF
       },

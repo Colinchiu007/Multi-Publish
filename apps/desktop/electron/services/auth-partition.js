@@ -20,6 +20,8 @@ const path = require('path')
 const { session, app } = require('electron')
 const log = require('./logger')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
+// 只读兜底也会实例化 Session ⇒ 必须向回收端登记 liveness，否则该目录会被后续回收 unlink
+const authReclaim = require('./auth-partition-reclaim')
 
 /**
  * 在 userData 的 Partitions 目录下定位该账号最新的 auth 分区名。
@@ -80,6 +82,9 @@ async function collectAuthPartitionCookies (platform, accountId) {
       log.warn('AuthPartition', '[' + platform + '] no auth partition found for accountId=' + (accountId || '(none)'))
       return empty
     }
+    // 「只读一下」同样会实例化 Session 且在进程内不销毁 ⇒ 先登记再 fromPartition，
+    // 否则随后的目录回收可能 unlink 正被 Chromium 持有的存储目录（#2701）。
+    authReclaim.noteLivePartition(partitionName)
     const authSession = session.fromPartition('persist:' + partitionName)
     const cookies = await authSession.cookies.get({})
     /** @type {Map<string, string>} */

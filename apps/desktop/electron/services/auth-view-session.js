@@ -6,27 +6,25 @@
  */
 
 const _path = require('path')
-
-/**
- * 登录会话的分区**目录名**（不含 `persist:` 前缀）。
- * 单一来源：`openLogin` 的 accountId 形如 `auth-{platform}-{ts}`，拼出来的目录名因此
- * 是 `auth-auth-{platform}-{ts}` 这个双前缀怪形状——`auth-partition.findAuthPartitionDir`
- * 与 `auth-partition-reclaim` 都按这个名字识别/回收，禁止再抄第二份。
- * @param {string} accountId
- * @returns {string}
- */
-function authPartitionName(accountId) {
-  return `auth-${accountId}`
-}
+// 分区命名与「本进程已持有 Session」登记的唯一实现处（回收端据此跳过仍在使用的目录）
+const authReclaim = require('./auth-partition-reclaim')
 
 /**
  * 创建隔离的 Session 分区
+ *
+ * 目录名形如 `auth-auth-{platform}-{ts}`（accountId 已带 `auth-` 前缀 ⇒ 双前缀怪形状，
+ * `auth-partition.findAuthPartitionDir` 与回收判据都按这个名字识别）。
+ * 必须登记 liveness：Electron 的 persist Session 在进程内不销毁，未登记的分区
+ * 会被 `auth-partition-reclaim` 当作可删对象，等于对 Chromium 仍持有的目录做 unlink。
  * @param {string} accountId - 账号 ID
  * @param {{ fromPartition: Function }} sessionModule
  * @returns {import("electron").Session}
  */
 function createSession(accountId, sessionModule) {
-  return sessionModule.fromPartition(`persist:${authPartitionName(accountId)}`, { cache: true })
+  const dirName = authReclaim.partitionNameOf(accountId) || `auth-${accountId}`
+  const instance = sessionModule.fromPartition(`persist:${dirName}`, { cache: true })
+  authReclaim.noteLivePartition(dirName)
+  return instance
 }
 
 /**
@@ -208,5 +206,5 @@ function createAuthView(accountId, preloadPath, sessionInstance) {
   })
 }
 
-module.exports = { authPartitionName, createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView }
+module.exports = { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView }
 

@@ -27,7 +27,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { authPartitionName } = require('./auth-view-session')
+
 
 /**
  * 只回收「每次调用新建、名字里带时间戳」的分区前缀形态。
@@ -36,6 +36,36 @@ const { authPartitionName } = require('./auth-view-session')
  * `auth-<真实 accountId>` 不在此列——后者可能是在用的账号分区，误删即抹凭证。
  */
 const THROWAWAY_PREFIXES = ['auth-auth-', 'silent-auth-']
+
+/**
+ * 本进程**已打开过** Session 的分区名登记表。
+ *
+ * 为什么必须有：Electron 的 persist Session 由 browser process 缓存，`fromPartition` 之后
+ * 直到进程退出都不会销毁（webContents 关闭也不销毁）。回收若删掉这类分区的目录，
+ * 就是在对 Chromium 仍持有的存储目录做 unlink —— 表现为写回失败或状态损坏。
+ * 三个开 Session 的入口必须全部登记，漏一个就是沉默缺陷：
+ *   ① `auth-view-session.createSession`（openLogin + openSavedAccount）
+ *   ② `loginSilent` 的 `silent-auth-*`（不经 createSession）
+ *   ③ `auth-partition.collectAuthPartitionCookies` 的**只读** fromPartition
+ *      ——「我只是读一下」同样会实例化 Session。
+ * 所以回收的实际语义是「跨进程回收」：本轮新建的分区留给下一次启动/登录时删，
+ * 当场只清存储（wipeSessionStorage），不删目录。
+ * @type {Set<string>}
+ */
+const livePartitions = new Set()
+
+/**
+ * 登记「本进程已持有 Session」。必须在 fromPartition 之后立即调用。
+ * @param {string|null|undefined} partitionDirName 分区目录名（不含 persist:）
+ */
+function noteLivePartition (partitionDirName) {
+  if (typeof partitionDirName === 'string' && partitionDirName) livePartitions.add(partitionDirName)
+  return partitionDirName
+}
+
+function livePartitionNames () {
+  return Array.from(livePartitions)
+}
 
 /** 目录名尾部的 `-<数字时间戳>` 段；去掉它得到「同一组」。 */
 const TRAILING_TS_RE = /-\d+$/
@@ -135,7 +165,10 @@ function reclaimStaleAuthPartitions (opts) {
       try { if (fsx.statSync(path.join(root, name)).isDirectory()) dirs.push(name) } catch (_e) { /* 读不动就跳过该条目 */ }
     }
     summary.scanned += dirs.length
-    const plan = planReclaim(dirs, o.activePartitionNames)
+    // 本进程已持有 Session 的名字并入跳过集：调用方只知道自己那一个，读侧/并发侧的
+    // 实例化只有登记表知道（漏了就会 unlink Chromium 仍持有的目录）。
+    const activeNames = (o.activePartitionNames || []).concat(Array.from(livePartitions))
+    const plan = planReclaim(dirs, activeNames)
     summary.kept = summary.kept.concat(plan.kept)
     // 只删 root 的直接子项：realpath 收口，拒绝任何经 symlink/`..` 逃出 root 的目标。
     let realRoot = root
@@ -199,14 +232,14 @@ function wipeSessionStorage (partitionSession, log) {
 }
 
 /**
- * 登录会话分区目录名——与 `auth-view-session.createSession` 共用同一实现，
- * 两处各写一份必然漂移（回收端认错了名字就等于永不回收）。
+ * 登录会话分区目录名（不含 `persist:`）的唯一实现。`auth-view-session.createSession` 与本模块
+ * 的回收判据都走这里——两处各写一份必然漂移，回收端认错名字就等于永不回收。
  * @param {string|null|undefined} accountId
  * @returns {string|null}
  */
 function partitionNameOf (accountId) {
   if (typeof accountId !== 'string' || !accountId) return null
-  return authPartitionName(accountId)
+  return `auth-${accountId}`
 }
 
 /**
@@ -251,6 +284,8 @@ function reclaimLoginSession (opts) {
 module.exports = {
   THROWAWAY_PREFIXES,
   partitionNameOf,
+  noteLivePartition,
+  livePartitionNames,
   isThrowawayPartitionName,
   groupKeyOf,
   partitionRoots,
