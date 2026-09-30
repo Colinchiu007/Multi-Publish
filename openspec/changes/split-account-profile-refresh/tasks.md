@@ -30,7 +30,7 @@
 ## 4. QM-6 双模型外部评审
 
 - [x] 4.1 按 `~/.claude/.ccg/config.toml` 的 `[routing]` 取模型名（**不得**在文档里写死），后端 + 前端两路并行审查实现 diff
-      实测：`[routing.backend].primary=codex` 一路**已跑完并落盘** `.agent_context/review-backend.md`（8060 字节，含 1 Critical / 2 Warning / 3 Info）；`[routing.frontend].primary=claude` 一路**两次尝试均失败**——wrapper 报 `claude completed without agent_message output`，且两次直连 `claude -p` 探针 120s/180s 零输出超时（rc=124、bytes=0），未产生任何发现文件。⇒ QM-6 双模型**只达成一半**，不拿单模型冒充双模型
+      实测：`[routing.backend].primary=codex` 一路**已跑完并落盘** `openspec/changes/split-account-profile-refresh/review-backend.md`（8060 字节，含 1 Critical / 2 Warning / 3 Info）；`[routing.frontend].primary=claude` 一路**两次尝试均失败**——wrapper 报 `claude completed without agent_message output`，且两次直连 `claude -p` 探针 120s/180s 零输出超时（rc=124、bytes=0），未产生任何发现文件。⇒ QM-6 双模型**只达成一半**，不拿单模型冒充双模型
 - [x] 4.2 Critical 必须修复后才能合并；Warning 逐条处置并记录
       C1 已修（HTTP 快速路径读不到真源就不写）并补 2 条回归；W1 已补 HTTP 委托结构锁；W2（本条与台账不一致）已回填 3.4/5.1–5.3；I1（Scenario 实为 5 条）已按事实改计数；I2/I3 判为不改（探针已说明当前无绕过点、`body.length` 断言近乎恒真但锚点断言才是实质）。反证新增三条且全部实跑、红因精确命中：⑥ 摘掉 C1 早退 → 「真源 GET 失败 → 绝不发 PATCH」红；⑦ HTTP 委托改链 → 委托结构锁红；⑧ 摘掉 HTTP 分支真 guard → 「manual 命名不得被抓取结果覆盖」红
 
