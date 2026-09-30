@@ -44,7 +44,11 @@ const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigati
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
 
-const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou'])
+// 「严格平台」= 只认**发布产物查询**（而非 URL 变化/通用响应）判定成功。
+// 2026-09-30 追加 toutiao：头条发布后**不跳转**（URL 始终停在 /profile_v4/graphic/publish），
+// 默认 success_mode='url' 必然超时；参考产品同款做法是查**作品列表 API** 并检查
+// ArticleAttr.Status（"2"=已发布、"6"=审核中，均视为提交成功）。
+const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao'])
 
 function summarizePublishDiagnostics (records, artifact) {
   const source = Array.isArray(records) ? records : []
@@ -122,19 +126,27 @@ const platformsMixin = {
         let handled = false
         if (coverPath) {
           try {
+            // 封面区是延迟渲染的（实测首次查询 `.article-cover-add` 为 null、回退成 CLICKED_COVER
+            // 后点的是 radio group 容器 → 无 file input）。故先等上传钮出现再点。
+            const coverReady = await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
+            if (!coverReady) log.warn('RpaView', '[uploadCover] 封面区未在 12s 内出现，仍尝试点击')
             const entry = await win.webContents.executeJavaScript(
-              '(function(){var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}var cover=document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
+              // 2026-09-30 真机取证：封面「+」的真实元素是 **`.article-cover-add`**
+              // （位于 `.article-cover-images-wrap` 内，图标为 SVG 故无文本；
+              //  此前按 `innerText === "+"` 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
+              '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
+              + 'var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}'
+              + 'var cover=document.querySelector(\'.article-cover-images-wrap\')||document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
             )
             log.info('RpaView', '[uploadCover] entry=' + entry)
             await this._sleep(2000)
-            if (await this._waitForElement(win, 'input[type="file"]', 8000)) {
-              await this._setFileInput(win, coverPath)
-              await this._sleep(4000)
-              handled = true
-              log.info('RpaView', '[uploadCover] injected ' + String(coverPath).slice(-40))
-            } else {
-              log.warn('RpaView', '[uploadCover] 点击后未出现 file input')
-            }
+            // 2026-09-30 修正：旧实现用 `_setFileInput`（CDP 注入**首个** file input）后仅凭
+            // 返回值就置 handled=true，但真机验证封面区**始终没有缩略图**（img/bg-image 均空）
+            // ⇒ 页面未接受 ⇒ 「展示封面」必填校验拦下提交 ⇒ 作品 total_count=0。
+            // 改用头条专用上传：**逐个 file input 尝试 + 以「缩略图出现」为唯一判据**。
+            const coverResult = await this._uploadToutiaoCover(win, coverPath)
+            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0 || coverResult === 'ALREADY_HAS_COVER')
+            log.info('RpaView', '[uploadCover] toutiao result=' + coverResult)
           } catch (e) { log.warn('RpaView', '[uploadCover] ' + e.message) }
         }
         if (!handled) {
@@ -462,7 +474,10 @@ const platformsMixin = {
             log.info('RpaView', '[' + platform + '] publish click failure visibleActionCount=' + Number(visibleActionCount || 0))
           } catch (_) { /* ignore */ }
           if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
-          await this._sleep(1500)
+          // 2026-09-30 风控加固：publish 是**副作用字段**——每次重试都是一次真实的提交尝试，
+          // 原先固定 1.5s 间隔过于密集（实测头条曾连续失败 12 轮，用户明确提出风控风险）。
+          // 改用指数退避（5s → 10s → 20s，cap 45s），给平台留出响应与限流恢复窗口。
+          await this._sleep(retry.backoffMs('publish', { sideEffect: true }))
         }
       }
     }
@@ -826,6 +841,12 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         return await finish({ stage: 'URL fallback', url: url2 })
       }
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
+    // 2026-09-30 严格平台兜底（头条实测）：发布后**既不跳转也不给响应信号**，
+    // 上面所有分支都不会命中 ⇒ 判超时前主动查一次发布产物（作品列表 API，见 helpers）。
+    if (STRICT_PUBLISH_ID_PLATFORMS.has(platform) && typeof this._strictPublishFallback === 'function') {
+      const hit = await this._strictPublishFallback(win, platform, context, stopNetworkCapture)
+      if (hit) return hit
+    }
     const finalUrl = win.webContents.getURL() || ''
     const stoppedRequests = await stopNetworkCapture()
     // 诊断快照：超时前记录页面关键文本与可见弹窗，帮助区分"弹窗拦截/校验失败/静默成功"

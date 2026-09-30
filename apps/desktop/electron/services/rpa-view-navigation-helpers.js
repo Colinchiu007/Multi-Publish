@@ -312,9 +312,168 @@ const navigationHelpers = {
     return null
   },
 
+  // ========== 头条发布产物查询（2026-09-30，参考产品同款口径）==========
+  // 头条发布后**不跳转**（URL 恒为 /profile_v4/graphic/publish），故 success_mode='url' 必超时。
+  // 参考产品（参考产品）的做法是查**作品列表 API** 并检查 `ArticleAttr.Status`：
+  //   "2"=已发布  "6"=审核中（两者均视为「已提交成功」）  "4"=草稿  "3"=被拒
+  // 端点同样取自参考产品：`mp.toutiao.com/mp/agw/creator_center/list`（type=4 图文）。
+  // 判定要素：标题精确匹配 + 展示时间落在 [startedAt-10min, startedAt+30min] 窗口内。
+  async _findToutiaoArtifact(win, context) {
+    const title = String((context && context.title) || '').trim()
+    const startedAt = Number((context && context.publishedAt) || Date.now())
+    if (!title) return null
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const js = [
+          '(async function(){',
+          '  var title=' + JSON.stringify(title) + ';',
+          '  var start=' + JSON.stringify(startedAt) + ';',
+          '  var url="https://mp.toutiao.com/mp/agw/creator_center/list?type=4&status=0&size=20&mode=1&need_stat=true&total_end_cursor=0&end_cursor=0&start_cursor=0";',
+          '  try {',
+          '    var r=await fetch(url,{credentials:"include",headers:{Accept:"application/json, text/plain, */*"}});',
+          '    if(!r.ok)return null;',
+          '    var j=await r.json();',
+          '    var d=(j&&j.data)||{};',
+          // 2026-09-30 真机取证：该接口的**顶层**就是 contents（无 data 包裹）：
+          //   {"code":0,"contents":[...],"count":N,"total_count":N,...}
+          // 旧实现读 j.data.contents ⇒ 空数组不含此项 ⇒ 恒未命中。
+          '    var list=(j&&Array.isArray(j.contents)?j.contents:null)||d.contents||d.Contents||d.list||(Array.isArray(d)?d:[]);',
+          '    if(!Array.isArray(list))return null;',
+          '    for(var i=0;i<list.length;i++){',
+          '      var it=list[i]||{};var a=it.ArticleAttr||it.article_attr||it;',
+          '      var st=String(a.Status||a.status||"");',
+          '      var id=String(a.ItemId||a.item_id||a.group_id||it.item_id||"");',
+          '      var t=String(a.Title||a.title||it.title||"").trim();',
+          '      var show=Number(a.ShowTime||a.show_time||a.CreateTime||0);',
+          '      var showMs=show>1e12?show:show*1000;',
+          '      var inWin=!showMs||(showMs>=start-600000&&showMs<=start+1800000);',
+          '      if(id&&t===title&&inWin&&(st==="2"||st==="6")){',
+          '        return {postId:id,url:"https://www.toutiao.com/item/"+id+"/",status:st,statusText:st==="2"?"published":"inAudit"};',
+          '      }',
+          '    }',
+          '    return null;',
+          '  } catch(e){ return null }',
+          '})()',
+        ].join('\n')
+        const found = await win.webContents.executeJavaScript(js)
+        const postId = normalizePublishId(found && found.postId)
+        if (postId) {
+          log.info('RpaView', '[toutiao] artifact matched id=' + String(postId).slice(0, 40) + ' status=' + String((found && found.status) || ''))
+          return { ...found, postId, url: sanitizePublishResultUrl(found.url) }
+        }
+      } catch (e) {
+        log.warn('RpaView', '[toutiao] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
+      }
+      if (attempt < 2) await this._sleep(4000)
+    }
+    log.warn('RpaView', '[toutiao] artifact lookup 未命中（作品可能仍在审核队列或该 API 口径已变）')
+    return null
+  },
+
+  // ========== 头条封面上传（2026-09-30 真机实测）==========
+  // 实测事实：点 `.article-cover-add` 后页面出现 **2 个** `input[type=file]`；
+  // 用 CDP `DOM.setFileInputFiles` 注入**第一个**后，**封面区始终没有缩略图**
+  // （`img` 与 `background-image` 均为空）⇒ 页面（React 受控）未接受。
+  // 后果：「展示封面」必填校验拦下提交 ⇒ 作品列表 `total_count: 0`（第 41 轮取证）。
+  // 因此本方法**以「封面区出现缩略图」为唯一成功判据**，并逐个 input 尝试；
+  // 注入走**纯页面内 DataTransfer**（不依赖 CDP nodeId，便于按下标遍历）。
+  async _uploadToutiaoCover(win, filePath) {
+    // 2026-09-30 判据收紧：**只认 `img`**。此前把 `background-image !== 'none'` 也算"已有封面"，
+    // 而页面大量元素自带背景图/渐变 ⇒ 恒判 `ALREADY_HAS_COVER` 并**跳过注入**
+    // （实测 `[uploadCover] toutiao result=ALREADY_HAS_COVER`，而此时封面其实一直是空的）。
+    const THUMB_FN = 'function(){var w=document.querySelector(".article-cover-images-wrap");'
+      + 'return !!(w && w.querySelector("img"))}'
+    const readThumb = async () => {
+      try { return Boolean(await win.webContents.executeJavaScript('(' + THUMB_FN + ')()')) } catch (_) { return false }
+    }
+    if (await readThumb()) return 'ALREADY_HAS_COVER'
+    // 展开封面编辑区（渲染可能较慢，先等再点）
+    await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
+    try {
+      const entry = await win.webContents.executeJavaScript(
+        '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
+        + 'var w=document.querySelector(\'.article-cover-images-wrap\');if(w){w.click();return \'CLICKED_WRAP\'}return \'NO_ENTRY\'})()'
+      )
+      log.info('RpaView', '[toutiao cover] entry=' + entry)
+    } catch (e) { log.warn('RpaView', '[toutiao cover] entry: ' + e.message) }
+    await this._sleep(2500)
+
+    // 声明但不预赋初值：初值会被 try 内的真实取值覆盖，预赋初值会触发 no-useless-assignment
+    let b64
+    let fileName
+    let mimeType
+    try {
+      b64 = require('fs').readFileSync(filePath).toString('base64')
+      fileName = require('path').basename(filePath)
+      // `_guessMimeType` 是主文件（rpa-view-platforms.js）的模块级函数，本文件不可见，
+      // 故此处内联推断（封面只可能是这几种位图）。
+      mimeType = /\.jpe?g$/i.test(fileName) ? 'image/jpeg' : (/\.webp$/i.test(fileName) ? 'image/webp' : 'image/png')
+    } catch (e) {
+      log.warn('RpaView', '[toutiao cover] 读取封面失败: ' + e.message)
+      return 'READ_FAILED'
+    }
+
+    const total = await win.webContents.executeJavaScript('document.querySelectorAll(\'input[type=file]\').length').catch(() => 0)
+    log.info('RpaView', '[toutiao cover] file input 数量=' + total)
+    const attempts = Math.max(1, Number(total) || 1)
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const r = await win.webContents.executeJavaScript(
+          '(function(){var ins=document.querySelectorAll(\'input[type=file]\');var el=ins[' + i + '];'
+          + 'if(!el)return \'NO_INPUT_' + i + '\';'
+          + 'var b64=' + JSON.stringify(b64) + ';var bin=atob(b64);var n=bin.length;var bytes=new Uint8Array(n);'
+          + 'for(var k=0;k<n;k++)bytes[k]=bin.charCodeAt(k);'
+          + 'var f=new File([bytes],' + JSON.stringify(fileName) + ',{type:' + JSON.stringify(mimeType) + '});'
+          + 'var dt=new DataTransfer();dt.items.add(f);el.files=dt.files;'
+          + 'el.dispatchEvent(new Event(\'change\',{bubbles:true}));'
+          + 'el.dispatchEvent(new Event(\'input\',{bubbles:true}));'
+          + 'return \'INJECTED_' + i + '\'})()'
+        )
+        log.info('RpaView', '[toutiao cover] input#' + i + ' -> ' + r)
+      } catch (e) {
+        log.warn('RpaView', '[toutiao cover] input#' + i + ' 注入异常: ' + e.message)
+      }
+      await this._sleep(5000)
+      if (await readThumb()) {
+        log.info('RpaView', '[toutiao cover] 缩略图已出现（input#' + i + '）')
+        return 'OK_' + i
+      }
+    }
+    log.warn('RpaView', '[toutiao cover] 全部 ' + attempts + ' 个 input 注入后仍未出现缩略图')
+    return 'NO_THUMB'
+  },
+
+  // 严格平台兜底（2026-09-30 头条实测）：发布后**既不跳转也不返回响应信号**时，
+  // 在判超时前主动查一次发布产物。成功则返回可直接返回给上层的成功结果，否则 null。
+  // stopCapture 由调用方传入（网络捕获停止器是主文件局部闭包）。
+  async _strictPublishFallback(win, platform, context, stopCapture) {
+    try {
+      const artifact = await this._findPublishedArtifact(win, platform, context)
+      const postId = normalizePublishId(artifact && artifact.postId)
+      if (!postId) return null
+      this._emitProgress(platform, 'published!', 100)
+      let stopped = []
+      try { stopped = stopCapture ? await stopCapture() : [] } catch (_) { stopped = [] }
+      return {
+        success: true,
+        url: sanitizePublishResultUrl((artifact && artifact.url) || (win.webContents.getURL() || '')),
+        postId,
+        platform,
+        diagnostics: {
+          requests: Array.isArray(stopped) ? stopped.length : 0,
+          artifact: { postId: String(postId).slice(0, 60), status: (artifact && artifact.status) || null },
+        },
+      }
+    } catch (e) {
+      log.warn('RpaView', '[' + platform + '] strict artifact fallback: ' + e.message)
+      return null
+    }
+  },
+
   async _findPublishedArtifact(win, platform, context = {}) {
     if (platform === 'baijiahao') return await this._queryBaijiahaoArtifact(win, context)
     if (platform === 'kuaishou') return await this._findKuaishouArtifact(win, context)
+    if (platform === 'toutiao') return await this._findToutiaoArtifact(win, context)
     return null
   },
 }
