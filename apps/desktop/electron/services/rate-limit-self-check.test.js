@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-const { runSelfCheck, clampConcurrency } = require('./rate-limit-self-check')
+const { runSelfCheck, clampConcurrency, fifoVerdict } = require('./rate-limit-self-check')
 
 describe('rate-limit-self-check 参数与基础', () => {
   it('clampConcurrency 与 model-call-scheduler 一致', () => {
@@ -92,5 +92,55 @@ describe('rate-limit-self-check 真实 governor 行为', () => {
     expect(rejected).toHaveLength(4)
     expect(r.metrics.quota_exceeded_count).toBe(4)
     expect(completed.length + rejected.length).toBe(6)
+  })
+
+  // #2648：这条断言此前写作 `pass: true` 硬编码，且**全仓没有任何用例碰过它**
+  //（`grep -rn fifo apps/desktop/electron/` 只命中实现那一行），所以它恒真也没有任何东西会因此变红 ——
+  // 典型的装饰性门禁。三条一起补：① 纯判据的形态表（含乱序负控与"字段缺席"负控）；
+  // ② 接线证明（actual 必须来自真实 completion_order，而不是又一个新的字面量）；
+  // ③ 注入 429 后完成集合是子集，判据只能是"单调不减"而不是"等于 1..N"
+  //（#2626 在 Python 侧已经踩过同款误红，见 docs/parity-concurrency-measurement-noise.md）。
+  it('fifo 判据是纯函数：升序过、乱序红、字段缺席红（fail closed）', () => {
+    expect(fifoVerdict([1, 2, 3, 4]).pass).toBe(true)
+    expect(fifoVerdict([1, 2, 3, 4]).actual).toBe('1,2,3,4')
+    expect(fifoVerdict([7]).pass).toBe(true)
+    expect(fifoVerdict([1, 3]).pass).toBe(true)
+    // 乱序必须红——这是"硬编码 pass:true"唯一能抓住的形式
+    expect(fifoVerdict([2, 1, 3]).pass).toBe(false)
+    expect(fifoVerdict([1, 3, 2]).pass).toBe(false)
+    // 注入 429 后完成的是子集，顺序仍单调 ⇒ 必须绿（判据若写成"等于 1..N"会在这里误红）
+    expect(fifoVerdict([1, 3, 4]).pass).toBe(true)
+    // 字段缺席 = 契约破坏，不是"没数据"，必须 fail closed 而不是静默 true
+    expect(fifoVerdict(undefined).pass).toBe(false)
+    expect(fifoVerdict(null).pass).toBe(false)
+    expect(fifoVerdict(undefined).broken).toBe(true)
+    // 空数组 = 一个样本都没有 ⇒ 无从判定，记 vacuous 而非违规
+    const empty = fifoVerdict([])
+    expect(empty.pass).toBe(true)
+    expect(empty.vacuous).toBe(true)
+    expect(empty.broken).toBeFalsy()
+  })
+
+  it('fifo 断言真的由真实完成序驱动（接线证明，不是又一份字面量）', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true })
+    const r = await runSelfCheck({ rpm: 120, maxConcurrent: 1, requestCount: 4, requestDurationMs: 20 })
+    const byAssert = Object.fromEntries(r.assertions.map(a => [a.name, a]))
+    expect(byAssert.fifo).toBeDefined()
+    expect(byAssert.fifo.pass).toBe(true)
+    // actual 必须等于返回字段里的真实完成序；写回硬编码 "-" 或任何常量都会在这里红
+    expect(Array.isArray(r.completion_order)).toBe(true)
+    expect(byAssert.fifo.actual).toBe(r.completion_order.join(','))
+    expect(byAssert.fifo.actual).toBe('1,2,3,4')
+    expect(byAssert.fifo.expected).toContain('单调不减')
+  })
+
+  it('注入 429 时 fifo 仍绿，且完成集合是子集（不得要求 1..N）', async () => {
+    const r = await runSelfCheck({
+      rpm: 120, maxConcurrent: 1, requestCount: 4, requestDurationMs: 20, inject429At: 2, cooldownMs: 100,
+    })
+    const byAssert = Object.fromEntries(r.assertions.map(a => [a.name, a]))
+    expect(r.metrics.rate_limited_count).toBe(1)
+    expect(r.completion_order.includes(2)).toBe(false)
+    expect(byAssert.fifo.pass).toBe(true, '注入 429 使完成序号留洞，判据若是 1..N 会在这里误红')
   })
 })

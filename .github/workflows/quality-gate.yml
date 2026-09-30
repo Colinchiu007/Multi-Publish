@@ -156,6 +156,25 @@ jobs:
           node --test scripts/classify-docs-only.test.js
           node scripts/check-unwired-tests.js
 
+      # --- Gate 2c2: 执行记录存在性判据（change: enforce-gate-record-presence）---
+      # 拦的是「PR 合并时整篇没写执行记录」：既有 check-gate-record-debt 两条判据都以"记录存在"
+      # 为前提（一条看已存在的行是否收口、一条看最顶部那篇是否带行），对整篇缺席免疫 ——
+      # #2570 自己在「遗留」里写明了这点。实测窗口内 111/210 个 PR 没把记录落在可检查位置。
+      #
+      # 第一步 = advisory：判据打印 `MODE=advisory` 并恒退出 0。**转阻断的动作是删掉下面那行的
+      # `--mode=advisory`** —— 该标记行被 check-pr-exec-record.test.js 钉住（design D8），
+      # 所以这一步不会像 release-gate 的视觉项那样长期停在"人工核查"而无人察觉。
+      #
+      # env 显式声明 EXEC_BASE（run 正文里不写内联 ${{ }}）：push 事件它为空，脚本自己走
+      # "非 PR 事件不适用"分支，避免每个 push run 被一条不适用自己的判据判红。
+      - name: "Gate 2c2 - Execution-record presence (node --test / bash)"
+        shell: bash
+        env:
+          EXEC_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-pr-exec-record.test.js
+          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head=HEAD --mode=advisory
+
       # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
       # 分档依据：本机 pwsh 7.6 与 Windows PowerShell 5.1 各跑一遍 + **本步在 runner 上的首跑结果**。
       # 下面 6 条：**前 5 条已在 runner 的 pwsh 7 下实测 rc=0**（#2516 留痕），第 6 条

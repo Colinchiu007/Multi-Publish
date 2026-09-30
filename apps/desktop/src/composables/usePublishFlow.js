@@ -52,7 +52,11 @@ const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
 
 // 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
 // 无图时 handlePublish 自动生成封面兜底——AI 生图优先，cover:generate-ai 内建本地标题卡回退）
-const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin']
+// 2026-09-30 追加 toutiao：头条图文（=文章）的发布设置页「展示封面」是**必填项**（标签带 *），
+// 且页面**默认选中「单图」**并强制要求提供封面图（实测：只把 radio 改到「无封面」会被 React
+// 受控状态重置回「单图」，截图复核封面区始终为空）⇒ 不生成封面则发布被静默拦下
+// （症状：publish verification timeout，日志无 uploadCover entry 行即表示 coverPath 为 null）。
+const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']
 
 function isMarkdownContent(content) {
   return MARKDOWN_RE.test(content) || MARKDOWN_LINK_RE.test(content)

@@ -109,7 +109,12 @@ platforms:
     # 没有独立标题输入框，作品标题与描述共用 div#work-description-edit[contenteditable]
     # （placeholder=“作品描述不会写？试试智能文案”）；RPA 因此把标题+正文合并写进
     # 该编辑器（rpa-view-platforms._composeEditorCaption），长度上限即 max_content。
-    max_content: 1000
+    # 2026-09-30 修正：快手图文发布页实测计数器为 **x/500**（截图取证：921 字时表单
+    # 红字「作品描述超过字数限制」并阻断提交）。旧值 1000 会让合并文案（标题+正文）
+    # 远超平台上限而被静默拒绝，故对齐实况。
+    # 取 480 而非 500：实测截断到 500 时平台计数器显示 **505/500**（平台计数与
+    # 本仓按码点截断存在偏差，含换行/标题拼接等），留 20 字安全边距确保不越界。
+    max_content: 480
     has_api: true
     publishMode: api-then-dom   # W3 §5.4 快手 API 发布链入波（签名页未就绪/不支持时可降级 DOM）
     enabled: true
