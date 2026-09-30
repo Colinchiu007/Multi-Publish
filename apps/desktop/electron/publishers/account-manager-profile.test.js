@@ -273,9 +273,23 @@ describe('接线守卫：采集能力必须被真实入口调用（防装饰性�
 
   it('account-manager：登录态判定为有效的两处 DOM 出口都回填资料', () => {
     const src = read(modulePath)
-    const body = src.slice(src.indexOf('async function checkLoginStatus'), src.indexOf('async function extractAccountInfo'))
+    // 锚点必须"缺失即红"。旧写法拿 indexOf 的结果直接当 slice 的终点：一旦被切出去的函数
+    // 不在本文件里（返回 -1），slice(start, -1) 会把区间静默放大成「起点到文件末尾前 1 字符」,
+    // 守卫照样数到 2 次调用、照样绿——但它已经不再测量它声称的那段代码（装饰性门禁）。
+    const start = src.indexOf('async function checkLoginStatus')
+    expect(start, 'account-manager.js 必须定义 checkLoginStatus（守卫的区间起点）').toBeGreaterThanOrEqual(0)
+    // 终点用「该函数自己的顶层闭合括号」，与同文件里其它函数是否搬家无关（工作区是 CRLF、
+    // blob 是 LF，所以按 \r?\n 匹配，不能假定某一种行尾）
+    const tail = /\r?\n\}\r?\n/.exec(src.slice(start))
+    expect(tail, '必须能定位 checkLoginStatus 的顶层闭合括号（区间终点）').not.toBeNull()
+    const body = src.slice(start, start + tail.index)
+    // 区间真的只包住这一个函数：函数体必须有实质长度，且不得摸到文件末尾
+    expect(body.length, '区间应是 checkLoginStatus 函数体本身（不得退化成整份文件）').toBeLessThan(src.length - start)
+    expect(body.split('\n').length, '函数体区间过短说明锚点错位').toBeGreaterThan(60)
     const calls = body.match(/refreshProfileFromPage\(/g) || []
     expect(calls.length, 'checkLoginStatus 的 DOM valid 出口必须调用回填（发现 2 处）').toBeGreaterThanOrEqual(2)
+    const httpCalls = body.match(/refreshProfileFromHttpApi\(/g) || []
+    expect(httpCalls.length, 'checkLoginStatus 的 HTTP 有效出口必须调用回填（发现 2 处）').toBeGreaterThanOrEqual(2)
     expect(src).toContain('module.exports')
     expect(src).toMatch(/refreshProfileFromPage[\s\S]{0,200}module.exports|module\.exports[\s\S]{0,4000}refreshProfileFromPage/)
   })

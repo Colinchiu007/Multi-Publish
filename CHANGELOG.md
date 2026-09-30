@@ -1,3 +1,15 @@
+# [未发布] refactor(账号): 资料刷新簇从 account-manager 拆出独立模块（第二刀，销掉 T4.4）
+
+### 变更
+- 新增 `apps/desktop/electron/publishers/account-profile-refresh.js`（143 行）承载 `extractAccountInfo` / `extractAccountInfoFromWebContents` / `refreshProfileFromPage` / `refreshProfileFromHttpApi`；`account-manager.js` 从 **1168 行降到 1096 行**（−72），四个导出名与调用签名保持不变（IPC 合同面零变化）。
+- 新模块的两个依赖改为**调用点取属性**（`httpLoginChecker.*` / `accountNameWrite.*`）而不是 require 期解构，把「测试必须先装 spy、再清缓存、重新 require 消费方」那套顺序体操从根上去掉；`isSafePathSegment` 由调用点注入，缺失时在 `try` **之前**抛 TypeError，不得被本模块自己的 catch 吞成「永远不回填」这种无声缺陷。
+- 新增 `account-profile-refresh.test.js`（17 例）：四条纪律逐条 + 注入合同 + 成环锁 + 反向接线锁；`account-manager-profile.test.js` 的接线守卫改锚（区间终点取函数自己的顶层闭合括号，两个锚点都先断言存在）并新增 HTTP 出口计数。
+- 实测：6 个覆盖文件 **131 passed**（基线 5 个文件 114 passed；新模块 17 例，逐文件核对未减少）。
+
+### 为什么值得单列一条
+搬家最容易留下的不是崩溃而是**假绿**。本轮实测到一条新的装饰性门禁生成机制：结构锁用 `src.slice(src.indexOf(A), src.indexOf(B))` 在同一文件内切区间时，B 一旦被搬走，`indexOf` 返回 -1，而 `String.prototype.slice` 把负数终点解释成「从末尾倒数」——区间静默放大到接近整份文件，守卫照样数到 2 次调用、照样绿。
+必须说清楚的是：**本次搬家没有触发它**（保留了同名委托，锚点仍命中）。四种变异的内存模拟显示，删掉委托时旧守卫与新守卫都还绿，当下真正多抓到的是新增的 HTTP 出口计数（旧绿 / 新红）。所以这条加固是**预防性**的；把它写成「已避免事故」就是把没发生的灾难当论据。
+
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
 
 ### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现

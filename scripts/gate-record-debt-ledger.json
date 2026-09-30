@@ -149,5 +149,9 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
+  },
+  "2026-09-30 account-profile-refresh-split（资料刷新簇拆分，销 T4.4）": {
+    "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并与记录同 PR 登记，合并后回填并删除本条。",
+    "registered": "2026-09-30"
   }
 }
