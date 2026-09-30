@@ -141,6 +141,30 @@ describe('refreshProfileFromHttpApi：走模块对象，spy 必须拦得到', ()
     expect(fetch).toHaveBeenCalledWith('toutiao', [{ name: 'sid', value: 'v' }])
   })
 
+  // C1 回归（QM-6 后端评审抓到、本机独立探针复现）：读不到真源就无从判断 name_source，
+  // 此时写入等于用「没有证据」去覆盖用户显式命名 —— 必须一行都不写。
+  it('真源 GET 失败 → 绝不发 PATCH（与 DOM 路径同一口径）', async () => {
+    vi.spyOn(httpLoginChecker, 'fetchAccountInfoViaHttpApi').mockResolvedValue({
+      supported: true, nickname: '平台昵称', followers: 9, platformAccountId: 'u-1',
+    })
+    requestBackend.mockImplementation(async (m) => (m === 'GET' ? { code: 500 } : { code: 0 }))
+    expect(await mod.refreshProfileFromHttpApi('toutiao', 'acc-1', [], DEPS)).toBe(false)
+    expect(requestBackend.mock.calls.map(c => c[0])).toEqual(['GET'])
+  })
+
+  it('manual 命名不得被抓取结果覆盖（走真 guard，不用替身）', async () => {
+    accountNameWrite.guardProfilePatchBySource.mockRestore()
+    vi.spyOn(httpLoginChecker, 'fetchAccountInfoViaHttpApi').mockResolvedValue({
+      supported: true, nickname: '平台昵称', followers: 9, platformAccountId: 'u-1',
+    })
+    // 真实 buildProfilePatch 的产物只有 account_name；name_source 是 guard 在「可覆盖」分支上才补的
+    buildPatch.mockImplementation(() => ({ account_name: '平台昵称' }))
+    requestBackend.mockImplementation(async (m) => (m === 'GET'
+      ? { code: 0, data: { account_name: '我自己起的名字', name_source: 'manual' } }
+      : { code: 0 }))
+    expect(await mod.refreshProfileFromHttpApi('toutiao', 'acc-1', [], DEPS)).toBe(false)
+    expect(requestBackend.mock.calls.map(c => c[0])).toEqual(['GET'])
+  })
   it('平台不支持资料接口 → false，且完全不碰后端', async () => {
     vi.spyOn(httpLoginChecker, 'fetchAccountInfoViaHttpApi').mockResolvedValue({ supported: false })
     expect(await mod.refreshProfileFromHttpApi('toutiao', 'acc-1', [], DEPS)).toBe(false)
@@ -169,6 +193,8 @@ describe('接线与成环锁（搬家后才成立，防实现被抄回）', () =
       expect(amCode, n + ' 必须仍是 account-manager 的导出名').toContain('  ' + n + ',')
     }
     expect(am).toContain('profileRefresh.refreshProfileFromPage(page, platform, accountId, { isSafePathSegment })')
+    // HTTP 快速路径同样要有委托结构锁：只锁 DOM 那条时，把 HTTP 正文整段抄回 account-manager 不会变红
+    expect(amCode).toContain('profileRefresh.refreshProfileFromHttpApi(platform, accountId, cookies, { isSafePathSegment })')
   })
 
   it('实现不得被抄回 account-manager：采集调用与真源 PATCH 都只许住在新模块', () => {

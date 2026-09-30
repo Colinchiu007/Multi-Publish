@@ -4,8 +4,10 @@
 - 新增 `apps/desktop/electron/publishers/account-profile-refresh.js`（143 行）承载 `extractAccountInfo` / `extractAccountInfoFromWebContents` / `refreshProfileFromPage` / `refreshProfileFromHttpApi`；`account-manager.js` 从 **1168 行降到 1096 行**（−72），四个导出名与调用签名保持不变（IPC 合同面零变化）。
 - 新模块的两个依赖改为**调用点取属性**（`httpLoginChecker.*` / `accountNameWrite.*`）而不是 require 期解构，把「测试必须先装 spy、再清缓存、重新 require 消费方」那套顺序体操从根上去掉；`isSafePathSegment` 由调用点注入，缺失时在 `try` **之前**抛 TypeError，不得被本模块自己的 catch 吞成「永远不回填」这种无声缺陷。
 - 新增 `account-profile-refresh.test.js`（17 例）：四条纪律逐条 + 注入合同 + 成环锁 + 反向接线锁；`account-manager-profile.test.js` 的接线守卫改锚（区间终点取函数自己的顶层闭合括号，两个锚点都先断言存在）并新增 HTTP 出口计数。
-- 实测：6 个覆盖文件 **131 passed**（基线 5 个文件 114 passed；新模块 17 例，逐文件核对未减少）。
-
+- **行为修正（QM-6 后端评审抓到、本机探针独立复现，不是纯搬迁）**：HTTP 快速路径原先在真源 `GET` 失败/`code!==0`/无 data 时把当前值降级成 `null` 继续 PATCH，
+  而 `guardProfilePatchBySource` 在 `current=null` 分支会无条件把 `name_source` 标成 `auto` —— 等于用「取不到证据」去覆盖用户显式命名的账号名。
+  现与 DOM 路径同口径：读不到真源就一行都不写，并留 warn。该缺陷在拆分前的 `account-manager.js` 同样存在（本次只是把它从藏处搬到亮处）。
+- 实测：6 个覆盖文件 **133 passed**（基线 5 文件 114 passed；新模块 19 例，含 C1 的两条回归）。
 ### 为什么值得单列一条
 搬家最容易留下的不是崩溃而是**假绿**。本轮实测到一条新的装饰性门禁生成机制：结构锁用 `src.slice(src.indexOf(A), src.indexOf(B))` 在同一文件内切区间时，B 一旦被搬走，`indexOf` 返回 -1，而 `String.prototype.slice` 把负数终点解释成「从末尾倒数」——区间静默放大到接近整份文件，守卫照样数到 2 次调用、照样绿。
 必须说清楚的是：**本次搬家没有触发它**（保留了同名委托，锚点仍命中）。四种变异的内存模拟显示，删掉委托时旧守卫与新守卫都还绿，当下真正多抓到的是新增的 HTTP 出口计数（旧绿 / 新红）。所以这条加固是**预防性**的；把它写成「已避免事故」就是把没发生的灾难当论据。

@@ -18,7 +18,10 @@
 #### Scenario: 公开面与签名保持
 
 - **WHEN** 既有调用方（`checkLoginStatus` 的两处 DOM 有效出口、两处 HTTP 快速路径、`tests/account-manager-extract-info.test.js`）以原签名调用 `extractAccountInfo(page, platform)`、`refreshProfileFromPage(page, platform, accountId)`、`refreshProfileFromHttpApi(platform, accountId, cookies)`
-- **THEN** 行为与拆分前逐字一致，包括：资料回填失败只记 warn 并返回 `false`（**绝不**影响登录态判定）、`accountId`/`platform` 非法时不发起任何后端请求、真源 GET 失败或 `code !== 0` 时不发起 PATCH、`buildProfilePatch` 无命中字段时不发起 PATCH、`name_source=manual` 的昵称不被采集结果覆盖
+- **THEN** 除一条有意的行为修正外，行为与拆分前逐字一致：资料回填失败只记 warn 并返回 `false`（**绝不**影响登录态判定）、`accountId`/`platform` 非法时不发起任何后端请求、真源 GET 失败或 `code !== 0` 时不发起 PATCH、`buildProfilePatch` 无命中字段时不发起 PATCH、`name_source=manual` 的昵称不被采集结果覆盖。
+- **AND** 唯一被刻意改掉的分支是 HTTP 快速路径的真源 `GET` 失败处理：拆分前它把当前值降级为 `null` 后继续 PATCH，而 `guardProfilePatchBySource(patch, null)`
+  会无条件把 `name_source` 标成 `auto`，等于用「取不到证据」覆盖用户显式命名（该缺陷在拆分前的 `account-manager.js` 同样存在，非本刀引入）；
+  本刀将其改为与 DOM 路径同口径——读不到真源即不写并留 warn（QM-6 后端评审抓到、本机探针独立复现）。
 
 #### Scenario: 接线守卫的区间必须钉在函数体本身，且锚点缺失即红
 

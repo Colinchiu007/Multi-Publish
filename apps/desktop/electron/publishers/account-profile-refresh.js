@@ -113,8 +113,15 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies, deps) {
     if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
     const info = await httpLoginChecker.fetchAccountInfoViaHttpApi(platform, cookies)
     if (!info || !info.supported) return false
+    // 读不到真源就无法判断 name_source，此时任何写入都可能覆盖用户显式命名 —— 一律不写。
+    // （此前该分支把 current 降级成 null 继续 PATCH：guard 在 current=null 时无条件把
+    //   name_source 标成 auto，等于用「取不到证据」去覆盖 manual 命名。）
     const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
-    const curData = current && current.code === 0 && current.data ? current.data : null
+    if (!current || current.code !== 0 || !current.data) {
+      log.warn('AccountManager', 'refreshProfileFromHttpApi: 真源读取失败，跳过回填 ' + platform + ':' + accountId + ' code=' + (current && current.code))
+      return false
+    }
+    const curData = current.data
     const patch = profileUtils.buildProfilePatch(
       { nickName: info.nickname, followers: info.followers, platformAccountId: info.platformAccountId },
       curData
