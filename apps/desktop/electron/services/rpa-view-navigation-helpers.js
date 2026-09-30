@@ -334,7 +334,10 @@ const navigationHelpers = {
           '    if(!r.ok)return null;',
           '    var j=await r.json();',
           '    var d=(j&&j.data)||{};',
-          '    var list=d.contents||d.Contents||d.list||d.data||[];',
+          // 2026-09-30 真机取证：该接口的**顶层**就是 contents（无 data 包裹）：
+          //   {"code":0,"contents":[...],"count":N,"total_count":N,...}
+          // 旧实现读 j.data.contents ⇒ 空数组不含此项 ⇒ 恒未命中。
+          '    var list=(j&&Array.isArray(j.contents)?j.contents:null)||d.contents||d.Contents||d.list||(Array.isArray(d)?d:[]);',
           '    if(!Array.isArray(list))return null;',
           '    for(var i=0;i<list.length;i++){',
           '      var it=list[i]||{};var a=it.ArticleAttr||it.article_attr||it;',
