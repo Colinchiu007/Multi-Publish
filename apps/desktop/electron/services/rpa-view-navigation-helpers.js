@@ -396,9 +396,10 @@ const navigationHelpers = {
     } catch (e) { log.warn('RpaView', '[toutiao cover] entry: ' + e.message) }
     await this._sleep(2500)
 
-    let b64 = ''
-    let fileName = 'cover.png'
-    let mimeType = 'image/png'
+    // 声明但不预赋初值：初值会被 try 内的真实取值覆盖，预赋初值会触发 no-useless-assignment
+    let b64
+    let fileName
+    let mimeType
     try {
       b64 = require('fs').readFileSync(filePath).toString('base64')
       fileName = require('path').basename(filePath)
