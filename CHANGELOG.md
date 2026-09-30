@@ -12,6 +12,33 @@
 搬家最容易留下的不是崩溃而是**假绿**。本轮实测到一条新的装饰性门禁生成机制：结构锁用 `src.slice(src.indexOf(A), src.indexOf(B))` 在同一文件内切区间时，B 一旦被搬走，`indexOf` 返回 -1，而 `String.prototype.slice` 把负数终点解释成「从末尾倒数」——区间静默放大到接近整份文件，守卫照样数到 2 次调用、照样绿。
 必须说清楚的是：**本次搬家没有触发它**（保留了同名委托，锚点仍命中）。四种变异的内存模拟显示，删掉委托时旧守卫与新守卫都还绿，当下真正多抓到的是新增的 HTTP 出口计数（旧绿 / 新红）。所以这条加固是**预防性**的；把它写成「已避免事故」就是把没发生的灾难当论据。
 
+# [未发布] test(工程门禁): 出站守卫收敛为单一实现并全仓接线，新增 Gate 20 接线棘轮（2026-09-30，test-egress-guard-all-packages）
+
+### 缺陷：守卫只装在 desktop 一侧，packages/* 与 ops-center 全程裸奔
+- `net.Socket.prototype.connect` 的测试期出站拦截原先只存在于 `apps/desktop/test-setup.js`；本仓 `nock`/`msw`/`setupServer` 实测 **0 命中**，没有任何传输层兜底，"测试不出网"全靠逐文件手工注入桩。
+- 后果不是"少一条保险"，是**归因被框架吃掉**：漏一处注入桩就是一次真出站，真出站挂起时先撞上 `testTimeout=10000`，红里只剩 `Test timed out in 10000ms`——既看不到目标主机，也看不出该注入什么（缺陷 G 的原始现场）。
+
+### 修法
+- 守卫实现唯一化：`packages/shared-utils/src/network-egress-guard.js`（`installTestNetworkGuard` / `readConnectTarget` / `isLoopbackHostForTest`），`apps/desktop/test-setup.js` 的 103 行内联实现替换为 7 行复用调用。
+- 装配入口唯一化：`packages/shared-utils/network-egress-guard.setup.js` 一行 `require(...).installTestNetworkGuard()`，供 vitest `setupFiles`、`node --test` 的 `--require` 两种 realm 共用。
+- 接线 13 个测试面：9 个 `packages/*/vitest.config.js` + `packages/story2video-engine/vitest.config.ts` + `packages/ui/vitest.config.ts` + `ops-center/frontend/vitest.config.js` 的 `setupFiles`；`packages/api-publish-engine/scripts/run-tests.js` 直跑子进程加 `--require`（一个测试文件一个子进程，父进程装一次等于没装）；`packages/{video-clone-engine,ai-autonomous-tester}/package.json` 的 test 脚本加 `--require`。
+- 新增 Gate 20 棘轮 `.github/scripts/check-test-egress-guard.js`：从 `git ls-files` **枚举测试面**（判据来自仓库自身而非印象），逐面要求引用共享 setup；接不上的必须带原因进只可缩小的欠账清单。接入 `quality-gate.yml` 的 `static-gates`。
+
+### 一条元教训：棘轮曾把自己的检查对象改没
+- 枚举判据原先写 `script.includes('node --test')`，而接线时正好在 `node` 与 `--test` 之间插了 `--require <setup>` ⇒ 那两个面**从枚举里消失**（不是变红，是不再被检查），测试面从 18 掉到 16 而棘轮照报 PASS。
+- 判据已拆成「命令里有 node」+「有独立的 `--test` 标志」两条，并由夹具锁钉住「两种写法都必须被枚举」。
+
+### 验证（全部本轮实跑）
+- 逐面跑测试：13 个面全部 rc=0，出站拦截命中 0（`D:/tmp/mp-verify-guard-wiring.js`，`ALL_SURFACES_GREEN`）。
+- 共享化回归网：`apps/desktop/electron/services/network-egress-guard.test.js` **6 例不改一字仍绿**；新实现自带 `packages/shared-utils/tests/network-guard.test.js` 10 例（含真 socket 拦截 + loopback 放行 + 幂等 + 读不出目标必须出声）。
+- 门禁自身回归 `.github/scripts/check-test-egress-guard.test.js` **8 例绿**（真实仓库 0 问题自证 + 合法夹具不误拦 + 5 类必须红）。
+- 反证 6/6 实跑变红：M1 枚举判据退回字面串 / M2 摘掉一个面的 `--require` / M3 陈旧登记判据 no-op / M4 枚举退化判据摘掉 / M5 `evaluate` 恒合规 / M6 Gate 20 未接进 workflow；逐个还原后字节级一致。
+- 「配错路径会不会静默放过」实测：把 `setupFiles` 指到不存在的文件，vitest **rc=1 大声失败**，故"该面跑绿"即"该面真的加载了守卫"。
+
+### 遗留
+- `packages/api-publish-engine` 的 vitest 子集仍未挂守卫（该包无 `vitest.config`，vitest CLI 不接受 `--setupFiles`），已带原因登记在只可缩小的欠账清单。
+- pytest 三侧（`packages/python-backend` / `ops-center/backend` / `packages/audio-aligner`）的对等 autouse fixture 为切片 B；`python-backend` 另有 4 个文件依赖未声明的 `respx`，扩跑前须先修依赖声明。
+- QM-6 双模型外部评审本轮未执行：`codex` 经本机 CC Switch 代理对 `/responses` 返回 404（该 provider 无 Responses API），`claude -p` 返回 `429 rpm exhausted`。按纪律降级不冒充，缺口记入 `.quality-gates.md` 对应行。
 # [未发布] ci(质量门禁): 账本 JSON 进 docs-only 白名单——门禁先搬进不会被短路的 changes job（2026-09-30，docs-only-gate-ledger，PR #2718）
 
 ### 动因是一条实测成本
