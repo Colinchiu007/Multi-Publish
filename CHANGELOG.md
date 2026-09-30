@@ -1,3 +1,14 @@
+# [未发布] test(视觉门禁): 环境缺失单独成码——缺浏览器与 dev server 未起不再伪装成「N 个回归」（2026-09-30，visual-env-preflight）
+
+### 做了什么
+- `apps/desktop/tests/visual-testing/scripts/run-pixel-tests.js` 在 `launch()` **之前**加两道前置检查：`preflightVisualEnvironment`（解析 `chromium.executablePath()` 是否落盘，含 playwright 本身装不上）与 `preflightVisualTarget`（对 `TEST_URL` 的 host:port 做一次 TCP 连通性探测），任一不成立即抛 `ERR_VISUAL_ENV_MISSING`，文案点名「这不是 UI 回归」并给补救（装浏览器 / 起**本 worktree 自己**的 dev server / 核对端口归属 / 以 CI `QG Visual` 为准）。
+- 触发事实：本机有用户级 `ms-playwright/chromium-1228`，但 dev server 未起时 `test:visual:pixel` 报的是「像素结果[light]: 0/19 通过，19 失败」+ `page.goto: net::ERR_CONNECTION_REFUSED` —— 与真实回归在退出码与文案上**完全同形**；修复后同一现场输出 0 条 `FAILED:`、一条环境缺失、rc=1。
+- 顺带纠正一条被写进记录的过期判断：「本机无 Playwright 浏览器」只对**打包用的** `apps/desktop/.playwright-browsers` 成立，用户级 ms-playwright 缓存存在时本机像素门禁其实可跑 —— 二者不得混为一谈（已写进 AGENTS.md 判据）。
+
+### 结论
+- 新增 8 条用例（共 13 passed）：错误码/文案三要素、"必须放行"的反向锁、以及**行为锁**「环境缺失时 `runner.launch` 一次都不能被调用」（不靠读源码字符串，防止检查被挪到 launch 之后仍全绿）。
+- AGENTS.md QM-4 增补一条 MUST：环境缺失不得登记为"已跑且无回归"，也不得用 `skip` 静默通过。
+
 # [未发布] test(工程门禁): 出站守卫收敛为单一实现并全仓接线，新增 Gate 20 接线棘轮（2026-09-30，test-egress-guard-all-packages）
 
 ### 缺陷：守卫只装在 desktop 一侧，packages/* 与 ops-center 全程裸奔
