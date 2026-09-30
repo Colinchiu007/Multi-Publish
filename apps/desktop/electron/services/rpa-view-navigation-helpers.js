@@ -314,7 +314,7 @@ const navigationHelpers = {
 
   // ========== 头条发布产物查询（2026-09-30，参考产品同款口径）==========
   // 头条发布后**不跳转**（URL 恒为 /profile_v4/graphic/publish），故 success_mode='url' 必超时。
-  // 参考产品（蚁小二）的做法是查**作品列表 API** 并检查 `ArticleAttr.Status`：
+  // 参考产品（参考产品）的做法是查**作品列表 API** 并检查 `ArticleAttr.Status`：
   //   "2"=已发布  "6"=审核中（两者均视为「已提交成功」）  "4"=草稿  "3"=被拒
   // 端点同样取自参考产品：`mp.toutiao.com/mp/agw/creator_center/list`（type=4 图文）。
   // 判定要素：标题精确匹配 + 展示时间落在 [startedAt-10min, startedAt+30min] 窗口内。
