@@ -45,14 +45,21 @@ function findRender (rendersDir, name) {
  * 与 KNOWN_UNCOVERED 同族纪律 —— 必须带实测理由与**漂移预算**，清单只能缩小；
  * 超出预算照红：例外只承认「这一处会变」，不承认「它会变多少都行」。
  *
- * 实测依据（2026-09-30）：46 个视图 × 两次 CI run 两两对照，只有 keyword-monitor 不稳定，
- * 差 140 px，位置 (463,411)→(520,418)，内容是「最后检查: <ISO 时间戳>  采样: N 条」；
- * 其余 45 张跨 run 逐字节相同。正解是给该视图接确定性时钟（另案），不是提阈值或遮区域。
+ * 浅色实测依据（2026-09-30）：两次 CI run 对照，keyword-monitor 差 140 px，
+ * 位置 (463,411)→(520,418)，内容是「最后检查: <ISO 时间戳>  采样: N 条」。
+ * 暗色实测依据（2026-09-30，本门禁首次套到 origin/main 时抓出）：keyword-monitor-dark.png
+ * 相对 main tip 那次 CI 渲染差 127 px，位置 (463,410)→(528,418)——同一行时间戳，
+ * 只是暗色主题下反色像素更少。同一个视图的两套主题必须一起登记，不得只认浅色。
+ * 正解是给该视图接确定性时钟（另案），届时两条一并删除；不是提阈值或遮区域。
  */
 const KNOWN_DYNAMIC = {
   'keyword-monitor.png': {
     maxDriftPx: 200,
     reason: '视图含实时「最后检查」ISO 时间戳（精确到毫秒），跨 run 必然不同；实测两次 CI run 差 140 px',
+  },
+  'keyword-monitor-dark.png': {
+    maxDriftPx: 200,
+    reason: '同一视图的暗色套，同一行实时时间戳；实测相对 main tip 的 CI 渲染差 127 px',
   },
 };
 
