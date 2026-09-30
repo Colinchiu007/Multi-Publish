@@ -1314,9 +1314,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       publish_url: publishUrl || config.publish_url,
       // 「展示封面」必填且默认选「单图」但封面为空（真机取证）→ 发布前传入封面图，
       // 拿不到上传入口时回退选「无封面」，否则点「预览并发布」被必填校验挡住。
-      // 2026-09-30 第 52 轮实验结论：**关闭封面 hook 后发布同样失败**（prePublishHook= 空、
-      // 仍 verification timeout）⇒ **封面不是阻塞点**，"封面上传破坏页面状态"的假设被否定。
-      // 恢复封面 hook（它是正确功能，且头条确实需要封面）。
+      // 2026-09-30 第 52 轮实验：关闭封面 hook 后发布同样失败 ⇒ **封面不是阻塞点**，
+      // "封面上传破坏页面状态"假设被否定。恢复该 hook（头条确实需要封面）。
       prePublishHook: 'uploadCover',
       hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
     })
