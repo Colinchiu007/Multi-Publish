@@ -400,7 +400,9 @@ const navigationHelpers = {
     const readThumb = async () => {
       try { return Boolean(await win.webContents.executeJavaScript('(' + THUMB_FN + ')()')) } catch (_) { return false }
     }
-    if (await readThumb()) return 'ALREADY_HAS_COVER'
+    // 2026-09-30 第 49 轮：**删除"预判已有封面"短路**。封面区只要有任意 `img`（图标/占位/插图）
+    // 就被误判为 `ALREADY_HAS_COVER` 而**跳过注入**，真正封面仍为空 ⇒ 必填校验拦下提交、
+    // 点击发布**零请求**（fetch/XHR 取证）。注入幂等，故直接注入，仅在注入后用 readThumb 判定。
     // 展开封面编辑区（渲染可能较慢，先等再点）
     await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
     try {
