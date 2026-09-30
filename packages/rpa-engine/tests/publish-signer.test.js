@@ -95,3 +95,39 @@ describe('软失败语义（对应参考服务返回 "null" 的行为）', () =>
     expect(r.via).toBe('page')
   })
 })
+
+describe('hostSdkAdapter（P0.5：复用宿主页面的安全 SDK，而非复刻它）', () => {
+  const { hostSdkAdapter } = require('../src/publish-signer')
+  function fakeWin (impl) { return { webContents: { executeJavaScript: impl } } }
+
+  it('页面存在 SDK 且调用成功 ⇒ 返回该签名字符串', async () => {
+    const win = fakeWin(async () => JSON.stringify({ ok: true, signature: 'SIG-FROM-HOST-SDK' }))
+    expect(await hostSdkAdapter({ url: '/mp/agw/article/publish' }, { win })).toBe('SIG-FROM-HOST-SDK')
+  })
+
+  it('页面无 SDK ⇒ 软失败返回 null（调用方回退 P0 点击）', async () => {
+    const win = fakeWin(async () => JSON.stringify({ ok: false, reason: 'NO_SDK' }))
+    expect(await hostSdkAdapter({ url: '/x' }, { win })).toBe(null)
+  })
+
+  it('未提供页面句柄 ⇒ 直接返回 null（不做任何猜测）', async () => {
+    expect(await hostSdkAdapter({ url: '/x' }, {})).toBe(null)
+    expect(await hostSdkAdapter({ url: '/x' })).toBe(null)
+  })
+
+  it('页面执行抛错 ⇒ 被吞掉并返回 null（不得让签名失败阻断发布流程）', async () => {
+    const win = fakeWin(async () => { throw new Error('page gone') })
+    expect(await hostSdkAdapter({ url: '/x' }, { win })).toBe(null)
+  })
+
+  it('已注册为可寻址的适配器（toutiao_sdk）', () => {
+    expect(hasAdapter('toutiao_sdk')).toBe(true)
+  })
+
+  it('经统一入口调用时，页面无 SDK 会落到 page 通道', async () => {
+    const win = fakeWin(async () => JSON.stringify({ ok: false, reason: 'NO_SDK' }))
+    const r = await sign('toutiao_sdk', { url: '/x' }, { win })
+    expect(r.ok).toBe(true)
+    expect(r.via).toBe('page')
+  })
+})

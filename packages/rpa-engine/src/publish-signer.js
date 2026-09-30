@@ -76,6 +76,50 @@ async function pageSubmitAdapter () {
   return null
 }
 
+/**
+ * 页面内调用宿主安全 SDK 生成签名（P0.5 路线）。
+ *
+ * 背景（真机逆向，见 `01-docs/ANALYSIS-SIGN-SERVICE-DEEP-2026-09-30.md`）：
+ * 字节系平台（头条等）的发布接口要求 `tt-anti-token` 请求头，由页面加载的混淆安全 SDK
+ * 生成（页面全局暴露 `byted_acrawler`，含 `sign/init/getReferer`）。该 SDK 本体是混淆 VM，
+ * **复刻不现实**；但**它就在宿主页面里，可直接调用** ——
+ * 这正是本适配器的做法：**不求复刻宿主能力，只求复用宿主能力**。
+ *
+ * 与 P0（模拟点击）相比：不依赖 DOM 结构、不受弹窗/校验干扰、参数可控。
+ * 与 P1（纯本地复现）相比：无需逆向混淆 VM，也不会随平台改版而失效。
+ *
+ * @param {{url?: string, query?: string, body?: string}} payload 签名上下文
+ * @param {{win?: any, sdkPath?: string, sdkFn?: string}} [ctx] 需要页面句柄
+ * @returns {Promise<string|null>} 签名字符串；无 SDK 或失败时返回 null（软失败 ⇒ 调用方回退 P0）
+ */
+async function hostSdkAdapter (payload, ctx) {
+  const win = ctx && ctx.win
+  if (!win || typeof win.webContents?.executeJavaScript !== 'function') return null
+  const sdkPath = (ctx && ctx.sdkPath) || 'byted_acrawler'
+  const sdkFn = (ctx && ctx.sdkFn) || 'sign'
+  const arg = { url: String((payload && payload.url) || '') }
+  if (payload && payload.query) arg.query = String(payload.query)
+  if (payload && payload.body) arg.body = String(payload.body)
+  try {
+    const raw = await win.webContents.executeJavaScript(
+      '(function(){try{var p=' + JSON.stringify(sdkPath) + '.split(".");var o=window;' +
+      'for(var i=0;i<p.length;i++){o=o&&o[p[i]]}if(!o||typeof o[' + JSON.stringify(sdkFn) + ']!=="function")' +
+      'return JSON.stringify({ok:false,reason:"NO_SDK"});' +
+      'var r=o[' + JSON.stringify(sdkFn) + '](' + JSON.stringify(arg) + ');' +
+      'return JSON.stringify({ok:true,signature:String(r)})}catch(e){return JSON.stringify({ok:false,reason:String(e&&e.message)})}})()'
+    )
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (parsed && parsed.ok && parsed.signature) return parsed.signature
+    return null
+  } catch (_e) {
+    return null
+  }
+}
+
+// 已确证"宿主页面内即可取得签名"的平台 → P0.5 适配器。
+// 依据：真机验证头条页面全局存在 `byted_acrawler.sign` 且调用成功返回签名字符串。
+registerAdapter('toutiao_sdk', hostSdkAdapter)
+
 // 已确证走"页面内提交"的平台（其页面自身会计算签名并发出提交请求）。
 // 依据：真机 E2E —— 在这些页面内触发原生提交控件可观察到目标发布接口被调用。
 const PAGE_SUBMIT_COMMANDS = ['toutiao']
@@ -114,5 +158,6 @@ module.exports = {
   hasAdapter,
   registeredCommands,
   sign,
+  hostSdkAdapter,
   PAGE_SUBMIT_COMMANDS,
 }
