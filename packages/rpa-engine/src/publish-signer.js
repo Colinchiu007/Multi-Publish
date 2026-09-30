@@ -1,0 +1,118 @@
+// @ts-check
+/**
+ * publish-signer —— 可插拔的发布签名器骨架
+ *
+ * 设计来源：对参考产品远程签名服务的行为分析
+ * （见 `01-docs/ANALYSIS-SIGN-SERVICE-DEEP-2026-09-30.md`），**仅借鉴其架构**：
+ *
+ *   1. 签名能力与发布流程**解耦** —— 统一 `sign(command, payload)` 入口，平台实现注册为适配器；
+ *   2. **多平台适配器** —— 同一入口，按 `command` 分派（对应参考服务的 per-command handler）；
+ *   3. **确定性** —— 同一输入必须产同一签名（否则服务端无法校验）；
+ *   4. **软失败** —— 失败返回 `null`/空串而非抛错，调用方可回退（对应参考服务的 `"null"` 语义）；
+ *   5. **前置规范化** —— query 按 key 排序后再参与签名。
+ *
+ * ⚠️ 明确**不**包含：调用任何第三方签名服务；复制第三方服务端的固定模板常量。
+ *
+ * 当前内置的是 `page` 适配器（P0 路线）：**签名由平台页面自身完成**，
+ * 本模块只负责"声明该平台走页面内提交"并把规范化后的载荷交由调用方使用。
+ * 后续如需本地签名（P1），在此注册新的适配器即可，发布流程无需改动。
+ */
+
+'use strict'
+
+/**
+ * 按 key 排序 query 串（签名前置规范化）。
+ * 参考产品在拼接 query 前做 `localeCompare` 升序；顺序不一致会导致签名不匹配。
+ * @param {string|Array<[string,string]>|Record<string,string>} query
+ * @returns {string} 规范化后的 `k=v&k=v`
+ */
+function sortQueryString (query) {
+  let pairs
+  if (typeof query === 'string') {
+    pairs = query.split('&').filter(Boolean).map((kv) => {
+      const i = kv.indexOf('=')
+      return i === -1 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)]
+    })
+  } else if (Array.isArray(query)) {
+    pairs = query.map((p) => [String(p[0]), String(p[1] == null ? '' : p[1])])
+  } else if (query && typeof query === 'object') {
+    pairs = Object.keys(query).map((k) => [k, String(query[k] == null ? '' : query[k])])
+  } else {
+    return ''
+  }
+  pairs.sort((a, b) => a[0].localeCompare(b[0]))
+  return pairs.map(([k, v]) => k + '=' + v).join('&')
+}
+
+/** @type {Map<string, (payload: any, ctx?: any) => Promise<string|null>>} */
+const adapters = new Map()
+
+/**
+ * 注册平台签名适配器。
+ * @param {string} command 平台标识（如 'toutiao'）
+ * @param {(payload: any, ctx?: any) => Promise<string|null>} impl 实现；返回签名字符串，失败返回 null
+ */
+function registerAdapter (command, impl) {
+  if (!command || typeof impl !== 'function') throw new Error('registerAdapter: 参数无效')
+  adapters.set(String(command), impl)
+}
+
+/** 是否已注册某平台的签名适配器 */
+function hasAdapter (command) {
+  return adapters.has(String(command))
+}
+
+/** 已注册的平台列表（便于诊断/断言） */
+function registeredCommands () {
+  return Array.from(adapters.keys()).sort()
+}
+
+/**
+ * 页面内提交适配器（P0）：签名由平台页面自身完成，本模块不产出签名。
+ * 返回 `null` 表示"无本地签名"，调用方应走**页面内触发提交**通道。
+ * @returns {Promise<null>}
+ */
+async function pageSubmitAdapter () {
+  return null
+}
+
+// 已确证走"页面内提交"的平台（其页面自身会计算签名并发出提交请求）。
+// 依据：真机 E2E —— 在这些页面内触发原生提交控件可观察到目标发布接口被调用。
+const PAGE_SUBMIT_COMMANDS = ['toutiao']
+for (const cmd of PAGE_SUBMIT_COMMANDS) registerAdapter(cmd, pageSubmitAdapter)
+
+/**
+ * 统一签名入口。
+ *
+ * @param {string} command 平台标识
+ * @param {object} payload 平台相关载荷（如头条为 `{ qr, body, ua }`）
+ * @param {object} [ctx] 适配器上下文（页面句柄等）
+ * @returns {Promise<{ok: boolean, signature: string|null, via: 'adapter'|'page'|'none', reason?: string}>}
+ */
+async function sign (command, payload, ctx) {
+  const key = String(command || '')
+  if (!key) return { ok: false, signature: null, via: 'none', reason: 'EMPTY_COMMAND' }
+  const impl = adapters.get(key)
+  if (!impl) return { ok: false, signature: null, via: 'none', reason: 'NO_ADAPTER:' + key }
+  let sig = null
+  try {
+    sig = await impl(payload, ctx)
+  } catch (e) {
+    // 软失败：不抛错，交由调用方回退（与参考服务返回 "null" 的语义一致）
+    return { ok: false, signature: null, via: 'adapter', reason: 'ADAPTER_THREW:' + (e && e.message) }
+  }
+  if (sig == null || sig === '' || sig === 'null') {
+    // `null` 语义 = 无本地签名 ⇒ 调用方应走页面内提交
+    return { ok: true, signature: null, via: 'page' }
+  }
+  return { ok: true, signature: String(sig), via: 'adapter' }
+}
+
+module.exports = {
+  sortQueryString,
+  registerAdapter,
+  hasAdapter,
+  registeredCommands,
+  sign,
+  PAGE_SUBMIT_COMMANDS,
+}
