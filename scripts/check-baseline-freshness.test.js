@@ -134,10 +134,14 @@ function pngWithBlock (seed, block) {
 
 test('已登记动态视图在预算内不报违规、只出声；超出预算报 DYNAMIC_BUDGET_EXCEEDED', () => {
   const { dir, baselines, renders } = mkDirs()
+  // 注意：KNOWN_DYNAMIC / KNOWN_UNCOVERED 的键**含 .png 后缀**，而 findRender 收的是去后缀名，
+  // 所以渲染文件路径直接用键本身拼，不要再 + '.png'（否则文件名变成 x.png.png ⇒ 被判成无渲染）。
+  // 判据必须由**合成条目**驱动，不得借生产登记表的内容：清单现在为空
+  // （见「KNOWN_DYNAMIC 必须为空」那条），借它取键会让这条测试静默变成空跑。
+  // 声明必须在 try **之外**：写在 try 内则 finally 看不见该绑定（块级作用域），清理会抛 ReferenceError。
+  const name = 'synthetic-dynamic.png'
+  D.KNOWN_DYNAMIC[name] = { maxDriftPx: 200, reason: '夹具：合成动态视图' }
   try {
-    // 注意：KNOWN_DYNAMIC / KNOWN_UNCOVERED 的键**含 .png 后缀**，而 findRender 收的是去后缀名，
-    // 所以渲染文件路径直接用键本身拼，不要再 + '.png'（否则文件名变成 x.png.png ⇒ 被判成无渲染）。
-    const name = Object.keys(D.KNOWN_DYNAMIC)[0]
     const budget = D.KNOWN_DYNAMIC[name].maxDriftPx
     fs.writeFileSync(path.join(baselines, name), pngWithBlock(1, false))
     fs.writeFileSync(path.join(renders, name), pngWithBlock(1, true))
@@ -157,14 +161,20 @@ test('已登记动态视图在预算内不报违规、只出声；超出预算�
       assert.equal(over.notes.length, 0)
     } finally {
       D.KNOWN_DYNAMIC[name].maxDriftPx = saved
+      delete D.KNOWN_DYNAMIC[name]
     }
-  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  } finally {
+    delete D.KNOWN_DYNAMIC[name]
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('例外按文件名逐个生效：未登记视图不得共享别人的预算', () => {
   const { dir, baselines, renders } = mkDirs()
+  // 同上一条：声明须在 try 外，否则 finally 的清理取不到绑定。
+  const dynamic = 'synthetic-dynamic.png'
+  D.KNOWN_DYNAMIC[dynamic] = { maxDriftPx: 200, reason: '夹具：合成动态视图' }
   try {
-    const dynamic = Object.keys(D.KNOWN_DYNAMIC)[0]
     fs.writeFileSync(path.join(baselines, dynamic), pngWithBlock(1, false))
     fs.writeFileSync(path.join(renders, dynamic), pngWithBlock(1, true))
     fs.writeFileSync(path.join(baselines, 'other.png'), pngWithBlock(1, false))
@@ -173,5 +183,16 @@ test('例外按文件名逐个生效：未登记视图不得共享别人的预�
     assert.equal(r.violations.length, 1, '只允许未登记那张报红')
     assert.match(r.violations[0], /^BASELINE_STALE: other.png/)
     assert.equal(r.notes.length, 1)
-  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  } finally {
+    delete D.KNOWN_DYNAMIC[dynamic]
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// 棘轮的终局：采集层已把页面时钟钉死（test-runner.js 的 _installCaptureClock），
+// 含实时值的视图不再需要例外。清单必须保持为空 —— 任何新增都是"又引入了一个不可复现的
+// 采集条件"，必须连带给出根因修复，而不是长期挂着一张容忍表。
+test('KNOWN_DYNAMIC 必须为空：实时值一律在采集层钉住，不靠漂移预算长期容忍', () => {
+  assert.deepEqual(Object.keys(D.KNOWN_DYNAMIC), [],
+    '登记表非空 ⇒ 采集层没能钉住这些视图，须修根因而非留预算')
 })
