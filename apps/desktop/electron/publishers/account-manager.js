@@ -682,8 +682,9 @@ async function checkLoginStatus (platform, accountId) {
 
 /**
  * 资料刷新簇已拆到 ./account-profile-refresh（第二刀）。此处只保留同名委托：
- * 对外导出名与调用签名 MUST 不变（IPC 与既有调用方的合同面），`isSafePathSegment`
- * 是本文件私有的路径校验，必须由调用点注入而不是让被拆模块自行 require 本文件（会成环）。
+ * 对外导出名与调用签名 MUST 不变（IPC 与既有调用方的合同面）——注意合同面是**本文件的 3 参形态**，
+ * 新模块自身的同名函数多一个 deps 参数（缺失即抛 TypeError），由下面的委托调用点补齐。
+ * `isSafePathSegment` 是本文件私有的路径校验，必须由调用点注入而不是让被拆模块自行 require 本文件（会成环）。
  */
 async function extractAccountInfo (page, platform = '') {
   return profileRefresh.extractAccountInfo(page, platform)

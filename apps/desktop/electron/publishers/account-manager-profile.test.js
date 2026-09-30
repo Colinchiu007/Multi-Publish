@@ -125,10 +125,12 @@ describe('回填保护必须按 name_source 判定，不得再靠文本形态猜
   afterEach(() => { vi.restoreAllMocks() })
 
   async function runHttp (current, nickname) {
-    // 顺序是承重的：account-manager.js:13 在 require 期就把 fetchAccountInfoViaHttpApi
-    // 解构成本地绑定，:704 调的是那个绑定而不是模块属性。所以必须先给（仍被 require.cache
-    // 保留的）http-login-checker 装好 spy，再清掉 account-manager 缓存重新 require，
-    // 解构才会拿到被替换后的引用。反过来写会静默调用真实实现并让断言假绿。
+    // 这段顺序**曾经**承重：拆分前 account-manager 顶部在 require 期就把 fetchAccountInfoViaHttpApi
+    // 解构成本地绑定，必须先给（仍被 require.cache 保留的）http-login-checker 装好 spy，再清缓存重新
+    // require 消费方，解构才会拿到被替换后的引用；反过来写会静默调用真实实现并让断言假绿。
+    // 本刀把那次解构收窄成 `{ tryHttpLoginCheck }`，被拆出的模块按调用点取属性，于是实测**不再承重**
+    // （变异「先 loadAccountManager 再装 spy」= 17 passed，与基线一致，探针 D:/tmp/t44-order-probe.js）。
+    // 顺序照原样保留：一旦有人把 require 期解构写回去，这条又会变成假绿的前提。
     const checker = require('./http-login-checker')
     vi.spyOn(checker, 'fetchAccountInfoViaHttpApi').mockResolvedValue({
       supported: true, nickname, followers: 777,

@@ -6,22 +6,33 @@
  *    「怎么登录、怎么检测、怎么发布」。它与登录态判定只有一条边相连：检测有效之后顺手回填。
  * 2) 门禁：account-manager.js 在 .github/scripts/max-lines-baseline.json 挂账且余量持续被吃掉。
  *
- * 依赖注入约定：`isSafePathSegment` 由调用方在调用点注入（照 account-name-write.js /
- * account-session-restore.js）。本模块 **禁止** require('./account-manager') —— CJS 循环 require
- * 会拿到半初始化的导出对象，症状是只在加载顺序变化时偶发的 `is not a function`。
+ * 依赖注入约定：`isSafePathSegment` 由调用方在调用点注入，形态与同目录两份先例一致（都是 deps 对象：
+ * `account-name-write.js` 的 `renameAccount(accountId, platform, newName, deps)`、
+ * `account-session-restore.js` 的 `getAccountPartitionCookies(platform, accountId, deps)`）。
+ * 本模块 **禁止** require('./account-manager') —— CJS 循环 require
+ * 会拿到半初始化的导出对象，症状是只在加载顺序变化时偶发的 `is not a function`。无环的现场证据是
+ * `pnpm exec madge --warning --circular apps/desktop/electron/main.js`（实跑：Processed 399 files、无环）；
+ * 下面的成环锁只锁**直接** require，传递环由该 madge 证据覆盖。
  *
- * 四条纪律（拆分前后逐字不变）：
+ * 四条纪律（拆分前后逐字不变，唯一例外是标了 C1 的那处）：
  * 1. 只在「有 DOM 且判定有效」的路径做 DOM 回填；HTTP 快速路径没有 DOM，不采。
  * 2. 只下发命中且与真源不同的字段（buildProfilePatch），未命中 = 键缺席 = 不修改。
  * 3. 任何失败都只记 warn 并返回 false —— 资料是增强信息，不得成为登录有效性证据。
  * 4. 用户显式命名（name_source=manual）一律不被采集结果覆盖（经 guardProfilePatchBySource）。
+ *    **C1 是本刀唯一的行为修正**（QM-6 后端评审抓到）：HTTP 快速路径原先在真源 GET 失败时把当前值
+ *    降级成 null 继续 PATCH，而 guard 在 current=null 时无条件把 name_source 标成 auto，等于用
+ *    「取不到证据」覆盖用户显式命名；现改为与 DOM 路径同口径——读不到真源就一行不写。
+ *
+ * 日志 scope 刻意沿用 'AccountManager' 而不用新模块名：既有运维检索与历史日志都按该标签过滤，
+ * 改名会让这条链路在日志里断档。
  */
 const log = require('../services/logger')
 const pythonBridge = require('../services/python-bridge')
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
-// 持**模块对象**而不是解构出函数引用。account-manager 那种 require 期解构（见其第 13 行）会让测试里的
+// 持**模块对象**而不是解构出函数引用。account-manager.js 顶部那行 `const { tryHttpLoginCheck } =
+// require('./http-login-checker')` 就是 require 期解构的形态：它会让测试里的
 // vi.spyOn(checker, 'fetchAccountInfoViaHttpApi') 拦不到，只能靠「先装 spy、再清缓存、重新 require 消费方」
-// 这一套顺序体操（见 account-manager-profile.test.js:128 的注释）。本模块从拆出第一天就按调用点取属性，
+// 这一套顺序体操（见 account-manager-profile.test.js 里 runHttp 的注释）。本模块从拆出第一天就按调用点取属性，
 // 把这条脆弱前提从根上去掉：新增消费方不必再复刻那段顺序。
 const httpLoginChecker = require('./http-login-checker')
 const accountNameWrite = require('./account-name-write')
@@ -48,20 +59,18 @@ async function extractAccountInfoFromWebContents (webContents, platform = '') {
   return profileUtils.collectWithWebContents(webContents, platform)
 }
 
-
 /**
  * `isSafePathSegment` 由调用点注入（见 account-manager 的委托）。缺失时必须**响亮失败**：
  * 若把它留在 try 里，'undefined is not a function' 会被本模块自己的 catch 吞成 return false，
  * 表现为「资料永远不回填」这种无声缺陷，而不是接线错误。路径校验不得静默降级为不校验。
  */
-function requirePathGuard (deps, section) {
+function assertInjectedPathGuard (deps, section) {
   const isSafePathSegment = deps && deps.isSafePathSegment
   if (typeof isSafePathSegment !== 'function') {
     throw new TypeError(section + ' 缺少调用点注入的 isSafePathSegment（禁止静默降级为不校验）')
   }
   return isSafePathSegment
 }
-
 
 /**
  * 登录态检测已经停在「已登录的页面上」时，顺手补齐该账号缺失/变化的昵称与头像。
@@ -77,7 +86,7 @@ function requirePathGuard (deps, section) {
  * @returns {Promise<boolean>} 是否实际写回了资料字段
  */
 async function refreshProfileFromPage (page, platform, accountId, deps) {
-  const isSafePathSegment = requirePathGuard(deps, 'refreshProfileFromPage')
+  const isSafePathSegment = assertInjectedPathGuard(deps, 'refreshProfileFromPage')
   try {
     if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
     const info = await extractAccountInfo(page, platform)
@@ -108,7 +117,7 @@ async function refreshProfileFromPage (page, platform, accountId, deps) {
  * @returns {Promise<boolean>} 是否实际写回了资料字段
  */
 async function refreshProfileFromHttpApi (platform, accountId, cookies, deps) {
-  const isSafePathSegment = requirePathGuard(deps, 'refreshProfileFromHttpApi')
+  const isSafePathSegment = assertInjectedPathGuard(deps, 'refreshProfileFromHttpApi')
   try {
     if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
     const info = await httpLoginChecker.fetchAccountInfoViaHttpApi(platform, cookies)

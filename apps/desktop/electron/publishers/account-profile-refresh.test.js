@@ -5,7 +5,8 @@
  * 以及采集转发的单一来源。
  *
  * 为什么单独存在：openspec change `split-account-profile-refresh` 把这 4 个函数从已挂账的
- * account-manager.js 平移到独立模块。纯平移最容易翻车的地方是「移动后测试仍绿，但绿的是一组
+ * account-manager.js 平移到独立模块，**除一处经 QM-6 后端评审确认的行为修正（C1：真源 GET 失败时
+ * 不再降级为 null 继续 PATCH，改为一行不写）外，行为逐字不变**。纯平移最容易翻车的地方是「移动后测试仍绿，但绿的是一组
  * 从没真正跑到这些分支的测试」，所以这里直接对新模块下断言，并额外钉三条只有**搬家后**才成立的锁：
  *  1) 依赖注入缺失必须**响亮失败**（不得被本模块自己的 catch 吞成 return false）；
  *  2) 依赖必须按**调用点取属性**（否则测试里的 vi.spyOn 拦不到，见 account-manager.js:13 的历史坑）；
@@ -22,7 +23,10 @@ const httpLoginChecker = require('./http-login-checker')
 const accountNameWrite = require('./account-name-write')
 const log = require('../services/logger')
 
-// account-manager 侧的私有校验：搬家后由**调用点注入**，这里给一个与真实现同语义的桩
+// account-manager 侧的私有校验：搬家后由**调用点注入**，这里给一个与真实现同语义的桩。
+// ⚠ 该正则是 account-manager 里 isSafePathSegment 的手工副本，真实现收紧/放宽时这里不会自动跟着变——
+//   它只用于「路径非法 ⇒ 不碰后端」的分支形状；真实现的语义由 account-manager 自己的用例覆盖。
+//   下面「manual 命名不得被抓取结果覆盖」那条用的是**真 guard**（account-name-write），不是这种副本。
 const DEPS = { isSafePathSegment: (v) => typeof v === 'string' && /^[a-zA-Z_0-9-]+$/.test(v) }
 
 let events
@@ -200,8 +204,26 @@ describe('接线与成环锁（搬家后才成立，防实现被抄回）', () =
   it('实现不得被抄回 account-manager：采集调用与真源 PATCH 都只许住在新模块', () => {
     expect(am).not.toContain('profileUtils.collectWithPlaywright(page')
     expect(am).not.toContain('profileUtils.collectWithWebContents(webContents')
-    // 反向锁的判据用「组合」而不是单词本身：GET 之后紧跟 PATCH /api/accounts/ 的那段流程只在模块里
-    expect(am).not.toMatch(/buildProfilePatch\(info, current\.data\)[\s\S]{0,200}requestBackend\('PATCH', '\/api\/accounts\//)
     expect(self).toContain('profileUtils.collectWithPlaywright(page')
+  })
+
+  // 委托体必须是「纯转调」。这条取代了原先的 `[\s\S]{0,200}` 窗口锁：窗口按**字符数**量排版，
+  // 抄回的那段被拉开排版就超出窗口 ⇒ 反向锁**静默变绿**（比误报红更危险，失效是无声的）。
+  // 实测两形对照（D:/tmp/t44-lock-compare.js，同一把判据喂两种抄回）：两句相距 74 字符时旧锁与新锁各红；
+  // 相距 325 字符（中间插局部变量与折行）时旧锁放过、只有新锁红。改判「函数体内不得出现采集/后端调用」
+  // 后，判据与排版无关。反证（把正文抄回委托体）：新锁名出现在红因里，2 红 18 通过。
+  it('4 个委托的函数体只许转调新模块，不得含采集或后端调用', () => {
+    for (const n of ['extractAccountInfo', 'extractAccountInfoFromWebContents', 'refreshProfileFromPage', 'refreshProfileFromHttpApi']) {
+      const start = amCode.indexOf('async function ' + n + ' (')
+      expect(start, n + ' 必须仍是 account-manager 里的 async 函数').toBeGreaterThanOrEqual(0)
+      const nl = amCode.indexOf('\n', start)
+      const close = /\n\}/.exec(amCode.slice(nl))
+      expect(close, n + ' 的函数体必须能在行首 } 处收口').not.toBeNull()
+      const body = amCode.slice(nl, nl + close.index).replace(/\s+/g, ' ')
+      expect(body, n + ' 的委托体只应转调 profileRefresh').toMatch(/return profileRefresh\.[A-Za-z]+\(/)
+      for (const bad of ['requestBackend', 'collectWith', 'buildProfilePatch', 'fetchAccountInfoViaHttpApi', 'guardProfilePatchBySource']) {
+        expect(body, n + ' 的委托体不得出现 ' + bad).not.toContain(bad)
+      }
+    }
   })
 })
