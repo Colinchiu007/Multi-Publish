@@ -671,6 +671,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
   cd apps/desktop && npm run test:visual:pixel
   ```
 
+- **像素门禁的环境缺失必须单独成码，不得与"UI 回归"同形（MUST）**：`test:visual:pixel` 有两类**环境**故障会伪装成回归 —— ① 没有 Chromium 可执行文件；② `TEST_URL` 指向的 dev server 没起。第 ② 类尤其危险：本机实测缺宿主时 19 个视图全部死在 `page.goto: net::ERR_CONNECTION_REFUSED`，却被汇总成「像素视觉门禁存在 19 个失败」+ exit 1，与真实回归一字不差；另一条同族后果是 `TEST_URL` 指到**并发会话**的 dev server，于是一帧不报错地拿别人的界面当自己的证据（假绿）。口径：`scripts/run-pixel-tests.js` 在 `launch()` **之前**依次跑 `preflightVisualEnvironment`（解析 `chromium.executablePath()` 是否落盘）与 `preflightVisualTarget`（对 `TEST_URL` 的 host:port 做一次 TCP 连接），任一不成立即抛 `ERR_VISUAL_ENV_MISSING` 并在文案里点名「这不是 UI 回归」+ 补救（装浏览器 / 起**本 worktree 自己**的 dev server / 核对端口归属）；**禁止**把环境缺失登记成"已跑且无回归"或以 `skip` 让它静默通过 —— 视觉中性结论只在 `QG Visual`（CI，windows-latest + CI 的 Chromium）成立时才算数。**也不得凭记忆断言"本机跑不了"**：本机的用户级 `ms-playwright` 缓存与打包用的 `apps/desktop/.playwright-browsers` 是两个独立事实（前者可让本机跑通像素门禁，后者缺失只影响打包），判据一律实跑或查 `existsSync`。回归锁：`tests/visual-testing/run-pixel-tests.test.js`「像素门禁环境前置检查」（含"检查必须前置于 launch，`launch` 一次都不能被调用"的行为锁，不靠读源码字符串）。
+
 - **发版前（人工核查项，非自动硬门禁）**：完整回归（103 个测试：35 + 19 视图 + 31 + 18 工作流）由 `tests/visual-testing/scripts/run-all-visual.js` 逐套隔离执行——**一套红不会停掉后面三套**（旧 `a && b && c && d` 串联会让"CI 产物里有没有这套截图"取决于前一套的成败）
 
   ```bash
