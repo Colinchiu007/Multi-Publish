@@ -378,9 +378,11 @@ const navigationHelpers = {
   // 因此本方法**以「封面区出现缩略图」为唯一成功判据**，并逐个 input 尝试；
   // 注入走**纯页面内 DataTransfer**（不依赖 CDP nodeId，便于按下标遍历）。
   async _uploadToutiaoCover(win, filePath) {
+    // 2026-09-30 判据收紧：**只认 `img`**。此前把 `background-image !== 'none'` 也算"已有封面"，
+    // 而页面大量元素自带背景图/渐变 ⇒ 恒判 `ALREADY_HAS_COVER` 并**跳过注入**
+    // （实测 `[uploadCover] toutiao result=ALREADY_HAS_COVER`，而此时封面其实一直是空的）。
     const THUMB_FN = 'function(){var w=document.querySelector(".article-cover-images-wrap");'
-      + 'if(!w)return false;if(w.querySelector("img"))return true;'
-      + 'return [...w.querySelectorAll("*")].some(function(e){var s=getComputedStyle(e).backgroundImage;return s&&s!=="none"})}'
+      + 'return !!(w && w.querySelector("img"))}'
     const readThumb = async () => {
       try { return Boolean(await win.webContents.executeJavaScript('(' + THUMB_FN + ')()')) } catch (_) { return false }
     }
