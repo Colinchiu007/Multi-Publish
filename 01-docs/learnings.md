@@ -16713,3 +16713,46 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **结构锁要锁「函数体非 no-op」，只锁函数名和调用点会被恒真实现骗过（反证教训）**：第一版身份校验锁只断言 `Test-GitBashIdentity` 存在 + 调用点存在，把函数体改成 `return $true` 后**全绿**——锁没在跑。补上「函数体必须包含 `Test-Path.*dirname\.exe`」才变红。反证纪律：任何防再犯锁必须做「把锁改成 no-op 立刻变红」的变异，且变异要打在**锁声称守卫的那层**。
 - **Git Bash 下 `$TMP`/`$TEMP` 是 Windows 路径（C:\...），与 `mktemp -d` 返回的 POSIX 路径（/tmp/...）不一致（测试夹具坑）**：`session-init.test.sh` 原用 `TMP="${TMPDIR:-/tmp}/..."` 但 `$TMP` 是 Windows 路径，后续 `$TMP/repo` 全部落空（`/repo/base.txt: No such file or directory`）。正解：`TMP="$(mktemp -d ...)"` 直接取 mktemp 的 POSIX 输出，不再引用 Windows 的 `$TMP`。
 - **CI 用 ubuntu 系统 bash 跑 sh 测试，天然带 /usr/bin，永远不会暴露 Windows 非交互 bash 的 PATH 缺失（逃逸链）**：`session-init.test.sh` 在 CI 全绿 ≠ 本机可用。Windows 侧验证必须显式构造「git 可用、dirname 缺失」的 PATH（`PATH=/c/Program Files/Git/cmd:/c/WINDOWS/system32:...`）再跑，才能复现故障现场。
+## 2026-09-30 平台发布链路逆向（@has-text 根因 / 填充读回 / 宿主 SDK 复用）
+
+### `:has-text` 选择器静默退化为「标签第一个元素」
+
+- **类型**：pitfall ｜ **置信度**：10/10 ｜ **来源**：observed
+- **key**：`has-text-selector-silent-fallback`
+
+shared 选择器解析器先执行 `document.querySelector(selector.split(":has-text")[0])`，该调用在真实页面必然成功（返回首个同标签元素）并直接 return，使精心实现的文本匹配从未执行。后果：所有 `xxx:has-text("...")` 候选都点在与意图无关的控件上，而症状伪装成"点了没反应"。修复：含文本谓词时不回落到 base 的 querySelector。教训：症状是"元素在但点击无效"时，第一步必须打印**解析器最终返回的元素**，而不是数候选个数。
+
+### 「日志说成功」不等于「页面上真的有」
+
+- **类型**：pitfall ｜ **置信度**：10/10 ｜ **来源**：observed
+- **key**：`log-success-is-not-page-effect`
+
+`_fillInput` 曾无论是否生效都 `return true`；封面 hook 只看注入 API 是否抛错。两者都让日志显示成功，而页面实际为空（实测页面"共 0 字"）。修复：填充类动作一律**读回页面值**作为判据（`_fillInput` 现返回读回长度并在为 0 时告警）。教训：验收判据落在页面可观测副作用上，不落在返回值与日志上。
+
+### 逆向混淆 SDK 的正解：找到调用点直接调用，而非复刻
+
+- **类型**：pattern ｜ **置信度**：10/10 ｜ **来源**：observed
+- **key**：`reuse-host-capability-not-replicate`
+
+字节系发布接口要求 `tt-anti-token`，由页面加载的混淆安全 SDK 生成。复刻其 VM 不现实，但页面已暴露 `byted_acrawler.sign({url})` —— 直接调用即得签名串。同源先例：登录页 byte-design radio（改 checked 无效、点 label 有效）；编辑器填充（改 innerHTML 无效、走 CDP Input.insertText 有效）。⇒ 优先复用宿主已有能力。由此提出 P0.5 路线（页面内取签 + 自行发 API）。
+
+### 取证必须先确认 target —— 主窗口不是平台页
+
+- **类型**：pitfall ｜ **置信度**：9/10 ｜ **来源**：observed
+- **key**：`evidence-target-must-be-verified`
+
+平台页（RPA 视图）跑在 WebContentsView 里，是**独立 CDP target**；主窗口只有应用自己的 Vue UI。多轮"页面取证"脚本连了主窗口，dump 出的全是应用按钮，据此得出的结论不可信。教训：任何页面取证先打印 `location.href` 与 target url；更稳的做法是把取证写进**应用代码**（天然处于正确 target 与时机）。
+
+### 远程签名服务协议（黑盒还原）
+
+- **类型**：architecture ｜ **置信度**：9/10 ｜ **来源**：observed
+- **key**：`blackbox-sign-service-protocol`
+
+`POST /Sign/GetSign`，body `{url, cookie, signType:"browser", signCommand}`；端口按平台分配（toutiaohao=5031/5032，kuaishou=5008-5011，douyin=5041/5042）；响应 `{msg, signature}`；失败软返回字符串 `"null"`。头条载荷的 cookie 是 `JSON.stringify({qr, body, ua})`。输出 48 字符 base64url，含大段跨样本恒定子串 + 前段雪崩 ⇒ 结构为"固定模板 + 输入特征"，非 AES/纯哈希。**结论：不作为运行时依赖**（服务条款、单点风险、会把用户 cookie 与正文送往第三方）。
+
+### 副作用字段的重试必须指数退避
+
+- **类型**：pattern ｜ **置信度**：9/10 ｜ **来源**：observed
+- **key**：`retry-backoff-for-side-effect-fields`
+
+`publish` 每次重试都是一次真实提交尝试，固定 1.5s 间隔过于密集（实测连续失败 12 轮）易触发风控。`FieldRetryState.backoffMs(name, {sideEffect})`：副作用字段 5s→10s→20s（cap 45s），普通字段 1.2s。
