@@ -445,8 +445,8 @@ const platformsMixin = {
           }
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
-          // 外审更正：`el.click()` 不受遮挡/视口影响，`querySelector` 对含 `:has-text` 的选择器本就抛错并回落文本匹配。
-          // 头条走 CDP `Runtime.evaluate`（与手动 E2E 同通道）；其余平台保持 executeJavaScript。
+          // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
+          if (platform === 'toutiao') { try { log.info('RpaView', '[toutiao] deferred-state: ' + await win.webContents.executeJavaScript('(function(){try{var bs=[...document.querySelectorAll("button")].filter(function(b){var t=String(b.innerText||"").replace(/\\s+/g,"");return t==="预览并发布"||t==="定时发布"});var hits=[];bs.forEach(function(el){var fk=Object.keys(el).filter(function(k){return k.indexOf("__reactInternalInstance$")===0})[0];var f=fk?el[fk]:null;for(var d=0;f&&d<20;d++){var st=f.memoizedState,i=0;while(st&&i<40){var v=st.memoizedState;if(v&&typeof v==="object"&&(typeof v.resolve==="function"||typeof v.then==="function")){hits.push(String(el.innerText||"").trim().slice(0,6)+"@d"+d+"h"+i)}st=st.next;i++}f=f.return}});return hits.length?("FOUND:"+hits.join(",")):"NO_DEFER(btns="+bs.length+")"}catch(e){return"ERR:"+String(e&&e.message).slice(0,40)}})()')) } catch (_e) { /* 诊断旁路 */ } }
           await (platform === 'toutiao' && typeof this._clickStable === 'function' ? this._clickStable(win, publishSelector) : this._click(win, publishSelector))
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
