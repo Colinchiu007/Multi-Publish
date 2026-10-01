@@ -129,6 +129,12 @@ jobs:
           # 而 pwsh 7 默认 UTF-8 看不见这件事）。判据与三条 fail-closed 约束见 .github/scripts/check-ps1-bom.js
           node --test .github/scripts/check-ps1-bom.test.js
           node .github/scripts/check-ps1-bom.js
+          # 打包配置的测试文件排除（#2702）：本仓约定单测与被测代码同目录，而 build.files 里
+          # electron 与 node_modules 两条整目录通配曾把 462 个 *.test.* 打进 app.asar
+          # （含内部接口形状、平台端点与错误码字符串）。这里守"声明还在"，
+          # 产物侧的"声明确实生效"由 Build & Release 里 --asar 那一步守（两个维度互相看不见对方）。
+          node --test .github/scripts/check-asar-test-files.test.js
+          node .github/scripts/check-asar-test-files.js
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，
