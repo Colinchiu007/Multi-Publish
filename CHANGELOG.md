@@ -1,3 +1,36 @@
+# [未发布] fix(accounts): 失效账号点卡片打开平台页改走干净会话，修复公众号「二维码加载很久后失败」（2026-09-30，wechat-qr-stale-cookie）
+
+### 现象
+账号管理页点失效的微信公众号账号卡片 → 打开 mp.weixin.qq.com → 二维码位置转圈约 1 分多钟后显示「二维码加载失败」，反复重试均如此。今日 21:08/23:xx 两次复现。
+
+### 根因（日志链定案，非推测）
+- 现场：`shared-user-data/logs/app-2026-09-30.log` 21:08:55 `WebviewManager Created new tab: btab-1` + `LoginNetDiag [wechat_mp/29760847]` ⇒ 本次打开走的是**账号分区** `persist:account-29760847`（不是每次新建的 `persist:auth-*`），即「以账号身份开标签」路径；同日无任何 `auth-auth-wechat_mp-*` 分区新建 ⇒ 没走「去登录」的 AuthViewManager 路径。
+- 关键负证据：全天 `grep -c "clean login session"` = **0**，即 `createNewTabPage` 的干净会话分支一次都没进 ⇒ 12 个失效凭证 Cookie 被原样恢复进登录页会话。
+- 出码侧：`qr response #1 after 3610ms status=200 contentLength=redacted`，之后再无第二次出码、无 4xx、无登录成功导航 ⇒ 符合 #1888 已定案的「getqrcode 200 空体（真码 ~7.6KB）」静默拒绝特征。
+- 为什么修过还复发：`cleanSession` 只写在 `openLoginPage` 里，而 **`openLoginPage` 是死代码**（eslint 稳定告警 `1160:16 'openLoginPage' is defined but never used`，全仓零引用）。真正可达的入口是卡片点击 → `openCreatorCenter`，它对 `wechat_mp` 打开的 URL 就是登录页（`PLATFORM_DASHBOARD_URLS.wechat_mp === PLATFORM_LOGIN_URLS.wechat_mp === 'https://mp.weixin.qq.com/'`），但从来没传 `cleanSession`。**免登录机制恰好堵死了失效账号唯一的自救路径。**
+
+### 修复
+- `src/views/Accounts.vue`：抽出单一判定 `needsCleanLoginSession(account)`（`status === 'expired'`），`openCreatorCenter` 与 `openLoginPage` 共用，杜绝入口各自写一份条件后再次漏掉。
+- 语义不变项：active / unverified 账号仍照常恢复凭证免登录；`expired` 才跳过恢复并清空分区残留 Cookie（主进程既有实现）。
+- 自愈闭环：干净会话会把标签置 `credentialSaveState='unsaved'`，扫码成功后 URL 命中 `cgi-bin/home` → `saveAccountTabCredentials` 自动回写真源，账号变回已登录（此前该路径连保存资格都没有）。
+
+### 验证
+- `vitest run src/views/Accounts.test.js` **113/113 全绿**（新增 4 例：失效账号创作者中心/登录页 `cleanSession===true`、active 回归 `false`、unverified 边界 `false`）。
+- **TDD 红灯实测**：把 `openCreatorCenter` 的 `cleanSession` 临时改回 `false` ⇒ 精确 1 红（`AssertionError: expected false to be true`）且只红这一条，还原后 4/4 绿 —— 锁的是本次逃逸点本身，不是顺带变绿。
+- 静态门禁：eslint 两文件 **0 error**（存量 warning 不变，含那条 `openLoginPage` 未使用）；`check-locale-sync --cjk` PASS（1340 < 基线 1489）；`check-ipc-bridge` PASS（400 handlers / 417 preload，0 缺口）；`check-frontend-consistency` PASS；`check-max-lines` 无新增超限；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（CRLF 未污染）。
+
+### 第二轮：QM-6 外部评审（codex 后端模型）发现项处置（同 PR）
+- **W2 已修（正确性）**：判定补第二路输入 `confirmedExpiredIds` —— 单条 `checkLogin` 只把 id 写进 `checkedExpiredIds`、不回写 `account.status`，`batchCheck` 也仅在返回带 `loginStatus` 时才改写。少了这一路，「刚点完验证就点卡片」仍会带着旧凭证进登录页，事故原地复发。`needsCleanLoginSession(account, confirmedExpiredIds)` 两个入口同步传 `checkedExpiredIds.value`。
+- **I1 已修（边缘）**：判定下沉为共享实现 `src/utils/account-status.js` 的 `accountStatusKind`。卡片展示层原本做 `trim().toLowerCase()`、行为层写严格 `=== 'expired'`，两个口径分叉 ⇒ 「卡片显示已失效」与「点卡片仍按已登录恢复旧凭证」可以同时成立。`AccountManagementCard.vue` 删掉本地副本改为 import 同一份，并新增「全仓 `function accountStatusKind` 恰好一份、且在 utils 下」结构锁。
+- **W4 部分修（可维护性）**：结构锁升级为跨文件 —— `src/views` 下凡带 `accountId` 的 `createTab` 调用点必须声明 `cleanSession`（覆盖 Home 批量登录入口，新入口漏写即红）。Home 批量登录仍保留 `cleanSession: true` 字面量（其目标集合本身全是失效账号），未强行改判定，登记为残余。
+- **W3 / I2 登记不修**：库里脏 `expired` 会让仍有效账号被强制重登 —— 属 fail-open 方向的 UX 回归（凭证不丢、扫码即自愈、同账号其它标签会被一并清登）；反向（失效凭证被恢复）是硬失败且无自愈路径，故维持现方向，不在本 PR 引入批量检测活体证据作判据。
+- **依赖基线挂账（外部事件，非本 PR 引入）**：18:16Z 起 `依赖漏洞审计门禁` 因 12 条新 axios 公告（修复版 >=1.20.0）转红 —— 同分支 15:51Z 那轮 SUCCESS、同一时刻另一在途 PR（head `bb4d2e4d`）同样命中、本 PR 未改任何依赖/lockfile ⇒ 属公告库刷新。已按该门禁自身口径在 `scripts/dep-audit-baseline.json` 登记 12 条 `decision=upgrade-tracked` 并逐条写 note；升级 axios 需连同 HTTP 调用链回归，属独立跟踪项。
+- 新增 `src/utils/account-status.test.js`（输入矩阵：三态 + 错误态字面命中 / 大小写与空白归一化 / 历史脏值 `inactive`/`offline` 落 unknown / 字段缺失与脏类型不抛 / 已确认失效集合命中 / 集合缺失或非 Set 不抛 / 单一实现结构锁）。
+
+### 遗留（不夹带）
+- `openLoginPage` 仍无任何调用点（死代码），本次未删除，仅与新入口共用判定；是否接回 UI 或删除另行决定。
+- 「status=active 但实际已死」的账号仍会恢复凭证（既有已知边界，靠 30 分钟周期检测/一键检测修正为 expired 后自动进入干净会话路径）。
+
 # [未发布] refactor(账号): 资料刷新簇从 account-manager 拆出独立模块（第二刀，销掉 T4.4）
 
 ### 变更
