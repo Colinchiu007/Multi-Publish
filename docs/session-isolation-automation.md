@@ -28,7 +28,9 @@
 
     powershell -ExecutionPolicy Bypass -File scripts/mp-worktree-health.ps1 -RequireClean -RequireHooks
 
-检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Mulpub\session-isolation\health.json，不写入仓库。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
+检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Mulpub\session-isolation\health.json，不写入仓库。
+
+**受管外来 worktree 登记制（2026-10-01）**：harness 级工具（如 WorkBuddy 的项目工作区）会向共享仓库注册隔离目录之外的 linked worktree，健康门禁原本一律判红，导致所有新会话的 `start-mp-task.ps1` 被挡死。现在允许把这类 worktree 登记进机器本地注册表 `%LOCALAPPDATA%\Mulpub\session-isolationllowed-worktrees.json`（JSON 字符串数组，整路径精确匹配，不做前缀通配）；也可用环境变量 `MP_ALLOWED_WORKTREES`（分号分隔）临时追加。已登记的路径在报告 `exemptedWorktrees` 留痕；注册表 JSON 损坏时按空表处理（fail-closed），报告置 `allowedRegistry.valid=false`。未登记的外来 worktree 仍然一律红。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
 
 ## 实时写保护
 

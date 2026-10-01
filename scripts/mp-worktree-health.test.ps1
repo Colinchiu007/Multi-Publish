@@ -102,6 +102,54 @@ try {
     Assert ($r.rc -ne 0) 'missing installed hook fails -RequireHooks'
     Assert ((HookOf $r.report 'post-checkout').installedExists -eq $false) 'missing installed hook reports installedExists=false'
 
+    # 恢复钩子：后面的登记制用例只针对 outside 判定，不能被 case5 留下的缺钩红灯污染
+    Write-Bytes (Join-Path $repo '.git/hooks/post-checkout') $orig
+
+    function NormKey([string]$p) { return $p.Replace('\','/').TrimEnd('/').ToLowerInvariant() }
+
+    # ---- 受管外来 worktree 登记制（2026-10-01）----
+    # worktree add 需要至少一个提交。fixture 自己装了仓库钩子（供前置用例校验），
+    # fixture 的 git 操作必须把 hooksPath 指到空目录禁用钩子，否则 pre-commit /
+    # post-checkout 会在临时仓库里被触发，把测试本身打成红。
+    $noHooks = Join-Path $tmp 'no-hooks'
+    New-Item -ItemType Directory -Force -Path $noHooks | Out-Null
+    & git -C $repo -c "core.hooksPath=$noHooks" add -A
+    & git -C $repo -c "core.hooksPath=$noHooks" commit -q -m 'init'
+    $outsideWt = Join-Path $tmp 'outside-wt'
+    & git -C $repo -c "core.hooksPath=$noHooks" worktree add -q $outsideWt -b outside-branch
+    Assert (Test-Path -LiteralPath $outsideWt) 'fixture: outside worktree created'
+
+    # case 6: 隔离目录之外的 linked worktree、未登记 -> 仍然红（fail-closed 保留）
+    $r = Invoke-Health $health 'case6'
+    Assert ($r.rc -ne 0) 'unregistered outside linked worktree still fails the gate'
+    Assert ((@($r.report.outsideWorktrees) | ForEach-Object { NormKey $_ }) -contains (NormKey $outsideWt)) 'unregistered outside worktree is listed in outsideWorktrees'
+
+    # case 7: MP_ALLOWED_WORKTREES 精确登记 -> 放行并留痕
+    $env:MP_ALLOWED_WORKTREES = $outsideWt
+    $r = Invoke-Health $health 'case7'
+    Assert ($r.rc -eq 0) 'registered outside worktree (env) satisfies the gate'
+    Assert (@($r.report.outsideWorktrees).Count -eq 0) 'registered outside worktree no longer listed in outsideWorktrees'
+    Assert ((@($r.report.exemptedWorktrees) | ForEach-Object { NormKey $_ }) -contains (NormKey $outsideWt)) 'registered outside worktree is recorded in exemptedWorktrees'
+    Remove-Item Env:MP_ALLOWED_WORKTREES -ErrorAction SilentlyContinue
+
+    # case 8: 注册表文件（与 -ReportPath 同目录）同样放行
+    $registryPath = Join-Path $tmp 'allowed-worktrees.json'
+    [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '"]'), [Text.Encoding]::UTF8)
+    $r = Invoke-Health $health 'case8'
+    Assert ($r.rc -eq 0) 'registered outside worktree (registry file) satisfies the gate'
+    Assert ($r.report.allowedRegistry.valid -eq $true -and $r.report.allowedRegistry.count -eq 1) 'registry reports valid with one entry'
+
+    # case 9: 注册表 JSON 损坏 -> fail-closed（视为空表），并置 valid=false
+    [IO.File]::WriteAllText($registryPath, '{ this is not json', [Text.Encoding]::UTF8)
+    $r = Invoke-Health $health 'case9'
+    Assert ($r.rc -ne 0) 'corrupted registry fails closed (unknown outside worktree is red again)'
+    Assert ($r.report.allowedRegistry.valid -eq $false) 'corrupted registry reports allowedRegistry.valid=false'
+
+    # case 10: 登记只做整路径精确匹配，不得前缀通配——登记了另一个路径，真实外来 worktree 仍然红
+    [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '-sibling"]'), [Text.Encoding]::UTF8)
+    $r = Invoke-Health $health 'case10'
+    Assert ($r.rc -ne 0) 'registry entry for a different path does not exempt the outside worktree'
+
     Write-Host ''
     if ($failed -eq 0) {
         Write-Host "PASS: $passed mp-worktree-health hook checks" -ForegroundColor Green
@@ -111,6 +159,7 @@ try {
     exit 1
 }
 finally {
+    Remove-Item Env:MP_ALLOWED_WORKTREES -ErrorAction SilentlyContinue
     Pop-Location -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

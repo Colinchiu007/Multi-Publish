@@ -150,9 +150,5 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
-  },
-  "本次执行记录：公众号二维码加载失败复发——失效账号点卡片走的是免登录会话（wechat-qr-stale-cookie，2026-09-30）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。取证口径：git log origin/main --grep='(#2730)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin wechat-qr-stale-cookie 返回 0 行证远端分支已删。",
-    "status": "PENDING"
   }
 }
