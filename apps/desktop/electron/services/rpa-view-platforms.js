@@ -443,7 +443,10 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          // 2026-10-01 实验：头条**跳过** CDP 网络捕获 —— 该捕获会 `debugger.attach()`，
+          // 而手动成功路径（不加捕获）能触发发布接口、应用路径（加捕获）零请求。
+          // 若跳过后成功，则 `debugger` 附加即为根因。非头条平台保持原样。
+          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 外审更正：`el.click()` 不受遮挡/视口影响，`querySelector` 对含 `:has-text` 的选择器本就
           // 抛错并回落文本匹配 ⇒ 真正起作用的是 `platform-selectors.js` 的候选收紧。
           // 点击前 dump 命中元素 + 页面关键字段实际值（头条"内容为空被静默拦下"的唯一诊断面；必须 try/catch，`:has-text` 选择器裸 querySelector 会抛错）。
