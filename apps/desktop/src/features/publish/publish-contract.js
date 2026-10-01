@@ -263,6 +263,39 @@ export function truncateByChars (value, max) {
   return max > 0 && chars.length > max ? chars.slice(0, max).join('') : text
 }
 
+// 无标题平台把标题并入描述（composeNoTitleDescription 用 '\n' 连接标题与正文），
+// 故正文预算须扣除「标题 + 换行」的真实开销；直接复用该函数计算，避免手写 +1 与实现漂移
+// （E2E 实测：只扣 title.length 时合并后 1001 > 1000，差的就是这个换行符）。
+function noTitleOverhead (platform, title) {
+  if (!isNoTitlePlatform(platform)) return 0
+  const t = String(title ?? '').trim()
+  return t ? Array.from(composeNoTitleDescription(t, 'x')).length - 1 : 0
+}
+
+// 按平台上限裁剪正文（2026-10-01 新增）。与 validatePlatformContent 同源：复用
+// getPlatformContentLimit / isNoTitlePlatform，禁止另写标题合并口径，否则必然漂移。
+export function truncateContentForPlatform (platform, content, title) {
+  const limit = getPlatformContentLimit(platform)
+  const max = Number(limit && limit.contentMax)
+  if (!(max > 0)) return String(content ?? '')
+  return truncateByChars(content, Math.max(0, max - noTitleOverhead(platform, title)))
+}
+
+// 取所有选中平台的**最小**正文预算。只按"首个超限平台"裁会多轮反复
+// （实测：小红书裁到 1000 后，快手因标题计入首行仍报 1021）。
+// 上限为 0 的平台忽略；全为 0 时返回 null（表示无需裁剪）。
+export function minContentBudget (platforms, title) {
+  const list = [...new Set(Array.isArray(platforms) ? platforms : [])]
+  let min = Infinity
+  for (const platform of list) {
+    if (typeof platform !== 'string' || !platform.trim()) continue
+    const limit = getPlatformContentLimit(platform)
+    const max = Number(limit && limit.contentMax)
+    if (max > 0) min = Math.min(min, Math.max(0, max - noTitleOverhead(platform, title)))
+  }
+  return min === Infinity ? null : min
+}
+
 /**
  * 计算字符串的 UTF-8 字节长度（前端无 Node Buffer，用 TextEncoder）。
  * 百家号标题上限按 UTF-8 字节数校验，中文每字 3 字节、英文/数字 1 字节。

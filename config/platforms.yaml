@@ -60,7 +60,7 @@ platforms:
     category: 中文
     content_category: VIDEO
     max_title: 55
-    max_content: 1000
+    max_content: 5000
     enabled: true
   xiaohongshu:
     id: 51
@@ -74,7 +74,7 @@ platforms:
     comment_url: https://creator.xiaohongshu.com/creator/comment
     cover_size: 1080x1080
     max_title: 20
-    max_content: 1000
+    max_content: 5000
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -90,7 +90,7 @@ platforms:
     comment_url: ''
     cover_size: 1080x1080
     max_title: 60
-    max_content: 1000
+    max_content: 5000
     has_api: false
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   kuaishou:

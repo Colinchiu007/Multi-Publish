@@ -1436,6 +1436,7 @@ export default {
       scheduleRollbackFailed: (ctx) => ctx.named('count') + ' scheduled task(s) failed to roll back, please click cancel and retry',
       offlineCacheFailed: 'Failed to cache offline task',
       baijiahaoTitleTruncated: 'Baijiahao title auto-truncated to the 149-byte limit',
+      contentAutoTruncated: (ctx) => 'Content exceeded the platform limit and was auto-truncated (' + ctx.named('before') + ' → ' + ctx.named('after') + ' chars)',
       publishSuccessMessage: (ctx) => ctx.named('platform') + ' published successfully',
       // publish-progress-ux: session-final-state driven result card summaries (PRD §8.4)
       resultAllSuccess: (ctx) => 'Published successfully to all ' + ctx.named('count') + ' platforms',

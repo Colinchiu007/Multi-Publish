@@ -16713,3 +16713,220 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **结构锁要锁「函数体非 no-op」，只锁函数名和调用点会被恒真实现骗过（反证教训）**：第一版身份校验锁只断言 `Test-GitBashIdentity` 存在 + 调用点存在，把函数体改成 `return $true` 后**全绿**——锁没在跑。补上「函数体必须包含 `Test-Path.*dirname\.exe`」才变红。反证纪律：任何防再犯锁必须做「把锁改成 no-op 立刻变红」的变异，且变异要打在**锁声称守卫的那层**。
 - **Git Bash 下 `$TMP`/`$TEMP` 是 Windows 路径（C:\...），与 `mktemp -d` 返回的 POSIX 路径（/tmp/...）不一致（测试夹具坑）**：`session-init.test.sh` 原用 `TMP="${TMPDIR:-/tmp}/..."` 但 `$TMP` 是 Windows 路径，后续 `$TMP/repo` 全部落空（`/repo/base.txt: No such file or directory`）。正解：`TMP="$(mktemp -d ...)"` 直接取 mktemp 的 POSIX 输出，不再引用 Windows 的 `$TMP`。
 - **CI 用 ubuntu 系统 bash 跑 sh 测试，天然带 /usr/bin，永远不会暴露 Windows 非交互 bash 的 PATH 缺失（逃逸链）**：`session-init.test.sh` 在 CI 全绿 ≠ 本机可用。Windows 侧验证必须显式构造「git 可用、dirname 缺失」的 PATH（`PATH=/c/Program Files/Git/cmd:/c/WINDOWS/system32:...`）再跑，才能复现故障现场。
+## 2026-09-30 平台发布链路逆向（@has-text 根因 / 填充读回 / 宿主 SDK 复用）
+
+### `:has-text` 选择器静默退化为「标签第一个元素」
+
+- **类型**：pitfall ｜ **置信度**：10/10 ｜ **来源**：observed
+- **key**：`has-text-selector-silent-fallback`
+
+shared 选择器解析器先执行 `document.querySelector(selector.split(":has-text")[0])`，该调用在真实页面必然成功（返回首个同标签元素）并直接 return，使精心实现的文本匹配从未执行。后果：所有 `xxx:has-text("...")` 候选都点在与意图无关的控件上，而症状伪装成"点了没反应"。修复：含文本谓词时不回落到 base 的 querySelector。教训：症状是"元素在但点击无效"时，第一步必须打印**解析器最终返回的元素**，而不是数候选个数。
+
+### 「日志说成功」不等于「页面上真的有」
+
+- **类型**：pitfall ｜ **置信度**：10/10 ｜ **来源**：observed
+- **key**：`log-success-is-not-page-effect`
+
+`_fillInput` 曾无论是否生效都 `return true`；封面 hook 只看注入 API 是否抛错。两者都让日志显示成功，而页面实际为空（实测页面"共 0 字"）。修复：填充类动作一律**读回页面值**作为判据（`_fillInput` 现返回读回长度并在为 0 时告警）。教训：验收判据落在页面可观测副作用上，不落在返回值与日志上。
+
+### 逆向混淆 SDK 的正解：找到调用点直接调用，而非复刻
+
+- **类型**：pattern ｜ **置信度**：10/10 ｜ **来源**：observed
+- **key**：`reuse-host-capability-not-replicate`
+
+字节系发布接口要求 `tt-anti-token`，由页面加载的混淆安全 SDK 生成。复刻其 VM 不现实，但页面已暴露 `byted_acrawler.sign({url})` —— 直接调用即得签名串。同源先例：登录页 byte-design radio（改 checked 无效、点 label 有效）；编辑器填充（改 innerHTML 无效、走 CDP Input.insertText 有效）。⇒ 优先复用宿主已有能力。由此提出 P0.5 路线（页面内取签 + 自行发 API）。
+
+### 取证必须先确认 target —— 主窗口不是平台页
+
+- **类型**：pitfall ｜ **置信度**：9/10 ｜ **来源**：observed
+- **key**：`evidence-target-must-be-verified`
+
+平台页（RPA 视图）跑在 WebContentsView 里，是**独立 CDP target**；主窗口只有应用自己的 Vue UI。多轮"页面取证"脚本连了主窗口，dump 出的全是应用按钮，据此得出的结论不可信。教训：任何页面取证先打印 `location.href` 与 target url；更稳的做法是把取证写进**应用代码**（天然处于正确 target 与时机）。
+
+### 远程签名服务协议（黑盒还原）
+
+- **类型**：architecture ｜ **置信度**：9/10 ｜ **来源**：observed
+- **key**：`blackbox-sign-service-protocol`
+
+`POST /Sign/GetSign`，body `{url, cookie, signType:"browser", signCommand}`；端口按平台分配（toutiaohao=5031/5032，kuaishou=5008-5011，douyin=5041/5042）；响应 `{msg, signature}`；失败软返回字符串 `"null"`。头条载荷的 cookie 是 `JSON.stringify({qr, body, ua})`。输出 48 字符 base64url，含大段跨样本恒定子串 + 前段雪崩 ⇒ 结构为"固定模板 + 输入特征"，非 AES/纯哈希。**结论：不作为运行时依赖**（服务条款、单点风险、会把用户 cookie 与正文送往第三方）。
+
+### 副作用字段的重试必须指数退避
+
+- **类型**：pattern ｜ **置信度**：9/10 ｜ **来源**：observed
+- **key**：`retry-backoff-for-side-effect-fields`
+
+`publish` 每次重试都是一次真实提交尝试，固定 1.5s 间隔过于密集（实测连续失败 12 轮）易触发风控。`FieldRetryState.backoffMs(name, {sideEffect})`：副作用字段 5s→10s→20s（cap 45s），普通字段 1.2s。
+
+## UI 文案是"渲染层对状态的转述"，判定系统状态必须查真源（ui-copy-is-not-system-state，2026-10-01）
+
+**同一个坑我踩了三次**：
+1. 「发布队列被卡死」—— 面板写着「排队中 / 后台进行中」，我据此判定队列锁死；
+   实际 IPC 查主进程：`pending=0, running=0, paused=false`，队列**是空的**，那是陈旧/静态文案。
+2. 「填充未生效」—— 发布失败后页面被重置，我事后读页面文本为空，据此判定填充失败。
+3. 「内容为空被静默拦下」—— 同上，取证时机错误导致读到重置后的空页面。
+
+**正确做法**：判定"系统处于什么状态"只认**真源**——主进程状态（IPC）、网络请求、组件 props；
+UI 文本只用于判断"用户看到了什么"。
+**反面教材**：把 toast/面板文案当成事实，会做出完全错误的根因结论，并在错误方向上连做多轮排除。
+
+
+## 判定"动作是否发生"要比对副作用；判定"为何没发生"要在动作后立刻抓瞬时反馈（hook-side-effect-then-grab-toast，2026-10-01）
+
+**症状**：点「一键发布」后界面毫无反应（无跳转、无报错、无新任务）。我连续 3 轮误判为
+"按钮失效 / 队列锁死 / loading 吞掉点击"。
+
+**打破僵局的两步（各自只需一次注入）**：
+```js
+// ① 比对副作用：hook 目标 IPC，确认动作到底有没有发生
+var orig = window.electronAPI.publishBatch
+window.electronAPI.publishBatch = function(){ window.__pubHook.calls.push(...); return orig.apply(this, arguments) }
+// ② 抓瞬时反馈：点击后 2–3s 内立即读 toast（它是几秒即逝的）
+document.querySelectorAll('[class*=message],[class*=toast]')
+```
+结果第一次就看到了真相：`抖音正文最多 1000 个字符，当前 1217 个` —— **内容超限被合法拦下**。
+
+**推广**：任何"点了没反应"的排查，先问两个问题 ——
+① 这个动作的**副作用**是什么（IPC / 网络 / 状态变更）？hook 它。
+② 失败时系统给过什么**瞬时反馈**？在动作后立刻抓，别等。
+
+
+## 应用自身是 Vue 3，平台页才是 React —— 探针方法不可混用（vue-app-react-platform-pages，2026-10-01）
+
+发布页 50 个 button 的 `react: 0`（**全部没有 React 属性**）⇒ **应用自身 UI 是 Vue 3**，
+React fiber 探针（读 `__reactInternalInstance` / `__reactEventHandlers`）**对应用 UI 完全无效**；
+而**头条等平台页**是 React（可用 fiber 读 props、`String(fn)` 读 onClick 源码）。
+
+**另一条同族教训**：React 16 用 `__reactEventHandlers$xxx`，React 17+ 才用 `__reactProps$xxx`。
+我曾按 `__reactProps` 前缀探测头条按钮，得到"无处理器"的**误报**；改用 `/^__react/` 通用前缀后
+读到 `onClick: function`。**探测内部属性时要用通用前缀 + 实际判据（typeof p.onClick === "function"）**，
+不要硬编码某一个版本的属性名。
+
+
+## 自动裁剪必须与校验同源：无标题平台要扣除"标题计入首行"的长度（truncate-must-share-source-with-validation，2026-10-01）
+
+**背景**：改写产物 1210+ 字，抖音/小红书/快手正文上限均 1000 字 ⇒ 一键发布被拦。
+我给"正文超限"加了自动裁剪，裁到 `contentMax`（1000）。
+
+**回归实测立刻暴露漂移**：正文裁到 997 后，快手仍报 **1021 > 1000** ——
+因为快手 `titleMax === 0`（**无标题平台**），标题会被 `composeNoTitleDescription` **合并为描述首行**，
+校验用的是**合并后**长度，而我只裁了正文。
+
+**正解**：新增 `truncateContentForPlatform(platform, content, title)`，
+**同源复用** `getPlatformContentLimit` + `isNoTitlePlatform`，无标题平台预算 = `contentMax - 标题长度`；
+并补 4 类单测（无标题扣标题 / 有标题不扣 / 未超限原样 / emoji 按码点不切碎）。
+
+**推广**：任何"校验失败则自动修正"的功能，修正**必须复用校验的同一份口径**；
+另写一份（哪怕看起来等价）必然漂移 —— 这与仓库既有的"禁止第二份标题合并实现"规范同源。
+
+
+## 本会话中应用无法跨命令存活：Job 回收会级联杀掉 Start-Process 启动的 Electron（e2e-app-cannot-outlive-command，2026-10-01）
+
+**现象**：用 `Start-Process` 启动应用后，**下一条命令**里 `http://127.0.0.1:10774/json/list` 必然
+`ECONNREFUSED`、`electron: 0`；而用 `Start-Job` 跑长任务时，job 被 kill 会**连带**杀掉应用。
+`schtasks`（计划任务）在非交互会话下也起不来 Electron（任务显示已运行但进程不存在）。
+
+**可行模式**：把「启动 → 等待（≤ 约 200s）→ 验证」压进**同一条命令**；
+并接受可能出现的 `Windows Job runner exited … before proving its managed range empty` 提示 ——
+该提示出现时命令往往**已部分成功**，需再用一条短命令接续验证。
+
+**排查价值**：这条环境铁律此前被误读为"应用反复消失/电脑死机"，实际是本会话的命令生命周期行为。
+
+## 与外部系统耦合的口径，必须用真实读数收敛（单测只能锁定已知口径）（external-contract-needs-real-readings，2026-10-01）
+
+**案例**：给「正文超平台上限」加自动裁剪。我按注册表的 `contentMax` 裁剪，
+自认逻辑正确、也写了单测。真机回归却连续两轮打脸：
+
+| 版本 | 裁剪依据 | 结果 | 差距 |
+|------|---------|------|------|
+| v1 | `contentMax` | 快手表 1021 | 超 21 —— 漏扣标题 |
+| v2 | `− title.length` | 快手表 1001 | **超 1** —— 漏扣换行符 |
+| v3 | `− (标题 + 换行)` | 恰好 1000 | ✅ |
+
+**两处都不是读代码能发现的**：
+1. 「无标题平台把标题并入描述」这条规则我**知道**，但没想到要扣；
+2. 合并实现是 `[title, content].join('\n')` —— **那个 `\n` 我完全没意识到**，
+   直到实测报出「1001」这个只差 1 的数字才回头去读源码。
+
+**方法论**：
+- 单测**只能锁定我已经知道的口径**；与外部系统（平台校验、第三方 API）耦合的口径，
+  必须用**真实读数**收敛 —— 尤其要盯住"只差一点点"的数值（差 1 往往意味着漏了一个分隔符/边界）。
+- **修正方案必须复用对方的口径函数**（这里直接用 `composeNoTitleDescription` 算开销），
+  而不是手写常量：`join('\n')` 若哪天改成 `join('\n\n')`，同源实现自动适配，手写 `+1` 则静默漂移。
+- **裁剪要一次到位**：按"首个超限项"逐一修会产生多轮反复（小红书裁完轮快手），
+  应一次性取**所有约束的最小预算**（`minContentBudget`）。
+
+**一句话**：*内部自洽不等于外部一致；跨边界的行为要用跨边界的证据来定。*
+
+## 阈值三问：凡按阈值校验/裁剪的逻辑，必须问清来源、真源数量与消费者（threshold-three-questions，2026-10-01）
+
+**事故**：用户问「抖音/小红书/快手的 1000 字上限，是平台限制还是应用限制？」
+—— 这一问直接暴露了两个平台发布失败的根因。我此前把 1000 当平台限制接受，
+据此写裁剪逻辑、写进 PRD、在报告中断言"平台限制 1000 字"，**全都建立在未验证的假设上**。
+
+**实况：同一组阈值散落在三处，且不一致**
+| # | 真源 | douyin/xhs/kuaishou/tencent_video | 消费者 |
+|---|------|----------------------------------|--------|
+| 1 | `publish-capabilities.json` | 均 1000 | **前端校验** |
+| 2 | `config/platforms.yaml` | 1000，但 **kuaishou 480**（带实测取证） | RPA 引擎 |
+| 3 | `CONTENT_LIMITS`（api-publish-engine） | 均 1000 | API 发布引擎 |
+
+前端校验读 ① 的 1000 ⇒ 裁到 976 ⇒ 仍超快手真实 ~500 ⇒ 平台静默拒绝 ⇒
+应用只看到 `publish verification timeout`。修正为 抖音/xhs/视频号 5000、快手 480 后，
+**平台侧证实**：快手管理页 0 → **27 个作品**；抖音队列 failed → **success（创作中心 225 作品）**。
+
+**⭐ 阈值三问（必须能回答，否则该阈值就是未经验证的假设）**
+1. **从哪来？** 平台官方 / 本仓实测取证 / 拍脑袋？
+   （合格范例：`platforms.yaml` 快手的 480 附"截图取证 + 计数器 x/500 + 留 20 字边距"。）
+2. **有几处真源，是否一致？** 本次答案是"**三处，且不一致**"。
+   并确认**防漂移回归锁存在且在跑** —— 本例 `content-formatter-registry-sync.test.js`
+   的「全 15 平台一致」锁**在 CI 中抓住了我的遗漏**（我只同步了 ①②，漏了 ③）。
+3. **被谁消费？** 校验 / RPA / API 引擎各读哪一份？分属不同链路就必须**同时同步**。
+
+**认知教训**
+- **"没报错"不等于"假设成立"**：1000 从未被任何证据支持，但它像常识，于是被当成事实沿用。
+- **外部系统的行为要用外部证据定**：队列 success/failed 只是应用自己的记账。
+  平台是否真收到，唯一判据是**打开平台内容管理页数作品**。
+  本项目已三次栽在"以表象代事实"：面板文案 ≠ 队列状态；URL 参数 ≠ 发布成功；队列 success ≠ 平台已收。
+- **用户的业务质疑是一等输入**：本次不是靠更深的代码阅读，而是靠一句质疑翻转的。
+  代价是外围排查了十余轮（选择器/执行通道/封面/网络捕获/焦点/重渲染/节流/loading/defer-publish），
+  **唯独没怀疑过阈值本身**。
+
+**一句话**：*遇到"被拦"，先问"这个数字是谁定的"，再问"它有几份、谁在读"。*
+
+## 负结果要落盘；探针要放对生命周期（否则会读到"错误的干净对象"）（negative-results-and-probe-lifecycle，2026-10-01）
+
+**背景**：头条发布点不动（点击后零网络请求）。为此我做了 13 项排查、4 次修复，全部失败。
+但这轮工作并非白费 —— 它产出了两条可复用的工程纪律。
+
+### 纪律一：**负结果和证实同样有价值，必须写下来**
+13 项排除里，有 3 项是**长期被当作根因的假设**，本次被**实测证伪**：
+- 「deferred `_e` 已被占用」→ 应用内探针实测 `NO_DEFER(btns=2)`；
+- 「loading 为真时点击被吞」→ 改成读 fiber 的 `memoizedProps.loading` 后确认 loading=false；
+- 「执行上下文不同（isolated vs main world）」→ 接通 CDP 通道后仍零请求。
+
+**价值**：把搜索空间从"整条发布链路"压到"闭包内的单点（`m`/`b`/`doPublish`）"。
+**若不写下来**，下一个人会把这些假设再试一遍 —— 每项都要一次真机窗口（约 400s）。
+**做法**：每条排除都记录「怎么测的 / 得到什么读数 / 排除了什么」。
+
+### 纪律二：**探针要放在正确的生命周期里**
+我最初把探针放在**外部脚本**（发布后读页面），结果是：
+```
+无头条页，用应用打开发布页…        ← 它新开了一个干净页！
+{"found":false, ...}                ← 这个读数【无效】
+```
+**原因**：应用发布结束后原 `WebContentsView` 页面已从 target 列表消失，脚本按 URL 匹配不到它，
+于是**新开了一个干净页**并在其上取值 —— 得到一个**看起来正确、实则无关**的 `found:false`。
+
+**修正**：把探针**移入应用内部**，在 `publishing...` 之后、点击之前的**同一次生命周期**内读取，
+一次就拿到了可信读数（`NO_DEFER(btns=2)` + 逐层 props）。
+
+**推广**：凡"在某个过程之后读取状态"的探针，先问 **"那时那个对象还活着吗？"**
+若对象可能已被销毁/重建，而探针会**静默地在新对象上取值**，那它给出的不是"没找到"，
+而是**一个和问题无关的答案** —— 这比报错更危险，因为它看起来像结论。
+
+### 附：一条上下文纪律
+本任务全程受"应用无法跨命令存活"约束（Job 回收会级联杀掉 Electron），
+因此每轮真机验证都必须把「启动 → 轮询等 CDP 就绪 → 执行 → 读日志」压进**同一条命令**；
+把固定 `sleep` 改为**轮询就绪条件**后，验证窗口从"经常跑不完"变为"稳定跑完"。
+
+**一句话**：*证明"不是它"和证明"是它"一样要留下证据；而取值时先确认"那个东西还在不在"。*

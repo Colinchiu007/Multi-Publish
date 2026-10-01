@@ -76,6 +76,9 @@ vi.mock('@/stores/publishProgress', async () => {
 
 import { reactive } from 'vue'
 import { useBatchPublish } from '../composables/useBatchPublish'
+// 与被测校验 validatePlatformContent 同源的上限读取（单一真源）：
+// 超限测试数据从注册表实时推导（limit+1），平台上限调整时测试不再漂移
+import { getPlatformContentLimit } from '../features/publish/publish-contract'
 
 function futurePublishTime (minutes = 10) {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString()
@@ -1217,8 +1220,9 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
     const r = useBatchPublish({ article, licenseStore })
     r.articles.value = [{
       title: '小红书标题',
-      // 小红书正文上限（注册表 contentMax）由共用工单给出，这里用远超任何平台上限的长度
-      content: '长'.repeat(5000),
+      // 超限长度 = 注册表 contentMax + 1（同源推导）。勿改回硬编码：
+      // 上限值曾从 1000 调到 5000，硬编码 '长'.repeat(5000) 不再超限导致整批放行（CI Gate 4 事故）
+      content: '长'.repeat(getPlatformContentLimit('xiaohongshu').contentMax + 1),
       platforms: ['xiaohongshu'],
       publishTime: '',
     }]
@@ -1236,8 +1240,9 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
       content: '合规正文',
       platforms: ['douyin'],
       publishTime: '',
-      // 抖音正文上限 1000（注册表），表单正文合规、但本篇的差异化覆盖超限
-      platformOverrides: { douyin: { title: '', content: '正文'.repeat(600) } },
+      // 差异化覆盖超限 = 注册表 contentMax + 1 字符（'正文' 两字一组，向上取整组数）。
+      // 勿改回硬编码：douyin 上限 1000→5000 后 repeat(600)=1200 不再超限导致放行（同上事故）
+      platformOverrides: { douyin: { title: '', content: '正文'.repeat(Math.ceil((getPlatformContentLimit('douyin').contentMax + 1) / 2)) } },
     }]
 
     await r.handleBatchPublish()
