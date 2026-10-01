@@ -2,9 +2,6 @@
 record: gate-record-presence-impl
 task: 落地执行记录存在性判据（enforce-gate-record-presence 第一步：基础设施 + advisory 接线）
 date: 2026-09-30
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：执行记录存在性判据第一步——两源收口 + 新脚本 + advisory 接线（gate-record-presence-impl，2026-09-30）
@@ -24,11 +21,12 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 存量处置 | PASS | `_legacy-absent.md` 由脚本从 git+gh 派生（禁止手抄），登记 70 条（其中 57 条三处皆无、13 条走了 #2553 式承载出口），并带正控 99 条 / 负控混入 0 的对照轮；文件写一次即冻结，forward-only 判据不读它 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine` 与任何 UI；改动面为 `scripts/`、`openspec/`、`.github/workflows/` |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，按门禁口径如实登记，不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有 PASS 口径回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，远端分支删除取 `git ls-remote --heads origin gate-record-presence-impl` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段**（留着会被判"已回填却仍留登记字段"） |
+| 远程同步 | PASS | PR #2717 于 2026-09-29T22:55:15Z squash 合并，merge SHA `8dad3b150e55d28d97aec7312b79441bc0d82a28`；`git merge-base --is-ancestor <该 SHA> origin/main` rc=0 证已常驻 origin/main；`git ls-remote --heads origin gate-record-presence-impl` 返回 0 行证远端分支已删。第 6 组 runner 现场证据已取到：run `36636248036` attempt 1 / job `QG Static` 打印「本 PR 变更文件 13 个（A=6 M=7 D=0）」与「MODE=advisory（尚未接进判定…）」，同一步 14/14 passed —— 三点 diff 在真实 `actions/checkout` 下确实取得到非空变更集，转阻断的硬前置成立 |
 
 ### 遗留与已知边界（不假装已闭合）
 
-- **本判据目前不拦截任何东西**：CI 以 `--mode=advisory` 接线，退出码恒 0。转阻断是 tasks 第 7 组，前置是第 6 组要求的那份 runner 现场证据（三点 diff 在 `actions/checkout` 默认配置下真的取得到变更集）。
+- **本判据目前不拦截任何东西**：CI 以 `--mode=advisory` 接线，退出码恒 0。第 6 组要求的 runner 现场证据**已于 2026-10-01 取到**（run `36636248036` attempt 1 / job `QG Static`，见上表「远程同步」行），转阻断的技术前置成立；**经用户决定推迟**到在途 PR 排空后再做第 7 组，因为此刻 7 个在途 PR 全部不带新载体记录，立刻转阻断会把它们下次 push 判红。触发条件写成可机械核对的一句：`gh pr list -R Colinchiu007/mulpub --state open` 为空（或在途 PR 全部携带 `openspec/records/` 记录/豁免）。
+- **上面那句"转阻断删掉参数就会被测试问住"只在脚本侧成立，CI 侧不成立**（本次回填时逐条读 `check-pr-exec-record.test.js` 的 14 条测试实测）：没有任何一条读 `.github/workflows/quality-gate.yml`，所以"CI 仍停在观察态"这一事实目前无人检测——workflow 注释里"该标记行被 test 钉住"的说法把**脚本能跑 advisory** 说成了**接线状态被钉住**。第 7 组转阻断时必须同时补一道读 workflow 的结构锁（断言该步不再出现 `--mode=advisory`），否则 D8 想防的"永远停在观察"依然没有收束物。本条同时是 `Gate 2c2` 注释需要改写的依据，留到第 7 组与删参数同 PR 做（那一步本来就要碰 workflow）。
 - **远端分支清单取不到时，"已消费豁免"判定降级为 unknown**：脚本打印 `consumed=unknown` 但不判红。这是一处**有意的 fail-open**——网络抖动不该让必需检查变红——代价是"待清理豁免堆积"这条约束在 ls-remote 故障期间失灵。
 - **同一 change 目录内仍与并发会话共享**：`tasks.md` 勾选是同行区域的竞争点，本次只改自己那 34 条，未碰他人 change。
 - 阈值 3、豁免 `exempt_for` 是否需要 expires 字段，都要等第一步在 runner 上真跑一段时间后按分布回调，不现在拍数字。
