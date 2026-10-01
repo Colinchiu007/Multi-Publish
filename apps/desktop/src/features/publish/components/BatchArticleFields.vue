@@ -42,13 +42,6 @@
         >
           {{ t('publishPage.batchFieldSurface.clearCover') }}
         </UiButton>
-        <!-- 状态投影：测试断言「条目级封面写点」用，不参与视觉 -->
-        <div
-          :data-testid="`batch-cover-state-${index}`"
-          :data-cover-path="article.cover_path || ''"
-          :data-cover-url="article.cover_url || ''"
-          hidden
-        ></div>
       </div>
       <UiInput
         :model-value="article.cover_url"
@@ -57,6 +50,12 @@
         :data-testid="`batch-cover-url-${index}`"
         @update:model-value="value => emit('update:cover-url', value)"
       />
+      <!-- 远程 URL 只提交不预览：缩略图位依赖主进程把本地绝对路径转 dataURL
+           （渲染层 CSP 的 img-src 不含 file:，远程图另是一回事），
+           因此「只填 URL」时用户看不到图。此处必须出声，否则该态读起来像「封面没设上」。 -->
+      <p v-if="coverIsUrlOnly" class="batch-field-hint" :data-testid="`batch-cover-url-only-${index}`">
+        {{ t('publishPage.batchFieldSurface.coverUrlOnlyHint') }}
+      </p>
       <p class="batch-field-hint">{{ t('publishPage.batchFieldSurface.coverHint') }}</p>
     </div>
 
@@ -143,6 +142,12 @@ const overrideSpecs = computed(() => surface.overridePlatformSpecsFor(props.plat
 
 // 预览挂在该条目的 cover_path 上（与单篇同一结论：挂字段才不会漏接线——封面有多个写入口）
 const coverPreview = useCoverPreview(() => props.article.cover_path)
+
+// 「本地封面优先」的判据必须与 payload 侧 resolveCoverFields 同源（看 cover_file，不看派生描述符），
+// 否则提示文字会说「仅 URL」而实际发布的是本地文件——那等于给用户一条假提示。
+const coverIsUrlOnly = computed(
+  () => !String(props.article.cover_file?.path ?? '').trim() && Boolean(props.article.cover_url),
+)
 
 const showDiff = ref(false)
 

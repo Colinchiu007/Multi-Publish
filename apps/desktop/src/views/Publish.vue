@@ -117,7 +117,7 @@
               :index="idx"
               :platform-catalog="platforms"
               @update:cover="descriptor => setBatchArticleCover(a, descriptor)"
-              @update:cover-url="value => a.cover_url = value"
+              @update:cover-url="value => setBatchArticleCoverUrl(a, value)"
               @update:visibility="value => setBatchArticleVisibility(a, value)"
               @update:overrides="next => setBatchArticleOverrides(a, next)"
               @clear-cover="clearBatchArticleCover(a)"
@@ -1256,6 +1256,7 @@ const {
   toggleBatchAccount,
   isBatchAccountSelected,
   setBatchArticleCover,
+  setBatchArticleCoverUrl,
   clearBatchArticleCover,
   setBatchArticleVisibility,
   setBatchArticleOverrides,

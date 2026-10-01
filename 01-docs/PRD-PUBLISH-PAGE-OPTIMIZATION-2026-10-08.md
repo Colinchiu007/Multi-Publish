@@ -38,9 +38,9 @@
 | 3 | **平台原生草稿往返** | per-platform draftId 存平台侧可回取 | 草稿只存本地 | 🟠 P1-3 |
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
 | 5 | platform-capable 字段补齐 | visibility(5)/location(3)/goods(4)/activity(3)/download(2)/music(2)+独有项 | ~~注册表已收录未实现~~ → **visibility 5 平台已打通**（2026-10-09 第三切片：语义级通用控件 + resolver/adapter 补齐 + 字段转 implemented）；其余语义仍待立项 | 🟠 P1-5 ✅ |
-| 6 | 数据回流看板 | 总转评赞/播放/发布总数 + 趋势图 | 无发布后数据回流 | 🟡 P2-6 |
+| 6 | 数据回流看板 | 总转评赞/播放/发布总数 + 趋势图 | ~~无发布后数据回流~~ → **现状纠偏（2026-10-09 勘察，见 §六 P2-6/P2-8 纠偏）**：互动数据已在采集并落库（`performance_snapshot` 实测非零），缺的是**看板聚合**与一处归因断链 | 🟡 P2-6 |
 | 7 | 批量模式字段面 | 任务结构支持全字段 | ~~批量缺封面/徽标/无标题提示/差异化面板~~ → **已实现**（2026-10-09 第六切片：三层同时收口——UI 字段面 + payload 键集与单篇同口径 + 主进程 `executeBatch` 白名单砍键修复，详见 §六 与 [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)） | 🟡 P2-7 ✅ |
-| 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | 无分组 | 🟡 P2-8 |
+| 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | ~~无分组~~ → **现状纠偏（2026-10-09 勘察，见 §六 P2-6/P2-8 纠偏）**：分组 CRUD + 面板 + 筛选**已全部存在**，但只活在渲染层 `localStorage`，未落持久化真源、发布页也不消费 | 🟡 P2-8 |
 
 **核心结论**：字段面已反超；真正差距集中在**发布后的世界**——审核状态跟踪（P0-1）是矩阵工具的核心价值分水岭，参考产品把「发布成功」当起点，我们目前当终点。
 
@@ -382,10 +382,20 @@ task:success（有 postId）
 > 详写见 [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)（六维度全量）。此处只记结论与差距表纠偏。
 
 - **差距表原判据需纠偏**：原文写「批量缺封面/徽标/无标题提示/差异化面板」，把它当成 UI 缺口。实施时勘察发现是**三层同时断**——主进程 `batch-manager.executeBatch` 用 5 键手工白名单入队（同文件 `scheduleBatch` 却整包透传），渲染层批量 payload 比单篇少 `contentFormat`/`platformOverrides`/`visibilitySemantic` 三键，UI 层 `cover_*` 等字段**只有读点、没有写点**。只补 UI 会得到一组「填了不生效」的装饰性输入框。
-- **parity 锁当场命中第二颗雷**：排期路径整包透传 article，却不把本次派发目标写进 `article.accountId`，而 `publisher-router.resolveAccountForPublish` 读的正是 `article.accountId`（缺失即回退平台默认账号凭证）⇒ **同平台多账号的批量排期会拿错账号凭证**。三条派发点已收敛到 `buildEnqueuedArticle(article, accountId)` 一处实现。
+- **parity 锁当场命中第二处口径分裂（经评审纠正，不属用户可见缺陷）**：排期路径整包透传 article 却不写 `article.accountId`，而凭证解析 `publisher-router.js:353` 的 `loadAuthForTask` 读的正是它。此前该路径靠 `buildPublishArticle:247` 的 `|| task?.accountId` 兜底才恰好取对（原记「同平台多账号会拿错凭证」不成立，已撤回）；真实问题是 `article` 压过 `task` 这条隐式优先级。三条派发点现收敛到 `buildEnqueuedArticle(article, accountId)` 逐次显式覆盖。
 - **判据下沉**：单篇字段面判据（支持度徽标 / 无标题提示 / 可见性支持清单 / 差异化面板规格）原内联在 `Publish.vue` 且只认全局 `selectedPlatforms`；现下沉为 `usePublishFieldSurface`（按传入平台清单计算），单篇与批量同一份，两模式不可能口径漂移；同时给 `Publish.vue` 净减 27 行（该文件距 `LEDGER_GREW` 上限原本只剩 4 行）。
 - **交付面**：条目级封面（手选 + 预览 + 清除 + URL）、通用字段支持度徽标、无标题平台首行提示、平台差异化内容面板、可见性语义档位、Markdown 内容格式判定、注册表内容限制校验（批量此前完全不调 `validatePlatformContent`）。
 - **反证四条均已实跑**（整包透传退回白名单 ⇒ 红 2；override 归一 no-op ⇒ 红 1；内容校验恒通过 ⇒ 红 2；无标题提示忽略入参清单 ⇒ 红 3），每条变异后逐字节还原并校验 SHA。
+
+### 后续项现状纠偏（2026-10-09 勘察，未实施 —— 写给下一个会话，省一次重复研究）
+
+做 P2-7 时顺手核实了 P2-6 / P2-8 的「本仓现状」列，两处判定**都过期了**。证据基准是 `origin/main`（本节核对时为 `2452b4a4`）；每条行号都按**内容唯一命中**复核过（不是"该行非空"——后者会让引用漂移而文档不报错，本节初稿就有 5 条这样混过去的）：
+
+- **P2-8 账号分组：不是「无分组」，而是「已有但只活在渲染层」。** 分组状态与全套操作都在 `apps/desktop/src/stores/accounts.js`（`:32` `groups = ref([])`；`:258 createGroup` / `:273 deleteGroup` / `:277 renameGroup` / `:286 setGroupPlatform` / `:298 getGroupAccounts` / `:310 toggleAccountInGroup`；账号删除后还做组内清理），三个 UI 组件也已存在（`features/accounts/components/AccountGroupsPanel.vue` / `AccountGroupManager.vue` / `PlatformAccountGroup.vue`）。但持久化只有 `localStorage`（`:225` 读 / `:252` 写，键 `mp_account_groups`；实现侧全仓仅此一个文件，另见 `stores/accounts.test.js` 的同名夹具）⇒ 换机/重装即丢、多设备不同步；发布页对账号分组**零接入**——`views/Publish.vue` 里 `groups` 唯一命中是 `:556` 的 `:groups="groupedPlatforms"`（平台分组，见下条同名陷阱），且全文 `useAccountsStore` 命中 0 次。⇒ 真实工作量是「落持久化真源 + 接发布页按组勾选」，不是从零做分组。
+- **⚠️ 同名陷阱**：`PublishTargetSelector.vue:81` 的 `groups` prop 是**平台分组**（来自 `usePublishPlatformCatalog` 的 `groupedPlatforms`，运行时计算、不存储），与上面的**账号分组**语义不同却同名。给发布页加「按账号组勾选」时**不得**复用该 prop 名，否则两套语义在同一组件撞车。
+- **P2-6 数据看板：不是「无发布后数据回流」，互动数据已在采集并落库。** 写链完整：`services/platform-metrics/index.js`（文件自注「第一批」只注册了 zhihu / baijiahao / kuaishou / bilibili 四个 parser，返回 `views/likes/comments/favorites/shares`；未注册平台 `recrawl_status = unsupported`）→ `bootstrap/phase4-events.js:136-152` 建 `tracked_content` → `services/performance-recrawl-service.js:86-95` 按采样节奏写快照 → `services/store/performance-loop-store.js:183 addPerformanceSnapshot` 落 `performance_snapshot` 表（DDL：`services/activate-viral-schema.js:79`）。**缺的是三样**：① 没有「总量 + 平台分布 + 趋势」的聚合看板——现有 `views/Dashboard.vue`（`:288`）/ `Home.vue`（`:338`）都走 `api.dashboardStats()` → `ipc-handlers/publish.js:489` → `services/publish-history.js:243 getStats`，口径只有发布数/成功率/平台分布，**无一个互动指标**；② 已有的 `views/PerformanceInsights.vue` 读 `pattern_performance`，而归因 `pattern-attribution-service.js:44` 要求 `rewrite_history_id` 非空、`:48` 要求 `knowledge_refs` 含 `viral_library`，`phase4-events.js:147` 只在任务带 `rewriteHistoryId` 时才填 ⇒ **不经「从爆文库改写」路径发布的内容永远进不了该表**（归因断链，不是缺采集——这就是该页现在空着的根因）；③ 抖音/小红书/公众号**未注册 parser**（`unsupported`），这三家的互动数必须等平台端点取证，与 §四 P0-1 的取证清单是同一条依赖，**不属可离线范围**。⇒ P2-6 的可离线最大子集 = 聚合 `performance_snapshot` 出总览/趋势/Top-N（纯 SQL + 新视图，不需真机）。
+
+**（本节只纠偏现状判定，不代表已实施；两项的六维度规格各随其 PR 落地。）**
 
 ## 五、残余限制
 

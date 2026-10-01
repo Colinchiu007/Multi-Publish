@@ -185,6 +185,24 @@ describe('BatchArticleFields（批量条目字段面）', () => {
     expect(wrapper.find('[data-testid="batch-fields-3"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="batch-fields-0"]').exists()).toBe(false)
   })
+
+  it('只有远程 URL 封面时如实提示「不预览远程图片」（不得读起来像封面没设上）', () => {
+    const w = mountWith(articleOf({ cover_url: 'https://cdn.example/only.jpg' }))
+    const hint = w.find('[data-testid="batch-cover-url-only-0"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('不预览远程图片')
+  })
+
+  it('已选本地封面时不得再出「仅远程地址」提示（提示必须与 payload 的本地优先同口径）', () => {
+    const w = mountWith(articleOf({
+      cover_url: 'https://cdn.example/stale.jpg',
+      cover_path: 'D:/covers/a.png',
+      cover_file: { path: 'D:/covers/a.png', name: 'a.png' },
+    }))
+    expect(w.find('[data-testid="batch-cover-url-only-0"]').exists()).toBe(false)
+    // 清除封面按钮对两种来源都要在（否则远程 URL 态无法回到「无封面」）
+    expect(w.find('[data-testid="batch-clear-cover-0"]').exists()).toBe(true)
+  })
 })
 
 async function flushPromises () {

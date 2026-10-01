@@ -1447,6 +1447,7 @@ export default {
       coverHint: 'Each article can have its own cover; entries without one fall back to the platform default',
       diffHint: 'Adjust the title, body and per-platform fields for this article only; other articles are unaffected',
       noPlatformHint: 'No platform selected for this article; differential settings appear once you pick one',
+      coverUrlOnlyHint: 'The remote cover URL is submitted with the task, but the thumbnail cannot preview remote images; pick a local cover to preview it',
       clearCover: 'Clear cover',
     },
     batchNotify: {

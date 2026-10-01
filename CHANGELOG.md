@@ -9,7 +9,7 @@
 ### 修复
 
 - **主进程派发层砍键（真实缺陷）**：`batch-manager.js` 的 `executeBatch` 用 5 键手工白名单（title/content/author/cover_url/video_path）入队，而同文件 `scheduleBatch` 是整包透传 ⇒ 同一批文章「设了定时就带封面、立即发布就没封面」，且渲染层早已发送的 `cover_path` / `images` / `tags` / `topics` / `mentions` / `aiGenerated` 在立即执行路径上**一直**被静默丢弃。现三条派发点统一走 `buildEnqueuedArticle(article, accountId)`。
-- **批量排期拿错账号凭证**：排期路径整包透传却不把本次目标写进 `article.accountId`，而 `publisher-router.resolveAccountForPublish` 读的正是 `article.accountId`（缺失即回退平台默认账号）。由 `executeBatch ↔ scheduleBatch` 字段面 parity 锁当场暴露。
+- **批量派发目标改为显式覆盖（一致性加固，非缺陷修复）**：`article.accountId` 优先于任务顶层，排期路径此前不带该键、靠 `buildPublishArticle` 的 `|| task?.accountId` 兜底才恰好取对（原记「会拿错账号凭证」经实测撤回）；现由 `buildEnqueuedArticle` 逐次覆盖派发目标。同一条 `executeBatch ↔ scheduleBatch` 字段面 parity 锁暴露的**字段丢失**才是本切片修掉的用户可见缺陷。
 
 ### 重构
 

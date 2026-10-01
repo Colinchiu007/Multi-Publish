@@ -31,7 +31,6 @@ import {
 } from '@/api/publisher'
 import {
   buildPublishTargets,
-  normalizePublishFile,
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
@@ -41,6 +40,7 @@ import {
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
 import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
+import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
 let _keyCounter = 1
@@ -176,8 +176,8 @@ export function useBatchPublish(options) {
    */
   function buildBatchArticlePayload (a) {
     const imageFiles = normalizePublishFiles(a.image_files || a.images)
-    const coverFile = normalizePublishFile(a.cover_file || a.cover_path || a.cover_url)
-    const coverPath = coverFile?.path || String(a.cover_path || a.cover_url || '').trim()
+    // 封面三键的互斥口径由共享实现持有（单篇同一条），本地封面不得被残留 URL 遮蔽
+    const cover = resolveCoverFields(a)
     const tags = normalizePublishStringList(a.tagsText || a.tags)
     const topics = normalizePublishStringList(a.topicsText || a.topics)
     const mentions = normalizePublishMentions(a.mentionsText || a.mentions)
@@ -190,7 +190,7 @@ export function useBatchPublish(options) {
       publishTime: a.publishTime || null,
       precheck: precheckEnabled.value,
       author: a.author || '',
-      cover_url: a.cover_url || '',
+      cover_url: cover.cover_url,
       video_path: a.video_path || '',
       // P0-2：批量 payload 补 AI 声明，与单篇 buildArticleData 的 fail-safe 语义对齐
       aiGenerated: a.aiGenerated !== false,
@@ -203,8 +203,8 @@ export function useBatchPublish(options) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
     }
-    if (coverPath) data.cover_path = coverPath
-    if (coverFile) data.cover_file = coverFile
+    if (cover.cover_path) data.cover_path = cover.cover_path
+    if (cover.cover_file) data.cover_file = cover.cover_file
     if (tags.length > 0) data.tags = tags
     if (topics.length > 0) data.topics = topics
     if (mentions.length > 0) data.mentions = mentions
@@ -299,6 +299,18 @@ export function useBatchPublish(options) {
     articleItem.cover_file = descriptor
     articleItem.cover_path = descriptor.path
     return true
+  }
+
+  /**
+   * 写「远程封面 URL」——与 setBatchArticleCover 成对存在的另一个封面写点。
+   *
+   * 只写 URL，不清本地封面：两者同时存在时 payload 侧由 resolveCoverFields 判「本地优先」，
+   * 用户若要改用 URL 必须显式点「清除封面」（那是个破坏性动作，不该由一次打字代做）。
+   * 界面靠 coverUrlOnlyHint 出声说明这一点，不靠静默覆盖。
+   */
+  function setBatchArticleCoverUrl (articleItem, value) {
+    if (!articleItem) return
+    articleItem.cover_url = typeof value === 'string' ? value : ''
   }
 
   function clearBatchArticleCover (articleItem) {
@@ -792,6 +804,7 @@ export function useBatchPublish(options) {
     isBatchAccountSelected,
     // P2-7 批量条目字段面写入点
     setBatchArticleCover,
+    setBatchArticleCoverUrl,
     clearBatchArticleCover,
     setBatchArticleVisibility,
     setBatchArticleOverrides,

@@ -1447,6 +1447,7 @@ export default {
       coverHint: '每篇文章可单独设置封面；未设置的条目按平台默认处理',
       diffHint: '只为本篇所选平台单独调整标题/正文与差异化字段，不影响其他文章',
       noPlatformHint: '本篇尚未选择平台，差异化设置将在选择平台后可见',
+      coverUrlOnlyHint: '远程封面地址会随任务提交，但缩略图不预览远程图片；需要预览请改选本地封面',
       clearCover: '清除封面',
     },
     batchNotify: {

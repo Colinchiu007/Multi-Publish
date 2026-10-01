@@ -24,7 +24,7 @@ roadmap 对 P2-7 的一句话描述是：**参考产品的批量任务结构支�
 
 第二个实施期发现：**单篇的字段面判据是内联在 `Publish.vue` 里的**（`:1185-1221` 的 `commonFormFields` / `fieldSupportText` / `noTitleHint` / `visibilitySemanticSupport` / `visibilityUnsupportedHint` / `selectedOverridePlatforms`），批量要复用只有两条路——抄第二份（违反 AGENTS.md「单一真源」与质量节拍 P4/DRY），或**下沉为共用实现**。本切片选后者：把判据参数化为「按平台清单」，单篇与批量同口径消费。这条重构同时给 `Publish.vue` 腾出行数预算（该文件挂账 1515 行、现 1711 行，距 `LEDGER_GREW` 上限 1715 行只剩 4 行，见 §六.5）。
 
-第三个发现由 ①↔② 的 parity 锁**当场命中**（写锁之前并不知道）：排期路径 `scheduleBatch`（`:415`、`:440`）整包透传 article，却**不把本次派发目标写进 `article.accountId`**；而 `publisher-router.js:356` 的 `resolveAccountForPublish` 读的正是 `article.accountId`（缺失即回退「平台默认账号」的凭证）。于是**同一平台挂多个账号时，批量排期任务会用错账号的凭证**——立即执行路径反而没这个毛病（它写了 `accountId`）。两条路径的字段面差异不只是「少几个键」，还包含「同一个键只在一侧存在」。本切片把三条派发点（executeBatch / scheduleBatch 的过期立即入队 / scheduleBatch 的定时器入队）统一收敛到 `buildEnqueuedArticle(article, accountId)` 一处实现。
+第三个发现由 ①↔② 的 parity 锁**当场命中**（写锁之前并不知道）：排期路径 `scheduleBatch`（`:415`、`:440`）整包透传 article，却**不把本次派发目标写进 `article.accountId`**；而凭证解析在 `publisher-router.js:353` 的 `loadAuthForTask`，读的正是 `article.accountId`（`:356`，缺失才回退「平台默认账号」）。**根因性质（评审后纠正）**：`buildPublishArticle`（`:247`）本有 `task?.article?.accountId || task?.accountId` 兜底，两个 publisher 都先过它，因此排期路径此前**并不会**拿错账号——原先写的「会用错账号凭证」不成立，已撤回。真实问题是优先级：`article` 压过 `task`，等于把「谁去发」交给「哪个键恰好非空」决定。本切片改为逐次显式覆盖派发目标，属**一致性加固**。两条路径的字段面差异不只是「少几个键」，还包含「同一个键只在一侧存在」。本切片把三条派发点（executeBatch / scheduleBatch 的过期立即入队 / scheduleBatch 的定时器入队）统一收敛到 `buildEnqueuedArticle(article, accountId)` 一处实现。
 
 ## 二、范围与非范围
 
@@ -45,7 +45,7 @@ roadmap 对 P2-7 的一句话描述是：**参考产品的批量任务结构支�
 | --- | --- | --- | --- |
 | 1 | 批量 payload 键集 | 必须**逐键包含**单篇 `buildArticleData` 的键集（title/content/contentFormat/author/cover_url/cover_path/cover_file/video_path/images/image_files/tags/topics/mentions/aiGenerated/precheck/platformOverrides/visibilitySemantic/publishTime/platforms），差集为空 | `useBatchPublish.test.js`「P2-7 与单篇键集 parity」 |
 | 2 | 主进程字段面 parity | `executeBatch` 与 `scheduleBatch` 入队任务携带的 article 键集**必须相同**（一方丢键即红），且两侧 `article.accountId` 必须同值 | `batch-manager.test.js`「P2-7 派发层字段面 parity」 |
-| 2b | 派发目标账号 | 三条派发点（立即执行 / 排期过期立即入队 / 排期定时器入队）一律经 `buildEnqueuedArticle(article, accountId)` 写入 `article.accountId`；`publisher-router.resolveAccountForPublish` 只读 `article.accountId`，缺失即回退平台默认账号凭证 | `batch-manager.js` + `batch-manager.test.js` |
+| 2b | 派发目标账号 | 三条派发点（立即执行 / 排期过期立即入队 / 排期定时器入队）一律经 `buildEnqueuedArticle(article, accountId)` 写入 `article.accountId`；`publisher-router.loadAuthForTask` 只读 `article.accountId`（缺失才回退默认账号）；本函数逐次显式覆盖，属一致性加固而非缺陷修复 | `batch-manager.js` + `batch-manager.test.js` |
 | 3 | 封面归一 | `cover_file` / `cover_path` / `cover_url` 三者经 `normalizePublishFile` 归一，`cover_path` 取 `descriptor.path`，与单篇同一实现；解析不出路径 → 不产出该键（保持字段缺席，交由「不修改」语义） | `buildBatchArticlePayload` |
 | 4 | 差异化面板归一 | `platformOverrides` 经**唯一**实现 `normalizePlatformOverrides`（按注册表字段与类型归一，无有效差异内容的平台条目不进 payload）；批量**禁止**第二份归一逻辑 | `publish-overrides.js`（本切片自 `usePublishFlow.js` 迁出） |
 | 5 | 可见性档位 | 只有非空语义档位才挂 `visibilitySemantic` 键（与单篇 `if (article.visibilitySemantic)` 同口径）；非法档位由主进程 resolver 侧 `mapVisibilitySemantic` fail-closed 返回 null，UI 不校验取值 | `buildBatchArticlePayload` |
@@ -55,6 +55,7 @@ roadmap 对 P2-7 的一句话描述是：**参考产品的批量任务结构支�
 | 9 | 空平台清单 | 条目未选平台时：无标题提示为空、支持度徽标照旧（分母取注册表平台总数，与所选无关）、差异化面板与可见性控件整块不渲染 | `usePublishFieldSurface` |
 | 10 | 复制条目 | `duplicateArticle` 必须**深拷贝** `platformOverrides` 与 `visibilitySemantic`（浅拷贝会让两条目共享同一 override 对象，改一条动两条）；`publishTime` 保持「复制不带排期」的既有语义 | `duplicateArticle` |
 | 11 | IPC 序列化 | 新增键随 `toPlainJson` 出栈（批量提交前整包过 `JSON.parse(JSON.stringify())`），禁止把 reactive proxy 直接传 IPC | `handleBatchPublish` 既有链路 |
+| 12 | **封面三键互斥（评审后补）** | 条目同时带 `cover_file`（本地）与 `cover_url`（远程）时，payload **不得两者并存有效**：主进程取值表达式是 `cover_url \|\| cover_path`（`publisher-router.js:251`，URL 优先），而渲染层缩略图按 `cover_file \|\| cover_path \|\| cover_url` 计算（本地优先）——两层优先级相反即「界面显示刚选的图、实际发出更早的 URL」，且 DOM RPA 轨会把 URL 串塞进 `<input type=file>`（`rpa-view-platforms.js:312`）。硬约束：**本地封面存在时 `cover_url` 让位为空串**；判据只看入参 `cover_file.path`（本仓每个本地封面写点都会落 `cover_file`），实现在 `resolveCoverFields` 一处，单篇与批量共用 | `publish-upload-file.js` + 两条 payload 构造点 |
 
 ## 四、流程
 
@@ -123,6 +124,7 @@ roadmap 对 P2-7 的一句话描述是：**参考产品的批量任务结构支�
 | 9 | 可见性档位 | 条目内四档（跟随默认/公开/好友/仅自己）；所选平台无一支持 visibility 时整块不渲染；选了某档但有平台不支持时如实显示「{平台} 不支持该档位，将保持默认」 |
 | 10 | 差异化面板 | 条目内「平台差异化内容」折叠按钮（展开/收起文案复用单篇 `publishPage.expand`/`collapse`）；展开后逐平台卡片可覆盖标题/正文/注册表特有字段；清空全部覆盖内容的平台条目不进 payload |
 | 11 | 复制条目 | 复制携带封面、可见性档位、差异化面板设置（深拷贝）；排期时间不携带（既有语义） |
+| 12 | 仅远程地址封面的如实提示 | 条目只填 `cover_url`、未选本地文件时，URL 输入框下方出 `publishPage.batchFieldSurface.coverUrlOnlyHint`（zh/en 成对）：「远程封面地址会随任务提交，但缩略图不预览远程图片；需要预览请改选本地封面」。理由：缩略图依赖主进程把**本地绝对路径**转 dataURL（渲染层 CSP 的 img-src 不含 `file:`，远程图另是一回事），该态不显示图属既有能力边界——不出提示用户会读成「封面没设上」。判据与 payload 侧同口径（只看 `cover_file.path`），否则会出现「提示说仅远程、实际发的是本地文件」的假提示 |
 | 12 | 提交（内容超限） | 弹 warning「{标题前 20 字}：{平台}{字段}最多 N 个字符，当前 M 个」并中止整批 |
 | 13 | 提交（其余既有门） | 登录门 / 空标题 / 空正文 / 无平台 / 目标非法 / 元数据非法 / 账号不可用 / 排期非法 / 确认框 —— 全部不变 |
 
@@ -159,7 +161,7 @@ roadmap 对 P2-7 的一句话描述是：**参考产品的批量任务结构支�
 | `Publish.test.js` | 页面接线 | 新增：批量条目挂载 `BatchArticleFields`（testid 按条目索引）；单篇字段面（徽标/无标题提示/可见性/差异化）在判据下沉后**回归不变**（既有 `data-testid` 断言必须继续通过——下沉是重构，不是行为变更） |
 | `usePublishFlow.test.js` / `publisher-router.test.js` | 回归 | 全量不变通过（确认迁出未改单篇与主进程语义） |
 
-**反证要求**（质量节拍「防再犯锁必须做一次把锁改成 no-op 立刻变红」）——**四条均已实跑**，脚本逐条变异后跑受影响测试、再逐字节还原并校验 SHA（结果 `restoredByteEqual=true`）：
+**反证要求**（质量节拍「防再犯锁必须做一次把锁改成 no-op 立刻变红」）——**五条均已实跑**，脚本逐条变异后跑受影响测试、再逐字节还原并校验 SHA（结果 `restoredByteEqual=true`）。其中 M5 是评审后补的：把 `resolveCoverFields` 退回「`cover_url` 恒发」（即本切片修掉的失效形态）⇒ **红 3**（2 条跨层行为锁 + 1 条共享实现锁），还原后 152 passed。两条行为锁**按主进程真实取值表达式 `cover_url || cover_path` 断言**，而不是断言「payload 里出现过本地路径」——后者在两个键同时非空时仍会通过，正好放过本缺陷。
 
 | # | 变异 | 实跑结果 | 变红的用例 |
 | --- | --- | --- | --- |

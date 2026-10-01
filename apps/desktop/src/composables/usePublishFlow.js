@@ -45,6 +45,7 @@ import {
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
 import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
+import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
 // 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
@@ -196,8 +197,7 @@ export function usePublishFlow(options) {
       ...normalizePublishFiles(article.image_files),
       ...normalizePublishFiles(article.images),
     ])
-    const coverFile = normalizePublishFile(article.cover_file || article.cover_path || article.cover_url)
-    const coverPath = coverFile?.path || String(article.cover_path || article.cover_url || '').trim()
+    const cover = resolveCoverFields(article)
     const tags = normalizePublishStringList(article.tags)
     const topics = normalizePublishStringList(article.topics)
     const mentions = normalizePublishMentions(article.mentions)
@@ -206,7 +206,7 @@ export function usePublishFlow(options) {
       content: article.content,
       contentFormat: md ? 'markdown' : 'html',
       author: article.author || '',
-      cover_url: article.cover_url || '',
+      cover_url: cover.cover_url,
       video_path: article.video_path || '',
       precheck: precheckEnabled.value,
       platformOverrides: normalizePlatformOverrides(diffEdits),
@@ -221,8 +221,8 @@ export function usePublishFlow(options) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
     }
-    if (coverPath) data.cover_path = coverPath
-    if (coverFile) data.cover_file = coverFile
+    if (cover.cover_path) data.cover_path = cover.cover_path
+    if (cover.cover_file) data.cover_file = cover.cover_file
     if (tags.length > 0) data.tags = tags
     if (topics.length > 0) data.topics = topics
     if (mentions.length > 0) data.mentions = mentions

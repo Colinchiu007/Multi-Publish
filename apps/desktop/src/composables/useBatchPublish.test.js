@@ -1269,4 +1269,83 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
     const missing = [...singleKeys].filter(key => !batchKeys.has(key))
     expect(missing, '批量 payload 缺少单篇已有字段：' + missing.join(',')).toEqual([])
   })
+
+  /**
+   * 封面取值合同（评审 Critical 的回归锁）。
+   *
+   * 断言刻意复刻主进程的真实取值表达式 `cover_url || cover_path`
+   * （publisher-router.js buildPublishArticle → resolved.base），而不是断言「payload 里
+   * 出现了本地路径」——后者在两个键同时非空时仍会通过，正好放过本次的失效形态：
+   * 渲染层按「本地文件优先」算封面，主进程按「URL 优先」取封面，两层优先级相反，
+   * 于是「先填 URL 再选本地文件」= 界面显示本地封面、实际发布那个更早的 URL；
+   * 且 DOM RPA 轨会把 URL 字符串塞进 <input type=file>（rpa-view-platforms.js:312）。
+   */
+  function publishedWithCover (coverFields) {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp'],
+      publishTime: '',
+      ...coverFields,
+    }]
+    return r
+  }
+
+  async function routerCover (r) {
+    await r.handleBatchPublish()
+    const sent = mockBatchCreate.mock.calls[0][0].articles[0]
+    return { effective: sent.cover_url || sent.cover_path || null, sent }
+  }
+
+  it('本地封面与 URL 同时存在时，主进程取到的必须是本地文件', async () => {
+    const r = publishedWithCover({
+      cover_url: 'https://cdn.example/stale-cover.jpg',
+      cover_path: 'D:/covers/picked.png',
+      cover_file: { path: 'D:/covers/picked.png', name: 'picked.png' },
+    })
+    const { effective } = await routerCover(r)
+    expect(effective).toBe('D:/covers/picked.png')
+  })
+
+  it('经 setter 选本地封面后，主进程取到的必须是刚选的那张（用户最后意图）', async () => {
+    const r = publishedWithCover({ cover_url: 'https://cdn.example/stale-cover.jpg' })
+    const item = r.articles.value[0]
+    expect(r.setBatchArticleCover(item, { path: 'D:/covers/second.png', name: 'second.png' })).toBe(true)
+    const { effective } = await routerCover(r)
+    expect(effective).toBe('D:/covers/second.png')
+  })
+
+  it('只有 URL 封面时 URL 照常生效（不得把既有形状改成「URL 发不出去」）', async () => {
+    const r = publishedWithCover({ cover_url: 'https://cdn.example/only.jpg' })
+    const { effective } = await routerCover(r)
+    expect(effective).toBe('https://cdn.example/only.jpg')
+  })
+
+  it('setBatchArticleCoverUrl 只写 URL，不得静默丢掉已选本地封面', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    const item = { title: 't', content: 'c', platforms: [], cover_file: null, cover_path: '', cover_url: '' }
+    expect(r.setBatchArticleCover(item, { path: 'D:/covers/a.png', name: 'a.png' })).toBe(true)
+    r.setBatchArticleCoverUrl(item, 'https://cdn.example/b.jpg')
+    // 换封面来源是破坏性动作，必须经「清除封面」显式做出，不能由一次打字代做
+    expect(item.cover_url).toBe('https://cdn.example/b.jpg')
+    expect(item.cover_path).toBe('D:/covers/a.png')
+    expect(item.cover_file).toEqual({ path: 'D:/covers/a.png', name: 'a.png' })
+  })
+
+  it('setBatchArticleCoverUrl 对非字符串入参写空串（不把 undefined 漏进 payload）', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    const item = { cover_url: 'https://cdn.example/keep.jpg' }
+    r.setBatchArticleCoverUrl(item, undefined)
+    expect(item.cover_url).toBe('')
+    r.setBatchArticleCoverUrl(null, 'x')
+    expect(item.cover_url).toBe('')
+  })
+
+  it('无封面时既不产出 cover_url 也产出空串，主进程取值为 null', async () => {
+    const r = publishedWithCover({})
+    const { effective, sent } = await routerCover(r)
+    expect(sent.cover_url).toBe('')
+    expect(effective).toBeNull()
+  })
 })

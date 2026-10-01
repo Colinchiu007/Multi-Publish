@@ -54,9 +54,10 @@ function toIpcError (error) {
  *    tags / topics / mentions / aiGenerated / contentFormat / platformOverrides /
  *    visibilitySemantic 在「立即执行」路径上静默丢弃（排期路径却不丢）。此后主进程不参与
  *    字段裁剪，字段是否生效由 resolvePlatformArticle（注册表单一真源）单点决定。
- * ② accountId 必须写进 article：publisher-router 解析账号凭证读的是 article.accountId
- *    （resolveAccountForPublish，缺失即回退平台默认账号），只放在 task 顶层会让多账号
- *    批次在排期路径上拿错账号的凭证。
+ * ② accountId 必须写进 article：这是**一致性加固，不是缺陷修复**。凭证解析在
+ *    publisher-router 的 loadAuthForTask，读 article.accountId（缺失才回退平台默认账号），
+ *    且 article 优先于 task 顶层的 accountId。排期路径此前靠 buildPublishArticle 的
+ *    `|| task?.accountId` 兜底才恰好取对；本函数改为逐次显式覆盖派发目标，不再依赖兜底顺序。
  * @param {object} article 批次里持久化的文章
  * @param {string|null} accountId 本次派发目标
  */

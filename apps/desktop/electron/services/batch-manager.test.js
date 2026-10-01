@@ -651,7 +651,7 @@ describe('BatchManager P2-7 派发层字段面（executeBatch ↔ scheduleBatch 
     const scheduleKeys = Object.keys(scheduleQueue.add.mock.calls[0][0].article).sort()
     expect(immediateKeys).toEqual(scheduleKeys)
 
-    // accountId 必须落进 article：resolveAccountForPublish 读的是 article.accountId，
+      // accountId 必须落进 article：loadAuthForTask 读的是 article.accountId，
     // 只放 task 顶层会让排期批次回退到平台默认账号的凭证（本条锁住该缺陷）
     const immediateArticle = immediateQueue.add.mock.calls[0][0].article
     const scheduleArticle = scheduleQueue.add.mock.calls[0][0].article
