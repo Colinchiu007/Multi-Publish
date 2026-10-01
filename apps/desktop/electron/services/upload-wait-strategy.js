@@ -9,7 +9,7 @@
  *   残留可见 `[class*=progress]` 元素/「转码中」类文本 ⇒ `uploading` 恒为真 ⇒ 条件永不成立，
  *   白等满 900000ms 预算。
  *
- * 对齐方向（蚁小二 4.0 逆向结论）：
+ * 对齐方向（参考产品 4.0 逆向结论）：
  * - 它的进度来自 API 分片直传的**真实字节进度**（currentPart/totalParts，节流上报：
  *   大文件 5s 时间门控、小文件 10% 百分比门控），状态机边界
  *   （uploading→uploadSuccess→pushing→pushSuccess）由接口返回驱动，不猜 DOM。
