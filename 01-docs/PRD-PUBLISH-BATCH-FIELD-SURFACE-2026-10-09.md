@@ -182,3 +182,47 @@ roadmap 对 P2-7 的一句话描述是：**参考产品的批量任务结构支�
 - 平台草稿箱（P1-3）与数据看板（P2-6）、账号分组（P2-8）不属本切片
 - 差异化面板的「合集列表」异步拉取（`listPlatformCollections`）在批量下逐条目逐平台各拉一次，条目数多时请求量线性增长；本期不加去重缓存（缓存跨条目共享属另一类失效语义），实测条目 ≤10 时可接受，超出再立项
 - 批量派发层改为整包透传后，字段是否**真正生效**由 `resolvePlatformArticle` 与注册表决定；本切片不新增任何平台字段的支持度声明
+
+## 十、合并后追加：封面「重选即替换」与提示互斥（2026-10-01，#2716 之后）
+
+本节由 #2716 的外部双模型评审（后端模型）提出，全部结论按已安装依赖与真实源码复核过。
+
+### 10.1 缺陷与根因（逐条现场）
+
+批量条目的封面**一辈子只能选一次**：选好一张后再点「选择封面」换一张，新文件被静默丢弃，界面无任何提示，且**没有恢复路径**。
+
+根因不在业务代码，而在 `el-upload` 的超限合同（按已安装包实测，不从 API 名字推断）：
+
+| 现场 | 位置 | 事实 |
+|------|------|------|
+| 超限判据 | `node_modules/element-plus/es/components/upload/src/upload-content.vue_vue_type_script_setup_true_lang.mjs:37` | `if (limit && fileList.length + files.length > limit) { onExceed(files, fileList); return }` —— 在 `onStart` **之前** return |
+| on-change 的实际触发点 | 同包 `use-handlers.mjs:28-29`（`emitChange`）及其调用点 `:38`/`:53`/`:72` | `emitChange` 由 error / success / **handleStart** 三处共用；本条目 `:auto-upload="false"`，error/success 都不可达 ⇒ **`handleStart`（`:72`）是唯一能让 on-change 发生的路径**，而超限在 `onStart` 之前就 return 了 |
+| 内部列表从不自清 | 同包 `use-handlers.mjs:12` + `:71` | 未绑 `v-model:file-list` 时 `useVModel(props, 'fileList', void 0, { passive: true })` 仍维护一份本地列表并只增不减（`handleStart` 每次 `[...uploadFiles.value, uploadFile]`） |
+| 默认 on-exceed | 同包 `upload.mjs:188-191`（及 `:219`） | `default: NOOP` ⇒ 不绑就等于「丢弃且不出声」 |
+| 实例可用方法 | `upload/src/upload.vue_..._lang.mjs:17`、`:32` | `clearFiles` / `handleStart` 确被 `__expose`（修复依赖这两个，非凭名字猜） |
+
+**为什么批量特别严重**：本条目同时设了 `:show-file-list="false"`，界面上没有单篇那条 `×` 可清列表；而「清除封面」按钮只清 `article.cover_*`，清不到 el-upload 的内部列表 ⇒ 触发一次即永久锁死。正解本仓已有先例：`Publish.vue:967-974` 的 `handleVideoFileExceed`，其注释原文就写着「不处理时 el-upload 会静默丢弃新文件——正是『选了没反应』的根因」。修复照抄该口径（`ref` + `clearFiles()` + `handleStart(files[0])`），不另写第二份。
+
+### 10.2 交互逻辑与显示项（新增一条提示）
+
+| 态 | 判据 | 提示 |
+|----|------|------|
+| 仅远程 URL | `!cover_file.path && cover_url` | 既有 `coverUrlOnlyHint`（「…不预览远程图片…」） |
+| 本地 + URL 同时存在 | `cover_file.path && cover_url` | **新增 `coverUrlDroppedHint`**：本地优先规则下该远程地址**不会提交** |
+| 仅本地 / 都无 | — | 两条都不出 |
+
+新增第二条的理由：payload 侧 `resolveCoverFields` 在本地封面存在时会**清空** `cover_url`。此前只把「仅远程」提示藏起来，等于**静默丢弃用户刚输入的地址而不告知**——与同一段代码自己的注释口径（「不得静默」）相矛盾。两条判据互斥且穷尽 URL 的存在性，且都按 `cover_file`（而非派生描述符）取，才能与 payload 同口径。
+
+### 10.3 测试与逃逸分析
+
+- **逃逸根因**：旧测试替身 `uploadStub` 的模板是 `@click="onChange(...)"`，**每次点击无条件触发 on-change**，完全没有 `limit` 语义 ⇒ 这类缺陷对整个组件测试层结构性不可见（14 条既有用例全绿）。
+- 修复把替身改成复刻真合同：内部 `files` 列表 + `limit` 判据 + `onExceed` 默认 no-op + 暴露 `clearFiles`/`handleStart`。
+- 新增 3 条：① 重选必须替换（回归锁）；② 「本地+URL」态必须出丢弃提示；③ **负控**——只声明 `:limit` 不处理 on-exceed 时替身必须真的丢第二个文件（证明 ① 有料，替身退化时该条先红）。
+- 反证三次实跑：实现前 ① 红 1（摘掉整个修复）；保留绑定、掏空 `handleStart` 后 ① 仍红（证明守的是行为不是属性名）；实现前 ② 红 1。还原一律按字节校验。
+- 另把 `useBatchPublish.test.js` 的 `keysOf` 从**固定 3000 字符窗口**改为「按声明行实际缩进找该函数自己的闭合括号 + 找不到即红」。定性要如实：实测两函数真实跨度只有 1605 / 1647 字符，故窗口当时是**向相邻函数过读**而非欠读，过读部分恰好没贡献新键（同一轮探针里 old/new 键集相同），所以**不构成当下的假绿**，属潜在脆弱性（函数一旦长过 3000 字符即开始漏判自己的尾部）。反证：把 `data.mentions` 改名后该锁红，红因为 `mentions`。
+- 附带修掉一处跨用例污染：`normalizeUploadFile` 的 `mockResolvedValueOnce` 队列会泄漏到下一条用例，使一条红连带把邻居染红、归因失效；改为每例 `beforeEach` 重置。
+
+### 10.4 本节**未**修的两条（如实归因，不静默吸收）
+
+- **批量 `precheck` 恒为 `false`**（评审 Warning，成立）：`useBatchPublish.js:99` 自持一份 `precheckEnabled`，而把持久化设置读进 ref 的接线只在 `usePublishFlow.js:152-155`。经 `git log -S` 归因，这份第二 ref 由 **`9353cc8c`（Publish.vue 拆分三个 composable 的重构）** 引入，非 #2716。另实测全仓 `src/**/*.vue` 中 `precheck` 仅出现在 `Publish.vue` 的声明与两处传参，**没有任何 UI 绑定**，故「用户能否把它打开」本身是另一个待查问题。修法会改变发布行为语义（批量开始按设置预检），须单独取证立项。
+- **单篇封面轨是否同样卡在超限**：按 10.1 的判据推导，`handleCoverFileChange` 把 `coverFileList` 写成 `[descriptor]`（长度 1），下一次选图即 `1+1>1` ⇒ 也应被丢弃。**这是推导、未真机验证**，且该轨 `:show-file-list` 未关、有可见 `×` 可清列表恢复，症状等级远低于批量，故本 PR 不动它；后续若实测确认，应与本节合并为「el-upload limit 使用规范」一次性收敛。
