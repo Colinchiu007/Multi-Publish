@@ -187,18 +187,20 @@ const helpersMixin = {
     log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
   },
 
-  // 2026-10-01：用 CDP **真实鼠标事件**（`Input.dispatchMouseEvent`）点击，而非 `el.click()` —— 后者是
-  // 合成事件（isTrusted=false），而手动 E2E 点得动正因它派发真实输入事件。故取中心坐标走输入管线。
+  // 2026-10-01：CDP 真实鼠标事件点击，**先找未被遮挡落点** —— 头条按钮中心被浮层覆盖（`topHit=DIV`）
   async _clickViaCdp(win, sel) {
     const dbg = win.webContents.debugger
     try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
     try {
       const expr = '(function(){var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return "";'
         + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();'
-        + 'return Math.round(r.left+r.width/2)+","+Math.round(r.top+r.height/2)})()'
+        + 'var cs=[[0.5,0.5],[0.25,0.5],[0.75,0.5],[0.5,0.25],[0.5,0.75]];'
+        + 'for(var i=0;i<cs.length;i++){var x=Math.round(r.left+r.width*cs[i][0]),y=Math.round(r.top+r.height*cs[i][1]);'
+        + 'try{var tp=document.elementsFromPoint(x,y)[0];if(tp===el||el.contains(tp)||tp.contains(el))return x+","+y}catch(e){}}'
+        + 'return ""})()'
       const r = await dbg.sendCommand('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: false })
       const pos = String((r && r.result && r.result.value) || '')
-      if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 未找到: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
+      if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 无未被遮挡落点: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
       const x = Number(pos.split(',')[0]); const y = Number(pos.split(',')[1])
       for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await dbg.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
       log.info('RpaView', '[clickTrusted] ' + String(sel).slice(0, 28) + ' -> TRUSTED@' + x + ',' + y)
@@ -208,10 +210,9 @@ const helpersMixin = {
     } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
   },
 
-  // 2026-10-01 根因修复：头条发布按钮 onClick 为 `function(e){var n=t.props,r=n.loading,o=n.onClick;!r&&o&&o(e)}`
-  // —— **loading 为真时点击被静默吞掉**（无异常、无请求）。故必须等 `props.loading` 为假再点。
-  // ⚠️ loading 真源是 fiber 的 `memoizedProps.loading`（包装层的 `t.props.loading`），不是
-  // `__reactEventHandlers$*` 上的同名属性；旧实现读错位置且"读不到就放行"，等于没等。点击走 CDP。
+  // 2026-10-01：头条发布按钮 onClick 为 `function(e){var n=t.props,r=n.loading,o=n.onClick;!r&&o&&o(e)}` ——
+  // loading 为真时点击被静默吞掉。loading 真源是 fiber 的 `memoizedProps.loading`（包装层的 `t.props.loading`），
+  // 不是 `__reactEventHandlers$*` 上的同名属性；旧实现读错位置且"读不到就放行"，等于没等。点击走 CDP。
   async _clickStable(win, sel) {
     const probe = '(function(){try{var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return false;'
       + 'var fk=Object.keys(el).filter(function(k){return k.indexOf("__reactInternalInstance$")===0})[0];var f=fk?el[fk]:null;'
