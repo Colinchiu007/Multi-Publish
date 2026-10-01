@@ -380,7 +380,9 @@ const platformsMixin = {
       }
     }
 
-    if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
+    // 实验（2026-10-01）：头条跳过封面 hook —— 验证封面注入是否是占用 defer-publish `_e` 的元凶。
+    // 判据：跳过后若 `appReqN > 0`（应用点击产生请求）⇒ 封面 hook 即元凶，据此改为不破坏 defer 状态的实现。
+    if (config.prePublishHook && platform !== 'toutiao') await this._execHook(win, config.prePublishHook, config.hookContext)
 
     // 平台专用发布前准备（百家号/快手：关闭引导弹窗 + 选择 AI 创作声明）
     if (platform === 'baijiahao') {
