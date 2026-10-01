@@ -36,7 +36,9 @@ platforms:
     comment_url: ''
     cover_size: 1280x720
     max_title: 50
-    max_content: 5000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 5000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。知乎为长文平台，未做平台侧实测取证。
+    max_content: 100000
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -49,7 +51,9 @@ platforms:
     category: 中文
     content_category: MIXED
     max_title: 140
-    max_content: 5000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=2000）。本文件该值曾为 5000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。未做平台侧实测取证。
+    max_content: 2000
     enabled: true
   douyin:
     has_api: false
@@ -130,7 +134,9 @@ platforms:
     comment_url: https://mp.toutiao.com/profile_v4/manage/comment/all
     cover_size: 1200x600
     max_title: 30
-    max_content: 5000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 5000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。头条为长文平台，未做平台侧实测取证。
+    max_content: 100000
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -168,7 +174,9 @@ platforms:
     comment_url: ''
     cover_size: 1146x717
     max_title: 80
-    max_content: 3000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=2000）。本文件该值曾为 3000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。未做平台侧实测取证。
+    max_content: 2000
     has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -184,7 +192,9 @@ platforms:
     comment_url: ''
     cover_size: 1200x675
     max_title: 64
-    max_content: 50000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 50000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。未做平台侧实测取证。
+    max_content: 100000
     has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   twitter:
@@ -196,7 +206,9 @@ platforms:
     category: 海外
     content_category: IMAGE_TEXT
     max_title: 280
-    max_content: 4000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=280）。Twitter 单条推文 280 字符
+    # 为**平台真实限制**（官方口径）；本文件该值曾为 4000，与注册表漂移（2026-10-01 复查修正）。
+    max_content: 280
     enabled: true
   instagram:
     id: 103
