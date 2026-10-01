@@ -8,6 +8,7 @@ import {
   normalizePublishStringList,
   truncateByChars,
   truncateByUtf8Bytes,
+  truncateContentForPlatform,
   utf8ByteLength,
   validatePlatformContent,
   validatePublishMetadata,
@@ -280,5 +281,42 @@ describe('publish contract', () => {
     expect(getPlatformContentLimit('tencent_video')).toEqual({ titleMax: 0, contentMax: 1000 })
     expect(getPlatformContentLimit('kuaishou')).toEqual({ titleMax: 0, contentMax: 1000 })
     expect(getPlatformContentLimit('facebook')).toEqual({ titleMax: 100, contentMax: 63206 })
+  })
+})
+
+describe('truncateContentForPlatform（正文超平台上限时自动裁剪，2026-10-01）', () => {
+  it('未超限时原样返回（不 trim 掉正文内部结构）', () => {
+    expect(truncateContentForPlatform('kuaishou', '短正文', '标题')).toBe('短正文')
+  })
+
+  it('无标题平台（快手 titleMax=0）需扣除「标题计入首行」的长度', () => {
+    // 快手校验口径：composeNoTitleDescription(title, content) 的长度 <= contentMax。
+    // 故正文预算 = contentMax - 标题长度，否则会出现「裁到 1000 后仍报 1021」的漂移
+    // （E2E 实测：正文 997 + 标题 24 = 1021 > 1000）。
+    const title = '标'.repeat(20)
+    const content = '正'.repeat(1200)
+    const out = truncateContentForPlatform('kuaishou', content, title)
+    expect(Array.from(out).length).toBe(980)
+    // 合并后恰好等于上限，不超
+    expect(Array.from(title).length + Array.from(out).length).toBe(1000)
+  })
+
+  it('有标题平台（抖音 titleMax=55）按 contentMax 裁剪，不扣标题', () => {
+    const title = '标'.repeat(20)
+    const content = '正'.repeat(1200)
+    const out = truncateContentForPlatform('douyin', content, title)
+    expect(Array.from(out).length).toBe(1000)
+  })
+
+  it('上限足够大时不裁剪', () => {
+    const content = '正'.repeat(5000)
+    expect(truncateContentForPlatform('facebook', content, '标题')).toBe(content)
+  })
+
+  it('按码点裁剪，不切碎代理对（emoji）', () => {
+    const content = '😀'.repeat(1100)
+    const out = truncateContentForPlatform('douyin', content, '')
+    expect(Array.from(out).length).toBe(1000)
+    expect(out.endsWith('\uD83D\uDE00')).toBe(true)
   })
 })

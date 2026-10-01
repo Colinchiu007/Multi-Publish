@@ -264,6 +264,27 @@ export function truncateByChars (value, max) {
 }
 
 /**
+ * 按平台上限裁剪正文（2026-10-01 新增，供发布流程在正文超长时自动裁剪）。
+ *
+ * **必须与 validatePlatformContent 同源**：复用 getPlatformContentLimit 与
+ * isNoTitlePlatform，禁止在此另写一份"标题合并进正文"的口径 —— 否则会出现
+ * "裁剪后校验仍不过"的漂移。E2E 实测踩到过：正文裁到 997 字后，快手因
+ * **标题计入首行**（composeNoTitleDescription）仍报 1021 > 1000。
+ *
+ * @param {unknown} platform 平台标识
+ * @param {unknown} content 正文
+ * @param {unknown} title 标题（无标题平台会作为描述首行插入，需从预算中扣除）
+ * @returns {string} 裁剪后的正文（未超限时原样返回）
+ */
+export function truncateContentForPlatform (platform, content, title) {
+  const limit = getPlatformContentLimit(platform)
+  const max = Number(limit && limit.contentMax)
+  if (!(max > 0)) return String(content ?? '')
+  const titleLen = isNoTitlePlatform(platform) ? Array.from(String(title ?? '')).length : 0
+  return truncateByChars(content, Math.max(0, max - titleLen))
+}
+
+/**
  * 计算字符串的 UTF-8 字节长度（前端无 Node Buffer，用 TextEncoder）。
  * 百家号标题上限按 UTF-8 字节数校验，中文每字 3 字节、英文/数字 1 字节。
  * @param {unknown} value

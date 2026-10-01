@@ -39,6 +39,7 @@ import {
   normalizePublishMentions,
   normalizePublishStringList,
   truncateByChars,
+  truncateContentForPlatform,
   truncateByUtf8Bytes,
   validatePlatformContent,
   validatePublishMetadata,
@@ -408,7 +409,9 @@ export function usePublishFlow(options) {
           // 无标题平台的正文由 composeNoTitleDescription 合并标题首行，故对 article.content
           // 裁剪后需重新校验（合并后的长度仍可能略超，故下方统一 recheck 兜底）。
           const before = Array.from(String(article.content || '')).length
-          article.content = truncateByChars(article.content, contentCheck.limit)
+          // 复用 publish-contract 的同源裁剪：无标题平台（快手等）会扣除"标题计入首行"的长度，
+          // 否则会出现"裁到 limit 后仍超限"的漂移（E2E 实测：997 + 标题 24 = 1021 > 1000）。
+          article.content = truncateContentForPlatform(contentCheck.platform, article.content, article.title)
           addProgress(progressText('publishPage.publishFlow.contentAutoTruncated', {
             platform: contentCheck.platform,
             limit: contentCheck.limit,
