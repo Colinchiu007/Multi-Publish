@@ -125,6 +125,9 @@
         <span class="module-placeholder-state" data-testid="account-share-state" role="status">{{ t('accountsPage.shareNotConnected') }}</span>
         <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>{{ t('accountsPage.createShareLink') }}</button>
       </section>
+      <!-- 分组真源状态必须可见：'unreadable' 与「用户没有分组」是两件事，
+           'save-failed' 若不报就等于告诉用户"改好了"而其实重启即丢。
+           必须放在面板之后：放在前面会抢走面板的 v-else-if 链条，让面板在非 ok 态整个消失。 -->
       <AccountGroupsPanel
         v-else-if="accountTab === 'groups'"
         :groups="accountStore.groups || []"
@@ -137,6 +140,16 @@
         @set-platform="setGroupPlatform"
         @toggle-account="toggleAccountInGroup"
       />
+      <p
+        v-if="accountTab === 'groups' && accountStore.groupsStatus !== 'ok'"
+        class="page-hint"
+        role="status"
+        data-testid="account-groups-status"
+      >{{ accountStore.groupsStatus === 'save-failed'
+        ? t('accountsPage.groupsSaveFailed')
+        : (accountStore.groupsStatus === 'pending-migration'
+          ? t('accountsPage.groupsMigrated')
+          : t('accountsPage.groupsUnreadable')) }}</p>
       <AccountFavoritesPanel
         v-else-if="accountTab === 'favorites'"
         :groups="accountStore.groups || []"
