@@ -2,14 +2,10 @@
 /**
  * RpaViewManager platforms mixin — 平台发布逻辑
  *
- * 拆分自 rpa-view-manager.js (2026-07-16 架构重构)
- * 通过 Object.assign 注入 RpaViewManager.prototype，方法内通过 this.* 访问
- * 其他 mixin（helpers/session）提供的方法。
+ * 拆分自 rpa-view-manager.js (2026-07-16 架构重构)；经 Object.assign 注入
+ * RpaViewManager.prototype，方法内通过 this.* 访问其他 mixin 提供的方法。
  *
- * 依赖：log / PlatformConfig / getConfigPath / platformSelectors
- *       ProgressThrottle / FieldRetryState
-log.info('RpaView', 'DIAG[module] rpa-engine path: ' + require.resolve('@multi-publish/rpa-engine'))
-log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou ? Object.keys(platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou).join('|') : 'MISSING'))
+ * 依赖：log / PlatformConfig / getConfigPath / platformSelectors / ProgressThrottle / FieldRetryState
  *
  * 模块级变量：
  *   - _platformConfigInstance：PlatformConfig 单例（_getPlatformConfig 使用）
@@ -18,17 +14,14 @@ log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM
 const log = require('./logger')
 const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
-// 发布能力注册表（openspec/changes/publish-capability-registry）：无标题平台
-// 清单单一真源——这些平台没有独立标题输入框（视频号/快手/微博/X/Instagram/TikTok），
-// 标题经 _composeEditorCaption 合并进编辑器描述首行。
+// 发布能力注册表（publish-capability-registry）：无标题平台单一真源——
+// 视频号/快手/微博/X/Instagram/TikTok 无独立标题框，标题经 _composeEditorCaption 合并进描述首行。
 const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
-// 2026-09-29 拆分：发布成功判定的 publish-id 提取工具（纯函数）——
-// rpa-view-platforms.js 超逐文件行数门禁（check-max-lines LEDGER_GREW），
-// 抽到独立文件 rpa-publish-id-extract.js，主文件 require 使用，零行为变化。
+// 2026-09-29 拆分：publish-id 提取纯函数 → rpa-publish-id-extract.js（行数门禁，零行为变化）
 const {
   normalizePublishId,
   collectPublishIds,
@@ -1416,6 +1409,5 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 }
 
-// 合并抽出的 mixin（Object.assign 源覆盖目标：后写者胜——uploadWaiterMixin 的
-// v4 等待实现必须居 navigationHelpers 之后；artifactsHelpers 与本轮无键冲突）
+// 合并抽出的 mixin（后写者胜：uploadWaiterMixin v4 须居 navigationHelpers 之后；artifactsHelpers 无键冲突）
 module.exports = Object.assign(platformsMixin, navigationHelpers, uploadWaiterMixin, artifactsHelpers)
