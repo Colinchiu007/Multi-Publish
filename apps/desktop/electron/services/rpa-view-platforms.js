@@ -1030,7 +1030,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.title) {
       this._emitProgress('wechat_mp','filling title...',20)
       if (await this._waitForElement(win,'#title, input.weui-desktop-input',10000)) {
-        await this._fillInput(win,'#title',article.title)
+        try { await this._fillInput(win,'#title',article.title) } catch (e) { log.warn('RpaView','[wechat_mp] title fill: '+e.message) }
       }
     }
 
@@ -1198,7 +1198,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.title) {
       this._emitProgress('youtube','filling title...',55)
       if (await this._waitForElement(win,'#title-textarea, [class*="title"] input',10000)) {
-        await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title)
+        try { await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title) } catch (e) { log.warn('RpaView','[youtube] title fill: '+e.message) }
       }
     }
 
@@ -1206,7 +1206,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.content) {
       this._emitProgress('youtube','filling description...',65)
       if (await this._waitForElement(win,'#description-textarea, [class*="description"] textarea',10000)) {
-        await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content)
+        try { await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content) } catch (e) { log.warn('RpaView','[youtube] desc fill: '+e.message) }
       }
     }
 
