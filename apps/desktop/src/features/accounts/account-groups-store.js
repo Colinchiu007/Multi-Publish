@@ -144,20 +144,20 @@ export async function loadAccountGroups ({
   try {
     envelope = await read()
   } catch (e) {
-    warn('[account-groups] 读取真源异常，按「读不到」处理:', e?.message || e)
+    warn('[account-groups] settings read threw, treating as unreadable:', e?.message || e)
     return { ok: false, reason: 'unreadable', groups: [], dropped: [], unresolved: [], migrated: false, readFrom: 'error' }
   }
 
   if (!isEnvelope(envelope) || envelope.code !== 0) {
     // 非 0 码（含 AUTH_ERROR：未登录/无法识别用户）或根本没有信封（浏览器 dev server 无 electronAPI）
-    warn('[account-groups] 真源不可读或当前用户未识别，保持现状且禁止覆盖写盘', isEnvelope(envelope) ? envelope.code : '<no envelope>')
+    warn('[account-groups] settings unreadable or owner unresolved, keeping current state and refusing to overwrite', isEnvelope(envelope) ? envelope.code : '<no envelope>')
     return { ok: false, reason: 'unreadable', groups: [], dropped: [], unresolved: [], migrated: false, readFrom: 'unavailable' }
   }
 
   const data = envelope.data
   if (data !== null && data !== undefined) {
     const normalized = normalizeAccountGroups(data, ctx)
-    if (normalized.invalidShape) warn('[account-groups] 真源形状非法，整份视为空（不逐元素猜）')
+    if (normalized.invalidShape) warn('[account-groups] settings payload has invalid shape, treating whole list as empty (no per-element guessing)')
     return { ok: true, ...normalized, migrated: false, readFrom: 'settings' }
   }
 
@@ -166,7 +166,7 @@ export async function loadAccountGroups ({
     const rawText = readLegacy(LEGACY_ACCOUNT_GROUPS_KEY)
     legacyRaw = rawText ? JSON.parse(rawText) : null
   } catch (e) {
-    warn('[account-groups] 旧 localStorage 记录解析失败，跳过迁移:', e?.message || e)
+    warn('[account-groups] legacy localStorage parse failed, skipping migration:', e?.message || e)
   }
 
   if (!Array.isArray(legacyRaw) || legacyRaw.length === 0) {
@@ -177,7 +177,7 @@ export async function loadAccountGroups ({
   const saved = await saveAccountGroups({ write, warn }, normalized.groups)
   if (!saved.ok) {
     // 迁移写失败时仍返回内存里的旧数据（用户不该因迁移失败而丢分组），但如实报未落真源
-    warn('[account-groups] 迁移未能落真源，本次仍用旧记录（重启后需重试）')
+    warn('[account-groups] migration could not be persisted, using legacy value for this session (retry after restart)')
     return { ok: true, ...normalized, migrated: false, pendingMigration: true, readFrom: 'legacy' }
   }
   return { ok: true, ...normalized, migrated: true, readFrom: 'legacy+migrated' }
@@ -195,11 +195,11 @@ export async function saveAccountGroups ({
   try {
     result = await write(ACCOUNT_GROUPS_KEY, plain)
   } catch (e) {
-    warn('[account-groups] 写盘异常:', e?.message || e)
+    warn('[account-groups] settings write threw:', e?.message || e)
     return { ok: false, reason: 'write-failed' }
   }
   if (!result || typeof result.code !== 'number' || result.code !== 0) {
-    warn('[account-groups] 写盘未成功，界面需提示「未能保存」', result && result.code)
+    warn('[account-groups] settings write not confirmed, UI must show save failure', result && result.code)
     return { ok: false, reason: 'write-failed' }
   }
   return { ok: true }

@@ -250,7 +250,7 @@ export const useAccountStore = defineStore('accounts', () => {
     groupsStatus.value = result.pendingMigration ? 'pending-migration' : 'ok'
     if (result.dropped.length > 0) {
       // 出声但不静默改写：逐条原因进日志，界面按 groupsStatus 决定要不要提示
-      console.warn(`[account-groups] 归一降级/丢弃 ${result.dropped.length} 项: ${[...new Set(result.dropped.map(d => d.reason))].join(',')}`)
+      console.warn(`[account-groups] normalized with dropped items, count=${result.dropped.length} reasons=${[...new Set(result.dropped.map(d => d.reason))].join(',')}`)
     }
     return groups.value
   }
@@ -265,7 +265,7 @@ export const useAccountStore = defineStore('accounts', () => {
       })
       .catch((e) => {
         groupsStatus.value = 'save-failed'
-        console.warn('[account-groups] 保存异常:', e?.message || e)
+        console.warn('[account-groups] save threw:', e?.message || e)
         return false
       })
     return groupsSavePromise

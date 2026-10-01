@@ -1,3 +1,23 @@
+# [未发布] feat(accounts): P2-8a 账号分组落 settings 真源（2026-10-01，account-groups-persistence）
+
+### 新功能
+
+- 分组持久化从 `localStorage`（键 `mp_account_groups`）迁入 Electron settings 真源（键 `account_groups`）：与账号真源同层、按 owner 命名空间隔离，读写都经 `account-groups-store` 单点归一。动机如实记：现状**不是**「刷新即丢」（localStorage 会留），而是「换机 / 重装 / 清浏览器数据即丢，且账号能云同步而分组不能，两者长期错位」
+- 首次运行自动从旧 `localStorage` 键一次性迁移，且**绝不删除**旧值（迁移没成功还能重来，不会把用户分组抹掉）；两侧都有值时以 settings 为准
+
+### 迁移路径的安全带（预防性设计，非既有缺陷）
+
+- **「读不到」绝不读成「没有分组」**：`storeGetSetting` 把 `code !== 0` 折成 `null`，若直接复用，未登录 / 存储不可用会被读成「一个分组都没有」，而随后的自动保存会把这个假空态覆盖进真源 ⇒ 分组整体蒸发且无提示。故新增 `storeGetSettingResult` 原样回传信封，由 store 侧判定；不可达时保持现状并**禁止覆盖写盘**，界面如实显示「读不到」而不是空态。旧实现（纯 localStorage 读写）读失败只影响当次渲染、不会回写覆盖，因此本条是**新路径自带的安全带**，不得读成"此前分组在丢失"
+
+### 数据校验与提示
+
+- 组数上限 50、单组成员上限 500、组名长度上限 40；形状非法整份视为空并出声（不逐元素猜），超限截断且如实报 `limitReached`
+- 新增 `groupsSaveFailed` / `groupsUnreadable` / `groupsMigrated` 三条提示（zh/en 成对，Gate 7 锁定）
+
+### 验证
+
+- 新增 `account-groups-store.test.js` 18 条；`accounts.test.js`（83）与 `Accounts.test.js`（116）改锚到新真源
+- 反证三条均实跑、每次都以「红的是哪条锁 + 红因」对账并还原：摘掉「非 0 码即不可读」判据 ⇒ 红 2（store 侧「绝不拿空数组覆盖真源」+ 模块侧「不得交出空数组当事实」）；`limitReached` 改恒 `false` ⇒ 红 1；迁移改为读一个不存在的旧键 ⇒ 红 1（迁移用例「legacy 有 / 真源无」）
 # [未发布] fix(打包门禁): app.asar 不再打进 467 个单元测试文件，并补门禁自证接线（2026-10-01，fix-asar-exclude-test-files）
 
 ### 为什么现在才收
