@@ -183,7 +183,7 @@ const helpersMixin = {
     const d = await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
     // 2026-10-01：点击后等一拍再回读业务探针（onClick/doPublish 记录），判断异步流程走到哪一步。
     await this._sleep(2500)
-    const oc = await win.webContents.executeJavaScript('(function(){try{return JSON.stringify({ocLog:(window.__ocLog||[]).slice(-2),dpLog:(window.__dpLog||[]).slice(-4),doPublishAt:window.__doPublishFound||null})}catch(e){return "{}"}})()').catch(() => '{}')
+    const oc = await win.webContents.executeJavaScript('(function(){try{return JSON.stringify({ocLog:(window.__ocLog||[]).slice(-2),dpLog:(window.__dpLog||[]).slice(-4),appReq:(window.__appReq||[]).filter(function(x){return /publish|article/i.test(x)}).slice(-4),appReqN:(window.__appReq||[]).length})}catch(e){return "{}"}})()').catch(() => '{}')
     log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
   },
 
