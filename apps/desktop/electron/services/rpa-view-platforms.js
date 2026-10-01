@@ -40,6 +40,7 @@ const {
 } = require('./rpa-publish-id-extract')
 // 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
 const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
+const { artifactsHelpers } = require('./rpa-view-artifacts')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
@@ -1411,5 +1412,4 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 }
 
-// 合并抽出的导航/等待 helper（Object.assign 保序：本文件同名方法优先）
-module.exports = Object.assign(platformsMixin, navigationHelpers)
+module.exports = Object.assign(platformsMixin, navigationHelpers, artifactsHelpers)
