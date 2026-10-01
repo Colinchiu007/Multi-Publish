@@ -37,21 +37,21 @@
 - [x] 5.1 在 `.github/workflows/quality-gate.yml` 的 `Gate 2c` 显式点名两个新测试文件与判据脚本；与既有命令同 `run:` 块时 MUST 改 `shell: bash`
 - [x] 5.2 跑 `scripts/check-unwired-tests.js` 与 `scripts/check-step-failfast.js`，确认新测试已接线、多命令步骤 fail-fast
 - [x] 5.3 按 D8 落地"非阻断状态自身可被检测"：脚本打印 `MODE=advisory` 标记 + 一条会按期变红的测试；本 PR 自己的记录按口径写未收口并自带登记字段
-- [ ] 5.4 开 PR、挂 auto-merge，等 runner 真实跑一轮
+- [x] 5.4 开 PR、挂 auto-merge，等 runner 真实跑一轮 —— PR #2717 于 2026-09-29T22:55:15Z squash 合并（merge SHA `8dad3b15`），run `36636248036` attempt 1 全绿
 
 ## 6. Runner 现场取证（第二步的硬前置）
 
-- [ ] 6.1 从该 run 的 job 日志取三点 diff 在 `actions/checkout` 默认深度下**确实可用**的现场输出（变更集非空、base 解析成功）；取不到证据不得进入第 7 组
-- [ ] 6.2 确认新判据在 runner 上被执行过（日志出现脚本名与其输出行），不接受"文件存在即算接线"
+- [x] 6.1 从该 run 的 job 日志取三点 diff 在 `actions/checkout` 默认深度下**确实可用**的现场输出（变更集非空、base 解析成功）；取不到证据不得进入第 7 组 —— 现场行：`本 PR 变更文件 13 个（A=6 M=7 D=0） ｜ 新增记录 1 篇 / 新增豁免 0 篇 ｜ 待清理豁免 0 条`（job `QG Static`，2026-09-29T22:13:25Z）。这条同时证两件事：base 解析成功、`-z --name-status` 的**状态**在 runner 上被正确解析（A/M 计数非零，不是第一版那个静默返回空数组的实现）
+- [x] 6.2 确认新判据在 runner 上被执行过（日志出现脚本名与其输出行），不接受"文件存在即算接线" —— 现场行：`MODE=advisory（尚未接进判定；转阻断 = 删掉 CI 里的 --mode=advisory…）` 由真实 CLI 调用打印，紧随 `OK: 本 PR 携带执行记录或带原因的豁免`；同一步 `node --test scripts/check-pr-exec-record.test.js` 输出 `# pass 14 / # fail 0`，之后步骤继续执行 ⇒ 退出码确实未参与判定
 
 ## 7. 转阻断与口径同步
 
-- [ ] 7.1 删除 `MODE=advisory` 标记使 D8 的测试由红转绿，把存在性判据退出码接入判定
+- [ ] 7.1 删除 `Gate 2c2` 里的 `--mode=advisory` 参数、把存在性判据退出码接入判定，**并同 PR 补一道读 `.github/workflows/quality-gate.yml` 的结构锁**（断言该步不再出现 `--mode=advisory`）。原措辞"使 D8 的测试由红转绿"经实测不成立：现有 14 条测试全部只驱动 CLI 自身（`--mode=advisory` 显式传参），没有一条读 workflow 文件，所以删参数不会让任何东西先变红，而"CI 停在观察态"目前无人检测 —— 这正是 D8 要防的形态，必须用结构锁补上。**触发条件（可机械核对）**：`gh pr list -R Colinchiu007/mulpub --state open` 为空，或在途 PR 全部携带 `openspec/records/` 记录/豁免；2026-10-01 实测在途 7 个 PR 的新载体携带数为 0，经用户决定推迟
 - [ ] 7.2 更新 AGENTS.md 质量节拍段：记录载体改为 `openspec/records/`，`.quality-gates.md` 标为只读历史；同步修订"执行记录里的待办状态必须有东西在检测"那条 MUST 的措辞使其覆盖新载体
 - [ ] 7.3 修订 `openspec/changes/docs-only-ci-shortcircuit/design.md:45` 的载体表述（"判定证据必须写入 `.quality-gates.md` 记录" → 新载体），避免两份规格各指一个位置
-- [ ] 7.4 若姊妹轴 `gate-coverage-ratchet` 已先落地，按其实装核对 D1/D5/D7 落点，确认没有第二份词表、第二份白名单或第二份变更集取源
+- [ ] 7.4 若姊妹轴 `gate-coverage-ratchet` 已先落地，按其实装核对 D1/D5/D7 落点，确认没有第二份词表、第二份白名单或第二份变更集取源（2026-10-01 实测 `git ls-tree origin/main openspec/changes/` 全清单**无** `gate-coverage-ratchet`，本项当前 N/A；执行 7.1 那天必须重查一次再决定）
 
 ## 8. 收口
 
-- [ ] 8.1 合并后回填本 PR 记录的 `远程同步` 行并删除其登记字段（清单收敛实证），顺带清理待清理豁免
+- [x] 8.1 合并后回填本 PR 记录的 `远程同步` 行并删除其登记字段（清单收敛实证），顺带清理待清理豁免 —— 回填动作在本次 PR 内完成：`openspec/records/gate-record-presence-impl.md` 的 `远程同步` 改 PASS（merge SHA `8dad3b15`、时间、`merge-base --is-ancestor` rc=0、`ls-remote` 0 行），三个 `sync_*` 字段整段删除；待清理豁免实测 0 条（`check-pr-exec-record.js` 现场输出「待清理豁免 0 条」），无物可清。本 PR 自己的记录按同一口径写 PENDING，其收口留给下一个会话
 - [ ] 8.2 跑 `openspec validate` 与归档三同步（OpenSpec archive + 质量节拍复盘），把"存量数字是否下降、待清理豁免峰值"写进复盘
