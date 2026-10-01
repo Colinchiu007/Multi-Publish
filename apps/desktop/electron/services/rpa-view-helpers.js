@@ -212,19 +212,27 @@ const helpersMixin = {
   // 2026-10-01 根因修复：头条发布按钮的 onClick 是 `function(e){var n=t.props,r=n.loading,o=n.onClick;!r&&o&&o(e)}`
   // —— **loading 为真时点击被静默吞掉**（无异常、无请求），这正是"内容/按钮/点击全正常却零请求"的根因。
   // 故点击前必须等 `props.loading` 为假；同时兼容填充触发的重渲染（按钮被卸载的窗口）。
+  //
+  // 2026-10-01 接线：`_clickViaCdp` 此前零调用（死代码 ⇒ 修复没生效）。手动 CDP 点击能触发头条发布接口，
+  // executeJavaScript 的同款 el.click() 零请求 —— 差异在执行上下文（CDP Runtime.evaluate 落 main world，
+  // executeJavaScript 落 isolated world）。故统一改走 CDP，仅在 NOT_FOUND 时回落到原通道。
   async _clickStable(win, sel) {
     const probe = '(function(){try{var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return null;var ks=Object.keys(el).filter(function(k){return /^__react/.test(k)});for(var i=0;i<ks.length;i++){try{var p=el[ks[i]];if(p&&typeof p.onClick==="function")return p.loading!==true}catch(_e){}}return el.isConnected!==false}catch(e){return null}})()'
+    const viaCdp = async () => {
+      const r = await this._clickViaCdp(win, sel).catch(() => null)
+      return (r && r !== 'NOT_FOUND') ? true : await this._click(win, sel)
+    }
     for (let i = 0; i < 20; i++) {
       const a = await win.webContents.executeJavaScript(probe).catch(() => null)
       if (a === true) {
         await this._sleep(500)
         const b = await win.webContents.executeJavaScript(probe).catch(() => null)
-        if (b === true) return await this._click(win, sel)
+        if (b === true) return await viaCdp()
       }
       await this._sleep(500)
     }
     log.warn('RpaView', '[clickStable] 按钮未就绪（可能 loading 未结束），直接点击: ' + String(sel).slice(0, 40))
-    return await this._click(win, sel)
+    return await viaCdp()
   },
 
   // ========== CDP trusted text insertion ==========
