@@ -34,10 +34,13 @@ import {
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  validatePlatformContent,
   validatePublishMetadata,
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
+import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
+import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
 let _keyCounter = 1
@@ -165,27 +168,47 @@ export function useBatchPublish(options) {
    * 构造单篇文章的批量提交负载。
    * **单一实现**：在线提交（batchCreate）与离线缓存（offlineAddToCache）必须共用同一份
    * 构造——两份必然漂移，漂移表现为「离线缓存重放出去的文章字段与用户确认时看到的不一致」。
+   *
+   * **P2-7 与单篇同口径**：键集与条件挂载规则必须与 `usePublishFlow.buildArticleData` 一致
+   * （回归锁见 useBatchPublish.test.js「P2-7 与单篇键集 parity」）。此前批量少
+   * contentFormat / platformOverrides / visibilitySemantic 三键，且 tags/topics/mentions/images
+   * 恒发空值（单篇是「有值才挂键」），同一份内容在两模式产出不同形状的任务。
    */
   function buildBatchArticlePayload (a) {
-    return {
+    const imageFiles = normalizePublishFiles(a.image_files || a.images)
+    // 封面三键的互斥口径由共享实现持有（单篇同一条），本地封面不得被残留 URL 遮蔽
+    const cover = resolveCoverFields(a)
+    const tags = normalizePublishStringList(a.tagsText || a.tags)
+    const topics = normalizePublishStringList(a.topicsText || a.topics)
+    const mentions = normalizePublishMentions(a.mentionsText || a.mentions)
+    const data = {
       title: a.title,
       content: a.content,
+      // Markdown 判定复用单篇同一函数：两份判定必然漂移，漂移表现为平台侧按错误格式渲染
+      contentFormat: isMarkdownContent(a.content) ? 'markdown' : 'html',
       platforms: getArticleTargets(a),
       publishTime: a.publishTime || null,
       precheck: precheckEnabled.value,
       author: a.author || '',
-      cover_url: a.cover_url || '',
-      cover_path: a.cover_path || '',
-      cover_file: a.cover_file || null,
+      cover_url: cover.cover_url,
       video_path: a.video_path || '',
-      images: normalizePublishFiles(a.image_files || a.images).map(file => file.path),
-      image_files: normalizePublishFiles(a.image_files || a.images),
-      tags: normalizePublishStringList(a.tagsText || a.tags),
-      topics: normalizePublishStringList(a.topicsText || a.topics),
-      mentions: normalizePublishMentions(a.mentionsText || a.mentions),
       // P0-2：批量 payload 补 AI 声明，与单篇 buildArticleData 的 fail-safe 语义对齐
       aiGenerated: a.aiGenerated !== false,
+      // P2-7：平台差异化内容经唯一归一实现（面板可编辑但发布不生效 = 装饰性字段）
+      platformOverrides: normalizePlatformOverrides(a.platformOverrides),
     }
+    // P1-5 语义级可见性：只有非空档位才挂键，由主进程 resolver 按注册表映射
+    if (a.visibilitySemantic) data.visibilitySemantic = a.visibilitySemantic
+    if (imageFiles.length > 0) {
+      data.images = imageFiles.map(file => file.path)
+      data.image_files = imageFiles
+    }
+    if (cover.cover_path) data.cover_path = cover.cover_path
+    if (cover.cover_file) data.cover_file = cover.cover_file
+    if (tags.length > 0) data.tags = tags
+    if (topics.length > 0) data.topics = topics
+    if (mentions.length > 0) data.mentions = mentions
+    return data
   }
 
   /**
@@ -256,7 +279,59 @@ export function useBatchPublish(options) {
       topicsText: '',
       mentionsText: '',
       publishTime: '',
+      // P2-7：条目级字段面。批量与单篇的语义差异在于「每篇内容各自不同」，
+      // 因此差异化内容与可见性档位必须逐条目持有，不得共享同一对象引用。
+      platformOverrides: {},
+      visibilitySemantic: '',
     })
+  }
+
+  /**
+   * P2-7 条目字段面 setter（逐条目作用域）。
+   *
+   * 为什么放在 composable 而不是组件里直接改 props 对象：字段写入点必须与 payload
+   * 构造点同侧，才能被同一条键集 parity 回归锁覆盖；组件侧写 props 会让「有 UI 写点」
+   * 与「进得了 payload」脱钩——那正是本切片修掉的原始形态（cover_* 有读点、无写点）。
+   */
+  function setBatchArticleCover (articleItem, descriptor) {
+    if (!articleItem) return false
+    if (!descriptor || !descriptor.path) return false
+    articleItem.cover_file = descriptor
+    articleItem.cover_path = descriptor.path
+    return true
+  }
+
+  /**
+   * 写「远程封面 URL」——与 setBatchArticleCover 成对存在的另一个封面写点。
+   *
+   * 只写 URL，不清本地封面：两者同时存在时 payload 侧由 resolveCoverFields 判「本地优先」，
+   * 用户若要改用 URL 必须显式点「清除封面」（那是个破坏性动作，不该由一次打字代做）。
+   * 界面靠 coverUrlOnlyHint 出声说明这一点，不靠静默覆盖。
+   */
+  function setBatchArticleCoverUrl (articleItem, value) {
+    if (!articleItem) return
+    articleItem.cover_url = typeof value === 'string' ? value : ''
+  }
+
+  function clearBatchArticleCover (articleItem) {
+    if (!articleItem) return
+    articleItem.cover_file = null
+    articleItem.cover_path = ''
+    articleItem.cover_url = ''
+  }
+
+  function setBatchArticleVisibility (articleItem, semantic) {
+    if (!articleItem) return
+    // 只接受注册表的三个语义档位与「清空」；非法值保持现状（不写脏值进 payload）
+    if (semantic === '' || semantic === null || ['public', 'friends', 'private'].includes(semantic)) {
+      articleItem.visibilitySemantic = semantic || ''
+    }
+  }
+
+  function setBatchArticleOverrides (articleItem, next) {
+    if (!articleItem) return
+    // 整体替换 + 脱壳：面板发出的是新对象，浅引用共享会让两条目互相污染
+    articleItem.platformOverrides = JSON.parse(JSON.stringify(next || {}))
   }
 
   function removeArticle(idx) {
@@ -288,6 +363,10 @@ export function useBatchPublish(options) {
       topicsText: orig.topicsText || '',
       mentionsText: orig.mentionsText || '',
       publishTime: '',
+      // P2-7：复制携带条目级字段面。platformOverrides 必须深拷贝——浅引用会让两条目
+      // 共享同一对象，改一条动两条（用户以为在调本篇的差异化内容）。
+      platformOverrides: JSON.parse(JSON.stringify(orig.platformOverrides || {})),
+      visibilitySemantic: orig.visibilitySemantic || '',
       _key: freshKey(),
     })
     // 复制标题加后缀
@@ -382,6 +461,21 @@ export function useBatchPublish(options) {
         })
         if (!metadataCheck.valid) {
           notifyWarning('publishPage.batchNotify.metadataInvalid', { params: { title: a.title.slice(0, 20), message: metadataCheck.message } })
+          return
+        }
+        // P2-7：注册表内容限制校验（批量此前完全不调，超长内容直接进队列、由平台侧报错，
+        // 用户在进度流里只看到一条模糊失败）。口径与单篇同一实现，含无标题平台
+        // 「标题计入正文首行」的合并长度判定。失败语义是**整批中止**，与批量既有
+        // 各道校验一致——一次批量提交是一个用户动作，部分提交会让计数与预期不符。
+        const contentCheck = validatePlatformContent({
+          platforms: a.platforms,
+          article: { title: a.title, content: a.content },
+          platformOverrides: a.platformOverrides,
+        })
+        if (!contentCheck.valid) {
+          notifyWarning('publishPage.batchNotify.contentInvalid', {
+            params: { title: a.title.slice(0, 20), message: contentCheck.message },
+          })
           return
         }
         if (
@@ -708,5 +802,11 @@ export function useBatchPublish(options) {
     checkBatchAccess,
     toggleBatchAccount,
     isBatchAccountSelected,
+    // P2-7 批量条目字段面写入点
+    setBatchArticleCover,
+    setBatchArticleCoverUrl,
+    clearBatchArticleCover,
+    setBatchArticleVisibility,
+    setBatchArticleOverrides,
   }
 }
