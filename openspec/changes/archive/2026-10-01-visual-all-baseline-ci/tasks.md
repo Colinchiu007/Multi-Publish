@@ -23,7 +23,7 @@
 
 - [x] 4.1 AGENTS.md QM-4：`test:all:visual` 语义变化、基线来源改为 Visual Tests workflow 的 artifact、升级门禁的两个前提
 - [x] 4.2 `apps/desktop/tests/visual-testing/README.md` / `USAGE.md` 命令表同步（94→103 条口径 + 两条流水线分工）
-- [ ] 4.3 CHANGELOG / `.quality-gates.md` 执行记录 / 账本登记 **移出本 PR**，改由合并后的单篇 docs PR 一次性回填
+- [x] 4.3 CHANGELOG / `.quality-gates.md` 执行记录 / 账本登记 **移出本 PR**，改由合并后的单篇 docs PR 一次性回填 —— 已由 PR #2741（落地 `e300153d`，2026-09-30T18:24:49Z）完成：补 `.quality-gates.md` 记录 4 篇（#2714 / #2620 / #2614 / #2613）+ `CHANGELOG.md` 条目 5 条（另含 #2623）。缺口不是凭印象定的：最初用 `grep '(#2613)'` 查得全 0，**那是坐标错**（本仓记录标题不带 PR 号），改用 squash 落地 SHA 当坐标逐个计数才查出真实缺口；三条取证（`git log origin/main --grep`、`gh pr view mergedAt/mergeCommit`、`git ls-remote` 返回 0 行）逐条写进记录正文。合并后在 main 上回读：四条 SHA 在 `.quality-gates.md` 各命中、五个 slug 在 `CHANGELOG.md` 各命中 1 次
   - 原因（实测 3 轮 CI 作废换来的）：本 PR 同时改 `CHANGELOG.md` / `.quality-gates.md` / `gate-record-debt-ledger.json` 三份**置顶插入型**文件时，main 每前进一次本 PR 就变 DIRTY，每次解冲突都要重烧一整轮全量 CI（约 20 分钟）。把置顶文档改动全部推迟到"合并之后"的那篇 docs PR：代码 PR 不再与 main 抢那三份文件，docs PR 又能以 PASS 直写（不需要 PENDING 与账本登记项），于是既没有乒乓、也没有需要事后销账的欠账。
   - 回填内容清单（供下一个会话照抄，全部可离线取证）：① `CHANGELOG.md` 本 PR 条目；② `.quality-gates.md` 执行记录（其 `远程同步` 行直接写 PASS：`git log origin/main` 尾锚 `(#2589)` 取 merge SHA 与时间、`git ls-remote --heads origin visual-all-ci` 返回 0 行）；③ 若该 docs PR 自己也写 PENDING 行，才需要往账本加登记项（本条设计下应当不需要）
 
