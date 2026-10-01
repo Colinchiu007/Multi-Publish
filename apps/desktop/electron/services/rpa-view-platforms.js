@@ -445,8 +445,9 @@ const platformsMixin = {
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 外审更正：`el.click()` 不受遮挡/视口影响，`querySelector` 对含 `:has-text` 的选择器本就
           // 抛错并回落文本匹配 ⇒ 真正起作用的是 `platform-selectors.js` 的候选收紧。
-          // 点击前 dump 命中元素（头条零请求卡点唯一诊断面）。**必须 try/catch**：选择器含 `:has-text` 时裸 `querySelector` 会抛 SyntaxError（实测踩到）。
-          if (platform === 'toutiao') { try { log.info('RpaView', '[toutiao] click target: ' + await win.webContents.executeJavaScript('(function(){try{var e=document.querySelector(' + JSON.stringify(publishSelector) + ');if(!e)return "NULL";var b=e.getBoundingClientRect();return e.tagName+"|cls="+String(e.className||"").slice(0,36)+"|txt="+String(e.innerText||"").replace(/\\s+/g,"").slice(0,10)+"|dis="+!!e.disabled+"|wh="+Math.round(b.width)+"x"+Math.round(b.height)+"|top="+Math.round(b.top)}catch(err){return "QUERY_ERR:"+err.message.slice(0,60)}})()')) } catch (e) { log.warn('RpaView', '[toutiao] click target dump: ' + e.message) } }
+          // 点击前 dump 命中元素 + 页面关键字段实际值（头条"内容为空被静默拦下"的唯一诊断面；必须 try/catch，`:has-text` 选择器裸 querySelector 会抛错）。
+          if (platform === 'toutiao') { try { log.info('RpaView', '[toutiao] pre-click: ' + await win.webContents.executeJavaScript('(function(){try{var e=document.querySelector(' + JSON.stringify(publishSelector) + ');var ta=[...document.querySelectorAll("textarea,input")].find(function(x){return /标题/.test(x.placeholder||"")});var ed=document.querySelector(".ProseMirror")||document.querySelector("[contenteditable]");var w=document.querySelector(".article-cover-images-wrap");var m=String((document.body&&document.body.innerText)||"").match(/共\\s*(\\d+)\\s*字/);return "btn="+(e?e.tagName+"|dis="+!!e.disabled:"NULL")+" |titleLen="+(ta?String(ta.value||"").length:-1)+" |bodyLen="+(ed?String(ed.innerText||"").length:-1)+" |coverImgs="+(w?w.querySelectorAll("img").length:-1)+" |wordCnt="+(m?m[1]:"?")}catch(err){return "ERR:"+err.message.slice(0,70)}})()')) } catch (e) { log.warn('RpaView', '[toutiao] pre-click dump: ' + e.message) } }
+          await this._click(win,publishSelector)
           await this._click(win,publishSelector)
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
@@ -1314,8 +1315,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       publish_url: publishUrl || config.publish_url,
       // 「展示封面」必填且默认选「单图」但封面为空（真机取证）→ 发布前传入封面图，
       // 拿不到上传入口时回退选「无封面」，否则点「预览并发布」被必填校验挡住。
-      // 2026-09-30 第 52 轮实验：关闭封面 hook 后发布同样失败 ⇒ **封面不是阻塞点**，
-      // "封面上传破坏页面状态"假设被否定。恢复该 hook（头条确实需要封面）。
+      // 第 52 轮实验：关闭封面 hook 后发布同样失败 ⇒ 封面不是阻塞点。恢复该 hook（头条确实需要封面）。
       prePublishHook: 'uploadCover',
       hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
     })
