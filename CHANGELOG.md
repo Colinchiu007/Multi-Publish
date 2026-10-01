@@ -1,3 +1,28 @@
+# [未发布] feat(publish): P2-7 批量模式字段面——UI/payload/主进程三层同时收口（2026-10-09，batch-mode-field-surface）
+
+### 新功能
+
+- 批量模式每篇文章补齐扩展字段面：封面（手选 + 缩略图预览 + 清除 + 封面 URL）、通用字段支持度徽标、无标题平台首行提示、可见性语义档位、平台差异化内容面板（复用单篇的 `PlatformOverridePanel` / `PublishVisibilitySelect` 哑组件）。新增 `src/features/publish/components/BatchArticleFields.vue`。
+- 批量提交前补注册表内容限制校验 `validatePlatformContent`（此前批量完全不调，超长内容直接进队列由平台侧报错，用户在进度流里只看到一条模糊失败）；口径含无标题平台「标题计入正文首行」的合并长度判定，失败语义为整批中止（与批量既有各道校验一致）。
+- 条目级 `platformOverrides` / `visibilitySemantic` 入结构并可随「复制文章」深拷贝带走；批量 payload 与单篇 `buildArticleData` 同口径（补 `contentFormat` / `platformOverrides` / `visibilitySemantic`，封面经 `normalizePublishFile` 归一，tags/topics/mentions/images 改为「有值才挂键」）。
+
+### 修复
+
+- **主进程派发层砍键（真实缺陷）**：`batch-manager.js` 的 `executeBatch` 用 5 键手工白名单（title/content/author/cover_url/video_path）入队，而同文件 `scheduleBatch` 是整包透传 ⇒ 同一批文章「设了定时就带封面、立即发布就没封面」，且渲染层早已发送的 `cover_path` / `images` / `tags` / `topics` / `mentions` / `aiGenerated` 在立即执行路径上**一直**被静默丢弃。现三条派发点统一走 `buildEnqueuedArticle(article, accountId)`。
+- **批量派发目标改为显式覆盖（一致性加固，非缺陷修复）**：`article.accountId` 优先于任务顶层，排期路径此前不带该键、靠 `buildPublishArticle` 的 `|| task?.accountId` 兜底才恰好取对（原记「会拿错账号凭证」经实测撤回）；现由 `buildEnqueuedArticle` 逐次覆盖派发目标。同一条 `executeBatch ↔ scheduleBatch` 字段面 parity 锁暴露的**字段丢失**才是本切片修掉的用户可见缺陷。
+
+### 重构
+
+- 单篇字段面判据从 `Publish.vue` 内联实现下沉为 `src/features/publish/usePublishFieldSurface.js`（按传入平台清单计算，单篇传全局所选、批量传条目自己的平台），两模式共用一份真源；`Publish.vue` 净减 27 行（该文件距逐文件行数门禁上限原本只剩 4 行）。
+- 差异化面板归一化与 Markdown 判定自 `usePublishFlow.js` 迁出为 `publish-overrides.js`；el-upload 文件→路径描述符自 `Publish.vue` 迁出为 `publish-upload-file.js`。迁出属行为保持重构，批量与单篇不得各写一份。
+
+### 验证
+
+- 新增/更新测试：`usePublishFieldSurface.test.js`、`publish-overrides.test.js`、`publish-upload-file.test.js`、`BatchArticleFields.test.js`、`useBatchPublish.test.js`（P2-7 块）、`batch-manager.test.js`（字段面 parity）、`Publish.test.js`（接线）；受影响面 216 passed（14 files）+ 98 passed（2 files）。
+- 反证四条均实跑并逐字节还原：整包透传退回白名单 ⇒ 红 2；override 归一改 no-op ⇒ 红 1；内容校验恒通过 ⇒ 红 2；无标题提示忽略入参平台清单 ⇒ 红 3。
+- 立项与六维度详写：`01-docs/PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md`；roadmap 差距表第 7 项状态回写。
+
+---
 # [未发布] fix(会话隔离): 健康门禁加受管外来 worktree 登记制——harness 注册的 worktree 不再挡死 start-mp-task（2026-10-01，worktree-health-allowlist）
 
 ### 缺陷（现场实跑取证）

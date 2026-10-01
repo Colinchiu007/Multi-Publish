@@ -72,6 +72,7 @@ vi.mock("@element-plus/icons-vue", () => {
 import UiButton from "@/components/UiButton.vue";
 import UiInput from "@/components/UiInput.vue";
 import PlatformOverridePanel from "@/features/publish/components/PlatformOverridePanel.vue";
+import BatchArticleFields from "@/features/publish/components/BatchArticleFields.vue";
 import PublishTargetSelector from "@/features/publish/components/PublishTargetSelector.vue";
 import PublishView from "./Publish.vue";
 
@@ -650,6 +651,32 @@ describe("PublishView — extra coverage", () => {
     w.vm.applyTemplate({ title: "Batch Title", content: "Batch Content" });
     expect(w.vm.articles[0].title).toBe("Batch Title");
     expect(w.vm.articles[0].content).toBe("Batch Content");
+  });
+
+  it("P2-7：批量条目挂载扩展字段面，且组件事件经 composable setter 落进条目对象", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    await nextTick();
+
+    // 接线存在性：字段面组件按条目渲染（testid 带条目下标，可逐条目定位）
+    expect(w.find('[data-testid="batch-fields-0"]').exists()).toBe(true);
+
+    // 写点落进条目对象——修复前 cover_* 在批量只有读点、没有任何写点
+    w.findComponent(BatchArticleFields).vm.$emit("update:cover", { path: "D:/p27.png", name: "p27.png" });
+    expect(w.vm.articles[0].cover_path).toBe("D:/p27.png");
+    expect(w.vm.articles[0].cover_file).toEqual({ path: "D:/p27.png", name: "p27.png" });
+
+    w.findComponent(BatchArticleFields).vm.$emit("update:visibility", "private");
+    expect(w.vm.articles[0].visibilitySemantic).toBe("private");
+
+    w.findComponent(BatchArticleFields).vm.$emit("update:overrides", { douyin: { title: "覆盖标题", content: "" } });
+    expect(w.vm.articles[0].platformOverrides).toEqual({ douyin: { title: "覆盖标题", content: "" } });
+
+    w.findComponent(BatchArticleFields).vm.$emit("clear-cover");
+    expect(w.vm.articles[0].cover_path).toBe("");
+    expect(w.vm.articles[0].cover_file).toBeNull();
   });
 
   it("showTemplatePicker toggle works", async () => {

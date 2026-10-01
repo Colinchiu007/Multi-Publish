@@ -1442,7 +1442,16 @@ export default {
       resultPartial: (ctx) => 'Finished: ' + ctx.named('succeeded') + ' succeeded, ' + ctx.named('failed') + ' failed',
     },
     // Batch publish notifications (useBatchPublish pilot migration, 2026-08-30)
+    batchFieldSurface: {
+      sectionTitle: 'Extended fields',
+      coverHint: 'Each article can have its own cover; entries without one fall back to the platform default',
+      diffHint: 'Adjust the title, body and per-platform fields for this article only; other articles are unaffected',
+      noPlatformHint: 'No platform selected for this article; differential settings appear once you pick one',
+      coverUrlOnlyHint: 'The remote cover URL is submitted with the task, but the thumbnail cannot preview remote images; pick a local cover to preview it',
+      clearCover: 'Clear cover',
+    },
     batchNotify: {
+      contentInvalid: (ctx) => '"' + ctx.named('title') + '": ' + ctx.named('message'),
       retrySuccess: (ctx) => 'Resubmitted ' + ctx.named('accepted') + ' failed task(s)',
       retryPartial: (ctx) => 'Resubmitted ' + ctx.named('accepted') + ' task(s), ' + ctx.named('remaining') + ' still failed',
       retryFailed: 'Failed to resubmit failed tasks',

@@ -44,11 +44,9 @@ import {
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
-import { getPlatformOverrideFields } from '@multi-publish/shared-utils/src/publish-capabilities'
+import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
+import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { usePublishProgressStore } from '@/stores/publishProgress'
-
-const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
-const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
 
 // 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
 // 无图时 handlePublish 自动生成封面兜底——AI 生图优先，cover:generate-ai 内建本地标题卡回退）
@@ -58,85 +56,12 @@ const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
 // （症状：publish verification timeout，日志无 uploadCover entry 行即表示 coverPath 为 null）。
 const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']
 
-function isMarkdownContent(content) {
-  return MARKDOWN_RE.test(content) || MARKDOWN_LINK_RE.test(content)
-}
-
 function nowTimeString() {
   return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 function toPlainJson(value) {
   return JSON.parse(JSON.stringify(value))
-}
-
-// 注册表字段查询缓存（注册表数据冻结，缓存安全）
-const overrideFieldsCache = new Map()
-
-function platformOverrideFieldsFor (platform) {
-  if (!overrideFieldsCache.has(platform)) {
-    overrideFieldsCache.set(platform, getPlatformOverrideFields(platform, { uiOnly: true }))
-  }
-  return overrideFieldsCache.get(platform)
-}
-
-/**
- * 按注册表字段定义归一化单个覆盖值（与 PlatformOverridePanel.normalizeValue 同口径）。
- * 返回 undefined 表示该字段无有效值（不进 payload）。
- */
-function normalizeOverrideValue (field, raw) {
-  if (field.type === 'checkbox') {
-    return typeof raw === 'boolean' ? raw : undefined
-  }
-  if (field.type === 'select') {
-    const options = Array.isArray(field.options) ? field.options : []
-    const matched = options.find(option => String(option.value) === String(raw))
-    return matched ? matched.value : undefined
-  }
-  if (field.type === 'tags') {
-    if (!Array.isArray(raw)) return undefined
-    const list = [...new Set(raw.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()))]
-    return list.length > 0 ? list : undefined
-  }
-  if (field.type === 'collection') {
-    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
-    if (typeof raw === 'string' && raw.trim()) return raw.trim()
-    return undefined
-  }
-  // text / textarea：非空才透传；maxLen 按码点截断（不切断代理对）
-  if (typeof raw !== 'string' || !raw.trim()) return undefined
-  const text = raw.trim()
-  const maxLen = Number(field.maxLen)
-  if (maxLen > 0) {
-    const chars = Array.from(text)
-    return chars.length > maxLen ? chars.slice(0, maxLen).join('') : text
-  }
-  return text
-}
-
-function normalizePlatformOverrides (overrides) {
-  if (!overrides || typeof overrides !== 'object') return {}
-  return Object.fromEntries(Object.entries(overrides).flatMap(([platform, value]) => {
-    if (!value || typeof value !== 'object') return []
-    const normalized = {
-      title: typeof value.title === 'string' ? value.title : '',
-      content: typeof value.content === 'string' ? value.content : '',
-    }
-    // 注册表驱动的平台特有字段归一化（CCG codex W1 修复，2026-10-08）：
-    // 旧硬编码白名单只保留知乎/抖音/公众号少数字段，B站分区/版权/合集、
-    // YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、
-    // 公众号摘要/评论开关等注册表面板字段在 IPC 组装前被静默丢弃——
-    // UI 可编辑但发布不生效。现按注册表字段与类型归一化，与面板同口径。
-    for (const field of platformOverrideFieldsFor(platform)) {
-      const normalizedValue = normalizeOverrideValue(field, value[field.key])
-      if (normalizedValue !== undefined) normalized[field.key] = normalizedValue
-    }
-    // 无任何有效差异内容（标题/正文/任一特有字段）的条目不进 payload
-    const hasPayload = Boolean(normalized.title || normalized.content)
-      || Object.keys(normalized).some(key => key !== 'title' && key !== 'content')
-    if (!hasPayload) return []
-    return [[platform, normalized]]
-  }))
 }
 
 /**
@@ -276,8 +201,7 @@ export function usePublishFlow(options) {
       ...normalizePublishFiles(article.image_files),
       ...normalizePublishFiles(article.images),
     ])
-    const coverFile = normalizePublishFile(article.cover_file || article.cover_path || article.cover_url)
-    const coverPath = coverFile?.path || String(article.cover_path || article.cover_url || '').trim()
+    const cover = resolveCoverFields(article)
     const tags = normalizePublishStringList(article.tags)
     const topics = normalizePublishStringList(article.topics)
     const mentions = normalizePublishMentions(article.mentions)
@@ -286,7 +210,7 @@ export function usePublishFlow(options) {
       content: article.content,
       contentFormat: md ? 'markdown' : 'html',
       author: article.author || '',
-      cover_url: article.cover_url || '',
+      cover_url: cover.cover_url,
       video_path: article.video_path || '',
       precheck: precheckEnabled.value,
       platformOverrides: normalizePlatformOverrides(diffEdits),
@@ -301,8 +225,8 @@ export function usePublishFlow(options) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
     }
-    if (coverPath) data.cover_path = coverPath
-    if (coverFile) data.cover_file = coverFile
+    if (cover.cover_path) data.cover_path = cover.cover_path
+    if (cover.cover_file) data.cover_file = cover.cover_file
     if (tags.length > 0) data.tags = tags
     if (topics.length > 0) data.topics = topics
     if (mentions.length > 0) data.mentions = mentions
