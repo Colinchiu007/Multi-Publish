@@ -10,7 +10,8 @@ const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
 const playwrightManager = require('../services/playwright-manager')
-const { tryHttpLoginCheck, fetchAccountInfoViaHttpApi } = require('./http-login-checker')
+const { tryHttpLoginCheck } = require('./http-login-checker')
+const profileRefresh = require('./account-profile-refresh')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
@@ -680,98 +681,26 @@ async function checkLoginStatus (platform, accountId) {
 }
 
 /**
- * 从 Playwright 页面提取账号信息（昵称、头像、平台ID、粉丝数）。
- * 采集实现收敛在 @multi-publish/shared-utils/src/account-profile —— 同一份代码同时
- * 供 Playwright（函数体被序列化注入页面）与 Electron executeJavaScript（只接受字符串）使用，
- * 禁止在任何调用方复制第二份 DOM 采集（口径漂移正是本链路的历史病根）。
- * @param {object} page - Playwright page
- * @param {string} [platform] - 平台标识（可选）
+ * 资料刷新簇已拆到 ./account-profile-refresh（第二刀）。此处只保留同名委托：
+ * 对外导出名与调用签名 MUST 不变（IPC 与既有调用方的合同面）——注意合同面是**本文件的 3 参形态**，
+ * 新模块自身的同名函数多一个 deps 参数（缺失即抛 TypeError），由下面的委托调用点补齐。
+ * `isSafePathSegment` 是本文件私有的路径校验，必须由调用点注入而不是让被拆模块自行 require 本文件（会成环）。
  */
 async function extractAccountInfo (page, platform = '') {
-  return profileUtils.collectWithPlaywright(page, platform)
+  return profileRefresh.extractAccountInfo(page, platform)
 }
 
-/**
- * 从 Electron WebContents（登录视图 / 内嵌 webview / 扫码视图）提取账号信息。
- * 三条真实登录入口都用它；采集失败返回 {}，绝不抛断登录流程。
- * @param {{executeJavaScript: Function}} webContents
- * @param {string} [platform]
- */
 async function extractAccountInfoFromWebContents (webContents, platform = '') {
-  return profileUtils.collectWithWebContents(webContents, platform)
+  return profileRefresh.extractAccountInfoFromWebContents(webContents, platform)
 }
 
-/**
- * 登录态检测已经停在「已登录的页面上」时，顺手补齐该账号缺失/变化的昵称与头像。
- *
- * 为什么放在检测里：存量账号是在接线修好之前登录的，真源里 account_name 往往是网页
- * 标题、avatar 为空；不给它们一条回填路径，用户就必须重新登录才能看到昵称/头像。
- *
- * 三条纪律：
- * 1. 只在「有 DOM 且判定有效」的路径调用（HTTP 快速路径没有 DOM，不做）。
- * 2. 只下发命中且与真源不同的资料字段（buildProfilePatch），未命中 = 键缺席 = 不修改。
- * 3. 任何失败都只记 warn 并返回 false —— 资料是增强信息，不是登录有效性的证据，
- *    绝不允许因为取不到昵称就把账号判成失效（那会把一次展示修复做成登录态回归）。
- * @returns {Promise<boolean>} 是否实际写回了资料字段
- */
 async function refreshProfileFromPage (page, platform, accountId) {
-  try {
-    if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
-    const info = await extractAccountInfo(page, platform)
-    if (!info || Object.keys(info).length === 0) return false
-    const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
-    if (!current || current.code !== 0 || !current.data) return false
-    const patch = profileUtils.buildProfilePatch(info, current.data)
-    guardProfilePatchBySource(patch, current.data)
-    if (Object.keys(patch).length === 0) return false
-    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
-    if (!result || result.code !== 0) {
-      log.warn('AccountManager', 'refreshProfileFromPage: 资料回填写入失败 ' + platform + ':' + accountId + ' code=' + (result && result.code))
-      return false
-    }
-    log.info('AccountManager', 'refreshProfileFromPage: 已回填资料字段 ' + platform + ':' + accountId + ' keys=' + Object.keys(patch).join(','))
-    return true
-  } catch (e) {
-    log.warn('AccountManager', 'refreshProfileFromPage 忽略异常 ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
-    return false
-  }
+  return profileRefresh.refreshProfileFromPage(page, platform, accountId, { isSafePathSegment })
 }
 
-/**
- * HTTP 登录检测成功时的资料回填：用平台创作者 API（复用 http-login-checker 端点，
- * 对齐参考实现：不抓 DOM）拿昵称/粉丝，走 buildProfilePatch 只下发命中且变化的字段。
- * 昵称保护：见 guardProfilePatchBySource —— 按 name_source 判定，用户显式命名一律不覆盖。
- * 粉丝/平台ID/头像等增量字段照常回填。任何失败只 warn 返回 false，绝不影响登录态判定。
- * @returns {Promise<boolean>} 是否实际写回了资料字段
- */
 async function refreshProfileFromHttpApi (platform, accountId, cookies) {
-  try {
-    if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
-    const info = await fetchAccountInfoViaHttpApi(platform, cookies)
-    if (!info || !info.supported) return false
-    const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
-    const curData = current && current.code === 0 && current.data ? current.data : null
-    const patch = profileUtils.buildProfilePatch(
-      { nickName: info.nickname, followers: info.followers, platformAccountId: info.platformAccountId },
-      curData
-    )
-    guardProfilePatchBySource(patch, curData)
-    if (Object.keys(patch).length === 0) return false
-    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
-    if (!result || result.code !== 0) {
-      log.warn('AccountManager', 'refreshProfileFromHttpApi: 资料回填写入失败 ' + platform + ':' + accountId + ' code=' + (result && result.code))
-      return false
-    }
-    log.info('AccountManager', 'refreshProfileFromHttpApi: 已回填资料字段 ' + platform + ':' + accountId + ' keys=' + Object.keys(patch).join(','))
-    return true
-  } catch (e) {
-    log.warn('AccountManager', 'refreshProfileFromHttpApi 忽略异常 ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
-    return false
-  }
+  return profileRefresh.refreshProfileFromHttpApi(platform, accountId, cookies, { isSafePathSegment })
 }
-
-
-
 
 /**
  * 从主进程本地存储读取账号凭证，禁止通过 preload 暴露给渲染进程。

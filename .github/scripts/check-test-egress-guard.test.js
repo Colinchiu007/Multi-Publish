@@ -1,0 +1,162 @@
+'use strict';
+/**
+ * .github/scripts/check-test-egress-guard.test.js — Gate 20 棘轮自身的回归
+ *
+ * 为什么必须有：棘轮一旦静默失效，"没有裸奔面"就变成一句没有证据的话。
+ * 本轮真实发生过一次**棘轮把自己的检查对象改没了**：枚举判据写的是
+ * `script.includes('node --test')`，而接线时在 `node` 与 `--test` 中间插了
+ * `--require <setup>` —— 那两个面不是变红，是从枚举里消失（18 个面掉到 16 个，PASS 照报）。
+ * 所以第 2 条夹具锁专门钉"两种写法都必须被枚举"。
+ *
+ * 夹具一律注入 files/readFile/knownUnguarded，不改真实工作树：改动真实工作树来证明门禁会红，
+ * 正是"反证不得执行被守卫的动作"那条禁令的形状。
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const {
+  collectSurfaces,
+  collectProblems,
+  evaluate,
+  GUARD_MODULE,
+  SETUP_BASE,
+  KNOWN_UNGUARDED,
+} = require('./check-test-egress-guard');
+
+/** 构造一个夹具仓库：files = 路径清单，texts = 路径 → 内容 */
+function fixture(files, texts) {
+  const readFile = (rel) => (Object.prototype.hasOwnProperty.call(texts, rel) ? texts[rel] : null);
+  return { files, readFile };
+}
+
+/**
+ * 夹具基线：不看 .gitignore（那是真实仓库的事）、枚举下限放宽、且**不带真实欠账清单**——
+ * 否则夹具里每条真实欠账都会被判"已不存在"，把本轮真正要测的那条红淹死在无关的红里。
+ */
+function withFixture(extra, files, texts) {
+  return Object.assign(
+    { minSurfaces: 1, checkIgnored: false, knownUnguarded: {} },
+    extra || {},
+    fixture(files, texts),
+  );
+}
+
+test('真实仓库：棘轮必须 0 问题（现场自证，不是"应该没问题"）', () => {
+  const r = collectProblems();
+  assert.deepEqual(r.problems, [], '真实仓库上棘轮报问题：\n' + r.problems.join('\n'));
+  assert.ok(r.surfaceCount >= 10, '枚举面数不应低于下限，实际=' + r.surfaceCount);
+  assert.equal(r.registered, Object.keys(KNOWN_UNGUARDED).length,
+    '真实欠账清单每条都必须命中一个仍存在的面（键漂移就在这条上撞）');
+});
+
+test('node --test 与 node --require <setup> --test 两种写法都必须被枚举（防"改没了就看不见"）', () => {
+  const bareTexts = {
+    'packages/a/package.json': JSON.stringify({ scripts: { test: 'node --test tests/x.test.js' } }),
+  };
+  const wiredTexts = {
+    'packages/b/package.json': JSON.stringify({
+      scripts: { test: 'node --require ../shared-utils/' + SETUP_BASE + ' --test tests/y.test.js' },
+    }),
+  };
+  const surfaces = collectSurfaces(fixture(
+    ['packages/a/package.json', 'packages/b/package.json'],
+    Object.assign({}, bareTexts, wiredTexts),
+  ));
+  assert.ok(surfaces.has('packages/a:node-test'), '裸 node --test 未被枚举');
+  assert.ok(surfaces.has('packages/b:node-test'),
+    '插了 --require 之后未被枚举 —— 这正是本轮真实踩到的失明');
+
+  // 已接线的判 OK，未接线的判红
+  assert.equal(evaluate(surfaces.get('packages/b:node-test'), fixture([], wiredTexts)), null);
+  assert.match(String(evaluate(surfaces.get('packages/a:node-test'), fixture([], bareTexts))), /未引用共享守卫/);
+});
+
+test('合法接线的全集必须 0 问题（夹具判"不该拦的放过"）', () => {
+  const files = [
+    'apps/desktop/vitest.config.js',
+    'apps/desktop/test-setup.js',
+    'packages/ai-writer/vitest.config.js',
+    'packages/ai-writer/package.json',
+    'packages/api-publish-engine/scripts/run-tests.js',
+    'packages/api-publish-engine/vitest.config.js',
+    'packages/video-clone-engine/package.json',
+  ];
+  const texts = {
+    'apps/desktop/vitest.config.js': 'export default { test: { setupFiles: ["./test-setup.js"] } }',
+    'apps/desktop/test-setup.js': "require('../../" + GUARD_MODULE + "').installTestNetworkGuard()",
+    'packages/ai-writer/vitest.config.js': "setupFiles: ['../../packages/shared-utils/" + SETUP_BASE + "']",
+    'packages/ai-writer/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+    'packages/api-publish-engine/scripts/run-tests.js':
+      "spawn(process.execPath, ['--require', setupPath, file])",
+    'packages/api-publish-engine/vitest.config.js': "setupFiles: ['../shared-utils/" + SETUP_BASE + "']",
+    'packages/video-clone-engine/package.json': JSON.stringify({
+      scripts: { test: 'node --require ../shared-utils/' + SETUP_BASE + ' --test test/a.test.js' },
+    }),
+  };
+  const r = collectProblems(withFixture({}, files, texts));
+  assert.deepEqual(r.problems, [], '合法夹具被误拦：\n' + r.problems.join('\n'));
+});
+
+test('新增裸奔 vitest 面必须变红（"新增测试面无守卫"一律拦）', () => {
+  const files = ['packages/newcomer/vitest.config.js'];
+  const texts = { 'packages/newcomer/vitest.config.js': 'export default { test: { environment: "node" } }' };
+  const r = collectProblems(withFixture({}, files, texts));
+  assert.equal(r.problems.length, 1, '应只有一条"新增裸奔面"红：\n' + r.problems.join('\n'));
+  assert.match(r.problems[0], /packages\/newcomer:vitest/);
+  assert.match(r.problems[0], /没接守卫、也没登记原因/);
+});
+
+test('欠账条目对应的面一旦接上，必须当场报"陈旧登记"（销账与接线必须同一次发生）', () => {
+  const key = 'packages/python-backend/tests:pytest';
+  assert.ok(KNOWN_UNGUARDED[key], '夹具依赖的真实欠账条目不存在：' + key);
+  const files = ['packages/python-backend/tests/conftest.py'];
+  const ledger = { [key]: 'fixture' };
+
+  const unwired = { 'packages/python-backend/tests/conftest.py': 'import pytest' };
+  const wired = { 'packages/python-backend/tests/conftest.py': '@pytest.fixture(autouse=True)\ndef block_non_loopback_egress(): ...' };
+
+  const a = collectProblems(withFixture({ knownUnguarded: ledger }, files, unwired));
+  assert.deepEqual(a.problems, [], '未接线但已登记欠账的面不该报问题');
+  assert.equal(a.registered, 1);
+
+  const b = collectProblems(withFixture({ knownUnguarded: ledger }, files, wired));
+  assert.equal(b.problems.length, 1, '接上后必须报陈旧登记');
+  assert.match(b.problems[0], /已接上或已不存在/);
+  assert.match(b.problems[0], /packages\/python-backend\/tests:pytest/);
+});
+
+test('欠账键漂移（清单写的键与枚举键不一致）必须两条红同时出现，不得互相掩盖', () => {
+  // 本轮真实发生过：清单写 `packages/api-publish-engine:runner-vitest`，
+  // 而枚举键是 `packages/api-publish-engine/scripts:runner-vitest`（dir 取自 run-tests.js 所在目录）。
+  const wrongKey = 'packages/api-publish-engine:runner-vitest';
+  const files = ['packages/api-publish-engine/scripts/run-tests.js'];
+  const texts = { 'packages/api-publish-engine/scripts/run-tests.js': "['--require', setupPath, file]" };
+  const r = collectProblems(
+    withFixture({ knownUnguarded: { [wrongKey]: '漂移的键（复现本轮事故）' } }, files, texts),
+  );
+  assert.equal(r.problems.length, 2, '应同时报"未登记欠账"与"陈旧登记"两条：\n' + r.problems.join('\n'));
+  assert.ok(r.problems.some((p) => /没接守卫、也没登记原因/.test(p)
+    && /packages\/api-publish-engine\/scripts:runner-vitest/.test(p)), '裸奔面必须被点名');
+  assert.ok(r.problems.some((p) => /已接上或已不存在/.test(p)
+    && new RegExp(wrongKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(p)), '漂移的键必须被点名');
+});
+
+test('runner-vitest 的配置在包根而不在 scripts/ —— 只查 surface.dir 会把已接上误判成欠账', () => {
+  const surface = {
+    kind: 'runner-vitest',
+    file: 'packages/api-publish-engine/scripts/run-tests.js',
+    dir: 'packages/api-publish-engine/scripts',
+  };
+  const texts = {
+    'packages/api-publish-engine/vitest.config.js': "setupFiles: ['../shared-utils/" + SETUP_BASE + "']",
+  };
+  assert.equal(evaluate(surface, fixture([], texts)), null, '包根配置未被上溯找到');
+  assert.match(String(evaluate(surface, fixture([], {}))), /vitest 子集未引用/);
+});
+
+test('枚举退化（git ls-files 拿不到东西）必须 fail closed，不得报成"全仓合规"', () => {
+  const r = collectProblems({ files: [], readFile: () => null, minSurfaces: 10, checkIgnored: false });
+  assert.ok(r.problems.some((p) => /枚举退化/.test(p)), '空枚举必须红');
+  // 且退化时真实欠账条目会同时被判"不存在" ⇒ 至少两条问题，绝不是一条 PASS
+  assert.ok(r.problems.length >= 2, '空枚举至少要报退化 + 欠账失配两条，实际=' + r.problems.length);
+});

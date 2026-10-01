@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
+    setupFiles: ['./network-egress-guard.setup.js'],
     // 同时运行 tests/ 目录与源码旁的 src/**/__tests__/*.test.js（co-located 测试）
     include: ['tests/**/*.test.js', 'src/**/__tests__/*.test.js'],
     exclude: [
