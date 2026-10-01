@@ -115,7 +115,7 @@ roadmap 把 P2-8 写成「无账号分组」，**该判定已过期**（见 road
 
 | 锁 | 文件 | 断言 | 反证变异 → 预期 |
 | --- | --- | --- | --- |
-| L1 真源读写 | `account-groups-store.test.js` | 写后读回逐值相等；`electronAPI` 缺席时保持现状并出声 | 摘掉 owner 命名空间 → 红（跨用户泄漏） |
+| L1 真源读写 | `account-groups-store.test.js` | 写后读回逐值相等；`electronAPI` 缺席时保持现状并出声 | 已实跑：把 `envelope.code !== 0` 判据摘掉 ⇒ **红 2**（模块侧「不得交出空数组当事实」+ store 侧「绝不拿空数组覆盖真源」）。⚠️ 原计划写的「摘掉 owner 命名空间 → 红」**未兑现**：owner 命名空间与 `AUTH_ERROR` 都在主进程 `ipc-handlers/store.js:344-347`，而 `store.test.js` 的「Logto owner_subject 隔离」只覆盖 `store:add-account`，**没有** `store:set-setting` 的用例。本切片未改动该 handler（属既有契约），故不在此处补测；缺口登记为残余（见 §十一），补测时须断言「identity 在而 sub 缺失 ⇒ `{code: AUTH_ERROR}`」与「有 owner ⇒ 走 `setUserSetting` 而非全局 `setSetting`」 |
 | L2 迁移一次性 | 同上 | localStorage 有 / settings 无 ⇒ 迁移且**不删** localStorage | 把"不删"改成"清掉" → 红 |
 | L3 校验表逐条 | 同上 | §三 第 1–8 条各有正反例（含未知 `platformFilter`、重复 id、非数组顶层） | 逐条放宽 → 各自红 |
 | L4 读盘优先 | `accounts.store.test.js` | 两个实例并发写，后写的不得吞掉另一方的既有分组 | 改成只写内存 → 红 |
@@ -144,3 +144,5 @@ roadmap 把 P2-8 写成「无账号分组」，**该判定已过期**（见 road
 - 组内账号是**按 id 引用**：从后端导入的新账号若换了 id，旧分组里的引用会变成"失效成员"，本切片只标不修。
 - 发布页按组添加是**追加**，无"一键撤销本次追加"（用户可靠逐个取消达成）。
 - `settings` 是无模式 KV：写坏一份 JSON 的后果由 §三 第 1 条兜住（整份视为空 + 出声），不做自动修复。
+- **主进程侧 `store:set-setting` 的 owner 分支无测试覆盖**（`ipc-handlers/store.js:344-347`：`owner === null` ⇒ `AUTH_ERROR`；有 owner ⇒ `setUserSetting` 加 sha256 命名空间）。`store.test.js` 的「Logto owner_subject 隔离」只覆盖 `store:add-account`。本切片未改该 handler（属既有契约），因此 §八 L1 的反证只做到**渲染层**那一半；主进程那一半要补时须断言两条：identity 在而 sub 缺失 ⇒ `{code: AUTH_ERROR}`；有 owner ⇒ 走 `setUserSetting` 而不是全局 `setSetting`。
+- **legacy 模式（`identityService` 缺席 ⇒ `owner === undefined`）下分组写的是无命名空间的全局键**，这是 settings 层的既有设计（`store.js:346` 只在 `owner !== undefined` 时走用户作用域），渲染层无从区分。后果：同一台机器上未登录/legacy 形态运行的分组会与「全局设置」共用一份。本切片不改该语义（改它等于同时动所有 settings 消费者），仅在此登记。
