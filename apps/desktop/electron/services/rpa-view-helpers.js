@@ -187,20 +187,20 @@ const helpersMixin = {
     log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
   },
 
-  // 2026-10-01：CDP 真实鼠标事件点击，**先找未被遮挡落点** —— 头条按钮中心被浮层覆盖（`topHit=DIV`）
+  // 2026-10-01：CDP 真实鼠标点击前**先临时移除中心点的遮挡层** —— 头条发布按钮实测 5 个采样点
+  // 全部被浮层覆盖（topHit=DIV），真实点击物理上到不了；而合成 click 又会被 onClick 闭包门控吞掉。
   async _clickViaCdp(win, sel) {
     const dbg = win.webContents.debugger
     try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
     try {
       const expr = '(function(){var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return "";'
-        + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();'
-        + 'var cs=[[0.5,0.5],[0.25,0.5],[0.75,0.5],[0.5,0.25],[0.5,0.75]];'
-        + 'for(var i=0;i<cs.length;i++){var x=Math.round(r.left+r.width*cs[i][0]),y=Math.round(r.top+r.height*cs[i][1]);'
-        + 'try{var tp=document.elementsFromPoint(x,y)[0];if(tp===el||el.contains(tp)||tp.contains(el))return x+","+y}catch(e){}}'
-        + 'return ""})()'
+        + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();var cx=Math.round(r.left+r.width/2),cy=Math.round(r.top+r.height/2);'
+        + 'var es=[];try{es=document.elementsFromPoint(cx,cy)}catch(e){}'
+        + 'window.__mpPe=[];es.forEach(function(b){try{if(b!==el&&!el.contains(b)&&!b.contains(el)){window.__mpPe.push([b,b.style.pointerEvents]);b.style.pointerEvents="none"}}catch(e){}});'
+        + 'return cx+","+cy})()'
       const r = await dbg.sendCommand('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: false })
       const pos = String((r && r.result && r.result.value) || '')
-      if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 无未被遮挡落点: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
+      if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 元素未找到: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
       const x = Number(pos.split(',')[0]); const y = Number(pos.split(',')[1])
       for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await dbg.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
       log.info('RpaView', '[clickTrusted] ' + String(sel).slice(0, 28) + ' -> TRUSTED@' + x + ',' + y)
