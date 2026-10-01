@@ -6,12 +6,13 @@ const fs = require('fs')
 const platformsMixin = require('./rpa-view-platforms')
 
 // 2026-09-29：rpa-view-platforms.js 两次拆分（rpa-publish-id-extract.js / rpa-view-navigation-helpers.js），
+// 2026-10 三次拆分（upload-waiter.js：视频上传等待循环 v4）——
 // 结构锁需读「主文件 + 拆分文件」的合并文本，否则被拆走的方法会断锁。
 // 2026-10-01：artifact 族再拆出 rpa-view-artifacts.js，同样并入。
 function readPlatformsSource () {
   const main = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
   const parts = [main]
-  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers', './rpa-view-artifacts']) {
+  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers', './upload-waiter', './rpa-view-artifacts']) {
     try { parts.push(fs.readFileSync(require.resolve(rel), 'utf-8')) } catch (_) { /* 拆分文件可缺省 */ }
   }
   return parts.join('\n')
@@ -953,6 +954,15 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     expect(body).toMatch(/剩余时间|转码中/)
     expect(body).toMatch(/100/)
     expect(Number((body.match(/timeoutMs \|\| (\d+)/) || [])[1])).toBeGreaterThanOrEqual(900000)
+  })
+
+  // 2026-10 三次拆分（upload-waiter.js）：等待循环从 rpa-view-navigation-helpers.js
+  // 下沉后必须仍由 Object.assign 合回 mixin，否则 this._waitForVideoUploadComplete 为 undefined
+  // （抖音/通用链路直接 TypeError）——结构锁只验源码文本，验不到接线，故补此断言。
+  it('三次拆分接线：upload-waiter mixin 已合入 platformsMixin', () => {
+    expect(typeof platformsMixin._waitForVideoUploadComplete).toBe('function')
+    expect(typeof platformsMixin._probeUploadSignal).toBe('function')
+    expect(String(platformsMixin._waitForVideoUploadComplete)).toContain('timeoutMs || 900000')
   })
 
   it('douyin 专用链路也先清理引导遮罩（实测页面带“我知道了”）', () => {

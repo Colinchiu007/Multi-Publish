@@ -1,3 +1,25 @@
+# [未发布] fix(publish-progress): 发布进度重复会话修复 + 视频上传等待自适应预算（2026-10-01，fix-publish-progress-dup-upload）
+
+### 问题一：发布 1 个视频，面板显示 2 个任务（成功 1/2，幽灵任务永远「排队中」）
+
+- **实锤取证**（shared-user-data/logs/app-2026-10-01.log）：`publish:batch` 处理器内 `taskQueue.add()` **同步启动**任务，首个 `publish:progress` 事件（`starting browser...` 14:32:43.162）早于 IPC 响应（`publish:batch ok` 14:32:43.180）到达渲染端。渲染层 `handleProgressEvent` 先走孤儿收纳建会话①（无标题 → 显示回退名「发布 · HH:mm」），随后 `registerSession({taskIds, title})` 无条件新建会话②（带标题、任务永远 queued）。同一 taskId 的事件全部归属会话① ⇒ 会话② 永不终态：聚合「成功 1/2」、面板关不掉、自动收敛失效。
+- **修复**：`publishProgress.js` `registerSession` 改为「收养合并优先」——登记前先查已含任一 taskId / batchId 命中的现有会话，命中则补齐缺失任务、空标题回填、多命中收敛为一个（任务整体搬迁不重置相位），找不到才新建；合并逻辑拆分至 `publishProgressSessionMerge.js`（会话登记不变量：与事件到达顺序无关）。
+
+### 问题二：视频上传进度卡死 30% 长达 15 分钟
+
+- **实锤取证**（同日志）：909KB 抖音视频 14:32:48 进入 `waiting upload...`（30%）后 15 分 25 秒无任何进度事件，14:48:13 才打 `video upload-complete signal not detected ... continuing best-effort`。根因：旧完成判定是「负向信号不命中 && 正向信号命中」的合取，抖音上传完成后页面残留可见 `[class*=progress]` 元素/「转码中」文本 ⇒ 负向信号恒真 ⇒ 白等满 900s 预算。
+- **修复**（对齐参考产品 4.0 的真实进度理念，详见 `01-docs/PRD-PUBLISH-PROGRESS-FIX-2026-10-01.md`）：
+  - 新增纯函数模块 `upload-wait-strategy.js`：`computeBudgetMs` 按文件大小自适应预算 `clamp(60s + 10s/MB, 90s, 900s)`；`computeReportPercent` 把页面自报上传百分比映射到 30~49 波段；`decideUploadWait` 五级优先级决策（25s 稳定期 → 预算耗尽 best-effort → 停滞 180s+结构信号放行 → 负向消失+正向命中 done → wait）。
+  - 新增 `upload-waiter.js`（mixin 经 Object.assign 合回 platformsMixin）：`_waitForVideoUploadComplete` v4 自实现 3s 轮询，探针返回结构化信号，executeJavaScript 异常全容错，进度只增不减；旧实现从 rpa-view-navigation-helpers.js 移除（拆分说明见文件头注释）。抖音/通用视频链路传入 fileBytes。
+
+### 数据校验
+
+- registerSession：ids/batchId 类型过滤不变；合并绝不丢任务、绝不重置相位；title 只在空标题时回填。
+- 探针 pagePercent：null 先拦（Number(null)===0 陷阱）、越界折叠为 null；fileBytes 非法 → 900s 旧上限兜底。
+
+### 验证
+
+- 新增 `upload-wait-strategy.test.js` 23 条；`publishProgress.test.js` 新增收养合并回归（文件总计 34 条）；`rpa-view-platforms.test.js` 补接线锁。定向回归全绿 139 条；宽范围回归 6443 通过 / 2 失败（均为本机环境预置问题，与本次改动无关）；ESLint 0 error 0 warning。
 # [未发布] test(publish): 引擎侧超限测试数据同样改为注册表同源派生（2026-10-02，fix-2729-limit-tests follow-up）
 
 ### 现象（QG Unit Tests 单点红）
