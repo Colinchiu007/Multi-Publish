@@ -10,6 +10,9 @@ import {
   isNoTitlePlatform,
 } from '@multi-publish/shared-utils/src/publish-capabilities'
 
+// 平台字数限制转换已拆分至独立模块（逐文件行数门禁），此处 re-export 保持导入路径兼容
+export { applyPlatformContentConversion, APP_ARTICLE_CONTENT_MAX } from './platform-content-conversion'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_MAX_SCHEDULE_DAYS = 30
 const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000
@@ -297,63 +300,6 @@ export function minContentBudget (platforms, title) {
 }
 
 /**
- * 应用端图文正文字数上限（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）。
- * 编辑器计数、Markdown maxlength 与发布链路应用级截断共用此常量，
- * 禁止在组件/页面内另写硬编码。
- */
-export const APP_ARTICLE_CONTENT_MAX = 10000
-
-/**
- * 按平台把超限正文转换为该平台的差异化覆盖（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F3）。
- *
- * 与 validatePlatformContent / truncateContentForPlatform 同源：复用
- * getPlatformContentLimit 与 truncateContentForPlatform（含无标题平台
- * 「标题计入首行」的预算扣除），禁止另写截断口径。
- *
- * 行为契约：
- * - 超限平台写 `platformOverrides[p].content = 截断结果`（就地更新，与 diffEdits
- *   引用语义一致）；未超限平台完全不写覆盖 —— 全局正文保持全文，公众号等大限
- *   平台不再被「最小预算一刀切」误伤。
- * - 用户已有的覆盖内容（含手填）同样按平台上限截断（手填不豁免，否则平台仍拒稿）。
- * - `contentMax <= 0` 的平台跳过（维持现状语义）；未知平台回落默认 5000（与
- *   validatePlatformContent 的回落语义一致）。
- * - 幂等：对已截断内容再次调用 before == after，不产生新记录。
- *
- * @param {{ platforms?: unknown, article?: Record<string, unknown>, platformOverrides?: Record<string, unknown> }} options
- * @returns {{ overrides: Record<string, unknown>, truncations: Array<{ platform: string, label: string, limit: number, before: number, after: number }> }}
- */
-export function applyPlatformContentConversion ({ platforms, article = {}, platformOverrides = {} } = {}) {
-  const uniquePlatforms = [...new Set(Array.isArray(platforms) ? platforms : [])]
-  const truncations = []
-  for (const platform of uniquePlatforms) {
-    if (typeof platform !== 'string' || !platform.trim()) continue
-    const limit = getPlatformContentLimit(platform)
-    const max = Number(limit && limit.contentMax)
-    if (!(max > 0)) continue
-    const override = platformOverrides && typeof platformOverrides[platform] === 'object' && platformOverrides[platform] !== null
-      ? platformOverrides[platform]
-      : null
-    const source = override && typeof override.content === 'string'
-      ? override.content
-      : String((article && article.content) ?? '')
-    const before = Array.from(source).length
-    if (before <= max) continue
-    // 截断口径与校验一致：无标题平台按合并预算（标题 + 换行计入）
-    const converted = truncateContentForPlatform(platform, source, String((override && override.title) || (article && article.title) || ''))
-    const target = override || (platformOverrides[platform] = {})
-    target.content = converted
-    truncations.push({
-      platform,
-      label: getPlatformLabel(platform),
-      limit: max,
-      before,
-      after: Array.from(converted).length,
-    })
-  }
-  return { overrides: platformOverrides, truncations }
-}
-
-/**
  * 计算字符串的 UTF-8 字节长度（前端无 Node Buffer，用 TextEncoder）。
  * 百家号标题上限按 UTF-8 字节数校验，中文每字 3 字节、英文/数字 1 字节。
  * @param {unknown} value
@@ -373,7 +319,6 @@ export function utf8ByteLength (value) {
   }
   return bytes
 }
-
 /**
  * 按 UTF-8 字节数截断字符串到 maxBytes 字节内，避免把代理对（emoji 等）切成半个字符。
  * 用于百家号标题等按字节数校验的平台，保证不因标题超长阻断一键发布。
