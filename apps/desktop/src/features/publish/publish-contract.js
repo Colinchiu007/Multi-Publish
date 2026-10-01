@@ -263,38 +263,17 @@ export function truncateByChars (value, max) {
   return max > 0 && chars.length > max ? chars.slice(0, max).join('') : text
 }
 
-/**
- * 计算「无标题平台」把标题并入描述时的**真实开销**（字符数）。
- *
- * `composeNoTitleDescription(title, content)` 的实现是 `[title, content].join('\n')`，
- * 故开销 = 标题长度 + **1 个换行分隔符**（正文为空时无分隔符）。
- * 这里直接复用该函数计算，避免手写 `+1` 与实现漂移（E2E 实测踩到：预算按 title.length 扣，
- * 结果合并后 1001 > 1000，差的就是这个换行符）。
- * @param {unknown} platform
- * @param {unknown} title
- * @returns {number}
- */
+// 无标题平台把标题并入描述（composeNoTitleDescription 用 '\n' 连接标题与正文），
+// 故正文预算须扣除「标题 + 换行」的真实开销；直接复用该函数计算，避免手写 +1 与实现漂移
+// （E2E 实测：只扣 title.length 时合并后 1001 > 1000，差的就是这个换行符）。
 function noTitleOverhead (platform, title) {
   if (!isNoTitlePlatform(platform)) return 0
   const t = String(title ?? '').trim()
-  if (!t) return 0
-  // 传一个非空占位正文，让 join 真实发生，再减去占位字符本身
-  return Array.from(composeNoTitleDescription(t, 'x')).length - 1
+  return t ? Array.from(composeNoTitleDescription(t, 'x')).length - 1 : 0
 }
 
-/**
- * 按平台上限裁剪正文（2026-10-01 新增，供发布流程在正文超长时自动裁剪）。
- *
- * **必须与 validatePlatformContent 同源**：复用 getPlatformContentLimit 与
- * isNoTitlePlatform，禁止在此另写一份"标题合并进正文"的口径 —— 否则会出现
- * "裁剪后校验仍不过"的漂移。E2E 实测踩到过：正文裁到 997 字后，快手因
- * **标题计入首行**（composeNoTitleDescription）仍报 1021 > 1000。
- *
- * @param {unknown} platform 平台标识
- * @param {unknown} content 正文
- * @param {unknown} title 标题（无标题平台会作为描述首行插入，需从预算中扣除）
- * @returns {string} 裁剪后的正文（未超限时原样返回）
- */
+// 按平台上限裁剪正文（2026-10-01 新增）。与 validatePlatformContent 同源：复用
+// getPlatformContentLimit / isNoTitlePlatform，禁止另写标题合并口径，否则必然漂移。
 export function truncateContentForPlatform (platform, content, title) {
   const limit = getPlatformContentLimit(platform)
   const max = Number(limit && limit.contentMax)
@@ -302,18 +281,9 @@ export function truncateContentForPlatform (platform, content, title) {
   return truncateByChars(content, Math.max(0, max - noTitleOverhead(platform, title)))
 }
 
-/**
- * 计算一组平台下正文可用的**最小**预算（2026-10-01 新增）。
- *
- * 为什么需要它：若按"首个超限平台"逐一裁剪，会出现**多轮反复**——
- * 实测：首发超限平台是小红书（有标题，裁到 1000），重校验后轮到**快手**（无标题，
- * 标题计入首行）仍报 1021 > 1000。故一次性按**所有选中平台的最小预算**裁剪，
- * 保证裁剪后一次通过全部平台校验（上限为 0 = 不校验的平台忽略；全为 0 时返回 null）。
- *
- * @param {unknown} platforms 选中平台列表
- * @param {unknown} title 标题（无标题平台需从预算中扣除其长度）
- * @returns {number|null} 最小预算（字符数）；无任何受限平台时返回 null
- */
+// 取所有选中平台的**最小**正文预算。只按"首个超限平台"裁会多轮反复
+// （实测：小红书裁到 1000 后，快手因标题计入首行仍报 1021）。
+// 上限为 0 的平台忽略；全为 0 时返回 null（表示无需裁剪）。
 export function minContentBudget (platforms, title) {
   const list = [...new Set(Array.isArray(platforms) ? platforms : [])]
   let min = Infinity
@@ -321,9 +291,7 @@ export function minContentBudget (platforms, title) {
     if (typeof platform !== 'string' || !platform.trim()) continue
     const limit = getPlatformContentLimit(platform)
     const max = Number(limit && limit.contentMax)
-    if (!(max > 0)) continue
-    const budget = Math.max(0, max - noTitleOverhead(platform, title))
-    if (budget < min) min = budget
+    if (max > 0) min = Math.min(min, Math.max(0, max - noTitleOverhead(platform, title)))
   }
   return min === Infinity ? null : min
 }
