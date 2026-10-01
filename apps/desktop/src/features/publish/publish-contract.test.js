@@ -297,9 +297,9 @@ describe('truncateContentForPlatform（正文超平台上限时自动裁剪，20
     const title = '标'.repeat(20)
     const content = '正'.repeat(1200)
     const out = truncateContentForPlatform('kuaishou', content, title)
-    expect(Array.from(out).length).toBe(980)
-    // 合并后恰好等于上限，不超
-    expect(Array.from(title).length + Array.from(out).length).toBe(1000)
+    expect(Array.from(out).length).toBe(979)
+    // 合并后（标题 + 换行分隔符 + 正文）恰好等于上限，不超
+    expect(Array.from(title).length + 1 + Array.from(out).length).toBe(1000)
   })
 
   it('有标题平台（抖音 titleMax=55）按 contentMax 裁剪，不扣标题', () => {
@@ -324,10 +324,10 @@ describe('truncateContentForPlatform（正文超平台上限时自动裁剪，20
 
 describe('minContentBudget（按所有选中平台取最小正文预算，2026-10-01）', () => {
   it('含无标题平台时扣除标题长度（快手的标题计入描述首行）', () => {
-    // kuaishou: titleMax=0, contentMax=1000 → 预算 1000-20=980
-    // douyin:    titleMax=55, contentMax=1000 → 预算 1000
-    // 取最小 ⇒ 980（否则会出现"裁到 1000 后快手仍报 1021"的多轮反复）
-    expect(minContentBudget(['kuaishou', 'douyin'], '标'.repeat(20))).toBe(980)
+    // kuaishou: titleMax=0, contentMax=1000；标题 20 字 + 1 个换行分隔符 ⇒ 预算 979
+    // douyin:    titleMax=55, contentMax=1000 ⇒ 预算 1000
+    // 取最小 ⇒ 979（否则会出现"裁到刚好后快手仍报 1001"的多轮反复）
+    expect(minContentBudget(['kuaishou', 'douyin'], '标'.repeat(20))).toBe(979)
   })
 
   it('全为有标题平台时取最小 contentMax（不扣标题）', () => {

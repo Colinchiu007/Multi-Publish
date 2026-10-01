@@ -264,6 +264,25 @@ export function truncateByChars (value, max) {
 }
 
 /**
+ * 计算「无标题平台」把标题并入描述时的**真实开销**（字符数）。
+ *
+ * `composeNoTitleDescription(title, content)` 的实现是 `[title, content].join('\n')`，
+ * 故开销 = 标题长度 + **1 个换行分隔符**（正文为空时无分隔符）。
+ * 这里直接复用该函数计算，避免手写 `+1` 与实现漂移（E2E 实测踩到：预算按 title.length 扣，
+ * 结果合并后 1001 > 1000，差的就是这个换行符）。
+ * @param {unknown} platform
+ * @param {unknown} title
+ * @returns {number}
+ */
+function noTitleOverhead (platform, title) {
+  if (!isNoTitlePlatform(platform)) return 0
+  const t = String(title ?? '').trim()
+  if (!t) return 0
+  // 传一个非空占位正文，让 join 真实发生，再减去占位字符本身
+  return Array.from(composeNoTitleDescription(t, 'x')).length - 1
+}
+
+/**
  * 按平台上限裁剪正文（2026-10-01 新增，供发布流程在正文超长时自动裁剪）。
  *
  * **必须与 validatePlatformContent 同源**：复用 getPlatformContentLimit 与
@@ -280,8 +299,7 @@ export function truncateContentForPlatform (platform, content, title) {
   const limit = getPlatformContentLimit(platform)
   const max = Number(limit && limit.contentMax)
   if (!(max > 0)) return String(content ?? '')
-  const titleLen = isNoTitlePlatform(platform) ? Array.from(String(title ?? '')).length : 0
-  return truncateByChars(content, Math.max(0, max - titleLen))
+  return truncateByChars(content, Math.max(0, max - noTitleOverhead(platform, title)))
 }
 
 /**
@@ -298,14 +316,13 @@ export function truncateContentForPlatform (platform, content, title) {
  */
 export function minContentBudget (platforms, title) {
   const list = [...new Set(Array.isArray(platforms) ? platforms : [])]
-  const titleLen = Array.from(String(title ?? '')).length
   let min = Infinity
   for (const platform of list) {
     if (typeof platform !== 'string' || !platform.trim()) continue
     const limit = getPlatformContentLimit(platform)
     const max = Number(limit && limit.contentMax)
     if (!(max > 0)) continue
-    const budget = isNoTitlePlatform(platform) ? Math.max(0, max - titleLen) : max
+    const budget = Math.max(0, max - noTitleOverhead(platform, title))
     if (budget < min) min = budget
   }
   return min === Infinity ? null : min
