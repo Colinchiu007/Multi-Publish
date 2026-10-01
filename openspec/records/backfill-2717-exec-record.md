@@ -22,6 +22,13 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，按门禁口径如实登记，不以自审冒充通过；本 PR 变更面为两份 openspec 文本，无运行行为 |
 | 远程同步 | PENDING | 合并后由下一个会话按既有 PASS 口径回填：merge SHA 与时间取 `git log origin/main --grep` 该 PR 号，远端分支删除取 `git ls-remote --heads origin backfill-2717-exec-record` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段** |
 
+### 回填补记（判定必须在 commit 之后跑，否则 fail-closed 判成 docs-only=false，故单列一段）
+
+- `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`，`files=3`（`tasks.md` + 本文件 + `gate-record-presence-impl.md`）
+- 两口径 numstat 完全相同：`6 6`、`29 0`、`3 5`；删除 11 行全部可归因——`gate-record-presence-impl.md` 的 5 = 3 个 `sync_*` 字段 + 1 条旧 PENDING 远程同步行 + 1 条被两条新条目替换的「遗留」项；`tasks.md` 的 6 = 6 行就地改写的勾选（5.4 / 6.1 / 6.2 / 7.1 / 7.4 / 8.1）。三个 blob 内 `CR` 计数均为 0（`git show HEAD:<file>` 逐文件实测），工作区里两个既有文件 `w/crlf`、新建文件 `w/lf`，提交侧口径一致
+- 其余保留门禁实跑 rc=0：品牌残留（扫描 6591 个 tracked 文件）、文档同步（**`--base` 必须传裸分支名 `main`**，脚本内部自己拼 `origin/` 前缀；传 `origin/main` 会得到 `fetching origin/origin/main … couldn't find remote ref` 且 rc=128）、`check-gate-record-debt`（记录文件 3 篇、无陈旧登记、登记字段无残留）、`check-unwired-tests`（域内 53 个测试文件全接线）、`check-step-failfast`（4 个多命令步骤全 fail-fast）、`check-max-lines`、`check-debt-budget`
+- 存在性判据以 **enforce 模式**自证本 PR 合规：`本 PR 变更文件 3 个（A=1 M=2 D=0） ｜ 新增记录 1 篇 / 新增豁免 0 篇 ｜ 待清理豁免 0 条` → `OK` rc=0。注意这只是本地自证，CI 上该步仍是 advisory；把它变成必需检查正是被推迟的第 7 组
+
 ### 遗留（不假装已闭合）
 
 - **登记字段没有到期机制**：本条回填靠"下一个会话记得做"。载体设计用"文件名即键 + 登记随文件走"消灭了外部清单要同步删条目的漂移，但"何时该删"仍是人治。若要根治，需要一个"记录已 PASS 却带 `sync_*`"之外的正向检查——现状是反向检查（PENDING 必须带字段），二者不是一回事。
