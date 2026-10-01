@@ -275,12 +275,12 @@ describe('publish contract', () => {
 
   it('平台限制来自发布能力注册表（douyin/tiktok 修复项生效）', () => {
     // 旧表 douyin contentMax=0（不校验）→ 注册表 1000
-    expect(getPlatformContentLimit('douyin')).toEqual({ titleMax: 55, contentMax: 1000 })
+    expect(getPlatformContentLimit('douyin')).toEqual({ titleMax: 55, contentMax: 5000 })
     // 旧表 tiktok title 2200/content 0 → 注册表 caption 语义 content 2200
     expect(getPlatformContentLimit('tiktok')).toEqual({ titleMax: 0, contentMax: 2200 })
     // 旧表缺条目回落默认 5000 → 注册表补齐
-    expect(getPlatformContentLimit('tencent_video')).toEqual({ titleMax: 0, contentMax: 1000 })
-    expect(getPlatformContentLimit('kuaishou')).toEqual({ titleMax: 0, contentMax: 1000 })
+    expect(getPlatformContentLimit('tencent_video')).toEqual({ titleMax: 0, contentMax: 5000 })
+    expect(getPlatformContentLimit('kuaishou')).toEqual({ titleMax: 0, contentMax: 480 })
     expect(getPlatformContentLimit('facebook')).toEqual({ titleMax: 100, contentMax: 63206 })
   })
 })
@@ -295,18 +295,18 @@ describe('truncateContentForPlatform（正文超平台上限时自动裁剪，20
     // 故正文预算 = contentMax - 标题长度，否则会出现「裁到 1000 后仍报 1021」的漂移
     // （E2E 实测：正文 997 + 标题 24 = 1021 > 1000）。
     const title = '标'.repeat(20)
-    const content = '正'.repeat(1200)
+    const content = '正'.repeat(6000)
     const out = truncateContentForPlatform('kuaishou', content, title)
-    expect(Array.from(out).length).toBe(979)
-    // 合并后（标题 + 换行分隔符 + 正文）恰好等于上限，不超
-    expect(Array.from(title).length + 1 + Array.from(out).length).toBe(1000)
+    expect(Array.from(out).length).toBe(459)
+    // 合并后（标题 + 换行分隔符 + 正文）恰好等于快手上限 480，不超
+    expect(Array.from(title).length + 1 + Array.from(out).length).toBe(480)
   })
 
   it('有标题平台（抖音 titleMax=55）按 contentMax 裁剪，不扣标题', () => {
     const title = '标'.repeat(20)
-    const content = '正'.repeat(1200)
+    const content = '正'.repeat(6000)
     const out = truncateContentForPlatform('douyin', content, title)
-    expect(Array.from(out).length).toBe(1000)
+    expect(Array.from(out).length).toBe(5000)
   })
 
   it('上限足够大时不裁剪', () => {
@@ -315,30 +315,30 @@ describe('truncateContentForPlatform（正文超平台上限时自动裁剪，20
   })
 
   it('按码点裁剪，不切碎代理对（emoji）', () => {
-    const content = '😀'.repeat(1100)
+    const content = '😀'.repeat(6000)
     const out = truncateContentForPlatform('douyin', content, '')
-    expect(Array.from(out).length).toBe(1000)
+    expect(Array.from(out).length).toBe(5000)
     expect(out.endsWith('\uD83D\uDE00')).toBe(true)
   })
 })
 
 describe('minContentBudget（按所有选中平台取最小正文预算，2026-10-01）', () => {
   it('含无标题平台时扣除标题长度（快手的标题计入描述首行）', () => {
-    // kuaishou: titleMax=0, contentMax=1000；标题 20 字 + 1 个换行分隔符 ⇒ 预算 979
-    // douyin:    titleMax=55, contentMax=1000 ⇒ 预算 1000
-    // 取最小 ⇒ 979（否则会出现"裁到刚好后快手仍报 1001"的多轮反复）
-    expect(minContentBudget(['kuaishou', 'douyin'], '标'.repeat(20))).toBe(979)
+    // kuaishou: titleMax=0, contentMax=480；标题 20 字 + 1 个换行分隔符 ⇒ 预算 979
+    // douyin:    titleMax=55, contentMax=5000 ⇒ 预算 1000
+    // 取最小 ⇒ 459（否则会出现"裁到刚好后快手仍报 1001"的多轮反复）
+    expect(minContentBudget(['kuaishou', 'douyin'], '标'.repeat(20))).toBe(459)
   })
 
   it('全为有标题平台时取最小 contentMax（不扣标题）', () => {
     const withTitle = minContentBudget(['douyin'], '标'.repeat(30))
-    expect(withTitle).toBe(1000)
+    expect(withTitle).toBe(5000)
   })
 
   it('无受限平台（空列表 / 上限为 0）返回 null', () => {
     expect(minContentBudget([], '标题')).toBe(null)
     expect(minContentBudget(null, '标题')).toBe(null)
-    expect(minContentBudget(['douyin', 'douyin'], '')).toBe(1000)
+    expect(minContentBudget(['douyin', 'douyin'], '')).toBe(5000)
   })
 
   it('重复平台去重后不影响结果', () => {
