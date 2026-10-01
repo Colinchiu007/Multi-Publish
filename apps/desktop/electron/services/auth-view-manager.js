@@ -26,6 +26,8 @@ const { attachCdpDetection } = require('./auth-view-cdp')
 // 不挂它就等于对「二维码刷很久」完全无感知
 const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel } = require('./login-network-diagnostics')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
+// #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
+const authReclaim = require('./auth-partition-reclaim')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
 // 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：固定内容宽的登录页
@@ -279,6 +281,9 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     this._resolveLogin = null
     attempt.resolveLogin(result)
+    // #2701：取到凭证的会话其分区可能仍是发布链的磁盘兜底来源（kuaishou-w3-live-fix：
+    // 部分平台登录态只落分区、未同步进凭证 store），这类分区不得被清空。
+    if (hasCapturedCredentials(result, attempt.platform)) authReclaim.markCaptured(this.currentAccountId)
     this.close()
     return true
   }
@@ -327,6 +332,8 @@ class AuthViewManager {
       if (this.currentView || this._resolveLogin) this.close()
 
       const accountId = `auth-${platform}-${Date.now()}`
+      // #2701：开局先回收上一轮遗留的临时分区——用户开完登录页直接退出应用时 close() 不会发生
+      authReclaim.scheduleReclaim({ activePartitionNames: [authReclaim.partitionNameOf(accountId)] })
       this.currentPlatform = platform
       this.currentAccountId = accountId
       this._resolveLogin = resolve
@@ -500,6 +507,13 @@ class AuthViewManager {
   }
 
   close() {
+    // #2701：会话终态就地回收。必须在视图拆除之前取 session（此后拿不到分区句柄）。
+    authReclaim.reclaimLoginSession({
+      accountId: this.currentAccountId,
+      platform: this.currentPlatform,
+      session: this.currentView && this.currentView.webContents ? this.currentView.webContents.session : null,
+      log,
+    })
     this._activeLoginAttempt = null
     this._autoCompletionAttemptId = null
     // 安全修复：清理所有 timer（R15 对齐 oauth-manager/qrcode-login）
@@ -615,11 +629,14 @@ class AuthViewManager {
     const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
     if (!loginUrl) return { valid: false, accountName: null }
 
+    // 目录名先算出来：既给 fromPartition，也用于登记 liveness（persist Session 在进程内不销毁）
+    const silentPartitionDir = `silent-auth-${platform}-${Date.now()}`
+    authReclaim.noteLivePartition(silentPartitionDir)
     const win = new BrowserWindow({
       show: false,
       width: 1024, height: 768,
       webPreferences: {
-        session: session.fromPartition(`persist:silent-auth-${platform}-${Date.now()}`, { cache: true }),
+        session: session.fromPartition(`persist:${silentPartitionDir}`, { cache: true }),
         contextIsolation: true, nodeIntegration: false, sandbox: true,
         backgroundThrottling: false, // 该窗全程 show:false，隐藏页会被降频定时器并停掉 rAF
       },
@@ -665,6 +682,11 @@ class AuthViewManager {
       log.warn('AuthView', `Silent login failed for ${platform}: ${e instanceof Error ? e.message : String(e)}`)
       return { valid: false, accountName: null }
     } finally {
+      // #2701：silent-auth 分区每次调用新建、且不被发布链兜底读取 ⇒ 用完即清并回收目录
+      // 必须 await：静默校验的分区里是「从库里注入回去」的凭证（库仍是真源，清掉可恢复），
+      // 但不等它就销毁窗口会让清空与拆除竞争，静默留下带数据的目录
+      await authReclaim.wipeSessionStorage(win.webContents ? win.webContents.session : null, log)
+      authReclaim.scheduleReclaim({})
       try { win.destroy() } catch (_e) { /* ignore */ }
     }
   }
