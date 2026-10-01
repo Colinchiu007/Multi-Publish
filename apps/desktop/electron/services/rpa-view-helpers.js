@@ -187,25 +187,24 @@ const helpersMixin = {
     log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
   },
 
-  // 2026-10-01 诊断/修复：用 **CDP `Runtime.evaluate`** 点击（与手动 E2E 路径同一通道）。
-  // 背景：手动脚本（CDP）在头条页 `el.click()` **能**触发发布接口，而应用 `executeJavaScript` 同款
-  // `el.click()` **零请求** ⇒ 怀疑两条通道的执行上下文不同（isolated world vs main world）。
-  // 本方法先用解析器取元素坐标，再走 CDP 在该 world 内 click，用于对照。
+  // 2026-10-01：用 CDP **真实鼠标事件**（`Input.dispatchMouseEvent`）点击，而非 `el.click()` —— 后者是
+  // 合成事件（isTrusted=false），而手动 E2E 点得动正因它派发真实输入事件。故取中心坐标走输入管线。
   async _clickViaCdp(win, sel) {
     const dbg = win.webContents.debugger
     try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
     try {
-      const resolveJs = buildResolveElementCode(sel)
-      const expr = '(function(){let el=(function(){return ' + resolveJs + '})();if(!el)return "NOT_FOUND";'
-        + 'var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);'
-        + 'el.click();return d})()'
+      const expr = '(function(){var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return "";'
+        + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();'
+        + 'return Math.round(r.left+r.width/2)+","+Math.round(r.top+r.height/2)})()'
       const r = await dbg.sendCommand('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: false })
-      const val = r && r.result ? r.result.value : null
-      log.info('RpaView', '[clickViaCdp] ' + String(sel).slice(0, 32) + ' -> ' + String(val).slice(0, 70))
-      return val
+      const pos = String((r && r.result && r.result.value) || '')
+      if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 未找到: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
+      const x = Number(pos.split(',')[0]); const y = Number(pos.split(',')[1])
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await dbg.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
+      log.info('RpaView', '[clickTrusted] ' + String(sel).slice(0, 28) + ' -> TRUSTED@' + x + ',' + y)
+      return 'TRUSTED_CLICK'
     } catch (e) {
-      log.warn('RpaView', '[clickViaCdp] ' + e.message)
-      return null
+      log.warn('RpaView', '[clickTrusted] ' + e.message); return null
     } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
   },
 
