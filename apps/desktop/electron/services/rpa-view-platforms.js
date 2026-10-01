@@ -448,8 +448,8 @@ const platformsMixin = {
           // 抛错并回落文本匹配 ⇒ 真正起作用的是 `platform-selectors.js` 的候选收紧。
           // 点击前 dump 命中元素 + 页面关键字段实际值（头条"内容为空被静默拦下"的唯一诊断面；必须 try/catch，`:has-text` 选择器裸 querySelector 会抛错）。
           if (platform === 'toutiao') { try { log.info('RpaView', '[toutiao] pre-click: ' + await win.webContents.executeJavaScript('(function(){try{var e=null;try{e=document.querySelector(' + JSON.stringify(publishSelector) + ')}catch(_q){}var ta=[...document.querySelectorAll("textarea,input")].find(function(x){return /标题/.test(x.placeholder||"")});var ed=document.querySelector(".ProseMirror")||document.querySelector("[contenteditable]");var w=document.querySelector(".article-cover-images-wrap");var m=String((document.body&&document.body.innerText)||"").match(/共\\s*(\\d+)\\s*字/);return "btn="+(e?e.tagName+"|dis="+!!e.disabled:"QUERY_THROWS")+" |titleLen="+(ta?String(ta.value||"").length:-1)+" |bodyLen="+(ed?String(ed.innerText||"").length:-1)+" |coverImgs="+(w?w.querySelectorAll("img").length:-1)+" |wordCnt="+(m?m[1]:"?")}catch(err){return "ERR:"+err.message.slice(0,70)}})()')) } catch (e) { log.warn('RpaView', '[toutiao] pre-click dump: ' + e.message) } }
-          await this._click(win,publishSelector)
-          await this._click(win,publishSelector)
+          // 头条走 CDP `Runtime.evaluate`（与手动 E2E 同通道）；其余平台保持 executeJavaScript。
+          await (platform === 'toutiao' && typeof this._clickViaCdp === 'function' ? this._clickViaCdp(win, publishSelector) : this._click(win, publishSelector))
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)

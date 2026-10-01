@@ -184,6 +184,28 @@ const helpersMixin = {
     log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70)); return true
   },
 
+  // 2026-10-01 诊断/修复：用 **CDP `Runtime.evaluate`** 点击（与手动 E2E 路径同一通道）。
+  // 背景：手动脚本（CDP）在头条页 `el.click()` **能**触发发布接口，而应用 `executeJavaScript` 同款
+  // `el.click()` **零请求** ⇒ 怀疑两条通道的执行上下文不同（isolated world vs main world）。
+  // 本方法先用解析器取元素坐标，再走 CDP 在该 world 内 click，用于对照。
+  async _clickViaCdp(win, sel) {
+    const dbg = win.webContents.debugger
+    try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
+    try {
+      const resolveJs = buildResolveElementCode(sel)
+      const expr = '(function(){let el=(function(){return ' + resolveJs + '})();if(!el)return "NOT_FOUND";'
+        + 'var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);'
+        + 'el.click();return d})()'
+      const r = await dbg.sendCommand('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: false })
+      const val = r && r.result ? r.result.value : null
+      log.info('RpaView', '[clickViaCdp] ' + String(sel).slice(0, 32) + ' -> ' + String(val).slice(0, 70))
+      return val
+    } catch (e) {
+      log.warn('RpaView', '[clickViaCdp] ' + e.message)
+      return null
+    } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
+  },
+
   // ========== CDP trusted text insertion ==========
   // 2026-09-29 实测（知乎写页取证，evidence 见 01-docs/PRD-ARTICLE-PUBLISH-FIX-2026-09-29.md）：
   // Draft.js/ProseMirror 类框架编辑器不接受 innerHTML 直写（框架状态为空、发布空文），
