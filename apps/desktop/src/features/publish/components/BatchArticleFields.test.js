@@ -7,7 +7,7 @@
  *    （修复前 cover_* 在批量只有读点、没有写点，恒为空）；
  * ③ **空态如实**：未选平台时不渲染面板（不得渲染一张空面板让用户以为设置已生效）。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import BatchArticleFields from './BatchArticleFields.vue'
@@ -31,6 +31,15 @@ vi.mock('@/features/publish/publish-upload-file', () => ({
 }))
 
 describe('BatchArticleFields（批量条目字段面）', () => {
+  // 每例重置上传/通知替身。mockResolvedValueOnce 是一次性队列，会跨用例泄漏：
+  // 一条测试没消费完的队列值会喂给下一条，于是「第二个红」看不出归因，
+  // 反证时也无法按失败原因对账。
+  beforeEach(() => {
+    normalizeUploadFile.mockReset()
+    normalizeUploadFile.mockResolvedValue(null)
+    notifyWarning.mockReset()
+  })
+
   const catalog = [
     { id: 'douyin', label: '抖音' },
     { id: 'weibo', label: '微博' },
@@ -51,12 +60,41 @@ describe('BatchArticleFields（批量条目字段面）', () => {
     ...overrides,
   })
 
-  // el-upload 在测试里替身为「可点动的触发器」，点击即以 on-change 参数形态回调
+  // el-upload 替身必须复刻它的 limit/exceed 合同，否则「重选封面」这类缺陷对
+  // 组件测试层结构性不可见（旧替身每次点击恒触发 on-change，等于没有 limit，
+  // main 上那条 Critical 正是由此逃过全部单测）。实测口径：
+  // upload-content 的 uploadFiles() 在 fileList.length + 新文件数 > limit 时
+  // 只调 on-exceed（其默认值就是 no-op）并 return，on-start/on-change 一律不触发。
   const uploadStub = {
     name: 'ElUploadStub',
-    props: ['onChange'],
-    emits: ['trigger'],
-    template: '<button data-testid="stub-upload" @click="onChange({ raw: { name: \'cover.png\' } })"><slot /></button>',
+    props: {
+      onChange: { type: Function, default: () => {} },
+      onExceed: { type: Function, default: () => {} },
+      limit: { type: Number, default: undefined },
+    },
+    data () {
+      return { files: [] }
+    },
+    methods: {
+      // 镜像 use-handlers.handleStart：先入内部列表，再触发 on-change
+      handleStart (file) {
+        this.files.push(file)
+        this.onChange(file, this.files)
+      },
+      // 镜像 upload 实例 expose 的 clearFiles
+      clearFiles () {
+        this.files = []
+      },
+      pick (name) {
+        const file = { name, raw: { name } }
+        if (this.limit && this.files.length + 1 > this.limit) {
+          this.onExceed([file], this.files)
+          return
+        }
+        this.handleStart(file)
+      },
+    },
+    template: '<button data-testid="stub-upload" @click="pick(\'cover.png\')"><slot /></button>',
   }
 
   const mountWith = (article, extraProps = {}) => mount(BatchArticleFields, {
@@ -150,6 +188,38 @@ describe('BatchArticleFields（批量条目字段面）', () => {
     expect(wrapper.emitted('update:cover')).toEqual([[descriptor]])
   })
 
+  it('重选封面必须替换旧图，不得被 el-upload 的 limit 静默丢弃（main 上的 Critical 回归锁）', async () => {
+    const first = { path: 'D:/a.png', name: 'a.png' }
+    const second = { path: 'D:/b.png', name: 'b.png' }
+    normalizeUploadFile.mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    const wrapper = mountWith(articleOf())
+    await wrapper.get('[data-testid="stub-upload"]').trigger('click')
+    await flushPromises()
+    // 第二次选图走 el-upload 的超限分支：条目里 :limit="1"，内部列表已有 1 项
+    wrapper.findComponent({ name: 'ElUploadStub' }).vm.pick('b.png')
+    await flushPromises()
+    expect(wrapper.emitted('update:cover'), '第二次选封面被丢弃＝用户看到「选了没反应」').toEqual([[first], [second]])
+  })
+
+  it('负控：只声明 :limit 而不处理 on-exceed 时，替身必须真的丢弃第二个文件', async () => {
+    // 这条不为业务，只为证明上面那条回归锁有料：若替身退化成「恒触发 on-change」，
+    // 「重选被丢弃」就再次不可见，本条会先红。
+    const changes = []
+    const Host = {
+      components: { 'el-upload': uploadStub },
+      template: '<el-upload :limit="1" :on-change="record" />',
+      setup () {
+        return { record: (file) => changes.push(file.name) }
+      },
+    }
+    const wrapper = mount(Host)
+    const upload = wrapper.findComponent({ name: 'ElUploadStub' })
+    upload.vm.pick('a.png')
+    upload.vm.pick('b.png')
+    expect(changes).toEqual(['a.png'])
+  })
+
+
   it('解析不出路径时出声报错，且不冒泡假描述符', async () => {
     normalizeUploadFile.mockResolvedValueOnce(null)
     notifyWarning.mockClear()
@@ -200,8 +270,18 @@ describe('BatchArticleFields（批量条目字段面）', () => {
       cover_file: { path: 'D:/covers/a.png', name: 'a.png' },
     }))
     expect(w.find('[data-testid="batch-cover-url-only-0"]').exists()).toBe(false)
+    // 「本地优先」的另一面是**用户输入的远程地址会被清掉**。这一态必须单独出声：
+    // 只把「仅远程」提示藏起来，等于静默丢弃用户刚填的内容却不告知。
+    const dropped = w.find('[data-testid="batch-cover-url-dropped-0"]')
+    expect(dropped.exists()).toBe(true)
+    expect(dropped.text()).toContain('不会提交')
     // 清除封面按钮对两种来源都要在（否则远程 URL 态无法回到「无封面」）
     expect(w.find('[data-testid="batch-clear-cover-0"]').exists()).toBe(true)
+  })
+
+  it('只有远程 URL 时不得出「不会提交」提示（两条提示必须互斥且各自如实）', () => {
+    const w = mountWith(articleOf({ cover_url: 'https://cdn.example/only.jpg' }))
+    expect(w.find('[data-testid="batch-cover-url-dropped-0"]').exists()).toBe(false)
   })
 })
 

@@ -1255,7 +1255,18 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
       const src = fs.readFileSync(path.join(root, file), 'utf8')
       const start = src.indexOf('function ' + fnName)
       expect(start, file + ' 里找不到 ' + fnName + '（实现被改名/删除，锁不得静默放行）').toBeGreaterThan(-1)
-      const body = src.slice(start, start + 3000)
+      // 测量域 = 该函数自己的闭合括号，禁止固定字符窗口：
+      // 窗口比函数短 ⇒ 后半部分新增的键根本不在判据里，锁失焦却照绿；
+      // 窗口比函数长 ⇒ 会把**别的函数**的键算进来，用别人的字段给自己作证。
+      // 闭合括号必须按**声明行的实际缩进**找：这两个函数嵌在 composable 工厂里，
+      // 收尾是「两空格 + }」而不是第 0 列，按第 0 列找会一路吞到外层函数末尾。
+      const declLineStart = src.lastIndexOf('\n', start) + 1
+      const indent = /^[ \t]*/.exec(src.slice(declLineStart, start))[0]
+      const rest = src.slice(start)
+      const endMarker = '\n' + indent + '}'
+      const end = rest.indexOf(endMarker)
+      expect(end, file + ' 的 ' + fnName + ' 未在同缩进处闭合（缩进形态变了，锁不得放行）').toBeGreaterThan(-1)
+      const body = rest.slice(0, end)
       const literalKeys = [...body.matchAll(/^\s{6}([a-zA-Z][\w]*):/gm)].map(m => m[1])
       const assignedKeys = [...body.matchAll(/data\.([a-zA-Z][\w]*)\s*=/g)].map(m => m[1])
       return new Set([...literalKeys, ...assignedKeys])

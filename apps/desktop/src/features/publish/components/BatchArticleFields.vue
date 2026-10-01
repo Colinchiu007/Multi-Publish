@@ -18,12 +18,14 @@
       </label>
       <div class="batch-cover-row">
         <el-upload
+          ref="coverUploadRef"
           class="publish-media-upload"
           :auto-upload="false"
           :limit="1"
           :show-file-list="false"
           accept="image/*"
           :on-change="handleCoverFileChange"
+          :on-exceed="handleCoverFileExceed"
         >
           <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
         </el-upload>
@@ -55,6 +57,11 @@
            因此「只填 URL」时用户看不到图。此处必须出声，否则该态读起来像「封面没设上」。 -->
       <p v-if="coverIsUrlOnly" class="batch-field-hint" :data-testid="`batch-cover-url-only-${index}`">
         {{ t('publishPage.batchFieldSurface.coverUrlOnlyHint') }}
+      </p>
+      <!-- 反向态必须单独出声：本地封面存在时 payload 会清空 cover_url，
+           只把上面那条提示藏起来＝静默丢弃用户刚填的远程地址而不告知。 -->
+      <p v-if="coverUrlWillDrop" class="batch-field-hint" :data-testid="`batch-cover-url-dropped-${index}`">
+        {{ t('publishPage.batchFieldSurface.coverUrlDroppedHint') }}
       </p>
       <p class="batch-field-hint">{{ t('publishPage.batchFieldSurface.coverHint') }}</p>
     </div>
@@ -149,11 +156,30 @@ const coverIsUrlOnly = computed(
   () => !String(props.article.cover_file?.path ?? '').trim() && Boolean(props.article.cover_url),
 )
 
+// 「本地优先」的另一半：payload 侧 resolveCoverFields 会清掉 cover_url。
+// 判据同样取 cover_file 而非派生描述符，两条提示才能互斥且各自如实。
+const coverUrlWillDrop = computed(
+  () => Boolean(String(props.article.cover_file?.path ?? '').trim()) && Boolean(props.article.cover_url),
+)
+
 const showDiff = ref(false)
 
 function openPreview () {
   if (!coverPreview.dataUrl.value) return
   emit('open-preview', { dataUrl: coverPreview.dataUrl.value, path: props.article.cover_path })
+}
+
+const coverUploadRef = ref(null)
+
+// limit=1 时重选即替换：先清 el-upload 的内部列表，再走标准 on-start→on-change 链。
+// 不处理时 el-upload 会静默丢弃新文件（其 on-exceed 默认值就是 no-op），而本条目
+// 关了 :show-file-list，界面上没有单篇那条 × 可以清列表 ⇒ 「选了没反应」且不可恢复。
+// 口径与 Publish.vue 视频轨的 handleVideoFileExceed 一致，不得另写第二份。
+function handleCoverFileExceed (files) {
+  const upload = coverUploadRef.value
+  if (!upload || !files || !files[0]) return
+  if (typeof upload.clearFiles === 'function') upload.clearFiles()
+  if (typeof upload.handleStart === 'function') upload.handleStart(files[0])
 }
 
 async function handleCoverFileChange (file) {

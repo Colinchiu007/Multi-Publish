@@ -1,4 +1,9 @@
 {
+  "本次执行记录：批量条目封面「重选即替换」+ 本地优先丢弃提示（batch-cover-reselect，2026-10-01）": {
+  "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin batch-cover-reselect 返回 0 行证远端分支已删。注意：本条与「P2-7 批量模式字段面」（batch-mode-field-surface）同置顶文档，后续 re-sync 须走参照解逐键核对。",
+  "status": "PENDING",
+  "line": 26
+  },
   "本次执行记录：app.asar 剔除单元测试文件 + 门禁自证接线（fix-asar-exclude-test-files，2026-10-01）": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin fix-asar-exclude-test-files 返回 0 行证远端分支已删。注意：本条与 #2701（fix-auth-partition-reclaim）那条同批置顶文档，两次合并都要走参照解逐键核对。"
   },
