@@ -181,7 +181,9 @@ const helpersMixin = {
   async _click(win, sel) {
     const resolveJs = buildResolveElementCode(sel)
     const d = await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
-    log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70)); return true
+    // 2026-10-01：点击后立刻回读 pre-click 探针挂上的 onClick 调用记录，判断处理器是否真被调用。
+    const oc = await win.webContents.executeJavaScript('(function(){try{return JSON.stringify((window.__ocLog||[]).slice(-4))}catch(e){return "[]"}})()').catch(() => '[]')
+    log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' ocLog=' + String(oc).slice(0, 160)); return true
   },
 
   // 2026-10-01 诊断/修复：用 **CDP `Runtime.evaluate`** 点击（与手动 E2E 路径同一通道）。
