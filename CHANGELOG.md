@@ -1,3 +1,28 @@
+# [未发布] test(publish): 引擎侧超限测试数据同样改为注册表同源派生（2026-10-02，fix-2729-limit-tests follow-up）
+
+### 现象（QG Unit Tests 单点红）
+
+- 上一轮修复后 Desktop Shards（1/2、2/2）与 QG Coverage 已转绿，QG Unit Tests 仍红：
+  nx `@multi-publish/api-publish-engine:test` 失败。
+- `content-formatter.test.js` 2 处、`base-adapter.test.js` 1 处断言 `1500 !== 1000`——
+  同一漂移病的引擎侧残留：douyin contentMax 1000→5000 后，formatContent 对 1500 字
+  输入不再截断，而三处用例仍期望截断到 1000。
+- `base-adapter.test.js` 的失败以**未捕获 Promise 异常**形式炸掉 node 进程
+  （test helper 的同步 try/catch 接不住 async 用例），失败计数显示 0/10 但进程 exit 1，
+  排障噪音极大。
+
+### 修复
+
+- 三处期望值改为 `registry.getPlatformContentLimit('douyin').contentMax` 同源派生
+  （取数先例与 content-formatter-registry-sync 契约锁一致），超限输入改为 limit+N 构造；
+- `base-adapter.test.js` 的 test helper 升级为 async 感知（settle 后计数，失败如实计入
+  failed），杜绝「计数 0 却进程退出 1」的排障陷阱。
+
+### 验证
+
+- `node scripts/run-tests.js`（api-publish-engine 全量）exit 0；
+- content-formatter-registry-sync 契约锁 6/6 不受影响。
+
 # [未发布] test(publish): 批量超限测试数据改为从注册表上限同源推导（2026-10-01，fix-2729-limit-tests）
 
 ### 现象（CI Gate 4 / Desktop Shards / Coverage 三处同红）
