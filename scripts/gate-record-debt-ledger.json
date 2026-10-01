@@ -1,4 +1,7 @@
 {
+  "本次执行记录：回填 #2735 / #2736 远程同步行并销账 + 补两条 CHANGELOG 条目（backfill-2735-2736-gate-rows，2026-10-01）【docs-only】": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin backfill-2735-2736-gate-rows 返回 0 行证远端分支已删。"
+  },
   "本次执行记录：回填 #2626 / #2656 / #2687 三条执行记录（gate-records-backfill，2026-09-30）【docs-only】": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后必须删除本条，否则报陈旧登记。取证口径沿用同批：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin gate-records-backfill 返回 0 行证远端分支已删。"
   },
