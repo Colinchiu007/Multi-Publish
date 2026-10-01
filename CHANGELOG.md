@@ -1,3 +1,33 @@
+# [未发布] test(publish): 批量超限测试数据改为从注册表上限同源推导（2026-10-01，fix-2729-limit-tests）
+
+### 现象（CI Gate 4 / Desktop Shards / Coverage 三处同红）
+
+- PR #2729 将抖音/小红书 `contentMax` 1000→5000 后，`useBatchPublish.test.js` 两个
+  「内容超出注册表限制时整批中止且不创建批次」用例失败：断言 `batchCreate` 不被调用，
+  实际批次被创建（超限内容放行）。
+
+### 根因
+
+- 两个用例的「超限」数据是**按旧上限 1000 硬编码的长度**（`'长'.repeat(5000)`、
+  `'正文'.repeat(600)`=1200 字符）；上限提到 5000 后不再超限，`validatePlatformContent`
+  如实放行——测试与被测真源之间的一次经典漂移。
+- 该组用例来自 main 侧后合入的 P2-7 批量校验（#2716），PR 分支早于其存在，
+  CI 跑 PR×main 合并树才暴露该耦合。
+
+### 修复
+
+- 两处超限长度改为 `getPlatformContentLimit(platform).contentMax + 1` 同源推导
+  （`'正文'` 两字一组向上取整组数）：上限再调整时测试自动跟随，杜绝第二次漂移；
+- 同 PR 将 `origin/main` 合并回分支（merge `d28cb067`），对齐 P2-7 批量字段面、
+  账号分组等 main 侧变更，消除合并树与分支树的双轨。
+
+### 验证
+
+- `useBatchPublish.test.js` 77/77；发布链路批次（`src/features/publish` 全部 +
+  `usePublishFlow` + `useBatchPublish`）15 文件 306/306；
+- `content-formatter-registry-sync` 6/6（CONTENT_LIMITS 三真源同步锁）；
+- `publish-capabilities` 70/70；eslint exit 0。
+
 # [未发布] feat(accounts): P2-8a 账号分组落 settings 真源（2026-10-01，account-groups-persistence）
 
 ### 新功能
