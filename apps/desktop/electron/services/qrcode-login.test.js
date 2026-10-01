@@ -535,3 +535,48 @@ describe('QrCodeLogin 凭证边界', () => {
     })
   })
 })
+
+describe('QrCodeLogin ↔ 分区回收存活登记（#2701 评审 C1）', () => {
+  it('扫码会话的目录即使不是字典序末位，也必须因为在登记表里而不被删（真目录端到端）', () => {
+    const fs = require('fs')
+    const os = require('os')
+    const nodePath = require('path')
+    // 必须用 CJS require 取登记表：qrcode-login 内部是 require('./auth-partition-reclaim')，
+    // import() 拿到的是另一份模块实例，跨实例断言必然假失败（本仓踩过两次）。
+    const reclaim = require('./auth-partition-reclaim.js')
+
+    const base = fs.mkdtempSync(nodePath.join(os.tmpdir(), `mp-qrcode-reclaim-${process.pid}-`))
+    try {
+      const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+      qrCodeLogin.setMainWindow(createMainWindow())
+      const loginPromise = qrCodeLogin.openLogin('wechat_mp', 0)
+      loginPromise.catch(function () { /* 本例不关心登录结果 */ })
+
+      const accountId = qrCodeLogin.currentAccountId
+      expect(accountId).toMatch(/^auth-wechat_mp-\d+-\d+$/)
+      const dir = reclaim.partitionNameOf(accountId)
+      // 前提：这个目录名确实命中回收白名单 —— 不命中就没必要登记，这条锁就在测空气
+      expect(reclaim.isThrowawayPartitionName(dir)).toBe(true)
+      expect(reclaim.livePartitionNames()).toContain(dir)
+
+      // mock 的 fromPartition 不落盘，按真实形态把同组两份目录铺出来：
+      // 活跃那份刻意做成**非末位**（正是「较旧但仍被持有」这一被 C1 揭露的形状）
+      const root = nodePath.join(base, 'session', 'Partitions')
+      fs.mkdirSync(root, { recursive: true })
+      fs.mkdirSync(nodePath.join(root, dir), { recursive: true })
+      fs.mkdirSync(nodePath.join(root, 'auth-auth-wechat_mp-9999999999999'), { recursive: true })
+
+      const summary = reclaim.reclaimStaleAuthPartitions({ userDataPath: base })
+      expect(summary.removed).toEqual([])
+      expect(fs.existsSync(nodePath.join(root, dir))).toBe(true)
+      expect(fs.existsSync(nodePath.join(root, 'auth-auth-wechat_mp-9999999999999'))).toBe(true)
+
+      // 反向对照：把登记摘掉（等价 C1 修复前的实现），同一条判据必须真的把它删掉。
+      // 没有这一格，上面两个断言可能只是因为「谁都删不动」而通过。
+      const plan = reclaim.planReclaim([dir, 'auth-auth-wechat_mp-9999999999999'])
+      expect(plan.victims).toContain(dir)
+    } finally {
+      try { fs.rmSync(base, { recursive: true, force: true }) } catch (_e) { /* 临时目录清不掉不影响结论 */ }
+    }
+  })
+})
