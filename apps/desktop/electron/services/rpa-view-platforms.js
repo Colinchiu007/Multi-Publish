@@ -443,10 +443,10 @@ const platformsMixin = {
           }
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
-          // 外审更正：`el.click()` 不受遮挡/视口影响，而 `document.querySelector` 对含
-          // `:has-text` 的选择器**本就抛错并回落到文本匹配** ⇒ 真正起作用的修法是
-          // `platform-selectors.js` 里把头条 `publish_btn` 收紧为**文本明确**的候选（避免包含匹配
-          // 命中「定时发布」）。`rpa-selector-utils.js` 的改动是等价防御，非根因。
+          // 外审更正：`el.click()` 不受遮挡/视口影响，`querySelector` 对含 `:has-text` 的选择器本就
+          // 抛错并回落文本匹配 ⇒ 真正起作用的是 `platform-selectors.js` 的候选收紧。
+          // 点击前 dump 命中元素（头条零请求卡点唯一诊断面）。**必须 try/catch**：选择器含 `:has-text` 时裸 `querySelector` 会抛 SyntaxError（实测踩到）。
+          if (platform === 'toutiao') { try { log.info('RpaView', '[toutiao] click target: ' + await win.webContents.executeJavaScript('(function(){try{var e=document.querySelector(' + JSON.stringify(publishSelector) + ');if(!e)return "NULL";var b=e.getBoundingClientRect();return e.tagName+"|cls="+String(e.className||"").slice(0,36)+"|txt="+String(e.innerText||"").replace(/\\s+/g,"").slice(0,10)+"|dis="+!!e.disabled+"|wh="+Math.round(b.width)+"x"+Math.round(b.height)+"|top="+Math.round(b.top)}catch(err){return "QUERY_ERR:"+err.message.slice(0,60)}})()')) } catch (e) { log.warn('RpaView', '[toutiao] click target dump: ' + e.message) } }
           await this._click(win,publishSelector)
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
