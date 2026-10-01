@@ -106,10 +106,12 @@ $rootKey = $root.Replace('\','/').TrimEnd('/')
 # 共享仓库注册隔离目录之外的 linked worktree，这不是会话隔离能消除的进程。登记制把
 # 「未知外来 worktree 一律红」收窄为「未登记的红、已登记的放行并留痕」，fail-closed 保留：
 # 注册表 JSON 解析失败视为空表（未登记仍红），并在报告里置 allowedRegistry.valid=false。
-# 注册表与报告同目录、机器本地、不写入仓库；MP_ALLOWED_WORKTREES（分号分隔）可临时追加，
-# 供测试与本会话内的免落盘登记使用。判据是整路径精确匹配（大小写/斜杠归一化后），
-# 不做前缀通配 —— 白名单一旦可通配，就离「整目录豁免」的门禁腐化只差一次手滑。
-$allowedRegistryPath = Join-Path (Split-Path -Parent $ReportPath) 'allowed-worktrees.json'
+# 注册表固定在机器本地 %LOCALAPPDATA%\Mulpub\session-isolation\（与 health.json 同目录），
+# 不写入仓库、不随 -ReportPath 漂移 —— 否则换一个报告路径登记就「消失」，测试口径与真实口径分叉。
+# 测试用 MP_ALLOWED_WORKTREES_FILE 指向夹具文件；MP_ALLOWED_WORKTREES（分号分隔）可免落盘临时追加。
+# 判据是整路径精确匹配（大小写/斜杠归一化后），不做前缀通配 —— 白名单一旦可通配，
+# 就离「整目录豁免」的门禁腐化只差一次手滑。
+$allowedRegistryPath = if ($env:MP_ALLOWED_WORKTREES_FILE) { $env:MP_ALLOWED_WORKTREES_FILE } else { Join-Path (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation') 'allowed-worktrees.json' }
 $allowedKeys = @()
 $allowedRegistryValid = $true
 if (Test-Path -LiteralPath $allowedRegistryPath) {

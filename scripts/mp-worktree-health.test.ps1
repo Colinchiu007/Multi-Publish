@@ -132,8 +132,9 @@ try {
     Assert ((@($r.report.exemptedWorktrees) | ForEach-Object { NormKey $_ }) -contains (NormKey $outsideWt)) 'registered outside worktree is recorded in exemptedWorktrees'
     Remove-Item Env:MP_ALLOWED_WORKTREES -ErrorAction SilentlyContinue
 
-    # case 8: 注册表文件（与 -ReportPath 同目录）同样放行
+    # case 8: 注册表文件（固定机器本地路径，测试用 MP_ALLOWED_WORKTREES_FILE 指向夹具）同样放行
     $registryPath = Join-Path $tmp 'allowed-worktrees.json'
+    $env:MP_ALLOWED_WORKTREES_FILE = $registryPath
     [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '"]'), [Text.Encoding]::UTF8)
     $r = Invoke-Health $health 'case8'
     Assert ($r.rc -eq 0) 'registered outside worktree (registry file) satisfies the gate'
@@ -149,6 +150,7 @@ try {
     [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '-sibling"]'), [Text.Encoding]::UTF8)
     $r = Invoke-Health $health 'case10'
     Assert ($r.rc -ne 0) 'registry entry for a different path does not exempt the outside worktree'
+    Remove-Item Env:MP_ALLOWED_WORKTREES_FILE -ErrorAction SilentlyContinue
 
     Write-Host ''
     if ($failed -eq 0) {
@@ -160,6 +162,7 @@ try {
 }
 finally {
     Remove-Item Env:MP_ALLOWED_WORKTREES -ErrorAction SilentlyContinue
+    Remove-Item Env:MP_ALLOWED_WORKTREES_FILE -ErrorAction SilentlyContinue
     Pop-Location -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
