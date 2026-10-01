@@ -206,6 +206,23 @@ const helpersMixin = {
     } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
   },
 
+  // 2026-10-01：填充会触发受控组件重渲染，发布按钮在重渲染窗口内会被卸载（实测 1→0）、
+  // 此时点击会被丢弃（有元素/无异常/零请求）。故点击前先等按钮**连续两次采样都在**再点。
+  async _clickStable(win, sel) {
+    const probe = '(function(){try{var el=(function(){return ' + buildResolveElementCode(sel) + '})();return el?(el.isConnected!==false):null}catch(e){return null}})()'
+    for (let i = 0; i < 12; i++) {
+      const a = await win.webContents.executeJavaScript(probe).catch(() => null)
+      if (a === true) {
+        await this._sleep(600)
+        const b = await win.webContents.executeJavaScript(probe).catch(() => null)
+        if (b === true) return await this._click(win, sel)
+      }
+      await this._sleep(500)
+    }
+    log.warn('RpaView', '[clickStable] 按钮未稳定，直接点击: ' + String(sel).slice(0, 40))
+    return await this._click(win, sel)
+  },
+
   // ========== CDP trusted text insertion ==========
   // 2026-09-29 实测（知乎写页取证，evidence 见 01-docs/PRD-ARTICLE-PUBLISH-FIX-2026-09-29.md）：
   // Draft.js/ProseMirror 类框架编辑器不接受 innerHTML 直写（框架状态为空、发布空文），
