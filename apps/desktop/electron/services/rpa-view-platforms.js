@@ -443,7 +443,6 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
-          // 实验：头条跳过 CDP 网络捕获（其 `debugger.attach()` 疑为"零请求"根因——手动路径无捕获却成功）。
           networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 外审更正：`el.click()` 不受遮挡/视口影响，`querySelector` 对含 `:has-text` 的选择器本就
           // 抛错并回落文本匹配 ⇒ 真正起作用的是 `platform-selectors.js` 的候选收紧。
