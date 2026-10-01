@@ -208,20 +208,21 @@ const helpersMixin = {
     } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
   },
 
-  // 2026-10-01：填充会触发受控组件重渲染，发布按钮在重渲染窗口内会被卸载（实测 1→0）、
-  // 此时点击会被丢弃（有元素/无异常/零请求）。故点击前先等按钮**连续两次采样都在**再点。
+  // 2026-10-01 根因修复：头条发布按钮的 onClick 是 `function(e){var n=t.props,r=n.loading,o=n.onClick;!r&&o&&o(e)}`
+  // —— **loading 为真时点击被静默吞掉**（无异常、无请求），这正是"内容/按钮/点击全正常却零请求"的根因。
+  // 故点击前必须等 `props.loading` 为假；同时兼容填充触发的重渲染（按钮被卸载的窗口）。
   async _clickStable(win, sel) {
-    const probe = '(function(){try{var el=(function(){return ' + buildResolveElementCode(sel) + '})();return el?(el.isConnected!==false):null}catch(e){return null}})()'
-    for (let i = 0; i < 12; i++) {
+    const probe = '(function(){try{var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return null;var ks=Object.keys(el).filter(function(k){return /^__react/.test(k)});for(var i=0;i<ks.length;i++){try{var p=el[ks[i]];if(p&&typeof p.onClick==="function")return p.loading!==true}catch(_e){}}return el.isConnected!==false}catch(e){return null}})()'
+    for (let i = 0; i < 20; i++) {
       const a = await win.webContents.executeJavaScript(probe).catch(() => null)
       if (a === true) {
-        await this._sleep(600)
+        await this._sleep(500)
         const b = await win.webContents.executeJavaScript(probe).catch(() => null)
         if (b === true) return await this._click(win, sel)
       }
       await this._sleep(500)
     }
-    log.warn('RpaView', '[clickStable] 按钮未稳定，直接点击: ' + String(sel).slice(0, 40))
+    log.warn('RpaView', '[clickStable] 按钮未就绪（可能 loading 未结束），直接点击: ' + String(sel).slice(0, 40))
     return await this._click(win, sel)
   },
 
