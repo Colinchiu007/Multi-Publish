@@ -1,15 +1,15 @@
 {
-  "本次执行记录：P2-7 批量模式字段面——UI/payload/主进程三层同时收口（batch-mode-field-surface，2026-10-09）": {
-    "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填 PASS 并删除本登记项（不删则报陈旧登记）。",
-    "stat": "pending-self"
+  "本次执行记录：app.asar 剔除单元测试文件 + 门禁自证接线（fix-asar-exclude-test-files，2026-10-01）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin fix-asar-exclude-test-files 返回 0 行证远端分支已删。注意：本条与 #2701（fix-auth-partition-reclaim）那条同批置顶文档，两次合并都要走参照解逐键核对。"
+  },
+  "本次执行记录：回收永不删除的登录临时分区 persist:auth-*（fix-auth-partition-reclaim，2026-09-30）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin fix-auth-partition-reclaim 返回 0 行证远端分支已删。"
+  },
+  "本次执行记录：回填 #2626 / #2656 / #2687 三条执行记录（gate-records-backfill，2026-09-30）【docs-only】": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后必须删除本条，否则报陈旧登记。取证口径沿用同批：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin gate-records-backfill 返回 0 行证远端分支已删。"
   },
   "本次执行记录：发布历史失败原因渲染收口（publish-history-error-detail，2026-09-29）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填并删除本登记项（不删则报陈旧登记）。"
-  },
-  "本次执行记录：撤回一条「生产计划任务已消失」的错误结论——探针打在改名前的旧坐标上（retract-guard-claim，2026-09-29）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条，否则判陈旧登记。",
-    "status": "PENDING",
-    "line": 16
   },
   "本次执行记录：回填 #2504 缺行 + 补写 #2595 缺席记录 + #2570 销账（backfill-gate-record-evidence，2026-09-28）": {
     "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按 #2561/#2570 立的口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 `git log origin/main --grep='(#NNNN)$'` 离线取证回填并删除本登记项（不删则报陈旧登记）。"
@@ -153,5 +153,13 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 4909
+  },
+  "本次执行记录：健康门禁被 harness 工作区挡死——外来 worktree 登记制 + #2730 远程同步回填（worktree-health-allowlist，2026-10-01）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后删除本条。取证口径：git log origin/main --grep='(#2748)$' --format=%H|%cI 取合并 SHA 与时间，git ls-remote --heads origin worktree-health-allowlist 返回 0 行证远端分支已删。",
+    "status": "PENDING"
+  },
+  "本次执行记录：P2-7 批量模式字段面——UI/payload/主进程三层同时收口（batch-mode-field-surface，2026-10-09）": {
+    "reason": "本 PR 自己尚未合并，无法回填 merge SHA；按既有口径写 PENDING 并在同一条 PR 里登记，合并后由后续 docs PR 按 git log origin/main --grep='(#NNNN)$' 离线取证回填 PASS 并删除本登记项（不删则报陈旧登记）。",
+    "stat": "pending-self"
   }
 }

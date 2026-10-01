@@ -18,6 +18,7 @@ on:
       - '.hermes/**'
       - '.agents/**'
       - 'openspec/**'
+      - 'scripts/gate-record-debt-ledger.json'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -163,6 +164,16 @@ jobs:
         run: cd apps/desktop && pnpm exec electron-builder --win --x64 -p never
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
+
+      # 产物侧实证（#2702）：apps/desktop/package.json 的测试文件排除必须真的把单测挡在 app.asar 之外。
+      # quality-gate.yml Gate 2b 只守「声明还在」（静态读 build.files），对本步骤的失败模式完全失明 ——
+      # electron-builder 对 node_modules 另走依赖遍历收集，实测 462 条里有 44 条来自 node_modules，
+      # 把排除写窄成只管 electron 目录时静态检查看不出来，只有真清单能。
+      # 条件与打包步骤**逐字一致**：打包被跳过时本步骤也必须跳过，否则读不到产物会误红。
+      - name: Verify app.asar contains no unit tests
+        if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true'
+        shell: bash
+        run: node .github/scripts/check-asar-test-files.js --asar apps/desktop/dist-electron/win-unpacked/resources/app.asar
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true' && startsWith(github.ref, 'refs/tags/v')

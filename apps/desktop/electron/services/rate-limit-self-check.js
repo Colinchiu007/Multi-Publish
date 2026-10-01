@@ -118,7 +118,7 @@ async function runSelfCheck (params) {
     rate_factor_curve: [],
     network_calls: networkCalls,
   }
-  const assertions = _buildAssertions(metrics, cfg)
+  const assertions = _buildAssertions(metrics, cfg, completionOrder)
   return {
     engine: 'real-governor',
     metrics,
@@ -130,7 +130,36 @@ async function runSelfCheck (params) {
   }
 }
 
-function _buildAssertions (m, cfg) {
+/**
+ * FIFO 判据（纯函数）。#2648 之前这条断言写作 `pass: true` 硬编码 —— 装饰性门禁：
+ * 它红了没有任何东西会红，它绿了也没有任何东西被证明。
+ *
+ * 判据是「完成序号单调不减」而不是「等于 1..N」：注入 429 时那个请求**不会**进完成序，
+ * 完成集合本来就是子集（实测 `[1,3,4]` 顺序完全正确），按 1..N 判会把一组本来正确的配置判成失败。
+ * Python 模拟器侧 `_build_assertions` 用的就是 `order == sorted(order)`，这里与它同口径。
+ *
+ * 三态分开，且都不静默放过：
+ * - 非数组（字段缺席）= 调用契约破坏 ⇒ pass:false + broken:true，**不是**"没数据"；
+ * - 空数组 = 一个样本都没有 ⇒ 无从判定，pass:true + vacuous:true
+ *  （与「登录态只被正/负证据改写：没拿到新证据不是反证」同一口径，不得把缺席算成违规）；
+ * - 含非整数 = 数据形状坏了 ⇒ 同样 fail closed。
+ * @param {number[]|null|undefined} order
+ * @returns {{pass:boolean, actual:string, expected:string, vacuous?:boolean, broken?:boolean}}
+ */
+function fifoVerdict (order) {
+  const expected = '单调不减（= 到达序）'
+  if (!Array.isArray(order)) return { pass: false, actual: '-', expected, broken: true }
+  if (order.length === 0) return { pass: true, actual: '(无完成记录)', expected, vacuous: true }
+  for (let i = 1; i < order.length; i += 1) {
+    if (!Number.isInteger(order[i]) || !Number.isInteger(order[i - 1])) {
+      return { pass: false, actual: order.join(','), expected, broken: true }
+    }
+    if (order[i] < order[i - 1]) return { pass: false, actual: order.join(','), expected }
+  }
+  return { pass: true, actual: order.join(','), expected }
+}
+
+function _buildAssertions (m, cfg, completionOrder) {
   const out = []
   out.push({
     name: 'max_concurrent', pass: m.max_concurrent_observed <= cfg.maxConcurrent,
@@ -157,13 +186,20 @@ function _buildAssertions (m, cfg) {
     })
   }
   if (cfg.maxConcurrent === 1) {
+    // 由真实完成序驱动（#2626 把 completion_order 单独返回，就是因为 timeline 被按 req 排过序，
+    // 拿它判 FIFO 会得到一个恒为升序的投影）。actual 直接回显序号，便于现场归因。
+    const v = fifoVerdict(completionOrder)
     out.push({
-      name: 'fifo', pass: true,
-      actual: '-', expected: '1..N',
-      message: '并发=1 时按到达顺序完成（单 worker 顺序调度）',
+      name: 'fifo', pass: v.pass,
+      actual: v.actual, expected: v.expected,
+      message: v.broken
+        ? '并发=1 时 FIFO 断言拿不到完成序数据（调用契约破坏，按 fail closed 处理）'
+        : (v.vacuous
+            ? '并发=1 时无任何完成记录，FIFO 无从判定（缺席不是反证，不判违规）'
+            : '并发=1 时完成序号单调不减（单 worker 顺序调度）'),
     })
   }
   return out
 }
 
-module.exports = { runSelfCheck, clampConcurrency }
+module.exports = { runSelfCheck, clampConcurrency, fifoVerdict }

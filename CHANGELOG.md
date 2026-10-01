@@ -23,7 +23,206 @@
 - 立项与六维度详写：`01-docs/PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md`；roadmap 差距表第 7 项状态回写。
 
 ---
+# [未发布] fix(会话隔离): 健康门禁加受管外来 worktree 登记制——harness 注册的 worktree 不再挡死 start-mp-task（2026-10-01，worktree-health-allowlist）
+
+### 缺陷（现场实跑取证）
+- harness 级工具（WorkBuddy 项目工作区）会向共享仓库注册隔离目录之外的 linked worktree（C 盘、分支 `workbuddy/*`）。`mp-worktree-health.ps1` 把「不在 `mp-worktrees/mp-*` 内」的 linked worktree 全部计入 `$outside` 且是 `ok` 的硬条件 ⇒ 本机 50 个 worktree 里唯一违规项就是它 ⇒ 所有新会话的 `start-mp-task.ps1` 在第 67/69 行 fail-closed 被挡。
+- 事故被掩盖的原因：有一个会话建 worktree 走了不调门禁的 `session-init.sh` 路径，绕行成功、红灯从未出现。
+
+### 修法
+- 登记制：机器本地 `%LOCALAPPDATA%\Mulpub\session-isolationallowed-worktrees.json`（JSON 字符串数组，**整路径精确匹配**，不做前缀通配——通配离「整目录豁免」的门禁腐化只差一次手滑）+ 环境变量 `MP_ALLOWED_WORKTREES`（分号分隔）临时追加。
+- fail-closed 保留：注册表 JSON 损坏视为空表、`ok` 直接 false，报告置 `allowedRegistry.valid=false`；未登记的外来 worktree 仍然一律红；已登记的在 `exemptedWorktrees` 留痕。
+- 同 PR 完成 #2730 的远程同步回填（origin/main `7ce9f977`，2026-10-01T11:15:58+08:00，远端分支已删）并销账。
+
+### 验证
+- `mp-worktree-health.test.ps1` 22/22（新增 6 例覆盖登记制的正反与 fail-closed 两侧）；实测登记本机 harness 工作区后真实门禁 rc=1 → rc=0。
+- 反证：case 5 删钩后未恢复会让后续用例全被钩子红灯污染——测试自身的这个坑已修（恢复钩子后再进入登记制用例）。
+
+# [未发布] fix(accounts): 失效账号点卡片打开平台页改走干净会话，修复公众号「二维码加载很久后失败」（2026-09-30，wechat-qr-stale-cookie）
+
+### 现象
+账号管理页点失效的微信公众号账号卡片 → 打开 mp.weixin.qq.com → 二维码位置转圈约 1 分多钟后显示「二维码加载失败」，反复重试均如此。今日 21:08/23:xx 两次复现。
+
+### 根因（日志链定案，非推测）
+- 现场：`shared-user-data/logs/app-2026-09-30.log` 21:08:55 `WebviewManager Created new tab: btab-1` + `LoginNetDiag [wechat_mp/29760847]` ⇒ 本次打开走的是**账号分区** `persist:account-29760847`（不是每次新建的 `persist:auth-*`），即「以账号身份开标签」路径；同日无任何 `auth-auth-wechat_mp-*` 分区新建 ⇒ 没走「去登录」的 AuthViewManager 路径。
+- 关键负证据：全天 `grep -c "clean login session"` = **0**，即 `createNewTabPage` 的干净会话分支一次都没进 ⇒ 12 个失效凭证 Cookie 被原样恢复进登录页会话。
+- 出码侧：`qr response #1 after 3610ms status=200 contentLength=redacted`，之后再无第二次出码、无 4xx、无登录成功导航 ⇒ 符合 #1888 已定案的「getqrcode 200 空体（真码 ~7.6KB）」静默拒绝特征。
+- 为什么修过还复发：`cleanSession` 只写在 `openLoginPage` 里，而 **`openLoginPage` 是死代码**（eslint 稳定告警 `1160:16 'openLoginPage' is defined but never used`，全仓零引用）。真正可达的入口是卡片点击 → `openCreatorCenter`，它对 `wechat_mp` 打开的 URL 就是登录页（`PLATFORM_DASHBOARD_URLS.wechat_mp === PLATFORM_LOGIN_URLS.wechat_mp === 'https://mp.weixin.qq.com/'`），但从来没传 `cleanSession`。**免登录机制恰好堵死了失效账号唯一的自救路径。**
+
+### 修复
+- `src/views/Accounts.vue`：抽出单一判定 `needsCleanLoginSession(account)`（`status === 'expired'`），`openCreatorCenter` 与 `openLoginPage` 共用，杜绝入口各自写一份条件后再次漏掉。
+- 语义不变项：active / unverified 账号仍照常恢复凭证免登录；`expired` 才跳过恢复并清空分区残留 Cookie（主进程既有实现）。
+- 自愈闭环：干净会话会把标签置 `credentialSaveState='unsaved'`，扫码成功后 URL 命中 `cgi-bin/home` → `saveAccountTabCredentials` 自动回写真源，账号变回已登录（此前该路径连保存资格都没有）。
+
+### 验证
+- `vitest run src/views/Accounts.test.js` **113/113 全绿**（新增 4 例：失效账号创作者中心/登录页 `cleanSession===true`、active 回归 `false`、unverified 边界 `false`）。
+- **TDD 红灯实测**：把 `openCreatorCenter` 的 `cleanSession` 临时改回 `false` ⇒ 精确 1 红（`AssertionError: expected false to be true`）且只红这一条，还原后 4/4 绿 —— 锁的是本次逃逸点本身，不是顺带变绿。
+- 静态门禁：eslint 两文件 **0 error**（存量 warning 不变，含那条 `openLoginPage` 未使用）；`check-locale-sync --cjk` PASS（1340 < 基线 1489）；`check-ipc-bridge` PASS（400 handlers / 417 preload，0 缺口）；`check-frontend-consistency` PASS；`check-max-lines` 无新增超限；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（CRLF 未污染）。
+
+### 第二轮：QM-6 外部评审（codex 后端模型）发现项处置（同 PR）
+- **W2 已修（正确性）**：判定补第二路输入 `confirmedExpiredIds` —— 单条 `checkLogin` 只把 id 写进 `checkedExpiredIds`、不回写 `account.status`，`batchCheck` 也仅在返回带 `loginStatus` 时才改写。少了这一路，「刚点完验证就点卡片」仍会带着旧凭证进登录页，事故原地复发。`needsCleanLoginSession(account, confirmedExpiredIds)` 两个入口同步传 `checkedExpiredIds.value`。
+- **I1 已修（边缘）**：判定下沉为共享实现 `src/utils/account-status.js` 的 `accountStatusKind`。卡片展示层原本做 `trim().toLowerCase()`、行为层写严格 `=== 'expired'`，两个口径分叉 ⇒ 「卡片显示已失效」与「点卡片仍按已登录恢复旧凭证」可以同时成立。`AccountManagementCard.vue` 删掉本地副本改为 import 同一份，并新增「全仓 `function accountStatusKind` 恰好一份、且在 utils 下」结构锁。
+- **W4 部分修（可维护性）**：结构锁升级为跨文件 —— `src/views` 下凡带 `accountId` 的 `createTab` 调用点必须声明 `cleanSession`（覆盖 Home 批量登录入口，新入口漏写即红）。Home 批量登录仍保留 `cleanSession: true` 字面量（其目标集合本身全是失效账号），未强行改判定，登记为残余。
+- **W3 / I2 登记不修**：库里脏 `expired` 会让仍有效账号被强制重登 —— 属 fail-open 方向的 UX 回归（凭证不丢、扫码即自愈、同账号其它标签会被一并清登）；反向（失效凭证被恢复）是硬失败且无自愈路径，故维持现方向，不在本 PR 引入批量检测活体证据作判据。
+- **依赖基线挂账（外部事件，非本 PR 引入）**：18:16Z 起 `依赖漏洞审计门禁` 因 12 条新 axios 公告（修复版 >=1.20.0）转红 —— 同分支 15:51Z 那轮 SUCCESS、同一时刻另一在途 PR（head `bb4d2e4d`）同样命中、本 PR 未改任何依赖/lockfile ⇒ 属公告库刷新。已按该门禁自身口径在 `scripts/dep-audit-baseline.json` 登记 12 条 `decision=upgrade-tracked` 并逐条写 note；升级 axios 需连同 HTTP 调用链回归，属独立跟踪项。
+- 新增 `src/utils/account-status.test.js`（输入矩阵：三态 + 错误态字面命中 / 大小写与空白归一化 / 历史脏值 `inactive`/`offline` 落 unknown / 字段缺失与脏类型不抛 / 已确认失效集合命中 / 集合缺失或非 Set 不抛 / 单一实现结构锁）。
+
+### 遗留（不夹带）
+- `openLoginPage` 仍无任何调用点（死代码），本次未删除，仅与新入口共用判定；是否接回 UI 或删除另行决定。
+- 「status=active 但实际已死」的账号仍会恢复凭证（既有已知边界，靠 30 分钟周期检测/一键检测修正为 expired 后自动进入干净会话路径）。
+
+# [未发布] refactor(账号): 资料刷新簇从 account-manager 拆出独立模块（第二刀，销掉 T4.4）
+
+### 变更
+- 新增 `apps/desktop/electron/publishers/account-profile-refresh.js`（143 行）承载 `extractAccountInfo` / `extractAccountInfoFromWebContents` / `refreshProfileFromPage` / `refreshProfileFromHttpApi`；`account-manager.js` 从 **1168 行降到 1096 行**（−72），四个导出名与调用签名保持不变（IPC 合同面零变化）。
+- 新模块的两个依赖改为**调用点取属性**（`httpLoginChecker.*` / `accountNameWrite.*`）而不是 require 期解构，把「测试必须先装 spy、再清缓存、重新 require 消费方」那套顺序体操从根上去掉；`isSafePathSegment` 由调用点注入，缺失时在 `try` **之前**抛 TypeError，不得被本模块自己的 catch 吞成「永远不回填」这种无声缺陷。
+- 新增 `account-profile-refresh.test.js`（17 例）：四条纪律逐条 + 注入合同 + 成环锁 + 反向接线锁；`account-manager-profile.test.js` 的接线守卫改锚（区间终点取函数自己的顶层闭合括号，两个锚点都先断言存在）并新增 HTTP 出口计数。
+- **行为修正（QM-6 后端评审抓到、本机探针独立复现，不是纯搬迁）**：HTTP 快速路径原先在真源 `GET` 失败/`code!==0`/无 data 时把当前值降级成 `null` 继续 PATCH，
+  而 `guardProfilePatchBySource` 在 `current=null` 分支会无条件把 `name_source` 标成 `auto` —— 等于用「取不到证据」去覆盖用户显式命名的账号名。
+  现与 DOM 路径同口径：读不到真源就一行都不写，并留 warn。该缺陷在拆分前的 `account-manager.js` 同样存在（本次只是把它从藏处搬到亮处）。
+- 实测：6 个覆盖文件 **133 passed**（基线 5 文件 114 passed；新模块 19 例，含 C1 的两条回归）。
+### 为什么值得单列一条
+搬家最容易留下的不是崩溃而是**假绿**。本轮实测到一条新的装饰性门禁生成机制：结构锁用 `src.slice(src.indexOf(A), src.indexOf(B))` 在同一文件内切区间时，B 一旦被搬走，`indexOf` 返回 -1，而 `String.prototype.slice` 把负数终点解释成「从末尾倒数」——区间静默放大到接近整份文件，守卫照样数到 2 次调用、照样绿。
+必须说清楚的是：**本次搬家没有触发它**（保留了同名委托，锚点仍命中）。四种变异的内存模拟显示，删掉委托时旧守卫与新守卫都还绿，当下真正多抓到的是新增的 HTTP 出口计数（旧绿 / 新红）。所以这条加固是**预防性**的；把它写成「已避免事故」就是把没发生的灾难当论据。
+
+# [未发布] feat(门禁): 基线新鲜度门禁（漂移即红）+ 采集层钉住页面时钟，删掉「漂移预算」这条弯路（2026-10-01，visual-baseline-freshness-gate）
+
+### 做了什么
+- 新增 `scripts/check-baseline-freshness.js`（+ 10 例 `node:test`）：断言每张被跟踪基线**逐像素等于同一次 run 的 CI 渲染**，接在 Visual Tests 采集步骤之后以阻断形态运行，并先跑自身单测；`--renders` 缺失时 rc=1（无判据不得默认通过）。
+- 新增 `test-runner.js::_installCaptureClock()`：在建页之后、任何导航之前调 `page.clock.setFixedTime()`，把页面时钟钉到固定时刻（`VISUAL_CAPTURE_FIXED_TIME_ISO=off` 可关；非法值抛错；宿主缺该 API 时 warn 出声）。
+- 用钉住后的 CI artifact 重建 5 张时钟驱动基线（`calendar` / `calendar-dark` / `home-baseline` / `keyword-monitor` / `keyword-monitor-dark`），逐张自证 0 px；`KNOWN_DYNAMIC` 清空并由用例断言「必须为空」。
+
+### 为什么必须有它
+- 把脚本指向 **origin/main 的基线 × main tip 自身那次 CI 渲染**，当场报出 **8 张违规**（`collection` 1.573%、`create-editor`/`create-history`/`create-pipeline`/`intelligence` **各精确 4013 px / 0.194%**、`create-result` 0.298%、`dashboard` 0.008%、`keyword-monitor-dark` 0.006%），而同一次 run 的阻断门禁是 success —— 6% 全页阈值对 0.194% 完全失明。
+- 四张不同视图漂移量**精确相等**、包围盒同一条带 y422–878 ⇒ 是同一共享元素（新平台项进列表）在四页各渲染一次，不是噪声。
+
+### 一条被推翻的旧结论（连错三次才收敛）
+- 「709 px 是顶部标签栏动态元素，正解加 mask」→ 否证（三次 CI 渲染两两 0 px）。
+- 「本仓只有 `keyword-monitor` 一处动态」→ 测量域只写了浅色。
+- 连第 2 条也不完整：所有跨 run 样本**都取自同一自然日**，于是日期驱动的 `calendar`（「今天」高亮）与 `home-baseline`（时段问候「晚上好」→「下午好」）恰好相同、探针看不见。判据：**可重复性测量必须覆盖被测量自身的全部变化周期**。
+- 由此否决我自己上一轮的「漂移预算」方案：预算上界取决于两次 run 隔多久（跨日 `calendar-dark` 一次就要 1.167%），抬到覆盖最坏情形等于对该视图关掉检查。
+
+### 结论
+- 时钟锁三条反证做了因果对账：摘掉 `launch()` 调用 → 只红接线锁 1 条；`_installCaptureClock` 改恒 `null` → 红 3 条；摘掉非法值 `throw` → 红 1 条。
+- 同源证据 run `36751863711`；main 上首个含门禁的 run `36756503645` 两步均 success。
+# [未发布] test(视觉): 用 CI artifact 重建 13 条非同源像素基线，并把全量采集升级为阻断门禁（2026-09-29，visual-baseline-ci-sourced）
+
+### 做了什么
+- 取 run `36504531944` 的 `visual-test-reports` artifact，按「基线 vs CI默认 / CI默认 vs CI末态 / 基线 vs CI末态」三列差链给红分类：9 条为基线非同源、1 条为工作流绕过收口（由 #2614 修）。
+- 重建 13 条漂移 ≥0.1% 的基线，自证「新基线 vs 同一次 CI 渲染 = 0 px」；另把 `home-baseline` 也重建（第 14 条，此前测得 1.454% 却被 views 侧 6% 阈值遮住）。
+- 摘掉采集步骤的 `continue-on-error`、步骤改名 `Full visual suites (blocking gate)`，并同 PR 反转 `workflow-contract.test.js` 的反向断言。
+
+### 一条当时写错、后被 #2714 纠正的结论
+- 本篇曾写「4 条已同源基线稳定差 709 px，是顶部标签栏动态元素，正解给 pixel-diff provider 加 mask」。**不成立**：三次不同时间的 CI 渲染两两 0 px，那四处不存在动态元素；709 只是当时那张陈旧基线的漂移量，换图后同一处变成 175 px。
+- 另纠正本篇自己的一处测量失误：曾报「5 条 CI 无同名渲染」，实际我只核对了视图套件产出的 `<name>.png`，漏了像素门禁产出的 `<name>-current.png`；真正无渲染的是 3 条（autonomous-loop 专属）。
+# [未发布] fix(工程门禁): 依赖审计不再在任一扫描器缺失时整体短路（2026-09-29，dep-audit-per-domain）
+
+### 缺陷
+- `scripts/check-dep-audit.js` 的 `main()` 对 npm / pip 两个扫描器做**联合可用性判定**：只要任一个不可用就打印 `SCANNER_UNAVAILABLE` 并 `return 0`，**另一个扫描器的结果也不再评估**。本机通常没有 `pip-audit`，于是「本地跑过依赖审计门禁 ✅」这句话对 npm 侧完全无意义 —— 它连 `pnpm audit` 都没判读。
+
+### 修法
+- 两个扫描域各自独立评估：缺失的那个不判、存在的那个照常判违规；两个全缺 ⇒ rc=1。
+- `main()` 主体抽成可注入的 `runCheck({...})`，测试数 9 → 13，并做四条变异反证（恢复整体短路 / 全缺判通过 / 扫描器不可用时仍 `--update` / 未扫描域参与腐化判定，均实跑变红）。
+- 基线 20 → 18，由模块自身的 `parseNpmAudit` + `writeBaseline` 生成、pip 条目逐字携带。
+# [未发布] fix(视觉测试): 工作流用例不再绕过确定性收口 —— `settleForCapture()` 提为共用出口（2026-09-29，visual-workflow-settle-capture）
+
+### 缺陷
+- QM-4 全量首跑 8 条红里，7 条是基线不同源，剩下 1 条是 `all-workflows` 在**截图前没有走**那套收口（fonts.ready + 双 rAF + 注入 `transition/animation:0s` + `scrollTo(0,0)` + settle 等待 + networkidle），于是拍到的是中间态。
+
+### 修法
+- 把收口序列从 `_navigateToRoute` 里**纯提取**为 `async settleForCapture()`（+10/0），工作流每一步截图前显式调用。收口必须是共用出口而非内联两处 —— 只挂在导航上，任何「导航后自己再截图」的用例都会绕过它。
+- 修后该条残差逐条等于「基线 vs CI 默认视图」列，分类被独立复证；我此前把它记成「量化为基线问题」是错的，任务描述与 PR 说明都按实测改过。
+# [未发布] chore(依赖): 收敛 undici / fast-uri 公告 —— overrides 必须写在 pnpm-workspace.yaml（2026-09-29，dep-advisory-bump）
+
+### 做了什么
+- `pnpm-workspace.yaml` 增加 `overrides: undici >=7.29.1 / fast-uri >=3.1.7`；`pnpm-lock.yaml` 落到 undici 7.30.0、fast-uri 3.1.8（`+20/-11`）。npm 公告命中 29 → 18，且**扫描包集合前后一致**（只降漏洞、不缩范围）。
+
+### 两条踩坑
+- **pnpm 11 不再读 `package.json` 的 `pnpm.overrides`** —— 第一次尝试写出的是死配置（还带警告）。正解在 workspace 文件里，`package.json` 须改回去。
+- `pnpm update fast-uri` 不收敛（`ajv@8.20.0` 钉住 3.1.3），只能用 overrides 抬。
+- 该 PR 标题曾称「依赖审计阻塞所有 open PR」，属误判：分支保护的必需检查只有 `Gate Result / build / QG Unit Tests / QG Coverage`，`dep-audit.yml` 既非必需也不在 `Gate Result` 的 needs 里。已在 PR 上留更正评论。
+
+# [未发布] test(视觉门禁): 环境缺失单独成码——缺浏览器与 dev server 未起不再伪装成「N 个回归」（2026-09-30，visual-env-preflight）
+
+### 做了什么
+- `apps/desktop/tests/visual-testing/scripts/run-pixel-tests.js` 在 `launch()` **之前**加两道前置检查：`preflightVisualEnvironment`（解析 `chromium.executablePath()` 是否落盘，含 playwright 本身装不上）与 `preflightVisualTarget`（对 `TEST_URL` 的 host:port 做一次 TCP 连通性探测），任一不成立即抛 `ERR_VISUAL_ENV_MISSING`，文案点名「这不是 UI 回归」并给补救（装浏览器 / 起**本 worktree 自己**的 dev server / 核对端口归属 / 以 CI `QG Visual` 为准）。
+- 触发事实：本机有用户级 `ms-playwright/chromium-1228`，但 dev server 未起时 `test:visual:pixel` 报的是「像素结果[light]: 0/19 通过，19 失败」+ `page.goto: net::ERR_CONNECTION_REFUSED` —— 与真实回归在退出码与文案上**完全同形**；修复后同一现场输出 0 条 `FAILED:`、一条环境缺失、rc=1。
+- 顺带纠正一条被写进记录的过期判断：「本机无 Playwright 浏览器」只对**打包用的** `apps/desktop/.playwright-browsers` 成立，用户级 ms-playwright 缓存存在时本机像素门禁其实可跑 —— 二者不得混为一谈（已写进 AGENTS.md 判据）。
+
+### 结论
+- 新增 8 条用例（共 13 passed）：错误码/文案三要素、"必须放行"的反向锁、以及**行为锁**「环境缺失时 `runner.launch` 一次都不能被调用」（不靠读源码字符串，防止检查被挪到 launch 之后仍全绿）。
+- AGENTS.md QM-4 增补一条 MUST：环境缺失不得登记为"已跑且无回归"，也不得用 `skip` 静默通过。
+
+# [未发布] test(工程门禁): 出站守卫收敛为单一实现并全仓接线，新增 Gate 20 接线棘轮（2026-09-30，test-egress-guard-all-packages）
+
+### 缺陷：守卫只装在 desktop 一侧，packages/* 与 ops-center 全程裸奔
+- `net.Socket.prototype.connect` 的测试期出站拦截原先只存在于 `apps/desktop/test-setup.js`；本仓 `nock`/`msw`/`setupServer` 实测 **0 命中**，没有任何传输层兜底，"测试不出网"全靠逐文件手工注入桩。
+- 后果不是"少一条保险"，是**归因被框架吃掉**：漏一处注入桩就是一次真出站，真出站挂起时先撞上 `testTimeout=10000`，红里只剩 `Test timed out in 10000ms`——既看不到目标主机，也看不出该注入什么（缺陷 G 的原始现场）。
+
+### 修法
+- 守卫实现唯一化：`packages/shared-utils/src/network-egress-guard.js`（`installTestNetworkGuard` / `readConnectTarget` / `isLoopbackHostForTest`），`apps/desktop/test-setup.js` 的 103 行内联实现替换为 7 行复用调用。
+- 装配入口唯一化：`packages/shared-utils/network-egress-guard.setup.js` 一行 `require(...).installTestNetworkGuard()`，供 vitest `setupFiles`、`node --test` 的 `--require` 两种 realm 共用。
+- 接线 13 个测试面：9 个 `packages/*/vitest.config.js` + `packages/story2video-engine/vitest.config.ts` + `packages/ui/vitest.config.ts` + `ops-center/frontend/vitest.config.js` 的 `setupFiles`；`packages/api-publish-engine/scripts/run-tests.js` 直跑子进程加 `--require`（一个测试文件一个子进程，父进程装一次等于没装）；`packages/{video-clone-engine,ai-autonomous-tester}/package.json` 的 test 脚本加 `--require`。
+- 新增 Gate 20 棘轮 `.github/scripts/check-test-egress-guard.js`：从 `git ls-files` **枚举测试面**（判据来自仓库自身而非印象），逐面要求引用共享 setup；接不上的必须带原因进只可缩小的欠账清单。接入 `quality-gate.yml` 的 `static-gates`。
+
+### 一条元教训：棘轮曾把自己的检查对象改没
+- 枚举判据原先写 `script.includes('node --test')`，而接线时正好在 `node` 与 `--test` 之间插了 `--require <setup>` ⇒ 那两个面**从枚举里消失**（不是变红，是不再被检查），测试面从 18 掉到 16 而棘轮照报 PASS。
+- 判据已拆成「命令里有 node」+「有独立的 `--test` 标志」两条，并由夹具锁钉住「两种写法都必须被枚举」。
+
+### 验证（全部本轮实跑）
+- 逐面跑测试：13 个面全部 rc=0，出站拦截命中 0（`D:/tmp/mp-verify-guard-wiring.js`，`ALL_SURFACES_GREEN`）。
+- 共享化回归网：`apps/desktop/electron/services/network-egress-guard.test.js` **6 例不改一字仍绿**；新实现自带 `packages/shared-utils/tests/network-guard.test.js` 10 例（含真 socket 拦截 + loopback 放行 + 幂等 + 读不出目标必须出声）。
+- 门禁自身回归 `.github/scripts/check-test-egress-guard.test.js` **8 例绿**（真实仓库 0 问题自证 + 合法夹具不误拦 + 5 类必须红）。
+- 反证 6/6 实跑变红：M1 枚举判据退回字面串 / M2 摘掉一个面的 `--require` / M3 陈旧登记判据 no-op / M4 枚举退化判据摘掉 / M5 `evaluate` 恒合规 / M6 Gate 20 未接进 workflow；逐个还原后字节级一致。
+- 「配错路径会不会静默放过」实测：把 `setupFiles` 指到不存在的文件，vitest **rc=1 大声失败**，故"该面跑绿"即"该面真的加载了守卫"。
+
+### 遗留
+- `packages/api-publish-engine` 的 vitest 子集仍未挂守卫（该包无 `vitest.config`，vitest CLI 不接受 `--setupFiles`），已带原因登记在只可缩小的欠账清单。
+- pytest 三侧（`packages/python-backend` / `ops-center/backend` / `packages/audio-aligner`）的对等 autouse fixture 为切片 B；`python-backend` 另有 4 个文件依赖未声明的 `respx`，扩跑前须先修依赖声明。
+- QM-6 双模型外部评审本轮未执行：`codex` 经本机 CC Switch 代理对 `/responses` 返回 404（该 provider 无 Responses API），`claude -p` 返回 `429 rpm exhausted`。按纪律降级不冒充，缺口记入 `.quality-gates.md` 对应行。
+# [未发布] ci(质量门禁): 账本 JSON 进 docs-only 白名单——门禁先搬进不会被短路的 changes job（2026-09-30，docs-only-gate-ledger，PR #2718）
+
+### 动因是一条实测成本
+- #2624 只为落地 24 行的记录更正，烧了 **7 个全量 CI 窗口**——因为它碰 `scripts/gate-record-debt-ledger.json`，而该路径不在 `CI_IGNORED_PATHS` 里
+- 直接加白名单会制造沉默漏洞：账本的校验门禁 `check-gate-record-debt.js` 原本住在 `static-gates`，而整个 `static-gates` 被 `needs.changes.outputs.docs-only != 'true'` 门控 ⇒ 白名单一放开，「回填记录必须顺手删掉登记项」这条耦合对纯文档 PR 永久失明，而纯文档 PR 恰是唯一会改账本的 PR 类型
+
+### 修法：两件事必须同 PR，并由一条锁绑死
+- `quality-gate.yml`：账本检测（其单测 + 门禁本体）从 Gate 2c 搬进无条件执行的 `changes` job，位置在「非 PR 事件早退」`exit 0` **之前** ⇒ main push 那一档同样覆盖
+- `CI_IGNORED_PATHS` 只加**这一个精确路径**（不给 `scripts/**`），三个全量 workflow 的 `push.paths-ignore` 同步（与白名单同源，`workflow-contract.test.js` 的 `deepEqual` 钉住）
+- 前提锁（`scripts/classify-docs-only.test.js`）：「账本 JSON 在名单内 ⇒ 它的门禁必须在 `changes` job 且早于早退」，并把**前提本身**也钉住——白名单被悄悄摘掉时同样变红，不留无人解读的遗留接线
+- 五格变异全部实跑变红、每格按 md5 回读还原：摘白名单条目 3 红 / 只摘 `build.yml` 一条 paths-ignore 1 红 / 摘掉 `changes` job 两行接线 1 红 / 放宽成 `scripts/**` 4 红 / 接线挪到早退之后 1 红
+- AGENTS.md docs-only 通道新增通用不变量（"进白名单的前提锁"），不只针对这个文件
+
+### 效果与遗留
+- 回填型 PR 的文件清单（`.quality-gates.md` + `CHANGELOG.md` + 账本 JSON + `openspec/**`）本地实测 `docs-only=true`
+- #2581 自己列出的唯一待实测点——「skipped 满足 required check、ruleset 不 BLOCK」——**已由 #2712 / #2715 两条已合并 PR 实测**（三条重型 job 全 SKIPPED、`Gate Result` SUCCESS、状态 MERGED），本条不必再等实证；本 PR 的增量是把同一待遇从「只碰 `*.md`」扩到账本 JSON，使「回填 + 销账」这一类第一次进入快速通道
+- runner 现场（合并 head `f14a4063`，run 36653088306 **attempt 1** / job 109691433753 / step「Detect docs-only changes」）：`远程同步行 168 条 / 执行记录 363 篇 / 已登记欠账 34 条 / 记录文件 1 篇（两源分列）` → `OK: 顶部记录带行…` → `docs-only=false`，证明搬进 `changes` job 的账本门禁在**不被短路的 job** 里真跑
+- 发现并登记一条同源漏洞（属在途 change `enforce-gate-record-presence`，非本 PR 引入、也未越界代改）：它新接的 `Gate 2c2`（`check-pr-exec-record.js`）位于被 docs-only 短路的 `static-gates`，而其输入含 `openspec/records/**`（已在白名单）——现在 advisory 无妨，一旦删掉 `--mode=advisory` 转阻断，最容易"整篇没写记录"的纯文档 PR 恰好不受它管
+- 本条目的日期按本地日记（记录写作时 UTC 仍是 09-29）；同一 PR 里标题、账本键、AGENTS 引用三处日期同步改过，因为账本键是从记录标题去掉 `## ` 推导的，只改一处会同时报「未登记欠账 + 陈旧登记」两条红
+# fix(自检门禁): 真实 governor 的 fifo 断言不再硬编码通过——补三态判据与接线证明（#2648，2026-09-30）
+
+### 变更
+
+- **修的是装饰性门禁**：`apps/desktop/electron/services/rate-limit-self-check.js` 的 `fifo` 断言自 `94204a04`（2026-08-12）起写作 `pass: true / actual: '-'` 字面量，存续约 50 天。它红了没有任何东西会红、绿了也没有任何东西被证明；逃逸原因不是"测试写得松"，而是**全仓没有任何用例碰过它**（`grep -rn fifo apps/desktop/electron/` 只命中实现那一行，97 行测试文件零覆盖）。来源：#2626 那轮 QM-6 外部评审的前端一路报为既有缺陷并独立建档 #2648，当时刻意不夹带。
+- **判据按「完成序号单调不减」而非「等于 1..N」**：注入 429 的那个请求**不进**完成序，完成集合本来就是子集（实测 `[1,3,4]` 顺序完全正确），按 1..N 判会把一组本来正确的配置判成失败。**这不是推测**——#2626 改 `used_5h` 口径时，同款判据恰好这样误红过一次，本轮直接沿用同一口径。
+- **三态分开且都不静默放过**：① 非数组（字段缺席）= 调用契约破坏 ⇒ 红 + `broken:true`，**不得**当成"没数据"；② 空数组 = 一个样本都没有 ⇒ `pass:true + vacuous:true`，与「登录态只被正/负证据改写：没拿到新证据不是反证」同口径，不得把缺席算成违规；③ 含非整数 = 数据形状坏了 ⇒ 同样 fail closed。
+- **承重数据只能取未排序的实际完成序**：`_buildAssertions` 新增第三个入参 `completionOrder`，取的是 #2626 单独返回的 `completion_order` 字段。**不能**从 `timeline` 推——那份在返回前按 `req` 排过序，是恒为升序的投影。主 spec `model-call-observability` 第 53/80 行早已把这条写成 MUST ⇒ **本 PR 是让 JS 侧真正符合既有规格，不改规格**。
+- **测试补三条**（TDD：先写、实跑 `TypeError: fifoVerdict is not a function` 变红，再实现转 9/9 绿）：① 纯判据形态表（升序过 / `[2,1,3]`、`[1,3,2]` 乱序红 / `[1,3,4]` 子集绿 / 缺席红 / 空数组记 vacuous）；② **接线证明**——`byAssert.fifo.actual` 必须逐字等于 `r.completion_order.join(',')`，写回任何常量（含 `'-'`）都在这里红；③ 注入 429 的端到端场景必须仍绿。
+- **反证 6 条逐个实跑、断言字节还原一致，并打印变红的具体用例名**（做 cause-match 而不是只看红数）：M1 退回 `pass:true` 硬编码 ⇒ 红 1（接线证明）；M2 判据写成 1..N ⇒ 红 2（纯判据 + 注入场景）；M3 字段缺席当放过 ⇒ 红 1（纯判据）；M4 空数组判成违规 ⇒ 红 1（纯判据）；M5 摘掉 `fifoVerdict` 导出 ⇒ 红 1（纯判据）；M6 接线改回排过序的投影 ⇒ 红 1（接线证明）。M6 是 #2626 原始错误的定向复现，它证明"接线"这条锁守的正是那件事。
+- **反证 harness 自己也红了一次（如实记）**：首版六条全报 `-99`。不是"锁没守住"——测试框架把汇总行里的数字包在 ANSI 色码中，正则匹配不到就落进"没解析出来"分支；而**"解析不到"与"确实没红"必须在代码里分成两个值**，否则探针故障会被读成"这条锁无效"，进而诱使人去放宽一条本来有效的门禁（本仓第三次犯同一形状）。补 `stripAnsi` 后六条全部变红；同时归因列原先只匹配一种报告格式，本机实际用的另一种会让"变红的用例"整列空白，补成两种都取。
+- **QM-1 因触碰 electron 主进程服务而适用**：实跑 `pnpm run build:dir`（win32 x64 / electron 43.1.1）产出 `dist-electron/win-unpacked/`，`resources/app.asar` 154,282,717 字节；**从产物 asar 抽出该文件 grep 到 `fifoVerdict` 3 处与 `pass: v.pass`**（证明改动进了交付物，不是只在源码里）；启动冒烟主程序存活 12s、**stderr 0 字节**、无平台配置缺失 / 插件目录 mkdir 失败 / asar 内 `ENOTDIR` 任一禁用特征。冒烟前**先核实** `ELECTRON_USER_DATA_DIR` 确实被 `startup-compat.js:8` 读取——否则"隔离 profile"只是我的假设，会撞到共享实例锁与真实用户数据。打包改写的两个 `*.bundle.js` 以精确路径 `git checkout HEAD --` 还原，工作树复核仅剩两个源文件。
+- 同批相邻面回归：`node scripts/compare-scheduler-models.js` ⇒ `PARITY OK`（KNOWN_DIFFS 1 条，属已建档测量噪声）；调度对拍 vitest 用例 1 passed。
+- **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+- **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
+  `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /
+  尺寸 / 该点**最顶层元素**（`elementsFromPoint`），并一并输出全页可见按钮。
+  真机读数 `PUB_STATE=预览并发布[dis=false, vis=true, wh=130x36, topHit=创…]` ⇒
+  按钮未禁用且可见，但该坐标处最顶层元素并非按钮本身 —— 据此把「发布未生效」的排查
+  收敛到三条候选：浮层遮挡 / 按钮在视口外致 `elementsFromPoint` 误报 /
+  `pubBtn=5` 候选里实际选中的不是真正的提交控件。
+  诊断写在**应用代码**内（target 与时机均正确），比外部脚本可靠。
 
 ### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现
 - `git grep 'remote-allow-origins' origin/main -- '*.js' '*.ps1' '*.mjs'` = **0 命中**：`dev-launcher.js` 里根本没有这条 Chromium 开关，而 `.agents/skills/start-app/SKILL.md`、`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`、`01-docs/TEST-PLAN-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md`、`01-docs/learnings.md` 四处都写着「dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS`，不设则 CDP 403」。
@@ -54,6 +253,22 @@
 - 收尾已按 worktree 路径精确停掉验证实例并删除隔离 profile（`D:\tmp\mp-cdp-verify-profile`），未触碰其他会话的实例与数据目录。
 
 # [未发布] fix(ci): 进程树遍历加 PID 复用防护并收敛为共享脚本（2026-09-30，#2698）
+
+- **feat(publish)：快手 / 抖音图文真实发布打通（kuaishou + douyin）**。
+  按「除小红书外其他平台必须真实发布」的口径，把两个图文平台从「上传即失败」推进到真机发布成功：
+  - **快手**（五项根因）：图文上传区 `input[type=file]` 两条注入路径都失效 → 改为向拖拽容器派发
+    `DragEvent('drop')`（参考产品同款）；描述字数上限 `max_content` 1000→480（实测计数器 x/500，
+    截断到 500 时平台仍显示 505/500）；新增 `stripHtmlToPlainText` 消除描述里的 `<p>` 字面量；
+    新增 `_confirmPublishDialog` 点发布后的二次确认框；补 URL 级成功信号（`from=publish` + `manage` 路径，
+    因图文作品列表端点与视频不同，此前「已发布却判失败」）
+  - **抖音**（三项根因）：修正 `_setFileInput` 结果校验语义（input 从 DOM 消失 = 页面已切换 = 上传被接受，
+    此前误判失败并触发无效回退）；三通道上传兜底（上传页 input → 编辑页「添加图片」→ 回上传页）；
+    图文模式标题合并进描述（编辑页无独立标题框）
+  - 验收：快手 `status=success`（url 含 `from=publish`）；抖音 `status=success`（日志 `API success`）；
+    单测 99/99；主文件两次拆分后 1324 行（LEDGER 通过）
+  - 完整合同：`01-docs/PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29.md` §12
+
+---
 
 ### 现象与根因
 - `QG Desktop Shards` / `Gate 4` 在 pnpm 退出后跑一段「有没有漏下测试子进程」的检查，判定非空即 `throw`，并**对结果逐个 `taskkill /T /F`**。实测 run 36519025075 attempt 1：**12517 个测试全部通过**，该检查却报出 `csrss.exe / winlogon.exe / fontdrvhost.exe / dwm.exe` 四个"残留子进程"。
@@ -8762,7 +8977,7 @@ OpenMontage Backlot living storyboard 集成：生产过程可视化、审批门
 - 同时生成 .sh/.bat 执行脚本，Agent 可直接运行
 
 ### 方向2：CI 多轮循环（autonomous-loop.yml）
-- 新 workflow：utonomous-loop.yml — 手动 dispatch 或 PR 标签触发
+- 新 workflow：autonomous-loop.yml — 手动 dispatch 或 PR 标签触发
 - 自动多轮重试：检测 → 修复 → 重测（最多 N 轮）
 - 自动 commit 基线更新 + patch 文件
 - 完整的 artifacts 上传（报告 + patch + 截图）
@@ -8801,7 +9016,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 
 ### 修复
 - **FixEngine.dryRun=false**：多轮循环模式下基线更新真实生效
-- **自动生成修复脚本**：迭代结束后写出 uto-fix-commands.bat，包含所有 baseline copy 命令
+- **自动生成修复脚本**：迭代结束后写出 auto-fix-commands.bat，包含所有 baseline copy 命令
 - **Agent 可执行**：生成的 .bat 脚本可直接执行，Agent 也能读取命令自行判断
 
 ### 完整自主流程（现在）
@@ -13283,7 +13498,7 @@ OpenMontage Backlot living storyboard 集成：生产过程可视化、审批门
 - 同时生成 .sh/.bat 执行脚本，Agent 可直接运行
 
 ### 方向2：CI 多轮循环（autonomous-loop.yml）
-- 新 workflow：utonomous-loop.yml — 手动 dispatch 或 PR 标签触发
+- 新 workflow：autonomous-loop.yml — 手动 dispatch 或 PR 标签触发
 - 自动多轮重试：检测 → 修复 → 重测（最多 N 轮）
 - 自动 commit 基线更新 + patch 文件
 - 完整的 artifacts 上传（报告 + patch + 截图）
@@ -13322,7 +13537,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 
 ### 修复
 - **FixEngine.dryRun=false**：多轮循环模式下基线更新真实生效
-- **自动生成修复脚本**：迭代结束后写出 uto-fix-commands.bat，包含所有 baseline copy 命令
+- **自动生成修复脚本**：迭代结束后写出 auto-fix-commands.bat，包含所有 baseline copy 命令
 - **Agent 可执行**：生成的 .bat 脚本可直接执行，Agent 也能读取命令自行判断
 
 ### 完整自主流程（现在）

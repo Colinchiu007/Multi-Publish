@@ -24,6 +24,32 @@ docs-only 判定 SHALL 由单一脚本（`scripts/classify-docs-only.js`）持�
 - **WHEN** 修改脚本导出的白名单或任一 workflow 的 `push.paths-ignore` 使两处不一致
 - **THEN** 契约测试（`workflow-contract.test.js`，从脚本 import 真源）失败
 
+### Requirement: 白名单扩项的前提锁
+
+任何路径被加入 `scripts/classify-docs-only.js` 导出的 `CI_IGNORED_PATHS` 时，该路径所承载校验的执行位置 SHALL 先确认在**不被 docs-only 短路**的 job 内——即 `quality-gate.yml` 的 `changes` job，且 SHALL 位于该 job「非 PR 事件早退」语句之前，使 main push 那一档同样覆盖。若该校验仍只存在于受 `needs.changes.outputs.docs-only != 'true'` 门控的 job（如 `static-gates`），SHALL NOT 扩项。两条 SHALL 由同一条测试绑定：白名单含该路径 ⇒ 其门禁命令出现在 `changes` job 正文内且下标早于早退语句。
+
+实现强度记录（不得被误读）：该锁按「命令串在 `changes:` 与 `static-gates:` 之间出现」判定，**未**区分可执行正文与注释，比 `check-unwired-tests.js` 的「按 workflow 可执行正文匹配」弱一档；因此把门禁命令原样写进一条注释可以骗过本锁。已知并接受：骗过它没有任何收益（注释不会让门禁真跑），而把它升级成正文解析属另一个改动面。
+
+#### Scenario: 门禁还在被短路的 job 里就扩项
+
+- **WHEN** 把某个数据文件加入 `CI_IGNORED_PATHS`，而它的校验仍只在 `static-gates`
+- **THEN** 前提锁失败（纯文档 PR 会让该校验永久失明，而纯文档 PR 恰是唯一会改这类数据文件的 PR 类型）
+
+#### Scenario: 先搬门禁再扩项
+
+- **WHEN** 校验已接进 `changes` job 的非 PR 早退之前，且路径同时进入白名单与三条 `push.paths-ignore`
+- **THEN** 前提锁通过；纯文档 PR 与 main push 两档都仍真实执行该校验
+
+#### Scenario: 接线被挪到早退之后
+
+- **WHEN** 已接好的门禁命令被移到 `exit 0` 之后
+- **THEN** 前提锁失败（main push 档失去覆盖；这类失效只在 push 事件上发生，PR 上看不出来）
+
+#### Scenario: 白名单条目被摘掉而接线留着
+
+- **WHEN** `CI_IGNORED_PATHS` 不再含该路径（前提改变），而 `changes` job 里的接线还在
+- **THEN** 同一条锁失败并提示「前提变了」——锁故意把**前提本身**也钉住，避免白名单被悄悄摘掉后接线沦为无人解读的遗留
+
 ## MODIFIED Requirements
 
 ### Requirement: 全量 workflow 路径门控

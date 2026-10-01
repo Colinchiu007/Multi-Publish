@@ -26,6 +26,7 @@ on:
       - '.hermes/**'
       - '.agents/**'
       - 'openspec/**'
+      - 'scripts/gate-record-debt-ledger.json'
   pull_request:
     branches: [main]
   workflow_dispatch:

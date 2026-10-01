@@ -361,6 +361,7 @@ import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/sha
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import { needsCleanLoginSession } from '@/utils/account-status'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
@@ -1127,7 +1128,16 @@ async function openCreatorCenter(account) {
     notifyWarning('accountsPage.creatorUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
+  // 失效账号以干净会话打开：公众号的创作者中心 URL 就是登录页
+  // （PLATFORM_DASHBOARD_URLS.wechat_mp === PLATFORM_LOGIN_URLS.wechat_mp），
+  // 带旧凭证进去必然撞上「二维码加载失败」，等于点卡片=登不上。
+  await tabStore.createTab({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    cleanSession: needsCleanLoginSession(account, checkedExpiredIds.value),
+    title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }),
+  })
 }
 
 async function openLoginPage (account) {
@@ -1140,10 +1150,13 @@ async function openLoginPage (account) {
     notifyWarning('accountsPage.loginUnsupported')
     return
   }
-  // 失效账号打开登录页必须用干净会话：旧身份 Cookie（如微信 wxuin）会让平台
-  // 在二维码环节静默拒绝（getqrcode 200 空体）；有效账号仍恢复 Cookie 以便免登录
-  const cleanSession = account?.status === 'expired'
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, cleanSession, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
+  await tabStore.createTab({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    cleanSession: needsCleanLoginSession(account, checkedExpiredIds.value),
+    title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }),
+  })
 }
 
 async function removeAccount (account) {

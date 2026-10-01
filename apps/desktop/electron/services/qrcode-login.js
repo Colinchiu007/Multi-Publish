@@ -17,6 +17,8 @@
 const { WebContentsView, session } = require('electron')
 const path = require('path')
 const log = require('./logger')
+// #2701：本文件创建的 persist:auth-* 分区在回收白名单内，必须登记存活
+const authReclaim = require('./auth-partition-reclaim')
 // eslint-disable-next-line no-unused-vars
 const {
   PLATFORM_LOGIN_URLS,
@@ -154,7 +156,11 @@ class QrCodeLogin {
       this._lastQrHash = null
 
       // 创建隔离 Session
-      const authSession = session.fromPartition(`persist:auth-${accountId}`, { cache: true })
+      // 分区名与存活登记复用单一实现：这个名字命中 auth-partition-reclaim 的回收白名单，
+      // 不登记就会让活跃扫码会话的目录被 sweep 连目录删掉（Session 在进程内不销毁）。
+      const partitionDir = authReclaim.partitionNameOf(accountId)
+      const authSession = session.fromPartition(`persist:${partitionDir}`, { cache: true })
+      authReclaim.noteLivePartition(partitionDir)
 
       // 创建 WebContentsView
       const view = new WebContentsView({

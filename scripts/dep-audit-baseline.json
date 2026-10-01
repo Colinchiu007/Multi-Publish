@@ -70,6 +70,48 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-3pq3-5fj3-cg6v",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-44g4-m2mj-wpvx",
+      "module": "axios",
+      "severity": "moderate",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-4hqw-qxg8-jxx2",
+      "module": "axios",
+      "severity": "moderate",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-4mjr-xmp4-gh2g",
       "module": "qs",
       "severity": "moderate",
@@ -79,6 +121,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-542g-h47m-68v8",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
     },
     {
       "source": "npm",
@@ -96,6 +152,18 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-6j4f-fj2g-mc7p",
+      "module": "brace-expansion",
+      "severity": "high",
+      "patched": ">=1.1.19",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.19。此处登记以区分「新增债务」与「上游公告更新」。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-73wf-gq98-2v4g",
       "module": "browserslist",
       "severity": "high",
@@ -105,6 +173,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "browserslist 为 remotion-composer 构建期传递依赖，不参与运行时；升级 PR 提到 >=4.28.7。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-9fr6-4gfg-395g",
+      "module": "axios",
+      "severity": "moderate",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
     },
     {
       "source": "npm",
@@ -119,6 +201,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "electron 上游新披露 high 公告（修复版本 >=43.4.1）。本仓当前 electron 43.1.1。升级到 >=43.5.0 需专门 PR（electron-builder 25.x 配套 + 打包/启动验证），与本 PR 主题无关；此处登记以便门禁区分「新增债务」与「上游公告更新」。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-c29m-xwm3-cm6r",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
     },
     {
       "source": "npm",
@@ -176,6 +272,48 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-j8rh-479h-cp32",
+      "module": "axios",
+      "severity": "moderate",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-m8m8-qj5v-23w3",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-mghh-pgcx-3jjj",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-mh99-v99m-4gvg",
       "module": "brace-expansion",
       "severity": "high",
@@ -185,6 +323,30 @@
       ],
       "decision": "upgrade-tracked",
       "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-q2hr-2g5m-vwhr",
+      "module": "brace-expansion",
+      "severity": "moderate",
+      "patched": ">=1.1.21",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.21。此处登记以区分「新增债务」与「上游公告更新」。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-qhr7-859c-m2p7",
+      "module": "brace-expansion",
+      "severity": "high",
+      "patched": ">=1.1.20",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.20。此处登记以区分「新增债务」与「上游公告更新」。"
     },
     {
       "source": "npm",
@@ -213,6 +375,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "postcss 第二条公告，与 GHSA-fxqj 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-r4gj-5m52-g5wh",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
     },
     {
       "source": "npm",
@@ -252,6 +428,20 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-vh66-26gq-q6x8",
+      "module": "axios",
+      "severity": "moderate",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-w5vr-8v7q-w6rv",
       "module": "baseline-browser-mapping",
       "severity": "moderate",
@@ -273,6 +463,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-x97p-jq2g-jp4f",
+      "module": "axios",
+      "severity": "high",
+      "patched": ">=1.20.0",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-09-30 18:16Z 起由公告库刷新批量引入的 axios 公告：同一门禁在本分支 15:51Z 那轮为 SUCCESS，18:16Z 起转为阻断，且同时命中另一在途 PR（head bb4d2e4d）⇒ 属外部数据变化，不是本 PR 引入（本 PR 未改动任何依赖、manifest 或 lockfile）。lockfile 现解析到的 axios 低于修复版 1.20.0，升级属独立跟踪项（需连同 HTTP 调用链一起回归），不在本 PR 范围内。"
     },
     {
       "source": "pip",

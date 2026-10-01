@@ -21,7 +21,7 @@
         "./utils/path-resolver": "./src/utils/path-resolver.js"
     },
     "scripts": {
-        "test": "node --test tests/*.test.js",
+        "test": "node --require ../shared-utils/network-egress-guard.setup.js --test tests/*.test.js",
         "agent-judge": "node scripts/run-agent-judge.js",
         "agent-judge:openai": "cross-env-shell LLM_PROVIDER=openai node scripts/run-agent-judge.js",
         "agent-judge:anthropic": "cross-env-shell LLM_PROVIDER=anthropic node scripts/run-agent-judge.js",

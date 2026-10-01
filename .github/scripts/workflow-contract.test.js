@@ -614,3 +614,25 @@ test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线�
     'electron-ci 的桌面 vitest 步必须限定为非 PR 事件（避免同一批桌面测试在 PR 上重复执行）',
   );
 });
+
+// 基线新鲜度门禁（check-baseline-freshness.js）存在的意义：QM-4 第 7 条禁止本机截图当基线，
+// 但这条纪律在 #2623 之前无人检测、之后不到一天又被 #2685 的本机重捕打破（9 张漂 0.008%–1.573%，
+// CI 全绿）。摘掉这个步骤就等于把唯一的检测关掉，因此它必须与"阻断"形态一起被锁住。
+test('视觉工作流必须有阻断形态的基线新鲜度门禁，且跑自己的单测', () => {
+  const wf = yaml.load(fs.readFileSync(workflowPath, 'utf8'));
+  const steps = wf.jobs['visual-test'].steps;
+  const fresh = steps.find(step => /check-baseline-freshness\.js/.test(String(step.run || '')));
+
+  assert.ok(fresh, 'visual-test.yml 必须有执行 scripts/check-baseline-freshness.js 的步骤');
+  assert.notEqual(fresh['continue-on-error'], true, '基线新鲜度检查必须是阻断形态；降级成告警就等于没有检查');
+  assert.equal(fresh.if, 'always()', '采集步骤红时也要拿到新鲜度结论，不得被前置失败静默跳过');
+  // 两条命令（先跑单测再跑真检查）写在同一个 run 块里 ⇒ 必须 shell: bash：
+  // PowerShell 步骤不会在中间命令非零时中止，只有最后一条决定成败 ⇒ 会造出一条恒绿装饰门禁。
+  assert.equal(fresh.shell, 'bash');
+  assert.match(String(fresh.run), /node --test scripts\/check-baseline-freshness\.test\.js/,
+    '检查器自身的单测必须与真检查同步执行，否则它会静默失修');
+  const idxFresh = steps.indexOf(fresh);
+  const idxCapture = steps.findIndex(step => /run-all-visual\.js/.test(String(step.run || '')));
+  assert.ok(idxCapture >= 0, '前置条件：采集步骤必须存在，否则新鲜度检查拿不到同 run 的渲染');
+  assert.ok(idxFresh > idxCapture, '新鲜度检查必须排在采集步骤之后（判据是同一次 run 的渲染）');
+})

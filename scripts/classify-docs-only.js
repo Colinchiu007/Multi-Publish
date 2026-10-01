@@ -42,6 +42,7 @@ const CI_IGNORED_PATHS = [
   '.hermes/**',
   '.agents/**',
   'openspec/**',
+  'scripts/gate-record-debt-ledger.json',
 ]
 
 function matchesPattern(filePath, pattern) {
@@ -66,6 +67,52 @@ function git(repo, args) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8' })
 }
 
+// 「本 PR 改了哪些文件」的唯一取源。
+// 为什么必须只有一份：本仓有过"同一个三态映射被抄成三份"的事故（login-state，见 AGENTS.md）。
+// 若 docs-only 判定与「执行记录存在性」判定各自拼一次 diff，两者对 base 的取法迟早漂移，
+// 结果是同一个 PR 在一处判"纯文档"、在另一处判"缺记录"，而这种红无法归因。
+// 返回 name-status 而不是只有名字：判"本 PR 是否新增了一篇记录文件"需要区分 A/M/D——
+// 只看名字会把"改了一篇历史记录"当成"新增了记录"而放行。名字由本函数派生，diff 仍只取一次。
+// 失败一律抛错：返回空清单会被上层读成"这个 PR 没改任何文件"，那是假绿通道。
+function changedFileStatuses({ repo, base, head }) {
+  if (!repo || !base || !head) {
+    throw new Error(`changedFileStatuses 需要 repo/base/head 三个参数（收到 repo=${repo || '(空)'} base=${base || '(空)'} head=${head || '(空)'}）`)
+  }
+  try {
+    // PR base 可能落后于 main：用 merge-base 防漏检（与 build.yml package-relevant 同模式）
+    const mergeBase = git(repo, ['merge-base', base, head]).trim()
+    const raw = git(repo, ['diff', '--name-status', '-z', mergeBase, head])
+    // -z 形态实测是「状态 NUL 路径 NUL」交替，**不是** `状态\tpath`（我先按 tab 写过一版，
+    // 结果每段都解析成空 → 整个函数静默返回 [] —— 正是本函数要防的假绿通道，靠转储实测才发现）。
+    // 重命名/复制的形态是 状态 NUL 旧路径 NUL 新路径。
+    const parts = raw.split('\0').filter((s) => s.length > 0)
+    const out = []
+    for (let i = 0; i < parts.length; i++) {
+      // 状态段形如 M / A / D，重命名与复制带相似度数字：**R100 / C75**，不是一个字母
+      // （实测：只按 ^[A-Z]$ 匹配会把 R100 整条丢掉，重命名就静默消失）
+      const sm = /^([ACDMRUTXB])(\d*)$/.exec(parts[i])
+      if (!sm) continue
+      const status = sm[1]
+      if (status === 'R' || status === 'C') {
+        const [oldPath, newPath] = [parts[i + 1], parts[i + 2]]
+        if (newPath) out.push({ status: parts[i], file: newPath, from: oldPath })
+        i += 2
+      } else {
+        const file = parts[i + 1]
+        if (file) out.push({ status, file })
+        i += 1
+      }
+    }
+    return out
+  } catch (e) {
+    throw new Error(`git 取证失败（base=${base} head=${head}）：${String(e.message || e)}`)
+  }
+}
+
+function changedFiles(o) {
+  return changedFileStatuses(o).map((e) => e.file)
+}
+
 function parseArgs(argv) {
   const out = {}
   for (const arg of argv) {
@@ -86,18 +133,14 @@ function main(argv) {
     process.exit(2)
   }
 
-  let mergeBase
-  let diffRaw
+  let files
   try {
-    // PR base 可能落后于 main：用 merge-base 防漏检（与 build.yml package-relevant 同模式）
-    mergeBase = git(repo, ['merge-base', base, head]).trim()
-    diffRaw = git(repo, ['diff', '--name-only', '-z', mergeBase, head])
+    files = changedFiles({ repo, base, head })
   } catch (e) {
-    process.stderr.write(`[classify-docs-only] git 取证失败: ${String(e.message || e)}\n`)
+    process.stderr.write(`[classify-docs-only] ${e.message}\n`)
     process.exit(1)
   }
 
-  const files = diffRaw.split('\0').filter((f) => f.length > 0)
   const docsOnly = isDocsOnly(files)
 
   const lines = [`docs-only=${docsOnly}`, `files=${files.length}`, ...files]
@@ -113,7 +156,7 @@ function main(argv) {
   process.exit(0)
 }
 
-module.exports = { CI_IGNORED_PATHS, isDocsOnly, matchesPattern }
+module.exports = { CI_IGNORED_PATHS, isDocsOnly, matchesPattern, changedFiles, changedFileStatuses }
 
 if (require.main === module) {
   main(process.argv.slice(2))

@@ -157,6 +157,8 @@ const props = defineProps({
   checkedExpiredIds: { type: Object, default: () => new Set() },
 })
 
+import { accountStatusKind } from '@/utils/account-status'
+
 const { t } = useI18n()
 
 const emit = defineEmits([
@@ -254,20 +256,6 @@ function proxyLabel (account) {
   const proxy = account?.proxy || account?.proxy_url || account?.proxyUrl
   const value = valueLabel(proxy)
   return value || t('accountsPage.accountCardLabels.notSet')
-}
-
-function accountStatusKind (account) {
-  const status = String(account?.status || '').trim().toLowerCase()
-  if (status === 'active' || status === 'online') return 'online'
-  if (status === 'expired') return 'expired'
-  // 未确认：检测过但拿不到正向/负向结论（如视频号禁止 DOM 检测、HTTP 判定不确定）。
-  // 不能落到 unknown，否则与「从未检测」共用一种视觉语义，掩盖检测发生过这一事实。
-  if (status === 'unverified') return 'unverified'
-  // 不含 inactive / offline：登录态词表只有三态，这两个值是历史上「启用态写进 status」
-  // 撞车写坏的脏值。此前它们被映射为「已登录」，等于把概念混用固化成契约 —— 现统一落到
-  // unknown（暂无检查记录）兜底，由用户重新检测一次得到诚实结论。
-  if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
-  return 'unknown'
 }
 
 function isActive (account) {

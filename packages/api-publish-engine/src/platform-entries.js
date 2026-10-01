@@ -19,6 +19,14 @@ const imagePublishUrls = {
   xiaohongshu: "https://creator.xiaohongshu.com/publish/publish?from=menu",
   zhihu: "https://zhuanlan.zhihu.com/write",
   weibo: "https://weibo.com/upload/channel",
+  // 2026-09-30 补：头条「图文」= 文章编辑器（graphic/publish）。
+  // 此前该键缺失 ⇒ getPublishUrl('toutiao','image') 返回 null ⇒ RPA 回退到
+  // config.publish_url 的根地址 https://mp.toutiao.com/（首页），
+  // 于是标题/正文/发布按钮全找不到（日志 publish btn not found url=）。
+  toutiao: "https://mp.toutiao.com/profile_v4/graphic/publish",
+  // 2026-09-30 补：B站「图文」= 专栏编辑器。B站视频走 upload/video/frame，
+  // 图文必须用专栏入口，否则会落进视频上传页（无标题/正文/发布按钮）。
+  bilibili: "https://member.bilibili.com/platform/upload/text/edit",
 };
 
 function getPublishUrl(platform, type) {
