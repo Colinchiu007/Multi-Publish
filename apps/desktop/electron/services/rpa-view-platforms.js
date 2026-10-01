@@ -446,8 +446,10 @@ const platformsMixin = {
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
-          if (platform === 'toutiao') { try { log.info('RpaView', '[toutiao] deferred-state: ' + await win.webContents.executeJavaScript('(function(){try{var bs=[...document.querySelectorAll("button")].filter(function(b){var t=String(b.innerText||"").replace(/\\s+/g,"");return t==="预览并发布"||t==="定时发布"});var hits=[];var info=[];bs.forEach(function(el){var fk=Object.keys(el).filter(function(k){return k.indexOf("__reactInternalInstance$")===0})[0];var f=fk?el[fk]:null;for(var d=0;f&&d<24;d++){var st=f.memoizedState,i=0;while(st&&i<40){var v=st.memoizedState;if(v&&typeof v==="object"&&(typeof v.resolve==="function"||typeof v.then==="function")){hits.push(String(el.innerText||"").trim().slice(0,6)+"@d"+d+"h"+i)}st=st.next;i++}var mp=f.memoizedProps;if(mp&&typeof mp.onClick==="function"&&info.length<4){var ks=Object.keys(mp);info.push("L"+d+"["+ks.slice(0,12).join("/")+"]"+(ks.indexOf("m")>=0?"m="+String(mp.m):"")+(ks.indexOf("b")>=0?"b="+String(mp.b):"")+(ks.indexOf("doPublish")>=0?"HAS_DP":""))}f=f.return}});return (hits.length?("FOUND:"+hits.join(",")):"NO_DEFER(btns="+bs.length+")")+"|"+info.join(" ;; ")}catch(e){return"ERR:"+String(e&&e.message).slice(0,40)}})()')) } catch (_e) { /* 诊断旁路 */ } }
+          // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
+          // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
           await (platform === 'toutiao' && typeof this._clickStable === 'function' ? this._clickStable(win, publishSelector) : this._click(win, publishSelector))
+          if (platform === 'toutiao') { await this._sleep(1500); await this._clickViaCdp(win, publishSelector) }
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)
