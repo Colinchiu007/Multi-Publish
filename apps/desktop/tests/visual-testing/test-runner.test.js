@@ -491,3 +491,78 @@ describe('截图前的确定性渲染收口（settleForCapture）', () => {
     }
   })
 })
+
+describe('采集时钟合同（含实时值的视图必须可复现）', () => {
+  const FIXED_ISO = '2026-01-01T00:00:00.000Z'
+
+  afterEach(() => {
+    delete process.env.VISUAL_CAPTURE_FIXED_TIME_ISO
+    vi.restoreAllMocks()
+  })
+
+  function clockRunner (page) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-clock-'))
+    const runner = new VisualTestRunner({
+      screenshotDir: path.join(tempDir, 'screenshots'),
+      reportDir: path.join(tempDir, 'reports'),
+      metaDir: path.join(tempDir, 'meta'),
+      baselineDir: path.join(tempDir, 'baselines'),
+    })
+    runner.page = page
+    return runner
+  }
+
+  it('默认钉住：以固定时刻调用 setFixedTime，并把钉住值如实暴露出来', async () => {
+    const setFixedTime = vi.fn().mockResolvedValue(undefined)
+    const runner = clockRunner({ clock: { setFixedTime } })
+    const got = await runner._installCaptureClock()
+    expect(setFixedTime).toHaveBeenCalledTimes(1)
+    const arg = setFixedTime.mock.calls[0][0]
+    expect(arg instanceof Date).toBe(true)
+    expect(arg.toISOString()).toBe(FIXED_ISO)
+    expect(got).toBe(arg.getTime())
+    expect(runner.captureFixedTime).toBe(arg.getTime())
+  })
+
+  it('VISUAL_CAPTURE_FIXED_TIME_ISO=off 显式关闭：不调用宿主 API，且回显 null', async () => {
+    process.env.VISUAL_CAPTURE_FIXED_TIME_ISO = 'off'
+    const setFixedTime = vi.fn()
+    const runner = clockRunner({ clock: { setFixedTime } })
+    expect(await runner._installCaptureClock()).toBe(null)
+    expect(setFixedTime).not.toHaveBeenCalled()
+    expect(runner.captureFixedTime).toBe(null)
+  })
+
+  it('非法时间值一律抛错：静默退回未固定会把基线变回跨日必漂', async () => {
+    process.env.VISUAL_CAPTURE_FIXED_TIME_ISO = '昨天下午三点'
+    const setFixedTime = vi.fn()
+    const runner = clockRunner({ clock: { setFixedTime } })
+    await expect(runner._installCaptureClock()).rejects.toThrow(/VISUAL_CAPTURE_FIXED_TIME_ISO/)
+    expect(setFixedTime).not.toHaveBeenCalled()
+  })
+
+  it('宿主不提供 clock API 时必须出声（观察者要报告自己的失明）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const runner = clockRunner({})
+    expect(await runner._installCaptureClock()).toBe(null)
+    expect(runner.captureFixedTime).toBe(null)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('setFixedTime'))
+  })
+
+  it('接线锁：launch() 必须在建页之后、任何导航之前装时钟', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'test-runner.js'), 'utf8')
+    const iNew = source.indexOf('await this.context.newPage()')
+    const iClock = source.indexOf('await this._installCaptureClock()')
+    const iConsole = source.indexOf("this.page.on('console'")
+    const iGoto = source.indexOf('this.page.goto(')
+    // 先证坐标存在，否则 -1 会让下面的顺序断言退化成永真
+    expect(iNew).toBeGreaterThan(-1)
+    expect(iClock).toBeGreaterThan(-1)
+    expect(iConsole).toBeGreaterThan(-1)
+    expect(iGoto).toBeGreaterThan(-1)
+    // 建页 -> 装时钟 -> 挂监听 -> 才可能导航
+    expect(iNew).toBeLessThan(iClock)
+    expect(iClock).toBeLessThan(iConsole)
+    expect(iConsole).toBeLessThan(iGoto)
+  })
+})
