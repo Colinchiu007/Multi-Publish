@@ -17008,3 +17008,39 @@ onOk: case 0: d.setFormData({timingTime, timingStatus:1}), d.mergeIn({publishImm
 - 实测要**在接近生产的条件下**做（本例必须先填标题正文，空态下测会得出误导性结论）。
 
 **一句话**：*源码定机制，实测定可用性；由源码推出的建议，在写进文档前先跑一次。*
+
+## 提交前先跑 classify-docs-only 判定，含代码改动必须走完整质量节拍（不借道精简通道）（classify-docs-only-before-commit，2026-10-01）
+
+**背景**：本轮改动包含 `config/platforms.yaml`（配置）与
+`packages/shared-utils/src/__tests__/publish-capabilities.test.js`（测试），
+加上 2 个 md 文档 —— 看起来"大部分是文档"，很容易误判为可走精简通道。
+
+**正确做法**（项目规范 docs-only 快速通道）：
+```
+node scripts/classify-docs-only.js --base=origin/main --head=HEAD
+```
+本轮输出：
+```
+docs-only=false
+files=4  （含 config/platforms.yaml 与测试文件）
+```
+⇒ **混合 PR，必须走完整质量节拍**，不得借道精简通道。
+
+### 执行结果（完整节拍各项）
+| 门禁 | 结果 |
+|------|------|
+| 行数门禁 `check-max-lines.js` | ✅ 无新增超大文件 |
+| locale 成对 `check-locale-sync.js --keys` | ✅ 1316 key 均存在于 zh/en |
+| 品牌残留 `check-no-brand-residue.js` | ✅ PASS |
+| 文档同步 `check-docs-sync.sh --base=main --head=HEAD` | ✅ 代码变更已同步更新文档 |
+| 测试 `publish-capabilities.test.js` | ✅ 87 passed |
+
+### 两个易踩的坑
+1. **`classify-docs-only.js` 的 `--base` 要用 `origin/main`**，
+   而 **`check-docs-sync.sh` 的 `--base` 要用本地分支名 `main`**
+   （脚本内部会自己拼 `origin/`，传 `origin/main` 会报
+   `fatal: couldn't find remote ref refs/heads/origin/main`）。两个脚本参数口径不同，别混用。
+2. **"大部分是文档"不等于"纯文档"** —— 只要含任一代码/配置/测试/CI 路径就是混合 PR；
+   判定必须用单一真源脚本，**禁止人工目测**。
+
+**一句话**：*提交前先让脚本告诉你"这是哪类 PR"，再决定走哪套节拍——别凭"看起来像文档"来判断。*
