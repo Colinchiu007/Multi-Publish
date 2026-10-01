@@ -1,7 +1,4 @@
 {
-  "本次执行记录：图文发布字数上限体系（platform-char-limits，2026-10-02）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个 docs 会话，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin platform-char-limits 返回 0 行证远端分支已删。"
-  },
   "本次执行记录：批量回填 13 条 2026-08 已合并记录的远程同步行并销账（backfill-gate-rows-13，2026-10-01）【docs-only】": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin backfill-gate-rows-13 返回 0 行证远端分支已删。"
   },
