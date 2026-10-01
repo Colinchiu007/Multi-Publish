@@ -1448,6 +1448,7 @@ export default {
       diffHint: '只为本篇所选平台单独调整标题/正文与差异化字段，不影响其他文章',
       noPlatformHint: '本篇尚未选择平台，差异化设置将在选择平台后可见',
       coverUrlOnlyHint: '远程封面地址会随任务提交，但缩略图不预览远程图片；需要预览请改选本地封面',
+      coverUrlDroppedHint: '已选本地封面，按本地优先规则本次不会提交上面的远程封面地址',
       clearCover: '清除封面',
     },
     batchNotify: {

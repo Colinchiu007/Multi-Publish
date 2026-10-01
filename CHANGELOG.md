@@ -73,6 +73,8 @@
 - 条目级 `platformOverrides` / `visibilitySemantic` 入结构并可随「复制文章」深拷贝带走；批量 payload 与单篇 `buildArticleData` 同口径（补 `contentFormat` / `platformOverrides` / `visibilitySemantic`，封面经 `normalizePublishFile` 归一，tags/topics/mentions/images 改为「有值才挂键」）。
 
 ### 修复
+- **批量条目封面「重选即替换」（#2716 合并后评审 Critical）**：`BatchArticleFields.vue` 的 `el-upload` 声明了 `:limit="1"`，却既不绑 `v-model:file-list` 也不处理 `:on-exceed`。el-upload 的超限判据在 `onStart` **之前** return，而默认 `onExceed` 就是 `NOOP`（实测 `element-plus/es/components/upload/src/upload-content...mjs:37` + `upload.mjs:188-191`）⇒ 一张封面选完即永久锁死，再点「选择封面」静默无反应；又因该条目 `:show-file-list="false"` 关掉了单篇那条可清列表的 `×`、「清除封面」只清 `article.cover_*` 清不到内部列表，用户**没有任何恢复路径**。修复复用本仓既有正解（同 `Publish.vue` 视频轨 `handleVideoFileExceed`：`clearFiles()` + `handleStart(files[0])`），不另写第二份口径
+- **批量封面「本地优先会清掉远程地址」必须出声**：payload 侧 `resolveCoverFields` 在本地封面存在时清空 `cover_url`，而此前只把「仅远程 URL」提示藏起来——等于静默丢弃用户刚输入的地址而不告知，与同一段代码自己的「不得静默」注释相矛盾。新增互斥判据 `coverUrlWillDrop` 与 `coverUrlDroppedHint`（zh/en 成对），两条提示按 `cover_file` 取值、与 payload 同口径且互斥穷尽
 
 - **主进程派发层砍键（真实缺陷）**：`batch-manager.js` 的 `executeBatch` 用 5 键手工白名单（title/content/author/cover_url/video_path）入队，而同文件 `scheduleBatch` 是整包透传 ⇒ 同一批文章「设了定时就带封面、立即发布就没封面」，且渲染层早已发送的 `cover_path` / `images` / `tags` / `topics` / `mentions` / `aiGenerated` 在立即执行路径上**一直**被静默丢弃。现三条派发点统一走 `buildEnqueuedArticle(article, accountId)`。
 - **批量派发目标改为显式覆盖（一致性加固，非缺陷修复）**：`article.accountId` 优先于任务顶层，排期路径此前不带该键、靠 `buildPublishArticle` 的 `|| task?.accountId` 兜底才恰好取对（原记「会拿错账号凭证」经实测撤回）；现由 `buildEnqueuedArticle` 逐次覆盖派发目标。同一条 `executeBatch ↔ scheduleBatch` 字段面 parity 锁暴露的**字段丢失**才是本切片修掉的用户可见缺陷。
@@ -83,6 +85,7 @@
 - 差异化面板归一化与 Markdown 判定自 `usePublishFlow.js` 迁出为 `publish-overrides.js`；el-upload 文件→路径描述符自 `Publish.vue` 迁出为 `publish-upload-file.js`。迁出属行为保持重构，批量与单篇不得各写一份。
 
 ### 验证
+- 新增 3 条并全部实跑反证：① 重选必须替换（实现前红 1）；② 「本地+URL」态必须出丢弃提示（实现前红 1）；③ **负控**——只声明 `:limit` 不处理 on-exceed 时替身必须真的丢掉第二个文件（证明 ① 有料，替身退化成「恒触发 on-change」时该条先红）。另把 `useBatchPublish.test.js` 的 `keysOf` 从固定 3000 字符窗口改为「按声明行缩进找该函数自己的闭合括号 + 找不到即红」；如实定性：实测两函数跨度仅 1605/1647 字符，当时窗口是**向相邻函数过读**而非欠读，过读部分恰好没贡献新键 ⇒ 不构成当下的假绿，属潜在脆弱性；反证为把 `data.mentions` 改名后该锁红且红因正是 `mentions`
 
 - 新增/更新测试：`usePublishFieldSurface.test.js`、`publish-overrides.test.js`、`publish-upload-file.test.js`、`BatchArticleFields.test.js`、`useBatchPublish.test.js`（P2-7 块）、`batch-manager.test.js`（字段面 parity）、`Publish.test.js`（接线）；受影响面 216 passed（14 files）+ 98 passed（2 files）。
 - 反证四条均实跑并逐字节还原：整包透传退回白名单 ⇒ 红 2；override 归一改 no-op ⇒ 红 1；内容校验恒通过 ⇒ 红 2；无标题提示忽略入参平台清单 ⇒ 红 3。
