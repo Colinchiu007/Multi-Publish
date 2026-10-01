@@ -422,3 +422,78 @@ function noTitleOverhead (platform, title) {
    `found:false`）；放进应用内部、在正确时刻取值才可信。
 6. **自动化的等待条件要是"状态就绪"而非"固定时长"**：把固定 `sleep` 改为轮询编辑器就绪后，
    单轮窗口从"经常跑不完"变为"稳定跑完"。
+
+#### 16.8.6 头条「预览并发布」的源码级取证（2026-10-01，读 bundle 定案）
+
+> 本节内容**全部来自对头条发布页已加载 JS chunk 的读取**（`publish.b8c90341ac.js`，227KB），
+> 而非推测。取证方式：在页面内 `fetch` 各 chunk 并检索关键符号。
+
+**① 变量真实语义（此前一直按字面猜测，现已有定义）**
+```js
+oa = function(e){
+  var n = useModel(G.lR), r = n[0], d = n[1],
+      m = r.publishing,        // m = 正在发布中
+      w = E.isFansArticle,     // w = 是否"粉丝必达"
+      b = E.timingStatus,      // b = 定时状态
+      y = E.title              // y = 标题
+```
+`d` 是 store 的 dispatcher（含 `doPublish` / `mergeIn` / `setFormData`）。
+因此 `!m && b && d.mergeIn({publishImmediately:!0})` 的含义是：**未在发布中且当前为定时模式 ⇒ 转为立即发布**
+（与 `index` chunk 中的 `/mp/agw/article/timer_publish/post_now` 端点对应）。
+
+**② 主发布按钮的完整 onClick**
+```js
+case 0: return fe.setGuided(),
+               _e ? (_e.resolve(), [2])                                  // 分支A：deferred 已存在 ⇒ 仅唤醒
+                  : (addTEA("click_core_article_publish", aa),
+                     !m && b && d.mergeIn({publishImmediately:!0}),
+                     [4, sleep("defer-publish", 0)]);                     // 分支B：首点 ⇒ 挂起等待
+case 1: return e.sent(), d.doPublish(k.Zb.PUBLISH), [2]                   // 才真正提交
+```
+
+**③ `_e.resolve()` 的唯一出现处：定时时间选择弹窗的 onOk**
+```js
+createElement(ra.l, { time, serverTime, visible, okText,
+  onOk:     case 0: z(!1), d.setFormData({ timingTime: …, timingStatus: 1 }),
+                     d.mergeIn({ publishImmediately: !1 }),
+                     [4, sleep("defer-time-publish", 0)];
+            case 1: t.sent(), _e && _e.resolve(), [2]                      // ← 唯一
+  onCancel: function(){ _e && _e.reject() }
+})
+```
+
+**④ 由此确定的机制与结论**
+| 位置 | 动作 |
+|------|------|
+| 主按钮**首点** | `sleep("defer-publish", 0)` —— **仅挂起**；`case 0` 内**没有**创建 deferred 的调用 |
+| 主按钮**再点** | 仅当 `_e` **已存在**时才 `_e.resolve()` |
+| **定时弹窗 onOk** | `sleep("defer-time-publish", 0)` ⇒ **`_e.resolve()`** |
+| 定时弹窗 onCancel | `_e.reject()` |
+
+**⇒ 头条图文的提交流程是「两段式」，且第二段的正常入口是【定时时间选择弹窗的确认】**：
+「预览并发布」首点只建立等待状态，需要**由定时弹窗的 onOk**（或一次已存在 deferred 的重复点击）
+来唤醒 `doPublish`。
+
+**⑤ 与实测现象的完全对应**
+| 实测现象 | 源码解释 |
+|---------|---------|
+| 点击后 `appReq=[]`（零请求） | 首点本就不提交，属**设计如此** |
+| 连点两次仍零请求 | 第二次点击时 `_e` 仍为空 ⇒ 又落入分支 B 再次挂起 |
+| 应用内探针报 `NO_DEFER` | 在**点击前**读取，彼时确实为空 —— 与机制自洽 |
+| 13 项外围排除全部失败 | 它们都在试图让"第一次点击生效"，而**首点设计上就不生效** |
+
+**⑥ 仍未确定的一环（诚实记录）**
+`_e` 究竟由谁**创建**（`ge[1]` 的调用点）尚未定位。候选：
+1. `fe.setGuided()`（首点第一步即调用，若"引导完成"才创建 deferred，则自动化页面可能停在**引导未完成态**）；
+2. 页面上的「头条创作助手 / 新手指引」组件；
+3. 定时弹窗的**打开动作**（若打开时即创建，则 onOk 的 `_e.resolve()` 才有对象可 resolve）。
+
+已尝试检索 `sleep` 的实现（跨全部 61 个 chunk，`found: []`）—— 该符号应在 vendor 或内联脚本中，
+且压缩后名称不可识别，故"由谁创建 `_e`"需改用运行时观测（如观察引导态、或走「定时发布」路径实测）。
+
+**⑦ 对产品与后续开发的建议**
+1. **不要**把头条当成"和抖音/快手一样的单击提交"来处理 —— 它的交互是两段式，RPA 需要**连击或走定时弹窗**；
+2. 若坚持走「预览并发布」入口，应在首点后**确认页面是否进入"等待确认"态**（而非盲目重试）；
+3. 若走**「定时发布 → 选时间 → 确认」**入口更稳（该路径的 onOk 才是官方唤醒点），
+   则需产品确认"以定时时间提交"是否可接受（例如设为 1 分钟后，效果近似立即发布）；
+4. 该改动属**流程补全**（新增交互步骤），不是 bug 修复，应单独立项并配 E2E 回归。
