@@ -13,6 +13,33 @@
 - `mp-worktree-health.test.ps1` 22/22（新增 6 例覆盖登记制的正反与 fail-closed 两侧）；实测登记本机 harness 工作区后真实门禁 rc=1 → rc=0。
 - 反证：case 5 删钩后未恢复会让后续用例全被钩子红灯污染——测试自身的这个坑已修（恢复钩子后再进入登记制用例）。
 
+# [未发布] feat(publish): 正文超平台上限自动裁剪 + 热门选题→改写→一键发布全链路打通（2026-10-01，publish-oneclick-autotruncate）
+
+### 现象
+「热门选题 → 创作文案 → 开始改写 → 去发布 → 直接发图文 → 一键发布」链路中，长文（改写产物 1210+ 字）点击
+「一键发布」后界面毫无反应（无跳转、无报错、无新任务），CDP E2E 连续多轮误判为"按钮失效 / 队列锁死"。
+
+### 根因（hook 副作用 + 抓瞬时 toast 定案）
+- 抖音 / 小红书 / 快手正文上限均为 1000 字（快手还把标题计入首行），而改写产物 1217–1238 字；
+- 提交前 validatePlatformContent 逐平台校验，任一超限即中断整个提交（electronAPI.publishBatch 从未被调用）；
+- 失败反馈仅一条几秒即逝的 toast，肉眼与截图都极易错过。
+
+### 修复
+- src/composables/usePublishFlow.js：正文超限时自动裁剪（原先只有百家号标题会截断），新增进度提示
+  「正文超出平台上限，已自动裁剪（{before} → {after} 字）」；
+- src/features/publish/publish-contract.js：新增 truncateContentForPlatform，同源复用
+  getPlatformContentLimit + isNoTitlePlatform；无标题平台（快手等 titleMax=0）扣除标题长度，
+  否则出现"裁到 1000 仍报 1021"的漂移（E2E 实测踩到）；
+- 裁剪后统一 recheck 兜底；新增 i18n contentAutoTruncated（zh/en 成对）；
+- 补 5 个单测：快手扣标题=980 / 抖音不扣=1000 / 未超限原样 / 大上限不裁 / emoji 按码点不切碎。
+
+### 同批打通（E2E 实证）
+- 热门选题页选择器与链路：.topic-check（列表项）/ select-all-label（全选）/ coral-check（结合爆款库）；
+- 「创作文案」→ #/rewrite?topic=… → 「开始改写」（约 20s 出正文）→ 「去发布」→ 「直接发图文」
+  → #/publish?draft=…（标题/正文自动填入）；
+- 真实发布成功：知乎 success + 快手 success（主进程队列历史实测）；
+- 记录两个 UI 陷阱：发布页 DIV.page-title 文本亦为「一键发布」（须用 button.ui-btn-primary 定位）；
+  应用自身 UI 为 Vue 3（React fiber 探针仅适用于头条等平台页）。
 # [未发布] fix(accounts): 失效账号点卡片打开平台页改走干净会话，修复公众号「二维码加载很久后失败」（2026-09-30，wechat-qr-stale-cookie）
 
 ### 现象
