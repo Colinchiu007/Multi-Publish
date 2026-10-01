@@ -9,6 +9,9 @@
  *   - 分类规则：语义能力 ≥3 平台 → common；=2 → semiCommon；=1 → unique（用户 2026-10-08 确认阈值）
  */
 import { describe, expect, it } from 'vitest'
+import fs from 'fs'
+import path from 'path'
+import yaml from 'js-yaml'
 import {
   PLATFORM_PUBLISH_META,
   getPlatformPublishMeta,
@@ -535,5 +538,27 @@ describe('publish-capabilities — P1-5 语义级可见性映射', () => {
     expect(validateRegistry()).toEqual([])
     // 该断言由 validateRegistry 的 semanticValues 校验实现；
     // 变异验证方式见 .quality-gates.md 本轮记录（把 youtube private 改成 'nope' 必红）
+  })
+})
+
+// 2026-10-01 复查补建：config/platforms.yaml 的 max_content 与注册表 contentMax 历史上存在
+// **6 处漂移**（zhihu/weibo/toutiao/bilibili/baijiahao/twitter），而前端校验消费的是**注册表**
+// 那份 ⇒ yaml 错值会表现为"某条链路静默失败"。本锁把两份真源钉在一起，任一方单改都变红。
+const YAML_PATH = path.resolve(__dirname, '../../../../config/platforms.yaml')
+const YAML_PLATFORMS = (yaml.load(fs.readFileSync(YAML_PATH, 'utf-8')) || {}).platforms || {}
+
+describe('publish-capabilities — platforms.yaml 与注册表 max_content 对齐锁', () => {
+  it('yaml 的平台段在注册表中都存在（无多余/拼错）', () => {
+    expect(Object.keys(YAML_PLATFORMS).filter((id) => !PLATFORM_PUBLISH_META[id])).toEqual([])
+  })
+
+  it.each(Object.keys(YAML_PLATFORMS))('%s 的 max_content 与注册表 contentMax 一致', (id) => {
+    expect(Number(YAML_PLATFORMS[id].max_content)).toBe(Number(PLATFORM_PUBLISH_META[id].limits.contentMax))
+  })
+
+  it('反证与防失明：平台段数下界 15，且 kuaishou 实测值固定 480', () => {
+    // 防"解析退化成空集合即假绿"
+    expect(Object.keys(YAML_PLATFORMS).length).toBeGreaterThanOrEqual(15)
+    expect(Number(YAML_PLATFORMS.kuaishou.max_content)).toBe(480)
   })
 })
