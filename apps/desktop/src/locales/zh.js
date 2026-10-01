@@ -1443,7 +1443,17 @@ export default {
       resultPartial: (ctx) => '发布完成：' + ctx.named('succeeded') + ' 个成功，' + ctx.named('failed') + ' 个失败',
     },
     // 批量发布通知（useBatchPublish 试点迁移，2026-08-30）
+    batchFieldSurface: {
+      sectionTitle: '扩展字段面',
+      coverHint: '每篇文章可单独设置封面；未设置的条目按平台默认处理',
+      diffHint: '只为本篇所选平台单独调整标题/正文与差异化字段，不影响其他文章',
+      noPlatformHint: '本篇尚未选择平台，差异化设置将在选择平台后可见',
+      coverUrlOnlyHint: '远程封面地址会随任务提交，但缩略图不预览远程图片；需要预览请改选本地封面',
+      coverUrlDroppedHint: '已选本地封面，按本地优先规则本次不会提交上面的远程封面地址',
+      clearCover: '清除封面',
+    },
     batchNotify: {
+      contentInvalid: (ctx) => '「' + ctx.named('title') + '」' + ctx.named('message'),
       retrySuccess: (ctx) => '已重新提交 ' + ctx.named('accepted') + ' 个失败任务',
       retryPartial: (ctx) => '已重新提交 ' + ctx.named('accepted') + ' 个任务，' + ctx.named('remaining') + ' 个任务仍失败',
       retryFailed: '失败任务重新提交失败',
@@ -1572,6 +1582,9 @@ export default {
     shareHint: '当前工作区尚未接入团队分享服务；账号数据仍按当前设备和登录身份隔离。',
     shareNotConnected: '未接入服务',
     createShareLink: '创建分享链接',
+    groupsSaveFailed: '分组改动未能保存，重启后会丢失',
+    groupsUnreadable: '暂时读不到分组记录（未登录或本地存储不可用），下方显示的是本次会话内的分组',
+    groupsMigrated: '已从本机旧记录恢复分组，并保存到本地存储',
     completeLoginSaving: '正在保存',
     completeLoginDone: '我已完成登录',
     close: '关闭',
