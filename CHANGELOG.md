@@ -1,3 +1,49 @@
+# [未发布] fix(打包门禁): app.asar 不再打进 467 个单元测试文件，并补门禁自证接线（2026-10-01，fix-asar-exclude-test-files）
+
+### 为什么现在才收
+`apps/desktop/package.json` 的 `build.files` 原来只有三条整目录通配（`dist` / `electron` / `node_modules`）加三条与本问题无关的排除，**没有任何测试文件排除**；而本仓约定单测与被测代码同目录（`{被测文件}.test.js`）。同一台机器、同一 `--config.electronDist` 两次打包实测对照：
+
+| | asar 条目 | `.test.*` 条目 | `electron/tests/` |
+| --- | --- | --- | --- |
+| 未加排除 | 15,214 | **467** | 51 |
+| 加排除后 | 14,743 | **0** | 0 |
+
+467 = `electron/` 418 + workspace 包 `@multi-publish/shared-utils` 21 + 第三方 23，另含 3 个 `.test.ts`（`container.test.ts` 实测进过产物）。代价不只是体积：测试里含内部接口形状、mock 的平台端点与错误码字符串，等于把内部契约地图随安装包发给用户侧。
+
+### 做法
+- 排除按**族**收齐 `!**/*.test.{js,mjs,cjs,ts,tsx}` 五条全域通配 + `!electron/tests/**` 一条目录排除——后者必要，因为 `story2video-real-ffmpeg.node-test.cjs` 不是 `.test.` 命名，扩展名通配抓不到它；该目录下唯一的非 `.test.` 命名文件就是它本身，且全仓无生产代码引用该目录。
+- `check-asar-test-files.js` 设两个**正交**维度，各自都看不见对方的失败：`--config` 静态守「声明还在」（CI 每跑必查、成本≈0），`--asar` 在打包步骤之后守「声明真生效」（electron-builder 对 `node_modules` 另走依赖遍历收集，写窄成只管 `electron/` 时静态检查看不出来，467 条里有 44 条来自 node_modules）。
+- 补 `checkWiring`：按**可执行正文**要求两个维度各自挂在会执行它的 workflow 里（注释里提一句不算接线）——此前把 `build.yml` 那一步删掉本地不会红，只是 CI 静默失去产物维度覆盖。其自身死角已写明：把 quality-gate 那两行一起删掉时它不会变红，靠 `check-unwired-tests.js` 棘轮兜。
+- `checkNamingCensus` 拿仓库真实文件分布反查白名单有没有漏族（含 977 的规模下界），防「想到哪几族锁哪几族」的白名单在新增第六族当天静默失效。
+- 不夹带 source map：同批实测产物内有 1,469 个 `.js.map`，量级更大但「生产包是否带 source map」是独立决策。
+
+### 验证
+夹具 **23 pass / 0 fail**（含「清单为空不可证明」「夹具必须真能判通过」「no-op 必须立刻变红」这类双向锁）；**11 条变异**逐个实跑各自点名（N3 判据少一族 ⇒ 4 红；N6/N7/N10 ⇒ 各 3 红；N8 摘接线 ⇒ `check-unwired-tests.js` rc=1 且点名本脚本），还原后 23/23 绿且文件字节一致。QM-1 真打包 `--asar` 维度 rc=0，产物 exe 以独立 `--user-data-dir` 启动存活 16s、**stderr 0 字节**、六项禁项各 0 次，运行时必需 8 项逐项确认仍在包内。
+
+### CI 才暴露的一条
+`build` 与 `electron-tests` 同时红在 Dependency check：depcheck 抓到新脚本 require 了未声明的 `@electron/asar`，而本地一整套门禁（eslint / max-lines / brand / unwired / docs-sync / debt）全都没跑 `check:deps`；且 depcheck 从 root 扫时不会扫 workspace 目录里那份早就在 require 同一个包的 `apps/desktop/check-asar.js`，所以同一既成事实只在落到 `.github/scripts/` 的新文件上才暴露。按清单里既有的 `electron`、`app-builder-bin` 同类口径并入 `--ignores`，不为一个 CI-only 脚本改动 lockfile；判据侧仍 fail-closed（取不到该包即拒绝判定为通过）。
+
+# [未发布] fix(登录分区): 回收每次新建、永不删除的 persist:auth-* 临时分区（2026-10-01，fix-auth-partition-reclaim）
+
+### 根因（不是「忘了删」，是「删不掉」的设计缺口）
+`openLogin` / `openSavedAccount` / `loginSilent` 每次调用都用 `Date.now()` 新建一个 **persist** 分区，而全仓没有任何删除逻辑（`auth-partition.js` 与 `auth-view-session.js` 上 `rmSync|rimraf|rm(` 命中 0）。本机 debug profile 实测 `session/Partitions` 下 `auth-auth-*` **21 个目录 / 436MB**，占整个 Partitions（476MB）的 **92%**，单个最大 93MB——开单时按「15 个回收 130MB」估的 ≈8.7MB/次 低估了一倍。残留的还是第三方登录会话半成品（Cookie / localStorage / IndexedDB）。
+
+### 唯一删除判据
+「每组只留字典序末位」。`findAuthPartitionDir` 对每组前缀 `sort()` 后**只取最后一个**，发布链两处读者（`rpa-view-manager` API 轨、`rpa-view-session` 的 RPA 轨）都经它定位 ⇒ 较旧的 auth 分区从来没有读者，删它们可证明为**读取中性**。新旧判定必须与定位端**同口径（字典序，不是 mtime）**，口径一漂移就会删掉兜底真正在读的那一份；这条由「回收前后 `findAuthPartitionDir` 返回同一分区名」的锁注入真实现来验，不靠注释。
+
+### 边界（三条不能做）
+- **成功取证的会话分区一律不清**：`kuaishou-w3-live-fix` 的根因就是部分平台登录态只落分区、未同步进凭证库。
+- 未取证的会话清空前**先探 Cookie**：页面里有该平台 Cookie 就不清——「取消视图」≠「没有可用登录态」，无条件清等于抹掉发布兜底唯一可读的那份；**探测失败同样不清**（不确定时保数据：残留下次可清，抹掉的凭证找不回来）。
+- 只碰 `auth-auth-*` / `silent-auth-*`；legacy 单前缀 `auth-<platform>-` 与 `auth-<真实 accountId>` 刻意排除（与在用账号分区同形，误删即抹凭证）。不删 `Partitions/` 父目录，删除前 `realpath` 确认目标就在该 root 下。
+
+### 两处外部评审与一处自审揪出的真漏洞
+- **C1（codex 评审）**：`qrcode-login.js` 也创建 `auth-auth-<平台>-<ts>-<seq>`，命中同一白名单却不登记存活 ⇒ 活跃扫码分区可被 unlink。
+- **进程内 liveness 登记表**：Electron 的 persist Session 在进程内不销毁（`webContents.close()` 也不销毁），未登记的目录被删等于对 Chromium 仍持有的存储做 unlink。四个开 Session 的入口全部登记，回收语义随之明确为**跨进程**（本轮新建的当场只清存储，目录留给下次）。
+- **分组粒度（由端到端夹具暴露）**：分组键原先只剥**最后一段**数字，而扫码名带 `-<seq>` ⇒ 每次扫码自成一组、同平台三个「最新」一个都删不掉；改为反复剥尾，粒度对齐定位端前缀。mock 版夹具里这条完全不可表示。
+
+### 验证
+两个新测试文件 **37 例**（含真目录端到端）+ 消费面共 **146 passed / 0 failed**；**17 条变异**逐个实跑各自点名（M3 保留规则反向 ⇒ 11 红；M6 不再吞异常 ⇒ 全红；M9–M12 专测四处 liveness 登记），还原后字节一致。QM-1 离线打包 rc=0，新模块入包、`asar extract` 后在解包产物上 require 并跑判据，产物 exe 独立 profile 启动 14s、stderr 0 字节。`pnpm exec eslint electron/ src/ --quiet` 修掉 Gate 11 抓到的一处 `no-useless-assignment`。
+
 # [未发布] feat(publish): P2-7 批量模式字段面——UI/payload/主进程三层同时收口（2026-10-09，batch-mode-field-surface）
 
 ### 新功能

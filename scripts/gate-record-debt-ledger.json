@@ -1,10 +1,4 @@
 {
-  "本次执行记录：app.asar 剔除单元测试文件 + 门禁自证接线（fix-asar-exclude-test-files，2026-10-01）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin fix-asar-exclude-test-files 返回 0 行证远端分支已删。注意：本条与 #2701（fix-auth-partition-reclaim）那条同批置顶文档，两次合并都要走参照解逐键核对。"
-  },
-  "本次执行记录：回收永不删除的登录临时分区 persist:auth-*（fix-auth-partition-reclaim，2026-09-30）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin fix-auth-partition-reclaim 返回 0 行证远端分支已删。"
-  },
   "本次执行记录：回填 #2626 / #2656 / #2687 三条执行记录（gate-records-backfill，2026-09-30）【docs-only】": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填后必须删除本条，否则报陈旧登记。取证口径沿用同批：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin gate-records-backfill 返回 0 行证远端分支已删。"
   },
