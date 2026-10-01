@@ -285,6 +285,33 @@ export function truncateContentForPlatform (platform, content, title) {
 }
 
 /**
+ * 计算一组平台下正文可用的**最小**预算（2026-10-01 新增）。
+ *
+ * 为什么需要它：若按"首个超限平台"逐一裁剪，会出现**多轮反复**——
+ * 实测：首发超限平台是小红书（有标题，裁到 1000），重校验后轮到**快手**（无标题，
+ * 标题计入首行）仍报 1021 > 1000。故一次性按**所有选中平台的最小预算**裁剪，
+ * 保证裁剪后一次通过全部平台校验（上限为 0 = 不校验的平台忽略；全为 0 时返回 null）。
+ *
+ * @param {unknown} platforms 选中平台列表
+ * @param {unknown} title 标题（无标题平台需从预算中扣除其长度）
+ * @returns {number|null} 最小预算（字符数）；无任何受限平台时返回 null
+ */
+export function minContentBudget (platforms, title) {
+  const list = [...new Set(Array.isArray(platforms) ? platforms : [])]
+  const titleLen = Array.from(String(title ?? '')).length
+  let min = Infinity
+  for (const platform of list) {
+    if (typeof platform !== 'string' || !platform.trim()) continue
+    const limit = getPlatformContentLimit(platform)
+    const max = Number(limit && limit.contentMax)
+    if (!(max > 0)) continue
+    const budget = isNoTitlePlatform(platform) ? Math.max(0, max - titleLen) : max
+    if (budget < min) min = budget
+  }
+  return min === Infinity ? null : min
+}
+
+/**
  * 计算字符串的 UTF-8 字节长度（前端无 Node Buffer，用 TextEncoder）。
  * 百家号标题上限按 UTF-8 字节数校验，中文每字 3 字节、英文/数字 1 字节。
  * @param {unknown} value

@@ -38,8 +38,8 @@ import {
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  minContentBudget,
   truncateByChars,
-  truncateContentForPlatform,
   truncateByUtf8Bytes,
   validatePlatformContent,
   validatePublishMetadata,
@@ -409,9 +409,12 @@ export function usePublishFlow(options) {
           // 无标题平台的正文由 composeNoTitleDescription 合并标题首行，故对 article.content
           // 裁剪后需重新校验（合并后的长度仍可能略超，故下方统一 recheck 兜底）。
           const before = Array.from(String(article.content || '')).length
-          // 复用 publish-contract 的同源裁剪：无标题平台（快手等）会扣除"标题计入首行"的长度，
-          // 否则会出现"裁到 limit 后仍超限"的漂移（E2E 实测：997 + 标题 24 = 1021 > 1000）。
-          article.content = truncateContentForPlatform(contentCheck.platform, article.content, article.title)
+          // 按**所有选中平台的最小预算**一次性裁剪：若只按"首个超限平台"裁，重校验后可能轮到
+          // 更严格的平台（实测：小红书裁到 1000 后，快手因"标题计入首行"仍报 1021）。
+          const budget = minContentBudget(selectedPlatforms.value, article.title)
+          article.content = budget === null
+            ? article.content
+            : truncateByChars(article.content, budget)
           addProgress(progressText('publishPage.publishFlow.contentAutoTruncated', {
             platform: contentCheck.platform,
             limit: contentCheck.limit,

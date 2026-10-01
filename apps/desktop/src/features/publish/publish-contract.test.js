@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildPublishTargets,
   getPlatformContentLimit,
+  minContentBudget,
   normalizeAccountIds,
   normalizePublishFiles,
   normalizePublishMentions,
@@ -318,5 +319,30 @@ describe('truncateContentForPlatform（正文超平台上限时自动裁剪，20
     const out = truncateContentForPlatform('douyin', content, '')
     expect(Array.from(out).length).toBe(1000)
     expect(out.endsWith('\uD83D\uDE00')).toBe(true)
+  })
+})
+
+describe('minContentBudget（按所有选中平台取最小正文预算，2026-10-01）', () => {
+  it('含无标题平台时扣除标题长度（快手的标题计入描述首行）', () => {
+    // kuaishou: titleMax=0, contentMax=1000 → 预算 1000-20=980
+    // douyin:    titleMax=55, contentMax=1000 → 预算 1000
+    // 取最小 ⇒ 980（否则会出现"裁到 1000 后快手仍报 1021"的多轮反复）
+    expect(minContentBudget(['kuaishou', 'douyin'], '标'.repeat(20))).toBe(980)
+  })
+
+  it('全为有标题平台时取最小 contentMax（不扣标题）', () => {
+    const withTitle = minContentBudget(['douyin'], '标'.repeat(30))
+    expect(withTitle).toBe(1000)
+  })
+
+  it('无受限平台（空列表 / 上限为 0）返回 null', () => {
+    expect(minContentBudget([], '标题')).toBe(null)
+    expect(minContentBudget(null, '标题')).toBe(null)
+    expect(minContentBudget(['douyin', 'douyin'], '')).toBe(1000)
+  })
+
+  it('重复平台去重后不影响结果', () => {
+    expect(minContentBudget(['kuaishou', 'kuaishou'], '标'.repeat(20)))
+      .toBe(minContentBudget(['kuaishou'], '标'.repeat(20)))
   })
 })
