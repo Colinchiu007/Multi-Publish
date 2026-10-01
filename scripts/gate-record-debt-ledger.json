@@ -1,61 +1,19 @@
 {
+  "本次执行记录：批量回填 13 条 2026-08 已合并记录的远程同步行并销账（backfill-gate-rows-13，2026-10-01）【docs-only】": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin backfill-gate-rows-13 返回 0 行证远端分支已删。"
+  },
   "本次执行记录：批量回填 7 条已合并记录的远程同步行并销账（backfill-gate-rows-7，2026-10-01）【docs-only】": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间，git ls-remote --heads origin backfill-gate-rows-7 返回 0 行证远端分支已删。"
-  },
-  "本次执行记录：场景上下文现代信号中和（fix-s2v-context-modern-signal，2026-08-30）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN（待提交推送）",
-    "line": 1789
-  },
-  "本次执行记录：场景上下文朝代成语误判修复（fix-s2v-context-idiom-guard，2026-08-30）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN（待提交推送）",
-    "line": 1822
-  },
-  "本次执行记录：桌面端用户默认模型 ID 下拉选择 + 运营中心模型种子自动填充（model-user-default-selector，2026-08-27）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN",
-    "line": 1868
-  },
-  "本次执行记录：获取模型ID URL 误判私网拒绝（fix-model-fetch-ssrf-19818，2026-08-27）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN",
-    "line": 1880
-  },
-  "本次执行记录：多标签标题状态隔离（fix-multitab-title-isolation，2026-08-24）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN",
-    "line": 1912
-  },
-  "本次执行记录：统一进度弹窗范围边界文档收口（s2v-progress-unify-scope-doc，2026-08-24）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN（检查待启动）",
-    "line": 1942
   },
   "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "OPEN（已记录）",
     "line": 1958
   },
-  "本次执行记录：task-051 快手扫码虚拟标签与发布证据收口（2026-08-24）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "进行中",
-    "line": 2014
-  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 2118
-  },
-  "本次执行记录：提示词评测「生成图片并评估」404 修复（fix-ops-center-image-gen-minimax，2026-08-15）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "（待填）",
-    "line": 2422
-  },
-  "本次执行记录：故事讲述水印「移动」漂移速度 1/10（watermark-slow-drift，2026-08-14）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待 PR 合并后回填",
-    "line": 2550
   },
   "本次执行记录：提示词引擎共享内核重构 + Higgsfield 导演工作流机制落地（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics）（2026-08-14）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
@@ -97,11 +55,6 @@
     "status": "待 PR 合并后核验",
     "line": 4489
   },
-  "本次执行记录：pre-commit 分支守卫（2026-08-13）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待 PR",
-    "line": 4501
-  },
   "本次执行记录：分支守卫自动化（隔离 worktree 自动声明，2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "待 PR",
@@ -117,25 +70,10 @@
     "status": "待 PR",
     "line": 4544
   },
-  "本次执行记录：平台账号登录全屏标签化（对标参考产品，account-login-fullscreen-tab）（2026-08-14）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待合并",
-    "line": 4623
-  },
   "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "PENDING",
     "line": 4654
-  },
-  "本次执行记录：prompt-engine BYOK llm 对象 + caller + 移除服务端兜底（prompt-engine-byok-llm，2026-08-16）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "执行中",
-    "line": 4895
-  },
-  "本次执行记录：手动选材模式提示词翻译与视频合成并行（story2video-translate-manual-compose，2026-08-17）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "执行中",
-    "line": 4909
   },
   "本次执行记录：批量条目封面「重选即替换」+ 本地优先丢弃提示（batch-cover-reselect，2026-10-01）": {
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin batch-cover-reselect 返回 0 行证远端分支已删。注意：本条与「P2-7 批量模式字段面」（batch-mode-field-surface）同置顶文档，后续 re-sync 须走参照解逐键核对。",
