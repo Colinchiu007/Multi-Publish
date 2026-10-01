@@ -80,7 +80,10 @@ describe('publish-capabilities — 内容限制对齐表（design §5）', () =>
   it.each([
     ['wechat_mp', { titleMax: 64, contentMax: 20000 }],
     ['zhihu', { titleMax: 50, contentMax: 100000 }],
-    ['weibo', { titleMax: 0, contentMax: 2000 }],
+    // 2026-10-02 修正：微博客服中心官方 FAQ（kefu.weibo.com/faqdetail?id=21510，
+    // 2024-09-04 更新）原文「最多可以发布5000汉字」——注册表旧值 2000 与
+    // platforms.yaml(5000)/引擎表 均不一致，属三源漂移中本表落后，与官方口径对齐。
+    ['weibo', { titleMax: 0, contentMax: 5000 }],
     // 修复项：渲染层旧值 contentMax=0（不校验）→ 1000（platforms.yaml + 引擎一致）
     // 2026-10-01 修正：这三项原为 1000（无平台依据），平台真实上限更高
     // （抖音长图文实测可 8000 字），故放宽到 5000。

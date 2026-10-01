@@ -30,10 +30,13 @@ import {
   offlineAddToCache,
 } from '@/api/publisher'
 import {
+  applyPlatformContentConversion,
+  APP_ARTICLE_CONTENT_MAX,
   buildPublishTargets,
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  truncateByChars,
   validatePlatformContent,
   validatePublishMetadata,
   validatePublishTargets,
@@ -430,6 +433,8 @@ export function useBatchPublish(options) {
 
     let keepPublishingLock = false
     try {
+      // 平台字数限制体系：逐条目收集截断记录（PRD §F3），确认弹窗汇总提示
+      const conversionSummaries = []
       // 验证每篇文章
       for (const a of articles.value) {
         if (!a.title.trim()) {
@@ -463,10 +468,37 @@ export function useBatchPublish(options) {
           notifyWarning('publishPage.batchNotify.metadataInvalid', { params: { title: a.title.slice(0, 20), message: metadataCheck.message } })
           return
         }
-        // P2-7：注册表内容限制校验（批量此前完全不调，超长内容直接进队列、由平台侧报错，
-        // 用户在进度流里只看到一条模糊失败）。口径与单篇同一实现，含无标题平台
-        // 「标题计入正文首行」的合并长度判定。失败语义是**整批中止**，与批量既有
-        // 各道校验一致——一次批量提交是一个用户动作，部分提交会让计数与预期不符。
+        // 平台字数限制体系（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F3/§F4）：
+        // ① 应用级 10000 字截断（写回条目，用户可见）；
+        // ② 按平台生成差异化覆盖截断（取代「超限整批中止」——转换后仍超限才中止）。
+        // 逐条目收集截断记录，确认弹窗汇总提示。
+        const appBefore = Array.from(String(a.content || '')).length
+        if (appBefore > APP_ARTICLE_CONTENT_MAX) {
+          a.content = truncateByChars(a.content, APP_ARTICLE_CONTENT_MAX)
+          conversionSummaries.push({
+            title: a.title.slice(0, 20),
+            detail: progressText('publishPage.publishFlow.articleContentTruncated', {
+              before: appBefore,
+              after: APP_ARTICLE_CONTENT_MAX,
+            }),
+          })
+        }
+        const conversion = applyPlatformContentConversion({
+          platforms: a.platforms,
+          article: { title: a.title, content: a.content },
+          platformOverrides: a.platformOverrides,
+        })
+        for (const truncation of conversion.truncations) {
+          conversionSummaries.push({
+            title: a.title.slice(0, 20),
+            detail: progressText('publishPage.publishFlow.platformContentTruncated', {
+              platform: truncation.label,
+              limit: truncation.limit,
+              before: truncation.before,
+              after: truncation.after,
+            }),
+          })
+        }
         const contentCheck = validatePlatformContent({
           platforms: a.platforms,
           article: { title: a.title, content: a.content },
@@ -504,7 +536,16 @@ export function useBatchPublish(options) {
       }
 
       const confirmed = await notifyConfirm('publishPage.batchNotify.confirmMessage', {
-        params: { count: articles.value.length, tasks: totalPlatformTasks.value },
+        params: {
+          count: articles.value.length,
+          tasks: totalPlatformTasks.value,
+          ...(conversionSummaries.length > 0
+            ? { converted: progressText('publishPage.batchNotify.contentConverted', {
+                count: conversionSummaries.length,
+                details: conversionSummaries.map(item => `「${item.title}」${item.detail}`).join('；'),
+              }) }
+            : {}),
+        },
         title: progressText('publishPage.batchNotify.confirmTitle'),
         confirmButtonText: progressText('publishPage.batchNotify.confirmButton'),
         cancelButtonText: progressText('publishPage.batchNotify.cancelButton'),
