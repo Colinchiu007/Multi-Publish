@@ -205,27 +205,16 @@ const navigationHelpers = {
     }
   },
 
-  // ========== 视频上传完成强判定 ==========
-  // 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
+  // ========== 视频上传完成强判定（v1~v3 历史沿革，实现已下沉 upload-waiter.js）==========
+  // v1 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
   // 导致还在上传落地页就继续填字段/点发布，全部失败（2026-09 smoke4 实锤）。
   // v2 收紧：blob 本地预览注入瞬间就存在，不能算完成（smoke5 实锤）。
-  // v3（2026-09 smoke6 实锤）：快手 25s 即误判完成，因为页内存在 https 广告 video。
-  // 因此加入平台通用的“正在上传”负向信号：上传中…/剩余时间：/转码中/可见进度条
-  // 任一命中就继续等；预算也拉到 15 分钟（实测 B站 96MB 上传超 10 分钟）。
-  async _waitForVideoUploadComplete(win, platform, timeoutMs) {
-    await this._sleep(25000) // 最低稳定期：80MB 视频不可能 25s 内传完，防 blob 预览/首拍误判
-    const cond = 'function(){var t=(document.body&&document.body.innerText)||"";'
-      + 'var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading],[class*=percent],[class*=Percent]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;'
-      + 'var m=t.match(/(\\d{1,3})\\s*%/);var pct=m?Number(m[1]):-1;'
-      + 'var uploading=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t)||pv>0||(pct>=0&&pct<100);'
-      + 'if(uploading)return false;'
-      + 'var vv=[...document.querySelectorAll("video")].some(function(v){var s=v.currentSrc||v.src||"";return s.indexOf("https:")===0&&v.getClientRects().length>0});'
-      + 'var ed=!!document.querySelector(\'input[placeholder*="标题"],textarea[placeholder],[contenteditable="true"]\');'
-      + 'return vv||ed||location.href.indexOf("post/video")!==-1}'
-    const ok = await this._waitForCondition(win, cond, timeoutMs || 900000, 3000)
-    if (!ok) log.warn('RpaView', '[' + platform + '] video upload-complete signal not detected (preview/url), continuing best-effort')
-    return ok
-  },
+  // v3（2026-09 smoke6 实锤）：快手 25s 即误判完成，因为页内存在 https 广告 video，
+  // 故加入平台通用的“正在上传”负向信号（上传中…/剩余时间：/转码中/可见进度条），
+  // 预算拉到 15 分钟（B站 96MB 实测超 10 分钟）。
+  // v4（2026-10 抖音 909KB 卡 30% 达 15 分 25 秒实锤）：v3 的合取判定会被残留
+  // progress 元素锁死，故改为自适应轮询并下沉到 upload-waiter.js（本文件超行数门禁，
+  // 且 v4 需新增探针串 + 轮询循环）。此处只留历史沿革，不再保留实现。
 
   // ========== 发布产物（artifact）查询：把「发布是否真的落地」从响应信号升级为作品列表核对 ==========
   // 拆分自 rpa-view-platforms.js（2026-09-30，行数门禁）：这些方法只依赖 this._sleep /

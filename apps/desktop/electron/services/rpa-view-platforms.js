@@ -40,6 +40,8 @@ const {
 } = require('./rpa-publish-id-extract')
 // 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
 const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
+// 2026-10 三次拆分：视频上传等待循环（v4 自适应轮询，publish-progress-dup-upload）
+const { uploadWaiterMixin, readVideoFileBytes } = require('./upload-waiter')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
@@ -257,7 +259,7 @@ const platformsMixin = {
               uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
               if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
             } else {
-              await this._waitForVideoUploadComplete(win, platform)
+              await this._waitForVideoUploadComplete(win, platform, 900000, { fileBytes: readVideoFileBytes(article.video_path) })
             }
             // 编辑器表单就绪等待：上传完成后平台 SPA 渲染标题/简介字段有延迟，
             // 不等直接填会全部 timeout（B站/快手上传完成后才切到编辑表单）
@@ -893,7 +895,9 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       if (!(await this._waitForElement(win,'input[type="file"]',15000))) { log.warn('RpaView', '[douyin] no file input url=' + win.webContents.getURL()); return {success:false,error:'no file input',platform:'douyin'} }
       await this._setFileInput(win,article.video_path)
       this._emitProgress('douyin','waiting upload...',30)
-      await this._waitForVideoUploadComplete(win,'douyin')
+      // 909KB 小视频曾停在 30% 白等满 15 分钟（残留 progress 元素让负向信号恒真）：
+      // 传 fileBytes 走自适应预算（小文件 90s）+ 页面百分比真实进度上报（v4 策略）。
+      await this._waitForVideoUploadComplete(win,'douyin',900000,{ fileBytes: readVideoFileBytes(article.video_path) })
       this._emitProgress('douyin','video uploaded',50)
     } else if (isImageMode && Array.isArray(article.images) && article.images.length > 0) {
       // 2026-09-29 图文模式：上传首图（渲染层自动生成封面兜底传入 article.images）
@@ -1407,4 +1411,4 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 }
 
 // 合并抽出的导航/等待 helper（Object.assign 保序：本文件同名方法优先）
-module.exports = Object.assign(platformsMixin, navigationHelpers)
+module.exports = Object.assign(platformsMixin, navigationHelpers, uploadWaiterMixin)
