@@ -38,6 +38,7 @@ import {
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  truncateByChars,
   truncateByUtf8Bytes,
   validatePlatformContent,
   validatePublishMetadata,
@@ -394,8 +395,27 @@ export function usePublishFlow(options) {
       // 一键发布/历史视频预填场景：百家号标题按 UTF-8 字节数校验（上限 149 字节），
       // 预填文案可能超长。若仅因百家号标题超长失败，自动按字节截断标题后继续，
       // 避免阻断自动一站式流程；其他平台/字段超长仍提示并阻断，让用户手动调整。
-      const autoTruncatable = contentCheck.platform === 'baijiahao' && contentCheck.field === 'title'
+      // 2026-10-01 追加：**正文超长同样自动裁剪**。改写引擎产物常达 1200+ 字，
+      // 而抖音/小红书/快手正文上限均为 1000 字（快手还含标题首行），若一律阻断，
+      // 「热门选题 → 改写 → 一键发布」在长文场景下**必然失败且只弹一条几秒即逝的 toast**，
+      // 用户会误以为按钮无反应（E2E 实测踩坑：连续 3 轮误判）。故与百家号标题同策略：
+      // 按该平台上限裁剪正文后重新校验，并给出显式进度提示说明已裁剪。
+      const bodyTruncatable = contentCheck.field === 'content' &&
+        Number.isFinite(contentCheck.limit) && contentCheck.limit > 0
+      const autoTruncatable = (contentCheck.platform === 'baijiahao' && contentCheck.field === 'title') || bodyTruncatable
       if (autoTruncatable && Number.isFinite(contentCheck.limit) && contentCheck.limit > 0) {
+        if (bodyTruncatable) {
+          // 无标题平台的正文由 composeNoTitleDescription 合并标题首行，故对 article.content
+          // 裁剪后需重新校验（合并后的长度仍可能略超，故下方统一 recheck 兜底）。
+          const before = Array.from(String(article.content || '')).length
+          article.content = truncateByChars(article.content, contentCheck.limit)
+          addProgress(progressText('publishPage.publishFlow.contentAutoTruncated', {
+            platform: contentCheck.platform,
+            limit: contentCheck.limit,
+            before,
+            after: Array.from(String(article.content || '')).length,
+          }), 'warning')
+        } else {
         // 截断来源：若差异化面板为 baijiahao 单独设置了覆盖标题，则截断覆盖标题；
         // 否则截断全局标题。校验用 override.title || article.title，若只改 article.title
         // 则 override 路径截断失效，buildArticleData 仍会发送超长覆盖标题。
@@ -408,7 +428,8 @@ export function usePublishFlow(options) {
           article.title = truncateByUtf8Bytes(article.title, contentCheck.limit)
         }
         addProgress(progressText('publishPage.publishFlow.baijiahaoTitleTruncated'), 'warning')
-        // 截断到 149 字节（约 49 中文字符）后重新校验剩余平台：可能仍超过
+        }
+        // 截断（标题或正文）后重新校验剩余平台：可能仍超过
         // xiaohongshu(20字)/toutiao(30字) 等更严格平台的上限，需重新校验并阻断。
         const recheck = validatePlatformContent({
           platforms: selectedPlatforms.value,

@@ -1436,6 +1436,7 @@ export default {
       scheduleRollbackFailed: (ctx) => ctx.named('count') + ' 个定时任务回滚失败，请点击取消重试',
       offlineCacheFailed: '离线任务缓存失败',
       baijiahaoTitleTruncated: '百家号标题已按 149 字节上限自动截断',
+      contentAutoTruncated: (ctx) => '正文超出平台上限，已自动裁剪（' + ctx.named('before') + ' → ' + ctx.named('after') + ' 字）',
       publishSuccessMessage: (ctx) => ctx.named('platform') + ' 发布成功',
       // publish-progress-ux：会话终态驱动的页面结果卡汇总（PRD §8.4）
       resultAllSuccess: (ctx) => '发布完成：' + ctx.named('count') + ' 个平台全部成功',
