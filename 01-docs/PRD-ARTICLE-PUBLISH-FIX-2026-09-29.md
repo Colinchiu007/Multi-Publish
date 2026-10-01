@@ -598,3 +598,105 @@ createElement(ra.l, { time, serverTime, visible, okText,
 **⚠️ 本条本身是方法论教训**：§16.8.6 的建议是**读源码得出的推论**而非实测结论，
 本次补测即用实测推翻了它。**读源码能定案机制，但不能替代实测** —— 源码告诉你
 "`onOk` 里有 `_e.resolve()`"，却没告诉你"那个弹窗根本打不开"。
+
+### §16.10 「一键发布图文」完整规格（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字）
+
+> 本节把 §16.1–§16.9 分散的实现事实**汇总为一份可交付给开发与测试的规格**。所有文案均取自
+> `apps/desktop/src/locales/zh.js` 与 `en.js`（**真实取值，非拟稿**），并以 `locale` 的 key 标注。
+
+#### 16.10.1 数据校验（提交前 5 道，按执行顺序）
+
+| 序 | 校验项 | 触发条件 | 失败表现 | locale key | zh 文案 |
+|----|-------|---------|---------|-----------|---------|
+| 1 | 视频文件（视频模式） | 视频模式且未选文件 | 阻断，提示 | `publishFlow.videoFileRequired` | 请选择视频文件 |
+| 2 | 正文非空 | 图文模式且正文为空 | 阻断，提示 | `publishFlow.contentRequired` | 请输入正文内容 |
+| 3 | 发布平台 | 未选任何平台 | 阻断，提示 | `publishFlow.platformRequired` | 请选择至少一个发布平台 |
+| 4 | 账号有效性 | 所选账号已失效 | 阻断，提示 | `publishFlow.accountInvalid` | 所选账号已失效，请重新选择发布账号 |
+| 5 | **平台内容长度** | 内容超该平台 `contentMax` | **自动裁剪**（见 16.10.3）→ 仍超则阻断 | `publishFlow.contentInvalid` / `publishFlow.contentAutoTruncated` | 见 16.10.3 |
+
+> 说明：校验 1/2/3/4 的提示为**瞬时 toast**；已知 UX 缺陷见 §16.5。
+
+#### 16.10.2 敏感词校验（第 6 道，需用户决策）
+
+| 项 | 内容 |
+|----|------|
+| 触发 | 内容命中敏感词 |
+| 弹窗标题 | `publishFlow.sensitiveTitle` → **敏感词提示** |
+| 弹窗正文 | `publishFlow.sensitiveMessage` → **发布内容包含敏感词：{words}，是否仍然发布？** |
+| 左按钮（取消） | `publishFlow.sensitiveModify` → **修改** |
+| 右按钮（继续） | `publishFlow.sensitiveForcePublish` → **强制发布** |
+
+**实测**：敏感词弹窗**并非总是出现**（5 条选题中 1 条未出现、4 条出现）⇒ 自动化必须两条路径都处理。
+
+#### 16.10.3 功能逻辑：正文超限自动裁剪（核心）
+
+**规则**：
+1. 校验 5 失败且 `field === "content"` 且 `limit > 0` ⇒ **自动裁剪**而非阻断；
+2. 裁剪入口 `truncateContentForPlatform(platform, content, title)`，
+3. 多平台时按 `minContentBudget(platforms, title)` 取**所有选中平台的最小预算**（一次到位，避免多轮反复）；
+4. **无标题平台**（`titleMode=caption`，如快手）预算 = `contentMax − (标题长度 + 1 个换行)`，
+   其中换行开销由 `noTitleOverhead()` **同源调用** `composeNoTitleDescription` 算出（不手写 `+1`）；
+5. 按 **Unicode 码点**裁剪（不切碎 emoji 代理对）；
+6. 裁剪后**统一 `recheck`**，仍不通过才照旧提示并阻断。
+
+**提示文字**（新增 i18n，zh/en 成对）：
+| key | zh | en |
+|-----|----|----|
+| `publishFlow.contentAutoTruncated` | 正文超出平台上限，已自动裁剪（{before} → {after} 字） | Content exceeded the platform limit and was auto-truncated ({before} → {after} chars) |
+
+**实测读数（合并后回归）**：
+```
+正文 1210 字 → 自动裁剪 → bodyLenAfter = 456
+456 + 标题(≈23) + 换行(1) ≈ 480 = 快手 contentMax   ✅ 精确吻合
+字数校验【通过】→ 推进到敏感词环节
+```
+
+#### 16.10.4 完整流程（时序）
+
+```
+用户点「🚀 一键发布」(button.ui-btn-primary)
+  ↓
+[1] 视频文件 → [2] 正文非空 → [3] 平台 → [4] 账号 → [5] 内容长度（超限则自动裁剪）
+  ↓
+[6] 敏感词 ──命中─→ 弹窗「修改 / 强制发布」──选强制──┐
+        └─未命中────────────────────────────────┤
+                                                ↓
+      逐平台 taskQueue.add()（maxConcurrent=1，发布间隔 5 分钟）
+                                                ↓
+  主进程执行 → publish:progress（start/done 双边界；phase/stageKey/percent/batchId）
+                                                ↓
+  终态：task:success ｜ task:failed ｜ task:cancelled（phase4-events 单一来源）
+```
+
+#### 16.10.5 交互逻辑与显示项
+
+| 显示项 | 内容 | locale key / 文案 |
+|-------|------|------------------|
+| 封面生成中 | 🖼️ 图文平台需要图片，正在自动生成封面... | `publishFlow.generatingCover` |
+| 封面完成 | ✓ 封面已生成并附加到内容 | `publishFlow.coverGenerated` |
+| 发布目标 | 发布到 {count} 个目标（含多账号）... | `publishFlow.publishTargets` |
+| 任务入队 | ✓ 已添加 {count} 个任务 / 任务已加入队列 | `publishFlow.taskAdded` / `taskQueued` |
+| 定时任务 | ⏰ 已创建 {count} 个定时任务 | `publishFlow.scheduleCreated` |
+| 进度面板 | 发布进度 · 进行中 / 成功 x/y · z 个失败 · 重试失败项(n) · 取消全部任务 | — |
+| 失败进度 | ✗ 发布失败: {message} | `publishFlow.publishFailedProgress` |
+| 异常进度 | ✗ 错误: {message} | `publishFlow.publishErrorProgress` |
+| 离线缓存 | 📡 网络已断开，发布任务已缓存，网络恢复后自动重试 | `publishFlow.offlineProgress` |
+
+**⚠️ 已知 UI 陷阱（E2E 必读）**：
+- 发布页 `DIV.page-title` 的**标题文本也是「一键发布」**；按文本模糊匹配会点到标题（无反应）。
+  正确选择器：**`button.ui-btn-primary` 且文本含「一键发布」**。
+- 应用自身 UI 为 **Vue 3**（发布页 button 无 React 属性）⇒ React fiber 探针**不适用**于应用 UI；
+  仅**平台页**（如头条，React）可用 fiber 探针。
+
+#### 16.10.6 自动化资产（E2E 脚本）
+
+| 脚本 | 用途 | 关键环境变量 |
+|------|------|------------|
+| `e2e-batch-full.js` | 单条全链路（选题→改写→发布→强制） | `MP_PLATFORMS`、`MP_BATCH_COUNT` |
+| `e2e-batch-5-topics.js` | 仅产出文章（到发布页为止） | `MP_BATCH_COUNT`、`MP_BATCH_FROM` |
+| `e2e-regress-autotruncate.js` | 自动裁剪回归（**轮询等编辑器就绪**） | — |
+| `reconcile-three-sources.js` | 三处真源逐平台对账 | — |
+| `diag-toutiao-*.js` | 头条链路读源码/网络/弹窗取证 | — |
+
+> **工程要点**：E2E 的等待条件必须是**状态就绪**（轮询编辑器 `#contenteditable` 长度 >100），
+> 而非固定 `sleep` —— 改为轮询后，单轮验证窗口从"经常跑不完"变为"稳定跑完"。
