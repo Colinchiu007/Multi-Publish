@@ -8,10 +8,11 @@ const platformsMixin = require('./rpa-view-platforms')
 // 2026-09-29：rpa-view-platforms.js 两次拆分（rpa-publish-id-extract.js / rpa-view-navigation-helpers.js），
 // 2026-10 三次拆分（upload-waiter.js：视频上传等待循环 v4）——
 // 结构锁需读「主文件 + 拆分文件」的合并文本，否则被拆走的方法会断锁。
+// 2026-10-01：artifact 族再拆出 rpa-view-artifacts.js，同样并入。
 function readPlatformsSource () {
   const main = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
   const parts = [main]
-  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers', './upload-waiter']) {
+  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers', './upload-waiter', './rpa-view-artifacts']) {
     try { parts.push(fs.readFileSync(require.resolve(rel), 'utf-8')) } catch (_) { /* 拆分文件可缺省 */ }
   }
   return parts.join('\n')

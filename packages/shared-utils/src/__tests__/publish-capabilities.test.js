@@ -82,11 +82,16 @@ describe('publish-capabilities — 内容限制对齐表（design §5）', () =>
     ['zhihu', { titleMax: 50, contentMax: 100000 }],
     ['weibo', { titleMax: 0, contentMax: 2000 }],
     // 修复项：渲染层旧值 contentMax=0（不校验）→ 1000（platforms.yaml + 引擎一致）
-    ['douyin', { titleMax: 55, contentMax: 1000 }],
-    ['xiaohongshu', { titleMax: 20, contentMax: 1000 }],
+    // 2026-10-01 修正：这三项原为 1000（无平台依据），平台真实上限更高
+    // （抖音长图文实测可 8000 字），故放宽到 5000。
+    ['douyin', { titleMax: 55, contentMax: 5000 }],
+    ['xiaohongshu', { titleMax: 20, contentMax: 5000 }],
     // 补齐项：渲染层旧表缺条目回落默认 5000 → 1000（platforms.yaml）
-    ['tencent_video', { titleMax: 0, contentMax: 1000 }],
-    ['kuaishou', { titleMax: 0, contentMax: 1000 }],
+    ['tencent_video', { titleMax: 0, contentMax: 5000 }],
+    // 2026-10-01 修正：与 platforms.yaml 的实测值对齐（快手发布页计数器 x/500，
+    // 921 字即被平台红字阻断；取 480 留 20 字边距）。此前 json 写 1000 属两源漂移，
+    // 导致按其裁剪后仍超平台上限而被静默拒绝。
+    ['kuaishou', { titleMax: 0, contentMax: 480 }],
     ['toutiao', { titleMax: 30, contentMax: 100000 }],
     ['bilibili', { titleMax: 80, contentMax: 2000 }],
     ['youtube', { titleMax: 100, contentMax: 5000 }],

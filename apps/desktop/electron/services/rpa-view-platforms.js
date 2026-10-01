@@ -42,6 +42,7 @@ const {
 const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
 // 2026-10 三次拆分：视频上传等待循环（v4 自适应轮询，publish-progress-dup-upload）
 const { uploadWaiterMixin, readVideoFileBytes } = require('./upload-waiter')
+const { artifactsHelpers } = require('./rpa-view-artifacts')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
@@ -142,12 +143,10 @@ const platformsMixin = {
             )
             log.info('RpaView', '[uploadCover] entry=' + entry)
             await this._sleep(2000)
-            // 2026-09-30 修正：旧实现用 `_setFileInput`（CDP 注入**首个** file input）后仅凭
-            // 返回值就置 handled=true，但真机验证封面区**始终没有缩略图**（img/bg-image 均空）
-            // ⇒ 页面未接受 ⇒ 「展示封面」必填校验拦下提交 ⇒ 作品 total_count=0。
-            // 改用头条专用上传：**逐个 file input 尝试 + 以「缩略图出现」为唯一判据**。
+            // 旧实现仅凭 `_setFileInput` 返回值置 handled=true，页面其实未接受；现改为头条专用
+            // 上传（逐个 file input + **以 img 计数增加为判据**），详见 `_uploadToutiaoCover`。
             const coverResult = await this._uploadToutiaoCover(win, coverPath)
-            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0 || coverResult === 'ALREADY_HAS_COVER')
+            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0)
             log.info('RpaView', '[uploadCover] toutiao result=' + coverResult)
           } catch (e) { log.warn('RpaView', '[uploadCover] ' + e.message) }
         }
@@ -306,6 +305,7 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           const titleTarget = titleSel || captionSel
           const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
+          // 读回校验已内建于 `_fillInput`（读回 0 且待填值非空即抛错）。
           await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
@@ -382,7 +382,8 @@ const platformsMixin = {
       }
     }
 
-    if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
+    // 实验：头条跳过封面 hook，验证封面注入是否占用 defer-publish 的 `_e`（判据：跳过后 appReqN>0）。
+    if (config.prePublishHook && platform !== 'toutiao') await this._execHook(win, config.prePublishHook, config.hookContext)
 
     // 平台专用发布前准备（百家号/快手：关闭引导弹窗 + 选择 AI 创作声明）
     if (platform === 'baijiahao') {
@@ -445,8 +446,12 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
-          await this._click(win,publishSelector)
+          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
+          // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
+          // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
+          await (platform === 'toutiao' && typeof this._clickStable === 'function' ? this._clickStable(win, publishSelector) : this._click(win, publishSelector))
+          if (platform === 'toutiao') { await this._sleep(1500); await this._clickViaCdp(win, publishSelector) }
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)
@@ -1031,7 +1036,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.title) {
       this._emitProgress('wechat_mp','filling title...',20)
       if (await this._waitForElement(win,'#title, input.weui-desktop-input',10000)) {
-        await this._fillInput(win,'#title',article.title)
+        try { await this._fillInput(win,'#title',article.title) } catch (e) { log.warn('RpaView','[wechat_mp] title fill: '+e.message) }
       }
     }
 
@@ -1199,7 +1204,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.title) {
       this._emitProgress('youtube','filling title...',55)
       if (await this._waitForElement(win,'#title-textarea, [class*="title"] input',10000)) {
-        await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title)
+        try { await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title) } catch (e) { log.warn('RpaView','[youtube] title fill: '+e.message) }
       }
     }
 
@@ -1207,7 +1212,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.content) {
       this._emitProgress('youtube','filling description...',65)
       if (await this._waitForElement(win,'#description-textarea, [class*="description"] textarea',10000)) {
-        await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content)
+        try { await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content) } catch (e) { log.warn('RpaView','[youtube] desc fill: '+e.message) }
       }
     }
 
@@ -1315,6 +1320,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       publish_url: publishUrl || config.publish_url,
       // 「展示封面」必填且默认选「单图」但封面为空（真机取证）→ 发布前传入封面图，
       // 拿不到上传入口时回退选「无封面」，否则点「预览并发布」被必填校验挡住。
+      // 第 52 轮实验：关闭封面 hook 后发布同样失败 ⇒ 封面不是阻塞点。恢复该 hook（头条确实需要封面）。
       prePublishHook: 'uploadCover',
       hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
     })
@@ -1410,5 +1416,6 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 }
 
-// 合并抽出的导航/等待 helper（Object.assign 保序：本文件同名方法优先）
-module.exports = Object.assign(platformsMixin, navigationHelpers, uploadWaiterMixin)
+// 合并抽出的 mixin（Object.assign 源覆盖目标：后写者胜——uploadWaiterMixin 的
+// v4 等待实现必须居 navigationHelpers 之后；artifactsHelpers 与本轮无键冲突）
+module.exports = Object.assign(platformsMixin, navigationHelpers, uploadWaiterMixin, artifactsHelpers)

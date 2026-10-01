@@ -164,11 +164,75 @@ const helpersMixin = {
     // 2026-09-29 Illegal invocation 修复：value setter 必须按元素 tagName 选原型——
     // 旧写法「Input 原型?.set || Textarea 原型?.set」两个 descriptor 都存在、恒取 Input 的，
     // 对 TEXTAREA（公众号 v2 编辑器 #title 实测）调用 Input 原型 setter 直接抛 Illegal invocation。
-    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}));return true}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return true}}var _proto=el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;let ns=Object.getOwnPropertyDescriptor(_proto,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+    // 2026-09-30 读回校验：本函数此前**无论是否生效都返回 true**，导致「填充未生效」被当成成功
+    // （头条实测：走完整个流程后页面「共 0 字」，而日志毫无异常）。现在返回**页面真实读回长度**，
+    // 由调用方据此判定；读回为 0 且待填值非空时打印告警（判据落在页面值上，不落在返回值上）。
+    const r = await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");var _ce=el.getAttribute("contenteditable")==="true";if(_ce){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}))}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}))}}else{var _proto=el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;let ns=Object.getOwnPropertyDescriptor(_proto,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}var _rb=_ce?String(el.innerText||"").replace(/\\s+/g,"").length:String(el.value||"").length;return {ok:true,readBack:_rb,ce:_ce}})()')
+    const readBack = r && typeof r.readBack === 'number' ? r.readBack : -1
+    // 2026-09-30 外审 finding #2：读回校验**内建**于此（此前调用点忽略返回值并无条件 markDone，
+    // 导致「填充未生效」照样进发布）。读回 0 且待填值非空即**抛错**，由调用方 catch 走重试。
+    // （`readBack === -1` 表示元素缺失/取值异常，由上方 `input not found` 等路径另行处理，不在此判负。）
+    if (readBack === 0 && String(val == null ? '' : val).trim().length > 0) {
+      log.warn('RpaView', '[fillInput] 读回为空（填充未生效）sel=' + String(sel).slice(0, 70))
+      throw new Error('fill not applied (readback=0): ' + String(sel).slice(0, 50))
+    }
+    return readBack
   },
   async _click(win, sel) {
     const resolveJs = buildResolveElementCode(sel)
-    return await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');el.click();return true})()')
+    const d = await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
+    // 2026-10-01：点击后等一拍再回读业务探针（onClick/doPublish 记录），判断异步流程走到哪一步。
+    await this._sleep(2500)
+    const oc = await win.webContents.executeJavaScript('(function(){try{return JSON.stringify({ocLog:(window.__ocLog||[]).slice(-2),dpLog:(window.__dpLog||[]).slice(-4),appReq:(window.__appReq||[]).filter(function(x){return /publish|article/i.test(x)}).slice(-4),appReqN:(window.__appReq||[]).length})}catch(e){return "{}"}})()').catch(() => '{}')
+    log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
+  },
+
+  // 2026-10-01：CDP 真实鼠标点击前**先临时移除中心点的遮挡层** —— 头条发布按钮实测 5 个采样点
+  // 全部被浮层覆盖（topHit=DIV），真实点击物理上到不了；而合成 click 又会被 onClick 闭包门控吞掉。
+  async _clickViaCdp(win, sel) {
+    const dbg = win.webContents.debugger
+    try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
+    try {
+      const expr = '(function(){var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return "";'
+        + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();var cx=Math.round(r.left+r.width/2),cy=Math.round(r.top+r.height/2);'
+        + 'var es=[];try{es=document.elementsFromPoint(cx,cy)}catch(e){}'
+        + 'window.__mpPe=[];es.forEach(function(b){try{if(b!==el&&!el.contains(b)&&!b.contains(el)){window.__mpPe.push([b,b.style.pointerEvents]);b.style.pointerEvents="none"}}catch(e){}});'
+        + 'return cx+","+cy})()'
+      const r = await dbg.sendCommand('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: false })
+      const pos = String((r && r.result && r.result.value) || '')
+      if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 元素未找到: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
+      const x = Number(pos.split(',')[0]); const y = Number(pos.split(',')[1])
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await dbg.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
+      log.info('RpaView', '[clickTrusted] ' + String(sel).slice(0, 28) + ' -> TRUSTED@' + x + ',' + y)
+      return 'TRUSTED_CLICK'
+    } catch (e) {
+      log.warn('RpaView', '[clickTrusted] ' + e.message); return null
+    } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
+  },
+
+  // 2026-10-01：头条发布按钮 onClick 为 `function(e){var n=t.props,r=n.loading,o=n.onClick;!r&&o&&o(e)}` ——
+  // loading 为真时点击被静默吞掉。loading 真源是 fiber 的 `memoizedProps.loading`（包装层的 `t.props.loading`），
+  // 不是 `__reactEventHandlers$*` 上的同名属性；旧实现读错位置且"读不到就放行"，等于没等。点击走 CDP。
+  async _clickStable(win, sel) {
+    const probe = '(function(){try{var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return false;'
+      + 'var fk=Object.keys(el).filter(function(k){return k.indexOf("__reactInternalInstance$")===0})[0];var f=fk?el[fk]:null;'
+      + 'for(var d=0;f&&d<12;d++){var mp=f.memoizedProps;if(mp&&("loading" in mp))return mp.loading!==true;f=f.return}'
+      + 'return el.isConnected!==false}catch(e){return null}})()'
+    const viaCdp = async () => {
+      const r = await this._clickViaCdp(win, sel).catch(() => null)
+      return (r && r !== 'NOT_FOUND') ? true : await this._click(win, sel)
+    }
+    for (let i = 0; i < 20; i++) {
+      const a = await win.webContents.executeJavaScript(probe).catch(() => null)
+      if (a === true) {
+        await this._sleep(500)
+        const b = await win.webContents.executeJavaScript(probe).catch(() => null)
+        if (b === true) return await viaCdp()
+      }
+      await this._sleep(500)
+    }
+    log.warn('RpaView', '[clickStable] 按钮未就绪（可能 loading 未结束），直接点击: ' + String(sel).slice(0, 40))
+    return await viaCdp()
   },
 
   // ========== CDP trusted text insertion ==========
