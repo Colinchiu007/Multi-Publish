@@ -33,9 +33,20 @@
       v-model="mdContent"
       class="md-editor"
       :placeholder="placeholder"
+      :maxlength="maxChars"
       :style="{ minHeight: height }"
       spellcheck="false"
     />
+
+    <!-- 字数计数（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）：
+         与发布校验同口径（原始字符串 Unicode 码点数），超限变红。 -->
+    <div
+      class="article-char-counter"
+      :class="{ 'article-char-counter--over': charCount > maxChars }"
+      data-testid="article-char-counter"
+    >
+      {{ charCount }}/{{ maxChars }}{{ t('publishPage.articleCharCount') }}
+    </div>
   </div>
 </template>
 
@@ -43,6 +54,10 @@
 import { ref, computed } from 'vue'
 import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
+import { useI18n } from 'vue-i18n'
+import { APP_ARTICLE_CONTENT_MAX } from '@/features/publish/publish-contract'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: {
@@ -56,12 +71,21 @@ const props = defineProps({
   placeholder: {
     type: String,
     default: '在此编辑文章内容...'
+  },
+  // 应用端正文字数上限（PRD §F1）；默认取契约常量，可被调用方覆盖
+  maxChars: {
+    type: Number,
+    default: APP_ARTICLE_CONTENT_MAX
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
 
 const editorMode = ref('rich')
+
+// 与 validatePlatformContent / truncateByChars 同口径：按 Unicode 码点计数
+// （emoji 等代理对算 1 个字符），禁止另用 .length（UTF-16 单元）造成口径漂移。
+const charCount = computed(() => Array.from(props.modelValue || '').length)
 
 const richContent = computed({
   get: () => props.modelValue,
@@ -136,6 +160,19 @@ const editorOptions = {
 .md-editor:focus {
   outline: none;
   border-color: var(--coral);
+}
+.article-char-counter {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+.article-char-counter--over {
+  color: var(--danger, #e5484d);
+  font-weight: 600;
 }
 .article-editor :deep(.ql-editor) {
   min-height: v-bind(height);

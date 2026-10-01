@@ -1,3 +1,32 @@
+# [未发布] feat(publish): 图文发布字数上限体系——应用 10000 字 + 平台限制入库与按平台截断转换（2026-10-02，platform-char-limits）
+
+### 应用端 10000 字上限（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）
+
+- 新增契约常量 `APP_ARTICLE_CONTENT_MAX = 10000`（`publish-contract.js`），编辑器计数、Markdown maxlength、发布链路应用级截断共用，禁止散落硬编码。
+- `ArticleEditor.vue`：底部新增字数计数「{count}/10000 字」（按 Unicode 码点统计，emoji 不拆半；≥10000 变红）；Markdown 模式 `maxlength=10000` 原生硬停；上限经 `maxChars` prop 注入。
+- 发布链路（`usePublishFlow.handlePublish`）：正文超 10000 字先按码点截断并出进度警告（before → after），再进入平台级转换/校验。
+
+### 平台字数限制入库（§F2）
+
+- 完成 15 平台标题/正文字数上限联网调研（`01-docs/PLATFORM-CHAR-LIMITS-RESEARCH-2026-10-02.md`，官方来源优先 + 置信度分级 + 「阈值三问」实测证据优先）。
+- **唯一数值变更：weibo contentMax 2000 → 5000**（微博官方客服 FAQ「最多可以发布5000汉字」佐证；同步 `publish-capabilities.json`、引擎 `content-formatter.js` CONTENT_LIMITS，消除三源漂移）。douyin/xiaohongshu 维持 5000（本仓 E2E 1773 字平台侧实测成功，反驳低置信网络值 1000）；kuaishou 480 / baijiahao 149 字节以本仓实测为准。
+- ops-center `platform_def_service.py`：`SEED_DEFS` 的 `max_title/max_content` 改为**从注册表 JSON 生成**（文件缺失回落内置快照 + 告警），种子 note 补调研依据；契约锁 `test_platform_def_seed_limits.py`（种子 ≡ 注册表 / 回落 fail-open / 回填幂等）。
+- 新增存量回填脚本 `ops-center/backend/scripts/backfill_platform_char_limits.py`：注册表 → `platform_defs` 表幂等 UPDATE（值不同才写、软删跳过、note 补依据、`--dry-run` 预览）。
+
+### 按平台的提交文本转换（§F3，取代全局一刀切）
+
+- 新增 `publish-contract.js::applyPlatformContentConversion`：超限平台写差异化覆盖 `platformOverrides[p].content = 截断结果`（复用 `truncateContentForPlatform` 合并预算口径），未超限平台保持全文；手填覆盖同样按平台上限截断；幂等。
+- 单篇（`usePublishFlow`）：`diffEdits` 存在时按平台转换（公众号等大限平台不再被「最小预算」误伤）；无覆盖通道的旧调用方退化回最小预算全局截断。**修复隐性 bug**：截断提示原先写在校验阶段、会被 `progress.value = []` 重置清空——现缓冲至 progress 重置后统一发出。
+- 批量（`useBatchPublish`）：条目级应用 10000 截断 + 按平台转换；超限不再整批中止（转换后仍失败才拦）；确认弹窗汇总逐条目截断详情。
+
+### 提示文案（§F4，zh/en 成对）
+
+- 新增 `articleContentTruncated`（应用级）/ `platformContentTruncated`（「{平台}」正文上限 {limit} 字，当前 {before} 字，发布时将截断为 {after} 字）/ `batchNotify.contentConverted`；批量确认弹窗 `confirmMessage` 追加 converted 段。
+
+### 验证
+
+- 契约层 39 条 + ArticleEditor 10 条 + usePublishFlow 69 条 + useBatchPublish 77 条 + shared-utils 495 条 + 引擎官方 runner 278 条（含 registry-sync 契约锁）+ ops-center 后端 463 条全绿。
+- 数据库链路：SEED_DEFS ≡ 注册表（pytest 契约锁）；回填脚本幂等二跑零变更。
 # [未发布] fix(publish-progress): 发布进度重复会话修复 + 视频上传等待自适应预算（2026-10-01，fix-publish-progress-dup-upload）
 
 ### 问题一：发布 1 个视频，面板显示 2 个任务（成功 1/2，幽灵任务永远「排队中」）
