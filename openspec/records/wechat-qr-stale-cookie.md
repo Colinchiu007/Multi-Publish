@@ -2,9 +2,6 @@
 record: wechat-qr-stale-cookie
 task: 修复失效公众号账号点卡片打开平台页时二维码加载失败——旧身份 Cookie 被免登录机制恢复回登录页会话
 date: 2026-09-30
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在（PENDING 的既有语义）
-sync_backfill_owner: 下一个会话（回填后删除上方三个 sync_* 字段）
 ---
 
 ## 本次执行记录：公众号二维码加载失败复发——失效账号点卡片走的是免登录会话（wechat-qr-stale-cookie，2026-09-30）
@@ -27,7 +24,7 @@ sync_backfill_owner: 下一个会话（回填后删除上方三个 sync_* 字段
 | QM-1 打包 | ➖ N/A | `git diff --name-only origin/main...HEAD` 无 `apps/desktop/electron/**`、无 `packages/rpa-engine/**` |
 | QM-4 视觉 | PASS | 无视觉面改动（未动模板/样式，卡片与账号页渲染路径不变）；CI `QG Visual` SUCCESS；`build` / `gui-test` / `electron-tests` 均 SUCCESS |
 | QM-6 CCG 双模型外部评审 | 部分执行（如实登记） | 后端 `codex`（`~/.claude/.ccg/config.toml` `[routing.backend].primary`）跑通，返回 W2/W3/W4 + I1/I2/I3（无 Critical），W2/I1 已修、W4 部分修、W3/I2 登记不修；前端 `claude`（`[routing.frontend].primary`）**三次均以 `claude completed without agent_message output` 告终**（0:59 / 1:05 / 1:07 三次，按 AGENTS.md「最多重试 2 次、3 次全败才跳过」的口径跳过），不以自审冒充通过。副作用：该进程 `pnpm exec vitest` 触发的 `pnpm install` 与本机安装并发，写坏了本 worktree 的 `node_modules`（`vitest` 的 `tinyrainbow` 被降到 1.2.0、`vue/compiler-sfc` 一度解析不到），已由 `pnpm install --frozen-lockfile` 修复中 |
-| 远程同步 | PENDING | 合并后按 `git log origin/main --grep='(#2730)$' --format=%H\|%cI` 取 merge SHA 与时间，`git ls-remote --heads origin wechat-qr-stale-cookie` 应返回 0 行；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS —— 已合并为 origin/main 7ce9f977（2026-10-01T11:15:58+08:00）；远端分支 wechat-qr-stale-cookie 已删除（git ls-remote --heads origin wechat-qr-stale-cookie 返回 0 行）。合并过程中 main 三度前移（#2742/#2746/#2735），本地三次并入并解决 .quality-gates.md 冲突后重跑 CI 三轮全绿后合并 |
 
 ### 第二轮：QM-6 后端模型发现项逐条处置
 

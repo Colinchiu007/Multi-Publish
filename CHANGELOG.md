@@ -1,3 +1,18 @@
+# [未发布] fix(会话隔离): 健康门禁加受管外来 worktree 登记制——harness 注册的 worktree 不再挡死 start-mp-task（2026-10-01，worktree-health-allowlist）
+
+### 缺陷（现场实跑取证）
+- harness 级工具（WorkBuddy 项目工作区）会向共享仓库注册隔离目录之外的 linked worktree（C 盘、分支 `workbuddy/*`）。`mp-worktree-health.ps1` 把「不在 `mp-worktrees/mp-*` 内」的 linked worktree 全部计入 `$outside` 且是 `ok` 的硬条件 ⇒ 本机 50 个 worktree 里唯一违规项就是它 ⇒ 所有新会话的 `start-mp-task.ps1` 在第 67/69 行 fail-closed 被挡。
+- 事故被掩盖的原因：有一个会话建 worktree 走了不调门禁的 `session-init.sh` 路径，绕行成功、红灯从未出现。
+
+### 修法
+- 登记制：机器本地 `%LOCALAPPDATA%\Mulpub\session-isolationallowed-worktrees.json`（JSON 字符串数组，**整路径精确匹配**，不做前缀通配——通配离「整目录豁免」的门禁腐化只差一次手滑）+ 环境变量 `MP_ALLOWED_WORKTREES`（分号分隔）临时追加。
+- fail-closed 保留：注册表 JSON 损坏视为空表、`ok` 直接 false，报告置 `allowedRegistry.valid=false`；未登记的外来 worktree 仍然一律红；已登记的在 `exemptedWorktrees` 留痕。
+- 同 PR 完成 #2730 的远程同步回填（origin/main `7ce9f977`，2026-10-01T11:15:58+08:00，远端分支已删）并销账。
+
+### 验证
+- `mp-worktree-health.test.ps1` 22/22（新增 6 例覆盖登记制的正反与 fail-closed 两侧）；实测登记本机 harness 工作区后真实门禁 rc=1 → rc=0。
+- 反证：case 5 删钩后未恢复会让后续用例全被钩子红灯污染——测试自身的这个坑已修（恢复钩子后再进入登记制用例）。
+
 # [未发布] fix(accounts): 失效账号点卡片打开平台页改走干净会话，修复公众号「二维码加载很久后失败」（2026-09-30，wechat-qr-stale-cookie）
 
 ### 现象
@@ -8937,7 +8952,7 @@ OpenMontage Backlot living storyboard 集成：生产过程可视化、审批门
 - 同时生成 .sh/.bat 执行脚本，Agent 可直接运行
 
 ### 方向2：CI 多轮循环（autonomous-loop.yml）
-- 新 workflow：utonomous-loop.yml — 手动 dispatch 或 PR 标签触发
+- 新 workflow：autonomous-loop.yml — 手动 dispatch 或 PR 标签触发
 - 自动多轮重试：检测 → 修复 → 重测（最多 N 轮）
 - 自动 commit 基线更新 + patch 文件
 - 完整的 artifacts 上传（报告 + patch + 截图）
@@ -8976,7 +8991,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 
 ### 修复
 - **FixEngine.dryRun=false**：多轮循环模式下基线更新真实生效
-- **自动生成修复脚本**：迭代结束后写出 uto-fix-commands.bat，包含所有 baseline copy 命令
+- **自动生成修复脚本**：迭代结束后写出 auto-fix-commands.bat，包含所有 baseline copy 命令
 - **Agent 可执行**：生成的 .bat 脚本可直接执行，Agent 也能读取命令自行判断
 
 ### 完整自主流程（现在）
@@ -13458,7 +13473,7 @@ OpenMontage Backlot living storyboard 集成：生产过程可视化、审批门
 - 同时生成 .sh/.bat 执行脚本，Agent 可直接运行
 
 ### 方向2：CI 多轮循环（autonomous-loop.yml）
-- 新 workflow：utonomous-loop.yml — 手动 dispatch 或 PR 标签触发
+- 新 workflow：autonomous-loop.yml — 手动 dispatch 或 PR 标签触发
 - 自动多轮重试：检测 → 修复 → 重测（最多 N 轮）
 - 自动 commit 基线更新 + patch 文件
 - 完整的 artifacts 上传（报告 + patch + 截图）
@@ -13497,7 +13512,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 
 ### 修复
 - **FixEngine.dryRun=false**：多轮循环模式下基线更新真实生效
-- **自动生成修复脚本**：迭代结束后写出 uto-fix-commands.bat，包含所有 baseline copy 命令
+- **自动生成修复脚本**：迭代结束后写出 auto-fix-commands.bat，包含所有 baseline copy 命令
 - **Agent 可执行**：生成的 .bat 脚本可直接执行，Agent 也能读取命令自行判断
 
 ### 完整自主流程（现在）
