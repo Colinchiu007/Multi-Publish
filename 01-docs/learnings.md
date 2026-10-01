@@ -16756,3 +16756,77 @@ shared 选择器解析器先执行 `document.querySelector(selector.split(":has-
 - **key**：`retry-backoff-for-side-effect-fields`
 
 `publish` 每次重试都是一次真实提交尝试，固定 1.5s 间隔过于密集（实测连续失败 12 轮）易触发风控。`FieldRetryState.backoffMs(name, {sideEffect})`：副作用字段 5s→10s→20s（cap 45s），普通字段 1.2s。
+
+## UI 文案是"渲染层对状态的转述"，判定系统状态必须查真源（ui-copy-is-not-system-state，2026-10-01）
+
+**同一个坑我踩了三次**：
+1. 「发布队列被卡死」—— 面板写着「排队中 / 后台进行中」，我据此判定队列锁死；
+   实际 IPC 查主进程：`pending=0, running=0, paused=false`，队列**是空的**，那是陈旧/静态文案。
+2. 「填充未生效」—— 发布失败后页面被重置，我事后读页面文本为空，据此判定填充失败。
+3. 「内容为空被静默拦下」—— 同上，取证时机错误导致读到重置后的空页面。
+
+**正确做法**：判定"系统处于什么状态"只认**真源**——主进程状态（IPC）、网络请求、组件 props；
+UI 文本只用于判断"用户看到了什么"。
+**反面教材**：把 toast/面板文案当成事实，会做出完全错误的根因结论，并在错误方向上连做多轮排除。
+
+
+## 判定"动作是否发生"要比对副作用；判定"为何没发生"要在动作后立刻抓瞬时反馈（hook-side-effect-then-grab-toast，2026-10-01）
+
+**症状**：点「一键发布」后界面毫无反应（无跳转、无报错、无新任务）。我连续 3 轮误判为
+"按钮失效 / 队列锁死 / loading 吞掉点击"。
+
+**打破僵局的两步（各自只需一次注入）**：
+```js
+// ① 比对副作用：hook 目标 IPC，确认动作到底有没有发生
+var orig = window.electronAPI.publishBatch
+window.electronAPI.publishBatch = function(){ window.__pubHook.calls.push(...); return orig.apply(this, arguments) }
+// ② 抓瞬时反馈：点击后 2–3s 内立即读 toast（它是几秒即逝的）
+document.querySelectorAll('[class*=message],[class*=toast]')
+```
+结果第一次就看到了真相：`抖音正文最多 1000 个字符，当前 1217 个` —— **内容超限被合法拦下**。
+
+**推广**：任何"点了没反应"的排查，先问两个问题 ——
+① 这个动作的**副作用**是什么（IPC / 网络 / 状态变更）？hook 它。
+② 失败时系统给过什么**瞬时反馈**？在动作后立刻抓，别等。
+
+
+## 应用自身是 Vue 3，平台页才是 React —— 探针方法不可混用（vue-app-react-platform-pages，2026-10-01）
+
+发布页 50 个 button 的 `react: 0`（**全部没有 React 属性**）⇒ **应用自身 UI 是 Vue 3**，
+React fiber 探针（读 `__reactInternalInstance` / `__reactEventHandlers`）**对应用 UI 完全无效**；
+而**头条等平台页**是 React（可用 fiber 读 props、`String(fn)` 读 onClick 源码）。
+
+**另一条同族教训**：React 16 用 `__reactEventHandlers$xxx`，React 17+ 才用 `__reactProps$xxx`。
+我曾按 `__reactProps` 前缀探测头条按钮，得到"无处理器"的**误报**；改用 `/^__react/` 通用前缀后
+读到 `onClick: function`。**探测内部属性时要用通用前缀 + 实际判据（typeof p.onClick === "function"）**，
+不要硬编码某一个版本的属性名。
+
+
+## 自动裁剪必须与校验同源：无标题平台要扣除"标题计入首行"的长度（truncate-must-share-source-with-validation，2026-10-01）
+
+**背景**：改写产物 1210+ 字，抖音/小红书/快手正文上限均 1000 字 ⇒ 一键发布被拦。
+我给"正文超限"加了自动裁剪，裁到 `contentMax`（1000）。
+
+**回归实测立刻暴露漂移**：正文裁到 997 后，快手仍报 **1021 > 1000** ——
+因为快手 `titleMax === 0`（**无标题平台**），标题会被 `composeNoTitleDescription` **合并为描述首行**，
+校验用的是**合并后**长度，而我只裁了正文。
+
+**正解**：新增 `truncateContentForPlatform(platform, content, title)`，
+**同源复用** `getPlatformContentLimit` + `isNoTitlePlatform`，无标题平台预算 = `contentMax - 标题长度`；
+并补 4 类单测（无标题扣标题 / 有标题不扣 / 未超限原样 / emoji 按码点不切碎）。
+
+**推广**：任何"校验失败则自动修正"的功能，修正**必须复用校验的同一份口径**；
+另写一份（哪怕看起来等价）必然漂移 —— 这与仓库既有的"禁止第二份标题合并实现"规范同源。
+
+
+## 本会话中应用无法跨命令存活：Job 回收会级联杀掉 Start-Process 启动的 Electron（e2e-app-cannot-outlive-command，2026-10-01）
+
+**现象**：用 `Start-Process` 启动应用后，**下一条命令**里 `http://127.0.0.1:10774/json/list` 必然
+`ECONNREFUSED`、`electron: 0`；而用 `Start-Job` 跑长任务时，job 被 kill 会**连带**杀掉应用。
+`schtasks`（计划任务）在非交互会话下也起不来 Electron（任务显示已运行但进程不存在）。
+
+**可行模式**：把「启动 → 等待（≤ 约 200s）→ 验证」压进**同一条命令**；
+并接受可能出现的 `Windows Job runner exited … before proving its managed range empty` 提示 ——
+该提示出现时命令往往**已部分成功**，需再用一条短命令接续验证。
+
+**排查价值**：这条环境铁律此前被误读为"应用反复消失/电脑死机"，实际是本会话的命令生命周期行为。
