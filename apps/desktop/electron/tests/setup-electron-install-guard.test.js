@@ -25,6 +25,8 @@ describe('测试期 electron install.js 守卫（#2794）', () => {
     // 子进程的 stdout 会带上颜色转义：CI runner 上实测拿到 `"\u001b[33m1\u001b[39m\n"`，
     // 本机无 FORCE_COLOR 时是 `"1\n"` —— 不归一就直接 toBe('1') 是一条**只在 runner 上红**的断言
     // （本仓反复踩过的同一坑：读任何带 ANSI 的输出前先剥转义，再比较）。
+    // 有意匹配 ESC 控制字符 ⇒ 按本仓既有先例（tag-suggest/compliance-filter.js:122）关掉 no-control-regex。
+    // eslint-disable-next-line no-control-regex
     expect(String(r.stdout).replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim()).toBe('1')
   })
 
