@@ -2,9 +2,6 @@
 record: fix-electron-dist-banner-attribution
 task: 归因并修复 #2794 —— 桌面单测里那条 `Downloading Electron binary...` 是夹具的 blanket fs mock 造成的假象；改为按路径委托，并给测试期 electron/install.js 的 spawn 加响亮失败守卫
 date: 2026-10-03
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本文件 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：桌面单测 Electron 下载 banner 的夹具归因与修复（fix-electron-dist-banner-attribution，2026-10-03）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（回填后删除本文件 frontmatter 的�
 | 远程 CI 两轮红与纠因（同 PR 内修掉） | PASS | 首轮 `QG Unit Tests`（run `37067244730` / job `111038595043`）红 1 例，就是本 PR 新加的守卫用例：`expected '\u001b[33m1\u001b[39m' to be '1'` —— 子进程 stdout 在 runner 上带颜色转义（本机无 `FORCE_COLOR` 时是 `1`）。本机用 `FORCE_COLOR=1` 逐字复现同一串 ⇒ 旧断言必红；修法是**剥 ANSI 再比**（`status === 0` 那条承重判据不放宽）。次轮 `QG Static` 红在 **Gate 11 ESLint**（`28:37 no-control-regex`）：剥 ANSI 的正则本身触发规则，按本仓既有先例（`tag-suggest/compliance-filter.js:122-123`）加说明注释 + `eslint-disable-next-line`；本机 `pnpm exec eslint` 对三个改动文件全 0 通过。**两轮暴露的是我本地门禁清单的同一处缺口：**`cd apps/desktop && pnpm exec eslint <改动文件>` 是可离线跑的，第一遍我没跑它。同一次 job 日志里 `Downloading Electron binary` 命中 **0 次**（修复前该作业 2 次）⇒ 夹具修复在真实 runner 上成立。 |
 | 本机 A/B（修复效果的直接证据，不依赖 CI） | PASS | 同一条命令 `pnpm exec vitest run electron/services/asset-generator.test.js` 两份代码各跑一次（Windows，`ensure-electron` 均报已就绪）：`main=b0468604` 旧夹具 → **banner 1 次** / 17 passed；本分支委托夹具 → **banner 0 次** / 20 passed。这条 banner **从来不是 CI 特有现象**，也不是"exe 被短暂删除"。 |
 | QM-6 CCG 双模型外部评审 | PASS（降级通道 2/2） | 规定通道不可用且**不得擅自修复用户机器级路由**：`codeagent-wrapper --backend codex` 两次探针分别 rc=1 与 rc=124（挂起在网络上；CC Switch :15721 未运行）。改走既有降级通道：并行两路 opencode 免费模型，各自**把结论写进被审计 worktree 内的文件**（`node_modules/.cache/review2794/findings-{BP,FA}.md`，14648 / 10399 字节，均含 `## Q1..## Q4` 逐条判断），判据读文件内容而不是 spawn rc。逐条处置见下表。 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有口径回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，远端分支删除取 `git ls-remote --heads origin fix-electron-dist-banner-attribution` 返回 0 行（并配一条对 main 的正控）；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段**。 |
+| 远程同步 | PASS | PR #2797 已 squash 合并为 `d7fe9f2c8c9594dd2abc0a6e039f1cb6a4135e30`（`git log origin/main --grep='(#2797)$' --format=%H|%cI` 现场读得 `2026-10-02T22:44:03Z`）。`git ls-remote --heads origin fix-electron-dist-banner-attribution` 返回 **0 行**，同一次取证对 `main` 的正控返回 1 行。PR 侧 `statusCheckRollup` = **20 SUCCESS / 1 SKIPPED / 0 红**（合并当刻读）。**本 PR 的验收判据在合并后 main push 上跑完了**（run `37074056115`，`completed/success`）：四个跑桌面测试的作业逐个下日志、剥 ANSI、按 `##[group]` 归因后，`Downloading Electron binary` 命中数为 `QG Coverage 0 / QG Unit Tests 0 / Shards 1-2 0 / Shards 2-2 0`，**测试步骤段内合计 0 条**（修复前是每作业 1 条、覆盖作业合并前 2 条），且四个作业 `conclusion` 全为 success ⇒ **#2794 关闭**。探针自证：每个作业都报出 `groups=19/35/19/19` 与 7.1–7.7MB 日志字节数，"0 命中"不是空集合。 |
 
 ### QM-6 逐条处置（评审 → 判定 → 落地）
 
