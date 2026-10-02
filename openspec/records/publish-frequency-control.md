@@ -11,7 +11,8 @@ sync_backfill_owner: 下一个会话
 
 > 分支：`publish-frequency-control`；worktree：`D:/Data/projects/mp-worktrees/mp-publish-frequency-control`（基线 `origin/main` = `e3fe37cf`）
 > 范围：📦 新增功能 + 🔐 合规加固（跨模块：`packages/shared-utils` + `apps/desktop/electron`）⇒ 完整质量节拍，不走 docs-only 快速通道
-> 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=false**（含 `apps/`、`packages/` 运行时代码）
+> 判定（提交后实测）：`classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=false，files=20**
+> 记录门禁：`check-pr-exec-record.js --base=origin/main --head=HEAD` → 「变更文件 20 个（A=9 M=11 D=0）｜新增记录 1 篇」→ **OK**
 > 规格：`openspec/changes/publish-frequency-control/`（proposal / design / specs 6 条 Requirement / tasks），`openspec validate publish-frequency-control --strict` → valid
 
 | 门禁 | 状态 | Fresh 证据 |
