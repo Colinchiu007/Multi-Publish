@@ -2,9 +2,6 @@
 record: publish-tab-state-keepalive
 task: 修复固化标签切回后发布页草稿状态（视频文件等信息）丢失
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后按 origin/main 取证回填 PASS 并删除上方三个 sync_* 字段。
-sync_backfill_owner: 下一个会话（或本会话合并后的收尾 docs 提交）
 ---
 
 ## 本次执行记录：固化标签切回后发布页草稿状态丢失（publish-tab-state-keepalive，2026-10-02）
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话（或本会话合并后的收尾 docs 提�
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/`；改动面为渲染层 App.vue 模板 + 新增测试 + 文档。 |
 | QM-4 视觉 | N/A | 未改任何视图渲染外观（v-if→v-show 视觉等价），无像素基线影响。 |
 | QM-6 CCG 双模型外部评审 | 未执行（降级留痕） | 本轮外部模型通道（子代理配额受限 402 的同族风险）未逐一尝试；以「行为级回归锁 + 反证 + 四层逃逸分析留痕」替代，如实标注降级，不以自审冒充通过。 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin publish-tab-state-keepalive` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段。 |
+| 远程同步 | PASS | PR #2764 已 squash 合并：merge commit `69c65bf6ada9cefb9c07734c34c9589458c71075`（2026-10-02T10:45:17Z，`git log origin/main --grep='(#2764)$'` 取证）；`git ls-remote --heads origin publish-tab-state-keepalive` 返回 0 行证远端分支已删。CI 全绿（含 QG Unit Tests / Desktop Shards / Coverage / Visual / Static / Browser E2E），新测试 `publish-tab-state-keepalive.test.js` 在 CI Unit Tests 作业日志出现 4 次确证被执行。登记 sync_* 字段已随本回填删除。 |
 
 ### 遗留（不假装已闭合）
 - 首页 SPA 在**路由切换**（非标签切换）时仍会重挂载 `Publish.vue`（无 keep-alive），届时草稿同样丢失——属独立问题，本 PR 只修「账号/登录标签切换」这一路径，未纳入 keep-alive 改造。
