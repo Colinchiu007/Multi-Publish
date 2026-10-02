@@ -1,3 +1,16 @@
+# [未发布] fix(ci): 跑桌面测试的 quality-gate 作业先备好 Electron 二进制，随机用例超时不再被误判成被测缺陷（2026-10-03，coverage-gate-electron-prepare）
+
+### 根因
+- `electron@43` 无 `postinstall` ⇒ CI 里 `pnpm install --frozen-lockfile` 之后 `node_modules/electron` 只有 npm 壳、没有 `dist`。此后任何 `require('electron')` 会执行 `node_modules/electron/index.js` 的 `downloadElectron()`：先 `console.log('Downloading Electron binary...')`，再 `spawnSync(install.js, { stdio:'inherit' })` **同步**下载。同步 ⇒ 阻塞在 `require` 里；`stdio:'inherit'` ⇒ 子进程输出并进父进程 stdout，于是 vitest 把这段下载**归属到"当时正在跑的那条用例"名下**。`apps/desktop/test-setup.js` 的 electron mock 是 opt-in（`__enableElectronMock()` 才拦 `Module._load`），谁买单取决于模块加载顺序 ⇒ 症状表现为"某条用例随机超时、不可复现"。
+- 一手证据（run `37021470435`，main @ `ae6512d1`）：story2video-stages「任一 scene 的图片或音频失败时默认阻断」跑到 `15700ms` 撞 `testTimeout=10000`，其名下 14:42:27 / 14:42:32 两条 stdout 正是那句下载日志；同批邻居用例全在 3–14ms。`quality-gate.yml` 的三个作业（`unit-tests` 的 Gate 4b、`desktop-shards`、`coverage`）都只有 `Install deps`，从不备二进制；而 `build.yml:134` 与 `electron-ci.yml:118` 早就为同一个坑各写了一步，只是从未接到 quality-gate。
+
+### 修复
+- 三个作业在 `Install deps` 之后各插一步 `Ensure Electron binary`（`node scripts/ensure-electron.js`，复用既有脚本；它自身 fail closed：`dist/<exe>`+`dist/version`+`path.txt` 齐备才跳过，装完仍不完整即非零退出）。
+- `.github/scripts/workflow-contract.test.js` 加结构锁，三条反"装饰性判据"口径由 QM-6 外部评审的两条 Critical 逼出来：① 准备步骤必须**整条命令就是**该脚本（原判据按"正文里出现过字符串"匹配，一个 `run: echo "see node_modules/electron/install.js"` 的假步骤就能让它恒绿）；② 准备步骤不得带 `if:` / `continue-on-error` / `ELECTRON_SKIP_BINARY_DOWNLOAD=1`（`ensure-electron.js:35` 见后者直接 `exit 0`，等于把准备"合法地"跳过而锁仍绿）；③ 作业清单由**步骤内容**自动收集并与预期三元组 `deepEqual`，新增第四个同类作业时锁当场红，而不是看不见它。
+
+### 验证
+- TDD：先写锁 → 实测红在 `作业 unit-tests 缺 Electron 二进制准备步骤`；插步骤后 29/29 绿。反证 6 条逐个实跑变红（M-1 摘步骤、M-2 挪到测试之后、M-3 作业改名、M-4 换成 echo 假步骤、M-5 加 continue-on-error、M-6 塞 SKIP 环境变量），判据 = `rc≠0 ∧ fail>0 ∧ 失败测试名命中 ∧ 断言消息命中`，每轮还原后 sha256 与原件相同。
+- 未覆盖面如实写出（同一份记录的「遗留」）：本次把"测试执行期内被动下载"挪成"准备步骤主动下载"，**没有**给"测试期零出站"补哨兵 —— 现有 `network-egress-guard` 拦的是 `net.Socket.prototype.connect`，而这里是 `spawnSync` 起另一个 node 进程，根本不走那条路。
 # [未发布] fix(packaging): 暂存的 remotion 运行时闭包不再把同名不同版本摊平进同一目录（2026-10-02，fix-stage-runtime-flatten）
 
 ### 根因
