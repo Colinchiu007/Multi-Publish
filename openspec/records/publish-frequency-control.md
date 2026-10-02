@@ -31,6 +31,7 @@ sync_backfill_owner: 下一个会话
 | QM-4 视觉 | N/A | 未改任何 `.vue`/样式/布局；`blocked` 相位的渲染（时钟图标 + 剩余等待文案）是 `PublishProgressTaskRow.vue` **既有能力**，本次未触碰渲染层 ⇒ 无新增视觉面。像素门禁对本就无改动，不跑 |
 | QM-6 CCG 双模型外部评审 | **未执行（工具不可达，非跳过）** | 模型名真源 `~/.claude/.ccg/config.toml`：`[routing.backend].primary = codex`、`[routing.frontend].primary = claude`。3 种调用形态均失败并留现场：① `codeagent-wrapper --backend codex` → rc=1，wrapper 退出即删日志；② 直跑 `codex exec` → `ERROR: unexpected status 502 Bad Gateway, url: http://127.0.0.1:15721/v1/responses`（本机 CC Switch 代理上游不可用，重试 5/5 全失败）；③ `claude -p` → `API Error: Connection refused (ECONNREFUSED)`，摘掉 `HTTPS_PROXY/HTTP_PROXY/ALL_PROXY` 重试 → 空输出。**按纪律记为「缺失」，不以本地自审冒充第二个评审人**；`reviews/` 目录无产物即为证据。待代理恢复后必须补跑，Critical 修复后才能算收口 |
 | 依赖与配置 | PASS | 未新增任何依赖、未改 lockfile；仅新增两个自有源文件与两个环境变量读取点 |
+| 远程同步 | PENDING | 本 PR（#2773）尚未合并，merge SHA 还不存在。合并后由下一个会话取证回填：`git log origin/main --grep='(#2773)$' --format=%H\|%cI` 取 merge SHA 与时间，`git ls-remote --heads origin publish-frequency-control` 返回 0 行证远端分支已删；回填成 PASS 后**必须整段删除文件头部三个 `sync_*` 字段**（留下即报「已回填却仍留登记字段」） |
 
 ### 遗留（不假装已闭合）
 
