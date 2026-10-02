@@ -327,6 +327,19 @@
             @click="libraryFilter = f.value"
           >{{ $t(f.labelKey) }}</button>
         </div>
+        <!-- 类别筛选（2026-10-03）：与来源筛选并列，选项来自统一内容类别真源 -->
+        <div class="library-filters" role="group" :aria-label="$t('collection.categoryFilterLabel')">
+          <button
+            v-for="c in categoryFilterOptions"
+            :key="c.value"
+            type="button"
+            class="library-filter-btn"
+            :class="{ active: categoryFilter === c.value }"
+            :aria-pressed="categoryFilter === c.value"
+            :data-testid="'collection-category-filter-' + c.value"
+            @click="categoryFilter = c.value"
+          >{{ c.label }}</button>
+        </div>
         <button class="cohere-btn-secondary col-btn-clear" :disabled="collectedItems.length === 0" @click="clearAllRecords">
           {{ $t('collection.recordsClearAll') }}
         </button>
@@ -347,7 +360,7 @@
         :title="$t('collection.libraryFilterEmptyTitle')"
         :description="$t('collection.libraryFilterEmptyDesc')"
         :action-text="$t('collection.libraryFilterEmptyAction')"
-        @action="libraryFilter = 'all'"
+        @action="libraryFilter = 'all'; categoryFilter = 'all'"
       >
         <template #icon><el-icon><Search /></el-icon></template>
       </EmptyState>
@@ -364,6 +377,36 @@
                   <template v-if="entry.item.mediaType === 'video' && entry.item.duration"> · {{ formatVideoDuration(entry.item.duration) }}</template>
                   <template v-if="entry.item.mediaType === 'video' && entry.item.platform && PLATFORM_KEYS.includes(entry.item.platform)"> · {{ platformLabel(entry.item.platform) }}</template>
                   · {{ formatRecordTime(entry.item) }}
+                </div>
+                <!-- 类别标签（2026-10-03）：统一真源；未知类别置灰并说明已删除 -->
+                <div class="card-tags" :data-testid="'collection-item-tags-' + entry.item.id">
+                  <template v-if="editingTagsItem === entry.item">
+                    <button
+                      v-for="c in contentCategories"
+                      :key="c.category_key"
+                      type="button"
+                      class="tag-toggle"
+                      :class="{ 'tag-toggle--on': editingTags.includes(c.category_key) }"
+                      :data-testid="'collection-tag-toggle-' + entry.item.id + '-' + c.category_key"
+                      @click.stop="toggleEditingTag(c.category_key)"
+                    >{{ c.name }}</button>
+                    <button type="button" class="tag-save" :data-testid="'collection-tag-save-' + entry.item.id" @click.stop="submitEditTags">
+                      {{ $t('collection.tagsSave') }}
+                    </button>
+                    <button type="button" class="tag-cancel" @click.stop="cancelEditTags">{{ $t('collection.tagsCancel') }}</button>
+                  </template>
+                  <template v-else>
+                    <span
+                      v-for="key in entryTags(entry)"
+                      :key="key"
+                      class="card-tag"
+                      :class="{ 'card-tag--unknown': !isTagKnown(key) }"
+                      :title="isTagKnown(key) ? entryTagLabel(key) : $t('collection.tagUnknownHint')"
+                    >{{ entryTagLabel(key) }}</span>
+                    <button type="button" class="card-tag-edit" :data-testid="'collection-edit-tags-' + entry.item.id" @click.stop="startEditTags(entry.item)">
+                      {{ $t('collection.tagsEdit') }}
+                    </button>
+                  </template>
                 </div>
               </div>
             </div>
@@ -504,11 +547,21 @@ import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
+import { normalizeCollectedItem, normalizeItemTags, itemTags } from '@/features/collection/collected-item'
+import {
+  contentCategoriesRef, loadContentCategories, watchContentCategories, categoryLabel,
+} from '@/composables/useContentCategories'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
 const tabStore = useTabStore()
 const { t } = useI18n()
+// 统一内容类别（2026-10-03）：采集库类别标签与热门选题/账号分组共用同一真源
+const contentCategories = contentCategoriesRef()
+let categoriesUnsubscribe = null
+const categoryTagCtx = computed(() => ({
+  knownCategoryKeys: contentCategories.value.map((c) => c.category_key),
+}))
 const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
@@ -831,10 +884,14 @@ onMounted(async () => {
   void loadCopyRewrites()
   void loadRewriteStrategies()
   void refreshStrategyPreview()
+  // 统一内容类别：全应用单例，这里只需触发一次加载 + 订阅运营变更
+  loadContentCategories().catch(() => {})
+  categoriesUnsubscribe = watchContentCategories()
 })
 
 onUnmounted(() => {
   stopBatchPolling()
+  if (categoriesUnsubscribe) { categoriesUnsubscribe(); categoriesUnsubscribe = null }
   if (asrInstallUnsubscribe) { asrInstallUnsubscribe(); asrInstallUnsubscribe = null }
 })
 
@@ -1731,6 +1788,20 @@ async function saveCollectedItems () {
   for (const item of collectedItems.value) {
     if (item && !item.createdAt) item.createdAt = now
   }
+  // 类别标签收口（2026-10-03）：9 处构造点字段齐全程度不一，逐个改最容易漏，
+  // 因此统一在**落盘前**归一 —— 无论从哪条路径进来的条目，写进真源的 tags 都是校验过的。
+  let droppedCount = 0
+  for (const item of collectedItems.value) {
+    if (!item || typeof item !== 'object') continue
+    const r = normalizeItemTags(item.tags, categoryTagCtx.value)
+    if (r.dropped.length) droppedCount += r.dropped.length
+    item.tags = r.tags
+    if (r.dropped.length) item._droppedTags = r.dropped
+    else delete item._droppedTags
+  }
+  if (droppedCount > 0) {
+    console.warn('[collection] dropped invalid category tags on save, count=' + droppedCount)
+  }
   await storeSetSetting(COLLECTED_ITEMS_KEY, JSON.stringify(collectedItems.value))
 }
 
@@ -1803,6 +1874,71 @@ const LIBRARY_FILTERS = [
 const libraryFilter = ref('all')
 const previewRewrite = ref(null)
 
+// ─── 类别筛选（2026-10-03）：与来源筛选并列，选项来自统一内容类别真源 ───
+/** 'all' = 全部；'__untagged__' = 未打标签；其余为类别 key */
+const UNTAGGED_FILTER = '__untagged__'
+const categoryFilter = ref('all')
+const categoryFilterOptions = computed(() => [
+  { value: 'all', label: t('collection.categoryFilterAll') },
+  { value: UNTAGGED_FILTER, label: t('collection.categoryFilterUntagged') },
+  ...contentCategories.value.map((c) => ({ value: c.category_key, label: c.name })),
+])
+
+/** 条目的类别标签（兼容缺失字段的历史数据） */
+function entryTags (entry) {
+  return entry && entry.item ? itemTags(entry.item) : []
+}
+
+/** 标签显示名：未知类别显示为 key 本身并标灰（类别已被运营删除） */
+function entryTagLabel (key) {
+  return categoryLabel(key)
+}
+
+function isTagKnown (key) {
+  return contentCategories.value.some((c) => c.category_key === key)
+}
+
+/** 设置条目类别标签并落盘 */
+async function setItemTags (item, tags) {
+  if (!item) return
+  const r = normalizeItemTags(tags, categoryTagCtx.value)
+  item.tags = r.tags
+  if (r.dropped.length) {
+    item._droppedTags = r.dropped
+    console.warn('[collection] dropped invalid category tags: ' + r.dropped.join(','))
+  } else {
+    delete item._droppedTags
+  }
+  await saveCollectedItems()
+  if (r.dropped.length) notifyWarning('collection.tagsDropped', { message: r.dropped.join('、') })
+  else notifySuccess('collection.tagsSaved')
+}
+
+const editingTagsItem = ref(null)
+const editingTags = ref([])
+
+function startEditTags (item) {
+  editingTagsItem.value = item
+  editingTags.value = [...itemTags(item)]
+}
+
+function cancelEditTags () {
+  editingTagsItem.value = null
+  editingTags.value = []
+}
+
+function toggleEditingTag (key) {
+  const idx = editingTags.value.indexOf(key)
+  if (idx >= 0) editingTags.value.splice(idx, 1)
+  else editingTags.value.push(key)
+}
+
+function submitEditTags () {
+  const item = editingTagsItem.value
+  if (item) setItemTags(item, [...editingTags.value])
+  cancelEditTags()
+}
+
 /**
  * 合并文案库列表：采集正文（collected_items 中有正文的条目，保留完整字段）
  * + 改写文案（copy_library_rewrites），按时间倒序统一排序。
@@ -1820,9 +1956,16 @@ const libraryItems = computed(() => {
   return [...rewrite, ...collect].sort(compareByCreatedAtDesc)
 })
 
-const filteredLibraryItems = computed(() => (
-  libraryFilter.value === 'all' ? libraryItems.value : libraryItems.value.filter((e) => e.origin === libraryFilter.value)
-))
+const filteredLibraryItems = computed(() => {
+  const byOrigin = libraryFilter.value === 'all'
+    ? libraryItems.value
+    : libraryItems.value.filter((e) => e.origin === libraryFilter.value)
+  if (categoryFilter.value === 'all') return byOrigin
+  const tags = byOrigin.map(entryTags)
+  return byOrigin.filter((entry, i) => (
+    categoryFilter.value === UNTAGGED_FILTER ? tags[i].length === 0 : tags[i].includes(categoryFilter.value)
+  ))
+})
 
 /** 改写卡片元信息：字数 · 改写时间 · 改写自 */
 function rewriteMetaText (record) {
@@ -1947,15 +2090,13 @@ function startBatchPolling () {
         batchCollecting.value = false
         const items = data.items || data.results || []
         items.forEach((item) => {
-          collectedItems.value.unshift({
-            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          collectedItems.value.unshift(normalizeCollectedItem({
             title: item.title || '',
             content: item.content || '',
-            description: (item.content || '').slice(0, 120),
             source: 'batch',
             sourceUrl: item.source_url || item.sourceUrl || '',
-          wordCount: item.word_count || 0,
-          })
+            wordCount: item.word_count || 0,
+          }, categoryTagCtx.value))
         })
         saveCollectedItems()
         notifySuccess('collection.batchSuccess', { params: { count: items.length } })
@@ -2105,6 +2246,31 @@ function cancelBatchCollect () {
 .collection-record-card { cursor: pointer; transition: box-shadow 0.2s; }
 .collection-record-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
 .collection-record-card:focus-visible { outline: 2px solid var(--primary, #ea580c); outline-offset: 2px; }
+
+/* ── 类别标签（2026-10-03）：统一内容类别真源 ── */
+.card-tags {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 6px;
+}
+.card-tag {
+  padding: 2px 8px; border-radius: 10px; background: var(--soft-stone, #f2f3f5);
+  color: #3a3a44; font-size: var(--font-size-xs, 12px);
+}
+/* 类别已被运营删除：标签保留但置灰，悬停说明原因，且不参与筛选 */
+.card-tag--unknown { background: #ececee; color: #a8a8b3; text-decoration: line-through; }
+.card-tag-edit {
+  padding: 2px 8px; border: 1px solid #dcdee3; border-radius: 4px;
+  background: #fff; color: #5048e5; font-size: var(--font-size-xs, 12px); cursor: pointer;
+}
+.tag-toggle {
+  padding: 2px 9px; border: 1px solid #dcdee3; border-radius: 11px;
+  background: #fff; color: #3a3a44; font-size: var(--font-size-xs, 12px); cursor: pointer;
+}
+.tag-toggle--on { border-color: #5048e5; background: #eceaff; color: #5048e5; }
+.tag-save, .tag-cancel {
+  padding: 2px 9px; border: 1px solid #dcdee3; border-radius: 4px;
+  background: #fff; font-size: var(--font-size-xs, 12px); cursor: pointer;
+}
+.tag-save { border-color: #5048e5; color: #5048e5; }
 
 /* ── 文案库合并视图样式（原 CopyLibraryPanel 迁入）── */
 .library-filters {
