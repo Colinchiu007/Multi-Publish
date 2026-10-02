@@ -480,20 +480,66 @@ test('walkLooseFiles + checkLooseResources：真目录实证（os.tmpdir 自建�
     fs.writeFileSync(path.join(dir, 'packages', 'remotion-composer', 'src', 'index.tsx'), '// 运行期需要\n')
     fs.writeFileSync(path.join(dir, 'packages', 'remotion-composer', 'node_modules', 'p', 'tests', 'a.test.ts'), '// t\n')
     fs.writeFileSync(path.join(dir, 'packages', 'remotion-composer', 'node_modules', 'p', 'tests', 'fixtures.json'), '{}\n')
+    // QM-6 外部评审要求补的三形状：非 ASCII 路径、超深嵌套、文件名里有 `#`（剥注释的那套判据不得漏到这里）、emoji 名
+    fs.mkdirSync(path.join(dir, 'config', '深层嵌套', 'a', 'b', 'c', 'd'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'config', '深层嵌套', 'a', 'b', 'c', 'd', '检查.test.ts'), '// t\n')
+    fs.writeFileSync(path.join(dir, 'config', 'we#ird.test.js'), '// t\n')
+    fs.writeFileSync(path.join(dir, 'config', 'emoji-🎬.json'), '{}\n')
     const files = walkLooseFiles(dir)
     assert.deepEqual(files, [
       'app.asar',
+      'config/emoji-🎬.json',
+      'config/we#ird.test.js',
+      'config/深层嵌套/a/b/c/d/检查.test.ts',
       'packages/remotion-composer/node_modules/p/tests/a.test.ts',
       'packages/remotion-composer/node_modules/p/tests/fixtures.json',
       'packages/remotion-composer/src/index.tsx',
     ], '清单必须精确（目录不进列表、路径正斜杠、排序稳定）')
     const r = checkLooseResources(dir)
-    assert.equal(r.total, 4)
+    assert.equal(r.total, 7)
     assert.equal(r.ok, false)
-    assert.deepEqual(r.tests, ['packages/remotion-composer/node_modules/p/tests/a.test.ts'])
+    assert.deepEqual(r.tests, [
+      'config/we#ird.test.js',
+      'config/深层嵌套/a/b/c/d/检查.test.ts',
+      'packages/remotion-composer/node_modules/p/tests/a.test.ts',
+    ], '非 ASCII / 深层 / 带 # 的测试文件一个都不许漏')
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('walkLooseFiles：符号链接"按名字计入但绝不跟随"（既不假绿也不越界；QM-6 外部评审提出的形状）', () => {
+  // 为什么用注入的 readdir 而不是真建符号链接：Windows 上非管理员建文件符号链接一般 EPERM，
+  // 若"建不了就 skip"，这条判据在多数机器（含 CI）上等于永久不跑 —— 与"找不到宿主 d.ts 就 return 跳过"同错。
+  const ent = (name, kind) => ({
+    name,
+    isSymbolicLink: () => kind === 'symlink',
+    isDirectory: () => kind === 'dir',
+    isFile: () => kind === 'file',
+  })
+  const TABLE = {
+    '': [ent('a.js', 'file'), ent('sub', 'dir'), ent('sneaky.test.js', 'symlink'), ent('realdir', 'symlink')],
+    'sub': [ent('b.test.ts', 'file')],
+  }
+  const visited = []
+  const files = walkLooseFiles('FAKE-ROOT', {
+    readdir: (abs) => {
+      const rel = String(abs).slice('FAKE-ROOT'.length).replace(/^[\\/]/, '').split(String.fromCharCode(92)).join('/')
+      visited.push(rel)
+      const list = TABLE[rel]
+      if (!list) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      return list
+    },
+  })
+  // 符号链接本身进清单（名叫 x.test.js 的链接同样是"发出去的测试文件"）；
+  // 但它**不会被展开**：realdir 那条链接既没进清单也没被访问。
+  assert.deepEqual(files, ['a.js', 'realdir', 'sneaky.test.js', 'sub/b.test.ts'])
+  assert.equal(files.includes('realdir/x'), false, '链接指向的目录不得被展开')
+  assert.deepEqual(visited.sort(), ['', 'sub'], '不得对符号链接路径调 readdir（跟随=把树外内容算成产物）')
+  // 同一份清单喂给判定层：链接名与真文件都要被抓出来
+  const verdict = evaluateEntries(files)
+  assert.equal(verdict.ok, false)
+  assert.deepEqual(verdict.tests, ['sneaky.test.js', 'sub/b.test.ts'])
 })
 
 test('checkLooseResources：目录不存在 / 不是目录 / 一个文件都没有 ⇒ 一律不判通过', () => {

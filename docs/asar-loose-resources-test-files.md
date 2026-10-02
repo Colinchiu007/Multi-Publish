@@ -75,7 +75,13 @@ packages/remotion-composer/node_modules/@multi-publish/story2video-engine/tests/
 ## 3.4 门禁扩一个 `--resources` 模式，并把接线锁从 1 个产物维度扩到 2 个
 
 - `checkLooseResources(dir)` → `walkLooseFiles(dir)` 递归扫松散树（不跟符号链接），复用同一条判据。
-- **空清单 / 目录不存在 / 不是目录 ⇒ 一律不判通过**（`unverifiable` 或抛错）。
+- 松散树扫描对**符号链接**的口径是"按名字计入清单、但绝不对链接路径调 readdir"：
+  跟随会把树外的内容算成产物（越界），而整条跳过会让一个名叫 `x.test.js` 的链接**从判据里消失**（假绿）。
+  两侧都不是我们要的，所以取"计入不展开"。该形状由 QM-6 外部评审提出，锁在
+  `check-asar-test-files.test.js` 的「符号链接『按名字计入但绝不跟随』」，反证为 CP-L。
+- 判据域内还实测过非 ASCII 路径、超深嵌套与文件名含 `#` 三种形状（真 tmpdir 自建夹具精确断言，
+  见「真目录实证」那条），因为剥注释的那套判据与 `#` 出现在文件名里是天然冲突点。
+- 空清单 / 目录不存在 / 不是目录 ⇒ 一律不判通过（`unverifiable` 或抛错）。
   "读不到产物"不等于"产物干净"，这条与 `--asar` 模式同口径。
 - `checkWiring` 现在要求 `build.yml` 里**同时**存在跑了 `--asar` 与 `--resources` 的两个步骤，
   且各自所在步骤的 `if:` 必须与打包步骤逐字相同、`shell: bash` 必须显式声明（同一个 run 块里多条命令
@@ -97,6 +103,10 @@ issue 建议"跑一次真实短视频合成"。实际做到的是**比单次合�
 3. **QM-1 冒烟**。打包产物起 12 秒仍存活，`stderr` 无 AGENTS.md 列出的禁用特征
    （`Failed to load platform config` / `ENOTDIR.*app.asar` / `Cannot find module` / `Uncaught Exception` /
    渲染进程崩溃）。隔离 userData 目录（空档案 ⇒ stderr 出现"许可证权限不足"属预期，与本改动无关）。
+4. **没有过排（与"排掉了"对称的另一半证据）**。只证明"测试文件没了"不够 —— 还得证明"该留下的留下了"：
+   `packages/remotion-composer/src` 仓库侧 40 个文件、产物侧 37 个，**差的正好是 `src/__tests__/` 那 3 个 `.test.ts`**；
+   产物 `src/` 直接子项 13 个文件 + 2 个目录（`cinematic`、`components`）全部在位，`config/config.yaml`、`config/platforms.yaml` 在位，
+   `@multi-publish/story2video-engine/tests/` 只剩 `fixtures` 目录（不是整目录消失）。
 
 **没有做**的一次真实 mp4 合成：被一个**先于本改动存在**的缺陷挡住了，见 §5。
 

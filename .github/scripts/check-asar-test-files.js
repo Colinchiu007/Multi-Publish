@@ -308,8 +308,11 @@ function checkExtraResourcesConfig (build) {
   return { ok: offenders.length === 0, offenders, covered, scanned: build.extraResources.length }
 }
 
-/** 递归列出目录下的文件（返回相对路径，统一正斜杠）。不跟符号链接，避免被外部目录带进来。 */
-function walkLooseFiles (rootDir) {
+/** 递归列出目录下的文件（返回相对路径，统一正斜杠）。 */
+function walkLooseFiles (rootDir, opts = {}) {
+  // readdir 可注入：符号链接这一支在 Windows 上"能不能真的建链接"取决于权限（非管理员通常 EPERM），
+  // 把该形状做成确定性夹具比"建不了就 skip"更可靠 —— 后者会让这条判据在多数机器上永久静默不跑。
+  const readdir = opts.readdir || ((abs) => fs.readdirSync(abs, { withFileTypes: true }))
   const out = []
   const stack = ['']
   while (stack.length > 0) {
@@ -317,13 +320,16 @@ function walkLooseFiles (rootDir) {
     const abs = path.join(rootDir, rel)
     let entries
     try {
-      entries = fs.readdirSync(abs, { withFileTypes: true })
+      entries = readdir(abs)
     } catch (e) {
       throw new Error('无法枚举 ' + abs + '（读不到即无法证明，拒绝判定为通过）：' + e.code)
     }
     for (const ent of entries) {
       const childRel = rel ? rel + '/' + ent.name : ent.name
-      if (ent.isSymbolicLink()) continue
+      // 符号链接**按名字计入清单但绝不跟随**：跟随会把树外的内容算成产物，
+      // 而整条跳过会留下假绿 —— 一个名叫 x.test.js 的链接同样是"发出去的测试文件"。
+      // （该形状由 QM-6 外部评审提出，实测产物里 0 个链接，但判据不该依赖运气。）
+      if (ent.isSymbolicLink()) { out.push(childRel.split(String.fromCharCode(92)).join('/')); continue }
       if (ent.isDirectory()) stack.push(childRel)
       else if (ent.isFile()) out.push(childRel.split(String.fromCharCode(92)).join('/'))
     }
