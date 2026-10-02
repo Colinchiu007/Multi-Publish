@@ -1208,6 +1208,8 @@ export default {
     titlePlaceholder: 'Enter article title',
     content: 'Content',
     contentPlaceholder: 'Enter content',
+    // Editor character counter suffix (ArticleEditor, PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1)
+    articleCharCount: ' chars',
     tags: 'Tags',
     tagsPlaceholder: 'Auto-appended to description; separate with commas',
     topics: 'Topics',
@@ -1436,6 +1438,10 @@ export default {
       scheduleRollbackFailed: (ctx) => ctx.named('count') + ' scheduled task(s) failed to roll back, please click cancel and retry',
       offlineCacheFailed: 'Failed to cache offline task',
       baijiahaoTitleTruncated: 'Baijiahao title auto-truncated to the 149-byte limit',
+      contentAutoTruncated: (ctx) => 'Content exceeded the platform limit and was auto-truncated (' + ctx.named('before') + ' → ' + ctx.named('after') + ' chars)',
+      // Platform char-limit system (PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F4)
+      articleContentTruncated: (ctx) => 'Content exceeded the app limit of 10000 characters and was truncated (' + ctx.named('before') + ' → ' + ctx.named('after') + ')',
+      platformContentTruncated: (ctx) => '"' + ctx.named('platform') + '" allows up to ' + ctx.named('limit') + ' characters; ' + ctx.named('before') + ' entered, will be truncated to ' + ctx.named('after'),
       publishSuccessMessage: (ctx) => ctx.named('platform') + ' published successfully',
       // publish-progress-ux: session-final-state driven result card summaries (PRD §8.4)
       resultAllSuccess: (ctx) => 'Published successfully to all ' + ctx.named('count') + ' platforms',
@@ -1453,6 +1459,7 @@ export default {
     },
     batchNotify: {
       contentInvalid: (ctx) => '"' + ctx.named('title') + '": ' + ctx.named('message'),
+      contentConverted: (ctx) => ctx.named('count') + ' post(s) exceed platform char limits and will be truncated per platform: ' + ctx.named('details'),
       retrySuccess: (ctx) => 'Resubmitted ' + ctx.named('accepted') + ' failed task(s)',
       retryPartial: (ctx) => 'Resubmitted ' + ctx.named('accepted') + ' task(s), ' + ctx.named('remaining') + ' still failed',
       retryFailed: 'Failed to resubmit failed tasks',
@@ -1468,7 +1475,7 @@ export default {
       publishSuccess: (ctx) => 'Batch publish complete: all ' + ctx.named('succeeded') + ' task(s) succeeded',
       statusTimeout: 'Batch publish status confirmation timed out, please check the final result in task history',
       confirmTitle: 'Confirm Batch Publish',
-      confirmMessage: (ctx) => 'About to publish ' + ctx.named('count') + ' article(s), ' + ctx.named('tasks') + ' platform account task(s) in total. Please confirm each platform form is complete.',
+      confirmMessage: (ctx) => 'About to publish ' + ctx.named('count') + ' article(s), ' + ctx.named('tasks') + ' platform account task(s) in total. Please confirm each platform form is complete.' + (ctx.named('converted') ? ' ' + ctx.named('converted') : ''),
       confirmButton: 'Confirm Publish',
       cancelButton: 'Cancel',
       progressStage: (ctx) => '[' + ctx.named('platform') + '] ' + ctx.named('stage'),

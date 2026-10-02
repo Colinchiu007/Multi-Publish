@@ -33,11 +33,15 @@ import {
   generateAiCover,
 } from '@/api/publisher'
 import {
+  applyPlatformContentConversion,
+  APP_ARTICLE_CONTENT_MAX,
   buildPublishTargets,
   normalizePublishFile,
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  minContentBudget,
+  truncateByChars,
   truncateByUtf8Bytes,
   validatePlatformContent,
   validatePublishMetadata,
@@ -309,6 +313,55 @@ export function usePublishFlow(options) {
       notifyWarning('publishPage.publishFlow.metadataInvalid', { message: metadataCheck.message })
       return
     }
+    // 应用级正文上限（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）：
+    // 超出 10000 字先截断并提示，再进入平台级校验/转换，两级截断各自出声。
+    // 提示缓冲：handlePublish 在通过全部校验后会重置 progress（publishing 锁开启时），
+    // 截断发生在校验阶段 → 直接 addProgress 会被清空（旧 contentAutoTruncated 同病）。
+    // 故先收集，待 progress 重置后统一发出。
+    const truncationNotices = []
+    const appContentBefore = Array.from(String(article.content || '')).length
+    if (appContentBefore > APP_ARTICLE_CONTENT_MAX) {
+      article.content = truncateByChars(article.content, APP_ARTICLE_CONTENT_MAX)
+      truncationNotices.push({
+        key: 'publishPage.publishFlow.articleContentTruncated',
+        params: { before: appContentBefore, after: APP_ARTICLE_CONTENT_MAX },
+      })
+    }
+
+    // 按平台的提交文本转换（PRD §F3）：超限平台写差异化覆盖（diffEdits 就地更新，
+    // buildArticleData 经 normalizePlatformOverrides 原样进 payload），未超限平台
+    // 保持全文 —— 取代旧「最小预算全局一刀切」（公众号等大限平台不再被误伤）。
+    // 无差异化覆盖通道的旧调用方（diffEdits 为空）：退化回最小预算全局截断，
+    // 保证转换结果仍能进 payload（写入临时对象会被丢弃，导致校验仍失败）。
+    if (diffEdits) {
+      const conversion = applyPlatformContentConversion({
+        platforms: selectedPlatforms.value,
+        article,
+        platformOverrides: diffEdits,
+      })
+      for (const truncation of conversion.truncations) {
+        truncationNotices.push({
+          key: 'publishPage.publishFlow.platformContentTruncated',
+          params: {
+            platform: truncation.label,
+            limit: truncation.limit,
+            before: truncation.before,
+            after: truncation.after,
+          },
+        })
+      }
+    } else {
+      const budget = minContentBudget(selectedPlatforms.value, article.title)
+      const before = Array.from(String(article.content || '')).length
+      if (budget !== null && before > budget) {
+        article.content = truncateByChars(article.content, budget)
+        truncationNotices.push({
+          key: 'publishPage.publishFlow.contentAutoTruncated',
+          params: { platform: '', limit: budget, before, after: Array.from(String(article.content || '')).length },
+        })
+      }
+    }
+
     const contentCheck = validatePlatformContent({
       platforms: selectedPlatforms.value,
       article,
@@ -318,6 +371,9 @@ export function usePublishFlow(options) {
       // 一键发布/历史视频预填场景：百家号标题按 UTF-8 字节数校验（上限 149 字节），
       // 预填文案可能超长。若仅因百家号标题超长失败，自动按字节截断标题后继续，
       // 避免阻断自动一站式流程；其他平台/字段超长仍提示并阻断，让用户手动调整。
+      // 2026-10-02 演进：正文超长已由上方 applyPlatformContentConversion 按**各平台
+      // 自己的上限**生成差异化覆盖（取代 2026-10-01 的最小预算全局截断），此处只剩
+      // 百家号标题的自动截断路径；正文仍失败（理论上罕见）则阻断并给出明确原因。
       const autoTruncatable = contentCheck.platform === 'baijiahao' && contentCheck.field === 'title'
       if (autoTruncatable && Number.isFinite(contentCheck.limit) && contentCheck.limit > 0) {
         // 截断来源：若差异化面板为 baijiahao 单独设置了覆盖标题，则截断覆盖标题；
@@ -332,7 +388,7 @@ export function usePublishFlow(options) {
           article.title = truncateByUtf8Bytes(article.title, contentCheck.limit)
         }
         addProgress(progressText('publishPage.publishFlow.baijiahaoTitleTruncated'), 'warning')
-        // 截断到 149 字节（约 49 中文字符）后重新校验剩余平台：可能仍超过
+        // 截断标题后重新校验剩余平台：可能仍超过
         // xiaohongshu(20字)/toutiao(30字) 等更严格平台的上限，需重新校验并阻断。
         const recheck = validatePlatformContent({
           platforms: selectedPlatforms.value,
@@ -351,6 +407,10 @@ export function usePublishFlow(options) {
 
     publishing.value = true
     progress.value = []
+    // 发出校验阶段缓冲的截断提示（在 progress 重置后，避免被清空）
+    for (const notice of truncationNotices) {
+      addProgress(progressText(notice.key, notice.params), 'warning')
+    }
     result.value = null
     activeTaskIds.value = []
     activeScheduleIds.value = []

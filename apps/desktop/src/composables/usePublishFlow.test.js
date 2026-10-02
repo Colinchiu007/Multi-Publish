@@ -1054,4 +1054,72 @@ describe('usePublishFlow — composable setup', () => {
     expect(r.publishing.value).toBe(false)
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })
+
+  // ─── 平台字数限制体系（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1/§F3/§F4）───
+  it('应用级截断：正文超 10000 字时截到 10000 并出进度警告，发布继续', async () => {
+    article.title = '标题'
+    article.content = '正'.repeat(10050)
+    const r = createFlow()
+    await r.handlePublish()
+    expect(mockPublishBatch).toHaveBeenCalled()
+    const warning = r.progress.value.find(item => item.text.includes('10000'))
+    expect(warning).toBeTruthy()
+    expect(warning.type).toBe('warning')
+    expect(warning.text).toContain('10050')
+    expect(warning.text).toContain('10000')
+  })
+
+  it('应用级边界：正文恰好 10000 字不截断不提示', async () => {
+    article.title = '标题'
+    article.content = '正'.repeat(10000)
+    const r = createFlow()
+    await r.handlePublish()
+    expect(mockPublishBatch).toHaveBeenCalled()
+    expect(r.progress.value.some(item => item.text.includes('10000 字上限'))).toBe(false)
+  })
+
+  it('按平台转换：大限平台保持全文，超限平台写差异化覆盖并逐平台提示', async () => {
+    // 模拟 Publish.vue 的真实接线：diffEdits 为 reactive 对象直接传入
+    const diffEdits = reactive({})
+    const flow = usePublishFlow({
+      article,
+      selectedPlatforms,
+      selectedAccounts,
+      precheckEnabled,
+      diffEdits,
+    })
+    article.title = '标题'
+    article.content = '正'.repeat(8000) // 超 xiaohongshu(5000)，不超 wechat_mp(20000)
+    selectedPlatforms.value = ['wechat_mp', 'xiaohongshu']
+    selectedAccounts.value = { wechat_mp: 'acc1', xiaohongshu: 'acc2' }
+
+    await flow.handlePublish()
+
+    expect(mockPublishBatch).toHaveBeenCalled()
+    // publishBatch(targets, data)：data 是第二个参数
+    const data = mockPublishBatch.mock.calls[0][1]
+    // 全局正文不被裁：公众号全文
+    expect(data.content).toBe('正'.repeat(8000))
+    // 小红书差异化覆盖截到 5000
+    expect(data.platformOverrides.xiaohongshu).toBeTruthy()
+    expect(Array.from(data.platformOverrides.xiaohongshu.content).length).toBe(5000)
+    expect(data.platformOverrides.wechat_mp).toBeUndefined()
+    // 逐平台提示
+    const warning = flow.progress.value.find(item => item.text.includes('小红书'))
+    expect(warning).toBeTruthy()
+    expect(warning.text).toContain('5000')
+    expect(warning.text).toContain('8000')
+  })
+
+  it('按平台转换（无覆盖通道退化路径）：diffEdits 缺省时按最小预算全局截断', async () => {
+    article.title = '标题'
+    article.content = '正'.repeat(8000)
+    selectedPlatforms.value = ['douyin'] // contentMax=5000
+    selectedAccounts.value = { douyin: 'acc-douyin' }
+    const r = createFlow() // 不传 diffEdits
+    await r.handlePublish()
+    expect(mockPublishBatch).toHaveBeenCalled()
+    const data = mockPublishBatch.mock.calls[0][1]
+    expect(Array.from(data.content).length).toBe(5000)
+  })
 })
