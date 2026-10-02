@@ -29,5 +29,22 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 ### 遗留（不假装已闭合）
 
 - **观察期的数字现在不可信**：既然 `docs-only=true` 的 PR 上这条判据从未执行，那"advisory 窗口里到底漏了多少条"就无法从 advisory 输出里读——只能像 #2717 那样用 first-parent 窗口离线统计。8.2 的复盘若要写"存量数字是否下降"，必须标明这个口径缺口，不得拿 advisory 计数当趋势。
-- **7.1a 的落点选的是 `文档同步检查`，但那是另一个 workflow 的 required context**：把一个 change 的门禁挂到兄弟 workflow 上，会让"这条判据属于 quality-gate"的直觉失效。备选是给它单独加一个 required context（干净但需要动 ruleset —— 属共享配置，须另行确认）。任务里按"复用已有 required context"写，就是为了让第 7 组不碰 ruleset；若评审认为不该跨 workflow，这条要改。
+- **【2026-10-02 同日晚些时候被推翻，见下方「更正」】7.1a 的落点曾选 `文档同步检查`**，理由写的是"`QG Changes` 不在 required 清单，红也不拦"。这个推论错了，落点也随之改回 `quality-gate.yml` 的 `changes` job；详见本文件末尾的「更正」小节。此处保留原文以免把"改过判断"抹平成"一开始就对"。
 - **本次仍未转阻断**：按既定决定，等在途 PR 排空。本 PR 只把"排空后该怎么落地"钉清楚。
+
+### 更正（同一会话内被自己的二次实测推翻，2026-10-02）
+
+上面「修复 + 回归保护」行与「遗留」第 2 条里，**"把判据搬进 `changes` job 只解决不被短路、不解决红得动（`QG Changes` 不在 required 清单）"这一句是错的**，落点结论一并作废，已在 tasks 7.1a/7.1b/7.1c 改写。三条实测依据：
+
+1. **required 是两层并集，不是一层。** ruleset `main-ci-gate` 给 6 个（`QG Static`/`QG Unit Tests`/`electron-tests`/`文档同步检查`/`债务熔断检查`/`单元测试 + Lint`），classic protection 另给 4 个（`Gate Result`/`build`/`QG Unit Tests`/`QG Coverage`），并集 9 个。我先前只读了一层，还把"另一层"判成不存在。
+2. **`Gate Result` 是 required，且它 `needs: [changes, …]` + `if: always()`**，判定表逐条列 `changes` 的结果、`$allowed = @('success','skipped')`、其余 `exit 1`（`quality-gate.yml` L1073-1111 实读）。⇒ `changes` 失败会经 `Gate Result` 拦下合并。"不在 required 清单的 job 红了也没用"这个直觉，在**有聚合 job 且聚合 job 本身 required** 的仓库里不成立——判"红得动"必须连着看 `needs` 边，而不是只看 context 名。
+3. **落点因此回到 `changes`**：与 #2718 为 `check-gate-record-debt` 选的形制一致（不被短路、`fetch-depth: 0`、base sha 在作用域内），且判据仍住在它自己的 workflow 里，不跨 workflow 借 context。
+
+**我这轮在此过程中踩到的三个探针错误，都记下来（它们各自都能伪造一个结论）**：
+
+- `gh api repos/…/branch-protection` 返回 404，被我读成"本仓没有 classic protection"。真正的端点是 `branches/main/protection`，它是活的。**404 是坐标错误的表现，不是配置不存在的证据。**
+- `gh api … --json required_status_checks`：`--json` 不是 `gh api` 的旗标（那是 `gh pr view` 的）。**实测 rc=1、输出是 usage 文本**——命令本身失败得很响亮，真正的问题在我这边：那一次我把 `echo "rc=$?"` 写在一条裸 `echo` 之后，取到的是那条 `echo` 的 0，于是"它失败了"这个事实被我自己的取码写法吃掉，只留下"输出不像数据"的印象。口径：取码一律 `out=$(cmd 2>&1); rc=$?`，中间不得插任何命令。
+- ruleset 的 context 挂在 `parameters.required_status_checks` 下，不在 `rules`；而 `/rulesets` 列表端点里的 `rules` 本就是空的。按 `rules` 解析得到 `contexts=[]`，我当场差点据此判"ruleset 没要求任何检查"。
+
+**遗留追加**：7.1c 里"聚合边有效"目前是**读代码**得出的，没跑过反证。第 7 组必须补一次现场反证——让 `changes` 真红一次，确认 `Gate Result` 随之红且 PR 合不动；只看判定表文本不构成证据。
+
