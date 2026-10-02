@@ -1,3 +1,16 @@
+# [未发布] fix(story2video): 竖屏成片图片宽高比断链修复——9:16 不再生成 16:9 横图（2026-10-02，fix-s2v-portrait-image-aspect）
+
+### 根因（QM-5 ①）
+- 故事讲述流水线选 720x1280 竖屏时成片正确、场景图片却是横屏（实测项目 mur2tzc8_ru1r：图片 2624x1472 vs 成片 720x1280，合成 decrease+pad 补黑边）。第一性原因：agnes-image.js 的 generateImage 只读 params.ratio——把 **Agnes API 请求体字段名**误用作**入参契约名**，而流水线统一契约键是 aspect_ratio（snake_case，asset-generator/story2video-stages）与 aspectRatio（camelCase，normalizer）。键名不匹配 ⇒ 参数**静默丢弃**、恒回退默认 16:9，无任何报错。引入点：c9df8bf5（2026-07-15 新增 9 供应商 Adapter）。
+
+### 修复
+- agnes-image.js 入参解析扩展为 aspect_ratio || aspectRatio || ratio || 默认16:9（优先级 + 向后兼容既有 ratio 直调方）；请求体字段名 ratio 不变（Agnes API 契约不动）；JSDoc 同步三键语义。
+- 供应商矩阵清点：minimax-image / imagen / flux / local-diffusion / openai-image 的宽高比入参解析均正常，仅 agnes-image 断链。同族观察项（非断链、不盲改）登记 01-docs/tech-debt.md：recraft 只读 params.size（官方尺寸白名单未核实）、podcast-repurpose 默认 16:9 与竖屏 compose 的产品语义待确认。
+
+### 回归保护（QM-5 ④⑤）
+- 行为回归 5 例：agnes-image.test.js（aspect_ratio/aspectRatio → 请求体 ratio、无参缺省语义）、agnes-multimodal.test.js（委托链全透传，用户实测路径）、podcast-repurpose-stages.test.js（阶段层透传）。
+- 新增结构锁 electron/services/adapters/image-adapter-aspect-contract.test.js：扫源码断言全部图片适配器宽高比解析表达式双键齐全 + asset-generator 双键透传 + story2video-stages 两条路径；变异反证实跑（还原 bug 代码 → 3 例红 → 恢复全绿）。
+- AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁条目；机制详见 01-docs/PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-02.md。
 # [未发布] fix(packaging): app.asar 之外的松散文件树不再随包发单元测试（2026-10-02，asar-loose-resources-tests）
 
 ### 根因
