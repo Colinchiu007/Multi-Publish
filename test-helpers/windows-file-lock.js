@@ -40,10 +40,15 @@ const LOCK_MARKER = 'LOCKED'
 /** 子进程在 `[IO.File]::Open` **之前**吐这个标记：用于把"PS 没起来"与"起来后 open 卡住"分开 */
 const READY_MARKER = 'READY'
 
-// 启动相位：PowerShell 冷启动是被测语义之外的环境开销，且其长尾已被实测证实——
-// 本机 16 核 + 16 忙循环下首个 stdout 字节从 0.3s 涨到 3.6~8.4s；main 上出现过
-// 「20s 内零 stdout 且子进程未退出」，即 20s 预算在 CI 满载下会被冷启动独吞。
-// 因此给它独立且宽裕的预算，但**必须**小于用例总超时（见 LOCK_CASE_TIMEOUT_MS）。
+// 启动相位：PowerShell 冷启动是被测语义之外的环境开销，长尾**按 CI 作业日志实测**（不靠"听说某宿主是秒级"）：
+// 2026-10-02 由 scripts/lock-timing-audit.js 取 origin/main 最近 26 次 push run 的 41 个
+// `QG Desktop Shards` 作业、共 410 条握手样本，实测 **max = 12762ms**；更早的窗口量到 21090ms，
+// 同一量级 ⇒ 长尾稳定存在，只是每次抽到的最大值不同。
+// 20s 的旧预算会被这一步独吞（ready=21090ms 时它直接判"子进程没起来"，正是当初那次假归因），
+// 现值按 `≥ maxObservedReadyMs × safetyMultiplier` 取，出处见下方 LOCK_BUDGET_PROVENANCE。
+// ⛔ 重测量出**更低**的值不构成收紧预算的理由：长尾只会因窗口变窄而漏看，不会因本次没看到而被否证。
+// 要收紧必须先给出多窗口对照，且不得反过来放宽断言（AGENTS.md QM-3「两条正解」）。
+// 复测入口：scripts/lock-timing-audit.js（其与本常量的字段对齐由同名测试的结构锁守住）。
 const DEFAULT_READY_TIMEOUT_MS = Number(process.env.MP_WINDOWS_LOCK_READY_TIMEOUT_MS) || 45000
 // 持锁相位：PowerShell 已存活，这一步实测稳定在亚秒级，收紧才能暴露真正的锁问题。
 const DEFAULT_LOCKED_TIMEOUT_MS = Number(process.env.MP_WINDOWS_LOCK_OPEN_TIMEOUT_MS) || 12000
@@ -52,6 +57,46 @@ const DEFAULT_RELEASE_TIMEOUT_MS = Number(process.env.MP_WINDOWS_LOCK_RELEASE_TI
 const PRODUCTION_HEADROOM_MS = 15000
 const LOCK_CASE_TIMEOUT_MS =
   DEFAULT_READY_TIMEOUT_MS + DEFAULT_LOCKED_TIMEOUT_MS + DEFAULT_RELEASE_TIMEOUT_MS + PRODUCTION_HEADROOM_MS
+
+/**
+ * 预算取值的出处。这组数字不是估的：由 scripts/lock-timing-audit.js 从 GitHub Actions
+ * 作业日志里的 `[windows-file-lock] ready=…ms locked=…ms` 汇总而来。留下来的目的是回答
+ * 「45000 是怎么来的」，并让下一个人能重新量一遍而不是再猜一遍。
+ * 复现性优先于"历史最大值"：这里记的是**当前这条命令现在能重新跑出来的那组数**，
+ * 更早窗口量到的 21090ms 写在上方注释里 —— 预算按更保守的那个量级取，且低值不构成收紧理由。
+ * @type {{maxObservedReadyMs: number, samples: number, runs: number, jobs: number, safetyMultiplier: number, collectedAt: string, source: string}}
+ */
+const LOCK_BUDGET_PROVENANCE = {
+  maxObservedReadyMs: 12762,
+  samples: 410,
+  runs: 26,
+  jobs: 41,
+  safetyMultiplier: 2,
+  collectedAt: '2026-10-02',
+  source: 'CI 作业 QG Desktop Shards (1/2|2/2) 日志里的 [windows-file-lock] ready=/locked= 行，'
+    + '由 scripts/lock-timing-audit.js 汇总：node scripts/lock-timing-audit.js --runs=26 --json'
+    + '；采不到样本时该脚本以 rc=3 出声 —— 零样本不等于没问题'
+    + '（更早窗口量到 max=21090ms，同一量级；预算按量级取，不按单次抽样取）'
+}
+
+// 每次真握手都进这本账，供"本次 CI 的观测值有没有贴脸逼近预算"这条回归检查取数。
+// mock 注入（options.spawnImpl）的样本一律不记：假跑出来的 readyAt 是 0ms，
+// 混进台账会让那条断言退化成恒真 —— 而同文件里"标记不等于效果"那条正是靠假子进程跑的。
+const LOCK_TIMINGS = []
+/** @param {{readyMs: number, lockedMs: number, holdMs: number}} sample */
+function recordLockTiming (sample) {
+  LOCK_TIMINGS.push({
+    readyMs: Number(sample.readyMs),
+    lockedMs: Number(sample.lockedMs),
+    holdMs: Number(sample.holdMs),
+    at: Date.now(),
+  })
+  if (LOCK_TIMINGS.length > 500) LOCK_TIMINGS.shift()
+}
+/** @returns {Array<{readyMs: number, lockedMs: number, holdMs: number, at: number}>} */
+function getLockTimings () {
+  return LOCK_TIMINGS.map((row) => Object.assign({}, row))
+}
 
 /**
  * 累计式标记匹配器（纯对象，便于单测跨块行为）。
@@ -254,6 +299,7 @@ async function holdExclusiveWindowsFileLock (filePath, holdMs, options = {}) {
   // 逐次留痕：预算该给多大要靠这里攒出来的分布，不是靠注释里的"秒级"断言。
   console.log('[windows-file-lock] ready=' + readyAt + 'ms locked=' + lockedAt + 'ms'
     + ' verify=' + (effective === null ? 'off' : 'ok') + ' holdMs=' + holdMs)
+  if (!options.spawnImpl) recordLockTiming({ readyMs: readyAt, lockedMs: lockedAt, holdMs })
 
   return {
     exitPromise,
@@ -277,4 +323,6 @@ module.exports = {
   DEFAULT_RELEASE_TIMEOUT_MS,
   PRODUCTION_HEADROOM_MS,
   LOCK_CASE_TIMEOUT_MS,
+  LOCK_BUDGET_PROVENANCE,
+  getLockTimings,
 }
