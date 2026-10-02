@@ -1,3 +1,33 @@
+# [未发布] feat(publish): 作品发布频率控制机制接线——发布间隔从「从未生效」变为运行时强制（2026-10-02，publish-frequency-control）
+
+### 根因：机制存在但三条断链使其在生产中从未运行（PRD-PUBLISH-FREQUENCY-CONTROL-2026-10-02）
+
+- `PublishIntervalGuard` 与 `TaskQueue` 的频控逻辑早已实现、60+ 条单测全绿，但 `container.setup.js` 注册 `taskQueue` 时未注入守卫、`bootstrap.js:77` 调 `createContainer()` 不带参数（逃生口也死）、`phase3-services.js` 把守卫读进 `_publishIntervalGuard` 后全文件再无引用。实测取证：`recordPublish`/`canPublish`/`getRemainingWait` 生产调用点 0，`shared-user-data` 与 debug profile 两个库的 `publish_timeline` **均 0 行**。
+- 三条发布入口全部直达队列且无节流（`ipc-handlers/publish.js` 的 `publish:wechat`/`publish:batch`、`batch-manager`、`offline-manager`），叠加 `maxConcurrent: 3` ⇒ 一键发布多平台时最多 3 条**并发提交、间隔 0**。CDP 测出的 1–2 分钟间隔不是特殊路径，用户点「一键发布」同样复现。
+- 点名三个「看着像但不是」的防线，避免后来者误判已受保护：`api-usage-governor`/`rate-limit-self-check` 管 LLM 供应商额度；`publish-contract.js` 的 `DEFAULT_MIN_ACCOUNT_INTERVAL_MS` 只是渲染层定时发布表单的输入校验；`riskSuspender` 是风控命中后的事后即停。
+
+### 实现
+
+- 新增发布最小间隔策略单一真源 `packages/shared-utils/src/publish-frequency-policy.js`：两档（账号档 `platform:accountId` + 同平台跨账号平台档 `platform:*`），15 平台分组 + 未登记平台回落**最严基线**（不得回落 0）；`MP_PUBLISH_MIN_INTERVAL_MS` / `MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS` 可覆盖，`0` = 显式关闭该档，非法值回落默认并**出声告警**。数值是工程保守估计（宁慢不险），**不是平台官方规则**，PRD 与代码注释均已如实标注。
+- 刻意不放进 `publish-capabilities.json`：该注册表承载内容能力（titleMode/字数限制/字段矩阵），与调度节奏是两类关注点；且实测有 3 个在飞分支（`toutiao-timed-publish`/`fix-article-publish-image-platforms`/`platform-char-limits`）正在改它及其 58 例测试。
+- `PublishIntervalGuard` 扩展为双档 `check()`（返回 `{allowed, remainingMs, bucket}`，取更严一档）；`recordPublish` 一次占两档。**`accountId` 缺席时跳过账号档、平台档仍生效**，关闭「`publish:wechat` 固定传 null ⇒ 完全不受限」的绕过口。
+- `TaskQueue` 记账时机从 `task:success` **前移到提交之前**。理由不是时序偏好：平台按「请求已发生」计窗口，只在成功路径记账会让「内容已发到平台但应用判超时/报错」（视频上传 30 分钟预算下不罕见）既不占窗口又被重试 ⇒ 重复发布。副作用是失败后需等满窗口才能重发，已在 PRD §5.2 明示为知情代价。顺带消除一处宿主契约违反——`base-store.js` 明文禁止在回调/定时器中重读登录态，而原记账落在 `await Promise.race(...)` 之后。
+- 等待语义：回退 `pending`、不消耗 `retriesLeft`、`unref` + `_pendingTimers` 登记供 `shutdown()` 清理、重排回调再查取消。决策 D1 = 全部排队等待（不拒绝）。
+- **不新增相位**：`blocked` 相位、`stageKey:'waiting'`（`⏳` 前缀规则）、进度面板剩余等待渲染**早已存在且被测**，缺的只有生产者。因此无 locale 成对修改、无渲染层改动。
+- 清理 `phase3-services.js` 死变量及其 JSDoc/测试夹具——它的全部作用是让下一次审计误以为「已经接线了」。
+
+### 回归锁与反证
+
+- 装配锁 3 条（`container.setup.test.js`）：真实 `createContainer()` 里 `taskQueue` 拿到的守卫必须与 `publishIntervalGuard` 同一实例；`options.taskQueue` 不得把守卫覆盖成 `undefined`（注入排在展开之后）；守卫间隔必须按平台策略解析、不得回退硬编码。断言前自行钉住环境变量档位，避免开发机残留覆盖值造成假红。
+- 行为锁：失败/超时仍占窗口、重试必须等满窗口、缺席账号仍受平台档约束、两档取更严、`0` 关闭档、非法值回落并告警、未登记平台回落最严基线。
+- 四条变异**已实跑**且各自只让预期的那条锁变红（摘注入 / 记账挪回成功路径 / 缺席跳过全部检查 / 守卫改 no-op），还原后逐字节相同。cause-match 用 `-t "<用例名>"` 先证明筛选器命中且基线绿，再证明变异红；锚点按文件真实行尾归一（本仓 CRLF，用 `'\n'` 手抄锚点会 0 命中而静默跳过）。
+- 既有用例纠偏 2 条：`不同账号同一平台互不影响`、`无 accountId 的任务不被拦截（向后兼容）` 把旧单档模型钉成了产品规则，按决策 D2 与「缺席不等于放行」改写。**不放宽、不 skip、不记欠账**。
+- `index.d.ts` 中 `PublishIntervalGuard` 的声明与实现签名**完全脱节**（`markPublished`/`getNextAvailableTime` 全仓不存在），本次一并纠正为真实 API。
+
+### 不做
+
+- 不做设备/IP 级全局串行（会废掉「一键发多平台」核心用途）；不做每日条数 quota；不在设置页暴露间隔。
+
 # [未发布] fix(publish): 固化标签切回后发布页草稿状态丢失（视频文件等信息不保存）（2026-10-02，publish-tab-state-keepalive）
 
 ### 根因

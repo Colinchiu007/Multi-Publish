@@ -72,12 +72,46 @@ export default class PlatformConfig {
 }
 
 // ---- 发布间隔守卫 ----
-export class PublishIntervalGuard {
-  constructor(opts?: { minInterval?: number });
-  canPublish(platform: string): boolean;
-  markPublished(platform: string): void;
-  getNextAvailableTime(platform: string): number;
+export interface PublishFrequencyIntervals {
+  /** 同一账号在同一平台两次发布的最小间隔 (ms)；0 = 该档关闭 */
+  accountMinMs: number;
+  /** 同一平台任意两次发布的最小间隔 (ms)，跨账号；0 = 该档关闭 */
+  platformMinMs: number;
 }
+
+export interface PublishIntervalVerdict {
+  allowed: boolean;
+  remainingMs: number;
+  bucket: 'account' | 'platform' | null;
+}
+
+export class PublishIntervalGuard {
+  constructor(opts?: {
+    minInterval?: number;
+    policy?: (platform: string) => PublishFrequencyIntervals;
+    store?: { get(key: string): number | null; set(key: string, value: number): void };
+    now?: () => number;
+  });
+  /** accountId 缺席时跳过账号档、平台档仍生效 */
+  check(platform: string, accountId?: string | null): PublishIntervalVerdict;
+  canPublish(platform: string, accountId?: string | null): boolean;
+  getRemainingWait(platform: string, accountId?: string | null): number;
+  /** 必须在提交给执行器之前调用；两档同时占位 */
+  recordPublish(platform: string, accountId?: string | null, timestamp?: number): void;
+  static PLATFORM_BUCKET_ACCOUNT_ID: string;
+}
+
+export const publishFrequencyPolicy: {
+  resolveIntervals(
+    platform: string,
+    options?: { env?: Record<string, string | undefined>; warn?: (msg: string) => void }
+  ): PublishFrequencyIntervals;
+  PLATFORM_FREQUENCY_POLICY: Record<string, PublishFrequencyIntervals>;
+  BASELINE_INTERVALS: PublishFrequencyIntervals;
+  SUPPORTED_PLATFORMS: readonly string[];
+  ENV_ACCOUNT_MIN_INTERVAL: string;
+  ENV_PLATFORM_MIN_INTERVAL: string;
+};
 
 // ---- 定时发布 ----
 export interface ScheduledTask {
