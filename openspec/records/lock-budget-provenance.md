@@ -2,9 +2,6 @@
 record: lock-budget-provenance
 task: Windows 锁夹具的三段等待预算从"注释里说秒级"升级为可重跑的 CI 分布回归检查（provenance 常量 + 每次 push 的活体台账 + 仓库内复测入口）
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（回填时把上面这行远程同步改成 PASS，并整段删除 sync_status / sync_reason / sync_backfill_owner 三个字段——漏删会报「已回填却仍留登记字段」）
 ---
 
 ## 本次执行记录：锁预算取值来源落成 CI 分布回归检查（lock-budget-provenance，2026-10-02）
@@ -30,7 +27,7 @@ sync_backfill_owner: 下一个会话（回填时把上面这行远程同步改�
 | QM-1 打包 | ➖ N/A | 未触 `apps/desktop/electron/**` 生产代码与 `packages/rpa-engine/**`；改动是测试夹具 + 测试文件 + 仓库工具脚本 + 文档 |
 | QM-4 视觉 | ➖ N/A | 无 UI 面改动；CI `QG Visual` 仍会全量代跑作对照 |
 | QM-6 CCG 双模型外部评审 | 未执行（两渠道均现场失败，一手报错照录） | 真源 `~/.claude/.ccg/config.toml`：`[routing.backend].primary=codex`、`[routing.frontend].primary=claude`，经 `codeagent-wrapper --lite` 并行审查本 diff。**两条病因不同，不得合并成"渠道不可用"**：后端 = `unexpected status 502 Bad Gateway, url: http://127.0.0.1:15721/v1/responses`，连续 5 次重连后 `codex exited with status 1`；前端 = `type=system subtype=api_retry attempt=1..10 error="unknown" error_status=null`（重试间隔 32–38s），10 次耗尽后 `claude exited with status 1`。wrapper 退出即删自己的 per-PID 日志，这次是靠 `TMP/TEMP` 指向可预测目录 + 运行中旁路快照才留住上面两行原文（另注意它会 `Reading additional input from stdin...`，后台跑必须 `< /dev/null`）。本地路由代理属机器级配置，不在本任务授权内，只报告不动手 ⇒ 不以自审冒充通过，改由 QM-2 自审 + 10/10 变异反证 + 四调用点实跑覆盖。补跑责任与 #2731/#2719 那一条同批，见「遗留」 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin lock-budget-provenance` 返回 0 行证远端分支已删；回填后**整段删除**上方三个 `sync_*` 字段 |
+| 远程同步 | PASS —— 已合并：squash 落地 `31958ce1e629c663cf420f7c1588cbacb97b4e45`（PR #2772，2026-10-02T11:35:26Z）。取证两条独立：`git log origin/main --grep=`(#2772)$` --format=%H\|%cI` 唯一命中该 SHA 与时间，`git merge-base --is-ancestor 31958ce1 origin/main` 判它确在 main 上；`git ls-remote --heads origin lock-budget-provenance` 返回 **0 行**，证远端分支已随 squash 删除。CI 侧 21 项检查全出结果、fail=0 / cancelled=0，由 auto-merge（squash）合入。合并后 main 上三个新文件逐个 `git ls-tree` 核实存在。三个 `sync_*` 登记字段随本次回填**整段删除**（漏删即报「已回填却仍留登记字段」）。 |
 
 ### 遗留（不假装已闭合）
 

@@ -2,9 +2,6 @@
 record: backfill-gate-rows-own
 task: 回填 #2754 / #2755 两条批量回填记录自身的远程同步行并销账（18→16）
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：回填 #2754 / #2755 两条批量回填记录自身的远程同步行并销账（backfill-gate-rows-own，2026-10-02）【docs-only】
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | QM-6 CCG 双模型外部评审 | N/A | 纯文档销账，零运行时代码；按 AGENTS.md「纯文档/流程变更不强制 QM-6」。 |
 | 品牌残留（Gate 12） | PASS | 取证行只写分支名与 SHA；`node scripts/check-no-brand-residue.js` 实测见 PR 说明。 |
 | 文档同步（doc-gate） | PASS | 不改任何用户可见行为；`bash scripts/check-docs-sync.sh --base=main --head=HEAD` 实测见 PR 说明。 |
-| 远程同步 | PENDING | 本条自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话，取证口径沿用上方那一行里的四条命令。 |
+| 远程同步 | PASS | 已合并：squash 落地 `e5ac459710a3b96088ad01bda75efb094d77c2e4`（PR #2768，committer `2026-10-02T10:42:32Z`）。取证 `git log origin/main --grep='(#2768)$' --format=%H|%cI` 唯一命中同一 SHA；head 分支 `backfill-gate-rows-own` 经 `git ls-remote --heads origin backfill-gate-rows-own` 返回 **0 行**。合并后已按对象核验 main 上的真实内容（非凭记忆）：`.quality-gates.md` 中 #2754 / #2755 两行均含各自 merge SHA 且状态为 PASS，`scripts/gate-record-debt-ledger.json` 在 `origin/main` 上为 **16 键**、我那两条登记项已消失。 |
 
 ### 遗留（不假装已闭合）
 
