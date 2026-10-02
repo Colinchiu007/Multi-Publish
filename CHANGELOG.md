@@ -7,6 +7,19 @@
 - 兜底日志三分「无候选 / 探过 N 份都没有该平台 Cookie（列出探过哪些）/ 探测本身失败」；旧口径把三者写成同一句话，现场无法区分「真的没登录过」与「被空壳遮断」
 - 未主动删除空壳分区本身：按内容删需要「这个分区确实没有可用凭证」的可靠判据，而域名判据对个别平台偏窄，误判即等于抹掉不可恢复的凭证。本 PR 修的是**读**，不是**清**（留痕见 `01-docs/BUGFIX-AUTH-PARTITION-CONTENT-SELECT-2026-10-01.md` §8）
 
+# [未发布] fix(publish): 固化标签切回后发布页草稿状态丢失（视频文件等信息不保存）（2026-10-02，publish-tab-state-keepalive）
+
+### 根因
+- App.vue 主窗口工作区 `<router-view>` 曾以 `v-if="!isLoginTab"` 条件渲染：切到账号/登录标签时 isLoginTab 变 true，v-if 卸载整棵路由子树，Publish.vue 的局部 reactive `article`（含 video_path）与 videoFileMeta 随之销毁；切回首页重挂载为全新实例 → 已选视频等未保存草稿全部丢失。
+
+### 修复
+- `<router-view v-if="!isLoginTab" />` 改为 `v-show`：登录/账号标签激活时内嵌 WebContentsView 已覆盖内容矩形，`display:none` 与「移除」视觉/布局等价，但组件实例保持挂载、草稿状态原样保留；「隐藏 router-view 避免重叠」的原意不回退。
+
+### 回归保护
+- 新增 apps/desktop/src/publish-tab-state-keepalive.test.js：真挂载 App.vue + 真实 tab store，驱动 home→账号标签→home 来回，断言工作区路由组件实例从未被销毁（setup 计数恒 1、草稿值保留、隐藏期仅 display:none）。反证：改回 v-if 该测试变红（已实测）。
+- shell-mode-6a/6b、tab-independent-home、overlay-view-suspension 同批跑通，无回归。
+- 详见 01-docs/PRD-PUBLISH-TAB-STATE-KEEPALIVE-2026-10-02.md。
+
 # [未发布] feat(publish): 图文发布字数上限体系——应用 10000 字 + 平台限制入库与按平台截断转换（2026-10-02，platform-char-limits）
 
 ### 应用端 10000 字上限（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）
