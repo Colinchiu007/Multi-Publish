@@ -50,4 +50,4 @@ function registerHandlers (ipcMain, deps) {
   })
 }
 
-module.exports = { registerHandlers }
+module.exports = registerHandlers

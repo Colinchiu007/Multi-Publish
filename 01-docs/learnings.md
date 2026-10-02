@@ -17063,3 +17063,61 @@ files=4  （含 config/platforms.yaml 与测试文件）
    判定必须用单一真源脚本，**禁止人工目测**。
 
 **一句话**：*提交前先让脚本告诉你"这是哪类 PR"，再决定走哪套节拍——别凭"看起来像文档"来判断。*
+## 分类/标签类配置缺失时的 fail 方向必须反过来：它是展示资产不是权限边界（automation-content-category，2026-10-03）
+
+- **机制**：本仓既有口径是 fail-closed —— 运营 feature flag 读不到一律按关闭（ADR-0006：入口存在性就是权限边界，不能"读不到就当开"）。做「统一内容类别」时沿用同一套是错的：运营中心没配过时，热门选题会变成**零分类**、采集库打不了标签、离线用户直接不可用。
+- **判据（可复用）**：先问「这个配置缺失时，用户失去的是**能力**还是**权限**？」失去权限 → fail-closed（宁可不给）；失去展示内容 → fail-open（没配过就该用内置默认值）。`normalizeContentCategories` 在 null / 空数组 / 结构非法 / 全条目非法四种情况下一律回退内置 10 类，并置 `usingDefault=true` 让界面知道当前是回退态。
+- **同源两份**：主进程 CJS（`electron/services/content-categories.js`）与渲染层 ESM（`src/features/content/content-categories.js`）是同一判据的两个模块格式（同 platform-definitions 先例）。改任一侧必须同步改另一侧并跑两侧测试 —— 运营改一次名，两侧必须同时看到新名字。
+
+## 多入口写入的字段，收口点选「落盘前」而不是逐个构造点（automation-content-category，2026-10-03）
+
+- **机制**：`Collection.vue` 有 9 处 `collectedItems.value.unshift(...)`，每条路径字段齐全程度不同（批量采集轮询那条最不完整）。加字段时逐个构造点改是**漏改的温床**——漏一条的表现是「这条内容打不了标签」，用户无法区分是功能坏了还是自己没设置。
+- **正解**：在唯一的 `saveCollectedItems()` 落盘前统一归一，构造点一个都不用动。
+- **判据（可复用）**：**找写入真源的唯一必经点，而不是找所有产生点。** 后者会随代码演进不断新增，前者只有一个。
+
+## 未知 key 保留 > 丢弃，但必须出声：宁可留一个暂时无意义的引用也不要静默销毁用户数据（automation-content-category，2026-10-03）
+
+- **机制**：账号分组 `categoryTags`、采集条目 `tags` 都可能引用一个运营后来删掉的类别。丢弃 → 用户标签静默消失且不可恢复；保留 → 运营重建同名类别时引用自动恢复。
+- **正解**：保留，并记入 `unresolvedCategoryTags` / 渲染时置灰 + 悬停说明「该类别已被删除，标签保留但不再参与筛选」。
+- **同源先例**：与 P2-8a 分组归一化里「未知账号 id 保留在组里」是同一条规则，两处必须同口径。
+
+## 读写两条归一路径必须同一处改动：文件头注释里的"曾经踩过的坑"是真约束（automation-content-category，2026-10-03）
+
+- **机制**：`account-groups-store.js` 的 `normalizeAccountGroups`（读侧归一）与 `stores/accounts.js` 的 `createGroup`（写侧构造）产出同一种对象，一旦不一致必然漂移 —— 这正是该文件头注释**明确警告过的失败模式**（它此前因两套归一逻辑并存丢过数据）。
+- **正解**：加字段时同一次改动里同时改两处，并让写侧复用与读侧同源的校验（写侧 `normalizeCategoryTags` 与读侧 `CATEGORY_KEY_RE` 同正则、同上限）。
+- **可复用判据**：读到「本文件是为了避免 X 而存在」这类注释时，把它当**约束**读，不要当背景介绍读。
+
+## 有外部副作用的自动化任务：不做过期补触发，「启动触发」与「补跑」必须分开命名（automation-content-category，2026-10-03）
+
+- **机制**：需求是「定时任务 + 应用启动触发」，很容易顺手实现成「启动时把错过的定时任务补跑一遍」。不要：任务是「采集→改写→发布」这类有外部副作用的动作，开机补跑 N 条过期任务会打满平台限流，且用户会看到一堆莫名其妙的发布记录。
+- **判据（可复用）**：先看这个动作的副作用是否**外溢到第三方**。外溢 → 绝不自动补跑。
+- **命名纪律**：「启动触发」是用户**显式配置**的一种触发器（`type:'onAppStart'`），与「补跑过期定时任务」是两回事。命名和文档都要分开，否则下一个人会顺手合并。
+
+## 失败策略：重试必须「先于」策略，而不是「作为」策略（automation-content-category，2026-10-03）
+
+- **机制**：用户问「失败了是跳过继续还是中断」，容易直接实现成二选一。但正确顺序是**先按 `maxRetries` 重试，重试耗尽后才按 `failurePolicy` 处理**。否则 `abort` 策略下一次瞬时网络抖动就整批中断 —— 用户选 abort 的本意是「不要产生半成品」，不是「一次抖动就放弃」。
+- **界面纪律**：两种策略的取舍必须写进界面（skip 适合批量采集发布，个别失败不影响整体产出；abort 适合有强依赖的流水线，失败后继续可能产生半成品）。
+
+## 顺序 bug 长这样：不是报错，是永远静默（automation-content-category，2026-10-03）
+
+- **机制**：`_markResult`（写 `lastStatus`）写在 `_emitNotification` 之前，覆盖了旧值，导致「是否从失败恢复」永远判不出来 ⇒ 恢复通知**永远发不出去**。不报错、不崩溃、测试也不红（除非专门测了这条跃迁）。
+- **正解**：判据要在**写盘之前**取上一次状态（`previousStatus`）并显式传给通知函数。
+- **降噪规则**：成功通知只在「上次 failed、本次 completed」的状态跃迁时发；连续成功静默。否则噪音会让用户关掉通知，于是不再看到失败。
+- **可复用判据**：凡是「拿旧值和新值比较后再决定行为」的逻辑，先问旧值是在哪一步被覆盖的。
+
+## script setup 只自动暴露本文件声明的绑定：imported 函数进不了模板（automation-content-category，2026-10-03）
+
+- **机制**：`import { categoryLabel } from '...'` 后在模板里直接用 → `categoryLabel is not defined`（HotTopics.vue 30 例测试一次性全红）。
+- **正解**：显式落到本地绑定：`const resolveCatLabel = (key) => categoryLabel(key)`。
+
+## 新增侧边栏入口：6 处同步改，MpSidebar 零改动（automation-content-category，2026-10-03）
+
+- **机制**：`MpSidebar.vue` 完全数据驱动（从 `SIDEBAR_MENU_DEFINITION` 派生），加菜单不用碰它。
+- **6 处**：① `router/index.js` 单行追加（**必须单行** —— `check-route-registry.js` 解析器按 `^\{\s*path:` 逐行匹配，折行即漏）；② `route-registry.js` 的 `ROUTE_REGISTRY` entry；③ 同文件 `SIDEBAR_MENU_KEY_ORDER`；④ `sidebar-menu.test.js` 的 `EXPECTED_DERIVED_MENU` 冻结基线；⑤ `locales/zh.js` + `en.js` 成对；⑥ `app_menu_service.py` CATALOG。
+- **最容易漏的第 6.5 处**：`ops-center/backend/tests/test_app_menu_api.py` 里**硬编码**的 `CATALOG_SIZE`（本次 20→21），以及同一文件里硬编码的 primary 顺序列表（会连带红）。
+
+## 运营中心新增目录型配置：不要用「表空才播种」（automation-content-category，2026-10-03）
+
+- **机制**：「表为空才全量播种」在存量部署上永远不会再触发 —— 表非空后旧逻辑不再写入，新增项在运营端页面**永久缺失**，而应用端照常显示（`feature_flag_service.py:26-28` 已把这个坑写在注释里）。
+- **正解**：用 `_provision_from_catalog` 模式 —— 每次读/写/下发前按 CATALOG 补齐缺失行，`ON CONFLICT DO NOTHING` 防并发双插，只补欠账不覆盖运营已改字段。
+- **判据（可复用）**：问「这个目录以后还会加项吗」—— 会，就必须用增量补齐。

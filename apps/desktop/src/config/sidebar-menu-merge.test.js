@@ -214,8 +214,9 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
       ],
     })
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toEqual([
-      // 6 项已配置按 sort_order 升序；rewrite/copy-library 无 sort_order → 排在已配置项之后（copy-library 先于 rewrite，同定义顺序）
-      'publish', 'home', 'accounts', 'dashboard', 'create', 'collection', 'copy-library', 'rewrite',
+      // 6 项已配置按 sort_order 升序；无 sort_order 的排在已配置项之后并保持定义顺序
+      // （automation 为 2026-10-03 新增，定义序在 collection 之后、copy-library 之前）
+      'publish', 'home', 'accounts', 'dashboard', 'create', 'collection', 'automation', 'copy-library', 'rewrite',
     ])
   })
 
@@ -256,7 +257,7 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
       items: [{ key: 'dashboard', visible: true, sort_order: 0 }],
     })
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toEqual([
-      'dashboard', 'home', 'publish', 'accounts', 'create', 'collection', 'copy-library', 'rewrite',
+      'dashboard', 'home', 'publish', 'accounts', 'create', 'collection', 'automation', 'copy-library', 'rewrite',
     ])
   })
 
@@ -269,9 +270,10 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
       ],
     })
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])[0]).toBe('home')
-    expect(resolved[SIDEBAR_GROUP_PRIMARY].slice(1).map((i) => i.sortOrder)).toEqual([
-      null, null, null, null, null, null, null,
-    ])
+    // 只断言「其余全部视为未配置」，不写死数量 —— 否则每加一个菜单项都要改这条
+    const rest = resolved[SIDEBAR_GROUP_PRIMARY].slice(1)
+    expect(rest.length).toBeGreaterThan(0)
+    expect(rest.every((i) => i.sortOrder === null)).toBe(true)
   })
 })
 

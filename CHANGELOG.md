@@ -1,3 +1,79 @@
+# [未发布] feat(automation): 自动化模块 + 统一内容类别真源（2026-10-03，automation-content-category）
+
+## 背景
+
+热门选题分类、采集库类别、账号分组预设标签三处各自一套「分类」，运营改不了、彼此不通：
+同一个「科技」在三个界面可能叫三个名字、数量不一致。同时「自动化」此前只是一个**暗路由**
+（`/auto-pipeline`，全仓库无跳转来源），也没有任何定时/启动触发能力（`scheduler.js` 只支持
+一次性定时发布，全仓无 cron 引擎）。
+
+## 统一内容类别（唯一真源）
+
+- **运营中心新增「内容类别管理」**（adminOnly）：新建 / 改名 / 停用 / 删除 / 排序（⤒↑↓⤓）/
+  恢复默认。内置 10 类（`general/society/finance/tech/entertainment/sports/emotion/education/
+  health/international`）与桌面端 `classifier.js` 的 `CATEGORY_KEYS` **键名与顺序严格对齐**，
+  可改名/停用/排序但**不可删除**（删除会让桌面端历史引用失效）。
+- 目录供给采用 `_provision_from_catalog`（每次读/写/下发前补齐缺失行，`ON CONFLICT DO NOTHING`
+  防并发双插），**不用「表空才播种」**——存量部署表非空后旧逻辑永不再写入，新增项会永久缺失
+  （`feature_flag_service.py:26-28` 已记录该陷阱）。
+- 经 runtime bootstrap 的 `contentCategories` 字段下发（只下发 `enabled=1`），整体在 Ed25519
+  签名覆盖范围内。桌面端 **fail-open 回退内置 10 类**：没下发/空/结构非法都不让界面变零分类
+  ——分类是**展示资产**不是权限边界，不该被「读不到」惩罚（与 feature flag 的 fail-closed 相反，
+  这个方向差是刻意的）。
+
+## 三处消费同一真源
+
+- **热门选题**：`HotTopics.vue` 的硬编码 `CATEGORY_KEYS` 改为运营下发；分类 chip 文案改用
+  `resolveCatLabel`，不再写死 i18n。运营**禁用**某内置类后该类不再作为筛选项（条目本身保留）。
+  抓取侧分类基准仍是内置 10 类 —— 运营自定义类只能作「可打标签」出现，不会自动进入抓取结果
+  （关键词规则是代码内资产，动态化等于允许运营造出无命中规则的分类，反而制造空分类）。
+- **账号分组**：分组新增 `categoryTags`（软标签，不决定成员资格，只标记内容定位，供自动化任务
+  按类别挑选目标分组）。与 `platformFilter`（硬筛选）语义分离。未知类别 key **保留**并记
+  `unresolvedCategoryTags` 出声（运营后续新增该类别后引用自动恢复）。
+- **采集库**：沿用既有 `tags` 字段（**不新增 `category`** —— `Collection.vue:1671` 的爆款库导出
+  已在读它，另起字段必然漂移）。9 处 `unshift` 构造点字段齐全程度不一，逐个改最容易漏，
+  因此改为在 **`saveCollectedItems` 落盘前统一归一**，任何路径进来的条目写进真源前都过校验。
+  新增类别筛选（全部 / 未分类 / 各类别）与卡片标签编辑。
+
+## 自动化模块
+
+- 左侧一级导航新增「自动化」（`key: automation`，图标 `SetUp`）。6 处同步改：router、
+  route-registry（entry + `SIDEBAR_MENU_KEY_ORDER`）、`sidebar-menu.test.js` 冻结基线、
+  locales zh/en 成对、`app_menu_service.py` CATALOG（连带 `test_app_menu_api.py` 的
+  `CATALOG_SIZE` 20→21）。
+- **触发方式**（可多选、同时有效，同类型只出一个）：应用启动 / 每天 / 每周 / 固定间隔（5-1440 分钟）。
+  不引入 cron 库 —— 需求只有这四种，为这点能力付一个依赖 + 打包体积 + 表达式校验面不划算。
+- **后台运行**：任务在主进程执行，不占用渲染进程、不弹模态框、不阻塞当前页面，界面只收
+  toast 通知。但**不假装无代价**：顶部常驻提示「自动化任务会占用模型额度与浏览器资源，
+  可能与手动发布竞争平台限流」。
+- **失败处理**（用户明确追问的两点）：
+  - 通知形式：单步失败走 toast；任务终态失败走可点击通知，文案含「第几步失败 + 原因 + 当前策略」。
+    成功**只在「上次失败、本次成功」时**通知，避免噪音。
+  - 跳过 vs 中断：每任务可配 `failurePolicy`（`skip` 默认 / `abort`），并先按 `maxRetries`
+    重试（0-3），重试耗尽后才按策略处理。界面写明两者取舍：skip 适合批量采集发布（个别失败
+    不影响整体产出），abort 适合有强依赖的流水线（失败后继续可能产生半成品）。
+- **不做过期补触发**：应用没开时的到期时间**不补偿**。任务是「采集→改写→发布」这类有外部
+  副作用的动作，开机补跑 N 条过期任务会打满平台限流且用户不知情。「应用启动触发」是**显式
+  触发器**，与补跑两回事。
+- 同任务不并发（上一轮未结束则跳过本轮，不排队，防雪崩）；全部定时器 `unref()` 不阻止应用退出。
+
+## 修复的真实 bug
+
+- `_markResult` 早于 `_emitNotification` 执行，覆盖 `lastStatus` 后「是否从失败恢复」永远判不
+  出来 ⇒ 恢复通知发不出去。改为在写盘前取 `previousStatus`。
+
+## 测试
+
+- 运营中心后端 36 例（目录供给 / 增删改 / 内置不可删 / 排序幂等 / 403 / 下发只含启用项）；
+  前端 57 例 + `npm run build` 通过。
+- 桌面端：content-categories 21 例（渲染 13 + 主进程 8）、automation-task 17 例（校验逐条出声 /
+  跨天跨周 / interval 递推）、automation-scheduler 15 例（启动触发 / skip-abort / 重试 / 并发 /
+  unref / 重挂）、collected-item 13 例、AutomationView 13 例、account-groups-store 23 例。
+- 既有断言按新字段同步（分组对象新增 `categoryTags`）。
+- 门禁：`check-route-registry` PASS；`check-locale-sync --keys/--cjk/--pair-base` 全 PASS。
+- 已知既存失败（与本改动无关，干净的 main 上同样红）：`ops-center/backend/tests/
+  test_platform_def_seed_limits.py::test_seed_defs_match_registry`。
+
 # [未发布] fix(packaging): app.asar 之外的松散文件树不再随包发单元测试（2026-10-02，asar-loose-resources-tests）
 
 ### 根因
@@ -1395,7 +1471,7 @@
 ### 验证
 - install-session-isolation-task.test.ps1 → rc=0 / 7 PASS（本机 \Mulpub\ 尚无任务，NOTE 分支如实报告 runner 态边界）
 - session-isolation-automation.test.ps1 → rc=0 / 18 PASS（非提权分支实证：Health 在一次性路径注册成功、AtLogOn 被拒后安装器 fail closed 并给出 RunAs 指引——同时证明 `$got` 修复后安装器能走到 Write Guard 注册步）
-- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
+- session-write-guard.test.ps1 → rc=0 / 35 PASS；mp-worktree-health.test.ps1 → rc=0 / 11 PASS；session-guard.test.ps1 → rc=0 / 5 PASS
 
 # [未发布] docs(SOP): 纠正「行尾不是噪声」的回写口径——禁止多数派 eol 统一 join，改为逐行保留（2026-09-28，agents-eol-join-rule）
 
@@ -1415,7 +1491,7 @@
 - `node .github/scripts/check-max-lines.js` RC=0（超限 98 / 挂账 98，无新增）；`node scripts/check-debt-budget.js` 全部指标在基线内；`AGENTS.md` 总行数 964 未变（单行内替换）。pre-commit 钩子正常执行通过，未使用 `--no-verify`。
 
 ---
-
+
 # [未发布] test(门禁记录): 「远程同步」欠账从此可见——新增棘轮 + 回填本会话四条记录
 
 ### 变更
@@ -1432,7 +1508,7 @@
 - 变异反证 8 格，每格用内存字节还原并核 sha256（不用 `git checkout HEAD --`，那条在提交未落地时会静默 no-op）：基线绿；新增未登记 `PENDING` ⇒ 红；**未知状态词"差不多好了"** ⇒ 红（fail closed 生效）；摘掉一条登记 ⇒ 红；登记原因留空 ⇒ 抛错而非放行；改标题 ⇒ 同时报未登记与陈旧登记；删掉 `.quality-gates.md` ⇒ 抛错（空遍历不得判绿）。
 - 接线反证：从 `Gate 2c` 摘掉那两行，`check-unwired-tests.js` ⇒ `rc=1` 点名 `scripts/check-gate-record-debt.test.js`（证明"被 CI 看见"来自接线而不是文件存在）。
 - 行尾对账：`.quality-gates.md` 工作区 5970/5970 行均匀 CRLF，对 `origin/main` 的 `--numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `4/4`（只有那 4 条行变了）；`git check-ignore` 实测新脚本被 `.gitignore:106 scripts/*.js` 排除，已按既有惯例补 `!scripts/check-gate-record-debt.js`。
-- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
+- QM-6 双模型外部评审：本机无 `codeagent-wrapper`，**未执行**（如实登记，不以自审冒充）。
 
 # [未发布] feat(账号云同步): 摘要确认弹窗改疑问句标题、两个计数并排、主按钮独立文案（2026-09-28，cloud-sync-dialog-copy）
 
@@ -1509,26 +1585,26 @@
 - 真实浏览器 E2E（本机 vite :5174 + Playwright）：`MASK_STATUS=passed total=12 failed=0`，零 console/page error；截图存证目视确认整头像暗罩 + 白字居中，有效卡片仍为「已登录」徽章无遮罩。
 - 行尾对账：本条目按**字节前插**，未触碰任何既有行（含 HEAD 里遗留的 `\r\r\n` 行），`git diff --numstat` 删除数为 0。
 
-# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
-
-### 现象与根因
-- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
-- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
-- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
-
-### 变更
-- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
-  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
-  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
-  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
-- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
-- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
-- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
-
-### 测试与取证
-- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
-- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
-- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
+# [未发布] fix(登录): 非全屏窗口登录页显示不全——登录视图 zoom-to-fit 宽度自适应（2026-09-28，fix-login-view-fit）
+
+### 现象与根因
+- 用户报告（附两张截图）：应用非全屏时，账号管理页打开自媒体账号登录页"显示不全"；全屏正常。
+- 像素取证（PNG IHDR 取窗口物理尺寸 + GDI+ 逐行/逐列颜色分段还原布局，不依赖 vision 模型）：登录视图定位**完全正确**——x=侧边栏 200 DIP、y=76（TabBar+NavBar）、宽至窗口右缘（垂直滚动条贴右缘）、scrollLeft=0。真正的问题在**页面自身**：快手 cp.kuaishou.com 登录页是固定内容宽布局（≈1335 DIP，非响应式），非全屏窗口的登录视图只有 1051 DIP → 页面横向溢出 284 DIP：居中容器边距塌缩为 0（内容贴左）、右侧插画被裁、出现横向滚动条。全屏视图 1336 DIP ≈ 1335 恰好容纳——这就是"全屏正常"的全部原因。实测机型 1920x1200@125%（客户区 1536 DIP）：**该屏上任何非全屏窗口都装不下此页**，放大窗口无法解决，唯一就地解法是按需缩小 zoomFactor（等同浏览器手动缩小，QR 码仍可扫）。
+- 视图定位链（view-bounds.js / _positionView）自 #1814（2026-09-13）修复后一直正确，本 Bug 与定位无关。
+
+### 变更
+- 新增 `apps/desktop/electron/services/login-view-fit.js`（唯一实现）：
+  - `computeLoginFitZoom(viewWidth, scrollWidth, currentZoom)` 纯计算：溢出时目标 = viewWidth/scrollWidth；目标 < 0.5 下限时保持当前值（半信纸不可读，宁保留原生横向滚动）；2px 容差防亚像素抖动；非法输入一律 no-op。
+  - `fitLoginViewZoom(view)`：只读探针 `documentElement.scrollWidth` → 应用目标缩放；WeakMap 世代号保证并发调用以最后一次为准（过期探针不生效）；**恢复 1 只在视图宽度变化后尝试**（宽度未变的延迟复测不做 1↔fit 往返——那只是把已收敛状态打回原点再弹回来的视觉抖动），恢复后必须复测一次、仍溢出则单次回缩（有界不震荡）。
+  - `fitLoginViewZoomSafe(view, { tag })`：旁路包装，任何失败只落 warn，不得影响登录链路。
+- `auth-view-manager.js`：`_positionView()` 重定位后适配（覆盖 resize / 侧栏宽度变化）；`did-finish-load` 立即适配 + 500ms 延迟复测（字体/插画晚到可改变页面实际宽）；`close()` 清理复测定时器。
+- `qrcode-login.js`：同口径接线（did-finish-load + 会话级复测定时器随 `_closeSession` 清理 + `_positionView`）。
+- 宿主 API 已按 d.ts 核实：`WebContents.getZoomFactor/setZoomFactor`（electron.d.ts:18051/18448）、`View.getBounds`（:15808，WebContentsView 继承）。
+
+### 测试与取证
+- `login-view-fit.test.js` 19 条：回归数字直接取自用户截图（视图 1051 / 页面 1335 → zoom 0.787）；全屏 1336 容纳不缩放；容差边界（1053 容纳 / 1054 缩放）；已缩放后窗口再窄继续缩；窗口放大恢复 1（复测后单次回缩）；宽度未变不恢复（防复测抖动）；宽度变化才恢复；下限保持 + warn；并发世代号（过期探针不改缩放）；探针失败/视图销毁/缺方法/getBounds 抛错全部静默 no-op。
+- 接线测试：auth-view-manager 3 条（did-finish-load 端到端真实 fit + 延迟复测不抖动、_positionView 触发、close 清理定时器）+ qrcode-login 3 条（同口径）。三套件 82/82 绿；伴随套件 view-bounds / overlay-view-suspension / shell-mode-6b 37/37 绿。
+- 真机取证（同版本 electron.exe + 复刻 startup-compat UA 净化 + 隔离 userData 分区）：①快手真页当前投放"恰好容纳"响应式变体 → zoom 保持 1、零干扰（no-op 路径）；②本地固定宽 1455 DIP 页面 → `LoginViewFit zoom-to-fit: viewWidth=1066 pageWidth=1455 zoom=0.733`，dump 证实 pageFits=true（缩放路径）。快手按 UA/实验分流投放不同布局，两种变体都在契约覆盖内：溢出→缩放，恰好容纳→不动。
 - QM-1：`build:vue` + `electron-builder --win --dir` rc=0；asar 内 `login-view-fit.js` 可 require（5 个导出齐全）、`@multi-publish/rpa-engine` require 链 OK；打包 exe 隔离 userData 启动 8 秒存活、stderr 零输出（无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar`）。
 # [未发布] ci(electron-ci): 串行单测预算从魔数改为挂实测，并让超时能自证
 
@@ -1749,10 +1825,10 @@
   原登记残留 6.6 的准确表述就是"那条绿只证明未开启态无回归"。而本机截图按 QM-4 第 7 条不得入库
   （本仓实测过本机与 CI 渲染会产生 3%+ 全页亚像素差异），所以"本地点开看一眼"不算证据。
 ### 做了什么
-- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
-  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
-  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
-  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
+- `useFeatureFlag(key)` 增加**仅开发态 + 仅 http(s) 页面**的显式覆盖 `mpFlag=<flagKey>=<1|0|true|false>`：
+  只认这四种写法，且限 `DEV_OVERRIDABLE_FLAGS` 白名单，非法值不产生覆盖并 `console.warn` 出声；命中时
+  完全不调运营中心（否则同一份代码两种像素）；显式 `0` 可盖过运营下发的 `1`（排障用）。参数同时从
+  `location.search` 与 `location.hash` 的 query 段取（本仓是 hash 路由，只读 search 等于没读）。
   它只改界面开关键，服务端每个 `/api/v1/me/*` 仍按归属身份鉴权。
 - **归属澄清（不得把自审项记成评审发现）**：协议门、白名单、非法值 warn、用例改名这四项是评审之后
   **自审补严/自审判断**；外部评审实际提出的是 hash 路由丢参（C1，完全成立）、`options.dev` 可短路 DEV 判断（W2）、
