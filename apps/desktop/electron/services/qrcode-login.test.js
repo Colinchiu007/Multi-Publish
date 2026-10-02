@@ -559,22 +559,33 @@ describe('QrCodeLogin ↔ 分区回收存活登记（#2701 评审 C1）', () => 
       expect(reclaim.isThrowawayPartitionName(dir)).toBe(true)
       expect(reclaim.livePartitionNames()).toContain(dir)
 
-      // mock 的 fromPartition 不落盘，按真实形态把同组两份目录铺出来：
-      // 活跃那份刻意做成**非末位**（正是「较旧但仍被持有」这一被 C1 揭露的形状）
+      // mock 的 fromPartition 不落盘，按真实形态把同组目录铺出来。
+      // #2734 起回收端保留「最近 PROBE_LIMIT 份」，只铺两份会双双落在窗口内 —— 那时「没删」
+      // 只是因为窗口宽，测不到存活登记表本身。故铺到窗口之外：K 份更新的同组目录把 dir 挤出窗口，
+      // dir 仍然活着**只能**是因为它在登记表里（K 也是下面反向对照要用的同一个常量）。
+      const K = reclaim.PROBE_LIMIT
+      const newerDirs = []
+      for (let i = 0; i < K; i += 1) newerDirs.push('auth-auth-wechat_mp-99999999999' + i)
       const root = nodePath.join(base, 'session', 'Partitions')
       fs.mkdirSync(root, { recursive: true })
       fs.mkdirSync(nodePath.join(root, dir), { recursive: true })
-      fs.mkdirSync(nodePath.join(root, 'auth-auth-wechat_mp-9999999999999'), { recursive: true })
+      for (const n of newerDirs) fs.mkdirSync(nodePath.join(root, n), { recursive: true })
 
       const summary = reclaim.reclaimStaleAuthPartitions({ userDataPath: base })
       expect(summary.removed).toEqual([])
       expect(fs.existsSync(nodePath.join(root, dir))).toBe(true)
-      expect(fs.existsSync(nodePath.join(root, 'auth-auth-wechat_mp-9999999999999'))).toBe(true)
+      expect(fs.existsSync(nodePath.join(root, newerDirs[K - 1]))).toBe(true)
 
       // 反向对照：把登记摘掉（等价 C1 修复前的实现），同一条判据必须真的把它删掉。
       // 没有这一格，上面两个断言可能只是因为「谁都删不动」而通过。
-      const plan = reclaim.planReclaim([dir, 'auth-auth-wechat_mp-9999999999999'])
-      expect(plan.victims).toContain(dir)
+      // #2734 起窗口是「保留最近 PROBE_LIMIT 份」而不是「只留末位」：摘掉登记后（planReclaim 不读进程内
+      // 登记表，正是「等价 C1 修复前」那一格），dir 落在 K 份更新目录之后 ⇒ 必须是 victims。
+      const plan = reclaim.planReclaim([dir].concat(newerDirs))
+      // 精确断言而非 toContain：组内共 K+1 份、窗口宽度恰为 K ⇒ victims 有且只有被挤出窗口的 dir。
+      // （本条最初写成 toContain(newerDirs[0]) 是我把窗口宽度算错了 —— K=5 时 n0 仍在窗口内，
+      //  跑出来当场变红才发现。写成 toEqual 之后，窗口宽度再被人改动会立刻暴露，而不是静默偏移。）
+      expect(plan.victims).toEqual([dir])
+      expect(plan.kept).toEqual(newerDirs.slice().sort())
     } finally {
       try { fs.rmSync(base, { recursive: true, force: true }) } catch (_e) { /* 临时目录清不掉不影响结论 */ }
     }

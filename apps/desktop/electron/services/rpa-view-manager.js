@@ -76,7 +76,8 @@ class RpaViewManager {
             cookie = fallback.cookieString
             log.info('RpaView', 'API publish cookie fallback from auth partition ' + fallback.partition + ' (' + fallback.count + ' cookies) platform=' + platform)
           } else {
-            log.warn('RpaView', 'API publish cookie fallback empty (no platform cookies in auth partition) platform=' + platform + ' accountId=' + (acctId || '(none)'))
+            log.warn('RpaView', 'API publish cookie fallback empty: reason=' + fallback.reason + ' probed='
+              + ((fallback.probed || []).length) + ' platform=' + platform + ' accountId=' + (acctId || '(none)'))
           }
         }
         // 形状翻译（2026-09-28 活体残余①修复）：适配器契约要求 taskData.video.path
