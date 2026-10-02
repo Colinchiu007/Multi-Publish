@@ -724,3 +724,57 @@ createElement(ra.l, { time, serverTime, visible, okText,
 
 **流程影响**：`平台字数上限对账` 流程新增一条纪律 —— **阈值来源必须沉淀到 yaml 注释**，
 且注册表/yaml/CONTENT_LIMITS 三处任一变更须经 `reconcile-three-sources.js` 对账 + 对齐锁双重确认。
+
+#### 16.8.9 头条 Node 直连兜底 —— 实现落地（2026-10-02）
+
+按 §16.8.8 的立项方向 1（参考产品同构：cookie 导出 + Node 直连 + 页面内 SDK 签名），
+本节记录**已落地的代码**与**架构决策**。
+
+**新增模块（`packages/rpa-engine/src/`）**：
+
+| 模块 | 职责 |
+|------|------|
+| `toutiao-direct-publish.js` | `cookiesFromSession`（Electron session 导出，含 HttpOnly 登录态）/ `buildPostData`（参考产品同款字段表）/ `uploadCover`（spice/image）/ `publishWithSign`（Node https POST） |
+| `toutiao-direct-bridge.js` | `publishToutiao` 一站式：调 `host._publish_generic` 走 DOM；失败且为 `verification timeout` 时**自动切** Node 直连 |
+
+**接线（`apps/desktop/electron/services/rpa-view-platforms.js`）**：
+- `_publish_toutiao` 方法体外移至 bridge（行数 1419→1408，行数门禁 PASS），保留薄委托；
+- 触发条件：DOM 流程返回 `success:false` 且 `error` 含 `verification timeout`
+  （其余失败类型**不切换**，保持原有语义，避免掩盖真实错误）。
+
+**数据校验与流程（直连通道）**：
+
+| 步骤 | 内容 | 校验 |
+|------|------|------|
+| 1 | `cookiesFromSession(session)` 导出 toutiao.com 全域 cookie | 空则 fail closed（`NO_COOKIES`） |
+| 2 | 正文转 HTML（转义先行防注入；`\n` → `</p><p>`） | — |
+| 3 | `timer_time` = 当前时间 +1 分钟（截断到分钟） | `timer_status=1` |
+| 4 | `buildPostData` 构造（source=0 / save=0 / pgc_feed_covers / extra 等） | — |
+| 5 | `sign("toutiao_sdk", {url,query,body}, {win})` → `a_bogus` | 失败 fail closed（`SIGN_FAILED`） |
+| 6 | Node https POST（Cookie/Referer/Origin/UA 与页面一致） | — |
+| 7 | 成功判据：`code===0 && pgcId!=="0"` | 否则 `API_REJECTED:<code>` |
+
+**功能逻辑要点**：
+- **定时 1 分钟后发布**（`timer_status=1`）：立即路径被页面 deferred 死锁（§16.8.6），
+  用户已确认「定时路径近似立即发布」可接受；
+- **默认仍走 DOM**：仅头条在 DOM 确认失败后才切直连，其他平台不受影响；
+- **Node 侧发请求是必须的**：页面内 fetch 与页面自身 XHR 上下文标记不同，
+  实测被拒（100005 获取用户信息失败 / 7050 保存失败）——这就是参考产品把 cookie
+  导出到 Node 发请求的原因（架构同构的核心）。
+
+**显示项与提示文字**：直连结果经既有 `log.info/warn` 记录（`[toutiao-direct]` 前缀），
+发布成功/失败沿用既有进度面板与 `publishFlow.publishFailedProgress` 文案；
+无新增用户可见文案（兜底对用户透明，只是把"发不出去"变为"能发出去"）。
+
+**测试**（`packages/rpa-engine/tests/`，`node --test`，11 个全过）：
+- cookie 导出排序拼接（含 HttpOnly 模拟）；
+- 字段表：立即/定时/封面映射/首发四字段/空 title 保留字段；
+- `PUBLISH_QUERY` 含 `aid=1231`（字节系必需）。
+
+**⚠️ 真机终验状态（诚实记录）**：
+签名 ✅（a_bogus 已产出并被服务端受理）、body 字段表 ✅（对照参考产品）、
+Node POST ✅（请求到达服务端并返回业务码）、**cookie 导出**代码已写（`cookiesFromSession`），
+但**端到端真机确认**（从应用 UI 触发 → 兜底自动切换 → 文章出现在头条后台）
+受限于本会话的应用生命周期问题（应用无法跨命令存活）**尚未完成**。
+合并后应做的第一件事：走一次真实发布，确认日志出现 `[toutiao-direct] code=0`。
+

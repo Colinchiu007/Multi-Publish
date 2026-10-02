@@ -100,3 +100,6 @@
 2026-08-06 | W3 governor 默认 RPM 为保守估计 | 🟡 中 | ✅ 已修复 | 新增 governor-provider-limits.js（52 provider 预算），governor 支持 setProviderLimits/构造注入，container 启动注入；优先级 key > provider > 类别默认。PR #374
 
 2026-08-13 | JS stageDefs 与 Python YAML manifest 阶段命名漂移 | 🟡 中 | 基线见 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md) §6：多数 YAML 为通用模板（idea/script/scene_plan/assets/edit/compose/publish），与 JS 实际执行阶段（upload/transcribe/…）不一致；仅 story2video-compose 高度对应。后续建「manifest 合同一致性」门禁时以此为基线。待处理
+2026-10-02 | recraft.js 图片尺寸契约观察项 | 低 | 待核实 | recraft.js generateImage 只读 params.size，而 asset-generator 统一传 width/height（含 aspect_ratio 推导产物），竖屏请求会静默落 1024x1024 方形（与 agnes-image 2026-10-02 修复的断链同形态，但 recraft 无用户实测报告）。未盲改原因：Recraft 官方尺寸白名单无法核实（docs.recraft.ai 抓取 522 超时）。待办：核实官方文档后按白名单映射 width/height，并在 image-adapter-aspect-contract.test.js 登记断言
+
+2026-10-02 | podcast-repurpose 图片默认画幅与竖屏 compose 不一致 | 低 | 待产品确认 | podcast-repurpose-stages.js visualize 阶段默认 aspect_ratio 16:9（params.aspectRatio 可显式覆盖），而其 render 阶段固定 720x1280 竖屏 compose，默认路径同样产生黑边。属产品默认值选择（非契约断链），已补透传回归测试（podcast-repurpose-stages.test.js）；待产品确认 podcast 场景竖屏语义后调整默认值

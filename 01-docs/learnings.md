@@ -295,12 +295,18 @@
 - **据此纠正此前两条记录**：「mock 实例漂移导致日志断言恒空」既非恒真也非恒假，它取决于 mock 的注册方式；此前我一次据此把「无法加锁」登记成欠账，一次又在 AGENTS.md 写下「已被重测否证」，两种说法都没跑全量。
 - **口径**：凡「某某抓不到 / 某某也会种」这类关于**测试接缝或外部行为**的判断，必须在 **runner 真实采用的那种跑法**下跑一次（本仓 CI 收编的是全量，`-t` 单跑不构成证据）；日志类锁的前提是 mock 对象身份跨用例稳定。
 
-## 内嵌视图"定位正确"≠"页面完整可见"：平台页固定宽要靠 zoom-to-fit 兜底；用户截图本身就是可编程证据（fix-login-view-fit，2026-09-28）
-
-- **视图四条边全对，页面仍可显示不全——"定位 Bug"与"容纳 Bug"必须分开排查（根因方法论）**：用户报"非全屏打开登录页显示不全"，最自然的怀疑是视图 bounds 算错（x/y/宽高）。像素取证证明四条边全部正确（x=200 DIP、y=76、宽至右缘、scrollLeft=0），真正的问题是**页面自身**固定内容宽（快手 ≈1335 DIP）> 视图宽（1051 DIP）→ 居中容器边距塌缩、右侧被裁。判据：内嵌外部页的"显示不全"先量 `scrollWidth vs 视图宽`，再查定位链；定位链有 view-bounds.js 单一真源且自 #1814 后无回归，别一上来就翻它。
-- **"全屏正常、小窗口坏"在 1920x1200@125% 上是数学必然，不是玄学（约束记录）**：全屏视图 1336 DIP 恰好容纳 1335 DIP 页面，而**任何**非全屏窗口视图都 < 1336 → 必然溢出。遇到"尺寸相关的显示 Bug"，先算目标屏上"极端可用尺寸 vs 内容固有宽"的账，能直接排除一半假设（比如"放大窗口"这类不可行解）。
-- **无 vision 模型时，用户截图可用像素取证完整还原（取证方法，已两次生效）**：①PNG 文件头 IHDR 直接给物理尺寸（1584x993 / 1920x1140 → 反推 1920x1200@125% 屏 + 60px 任务栏）；②GDI+（System.Drawing）逐行/逐列扫描颜色分段：侧边栏背景 (242,241,255) 与页面纯白的边界 → 侧边栏宽；滚动条滑块 (187,189,191) 与轨道 (249,249,249) 的位置与长度 → scrollLeft=0、scrollWidth=1335。本轮最初两份"截图分析"（前一会话）全是臆造——**模型声称"看到"的内容不可作为证据，像素采样可以**。
-- **Electron 探针三坑（工具链，防再犯）**：①脚本后的**位置参数**会让 electron 直接退出 -1 且零输出——参数一律走环境变量；②默认 userData=`%APPDATA%\Electron` 是全局单例锁，上一个探针没退干净，后续所有探针秒退 -1 且**无任何报错**——探针必须 `app.setPath('userData', 独立目录)`，且要放在 require 业务模块**之前**（logger 链在模块加载期就读 userData）；③杀探针要确认 electron.exe 子进程真死了（杀 PowerShell 包装器不杀 GUI 子进程）。
+## 内嵌视图"定位正确"≠"页面完整可见"：平台页固定宽要靠 zoom-to-fit 兜底；用户截图本身就是可编程证据（fix-login-view-fit，2026-09-28）
+
+
+
+- **视图四条边全对，页面仍可显示不全——"定位 Bug"与"容纳 Bug"必须分开排查（根因方法论）**：用户报"非全屏打开登录页显示不全"，最自然的怀疑是视图 bounds 算错（x/y/宽高）。像素取证证明四条边全部正确（x=200 DIP、y=76、宽至右缘、scrollLeft=0），真正的问题是**页面自身**固定内容宽（快手 ≈1335 DIP）> 视图宽（1051 DIP）→ 居中容器边距塌缩、右侧被裁。判据：内嵌外部页的"显示不全"先量 `scrollWidth vs 视图宽`，再查定位链；定位链有 view-bounds.js 单一真源且自 #1814 后无回归，别一上来就翻它。
+
+- **"全屏正常、小窗口坏"在 1920x1200@125% 上是数学必然，不是玄学（约束记录）**：全屏视图 1336 DIP 恰好容纳 1335 DIP 页面，而**任何**非全屏窗口视图都 < 1336 → 必然溢出。遇到"尺寸相关的显示 Bug"，先算目标屏上"极端可用尺寸 vs 内容固有宽"的账，能直接排除一半假设（比如"放大窗口"这类不可行解）。
+
+- **无 vision 模型时，用户截图可用像素取证完整还原（取证方法，已两次生效）**：①PNG 文件头 IHDR 直接给物理尺寸（1584x993 / 1920x1140 → 反推 1920x1200@125% 屏 + 60px 任务栏）；②GDI+（System.Drawing）逐行/逐列扫描颜色分段：侧边栏背景 (242,241,255) 与页面纯白的边界 → 侧边栏宽；滚动条滑块 (187,189,191) 与轨道 (249,249,249) 的位置与长度 → scrollLeft=0、scrollWidth=1335。本轮最初两份"截图分析"（前一会话）全是臆造——**模型声称"看到"的内容不可作为证据，像素采样可以**。
+
+- **Electron 探针三坑（工具链，防再犯）**：①脚本后的**位置参数**会让 electron 直接退出 -1 且零输出——参数一律走环境变量；②默认 userData=`%APPDATA%\Electron` 是全局单例锁，上一个探针没退干净，后续所有探针秒退 -1 且**无任何报错**——探针必须 `app.setPath('userData', 独立目录)`，且要放在 require 业务模块**之前**（logger 链在模块加载期就读 userData）；③杀探针要确认 electron.exe 子进程真死了（杀 PowerShell 包装器不杀 GUI 子进程）。
+
 - **平台会按 UA/实验给同一 URL 投放不同布局，取证要以"当下实测"为准（测量纪律）**：同一台机器、同一 URL，默认 Electron UA 拿到响应式变体（恰好容纳），净化成标准 Chrome UA 的真实应用拿到 1335 DIP 固定宽变体；数小时后探针复测又拿到响应式变体。修复的契约因此必须双向覆盖：溢出→缩放、恰好容纳→不动（no-op 路径同样要有真机证据）。
 ## 抬一层超时必须同时核对上一层；管道会让退出码说谎（2026-09-28，#2458）
 
@@ -17121,3 +17127,51 @@ files=4  （含 config/platforms.yaml 与测试文件）
 - **机制**：「表为空才全量播种」在存量部署上永远不会再触发 —— 表非空后旧逻辑不再写入，新增项在运营端页面**永久缺失**，而应用端照常显示（`feature_flag_service.py:26-28` 已把这个坑写在注释里）。
 - **正解**：用 `_provision_from_catalog` 模式 —— 每次读/写/下发前按 CATALOG 补齐缺失行，`ON CONFLICT DO NOTHING` 防并发双插，只补欠账不覆盖运营已改字段。
 - **判据（可复用）**：问「这个目录以后还会加项吗」—— 会，就必须用增量补齐。
+
+
+## 头条 Node 直连兜底已交付——以及包内测试框架选型的坑（toutiao-fallback-shipped，2026-10-02）
+
+**里程碑**：头条的 Node 直连兜底发布**已合入 main**（PR #2781，commit `65f24aeb`）。
+从"不知道为什么发不出去"到"有完整可用的兜底通道"，全程走通。
+
+### 已交付的组件（packages/rpa-engine/）
+- `toutiao-direct-publish.js`：`cookiesFromSession`（Electron session 导出，含 HttpOnly 登录态）/
+  `buildPostData`（参考产品同款字段表）/ `uploadCover`（spice/image）/ `publishWithSign`（Node https POST）
+- `toutiao-direct-bridge.js`：`publishToutiao` 一站式——DOM（host._publish_generic）失败且
+  `verification timeout` 时自动切 Node 直连；`rpa-view-platforms._publish_toutiao` 只留 12 行薄委托
+  （行数 1419→1408，门禁 PASS）
+- 测试 11 个（契约：cookie 排序 / 字段表 / 定时截断 / 封面映射 / 首发四字段）
+
+### ⭐ 本轮的坑：包内测试框架选型
+rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的测试用了
+**node:test 语法** —— 本地 `node --test` 通过，但 **CI 跑 vitest** ⇒ vitest 扫到该文件、
+识别不了 node:test ⇒ "no tests" + exit 1 ⇒ **Gate 4 失败**。
+
+**两层坑**：
+1. 直接改写成 `require("vitest")` —— **CJS 包里 vitest 不能被 require**（必须 ESM import）；
+2. 正解：**用 vitest 全局 `describe/it/expect`**（config `globals:true` 已开），
+   不 import —— 与包内既有测试一致（它们用 `require` 引被测模块，但 vitest API 是全局的）。
+
+**防再犯**：往一个包里加测试前，先看 ①该包 `test` script 跑的是哪个 runner；
+②同包既有测试用什么语法（随大流最安全）；③改完**用 CI 同款命令本地跑**（`pnpm exec vitest run`）。
+
+### 兜底链路终态（三环各有实证）
+1. **签名**：页面内 `byted_acrawler.sign({url,query,body})` → 合法 a_bogus（服务端受理）✅
+2. **body**：参考产品字段表（source/save/timer_status/pgc_feed_covers/extra 等）✅
+3. **请求**：Node 侧 https POST（cookie/Referer/Origin/UA 与页面一致）✅
+   + **cookie**：Electron session 导出（document.cookie 缺 HttpOnly ⇒ 100005 教训）—— 代码已交付
+
+### 待办（合并后第一件事）
+走一次真实发布，确认应用日志出现 `[toutiao-direct] code=0`，
+并到头条后台核对定时文章（「平台侧为准」口径）。若直连仍被拒，
+剩余嫌疑是 msToken/行为序列 —— 属下一阶段逆向。
+
+**一句话**：*加测试先问"这个包用哪个 runner"；而兜底功能的真机终验，不该等到最后一个环节才做。*
+
+## API 请求体字段名被误用作入参契约名 = 静默参数断链（fix-s2v-portrait-image-aspect，2026-10-02）
+
+**现象**：故事讲述流水线选 720x1280 竖屏，成片正确但场景图片全部横屏（2624x1472），合成时两侧黑边。无任何报错。
+
+- **字段恒回退的第一性诊断（pitfall）**：某参数「看起来总不生效」时，沿调用链逐层 grep 该字段的**读点**（谁在消费）与**写点**（谁在传），找出键名不匹配的层。本案 aspect_ratio 在 stages/asset-generator 全程正确传递，到 agnes-image.js 断链——它只读 params.ratio（Agnes API 请求体字段名被误用作入参名），不匹配即静默回退默认 16:9。引入点 commit c9df8bf5（2026-07-15 新增 9 供应商 Adapter），封装请求体正确、入参名照抄请求体字段是失误根源。**边界：凡「适配器入参 → 供应商请求体」存在改名的层都适用**；同名透传层不受此限。
+- **静默断链的测试逃逸原因（pattern）**：单元测试只断言「传入键 → 请求体」的回显（当时用 ratio 键测），等于**用实现定义测试**，断链键永远测不到；逃逸链 = 无契约键行为测试（单测层）→ 适配器边界无统一契约锁（集成层）→ 视觉黑边肉眼才暴露（E2E 层无图片尺寸断言）→ review 只看单文件 diff 不查调用方实参（审查层）。修复 = 契约键行为回归（3 用例）+ image-adapter-aspect-contract.test.js 结构锁（扫源码断言解析表达式双键齐全，变异反证 3 用例变红）+ AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁。
+- **QM-1 打包启动测试的环境陷阱（operational）**：DSH 会话进程树带 ELECTRON_RUN_AS_NODE=1，打包 Electron 继承后以纯 Node 模式启动、立刻 exit 0 且零 stderr——形似「单实例锁让路」的假象。判据与修复：启动测试前 Remove-Item Env:ELECTRON_RUN_AS_NODE；辅以 ELECTRON_USER_DATA_DIR 隔离 userData 避免与其他会话的单实例锁竞争。另：worktree 内 electron-builder 只打包主进程不构建 renderer，需先 pnpm run build:vue，否则启动报 ERR_FILE_NOT_FOUND（主进程仍存活，别被「进程没死」骗过）。
