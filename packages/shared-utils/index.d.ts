@@ -4,7 +4,13 @@
 
 // ---- 任务队列 ----
 export class TaskQueue {
-  constructor(opts?: { maxConcurrent?: number; defaultRetry?: number; defaultTimeout?: number });
+  constructor(opts?: {
+    maxConcurrent?: number;
+    defaultRetry?: number;
+    defaultTimeout?: number;
+    /** 发布频率守卫；缺席则队列不做间隔检查 */
+    publishIntervalGuard?: PublishIntervalGuard | null;
+  });
   add(task: any): string;
   addForOwner(task: any, ownerSubject: string): string;
   setOwnerSubjectProvider(provider: (() => string | null | undefined) | null): void;
@@ -99,6 +105,12 @@ export class PublishIntervalGuard {
   /** 必须在提交给执行器之前调用；两档同时占位 */
   recordPublish(platform: string, accountId?: string | null, timestamp?: number): void;
   static PLATFORM_BUCKET_ACCOUNT_ID: string;
+  /** 默认存储实现：进程内 Map，不跨重启 */
+  static InMemoryStore: new () => {
+    get(key: string): number | null;
+    set(key: string, value: number): void;
+    keys(): string[];
+  };
 }
 
 export const publishFrequencyPolicy: {

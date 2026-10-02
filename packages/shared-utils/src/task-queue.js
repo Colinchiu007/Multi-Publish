@@ -466,8 +466,10 @@ class TaskQueue extends EventEmitter {
     // accountId 缺席时守卫仍生效（跳过账号档、保留平台档），故此处不再以 accountId 为前提。
     // 守卫的读写全部落在下方 await 之前的同一同步段内 —— store 要求 owner 快照不得在
     // 回调/定时器中重读，挪到 await 之后就违反该约束。
+    // accountId 取任务级归一字段（add() 已按 task.accountId ?? task.article?.accountId ?? null 落一），
+    // 不得回退到只读 article：调用方只在任务级带账号时，账号档会被整体跳过。
     if (this._publishIntervalGuard) {
-      const accountId = task.article && task.article.accountId
+      const accountId = task.accountId
       const verdict = this._publishIntervalGuard.check(task.platform, accountId)
       if (!verdict.allowed) {
         task.status = 'pending'

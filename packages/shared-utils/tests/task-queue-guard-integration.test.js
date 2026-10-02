@@ -204,4 +204,35 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     expect(results).toContain('failed:fail_me')
     expect(results).toContain('success:wechat_mp')
   })
+
+  test('accountId 只在任务级（article 不带）时账号档仍生效——守卫必须读归一后的 task.accountId', async () => {
+    // 现场构造「平台档窗口已过、账号档仍在窗口内」：只有真正读到 task.accountId 才会被拦。
+    // 取错源（只读 task.article.accountId）时账号档被整条跳过 ⇒ 任务立即发出且无 blocked 事件。
+    const data = new Map()
+    const store = {
+      get: (k) => (data.has(k) ? data.get(k) : null),
+      set: (k, v) => { data.set(k, v) },
+    }
+    const guard = new PublishIntervalGuard({
+      policy: () => ({ accountMinMs: 60000, platformMinMs: 60000 }),
+      store,
+    })
+    guard.recordPublish('douyin', 'acc_top')
+    data.delete(guard._key('douyin', PublishIntervalGuard.PLATFORM_BUCKET_ACCOUNT_ID))
+
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+    const blockedEvents = []
+    queue.on('publish:blocked', (d) => blockedEvents.push(d))
+    const executed = []
+    queue.setExecutor(async (task) => { executed.push(task.id); return { success: true } })
+
+    queue.add({ platform: 'douyin', accountId: 'acc_top', article: { title: '仅在任务级带账号' } })
+    await new Promise(r => setTimeout(r, 200))
+
+    expect(executed).toHaveLength(0)
+    expect(blockedEvents).toHaveLength(1)
+    expect(blockedEvents[0].bucket).toBe('account')
+    expect(blockedEvents[0].remainingWait).toBeGreaterThan(30000)
+    queue.shutdown()
+  })
 })
