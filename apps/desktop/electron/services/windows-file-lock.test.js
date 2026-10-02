@@ -411,6 +411,19 @@ describe('预算取值来源：常量必须由 CI 实测分布支撑，且留一
     expect(src).toContain("r.head_branch === 'main'")
     // 且必须翻页：最近 100 条里只有约 9 条是 main push，单页会让 --runs=N 静默缩水
     expect(src, '没有翻页 ⇒ --runs=26 实际只会采到个位数 run').toMatch(/page=\$\{|page:|'&page='|page=/)
+    // ── QM-6 外部评审（替代通道，2026-10-02）三条数值/出口一致性补强 ──
+    // C1：脚本默认倍率与 provenance.safetyMultiplier 必须是同一个数。原结构锁只比"字段名在不在"，
+    //     把脚本默认值从 2 改成 3，provenance 里的 safetyMultiplier 就成了另一套口径而锁照绿。
+    const scriptMultiplier = Number(/argOf\('multiplier',\s*(\d+)\)/.exec(src)[1])
+    expect(scriptMultiplier, '复测脚本的默认倍率取不到 ⇒ 判据本身坏了')
+      .toBe(lockHelper.LOCK_BUDGET_PROVENANCE.safetyMultiplier)
+    // I3：provenance 取不到时必须出声，不得回退成脚本里硬编码的第二份 source 文案（两份来源必然漂移）
+    expect(src, '缺 provenance 却静默用默认 source = 取值来源出现双版本')
+      .toMatch(/PROVENANCE_MISSING/)
+    // W1：翻页触顶/样本不足但仍采到东西时，必须单独喊 PARTIAL —— rc=3 只覆盖"一条都没采到"，
+    //     "采到了但只覆盖 3/26 个 run"这一档过去只在 errors 计数里，读起来像成功。
+    expect(src, 'runs 少于 --runs 要求时没有独立出口，样本量偏小会被读成完整分布')
+      .toMatch(/PARTIAL/)
   })
 
   it('真跑（仅 Windows）：本次握手必须入台账，且观测值不得贴脸逼近启动预算', async () => {
