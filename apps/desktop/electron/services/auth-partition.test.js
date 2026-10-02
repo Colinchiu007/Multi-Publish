@@ -121,6 +121,24 @@ describe('auth-partition — collectAuthPartitionCookies', () => {
  * 真正持有登录态的是较旧的那份。旧口径「只读字典序末位」会被空壳长期遮断 ——
  * 用户侧是「账号明明登录过，发布却报未登录」，且重试/重启都不好（空壳仍是最新）。
  */
+describe('auth-partition — 注入候选也受探测窗口约束（QM-6 评审 A2/W3）', () => {
+  it('注入 7 份候选时只探前 PROBE_LIMIT 份：上界不能写在会被注入绕过的那一层', async () => {
+    const reads = []
+    const many = []
+    for (let i = 0; i < 7; i += 1) many.push('auth-auth-kuaishou-' + (700 + i))
+    const sel = await authPartition.selectAuthPartition('kuaishou', null, {
+      candidates: many,
+      readCookies: function (name) {
+        reads.push(name)
+        return Promise.resolve([{ name: 'other', value: 'x', domain: 'example.com' }])
+      },
+    })
+    expect(reads).toEqual(many.slice(0, authPartition.PROBE_LIMIT))
+    expect(sel.probed.length).toBe(authPartition.PROBE_LIMIT)
+    expect(sel.reason).toBe('all-empty')
+  })
+})
+
 describe('auth-partition — 单份探测的超时预算（QM-6 评审 C#15：一次读变成最多 K 次）', () => {
   it('挂死的一份只算「本轮无结论」，不得中断整轮：继续往旧探并命中', async () => {
     const reads = []

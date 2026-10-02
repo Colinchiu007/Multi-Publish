@@ -139,7 +139,8 @@ function readPartitionCookies (partitionName) {
  * 按内容选出可用作凭证兜底的分区。
  * @param {string} platform
  * @param {string|null|undefined} accountId
- * @param {{log?:any, readCookies?:Function, candidates?:string[], userDataPath?:string, fsImpl?:any}} [opts]
+ * @param {{log?:any, readCookies?:Function, candidates?:string[], userDataPath?:string, fsImpl?:any, probeTimeoutMs?:number, env?:object}} [opts]
+ *   注：`candidates` 为注入点，**必须按从新到旧排序**，且最多取前 `PROBE_LIMIT` 份（超出部分不探）。
  * @returns {Promise<{partition:string|null, cookies:any[], probed:string[], reason:'found'|'no-candidate'|'all-empty'|'probe-failed'}>}
  */
 async function selectAuthPartition (platform, accountId, opts) {
@@ -147,7 +148,11 @@ async function selectAuthPartition (platform, accountId, opts) {
   const logx = o.log || log
   const read = o.readCookies || readPartitionCookies
   const probeTimeoutMs = Number.isFinite(o.probeTimeoutMs) ? o.probeTimeoutMs : resolveProbeTimeoutMs(o.env)
-  const candidates = o.candidates || listAuthPartitionCandidates(platform, accountId, o.userDataPath, o.fsImpl)
+  // 注入路径也必须受窗口约束（外部评审 A2/W3）：`listAuthPartitionCandidates` 内部已 slice(-PROBE_LIMIT)，
+  // 但 o.candidates 会原样进探测循环 —— 规格 ③「同组最多探 K 份」的上界不能写在会被绕过的那一层。
+  // 注入方须按**从新到旧**排序；超出窗口只取前 K 份（与生产路径 reverse() 后的语义一致）。
+  const rawCandidates = o.candidates || listAuthPartitionCandidates(platform, accountId, o.userDataPath, o.fsImpl)
+  const candidates = (rawCandidates || []).slice(0, PROBE_LIMIT)
   const none = { partition: null, cookies: [], probed: [], reason: /** @type {'no-candidate'} */ ('no-candidate') }
   if (!candidates || candidates.length === 0) return none
 

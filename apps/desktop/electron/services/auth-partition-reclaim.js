@@ -125,7 +125,10 @@ function partitionRoots (userDataPath) {
  * 回收端会把兜底候选自己吃掉。**回收保留数必须等于定位探测窗口**，两者共用导出的同一个
  * PROBE_LIMIT（锁见 auth-partition-reclaim.test.js 的「窗口=candidates」用例），禁止两处各写数字。
  *
- * 仍然是硬上限：每组最多留 K 份，磁盘不会重新变成无界增长（#2701 的立项理由）。
+ * 上限是**有条件**的（外部评审 A2/W2 指出原表述过强）：每组留最近 K 份，**外加** `livePartitions` 豁免
+ * ——本进程正持有 Session 的目录即使滑出窗口也不能删（Chromium 仍持有其存储，删即写坏状态，#2701 铁律），
+ * 所以长驻进程里单组 `kept` 可以 > K；进程重启后回到 K。磁盘因此不会退回 #2701 立项时的无界增长，
+ * 但增长的上界是「K + 本进程开过的 Session 数」而不是「K」，写注释与改日志时都得按这个口径说。
  * 纯函数、不碰文件系统写操作，便于逐条加锁。
  * @param {string[]} names root 下的目录名（调用方须已过滤为目录）
  * @param {string[]} [activePartitionNames] 本进程正持有 Session 的分区名，一律跳过
@@ -223,7 +226,8 @@ function reclaimStaleAuthPartitions (opts) {
   }
   if (summary.removed.length > 0 || summary.errors > 0) {
     if (log) log.info('AuthReclaim', 'auth partition reclaim scanned=' + summary.scanned +
-      ' removed=' + summary.removed.length + ' kept=' + summary.kept.length + ' errors=' + summary.errors)
+      ' removed=' + summary.removed.length + ' kept=' + summary.kept.length
+      + ' pinned=' + (summary.skippedActive || []).length + ' errors=' + summary.errors)
   }
   return summary
 }

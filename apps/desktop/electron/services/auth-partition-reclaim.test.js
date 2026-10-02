@@ -274,6 +274,8 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
     const log = { warn: vi.fn(), info: vi.fn() }
     reclaim({ userDataPath: base, log })
     expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('removed=1'))
+    // pinned= 是「窗口外但本进程在册」的计数：没有它，日志里的 kept 大于 K 会看起来像 bug
+    expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('pinned='))
   })
 })
 
