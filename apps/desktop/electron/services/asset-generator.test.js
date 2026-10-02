@@ -28,12 +28,42 @@ __registerMock('child_process', {
   execSync: vi.fn(() => ''),
 })
 
+// 夹具只对**本测试的沙箱目录**谎报文件系统，沙箱外一律委托真实 fs。
+// 原因：__registerMock 经 Module._load 拦截该 realm 里每一个 require('fs')，而 vitest 又按
+// apps/desktop/vitest.config.js 的 deps.inline:['electron'] 把 node_modules/electron/index.js
+// 内联进同一个 realm。一律 existsSync()=>false 会让它以为二进制没备好，于是打出
+// `Downloading Electron binary...` 并当场 spawn install.js —— 这就是 CI 里那条被记到
+// "当时正在跑的用例"名下的下载 banner（#2783 的日志形状，根因由 #2794 归因）。
+// 委托只覆盖"读"里第三方模块真正会用的两个动词（existsSync / readFileSync）。statSync 保持原来的
+// 固定返回值：把它换成真读会让"不存在的沙箱外路径"从 {size:1024} 变成抛 ENOENT，那是本缺陷之外的
+// 新语义漂移，没有东西需要它。写类动词继续全部空转：夹具不得因为"委托"而把东西真的写到磁盘上。
+// 沙箱前缀：os.tmpdir() 下带 pid 的独立目录（AGENTS.md「文件系统测试隔离」）。
+// 用共享固定名会让并行 worker 互相删对方的文件，而那是"间歇红"的形状。
+const nodeOs = require('node:os')
+const realFs = require('node:fs')
+const TTS_SANDBOX = require('node:path').join(nodeOs.tmpdir(), 'multi-publish-asset-gen-' + process.pid)
+// 夹具只对**本测试的沙箱目录**谎报文件系统，沙箱外一律委托真实 fs。
+// 原因：__registerMock 经 Module._load 拦截该 realm 里每一个 require(fs)，而 vitest 又按
+// apps/desktop/vitest.config.js 的 deps.inline:[electron] 把 node_modules/electron/index.js
+// 内联进同一个 realm。一律 existsSync()=>false 会让它以为二进制没备好，于是打出
+// Downloading Electron binary... 并当场 spawn install.js —— 这就是 CI 里那条被记到
+// "当时正在跑的用例"名下的下载 banner（#2783 的日志形状，根因由 #2794 归因）。
+// 判定必须按**路径段**比：裸 startsWith 会把 <沙箱>-evil 这种近名目录判进沙箱，
+// 于是夹具对一个真实存在的目录持续谎报"不存在"，而没有任何用例会因此变红。
+const isSandboxPath = (target) => {
+  const normalized = String(target).replace(/\\/g, '/')
+  const sandbox = TTS_SANDBOX.replace(/\\/g, '/')
+  return normalized === sandbox || normalized.startsWith(sandbox + '/')
+}
+// 委托只覆盖第三方模块真正会用到的两个读动词（existsSync / readFileSync）。
+// statSync 保持原固定返回值：换成真读会让"不存在的沙箱外路径"从 {size:1024} 变成抛 ENOENT，
+// 那是本缺陷之外的新语义漂移，没有任何东西需要它。写类动词继续全部空转。
 __registerMock('fs', {
-  existsSync: vi.fn(() => false),
+  existsSync: vi.fn((target) => (isSandboxPath(target) ? false : realFs.existsSync(target))),
   mkdirSync: vi.fn(),
   statSync: vi.fn(() => ({ size: 1024 })),
   writeFileSync: vi.fn(),
-  readFileSync: vi.fn(() => ''),
+  readFileSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? '' : realFs.readFileSync(target, ...rest))),
   rmSync: vi.fn(),
 })
 
@@ -54,7 +84,7 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
   beforeEach(() => { mockSpawn.mockClear() })
 
   it('spawn must use shell: false (not shell: true)', async () => {
-    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
     await gen.generateTTS('hello world', { index: 0 })
     const ttsSpawn = findPythonSpawn()
     expect(ttsSpawn).toBeDefined()
@@ -62,7 +92,7 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
   })
 
   it('malicious shell metacharacters are passed as args, not executed', async () => {
-    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
     const maliciousInputs = [
       '"; rm -rf / #',
       '$(whoami)',
@@ -82,7 +112,7 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
   })
 
   it('cleanText is sliced to 200 chars before passing to spawn', async () => {
-    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
     const longText = 'a'.repeat(500)
     await gen.generateTTS(longText, { index: 0 })
     const ttsSpawn = findPythonSpawn()
@@ -93,7 +123,7 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
   })
 
   it('empty text falls back to silence (no spawn call to python)', async () => {
-    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
     mockSpawn.mockClear()
     await gen.generateTTS('', { index: 0 })
     const pythonSpawn = findPythonSpawn()
@@ -113,7 +143,7 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
   })
 
   it('按安全的 runId 隔离图片和音频输出，并拒绝路径穿越索引', async () => {
-    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
     await gen.generateTTS('hello', { index: '../escape', runId: '../run/id' })
     const ttsSpawn = findPythonSpawn()
     expect(ttsSpawn).toBeDefined()
@@ -145,7 +175,7 @@ describe('TTS 词级时间戳（消除事后 whisper ASR）', () => {
   })
 
   it('python 退出 0 + sidecar 存在 → 返回 timings 且 duration 来自词尾', async () => {
-    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
     const originalSpawnImpl = mockSpawn.getMockImplementation()
     const originalExists = fsMock.existsSync.getMockImplementation()
     const originalStat = fsMock.statSync.getMockImplementation()
@@ -204,7 +234,7 @@ describe('TTS 词级时间戳（消除事后 whisper ASR）', () => {
         subtitleFile: 'https://cdn.minimax.chat/sub.json',
       })),
     }
-    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator, fetchImpl })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator, fetchImpl })
     const result = await gen.generateTTS('你好世界', { index: 0, voice_provider: 'minimax-tts', voice_id: 'male-qn-qingse' })
     expect(result.code).toBe(0)
     expect(result.data.provider).toBe('minimax-tts')
@@ -225,7 +255,7 @@ describe('TTS 词级时间戳（消除事后 whisper ASR）', () => {
         subtitleFile: 'https://cdn.minimax.chat/sub.json',
       })),
     }
-    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator, fetchImpl })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator, fetchImpl })
     const result = await gen.generateTTS('你好世界', { index: 0, voice_provider: 'minimax-tts' })
     expect(result.code).toBe(0)
     expect(result.data.timings).toBeUndefined()
@@ -247,7 +277,7 @@ describe('TTS 词级时间戳（消除事后 whisper ASR）', () => {
         subtitleFile: 'https://cdn.minimax.chat/huge.json',
       })),
     }
-    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator, fetchImpl })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator, fetchImpl })
     const result = await gen.generateTTS('你好世界', { index: 0, voice_provider: 'minimax-tts' })
     expect(result.code).toBe(0)
     expect(result.data.timings).toBeUndefined()
@@ -262,7 +292,7 @@ describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-
         images: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' }],
       })),
     }
-    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator })
     const result = await gen.generateImage('朱蒙站在山脊上眺望', {
       index: 0,
       image_provider: 'openai-image',
@@ -282,7 +312,7 @@ describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-
         images: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' }],
       })),
     }
-    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator })
     const result = await gen.generateImage('prompt', { index: 0, image_provider: 'openai-image' })
     expect(result.code).toBe(0)
     const payload = aiGenerator.generate.mock.calls[0][2]
@@ -297,7 +327,7 @@ describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-
         throw new ProviderError(ERROR_CODES.INVALID_CONFIG, "you dont have access to this voice_id", { providerId: "minimax-multimodal" })
       }),
     }
-    const gen = new AssetGenerator({ outputDir: "/tmp/test", aiGenerator })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator })
     await expect(gen.generateTTS("hello", {
       index: 0,
       voice_provider: "minimax-multimodal",
@@ -310,9 +340,98 @@ describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-
     const aiGenerator = {
       generate: vi.fn(async () => { throw new Error("generic failure") }),
     }
-    const gen = new AssetGenerator({ outputDir: "/tmp/test", aiGenerator })
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX, aiGenerator })
     const result = await gen.generateTTS("hello", { index: 0, voice_provider: "some-provider" })
     expect(result.code).toBe(-1)
     expect(result.message).toContain("some-provider")
   })
 
+
+describe('夹具不得对同 realm 的第三方模块谎报文件系统（#2794 回归锁）', () => {
+  // 本文件顶部把 existsSync 注册成"沙箱内一律 false"，而 vitest 按 deps.inline:[electron]
+  // 把 node_modules/electron/index.js 内联进同一个 realm —— 于是 require(electron) 读到这个假 fs，
+  // 以为二进制没备好，打出 Downloading Electron binary...（CI 上有日志无下载，实测距下一条 11ms）。
+  // 这三条锁只锁可观察的事：委托边界正确、写不落盘、banner 不出现。
+  const nodePath = require('node:path')
+
+  it('沙箱内即使文件真实存在也必须谎报；近名目录与沙箱外必须委托真读', () => {
+    const fsMocked = require('fs')
+    const insideFile = nodePath.join(TTS_SANDBOX, 'real.txt')
+    const evilSibling = TTS_SANDBOX + '-evil'
+    try {
+      realFs.mkdirSync(TTS_SANDBOX, { recursive: true })
+      realFs.writeFileSync(insideFile, 'real')
+      // 自证：文件真的存在。少了这一行，下一条"夹具必须报 false"就是恒真的空话
+      // （本文件 M-3 反证第一轮抓到的正是这种恒真）。
+      expect(realFs.existsSync(insideFile)).toBe(true)
+      expect(fsMocked.existsSync(insideFile)).toBe(false)
+      // 段界：<沙箱>-evil 只差结尾几个字符，但它不是沙箱 —— 必须委托真读，所以存在的目录要报 true。
+      realFs.mkdirSync(evilSibling, { recursive: true })
+      expect(realFs.existsSync(evilSibling)).toBe(true)
+      expect(fsMocked.existsSync(evilSibling)).toBe(true)
+      // 沙箱外的真实读取路径同样委托：这两条是给"整个委托分支被摘掉"准备的独占红出口。
+      expect(fsMocked.existsSync(nodePath.join(process.cwd(), 'package.json'))).toBe(true)
+      const pathTxt = nodePath.join(nodePath.dirname(require.resolve('electron')), 'path.txt')
+      expect(typeof fsMocked.readFileSync(pathTxt, 'utf-8')).toBe('string')
+      expect(fsMocked.readFileSync(pathTxt, 'utf-8').length).toBeGreaterThan(0)
+    } finally {
+      realFs.rmSync(TTS_SANDBOX, { recursive: true, force: true })
+      realFs.rmSync(evilSibling, { recursive: true, force: true })
+    }
+  })
+
+  it('委托只覆盖读：写类动词拿到沙箱外路径也必须空转，绝不落盘', () => {
+    const fsMocked = require('fs')
+    const scratch = realFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'mp-agg-write-' + process.pid + '-'))
+    try {
+      // 先证明这个目录在夹具眼里是"真"的（沙箱外、委托生效），否则下面的"没写出来"不成立。
+      expect(fsMocked.existsSync(scratch)).toBe(true)
+      fsMocked.writeFileSync(nodePath.join(scratch, 'forbidden.txt'), 'should not be written')
+      fsMocked.mkdirSync(nodePath.join(scratch, 'forbidden-dir'))
+      expect(realFs.existsSync(nodePath.join(scratch, 'forbidden.txt'))).toBe(false)
+      expect(realFs.existsSync(nodePath.join(scratch, 'forbidden-dir'))).toBe(false)
+    } finally {
+      realFs.rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
+  it('夹具激活时 require("electron") 不得产出下载 banner，且必须解析到真实存在的可执行文件', () => {
+    const electronId = require.resolve('electron')
+    const exeName = process.platform === 'win32' ? 'electron.exe' : 'electron'
+    const exePath = nodePath.join(nodePath.dirname(electronId), 'dist', exeName)
+    if (!realFs.existsSync(exePath)) {
+      throw new Error('前置条件不成立：node_modules/electron/dist 未备好，请先跑 node scripts/ensure-electron.js —— 本用例不得静默跳过')
+    }
+    const captured = []
+    const previousEntry = require.cache[electronId]
+    const originalLog = console.log
+    const originalWrite = process.stdout.write
+    let value
+    let thrown = null
+    try {
+      delete require.cache[electronId]
+      // 两个通道都录（banner 现在由 console.log 打，但若哪天改走 stdout 单通道锁会失明），
+      // 又都原样转发 —— 录证据不等于把证据藏起来。
+      console.log = (...args) => {
+        captured.push(args.join(' '))
+        return originalLog.apply(console, args)
+      }
+      process.stdout.write = (chunk, ...rest) => {
+        captured.push(String(chunk))
+        return originalWrite.call(process.stdout, chunk, ...rest)
+      }
+      value = require('electron')
+    } catch (error) {
+      thrown = error
+    } finally {
+      console.log = originalLog
+      process.stdout.write = originalWrite
+      // 用例改了模块缓存就必须还原：否则同 realm 后续每次 require(electron) 都会重跑 index.js。
+      if (previousEntry) require.cache[electronId] = previousEntry
+      else delete require.cache[electronId]
+    }
+    expect(captured.filter((line) => line.includes('Downloading Electron binary'))).toEqual([])
+    expect(thrown).toBeNull()
+    expect(realFs.existsSync(String(value))).toBe(true)
+  })
+})
