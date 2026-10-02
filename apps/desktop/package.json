@@ -82,7 +82,7 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "^1.5.4",
     "@vueup/vue-quill": "^1.5.3",
-    "axios": "^1.9.0",
+    "axios": "^1.20.0",
     "cheerio": "^1.2.0",
     "electron-updater": "^6.8.9",
     "element-plus": "^2.14.2",

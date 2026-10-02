@@ -1,4 +1,23 @@
 const assert = require("assert");
+// 上限真源：shared-utils 发布能力注册表（与 content-formatter-registry-sync.test.js 同一取数先例）。
+// 超限测试数据从注册表同源派生，禁止改回硬编码长度——2026-10-01 事故：douyin contentMax
+// 1000→5000 后，按旧上限硬编码的期望值（1000）全部失真（nx @multi-publish/api-publish-engine:test 红）。
+const fs = require("fs");
+const path = require("path");
+function sharedUtilsFile (name) {
+  let dir = __dirname;
+  for (let hop = 0; hop < 10; hop += 1) {
+    const candidate = path.join(dir, "packages", "shared-utils", "src", name);
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error("找不到注册表锚点 packages/shared-utils/src/" + name + "（从 " + __dirname + " 上溯 10 级）");
+}
+const registry = require(sharedUtilsFile("publish-capabilities.js"));
+const DOUYIN_CONTENT_MAX = registry.getPlatformContentLimit("douyin").contentMax;
+
 
 // ---- TDD stubs (module may not exist yet) ----
 let formatContent, formatTags, truncateContent, truncateTitle;
@@ -62,13 +81,14 @@ test("tags with object format", () => {
 
 // ---- truncateContent ----
 console.log("\n--- truncateContent ---");
-test("douyin: 1000 chars max", () => {
-  const r = truncateContent("douyin", "a".repeat(1500));
-  assertEqual(r.length, 1000);
+test("douyin: 按注册表 contentMax 截断（同源派生，勿改回硬编码）", () => {
+  const r = truncateContent("douyin", "a".repeat(DOUYIN_CONTENT_MAX + 500));
+  assertEqual(r.length, DOUYIN_CONTENT_MAX);
 });
-test("weibo: 2000 chars max", () => {
+test("weibo: 5000 chars max（2026-10-02 官方 FAQ 对齐，与注册表同源）", () => {
   const r = truncateContent("weibo", "b".repeat(3000));
-  assertEqual(r.length, 2000);
+  assertEqual(r.length, 3000); // 3000 < 5000 → 不截断
+  assertEqual(truncateContent("weibo", "b".repeat(6000)).length, 5000);
 });
 test("zhihu: 100000 chars max (no truncation)", () => {
   const r = truncateContent("zhihu", "c".repeat(5000));
@@ -107,11 +127,11 @@ test("null title", () => {
 console.log("\n--- formatContent ---");
 test("formatContent: douyin full pipeline（标题 40 ≤ 注册表 55 不截断）", () => {
   const td = formatContent("douyin", {
-    title: "a".repeat(40), content: "b".repeat(1500), tags: ["科技", "AI"]
+    title: "a".repeat(40), content: "b".repeat(DOUYIN_CONTENT_MAX + 500), tags: ["科技", "AI"]
   });
   // CCG W4 事故场景回归：40 字标题经渲染层（注册表 55）放行后不得被引擎截到旧值 30
   assertEqual(td.title.length, 40);
-  assertEqual(td.content.length, 1000);
+  assertEqual(td.content.length, DOUYIN_CONTENT_MAX); // 同源派生（勿改回硬编码 1000，上限 5000 后失真）
   assertEqual(td.tags, ["#科技", "#AI"]);
 });
 test("formatContent: weibo full pipeline", () => {

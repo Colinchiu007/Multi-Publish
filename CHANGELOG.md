@@ -1,3 +1,129 @@
+# [未发布] feat(publish): 图文发布字数上限体系——应用 10000 字 + 平台限制入库与按平台截断转换（2026-10-02，platform-char-limits）
+
+### 应用端 10000 字上限（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）
+
+- 新增契约常量 `APP_ARTICLE_CONTENT_MAX = 10000`（`publish-contract.js`），编辑器计数、Markdown maxlength、发布链路应用级截断共用，禁止散落硬编码。
+- `ArticleEditor.vue`：底部新增字数计数「{count}/10000 字」（按 Unicode 码点统计，emoji 不拆半；≥10000 变红）；Markdown 模式 `maxlength=10000` 原生硬停；上限经 `maxChars` prop 注入。
+- 发布链路（`usePublishFlow.handlePublish`）：正文超 10000 字先按码点截断并出进度警告（before → after），再进入平台级转换/校验。
+
+### 平台字数限制入库（§F2）
+
+- 完成 15 平台标题/正文字数上限联网调研（`01-docs/PLATFORM-CHAR-LIMITS-RESEARCH-2026-10-02.md`，官方来源优先 + 置信度分级 + 「阈值三问」实测证据优先）。
+- **唯一数值变更：weibo contentMax 2000 → 5000**（微博官方客服 FAQ「最多可以发布5000汉字」佐证；同步 `publish-capabilities.json`、引擎 `content-formatter.js` CONTENT_LIMITS，消除三源漂移）。douyin/xiaohongshu 维持 5000（本仓 E2E 1773 字平台侧实测成功，反驳低置信网络值 1000）；kuaishou 480 / baijiahao 149 字节以本仓实测为准。
+- ops-center `platform_def_service.py`：`SEED_DEFS` 的 `max_title/max_content` 改为**从注册表 JSON 生成**（文件缺失回落内置快照 + 告警），种子 note 补调研依据；契约锁 `test_platform_def_seed_limits.py`（种子 ≡ 注册表 / 回落 fail-open / 回填幂等）。
+- 新增存量回填脚本 `ops-center/backend/scripts/backfill_platform_char_limits.py`：注册表 → `platform_defs` 表幂等 UPDATE（值不同才写、软删跳过、note 补依据、`--dry-run` 预览）。
+
+### 按平台的提交文本转换（§F3，取代全局一刀切）
+
+- 新增 `publish-contract.js::applyPlatformContentConversion`：超限平台写差异化覆盖 `platformOverrides[p].content = 截断结果`（复用 `truncateContentForPlatform` 合并预算口径），未超限平台保持全文；手填覆盖同样按平台上限截断；幂等。
+- 单篇（`usePublishFlow`）：`diffEdits` 存在时按平台转换（公众号等大限平台不再被「最小预算」误伤）；无覆盖通道的旧调用方退化回最小预算全局截断。**修复隐性 bug**：截断提示原先写在校验阶段、会被 `progress.value = []` 重置清空——现缓冲至 progress 重置后统一发出。
+- 批量（`useBatchPublish`）：条目级应用 10000 截断 + 按平台转换；超限不再整批中止（转换后仍失败才拦）；确认弹窗汇总逐条目截断详情。
+
+### 提示文案（§F4，zh/en 成对）
+
+- 新增 `articleContentTruncated`（应用级）/ `platformContentTruncated`（「{平台}」正文上限 {limit} 字，当前 {before} 字，发布时将截断为 {after} 字）/ `batchNotify.contentConverted`；批量确认弹窗 `confirmMessage` 追加 converted 段。
+
+### 验证
+
+- 契约层 39 条 + ArticleEditor 10 条 + usePublishFlow 69 条 + useBatchPublish 77 条 + shared-utils 495 条 + 引擎官方 runner 278 条（含 registry-sync 契约锁）+ ops-center 后端 463 条全绿。
+- 数据库链路：SEED_DEFS ≡ 注册表（pytest 契约锁）；回填脚本幂等二跑零变更。
+# [未发布] fix(publish-progress): 发布进度重复会话修复 + 视频上传等待自适应预算（2026-10-01，fix-publish-progress-dup-upload）
+
+### 问题一：发布 1 个视频，面板显示 2 个任务（成功 1/2，幽灵任务永远「排队中」）
+
+- **实锤取证**（shared-user-data/logs/app-2026-10-01.log）：`publish:batch` 处理器内 `taskQueue.add()` **同步启动**任务，首个 `publish:progress` 事件（`starting browser...` 14:32:43.162）早于 IPC 响应（`publish:batch ok` 14:32:43.180）到达渲染端。渲染层 `handleProgressEvent` 先走孤儿收纳建会话①（无标题 → 显示回退名「发布 · HH:mm」），随后 `registerSession({taskIds, title})` 无条件新建会话②（带标题、任务永远 queued）。同一 taskId 的事件全部归属会话① ⇒ 会话② 永不终态：聚合「成功 1/2」、面板关不掉、自动收敛失效。
+- **修复**：`publishProgress.js` `registerSession` 改为「收养合并优先」——登记前先查已含任一 taskId / batchId 命中的现有会话，命中则补齐缺失任务、空标题回填、多命中收敛为一个（任务整体搬迁不重置相位），找不到才新建；合并逻辑拆分至 `publishProgressSessionMerge.js`（会话登记不变量：与事件到达顺序无关）。
+
+### 问题二：视频上传进度卡死 30% 长达 15 分钟
+
+- **实锤取证**（同日志）：909KB 抖音视频 14:32:48 进入 `waiting upload...`（30%）后 15 分 25 秒无任何进度事件，14:48:13 才打 `video upload-complete signal not detected ... continuing best-effort`。根因：旧完成判定是「负向信号不命中 && 正向信号命中」的合取，抖音上传完成后页面残留可见 `[class*=progress]` 元素/「转码中」文本 ⇒ 负向信号恒真 ⇒ 白等满 900s 预算。
+- **修复**（对齐参考产品 4.0 的真实进度理念，详见 `01-docs/PRD-PUBLISH-PROGRESS-FIX-2026-10-01.md`）：
+  - 新增纯函数模块 `upload-wait-strategy.js`：`computeBudgetMs` 按文件大小自适应预算 `clamp(60s + 10s/MB, 90s, 900s)`；`computeReportPercent` 把页面自报上传百分比映射到 30~49 波段；`decideUploadWait` 五级优先级决策（25s 稳定期 → 预算耗尽 best-effort → 停滞 180s+结构信号放行 → 负向消失+正向命中 done → wait）。
+  - 新增 `upload-waiter.js`（mixin 经 Object.assign 合回 platformsMixin）：`_waitForVideoUploadComplete` v4 自实现 3s 轮询，探针返回结构化信号，executeJavaScript 异常全容错，进度只增不减；旧实现从 rpa-view-navigation-helpers.js 移除（拆分说明见文件头注释）。抖音/通用视频链路传入 fileBytes。
+
+### 数据校验
+
+- registerSession：ids/batchId 类型过滤不变；合并绝不丢任务、绝不重置相位；title 只在空标题时回填。
+- 探针 pagePercent：null 先拦（Number(null)===0 陷阱）、越界折叠为 null；fileBytes 非法 → 900s 旧上限兜底。
+
+### 验证
+
+- 新增 `upload-wait-strategy.test.js` 23 条；`publishProgress.test.js` 新增收养合并回归（文件总计 34 条）；`rpa-view-platforms.test.js` 补接线锁。定向回归全绿 139 条；宽范围回归 6443 通过 / 2 失败（均为本机环境预置问题，与本次改动无关）；ESLint 0 error 0 warning。
+# [未发布] test(publish): 引擎侧超限测试数据同样改为注册表同源派生（2026-10-02，fix-2729-limit-tests follow-up）
+
+### 现象（QG Unit Tests 单点红）
+
+- 上一轮修复后 Desktop Shards（1/2、2/2）与 QG Coverage 已转绿，QG Unit Tests 仍红：
+  nx `@multi-publish/api-publish-engine:test` 失败。
+- `content-formatter.test.js` 2 处、`base-adapter.test.js` 1 处断言 `1500 !== 1000`——
+  同一漂移病的引擎侧残留：douyin contentMax 1000→5000 后，formatContent 对 1500 字
+  输入不再截断，而三处用例仍期望截断到 1000。
+- `base-adapter.test.js` 的失败以**未捕获 Promise 异常**形式炸掉 node 进程
+  （test helper 的同步 try/catch 接不住 async 用例），失败计数显示 0/10 但进程 exit 1，
+  排障噪音极大。
+
+### 修复
+
+- 三处期望值改为 `registry.getPlatformContentLimit('douyin').contentMax` 同源派生
+  （取数先例与 content-formatter-registry-sync 契约锁一致），超限输入改为 limit+N 构造；
+- `base-adapter.test.js` 的 test helper 升级为 async 感知（settle 后计数，失败如实计入
+  failed），杜绝「计数 0 却进程退出 1」的排障陷阱。
+
+### 验证
+
+- `node scripts/run-tests.js`（api-publish-engine 全量）exit 0；
+- content-formatter-registry-sync 契约锁 6/6 不受影响。
+
+# [未发布] test(publish): 批量超限测试数据改为从注册表上限同源推导（2026-10-01，fix-2729-limit-tests）
+
+### 现象（CI Gate 4 / Desktop Shards / Coverage 三处同红）
+
+- PR #2729 将抖音/小红书 `contentMax` 1000→5000 后，`useBatchPublish.test.js` 两个
+  「内容超出注册表限制时整批中止且不创建批次」用例失败：断言 `batchCreate` 不被调用，
+  实际批次被创建（超限内容放行）。
+
+### 根因
+
+- 两个用例的「超限」数据是**按旧上限 1000 硬编码的长度**（`'长'.repeat(5000)`、
+  `'正文'.repeat(600)`=1200 字符）；上限提到 5000 后不再超限，`validatePlatformContent`
+  如实放行——测试与被测真源之间的一次经典漂移。
+- 该组用例来自 main 侧后合入的 P2-7 批量校验（#2716），PR 分支早于其存在，
+  CI 跑 PR×main 合并树才暴露该耦合。
+
+### 修复
+
+- 两处超限长度改为 `getPlatformContentLimit(platform).contentMax + 1` 同源推导
+  （`'正文'` 两字一组向上取整组数）：上限再调整时测试自动跟随，杜绝第二次漂移；
+- 同 PR 将 `origin/main` 合并回分支（merge `d28cb067`），对齐 P2-7 批量字段面、
+  账号分组等 main 侧变更，消除合并树与分支树的双轨。
+
+### 验证
+
+- `useBatchPublish.test.js` 77/77；发布链路批次（`src/features/publish` 全部 +
+  `usePublishFlow` + `useBatchPublish`）15 文件 306/306；
+- `content-formatter-registry-sync` 6/6（CONTENT_LIMITS 三真源同步锁）；
+- `publish-capabilities` 70/70；eslint exit 0。
+
+# [未发布] feat(accounts): P2-8a 账号分组落 settings 真源（2026-10-01，account-groups-persistence）
+
+### 新功能
+
+- 分组持久化从 `localStorage`（键 `mp_account_groups`）迁入 Electron settings 真源（键 `account_groups`）：与账号真源同层、按 owner 命名空间隔离，读写都经 `account-groups-store` 单点归一。动机如实记：现状**不是**「刷新即丢」（localStorage 会留），而是「换机 / 重装 / 清浏览器数据即丢，且账号能云同步而分组不能，两者长期错位」
+- 首次运行自动从旧 `localStorage` 键一次性迁移，且**绝不删除**旧值（迁移没成功还能重来，不会把用户分组抹掉）；两侧都有值时以 settings 为准
+
+### 迁移路径的安全带（预防性设计，非既有缺陷）
+
+- **「读不到」绝不读成「没有分组」**：`storeGetSetting` 把 `code !== 0` 折成 `null`，若直接复用，未登录 / 存储不可用会被读成「一个分组都没有」，而随后的自动保存会把这个假空态覆盖进真源 ⇒ 分组整体蒸发且无提示。故新增 `storeGetSettingResult` 原样回传信封，由 store 侧判定；不可达时保持现状并**禁止覆盖写盘**，界面如实显示「读不到」而不是空态。旧实现（纯 localStorage 读写）读失败只影响当次渲染、不会回写覆盖，因此本条是**新路径自带的安全带**，不得读成"此前分组在丢失"
+
+### 数据校验与提示
+
+- 组数上限 50、单组成员上限 500、组名长度上限 40；形状非法整份视为空并出声（不逐元素猜），超限截断且如实报 `limitReached`
+- 新增 `groupsSaveFailed` / `groupsUnreadable` / `groupsMigrated` 三条提示（zh/en 成对，Gate 7 锁定）
+
+### 验证
+
+- 新增 `account-groups-store.test.js` 18 条；`accounts.test.js`（83）与 `Accounts.test.js`（116）改锚到新真源
+- 反证三条均实跑、每次都以「红的是哪条锁 + 红因」对账并还原：摘掉「非 0 码即不可读」判据 ⇒ 红 2（store 侧「绝不拿空数组覆盖真源」+ 模块侧「不得交出空数组当事实」）；`limitReached` 改恒 `false` ⇒ 红 1；迁移改为读一个不存在的旧键 ⇒ 红 1（迁移用例「legacy 有 / 真源无」）
 # [未发布] fix(打包门禁): app.asar 不再打进 467 个单元测试文件，并补门禁自证接线（2026-10-01，fix-asar-exclude-test-files）
 
 ### 为什么现在才收
@@ -53,6 +179,8 @@
 - 条目级 `platformOverrides` / `visibilitySemantic` 入结构并可随「复制文章」深拷贝带走；批量 payload 与单篇 `buildArticleData` 同口径（补 `contentFormat` / `platformOverrides` / `visibilitySemantic`，封面经 `normalizePublishFile` 归一，tags/topics/mentions/images 改为「有值才挂键」）。
 
 ### 修复
+- **批量条目封面「重选即替换」（#2716 合并后评审 Critical）**：`BatchArticleFields.vue` 的 `el-upload` 声明了 `:limit="1"`，却既不绑 `v-model:file-list` 也不处理 `:on-exceed`。el-upload 的超限判据在 `onStart` **之前** return，而默认 `onExceed` 就是 `NOOP`（实测 `element-plus/es/components/upload/src/upload-content...mjs:37` + `upload.mjs:188-191`）⇒ 一张封面选完即永久锁死，再点「选择封面」静默无反应；又因该条目 `:show-file-list="false"` 关掉了单篇那条可清列表的 `×`、「清除封面」只清 `article.cover_*` 清不到内部列表，用户**没有任何恢复路径**。修复复用本仓既有正解（同 `Publish.vue` 视频轨 `handleVideoFileExceed`：`clearFiles()` + `handleStart(files[0])`），不另写第二份口径
+- **批量封面「本地优先会清掉远程地址」必须出声**：payload 侧 `resolveCoverFields` 在本地封面存在时清空 `cover_url`，而此前只把「仅远程 URL」提示藏起来——等于静默丢弃用户刚输入的地址而不告知，与同一段代码自己的「不得静默」注释相矛盾。新增互斥判据 `coverUrlWillDrop` 与 `coverUrlDroppedHint`（zh/en 成对），两条提示按 `cover_file` 取值、与 payload 同口径且互斥穷尽
 
 - **主进程派发层砍键（真实缺陷）**：`batch-manager.js` 的 `executeBatch` 用 5 键手工白名单（title/content/author/cover_url/video_path）入队，而同文件 `scheduleBatch` 是整包透传 ⇒ 同一批文章「设了定时就带封面、立即发布就没封面」，且渲染层早已发送的 `cover_path` / `images` / `tags` / `topics` / `mentions` / `aiGenerated` 在立即执行路径上**一直**被静默丢弃。现三条派发点统一走 `buildEnqueuedArticle(article, accountId)`。
 - **批量派发目标改为显式覆盖（一致性加固，非缺陷修复）**：`article.accountId` 优先于任务顶层，排期路径此前不带该键、靠 `buildPublishArticle` 的 `|| task?.accountId` 兜底才恰好取对（原记「会拿错账号凭证」经实测撤回）；现由 `buildEnqueuedArticle` 逐次覆盖派发目标。同一条 `executeBatch ↔ scheduleBatch` 字段面 parity 锁暴露的**字段丢失**才是本切片修掉的用户可见缺陷。
@@ -63,6 +191,7 @@
 - 差异化面板归一化与 Markdown 判定自 `usePublishFlow.js` 迁出为 `publish-overrides.js`；el-upload 文件→路径描述符自 `Publish.vue` 迁出为 `publish-upload-file.js`。迁出属行为保持重构，批量与单篇不得各写一份。
 
 ### 验证
+- 新增 3 条并全部实跑反证：① 重选必须替换（实现前红 1）；② 「本地+URL」态必须出丢弃提示（实现前红 1）；③ **负控**——只声明 `:limit` 不处理 on-exceed 时替身必须真的丢掉第二个文件（证明 ① 有料，替身退化成「恒触发 on-change」时该条先红）。另把 `useBatchPublish.test.js` 的 `keysOf` 从固定 3000 字符窗口改为「按声明行缩进找该函数自己的闭合括号 + 找不到即红」；如实定性：实测两函数跨度仅 1605/1647 字符，当时窗口是**向相邻函数过读**而非欠读，过读部分恰好没贡献新键 ⇒ 不构成当下的假绿，属潜在脆弱性；反证为把 `data.mentions` 改名后该锁红且红因正是 `mentions`
 
 - 新增/更新测试：`usePublishFieldSurface.test.js`、`publish-overrides.test.js`、`publish-upload-file.test.js`、`BatchArticleFields.test.js`、`useBatchPublish.test.js`（P2-7 块）、`batch-manager.test.js`（字段面 parity）、`Publish.test.js`（接线）；受影响面 216 passed（14 files）+ 98 passed（2 files）。
 - 反证四条均实跑并逐字节还原：整包透传退回白名单 ⇒ 红 2；override 归一改 no-op ⇒ 红 1；内容校验恒通过 ⇒ 红 2；无标题提示忽略入参平台清单 ⇒ 红 3。
@@ -84,6 +213,33 @@
 - `mp-worktree-health.test.ps1` 22/22（新增 6 例覆盖登记制的正反与 fail-closed 两侧）；实测登记本机 harness 工作区后真实门禁 rc=1 → rc=0。
 - 反证：case 5 删钩后未恢复会让后续用例全被钩子红灯污染——测试自身的这个坑已修（恢复钩子后再进入登记制用例）。
 
+# [未发布] feat(publish): 正文超平台上限自动裁剪 + 热门选题→改写→一键发布全链路打通（2026-10-01，publish-oneclick-autotruncate）
+
+### 现象
+「热门选题 → 创作文案 → 开始改写 → 去发布 → 直接发图文 → 一键发布」链路中，长文（改写产物 1210+ 字）点击
+「一键发布」后界面毫无反应（无跳转、无报错、无新任务），CDP E2E 连续多轮误判为"按钮失效 / 队列锁死"。
+
+### 根因（hook 副作用 + 抓瞬时 toast 定案）
+- 抖音 / 小红书 / 快手正文上限均为 1000 字（快手还把标题计入首行），而改写产物 1217–1238 字；
+- 提交前 validatePlatformContent 逐平台校验，任一超限即中断整个提交（electronAPI.publishBatch 从未被调用）；
+- 失败反馈仅一条几秒即逝的 toast，肉眼与截图都极易错过。
+
+### 修复
+- src/composables/usePublishFlow.js：正文超限时自动裁剪（原先只有百家号标题会截断），新增进度提示
+  「正文超出平台上限，已自动裁剪（{before} → {after} 字）」；
+- src/features/publish/publish-contract.js：新增 truncateContentForPlatform，同源复用
+  getPlatformContentLimit + isNoTitlePlatform；无标题平台（快手等 titleMax=0）扣除标题长度，
+  否则出现"裁到 1000 仍报 1021"的漂移（E2E 实测踩到）；
+- 裁剪后统一 recheck 兜底；新增 i18n contentAutoTruncated（zh/en 成对）；
+- 补 5 个单测：快手扣标题=980 / 抖音不扣=1000 / 未超限原样 / 大上限不裁 / emoji 按码点不切碎。
+
+### 同批打通（E2E 实证）
+- 热门选题页选择器与链路：.topic-check（列表项）/ select-all-label（全选）/ coral-check（结合爆款库）；
+- 「创作文案」→ #/rewrite?topic=… → 「开始改写」（约 20s 出正文）→ 「去发布」→ 「直接发图文」
+  → #/publish?draft=…（标题/正文自动填入）；
+- 真实发布成功：知乎 success + 快手 success（主进程队列历史实测）；
+- 记录两个 UI 陷阱：发布页 DIV.page-title 文本亦为「一键发布」（须用 button.ui-btn-primary 定位）；
+  应用自身 UI 为 Vue 3（React fiber 探针仅适用于头条等平台页）。
 # [未发布] fix(accounts): 失效账号点卡片打开平台页改走干净会话，修复公众号「二维码加载很久后失败」（2026-09-30，wechat-qr-stale-cookie）
 
 ### 现象
@@ -260,6 +416,27 @@
 - 同批相邻面回归：`node scripts/compare-scheduler-models.js` ⇒ `PARITY OK`（KNOWN_DIFFS 1 条，属已建档测量噪声）；调度对拍 vitest 用例 1 passed。
 - **QM-6 未执行（如实登记，不谎称已跑）**：本轮两条外部评审模型都不可用——后端死于本机 CC Switch 代理把 `/responses` 转给一个**没有 Responses API 的 provider**（错误串带 `upstream_status: HTTP 404`，说明代理自身转发成功、坏在上游），前端死于 `400 … 虚拟模型额度不足`。两者均属机器级路由/额度问题、不在本任务授权范围 ⇒ **没有为跑通评审去改用户的路由配置**，按 AGENTS.md「子代理降级」改由主代理自审；承重证据换成上面 6 条变异 + 交付物内 asar 抽查。本 PR 的判据形状（三态、单调不减、取未排序源）实际**继承自 #2626 那轮 QM-6 的两条结论**，不是无来源的新设计。
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
+
+- **docs：新增《签名服务协议分析报告》**（`01-docs/ANALYSIS-SIGN-SERVICE-2026-09-30.md`）。
+  还原参考产品远程签名服务的完整协议（域名 / 端口按平台分配 / 请求体字段 / 响应结构 /
+  `sortQueryString` 前置规范化），并给出**可复用性评估**：
+  协议可还原、服务当前可探活，但**本仓明确不采用直接依赖**（服务条款与合规风险、
+  单点稳定性风险、会把用户 cookie 与待发正文送往第三方）。
+  落地结论：接口层判定与参考产品一致（`mp/agw/article/publish`），
+  前置条件层不可复用 ⇒ 维持**页面内提交**路线（P0）。
+
+- **fix(selector)：`:has-text` 选择器退化为「标签第一个元素」的全局根因**。`rpa-selector-utils.js`
+  生成的解析代码先执行 `document.querySelector(selector.split(":has-text")[0])`，而该调用在真实页面
+  **必然成功**（返回页面第一个同标签元素）并直接 `return`，使精心实现的 `_findByText`
+  （精确 / 叶子精确 / 包含 / 任意包含 四级择优）**从未被调用** ⇒ 所有 `xxx:has-text("...")` 候选
+  实际都点在与意图无关的控件上（头条「预览并发布」点不动、只存草稿即由此而来）。
+  修复：含文本谓词（`:has-text(` / `^text=`）时不得回落到 base 的 `querySelector`。
+- **fix(selectors)：收紧头条发布按钮候选**。根因修复后 `button:has-text("发布")` 在无精确匹配时会走
+  **包含**匹配 ⇒ 命中「**定时发布**」等危险控件；仅保留文本明确的候选
+  （`预览并发布` / `.publish-btn` / `确认发布`）。
+- **真机取证（头条提交链路）**：注入 `fetch`/`XMLHttpRequest` hook 后确认 —— 发布接口为
+  `POST https://mp.toutiao.com/mp/agw/article/publish`；**填内容后点「预览并发布」确实发出提交请求**，
+  而**空内容时无任何请求**（站方校验拦下）⇒ 头条链路本身可用，残留问题在「填充是否被页面接受」一侧。
 
 - **chore(rpa)：发布确认弹窗诊断扩展 `PUB_STATE`（头条「发布点不动」排查）**。
   `_confirmPublishDialog` 的 `MODAL_NO_MATCH` 分支新增：发布类按钮的 `disabled` / 可见性 /

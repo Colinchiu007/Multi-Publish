@@ -294,6 +294,16 @@ export async function storeSetSetting (key, value) {
   return invoke("storeSetSetting", key, value)
 }
 
+/**
+ * 与 storeGetSetting 的唯一区别：**保留 IPC 信封**。
+ * storeGetSetting 把 `code !== 0` 塌成 `null`，于是「未登录 / 存储不可用 / 读失败」
+ * 与「用户确实没有这条记录」在调用方看来一模一样 —— 拿它做"空则用默认值"的判断，
+ * 下一步保存就会用默认值覆盖真源。需要区分这两种情况的消费方一律用本函数。
+ */
+export async function storeGetSettingResult (key) {
+  return invokeWithFallback("storeGetSetting", { code: -1, message: 'electronAPI not available' }, key)
+}
+
 export async function storeAddPublishRecord (record) {
   return invokeWithFallback("storeAddPublishRecord", null, record)
 }

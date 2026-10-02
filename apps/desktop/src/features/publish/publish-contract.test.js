@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  APP_ARTICLE_CONTENT_MAX,
+  applyPlatformContentConversion,
   buildPublishTargets,
   getPlatformContentLimit,
+  minContentBudget,
   normalizeAccountIds,
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
   truncateByChars,
   truncateByUtf8Bytes,
+  truncateContentForPlatform,
   utf8ByteLength,
   validatePlatformContent,
   validatePublishMetadata,
@@ -273,12 +277,189 @@ describe('publish contract', () => {
 
   it('平台限制来自发布能力注册表（douyin/tiktok 修复项生效）', () => {
     // 旧表 douyin contentMax=0（不校验）→ 注册表 1000
-    expect(getPlatformContentLimit('douyin')).toEqual({ titleMax: 55, contentMax: 1000 })
+    expect(getPlatformContentLimit('douyin')).toEqual({ titleMax: 55, contentMax: 5000 })
     // 旧表 tiktok title 2200/content 0 → 注册表 caption 语义 content 2200
     expect(getPlatformContentLimit('tiktok')).toEqual({ titleMax: 0, contentMax: 2200 })
     // 旧表缺条目回落默认 5000 → 注册表补齐
-    expect(getPlatformContentLimit('tencent_video')).toEqual({ titleMax: 0, contentMax: 1000 })
-    expect(getPlatformContentLimit('kuaishou')).toEqual({ titleMax: 0, contentMax: 1000 })
+    expect(getPlatformContentLimit('tencent_video')).toEqual({ titleMax: 0, contentMax: 5000 })
+    expect(getPlatformContentLimit('kuaishou')).toEqual({ titleMax: 0, contentMax: 480 })
     expect(getPlatformContentLimit('facebook')).toEqual({ titleMax: 100, contentMax: 63206 })
+  })
+})
+
+describe('truncateContentForPlatform（正文超平台上限时自动裁剪，2026-10-01）', () => {
+  it('未超限时原样返回（不 trim 掉正文内部结构）', () => {
+    expect(truncateContentForPlatform('kuaishou', '短正文', '标题')).toBe('短正文')
+  })
+
+  it('无标题平台（快手 titleMax=0）需扣除「标题计入首行」的长度', () => {
+    // 快手校验口径：composeNoTitleDescription(title, content) 的长度 <= contentMax。
+    // 故正文预算 = contentMax - 标题长度，否则会出现「裁到 1000 后仍报 1021」的漂移
+    // （E2E 实测：正文 997 + 标题 24 = 1021 > 1000）。
+    const title = '标'.repeat(20)
+    const content = '正'.repeat(6000)
+    const out = truncateContentForPlatform('kuaishou', content, title)
+    expect(Array.from(out).length).toBe(459)
+    // 合并后（标题 + 换行分隔符 + 正文）恰好等于快手上限 480，不超
+    expect(Array.from(title).length + 1 + Array.from(out).length).toBe(480)
+  })
+
+  it('有标题平台（抖音 titleMax=55）按 contentMax 裁剪，不扣标题', () => {
+    const title = '标'.repeat(20)
+    const content = '正'.repeat(6000)
+    const out = truncateContentForPlatform('douyin', content, title)
+    expect(Array.from(out).length).toBe(5000)
+  })
+
+  it('上限足够大时不裁剪', () => {
+    const content = '正'.repeat(5000)
+    expect(truncateContentForPlatform('facebook', content, '标题')).toBe(content)
+  })
+
+  it('按码点裁剪，不切碎代理对（emoji）', () => {
+    const content = '😀'.repeat(6000)
+    const out = truncateContentForPlatform('douyin', content, '')
+    expect(Array.from(out).length).toBe(5000)
+    expect(out.endsWith('\uD83D\uDE00')).toBe(true)
+  })
+})
+
+describe('minContentBudget（按所有选中平台取最小正文预算，2026-10-01）', () => {
+  it('含无标题平台时扣除标题长度（快手的标题计入描述首行）', () => {
+    // kuaishou: titleMax=0, contentMax=480；标题 20 字 + 1 个换行分隔符 ⇒ 预算 979
+    // douyin:    titleMax=55, contentMax=5000 ⇒ 预算 1000
+    // 取最小 ⇒ 459（否则会出现"裁到刚好后快手仍报 1001"的多轮反复）
+    expect(minContentBudget(['kuaishou', 'douyin'], '标'.repeat(20))).toBe(459)
+  })
+
+  it('全为有标题平台时取最小 contentMax（不扣标题）', () => {
+    const withTitle = minContentBudget(['douyin'], '标'.repeat(30))
+    expect(withTitle).toBe(5000)
+  })
+
+  it('无受限平台（空列表 / 上限为 0）返回 null', () => {
+    expect(minContentBudget([], '标题')).toBe(null)
+    expect(minContentBudget(null, '标题')).toBe(null)
+    expect(minContentBudget(['douyin', 'douyin'], '')).toBe(5000)
+  })
+
+  it('重复平台去重后不影响结果', () => {
+    expect(minContentBudget(['kuaishou', 'kuaishou'], '标'.repeat(20)))
+      .toBe(minContentBudget(['kuaishou'], '标'.repeat(20)))
+  })
+})
+
+describe('applyPlatformContentConversion（按平台生成差异化截断覆盖，2026-10-02）', () => {
+  it('只截断超限平台：未超限平台保留全文且不写覆盖', () => {
+    // wechat_mp contentMax=20000（不超）；xiaohongshu contentMax=5000（超）
+    const content = '正'.repeat(8000)
+    const article = { title: '标题', content }
+    const overrides = {}
+    const { truncations } = applyPlatformContentConversion({
+      platforms: ['wechat_mp', 'xiaohongshu'],
+      article,
+      platformOverrides: overrides,
+    })
+    expect(article.content).toBe(content) // 全局正文不被改（公众号保持全文）
+    expect(overrides.wechat_mp).toBeUndefined()
+    expect(Array.from(overrides.xiaohongshu.content).length).toBe(5000)
+    expect(truncations).toEqual([
+      { platform: 'xiaohongshu', label: '小红书', limit: 5000, before: 8000, after: 5000 },
+    ])
+  })
+
+  it('无标题平台按合并预算截断（快手：标题计入首行）', () => {
+    const title = '标'.repeat(20)
+    const article = { title, content: '正'.repeat(6000) }
+    const overrides = {}
+    const { truncations } = applyPlatformContentConversion({
+      platforms: ['kuaishou'],
+      article,
+      platformOverrides: overrides,
+    })
+    // 预算 480 - 20 - 1 = 459（与 truncateContentForPlatform 同口径）
+    expect(Array.from(overrides.kuaishou.content).length).toBe(459)
+    expect(truncations).toEqual([
+      { platform: 'kuaishou', label: '快手', limit: 480, before: 6000, after: 459 },
+    ])
+  })
+
+  it('尊重用户已有的平台覆盖：只对超限覆盖值截断', () => {
+    const article = { title: '标题', content: '正'.repeat(6000) }
+    const overrides = { douyin: { title: '', content: '覆'.repeat(6000) } }
+    const { truncations } = applyPlatformContentConversion({
+      platforms: ['douyin'],
+      article,
+      platformOverrides: overrides,
+    })
+    // douyin 覆盖 6000 > 5000 → 截断覆盖值，而不是全局正文
+    expect(Array.from(overrides.douyin.content).length).toBe(5000)
+    expect(article.content.length).toBe(6000)
+    expect(truncations).toEqual([
+      { platform: 'douyin', label: '抖音', limit: 5000, before: 6000, after: 5000 },
+    ])
+  })
+
+  it('幂等：对已截断内容再次调用不产生新记录', () => {
+    const article = { title: '标题', content: '正'.repeat(8000) }
+    const overrides = {}
+    const first = applyPlatformContentConversion({
+      platforms: ['xiaohongshu'],
+      article,
+      platformOverrides: overrides,
+    })
+    expect(first.truncations.length).toBe(1)
+    const second = applyPlatformContentConversion({
+      platforms: ['xiaohongshu'],
+      article,
+      platformOverrides: overrides,
+    })
+    expect(second.truncations).toEqual([])
+    expect(overrides.xiaohongshu.content).toBe(first.overrides.xiaohongshu.content)
+  })
+
+  it('边界：空平台列表 / 未知平台 / 上限为 0 时安全跳过', () => {
+    const article = { title: 't', content: '正'.repeat(10000) }
+    const overrides = {}
+    expect(applyPlatformContentConversion({ platforms: [], article, platformOverrides: overrides }).truncations).toEqual([])
+    expect(applyPlatformContentConversion({ platforms: null, article, platformOverrides: overrides }).truncations).toEqual([])
+    // unknown 平台回落 contentMax=5000 → 会截断（回落语义与 validatePlatformContent 一致）
+    const unknown = applyPlatformContentConversion({ platforms: ['unknown_platform'], article, platformOverrides: overrides })
+    expect(unknown.truncations).toEqual([
+      { platform: 'unknown_platform', label: 'unknown_platform', limit: 5000, before: 10000, after: 5000 },
+    ])
+  })
+
+  it('全平台未超限时 overrides 原对象保持不变（引用相等）', () => {
+    const content = '短正文'
+    const article = { title: 't', content }
+    const overrides = { weibo: { title: '', content: '手填描述' } }
+    const result = applyPlatformContentConversion({
+      platforms: ['wechat_mp', 'facebook'],
+      article,
+      platformOverrides: overrides,
+    })
+    expect(result.truncations).toEqual([])
+    expect(result.overrides).toBe(overrides)
+    expect(overrides.weibo.content).toBe('手填描述')
+  })
+
+  it('多平台截断记录顺序与平台选择顺序一致', () => {
+    const article = { title: '标'.repeat(20), content: '正'.repeat(6000) }
+    const overrides = {}
+    const { truncations } = applyPlatformContentConversion({
+      platforms: ['douyin', 'kuaishou', 'twitter'],
+      article,
+      platformOverrides: overrides,
+    })
+    expect(truncations.map(t => t.platform)).toEqual(['douyin', 'kuaishou', 'twitter'])
+    // twitter caption 上限 280，标题 20 + 分隔 1 → 预算 259
+    expect(truncations[2]).toMatchObject({ platform: 'twitter', limit: 280, after: 259 })
+  })
+})
+
+describe('APP_ARTICLE_CONTENT_MAX（应用端图文正文字数上限）', () => {
+  it('应用上限为 10000 且挂入契约常量', () => {
+    expect(APP_ARTICLE_CONTENT_MAX).toBe(10000)
   })
 })
