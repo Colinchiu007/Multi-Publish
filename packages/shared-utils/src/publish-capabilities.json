@@ -4,7 +4,7 @@
   "platforms": {
     "wechat_mp": { "titleMode": "title", "limits": { "titleMax": 64, "contentMax": 20000 } },
     "zhihu": { "titleMode": "title", "limits": { "titleMax": 50, "contentMax": 100000 } },
-    "weibo": { "titleMode": "caption", "limits": { "titleMax": 0, "contentMax": 10000 } },
+    "weibo": { "titleMode": "caption", "limits": { "titleMax": 0, "contentMax": 5000 } },
     "douyin": { "titleMode": "title", "limits": { "titleMax": 55, "contentMax": 5000 } },
     "xiaohongshu": { "titleMode": "title", "limits": { "titleMax": 20, "contentMax": 5000 } },
     "tencent_video": { "titleMode": "caption", "limits": { "titleMax": 0, "contentMax": 5000 } },

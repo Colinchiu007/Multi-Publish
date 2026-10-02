@@ -29,7 +29,7 @@ var TAG_STYLES = {
 // 描述（由各适配器 compose），标题不单独截断（title 上限设 100000 = no-op），
 // 合并后长度由 contentMax 管辖。百家号标题按 UTF-8 字节 149 上限（≈49 中文字符）。
 var CONTENT_LIMITS = {
-  wechat_mp: 20000, zhihu: 100000, weibo: 10000,
+  wechat_mp: 20000, zhihu: 100000, weibo: 5000,
   douyin: 5000, xiaohongshu: 5000, tencent_video: 5000, kuaishou: 480,
   toutiao: 100000, bilibili: 2000, baijiahao: 100000,
   youtube: 5000, tiktok: 2200, twitter: 280, instagram: 2200, facebook: 63206,

@@ -2,9 +2,6 @@
 record: backfill-2717-exec-record
 task: 回填 #2717 的执行记录并销账 + 第 6 组 runner 证据入账 + 纠正"D8 已被测试钉住"的过宽表述
 date: 2026-10-01
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：#2717 记录回填与 runner 证据入账（backfill-2717-exec-record，2026-10-01）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 接线棘轮 | N/A | 本 PR 不新增测试文件，也不改 workflow；既有锁的接线状态由 `check-unwired-tests.js` 与 `check-step-failfast.js` 复跑证明（各自 rc=0） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine` 与任何 UI |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，按门禁口径如实登记，不以自审冒充通过；本 PR 变更面为两份 openspec 文本，无运行行为 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有 PASS 口径回填：merge SHA 与时间取 `git log origin/main --grep` 该 PR 号，远端分支删除取 `git ls-remote --heads origin backfill-2717-exec-record` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段** |
+| 远程同步 | PASS | PR #2757 于 2026-10-01T22:51:31+08:00 squash 合并，merge SHA `6a51c79f412225041a01658be0fa56953f8abc27`；`git ls-remote --heads origin backfill-2717-exec-record` 返回 0 行证远端分支已删；origin/main 上三个文件与分支侧 blob 逐字节相同（`git rev-parse <rev>:<path>` 对比 True/True/True）。回填动作本身即本条记录所属文件的 `sync_*` 三字段被整段删除，由 `check-gate-record-debt` 的"登记字段无残留"判据共同核验（rc=0） |
 
 ### 回填补记（判定必须在 commit 之后跑，否则 fail-closed 判成 docs-only=false，故单列一段）
 

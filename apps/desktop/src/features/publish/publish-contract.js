@@ -10,6 +10,9 @@ import {
   isNoTitlePlatform,
 } from '@multi-publish/shared-utils/src/publish-capabilities'
 
+// 平台字数限制转换已拆分至独立模块（逐文件行数门禁），此处 re-export 保持导入路径兼容
+export { applyPlatformContentConversion, APP_ARTICLE_CONTENT_MAX } from './platform-content-conversion'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_MAX_SCHEDULE_DAYS = 30
 const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000
@@ -316,7 +319,6 @@ export function utf8ByteLength (value) {
   }
   return bytes
 }
-
 /**
  * 按 UTF-8 字节数截断字符串到 maxBytes 字节内，避免把代理对（emoji 等）切成半个字符。
  * 用于百家号标题等按字节数校验的平台，保证不因标题超长阻断一键发布。

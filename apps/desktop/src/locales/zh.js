@@ -1209,6 +1209,8 @@ export default {
     titlePlaceholder: '请输入文章标题',
     content: '正文',
     contentPlaceholder: '请输入正文',
+    // 编辑器字数计数后缀（ArticleEditor，PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）
+    articleCharCount: ' 字',
     tags: '标签',
     tagsPlaceholder: '添加后自动带入描述，多个用逗号分隔',
     topics: '话题',
@@ -1437,6 +1439,9 @@ export default {
       offlineCacheFailed: '离线任务缓存失败',
       baijiahaoTitleTruncated: '百家号标题已按 149 字节上限自动截断',
       contentAutoTruncated: (ctx) => '正文超出平台上限，已自动裁剪（' + ctx.named('before') + ' → ' + ctx.named('after') + ' 字）',
+      // 平台字数限制体系（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F4）
+      articleContentTruncated: (ctx) => '正文超出应用 10000 字上限，已自动截断（' + ctx.named('before') + ' → ' + ctx.named('after') + ' 字）',
+      platformContentTruncated: (ctx) => '「' + ctx.named('platform') + '」正文上限 ' + ctx.named('limit') + ' 字，当前 ' + ctx.named('before') + ' 字，发布时将截断为 ' + ctx.named('after') + ' 字',
       publishSuccessMessage: (ctx) => ctx.named('platform') + ' 发布成功',
       // publish-progress-ux：会话终态驱动的页面结果卡汇总（PRD §8.4）
       resultAllSuccess: (ctx) => '发布完成：' + ctx.named('count') + ' 个平台全部成功',
@@ -1454,6 +1459,7 @@ export default {
     },
     batchNotify: {
       contentInvalid: (ctx) => '「' + ctx.named('title') + '」' + ctx.named('message'),
+      contentConverted: (ctx) => ctx.named('count') + ' 篇图文超平台字数限制，将按平台自动截断：' + ctx.named('details'),
       retrySuccess: (ctx) => '已重新提交 ' + ctx.named('accepted') + ' 个失败任务',
       retryPartial: (ctx) => '已重新提交 ' + ctx.named('accepted') + ' 个任务，' + ctx.named('remaining') + ' 个任务仍失败',
       retryFailed: '失败任务重新提交失败',
@@ -1469,7 +1475,7 @@ export default {
       publishSuccess: (ctx) => '批量发布完成：' + ctx.named('succeeded') + ' 个任务全部成功',
       statusTimeout: '批量发布状态确认超时，请在任务记录中查看最终结果',
       confirmTitle: '确认批量发布',
-      confirmMessage: (ctx) => '即将发布 ' + ctx.named('count') + ' 篇内容，共 ' + ctx.named('tasks') + ' 个平台账号任务。请确认各平台表单信息完整。',
+      confirmMessage: (ctx) => '即将发布 ' + ctx.named('count') + ' 篇内容，共 ' + ctx.named('tasks') + ' 个平台账号任务。请确认各平台表单信息完整。' + (ctx.named('converted') ? ' ' + ctx.named('converted') : ''),
       confirmButton: '确认发布',
       cancelButton: '取消',
       progressStage: (ctx) => '[' + ctx.named('platform') + '] ' + ctx.named('stage'),

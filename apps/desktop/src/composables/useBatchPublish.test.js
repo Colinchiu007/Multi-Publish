@@ -1233,7 +1233,7 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
     expect(mockElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('小红书标题'))
   })
 
-  it('差异化面板里的超长覆盖内容同样被拦（校验对象是实际要发布的内容，不是表单值）', async () => {
+  it('差异化面板里的超长覆盖内容按平台上限自动转换（PRD-PLATFORM-CHAR-LIMITS §F3：截断放行 + 汇总提示，不再整批中止）', async () => {
     const r = useBatchPublish({ article, licenseStore })
     r.articles.value = [{
       title: '合规标题',
@@ -1247,8 +1247,19 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
 
     await r.handleBatchPublish()
 
-    expect(mockBatchCreate).not.toHaveBeenCalled()
-    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('合规标题'))
+    // 转换后放行：batchCreate 收到的 payload 里覆盖内容已截到注册表上限
+    expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+    const payload = mockBatchCreate.mock.calls[0][0]
+    const override = payload.articles[0].platformOverrides.douyin
+    expect(Array.from(override.content).length).toBe(getPlatformContentLimit('douyin').contentMax)
+    // 确认弹窗提示包含该条目的截断汇总（含平台上限与 before/after）
+    expect(mockElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('合规标题'),
+      expect.anything(),
+      expect.anything(),
+    )
+    const confirmText = mockElMessageBox.confirm.mock.calls[0][0]
+    expect(confirmText).toContain(String(getPlatformContentLimit('douyin').contentMax))
   })
 
   it('接线守卫：批量 payload 键集必须覆盖单篇 buildArticleData 的全部键（漏一键即红）', async () => {
