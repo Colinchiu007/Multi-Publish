@@ -25,7 +25,6 @@ __registerMock('@multi-publish/api-publish-engine', {
 const collectAuthPartitionCookies = vi.fn()
 __registerMock('./auth-partition', {
   collectAuthPartitionCookies,
-  findAuthPartitionDir: vi.fn(),
 })
 
 let RpaViewManager
@@ -120,5 +119,26 @@ describe('RpaViewManager API-first 凭证分区兜底（D1）', () => {
 
     // API 分支被调用时 cookie 为 undefined/空均不得阻断降级；若压根未进入 API 分支也符合预期
     if (publishViaApi.mock.calls.length > 0) expect(publishViaApi.mock.calls[0][2]).toBeFalsy()
+  })
+
+  it('兜底为空时调用方留痕必须带 reason/probed，且不得替兜底断言成因（QM-6 评审 W1/I4）', async () => {
+    shouldUseApi.mockReturnValue(true)
+    supportsApi.mockReturnValue(true)
+    collectAuthPartitionCookies.mockResolvedValue({
+      cookieString: '', partition: null, count: 0, reason: 'probe-failed',
+      probed: ['auth-auth-kuaishou-1790000000001', 'auth-auth-kuaishou-1790000000002'],
+    })
+    publishViaApi.mockResolvedValue({ success: false, error: 'kuaishou: 账号信息缺失' })
+    const manager = new RpaViewManager()
+    const win = { destroy: vi.fn() }
+    vi.spyOn(manager, '_createWindow').mockReturnValue(win)
+    vi.spyOn(manager, '_publish_generic').mockResolvedValue({ success: true, platform: 'kuaishou' })
+
+    await manager.publish('kuaishou', { accountId: 'a1' }, { cookies: [] }, 1000)
+
+    const warns = log.warn.mock.calls.map(c => c.join(' ')).join('\n')
+    expect(warns).toContain('fallback empty: reason=probe-failed probed=2')
+    // 旧文案无论哪种失败都写「no platform cookies」，那是调用方在替兜底断言它没有证据的成因
+    expect(warns).not.toContain('no platform cookies')
   })
 })
