@@ -110,8 +110,14 @@ M-9/M-10 是同一思路的延伸：一条结构锁如果只验"调用过某脚�
   但**没有** fix 前后同一用例的 A/B 对照（合并前拿不到），而且那窗口里出现的是**两条**下载日志、
   不是我以为会是一次 —— 这一点本 PR 没有解释（`getElectronPath()` 每次 require 都可能触发，
   但模块缓存本该让第二次不再执行；两次说明还有第二个进程或第二次触发路径，未定位）。
-  合并后的取证动作：对下一次 main 的 Gate 5 日志跑
-  `gh run view <id> --log | grep -c "Downloading Electron binary"`，期望 0；若非 0，本 PR 的因果叙事即被否证，须重开。
+  **这一条现已由合并后复核定位**：第二次触发点是 `node_modules/electron/dist/electron.exe` 在测试期间短暂不可用
+  （打一行 banner 却只花 11ms —— `install.js:15-17` 的 `isInstalled()` 立即 exit 0，说明 `dist/version` 还在、只有 exe 不在），
+  与第一条"4.1s 真下载"不是同一量级。机制读数、已排除项与未闭合部分登记于 **#2794**。
+  合并后的取证**已跑完**（main push run `37053268768` / `QG Coverage` job `110991734260`）：原判据"整作业 grep 期望 0"被
+  **部分否证** —— 该作业测试步骤段内仍有 **1 条** `Downloading Electron binary`（19:28:07.956，归属 `asset-generator.test.js > spawn must use shell: false`），
+  而合并前 run `37042651965` 同一作业该段有 **2 条** ⇒ 本 PR 消掉的是"测试开头真下载数秒"那一类，残留是一条**不同的触发点**（见上）。
+  口径纠正：判据应当是「**测试步骤段内**命中数 = 0」并按 `##[group]` 边界归因，而不是整作业计数 ——
+  整作业计数会把准备步骤自身的产物一并算进来，两者语义不同。取证的命令形态见 §6，残留登记 **#2794**。
 - 本 PR 把"测试执行期内被动下载"换成"准备步骤主动下载"，**没有**给"测试期零真实出站"补哨兵：
   现有 `network-egress-guard` 拦的是 `net.Socket.prototype.connect`，而这里是 `spawnSync` 起**另一个 node 进程**，
   根本不走那条路。这是同一失效面的另一半，留作独立事项（QM-6 评审判为 Critical，处置见执行记录）。
@@ -125,4 +131,12 @@ M-9/M-10 是同一思路的延伸：一条结构锁如果只验"调用过某脚�
 node scripts/ensure-electron.js                    # 本地已就绪 ⇒ "electron dist 已就绪，跳过"
 node --test .github/scripts/workflow-contract.test.js
 unset HTTPS_PROXY; gh run view 37021470435 --repo Colinchiu007/mulpub --log-failed   # 一手症状
+# 合并后复核要按「步骤段」归因，不能整作业计数：先取 jobId，再下作业日志，再按 ##[group] 边界归类命中。
+# ⛔ gh api 对含 ANSI 转义的响应会**拒答并落 0 字节** —— 必须带 --allow-escape-sequences，否则"0 命中"是探针故障不是结论。
+unset HTTPS_PROXY
+JOB=$(gh api repos/Colinchiu007/mulpub/actions/runs/37053268768/jobs --paginate \
+  --jq '.jobs[] | select(.name|test("Coverage")) | .id')
+gh api --allow-escape-sequences "repos/Colinchiu007/mulpub/actions/jobs/$JOB/logs" > coverage-job.log
+# 然后把日志喂给"剥 ANSI + 按 group 归因"的投影：对每条 Downloading Electron binary 打印它所属步骤段，
+# 判据 = 落在测试步骤段内的命中数为 0（准备步骤段内出现是职责，不计）。本次实测：测试段 1 条 ⇒ 见 #2794。
 ```

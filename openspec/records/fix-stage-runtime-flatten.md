@@ -36,12 +36,12 @@ date: 2026-10-02
   `external_directory` 自动拒读）；`longcat-2.5-preview-free`、`mimo-v2.6-flash-free`、`fledge-alpha-free` **stdout 全空、零结论**
   （三者的 stderr 里都只有工具转录：`fledge` 用 `cat` 读到了实现与测试全文却始终找不到 diff，
   `mimo` 用 `Read` 读到了两个源文件后在收口前流中断，`longcat` 反复撞同一个 auto-reject）。
-  核查方式：`grep -c "Critical\|Warning\|结论" <findings>` 并直接看 stdout 段的字节数 —— **只有 `mp2778-findings-FB1.md` 里有模型署名的判断**；
-  其余三份里出现的"大小写 / toLowerCase / 独占"等字样，逐条回查全部是它 `cat` 回来的**我的源码原文**，不是评审意见。
+  核查方式（同时纠掉一个方法错误）：判据只能是 findings 文件里 `===STDERR===` **之前那段 stdout** 的字节与内容 —— 实测只有 `mp2778-findings-FB1.md` 有模型署名的判断，其余三份的 stdout 段为 **0 字节**；
+  中途我用过 `grep -c "大小写\|toLowerCase\|独占"` 这类关键字计数，把另三份里**它们 `cat` 回来的我的源码原文**读成了"它们也产出了评审"——那些字样不是评审意见；词频只能定位，不能判定"它说过这句话"。
   另记一条装配事实：把工件复制进 spawnSync 的 `cwd` 并没有让 opencode 的 bash 工具在该目录里找到它们（转录里它一直在 `D:/Data/projects` 下 find），
   所以"拒读"与"找不到"这两个失败面都不能用"复制进 cwd"一并解决 —— 别再照这个思路重试。
 - **偏差声明**：QM-6 要求的双模型并行只达成 **1 个模型实质评审**。本 PR 不以此冒充 PASS；
-  下面逐条处置全部来自 `D:/tmp/mp2778-findings-FB1.md`（big-pickle），未把任何一条自审结论记到它名下。
+  下面逐条处置全部来自 `big-pickle` 一份产出（四问逐条 + 一条附带发现已完整转述进下方表格）。**证据载体说明**：该 lane 的原始产物写在会话级 scratch（`mp2778-findings-FB1.md`），已随本会话 scratch 清理删除，**不再是可核查地址** —— 引用外部评审把临时目录当地址就是这次的实错，因此以本表的转述与判据为唯一证据载体；未把任何一条自审结论记到它名下。
 
 **逐条处置（评审 → 判定 → 落地）**
 
