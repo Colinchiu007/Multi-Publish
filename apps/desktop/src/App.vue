@@ -61,7 +61,11 @@
           <!-- 主内容区 -->
           <main class="mp-workspace cohere-main" data-testid="mp-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
-            <router-view v-if="!isLoginTab" />
+            <!-- v-show 而非 v-if：登录/账号标签激活时内嵌 WebContentsView 已覆盖内容矩形，
+                 这里只需「隐藏」工作区避免重叠，绝不能「卸载」——router-view 承载首页 SPA 的
+                 当前路由组件（如发布页 Publish.vue 的 article/video_path 等局部草稿状态），
+                 用 v-if 会在切到账号标签时销毁组件实例，切回首页即丢全部未保存草稿。 -->
+            <router-view v-show="!isLoginTab" />
           </main>
         </div>
       </div>
