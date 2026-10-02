@@ -54,3 +54,14 @@
   --el-font-size-small: var(--font-size-xs);
   --el-font-size-extra-small: var(--font-size-xs);
 }
+
+/* 主按钮禁用态：EP 把 --el-button-disabled-* 三档声明在 .el-button--primary 元素作用域上，
+ * 写在 :root 会被它压掉（元素自带声明优先于继承），所以这里必须用同名选择器、靠导入顺序覆盖。
+ * 不改则禁用态沿用 EP 默认的 -light-5，而该档在本桥接里是饱和主色 —— 禁用的按钮和可点/悬停
+ * 长得一模一样。禁用是「降格」不是「换色」：中性底 + 中性描边 + 次要文字（浅色实测 4.54:1，
+ * 不用 --color-text-muted，它对 --color-bg-inset 只有 2.65:1）。 */
+.el-button--primary {
+  --el-button-disabled-bg-color: var(--color-bg-inset);
+  --el-button-disabled-border-color: var(--color-border);
+  --el-button-disabled-text-color: var(--color-text-secondary);
+}
