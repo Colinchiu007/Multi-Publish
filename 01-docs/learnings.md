@@ -17045,7 +17045,7 @@ files=4  （含 config/platforms.yaml 与测试文件）
 
 **一句话**：*提交前先让脚本告诉你"这是哪类 PR"，再决定走哪套节拍——别凭"看起来像文档"来判断。*
 
-## 头条发布：DOM 与 API 直连两条路线的完整边界（含蚁小二架构差异）（toutiao-final-boundary，2026-10-02）
+## 头条发布：DOM 与 API 直连两条路线的完整边界（含参考产品架构差异）（toutiao-final-boundary，2026-10-02）
 
 **终局**：头条是唯一未打通的平台。最终把两条路线的边界**严格定案**，无遗留猜测。
 
@@ -17066,9 +17066,9 @@ files=4  （含 config/platforms.yaml 与测试文件）
 - 正式发布（`save=0`）即使**完整复刻真实 body** 仍 `code=7050 保存失败`；
 - 结论：服务端校验超出 body 字段（推测 msToken/行为埋点序列/提交上下文一致性）。
 
-### ⭐ 蚁小二为什么能：架构差异
-蚁小二把**浏览器 cookie 导出到 Node**，用 `httpsAgent` 指定代理 + 完整 UA 发请求，
-签名外包给云服务（`qianming.yixiaoer.cn:5031/Sign/GetSign`，输入仅 `{qr,body,ua}`）。
+### ⭐ 参考产品为什么能：架构差异
+参考产品把**浏览器 cookie 导出到 Node**，用 `httpsAgent` 指定代理 + 完整 UA 发请求，
+签名外包给云服务（`qianming.参考产品.cn:5031/Sign/GetSign`，输入仅 `{qr,body,ua}`）。
 其请求在服务端看来与真实浏览器无差异。
 **我们在页面内 fetch 与页面自身 XHR 的上下文标记不同** —— 这就是复刻 body 也被拒的原因。
 

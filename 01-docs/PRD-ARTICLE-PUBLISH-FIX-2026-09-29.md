@@ -718,9 +718,9 @@ createElement(ra.l, { time, serverTime, visible, okText,
 - ❌ **正式发布（`save=0`）即使完整复刻真实 body 仍 `code=7050 保存失败`** ——
   服务端存在超出 body 字段的校验（推测为 msToken / 行为埋点序列 / 提交上下文一致性）。
 
-**③ 为什么蚁小二能走 API 直连而我们（当前）不能**
-蚁小二把**浏览器 cookie 导出后在 Node 里发请求**（`httpsAgent` 指定代理 + 完整 UA），
-签名外包给其**云签名服务**（`qianming.yixiaoer.cn:5031`）。它的请求在服务端看来
+**③ 为什么参考产品能走 API 直连而我们（当前）不能**
+参考产品把**浏览器 cookie 导出后在 Node 里发请求**（`httpsAgent` 指定代理 + 完整 UA），
+签名外包给其**云签名服务**（`qianming.参考产品.cn:5031`）。它的请求在服务端看来
 与真实浏览器无差异。我们要走同一条路，需要：
 1. **cookie 导出 + Node 侧请求**（而非页面内 fetch —— 页面内 fetch 的上下文标记与页面自身 XHR 不同，实测被拒）；
 2. **msToken / 行为签名的 Node 侧实现**（`byted_acrawler` 依赖浏览器环境，需在 Node 侧复刻或用无头浏览器执行）；
@@ -734,7 +734,7 @@ createElement(ra.l, { time, serverTime, visible, okText,
 | 三处真源对账 + 防漂移锁 | `config/platforms.yaml` + `publish-capabilities.test.js` | 上限漂移已修，锁已变异验证 |
 
 **⑤ 建议的立项方向（按性价比排序）**
-1. **cookie 导出 + Node 侧直连**（蚁小二同款架构）：需实现 msToken 获取与 UA/代理一致性，
+1. **cookie 导出 + Node 侧直连**（参考产品同款架构）：需实现 msToken 获取与 UA/代理一致性，
    工作量约 3–5 天；签名已验证可用是最大利好；
 2. **头条官方开放平台**（若有文章发布 API）：最稳，需申请资质；
 3. **放弃 DOM 自动化**，在 UI 上把头条标记为「需手动发布」，避免用户误以为已支持。
