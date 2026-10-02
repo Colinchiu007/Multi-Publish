@@ -22,7 +22,7 @@ test('cookiesFromSession: 排序拼接 + 含 HttpOnly', async () => {
   assert.equal(cs, 'sessionid=abc; tt_webid=123; z_token=Z') // 按 name 排序
 })
 
-test('buildPostData: 发布字段表（蚁小二同款）——立即发布', () => {
+test('buildPostData: 发布字段表（参考产品同款）——立即发布', () => {
   const body = buildPostData({ title: '标题X', htmlContent: '<p>正文X</p>', covers: [] })
   const kv = Object.fromEntries(body.split('&').map((s) => {
     const i = s.indexOf('=')

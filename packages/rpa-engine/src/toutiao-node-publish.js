@@ -1,4 +1,4 @@
-// lib-toutiao-node-publish.js — Node 侧直连发布（蚁小二同构）：cookie 从 profile 导出，签名复用页面内 SDK 产出值
+// lib-toutiao-node-publish.js — Node 侧直连发布（参考产品同构）：cookie 从 profile 导出，签名复用页面内 SDK 产出值
 // 注意：签名必须与请求时的 ua/query/body 完全一致；本库提供"取 cookie + 构造 body + 发请求"的完整链
 'use strict'
 const https = require('https')
@@ -41,7 +41,7 @@ function postPublish ({ cookies, body, query, aBogus }) {
   })
 }
 
-/** 蚁小二 buildPostData 同款字段表（timer_status=1 定时 / 0 立即） */
+/** 参考产品 buildPostData 同款字段表（timer_status=1 定时 / 0 立即） */
 function buildPostData ({ title, htmlContent, covers = [], publishTime = '', adType = 2, original = 0 }) {
   const P = {}
   P.source = 0
@@ -72,7 +72,7 @@ function buildPostData ({ title, htmlContent, covers = [], publishTime = '', adT
   return Object.keys(P).map((k) => k + '=' + P[k]).join('&')
 }
 
-/** 封面上传（spice/image，蚁小二同款） */
+/** 封面上传（spice/image，参考产品同款） */
 function uploadCover ({ cookies, imageBuffer, filename = 'cover.jpg', mimeType = 'image/jpeg' }) {
   return new Promise((resolve, reject) => {
     // multipart 手工构造

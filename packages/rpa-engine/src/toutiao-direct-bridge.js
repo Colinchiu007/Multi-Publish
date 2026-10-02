@@ -2,7 +2,7 @@
 /**
  * toutiao-direct-bridge —— 头条 Node 直连兜底的执行桥（从 rpa-view-platforms 拆出，行数门禁）
  *
- * 职责：cookie 导出（Electron session）→ body 构造（蚁小二字段表）→ 页面内 SDK 签名 → Node 直连 POST。
+ * 职责：cookie 导出（Electron session）→ body 构造（参考产品字段表）→ 页面内 SDK 签名 → Node 直连 POST。
  * 宿主（rpa-view-platforms）只提供 win / article / sign 入口 / log。
  *
  * 背景：DOM 点击被 onClick 闭包门控拦下（PRD §16.8.8，14 项排除定案）；
@@ -52,7 +52,7 @@ async function publishDirect ({ win, article, sign, log }) {
       return { success: false, platform: 'toutiao', error: 'SIGN_FAILED' }
     }
 
-    // ⑤ Node 直连（蚁小二同构：页面内 fetch 的上下文标记会被服务端拒绝 ⇒ 必须 Node 侧发）
+    // ⑤ Node 直连（参考产品同构：页面内 fetch 的上下文标记会被服务端拒绝 ⇒ 必须 Node 侧发）
     const res = await publishWithSign({ cookies, body, aBogus: signResult.signature })
     log.info('RpaView', '[toutiao-direct] status=' + res.status + ' code=' + res.code + ' msg=' + res.message + ' pgcId=' + res.pgcId)
     if (res.code === 0 && res.pgcId && res.pgcId !== '0') {

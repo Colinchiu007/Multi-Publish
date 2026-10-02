@@ -1,14 +1,14 @@
 // @ts-check
 /**
- * toutiao-direct-publish —— 头条 Node 侧直连发布（蚁小二同构，2026-10-02 立项落地）
+ * toutiao-direct-publish —— 头条 Node 侧直连发布（参考产品同构，2026-10-02 立项落地）
  *
  * 背景（PRD §16.8.8）：DOM 点击被 onClick 闭包门控拦下（14 项排除定案），而页面自动保存
- * （source=29）能 code=0 ⇒ 走「页面内 SDK 签名 + Node 直连 + 蚁小二字段表」的 API 路线。
+ * （source=29）能 code=0 ⇒ 走「页面内 SDK 签名 + Node 直连 + 参考产品字段表」的 API 路线。
  *
  * 依赖三件套：
  *   1. cookies  —— 从 Electron session 导出（含 HttpOnly 登录态，document.cookie 拿不到）
  *   2. a_bogus  —— 页面内 byted_acrawler.sign({url,query,body}) 产出（publish-signer.hostSdkAdapter）
- *   3. body     —— buildPostData 字段表（蚁小二同款，见 toutiao-node-publish.js）
+ *   3. body     —— buildPostData 字段表（参考产品同款，见 toutiao-node-publish.js）
  *
  * ⚠️ 页面内 fetch 与页面自身 XHR 的上下文标记不同 ⇒ 必须在 Node 侧发请求（实测 100005 教训）。
  */
@@ -40,7 +40,7 @@ async function cookiesFromSession (session, opts = {}) {
 }
 
 /**
- * 蚁小二 buildPostData 同款字段表。
+ * 参考产品 buildPostData 同款字段表。
  * @param {{title: string, htmlContent: string, covers?: Array<{uri:string, image_url?:string, thumb_width?:number, thumb_height?:number}>, publishTime?: string, adType?: number, original?: number}} p
  * @returns {string} form-urlencoded body
  */
