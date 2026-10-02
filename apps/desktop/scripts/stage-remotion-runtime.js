@@ -2,6 +2,10 @@
 
 const fs = require('fs')
 const path = require('path')
+// 「什么算测试文件」的判据只有一份实现（#2765）：门禁侧与本侧必须同一函数，
+// 否则漂移的表现就是「门禁说干净、产物里还有」。
+const { isTestArtifactPath, TEST_FILE_RE: TEST_ARTIFACT_RE } =
+  require('@multi-publish/shared-utils/src/artifact-test-pattern')
 
 function packagePathSegments(name) {
   return name.startsWith('@') ? name.split('/') : [name]
@@ -68,7 +72,18 @@ function stageRemotionRuntime(options = {}) {
   const composerDir = options.composerDir || path.resolve(__dirname, '..', '..', '..', 'packages', 'remotion-composer')
   const composerPackageJson = path.join(composerDir, 'package.json')
   const outputDir = options.outputDir || path.join(__dirname, '..', '.remotion-runtime', 'node_modules')
-  const copy = options.copy || fs.cpSync
+  const rawCopy = options.copy || fs.cpSync
+  let prunedTestFiles = 0
+  const testArtifactFilter = (srcPath) => {
+    if (isTestArtifactPath(srcPath)) {
+      prunedTestFiles += 1
+      return false
+    }
+    return true
+  }
+  // 注入点保持原契约：调用方传进来的 copy 一样会收到 filter，否则回归锁测的是"包装层"而不是真行为。
+  const copy = (source, destination, opts) => rawCopy(source, destination,
+    Object.assign({}, opts, { filter: testArtifactFilter }))
   const remove = options.remove || fs.rmSync
   const mkdir = options.mkdir || fs.mkdirSync
 
@@ -85,10 +100,12 @@ function stageRemotionRuntime(options = {}) {
     const destination = path.join(outputDir, ...packagePathSegments(record.name))
     copy(source, destination, { recursive: true, dereference: true })
   }
-  return { outputDir, packages: packages.map((record) => record.name) }
+  return { outputDir, packages: packages.map((record) => record.name), prunedTestFiles }
 }
 
 module.exports = {
+  isTestArtifactPath,
+  TEST_ARTIFACT_RE,
   collectRuntimePackages,
   packageDependencies,
   resolvePackageJson,

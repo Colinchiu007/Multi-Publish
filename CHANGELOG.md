@@ -1,3 +1,22 @@
+# [未发布] fix(packaging): app.asar 之外的松散文件树不再随包发单元测试（2026-10-02，asar-loose-resources-tests）
+
+### 根因
+- #2736 只收了 `build.files`（app.asar 那条通道）。`build.extraResources` 是**第二条"整目录往外拷"**的通道，此前没有任何判据看过它：实测改前产物的 `win-unpacked/resources` 松散树里带 179–189 个 `*.test.*`（三个由其他会话独立打出的真实产物），来源两处 —— ① 两条 `from` 以 `../` 开头的仓库树条目；② `stage-remotion-runtime.js` 摊平出的运行时依赖闭包（本仓约定"测试与被测同目录"，于是 workspace 包的 `tests/*.test.ts` 被原样拷进包）。
+
+### 修复
+- 判据收成一份 `packages/shared-utils/src/artifact-test-pattern.js`（`TEST_FILE_RE` / `TEST_EXCLUSION_PATTERNS` / `isTestArtifactPath` / `normalizePathSeparators`），门禁与暂存器共用，并由一条锁断言**两侧拿到的是同一个函数对象**（不是"两处字面量恰好相同"）。
+- 命名踩坑与补锁：该判据文件原名 `test-artifact-pattern.js`，被 `.gitignore` 的 `test-*.js`（未锚定目录）静默排除 ⇒ 本地全绿、git 里根本没有它、CI 必然 MODULE_NOT_FOUND；既有锁的域只有 `**/*.test.js`，对**非测试**源文件失明。改名 `artifact-test-pattern.js`，并新增一条按"判据链"划域的结构锁 + 一条负控（反证 CP-K：探针恒 false 时当场红）。
+- `stageRemotionRuntime()` 给 `cpSync` 挂 filter：剪枝点选在暂存器而不是 extraResources 的 filter，因为该条目本来就没有 filter，且暂存器同时服务 CI 与本地 `build:dir`；被剪数量随返回值出声（`prunedTestFiles`，实测 186）。
+- 两条 `../` 开头的 extraResources 条目各加 5 条 `!**/*.test.{js,mjs,cjs,ts,tsx}` 排除。
+- 门禁 `.github/scripts/check-asar-test-files.js` 扩 `--resources <dir>` 模式（递归扫松散树；**空清单/目录不存在/不是目录一律不判通过**），并把 `checkWiring` 从 1 个产物维度扩到 2 个：`--asar` 与 `--resources` 各自所在步骤的 `if:` 必须与打包步骤逐字相同、必须显式 `shell: bash`、注释里的调用不算接线。
+
+### 回归保护
+- 新增 `apps/desktop/scripts/stage-remotion-runtime.test.js` 5 例（os.tmpdir 真实暂存：`fixtures.json` 留、`a.test.ts`/`b.test.js` 不进、`prunedTestFiles === 2`；注入的 copy 必须真的收到 filter；判据同一对象），接进 `quality-gate.yml` Gate 2b。
+- `.github/scripts/check-asar-test-files.test.js` 23 例 → 34 例（extraResources 声明维度、松散树实证清单、`--resources` 三态退出码、接线判据按步骤块而非数相邻三行）。
+- 反证 10 条**逐个实跑变红**（CP-A…CP-J）：删掉 package.json 一条 filter ⇒ `--config` 红；从 build.yml 摘掉 `--resources` ⇒ 接线红；把共享判据改窄成只认 `.js` ⇒ 门禁与暂存两侧同时红；松散扫描退化成不递归、空清单当通过、目录不存在当干净 ⇒ 各自点名变红。
+- 真实字节 A/B（不是合成夹具）：同一条 `--resources` 判据在三个改前产物上报 179/189/189 红，在本改动产物上报 `13531 个松散文件中 0 个` 绿；asar 维度同时保持 0。
+- 运行期不消费测试文件的证据：在产物内临时副本跑真实 `remotion bundle src/index.tsx`（webpack 全图）`rc=0`、39 个产物文件里 `.test.` 引用 0 处；全树 11631 个可读源文件静态扫描 `require/import` 指向 `.test.*` 命中 0 处；QM-1 冒烟 12 秒存活且 stderr 无禁用特征。机制与边界见 `docs/asar-loose-resources-test-files.md`。
+- 途中撞到的**既存**缺陷另开 #2778（依赖闭包被摊平 ⇒ `react-dom/node_modules/react` 残留 19.3.0 那份优先命中，打包态 `remotion` CLI 在 require 期崩）；归属经"三个改前产物同样崩 + 副本里只删那个嵌套目录立刻 rc=0"双向定责，本 PR 不含其任何一半修法。
 # [未发布] fix(auth): 分区兜底改为按内容择新——一次失败/取消的登录不再遮断该平台凭证（2026-10-01，fix-auth-partition-content-select）
 
 ### 修复
