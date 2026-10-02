@@ -28,6 +28,7 @@ sync_backfill_owner: 下一个会话（代理恢复后先补 QM-6，再按 git l
 | Gate 11 eslint | PASS | `eslint electron/services/{auth-partition,auth-partition-reclaim,rpa-view-session,auth-partition.test,auth-partition-reclaim.test}.js --quiet` → rc=0、零输出（判据取重定向后的 `ESLINT_RC`，管道 `| tail` 会吃掉真 rc，本仓实测踩过） |
 | QM-6 CCG 双模型外部评审 | **未执行（本机外部模型通道当前不可用）** | 如实记录，不以自审冒充通过。第一手证据：`codeagent-wrapper --backend codex` 两次 rc=1（长/短提示词各一次，先否证了「stdin 模式导致失败」这个猜测），直跑 `codex exec` 抓到 `ERROR: unexpected status 502 Bad Gateway: url http://127.0.0.1:15721/v1/responses`（重连 5/5 后放弃）；`--backend claude` 同样 rc=1 且无 findings 文件，直跑 `claude -p` 挂起 >2 分钟未产出；决定性判据 `Test-NetConnection 127.0.0.1 -Port 15721 -Quiet` = **False** ⇒ 本地 CC Switch 代理未在运行。wrapper 会在退出时删除自身日志，所以取证一律走「直跑 + 让评审把结论写进工作区文件」两条，本次两条都没产出 ⇒ 结论是**没跑成**，不是「跑了没问题」。任务书已备好 `.ccg-review-brief.md`，代理恢复后直接重放两路 |
 | 依赖漏洞审计 | N/A（本 PR 未触依赖） | 未改任何 manifest/lockfile。该门禁当前的 12 条新 axios 公告红已由 `d62187dd` 按其自身口径登记挂账（`scripts/dep-audit-baseline.json`，`decision=upgrade-tracked`），与本 PR 无关 |
+| 远程同步 | PENDING | 合并前无法取证（PENDING 的既有语义）。回填者＝下一个会话：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA 与时间、`git ls-remote --heads origin fix-auth-partition-content-select` 返回 0 行证远端分支已删；回填时须**同时删除**本文件 frontmatter 的 `sync_status` / `sync_reason` / `sync_backfill_owner` 三个字段（留着不删 = 门禁报「已回填却仍留登记字段」）。另记一次现场：本行**首次撰写时被漏掉**，是 `check-gate-record-debt.js` 以「记录文件整块缺 远程同步 行」当场判红抓到的——新载体把欠账登记从外部清单搬进了文件自身，但字段漏写同样只由门禁而非记忆兜住 |
 
 ### 遗留（不假装已闭合）
 
