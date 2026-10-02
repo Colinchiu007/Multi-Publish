@@ -155,7 +155,10 @@ class AgnesImageAdapter extends BaseAdapter {
    * @param {string} [params.model='agnes-image-2.1-flash'] - 模型 ID
    * @param {string} [params.size] - 像素尺寸（如 2048x2048），自动映射到档位
    * @param {string} [params.sizeTier] - 档位（1K/2K/4K），优先于 size
-   * @param {string} [params.ratio='16:9'] - 宽高比
+   * @param {string} [params.aspect_ratio] - 宽高比（流水线统一契约键，snake_case，优先级最高）
+   * @param {string} [params.aspectRatio] - 宽高比（camelCase 别名，normalizer 契约）
+   * @param {string} [params.ratio] - 宽高比（Agnes API 请求体字段名，向后兼容直接调用方）
+   *   三者解析优先级 aspect_ratio > aspectRatio > ratio，均缺失时默认 '16:9'
    * @param {string} [params.response_format] - 输出格式（url / b64_json），默认 url；
    *   调用方（asset-generator）默认传 b64_json，此时返回 Base64 避免二次下载 URL
    * @returns {Promise<{urls?: string[], images?: Array<{b64_json: string}>, format: 'url'|'b64_json'}>}
@@ -167,7 +170,14 @@ class AgnesImageAdapter extends BaseAdapter {
     }
 
     const model = params.model || DEFAULT_MODEL
-    const ratio = params.ratio || DEFAULT_RATIO
+    // 宽高比参数解析（2026-10-02 fix-s2v-portrait-image-aspect 回归修复）：
+    // 流水线统一契约键是 aspect_ratio（snake_case，asset-generator / story2video-stages）
+    // 与 aspectRatio（camelCase，normalizer / agnes-multimodal.generateVideo）。
+    // 历史实现只读 params.ratio（把 API 请求体字段名误用作输入参数名），调用方传的
+    // aspect_ratio 被静默丢弃，Story2Video 竖屏（9:16）永远回退 16:9 横屏——成片两侧黑边
+    // （实测项目 mur2tzc8_ru1r：segment_0000_image.png 2624x1472 vs 成片 720x1280）。
+    // 解析优先级：aspect_ratio > aspectRatio > ratio（向后兼容既有直接调用方）> 默认 16:9。
+    const ratio = params.aspect_ratio || params.aspectRatio || params.ratio || DEFAULT_RATIO
     const sizeTier = params.sizeTier || parseSizeTier(params.size) || '2K'
 
     // 2026-08-16 按官方文档（agnes-image-2.1-flash）：请求体顶层 response_format 会被
