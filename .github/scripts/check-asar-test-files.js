@@ -41,13 +41,19 @@ const path = require('node:path')
  * 这个集合有没有漏族 —— 本仓 1036 个 .test. 命名文件里，落在打包域内的有 js / ts / mjs，
  * 光锁 js 三件套会放走 apps/desktop/electron/core/container.test.ts（实测确实进了产物）。
  */
-const TEST_FILE_RE = /\.test\.(?:js|mjs|cjs|ts|tsx)$/
+// 判据只有一份实现（#2765）：本门禁与 apps/desktop/scripts/stage-remotion-runtime.js 必须拿到同一个
+// 函数，否则漂移的表现就是「门禁说干净、产物里还有」。#2702 那轮修的是 app.asar，这一轮修的是它
+// 看不见的松散文件树（extraResources）—— 两个域共用一条判据才不会各说一套。
+const { TEST_FILE_RE, normalizePathSeparators, isTestArtifactPath, TEST_EXCLUSION_PATTERNS } =
+  // 本仓 workspace 链接在 apps/desktop/node_modules 下，仓库根没有 @multi-publish/*（实测 require.resolve
+  // 从 .github/scripts 走会 MODULE_NOT_FOUND），故这里按**检出根相对路径**取，不依赖链接布局。
+  require(path.join(path.resolve(__dirname, '..', '..'), 'packages', 'shared-utils', 'src', 'artifact-test-pattern.js'))
 
 /** 会被 electron-builder 收集进 app.asar 的仓库域（workspace 包经 node_modules/@multi-publish 进入）。 */
 const PACKAGED_DOMAIN = ['apps/desktop/', 'packages/']
 
 /** 必须存在于 build.files 的排除模式：整棵树通配（不是只盯 electron 目录）。 */
-const REQUIRED_TEST_EXCLUSIONS = ['.js', '.mjs', '.cjs', '.ts', '.tsx'].map((ext) => '!**/*.test' + ext)
+const REQUIRED_TEST_EXCLUSIONS = TEST_EXCLUSION_PATTERNS
 
 /**
  * 按**目录**排除的测试面：`electron/tests/` 里存的按定义就是测试，但其中
@@ -58,17 +64,30 @@ const REQUIRED_TEST_EXCLUSIONS = ['.js', '.mjs', '.cjs', '.ts', '.tsx'].map((ext
  */
 const REQUIRED_TEST_DIR_EXCLUSIONS = ['!electron/tests/**']
 
+/** 打包步骤的 if 条件原文 —— 产物侧检查必须与它逐字相同，否则两条件会各自漂移。 */
+const PACKAGING_STEP_CONDITION = "runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true'"
+
+/** app.asar 之外的两条产物检查通道，必须各自在 build.yml 里有一步。 */
+const ARTIFACT_FLAGS = ['--asar', '--resources']
+
+/** 读整个 build 段：files 与 extraResources 是两条独立拷贝通道，只锁一条等于没锁。 */
+function readDesktopBuild (repoRoot) {
+  const pkgPath = path.join(repoRoot, 'apps', 'desktop', 'package.json')
+  let json
+  try {
+    json = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+  } catch (e) {
+    throw new Error('无法读取/解析 ' + pkgPath + '：' + e.message)
+  }
+  if (!json || !json.build) throw new Error(pkgPath + ' 没有 build 段 ⇒ 无法判定，拒绝通过')
+  return json.build
+}
+
 /**
  * asar 的 listPackage 在 Windows 上返回**反斜杠**路径（实测 `\node_modules\@babel`）。
  * 不归一化则所有按 `/` 前缀做的分类判据会静默把全部条目归到"其他"，等于没分类。
  */
-function normalizeAsarPath (p) {
-  return String(p).split('\\').join('/')
-}
-
-function isTestArtifactPath (p) {
-  return TEST_FILE_RE.test(normalizeAsarPath(p))
-}
+const normalizeAsarPath = normalizePathSeparators
 
 /** @returns {{total:number, tests:string[]}} tests 已归一化并按字典序排序（现场输出必须可复现） */
 function countTestEntries (entries) {
@@ -149,10 +168,11 @@ function checkNamingCensus (repoRoot, opts) {
 }
 
 /**
- * 接线锁：本门禁的两个维度必须各自挂在**会执行它**的 workflow 正文里。
+ * 接线锁：本门禁的三个维度必须各自挂在**会执行它**的 workflow 正文里。
  *
- * 为什么单独一条判据：`--config` 与 `--asar` 互相看不见对方的失败面，任何一侧被从 workflow 里
- * 摘掉，另一侧仍然全绿 —— 于是门禁退化成"看起来在守、实际恒绿"的装饰（AGENTS.md 同源教训）。
+ * 为什么单独一条判据：`--config`（静态读声明）、`--asar`（包内条目）与 `--resources`（asar 之外的
+ * 松散树）两两互看不见对方的失败面，任何一侧被从 workflow 里摘掉，另两侧仍然全绿 ——
+ * 于是门禁退化成"看起来在守、实际恒绿"的装饰（AGENTS.md 同源教训）。
  * 按**可执行正文**匹配（注释里提一句不算接线，与 scripts/check-unwired-tests.js 同口径）。
  *
  * 残余风险（不假装已消除）：本条锁自身由 quality-gate.yml 那两行驱动，把**那两行一起删掉**时
@@ -172,13 +192,46 @@ function checkWiring (texts) {
   if (!/^[^\n]*node \.github\/scripts\/check-asar-test-files\.js[^\n]*$/m.test(qg)) {
     missing.push('quality-gate.yml 缺少 --config 维度（无 --asar 参数的那次调用）')
   }
-  // 产物维度：必须带 --asar，且所在步骤的条件与打包步骤一致 ——
-  // 条件不一致时会出现「打包被跳过、产物检查看着跑了其实读的是上一轮残留」或反向误红。
-  const asarStep = /if: runner\.os == 'Windows' && steps\.changes\.outputs\.package-relevant == 'true'\s*\n\s*shell: bash\s*\n\s*run: node \.github\/scripts\/check-asar-test-files\.js --asar \S+/
-  if (!asarStep.test(bd)) {
-    missing.push('build.yml 缺少与打包步骤同条件的 --asar 维度步骤（if + shell: bash + run 三行必须成组）')
+  // 产物维度：--asar（包内条目）与 --resources（asar 之外的松散树）各一次，且所在步骤的条件
+  // 必须与打包步骤一致 —— 条件不一致时会出现「打包被跳过、产物检查看着跑了其实读的是上一轮残留」或反向误红。
+  for (const flag of ARTIFACT_FLAGS) {
+    const why = packagingStepWhy(bd, flag)
+    if (why) missing.push(why)
   }
   return { ok: missing.length === 0, missing }
+}
+
+/**
+ * 定位「跑了 `check-asar-test-files.js <flag>` 的那一步」并核对它的 if/shell。
+ *
+ * 按 YAML 列表项切块而不是数相邻三行：一个 run 块里可以有两条命令（#2765 后 --asar 与 --resources
+ * 同步骤），数行数的判据会在改成 `run: |` 时静默失效 —— 而失效方向是"永远匹配不上"，
+ * 看起来像门禁在守、实际只剩一条恒定 missing。注释行在切块时直接丢弃，所以
+ * 「把调用注释掉、字面留在文件里」这一类假接线在本层就被挡住，不依赖上游剥注释。
+ * @returns {string} 空串表示合格，否则是给 CI 看的缺项文案
+ */
+function packagingStepWhy (buildText, flag) {
+  const label = 'build.yml 的 ' + flag + ' 维度步骤'
+  const needle = 'check-asar-test-files.js ' + flag
+  const blocks = []
+  let cur = null
+  for (const line of String(buildText).split(/\r?\n/)) {
+    if (/^\s*#/.test(line)) continue
+    if (/^\s*-\s+\S/.test(line)) { cur = []; blocks.push(cur) }
+    if (cur) cur.push(line)
+  }
+  const hits = blocks.filter((b) => b.some((l) => l.includes(needle)))
+  if (hits.length === 0) return label + '不存在（注释里的调用不算接线）'
+  if (hits.length > 1) return label + '出现在 ' + hits.length + ' 个步骤里（判据重复即口径分裂，只允许 1 处）'
+  const ifLines = hits[0].filter((l) => /^\s*if:\s+/.test(l))
+  if (ifLines.length !== 1) return label + '必须有且只有一行 if:（实测 ' + ifLines.length + ' 行）'
+  if (ifLines[0].replace(/^\s*if:\s+/, '').trim() !== PACKAGING_STEP_CONDITION) {
+    return label + '的 if 条件必须与打包步骤同条件：' + PACKAGING_STEP_CONDITION
+  }
+  if (!hits[0].some((l) => /^\s*shell:\s+bash\s*$/.test(l))) {
+    return label + '必须声明 shell: bash（同一 run 块多条命令在 pwsh 下不 fail-fast）'
+  }
+  return ''
 }
 
 function readWorkflowBodies (repoRoot) {
@@ -230,38 +283,167 @@ function checkAsar (asarPath) {
   return Object.assign({ asarPath }, evaluateEntries(entries))
 }
 
-function main (argv) {
-  const arg = (name) => {
-    const i = argv.indexOf(name)
-    return i >= 0 ? argv[i + 1] : undefined
+/**
+ * extraResources 声明锁（#2765）：`extraResources` 是 app.asar **之外**的第二条拷贝通道。
+ * 判据只挑"从仓库树里拷"的条目（`from` 以 `../` 开头）—— 这类条目会把源目录里的测试文件一起带进产物；
+ * 而 `dist/fonts`、`.playwright-browsers`、`.remotion-runtime/node_modules` 这类**产物内暂存目录**
+ * 不由仓库决定内容，其 cleanliness 交给 --resources 实证（.remotion-runtime 的剪枝在
+ * stage-remotion-runtime.js，那条链共用同一判据）。
+ * 刻意不维护"哪些条目需要 filter"的手工清单：手工清单正是本仓反复踩的"只可缩小却没人缩"的形态。
+ */
+function checkExtraResourcesConfig (build) {
+  if (!build || !Array.isArray(build.extraResources) || build.extraResources.length === 0) {
+    throw new Error('build.extraResources 缺失或为空 ⇒ 无法证明松散拷贝通道干净，拒绝判定为通过')
   }
-  const repoRoot = arg('--repo') || path.resolve(__dirname, '..', '..')
-  const asarPath = arg('--asar')
+  const offenders = []
+  const covered = []
+  for (const entry of build.extraResources) {
+    const from = entry && typeof entry.from === 'string' ? entry.from : ''
+    if (!from.startsWith('../')) continue
+    const filter = Array.isArray(entry.filter) ? entry.filter : []
+    const missing = REQUIRED_TEST_EXCLUSIONS.filter((p) => !filter.includes(p))
+    if (missing.length === 0) covered.push(from)
+    else offenders.push({ from, missing })
+  }
+  return { ok: offenders.length === 0, offenders, covered, scanned: build.extraResources.length }
+}
 
-  if (asarPath) {
-    let r
+/** 递归列出目录下的文件（返回相对路径，统一正斜杠）。 */
+function walkLooseFiles (rootDir, opts = {}) {
+  // readdir 可注入：符号链接这一支在 Windows 上"能不能真的建链接"取决于权限（非管理员通常 EPERM），
+  // 把该形状做成确定性夹具比"建不了就 skip"更可靠 —— 后者会让这条判据在多数机器上永久静默不跑。
+  const readdir = opts.readdir || ((abs) => fs.readdirSync(abs, { withFileTypes: true }))
+  const out = []
+  const stack = ['']
+  while (stack.length > 0) {
+    const rel = stack.pop()
+    const abs = path.join(rootDir, rel)
+    let entries
     try {
-      r = checkAsar(asarPath)
+      entries = readdir(abs)
     } catch (e) {
-      console.error('[asar-test-files] FAIL（asar 维度）：' + e.message)
-      return 1
+      throw new Error('无法枚举 ' + abs + '（读不到即无法证明，拒绝判定为通过）：' + e.code)
     }
-    if (r.unverifiable) {
-      console.error('[asar-test-files] FAIL（asar 维度）：清单为空，无法证明产物干净 — ' + r.asarPath)
-      return 1
+    for (const ent of entries) {
+      const childRel = rel ? rel + '/' + ent.name : ent.name
+      // 符号链接**按名字计入清单但绝不跟随**：跟随会把树外的内容算成产物，
+      // 而整条跳过会留下假绿 —— 一个名叫 x.test.js 的链接同样是"发出去的测试文件"。
+      // （该形状由 QM-6 外部评审提出，实测产物里 0 个链接，但判据不该依赖运气。）
+      if (ent.isSymbolicLink()) { out.push(childRel.split(String.fromCharCode(92)).join('/')); continue }
+      if (ent.isDirectory()) stack.push(childRel)
+      else if (ent.isFile()) out.push(childRel.split(String.fromCharCode(92)).join('/'))
     }
-    if (!r.ok) {
-      console.error('[asar-test-files] FAIL（asar 维度）：' + r.tests.length + '/' + r.total
-        + ' 个条目是单元测试文件')
-      for (const t of r.tests.slice(0, 20)) console.error('    ' + t)
-      if (r.tests.length > 20) console.error('    …另有 ' + (r.tests.length - 20) + ' 条')
-      console.error('  修法：在 apps/desktop/package.json 的 build.files 追加 '
-        + REQUIRED_TEST_EXCLUSIONS.concat(REQUIRED_TEST_DIR_EXCLUSIONS).join(' , '))
-      return 1
-    }
-    console.log('[asar-test-files] OK（asar 维度）：' + r.total + ' 个条目中 0 个单元测试文件 — ' + path.normalize(r.asarPath))
-    return 0
   }
+  return out.sort()
+}
+
+/**
+ * 松散文件树实证：扫 `<resources>` 目录本身（app.asar 是一个文件，不展开其内部 —— 那由 --asar 负责）。
+ * 空目录判 unverifiable：一次不完整/错路径的枚举报"0 个测试文件"就是假绿。
+ */
+function checkLooseResources (resourcesDir) {
+  if (!fs.existsSync(resourcesDir)) throw new Error('目录不存在：' + resourcesDir + '（"读不到产物"不等于"产物干净"）')
+  let st
+  try { st = fs.statSync(resourcesDir) } catch (e) { throw new Error('无法 stat ' + resourcesDir + '：' + e.code) }
+  if (!st.isDirectory()) throw new Error('不是目录：' + resourcesDir)
+  const files = walkLooseFiles(resourcesDir)
+  const verdict = evaluateEntries(files)
+  return Object.assign({ resourcesDir }, verdict)
+}
+
+/**
+ * 严格解析命令行：本门禁是"判产物干净"的，参数被吃掉就等于该维度没跑，
+ * 而"没跑"如果还返回 0，就是最恶劣的一种假绿（AGENTS.md 同源教训：注释掉门禁 / 参数漂移都会披着绿灯）。
+ * 三条硬规则：未知开关即红；开关缺取值即红；多余位置参数即红。
+ * @returns {{asar?:string, resources?:string, repo:string}}
+ */
+function parseCliArgs (argv) {
+  const needsValue = { '--asar': 'asar', '--resources': 'resources', '--repo': 'repo' }
+  const out = { repo: path.resolve(__dirname, '..', '..') }
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = String(argv[i])
+    if (!token.startsWith('--')) {
+      throw new Error('不接受位置参数：' + token + '（本门禁只认 --asar / --resources / --repo 三个带值开关）')
+    }
+    const key = needsValue[token]
+    if (!key) throw new Error('无法理解的开关：' + token + '（可用：' + Object.keys(needsValue).join(' / ') + '）')
+    const val = argv[i + 1]
+    if (val === undefined || String(val).startsWith('--')) {
+      throw new Error(token + ' 缺少取值（把"没给路径"当成"这个维度不用查"就是假绿）')
+    }
+    if (out[key]) throw new Error(token + ' 重复出现（同一维度两次取值 = 口径分裂）')
+    out[key] = String(val)
+    i += 1
+  }
+  return out
+}
+
+/** asar 维度。@returns {number} 进程退出码 */
+function runAsarDimension (asarPath) {
+  let r
+  try {
+    r = checkAsar(asarPath)
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（asar 维度）：' + e.message)
+    return 1
+  }
+  if (r.unverifiable) {
+    console.error('[asar-test-files] FAIL（asar 维度）：清单为空，无法证明产物干净 — ' + r.asarPath)
+    return 1
+  }
+  if (!r.ok) {
+    console.error('[asar-test-files] FAIL（asar 维度）：' + r.tests.length + '/' + r.total
+      + ' 个条目是单元测试文件')
+    for (const t of r.tests.slice(0, 20)) console.error('    ' + t)
+    if (r.tests.length > 20) console.error('    …另有 ' + (r.tests.length - 20) + ' 条')
+    console.error('  修法：在 apps/desktop/package.json 的 build.files 追加 '
+      + REQUIRED_TEST_EXCLUSIONS.concat(REQUIRED_TEST_DIR_EXCLUSIONS).join(' , '))
+    return 1
+  }
+  console.log('[asar-test-files] OK（asar 维度）：' + r.total + ' 个条目中 0 个单元测试文件 — ' + path.normalize(r.asarPath))
+  return 0
+}
+
+/** 松散树维度。@returns {number} 进程退出码 */
+function runResourcesDimension (resourcesDir) {
+  let lr
+  try {
+    lr = checkLooseResources(path.resolve(resourcesDir))
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（松散树维度）：' + e.message)
+    return 1
+  }
+  if (lr.unverifiable) {
+    console.error('[asar-test-files] FAIL（松散树维度）：清单为空，无法证明产物干净 — ' + lr.resourcesDir)
+    return 1
+  }
+  if (!lr.ok) {
+    console.error('[asar-test-files] FAIL（松散树维度）：' + lr.tests.length + '/' + lr.total + ' 个松散文件是单元测试文件')
+    for (const t of lr.tests.slice(0, 20)) console.error('    ' + t)
+    if (lr.tests.length > 20) console.error('    …另有 ' + (lr.tests.length - 20) + ' 条')
+    console.error('  修法：剪枝点在 apps/desktop/scripts/stage-remotion-runtime.js（暂存时按同一判据跳过）')
+    console.error('        与 apps/desktop/package.json 的 build.extraResources[].filter（从仓库树拷的条目）。')
+    return 1
+  }
+  console.log('[asar-test-files] OK（松散树维度）：' + lr.total + ' 个松散文件中 0 个单元测试文件 — ' + path.normalize(lr.resourcesDir))
+  return 0
+}
+
+function main (argv) {
+  let parsed
+  try {
+    parsed = parseCliArgs(Array.isArray(argv) ? argv : [])
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（参数维度）：' + e.message)
+    return 1
+  }
+  const repoRoot = parsed.repo
+  const codes = []
+  // 两个产物维度**互不短路**：同时给了就都跑。旧写法 `if (asarPath) { … return }` 会把
+  // "有人把两条命令并成一条调用"变成"第二维静默不跑还返回 0"，正是本门禁要消灭的形态。
+  if (parsed.asar) codes.push(runAsarDimension(parsed.asar))
+  if (parsed.resources) codes.push(runResourcesDimension(parsed.resources))
+  if (codes.length > 0) return codes.includes(1) ? 1 : 0
 
   let files
   try {
@@ -289,6 +471,22 @@ function main (argv) {
     console.error('  修法：把该扩展名**同时**加进 TEST_FILE_RE 与 REQUIRED_TEST_EXCLUSIONS（两处一起改，缺一不可）。')
     return 1
   }
+  // extraResources 声明锁：app.asar 之外还有这条通道（#2765 实测其松散树带 189 个测试文件）
+  let er
+  try {
+    er = checkExtraResourcesConfig(readDesktopBuild(repoRoot))
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（extraResources 维度）：' + e.message)
+    return 1
+  }
+  if (!er.ok) {
+    console.error('[asar-test-files] FAIL（extraResources 维度）：从仓库树拷贝的条目缺测试文件 filter：')
+    for (const o of er.offenders) console.error('    ' + o.from + '  缺 ' + o.missing.join(' , '))
+    console.error('  为何按 `from` 是否以 ../ 开头归类：这类条目内容直接来自仓库树，会连带测试文件；')
+    console.error('  而 dist/fonts、.playwright-browsers、.remotion-runtime/node_modules 等暂存目录由 beforePack')
+    console.error('  链生成，其 cleanliness 交给 --resources 实证（暂存端 stage-remotion-runtime 共用同一判据剪枝）。')
+    return 1
+  }
   // 接线维度：两个维度必须都挂在会执行它们的 workflow 正文里
   let wiring
   try {
@@ -307,7 +505,9 @@ function main (argv) {
     + ' 条测试排除（' + REQUIRED_TEST_EXCLUSIONS.length + ' 条全域扩展名 + '
     + REQUIRED_TEST_DIR_EXCLUSIONS.length + ' 条测试目录；files 共 ' + files.length
     + ' 项）；命名反查 ' + census.scanned + ' 个打包域 `.test.` 文件全部被判据覆盖'
-    + '；接线维度已核对（quality-gate.yml 的夹具+config 两行，build.yml 的同条件 --asar 步骤）')
+    + '；extraResources 维度已核对（' + er.scanned + ' 条目中 ' + er.covered.length + ' 条按 from 归类需带 filter，均已覆盖）'
+    + '；接线维度已核对（quality-gate.yml 的夹具+config 两行，build.yml 的同条件 '
+    + ARTIFACT_FLAGS.join(' + ') + ' 两个产物维度步骤）')
   return 0
 }
 
@@ -325,8 +525,18 @@ module.exports = {
   readDesktopBuildFiles,
   checkConfig,
   checkWiring,
+  packagingStepWhy,
+  PACKAGING_STEP_CONDITION,
+  ARTIFACT_FLAGS,
   readWorkflowBodies,
   checkNamingCensus,
   checkAsar,
+  readDesktopBuild,
+  checkExtraResourcesConfig,
+  walkLooseFiles,
+  checkLooseResources,
+  parseCliArgs,
+  runAsarDimension,
+  runResourcesDimension,
   main,
 }

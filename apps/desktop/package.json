@@ -157,7 +157,15 @@
       },
       {
         "from": "../../config",
-        "to": "config"
+        "to": "config",
+        "filter": [
+          "**/*",
+          "!**/*.test.js",
+          "!**/*.test.mjs",
+          "!**/*.test.cjs",
+          "!**/*.test.ts",
+          "!**/*.test.tsx"
+        ]
       },
       {
         "from": ".playwright-browsers",
@@ -172,7 +180,12 @@
         "to": "packages/remotion-composer",
         "filter": [
           "**/*",
-          "!node_modules/**"
+          "!node_modules/**",
+          "!**/*.test.js",
+          "!**/*.test.mjs",
+          "!**/*.test.cjs",
+          "!**/*.test.ts",
+          "!**/*.test.tsx"
         ]
       },
       {
