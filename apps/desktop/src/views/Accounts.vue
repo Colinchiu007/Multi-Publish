@@ -134,10 +134,12 @@
         :accounts="accountStore.accounts"
         :platforms="allPlatforms"
         :platform-label="platformLabel"
+        :categories="contentCategories"
         @create="createNewGroup"
         @delete="deleteGroup"
         @rename="renameGroup"
         @set-platform="setGroupPlatform"
+        @set-tags="setGroupCategoryTags"
         @toggle-account="toggleAccountInGroup"
       />
       <p
@@ -378,6 +380,7 @@ import { needsCleanLoginSession } from '@/utils/account-status'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
+import { contentCategoriesRef, loadContentCategories, watchContentCategories } from '@/composables/useContentCategories'
 
 const filterOptions = computed(() => [
   { value: 'all', label: t('accountsPage.filterAll') },
@@ -432,6 +435,10 @@ const batchCheckAllBusy = ref(false)
 // cloudSyncRunning 由弹窗 running-change 事件回灌：进行中关闭弹窗属「后台继续」，
 // 批次仍在跑，按钮必须保持禁用，并与一键检测互斥（PRD §5.8）。
 const { enabled: cloudSyncFlagEnabled, refresh: refreshCloudSyncFlag } = useFeatureFlag(FEATURE_FLAG_ACCOUNT_CLOUD_SYNC)
+// 统一内容类别（2026-10-03）：账号分组的预设标签与热门选题/采集库共用同一真源；
+// 读不到时 composable 已回退内置 10 类，所以这里不需要再判空。
+const contentCategories = contentCategoriesRef()
+let categoriesUnsubscribe = null
 const cloudSyncDialogVisible = ref(false)
 const cloudSyncRunning = ref(false)
 // 一键检测进度（进度卡顿修复 2026-09-22）：checked 只反映已完成数，
@@ -772,6 +779,14 @@ function renameGroup (groupId, name) {
 
 function setGroupPlatform (groupId, platformFilter) {
   accountStore.setGroupPlatform(groupId, platformFilter)
+}
+
+/** 设置分组的内容类别标签（统一真源；失败必须可见，否则用户以为改好了） */
+async function setGroupCategoryTags (groupId, tags) {
+  const ok = accountStore.setGroupCategoryTags(groupId, tags)
+  if (!ok) { notifyError('accountsPage.groupTagsFailed'); return }
+  await accountStore.flushGroupsSave()
+  notifySuccess('accountsPage.groupTagsSaved')
 }
 
 async function deleteGroup (groupId) {
@@ -1241,11 +1256,15 @@ onMounted(() => {
   refresh()
   // 运营开关只影响入口显隐，读不到即关闭（ADR-0006），因此不阻塞首帧、失败也不提示
   refreshCloudSyncFlag()
+  // 统一类别：全应用单例，这里只需触发一次加载 + 订阅运营变更
+  loadContentCategories().catch(() => {})
+  categoriesUnsubscribe = watchContentCategories()
 })
 
 onUnmounted(() => {
   clearTimeout(searchTimer)
   stopBatchCheckTicker()
+  if (categoriesUnsubscribe) { categoriesUnsubscribe(); categoriesUnsubscribe = null }
   if (resolveAuthorizationGuide) resolveAuthorizationGuide()
   resolveAuthorizationGuide = null
   stopAccountEvents()

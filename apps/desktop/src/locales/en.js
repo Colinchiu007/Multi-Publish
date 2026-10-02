@@ -1592,6 +1592,8 @@ export default {
     groupsSaveFailed: 'Group changes could not be saved and will be lost after restart',
     groupsUnreadable: 'Group records are temporarily unreadable (not signed in, or local storage unavailable); the groups below are from this session only',
     groupsMigrated: 'Groups restored from this machine\'s legacy records and saved to local storage',
+    groupTagsSaved: 'Group categories updated',
+    groupTagsFailed: 'Failed to save group categories. Please retry',
     completeLoginSaving: 'Saving',
     completeLoginDone: 'I have completed login',
     close: 'Close',

@@ -1592,6 +1592,8 @@ export default {
     groupsSaveFailed: '分组改动未能保存，重启后会丢失',
     groupsUnreadable: '暂时读不到分组记录（未登录或本地存储不可用），下方显示的是本次会话内的分组',
     groupsMigrated: '已从本机旧记录恢复分组，并保存到本地存储',
+    groupTagsSaved: '分组类别已更新',
+    groupTagsFailed: '分组类别保存失败，请重试',
     completeLoginSaving: '正在保存',
     completeLoginDone: '我已完成登录',
     close: '关闭',
