@@ -2,9 +2,6 @@
 record: asar-loose-resources-tests
 task: app.asar 之外的 extraResources 松散文件树不再随包发单元测试，并把门禁判据域从 asar 扩到松散树
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：extraResources 松散文件树剪枝 + 门禁扩 --resources 维度（asar-loose-resources-tests，2026-10-02）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 接线棘轮 | PASS | 新增 `apps/desktop/scripts/stage-remotion-runtime.test.js` 同 PR 点名进 `quality-gate.yml` Gate 2b（vitest workspace 不收该目录）；`scripts/check-unwired-tests.js` rc=0、`scripts/check-step-failfast.js` rc=0（新 run 块用 `shell: bash` 正是该棘轮的要求）。既有锁复跑 rc=0：`.github/scripts/check-ps1-bom.js`（50 个 .ps1）、`.github/scripts/check-max-lines.js`、`scripts/check-debt-budget.js`、`scripts/check-no-brand-residue.js`（6617 tracked 文件）、`.github/scripts/workflow-contract.test.js` 28/28。 |
 | QM-4 视觉 | N/A | 未触碰渲染端视图；改动面是打包脚本 + CI 门禁 + 构建声明。 |
 | QM-6 CCG 双模型外部评审 | 见「QM-6 实跑补记」 | 两 lane 的实跑结果与失败原因按现场登记，不以自审冒充通过。 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有口径回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`，远端分支删除取 `git ls-remote --heads origin asar-loose-resources-tests` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段**。 |
+| 远程同步 | PASS | PR #2779 已 squash 合并为 `ae6512d10f912b425a8e492b0494bcbed4b2bd89`（2026-10-02T22:40:06+08:00；取 `git log origin/main --grep='(#2779)$' --format=%H\|%cI` 现场，非凭记忆）；`git ls-remote --heads origin asar-loose-resources-tests` 返回 0 行证远端分支已删（`--delete-branch` 生效）。CI 侧：`gh pr view 2779 --json statusCheckRollup` 收敛于 21/21 completed、fail=0、`mergeable=MERGEABLE/CLEAN`；本次新加的 `build.yml` 步骤 `Verify packaged resources contain no unit tests` 在 run `37017645468` / job `110872693873`（**attempt 1**）状态 completed / conclusion success —— 该步骤内含 `--asar` 与 `--resources` 两次调用，同一 run 的 `#2765` 产物两维均为 0。本地复跑：44 例测试 + 7 项门禁 rc=0 + 14 条变异反证。**登记用的三个 `sync_*` 字段已随本回填整段删除。** |
 
 ### QM-6 实跑补记（含偏差声明）
 
