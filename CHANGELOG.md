@@ -1,5 +1,7 @@
 # [未发布] feat(automation): 自动化模块 + 统一内容类别真源（2026-10-03，automation-content-category）
 
+> 文档：PRD `01-docs/PRD-AUTOMATION-CONTENT-CATEGORY-2026-10-03.md` ｜ 使用说明 `01-docs/AUTOMATION-CONTENT-CATEGORY-USAGE-2026-10-03.md` ｜ 主 PRD 追加同名章节
+
 ## 背景
 
 热门选题分类、采集库类别、账号分组预设标签三处各自一套「分类」，运营改不了、彼此不通：
