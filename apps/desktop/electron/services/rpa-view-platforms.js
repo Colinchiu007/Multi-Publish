@@ -19,6 +19,7 @@ const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config'
 const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
+// 2026-10-02 头条兜底：DOM 被闭包门控拦下 ⇒ 失败时走「页面内 SDK 签名 + Node 直连」（toutiao-direct-bridge）
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 // 2026-09-29 拆分：publish-id 提取纯函数 → rpa-publish-id-extract.js（行数门禁，零行为变化）
@@ -1298,25 +1299,20 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   // （实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`
   //  + `publish btn not found`，三次重试后 `publish failed ... url=`）。
   // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
-  async _publish_toutiao(win, article) {
-    const config = this._getPlatformConfig('toutiao')
-    const contentType = article.video_path ? 'video' : 'image'
-    const publishUrl = getPublishUrl('toutiao', contentType)
-    // 正文：头条编辑器是 ProseMirror，`_fillInput` 对 contenteditable 走
-    // focus + execCommand('insertText') 的**纯文本**通道（框架编辑器不接受 innerHTML 直写），
-    // 而发布页 Quill 会把草稿正文规范化为 HTML（`<p>…</p>`）——不剥离就会让 `<p>` 以
-    // **字面量**出现在文章正文里（真机 verify snapshot 实证：`<p>上个月，朋友神神秘秘地…`）。
-    // 与快手同口径复用 stripHtmlToPlainText。
-    const plainContent = stripHtmlToPlainText(article && article.content)
-    return this._publish_generic(win, { ...article, content: plainContent }, 'toutiao', {
-      ...config,
-      publish_url: publishUrl || config.publish_url,
-      // 「展示封面」必填且默认选「单图」但封面为空（真机取证）→ 发布前传入封面图，
-      // 拿不到上传入口时回退选「无封面」，否则点「预览并发布」被必填校验挡住。
-      // 第 52 轮实验：关闭封面 hook 后发布同样失败 ⇒ 封面不是阻塞点。恢复该 hook（头条确实需要封面）。
-      prePublishHook: 'uploadCover',
-      hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
-    })
+  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
+  // 2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  async _publish_toutiao (win, article) {
+    return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
+      .publishToutiao({
+        win,
+        article,
+        host: this,
+        sign: require('@multi-publish/rpa-engine/src/publish-signer').sign.bind(
+          require('@multi-publish/rpa-engine/src/publish-signer')),
+        log,
+        getPublishUrl,
+        stripHtml: stripHtmlToPlainText,
+      })
   },
 
   async _publish_zhihu(win, article) {
