@@ -1,3 +1,17 @@
+# [未发布] fix(packaging): 暂存的 remotion 运行时闭包不再把同名不同版本摊平进同一目录（2026-10-02，fix-stage-runtime-flatten）
+
+### 根因
+- `stage-remotion-runtime.js` 逐包 `cpSync(包目录, outputDir/<包名>)` 摊平运行时闭包，而闭包里有**同名不同版本**（修复前 224 条记录里 9 个 name 重复：`react` 19.3.0/18.3.1、`react-dom` 19.3.0/18.3.1、`scheduler`、`source-map`、`semver`、`estraverse` 等）。两次写同一目录 ⇒ ① `package.json` 与同名文件互相覆盖；② 每次拷贝连带该包自有的 `node_modules/` 一起进去，留下 `react-dom/node_modules/react = 19.3.0` 这份**优先命中**的嵌套副本 ⇒ `react-dom@18` 拿到 `react@19` 的导出（React 19 无 `__SECRET_INTERNALS_…`），打包态任何走 `remotion` CLI 的动作在 require 期抛 `Cannot read properties of undefined (reading 'ReactCurrentDispatcher')`。本地开发走仓库真实布局，不受影响 ⇒ 单测与本地手测全绿。
+
+### 修复
+- `collectRuntimePackages()` 两阶段：先照常收全（**依赖照常展开**），再筛掉"落在任一被拷贝包目录之内"的记录 —— 它已由父包整目录携带。判据取"任一被拷贝包目录内"而非"父包直接嵌套"：实测 `estraverse` 会以 `webpack/node_modules/estraverse` 身份被误记成顶层包（**祖父级**嵌套），只比父包目录会漏。
+- `isInsideDirectory()` 用 `path.relative` 判包含，不按字符串前缀（前缀会把 `pkg-evil` 判成 `pkg` 的子目录 ⇒ 那个包从闭包里凭空消失，症状比错版本更难查）。
+- `stageRemotionRuntime()` 拷贝前先证"一个目标目录只有一个源"，两个源抢同一目录直接抛错点名两边；拷贝后由 `verifyStagedClosure()` 自证"落点 package.json 与源逐字节相同 + 落点 node_modules 子项集合等于源 + 每条非 optional 运行时依赖边必须在暂存树内解析得到（解析域锁在 outputDir 之内，不得往上借宿主仓库的 node_modules）。另按 QM-6 外部评审补两条最小判据：剪枝 filter 命中**目录**即抛错（剪掉一个目录等于连带删掉整棵子树，而判据②只比 `node_modules` 的直接子项，看不见深度 ≥2 的丢失），以及 `readNestedNames` 必须尊重注入的 `exists`（否则判据②只剩真磁盘一种测法，注入接缝是装饰）；两者各带一条反证（F-8、F-9）。名字只差大小写会撞同一个物理目录这条（评审 Q2）改成按实测锁：真实闭包不变量里加了 case-fold 唯一性断言，而不是往打包脚本里加平台嗅探。"，`beforePack` 因此在**打包时**就炸，而不是留给用户去点一次合成。
+
+### 回归保护
+- `apps/desktop/scripts/stage-remotion-runtime.test.js` 5 例 → 17 例（Gate 2b 已点名，无需新接线）：嵌套覆盖不得占顶层落点但依赖仍要展开（跳过记录≠跳过展开）、composer 自己 node_modules 里的包必须照常记录、两源抢同一目录必须抛错、③ 的独立红（夹具构造成 ①② 恒成立，只有逐边判据能拦）、解析起点在树外时一步都不许往上走、`verifyStagedClosure` 多包/少包两个方向都红、`pkg` vs `pkg-evil` 负控、**真实闭包不变量**（name 唯一 + 两两不互相包含 + 顶层 `react-dom` 必须等于仓库解析命中的那份 + 规模下界防空解析）。
+- 反证 9 条逐个实跑变红（F-1…F-9，判据 = `rc≠0 ∧ ℹ fail N>0 ∧ 失败测试名命中预期`，还原后 sha256 校验字节相同）。一条夹具自纠：harness 首版五条全 ANCHOR_MISS，原因是检出后工作区 CRLF 而锚点写 `\n` ⇒ 探针没打中目标变量，不是锁失效。另两条同族自纠：F-6（摘掉判据③的调用点）首版报 `NOT_RED`，真因是当时没有任何用例能从③出口红 —— ②恒先触发、断言又被放宽成两条判据共用一个出口，③当场沦为装饰，补了「①② 恒成立、只有③能拦」的独占红出口后才变红；F-8 首版报 `WRONG_CAUSE`，因为我按**错误文案**写 `expectFail` 而判据匹配的是**测试名** —— 一条反证的期望必须与它的匹配对象同域。
+- 真实产物对照（同机同命令）：顶层包 224（9 个重名）→ **188（name 全唯一）**；`react-dom/node_modules/react = 19.3.0` → **不存在**；打包态 `remotion bundle src/index.tsx` `rc=1` → **`rc=0`**；**打包态真实出片跑通**（`Explainer` 3 帧，捆绑 ffmpeg 编码、捆绑 ffprobe 解出 duration=0.149333 / format=mov,mp4,m4a，45 kB），松散树 13531 → 12053 文件，`#2765` 的两维产物门禁保持 0/0。机制、可重跑命令与边界见 `docs/staged-remotion-runtime-closure.md`。
 # [未发布] fix(story2video): 竖屏成片图片宽高比断链修复——9:16 不再生成 16:9 横图（2026-10-02，fix-s2v-portrait-image-aspect）
 
 ### 根因（QM-5 ①）
