@@ -2,9 +2,6 @@
 record: ep-theme-disabled-primary
 task: 主按钮禁用态从「饱和主色」改为中性降格档，并补按主题求解的禁用态合同
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后回填并删除上方三个 sync_* 字段）
 ---
 
 ## 本次执行记录：主按钮禁用态降格（ep-theme-disabled-primary，2026-10-02）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（合并后回填并删除上方三个 sync
 | 接线棘轮 | N/A | 本 PR 只**修改**既有测试文件 `apps/desktop/src/styles/ep-theme.tokens.test.js`（#2627 引入），不新增 `scripts/`、`.github/scripts/` 下的测试文件；`scripts/check-unwired-tests.js` 本机 PASS |
 | QM-1 打包 / QM-4 视觉 | 部分 | QM-1 N/A：未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`。QM-4 本机未跑像素门禁（需 dev server 且基线只能取自 CI 渲染）；本改动**会**改变禁用主按钮外观，若某张基线含该形态，由 CI `QG Visual` 判定，届时按同一次 CI 渲染重建基线，不提阈值 |
 | QM-6 CCG 双模型外部评审 | **未执行** | 两路后端本机均不可达，已实测归因而非猜：`--backend codex` ⇒ 本地路由代理 `http://127.0.0.1:15721/v1/responses` 连续 5 次 `502 Bad Gateway` 后 `turn.failed`；`--backend claude` ⇒ `ECONNREFUSED`（直连 `claude -p` 复现同一错误）。wrapper 退出即删自己的日志，故判据来自绕过 wrapper 的直连探针。本 PR 不落在 QM-6 触发条件（未触主进程服务/IPC/核心引擎包，无安全/数据校验/状态机/持久化面），改由 QM-2 自审 + 上表实测覆盖：**独立外部评审未做，不得记为通过**。修复路由代理属机器级配置，需单独授权 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin ep-theme-disabled-primary` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 本机现取证据：`git log origin/main --grep="(#2771)$" --format=%H|%cI` → `d0147ea42e56fa999e275c768c4b52b6a18c0561` / `2026-10-02T11:18:45Z`（squash 落地，主题即本 PR 标题）；`git ls-remote --heads origin ep-theme-disabled-primary` 返回 0 行 ⇒ 远端分支已删；CI 侧 21 条上下文全为终态且 fail=0（看守日志 round=26 `RESULT=ALL_TERMINAL_GREEN pass=21 skip=0`）。三个 `sync_*` 登记字段随本次回填一并删除 |
 
 ### 真机验证（真实 Electron 窗口，非 headless）
 
