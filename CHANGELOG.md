@@ -1,3 +1,20 @@
+# [未发布] fix(story2video): 离线降级素材弹窗不再显示空括号（）——通知参数双次归一化幂等（2026-10-02，fix-degraded-assets-empty-kinds）
+
+### 根因
+- 用户报告：视频合成成功后弹窗显示「此成片包含离线降级素材（），请在发布前预览确认。」——`{kinds}` 插值为空串。
+- 弹窗链路是**双次归一化**：`maybeShowDegradedAssetsWarning` 以原始枚举 `assetKinds` 调 `resolveStory2VideoNotification` 入态（第一次归一化产出 `{ kinds: '占位图片' }`），渲染时 `story2videoNotificationDialogMessage` 再对已入态参数调 `formatStory2VideoNotification`（第二次归一化）。`normalizeParams` 的 DEGRADED 分支只认原始 `assetKinds` 数组，第二次进入时枚举已不存在、已解析的 `kinds` 字符串被丢弃 ⇒ `params = {}` ⇒ `{kinds}` 插值成空。
+- 引入点：`fed08eed`（2026-08-02 fix(story2video): localize notifications and remove scene cap），i18n 收敛时把「归一化解析」与「模板渲染」拆成两个入口，但隐含假设了"每次都喂原始枚举"，双入口幂等性未加约束。
+
+### 修复
+- `normalizeParams` 对已解析插值参数**幂等保留**：`DEGRADED_ASSETS_WARNING` 保留字符串 `kinds`、同族 `MODELS_REQUIRED` 保留字符串 `missingLabels`（仅当原始枚举缺失时，避免双真相）。
+- 空值兜底：`assetKinds` 全部未登记或解析后为空时回退 `degradedAssetLabels.fallback`（zh「降级素材」/ en "fallback assets"，成对新增），任何路径都不再产出「（）」。
+- `CreateView.story2videoErrorDialogMessage` 同模式同修复（`MODELS_REQUIRED` 的 `missingLabels` 原本也会同样丢失）。
+
+### 回归保护（TDD，先 RED 后 GREEN）
+- `notifications.test.js` 三条幂等锁：① 已解析 `kinds` 双次归一化不丢失（复现事故消息全等断言）；② `assetKinds` 未知值回退通用文案；③ 已解析 `missingLabels` 不丢失。
+- `ResultView.test.js` 补**最终渲染消息**断言 `story2videoNotificationDialogMessage`（原测试只断言 dialog 中间态，是本次逃逸点）。
+- 变异验证：摘掉修复后恰好三条幂等锁全红（19 通过），恢复后 192 + 286 全绿。
+
 # [未发布] fix(packaging): app.asar 之外的松散文件树不再随包发单元测试（2026-10-02，asar-loose-resources-tests）
 
 ### 根因

@@ -255,6 +255,52 @@ describe('Story2Video 通知模型', () => {
     })
   })
 
+  // 回归锁（2026-10）：ResultView/CreateView 弹窗走「resolve 入态 → format 渲染」双次归一化。
+  // normalizeParams 曾只认原始 assetKinds 数组，第二次进入时已解析的 kinds 字符串未被保留，
+  // {kinds} 插值为空串，用户看到「此成片包含离线降级素材（），请在发布前预览确认。」。
+  it('归一化幂等：已解析的 kinds 再次归一化不丢失（双次归一化回归锁）', () => {
+    const resolved = resolveStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING,
+      messageParams: { assetKinds: ['placeholder_image', 'silent_narration'] },
+    })
+    expect(resolved.params).toEqual({ kinds: '占位图片、静音旁白' })
+
+    // 模拟 ResultView.vue story2videoNotificationDialogMessage / CreateView.vue story2videoErrorDialogMessage
+    // 的第二次 format：输入已是第一次归一化的产物
+    const reformatted = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING,
+      messageParams: resolved.params,
+    })
+    expect(reformatted.message).toBe('此成片包含离线降级素材（占位图片、静音旁白），请在发布前预览确认。')
+    expect(reformatted.message).not.toContain('（）')
+  })
+
+  it('归一化幂等：assetKinds 为空或全未知时显示通用降级素材文案，而不是空括号', () => {
+    const zh = resolveStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING,
+      messageParams: { assetKinds: ['unknown_kind'] },
+    })
+    expect(zh.params).toEqual({ kinds: '降级素材' })
+    expect(zh.message).toBe('此成片包含离线降级素材（降级素材），请在发布前预览确认。')
+  })
+
+  // 同族防御：CreateView 的 MODELS_REQUIRED 弹窗同样是「resolve 入态 → format 渲染」双次归一化，
+  // missingLabels 已解析字符串在第二次归一化中必须保留。
+  it('归一化幂等：已解析的 missingLabels 再次归一化不丢失', () => {
+    const resolved = resolveStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED,
+      messageParams: { missing: ['video'] },
+    })
+    expect(resolved.params).toEqual({ missingLabels: '视频模型' })
+
+    const reformatted = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED,
+      messageParams: resolved.params,
+    })
+    expect(reformatted.message).toBe('启动前置校验未通过：缺少视频模型。请到「模型设置」中添加对应模型后重试。')
+    expect(reformatted.message).not.toContain('缺少。')
+  })
+
 })
 
 describe('Story2Video 后台并发通知', () => {

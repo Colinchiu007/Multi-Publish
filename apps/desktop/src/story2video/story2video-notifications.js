@@ -209,6 +209,24 @@ function normalizeParams (value, locale, messageKey, rawError) {
   const supplied = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   const params = {}
 
+  // 双次归一化幂等（2026-10 回归修复）：ResultView/CreateView 弹窗先 resolve 入态、渲染时再 format。
+  // normalizeParams 只消费原始枚举（assetKinds/missing）产出解析标签；第二次进入时原始枚举已不存在，
+  // 必须把已解析的插值参数原样保留，否则 {kinds}/{missingLabels} 被清空，渲染出「（）」空括号。
+  if (
+    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING &&
+    !Array.isArray(supplied.assetKinds) &&
+    typeof supplied.kinds === 'string' && supplied.kinds.trim() !== ''
+  ) {
+    params.kinds = supplied.kinds
+  }
+  if (
+    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED &&
+    !Array.isArray(supplied.missing) &&
+    typeof supplied.missingLabels === 'string' && supplied.missingLabels.trim() !== ''
+  ) {
+    params.missingLabels = supplied.missingLabels
+  }
+
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG && Number.isFinite(Number(supplied.max))) {
     params.max = Number(supplied.max)
     params.maxFormatted = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'zh-CN').format(params.max)
@@ -269,10 +287,13 @@ function normalizeParams (value, locale, messageKey, rawError) {
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING && Array.isArray(supplied.assetKinds)) {
     const labels = LOCALE_TREES[locale].story2video.degradedAssetLabels
     const separator = locale === 'en' ? ', ' : '、'
-    params.kinds = supplied.assetKinds
+    const kindLabels = supplied.assetKinds
       .map(kind => labels[kind] || '')
       .filter(Boolean)
       .join(separator)
+    // 空值兜底（2026-10）：assetKinds 缺失或全部未登记时不得产出空括号「（）」，
+    // 回退到通用降级素材文案（labels.fallback，zh/en 成对维护）。
+    params.kinds = kindLabels !== '' ? kindLabels : (labels.fallback || '')
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT) {
