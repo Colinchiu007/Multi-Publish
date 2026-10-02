@@ -170,10 +170,15 @@ jobs:
       # electron-builder 对 node_modules 另走依赖遍历收集，实测 462 条里有 44 条来自 node_modules，
       # 把排除写窄成只管 electron 目录时静态检查看不出来，只有真清单能。
       # 条件与打包步骤**逐字一致**：打包被跳过时本步骤也必须跳过，否则读不到产物会误红。
-      - name: Verify app.asar contains no unit tests
+      # 步骤名一并改名，因为现在它测的是整个 resources 目录，不只是 asar。
+      - name: Verify packaged resources contain no unit tests
         if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true'
         shell: bash
-        run: node .github/scripts/check-asar-test-files.js --asar apps/desktop/dist-electron/win-unpacked/resources/app.asar
+        run: |
+          # 两条通道各一次：app.asar 与 asar 之外的 extraResources 松散树（#2765 实测后者曾带 189 个测试文件）。
+          # 必须是 bash 而不是 pwsh：一个 run 块里多条命令在 PowerShell 下不 fail-fast（见 scripts/check-step-failfast.js）。
+          node .github/scripts/check-asar-test-files.js --asar apps/desktop/dist-electron/win-unpacked/resources/app.asar
+          node .github/scripts/check-asar-test-files.js --resources apps/desktop/dist-electron/win-unpacked/resources
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true' && startsWith(github.ref, 'refs/tags/v')

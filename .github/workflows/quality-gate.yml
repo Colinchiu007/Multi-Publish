@@ -113,6 +113,9 @@ jobs:
         shell: bash
         run: |
           node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
+          # 打包暂存端剪枝的回归锁（#2765）：extraResources 的第二条通道把仓库树里的测试文件带进
+          # app.asar 之外的松散树，判据与门禁共享同一实现（shared-utils/artifact-test-pattern）
+          node --test apps/desktop/scripts/stage-remotion-runtime.test.js
           node --test scripts/sync-platform-config.test.js
           node --test scripts/compare-scheduler-models.test.js
           # 会话隔离入口脚本的结构锁：native stderr 捕获不得处在 EAP=Stop 作用域内
