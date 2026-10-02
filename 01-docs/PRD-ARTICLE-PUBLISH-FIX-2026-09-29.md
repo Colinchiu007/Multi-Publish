@@ -700,3 +700,27 @@ createElement(ra.l, { time, serverTime, visible, okText,
 
 > **工程要点**：E2E 的等待条件必须是**状态就绪**（轮询编辑器 `#contenteditable` 长度 >100），
 > 而非固定 `sleep` —— 改为轮询后，单轮验证窗口从"经常跑不完"变为"稳定跑完"。
+
+#### 16.9.5 微博 contentMax 终裁 10000（2026-10-02 用户确认）
+
+§16.9.2 曾按「以注册表为准」把 yaml 微博改为 2000；随后 main 上出现**官方 FAQ 佐证的 5000**
+（微博客服中心 kefu.weibo.com/faqdetail?id=21510）；**最终由用户确认放宽至 10000**（图文可用字数上限）。
+
+四处一次改齐（`reconcile-three-sources.js` 对账 **15 平台全部一致**）：
+
+| 真源 | 位置 | 变更 |
+|------|------|------|
+| 注册表 | `packages/shared-utils/src/publish-capabilities.json` | 2000 → 10000 |
+| CONTENT_LIMITS | `packages/api-publish-engine/src/content-formatter.js` | 2000 → 10000 |
+| RPA 配置 | `config/platforms.yaml` | 2000 → 10000（注释同步） |
+| 测试对齐表 | `packages/shared-utils/src/__tests__/publish-capabilities.test.js` | 2000 → 10000 |
+
+**数据校验影响**：微博为 `titleMode=caption`（标题并入描述首行），
+正文可用预算 = 10000 − (标题 + 换行)，由 `minContentBudget` 统一计算；
+微博此前从未因字数被拦（旧值 2000/5000 均大于常规正文），本次放宽主要影响**长文场景**的预算上限。
+
+**交互/显示项影响**：无新增 UI；字数计数器与校验提示沿用现有 `publishFlow.contentInvalid` /
+`contentAutoTruncated` 文案，阈值变化对用户透明。
+
+**流程影响**：`平台字数上限对账` 流程新增一条纪律 —— **阈值来源必须沉淀到 yaml 注释**，
+且注册表/yaml/CONTENT_LIMITS 三处任一变更须经 `reconcile-three-sources.js` 对账 + 对齐锁双重确认。

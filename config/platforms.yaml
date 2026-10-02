@@ -51,11 +51,11 @@ platforms:
     category: 中文
     content_category: MIXED
     max_title: 140
-    # 阈值来源：微博客服中心官方 FAQ（kefu.weibo.com/faqdetail?id=21510，2024-09-04 更新）
+    # 阈值来源：官方 FAQ 佐证（下述链接）；2026-10-02 用户终裁放宽至 10000。原注释：微博客服中心官方 FAQ（kefu.weibo.com/faqdetail?id=21510，2024-09-04 更新）
     # 原文「最多可以发布5000汉字」（high 置信）。本文件该值历史在 2000/5000 间摆动：
-    # 2026-10-01 复查曾按注册表回改成 2000，2026-10-02 平台调研（官方 FAQ 佐证）终裁 5000，
+    # 2026-10-01 复查曾按注册表回改成 2000，2026-10-02 平台调研（官方 FAQ 佐证）终裁 5000（2026-10-02 用户确认放宽至 10000），
     # 并同步注册表/引擎表（见 01-docs/PLATFORM-CHAR-LIMITS-RESEARCH-2026-10-02.md）。
-    max_content: 5000
+    max_content: 10000
     enabled: true
   douyin:
     has_api: false
