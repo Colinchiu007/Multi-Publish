@@ -2,9 +2,6 @@
 record: fix-stage-runtime-flatten
 task: 暂存的 remotion 运行时闭包不再把同名不同版本摊平进同一目录（#2778：打包态 CLI 在 require 期崩）
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：remotion 运行时闭包摊平缺陷（fix-stage-runtime-flatten，2026-10-02）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 真实产物重放（改后最终码，同机同命令） | PASS | 加判据③后**重新整包**（`pnpm run build:dir` rc=0），再用 `verifyStagedClosure` 对**两个域**各重放一次：暂存目录 `.remotion-runtime/node_modules` 与最终产物 `win-unpacked/resources/packages/remotion-composer/node_modules` 双双通过，**包=188、依赖边=297、重名=0**；顶层 `react=18.3.1`/`react-dom=18.3.1`，`react-dom/node_modules/react` 不存在，`remotion/node_modules/react-dom=19.3.0`。打包态 `remotion bundle src/index.tsx` **rc=0**；打包态真实出片 `Explainer` 3 帧 **rc=0**（43.3 kB），捆绑 ffprobe 解出 `duration=0.149333`。 |
 | 接线棘轮 | PASS | 未新增测试**文件**（新 10 例并入已被 `quality-gate.yml` Gate 2b 点名的 `stage-remotion-runtime.test.js`），故无新接线项；`scripts/check-unwired-tests.js` rc=0、`scripts/check-step-failfast.js` rc=0 作为既有锁复跑。 |
 | QM-6 CCG 双模型外部评审 | **部分执行（1 个模型实质评审）** | 规定通道 `codeagent-wrapper --backend codex` 一手报错 `unexpected status 502 Bad Gateway … http://127.0.0.1:15721/v1/responses`（CC Switch 属用户机器级路由，未经授权不修）；`--backend claude` 最小探针挂满 150 s 无输出（rc=124）；`--backend gemini` 的 `gemini` CLI 本机不存在。降级通道 `opencode run --agent plan`：`big-pickle` 一条完整评审（rc=0，任务书四问逐条作答并另附一条接缝发现），`nemotron`/`longcat`/`mimo`/`fledge` 四个模型共 6 次尝试全部零产出或流中断。**双模型并行未达成，不冒充 PASS**；发现项与逐条处置见「QM-6 实跑补记」。 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有口径回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`，远端分支删除取 `git ls-remote --heads origin fix-stage-runtime-flatten` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段**。 |
+| 远程同步 | PASS | PR #2789 已 squash 合并为 `1291a51ee4456dcbce2566dcb1442d3d8bf73102`（2026-10-02T17:43:27Z；取 `git log origin/main --grep=(#2789)$ --format=%H\|%cI` 现场，非凭记忆）；`git ls-remote --heads origin fix-stage-runtime-flatten` 返回 **0 行**证远端分支已删（合并时 `--delete-branch` 生效）；CI 侧合并当刻 `statusCheckRollup` 收敛为 **21 项全绿、0 红、0 挂起**，`mergeStateStatus` 随即转 UNKNOWN（= 已合并，不再有可判状态）；关联单 #2778 由该合并自动关闭，`stateReason=COMPLETED`、`closedAt=2026-10-02T17:43:27Z`（与合并同一秒，非手工关）。本行即为回填：同时删除 frontmatter 的三个 `sync_*` 登记项，判据见 `scripts/check-gate-record-debt.js` 的「已回填却仍留登记字段」。
 
 ### QM-6 实跑补记
 
