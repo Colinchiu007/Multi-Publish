@@ -8,7 +8,10 @@
  * 21 个 `auth-auth-*` 目录共 **436MB**，占整个 `session/Partitions`（476MB）的 92%。
  *
  * 为什么可以删「非最新」那一个（本模块全部判据的地基）：
- * `auth-partition.findAuthPartitionDir` 对每组前缀做 `names.filter(prefix).sort()` 后
+ * （#2701 立项时）`auth-partition.findAuthPartitionDir` 对每组前缀做 `names.filter(prefix).sort()` 后
+ * 只取最后一个。该口径已被 #2734 改为「同组从新到旧按内容探」，因此本模块的每组保留数
+ * 必须等于那边的探测窗口 `PROBE_LIMIT`（见 planReclaim）——旧注释保留在这里是为了说明
+ * 「为什么当年只留末位是安全的」，今天它**不再**是安全前提。
  * **只取最后一个**，发布链的两处兜底（`rpa-view-manager` 的 API 轨、`rpa-view-session.
  * _restoreAuthPartitionCookies` 的 RPA 轨）都经它定位。也就是说「较旧的 auth 分区」
  * 从来没有读者 —— 删除它们对读取行为可证明为零影响。因此这里的新旧判定必须与
@@ -37,6 +40,12 @@ const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/plat
  * `auth-<真实 accountId>` 不在此列——后者可能是在用的账号分区，误删即抹凭证。
  */
 const THROWAWAY_PREFIXES = ['auth-auth-', 'silent-auth-']
+/**
+ * 兜底选址的探测窗口 = 回收端的每组保留数（#2734 的耦合点，单一真源在本模块，
+ * 由 auth-partition 再导出，避免两处数字各写一遍而互相吃掉候选）。
+ * @type {number}
+ */
+const PROBE_LIMIT = 5
 
 /**
  * 本进程**已打开过** Session 的分区名登记表。
@@ -84,7 +93,7 @@ function isThrowawayPartitionName (name) {
  *
  * 为什么必须反复剥而不是一次：`openLogin` 的目录名是 `auth-auth-<platform>-<ts>`，
  * 而 `qrcode-login` 的是 `auth-auth-<platform>-<ts>-<seq>`。只剥一段会让**每次扫码各自成一组**，
- * 于是同平台扫三次得到三个"最新"，一个都删不掉 —— 与定位端 `findAuthPartitionDir` 用的前缀
+ * 于是同平台扫三次得到三个"最新"，一个都删不掉 —— 与定位端 `listAuthPartitionCandidates` 用的前缀
  * （`auth-auth-<platform>-`，平台级粒度）不一致，回收面就永远收不拢。分组粒度必须等于前缀粒度。
  * 名字不以 `-<数字>` 结尾时自成一组（绝不与人合批）。
  */
@@ -108,7 +117,15 @@ function partitionRoots (userDataPath) {
 }
 
 /**
- * 列出某 root 下「可回收」目录：每组只留字典序末位（= 定位端唯一会读的那份）。
+ * 每组**保留最近 PROBE_LIMIT 份**，超出窗口的旧目录才进 victims。
+ *
+ * 为什么不是「只留字典序末位」（#2734，2026-10-01）：定位端原来是「只读末位」，所以非末位
+ * 永不被读、删掉不影响任何行为；但 #2734 把定位改成「同组从新到旧按内容探」，因为一次失败/取消
+ * 的登录会留下**字典序最新却空壳**的那一份，只留末位就等于把唯一含凭证的较旧目录删掉 ——
+ * 回收端会把兜底候选自己吃掉。**回收保留数必须等于定位探测窗口**，两者共用导出的同一个
+ * PROBE_LIMIT（锁见 auth-partition-reclaim.test.js 的「窗口=candidates」用例），禁止两处各写数字。
+ *
+ * 仍然是硬上限：每组最多留 K 份，磁盘不会重新变成无界增长（#2701 的立项理由）。
  * 纯函数、不碰文件系统写操作，便于逐条加锁。
  * @param {string[]} names root 下的目录名（调用方须已过滤为目录）
  * @param {string[]} [activePartitionNames] 本进程正持有 Session 的分区名，一律跳过
@@ -129,17 +146,15 @@ function planReclaim (names, activePartitionNames) {
   const skippedActive = []
   for (const bucket of groups.values()) {
     bucket.sort()
-    const newest = bucket[bucket.length - 1]
-    if (active.has(newest)) {
-      skippedActive.push(newest)
-      kept.push(newest)
-    } else {
-      kept.push(newest)
-    }
+    const window = new Set(bucket.slice(-PROBE_LIMIT))
     for (const name of bucket) {
-      if (name === newest) continue
-      if (active.has(name)) skippedActive.push(name)
-      else victims.push(name)
+      if (active.has(name)) {
+        skippedActive.push(name)
+        if (!window.has(name)) kept.push(name)
+        continue
+      }
+      if (window.has(name)) { kept.push(name); continue }
+      victims.push(name)
     }
   }
   return { victims: victims.sort(), kept: kept.sort(), skippedActive: skippedActive.sort() }
@@ -336,6 +351,7 @@ function reclaimLoginSession (opts) {
 }
 
 module.exports = {
+  PROBE_LIMIT,
   THROWAWAY_PREFIXES,
   partitionNameOf,
   noteLivePartition,

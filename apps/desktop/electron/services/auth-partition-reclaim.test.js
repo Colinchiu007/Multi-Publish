@@ -11,6 +11,7 @@ let groupKeyOf
 let isThrowawayPartitionName
 let wipeSessionStorage
 let scheduleReclaim
+let PROBE_LIMIT
 
 beforeEach(async () => {
   vi.resetModules()
@@ -21,6 +22,7 @@ beforeEach(async () => {
   isThrowawayPartitionName = mod.isThrowawayPartitionName
   wipeSessionStorage = mod.wipeSessionStorage
   scheduleReclaim = mod.scheduleReclaim
+  PROBE_LIMIT = mod.PROBE_LIMIT
 })
 
 const REAL = {
@@ -61,6 +63,15 @@ afterEach(() => {
 
 function track (base) { cleanups.push(base); return base }
 
+/**
+ * 超额组：同一平台造 n 份临时分区（字典序按尾号递增）。
+ * 删除类用例必须用它 —— 新规则下组内份数 <= PROBE_LIMIT 时**一份都不该删**，
+ * 用小手数的旧夹具会得到"没有删除对象"的假失败。
+ */
+function bigGroup (platform, n) {
+  return Array.from({ length: n }, (_x, i) => 'auth-auth-' + platform + '-' + String(1000 + i))
+}
+
 describe('auth-partition-reclaim：形态识别', () => {
   it('只认每次新建的临时分区前缀', () => {
     expect(isThrowawayPartitionName('auth-auth-wechat_mp-1790418403514')).toBe(true)
@@ -93,45 +104,51 @@ describe('auth-partition-reclaim：形态识别', () => {
     expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-1')).toBe('auth-auth-wechat_mp')
     expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-12'))
       .toBe(groupKeyOf('auth-auth-wechat_mp-1790348243918'))
-    const plan = planReclaim([
-      'auth-auth-wechat_mp-1790348243918-1',
-      'auth-auth-wechat_mp-1790348243918-2',
-      'auth-auth-wechat_mp-1790348243919-1',
-    ])
-    // 字典序末位是 ...-1790348243919-1（与定位端同一口径），其余两份进 victims
-    expect(plan.kept).toEqual(['auth-auth-wechat_mp-1790348243919-1'])
-    expect(plan.victims).toEqual([
-      'auth-auth-wechat_mp-1790348243918-1',
-      'auth-auth-wechat_mp-1790348243918-2',
-    ])
+    // 三种形态必须并进**同一组**：分组若按会话形态各成一组，K+1 份里每份都是"本组最新"，
+    // 删除数会是 0 —— 用超额份数正好把"分组粒度对不对"变成可执行判据。
+    const six = bigGroup('wechat_mp', PROBE_LIMIT + 1)
+    const mixed = six.slice(0, -1).map((n) => n + '-1')
+    mixed.push(six[six.length - 1])
+    const plan = planReclaim(mixed)
+    expect(plan.victims).toEqual(mixed.slice(0, mixed.length - PROBE_LIMIT))
+    expect(plan.kept).toEqual(mixed.slice(mixed.length - PROBE_LIMIT))
   })
 })
 
 describe('auth-partition-reclaim：分组保留判据', () => {
-  it('每组只留字典序末位，其余进 victims', () => {
+  it('组内份数不超过 PROBE_LIMIT ⇒ 一份都不删（#2734：定位端要按内容探这些份）', () => {
     const plan = planReclaim(Object.keys(REAL))
-    expect(plan.victims).toEqual([
+    expect(plan.victims).toEqual([])
+    expect(plan.kept.sort()).toEqual([
       'auth-auth-wechat_mp-1790343224833',
-      'auth-auth-zhihu-1790343393950',
-    ])
-    expect(plan.kept).toEqual([
       'auth-auth-wechat_mp-1790418403514',
+      'auth-auth-zhihu-1790343393950',
       'auth-auth-zhihu-1790352605579',
       'silent-auth-douyin-1790400000001',
-    ])
+    ].sort())
     expect(plan.skippedActive).toEqual([])
   })
 
-  it('正在使用的分区一律不列为删除对象', () => {
-    const plan = planReclaim(Object.keys(REAL), ['auth-auth-wechat_mp-1790343224833'])
-    expect(plan.victims).toEqual(['auth-auth-zhihu-1790343393950'])
-    expect(plan.skippedActive).toEqual(['auth-auth-wechat_mp-1790343224833'])
+  it('超出窗口的旧目录才进 victims：K+3 份的组删掉最旧的 3 份', () => {
+    const g = bigGroup('zhihu', PROBE_LIMIT + 3)
+    const plan = planReclaim(g)
+    expect(plan.victims).toEqual(g.slice(0, 3))
+    expect(plan.kept).toEqual(g.slice(3))
   })
 
-  it('最新那份若在使用中，仍然保留且不删同组其余（字典序末位不变）', () => {
-    const plan = planReclaim(Object.keys(REAL), ['auth-auth-wechat_mp-1790418403514'])
-    expect(plan.kept).toContain('auth-auth-wechat_mp-1790418403514')
-    expect(plan.victims).toContain('auth-auth-wechat_mp-1790343224833')
+  it('正在使用的分区一律不列为删除对象（窗口外也豁免）', () => {
+    const g = bigGroup('zhihu', PROBE_LIMIT + 3)
+    const plan = planReclaim(g, [g[0]])
+    expect(plan.victims).toEqual(g.slice(1, 3))
+    expect(plan.skippedActive).toEqual([g[0]])
+    expect(plan.kept).toContain(g[0])
+  })
+
+  it('最新那份若在使用中，同组超出窗口的旧份仍照删不误', () => {
+    const g = bigGroup('zhihu', PROBE_LIMIT + 3)
+    const plan = planReclaim(g, [g[g.length - 1]])
+    expect(plan.skippedActive).toEqual([g[g.length - 1]])
+    expect(plan.victims).toEqual(g.slice(0, 3))
   })
 
   it('空输入与非临时分区的组合不产出任何删除项', () => {
@@ -141,24 +158,29 @@ describe('auth-partition-reclaim：分组保留判据', () => {
 })
 
 describe('auth-partition-reclaim：与定位端的读取中性关系（本模块存在理由）', () => {
-  // findAuthPartitionDir 每组只读字典序末位 ⇒ 删除非末位不可能改变它的返回。
-  // 这条必须注入真实现来验，不是把结论抄成注释。
-  it('回收前后 findAuthPartitionDir 返回同一个分区名', async () => {
-    const base = track(mkProfile(Object.keys(REAL)))
-    const { findAuthPartitionDir } = await import('./auth-partition.js')
-    const before = findAuthPartitionDir('wechat_mp', null, base)
-    const beforeZhihu = findAuthPartitionDir('zhihu', null, base)
-    expect(before).toBe('auth-auth-wechat_mp-1790418403514')
-    expect(beforeZhihu).toBe('auth-auth-zhihu-1790352605579')
+  // #2734 起定位端在同组内从新到旧**按内容**探，最多 PROBE_LIMIT 份。
+  // 于是"读中性"的正确形状从「末位不变」变成「**整个候选集不变**」：
+  // 回收保留数必须等于探测窗口，否则回收会把定位端的候选自己吃掉 —— 那正是本条要钉的耦合。
+  it('回收前后 listAuthPartitionCandidates 完全相同（回收不得吃掉定位端的候选）', async () => {
+    const { listAuthPartitionCandidates } = await import('./auth-partition.js')
+    const g = bigGroup('zhihu', PROBE_LIMIT + 3)
+    const base = track(mkProfile(g.concat(['account-18c23d34', 'logto-identity'])))
+    const before = listAuthPartitionCandidates('zhihu', null, base)
+    expect(before).toEqual(g.slice().reverse().slice(0, PROBE_LIMIT))
 
     const summary = reclaim({ userDataPath: base })
-    expect(summary.removed).toEqual([
-      'auth-auth-wechat_mp-1790343224833',
-      'auth-auth-zhihu-1790343393950',
-    ])
+    expect(summary.removed).toEqual(g.slice(0, 3))
 
-    expect(findAuthPartitionDir('wechat_mp', null, base)).toBe(before)
-    expect(findAuthPartitionDir('zhihu', null, base)).toBe(beforeZhihu)
+    expect(listAuthPartitionCandidates('zhihu', null, base)).toEqual(before)
+    // 窗口内的每一份都还在盘上（"候选集不变"不能只比返回名，要比可读性）
+    for (const n of before) {
+      expect(fs.existsSync(path.join(base, 'session', 'Partitions', n)), n).toBe(true)
+    }
+  })
+
+  it('探测窗口与保留数是同一个常量（两处各写一遍即互相吃掉候选）', async () => {
+    const { PROBE_LIMIT: lookupLimit } = await import('./auth-partition.js')
+    expect(lookupLimit).toBe(PROBE_LIMIT)
   })
 
   it('未声明标记的平台也不得被顺带删掉（回收域按前缀闭合）', () => {
@@ -173,19 +195,15 @@ describe('auth-partition-reclaim：与定位端的读取中性关系（本模块
 
 describe('auth-partition-reclaim：真实文件系统回收', () => {
   it('删目录、保留其余，并如实汇总', () => {
-    const base = track(mkProfile(Object.keys(REAL)))
+    const g = bigGroup('zhihu', PROBE_LIMIT + 3)
+    const keep = ['account-18c23d34', 'auth-auth-wechat_mp-1790418403514', 'logto-identity']
+    const names = g.concat(keep)
+    const base = track(mkProfile(names))
     const summary = reclaim({ userDataPath: base })
+    expect(summary.removed).toEqual(g.slice(0, 3))
     const left = fs.readdirSync(path.join(base, 'session', 'Partitions')).sort()
-    expect(left).toEqual([
-      'account-18c23d34',
-      'account-ef2ccaa2',
-      'auth-auth-wechat_mp-1790418403514',
-      'auth-auth-zhihu-1790352605579',
-      'auth-zhihu-1700000000000',
-      'logto-identity',
-      'silent-auth-douyin-1790400000001',
-    ])
-    expect(summary.scanned).toBe(Object.keys(REAL).length)
+    expect(left).toEqual(g.slice(3).concat(keep).sort())
+    expect(summary.scanned).toBe(names.length)
     expect(summary.errors).toBe(0)
   })
 
@@ -194,12 +212,12 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
     track(rootBase)
     const second = path.join(rootBase, 'Partitions')
     fs.mkdirSync(second, { recursive: true })
-    fs.mkdirSync(path.join(second, 'auth-auth-douyin-1'), { recursive: true })
-    fs.mkdirSync(path.join(second, 'auth-auth-douyin-2'), { recursive: true })
+    const g = bigGroup('douyin', PROBE_LIMIT + 1)
+    for (const n of g) fs.mkdirSync(path.join(second, n), { recursive: true })
     const summary = reclaim({ userDataPath: rootBase })
-    expect(summary.removed).toEqual(['auth-auth-douyin-1'])
-    expect(fs.existsSync(path.join(second, 'auth-auth-douyin-1'))).toBe(false)
-    expect(fs.existsSync(path.join(second, 'auth-auth-douyin-2'))).toBe(true)
+    expect(summary.removed).toEqual([g[0]])
+    expect(fs.existsSync(path.join(second, g[0]))).toBe(false)
+    expect(fs.existsSync(path.join(second, g[1]))).toBe(true)
   })
 
   it('目录不存在时静默返回，不抛不报错', () => {
@@ -216,25 +234,27 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
   })
 
   it('删除失败只计错并继续处理其余对象，函数不抛', () => {
-    const base = track(mkProfile(Object.keys(REAL)))
+    const g = bigGroup('zhihu', PROBE_LIMIT + 3)
+    const base = track(mkProfile(g))
     const log = { warn: vi.fn(), info: vi.fn() }
     const boom = new Error('EBUSY: resource busy')
     const fsImpl = Object.assign(Object.create(Object.getPrototypeOf(fs)), fs, {
       rmSync (p, o) {
-        if (String(p).endsWith('auth-auth-zhihu-1790343393950')) throw boom
+        if (String(p).endsWith(g[0])) throw boom
         return fs.rmSync(p, o)
       },
     })
     const summary = reclaim({ userDataPath: base, fsImpl, log })
-    expect(summary.removed).toEqual(['auth-auth-wechat_mp-1790343224833'])
+    expect(summary.removed).toEqual(g.slice(1, 3))
     expect(summary.errors).toBe(1)
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('auth-auth-zhihu-1790343393950'))
+    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining(g[0]))
   })
 
   it('realpath 逃出分区根的目标拒绝删除（禁止碰父目录之外的路径）', () => {
-    const base = track(mkProfile(Object.keys(REAL)))
+    const g = bigGroup('wechat_mp', PROBE_LIMIT + 2)
+    const base = track(mkProfile(g))
     const log = { warn: vi.fn(), info: vi.fn() }
-    const escaped = path.join(base, 'session', 'Partitions', 'auth-auth-wechat_mp-1790343224833')
+    const escaped = path.join(base, 'session', 'Partitions', g[0])
     const fsImpl = Object.assign(Object.create(Object.getPrototypeOf(fs)), fs, {
       realpathSync (p) {
         if (String(p) === escaped) return path.join(base, 'secret-data')
@@ -242,14 +262,15 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
       },
     })
     const summary = reclaim({ userDataPath: base, fsImpl, log })
-    expect(summary.removed).toEqual(['auth-auth-zhihu-1790343393950'])
+    expect(summary.removed).toEqual(g.slice(1, 2))
     expect(summary.errors).toBe(1)
     expect(fs.existsSync(escaped)).toBe(true)
     expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('outside partition root'))
   })
 
   it('有产出时留痕一行（静默回收等于没修）', () => {
-    const base = track(mkProfile(['auth-auth-xiaohongshu-1', 'auth-auth-xiaohongshu-2']))
+    const g = bigGroup('xiaohongshu', PROBE_LIMIT + 1)
+    const base = track(mkProfile(g))
     const log = { warn: vi.fn(), info: vi.fn() }
     reclaim({ userDataPath: base, log })
     expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('removed=1'))
@@ -258,7 +279,8 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
 
 describe('auth-partition-reclaim：scheduleReclaim', () => {
   it('延迟到下一个 immediate，调用方同步期不做任何 fs 动作', async () => {
-    const base = mkProfile(['auth-auth-x-1', 'auth-auth-x-2'])
+    const g = bigGroup('x', PROBE_LIMIT + 1)
+    const base = mkProfile(g)
     cleanups.push(base)
     const calls = []
     const fsImpl = {
@@ -272,7 +294,7 @@ describe('auth-partition-reclaim：scheduleReclaim', () => {
     expect(calls).toEqual([])
     await new Promise(function (resolve) { setImmediate(resolve) })
     expect(calls).toContain('rmSync')
-    expect(fs.existsSync(path.join(base, 'session', 'Partitions', 'auth-auth-x-1'))).toBe(false)
+    expect(fs.existsSync(path.join(base, 'session', 'Partitions', g[0]))).toBe(false)
   })
 
   it('底层抛错只 warn，不外泄给调用方（回收属旁路）', async () => {
