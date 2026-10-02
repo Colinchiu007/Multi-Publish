@@ -41,6 +41,7 @@ const { createFilmEngineeringApi } = require('./film-engineering')
 const { createAggregationApi } = require('./aggregation')
 const { createHotTopicsApi } = require('./hot-topics')
 const { createAutoPipelineApi } = require('./auto-pipeline')
+const { createAutomationApi } = require('./automation')
 const { createKnowledgeLibraryApi } = require('./knowledge-library')
 const { createSignerApi } = require('./signer')
 const {
@@ -105,6 +106,7 @@ const fullApi = {
   ...createAggregationApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
+  ...createAutomationApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
   // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
   ...createSignerApi(ipcRenderer),

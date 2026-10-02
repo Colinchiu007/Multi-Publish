@@ -391,6 +391,15 @@ class AutomationScheduler {
   runNow (taskId) {
     return this._runTask(taskId, { reason: 'manual' })
   }
+
+  /**
+   * 注入通知出口（bootstrap 接线：窗口就绪后才有 webContents 可发）。
+   * 容器装配期拿不到主窗口，若在构造时硬取会让通知永久静默 —— 故延迟注入。
+   * @param {(payload: object) => void} fn
+   */
+  setNotify (fn) {
+    this._notify = typeof fn === 'function' ? fn : () => {}
+  }
 }
 
 module.exports = { AutomationScheduler, DEFAULT_RUN_TIMEOUT_MS, MAX_TIMER_DELAY }

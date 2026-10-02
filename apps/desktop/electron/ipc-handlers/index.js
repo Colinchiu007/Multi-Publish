@@ -63,6 +63,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./replay')(ipcMain, deps)
   // 全自动管道
   require('./auto-pipeline')(ipcMain, deps)
+  // 自动化任务（定时 / 应用启动触发，后台执行）
+  require('./automation')(ipcMain, deps)
   // 知识库（爆款库 + 个人知识库）
   require('./knowledge-library')(ipcMain, deps)
   require('./performance-loop')(ipcMain, deps)
