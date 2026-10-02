@@ -1,64 +1,81 @@
 // toutiao-direct-publish.test.js — Node 侧直连发布的契约测试
+// 注意：本包是 CommonJS 且 vitest globals:true —— 用全局 describe/it/expect，禁止 require('vitest')
 'use strict'
-const test = require('node:test')
-const assert = require('node:assert')
-const { cookiesFromSession, buildPostData, uploadCover, publishWithSign, PUBLISH_QUERY } = require('../src/toutiao-direct-publish')
+const { cookiesFromSession, buildPostData, PUBLISH_QUERY, UA } = require('../src/toutiao-direct-publish')
 
-test('cookiesFromSession: 排序拼接 + 含 HttpOnly', async () => {
-  // 模拟 Electron session.cookies.get 返回（含 HttpOnly 会话 cookie）
-  const fakeSession = {
-    cookies: {
-      get: async (filter) => {
-        assert.equal(filter.domain, 'toutiao.com')
-        return [
-          { name: 'z_token', value: 'Z' },
-          { name: 'sessionid', value: 'abc', httpOnly: true },
-          { name: 'tt_webid', value: '123' },
-        ]
+describe('toutiao-direct-publish 契约', () => {
+  it('cookiesFromSession: 排序拼接 + 含 HttpOnly', async () => {
+    const fakeSession = {
+      cookies: {
+        get: async (filter) => {
+          expect(filter.domain).toBe('toutiao.com')
+          return [
+            { name: 'z_token', value: 'Z' },
+            { name: 'sessionid', value: 'abc', httpOnly: true },
+            { name: 'tt_webid', value: '123' },
+          ]
+        },
       },
-    },
+    }
+    const cs = await cookiesFromSession(fakeSession)
+    expect(cs).toBe('sessionid=abc; tt_webid=123; z_token=Z') // 按 name 排序
+  })
+
+  function toKv (body) {
+    return Object.fromEntries(body.split('&').map((s) => {
+      const i = s.indexOf('=')
+      return [s.slice(0, i), decodeURIComponent(s.slice(i + 1))]
+    }))
   }
-  const cs = await cookiesFromSession(fakeSession)
-  assert.equal(cs, 'sessionid=abc; tt_webid=123; z_token=Z') // 按 name 排序
-})
 
-test('buildPostData: 发布字段表（参考产品同款）——立即发布', () => {
-  const body = buildPostData({ title: '标题X', htmlContent: '<p>正文X</p>', covers: [] })
-  const kv = Object.fromEntries(body.split('&').map((s) => {
-    const i = s.indexOf('=')
-    return [s.slice(0, i), decodeURIComponent(s.slice(i + 1))]
-  }))
-  assert.equal(kv.source, '0')
-  assert.equal(kv.save, '0')
-  assert.equal(kv.timer_status, '0')
-  assert.equal(kv.title, '标题X')
-  assert.equal(kv.content, '<p>正文X</p>')
-  assert.equal(kv.pgc_feed_covers, '[]')
-})
+  it('buildPostData: 立即发布基础字段齐全', () => {
+    const kv = toKv(buildPostData({ title: '标题A', htmlContent: '<p>正文</p>', covers: [] }))
+    expect(kv.source).toBe('0')
+    expect(kv.save).toBe('0')
+    expect(kv.timer_status).toBe('0')
+    expect(kv.title).toBe('标题A')
+    expect(kv.content).toBe('<p>正文</p>')
+    expect(kv.pgc_feed_covers).toBe('[]')
+    expect(kv.article_ad_type).toBe('2')
+  })
 
-test('buildPostData: 空 title 也保留字段（服务端按空校验，不吞字段）', () => {
-  const body = buildPostData({ title: '', htmlContent: 'C', covers: [] })
-  assert.ok(/(^|&)title=(&|$)/.test(body))
-})
+  it('buildPostData: 定时发布 timer_status=1 且时间截断到分钟', () => {
+    const kv = toKv(buildPostData({ title: 'T', htmlContent: 'C', covers: [], publishTime: '2026-10-02 18:30:59' }))
+    expect(kv.timer_status).toBe('1')
+    expect(kv.timer_time).toBe('2026-10-02 18:30')
+  })
 
-test('buildPostData: 定时时间截断到分钟且 timer_status=1', () => {
-  const body = buildPostData({ title: 'T', htmlContent: 'C', covers: [], publishTime: '2026-10-02 18:30:59' })
-  const kv = Object.fromEntries(body.split('&').map((s) => {
-    const i = s.indexOf('=')
-    return [s.slice(0, i), decodeURIComponent(s.slice(i + 1))]
-  }))
-  assert.equal(kv.timer_status, '1')
-  assert.equal(kv.timer_time, '2026-10-02 18:30')
-})
+  it('buildPostData: 封面映射 uri 与 toutiaoimg url', () => {
+    const body = buildPostData({
+      title: 'T', htmlContent: 'C',
+      covers: [{ uri: 'tos-cn-i-x/abc', thumb_width: 100, thumb_height: 80 }],
+    })
+    const cov = JSON.parse(decodeURIComponent(body.match(/pgc_feed_covers=([^&]+)/)[1]))
+    expect(cov.length).toBe(1)
+    expect(cov[0].uri).toBe('tos-cn-i-x/abc')
+    expect(cov[0].url).toContain('toutiaoimg.com')
+  })
 
-test('PUBLISH_QUERY 含 aid=1231（字节系必需）', () => {
-  assert.ok(PUBLISH_QUERY.includes('aid=1231'))
-  assert.ok(PUBLISH_QUERY.includes('source=mp'))
-  assert.ok(PUBLISH_QUERY.includes('type=article'))
-})
+  it('buildPostData: 声明首发四字段齐开', () => {
+    const body = buildPostData({ title: 'T', htmlContent: 'C', covers: [], original: 1 })
+    expect(body).toContain('origin_debut_check_pgc_normal=1')
+    expect(body).toContain('claim_origin=1')
+    expect(body).toContain('pgc_debut=1')
+    expect(body).toContain('exclusive=1')
+  })
 
-test('publishWithSign: 返回映射 code/pgcId（mock https 响应）', async () => {
-  // 不真发请求：直接断言函数存在且签名正确（网络层由 e2e 覆盖）
-  assert.equal(typeof publishWithSign, 'function')
-  assert.equal(uploadCover.constructor.name, 'AsyncFunction')
+  it('buildPostData: 空 title 保留字段（服务端按空校验）', () => {
+    const body = buildPostData({ title: '', htmlContent: 'C', covers: [] })
+    expect(body).toMatch(/(^|&)title=(&|$)/)
+  })
+
+  it('PUBLISH_QUERY 含 aid=1231 / source=mp / type=article', () => {
+    expect(PUBLISH_QUERY).toContain('aid=1231')
+    expect(PUBLISH_QUERY).toContain('source=mp')
+    expect(PUBLISH_QUERY).toContain('type=article')
+  })
+
+  it('UA 为现代 Chrome', () => {
+    expect(UA).toContain('Chrome/')
+  })
 })
