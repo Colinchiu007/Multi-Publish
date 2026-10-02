@@ -14,6 +14,7 @@
 - `notifications.test.js` 三条幂等锁：① 已解析 `kinds` 双次归一化不丢失（复现事故消息全等断言）；② `assetKinds` 未知值回退通用文案；③ 已解析 `missingLabels` 不丢失。
 - `ResultView.test.js` 补**最终渲染消息**断言 `story2videoNotificationDialogMessage`（原测试只断言 dialog 中间态，是本次逃逸点）。
 - 变异验证：摘掉修复后恰好三条幂等锁全红（19 通过），恢复后 192 + 286 全绿。
+- 文件拆分（逐文件行数门禁）：修复使主模块达 517 行触发 NEW_OVER_LIMIT；归一化正则常量块机械迁出至 `notification-error-patterns.js`（常量逐字保留、仅 resolveMessageKey 消费），行为零变化，478 例全绿。
 
 # [未发布] fix(packaging): app.asar 之外的松散文件树不再随包发单元测试（2026-10-02，asar-loose-resources-tests）
 
