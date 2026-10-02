@@ -99,7 +99,7 @@ describe('auth-partition-reclaim：形态识别', () => {
 
   it('扫码形态 auth-auth-<平台>-<ts>-<seq> 必须与 openLogin 归到同一组（否则每次扫码自成一组、永远删不掉）', () => {
     // 只剥一段数字会让 qrcode 的三个会话都成为"本组最新"，回收面收不拢；
-    // 分组粒度必须等于 findAuthPartitionDir 的前缀粒度（auth-auth-<平台>-）。
+    // 分组粒度必须等于 listAuthPartitionCandidates 的前缀粒度（auth-auth-<平台>-）。
     expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-12')).toBe('auth-auth-wechat_mp')
     expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-1')).toBe('auth-auth-wechat_mp')
     expect(groupKeyOf('auth-auth-wechat_mp-1790348243918-12'))

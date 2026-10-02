@@ -108,7 +108,7 @@ function groupKeyOf (name) {
 }
 
 /**
- * 分区根目录清单，与 `auth-partition.findAuthPartitionDir` 的 `roots` 同序同源。
+ * 分区根目录清单，与 `auth-partition.listAuthPartitionCandidates` 的 `roots` 同序同源。
  * @param {string} userDataPath
  * @returns {string[]}
  */
@@ -274,7 +274,7 @@ function partitionNameOf (accountId) {
 
 /**
  * 「本轮已取到凭证并入库」的会话分区名单。发布链的磁盘兜底（`collectAuthPartitionCookies`
- * 走 `findAuthPartitionDir`，只读每组字典序末位）可能正依赖成功登录那一份，
+ * → `auth-partition.listAuthPartitionCandidates`，按内容在探测窗口内择新）可能正依赖成功登录那一份，
  * 所以只有**未取证**的会话才允许就地清存储。进程级集合，随会话名增长，量级可忽略。
  * @type {Set<string>}
  */

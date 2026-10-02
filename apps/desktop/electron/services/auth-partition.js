@@ -23,7 +23,7 @@
  *  ① 同组**从新到旧**逐份打开、按 `isPlatformCookieDomain` 判有无该平台 cookie，取第一个命中的；
  *  ② 探测上限 `PROBE_LIMIT`（单一真源在 `auth-partition-reclaim`），**回收端保留数取同一个值**
  *     —— 否则回收会把定位端的候选吃掉，②就是自相矛盾；
- *  ③ 日志必须区分「无候选」/「探过 N 份都没有该平台 cookie」/「探测本身失败」，
+ *  ③ 日志必须区分「无候选」/「探过 N 份都没有该平台 cookie」/「探测本身失败」/「兜底自身抛错」，
  *     否则现场无法分辨「真的没登录过」与「被空壳遮断」，这三件事的用户可见症状一模一样。
  *
  * 纪律：绝不写凭证 store；任何异常降级为空结果，由调用方保持既有 fail-closed 语义。
@@ -38,6 +38,46 @@ const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/plat
 const authReclaim = require('./auth-partition-reclaim')
 
 const PROBE_LIMIT = authReclaim.PROBE_LIMIT
+/**
+ * 单份探测的硬超时预算（毫秒）。
+ *
+ * 为什么本次必须自带这一条：#2734 把兜底从「读一份」改成「最多读 PROBE_LIMIT 份」，
+ * 于是**同一份挂死的读取从阻塞 1 倍变成阻塞 K 倍**——这是本次改动自己引入的后果，不是既有问题。
+ * 口径与回收侧「排队超时＝本轮无结论」一致：超时只让**这一份**记为 failures，整轮继续往旧探，
+ * 绝不因为一份读不动就放弃整个兜底，也不无限重试。
+ */
+const DEFAULT_PROBE_TIMEOUT_MS = 3000
+
+/** 预算可用 MP_AUTH_PARTITION_PROBE_TIMEOUT_MS 覆盖以便排障；非法值（非数字/<=0）回落默认。 */
+function resolveProbeTimeoutMs (env) {
+  const src = env || process.env
+  const raw = src && src.MP_AUTH_PARTITION_PROBE_TIMEOUT_MS
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_PROBE_TIMEOUT_MS
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_PROBE_TIMEOUT_MS
+  return Math.min(n, 60000)
+}
+
+/**
+ * 给单次探测加硬上限。两个坑必须同时避开：
+ * 两条都在测：① 迟到 reject 不得变成 unhandledRejection —— 由 `Promise.race` 自身对两路都挂订阅来保证
+ *    由 `Promise.race` 对两路都挂订阅来保证（不是靠额外的 catch）；② 先到先回必须 clearTimeout，
+ *    否则留下的定时器会在 race 结束后再 reject 一次，既污染日志又在测试里留下悬挂句柄。
+ */
+function withProbeTimeout (pending, ms, label) {
+  const task = Promise.resolve(pending)
+  let timer = null
+  const budget = new Promise(function (_resolve, reject) {
+    timer = setTimeout(function () {
+      reject(new Error('probe timeout after ' + ms + 'ms: ' + label))
+    }, ms)
+  })
+  // 迟到 reject 不会变成 unhandledRejection：`Promise.race` 对两路都挂了订阅，
+  // 而 race 结束后再 reject 的那一路已经被处理过。因此这里**不需要**额外的 catch 兜接
+  // （写过，M13 实测摘掉它测试照绿，说明它是装饰；换成「不把 task 交进 race」的实现形态
+  //  才会漏，那条反证见 auth-partition.test.js 的 unhandledRejection 用例）。
+  return Promise.race([task, budget]).finally(function () { clearTimeout(timer) })
+}
 
 /** 与回收端同序同源的根目录清单。 */
 function candidateRoots (userDataPath) {
@@ -106,6 +146,7 @@ async function selectAuthPartition (platform, accountId, opts) {
   const o = opts || {}
   const logx = o.log || log
   const read = o.readCookies || readPartitionCookies
+  const probeTimeoutMs = Number.isFinite(o.probeTimeoutMs) ? o.probeTimeoutMs : resolveProbeTimeoutMs(o.env)
   const candidates = o.candidates || listAuthPartitionCandidates(platform, accountId, o.userDataPath, o.fsImpl)
   const none = { partition: null, cookies: [], probed: [], reason: /** @type {'no-candidate'} */ ('no-candidate') }
   if (!candidates || candidates.length === 0) return none
@@ -116,7 +157,7 @@ async function selectAuthPartition (platform, accountId, opts) {
     probed.push(name)
     let cookies
     try {
-      cookies = await read(name)
+      cookies = await withProbeTimeout(read(name), probeTimeoutMs, name)
     } catch (e) {
       failures += 1
       logx.warn('AuthPartition', '[' + platform + '] partition probe failed, keep looking older: '
@@ -145,7 +186,7 @@ async function selectAuthPartition (platform, accountId, opts) {
  * @param {string} platform
  * @param {string|null|undefined} accountId
  * @param {object} [opts] 透传给 selectAuthPartition 的注入点
- * @returns {Promise<{cookieString: string, partition: string|null, count: number, reason: string, probed: string[]}>}
+ * @returns {Promise<{cookieString: string, partition: string|null, count: number, reason: 'found'|'no-candidate'|'all-empty'|'probe-failed'|'error', probed: string[]>}}
  */
 async function collectAuthPartitionCookies (platform, accountId, opts) {
   const empty = { cookieString: '', partition: null, count: 0, reason: 'no-candidate', probed: [] }
@@ -173,13 +214,16 @@ async function collectAuthPartitionCookies (platform, accountId, opts) {
       + sel.partition + ' (probed=' + sel.probed.length + ')')
     return { cookieString, partition: sel.partition, count: byName.size, reason: sel.reason, probed: sel.probed }
   } catch (e) {
-    log.warn('AuthPartition', '[' + platform + '] auth partition cookie read failed: ' + (e && e.message))
-    return empty
+    log.warn('AuthPartition', '[' + platform + '] auth partition cookie read failed: reason=error '
+      + ((e && e.message) || 'unknown'))
+    return Object.assign({}, empty, { reason: 'error' })
   }
 }
 
 module.exports = {
   PROBE_LIMIT,
+  DEFAULT_PROBE_TIMEOUT_MS,
+  resolveProbeTimeoutMs,
   listAuthPartitionCandidates,
   selectAuthPartition,
   collectAuthPartitionCookies,

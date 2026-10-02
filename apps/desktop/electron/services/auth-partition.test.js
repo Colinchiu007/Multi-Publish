@@ -3,7 +3,7 @@
  * auth-partition — API-first 凭证分区兜底模块回归测试（D1，kuaishou-w3-live-fix）
  *
  * 契约：
- * 1. findAuthPartitionDir 与 _restoreAuthPartitionCookies 同源前缀规则（auth-auth-/auth-/account-）
+ * 1. listAuthPartitionCandidates 与 _restoreAuthPartitionCookies 同源前缀规则（auth-auth-/auth-/account-）
  * 2. collectAuthPartitionCookies 只读分区，按 isPlatformCookieDomain 过滤，同名去重，拼 name=value 串
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -109,6 +109,8 @@ describe('auth-partition — collectAuthPartitionCookies', () => {
     electron.session.fromPartition = vi.fn(() => { throw new Error('partition locked') })
     const res = await authPartition.collectAuthPartitionCookies('kuaishou', 'a4505f45')
     expect(res.cookieString).toBe('')
+    expect(res.reason).toBe('probe-failed')
+    expect(res.probed).toEqual(['account-a4505f45'])
   })
 })
 // @ts-check
@@ -119,6 +121,83 @@ describe('auth-partition — collectAuthPartitionCookies', () => {
  * 真正持有登录态的是较旧的那份。旧口径「只读字典序末位」会被空壳长期遮断 ——
  * 用户侧是「账号明明登录过，发布却报未登录」，且重试/重启都不好（空壳仍是最新）。
  */
+describe('auth-partition — 单份探测的超时预算（QM-6 评审 C#15：一次读变成最多 K 次）', () => {
+  it('挂死的一份只算「本轮无结论」，不得中断整轮：继续往旧探并命中', async () => {
+    const reads = []
+    const sel = await authPartition.selectAuthPartition('kuaishou', null, {
+      candidates: ['auth-auth-kuaishou-900', 'auth-auth-kuaishou-100'],
+      probeTimeoutMs: 20,
+      readCookies: function (name) {
+        reads.push(name)
+        if (name === 'auth-auth-kuaishou-900') return new Promise(function () {})
+        return Promise.resolve([{ name: 'kuaishou.web.cp.api_st', value: 'sess', domain: 'cp.kuaishou.com' }])
+      },
+    })
+    expect(reads).toEqual(['auth-auth-kuaishou-900', 'auth-auth-kuaishou-100'])
+    expect(sel.partition).toBe('auth-auth-kuaishou-100')
+    expect(sel.reason).toBe('found')
+  })
+
+  it('超时后原任务迟到的 reject 不得变成 unhandledRejection（Promise.race 的同族回归锁）', async () => {
+    const seen = []
+    const onUnhandled = function (e) { seen.push(e) }
+    process.on('unhandledRejection', onUnhandled)
+    let rejectLater = null
+    try {
+      const sel = await authPartition.selectAuthPartition('kuaishou', null, {
+        candidates: ['auth-auth-kuaishou-500'],
+        probeTimeoutMs: 10,
+        readCookies: function () {
+          return new Promise(function (_resolve, rej) { rejectLater = rej })
+        },
+      })
+      expect(sel.reason).toBe('probe-failed')
+      rejectLater(new Error('late boom'))
+      await new Promise(function (r) { setTimeout(r, 40) })
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('预算解析：env 覆盖生效、非法值一律回落默认，且默认值只有一份实现', () => {
+    expect(authPartition.DEFAULT_PROBE_TIMEOUT_MS).toBe(3000)
+    expect(authPartition.resolveProbeTimeoutMs({})).toBe(3000)
+    expect(authPartition.resolveProbeTimeoutMs({ MP_AUTH_PARTITION_PROBE_TIMEOUT_MS: '800' })).toBe(800)
+    expect(authPartition.resolveProbeTimeoutMs({ MP_AUTH_PARTITION_PROBE_TIMEOUT_MS: 'abc' })).toBe(3000)
+    expect(authPartition.resolveProbeTimeoutMs({ MP_AUTH_PARTITION_PROBE_TIMEOUT_MS: '-5' })).toBe(3000)
+    expect(authPartition.resolveProbeTimeoutMs({ MP_AUTH_PARTITION_PROBE_TIMEOUT_MS: '0' })).toBe(3000)
+  })
+})
+
+describe('auth-partition — 默认读取器与兜底自身故障的如实留痕（QM-6 评审 W1/I2）', () => {
+  it('默认读取器必须先登记 liveness 再 fromPartition（#2701：否则正被 Chromium 持有的目录可能被回收 unlink）', async () => {
+    mockFsPartitions(['account-a4505f45'])
+    const order = []
+    const electron = require('electron')
+    electron.session.fromPartition = vi.fn(() => {
+      order.push('fromPartition')
+      return { cookies: { get: vi.fn().mockResolvedValue([{ name: 'kuaishou.web.cp.api_st', value: 'sess', domain: 'cp.kuaishou.com' }]) } }
+    })
+    const reclaim = require('./auth-partition-reclaim.js')
+    const spy = vi.spyOn(reclaim, 'noteLivePartition').mockImplementation(function (n) { order.push('noteLivePartition:' + n) })
+    const res = await authPartition.collectAuthPartitionCookies('kuaishou', 'a4505f45')
+    spy.mockRestore()
+    expect(res.count).toBe(1)
+    expect(order).toEqual(['noteLivePartition:account-a4505f45', 'fromPartition'])
+  })
+
+  it('候选枚举自身抛错 ⇒ reason 如实为 error，不得谎报 no-candidate（W1）', async () => {
+    const res = await authPartition.collectAuthPartitionCookies('kuaishou', 'a4505f45', {
+      userDataPath: 'C:/fake-userdata',
+      fsImpl: { existsSync () { throw new Error('EACCES: permission denied') } },
+    })
+    expect(res.cookieString).toBe('')
+    expect(res.partition).toBeNull()
+    expect(res.reason).toBe('error')
+  })
+})
+
 describe('auth-partition — 兜底分区按内容择新（#2734）', () => {
   /** 按分区名给 cookie：fromPartition('persist:<name>') 只回该 name 的内容，并记录探测顺序 */
   function mockCookiesByPartition (byName) {

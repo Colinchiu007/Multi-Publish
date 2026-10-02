@@ -97,8 +97,13 @@ async function flush () {
 describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目录上）', () => {
   it('openLogin 开局回收上一轮遗留：非最新删除、最新与账号分区保留', async () => {
     mkPartitionDirs([
-      'auth-auth-wechat_mp-1790343224833',
-      'auth-auth-wechat_mp-1790418403514',
+      'auth-auth-wechat_mp-1790000000001',
+      'auth-auth-wechat_mp-1790000000002',
+      'auth-auth-wechat_mp-1790000000003',
+      'auth-auth-wechat_mp-1790000000004',
+      'auth-auth-wechat_mp-1790000000005',
+      'auth-auth-wechat_mp-1790000000006',
+      'auth-auth-wechat_mp-1790000000007',
       'account-18c23d34',
       'logto-identity',
     ])
@@ -106,13 +111,27 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
     manager.openLogin('wechat_mp', 0)
     vi.runAllTimers()
     const left = listed()
-    // 本次会话的分区在 mock 下不落盘，所以留下的应是夹具里字典序末位那一份，
-    // 而 findAuthPartitionDir 读的也正是它 ⇒ 回收对发布兜底读取中性。
-    expect(left.filter(n => n.startsWith('auth-auth-wechat_mp-'))).toEqual(['auth-auth-wechat_mp-1790418403514'])
+    // 本次会话的分区在 mock 下不落盘。#2734 起回收端保留「最近 PROBE_LIMIT 份」而不是末位一份：
+    // 7 份夹具 ⇒ 删最旧 2 份、留最近 5 份。
+    expect(left.filter(n => n.startsWith('auth-auth-wechat_mp-'))).toEqual([
+      'auth-auth-wechat_mp-1790000000003',
+      'auth-auth-wechat_mp-1790000000004',
+      'auth-auth-wechat_mp-1790000000005',
+      'auth-auth-wechat_mp-1790000000006',
+      'auth-auth-wechat_mp-1790000000007',
+    ])
     expect(left).toContain('account-18c23d34')
     expect(left).toContain('logto-identity')
-    const { findAuthPartitionDir } = await import('./auth-partition.js')
-    expect(findAuthPartitionDir('wechat_mp', null, base)).toBe('auth-auth-wechat_mp-1790418403514')
+    // 兜底读取的中性现在按「候选集」判，而不是按「末位那一份」判：回收后候选集必须就是留下的这 5 份，
+    // 且顺序从新到旧（定位端与回收端共用同一条窗口边界）。
+    const { listAuthPartitionCandidates } = await import('./auth-partition.js')
+    expect(listAuthPartitionCandidates('wechat_mp', null, base)).toEqual([
+      'auth-auth-wechat_mp-1790000000007',
+      'auth-auth-wechat_mp-1790000000006',
+      'auth-auth-wechat_mp-1790000000005',
+      'auth-auth-wechat_mp-1790000000004',
+      'auth-auth-wechat_mp-1790000000003',
+    ])
     manager.close()
   })
 
@@ -167,7 +186,16 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
   })
 
   it('loginSilent 用完即清自己的 silent-auth 分区并回收目录', async () => {
-    mkPartitionDirs(['silent-auth-zhihu-1790000000001', 'silent-auth-zhihu-1790000000002'])
+    // 7 份同组目录：回收保留最近 5 份（PROBE_LIMIT），删最旧 2 份 —— 「回收确实执行了」仍被测量
+    mkPartitionDirs([
+      'silent-auth-zhihu-1790000000001',
+      'silent-auth-zhihu-1790000000002',
+      'silent-auth-zhihu-1790000000003',
+      'silent-auth-zhihu-1790000000004',
+      'silent-auth-zhihu-1790000000005',
+      'silent-auth-zhihu-1790000000006',
+      'silent-auth-zhihu-1790000000007',
+    ])
     const { manager, session } = arrange([])
     __electronMock.BrowserWindow.mockImplementation(function () {
       this.webContents = session && {
@@ -192,7 +220,13 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
     vi.runAllTimers()
     expect(result.valid).toBe(false)
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
-    expect(listed().filter(n => n.startsWith('silent-auth-zhihu-')).length).toBe(1)
+    expect(listed().filter(n => n.startsWith('silent-auth-zhihu-'))).toEqual([
+      'silent-auth-zhihu-1790000000003',
+      'silent-auth-zhihu-1790000000004',
+      'silent-auth-zhihu-1790000000005',
+      'silent-auth-zhihu-1790000000006',
+      'silent-auth-zhihu-1790000000007',
+    ])
     // 交给 fromPartition 的名字必须同步登记：同一轮里若发生回收，未登记的目录会被 unlink，
     // 而那正是 Chromium 仍持有的存储目录。
     const persistName = String(__electronMock.session.fromPartition.mock.calls.slice(-1)[0][0])
@@ -281,7 +315,7 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
 
   it('createSession 造的分区进入登记表，非末位也不得被删（Session 进程内不销毁）', () => {
     const sessionMod = require('./auth-view-session.js')
-    mkPartitionDirs(['auth-auth-w-1', 'auth-auth-w-2', 'auth-auth-w-3'])
+    mkPartitionDirs(['auth-auth-w-1', 'auth-auth-w-2', 'auth-auth-w-3', 'auth-auth-w-4', 'auth-auth-w-5', 'auth-auth-w-6', 'auth-auth-w-7'])
     // 模拟本轮刚创建的正是最旧那一份（批量登录并发 / 读侧兜底都会造成这种形状）
     sessionMod.createSession('auth-w-1', { fromPartition: () => ({}) })
     expect(reclaimCjs.livePartitionNames()).toContain('auth-auth-w-1')
