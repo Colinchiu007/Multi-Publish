@@ -55,6 +55,7 @@ CATALOG = (
     ("collection", "采集", MENU_GROUP_PRIMARY, "强制显示：内容采集入口"),
     ("copy-library", "文案库", MENU_GROUP_PRIMARY, "全应用文案聚合入口（采集/改写/草稿/视频创作，2026-09-19 新增）"),
     ("rewrite", "文案改写", MENU_GROUP_PRIMARY, "改写策略应用入口（2026-09-15 提级到一级导航，与应用端 sidebar-menu.js 同步）"),
+    ("automation", "自动化", MENU_GROUP_PRIMARY, "定时/启动触发的自动化任务入口（2026-10-03 新增，与 route-registry.js 同步）"),
     # ── 「更多」折叠菜单 ────────────────────────────
     ("calendar", "发布日历", MENU_GROUP_MORE, "发布排期日历"),
     ("comments", "私信评论", MENU_GROUP_MORE, "平台私信与评论聚合"),
