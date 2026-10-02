@@ -38,7 +38,7 @@ TypeError: Cannot read properties of undefined (reading 'ReactCurrentDispatcher'
 |------|----------|
 | `collectRuntimePackages()` | 两阶段：先照常收全（**依赖照常展开**），再筛掉"落在任一被拷贝包目录之内"的记录 —— 那份已由父包整目录携带，不该再占一个顶层落点 |
 | `isInsideDirectory()` | 按 `path.relative` 判包含，不按字符串前缀（否则 `pkg` 会误判包含 `pkg-evil`，那个包会**从闭包里凭空消失**） |
-| `stageRemotionRuntime()` | 拷贝前先证"**一个目标目录只有一个源**"，两个源抢同一个目录直接抛错并点名两边；不再"后拷静默覆盖前拷" |
+| `stageRemotionRuntime()` | 拷贝前先证"**一个目标目录只有一个源**"，两个源抢同一个目录直接抛错并点名两边；不再"后拷静默覆盖前拷"。**claim key 按大小写折叠**：打包机是 Windows，`Foo` 与 `foo` 是两个字符串 key 却指向同一个物理目录，只按字符串比会让本次缺陷换个马甲通过自己的抛错（QM-6 外部评审 Q2） |
 | `verifyStagedClosure()` | 拷完自证三条：① 每个落点的 `package.json` 必须与源逐字节相同；② 落点里 `node_modules/` 的直接子项集合必须等于源里的（多出不来 ⇒ 红，少了也 ⇒ 红）；③ 每个被拷贝包的每条**非 optional** 运行时依赖边，都必须能在暂存树内解析到（解析域严格限制在 `outputDir` 之内，不得往上摸宿主仓库的 `node_modules`）。`beforePack` 因此会在**打包时**炸，而不是留给用户点一次合成 |
 
 两条容易做错的取舍，写在代码注释里也写在这里：
@@ -75,7 +75,7 @@ node node_modules/@remotion/cli/remotion-cli.js render src/index.tsx Explainer D
 
 # 5. 回归锁与反证
 
-`apps/desktop/scripts/stage-remotion-runtime.test.js` 5 例 → **17 例**（Gate 2b 已点名该文件，无需新接线）：
+`apps/desktop/scripts/stage-remotion-runtime.test.js` 5 例 → **19 例**（Gate 2b 已点名该文件，无需新接线）：
 
 - 嵌套覆盖不得再占顶层落点，但其依赖仍要被展开（跳过记录≠跳过展开）
 - composer 自己 `node_modules/` 里的包必须照常记录（它不是"被拷贝的父包"）
@@ -84,13 +84,16 @@ node node_modules/@remotion/cli/remotion-cli.js render src/index.tsx Explainer D
 - `isInsideDirectory` 的 `pkg` vs `pkg-evil` 负控
 - 解析起点落在 `outputDir` 之外 ⇒ 一步都不许往上走（`exists` 由注入提供，不依赖"这台机器装没装 react"）
 - 剪枝判据命中**目录**时必须抛错 —— 剪掉一个目录等于连带删掉整棵子树，而判据② 只比 `node_modules` 的直接子项，
-  看不见深度 ≥2 的丢失（QM-6 外部评审 Q1）
+  看不见深度 ≥2 的丢失（QM-6 外部评审 Q1）；**stat 失败也一律抛错**，不得默认"是文件"剪掉 ——
+  `ENOTDIR` 恰恰是"这一层是目录"最真实的报错（自审在采纳评审 Q1 时的补强）
+- 落点唯一性的 claim key 必须按**大小写折叠**比 —— Windows 打包机上 `Foo`/`foo` 是两个字符串 key、同一个物理目录，
+  只按字符串比，本次缺陷换个马甲就能绕过自己的抛错（QM-6 外部评审 Q2）
 - 判据② 的 nested 列举必须尊重注入的 `exists`，否则这条只剩"真磁盘"一种测法，注入接缝是装饰（QM-6 附带发现）
 - **真实闭包不变量**（不拷贝、只解析）：name 唯一、**按大小写折叠后仍唯一**（Windows 上 `Foo`/`foo` 是同一个物理目录）、
   两两不互相包含、顶层 `react-dom` 必须等于仓库解析命中的那份，
   并带"记录数 > 100"的规模下界 —— 解析退化成空集合时不许报"没有重复"
 
-反证 9 条全部实跑变红（F-1…F-9，判据 = `rc≠0 ∧ ℹ fail N>0 ∧ 失败的测试名命中预期`，还原后按 sha256 校验与原字节逐字节相同）。
+反证 11 条全部实跑变红（F-1…F-11，判据 = `rc≠0 ∧ ℹ fail N>0 ∧ 失败的测试名命中预期`，还原后按 sha256 校验与原字节逐字节相同）。
 三条夹具自纠都记在这里，因为它们错在**探针**而不是锁：
 
 - harness 第一版五条全部 `ANCHOR_MISS` —— 检出后工作区是 CRLF 而锚点写的是 `\n`，即**探针没打中目标变量**，

@@ -156,6 +156,73 @@ test('剪枝判据命中目录时必须抛错：剪掉一个目录等于连带�
   }
 })
 
+test('剪枝判据无法 stat 命中路径时必须抛错，不得默认"是文件"剪掉（ENOTDIR 恰恰是目录那一层）', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-2778-j-'))
+  try {
+    const pkgDir = path.join(root, 'node_modules', 'p1')
+    fs.mkdirSync(pkgDir, { recursive: true })
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'p1', version: '1.0.0' }))
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'c', dependencies: { p1: '^1.0.0' } }))
+    const calls = []
+    stageRemotionRuntime({
+      composerDir: root,
+      composerPackageJson: path.join(root, 'package.json'),
+      outputDir: path.join(root, 'out'),
+      mkdir: () => {}, remove: () => {}, verify: false,
+      copy: (src, dest, opts) => { calls.push(opts.filter); return opts },
+    })
+    const filter = calls[0]
+    // keep.js 是个**文件**，往它下面再挂一层就是 ENOTDIR —— 评审点名的"stat 失败最常见的真实成因"。
+    const notDir = path.join(pkgDir, 'package.json', 'sub', 'x.test.js')
+    assert.throws(() => filter(notDir), /无法 stat/,
+      '判不出目录还是文件时不许按"文件"静默剪（那正是整棵子树消失的入口）')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('落点唯一性必须按大小写折叠比：Windows 上 Foo 与 foo 是两个 key、同一个物理目录', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-2778-k-'))
+  try {
+    const mk = (dir, manifest) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest))
+      return dir
+    }
+    // 两个只差大小写的名字来自两棵互不嵌套的树：按字符串比会各占一个 key、双双放行，
+    // 而在大小写不敏感的打包机上它们写的是同一个目录 —— 就是 #2778 本体换了个马甲。
+    const upper = mk(path.join(root, 'treeA', 'node_modules', 'Twin'), { name: 'Twin', version: '1.0.0' })
+    const lower = mk(path.join(root, 'treeB', 'node_modules', 'twin'), { name: 'twin', version: '2.0.0' })
+    mk(path.join(root, 'treeA', 'node_modules', 'aaa'), { name: 'aaa', version: '1.0.0', dependencies: { Twin: '^1.0.0' } })
+    mk(path.join(root, 'treeB', 'node_modules', 'bbb'), { name: 'bbb', version: '1.0.0', dependencies: { twin: '^2.0.0' } })
+    fs.writeFileSync(path.join(root, 'package.json'),
+      JSON.stringify({ name: 'composer', dependencies: { aaa: '^1.0.0', bbb: '^1.0.0' } }))
+    const TABLE = {
+      aaa: path.join(root, 'treeA', 'node_modules', 'aaa', 'package.json'),
+      bbb: path.join(root, 'treeB', 'node_modules', 'bbb', 'package.json'),
+    }
+    let thrown = null
+    try {
+      stageRemotionRuntime({
+        composerDir: root,
+        composerPackageJson: path.join(root, 'package.json'),
+        outputDir: path.join(root, 'out'),
+        mkdir: () => {}, remove: () => {}, verify: false,
+        copy: () => {},
+        resolvePackage: (name, fromDirectory) => {
+          if (TABLE[name]) return TABLE[name]
+          return path.join(fromDirectory.includes('treeA') ? upper : lower, 'package.json')
+        },
+      })
+    } catch (e) { thrown = e }
+    assert.ok(thrown, '只差大小写的两个源必须被当成同一个落点抢占')
+    assert.match(thrown.message, /同一目标目录/)
+    assert.ok(thrown.message.includes('treeA') && thrown.message.includes('treeB'), '两边来源都要点名')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('verifyStagedClosure 的 nested 列举必须尊重注入的 exists（判据② 得能被纯内存驱动，不是只认硬磁盘）', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-2778-i-'))
   try {

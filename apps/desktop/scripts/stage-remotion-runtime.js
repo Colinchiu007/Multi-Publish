@@ -195,7 +195,14 @@ function stageRemotionRuntime(options = {}) {
       // `verifyStagedClosure` 的判据② 只比 `node_modules` 的**直接子项**，深度 ≥2 的丢失对自证不可见
       //（QM-6 外部评审 Q1）。真实包名不会长得像测试文件，所以这里出声而不是静默剪掉一坨运行期要用的东西。
       let isDirectory = false
-      try { isDirectory = fs.statSync(srcPath).isDirectory() } catch { isDirectory = false }
+      try {
+        isDirectory = fs.statSync(srcPath).isDirectory()
+      } catch (error) {
+        // 判不出是不是目录时**不得**默认按"是文件"剪掉 —— stat 失败最常见的成因恰恰是这串路径里
+        // 有一层是目录（ENOTDIR），而那正是"整棵子树静默消失"的形状（自审补强，接 FB1-Q1 的机制收口）。
+        throw new Error('剪枝判据命中了一个无法 stat 的路径，拒绝按"一定是文件"静默剪掉：' + srcPath
+          + ' ← ' + (error && error.message))
+      }
       if (isDirectory) {
         throw new Error('剪枝判据命中了一个目录，拒绝整棵子树静默消失：' + srcPath
           + '（子树里的依赖不会进落点，而自证只看到父层目录名仍在）')
@@ -230,12 +237,17 @@ function stageRemotionRuntime(options = {}) {
   const claimed = new Map()
   for (const record of packages) {
     const destination = destinationOf(outputDir, record.name)
-    const previous = claimed.get(destination)
+    // key 必须按**大小写折叠**比：打包机是 Windows（大小写不敏感 FS），`Foo` 与 `foo` 是两个不同的字符串 key
+    // 却指向同一个物理目录 —— 只按字符串比，摊平覆盖会整条绕过下面这道抛错（QM-6 外部评审 Q2 命中）。
+    // 折叠在大小写敏感的文件系统上只会更严、不会误杀：npm 包名实测全小写，真实闭包 188 条折叠后仍唯一
+    //（由"真实闭包不变量"那条用例钉住，一旦闭包里出现只差大小写的两个名字即红，届时再决定消歧还是拒绝暂存）。
+    const claimKey = destination.toLowerCase()
+    const previous = claimed.get(claimKey)
     if (previous && previous !== record.packageJson) {
       throw new Error('两个不同源要写同一目标目录，拒绝摊平覆盖：' + destination
         + ' ← ' + previous + ' | ' + record.packageJson)
     }
-    claimed.set(destination, record.packageJson)
+    claimed.set(claimKey, record.packageJson)
   }
   for (const record of packages) {
     const source = path.dirname(record.packageJson)
