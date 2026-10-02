@@ -36,8 +36,10 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 - `--backend gemini`：`gemini` CLI 本机未安装（wrapper 直接失败），不作为可用通道。
 - 降级通道 `opencode run --agent plan`（只读）：**big-pickle 一条完整产出**（rc=0，5 问全答）；
   `nemotron-3.5-lightning-free` 两次失败（`OpenAI Chat stream ended without finish_reason` ×2 + 对 worktree 路径的
-  `external_directory` 自动拒读）；`longcat-2.5-preview-free`、`mimo-v2.6-flash-free`、`fledge-alpha-free` 均 rc=124 零产出。
-  把工件复制进 agent cwd 的尝试同样没救回来 —— 拒读不是根因，流中断才是。
+  `external_directory` 自动拒读）；`longcat-2.5-preview-free`、`mimo-v2.6-flash-free`、`fledge-alpha-free` 均 rc=124 零产出 ——
+  其中后两个**已经读到了全部三个工件**（`impl.js`/`impl.test.js` 用相对路径读成功、diff 用 `Read` 读成功，
+  把工件复制进 agent cwd 也救不回 `D:/tmp` 那份 diff 的拒读），仍在生成结论前流中断。
+  即失败点是模型侧流式中断，不是权限装配 —— 这条差异记下来以免下一个会话再做同样的绕路尝试。
 - **偏差声明**：QM-6 要求的双模型并行只达成 **1 个模型实质评审**。本 PR 不以此冒充 PASS；
   下面逐条处置全部来自 `D:/tmp/mp2778-findings-FB1.md`（big-pickle），未把任何一条自审结论记到它名下。
 
