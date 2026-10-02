@@ -1,3 +1,11 @@
+## 「隐藏」被实现成「卸载」：v-if 条件渲染会销毁路由组件的局部草稿状态（publish-tab-state-keepalive，2026-10-02）
+
+- **症状**：首页固化标签的发布页选定本地视频后，切到账号标签再切回，视频文件与所有未保存草稿消失。
+- **根因**：App.vue 工作区 `<router-view v-if="!isLoginTab" />`。账号/登录标签激活时 isLoginTab=true，v-if 把整棵路由子树从 DOM 卸载，Publish.vue 的局部 reactive article（video_path）等随之销毁；切回时重挂载为全新实例。当初用 v-if 是为「隐藏 router-view 避免与内嵌登录视图重叠」——却把「隐藏」做成了「卸载」，副作用是丢状态。
+- **判据（可复用）**：凡「原生 WebContentsView/覆盖层盖在某容器之上、需要让下层 DOM 不可见」的场景，若下层承载用户可编辑的组件局部状态，一律用 v-show（display:none）而非 v-if（unmount）——覆盖层已遮住该矩形时两者视觉/布局等价，但只有 v-show 保住实例。反之确需销毁（重挂载以拉最新数据）才用 v-if。
+- **测试逃逸**：Publish.vue 单测直接挂组件、不经 App.vue 的 isLoginTab 条件；App.vue 既有测试是源码契约（NavBar/占位行/home-shell），没有一条覆盖「账号标签切换中工作区实例是否存活」。单元/契约/E2E/视觉四层同时漏过。
+- **回归锁**：publish-tab-state-keepalive.test.js 真挂载 App.vue + 真实 tab store，home→账号标签→home 来回断言 setup 计数恒 1、草稿值保留、隐藏期仅 display:none；反证改回 v-if 必红。
+
 ## 平台阈值调研结论与实测证据冲突时，「置信度分级 + 阈值三问」是唯一可靠仲裁（platform-char-limits，2026-10-02）
 
 - **机制**：联网调研平台字数上限（本次 15 平台）时，网络来源的置信度天然分层：官方帮助/API 原文（high）＞ 多方一致第三方（medium）＞ 零散经验值（low）。本次调研报「抖音/小红书正文 1000」（low/medium），但注册表是 5000——粗看像漂移要改回去，实际注册表的 5000 背后是**本仓 E2E 平台侧实测**（1773 字内容在抖音创作中心/小红书草稿箱可见，PRD-ARTICLE-PUBLISH-FIX-2026-09-29 §16.8）。实测证据强于任何低置信网络值。
