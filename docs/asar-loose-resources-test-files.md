@@ -88,6 +88,12 @@ packages/remotion-composer/node_modules/@multi-publish/story2video-engine/tests/
   在 PowerShell 下不 fail-fast，见 `scripts/check-step-failfast.js`）。
   判据按 YAML 列表项切步骤块，**注释行直接丢弃** —— "把调用注释掉、字面留在文件里"这类假接线在
   `packagingStepWhy` 这一层就被挡住，不只依赖上游剥注释。
+- 命令行本身也是一条假绿路径，所以 `parseCliArgs` 严格化：未知开关 / 缺取值 / 多余位置参数 / 同一开关重复 —— 四种漂移一律 rc=1。
+  旧写法 `arg('--resources')` 在漏填写值时返回 `undefined`，于是**静默退回 config 模式并打印 OK**；
+  而 `if (asarPath) { …; return }` 在前置短路，会把"有人把两条命令并成一条调用"变成"第二维根本没跑还返回 0"。
+  现在两维各自成函数、同时给了就都跑，返回值取"任一维失败即失败"。
+  锁：「parseCliArgs：四种漂移一律当场红」「main：--resources 漏填写值时不得退回 config 模式报 OK」「main：同时给 --asar 与 --resources 时两维都必须跑」；
+  反证 CP-M（退回前置短路）与 CP-N（缺值当成没给）。
 
 # 4. 运行期不消费测试文件：证据与它的边界
 

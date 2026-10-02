@@ -36,6 +36,7 @@ const {
   checkExtraResourcesConfig,
   walkLooseFiles,
   checkLooseResources,
+  parseCliArgs,
   main,
 } = require('./check-asar-test-files.js')
 
@@ -561,6 +562,53 @@ test('checkLooseResources：目录不存在 / 不是目录 / 一个文件都没�
     assert.throws(() => checkLooseResources(f), /不是目录/)
   } finally {
     fs.rmSync(f, { force: true })
+  }
+})
+
+test('parseCliArgs：参数被吃掉就是"该维度没跑"，四种漂移一律当场红（缺值/未知开关/位置参数/重复）', () => {
+  assert.throws(() => parseCliArgs(['--resources']), /缺少取值/)
+  assert.throws(() => parseCliArgs(['--asar', 'a', '--resources']), /缺少取值/)
+  assert.throws(() => parseCliArgs(['--resource', 'x']), /无法理解的开关/)
+  assert.throws(() => parseCliArgs(['apps/desktop/x.asar']), /位置参数/)
+  assert.throws(() => parseCliArgs(['--asar', 'a', '--asar', 'b']), /重复出现/)
+  assert.deepEqual(
+    { asar: parseCliArgs(['--asar', 'a']).asar, repo: parseCliArgs([]).repo !== undefined },
+    { asar: 'a', repo: true },
+  )
+})
+
+test('main：--resources 漏填写值时不得退回 config 模式报 OK（旧写法就是这样把"没跑"报成"干净"的）', () => {
+  const log = console.error
+  const out = []
+  console.error = (...a) => out.push(a.join(' '))
+  try {
+    assert.equal(main(['--resources']), 1)
+    assert.match(out.join('\n'), /参数维度/)
+    assert.doesNotMatch(out.join('\n'), /OK（config 维度）/, '缺值时绝不能偷偷跑去别的维度还报 OK')
+  } finally {
+    console.error = log
+  }
+})
+
+test('main：同时给 --asar 与 --resources 时两维都必须跑（互不短路）', () => {
+  const clean = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-loose-both-'))
+  const log = console.log
+  const err = console.error
+  const lines = []
+  console.log = (...a) => lines.push(a.join(' '))
+  console.error = (...a) => lines.push(a.join(' '))
+  try {
+    fs.mkdirSync(path.join(clean, 'y'), { recursive: true })
+    fs.writeFileSync(path.join(clean, 'y', 'keep.js'), '// k\n')
+    const missingAsar = path.join(clean, 'definitely-absent.asar')
+    assert.equal(main(['--asar', missingAsar, '--resources', clean]), 1)
+    const joined = lines.join('\n')
+    assert.match(joined, /asar 维度/, '第一维必须有现场')
+    assert.match(joined, /松散树维度/, '第二维也必须真有现场 —— 只跑第一维就 return 是本条要抓的形态')
+  } finally {
+    console.log = log
+    console.error = err
+    fs.rmSync(clean, { recursive: true, force: true })
   }
 })
 

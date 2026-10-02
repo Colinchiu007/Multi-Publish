@@ -351,63 +351,99 @@ function checkLooseResources (resourcesDir) {
   return Object.assign({ resourcesDir }, verdict)
 }
 
+/**
+ * 严格解析命令行：本门禁是"判产物干净"的，参数被吃掉就等于该维度没跑，
+ * 而"没跑"如果还返回 0，就是最恶劣的一种假绿（AGENTS.md 同源教训：注释掉门禁 / 参数漂移都会披着绿灯）。
+ * 三条硬规则：未知开关即红；开关缺取值即红；多余位置参数即红。
+ * @returns {{asar?:string, resources?:string, repo:string}}
+ */
+function parseCliArgs (argv) {
+  const needsValue = { '--asar': 'asar', '--resources': 'resources', '--repo': 'repo' }
+  const out = { repo: path.resolve(__dirname, '..', '..') }
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = String(argv[i])
+    if (!token.startsWith('--')) {
+      throw new Error('不接受位置参数：' + token + '（本门禁只认 --asar / --resources / --repo 三个带值开关）')
+    }
+    const key = needsValue[token]
+    if (!key) throw new Error('无法理解的开关：' + token + '（可用：' + Object.keys(needsValue).join(' / ') + '）')
+    const val = argv[i + 1]
+    if (val === undefined || String(val).startsWith('--')) {
+      throw new Error(token + ' 缺少取值（把"没给路径"当成"这个维度不用查"就是假绿）')
+    }
+    if (out[key]) throw new Error(token + ' 重复出现（同一维度两次取值 = 口径分裂）')
+    out[key] = String(val)
+    i += 1
+  }
+  return out
+}
+
+/** asar 维度。@returns {number} 进程退出码 */
+function runAsarDimension (asarPath) {
+  let r
+  try {
+    r = checkAsar(asarPath)
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（asar 维度）：' + e.message)
+    return 1
+  }
+  if (r.unverifiable) {
+    console.error('[asar-test-files] FAIL（asar 维度）：清单为空，无法证明产物干净 — ' + r.asarPath)
+    return 1
+  }
+  if (!r.ok) {
+    console.error('[asar-test-files] FAIL（asar 维度）：' + r.tests.length + '/' + r.total
+      + ' 个条目是单元测试文件')
+    for (const t of r.tests.slice(0, 20)) console.error('    ' + t)
+    if (r.tests.length > 20) console.error('    …另有 ' + (r.tests.length - 20) + ' 条')
+    console.error('  修法：在 apps/desktop/package.json 的 build.files 追加 '
+      + REQUIRED_TEST_EXCLUSIONS.concat(REQUIRED_TEST_DIR_EXCLUSIONS).join(' , '))
+    return 1
+  }
+  console.log('[asar-test-files] OK（asar 维度）：' + r.total + ' 个条目中 0 个单元测试文件 — ' + path.normalize(r.asarPath))
+  return 0
+}
+
+/** 松散树维度。@returns {number} 进程退出码 */
+function runResourcesDimension (resourcesDir) {
+  let lr
+  try {
+    lr = checkLooseResources(path.resolve(resourcesDir))
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（松散树维度）：' + e.message)
+    return 1
+  }
+  if (lr.unverifiable) {
+    console.error('[asar-test-files] FAIL（松散树维度）：清单为空，无法证明产物干净 — ' + lr.resourcesDir)
+    return 1
+  }
+  if (!lr.ok) {
+    console.error('[asar-test-files] FAIL（松散树维度）：' + lr.tests.length + '/' + lr.total + ' 个松散文件是单元测试文件')
+    for (const t of lr.tests.slice(0, 20)) console.error('    ' + t)
+    if (lr.tests.length > 20) console.error('    …另有 ' + (lr.tests.length - 20) + ' 条')
+    console.error('  修法：剪枝点在 apps/desktop/scripts/stage-remotion-runtime.js（暂存时按同一判据跳过）')
+    console.error('        与 apps/desktop/package.json 的 build.extraResources[].filter（从仓库树拷的条目）。')
+    return 1
+  }
+  console.log('[asar-test-files] OK（松散树维度）：' + lr.total + ' 个松散文件中 0 个单元测试文件 — ' + path.normalize(lr.resourcesDir))
+  return 0
+}
+
 function main (argv) {
-  const arg = (name) => {
-    const i = argv.indexOf(name)
-    return i >= 0 ? argv[i + 1] : undefined
+  let parsed
+  try {
+    parsed = parseCliArgs(Array.isArray(argv) ? argv : [])
+  } catch (e) {
+    console.error('[asar-test-files] FAIL（参数维度）：' + e.message)
+    return 1
   }
-  const repoRoot = arg('--repo') || path.resolve(__dirname, '..', '..')
-  const asarPath = arg('--asar')
-  const resourcesDir = arg('--resources')
-
-  if (asarPath) {
-    let r
-    try {
-      r = checkAsar(asarPath)
-    } catch (e) {
-      console.error('[asar-test-files] FAIL（asar 维度）：' + e.message)
-      return 1
-    }
-    if (r.unverifiable) {
-      console.error('[asar-test-files] FAIL（asar 维度）：清单为空，无法证明产物干净 — ' + r.asarPath)
-      return 1
-    }
-    if (!r.ok) {
-      console.error('[asar-test-files] FAIL（asar 维度）：' + r.tests.length + '/' + r.total
-        + ' 个条目是单元测试文件')
-      for (const t of r.tests.slice(0, 20)) console.error('    ' + t)
-      if (r.tests.length > 20) console.error('    …另有 ' + (r.tests.length - 20) + ' 条')
-      console.error('  修法：在 apps/desktop/package.json 的 build.files 追加 '
-        + REQUIRED_TEST_EXCLUSIONS.concat(REQUIRED_TEST_DIR_EXCLUSIONS).join(' , '))
-      return 1
-    }
-    console.log('[asar-test-files] OK（asar 维度）：' + r.total + ' 个条目中 0 个单元测试文件 — ' + path.normalize(r.asarPath))
-    return 0
-  }
-
-  if (resourcesDir) {
-    let lr
-    try {
-      lr = checkLooseResources(path.resolve(resourcesDir))
-    } catch (e) {
-      console.error('[asar-test-files] FAIL（松散树维度）：' + e.message)
-      return 1
-    }
-    if (lr.unverifiable) {
-      console.error('[asar-test-files] FAIL（松散树维度）：清单为空，无法证明产物干净 — ' + lr.resourcesDir)
-      return 1
-    }
-    if (!lr.ok) {
-      console.error('[asar-test-files] FAIL（松散树维度）：' + lr.tests.length + '/' + lr.total + ' 个松散文件是单元测试文件')
-      for (const t of lr.tests.slice(0, 20)) console.error('    ' + t)
-      if (lr.tests.length > 20) console.error('    …另有 ' + (lr.tests.length - 20) + ' 条')
-      console.error('  修法：剪枝点在 apps/desktop/scripts/stage-remotion-runtime.js（暂存时按同一判据跳过）')
-      console.error('        与 apps/desktop/package.json 的 build.extraResources[].filter（从仓库树拷的条目）。')
-      return 1
-    }
-    console.log('[asar-test-files] OK（松散树维度）：' + lr.total + ' 个松散文件中 0 个单元测试文件 — ' + path.normalize(lr.resourcesDir))
-    return 0
-  }
+  const repoRoot = parsed.repo
+  const codes = []
+  // 两个产物维度**互不短路**：同时给了就都跑。旧写法 `if (asarPath) { … return }` 会把
+  // "有人把两条命令并成一条调用"变成"第二维静默不跑还返回 0"，正是本门禁要消灭的形态。
+  if (parsed.asar) codes.push(runAsarDimension(parsed.asar))
+  if (parsed.resources) codes.push(runResourcesDimension(parsed.resources))
+  if (codes.length > 0) return codes.includes(1) ? 1 : 0
 
   let files
   try {
@@ -499,5 +535,8 @@ module.exports = {
   checkExtraResourcesConfig,
   walkLooseFiles,
   checkLooseResources,
+  parseCliArgs,
+  runAsarDimension,
+  runResourcesDimension,
   main,
 }

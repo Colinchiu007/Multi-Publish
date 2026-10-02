@@ -6,6 +6,10 @@
 ### 修复
 - 判据收成一份 `packages/shared-utils/src/artifact-test-pattern.js`（`TEST_FILE_RE` / `TEST_EXCLUSION_PATTERNS` / `isTestArtifactPath` / `normalizePathSeparators`），门禁与暂存器共用，并由一条锁断言**两侧拿到的是同一个函数对象**（不是"两处字面量恰好相同"）。
 - 命名踩坑与补锁：该判据文件原名 `test-artifact-pattern.js`，被 `.gitignore` 的 `test-*.js`（未锚定目录）静默排除 ⇒ 本地全绿、git 里根本没有它、CI 必然 MODULE_NOT_FOUND；既有锁的域只有 `**/*.test.js`，对**非测试**源文件失明。改名 `artifact-test-pattern.js`，并新增一条按"判据链"划域的结构锁 + 一条负控（反证 CP-K：探针恒 false 时当场红）。
+- 自审补的一处假绿路径：门禁自身的命令行也是失败面。`parseCliArgs` 严格化（未知开关 / 缺取值 / 位置参数 / 重复开关一律 rc=1），
+  并把两个产物维度从"前置短路 return"改成"各自成函数、同时给了就都跑、任一失败即失败" ——
+  旧写法下 `--resources` 漏填写值会静默退回 config 模式打印 OK，而把两条命令并成一条调用会让第二维根本不跑。
+  新增反证 CP-M / CP-N（共 14 条，全部实跑变红并逐字节还原）。
 - QM-6 外部评审（替代通道）采纳项：松散树扫描对**符号链接**的口径改为"按名字计入清单、但绝不对链接路径调 readdir"（原来整条跳过 ⇒ 一个名叫 `x.test.js` 的链接会从判据里消失，这是假绿；跟随则把树外内容算成产物）；并补非 ASCII 路径 / 超深嵌套 / 文件名含 `#` 三种形状的真 tmpdir 精确断言。评审提出的"调用方 filter 被顶掉"那一半经核实**不可达**（唯一 copy 调用点不带 filter），故不写组合逻辑，只在代码注释里留证据。
 - `stageRemotionRuntime()` 给 `cpSync` 挂 filter：剪枝点选在暂存器而不是 extraResources 的 filter，因为该条目本来就没有 filter，且暂存器同时服务 CI 与本地 `build:dir`；被剪数量随返回值出声（`prunedTestFiles`，实测 186）。
 - 两条 `../` 开头的 extraResources 条目各加 5 条 `!**/*.test.{js,mjs,cjs,ts,tsx}` 排除。
