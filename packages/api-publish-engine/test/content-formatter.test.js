@@ -85,10 +85,10 @@ test("douyin: 按注册表 contentMax 截断（同源派生，勿改回硬编码
   const r = truncateContent("douyin", "a".repeat(DOUYIN_CONTENT_MAX + 500));
   assertEqual(r.length, DOUYIN_CONTENT_MAX);
 });
-test("weibo: 5000 chars max（2026-10-02 官方 FAQ 对齐，与注册表同源）", () => {
-  const r = truncateContent("weibo", "b".repeat(3000));
-  assertEqual(r.length, 3000); // 3000 < 5000 → 不截断
-  assertEqual(truncateContent("weibo", "b".repeat(6000)).length, 5000);
+test("weibo: 10000 chars max（2026-10-02 用户终裁放宽，官方 FAQ 5000 为历史口径，与注册表同源）", () => {
+  const r = truncateContent("weibo", "b".repeat(9000));
+  assertEqual(r.length, 9000); // 9000 < 10000 → 不截断
+  assertEqual(truncateContent("weibo", "b".repeat(11000)).length, 10000);
 });
 test("zhihu: 100000 chars max (no truncation)", () => {
   const r = truncateContent("zhihu", "c".repeat(5000));
