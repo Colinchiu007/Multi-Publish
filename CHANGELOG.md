@@ -1,3 +1,34 @@
+# [未发布] test(desktop): 桌面单测里那条 `Downloading Electron binary...` 是夹具造出来的假象；fs mock 改按路径委托，并给测试期 electron/install.js 加响亮失败守卫（2026-10-03，fix-electron-dist-banner-attribution）
+
+### 根因（#2794 归因；本单正文原先写的"exe 被短暂删除"假设被实测否证）
+- PR #2793 把 `ensure-electron.js` 接进三个桌面测试作业后，合并后复核实测四个作业**各还剩 1 条**
+  `Downloading Electron binary...`，归属永远是 `asset-generator.test.js > spawn must use shell: false`，且距下一条日志只有 **11ms**；
+  本机整文件 **1.8 秒**跑完、`ensure-electron` 报"已就绪" ⇒ 有日志、无下载。"第二个 electron 副本"与"Defender 锁文件"两条假设一并排除
+  （`find … -type d -name electron -path "*node_modules*"` 只有一个包；`path.txt` 实测 12 字节无换行）。
+- 三条叠加才成立：`test-setup.js` 的 `__registerMock('fs', …)` 经 `Module._load` 命中该 realm 每一个 `require('fs')`；
+  `vitest.config.js:17` 的 `deps.inline:['electron']` 把 `node_modules/electron/index.js` 内联进同一 realm；
+  该测试文件的 `existsSync` 是 `vi.fn(() => false)`（不分路径）⇒ `logger.js:35` 的 `require('electron')` 误判"二进制没备好"，
+  打出 banner 后 spawn 又被同文件的 `child_process` mock 挡死，抛出的异常再被 `logger.js` 的 catch 静默吞掉。
+
+### 修复（采纳 QM-6 两路外部评审的各一条 Critical 与三条 Warning）
+- **B1** 夹具改为按路径委托：沙箱前缀改成 `os.tmpdir()` 下带 pid 的独立目录（原来硬编码 `/tmp/test`，是跨会话共享名），
+  13 处 `outputDir` 字面量收敛到该常量；判定按**路径段**比（裸 `startsWith` 会把 `<沙箱>-evil` 判进沙箱，M-6 反证抓的就是这条）；
+  委托只覆盖 `existsSync`/`readFileSync` —— `statSync` 换成真读会让"不存在的沙箱外路径"从 `{size:1024}` 变成抛 ENOENT，
+  那是本缺陷之外的新语义漂移；写类动词继续全部空转（单测不得因为"委托"而往磁盘写东西）。
+- **B2** `test-setup.js` 给 `spawnSync/spawn/execFileSync/execSync/fork` 包一层守卫：命中 `node_modules/electron/install.js`
+  即当场抛 `[TEST-ELECTRON-INSTALL-SPAWN]` 并点名 `ensure-electron.js`。理由：这条 banner 与"真下载数秒"**完全同字**，
+  靠日志形状区分不了"夹具谎报的空转"和"测试期真取用"，只能锁 spawn 面本身。范围如实声明：只锁这一条 spawn，
+  **不是**测试期通用出站哨兵（#2783 的另一半仍未闭合）。
+- 回归锁 8 例：`asset-generator.test.js` 3 例（委托边界自证 / 写不落盘 / banner 不出现且解析到真实 exe）
+  + 新文件 `electron/tests/setup-electron-install-guard.test.js` 5 例（含"普通子进程不受影响"与"装配幂等"两条反失明断言）。
+  反证 9 档逐个实跑全部变红（红 3/3/1/6/1/1/1/2/4 例），驱动收尾断言两份被改文件与备份逐字节相同。
+  M-3 第一轮报 **NOT_RED**，当场暴露我写的 `existsSync('missing.mp3') === false` 是恒真断言 ——
+  改成"先在沙箱里真造一个文件，再证明真实 fs 看得见而夹具看不见"才是有效判据。
+
+### 影响范围
+- 只改测试 realm：夹具 + `test-setup.js` 的装配守卫 + 测试文件本身。被测代码、`vitest.config.js`、UI 一行未动，QM-1/QM-4 N/A。
+- 新文件名刻意不以 `test-` 开头：`.gitignore:59` 的 `test-*.js` 未锚定目录，会把新用例静默排除在 git 之外（`git check-ignore` 实测对照）。
+
 # [未发布] fix(ci): 跑桌面测试的 quality-gate 作业先备好 Electron 二进制，随机用例超时不再被误判成被测缺陷（2026-10-03，coverage-gate-electron-prepare）
 
 ### 根因

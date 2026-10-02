@@ -245,6 +245,42 @@ function resetElectronMock() {
   // 不清空 mockRegistry（测试可能跨 beforeEach 复用注册）
 }
 
+// ─── 测试期禁止执行 electron 的 install.js（#2794；采纳 QM-6 外部评审 Critical）───
+// 机理：require(electron) 在"以为二进制没备好"的分支里会
+// spawnSync(process.execPath, [<electron 包>/install.js])。CI 上那次 spawn 若真被执行就是数秒网络
+// 取用，耗时会记到"当时正在跑的那条用例"头上（#2783 实测 15700ms 撞 testTimeout=10000），
+// 而它打出的那一行与"夹具谎报导致的空转"**完全同字** —— 靠日志形状区分不了这两件事，
+// 范围只到这一条 spawn，不声称覆盖测试期全部出站（那仍是 #2783 登记的欠账）。
+// Node 对 'child_process' 与 'node:child_process' 返回**同一个**模块对象（本机实测），
+// 所以这里补的动词对第三方包里裸写 require(child_process) 的调用同样生效。
+const childProcessModule = require('node:child_process')
+const ELECTRON_INSTALL_RE = /[\\/]node_modules[\\/]+electron[\\/]+install\.js$/
+const GUARDED_SPAWNERS = ['spawnSync', 'spawn', 'execFileSync', 'execSync', 'fork']
+function assertNoElectronInstallSpawn (fnName, args) {
+  const flat = []
+  for (const entry of args || []) {
+    if (Array.isArray(entry)) { for (const inner of entry) flat.push(String(inner)) }
+    else flat.push(String(entry))
+  }
+  const hit = flat.find((value) => ELECTRON_INSTALL_RE.test(value))
+  if (hit !== undefined) {
+    throw new Error(
+      '[TEST-ELECTRON-INSTALL-SPAWN] ' + fnName + ' 试图执行 ' + hit +
+        ' —— 这说明 require(electron) 走进了"二进制未备好"分支。' +
+        '先跑 node scripts/ensure-electron.js 再重跑测试；桌面测试作业已由 quality-gate 的 Ensure Electron binary 步骤保证。'
+    )
+  }
+}
+for (const name of GUARDED_SPAWNERS) {
+  const original = childProcessModule[name]
+  if (typeof original !== 'function' || original.__mpNoElectronInstall) continue
+  const wrapped = function (...args) {
+    assertNoElectronInstallSpawn(name, args)
+    return original.apply(this, args)
+  }
+  wrapped.__mpNoElectronInstall = true
+  childProcessModule[name] = wrapped
+}
 // ─── 拦截 Module._load ───
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
