@@ -2,9 +2,6 @@
 record: coverage-gate-electron-prepare
 task: 跑桌面测试的 quality-gate 作业先备好 Electron 二进制，并把这条装配约束锁成可反证的结构判据（#2783）
 date: 2026-10-03
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：桌面测试作业的 Electron 二进制装配（coverage-gate-electron-prepare，2026-10-03）
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 行尾与 diff 对账 | PASS | 故意**不写行数合计**（这条证据写在被统计对象里，写数字必然自我过期）。只锁两口径：每个改动文件 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐行相同（`.github/workflows/quality-gate.yml` 18/0、`.github/scripts/workflow-contract.test.js` 两口径同为一条插入块、`CHANGELOG.md` 13/0）；`CHANGELOG.md` 全程 Buffer 原字节前插，以"原字节是结果完整后缀"为强判据、CR 增量恰等于新块行数；yml/测试文件插入按**该行自身行尾**（两文件工作区均为 CRLF）逐行补齐。 |
 | 接线棘轮 | PASS | 未新增测试**文件**（新判据并入已被 `quality-gate.yml` Gate 3 显式点名的 `.github/scripts/workflow-contract.test.js`，实测该步骤正文含此文件名）⇒ 无新接线项；`scripts/check-unwired-tests.js` rc=0、`scripts/check-step-failfast.js` rc=0（新插步骤是单条命令，不构成多命令 `run:` 块）、`.github/scripts/check-max-lines.js` rc=0、`scripts/check-debt-budget.js` rc=0、`scripts/check-no-brand-residue.js` PASS、`scripts/check-gate-record-debt.js` rc=0。 |
 | QM-6 CCG 双模型外部评审 | **降级通道达成 2/2（规定通道不可用）** | 见「QM-6 实跑补记」。规定通道 `codeagent-wrapper --backend codex` 于本次交付**当下重跑**仍 `unexpected status 502 Bad Gateway … http://127.0.0.1:15721/v1/responses`（5/5 重连后挂死到被 kill，rc=124）；`--backend claude` 早前实测最小探针 150s 零输出；`gemini` CLI 本机不存在。CC Switch 属用户机器级路由，未经授权不修。降级通道 `opencode run --agent plan`（只读）下 **big-pickle 与 fledge-alpha-free 各产出一份完整评审**（五问逐条、带行号），另三次尝试（`nemotron`/`longcat`/`mimo`）零产出。 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有口径回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`，远端分支删除取 `git ls-remote --heads origin coverage-gate-electron-prepare` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段**。 |
+| 远程同步 | PASS | PR #2793 已 squash 合并为 `8f3029121b0040859cc4b4cb61cc340fbd109752`（`git log origin/main --grep='(#2793)$' --format=%H|%cI` 现场读得 `2026-10-02T19:18:33Z`，非凭记忆）。`git ls-remote --heads origin coverage-gate-electron-prepare` 返回 **0 行**，同一次取证里对 `main` 的正控返回 **1 行**（证"0 行"是分支确已删除，而不是命令失败被静默当成空集）。**装配顺序在真实 runner 上被现场看过**：合并前 PR run `37050379937` 的 `QG Coverage` 步骤表里`Ensure Electron binary = completed/success`、`Gate 5 - Test coverage check` 在其之后完成，该 run `completed/success`。**合并后 main push 复核（本记录原先登记的"期望 0"判据被部分否证，如实改口）**：run `37053268768` 整体 `completed/success`（20 项全绿），其 `QG Coverage`（job `110991734260`，19:18:59Z→19:41:50Z）作业日志里准备步骤段打出`[ensure-electron] electron dist 缺失，执行 install.js ...`（19:20:32.977）→ `已就绪：v43.1.1`（19:20:37.120，**真下载 4.1s**）；而测试步骤段内 `Downloading Electron binary` 仍有 **1 条**（19:28:07.956，vitest 归属 `asset-generator.test.js > spawn must use shell: false`），合并前同一作业该段有 **2 条**（run `37042651965`，17:45:30 与 17:53:06，第二条归属逐字相同）⇒ 本 PR 消掉的是"测试开头那条会真的下载数秒、耗时记到当时用例头上"这一类（#2783 的 15700ms 形状）；残留那条距下一条日志只有 **11ms**（`install.js` 的 `if (isInstalled()) process.exit(0)` 立即退出），不是同一量级，本 run 也因此全绿。正确判据由"整作业期望 0"改为「**测试步骤段内**命中数 = 0」；残留触发点的机制读数与未闭合部分登记为 **#2794**。 |
 
 ### QM-6 实跑补记
 
