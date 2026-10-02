@@ -40,6 +40,7 @@ import {
   HomeFilled,
   MagicStick,
   Search,
+  SetUp,
   TrendCharts,
   User,
   VideoCamera,
@@ -121,6 +122,15 @@ export const ROUTE_REGISTRY = Object.freeze([
     name: 'Collection',
     view: 'Collection.vue',
     navEntry: { key: 'collection', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.collection', to: '/collection', icon: Collection },
+    internal: false,
+    entryFrom: null,
+  },
+  {
+    // 自动化（2026-10-03）：定时 / 应用启动触发的自动化任务模块
+    path: '/automation',
+    name: 'Automation',
+    view: 'AutomationView.vue',
+    navEntry: { key: 'automation', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.automation', to: '/automation', icon: SetUp },
     internal: false,
     entryFrom: null,
   },
@@ -362,6 +372,7 @@ export const SIDEBAR_MENU_KEY_ORDER = Object.freeze([
   'dashboard',
   'create',
   'collection',
+  'automation',
   'copy-library',
   'rewrite',
   // 「更多」折叠菜单

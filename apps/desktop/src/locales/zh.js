@@ -135,6 +135,7 @@ export default {
       dashboard: '数据',
       create: '视频创作',
       collection: '采集',
+      automation: '自动化',
       copyLibrary: '文案库',
       calendar: '发布日历',
       comments: '私信评论',

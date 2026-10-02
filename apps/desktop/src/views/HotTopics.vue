@@ -141,7 +141,7 @@
           />
           <span class="rank-badge" :title="rankBadgeTitle(topic)">{{ topic.viewRank ?? viewIndex + 1 }}</span>
           <span class="topic-text" :title="getTopicSummary(topic)">{{ displayTopic(topic.topic) }}</span>
-          <span v-for="catKey in topicCategories(topic).slice(0, 2)" :key="catKey" class="tag category-tag" :class="'cat-' + catKey">{{ t('hotTopics.categories.' + catKey) }}</span>
+          <span v-for="catKey in topicCategories(topic).slice(0, 2)" :key="catKey" class="tag category-tag" :class="'cat-' + catKey">{{ resolveCatLabel(catKey) }}</span>
           <span class="tag channel-tag">{{ t('hotTopics.channels.' + topic.channel) }}</span>
           <span
             v-if="sourceCount(topic) >= 2"
@@ -276,10 +276,19 @@ import { StageProgress } from './video-creation'
 import HotTopicsFavorites from '@/components/HotTopicsFavorites.vue'
 import { useHotTopicsFavorites } from '@/composables/useHotTopicsFavorites'
 import { useHotTopicsGenVideo } from '@/composables/useHotTopicsGenVideo'
+import {
+  loadContentCategories, watchContentCategories, contentCategoriesRef, categoryLabel,
+} from '@/composables/useContentCategories'
 
 const router = useRouter()
 const { t } = useI18n()
 const { notifyError, notifyInfo } = useNotify()
+
+// 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发；读不到时回退内置 10 类。
+// categoryLabel 需显式落到本地绑定才进得了模板（script setup 只自动暴露本文件声明）。
+const contentCategories = contentCategoriesRef()
+const resolveCatLabel = (key) => categoryLabel(key)
+let stopWatchingCategories = null
 
 // ── 状态 ──
 const topics = ref([])
@@ -336,7 +345,8 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000
 // ── 计算 ──
 const categoryOptions = computed(() => [
   { value: 'all', label: t('hotTopics.categoryAll') },
-  ...CATEGORY_KEYS.map(k => ({ value: k, label: t('hotTopics.categories.' + k) })),
+  // 运营下发为准；读不到时 contentCategories 已是内置 10 类，界面不会变零分类
+  ...contentCategories.value.map(c => ({ value: c.category_key, label: c.name })),
 ])
 const channelOptions = computed(() => CHANNEL_KEYS.map(k => ({ value: k, label: t('hotTopics.channels.' + k) })))
 
@@ -647,6 +657,9 @@ function goToDestination() {
 onMounted(() => {
   loadFromCacheThenRefresh()
   loadFavorites()
+  // 统一类别：加载 + 订阅运营变更（改类别后不必重启应用）
+  loadContentCategories().catch(() => {})
+  stopWatchingCategories = watchContentCategories()
   refreshTimer = setInterval(() => {
     if (document.hidden) return
     if (Date.now() - lastRefresh.value >= REFRESH_INTERVAL_MS) refresh(false, { background: true })
@@ -655,6 +668,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   disposed = true
+  if (stopWatchingCategories) { stopWatchingCategories(); stopWatchingCategories = null }
   if (refreshTimer) clearInterval(refreshTimer)
   requestSeq++ // 使 in-flight 响应失效
   loading.value = false // 防 KeepAlive/重挂载场景下陈旧加载态泄漏

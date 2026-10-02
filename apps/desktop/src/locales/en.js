@@ -135,6 +135,7 @@ export default {
       dashboard: 'Dashboard',
       create: 'Video Creation',
       collection: 'Collection',
+      automation: 'Automation',
       copyLibrary: 'Copy Library',
       calendar: 'Publish Calendar',
       comments: 'Messages & Comments',
