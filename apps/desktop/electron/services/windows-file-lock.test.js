@@ -369,3 +369,81 @@ describe('预算不得倒挂：helper 总预算必须小于消费用例声明的
   })
 })
 
+describe('预算取值来源：常量必须由 CI 实测分布支撑，且留一条可复测的路径（2026-10-01）', () => {
+  it('必须导出 LOCK_BUDGET_PROVENANCE，且启动预算至少是实测最大值的 safetyMultiplier 倍', () => {
+    const provenance = lockHelper.LOCK_BUDGET_PROVENANCE
+    expect(provenance, '缺 LOCK_BUDGET_PROVENANCE：45s 这类预算就成了无出处的数字（本仓踩过"注释里写某宿主是秒级"却未量过）').toBeTruthy()
+    expect(Number.isInteger(provenance.maxObservedReadyMs) && provenance.maxObservedReadyMs > 0).toBe(true)
+    // 样本量下限：只测一次就当"分布"，与当初把注释当依据是同一个错
+    expect(provenance.samples).toBeGreaterThanOrEqual(50)
+    expect(provenance.runs).toBeGreaterThanOrEqual(5)
+    expect(provenance.safetyMultiplier).toBeGreaterThanOrEqual(2)
+    expect(typeof provenance.source).toBe('string')
+    expect(provenance.source.length).toBeGreaterThan(20)
+    expect(DEFAULT_READY_TIMEOUT_MS).toBeGreaterThanOrEqual(provenance.maxObservedReadyMs * provenance.safetyMultiplier)
+    expect(DEFAULT_READY_TIMEOUT_MS).toBeGreaterThan(provenance.maxObservedReadyMs)
+  })
+
+  it('复测入口必须落在仓库里，且其输出字段与 provenance 对齐（否则"取值来源"不可复现）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const candidates = [
+      path.resolve(process.cwd(), '../../scripts/lock-timing-audit.js'),
+      path.resolve(process.cwd(), 'scripts/lock-timing-audit.js'),
+    ]
+    const found = candidates.find((c) => fs.existsSync(c))
+    expect(found, '找不到复测脚本，provenance 就成了死数字：' + candidates.join(' / ')).toBeTruthy()
+    const src = fs.readFileSync(found, 'utf8')
+    for (const field of Object.keys(lockHelper.LOCK_BUDGET_PROVENANCE)) {
+      expect(src.includes(field), '复测脚本没有产出字段 ' + field + '，两边会静默漂移').toBe(true)
+    }
+    // 探针瞎掉时必须以非零码出声，而不是"0 样本 = 没问题'（AGENTS.md 观察者必须报告自己的失明）
+    expect(src).toMatch(/NO_SAMPLES|exitCode = 3/)
+    // 三条真实坐标坑必须留在脚本里，否则下一个人会重新踩：status 字段、代理、ANSI 转义
+    expect(src).toContain("status === 'completed'")
+    expect(src).toContain('--allow-escape-sequences')
+    // 第四条（2026-10-01 实测）：本仓 `/actions/workflows/{wf}/runs?event=push&status=completed`
+    // 会返回一个**静默截断到 2026-09-15 之前**的窗口（total_count 从 2000+ 掉到 1372），
+    // 那个窗口里没有本夹具 ⇒ 复测脚本"跑得通、零样本"。所以过滤必须在客户端做。
+    expect(src, '运行列表又用回了服务端 event=/status= 过滤：该组合在本仓返回陈旧截断窗口')
+      .not.toMatch(/runs\?[^'"`]*(event=|status=)/)
+    expect(src).toContain("r.event === 'push'")
+    expect(src).toContain("r.head_branch === 'main'")
+    // 且必须翻页：最近 100 条里只有约 9 条是 main push，单页会让 --runs=N 静默缩水
+    expect(src, '没有翻页 ⇒ --runs=26 实际只会采到个位数 run').toMatch(/page=\$\{|page:|'&page='|page=/)
+  })
+
+  it('真跑（仅 Windows）：本次握手必须入台账，且观测值不得贴脸逼近启动预算', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    expect(typeof lockHelper.getLockTimings, '缺 getLockTimings：CI 分布回归检查没有数据来源').toBe('function')
+    if (process.platform !== 'win32') {
+      // 观察者必须报告自己的失明：非 Windows 上这条不测，但必须在日志里留下一句，
+      // 否则"passed"会被读成"观测值与预算核对过"。
+      console.log('[windows-file-lock] live-timing-check SKIPPED platform=' + process.platform)
+      return
+    }
+    const before = lockHelper.getLockTimings().length
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-win-lock-timing-'))
+    const file = path.join(dir, '.masterkey')
+    fs.writeFileSync(file, 'x', 'utf8')
+    try {
+      const handle = await holdExclusiveWindowsFileLock(file, 250)
+      await handle.release()
+      const timings = lockHelper.getLockTimings()
+      // 空台账 = 这条检查什么都没测；必须在断言之前先证明它有样本
+      expect(timings.length, '握手没有入账，本条检查会退化成恒真').toBeGreaterThan(before)
+      const last = timings[timings.length - 1]
+      // readyMs 为 0 只有两种可能：假子进程混进了台账，或时钟不动。两者都意味着这条
+      // "观测值 vs 预算"的比较在测量一个不存在的东西 —— 所以先证样本是真的。
+      expect(last.readyMs, 'readyMs=0 ⇒ 台账里混进了 mock 样本，本条检查已失去意义').toBeGreaterThan(0)
+      expect(Number.isFinite(last.readyMs)).toBe(true)
+      // 贴脸判据：观测启动相位一旦吃掉预算的 90%，就说明该重测并抬预算，而不是等它挂
+      expect(last.readyMs, '观测 readyMs 贴脸逼近启动预算 ⇒ 该重测并抬预算，不是放宽断言（AGENTS.md QM-3 两条正解）')
+        .toBeLessThan(DEFAULT_READY_TIMEOUT_MS * 0.9)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  }, LOCK_CASE_TIMEOUT_MS)
+})
