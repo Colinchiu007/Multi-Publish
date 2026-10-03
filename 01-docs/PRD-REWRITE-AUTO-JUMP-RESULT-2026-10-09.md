@@ -57,6 +57,8 @@ autoFocusResult: boolean（组件内非响应式即可，仅在挂载期被置�
 目标元素：.rewrite-result-card（改写结果卡片，v-if="rewriteResult" 渲染后存在）
 方式：el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 时序：await nextTick() 保证 v-if 新挂载的卡片已进入 DOM 再取引用
+引用：模板 ref rewriteResultCardEl（组件实例级引用，生产与测试环境一致；
+     不用 document.querySelector——@vue/test-utils 默认挂载到游离 DOM，全局查询拿不到）
 守卫：typeof el.scrollIntoView === 'function' 才调用（jsdom/降级环境安全，与 ResultView.vue 同模式）
 失败静默：取不到元素（理论不可能，防御式）不报错、不影响改写成功主流程
 ```
