@@ -1,9 +1,4 @@
 {
-  "本次执行记录：离线降级素材弹窗空括号修复（fix-degraded-assets-empty-kinds，2026-10-02）": {
-    "reason": "远程同步行写 PENDING：本 PR 尚未合并，merge SHA 无法在本会话取证。回填者＝本记录作者在 PR 合并后的收口动作（merge commit 可核后改 PASS 并随销账 docs 提交删除登记项）。",
-    "status": "PENDING",
-    "line": 23
-  },
   "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "OPEN（已记录）",
