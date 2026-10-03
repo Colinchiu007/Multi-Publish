@@ -5382,6 +5382,7 @@ Vue 展示组件
 - [PRD-STORY2VIDEO-SUBTITLE-QUALITY.md](./PRD-STORY2VIDEO-SUBTITLE-QUALITY.md) — Story2Video 字幕分句质量与可读性
 - [PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](./PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) — 发布进度全局反馈面板与后台运行
 - [PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](./PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md) — 话题内联描述：标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复
+- [PRD-ZHIHU-FAV-BATCH-2026-10-03.md](./PRD-ZHIHU-FAV-BATCH-2026-10-03.md) — 采集页知乎收藏批量采集与批量发布/视频：收藏夹清单直选（全部收藏/指定收藏夹、数量N、全量200封顶、favTime倒序）+ 采集后自动改写（失败回退原文）+ URL去重已采集标记 + 图片本地化 + 多选批量发布图文/生成视频/发布视频 + P0字段丢失修复与改写黑盒接通
 
 ### 19.3 架构决策记录（ADR）
 
@@ -14096,6 +14097,7 @@ Vue 展示组件
 - [PRD-STORY2VIDEO-SUBTITLE-QUALITY.md](./PRD-STORY2VIDEO-SUBTITLE-QUALITY.md) — Story2Video 字幕分句质量与可读性
 - [PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](./PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) — 发布进度全局反馈面板与后台运行
 - [PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](./PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md) — 话题内联描述：标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复
+- [PRD-ZHIHU-FAV-BATCH-2026-10-03.md](./PRD-ZHIHU-FAV-BATCH-2026-10-03.md) — 采集页知乎收藏批量采集与批量发布/视频：收藏夹清单直选（全部收藏/指定收藏夹、数量N、全量200封顶、favTime倒序）+ 采集后自动改写（失败回退原文）+ URL去重已采集标记 + 图片本地化 + 多选批量发布图文/生成视频/发布视频 + P0字段丢失修复与改写黑盒接通
 
 ### 19.3 架构决策记录（ADR）
 

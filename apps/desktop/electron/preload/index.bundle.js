@@ -1061,7 +1061,16 @@ var require_aggregation = __commonJS({
         zhihuFavlistContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:contents", payload),
         zhihuFavlistBatchCollect: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-collect", payload),
         zhihuFavlistBatchRewrite: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-rewrite", payload),
-        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type })
+        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type }),
+        // 知乎收藏批量升级（2026-10-03 PRD-ZHIHU-FAV-BATCH）：全部收藏聚合 + 采集并改写编排
+        zhihuFavlistUnifiedContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:unified-contents", payload),
+        zhihuFavBatchRun: (payload) => ipcRenderer2.invoke("zhihu-fav-batch:run", payload),
+        zhihuFavBatchCancel: () => ipcRenderer2.invoke("zhihu-fav-batch:cancel"),
+        onZhihuFavBatchProgress: (callback) => {
+          const listener = (_event, progress) => callback(progress);
+          ipcRenderer2.on("zhihu-fav-batch:progress", listener);
+          return () => ipcRenderer2.removeListener("zhihu-fav-batch:progress", listener);
+        }
       };
     }
     module2.exports = { createAggregationApi: createAggregationApi2 };

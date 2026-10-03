@@ -1,4 +1,9 @@
 {
+  "本次执行记录：知乎收藏批量采集与批量发布/视频（zhihu-fav-batch，2026-10-03）": {
+    "line": 22,
+    "reason": "PR #2841 合并后回填：squash 落地即取证券（git log origin/main --grep=\"(#2841)$\" --format=%H|%cI；git ls-remote --heads origin zhihu-fav-batch 返回 0 行），回填与销账必须同一次发生——回填者＝本 docs PR 同一次提交删除本条。",
+    "status": "PENDING"
+  },
   "本次执行记录：改写结果分段保留修复（fix-rewrite-paragraph-preserve，2026-10-03）": {
     "reason": "PR 合并后回填：squash 落地即取证（git log origin/main --grep='fix-rewrite-paragraph-preserve' --format=%H|%cI；git ls-remote --heads origin fix-rewrite-paragraph-preserve 返回 0 行），回填与销账必须同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
     "status": "PENDING",
