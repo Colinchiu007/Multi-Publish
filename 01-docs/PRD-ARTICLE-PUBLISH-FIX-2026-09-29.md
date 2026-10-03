@@ -913,3 +913,43 @@ setup: 重装 hook + 微调标题 input
 
 **回归保护**：返回字段只有 ok/code/msg/pgc/reason 五个（无 timer）——
 删除字段必须同步删除全部引用点（本次事故的直接教训）。
+
+#### 16.8.14 ⭐⭐ 标题新值促发——应用全流程真机打通（2026-10-03 终版）
+
+**用户报障 95% 卡死的终局修复**，应用端到端日志：
+
+```
+[INFO] RpaView [toutiao] preFill XHR hook 已安装
+…DOM verification timeout → 页面 XHR 重放兜底…
+[INFO] RpaView [toutiao-xhr] code=0 msg=提交成功 pgcId=7692399425603387955
+```
+
+**最终根因（应用内对照实验定案）**：
+
+在应用内同页面同状态复刻诊断脚本（填新标题 → 等 2s → 捕获 → 重放）**成功**；
+对照应用 RPA 失败的唯一行为差异 = **诊断脚本每次填新标题值**。
+
+头条 ProseMirror 是 React 受控组件，**只在感知到值变化时才触发自动保存**：
+- 应用 RPA 填充后（恢复草稿态）React 未感知变化 ⇒ 整个会话**零** publish 请求
+  ⇒ preFill hook 恒空 ⇒ 兜底 NO_BODY；
+- 兜底时把标题改为**新值**（原值 slice(0,26) + 空格 + 时间戳后缀 4 位）+ input 事件
+  ⇒ React 感知变化 ⇒ 自动保存立即触发（实证 2-8s）⇒ hook 捕获 body ⇒ save=1 重放。
+
+**`publishViaPageXhr` 终版流程**：
+
+| 步骤 | 内容 |
+|------|------|
+| 1 | 兜底重装 XHR hook（setup） |
+| 2 | **标题新值促发**（`rettle`：值变化 + input 事件） |
+| 3 | 轮询 `__lastSaveBody`（最长 12s，2s 步进） |
+| 4 | 捕获后 `save→1` 原样重放（页面 XHR 同步） |
+| 5 | 判据 `code===0 && pgcId!=="0"` ⇒ 成功返回 pgcId |
+
+**数据校验**：标题促发时截断 26 字符再加 5 字符后缀，不超 30 字上限（§16.10.1）；
+捕获判定 `body.length>500`（完整 publish body 规模下界）。
+
+**交互逻辑**：兜底对用户透明；成功时经既有进度链路走 task:success（进度弹窗推进到 100%）。
+
+**此前各版失败原因归档**：§16.8.12（NO_BODY→发现 hook 时机）、§16.8.13（NO_BODY→发现
+timer:tt 残留 + 缺 pgc_id）、本节（NO_BODY→**React 未感知变化**，终极根因）。
+三个都是真因、层层递进：hook 时机 → 引用残留/字段缺失 → 值未变化。

@@ -101,6 +101,9 @@ async function publishToutiao (p) {
     // 「展示封面」必填且默认「单图」但封面为空（真机取证）⇒ 传入封面图；第 52 轮实验证实封面非阻塞点
     prePublishHook: 'uploadCover',
     hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
+    // 2026-10-03 ⭐ preFill：编辑器加载完成后立刻装 XHR hook（比兜底时重装早整个发布周期，
+    // 捕获填充触发的所有自动保存请求；兜底时 body 早已在手，不再受 60s 后页面关闭影响）
+    preFill: 'installToutiaoSaveHook',
   })
   // 2026-10-03 ⭐ 兜底（在 DOM 流程【之后】执行——页面此时已填充、未关闭）：
   // 1) 重装 XHR hook（导航已重置上下文，之前装的必失效）
@@ -153,11 +156,21 @@ async function publishViaPageXhr ({ win, title, log }) {
       return 'SETUP_OK'
     })()`
     await win.webContents.executeJavaScript(setup)
-    // 等页面自动保存（最长 15s）；同时派发 Ctrl+S 加速（头条支持 Ctrl+S 保存草稿）
-    for (let i = 0; i < 8; i++) {
+    // ⭐ 复刻诊断脚本成功路径：给标题一个【新值】（React 感知变化 → 触发自动保存）。
+    // 应用 RPA 填充后 React state 可能未感知变化（恢复草稿态），从不出保存请求；
+    // 而诊断脚本每次填新标题值，2s 内必触发自动保存（多次真机复现）。
+    const rettle = `(function(){
+      var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
+      if(!ta) return 'NO_TITLE'
+      var s=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set
+      s.call(ta, (ta.value||'').slice(0,26)+' '+Date.now().toString().slice(-4))
+      ta.dispatchEvent(new Event('input',{bubbles:true}))
+      return 'TITLE_BUMPED'
+    })()`
+    await win.webContents.executeJavaScript(rettle)
+    // 等自动保存（最长 12s；诊断脚本实证 2-8s 内必到）
+    for (let i = 0; i < 6; i++) {
       if (await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) break
-      // 每轮都发 Ctrl+S（加速保存触发；连续多发无害）
-      await tcDispatchCtrlS(win)
       await new Promise((r) => setTimeout(r, 2000))
     }
     const js = `(function(){
@@ -186,5 +199,35 @@ async function publishViaPageXhr ({ win, title, log }) {
   }
 }
 
-module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao }
+/**
+ * 安装 XHR 捕获 hook（由 rpa-view-platforms._execHook 在 preFill 阶段调用）：
+ * 在编辑器加载完成后立即挂钩，捕获填充触发的所有 publish 自动保存请求 body。
+ * hook 挂在 window.__lastSaveBody；兜底重放时直接读取（无需再等）。
+ * @param {{win: any, log: any}} p
+ * @returns {Promise<void>}
+ */
+async function installToutiaoSaveHook ({ win, log }) {
+  try {
+    const setup = `(function(){
+      if(window.__lastSaveBody!==undefined) return 'ALREADY'
+      window.__lastSaveBody=''; window.__titleId=''
+      var oo=XMLHttpRequest.prototype.open, os=XMLHttpRequest.prototype.send
+      XMLHttpRequest.prototype.open=function(m,u){this.__u=String(u);return oo.apply(this,arguments)}
+      XMLHttpRequest.prototype.send=function(b){
+        try{ var u=this.__u||''
+          if(u.indexOf('article/publish')>=0&&b){
+            var tb=String(b).match(/title_id=([^&]+)/); if(tb) window.__titleId=tb[1]
+            window.__lastSaveBody=String(b)
+          }
+        }catch(e){}
+        return os.apply(this,arguments)
+      }
+      return 'HOOKED'
+    })()`
+    await win.webContents.executeJavaScript(setup)
+    if (log) log.info('RpaView', '[toutiao] preFill XHR hook 已安装（捕获自动保存 body）')
+  } catch (_e) { /* hook 失败不影响 DOM 流程 */ }
+}
+
+module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao, installToutiaoSaveHook }
 
