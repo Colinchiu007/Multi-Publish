@@ -1,3 +1,36 @@
+# [未发布] fix(automation): 补齐 IPC 装配断链 + 收窄 01-docs 忽略规则（2026-10-03，fix-automation-ipc-wiring）
+
+### 根因（用户实测报错）
+
+新建自动化任务报 `No handler registered for 'automation:create'`：
+`phase1-context.js` 从未 `container.get('automationScheduler')`、也没导出进 `context.services`
+→ `phase5-ipc.js` 解构出 undefined → `ipc-handlers/automation.js` 走「依赖缺失即静默 return」
+→ **零 handler 注册**。引入点：PR #2792 实现时该文件改动从未提交
+（多轮合并/收尾中丢失，「git status 干净 + 文件在磁盘」的假象掩盖了它）。
+
+### 修复
+
+- `phase1-context.js` 取出 `automationScheduler` 并导出进 `context.services`
+- `ipc-handlers/automation.js` 依赖缺失时改为**降级注册**：五个通道照常存在，
+  返回 `reason=service-unavailable` 的可读错误，不再退化成 Electron 原生无信息量报错
+- 回归锁 `automation-ipc-wiring.test.js` 7 例（装配链 4 接缝结构锁 + 行为锁；
+  既有测试全是 mock deps，绕过了真实装配链，故全仓无一条能抓到该断线）
+
+### 仓库陷阱修复
+
+`.gitignore` 的「01-docs 递归 .md」全量忽略迫使正式文档都要 `git add -f` 且普通 add
+静默失败（PR #2792 的两份 PRD/使用说明因此「写了却从未入库」）。收窄为只忽略
+`*report*` / `*analysis*` / `*brief*` 本地交付产物。
+回归锁 `apps/desktop/scripts/gitignore-docs.test.js`（node --test，4 例，已接 Gate 2b）。
+**反证两轮都抓出假绿**：① PowerShell 逐行 -replace 的 `\r?\n` 单行内匹配不到，变异没生效；
+② `git check-ignore` 对已跟踪文件恒返回未忽略（ignore 只作用于未跟踪路径），
+改用未跟踪探测路径后锁才真实变红。两次都当场抓出并修复。
+
+### 测试
+
+装配/IPC/preload/bootstrap 相关 460 例全绿；全量 13200/13205（2 失败均已归因：
+`feedback.test.js` 既存；`accounts-compile.test.js` 单跑两次通过、零触及，属长跑偶发）；
+门禁脚本 9/9 exit 0。
 # [未发布] feat(automation): 自动化模块 + 统一内容类别真源（2026-10-03，automation-content-category）
 
 > 文档：PRD `01-docs/PRD-AUTOMATION-CONTENT-CATEGORY-2026-10-03.md` ｜ 使用说明 `01-docs/AUTOMATION-CONTENT-CATEGORY-USAGE-2026-10-03.md` ｜ 主 PRD 追加同名章节
