@@ -19,6 +19,25 @@ const crypto = require('crypto')
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp)(?:[?#]|$)/i
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
+/**
+ * 下载域白名单（QM-6 m6 SSRF 缓解）：知乎图片固定出自 zhimg.com 系与 zhihu.com 系，
+ * 收藏条目正文可能被注入任意外链图（含 http://169.254.169.254/ 等内网探测端点），
+ * 白名单外的 URL 一律不下载 → 调用方回退原链展示，不发起请求。
+ */
+const ALLOWED_HOST_SUFFIXES = ['.zhimg.com', '.zhihu.com']
+
+function isAllowedImageUrl (url) {
+  let u
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
+  const host = u.hostname.toLowerCase()
+  return ALLOWED_HOST_SUFFIXES.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))
+}
+
 class ZhihuImageLocalizer {
   /**
    * @param {object} [opts]
@@ -42,7 +61,7 @@ class ZhihuImageLocalizer {
    * @returns {Promise<string|null>} 本地绝对路径；失败 null（回退原链）
    */
   async localize (url, index = 0) {
-    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return null
+    if (typeof url !== 'string' || !isAllowedImageUrl(url)) return null
     const dir = this._ensureDir()
     if (!dir) return null
     let buf

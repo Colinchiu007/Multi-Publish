@@ -2693,6 +2693,7 @@ export default {
       progressSummary: 'Done: {success} ok · {failed} failed · {skipped} duplicates · {rewriteFailed} rewrite failed',
       expandDetail: 'Show details',
       collapseDetail: 'Hide details',
+      mappingMismatch: 'Result mapping mismatch (main process reported success but produced no items); check logs or report feedback',
     },
     zhihuFav: {
       kindAnswer: 'Answer', kindArticle: 'Article', kindColumn: 'Column', kindPin: 'Pin', kindVideo: 'Video', kindUnknown: 'Link',
@@ -2729,6 +2730,7 @@ export default {
       videoSessionTitle: 'Collection batch video publish ({count})',
       createFailed: 'Failed to create batch',
       executeFailed: 'Failed to start batch',
+      actionFailed: 'Batch action failed: {message}',
     },
     batchCollect: 'Batch Collect',
     batchCollecting: 'Collecting...',

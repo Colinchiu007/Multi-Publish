@@ -44,7 +44,7 @@ vi.mock('@/composables/useLoginGate', () => ({
 
 import { useCollectionBatchPublish } from './useCollectionBatchPublish'
 
-/** platformStore 桩：platforms + getContentCategory（对齐 stores/platforms.js 形状） */
+/** platformStore 桩：platforms + getContentCategory（对齐 stores/platforms.js 形状与生产 yaml 分类） */
 function makePlatformStore () {
   return {
     platforms: [
@@ -55,8 +55,9 @@ function makePlatformStore () {
       { id: 'bilibili', label: 'B站' },
     ],
     getContentCategory (id) {
+      // 与 config/platforms.yaml 一致：xiaohongshu=IMAGE_TEXT（QM-6 m1/m10：夹具禁止与生产漂移）
       const map = {
-        xiaohongshu: 'MIXED', zhihu: 'IMAGE_TEXT', baijiahao: 'MIXED',
+        xiaohongshu: 'IMAGE_TEXT', zhihu: 'IMAGE_TEXT', baijiahao: 'MIXED',
         douyin: 'VIDEO', bilibili: 'VIDEO',
       }
       return map[id] || 'IMAGE_TEXT'
@@ -122,12 +123,11 @@ describe('useCollectionBatchPublish — 平台预筛（D8）', () => {
     const ids = b.usablePlatforms('imageText').map((p) => p.id)
     expect(ids).toEqual(['xiaohongshu', 'zhihu', 'baijiahao'])
   })
-  it('video 形态：仅视频+混合平台（纯图文平台如知乎不可发视频）', () => {
+  it('video 形态：仅 VIDEO+MIXED（纯图文平台如知乎/小红书不可发视频）', () => {
     const b = setup()
-    // xiaohongshu/baijiahao = MIXED（视频可用），zhihu = IMAGE_TEXT（不可发视频），
-    // douyin/bilibili = VIDEO。video 形态可用 = VIDEO + MIXED 全集。
+    // xiaohongshu/zhihu = IMAGE_TEXT（视频不可用），baijiahao = MIXED（可用），douyin/bilibili = VIDEO
     const ids = b.usablePlatforms('video').map((p) => p.id)
-    expect(ids).toEqual(['xiaohongshu', 'baijiahao', 'douyin', 'bilibili'])
+    expect(ids).toEqual(['baijiahao', 'douyin', 'bilibili'])
   })
 })
 

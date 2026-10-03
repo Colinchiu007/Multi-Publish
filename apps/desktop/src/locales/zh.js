@@ -2693,6 +2693,7 @@ export default {
       progressSummary: '完成：成功 {success} · 失败 {failed} · 跳过重复 {skipped} · 改写失败 {rewriteFailed}',
       expandDetail: '展开明细',
       collapseDetail: '收起明细',
+      mappingMismatch: '采集结果映射异常（主进程报告成功但无条目产出），请查看日志或反馈',
     },
     zhihuFav: {
       kindAnswer: '回答', kindArticle: '文章', kindColumn: '专栏', kindPin: '想法', kindVideo: '视频', kindUnknown: '链接',
@@ -2729,6 +2730,7 @@ export default {
       videoSessionTitle: '采集批量发布视频（{count} 个）',
       createFailed: '创建批量任务失败',
       executeFailed: '启动批量任务失败',
+      actionFailed: '批量操作失败：{message}',
     },
     batchCollect: '批量采集',
     batchCollecting: '批量采集中...',

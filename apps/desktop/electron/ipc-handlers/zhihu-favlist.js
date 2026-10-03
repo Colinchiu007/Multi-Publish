@@ -35,7 +35,8 @@ function genEntryId () {
 
 function rememberEntryMeta (url, meta) {
   knownEntryMeta.set(url, meta)
-  if (knownEntryMeta.size > 5000) {
+  // QM-6 m2：while 循环删除（原 if 只在恰为 5001 时删一次）
+  while (knownEntryMeta.size > 5000) {
     const first = knownEntryMeta.keys().next().value
     knownEntryMeta.delete(first)
   }
@@ -228,6 +229,9 @@ function registerHandlers (ipcMain, deps) {
       activeBatches.favBatch = signal
       const { urlCollector, pythonBridge, imageLocalizer } = deps
       const forceRecollect = arg.forceRecollect === true
+      // QM-6 M4 修复：消费渲染层传来的 collectedUrls（collected_items 的 sourceUrl 全集），
+      // 与进程内 knownEntryMeta 取并集——knownEntryMeta 重启即失，跨会话去重靠它兜底
+      const knownCollected = new Set(Array.isArray(arg.collectedUrls) ? arg.collectedUrls.map(String) : [])
       const seenInRun = new Set()
       const stats = {
         completed: 0, failed: 0, duplicateSkipped: 0,
@@ -244,6 +248,7 @@ function registerHandlers (ipcMain, deps) {
         sendProgress(event, { phase: 'start', index: idx, total, url, kind })
         if (!url) {
           stats.failed++
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'missing-url' } })
           return { ok: false, error: '条目缺少 URL', retryable: false }
         }
         // ── 仅登记类型：专栏/想法/视频 不采集正文 ──
@@ -263,12 +268,14 @@ function registerHandlers (ipcMain, deps) {
         // ── 去重：本次 run 内 + 勾选清单重复 ──
         if (seenInRun.has(url)) {
           stats.duplicateSkipped++
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: true, duplicate: true } })
           return { ok: true, duplicate: true }
         }
         seenInRun.add(url)
-        // ── 去重：已采集（自愈级防线：本进程采集过的 URL 记忆；渲染层另传 collectedUrls 双保险）──
-        if (!forceRecollect && knownEntryMeta.has(url)) {
+        // ── 去重：已采集（knownEntryMeta 进程记忆 ∪ collectedUrls 跨会话防线；forceRecollect 重采）──
+        if (!forceRecollect && (knownEntryMeta.has(url) || knownCollected.has(url))) {
           stats.duplicateSkipped++
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: true, duplicate: true } })
           return { ok: true, duplicate: true }
         }
         // ── 采集 ──
@@ -277,12 +284,14 @@ function registerHandlers (ipcMain, deps) {
           result = await urlCollector.collect(url, { manual: false })
         } catch (e) {
           stats.failed++
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'collect-throw' } })
           return { ok: false, error: e && e.message ? e.message : String(e), retryable: false }
         }
         if (!result || result.success !== true || !isSubstantive(result)) {
           // cache_hit 返回 {success:true, title:'', content:''} 也在此判失败（防空壳，PRD §3.3.4）
           stats.failed++
           const reason = result && result.reason === 'cache_hit' ? '重复缓存命中' : '内容不可提取'
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'unsubstantive' } })
           return { ok: false, error: reason, retryable: false }
         }
         // ── 图片本地化（C1：注入 localizer 且 imageLocalization!==false 时启用；失败回退原链）──

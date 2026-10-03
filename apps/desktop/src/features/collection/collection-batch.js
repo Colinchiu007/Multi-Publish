@@ -14,11 +14,11 @@
  * 纯函数、无 IO；Collection.vue 消费。
  */
 
-/** 纯视频平台（图文条目不可选；来源 platforms.yaml content_category） */
-const VIDEO_ONLY_PLATFORMS = ['douyin', 'kuaishou', 'tencent_video', 'youtube', 'tiktok']
-
-/** 视频条目可发布平台 = VIDEO + MIXED（baijiahao/weibo MIXED 可视频） */
-const MIXED_PLATFORMS = ['baijiahao', 'weibo']
+/**
+ * 平台预筛单一真源：contentCategory（platforms.yaml / stores/platforms DEFAULT_CONTENT_CATEGORIES）。
+ * QM-6 m1 修复：删除本地 VIDEO_ONLY/MIXED 白名单双真源——分类只信传入的 contentCategory，
+ * 避免名单与 yaml/store 漂移（xiaohongshu 在生产是 IMAGE_TEXT，曾被白名单误抬进视频域）。
+ */
 
 /**
  * zhihu-fav-batch:run 的 results → collected_items 条目（唯一映射出口）。
@@ -104,7 +104,7 @@ export function groupItemsByKind (items) {
 }
 
 /**
- * 平台预筛：图文条目排除纯视频平台；视频条目仅视频+混合平台。
+ * 平台预筛：图文条目排除 VIDEO 类平台；视频条目仅 VIDEO+MIXED。
  * @param {'imageText'|'video'} kind
  * @param {Array<{id:string, contentCategory?:string}>} platforms - platforms.yaml 派生清单
  * @returns {string[]}
@@ -116,9 +116,8 @@ export function usablePlatformIds (kind, platforms) {
     .filter((p) => p && p.id)
     .filter((p) => {
       const cat = String(p.contentCategory || 'IMAGE_TEXT').toUpperCase()
-      const videoOnly = VIDEO_ONLY_PLATFORMS.includes(p.id) || cat === 'VIDEO'
-      if (isVideoKind) return videoOnly || MIXED_PLATFORMS.includes(p.id) || cat === 'MIXED'
-      return !videoOnly
+      if (isVideoKind) return cat === 'VIDEO' || cat === 'MIXED'
+      return cat !== 'VIDEO'
     })
     .map((p) => p.id)
 }

@@ -150,6 +150,7 @@ describe('发布取稿规则 · buildBatchArticles', () => {
 })
 
 describe('平台预筛 · groupItemsByKind / usablePlatformIds / buildBatchTargets', () => {
+  // 夹具对齐 config/platforms.yaml 真实分类（QM-6 m1/m10：禁止夹具与生产漂移）
   const PLATFORMS = [
     { id: 'douyin', contentCategory: 'VIDEO' },
     { id: 'kuaishou', contentCategory: 'VIDEO' },

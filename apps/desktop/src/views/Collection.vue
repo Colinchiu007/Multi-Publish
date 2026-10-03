@@ -311,7 +311,7 @@
         <div class="cohere-section-title col-section-title col-section-title--flex">
           <span>采集结果（{{ collectedItems.length }} 篇）</span>
           <label style="display:flex;align-items:center;gap:4px;font-size: var(--font-size-xs)">
-            <input type="checkbox" :checked="batchAllSelected" @change="toggleSelectAll($event.target.checked)" data-testid="batch-select-all" />$t('collection.zhihuFavlist.selectAll')
+            <input type="checkbox" :checked="batchAllSelected" @change="toggleSelectAll($event.target.checked)" data-testid="batch-select-all" />{{ $t('collection.zhihuFavlist.selectAll') }}
           </label>
           <button class="cohere-btn-secondary col-btn-clear" @click="collectedItems = []; collectedResult = null">清空</button>
         </div>
@@ -1022,8 +1022,14 @@ const batch = useCollectionBatchPublish({
   notify: {
     confirm: async (key, opts) => notifyConfirm(key, opts),
     success: (k) => notifySuccess(k),
-    warning: (k) => notifyWarning(k),
-    error: (k) => notifyError(k),
+    warning: (k, opts) => notifyWarning(k, opts),
+    // QM-6 M3 补充：error/warning 可能收到非 key 的原始 message（composable 的
+    // Error.message），useNotify 对非 key 文案静默 → 改走显式 message 通道
+    error: (k, opts) => {
+      const text = resolveNotifyText(k, opts).text
+      if (text && text !== k) notifyError(k, opts)
+      else notifyWarning('collection.batch.actionFailed', { params: { message: k } })
+    },
   },
 })
 const batchPlatformScope = ref('')
@@ -1038,6 +1044,12 @@ function accountsOf (platformId) {
 }
 const batchAccountOptions = computed(() => accountsOf(batchPlatformScope.value))
 const batchVideoAccountOptions = computed(() => accountsOf(batchVideoPlatformScope.value))
+// QM-6 M3 修复：所选平台必须写入 composable 的 batchSelection（否则 buildTargets 恒空，
+// 三批量动作被 needAccount 拦死——评审发现测试直接手写 platforms 绕过了 UI 接线）
+watch([batchPlatformScope, batchVideoPlatformScope], ([imgScope, vidScope]) => {
+  if (imgScope) batch.batchSelection.value.imageText.platforms = [imgScope]
+  if (vidScope) batch.batchSelection.value.video.platforms = [vidScope]
+}, { immediate: true })
 function toggleSelectAll (on) {
   batch.selectMany(collectedItems.value, on)
 }
@@ -1096,6 +1108,21 @@ function toggleZhihuFavItem (it) {
   if (s.has(it.url)) s.delete(it.url)
   else s.add(it.url)
   zhihuFavChecked.value = s
+}
+
+/** 取消「采集并改写」（QM-6 M2：模板引用的函数必须存在；cancel IPC 通道已注册） */
+function cancelZhihuFavBatch () {
+  try {
+    const api = getApi()
+    if (api && typeof api.zhihuFavBatchCancel === 'function') {
+      api.zhihuFavBatchCancel().catch(() => { /* 取消失败静默 */ })
+    }
+  } catch { /* 取消失败静默 */ }
+}
+
+/** 安全日志（渲染端轻量 console.warn，仅计数不落正文） */
+function loggerWarnSafe (tag, msg) {
+  console.warn('[' + tag + '] ' + msg)
 }
 
 /** 拉取收藏夹清单（scope=favlist 单夹 / scope=all 全部收藏聚合） */
@@ -1169,7 +1196,13 @@ async function runZhihuFavCollectRewrite () {
   zhihuFavProgressTotal.value = picked.length
   try {
     const api = getApi()
-    const items = picked.map((it) => ({ url: it.url, kind: it.kind, title: it.title, favTime: it.favTime }))
+    // IPC 参数纯 JSON 纪律（QM-6 M4）：逐字段显式归一，不经任何 reactive 引用
+    const items = picked.map((it) => ({
+      url: String(it.url || ''),
+      kind: String(it.kind || ''),
+      title: String(it.title || ''),
+      favTime: Number(it.favTime) || 0,
+    }))
     const r = await api.zhihuFavBatchRun({
       items,
       rewriteStyle: rewriteStyle.value,
@@ -1183,8 +1216,15 @@ async function runZhihuFavCollectRewrite () {
       return
     }
     const data = r.data || {}
-    // 结果映射走唯一出口（P0 回归锁：禁止再出现 x.data.data 双层展开）
-    const newItems = mapFavBatchResultsToItems(data.items || [], items, { source: 'zhihu-fav' })
+    // 结果映射走唯一出口（P0 回归锁：禁止再出现 x.data.data 双层展开）。
+    // ⚠ QM-6 C1 修复：handler 返回 data={completed,...,results:[{index,ok,data:{...}}]}，
+    // 必须传 data.results（条目数组 data.items 没有 ok 字段，传 items 会被整批 continue 成零产出）
+    const newItems = mapFavBatchResultsToItems(data.results || [], items, { source: 'zhihu-fav' })
+    if ((data.completed || 0) > 0 && newItems.length === 0) {
+      // 汇总与实际产出交叉校验（QM-6）：不一致说明契约断裂，宁可报错也不静默
+      zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.mappingMismatch').text
+      loggerWarnSafe('zhihu-fav-batch', 'completed=' + data.completed + ' but mapped 0 items')
+    }
     for (const item of newItems) {
       collectedItems.value.unshift(normalizeCollectedItem(item, categoryTagCtx.value))
     }
@@ -1236,6 +1276,10 @@ function subscribeZhihuFavProgress () {
         zhihuFavProgressLines.value.push(`[${(p.index ?? 0) + 1}/${p.total}] ${note}`)
       } else if (p.phase === 'summary') {
         zhihuFavProgressTotal.value = p.total || zhihuFavProgressTotal.value
+      }
+      // QM-6 m9：进度行上限（>200 截断，防长任务 DOM 无界累积）
+      if (zhihuFavProgressLines.value.length > 200) {
+        zhihuFavProgressLines.value = zhihuFavProgressLines.value.slice(-200)
       }
     })
   }

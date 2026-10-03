@@ -1458,7 +1458,9 @@ describe("CollectionView 知乎收藏夹批量采集/改写", () => {
       zhihuFavBatchRun: vi.fn().mockResolvedValue({ code: 0, data: {
         completed: 1, failed: 0, duplicateSkipped: 0, rewriteFailed: 0,
         cancelled: false, circuitBroken: false,
-        items: [{ index: 0, ok: true, duplicate: false, data: {
+        // QM-6 C1 回归锁：handler 真实返回 data.results=[{index,ok,data:{...}}]，
+        // 渲染端必须消费 results 而非 items——mock 用真实形状，接线断开即红
+        results: [{ index: 0, ok: true, duplicate: false, data: {
           id: "fb_1", title: "标题甲", content: "正文甲", coverImage: "https://picx.zhimg.com/c.jpg",
           sourceUrl: "https://zhuanlan.zhihu.com/p/1", kind: "article", favTime: 1,
           images: ["D:\\img\\a.jpg"], imageFallbacks: [], rewrittenContent: "改写稿甲", rewriteFailed: false,
@@ -1496,6 +1498,35 @@ describe("CollectionView 知乎收藏夹批量采集/改写", () => {
     w.vm.zhihuFavItems = [];
     await w.vm.runZhihuFavCollectRewrite();
     expect(w.vm.zhihuFavlistError).toContain("勾选");
+  });
+
+  it("QM-6 M2 回归锁：cancelZhihuFavBatch 必须存在且走 zhihuFavBatchCancel 通道", async () => {
+    const cancelSpy = vi.fn().mockResolvedValue({ code: 0 });
+    window.electronAPI = { onZhihuFavBatchProgress: vi.fn(() => vi.fn()), zhihuFavBatchCancel: cancelSpy };
+    const w = mountCollection();
+    await nextTick();
+    expect(typeof w.vm.cancelZhihuFavBatch).toBe("function");
+    w.vm.cancelZhihuFavBatch();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it("QM-6 M3 回归锁：平台下拉选择必须写入 batchSelection（buildTargets 非空）", async () => {
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn(() => vi.fn()),
+      getPlatformDefinitions: vi.fn().mockResolvedValue({ code: 0, data: { platforms: [
+        { id: "xiaohongshu", label: "小红书", contentCategory: "IMAGE_TEXT" },
+      ] } }),
+      listAccounts: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.batchPlatformScope = "xiaohongshu";
+    await nextTick();
+    // buildTargets 经 composable 暴露：imageText 形态的平台必须已被 watch 同步写入
+    const targets = w.vm.batch.buildTargets("imageText");
+    expect(targets).toEqual([{ platform: "xiaohongshu", accountId: null }]);
   });
 
   it("zhihuFavlistBatchRewrite 无可改写内容 → 提示", async () => {

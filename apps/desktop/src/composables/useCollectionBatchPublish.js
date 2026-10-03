@@ -263,6 +263,8 @@ export function useCollectionBatchPublish (opts = {}) {
       notify.warning('collection.batch.noSelection')
       return false
     }
+    // QM-6 m5：无正文条目会被 filter(Boolean) 剔除，确认语义如实（差异通过结果条数体现，
+    // 确认框在剔除发生时已显示 videoSkipNote；此处防御 texts 为 0 的极端）
     try {
       const res = await story2videoBatchCreate({
         mode: 'text',
