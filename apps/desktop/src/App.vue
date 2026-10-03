@@ -61,11 +61,19 @@
           <!-- 主内容区 -->
           <main class="mp-workspace cohere-main" data-testid="mp-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
-            <!-- v-show 而非 v-if：登录/账号标签激活时内嵌 WebContentsView 已覆盖内容矩形，
-                 这里只需「隐藏」工作区避免重叠，绝不能「卸载」——router-view 承载首页 SPA 的
-                 当前路由组件（如发布页 Publish.vue 的 article/video_path 等局部草稿状态），
-                 用 v-if 会在切到账号标签时销毁组件实例，切回首页即丢全部未保存草稿。 -->
-            <router-view v-show="!isLoginTab" />
+            <!-- 两层「不丢草稿」保障：
+                 ① v-show 而非 v-if：登录/账号标签激活时内嵌 WebContentsView 已覆盖内容矩形，
+                    这里只需「隐藏」工作区避免重叠，绝不能「卸载」——否则切到账号标签会销毁当前
+                    路由组件、切回首页丢未保存草稿（v-if→v-show 的回归锁见 publish-tab-state-keepalive.test.js）。
+                 ② keep-alive(:include=['Publish'])：让发布页在【路由切换】（离开发布页再回来）时也保留
+                    实例，解决「在首页里点左侧菜单/模块导航离开 /publish 再回来，草稿丢失」这条独立缺口。
+                    include 只缓存发布页，其余页面维持「重挂载取最新数据」的既有语义，不引入陈旧数据。
+                 v-show 挂在 v-slot 实际渲染的组件上，隐藏语义与 ① 一致。 -->
+            <router-view v-slot="{ Component }">
+              <keep-alive :include="['Publish']">
+                <component :is="Component" v-show="!isLoginTab" />
+              </keep-alive>
+            </router-view>
           </main>
         </div>
       </div>

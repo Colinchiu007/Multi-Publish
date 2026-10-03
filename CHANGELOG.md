@@ -19,6 +19,21 @@
 - 变异反证两次，均按红因对账：把无定论并进成功 ⇒ 红 3（顶层 / 分日 / 分平台同抓）；分母改用 `total` ⇒ 红 1（`expected 25 to be 100`）
 - 结构锁自身被抓一次：不剥注释时，它把我解释「为什么不能用旧判据」的注释原句当成命中而恒红 ⇒ 判据改为先剥注释行再匹配（注释里的字样不算声明）
 - 明确不在本刀（已实测登记于 PRD §九）：Dashboard 同比角标是模板里的硬编码字面量（`+8.5%` / `+23%` / `-2.1%`，逐行读模板确认）；`tracked_content` 的 `publish_history_id` 与 `rewrite_history_id` 只读直查活库均为 NULL 69/69 ⇒ 发布历史表现列恒空；`performance_snapshot` 103 条全部 `source=auto` 且按 JOIN 实测 **100% 落在 kuaishou**，69 条 `tracked_content` 里仅 28 条被任意快照覆盖；`packages/shared-utils/src/publish-history.js` 是含同一判据的孤儿重复实现（全仓零引用）。改可见文案会漂视觉基线，须走 CI 同源基线流程，不与数据口径修复混作一次
+# [未发布] fix(publish): 发布页草稿在路由切换时丢失——工作区 router-view 加 keep-alive（publish-draft-keepalive，2026-10-03）
+
+### 根因
+- 承接 #2764（切账号标签丢草稿已修）。另一条独立通路：在首页里点左侧菜单/模块导航离开 /publish 再回来，表单被清空。App.vue 主工作区 `<router-view>` 无 `<keep-alive>`，vue-router 路由切换会卸载 Publish.vue，其局部 reactive article（含 video_path）等草稿随之销毁。#2764 的 v-show 只覆盖「账号标签 v-if 卸载」，修不到 router 换组件。
+
+### 修复
+- App.vue 主工作区改 `<router-view v-slot><keep-alive :include="['Publish']"><component :is v-show="!isLoginTab"/></keep-alive></router-view>`：只缓存发布页，其余页面维持重挂载取最新数据；v-show 移到实际组件、#2764 隐藏语义不变。
+- Publish.vue：`defineOptions({ name: 'Publish' })`；`applyHistoryVideoQuery` 从只在 onMounted 改为 onMounted+onActivated（缓存后从结果页带 ?video_path= 再次进入仍能预填，无 query 时早退不覆盖既有草稿）。
+
+### 回归保护
+- 新增 apps/desktop/src/publish-draft-keepalive.test.js（真挂载 App.vue + 双路由 + KeepAlive，去 keep-alive→实例重挂载变红）。
+- Publish.test.js 新增「keep-alive 重进入 query 预填」用例（去 onActivated→停旧值变红）。
+- 邻接：publish-tab-state-keepalive / shell-mode-6a/6b / tab-independent-home / overlay-view-suspension / Publish 全量 130 passed。
+- 详见 01-docs/PRD-PUBLISH-DRAFT-KEEPALIVE-2026-10-03.md。
+
 # [未发布] feat(automation): 自动化模块 + 统一内容类别真源（2026-10-03，automation-content-category）
 
 > 文档：PRD `01-docs/PRD-AUTOMATION-CONTENT-CATEGORY-2026-10-03.md` ｜ 使用说明 `01-docs/AUTOMATION-CONTENT-CATEGORY-USAGE-2026-10-03.md` ｜ 主 PRD 追加同名章节
