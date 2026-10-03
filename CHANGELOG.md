@@ -14,7 +14,7 @@
 ### 验证
 - TDD：`ResultView.test.js` 新增「返回按钮的箭头是独立装饰字形，不进入可访问名」先红（`1 failed / 114 passed`，红因正是 `arrow.exists()` 为 false）后绿；实现后 `115 passed`。另一消费者 `views-deep2.test.js` 7 passed。
 - 像素门禁 `PIXEL_ONLY=create-result` 明/暗双档均 PASSED。**注意**：全页 6% 阈值对一个按钮是结构性失明，PASSED 只证"无粗回归"，不证改动本身；真实结论取自现场截图 + 真浏览器计算样式探针 —— 箭头与按钮光学中心 `115.5 == 115.5`、按钮左边缘与标题左边缘 `684 == 684`、hover 底色 `#fff → #efefef` 与边框 `#efefef → rgb(80,72,229)` 均真实变化、`gap: 6px` / `radius: 8px` 生效。
-- 遗留：`create-result.png` / `create-result-dark.png` 两张基线相对本次渲染已过期，合并后 main push 的 `check-baseline-freshness`（逐像素 0 px 判据）会变红。基线只能取自 CI 产物（禁止本机 `test:visual:update-baseline`），须在分支上 `workflow_dispatch` 跑一次 Visual Tests 取 artifact 重建并自证「新基线 vs 同一次 CI 渲染 = 0 px」。
+- 遗留（已实测纠正本条初稿的错前提）：本 PR **不重建**视觉基线。分支 run 与 main run 的 `Baseline freshness gate` 逐条对照都是「检查 41 张 / 违规 36 张」，违规数完全相同 —— 该门禁在本 PR 之前已在 main 上仓库级失效（accounts-list / calendar / collection / create-editor 等大片视图同时命中，且 1242 px、1426 px 在互不相关视图上精确重现，是同一共享元素在多页各渲染一次的形状，不是各视图自己的回归）。本 PR 只把我碰的两张的漂移量放大：`create-result.png` 1242→7676 px、`create-result-dark.png` 9825→17066 px（按钮移出页头使标题及以下内容整体下移，全页逐像素比较因此产生大位移差，属预期）。**此刻从 CI artifact 重建基线等于把 36 张全局漂移烤成正确基线**（#2685 同型错误，污染源换成了 CI）；该 36/41 失效是独立事故，须先定位那个共享元素、修复后再统一重建。
 
 # [未发布] fix(automation): 补齐 IPC 装配断链 + 收窄 01-docs 忽略规则（2026-10-03，fix-automation-ipc-wiring）
 
