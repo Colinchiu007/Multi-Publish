@@ -155,6 +155,25 @@ describe('podcast-repurpose 阶段执行器', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('segments')
     })
+
+    it('params.aspectRatio 显式透传给 generateImage（竖屏契约，2026-10-02 回归）', async () => {
+      const generateImage = vi.fn(async () => ({ code: 0, data: { path: 'C:/img/0.png' } }))
+      const { get } = makePipeline({ generateImage })
+      const result = await get(PODCAST_STAGE_TYPES.VISUALIZE)({
+        runId: 'run-p-aspect',
+        stage: { options: {} },
+        params: { imageProvider: 'minimax-image', aspectRatio: '9:16' },
+        context: {
+          analyze: {
+            audioPath: 'C:/a.mp3', duration: 5,
+            segments: [{ index: 0, text: '第一段', start: 0, end: 5 }],
+          },
+        },
+        onProgress: () => {},
+      })
+      expect(result.success).toBe(true)
+      expect(generateImage.mock.calls[0][1]).toMatchObject({ aspect_ratio: '9:16' })
+    })
   })
 
   describe('assemble 阶段', () => {
