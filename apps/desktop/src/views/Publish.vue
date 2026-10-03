@@ -719,7 +719,7 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
@@ -768,6 +768,11 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
 import { formatBytes } from '@/utils/bytes'
 import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
+
+// 组件名显式声明：App.vue 主工作区 <keep-alive :include="['Publish']"> 按组件名匹配，
+// 让发布页在路由切换时保留实例（草稿不丢）。依赖文件名推断的 __name 在构建配置变化时不稳，
+// 故显式声明，避免 keep-alive 静默不命中而退回「每次重挂载丢草稿」。
+defineOptions({ name: 'Publish' })
 
 const route = useRoute()
 const router = useRouter()
@@ -1371,6 +1376,15 @@ onMounted(async () => {
 
   await loadDrafts()
   await loadDraft(String(draftId))
+})
+
+// keep-alive 兼容：发布页被 App.vue 的 <keep-alive :include="['Publish']"> 缓存后，
+// 从结果页/历史「去发布」带 ?video_path= 再次进入时 onMounted 不会再跑，预填必须挂在
+// onActivated（每次激活都触发）上，否则 query 预填静默失效。无 video_path query 时
+// applyHistoryVideoQuery 自行早退，不会覆盖用户缓存中的既有草稿。
+// 非 keep-alive 上下文（内嵌主页实例）onActivated 不触发，仍由上面的 onMounted 覆盖。
+onActivated(() => {
+  applyHistoryVideoQuery()
 })
 
 // 暴露给测试（w.vm.xxx）和外部组件
