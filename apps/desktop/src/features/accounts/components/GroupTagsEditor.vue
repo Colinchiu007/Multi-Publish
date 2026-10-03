@@ -111,18 +111,18 @@ function cancel () {
 .group-tags-none { color: var(--muted, #b0b0b8); }
 .edit-tags-button {
   padding: 2px 8px; border: 1px solid #dcdee3; border-radius: 4px;
-  background: #fff; color: #5048e5; font-size: var(--font-size-xs); cursor: pointer;
+  background: #fff; color: var(--color-primary); font-size: var(--font-size-xs); cursor: pointer;
 }
 .group-tags-editor { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-toggle {
   padding: 3px 10px; border: 1px solid #dcdee3; border-radius: 12px;
   background: #fff; color: #3a3a44; font-size: var(--font-size-xs); cursor: pointer;
 }
-.tag-toggle--on { border-color: #5048e5; background: #eceaff; color: #5048e5; }
+.tag-toggle--on { border-color: var(--color-primary); color: var(--color-primary); }
 .group-tags-actions { display: flex; gap: 6px; width: 100%; margin-top: 6px; }
 .tag-save, .tag-cancel {
   padding: 2px 9px; border: 1px solid #dcdee3; border-radius: 4px;
   background: #fff; font-size: var(--font-size-xs); cursor: pointer;
 }
-.tag-save { border-color: #5048e5; color: #5048e5; }
+.tag-save { border-color: var(--color-primary); color: var(--color-primary); }
 </style>

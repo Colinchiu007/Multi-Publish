@@ -2259,18 +2259,18 @@ function cancelBatchCollect () {
 .card-tag--unknown { background: #ececee; color: #a8a8b3; text-decoration: line-through; }
 .card-tag-edit {
   padding: 2px 8px; border: 1px solid #dcdee3; border-radius: 4px;
-  background: #fff; color: #5048e5; font-size: var(--font-size-xs, 12px); cursor: pointer;
+  background: #fff; color: var(--color-primary); font-size: var(--font-size-xs, 12px); cursor: pointer;
 }
 .tag-toggle {
   padding: 2px 9px; border: 1px solid #dcdee3; border-radius: 11px;
   background: #fff; color: #3a3a44; font-size: var(--font-size-xs, 12px); cursor: pointer;
 }
-.tag-toggle--on { border-color: #5048e5; background: #eceaff; color: #5048e5; }
+.tag-toggle--on { border-color: var(--color-primary); color: var(--color-primary); }
 .tag-save, .tag-cancel {
   padding: 2px 9px; border: 1px solid #dcdee3; border-radius: 4px;
   background: #fff; font-size: var(--font-size-xs, 12px); cursor: pointer;
 }
-.tag-save { border-color: #5048e5; color: #5048e5; }
+.tag-save { border-color: var(--color-primary); color: var(--color-primary); }
 
 /* ── 文案库合并视图样式（原 CopyLibraryPanel 迁入）── */
 .library-filters {
