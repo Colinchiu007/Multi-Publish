@@ -10,6 +10,7 @@ import {
   normalizeContentCategories,
   resolveCategoryLabel,
   isValidCategoryKey,
+  resolveDefaultCategoryName,
 } from '@/features/content/content-categories'
 
 describe('统一内容类别 · 内置目录', () => {
@@ -70,9 +71,10 @@ describe('统一内容类别 · 归一化与校验', () => {
     expect(r.items[1].name).toBe('科技前沿')
   })
 
-  it('缺 name 时回退内置默认名，再回退 key 本身', () => {
+  it('缺 name 时回退内置键（本地化由 resolveDefaultCategoryName 解析），未知 key 回退自身', () => {
     const r = normalizeContentCategories({ items: [{ category_key: 'tech' }, { category_key: 'zzz' }] })
-    expect(r.items.find((i) => i.category_key === 'tech').name).toBe('科技')
+    // 内置回退名的 name 现在是 key（不再写死中文），本地化在展示层经 i18n 解析
+    expect(r.items.find((i) => i.category_key === 'tech').name).toBe('tech')
     expect(r.items.find((i) => i.category_key === 'zzz').name).toBe('zzz')
   })
 
@@ -98,12 +100,23 @@ describe('统一内容类别 · 归一化与校验', () => {
 })
 
 describe('统一内容类别 · 显示名与 key 校验', () => {
-  it('resolveCategoryLabel：下发值优先 → 内置名 → key', () => {
+  it('resolveCategoryLabel：下发值优先 → 内置键 → key', () => {
     const items = [{ category_key: 'tech', name: '科学技术' }]
     expect(resolveCategoryLabel('tech', items)).toBe('科学技术')
-    expect(resolveCategoryLabel('emotion', items)).toBe('情感')
+    // 内置回退名的 name 现在是 key 本身（本地化由 resolveDefaultCategoryName 经 i18n 解析），
+    // 因此「下发里没有」时 resolveCategoryLabel 返回 key，再由上层用 t 解析。
+    expect(resolveCategoryLabel('emotion', items)).toBe('emotion')
     expect(resolveCategoryLabel('brand_new', items)).toBe('brand_new')
-    expect(resolveCategoryLabel('tech', null)).toBe('科技')
+    expect(resolveCategoryLabel('tech', null)).toBe('tech')
+  })
+
+  it('resolveDefaultCategoryName 经 t 解析出本地化名', () => {
+    const t = (k) => ({ 'contentCategories.tech': '科技', 'contentCategories.emotion': '情感' })[k] || k
+    expect(resolveDefaultCategoryName('tech', t)).toBe('科技')
+    expect(resolveDefaultCategoryName('emotion', t)).toBe('情感')
+    // i18n 缺失（t 回显键名）时退回 key，不让界面显示 "contentCategories.xxx"
+    const raw = (k) => k
+    expect(resolveDefaultCategoryName('tech', raw)).toBe('tech')
   })
 
   it('isValidCategoryKey 拒绝非法形态', () => {
