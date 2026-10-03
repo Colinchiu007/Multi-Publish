@@ -68,15 +68,5 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "PENDING",
     "line": 4654
-  },
-  "本次执行记录：批量条目封面「重选即替换」+ 本地优先丢弃提示（batch-cover-reselect，2026-10-01）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin batch-cover-reselect 返回 0 行证远端分支已删。注意：本条与「P2-7 批量模式字段面」（batch-mode-field-surface）同置顶文档，后续 re-sync 须走参照解逐键核对。",
-    "status": "PENDING",
-    "line": 26
-  },
-  "本次执行记录：P2-8a 账号分组落 settings 真源（account-groups-persistence，2026-10-01）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin account-groups-persistence 返回 0 行证远端分支已删。注意：本条与 batch-cover-reselect（#2752）同置顶文档与同账本，两次合并都要走参照解逐键核对。",
-    "status": "PENDING",
-    "line": 22
   }
 }
