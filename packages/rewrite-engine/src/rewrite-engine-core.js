@@ -21,7 +21,7 @@ const DEFAULT_MAX_OUTPUT_LENGTH = 3000
 // 内容与运营中心种子 hard-constraint-default-v1 一致（单一事实源在运营中心，此处仅为缺失回退）。
 const BUILTIN_DEFAULT_HARD_CONSTRAINTS = [
   '1. 只输出改写后的文案本身，不要包含任何小节标题（如「开头」「中间」「结尾」「悬念钩子」「情感转折」「共鸣与号召」等）、结构说明、写作指导或 Markdown 标题。',
-  '2. 文案内部如需分段，使用空行分隔即可。',
+  '2. 文案内部如需分段，使用空行分隔即可；除口播快节奏短文案外，成品应有 2-5 个自然段，禁止整篇压成一段。',
   '3. 不要输出任何与文案内容无关的说明、注释或元信息。',
 ].join('\n')
 
@@ -423,7 +423,8 @@ class RewriteEngine {
 2. 更换段落结构、句式、案例、修辞手法
 3. 确保改写后的文本与原文的相似度低于 40%
 4. 不要使用原文中的标志性短语和独特表达
-5. 可以改变叙述视角（如从第一人称改为第三人称）`
+5. 可以改变叙述视角（如从第一人称改为第三人称）
+6. 分段输出要求：按内容逻辑划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）`
 
       case 'expand':
         return `【改写模式：扩写爆款】
@@ -432,7 +433,8 @@ class RewriteEngine {
 2. 增加背景介绍、原因分析、案例支撑、数据引用
 3. 从 What → Why → How → So What 四个层次递进
 4. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}
-5. 保证扩写不是"注水"，而是增加有价值的信息增量`
+5. 保证扩写不是"注水"，而是增加有价值的信息增量
+6. 分段输出要求：按 What/Why/How/So What 等逻辑层次划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）`
 
       case 'create':
         return `【改写模式：选题创作】
@@ -441,7 +443,8 @@ class RewriteEngine {
 2. 先分析选题确定内容类型，再生成结构化大纲
 3. 每段按写作指导独立生成，最后统一风格
 4. 自动注入爆款要素：钩子、情绪转折、金句、互动引导
-5. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}`
+5. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}
+6. 分段输出要求：按大纲结构划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）`
 
       default:
         return ''
