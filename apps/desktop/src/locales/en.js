@@ -183,6 +183,7 @@ export default {
     publishing: 'Publishing...',
     success: 'Published successfully',
     failed: 'Publish failed',
+    failureDraftSaved: 'Publish failed: your content was saved to Drafts automatically. Restore it from Drafts and retry.',
     api: {
       modeApi: 'Direct API',
       modeDom: 'Browser RPA',
@@ -2880,6 +2881,8 @@ export default {
 
   tagSuggest: {
     title: 'Smart Tag Suggestions',
+    tabAll: 'All',
+    moreTags: 'Full tags in the {platform} tab',
     contentTags: 'Content tags (describe the article topic)',
     trafficTags: 'Traffic tags (related to trending topics)',
     platformTags: 'Per-platform tags',
