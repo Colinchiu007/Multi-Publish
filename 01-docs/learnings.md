@@ -17185,3 +17185,18 @@ rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的�
 - **字段恒回退的第一性诊断（pitfall）**：某参数「看起来总不生效」时，沿调用链逐层 grep 该字段的**读点**（谁在消费）与**写点**（谁在传），找出键名不匹配的层。本案 aspect_ratio 在 stages/asset-generator 全程正确传递，到 agnes-image.js 断链——它只读 params.ratio（Agnes API 请求体字段名被误用作入参名），不匹配即静默回退默认 16:9。引入点 commit c9df8bf5（2026-07-15 新增 9 供应商 Adapter），封装请求体正确、入参名照抄请求体字段是失误根源。**边界：凡「适配器入参 → 供应商请求体」存在改名的层都适用**；同名透传层不受此限。
 - **静默断链的测试逃逸原因（pattern）**：单元测试只断言「传入键 → 请求体」的回显（当时用 ratio 键测），等于**用实现定义测试**，断链键永远测不到；逃逸链 = 无契约键行为测试（单测层）→ 适配器边界无统一契约锁（集成层）→ 视觉黑边肉眼才暴露（E2E 层无图片尺寸断言）→ review 只看单文件 diff 不查调用方实参（审查层）。修复 = 契约键行为回归（3 用例）+ image-adapter-aspect-contract.test.js 结构锁（扫源码断言解析表达式双键齐全，变异反证 3 用例变红）+ AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁。
 - **QM-1 打包启动测试的环境陷阱（operational）**：DSH 会话进程树带 ELECTRON_RUN_AS_NODE=1，打包 Electron 继承后以纯 Node 模式启动、立刻 exit 0 且零 stderr——形似「单实例锁让路」的假象。判据与修复：启动测试前 Remove-Item Env:ELECTRON_RUN_AS_NODE；辅以 ELECTRON_USER_DATA_DIR 隔离 userData 避免与其他会话的单实例锁竞争。另：worktree 内 electron-builder 只打包主进程不构建 renderer，需先 pnpm run build:vue，否则启动报 ERR_FILE_NOT_FOUND（主进程仍存活，别被「进程没死」骗过）。
+
+## 真实装配链是 mock 测试的盲区：断线只能靠「从容器一路取到 handler」的测试抓（fix-automation-ipc-wiring，2026-10-03）
+
+- **症状（用户实测）**：新建自动化任务报 `No handler registered for 'automation:create'`。CI 全绿（QG Static / Unit Tests / Desktop Shards / Coverage / Visual / E2E 全 PASS）。
+- **根因**：`phase1-context.js` 从未 `container.get('automationScheduler')`、也没导出进 `context.services` → `phase5-ipc.js` 解构出 undefined → `ipc-handlers/automation.js` 走「依赖缺失即静默 return」→ 零 handler 注册。服务文件、container 注册、assertRequired、phase5-ipc 传参全都「看着在位」，唯独中间取环断了。
+- **逃逸链**：单元层 `phase5-ipc.test.js`/`ipc-handlers.test.js` 全部 mock deps 或桩，绕过真实装配链，断线结构性测不到；集成层无「真容器装配后 handler 可调用」的测试；视觉/E2E 不覆盖该交互；审查层只看「改了哪些文件」，不核对「改过的文件是否真的进了提交」。
+- **正解**：① 补「从容器到 handler」的装配链锁（`automation-ipc-wiring.test.js`：结构锁锁 4 个接缝 + 行为锁真调 handler）；② handler 依赖缺失时**降级注册**而非静默 return —— 通道照常存在、返回 `reason=service-unavailable`，让断线在界面可读，而不是退化成 Electron 原生的 `No handler registered`（那句话里没有任何真正原因的线索）。
+- **判据（可复用）**：**凡是「A 注册服务、B 转发服务、C 消费服务」的三段式接线，mock 掉 A 的测试永远抓不到「B 忘了取」这类断线。** 接线类改动必须有一条「真实装配链」测试，或者让失败路径自己出声（降级注册 + 明确 reason），两者至少占其一。
+- **同场教训（文件丢失）**：该接线改动在上一轮 PR（#2792）里**从未提交**——多轮合并/收尾中丢失，而「`git status` 干净 + 文件在磁盘上」的假象掩盖了它。交付物清单必须在合并后逐个 `git ls-tree origin/main` 核对（与「01-docs 被 gitignore 静默吞掉」同族的静默失效）。
+
+## 写「防再犯锁」时，锁自己也会假绿：本日两次反证都当场抓出（fix-automation-ipc-wiring，2026-10-03）
+
+- **假绿一（PowerShell 逐行 `-replace`）**：跨行模式 `pattern\r\npattern` 在逐行数组上永远匹配不到（单行内没有换行符），变异根本没生效、测试照旧全绿——差点把「反证通过」误记成证据。正解：`Get-Content -Raw` 拿整串再替换，且替换后必须断言 `$mutated -ne $raw`，不等即当场 fail。
+- **假绿二（`git check-ignore` 对已跟踪文件恒返回未忽略）**：ignore 规则只作用于**未跟踪**路径。拿已跟踪的正式文档测「是否被忽略」，新旧两种规则下答案都是「否」⇒ 锁永远绿。正解：用**未跟踪的探测路径**（模拟「用户新写一份 PRD-xxx.md」的真实处境）去测。
+- **判据（可复用）**：AGENTS.md「反证纪律：把锁改成 no-op 必须立刻变红」之外，还要加一条——**反证时必须先证明变异真的生效了**（断言文件内容确实变了），否则「锁绿」只是「变异没打上」的假象。两次都是反证救的：反证绿 ≠ 锁有效，反证红 + 恢复绿才构成证据。
