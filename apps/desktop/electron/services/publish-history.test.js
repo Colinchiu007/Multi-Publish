@@ -187,12 +187,16 @@ describe("publish-history", () => {
     expect(stats).toHaveProperty("daily");
   });
 
-  it("success + failed = total", () => {
+  it("success + failed + unclassified = total", () => {
+    // 原断言是 `success + failed === total`，它把「本轮没有定论」（skipped / timeout / 缺 status）
+    // 一起算成成功或失败 —— 而那正是 getStats 用 `r.success !== false` 判成功时的必然结果。
+    // 活库里确实存在第三类（实测 skipped=13 / timeout=1），所以两类相加不等于总数才是正确行为。
     vi.resetModules();
     process.env.PH_TEST_DATA_DIR = testDir;
     const ph = require("../services/publish-history");
     const stats = ph.getStats();
-    expect(stats.success + stats.failed).toBe(stats.total);
+    expect(stats.success + stats.failed + stats.unclassified).toBe(stats.total);
+    expect(stats.success + stats.failed + stats.unclassified).toBeGreaterThanOrEqual(0);
   });
 
   it("按 owner_subject 隔离读取、单条查询和统计", () => {
@@ -272,5 +276,129 @@ describe("publish-history", () => {
     expect(result.total).toBe(0);
     expect(result.records).toEqual([]);
     try { fs.rmSync(emptyDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  // P2-6a：发布统计的终态口径。
+  // 缺陷是 `records.filter(r => r.success !== false)` —— 两个生产写入点
+  // （bootstrap/phase4-events.js 的 task:success / task:failed）**只写 `status`，从不写顶层 `success`**，
+  // 于是每条记录都被判成功。实测本机真数据 165 条：success=68 / failed=83 / skipped=13 / timeout=1，
+  // 顶层 `success` 字段存在数 = 0 ⇒ 界面长期显示 failed=0、成功率 100%，
+  // 且 Home.vue:195 那条「失败待办」永远不出现。
+  describe("getStats 终态口径（没有定论 ≠ 成功）", () => {
+    const statsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-stats-test-"));
+    function freshHistory () {
+      fs.rmSync(path.join(statsDir, "publish-history.jsonl"), { force: true });
+      vi.resetModules();
+      process.env.PH_TEST_DATA_DIR = statsDir;
+      return require("../services/publish-history");
+    }
+    afterAll(() => {
+      delete process.env.PH_TEST_DATA_DIR;
+      try { fs.rmSync(statsDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it("status=failed 必须计入 failed，不得被当成成功", () => {
+      const ph = freshHistory();
+      ph.addRecord({ platform: "douyin", title: "成", status: "success" });
+      ph.addRecord({ platform: "douyin", title: "败", status: "failed", error: "boom" });
+      const stats = ph.getStats();
+      expect(stats).toMatchObject({ total: 2, success: 1, failed: 1, unclassified: 0, successRate: 50 });
+    });
+
+    it("skipped / timeout / 缺 status 的记录既不算成功也不算失败，必须如实进 unclassified", () => {
+      // 活库里真有这些终态（publish-monitor 的回写路径），把它们并进 success 就是造假。
+      const ph = freshHistory();
+      ph.addRecord({ platform: "weibo", title: "a", status: "success" });
+      ph.addRecord({ platform: "weibo", title: "b", status: "skipped" });
+      ph.addRecord({ platform: "weibo", title: "c", status: "timeout" });
+      ph.addRecord({ platform: "weibo", title: "d" });
+      const stats = ph.getStats();
+      expect(stats).toMatchObject({ total: 4, success: 1, failed: 0, unclassified: 3 });
+      // 如实不变量：三类之和等于总数；旧断言「success + failed = total」正是把第三类吞进成功的化石
+      expect(stats.success + stats.failed + stats.unclassified).toBe(stats.total);
+      // 分母只算「有定论」的，不得因为存在无定论记录就把成功率压低或抹成 100%
+      expect(stats.successRate).toBe(100);
+    });
+
+    it("全无定论时成功率不得显示 100%（空分母不能当成全成功）", () => {
+      const ph = freshHistory();
+      ph.addRecord({ platform: "zhihu", title: "a", status: "skipped" });
+      const stats = ph.getStats();
+      expect(stats).toMatchObject({ total: 1, success: 0, failed: 0, unclassified: 1, successRate: 0 });
+    });
+
+    it("perPlatform 与 daily 必须和顶层同一判据（不得只有顶层是对的）", () => {
+      const ph = freshHistory();
+      const today = new Date().toISOString().slice(0, 10);
+      ph.addRecord({ platform: "kuaishou", title: "a", status: "success", timestamp: `${today}T00:00:00.000Z` });
+      ph.addRecord({ platform: "kuaishou", title: "b", status: "failed", timestamp: `${today}T00:00:00.000Z` });
+      ph.addRecord({ platform: "kuaishou", title: "c", status: "timeout", timestamp: `${today}T00:00:00.000Z` });
+      const stats = ph.getStats();
+      expect(stats.perPlatform.kuaishou).toEqual({ total: 3, success: 1, failed: 1, unclassified: 1 });
+      const day = stats.daily.find(d => d.date === today);
+      expect(day).toBeDefined();
+      expect(day.total).toBe(3);
+      expect(day.success).toBe(1);
+      expect(day.failed).toBe(1);
+      // 顶层与分平台/分日三处必须互相自洽，否则第四处漂移随时可以发生而不被发现
+      expect(stats.perPlatform.kuaishou.success).toBe(stats.success);
+      expect(day.success).toBe(stats.success);
+    });
+
+    it("接线守卫：源码里不得再出现「顶层 success 字段」判据", () => {
+      // 结构锁：判据只准有一份（按 status 分类）。留这条是因为同一个表达式在 getStats 里出现过三次，
+      // 只在顶层修好就等于没修——下一次有人在第四处照抄就悄悄回退。
+      // 必须先剥注释：本文件 §分类函数的注释里就**原样引用**了这个错误写法来解释为什么不能用它，
+      // 不剥的话守卫会把注释当成代码命中（本仓既有口径：注释里的字样不算声明）。
+      const src = fs.readFileSync(path.join(__dirname, "publish-history.js"), "utf8");
+      const codeOnly = src
+        .split(/\r?\n/)
+        .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .join("\n");
+      // 按**语义形态**禁，不按字面量禁。只写 `r.success !== false` 的话，改个变量名
+      // （record.success !== false）、换成 `!=` / `=== true`、或倒过来写成 `!.success`
+      // 都能整条绕过 —— 锁守的是文本而不是语义。这三种变体是外部评审（后端轴）指出的
+      // Critical，且实测都能骗过旧锁。
+      const SEMANTIC_RETURNS = [
+        [/\.\s*success\s*[!=]==?\s*(?:false|true)/, "按顶层 success 字段做布尔比较"],
+        [/!\s*[A-Za-z_$][\w$]*\.success\b/, "按顶层 success 字段取反判存在"],
+      ];
+      for (const [re, why] of SEMANTIC_RETURNS) {
+        const hit = codeOnly.match(re);
+        expect(hit, `publish-history.js 出现「${why}」写法：${hit && hit[0]} —— 终态判据只能读 status`).toBeNull();
+      }
+      // 2 = 1 处定义 + 1 处调用。三档统计（顶层 / perPlatform / daily）共用**同一次**分类结果，
+      // 所以调用点只有一处；出现第二处调用点＝有人绕开这个循环另算一份，要重新审。
+      expect(codeOnly.match(/classifyPublishStatus\s*\(/g) || []).toHaveLength(2);
+    });
+
+    it("孤儿孪生实现不得被任何源码接线（否则同一错判据会随第二份实现复活）", () => {
+      // 外部评审（前端轴）指出：上面那条结构锁只守**本文件**，所以「终态判据只有一份」
+      // 这句话此前只在单文件内成立 —— `packages/shared-utils/src/publish-history.js`
+      // 里还留着同一判据（实测 3 处），当前全仓零引用，因此它只是一颗未爆的雷：
+      // 谁 import 它，统计口径立刻分叉，而两侧各自的单测都会绿。
+      // 与其删它（跨包清理，另开 PR 说理由），先加一道**接线棘轮**：接线即红。
+      const { execFileSync } = require("child_process");
+      // 先取**真实仓库根**再搜：pathspec 是相对 cwd 解析的，而 vitest 的 cwd 是 apps/desktop，
+      // 直接给 `apps packages scripts` 会指向根本不存在的 apps/desktop/apps ⇒ git grep 返回 rc=1
+      // （"无命中"），被下面的空结果分支吞掉 ⇒ 棘轮恒绿。实测正是这样骗过了一个真实的接线者。
+      const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+      expect(root.length, "取不到仓库根 —— 无根的搜索结果是空集，不得当「零引用」用").toBeGreaterThan(3);
+      // 盲区自检：被禁的孪生文件必须真的在那个根下，否则"没人引用"只是因为"没有那个文件"。
+      expect(fs.existsSync(path.join(root.replace(/\\/g, "/"), "packages/shared-utils/src/publish-history.js")),
+        `孪生文件不在 ${root} 下：搜索域失效，本条判据不可信`).toBe(true);
+      let out; // 两条分支各自赋值，初值永不被读（no-useless-assignment）
+      try {
+        out = execFileSync("git", ["-C", root, "grep", "-l", "shared-utils/src/publish-history",
+          "--", "apps", "packages", "scripts", ":(exclude)*.md"], { encoding: "utf8" });
+      } catch (e) {
+        if (e.status === 1) out = ""; // git grep 无命中时 rc=1，属正常空结果
+        else throw e;
+      }
+      const importers = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+        .filter(f => !f.endsWith("shared-utils/src/publish-history.js")) // 孪生本体
+        .filter(f => !f.endsWith("electron/services/publish-history.test.js")); // 本文件的注释里有这个路径
+      expect(importers, `publish-history 出现第二份实现的接线者：${importers.join(",")} —— 终态判据必须留在唯一实现里`).toEqual([]);
+    });
   });
 });

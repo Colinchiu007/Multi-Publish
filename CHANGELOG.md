@@ -1,3 +1,24 @@
+# [未发布] fix(publish): P2-6a 发布统计按 status 定终态——失败不再被算成成功（2026-10-01，publish-stats-success-truth）
+
+### 修复
+
+- **看板「失败」卡恒为 0、「成功率」恒为 100%**：`getStats` 用 `records.filter(r => r.success !== false)` 判成功，而两个生产写入点（`bootstrap/phase4-events.js` 的 `task:success` / `task:failed`）只写 `status`、从不写顶层 `success` ⇒ 该判据对每一条都成立，它不是在判成功，是恒为真。判据与数据无关地稳定：两次相隔约两天、条数从 165 掉到 84 的独立测量里，顶层 `success` 字段存在数**都是 0**
+- 同一个错误表达式在原实现里被抄了三遍（顶层 / `perPlatform` / `daily`），只修顶层等于没修 ⇒ 收敛为唯一实现 `classifyPublishStatus`，三档共用**同一次**分类结果
+- 新增第三类 `unclassified`：`publish-monitor.js:43/73` 的回写路径确实产出 `skipped` / `timeout` 形态，「本轮没有定论」既不是成功也不是失败，并进任一侧都是在给用户造假数；不变量由 `success + failed + unclassified === total` 钉住
+- `successRate` 分母由 `total` 改为「有定论」（`success + failed`）：并进无定论会让成功率随监控回写量漂移；有定论为零时返回 0，而不是 100 或 `NaN`
+- **用户可见的行为恢复**：`Home.vue:195` 的「失败待办」此前因 `failed` 恒为 0 而永不出现，一个已实现的功能被上游口径整体废掉；本刀后恢复正常触发（无新增文案、无 DOM 改动）
+
+### 可诊断性
+
+- `dashboard:stats` 的现场日志原本打印 `stats?.published`，而 `getStats` 从不返回该键 ⇒ 一条恒为 `undefined` 的日志被当作排障依据读了很久。改为打印真有的 `total/success/failed/unclassified/rate`
+
+### 验证
+
+- 新增 5 条 + 消费面复跑：`publish-history.test.js` 23 passed；含 `ipc-handlers/publish.test.js` + `Dashboard.test.js` + `Home.test.js` 合跑 4 文件 94 passed（证明新增键不破坏任何现有读取）
+- 既有断言纠偏：`success + failed = total` 是**把缺陷钉成契约**的化石（它要求第三类不存在），改为如实的三类相加并写明原因
+- 变异反证两次，均按红因对账：把无定论并进成功 ⇒ 红 3（顶层 / 分日 / 分平台同抓）；分母改用 `total` ⇒ 红 1（`expected 25 to be 100`）
+- 结构锁自身被抓一次：不剥注释时，它把我解释「为什么不能用旧判据」的注释原句当成命中而恒红 ⇒ 判据改为先剥注释行再匹配（注释里的字样不算声明）
+- 明确不在本刀（已实测登记于 PRD §九）：Dashboard 同比角标是模板里的硬编码字面量（`+8.5%` / `+23%` / `-2.1%`，逐行读模板确认）；`tracked_content` 的 `publish_history_id` 与 `rewrite_history_id` 只读直查活库均为 NULL 69/69 ⇒ 发布历史表现列恒空；`performance_snapshot` 103 条全部 `source=auto` 且按 JOIN 实测 **100% 落在 kuaishou**，69 条 `tracked_content` 里仅 28 条被任意快照覆盖；`packages/shared-utils/src/publish-history.js` 是含同一判据的孤儿重复实现（全仓零引用）。改可见文案会漂视觉基线，须走 CI 同源基线流程，不与数据口径修复混作一次
 # [未发布] fix(publish): 发布页草稿在路由切换时丢失——工作区 router-view 加 keep-alive（publish-draft-keepalive，2026-10-03）
 
 ### 根因
