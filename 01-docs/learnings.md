@@ -1,3 +1,12 @@
+## Electron「打开网页」有两条通道：应用内标签必须走 page-manager，window.open 只是系统浏览器入口（publish-history-card-open-link，2026-10-03）
+
+- **拓扑事实**：主窗口 `window.js` 的 `setWindowOpenHandler` 把渲染层一切 `window.open(url,'_blank')` 转 `shell.openExternal`（**系统默认浏览器**），它不是「应用内新标签」通道。应用内顶部标签栏开网页的唯一正确通道是 `page-manager` → `tabStore.createTab({ url, platform, title })`（先例 `Collection.openCollection`）。要「应用内新标签」却写 `window.open`，用户会被踢出应用且无任何报错——这是最容易写反的一步。
+- **降级链要按 store 合同设计**：`tabStore.createTab` 内部 try/catch 吞掉桥异常并返回 `null`（**从不抛错**）。组件侧的正确降级是 `tabId ? 提示成功 : window.open(url,'_blank')`，`window.open` 由主进程 `isAllowedExternalUrl`（`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底——组件里再包一层 try/catch 等着 store 抛错是死代码；但保留一层 catch 防未来实现漂移是合理冗余。
+- **URL 判据按 sink 分两层，别合并也别只留一层**：渲染端绑定期用 `safeHttpUrl`（ESM 孪生，仅 http/https 前缀白名单，拒绝 `javascript:`/缺协议/协议相对/非字符串）；`window.open` fallback 靠主进程更严判据。任何渲染层新增 `window.open` 调用点必须登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`（登记锁双向断言：新点不在册⇒红，登记表里站点被删⇒也红）。
+- **卡片级点击用 closest 委托，不用逐个 @click.stop**：`event.target.closest('a, button, label, input, select, textarea, [role=tab]')` 命中即 return。逐个 stop 的写法让「将来新增的子元素」成为漏防点；委托把排除规则收敛在一处。批量管理模式（selectionMode）下整卡点击必须整体排除——复选框承载选择语义，整卡点击=误触面。
+- **测试层选择**：文件里既有用例已用 `vi.mock('@/stores/platforms')` 等规避 pinia 时，新增功能若在 setup 消费 `useTabStore()`，组件测试应按合同 mock `@/stores/tab`（`useTabStore: () => ({ createTab: mock })`）——给 mount 全局塞真实 pinia 会让 44 个既有用例集体红（getActivePinia 无 app 上下文）。store→桥→IPC 的集成面由 Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖，不重复。
+- **新环境工件（2026-10-03 记录）**：`feedback.test.js` 的 `fs.symlinkSync` 在 Windows 当前用户无「创建符号链接」权限时抛 `EPERM: operation not permitted, symlink`，该文件 1/5 失败、全量 suite 尾部报 1 failed。判定是否与本变更无关的口径：`git stash` 本改动后在干净 main 上重跑同文件，同红⇒环境性，不阻塞提交（CI Linux 不受影响）。
+
 ## 路由切换丢草稿：router-view 无 keep-alive 会重挂载页面组件销毁其局部状态；keep-alive 又要求把 query 预填挂到 onActivated（publish-draft-keepalive，2026-10-03）
 
 - **症状**：承接 #2764（切账号标签丢草稿已用 v-show 修）。另一条独立通路——在首页里点左侧菜单/模块导航离开「发布」页再回来，视频/标题/描述等草稿全空。
@@ -17185,3 +17194,18 @@ rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的�
 - **字段恒回退的第一性诊断（pitfall）**：某参数「看起来总不生效」时，沿调用链逐层 grep 该字段的**读点**（谁在消费）与**写点**（谁在传），找出键名不匹配的层。本案 aspect_ratio 在 stages/asset-generator 全程正确传递，到 agnes-image.js 断链——它只读 params.ratio（Agnes API 请求体字段名被误用作入参名），不匹配即静默回退默认 16:9。引入点 commit c9df8bf5（2026-07-15 新增 9 供应商 Adapter），封装请求体正确、入参名照抄请求体字段是失误根源。**边界：凡「适配器入参 → 供应商请求体」存在改名的层都适用**；同名透传层不受此限。
 - **静默断链的测试逃逸原因（pattern）**：单元测试只断言「传入键 → 请求体」的回显（当时用 ratio 键测），等于**用实现定义测试**，断链键永远测不到；逃逸链 = 无契约键行为测试（单测层）→ 适配器边界无统一契约锁（集成层）→ 视觉黑边肉眼才暴露（E2E 层无图片尺寸断言）→ review 只看单文件 diff 不查调用方实参（审查层）。修复 = 契约键行为回归（3 用例）+ image-adapter-aspect-contract.test.js 结构锁（扫源码断言解析表达式双键齐全，变异反证 3 用例变红）+ AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁。
 - **QM-1 打包启动测试的环境陷阱（operational）**：DSH 会话进程树带 ELECTRON_RUN_AS_NODE=1，打包 Electron 继承后以纯 Node 模式启动、立刻 exit 0 且零 stderr——形似「单实例锁让路」的假象。判据与修复：启动测试前 Remove-Item Env:ELECTRON_RUN_AS_NODE；辅以 ELECTRON_USER_DATA_DIR 隔离 userData 避免与其他会话的单实例锁竞争。另：worktree 内 electron-builder 只打包主进程不构建 renderer，需先 pnpm run build:vue，否则启动报 ERR_FILE_NOT_FOUND（主进程仍存活，别被「进程没死」骗过）。
+
+## 真实装配链是 mock 测试的盲区：断线只能靠「从容器一路取到 handler」的测试抓（fix-automation-ipc-wiring，2026-10-03）
+
+- **症状（用户实测）**：新建自动化任务报 `No handler registered for 'automation:create'`。CI 全绿（QG Static / Unit Tests / Desktop Shards / Coverage / Visual / E2E 全 PASS）。
+- **根因**：`phase1-context.js` 从未 `container.get('automationScheduler')`、也没导出进 `context.services` → `phase5-ipc.js` 解构出 undefined → `ipc-handlers/automation.js` 走「依赖缺失即静默 return」→ 零 handler 注册。服务文件、container 注册、assertRequired、phase5-ipc 传参全都「看着在位」，唯独中间取环断了。
+- **逃逸链**：单元层 `phase5-ipc.test.js`/`ipc-handlers.test.js` 全部 mock deps 或桩，绕过真实装配链，断线结构性测不到；集成层无「真容器装配后 handler 可调用」的测试；视觉/E2E 不覆盖该交互；审查层只看「改了哪些文件」，不核对「改过的文件是否真的进了提交」。
+- **正解**：① 补「从容器到 handler」的装配链锁（`automation-ipc-wiring.test.js`：结构锁锁 4 个接缝 + 行为锁真调 handler）；② handler 依赖缺失时**降级注册**而非静默 return —— 通道照常存在、返回 `reason=service-unavailable`，让断线在界面可读，而不是退化成 Electron 原生的 `No handler registered`（那句话里没有任何真正原因的线索）。
+- **判据（可复用）**：**凡是「A 注册服务、B 转发服务、C 消费服务」的三段式接线，mock 掉 A 的测试永远抓不到「B 忘了取」这类断线。** 接线类改动必须有一条「真实装配链」测试，或者让失败路径自己出声（降级注册 + 明确 reason），两者至少占其一。
+- **同场教训（文件丢失）**：该接线改动在上一轮 PR（#2792）里**从未提交**——多轮合并/收尾中丢失，而「`git status` 干净 + 文件在磁盘上」的假象掩盖了它。交付物清单必须在合并后逐个 `git ls-tree origin/main` 核对（与「01-docs 被 gitignore 静默吞掉」同族的静默失效）。
+
+## 写「防再犯锁」时，锁自己也会假绿：本日两次反证都当场抓出（fix-automation-ipc-wiring，2026-10-03）
+
+- **假绿一（PowerShell 逐行 `-replace`）**：跨行模式 `pattern\r\npattern` 在逐行数组上永远匹配不到（单行内没有换行符），变异根本没生效、测试照旧全绿——差点把「反证通过」误记成证据。正解：`Get-Content -Raw` 拿整串再替换，且替换后必须断言 `$mutated -ne $raw`，不等即当场 fail。
+- **假绿二（`git check-ignore` 对已跟踪文件恒返回未忽略）**：ignore 规则只作用于**未跟踪**路径。拿已跟踪的正式文档测「是否被忽略」，新旧两种规则下答案都是「否」⇒ 锁永远绿。正解：用**未跟踪的探测路径**（模拟「用户新写一份 PRD-xxx.md」的真实处境）去测。
+- **判据（可复用）**：AGENTS.md「反证纪律：把锁改成 no-op 必须立刻变红」之外，还要加一条——**反证时必须先证明变异真的生效了**（断言文件内容确实变了），否则「锁绿」只是「变异没打上」的假象。两次都是反证救的：反证绿 ≠ 锁有效，反证红 + 恢复绿才构成证据。

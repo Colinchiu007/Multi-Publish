@@ -146,16 +146,40 @@ async function publishToutiao (p) {
 }
 
 /**
- * 页面 XHR 定时发布（2026-10-03 真机验证 code=0）：
- * 在页面上下文里【实时读取编辑器内容】构造 body（含页面自动保存产生的 pgc_id/title_id
- * 由服务端在 publish 时分配，body 需带上一次保存返回的 pgc_id —— 从页面内存读），
- * 改 save=0 + timer_status=1（+1 分钟），用【页面自身的 XMLHttpRequest】同步发出。
- * 关键：页面 XHR 继承页面全部上下文（SDK 注入 tt-anti-token），页面内 fetch 则会被拒。
+ * 页面 XHR 真发布（2026-10-03 真机验证：save=1 → code=0「提交成功」，后台作品列表可见）：
+ * 在页面上下文里【实时读取编辑器内容】构造 body（含页面自动保存产生的 pgc_id/title_id），
+ * save=1（真发布语义；save=0 实为存草稿——2026-10-03 后台对照定案），
+ * 用【页面自身的 XMLHttpRequest】同步发出 —— 继承页面全部上下文（SDK 注入的 tt-anti-token 等）。
  * @param {{win: any, title?: string, log: any}} p
  * @returns {Promise<{success: boolean, platform: string, pgcId?: string, error?: string}>}
  */
 async function publishViaPageXhr ({ win, title, log }) {
   try {
+    // hook 必须在页面加载后重装（每次导航重置 JS 上下文）；再触发一次 input 促发自动保存
+    const setup = `(function(){
+      window.__lastSaveBody=''; window.__titleId=''
+      var oo=XMLHttpRequest.prototype.open, os=XMLHttpRequest.prototype.send
+      XMLHttpRequest.prototype.open=function(m,u){this.__u=String(u);return oo.apply(this,arguments)}
+      XMLHttpRequest.prototype.send=function(b){
+        try{ var u=this.__u||''
+          if(u.indexOf('article/publish')>=0&&b){
+            var tb=String(b).match(/title_id=([^&]+)/); if(tb) window.__titleId=tb[1]
+            window.__lastSaveBody=String(b)
+          }
+        }catch(e){}
+        return os.apply(this,arguments)
+      }
+      var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
+      if(ta){ var s=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set
+        s.call(ta, ta.value); ta.dispatchEvent(new Event('input',{bubbles:true})) }
+      return 'SETUP_OK'
+    })()`
+    await win.webContents.executeJavaScript(setup)
+    // 等页面自动保存（最长 15s）
+    for (let i = 0; i < 8; i++) {
+      if (await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) break
+      await new Promise((r) => setTimeout(r, 2000))
+    }
     const js = `(function(){
       // 编辑器实时内容
       var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
@@ -165,9 +189,6 @@ async function publishViaPageXhr ({ win, title, log }) {
       if(!title&&!html) return JSON.stringify({ok:false,reason:'EMPTY_EDITOR'})
       // pgc_id：页面自动保存链路会在内存里持有；从最近一次 publish 响应缓存读
       var pgc=window.__pgcIdCache||''
-      var d=new Date(Date.now()+60*1000)
-      function p2(n){return (n<10?'0':'')+n}
-      var tt=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+' '+p2(d.getHours())+':'+p2(d.getMinutes())
       var P={}
       P.source=29
       P.extra=encodeURIComponent(JSON.stringify({content_source:100000000402,content_word_cnt:html.replace(/<[^>]+>/g,'').length,is_multi_title:0,sub_titles:[],gd_ext:{entrance:'',from_page:'publisher_mp',enter_from:'PC',device_platform:'mp',is_message:0},tuwen_wtt_transfer_switch:'1'}))
@@ -177,10 +198,10 @@ async function publishViaPageXhr ({ win, title, log }) {
       P.title_id=window.__titleIdCache||''
       P.mp_editor_stat='{}'
       P.is_refute_rumor=0
-      P.save=0
+      P.save=1
       P.entrance=''
-      P.timer_status=1
-      P.timer_time=encodeURIComponent(tt)
+      P.timer_status=0
+      P.timer_time=''
       P.educluecard=''
       P.draft_form_data=encodeURIComponent(JSON.stringify({coverType:2}))
       P.pgc_feed_covers=encodeURIComponent('[]')

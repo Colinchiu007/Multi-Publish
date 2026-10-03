@@ -185,6 +185,10 @@ function extractContext(container) {
   const executionRecorder = container.get('executionRecorder')
   const filmEngineeringService = container.get('filmEngineeringService')
   const fullAutoPipeline = container.get('fullAutoPipeline')
+  // 自动化任务调度器（2026-10-03 修复）：必须在此取到并导出进 context.services。
+  // 缺失 → phase5-ipc 解构出 undefined → ipc-handlers/automation.js 静默 return
+  // → 运行时报 No handler registered for 'automation:create'。
+  const automationScheduler = container.get('automationScheduler')
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
@@ -481,6 +485,7 @@ function extractContext(container) {
       executionRecorder,
       filmEngineeringService,
       fullAutoPipeline,
+      automationScheduler,
       story2videoProjectService,
       promptEvalService,
       signalCollector,
