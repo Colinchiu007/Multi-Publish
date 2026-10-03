@@ -183,6 +183,7 @@ export default {
     publishing: 'Publishing...',
     success: 'Published successfully',
     failed: 'Publish failed',
+    failureDraftSaved: 'Publish failed: your content was saved to Drafts automatically. Restore it from Drafts and retry.',
     api: {
       modeApi: 'Direct API',
       modeDom: 'Browser RPA',
