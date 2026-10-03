@@ -17235,3 +17235,36 @@ rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的�
 - **假绿一（PowerShell 逐行 `-replace`）**：跨行模式 `pattern\r\npattern` 在逐行数组上永远匹配不到（单行内没有换行符），变异根本没生效、测试照旧全绿——差点把「反证通过」误记成证据。正解：`Get-Content -Raw` 拿整串再替换，且替换后必须断言 `$mutated -ne $raw`，不等即当场 fail。
 - **假绿二（`git check-ignore` 对已跟踪文件恒返回未忽略）**：ignore 规则只作用于**未跟踪**路径。拿已跟踪的正式文档测「是否被忽略」，新旧两种规则下答案都是「否」⇒ 锁永远绿。正解：用**未跟踪的探测路径**（模拟「用户新写一份 PRD-xxx.md」的真实处境）去测。
 - **判据（可复用）**：AGENTS.md「反证纪律：把锁改成 no-op 必须立刻变红」之外，还要加一条——**反证时必须先证明变异真的生效了**（断言文件内容确实变了），否则「锁绿」只是「变异没打上」的假象。两次都是反证救的：反证绿 ≠ 锁有效，反证红 + 恢复绿才构成证据。
+
+## 头条发布真机打通——终极根因是 React 值变化感知（三层递进复盘）（toutiao-shipped-react-bump，2026-10-03）
+
+**里程碑**：头条图文发布**应用全流程真机成功**——
+`[toutiao-xhr] code=0 msg=提交成功 pgcId=7692399425603387955`（PR #2837 合入 main `0b8dd06e`）。
+
+### 用户报障的 95% 卡死，三层递进的真因
+
+1. **hook 时机**（§16.8.12）：XHR hook 装在 DOM 流程前，但 `_publish_generic` 内部
+   navigate 重置 JS 上下文 ⇒ hook 失效。修：preFill 阶段装（编辑器加载完成即挂钩）。
+2. **引用残留 + 字段缺失**（§16.8.13）：移除定时逻辑时 `timer:tt` 残留 ⇒ 页面内
+   ReferenceError 被吞；实时构造路径缺 pgc_id ⇒ 7050。修：改回【捕获→save=1→原样重放】。
+3. **React 值变化感知**（§16.8.14，终极）：ProseMirror 是 React 受控组件，
+   **只在值变化时才自动保存**。应用 RPA 填充后（恢复草稿态）React 未感知变化 ⇒
+   整个会话零 publish 请求 ⇒ hook 恒空。修：兜底时标题改为新值（原值+时间戳后缀）。
+
+### 方法论（最有价值的一条）
+
+**"在真实失败环境里做对照实验"**：把诊断脚本在应用内同页面同状态下完整跑一遍
+（diag-toutiao-replica-in-app.js），它成功了——于是差异只剩【填的值是新是旧】这一项。
+比读代码猜测快十倍。
+
+### 落地架构（toutiao-direct-bridge.js）
+
+```
+preFill: installToutiaoSaveHook（编辑器加载即装 hook，全程捕获）
+DOM 流程失败(verification timeout) →
+  兜底：标题新值促发(React 感知) → 轮询捕获 body → save=1 原样重放 → code=0
+  失败 → Node 直连（第三层）
+```
+
+**一句话**：*受控组件的"内容在 DOM 里"不等于"进了 React state"——验证方式是
+看平台自己的保存请求有没有发出，而不是看 innerText。*
