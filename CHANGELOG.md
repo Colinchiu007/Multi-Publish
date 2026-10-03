@@ -14,6 +14,24 @@
 - 预防措施：AGENTS.md QM-2 新增「后处理结构不变量」门禁条目（含必跑测试清单）；learnings 置顶「文本重组类后处理必须先定义结构不变量」。
 - 专项 PRD（六维度详写）：`01-docs/PRD-REWRITE-PARAGRAPH-PRESERVE-2026-10-03.md`；引擎主 PRD 追加 §十四。
 
+# [未发布] fix(rewrite): 自动改写入口完成后直接定位改写结果区（2026-10-09，fix-rewrite-jump-focus）
+
+### 根因
+- 热门选题【创作文案】跳转 `/rewrite?topic=` 后页面**自动开始改写**，但视口停在第一屏（输入区 + 配置区）；改写完成时结果卡片在页面下方，用户不知道「已经改完了」，误以为只是带入了文案输入内容——状态已完成、感知却是初始态。
+- 文案库（采集页）【改写】交接入口（`/rewrite?from=collection`，sessionStorage 载荷读后即焚）同样是「跳转即自动改写」，存在同一认知断层。
+
+### 修复（改写页单点收敛）
+- `RewriteView.vue` 新增非响应式标志 `autoFocusResult`：挂载期识别「自动改写入口」置位——`route.query.topic` 非空，或 `from=collection` 交接经 `consumeLibraryHandoff` 实际取到有效载荷；手动进入、`titleHint` 预填（不自动改写）、无效交接载荷一律不置位。
+- 新增 `focusRewriteResult()`：`startRewrite` 成功分支调用（结果/标题/元信息赋值完成后），`await nextTick()` 等 `v-if` 结果卡片挂载后经模板 ref `rewriteResultCardEl` 取元素，`scrollIntoView({ behavior: 'smooth', block: 'start' })`；与 ResultView.vue 滚动先例同模式。
+- 判据收敛在改写页内部而非调用方加参数：未来新增自动改写入口（只要走 topic/交接语义）零调用方改动。
+- 不滚动的场景（防过度滚动）：手动点击「开始改写」（用户本就在看着页面）、改写失败（错误横幅 `.rewrite-error` 在结果卡片上方的配置卡内，首屏可见；且失败时结果卡片 `v-if="rewriteResult"` 不渲染、目标不存在）。
+- 模板 ref 而非 `document.querySelector`：@vue/test-utils 默认挂载到游离 DOM，全局查询拿不到元素；ref 引用对生产与测试环境都成立。
+
+### 验证
+- TDD 先红后绿：`RewriteView.test.js` 新增 describe「自动改写入口完成后定位结果区」5 例——topic 成功滚动（断言 spy this 指向结果卡片元素 + smooth/start 参数）、collection 交接成功滚动、手动改写不滚、titleHint 入口不滚、改写失败不滚。
+- 反证（变异测试）：① 摘掉成功分支 `focusRewriteResult()` 调用 → 前 2 条真红；② 摘掉 `autoFocusResult` 条件守卫 → 手动/titleHint 2 条真红（失败用例由 `v-if` 结构天然保护：卡片不渲染、el 为 null 不滚）。
+- 回归：RewriteView 83 例 + HotTopics 42 例 + Collection 105 例共 230 例全绿（调用方零改动）。
+
 # [未发布] fix(publish): 发布失败自动保存草稿到草稿箱 + 内容指纹防重复（2026-10-09，publish-fail-draft-guard）
 
 ### 根因
