@@ -238,7 +238,7 @@
                 @change="toggleZhihuFavItem(it)"
               />
               <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="it.title || it.url">{{ it.title || it.url }}</span>
-              <span class="cohere-tag" style="font-size:11px">{{ zhihuKindLabel(it.kind) }}</span>
+              <span class="cohere-tag" style="font-size:var(--font-size-xs)">{{ zhihuKindLabel(it.kind) }}</span>
               <span style="color:var(--color-text-secondary)">{{ formatFavTime(it.favTime) }}</span>
               <span v-if="it.collected" style="color:var(--color-text-secondary)">· {{ $t('collection.zhihuFav.markCollected') }}</span>
             </div>
@@ -278,10 +278,10 @@
           <div v-if="zhihuFavSummary" class="col-result-meta" data-testid="zhihu-fav-summary" style="margin-top:4px">
             {{ zhihuFavSummary }}
           </div>
-          <button v-if="zhihuFavProgressLines.length" class="cohere-btn-secondary" style="margin-top:6px;font-size:12px" @click="zhihuFavDetailOpen = !zhihuFavDetailOpen">
+          <button v-if="zhihuFavProgressLines.length" class="cohere-btn-secondary" style="margin-top:6px;font-size:var(--font-size-xs)" @click="zhihuFavDetailOpen = !zhihuFavDetailOpen">
             {{ zhihuFavDetailOpen ? $t('collection.zhihuFavlist.collapseDetail') : $t('collection.zhihuFavlist.expandDetail') }}（{{ zhihuFavProgressLines.length }}）
           </button>
-          <div v-if="zhihuFavDetailOpen" style="margin-top:6px;max-height:200px;overflow-y:auto;font-size:12px">
+          <div v-if="zhihuFavDetailOpen" style="margin-top:6px;max-height:200px;overflow-y:auto;font-size:var(--font-size-xs)">
             <div v-for="(line, i) in zhihuFavProgressLines" :key="i" style="padding:2px 0">
               {{ line }}
             </div>
@@ -320,10 +320,10 @@
           <span style="font-size: var(--font-size-sm)">{{ $t('collection.batch.selectedCount', { count: String(batch.selectedCount.value) }) }}</span>
           <!-- 图文平台/账号（发布图文用；按内容形态预筛） -->
           <template v-if="batchPlatformOptions.length">
-            <select v-model="batchPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px" data-testid="batch-platform-scope">
+            <select v-model="batchPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:var(--font-size-xs)" data-testid="batch-platform-scope">
               <option v-for="p in batchPlatformOptions" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
-            <label v-for="acc in batchAccountOptions" :key="acc.id" style="display:flex;align-items:center;gap:3px;font-size:12px">
+            <label v-for="acc in batchAccountOptions" :key="acc.id" style="display:flex;align-items:center;gap:3px;font-size:var(--font-size-xs)">
               <input
                 type="checkbox"
                 :checked="batch.isBatchAccountSelected('imageText', batchPlatformScope, acc.id)"
@@ -340,11 +340,11 @@
         </div>
         <!-- 视频平台/账号（仅本批有产物时显示；发布视频用） -->
         <div v-if="batch.selectedCount.value > 0 && batch.batchVideoPool.value.length && batchVideoPlatformOptions.length" style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap;margin:0 0 8px;padding:8px 12px;border:1px dashed var(--border);border-radius:8px">
-          <span style="font-size:12px;color:var(--color-text-secondary)">{{ $t('collection.batch.videoPlatformLabel') }}</span>
-          <select v-model="batchVideoPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px" data-testid="batch-video-platform-scope">
+          <span style="font-size:var(--font-size-xs);color:var(--color-text-secondary)">{{ $t('collection.batch.videoPlatformLabel') }}</span>
+          <select v-model="batchVideoPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:var(--font-size-xs)" data-testid="batch-video-platform-scope">
             <option v-for="p in batchVideoPlatformOptions" :key="p.id" :value="p.id">{{ p.label }}</option>
           </select>
-          <label v-for="acc in batchVideoAccountOptions" :key="'v' + acc.id" style="display:flex;align-items:center;gap:3px;font-size:12px">
+          <label v-for="acc in batchVideoAccountOptions" :key="'v' + acc.id" style="display:flex;align-items:center;gap:3px;font-size:var(--font-size-xs)">
             <input
               type="checkbox"
               :checked="batch.isBatchAccountSelected('video', batchVideoPlatformScope, acc.id)"
@@ -353,7 +353,7 @@
             />{{ acc.name || acc.id }}
           </label>
         </div>
-        <div v-if="batch.batchVideoPool.value.length" style="font-size:12px;color:var(--color-text-secondary);margin:4px 0" data-testid="batch-video-pool">
+        <div v-if="batch.batchVideoPool.value.length" style="font-size:var(--font-size-xs);color:var(--color-text-secondary);margin:4px 0" data-testid="batch-video-pool">
           {{ $t('collection.batch.videoPoolNote', { count: String(batch.batchVideoPool.value.length) }) }}
         </div>
         <div class="cohere-card-grid">
@@ -375,9 +375,9 @@
                   <template v-if="item.mediaType === 'video' && item.platform && PLATFORM_KEYS.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
                 </div>
                 <!-- 改写黑盒接通（C3b/D2）：改写结果可见 -->
-                <div v-if="item.rewriteFailed" style="font-size:11px;color:#e6a23c;margin-top:2px">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}</div>
-                <div v-else-if="item.rewrittenContent" style="font-size:11px;color:var(--color-text-secondary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
-                <div v-if="item.imageFallbacks && item.imageFallbacks.length" style="font-size:11px;color:var(--color-text-secondary)">{{ $t('collection.zhihuFav.imageFallbackBadge', { count: String(item.imageFallbacks.length) }) }}</div>
+                <div v-if="item.rewriteFailed" style="font-size:var(--font-size-xs);color:#e6a23c;margin-top:2px">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}</div>
+                <div v-else-if="item.rewrittenContent" style="font-size:var(--font-size-xs);color:var(--color-text-secondary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
+                <div v-if="item.imageFallbacks && item.imageFallbacks.length" style="font-size:var(--font-size-xs);color:var(--color-text-secondary)">{{ $t('collection.zhihuFav.imageFallbackBadge', { count: String(item.imageFallbacks.length) }) }}</div>
               </div>
             </div>
             <div class="card-actions">
