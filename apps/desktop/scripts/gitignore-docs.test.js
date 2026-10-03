@@ -38,17 +38,21 @@ function isIgnored (relPath) {
 }
 
 test('正式文档不再被忽略（历史陷阱回归：普通 git add 必须能进）', () => {
-  const official = [
-    '01-docs/PRD.md',
-    '01-docs/learnings.md',
-    '01-docs/PRD-AUTOMATION-CONTENT-CATEGORY-2026-10-03.md',
-    '01-docs/AUTOMATION-CONTENT-CATEGORY-USAGE-2026-10-03.md',
-    '01-docs/PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20.md',
-    '01-docs/DESIGN.md',
+  // ⚠️ 判据坑（本锁第一版就栽在这）：git check-ignore 对「已跟踪文件」恒返回
+  // 「未忽略」—— ignore 规则只作用于未跟踪路径。拿已跟踪的正式文档去测，
+  // 新旧两种规则下答案都是「否」⇒ 锁永远绿，反证时当场抓出（见 learnings）。
+  // 正确做法：用「用户新写一份文档」的未跟踪探测名，这才是 add 时的真实处境。
+  const newDocs = [
+    '01-docs/PRD-SOME-NEW-FEATURE-2026-99-99.md',   // 模拟新增专项 PRD
+    '01-docs/AUTOMATION-USAGE-SOME-FEATURE.md',      // 模拟新增使用说明
+    '01-docs/PRD-NEW.md',
+    '01-docs/learnings-2026-99-99.md',               // 模拟新增 learnings
   ]
-  for (const p of official) {
-    assert.ok(!isIgnored(p), `${p} 不应被忽略（否则普通 git add 会静默跳过它）`)
+  for (const p of newDocs) {
+    assert.ok(!isIgnored(p), `${p}（未跟踪新文档）不应被忽略 —— 否则普通 git add 会静默跳过它`)
   }
+  // 已跟踪主文档不被误删出库（ignore 不影响已跟踪文件，但删了规则也救不回）
+  assert.ok(!isIgnored('01-docs/PRD.md'))
 })
 
 test('本地交付产物仍被忽略（不把临时报告冲进版本库）', () => {
