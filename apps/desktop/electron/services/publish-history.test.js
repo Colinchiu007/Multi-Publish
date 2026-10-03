@@ -187,12 +187,16 @@ describe("publish-history", () => {
     expect(stats).toHaveProperty("daily");
   });
 
-  it("success + failed = total", () => {
+  it("success + failed + unclassified = total", () => {
+    // 原断言是 `success + failed === total`，它把「本轮没有定论」（skipped / timeout / 缺 status）
+    // 一起算成成功或失败 —— 而那正是 getStats 用 `r.success !== false` 判成功时的必然结果。
+    // 活库里确实存在第三类（实测 skipped=13 / timeout=1），所以两类相加不等于总数才是正确行为。
     vi.resetModules();
     process.env.PH_TEST_DATA_DIR = testDir;
     const ph = require("../services/publish-history");
     const stats = ph.getStats();
-    expect(stats.success + stats.failed).toBe(stats.total);
+    expect(stats.success + stats.failed + stats.unclassified).toBe(stats.total);
+    expect(stats.success + stats.failed + stats.unclassified).toBeGreaterThanOrEqual(0);
   });
 
   it("按 owner_subject 隔离读取、单条查询和统计", () => {
@@ -272,5 +276,89 @@ describe("publish-history", () => {
     expect(result.total).toBe(0);
     expect(result.records).toEqual([]);
     try { fs.rmSync(emptyDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  // P2-6a：发布统计的终态口径。
+  // 缺陷是 `records.filter(r => r.success !== false)` —— 两个生产写入点
+  // （bootstrap/phase4-events.js 的 task:success / task:failed）**只写 `status`，从不写顶层 `success`**，
+  // 于是每条记录都被判成功。实测本机真数据 165 条：success=68 / failed=83 / skipped=13 / timeout=1，
+  // 顶层 `success` 字段存在数 = 0 ⇒ 界面长期显示 failed=0、成功率 100%，
+  // 且 Home.vue:195 那条「失败待办」永远不出现。
+  describe("getStats 终态口径（没有定论 ≠ 成功）", () => {
+    const statsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-stats-test-"));
+    function freshHistory () {
+      fs.rmSync(path.join(statsDir, "publish-history.jsonl"), { force: true });
+      vi.resetModules();
+      process.env.PH_TEST_DATA_DIR = statsDir;
+      return require("../services/publish-history");
+    }
+    afterAll(() => {
+      delete process.env.PH_TEST_DATA_DIR;
+      try { fs.rmSync(statsDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it("status=failed 必须计入 failed，不得被当成成功", () => {
+      const ph = freshHistory();
+      ph.addRecord({ platform: "douyin", title: "成", status: "success" });
+      ph.addRecord({ platform: "douyin", title: "败", status: "failed", error: "boom" });
+      const stats = ph.getStats();
+      expect(stats).toMatchObject({ total: 2, success: 1, failed: 1, unclassified: 0, successRate: 50 });
+    });
+
+    it("skipped / timeout / 缺 status 的记录既不算成功也不算失败，必须如实进 unclassified", () => {
+      // 活库里真有这些终态（publish-monitor 的回写路径），把它们并进 success 就是造假。
+      const ph = freshHistory();
+      ph.addRecord({ platform: "weibo", title: "a", status: "success" });
+      ph.addRecord({ platform: "weibo", title: "b", status: "skipped" });
+      ph.addRecord({ platform: "weibo", title: "c", status: "timeout" });
+      ph.addRecord({ platform: "weibo", title: "d" });
+      const stats = ph.getStats();
+      expect(stats).toMatchObject({ total: 4, success: 1, failed: 0, unclassified: 3 });
+      // 如实不变量：三类之和等于总数；旧断言「success + failed = total」正是把第三类吞进成功的化石
+      expect(stats.success + stats.failed + stats.unclassified).toBe(stats.total);
+      // 分母只算「有定论」的，不得因为存在无定论记录就把成功率压低或抹成 100%
+      expect(stats.successRate).toBe(100);
+    });
+
+    it("全无定论时成功率不得显示 100%（空分母不能当成全成功）", () => {
+      const ph = freshHistory();
+      ph.addRecord({ platform: "zhihu", title: "a", status: "skipped" });
+      const stats = ph.getStats();
+      expect(stats).toMatchObject({ total: 1, success: 0, failed: 0, unclassified: 1, successRate: 0 });
+    });
+
+    it("perPlatform 与 daily 必须和顶层同一判据（不得只有顶层是对的）", () => {
+      const ph = freshHistory();
+      const today = new Date().toISOString().slice(0, 10);
+      ph.addRecord({ platform: "kuaishou", title: "a", status: "success", timestamp: `${today}T00:00:00.000Z` });
+      ph.addRecord({ platform: "kuaishou", title: "b", status: "failed", timestamp: `${today}T00:00:00.000Z` });
+      ph.addRecord({ platform: "kuaishou", title: "c", status: "timeout", timestamp: `${today}T00:00:00.000Z` });
+      const stats = ph.getStats();
+      expect(stats.perPlatform.kuaishou).toEqual({ total: 3, success: 1, failed: 1, unclassified: 1 });
+      const day = stats.daily.find(d => d.date === today);
+      expect(day).toBeDefined();
+      expect(day.total).toBe(3);
+      expect(day.success).toBe(1);
+      expect(day.failed).toBe(1);
+      // 顶层与分平台/分日三处必须互相自洽，否则第四处漂移随时可以发生而不被发现
+      expect(stats.perPlatform.kuaishou.success).toBe(stats.success);
+      expect(day.success).toBe(stats.success);
+    });
+
+    it("接线守卫：源码里不得再出现「顶层 success 字段」判据", () => {
+      // 结构锁：判据只准有一份（按 status 分类）。留这条是因为同一个表达式在 getStats 里出现过三次，
+      // 只在顶层修好就等于没修——下一次有人在第四处照抄就悄悄回退。
+      // 必须先剥注释：本文件 §分类函数的注释里就**原样引用**了这个错误写法来解释为什么不能用它，
+      // 不剥的话守卫会把注释当成代码命中（本仓既有口径：注释里的字样不算声明）。
+      const src = fs.readFileSync(path.join(__dirname, "publish-history.js"), "utf8");
+      const codeOnly = src
+        .split(/\r?\n/)
+        .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .join("\n");
+      expect(codeOnly.includes("r.success !== false"), "publish-history.js 仍用顶层 success 字段判成功").toBe(false);
+      // 2 = 1 处定义 + 1 处调用。三档统计（顶层 / perPlatform / daily）现在共用**同一次**分类结果，
+      // 所以调用点只有一处；若将来又出现第二处调用点，说明有人绕开了这个循环另算一份，要重新审。
+      expect(codeOnly.match(/classifyPublishStatus\s*\(/g) || []).toHaveLength(2);
+    });
   });
 });
