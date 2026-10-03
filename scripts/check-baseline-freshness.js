@@ -122,7 +122,7 @@ function main (argv = process.argv.slice(2)) {
   const maxDriftPx = Number(get('max-drift-px', '0'));
   const partial = argv.includes('--partial');
   if (!rendersDir || !fs.existsSync(rendersDir)) {
-    console.error('用法：node scripts/check-baseline-freshness.js --renders=<CI screenshots 目录> [--baselines=...] [--max-drift-px=0]');
+    console.error('用法：node scripts/check-baseline-freshness.js --renders=<CI screenshots 目录> [--baselines=...] [--max-drift-px=0] [--partial]');
     console.error('缺 --renders 时无法判定（不得默认通过）。');
     return 1;
   }
