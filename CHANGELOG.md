@@ -14,7 +14,6 @@
 - 回归：`bootstrap.test.js`、`store-owner-isolation.test.js`、`usePublishDrafts.test.js`、`Publish.test.js`、`preload.test.js`、`publisher.test.js`、`publish-progress-events.test.js`、`publishProgress.test.js`、`PublishProgressPanel.test.js`、`publish-history.test.js` 共 900+ 用例全绿；`check-locale-sync` pair PASS + CJK 基线 PASS；eslint 0 error（store.js 2 处 warning 为 HEAD 既有）。
 - preload 零改动（复用既有 `draftSave`/`onProgress` 通道），无需重打包 bundle。
 
-# [未发布] style(desktop): 视频任务详情页的「← 返回」改成与同流程一致的描边胶囊，箭头拆成独立装饰字形修掉基线错位（2026-10-03，result-view-back-btn-style）
 
 ### 根因
 - `ResultView.vue` 的返回按钮写成 `← {{ 文案 }}` —— 箭头与文字是**同一个文本节点里的字面空格拼接**，两者各按自身字体度量参与行内排版：`←`（U+2190）在本机的中文回退字体下字身偏小、基线偏高，于是视觉上就是"箭头和返回两个字没对齐"。
