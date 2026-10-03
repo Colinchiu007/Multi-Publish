@@ -78,5 +78,10 @@
     "reason": "本 PR 自身尚未合并 ⇒ 顶部记录的 远程同步 停在 PENDING；合并后由后续 docs PR 回填 PASS 并删除本条（回填与销账必须同一次发生）。回填者＝p01-local-endpoint-evidence 合并后的 re-sync 会话，按 head 分支名查 PR → merge SHA。",
     "status": "PENDING",
     "line": 1
+  },
+  "本次执行记录：发布失败自动保存草稿 + 内容指纹防重复（publish-fail-draft-guard，2026-10-09）": {
+    "reason": "远程同步待 PR #2830 合并后回填 merge SHA；auto-merge(squash) 已启用，合并即由本会话同一次回填并销账。",
+    "status": "PENDING",
+    "line": 23
   }
 }
