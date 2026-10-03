@@ -1,6 +1,11 @@
 <template>
   <section class="target-selector" data-testid="publish-target-selector" aria-label="发布目标">
     <input v-model="search" class="target-selector__search" type="search" aria-label="搜索发布平台或账号" placeholder="搜索平台或账号" />
+    <PublishGroupPicker
+      :items="accountGroups"
+      :disabled="disabled"
+      @apply-group="(groupId) => $emit('apply-group', groupId)"
+    />
     <div class="target-selector__list" role="list" aria-label="可选发布平台">
       <div v-if="filteredGroups.length === 0" class="target-selector__empty">没有匹配的平台</div>
       <div v-for="group in filteredGroups" :key="group.label" class="target-group">
@@ -67,6 +72,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import i18n from '@/i18n'
+import PublishGroupPicker from './PublishGroupPicker.vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 
 // 显示名一律走账号卡片同一入口（name_source=manual 原样显示、auto 过噪声守卫、
@@ -85,9 +91,12 @@ const props = defineProps({
   /** 风控挂起清单（P0-2 发布页可见性）：[{platform, accountId}]，accountId 为 null 表示平台级挂起。
    *  数据源是 useRiskStore（Publish.vue 注入），组件保持哑组件不直接耦合 store。 */
   riskSuspended: { type: Array, default: () => [] },
+  /** 「按组添加」的可操作分组（`buildGroupPickerItems` 的产物，空数组即整块不渲染）。
+   *  由上层算好再传：本组件保持哑组件，不碰 accountStore，也不自己判 groupsStatus。 */
+  accountGroups: { type: Array, default: () => [] },
 })
 
-defineEmits(['toggle-platform', 'toggle-account'])
+defineEmits(['toggle-platform', 'toggle-account', 'apply-group'])
 
 const search = ref('')
 const filteredGroups = computed(() => {
