@@ -199,3 +199,38 @@ Baseline freshness gate                 => failure
 另记一条与 §3 同一族的教训：本篇最初把这条缺口说成"门禁没用"，这是过头的——
 **它抓到了**（连红 11 次就是它在工作的证据），只是**抓得晚**。探测器与防线的差别是发现时机，不是有无价值；
 把"没拦住"写成"没用"会诱导别人直接删掉它，而删掉之后 #2761 这类漂移将**永远无人发现**。
+
+### 5.2 缺口已堵：Gate 7b 把新鲜度接进 PR 侧（partial 形态）
+
+上面那条"探测器不是防线"的缺口已关闭：`quality-gate.yml` 的 `visual` job 新增
+**`Gate 7b - Baseline freshness (PR-side, partial)`**，紧跟在 Gate 7 像素步骤之后、产物上传之前，
+`shell: bash`（一个 run 块两条命令，pwsh 不会中途退出 ⇒ 必须 bash 才 fail-fast）。
+
+**为什么是 partial 而不是全量**：本 job 只跑浅色像素套（暗色套与 views 套件仍只在
+`visual-test.yml`），所以一次 PR 运行只产出一部分基线的同源渲染。partial 的语义被钉死为
+**只缩小判定面，绝不弱化已判的那部分**：
+
+- 本次无渲染 → 记 `skipped` 并**逐个点名打印**（不得只报数字），不判违规也不记欠账；
+- 本次有渲染却过期 → 照常 `BASELINE_STALE` 判红；
+- 不带 `--partial` 时行为与原来完全一致（main push 仍是全量判定）。
+
+覆盖面**以该步骤自己的现场打印为准，不在此写死数字**——写死就会随像素套件增删而漂，
+而"注释里的数字过期"正是本文档 §3 那条 709 px 误判的成因之一。
+
+四道锁（`check-baseline-freshness.test.js` 4 条 + `workflow-contract.test.js` 1 条）与
+七条变异全部实跑并做因果对账：
+
+| 变异 | 变红的锁 |
+| --- | --- |
+| partial 顺手把过期也免检 | 「partial 不是免检」1 条 |
+| 不打印被跳过了哪些 | 「观察者要报告自己的盲区」1 条 |
+| `main()` 把 `--partial` 传丢 | 「观察者要报告自己的盲区」1 条 |
+| 摘掉 Gate 7b 步骤名 | workflow-contract 1 条 |
+| 真删 `--partial` 标志 | workflow-contract 1 条 |
+| `shell: bash` 改回 pwsh | workflow-contract 1 条 |
+
+其中一条反证**第一次是无效的**：我把 `--partial` 换成 `# --partial removed`，
+注释里仍含 `--partial` 字样，正则照命中 ⇒ 变异后测试仍全绿，看起来像"锁没抓住"，
+实际是**变异没改掉被测变量**。改成完全不含该 token 的写法才真红。
+判据：做反证时先问「我的替换有没有把被测的那个 token 从字符串里消掉」，
+而不是「我有没有改动那一行」。
