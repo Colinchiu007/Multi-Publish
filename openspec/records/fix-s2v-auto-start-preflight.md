@@ -2,9 +2,6 @@
 record: fix-s2v-auto-start-preflight
 task: 归因并修复 #2796 —— story2video 测试用例在低内存主机上被 PIPELINE_CONCURRENCY_LIMIT 拒掉第二次启动；测试引擎改为显式钉住并发预算，并加防再犯锁
 date: 2026-10-03
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本文件 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：story2video 测试引擎并发预算的主机无关性（fix-s2v-auto-start-preflight，2026-10-03）
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话（回填后删除本文件 frontmatter 的�
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行时代码：改动只在 `electron/services/*.test.js` 一个测试文件 + 一份文档 + 一条 CHANGELOG。 |
 | 桌面全量测试 | PASS（本改动 0 红） | 修复后需跑一次无 env 干预的 `pnpm exec vitest run electron` 作对拍（预期：本文件绿；`feedback.test.js` 的 symlink EPERM 为既有已知）。修复后无 env 干预重跑 `pnpm exec vitest run electron`：**423 文件 / 8196 例 = 1 failed / 8194 passed / 1 skipped**。唯一的红是 `feedback.test.js` 的 Windows symlink `EPERM`（既有已知，且此前已在 pristine main 上逐字复现）；`story2video-manual-assets.test.js` 23/23 绿 ⇒ #2796 的用例不再依赖主机内存。 |
 | QM-6 CCG 双模型外部评审 | N/A（S 尺寸，附理由） | 变更是单个测试文件的夹具参数 + 断言形态 + 一条锁用例，无运行时行为、无安全/数据面；按质量节拍的规模分层不触发 M+ 双模型评审。评审价值更高的两条判断（"该不该顺手做产品侧释放槽位"、"要不要接 force=1 CI 车道"）已作为「遗留」显式登记而非静默决定。 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有口径回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`，远端分支删除取 `git ls-remote --heads origin fix-s2v-auto-start-preflight` 返回 0 行（并配一条对 main 的正控）；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段**。 |
+| 远程同步 | PASS | PR #2800 已 squash 合并为 `4647f21bcae02ab17d71f858be2f7ddb37d7db6f`（`git log origin/main --grep='(#2800)$' --format=%H|%cI` 现场读得 `2026-10-03T00:37:53Z`）。`git ls-remote --heads origin fix-s2v-auto-start-preflight` 返回 **0 行**，同一次取证对 `main` 的正控返回 **1 行**。合并当刻 `statusCheckRollup` = **20 SUCCESS / 1 SKIPPED / 0 红**。关联单 **#2796** 自动关闭：`state=CLOSED stateReason=COMPLETED closedAt=2026-10-03T00:37:55Z`（与合并同一秒）。修复效果另有两项不依赖 CI 的证据：① 最坏主机档 `STORY2VIDEO_MAX_CONCURRENT_RUNS=1` 下整文件 23/23 绿；② 无 env 干预的桌面全量 **423 文件 / 8196 例 = 1 failed / 8194 passed / 1 skipped**，唯一红是 `feedback.test.js` 的 Windows symlink `EPERM`（既有已知，已在 pristine main 逐字复现）。 |
 
 ### 归因纠正（对 #2796 正文）
 
