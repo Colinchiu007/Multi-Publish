@@ -220,3 +220,4 @@ async function publishViaPageXhr ({ win, title, log }) {
 }
 
 module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao }
+

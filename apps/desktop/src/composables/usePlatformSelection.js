@@ -69,6 +69,23 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
     }
   }
 
+  // 「按组添加」（P2-8b）需要的是**只选不取消**的写入器。借用 togglePlatform 现在能过，
+  // 因为它此刻只在"未选中"时被调用；但那是把调用方的时序当契约——一旦有人在别处复用
+  // 这段判据（比如将来加"按组替换"），同样的调用就变成取消选择。显式写一次，成本两行。
+  function selectPlatform(platformId) {
+    if (selectedPlatforms.value.indexOf(platformId) === -1) {
+      selectedPlatforms.value.push(platformId)
+    }
+  }
+
+  function selectAccount(platformId, accountId) {
+    const current = getSelectedAccountIds(platformId)
+    if (current.indexOf(accountId) === -1) {
+      current.push(accountId)
+      setSelectedAccountIds(platformId, current)
+    }
+  }
+
   function getAccounts(platformId) {
     const byPlatform = accountStore.byPlatform?.value || accountStore.byPlatform
     const list = (byPlatform && byPlatform[platformId]) || []
@@ -155,6 +172,8 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
     hasVideoPlatforms,
     isVideoPlatform: (platformId) => isVideoContentPlatform(platformId, platformCatalog),
     togglePlatform,
+    selectPlatform,
+    selectAccount,
     getAccounts,
     getDefaultAccount,
     getSelectedAccountIds,

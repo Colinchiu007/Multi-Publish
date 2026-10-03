@@ -192,7 +192,14 @@
         <template #icon><Search /></template>
       </EmptyState>
       <div v-else class="record-list" :class="{ 'grid-view': viewMode === 'grid' }">
-        <article v-for="record in filteredRecords" :key="record.id" class="record-card">
+        <article
+          v-for="record in filteredRecords"
+          :key="record.id"
+          class="record-card"
+          :class="{ 'is-clickable': isCardClickable(record) }"
+          :title="cardClickHint(record)"
+          @click="onCardClick($event, record)"
+        >
           <label v-if="selectionMode" class="record-selector">
             <input
               v-model="selectedIds"
@@ -390,6 +397,7 @@ import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { usePlatformStore } from '@/stores/platforms'
+import { useTabStore } from '@/stores/tab'
 import { useIdentity } from '@/composables/useIdentity'
 import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -400,6 +408,8 @@ const { t } = useI18n()
 const router = useRouter()
 const platformStore = usePlatformStore()
 platformStore.load()
+// 卡片整体点击 → 应用内新标签打开平台作品链接（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）。
+const tabStore = useTabStore()
 const activeTab = ref('records')
 const records = ref([])
 const drafts = ref([])
@@ -766,6 +776,69 @@ async function openRecord (record) {
 function closeRecordDetail () {
   selectedRecord.value = null
   detailError.value = ''
+}
+
+// ── 卡片整体点击打开平台作品链接（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）──
+// URL 判据单一来源：safeHttpUrl（渲染端 ESM 孪生，仅 http/https 前缀白名单；
+// 拒绝 javascript:/data:/协议相对/缺协议/非字符串，不清洗放行）。
+// 打开通道：应用内 page-manager 新标签（tabStore.createTab，与 Collection.openCollection 同范式）；
+// 桥不可用或创建失败（store 合同：内部吞错返回 null）时降级 window.open(url, '_blank')，
+// 由主进程 setWindowOpenHandler → isAllowedExternalUrl（更严判据：new URL() 解析 +
+// 协议白名单 + 拒绝 userinfo）兜底交系统浏览器——该 window.open 点已在
+// href-scheme-contract.test.js 的 OPEN_SITES_GUARDED_IN_MAIN 登记。
+
+// 卡片内交互元素：点击走自身逻辑，不冒泡为「打开链接」。用 closest 委托过滤而非逐个
+// @click.stop，避免将来新增子元素时漏加 stop 导致误开。
+// [role=tab] 是防御性条目：当前卡内无该元素，为未来子组件（如内嵌 tab 切换）预留的排除面。
+const CARD_INTERACTIVE_SELECTOR = 'a, button, label, input, select, textarea, [role="tab"]'
+// 进行中守卫：同一卡片在 createTab 未 settle 前的重复点击忽略（非模板绑定，无需响应式）。
+const openingCardIds = new Set()
+
+function cardLinkUrl (record) {
+  return safeHttpUrl(resultValue(record, 'url'))
+}
+
+/** 仅控制光标与 title 提示的可点性判断；真正打开前会再走同一判据（单一真源，双口径同函数） */
+function isCardClickable (record) {
+  return Boolean(cardLinkUrl(record))
+}
+
+function cardClickHint (record) {
+  return isCardClickable(record) ? t('historyPage.cardOpenHint') : t('historyPage.cardNoLinkHint')
+}
+
+async function openCardLink (record) {
+  const url = cardLinkUrl(record)
+  if (!url) return
+  // 已知取舍（QM-6 MINOR-3）：record.id 缺失（undefined/null）的记录共享 '' 守卫键——
+  // 另一张无 id 卡片在途时本卡点击被吞一次，自愈且无泄漏；生产数据 id 由 SQLite 主键保证非空。
+  const recordKey = String(record?.id ?? '')
+  if (openingCardIds.has(recordKey)) return
+  openingCardIds.add(recordKey)
+  try {
+    const tabId = await tabStore.createTab({
+      url,
+      platform: String(record?.platform || ''),
+      title: t('historyPage.cardTabTitle', { title: recordTitle(record) }),
+    })
+    if (tabId) {
+      actionMessage.value = t('historyPage.cardLinkOpened')
+      return
+    }
+    window.open(url, '_blank')
+  } catch {
+    // createTab 合同上不抛错；此处兜底未来实现漂移，不让点击变成未捕获异常
+    actionMessage.value = t('historyPage.cardLinkOpenFailed')
+  } finally {
+    openingCardIds.delete(recordKey)
+  }
+}
+
+function onCardClick (event, record) {
+  if (event?.target?.closest?.(CARD_INTERACTIVE_SELECTOR)) return
+  // 批量管理模式下整卡点击 = 误触风险面（复选框承载选择），不打开链接
+  if (selectionMode.value) return
+  void openCardLink(record)
 }
 
 async function retryRecord (record) {
@@ -1175,6 +1248,10 @@ onMounted(loadRecords)
   background: var(--color-bg-card);
 }
 .record-card:hover { border-color: #d8d6ef; box-shadow: 0 3px 12px rgba(40, 40, 55, 0.05); }
+/* 卡片整体点击打开平台链接（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）：
+   仅带合法链接的卡片呈现可点光标；无链接卡片不假装可点。 */
+.record-card.is-clickable { cursor: pointer; }
+.record-card.is-clickable:hover { border-color: #c7c3ea; }
 .record-selector { flex: 0 0 18px; }
 .record-selector input { width: 16px; height: 16px; accent-color: var(--primary, #5048e5); }
 

@@ -1,3 +1,90 @@
+# [未发布] feat(history): 发布记录卡片整体点击——应用内新标签打开平台作品链接（publish-history-card-open-link，2026-10-03）
+
+### 新增
+
+- 发布记录页列表卡片支持**整体点击**：点击除按钮/链接/复选框外的任意区域，经 `tabStore.createTab` 在应用内顶部标签栏新开标签加载该记录的平台作品链接（`result.url`）；与 `Collection.openCollection` 同一 page-manager 通道。
+- URL 判据单一来源 `safeHttpUrl`（渲染端 ESM 孪生）：无链接/`javascript:`/缺协议/协议相对/非字符串一律不产出打开行为，卡片悬浮提示如实显示「暂无平台链接」；可点卡片显示「点击打开平台作品链接」。
+- `createTab` 失败或桥不可用（store 合同：吞错返回 null）时降级 `window.open(url,'_blank')`，由主进程 `setWindowOpenHandler → isAllowedExternalUrl`（更严判据：`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底交系统浏览器；该 `window.open` 点已登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`。
+- 批量管理模式下整卡点击不打开链接（复选框承载选择，防误触）；同一卡片进行中重复点击不重复发请求（进行中守卫）；成功提示「已在新标签页打开作品链接」走页面既有 `actionMessage` 承载；createTab promise 拒绝（合同外漂移）显示失败提示不崩。
+- locales zh/en 成对新增 `historyPage.cardOpenHint / cardNoLinkHint / cardTabTitle / cardLinkOpened / cardLinkOpenFailed`。
+
+### 回归保护
+
+- `PublishHistory.test.js` 新增「卡片点击打开平台链接」describe（T1-T14 + T10b）：打开契约、按钮/复选框冒泡排除（详情/重试照常）、批量模式排除、六种非法 URL 形态不产出任何打开行为、降级 `window.open`、合同外漂移失败提示、悬浮提示、进行中守卫、详情弹窗锚点 noopener 回归，61 passed。
+- `href-scheme-contract.test.js` 16 passed（登记锁双向断言）；locale 成对门禁 `check-locale-sync.js --pair-base origin/main` PASS。
+- 详见 `01-docs/PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md`。
+# [未发布] style(desktop): 视频任务详情页的「← 返回」改成与同流程一致的描边胶囊，箭头拆成独立装饰字形修掉基线错位（2026-10-03，result-view-back-btn-style）
+
+### 根因
+- `ResultView.vue` 的返回按钮写成 `← {{ 文案 }}` —— 箭头与文字是**同一个文本节点里的字面空格拼接**，两者各按自身字体度量参与行内排版：`←`（U+2190）在本机的中文回退字体下字身偏小、基线偏高，于是视觉上就是"箭头和返回两个字没对齐"。
+- 同一条规则带第二处错位：`.back-to-list` 用 `margin-right: auto` 挤在 `justify-content: space-between` 的 `.page-header` 里，自动边距吃掉全部剩余空间 ⇒ 窗口宽时按钮浮在页面中部、与标题抢同一行，窗口窄时整块换行、按钮孤悬在标题上方。裸文字链时这个错位不显眼，改成胶囊后会放大。
+- 这是全仓第四种"返回"变体：同流程另一页 `CreateView.vue:47` 用的是 `create-view.css:112` 的 `.back-btn`（描边胶囊 + `align-items: center` + `:focus-visible` 焦点环），而 `.back-to-list` 既无描边也无焦点环 —— 键盘用户按 Tab 走到返回键时没有任何指示。
+
+### 修复
+- 箭头拆成 `<span class="back-to-list__arrow" aria-hidden="true">`，按钮改 `display: inline-flex; align-items: center; gap: 6px`，箭头单独 `line-height: 1`；`aria-hidden` 保证装饰字形不进可访问名，读屏仍只念「返回」。
+- 按钮移出 `.page-header` 成为 `.result-page`（flex column）的直接子项，`align-self: flex-start` + `margin-bottom: var(--spacing-4, 16px)` ⇒ 稳定落在标题正上方并与标题左边缘对齐，不再依赖自动边距去抢行。
+- 形状值（`padding: 6px 14px` / `border: 1px solid var(--border)` / `border-radius: var(--radius-sm)` / hover 主色描边 / `:focus-visible` 焦点环）对齐 `.back-btn`；底色两档刻意不抄 —— 本页底色就是 `--surface`，照搬「透明底 + hover 变 `--surface`」会让 hover 反馈不可见。
+- 未新增用户可见文案：`create.story2video.backToHistory` 的 zh/en 已成对存在，Gate 7 无需改动。
+
+### 验证
+- TDD：`ResultView.test.js` 新增「返回按钮的箭头是独立装饰字形，不进入可访问名」先红（`1 failed / 114 passed`，红因正是 `arrow.exists()` 为 false）后绿；实现后 `115 passed`。另一消费者 `views-deep2.test.js` 7 passed。
+- 像素门禁 `PIXEL_ONLY=create-result` 明/暗双档均 PASSED。**注意**：全页 6% 阈值对一个按钮是结构性失明，PASSED 只证"无粗回归"，不证改动本身；真实结论取自现场截图 + 真浏览器计算样式探针 —— 箭头与按钮光学中心 `115.5 == 115.5`、按钮左边缘与标题左边缘 `684 == 684`、hover 底色 `#fff → #efefef` 与边框 `#efefef → rgb(80,72,229)` 均真实变化、`gap: 6px` / `radius: 8px` 生效。
+- 遗留（已实测纠正本条初稿的错前提）：本 PR **不重建**视觉基线。分支 run 与 main run 的 `Baseline freshness gate` 逐条对照都是「检查 41 张 / 违规 36 张」，违规数完全相同 —— 该门禁在本 PR 之前已在 main 上仓库级失效（accounts-list / calendar / collection / create-editor 等大片视图同时命中，且 1242 px、1426 px 在互不相关视图上精确重现，是同一共享元素在多页各渲染一次的形状，不是各视图自己的回归）。本 PR 只把我碰的两张的漂移量放大：`create-result.png` 1242→7676 px、`create-result-dark.png` 9825→17066 px（按钮移出页头使标题及以下内容整体下移，全页逐像素比较因此产生大位移差，属预期）。**此刻从 CI artifact 重建基线等于把 36 张全局漂移烤成正确基线**（#2685 同型错误，污染源换成了 CI）；该 36/41 失效是独立事故，须先定位那个共享元素、修复后再统一重建。
+
+# [未发布] fix(automation): 补齐 IPC 装配断链 + 收窄 01-docs 忽略规则（2026-10-03，fix-automation-ipc-wiring）
+
+### 根因（用户实测报错）
+
+新建自动化任务报 `No handler registered for 'automation:create'`：
+`phase1-context.js` 从未 `container.get('automationScheduler')`、也没导出进 `context.services`
+→ `phase5-ipc.js` 解构出 undefined → `ipc-handlers/automation.js` 走「依赖缺失即静默 return」
+→ **零 handler 注册**。引入点：PR #2792 实现时该文件改动从未提交
+（多轮合并/收尾中丢失，「git status 干净 + 文件在磁盘」的假象掩盖了它）。
+
+### 修复
+
+- `phase1-context.js` 取出 `automationScheduler` 并导出进 `context.services`
+- `ipc-handlers/automation.js` 依赖缺失时改为**降级注册**：五个通道照常存在，
+  返回 `reason=service-unavailable` 的可读错误，不再退化成 Electron 原生无信息量报错
+- 回归锁 `automation-ipc-wiring.test.js` 7 例（装配链 4 接缝结构锁 + 行为锁；
+  既有测试全是 mock deps，绕过了真实装配链，故全仓无一条能抓到该断线）
+
+### 仓库陷阱修复
+
+`.gitignore` 的「01-docs 递归 .md」全量忽略迫使正式文档都要 `git add -f` 且普通 add
+静默失败（PR #2792 的两份 PRD/使用说明因此「写了却从未入库」）。收窄为只忽略
+`*report*` / `*analysis*` / `*brief*` 本地交付产物。
+回归锁 `apps/desktop/scripts/gitignore-docs.test.js`（node --test，4 例，已接 Gate 2b）。
+**反证两轮都抓出假绿**：① PowerShell 逐行 -replace 的 `\r?\n` 单行内匹配不到，变异没生效；
+② `git check-ignore` 对已跟踪文件恒返回未忽略（ignore 只作用于未跟踪路径），
+改用未跟踪探测路径后锁才真实变红。两次都当场抓出并修复。
+
+### 测试
+
+装配/IPC/preload/bootstrap 相关 460 例全绿；全量 13200/13205（2 失败均已归因：
+`feedback.test.js` 既存；`accounts-compile.test.js` 单跑两次通过、零触及，属长跑偶发）；
+门禁脚本 9/9 exit 0。
+
+# [未发布] feat(publish): P2-8b 发布页「按组添加」发布目标（2026-10-03，publish-group-picker）
+
+> 文档：PRD `01-docs/PRD-PUBLISH-GROUP-PICKER-2026-10-03.md` ｜ 上游 P2-8a `01-docs/PRD-ACCOUNT-GROUPS-PERSISTENCE-2026-10-01.md`（分组真源已落 settings）
+
+## 变化
+
+- 发布页「发布目标」区新增**分组入口**：点一次即把该组的成员账号加入发布目标，并自动勾选这些账号所属的平台。
+  chip 上显示「可添加/成员」两个数 —— 已停用或已删除的成员只计入「成员」、不计入「可添加」，用户不必等播报就能预判点下去会加几个。
+- 播报如实：新增数、**新启用的平台**、被跳过的条数都取自**同一次分类结果**（missing / inactive / platformMismatch / already / added 互斥且穷尽）。
+  一个都没加进去时走警告文案，不会出现「已添加 0 个」这类假成功。
+- 分组真源读不到（未登录 / 存储不可用）时**不显示分组入口**，也不会把上一轮残留的组当成可操作项 ——
+  「读不到 ≠ 没有」是 P2-8a 定的，本刀补上后半句：「读不到 ≠ 可操作」。
+- 没有分组时整块不渲染（发布页布局与像素均不变）。
+
+## 未做（刻意的范围克制）
+
+- 不做「按组替换 / 移除」：替换会静默清掉用户手工加进去的别组账号，属破坏性语义，需要单独设计（含撤销）。
+- 批量模式的逐条目选平台不支持按组：分组的作用域是整篇，硬套会把条目级与整篇级两层混在一起。
+- 不在发布页提供分组编辑：写入口保持在账号页，避免第二套写路径。
+
 # [未发布] fix(publish): P2-6a 发布统计按 status 定终态——失败不再被算成成功（2026-10-01，publish-stats-success-truth）
 
 ### 修复
