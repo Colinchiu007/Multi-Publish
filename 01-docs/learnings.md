@@ -1,3 +1,10 @@
+## 本机跑像素门禁的红不等于回归：先验「登录态/数据依赖 + 动画抑制」再下结论（visual-local-triage，2026-10-03）
+
+- **现场**：本机跑 `test:visual:pixel` 报 collection 视图 1.62%（阈值 1%）。逐层归因后定性为**本机渲染状态依赖**，不是 CI 渲染回归：① 裸截图 vs 基线差 1.159%；② 与 runner 同参（`reducedMotion:'reduce'` + 注入 `animation:0s!important` CSS + `setFixedTime` + settle）后降到 0.620%；③ 差异带剖面锁定 `col-panel::before` 的 **3s 无限橙渐变动画**（`Collection.vue` `.col-panel-ribbon`）——动画帧不同 ⇒ 顶部 4px 横幅整带红；④ 剩余差异带集中在草稿箱区（y=960-1079）：基线里有 5 张测试草稿卡，本机渲染是「暂无草稿」空态 ⇒ **登录态/本地数据依赖**改变了渲染内容。
+- **可复用的本机排查序列**（先便宜后贵）：① 与 runner 逐参数对齐重跑（animation 抑制 + 时钟钉住 + settle + reducedMotion）——一步通常消掉大半；② 差异行剖面（逐 y 统计差异像素聚类成带）——把「整页红」变成「具体元素」；③ 对差异带采样 RGB 并在源码里 grep 对应色值——动画/渐变会以「同色不同帧」形态出现；④ 空态 vs 有数据态差异 ⇒ 查该视图的数据依赖，勿在 CI 空 profile 与本机登录 profile 之间强行归一。
+- **结论口径**：本机红 + CI 绿 = 本机环境状态（数据/登录/字体/动画帧）问题，处置是**修本机跑法**（清 profile、对齐 runner 参数），不是刷基线；基线刷新永远只能取 CI 渲染（QM-4 第 7 条）。
+- **另一条实测**：同一脚本两次裸跑差异 0.0008% ⇒ 本机渲染在「同参数」下是确定的；不确定性全部来自「参数没对齐」与「数据状态不同」，不是渲染器抖动。
+
 ## Electron「打开网页」有两条通道：应用内标签必须走 page-manager，window.open 只是系统浏览器入口（publish-history-card-open-link，2026-10-03）
 
 - **拓扑事实**：主窗口 `window.js` 的 `setWindowOpenHandler` 把渲染层一切 `window.open(url,'_blank')` 转 `shell.openExternal`（**系统默认浏览器**），它不是「应用内新标签」通道。应用内顶部标签栏开网页的唯一正确通道是 `page-manager` → `tabStore.createTab({ url, platform, title })`（先例 `Collection.openCollection`）。要「应用内新标签」却写 `window.open`，用户会被踢出应用且无任何报错——这是最容易写反的一步。
