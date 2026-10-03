@@ -55,7 +55,7 @@ const ROUTE_TITLE_KEYS = [
   ['/performance-insights', 'perfInsights.title'],
   ['/rewrite', 'sidebar.nav.rewrite'],
   ['/hot-topics', 'hotTopics.menuLabel'],
-  ['/film-engineering', 'filmEngineering.title'],
+  ['/film-engineering', 'tabs.filmEngineering'],
   ['/auto-pipeline', 'autoPipeline.title'],
 ]
 
@@ -67,21 +67,32 @@ const ROUTE_PREFIX_KEYS = [
   ['/replay/', 'tabs.replayTimeline'],
 ]
 
-/** path → i18n 键 的派生表（精确表 + 前缀表，模块级构建） */
+/** 前缀根列表（供覆盖度测试与调用方判定「该 path 是否由前缀条目承担」） */
+export const ROUTE_PREFIX_ROOTS = [...new Set(ROUTE_PREFIX_KEYS.map(([p]) => p))]
+
+/**
+ * path → i18n 键 的派生表（模块级一次性构建：精确表 + 前缀根条目；
+ * contact-sheet 子路由条目以 "/board//contact-sheet" 复合键登记供排查，
+ * 运行时查找真源是 resolveRouteTabTitle 的判定逻辑，本表仅供测试与排查）。
+ */
 export const ROUTE_TAB_TITLES = new Map()
+for (const [p, key] of ROUTE_TITLE_KEYS) ROUTE_TAB_TITLES.set(p, key)
+for (const [p, target] of ROUTE_PREFIX_KEYS) {
+  const lookupKey = typeof target === 'object' ? p + target.suffix : p
+  const displayKey = typeof target === 'object' ? target.key : target
+  ROUTE_TAB_TITLES.set(lookupKey, displayKey)
+}
 
 /**
  * 解析路由 path → 标签标题文案（纯函数，可在任意上下文调用）。
- * @param {string|null} path route.path 或 route.fullPath（query/hash 会被剥离）
+ * @param {string|null} path route.path 或 route.fullPath（query 与 hash 会被剥离）
  * @returns {string} 标题文案；未命中回退品牌名「社媒管家」
  */
 export function resolveRouteTabTitle (path) {
   // i18n.global.t：组件上下文外可用的全局翻译入口（本项目 legacy:false 模式）
   const t = (key) => i18n.global.t(key)
-  for (const [p, key] of ROUTE_TITLE_KEYS) ROUTE_TAB_TITLES.set(p, key)
-  for (const [p, key] of ROUTE_PREFIX_KEYS) ROUTE_TAB_TITLES.set(p, key)
   if (typeof path !== 'string' || !path) return t('tabs.brandTitle')
-  const clean = path.split('?')[0]
+  const clean = path.split('#')[0].split('?')[0]
   // 1. 精确命中
   const exact = ROUTE_TAB_TITLES.get(clean)
   if (exact) return t(exact)
@@ -119,18 +130,25 @@ export function useTabDocumentTitle () {
       const title = resolveRouteTabTitle(path)
       // ① document.title 同步：真实 Electron 中触发 page-title-updated 事件链
       document.title = title
-      // ② 显式 IPC 上报：主进程不依赖事件时序，直接更新 _tabStates.title 并广播
-      invokePageManager('reportTabTitle', title)
+      // ② 显式 IPC 上报：主进程不依赖事件时序，直接更新 _tabStates.title 并广播。
+      //    promise 必须 .catch 兜底——try/catch 拦不住异步 rejection，页面关闭时
+      //    IPC 在途 reject 会成为 unhandled rejection（QM-6 评审 MAJOR；同族事故
+      //    先例：tab-lifecycle.js loadURL 未 catch 致头条事故日志外溢）。
+      const reported = invokePageManager('reportTabTitle', title)
+      if (reported && typeof reported.catch === 'function') reported.catch(() => {})
     } catch (_) {
       // 标题同步失败绝不影响页面功能（纯展示性数据）
     }
   }
 
   const start = () => {
+    // 防重入：重复 start 不得注册多个 watch（stop 只能解绑最后一个）
+    stop()
     reportTitle(route.fullPath)
     stopWatch = watch(
-      () => route.fullPath,
-      (fullPath) => reportTitle(fullPath),
+      // 语言切换时同样重报标题（否则 TabBar 残留旧语言文案直到下次导航）
+      () => [route.fullPath, i18n.global.locale.value],
+      () => reportTitle(route.fullPath),
     )
   }
 

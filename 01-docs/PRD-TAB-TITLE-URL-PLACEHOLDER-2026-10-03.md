@@ -79,7 +79,7 @@ home-shell 标签的本质：主进程 `createNewTabPage({ homeShell: true })` �
 
 **`src/App.vue`**
 
-- `onCreateTab` 改为 `createTab({ homeShell: true })`，**不传 title**。初始标题由主进程回退值（`tab-lifecycle.js` homeShell 分支默认「新标签页」，与 `tabs.newTabTitle` 同语义）承担。
+- `onCreateTab` 改为 `createTab({ homeShell: true })`，**不传 title**。初始标题的转换时序：主进程回退值「新标签页」仅存活到 SPA 首帧——home-shell 实例挂载后 `useTabDocumentTitle.start()` 立即上报 `/` → 「主页」（`sidebar.nav.home`），用户感知为新标签短暂显示「新标签页」后变为当前页面标题；国际化用户不会看到 zh 硬编码文案残留（首帧后即被覆盖）。
 - setup 内 `const tabTitleReporter = isHomeShell ? useTabDocumentTitle() : null`（仅内嵌实例启动；外层主窗口的标题栏由 OS 承担，无需此链路）。
 - `onMounted` 中 `tabTitleReporter?.start()`；`onBeforeUnmount` 中 `tabTitleReporter?.stop()`（**成对释放**，防泄漏监听器）。
 
@@ -182,3 +182,33 @@ home-shell 标签的本质：主进程 `createNewTabPage({ homeShell: true })` �
 1. 视频创作内子标签（`/create?view=history`）可按 query 细化标题（当前统一「视频创作」）。
 2. `/intelligence`、`/film-engineering` 等暗路由页面缺独立 pageTitle 键，复用了侧栏/命名空间既有文案；若产品定义独立标题可补键。
 3. route-registry 门禁可扩展「新增路由必须同步 ROUTE_TITLE_KEYS」结构锁。
+
+## 10. QM-6 双模型评审（2026-10-03，两个独立子代理并行审查）
+
+### 10.1 后端正确性视角 findings 与处置
+
+| 级别 | Finding | 处置 |
+|------|---------|------|
+| 🔴 CRITICAL | `view.webContents.getId()` 在 electron.d.ts 的 WebContents 类中不存在（实例标识是 `readonly id: number` 属性）→ 显式 IPC 链路恒不匹配成死代码；测试手搓 `getId` mock 掩成假绿（同族事故：AGENTS.md 已登记的 `getVisibilityState` 假探针） | **已修复**：归属匹配改为 `view.webContents.id === senderId`；补 d.ts 归属契约锁（从 `__dirname` 逐级上溯找 electron.d.ts，断言 WebContents 段内 `id: number` 属性存在且无 `getId(` 实例方法、源码禁现 `webContents.getId(`）；反证实证：把源码改回死探针写法 4 例立即变红 |
+| 🟠 MAJOR | 归属失败静默 `code:0` 无日志，链路断裂零信号 | **已修复**：未匹配时 `log.warn`（只记 senderId）+ 返回 `data:{matched:false}` |
+| 🟠 MAJOR | 测试缺「多标签按 sender 精确归属」用例 | **已修复**：补 tab1/tab2 并存用例（sender=tab2 上报，断言仅 tab2 变化且只广播 tab2） |
+| 🟢 MINOR ×7 | promise 未 catch / Map 重复构建 / start 无防重入 / 语言切换不重报 / title 未 trim 未限长 / 主进程默认标题 en 用户瞬态见 zh / bundle 断言缺失 | **已修复**：promise `.catch` 兜底（测试断言 unhandledRejection 为空）；模块级一次性构建；start 前先 stop；watch source 追加 locale；`trim().slice(0,200)`；时序说明补入本节上文；d.ts 契约锁即 bundle 级防护的强化版（bundle 由 before-pack 从源码重建，源码锁住即产物锁住） |
+
+### 10.2 集成与可维护性视角 findings 与处置
+
+| 级别 | Finding | 处置 |
+|------|---------|------|
+| 🟠 MAJOR | 映射表缺失 4 条已登记路由（/first-run、/create/result、/video-clone、/film-engineering/classic），JSDoc/PRD「对齐」言过其实；缺测试级覆盖锁 | **已修复**：补覆盖度测试锁（import ROUTE_REGISTRY 断言全部非 redirect path 被精确表∪前缀表覆盖，4 条现状列入显式例外清单，例外即声明——新增路由漏登记会立即变红）；PRD 本节如实声明覆盖现状 |
+| 🟠 MAJOR | ROUTE_TAB_TITLES 每次调用重建 + `/board/` 同键双 set 互相覆盖 + 测试依赖调用副作用填充 | **已修复**：模块级一次性构建；contact-sheet 子路由以复合键 `'/board//contact-sheet'` 独立登记（消除同键覆盖）；测试直接断言模块级常量 |
+| 🟠 MAJOR | `invokePageManager` 返回的 Promise 无 catch → 渲染端 unhandled rejection（仓内 tab-lifecycle.js loadURL 未 catch 有同族事故先例） | **已修复**：`.catch(() => {})` + 测试监听 unhandledRejection 断言为空 |
+| 🟢 MINOR ×6 | 定位循环缺 isDestroyed 守卫 / C1 断言切片脆弱 / filmEngineering.title 23 字过长 / PRD「初始标题」表述不实 / JSDoc hash 剥离不符 / 语言切换标题不刷新 | **已修复**：isDestroyed 守卫（对齐 tab-lifecycle.js:187 惯例）；锚定 createTab 调用行正则；新增 `tabs.filmEngineering` 短键「影视工程」；本节上文已补时序说明；实现补 hash 剥离 `split('#')[0]`；watch source 追加 locale |
+| 🟢 MINOR | 判定表断言经真实 i18n 翻译值与文案双重耦合 | 保留（与仓内断言中文习惯一致，评审批注"非必改"） |
+
+### 10.3 评审确认的正确项
+
+- titleLocked 语义未被削弱（显式 title → 锁定分支原样保留，有专门回归用例）。
+- 安全：新通道过 withSenderCheck（app://localhost / dist 内 file:// canonical / dev 端口白名单），外站 sender 得 AUTH_ERROR（fail-closed）；home-shell preload 双判据降级不暴露 pageManager；受信面内滥用上限=改自己标签标题。
+- App.vue 接线与 useSpaNavHistory 惯例一致；home-shell-title.test.js mock 忠实（真 tab-lifecycle + 真 withSenderCheck + 全局 harness，符合 webview-manager.test.js 既有模式）。
+- locale zh/en 成对且全部引用键核实存在。
+
+**评审后新增/修改测试 4 例（d.ts 归属契约锁 2 + 覆盖度锁 1 + unhandledRejection 断言 1），两测试文件合计 25/25 通过。**

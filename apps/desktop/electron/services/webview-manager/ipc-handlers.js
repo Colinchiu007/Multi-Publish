@@ -61,17 +61,21 @@ module.exports = {
     }))
 
     // home-shell SPA 上报页面标题（2026-10-03）：按调用方 webContents 定位标签，
-    // 更新 _tabStates.title 并广播 tab-title-updated；找不到归属标签时静默忽略。
+    // 更新 _tabStates.title 并广播 tab-title-updated。
+    // ⚠️ 标识匹配必须用 webContents.id（electron.d.ts: readonly id: number 属性）——
+    // WebContents 类不存在 getId() 方法（评审实测 d.ts 全段 0 处），用了即恒不匹配的死探针
+    //（同族事故：AGENTS.md 已登记的 getVisibilityState 假探针，单测全绿真机死链）。
     ipcMain.handle('page-manager:report-tab-title', withSenderCheck(function (event, arg) {
       try {
-        var title = arg && typeof arg.title === 'string' ? arg.title : ''
+        var title = arg && typeof arg.title === 'string' ? arg.title.trim().slice(0, 200) : ''
         if (!title) return { code: EC.VALIDATION_ERROR, message: 'Missing title' }
         var senderId = event && event.sender && typeof event.sender.id === 'number' ? event.sender.id : null
         if (senderId !== null) {
           var matched = null
           self._tabViews.forEach(function (view, tabId) {
             if (matched || !view.webContents) return
-            if (typeof view.webContents.getId === 'function' && view.webContents.getId() === senderId) matched = tabId
+            if (typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed()) return
+            if (typeof view.webContents.id === 'number' && view.webContents.id === senderId) matched = tabId
           })
           if (matched && self._tabStates.has(matched)) {
             var state = self._tabStates.get(matched)
@@ -79,9 +83,13 @@ module.exports = {
               state.title = title
               self._broadcast('tab-title-updated', { tabId: matched, title: title })
             }
+            return { code: 0, data: { matched: true } }
           }
+          // 归属失败必须可观测：静默成功会让链路断裂零信号（QM-6 评审 MAJOR）
+          log.warn('WebviewManager', 'report-tab-title: no tab matches senderId=' + senderId)
+          return { code: 0, data: { matched: false } }
         }
-        return { code: 0 }
+        return { code: 0, data: { matched: false } }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 

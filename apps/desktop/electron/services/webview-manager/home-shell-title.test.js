@@ -21,7 +21,7 @@
  *   - src/tab-independent-home.test.js（App.vue 不硬编码标题）
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -32,9 +32,12 @@ describe('C1/C2：+ 新标签初始标题链路（渲染层源码契约）', () 
   const appSrc = read('src/App.vue')
 
   it('App.vue 的 onCreateTab 不再向主进程传锁定 title', () => {
-    const createTabBlock = appSrc.slice(appSrc.indexOf('onCreateTab'), appSrc.indexOf('onCreateTab') + 400)
-    expect(createTabBlock).not.toMatch(/title:\s*t\(/)
-    expect(createTabBlock).not.toMatch(/title:/)
+    // 锚定 createTab 调用行本身（不依赖字符切片窗口，避免误检/漏检）
+    const createTabCalls = appSrc.match(/tabStore\.createTab\(\{[^}]*\}\)/g) || []
+    expect(createTabCalls.length).toBeGreaterThan(0)
+    const plusTabCall = createTabCalls.find(c => c.includes('homeShell: true'))
+    expect(plusTabCall).toBeTruthy()
+    expect(plusTabCall).not.toMatch(/title:/)
   })
 
   it('App.vue 在 home-shell 分支接线 useTabDocumentTitle（start/stop 成对）', () => {
@@ -218,16 +221,15 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
     expect(tabRow.url).toBe('')
   })
 
-  it('reportTabTitle IPC：按调用方 webContents 定位标签并更新标题、广播', async () => {
+  it('reportTabTitle IPC：按调用方 webContents.id 定位标签并更新标题、广播', async () => {
     await loadModules()
     const wm = createManager()
     const tabId = wm.createNewTabPage({ homeShell: true })
     const view = wm._tabViews.get(tabId)
-    // mock webContents.id：真实 Electron 中 webContents.getId() 是 number
-    view.webContents.getId = () => 4242
+    // 真实 Electron 中 webContents.id 是 readonly number 属性（electron.d.ts），不是 getId() 方法
+    view.webContents.id = 4242
 
     // 组装最小 IPC handler 注册器（withSenderCheck 用真实实现）
-    const withSenderCheckMod = await import('../../ipc-handlers/helpers')
     const handlers = new Map()
     const ipcMain = { handle: (channel, wrapped) => handlers.set(channel, wrapped) }
     wm.registerIpcHandlers(ipcMain)
@@ -238,6 +240,7 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
     const senderEvent = { sender: { id: 4242 }, senderFrame: { url: 'app://localhost/index.html' } }
     const res = await handler(senderEvent, { title: '文案改写' })
     expect(res.code).toBe(0)
+    expect(res.data).toEqual({ matched: true })
     expect(wm._tabStates.get(tabId).title).toBe('文案改写')
     const payload = wm.mainWindow.webContents.send.mock.calls
       .filter(c => c[0] === 'page-manager:tab-title-updated').pop()
@@ -250,12 +253,34 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
       .filter(c => c[0] === 'page-manager:tab-title-updated').length).toBe(0)
   })
 
-  it('reportTabTitle IPC：未知 sender / 空 title 静默拒绝，不影响其他标签', async () => {
+  it('reportTabTitle IPC：多标签并存时按 sender 精确归属（tab2 上报不得改 tab1）', async () => {
+    await loadModules()
+    const wm = createManager()
+    const tab1 = wm.createNewTabPage({ homeShell: true })
+    wm._tabViews.get(tab1).webContents.id = 1
+    const tab2 = wm.createNewTabPage({ homeShell: true })
+    wm._tabViews.get(tab2).webContents.id = 2
+
+    const handlers = new Map()
+    wm.registerIpcHandlers({ handle: (channel, wrapped) => handlers.set(channel, wrapped) })
+    const handler = handlers.get('page-manager:report-tab-title')
+
+    // sender = tab2 上报 → 仅 tab2 变化、仅广播 tab2
+    const res = await handler({ sender: { id: 2 }, senderFrame: { url: 'app://localhost/index.html' } }, { title: '发布' })
+    expect(res.code).toBe(0)
+    expect(wm._tabStates.get(tab2).title).toBe('发布')
+    expect(wm._tabStates.get(tab1).title).toBe('新标签页')
+    const titles = wm.mainWindow.webContents.send.mock.calls
+      .filter(c => c[0] === 'page-manager:tab-title-updated')
+      .map(c => c[1].data)
+    expect(titles).toEqual([{ tabId: tab2, title: '发布' }])
+  })
+
+  it('reportTabTitle IPC：未知 sender 归属失败可观测（warn 日志 + matched:false）', async () => {
     await loadModules()
     const wm = createManager()
     const tabId = wm.createNewTabPage({ homeShell: true })
-    const view = wm._tabViews.get(tabId)
-    view.webContents.getId = () => 1111
+    wm._tabViews.get(tabId).webContents.id = 1111
 
     const handlers = new Map()
     wm.registerIpcHandlers({ handle: (channel, wrapped) => handlers.set(channel, wrapped) })
@@ -264,11 +289,66 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
     const trusted = { sender: { id: 1111 }, senderFrame: { url: 'app://localhost/index.html' } }
     // 空 title → 校验错误
     expect((await handler(trusted, { title: '' })).code).not.toBe(0)
-    // 未知 sender → code 0 但无副作用
+    // 未知 sender → code 0 但 data.matched=false 且有 warn 日志（链路断裂可发现）
     const stranger = { sender: { id: 9999 }, senderFrame: { url: 'app://localhost/index.html' } }
-    expect((await handler(stranger, { title: '陌生页面' })).code).toBe(0)
+    const miss = await handler(stranger, { title: '陌生页面' })
+    expect(miss.code).toBe(0)
+    expect(miss.data).toEqual({ matched: false })
     expect(wm._tabStates.get(tabId).title).not.toBe('陌生页面')
     // sender 缺失 → code 0，无异常
     expect((await handler({}, { title: 'x' })).code).toBe(0)
+    // 超长 title → clamp 到 200 字符
+    const longTitle = 'x'.repeat(500)
+    await handler(trusted, { title: longTitle })
+    expect(wm._tabStates.get(tabId).title.length).toBe(200)
+  })
+})
+
+describe('宿主 API 归属契约锁（webContents.id 是属性不是方法，防 getId 死探针复发）', () => {
+  // 评审 CRITICAL 实证：本仓曾手写 view.webContents.getId()，而 electron.d.ts 的
+  // WebContents 类 0 处声明该方法——恒不匹配的死探针被手搓 mock 掩成假绿。
+  // 本锁三防：①所用 API 真在 d.ts 的 class WebContents 段内；②源码禁现 getId 死探针；
+  // ③解析不到 d.ts / 声明集异常小时必须红（防解析退化成空集合的假绿）。
+
+  /** 从 __dirname 逐级上溯查找 electron.d.ts（node-linker=hoisted 装在仓库根 node_modules） */
+  function locateElectronDts () {
+    let dir = dirname(fileURLToPath(import.meta.url))
+    for (let depth = 0; depth < 10; depth++) {
+      const candidate = join(dir, 'node_modules', 'electron', 'electron.d.ts')
+      if (existsSync(candidate)) return candidate
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+    return null
+  }
+
+  it('electron.d.ts 的 class WebContents 段内声明 id（number）且无 getId（归属依据核验）', () => {
+    const dtsPath = locateElectronDts()
+    // 找不到 d.ts 直接红（不允许 return 跳过——静默跳过会让锁永久失效）
+    expect(dtsPath).toBeTruthy()
+    const dts = readFileSync(dtsPath, 'utf8')
+    // 规模下界：解析退化成空串时下述断言必然失败，这里显式声明预期规模
+    expect(dts.length).toBeGreaterThan(100000)
+    const classStart = dts.indexOf('class WebContents ')
+    const classBodyStart = dts.indexOf('class WebContents extends', classStart)
+    const start = classBodyStart !== -1 ? classBodyStart : classStart
+    expect(start).toBeGreaterThan(-1)
+    // 取 class WebContents 的声明段（到下一个顶级 class 为止的近似切片）
+    const nextClass = dts.indexOf('\n    class ', start + 10)
+    const segment = dts.slice(start, nextClass === -1 ? start + 60000 : nextClass)
+    // id 必须以属性形态声明（readonly id: number）
+    expect(segment).toMatch(/\bid\s*:\s*number/)
+    // getId() 实例方法在 WebContents 段内不存在（0 处）。
+    // 段内的 getOrCreateDevToolsTargetId / fromDevToolsTargetId 含 "TargetId(" 字样，
+    // 但都不叫 getId( —— 用词边界精确匹配，注释里的误命中也要排除。
+    const getIdMethodDecls = segment.match(/(?<![a-zA-Z])getId\s*\(/g) || []
+    expect(getIdMethodDecls.length).toBe(0)
+  })
+
+  it('源码禁现 webContents.getId( 死探针（ipc-handlers.js 归属逻辑用 .id 属性）', () => {
+    const handlerSrc = read('electron/services/webview-manager/ipc-handlers.js')
+    expect(handlerSrc).not.toMatch(/webContents\.getId\s*\(/)
+    expect(handlerSrc).toMatch(/webContents\.id === senderId/)
   })
 })

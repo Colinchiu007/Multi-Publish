@@ -13,6 +13,7 @@ export default {
     productionBoard: 'Production Board',
     contactSheet: 'Scene Review',
     replayTimeline: 'Production Replay',
+    filmEngineering: 'Film Engineering',
   },
   common: {
     save: 'Save',

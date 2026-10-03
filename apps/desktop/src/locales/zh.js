@@ -13,6 +13,7 @@ export default {
     productionBoard: '素材看板',
     contactSheet: '场景审批',
     replayTimeline: '生产回放',
+    filmEngineering: '影视工程',
   },
   common: {
     save: '保存',

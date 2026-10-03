@@ -13,10 +13,16 @@
 - **地址栏占位（需求第 2 点）**：home-shell 标签在壳态下 `did-navigate/did-navigate-in-page` 保持 `url=''`（既有壳态逻辑回归锁固化）→ `navigation.url` 为空 → NavBar 地址栏输入框显示占位符 `navigation.title`，即当前页面标题；输入框**内容**始终为空（用户输入前无残留），只有地址栏导航去外站（壳态自然结束）后才显示真实 URL。
 
 ### 验证
-- TDD 先红后绿：新增 `electron/services/webview-manager/home-shell-title.test.js`（9 例：不传 title 则 titleLocked=false / page-title-updated 实时更新并广播 / 显式传 title 保持锁定语义回归保护 / 壳态 url 恒空 / reportTabTitle IPC 定位+广播+幂等 / 未知 sender 与空 title 静默拒绝 / App.vue 接线 start-stop 成对契约）+ `src/composables/useTabDocumentTitle.test.js`（12 例：路由判定表 / 前缀路由 / 未知路径回退 / IPC 失败静默降级 / stop 后不再上报 / 非 Electron 降级）。反证：回滚 App.vue 改动测试变红。
+- TDD 先红后绿：新增 `electron/services/webview-manager/home-shell-title.test.js`（12 例：不传 title 则 titleLocked=false / page-title-updated 实时更新并广播 / 显式传 title 保持锁定语义回归保护 / 壳态 url 恒空 / reportTabTitle IPC 定位+广播+幂等 / 多标签 sender 精确归属 / 未知 sender 归属失败可观测 / 超长 title clamp / App.vue 接线契约 / **d.ts 归属契约锁**——electron.d.ts WebContents 段断言 `id: number` 属性存在且无 `getId(` 方法、源码禁现死探针）+ `src/composables/useTabDocumentTitle.test.js`（13 例：路由判定表 / 前缀路由 / 未知路径回退 / IPC 失败静默降级含 unhandledRejection 断言 / stop 后不再上报 / 非 Electron 降级 / **route-registry 全路由覆盖度锁**）。反证：回滚 App.vue 改动测试变红；把归属逻辑改回死探针写法 4 例立即变红。
 - 回归：webview-manager（83）+ preload（372）+ home-shell-preload（6）+ tab store/TabBar/NavBar（47）等定向 527/527 全绿；全量 13327 通过（1 失败为 `feedback.test.js` Windows symlink 权限既有环境性失败，基线复跑同样失败，与本 PR 无关）。
 - 门禁：`check-locale-sync.js --keys` PASS（1395 key 成对）；eslint 0 error（warning 均为 HEAD 既有）；QM-1 electron-builder --dir 打包通过。
-- 预防措施：本测试文件结构锁固化「home-shell 不锁定标题 + 标题上报链路」，后续任何把 `title` 加回 `onCreateTab` 或删除 `reportTabTitle` 接线的改动会立即变红。
+- 预防措施：本测试文件结构锁固化「home-shell 不锁定标题 + 标题上报链路 + webContents.id 属性归属」，后续任何把 `title` 加回 `onCreateTab`、删除 `reportTabTitle` 接线、或改回 `getId(` 死探针的改动会立即变红。
+
+### QM-6 双模型评审（两个独立子代理并行审查，findings 全部回写处置）
+- 🔴 CRITICAL 已修复：`webContents.getId()` 在 electron.d.ts 中不存在（`readonly id: number` 属性）——原实现的显式 IPC 链路是恒不匹配的死代码，被手搓 mock 掩成假绿。改用 `.id` 属性 + d.ts 归属契约锁 + 摘锁必红反证。
+- 🟠 MAJOR 已修复：归属失败静默无日志（补 warn + `matched:false`）；多标签 sender 隔离用例缺失（补 tab1/tab2 用例）；映射表缺失 4 条已登记路由且无覆盖锁（补覆盖度测试锁 + 显式例外清单）；ROUTE_TAB_TITLES 重建且同键双 set（模块级一次性构建 + 复合键）；`invokePageManager` promise 未 catch（补 `.catch` + unhandledRejection 断言）。
+- 🟢 MINOR 已修复：isDestroyed 守卫 / C1 断言锚定 createTab 行 / filmEngineering 长标题改独立短键 `tabs.filmEngineering` / PRD 初始标题时序说明 / JSDoc hash 剥离补齐 / start 防重入 / locale watch。
+- 评审后两测试文件 25/25 通过。详见专项 PRD §10。
 
 
 
