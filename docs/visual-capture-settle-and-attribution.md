@@ -154,3 +154,48 @@ home-baseline  / calendar 同：off 必不同、on 逐字节相同
   摘掉它必须与同源基线**同 PR**（否则会把「基线还没换」变成阻断红）。
   该约束由 `.github/scripts/workflow-contract.test.js` 断言锁住。
 - 基线只能取自 CI artifact `visual-test-reports`（QM-4 第 7 条），禁止提交本地图。
+## 5. 门禁的第一次实战：它抓到 main 连红 11 次，但**拦不住**制造漂移的那次合并
+
+#2714 落 main 后，这道门禁第一次抓到别人就是 #2761（图文发布字数上限体系）。
+按 run 时间轴取证，归因是锁死的而不是推断的：
+
+| 时间 (UTC) | run | head | 结论 |
+| --- | --- | --- | --- |
+| 2026-10-01T19:05 | 36911663440 | `994be586` | success（最后一次绿） |
+| 2026-10-01T21:46 | 36930829645 | **`269352b8` = #2761 合并提交** | **failure（首次红）** |
+| 之后每次 main push | 36997221674 … 37082871517 | `69c65bf6` … `4647f21b` | **连续 failure ≥11 次** |
+
+首次红那次的数字与后来每次完全一致，且**同一次 run 的 `Full visual suites (blocking gate)` 是 success**：
+
+```
+Full visual suites (blocking gate)      => success      ← 6% 全页阈值对 0.057% 天生失明
+Baseline freshness gate                 => failure
+  ❌ publish-form-dark.png 1238 px (0.06%)   来源=pixel-gate
+  ❌ publish-form.png      1183 px (0.057%)  来源=views
+```
+
+漂移内容经肉眼审核：`ArticleEditor.vue` 新增的「`0/10000 字`」计数器把发布表单底部整体下移一行，
+包围盒 `y1000–1079`。它是**有意的、已合并的特性**（注释点名 `PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1`），
+所以正解是重建基线；若它是意外回归，正解就是回退 #2761 —— **这一步判断不能省**，
+否则"刷新基线"会变成"把回归钉成新标准"（QM-4 第 4 条要人工审核 diff 图就是这个意思）。
+
+### 5.1 真正值得记的是那条结构性缺口：这是**探测器，不是防线**
+
+#2761 能全绿合并、main 之后连红 11 次，机制原因写在 `visual-test.yml` 的头部注释里：
+**2026-09-17 为省 CI 移除了 `pull_request` 触发**（它与 `quality-gate.yml` 的 `QG Visual` 逐行同构，
+每次改 `apps/desktop/**` 要占两台 runner），而新鲜度检查器**只接在 `visual-test.yml` 里**，
+`QG Visual` 不跑它。⇒ 漂移只能在落到 main 之后被发现，制造漂移的那个 PR 从来不会被拦。
+
+搬到 PR 侧的可行性按渲染来源量化（41 张被跟踪基线）：
+
+- **21 张**由像素门禁产出（`<view>[-dark]-current.png`）⇒ `QG Visual` 在 PR 上就会跑，可直接判；
+- **17 张**只由 views 套件产出（`<name>.png`）⇒ PR 上没有同源渲染，需要"只判本次有渲染的那些"的 partial 模式；
+- **3 张**无渲染（autonomous-loop 专属，已带理由登记）。
+
+注意 #2761 这次恰好是**一深一浅**：`publish-form-dark.png` 属那 21 张（PR 上就能拦住），
+`publish-form.png` 属那 17 张（仍会漏到 main）。所以"接到 QG Visual"只能把漏网面从 41 缩到 17，
+不是清零；要清零得让 PR 侧也跑 views 套件，那正是 2026-09-17 移除 PR 触发想省掉的那台 runner。
+
+另记一条与 §3 同一族的教训：本篇最初把这条缺口说成"门禁没用"，这是过头的——
+**它抓到了**（连红 11 次就是它在工作的证据），只是**抓得晚**。探测器与防线的差别是发现时机，不是有无价值；
+把"没拦住"写成"没用"会诱导别人直接删掉它，而删掉之后 #2761 这类漂移将**永远无人发现**。

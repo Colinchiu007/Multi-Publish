@@ -487,7 +487,9 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       }
       const stats = history.getStats(owner)
-      ipcLog('info', 'dashboard:stats', 'ok', `owner=${owner} published=${stats?.published} failed=${stats?.failed}`)
+      // 原样打印 `stats.published` 会永远输出 undefined —— getStats 从不返回该键，
+      // 而这条日志正是排障「看板数字为什么不对」的唯一现场，字段必须取真有的那几个。
+      ipcLog('info', 'dashboard:stats', 'ok', `owner=${owner} total=${stats?.total} success=${stats?.success} failed=${stats?.failed} unclassified=${stats?.unclassified} rate=${stats?.successRate}%`)
       return { code: 0, data: stats }
     } catch (e) { ipcLog('error', 'dashboard:stats', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
