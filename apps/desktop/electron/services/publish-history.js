@@ -240,47 +240,83 @@ function updateRecordAudit (id, patch, ownerSubject) {
  * 获取发布统计
  * @returns {object} { total, success, failed, perPlatform, daily }
  */
+/**
+ * 发布记录的终态分类 —— 统计口径的唯一实现。
+ *
+ * 为什么不能沿用 `r.success !== false`：两个生产写入点（bootstrap/phase4-events.js 的
+ * task:success / task:failed）只写 `status`，**从不写顶层 `success`**，于是「字段不等于 false」
+ * 对每一条都成立 ⇒ 失败被算成成功。判据必须读真正被写的那个字段。
+ *
+ * 第三类必须存在而不是并进任意一侧：publish-monitor 的回写路径会产出 skipped / timeout
+ * 形态的记录（实测本机活库 165 条里有 skipped=13、timeout=1），「本轮没有定论」既不是
+ * 成功也不是失败，硬塞进任一侧都是在给用户造假数。
+ *
+ * @param {object} record
+ * @returns {'success'|'failed'|'unclassified'}
+ */
+function classifyPublishStatus (record) {
+  const status = record && record.status
+  if (status === 'success') return 'success'
+  if (status === 'failed') return 'failed'
+  return 'unclassified'
+}
+
 function getStats (ownerSubject) {
   const records = readRecords(ownerSubject)
 
   const total = records.length
-  const success = records.filter(r => r.success !== false).length
-  const failed = total - success
+  // 三档统计共用同一次分类结果：判据若在顶层/分平台/分日各写一遍，
+  // 只修顶层就等于没修（本次实测该表达式在原实现里出现三次）。
+  const tallyOf = () => ({ total: 0, success: 0, failed: 0, unclassified: 0 })
+  const bump = (tally, kind) => { tally[kind] += 1 }
+  const toCounts = tally => ({ total: tally.total, success: tally.success, failed: tally.failed, unclassified: tally.unclassified })
+
+  const overall = tallyOf()
+  overall.total = total
 
   const perPlatform = {}
-  for (const r of records) {
-    const p = r.platform || 'unknown'
-    if (!perPlatform[p]) perPlatform[p] = { total: 0, success: 0, failed: 0 }
-    perPlatform[p].total++
-    if (r.success !== false) perPlatform[p].success++
-    else perPlatform[p].failed++
-  }
-
   const dailyMap = {}
   const now = new Date()
   for (let i = 29; i >= 0; i--) {
     const d = new Date(now)
     d.setDate(d.getDate() - i)
     const key = d.toISOString().slice(0, 10)
-    dailyMap[key] = { date: key, total: 0, success: 0 }
+    dailyMap[key] = Object.assign({ date: key }, tallyOf())
   }
+
   for (const r of records) {
-    if (!r.timestamp) continue
-    const key = r.timestamp.slice(0, 10)
-    if (dailyMap[key]) {
-      dailyMap[key].total++
-      if (r.success !== false) dailyMap[key].success++
+    const kind = classifyPublishStatus(r)
+    bump(overall, kind)
+
+    const p = r.platform || 'unknown'
+    if (!perPlatform[p]) perPlatform[p] = tallyOf()
+    perPlatform[p].total += 1
+    bump(perPlatform[p], kind)
+
+    if (r.timestamp) {
+      const day = dailyMap[r.timestamp.slice(0, 10)]
+      if (day) {
+        day.total += 1
+        bump(day, kind)
+      }
     }
   }
 
+  // 成功率的分母只有「有定论」的记录：把无定论并进 total 会让成功率随监控回写量漂移，
+  // 而有定论为零时返回 0（不是 100）——没有证据就不能报出一个看起来确定的数字。
+  const concluded = overall.success + overall.failed
+
   return {
     total,
-    success,
-    failed,
-    successRate: total > 0 ? Math.round(success / total * 100) : 0,
-    perPlatform,
-    daily: Object.values(dailyMap)
+    success: overall.success,
+    failed: overall.failed,
+    unclassified: overall.unclassified,
+    successRate: concluded > 0 ? Math.round(overall.success / concluded * 100) : 0,
+    perPlatform: Object.fromEntries(Object.entries(perPlatform).map(([k, v]) => [k, toCounts(v)])),
+    daily: Object.values(dailyMap).map(v => ({
+      date: v.date, total: v.total, success: v.success, failed: v.failed, unclassified: v.unclassified,
+    }))
   }
 }
 
-module.exports = { addRecord, listRecords, getRecord, deleteRecords, getStats, updateRecordAudit }
+module.exports = { addRecord, listRecords, getRecord, deleteRecords, getStats, updateRecordAudit, classifyPublishStatus }
