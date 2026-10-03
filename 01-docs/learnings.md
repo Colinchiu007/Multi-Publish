@@ -1,4 +1,11 @@
 
+## 知乎收藏批量：接线层的契约断裂电测层 mock 锁不住，IPC 形状纪律必须贯穿三层（zhihu-fav-batch，2026-10-03）
+
+- **P0 复发型缺陷链**：①2026-09-18 合入的旧批量采集把 IPC 返回 `{index,ok,data:{...}}` 展开成 `...x.data.data`（多一层），成功条目入库只剩 `{id}` 空壳——既有测试 mock 恰好也写成扁平形状且只断言 length，绿灯放行（Mock 边界 + 断言不精确双重失效）；②本次新增的渲染端接线层又把 handler 的 `data.results` 误当 `data.items` 传给映射函数——electron 层 mock 形状锁做得再好，**接线层喂错字段单测仍全绿**。教训：同一 IPC 契约的 mock 形状必须只存在一份真源（复制 handler 真实返回），且「汇总计数与实际产出数交叉校验」（不一致宁可报错不静默）是接线层的最后防线。
+- **QM-6 对抗评审是接线层断链的唯一拦截者**：240 个单测全绿的情况下，评审员靠「顺真实数据流走一遍」抓出 C1（results/items）、M2（模板引用不存在的函数）、M3（平台选择从未写入 composable 状态，buildTargets 恒空）三个「UI 不可用级」缺陷。UI composable 测试直接手写内部状态（`batchSelection.platforms=['x']`）会绕过 UI 接线——接线必须有独立回归锁（从模板事件到 IPC 载荷全链）。
+- **ELECTRON_RUN_AS_NODE 环境陷阱**：DSH pwsh 会话被注入 `ELECTRON_RUN_AS_NODE=1` 时，electron.exe 与打包 exe 全部被当纯 Node 进程静默 exit 0（无 stderr、无应用日志），QM-1「8 秒存活」假红。启动验证前必须 `Remove-Item Env:\ELECTRON_RUN_AS_NODE`；并发 worktree 会话占共享 userData 单实例锁时同假象，用 `ELECTRON_USER_DATA_DIR` 显式隔离（startup-compat.js 支持 env/argv 注入）。
+- **主进程 IPC 形状纪律三件套**：①双边界进度事件——每个 start 必须有对应 done（duplicate/skip/失败短路路径也不豁免，否则进度条视觉卡死）；②跨会话防线显式消费——传了 collectedUrls 参数就必须读（死参数=PRD 承诺漂移）；③IPC 载荷逐字段显式 String()/Number() 归一，不经任何 reactive 引用。
+
 ## 文本重组类后处理必须先定义结构不变量：AI 味 Pass 3 曾把 LLM 空行分段压成一整段（fix-rewrite-paragraph-preserve，2026-10-03）
 
 - **现象与根因**：用户反馈「改写后的文案是一整段」。提示词层早就要求空行分段（运营中心种子 hard-constraint-default-v1，2026-09-18），LLM 也遵守了；压平发生在本地后处理——去 AI 味引擎 Pass 3 的句长节奏修复（`ai-taste-remover.js` `_mergeUniformSentences`，v2 重构 `36a09e5c` 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢、段尾标点一并丢失。**凡是「把文本切散再重组」的处理，重组时丢弃的结构信息（换行/标点/空格）不会自己回来**。
