@@ -7,6 +7,13 @@
 - **测试反证纪律（pattern）**：本次修复的回归锁做了「把锁改回 no-op 必须变红」的实证——回滚 App.vue 的 onCreateTab 改动，契约用例立即变红；只证「业务改动变绿」不能证明锁在跑。
 - **环境坑（pitfall：ELECTRON_RUN_AS_NODE 残留）**：DSH/Agent 工具链环境残留 `ELECTRON_RUN_AS_NODE=1` 会让**所有** Electron exe 以纯 Node 模式启动——表现为主进程 JS 被当模块加载后立即退出 rc=0、零输出、零日志、userData 都不创建，与「asar integrity 失败」「杀软拦截」等症状极难区分。排查 Electron 打包产物「静默闪退」先 `Get-ChildItem Env: | Where-Object Name -match ELECTRON`。
 
+## 知乎收藏批量：接线层的契约断裂电测层 mock 锁不住，IPC 形状纪律必须贯穿三层（zhihu-fav-batch，2026-10-03）
+
+- **P0 复发型缺陷链**：①2026-09-18 合入的旧批量采集把 IPC 返回 `{index,ok,data:{...}}` 展开成 `...x.data.data`（多一层），成功条目入库只剩 `{id}` 空壳——既有测试 mock 恰好也写成扁平形状且只断言 length，绿灯放行（Mock 边界 + 断言不精确双重失效）；②本次新增的渲染端接线层又把 handler 的 `data.results` 误当 `data.items` 传给映射函数——electron 层 mock 形状锁做得再好，**接线层喂错字段单测仍全绿**。教训：同一 IPC 契约的 mock 形状必须只存在一份真源（复制 handler 真实返回），且「汇总计数与实际产出数交叉校验」（不一致宁可报错不静默）是接线层的最后防线。
+- **QM-6 对抗评审是接线层断链的唯一拦截者**：240 个单测全绿的情况下，评审员靠「顺真实数据流走一遍」抓出 C1（results/items）、M2（模板引用不存在的函数）、M3（平台选择从未写入 composable 状态，buildTargets 恒空）三个「UI 不可用级」缺陷。UI composable 测试直接手写内部状态（`batchSelection.platforms=['x']`）会绕过 UI 接线——接线必须有独立回归锁（从模板事件到 IPC 载荷全链）。
+- **ELECTRON_RUN_AS_NODE 环境陷阱**：DSH pwsh 会话被注入 `ELECTRON_RUN_AS_NODE=1` 时，electron.exe 与打包 exe 全部被当纯 Node 进程静默 exit 0（无 stderr、无应用日志），QM-1「8 秒存活」假红。启动验证前必须 `Remove-Item Env:\ELECTRON_RUN_AS_NODE`；并发 worktree 会话占共享 userData 单实例锁时同假象，用 `ELECTRON_USER_DATA_DIR` 显式隔离（startup-compat.js 支持 env/argv 注入）。
+- **主进程 IPC 形状纪律三件套**：①双边界进度事件——每个 start 必须有对应 done（duplicate/skip/失败短路路径也不豁免，否则进度条视觉卡死）；②跨会话防线显式消费——传了 collectedUrls 参数就必须读（死参数=PRD 承诺漂移）；③IPC 载荷逐字段显式 String()/Number() 归一，不经任何 reactive 引用。
+
 ## 文本重组类后处理必须先定义结构不变量：AI 味 Pass 3 曾把 LLM 空行分段压成一整段（fix-rewrite-paragraph-preserve，2026-10-03）
 
 - **现象与根因**：用户反馈「改写后的文案是一整段」。提示词层早就要求空行分段（运营中心种子 hard-constraint-default-v1，2026-09-18），LLM 也遵守了；压平发生在本地后处理——去 AI 味引擎 Pass 3 的句长节奏修复（`ai-taste-remover.js` `_mergeUniformSentences`，v2 重构 `36a09e5c` 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢、段尾标点一并丢失。**凡是「把文本切散再重组」的处理，重组时丢弃的结构信息（换行/标点/空格）不会自己回来**。
@@ -14,6 +21,14 @@
 - **标点契约（pattern）**：切句时用捕获组保留终止标点（split 捕获组 + reduce 回填），重组按原文标点回填——语气标点（！？）不得被统一改写成句号；合并衔接点才允许把前句标点改成逗号；段尾无标点不追加。
 - **逃逸教训（pitfall）**：单段短文本测试永远暴露不了结构破坏——「重组类处理」的回归锁必须包含多段输入断言（输出含换行）+ 无标点尾段断言（不追加标点）；且要防**假绿**：旧代码「统一丢标点」恰好满足「不追加标点」的表面断言（R5），两侧断言（不丢 + 不加）要成对出现。
 - **上游+保底双保险（pattern）**：LLM 输出侧约束（硬约束 + 模式指令要求空行分段）是概率性的，本地后处理的确定性保障（结构不变量）才是兜底——两层都要做，只做提示词层压平照旧发生。
+## 「跳转即自动执行」的页面，完成态必须把视口带到产物位置——且判据收在页面内而非调用方（fix-rewrite-jump-focus，2026-10-09）
+
+- **第一性根因**：热门选题【创作文案】跳转 `/rewrite?topic=` 后 RewriteView 自动开始改写，但视口停在首屏；结果卡片在下方，用户不知道「已经改完了」，误以为只是带入了输入内容。这是「状态已完成、感知却是初始态」的认知断层——凡是**跳转后自动执行**的页面（自动改写、自动分析、自动生成），完成态与首屏态在视觉上不可区分，用户就无法建立「我刚才那步已经成了」的反馈闭环。修复判据：完成时把视口带到产物位置（`scrollIntoView` 结果卡片），而不是加进度条或改布局。
+- **判定真源收在「被执行的页面」内，不在调用方**：自动改写入口 = `topic` query 或 `from=collection` 交接（页面挂载期识别，`autoFocusResult` 标志）。若在 HotTopics / Collection 各自跳转处加参数，未来第 3 个自动入口会漏带；页面内单点判定则天然覆盖。同族先例：发布进度阶段映射收在发射层单一实现。
+- **不滚动的边界同样重要**：手动改写不滚（用户本就在看着页面）、失败不滚（错误横幅在首屏可见 + 结果卡片 `v-if` 不渲染目标不存在）。反证两条都做了变异测试：摘调用 → 自动入口用例红；摘条件守卫 → 手动用例红。
+- **测试环境接缝（当场踩到）**：`@vue/test-utils` 默认 mount 到**游离 DOM**，`document.querySelector` 拿不到组件内元素——滚动目标必须用模板 ref 而非全局查询。这与 CreateView.test.js 早前「spy 组件方法而非全局 Element.scrollIntoView」的回归注记同族：jsdom 游离挂载是本仓 Vue 测试的常态，任何依赖 `document.*` 全局查询的实现/断言都要先问「元素挂在哪」。
+- **回归锁清单**：`RewriteView.test.js` describe「自动改写入口完成后定位结果区」5 例（topic 滚动/交接滚动/手动不滚/titleHint 不滚/失败不滚），断言含 spy 的 `mock.instances[0]` 精确指向结果卡片元素 + `{behavior:'smooth',block:'start'}` 参数。
+
 ## 发布失败自动存草稿的去重真源在主进程内容指纹，不在渲染层也不在 draft.id（publish-fail-draft-guard，2026-10-03）
 
 - **第一性根因**：draftSave 原按 draft.id 去重，而「失败自动回存」与「用户手动保存」各自生成新 id——同一份内容必然双条。**去重判据必须在『内容』上而不是『保存动作的 id』上**：引入 sha256 内容指纹（services/draft-fingerprint.js，仅 12 个内容字段白名单），命中即原地更新并保留原 id/createdAt，返回 {draftId, reused}。publishTime/platforms/accounts/platformOverrides 等发布指向性元数据不参与指纹——同一内容多平台失败只产生一条草稿；数组保序（图片顺序即内容）、对象键递归排序、空内容统一 EMPTY 指纹、历史数据无 _fp 时现算比对并回填（读取侧惰性迁移，无需一次性迁移脚本）。

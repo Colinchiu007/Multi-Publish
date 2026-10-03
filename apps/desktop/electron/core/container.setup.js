@@ -213,6 +213,11 @@ function createContainer(options) {
   // 注意：目录在装配时快照式定型（与 app-*.log 同源）；若未来支持运行时切换日志目录，
   // 需同步评估审计日志是否跟随（当前生产无 setLogOptions 调用，契约稳定）。
   container.register("urlCollector", function(c) { return new UrlCollector({ auditDir: c.get("logger").getLogsDir() }); });
+  // 知乎正文图片本地化（2026-10-03 PRD-ZHIHU-FAV-BATCH C1）：zhimg 防盗链 → Referer 伪装下载到 userData
+  container.register("zhihuImageLocalizer", function(c) {
+    const ZhihuImageLocalizer = require('../services/zhihu-image-localizer');
+    return new ZhihuImageLocalizer({ log: c.get("logger") });
+  });
   // 热门选题聚合服务（多渠道热搜抓取 + 分类 + 缓存）
   container.register("hotTopicsService", function(c) {
     const { HotTopicsService } = require('../services/hot-topics-service');

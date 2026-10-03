@@ -25,6 +25,25 @@
 - 评审后两测试文件 25/25 通过。详见专项 PRD §10。
 
 
+# [未发布] feat(collection): 知乎收藏批量采集与批量发布/视频——清单直选 + 采集并改写 + 三批量动作（2026-10-03，zhihu-fav-batch）
+
+### 根因（P0 修复反哺）
+- `Collection.vue` 旧批量采集结果映射写成 `...x.data.data`（多取一层 `.data`）：IPC 返回 `results[i] = {index, ok, data:{采集结果}}`，双层展开得 `undefined`，**成功条目入库后只剩 `{id}` 空壳**（title/content/sourceUrl 全丢），级联污染批量改写（发出 `content: undefined`）与落盘。逃逸原因：既有测试 mock 恰好也写成扁平 `{data:{...}}` 且只断言 `length`（Mock 形状与真实 IPC 契约无一致性校验）。
+- 批量改写黑盒：`batch-rewrite` 结果写入 `rewrittenContent` 后全仓无任何展示/消费点，用户看不到也用不上。
+- 采集条目 `coverImage` 与发布侧 `cover_url` 字段名断裂，采集内容转发布草稿封面丢失。
+
+### 功能（PRD-ZHIHU-FAV-BATCH-2026-10-03）
+- **清单直选（Q16B）**：收藏夹区块新增采集范围单选（指定收藏夹/全部收藏）+ 数量 N（1–100 默认 50）+ 全量开关（≤200 封顶，Q21C）+ 包含已采集（强制重采）；「加载收藏内容」拉取元数据清单（标题/类型徽标/收藏时间/已采集标记）供勾选。「全部收藏」走新 IPC `zhihu-favlist:unified-contents`：多收藏夹合并 + URL 去重 + favTime 降序截断（新模块 `services/zhihu-fav-core.js` 纯函数），收藏夹 >50 如实提示（官方 API 硬约束）。清单项 `kind` 由 `classifyZhihuUrl` 六分类（answer/article/pin/video/column/unknown）。
+- **采集并改写（Q16 调整/D2）**：新 IPC `zhihu-fav-batch:run` 勾选编排——逐条串行（BatchRateController 8s+4s 抖动/退避/熔断/可取消）→ url-collector 正文采集 → 图片本地化（新 `services/zhihu-image-localizer.js`：zhimg 防盗链 Referer 伪装下载到 `{userData}/collected-images/`，失败回退原链记 `imageFallbacks`）→ 自动 AI 改写（失败/空结果回退原文并标注）→ 入库条目带 `rewrittenContent/kind/favTime/images/imageFallbacks/batchId`。专栏/想法/视频型仅登记不采集正文（B2/B3/B4）。进度经 `zhihu-fav-batch:progress` 事件**双边界推送**（start=采集前/done=完成后 + summary 终态），UI 进度卡整体进度条 + 可展开逐条明细。
+- **URL 去重（C2/Q10）**：主进程已知 URL 记忆 + 渲染层 sourceUrl 比对双防线；已采集条目清单默认跳过（checkbox 禁用）+「包含已采集」开关重采（覆盖保留原 id/createdAt）；cache_hit 空结果计失败防空壳。
+- **多选批量动作（D3/D4，Q17B 全来源通用）**：采集结果卡片全选/单选；新 composable `useCollectionBatchPublish`——①批量发布图文：确认框（条数×平台×账号+原文回退计数）→ batchCreate/batchExecute → App 级发布进度面板（失败重试/落历史/失败草稿回存自动获得）；发布取稿**改写稿优先**（Q26C），`coverImage→cover_url` 映射修复；②批量生成视频：≤10 条、视频型跳过列出、story2video-batch-queue（并行 2、只生成不发布）；③批量发布视频：仅「本批」已完成产物（`trackBatch` → `refreshBatchVideos` 从 run context 提取 videoPath）→ video_path 载荷（30min 超时主进程契约）。平台按 `contentCategory` 预筛（图文条目排除纯视频平台；视频发布仅 VIDEO+MIXED）。所有用户可见文案 zh/en 成对（`collection.zhihuFav.*`/`collection.batch.*`），渲染层零新增硬编码中文。
+- **改写黑盒接通（C3b）**：改写稿在采集卡片可见（已改写预览/改写失败标注），自动改写成功条目同步写入文案库（`fromKey='collect:<id>'` 幂等）。
+
+### 验证
+- TDD 先红后绿：`zhihu-fav-core.test.js`（15：URL 六分类/合并/去重/排序/截断/全量封顶）、`zhihu-fav-batch.test.js`（21：参数校验/进度双边界/自动改写/回退原文/仅登记类型/去重/互斥/取消/图片本地化回退/unified 聚合——**mock 全部复制真实 IPC 形状**）、`collection-batch.test.js`（17：P0 回归锁「字段不得为空」/取稿规则/封面映射/平台预筛/目标展开）、`useCollectionBatchPublish.test.js`（16）、`Collection.test.js` 扩至 109（P0 逐字段回归锁 + 清单/聚合/新通道用例）等全量相关 **238/238 绿**。
+- `check-locale-sync --keys` PASS（1405 keys）+ `--cjk` PASS（基线 1489→1340，无新增硬编码）；eslint 0 error；`normalizeCollectedItem` 扩展 kind/favTime/images/imageFallbacks/rewrittenContent/rewriteFailed 字段（唯一出口继续收敛）。
+
+# [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
 
 ### 根因（QM-5 五步取证）
 - 用户反馈「改写后的文案是一整段没有正常分段」。是 bug 不是没处理：提示词层早要求空行分段（运营中心种子 hard-constraint-default-v1 第 2 条，2026-09-18），LLM 也遵守了；压平发生在本地后处理——`AITasteRemover` Pass 3 的句长节奏修复 `_mergeUniformSentences`（v2 重构 `36a09e5c` 2026-09-09 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢；次级缺陷：切句剥离标点导致段尾标点丢失、语气标点被统一改写成句号。
@@ -39,6 +58,24 @@
 - 端到端实证：3 段 × 2 句输入 → 输出 3 段空行完整保留、段尾句号保留（修复前 0 换行、段尾无句号）。
 - 预防措施：AGENTS.md QM-2 新增「后处理结构不变量」门禁条目（含必跑测试清单）；learnings 置顶「文本重组类后处理必须先定义结构不变量」。
 - 专项 PRD（六维度详写）：`01-docs/PRD-REWRITE-PARAGRAPH-PRESERVE-2026-10-03.md`；引擎主 PRD 追加 §十四。
+
+# [未发布] fix(rewrite): 自动改写入口完成后直接定位改写结果区（2026-10-09，fix-rewrite-jump-focus）
+
+### 根因
+- 热门选题【创作文案】跳转 `/rewrite?topic=` 后页面**自动开始改写**，但视口停在第一屏（输入区 + 配置区）；改写完成时结果卡片在页面下方，用户不知道「已经改完了」，误以为只是带入了文案输入内容——状态已完成、感知却是初始态。
+- 文案库（采集页）【改写】交接入口（`/rewrite?from=collection`，sessionStorage 载荷读后即焚）同样是「跳转即自动改写」，存在同一认知断层。
+
+### 修复（改写页单点收敛）
+- `RewriteView.vue` 新增非响应式标志 `autoFocusResult`：挂载期识别「自动改写入口」置位——`route.query.topic` 非空，或 `from=collection` 交接经 `consumeLibraryHandoff` 实际取到有效载荷；手动进入、`titleHint` 预填（不自动改写）、无效交接载荷一律不置位。
+- 新增 `focusRewriteResult()`：`startRewrite` 成功分支调用（结果/标题/元信息赋值完成后），`await nextTick()` 等 `v-if` 结果卡片挂载后经模板 ref `rewriteResultCardEl` 取元素，`scrollIntoView({ behavior: 'smooth', block: 'start' })`；与 ResultView.vue 滚动先例同模式。
+- 判据收敛在改写页内部而非调用方加参数：未来新增自动改写入口（只要走 topic/交接语义）零调用方改动。
+- 不滚动的场景（防过度滚动）：手动点击「开始改写」（用户本就在看着页面）、改写失败（错误横幅 `.rewrite-error` 在结果卡片上方的配置卡内，首屏可见；且失败时结果卡片 `v-if="rewriteResult"` 不渲染、目标不存在）。
+- 模板 ref 而非 `document.querySelector`：@vue/test-utils 默认挂载到游离 DOM，全局查询拿不到元素；ref 引用对生产与测试环境都成立。
+
+### 验证
+- TDD 先红后绿：`RewriteView.test.js` 新增 describe「自动改写入口完成后定位结果区」5 例——topic 成功滚动（断言 spy this 指向结果卡片元素 + smooth/start 参数）、collection 交接成功滚动、手动改写不滚、titleHint 入口不滚、改写失败不滚。
+- 反证（变异测试）：① 摘掉成功分支 `focusRewriteResult()` 调用 → 前 2 条真红；② 摘掉 `autoFocusResult` 条件守卫 → 手动/titleHint 2 条真红（失败用例由 `v-if` 结构天然保护：卡片不渲染、el 为 null 不滚）。
+- 回归：RewriteView 83 例 + HotTopics 42 例 + Collection 105 例共 230 例全绿（调用方零改动）。
 
 # [未发布] fix(publish): 发布失败自动保存草稿到草稿箱 + 内容指纹防重复（2026-10-09，publish-fail-draft-guard）
 
