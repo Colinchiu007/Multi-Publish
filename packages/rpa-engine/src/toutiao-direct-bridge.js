@@ -156,22 +156,22 @@ async function publishViaPageXhr ({ win, title, log }) {
       return 'SETUP_OK'
     })()`
     await win.webContents.executeJavaScript(setup)
-    // 等页面捕获 body（最长 12s）；若 6s 后仍无，点一次页面真实「预览并发布」促发内部保存
-    // （该按钮 onClick 会先执行保存再挂 deferred——保存请求可被 hook 捕获，门控只拦最终提交）
+    // ⭐ 复刻诊断脚本成功路径：给标题一个【新值】（React 感知变化 → 触发自动保存）。
+    // 应用 RPA 填充后 React state 可能未感知变化（恢复草稿态），从不出保存请求；
+    // 而诊断脚本每次填新标题值，2s 内必触发自动保存（多次真机复现）。
+    const rettle = `(function(){
+      var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
+      if(!ta) return 'NO_TITLE'
+      var s=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set
+      s.call(ta, (ta.value||'').slice(0,26)+' '+Date.now().toString().slice(-4))
+      ta.dispatchEvent(new Event('input',{bubbles:true}))
+      return 'TITLE_BUMPED'
+    })()`
+    await win.webContents.executeJavaScript(rettle)
+    // 等自动保存（最长 12s；诊断脚本实证 2-8s 内必到）
     for (let i = 0; i < 6; i++) {
       if (await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) break
-      await tcDispatchCtrlS(win)
       await new Promise((r) => setTimeout(r, 2000))
-    }
-    if (!await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) {
-      log.warn('RpaView', '[toutiao] Ctrl+S 未促发保存 → 点击页面「预览并发布」促发内部保存')
-      await win.webContents.executeJavaScript(`(function(){
-        var b=[...document.querySelectorAll('button')].filter(function(x){
-          return String(x.innerText||'').replace(/\\s+/g,'')==='预览并发布'&&x.getClientRects().length>0})[0]
-        if(b) b.click()
-        return b?'CLICKED':'NO_BTN'
-      })()`)
-      await new Promise((r) => setTimeout(r, 4000))
     }
     const js = `(function(){
       // 原样重放页面自己的自动保存 body（含新鲜 pgc_id/title_id/tt-anti-token 上下文），
