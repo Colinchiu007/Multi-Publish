@@ -214,7 +214,7 @@
               {{ zhihuFavListLoading ? $t('collection.zhihuFav.loadingContents') : $t('collection.zhihuFav.loadContents') }}
             </button>
           </div>
-          <div v-if="zhihuFavScopeHint" style="margin-top:6px;font-size: var(--font-size-xs);color:var(--text-secondary)" data-testid="zhihu-fav-scope-hint">
+          <div v-if="zhihuFavScopeHint" style="margin-top:6px;font-size: var(--font-size-xs);color:var(--color-text-secondary)" data-testid="zhihu-fav-scope-hint">
             {{ zhihuFavScopeHint }}
           </div>
           <!-- 收藏夹清单（直选） -->
@@ -223,7 +223,7 @@
               <label style="display:flex;align-items:center;gap:4px">
                 <input type="checkbox" :checked="zhihuFavAllSelected" @change="toggleZhihuFavAll($event.target.checked)" />{{ $t('collection.zhihuFav.selectAll') }}
               </label>
-              <span style="color:var(--text-secondary)">{{ $t('collection.zhihuFav.selectedCount', { count: String(zhihuFavSelectedItems.length) }) }}</span>
+              <span style="color:var(--color-text-secondary)">{{ $t('collection.zhihuFav.selectedCount', { count: String(zhihuFavSelectedItems.length) }) }}</span>
               <span style="flex:1"></span>
               <button class="cohere-btn-primary" @click="runZhihuFavCollectRewrite" :disabled="zhihuFavBatching || !zhihuFavSelectedItems.length" data-testid="zhihu-fav-collect-rewrite">
                 {{ zhihuFavBatching ? $t('collection.zhihuFav.collecting') : $t('collection.zhihuFav.collectAndRewrite') }}
@@ -239,8 +239,8 @@
               />
               <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="it.title || it.url">{{ it.title || it.url }}</span>
               <span class="cohere-tag" style="font-size:11px">{{ zhihuKindLabel(it.kind) }}</span>
-              <span style="color:var(--text-secondary)">{{ formatFavTime(it.favTime) }}</span>
-              <span v-if="it.collected" style="color:var(--text-secondary)">· {{ $t('collection.zhihuFav.markCollected') }}</span>
+              <span style="color:var(--color-text-secondary)">{{ formatFavTime(it.favTime) }}</span>
+              <span v-if="it.collected" style="color:var(--color-text-secondary)">· {{ $t('collection.zhihuFav.markCollected') }}</span>
             </div>
           </div>
           <!-- 旧整夹直采（保留兼容） -->
@@ -255,13 +255,13 @@
               {{ $t('collection.cancelBatch') }}
             </button>
           </div>
-          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size: var(--font-size-xs);color:var(--text-secondary)">
+          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size: var(--font-size-xs);color:var(--color-text-secondary)">
             {{ zhihuFavlistProgress }}
           </div>
           <div v-if="zhihuFavlistError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size: var(--font-size-xs);color:#d32f2f">
             {{ zhihuFavlistError }}
           </div>
-          <div style="font-size: var(--font-size-xs);color:var(--text-secondary);margin-top:4px">
+          <div style="font-size: var(--font-size-xs);color:var(--color-text-secondary);margin-top:4px">
             {{ $t('collection.zhihuFavlist.hint') }}
           </div>
         </div>
@@ -340,7 +340,7 @@
         </div>
         <!-- 视频平台/账号（仅本批有产物时显示；发布视频用） -->
         <div v-if="batch.selectedCount.value > 0 && batch.batchVideoPool.value.length && batchVideoPlatformOptions.length" style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap;margin:0 0 8px;padding:8px 12px;border:1px dashed var(--border);border-radius:8px">
-          <span style="font-size:12px;color:var(--text-secondary)">{{ $t('collection.batch.videoPlatformLabel') }}</span>
+          <span style="font-size:12px;color:var(--color-text-secondary)">{{ $t('collection.batch.videoPlatformLabel') }}</span>
           <select v-model="batchVideoPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px" data-testid="batch-video-platform-scope">
             <option v-for="p in batchVideoPlatformOptions" :key="p.id" :value="p.id">{{ p.label }}</option>
           </select>
@@ -353,7 +353,7 @@
             />{{ acc.name || acc.id }}
           </label>
         </div>
-        <div v-if="batch.batchVideoPool.value.length" style="font-size:12px;color:var(--text-secondary);margin:4px 0" data-testid="batch-video-pool">
+        <div v-if="batch.batchVideoPool.value.length" style="font-size:12px;color:var(--color-text-secondary);margin:4px 0" data-testid="batch-video-pool">
           {{ $t('collection.batch.videoPoolNote', { count: String(batch.batchVideoPool.value.length) }) }}
         </div>
         <div class="cohere-card-grid">
@@ -376,8 +376,8 @@
                 </div>
                 <!-- 改写黑盒接通（C3b/D2）：改写结果可见 -->
                 <div v-if="item.rewriteFailed" style="font-size:11px;color:#e6a23c;margin-top:2px">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}</div>
-                <div v-else-if="item.rewrittenContent" style="font-size:11px;color:var(--text-secondary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
-                <div v-if="item.imageFallbacks && item.imageFallbacks.length" style="font-size:11px;color:var(--text-secondary)">{{ $t('collection.zhihuFav.imageFallbackBadge', { count: String(item.imageFallbacks.length) }) }}</div>
+                <div v-else-if="item.rewrittenContent" style="font-size:11px;color:var(--color-text-secondary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
+                <div v-if="item.imageFallbacks && item.imageFallbacks.length" style="font-size:11px;color:var(--color-text-secondary)">{{ $t('collection.zhihuFav.imageFallbackBadge', { count: String(item.imageFallbacks.length) }) }}</div>
               </div>
             </div>
             <div class="card-actions">
@@ -2650,7 +2650,7 @@ function cancelBatchCollect () {
   background: var(--color-bg-card);
 }
 .compare-textarea:focus { border-color: var(--coral); outline: none; }
-.compare-textarea[readonly] { background: var(--soft-stone); color: var(--text-secondary); }
+.compare-textarea[readonly] { background: var(--soft-stone); color: var(--color-text-secondary); }
 
 @media (max-width: 768px) {
   .rewrite-compare { grid-template-columns: 1fr; }
@@ -2782,7 +2782,7 @@ function cancelBatchCollect () {
   padding: 4px 8px;
   border-radius: 6px;
 }
-.copy-preview-close:hover { background: var(--soft-stone, #f5f5f5); color: var(--text-primary); }
+.copy-preview-close:hover { background: var(--soft-stone, #f5f5f5); color: var(--color-text-primary); }
 .copy-preview-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; font-size: var(--font-size-xs); color: var(--muted, #73777d); }
 /* 长文本展示契约：显式换行 + 任意位置断词，避免长串英文/链接撑破弹窗 */
 .copy-preview-content {
