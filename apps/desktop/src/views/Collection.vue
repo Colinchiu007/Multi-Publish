@@ -1324,8 +1324,10 @@ onMounted(async () => {
   loadContentCategories().catch(() => {})
   categoriesUnsubscribe = watchContentCategories()
   // 知乎收藏批量（2026-10-03）：平台目录 + 进度事件订阅
-  if (!platformStore.loaded) { platformStore.load().catch(() => {}) }
-  if (!accountStore.accounts || !accountStore.accounts.length) { try { await accountStore.load() } catch { /* 账号加载失败不阻塞 */ } }
+  // Promise.resolve 包裹：测试桩的 load() 可能返回 undefined，直接 .catch 会抛
+  // "Cannot read properties of undefined (reading 'catch')"（QG Unit unhandled rejection 修复）
+  if (!platformStore.loaded) { Promise.resolve(platformStore.load()).catch(() => {}) }
+  if (!accountStore.accounts || !accountStore.accounts.length) { try { await Promise.resolve(accountStore.load()) } catch { /* 账号加载失败不阻塞 */ } }
   if (!batchPlatformScope.value && batchPlatformOptions.value.length) batchPlatformScope.value = batchPlatformOptions.value[0].id
   if (!batchVideoPlatformScope.value && batchVideoPlatformOptions.value.length) batchVideoPlatformScope.value = batchVideoPlatformOptions.value[0].id
   subscribeZhihuFavProgress()
