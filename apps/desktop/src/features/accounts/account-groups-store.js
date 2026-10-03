@@ -27,6 +27,23 @@ export const LEGACY_ACCOUNT_GROUPS_KEY = 'mp_account_groups'
 export const MAX_ACCOUNT_GROUPS = 50
 export const MAX_GROUP_ACCOUNTS = 500
 export const GROUP_NAME_MAX = 40
+/** 单分组的内容类别标签上限（内容定位标记，不是权限，给 10 足够） */
+export const MAX_GROUP_CATEGORY_TAGS = 10
+/** 类别标识规则：与统一内容类别真源同口径（小写字母开头，长度 2-32） */
+const CATEGORY_KEY_RE = /^[a-z][a-z0-9_]{1,31}$/
+
+/**
+ * 归一分组类别标签：去重 + 丢弃非法 key + 截断到上限。
+ *
+ * 与 `normalizeAccountGroups` 同正则、同上限 —— 写侧构造与读侧归一两条路径一旦
+ * 不一致就会漂移（本文件头注释已警告过该失败模式）。
+ * @param {unknown} tags
+ * @returns {string[]}
+ */
+export function normalizeCategoryTags (tags) {
+  const list = Array.isArray(tags) ? tags.filter((t) => typeof t === 'string') : []
+  return [...new Set(list.filter((t) => CATEGORY_KEY_RE.test(t)))].slice(0, MAX_GROUP_CATEGORY_TAGS)
+}
 
 function newGroupId () {
   try {
@@ -43,17 +60,25 @@ function isPlainString (v) {
 /**
  * 归一 + 校验（PRD §三 1-8）。不抛错：把每条不成立的结果记进返回值，由调用方决定怎么出声。
  * @param {unknown} raw 反序列化后的原始值
- * @param {{knownPlatformIds?: string[], accounts?: Array<{id:string,platform:string}>}} [ctx]
+ * @param {{knownPlatformIds?: string[], accounts?: Array<{id:string,platform:string}>,
+ *          knownCategoryKeys?: string[]}} [ctx]
+ *   knownCategoryKeys 用于判定「未知类别」——未知不丢（后续新增类别可自动恢复引用），
+ *   只记入 unresolvedCategoryTags 出声。
  */
 export function normalizeAccountGroups (raw, ctx = {}) {
   const knownPlatformIds = ctx.knownPlatformIds || null
+  const knownCategoryKeys = ctx.knownCategoryKeys || null
   const accounts = Array.isArray(ctx.accounts) ? ctx.accounts : []
   const accountById = new Map(accounts.map(a => [a.id, a]))
+  const unresolvedCategoryTags = []
   const dropped = []
   const unresolved = []
 
   if (!Array.isArray(raw)) {
-    return { groups: [], dropped: [], unresolved: [], healed: 0, limitReached: false, invalidShape: true }
+    return {
+      groups: [], dropped: [], unresolved: [], unresolvedCategoryTags: [],
+      healed: 0, limitReached: false, invalidShape: true,
+    }
   }
 
   const seenIds = new Set()
@@ -108,9 +133,33 @@ export function normalizeAccountGroups (raw, ctx = {}) {
       if (!account || (filter && account.platform !== filter)) unresolved.push(accountId)
     }
 
+    // 内容类别标签（2026-10-03）：与 platformFilter 的区别是「软标签 vs 硬筛选」——
+    // platformFilter 决定谁能进组，categoryTags 只是标记这组账号的内容定位，
+    // 不影响成员资格，供自动化任务按类别挑选目标分组。
+    let categoryTags = []
+    if (Array.isArray(item.categoryTags)) {
+      categoryTags = [...new Set(item.categoryTags.filter(isPlainString))]
+    } else if (item.categoryTags !== undefined && item.categoryTags !== null) {
+      // 显式给了非数组 → 记一笔再当空，不静默吞掉
+      dropped.push({ id, reason: 'categoryTags', value: String(item.categoryTags) })
+    }
+    for (const t of categoryTags) {
+      if (!CATEGORY_KEY_RE.test(t)) dropped.push({ id, reason: 'categoryTag', value: t })
+    }
+    categoryTags = categoryTags.filter((t) => CATEGORY_KEY_RE.test(t))
+    if (categoryTags.length > MAX_GROUP_CATEGORY_TAGS) {
+      dropped.push({ id, reason: 'categoryTagsTruncated', value: categoryTags.length })
+      categoryTags = categoryTags.slice(0, MAX_GROUP_CATEGORY_TAGS)
+    }
+    // 未知类别 key 保留（与成员 id 同策略）：用户后续新增该类别后引用自动恢复，
+    // 但同时记入 unresolvedCategoryTags 让调用方出声
+    for (const t of categoryTags) {
+      if (knownCategoryKeys && !knownCategoryKeys.includes(t)) unresolvedCategoryTags.push(t)
+    }
+
     seenIds.add(id)
     seenNameKeys.add(nameKey)
-    groups.push({ id, name, platformFilter: filter, accountIds: memberIds })
+    groups.push({ id, name, platformFilter: filter, accountIds: memberIds, categoryTags })
   }
 
   const limitReached = groups.length > MAX_ACCOUNT_GROUPS
@@ -118,6 +167,7 @@ export function normalizeAccountGroups (raw, ctx = {}) {
     groups: limitReached ? groups.slice(0, MAX_ACCOUNT_GROUPS) : groups,
     dropped,
     unresolved: [...new Set(unresolved)],
+    unresolvedCategoryTags: [...new Set(unresolvedCategoryTags)],
     healed,
     limitReached,
     invalidShape: false,

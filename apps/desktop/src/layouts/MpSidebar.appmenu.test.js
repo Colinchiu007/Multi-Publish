@@ -149,8 +149,9 @@ describe('MpSidebar — 应用菜单配置生效', () => {
     const sidebar = await mountSidebar()
 
     expect(primaryKeys(sidebar)).toEqual([
-      // 6 项按下发 sort_order 重排；rewrite 未下发（无 sort_order）→ 排在其后
-      'collection', 'create', 'accounts', 'publish', 'dashboard', 'home', 'copy-library', 'rewrite',
+      // 6 项按下发 sort_order 重排；未下发（无 sort_order）的按目录序排在其后
+      // （automation 为 2026-10-03 新增的一级导航项，位于 collection 之后）
+      'collection', 'create', 'accounts', 'publish', 'dashboard', 'home', 'automation', 'copy-library', 'rewrite',
     ])
   })
 

@@ -18256,3 +18256,211 @@ video/article 两个互斥分支的视频上传区共用 `videoUploadRef`。回�
 **合同**：上传域请求（分片/complete）头部与捕获的真实浏览器请求**逐字一致**（`_uploadHeaders` helper：无 Cookie + 短 Referer + Accept + sec-ch-ua×3 + 捕获 UA）。**这是头部级对齐的最后一层**——若仍 400，根因在传输层（TLS 指纹/HTTP 版本），Node axios 无法复刻，API 轨需浏览器传输（DOM 轨即正确架构），按证据归档裁决。
 
 回归锁：`kuaishou-video-chain.test.js` 断言 sec-ch-ua 三件套 + Chrome/150 UA（红→绿实证）。
+
+## 自动化模块与统一内容类别（automation-content-category，2026-10-03）
+
+> 专项 PRD：[PRD-AUTOMATION-CONTENT-CATEGORY-2026-10-03.md](./PRD-AUTOMATION-CONTENT-CATEGORY-2026-10-03.md)
+
+### 一、背景与目标
+
+热门选题分类、采集库类别、账号分组预设标签三处各自一套「分类」：热门选题的 10 类硬编码在
+`electron/services/hot-topics/classifier.js` 与 `HotTopics.vue`（两处各抄一份），采集库没有类别
+字段（只有从上游透传、从未渲染的 `tags`），账号分组只有平台筛选（P2-8a 已落地自定义分组）。
+结果是同一个「科技」在三个界面可能叫三个名字、数量不一致，运营改不了。
+
+同时「自动化」此前只是一个**暗路由** `/auto-pipeline`（`route-registry.js` 注释即写明
+「全仓库无跳转来源」），且全仓**没有定时/周期触发能力**：`packages/shared-utils/src/scheduler.js`
+只支持一次性定时发布，所有定时器都是手挂 `setTimeout`/`setInterval` 一次性，无 cron 引擎。
+
+目标：① 建统一内容类别真源并让三处消费它；② 自动化模块升为一级导航，支持定时 + 启动触发，
+后台运行，失败策略可配。
+
+### 二、不做清单（明确边界）
+
+- 不做类别**多级树**（一期只做单层扁平列表）。
+- 不做自动化任务的**云端下发**（一期全部本地持久化，按登录用户隔离）。
+- 不引入 cron 第三方库（需求只有「每天/每周/固定间隔/启动触发」四种，自实现轻量周期调度器）。
+- 不做账号分组的团队共享（`group.shared` 在读取侧已防御性引用，本期不写入）。
+- **不做过期补触发**（见 §五）。
+
+### 三、统一内容类别（唯一真源）
+
+#### 3.1 数据模型（`ops-center` 表 `content_categories`）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `category_key` | TEXT PK | 稳定标识，发布后**不得改名**（改名 = 旧配置失效）。规则 `^[a-z][a-z0-9_]{1,31}$` |
+| `name` | TEXT NOT NULL | 显示名，1–20 字符，同层不得重复 |
+| `sort_order` | INTEGER | 非负整数，全列表归一化 `0..n-1` |
+| `enabled` | INTEGER | 1=启用；禁用后桌面端不再作为可选项 |
+| `is_preset` | INTEGER | 1=内置预设类（不可删除），0=自定义类（可删） |
+| `description` | TEXT | 运营备注 ≤200 字，界面 tooltip |
+| `updated_at` / `updated_by` | TEXT | 留痕（与 app_menu / content_templates 同口径，不新造审计表） |
+
+内置目录（键名与顺序与 `classifier.js` 的 `CATEGORY_KEYS` 严格对齐）：
+`general(综合) society(社会) finance(财经) tech(科技) entertainment(娱乐) sports(体育)
+emotion(情感) education(教育) health(健康) international(国际)`
+
+#### 3.2 数据校验与提示文字
+
+| 场景 | 校验 | 失败提示 |
+|------|------|----------|
+| 新增 key | 必填；`^[a-z][a-z0-9_]{1,31}$`；不与现有 key 重复（含已禁用） | 「类别标识只能由小写字母、数字、下划线组成，且以字母开头，长度 2-32」/「类别标识已存在」 |
+| 新增 name | 必填；trim 后 1–20；不与现有 name 重复 | 「名称不能为空」/「名称不能超过 20 个字符」/「名称已存在」 |
+| 排序 | 非负整数；拒绝 bool | 「排序值必须是非负整数」 |
+| 删除 | `is_preset=1` → 拒绝 | 「内置类别不可删除，可改为禁用」 |
+| 删除自定义类 | 允许；**不级联清数据**，引用处标签不再显示 | 确认弹窗：「有内容正在使用该类别，删除后这些内容的该标签将不再显示，但内容本身不会被删除」 |
+| 上限 | 总数 ≤ 50 | 「类别数量已达上限 50」 |
+
+#### 3.3 下发与消费（含 fail-open 口径）
+
+运营中心 `runtime_service.get_runtime_bootstrap` 增加 `contentCategories` 字段（只下发 `enabled=1`），
+整体在 Ed25519 签名覆盖范围内（不得绕过签名步骤）。桌面端 `ops-center-sync.js` 在验签后接入
+（与 `appMenu` 同点位），并新增 `getContentCategories()`。
+
+**fail-open 回退内置 10 类**：没下发 / 空数组 / 结构非法 → 一律返回内置目录。
+⚠️ 这个方向与 feature flag 的 fail-closed **相反且是刻意的**：
+feature flag 是权限边界，读不到按关闭；内容类别是**展示资产**，读不到按关闭会让热门选题变零分类、
+采集库打不了标签、离线用户直接不可用——分类不是权限，不该被「读不到」惩罚。
+
+### 四、三处消费
+
+#### 4.1 热门选题
+
+- `HotTopics.vue` 的硬编码 `CATEGORY_KEYS` 改为运营下发（computed），分类 chip 文案改用
+  `resolveCatLabel`，不再写死 `t('hotTopics.categories.' + k)`。
+- 运营**禁用**某内置类后，该类不再作为筛选项；条目本身保留。
+- **抓取侧分类基准仍是内置 10 类**：运营自定义类只作「可打标签」出现，不会自动进入抓取结果。
+  理由：关键词规则是代码内资产，动态化等于允许运营造出无命中规则的分类，反而制造空分类。
+  若要让新类别参与抓取，需同时配置关键词（本期不提供，记入后续）。
+
+#### 4.2 账号分组（P2-8a 之上扩展）
+
+分组新增 `categoryTags: string[]`。与 `platformFilter` 语义分离：
+- `platformFilter` = **硬筛选**（非该平台的账号不在组内）
+- `categoryTags` = **软标签**（不影响成员资格，只标记该组内容定位，供自动化任务按类别挑选目标分组）
+
+校验：非数组 → 记 `categoryTags` 且当空（不静默吞）；非法 key → 丢弃并记 `categoryTag`；
+去重；上限 10（截断记 `categoryTagsTruncated`）；**未知类别 key 保留**并记
+`unresolvedCategoryTags`（运营后续新增该类别后引用自动恢复）。
+
+⚠️ `account-groups-store.js:113` 与 `stores/accounts.js` 的 `createGroup()` **必须同时改**——
+两条归一路径不一致就会漂移，这正是该文件头注释警告过的失败模式。
+
+提示文字：成功「分组类别已更新」；失败「分组类别保存失败，请重试」；真源不可读复用既有
+`groupsUnreadable`（「读不到」与「没有分组」是两件事，必须分开呈现）。
+
+#### 4.3 采集库
+
+- **沿用既有 `tags` 字段，不新增 `category`**：`Collection.vue:1671` 的爆款库导出已在读
+  `item.tags`，另起一个字段会让「采集库里的标签」与「导出到爆款库的标签」直接漂移。
+- 9 处 `unshift` 构造点字段齐全程度不一（批量采集轮询那条最不完整），逐个改最容易漏 ——
+  改为在 **`saveCollectedItems` 落盘前统一归一**，任何路径进来的条目写进真源前都过校验。
+- 新增类别筛选（全部 / 未分类 / 各类别），与来源筛选并列。
+- 卡片显示类别 chips + 多选编辑；**未知类别置灰并悬停说明「该类别已被删除，标签保留但不再参与筛选」**。
+
+### 五、自动化模块
+
+#### 5.1 入口（6 处同步改，MpSidebar 无需改——它是数据驱动的）
+
+1. `router/index.js` 单行追加 `/automation`（门禁解析器要求单行）
+2. `route-registry.js`：`ROUTE_REGISTRY` entry（`key: automation`，`SIDEBAR_GROUP_PRIMARY`，图标 `SetUp`）
+3. 同文件 `SIDEBAR_MENU_KEY_ORDER` 追加 `'automation'`（排在 `collection` 之后）
+4. `sidebar-menu.test.js` `EXPECTED_DERIVED_MENU` 冻结基线（21 项）
+5. `locales/zh.js` + `en.js` 成对新增 `sidebar.nav.automation`
+6. `app_menu_service.py` CATALOG 追加（连带 `test_app_menu_api.py` 的 `CATALOG_SIZE` 20→21）
+
+不把 `automation` 加进 `FORCED_VISIBLE_KEYS` —— 它不是核心入口，运营可关。
+
+#### 5.2 任务数据模型（settings key `automation_tasks`，owner 隔离，无需新 IPC）
+
+```
+{ id, name(1-40, 不重复), enabled,
+  triggers: [ {type:'onAppStart'} | {type:'daily',time:'HH:mm'}
+            | {type:'weekly',weekdays:[1..7],time:'HH:mm'}
+            | {type:'interval',minutes:5..1440} ],   // 可多个同时有效，同类型只一个
+  action: { type:'fullAutoPipeline', config:{...} },
+  failurePolicy: 'skip'|'abort', maxRetries: 0..3,
+  lastRunAt, lastStatus, lastError }
+```
+
+校验与提示：名称空/超长/重复 → 「请填写任务名称」/「不能超过 40 个字符」/「任务名称已存在」；
+无触发器 → 「请至少选择一种触发方式」；同类型重复 → 「同一触发方式只能配置一次」；
+时间格式 → 「时间格式应为 HH:mm」；weekly 未选星期 → 「请至少选择一个星期」；
+间隔越界 → 「间隔需在 5 到 1440 分钟之间」；任务数 > 20 → 「自动化任务数量已达上限 20」。
+
+#### 5.3 后台运行与对当前操作的影响
+
+任务在**主进程**执行：不占用渲染进程、不弹模态框、不阻塞任何页面；界面只通过
+`automation:notification` 事件（渲染层转 toast）+ 任务列表状态字段反映进度。
+
+但**不假装无代价**：顶部常驻提示「自动化任务在后台执行，不打断当前操作；但会占用模型额度与
+浏览器资源，可能与手动发布竞争平台限流」。
+
+#### 5.4 失败处理（用户明确追问的两点）
+
+**① 通知形式与内容**
+- 任务终态失败 → 可点击通知。标题「自动化任务失败：{name}」，内容含失败原因 + 当前策略说明：
+  - `skip`：「策略为『跳过继续』，已重试 N 次后放弃。」
+  - `abort`：「策略为『中断』，失败后已停止后续步骤。」
+- 成功**只在「上次失败、本次成功」时**通知（「自动化任务已恢复：{name}」），连续成功静默，避免噪音。
+- 首个失败原因进任务详情「最近错误」字段，界面可见。
+
+**② 跳过继续 vs 中断**
+每任务可配 `failurePolicy`，并先按 `maxRetries`（0-3）重试，**重试耗尽后才按策略处理**：
+- `skip`（默认）：记录失败步，继续下一步，终态 `completed_with_errors`
+- `abort`：立即停止后续步骤，终态 `failed`
+
+界面写明取舍：skip 适合批量采集发布（个别失败不影响整体产出）；abort 适合有强依赖的流水线
+（失败后继续可能产生半成品）。
+
+#### 5.5 不做过期补触发
+
+应用没开时的到期时间**不补偿**。理由：任务是「采集→改写→发布」这类有外部副作用的动作，
+开机补跑 N 条过期任务会打满平台限流且用户完全不知情。「应用启动触发」是**显式的一种触发器**
+（`type:'onAppStart'`），与「补跑过期定时任务」是两回事。
+
+#### 5.6 并发与定时器纪律
+
+- 同任务不并发：上一轮未结束则**跳过本轮**（不是排队——排队会在长任务下雪崩）。
+- 单任务硬超时 30 分钟，超时按失败处理（不取消底层 run，交由 pipeline 自己的清理逻辑）。
+- 全部定时器 `.unref()`，不阻止应用退出；`stopAll()` 清空全部定时器，供 shutdown 调用。
+- 启动触发注册点排在 `scheduler.restore` 与 `batchManager.restoreScheduledBatches` **之后**
+  （顺序契约见 `phase3-services.test.js`）；失败不阻断启动。
+
+#### 5.7 显示项（任务列表）
+
+| 列 | 内容 |
+|----|------|
+| 名称 | 任务名 + 启用开关 |
+| 触发方式 | chips：`启动触发` / `每天 09:00` / `每周一、三 09:00` / `每 30 分钟` |
+| 动作 | 「全自动流水线」 |
+| 失败策略 | 「跳过继续」/「中断」（+「重试 N 次」） |
+| 上次运行 | 时间 + 状态标签（成功/失败/已取消），运行中显示「运行中」；失败显示首个错误 |
+| 操作 | 立即运行 / 编辑 / 删除 |
+
+空态：「还没有自动化任务。点击「新建任务」，让采集到发布自动跑起来。」
+
+### 六、修复的真实 bug
+
+`_markResult` 早于 `_emitNotification` 执行，覆盖 `lastStatus` 后「是否从失败恢复」永远判不出来
+⇒ 恢复通知发不出去。改为在写盘前取 `previousStatus` 并显式传给通知函数。
+
+### 七、回归保护
+
+- 运营中心后端 `tests/test_content_categories_api.py` 7 例（目录供给 / 增删改 / 内置不可删 /
+  排序幂等 / 403 / 下发只含启用项）；前端 57 例 + `npm run build` 通过。
+- 桌面端：`content-categories` 21 例（渲染 13 + 主进程 8，含「内置 key 与 classifier 一致」断言）、
+  `automation-task` 17 例、`automation-scheduler` 15 例、`collected-item` 13 例、
+  `AutomationView` 13 例、`account-groups-store` 23 例。
+- 门禁：`check-route-registry` PASS；`check-locale-sync --keys/--cjk/--pair-base` 全 PASS。
+
+### 八、风险与缓解
+
+| 风险 | 缓解 |
+|------|------|
+| 运营下发为空导致桌面端分类全空 | fail-open 回退内置 10 类 |
+| 采集条目构造点漏改 | 落盘前统一归一（不依赖逐个构造点）+ 字段完整性单测 |
+| 自动化任务与手动操作竞争资源 | 界面明示；同任务不并发 |
+| 菜单基线测试红 | 6 处同步改，先跑 `sidebar-menu.test.js` + `test_app_menu_api.py` |
+| 类别 key 改名导致历史引用失效 | key 发布后不得改名（UI 置灰 + 说明）；只允许改 name |

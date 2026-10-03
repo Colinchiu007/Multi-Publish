@@ -228,6 +228,13 @@ const routes = [
     meta: { requiresAuth: true, adminOnly: true },
   },
   {
+    path: '/content-categories',
+    name: 'ContentCategories',
+    component: () => import('../views/ContentCategories.vue'),
+    // 写操作需管理员权限；与「应用菜单」同口径限定 adminOnly
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/content-quality-eval',
     name: 'ContentQualityEval',
     component: () => import('../views/ContentQualityEval.vue'),

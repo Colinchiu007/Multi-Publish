@@ -78,5 +78,10 @@
     "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin account-groups-persistence 返回 0 行证远端分支已删。注意：本条与 batch-cover-reselect（#2752）同置顶文档与同账本，两次合并都要走参照解逐键核对。",
     "status": "PENDING",
     "line": 22
+  },
+  "本次执行记录：自动化模块 + 统一内容类别真源（automation-content-category，2026-10-03）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#2792)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin automation-content-category 返回 0 行证远端分支已删。",
+    "status": "PENDING",
+    "line": 22
   }
 }

@@ -93,7 +93,7 @@ describe("useAccountStore", () => {
     });
 
     it("从标准成功响应加载账号并恢复本地分组", async () => {
-      const groups = [{ id: "grp-1", name: "公众号", platformFilter: null, accountIds: ["wx-1"] }];
+      const groups = [{ id: "grp-1", name: "公众号", platformFilter: null, accountIds: ["wx-1"], categoryTags: [] }];
       localStorage.setItem("mp_account_groups", JSON.stringify(groups));
       listAccounts.mockResolvedValue({ code: 0, data: accountsFixture });
       const store = useAccountStore();
@@ -482,7 +482,7 @@ describe("useAccountStore", () => {
 
   describe("本地分组", () => {
     it("真源为空而 localStorage 有旧记录 ⇒ 迁移恢复分组，且**不删**旧键", async () => {
-      const groups = [{ id: "grp-1", name: "知乎组", platformFilter: null, accountIds: ["zh-1"] }];
+      const groups = [{ id: "grp-1", name: "知乎组", platformFilter: null, accountIds: ["zh-1"], categoryTags: [] }];
       localStorage.setItem("mp_account_groups", JSON.stringify(groups));
       const store = useAccountStore();
 
@@ -548,7 +548,7 @@ describe("useAccountStore", () => {
 
       const group = store.createGroup("常用账号", "");
 
-      expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null, accountIds: [] });
+      expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null, accountIds: [], categoryTags: [] });
       expect(store.groups).toEqual([group]);
       await store.flushGroupsSave();
       expect(savedGroups()).toEqual([group]);
