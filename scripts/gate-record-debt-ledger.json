@@ -68,10 +68,5 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "PENDING",
     "line": 4654
-  },
-  "本次执行记录：自动化 IPC 装配断链修复 + 01-docs 忽略规则收窄（fix-automation-ipc-wiring，2026-10-03）": {
-    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝后续 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#2816)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin fix-automation-ipc-wiring 返回 0 行证远端分支已删。",
-    "status": "PENDING",
-    "line": 22
   }
 }
