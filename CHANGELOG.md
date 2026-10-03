@@ -1,3 +1,21 @@
+# [未发布] feat(collection): 知乎收藏批量采集与批量发布/视频——清单直选 + 采集并改写 + 三批量动作（2026-10-03，zhihu-fav-batch）
+
+### 根因（P0 修复反哺）
+- `Collection.vue` 旧批量采集结果映射写成 `...x.data.data`（多取一层 `.data`）：IPC 返回 `results[i] = {index, ok, data:{采集结果}}`，双层展开得 `undefined`，**成功条目入库后只剩 `{id}` 空壳**（title/content/sourceUrl 全丢），级联污染批量改写（发出 `content: undefined`）与落盘。逃逸原因：既有测试 mock 恰好也写成扁平 `{data:{...}}` 且只断言 `length`（Mock 形状与真实 IPC 契约无一致性校验）。
+- 批量改写黑盒：`batch-rewrite` 结果写入 `rewrittenContent` 后全仓无任何展示/消费点，用户看不到也用不上。
+- 采集条目 `coverImage` 与发布侧 `cover_url` 字段名断裂，采集内容转发布草稿封面丢失。
+
+### 功能（PRD-ZHIHU-FAV-BATCH-2026-10-03）
+- **清单直选（Q16B）**：收藏夹区块新增采集范围单选（指定收藏夹/全部收藏）+ 数量 N（1–100 默认 50）+ 全量开关（≤200 封顶，Q21C）+ 包含已采集（强制重采）；「加载收藏内容」拉取元数据清单（标题/类型徽标/收藏时间/已采集标记）供勾选。「全部收藏」走新 IPC `zhihu-favlist:unified-contents`：多收藏夹合并 + URL 去重 + favTime 降序截断（新模块 `services/zhihu-fav-core.js` 纯函数），收藏夹 >50 如实提示（官方 API 硬约束）。清单项 `kind` 由 `classifyZhihuUrl` 六分类（answer/article/pin/video/column/unknown）。
+- **采集并改写（Q16 调整/D2）**：新 IPC `zhihu-fav-batch:run` 勾选编排——逐条串行（BatchRateController 8s+4s 抖动/退避/熔断/可取消）→ url-collector 正文采集 → 图片本地化（新 `services/zhihu-image-localizer.js`：zhimg 防盗链 Referer 伪装下载到 `{userData}/collected-images/`，失败回退原链记 `imageFallbacks`）→ 自动 AI 改写（失败/空结果回退原文并标注）→ 入库条目带 `rewrittenContent/kind/favTime/images/imageFallbacks/batchId`。专栏/想法/视频型仅登记不采集正文（B2/B3/B4）。进度经 `zhihu-fav-batch:progress` 事件**双边界推送**（start=采集前/done=完成后 + summary 终态），UI 进度卡整体进度条 + 可展开逐条明细。
+- **URL 去重（C2/Q10）**：主进程已知 URL 记忆 + 渲染层 sourceUrl 比对双防线；已采集条目清单默认跳过（checkbox 禁用）+「包含已采集」开关重采（覆盖保留原 id/createdAt）；cache_hit 空结果计失败防空壳。
+- **多选批量动作（D3/D4，Q17B 全来源通用）**：采集结果卡片全选/单选；新 composable `useCollectionBatchPublish`——①批量发布图文：确认框（条数×平台×账号+原文回退计数）→ batchCreate/batchExecute → App 级发布进度面板（失败重试/落历史/失败草稿回存自动获得）；发布取稿**改写稿优先**（Q26C），`coverImage→cover_url` 映射修复；②批量生成视频：≤10 条、视频型跳过列出、story2video-batch-queue（并行 2、只生成不发布）；③批量发布视频：仅「本批」已完成产物（`trackBatch` → `refreshBatchVideos` 从 run context 提取 videoPath）→ video_path 载荷（30min 超时主进程契约）。平台按 `contentCategory` 预筛（图文条目排除纯视频平台；视频发布仅 VIDEO+MIXED）。所有用户可见文案 zh/en 成对（`collection.zhihuFav.*`/`collection.batch.*`），渲染层零新增硬编码中文。
+- **改写黑盒接通（C3b）**：改写稿在采集卡片可见（已改写预览/改写失败标注），自动改写成功条目同步写入文案库（`fromKey='collect:<id>'` 幂等）。
+
+### 验证
+- TDD 先红后绿：`zhihu-fav-core.test.js`（15：URL 六分类/合并/去重/排序/截断/全量封顶）、`zhihu-fav-batch.test.js`（21：参数校验/进度双边界/自动改写/回退原文/仅登记类型/去重/互斥/取消/图片本地化回退/unified 聚合——**mock 全部复制真实 IPC 形状**）、`collection-batch.test.js`（17：P0 回归锁「字段不得为空」/取稿规则/封面映射/平台预筛/目标展开）、`useCollectionBatchPublish.test.js`（16）、`Collection.test.js` 扩至 109（P0 逐字段回归锁 + 清单/聚合/新通道用例）等全量相关 **238/238 绿**。
+- `check-locale-sync --keys` PASS（1405 keys）+ `--cjk` PASS（基线 1489→1340，无新增硬编码）；eslint 0 error；`normalizeCollectedItem` 扩展 kind/favTime/images/imageFallbacks/rewrittenContent/rewriteFailed 字段（唯一出口继续收敛）。
+
 # [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
 
 ### 根因（QM-5 五步取证）

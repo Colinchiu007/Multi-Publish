@@ -82,6 +82,13 @@ export function normalizeCollectedItem (raw, ctx = {}) {
     // 类别标签：沿用既有 tags 字段（爆款库导出已在读它，另起字段必然漂移）
     tags: tagResult.tags,
     _droppedTags: tagResult.dropped.length ? tagResult.dropped : undefined,
+    // 2026-10-03 知乎收藏批量（PRD-ZHIHU-FAV-BATCH）：批量链路新增字段
+    kind: String(src.kind || ''),
+    favTime: Number(src.favTime) || 0,
+    images: Array.isArray(src.images) ? src.images : [],
+    imageFallbacks: Array.isArray(src.imageFallbacks) ? src.imageFallbacks : [],
+    rewrittenContent: typeof src.rewrittenContent === 'string' && src.rewrittenContent ? src.rewrittenContent : undefined,
+    rewriteFailed: src.rewriteFailed === true,
   }
 }
 
