@@ -778,3 +778,45 @@ Node POST ✅（请求到达服务端并返回业务码）、**cookie 导出**�
 受限于本会话的应用生命周期问题（应用无法跨命令存活）**尚未完成**。
 合并后应做的第一件事：走一次真实发布，确认日志出现 `[toutiao-direct] code=0`。
 
+
+#### 16.8.10 ⭐ 头条定时发布打通：页面 XHR + 编辑器实时构造（2026-10-03 真机 code=0）
+
+**本节是头条问题的最终解法**，替代 §16.8.9 的 Node 直连（Node 侧被 100005 拒：document.cookie 缺 HttpOnly；
+而页面内 fetch 被 7050 拒：上下文标记不同）。**页面自身 XMLHttpRequest** 同时规避两者。
+
+**流程（`publishToutiao`，`toutiao-direct-bridge.js`）**：
+
+| 序 | 步骤 | 说明 |
+|----|------|------|
+| 0 | 预装 XHR hook | 兜底 1（捕获自动保存 body）；实测时机不可靠，已由实时构造替代 |
+| 1 | **等自动保存**（最长 45s） | 内容填充触发页面周期性自动保存 |
+| 2 | **页面 XHR 定时发布**（实时构造） | 在页面上下文执行，见下 |
+| 3 | 失败回退 DOM 流程 | `_publish_generic`（原有语义不变） |
+| 4 | 再失败回退 Node 直连 | #2781 已合并的 `publishWithSign` |
+
+**步骤 2 的实时构造（页面上下文内执行）**：
+- 实时读编辑器：标题（`textarea[placeholder*=标题]`）+ 正文（`.ProseMirror` innerHTML）；
+- 构造参考产品同款字段表：`source=29`、`extra`（含 `gd_ext`）、`search_creation_info`、
+  `draft_form_data={"coverType":2}`、`article_ad_type=2`、`claim_exclusive=1` 等；
+- `save=0` + `timer_status=1` + `timer_time` = 当前 +1 分钟（截断到分钟）；
+- 用**页面自身 XMLHttpRequest 同步发出**（继承 SDK 注入的 `tt-anti-token` 等页面上下文）；
+- 成功判据：`code===0 && pgcId!=="0"`；`pgc_id` 缓存到 `window.__pgcIdCache`。
+
+**真机验证（应用日志）**：
+```
+[INFO] RpaView [toutiao-xhr] code=0 msg=保存成功 pgcId=7692260952103748146 timer=2026-10-03 10:22
+```
+
+**功能逻辑要点**：
+- **定时 1 分钟后发布**：立即路径被页面 deferred 死锁（§16.8.6），定时路径绕过（用户已确认可接受）；
+- **XHR 优先**：DOM 流程作为回退保留（若页面改版导致 XHR 通道失效，仍能走原路并产生可观测错误）；
+- **`pgc_id` 缓存**：`window.__pgcIdCache` 在页面生命周期内持久，供后续重试复用。
+
+**数据校验**：沿用 §16.10.1 的 5+1 道校验（头条为 title 模式，标题 30 字、正文 100000 字上限）；
+定时时间必须晚于当前时间 ≥1 分钟（服务端校验）。
+
+**交互/显示项**：无新增 UI；直连结果经 `[toutiao-xhr]`/`[toutiao-direct]` 日志记录，
+发布成功/失败沿用既有进度面板文案；对用户透明。
+
+**⚠️ 残余不确定性（诚实记录）**：`code=0 保存成功` 是**服务端受理**确认；
+文章是否真的按定时时间发出，需**待定时时间过后到头条后台作品列表确认**（本轮未等待验证）。

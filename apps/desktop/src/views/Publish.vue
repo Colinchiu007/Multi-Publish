@@ -574,6 +574,8 @@
                 :risk-suspended="riskStore.suspended"
                 @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
+                :account-groups="groupPickerItems"
+                @apply-group="applyGroupById"
               />
               <div class="publish-action-controls" data-testid="publish-action-controls">
                 <div class="cohere-divider"></div>
@@ -745,6 +747,7 @@ import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
 import { useCoverPreview } from '@/composables/useCoverPreview'
 import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
+import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
@@ -1176,7 +1179,19 @@ const {
   toggleAccount,
   isAccountSelected,
   isAccountAvailable,
+  selectPlatform,
+  selectAccount,
 } = usePlatformSelection(accountStore, platformStore)
+
+// P2-8b「按组添加」：判据本体在 features/publish/usePublishGroupApply（纯函数、可单测），
+// 这里只做 store ↔ 视图的接线；视图不自己数成员、也不拼播报文案。
+const { groupPickerItems, applyGroupById } = usePublishGroupTargets({
+  accountStore,
+  platforms,
+  selection: { selectedPlatforms, selectPlatform, selectAccount, isAccountSelected, isAccountAvailable },
+  notifyInfo,
+  notifyWarning,
+})
 
 // ── 字段面判据（P2-7 下沉为共用实现 usePublishFieldSurface，单篇与批量同一份真源）──
 // 通用 ≠ 全部支持：每个通用字段显示「N/总平台数 支持」徽标（分母取注册表平台总数，
