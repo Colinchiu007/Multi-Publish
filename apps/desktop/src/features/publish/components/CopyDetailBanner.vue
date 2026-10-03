@@ -28,7 +28,7 @@ const { t } = useI18n()
   border: 1px solid var(--color-primary);
   border-radius: 6px;
   background: var(--color-bg-inset, rgba(0, 0, 0, 0.03));
-  font-size: var(--font-size-sm, 13px);
+  font-size: var(--font-size-sm);
 }
 .copy-detail-banner-text {
   flex: 1;
@@ -39,7 +39,7 @@ const { t } = useI18n()
   background: transparent;
   cursor: pointer;
   color: var(--color-text-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1;
   padding: 2px 4px;
 }
