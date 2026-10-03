@@ -1,3 +1,12 @@
+## Electron「打开网页」有两条通道：应用内标签必须走 page-manager，window.open 只是系统浏览器入口（publish-history-card-open-link，2026-10-03）
+
+- **拓扑事实**：主窗口 `window.js` 的 `setWindowOpenHandler` 把渲染层一切 `window.open(url,'_blank')` 转 `shell.openExternal`（**系统默认浏览器**），它不是「应用内新标签」通道。应用内顶部标签栏开网页的唯一正确通道是 `page-manager` → `tabStore.createTab({ url, platform, title })`（先例 `Collection.openCollection`）。要「应用内新标签」却写 `window.open`，用户会被踢出应用且无任何报错——这是最容易写反的一步。
+- **降级链要按 store 合同设计**：`tabStore.createTab` 内部 try/catch 吞掉桥异常并返回 `null`（**从不抛错**）。组件侧的正确降级是 `tabId ? 提示成功 : window.open(url,'_blank')`，`window.open` 由主进程 `isAllowedExternalUrl`（`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底——组件里再包一层 try/catch 等着 store 抛错是死代码；但保留一层 catch 防未来实现漂移是合理冗余。
+- **URL 判据按 sink 分两层，别合并也别只留一层**：渲染端绑定期用 `safeHttpUrl`（ESM 孪生，仅 http/https 前缀白名单，拒绝 `javascript:`/缺协议/协议相对/非字符串）；`window.open` fallback 靠主进程更严判据。任何渲染层新增 `window.open` 调用点必须登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`（登记锁双向断言：新点不在册⇒红，登记表里站点被删⇒也红）。
+- **卡片级点击用 closest 委托，不用逐个 @click.stop**：`event.target.closest('a, button, label, input, select, textarea, [role=tab]')` 命中即 return。逐个 stop 的写法让「将来新增的子元素」成为漏防点；委托把排除规则收敛在一处。批量管理模式（selectionMode）下整卡点击必须整体排除——复选框承载选择语义，整卡点击=误触面。
+- **测试层选择**：文件里既有用例已用 `vi.mock('@/stores/platforms')` 等规避 pinia 时，新增功能若在 setup 消费 `useTabStore()`，组件测试应按合同 mock `@/stores/tab`（`useTabStore: () => ({ createTab: mock })`）——给 mount 全局塞真实 pinia 会让 44 个既有用例集体红（getActivePinia 无 app 上下文）。store→桥→IPC 的集成面由 Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖，不重复。
+- **新环境工件（2026-10-03 记录）**：`feedback.test.js` 的 `fs.symlinkSync` 在 Windows 当前用户无「创建符号链接」权限时抛 `EPERM: operation not permitted, symlink`，该文件 1/5 失败、全量 suite 尾部报 1 failed。判定是否与本变更无关的口径：`git stash` 本改动后在干净 main 上重跑同文件，同红⇒环境性，不阻塞提交（CI Linux 不受影响）。
+
 ## 路由切换丢草稿：router-view 无 keep-alive 会重挂载页面组件销毁其局部状态；keep-alive 又要求把 query 预填挂到 onActivated（publish-draft-keepalive，2026-10-03）
 
 - **症状**：承接 #2764（切账号标签丢草稿已用 v-show 修）。另一条独立通路——在首页里点左侧菜单/模块导航离开「发布」页再回来，视频/标题/描述等草稿全空。

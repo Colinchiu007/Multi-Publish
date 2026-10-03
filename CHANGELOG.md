@@ -1,3 +1,18 @@
+# [未发布] feat(history): 发布记录卡片整体点击——应用内新标签打开平台作品链接（publish-history-card-open-link，2026-10-03）
+
+### 新增
+
+- 发布记录页列表卡片支持**整体点击**：点击除按钮/链接/复选框外的任意区域，经 `tabStore.createTab` 在应用内顶部标签栏新开标签加载该记录的平台作品链接（`result.url`）；与 `Collection.openCollection` 同一 page-manager 通道。
+- URL 判据单一来源 `safeHttpUrl`（渲染端 ESM 孪生）：无链接/`javascript:`/缺协议/协议相对/非字符串一律不产出打开行为，卡片悬浮提示如实显示「暂无平台链接」；可点卡片显示「点击打开平台作品链接」。
+- `createTab` 失败或桥不可用（store 合同：吞错返回 null）时降级 `window.open(url,'_blank')`，由主进程 `setWindowOpenHandler → isAllowedExternalUrl`（更严判据：`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底交系统浏览器；该 `window.open` 点已登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`。
+- 批量管理模式下整卡点击不打开链接（复选框承载选择，防误触）；同一卡片进行中重复点击不重复发请求（进行中守卫）；成功提示「已在新标签页打开作品链接」走页面既有 `actionMessage` 承载；createTab promise 拒绝（合同外漂移）显示失败提示不崩。
+- locales zh/en 成对新增 `historyPage.cardOpenHint / cardNoLinkHint / cardTabTitle / cardLinkOpened / cardLinkOpenFailed`。
+
+### 回归保护
+
+- `PublishHistory.test.js` 新增「卡片点击打开平台链接」describe（T1-T14 + T10b）：打开契约、按钮/复选框冒泡排除（详情/重试照常）、批量模式排除、六种非法 URL 形态不产出任何打开行为、降级 `window.open`、合同外漂移失败提示、悬浮提示、进行中守卫、详情弹窗锚点 noopener 回归，61 passed。
+- `href-scheme-contract.test.js` 16 passed（登记锁双向断言）；locale 成对门禁 `check-locale-sync.js --pair-base origin/main` PASS。
+- 详见 `01-docs/PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md`。
 # [未发布] style(desktop): 视频任务详情页的「← 返回」改成与同流程一致的描边胶囊，箭头拆成独立装饰字形修掉基线错位（2026-10-03，result-view-back-btn-style）
 
 ### 根因
