@@ -95,6 +95,18 @@ async function publishToutiao (p) {
   // ProseMirror 走纯文本通道；Quill 草稿会把 HTML 规范化为 <p>，
   // 不剥离会让 <p> 以字面量出现在文章正文（真机 verify snapshot 实证）。
   const plainContent = stripHtml(article && article.content)
+  // 2026-10-03 预装 XHR hook：捕获页面自动保存的 publish body（供兜底用页面 XHR 复刻）
+  try {
+    await win.webContents.executeJavaScript(
+      '(function(){if(window.__lastSaveBody!==undefined)return "ALREADY";' +
+      'window.__lastSaveBody="";' +
+      'var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;' +
+      'XMLHttpRequest.prototype.open=function(m,u){this.__u=String(u);return oo.apply(this,arguments)};' +
+      'XMLHttpRequest.prototype.send=function(b){try{var u=this.__u||"";' +
+      'if(u.indexOf("article/publish")>=0&&b&&b.length>500){window.__lastSaveBody=String(b)}}catch(e){};' +
+      'return os.apply(this,arguments)}})()'
+    )
+  } catch (_e) { /* hook 失败不影响 DOM 流程 */ }
   const domResult = await host._publish_generic(win, { ...article, content: plainContent }, 'toutiao', {
     ...config,
     publish_url: publishUrl || config.publish_url,
@@ -102,7 +114,52 @@ async function publishToutiao (p) {
     prePublishHook: 'uploadCover',
     hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
   })
+  // 2026-10-03 新增第一优先兜底：页面 XHR 定时发布（真机验证 code=0，多次复现）。
+  // 原理：自动保存的 publish 请求 body（含有效 pgc_id/title_id）改 save=0 + timer_status=1，
+  // 用【页面自身 XHR】发出（继承页面全部上下文；页面内 fetch 会被拒，XHR 不会）。
+  if (domResult && domResult.success === false && /verification timeout/.test(String(domResult.error || ''))) {
+    const xhrResult = await publishViaPageXhr({ win, title: article && article.title, log })
+    if (xhrResult.success) return xhrResult
+  }
   return publishToutiaoWithFallback({ win, article: { ...article, content: plainContent }, domResult, sign: p.sign, log })
+}
+
+/**
+ * 页面 XHR 定时发布（2026-10-03 真机验证 code=0）：
+ * 捕获页面最近一次自动保存的 publish body，改 save=0 + timer_status=1（+1 分钟），
+ * 用【页面自身的 XMLHttpRequest】同步发出 —— 继承页面全部上下文（SDK 注入的 tt-anti-token 等）。
+ * @param {{win: any, title?: string, log: any}} p
+ * @returns {Promise<{success: boolean, platform: string, pgcId?: string, error?: string}>}
+ */
+async function publishViaPageXhr ({ win, title, log }) {
+  try {
+    const js = `(function(){
+      if(!window.__lastSaveBody) return JSON.stringify({ok:false,reason:'NO_BODY'})
+      var d=new Date(Date.now()+60*1000)
+      function p2(n){return (n<10?'0':'')+n}
+      var tt=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+' '+p2(d.getHours())+':'+p2(d.getMinutes())
+      var b2=window.__lastSaveBody
+        .replace(/(^|&)save=\\d+/,'$1save=0')
+        .replace(/(^|&)timer_status=\\d+/,'$1timer_status=1')
+        .replace(/(^|&)timer_time=[^&]*/,'$1timer_time='+encodeURIComponent(tt))
+      var x=new XMLHttpRequest()
+      x.open('POST','/mp/agw/article/publish?source=mp&type=article&aid=1231&mp_publish_ab_val=0',false)
+      x.setRequestHeader('Content-Type','application/x-www-form-urlencoded;charset=UTF-8')
+      x.send(b2)
+      try{ var j=JSON.parse(x.responseText); return JSON.stringify({ok:true,code:j.code,msg:j.message,pgc:(j.data&&j.data.pgc_id)||'',timer:tt}) }
+      catch(e){ return JSON.stringify({ok:false,reason:'PARSE:'+String(e&&e.message).slice(0,50)}) }
+    })()`
+    const raw = await win.webContents.executeJavaScript(js)
+    const r = JSON.parse(raw)
+    log.info('RpaView', '[toutiao-xhr] code=' + r.code + ' msg=' + r.msg + ' pgcId=' + r.pgc + ' timer=' + (r.timer || ''))
+    if (r.ok && r.code === 0 && r.pgc && r.pgc !== '0') {
+      return { success: true, platform: 'toutiao', pgcId: r.pgc }
+    }
+    return { success: false, platform: 'toutiao', error: 'XHR_REJECTED:' + r.code + ':' + (r.msg || r.reason || '').slice(0, 60) }
+  } catch (e) {
+    log.warn('RpaView', '[toutiao-xhr] 异常: ' + (e && e.message))
+    return { success: false, platform: 'toutiao', error: 'XHR_THREW:' + String(e && e.message).slice(0, 60) }
+  }
 }
 
 module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao }
