@@ -1,10 +1,7 @@
 <template>
   <div>
-  <!-- 文案详情模式提示条（copy-library-detail-entry）：可关闭 -->
-  <div v-if="showCopyDetailBanner" class="copy-detail-banner" data-testid="copy-detail-banner" role="status">
-    <span class="copy-detail-banner-text">{{ t('copyLibrary.detailModeBanner') }}</span>
-    <button type="button" class="copy-detail-banner-close" data-testid="copy-detail-banner-close" :aria-label="t('copyLibrary.detailModeBannerClose')" @click="showCopyDetailBanner = false">✕</button>
-  </div>
+  <!-- 文案详情模式提示条（copy-library-detail-entry） -->
+  <CopyDetailBanner v-if="showCopyDetailBanner" @close="showCopyDetailBanner = false" />
     <template v-if="publishTab === 'drafts'">
       <section class="publish-drafts-page" data-testid="publish-drafts-page" aria-labelledby="publish-drafts-title">
         <header class="publish-drafts-header">
@@ -756,6 +753,8 @@ import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
+import CopyDetailBanner from '@/features/publish/components/CopyDetailBanner.vue'
+import { useCopyDetailMode } from '@/composables/useCopyDetailMode'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
   normalizePublishMentions,
@@ -774,90 +773,11 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
 import { formatBytes } from '@/utils/bytes'
 import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
-import { takeCopyDetailHandoff } from '@/utils/copy-detail-handoff'
-import { useCopyLibrary } from '@/composables/useCopyLibrary'
 
 // 组件名显式声明：App.vue 主工作区 <keep-alive :include="['Publish']"> 按组件名匹配，
 // 让发布页在路由切换时保留实例（草稿不丢）。依赖文件名推断的 __name 在构建配置变化时不稳，
 // 故显式声明，避免 keep-alive 静默不命中而退回「每次重挂载丢草稿」。
 defineOptions({ name: 'Publish' })
-
-// ── 文案详情模式（copy-library-detail-entry，2026-10-09）──
-// 文案库列表点击 → sessionStorage 一次性载荷（读后即焚）→ 本页承载详情：
-// 预填标题/正文，记录来源元数据；collect/rewrite 来源保存草稿或发布成功后回写文案库。
-const copyDetailMeta = ref(null)
-const showCopyDetailBanner = ref(false)
-const { upsertRewrite } = useCopyLibrary()
-
-function applyCopyDetailHandoff () {
-  const payload = takeCopyDetailHandoff()
-  if (!payload) {
-    // keep-alive 复活但本次导航不带文案库来源（onMounted/onActivated 双触发时
-    // 首次已消费载荷，第二次 take 为 null 不能清掉刚设置的 meta）——
-    // 仅当 route.query.from 不指向文案库时才重置，防止旧 meta 污染后续无关内容的保存回写
-    if (route.query?.from !== 'copy-library') {
-      copyDetailMeta.value = null
-      showCopyDetailBanner.value = false
-    }
-    return
-  }
-  copyDetailMeta.value = {
-    origin: payload.origin,
-    sourceId: payload.sourceId || '',
-    platform: payload.platform || '',
-    sourceUrl: payload.sourceUrl || '',
-  }
-  if (payload.title) article.title = payload.title
-  if (payload.content) article.content = payload.content
-  if (payload.origin === 'video') activeMode.value = 'video'
-  showCopyDetailBanner.value = true
-  notifyInfo('copyLibrary.detailLoadedToast', { params: { title: payload.title || t('copyLibrary.untitled') } })
-}
-
-/** 文案库来源（collect/rewrite）内容变更后回写文案库（同 fromKey 覆盖；旁路失败不阻塞） */
-async function syncCopyDetailToLibrary () {
-  const meta = copyDetailMeta.value
-  if (!meta || (meta.origin !== 'collect' && meta.origin !== 'rewrite')) return
-  const content = String(article.content || '').trim()
-  if (!content) return
-  try {
-    await upsertRewrite({
-      fromKey: meta.origin + ':' + meta.sourceId,
-      fromTitle: '',
-      title: article.title || '',
-      content,
-      platform: meta.platform || '',
-      sourceUrl: meta.sourceUrl || '',
-    })
-  } catch {
-    // 文案库回写失败不阻塞发布主流程（与 RewriteView.syncHandoffToLibrary 同判据）
-  }
-}
-
-/** 保存草稿入口（包装）：collect/rewrite 来源保存成功后回写文案库（旁路，失败不阻塞） */
-async function onSaveDraft () {
-  const saved = await saveDraft()
-  if (saved && saved.ok) await syncCopyDetailToLibrary()
-}
-// ── 创作视频（copy-library-detail-entry）：先存草稿拿 id，跳 /create?draft=<id> ──
-let creatingVideo = false
-
-async function handleCreateVideo () {
-  if (creatingVideo) return
-  if (!String(article.title || '').trim() && !String(article.content || '').trim()) {
-    notifyWarning('publishPage.createVideoEmpty')
-    return
-  }
-  creatingVideo = true
-  try {
-    const saved = await saveDraft()
-    if (!saved || !saved.ok || !saved.draftId) return // 保存失败已由 saveDraft 内部提示
-    await syncCopyDetailToLibrary()
-    router.push({ path: '/create', query: { draft: saved.draftId } })
-  } finally {
-    creatingVideo = false
-  }
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -1312,6 +1232,8 @@ const {
   platformOverrides: diffEdits,
 })
 
+const { copyDetailMeta, showCopyDetailBanner, applyCopyDetailHandoff, syncCopyDetailToLibrary, handleCreateVideo, onSaveDraft } = useCopyDetailMode({ article, activeMode, route, t, notifyInfo, saveDraft, router })
+
 const precheckEnabled = ref(false)
 
 const {
@@ -1338,9 +1260,7 @@ const {
 })
 // 一键发布成功回写（评审 MAJOR：PRD 承诺「保存草稿或发布成功后回写」）：
 // usePublishFlow 的 result.success 置 true 即发布链路完成（单篇/批量共用出口），旁路回写
-watch(result, (r) => {
-  if (r && r.success) void syncCopyDetailToLibrary()
-})
+watch(result, (r) => { if (r && r.success) void syncCopyDetailToLibrary() })
 
 const {
   batchMode,
@@ -1449,7 +1369,7 @@ function applyHistoryVideoQuery () {
 
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
-  applyCopyDetailHandoff() // 置顶：不依赖账号加载等异步步骤，避免中途异常阻断详情预填
+  applyCopyDetailHandoff() // 置顶：不依赖前置异步步骤
   if (publishTab.value === 'drafts') {
     showDraftList.value = true
     await loadDrafts()
@@ -1482,10 +1402,6 @@ onActivated(() => {
 // 暴露给测试（w.vm.xxx）和外部组件
 defineExpose({
   onSaveDraft,
-  handleCreateVideo,
-  syncCopyDetailToLibrary,
-  copyDetailMeta,
-  showCopyDetailBanner,
   applyCopyDetailHandoff,
   article,
   batchMode,
@@ -1810,30 +1726,4 @@ defineExpose({
 .video-ai-entry { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .video-ai-entry__hint { font-size: var(--font-size-xs); color: var(--muted, #8a8f98); }
 
-.copy-detail-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 12px;
-  border: 1px solid var(--color-primary);
-  border-radius: 6px;
-  background: var(--color-bg-inset, rgba(0, 0, 0, 0.03));
-  font-size: var(--font-size-sm, 13px);
-}
-.copy-detail-banner-text {
-  flex: 1;
-  color: var(--color-text-primary);
-}
-.copy-detail-banner-close {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1;
-  padding: 2px 4px;
-}
-.copy-detail-banner-close:hover {
-  color: var(--color-text-primary);
-}</style>
+</style>
