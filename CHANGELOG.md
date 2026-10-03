@@ -1,3 +1,24 @@
+# [未发布] style(desktop): 流水线启动页的「← 返回」箭头拆成独立装饰字形，让 .back-btn 那条空转的 gap 真正生效（2026-10-03，create-view-back-btn-gap）
+
+### 根因
+- `create-view.css:112` 的 `.back-btn` 声明了 `display: inline-flex; align-items: center; gap: 4px`，读起来像已经把箭头对齐处理过了。实际 `CreateView.vue:47` 写的是 `← 返回` —— **单个文本节点**，flex 容器里只产出**一个匿名 flex item**，`gap` 没有第二个对象可作用，**从未生效过一秒**。箭头与文字仍靠字面空格拼接，`←`（U+2190）在中文回退字体下字身偏小、基线偏高，症状与 #2810 修掉的 `ResultView.vue` 完全同根。
+- 这是「声明了正确属性，但装配缺一环」的典型形态：CSS 侧无可挑剔，只有把 DOM 结构数一遍才发现 `gap` 是装饰。两层探测器都看不见它 —— jsdom 不应用 CSS，像素门禁的全页 6% 阈值对一个 75×31 的按钮结构性失明。
+
+### 修复
+- `CreateView.vue:47` 原地改为 `<span class="back-btn__arrow" aria-hidden="true">←</span> 返回`（**行数中性**，见下「预算」）。`gap` 由此获得第二个 flex item 而真正生效，并按 #2810 实测取值收敛为 `6px`。
+- `create-view.css` 新增 `.back-btn__arrow { line-height: 1; }` 归零箭头行盒（`←` 自带较高行盒，不归零就与「返回」不居中）。
+- **未**动 `.back-btn` 的底色档：本页 `background: none` + hover 变 `--surface` 在非白外壳上是可见的，与 #2810 的 `ResultView`（底色即 `--surface`，须反过来）差异源于**页面底色不同**，不是口径分裂。
+
+### 预算（本仓最紧的一档）
+- `CreateView.vue` 改前 5656 行、`check-debt-budget` 的 `maxFileLines` 基线 **5657** ⇒ 只剩 1 行余量，故 `.vue` 侧必须原地改、不得增行（实测改后仍 5656）。
+- `create-view.css` 493 → 495，仍在 `check-max-lines` 的 500 限内；`超限文件=98 挂账=98`、`filesOver500: 98（基线 101）` 均未变 ⇒ 无新增超限文件、账本不涨。
+
+### 验证
+- TDD 先红后绿：新增「流水线详情页返回按钮的箭头是独立装饰字形，不进入可访问名」，红因经原始输出核对为 `arrow.exists()` 为 false；实现后 `CreateView.test.js` **287 passed**（原 286）。该页此前**没有任何测试**覆盖 `.back-btn` 或 `goToHistory`。
+- 真浏览器几何与 hover 现场（复用 e2e fixture 的 `buildInitScript()` 注入 electronAPI mock —— 裸 Vite 下流水线列表不填充，探针会超时、极易被误读成"本机验不了"）：`gap` 计算值 `6px`（已生效）、箭头中心与按钮中心 `309 == 309`、hover 底色 `transparent → #fff` 与边框 `#efefef → rgb(80,72,229)` **分别**变化、按钮 `75×31` 与 #2810 的 ResultView 返回键**尺寸一致**（两页返回键现已同形）。
+- 像素用例 `create-story2video-detail`（在 CI 实跑的 `pixelTests` 清单内）PASSED —— 按 #2810 记下的同一纪律，此 PASSED 只证无粗回归，不证改动本身。
+- 关联：#2810（同根因的另一处落点）、#2812（main 基线新鲜度「41 查 / 36 违规」既有事故；本 PR 同样**不重建**基线）。
+
 # [未发布] feat(publish): P2-8b 发布页「按组添加」发布目标（2026-10-03，publish-group-picker）
 
 > 文档：PRD `01-docs/PRD-PUBLISH-GROUP-PICKER-2026-10-03.md` ｜ 上游 P2-8a `01-docs/PRD-ACCOUNT-GROUPS-PERSISTENCE-2026-10-01.md`（分组真源已落 settings）

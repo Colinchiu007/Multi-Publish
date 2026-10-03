@@ -314,6 +314,24 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("流水线详情页返回按钮的箭头是独立装饰字形，不进入可访问名", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    await nextTick();
+    const back = w.find(".back-btn");
+    expect(back.exists()).toBe(true);
+    const arrow = back.find('[aria-hidden="true"]');
+    // create-view.css 的 .back-btn 声明了 gap: 4px，但 `← 返回` 是**单个文本节点** ⇒ 容器里只有一个匿名
+    // flex item，该 gap 从未生效，箭头与文字仍靠字面空格拼接（与 ResultView 的 .back-to-list 同根因）。
+    expect(arrow.exists()).toBe(true);
+    expect(arrow.text()).toBe("←");
+    expect(back.element.textContent.replace(arrow.element.textContent, "").trim()).toBe("返回");
+    w.unmount();
+  });
+
   it("阶段清单展示场景数/优化进度/资源进度详情", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }

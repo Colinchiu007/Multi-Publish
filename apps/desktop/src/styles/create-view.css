@@ -109,7 +109,9 @@
 .pipeline-detail-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 24px; }
 /* align-self: flex-start —— 本元素处于 flex column 的 .pipeline-detail 中，
    默认 align-items: stretch 会把按钮拉成通栏灰条（视觉散乱主因之一）。 */
-.back-btn { align-self: flex-start; background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: var(--font-size-sm); padding: 6px 14px; border-radius: var(--radius-sm, 6px); margin-bottom: var(--spacing-4, 16px); transition: background-color 0.15s ease, border-color 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
+.back-btn { align-self: flex-start; background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: var(--font-size-sm); padding: 6px 14px; border-radius: var(--radius-sm, 6px); margin-bottom: var(--spacing-4, 16px); transition: background-color 0.15s ease, border-color 0.15s ease; display: inline-flex; align-items: center; gap: 6px; }
+/* 箭头单独归零行高：← 在中文回退字体下自带较高行盒，不归零就与「返回」光学不居中。 */
+.back-btn__arrow { line-height: 1; }
 .back-btn:hover { background: var(--surface); border-color: var(--primary); }
 .back-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .detail-header { margin-bottom: 20px; padding: 16px 20px; background: var(--surface, #fff); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
