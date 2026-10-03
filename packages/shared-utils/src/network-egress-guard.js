@@ -122,11 +122,125 @@ function installTestNetworkGuard () {
   return { alreadyApplied: false }
 }
 
+/**
+ * 子进程面：把守卫传给 node 子进程。
+ *
+ * 为什么必须单独一层：`net.Socket.prototype.connect` 的补丁只在**装它的那个 realm** 有效。
+ * 测试用 spawnSync / execFileSync / fork 起的 node 子进程里没有守卫，于是"测试期零真实出站"
+ * 对这条路径结构性无效 —— #2783 的原始事故正是 `require('electron')` 在测试 realm 里
+ * `spawnSync(process.execPath, [install.js])`，子进程真去下载数秒，耗时与 stdout 被记到
+ * "当时正在跑的那条用例"头上（表现是"某用例随机 15s 超时"，而那条用例什么都没做）。
+ *
+ * 三条口径：
+ *  1) 只给 **node 系**子进程注入 `--require <setup>`。非 node（git / python / electron.exe）
+ *     注入不了守卫，一律**不改 argv**，只进台账并每个命令名出声一次 —— 把它们算成"已守住"
+ *     就是把装饰性门禁写进安全声明。
+ *  2) `execFileSync` / `execFile` 走的是 Node 内部绑定，patch 公开导出的 `spawnSync` **对它们无效**
+ *     （实测：只 patch spawnSync 时 execFileSync 起的子进程 execArgv 里没有 --require）。
+ *     所以四个入口必须逐个 patch。
+ *  3) 包装层内部任何异常都必须原样落到真实调用（fail-open），但要 console.warn 出声 ——
+ *     守卫把自己的测试弄崩，比漏一次出站更糟；漏一次而无人知道，比崩更难查。
+ */
+const CHILD_GUARD_FLAG = '__mpChildEgressGuarded'
+const EXTERNAL_LEDGER_KEY = '__mpExternalChildSpawns'
+const EXTERNAL_WARNED_KEY = '__mpExternalChildWarned'
+const CHILD_WARN_MARK = '[TEST-NETWORK-CHILD-UNGUARDED]'
+
+function isNodeCommand (command) {
+  if (command === process.execPath) return !process.versions.electron
+  const base = String(command || '').split(/[\\/]/).pop().toLowerCase()
+  return base === 'node' || base === 'nodejs' || base === 'node.exe' || base === 'nodejs.exe'
+}
+
+function withRequireInjected (args, setupPath) {
+  const list = Array.isArray(args) ? args : []
+  for (let i = 0; i < list.length; i++) {
+    const a = String(list[i])
+    if (a === '--require' && String(list[i + 1] || '') === setupPath) return list
+    if (a.startsWith('--require=') && a.slice('--require='.length) === setupPath) return list
+    if (a === '-r' && String(list[i + 1] || '') === setupPath) return list
+  }
+  return ['--require', setupPath, ...list]
+}
+
+function recordExternalChild (command) {
+  const ledger = globalThis[EXTERNAL_LEDGER_KEY] || (globalThis[EXTERNAL_LEDGER_KEY] = [])
+  const name = String(command || '').split(/[\\/]/).pop() || '(empty)'
+  if (!ledger.some((e) => e.command === name)) {
+    ledger.push({ command: name, at: new Date().toISOString() })
+    const warned = globalThis[EXTERNAL_WARNED_KEY] || (globalThis[EXTERNAL_WARNED_KEY] = new Set())
+    if (!warned.has(name)) {
+      warned.add(name)
+      console.warn(`${CHILD_WARN_MARK} 子进程 ${name} 不是 node，无法注入测试网络守卫；该子进程内的真实出站不受本守卫约束`)
+    }
+  }
+}
+
+function readExternalChildLedger () {
+  return (globalThis[EXTERNAL_LEDGER_KEY] || []).slice()
+}
+
+function makeGuardedSpawner (name, original, resolveCommand, setupPathRef) {
+  const wrapped = function (...argv) {
+    try {
+      const setupPath = setupPathRef.value
+      const command = resolveCommand(argv)
+      if (setupPath && isNodeCommand(command)) {
+        if (name === 'fork') {
+          // fork(modulePath[, args][, options])：只动 options.execArgv，
+          // 把 --require 塞进 args 会被子进程当成脚本参数。
+          const optsIndex = (argv[1] && typeof argv[1] === 'object' && !Array.isArray(argv[1])) ? 1 : 2
+          const opts = (argv[optsIndex] && typeof argv[optsIndex] === 'object' && !Array.isArray(argv[optsIndex])) ? argv[optsIndex] : {}
+          const baseExecArgv = Array.isArray(opts.execArgv) ? opts.execArgv : (process.execArgv || [])
+          argv[optsIndex] = { ...opts, execArgv: withRequireInjected(baseExecArgv, setupPath) }
+        } else {
+          const argsIndex = Array.isArray(argv[1]) ? 1 : (argv[2] !== undefined && Array.isArray(argv[2]) ? 2 : -1)
+          if (argsIndex > 0) argv[argsIndex] = withRequireInjected(argv[argsIndex], setupPath)
+          else argv.splice(1, 0, withRequireInjected([], setupPath))
+        }
+      } else if (!isNodeCommand(command)) {
+        recordExternalChild(command)
+      }
+    } catch (error) {
+      console.warn(`${CHILD_WARN_MARK} ${name} 包装层自身异常，已原样放行真实调用：${(error && error.message) || error}`)
+    }
+    return original.apply(this, argv)
+  }
+  wrapped[CHILD_GUARD_FLAG] = true
+  wrapped.__mpOriginalSpawn = original
+  return wrapped
+}
+
+function installTestChildProcessGuard ({ setupPath } = {}) {
+  const childProcess = require('child_process')
+  const commands = ['spawn', 'spawnSync', 'execFile', 'execFileSync']
+  const targets = [...commands.map((n) => [n, (argv) => argv[0]]), ['fork', () => process.execPath]]
+  let alreadyApplied = true
+  for (const [name, resolveCommand] of targets) {
+    const original = childProcess[name]
+    if (typeof original !== 'function') continue
+    if (original[CHILD_GUARD_FLAG]) {
+      if (original.__mpChildSetup) original.__mpChildSetup.value = setupPath || original.__mpChildSetup.value
+      continue
+    }
+    alreadyApplied = false
+    const setupPathRef = { value: setupPath }
+    const wrapped = makeGuardedSpawner(name, original, resolveCommand, setupPathRef)
+    wrapped.__mpChildSetup = setupPathRef
+    childProcess[name] = wrapped
+  }
+  return { alreadyApplied }
+}
+
 module.exports = {
   isLoopbackHostForTest,
   readConnectTarget,
   installTestNetworkGuard,
+  installTestChildProcessGuard,
+  readExternalChildLedger,
+  isNodeCommand,
   BLOCKED_EGRESS_KEY,
   BLOCKED_CODE,
   BLOCK_MARK,
+  CHILD_WARN_MARK,
 }

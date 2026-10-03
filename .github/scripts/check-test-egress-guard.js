@@ -176,8 +176,19 @@ function collectProblems(options = {}) {
     }
   }
 
-  const surfaces = collectSurfaces({ files: options.files, readFile });
-  if (surfaces.size < minSurfaces) {
+  // 共享 setup 必须同时装**两个平面**。只有 socket 面时，测试用 spawnSync / execFileSync / fork
+  // 起的 node 子进程里没有守卫 ⇒ "测试期零真实出站"对那条路径结构性无效（#2783 的另一半：
+  // require('electron') 在测试 realm 里 spawnSync 起 install.js，子进程真下载数秒，
+  // 耗时与 stdout 被 vitest 记到"当时正在跑的那条用例"头上，表现是那条用例随机 15s 超时）。
+  const setupText = readFile(SHARED_SETUP)
+  if (setupText === null || setupText === undefined) {
+    // 夹具仓库不建模 setup（那是合法的"没有这个文件"），只有真实仓库模式才要求它存在
+    if (checkIgnored) problems.push('读不到共享守卫 setup：' + SHARED_SETUP);
+  } else if (!/installTestNetworkGuard\s*\(/.test(setupText) || !/installTestChildProcessGuard\s*\(/.test(setupText)) {
+    problems.push('共享 setup 必须同时装 socket 面与子进程面（缺 installTestChildProcessGuard ⇒ 子进程路径无守卫）：' + SHARED_SETUP);
+  }
+
+  const surfaces = collectSurfaces({ files: options.files, readFile });  if (surfaces.size < minSurfaces) {
     problems.push('测试面枚举退化（只有 ' + surfaces.size + ' 个，下限 ' + minSurfaces + '），判据不可信');
   }
 

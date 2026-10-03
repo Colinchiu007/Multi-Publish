@@ -1,3 +1,25 @@
+# [未发布] test(守卫): 测试期禁出站守卫补上子进程面，Gate 20 要求 setup 同时装两个平面（fix-test-egress-child-plane，2026-10-03）
+
+### 根因
+- 共享守卫 `packages/shared-utils/src/network-egress-guard.js` 只 patch `net.Socket.prototype.connect`，那是 **realm 级**补丁。测试用 `spawnSync` / `execFileSync` / `fork` 起的**另一个 node 进程**里没有守卫 ⇒ "测试期零真实出站"对这条路径结构性无效。
+- 这正是 #2783 的另一半（其 CI 侧触发条件由 #2793 消掉、测试 realm 内那条由 #2797 的 spawn 守卫拦下，但**能力缺口**一直留在单下没有闭：`require('electron')` 走 `spawnSync(process.execPath, [install.js])`，子进程真下载数秒，`stdio:'inherit'` 让 vitest 把这段下载记到"当时正在跑的那条用例"头上 ⇒ 表现是某条无关用例随机 15s 超时）。
+
+### 修复
+- 新增 `installTestChildProcessGuard`：给 **node 系**子进程注入 `--require <setup>`，覆盖 `spawn` / `spawnSync` / `execFile` / `execFileSync` / `fork` **五个入口**。两条实测口径：① Node 的 `execFileSync` 走内部绑定，只 patch `spawnSync` 对它**无效**（子进程 `process.execArgv` 里没有 `--require`）；② `fork` 只能改 `options.execArgv`，塞进 args 会被子进程当成脚本参数。
+- 非 node 子进程（git / python / electron.exe）**argv 一字不改**，只进台账 + 每个命令名出声一次（`[TEST-NETWORK-CHILD-UNGUARDED]`）。给它们注入 `--require` 只会搞坏命令行，而"看起来守住了"是假的。
+- 装配仍只有一份：`network-egress-guard.setup.js` 同时装两个平面，注入目标取 `__filename` ⇒ 孙进程继续被注入且安装幂等。
+- Gate 20（`check-test-egress-guard.js`）加判据：共享 setup 必须**同时**引用两个 installer，只装 socket 面即判问题（作用域按"夹具是否建模该文件"分档，避免误拦既有夹具）。
+
+### 明确未做（不是遗漏）
+- 非 node 子进程仍能出网：本层做的是**让它可见**（台账 + 出声），不是拦住；拦它要在传输层做（代理/防火墙），属 CI 基础设施改动。
+- 台账暂无"必须为空"的 CI 断言：先观察一轮真实数据（哪些命令名会出现）再定阈值，否则第一版就把 python/electron 的合法子进程判红。
+
+### 验证
+- 新增 `packages/shared-utils/src/__tests__/network-egress-guard-child.test.js` 10 例：注入是否生效**一律由子进程自己报告**（打印 `process.execArgv` / 守卫标记 / fork 自己写盘），不用"我调用过 spawn"式 mock；拦截证据用 RFC 5737 TEST-NET-2 `198.51.100.7`（不可路由、不需 DNS），且"秒失败 < 6s"本身就是判据。
+- 红→绿：先实测 9 failed / 1 passed，实现后 10/10 绿；`check-test-egress-guard.test.js` 9/9 绿；shared-utils 全量 522 passed。
+- **最大风险面回归**：子进程注入会影响 vitest 自己的 worker ⇒ 桌面全量 `vitest run electron` 实跑 **424 文件 / 8242 例 = 1 failed / 8240 passed / 1 skipped**，唯一红是既知的 `feedback.test.js` Windows symlink `EPERM`（pristine main 可复现）⇒ 注入无回归。
+- 反证 8 条逐个实跑且红因逐条对上（C1 摘注入 / C2 只 patch spawnSync / C3 fork 塞 argv / C4 给 git 也注入 / C5 setupPath 丢失 / C6 包装层吞掉真实调用 / C7 setup 退回单面 / G1 Gate 20 判据摘掉），驱动收尾断言 3 个被变异文件与备份逐字节相同。驱动自身两处故障如实记录并已修：初版 C1 换成注释会造出"else 无 if"语法错、而解析器只数 `×` 行 → 把"文件加载失败"读成零失败（现同时读 `Test Files N failed` 汇总行）；初版 C4 的 `else if (true)` 是 no-op 变异，改成给 git 真注 `--require`。
+
 # [未发布] fix(publish): P2-6a 发布统计按 status 定终态——失败不再被算成成功（2026-10-01，publish-stats-success-truth）
 
 ### 修复

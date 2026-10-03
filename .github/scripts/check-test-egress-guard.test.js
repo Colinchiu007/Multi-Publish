@@ -41,6 +41,26 @@ function withFixture(extra, files, texts) {
   );
 }
 
+test('共享 setup 只装 socket 面时必须红（子进程路径无守卫是 #2783 的另一半）', () => {
+  const setupRel = 'packages/shared-utils/' + SETUP_BASE
+  const files = ['packages/a/package.json', setupRel];
+  const pkgJson = JSON.stringify({ scripts: { test: 'node --require ../shared-utils/' + SETUP_BASE + ' --test tests/x.test.js' } });
+  const onlySocket = {
+    'packages/a/package.json': pkgJson,
+    [setupRel]: "require('./src/network-egress-guard.js').installTestNetworkGuard()\n",
+  };
+  const both = {
+    'packages/a/package.json': pkgJson,
+    [setupRel]: "const g = require('./src/network-egress-guard.js')\ng.installTestNetworkGuard()\ng.installTestChildProcessGuard({ setupPath: __filename })\n",
+  };
+  const a = collectProblems(withFixture({}, files, onlySocket));
+  assert.ok(a.problems.some((p) => /installTestChildProcessGuard/.test(p)),
+    '只有 socket 面的 setup 必须被判问题，实际：\n' + a.problems.join('\n'));
+  const b = collectProblems(withFixture({}, files, both));
+  assert.equal(b.problems.filter((p) => /installTestChildProcessGuard/.test(p)).length, 0,
+    '两面齐全时不得报该问题：\n' + b.problems.join('\n'));
+});
+
 test('真实仓库：棘轮必须 0 问题（现场自证，不是"应该没问题"）', () => {
   const r = collectProblems();
   assert.deepEqual(r.problems, [], '真实仓库上棘轮报问题：\n' + r.problems.join('\n'));
