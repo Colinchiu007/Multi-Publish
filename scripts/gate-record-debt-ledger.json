@@ -1,4 +1,9 @@
 {
+  "本次执行记录：智能标签建议面板 Tab 化紧凑呈现（compact-tag-suggester-tabs，2026-10-03）": {
+    "reason": "PR #2828 合并后回填：squash 落地即取证券（git log origin/main --grep='(#2828)$' --format=%H|%cI；git ls-remote --heads origin tag-suggester-tab-compact 返回 0 行），回填与销账必须同一次发生——回填者＝本 docs PR 同一次提交删除本条。",
+    "status": "PENDING",
+    "line": 20
+  },
   "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "OPEN（已记录）",

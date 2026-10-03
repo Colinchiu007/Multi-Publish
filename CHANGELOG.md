@@ -14,6 +14,52 @@
 - 回归：`bootstrap.test.js`、`store-owner-isolation.test.js`、`usePublishDrafts.test.js`、`Publish.test.js`、`preload.test.js`、`publisher.test.js`、`publish-progress-events.test.js`、`publishProgress.test.js`、`PublishProgressPanel.test.js`、`publish-history.test.js` 共 900+ 用例全绿；`check-locale-sync` pair PASS + CJK 基线 PASS；eslint 0 error（store.js 2 处 warning 为 HEAD 既有）。
 - preload 零改动（复用既有 `draftSave`/`onProgress` 通道），无需重打包 bundle。
 
+# [未发布] feat(desktop): 智能标签建议面板 Tab 化紧凑呈现——5 平台高度 800px→357px（2026-10-03，compact-tag-suggester-tabs）
+
+### 根因
+- `TagSuggester.vue` 把全部分析返回的平台分组纵向堆叠（每平台 = 平台名行 + 复制按钮 + 内容/流量两分组行），5 平台典型数据整卡 ~800px，把定时发布、可见性、AI 声明等表单字段挤出首屏。上游 spec `publish-page-right-rail` 只约束了面板位置与联动，未约束面板自身纵向密度。
+
+### 方案（用户决策简报选定 A：Tab 切换）
+- 平台标签区改为 Tab 结构：`汇总 | 知乎 | 微博 | …` 动态 Tab 行（`role="tablist"`/`role="tab"`/`aria-selected`）。
+- **汇总 Tab（默认）**：每平台一行摘要 = 平台名 + 前 6 个标签（`SUMMARY_TAG_LIMIT`）+ `+N` 省略徽标（title 指向对应平台 Tab，不可点击）+ 该平台复制按钮（仍复制**全量**标签，与旧版语义一致）。
+- **平台 Tab**：完整渲染该平台内容/流量分组与热度角标（既有渲染原样迁移），内容区兜底 `max-height:260px` 滚动。
+- 「提取关键词」「相关话题」保留常显；「各平台标签：」小标题移除（Tab 行承载语义）；来源/校准状态行保留。
+- Tab 状态：默认 `__all__`；`normalizedActiveTab` computed 归一化非法值；`watch(platformGroups)` 平台消失回落汇总；切换为纯视图状态，不触发 `intelligenceSuggestTags`（防抖/请求契约不动）。
+- 面板默认展开行为与显隐记忆（`usePanelVisibilityPrefs`）不变——Tab 化后默认展开高度可控。
+
+### 数据校验
+- `activeTab` 只认 `__all__` 或当前分组集合内平台 key，其余值一律按汇总渲染（不信任状态残留）。
+- `byPlatform`/`byPlatformDetail`/`matchedTopics` 字段缺失或非数组时按空数组处理（`safeTags` 守卫），空分组仍渲染平台名与复制按钮。
+
+### 文案（locale zh/en 成对）
+- 新增 `tagSuggest.tabAll`（汇总/All）、`tagSuggest.moreTags`（完整标签见「{platform}」标签页 / Full tags in the {platform} tab）；其余既有键全部保留原义。
+
+### 验证
+- TDD：`TagSuggester.test.js` 新增「Tab 化紧凑呈现」describe 10 例（默认汇总选中/汇总行摘要/平台 Tab 完整分组+热度/切换不重发请求/+N 截断且不可点击/平台消失回落/汇总行复制全量/行内点击填入），先红（10 failed）后绿；既有用例适配 3 处（`各平台标签` 标题断言 → Tab 行断言、热度角标断言迁入平台 Tab、错误态不出现汇总文案）。
+- 定向 31/31 绿；`Publish.test.js` + `usePanelVisibilityPrefs.test.js` 97/97；全仓渲染层 4400 passed / 2 skipped；eslint 0 error；locale pair + CJK 双检查 PASS。
+- QM-4 视觉：真实渲染取证（Playwright 拦截 IPC 返回 5 平台×7 标签模拟数据）——整卡 357px（旧版同数据 ~800px，**-55%**），汇总行×5、+1 徽标×3、汇总默认选中，截图 `tests/visual-testing/reports/tag-tabs-proof.png`；`npm run test:visual:pixel` publish-form 基线 0.627% PASSED（结果态在基线折叠线下，无需重建基线）；collection 1.62% 失败为 #2792 既有欠账（本分支未触及采集页）。
+- 手动脚本：`tests/visual-testing/scripts/capture-tag-tabs-proof.js`（可复现）。
+
+### 文档
+- PRD：`01-docs/PRD-TAG-SUGGESTER-TAB-COMPACT-2026-10-03.md`（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/验收标准/风险回滚）。
+- openspec：`openspec/changes/compact-tag-suggester-tabs`（proposal/specs delta/design/tasks，validate 通过）。
+
+# [未发布] feat(history): 发布记录卡片整体点击——应用内新标签打开平台作品链接（publish-history-card-open-link，2026-10-03）
+
+### 新增
+
+- 发布记录页列表卡片支持**整体点击**：点击除按钮/链接/复选框外的任意区域，经 `tabStore.createTab` 在应用内顶部标签栏新开标签加载该记录的平台作品链接（`result.url`）；与 `Collection.openCollection` 同一 page-manager 通道。
+- URL 判据单一来源 `safeHttpUrl`（渲染端 ESM 孪生）：无链接/`javascript:`/缺协议/协议相对/非字符串一律不产出打开行为，卡片悬浮提示如实显示「暂无平台链接」；可点卡片显示「点击打开平台作品链接」。
+- `createTab` 失败或桥不可用（store 合同：吞错返回 null）时降级 `window.open(url,'_blank')`，由主进程 `setWindowOpenHandler → isAllowedExternalUrl`（更严判据：`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底交系统浏览器；该 `window.open` 点已登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`。
+- 批量管理模式下整卡点击不打开链接（复选框承载选择，防误触）；同一卡片进行中重复点击不重复发请求（进行中守卫）；成功提示「已在新标签页打开作品链接」走页面既有 `actionMessage` 承载；createTab promise 拒绝（合同外漂移）显示失败提示不崩。
+- locales zh/en 成对新增 `historyPage.cardOpenHint / cardNoLinkHint / cardTabTitle / cardLinkOpened / cardLinkOpenFailed`。
+
+### 回归保护
+
+- `PublishHistory.test.js` 新增「卡片点击打开平台链接」describe（T1-T14 + T10b）：打开契约、按钮/复选框冒泡排除（详情/重试照常）、批量模式排除、六种非法 URL 形态不产出任何打开行为、降级 `window.open`、合同外漂移失败提示、悬浮提示、进行中守卫、详情弹窗锚点 noopener 回归，61 passed。
+- `href-scheme-contract.test.js` 16 passed（登记锁双向断言）；locale 成对门禁 `check-locale-sync.js --pair-base origin/main` PASS。
+- 详见 `01-docs/PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md`。
+# [未发布] style(desktop): 视频任务详情页的「← 返回」改成与同流程一致的描边胶囊，箭头拆成独立装饰字形修掉基线错位（2026-10-03，result-view-back-btn-style）
 
 ### 根因
 - `ResultView.vue` 的返回按钮写成 `← {{ 文案 }}` —— 箭头与文字是**同一个文本节点里的字面空格拼接**，两者各按自身字体度量参与行内排版：`←`（U+2190）在本机的中文回退字体下字身偏小、基线偏高，于是视觉上就是"箭头和返回两个字没对齐"。

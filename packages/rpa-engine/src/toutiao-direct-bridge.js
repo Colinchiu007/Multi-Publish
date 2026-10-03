@@ -95,39 +95,6 @@ async function publishToutiao (p) {
   // ProseMirror 走纯文本通道；Quill 草稿会把 HTML 规范化为 <p>，
   // 不剥离会让 <p> 以字面量出现在文章正文（真机 verify snapshot 实证）。
   const plainContent = stripHtml(article && article.content)
-  // 2026-10-03 预装 XHR hook：捕获页面自动保存的 publish body（供兜底用页面 XHR 复刻）
-  try {
-    await win.webContents.executeJavaScript(
-      '(function(){if(window.__lastSaveBody!==undefined)return "ALREADY";' +
-      'window.__lastSaveBody="";' +
-      'var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;' +
-      'XMLHttpRequest.prototype.open=function(m,u){this.__u=String(u);return oo.apply(this,arguments)};' +
-      'XMLHttpRequest.prototype.send=function(b){try{var u=this.__u||"";' +
-      'if(u.indexOf("article/publish")>=0&&b&&b.length>500){window.__lastSaveBody=String(b)}}catch(e){};' +
-      'return os.apply(this,arguments)}})()'
-    )
-  } catch (_e) { /* hook 失败不影响 DOM 流程 */ }
-  // 2026-10-03 ⭐ 首选：页面 XHR 定时发布（DOM 流程之前执行）——
-  // 头条是两段式设计（首点只挂起），DOM 点击在此页面形态下永远停在"已保存草稿"；
-  // 而自动保存（内容填充触发）会产生完整 body（含有效 pgc_id/title_id），
-  // 此时改 save=0 + timer_status=1 用页面 XHR 发出即可真发布（真机验证 code=0）。
-  // 页面 XHR 继承页面全部上下文（SDK 注入 tt-anti-token），页面内 fetch 则会被拒。
-  try {
-    // 等自动保存（内容填充 → 页面周期性自动保存；最长 45s）
-    for (let i = 0; i < 23; i++) {
-      const has = await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')
-      if (has) { log.info('RpaView', '[toutiao] 自动保存 body 已捕获（' + ((i + 1) * 2) + 's）'); break }
-      await new Promise((r) => setTimeout(r, 2000))
-    }
-    const xhrResult = await publishViaPageXhr({ win, title: article && article.title, log })
-    if (xhrResult.success) {
-      log.info('RpaView', '[toutiao] 页面 XHR 定时发布成功 pgcId=' + xhrResult.pgcId + '（跳过 DOM 流程）')
-      return xhrResult
-    }
-    log.warn('RpaView', '[toutiao] 页面 XHR 兜底未成功: ' + (xhrResult.error || '') + ' → 回退 DOM 流程')
-  } catch (e) {
-    log.warn('RpaView', '[toutiao] 页面 XHR 预发异常: ' + (e && e.message) + ' → 回退 DOM 流程')
-  }
   const domResult = await host._publish_generic(win, { ...article, content: plainContent }, 'toutiao', {
     ...config,
     publish_url: publishUrl || config.publish_url,
@@ -135,10 +102,12 @@ async function publishToutiao (p) {
     prePublishHook: 'uploadCover',
     hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
   })
-  // 2026-10-03 新增第一优先兜底：页面 XHR 定时发布（真机验证 code=0，多次复现）。
-  // 原理：自动保存的 publish 请求 body（含有效 pgc_id/title_id）改 save=0 + timer_status=1，
-  // 用【页面自身 XHR】发出（继承页面全部上下文；页面内 fetch 会被拒，XHR 不会）。
+  // 2026-10-03 ⭐ 兜底（在 DOM 流程【之后】执行——页面此时已填充、未关闭）：
+  // 1) 重装 XHR hook（导航已重置上下文，之前装的必失效）
+  // 2) 微调标题触发页面自动保存 ⇒ 页面自己发 save=1 publish 请求 ⇒ hook 捕获
+  // 3) 用捕获的 body 原样重放（改 save=1 保持），即完成真发布
   if (domResult && domResult.success === false && /verification timeout/.test(String(domResult.error || ''))) {
+    log.warn('RpaView', '[toutiao] DOM verification timeout → 页面 XHR 重放兜底')
     const xhrResult = await publishViaPageXhr({ win, title: article && article.title, log })
     if (xhrResult.success) return xhrResult
   }
@@ -154,6 +123,15 @@ async function publishToutiao (p) {
  * @returns {Promise<{success: boolean, platform: string, pgcId?: string, error?: string}>}
  */
 async function publishViaPageXhr ({ win, title, log }) {
+  /** 派发 Ctrl+S（头条保存草稿快捷键；走 CDP 真实键盘事件） */
+  async function tcDispatchCtrlS (win) {
+    try {
+      const dbg = win.webContents.debugger
+      try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
+      await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', modifiers: 2, windowsVirtualKeyCode: 83, code: 'KeyS' })
+      await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 2, windowsVirtualKeyCode: 83, code: 'KeyS' })
+    } catch (_e) { /* 忽略 */ }
+  }
   try {
     // hook 必须在页面加载后重装（每次导航重置 JS 上下文）；再触发一次 input 促发自动保存
     const setup = `(function(){
@@ -175,9 +153,11 @@ async function publishViaPageXhr ({ win, title, log }) {
       return 'SETUP_OK'
     })()`
     await win.webContents.executeJavaScript(setup)
-    // 等页面自动保存（最长 15s）
+    // 等页面自动保存（最长 15s）；同时派发 Ctrl+S 加速（头条支持 Ctrl+S 保存草稿）
     for (let i = 0; i < 8; i++) {
       if (await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) break
+      // 每轮都发 Ctrl+S（加速保存触发；连续多发无害）
+      await tcDispatchCtrlS(win)
       await new Promise((r) => setTimeout(r, 2000))
     }
     const js = `(function(){
@@ -240,3 +220,4 @@ async function publishViaPageXhr ({ win, title, log }) {
 }
 
 module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao }
+

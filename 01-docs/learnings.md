@@ -9,6 +9,21 @@
 - **过程坑②（.NET API 路径解析，险些污染共享根）**：[System.IO.File]::WriteAllLines("CHANGELOG.md") 的相对路径按**进程 CWD**解析而非 PowerShell 的当前 location（cd: 不改进程 CWD）——worktree 里执行却写到了共享主目录的 CHANGELOG.md。按 R2 精确单文件 git checkout -- CHANGELOG.md 还原后用绝对路径重写。**在 worktree 中做任何 .NET 文件 API 操作一律绝对路径**。
 - **过程坑③（测试 mock 有状态性）**：mockReturnValue([]) 的 store mock 跨多次写入读不到新值，「两次失败只一条」类幂等断言会假红。有状态内存 mock（闭包变量 + mockImplementation 读回）才是正确形态。
 - **回归锁清单**（AGENTS.md QM-2 已登记）：draft-fingerprint.test.js + publish-failure-draft.test.js + publish-failure-draft-saver.test.js + phase4-events.test.js（自动回存 describe）+ store.test.js（指纹幂等 describe）。
+## 智能面板密度是独立 spec 维度；像素基线只拍空态首屏，结果态改动不漂基线；QG Changes 对 PENDING 行要求账本同次登记（compact-tag-suggester-tabs，2026-10-03）
+
+- **「面板放哪」与「面板多高」是两层契约**：上游 spec `publish-page-right-rail` 已约束智能面板贴邻字段、不进右栏，但没约束面板自身纵向密度——TagSuggester 把 5 平台分组纵向铺开 ~800px 依然合规。这类「布局位置对了但体量失控」的回归不会撞任何既有门禁，评估 UI 变更时要单独立一条密度验收（本刀补 Requirement：内容区 ≤340px ±10%，实测 5 平台×7 标签 357px，-55%）。
+- **Tab 化的三个非显然决策**：① 汇总行的「+N」徽标不可点击、title 指向平台 Tab——把「去哪看全部」做成指路牌而非陷阱；② 摘要只截显示，复制按钮仍复制全量（复制语义跟着平台走，不跟摘要切片走）；③ `activeTab` 存平台 key 不存展示名，i18n 切换才不会把选中态打碎；`normalizedActiveTab` computed 归一化非法值 + `watch(platformGroups)` 回落，双保险防状态残留。
+- **像素基线判读先于像素基线重建**：跑 `test:visual:pixel` 前先确认「本次改动区域是否在基线截图视野内」。本刀改的是面板**结果态**（内容>3 字符才渲染），而 publish-form 基线用空 profile 拍空态首屏，两次 0.627% PASSED——结果态改动对这种基线是天然不可见的，不需要也无法通过重建基线来「验证」。同轮 collection 1.62% 失败，溯源 = #2792 改采集页没刷基线（基线停在 #2714），与本分支无关——失败先归因再动手，别把别人的欠账刷成自己的基线。
+- **Playwright 拦截 IPC 取证范式**（`capture-tag-tabs-proof.js`）：hash 路由 URL 必须写 `/#/publish`（`/publish` 会落首页）；`electronAPI` stub 放 `addInitScript` **带 mock 参数内嵌**（先 goto 再 evaluate 再 reload 会把注入值随 reload 清掉）；UiInput 是包裹 div，fill 要打内部 `input`；面板卡用 testid 的 `xpath=ancestor::div[contains(@class,"cohere-card")][1]` 定位（外层表单卡同名 class，hasText 会误匹配）。
+- **QG Changes 的账本登记是硬拦门禁**：`.quality-gates.md` 新增带「远程同步 | PENDING」的执行记录，必须与 `scripts/gate-record-debt-ledger.json` 登记项**同一次提交**落盘，否则 PR CI 的 quality-gate 直接红（「存在未登记的欠账」）；账本键 = 记录标题去掉 `## `、值含 `reason/status/line`。本地 `node scripts/check-gate-record-debt.js` rc=0 再 push 能省一轮 CI 往返。
+- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)<<<<<<< HEAD\r?\n(.*?)=======\r?\n(.*?)>>>>>>> origin/main\r?\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。
+## 本机跑像素门禁的红不等于回归：先验「登录态/数据依赖 + 动画抑制」再下结论（visual-local-triage，2026-10-03）
+
+- **现场**：本机跑 `test:visual:pixel` 报 collection 视图 1.62%（阈值 1%）。逐层归因后定性为**本机渲染状态依赖**，不是 CI 渲染回归：① 裸截图 vs 基线差 1.159%；② 与 runner 同参（`reducedMotion:'reduce'` + 注入 `animation:0s!important` CSS + `setFixedTime` + settle）后降到 0.620%；③ 差异带剖面锁定 `col-panel::before` 的 **3s 无限橙渐变动画**（`Collection.vue` `.col-panel-ribbon`）——动画帧不同 ⇒ 顶部 4px 横幅整带红；④ 剩余差异带集中在草稿箱区（y=960-1079）：基线里有 5 张测试草稿卡，本机渲染是「暂无草稿」空态 ⇒ **登录态/本地数据依赖**改变了渲染内容。
+- **可复用的本机排查序列**（先便宜后贵）：① 与 runner 逐参数对齐重跑（animation 抑制 + 时钟钉住 + settle + reducedMotion）——一步通常消掉大半；② 差异行剖面（逐 y 统计差异像素聚类成带）——把「整页红」变成「具体元素」；③ 对差异带采样 RGB 并在源码里 grep 对应色值——动画/渐变会以「同色不同帧」形态出现；④ 空态 vs 有数据态差异 ⇒ 查该视图的数据依赖，勿在 CI 空 profile 与本机登录 profile 之间强行归一。
+- **结论口径**：本机红 + CI 绿 = 本机环境状态（数据/登录/字体/动画帧）问题，处置是**修本机跑法**（清 profile、对齐 runner 参数），不是刷基线；基线刷新永远只能取 CI 渲染（QM-4 第 7 条）。
+- **另一条实测**：同一脚本两次裸跑差异 0.0008% ⇒ 本机渲染在「同参数」下是确定的；不确定性全部来自「参数没对齐」与「数据状态不同」，不是渲染器抖动。
+
 ## Electron「打开网页」有两条通道：应用内标签必须走 page-manager，window.open 只是系统浏览器入口（publish-history-card-open-link，2026-10-03）
 
 - **拓扑事实**：主窗口 `window.js` 的 `setWindowOpenHandler` 把渲染层一切 `window.open(url,'_blank')` 转 `shell.openExternal`（**系统默认浏览器**），它不是「应用内新标签」通道。应用内顶部标签栏开网页的唯一正确通道是 `page-manager` → `tabStore.createTab({ url, platform, title })`（先例 `Collection.openCollection`）。要「应用内新标签」却写 `window.open`，用户会被踢出应用且无任何报错——这是最容易写反的一步。

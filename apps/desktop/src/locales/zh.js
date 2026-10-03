@@ -2881,6 +2881,8 @@ export default {
 
   tagSuggest: {
     title: '智能标签建议',
+    tabAll: '汇总',
+    moreTags: '完整标签见「{platform}」标签页',
     contentTags: '内容标签（描述文章主题）',
     trafficTags: '流量标签（关联热门话题）',
     platformTags: '各平台标签',
