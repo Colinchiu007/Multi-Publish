@@ -1503,3 +1503,52 @@ describe("PublishView — 话题内联描述接线（publish-topic-inline-descri
     expect(w.vm.articles[1].topicsText).toBe('vlog');
   });
 });});
+
+// keep-alive 重进入预填回归：App.vue 用 <keep-alive :include="['Publish']"> 缓存发布页后，
+// 从结果页「去发布」带 ?video_path= 再次进入时 onMounted 不再触发，预填必须靠 onActivated。
+// 断言「离开再带新 video_path 回来」时表单更新到新值（摘掉 onActivated 会停在旧值 → 本用例变红）。
+describe("PublishView keep-alive 重进入 query 预填", () => {
+  const keepAliveStubs = {
+    teleport: true,
+    "el-checkbox-group": { template: "<div><slot/></div>" },
+    "el-checkbox": { template: "<label><input type='checkbox' /><slot/></label>" },
+    "el-upload": { template: "<div><slot/></div>" },
+    "el-icon": { template: "<span><slot/></span>" },
+    TagSuggester: true, OptimalTimeTip: true, TitleAssistantPanel: true,
+    ArticleEditor: true, TemplatePicker: true, UpgradeModal: true, AiWriterPanel: true,
+  };
+  const Harness = {
+    template: `<router-view v-slot="{ Component }"><keep-alive :include="['Publish']"><component :is="Component" /></keep-alive></router-view>`,
+  };
+  function videoPathOf(w) {
+    const pub = w.findComponent(PublishView);
+    return pub.exists() ? pub.vm.article.video_path : null;
+  }
+
+  it("缓存后带新 video_path 重新进入 → onActivated 重新预填", async () => {
+    const localRouter = createRouter({
+      history: createWebHistory(),
+      routes: [
+        { path: "/publish", name: "Publish", component: PublishView },
+        { path: "/other", name: "Other", component: { name: "Other", template: "<div>other</div>" } },
+      ],
+    });
+    await localRouter.push("/publish?video_path=" + encodeURIComponent("D:/media/a.mp4"));
+    await localRouter.isReady();
+    const w = mount(Harness, {
+      global: { plugins: [localRouter, createPinia(), i18n], components: { UiButton, UiInput }, stubs: keepAliveStubs },
+    });
+    await flushPromises();
+    await nextTick();
+    expect(videoPathOf(w)).toBe("D:/media/a.mp4");
+
+    // 离开到别的页（Publish 被 keep-alive 缓存、不销毁）
+    await localRouter.push("/other");
+    await nextTick();
+    // 再带【新】video_path 回来：onMounted 不会再跑，靠 onActivated 重新预填
+    await localRouter.push("/publish?video_path=" + encodeURIComponent("D:/media/b.mp4"));
+    await nextTick();
+    await flushPromises();
+    expect(videoPathOf(w)).toBe("D:/media/b.mp4");
+  });
+});

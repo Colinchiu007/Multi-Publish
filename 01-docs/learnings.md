@@ -1,3 +1,13 @@
+## 路由切换丢草稿：router-view 无 keep-alive 会重挂载页面组件销毁其局部状态；keep-alive 又要求把 query 预填挂到 onActivated（publish-draft-keepalive，2026-10-03）
+
+- **症状**：承接 #2764（切账号标签丢草稿已用 v-show 修）。另一条独立通路——在首页里点左侧菜单/模块导航离开「发布」页再回来，视频/标题/描述等草稿全空。
+- **根因**：App.vue 主工作区 `<router-view>` 没有 `<keep-alive>`，vue-router 换路由即卸载 Publish.vue，其**组件局部** reactive article（video_path）等随之销毁。v-show 修不到这条（那是 router 换组件，不是 v-if 卸载）。
+- **正解**：`<router-view v-slot="{Component}"><keep-alive :include="['Publish']"><component :is="Component" v-show="!isLoginTab"/></keep-alive></router-view>`。include 只列发布页，其余页面维持「重挂载取最新数据」，不给别的页引入陈旧态；v-show 从 router-view 移到实际组件，#2764 的隐藏语义不回退。
+- **keep-alive 的连带坑（本案真正的隐性回归点）**：一旦页面被缓存，`onMounted` 只在首次挂载跑，**再次进入不再触发**。Publish.vue 的「从结果页/历史带 ?video_path= 预填」原本只在 onMounted 跑，加 keep-alive 后会**静默失效**（第二次带新视频进发布，表单还是旧缓存那份）。必须把预填同时挂 `onActivated`（每次激活都跑），且函数无 query 时早退以免覆盖用户既有草稿。非 keep-alive 上下文（内嵌主页实例 mp-home-shell 分支）onActivated 不触发，仍由 onMounted 兜。
+- **组件名**：`<script setup>` 靠文件名推断 `__name`，keep-alive include 虽能匹配但构建配置变化时不稳，显式 `defineOptions({ name: 'Publish' })` 更保险。
+- **测试逃逸**：Publish.test.js 直接挂组件不经 router-view；#2764 的测试只覆盖 isLoginTab 的 v-show 通路。补：App 级 keep-alive 测试（去 keep-alive→实例重挂载→setup 计数变 2 变红）+ 组件级 keep-alive 重进入预填测试（去 onActivated→停在旧值变红），两条反证均实测。
+- **通用教训**：给某页加 keep-alive 时，必须同时审该页所有「只在 onMounted 跑、但依赖每次进入都重算」的逻辑（query 预填、按路由参数拉数据、默认值初始化），逐个迁到 onActivated，否则缓存会把首挂载的一次性逻辑变成永久失效。
+
 ## 「隐藏」被实现成「卸载」：v-if 条件渲染会销毁路由组件的局部草稿状态（publish-tab-state-keepalive，2026-10-02）
 
 - **症状**：首页固化标签的发布页选定本地视频后，切到账号标签再切回，视频文件与所有未保存草稿消失。
