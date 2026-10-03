@@ -1,3 +1,19 @@
+# [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
+
+### 根因（QM-5 五步取证）
+- 用户反馈「改写后的文案是一整段没有正常分段」。是 bug 不是没处理：提示词层早要求空行分段（运营中心种子 hard-constraint-default-v1 第 2 条，2026-09-18），LLM 也遵守了；压平发生在本地后处理——`AITasteRemover` Pass 3 的句长节奏修复 `_mergeUniformSentences`（v2 重构 `36a09e5c` 2026-09-09 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢；次级缺陷：切句剥离标点导致段尾标点丢失、语气标点被统一改写成句号。
+- 逃逸链：remover 单测 6 例全是单段短文本零换行断言（无测试）；引擎 core 测试 mock 全是单行英文（场景缺失）；评审只验 AI 味指标下降未审计结构副作用（审查盲区）。
+
+### 修复（双保险架构）
+- **保底层（确定性）**：`ai-taste-remover.js` `_addHumanTexture` 先按换行切分、仅对单个自然段做句级重组、原样回填换行（结构不变量：任何 pass 不得改变输入的换行/分段结构）；新增 `splitSentencesWithPunct` 保留每句终止标点；`_mergeUniformSentences` 按原文标点回填（合并衔接点前句终止标点改逗号、后句原标点保留、段尾无标点不追加）。
+- **上游层（概率性）**：`rewrite-engine-core.js` 三模式指令各追加「分段输出要求：按内容逻辑划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）」；引擎内置硬约束回退 `BUILTIN_DEFAULT_HARD_CONSTRAINTS` 第 2 条与运营中心种子 `hard-constraint-default-v1`（`rewrite_hard_constraint_service.py`）同步升级为「使用空行分隔即可；除口播快节奏短文案外，成品应有 2-5 个自然段，禁止整篇压成一段」。桌面端 service 零改动（无第二份后处理，种子升级后运行时自动生效）。
+
+### 验证
+- TDD 先红后绿：修复前实跑 5 failed（R1/R2/R4/P1/P2/P3 中的红项；R5 为假绿——旧代码统一丢标点恰好满足「不追加」表面断言）；修复后 rewrite-engine 包 **181/181** 全绿（含新增段落结构保留 5 例 R1-R5 + 端到端分段保留 3 例 P1-P3）、ops-center 硬约束测试 **8/8**（新增种子含「空行分隔」断言）。
+- 端到端实证：3 段 × 2 句输入 → 输出 3 段空行完整保留、段尾句号保留（修复前 0 换行、段尾无句号）。
+- 预防措施：AGENTS.md QM-2 新增「后处理结构不变量」门禁条目（含必跑测试清单）；learnings 置顶「文本重组类后处理必须先定义结构不变量」。
+- 专项 PRD（六维度详写）：`01-docs/PRD-REWRITE-PARAGRAPH-PRESERVE-2026-10-03.md`；引擎主 PRD 追加 §十四。
+
 # [未发布] fix(rewrite): 自动改写入口完成后直接定位改写结果区（2026-10-09，fix-rewrite-jump-focus）
 
 ### 根因
