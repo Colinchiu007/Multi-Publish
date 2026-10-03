@@ -322,6 +322,22 @@ describe('AgnesMultimodalAdapter — Agnes-AI 多模态（中国站）', () => {
       expect(body.response_format).toBeUndefined()
       expect(result.urls).toEqual(['https://cdn.example.com/img.png'])
     })
+
+    // 回归保护（2026-10-02 fix-s2v-portrait-image-aspect）：Story2Video 流水线（agnes-multimodal
+    // 实测路径，项目 mur2tzc8_ru1r）经 asset-generator 传 aspect_ratio 契约键，委托链必须
+    // 完整保留，最终落入 Agnes 请求体 ratio 字段（历史断链：静默回退 16:9 横屏）。
+    it('generateImage 委托链保留 aspect_ratio 契约键 → 请求体 ratio（2026-10-02 回归）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        created: 1780000000,
+        data: [{ url: 'https://cdn.example.com/img.png', b64_json: null, revised_prompt: null }],
+      })])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      const result = await adapter.generateImage({ prompt: 'a cat', size: '2K', aspect_ratio: '9:16' })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.ratio).toBe('9:16')
+      expect(result.urls).toEqual(['https://cdn.example.com/img.png'])
+    })
   })
 
   describe('预设契约（model-provider-seeds）', () => {

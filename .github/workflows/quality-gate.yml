@@ -463,6 +463,12 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      # electron@43 没有 postinstall：pnpm install 之后 electron 包只有 npm 壳、没有 dist。
+      # 不先备好二进制，任何 require('electron') 会走进 node_modules/electron/index.js，
+      # 它先打 "Downloading Electron binary..." 再当场下载 ⇒ 下载耗时被记到"当时正在跑的那条用例"头上
+      # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
 
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
 
@@ -578,6 +584,12 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      # electron@43 没有 postinstall：pnpm install 之后 electron 包只有 npm 壳、没有 dist。
+      # 不先备好二进制，任何 require('electron') 会走进 node_modules/electron/index.js，
+      # 它先打 "Downloading Electron binary..." 再当场下载 ⇒ 下载耗时被记到"当时正在跑的那条用例"头上
+      # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
 
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
@@ -661,6 +673,12 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      # electron@43 没有 postinstall：pnpm install 之后 electron 包只有 npm 壳、没有 dist。
+      # 不先备好二进制，任何 require('electron') 会走进 node_modules/electron/index.js，
+      # 它先打 "Downloading Electron binary..." 再当场下载 ⇒ 下载耗时被记到"当时正在跑的那条用例"头上
+      # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
 
       # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
       - name: "Gate 5 - Test coverage check"

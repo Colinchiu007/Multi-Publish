@@ -322,6 +322,49 @@ describe('AgnesImageAdapter — Agnes Image Adapter', () => {
       expect(body.ratio).toBe('1:1')
     })
 
+    // 回归保护（2026-10-02 fix-s2v-portrait-image-aspect）：流水线统一契约键是
+    // aspect_ratio / aspectRatio，历史实现只读 params.ratio（API 请求体字段名被误用作
+    // 输入参数名），导致 Story2Video 竖屏（9:16）生成请求静默回退 16:9 横屏，
+    // 实测成片 720x1280 两侧黑边（项目 mur2tzc8_ru1r 图片 2624x1472）。
+    it('aspect_ratio（流水线契约键）→ 请求体 ratio（2026-10-02 回归）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ url: 'x' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      await adapter.generateImage({ prompt: 'test', aspect_ratio: '9:16' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.ratio).toBe('9:16')
+    })
+
+    it('aspectRatio（camelCase 别名）→ 请求体 ratio', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ url: 'x' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      await adapter.generateImage({ prompt: 'test', aspectRatio: '3:4' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.ratio).toBe('3:4')
+    })
+
+    it('无任何宽高比参数时回退默认 16:9（显式缺省语义）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ url: 'x' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      await adapter.generateImage({ prompt: 'test', width: 720, height: 1280 })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.ratio).toBe('16:9')
+    })
+
     it('无 prompt 参数抛错误', async () => {
       const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
       await expect(adapter.generateImage({}))

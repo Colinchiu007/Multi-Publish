@@ -636,3 +636,94 @@ test('视觉工作流必须有阻断形态的基线新鲜度门禁，且跑自�
   assert.ok(idxCapture >= 0, '前置条件：采集步骤必须存在，否则新鲜度检查拿不到同 run 的渲染');
   assert.ok(idxFresh > idxCapture, '新鲜度检查必须排在采集步骤之后（判据是同一次 run 的渲染）');
 })
+
+// 加强版判据（由 QM-6 两路外部评审各自命中一条 Critical 逼出来）：
+// ① 准备步骤必须**整条命令就是**该脚本 —— 原写法按"正文里出现过字样"匹配，一个
+//    `run: echo "see node_modules/electron/install.js"` 的假步骤就能让它恒绿；
+// ② SKIP 变量必须查**步骤 / 作业 / workflow 三层** —— 只在步骤层查，作业级 env 一样能
+//    让 ensure-electron.js:35 直接 exit 0，准备步骤集体变成装饰；
+// ③ 被依赖的脚本本体也要验，否则整条锁只是在验"调用过一个 no-op"；
+// ④ 同类作业清单由内容收集后与"要 prep 的 + 有前提可判定的豁免"做 deepEqual，
+//    新增同类作业当场红，而不是看不见它。
+test('跑桌面测试的质量门禁作业必须先备好 Electron 二进制（清单自动收集、判据不得被空步骤糊住）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  assert.ok(wf.jobs && Object.keys(wf.jobs).length > 0, '前置条件：解析不出 jobs 时本判据会在空集合上恒真');
+
+  const isDesktopTestStep = (s) => {
+    const run = String((s && s.run) || '');
+    return /@multi-publish\/desktop|apps\/desktop/.test(run)
+      && /test:coverage|test:startup|--shard=|vitest run|run test/.test(run);
+  };
+  const collected = Object.keys(wf.jobs)
+    .filter((job) => ((wf.jobs[job] && wf.jobs[job].steps) || []).some(isDesktopTestStep))
+    .sort();
+  const NEEDS_PREP = ['coverage', 'desktop-shards', 'unit-tests'];
+  // e2e 与 visual 同类：经 Playwright 打本机 dev server / Chromium，不加载 Electron 模块；
+  // 这条前提由下面的目录扫描钉住 —— 有人往这两个目录里引入 require('electron') 时，豁免当场失效变红。
+  const EXEMPT = ['e2e', 'visual'];
+  assert.deepEqual(collected, NEEDS_PREP.concat(EXEMPT).sort(),
+    '跑到"可能 require(electron)"的桌面测试作业清单漂移了：实际=' + JSON.stringify(collected)
+    + '，预期=' + JSON.stringify(NEEDS_PREP.concat(EXEMPT).sort())
+    + '。新作业要么补准备步骤，要么进 EXEMPT 并给出会被下面钉住的豁免前提');
+
+  // e2e 的豁免前提是一条**可判定的事实**（那批用例经 Playwright 打浏览器，不加载 Electron 模块），
+  // 不是一句注释：一旦有人往 apps/desktop/tests/e2e 里引入 require('electron')，前提失效 ⇒ 本条立刻红。
+  const repoRoot = path.join(__dirname, '..', '..');
+  const SUITES = ['e2e', 'visual-testing'].map((d) => path.join(repoRoot, 'apps', 'desktop', 'tests', d));
+  const offenders = [];
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, ent.name);
+      if (ent.isDirectory()) { walk(f); continue }
+      if (!/\.m?js$/.test(ent.name)) continue;
+      if (/require\(['"]electron['"]\)|from ['"]electron['"]/.test(fs.readFileSync(f, 'utf8'))) {
+        offenders.push(path.relative(repoRoot, f));
+      }
+    }
+  };
+  for (const d of SUITES) if (fs.existsSync(d)) walk(d);
+  assert.deepEqual(offenders, [],
+    'e2e/visual 作业的豁免前提失效（这些文件会加载 Electron 模块）：' + JSON.stringify(offenders)
+    + ' —— 所在作业必须从 EXEMPT 移到 NEEDS_PREP，即补准备步骤');
+
+  const PREP_CMD = /^\s*node scripts\/ensure-electron\.js\s*$/;
+  const SKIP_ENV = /ELECTRON_SKIP_BINARY_DOWNLOAD/;
+  assert.deepEqual(Object.keys(wf.env || {}).filter((k) => SKIP_ENV.test(k)), [],
+    'workflow 顶层 env 不得设 ELECTRON_SKIP_BINARY_DOWNLOAD：那会让所有作业的准备步骤"合法地"集体空转');
+
+  for (const job of NEEDS_PREP) {
+    const steps = (wf.jobs[job] && wf.jobs[job].steps) || [];
+    assert.ok(steps.length > 0, `作业 ${job} 必须存在且有步骤（改名或删掉时保护整条消失）`);
+    const idxOf = (pred) => steps.map(pred).map((hit, i) => (hit ? i : -1)).filter((x) => x >= 0);
+    const testIdxs = idxOf((s) => isDesktopTestStep(s));
+    assert.ok(testIdxs.length >= 1, `作业 ${job} 里找不到桌面测试步骤（判据不得对空集合放行）`);
+    const prepIdxs = idxOf((s) => PREP_CMD.test(String((s && s.run) || '')));
+    assert.equal(prepIdxs.length, 1,
+      `作业 ${job} 必须恰好有一步 "run: node scripts/ensure-electron.js"（实得 ${prepIdxs.length} 步）：`
+      + '0 步 = 回到 #2783 的装配；多步 = 一处缺口会被另一处满足而掩盖');
+    const prep = steps[prepIdxs[0]];
+    assert.notEqual(prep['continue-on-error'], true,
+      `作业 ${job} 的准备步骤不得 continue-on-error：备失败也照跑，随机超时原样复发`);
+    assert.equal(prep.if, undefined, `作业 ${job} 的准备步骤不得带 if: 条件短路`);
+    for (const [where, env] of [['作业级', wf.jobs[job].env], ['准备步骤', prep.env]]) {
+      assert.ok(!Object.keys(env || {}).some((k) => SKIP_ENV.test(k)),
+        `作业 ${job} 的${where} env 不得设 ELECTRON_SKIP_BINARY_DOWNLOAD：ensure-electron.js:35 见它就 exit 0，`
+        + '准备步骤会变成装饰而本锁仍然绿');
+    }
+    const installIdx = steps.findIndex((s) => /pnpm install --frozen-lockfile/.test(String(s.run || '')));
+    assert.ok(installIdx >= 0 && installIdx < prepIdxs[0],
+      `作业 ${job} 必须先 pnpm install 再备二进制（实得 install=${installIdx} prep=${prepIdxs[0]}）：`
+      + 'electron 包本身是装出来的，顺序反了判据测的是空气');
+    assert.notEqual(steps[installIdx]['continue-on-error'], true,
+      `作业 ${job} 的 Install deps 不得 continue-on-error：安装失败还往下跑，缺 dist 会重新变成随机超时`);
+    assert.ok(prepIdxs[0] < testIdxs[0],
+      `作业 ${job} 的准备步骤必须排在首个桌面测试步骤之前（实得 prep=${prepIdxs[0]} test=${testIdxs[0]}）`);
+  }
+
+  // 被这条锁依赖的脚本本体：掏空它必须让锁变红，否则上面全部判据只是在验"调用过一个 no-op"。
+  const ensureSrc = fs.readFileSync(path.join(repoRoot, 'scripts', 'ensure-electron.js'), 'utf8');
+  assert.match(ensureSrc, /function isDistComplete/,
+    'ensure-electron.js 的完整性判据被删：准备步骤会退化成"跑过 install.js 就算好"');
+  assert.match(ensureSrc, /install\.js 执行后 dist 仍不完整[\s\S]{0,80}process\.exit\(1\)/,
+    'ensure-electron.js 必须在装完仍不完整时非零退出，否则"准备步骤会红"这件事本身消失');
+})

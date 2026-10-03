@@ -17063,3 +17063,50 @@ files=4  （含 config/platforms.yaml 与测试文件）
    判定必须用单一真源脚本，**禁止人工目测**。
 
 **一句话**：*提交前先让脚本告诉你"这是哪类 PR"，再决定走哪套节拍——别凭"看起来像文档"来判断。*
+
+## 头条 Node 直连兜底已交付——以及包内测试框架选型的坑（toutiao-fallback-shipped，2026-10-02）
+
+**里程碑**：头条的 Node 直连兜底发布**已合入 main**（PR #2781，commit `65f24aeb`）。
+从"不知道为什么发不出去"到"有完整可用的兜底通道"，全程走通。
+
+### 已交付的组件（packages/rpa-engine/）
+- `toutiao-direct-publish.js`：`cookiesFromSession`（Electron session 导出，含 HttpOnly 登录态）/
+  `buildPostData`（参考产品同款字段表）/ `uploadCover`（spice/image）/ `publishWithSign`（Node https POST）
+- `toutiao-direct-bridge.js`：`publishToutiao` 一站式——DOM（host._publish_generic）失败且
+  `verification timeout` 时自动切 Node 直连；`rpa-view-platforms._publish_toutiao` 只留 12 行薄委托
+  （行数 1419→1408，门禁 PASS）
+- 测试 11 个（契约：cookie 排序 / 字段表 / 定时截断 / 封面映射 / 首发四字段）
+
+### ⭐ 本轮的坑：包内测试框架选型
+rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的测试用了
+**node:test 语法** —— 本地 `node --test` 通过，但 **CI 跑 vitest** ⇒ vitest 扫到该文件、
+识别不了 node:test ⇒ "no tests" + exit 1 ⇒ **Gate 4 失败**。
+
+**两层坑**：
+1. 直接改写成 `require("vitest")` —— **CJS 包里 vitest 不能被 require**（必须 ESM import）；
+2. 正解：**用 vitest 全局 `describe/it/expect`**（config `globals:true` 已开），
+   不 import —— 与包内既有测试一致（它们用 `require` 引被测模块，但 vitest API 是全局的）。
+
+**防再犯**：往一个包里加测试前，先看 ①该包 `test` script 跑的是哪个 runner；
+②同包既有测试用什么语法（随大流最安全）；③改完**用 CI 同款命令本地跑**（`pnpm exec vitest run`）。
+
+### 兜底链路终态（三环各有实证）
+1. **签名**：页面内 `byted_acrawler.sign({url,query,body})` → 合法 a_bogus（服务端受理）✅
+2. **body**：参考产品字段表（source/save/timer_status/pgc_feed_covers/extra 等）✅
+3. **请求**：Node 侧 https POST（cookie/Referer/Origin/UA 与页面一致）✅
+   + **cookie**：Electron session 导出（document.cookie 缺 HttpOnly ⇒ 100005 教训）—— 代码已交付
+
+### 待办（合并后第一件事）
+走一次真实发布，确认应用日志出现 `[toutiao-direct] code=0`，
+并到头条后台核对定时文章（「平台侧为准」口径）。若直连仍被拒，
+剩余嫌疑是 msToken/行为序列 —— 属下一阶段逆向。
+
+**一句话**：*加测试先问"这个包用哪个 runner"；而兜底功能的真机终验，不该等到最后一个环节才做。*
+
+## API 请求体字段名被误用作入参契约名 = 静默参数断链（fix-s2v-portrait-image-aspect，2026-10-02）
+
+**现象**：故事讲述流水线选 720x1280 竖屏，成片正确但场景图片全部横屏（2624x1472），合成时两侧黑边。无任何报错。
+
+- **字段恒回退的第一性诊断（pitfall）**：某参数「看起来总不生效」时，沿调用链逐层 grep 该字段的**读点**（谁在消费）与**写点**（谁在传），找出键名不匹配的层。本案 aspect_ratio 在 stages/asset-generator 全程正确传递，到 agnes-image.js 断链——它只读 params.ratio（Agnes API 请求体字段名被误用作入参名），不匹配即静默回退默认 16:9。引入点 commit c9df8bf5（2026-07-15 新增 9 供应商 Adapter），封装请求体正确、入参名照抄请求体字段是失误根源。**边界：凡「适配器入参 → 供应商请求体」存在改名的层都适用**；同名透传层不受此限。
+- **静默断链的测试逃逸原因（pattern）**：单元测试只断言「传入键 → 请求体」的回显（当时用 ratio 键测），等于**用实现定义测试**，断链键永远测不到；逃逸链 = 无契约键行为测试（单测层）→ 适配器边界无统一契约锁（集成层）→ 视觉黑边肉眼才暴露（E2E 层无图片尺寸断言）→ review 只看单文件 diff 不查调用方实参（审查层）。修复 = 契约键行为回归（3 用例）+ image-adapter-aspect-contract.test.js 结构锁（扫源码断言解析表达式双键齐全，变异反证 3 用例变红）+ AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁。
+- **QM-1 打包启动测试的环境陷阱（operational）**：DSH 会话进程树带 ELECTRON_RUN_AS_NODE=1，打包 Electron 继承后以纯 Node 模式启动、立刻 exit 0 且零 stderr——形似「单实例锁让路」的假象。判据与修复：启动测试前 Remove-Item Env:ELECTRON_RUN_AS_NODE；辅以 ELECTRON_USER_DATA_DIR 隔离 userData 避免与其他会话的单实例锁竞争。另：worktree 内 electron-builder 只打包主进程不构建 renderer，需先 pnpm run build:vue，否则启动报 ERR_FILE_NOT_FOUND（主进程仍存活，别被「进程没死」骗过）。

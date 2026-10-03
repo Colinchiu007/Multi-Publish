@@ -966,6 +966,9 @@ describe("ResultView", () => {
       messageKey: "story2video.degraded_assets_warning",
       messageParams: { kinds: "占位图片" },
     });
+    // 双次归一化回归锁（2026-10）：resolve 入态 → format 渲染，kinds 不得在第二次归一化中丢失。
+    // 曾退化为「此成片包含离线降级素材（），请在发布前预览确认。」（空括号）。
+    expect(w.vm.story2videoNotificationDialogMessage).toBe("此成片包含离线降级素材（占位图片），请在发布前预览确认。");
     w.unmount();
   });
 

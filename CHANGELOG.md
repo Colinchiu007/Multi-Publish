@@ -46,6 +46,123 @@
 
 - 不做设备/IP 级全局串行（会废掉「一键发多平台」核心用途）；不做每日条数 quota；不在设置页暴露间隔。
 
+# [未发布] test(story2video): 测试引擎必须自己钉住并发预算，一条"CI 绿、开发机红"的用例就此确定化（2026-10-03，fix-s2v-auto-start-preflight）
+
+### 根因（并否证 #2796 正文自己的描述）
+- `story2video-manual-assets.test.js` 在低内存主机上确定性红（`expect(auto.success).toBe(true)` 收到 false），
+  CI 上却不复现 —— 因为 runner 是 4 vCPU/16GB。探针把返回值整个打出来才看清：
+  第二次 `startOrchestrated` 返回 `{success:false, errorCode:'PIPELINE_CONCURRENCY_LIMIT', errorParams:{count:1,max:1}}`，
+  而换一个**新 engine** 跑同一份参数直接成功 ⇒ 与 manual/auto 无关（#2796 正文说的"auto 模式失败"是把相关性当因果，
+  探针里把两次启动顺序颠倒，红的就变成 manual 那条）。
+- 真因是夹具用 `new PipelineEngine()` 不注入预算 ⇒ 落到 `pipeline-engine.js` 的机器资源自适应
+  （`cpus<2 或 freeMem<2GB ⇒ 1`）；该用例在同一 engine 上连起两条 run，第一条（`autoAdvance:false` + 无执行器）
+  永驻 running 并独占唯一槽位。
+
+### 修复与锁
+- `makeConfiguredEngine()` 显式注入 `maxConcurrentRuns: 4`（同先例 `electron/tests/pipeline-engine.test.js:1206-1211`，本文件只是漏了一处）；
+  两条 `success` 断言改为携带返回值原文，将来被预算拒时现场直接报 `errorCode` 而不是 `expected false to be true`。
+- 新增防再犯锁「工厂产出的引擎必须显式钉住预算（>=2）」——只看前提声明，不看行为。
+- 反证四档全部在 `STORY2VIDEO_MAX_CONCURRENT_RUNS=1`（最坏主机）下实跑：M-1 取消注入 ⇒ 锁单独 RED；
+  M-3 取消注入 + 把锁断言拆成恒真 ⇒ 锁 GREEN（证明那条断言是承重件）；M-2 预算钉成 1 ⇒ 整文件 RED 且现场含
+  `PIPELINE_CONCURRENCY_LIMIT`；基线修复后整文件 GREEN 23/23。
+
+### 顺带得到的整类枚举技术
+- `cd apps/desktop && STORY2VIDEO_MAX_CONCURRENT_RUNS=1 pnpm exec vitest run electron` 可把"偷偷依赖主机资源"的
+  用例一次性逼出来：423 文件实测只有 2 个红（本用例 + `feedback.test.js` 的既有 Windows symlink EPERM）
+  ⇒ 这一类的规模就是一个文件，不需要全局重构。是否接成 CI 车道写在记录「遗留」，未静默决定。
+
+# [未发布] test(desktop): 桌面单测里那条 `Downloading Electron binary...` 是夹具造出来的假象；fs mock 改按路径委托，并给测试期 electron/install.js 加响亮失败守卫（2026-10-03，fix-electron-dist-banner-attribution）
+
+### 根因（#2794 归因；本单正文原先写的"exe 被短暂删除"假设被实测否证）
+- PR #2793 把 `ensure-electron.js` 接进三个桌面测试作业后，合并后复核实测四个作业**各还剩 1 条**
+  `Downloading Electron binary...`，归属永远是 `asset-generator.test.js > spawn must use shell: false`，且距下一条日志只有 **11ms**；
+  本机整文件 **1.8 秒**跑完、`ensure-electron` 报"已就绪" ⇒ 有日志、无下载。"第二个 electron 副本"与"Defender 锁文件"两条假设一并排除
+  （`find … -type d -name electron -path "*node_modules*"` 只有一个包；`path.txt` 实测 12 字节无换行）。
+- 三条叠加才成立：`test-setup.js` 的 `__registerMock('fs', …)` 经 `Module._load` 命中该 realm 每一个 `require('fs')`；
+  `vitest.config.js:17` 的 `deps.inline:['electron']` 把 `node_modules/electron/index.js` 内联进同一 realm；
+  该测试文件的 `existsSync` 是 `vi.fn(() => false)`（不分路径）⇒ `logger.js:35` 的 `require('electron')` 误判"二进制没备好"，
+  打出 banner 后 spawn 又被同文件的 `child_process` mock 挡死，抛出的异常再被 `logger.js` 的 catch 静默吞掉。
+
+### 修复（采纳 QM-6 两路外部评审的各一条 Critical 与三条 Warning）
+- **B1** 夹具改为按路径委托：沙箱前缀改成 `os.tmpdir()` 下带 pid 的独立目录（原来硬编码 `/tmp/test`，是跨会话共享名），
+  13 处 `outputDir` 字面量收敛到该常量；判定按**路径段**比（裸 `startsWith` 会把 `<沙箱>-evil` 判进沙箱，M-6 反证抓的就是这条）；
+  委托只覆盖 `existsSync`/`readFileSync` —— `statSync` 换成真读会让"不存在的沙箱外路径"从 `{size:1024}` 变成抛 ENOENT，
+  那是本缺陷之外的新语义漂移；写类动词继续全部空转（单测不得因为"委托"而往磁盘写东西）。
+- **B2** `test-setup.js` 给 `spawnSync/spawn/execFileSync/execSync/fork` 包一层守卫：命中 `node_modules/electron/install.js`
+  即当场抛 `[TEST-ELECTRON-INSTALL-SPAWN]` 并点名 `ensure-electron.js`。理由：这条 banner 与"真下载数秒"**完全同字**，
+  靠日志形状区分不了"夹具谎报的空转"和"测试期真取用"，只能锁 spawn 面本身。范围如实声明：只锁这一条 spawn，
+  **不是**测试期通用出站哨兵（#2783 的另一半仍未闭合）。
+- 回归锁 8 例：`asset-generator.test.js` 3 例（委托边界自证 / 写不落盘 / banner 不出现且解析到真实 exe）
+  + 新文件 `electron/tests/setup-electron-install-guard.test.js` 5 例（含"普通子进程不受影响"与"装配幂等"两条反失明断言）。
+  反证 9 档逐个实跑全部变红（红 3/3/1/6/1/1/1/2/4 例），驱动收尾断言两份被改文件与备份逐字节相同。
+  M-3 第一轮报 **NOT_RED**，当场暴露我写的 `existsSync('missing.mp3') === false` 是恒真断言 ——
+  改成"先在沙箱里真造一个文件，再证明真实 fs 看得见而夹具看不见"才是有效判据。
+
+### 影响范围
+- 只改测试 realm：夹具 + `test-setup.js` 的装配守卫 + 测试文件本身。被测代码、`vitest.config.js`、UI 一行未动，QM-1/QM-4 N/A。
+- 新文件名刻意不以 `test-` 开头：`.gitignore:59` 的 `test-*.js` 未锚定目录，会把新用例静默排除在 git 之外（`git check-ignore` 实测对照）。
+
+# [未发布] fix(ci): 跑桌面测试的 quality-gate 作业先备好 Electron 二进制，随机用例超时不再被误判成被测缺陷（2026-10-03，coverage-gate-electron-prepare）
+
+### 根因
+- `electron@43` 无 `postinstall` ⇒ CI 里 `pnpm install --frozen-lockfile` 之后 `node_modules/electron` 只有 npm 壳、没有 `dist`。此后任何 `require('electron')` 会执行 `node_modules/electron/index.js` 的 `downloadElectron()`：先 `console.log('Downloading Electron binary...')`，再 `spawnSync(install.js, { stdio:'inherit' })` **同步**下载。同步 ⇒ 阻塞在 `require` 里；`stdio:'inherit'` ⇒ 子进程输出并进父进程 stdout，于是 vitest 把这段下载**归属到"当时正在跑的那条用例"名下**。`apps/desktop/test-setup.js` 的 electron mock 是 opt-in（`__enableElectronMock()` 才拦 `Module._load`），谁买单取决于模块加载顺序 ⇒ 症状表现为"某条用例随机超时、不可复现"。
+- 一手证据（run `37021470435`，main @ `ae6512d1`）：story2video-stages「任一 scene 的图片或音频失败时默认阻断」跑到 `15700ms` 撞 `testTimeout=10000`，其名下 14:42:27 / 14:42:32 两条 stdout 正是那句下载日志；同批邻居用例全在 3–14ms。`quality-gate.yml` 的三个作业（`unit-tests` 的 Gate 4b、`desktop-shards`、`coverage`）都只有 `Install deps`，从不备二进制；而 `build.yml:134` 与 `electron-ci.yml:118` 早就为同一个坑各写了一步，只是从未接到 quality-gate。
+
+### 修复
+- 三个作业在 `Install deps` 之后各插一步 `Ensure Electron binary`（`node scripts/ensure-electron.js`，复用既有脚本；它自身 fail closed：`dist/<exe>`+`dist/version`+`path.txt` 齐备才跳过，装完仍不完整即非零退出）。
+- `.github/scripts/workflow-contract.test.js` 加结构锁，三条反"装饰性判据"口径由 QM-6 外部评审的两条 Critical 逼出来：① 准备步骤必须**整条命令就是**该脚本（原判据按"正文里出现过字符串"匹配，一个 `run: echo "see node_modules/electron/install.js"` 的假步骤就能让它恒绿）；② 准备步骤不得带 `if:` / `continue-on-error` / `ELECTRON_SKIP_BINARY_DOWNLOAD=1`（`ensure-electron.js:35` 见后者直接 `exit 0`，等于把准备"合法地"跳过而锁仍绿）；③ 作业清单由**步骤内容**自动收集并与预期三元组 `deepEqual`，新增第四个同类作业时锁当场红，而不是看不见它。
+
+### 验证
+- TDD：先写锁 → 实测红在 `作业 unit-tests 缺 Electron 二进制准备步骤`；插步骤后 29/29 绿。反证 6 条逐个实跑变红（M-1 摘步骤、M-2 挪到测试之后、M-3 作业改名、M-4 换成 echo 假步骤、M-5 加 continue-on-error、M-6 塞 SKIP 环境变量），判据 = `rc≠0 ∧ fail>0 ∧ 失败测试名命中 ∧ 断言消息命中`，每轮还原后 sha256 与原件相同。
+- 未覆盖面如实写出（同一份记录的「遗留」）：本次把"测试执行期内被动下载"挪成"准备步骤主动下载"，**没有**给"测试期零出站"补哨兵 —— 现有 `network-egress-guard` 拦的是 `net.Socket.prototype.connect`，而这里是 `spawnSync` 起另一个 node 进程，根本不走那条路。
+# [未发布] fix(packaging): 暂存的 remotion 运行时闭包不再把同名不同版本摊平进同一目录（2026-10-02，fix-stage-runtime-flatten）
+
+### 根因
+- `stage-remotion-runtime.js` 逐包 `cpSync(包目录, outputDir/<包名>)` 摊平运行时闭包，而闭包里有**同名不同版本**（修复前 224 条记录里 9 个 name 重复：`react` 19.3.0/18.3.1、`react-dom` 19.3.0/18.3.1、`scheduler`、`source-map`、`semver`、`estraverse` 等）。两次写同一目录 ⇒ ① `package.json` 与同名文件互相覆盖；② 每次拷贝连带该包自有的 `node_modules/` 一起进去，留下 `react-dom/node_modules/react = 19.3.0` 这份**优先命中**的嵌套副本 ⇒ `react-dom@18` 拿到 `react@19` 的导出（React 19 无 `__SECRET_INTERNALS_…`），打包态任何走 `remotion` CLI 的动作在 require 期抛 `Cannot read properties of undefined (reading 'ReactCurrentDispatcher')`。本地开发走仓库真实布局，不受影响 ⇒ 单测与本地手测全绿。
+
+### 修复
+- `collectRuntimePackages()` 两阶段：先照常收全（**依赖照常展开**），再筛掉"落在任一被拷贝包目录之内"的记录 —— 它已由父包整目录携带。判据取"任一被拷贝包目录内"而非"父包直接嵌套"：实测 `estraverse` 会以 `webpack/node_modules/estraverse` 身份被误记成顶层包（**祖父级**嵌套），只比父包目录会漏。
+- `isInsideDirectory()` 用 `path.relative` 判包含，不按字符串前缀（前缀会把 `pkg-evil` 判成 `pkg` 的子目录 ⇒ 那个包从闭包里凭空消失，症状比错版本更难查）。
+- `stageRemotionRuntime()` 拷贝前先证"一个目标目录只有一个源"（claim key 按大小写折叠比 —— Windows 打包机上 `Foo`/`foo` 是两个字符串 key、同一个物理目录，只按字符串比会让本次缺陷换个马甲绕过自己的抛错），两个源抢同一目录直接抛错点名两边；拷贝后由 `verifyStagedClosure()` 自证"落点 package.json 与源逐字节相同 + 落点 node_modules 子项集合等于源 + 每条非 optional 运行时依赖边必须在暂存树内解析得到（解析域锁在 outputDir 之内，不得往上借宿主仓库的 node_modules）。另按 QM-6 外部评审补两条最小判据：剪枝 filter 命中**目录**即抛错（剪掉一个目录等于连带删掉整棵子树，而判据②只比 `node_modules` 的直接子项，看不见深度 ≥2 的丢失），以及 `readNestedNames` 必须尊重注入的 `exists`（否则判据②只剩真磁盘一种测法，注入接缝是装饰）；两者各带一条反证（F-8、F-9）。名字只差大小写会撞同一个物理目录这条（评审 Q2）改成按实测锁：真实闭包不变量里加了 case-fold 唯一性断言，而不是往打包脚本里加平台嗅探。"，`beforePack` 因此在**打包时**就炸，而不是留给用户去点一次合成。
+
+### 回归保护
+- `apps/desktop/scripts/stage-remotion-runtime.test.js` 5 例 → 19 例（Gate 2b 已点名，无需新接线）：嵌套覆盖不得占顶层落点但依赖仍要展开（跳过记录≠跳过展开）、composer 自己 node_modules 里的包必须照常记录、两源抢同一目录必须抛错、③ 的独立红（夹具构造成 ①② 恒成立，只有逐边判据能拦）、解析起点在树外时一步都不许往上走、`verifyStagedClosure` 多包/少包两个方向都红、`pkg` vs `pkg-evil` 负控、**真实闭包不变量**（name 唯一 + 两两不互相包含 + 顶层 `react-dom` 必须等于仓库解析命中的那份 + 规模下界防空解析）。
+- 反证 11 条逐个实跑变红（F-1…F-11，判据 = `rc≠0 ∧ ℹ fail N>0 ∧ 失败测试名命中预期`，还原后 sha256 校验字节相同）。一条夹具自纠：harness 首版五条全 ANCHOR_MISS，原因是检出后工作区 CRLF 而锚点写 `\n` ⇒ 探针没打中目标变量，不是锁失效。另两条同族自纠：F-6（摘掉判据③的调用点）首版报 `NOT_RED`，真因是当时没有任何用例能从③出口红 —— ②恒先触发、断言又被放宽成两条判据共用一个出口，③当场沦为装饰，补了「①② 恒成立、只有③能拦」的独占红出口后才变红；F-8 首版报 `WRONG_CAUSE`，因为我按**错误文案**写 `expectFail` 而判据匹配的是**测试名** —— 一条反证的期望必须与它的匹配对象同域。
+- 真实产物对照（同机同命令）：顶层包 224（9 个重名）→ **188（name 全唯一）**；`react-dom/node_modules/react = 19.3.0` → **不存在**；打包态 `remotion bundle src/index.tsx` `rc=1` → **`rc=0`**；**打包态真实出片跑通**（`Explainer` 3 帧，捆绑 ffmpeg 编码、捆绑 ffprobe 解出 duration=0.149333 / format=mov,mp4,m4a，45 kB），松散树 13531 → 12053 文件，`#2765` 的两维产物门禁保持 0/0。机制、可重跑命令与边界见 `docs/staged-remotion-runtime-closure.md`。
+# [未发布] fix(story2video): 竖屏成片图片宽高比断链修复——9:16 不再生成 16:9 横图（2026-10-02，fix-s2v-portrait-image-aspect）
+
+### 根因（QM-5 ①）
+- 故事讲述流水线选 720x1280 竖屏时成片正确、场景图片却是横屏（实测项目 mur2tzc8_ru1r：图片 2624x1472 vs 成片 720x1280，合成 decrease+pad 补黑边）。第一性原因：agnes-image.js 的 generateImage 只读 params.ratio——把 **Agnes API 请求体字段名**误用作**入参契约名**，而流水线统一契约键是 aspect_ratio（snake_case，asset-generator/story2video-stages）与 aspectRatio（camelCase，normalizer）。键名不匹配 ⇒ 参数**静默丢弃**、恒回退默认 16:9，无任何报错。引入点：c9df8bf5（2026-07-15 新增 9 供应商 Adapter）。
+
+### 修复
+- agnes-image.js 入参解析扩展为 aspect_ratio || aspectRatio || ratio || 默认16:9（优先级 + 向后兼容既有 ratio 直调方）；请求体字段名 ratio 不变（Agnes API 契约不动）；JSDoc 同步三键语义。
+- 供应商矩阵清点：minimax-image / imagen / flux / local-diffusion / openai-image 的宽高比入参解析均正常，仅 agnes-image 断链。同族观察项（非断链、不盲改）登记 01-docs/tech-debt.md：recraft 只读 params.size（官方尺寸白名单未核实）、podcast-repurpose 默认 16:9 与竖屏 compose 的产品语义待确认。
+
+### 回归保护（QM-5 ④⑤）
+- 行为回归 5 例：agnes-image.test.js（aspect_ratio/aspectRatio → 请求体 ratio、无参缺省语义）、agnes-multimodal.test.js（委托链全透传，用户实测路径）、podcast-repurpose-stages.test.js（阶段层透传）。
+- 新增结构锁 electron/services/adapters/image-adapter-aspect-contract.test.js：扫源码断言全部图片适配器宽高比解析表达式双键齐全 + asset-generator 双键透传 + story2video-stages 两条路径；变异反证实跑（还原 bug 代码 → 3 例红 → 恢复全绿）。
+- AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁条目；机制详见 01-docs/PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-02.md。
+
+# [未发布] fix(story2video): 离线降级素材弹窗不再显示空括号（）——通知参数双次归一化幂等（2026-10-02，fix-degraded-assets-empty-kinds）
+
+### 根因
+- 用户报告：视频合成成功后弹窗显示「此成片包含离线降级素材（），请在发布前预览确认。」——`{kinds}` 插值为空串。
+- 弹窗链路是**双次归一化**：`maybeShowDegradedAssetsWarning` 以原始枚举 `assetKinds` 调 `resolveStory2VideoNotification` 入态（第一次归一化产出 `{ kinds: '占位图片' }`），渲染时 `story2videoNotificationDialogMessage` 再对已入态参数调 `formatStory2VideoNotification`（第二次归一化）。`normalizeParams` 的 DEGRADED 分支只认原始 `assetKinds` 数组，第二次进入时枚举已不存在、已解析的 `kinds` 字符串被丢弃 ⇒ `params = {}` ⇒ `{kinds}` 插值成空。
+- 引入点：`fed08eed`（2026-08-02 fix(story2video): localize notifications and remove scene cap），i18n 收敛时把「归一化解析」与「模板渲染」拆成两个入口，但隐含假设了"每次都喂原始枚举"，双入口幂等性未加约束。
+
+### 修复
+- `normalizeParams` 对已解析插值参数**幂等保留**：`DEGRADED_ASSETS_WARNING` 保留字符串 `kinds`、同族 `MODELS_REQUIRED` 保留字符串 `missingLabels`（仅当原始枚举缺失时，避免双真相）。
+- 空值兜底：`assetKinds` 全部未登记或解析后为空时回退 `degradedAssetLabels.fallback`（zh「降级素材」/ en "fallback assets"，成对新增），任何路径都不再产出「（）」。
+- `CreateView.story2videoErrorDialogMessage` 同模式同修复（`MODELS_REQUIRED` 的 `missingLabels` 原本也会同样丢失）。
+
+### 回归保护（TDD，先 RED 后 GREEN）
+- `notifications.test.js` 三条幂等锁：① 已解析 `kinds` 双次归一化不丢失（复现事故消息全等断言）；② `assetKinds` 未知值回退通用文案；③ 已解析 `missingLabels` 不丢失。
+- `ResultView.test.js` 补**最终渲染消息**断言 `story2videoNotificationDialogMessage`（原测试只断言 dialog 中间态，是本次逃逸点）。
+- 变异验证：摘掉修复后恰好三条幂等锁全红（19 通过），恢复后 192 + 286 全绿。
+- 文件拆分（逐文件行数门禁）：修复使主模块达 517 行触发 NEW_OVER_LIMIT；归一化正则常量块机械迁出至 `notification-error-patterns.js`（常量逐字保留、仅 resolveMessageKey 消费），行为零变化，478 例全绿。
+
+
+origin/main
 # [未发布] fix(packaging): app.asar 之外的松散文件树不再随包发单元测试（2026-10-02，asar-loose-resources-tests）
 
 ### 根因

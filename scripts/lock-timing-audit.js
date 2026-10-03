@@ -65,6 +65,9 @@ function api (pathname) { return JSON.parse(gh(['api', pathname])); }
 function loadBudget () {
   const helper = path.resolve(__dirname, '..', 'test-helpers', 'windows-file-lock.js');
   const mod = require(helper);
+  if (!mod.LOCK_BUDGET_PROVENANCE) {
+    throw new Error('PROVENANCE_MISSING: 夹具没导出 LOCK_BUDGET_PROVENANCE ⇒ 预算出处这条链已断，复测结果无处对照；这比"采不到样本"更严重，绝不能退回脚本里另写一份 source 文案');
+  }
   return {
     readyTimeoutMs: mod.DEFAULT_READY_TIMEOUT_MS,
     provenance: mod.LOCK_BUDGET_PROVENANCE,
@@ -106,6 +109,8 @@ function collect () {
   const runs = listed.runs;
   if (runs.length < RUNS) {
     errors.push('only-' + runs.length + '-of-' + RUNS + '-runs in ' + listed.pages + ' pages');
+    // 采到了东西但覆盖不足也必须出声：偏小的样本喂进 provenance，读起来像完整分布
+    console.warn('PARTIAL: 只覆盖 ' + runs.length + '/' + RUNS + ' 个 main push run（pages=' + listed.pages + '）⇒ 用这份数字回填 provenance 前先加大 --runs 或缩小结论适用范围');
   }
 
   const ready = [];
@@ -144,13 +149,21 @@ function collect () {
 }
 
 function main () {
-  const budget = loadBudget();
-  const manual = argOf('max-ready', null);
+  let budget;
+  try {
+    budget = loadBudget();
+  } catch (e) {
+    console.error('PROVENANCE_MISSING：读不到预算出处 ⇒ ' + String(e.message).split(/\r?\n/)[0].slice(0, 140));
+    process.exitCode = 5;
+    return;
+  }
   let ready;
   let runCount;
   let jobs;
   let pages = 1;
   let errors = [];
+
+  const manual = argOf('max-ready', null);
 
   if (manual !== null) {
     ready = [Number(manual)];
@@ -180,9 +193,9 @@ function main () {
     jobs,
     safetyMultiplier: MULTIPLIER,
     collectedAt: new Date().toISOString().slice(0, 10),
-    source: (budget.provenance && budget.provenance.source)
-      ? budget.provenance.source
-      : 'CI 作业 QG Desktop Shards 日志里的 [windows-file-lock] ready=/locked= 行，由 scripts/lock-timing-audit.js 汇总',
+    // 唯一真源：夹具导出的那一句。曾经这里还有"取不到就用脚本内硬编码文案"的分支，
+    // 那是让同一份出处存在两个版本 —— 现在 loadBudget 会先以 PROVENANCE_MISSING 拦停。
+    source: budget.provenance.source,
   };
 
   if (AS_JSON) {
