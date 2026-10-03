@@ -5,7 +5,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 import { isAccountActive } from '@/utils/account-active'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
-import { loadAccountGroups, saveAccountGroups, normalizeAccountGroups } from '@/features/accounts/account-groups-store'
+import { loadAccountGroups, saveAccountGroups, normalizeAccountGroups, normalizeCategoryTags } from '@/features/accounts/account-groups-store'
 import i18n from '@/i18n'
 
 // 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx / 网络与超时）时保留上一次列表：
@@ -21,18 +21,6 @@ function isTransientFailure(res) {
   if (!res || typeof res !== 'object') return false
   if (TRANSIENT_FAILURE_CODES.includes(res.errorCode)) return true
   return typeof res.status === 'number' && res.status >= 500
-}
-
-const CATEGORY_KEY_RE = /^[a-z][a-z0-9_]{1,31}$/
-const MAX_GROUP_CATEGORY_TAGS = 10
-
-/**
- * 归一分组类别标签：去重 + 丢弃非法 key + 截断到上限。
- * 与 account-groups-store.normalizeAccountGroups 同口径（缺一处就会两条路径漂移）。
- */
-function normalizeCategoryTags(tags) {
-  const list = Array.isArray(tags) ? tags.filter((t) => typeof t === 'string') : []
-  return [...new Set(list.filter((t) => CATEGORY_KEY_RE.test(t)))].slice(0, MAX_GROUP_CATEGORY_TAGS)
 }
 
 /**

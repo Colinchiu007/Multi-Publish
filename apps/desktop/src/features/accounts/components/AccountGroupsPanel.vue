@@ -108,37 +108,15 @@
           </div>
         </header>
         <!-- 内容类别标签（软标签：不决定成员资格，只标记内容定位） -->
-        <div v-if="categories.length > 0" class="group-tags" :data-testid="`group-tags-${group.id}`">
-          <template v-if="editingTagsGroupId === group.id">
-            <div class="group-tags-editor">
-              <button
-                v-for="cat in categories"
-                :key="cat.category_key"
-                type="button"
-                class="tag-toggle"
-                :class="{ 'tag-toggle--on': editingTags.includes(cat.category_key) }"
-                :data-testid="`tag-toggle-${group.id}-${cat.category_key}`"
-                @click="toggleTag(cat.category_key)"
-              >{{ cat.name }}</button>
-            </div>
-            <div class="group-tags-actions">
-              <button type="button" :data-testid="`save-group-tags-${group.id}`" @click="saveTags(group)">保存标签</button>
-              <button type="button" :data-testid="`cancel-group-tags-${group.id}`" @click="cancelEditTags">取消</button>
-            </div>
-          </template>
-          <template v-else>
-            <span class="group-tags-label">类别：</span>
-            <span
-              v-for="key in groupTags(group)"
-              :key="key"
-              class="group-tag"
-              :class="{ 'group-tag--unknown': !isTagKnown(key) }"
-              :title="isTagKnown(key) ? tagLabel(key) : '该类别已被删除，标签保留但不再参与筛选'"
-            >{{ tagLabel(key) }}</span>
-            <span v-if="groupTags(group).length === 0" class="group-tags-none">未设置</span>
-            <button type="button" class="edit-tags-button" :data-testid="`edit-group-tags-${group.id}`" @click="startEditTags(group)">编辑标签</button>
-          </template>
-        </div>
+        <GroupTagsEditor
+          v-if="categories.length > 0"
+          :group="group"
+          :categories="categories"
+          :editing="editingTagsGroupId === group.id"
+          @edit="startEditTags(group)"
+          @save="(tags) => setGroupTags(group, tags)"
+          @cancel="cancelEditTags"
+        />
         <div class="member-list">
           <label v-for="account in eligibleAccounts(group)" :key="account.id" class="member-row">
             <input
@@ -161,6 +139,7 @@
 import { computed, ref } from 'vue'
 import { Delete, FolderOpened, Plus, Search } from '@element-plus/icons-vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import GroupTagsEditor from '@/features/accounts/components/GroupTagsEditor.vue'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
@@ -192,40 +171,18 @@ const newGroupPlatform = ref('')
 const editingGroupId = ref('')
 const editingGroupName = ref('')
 const editingTagsGroupId = ref('')
-const editingTags = ref([])
-
-/** 分组已选类别标签（未知 key 也显示，标灰提示类别已删除） */
-function groupTags (group) {
-  return Array.isArray(group.categoryTags) ? group.categoryTags : []
-}
-
-function tagLabel (key) {
-  const hit = props.categories.find((c) => c && c.category_key === key)
-  return (hit && hit.name) || key
-}
-
-function isTagKnown (key) {
-  return props.categories.some((c) => c && c.category_key === key)
-}
 
 function startEditTags (group) {
   editingTagsGroupId.value = group.id
-  editingTags.value = [...groupTags(group)]
 }
 
 function cancelEditTags () {
   editingTagsGroupId.value = ''
-  editingTags.value = []
 }
 
-function toggleTag (key) {
-  const idx = editingTags.value.indexOf(key)
-  if (idx >= 0) editingTags.value.splice(idx, 1)
-  else editingTags.value.push(key)
-}
-
-function saveTags (group) {
-  emit('set-tags', group.id, [...editingTags.value])
+/** 子组件保存 → 转发给宿主（宿主负责落真源与提示） */
+function setGroupTags (group, tags) {
+  emit('set-tags', group.id, tags)
   cancelEditTags()
 }
 
@@ -503,32 +460,5 @@ function saveRename (group) {
 .member-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .member-platform { color: var(--muted, #85858f); font-size: var(--font-size-xs); }
 .member-empty { padding: 14px; border-top: 1px solid #efeff2; color: var(--muted, #85858f); font-size: var(--font-size-xs); text-align: center; }
-
-/* ── 内容类别标签（2026-10-03）：软标签，不决定成员资格 ── */
-.group-tags {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  padding: 8px 14px; border-top: 1px solid #efeff2; font-size: var(--font-size-xs);
-}
-.group-tags-label { color: var(--muted, #85858f); }
-.group-tag {
-  padding: 2px 8px; border-radius: 10px; background: #f2f3f5; color: #3a3a44;
-}
-/* 类别已被运营删除：标签保留但置灰，鼠标悬停说明原因 */
-.group-tag--unknown { background: #ececee; color: #a8a8b3; text-decoration: line-through; }
-.group-tags-none { color: var(--muted, #b0b0b8); }
-.edit-tags-button {
-  padding: 2px 8px; border: 1px solid #dcdee3; border-radius: 4px;
-  background: #fff; color: #5048e5; font-size: var(--font-size-xs); cursor: pointer;
-}
-.group-tags-editor { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-toggle {
-  padding: 3px 10px; border: 1px solid #dcdee3; border-radius: 12px;
-  background: #fff; color: #3a3a44; font-size: var(--font-size-xs); cursor: pointer;
-}
-.tag-toggle--on { border-color: #5048e5; background: #eceaff; color: #5048e5; }
-.group-tags-actions { display: flex; gap: 6px; width: 100%; margin-top: 6px; }
-.group-tags-actions button {
-  padding: 3px 10px; border: 1px solid #dcdee3; border-radius: 4px;
-  background: #fff; font-size: var(--font-size-xs); cursor: pointer;
-}
+/* 内容类别标签样式随 GroupTagsEditor.vue 走（样式与组件同处，避免父组件样式块膨胀） */
 </style>

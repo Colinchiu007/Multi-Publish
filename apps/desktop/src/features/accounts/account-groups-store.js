@@ -32,6 +32,19 @@ export const MAX_GROUP_CATEGORY_TAGS = 10
 /** 类别标识规则：与统一内容类别真源同口径（小写字母开头，长度 2-32） */
 const CATEGORY_KEY_RE = /^[a-z][a-z0-9_]{1,31}$/
 
+/**
+ * 归一分组类别标签：去重 + 丢弃非法 key + 截断到上限。
+ *
+ * 与 `normalizeAccountGroups` 同正则、同上限 —— 写侧构造与读侧归一两条路径一旦
+ * 不一致就会漂移（本文件头注释已警告过该失败模式）。
+ * @param {unknown} tags
+ * @returns {string[]}
+ */
+export function normalizeCategoryTags (tags) {
+  const list = Array.isArray(tags) ? tags.filter((t) => typeof t === 'string') : []
+  return [...new Set(list.filter((t) => CATEGORY_KEY_RE.test(t)))].slice(0, MAX_GROUP_CATEGORY_TAGS)
+}
+
 function newGroupId () {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
