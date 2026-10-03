@@ -803,6 +803,7 @@ export default {
     degradedAssetLabels: {
       placeholder_image: '占位图片',
       silent_narration: '静音旁白',
+      fallback: '降级素材',
     },
     segmentStatus: {
       completed: '已完成',
