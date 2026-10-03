@@ -2875,6 +2875,8 @@ export default {
 
   tagSuggest: {
     title: 'Smart Tag Suggestions',
+    tabAll: 'All',
+    moreTags: 'Full tags in the {platform} tab',
     contentTags: 'Content tags (describe the article topic)',
     trafficTags: 'Traffic tags (related to trending topics)',
     platformTags: 'Per-platform tags',
