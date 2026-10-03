@@ -113,6 +113,7 @@
           :group="group"
           :categories="categories"
           :editing="editingTagsGroupId === group.id"
+          :translate="translateFn"
           @edit="startEditTags(group)"
           @save="(tags) => setGroupTags(group, tags)"
           @cancel="cancelEditTags"
@@ -149,6 +150,8 @@ const props = defineProps({
   // 统一内容类别（可选）：热门选题 / 采集库 / 账号标签 共用真源。
   // 不传则隐藏类别标签区（渐进增强，避免未加载完成时出现空选项）。
   categories: { type: Array, default: () => [] },
+  /** vue-i18n 的 t 函数（可选）：透传给 GroupTagsEditor 解析内置类别名 */
+  translateFn: { type: Function, default: null },
 })
 const emit = defineEmits(['create', 'delete', 'rename', 'set-platform', 'toggle-account', 'set-tags'])
 

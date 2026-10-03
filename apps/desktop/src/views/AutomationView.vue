@@ -229,7 +229,8 @@ const formTriggers = computed(() => {
 })
 
 function weekdayLabel (d) {
-  return ['一', '二', '三', '四', '五', '六', '日'][d - 1]
+  // 星期名走 locale（渲染端非 locales 文件不得新增中文字面量，CI Gate 7 --cjk 拦截）
+  return t('automation.weekdays.' + d)
 }
 
 function statusLabel (s) {

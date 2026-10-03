@@ -12,19 +12,33 @@
  * ③ 内置 10 类 key 与 classifier.js CATEGORY_KEYS 严格一致。
  */
 
-/** 内置目录（key + 默认名，顺序即默认排序） */
-export const DEFAULT_CONTENT_CATEGORIES = Object.freeze([
-  { category_key: 'general', name: '综合' },
-  { category_key: 'society', name: '社会' },
-  { category_key: 'finance', name: '财经' },
-  { category_key: 'tech', name: '科技' },
-  { category_key: 'entertainment', name: '娱乐' },
-  { category_key: 'sports', name: '体育' },
-  { category_key: 'emotion', name: '情感' },
-  { category_key: 'education', name: '教育' },
-  { category_key: 'health', name: '健康' },
-  { category_key: 'international', name: '国际' },
-])
+/**
+ * 内置目录（key + 默认名，顺序即默认排序）
+ *
+ * ⚠️ 这里的 name 是**回退默认名**，仅用于运营中心未下发/下发不可用时的 fail-open 场景。
+ * 为了让 zh/en 都能显示正确语言，name 存的是 locale 键后缀，实际文案由
+ * `resolveDefaultCategoryName(key, t)` 经 vue-i18n 解析（`contentCategories.*`）。
+ * 归一化函数内部仍保留 name 字段（纯数据比对用），界面展示请用解析后的值。
+ */
+const DEFAULT_CATEGORY_KEYS_INTERNAL = [
+  'general', 'society', 'finance', 'tech', 'entertainment',
+  'sports', 'emotion', 'education', 'health', 'international',
+]
+
+export const DEFAULT_CONTENT_CATEGORIES = Object.freeze(
+  DEFAULT_CATEGORY_KEYS_INTERNAL.map((k) => ({ category_key: k, name: k })),
+)
+
+/**
+ * 解析内置类别的本地化显示名。
+ * @param {string} key 类别 key
+ * @param {(key: string) => string} t vue-i18n 的 t 函数
+ */
+export function resolveDefaultCategoryName (key, t) {
+  const resolved = t('contentCategories.' + key)
+  // i18n 缺失时 vue-i18n 会回显键名，此时退回 key 本身（不让界面显示 "contentCategories.tech"）
+  return resolved && !String(resolved).startsWith('contentCategories.') ? resolved : key
+}
 
 /** 类别标识规则：小写字母开头，仅小写字母/数字/下划线，长度 2-32 */
 export const CATEGORY_KEY_RE = /^[a-z][a-z0-9_]{1,31}$/

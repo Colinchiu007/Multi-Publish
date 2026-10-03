@@ -54,6 +54,7 @@ const i18n = createI18n({
         policyAbort: '中断', policyAbortHint: 'h2',
         fieldRetries: '重试次数', retryNone: '不重试',
         retryTimes: ({ named }) => named('count') + ' 次',
+        weekdays: { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '日' },
         runNow: '立即运行', edit: '编辑', delete: '删除',
         cancel: '取消', save: '保存', running: '运行中',
         statusCompleted: '成功', statusFailed: '失败', statusCancelled: '取消',

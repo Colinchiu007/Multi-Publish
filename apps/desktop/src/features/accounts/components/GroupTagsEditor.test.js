@@ -11,7 +11,22 @@ import GroupTagsEditor from '@/features/accounts/components/GroupTagsEditor.vue'
 const i18n = createI18n({
   legacy: false,
   locale: 'zh',
-  messages: { zh: { automation: { tagsEdit: '编辑标签' } } },
+  messages: {
+    zh: {
+      automation: {
+        tagsEdit: '编辑标签',
+        tagsSave: '保存',
+        tagsCancel: '取消',
+      },
+      collection: {
+        tagsLabel: '类别：',
+        tagsNone: '未设置',
+        tagsNoOptions: '暂无可选类别',
+        tagUnknownHint: '该类别已被删除',
+      },
+      contentCategories: { tech: '科技', finance: '财经' },
+    },
+  },
 })
 
 const CATEGORIES = [

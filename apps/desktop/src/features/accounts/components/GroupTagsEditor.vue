@@ -12,25 +12,27 @@
           :data-testid="`tag-toggle-${group.id}-${cat.category_key}`"
           @click.stop="toggle(cat.category_key)"
         >{{ cat.name }}</button>
-        <span v-if="categories.length === 0" class="group-tags-none">暂无可选类别</span>
+        <span v-if="categories.length === 0" class="group-tags-none">{{ $t('collection.tagsNoOptions') }}</span>
       </div>
       <div class="group-tags-actions">
-        <button type="button" class="tag-save" :data-testid="`save-group-tags-${group.id}`" @click.stop="save">保存标签</button>
-        <button type="button" class="tag-cancel" @click.stop="cancel">取消</button>
+        <button type="button" class="tag-save" :data-testid="`save-group-tags-${group.id}`" @click.stop="save">
+          {{ $t('automation.tagsSave') }}
+        </button>
+        <button type="button" class="tag-cancel" @click.stop="cancel">{{ $t('automation.tagsCancel') }}</button>
       </div>
     </template>
 
     <!-- 展示态：chips + 编辑入口 -->
     <template v-else>
-      <span class="group-tags-label">类别：</span>
+      <span class="group-tags-label">{{ $t('collection.tagsLabel') }}</span>
       <span
         v-for="key in groupTags(group)"
         :key="key"
         class="group-tag"
         :class="{ 'group-tag--unknown': !isTagKnown(key) }"
-        :title="isTagKnown(key) ? tagLabel(key) : '该类别已被删除，标签保留但不再参与筛选'"
+        :title="isTagKnown(key) ? tagLabel(key) : $t('collection.tagUnknownHint')"
       >{{ tagLabel(key) }}</span>
-      <span v-if="groupTags(group).length === 0" class="group-tags-none">未设置</span>
+      <span v-if="groupTags(group).length === 0" class="group-tags-none">{{ $t('collection.tagsNone') }}</span>
       <button type="button" class="edit-tags-button" :data-testid="`edit-group-tags-${group.id}`" @click.stop="$emit('edit')">
         {{ $t('automation.tagsEdit') }}
       </button>
@@ -45,6 +47,8 @@ const props = defineProps({
   group: { type: Object, required: true },
   categories: { type: Array, default: () => [] },
   editing: { type: Boolean, default: false },
+  /** vue-i18n 的 t 函数（可选）：用于把内置类别名解析为当前语言 */
+  translate: { type: Function, default: null },
 })
 const emit = defineEmits(['edit', 'save', 'cancel'])
 
@@ -66,7 +70,9 @@ watch(() => [props.editing, props.group], () => {
 
 function tagLabel (key) {
   const hit = props.categories.find((c) => c && c.category_key === key)
-  return (hit && hit.name) || key
+  if (hit && hit.name && hit.name !== key) return hit.name
+  // 内置回退名（name === key）：经 i18n 解析当前语言，避免渲染端写死中文
+  return props.translate ? props.translate('contentCategories.' + key) : key
 }
 
 function isTagKnown (key) {

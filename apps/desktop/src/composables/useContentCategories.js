@@ -26,6 +26,7 @@ import {
   normalizeContentCategories,
   resolveCategoryLabel,
   defaultCategoryKeys,
+  resolveDefaultCategoryName,
 } from '@/features/content/content-categories'
 import { opsCenterSyncRuntime, onOpsCenterRuntimeUpdated } from '@/api/ops-center-sync'
 
@@ -108,9 +109,21 @@ export function contentCategoriesLoaded () {
   return loaded
 }
 
-/** 取类别显示名：下发值 → 内置默认名 → key 本身 */
-export function categoryLabel (key) {
-  return resolveCategoryLabel(key, categories.value)
+/**
+ * 取类别显示名：运营下发值优先 → 内置本地化名 → key 本身。
+ *
+ * 为什么内置名要走 i18n 而不是写死中文：`src/` 非 locales 文件不得新增中文字符串
+ * （CI Gate 7 --cjk 拦截），且英文界面下必须显示对应的英文类别名。
+ *
+ * @param {string} key
+ * @param {(key: string) => string} [t] vue-i18n 的 t 函数；不传时退回 key
+ */
+export function categoryLabel (key, t) {
+  const fromRemote = resolveCategoryLabel(key, categories.value)
+  // resolveCategoryLabel 对「下发里没有」的 key 会回退到 DEFAULT_NAME_MAP，
+  // 而 DEFAULT_NAME_MAP 现在是 key 本身 ⇒ 这里再经 i18n 解析出本地化名
+  if (fromRemote !== key) return fromRemote
+  return t ? resolveDefaultCategoryName(key, t) : key
 }
 
 /** 内置类别 key（抓取侧分类基准；分类器只认这些 key） */

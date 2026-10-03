@@ -287,7 +287,7 @@ const { notifyError, notifyInfo } = useNotify()
 // 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发；读不到时回退内置 10 类。
 // categoryLabel 需显式落到本地绑定才进得了模板（script setup 只自动暴露本文件声明）。
 const contentCategories = contentCategoriesRef()
-const resolveCatLabel = (key) => categoryLabel(key)
+const resolveCatLabel = (key) => categoryLabel(key, t)
 let stopWatchingCategories = null
 
 // ── 状态 ──
@@ -346,7 +346,7 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const categoryOptions = computed(() => [
   { value: 'all', label: t('hotTopics.categoryAll') },
   // 运营下发为准；读不到时 contentCategories 已是内置 10 类，界面不会变零分类
-  ...contentCategories.value.map(c => ({ value: c.category_key, label: c.name })),
+  ...contentCategories.value.map(c => ({ value: c.category_key, label: categoryLabel(c.category_key, t) })),
 ])
 const channelOptions = computed(() => CHANNEL_KEYS.map(k => ({ value: k, label: t('hotTopics.channels.' + k) })))
 

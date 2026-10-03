@@ -2704,6 +2704,9 @@ export default {
     tagsEdit: '编辑标签',
     tagsSave: '保存',
     tagsCancel: '取消',
+    tagsLabel: '类别：',
+    tagsNone: '未设置',
+    tagsNoOptions: '暂无可选类别',
     tagsSaved: '类别标签已保存',
     tagsDropped: (ctx) => '部分标签无效已忽略：' + ctx.named('message'),
     tagUnknownHint: '该类别已被删除，标签保留但不再参与筛选',
@@ -3410,6 +3413,20 @@ knowledgeBase: {
     },
   },
 
+  // ── 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发前的内置回退名 ──
+  contentCategories: {
+    general: '综合',
+    society: '社会',
+    finance: '财经',
+    tech: '科技',
+    entertainment: '娱乐',
+    sports: '体育',
+    emotion: '情感',
+    education: '教育',
+    health: '健康',
+    international: '国际',
+  },
+
   hotTopics: {
     menuLabel: '热门选题',
     pageTitle: '热门选题',
@@ -3520,6 +3537,7 @@ knowledgeBase: {
     triggerWeekly: '每周',
     triggerInterval: '每隔',
     minutesUnit: '分钟',
+    weekdays: { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '日' },
 
     fieldPolicy: '失败处理',
     policySkip: '跳过继续',
@@ -3536,6 +3554,10 @@ knowledgeBase: {
     delete: '删除',
     cancel: '取消',
     save: '保存',
+    // 类别标签编辑（账号分组 / 采集库共用同一套文案）
+    tagsEdit: '编辑标签',
+    tagsSave: '保存',
+    tagsCancel: '取消',
     running: '运行中',
 
     statusCompleted: '成功',

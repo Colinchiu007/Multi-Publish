@@ -1891,7 +1891,7 @@ function entryTags (entry) {
 
 /** 标签显示名：未知类别显示为 key 本身并标灰（类别已被运营删除） */
 function entryTagLabel (key) {
-  return categoryLabel(key)
+  return categoryLabel(key, t)
 }
 
 function isTagKnown (key) {

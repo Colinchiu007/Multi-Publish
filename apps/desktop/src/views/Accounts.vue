@@ -135,6 +135,7 @@
         :platforms="allPlatforms"
         :platform-label="platformLabel"
         :categories="contentCategories"
+        :translate-fn="t"
         @create="createNewGroup"
         @delete="deleteGroup"
         @rename="renameGroup"

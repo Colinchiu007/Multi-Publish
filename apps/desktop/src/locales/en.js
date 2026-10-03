@@ -2704,6 +2704,9 @@ export default {
     tagsEdit: 'Edit tags',
     tagsSave: 'Save',
     tagsCancel: 'Cancel',
+    tagsLabel: 'Categories:',
+    tagsNone: 'Not set',
+    tagsNoOptions: 'No categories available',
     tagsSaved: 'Category tags saved',
     tagsDropped: (ctx) => 'Some invalid tags were ignored: ' + ctx.named('message'),
     tagUnknownHint: 'This category was deleted; the tag is kept but excluded from filtering',
@@ -3410,6 +3413,20 @@ knowledgeBase: {
     },
   },
 
+  // ── Unified content categories (2026-10-03): built-in fallback names ──
+  contentCategories: {
+    general: 'General',
+    society: 'Society',
+    finance: 'Finance',
+    tech: 'Tech',
+    entertainment: 'Entertainment',
+    sports: 'Sports',
+    emotion: 'Emotion',
+    education: 'Education',
+    health: 'Health',
+    international: 'International',
+  },
+
   hotTopics: {
     menuLabel: 'Hot Topics',
     pageTitle: 'Hot Topics',
@@ -3520,6 +3537,7 @@ knowledgeBase: {
     triggerWeekly: 'Weekly',
     triggerInterval: 'Every',
     minutesUnit: 'minutes',
+    weekdays: { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' },
 
     fieldPolicy: 'Failure handling',
     policySkip: 'Skip and continue',
@@ -3536,6 +3554,10 @@ knowledgeBase: {
     delete: 'Delete',
     cancel: 'Cancel',
     save: 'Save',
+    // Category tag editing (shared by account groups / collection library)
+    tagsEdit: 'Edit tags',
+    tagsSave: 'Save',
+    tagsCancel: 'Cancel',
     running: 'Running',
 
     statusCompleted: 'Succeeded',
