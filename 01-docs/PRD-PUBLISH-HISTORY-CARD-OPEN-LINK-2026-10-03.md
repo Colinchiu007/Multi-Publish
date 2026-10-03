@@ -68,10 +68,10 @@
 - AC-6 点击「详情」「重试」按钮、批量管理复选框 label、详情弹窗锚点，均不触发 `createTab`（测试锁：逐个元素断言 `createTab` 未被调用）。
 - AC-7 详情弹窗内「作品链接」锚点保持 `target="_blank" rel="noopener"` 与 `safeHttpUrl` 判据（href-scheme-contract 锁既有断言不回归）。
 
-### US-4：`window.open` 直开通道（键盘可达性兜底）
+### US-4：`window.open` 降级通道（应用内标签失败时的系统浏览器兜底）
 
-- **Given** 记录有合法 `result.url`
-- **When** 通过 `window.open(url, '_blank')`（供键盘 Enter 等未来入口复用）
+- **Given** 记录有合法 `result.url`，但 `tabStore.createTab` 返回 null（page-manager 桥不可用或标签创建失败；store 合同：内部吞错返回 null，从不抛错）
+- **When** 组件降级调用 `window.open(url, '_blank')`（当前实现中该调用**仅**在此降级分支可达；「键盘 Enter 直开」属未来设想，非现状）
 - **Then** 主进程 `window.js` 的 `setWindowOpenHandler → openExternalUrl → isAllowedExternalUrl`（更严判据：`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底，交系统默认浏览器打开。
 
 **验收**：
@@ -138,8 +138,8 @@
 
 | 文件 | 变更 |
 |------|------|
-| `apps/desktop/src/views/PublishHistory.vue` | ① `article.record-card` 绑定 `:title`（可点性提示）与 `@click`（`onCardClick`）；② 新增 `onCardClick(event, record)`：`closest` 过滤交互元素 → selectionMode 排除 → safeHttpUrl 判定 → 进行中守卫 → `tabStore.createTab`；③ 新增 `openCardLink(record)`（`window.open` 直开通道，程序化入口）；④ 新增 computed `cardClickable(record)`（title 绑定用，纯函数）；⑤ 样式：`.record-card.is-clickable { cursor: pointer }` |
-| `apps/desktop/src/locales/zh.js` / `en.js` | 成对新增 `historyPage.cardOpenHint / cardNoLinkHint / cardLinkOpened / cardLinkOpenFailed` 四键 |
+| `apps/desktop/src/views/PublishHistory.vue` | ① `article.record-card` 绑定 `:title`（可点性提示）与 `@click`（`onCardClick`）；② 新增 `onCardClick(event, record)`：`closest` 过滤交互元素 → selectionMode 排除 → 调 `openCardLink`；③ 新增 `openCardLink(record)`：safeHttpUrl 判定 → 进行中守卫（`openingCardIds` Set）→ `tabStore.createTab`，返回 null 降级 `window.open`，promise 拒绝（合同外漂移）显示失败提示；④ 新增 `isCardClickable / cardClickHint`（title 与光标绑定用，与打开路径共用 `cardLinkUrl` 单一真源）；⑤ 样式：`.record-card.is-clickable { cursor: pointer }` |
+| `apps/desktop/src/locales/zh.js` / `en.js` | 成对新增 `historyPage.cardOpenHint / cardNoLinkHint / cardTabTitle / cardLinkOpened / cardLinkOpenFailed` 五键 |
 | `apps/desktop/src/href-scheme-contract.test.js` | `OPEN_SITES_GUARDED_IN_MAIN` 登记 `src/views/PublishHistory.vue`（窗口 open fallback，主进程更严判据兜底） |
 | `apps/desktop/src/views/PublishHistory.test.js` | 新增「卡片点击打开平台链接」describe（见 §8 测试计划） |
 | `01-docs/PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md` | 本文档 |
@@ -160,15 +160,15 @@
 | T5 | 无 `result.url` 的记录点卡片 | `createNewTabPage` 未被调用，无异常 |
 | T6 | `result.url = 'javascript:alert(1)'` 点卡片 | `createNewTabPage` 与 `window.open` 均未被调用 |
 | T7 | `result.url` 缺协议（`example.com/xxx`）点卡片 | 同 T6 |
-| T8 | createTab 成功 | 显示「已在新标签页打开作品链接」 |
-| T9 | createTab 返回 null | `window.open` 被调（系统浏览器兜底） |
-| T10 | createTab 抛错 | 显示「打开作品链接失败，请重试」，不抛未捕获异常 |
+| T8 | createTab 成功（返回 tabId） | 显示「已在新标签页打开作品链接」 |
+| T9/T10 | createTab 返回 null（含桥不可用被 store 吞错的合同形态） | `window.open` 被调（系统浏览器兜底），不崩 |
+| T10b | createTab promise 拒绝（合同外漂移兜底分支） | 显示「打开作品链接失败，请重试」，`window.open` 不被调，无未捕获异常 |
 | T11 | 可点卡片 title 提示正确 | `title="点击打开平台作品链接"` |
 | T12 | 不可点卡片 title 提示正确 | `title="暂无平台链接"` |
-| T13 | 进行中重复点击 | 第二次点击不重复发 `createNewTabPage` |
+| T13 | 进行中重复点击 | 第二次点击不重复发 createTab |
 | T14 | 详情弹窗锚点回归 | `detail-link` 保持 safeHttpUrl 判据与 noopener（防本变更回归既有合同） |
 
-mock 策略：`window.electronAPI.pageManager.createNewTabPage` 用 `vi.fn()`（与 Collection.test.js / Comments.test.js 同款）；`tabStore` 走真实 store（真实 createTab 调用 electronAPI 桥），保留既有 `@/stores/platforms` mock。`window.open` 用 `vi.spyOn(window, 'open').mockReturnValue(null)`。
+mock 策略（按组件合同，QM-6 评审后如实修订）：`vi.mock('@/stores/tab')` 注入 `createTab` mock——组件测试只锁「对 store 的调用契约」；store→pageManager 桥→IPC 的集成由 Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖（文件内既有用例用 `vi.mock('@/stores/platforms')` 规避 pinia，拖真实 pinia 会使既有用例集体红）。`window.open` 用 `vi.spyOn(window, 'open')`。
 
 ## 9. 安全与合规
 

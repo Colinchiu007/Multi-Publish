@@ -890,6 +890,17 @@ describe('PublishHistory 发布记录卡片点击打开平台链接', () => {
     openSpy.mockRestore()
   })
 
+  it('T10b createTab promise 拒绝（合同外漂移）显示失败提示且无未捕获异常', async () => {
+    tabCreateTabMock.mockRejectedValue(new Error('unexpected store drift'))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(wrapper.text()).toContain('打开作品链接失败，请重试')
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
   it('T11-T12 可点/不可点卡片的悬浮提示如实呈现', async () => {
     const wrapper = await mountWithRecords([
       successRecord(),

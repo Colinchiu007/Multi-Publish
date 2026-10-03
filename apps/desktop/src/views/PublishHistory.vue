@@ -789,6 +789,7 @@ function closeRecordDetail () {
 
 // 卡片内交互元素：点击走自身逻辑，不冒泡为「打开链接」。用 closest 委托过滤而非逐个
 // @click.stop，避免将来新增子元素时漏加 stop 导致误开。
+// [role=tab] 是防御性条目：当前卡内无该元素，为未来子组件（如内嵌 tab 切换）预留的排除面。
 const CARD_INTERACTIVE_SELECTOR = 'a, button, label, input, select, textarea, [role="tab"]'
 // 进行中守卫：同一卡片在 createTab 未 settle 前的重复点击忽略（非模板绑定，无需响应式）。
 const openingCardIds = new Set()
@@ -809,6 +810,8 @@ function cardClickHint (record) {
 async function openCardLink (record) {
   const url = cardLinkUrl(record)
   if (!url) return
+  // 已知取舍（QM-6 MINOR-3）：record.id 缺失（undefined/null）的记录共享 '' 守卫键——
+  // 另一张无 id 卡片在途时本卡点击被吞一次，自愈且无泄漏；生产数据 id 由 SQLite 主键保证非空。
   const recordKey = String(record?.id ?? '')
   if (openingCardIds.has(recordKey)) return
   openingCardIds.add(recordKey)
