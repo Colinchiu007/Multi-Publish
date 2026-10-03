@@ -101,7 +101,8 @@ JSONL 逐行 → readRecords(ownerSubject)
   - 顶层新增 `unclassified`；`success` / `failed` / `total` / `successRate` 键名不变；
   - `perPlatform[p]` 由 `{total, success, failed}` 变为 `{total, success, failed, unclassified}`；
   - `daily[i]` 由 `{date, total, success}` 变为 `{date, total, success, failed, unclassified}`。
-  - 消费面实测：`Dashboard.vue` 用 `Object.entries(...).map(([p, data]) => ({platform, ...data}))` 展开后只读 `total`，`Home.vue:340` 只取 `total/success/failed` ⇒ 加键不破坏任何现有读取，两者各自测试 4 文件 94 passed 已证。
+  - 消费面实测：`Dashboard.vue` 用 `Object.entries(...).map(([p, data]) => ({platform, ...data}))` 展开后只读 `total`，`Home.vue:340` 只取 `total/success/failed` ⇒ 加键不破坏任何现有读取。合跑实测（2026-10-03 收口复测）**4 文件 95 passed** = `publish-history` 24 + `ipc-handlers/publish` 33 + `Dashboard` 13 + `Home` 25。
+  - ⚠️ **但 `Home.vue:340` 是一条手写投影白名单**（`{ total: res.data.total || 0, success: …, failed: … }`），它**不含** `unclassified`。本期 Home 不展示该值，因此不构成缺陷；但按 AGENTS.md「新增持久化字段必须同时改所有投影白名单」，**任何人要让 Home 显示无定论数，必须同步改这一行**，否则症状是"后端明明返回了、界面改了没反应"，而两侧各自的单测都会绿。
 - **`successRate` 语义变更是本次的实质修复**，必须在 PR 与 §七 里说明，不得读成「数字抖了一下」：分母从 `total` 变为 `success + failed`。
 
 ## 六、交互逻辑
@@ -134,8 +135,9 @@ JSONL 逐行 → readRecords(ownerSubject)
 | L2 | 同上 | skipped/timeout/缺 status ⇒ `unclassified`，且 `success+failed+unclassified==total`；`successRate` 分母为有定论（1/1=100 而非 1/4=25） | **实跑：把无定论并进成功 ⇒ 红 3**（L2/L3/L4 同抓）；**实跑：分母改用 `total` ⇒ 红 1**（`expected 25 to be 100`） |
 | L3 | 同上 | 全无定论时 `successRate=0`，不得报 100/NaN | 见 §三 第 12 条附注：本条不区分分母，只守空分母 |
 | L4 | 同上 | `perPlatform` / `daily` 与顶层同一判据，且三者 success 互等 | 并进成功 ⇒ 该条同时红（证明三档不是各修各的） |
-| L5 | 同上（结构锁） | 先**剥注释行**再判：`r.success !== false` 不得出现；`classifyPublishStatus` 调用点+定义恰为 2 | 已在实现前实跑并**当场暴露锁自身的坑**：不剥注释时锁把我解释「为什么不能用」的注释原句当成命中而恒红 |
-| L6 | `ipc-handlers/publish.test.js` + `Dashboard.test.js` + `Home.test.js` | 返回形状新增键不得破坏消费者 | 已跑：4 文件 94 passed |
+| L5 | 同上（结构锁） | 先**剥注释行**再判，且按**语义形态**禁（两条正则：`.success [!=]== (true\|false)`、`!.success`），不再只禁字面量；`classifyPublishStatus` 调用点+定义恰为 2 | 已在实现前实跑并**当场暴露锁自身的坑**：不剥注释时锁把我解释「为什么不能用」的注释原句当成命中而恒红。**外部评审（后端轴 Critical）指出旧锁只禁字面量 ⇒ 换变量名/`!=`/倒写 `!.success` 三种变体全都能整条绕过**，已改成语义形态禁并实跑两次反证：注入 `record.success !== false` ⇒ 红并点名「做布尔比较」；注入 `!record.success` ⇒ 红并点名「取反判存在」；还原后 24 passed |
+| L6 | `ipc-handlers/publish.test.js` + `Dashboard.test.js` + `Home.test.js` | 返回形状新增键不得破坏消费者 | 已跑：合跑 **4 文件 95 passed**（2026-10-03 收口复测；旧记录 94 是加 L7 之前的数） |
+| L7 | 同上（接线棘轮，评审前端轴 W1 反哺） | 孤儿孪生实现（`packages/shared-utils/src/publish-history.js`）**不得被任何源码接线**：`git grep -l` 排除 `*.md` 后，除孪生本体与本测试文件外必须为空 | **反证过程中锁自身先恒绿**：vitest 的 cwd 是 `apps/desktop`，我给的 pathspec `apps packages scripts` 按 cwd 解析 ⇒ 指向不存在的目录，`git grep` rc=1 被「无命中」分支吞掉，搜索域为空集却报 PASS。修法：先 `git rev-parse --show-toplevel` 取真实根再 `-C <root>`，并加两条**失明自检**（根长度 > 3、孪生文件必须 `existsSync`）。反证：把探针文件 `git add` 成真实接线者 ⇒ 精确变红并点名该文件；删除后 24 passed、`git status` 仅剩预期改动 |
 
 ## 九、残余限制（本刀明确不修，各附实测证据）
 
@@ -147,5 +149,15 @@ JSONL 逐行 → readRecords(ownerSubject)
 2. **Dashboard 四张卡的同比角标是硬编码字面量**：`Dashboard.vue` 模板里直接写死 `+8.5%`（`:40`）、`+23%`（`:51`）、`-2.1%`（`:62`），本会话已逐行读模板确认它们是文本而非绑定。这是第二处假数据。不并入本刀的理由不是「不重要」，而是**它是可见文案/像素面**：改动会漂视觉基线，须按 AGENTS.md 视觉第 7 条走「CI 产物取基线 + 自证新基线 vs 同一次 CI 渲染 = 0 px」，与数据口径混在一次 PR 里会让两条判据互相遮蔽。
 3. **`PublishHistory.vue` 的表现列恒为空**：`attachPerformanceSnapshots`（`:588-605`）按 `t.publish_history_id` 建映射，而写入点 `phase4-events.js:143` 的 `addTrackedContent({platform, postId, url, rewriteHistoryId, recrawlStatus})` **不含历史 id**（实测 `grep -c publishHistoryId phase4-events.js` = **0**）⇒ 只读直查活库 `tracked_content`：**`publish_history_id` NULL = 69/69，`rewrite_history_id` NULL = 69/69**（两条关联键全断）。属跨模块合同缺失，需同时定「发布历史 id 从哪来、何时回填」。
 4. **`unclassified` 未在界面展示**：本期只保证它不被并进任一侧且被测试钉住。展示需要新文案与新的像素基线。
-5. **`packages/shared-utils/src/publish-history.js` 是孤儿重复实现**，内含同一个 `r.success !== false` 判据（`:115/124/142`）。实测全仓**零引用**（仅 `.adversarial/codebase-audit-20260922/*`  proposals 提到它）。留着它的风险是「下一个消费者拷走错判据」；删它属于跨包清理，须单独一个 PR 说明理由。
-6. `pattern_performance` 0 行、`publish_history` 表无生产写入方（归因链断在 `rewrite_history_id` 56/56 NULL + `knowledge_refs` 缺 `viral_library`）——P2-6 若要做「爆款特征有效性」视图，这条链是硬前提。
+5. **`packages/shared-utils/src/publish-history.js` 是孤儿重复实现**，内含同一个 `r.success !== false` 判据（`:115/124/142`）。实测全仓**零引用**（仅 `.adversarial/codebase-audit-20260922/*`  proposals 提到它）。留着它的风险是「下一个消费者拷走错判据」；删它属于跨包清理，须单独一个 PR 说明理由。**本刀的覆盖边界已由 L7 接线棘轮守住**（评审前端轴 W1 指出「唯一实现」此前只在单文件内成立）：接线即红，因此本条的残余只剩「文件还在」，不再包含「无人看守」。
+6. `pattern_performance` 0 行、`publish_history` 表无生产写入方（归因链断在 `rewrite_history_id` 全 NULL —— 2026-10-03 只读直查活库实测 **69/69**，同一天早些时候的独立测量为 56/56，条数会随发布漂移、"全 NULL"才是结论 —— 加上 `knowledge_refs` 缺 `viral_library`）——P2-6 若要做「爆款特征有效性」视图，这条链是硬前提。
+
+## 十、外部评审结论与处置（2026-10-03，QM-6 替代通道）
+
+原文与逐条处置见 `QM6-FINDINGS-PUBLISH-STATS-2026-10-03.md`（两轴各 1 个底模，偏差已在该文件与执行记录里声明）。本节只记**改变本 PRD 结论**的三条：
+
+1. **§八 那条结构锁原本是文本锁不是语义锁**（后端轴 Critical）。只禁字面量 `r.success !== false`，改匿名 / 换 `!=` / 倒写 `!.success` 都能绕过。已改为按语义形态禁两条正则，并对三种变体实测变红。**教训**：判据"禁止某种写法"时，禁止面必须覆盖同一语义的所有书写形态，否则锁守的是文本；反证要注入的正是"等价改写"而不是"直接删掉"。
+2. **§九 第 5 条的"零引用"此前只是文档登记，没有任何东西在守**（前端轴 Warning）。已加接线棘轮。沉淀出一条更普适的坑：**在 vitest 里跑 `git grep`，pathspec 是相对 cwd 解析的**，而 cwd 是 `apps/desktop` ⇒ 传 `apps packages scripts` 指向不存在的路径，git 以 rc=1（"无命中"）返回，被我的空结果分支吞掉，**棘轮从第一天起就是恒绿的**。修法是 `git rev-parse --show-toplevel` 取根 + 两条失明自检（根非空、被禁文件确实存在）。凡是"扫全仓证明没有 X"的锁，都必须自带一条"扫描域非空/坐标可解析"的断言。
+3. **两轴独立命中同一处用户可见不自洽**：分开第三类之后，界面上「成功 + 失败 ≠ 共发布」，而 `unclassified` 本期不展示（§九 第 4 条）。两个互不通气的底模指向同一格 ⇒ 这不是我为了收尾挑的软目标。本期只做到"登记 + PR 描述显式告知"，**收口要一次带新文案与 CI 同源像素基线的界面切片**。
+
+两处**判据不变**但补写后果：`daily` 各桶之和 ≤ `total`（缺 `timestamp` 或窗口外不进 daily，是 §三 9/10 行刻意保留的原行为）⇒ 趋势柱会比顶层总数矮而用户无感；`readRecords` 经直读源码确认**无任何条数上限**（无 `slice`/`limit`/`max`），故"看板 `total` 被截断"这一维度不存在，评审该条不采纳并在此留证。

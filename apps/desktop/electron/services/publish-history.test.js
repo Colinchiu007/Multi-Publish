@@ -355,10 +355,50 @@ describe("publish-history", () => {
         .split(/\r?\n/)
         .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
         .join("\n");
-      expect(codeOnly.includes("r.success !== false"), "publish-history.js 仍用顶层 success 字段判成功").toBe(false);
-      // 2 = 1 处定义 + 1 处调用。三档统计（顶层 / perPlatform / daily）现在共用**同一次**分类结果，
-      // 所以调用点只有一处；若将来又出现第二处调用点，说明有人绕开了这个循环另算一份，要重新审。
+      // 按**语义形态**禁，不按字面量禁。只写 `r.success !== false` 的话，改个变量名
+      // （record.success !== false）、换成 `!=` / `=== true`、或倒过来写成 `!.success`
+      // 都能整条绕过 —— 锁守的是文本而不是语义。这三种变体是外部评审（后端轴）指出的
+      // Critical，且实测都能骗过旧锁。
+      const SEMANTIC_RETURNS = [
+        [/\.\s*success\s*[!=]==?\s*(?:false|true)/, "按顶层 success 字段做布尔比较"],
+        [/!\s*[A-Za-z_$][\w$]*\.success\b/, "按顶层 success 字段取反判存在"],
+      ];
+      for (const [re, why] of SEMANTIC_RETURNS) {
+        const hit = codeOnly.match(re);
+        expect(hit, `publish-history.js 出现「${why}」写法：${hit && hit[0]} —— 终态判据只能读 status`).toBeNull();
+      }
+      // 2 = 1 处定义 + 1 处调用。三档统计（顶层 / perPlatform / daily）共用**同一次**分类结果，
+      // 所以调用点只有一处；出现第二处调用点＝有人绕开这个循环另算一份，要重新审。
       expect(codeOnly.match(/classifyPublishStatus\s*\(/g) || []).toHaveLength(2);
+    });
+
+    it("孤儿孪生实现不得被任何源码接线（否则同一错判据会随第二份实现复活）", () => {
+      // 外部评审（前端轴）指出：上面那条结构锁只守**本文件**，所以「终态判据只有一份」
+      // 这句话此前只在单文件内成立 —— `packages/shared-utils/src/publish-history.js`
+      // 里还留着同一判据（实测 3 处），当前全仓零引用，因此它只是一颗未爆的雷：
+      // 谁 import 它，统计口径立刻分叉，而两侧各自的单测都会绿。
+      // 与其删它（跨包清理，另开 PR 说理由），先加一道**接线棘轮**：接线即红。
+      const { execFileSync } = require("child_process");
+      // 先取**真实仓库根**再搜：pathspec 是相对 cwd 解析的，而 vitest 的 cwd 是 apps/desktop，
+      // 直接给 `apps packages scripts` 会指向根本不存在的 apps/desktop/apps ⇒ git grep 返回 rc=1
+      // （"无命中"），被下面的空结果分支吞掉 ⇒ 棘轮恒绿。实测正是这样骗过了一个真实的接线者。
+      const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+      expect(root.length, "取不到仓库根 —— 无根的搜索结果是空集，不得当「零引用」用").toBeGreaterThan(3);
+      // 盲区自检：被禁的孪生文件必须真的在那个根下，否则"没人引用"只是因为"没有那个文件"。
+      expect(fs.existsSync(path.join(root.replace(/\\/g, "/"), "packages/shared-utils/src/publish-history.js")),
+        `孪生文件不在 ${root} 下：搜索域失效，本条判据不可信`).toBe(true);
+      let out; // 两条分支各自赋值，初值永不被读（no-useless-assignment）
+      try {
+        out = execFileSync("git", ["-C", root, "grep", "-l", "shared-utils/src/publish-history",
+          "--", "apps", "packages", "scripts", ":(exclude)*.md"], { encoding: "utf8" });
+      } catch (e) {
+        if (e.status === 1) out = ""; // git grep 无命中时 rc=1，属正常空结果
+        else throw e;
+      }
+      const importers = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+        .filter(f => !f.endsWith("shared-utils/src/publish-history.js")) // 孪生本体
+        .filter(f => !f.endsWith("electron/services/publish-history.test.js")); // 本文件的注释里有这个路径
+      expect(importers, `publish-history 出现第二份实现的接线者：${importers.join(",")} —— 终态判据必须留在唯一实现里`).toEqual([]);
     });
   });
 });
