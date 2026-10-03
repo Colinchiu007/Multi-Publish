@@ -77,6 +77,32 @@
 - 反证（变异测试）：① 摘掉成功分支 `focusRewriteResult()` 调用 → 前 2 条真红；② 摘掉 `autoFocusResult` 条件守卫 → 手动/titleHint 2 条真红（失败用例由 `v-if` 结构天然保护：卡片不渲染、el 为 null 不滚）。
 - 回归：RewriteView 83 例 + HotTopics 42 例 + Collection 105 例共 230 例全绿（调用方零改动）。
 
+
+# [未发布] feat(copy-library): 文案库卡片点击直达文案详情页——一键发布页承载 + 编辑回写文案库（2026-10-09，copy-library-detail-entry）
+
+### 背景
+- 文案库（`/copy-library`）列表卡片为纯展示，不可点击：无法查看单条全文（视频来源仅 500 字截断预览），也无法从文案一键进入发布/创作流程。
+- 用户决策（D1）：**一键发布页即文案详情页**——复用 `/publish` 现有编辑器/发布能力，零新路由；决策（D2）：采集/改写来源在详情页编辑后**要求回写文案库**。
+
+### 方案
+- **一次性交接载荷**（新增 `src/utils/copy-detail-handoff.js`，与 `rewrite-handoff.js` 同模式）：sessionStorage 键 `copy_detail_handoff_v1`，读后即焚；载荷 `{ content, title, origin, sourceId, platform, sourceUrl }`；写侧校验 content 非空 + origin 白名单（collect/rewrite/draft/video）。
+- **列表卡片可点击**（`CopyLibraryView.vue`）：整卡 `role="button"` + `tabindex="0"`，click/Enter/Space 均触发 `openDetail`（防连点锁 `openingDetail`）；点击 → 写载荷 → `router.push('/publish?from=copy-library')`。视频来源先 `story2videoGetProject` 拉全文（失败降级截断预览 + warning toast，不阻塞跳转）。
+- **发布页详情态**（`Publish.vue`）：`applyCopyDetailHandoff` 挂 `onMounted` 顶部（不依赖账号加载等异步步骤）+ `onActivated`（keep-alive 复活）；有载荷 → 预填标题/正文 + 记录 `copyDetailMeta` + video 来源切视频模式 + info toast + 顶部提示条（可关闭）。**keep-alive 状态清理**（对抗评审 CRITICAL）：无载荷且 `route.query.from !== 'copy-library'` 时重置 `copyDetailMeta`/banner，防止缓存实例的旧 meta 把后续无关内容静默回写覆盖文案库记录。
+- **回写链路**（旁路，失败静默不阻塞主流程）：①保存草稿（`onSaveDraft` 包装）成功 → `syncCopyDetailToLibrary`；②一键发布成功（`watch(result)` → `r.success`）→ 同上（评审 MAJOR 补齐：PRD 承诺「保存草稿或发布成功后回写」）。仅 `collect`/`rewrite` 来源触发：`upsertRewrite({ fromKey: '<origin>:<sourceId>', ... })`（`collect:c1` / `rewrite:r1`，与文案库列表 id 解析逐字一致）；video/draft 来源不回写（视频真源在 story2video 项目，草稿真源在草稿箱指纹幂等）。`useCopyLibrary.upsertRewrite` 补 `fromTitle` 合并（回写不传时保留既有「改写自」出处）。
+- **【创作视频】按钮**（发布页右侧操作区新增）：`handleCreateVideo` 防重入锁 → 空内容 warning 早退 → `saveDraft()`（内容指纹幂等）拿 `data.draftId` → `/create?draft=<id>`。`usePublishDrafts.saveDraft` 返回值 `boolean → { ok, draftId }`（全仓核实无旧布尔消费方；失败路径 `{ ok: false, draftId: null }`）。
+- **i18n**：zh/en 成对新增 8 键（`copyLibrary.viewDetailAria/detailLoadedToast/detailModeBanner/detailModeBannerClose/videoFullTextFailed/handoffFailed` + `publishPage.createVideo/createVideoEmpty`），`check-locale-sync --keys` PASS（1402 keys）。
+
+### 数据校验
+- 载荷写侧：content trim 非空、origin ∈ 白名单、sessionStorage 异常返回 false（不跳转 + warning）。
+- 载荷读侧：损坏 JSON/非对象 → null 并清键；读后即焚（二次读取恒 null）。
+- 视频全文：`res.code === 0 && typeof data.sourceText === 'string' && sourceText.trim()` 才采用，否则降级预览。
+- 回写资格：`copyDetailMeta.origin ∈ {collect, rewrite}` 且 `article.content` trim 非空。
+- 创作视频前置：标题与正文全空 → warning 不存草稿。
+
+### 验证
+- TDD 先红后绿：`copy-detail-handoff.test.js`（9）、`CopyLibraryView.test.js`（9）、`Publish.test.js` +13（载荷消费/视频模式/提示条/创作视频防重入/fromKey 契约断言/video-draft 不回写/回写失败旁路/keep-alive 重置回归锁）、`usePublishDrafts.test.js` +4（`{ok, draftId}` 契约）。
+- 对抗性评审（subagent）：1 CRITICAL（keep-alive meta 不清理 → 静默覆盖文案库记录）已修复并加回归锁；2 MAJOR（发布成功不回写、回写链路零断言）已修复补测；4 MINOR（platformKey 死引用/视频卡片防连点/ok 无 draftId 静默/fromTitle 丢失）已修或记录。
+- 大回归面 381 用例全绿（Publish/CopyLibraryView/usePublishDrafts/useCopyLibrary/useCopyLibrarySources/icon-usage/Collection/RewriteView）；locale-sync PASS；eslint 0 error。 a8800c88b (feat(copy-library): 文案库卡片点击直达文案详情页（发布页承载+编辑回写）)
 # [未发布] fix(publish): 发布失败自动保存草稿到草稿箱 + 内容指纹防重复（2026-10-09，publish-fail-draft-guard）
 
 ### 根因

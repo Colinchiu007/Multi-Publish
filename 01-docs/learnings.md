@@ -17298,3 +17298,11 @@ DOM 流程失败(verification timeout) →
 
 **一句话**：*受控组件的"内容在 DOM 里"不等于"进了 React state"——验证方式是
 看平台自己的保存请求有没有发出，而不是看 innerText。*
+
+## 2026-10-09 copy-library-detail-entry · 文案库详情页复用发布页（对抗评审 CRITICAL：keep-alive meta 不清理）
+
+- **模式**：详情页优先复用已有编辑器页（发布页已具备查看+编辑+发布动作，零新路由）；跨页大文本交接用一次性 sessionStorage 载荷（rewrite-handoff 先例复用），写侧校验 content/origin 白名单，读侧读后即焚。
+- **坑**：keep-alive 缓存页消费一次性载荷后，相关 meta 必须在「无载荷且 `route.query.from` 不符」时显式重置——否则缓存实例旧 meta 会把用户后续无关内容的保存静默 upsert 进错误记录（本次对抗评审 CRITICAL，修复+回归锁）。`take()==null` 直接 return 是不完整实现。
+- **契约变更纪律**：`usePublishDrafts.saveDraft` boolean→`{ok,draftId}` 前全仓核实消费点（唯一消费方在本 PR 内），失败路径返回 `{ok:false,draftId:null}` 恒对象；`draftSave` 的 `data.draftId` 是创作视频跳转的 id 真源（主进程内容指纹幂等返回既有 id）。
+- **回写分治**：rewrite 按 fromKey 覆盖 / collect 以 `collect:<id>` 写改写库 / video 不回写（story2video 项目渲染层无写通道）/ draft 走草稿箱幂等。回写恒旁路（try/catch 静默）。
+- **工具坑（本会话实证）**：`[IO.File]::WriteAllText` 写平台行尾（CRLF），改 LF 文件必须先 `.Replace("\r\n","\n")`，否则 git diff 假红 7000+ 行（双口径 `git diff --numstat` vs `--ignore-cr-at-eol --numstat` 对账）；ESM 模块私有常量被测试 import 得 `undefined` 不报错，`getItem(undefined)` 恒 null——测试断言存储状态的常量必须 export；标识符争议以 vitest/node 直跑 + 码点对比为裁决，不信显示层。
