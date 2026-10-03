@@ -6,6 +6,12 @@
 - **Playwright 拦截 IPC 取证范式**（`capture-tag-tabs-proof.js`）：hash 路由 URL 必须写 `/#/publish`（`/publish` 会落首页）；`electronAPI` stub 放 `addInitScript` **带 mock 参数内嵌**（先 goto 再 evaluate 再 reload 会把注入值随 reload 清掉）；UiInput 是包裹 div，fill 要打内部 `input`；面板卡用 testid 的 `xpath=ancestor::div[contains(@class,"cohere-card")][1]` 定位（外层表单卡同名 class，hasText 会误匹配）。
 - **QG Changes 的账本登记是硬拦门禁**：`.quality-gates.md` 新增带「远程同步 | PENDING」的执行记录，必须与 `scripts/gate-record-debt-ledger.json` 登记项**同一次提交**落盘，否则 PR CI 的 quality-gate 直接红（「存在未登记的欠账」）；账本键 = 记录标题去掉 `## `、值含 `reason/status/line`。本地 `node scripts/check-gate-record-debt.js` rc=0 再 push 能省一轮 CI 往返。
 - **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)<<<<<<< HEAD\r?\n(.*?)=======\r?\n(.*?)>>>>>>> origin/main\r?\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。
+## 本机跑像素门禁的红不等于回归：先验「登录态/数据依赖 + 动画抑制」再下结论（visual-local-triage，2026-10-03）
+
+- **现场**：本机跑 `test:visual:pixel` 报 collection 视图 1.62%（阈值 1%）。逐层归因后定性为**本机渲染状态依赖**，不是 CI 渲染回归：① 裸截图 vs 基线差 1.159%；② 与 runner 同参（`reducedMotion:'reduce'` + 注入 `animation:0s!important` CSS + `setFixedTime` + settle）后降到 0.620%；③ 差异带剖面锁定 `col-panel::before` 的 **3s 无限橙渐变动画**（`Collection.vue` `.col-panel-ribbon`）——动画帧不同 ⇒ 顶部 4px 横幅整带红；④ 剩余差异带集中在草稿箱区（y=960-1079）：基线里有 5 张测试草稿卡，本机渲染是「暂无草稿」空态 ⇒ **登录态/本地数据依赖**改变了渲染内容。
+- **可复用的本机排查序列**（先便宜后贵）：① 与 runner 逐参数对齐重跑（animation 抑制 + 时钟钉住 + settle + reducedMotion）——一步通常消掉大半；② 差异行剖面（逐 y 统计差异像素聚类成带）——把「整页红」变成「具体元素」；③ 对差异带采样 RGB 并在源码里 grep 对应色值——动画/渐变会以「同色不同帧」形态出现；④ 空态 vs 有数据态差异 ⇒ 查该视图的数据依赖，勿在 CI 空 profile 与本机登录 profile 之间强行归一。
+- **结论口径**：本机红 + CI 绿 = 本机环境状态（数据/登录/字体/动画帧）问题，处置是**修本机跑法**（清 profile、对齐 runner 参数），不是刷基线；基线刷新永远只能取 CI 渲染（QM-4 第 7 条）。
+- **另一条实测**：同一脚本两次裸跑差异 0.0008% ⇒ 本机渲染在「同参数」下是确定的；不确定性全部来自「参数没对齐」与「数据状态不同」，不是渲染器抖动。
 
 ## Electron「打开网页」有两条通道：应用内标签必须走 page-manager，window.open 只是系统浏览器入口（publish-history-card-open-link，2026-10-03）
 

@@ -847,3 +847,37 @@ XHR hook 必须在**页面加载后**重装——**每次导航都会重置 JS �
 - 诊断脚本（页面 XHR + 自动保存 body + `save=1`）：**code=0「提交成功」**，
   pgc=7692260952103748146（与后台截图文章一致）；
 - 应用全流程：hook 重装 + 自动保存触发已接线（待 UI 触发确认日志 code=0）。
+
+#### 16.8.12 hook 失效真因与兜底重排（2026-10-03 应用日志 + 实时探针定案）
+
+**① hook 失效真因（§16.8.11 遗留问题终结）**：
+
+XHR hook 预装在 DOM 流程【前】，但 `_publish_generic` 内部会 **navigate**（打开编辑器）
+—— **每次导航重置 JS 上下文**，hook 被清掉 ⇒ `__lastSaveBody` 恒空 ⇒ `code=undefined`。
+（实时探针证实：页面打开后装 hook + Ctrl+S 能立即捕获 body，pgc_id 新鲜有效。）
+
+**② 兜底重排（`publishToutiao` 最终顺序）**：
+
+```
+DOM 流程（填充 + 点击）→ verification timeout
+  ↓ 页面仍活着（未关闭）
+publishViaPageXhr：
+  1. 重装 XHR hook（捕获此后所有 publish 请求 body）
+  2. 轮询等捕获（最长 16s），每轮派发 CDP 真实 Ctrl+S（头条保存草稿快捷键）加速
+  3. 捕获到 body（>500B，含新鲜 pgc_id/title_id）后【原样重放】（save=1 真发布）
+  ↓ 失败
+Node 直连（#2781，publishWithSign）
+```
+
+**③ 数据校验**：捕获判定 `body.length>500`（完整 publish body 的规模下界）；
+重放成功判据 `code===0 && pgcId!=="0"`。
+
+**④ 真机验证（实时探针 + 最终重放脚本，同款逻辑）**：
+```
+捕获 bodyLen=1356（pgc_id=7692319713694827054）
+原样重放: {"code":0,"msg":"保存成功","pgc":"7692319713694827054"}
+```
+
+**⑤ 交互/显示项**：无新增 UI；兜底过程经 `[toutiao-xhr]` 日志记录；
+进度弹窗沿用既有阶段推进（不再因兜底等待而停在 2%——兜底在 verify 超时后立即接管，
+接管结果（成功/失败）都会推动 phase4 终态事件）。
