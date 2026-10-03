@@ -68,5 +68,10 @@
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "PENDING",
     "line": 4654
-  }
+  },
+    "本次执行记录：P0-1 审核回查端点只读现场取证（p01-local-endpoint-evidence，2026-10-03）【docs-only】": {
+      "reason": "本 PR 自身尚未合并 ⇒ 顶部记录的 远程同步 停在 PENDING；合并后由后续 docs PR 回填 PASS 并删除本条（回填与销账必须同一次发生）。回填者＝p01-local-endpoint-evidence 合并后的 re-sync 会话，按 head 分支名查 PR → merge SHA。",
+      "status": "PENDING",
+      "line": 1
+    }
 }
