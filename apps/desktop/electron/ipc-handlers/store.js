@@ -92,6 +92,21 @@ function registerHandlers(ipcMain, deps) {
     }
   }
 
+  /**
+   * 按内容指纹定位草稿（publish-fail-draft-guard）：
+   * 既有草稿带 _fp 直接比对；历史数据无 _fp 时现算指纹参与比对（读取侧惰性迁移）。
+   * @param {Array} drafts
+   * @param {string} fp - computeDraftFingerprint 产出的内容指纹
+   * @returns {number} 命中下标，未命中 -1
+   */
+  function findDraftIndexByFingerprint(drafts, fp) {
+    if (!Array.isArray(drafts)) return -1
+    const { computeDraftFingerprint } = require('../services/draft-fingerprint')
+    return drafts.findIndex(d => d && typeof d === 'object' && (
+      d._fp === fp || (!d._fp && computeDraftFingerprint(d) === fp)
+    ))
+  }
+
   function getUserDataDir() {
     if (typeof deps.userDataDir === 'string' && deps.userDataDir) return deps.userDataDir
     try { return app && typeof app.getPath === 'function' ? app.getPath('userData') : null } catch (_) { return null }
@@ -364,33 +379,46 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   // ─── 草稿箱 IPC handlers（参考产品复用）─────────────────
+  // 内容指纹幂等（publish-fail-draft-guard）：同一份内容（内容指纹相同）无论手动保存
+  // 多少次、失败自动回存后再手动保存多少次，草稿箱只保留一条——命中即原地更新
+  // （保留原 id/createdAt），绝不追加第二条。去重真源只在主进程这一处；
+  // 指纹只含内容字段，publishTime/platforms/accounts 等发布指向性元数据不参与。
   ipcMain.handle('draftSave', withSenderCheck((_, draft) => {
     try {
+      if (!draft || typeof draft !== 'object' || Array.isArray(draft)) {
+        return { code: EC.REQUEST_ERROR, message: '草稿内容无效' }
+      }
+      const { computeDraftFingerprint } = require('../services/draft-fingerprint')
+      const fp = computeDraftFingerprint(draft)
+      const now = new Date().toISOString()
       const owner = _getOwnerSubject()
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       if (owner !== undefined) {
         if (!hasScopedSettingsApi()) return { code: EC.REQUEST_ERROR, message: '草稿存储不可用' }
-        const raw = store.getUserSetting('drafts', [], owner)
-        const drafts = parseDrafts(raw)
-        const idx = drafts.findIndex(d => d.id === draft.id)
+        const drafts = parseDrafts(store.getUserSetting('drafts', [], owner))
+        const idx = findDraftIndexByFingerprint(drafts, fp)
         if (idx >= 0) {
-          drafts[idx] = { ...draft, updatedAt: new Date().toISOString() }
-        } else {
-          drafts.push({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+          const merged = { ...drafts[idx], ...draft, id: drafts[idx].id, createdAt: drafts[idx].createdAt, updatedAt: now, _fp: fp }
+          drafts[idx] = merged
+          store.setUserSetting('drafts', JSON.stringify(drafts), owner)
+          return { code: 0, data: { draftId: merged.id, reused: true } }
         }
+        drafts.push({ ...draft, createdAt: now, updatedAt: now, _fp: fp })
         store.setUserSetting('drafts', JSON.stringify(drafts), owner)
-      } else {
-        const raw = store.getSetting('drafts') || '[]'
-        const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
-        const idx = drafts.findIndex(d => d.id === draft.id)
-        if (idx >= 0) {
-          drafts[idx] = { ...draft, updatedAt: new Date().toISOString() }
-        } else {
-          drafts.push({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
-        }
-        store.setSetting('drafts', JSON.stringify(drafts))
+        return { code: 0, data: { draftId: draft.id, reused: false } }
       }
-      return { code: 0, data: true }
+      const raw = store.getSetting('drafts') || '[]'
+      const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
+      const idx = findDraftIndexByFingerprint(drafts, fp)
+      if (idx >= 0) {
+        const merged = { ...drafts[idx], ...draft, id: drafts[idx].id, createdAt: drafts[idx].createdAt, updatedAt: now, _fp: fp }
+        drafts[idx] = merged
+        store.setSetting('drafts', JSON.stringify(drafts))
+        return { code: 0, data: { draftId: merged.id, reused: true } }
+      }
+      drafts.push({ ...draft, createdAt: now, updatedAt: now, _fp: fp })
+      store.setSetting('drafts', JSON.stringify(drafts))
+      return { code: 0, data: { draftId: draft.id, reused: false } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }

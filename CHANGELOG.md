@@ -1,3 +1,19 @@
+# [未发布] fix(publish): 发布失败自动保存草稿到草稿箱 + 内容指纹防重复（2026-10-09，publish-fail-draft-guard）
+
+### 根因
+- 图片/视频内容发布失败后，内容只存在于发布表单（内存态）：历史只落 `title/error`（`history.addRecord` 不存正文与媒体引用），页面误关/重挂载后内容彻底丢失，媒体需重新选择。
+- 防重复的真源缺口：`draftSave` 仅按 `draft.id` 去重，而自动保存与手动保存各自生成新 id —— 同一份内容必然在草稿箱出现两条。去重判据必须在「内容」上而不是「保存动作的 id」上。
+
+### 修复（三道防线）
+- **主进程幂等层（去重单一真源）**：`ipc-handlers/store.js` `draftSave` 引入内容指纹（新增 `services/draft-fingerprint.js`，sha256，仅白名单内容字段：title/content/author/cover_*/video_path/images/image_files/tags/topics/mentions；`publishTime/platforms/accounts/platformOverrides` 等发布指向性元数据不参与）。指纹命中 → 原地更新既有草稿（保留原 `id`/`createdAt`，刷新 `updatedAt`），返回 `{ draftId, reused: true }`；历史数据无 `_fp` 时现算指纹参与比对并回填（读取侧惰性迁移）。空内容统一归 EMPTY 指纹。`draft` 非对象 → `REQUEST_ERROR` 拒绝。数组保序（图片顺序即内容顺序）、对象键递归排序（键序无关）。
+- **主进程兜底层（自动回存）**：新增 `services/publish-failure-draft.js`，挂在 `task:failed`（失败终态单一来源，`bootstrap/phase4-events.js`）。资格门禁：`article` 为对象 + 媒体门槛（`video_path` 非空**或** `images` 非空数组，纯文字不回存）+ 身份门禁（owner 权威来源是任务固化的 `task.owner_subject`，与 history 同源；Logto 模式缺失 → fail-closed 跳过，绝不写 legacy 命名空间）。快照字段与 `usePublishDrafts.buildDraftSnapshot` 对齐，`publishTime` 固定空、`source: 'auto_failure'` 溯源标记。同内容两次失败（指纹命中）复用同一条草稿。全程 try/catch，任何失败只 `log.warn`，绝不影响失败主流程（历史落库/失败通知/风控挂起）。接线：`bootstrap.js` `wireTaskQueueEvents` 注入 `failureDraftSaver`（identityService 由 Phase 3 晚于接线挂到 ctx，失败时刻惰性读取）。
+- **渲染层提示（一次性）**：新增 `src/services/publish-failure-draft-saver.js`（纯 DI 工厂，风格对齐 risk-hold-notifier），App 级订阅 `publish:progress` phase=failed → toast 提示，同 taskId 只提示一次（`maxSeen=100` 环形记忆），其他 phase 一律忽略；不承载进度状态（唯一承载仍是 `stores/publishProgress.js`）。接线 `main.js`。i18n：`publish.failureDraftSaved` zh/en 成对。
+
+### 验证
+- TDD 先红后绿：`draft-fingerprint.test.js`（8）、`publish-failure-draft.test.js`（16）、`publish-failure-draft-saver.test.js`（9）、`phase4-events.test.js` 新增 5 例（接线/缺省/同步抛错/异步 reject 不产生 unhandledRejection/success 与 cancelled 不触发）、`store.test.js` 新增 6 例（复用/保留 createdAt/publishTime-platforms 差异不分裂/历史无 _fp 回填/legacy 同幂等/非对象拒绝）。定向 128/128 全绿。
+- 回归：`bootstrap.test.js`、`store-owner-isolation.test.js`、`usePublishDrafts.test.js`、`Publish.test.js`、`preload.test.js`、`publisher.test.js`、`publish-progress-events.test.js`、`publishProgress.test.js`、`PublishProgressPanel.test.js`、`publish-history.test.js` 共 900+ 用例全绿；`check-locale-sync` pair PASS + CJK 基线 PASS；eslint 0 error（store.js 2 处 warning 为 HEAD 既有）。
+- preload 零改动（复用既有 `draftSave`/`onProgress` 通道），无需重打包 bundle。
+
 # [未发布] feat(desktop): 智能标签建议面板 Tab 化紧凑呈现——5 平台高度 800px→357px（2026-10-03，compact-tag-suggester-tabs）
 
 ### 根因

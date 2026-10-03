@@ -1,3 +1,14 @@
+
+## 发布失败自动存草稿的去重真源在主进程内容指纹，不在渲染层也不在 draft.id（publish-fail-draft-guard，2026-10-03）
+
+- **第一性根因**：draftSave 原按 draft.id 去重，而「失败自动回存」与「用户手动保存」各自生成新 id——同一份内容必然双条。**去重判据必须在『内容』上而不是『保存动作的 id』上**：引入 sha256 内容指纹（services/draft-fingerprint.js，仅 12 个内容字段白名单），命中即原地更新并保留原 id/createdAt，返回 {draftId, reused}。publishTime/platforms/accounts/platformOverrides 等发布指向性元数据不参与指纹——同一内容多平台失败只产生一条草稿；数组保序（图片顺序即内容）、对象键递归排序、空内容统一 EMPTY 指纹、历史数据无 _fp 时现算比对并回填（读取侧惰性迁移，无需一次性迁移脚本）。
+- **owner 权威来源是任务固化的 	ask.owner_subject，不是实时读 identityService**：identityService 由 Phase 3 在 wireTaskQueueEvents 之后才挂到 ctx（bootstrap.js:258），接线时刻读它拿到 undefined——要么把判据搬到事件触发时惰性读 ctx，要么（本次选择）直接用与 history.addRecord 同源的 	ask.owner_subject，语义更准（发布时刻的登录用户）。Logto 模式缺失 → fail-closed 跳过，绝不写 legacy 全局命名空间。
+- **App 级订阅 publish:progress 不违反「页面级订阅禁令」**：禁令的对象是页面 composable 的页面级订阅（监听器死亡 bug），App 级 main.js 服务（risk-hold-notifier 同位先例）消费失败边界做一次性通知是合法形态——它不承载进度状态（唯一承载仍是 stores/publishProgress.js）。判据是「是否承载状态/是否有生命周期错配风险」，不是「谁订阅了事件」。
+- **自动回存绝不弹确认框、绝不影响失败主流程**：失败场景打断用户是二次伤害；saver 全量 try/catch（同步抛错 + 异步 reject 双路都要兜，.catch 必须挂在 promise 上防 unhandledRejection），失败只 warn。
+- **过程坑①（PS 内联长文案）**：PowerShell here-string 内联中文+反引号（markdown code）会乱码/解析错误——用 write 工具落脚本文件并保存 **UTF8 with BOM**（powershell.exe 无 BOM 按 ANSI 读 ps1，中文全毁）。AGENTS.md/CHANGELOG 头部插入同理。
+- **过程坑②（.NET API 路径解析，险些污染共享根）**：[System.IO.File]::WriteAllLines("CHANGELOG.md") 的相对路径按**进程 CWD**解析而非 PowerShell 的当前 location（cd: 不改进程 CWD）——worktree 里执行却写到了共享主目录的 CHANGELOG.md。按 R2 精确单文件 git checkout -- CHANGELOG.md 还原后用绝对路径重写。**在 worktree 中做任何 .NET 文件 API 操作一律绝对路径**。
+- **过程坑③（测试 mock 有状态性）**：mockReturnValue([]) 的 store mock 跨多次写入读不到新值，「两次失败只一条」类幂等断言会假红。有状态内存 mock（闭包变量 + mockImplementation 读回）才是正确形态。
+- **回归锁清单**（AGENTS.md QM-2 已登记）：draft-fingerprint.test.js + publish-failure-draft.test.js + publish-failure-draft-saver.test.js + phase4-events.test.js（自动回存 describe）+ store.test.js（指纹幂等 describe）。
 ## 智能面板密度是独立 spec 维度；像素基线只拍空态首屏，结果态改动不漂基线；QG Changes 对 PENDING 行要求账本同次登记（compact-tag-suggester-tabs，2026-10-03）
 
 - **「面板放哪」与「面板多高」是两层契约**：上游 spec `publish-page-right-rail` 已约束智能面板贴邻字段、不进右栏，但没约束面板自身纵向密度——TagSuggester 把 5 平台分组纵向铺开 ~800px 依然合规。这类「布局位置对了但体量失控」的回归不会撞任何既有门禁，评估 UI 变更时要单独立一条密度验收（本刀补 Requirement：内容区 ≤340px ±10%，实测 5 平台×7 标签 357px，-55%）。

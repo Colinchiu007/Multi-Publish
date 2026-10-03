@@ -183,6 +183,7 @@ export default {
     publishing: '发布中...',
     success: '发布成功',
     failed: '发布失败',
+    failureDraftSaved: '发布失败：内容已自动保存到草稿箱，可在草稿箱中恢复后重试',
     api: {
       modeApi: 'API 直连',
       modeDom: 'RPA 浏览器',
