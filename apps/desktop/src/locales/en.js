@@ -801,6 +801,7 @@ export default {
     degradedAssetLabels: {
       placeholder_image: 'placeholder images',
       silent_narration: 'silent narration',
+      fallback: 'fallback assets',
     },
     segmentStatus: {
       completed: 'Completed',
