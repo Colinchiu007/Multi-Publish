@@ -13,7 +13,7 @@ const authReclaim = require('./auth-partition-reclaim')
  * 创建隔离的 Session 分区
  *
  * 目录名形如 `auth-auth-{platform}-{ts}`（accountId 已带 `auth-` 前缀 ⇒ 双前缀怪形状，
- * `auth-partition.findAuthPartitionDir` 与回收判据都按这个名字识别）。
+ * `auth-partition.listAuthPartitionCandidates` 与回收判据都按这个名字识别）。
  * 必须登记 liveness：Electron 的 persist Session 在进程内不销毁，未登记的分区
  * 会被 `auth-partition-reclaim` 当作可删对象，等于对 Chromium 仍持有的目录做 unlink。
  * @param {string} accountId - 账号 ID

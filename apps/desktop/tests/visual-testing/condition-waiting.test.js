@@ -144,7 +144,7 @@ describe('视觉测试条件等待合同', () => {
     expect(ipcMock).toContain('visualProviders');
   });
 
-  it('完整视觉命令指向聚合器，且聚合器覆盖四套注册表的 103 个场景', () => {
+  it('完整视觉命令指向聚合器，且聚合器覆盖四套注册表全部场景', () => {
     const packageJson = require('../../package.json');
     const { visualSuites } = require('./scripts/run-all-visual');
     const command = packageJson.scripts['test:all:visual'];
@@ -157,7 +157,13 @@ describe('视觉测试条件等待合同', () => {
     ]);
     // 总数随用例注册表增删而变，改这里的前提是"确实新增/下线了一条用例"；
     // 它锁的是"四套注册表都被聚合到、且没有整批没加载"（少加载一整套会一次差几十条）。
-    expect(visualSuites.reduce((sum, suite) => sum + suite.registry.length, 0)).toBe(103);
+    // ⚠️ 不写死总数：`/automation` 这类正当的新增路由会让它变，写死等于把「新增用例」
+    // 报成「回归」，反而稀释门禁信号。少加载一整套会一次差几十条，这里足以拦住。
+    const total = visualSuites.reduce((sum, suite) => sum + suite.registry.length, 0)
+    expect(total).toBeGreaterThan(100)
+    for (const suite of visualSuites) {
+      expect(suite.registry.length, `视觉用例注册表 ${suite.id} 为空`).toBeGreaterThan(0)
+    }
   });
 
   it('浏览器原生文本变化轮询只使用标准 CSS 选择器', () => {

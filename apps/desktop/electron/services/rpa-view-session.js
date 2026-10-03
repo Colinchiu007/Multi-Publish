@@ -14,7 +14,7 @@ const log = require('./logger')
 const { normalizeProxyConfig, toElectronProxyRules } = require('./proxy-config')
 const { PLATFORM_LOGIN_URLS, PLATFORM_COOKIE_DOMAINS } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { restoreLocalStorage, restoreIndexedDB } = require('./auth-view-session')
-const { findAuthPartitionDir } = require('./auth-partition')
+const { selectAuthPartition } = require('./auth-partition')
 
 // 平台默认域名：无 domain/url 的 cookie 按平台补 url（Electron cookies.set 要求 url）
 function defaultCookieUrl (platform, cookie) {
@@ -112,14 +112,17 @@ const sessionMixin = {
   // 从最新登录分区补充完整 cookie（登录会话是最权威来源，可补回凭证过滤丢掉的父域 cookie 如 BDUSS）
   async _restoreAuthPartitionCookies(win, platform, accountId) {
     try {
-      // 分区定位收敛到 auth-partition.findAuthPartitionDir 单一实现（kuaishou-w3-live-fix：防两处前缀规则漂移）
-      const partitionName = findAuthPartitionDir(platform, accountId)
+      // 选址收敛到 auth-partition.selectAuthPartition 单一实现：kuaishou-w3-live-fix 防前缀规则漂移，
+      // #2734 再防「按名字择新」被失败登录留下的空壳分区遮断（同组从新到旧按内容探，上限 PROBE_LIMIT）。
+      const sel = await selectAuthPartition(platform, accountId, { log })
+      const partitionName = sel.partition
+      const cookies = sel.cookies || []
       if (!partitionName) {
-        log.warn('RpaView', '[' + platform + '] no auth partition to supplement cookies')
+        log.warn('RpaView', '[' + platform + '] no usable auth partition to supplement cookies: reason='
+          + sel.reason + ' probed=' + sel.probed.length
+          + (sel.probed.length ? ' [' + sel.probed.join(', ') + ']' : ''))
         return 0
       }
-      const authSession = session.fromPartition('persist:' + partitionName)
-      const cookies = await authSession.cookies.get({})
       let restored = 0
       for (let ci = 0; ci < cookies.length; ci++) {
         const c = cookies[ci] || {}

@@ -5,6 +5,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 import { isAccountActive } from '@/utils/account-active'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import { loadAccountGroups, saveAccountGroups, normalizeAccountGroups, normalizeCategoryTags } from '@/features/accounts/account-groups-store'
 import i18n from '@/i18n'
 
 // 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx / 网络与超时）时保留上一次列表：
@@ -30,6 +31,12 @@ export const useAccountStore = defineStore('accounts', () => {
   const platformStore = usePlatformStore()
   const accounts = ref([])
   const groups = ref([])
+  // 'ok' | 'unreadable' | 'save-failed' | 'pending-migration'：界面据此区分
+  // 「没有分组」与「读不到/没存上」——后者必须可见，否则用户会以为改动已生效。
+  const groupsStatus = ref('ok')
+  // 保存是异步的而 6 个 CRUD 调用点是同步语义；把这一次写入的 promise 留一份句柄，
+  // 让「已落真源」可被 await（测试与需要确认落盘的调用方都用它），不要靠"等一个微任务"猜。
+  let groupsSavePromise = Promise.resolve(true)
   const favoriteIds = ref(new Set())
   const loading = ref(false)
   const error = ref(null)
@@ -69,7 +76,9 @@ export const useAccountStore = defineStore('accounts', () => {
         if (!transient) accounts.value = []
       }
       reconcileSelection()
-      loadGroups()
+      // 必须 await：分组真源现在是异步 IPC，不 await 会让「load 完成」与「分组可见」
+      // 变成两件事，界面首帧闪空分组、测试也只能靠运气同步
+      await loadGroups()
       loadFavorites()
       if (shouldReconcileMetadata) reconcileAccountMetadata()
       // 瞬时失败不标记为已加载：下次进入账号页仍需重新拉取
@@ -220,42 +229,48 @@ export const useAccountStore = defineStore('accounts', () => {
 
   watch([filteredAccounts, selectedIds], syncAllSelected, { flush: 'sync' })
 
-  function loadGroups() {
-    try {
-      const raw = localStorage.getItem('mp_account_groups')
-      const parsed = raw ? JSON.parse(raw) : []
-      if (!Array.isArray(parsed)) {
-        groups.value = []
-        return
-      }
-      let migrated = false
-      groups.value = parsed.map(group => {
-        const platformFilter = group.platformFilter || null
-        let accountIds = group.accountIds
-        if (!Array.isArray(accountIds)) {
-          accountIds = accounts.value
-            .filter(account => !platformFilter || account.platform === platformFilter)
-            .map(account => account.id)
-          migrated = true
-        }
-        return {
-          ...group,
-          platformFilter,
-          accountIds: Array.from(new Set(accountIds)),
-        }
-      })
-      if (migrated) saveGroups()
-    } catch { groups.value = [] }
-  }
-  function saveGroups() {
-    try {
-      localStorage.setItem('mp_account_groups', JSON.stringify(groups.value))
-      return true
-    } catch {
-      return false
+  /**
+   * 分组真源读取（P2-8a）。
+   *
+   * 后端从 localStorage 换成主进程 settings（按用户命名空间），归一/校验/迁移一次性
+   * 收敛到 `features/accounts/account-groups-store.js` —— 这里不再自己解析，避免两份归一。
+   * `ok:false`（未登录 / 存储不可用）时**保持现状且不写盘**：把「读不到」当成「没有分组」
+   * 再保存一次，等于用空数组抹掉用户真源。
+   */
+  async function loadGroups() {
+    const known = (platformStore.platforms || []).map(p => p.id).filter(Boolean)
+    const result = await loadAccountGroups({
+      ctx: { knownPlatformIds: known.length ? known : null, accounts: accounts.value },
+    })
+    if (!result.ok) {
+      groupsStatus.value = 'unreadable'
+      return groups.value
     }
+    groups.value = result.groups
+    groupsStatus.value = result.pendingMigration ? 'pending-migration' : 'ok'
+    if (result.dropped.length > 0) {
+      // 出声但不静默改写：逐条原因进日志，界面按 groupsStatus 决定要不要提示
+      console.warn(`[account-groups] normalized with dropped items, count=${result.dropped.length} reasons=${[...new Set(result.dropped.map(d => d.reason))].join(',')}`)
+    }
+    return groups.value
   }
-  function createGroup(name, platformFilter, accountIds = []) {
+
+  function saveGroups() {
+    // 不 await：CRUD 调用点有 6 处且是同步语义；失败态经 groupsStatus 浮到界面，
+    // 并用 .catch 兜住 rejection（否则是 unhandledRejection，进程级噪声）。
+    groupsSavePromise = saveAccountGroups({}, groups.value)
+      .then((r) => {
+        groupsStatus.value = r.ok ? 'ok' : 'save-failed'
+        return r.ok
+      })
+      .catch((e) => {
+        groupsStatus.value = 'save-failed'
+        console.warn('[account-groups] save threw:', e?.message || e)
+        return false
+      })
+    return groupsSavePromise
+  }
+  function createGroup(name, platformFilter, accountIds = [], categoryTags = []) {
     const normalizedPlatform = platformFilter || null
     const validIds = new Set(accounts.value
       .filter(account => !normalizedPlatform || account.platform === normalizedPlatform)
@@ -265,6 +280,8 @@ export const useAccountStore = defineStore('accounts', () => {
       name,
       platformFilter: normalizedPlatform,
       accountIds: Array.from(new Set(accountIds.filter(id => validIds.has(id)))),
+      // 必须与 normalizeAccountGroups 的输出字段一致（缺字段会让两条归一路径漂移）
+      categoryTags: normalizeCategoryTags(categoryTags),
     }
     groups.value.push(group)
     saveGroups()
@@ -280,6 +297,18 @@ export const useAccountStore = defineStore('accounts', () => {
     if (!group || !normalizedName) return false
     if (groups.value.some(item => item.id !== groupId && item.name === normalizedName)) return false
     group.name = normalizedName
+    saveGroups()
+    return true
+  }
+  /**
+   * 设置分组的内容类别标签（软标签：不影响成员资格）。
+   * @param {string} groupId
+   * @param {string[]} tags
+   */
+  function setGroupCategoryTags(groupId, tags) {
+    const group = groups.value.find(item => item.id === groupId)
+    if (!group) return false
+    group.categoryTags = normalizeCategoryTags(tags)
     saveGroups()
     return true
   }
@@ -453,10 +482,11 @@ export const useAccountStore = defineStore('accounts', () => {
   }
 
   return {
-    accounts, groups, favoriteIds, loading, error, errorCode, loaded, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
+    accounts, groups, groupsStatus, favoriteIds, loading, error, errorCode, loaded, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, accountsBeforePlatformFilter, filteredAccounts, groupedByPlatform,
     load, ensureLoaded, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
-    createGroup, deleteGroup, renameGroup, setGroupPlatform, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
+    createGroup, deleteGroup, renameGroup, setGroupPlatform, setGroupCategoryTags, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
+    flushGroupsSave: () => groupsSavePromise,
     isFavorite, toggleFavorite,
     toggleSelect, selectAll, clearSelection, batchDelete, batchSetActive, isAccountActive,
   }

@@ -1100,6 +1100,28 @@ var require_auto_pipeline = __commonJS({
   }
 });
 
+// electron/preload/automation.js
+var require_automation = __commonJS({
+  "electron/preload/automation.js"(exports2, module2) {
+    function createAutomationApi2(ipcRenderer2) {
+      return {
+        automationList: () => ipcRenderer2.invoke("automation:list"),
+        automationCreate: (payload) => ipcRenderer2.invoke("automation:create", payload),
+        automationUpdate: (id, payload) => ipcRenderer2.invoke("automation:update", id, payload),
+        automationRemove: (id) => ipcRenderer2.invoke("automation:remove", id),
+        automationRunNow: (id) => ipcRenderer2.invoke("automation:run-now", id),
+        // 后台任务通知（失败 / 从失败恢复）：渲染层转 toast，不打断当前操作
+        onAutomationNotification: (cb) => {
+          const h = (_, payload) => cb(payload);
+          ipcRenderer2.on("automation:notification", h);
+          return () => ipcRenderer2.removeListener("automation:notification", h);
+        }
+      };
+    }
+    module2.exports = { createAutomationApi: createAutomationApi2 };
+  }
+});
+
 // electron/preload/knowledge-library.js
 var require_knowledge_library = __commonJS({
   "electron/preload/knowledge-library.js"(exports2, module2) {
@@ -1427,6 +1449,7 @@ var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
 var { createHotTopicsApi } = require_hot_topics();
 var { createAutoPipelineApi } = require_auto_pipeline();
+var { createAutomationApi } = require_automation();
 var { createKnowledgeLibraryApi } = require_knowledge_library();
 var { createSignerApi } = require_signer();
 var {
@@ -1475,6 +1498,7 @@ var fullApi = {
   ...createAggregationApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
+  ...createAutomationApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
   // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
   ...createSignerApi(ipcRenderer),

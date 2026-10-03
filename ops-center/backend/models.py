@@ -632,6 +632,28 @@ class AppMenuItem(Base):
     updated_by = Column(String(100), default="")
 
 
+class ContentCategory(Base):
+    """统一内容类别 — 热门选题分类 / 采集库类别标签 / 账号预设标签 的唯一真源（2026-10-03）。
+
+    category_key 与桌面端 apps/desktop/electron/services/hot-topics/classifier.js
+    的 CATEGORY_KEYS 一一对应；一旦发布不得改名（改名会让桌面端历史引用失效）。
+    is_preset=1 为内置预设类，可改名/禁用/排序，不可删除。
+    桌面端经 runtime/bootstrap 的 contentCategories 字段消费（只下发 enabled=1）。
+    """
+
+    __tablename__ = "content_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category_key = Column(String(64), unique=True, nullable=False)
+    name = Column(String(40), nullable=False)
+    sort_order = Column(Integer, default=0)
+    enabled = Column(Integer, default=1)
+    is_preset = Column(Integer, default=0)  # 1 = 内置预设类（不可删除）
+    description = Column(String(200), default="")
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
+
 class RewriteStrategy(Base):
     """改写策略模板 — 运营端管理桌面端改写引擎的策略配置。"""
 

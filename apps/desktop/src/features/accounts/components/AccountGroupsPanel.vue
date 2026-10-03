@@ -107,6 +107,17 @@
             </button>
           </div>
         </header>
+        <!-- 内容类别标签（软标签：不决定成员资格，只标记内容定位） -->
+        <GroupTagsEditor
+          v-if="categories.length > 0"
+          :group="group"
+          :categories="categories"
+          :editing="editingTagsGroupId === group.id"
+          :translate="translateFn"
+          @edit="startEditTags(group)"
+          @save="(tags) => setGroupTags(group, tags)"
+          @cancel="cancelEditTags"
+        />
         <div class="member-list">
           <label v-for="account in eligibleAccounts(group)" :key="account.id" class="member-row">
             <input
@@ -129,14 +140,20 @@
 import { computed, ref } from 'vue'
 import { Delete, FolderOpened, Plus, Search } from '@element-plus/icons-vue'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import GroupTagsEditor from '@/features/accounts/components/GroupTagsEditor.vue'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
   accounts: { type: Array, default: () => [] },
   platforms: { type: Array, default: () => [] },
   platformLabel: { type: Function, default: value => value },
+  // 统一内容类别（可选）：热门选题 / 采集库 / 账号标签 共用真源。
+  // 不传则隐藏类别标签区（渐进增强，避免未加载完成时出现空选项）。
+  categories: { type: Array, default: () => [] },
+  /** vue-i18n 的 t 函数（可选）：透传给 GroupTagsEditor 解析内置类别名 */
+  translateFn: { type: Function, default: null },
 })
-const emit = defineEmits(['create', 'delete', 'rename', 'set-platform', 'toggle-account'])
+const emit = defineEmits(['create', 'delete', 'rename', 'set-platform', 'toggle-account', 'set-tags'])
 
 // 必须与账号卡片同一口径：此前这里直出 `account_name || name`，不过噪声守卫，
 // 于是同一账号在「分组管理」里仍显示抓错的网页标题（openspec: add-account-name-source）。
@@ -156,6 +173,21 @@ const newGroupName = ref('')
 const newGroupPlatform = ref('')
 const editingGroupId = ref('')
 const editingGroupName = ref('')
+const editingTagsGroupId = ref('')
+
+function startEditTags (group) {
+  editingTagsGroupId.value = group.id
+}
+
+function cancelEditTags () {
+  editingTagsGroupId.value = ''
+}
+
+/** 子组件保存 → 转发给宿主（宿主负责落真源与提示） */
+function setGroupTags (group, tags) {
+  emit('set-tags', group.id, tags)
+  cancelEditTags()
+}
 
 const visibleGroups = computed(() => {
   const query = searchInput.value.trim().toLowerCase()
@@ -431,4 +463,5 @@ function saveRename (group) {
 .member-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .member-platform { color: var(--muted, #85858f); font-size: var(--font-size-xs); }
 .member-empty { padding: 14px; border-top: 1px solid #efeff2; color: var(--muted, #85858f); font-size: var(--font-size-xs); text-align: center; }
+/* 内容类别标签样式随 GroupTagsEditor.vue 走（样式与组件同处，避免父组件样式块膨胀） */
 </style>

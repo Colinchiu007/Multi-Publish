@@ -56,6 +56,9 @@ const viewTests = [
   ),
   routeView('dashboard', '/dashboard', '.cohere-main .page-title:has-text("数据看板")'),
   routeView('collection', '/collection', '.cohere-main .collection-tab-btn.active'),
+  // 自动化（2026-10-03 新增一级导航）：空态下的新建入口必须渲染得出来 ——
+  // waitFor 指向按钮本身，渲染不出来即用例失败，而不是"截了一张没有按钮的图当基线"。
+  routeView('automation', '/automation', '.automation-page [data-testid="automation-create"]'),
   routeView('copy-library', '/copy-library', '.copy-library-page [data-testid="copy-library-title"]'),
   routeView('keyword-monitor', '/keywords', '.cohere-main .page-title:has-text("关键词监测")'),
   routeView('viral-analysis', '/viral-analysis', '.cohere-main .page-title:has-text("爆款分析")'),

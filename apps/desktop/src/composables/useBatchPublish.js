@@ -1,17 +1,8 @@
 // @ts-check
 /**
  * useBatchPublish.js — 批量发布 composable（从 Publish.vue 拆分）
- *
- * 职责：
- *   - 维护 batchMode / articles / batchProgress / templateTargetIdx / precheckEnabled 状态
- *   - addArticle / removeArticle / duplicateArticle / applyTemplate 文章管理
- *   - handleBatchPublish 批量发布流程（batchCreate + batchSchedule/batchExecute）
- *   - checkBatchAccess 权限检查（Pro 才能用批量模式）
- *   - watch batchMode 切换时自动初始化 articles
- *
- * 依赖（参数传入）：
- *   - article: reactive 对象（单篇模式 applyTemplate 目标）
- *   - licenseStore: { isPro: boolean }
+ * 职责：batchMode/articles/batchProgress 状态 + 文章管理 + handleBatchPublish 流程
+ * （batchCreate + batchSchedule/batchExecute）+ Pro 权限检查；参数：article、licenseStore。
  */
 import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -39,6 +30,7 @@ import {
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
+import { convertBatchArticleItem } from '@/features/publish/platform-content-conversion'
 import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
 import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { usePublishProgressStore } from '@/stores/publishProgress'
@@ -168,11 +160,8 @@ export function useBatchPublish(options) {
    * 构造单篇文章的批量提交负载。
    * **单一实现**：在线提交（batchCreate）与离线缓存（offlineAddToCache）必须共用同一份
    * 构造——两份必然漂移，漂移表现为「离线缓存重放出去的文章字段与用户确认时看到的不一致」。
-   *
-   * **P2-7 与单篇同口径**：键集与条件挂载规则必须与 `usePublishFlow.buildArticleData` 一致
-   * （回归锁见 useBatchPublish.test.js「P2-7 与单篇键集 parity」）。此前批量少
-   * contentFormat / platformOverrides / visibilitySemantic 三键，且 tags/topics/mentions/images
-   * 恒发空值（单篇是「有值才挂键」），同一份内容在两模式产出不同形状的任务。
+   * **P2-7 与单篇同口径**：键集与条件挂载规则必须与 usePublishFlow.buildArticleData 一致
+   * （回归锁见 useBatchPublish.test.js「P2-7 与单篇键集 parity」；历史缺陷详录见该测试）。
    */
   function buildBatchArticlePayload (a) {
     const imageFiles = normalizePublishFiles(a.image_files || a.images)
@@ -430,6 +419,8 @@ export function useBatchPublish(options) {
 
     let keepPublishingLock = false
     try {
+      // 平台字数限制体系：逐条目收集截断记录（PRD §F3），确认弹窗汇总提示
+      const conversionSummaries = []
       // 验证每篇文章
       for (const a of articles.value) {
         if (!a.title.trim()) {
@@ -463,10 +454,17 @@ export function useBatchPublish(options) {
           notifyWarning('publishPage.batchNotify.metadataInvalid', { params: { title: a.title.slice(0, 20), message: metadataCheck.message } })
           return
         }
-        // P2-7：注册表内容限制校验（批量此前完全不调，超长内容直接进队列、由平台侧报错，
-        // 用户在进度流里只看到一条模糊失败）。口径与单篇同一实现，含无标题平台
-        // 「标题计入正文首行」的合并长度判定。失败语义是**整批中止**，与批量既有
-        // 各道校验一致——一次批量提交是一个用户动作，部分提交会让计数与预期不符。
+        // 平台字数限制体系（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F3/§F4）：
+        // ① 应用级 10000 字截断（写回条目，用户可见）；
+        // ② 按平台生成差异化覆盖截断（取代「超限整批中止」——转换后仍超限才中止）。
+        // 逐条目收集截断记录，确认弹窗汇总提示。转换编排单一实现在
+        // platform-content-conversion.convertBatchArticleItem（单篇/批量共口径）。
+        for (const notice of convertBatchArticleItem(a)) {
+          conversionSummaries.push({
+            title: a.title.slice(0, 20),
+            detail: progressText(notice.key, notice.params),
+          })
+        }
         const contentCheck = validatePlatformContent({
           platforms: a.platforms,
           article: { title: a.title, content: a.content },
@@ -504,7 +502,16 @@ export function useBatchPublish(options) {
       }
 
       const confirmed = await notifyConfirm('publishPage.batchNotify.confirmMessage', {
-        params: { count: articles.value.length, tasks: totalPlatformTasks.value },
+        params: {
+          count: articles.value.length,
+          tasks: totalPlatformTasks.value,
+          ...(conversionSummaries.length > 0
+            ? { converted: progressText('publishPage.batchNotify.contentConverted', {
+                count: conversionSummaries.length,
+                details: conversionSummaries.map(item => `「${item.title}」${item.detail}`).join('；'),
+              }) }
+            : {}),
+        },
         title: progressText('publishPage.batchNotify.confirmTitle'),
         confirmButtonText: progressText('publishPage.batchNotify.confirmButton'),
         cancelButtonText: progressText('publishPage.batchNotify.cancelButton'),

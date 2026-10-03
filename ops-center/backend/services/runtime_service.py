@@ -321,6 +321,16 @@ async def _get_app_menu(db: AsyncSession) -> dict:
     from services import app_menu_service
     return await app_menu_service.get_bootstrap_app_menu(db)
 
+async def _get_content_categories(db: AsyncSession) -> dict:
+    """统一内容类别下发（2026-10-03）——只下发 enabled=1。
+
+    与 appMenu 同点位：位于 bootstrap 响应的 Ed25519 签名覆盖范围内，
+    新增字段不会被篡改。
+    """
+    from services import content_category_service
+    return await content_category_service.get_bootstrap_content_categories(db)
+
+
 async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.feature_flag_service import list_runtime_feature_flags
     from services.platform_def_service import list_runtime_platform_defs
@@ -341,6 +351,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "rewrite_hard_constraints": await get_default_hard_constraint(db),
         "pipelineOptions": await _get_pipeline_options(db),
         "appMenu": await _get_app_menu(db),
+        "contentCategories": await _get_content_categories(db),
         "synced_at": _now(),
     }
 

@@ -150,4 +150,8 @@ unlink；该风险的代价是本轮内 silent 目录不减少，由下一次进
 ### I1 / I2（记为已知，不改判据）
 I1：字典序与创建序在 seq 跨 9→10 时分歧，但**定位端用的是同一口径**，读取中性不破；
 真要修得连 `findAuthPartitionDir` 一起改，不在本 PR 夹带。
+
+## 后续（2026-10-01 同日，#2734 已落地）
+
+上面那句延期已经在 `fix-auth-partition-content-select` 里兑现：定位端改成「同组从新到旧**按内容**探，取第一个真含该平台 Cookie 的」，`findAuthPartitionDir` 已删除并被 `selectAuthPartition` / `listAuthPartitionCandidates` 取代。**本文其余部分按 #2701 当时的口径保留，不回改**——其中「每组只留字典序末位」与「回收前后 `findAuthPartitionDir` 返回同一分区名」两条在今天已不成立，现在的不变量是「回收保留数 = 定位探测窗口 `PROBE_LIMIT`」与「回收前后候选集完全相同」。详见 `01-docs/BUGFIX-AUTH-PARTITION-CONTENT-SELECT-2026-10-01.md`。
 I2：`livePartitions` 只增不减 ⇒ 回收语义就是「跨进程」，已在本档与 `.quality-gates.md` 写明。

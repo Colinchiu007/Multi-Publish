@@ -113,6 +113,9 @@ jobs:
         shell: bash
         run: |
           node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
+          # 打包暂存端剪枝的回归锁（#2765）：extraResources 的第二条通道把仓库树里的测试文件带进
+          # app.asar 之外的松散树，判据与门禁共享同一实现（shared-utils/artifact-test-pattern）
+          node --test apps/desktop/scripts/stage-remotion-runtime.test.js
           node --test scripts/sync-platform-config.test.js
           node --test scripts/compare-scheduler-models.test.js
           # 会话隔离入口脚本的结构锁：native stderr 捕获不得处在 EAP=Stop 作用域内
@@ -460,6 +463,12 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      # electron@43 没有 postinstall：pnpm install 之后 electron 包只有 npm 壳、没有 dist。
+      # 不先备好二进制，任何 require('electron') 会走进 node_modules/electron/index.js，
+      # 它先打 "Downloading Electron binary..." 再当场下载 ⇒ 下载耗时被记到"当时正在跑的那条用例"头上
+      # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
 
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
 
@@ -575,6 +584,12 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      # electron@43 没有 postinstall：pnpm install 之后 electron 包只有 npm 壳、没有 dist。
+      # 不先备好二进制，任何 require('electron') 会走进 node_modules/electron/index.js，
+      # 它先打 "Downloading Electron binary..." 再当场下载 ⇒ 下载耗时被记到"当时正在跑的那条用例"头上
+      # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
 
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
@@ -658,6 +673,12 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      # electron@43 没有 postinstall：pnpm install 之后 electron 包只有 npm 壳、没有 dist。
+      # 不先备好二进制，任何 require('electron') 会走进 node_modules/electron/index.js，
+      # 它先打 "Downloading Electron binary..." 再当场下载 ⇒ 下载耗时被记到"当时正在跑的那条用例"头上
+      # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
 
       # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
       - name: "Gate 5 - Test coverage check"
