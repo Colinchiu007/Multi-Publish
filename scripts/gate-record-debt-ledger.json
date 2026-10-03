@@ -1,4 +1,9 @@
 {
+  "本次执行记录：P2-8b 发布页「按组添加」分组成员加入发布目标（publish-group-picker，2026-10-03）": {
+    "reason": "本 PR 自己写的行：合并前无法取证（PENDING 的既有语义）。回填者＝本记录作者在 PR 合并后的收口 docs PR，回填时须同时删除本条登记项，否则报陈旧登记。取证口径：git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA 与时间；git ls-remote --heads origin publish-group-picker 返回 0 行证远端分支已删。",
+    "status": "PENDING",
+    "line": 1
+  },
   "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "OPEN（已记录）",
