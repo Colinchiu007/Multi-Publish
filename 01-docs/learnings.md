@@ -1,3 +1,11 @@
+## 智能面板密度是独立 spec 维度；像素基线只拍空态首屏，结果态改动不漂基线；QG Changes 对 PENDING 行要求账本同次登记（compact-tag-suggester-tabs，2026-10-03）
+
+- **「面板放哪」与「面板多高」是两层契约**：上游 spec `publish-page-right-rail` 已约束智能面板贴邻字段、不进右栏，但没约束面板自身纵向密度——TagSuggester 把 5 平台分组纵向铺开 ~800px 依然合规。这类「布局位置对了但体量失控」的回归不会撞任何既有门禁，评估 UI 变更时要单独立一条密度验收（本刀补 Requirement：内容区 ≤340px ±10%，实测 5 平台×7 标签 357px，-55%）。
+- **Tab 化的三个非显然决策**：① 汇总行的「+N」徽标不可点击、title 指向平台 Tab——把「去哪看全部」做成指路牌而非陷阱；② 摘要只截显示，复制按钮仍复制全量（复制语义跟着平台走，不跟摘要切片走）；③ `activeTab` 存平台 key 不存展示名，i18n 切换才不会把选中态打碎；`normalizedActiveTab` computed 归一化非法值 + `watch(platformGroups)` 回落，双保险防状态残留。
+- **像素基线判读先于像素基线重建**：跑 `test:visual:pixel` 前先确认「本次改动区域是否在基线截图视野内」。本刀改的是面板**结果态**（内容>3 字符才渲染），而 publish-form 基线用空 profile 拍空态首屏，两次 0.627% PASSED——结果态改动对这种基线是天然不可见的，不需要也无法通过重建基线来「验证」。同轮 collection 1.62% 失败，溯源 = #2792 改采集页没刷基线（基线停在 #2714），与本分支无关——失败先归因再动手，别把别人的欠账刷成自己的基线。
+- **Playwright 拦截 IPC 取证范式**（`capture-tag-tabs-proof.js`）：hash 路由 URL 必须写 `/#/publish`（`/publish` 会落首页）；`electronAPI` stub 放 `addInitScript` **带 mock 参数内嵌**（先 goto 再 evaluate 再 reload 会把注入值随 reload 清掉）；UiInput 是包裹 div，fill 要打内部 `input`；面板卡用 testid 的 `xpath=ancestor::div[contains(@class,"cohere-card")][1]` 定位（外层表单卡同名 class，hasText 会误匹配）。
+- **QG Changes 的账本登记是硬拦门禁**：`.quality-gates.md` 新增带「远程同步 | PENDING」的执行记录，必须与 `scripts/gate-record-debt-ledger.json` 登记项**同一次提交**落盘，否则 PR CI 的 quality-gate 直接红（「存在未登记的欠账」）；账本键 = 记录标题去掉 `## `、值含 `reason/status/line`。本地 `node scripts/check-gate-record-debt.js` rc=0 再 push 能省一轮 CI 往返。
+- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)<<<<<<< HEAD\r?\n(.*?)=======\r?\n(.*?)>>>>>>> origin/main\r?\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。
 ## 本机跑像素门禁的红不等于回归：先验「登录态/数据依赖 + 动画抑制」再下结论（visual-local-triage，2026-10-03）
 
 - **现场**：本机跑 `test:visual:pixel` 报 collection 视图 1.62%（阈值 1%）。逐层归因后定性为**本机渲染状态依赖**，不是 CI 渲染回归：① 裸截图 vs 基线差 1.159%；② 与 runner 同参（`reducedMotion:'reduce'` + 注入 `animation:0s!important` CSS + `setFixedTime` + settle）后降到 0.620%；③ 差异带剖面锁定 `col-panel::before` 的 **3s 无限橙渐变动画**（`Collection.vue` `.col-panel-ribbon`）——动画帧不同 ⇒ 顶部 4px 横幅整带红；④ 剩余差异带集中在草稿箱区（y=960-1079）：基线里有 5 张测试草稿卡，本机渲染是「暂无草稿」空态 ⇒ **登录态/本地数据依赖**改变了渲染内容。
