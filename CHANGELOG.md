@@ -1,3 +1,28 @@
+# [未发布] test(story2video): 测试引擎必须自己钉住并发预算，一条"CI 绿、开发机红"的用例就此确定化（2026-10-03，fix-s2v-auto-start-preflight）
+
+### 根因（并否证 #2796 正文自己的描述）
+- `story2video-manual-assets.test.js` 在低内存主机上确定性红（`expect(auto.success).toBe(true)` 收到 false），
+  CI 上却不复现 —— 因为 runner 是 4 vCPU/16GB。探针把返回值整个打出来才看清：
+  第二次 `startOrchestrated` 返回 `{success:false, errorCode:'PIPELINE_CONCURRENCY_LIMIT', errorParams:{count:1,max:1}}`，
+  而换一个**新 engine** 跑同一份参数直接成功 ⇒ 与 manual/auto 无关（#2796 正文说的"auto 模式失败"是把相关性当因果，
+  探针里把两次启动顺序颠倒，红的就变成 manual 那条）。
+- 真因是夹具用 `new PipelineEngine()` 不注入预算 ⇒ 落到 `pipeline-engine.js` 的机器资源自适应
+  （`cpus<2 或 freeMem<2GB ⇒ 1`）；该用例在同一 engine 上连起两条 run，第一条（`autoAdvance:false` + 无执行器）
+  永驻 running 并独占唯一槽位。
+
+### 修复与锁
+- `makeConfiguredEngine()` 显式注入 `maxConcurrentRuns: 4`（同先例 `electron/tests/pipeline-engine.test.js:1206-1211`，本文件只是漏了一处）；
+  两条 `success` 断言改为携带返回值原文，将来被预算拒时现场直接报 `errorCode` 而不是 `expected false to be true`。
+- 新增防再犯锁「工厂产出的引擎必须显式钉住预算（>=2）」——只看前提声明，不看行为。
+- 反证四档全部在 `STORY2VIDEO_MAX_CONCURRENT_RUNS=1`（最坏主机）下实跑：M-1 取消注入 ⇒ 锁单独 RED；
+  M-3 取消注入 + 把锁断言拆成恒真 ⇒ 锁 GREEN（证明那条断言是承重件）；M-2 预算钉成 1 ⇒ 整文件 RED 且现场含
+  `PIPELINE_CONCURRENCY_LIMIT`；基线修复后整文件 GREEN 23/23。
+
+### 顺带得到的整类枚举技术
+- `cd apps/desktop && STORY2VIDEO_MAX_CONCURRENT_RUNS=1 pnpm exec vitest run electron` 可把"偷偷依赖主机资源"的
+  用例一次性逼出来：423 文件实测只有 2 个红（本用例 + `feedback.test.js` 的既有 Windows symlink EPERM）
+  ⇒ 这一类的规模就是一个文件，不需要全局重构。是否接成 CI 车道写在记录「遗留」，未静默决定。
+
 # [未发布] test(desktop): 桌面单测里那条 `Downloading Electron binary...` 是夹具造出来的假象；fs mock 改按路径委托，并给测试期 electron/install.js 加响亮失败守卫（2026-10-03，fix-electron-dist-banner-attribution）
 
 ### 根因（#2794 归因；本单正文原先写的"exe 被短暂删除"假设被实测否证）

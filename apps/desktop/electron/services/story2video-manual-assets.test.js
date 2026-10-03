@@ -653,7 +653,14 @@ describe('finalize_assets', () => {
 })
 
 function makeConfiguredEngine() {
-  const engine = new PipelineEngine()
+  // 隔离引擎：并发预算必须显式注入。默认值是**按机器资源自适应**的
+  // （computeDefaultMaxConcurrentRuns：freeMem<2GB 或 cpus<2 ⇒ 预算 1），
+  // 而下面这些用例会**在同一个 engine 上连续 startOrchestrated 两次**（前一条 run 停在 running，
+  // 没有被推进到终态），于是低内存主机上第二次启动被 PIPELINE_CONCURRENCY_LIMIT 拒掉，
+  // 表现为与本用例语义毫无关系的 expected false to be true —— 即"同一提交在 CI 绿、在开发机红"。
+  // 预算与被测的东西（阶段插入顺序 / confirmSceneAssets 校验）无关，这里要的是确定性。
+  // 同先例：electron/tests/pipeline-engine.test.js:1206-1211。
+  const engine = new PipelineEngine({ maxConcurrentRuns: 4 })
   const stageExecutor = makeStageExecutor()
   engine.stageExecutor = stageExecutor
   engine.registerStageExecutor = (type, fn) => { stageExecutor.register(type, fn); return { success: true } }
@@ -661,6 +668,21 @@ function makeConfiguredEngine() {
   return engine
 }
 
+describe('测试引擎的并发预算必须与主机无关（#2796 防再犯锁）', () => {
+  // 本文件的用例会在**同一个 engine** 上连续 startOrchestrated 两次（前一条 run 停在 running）。
+  // PipelineEngine 的默认并发预算是按机器资源自适应的（freeMem<2GB 或 cpus<2 ⇒ 1 条），
+  // 于是低内存开发机上第二次启动会被 PIPELINE_CONCURRENCY_LIMIT 拒掉，
+  // 表现为与本文件语义完全无关的 expected false to be true，且 CI 上不复现（"同一提交在 CI 绿、在开发机红"）。
+  it('工厂产出的引擎必须显式钉住预算（>=2），而不是沿用自适应默认值', () => {
+    const engine = makeConfiguredEngine()
+    expect(engine.maxConcurrentRuns).toBeGreaterThanOrEqual(2)
+    // 反向对照：不注入时预算由主机决定 —— 这里只锁"注入这条路径确实生效"，
+    // 不锁自适应函数本身的取值表（那张表归 pipeline-engine 自己的用例管）。
+    const unpinned = new PipelineEngine()
+    expect(Number.isFinite(unpinned.maxConcurrentRuns)).toBe(true)
+    expect(unpinned.maxConcurrentRuns).toBeLessThanOrEqual(4)
+  })
+})
 describe('pipeline-engine manual 集成', () => {
   it('manual 模式在 compose 前插入 finalize_assets 阶段；auto 不插入', async () => {
     const engine = makeConfiguredEngine()
@@ -670,7 +692,7 @@ describe('pipeline-engine manual 集成', () => {
       checkpointPolicy: 'none',
       story2videoTextConfig: { creation: { mode: 'manual', materialMode: 'all-images' } },
     })
-    expect(manual.success).toBe(true)
+    expect(manual.success, JSON.stringify(manual)).toBe(true)
     const manualRun = engine.getRunSnapshot(manual.runId)
     const names = manualRun.stages.map(s => s.name)
     expect(names).toContain('finalize_assets')
@@ -682,7 +704,7 @@ describe('pipeline-engine manual 集成', () => {
       checkpointPolicy: 'none',
       story2videoTextConfig: {},
     })
-    expect(auto.success).toBe(true)
+    expect(auto.success, JSON.stringify(auto)).toBe(true)
     const autoRun = engine.getRunSnapshot(auto.runId)
     expect(autoRun.stages.some(s => s.name === 'finalize_assets')).toBe(false)
   })
