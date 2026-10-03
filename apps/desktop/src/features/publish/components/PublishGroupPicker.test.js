@@ -53,4 +53,25 @@ describe('PublishGroupPicker（发布页按组添加）', () => {
     expect(wrapper.get('[data-testid="group-apply-g1"]').attributes('aria-label'))
       .toBe(i18n.global.t('publishPage.groupPicker.applyAria', { name: '国内主力' }))
   })
+
+  // QM-6 前端轴 F5：组名是用户自由输入（≤40 字符），可以带 vue-i18n 的**元字符**。
+  // 消息源里的 `@:key` 是链接语法、`{x}` 是插值 —— 必须证明"值里的这些字符只当文本"，
+  // 否则一个名叫 `@:xxx` 的组会把用户看到的文案变成另一个键的解析结果。
+  it('组名里的 vue-i18n 元字符只当文本，不被二次解析（F5）', () => {
+    const hostile = [
+      'test{name}',
+      '@:publishPage.groupPicker.label',
+      '100% {name} 与 {0}',
+      '含反斜杠 \\{ x \\} 与 ${j}',
+    ]
+    for (const name of hostile) {
+      const text = i18n.global.t('publishPage.groupPicker.applyAria', { name })
+      // 断言"原样包含"而不是"等于某个拼好的串"：后者会把文案改动的假红引进来
+      expect(text, `组名 ${JSON.stringify(name)} 被插值管线改写了`).toContain(name)
+      const added = i18n.global.t('publishPage.groupPicker.added', { name, added: 2, platformText: '' })
+      expect(added).toContain(name)
+      const nothing = i18n.global.t('publishPage.groupPicker.nothingToAdd', { name })
+      expect(nothing).toContain(name)
+    }
+  })
 })
