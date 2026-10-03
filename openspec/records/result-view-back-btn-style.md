@@ -1,0 +1,35 @@
+---
+record: result-view-back-btn-style
+task: 视频历史记录-任务详情页「← 返回」视觉优化（箭头与文字对齐 + 收归同流程 .back-btn 胶囊语言 + 修落位错位）
+date: 2026-10-03
+sync_status: PENDING
+sync_reason: 本 PR 尚未合并，merge SHA 还不存在
+sync_backfill_owner: 下一个会话（回填时把「远程同步」改成 PASS 并整段删除 sync_status / sync_reason / sync_backfill_owner）
+---
+
+## 本次执行记录：视频任务详情页返回按钮视觉优化（result-view-back-btn-style，2026-10-03）
+
+> 分支：`result-view-back-btn-style`；worktree：`D:/Data/projects/mp-worktrees/mp-result-view-back-btn-style`（由 `scripts/start-mp-task.ps1 -TaskName result-view-back-btn-style -NoShell` 创建，`verify-worktree-deps.js` OK）；基线 = `fb236c9b`（`HEAD` 与 `origin/main` 实测同为 `fb236c9b`，`git status --porcelain` = 0 行）
+> 范围：🎨 UI/UX 变更（渲染端单组件：`apps/desktop/src/views/ResultView.vue` 模板 + scoped 样式）+ 🧪 回归测试 + 📝 CHANGELOG
+> 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=false**（含 `apps/desktop/**` 渲染端代码）⇒ 不走 docs-only 快速通道；但变更规模 🌱 微小（净 +20/−3，2 个文件，无逻辑分支改动）⇒ 按轻量模式执行日常循环 ⓪→⑦
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | PASS | 动手前先实测共享根 `git rev-parse --abbrev-ref HEAD` = `main` 且 `git status --porcelain` = 0 行，才建 worktree；建完按实证口径核对（不信 rc）：`git worktree list` 列出该路径 + `rev-parse --abbrev-ref HEAD` = `result-view-back-btn-style`。依赖 `pnpm install --frozen-lockfile`（15s，全局 store 硬链接）+ `ensure-electron.js`（v43.1.1 就绪）+ `verify-worktree-deps.js` OK（11 个 `@multi-publish/*` 全部解析到本 worktree）。收尾共享根仍 `main` clean、0 项 |
+| 上下文与根因（Step ①） | PASS | 不是"看着不协调就调参"。三处各有出处：① `ResultView.vue:5` 的 `← {{ 文案 }}` 是**同一文本节点内的字面空格拼接**，`←`（U+2190）与汉字各按自身字体度量参与行内排版，中文回退字体下该字形字身偏小、基线偏高 ⇒ 这就是"箭头和返回没对齐"的机制；② `.back-to-list` 的 `margin-right: auto` 落在 `justify-content: space-between` 的 flex 行里，自动边距吃掉全部剩余空间 ⇒ 宽窗口按钮浮在页面中部与标题抢行（真机截图实测到），窄窗口整块换行孤悬标题上方（用户截图）；③ 全仓清点出这是**第四种**返回变体（`.back-btn` / `.back-link` / `.back-to-list` / 裸 `← 返回` router-link），其中同流程另一页 `CreateView.vue:47` 用的是 `create-view.css:112` 的描边胶囊且带 `:focus-visible`，本条既无描边也无焦点环 |
+| 测试先行（Step ② / QM-3） | PASS | 新增锁「返回按钮的箭头是独立装饰字形，不进入可访问名」**先红后绿**，红因经原始输出核对为 `expected false to be true` 指向 `arrow.exists()`（即"箭头还不是独立元素"），不是夹具自坏。断言取**行为面**而非源码文本：`aria-hidden` 元素的可见文本恰为 `←`，且从 `textContent` 里摘掉它之后剩余串 `trim()` 恰等于本地化标签「返回」（把"靠字面空格拼接"这一形态钉死）。既有 `data-testid="back-to-pipeline-list"` 与「返回」文案保持不变，原行为锁（点击 → `/create?view=history`）未改动即通过 |
+| 实现（Step ③） | PASS | 净 +20/−3、2 文件。箭头拆 `<span class="back-to-list__arrow" aria-hidden="true">` + 按钮 `inline-flex/align-items:center/gap:6px` + 箭头 `line-height:1`；按钮移出 `.page-header` 成为 `.result-page`（flex column）直接子项，`align-self:flex-start` + `margin-bottom:var(--spacing-4,16px)`。形状值对齐 `.back-btn`（`padding:6px 14px` / `1px solid var(--border)` / `var(--radius-sm,6px)` / hover 主色描边 / `:focus-visible` 焦点环）；**底色两档刻意不抄**：本页底色即 `--surface`，照搬「透明底 + hover 变 `--surface`」会让 hover 反馈不可见（已在样式注释里写明，防下一个会话"顺手收敛"掉） |
+| 审查（Step ④） | PASS | 无逻辑分支/异步/持久化/IPC 改动，无新增依赖，无硬编码密钥，无 `console.log`，无 `waitForTimeout`。i18n：未新增用户可见文案，`create.story2video.backToHistory` 的 zh/en 实测已成对（`zh.js:363` / `en.js:363`）⇒ Gate 7 无需改动。a11y：装饰字形 `aria-hidden` 后读屏可访问名只剩「返回」；补上原先缺失的键盘焦点环。Vue 模板编译由 vitest transform 实测通过（非 `node --check`） |
+| 视觉回归（QM-4） | PASS（附失明声明） | 像素门禁 `PIXEL_ONLY=create-result`（该用例已登记在 `run-pixel-tests.js:31`，即 QG Visual Gate 7 实际执行的那份清单）明/暗双档 PASSED，目标 URL 指向**本 worktree 自己**的 dev server（`vite --port 5199 --strictPort`，跑完按 CommandLine 精确匹配杀掉，收尾 `netstat` 实测 0 条 LISTENING）。**但 PASSED 不构成改动本身的证据**：全页 6% 阈值对一个按钮结构性失明，故真实结论取自两条独立现场 —— (a) 明/暗两张 `-current.png` 逐张目视（胶囊成型、箭头与文字间距均匀、落在标题正上方）；(b) 真浏览器 `getBoundingClientRect`/`getComputedStyle` 探针：箭头与按钮光学中心 `115.5 == 115.5`、按钮左边缘与标题左边缘 `684 == 684`、`display:flex` + `gap:6px` + `radius:8px` 生效、hover 底色 `#fff→#efefef` 与边框 `#efefef→rgb(80,72,229)` 两条**分别**变化（证明 hover 不是靠单一属性顺带通过） |
+| 验证范围取消费者并集 | PASS | `git grep ResultView` 取并集后全跑：`ResultView.test.js` **115 passed**（原 114 + 新增 1）、`views-deep2.test.js` **7 passed**。另核 `ResultView.test.js:2096` 那条读**源码**的契约锁测的是 `.script-text` 的换行三属性，与本次改的 `.back-to-list` 无交集（它在本轮全绿里通过，非靠推断）；`page-header` 在全仓 `*.test.js` 里只命中无关组件的 `.cohere-page-header` |
+| 行尾与 diff 对账 | PASS | 三个改动文件 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径逐行相等**（`ResultView.vue 7/3`、`ResultView.test.js 13/0`、`CHANGELOG.md 18/0`）⇒ 未改写行尾。CHANGELOG 改前实测 `utf8` 往返无损、无 NUL、纯 CRLF（15921/15921），前置块按 `\n→\r\n` 单点转换后拼接，改后 `crlfDelta == lfDelta == 18`（每条新行都带 CRLF）、`loneCR` 前后均 **27**（历史遗留，未新增）、原内容经 `afterText.endsWith(beforeText)` 证为**字节级后缀**（下方正文一字未动） |
+| 本地门禁 | PASS（六条逐条 rc=0） | `check-gate-record-debt.js` rc=0（远程同步行 188 条 / 执行记录 387 篇 / 已登记欠账 16 条 / 记录文件 16 篇，两源分列；本记录以 frontmatter `sync_*` 三字段登记，**无需**再动 `gate-record-debt-ledger.json`，checker 的「记录文件登记字段无残留」即为此而设）；`check-unwired-tests.js` rc=0（检查域内 53 个测试文件，新断言加在已收编的 `ResultView.test.js`，未新增测试文件）；`check-step-failfast.js` rc=0；`check-no-brand-residue.js` PASS（6636 个 tracked 文件）；`.github/scripts/check-max-lines.js` rc=0（limit=500 / 超限 98 / 挂账 98 / 墓碑 1，无新增超大文件）；`check-debt-budget.js` rc=0（`maxFileLines 5657/5657`、`filesOver1000 32/32`、`filesOver500 98`（基线 101，未升）、`circularDeps 0`） |
+| QM-1 打包 | ➖ N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**`、preload 或 IPC，纯渲染端 scoped 样式 |
+| QM-6 CCG 双模型外部评审 | ➖ N/A（按触发条件判定，非跳过） | AGENTS.md QM-6 触发条件三条逐条核对：非 M+/中高风险（净 +20/−3、单组件、无逻辑分支）、不触主进程服务/IPC handler/核心引擎包、不涉及安全/数据校验/状态机/持久化 ⇒ 不强制。风险面上本次唯一的行为改动是 a11y 语义（`aria-hidden`），已由行为锁守住 |
+| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin result-view-back-btn-style` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+
+### 遗留（不假装已闭合）
+
+- **两张视觉基线已过期，合并后 main push 的 `check-baseline-freshness` 会变红**：`create-result.png` / `create-result-dark.png` 是旧 UI 的 CI 渲染，本次改动使逐像素 0 px 判据必然不成立。正解只能是在分支上 `workflow_dispatch` 跑一次 Visual Tests、取 `visual-test-reports` artifact 里的 `-current.png` 重建，并自证「新基线 vs 同一次 CI 渲染 = 0 px」；**禁止**用本机 `test:visual:update-baseline` 产出的图当基线（本机与 CI 字体渲染不同源，AGENTS.md 实测过 3.659% 的假差异）。该步骤需要 push 分支并触发远程作业，属共享状态动作，未经确认不擅自执行。
+- 全仓仍有 **4 种**"返回"写法（`.back-btn` / `.back-link` / 本次的 `.back-to-list` / `ProductionBoard` 等处的裸 `← 项目库` router-link）。本次只把用户指到的这一处收归胶囊语言，未顺手统一其余三处 —— 统一是跨多页的重构，且 `.back-btn` 定义在 `CreateView.vue` 按组件副作用导入的 `create-view.css` 里，ResultView 作为独立路由（像素用例直连 `/create/result`）依赖它的私有样式表会引入加载顺序耦合（同仓 `pipeline-grid.source.test.js` 就是这类双来源事故的先例）。若要真正收敛，正解是把返回胶囊提成 `components/ui` 下的独立组件，另开任务。
+- 顺带记录一处**已核实但本次未修**的同族缺陷：`create-view.css:112` 的 `.back-btn` 声明了 `gap: 4px`，但 `CreateView.vue:47` 的 `← 返回` 是**单个文本节点**（只有一个匿名 flex item），该 `gap` 实际空转，其箭头对齐问题与本次修的完全相同、依然存在。不在本次范围内（用户未指该页，且改它要一并决定上一条的收敛方向）。
