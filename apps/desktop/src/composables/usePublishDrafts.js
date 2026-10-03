@@ -149,7 +149,7 @@ export function usePublishDrafts ({
   async function saveDraft () {
     if (!String(article.title || '').trim() && !String(article.content || '').trim()) {
       notifyWarning('publishDrafts.emptyTitleContent', { message: t('publishDrafts.emptyTitleContent') })
-      return false
+      return { ok: false, draftId: null }
     }
     // 定时×草稿互斥（P1-4）：带定时时间保存 → 用户选择「清除定时并保存」或「保留定时保存」
     if (await confirmScheduleDraftConflict()) {
@@ -162,10 +162,14 @@ export function usePublishDrafts ({
       }
       notifySuccess('publishDrafts.saved', { message: t('publishDrafts.saved') })
       await loadDrafts()
-      return true
+      // copy-library-detail-entry：返回落库草稿 id（draftSave 指纹幂等 data.draftId），
+      // 供发布页【创作视频】跳转 /create?draft=<id> 使用。对象恒 truthy，
+      // 注意：返回恒为对象（truthy），消费方必须判 saved.ok——旧布尔消费方不存在（全仓核实）。
+      const draftId = result && result.data && result.data.draftId ? String(result.data.draftId) : null
+      return { ok: true, draftId }
     } catch (error) {
       notifyError('publishDrafts.saveFailed', { message: errorMessage(error, t('publishDrafts.saveFailed')) })
-      return false
+      return { ok: false, draftId: null }
     }
   }
 

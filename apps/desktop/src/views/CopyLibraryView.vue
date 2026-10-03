@@ -56,10 +56,17 @@
         :key="entry.id"
         class="copy-library-card"
         :data-testid="'copy-library-item-' + entry.id"
+        role="button"
+        tabindex="0"
+        :aria-label="t('copyLibrary.viewDetailAria') + '：' + (entry.title || t('copyLibrary.untitled'))"
+        @click="openDetail(entry)"
+        @keydown.enter.prevent="openDetail(entry)"
+        @keydown.space.prevent="openDetail(entry)"
       >
         <div class="copy-library-card-top">
           <span class="copy-library-origin-badge" :class="'is-' + entry.origin">{{ originLabel(entry.origin) }}</span>
           <span class="copy-library-title">{{ entry.title || t('copyLibrary.untitled') }}</span>
+          <el-icon class="copy-library-view-icon" aria-hidden="true"><View /></el-icon>
         </div>
         <p class="copy-library-content">{{ entry.content }}</p>
         <div class="copy-library-meta">
@@ -74,12 +81,19 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { View } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import EmptyState from '@/components/EmptyState.vue'
+import { useNotify } from '@/composables/useNotify'
+import { story2videoGetProject } from '@/api/publisher'
+import { setCopyDetailHandoff } from '@/utils/copy-detail-handoff'
 import { useCopyLibrarySources, ORIGIN_DRAFT, ORIGIN_VIDEO } from '@/composables/useCopyLibrarySources'
 import { ORIGIN_COLLECT, ORIGIN_REWRITE } from '@/composables/useCopyLibrary'
 
 const { t } = useI18n()
+const router = useRouter()
+const { notifyWarning } = useNotify()
 const { items, loading, loadAll } = useCopyLibrarySources()
 
 /** 来源筛选：全部 / 采集 / 改写 / 草稿 / 视频创作 */
@@ -103,6 +117,53 @@ const filteredItems = computed(() => {
   return list
 })
 
+/**
+ * 打开文案详情（一键发布页承载，2026-10-09 PRD-COPY-LIBRARY-DETAIL-ENTRY）。
+ *
+ * - 一次性交接载荷（copy-detail-handoff，读后即焚）携带正文/标题/来源跳转发布页；
+ * - 视频来源先拉全文（列表态仅 500 字截断预览），失败降级预览并提示，不阻塞跳转；
+ * - 载荷写入失败（存储不可用/content 空）不跳转并提示，避免「点了没反应」或空详情。
+ * @param {object} entry 文案库统一条目（UNIFIED_ITEM）
+ */
+let openingDetail = false
+async function openDetail (entry) {
+  if (!entry || !entry.id || openingDetail) return
+  openingDetail = true
+  try {
+  const sep = entry.id.indexOf(':')
+  const origin = sep > 0 ? entry.id.slice(0, sep) : entry.origin
+  const sourceId = sep > 0 ? entry.id.slice(sep + 1) : ''
+  let content = entry.content || ''
+  if (origin === ORIGIN_VIDEO && entry.metadata && entry.metadata.videoProjectId) {
+    try {
+      const res = await story2videoGetProject(entry.metadata.videoProjectId)
+      const fullText = res && res.code === 0 && res.data && typeof res.data.sourceText === 'string' ? res.data.sourceText : ''
+      if (fullText.trim()) {
+        content = fullText
+      } else {
+        notifyWarning('copyLibrary.videoFullTextFailed')
+      }
+    } catch {
+      notifyWarning('copyLibrary.videoFullTextFailed')
+    }
+  }
+  const ok = setCopyDetailHandoff({
+    content,
+    title: entry.title || '',
+    origin,
+    sourceId,
+    platform: entry.platform || '',
+    sourceUrl: entry.sourceUrl || '',
+  })
+  if (!ok) {
+    notifyWarning('copyLibrary.handoffFailed')
+    return
+  }
+  router.push({ path: '/publish', query: { from: 'copy-library' } })
+  } finally {
+    openingDetail = false
+  }
+}
 function originLabel (origin) {
   const map = {
     [ORIGIN_COLLECT]: t('copyLibrary.originCollect'),
@@ -179,6 +240,25 @@ onMounted(() => { loadAll() })
   gap: 12px;
 }
 .copy-library-card {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.copy-library-card:hover,
+.copy-library-card:focus-visible {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+.copy-library-view-icon {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+.copy-library-card:hover .copy-library-view-icon {
+  color: var(--color-primary);
+}
+.copy-library-card-static {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 12px;
