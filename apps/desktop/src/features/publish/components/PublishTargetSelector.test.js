@@ -8,6 +8,26 @@ describe('PublishTargetSelector', () => {
     expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索发布平台或账号')
     expect(wrapper.get('.target-selector__list').attributes('role')).toBe('list')
   })
+
+  it('没有可操作分组时不渲染「按组添加」，且列表结构不变（P2-8b 视觉中性的 DOM 级证据）', () => {
+    const without = mount(PublishTargetSelector, { props: { groups, accountGroups: [] } })
+    expect(without.find('[data-testid="publish-group-picker"]').exists()).toBe(false)
+
+    // 结构锁：无分组态的 DOM 必须与"本刀之前"完全一致 —— 像素门禁对小控件是双向失明的
+    // （diff 面积 <0.1% 进不了阈值，见记忆「小控件改动像素门禁双向失明」），
+    // 所以"CI 空 profile 下不新增任何节点"必须由 DOM 断言来证，而不是靠 QG Visual 的绿。
+    const legacy = mount(PublishTargetSelector, { props: { groups } })
+    expect(without.html()).toBe(legacy.html())
+  })
+
+  it('accountGroups 会转发为 apply-group（组件不持有选中集）', async () => {
+    const wrapper = mount(PublishTargetSelector, {
+      props: { groups, accountGroups: [{ id: 'g1', name: '主力', applicable: 1, total: 2 }] },
+    })
+    expect(wrapper.find('[data-testid="publish-group-picker"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="group-apply-g1"]').trigger('click')
+    expect(wrapper.emitted('apply-group')).toEqual([['g1']])
+  })
   const groups = [{
     label: '国内平台',
     items: [
