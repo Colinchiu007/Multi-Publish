@@ -1,3 +1,11 @@
+## 标签标题的锁定语义只适用于静态标题场景；动态内容标签传 title 等于永锁（fix-tab-title-url-placeholder，2026-10-03）
+
+- **复合根因（pattern：能力 × 调用方矩阵审计）**：主进程 `createNewTabPage` 的 `titleLocked`（`c3c395570`，为登录/平台标签防止网页标题覆盖）是合理能力；两个月后新标签体系（`f7e93ceba` #2230）让 `App.vue` 的「+」新标签也传了 `title: t('tabs.newTabTitle')`，把**动态内容标签**锁死在初始标题。**一个「标签创建参数」被新增调用方照抄示例传值时，参数的深层语义（锁定 = 永久忽略 page-title-updated）不会自己显形——新增调用方必须审计每个传参的副作用矩阵，而不是抄最近的可工作示例。**
+- **次级缺口（pitfall：内嵌 SPA 无 document.title 源）**：home-shell 内嵌独立 SPA 实例从不更新 `document.title`，即使解锁也没有标题可上报——「解锁」与「有源可发」必须同时补齐，缺一链路仍然静默。显式 IPC 上报（reportTabTitle）比只依赖 Chromium page-title-updated 事件更可靠（不依赖事件时序，非 Electron 环境天然降级）。
+- **前缀匹配陷阱（pitfall）**：路由 → 标题映射若把精确键 `/` 与前缀键混在同一张表里做 `startsWith` 判定，`'/'.endsWith('/')` 恒真会把**所有未知路径误判成主页**（开发期实测）。精确表与前缀表必须物理分离，前缀匹配只查独立前缀表。
+- **i18n 在组件外（pattern）**：纯函数（非 setup 上下文）里翻译用 `i18n.global.t(key)`；`useI18n()` 只能在 setup 内调用，在纯函数里调用抛 `Must be called at the top of a setup function`。
+- **测试反证纪律（pattern）**：本次修复的回归锁做了「把锁改回 no-op 必须变红」的实证——回滚 App.vue 的 onCreateTab 改动，契约用例立即变红；只证「业务改动变绿」不能证明锁在跑。
+- **环境坑（pitfall：ELECTRON_RUN_AS_NODE 残留）**：DSH/Agent 工具链环境残留 `ELECTRON_RUN_AS_NODE=1` 会让**所有** Electron exe 以纯 Node 模式启动——表现为主进程 JS 被当模块加载后立即退出 rc=0、零输出、零日志、userData 都不创建，与「asar integrity 失败」「杀软拦截」等症状极难区分。排查 Electron 打包产物「静默闪退」先 `Get-ChildItem Env: | Where-Object Name -match ELECTRON`。
 
 ## 文本重组类后处理必须先定义结构不变量：AI 味 Pass 3 曾把 LLM 空行分段压成一整段（fix-rewrite-paragraph-preserve，2026-10-03）
 
