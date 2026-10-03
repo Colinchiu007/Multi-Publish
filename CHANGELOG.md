@@ -1,3 +1,36 @@
+# [未发布] feat(history): 发布记录卡片整体点击——应用内新标签打开平台作品链接（publish-history-card-open-link，2026-10-03）
+
+### 新增
+
+- 发布记录页列表卡片支持**整体点击**：点击除按钮/链接/复选框外的任意区域，经 `tabStore.createTab` 在应用内顶部标签栏新开标签加载该记录的平台作品链接（`result.url`）；与 `Collection.openCollection` 同一 page-manager 通道。
+- URL 判据单一来源 `safeHttpUrl`（渲染端 ESM 孪生）：无链接/`javascript:`/缺协议/协议相对/非字符串一律不产出打开行为，卡片悬浮提示如实显示「暂无平台链接」；可点卡片显示「点击打开平台作品链接」。
+- `createTab` 失败或桥不可用（store 合同：吞错返回 null）时降级 `window.open(url,'_blank')`，由主进程 `setWindowOpenHandler → isAllowedExternalUrl`（更严判据：`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底交系统浏览器；该 `window.open` 点已登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`。
+- 批量管理模式下整卡点击不打开链接（复选框承载选择，防误触）；同一卡片进行中重复点击不重复发请求（进行中守卫）；成功提示「已在新标签页打开作品链接」走页面既有 `actionMessage` 承载；createTab promise 拒绝（合同外漂移）显示失败提示不崩。
+- locales zh/en 成对新增 `historyPage.cardOpenHint / cardNoLinkHint / cardTabTitle / cardLinkOpened / cardLinkOpenFailed`。
+
+### 回归保护
+
+- `PublishHistory.test.js` 新增「卡片点击打开平台链接」describe（T1-T14 + T10b）：打开契约、按钮/复选框冒泡排除（详情/重试照常）、批量模式排除、六种非法 URL 形态不产出任何打开行为、降级 `window.open`、合同外漂移失败提示、悬浮提示、进行中守卫、详情弹窗锚点 noopener 回归，61 passed。
+- `href-scheme-contract.test.js` 16 passed（登记锁双向断言）；locale 成对门禁 `check-locale-sync.js --pair-base origin/main` PASS。
+- 详见 `01-docs/PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md`。
+# [未发布] style(desktop): 视频任务详情页的「← 返回」改成与同流程一致的描边胶囊，箭头拆成独立装饰字形修掉基线错位（2026-10-03，result-view-back-btn-style）
+
+### 根因
+- `ResultView.vue` 的返回按钮写成 `← {{ 文案 }}` —— 箭头与文字是**同一个文本节点里的字面空格拼接**，两者各按自身字体度量参与行内排版：`←`（U+2190）在本机的中文回退字体下字身偏小、基线偏高，于是视觉上就是"箭头和返回两个字没对齐"。
+- 同一条规则带第二处错位：`.back-to-list` 用 `margin-right: auto` 挤在 `justify-content: space-between` 的 `.page-header` 里，自动边距吃掉全部剩余空间 ⇒ 窗口宽时按钮浮在页面中部、与标题抢同一行，窗口窄时整块换行、按钮孤悬在标题上方。裸文字链时这个错位不显眼，改成胶囊后会放大。
+- 这是全仓第四种"返回"变体：同流程另一页 `CreateView.vue:47` 用的是 `create-view.css:112` 的 `.back-btn`（描边胶囊 + `align-items: center` + `:focus-visible` 焦点环），而 `.back-to-list` 既无描边也无焦点环 —— 键盘用户按 Tab 走到返回键时没有任何指示。
+
+### 修复
+- 箭头拆成 `<span class="back-to-list__arrow" aria-hidden="true">`，按钮改 `display: inline-flex; align-items: center; gap: 6px`，箭头单独 `line-height: 1`；`aria-hidden` 保证装饰字形不进可访问名，读屏仍只念「返回」。
+- 按钮移出 `.page-header` 成为 `.result-page`（flex column）的直接子项，`align-self: flex-start` + `margin-bottom: var(--spacing-4, 16px)` ⇒ 稳定落在标题正上方并与标题左边缘对齐，不再依赖自动边距去抢行。
+- 形状值（`padding: 6px 14px` / `border: 1px solid var(--border)` / `border-radius: var(--radius-sm)` / hover 主色描边 / `:focus-visible` 焦点环）对齐 `.back-btn`；底色两档刻意不抄 —— 本页底色就是 `--surface`，照搬「透明底 + hover 变 `--surface`」会让 hover 反馈不可见。
+- 未新增用户可见文案：`create.story2video.backToHistory` 的 zh/en 已成对存在，Gate 7 无需改动。
+
+### 验证
+- TDD：`ResultView.test.js` 新增「返回按钮的箭头是独立装饰字形，不进入可访问名」先红（`1 failed / 114 passed`，红因正是 `arrow.exists()` 为 false）后绿；实现后 `115 passed`。另一消费者 `views-deep2.test.js` 7 passed。
+- 像素门禁 `PIXEL_ONLY=create-result` 明/暗双档均 PASSED。**注意**：全页 6% 阈值对一个按钮是结构性失明，PASSED 只证"无粗回归"，不证改动本身；真实结论取自现场截图 + 真浏览器计算样式探针 —— 箭头与按钮光学中心 `115.5 == 115.5`、按钮左边缘与标题左边缘 `684 == 684`、hover 底色 `#fff → #efefef` 与边框 `#efefef → rgb(80,72,229)` 均真实变化、`gap: 6px` / `radius: 8px` 生效。
+- 遗留（已实测纠正本条初稿的错前提）：本 PR **不重建**视觉基线。分支 run 与 main run 的 `Baseline freshness gate` 逐条对照都是「检查 41 张 / 违规 36 张」，违规数完全相同 —— 该门禁在本 PR 之前已在 main 上仓库级失效（accounts-list / calendar / collection / create-editor 等大片视图同时命中，且 1242 px、1426 px 在互不相关视图上精确重现，是同一共享元素在多页各渲染一次的形状，不是各视图自己的回归）。本 PR 只把我碰的两张的漂移量放大：`create-result.png` 1242→7676 px、`create-result-dark.png` 9825→17066 px（按钮移出页头使标题及以下内容整体下移，全页逐像素比较因此产生大位移差，属预期）。**此刻从 CI artifact 重建基线等于把 36 张全局漂移烤成正确基线**（#2685 同型错误，污染源换成了 CI）；该 36/41 失效是独立事故，须先定位那个共享元素、修复后再统一重建。
+
 # [未发布] fix(automation): 补齐 IPC 装配断链 + 收窄 01-docs 忽略规则（2026-10-03，fix-automation-ipc-wiring）
 
 ### 根因（用户实测报错）

@@ -110,6 +110,9 @@ const RENDERER_PROTOCOL_REGEX_ALLOWED = [
  */
 const OPEN_SITES_GUARDED_IN_MAIN = [
   'src/views/Accounts.vue', // openPlatform() 打开运营中心配置的 dashboard URL，由主进程层更严判据兜
+  'src/views/PublishHistory.vue', // 发布记录卡片点击打开平台链接：首选 tabStore.createTab 应用内新标签；
+  // createTab 失败降级 window.open(url,'_blank')，URL 已过渲染端 safeHttpUrl，
+  // window.open 再由主进程 setWindowOpenHandler → isAllowedExternalUrl 更严判据兜底（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）
 ]
 
 /**
