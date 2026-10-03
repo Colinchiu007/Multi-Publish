@@ -9,6 +9,10 @@ export default {
   tabs: {
     newTabTitle: 'New Tab',
     newTabAria: 'Open a new tab',
+    brandTitle: 'Social Media Manager',
+    productionBoard: 'Production Board',
+    contactSheet: 'Scene Review',
+    replayTimeline: 'Production Replay',
   },
   common: {
     save: 'Save',

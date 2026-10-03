@@ -60,6 +60,31 @@ module.exports = {
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message, data: { handled: false } } }
     }))
 
+    // home-shell SPA 上报页面标题（2026-10-03）：按调用方 webContents 定位标签，
+    // 更新 _tabStates.title 并广播 tab-title-updated；找不到归属标签时静默忽略。
+    ipcMain.handle('page-manager:report-tab-title', withSenderCheck(function (event, arg) {
+      try {
+        var title = arg && typeof arg.title === 'string' ? arg.title : ''
+        if (!title) return { code: EC.VALIDATION_ERROR, message: 'Missing title' }
+        var senderId = event && event.sender && typeof event.sender.id === 'number' ? event.sender.id : null
+        if (senderId !== null) {
+          var matched = null
+          self._tabViews.forEach(function (view, tabId) {
+            if (matched || !view.webContents) return
+            if (typeof view.webContents.getId === 'function' && view.webContents.getId() === senderId) matched = tabId
+          })
+          if (matched && self._tabStates.has(matched)) {
+            var state = self._tabStates.get(matched)
+            if (state.title !== title) {
+              state.title = title
+              self._broadcast('tab-title-updated', { tabId: matched, title: title })
+            }
+          }
+        }
+        return { code: 0 }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
     ipcMain.handle('page-manager:go-back', withSenderCheck(function (_, tabId) {
       try {
         self.goBack(tabId)
