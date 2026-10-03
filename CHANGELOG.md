@@ -1,3 +1,30 @@
+# [未发布] fix(desktop): 新标签页标题与地址栏占位跟随页面内容（2026-10-03，fix-tab-title-url-placeholder）
+
+### 根因（QM-5 五步取证）
+- 用户报告：点按钮弹出的新标签网页，顶部标签名称与网址输入框都恒显示「新标签页」，不随页面变化。
+- 第一性引入点（git blame）：`c3c395570`（2026-09-04「账号管理页10项质量修复」第 9 项「标签页名称：TabBar显示应用页面名称，标题锁定避免被网页标题覆盖」）在 `createNewTabPage` 引入 `titleLocked` —— 调用方传 `title` 即锁定，`page-title-updated` 事件被主进程永久忽略。该语义对登录/平台等**静态标题**标签是对的；随后 `f7e93ceba`（#2230 新标签内嵌独立 SPA 实例）让 `App.vue` 的 `+` 新标签也传了 `title: t('tabs.newTabTitle')`，home-shell 标签从此被锁定在初始标题上。
+- 次级缺口：home-shell 内嵌 SPA 从不更新 `document.title`，即使不锁定也没有新标题可上报（`page-title-updated` 链路无源可发）；NavBar 把 `navigation.title` 用作地址栏占位符，标题不更新则占位符恒为「新标签页」。
+- 逃逸链：主进程 webview-manager 单测只断言「传 title 则锁定」（锁定行为本身被测试固化，场景缺失）；渲染层 `tab-independent-home.test.js` 只断言「不硬编码 about:blank/『首页』」，未断言「不锁定标题」（断言不精确）；无任何 E2E 覆盖「+ 新标签 → 侧边栏切页 → 标签标题变化」（测试场景缺失）。
+
+### 修复（三段链路补齐）
+- **渲染层（解除锁定）**：`App.vue` `onCreateTab` 不再传 `title`，home-shell 标签 `titleLocked=false`；初始标题由主进程回退值「新标签页」（`tab-lifecycle.js` homeShell 分支默认值，与 `tabs.newTabTitle` 同语义）承担。
+- **渲染层（标题上报）**：新增 `src/composables/useTabDocumentTitle.js` —— 仅 home-shell 实例启动（`App.vue` setup 判 `isHomeShell`，onMounted `start()` / onBeforeUnmount `stop()` 成对）；`resolveRouteTabTitle(path)` 按路由映射 i18n 文案（精确 path 表 25 条 + :param 前缀表独立存放 —— `'/'` 精确键若混入前缀匹配会把所有未知路径误判成主页，开发期实测踩坑；`/board/:id` → 素材看板、其 `/contact-sheet` 子路由 → 场景审批、`/replay/:id` → 生产回放；未命中回退 `tabs.brandTitle` 品牌名「社媒管家」）；路由变化时同步 `document.title`（触发 Chromium 原生 `page-title-updated`）+ 显式 IPC `pageManager.reportTabTitle(title)` 上报（不依赖事件时序；非 Electron 环境天然降级为只改 document.title）。i18n：`tabs.brandTitle/productionBoard/contactSheet/replayTimeline` zh/en 成对。
+- **主进程（接收上报）**：`ipc-handlers.js` 新增 `page-manager:report-tab-title` handler（`withSenderCheck` 全量包裹）：按调用方 `event.sender.id` ↔ `_tabViews` 中 `webContents.getId()` 匹配定位标签（多标签/多实例安全，未知 sender 静默忽略），更新 `_tabStates.title` 后仅当标题变化时广播 `tab-title-updated`（幂等，避免重复渲染）；空 title 返回 `VALIDATION_ERROR`。`preload/page-manager.js` 暴露 `reportTabTitle`，重打包 `index.bundle.js` + `home-shell-preload.bundle.js`（内容 grep 自证签名在产物中）。
+- **地址栏占位（需求第 2 点）**：home-shell 标签在壳态下 `did-navigate/did-navigate-in-page` 保持 `url=''`（既有壳态逻辑回归锁固化）→ `navigation.url` 为空 → NavBar 地址栏输入框显示占位符 `navigation.title`，即当前页面标题；输入框**内容**始终为空（用户输入前无残留），只有地址栏导航去外站（壳态自然结束）后才显示真实 URL。
+
+### 验证
+- TDD 先红后绿：新增 `electron/services/webview-manager/home-shell-title.test.js`（12 例：不传 title 则 titleLocked=false / page-title-updated 实时更新并广播 / 显式传 title 保持锁定语义回归保护 / 壳态 url 恒空 / reportTabTitle IPC 定位+广播+幂等 / 多标签 sender 精确归属 / 未知 sender 归属失败可观测 / 超长 title clamp / App.vue 接线契约 / **d.ts 归属契约锁**——electron.d.ts WebContents 段断言 `id: number` 属性存在且无 `getId(` 方法、源码禁现死探针）+ `src/composables/useTabDocumentTitle.test.js`（13 例：路由判定表 / 前缀路由 / 未知路径回退 / IPC 失败静默降级含 unhandledRejection 断言 / stop 后不再上报 / 非 Electron 降级 / **route-registry 全路由覆盖度锁**）。反证：回滚 App.vue 改动测试变红；把归属逻辑改回死探针写法 4 例立即变红。
+- 回归：webview-manager（83）+ preload（372）+ home-shell-preload（6）+ tab store/TabBar/NavBar（47）等定向 527/527 全绿；全量 13327 通过（1 失败为 `feedback.test.js` Windows symlink 权限既有环境性失败，基线复跑同样失败，与本 PR 无关）。
+- 门禁：`check-locale-sync.js --keys` PASS（1395 key 成对）；eslint 0 error（warning 均为 HEAD 既有）；QM-1 electron-builder --dir 打包通过。
+- 预防措施：本测试文件结构锁固化「home-shell 不锁定标题 + 标题上报链路 + webContents.id 属性归属」，后续任何把 `title` 加回 `onCreateTab`、删除 `reportTabTitle` 接线、或改回 `getId(` 死探针的改动会立即变红。
+
+### QM-6 双模型评审（两个独立子代理并行审查，findings 全部回写处置）
+- 🔴 CRITICAL 已修复：`webContents.getId()` 在 electron.d.ts 中不存在（`readonly id: number` 属性）——原实现的显式 IPC 链路是恒不匹配的死代码，被手搓 mock 掩成假绿。改用 `.id` 属性 + d.ts 归属契约锁 + 摘锁必红反证。
+- 🟠 MAJOR 已修复：归属失败静默无日志（补 warn + `matched:false`）；多标签 sender 隔离用例缺失（补 tab1/tab2 用例）；映射表缺失 4 条已登记路由且无覆盖锁（补覆盖度测试锁 + 显式例外清单）；ROUTE_TAB_TITLES 重建且同键双 set（模块级一次性构建 + 复合键）；`invokePageManager` promise 未 catch（补 `.catch` + unhandledRejection 断言）。
+- 🟢 MINOR 已修复：isDestroyed 守卫 / C1 断言锚定 createTab 行 / filmEngineering 长标题改独立短键 `tabs.filmEngineering` / PRD 初始标题时序说明 / JSDoc hash 剥离补齐 / start 防重入 / locale watch。
+- 评审后两测试文件 25/25 通过。详见专项 PRD §10。
+
+
 # [未发布] feat(collection): 知乎收藏批量采集与批量发布/视频——清单直选 + 采集并改写 + 三批量动作（2026-10-03，zhihu-fav-batch）
 
 ### 根因（P0 修复反哺）

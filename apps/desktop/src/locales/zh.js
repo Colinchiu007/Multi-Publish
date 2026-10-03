@@ -9,6 +9,11 @@ export default {
   tabs: {
     newTabTitle: '新标签页',
     newTabAria: '新建标签页',
+    brandTitle: '社媒管家',
+    productionBoard: '素材看板',
+    contactSheet: '场景审批',
+    replayTimeline: '生产回放',
+    filmEngineering: '影视工程',
   },
   common: {
     save: '保存',

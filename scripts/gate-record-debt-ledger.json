@@ -84,4 +84,10 @@
     "status": "PENDING",
     "line": 24
   }
+,
+  "本次执行记录：新标签页标题与地址栏占位跟随页面（fix-tab-title-url-placeholder，2026-10-03）": {
+    "reason": "PR #2847 合并后回填：squash 落地即取证（git log origin/main --grep='(#2847)$' --format=%H|%cI；git ls-remote --heads origin fix-tab-title-url-placeholder 返回 0 行），回填与销账必须同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
+    "status": "PENDING",
+    "line": 1
+  }
 }
