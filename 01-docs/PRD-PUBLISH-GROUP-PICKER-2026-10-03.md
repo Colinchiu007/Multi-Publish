@@ -73,7 +73,18 @@
 | 「发布目标」标题下、平台列表上 | 一行分组按钮（chip），文案 = 组名 + `可添加数/成员数` | `accountStore.groups`；可添加数 = 该组成员里当前 `isAccountAvailable` 为真的个数 | 无组 ⇒ **整块不渲染**（不给死控件，也不改像素基线）；全组都不可添加 ⇒ 仍渲染，数字显示 `0/3`，点击后如实播报而不是禁用（禁用会让用户以为按钮坏了） |
 | 组名过长 | 省略号 + `title` 原值 | `GROUP_NAME_MAX=40` 已在真源侧限长 | — |
 
-**视觉基线纪律（为什么"无组不渲染"不只是审美选择）**：`QG Visual`（CI，windows-latest）对全页做像素对比，而 CI 用空 profile ⇒ `groups` 恒为空。只要空态也渲染新元素，`publish` 视图就会确定性漂移，基线只能按「CI 产物取图 + 自证新基线 vs 同一次 CI 渲染 = 0 px」重建（AGENTS.md 视觉第 7 条），本刀属数据/交互层修复，不该把一次基线重建混进来。因此**空态不渲染是本刀构造性保持视觉中性的手段**，判据由 `PublishGroupPicker.test.js` 的"无组不渲染"用例钉住，并在质量记录里标注「视觉中性结论仍由 CI 出，本机截图不作证据」。
+**视觉基线纪律（为什么"无组不渲染"不只是审美选择）**：按 AGENTS.md 视觉第 7 条，基线只能取自 CI 产物、且换基线必须自证「新基线 vs 同一次 CI 渲染 = 0 px」。本刀是数据/交互层修复，不该把一次基线重建混进来。
+
+**实测出处（本刀为什么必须保持渲染缺席）**：发布视图**确实在 CI 执行的那份注册表里** ——
+`apps/desktop/tests/visual-testing/scripts/run-pixel-tests.js:22`
+`{ name: 'publish-form', route: '/publish', waitFor: '.mp-workspace .target-selector [data-testid^="platform-"]' }`。
+而 CI 用空 profile 跑 ⇒ `groups` 恒为空。所以"空态也渲染"不是一次可以事后补基线的漂移，而是一次确定性红。两点连带结论：
+
+1. 「无组不渲染」既是交互判断，也是本刀**构造性保持视觉中性**的手段；它的证据不靠 `QG Visual` 的绿，
+   而靠 `PublishTargetSelector.test.js` 的结构断言（空态下 section 的直接子节点仍恰为 `[input, div]`）。
+   该断言做过反证：摘掉 picker 的 `v-if` 后必须变红（见 §九 M8 与质量记录）。
+2. **不要**把这条锁写成"改前 html 与改后 html 相同"这种形式 —— 那份对比里两次挂载跑的是同一份新代码，
+   对本刀声称的"与改前一致"是恒真断言（装饰性门禁）。必须断言**改前就存在的形态**本身。
 
 ## 七、交互逻辑
 
@@ -111,6 +122,7 @@
 | L6 | `PublishGroupPicker.test.js` | `groupsStatus='unreadable'` ⇒ 不渲染列表（读不到 ≠ 没有 ≠ 可操作） | 无条件渲染 ⇒ 红 |
 | L7 | `PublishTargetSelector`/`Publish.vue` 既有测试 | 既有断言零回归（选中集形状与 toggle 语义未变） | — |
 | L8 | `usePlatformSelection.test.js`（既有） | 反向确认 reconcile 会删「未选平台的账号键」——本刀顺序约束的成因就在这条既有行为里 | 若该既有行为被改掉，L2 的理由须同步改写 |
+| L9 | `PublishTargetSelector.test.js` | 空态下 section 的直接子节点仍恰为 `[input, div]`（视觉中性的 DOM 级证据）；`accountGroups` 只转发 `apply-group` | **实跑**：摘掉 picker 的行 `v-if` ⇒ 该用例红（M8，命中"没有可操作分组时不渲染…"）。注：该红由同用例第一条断言（testid 不存在）先命中，第二条子节点断言是同一失效的后继形状锁；本锁**不得**写成"改前 html == 改后 html"（两次挂载跑同一份新代码 ⇒ 恒真），初版就是这么写的，已当场纠正 |
 
 ## 十、验收
 

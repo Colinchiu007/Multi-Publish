@@ -9,15 +9,17 @@ describe('PublishTargetSelector', () => {
     expect(wrapper.get('.target-selector__list').attributes('role')).toBe('list')
   })
 
-  it('没有可操作分组时不渲染「按组添加」，且列表结构不变（P2-8b 视觉中性的 DOM 级证据）', () => {
+  it('没有可操作分组时不渲染「按组添加」，且 section 的直接子节点仍是改前的两个（视觉中性的 DOM 级证据）', () => {
     const without = mount(PublishTargetSelector, { props: { groups, accountGroups: [] } })
     expect(without.find('[data-testid="publish-group-picker"]').exists()).toBe(false)
 
-    // 结构锁：无分组态的 DOM 必须与"本刀之前"完全一致 —— 像素门禁对小控件是双向失明的
-    // （diff 面积 <0.1% 进不了阈值，见记忆「小控件改动像素门禁双向失明」），
-    // 所以"CI 空 profile 下不新增任何节点"必须由 DOM 断言来证，而不是靠 QG Visual 的绿。
-    const legacy = mount(PublishTargetSelector, { props: { groups } })
-    expect(without.html()).toBe(legacy.html())
+    // 结构锁断言的是**改前就存在的形态**：section 的直接子节点历来是 [搜索框, 列表]。
+    // 空态下仍必须恰好是这两个，多一个节点就是给 CI 空 profile 制造像素漂移。
+    // ⚠️ 不要退回成 `without.html() === legacy.html()`：那种写法两次挂载跑的是同一份新代码，
+    // 只差"显式传空数组 vs 走默认值"，对本刀声称的"与改前一致"是恒真断言（装饰性门禁）。
+    const children = without.get('section.target-selector').element.children
+    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(['input', 'div'])
+    expect(children[1].className).toBe('target-selector__list')
   })
 
   it('accountGroups 会转发为 apply-group（组件不持有选中集）', async () => {
