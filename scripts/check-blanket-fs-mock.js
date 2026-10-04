@@ -4,10 +4,12 @@
  *
  * 缺陷族（#2794 归因，实测现场在 #2783 的日志形状）：测试文件用
  * `__registerMock('fs', { existsSync: () => false, … })` 会经 `Module._load` 拦截
- * **该 realm 里每一个** `require('fs')`。而 `apps/desktop/vitest.config.js` 的
- * `deps.inline:['electron']` 又把 `node_modules/electron/index.js` 内联进同一个 realm ——
- * 它对 `existsSync(distPath) === false` 的反应是「二进制没备好」⇒ 打 `Downloading Electron binary…`
- * 并当场 spawn install.js。后果不是"下载"而是**下载被记到当时正在跑的那条用例名下**，
+ * **该 realm 里每一个** `require('fs')`。而被测服务模块 require 进来的
+ * `node_modules/electron/index.js` 也在同一 realm 里执行（实测：把 `vitest.config.js` 的
+ * `deps.inline:['electron']` 摘掉后它照样执行，见 `docs/deps-inline-electron-evaluation.md`，
+ * 所以**没有"改配置就不用管夹具"的退路**）—— 它对 `existsSync(distPath) === false` 的反应是
+ * 「二进制没备好」⇒ 打 `Downloading Electron binary…` 并当场 spawn install.js。
+ * 后果不是"下载"而是**下载被记到当时正在跑的那条用例名下**，
  * 表现成一条什么都没做的用例随机 15s 超时。
  *
  * 判据口径（每一条都对应一次实测踩坑，不是设计偏好）：
@@ -208,8 +210,8 @@ function functionBodySpan (skeleton, declIndex) {
 }
 
 /**
- * 只有这两个读动词被要求"沙箱外真的调用真实 fs"：#2794 实测的同 realm 第三方
- * （`deps.inline` 带进来的 `electron/index.js` 与 sql.js）用的就是 existsSync + readFileSync。
+ * 只有这两个读动词被要求"沙箱外真的调用真实 fs"：#2794 实测在同 realm 里真正读 fs 的第三方
+ * （`electron/index.js` 探二进制、`sql.js` 读 `.wasm`）用的就是 existsSync + readFileSync。
  * statSync / readdirSync **故意不在列内**：两处已收敛的夹具对 statSync 保留了固定返回值，
  * 理由是"换成真读会让不存在的沙箱外路径从 {size:1024} 变成抛 ENOENT"，那是本缺陷之外的语义漂移
  * （见 asset-generator.test.js 的注释）。把它们纳进来等于逼夹具改生产语义 —— 反证 F9 修完后
