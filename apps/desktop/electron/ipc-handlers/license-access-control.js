@@ -79,6 +79,9 @@ const PUBLIC_CHANNELS = new Set([
   // 知乎收藏夹：官方 API + 本地批量采集/改写（用户自己的收藏内容），未登录可用
   'zhihu-favlist:list', 'zhihu-favlist:contents',
   'zhihu-favlist:batch-collect', 'zhihu-favlist:batch-rewrite', 'zhihu-favlist:cancel',
+  // 知乎收藏批量升级通道（2026-10-03 PRD-ZHIHU-FAV-BATCH）：全部收藏聚合清单 +
+  // 「采集并改写」编排（纯本地采集 + 用户自己的内容），与上方收藏夹通道同级别开放
+  'zhihu-favlist:unified-contents', 'zhihu-fav-batch:run', 'zhihu-fav-batch:cancel',
   // 爆款分析/文案生成/趋势（viral:*）：与 aggregation/hot-topics 同属本地内容工具，
   // orchestrator 不可用时 ViralEngine 自动回退本地启发式分析（v2.3.43 设计意图即离线可用），
   // 未登录必须开放，否则本地兜底被 -3 AUTH_REQUIRED 门禁架空，功能整体不可用（2026-09-21）。

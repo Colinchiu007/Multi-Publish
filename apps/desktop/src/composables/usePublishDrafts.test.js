@@ -163,7 +163,7 @@ describe('usePublishDrafts', () => {
     const drafts = createDrafts()
 
     await expect(drafts.loadDrafts()).resolves.toEqual([])
-    await expect(drafts.saveDraft()).resolves.toBe(false)
+    await expect(drafts.saveDraft()).resolves.toEqual({ ok: false, draftId: null })
 
     expect(mockMessage.error).toHaveBeenCalledWith('读取失败')
     expect(mockMessage.error).toHaveBeenCalledWith('保存失败')
@@ -248,5 +248,43 @@ describe('usePublishDrafts', () => {
 
     expect(article.publishTime).toBe('2099-06-01T09:00')
     expect(mockMessage.warning).not.toHaveBeenCalledWith(expect.stringContaining('已过期'))
+  })
+  it('saveDraft 返回 { ok: true, draftId }（copy-library-detail-entry：供创作视频跳转使用）', async () => {
+    mockDraftSave.mockResolvedValue({ code: 0, data: { draftId: 'draft_ab12', reused: false } })
+    const drafts = createDrafts()
+
+    const result = await drafts.saveDraft()
+
+    expect(result).toEqual({ ok: true, draftId: 'draft_ab12' })
+  })
+
+  it('saveDraft 指纹命中复用时返回既有 draftId', async () => {
+    mockDraftSave.mockResolvedValue({ code: 0, data: { draftId: 'draft_old', reused: true } })
+    const drafts = createDrafts()
+
+    const result = await drafts.saveDraft()
+
+    expect(result).toEqual({ ok: true, draftId: 'draft_old' })
+  })
+
+  it('saveDraft 失败时返回 { ok: false, draftId: null } 且不抛异常', async () => {
+    mockDraftSave.mockResolvedValue({ code: -1, message: 'save boom' })
+    const drafts = createDrafts()
+
+    const result = await drafts.saveDraft()
+
+    expect(result).toEqual({ ok: false, draftId: null })
+    expect(mockMessage.error).toHaveBeenCalled()
+  })
+
+  it('saveDraft 空内容早退返回 { ok: false, draftId: null }', async () => {
+    article.title = ' '
+    article.content = ''
+    const drafts = createDrafts()
+
+    const result = await drafts.saveDraft()
+
+    expect(result).toEqual({ ok: false, draftId: null })
+    expect(mockDraftSave).not.toHaveBeenCalled()
   })
 })

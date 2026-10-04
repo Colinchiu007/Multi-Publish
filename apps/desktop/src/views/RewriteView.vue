@@ -155,7 +155,7 @@
       </div>
 
       <!-- 改写结果区 -->
-      <div v-if="rewriteResult" class="cohere-card rewrite-result-card">
+      <div v-if="rewriteResult" ref="rewriteResultCardEl" class="cohere-card rewrite-result-card">
         <div class="cohere-section-title">{{ t('rewritePage.resultSection') }}</div>
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
@@ -257,7 +257,7 @@
 
 <script setup>
 import { Document, TrendCharts } from '@element-plus/icons-vue'
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
@@ -285,6 +285,8 @@ const content = ref('')
 const rewriting = ref(false)
 const rewriteError = ref('')
 const rewriteResult = ref('')
+// 改写结果卡片模板引用：自动改写入口完成后 scrollIntoView 定位用（见 focusRewriteResult）
+const rewriteResultCardEl = ref(null)
 // 改写结果标题（2026-09-18）：引擎从改写结果提炼 ≤20 字标题，纯文字展示
 const rewriteTitle = ref('')
 const rewriteMeta = ref(null)
@@ -329,6 +331,10 @@ let savedDraftId = null
 // ── 文案库交接（合并版「文案库」的【改写】按钮 → 本页）──
 // 载荷含 fromKey：改写成功后把结果回写文案库（同一来源只保留最新一次改写结果）。
 const libraryHandoff = ref(null)
+// 自动改写入口标志（2026-10-09 PRD-REWRITE-AUTO-JUMP-RESULT）：topic 带入 / from=collection 交接
+// 属「跳转即自动改写」入口 → 改写成功后视口直接定位到改写结果区；手动开始 / titleHint 预填不滚动。
+// 挂载期置位一次；非响应式（不参与渲染，仅控制成功分支的一次滚动行为）。
+let autoFocusResult = false
 const { upsertRewrite: upsertCopyRewrite } = useCopyLibrary()
 // 本页平台下拉白名单：交接平台不在白名单时不带入（保持「通用」）
 const REWRITE_PAGE_PLATFORMS = ['douyin', 'xiaohongshu', 'wechat_mp', 'bilibili', 'zhihu']
@@ -341,8 +347,34 @@ function consumeLibraryHandoff () {
   content.value = handoff.content
   if (REWRITE_PAGE_PLATFORMS.includes(handoff.platform)) platform.value = handoff.platform
   libraryHandoff.value = handoff
+  // 自动改写入口（2026-10-09）：与 topic 带入同待遇，完成后定位结果区
+  autoFocusResult = true
   // 等登录门禁与 DOM 就绪后自动触发（与 topic 带入同模式）
   Promise.resolve().then(() => startRewrite())
+}
+
+/**
+ * 自动改写入口完成后定位改写结果区（2026-10-09 PRD-REWRITE-AUTO-JUMP-RESULT）。
+ *
+ * 为什么需要：热门选题 / 文案库交接等入口跳转后自动开始改写，页面停在首屏；
+ * 改写完成时结果卡片在下方，用户不知道「已经改完了」，误以为只是带入了输入内容。
+ *
+ * 约束：
+ * - 仅 autoFocusResult（自动改写入口）为 true 时滚动，手动改写不滚（用户本就在看着页面）。
+ * - 失败不滚动：错误横幅 .rewrite-error 显示在结果卡片上方的配置卡内（首屏可见），
+ *   且失败时结果卡片 v-if="rewriteResult" 不渲染、目标不存在。
+ * - nextTick 守卫保证 v-if 新挂载的卡片已进 DOM；取不到元素或环境无 scrollIntoView
+ *   （jsdom/降级）时静默跳过，不影响改写成功主流程（与 ResultView.vue 同模式）。
+ */
+async function focusRewriteResult () {
+  if (!autoFocusResult) return
+  await nextTick()
+  // 用模板 ref 而非 document.querySelector：@vue/test-utils 默认挂载到游离 DOM，
+  // 全局查询拿不到；ref 引用对两种环境都成立（与 ResultView.vue 的 ref 滚动同模式）
+  const el = rewriteResultCardEl.value
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 }
 
 /**
@@ -488,6 +520,9 @@ onMounted(() => {
     rewriteMode.value = 'create'
     // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
     content.value = topic
+    // 自动改写入口（2026-10-09）：改写完成后直接定位到改写结果区，
+    // 让用户一眼看到「已经改好了」，而不是停在首屏误以为只是带入了输入内容
+    autoFocusResult = true
     // 等登录门禁与 DOM 就绪后自动触发（nextTick 保证 textarea 绑定完成）
     Promise.resolve().then(() => startRewrite())
     return
@@ -621,6 +656,8 @@ async function startRewrite() {
         rewriteError.value = data.warnings.join('；')
       }
       notifySuccess('collection.rewriteSuccess')
+      // 自动改写入口（2026-10-09）：改写完成 → 视口定位到改写结果区（旁路，不阻塞主流程）
+      void focusRewriteResult()
       // 文案库回写（2026-09-18 用户要求：改写完成后的文案应进入文案库）：
       // 交接场景按 fromKey 更新原记录；普通改写按正文哈希稳定 key 写入。
       // 两者互斥（双模型评审 MAJOR-2：避免同一条改写产生双份记录），旁路触发不阻塞改写主流程。

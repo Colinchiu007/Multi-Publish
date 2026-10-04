@@ -166,7 +166,7 @@
           </div>
         </div>
 
-        <!-- 知乎收藏夹批量采集/改写 -->
+        <!-- 知乎收藏夹批量采集/改写（2026-10-03：清单直选 + 采集并改写 + 批量动作） -->
         <div style="margin-bottom:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border)">
           <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:4px">{{ $t('collection.zhihuFavlist.title') }}</div>
           <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
@@ -181,32 +181,110 @@
             </button>
           </div>
           <div v-if="zhihuFavlists.length" style="display:flex;gap:var(--space-sm);align-items:center;margin-top:8px;flex-wrap:wrap">
+            <!-- 采集范围：指定收藏夹（默认）/ 全部收藏 -->
+            <select v-model="zhihuFavScope" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size: var(--font-size-sm)" data-testid="zhihu-fav-scope">
+              <option value="favlist">{{ $t('collection.zhihuFav.scopeFavlist') }}</option>
+              <option value="all">{{ $t('collection.zhihuFav.scopeAll') }}</option>
+            </select>
             <select
               v-model="zhihuSelectedFavlist"
-              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size: var(--font-size-sm)"
+              :disabled="zhihuFavScope === 'all'"
+              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size: var(--font-size-sm);"
             >
               <option v-for="f in zhihuFavlists" :key="f.urlToken" :value="f.urlToken">
                 {{ f.title }}{{ f.isPublic ? '' : '（私密）' }}
               </option>
             </select>
-            <button class="cohere-btn-primary" @click="zhihuFavlistBatchCollect" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
+            <!-- 数量 N（1-100，默认 50）+ 全量（≤200）+ 包含已采集 -->
+            <input
+              v-model.number="zhihuFavCount"
+              type="number" min="1" max="100"
+              :disabled="zhihuFavFullMode"
+              :placeholder="$t('collection.zhihuFav.countPlaceholder')"
+              style="width:130px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size: var(--font-size-sm)"
+              data-testid="zhihu-fav-count"
+            />
+            <label style="display:flex;align-items:center;gap:4px;font-size: var(--font-size-xs)">
+              <input v-model="zhihuFavFullMode" type="checkbox" data-testid="zhihu-fav-fullmode" />{{ $t('collection.zhihuFav.fullMode') }}
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size: var(--font-size-xs)">
+              <input v-model="zhihuFavIncludeCollected" type="checkbox" data-testid="zhihu-fav-include-collected" />{{ $t('collection.zhihuFav.includeCollected') }}
+            </label>
+            <button class="cohere-btn-secondary" @click="loadZhihuFavItems" :disabled="zhihuFavListLoading || (zhihuFavScope === 'favlist' && !zhihuSelectedFavlist)">
+              {{ zhihuFavListLoading ? $t('collection.zhihuFav.loadingContents') : $t('collection.zhihuFav.loadContents') }}
+            </button>
+          </div>
+          <div v-if="zhihuFavScopeHint" style="margin-top:6px;font-size: var(--font-size-xs);color:var(--color-text-secondary)" data-testid="zhihu-fav-scope-hint">
+            {{ zhihuFavScopeHint }}
+          </div>
+          <!-- 收藏夹清单（直选） -->
+          <div v-if="zhihuFavItems.length" style="margin-top:10px;border:1px solid var(--border);border-radius:8px;max-height:320px;overflow-y:auto" data-testid="zhihu-fav-items">
+            <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);font-size: var(--font-size-xs)">
+              <label style="display:flex;align-items:center;gap:4px">
+                <input type="checkbox" :checked="zhihuFavAllSelected" @change="toggleZhihuFavAll($event.target.checked)" />{{ $t('collection.zhihuFav.selectAll') }}
+              </label>
+              <span style="color:var(--color-text-secondary)">{{ $t('collection.zhihuFav.selectedCount', { count: String(zhihuFavSelectedItems.length) }) }}</span>
+              <span style="flex:1"></span>
+              <button class="cohere-btn-primary" @click="runZhihuFavCollectRewrite" :disabled="zhihuFavBatching || !zhihuFavSelectedItems.length" data-testid="zhihu-fav-collect-rewrite">
+                {{ zhihuFavBatching ? $t('collection.zhihuFav.collecting') : $t('collection.zhihuFav.collectAndRewrite') }}
+              </button>
+              <button v-if="zhihuFavBatching" class="cohere-btn-secondary" @click="cancelZhihuFavBatch">{{ $t('collection.cancelBatch') }}</button>
+            </div>
+            <div v-for="(it, idx) in zhihuFavItems" :key="it.url + idx" style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border-soft, #f0f0f0);font-size: var(--font-size-xs)">
+              <input
+                type="checkbox"
+                :checked="zhihuFavChecked.has(it.url)"
+                :disabled="it.collected && !zhihuFavIncludeCollected"
+                @change="toggleZhihuFavItem(it)"
+              />
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="it.title || it.url">{{ it.title || it.url }}</span>
+              <span class="cohere-tag" style="font-size:var(--font-size-xs)">{{ zhihuKindLabel(it.kind) }}</span>
+              <span style="color:var(--color-text-secondary)">{{ formatFavTime(it.favTime) }}</span>
+              <span v-if="it.collected" style="color:var(--color-text-secondary)">· {{ $t('collection.zhihuFav.markCollected') }}</span>
+            </div>
+          </div>
+          <!-- 旧整夹直采（保留兼容） -->
+          <div style="display:flex;gap:var(--space-sm);align-items:center;margin-top:8px;flex-wrap:wrap">
+            <button class="cohere-btn-secondary" @click="zhihuFavlistBatchCollect" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
               {{ zhihuFavlistBatching === 'collect' ? $t('collection.zhihuFavlist.collecting') : $t('collection.zhihuFavlist.collectBtn') }}
             </button>
-            <button class="cohere-btn-primary" @click="zhihuFavlistBatchRewrite" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
+            <button class="cohere-btn-secondary" @click="zhihuFavlistBatchRewrite" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
               {{ zhihuFavlistBatching === 'rewrite' ? $t('collection.zhihuFavlist.rewriting') : $t('collection.zhihuFavlist.rewriteBtn') }}
             </button>
             <button v-if="zhihuFavlistBatching" class="cohere-btn-secondary" @click="cancelZhihuFavlistBatch">
               {{ $t('collection.cancelBatch') }}
             </button>
           </div>
-          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size: var(--font-size-xs);color:var(--text-secondary)">
+          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size: var(--font-size-xs);color:var(--color-text-secondary)">
             {{ zhihuFavlistProgress }}
           </div>
           <div v-if="zhihuFavlistError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size: var(--font-size-xs);color:#d32f2f">
             {{ zhihuFavlistError }}
           </div>
-          <div style="font-size: var(--font-size-xs);color:var(--text-secondary);margin-top:4px">
+          <div style="font-size: var(--font-size-xs);color:var(--color-text-secondary);margin-top:4px">
             {{ $t('collection.zhihuFavlist.hint') }}
+          </div>
+        </div>
+
+        <!-- 「采集并改写」进度卡（整体进度 + 可展开逐条清单，双边界事件驱动） -->
+        <div v-if="zhihuFavBatching || zhihuFavProgressLines.length" class="col-result-box" data-testid="zhihu-fav-batch-progress">
+          <div class="col-block-title">{{ $t('collection.zhihuFavlist.progressTitle') }}</div>
+          <div class="col-progress-track">
+            <div class="col-progress-fill" :style="{ width: zhihuFavProgressPercent + '%' }"></div>
+          </div>
+          <div class="col-result-meta">
+            {{ $t('collection.zhihuFavlist.progressText', { done: String(zhihuFavProgressDone), total: String(zhihuFavProgressTotal) }) }}
+          </div>
+          <div v-if="zhihuFavSummary" class="col-result-meta" data-testid="zhihu-fav-summary" style="margin-top:4px">
+            {{ zhihuFavSummary }}
+          </div>
+          <button v-if="zhihuFavProgressLines.length" class="cohere-btn-secondary" style="margin-top:6px;font-size:var(--font-size-xs)" @click="zhihuFavDetailOpen = !zhihuFavDetailOpen">
+            {{ zhihuFavDetailOpen ? $t('collection.zhihuFavlist.collapseDetail') : $t('collection.zhihuFavlist.expandDetail') }}（{{ zhihuFavProgressLines.length }}）
+          </button>
+          <div v-if="zhihuFavDetailOpen" style="margin-top:6px;max-height:200px;overflow-y:auto;font-size:var(--font-size-xs)">
+            <div v-for="(line, i) in zhihuFavProgressLines" :key="i" style="padding:2px 0">
+              {{ line }}
+            </div>
           </div>
         </div>
 
@@ -232,11 +310,62 @@
       <div v-if="collectedItems.length > 0" class="col-list-wrap">
         <div class="cohere-section-title col-section-title col-section-title--flex">
           <span>采集结果（{{ collectedItems.length }} 篇）</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size: var(--font-size-xs)">
+            <input type="checkbox" :checked="batchAllSelected" @change="toggleSelectAll($event.target.checked)" data-testid="batch-select-all" />{{ $t('collection.zhihuFavlist.selectAll') }}
+          </label>
           <button class="cohere-btn-secondary col-btn-clear" @click="collectedItems = []; collectedResult = null">清空</button>
+        </div>
+        <!-- 批量操作条（勾选后浮出；Q20A 确认框在 composable 内） -->
+        <div v-if="batch.selectedCount.value > 0" style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap;margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface, #fff)" data-testid="batch-action-bar">
+          <span style="font-size: var(--font-size-sm)">{{ $t('collection.batch.selectedCount', { count: String(batch.selectedCount.value) }) }}</span>
+          <!-- 图文平台/账号（发布图文用；按内容形态预筛） -->
+          <template v-if="batchPlatformOptions.length">
+            <select v-model="batchPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:var(--font-size-xs)" data-testid="batch-platform-scope">
+              <option v-for="p in batchPlatformOptions" :key="p.id" :value="p.id">{{ p.label }}</option>
+            </select>
+            <label v-for="acc in batchAccountOptions" :key="acc.id" style="display:flex;align-items:center;gap:3px;font-size:var(--font-size-xs)">
+              <input
+                type="checkbox"
+                :checked="batch.isBatchAccountSelected('imageText', batchPlatformScope, acc.id)"
+                :disabled="acc.disabled"
+                @change="batch.toggleBatchAccount('imageText', batchPlatformScope, acc.id)"
+              />{{ acc.name || acc.id }}
+            </label>
+          </template>
+          <span style="flex:1"></span>
+          <button class="cohere-btn-primary" :disabled="batchPublishing" @click="batchPublishImages" data-testid="batch-publish-images">{{ $t('collection.batch.publishImages') }}</button>
+          <button class="cohere-btn-primary" :disabled="batchPublishing" @click="batchGenerateVideos" data-testid="batch-generate-videos">{{ $t('collection.batch.generateVideos') }}</button>
+          <button class="cohere-btn-primary" :disabled="batchPublishing || !batch.batchVideoPool.value.length" @click="batchPublishVideos" data-testid="batch-publish-videos">
+            {{ $t('collection.batch.publishVideos') }}{{ batch.batchVideoPool.value.length ? `（${batch.batchVideoPool.value.length}）` : '' }}          </button>
+        </div>
+        <!-- 视频平台/账号（仅本批有产物时显示；发布视频用） -->
+        <div v-if="batch.selectedCount.value > 0 && batch.batchVideoPool.value.length && batchVideoPlatformOptions.length" style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap;margin:0 0 8px;padding:8px 12px;border:1px dashed var(--border);border-radius:8px">
+          <span style="font-size:var(--font-size-xs);color:var(--color-text-secondary)">{{ $t('collection.batch.videoPlatformLabel') }}</span>
+          <select v-model="batchVideoPlatformScope" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:var(--font-size-xs)" data-testid="batch-video-platform-scope">
+            <option v-for="p in batchVideoPlatformOptions" :key="p.id" :value="p.id">{{ p.label }}</option>
+          </select>
+          <label v-for="acc in batchVideoAccountOptions" :key="'v' + acc.id" style="display:flex;align-items:center;gap:3px;font-size:var(--font-size-xs)">
+            <input
+              type="checkbox"
+              :checked="batch.isBatchAccountSelected('video', batchVideoPlatformScope, acc.id)"
+              :disabled="acc.disabled"
+              @change="batch.toggleBatchAccount('video', batchVideoPlatformScope, acc.id)"
+            />{{ acc.name || acc.id }}
+          </label>
+        </div>
+        <div v-if="batch.batchVideoPool.value.length" style="font-size:var(--font-size-xs);color:var(--color-text-secondary);margin:4px 0" data-testid="batch-video-pool">
+          {{ $t('collection.batch.videoPoolNote', { count: String(batch.batchVideoPool.value.length) }) }}
         </div>
         <div class="cohere-card-grid">
           <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :class="{ 'col-item--active': item.id === collectedResult?.id }">
             <div class="card-top">
+              <input
+                type="checkbox"
+                :checked="batch.isSelected(item.id)"
+                style="margin-right:6px"
+                :data-testid="'batch-item-check-' + item.id"
+                @change="batch.toggleSelect(item)"
+              />
               <div class="card-icon"><el-icon><component :is="item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
               <div class="card-info">
                 <div class="card-platform">{{ item.title || '无标题' }}</div>
@@ -245,6 +374,10 @@
                   <template v-if="item.mediaType === 'video' && item.duration"> · {{ formatVideoDuration(item.duration) }}</template>
                   <template v-if="item.mediaType === 'video' && item.platform && PLATFORM_KEYS.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
                 </div>
+                <!-- 改写黑盒接通（C3b/D2）：改写结果可见 -->
+                <div v-if="item.rewriteFailed" style="font-size:var(--font-size-xs);color:#e6a23c;margin-top:2px">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}</div>
+                <div v-else-if="item.rewrittenContent" style="font-size:var(--font-size-xs);color:var(--color-text-secondary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
+                <div v-if="item.imageFallbacks && item.imageFallbacks.length" style="font-size:var(--font-size-xs);color:var(--color-text-secondary)">{{ $t('collection.zhihuFav.imageFallbackBadge', { count: String(item.imageFallbacks.length) }) }}</div>
               </div>
             </div>
             <div class="card-actions">
@@ -548,6 +681,10 @@ import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compare
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { normalizeCollectedItem, normalizeItemTags, itemTags } from '@/features/collection/collected-item'
+import { mapFavBatchResultsToItems, countOriginalFallback } from '@/features/collection/collection-batch'
+import { usePlatformStore } from '@/stores/platforms'
+import { useAccountStore } from '@/stores/accounts'
+import { useCollectionBatchPublish } from '@/composables/useCollectionBatchPublish'
 import {
   contentCategoriesRef, loadContentCategories, watchContentCategories, categoryLabel,
 } from '@/composables/useContentCategories'
@@ -715,6 +852,7 @@ const urlListInput = ref('')
 const batchCollecting = ref(false)
 
 // ─── 知乎收藏夹批量采集/改写 ───
+const batchTaskId = ref(null)
 const zhihuAccessSecret = ref('')
 const zhihuFavlists = ref([])
 const zhihuSelectedFavlist = ref('')
@@ -769,7 +907,8 @@ async function zhihuFavlistBatchCollect () {
       zhihuFavlistError.value = contents.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
       return
     }
-    const urls = (contents.data && contents.data.items || []).map((it) => it.url).filter(Boolean)
+    const contentsData = (contents && contents.data) || {}
+    const urls = (contentsData.items || []).map((it) => it.url).filter(Boolean)
     if (!urls.length) {
       zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.emptyFavlist').text
       return
@@ -782,9 +921,14 @@ async function zhihuFavlistBatchCollect () {
       return
     }
     const { completed, failed, cancelled, circuitBroken } = r.data
-    // 3. 结果入列表
+    // 3. 结果入列表（2026-10-03 P0 修复：旧代码 `...x.data.data` 多取一层导致
+    // title/content/sourceUrl 全丢成空壳；正确形状是 results[i].data 即采集结果本体，
+    // sourceUrl 按清单 index 对齐回填。回归锁见 Collection.test.js zhihuFavlistBatchCollect 用例）
+    const contentsList = (contentsData && contentsData.items) || []
     const items = (r.data.results || []).filter((x) => x && x.ok && x.data).map((x) => ({
-      ...x.data.data, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      ...x.data,
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      sourceUrl: (contentsList[x.index] && contentsList[x.index].url) || '',
     }))
     for (const item of items) {
       collectedItems.value.unshift(item)
@@ -849,7 +993,299 @@ async function cancelZhihuFavlistBatch () {
     await api.zhihuFavlistCancel(zhihuFavlistBatching.value)
   } catch { /* 取消失败静默 */ }
 }
-const batchTaskId = ref(null)
+
+// ═══════════════════════════════════════════════════════════════════
+// 知乎收藏批量升级（2026-10-03 PRD-ZHIHU-FAV-BATCH）：
+// 清单直选 → 采集并改写（进度双边界）→ 多选批量动作
+// ═══════════════════════════════════════════════════════════════════
+const zhihuFavScope = ref('favlist') // 'favlist' | 'all'
+const zhihuFavCount = ref(50)
+const zhihuFavFullMode = ref(false)
+const zhihuFavIncludeCollected = ref(false)
+const zhihuFavItems = ref([]) // 清单（元数据 + collected 标记）
+const zhihuFavChecked = ref(new Set()) // 勾选的 url 集合
+const zhihuFavListLoading = ref(false)
+const zhihuFavBatching = ref(false)
+const zhihuFavProgressLines = ref([])
+const zhihuFavDetailOpen = ref(false)
+const zhihuFavSummary = ref('')
+const zhihuFavProgressDone = ref(0)
+const zhihuFavProgressTotal = ref(0)
+const zhihuFavScopeNote = ref('')
+let zhihuFavProgressUnsubscribe = null
+
+const platformStore = usePlatformStore()
+const accountStore = useAccountStore()
+const batch = useCollectionBatchPublish({
+  platformStore,
+  accountStore,
+  notify: {
+    confirm: async (key, opts) => notifyConfirm(key, opts),
+    success: (k) => notifySuccess(k),
+    warning: (k, opts) => notifyWarning(k, opts),
+    // QM-6 M3 补充：error/warning 可能收到非 key 的原始 message（composable 的
+    // Error.message），useNotify 对非 key 文案静默 → 改走显式 message 通道
+    error: (k, opts) => {
+      const text = resolveNotifyText(k, opts).text
+      if (text && text !== k) notifyError(k, opts)
+      else notifyWarning('collection.batch.actionFailed', { params: { message: k } })
+    },
+  },
+})
+const batchPlatformScope = ref('')
+const batchPublishing = computed(() => false) // 预留：composable 执行中状态（确认框阻塞语义）
+const batchPlatformOptions = computed(() => batch.usablePlatforms('imageText'))
+const batchVideoPlatformOptions = computed(() => batch.usablePlatforms('video'))
+const batchVideoPlatformScope = ref('')
+const batchAllSelected = computed(() => collectedItems.value.length > 0 && batch.selectedCount.value === collectedItems.value.length)
+function accountsOf (platformId) {
+  const list = (accountStore.byPlatform && accountStore.byPlatform[platformId]) || []
+  return list.map((a) => ({ ...a, disabled: a.disabled === true }))
+}
+const batchAccountOptions = computed(() => accountsOf(batchPlatformScope.value))
+const batchVideoAccountOptions = computed(() => accountsOf(batchVideoPlatformScope.value))
+// QM-6 M3 修复：所选平台必须写入 composable 的 batchSelection（否则 buildTargets 恒空，
+// 三批量动作被 needAccount 拦死——评审发现测试直接手写 platforms 绕过了 UI 接线）
+watch([batchPlatformScope, batchVideoPlatformScope], ([imgScope, vidScope]) => {
+  if (imgScope) batch.batchSelection.value.imageText.platforms = [imgScope]
+  if (vidScope) batch.batchSelection.value.video.platforms = [vidScope]
+}, { immediate: true })
+function toggleSelectAll (on) {
+  batch.selectMany(collectedItems.value, on)
+}
+async function batchPublishImages () {
+  const items = batch.selectedFrom(collectedItems.value)
+  await batch.confirmAndPublishImages(items)
+}
+async function batchGenerateVideos () {
+  const items = batch.selectedFrom(collectedItems.value)
+  await batch.confirmAndGenerateVideos(items)
+  await batch.refreshBatchVideos()
+}
+async function batchPublishVideos () {
+  await batch.confirmAndPublishVideos()
+}
+
+const zhihuFavSelectedItems = computed(() => zhihuFavItems.value.filter((it) => zhihuFavChecked.value.has(it.url)))
+const zhihuFavAllSelected = computed(() => zhihuFavItems.value.length > 0 && zhihuFavSelectedItems.value.length === zhihuFavItems.value.length)
+const zhihuFavProgressPercent = computed(() => {
+  if (!zhihuFavProgressTotal.value) return 0
+  return Math.round((zhihuFavProgressDone.value / zhihuFavProgressTotal.value) * 100)
+})
+const zhihuFavScopeHint = computed(() => zhihuFavScopeNote.value || '')
+
+/** 清单项「已采集」标记：与 collected_items 的 sourceUrl 集合比对（C2 去重真源） */
+const collectedUrlSet = computed(() => new Set(collectedItems.value.map((it) => it.sourceUrl).filter(Boolean)))
+
+function zhihuKindLabel (kind) {
+  const keyMap = { answer: 'kindAnswer', article: 'kindArticle', column: 'kindColumn', pin: 'kindPin', video: 'kindVideo', unknown: 'kindUnknown' }
+  const key = keyMap[kind] || 'kindUnknown'
+  return resolveNotifyText('collection.zhihuFav.' + key).text
+}
+
+function formatFavTime (favTime) {
+  const n = Number(favTime)
+  if (!n) return ''
+  try {
+    return new Date(n * 1000).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
+function toggleZhihuFavAll (on) {
+  const s = new Set()
+  if (on) {
+    for (const it of zhihuFavItems.value) {
+      if (!(it.collected && !zhihuFavIncludeCollected.value)) s.add(it.url)
+    }
+  }
+  zhihuFavChecked.value = s
+}
+
+function toggleZhihuFavItem (it) {
+  const s = new Set(zhihuFavChecked.value)
+  if (s.has(it.url)) s.delete(it.url)
+  else s.add(it.url)
+  zhihuFavChecked.value = s
+}
+
+/** 取消「采集并改写」（QM-6 M2：模板引用的函数必须存在；cancel IPC 通道已注册） */
+function cancelZhihuFavBatch () {
+  try {
+    const api = getApi()
+    if (api && typeof api.zhihuFavBatchCancel === 'function') {
+      api.zhihuFavBatchCancel().catch(() => { /* 取消失败静默 */ })
+    }
+  } catch { /* 取消失败静默 */ }
+}
+
+/** 安全日志（渲染端轻量 console.warn，仅计数不落正文） */
+function loggerWarnSafe (tag, msg) {
+  console.warn('[' + tag + '] ' + msg)
+}
+
+/** 拉取收藏夹清单（scope=favlist 单夹 / scope=all 全部收藏聚合） */
+async function loadZhihuFavItems () {
+  zhihuFavListLoading.value = true
+  zhihuFavlistError.value = ''
+  zhihuFavScopeNote.value = ''
+  zhihuFavChecked.value = new Set()
+  try {
+    await saveZhihuSecret()
+    const api = getApi()
+    const collectedUrls = collectedUrlSet.value
+    let items = []
+    if (zhihuFavScope.value === 'all') {
+      const r = await api.zhihuFavlistUnifiedContents({
+        count: zhihuFavFullMode.value ? 200 : zhihuFavCount.value,
+        fullMode: zhihuFavFullMode.value,
+      })
+      if (r.code !== 0) {
+        zhihuFavlistError.value = r.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+        return
+      }
+      items = (r.data && r.data.items) || []
+      const notes = []
+      if (r.data && r.data.favlistsCapped) notes.push(resolveNotifyText('collection.zhihuFavlist.favlistsCapped').text)
+      if (r.data && r.data.fullModeCapped) notes.push(resolveNotifyText('collection.zhihuFavlist.fullModeCap').text)
+      zhihuFavScopeNote.value = notes.join('；')
+    } else {
+      const r = await api.zhihuFavlistContents({ urlToken: zhihuSelectedFavlist.value })
+      if (r.code !== 0) {
+        zhihuFavlistError.value = r.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+        return
+      }
+      items = (r.data && r.data.items) || []
+    }
+    // 数量不符明确提示（Q11）：申请 N 篇但实际更少
+    const requested = zhihuFavFullMode.value ? 200 : zhihuFavCount.value
+    if (!zhihuFavFullMode.value && items.length && items.length < requested) {
+      zhihuFavScopeNote.value = (zhihuFavScopeNote.value ? zhihuFavScopeNote.value + '；' : '')
+        + resolveNotifyText('collection.zhihuFavlist.fewerThanRequested', { actual: String(items.length), requested: String(requested) }).text
+    }
+    // 全量 200 封顶前端防御（Q21C：超出即中止并提示，不部分执行）
+    if (zhihuFavFullMode.value && items.length > 200) {
+      zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.fullModeCap').text
+      return
+    }
+    // 已采集标记（C2）：后台比对，渲染层默认跳过 + forceRecollect 开关
+    zhihuFavItems.value = items.map((it) => ({ ...it, collected: collectedUrls.has(it.url) }))
+    if (!zhihuFavItems.value.length) {
+      zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.emptyItems').text
+    }
+  } catch (e) {
+    zhihuFavlistError.value = String(e && e.message || e)
+  } finally {
+    zhihuFavListLoading.value = false
+  }
+}
+
+/** 「采集并改写」编排（P0 修复 + Q16 直选式 + D2 自动改写 + Q26C 改写稿发布） */
+async function runZhihuFavCollectRewrite () {
+  const picked = zhihuFavSelectedItems.value
+  if (!picked.length) {
+    zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.noSelection').text
+    return
+  }
+  zhihuFavBatching.value = true
+  zhihuFavlistError.value = ''
+  zhihuFavSummary.value = ''
+  zhihuFavProgressLines.value = []
+  zhihuFavProgressDone.value = 0
+  zhihuFavProgressTotal.value = picked.length
+  try {
+    const api = getApi()
+    // IPC 参数纯 JSON 纪律（QM-6 M4）：逐字段显式归一，不经任何 reactive 引用
+    const items = picked.map((it) => ({
+      url: String(it.url || ''),
+      kind: String(it.kind || ''),
+      title: String(it.title || ''),
+      favTime: Number(it.favTime) || 0,
+    }))
+    const r = await api.zhihuFavBatchRun({
+      items,
+      rewriteStyle: rewriteStyle.value,
+      imageLocalization: true,
+      forceRecollect: zhihuFavIncludeCollected.value,
+      collectedUrls: [...collectedUrlSet.value],
+      batchId: 'fb_' + Date.now().toString(36),
+    })
+    if (r.code !== 0) {
+      zhihuFavlistError.value = r.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+      return
+    }
+    const data = r.data || {}
+    // 结果映射走唯一出口（P0 回归锁：禁止再出现 x.data.data 双层展开）。
+    // ⚠ QM-6 C1 修复：handler 返回 data={completed,...,results:[{index,ok,data:{...}}]}，
+    // 必须传 data.results（条目数组 data.items 没有 ok 字段，传 items 会被整批 continue 成零产出）
+    const newItems = mapFavBatchResultsToItems(data.results || [], items, { source: 'zhihu-fav' })
+    if ((data.completed || 0) > 0 && newItems.length === 0) {
+      // 汇总与实际产出交叉校验（QM-6）：不一致说明契约断裂，宁可报错也不静默
+      zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.mappingMismatch').text
+      loggerWarnSafe('zhihu-fav-batch', 'completed=' + data.completed + ' but mapped 0 items')
+    }
+    for (const item of newItems) {
+      collectedItems.value.unshift(normalizeCollectedItem(item, categoryTagCtx.value))
+    }
+    saveCollectedItems()
+    zhihuFavlistResults.value = newItems
+    // 改写黑盒接通（C3b/D2）：自动改写成功的条目同步进文案库（fromKey 幂等，同来源仅留最新）
+    for (const item of newItems) {
+      if (item.rewrittenContent && item.sourceUrl) {
+        upsertCopyRewrite({
+          fromKey: collectFromKey(item.id),
+          fromTitle: item.title,
+          title: item.title,
+          content: item.rewrittenContent,
+          sourceUrl: item.sourceUrl,
+        }).catch(() => { /* 文案库写入失败不阻塞主流程 */ })
+      }
+    }
+    zhihuFavSummary.value = resolveNotifyText('collection.zhihuFav.progressSummary', {
+      success: String(data.completed || 0), failed: String(data.failed || 0),
+      skipped: String(data.duplicateSkipped || 0), rewriteFailed: String(data.rewriteFailed || 0),
+    }).text
+      + (data.cancelled ? resolveNotifyText('collection.zhihuFavlist.batchDoneCancelledSuffix').text : '')
+      + (data.circuitBroken ? resolveNotifyText('collection.zhihuFavlist.batchDoneCircuitBrokenSuffix').text : '')
+    notifySuccess('collection.collectSuccess')
+    // 刷新清单的已采集标记
+    loadZhihuFavItems().catch(() => {})
+  } catch (e) {
+    zhihuFavlistError.value = String(e && e.message || e)
+  } finally {
+    zhihuFavBatching.value = false
+  }
+}
+
+/** 订阅「采集并改写」进度事件（双边界：start/done + summary） */
+function subscribeZhihuFavProgress () {
+  const api = getApi()
+  if (api && typeof api.onZhihuFavBatchProgress === 'function') {
+    zhihuFavProgressUnsubscribe = api.onZhihuFavBatchProgress((p) => {
+      if (!p || typeof p !== 'object') return
+      if (p.phase === 'start') {
+        zhihuFavProgressLines.value.push(`[${(p.index ?? 0) + 1}/${p.total}] ${resolveNotifyText('collection.zhihuFav.collectingNote', { url: p.url }).text}`)
+      } else if (p.phase === 'done') {
+        zhihuFavProgressDone.value = Math.min((p.index ?? 0) + 1, p.total || zhihuFavProgressTotal.value)
+        const res = p.result || {}
+        let note = resolveNotifyText('collection.zhihuFav.doneNote').text
+        if (res.registerOnly) note = resolveNotifyText('collection.zhihuFav.registerOnlyNote').text
+        else if (res.rewriteFailed) note = resolveNotifyText('collection.zhihuFav.collectOkRewriteFailNote').text
+        else if (res.fallbacks) note += resolveNotifyText('collection.zhihuFav.fallbackSuffix', { count: String(res.fallbacks) }).text
+        zhihuFavProgressLines.value.push(`[${(p.index ?? 0) + 1}/${p.total}] ${note}`)
+      } else if (p.phase === 'summary') {
+        zhihuFavProgressTotal.value = p.total || zhihuFavProgressTotal.value
+      }
+      // QM-6 m9：进度行上限（>200 截断，防长任务 DOM 无界累积）
+      if (zhihuFavProgressLines.value.length > 200) {
+        zhihuFavProgressLines.value = zhihuFavProgressLines.value.slice(-200)
+      }
+    })
+  }
+}
+
+// ─── 知乎收藏夹批量采集/改写 ───
 const batchProgress = ref(0)
 const batchProgressText = ref('')
 const batchError = ref('')
@@ -887,12 +1323,21 @@ onMounted(async () => {
   // 统一内容类别：全应用单例，这里只需触发一次加载 + 订阅运营变更
   loadContentCategories().catch(() => {})
   categoriesUnsubscribe = watchContentCategories()
+  // 知乎收藏批量（2026-10-03）：平台目录 + 进度事件订阅
+  // Promise.resolve 包裹：测试桩的 load() 可能返回 undefined，直接 .catch 会抛
+  // "Cannot read properties of undefined (reading 'catch')"（QG Unit unhandled rejection 修复）
+  if (!platformStore.loaded) { Promise.resolve(platformStore.load()).catch(() => {}) }
+  if (!accountStore.accounts || !accountStore.accounts.length) { try { await Promise.resolve(accountStore.load()) } catch { /* 账号加载失败不阻塞 */ } }
+  if (!batchPlatformScope.value && batchPlatformOptions.value.length) batchPlatformScope.value = batchPlatformOptions.value[0].id
+  if (!batchVideoPlatformScope.value && batchVideoPlatformOptions.value.length) batchVideoPlatformScope.value = batchVideoPlatformOptions.value[0].id
+  subscribeZhihuFavProgress()
 })
 
 onUnmounted(() => {
   stopBatchPolling()
   if (categoriesUnsubscribe) { categoriesUnsubscribe(); categoriesUnsubscribe = null }
   if (asrInstallUnsubscribe) { asrInstallUnsubscribe(); asrInstallUnsubscribe = null }
+  if (zhihuFavProgressUnsubscribe) { zhihuFavProgressUnsubscribe(); zhihuFavProgressUnsubscribe = null }
 })
 
 // ===== 分享文本链接解析（2026-09-19；2026-09-29 六平台扩展 + CJK 排除字符类）=====
@@ -2207,7 +2652,7 @@ function cancelBatchCollect () {
   background: var(--color-bg-card);
 }
 .compare-textarea:focus { border-color: var(--coral); outline: none; }
-.compare-textarea[readonly] { background: var(--soft-stone); color: var(--text-secondary); }
+.compare-textarea[readonly] { background: var(--soft-stone); color: var(--color-text-secondary); }
 
 @media (max-width: 768px) {
   .rewrite-compare { grid-template-columns: 1fr; }
@@ -2339,7 +2784,7 @@ function cancelBatchCollect () {
   padding: 4px 8px;
   border-radius: 6px;
 }
-.copy-preview-close:hover { background: var(--soft-stone, #f5f5f5); color: var(--text-primary); }
+.copy-preview-close:hover { background: var(--soft-stone, #f5f5f5); color: var(--color-text-primary); }
 .copy-preview-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; font-size: var(--font-size-xs); color: var(--muted, #73777d); }
 /* 长文本展示契约：显式换行 + 任意位置断词，避免长串英文/链接撑破弹窗 */
 .copy-preview-content {
@@ -2414,3 +2859,6 @@ function cancelBatchCollect () {
 .asr-install-cmd { display: block; padding: 8px 10px; background: var(--color-bg-secondary, #f5f5f5); border-radius: 6px; font-size: var(--font-size-xs); word-break: break-all; user-select: all; }
 
 </style>
+
+
+

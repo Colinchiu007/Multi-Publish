@@ -455,7 +455,32 @@ function escapeRegex(str) {
 }
 
 /**
- * 按中文标点切分句子。
+ * 按中文标点切分句子，并保留每个句子的终止标点。
+ * 返回元素形如「正文+标点」；无终止标点的尾段原样返回（不追加标点）。
+ * 历史 Bug：旧实现丢弃标点后由调用方统一补「。」，导致「！」「？」等语气标点
+ * 被改写为句号、段尾标点整体丢失（2026-10-03 段落压平修复一并修正）。
+ * @param {string} text 输入文本
+ * @returns {string[]} 句子数组（每个元素含终止标点）
+ */
+function splitSentencesWithPunct(text) {
+  return text
+    .split(/([。！？；!?;]+)/g)
+    .reduce(function (acc, part) {
+      if (!part) return acc
+      // 标点分组（命中终止标点集）追加到前一个正文分组尾部
+      if (/^[。！？；!?;]+$/.test(part) && acc.length > 0) {
+        acc[acc.length - 1] += part
+      } else {
+        acc.push(part)
+      }
+      return acc
+    }, [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * 按中文标点切分句子（兼容旧签名，丢弃标点；仅 rhythm 检测使用）。
  * @param {string} text 输入文本
  * @returns {string[]} 句子数组
  */
@@ -772,15 +797,19 @@ class AITasteRemover {
 
   /**
    * Pass 3: 加人类质感（句长变化、留白、作者观点）。
+   * 段落结构保留（2026-10-03 段落压平修复）：先按换行切分，再仅对单个自然段做句级重组，
+   * 换行/空行结构原样返回。历史缺陷：对全文 splitSentences 后 join('。')，把 LLM 按空行
+   * 分段的改写结果压平成一整段（rewrite-engine-core._postProcess 每次真实改写都经过此路径）。
+   * 结构不变量：任何 pass 不得改变输入的换行/分段结构。
    * @param {string} text 输入文本
    * @returns {string} 处理后的文本
    */
   _addHumanTexture(text) {
     let result = text
-    // 句长变化：检测到句长方差过小（过于均匀）时，合并短句
+    // 句长变化：检测到句长方差过小（过于均匀）时，段内合并短句
     const rhythm = this._detectRhythm(result)
     if (rhythm.signal) {
-      result = this._mergeUniformSentences(result)
+      result = result.split('\n').map((paragraph) => this._mergeUniformSentences(paragraph)).join('\n')
     }
     return result
   }
@@ -816,11 +845,13 @@ class AITasteRemover {
 
   /**
    * 合并连续等长句，增加句长变化。
+   * 标点保留（2026-10-03 修复）：切分保留各句原终止标点，重组按原文标点回填，
+   * 不再统一补「。」；段尾无终止标点时保持无标点。
    * @param {string} text 输入文本
    * @returns {string} 合并后文本
    */
   _mergeUniformSentences(text) {
-    const sentences = splitSentences(text)
+    const sentences = splitSentencesWithPunct(text)
     if (sentences.length < 3) return text
     const lens = sentences.map((s) => s.length)
     const result = []
@@ -829,7 +860,9 @@ class AITasteRemover {
       if (i + 1 < sentences.length) {
         const nearEqual = Math.abs(lens[i + 1] - lens[i]) <= lens[i] * 0.2
         if (nearEqual && lens[i] + lens[i + 1] < 80) {
-          result.push(sentences[i] + '，' + sentences[i + 1])
+          // 段内合并：前句终止标点改逗号衔接，后句保留自身标点
+          const head = sentences[i].replace(/[。！？；!?;]+$/, '')
+          result.push(head + '，' + sentences[i + 1])
           i += 2
           continue
         }
@@ -837,7 +870,7 @@ class AITasteRemover {
       result.push(sentences[i])
       i++
     }
-    return result.join('。')
+    return result.join('')
   }
 
   /**
