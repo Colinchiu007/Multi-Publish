@@ -69,6 +69,12 @@
     应用重启后身份态**自动恢复 `authenticated`**（`user.sub=hc2y714slpby`、`source: online`）⇒ 门正常放行，**不构成长期阻塞**（产品决策、非缺陷）。
   - 后续路径（如需继续投入 API 轨）：① 不再做头部级取证（已穷尽）；② 改**借浏览器传输**（同受信会话内用 `fetch` 发上传域请求，
     即用浏览器的 TLS/HTTP2-3 栈，而非 Node axios）；③ 保留 DOM 轨为快手默认路径。复跑脚本入口见该文档「终局与后续」节。
-- [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2（两者均在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表——⚠️ 不是 `01-docs/PRD.md`，后者 F12=多平台实时监控、F13=评论管理，与本特性无关；交叉引用原按记忆书写，2026-09-26 核实纠偏）；`openspec archive` + learnings/记忆三投
+- [x] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2（两者均在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表——⚠️ 不是 `01-docs/PRD.md`，后者 F12=多平台实时监控、F13=评论管理，与本特性无关；交叉引用原按记忆书写，2026-09-26 核实纠偏）；`openspec archive` + learnings/记忆三投
+  - 交付（2026-10-04 收口 PR #2883，docs-only）：
+    ① PRD §13.5 收口更新 + 新增 §13.6「活体裁决与定案」（11 轮活体八层缺陷表、DOM 11/11 兜底末条 `3xxqqt4k9xnspcy`、后续路径三条）+ F12/M3/附录验收表终裁口径；
+    ② techdoc v2 §2 快手行 / §4.2 活体终裁段 / §11 修订记录 / §12 关联文档（W3 已归档实况）；
+    ③ `openspec archive api-publish-engine-w3 --yes`（validate --strict 先行，10 条 Requirement 折入主规格，4 条 Purpose TBD 补齐）；
+    ④ learnings/记忆三投：`01-docs/learnings.md`「header 逐字对齐仍被 400 拒绝 ⇒ 根因在传输层指纹」条目 + 决策账（not-go 定案）+ 工具坑（PS5.1 中文管道/内联展开）与工作区外文件编辑绕行方案。
+  - 仍开放（不属本条范围，已登记收口待决项）：kuaishou `publishMode` 回拨 dom-only（运行时代码配置变更，须新隔离 worktree 小波 + publish-mode-config 回归）、「借浏览器传输」路径未立项。
   - M3 裁决（S0 INCONCLUSIVE / S2a Tier-A 方向成立 / S2b Tier-A GO）与 F13 止步（x-s/x-t 依赖外包服务、页面内可抽取性未经 spike）属**已定决策**，2026-09-26 先行回写 PRD §4/§9/§10 + techdoc v2 §2/§4.2/§6.1/§11，防上下文断联；
   - 活体证据四件套回写（PRD 附录验收表实数据）与 `openspec archive` 曾阻塞于 6.3（用户在场）；**2026-09-30 解除：6.3 已定案 not-go**，验收事实=11 轮网络取证本身，不再存在「等补活体通过」尾债；与 W1 §7.5-7.7 / W2 §6.2-6.4 合并的三波同窗口验收仅剩「API 轨真实成功发布」一项，快手已由 not-go 结论出局。
