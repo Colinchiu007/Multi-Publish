@@ -752,3 +752,30 @@ test('quality-gate 的 visual job 必须含 PR 侧基线新鲜度步骤（Gate 7
   assert.match(body, /--renders=apps\/desktop\/tests\/visual-testing\/screenshots/, '渲染目录必须指向本次产物')
   assert.doesNotMatch(body, /continue-on-error/, '不得降级为非阻断')
 })
+
+// Gate 7b 的判定域锁：基线的权威渲染是 views 套件产出的 `<name>.png`（检查器 findRender 优先取它），
+// 而像素套件产的 `<name>-current.png` 与它**不是同一张图**。实测（run 37103860559，同一次 run 内两两对照）：
+//   dashboard 差 350 px、intelligence 差 10528 px、collection 差 67870 px、create-result 差 10111 px；
+//   同一差值在两个不同 head（a0e98805 / 94243c2a）上逐字相同 ⇒ 确定性差异，不是抖动。
+// 后果曾真实发生：Gate 7b 对一条**全量新鲜度已报 0 违规**的 head 报了 7 条假违规（collection 1.568% 等）。
+// 所以 PR 侧必须在同一个持有 dev server 的步骤里补跑 views 两套，否则 Gate 7b 是在错的域上判定。
+test('Gate 7b 之前必须在 Gate 7 同一步骤内产出 views 两套渲染（判定域锁）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const steps = wf.jobs.visual.steps;
+  const idxGate7 = steps.findIndex((s) => typeof s.name === 'string' && s.name.includes('Gate 7 - Visual regression'));
+  const idxFresh = steps.findIndex((s) => typeof s.name === 'string' && /Gate 7b - Baseline freshness/.test(s.name));
+  assert.notStrictEqual(idxGate7, -1, 'Gate 7 步骤必须仍存在（改名会静默废掉本条锁）');
+  assert.notStrictEqual(idxFresh, -1, '缺少 Gate 7b 步骤');
+  const body = String(steps[idxGate7].run);
+
+  // 三条采集必须在同一步骤：dev server 在该步骤的 finally 里被杀掉，另起一步就没有可拍的服务了
+  assert.match(body, /run test:visual:pixel/, '像素套仍在');
+  assert.match(body, /pnpm\.cmd run test:visual(?!:)/, '必须补跑 views 核心套（产 <name>.png）');
+  assert.match(body, /pnpm\.cmd run test:visual:supplement/, '必须补跑 views 补充套');
+
+  // views 的比较结果不另设门禁（0 px 严格强于 6%），但退出码必须出声，
+  // 否则「套件崩了」会伪装成「本次没产图」，而 partial 恰好把没产图记成 skipped。
+  assert.match(body, /suite exits:.*pixel=.*views=.*views-supplement=/, '三套退出码必须逐条打印');
+
+  assert.ok(idxFresh > idxGate7, 'views 采集必须在 Gate 7b 判定之前');
+})
