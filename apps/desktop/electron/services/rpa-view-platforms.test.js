@@ -1138,34 +1138,42 @@ describe('rpa-view-platforms — douyin 图文事件驱动等待（A2：去固�
     expect(body).not.toContain('await this._sleep(5000)')
   })
 
-  it('tag 注入后就绪信号为 tag chip 出现（_waitForCondition 探针）而非固定等待', () => {
+  it('tag 注入后就绪信号为 tag chip 出现（_waitForTagChip helper，判据下沉 navigation-helpers）而非固定等待', () => {
     const body = getDouyinBody()
     const tagIdx = body.indexOf("'adding tags...'")
     expect(tagIdx).toBeGreaterThan(-1)
     const tagSection = body.slice(tagIdx, body.indexOf("'publishing...'", tagIdx))
-    expect(tagSection).toContain('_waitForCondition')
-    // 探针必须验证 chip 真实出现（文本匹配 tag 值），不能是恒真条件
-    expect(tagSection).toMatch(/innerText/)
+    // 判据实现下沉到 rpa-view-navigation-helpers（行数门禁），调用点锁 helper 名
+    expect(tagSection).toContain('_waitForTagChip')
+    // helper 本体必须含 chip 文本匹配判据（不能是恒真条件）
+    const navSrc = readPlatformsSource()
+    expect(navSrc).toMatch(/_waitForTagChip\s*\(/)
+    expect(navSrc).toMatch(/innerText/)
   })
 
-  it('封面注入后就绪信号为封面缩略图 img 计数基线增加（头条 _uploadToutiaoCover 同款判据）', () => {
+  it('封面注入后就绪信号为缩略图基线递增（_waitForThumbnailIncrease helper，头条 _uploadToutiaoCover 同款判据）', () => {
     const body = getDouyinBody()
     const coverIdx = body.indexOf("'uploading cover...'")
     expect(coverIdx).toBeGreaterThan(-1)
     const coverSection = body.slice(coverIdx, body.indexOf("'adding tags...'", coverIdx))
-    expect(coverSection).toContain('_waitForCondition')
-    // 基线计数判据（querySelectorAll('img').length 递增），与头条封面修复同一思路
-    expect(coverSection).toMatch(/querySelectorAll\("img"\)\.length/)
+    // 判据实现下沉到 rpa-view-navigation-helpers（行数门禁），调用点锁 helper 名
+    expect(coverSection).toContain('_waitForThumbnailIncrease')
+    // helper 本体必须含基线计数判据（querySelectorAll("img").length 递增）
+    const navSrc = readPlatformsSource()
+    expect(navSrc).toMatch(/querySelectorAll\("img"\)\.length/)
   })
 
-  it('提交兜底为 URL 轮询（多次短间隔）而非单次 sleep+单次查询', () => {
+  it('提交兜底为 URL 轮询（_waitForSuccessNavigation helper，多次短间隔）而非单次 sleep+单次查询', () => {
     const body = getDouyinBody()
     const publishIdx = body.indexOf("'publishing...'")
     expect(publishIdx).toBeGreaterThan(-1)
     const publishSection = body.slice(publishIdx)
     expect(publishSection).not.toContain('await this._sleep(5000)')
-    expect(publishSection).toMatch(/for\s*\(\s*let\s+\w+\s*=\s*0/)
-    expect(publishSection).toMatch(/getURL\(\)/)
+    // 判据实现下沉 navigation-helpers（行数门禁），调用点锁 helper 名 + 短超时参数
+    expect(publishSection).toContain('_waitForSuccessNavigation')
+    const navSrc = readPlatformsSource()
+    expect(navSrc).toMatch(/_waitForSuccessNavigation\s*\(/)
+    expect(navSrc).toMatch(/getURL\(\)/)
   })
 
   // 行为锁：图片上传成功后直接进入表单就绪等待（原 4s sleep 删除后调用序不变）

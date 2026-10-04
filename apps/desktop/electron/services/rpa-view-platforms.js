@@ -927,9 +927,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         uploaded = await tryInjectImage()
       }
       if (uploaded) {
-        // A2（publish-throughput-optimization）：删除原 _sleep(4000) 固定等待——
-        // 表单就绪轮询（下方 _waitForCondition 30s/1.5s）已经是就绪判定，固定 sleep 是纯叠加。
-        // 实测教训保留：上传后 7ms 即填字段全部落空——所以就绪判定必须先行，而不是盲等。
+        // A2：删除原 _sleep(4000)——表单就绪轮询（下）已是就绪判定，固定 sleep 是纯叠加。
+        // 实测教训保留：上传后 7ms 即填字段全部落空——就绪判定必须先行，而不是盲等。
         const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
         if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
         this._emitProgress('douyin','image uploaded',45)
@@ -970,17 +969,10 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       this._emitProgress('douyin','uploading cover...',75)
       try {
         if (await this._click(win,'[class*="cover"]')) {
-          // A2：封面缩略图 img 计数基线增加 = 注入被平台接受（头条 _uploadToutiaoCover 同款判据），
-          // 替代原 _sleep(1000)+注入+_sleep(2000) 固定等待；超时仅告警并继续提交（降级不失败）。
-          const baselineJs = '(function(){var w=document.querySelector(\'[class*="cover"]\');if(!w)return -1;return w.querySelectorAll("img").length})()'
-          let baseline = -1
-          try { baseline = Number(await win.webContents.executeJavaScript(baselineJs)) } catch (_) { /* 读不到按 -1 */ }
-          await this._setFileInput(win, article.cover_path)
-          const coverReady = await this._waitForCondition(
-            win,
-            'function(){var w=document.querySelector(\'[class*="cover"]\');if(!w)return false;return w.querySelectorAll("img").length > ' + (Number.isFinite(baseline) && baseline >= 0 ? baseline : 0) + '}',
-            10000, 500,
-          )
+          // A2：封面缩略图基线递增判据下沉 navigation-helpers（头条同款）；超时告警降级不失败。
+          const coverReady = await this._waitForThumbnailIncrease(win, '[class*="cover"]', async () => {
+            await this._setFileInput(win, article.cover_path)
+          }, 10000)
           if (!coverReady) log.warn('RpaView', '[douyin] cover thumbnail not confirmed within 10s (continuing)')
         }
       } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
@@ -991,13 +983,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       for (let ti=0;ti<article.tags.length;ti++) {
         try {
           await win.webContents.executeJavaScript('(function(){let ti=document.querySelectorAll(\'[class*="tag"] input,input[placeholder*="tag"],input[placeholder*="标签"]\');if(ti.length>0){let inp=ti[0];inp.value='+JSON.stringify(article.tags[ti])+';inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",keyCode:13}))}})()')
-          // A2：chip 就绪 = 页面出现含 tag 文本的可见元素（回车后平台异步建 chip），
-          // 替代原固定 _sleep(1000)/tag；超时继续下一个 tag（不失败）。
-          await this._waitForCondition(
-            win,
-            'function(){var t=' + JSON.stringify(article.tags[ti]) + ';var els=[].concat.apply([],document.querySelectorAll(\'[class*="tag"],[class*="Tag"]\'));return els.some(function(e){return (e.innerText||"").indexOf(t)!==-1&&e.getClientRects().length>0})}',
-            5000, 500,
-          )
+          // A2：chip 就绪轮询（判据下沉 navigation-helpers），替代原固定 _sleep(1000)/tag。
+          await this._waitForTagChip(win, article.tags[ti], 5000)
         } catch(e) { log.warn('RpaView','douyin tag: '+e.message) }
       }
     }
@@ -1009,14 +996,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
       if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
-      // A2：提交兜底从「_sleep(5000)+单次查 URL」改为 500ms×10 轮询——最长仍 5s，
-      // 但成功跳转发生时平均提前 ~2.5s 返回（事件驱动优先于盲等）。
-      let fu = ''
-      for (let pi = 0; pi < 10; pi++) {
-        await this._sleep(500)
-        fu = win.webContents.getURL()
-        if (fu.includes('success')||fu.includes('publish/success')) return { success:true, url:fu||'', platform:'douyin' }
+      // A2：提交兜底改 URL 轮询（实现下沉 navigation-helpers），最长仍 5s、成功提前返回。
+      if (await this._waitForSuccessNavigation(win, 5000)) {
+        return { success:true, url:win.webContents.getURL()||'', platform:'douyin' }
       }
+      const fu=win.webContents.getURL()
       log.warn('RpaView', '[douyin] publish timeout url=' + (fu||''))
       return { success:false, error:'publish timeout', platform:'douyin' }
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }

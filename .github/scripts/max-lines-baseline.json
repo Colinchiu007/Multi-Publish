@@ -22,7 +22,7 @@
     "apps/desktop/electron/services/publisher-router.js": 629,
     "apps/desktop/electron/services/python-bridge.js": 584,
     "apps/desktop/electron/services/qrcode-login.js": 675,
-    "apps/desktop/electron/services/rpa-view-platforms.js": 1215,
+    "apps/desktop/electron/services/rpa-view-platforms.js": 1422,
     "apps/desktop/electron/services/stage-executor.js": 1006,
     "apps/desktop/electron/services/story-context-engine.js": 1012,
     "apps/desktop/electron/services/story2video-batch-queue.js": 562,
