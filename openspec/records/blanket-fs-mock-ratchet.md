@@ -2,9 +2,6 @@
 record: blanket-fs-mock-ratchet
 task: #32 收敛 #2794 同源残留——把"测试夹具不得对同 realm 第三方谎报文件系统"做成只能缩小的棘轮，接进 Gate 2c
 date: 2026-10-04
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：blanket fs 夹具棘轮（blanket-fs-mock-ratchet，2026-10-04）
@@ -56,7 +53,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 **为什么这处必须单独记一笔**：它在"真实仓库自证 PASS"之后才出现 —— 因为判据域来自 `git ls-files`，**未跟踪文件对门禁隐身**。所以那一次 PASS 测的不是 CI 会看到的域，是一句对不上现场的话。口径：**现场自证必须在"与 CI 相同的 tracked 形态"下跑**（提交后至少再跑一次），这与本仓既有的「新增测试文件必须看见它被执行过」「该面跑绿等价于真的加载了守卫」是同一条纪律的第三种形态。另外 `GATE` 在 `git add` 之后被 checkout 归一成 CRLF ⇒ 反证驱动里带换行的 needle 必须改用 `
 `（F19 首版因此 FIND_NOT_FOUND）。
 
-| 远程同步 | PENDING | 本 PR 尚未合并 ⇒ merge SHA / 合并时间 / 远端分支删除状态此刻都不存在。合并后由下一个会话按既有口径回填：`git log origin/main --grep='(<PR号>)$' --format=%H|%cI` 取 merge SHA 与时间、`git ls-remote --heads origin blanket-fs-mock-ratchet` 返回 0 行证远端分支已删（同一次调用要带一个必然存在的分支当正控），**并把本条记录在 `scripts/gate-record-debt-ledger.json` 里的登记项删掉、同时删掉 frontmatter 的三个 `sync_*` 字段**（销账与回填必须同次发生，否则 `check-gate-record-debt` 当场报"陈旧登记"）。 |
+| 远程同步 | PASS | merge SHA `ee4898b63e54275c674295cbc807dc3e1bc14d36`（PR #2864 以 squash 进 main，2026-10-04T09:35:21Z；取证 `git log origin/main --grep='(#2864)$' --format=%H|%cI|%s` 与 `GET /repos/Colinchiu007/mulpub/pulls/2864` 的 `merged=true`/`merge_commit_sha` 双源一致，commits=2、changed_files=8）。远端分支已删：`git ls-remote --heads origin blanket-fs-mock-ratchet main` 只返回 `refs/heads/main` 一行（该分支 0 行 ⇒ 同一条命令的正控确实取到了东西，不是空返回）。合并前 CI 终态由看守按 60s 轮询取证：24 次观测、末次 `state=open merged=true pass=20 fail=0 pending=0`（`D:/tmp/mp-watch-2864.log`，rc=0）。内容级复核（不看 merge 状态看产物）：`git ls-tree origin/main` 里 `scripts/check-blanket-fs-mock.js`、`scripts/check-blanket-fs-mock.test.js`、`docs/blanket-fs-mock-ratchet.md`、本记录**四个新文件全部在位**，且 `git show origin/main:.github/workflows/quality-gate.yml` 里 `check-blanket-fs-mock` 命中恰 2 行（`node --test` 那条锁 + `node ...js` 那条判定），都在 `Gate 2c` 的 `shell: bash` 步骤体内。本次回填同一次删除 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。 |
 
 ### 遗留（不假装已闭合）
 
