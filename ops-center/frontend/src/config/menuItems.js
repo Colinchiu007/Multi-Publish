@@ -28,6 +28,7 @@ export const MENU_ITEMS = [
   { path: '/content-templates', label: '内容模板库', icon: Document },
   { path: '/rewrite-strategies', label: '改写策略管理', icon: Edit },
   { path: '/rewrite-hard-constraints', label: '改写硬约束', icon: Lock, adminOnly: true },
+  { path: '/rewrite-ai-taste', label: '去AI味词库', icon: MagicStick, adminOnly: true },
   { path: '/keyword-watchlist', label: '关键词监测', icon: Search },
   { path: '/pipeline-deps', label: '流水线依赖', icon: Connection },
   { path: '/pipeline-options', label: '选项控制', icon: Operation, adminOnly: true },
