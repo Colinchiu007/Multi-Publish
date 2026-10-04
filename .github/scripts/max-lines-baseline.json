@@ -65,7 +65,7 @@
     "ops-center/backend/models.py": 680,
     "ops-center/backend/services/model_preset_service.py": 1188,
     "ops-center/backend/services/prompt_eval_service.py": 1043,
-    "packages/api-publish-engine/src/publish-api-server.js": 1156,
+    "packages/api-publish-engine/src/publish-api-server.js": 1356,
     "packages/python-backend/src/multi_publish/aggregation/quality/evaluator.py": 688,
     "packages/python-backend/src/multi_publish/core/task_manager.py": 563,
     "packages/python-backend/src/multi_publish/publishers/douyin.py": 915,
