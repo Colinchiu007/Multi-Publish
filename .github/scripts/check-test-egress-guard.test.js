@@ -18,6 +18,7 @@ const {
   collectSurfaces,
   collectProblems,
   evaluate,
+  hasPlaneCall,
   GUARD_MODULE,
   SETUP_BASE,
   KNOWN_UNGUARDED,
@@ -61,6 +62,56 @@ test('共享 setup 只装 socket 面时必须红（子进程路径无守卫是 #
     '两面齐全时不得报该问题：\n' + b.problems.join('\n'));
 });
 
+test('桌面 realm 只装 socket 面时必须红 —— #2783 的案发现场就在桌面 realm（QM-6 两路评审独立命中）', () => {
+  const desktopRel = 'apps/desktop/test-setup.js'
+  const files = [desktopRel, 'apps/desktop/vitest.config.js']
+  const cfg = 'export default { test: { setupFiles: ["./test-setup.js"] } }'
+  const socketOnly = {
+    'apps/desktop/vitest.config.js': cfg,
+    [desktopRel]: "require('../../" + GUARD_MODULE + "').installTestNetworkGuard()",
+  }
+  const bothPlanes = {
+    'apps/desktop/vitest.config.js': cfg,
+    [desktopRel]: "require('../../" + GUARD_MODULE + "').installTestNetworkGuard()\n"
+      + "require('../../" + GUARD_MODULE + "').installTestChildProcessGuard({ setupPath: require.resolve('../../packages/shared-utils/" + SETUP_BASE + "') })",
+  }
+  const a = collectProblems(withFixture({}, files, socketOnly))
+  assert.ok(a.problems.some((p) => /test-setup\.js 未装子进程面/.test(p)),
+    '桌面 realm 缺子进程面必须红，实际：\n' + a.problems.join('\n'))
+  const b = collectProblems(withFixture({}, files, bothPlanes))
+  assert.equal(b.problems.filter((p) => /apps\/desktop/.test(p)).length, 0,
+    '链式 `require(...).installTestChildProcessGuard({setupPath})` 是合法接线，不得误拦：\n' + b.problems.join('\n'))
+})
+
+test('注释里的调用不算接线；缺 setupPath 的调用也不算（装饰性门禁的两种造法）', () => {
+  const setupRel = 'packages/shared-utils/' + SETUP_BASE
+  const files = ['packages/a/package.json', setupRel]
+  const pkgJson = JSON.stringify({ scripts: { test: 'node --require ../shared-utils/' + SETUP_BASE + ' --test tests/x.test.js' } })
+  // 真调用被删掉，只留一行注释 —— 纯文本存在性判据会被这种写法骗过
+  const commented = {
+    'packages/a/package.json': pkgJson,
+    [setupRel]: "// guard.installTestNetworkGuard()\n/* guard.installTestChildProcessGuard({ setupPath: __filename }) */\n",
+  }
+  const c = collectProblems(withFixture({ checkIgnored: false, minSurfaces: 1 }, files, commented))
+  assert.ok(c.problems.some((p) => /未装 socket 面/.test(p)), '整行注释必须被判没接线：\n' + c.problems.join('\n'))
+  assert.ok(c.problems.some((p) => /未装子进程面/.test(p)), '块注释必须被判没接线：\n' + c.problems.join('\n'))
+
+  // 调用在，但没传 setupPath ⇒ 实现里对 node 子进程既不注入也不登记
+  const noSetupPath = {
+    'packages/a/package.json': pkgJson,
+    [setupRel]: "const g = require('./src/network-egress-guard.js')\ng.installTestNetworkGuard()\ng.installTestChildProcessGuard()\n",
+  }
+  const d = collectProblems(withFixture({ checkIgnored: false, minSurfaces: 1 }, files, noSetupPath))
+  assert.ok(d.problems.some((p) => /未装子进程面|缺 setupPath/.test(p)),
+    '缺 setupPath 的子进程面调用必须红：\n' + d.problems.join('\n'))
+
+  // 行尾拖的同名字样也不能造出命中
+  assert.equal(hasPlaneCall("foo(); // installTestChildProcessGuard({ setupPath: x })", 'installTestChildProcessGuard', true), false,
+    '行尾注释里的同名字样不得算接线')
+  assert.equal(hasPlaneCall("g.installTestChildProcessGuard({\n  setupPath: p,\n})", 'installTestChildProcessGuard', true), true,
+    '跨行写法的合法接线必须放过（多行 options 是真实形态）')
+})
+
 test('真实仓库：棘轮必须 0 问题（现场自证，不是"应该没问题"）', () => {
   const r = collectProblems();
   assert.deepEqual(r.problems, [], '真实仓库上棘轮报问题：\n' + r.problems.join('\n'));
@@ -103,7 +154,9 @@ test('合法接线的全集必须 0 问题（夹具判"不该拦的放过"）', 
   ];
   const texts = {
     'apps/desktop/vitest.config.js': 'export default { test: { setupFiles: ["./test-setup.js"] } }',
-    'apps/desktop/test-setup.js': "require('../../" + GUARD_MODULE + "').installTestNetworkGuard()",
+    'apps/desktop/test-setup.js': "require('../../" + GUARD_MODULE
+      + "').installTestNetworkGuard()\nrequire('../../" + GUARD_MODULE
+      + "').installTestChildProcessGuard({ setupPath: require.resolve('../../packages/shared-utils/" + SETUP_BASE + "') })",
     'packages/ai-writer/vitest.config.js': "setupFiles: ['../../packages/shared-utils/" + SETUP_BASE + "']",
     'packages/ai-writer/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
     'packages/api-publish-engine/scripts/run-tests.js':

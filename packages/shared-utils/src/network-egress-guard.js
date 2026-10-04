@@ -27,6 +27,7 @@
 'use strict'
 
 const net = require('net')
+const path = require('path')
 
 const NETWORK_GUARD_APPLIED = '__mpTestNetworkGuardApplied'
 const GUARD_WARNED = '__mpGuardWarned'
@@ -145,6 +146,11 @@ const CHILD_GUARD_FLAG = '__mpChildEgressGuarded'
 const EXTERNAL_LEDGER_KEY = '__mpExternalChildSpawns'
 const EXTERNAL_WARNED_KEY = '__mpExternalChildWarned'
 const CHILD_WARN_MARK = '[TEST-NETWORK-CHILD-UNGUARDED]'
+// Node 在 fork 未显式给 execArgv 时，默认会把"求值族"旗标连同其脚本值一起剔除；
+// 一旦我们**显式写入** execArgv，这层保护就没了 —— 子进程会去执行父进程的 eval 脚本
+// 而不是目标模块（实测：`node -e` 父进程下 fork 出的子进程 6s 不写盘、把自己递归 fork 出来，只能 kill）。
+// 所以回落到 process.execArgv 时必须先自行过滤，口径与 Node 文档一致。
+const EVAL_FLAGS_WITH_VALUE = ['-e', '--eval', '-p', '--print', '-c', '--check']
 
 function isNodeCommand (command) {
   if (command === process.execPath) return !process.versions.electron
@@ -152,27 +158,83 @@ function isNodeCommand (command) {
   return base === 'node' || base === 'nodejs' || base === 'node.exe' || base === 'nodejs.exe'
 }
 
+/** exec/execSync 的 argv[0] 是整条命令行，取第一个空白/引号分隔的 token 才是命令名 */
+function shellFirstToken (line) {
+  const s = String(line || '').trim().replace(/^["']/, '')
+  const m = s.match(/^([^\s"'`|&;<>()]+)/)
+  return m ? m[1] : s
+}
+
+/** 台账名：shell 命令行先取首 token，再取路径末段；否则 `npx vite build …` 会把整条串当"命令名" */
+function ledgerCommandName (raw) {
+  const token = shellFirstToken(raw)
+  return String(token).split(/[\\/]/).pop() || '(empty)'
+}
+
+function filterEvalFlags (list) {
+  const out = []
+  const src = Array.isArray(list) ? list : []
+  for (let i = 0; i < src.length; i++) {
+    const a = String(src[i])
+    if (EVAL_FLAGS_WITH_VALUE.includes(a)) { i++; continue }
+    out.push(a)
+  }
+  return out
+}
+
+function sameModulePath (a, b) {
+  const norm = (p) => { try { return path.resolve(String(p)) } catch (_) { return String(p) } }
+  return norm(a) === norm(b)
+}
+
 function withRequireInjected (args, setupPath) {
   const list = Array.isArray(args) ? args : []
   for (let i = 0; i < list.length; i++) {
     const a = String(list[i])
-    if (a === '--require' && String(list[i + 1] || '') === setupPath) return list
-    if (a.startsWith('--require=') && a.slice('--require='.length) === setupPath) return list
-    if (a === '-r' && String(list[i + 1] || '') === setupPath) return list
+    if (a === '--require' && sameModulePath(String(list[i + 1] || ''), setupPath)) return list
+    if (a.startsWith('--require=') && sameModulePath(a.slice('--require='.length), setupPath)) return list
+    if (a === '-r' && sameModulePath(String(list[i + 1] || ''), setupPath)) return list
   }
   return ['--require', setupPath, ...list]
 }
 
+/** spawn(command,args,options) / fork(modulePath,args,options) / exec(command,options) 都从下标 1 起找那个对象 */
+function findOptionsObject (argv) {
+  for (let i = 1; i < argv.length; i++) {
+    const v = argv[i]
+    if (v && typeof v === 'object' && !Array.isArray(v)) return { index: i, value: v }
+  }
+  return { index: -1, value: undefined }
+}
+
+// NODE_OPTIONS 按空白切词，路径含空格/引号会被拆断（实测 `Cannot find module 'D:/tmp'`）
+function nodeOptionsSafe (setupPath) {
+  return typeof setupPath === 'string' && setupPath.length > 0 && !/[\s"'`|&;<>()$]/.test(setupPath)
+}
+
+function withNodeOptions (options, setupPath) {
+  const base = options && typeof options === 'object' ? options : {}
+  const env = base.env || process.env
+  const current = String(env.NODE_OPTIONS || '')
+  if (current.includes(setupPath)) return base === options ? base : Object.assign({}, base, { env: Object.assign({}, env) })
+  return Object.assign({}, base, {
+    env: Object.assign({}, env, { NODE_OPTIONS: `${current ? `${current} ` : ''}--require ${setupPath}` }),
+  })
+}
+
+function warnOnce (key, message) {
+  const warned = globalThis[EXTERNAL_WARNED_KEY] || (globalThis[EXTERNAL_WARNED_KEY] = new Set())
+  if (warned.has(key)) return
+  warned.add(key)
+  console.warn(`${CHILD_WARN_MARK} ${message}`)
+}
+
 function recordExternalChild (command) {
   const ledger = globalThis[EXTERNAL_LEDGER_KEY] || (globalThis[EXTERNAL_LEDGER_KEY] = [])
-  const name = String(command || '').split(/[\\/]/).pop() || '(empty)'
+  const name = ledgerCommandName(command)
   if (!ledger.some((e) => e.command === name)) {
     ledger.push({ command: name, at: new Date().toISOString() })
-    const warned = globalThis[EXTERNAL_WARNED_KEY] || (globalThis[EXTERNAL_WARNED_KEY] = new Set())
-    if (!warned.has(name)) {
-      warned.add(name)
-      console.warn(`${CHILD_WARN_MARK} 子进程 ${name} 不是 node，无法注入测试网络守卫；该子进程内的真实出站不受本守卫约束`)
-    }
+    warnOnce(`ext:${name}`, `子进程 ${name} 不是 node，无法注入测试网络守卫；该子进程内的真实出站不受本守卫约束`)
   }
 }
 
@@ -180,27 +242,66 @@ function readExternalChildLedger () {
   return (globalThis[EXTERNAL_LEDGER_KEY] || []).slice()
 }
 
-function makeGuardedSpawner (name, original, resolveCommand, setupPathRef) {
+/**
+ * 一次子进程调用的守卫决策。返回一个**行为标签**供测试断言（不是为了给人看，
+ * 是为了让"到底走了哪条支路"在断言里可表达 —— 否则挂死/静默裸奔都读不出来）。
+ */
+function applyChildGuard (name, argv, setupPath) {
+  const shellForm = name === 'exec' || name === 'execSync'
+  const rawCommand = String(argv[0] || '')
+  const commandName = shellForm ? shellFirstToken(rawCommand) : rawCommand
+  const opts = findOptionsObject(argv)
+
+  if (!setupPath) {
+    warnOnce('no-setup-path', `${name} 拿不到 setupPath ⇒ 子进程面既不注入也不登记，本轮无守卫（装配错误，不是"没有子进程"）`)
+    return 'no-setup'
+  }
+  // fork 的第一个参数是**模块路径**不是可执行文件，按命令名判 node 会把每一次 fork 误判成 external
+  // （实测：注入根本没发生，而"目标脚本照常执行"的端到端用例照样绿 —— 因为不注入它也能跑完）。
+  const nodeLike = name === 'fork' || isNodeCommand(commandName)
+  if (!nodeLike) {
+    recordExternalChild(rawCommand)
+    return 'external'
+  }
+
+  if (name === 'fork') {
+    const own = Object.prototype.hasOwnProperty.call(opts.value || {}, 'execArgv')
+    const baseExecArgv = own ? opts.value.execArgv : filterEvalFlags(process.execArgv || [])
+    // 挂载位：fork(modulePath[, args][, options])。已有对象就改它，否则落在参数位之后
+    // （[mod] → 1、[mod,args] → 2、[mod,args,undefined] → 覆盖那个 undefined，而不是追加到 3）。
+    const slot = opts.index >= 0 ? opts.index : Math.min(2, argv.length)
+    argv[slot] = Object.assign({}, opts.value, {
+      execArgv: withRequireInjected(baseExecArgv, setupPath),
+    })
+    return 'injected-fork'
+  }
+
+  if (shellForm) {
+    // 命令行经 shell 展开，改 argv 不可行；NODE_OPTIONS 是唯一不改引号语义的注入面。
+    if (!nodeOptionsSafe(setupPath)) {
+      warnOnce('env-path-unsafe', `${name} 的 setupPath 含空白/引号，NODE_OPTIONS 会被拆断 ⇒ 跳过注入（该子进程无守卫）`)
+      return 'skipped-unsafe-path'
+    }
+    argv[opts.index >= 0 ? opts.index : 1] = withNodeOptions(opts.value, setupPath)
+    return 'injected-env'
+  }
+
+  if (opts.value && (opts.value.shell || opts.value.windowsVerbatimArguments)) {
+    // shell/verbatim 形态下 Node 不转义参数，注入会在空格处断裂并打崩子进程；宁可不出声地放行原调用。
+    warnOnce(`shell-opts:${ledgerCommandName(rawCommand)}`, `${name} 带 shell/verbatim 选项，注入会打崩子进程 ⇒ 跳过注入（该子进程无守卫）`)
+    return 'skipped-shell-opts'
+  }
+
+  const argsIndex = Array.isArray(argv[1]) ? 1 : (Array.isArray(argv[2]) ? 2 : -1)
+  if (argsIndex > 0) argv[argsIndex] = withRequireInjected(argv[argsIndex], setupPath)
+  else argv.splice(1, 0, withRequireInjected([], setupPath))
+  return 'injected-argv'
+}
+
+function makeGuardedSpawner (name, original, setupPathRef) {
   const wrapped = function (...argv) {
     try {
-      const setupPath = setupPathRef.value
-      const command = resolveCommand(argv)
-      if (setupPath && isNodeCommand(command)) {
-        if (name === 'fork') {
-          // fork(modulePath[, args][, options])：只动 options.execArgv，
-          // 把 --require 塞进 args 会被子进程当成脚本参数。
-          const optsIndex = (argv[1] && typeof argv[1] === 'object' && !Array.isArray(argv[1])) ? 1 : 2
-          const opts = (argv[optsIndex] && typeof argv[optsIndex] === 'object' && !Array.isArray(argv[optsIndex])) ? argv[optsIndex] : {}
-          const baseExecArgv = Array.isArray(opts.execArgv) ? opts.execArgv : (process.execArgv || [])
-          argv[optsIndex] = { ...opts, execArgv: withRequireInjected(baseExecArgv, setupPath) }
-        } else {
-          const argsIndex = Array.isArray(argv[1]) ? 1 : (argv[2] !== undefined && Array.isArray(argv[2]) ? 2 : -1)
-          if (argsIndex > 0) argv[argsIndex] = withRequireInjected(argv[argsIndex], setupPath)
-          else argv.splice(1, 0, withRequireInjected([], setupPath))
-        }
-      } else if (!isNodeCommand(command)) {
-        recordExternalChild(command)
-      }
+      applyChildGuard(name, argv, setupPathRef.value)
     } catch (error) {
       console.warn(`${CHILD_WARN_MARK} ${name} 包装层自身异常，已原样放行真实调用：${(error && error.message) || error}`)
     }
@@ -208,15 +309,33 @@ function makeGuardedSpawner (name, original, resolveCommand, setupPathRef) {
   }
   wrapped[CHILD_GUARD_FLAG] = true
   wrapped.__mpOriginalSpawn = original
+  /**
+   * 宿主函数的**符号契约必须原样搬过来** —— `child_process.execFile` 上挂着 Node 内部的
+   * `Symbol(nodejs.util.promisify.custom)`（值是 ['stdout','stderr']），`util.promisify` 靠它决定
+   * 决议形状。包装层不搬符号 ⇒ `promisify(wrapped)` 解析成**裸 stdout 字符串**而不是
+   * `{stdout, stderr}`，于是 `const { stdout } = await execFileAsync(...)` 静默变成 undefined
+   * —— 本仓实测：桌面 realm 装上子进程面后，`_probeMediaDuration` 恒返回 null，
+   * story2video 的真实 ffmpeg 用例红在"expected null not to be null"（包装前 3/3 绿）。
+   * 同名的 `.name`/`.length` 也一并保留，否则依赖函数签名的代码（含 promisify 的参数位置推断）
+   * 会在包装后行为不同。
+   */
+  for (const sym of Object.getOwnPropertySymbols(original)) {
+    try { wrapped[sym] = original[sym] } catch (_) { /* 只读符号：跳过，但真实调用仍走 original */ }
+  }
+  try {
+    Object.defineProperty(wrapped, 'name', { value: original.name, configurable: true })
+    Object.defineProperty(wrapped, 'length', { value: original.length, configurable: true })
+  } catch (_) { /* 不可配置时保持默认，不影响行为 */ }
   return wrapped
 }
 
 function installTestChildProcessGuard ({ setupPath } = {}) {
   const childProcess = require('child_process')
-  const commands = ['spawn', 'spawnSync', 'execFile', 'execFileSync']
-  const targets = [...commands.map((n) => [n, (argv) => argv[0]]), ['fork', () => process.execPath]]
+  // 六个导出逐个 patch。exec/execSync 曾因"以为走 execFile"被漏掉：实测 `execSync('node -e …')`
+  // 既不注入也不进台账（连可见化都没有），是这条门禁下唯一完全静默的出站口。
+  const commands = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']
   let alreadyApplied = true
-  for (const [name, resolveCommand] of targets) {
+  for (const name of commands) {
     const original = childProcess[name]
     if (typeof original !== 'function') continue
     if (original[CHILD_GUARD_FLAG]) {
@@ -225,7 +344,7 @@ function installTestChildProcessGuard ({ setupPath } = {}) {
     }
     alreadyApplied = false
     const setupPathRef = { value: setupPath }
-    const wrapped = makeGuardedSpawner(name, original, resolveCommand, setupPathRef)
+    const wrapped = makeGuardedSpawner(name, original, setupPathRef)
     wrapped.__mpChildSetup = setupPathRef
     childProcess[name] = wrapped
   }
@@ -239,6 +358,10 @@ module.exports = {
   installTestChildProcessGuard,
   readExternalChildLedger,
   isNodeCommand,
+  applyChildGuard,
+  filterEvalFlags,
+  shellFirstToken,
+  ledgerCommandName,
   BLOCKED_EGRESS_KEY,
   BLOCKED_CODE,
   BLOCK_MARK,

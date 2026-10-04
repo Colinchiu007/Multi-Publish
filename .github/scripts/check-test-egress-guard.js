@@ -123,13 +123,43 @@ function collectSurfaces(options = {}) {
   return surfaces;
 }
 
+/**
+ * 「某个平面真的被装配了」的判据 —— 三条都是被实测逼出来的：
+ *  ① 注释里的调用**不算**接线（把真调用删掉、留一行同名字样的注释即可过门禁 ⇒ 装饰性门禁）。
+ *     所以判据先剥注释：整行 `//`、块注释 `/* *\/`、以及行尾 ` //` 之后的内容都不参与匹配。
+ *     之所以能用"空格 + //"这种粗切：真实代码里的 `//` 只出现在 `https://` 这类**紧跟冒号**的形态，
+ *     不会被误剥；而 `require('x').foo()` 这种链式调用必须放过，所以**不设行首锚点**
+ *     （设了会把桌面那种 `require(...).installTestNetworkGuard()` 的合法接线判成没接）。
+ *  ② 子进程面必须带 setupPath —— `installTestChildProcessGuard()` 不传 setupPath 时，
+ *     实现里对 node 子进程"既不注入也不登记"，静默裸奔（两路评审独立命中的同款空洞）。
+ */
+function stripComments (text) {
+  return String(text || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .map((line) => line.replace(/\s+\/\/.*$/, ''))
+    .join('\n')
+}
+
+function hasPlaneCall (text, fnName, requireSetupPath) {
+  const body = stripComments(text)
+  const argPart = requireSetupPath ? '[^)]*setupPath\\s*:' : '[^)]*'
+  return new RegExp(fnName + '\\s*\\(' + argPart).test(body)
+}
+
 /** 返回问题描述；null = 该面已合规 */
 function evaluate(surface, options = {}) {
   const readFile = options.readFile || readIf;
-  // desktop 的守卫经它自己的 test-setup.js 装（那里 require 共享实现）
+  // desktop 的守卫经它自己的 test-setup.js 装（那里 require 共享实现）。
+  // 判据与共享 setup 同形：两个平面都要装 —— 桌面 realm 正是 #2783 的案发现场，
+  // 只装 socket 面等于给主案发现场留着无守卫的子进程路径。
   if (surface.dir === 'apps/desktop') {
     const setup = readFile('apps/desktop/test-setup.js') || '';
-    return setup.includes(GUARD_MODULE) ? null : 'apps/desktop/test-setup.js 未复用共享实现';
+    if (!setup.includes(GUARD_MODULE)) return 'apps/desktop/test-setup.js 未复用共享实现';
+    if (!hasPlaneCall(setup, 'installTestNetworkGuard', false)) return 'apps/desktop/test-setup.js 未装 socket 面（整行注释里的调用不算接线）';
+    if (!hasPlaneCall(setup, 'installTestChildProcessGuard', true)) return 'apps/desktop/test-setup.js 未装子进程面（缺 installTestChildProcessGuard({setupPath}) ⇒ 桌面 realm 起的 node 子进程无守卫，而 #2783 就发生在这个 realm）';
+    return null;
   }
   if (surface.kind === 'pytest') {
     const text = readFile(surface.file) || '';
@@ -180,12 +210,19 @@ function collectProblems(options = {}) {
   // 起的 node 子进程里没有守卫 ⇒ "测试期零真实出站"对那条路径结构性无效（#2783 的另一半：
   // require('electron') 在测试 realm 里 spawnSync 起 install.js，子进程真下载数秒，
   // 耗时与 stdout 被 vitest 记到"当时正在跑的那条用例"头上，表现是那条用例随机 15s 超时）。
+  // 两个平面**各自独立**判：写成 else-if 链时"两面都缺"只会报一条，
+  // 于是"补上 socket 面"之后子进程面的洞又 invisibilized —— 诊断必须一次报全。
   const setupText = readFile(SHARED_SETUP)
   if (setupText === null || setupText === undefined) {
     // 夹具仓库不建模 setup（那是合法的"没有这个文件"），只有真实仓库模式才要求它存在
     if (checkIgnored) problems.push('读不到共享守卫 setup：' + SHARED_SETUP);
-  } else if (!/installTestNetworkGuard\s*\(/.test(setupText) || !/installTestChildProcessGuard\s*\(/.test(setupText)) {
-    problems.push('共享 setup 必须同时装 socket 面与子进程面（缺 installTestChildProcessGuard ⇒ 子进程路径无守卫）：' + SHARED_SETUP);
+  } else {
+    if (!hasPlaneCall(setupText, 'installTestNetworkGuard', false)) {
+      problems.push('共享 setup 未装 socket 面（installTestNetworkGuard；注释里的调用不算接线）：' + SHARED_SETUP);
+    }
+    if (!hasPlaneCall(setupText, 'installTestChildProcessGuard', true)) {
+      problems.push('共享 setup 未装子进程面，或装了却没传 setupPath（installTestChildProcessGuard；缺 setupPath ⇒ 实现里对 node 子进程既不注入也不登记，等于恒绿的装饰门禁）：' + SHARED_SETUP);
+    }
   }
 
   const surfaces = collectSurfaces({ files: options.files, readFile });  if (surfaces.size < minSurfaces) {
@@ -237,6 +274,8 @@ module.exports = {
   collectSurfaces,
   collectProblems,
   evaluate,
+  hasPlaneCall,
+  stripComments,
   KNOWN_UNGUARDED,
   SETUP_BASE,
   GUARD_MODULE,
