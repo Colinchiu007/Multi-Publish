@@ -35,6 +35,7 @@ const KNOWN_STAGE_MAP = {
   // ── 准备（引擎启动/导航/声明准备） ──
   '准备发布...': 'prepare',
   'starting browser...': 'prepare',
+  'reusing browser session...': 'prepare', // C 方案窗口池复用（publish-throughput-optimization）
   'cookies restored': 'prepare',
   'using API publish engine...': 'prepare',
   'navigating...': 'prepare',
