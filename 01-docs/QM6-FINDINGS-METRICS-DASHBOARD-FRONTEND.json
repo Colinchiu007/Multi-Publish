@@ -1,0 +1,38 @@
+{
+  "axis": "frontend",
+  "findings": [
+    {
+      "id": "FF1",
+      "severity": "Warning",
+      "file": "apps/desktop/src/views/Dashboard.vue:33",
+      "claim": "同页存在两个易混淆的「阅读/播放」数字：上方卡片是账号级 sync:cached 的 totalViews（标签硬编码「总阅读」），下方 PerformanceFlowPanel 是作品级 performance_snapshot 的 totals.views（标签走 locale「总播放」）。用户可能把两个数当成同一个。",
+      "evidence": "Dashboard.vue:33 `<div class=\"stat-label\">总阅读</div>` 与 PerformanceFlowPanel.vue:130 `{ key: 'views', value: formatCount(totals.views || 0), label: t('dashboard.metrics.views') }`；locale zh.js:1088 `views: '总播放'`",
+      "suggested": "最小修法：把上方卡片标签从「总阅读」改为「账号总阅读」或「历史总阅读」，与面板的「总播放（作品级）」形成口径区分；或在面板 subtitle 已注明「作品级数据」的基础上，给上方卡片加口径注脚。"
+    },
+    {
+      "id": "FF2",
+      "severity": "Info",
+      "file": "apps/desktop/src/features/dashboard/PerformanceFlowPanel.vue:17",
+      "claim": "error 分支已有明确出口，不是静默无出口。status === 'error' 且无旧数据时渲染失败提示；有旧数据时降级展示旧数据并 toast 提示。",
+      "evidence": "PerformanceFlowPanel.vue:17 `<p v-else-if=\"status === 'error' && !overview\" class=\"perf-flow-empty\" data-testid=\"perf-flow-error\">{{ t('dashboard.metrics.loadFailed') }}</p>`；行 204 `status.value = overview.value ? 'ready' : 'error'`",
+      "suggested": "无需修改，当前实现正确。"
+    },
+    {
+      "id": "FF3",
+      "severity": "Warning",
+      "file": "apps/desktop/src/locales/zh.js:1093",
+      "claim": "dashboard.metrics.interactions 是死键：zh/en 都定义了，但 PerformanceFlowPanel.vue 模板和脚本中均未使用。",
+      "evidence": "zh.js:1093 `interactions: '总互动'`；en.js:1092 `interactions: 'Total interactions'`；grep `dashboard.metrics.interactions` 在 src 下无匹配",
+      "suggested": "删除该死键，或如果确实需要展示总互动数，在 metricItems 中补上。"
+    },
+    {
+      "id": "FF4",
+      "severity": "Warning",
+      "file": "apps/desktop/src/features/dashboard/PerformanceFlowPanel.vue:212",
+      "claim": "defineExpose({ reload }) 没有真实消费者，只有测试文件调用。对下一个会话是误导——以为外部会调用 reload。",
+      "evidence": "PerformanceFlowPanel.vue:212 `defineExpose({ reload: load })`；grep 显示唯一调用在 PerformanceFlowPanel.test.js:200 `await w.vm.reload()`，Dashboard.vue 只通过 reloadToken prop 触发重新取数",
+      "suggested": "如果确实不需要外部调用，移除 defineExpose；如果需要，在 Dashboard.vue 中通过 ref 调用并注释说明使用场景。"
+    }
+  ],
+  "overall": "前端轴整体质量良好：error 分支有出口、locale 基本成对、props 契约一致。主要问题是同页两个「阅读/播放」数字易混淆（FF1），以及两个死代码（FF3 interactions 死键、FF4 无消费者的 defineExpose）。"
+}
