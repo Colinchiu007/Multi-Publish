@@ -2,9 +2,6 @@
 record: evaluate-deps-inline-electron
 task: #33 评估 apps/desktop/vitest.config.js 的 deps.inline:['electron'] 是否仍必要（并纠正 #2797 留下的"摘掉它就能根治 #2794"推测）
 date: 2026-10-04
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：deps.inline:['electron'] 评估——不摘，且"摘了能根治"被实测否证（evaluate-deps-inline-electron，2026-10-04）
@@ -27,7 +24,22 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；`vitest.config.js` 已复原为与 main 逐字相同（`git diff --exit-code` 为证）。本轮虽动了 `apps/desktop/electron/` 下的一个文件，但它是 **测试文件且不进产物**：`apps/desktop/package.json` 的 `build.files` 含 `!**/*.test.js` 与 `!electron/tests/**`（本轮实读该数组确认），注释级改动既不新增 require 路径也不改变打包内容 ⇒ QM-1 的打包验证对本 diff 无可测对象；行为证据改由上一条的真实测试跑（5 例）承担。
 | QM-6 CCG 双模型外部评审 | **未产出结论**（两路各自失败，如实登记）；本 PR 属纯文档/注释，按 AGENTS.md 不强制 | 两路只问一件事：「这个 A/B 到底证伪了什么、有没有过度声称」—— 被否证的是**别人写进 main 的因果句**，错了会带走一条退路。<br>**路 1（规定通道）** `codeagent-wrapper --backend codex --lite` 约 25 分钟后 kill：现场日志连续多次 `failed to parse function arguments: missing field cmd`（它的 shell 工具反复解析自己的调用参数失败），assistant 正文与 findings 文件**均为零** ⇒ 不谎称跑过。<br>**路 2（不同底模 `opencode/mimo-v2.6-flash-free`）** 900s 预算内 rc=124 超时，**没有给出结论**（输出里没有任务书要求的 Q1 段）。**但它自身 stdout 里确实完成了一条取证**：跑了带 `-a` 的全仓 `git grep` 并打印 31 处命中 ⇒ 我据此发现自己漏改的实时面复述（见下一行）。<br>**归属纪律**：采信的是它输出里真实存在的 grep 结果，**不**把它没说过的判断记在它名下，也不把「跑了很久」记成「评审过了」。<br>**证据留存偏差**：两路 transcript 都**没有落盘**（路 1 由 wrapper 退出即删日志；路 2 我只在会话内读过 stdout、未转存）⇒ 本节结论**不可二次复核**。这是既有坑「要让评审把结论写进文件，别指望它的日志」在本轮的复发，已登记到「遗留」。 |
 
-| 远程同步 | PENDING | 本 PR 自身尚未合并 ⇒ merge SHA / 合并时间 / 远端分支删除状态此刻都不存在（这正是 PENDING 的语义）。合并后由下一个会话按既有口径回填：`git log origin/main --grep='(#PR号)' --format=%H|%cI` 取 merge SHA 与时间、`git ls-remote --heads origin evaluate-deps-inline-electron` 返回 0 行证远端分支已删（同一条命令要带必然存在的分支当正控）；回填时**同一次**删除本记录 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。 |
+| 远程同步 | PASS | 已合并：PR #2867 以 squash 落地 `bf7c3c64db528522a066a1685d822298b019496f`（2026-10-04T13:10:48Z，主题「docs(评估): deps.inline:[electron] 不摘——「摘掉它就能根治 #2794」的推测被同探针两配置 A/B 否证 (#2867)」）。取证两条独立现读，不凭记忆：`git log origin/main --grep='(#2867)
+
+### QM-6 发现项与逐条处置
+
+两路均**未产出结论**（原因与现场见上表 QM-6 行），所以本 PR 没有「按评审意见修改」的处置表 —— 写不出来的东西不硬凑。<br>**但路 2 那份未完成的 transcript 里含有一条已完成的取证**，而被它推翻的是**我自己的收口**：首版我只改了三处同源复述，它 grep 出的 31 处命中里包含**四处我漏掉的实时面复述** —— `asset-generator.test.js` 另两处注释、`scripts/check-blanket-fs-mock.test.js` 头部、`docs/desktop-test-fixture-electron-download-banner.md` §1 第 2 条（**这条最要命：它是 #2794 的专项归因文档，下一个人最会去读的就是它**）。<br>**四处改完我又用一次窄串 grep 宣告"实时面归零"，那个零是假的**（见「收口判据自身的假零」行）：真实漏项还有第五处 `apps/desktop/electron/core/container.setup.test.js:9`（原文「同 realm 还会经 `deps.inline:['electron']` 带进真 electron 入口」），它不在我的三个窄串里。本轮最终把收口判据换成一条**机器可判**的规则（实时面每一处 `deps.inline` 提及，其上下文必须带「与开关无关 / 已被实测否证」标记），并对**修复前**的文本做过正控。<br>**教训**：「我把这句话改掉了」的**范围**必须由一次全仓 grep 定，不能由「我记得它出现在哪」定；而那句「grep 归零」的**串**必须由**该配置名的全部出现点**定，不能由我记得的措辞定 —— 一句被复述过七遍的推测，人的记忆只会留下它最初出现的那三处。
+
+### 遗留（不假装已闭合）
+
+- **`axios` 那一半没评估**：本次只判 `electron`。若要一起做，探针形状相同；但 `axios` 的 mock 面（渲染层 `vi.mock` vs 服务层注入）与 electron 不同形，不能套用本文结论。
+- **这行当初为什么加**未查清（提交信息没写原因）。本文只证明"现在摘它无收益且会掩盖既有核对结论"，不证明"它从来没有作用"。
+- **探针不入库 ⇒ 本文的两条实测无法在 CI 里复跑**。这是有意的：它们测的是配置差异而非产品行为。要复跑请照 §2 的三条命令，两分钟一次。
+
+- **两路评审的 transcript 都没有落盘 ⇒ 上面 QM-6 那一节不可二次复核**。路 1 的日志由 `codeagent-wrapper` 退出时删除（本仓已知坑），路 2 我只在会话内读过它的 stdout、没转存成文件。后果不是"少了个附件"，是**下一个人只能选择信或不信我这段转述**。下次做 QM-6（尤其走替代通道时）必须把任务书写成"**把结论写进这个绝对路径的文件**"，并在回收判据里要求该文件真出现 —— 只看 rc 或只看会话缓冲，等价于把评审登记在一次性产物上（本仓既有纪律「要让评审把结论写进文件，别指望它的日志」，本轮复发）。
+
+- **本记录文件自己曾在落地时就是坏的，而没有任何门禁看得见**：`| 远程同步 | PENDING |` 那一行在 `dc2dab5a7`（新建本文件的同一个提交）里就被截断在 「`git log origin/main --grep='(#PR号)' --format=%H|%cI`」这条命令的中途；行尾剩下的片段掉到文件后段，中间还塞进了「QM-6 占位段 + 遗留节」的一份**副本**。形态与「模板字面量被内层反引号提前闭合」一致，**但机制我未子证**，此处只陈述观测。<br>两条后果：① `check-gate-record-debt.js` 只按行首匹配 `| 远程同步 | <状态> |` ⇒ 截断行照样被读成 PENDING，**记录载体（`openspec/records/`）的结构完整性没有任何东西在看**；② 那句「行尾与 diff 对账 PASS」当时是照抄的期望 —— 如果我真读过一次生成的文件，这处截断第一眼就该看见。<br>本轮修复做法（脚本在会话内，一次性、不入库）：按行首/行尾锚定位、**逐行核对被删块确实是后段副本**再删、合回后断言含 `grep='(#PR号)' --format=%H|%cI` 片段、并断言 `### 遗留` 与 `| 远程同步` 各只出现 1 次。**下一轮生成这类记录文件时，这四条断言应当内建在生成脚本末尾**，而不是靠肉眼。
+ --format=%H\|\%cI\|\%s` 唯一命中；`git ls-remote --heads origin evaluate-deps-inline-electron` 返回 0 行证远端分支已删（同一条命令对必然存在的 main 返回 1 行作正控）。内容侧按行级包含核验（squash 下 `git branch -d` 的结论不可靠，本仓实测 blob 相等也会误报）：本 PR 8 个改动文件里我的每一行都能在 origin/main 上找到，0 缺失。CHANGELOG 条目按本 PR 的决定挪到本次回填插回（原因与判空校验见「CHANGELOG 挪出本 PR」行），插回后用三条绝对判据核验：原 main 字节是结果的逐字后缀、上游首行全文只出现 1 次、CRLF 增量恰等于条目行数 20。 |
 
 ### QM-6 发现项与逐条处置
 
