@@ -165,17 +165,21 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     // P2-6b：本会话首次发布成功后补一次存量关联。放在这里而不是启动接线里，
     // 因为此刻 owner_subject 已由任务给出——启动时身份可能还没解析，拿不到归属就没法安全地配对。
     // 回填是旁路：幂等、候选空时零写入、任何异常只出声。
+    // latch 只在**这轮真的跑完**之后置真（QM-6 后端轴 B2/W2）：读历史抛错时不 latch，
+    // 否则一次抖动就把本会话剩下的存量全部放弃，而现场只留下一条 warn。
     if (!backfillRan) {
-      backfillRan = true
       try {
         const scanned = history && typeof history.listRecords === 'function'
           ? history.listRecords({ limit: TRACKED_LINK_HISTORY_SCAN_LIMIT }, ownerSubject)
           : null
-        linkExistingTrackedContent({
+        const outcome = linkExistingTrackedContent({
           store,
           historyRecords: (scanned && scanned.records) || [],
+          historyTotal: scanned && scanned.total,
+          ownerSubject,
           log,
         })
+        if (outcome && outcome.ok) backfillRan = true
       } catch (e) {
         log.warn('PerformanceLoop', 'tracked-content backfill skipped: ' + (e && e.message))
       }

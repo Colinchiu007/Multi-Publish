@@ -1,0 +1,78 @@
+{
+  "axis": "backend",
+  "findings": [
+    {
+      "id": "B1",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:72",
+      "claim": "回填索引没有过滤 status=success，非成功历史记录带 result.postId 时也可能成为唯一命中并写关联。",
+      "evidence": "实际只读 D:/Data/projects/Mulpub/shared-user-data/publish-history.jsonl：98 条记录里 29 条有 postId，其中 success=28、timeout=1（timeout 记录 task_1_1790592130294 带 result.postId=3xvsedz34m82ppi）；用生产 planPublishHistoryLinks 对 73 行 tracked_content 实测输出 linked=27、ambiguous=1，说明 timeout 历史已被纳入索引。若成功记录缺失，这类非成功记录可成为唯一命中，最终在 PublishHistory 非成功卡片上显示表现数据。",
+      "suggested_fix": "建索引前过滤 record.status === 'success'，并对同一 taskId 的重复历史行去重；增加 timeout/skipped 带 postId 时不得作为唯一命中的测试。"
+    },
+    {
+      "id": "B2",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/bootstrap/phase4-events.js:169",
+      "claim": "backfillRan 在真正完成前就置真，且候选全库读取而历史只按当前 owner 读取，导致失败、跨用户、存储未就绪或多用户挤占 LIMIT 时本会话不再重试。",
+      "evidence": "phase4-events.js:169-182 先 backfillRan = true，再把 history.listRecords({limit}, ownerSubject) 结果交给回填；performance-loop-store.js:169 的 listUnlinkedTrackedForBackfill 没有 owner 条件且固定 LIMIT 5000；publish-history.js:106-114 会先按当前 owner 过滤记录。因此首个成功事件若属于用户 A，用户 B 的存量行只会 unmatched，之后同进程不再触发；一个用户的大量 NULL 行也可能占满 5000 上限让其他用户的行读不到。若首次读取抛错或 store._ready=false（listUnlinkedTrackedForBackfill 静默返回 []），也会被锁到下次启动。",
+      "suggested_fix": "把 latch 移到真正完成状态之后；候选查询按 owner 分桶或按 owner 触发；失败时允许下一个 task:success 重试，并显式校验候选集未被 LIMIT 截断。"
+    },
+    {
+      "id": "B3",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:36",
+      "claim": "legacy 归属处理不对称：历史缺 owner 归 LEGACY，但 tracked 行 owner 为 NULL/空字符串被归 null，真实无身份期数据无法回填。",
+      "evidence": "tracked-content-link.js:34-41 对 side === 'tracked' 的 NULL/空串返回 null；performance-loop-store.js:105 写入 owner 时 entry.ownerSubject || null，所以无身份任务产生的 tracked 行是 NULL，不是 LEGACY_OWNER_SUBJECT；测试只覆盖了 tracked 行带 LEGACY 标记（phase4-events-tracked-content.test.js:120-128），没有覆盖 tracked 行 owner NULL + 历史无 owner 的真实老数据形状。",
+      "suggested_fix": "确需支持 legacy 时，先做一次性迁移把无身份期 tracked_content.owner_subject 的 NULL/空值归为 LEGACY_OWNER_SUBJECT 并补集成测试；否则修正注释/PRD，明确这些行不可回填。"
+    },
+    {
+      "id": "B4",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/bootstrap/phase4-events-tracked-content.test.js:167",
+      "claim": "listRecords 抛错和“同一 wiring 只跑一次”两条出口没有对应测试，现有幂等测试换了新 wiring，测不到 latch。",
+      "evidence": "phase4-events-tracked-content.test.js:166-179 第二次发布调用 wire(store, ...) 生成新的 taskQueue，backfillRan 重新为 false；全文件没有 history.listRecords throw 的用例，只有 fake store listUnlinkedTrackedForBackfill 抛错（tracked-content-link.test.js:220-228）。所以遗漏了“history.listRecords 抛错不冒泡、backfillRan 不提前锁死”的回归保护。",
+      "suggested_fix": "增加同一 wiring 连续两次 task:success 的测试（第二次不得再 listRecords），以及 listRecords 抛错后仍完成发布主流程且本会话可重试的测试。"
+    },
+    {
+      "id": "B5",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:78",
+      "claim": "歧义计数按历史记录条数而不是按去重后的 taskId/key 计数，会把同一次任务的历史重复行算成歧义并漏补。",
+      "evidence": "实际 JSONL 中 postId=3xvsedz34m82ppi 有 success+timeout 两条历史且 taskId 都是 task_1_1790592130294；生产判据输出 linked=27、ambiguous=1，PRD/CHANGELOG 中“28 唯一命中”的实现结果实际是 27。",
+      "suggested_fix": "同一 key 下按 distinct taskId 计数，多行同 taskId 时优先 success 记录；或者把测量/文档口径改成 27 linked + 1 duplicate-row ambiguous。"
+    },
+    {
+      "id": "B6",
+      "severity": "Info",
+      "file": "apps/desktop/src/views/PublishHistory.vue:600",
+      "claim": "渲染层仍只拉取 tracked_content 前 100 条，库增长后已回填的旧行不会进入历史页表现列。",
+      "evidence": "PublishHistory.vue:600 调 listTrackedContent({ page: 1, pageSize: 100 })；ipc-handlers/performance-loop.js:18-20 固定 ORDER BY created_at DESC LIMIT 100。当前活库 73 行没有立即可见症状，但超过 100 行后旧历史记录仍会表现为恒空。",
+      "suggested_fix": "渲染层按当前历史页的 taskId 批量查 tracked_content，或分页拉取全部 tracked 后再建 byTask 映射。"
+    },
+    {
+      "id": "B7",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:25",
+      "claim": "5000 条历史/候选上限没有截断日志，注释中“如实报截断”未实现。",
+      "evidence": "TRACKED_LINK_HISTORY_SCAN_LIMIT=5000；performance-loop-store.js:165 又把 limit clamp 到 5000；linkExistingTrackedContent 返回值没有 scanned/total 对比或 truncated 字段，也没有测试覆盖超市问题。",
+      "suggested_fix": "返回值或日志中记录候选/历史是否被截断，至少输出 scanned 与 total、skippedByLimit。"
+    },
+    {
+      "id": "B8",
+      "severity": "Info",
+      "file": "apps/desktop/electron/bootstrap/phase4-events-tracked-content.test.js:21",
+      "claim": "测试用的是 sql.js 包装器，不是 PRD/CHANGELOG 所说的 node:sqlite；虽不是恒真，但证据描述不一致。",
+      "evidence": "makeStore 使用 require('../services/sqlite-wrapper')；sqlite-wrapper.js:5-8 明确底层是 sql.js。测试仍调 migratePerformanceLoopSchema 做真迁移、用真 performance-loop-store mixin 并读实际落库值。",
+      "suggested_fix": "把 PRD/CHANGELOG 措辞改为 SQLite/sql.js 真迁移与真 mixin，或把夹具切到 node:sqlite 以匹配文档。"
+    },
+    {
+      "id": "B9",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:183",
+      "claim": "setTrackedPublishHistoryId 只挡 falsy，不挡空白字符串，直接调用该 store 方法的人可以把 publish_history_id 写成空白值绕过语义约束。",
+      "evidence": "performance-loop-store.js:183-188 的守卫是 !id || !publishHistoryId，后续 run(String(publishHistoryId), ...) 会把 ' ' 这类 truthy 空白值写进本来 IS NULL 的行；当前生产路径只由 linkExistingTrackedContent 传入 trim 后的 hits[0]（tracked-content-link.js:98-99），所以不会触发，但方法本身没有防御。",
+      "suggested_fix": "入口加 if (!String(publishHistoryId).trim()) return false，并补充一条直接调用 store 方法的空白值用例。"
+    }
+  ],
+  "overall": "总体判断：写侧透传 task.id 与 SQL 级 IS NULL 兜底方向正确，真迁移/真 mixin/真落库断言比旧测试可信；但回填仍有非成功历史入索引、一次锁死、legacy NULL 不接、测试空档和渲染层 100 条上限，当前只能算安全但不完全闭环。"
+}

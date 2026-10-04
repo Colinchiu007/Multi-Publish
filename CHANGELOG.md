@@ -17,16 +17,27 @@
 - 实测可行域（只读，活库为移动靶）：`tracked_content` 73 行中 0 行已关联，28 行可按归属+作品 id 唯一命中，1 行歧义跳过，45 行 postId 为空。
 
 ### 测试与反证
-- 新增 `tracked-content-link.test.js` 20 例、`phase4-events-tracked-content.test.js` 8 例（真 sqlite + 真迁移 + 真 mixin）；
-  消费者并集 5 文件 124 passed。
-- 反证 8 条全部实跑变红并逐条归因到用例名（M1 删透传 / M2 改用 entry.id / M3 去歧义 / M4 去"已有值不动" /
-  M5 去 SQL 兜底 / M6 去归属分桶 / M7 去缺席守卫 / M8 稳态也出声）。
+- 新增 `tracked-content-link.test.js` 25 例、`phase4-events-tracked-content.test.js` 14 例（生产同款 sqlite 包装器 + 真迁移 + 真 mixin；`node:sqlite` 只用于活库取证，两件事不混写）
+  消费者并集 6 文件 177 passed（phase4-events / bootstrap / performance-loop-store / store-snapshot 全跑）
+- 反证 **12 条**全部实跑变红并逐条归因到用例名（M1 删透传 / M2 改用 entry.id / M3 去歧义 / M4 去"已有值不动" /
+  M5 去 SQL 兜底 / M6 去归属分桶 / M7 去缺席守卫 / M8 稳态也出声 / M9 允许非 success 历史 / M10 候选不按归属 / M11 latch 提前 / M12 歧义按行数）。
 - 其中 M5 第一版是绿的——补 T9（绕过判据层直接对已关联行再写一次）后才有独占红出口：兜底判据必须自己守住自己。
 
 ### 残余（未修，各附证据见 PRD §十）
 - `rewrite_history_id` 仍恒 NULL：改写 id 挂在 `rewrite()` 的 IPC 返回值上，发布载荷从未回传（第二跳，跨层合同，另切片）。
 - 45 行 `post_id` 为空：无从按内容 id 回填。
 - `performance_snapshot` 覆盖仍集中在少数平台，四家零采集属采集面缺口。
+
+
+### QM-6 双模型评审后的追加修复（2026-10-04，三路通道合计 20 条 findings、0 Critical 遗留）
+- **空白关联键**（三个空格在 JS 里是 truthy）会被写进库：它永远 join 不上，又让 `IS NULL` 从此不成立 ⇒ 该行被**永久锁死**在"无数据"。现两参数先 trim 判空。
+- **候选查询改在 SQL 端按归属过滤**：此前只靠判据层分桶，多用户共享库时他人行可占满 LIMIT，而单 owner 机器上**完全不可见**。
+- **回填 latch 移到真的跑完之后**：旧写法先置真再执行，一次读历史抛错就放弃本会话全部存量，现场只剩一条 warn。
+- **歧义按去重后的 taskId 数判**（原按历史行数）：审核回写会让同一任务留多行，旧口径把可回填的误判成"猜不出"。
+- **关联来源限定 status === 'success'**：`task:failed` 也写历史，当前 `result:null` 本不命中，但"当前不会发生"不是判据。
+- **注释曾承诺"如实报截断"而代码没做**：现由 `historyTotal` / `historyTruncated` 实现，并双向钉住（截断要报、未截断不得谎报）。
+- 反证从 8 条扩到 **12 条**（新增 M9–M12 覆盖上述四条判据），全部实测变红并逐条归因到用例名。
+- 评审记录与逐条处置：`01-docs/QM6-FINDINGS-TRACKED-LINK-2026-10-04.md`（含 1 条按证据拒绝、3 条登记不修及理由）。
 
 详见 01-docs/PRD-PUBLISH-TRACKED-LINK-2026-10-04.md。
 

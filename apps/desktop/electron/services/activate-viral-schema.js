@@ -65,6 +65,10 @@ function migratePerformanceLoopSchema(db, execSchemaSql) {
     platform            TEXT NOT NULL,
     post_id             TEXT DEFAULT '',
     url                 TEXT DEFAULT '',
+    -- 语义陷阱（QM-6 前端轴 F1）：这一列存的是**发布任务 id（task.id）**，不是发布历史行自己的
+    -- entry.id。读侧 PublishHistory.vue 的 join 就是按 record.taskId 查它；顾名思义存 entry.id
+    -- 会让历史页表现列恒空。唯一实现见 services/tracked-content-link.js，契约锁见
+    -- bootstrap/phase4-events-tracked-content.test.js（T1/T3）。
     publish_history_id  TEXT,
     rewrite_history_id  TEXT,
     recrawl_status      TEXT NOT NULL DEFAULT 'pending',

@@ -1,0 +1,70 @@
+{
+  "axis": "backend",
+  "findings": [
+    {
+      "id": "B1",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:163-175",
+      "claim": "回填候选查询 `listUnlinkedTrackedForBackfill` 不按 owner_subject 过滤，仅靠判据层分桶；多用户共享库时，某用户的大量无主行可能占满 LIMIT 5000，导致其他用户的行永远读不到、回填不到。",
+      "evidence": "SQL: `SELECT ... FROM tracked_content WHERE publish_history_id IS NULL ORDER BY created_at ASC LIMIT ?` 无 owner_subject 条件。PRD §十 第5点承认这是已知边界：\"真正的归属隔离发生在判据层的分桶里... 多用户共享同一库时该风险成立，届时正解是 SQL 端按 owner 过滤\"。实测当前仅 1 用户/73 行暂不触发，但架构上存在窗口。",
+      "suggested_fix": "在 SQL 端加入 `AND owner_subject = ?` 并由调用方传入当前 owner；或在 store 方法签名里显式要求 owner 参数，避免\"判据层兜底\"成为单点失效。"
+    },
+    {
+      "id": "B2",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:34-41",
+      "claim": "legacy 桶对齐存在单向风险：历史侧无 owner 字段映射为 LEGACY_OWNER_SUBJECT，但 tracked_content 旧行若 owner_subject 为 NULL（迁移前数据），ownerBucket(tracked) 返回 null ⇒ 判为 unowned 永不回填；legacy 历史有主但 tracked 无主会接不上。",
+      "evidence": "ownerBucket: history 侧 null/undefined/空串 → LEGACY_OWNER_SUBJECT；tracked 侧同值 → null（第36行返回 null，第39行同理）。store-schema.js migrationSelectExpression 仅针对 OWNER_TABLE_SCHEMA_SQL 表（accounts/publish_history/等），tracked_content 在 performance-loop-schema 由 migratePerformanceLoopSchema 管，未见同等迁移逻辑。PRD §十 第5点提示两侧口径要一起定。",
+      "suggested_fix": "在 migratePerformanceLoopSchema 中为 tracked_content.owner_subject 做同等迁移（NULL → LEGACY_OWNER_SUBJECT），或在 ownerBucket tracked 侧对 NULL 也映射到 LEGACY_OWNER_SUBJECT（需确认语义：无主旧数据是否应视为 legacy）。"
+    },
+    {
+      "id": "B3",
+      "severity": "Info",
+      "file": "apps/desktop/electron/bootstrap/phase4-events.js:165-182",
+      "claim": "回填触发点在首次 task:success 内，使用模块级 `backfillRan` 标记单进程一次；若并发发布（taskQueue 顺序执行但微任务间隙可能重入），标记竞争可导致漏跑或重跑，但 try/catch 仅 warn 不冒泡，主流程不受影响。",
+      "evidence": "第50行 `let backfillRan = false`；第168-169行 `if (!backfillRan) { backfillRan = true; ... }`。taskQueue 是 EventEmitter 同步发射，Electron 主进程单线程，极低概率重入；但若未来引入异步发布队列，该标记非原子。异常在第179-181行 catch 仅 log.warn，符合\"旁路绝不冒泡\"契约。",
+      "suggested_fix": "可接受现状（单线程语境下安全），或改用 `Atomics`/原子操作、或改为「每次发布成功都尝试回填、判据层幂等保证零写入」消除状态标记（PRD §四 注释已说明不这么做是为避免读路径写操作）。建议在代码注释标注单线程假设。"
+    },
+    {
+      "id": "B4",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:83-100",
+      "claim": "判据层「唯一命中才写」可被绕过：planPublishHistoryLinks 仅在内存判据里拦截，若调用方绕过该函数直接调 store.setTrackedPublishHistoryId，SQL 的 `AND publish_history_id IS NULL` 是唯一兜底；但 store 方法未校验入参 publishHistoryId 非空（第190行仅 `!publishHistoryId` 返回 false），传空字符串会写进库覆盖 NULL。",
+      "evidence": "setTrackedPublishHistoryId: `if (!this._ready || !id || !publishHistoryId) return false` —— 空字符串 `''` 在 JS 中为 falsy 会被拦住，但若传 `' '` 等 truthy 空白串可绕过。更严重的是：判据层四条出口（alreadyLinked/skippedEmptyPostId/ambiguous/unowned）均有测试覆盖（tracked-content-link.test.js L62-118），但 SQL 兜底 T9 只在 phase4-events-tracked-content.test.js 覆盖，若有人新增其它调用路径（如手动补链工具）直接用 store 方法，判据层保护失效。",
+      "suggested_fix": "在 setTrackedPublishHistoryId 入口加 `if (!String(publishHistoryId).trim()) return false` 防御性校验；并为 store 方法添加 JSDoc 明确「仅供 linkExistingTrackedContent 调用，外部调用需自行保证判据」。"
+    },
+    {
+      "id": "B5",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/bootstrap/phase4-events.js:141-163",
+      "claim": "新发布写侧 `addTrackedContent` 已传 `publishHistoryId: task.id`，但 task.id 为空时仅 log.warn 并存 NULL（第159-161行）；该行后续永远无法回填（post_id 可能有值但 publish_history_id 为 NULL、owner 有值，回填时会因 history 无该 taskId 而 unmatched）。",
+      "evidence": "第153行：`publishHistoryId: typeof task.id === 'string' && task.id.trim() ? task.id.trim() : null`。task.id 缺失场景在 phase4-events-tracked-content.test.js T2 覆盖：期望 NULL + warn。但该行后续回填依赖 history 侧有同 taskId 的记录，task.id 本身缺失 ⇒ history 也无该 taskId ⇒ 永远 unmatched。属极低概率（task.id 由上游生成），但逻辑上形成\"死结\"。",
+      "suggested_fix": "task.id 缺失时在 task:success 入口直接拦截并报错（上游契约），或补一条「无 taskId 行的补救策略」（如按 platform+postId+owner 模糊匹配），但 PRD 明确 \"宁缺毋滥\"，现状可接受并留作已知限制。"
+    },
+    {
+      "id": "B6",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/tracked-content-link.test.js:174-265",
+      "claim": "编排层测试使用 fakeStore（纯内存 mock），未验证 SQL `AND publish_history_id IS NULL` 兜底；该兜底仅在 phase4-events-tracked-content.test.js T9 以真库覆盖。两测试文件分工明确但存在\"假通过\"风险：若有人删掉 SQL 兜底、仅靠判据层，tracked-content-link.test.js 全绿。",
+      "evidence": "fakeStore.setTrackedPublishHistoryId (L183-186) 直接返回 true/false，无 SQL 执行。T9 反证记录：\"M5 的第一版是绿的——判据层已经跳过已有值，所以存储层那条 AND publish_history_id IS NULL 在旧夹具里不可表示\"。说明分层测试各守各门，需跨文件视角审视。",
+      "suggested_fakeStore": "在 fakeStore 中模拟 `WHERE ... IS NULL` 语义（如内存记录已有值则返回 false），或在 tracked-content-link.test.js 增一条「绕过判据层直接调 store 方法」的集成用例。"
+    },
+    {
+      "id": "B7",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/bootstrap/phase4-events-tracked-content.test.js:20-46",
+      "claim": "真库测试夹具自证机制完善（检查表建立、探针写入读回），但 `migratePerformanceLoopSchema` 的调用约定为双参回调 `(target, sql) => target.execOrThrow(sql)`，若误写为单参 `(sql) => db.execOrThrow(sql)` 会静默建表失败（sql.js 不报错、建 0 表），后续断言全变成\"查不到行\"误导排查。",
+      "evidence": "第27-29行注释明确记录此坑；第31-34行自证：`SELECT name FROM sqlite_master` 逐表断言，缺表即抛错夹具失效。这是防御性编程的正例，但依赖开发者阅读注释。反证驱动脚本曾踩此坑（PRD §8.2 第1条）。",
+      "suggested_fix": "将双参回调封装为具名函数 `execSchemaSql(db, sql)`（store-schema.js 已导出），测试夹具强制使用该函数而非 inline 箭头函数，消除误写可能。"
+    },
+    {
+      "id": "B8",
+      "severity": "Info",
+      "file": "apps/desktop/electron/bootstrap/phase4-events-tracked-content.test.js:57-63",
+      "claim": "读侧 join 投影 `joinLikeHistoryPage` 逐字复刻 PublishHistory.vue:602-608，钉住「键是 taskId」语义；但测试未覆盖 `record.id` 兜底分支（`record.taskId || record.id`），若历史行无 taskId 但有 id，当前测试不验证该回退路径。",
+      "evidence": "joinLikeHistoryPage 仅用 `record.taskId` 查询（测试传入的 record 都有 taskId）。PRD §一 读侧契约显示兜底 `record.id` 存在。历史行由 history.addRecord 写入，task_id 字段有默认值 `''`（store-schema.js L49），极少为空；但手动录入（openManualEntry）可能无 taskId。属边界情况。",
+      "suggested_fix": "在 phase4-events-tracked-content.test.js 增一条用例：历史行仅有 id 无 taskId，tracked 行 publish_history_id 存该 id，验证 join 能命中。"
+    }
+  ],
+  "overall": "核心链路（写侧透传 task.id → 判据层唯一命中 → SQL IS NULL 双重兜底 → 读侧按 taskId join）逻辑闭环、测试覆盖到位、反证 8/8 实跑变红。两个 Critical 风险：① 回填候选查询缺 owner 过滤（多用户时可饥饿），② store 方法入参校验不足（可被绕过判据层）。建议在合并前修 B1/B4，其余作为已知边界或后续加固项记录。"
+}

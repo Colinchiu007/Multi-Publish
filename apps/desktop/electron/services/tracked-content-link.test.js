@@ -21,7 +21,9 @@ const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 const DEFAULT_OWNER = 'u1'
 
 function hist (taskId, platform, postId, owner) {
-  const r = { id: `rec-${taskId}`, taskId, platform, result: { postId } }
+  // status 按生产形态给 'success'：task:failed 也写历史（phase4-events 的 addRecord），
+  // 夹具缺这个字段就等于在替被测代码撒谎（判据要求来源限定为成功发布）。
+  const r = { id: `rec-${taskId}`, taskId, platform, status: 'success', result: { postId } }
   const o = owner === undefined ? DEFAULT_OWNER : owner
   // null ⇒ 模拟旧 JSONL 根本没有 owner_subject 字段（不是"值为 null"）
   if (o !== null) r.owner_subject = o
@@ -165,6 +167,47 @@ describe('planPublishHistoryLinks — 关联判据（纯函数，不碰库）', 
     expect(planPublishHistoryLinks(null).diagnostics.scanned).toBe(0)
   })
 
+  it('非 success 的历史记录不得入索引（失败/取消行即使带 postId 也不能成为关联来源）', () => {
+    // QM-6 后端轴 B1：task:failed 也写历史（当前 result:null ⇒ 无 postId），
+    // 但"当前不会发生"不是判据。回填的来源必须限定为成功发布那条。
+    const { plans, diagnostics } = planPublishHistoryLinks({
+      trackedRows: [row('t1', 'zhihu', 'p1')],
+      historyRecords: [{ id: 'h', taskId: 'task-failed', platform: 'zhihu', status: 'failed', result: { postId: 'p1' } }],
+    })
+    expect(plans).toEqual([])
+    expect(diagnostics.historySkipped).toBe(1)
+    expect(diagnostics.unmatched).toBe(1)
+  })
+
+  it('同一 taskId 的历史重复行不算歧义（歧义按去重后的 taskId 数判，不是按行数）', () => {
+    // QM-6 后端轴 B5：审核回写会让同一任务留下多行历史；按行数判歧义会把可回填的行误判成"猜不出"。
+    const dup = hist('task-dup', 'kuaishou', 'p1')
+    const { plans, diagnostics } = planPublishHistoryLinks({
+      trackedRows: [row('t1', 'kuaishou', 'p1')],
+      historyRecords: [dup, { ...dup, id: 'rec-other-row' }],
+    })
+    expect(plans).toEqual([{ trackedId: 't1', publishHistoryId: 'task-dup' }])
+    expect(diagnostics.ambiguous).toBe(0)
+  })
+
+  it('历史被上限截断时必须如实报出（否则"存量"会被读成"不存在"）', () => {
+    const { diagnostics } = planPublishHistoryLinks({
+      trackedRows: [row('t1', 'kuaishou', 'p1')],
+      historyRecords: [hist('task-1', 'kuaishou', 'p1')],
+      historyTotal: 9999,        // 真源里还有多少条，由调用方从 listRecords 的 total 传入
+    })
+    expect(diagnostics.historyTruncated).toBe(true)
+    expect(diagnostics.historyTotal).toBe(9999)
+  })
+
+  it('未截断时不得误报 truncated（日志谎报会让人去找一个不存在的缺口）', () => {
+    const { diagnostics } = planPublishHistoryLinks({
+      trackedRows: [],
+      historyRecords: [hist('t', 'kuaishou', 'p')],
+      historyTotal: 1,
+    })
+    expect(diagnostics.historyTruncated).toBe(false)
+  })
   it('历史扫描上限必须是显式常量（防"读 50 条默认值"把存量当成不存在）', () => {
     expect(typeof TRACKED_LINK_HISTORY_SCAN_LIMIT).toBe('number')
     expect(TRACKED_LINK_HISTORY_SCAN_LIMIT).toBeGreaterThanOrEqual(1000)
@@ -253,13 +296,33 @@ describe('linkExistingTrackedContent — 编排层（假 store 抓真实写动�
     expect(infos[0]).toContain('linked=1')
   })
 
-  it('存在歧义键时要单独留痕（这是"为什么这里还是空"的现场证据）', () => {
+  it('候选查询必须带上当前归属（否则他人的无主/异主行会占满 LIMIT）', () => {
+    // QM-6 后端轴 B2 + 替代通道 B1：归属隔离不能只发生在判据层——
+    // 候选集一旦被别人的行填满，我的行就永远排不到，而这在单 owner 机器上不可见。
+    const seen = []
+    const store = {
+      listUnlinkedTrackedForBackfill (limit, ownerSubject) {
+        seen.push([limit, ownerSubject])
+        return []
+      },
+      setTrackedPublishHistoryId: () => true,
+    }
+    linkExistingTrackedContent({ store, historyRecords: [], ownerSubject: 'user-A' })
+    expect(seen.length).toBe(1)
+    expect(seen[0][1], '调用方必须把 owner 交给存储层').toBe('user-A')
+    expect(seen[0][0]).toBeGreaterThanOrEqual(1000)
+  })
+
+  it('listRecords 的 total 要转发给判据层，截断才不会静默', () => {
     const infos = []
+    const store = {
+      listUnlinkedTrackedForBackfill: () => [],
+      setTrackedPublishHistoryId: () => true,
+    }
     linkExistingTrackedContent({
-      store: fakeStore([row('t1', 'kuaishou', 'p1')]),
-      historyRecords: [hist('task-a', 'kuaishou', 'p1'), hist('task-b', 'kuaishou', 'p1')],
+      store, historyRecords: [], historyTotal: 9000, ownerSubject: 'u',
       log: { warn: () => {}, info: (...a) => infos.push(a.join(' ')) },
     })
-    expect(infos.join('|')).toContain('ambiguous=1')
+    expect(infos.join('|'), '被截断时要出声').toContain('truncated=1')
   })
 })

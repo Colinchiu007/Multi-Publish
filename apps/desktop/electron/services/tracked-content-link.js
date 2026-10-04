@@ -50,7 +50,7 @@ function historyKey (owner, platform, postId) {
  * @returns {{plans:Array<{trackedId:string,publishHistoryId:string}>, diagnostics:object}}
  */
 function planPublishHistoryLinks (input) {
-  const { trackedRows = [], historyRecords = [] } = input || {}
+  const { trackedRows = [], historyRecords = [], historyTotal } = input || {}
   const diagnostics = {
     scanned: trackedRows.length,
     linked: 0,
@@ -60,13 +60,20 @@ function planPublishHistoryLinks (input) {
     unmatched: 0,
     unowned: 0,
     historySkipped: 0,
+    // 截断如实报出：历史只读回一部分时，"其余存量"不能读成"不存在"
+    historyTotal: Number.isFinite(historyTotal) ? historyTotal : historyRecords.length,
+    historyTruncated: Number.isFinite(historyTotal) ? historyTotal > historyRecords.length : false,
   }
 
-  // 按 (归属, 平台, 作品 id) 建索引；同一 key 挂多条历史 ⇒ 歧义，不猜。
+  // 按 (归属, 平台, 作品 id) 建索引；同一 key 挂**多个不同 taskId** ⇒ 歧义，不猜。
   // 归属进键是刻意的：不同用户发同一作品不该互相制造歧义。
+  // taskId 用 Set 去重：审核回写等同一任务可能留下多行历史，按行数判歧义会把可回填的误判成猜不出。
   const index = new Map()
   for (const record of historyRecords) {
     if (!record || typeof record !== 'object') { diagnostics.historySkipped++; continue }
+    // 关联来源限定为成功发布。task:failed 同样会写历史（当前 result:null ⇒ 无 postId），
+    // 但"当前不会发生"不是判据 —— QM-6 后端轴 B1。
+    if (record.status !== 'success') { diagnostics.historySkipped++; continue }
     const taskId = record.taskId
     const platform = record.platform
     const postId = record.result && record.result.postId
@@ -75,9 +82,9 @@ function planPublishHistoryLinks (input) {
     if (typeof postId !== 'string' || !postId.trim()) { diagnostics.historySkipped++; continue }
     const owner = ownerBucket(record.owner_subject, 'history')
     const key = historyKey(owner, platform.trim(), postId.trim())
-    const list = index.get(key)
-    if (list) list.push(taskId.trim())
-    else index.set(key, [taskId.trim()])
+    const set = index.get(key)
+    if (set) set.add(taskId.trim())
+    else index.set(key, new Set([taskId.trim()]))
   }
 
   const plans = []
@@ -91,7 +98,8 @@ function planPublishHistoryLinks (input) {
     const owner = ownerBucket(row.owner_subject, 'tracked')
     if (owner === null) { diagnostics.unowned++; continue }
 
-    const hits = index.get(historyKey(owner, String(row.platform || '').trim(), postId.trim())) || []
+    const entry = index.get(historyKey(owner, String(row.platform || '').trim(), postId.trim()))
+    const hits = entry ? [...entry] : []
     if (hits.length === 0) { diagnostics.unmatched++; continue }
     if (hits.length > 1) { diagnostics.ambiguous++; continue }
 
@@ -103,19 +111,28 @@ function planPublishHistoryLinks (input) {
 }
 
 const ZERO = {
-  scanned: 0, linked: 0, ambiguous: 0, unmatched: 0, alreadyLinked: 0,
-  skippedEmptyPostId: 0, unowned: 0, historySkipped: 0, writesAttempted: 0, writeFailed: 0,
+  ok: false, scanned: 0, linked: 0, ambiguous: 0, unmatched: 0, alreadyLinked: 0,
+  skippedEmptyPostId: 0, unowned: 0, historySkipped: 0, historyTotal: 0, historyTruncated: false,
+  writesAttempted: 0, writeFailed: 0,
 }
 
 /**
  * 编排：读候选 → 判据 → 逐行写。全程旁路——任何失败只出声，绝不冒泡影响发布主流程。
- * @param {{store:object, historyRecords:Array, log?:object, limit?:number}} deps
+ *
+ * `ok` 是给调用方决定"要不要 latch"的：读候选抛错 ⇒ ok=false ⇒ 同一次接线里
+ * 下次发布还会再试一次（QM-6 后端轴 B2/W2：一次抛错就把回填永久关掉，
+ * 表现为"这次启动的存量永远没补"，而日志只有一条 warn）。
+ * store 方法缺席 ⇒ 也是 ok=false，但那是结构性条件，调用方照样可以重试——
+ * 每轮只多一条 warn，比"永久静默"更容易被发现。
+ * @param {{store:object, historyRecords:Array, historyTotal?:number, ownerSubject?:string, log?:object, limit?:number}} deps
  */
 function linkExistingTrackedContent (deps) {
   const store = deps && deps.store
   const historyRecords = (deps && deps.historyRecords) || []
   const log = (deps && deps.log) || require('./logger')
   const limit = (deps && deps.limit) || TRACKED_LINK_HISTORY_SCAN_LIMIT
+  const ownerSubject = deps && Object.prototype.hasOwnProperty.call(deps, 'ownerSubject')
+    ? deps.ownerSubject : undefined
 
   if (!store || typeof store.listUnlinkedTrackedForBackfill !== 'function' ||
       typeof store.setTrackedPublishHistoryId !== 'function') {
@@ -125,13 +142,16 @@ function linkExistingTrackedContent (deps) {
 
   let trackedRows
   try {
-    trackedRows = store.listUnlinkedTrackedForBackfill(limit)
+    // 归属交给存储层过滤：判据层的分桶是第二道，不是唯一一道
+    trackedRows = store.listUnlinkedTrackedForBackfill(limit, ownerSubject)
   } catch (e) {
     log.warn('PerformanceLoop', 'tracked-content link backfill read failed: ' + (e && e.message))
     return { ...ZERO }
   }
 
-  const { plans, diagnostics } = planPublishHistoryLinks({ trackedRows, historyRecords })
+  const { plans, diagnostics } = planPublishHistoryLinks({
+    trackedRows, historyRecords, historyTotal: deps && deps.historyTotal,
+  })
 
   let writesAttempted = 0
   let writeFailed = 0
@@ -149,15 +169,16 @@ function linkExistingTrackedContent (deps) {
     else writeFailed++
   }
 
-  // 稳态（零候选、零歧义）不得每次启动都写一行 info——那会把真实事件埋进噪声里。
-  if (linked > 0 || diagnostics.ambiguous > 0 || writeFailed > 0) {
+  // 稳态（零候选、零歧义、未截断）不得每次启动都写一行 info——那会把真实事件埋进噪声里。
+  if (linked > 0 || diagnostics.ambiguous > 0 || writeFailed > 0 || diagnostics.historyTruncated) {
     log.info('PerformanceLoop',
       `tracked-content history links: linked=${linked}/${diagnostics.scanned} scanned ` +
       `ambiguous=${diagnostics.ambiguous} unmatched=${diagnostics.unmatched} ` +
-      `writeFailed=${writeFailed} historySkipped=${diagnostics.historySkipped}`)
+      `writeFailed=${writeFailed} historySkipped=${diagnostics.historySkipped} ` +
+      `truncated=${diagnostics.historyTruncated ? 1 : 0} historyTotal=${diagnostics.historyTotal}`)
   }
 
-  return { ...diagnostics, linked, writesAttempted, writeFailed }
+  return { ...diagnostics, ok: true, linked, writesAttempted, writeFailed }
 }
 
 module.exports = {
