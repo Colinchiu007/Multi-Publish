@@ -10,7 +10,7 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
-  const { withSenderCheck } = require('./helpers')
+  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
   // eslint-disable-next-line no-unused-vars
   // eslint-disable-next-line no-unused-vars
   const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender } = deps
@@ -21,14 +21,10 @@ function registerHandlers(ipcMain, deps) {
   }
 
   // identityService 存在时，历史记录必须以当前认证用户为唯一归属来源。
+  // 三态判定（undefined=legacy / null=认不出身份 / 非空串=subject）唯一实现在 helpers，
+  // 这里只转发——同一逻辑此前在本文件、account.js、performance-loop 各有一份（QM-6 后端轴 FB5）。
   function getOwnerSubject () {
-    if (!identityService) return undefined
-    try {
-      const state = identityService.getState()
-      const subject = state && state.user && state.user.sub
-      if (typeof subject === 'string' && subject.trim()) return subject.trim()
-    } catch (_) { /* 身份服务不可用时按未登录处理 */ }
-    return null
+    return resolveIpcOwnerSubject(identityService)
   }
 
   // 统一 IPC 日志标准：每个 handler 记录进入/校验/结果/错误，含耗时与关键参数（脱敏由 logger 统一处理）

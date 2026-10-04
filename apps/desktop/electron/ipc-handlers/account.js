@@ -13,7 +13,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
-  const { withSenderCheck } = require('./helpers')
+  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
   const { toPublicProxyConfig } = require('../services/proxy-config')
   const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
   const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
@@ -36,15 +36,9 @@ function registerHandlers(ipcMain, deps) {
     log,
   })
 
+  // 归属三态唯一实现在 helpers.resolveIpcOwnerSubject，本处只转发（QM-6 后端轴 FB5）
   function getOwnerSubject () {
-    if (!identityService) return undefined
-    try {
-      const state = identityService.getState()
-      if (state && typeof state === 'object' && state.user && typeof state.user.sub === 'string' && state.user.sub.trim()) {
-        return state.user.sub.trim()
-      }
-    } catch (_) { /* fail closed below */ }
-    return null
+    return resolveIpcOwnerSubject(identityService)
   }
 
   // 统一 IPC 日志：账号管理路径（模块 AccountIPC），含平台/账号/耗时，敏感字段经 toPublicErrorValue 脱敏

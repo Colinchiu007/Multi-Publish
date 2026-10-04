@@ -23,6 +23,7 @@ export async function listTrackedContent(params) { return invokeWithFallback("li
 export async function addManualSnapshot(trackedContentId, metrics) { return invokeWithFallback("addManualSnapshot", { code: -1, data: null }, trackedContentId, metrics) }
 export async function recomputeAttribution() { return invokeWithFallback("recomputeAttribution", { code: -1, data: null }) }
 export async function listPatternPerformance(params) { return invokeWithFallback("listPatternPerformance", { code: -1, data: { items: [] } }, params) }
+export async function performanceOverview(params) { return invokeWithFallback("performanceOverview", { code: -1, data: null }, params) }
 export async function triggerPerformanceRecrawl() { return invokeWithFallback("triggerPerformanceRecrawl", { code: -1, data: null }) }
 
 // ─── 个人知识库 ─────────────────────────

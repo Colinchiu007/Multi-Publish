@@ -1,0 +1,70 @@
+{
+  "axis": "backend",
+  "findings": [
+    {
+      "id": "FB1",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/performance-overview.js:38-42,149-153",
+      "claim": "V1「每作品取最新一份快照」依赖 captured_at 字符串字典序比较；若库里混有非 ISO 格式（epoch 数字串、带时区偏移、空串），latest 选取会出错",
+      "evidence": "dateKeyOf() 只校验前 10 字符是否匹配 ^\\d{4}-\\d{2}-\\d{2}$（第 38-42 行）；排序直接用 a.capturedAt < b.capturedAt 字典序（第 149-153 行）。测试用例（performance-overview.test.js T2/T3）只覆盖标准 ISO 字符串与空串，未覆盖 epoch 串（如 '1728000000000'）、带偏移串（如 '2026-10-04T08:00:00+08:00'）、截断串。若出现 epoch 串，字典序 '1728000000000' > '2026-10-04T00:00:00.000Z' 会导致选到旧快照，总量偏低；若出现带偏移串 '2026-10-04T08:00:00+08:00' > '2026-10-04T08:00:00.000Z' 可能选到旧快照。store 端 addPerformanceSnapshot（performance-loop-store.js:223）写入 new Date().toISOString()，生产路径固定产出 ISO，但历史数据/迁移/手工插入可能引入非标准值。",
+      "suggested": "在 buildPerformanceOverview 入口处规范化 captured_at：统一解析为 Date 对象（支持 ISO、epoch 毫秒、epoch 秒），无法解析则标记为 undated 走 V3 分支；或在 store 查询层用 SQL 规范化（strftime/CAST）后再按数值时间排序。新增测试用例覆盖 epoch/偏移/截断格式。"
+    },
+    {
+      "id": "FB2",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/performance-overview.js:164-191",
+      "claim": "V7 负差钳零 + V8 首份整份计入叠加时，「回落后再涨回」的序列会把同一段量计两次",
+      "evidence": "代码逻辑（第 164-191 行）：prev 指向上一份快照的 metrics（第 190 行 prev = point.metrics）。序列：快照1(likes=10, day5) → 快照2(likes=4, day2，回落) → 快照3(likes=12, day1)。处理：快照1 首份整份计入 day5（+10）；快照2 diff = 4-10 = -6 → retreated=true → delta=0，retreats++；prev 更新为 {likes:4}；快照3 diff = 12-4 = +8 → delta=+8 计入 day1。结果：day5=10, day1=8，总增量=18。但实际累计值从 10 回落到 4 再涨到 12，真实新增只应是 (10-0) + (12-4) = 18，看似正确。问题在于：若平台回落是计数器重置（归零后重新计），则快照2(4) 可能是重置后的新计数，快照3(12) 是在 4 基础上新增 8。此时「首份整份计入」把重置前的 10 算了一次，「回落后再涨」又把 4→12 的 +8 算了一次，重复计算了重置前的那 4。现有测试 T7/T8 只覆盖单次回落/单首份，未覆盖「回落后再涨回」场景。",
+      "suggested": "在 PRD 明确：V7/V8 设计假设累计计数单调不减，回落仅为平台侧删除/修正。若业务允许计数器重置，需在聚合层引入「重置检测」（如 diff < -prev*0.5 视为重置，重置后首份重新按 V8 计入）。或在文档/诊断里明确标注：当前口径假设无重置，retreats 计数供人工排查。"
+    },
+    {
+      "id": "FB3",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:33-41 vs apps/desktop/electron/services/publish-history.js:45-52",
+      "claim": "归属谓词 _ownerPredicate 与发布历史 matchesOwner 口径不一致：legacy 桶定义不同（SQL 三条件 vs JS 三条件），会导致同页两张卡（看板上方『累计发布』用发布历史，下方互动回流用 performance_snapshot）数据互相打脸",
+      "evidence": "_ownerPredicate（performance-loop-store.js:33-41）legacy 分支：WHERE (owner_subject IS NULL OR TRIM(owner_subject) = '' OR owner_subject = '__legacy__')。matchesOwner（publish-history.js:45-52）legacy 分支：record.owner_subject === undefined || record.owner_subject === null || record.owner_subject === '__legacy__'。差异：1) SQL 空串 '' 进 legacy 桶，JS 空串 '' 不进（只匹配 undefined/null/__legacy__）；2) SQL NULL 进 legacy 桶，JS null 也进（一致）；3) JS undefined 进 legacy 桶，SQL 无 undefined 概念（表里不存 undefined，只有 NULL/''/__legacy__）。实际场景：tracked_content 表里 owner_subject = '' 的行，性能看板会把它算进 legacy 用户，但发布历史（JSONL 里 owner_subject 缺失或显式 null）不会算进。反之，JSONL 里 owner_subject 缺失（JS undefined）的记录，发布历史算 legacy，但 SQLite 表里若存了 NULL 则两边都算；若 SQLite 迁移时把缺失字段存成了 ''，则性能看板算、发布历史不算。",
+      "suggested": "统一 legacy 判定：建议在 store-schema.js 导出统一的 isLegacyOwnerSubject(recordValue) 纯函数，SQL 侧在迁移/写入时把 legacy 统一规范为 NULL 或 '__legacy__'（不存空串），查询层只匹配 IS NULL OR = '__legacy__'。JS 侧 matchesOwner 改为 record.owner_subject == null || record.owner_subject === LEGACY_OWNER_SUBJECT（== null 同时匹配 null/undefined）。新增跨表一致性测试。"
+    },
+    {
+      "id": "FB4",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:282-305",
+      "claim": "listSnapshotsForOverview 不带时间过滤，长期使用后 truncated 会成常态；配合 ORDER BY tracked_content_id ASC, captured_at ASC，截断会保留「按作品分组后每组最旧的快照」，导致『最新快照求和』选到旧数据，总量偏低",
+      "evidence": "查询（第 291-294 行）：SELECT ... ORDER BY s.tracked_content_id ASC, s.captured_at ASC, s.rowid ASC LIMIT ?。受 OVERVIEW_SNAPSHOT_LIMIT=20000 约束。若某用户 500 个作品各 50 份快照（共 25000 条），前 20000 条按作品 ID 升序、时间升序取。假设作品 ID 1-400 各 50 条填满 20000，作品 401-500 的快照全被截断。被截断的恰好是 ID 较大的作品。对于保留的作品，取的是每作品最旧的快照（因 captured_at ASC）。聚合层（performance-overview.js:149-153）按 captured_at DESC 取最新，但输入里只有旧快照 → 选到旧值 → 总量偏低。truncated=true 只告诉界面『基于最近 N 条』，用户无法知晓是『旧快照被保留』还是『新快照被丢』。测试 T17 只验证 total/truncated 字段，未验证截断后聚合正确性。",
+      "suggested": "1) 查询排序改为 ORDER BY s.tracked_content_id ASC, s.captured_at DESC（每组取最新），或在 store 层做分组去重只保留每作品最新 1 份（但 V7/V8 需要完整序列）。2) 若保持全量取回，至少将截断策略记录在诊断里：哪些作品被截断、截断前后各多少条。3) 考虑把 OVERVIEW_SNAPSHOT_LIMIT 提高或按用户配置，并在 PRD 记录该权衡。"
+    },
+    {
+      "id": "FB5",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/ipc-handlers/helpers.js:155-164 vs apps/desktop/electron/ipc-handlers/publish.js:24-32 vs apps/desktop/electron/ipc-handlers/account.js:39-48",
+      "claim": "resolveIpcOwnerSubject 与既有两份私有实现并存（三分口径），且 helpers.js 注释承认『收敛它们属另一个切片』，本 PR 未收敛，存在口径漂移风险",
+      "evidence": "三个实现：1) helpers.js:155-164（新增，三态：undefined=legacy、null=auth failed、string=subject）；2) publish.js:24-32 getOwnerSubject()：undefined=legacy、null=auth failed、string=subject（逻辑同 helpers）；3) account.js:39-48 getOwnerSubject()：undefined=legacy、null=auth failed、string=subject（逻辑同 helpers）。当前三份实现逻辑一致，但分散在三个文件。helpers.js 第 149-150 行注释：『注意 publish.js / account.js 各自还留有一份同逻辑的私有实现（历史欠账...），收敛它们属另一个切片』。本 PR 引入第三份而未收敛，后续若某处修改漏改另一处会导致同页不同 IPC 口径不一致。",
+      "suggested": "在本 PR 或紧随其后的切片中，将 publish.js 和 account.js 的 getOwnerSubject() 替换为 require('./helpers').resolveIpcOwnerSubject，并删除重复代码。新增单元测试验证三个入口返回值完全一致。"
+    },
+    {
+      "id": "FB6",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/ipc-handlers/license-access-control.js:6-89 vs apps/desktop/electron/ipc-handlers/performance-loop.js:68-71",
+      "claim": "performance:overview 不在 PUBLIC_CHANNELS 中，未登录时会被 license-access-control 拦截返回 AUTH_REQUIRED（code:-3），但 Dashboard.vue 只用 isAuthGateResult 判断 code:-3+errorCode，无法区分『未登录』与『权益不足』，导致未登录用户看到『权益不足』误导文案",
+      "evidence": "license-access-control.js PUBLIC_CHANNELS（第 6-89 行）未包含 'performance:overview'。requiredLevelForChannel（第 205-209 行）对非 public 通道返回 'authenticated'。未登录时 getAccessLevel 返回 'public'，hasAccess('public', 'authenticated') 为 false → 返回 denied(channel)（第 228-236 行），code:ERROR.AUTH_ERROR(-3)，errorCode:'AUTH_REQUIRED'，message:'当前许可证无权访问该功能，请先登录并确认账号已开通所需权益后重试。'。Dashboard.vue（第 203 行 import isAuthGateResult，第 280/297 行使用）isAuthGateResult（auth-gate.js:12-15）判断：errorCode==='AUTH_REQUIRED' || errorCode==='NOT_SIGNED_IN' || (errorCode==null && code===-3) → 返回 true。两条路径都能被判为登录门禁（isAuthGateResult 返回 true），但 message 文案是『权益不足』而非『请登录』，用户看到误导文案。PRD §八 T19 要求『无法识别当前用户 -> AUTH_ERROR，绝不返回全零成功信封』，但未要求文案准确。",
+      "suggested": "1) 将 'performance:overview' 加入 PUBLIC_CHANNELS（与 dashboard:stats 同级，PRD §十已记录两入口口径不同但门禁同源），或 2) 在 license-access-control.js 为 performance:overview 添加专用错误码/文案，或 3) 在 performance-loop.js handler 内显式处理 identityService 缺失时返回自定义 AUTH_ERROR（message:'请先登录查看互动回流数据'），绕过 license-access-control（需确认架构是否允许 handler 覆盖权限层）。建议方案 1，与 dashboard:stats 保持一致。"
+    },
+    {
+      "id": "FB7",
+      "severity": "Info",
+      "file": "01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md:164-220",
+      "claim": "PRD §八 T1–T26 验收标准逐条核对：T15（返回列最小集）、T16b（legacy 桶不含已归属数据）、T17b（孤儿快照单独计数）、T20b（孤儿快照数透传）、T21b（装配锁）有对应测试；T1–T14（聚合判据）在 performance-overview.test.js 全覆盖；T18–T21（IPC）在 performance-loop.test.js 全覆盖；T22（preload 接线）在 preload.test.js 有快照守卫；T23–T26（渲染层）在 Dashboard.test.js / PerformanceFlowPanel.test.js 覆盖。未见显式测试：T14（覆盖率与健康度计数与 recrawl_status 一致）仅在 performance-overview.test.js T14 覆盖 tracked 侧，未覆盖 snapshot 侧健康度；T24（四种空态文案互斥）需在 PerformanceFlowPanel.test.js 核实。",
+      "evidence": "运行测试：performance-overview.test.js 28 passed、performance-loop.test.js 通过。performance-loop-store-overview.test.js 因测试基础设施问题（<< 语法错误）未跑通，但代码逻辑已实现 T15-T17。PerformanceFlowPanel.test.js 未读取，需确认 T24 空态互斥测试是否存在。整体测试覆盖度较高，核心判据 V1-V13 均有对应用例（T1-T13）。",
+      "suggested": "1) 修复 performance-loop-store-overview.test.js 运行环境问题（疑似 test-setup.js 与 vitest 版本冲突）。2) 补充 PerformanceFlowPanel.test.js 中四种空态互斥渲染测试（T24）。3) 为 T14 补充 snapshot 侧健康度一致性断言。"
+    },
+    {
+      "id": "FB8",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/performance-overview.js:144-157",
+      "claim": "聚合层对 trackedRows 去重使用 Map，key 为 String(row.id).trim()；若 trackedRows 含重复 id（不同 platform/recrawl_status），后者会覆盖前者的 platform 但 snapshots 合并，可能导致平台分布错位",
+      "evidence": "第 113-119 行：contents Map 按 id 去重，若同 id 出现两次，第 118 行 !contents.has(id) 只首次设置 platform，后续同 id 行只增加 snapshots 不更新 platform。store 查询 listTrackedForOverview（performance-loop-store.js:264-266）ORDER BY created_at DESC, rowid DESC，主键 id 唯一，理论上不应有重复 id。但若数据异常（手工插入/迁移）导致重复 id 不同 platform，聚合会以首次遇到的 platform 归属所有快照。测试未覆盖重复 id 场景。",
+      "suggested": "在 buildPerformanceOverview 入口校验 trackedRows id 唯一性，重复时记录 diagnostics.invalidTrackedRows++ 并跳过后续重复项（当前已有 invalidTrackedRows 计数但未用于去重冲突）。或在 store 查询层加 DISTINCT ON (id) 保证唯一。"
+    }
+  ],
+  "overall": "后端实现核心判据（V1-V13）在纯函数层已正确落地且测试覆盖完备，但存在三个关键风险：1) captured_at 字符串比较对非 ISO 格式脆弱（FB1），2) 归属谓词与发布历史口径不一致导致同页两卡打脸（FB3），3) performance:overview 缺失 PUBLIC_CHANNELS 导致未登录文案误导（FB6）。快照查询截断策略（FB4）与三分口径（FB5）为中长期技术债。建议优先修复 FB1/FB3/FB6，再处理 FB4/FB5，FB2/FB8 视业务优先级决定。"
+}
