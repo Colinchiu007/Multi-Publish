@@ -1,4 +1,4 @@
-# [未发布] fix(scripts): 会话隔离工具不再弹控制台窗口——计划任务改非交互主体、任务 shell 改按需（2026-10-03，fix-session-isolation-popups）
+# [未发布] fix(scripts): 会话隔离工具不再弹控制台窗口——计划任务改非交互主体、任务 shell 改按需（2026-10-04，fix-session-isolation-popups）
 
 ### 根因
 - 两类窗口叠加：① `start-mp-task.ps1` 建完 worktree 默认 `Start-Process -NoExit` 开一个「任务 shell」，父进程随即退出 ⇒ 窗口成为孤儿常驻，每开一个任务多一个（现场 PID 42824，父进程 40692 已不存在）。② `\Mulpub\` 两个计划任务以交互主体（`LogonType=Interactive`）注册，每次运行都创建一个可见控制台窗口；健康巡检每 15 分钟一次，即「开发过程中总闪窗」的节拍源。
