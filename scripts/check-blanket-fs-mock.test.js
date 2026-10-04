@@ -3,7 +3,8 @@
  * scripts/check-blanket-fs-mock.test.js — 「blanket fs 夹具」棘轮自身的回归
  *
  * 为什么必须有：#2794 那颗（`__registerMock('fs', …)` 对本 realm 里每一个 require('fs') 谎报，
- * 于是 `deps.inline:['electron']` 带进来的真 electron/index.js 以为二进制没备好，
+ * 而同一 realm 里真实执行的 `electron/index.js` 据此以为二进制没备好（实测与 `deps.inline:['electron']` 无关，
+ * 摘掉它 banner 照样出现，见 `docs/deps-inline-electron-evaluation.md`），
  * 当场 spawn install.js 并把下载 banner 记到"正在跑的那条用例"名下）只修了一个文件。
  * 剩下的按实测是 12 个，全部带"本文件已 __enableElectronMock ⇒ 该路径不通"这类**逐文件核对过**的原因。
  * 没有棘轮的话，这个类会重新长回来，而且和上次一样：本地全绿、CI 里表现成随机超时。
