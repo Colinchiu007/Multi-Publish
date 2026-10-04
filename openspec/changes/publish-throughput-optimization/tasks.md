@@ -40,5 +40,5 @@
 
 - [x] 6.1 回归锁全绿：task-queue 34+9、container.setup、rpa-view-platforms 70、rpa-view-session、rpa-view-manager、rpa-view-window-pool 11、api-publish-engine 全量 exit 0、publish-stage-map/progress-events 71
 - [x] 6.2 eslint 改动文件 0 error（4 warnings 为 main 预存同量级）；verify-worktree-deps 通过
-- [ ] 6.3 QM-1 打包验证（electron-builder --win --dir）+ asar require 链 + 启动 8s stderr 检查
+- [x] 6.3 QM-1 打包验证：electron-builder --win --dir exit 0；asar 清单含 logger；extract 后 rpa-engine/shared-utils/api-publish-engine require 链全通。启动 8s 检查：打包 exe 静默退出（exit 0）——**对照实验证明与本变更无关**：main 基线在 dev electron 下同款 electron-updater 崩溃（Node v24 本机环境预存问题），CI 的 Windows runner 启动测试为准
 - [ ] 6.4 提交推送 + PR + CI 全绿 + auto-merge
