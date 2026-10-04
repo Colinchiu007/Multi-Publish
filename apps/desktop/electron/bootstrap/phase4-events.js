@@ -20,6 +20,7 @@ const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
 const { buildAuditPatch } = require('@multi-publish/shared-utils/src/publish-audit-status')
 // P0-1 第二切片：审核回查的凭证解析与能力分级（凭证恒空缺陷修复 + 端点未验证的诚实分级）。
 const { resolveAuditRequeryCookies, decideAuditRequery } = require('../services/publish-audit-requery')
+const { linkExistingTrackedContent, TRACKED_LINK_HISTORY_SCAN_LIMIT } = require('../services/tracked-content-link')
 
 const defaultAuditRequery = {
   resolveCookies: (params) => resolveAuditRequeryCookies(params),
@@ -37,13 +38,16 @@ const defaultAuditRequery = {
  * @param {Function} deps.getMainWin
  * @param {object} [deps.riskSuspender] - 风控挂起守卫（desktop-risk-suspender，可选）
  * @param {object} [deps.progressEmitter] - 进度事件发射器（可选，缺省自建；publish-progress-ux）
+ * @param {object} [deps.failureDraftSaver] - 发布失败自动存草稿（publish-fail-draft-guard，可选）
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery, failureDraftSaver }) {
   // publish-progress-ux：四事件统一走富化 emitter（phase/stageKey/percent/batchId/timestamp），
   // 既有字段（platform/taskId/stage/result/error/remainingWait）原样保留，向后兼容加法。
   const emitter = progressEmitter || createPublishProgressEmitter({ getMainWin })
   // P0-1 第二切片：审核回查的策略层（凭证解析 + 能力分级）；测试可注入替身。
   const requery = auditRequery || defaultAuditRequery
+  // 存量关联回填每次接线只跑一次（成功后候选集为空，再跑也只是零写入，但没必要每次发布都读一遍历史）
+  let backfillRan = false
 
   /**
    * 审核回查启动门：解析凭证 → 能力分级 → 通过才建监控任务。
@@ -133,7 +137,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       }
     } catch (e) { log.warn('ImpactTracker', 'Failed to start impact tracking: ' + e.message) }
 
-    // P2 效果闭环：发布成功登记 tracked_content（有 postId 或内容 URL → pending 排期回采；都没有 → untrackable 仅手动）
+    // P2 效果闭环：发布成功登记 tracked_content（有 postId 或内容 URL → pending 回采；都没有 → untrackable 仅手动）
     try {
       if (store && typeof store.addTrackedContent === 'function') {
         const result = task.result || {}
@@ -144,13 +148,42 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           platform: task.platform,
           postId: String(postId || ''),
           url,
+          // 关联键的语义＝**发布任务 id**（读侧 PublishHistory.vue 按 record.taskId join 这一列）；
+          // 存 addRecord() 返回的 entry.id 会让历史页表现列继续恒空。缺 id 就留 NULL，不猜。
+          publishHistoryId: typeof task.id === 'string' && task.id.trim() ? task.id.trim() : null,
           rewriteHistoryId: task.rewriteHistoryId || task.article?.rewriteHistoryId || null,
           recrawlStatus: hasAnchor ? 'pending' : 'untrackable',
           nextRecrawlAt: hasAnchor ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null, // T+1h 首采
           ownerSubject,
         })
+        if (!(typeof task.id === 'string' && task.id.trim())) {
+          log.warn('PerformanceLoop', 'publish task has no id, tracked_content left unlinked')
+        }
       }
     } catch (e) { log.warn('PerformanceLoop', 'Failed to register tracked content: ' + e.message) }
+
+    // P2-6b：本会话首次发布成功后补一次存量关联。放在这里而不是启动接线里，
+    // 因为此刻 owner_subject 已由任务给出——启动时身份可能还没解析，拿不到归属就没法安全地配对。
+    // 回填是旁路：幂等、候选空时零写入、任何异常只出声。
+    // latch 只在**这轮真的跑完**之后置真（QM-6 后端轴 B2/W2）：读历史抛错时不 latch，
+    // 否则一次抖动就把本会话剩下的存量全部放弃，而现场只留下一条 warn。
+    if (!backfillRan) {
+      try {
+        const scanned = history && typeof history.listRecords === 'function'
+          ? history.listRecords({ limit: TRACKED_LINK_HISTORY_SCAN_LIMIT }, ownerSubject)
+          : null
+        const outcome = linkExistingTrackedContent({
+          store,
+          historyRecords: (scanned && scanned.records) || [],
+          historyTotal: scanned && scanned.total,
+          ownerSubject,
+          log,
+        })
+        if (outcome && outcome.ok) backfillRan = true
+      } catch (e) {
+        log.warn('PerformanceLoop', 'tracked-content backfill skipped: ' + (e && e.message))
+      }
+    }
   })
 
   taskQueue.on('task:failed', (task) => {
@@ -165,6 +198,19 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       status: 'failed', result: null, error: task.error,
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, task.owner_subject)
+    // publish-fail-draft-guard：媒体内容（视频/图文）发布失败 → 自动回存草稿防丢失。
+    // 旁路红线：saver 内建全量 try/catch（资格判定不过跳过、写入失败只 warn），
+    // 同步/异步失败都不冒泡，绝不影响失败主流程（历史落库/失败通知/风控挂起）。
+    if (failureDraftSaver && typeof failureDraftSaver.saveFailureDraft === 'function') {
+      try {
+        const saved = failureDraftSaver.saveFailureDraft(task)
+        if (saved && typeof saved.catch === 'function') {
+          saved.catch((e) => log.warn('FailureDraftSaver', 'auto draft save rejected: ' + (e && e.message)))
+        }
+      } catch (e) {
+        log.warn('FailureDraftSaver', 'auto draft save failed: ' + (e && e.message))
+      }
+    }
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
       if (isRiskBlocked(task.error) && !isRiskSuspendedMessage(task.error)) {

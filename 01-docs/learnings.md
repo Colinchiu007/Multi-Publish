@@ -1,3 +1,78 @@
+## 标签标题的锁定语义只适用于静态标题场景；动态内容标签传 title 等于永锁（fix-tab-title-url-placeholder，2026-10-03）
+
+- **复合根因（pattern：能力 × 调用方矩阵审计）**：主进程 `createNewTabPage` 的 `titleLocked`（`c3c395570`，为登录/平台标签防止网页标题覆盖）是合理能力；两个月后新标签体系（`f7e93ceba` #2230）让 `App.vue` 的「+」新标签也传了 `title: t('tabs.newTabTitle')`，把**动态内容标签**锁死在初始标题。**一个「标签创建参数」被新增调用方照抄示例传值时，参数的深层语义（锁定 = 永久忽略 page-title-updated）不会自己显形——新增调用方必须审计每个传参的副作用矩阵，而不是抄最近的可工作示例。**
+- **次级缺口（pitfall：内嵌 SPA 无 document.title 源）**：home-shell 内嵌独立 SPA 实例从不更新 `document.title`，即使解锁也没有标题可上报——「解锁」与「有源可发」必须同时补齐，缺一链路仍然静默。显式 IPC 上报（reportTabTitle）比只依赖 Chromium page-title-updated 事件更可靠（不依赖事件时序，非 Electron 环境天然降级）。
+- **前缀匹配陷阱（pitfall）**：路由 → 标题映射若把精确键 `/` 与前缀键混在同一张表里做 `startsWith` 判定，`'/'.endsWith('/')` 恒真会把**所有未知路径误判成主页**（开发期实测）。精确表与前缀表必须物理分离，前缀匹配只查独立前缀表。
+- **i18n 在组件外（pattern）**：纯函数（非 setup 上下文）里翻译用 `i18n.global.t(key)`；`useI18n()` 只能在 setup 内调用，在纯函数里调用抛 `Must be called at the top of a setup function`。
+- **测试反证纪律（pattern）**：本次修复的回归锁做了「把锁改回 no-op 必须变红」的实证——回滚 App.vue 的 onCreateTab 改动，契约用例立即变红；只证「业务改动变绿」不能证明锁在跑。
+- **环境坑（pitfall：ELECTRON_RUN_AS_NODE 残留）**：DSH/Agent 工具链环境残留 `ELECTRON_RUN_AS_NODE=1` 会让**所有** Electron exe 以纯 Node 模式启动——表现为主进程 JS 被当模块加载后立即退出 rc=0、零输出、零日志、userData 都不创建，与「asar integrity 失败」「杀软拦截」等症状极难区分。排查 Electron 打包产物「静默闪退」先 `Get-ChildItem Env: | Where-Object Name -match ELECTRON`。
+
+## 知乎收藏批量：接线层的契约断裂电测层 mock 锁不住，IPC 形状纪律必须贯穿三层（zhihu-fav-batch，2026-10-03）
+
+- **P0 复发型缺陷链**：①2026-09-18 合入的旧批量采集把 IPC 返回 `{index,ok,data:{...}}` 展开成 `...x.data.data`（多一层），成功条目入库只剩 `{id}` 空壳——既有测试 mock 恰好也写成扁平形状且只断言 length，绿灯放行（Mock 边界 + 断言不精确双重失效）；②本次新增的渲染端接线层又把 handler 的 `data.results` 误当 `data.items` 传给映射函数——electron 层 mock 形状锁做得再好，**接线层喂错字段单测仍全绿**。教训：同一 IPC 契约的 mock 形状必须只存在一份真源（复制 handler 真实返回），且「汇总计数与实际产出数交叉校验」（不一致宁可报错不静默）是接线层的最后防线。
+- **QM-6 对抗评审是接线层断链的唯一拦截者**：240 个单测全绿的情况下，评审员靠「顺真实数据流走一遍」抓出 C1（results/items）、M2（模板引用不存在的函数）、M3（平台选择从未写入 composable 状态，buildTargets 恒空）三个「UI 不可用级」缺陷。UI composable 测试直接手写内部状态（`batchSelection.platforms=['x']`）会绕过 UI 接线——接线必须有独立回归锁（从模板事件到 IPC 载荷全链）。
+- **ELECTRON_RUN_AS_NODE 环境陷阱**：DSH pwsh 会话被注入 `ELECTRON_RUN_AS_NODE=1` 时，electron.exe 与打包 exe 全部被当纯 Node 进程静默 exit 0（无 stderr、无应用日志），QM-1「8 秒存活」假红。启动验证前必须 `Remove-Item Env:\ELECTRON_RUN_AS_NODE`；并发 worktree 会话占共享 userData 单实例锁时同假象，用 `ELECTRON_USER_DATA_DIR` 显式隔离（startup-compat.js 支持 env/argv 注入）。
+- **主进程 IPC 形状纪律三件套**：①双边界进度事件——每个 start 必须有对应 done（duplicate/skip/失败短路路径也不豁免，否则进度条视觉卡死）；②跨会话防线显式消费——传了 collectedUrls 参数就必须读（死参数=PRD 承诺漂移）；③IPC 载荷逐字段显式 String()/Number() 归一，不经任何 reactive 引用。
+
+## 文本重组类后处理必须先定义结构不变量：AI 味 Pass 3 曾把 LLM 空行分段压成一整段（fix-rewrite-paragraph-preserve，2026-10-03）
+
+- **现象与根因**：用户反馈「改写后的文案是一整段」。提示词层早就要求空行分段（运营中心种子 hard-constraint-default-v1，2026-09-18），LLM 也遵守了；压平发生在本地后处理——去 AI 味引擎 Pass 3 的句长节奏修复（`ai-taste-remover.js` `_mergeUniformSentences`，v2 重构 `36a09e5c` 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢、段尾标点一并丢失。**凡是「把文本切散再重组」的处理，重组时丢弃的结构信息（换行/标点/空格）不会自己回来**。
+- **结构不变量模式（pattern）**：任何文本重组类 pass 必须满足「不改换输入的换行/分段结构」——先按结构切分（split 换行符），只对最小结构单元（单段）做句级重组，再原样回填（join 换行符）。检测类信号（如句长方差）可以在全文层算，但**修复动作的作用域必须收窄到结构单元内**。
+- **标点契约（pattern）**：切句时用捕获组保留终止标点（split 捕获组 + reduce 回填），重组按原文标点回填——语气标点（！？）不得被统一改写成句号；合并衔接点才允许把前句标点改成逗号；段尾无标点不追加。
+- **逃逸教训（pitfall）**：单段短文本测试永远暴露不了结构破坏——「重组类处理」的回归锁必须包含多段输入断言（输出含换行）+ 无标点尾段断言（不追加标点）；且要防**假绿**：旧代码「统一丢标点」恰好满足「不追加标点」的表面断言（R5），两侧断言（不丢 + 不加）要成对出现。
+- **上游+保底双保险（pattern）**：LLM 输出侧约束（硬约束 + 模式指令要求空行分段）是概率性的，本地后处理的确定性保障（结构不变量）才是兜底——两层都要做，只做提示词层压平照旧发生。
+## 「跳转即自动执行」的页面，完成态必须把视口带到产物位置——且判据收在页面内而非调用方（fix-rewrite-jump-focus，2026-10-09）
+
+- **第一性根因**：热门选题【创作文案】跳转 `/rewrite?topic=` 后 RewriteView 自动开始改写，但视口停在首屏；结果卡片在下方，用户不知道「已经改完了」，误以为只是带入了输入内容。这是「状态已完成、感知却是初始态」的认知断层——凡是**跳转后自动执行**的页面（自动改写、自动分析、自动生成），完成态与首屏态在视觉上不可区分，用户就无法建立「我刚才那步已经成了」的反馈闭环。修复判据：完成时把视口带到产物位置（`scrollIntoView` 结果卡片），而不是加进度条或改布局。
+- **判定真源收在「被执行的页面」内，不在调用方**：自动改写入口 = `topic` query 或 `from=collection` 交接（页面挂载期识别，`autoFocusResult` 标志）。若在 HotTopics / Collection 各自跳转处加参数，未来第 3 个自动入口会漏带；页面内单点判定则天然覆盖。同族先例：发布进度阶段映射收在发射层单一实现。
+- **不滚动的边界同样重要**：手动改写不滚（用户本就在看着页面）、失败不滚（错误横幅在首屏可见 + 结果卡片 `v-if` 不渲染目标不存在）。反证两条都做了变异测试：摘调用 → 自动入口用例红；摘条件守卫 → 手动用例红。
+- **测试环境接缝（当场踩到）**：`@vue/test-utils` 默认 mount 到**游离 DOM**，`document.querySelector` 拿不到组件内元素——滚动目标必须用模板 ref 而非全局查询。这与 CreateView.test.js 早前「spy 组件方法而非全局 Element.scrollIntoView」的回归注记同族：jsdom 游离挂载是本仓 Vue 测试的常态，任何依赖 `document.*` 全局查询的实现/断言都要先问「元素挂在哪」。
+- **回归锁清单**：`RewriteView.test.js` describe「自动改写入口完成后定位结果区」5 例（topic 滚动/交接滚动/手动不滚/titleHint 不滚/失败不滚），断言含 spy 的 `mock.instances[0]` 精确指向结果卡片元素 + `{behavior:'smooth',block:'start'}` 参数。
+
+## 发布失败自动存草稿的去重真源在主进程内容指纹，不在渲染层也不在 draft.id（publish-fail-draft-guard，2026-10-03）
+
+- **第一性根因**：draftSave 原按 draft.id 去重，而「失败自动回存」与「用户手动保存」各自生成新 id——同一份内容必然双条。**去重判据必须在『内容』上而不是『保存动作的 id』上**：引入 sha256 内容指纹（services/draft-fingerprint.js，仅 12 个内容字段白名单），命中即原地更新并保留原 id/createdAt，返回 {draftId, reused}。publishTime/platforms/accounts/platformOverrides 等发布指向性元数据不参与指纹——同一内容多平台失败只产生一条草稿；数组保序（图片顺序即内容）、对象键递归排序、空内容统一 EMPTY 指纹、历史数据无 _fp 时现算比对并回填（读取侧惰性迁移，无需一次性迁移脚本）。
+- **owner 权威来源是任务固化的 	ask.owner_subject，不是实时读 identityService**：identityService 由 Phase 3 在 wireTaskQueueEvents 之后才挂到 ctx（bootstrap.js:258），接线时刻读它拿到 undefined——要么把判据搬到事件触发时惰性读 ctx，要么（本次选择）直接用与 history.addRecord 同源的 	ask.owner_subject，语义更准（发布时刻的登录用户）。Logto 模式缺失 → fail-closed 跳过，绝不写 legacy 全局命名空间。
+- **App 级订阅 publish:progress 不违反「页面级订阅禁令」**：禁令的对象是页面 composable 的页面级订阅（监听器死亡 bug），App 级 main.js 服务（risk-hold-notifier 同位先例）消费失败边界做一次性通知是合法形态——它不承载进度状态（唯一承载仍是 stores/publishProgress.js）。判据是「是否承载状态/是否有生命周期错配风险」，不是「谁订阅了事件」。
+- **自动回存绝不弹确认框、绝不影响失败主流程**：失败场景打断用户是二次伤害；saver 全量 try/catch（同步抛错 + 异步 reject 双路都要兜，.catch 必须挂在 promise 上防 unhandledRejection），失败只 warn。
+- **过程坑①（PS 内联长文案）**：PowerShell here-string 内联中文+反引号（markdown code）会乱码/解析错误——用 write 工具落脚本文件并保存 **UTF8 with BOM**（powershell.exe 无 BOM 按 ANSI 读 ps1，中文全毁）。AGENTS.md/CHANGELOG 头部插入同理。
+- **过程坑②（.NET API 路径解析，险些污染共享根）**：[System.IO.File]::WriteAllLines("CHANGELOG.md") 的相对路径按**进程 CWD**解析而非 PowerShell 的当前 location（cd: 不改进程 CWD）——worktree 里执行却写到了共享主目录的 CHANGELOG.md。按 R2 精确单文件 git checkout -- CHANGELOG.md 还原后用绝对路径重写。**在 worktree 中做任何 .NET 文件 API 操作一律绝对路径**。
+- **过程坑③（测试 mock 有状态性）**：mockReturnValue([]) 的 store mock 跨多次写入读不到新值，「两次失败只一条」类幂等断言会假红。有状态内存 mock（闭包变量 + mockImplementation 读回）才是正确形态。
+- **回归锁清单**（AGENTS.md QM-2 已登记）：draft-fingerprint.test.js + publish-failure-draft.test.js + publish-failure-draft-saver.test.js + phase4-events.test.js（自动回存 describe）+ store.test.js（指纹幂等 describe）。
+## 智能面板密度是独立 spec 维度；像素基线只拍空态首屏，结果态改动不漂基线；QG Changes 对 PENDING 行要求账本同次登记（compact-tag-suggester-tabs，2026-10-03）
+
+- **「面板放哪」与「面板多高」是两层契约**：上游 spec `publish-page-right-rail` 已约束智能面板贴邻字段、不进右栏，但没约束面板自身纵向密度——TagSuggester 把 5 平台分组纵向铺开 ~800px 依然合规。这类「布局位置对了但体量失控」的回归不会撞任何既有门禁，评估 UI 变更时要单独立一条密度验收（本刀补 Requirement：内容区 ≤340px ±10%，实测 5 平台×7 标签 357px，-55%）。
+- **Tab 化的三个非显然决策**：① 汇总行的「+N」徽标不可点击、title 指向平台 Tab——把「去哪看全部」做成指路牌而非陷阱；② 摘要只截显示，复制按钮仍复制全量（复制语义跟着平台走，不跟摘要切片走）；③ `activeTab` 存平台 key 不存展示名，i18n 切换才不会把选中态打碎；`normalizedActiveTab` computed 归一化非法值 + `watch(platformGroups)` 回落，双保险防状态残留。
+- **像素基线判读先于像素基线重建**：跑 `test:visual:pixel` 前先确认「本次改动区域是否在基线截图视野内」。本刀改的是面板**结果态**（内容>3 字符才渲染），而 publish-form 基线用空 profile 拍空态首屏，两次 0.627% PASSED——结果态改动对这种基线是天然不可见的，不需要也无法通过重建基线来「验证」。同轮 collection 1.62% 失败，溯源 = #2792 改采集页没刷基线（基线停在 #2714），与本分支无关——失败先归因再动手，别把别人的欠账刷成自己的基线。
+- **Playwright 拦截 IPC 取证范式**（`capture-tag-tabs-proof.js`）：hash 路由 URL 必须写 `/#/publish`（`/publish` 会落首页）；`electronAPI` stub 放 `addInitScript` **带 mock 参数内嵌**（先 goto 再 evaluate 再 reload 会把注入值随 reload 清掉）；UiInput 是包裹 div，fill 要打内部 `input`；面板卡用 testid 的 `xpath=ancestor::div[contains(@class,"cohere-card")][1]` 定位（外层表单卡同名 class，hasText 会误匹配）。
+- **QG Changes 的账本登记是硬拦门禁**：`.quality-gates.md` 新增带「远程同步 | PENDING」的执行记录，必须与 `scripts/gate-record-debt-ledger.json` 登记项**同一次提交**落盘，否则 PR CI 的 quality-gate 直接红（「存在未登记的欠账」）；账本键 = 记录标题去掉 `## `、值含 `reason/status/line`。本地 `node scripts/check-gate-record-debt.js` rc=0 再 push 能省一轮 CI 往返。
+- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)<<<<<<< HEAD\r?\n(.*?)=======\r?\n(.*?)>>>>>>> origin/main\r?\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。
+## 本机跑像素门禁的红不等于回归：先验「登录态/数据依赖 + 动画抑制」再下结论（visual-local-triage，2026-10-03）
+
+- **现场**：本机跑 `test:visual:pixel` 报 collection 视图 1.62%（阈值 1%）。逐层归因后定性为**本机渲染状态依赖**，不是 CI 渲染回归：① 裸截图 vs 基线差 1.159%；② 与 runner 同参（`reducedMotion:'reduce'` + 注入 `animation:0s!important` CSS + `setFixedTime` + settle）后降到 0.620%；③ 差异带剖面锁定 `col-panel::before` 的 **3s 无限橙渐变动画**（`Collection.vue` `.col-panel-ribbon`）——动画帧不同 ⇒ 顶部 4px 横幅整带红；④ 剩余差异带集中在草稿箱区（y=960-1079）：基线里有 5 张测试草稿卡，本机渲染是「暂无草稿」空态 ⇒ **登录态/本地数据依赖**改变了渲染内容。
+- **可复用的本机排查序列**（先便宜后贵）：① 与 runner 逐参数对齐重跑（animation 抑制 + 时钟钉住 + settle + reducedMotion）——一步通常消掉大半；② 差异行剖面（逐 y 统计差异像素聚类成带）——把「整页红」变成「具体元素」；③ 对差异带采样 RGB 并在源码里 grep 对应色值——动画/渐变会以「同色不同帧」形态出现；④ 空态 vs 有数据态差异 ⇒ 查该视图的数据依赖，勿在 CI 空 profile 与本机登录 profile 之间强行归一。
+- **结论口径**：本机红 + CI 绿 = 本机环境状态（数据/登录/字体/动画帧）问题，处置是**修本机跑法**（清 profile、对齐 runner 参数），不是刷基线；基线刷新永远只能取 CI 渲染（QM-4 第 7 条）。
+- **另一条实测**：同一脚本两次裸跑差异 0.0008% ⇒ 本机渲染在「同参数」下是确定的；不确定性全部来自「参数没对齐」与「数据状态不同」，不是渲染器抖动。
+
+## Electron「打开网页」有两条通道：应用内标签必须走 page-manager，window.open 只是系统浏览器入口（publish-history-card-open-link，2026-10-03）
+
+- **拓扑事实**：主窗口 `window.js` 的 `setWindowOpenHandler` 把渲染层一切 `window.open(url,'_blank')` 转 `shell.openExternal`（**系统默认浏览器**），它不是「应用内新标签」通道。应用内顶部标签栏开网页的唯一正确通道是 `page-manager` → `tabStore.createTab({ url, platform, title })`（先例 `Collection.openCollection`）。要「应用内新标签」却写 `window.open`，用户会被踢出应用且无任何报错——这是最容易写反的一步。
+- **降级链要按 store 合同设计**：`tabStore.createTab` 内部 try/catch 吞掉桥异常并返回 `null`（**从不抛错**）。组件侧的正确降级是 `tabId ? 提示成功 : window.open(url,'_blank')`，`window.open` 由主进程 `isAllowedExternalUrl`（`new URL()` 解析 + 协议白名单 + 拒绝 userinfo）兜底——组件里再包一层 try/catch 等着 store 抛错是死代码；但保留一层 catch 防未来实现漂移是合理冗余。
+- **URL 判据按 sink 分两层，别合并也别只留一层**：渲染端绑定期用 `safeHttpUrl`（ESM 孪生，仅 http/https 前缀白名单，拒绝 `javascript:`/缺协议/协议相对/非字符串）；`window.open` fallback 靠主进程更严判据。任何渲染层新增 `window.open` 调用点必须登记 `href-scheme-contract.test.js` 的 `OPEN_SITES_GUARDED_IN_MAIN`（登记锁双向断言：新点不在册⇒红，登记表里站点被删⇒也红）。
+- **卡片级点击用 closest 委托，不用逐个 @click.stop**：`event.target.closest('a, button, label, input, select, textarea, [role=tab]')` 命中即 return。逐个 stop 的写法让「将来新增的子元素」成为漏防点；委托把排除规则收敛在一处。批量管理模式（selectionMode）下整卡点击必须整体排除——复选框承载选择语义，整卡点击=误触面。
+- **测试层选择**：文件里既有用例已用 `vi.mock('@/stores/platforms')` 等规避 pinia 时，新增功能若在 setup 消费 `useTabStore()`，组件测试应按合同 mock `@/stores/tab`（`useTabStore: () => ({ createTab: mock })`）——给 mount 全局塞真实 pinia 会让 44 个既有用例集体红（getActivePinia 无 app 上下文）。store→桥→IPC 的集成面由 Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖，不重复。
+- **新环境工件（2026-10-03 记录）**：`feedback.test.js` 的 `fs.symlinkSync` 在 Windows 当前用户无「创建符号链接」权限时抛 `EPERM: operation not permitted, symlink`，该文件 1/5 失败、全量 suite 尾部报 1 failed。判定是否与本变更无关的口径：`git stash` 本改动后在干净 main 上重跑同文件，同红⇒环境性，不阻塞提交（CI Linux 不受影响）。
+
+## 路由切换丢草稿：router-view 无 keep-alive 会重挂载页面组件销毁其局部状态；keep-alive 又要求把 query 预填挂到 onActivated（publish-draft-keepalive，2026-10-03）
+
+- **症状**：承接 #2764（切账号标签丢草稿已用 v-show 修）。另一条独立通路——在首页里点左侧菜单/模块导航离开「发布」页再回来，视频/标题/描述等草稿全空。
+- **根因**：App.vue 主工作区 `<router-view>` 没有 `<keep-alive>`，vue-router 换路由即卸载 Publish.vue，其**组件局部** reactive article（video_path）等随之销毁。v-show 修不到这条（那是 router 换组件，不是 v-if 卸载）。
+- **正解**：`<router-view v-slot="{Component}"><keep-alive :include="['Publish']"><component :is="Component" v-show="!isLoginTab"/></keep-alive></router-view>`。include 只列发布页，其余页面维持「重挂载取最新数据」，不给别的页引入陈旧态；v-show 从 router-view 移到实际组件，#2764 的隐藏语义不回退。
+- **keep-alive 的连带坑（本案真正的隐性回归点）**：一旦页面被缓存，`onMounted` 只在首次挂载跑，**再次进入不再触发**。Publish.vue 的「从结果页/历史带 ?video_path= 预填」原本只在 onMounted 跑，加 keep-alive 后会**静默失效**（第二次带新视频进发布，表单还是旧缓存那份）。必须把预填同时挂 `onActivated`（每次激活都跑），且函数无 query 时早退以免覆盖用户既有草稿。非 keep-alive 上下文（内嵌主页实例 mp-home-shell 分支）onActivated 不触发，仍由 onMounted 兜。
+- **组件名**：`<script setup>` 靠文件名推断 `__name`，keep-alive include 虽能匹配但构建配置变化时不稳，显式 `defineOptions({ name: 'Publish' })` 更保险。
+- **测试逃逸**：Publish.test.js 直接挂组件不经 router-view；#2764 的测试只覆盖 isLoginTab 的 v-show 通路。补：App 级 keep-alive 测试（去 keep-alive→实例重挂载→setup 计数变 2 变红）+ 组件级 keep-alive 重进入预填测试（去 onActivated→停在旧值变红），两条反证均实测。
+- **通用教训**：给某页加 keep-alive 时，必须同时审该页所有「只在 onMounted 跑、但依赖每次进入都重算」的逻辑（query 预填、按路由参数拉数据、默认值初始化），逐个迁到 onActivated，否则缓存会把首挂载的一次性逻辑变成永久失效。
+
 ## 「隐藏」被实现成「卸载」：v-if 条件渲染会销毁路由组件的局部草稿状态（publish-tab-state-keepalive，2026-10-02）
 
 - **症状**：首页固化标签的发布页选定本地视频后，切到账号标签再切回，视频文件与所有未保存草稿消失。
@@ -295,12 +370,18 @@
 - **据此纠正此前两条记录**：「mock 实例漂移导致日志断言恒空」既非恒真也非恒假，它取决于 mock 的注册方式；此前我一次据此把「无法加锁」登记成欠账，一次又在 AGENTS.md 写下「已被重测否证」，两种说法都没跑全量。
 - **口径**：凡「某某抓不到 / 某某也会种」这类关于**测试接缝或外部行为**的判断，必须在 **runner 真实采用的那种跑法**下跑一次（本仓 CI 收编的是全量，`-t` 单跑不构成证据）；日志类锁的前提是 mock 对象身份跨用例稳定。
 
-## 内嵌视图"定位正确"≠"页面完整可见"：平台页固定宽要靠 zoom-to-fit 兜底；用户截图本身就是可编程证据（fix-login-view-fit，2026-09-28）
-
-- **视图四条边全对，页面仍可显示不全——"定位 Bug"与"容纳 Bug"必须分开排查（根因方法论）**：用户报"非全屏打开登录页显示不全"，最自然的怀疑是视图 bounds 算错（x/y/宽高）。像素取证证明四条边全部正确（x=200 DIP、y=76、宽至右缘、scrollLeft=0），真正的问题是**页面自身**固定内容宽（快手 ≈1335 DIP）> 视图宽（1051 DIP）→ 居中容器边距塌缩、右侧被裁。判据：内嵌外部页的"显示不全"先量 `scrollWidth vs 视图宽`，再查定位链；定位链有 view-bounds.js 单一真源且自 #1814 后无回归，别一上来就翻它。
-- **"全屏正常、小窗口坏"在 1920x1200@125% 上是数学必然，不是玄学（约束记录）**：全屏视图 1336 DIP 恰好容纳 1335 DIP 页面，而**任何**非全屏窗口视图都 < 1336 → 必然溢出。遇到"尺寸相关的显示 Bug"，先算目标屏上"极端可用尺寸 vs 内容固有宽"的账，能直接排除一半假设（比如"放大窗口"这类不可行解）。
-- **无 vision 模型时，用户截图可用像素取证完整还原（取证方法，已两次生效）**：①PNG 文件头 IHDR 直接给物理尺寸（1584x993 / 1920x1140 → 反推 1920x1200@125% 屏 + 60px 任务栏）；②GDI+（System.Drawing）逐行/逐列扫描颜色分段：侧边栏背景 (242,241,255) 与页面纯白的边界 → 侧边栏宽；滚动条滑块 (187,189,191) 与轨道 (249,249,249) 的位置与长度 → scrollLeft=0、scrollWidth=1335。本轮最初两份"截图分析"（前一会话）全是臆造——**模型声称"看到"的内容不可作为证据，像素采样可以**。
-- **Electron 探针三坑（工具链，防再犯）**：①脚本后的**位置参数**会让 electron 直接退出 -1 且零输出——参数一律走环境变量；②默认 userData=`%APPDATA%\Electron` 是全局单例锁，上一个探针没退干净，后续所有探针秒退 -1 且**无任何报错**——探针必须 `app.setPath('userData', 独立目录)`，且要放在 require 业务模块**之前**（logger 链在模块加载期就读 userData）；③杀探针要确认 electron.exe 子进程真死了（杀 PowerShell 包装器不杀 GUI 子进程）。
+## 内嵌视图"定位正确"≠"页面完整可见"：平台页固定宽要靠 zoom-to-fit 兜底；用户截图本身就是可编程证据（fix-login-view-fit，2026-09-28）
+
+
+
+- **视图四条边全对，页面仍可显示不全——"定位 Bug"与"容纳 Bug"必须分开排查（根因方法论）**：用户报"非全屏打开登录页显示不全"，最自然的怀疑是视图 bounds 算错（x/y/宽高）。像素取证证明四条边全部正确（x=200 DIP、y=76、宽至右缘、scrollLeft=0），真正的问题是**页面自身**固定内容宽（快手 ≈1335 DIP）> 视图宽（1051 DIP）→ 居中容器边距塌缩、右侧被裁。判据：内嵌外部页的"显示不全"先量 `scrollWidth vs 视图宽`，再查定位链；定位链有 view-bounds.js 单一真源且自 #1814 后无回归，别一上来就翻它。
+
+- **"全屏正常、小窗口坏"在 1920x1200@125% 上是数学必然，不是玄学（约束记录）**：全屏视图 1336 DIP 恰好容纳 1335 DIP 页面，而**任何**非全屏窗口视图都 < 1336 → 必然溢出。遇到"尺寸相关的显示 Bug"，先算目标屏上"极端可用尺寸 vs 内容固有宽"的账，能直接排除一半假设（比如"放大窗口"这类不可行解）。
+
+- **无 vision 模型时，用户截图可用像素取证完整还原（取证方法，已两次生效）**：①PNG 文件头 IHDR 直接给物理尺寸（1584x993 / 1920x1140 → 反推 1920x1200@125% 屏 + 60px 任务栏）；②GDI+（System.Drawing）逐行/逐列扫描颜色分段：侧边栏背景 (242,241,255) 与页面纯白的边界 → 侧边栏宽；滚动条滑块 (187,189,191) 与轨道 (249,249,249) 的位置与长度 → scrollLeft=0、scrollWidth=1335。本轮最初两份"截图分析"（前一会话）全是臆造——**模型声称"看到"的内容不可作为证据，像素采样可以**。
+
+- **Electron 探针三坑（工具链，防再犯）**：①脚本后的**位置参数**会让 electron 直接退出 -1 且零输出——参数一律走环境变量；②默认 userData=`%APPDATA%\Electron` 是全局单例锁，上一个探针没退干净，后续所有探针秒退 -1 且**无任何报错**——探针必须 `app.setPath('userData', 独立目录)`，且要放在 require 业务模块**之前**（logger 链在模块加载期就读 userData）；③杀探针要确认 electron.exe 子进程真死了（杀 PowerShell 包装器不杀 GUI 子进程）。
+
 - **平台会按 UA/实验给同一 URL 投放不同布局，取证要以"当下实测"为准（测量纪律）**：同一台机器、同一 URL，默认 Electron UA 拿到响应式变体（恰好容纳），净化成标准 Chrome UA 的真实应用拿到 1335 DIP 固定宽变体；数小时后探针复测又拿到响应式变体。修复的契约因此必须双向覆盖：溢出→缩放、恰好容纳→不动（no-op 路径同样要有真机证据）。
 ## 抬一层超时必须同时核对上一层；管道会让退出码说谎（2026-09-28，#2458）
 
@@ -17063,6 +17144,65 @@ files=4  （含 config/platforms.yaml 与测试文件）
    判定必须用单一真源脚本，**禁止人工目测**。
 
 **一句话**：*提交前先让脚本告诉你"这是哪类 PR"，再决定走哪套节拍——别凭"看起来像文档"来判断。*
+## 分类/标签类配置缺失时的 fail 方向必须反过来：它是展示资产不是权限边界（automation-content-category，2026-10-03）
+
+- **机制**：本仓既有口径是 fail-closed —— 运营 feature flag 读不到一律按关闭（ADR-0006：入口存在性就是权限边界，不能"读不到就当开"）。做「统一内容类别」时沿用同一套是错的：运营中心没配过时，热门选题会变成**零分类**、采集库打不了标签、离线用户直接不可用。
+- **判据（可复用）**：先问「这个配置缺失时，用户失去的是**能力**还是**权限**？」失去权限 → fail-closed（宁可不给）；失去展示内容 → fail-open（没配过就该用内置默认值）。`normalizeContentCategories` 在 null / 空数组 / 结构非法 / 全条目非法四种情况下一律回退内置 10 类，并置 `usingDefault=true` 让界面知道当前是回退态。
+- **同源两份**：主进程 CJS（`electron/services/content-categories.js`）与渲染层 ESM（`src/features/content/content-categories.js`）是同一判据的两个模块格式（同 platform-definitions 先例）。改任一侧必须同步改另一侧并跑两侧测试 —— 运营改一次名，两侧必须同时看到新名字。
+
+## 多入口写入的字段，收口点选「落盘前」而不是逐个构造点（automation-content-category，2026-10-03）
+
+- **机制**：`Collection.vue` 有 9 处 `collectedItems.value.unshift(...)`，每条路径字段齐全程度不同（批量采集轮询那条最不完整）。加字段时逐个构造点改是**漏改的温床**——漏一条的表现是「这条内容打不了标签」，用户无法区分是功能坏了还是自己没设置。
+- **正解**：在唯一的 `saveCollectedItems()` 落盘前统一归一，构造点一个都不用动。
+- **判据（可复用）**：**找写入真源的唯一必经点，而不是找所有产生点。** 后者会随代码演进不断新增，前者只有一个。
+
+## 未知 key 保留 > 丢弃，但必须出声：宁可留一个暂时无意义的引用也不要静默销毁用户数据（automation-content-category，2026-10-03）
+
+- **机制**：账号分组 `categoryTags`、采集条目 `tags` 都可能引用一个运营后来删掉的类别。丢弃 → 用户标签静默消失且不可恢复；保留 → 运营重建同名类别时引用自动恢复。
+- **正解**：保留，并记入 `unresolvedCategoryTags` / 渲染时置灰 + 悬停说明「该类别已被删除，标签保留但不再参与筛选」。
+- **同源先例**：与 P2-8a 分组归一化里「未知账号 id 保留在组里」是同一条规则，两处必须同口径。
+
+## 读写两条归一路径必须同一处改动：文件头注释里的"曾经踩过的坑"是真约束（automation-content-category，2026-10-03）
+
+- **机制**：`account-groups-store.js` 的 `normalizeAccountGroups`（读侧归一）与 `stores/accounts.js` 的 `createGroup`（写侧构造）产出同一种对象，一旦不一致必然漂移 —— 这正是该文件头注释**明确警告过的失败模式**（它此前因两套归一逻辑并存丢过数据）。
+- **正解**：加字段时同一次改动里同时改两处，并让写侧复用与读侧同源的校验（写侧 `normalizeCategoryTags` 与读侧 `CATEGORY_KEY_RE` 同正则、同上限）。
+- **可复用判据**：读到「本文件是为了避免 X 而存在」这类注释时，把它当**约束**读，不要当背景介绍读。
+
+## 有外部副作用的自动化任务：不做过期补触发，「启动触发」与「补跑」必须分开命名（automation-content-category，2026-10-03）
+
+- **机制**：需求是「定时任务 + 应用启动触发」，很容易顺手实现成「启动时把错过的定时任务补跑一遍」。不要：任务是「采集→改写→发布」这类有外部副作用的动作，开机补跑 N 条过期任务会打满平台限流，且用户会看到一堆莫名其妙的发布记录。
+- **判据（可复用）**：先看这个动作的副作用是否**外溢到第三方**。外溢 → 绝不自动补跑。
+- **命名纪律**：「启动触发」是用户**显式配置**的一种触发器（`type:'onAppStart'`），与「补跑过期定时任务」是两回事。命名和文档都要分开，否则下一个人会顺手合并。
+
+## 失败策略：重试必须「先于」策略，而不是「作为」策略（automation-content-category，2026-10-03）
+
+- **机制**：用户问「失败了是跳过继续还是中断」，容易直接实现成二选一。但正确顺序是**先按 `maxRetries` 重试，重试耗尽后才按 `failurePolicy` 处理**。否则 `abort` 策略下一次瞬时网络抖动就整批中断 —— 用户选 abort 的本意是「不要产生半成品」，不是「一次抖动就放弃」。
+- **界面纪律**：两种策略的取舍必须写进界面（skip 适合批量采集发布，个别失败不影响整体产出；abort 适合有强依赖的流水线，失败后继续可能产生半成品）。
+
+## 顺序 bug 长这样：不是报错，是永远静默（automation-content-category，2026-10-03）
+
+- **机制**：`_markResult`（写 `lastStatus`）写在 `_emitNotification` 之前，覆盖了旧值，导致「是否从失败恢复」永远判不出来 ⇒ 恢复通知**永远发不出去**。不报错、不崩溃、测试也不红（除非专门测了这条跃迁）。
+- **正解**：判据要在**写盘之前**取上一次状态（`previousStatus`）并显式传给通知函数。
+- **降噪规则**：成功通知只在「上次 failed、本次 completed」的状态跃迁时发；连续成功静默。否则噪音会让用户关掉通知，于是不再看到失败。
+- **可复用判据**：凡是「拿旧值和新值比较后再决定行为」的逻辑，先问旧值是在哪一步被覆盖的。
+
+## script setup 只自动暴露本文件声明的绑定：imported 函数进不了模板（automation-content-category，2026-10-03）
+
+- **机制**：`import { categoryLabel } from '...'` 后在模板里直接用 → `categoryLabel is not defined`（HotTopics.vue 30 例测试一次性全红）。
+- **正解**：显式落到本地绑定：`const resolveCatLabel = (key) => categoryLabel(key)`。
+
+## 新增侧边栏入口：6 处同步改，MpSidebar 零改动（automation-content-category，2026-10-03）
+
+- **机制**：`MpSidebar.vue` 完全数据驱动（从 `SIDEBAR_MENU_DEFINITION` 派生），加菜单不用碰它。
+- **6 处**：① `router/index.js` 单行追加（**必须单行** —— `check-route-registry.js` 解析器按 `^\{\s*path:` 逐行匹配，折行即漏）；② `route-registry.js` 的 `ROUTE_REGISTRY` entry；③ 同文件 `SIDEBAR_MENU_KEY_ORDER`；④ `sidebar-menu.test.js` 的 `EXPECTED_DERIVED_MENU` 冻结基线；⑤ `locales/zh.js` + `en.js` 成对；⑥ `app_menu_service.py` CATALOG。
+- **最容易漏的第 6.5 处**：`ops-center/backend/tests/test_app_menu_api.py` 里**硬编码**的 `CATALOG_SIZE`（本次 20→21），以及同一文件里硬编码的 primary 顺序列表（会连带红）。
+
+## 运营中心新增目录型配置：不要用「表空才播种」（automation-content-category，2026-10-03）
+
+- **机制**：「表为空才全量播种」在存量部署上永远不会再触发 —— 表非空后旧逻辑不再写入，新增项在运营端页面**永久缺失**，而应用端照常显示（`feature_flag_service.py:26-28` 已把这个坑写在注释里）。
+- **正解**：用 `_provision_from_catalog` 模式 —— 每次读/写/下发前按 CATALOG 补齐缺失行，`ON CONFLICT DO NOTHING` 防并发双插，只补欠账不覆盖运营已改字段。
+- **判据（可复用）**：问「这个目录以后还会加项吗」—— 会，就必须用增量补齐。
+
 
 ## 头条 Node 直连兜底已交付——以及包内测试框架选型的坑（toutiao-fallback-shipped，2026-10-02）
 
@@ -17110,3 +17250,59 @@ rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的�
 - **字段恒回退的第一性诊断（pitfall）**：某参数「看起来总不生效」时，沿调用链逐层 grep 该字段的**读点**（谁在消费）与**写点**（谁在传），找出键名不匹配的层。本案 aspect_ratio 在 stages/asset-generator 全程正确传递，到 agnes-image.js 断链——它只读 params.ratio（Agnes API 请求体字段名被误用作入参名），不匹配即静默回退默认 16:9。引入点 commit c9df8bf5（2026-07-15 新增 9 供应商 Adapter），封装请求体正确、入参名照抄请求体字段是失误根源。**边界：凡「适配器入参 → 供应商请求体」存在改名的层都适用**；同名透传层不受此限。
 - **静默断链的测试逃逸原因（pattern）**：单元测试只断言「传入键 → 请求体」的回显（当时用 ratio 键测），等于**用实现定义测试**，断链键永远测不到；逃逸链 = 无契约键行为测试（单测层）→ 适配器边界无统一契约锁（集成层）→ 视觉黑边肉眼才暴露（E2E 层无图片尺寸断言）→ review 只看单文件 diff 不查调用方实参（审查层）。修复 = 契约键行为回归（3 用例）+ image-adapter-aspect-contract.test.js 结构锁（扫源码断言解析表达式双键齐全，变异反证 3 用例变红）+ AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁。
 - **QM-1 打包启动测试的环境陷阱（operational）**：DSH 会话进程树带 ELECTRON_RUN_AS_NODE=1，打包 Electron 继承后以纯 Node 模式启动、立刻 exit 0 且零 stderr——形似「单实例锁让路」的假象。判据与修复：启动测试前 Remove-Item Env:ELECTRON_RUN_AS_NODE；辅以 ELECTRON_USER_DATA_DIR 隔离 userData 避免与其他会话的单实例锁竞争。另：worktree 内 electron-builder 只打包主进程不构建 renderer，需先 pnpm run build:vue，否则启动报 ERR_FILE_NOT_FOUND（主进程仍存活，别被「进程没死」骗过）。
+
+## 真实装配链是 mock 测试的盲区：断线只能靠「从容器一路取到 handler」的测试抓（fix-automation-ipc-wiring，2026-10-03）
+
+- **症状（用户实测）**：新建自动化任务报 `No handler registered for 'automation:create'`。CI 全绿（QG Static / Unit Tests / Desktop Shards / Coverage / Visual / E2E 全 PASS）。
+- **根因**：`phase1-context.js` 从未 `container.get('automationScheduler')`、也没导出进 `context.services` → `phase5-ipc.js` 解构出 undefined → `ipc-handlers/automation.js` 走「依赖缺失即静默 return」→ 零 handler 注册。服务文件、container 注册、assertRequired、phase5-ipc 传参全都「看着在位」，唯独中间取环断了。
+- **逃逸链**：单元层 `phase5-ipc.test.js`/`ipc-handlers.test.js` 全部 mock deps 或桩，绕过真实装配链，断线结构性测不到；集成层无「真容器装配后 handler 可调用」的测试；视觉/E2E 不覆盖该交互；审查层只看「改了哪些文件」，不核对「改过的文件是否真的进了提交」。
+- **正解**：① 补「从容器到 handler」的装配链锁（`automation-ipc-wiring.test.js`：结构锁锁 4 个接缝 + 行为锁真调 handler）；② handler 依赖缺失时**降级注册**而非静默 return —— 通道照常存在、返回 `reason=service-unavailable`，让断线在界面可读，而不是退化成 Electron 原生的 `No handler registered`（那句话里没有任何真正原因的线索）。
+- **判据（可复用）**：**凡是「A 注册服务、B 转发服务、C 消费服务」的三段式接线，mock 掉 A 的测试永远抓不到「B 忘了取」这类断线。** 接线类改动必须有一条「真实装配链」测试，或者让失败路径自己出声（降级注册 + 明确 reason），两者至少占其一。
+- **同场教训（文件丢失）**：该接线改动在上一轮 PR（#2792）里**从未提交**——多轮合并/收尾中丢失，而「`git status` 干净 + 文件在磁盘上」的假象掩盖了它。交付物清单必须在合并后逐个 `git ls-tree origin/main` 核对（与「01-docs 被 gitignore 静默吞掉」同族的静默失效）。
+
+## 写「防再犯锁」时，锁自己也会假绿：本日两次反证都当场抓出（fix-automation-ipc-wiring，2026-10-03）
+
+- **假绿一（PowerShell 逐行 `-replace`）**：跨行模式 `pattern\r\npattern` 在逐行数组上永远匹配不到（单行内没有换行符），变异根本没生效、测试照旧全绿——差点把「反证通过」误记成证据。正解：`Get-Content -Raw` 拿整串再替换，且替换后必须断言 `$mutated -ne $raw`，不等即当场 fail。
+- **假绿二（`git check-ignore` 对已跟踪文件恒返回未忽略）**：ignore 规则只作用于**未跟踪**路径。拿已跟踪的正式文档测「是否被忽略」，新旧两种规则下答案都是「否」⇒ 锁永远绿。正解：用**未跟踪的探测路径**（模拟「用户新写一份 PRD-xxx.md」的真实处境）去测。
+- **判据（可复用）**：AGENTS.md「反证纪律：把锁改成 no-op 必须立刻变红」之外，还要加一条——**反证时必须先证明变异真的生效了**（断言文件内容确实变了），否则「锁绿」只是「变异没打上」的假象。两次都是反证救的：反证绿 ≠ 锁有效，反证红 + 恢复绿才构成证据。
+
+## 头条发布真机打通——终极根因是 React 值变化感知（三层递进复盘）（toutiao-shipped-react-bump，2026-10-03）
+
+**里程碑**：头条图文发布**应用全流程真机成功**——
+`[toutiao-xhr] code=0 msg=提交成功 pgcId=7692399425603387955`（PR #2837 合入 main `0b8dd06e`）。
+
+### 用户报障的 95% 卡死，三层递进的真因
+
+1. **hook 时机**（§16.8.12）：XHR hook 装在 DOM 流程前，但 `_publish_generic` 内部
+   navigate 重置 JS 上下文 ⇒ hook 失效。修：preFill 阶段装（编辑器加载完成即挂钩）。
+2. **引用残留 + 字段缺失**（§16.8.13）：移除定时逻辑时 `timer:tt` 残留 ⇒ 页面内
+   ReferenceError 被吞；实时构造路径缺 pgc_id ⇒ 7050。修：改回【捕获→save=1→原样重放】。
+3. **React 值变化感知**（§16.8.14，终极）：ProseMirror 是 React 受控组件，
+   **只在值变化时才自动保存**。应用 RPA 填充后（恢复草稿态）React 未感知变化 ⇒
+   整个会话零 publish 请求 ⇒ hook 恒空。修：兜底时标题改为新值（原值+时间戳后缀）。
+
+### 方法论（最有价值的一条）
+
+**"在真实失败环境里做对照实验"**：把诊断脚本在应用内同页面同状态下完整跑一遍
+（diag-toutiao-replica-in-app.js），它成功了——于是差异只剩【填的值是新是旧】这一项。
+比读代码猜测快十倍。
+
+### 落地架构（toutiao-direct-bridge.js）
+
+```
+preFill: installToutiaoSaveHook（编辑器加载即装 hook，全程捕获）
+DOM 流程失败(verification timeout) →
+  兜底：标题新值促发(React 感知) → 轮询捕获 body → save=1 原样重放 → code=0
+  失败 → Node 直连（第三层）
+```
+
+**一句话**：*受控组件的"内容在 DOM 里"不等于"进了 React state"——验证方式是
+看平台自己的保存请求有没有发出，而不是看 innerText。*
+
+## 2026-10-09 copy-library-detail-entry · 文案库详情页复用发布页（对抗评审 CRITICAL：keep-alive meta 不清理）
+
+- **模式**：详情页优先复用已有编辑器页（发布页已具备查看+编辑+发布动作，零新路由）；跨页大文本交接用一次性 sessionStorage 载荷（rewrite-handoff 先例复用），写侧校验 content/origin 白名单，读侧读后即焚。
+- **坑**：keep-alive 缓存页消费一次性载荷后，相关 meta 必须在「无载荷且 `route.query.from` 不符」时显式重置——否则缓存实例旧 meta 会把用户后续无关内容的保存静默 upsert 进错误记录（本次对抗评审 CRITICAL，修复+回归锁）。`take()==null` 直接 return 是不完整实现。
+- **契约变更纪律**：`usePublishDrafts.saveDraft` boolean→`{ok,draftId}` 前全仓核实消费点（唯一消费方在本 PR 内），失败路径返回 `{ok:false,draftId:null}` 恒对象；`draftSave` 的 `data.draftId` 是创作视频跳转的 id 真源（主进程内容指纹幂等返回既有 id）。
+- **回写分治**：rewrite 按 fromKey 覆盖 / collect 以 `collect:<id>` 写改写库 / video 不回写（story2video 项目渲染层无写通道）/ draft 走草稿箱幂等。回写恒旁路（try/catch 静默）。
+- **工具坑（本会话实证）**：`[IO.File]::WriteAllText` 写平台行尾（CRLF），改 LF 文件必须先 `.Replace("\r\n","\n")`，否则 git diff 假红 7000+ 行（双口径 `git diff --numstat` vs `--ignore-cr-at-eol --numstat` 对账）；ESM 模块私有常量被测试 import 得 `undefined` 不报错，`getItem(undefined)` 恒 null——测试断言存储状态的常量必须 export；标识符争议以 vitest/node 直跑 + 码点对比为裁决，不信显示层。

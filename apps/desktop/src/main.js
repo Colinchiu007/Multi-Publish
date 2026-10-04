@@ -18,8 +18,9 @@ import i18n from './i18n'
 import router from './router'
 import { reportError } from './utils/report-error'
 import { getApi } from './api/electron-bridge'
-import { onRiskHold } from './api/publisher'
+import { onRiskHold, onProgress } from './api/publisher'
 import { createRiskHoldNotifier } from './services/risk-hold-notifier'
+import { createFailureDraftSaver } from './services/publish-failure-draft-saver'
 import { useRiskStore } from './stores/risk'
 import { useNotify } from './composables/useNotify'
 import EmptyState from './components/EmptyState.vue'
@@ -89,4 +90,14 @@ try {
       },
     })
   } catch (_) { /* 挂起态接线失败不影响主流程 */ }
+  // publish-fail-draft-guard：发布失败自动存草稿的一次性 toast 提示。
+  // 写入与去重真源都在主进程（draftSave 内容指纹幂等 + task:failed 自动回存）；
+  // 本订阅只消费 failed 边界做提示（同 taskId 一次），不承载进度状态。
+  try {
+    const { notifyInfo } = useNotify()
+    createFailureDraftSaver({
+      onProgress,
+      notify: () => notifyInfo('publish.failureDraftSaved', { module: 'publish' }),
+    }).start()
+  } catch (_) { /* 失败存草稿提示接线失败不影响主流程 */ }
 } catch (_) { /* 通知接线失败不影响主流程 */ }

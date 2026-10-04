@@ -61,11 +61,19 @@
           <!-- 主内容区 -->
           <main class="mp-workspace cohere-main" data-testid="mp-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
-            <!-- v-show 而非 v-if：登录/账号标签激活时内嵌 WebContentsView 已覆盖内容矩形，
-                 这里只需「隐藏」工作区避免重叠，绝不能「卸载」——router-view 承载首页 SPA 的
-                 当前路由组件（如发布页 Publish.vue 的 article/video_path 等局部草稿状态），
-                 用 v-if 会在切到账号标签时销毁组件实例，切回首页即丢全部未保存草稿。 -->
-            <router-view v-show="!isLoginTab" />
+            <!-- 两层「不丢草稿」保障：
+                 ① v-show 而非 v-if：登录/账号标签激活时内嵌 WebContentsView 已覆盖内容矩形，
+                    这里只需「隐藏」工作区避免重叠，绝不能「卸载」——否则切到账号标签会销毁当前
+                    路由组件、切回首页丢未保存草稿（v-if→v-show 的回归锁见 publish-tab-state-keepalive.test.js）。
+                 ② keep-alive(:include=['Publish'])：让发布页在【路由切换】（离开发布页再回来）时也保留
+                    实例，解决「在首页里点左侧菜单/模块导航离开 /publish 再回来，草稿丢失」这条独立缺口。
+                    include 只缓存发布页，其余页面维持「重挂载取最新数据」的既有语义，不引入陈旧数据。
+                 v-show 挂在 v-slot 实际渲染的组件上，隐藏语义与 ① 一致。 -->
+            <router-view v-slot="{ Component }">
+              <keep-alive :include="['Publish']">
+                <component :is="Component" v-show="!isLoginTab" />
+              </keep-alive>
+            </router-view>
           </main>
         </div>
       </div>
@@ -107,6 +115,7 @@ import { useTabStore } from '@/stores/tab'
 import { notifySettingsDialogClosed } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
+import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -120,6 +129,9 @@ const { navigation, isHomeTab: isHomeTabFromStore, activeTabId } = storeToRefs(t
 // 因此按 home 壳渲染（隐藏 NavBar、显示模块导航），但不参与主窗口标签系统（见 S4）。
 const isHomeShell = isHomeShellSearch(typeof window !== 'undefined' ? window.location.search : '')
 const isHomeTab = computed(() => isHomeShell || isHomeTabFromStore.value)
+// home-shell 实例的页面标题同步（2026-10-03 Bug 修复）：路由变化 → document.title +
+// IPC 上报主进程，驱动 TabBar 标签标题与 NavBar 地址栏占位符实时跟随当前页面。
+const tabTitleReporter = isHomeShell ? useTabDocumentTitle() : null
 const accountActions = useAccountActions()
 const { t } = useI18n()
 
@@ -275,7 +287,11 @@ async function onCloseTab(tabId) {
 
   async function onCreateTab() {
     // 「+」新标签：内容为应用主页的独立 SPA 实例，与首页固化标签完全解耦（F1/F2）。
-    await tabStore.createTab({ homeShell: true, title: t('tabs.newTabTitle') })
+    // 2026-10-03 Bug 修复：不再传 title——传 title 会置主进程 titleLocked=true，
+    // page-title-updated 从此被忽略，标签标题永远停在「新标签页」。
+    // 初始标题由主进程回退值（'新标签页'，与 tabs.newTabTitle 同语义）承担；
+    // 后续标题跟随 home-shell SPA 上报的 document.title（见 useTabDocumentTitle）。
+    await tabStore.createTab({ homeShell: true })
   }
 
   function onGoBack() {
@@ -337,6 +353,8 @@ function refreshRouteLoad() {
 onMounted(() => {
   licenseStore.load()
   identityStore.load()
+  // home-shell 实例：启动页面标题同步（路由 → document.title → 主进程标签标题）
+  if (tabTitleReporter) tabTitleReporter.start()
   // 内嵌主页实例跳过标签系统初始化与订阅（S4 广播风暴防护）：
   // 它是被标签系统管理的对象，而非管理者，不订阅 tab 事件、不驱动壳态互斥。
   if (!isHomeShell) {
@@ -363,6 +381,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (tabTitleReporter) tabTitleReporter.stop()
   spaNav.dispose()
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null

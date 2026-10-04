@@ -138,7 +138,7 @@ export function useCopyLibrary () {
     const record = {
       id: (existing && existing.id) || (entry && entry.id) || genId(),
       fromKey,
-      fromTitle: truncate(entry && entry.fromTitle, TITLE_LIMIT),
+      fromTitle: truncate(entry && entry.fromTitle !== undefined && entry.fromTitle !== null && entry.fromTitle !== "" ? entry.fromTitle : (existing && existing.fromTitle) || "", TITLE_LIMIT),
       title: truncate(entry && entry.title, TITLE_LIMIT),
       content,
       wordCount: content.length,

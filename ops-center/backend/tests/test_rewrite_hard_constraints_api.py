@@ -62,6 +62,9 @@ async def test_seed_provides_default():
         assert len(defaults) == 1
         assert defaults[0]["id"] == "hard-constraint-default-v1"
         assert "只输出改写后的文案本身" in defaults[0]["content"]
+        # 分段约束（2026-10-03 段落压平修复）：种子必须显式要求空行分段，
+        # 使 LLM 输出侧分段，与前处理后处理保留分段的双保险配套
+        assert "空行分隔" in defaults[0]["content"]
 
 
 @pytest.mark.asyncio

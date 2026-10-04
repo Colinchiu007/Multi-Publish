@@ -455,6 +455,83 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
       expect(monitorCalls).toHaveLength(0)
     })
   })
+
+  // ─── 发布失败自动回存草稿（publish-fail-draft-guard）───
+  describe('task:failed → 自动草稿回存（publish-fail-draft-guard）', () => {
+    const failedMediaTask = {
+      id: 'task-fail-draft',
+      platform: 'douyin',
+      owner_subject: 'user-a',
+      article: { title: '视频标题', content: '正文', video_path: 'D:/media/clip.mp4' },
+      error: '上传超时',
+    }
+
+    function wireWithSaver(saveFailureDraft) {
+      const taskQueue = new EventEmitter()
+      wireTaskQueueEvents({
+        taskQueue,
+        history: { addRecord: vi.fn() },
+        publishMonitor: { createMonitorTask: vi.fn() },
+        publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+        getMainWin: () => null,
+        failureDraftSaver: { saveFailureDraft },
+      })
+      return taskQueue
+    }
+
+    it('task:failed → saver 被调用一次且收到原任务对象', () => {
+      const saveFailureDraft = vi.fn(async () => ({ saved: true }))
+      const taskQueue = wireWithSaver(saveFailureDraft)
+      taskQueue.emit('task:failed', failedMediaTask)
+      expect(saveFailureDraft).toHaveBeenCalledTimes(1)
+      expect(saveFailureDraft).toHaveBeenCalledWith(failedMediaTask)
+    })
+
+    it('saver 缺省 → task:failed 主流程不受影响（历史照落）', () => {
+      const taskQueue = new EventEmitter()
+      const history = { addRecord: vi.fn() }
+      wireTaskQueueEvents({
+        taskQueue, history,
+        publishMonitor: { createMonitorTask: vi.fn() },
+        publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+        getMainWin: () => null,
+      })
+      expect(() => taskQueue.emit('task:failed', failedMediaTask)).not.toThrow()
+      expect(history.addRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed', taskId: 'task-fail-draft' }),
+        'user-a',
+      )
+    })
+
+    it('saver 同步抛错 → 不冒泡（失败兜底绝不影响失败主流程）', () => {
+      const saveFailureDraft = vi.fn(() => { throw new Error('boom') })
+      const taskQueue = wireWithSaver(saveFailureDraft)
+      expect(() => taskQueue.emit('task:failed', failedMediaTask)).not.toThrow()
+      expect(saveFailureDraft).toHaveBeenCalledTimes(1)
+    })
+
+    it('saver 异步 reject → 不产生 unhandledRejection', async () => {
+      const saveFailureDraft = vi.fn(async () => { throw new Error('async boom') })
+      const unhandled = vi.fn()
+      process.on('unhandledRejection', unhandled)
+      try {
+        const taskQueue = wireWithSaver(saveFailureDraft)
+        taskQueue.emit('task:failed', failedMediaTask)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(unhandled).not.toHaveBeenCalled()
+      } finally {
+        process.off('unhandledRejection', unhandled)
+      }
+    })
+
+    it('task:success / task:cancelled 不触发回存', () => {
+      const saveFailureDraft = vi.fn(async () => ({ saved: true }))
+      const taskQueue = wireWithSaver(saveFailureDraft)
+      taskQueue.emit('task:success', { ...failedMediaTask, result: {} })
+      taskQueue.emit('task:cancelled', failedMediaTask)
+      expect(saveFailureDraft).not.toHaveBeenCalled()
+    })
+  })
 })
 
 

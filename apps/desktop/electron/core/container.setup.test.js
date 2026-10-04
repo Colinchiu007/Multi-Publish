@@ -1,16 +1,34 @@
 // container.setup 加载所有服务模块，多数 require electron + fs + path
 __enableElectronMock()
 
+// 夹具只对**本测试的沙箱目录**谎报文件系统，沙箱外一律委托真实 fs（#2794 同族收敛，形状同
+// apps/desktop/electron/services/asset-generator.test.js）。
+// 为什么这个文件必须有牙齿：它 require 全部服务模块，其中 store → sqlite-wrapper → sql.js 会
+// 用 fs.readFileSync 读 .wasm —— 一律返回 "[]" 的谎报正是 BF-TEST-01 那次
+// `WebAssembly.instantiate(): BufferSource argument is empty` 崩溃的成因（下面对 sql.js 的
+// mock 是同一根因的第二处规避）。同 realm 还会经 deps.inline:['electron'] 带进真 electron 入口，
+// existsSync()=>false 会让它以为二进制没备好并当场 spawn install.js。
+// 判定按**路径段**比：裸 startsWith 会把 <沙箱>-evil 判进沙箱，对真实存在的目录持续谎报"不存在"。
+const nodeOs = require('node:os')
+const nodePath = require('node:path')
+const realFs = require('node:fs')
+const CONTAINER_SANDBOX = nodePath.join(nodeOs.tmpdir(), 'multi-publish-container-setup-' + process.pid)
+const isSandboxPath = (target) => {
+  const normalized = String(target).replace(/\\/g, '/')
+  const sandbox = CONTAINER_SANDBOX.replace(/\\/g, '/')
+  return normalized === sandbox || normalized.startsWith(sandbox + '/')
+}
+// 只委托"读"。写类动词继续全部空转：夹具不得因为"委托"而把东西真的写到磁盘上。
 __registerMock("fs", {
-  existsSync: vi.fn().mockReturnValue(false),
-  readFileSync: vi.fn().mockReturnValue("[]"),
+  existsSync: vi.fn((target) => (isSandboxPath(target) ? false : realFs.existsSync(target))),
+  readFileSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? '' : realFs.readFileSync(target, ...rest))),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
-  readdirSync: vi.fn().mockReturnValue([]),
-  statSync: vi.fn().mockReturnValue({ size: 0, mtime: new Date() }),
+  readdirSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? [] : realFs.readdirSync(target, ...rest))),
+  statSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? { size: 0, mtime: new Date() } : realFs.statSync(target, ...rest))),
   unlinkSync: vi.fn(),
   createWriteStream: vi.fn(),
-  createReadStream: vi.fn(),
+  createReadStream: vi.fn((target, ...rest) => (isSandboxPath(target) ? { on: vi.fn() } : realFs.createReadStream(target, ...rest))),
 })
 
 __registerMock("path", {

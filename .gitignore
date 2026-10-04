@@ -114,6 +114,7 @@ scripts/*.js
 !scripts/ensure-electron.js
 !scripts/check-dep-audit.js
 !scripts/check-dep-audit.test.js
+!scripts/check-blanket-fs-mock.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js
@@ -262,8 +263,19 @@ shared-user-data.backups/
 /rcll/
 
 # 本地分析/交付文档产物（任务报告，非源码；保留 01-docs 下图片放行规则）
-/01-docs/*.md
-/01-docs/**/*.md
+#
+# ⚠️ 历史陷阱（2026-10-03 修复）：原规则是「01-docs 一层 .md」+「01-docs 递归 .md」
+# 两条全量忽略，把文档主目录（PRD.md / learnings.md / PRD-*.md）整个划成忽略，
+# 迫使每个正式文档都要 git add -f，且普通 add 静默失败（不报错不提示）——
+# 曾导致 PR #2792 的两份 PRD/使用说明「写了却从未入库」，合并后 PRD 链接 404
+# （复盘见 01-docs/learnings.md「01-docs 下的 .md 会被 .gitignore 静默吞掉」条目）。
+#
+# 现收窄为只忽略真正的本地交付产物（report / analysis / brief 等临时命名）。
+# 已跟踪文件不受 ignore 规则影响；新增未跟踪文档按新规则判定。
+/01-docs/*report*.md
+/01-docs/*analysis*.md
+/01-docs/*brief*.md
+/01-docs/**/*report*.md
 /deliverables/
 
 # 项目记忆与自动化产物（机器生成，不入库）

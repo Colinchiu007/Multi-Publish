@@ -11,7 +11,9 @@ param(
     [ValidatePattern('^[a-z0-9][a-z0-9-]*$')]
     [string]$TaskName,
     [switch]$NoDeps,
-    [switch]$NoShell,
+    # Opening a shell used to be the default, which left an orphaned `-NoExit` console window
+    # per task on the desktop (the parent exits, so nothing ever closes it). Opt in with -Shell.
+    [switch]$Shell,
     [string]$WorktreeRoot = '',
     [string]$GitBash = ''
 )
@@ -102,7 +104,9 @@ $worktree = Join-Path $worktreeRoot "mp-$TaskName"
 if (-not (Test-Path -LiteralPath (Join-Path $worktree '.git'))) { throw "未找到创建后的 worktree: $worktree" }
 Write-Host ($output -join [Environment]::NewLine)
 Write-Host "任务 worktree: $worktree" -ForegroundColor Green
-if (-not $NoShell -and $PSCmdlet.ShouldProcess($worktree, '打开独立 PowerShell')) {
+if ($Shell -and $PSCmdlet.ShouldProcess($worktree, '打开独立 PowerShell')) {
     $command = "Set-Location -LiteralPath '$worktree'; Write-Host 'Multi-Publish isolated task: $TaskName' -ForegroundColor Green"
     Start-Process powershell.exe -ArgumentList @('-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $command) -WorkingDirectory $worktree
+} elseif (-not $Shell) {
+    Write-Host "未开窗（默认）；需要任务 shell 请加 -Shell，或手动 cd $worktree" -ForegroundColor DarkGray
 }

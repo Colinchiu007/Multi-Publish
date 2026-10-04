@@ -39,11 +39,56 @@ describe('normalizeAccountGroups（§三 1-8）', () => {
     expect(r.invalidShape).toBe(true)
   })
 
-  it('合法分组逐值保留', () => {
+  it('合法分组逐值保留（categoryTags 缺失时补 []，向后兼容旧数据）', () => {
     const raw = [{ id: 'g1', name: '主力', platformFilter: 'douyin', accountIds: ['a_dy_1', 'a_dy_2'] }]
     const r = normalizeAccountGroups(raw, CTX)
-    expect(r.groups).toEqual(raw)
+    expect(r.groups).toEqual([{ ...raw[0], categoryTags: [] }])
     expect(r.invalidShape).toBe(false)
+  })
+
+  it('categoryTags 合法值保留并去重', () => {
+    const r = normalizeAccountGroups(
+      [{ id: 'g1', name: '主力', platformFilter: null, accountIds: [], categoryTags: ['tech', 'finance', 'tech'] }],
+      CTX,
+    )
+    expect(r.groups[0].categoryTags).toEqual(['tech', 'finance'])
+  })
+
+  it('categoryTags 非法 key 丢弃并记 categoryTag', () => {
+    const r = normalizeAccountGroups(
+      [{ id: 'g1', name: '主力', platformFilter: null, accountIds: [], categoryTags: ['tech', 'Bad Key', '1abc'] }],
+      CTX,
+    )
+    expect(r.groups[0].categoryTags).toEqual(['tech'])
+    expect(r.dropped.some((d) => d.reason === 'categoryTag')).toBe(true)
+  })
+
+  it('categoryTags 非数组 → 记 categoryTags 且当空（不静默吞）', () => {
+    const r = normalizeAccountGroups(
+      [{ id: 'g1', name: '主力', platformFilter: null, accountIds: [], categoryTags: 'tech' }],
+      CTX,
+    )
+    expect(r.groups[0].categoryTags).toEqual([])
+    expect(r.dropped.some((d) => d.reason === 'categoryTags')).toBe(true)
+  })
+
+  it('categoryTags 超 10 个截断并记 categoryTagsTruncated', () => {
+    const tags = Array.from({ length: 12 }, (_, i) => `k${i}`)
+    const r = normalizeAccountGroups(
+      [{ id: 'g1', name: '主力', platformFilter: null, accountIds: [], categoryTags: tags }],
+      CTX,
+    )
+    expect(r.groups[0].categoryTags).toHaveLength(10)
+    expect(r.dropped.some((d) => d.reason === 'categoryTagsTruncated')).toBe(true)
+  })
+
+  it('未知类别 key 保留但记入 unresolvedCategoryTags（后续新增类别可恢复引用）', () => {
+    const r = normalizeAccountGroups(
+      [{ id: 'g1', name: '主力', platformFilter: null, accountIds: [], categoryTags: ['tech', 'brand_new'] }],
+      { ...CTX, knownCategoryKeys: ['tech'] },
+    )
+    expect(r.groups[0].categoryTags).toEqual(['tech', 'brand_new'])
+    expect(r.unresolvedCategoryTags).toEqual(['brand_new'])
   })
 
   it('name 两侧空白被裁、超长按条丢弃', () => {

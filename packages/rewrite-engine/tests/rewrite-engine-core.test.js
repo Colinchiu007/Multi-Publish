@@ -693,3 +693,61 @@ describe('RewriteEngine hard constraints', function () {
     expect(engine.getHardConstraints()).toBe('规则A')
   })
 })
+
+// ── P: 改写结果分段保留（2026-10-03 Bug 修复，段落压平回归锁）──
+// 用户反馈：改写后文案是一整段没有正常分段。根因是 AITasteRemover Pass 3
+// _mergeUniformSentences 全文切句重组丢换行；本组用例锁死「后处理不改变分段结构」。
+describe('RewriteEngine 结果分段保留', function () {
+  var multiParagraphLlmOutput = [
+    '这台机器性能确实很强。续航表现也让人满意。',
+    '',
+    '外观设计走的是简约路线。价格在同类里也算实惠。',
+    '',
+    '拍照效果属于第一梯队。系统流畅度没什么可挑的。'
+  ].join('\n')
+
+  function wireMultiPara(engine) {
+    var strategy = {
+      id: 'para-keep-v1', name: 'para-keep', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: true, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('P1 多段 LLM 输出经后处理仍保留空行分段（真实策略链）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return multiParagraphLlmOutput } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireMultiPara(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意原文内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).toContain('\n\n')
+  })
+
+  test('P2 内置默认硬约束含分段约束（空行分隔）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireMultiPara(engine)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(captured).toContain('空行分隔')
+  })
+
+  test('P3 模式指令含分段输出要求（三模式）', async function () {
+    for (var mode of ['imitate', 'expand', 'create']) {
+      var captured = null
+      var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+      var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+      wireMultiPara(engine)
+      await engine.rewrite({ mode: mode, content: '原始内容', userSettings: {} })
+      expect(captured).toContain('分段输出要求')
+    }
+  })
+})
