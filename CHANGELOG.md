@@ -15,6 +15,15 @@
 - 受影响面并集全跑：81 文件 / 1698 例通过（含 `ipc-handlers/index` 真装配路径注册的 `performance:overview`）。
 - 反证 10 条全部实测变红并逐条归因（取最旧快照 3 红 / 趋势不补零 6 红 / 零基线出百分比 2 红 / 摘掉身份门禁 1 红 / 假百分比写回模板 1 红 / 摘掉面板挂载 3 红 / 归属过滤退化成全表 2 红 / 截断不出声 1 红 / preload 不暴露通道 2 红 / 兜底信封变形 1 红），还原后与备份逐字节相同。
 
+### QM-6 双模型外部评审后的追加修复
+
+- 评审通道：后端走**主通道 codex**（attempt 1 卡在 wrapper 的 stdin 等待，attempt 2 约 35 分钟后落盘 9 条）；前端主通道 claude 连续 3 次 `completed without agent_message output`（每次 rc=1、零产出），按 QM-6 三次上限后改用替代通道 `opencode/longcat-2.5-preview-free`（首跑 600s 零新增观测判为停滞，任务书收窄后重跑成功）。替代通道另出一份 `opencode/nemotron-3-ultra-free` 后端评审作交叉验证，三份原文均入库、不改写。
+- 两路后端**独立重合**命中 4 条并全部修复：时刻按字符串字典序当时间序（改为 `toEpochMs()` 解析后比较 + 按解析值分 UTC 日）、快照截断保留最旧批次（改为 `captured_at DESC, rowid DESC` 并取出 `rowid`）、回落 × 首份口径需显式假设（补 T29 序列测）、`getOwnerSubject` 三份拷贝（收敛到 `helpers.resolveIpcOwnerSubject` 一处并配真值表 + 接线锁）。
+- codex 独有的 3 条全部成立且都在我的测试体系盲区：① 未登录在真实链路是 preload **invoke 之前 throw** `LicensePermissionError`，而 `invokeWithFallback` 不捕获 ⇒ 只判 code:-3 信封的 T26 替真实路径撒谎，登录门禁实际失效——新增 `isAuthGateError()`（判 `name`/`code` 契约字段）并让用例改用生产同一个 `createDynamicAccessApi` 造真错误；② store 读侧把 SQL 失败吞成空行会渲染成「从未发布」，而本机实测包装层对「表不存在」**不抛错**（`prepare()` 正常、`get()` 给 undefined），故只加 catch 是无效修复 ⇒ 改为探测 `sqlite_master` 表在位并返回 `error`，handler 据此回 `REQUEST_ERROR`；③ 健康度块原先只在有数据分支里，全平台不支持时只剩一句「尚未回采」，且我 PRD 声称的 T24「四种空态互斥」其实只有两种 ⇒ 健康度恒随面板在场并补齐第四态用例。
+- 两条 Critical 按逐字证据拒绝并写明理由（nemotron-FB3 把「legacy 桶只在无身份模式生效」当成跨用户泄露；nemotron-FB6 的「权益不足误导文案」不成立，面板渲染的是本地 locale 文案，其建议的 PUBLIC_CHANNELS 放开反而会让同页两卡门禁口径分裂）。另否证一条：nemotron 称新增存储层测试「因语法错误未跑通」，实测 8 条全过。
+- 反证从 10 条扩到 **17 条**（M11–M17 覆盖修复段），全部实测变红并按测试名归因。两条首轮 `GREEN_UNEXPECTED` 反过来修的是我自己：M11 暴露 T27 只测单方向（把 epoch 判成不可解析也能通过）⇒ 改双向；M17 暴露多条款判定只摘一条必然照绿 ⇒ 变异改为整函数 no-op。
+- 附带：`Dashboard.vue` 的「总阅读」中文标签收进 locale（`dashboard.totalViews` 等三键加「账号」前缀，与面板的作品级「总播放」区分口径）；`max-lines-baseline.json` 把 `home-shell-preload.bundle.js` 登记值 1381 如实抬到 1581——该文件是构建产物，main 现实已达 1580（漂移 199 行，容差 200），本 PR 的 1 行通道越界；这是**接受漂移而非清理**，拆分构建产物无意义。
+
 详见 01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md。
 
 # [未发布] fix(desktop): 发布历史与表现数据的关联键打通——publish_history_id 自诞生起全 NULL（2026-10-04，publish-tracked-link-lineage）
