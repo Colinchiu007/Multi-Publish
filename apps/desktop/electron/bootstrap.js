@@ -138,6 +138,14 @@ function createAppContext() {
     taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, riskSuspender,
     store: ctx.store || (ctx.container && ctx.container.get('store')),
     progressEmitter,
+    // publish-fail-draft-guard：发布失败自动存草稿（旁路，内建 try/catch 不影响失败主流程）。
+    // identityService 由 Phase 3 晚于此处挂到 ctx（仅作 Logto 模式判据），失败时刻再惰性读取。
+    failureDraftSaver: {
+      saveFailureDraft: (task) => require('./services/publish-failure-draft').saveFailureDraft(task, {
+        store: ctx.store || (ctx.container && ctx.container.get('store')),
+        identityService: ctx.identityService || null,
+      }),
+    },
   })
 
   return ctx

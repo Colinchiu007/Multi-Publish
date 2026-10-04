@@ -717,6 +717,127 @@ describe("store IPC handlers", () => {
     });
 });
 
+describe("draftSave 内容指纹幂等（publish-fail-draft-guard）", () => {
+  // 契约（PRD-PUBLISH-FAILURE-AUTO-DRAFT-2026-10-09 §4.2）：
+  // 同一份内容（内容指纹相同）无论手动/自动保存多少次，草稿箱只保留一条。
+  // 指纹只含内容字段；publishTime/platforms/accounts 等发布指向性元数据不参与。
+  function mountIdentityDrafts() {
+    const localIpcMain = createMockIpcMain();
+    const localStore = createMockStore();
+    localStore.getUserSetting.mockReturnValue([]);
+    const identityService = {
+      getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+    };
+    registerHandlers(localIpcMain, { store: localStore, identityService });
+    return { ipcMain: localIpcMain, mockStore: localStore };
+  }
+
+  const mediaDraft = {
+    title: "视频标题",
+    content: "视频正文",
+    video_path: "D:/media/clip.mp4",
+    images: ["D:/media/1.png"],
+    tags: ["v"],
+  };
+
+  it("同内容二次保存（不同 id）→ 复用原 id，只保留一条，reused:true", async () => {
+    const { ipcMain, mockStore } = mountIdentityDrafts();
+
+    const first = await ipcMain._callHandler("draftSave", { id: "draft_1", ...mediaDraft });
+    expect(first.code).toBe(0);
+    expect(first.data.reused).toBe(false);
+    expect(first.data.draftId).toBe("draft_1");
+
+    const second = await ipcMain._callHandler("draftSave", { id: "draft_2", ...mediaDraft });
+    expect(second.code).toBe(0);
+    expect(second.data.reused).toBe(true);
+    expect(second.data.draftId).toBe("draft_1");
+
+    const saved = JSON.parse(mockStore.setUserSetting.mock.calls.at(-1)[1]);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].id).toBe("draft_1");
+  });
+
+  it("复用时保留原 createdAt、刷新 updatedAt 与 _fp", async () => {
+    const { ipcMain, mockStore } = mountIdentityDrafts();
+    await ipcMain._callHandler("draftSave", { id: "draft_1", ...mediaDraft });
+    const firstSaved = JSON.parse(mockStore.setUserSetting.mock.calls[0][1])[0];
+
+    await ipcMain._callHandler("draftSave", { id: "draft_2", ...mediaDraft });
+    const saved = JSON.parse(mockStore.setUserSetting.mock.calls[1][1])[0];
+    expect(saved.createdAt).toBe(firstSaved.createdAt);
+    expect(saved._fp).toBeTruthy();
+    expect(saved).toMatchObject({ id: "draft_1", title: mediaDraft.title, video_path: mediaDraft.video_path });
+  });
+
+  it("publishTime / platforms / accounts 差异不影响复用；内容差异产生第二条", async () => {
+    const { ipcMain, mockStore } = mountIdentityDrafts();
+
+    await ipcMain._callHandler("draftSave", {
+      id: "draft_1", ...mediaDraft,
+      publishTime: "", platforms: ["douyin"], accounts: { douyin: "acc-1" },
+    });
+    await ipcMain._callHandler("draftSave", {
+      id: "draft_2", ...mediaDraft,
+      publishTime: "2026-10-10T08:00:00Z", platforms: ["kuaishou"], accounts: { kuaishou: "acc-2" },
+    });
+
+    let saved = JSON.parse(mockStore.setUserSetting.mock.calls[1][1]);
+    expect(saved).toHaveLength(1);
+
+    await ipcMain._callHandler("draftSave", { id: "draft_3", ...mediaDraft, title: "改过的标题" });
+    saved = JSON.parse(mockStore.setUserSetting.mock.calls[2][1]);
+    expect(saved).toHaveLength(2);
+  });
+
+  it("历史草稿无 _fp → 现算指纹参与比对，命中即复用并回填", async () => {
+    const localIpcMain = createMockIpcMain();
+    const localStore = createMockStore();
+    const legacy = {
+      id: "draft-legacy", title: mediaDraft.title, content: mediaDraft.content,
+      video_path: mediaDraft.video_path, images: mediaDraft.images, tags: mediaDraft.tags,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    localStore.getUserSetting.mockReturnValue(JSON.stringify([legacy]));
+    const identityService = {
+      getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+    };
+    registerHandlers(localIpcMain, { store: localStore, identityService });
+
+    const result = await localIpcMain._callHandler("draftSave", { id: "draft_new", ...mediaDraft });
+    expect(result.data).toMatchObject({ reused: true, draftId: "draft-legacy" });
+
+    const saved = JSON.parse(localStore.setUserSetting.mock.calls[0][1]);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]._fp).toBeTruthy();
+    expect(saved[0].title).toBe(mediaDraft.title);
+  });
+
+  it("legacy 作用域（无 identityService）同样按指纹幂等", async () => {
+    const localIpcMain = createMockIpcMain();
+    const localStore = createMockStore();
+    let legacyDrafts = [];
+    localStore.getSetting.mockImplementation(() => JSON.stringify(legacyDrafts));
+    localStore.setSetting.mockImplementation((_key, value) => { legacyDrafts = JSON.parse(value) });
+    registerHandlers(localIpcMain, { store: localStore });
+
+    await localIpcMain._callHandler("draftSave", { id: "draft_1", ...mediaDraft });
+    await localIpcMain._callHandler("draftSave", { id: "draft_2", ...mediaDraft });
+
+    expect(legacyDrafts).toHaveLength(1);
+    expect(legacyDrafts[0].id).toBe("draft_1");
+  });
+
+  it("draft 非对象 → 拒绝 REQUEST_ERROR", async () => {
+    const { ipcMain, mockStore } = mountIdentityDrafts();
+    await expect(ipcMain._callHandler("draftSave", "not-an-object"))
+      .resolves.toMatchObject({ code: -1 });
+    await expect(ipcMain._callHandler("draftSave", null))
+      .resolves.toMatchObject({ code: -1 });
+    expect(mockStore.setUserSetting).not.toHaveBeenCalled();
+  });
+});
+
 describe("store.js — 登录态与启用态正交", () => {
   function mount() {
     const ipcMain = createMockIpcMain();

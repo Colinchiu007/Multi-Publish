@@ -15,6 +15,164 @@
 - 不为「本次无渲染」的 22 张新增欠账登记：判据不存在时不得改变结论，只点名。既有 3 张 autonomous 专属基线仍在 `KNOWN_UNCOVERED` 原处。
 - 不提任何阈值、不加忽略区。
 
+# [未发布] fix(ops-center): 追平 weibo 平台种子与回落快照对齐注册表 10000（2026-10-03，fix-weibo-seed-registry-align）
+
+### 根因
+- #2766（微博 contentMax 放宽至 10000，用户确认）只更新了 packages/shared-utils/src/publish-capabilities.json 注册表，漏同步 ops-center 侧两处快照：platform_def_service.py 的 _SEED_FALLBACK_LIMITS.weibo.contentMax 与 SEED_DEFS weibo 行默认值。test_platform_def_seed_limits.py::test_seed_defs_match_registry 漂移即红（种子 5000 ≠ 注册表 10000），该红自 #2766 合并后存在于 main，#2842 CI 红即此因。
+
+### 修复
+- 两处快照同步为 10000（回落快照 + SEED_DEFS 默认值双兜底对齐）；test_platform_def_seed_limits 4/4 绿。PRD 索引与文档链见 01-docs/PRD.md 功能文档条目（同 PR 登记）。
+# [未发布] fix(desktop): 新标签页标题与地址栏占位跟随页面内容（2026-10-03，fix-tab-title-url-placeholder）
+
+### 根因（QM-5 五步取证）
+- 用户报告：点按钮弹出的新标签网页，顶部标签名称与网址输入框都恒显示「新标签页」，不随页面变化。
+- 第一性引入点（git blame）：`c3c395570`（2026-09-04「账号管理页10项质量修复」第 9 项「标签页名称：TabBar显示应用页面名称，标题锁定避免被网页标题覆盖」）在 `createNewTabPage` 引入 `titleLocked` —— 调用方传 `title` 即锁定，`page-title-updated` 事件被主进程永久忽略。该语义对登录/平台等**静态标题**标签是对的；随后 `f7e93ceba`（#2230 新标签内嵌独立 SPA 实例）让 `App.vue` 的 `+` 新标签也传了 `title: t('tabs.newTabTitle')`，home-shell 标签从此被锁定在初始标题上。
+- 次级缺口：home-shell 内嵌 SPA 从不更新 `document.title`，即使不锁定也没有新标题可上报（`page-title-updated` 链路无源可发）；NavBar 把 `navigation.title` 用作地址栏占位符，标题不更新则占位符恒为「新标签页」。
+- 逃逸链：主进程 webview-manager 单测只断言「传 title 则锁定」（锁定行为本身被测试固化，场景缺失）；渲染层 `tab-independent-home.test.js` 只断言「不硬编码 about:blank/『首页』」，未断言「不锁定标题」（断言不精确）；无任何 E2E 覆盖「+ 新标签 → 侧边栏切页 → 标签标题变化」（测试场景缺失）。
+
+### 修复（三段链路补齐）
+- **渲染层（解除锁定）**：`App.vue` `onCreateTab` 不再传 `title`，home-shell 标签 `titleLocked=false`；初始标题由主进程回退值「新标签页」（`tab-lifecycle.js` homeShell 分支默认值，与 `tabs.newTabTitle` 同语义）承担。
+- **渲染层（标题上报）**：新增 `src/composables/useTabDocumentTitle.js` —— 仅 home-shell 实例启动（`App.vue` setup 判 `isHomeShell`，onMounted `start()` / onBeforeUnmount `stop()` 成对）；`resolveRouteTabTitle(path)` 按路由映射 i18n 文案（精确 path 表 25 条 + :param 前缀表独立存放 —— `'/'` 精确键若混入前缀匹配会把所有未知路径误判成主页，开发期实测踩坑；`/board/:id` → 素材看板、其 `/contact-sheet` 子路由 → 场景审批、`/replay/:id` → 生产回放；未命中回退 `tabs.brandTitle` 品牌名「社媒管家」）；路由变化时同步 `document.title`（触发 Chromium 原生 `page-title-updated`）+ 显式 IPC `pageManager.reportTabTitle(title)` 上报（不依赖事件时序；非 Electron 环境天然降级为只改 document.title）。i18n：`tabs.brandTitle/productionBoard/contactSheet/replayTimeline` zh/en 成对。
+- **主进程（接收上报）**：`ipc-handlers.js` 新增 `page-manager:report-tab-title` handler（`withSenderCheck` 全量包裹）：按调用方 `event.sender.id` ↔ `_tabViews` 中 `webContents.getId()` 匹配定位标签（多标签/多实例安全，未知 sender 静默忽略），更新 `_tabStates.title` 后仅当标题变化时广播 `tab-title-updated`（幂等，避免重复渲染）；空 title 返回 `VALIDATION_ERROR`。`preload/page-manager.js` 暴露 `reportTabTitle`，重打包 `index.bundle.js` + `home-shell-preload.bundle.js`（内容 grep 自证签名在产物中）。
+- **地址栏占位（需求第 2 点）**：home-shell 标签在壳态下 `did-navigate/did-navigate-in-page` 保持 `url=''`（既有壳态逻辑回归锁固化）→ `navigation.url` 为空 → NavBar 地址栏输入框显示占位符 `navigation.title`，即当前页面标题；输入框**内容**始终为空（用户输入前无残留），只有地址栏导航去外站（壳态自然结束）后才显示真实 URL。
+
+### 验证
+- TDD 先红后绿：新增 `electron/services/webview-manager/home-shell-title.test.js`（12 例：不传 title 则 titleLocked=false / page-title-updated 实时更新并广播 / 显式传 title 保持锁定语义回归保护 / 壳态 url 恒空 / reportTabTitle IPC 定位+广播+幂等 / 多标签 sender 精确归属 / 未知 sender 归属失败可观测 / 超长 title clamp / App.vue 接线契约 / **d.ts 归属契约锁**——electron.d.ts WebContents 段断言 `id: number` 属性存在且无 `getId(` 方法、源码禁现死探针）+ `src/composables/useTabDocumentTitle.test.js`（13 例：路由判定表 / 前缀路由 / 未知路径回退 / IPC 失败静默降级含 unhandledRejection 断言 / stop 后不再上报 / 非 Electron 降级 / **route-registry 全路由覆盖度锁**）。反证：回滚 App.vue 改动测试变红；把归属逻辑改回死探针写法 4 例立即变红。
+- 回归：webview-manager（83）+ preload（372）+ home-shell-preload（6）+ tab store/TabBar/NavBar（47）等定向 527/527 全绿；全量 13327 通过（1 失败为 `feedback.test.js` Windows symlink 权限既有环境性失败，基线复跑同样失败，与本 PR 无关）。
+- 门禁：`check-locale-sync.js --keys` PASS（1395 key 成对）；eslint 0 error（warning 均为 HEAD 既有）；QM-1 electron-builder --dir 打包通过。
+- 预防措施：本测试文件结构锁固化「home-shell 不锁定标题 + 标题上报链路 + webContents.id 属性归属」，后续任何把 `title` 加回 `onCreateTab`、删除 `reportTabTitle` 接线、或改回 `getId(` 死探针的改动会立即变红。
+
+### QM-6 双模型评审（两个独立子代理并行审查，findings 全部回写处置）
+- 🔴 CRITICAL 已修复：`webContents.getId()` 在 electron.d.ts 中不存在（`readonly id: number` 属性）——原实现的显式 IPC 链路是恒不匹配的死代码，被手搓 mock 掩成假绿。改用 `.id` 属性 + d.ts 归属契约锁 + 摘锁必红反证。
+- 🟠 MAJOR 已修复：归属失败静默无日志（补 warn + `matched:false`）；多标签 sender 隔离用例缺失（补 tab1/tab2 用例）；映射表缺失 4 条已登记路由且无覆盖锁（补覆盖度测试锁 + 显式例外清单）；ROUTE_TAB_TITLES 重建且同键双 set（模块级一次性构建 + 复合键）；`invokePageManager` promise 未 catch（补 `.catch` + unhandledRejection 断言）。
+- 🟢 MINOR 已修复：isDestroyed 守卫 / C1 断言锚定 createTab 行 / filmEngineering 长标题改独立短键 `tabs.filmEngineering` / PRD 初始标题时序说明 / JSDoc hash 剥离补齐 / start 防重入 / locale watch。
+- 评审后两测试文件 25/25 通过。详见专项 PRD §10。
+
+
+# [未发布] feat(collection): 知乎收藏批量采集与批量发布/视频——清单直选 + 采集并改写 + 三批量动作（2026-10-03，zhihu-fav-batch）
+
+### 根因（P0 修复反哺）
+- `Collection.vue` 旧批量采集结果映射写成 `...x.data.data`（多取一层 `.data`）：IPC 返回 `results[i] = {index, ok, data:{采集结果}}`，双层展开得 `undefined`，**成功条目入库后只剩 `{id}` 空壳**（title/content/sourceUrl 全丢），级联污染批量改写（发出 `content: undefined`）与落盘。逃逸原因：既有测试 mock 恰好也写成扁平 `{data:{...}}` 且只断言 `length`（Mock 形状与真实 IPC 契约无一致性校验）。
+- 批量改写黑盒：`batch-rewrite` 结果写入 `rewrittenContent` 后全仓无任何展示/消费点，用户看不到也用不上。
+- 采集条目 `coverImage` 与发布侧 `cover_url` 字段名断裂，采集内容转发布草稿封面丢失。
+
+### 功能（PRD-ZHIHU-FAV-BATCH-2026-10-03）
+- **清单直选（Q16B）**：收藏夹区块新增采集范围单选（指定收藏夹/全部收藏）+ 数量 N（1–100 默认 50）+ 全量开关（≤200 封顶，Q21C）+ 包含已采集（强制重采）；「加载收藏内容」拉取元数据清单（标题/类型徽标/收藏时间/已采集标记）供勾选。「全部收藏」走新 IPC `zhihu-favlist:unified-contents`：多收藏夹合并 + URL 去重 + favTime 降序截断（新模块 `services/zhihu-fav-core.js` 纯函数），收藏夹 >50 如实提示（官方 API 硬约束）。清单项 `kind` 由 `classifyZhihuUrl` 六分类（answer/article/pin/video/column/unknown）。
+- **采集并改写（Q16 调整/D2）**：新 IPC `zhihu-fav-batch:run` 勾选编排——逐条串行（BatchRateController 8s+4s 抖动/退避/熔断/可取消）→ url-collector 正文采集 → 图片本地化（新 `services/zhihu-image-localizer.js`：zhimg 防盗链 Referer 伪装下载到 `{userData}/collected-images/`，失败回退原链记 `imageFallbacks`）→ 自动 AI 改写（失败/空结果回退原文并标注）→ 入库条目带 `rewrittenContent/kind/favTime/images/imageFallbacks/batchId`。专栏/想法/视频型仅登记不采集正文（B2/B3/B4）。进度经 `zhihu-fav-batch:progress` 事件**双边界推送**（start=采集前/done=完成后 + summary 终态），UI 进度卡整体进度条 + 可展开逐条明细。
+- **URL 去重（C2/Q10）**：主进程已知 URL 记忆 + 渲染层 sourceUrl 比对双防线；已采集条目清单默认跳过（checkbox 禁用）+「包含已采集」开关重采（覆盖保留原 id/createdAt）；cache_hit 空结果计失败防空壳。
+- **多选批量动作（D3/D4，Q17B 全来源通用）**：采集结果卡片全选/单选；新 composable `useCollectionBatchPublish`——①批量发布图文：确认框（条数×平台×账号+原文回退计数）→ batchCreate/batchExecute → App 级发布进度面板（失败重试/落历史/失败草稿回存自动获得）；发布取稿**改写稿优先**（Q26C），`coverImage→cover_url` 映射修复；②批量生成视频：≤10 条、视频型跳过列出、story2video-batch-queue（并行 2、只生成不发布）；③批量发布视频：仅「本批」已完成产物（`trackBatch` → `refreshBatchVideos` 从 run context 提取 videoPath）→ video_path 载荷（30min 超时主进程契约）。平台按 `contentCategory` 预筛（图文条目排除纯视频平台；视频发布仅 VIDEO+MIXED）。所有用户可见文案 zh/en 成对（`collection.zhihuFav.*`/`collection.batch.*`），渲染层零新增硬编码中文。
+- **改写黑盒接通（C3b）**：改写稿在采集卡片可见（已改写预览/改写失败标注），自动改写成功条目同步写入文案库（`fromKey='collect:<id>'` 幂等）。
+
+### 验证
+- TDD 先红后绿：`zhihu-fav-core.test.js`（15：URL 六分类/合并/去重/排序/截断/全量封顶）、`zhihu-fav-batch.test.js`（21：参数校验/进度双边界/自动改写/回退原文/仅登记类型/去重/互斥/取消/图片本地化回退/unified 聚合——**mock 全部复制真实 IPC 形状**）、`collection-batch.test.js`（17：P0 回归锁「字段不得为空」/取稿规则/封面映射/平台预筛/目标展开）、`useCollectionBatchPublish.test.js`（16）、`Collection.test.js` 扩至 109（P0 逐字段回归锁 + 清单/聚合/新通道用例）等全量相关 **238/238 绿**。
+- `check-locale-sync --keys` PASS（1405 keys）+ `--cjk` PASS（基线 1489→1340，无新增硬编码）；eslint 0 error；`normalizeCollectedItem` 扩展 kind/favTime/images/imageFallbacks/rewrittenContent/rewriteFailed 字段（唯一出口继续收敛）。
+
+# [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
+
+### 根因（QM-5 五步取证）
+- 用户反馈「改写后的文案是一整段没有正常分段」。是 bug 不是没处理：提示词层早要求空行分段（运营中心种子 hard-constraint-default-v1 第 2 条，2026-09-18），LLM 也遵守了；压平发生在本地后处理——`AITasteRemover` Pass 3 的句长节奏修复 `_mergeUniformSentences`（v2 重构 `36a09e5c` 2026-09-09 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢；次级缺陷：切句剥离标点导致段尾标点丢失、语气标点被统一改写成句号。
+- 逃逸链：remover 单测 6 例全是单段短文本零换行断言（无测试）；引擎 core 测试 mock 全是单行英文（场景缺失）；评审只验 AI 味指标下降未审计结构副作用（审查盲区）。
+
+### 修复（双保险架构）
+- **保底层（确定性）**：`ai-taste-remover.js` `_addHumanTexture` 先按换行切分、仅对单个自然段做句级重组、原样回填换行（结构不变量：任何 pass 不得改变输入的换行/分段结构）；新增 `splitSentencesWithPunct` 保留每句终止标点；`_mergeUniformSentences` 按原文标点回填（合并衔接点前句终止标点改逗号、后句原标点保留、段尾无标点不追加）。
+- **上游层（概率性）**：`rewrite-engine-core.js` 三模式指令各追加「分段输出要求：按内容逻辑划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）」；引擎内置硬约束回退 `BUILTIN_DEFAULT_HARD_CONSTRAINTS` 第 2 条与运营中心种子 `hard-constraint-default-v1`（`rewrite_hard_constraint_service.py`）同步升级为「使用空行分隔即可；除口播快节奏短文案外，成品应有 2-5 个自然段，禁止整篇压成一段」。桌面端 service 零改动（无第二份后处理，种子升级后运行时自动生效）。
+
+### 验证
+- TDD 先红后绿：修复前实跑 5 failed（R1/R2/R4/P1/P2/P3 中的红项；R5 为假绿——旧代码统一丢标点恰好满足「不追加」表面断言）；修复后 rewrite-engine 包 **181/181** 全绿（含新增段落结构保留 5 例 R1-R5 + 端到端分段保留 3 例 P1-P3）、ops-center 硬约束测试 **8/8**（新增种子含「空行分隔」断言）。
+- 端到端实证：3 段 × 2 句输入 → 输出 3 段空行完整保留、段尾句号保留（修复前 0 换行、段尾无句号）。
+- 预防措施：AGENTS.md QM-2 新增「后处理结构不变量」门禁条目（含必跑测试清单）；learnings 置顶「文本重组类后处理必须先定义结构不变量」。
+- 专项 PRD（六维度详写）：`01-docs/PRD-REWRITE-PARAGRAPH-PRESERVE-2026-10-03.md`；引擎主 PRD 追加 §十四。
+
+# [未发布] fix(rewrite): 自动改写入口完成后直接定位改写结果区（2026-10-09，fix-rewrite-jump-focus）
+
+### 根因
+- 热门选题【创作文案】跳转 `/rewrite?topic=` 后页面**自动开始改写**，但视口停在第一屏（输入区 + 配置区）；改写完成时结果卡片在页面下方，用户不知道「已经改完了」，误以为只是带入了文案输入内容——状态已完成、感知却是初始态。
+- 文案库（采集页）【改写】交接入口（`/rewrite?from=collection`，sessionStorage 载荷读后即焚）同样是「跳转即自动改写」，存在同一认知断层。
+
+### 修复（改写页单点收敛）
+- `RewriteView.vue` 新增非响应式标志 `autoFocusResult`：挂载期识别「自动改写入口」置位——`route.query.topic` 非空，或 `from=collection` 交接经 `consumeLibraryHandoff` 实际取到有效载荷；手动进入、`titleHint` 预填（不自动改写）、无效交接载荷一律不置位。
+- 新增 `focusRewriteResult()`：`startRewrite` 成功分支调用（结果/标题/元信息赋值完成后），`await nextTick()` 等 `v-if` 结果卡片挂载后经模板 ref `rewriteResultCardEl` 取元素，`scrollIntoView({ behavior: 'smooth', block: 'start' })`；与 ResultView.vue 滚动先例同模式。
+- 判据收敛在改写页内部而非调用方加参数：未来新增自动改写入口（只要走 topic/交接语义）零调用方改动。
+- 不滚动的场景（防过度滚动）：手动点击「开始改写」（用户本就在看着页面）、改写失败（错误横幅 `.rewrite-error` 在结果卡片上方的配置卡内，首屏可见；且失败时结果卡片 `v-if="rewriteResult"` 不渲染、目标不存在）。
+- 模板 ref 而非 `document.querySelector`：@vue/test-utils 默认挂载到游离 DOM，全局查询拿不到元素；ref 引用对生产与测试环境都成立。
+
+### 验证
+- TDD 先红后绿：`RewriteView.test.js` 新增 describe「自动改写入口完成后定位结果区」5 例——topic 成功滚动（断言 spy this 指向结果卡片元素 + smooth/start 参数）、collection 交接成功滚动、手动改写不滚、titleHint 入口不滚、改写失败不滚。
+- 反证（变异测试）：① 摘掉成功分支 `focusRewriteResult()` 调用 → 前 2 条真红；② 摘掉 `autoFocusResult` 条件守卫 → 手动/titleHint 2 条真红（失败用例由 `v-if` 结构天然保护：卡片不渲染、el 为 null 不滚）。
+- 回归：RewriteView 83 例 + HotTopics 42 例 + Collection 105 例共 230 例全绿（调用方零改动）。
+
+
+# [未发布] feat(copy-library): 文案库卡片点击直达文案详情页——一键发布页承载 + 编辑回写文案库（2026-10-09，copy-library-detail-entry）
+
+### 背景
+- 文案库（`/copy-library`）列表卡片为纯展示，不可点击：无法查看单条全文（视频来源仅 500 字截断预览），也无法从文案一键进入发布/创作流程。
+- 用户决策（D1）：**一键发布页即文案详情页**——复用 `/publish` 现有编辑器/发布能力，零新路由；决策（D2）：采集/改写来源在详情页编辑后**要求回写文案库**。
+
+### 方案
+- **一次性交接载荷**（新增 `src/utils/copy-detail-handoff.js`，与 `rewrite-handoff.js` 同模式）：sessionStorage 键 `copy_detail_handoff_v1`，读后即焚；载荷 `{ content, title, origin, sourceId, platform, sourceUrl }`；写侧校验 content 非空 + origin 白名单（collect/rewrite/draft/video）。
+- **列表卡片可点击**（`CopyLibraryView.vue`）：整卡 `role="button"` + `tabindex="0"`，click/Enter/Space 均触发 `openDetail`（防连点锁 `openingDetail`）；点击 → 写载荷 → `router.push('/publish?from=copy-library')`。视频来源先 `story2videoGetProject` 拉全文（失败降级截断预览 + warning toast，不阻塞跳转）。
+- **发布页详情态**（`Publish.vue`）：`applyCopyDetailHandoff` 挂 `onMounted` 顶部（不依赖账号加载等异步步骤）+ `onActivated`（keep-alive 复活）；有载荷 → 预填标题/正文 + 记录 `copyDetailMeta` + video 来源切视频模式 + info toast + 顶部提示条（可关闭）。**keep-alive 状态清理**（对抗评审 CRITICAL）：无载荷且 `route.query.from !== 'copy-library'` 时重置 `copyDetailMeta`/banner，防止缓存实例的旧 meta 把后续无关内容静默回写覆盖文案库记录。
+- **回写链路**（旁路，失败静默不阻塞主流程）：①保存草稿（`onSaveDraft` 包装）成功 → `syncCopyDetailToLibrary`；②一键发布成功（`watch(result)` → `r.success`）→ 同上（评审 MAJOR 补齐：PRD 承诺「保存草稿或发布成功后回写」）。仅 `collect`/`rewrite` 来源触发：`upsertRewrite({ fromKey: '<origin>:<sourceId>', ... })`（`collect:c1` / `rewrite:r1`，与文案库列表 id 解析逐字一致）；video/draft 来源不回写（视频真源在 story2video 项目，草稿真源在草稿箱指纹幂等）。`useCopyLibrary.upsertRewrite` 补 `fromTitle` 合并（回写不传时保留既有「改写自」出处）。
+- **【创作视频】按钮**（发布页右侧操作区新增）：`handleCreateVideo` 防重入锁 → 空内容 warning 早退 → `saveDraft()`（内容指纹幂等）拿 `data.draftId` → `/create?draft=<id>`。`usePublishDrafts.saveDraft` 返回值 `boolean → { ok, draftId }`（全仓核实无旧布尔消费方；失败路径 `{ ok: false, draftId: null }`）。
+- **i18n**：zh/en 成对新增 8 键（`copyLibrary.viewDetailAria/detailLoadedToast/detailModeBanner/detailModeBannerClose/videoFullTextFailed/handoffFailed` + `publishPage.createVideo/createVideoEmpty`），`check-locale-sync --keys` PASS（1402 keys）。
+
+### 数据校验
+- 载荷写侧：content trim 非空、origin ∈ 白名单、sessionStorage 异常返回 false（不跳转 + warning）。
+- 载荷读侧：损坏 JSON/非对象 → null 并清键；读后即焚（二次读取恒 null）。
+- 视频全文：`res.code === 0 && typeof data.sourceText === 'string' && sourceText.trim()` 才采用，否则降级预览。
+- 回写资格：`copyDetailMeta.origin ∈ {collect, rewrite}` 且 `article.content` trim 非空。
+- 创作视频前置：标题与正文全空 → warning 不存草稿。
+
+### 验证
+- TDD 先红后绿：`copy-detail-handoff.test.js`（9）、`CopyLibraryView.test.js`（9）、`Publish.test.js` +13（载荷消费/视频模式/提示条/创作视频防重入/fromKey 契约断言/video-draft 不回写/回写失败旁路/keep-alive 重置回归锁）、`usePublishDrafts.test.js` +4（`{ok, draftId}` 契约）。
+- 对抗性评审（subagent）：1 CRITICAL（keep-alive meta 不清理 → 静默覆盖文案库记录）已修复并加回归锁；2 MAJOR（发布成功不回写、回写链路零断言）已修复补测；4 MINOR（platformKey 死引用/视频卡片防连点/ok 无 draftId 静默/fromTitle 丢失）已修或记录。
+- 大回归面 381 用例全绿（Publish/CopyLibraryView/usePublishDrafts/useCopyLibrary/useCopyLibrarySources/icon-usage/Collection/RewriteView）；locale-sync PASS；eslint 0 error。 a8800c88b (feat(copy-library): 文案库卡片点击直达文案详情页（发布页承载+编辑回写）)
+# [未发布] fix(publish): 发布失败自动保存草稿到草稿箱 + 内容指纹防重复（2026-10-09，publish-fail-draft-guard）
+
+### 根因
+- 图片/视频内容发布失败后，内容只存在于发布表单（内存态）：历史只落 `title/error`（`history.addRecord` 不存正文与媒体引用），页面误关/重挂载后内容彻底丢失，媒体需重新选择。
+- 防重复的真源缺口：`draftSave` 仅按 `draft.id` 去重，而自动保存与手动保存各自生成新 id —— 同一份内容必然在草稿箱出现两条。去重判据必须在「内容」上而不是「保存动作的 id」上。
+
+### 修复（三道防线）
+- **主进程幂等层（去重单一真源）**：`ipc-handlers/store.js` `draftSave` 引入内容指纹（新增 `services/draft-fingerprint.js`，sha256，仅白名单内容字段：title/content/author/cover_*/video_path/images/image_files/tags/topics/mentions；`publishTime/platforms/accounts/platformOverrides` 等发布指向性元数据不参与）。指纹命中 → 原地更新既有草稿（保留原 `id`/`createdAt`，刷新 `updatedAt`），返回 `{ draftId, reused: true }`；历史数据无 `_fp` 时现算指纹参与比对并回填（读取侧惰性迁移）。空内容统一归 EMPTY 指纹。`draft` 非对象 → `REQUEST_ERROR` 拒绝。数组保序（图片顺序即内容顺序）、对象键递归排序（键序无关）。
+- **主进程兜底层（自动回存）**：新增 `services/publish-failure-draft.js`，挂在 `task:failed`（失败终态单一来源，`bootstrap/phase4-events.js`）。资格门禁：`article` 为对象 + 媒体门槛（`video_path` 非空**或** `images` 非空数组，纯文字不回存）+ 身份门禁（owner 权威来源是任务固化的 `task.owner_subject`，与 history 同源；Logto 模式缺失 → fail-closed 跳过，绝不写 legacy 命名空间）。快照字段与 `usePublishDrafts.buildDraftSnapshot` 对齐，`publishTime` 固定空、`source: 'auto_failure'` 溯源标记。同内容两次失败（指纹命中）复用同一条草稿。全程 try/catch，任何失败只 `log.warn`，绝不影响失败主流程（历史落库/失败通知/风控挂起）。接线：`bootstrap.js` `wireTaskQueueEvents` 注入 `failureDraftSaver`（identityService 由 Phase 3 晚于接线挂到 ctx，失败时刻惰性读取）。
+- **渲染层提示（一次性）**：新增 `src/services/publish-failure-draft-saver.js`（纯 DI 工厂，风格对齐 risk-hold-notifier），App 级订阅 `publish:progress` phase=failed → toast 提示，同 taskId 只提示一次（`maxSeen=100` 环形记忆），其他 phase 一律忽略；不承载进度状态（唯一承载仍是 `stores/publishProgress.js`）。接线 `main.js`。i18n：`publish.failureDraftSaved` zh/en 成对。
+
+### 验证
+- TDD 先红后绿：`draft-fingerprint.test.js`（8）、`publish-failure-draft.test.js`（16）、`publish-failure-draft-saver.test.js`（9）、`phase4-events.test.js` 新增 5 例（接线/缺省/同步抛错/异步 reject 不产生 unhandledRejection/success 与 cancelled 不触发）、`store.test.js` 新增 6 例（复用/保留 createdAt/publishTime-platforms 差异不分裂/历史无 _fp 回填/legacy 同幂等/非对象拒绝）。定向 128/128 全绿。
+- 回归：`bootstrap.test.js`、`store-owner-isolation.test.js`、`usePublishDrafts.test.js`、`Publish.test.js`、`preload.test.js`、`publisher.test.js`、`publish-progress-events.test.js`、`publishProgress.test.js`、`PublishProgressPanel.test.js`、`publish-history.test.js` 共 900+ 用例全绿；`check-locale-sync` pair PASS + CJK 基线 PASS；eslint 0 error（store.js 2 处 warning 为 HEAD 既有）。
+- preload 零改动（复用既有 `draftSave`/`onProgress` 通道），无需重打包 bundle。
+
+# [未发布] feat(desktop): 智能标签建议面板 Tab 化紧凑呈现——5 平台高度 800px→357px（2026-10-03，compact-tag-suggester-tabs）
+
+### 根因
+- `TagSuggester.vue` 把全部分析返回的平台分组纵向堆叠（每平台 = 平台名行 + 复制按钮 + 内容/流量两分组行），5 平台典型数据整卡 ~800px，把定时发布、可见性、AI 声明等表单字段挤出首屏。上游 spec `publish-page-right-rail` 只约束了面板位置与联动，未约束面板自身纵向密度。
+
+### 方案（用户决策简报选定 A：Tab 切换）
+- 平台标签区改为 Tab 结构：`汇总 | 知乎 | 微博 | …` 动态 Tab 行（`role="tablist"`/`role="tab"`/`aria-selected`）。
+- **汇总 Tab（默认）**：每平台一行摘要 = 平台名 + 前 6 个标签（`SUMMARY_TAG_LIMIT`）+ `+N` 省略徽标（title 指向对应平台 Tab，不可点击）+ 该平台复制按钮（仍复制**全量**标签，与旧版语义一致）。
+- **平台 Tab**：完整渲染该平台内容/流量分组与热度角标（既有渲染原样迁移），内容区兜底 `max-height:260px` 滚动。
+- 「提取关键词」「相关话题」保留常显；「各平台标签：」小标题移除（Tab 行承载语义）；来源/校准状态行保留。
+- Tab 状态：默认 `__all__`；`normalizedActiveTab` computed 归一化非法值；`watch(platformGroups)` 平台消失回落汇总；切换为纯视图状态，不触发 `intelligenceSuggestTags`（防抖/请求契约不动）。
+- 面板默认展开行为与显隐记忆（`usePanelVisibilityPrefs`）不变——Tab 化后默认展开高度可控。
+
+### 数据校验
+- `activeTab` 只认 `__all__` 或当前分组集合内平台 key，其余值一律按汇总渲染（不信任状态残留）。
+- `byPlatform`/`byPlatformDetail`/`matchedTopics` 字段缺失或非数组时按空数组处理（`safeTags` 守卫），空分组仍渲染平台名与复制按钮。
+
+### 文案（locale zh/en 成对）
+- 新增 `tagSuggest.tabAll`（汇总/All）、`tagSuggest.moreTags`（完整标签见「{platform}」标签页 / Full tags in the {platform} tab）；其余既有键全部保留原义。
+
+### 验证
+- TDD：`TagSuggester.test.js` 新增「Tab 化紧凑呈现」describe 10 例（默认汇总选中/汇总行摘要/平台 Tab 完整分组+热度/切换不重发请求/+N 截断且不可点击/平台消失回落/汇总行复制全量/行内点击填入），先红（10 failed）后绿；既有用例适配 3 处（`各平台标签` 标题断言 → Tab 行断言、热度角标断言迁入平台 Tab、错误态不出现汇总文案）。
+- 定向 31/31 绿；`Publish.test.js` + `usePanelVisibilityPrefs.test.js` 97/97；全仓渲染层 4400 passed / 2 skipped；eslint 0 error；locale pair + CJK 双检查 PASS。
+- QM-4 视觉：真实渲染取证（Playwright 拦截 IPC 返回 5 平台×7 标签模拟数据）——整卡 357px（旧版同数据 ~800px，**-55%**），汇总行×5、+1 徽标×3、汇总默认选中，截图 `tests/visual-testing/reports/tag-tabs-proof.png`；`npm run test:visual:pixel` publish-form 基线 0.627% PASSED（结果态在基线折叠线下，无需重建基线）；collection 1.62% 失败为 #2792 既有欠账（本分支未触及采集页）。
+- 手动脚本：`tests/visual-testing/scripts/capture-tag-tabs-proof.js`（可复现）。
+
+### 文档
+- PRD：`01-docs/PRD-TAG-SUGGESTER-TAB-COMPACT-2026-10-03.md`（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/验收标准/风险回滚）。
+- openspec：`openspec/changes/compact-tag-suggester-tabs`（proposal/specs delta/design/tasks，validate 通过）。
+
 # [未发布] feat(history): 发布记录卡片整体点击——应用内新标签打开平台作品链接（publish-history-card-open-link，2026-10-03）
 
 ### 新增
