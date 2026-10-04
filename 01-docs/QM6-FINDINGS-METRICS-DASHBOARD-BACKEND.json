@@ -1,0 +1,78 @@
+{
+  "axis": "backend",
+  "findings": [
+    {
+      "id": "FB1",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/performance-overview.js:38-42,149-153",
+      "claim": "HEAD 版 V1/V2 用 captured_at 字符串字典序当时间序，混入 epoch 数字串或带时区偏移的串时会把真实时刻上更旧/更新的快照选错，总量可静默偏低或偏高。",
+      "evidence": "git show HEAD 对应行：dateKeyOf 只取字符串前 10 位做 YYYY-MM-DD 正则（38-42），排序直接用 a.capturedAt < b.capturedAt（149-153）。实测 node 调用 buildPerformanceOverview：epoch 串 1900000000（2030-03-17T17:46:40Z）likes=99 与 2026-10-03 ISO likes=10 混排时 totals.likes=10、droppedUndated=1，即选错旧值。HEAD 测试 performance-overview.test.js 只覆盖 ISO 与空串，无 epoch 秒/毫秒、带偏移、非法格式用例；store 写侧固定 new Date().toISOString()（performance-loop-store.js:223），但表无格式约束，历史/手工数据可混入。",
+      "suggested": "在纯函数入口按可解析时刻排序并按解析后的 UTC 日分桶，无法解析再走 droppedUndated；新增 epoch 秒/毫秒、带时区偏移、非法串用例。工作区当前已出现未提交的 toEpochMs 修复，HEAD 评审对象仍不含。"
+    },
+    {
+      "id": "FB2",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/performance-overview.js:165-190",
+      "claim": "V7 负差钳零 + V8 首份整份计入叠加时，「回落后再涨回」的趋势增量会把重置/删除前已经计过的量重新表达，趋势和周变化会大于最新总量。",
+      "evidence": "HEAD 代码 prev = point.metrics 在 171/190 行，首份整份计入、负差 delta 清零并 retreats++。实测 100->50->80（likes）序列：totals.interactions=80，trend 为 100/0/30，retreats=1，趋势合计 130 显著高于总量 80。现有 T7 只测 10->4 单次回落，T8 只测单份首快照，没有回落-回涨序列；工作区新增 T29 也仍断言 10/0/8，趋势合计 18 高于最新总量 12，未解决该口径。",
+      "suggested": "在 PRD 明确 V7/V8 是否假设累计计数单调不减；若允许平台重置，需要重置检测并重建基线，或在诊断中明确 trend 不能与 totals 对账。"
+    },
+    {
+      "id": "FB3",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:34-40; apps/desktop/electron/services/publish-history.js:45-52",
+      "claim": "归属谓词 _ownerPredicate 与发布历史 matchesOwner 的 legacy 桶并不完全相同：SQL 把空串归入 legacy，JS matchesOwner 只认 undefined/null/__legacy__，注释所称「与发布历史侧一致」不准确。",
+      "evidence": "performance-loop-store.js:39-40 为 WHERE (owner_subject IS NULL OR TRIM(owner_subject) = '' OR owner_subject = '__legacy__')；publish-history.js:48-49 为 record.owner_subject === undefined || null || LEGACY_OWNER_SUBJECT，不含空串。当前写侧 addTrackedContent 用 entry.ownerSubject || null（127 行）、addRecord 在 owner undefined 时不写 owner_subject（88 行），空串分支属防御性覆盖；若 JSONL/手工数据出现空串，同页「累计发布」与回流总量会按不同桶取数。",
+      "suggested": "抽出统一的 legacy 判定/迁移规范（空串入库前转 NULL 或 __legacy__），并加一条跨 publish-history 与 performance-loop-store 的 legacy 桶一致性测试。"
+    },
+    {
+      "id": "FB4",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:351-364; apps/desktop/src/features/dashboard/PerformanceFlowPanel.vue:185",
+      "claim": "listSnapshotsForOverview 不带时间过滤并按 tracked_content_id ASC, captured_at ASC 全局 LIMIT，长期超限后保留的是最旧批次，聚合层的「每作品取最新」会拿到旧快照，总量偏低；界面 truncatedNote 仍写「最近 N 条」。",
+      "evidence": "HEAD SQL 为 ORDER BY s.tracked_content_id ASC, s.captured_at ASC, s.rowid ASC LIMIT ?（363 行）；组件 truncatedNote 用 limits 最大值并提示「统计基于最近 N 条」（185 行，zh.js:1111）。store 测试 T17 只对 listTrackedForOverview 验证 truncated 字段，没有验证快照截断保留哪一批及截断后聚合值。工作区当前已有未提交的 ORDER BY s.captured_at DESC, rowid DESC 修复，HEAD 评审对象仍为旧排序。",
+      "suggested": "快照截断必须保留最新批次（或按作品保留最近 N 份），并补一条真 sqlite 超限后「最新快照仍被聚合选中」的断言；同时让 truncatedNote 区分作品/快照侧，避免误导。"
+    },
+    {
+      "id": "FB5",
+      "severity": "Info",
+      "file": "apps/desktop/electron/ipc-handlers/helpers.js:149-164; apps/desktop/electron/ipc-handlers/publish.js:24-32; apps/desktop/electron/ipc-handlers/account.js:39-47",
+      "claim": "resolveIpcOwnerSubject 与 publish.js、account.js 各有一份私有 getOwnerSubject，三分口径并存；当前逻辑一致，但后续单点修改会漂移。",
+      "evidence": "helpers.js:155-164 定义三态解析；publish.js:24 和 account.js:39 仍有同名私有实现；helpers.js:149-150 注释自述「publish.js / account.js 各自还留有一份同逻辑的私有实现（历史欠账）」。工作区当前已有未提交的 account/publish 改为转发 helpers 的改动，HEAD 评审对象仍为三份。",
+      "suggested": "收敛 publish.js/account.js 到 helpers.resolveIpcOwnerSubject，并用 owner-subject 单源测试锁住三个入口一致。"
+    },
+    {
+      "id": "FB6",
+      "severity": "Critical",
+      "file": "apps/desktop/electron/preload/access-control.js:136-139; apps/desktop/src/api/electron-bridge.js:44-53; apps/desktop/src/features/dashboard/PerformanceFlowPanel.vue:199-214; apps/desktop/src/views/Dashboard.test.js:272-284",
+      "claim": "真实未登录路径不会把 AUTH_REQUIRED 信封交给 isAuthGateResult：preload 动态权限包装在调用 ipcRenderer.invoke 前直接 throw，invokeWithFallback 不捕获，PerformanceFlowPanel 的 catch 只把状态置为 error，T26 的测试又直接 mock electronAPI 返回信封，因此登录门禁在真实渲染路径失效。",
+      "evidence": "preload/access-control.js:136-139 对非 public 方法在 hasAccess 不通过时 throw createPermissionError；performanceOverview 不在 PUBLIC_METHODS，requiredLevelForMethod 默认 authenticated（94 行）。electron-bridge.js:44-53 只处理 result === undefined，不 catch 抛错；PerformanceFlowPanel.vue:205 只在拿到 res 后调用 isAuthGateResult，212-213 catch 直接 status=error。Dashboard.test.js:279 mockResolvedValue({code:-3,errorCode:'AUTH_REQUIRED'}) 和 PerformanceFlowPanel.test.js:185-189 mock API 层，均绕过 preload 包装。若绕过 preload 直连主进程，license-access-control.js:205-209 会给非 PUBLIC_CHANNELS 返回 authenticated 门禁并返回 errorCode:'AUTH_REQUIRED'，该信封可被 isAuthGateResult 识别，但正常渲染层到不了这一步。",
+      "suggested": "要么让 preload 对权限拒绝返回结构化信封而不是 throw，要么把性能看板方法加入 preload PUBLIC_METHODS 并让主进程返回 AUTH_ERROR 信封；同时把 T26 改成走真实 createDynamicAccessApi（public access-level）后断言 perf-flow-auth 出现。"
+    },
+    {
+      "id": "FB7",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:337-340,370-372; apps/desktop/electron/ipc-handlers/performance-loop.js:70-86; apps/desktop/electron/ipc-handlers/performance-loop.test.js:133-141",
+      "claim": "store 查询内部抛错会被吞成空行成功返回，handler 因而返回 code:0 + hasData:false，用户看到「从未发布」而不是取数失败；T20 只 mock store 函数主动 throw，覆盖不了真实 SQL 失败路径。",
+      "evidence": "listTrackedForOverview catch 返回 {rows:[],total:0,truncated:false}（338-340），listSnapshotsForOverview catch 返回空结构（370-372）；handler 直接把 tracked.rows/snapshots.rows 交给聚合并返回 code:0（71-86）。performance-loop.test.js:133-141 用 listTrackedForOverview: () => { throw } 造 REQUEST_ERROR，但 store 实现从不抛错，该用例与真实路径不符。",
+      "suggested": "store 读侧对查询失败应向上抛或返回带 error 标记的结构，handler 据其返回 REQUEST_ERROR；补一个真实损坏/查询抛错场景的 store+IPC 用例。"
+    },
+    {
+      "id": "FB8",
+      "severity": "Info",
+      "file": "apps/desktop/src/features/dashboard/PerformanceFlowPanel.vue:22-28,70-84; apps/desktop/src/features/dashboard/PerformanceFlowPanel.test.js:185-189",
+      "claim": "PRD T24 的「四种空态互斥」只实现了 无作品/有作品无快照 两类；unsupported/failed 且零快照时 isEmpty 分支直接显示「尚未回采」，健康度块只在 v-else 指标分支里渲染，用户看不到不支持/失败归因，测试也未覆盖。",
+      "evidence": "HEAD 模板 22-28 行：isEmpty 时只输出 emptyNoContent/emptyNoSnapshot；healthUnsupported/healthFailed 在 77/80 行，位于 28 行 v-else 指标分支内，isEmpty 时不可见。PerformanceFlowPanel.test.js:185-189 只测 AUTH_REQUIRED，零作品和有作品无快照有单独用例，未测「全部 unsupported/failed 且零快照」。",
+      "suggested": "isEmpty 分支也渲染健康度摘要（unsupported/failed/从未回采），或新增 distinct 空态；补全 PRD T24 所列四种互斥断言。"
+    },
+    {
+      "id": "FB9",
+      "severity": "Info",
+      "file": "01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md:164-220",
+      "claim": "T1-T26 验收矩阵整体有真实对应用例：T1-T14 聚合判据、T15-T17 查询层、T18-T21 IPC、T22 preload/API、T23/T25/T26 渲染层均已接线；缺口是 T24 的空态互斥不完整、T26 未覆盖真实 preload 权限路径。",
+      "evidence": "rg 结果：performance-overview.test.js 含 T1-T14 全量；performance-loop-store-overview.test.js 含 T15-T17；performance-loop.test.js 含 T18-T21；knowledge-library-performance-overview.test.js 含 T22；Dashboard.test.js 含 T23/T25/T26；PerformanceFlowPanel.test.js 含 T23/T24。当前工作区（含未提交修复）聚焦六文件 68 tests 全绿；HEAD 本身无 FB1/FB4 对应的 epoch/截断最新批次用例。",
+      "suggested": "补齐 T24 的 unsupported/failed 空态、T26 的 preload 真实门禁用例，并把 FB1/FB4 的追加判据纳入 HEAD 测试矩阵。"
+    }
+  ],
+  "overall": "HEAD 后端实现的核心 V1-V13 判据和 T1-T23/T25 覆盖扎实，但真实未登录门禁链路（FB6）、快照截断保留批次（FB4）与 V7/V8 回落后回涨口径（FB2）需要修复后才能放行，其余为口径收敛和测试缺口。"
+}
