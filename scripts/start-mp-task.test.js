@@ -161,3 +161,50 @@ test('bash 自愈：session-init.sh / gwm-task.sh / session-cleanup.sh 必须前
     );
   }
 });
+
+// ---- 弹窗合同（2026-10-03：桌面被 PowerShell 窗口反复占屏）----
+// 现场：开发过程中桌面不断出现终端窗口。两类来源，实测归因（Win11 + Windows Terminal 作默认控制台宿主）：
+//   1) start-mp-task.ps1 过去默认开一个 -NoExit 的「任务 shell」，父进程退出后它变成孤儿常驻窗口，
+//      每建一个任务就多一个（现场 PID 42824，父进程 40692 已退出）。
+//   2) 两个计划任务以 Interactive 主体注册，每次运行都会创建一个可见控制台窗口；
+//      「每 15 分钟闪一次窗」即健康巡检任务。
+// 反直觉的一条：任务设置里的 Hidden **不是**解决手段 —— 实测 Hidden=True 之后手动触发，
+// 300ms 内仍新增了一个可见顶层窗口；换成非交互主体（LogonType S4U）后同一探针 NEW_TOTAL=0，
+// 且任务确实执行（health.json checkedAt 前进、LastTaskResult=0），write guard 在 S4U 下
+// 仍于 ~1s 内把探针文件移入隔离区。因此合同是「主体优先 S4U + 判定不得依赖跨会话不可读字段」，
+// 而不是「设了 Hidden 就算修好」。
+const ENTRY = path.join(__dirname, 'start-mp-task.ps1');
+const INSTALLER = path.join(__dirname, 'install-session-isolation-task.ps1');
+const HEALTH = path.join(__dirname, 'mp-worktree-health.ps1');
+
+test('任务入口默认不得开窗：-Shell 是唯一开关，Start-Process 只能出现在其门控分支里', () => {
+  const src = fs.readFileSync(ENTRY, 'utf8');
+  assert.match(src, /\[switch\]\$Shell/, '必须保留显式 -Shell 开关（否则"按需开窗"退化成永远开不了窗）');
+  assert.doesNotMatch(src, /\[switch\]\$NoShell/, '默认已不开窗，-NoShell 属于同一布尔量的第二套写法，必须删除');
+  const launches = [...src.matchAll(/Start-Process powershell\.exe/g)];
+  assert.ok(launches.length === 1, `只允许一处开窗调用，实际 ${launches.length} 处`);
+  const gate = src.slice(0, launches[0].index);
+  const lastIf = gate.lastIndexOf('if (');
+  assert.ok(lastIf !== -1 && /\$Shell\s*-and/.test(gate.slice(lastIf)), '唯一的 Start-Process 必须处于「$Shell 为真」的分支内');
+  assert.match(src, /默认（不在自动路径上）|未开窗（默认）/, '未开窗时必须把 cd 提示打出来，不能让调用方以为流程失败了');
+});
+
+test('注册主体合同：先试非交互 S4U，退回 Interactive 必须出声', () => {
+  const src = fs.readFileSync(INSTALLER, 'utf8');
+  assert.match(src, /@\('S4U',\s*'Interactive'\)/, '主体尝试顺序必须是 S4U 先、Interactive 后（顺序反了就等于回到会弹窗的旧行为）');
+  assert.match(src, /registered with an interactive principal/, '退回 Interactive 必须打 WARN：那台机器会重新出现可见控制台窗口');
+  assert.doesNotMatch(src, /-LogonType Interactive/, '不得再无条件以 Interactive 主体注册（字面量只能出现在尝试顺序表里）');
+  assert.match(src, /function New-IsolationPrincipal/, '两个任务必须共用同一主体构造入口，禁止各抄一份');
+});
+
+test('存活判定合同：watcher 是否在跑以任务自身 State 为准，CommandLine 匹配只能是兜底', () => {
+  const src = fs.readFileSync(HEALTH, 'utf8');
+  const stateAt = src.search(/\$guardRunning\s*=\s*\(\[string\]\$guardTask\.State\)\s*-\s*eq\s*'Running'/);
+  assert.ok(stateAt !== -1, "必须先用 $guardTask.State -eq 'Running' 判定 watcher 存活");
+  const cmdAt = src.search(/CommandLine -like '\*guard-shared-root-writes\.ps1\*'/);
+  assert.ok(cmdAt !== -1 && cmdAt > stateAt, 'CommandLine 匹配只能作为 State 判假之后的兜底');
+  const between = src.slice(stateAt, cmdAt);
+  assert.match(between, /if \(\s*-not \$guardRunning\s*\)/, '兜底分支必须由"State 判为未运行"门控');
+  // 为什么不能只读 CommandLine：S4U 实例在另一个 session，非提权调用读不到它的 CommandLine
+  // （返回 $null），于是把正在执法的 watcher 判成未运行 —— 这是本案真实发生的误判。
+});

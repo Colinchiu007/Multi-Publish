@@ -1,3 +1,20 @@
+# [未发布] fix(scripts): 会话隔离工具不再弹控制台窗口——计划任务改非交互主体、任务 shell 改按需（2026-10-03，fix-session-isolation-popups）
+
+### 根因
+- 两类窗口叠加：① `start-mp-task.ps1` 建完 worktree 默认 `Start-Process -NoExit` 开一个「任务 shell」，父进程随即退出 ⇒ 窗口成为孤儿常驻，每开一个任务多一个（现场 PID 42824，父进程 40692 已不存在）。② `\Mulpub\` 两个计划任务以交互主体（`LogonType=Interactive`）注册，每次运行都创建一个可见控制台窗口；健康巡检每 15 分钟一次，即「开发过程中总闪窗」的节拍源。
+- 想当然的修法是错的：实测把任务设置 `Hidden` 置为 true 后手动触发，300ms 内仍新增一个可见顶层窗口。真正消除窗口的是非交互主体 `LogonType=S4U`（同一探针 `NEW_TOTAL=0`，且任务确实执行：`health.json` 的 `checkedAt` 前进、`LastTaskResult=0`）。
+
+### 方案
+- `scripts/install-session-isolation-task.ps1`：主体按 `S4U → Interactive` 兜底注册，退回交互档必须打 WARN（非提权宿主 S4U 被拒已被实测：一次性 `-TaskPath` 非提权运行后任务落成 `Interactive`）。窗口可见是外观损失，注册不上才是防线缺失，故不硬失败。
+- `scripts/start-mp-task.ps1`：默认不开窗，`-NoShell` 删除、改为显式 `-Shell` 才开；不开窗时打印 cd 提示。
+- `scripts/mp-worktree-health.ps1`：watcher 存活判定改以任务自身 `State -eq 'Running'` 为主判据，`CommandLine` 匹配降为兜底 —— S4U 实例在别的 session，非提权调用读不到它的 `CommandLine`（返回 `$null`），照旧判定会把正在执法的守护报成「未运行」。
+
+### 验证
+- 现场 A/B（本机 Win11 + Windows Terminal 作默认控制台宿主，顶层窗口集合差分探针）：Interactive+Hidden → 新增 1 个可见窗口；S4U → 0 个，任务仍执行。
+- write guard 在 S4U 下执法实证：放进 `apps/desktop/` 的未跟踪探针文件约 1 秒被移入隔离区（15→16）并记入 `violations.jsonl`；`mp-worktree-health.ps1 -RequireWriteGuard` 返回 rc=0、`writeGuard.ok=true`。
+- 回归锁三条（`scripts/start-mp-task.test.js`）：入口默认不开窗 / 注册主体顺序与兜底出声 / 存活判定 State 优先。已逐个变异反证（退化成无条件开窗、主体顺序倒回、判定退回只看 CommandLine）各自当场变红，还原后文件逐字节相同。既有 `mp-worktree-health.test.ps1`(22) 与 `install-session-isolation-task.test.ps1`(7) 全绿。
+- 详见 `docs/session-isolation-automation.md`「控制台窗口与运行主体（2026-10-03 实测）」。
+
 # [未发布] feat(desktop): 智能标签建议面板 Tab 化紧凑呈现——5 平台高度 800px→357px（2026-10-03，compact-tag-suggester-tabs）
 
 ### 根因
