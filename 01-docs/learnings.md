@@ -1,4 +1,13 @@
-## 标签标题的锁定语义只适用于静态标题场景；动态内容标签传 title 等于永锁（fix-tab-title-url-placeholder，2026-10-03）
+## 行数门禁 LEDGER_GREW 的「容差被 main 预存漂移吃光」处置序列；Electron CJS 测试的仓库级夹具约定；打包启动失败必须 main 对照归因（publish-throughput-optimization，2026-10-04）
+
+- **双人合租容差（pitfall + pattern）**：超大文件行数挂账（check-max-lines baseline）登记的是「登记时刻」的行数，main 上其他 PR 会持续消耗 growthAllowance——新任务开工前必须先比对「登记值 vs main 实际行数」的剩余容差，剩余 < 50 行时**方案期**就要把「判据下沉 helper 文件」写进设计（本次 A2 的三个等待判据 `_waitForThumbnailIncrease`/`_waitForTagChip`/`_waitForSuccessNavigation` 下沉 navigation-helpers），而不是 CI 红了才拆。`--update` 全量重生被脚本故意拒绝（防把别人的漂移登记成新基线），逃生口是**手工单键改 baseline JSON**（git diff 单值可审计），提交信息写审阅依据：main 预存膨胀量 + 本改动净增量 + 已做的最大拆分。
+- **Electron CJS 夹具约定（pattern）**：本仓主进程代码 `vi.mock('electron')` 不生效（CJS require 不走 vitest SSR 转换），必须用 `test-setup.js` 全局机制：`__enableElectronMock()` 启用、`__electronMock.BrowserWindow._instances` 取实例、`__resetElectronMock()` 复位。全局 mock 的 `destroy()` 是普通函数非 spy——销毁断言用 `win._destroyed === true` 状态而非调用计数。骨架照 `rpa-view-window-pool.test.js`。
+- **打包启动失败先做 main 对照（pitfall）**：打包 exe 静默退出（exit 0、stderr 空）时，先跑 main 基线的同款启动——本次 main 的 dev electron 同款 electron-updater 崩溃（Node v24 × electron 43 的 `app.getVersion()` undefined），证实是环境预存问题。**环境类失败不做对照实验就不能归因到改动**；CI runner 才是启动测试的权威判定面，本地只判 asar 完整性（entries + package.json main + require 链）。
+- **task-queue 通道调度的三接缝（pattern）**：通道键 `platform + ':' + (accountId ?? '')`（缺失归一空串，同平台仍串行）；`_processNext` 跳过「通道有在跑」的队头继续扫（不是整队停摆）；**频控推迟（publish:blocked）在 try/finally 之前 return，finally 的通道释放不执行——必须在分支内显式释放**（与既有 `_running.delete` 同位同因），漏掉即「等间隔」占死同通道，频控从保护变雪崩。凡是「在跑态记账」的资源，都要盘点所有提前 return 的路径。
+- **CHANGELOG 巨型冲突的确定性解法（pattern）**：置顶插入型文件合并必冲突，手工读 hunks 不可靠。正解：`git diff origin/main...HEAD -- <file>` 提取本分支新增行（验证首行特征）+ `git show origin/main:<file>` 全文，脚本拼接 + 双断言（多重集相等 + main 尾部逐行一致）。坑：git diff 输出行尾 CRLF 残留必须剥掉。脚本沉淀于 %TEMP%（mp-resolve-changelog-freq2.js / mp-resolve-changelog-throughput.js），同型冲突可复用。
+- **mock 契约跟随 rebase（pitfall）**：并行改同一文件时，rebase 后第一件事 grep 自己测试里的 mock 方法名——#2773 把 guard 从 `getRemainingWait()` 升级为 `check()`，旧 mock 在合并后炸出 `check is not a function`。
+
+
 
 - **复合根因（pattern：能力 × 调用方矩阵审计）**：主进程 `createNewTabPage` 的 `titleLocked`（`c3c395570`，为登录/平台标签防止网页标题覆盖）是合理能力；两个月后新标签体系（`f7e93ceba` #2230）让 `App.vue` 的「+」新标签也传了 `title: t('tabs.newTabTitle')`，把**动态内容标签**锁死在初始标题。**一个「标签创建参数」被新增调用方照抄示例传值时，参数的深层语义（锁定 = 永久忽略 page-title-updated）不会自己显形——新增调用方必须审计每个传参的副作用矩阵，而不是抄最近的可工作示例。**
 - **次级缺口（pitfall：内嵌 SPA 无 document.title 源）**：home-shell 内嵌独立 SPA 实例从不更新 `document.title`，即使解锁也没有标题可上报——「解锁」与「有源可发」必须同时补齐，缺一链路仍然静默。显式 IPC 上报（reportTabTitle）比只依赖 Chromium page-title-updated 事件更可靠（不依赖事件时序，非 Electron 环境天然降级）。
