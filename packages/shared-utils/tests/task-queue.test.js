@@ -559,7 +559,6 @@ describe('TaskQueue 通道调度（publish-throughput-optimization B 方案）',
     const origWarn = console.warn
     console.warn = (...args) => warnings.push(args.join(' '))
     try {
-      jest.resetModules()
       const { resolveQueueMaxConcurrent } = require('../src/task-queue')
       expect(resolveQueueMaxConcurrent()).toBe(3)
       expect(warnings.join('\n')).toContain('MP_QUEUE_MAX_CONCURRENT')
@@ -573,8 +572,9 @@ describe('TaskQueue 通道调度（publish-throughput-optimization B 方案）',
   test('发布最小间隔推迟（publish:blocked）期间释放通道，同账号后续任务不被堵死', async () => {
     let guardCalls = 0
     const guard = {
-      // 第一次检查（第一任务）命中 60s 等待；第二次（第二任务）放行
-      getRemainingWait: () => (guardCalls++ === 0 ? 60000 : 0),
+      // #2773 两档间隔契约：check() 返回 {allowed, remainingMs, bucket}。
+      // 第一次检查（第一任务）命中 60s 等待；第二次（第二任务）放行。
+      check: () => (guardCalls++ === 0 ? { allowed: false, remainingMs: 60000, bucket: 'douyin:acc-1' } : { allowed: true, remainingMs: 0, bucket: null }),
       recordPublish: () => {},
     }
     const queue = new TaskQueue({ defaultRetry: 0, defaultTimeout: 60000, maxConcurrent: 3, publishIntervalGuard: guard })

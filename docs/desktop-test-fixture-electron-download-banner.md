@@ -23,8 +23,11 @@ Downloading Electron binary...
 1. `apps/desktop/test-setup.js` 的 `__registerMock(...)` 通过替换 `Module._load` 拦截 require，
    注册键 `'fs'` 命中的是该 realm 里**每一个** `require('fs')`（`test-setup.js:250-281`，
    内置模块只按精确名匹配 —— 这恰是"刻意 mock 内置模块"能全局生效的原因）。
-2. `apps/desktop/vitest.config.js:17` 写着 `deps: { inline: ['electron', 'axios'] }`，
-   于是 `node_modules/electron/index.js` 被**内联进同一个 realm**，而不是走 Node 原样 require。
+2. `node_modules/electron/index.js` 与这些被测模块**在同一 realm 里被真实执行**。
+   ~~`apps/desktop/vitest.config.js:17` 的 `deps: { inline: ['electron', 'axios'] }` 把它内联进来~~
+   —— **该因果句已被实测否证**（2026-10-04）：把 `electron` 从 `deps.inline` 摘掉后，同一支探针照样打印
+   `Downloading Electron binary…` 并抛出逐字相同的错误 ⇒ 走的是 `Module._load` 那条路，与 inline 开关无关。
+   **不要把它当退路**，详见 `docs/deps-inline-electron-evaluation.md`。
 3. `electron/services/asset-generator.test.js` 顶部为了测"文件不存在时的降级"，把
    `existsSync` 注册成 `vi.fn(() => false)` —— 一律 false，不分路径。
 

@@ -1303,6 +1303,8 @@ export default {
       clearFinished: 'Clear finished',
       emptyRunning: 'No active publishes',
       blockedWaitMinutes: (ctx) => 'Retrying after ' + ctx.named('minutes') + ' min',
+      blockedBucketAccount: '(account interval)',
+      blockedBucketPlatform: '(same-platform interval)',
     },
     close: '✕ Close',
     aiWriter: '🤖 AI',
