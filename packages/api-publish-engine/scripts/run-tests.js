@@ -14,6 +14,7 @@ const VITEST_FILES = new Set([
   'bilibili-video-chain.test.js',
   'douyin-client-sign.test.js',
   'douyin-video-chain.test.js',
+  'douyin-image-chain.test.js',
   'douyin-adapter.test.js',
   'douyin-legacy-chain-gate.test.js',
   'douyin-risk.test.js',

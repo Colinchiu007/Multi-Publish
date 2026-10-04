@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @multi-publish/shared-utils — 类型声明
  */
 
@@ -11,6 +11,7 @@ export class TaskQueue {
     /** 发布频率守卫；缺席则队列不做间隔检查 */
     publishIntervalGuard?: PublishIntervalGuard | null;
   });
+  static resolveQueueMaxConcurrent(): number;
   add(task: any): string;
   addForOwner(task: any, ownerSubject: string): string;
   setOwnerSubjectProvider(provider: (() => string | null | undefined) | null): void;
