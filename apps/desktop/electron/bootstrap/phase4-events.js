@@ -157,7 +157,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           ownerSubject,
         })
         if (!(typeof task.id === 'string' && task.id.trim())) {
-          log.notify('PerformanceLoop', 'tracked-content-no-id', { level: 'WARN', params: { platform: task.platform } })
+          // messageKey 保留 unlinked 语义：phase4-events-tracked-content.test.js 断言
+          // 「缺 id 必须留下未关联的现场」，靠的就是这个关键字（同时也是可读的日志契约）。
+          log.notify('PerformanceLoop', 'tracked-content-unlinked', { level: 'WARN', params: { platform: task.platform } })
         }
       }
     } catch (e) {
