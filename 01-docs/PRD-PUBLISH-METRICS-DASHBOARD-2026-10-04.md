@@ -126,7 +126,7 @@
 | 部分平台不支持回采 | 健康度行如实列出 `unsupported` 计数并点名平台；总量卡片**不因缺数据而补 0 假装完整**（缺就是缺，靠覆盖率表达） |
 | 数据被扫描上限截断 | 面板底部一行小字说明「统计基于最近 N 条作品/快照」 |
 | 刷新 | 跟随页面既有「⟳ 刷新数据」按钮（`refreshSync`），不新增独立按钮，避免两个刷新入口各自拿到不同时刻的数据 |
-| IPC 失败/返回非 0 | 保持上一次成功数据不变 + `ElMessage.error` 走 locale 文案；不得把失败渲染成「0 次互动」 |
+| IPC 失败/返回非 0 | 保持上一次成功数据不变，不得把失败渲染成「0 次互动」。**出声方式按「有没有旧数据可留」分两档**：首帧失败（无数据可留）→ 渲染常驻内联错误行 `perf-flow-error`，**不弹 toast**（内联行更清楚，且带入场动画的瞬时浮层会让 `/dashboard` 在视觉 0 px 判据下不可复现，见 §十 第 10 条）；已有数据时刷新失败（内联分支不出现）→ `ElMessage.error` 走 locale 文案，否则就是静默失败 |
 
 **不接入浮层挂起**（本面板非模态、无遮罩，AGENTS.md 浮层互斥合同只约束模态浮层）。
 
@@ -295,3 +295,6 @@ cd apps/desktop && pnpm vitest run electron/services/performance-overview.test.j
 7. **改了 `/dashboard` 的渲染，就必须同 PR 重建 `dashboard.png` 基线**：Gate 7b（基线新鲜度）判的是「被跟踪基线逐像素 == 本次 CI 渲染」，本 PR 实测漂移 **88116 px / 4.249%**，而像素门禁的 `PIXEL_THRESHOLD=0.06` 是**全页**容差、把这 4.249% 整个吃掉 ⇒ QG Visual 的像素步骤照绿，只有 Gate 7b 看得见。判据域取 views 套件产出的 `screenshots/<name>.png`，**不是**像素套件的 `<name>-current.png`（同一视图的两张图确定但互不相同）。重建一律从**同一次 run** 的 `quality-gate-visual-reports` artifact 取，本机截图不算证据（QM-4 第 7 条）。
 8. 暗色基线是上一条的已知缺口：PR 侧 Gate 7b 带 `--partial`，本次运行没有暗色渲染 ⇒ `dashboard-dark.png` 记为 skipped 不判；但 `visual-test.yml` 的同名门禁**不带** `--partial`，main push 时会判到。本 PR 实测该处暗色漂移 **121569 px / 5.863%**（`来源=pixel-gate`，即 `screenshots/dashboard-dark-current.png`——views 套件不产暗色图，`findRender` 回落到像素套件），已按同一次 dispatch run 的 artifact 重建，重建后 `visual-test.yml` 口径判 41 张 / 违规 0 张（38 张有渲染全 0 px）。**不得**留到合并后由别人的 run 变红。
 9. 顺带量到的一条：同一 head 在 `quality-gate.yml` 与 `visual-test.yml` 两套 workflow 里产出的 `screenshots/dashboard.png` **字节数不同**（197736 vs 196244）但**逐像素相同**（两份判据域各自跑 `check-baseline-freshness.js` 均为 0 违规）。⇒ PNG 编码差异不是不同源，判"基线是否同源"必须用像素比较，不能比哈希或比字节数。
+10. **本面板自己就是 `/dashboard` 不可复现的原因**（2026-10-04 实测，第 7 条重建后 Gate 7b 仍红一次）：浏览器域（视觉 harness）没有 `window.electronAPI` ⇒ `performanceOverview` 走 `invokeWithFallback` 返回 `{code:-1}` ⇒ 首帧取数失败 ⇒ 旧实现既渲染内联错误行**又**弹一个 `ElMessage.error`。取证：两次 CI run 的 `dashboard.png` 差 **487 px / 0.023%**（pixelmatch 口径；逐像素 |ΔRGB|>30 口径 1459 px），包围盒 (864,15)→(1054,53)；再定位 toast 外框 ⇒ **两帧都含该 toast、尺寸 192×38 与命中像素数 7272 完全相同，只差 1 px 纵向偏移**（入场动画被拍到不同进度）。⇒ 差值不是"有没有"，而是"动画拍到哪一帧"，这类元素在 0 px 判据下**永远**不可复现。
+    修法取**产品侧收敛**而不是给 harness 加测试专用开关：首帧失败只留常驻内联行（`perf-flow-error`），toast 只在「已有数据 + 刷新失败」这条内联分支不出现的路上弹。两条锁互为反证（实测：退回无条件弹 ⇒ 第一条红；整条摘掉 ⇒ 第二条红；各 `1 failed | 16 passed`，收尾文件逐字节还原）。
+    连带后果：`/dashboard` 的像素基线要按**修完之后**那次 CI 渲染重建（第 7/8 条流程再走一轮），旧基线里烤着这个 toast。

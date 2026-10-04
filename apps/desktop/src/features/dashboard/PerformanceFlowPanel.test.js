@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
+import { ElMessage } from 'element-plus'
 import i18n from '@/i18n'
 
 vi.mock('@/stores/platforms', () => ({
@@ -198,6 +199,33 @@ describe('PerformanceFlowPanel 空态与失败态', () => {
       .toBe(i18n.global.t('dashboard.metrics.loadFailed'))
     expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(false)
     expect(w.find('[data-testid="perf-flow-empty"]').exists()).toBe(false)
+  })
+
+  // 视觉基线可复现性锁：/dashboard 是被基线跟踪的视图，带入场动画的瞬时浮层会让它在
+  // Gate 7b 的 0 px 判据下永久不可复现（实测两次 CI run 的 toast 尺寸与像素数完全相同、
+  // 只差 1 px 纵向偏移 ⇒ 差出 487 px / 0.023%）。首帧失败已有常驻内联行，toast 属重复信号。
+  it('首次取数失败不得弹 toast：内联错误行是唯一且可复现的信号', async () => {
+    const spy = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({ close () {} }))
+    overviewMock.mockResolvedValue({ code: -1, message: 'boom' })
+    const w = await mountPanel()
+    expect(w.find('[data-testid="perf-flow-error"]').exists()).toBe(true)
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('已有数据时刷新失败仍必须弹 toast：那条路径上内联分支不出现，不弹就是静默失败', async () => {
+    const spy = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({ close () {} }))
+    overviewMock.mockResolvedValue({ code: 0, data: overviewFixture() })
+    const w = await mountPanel({ reloadToken: 0 })
+    expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(true)
+    overviewMock.mockResolvedValue({ code: -1, message: 'boom' })
+    await w.setProps({ reloadToken: 1 })
+    await new Promise(r => setTimeout(r, 0))
+    expect(spy).toHaveBeenCalledTimes(1)
+    // 数据必须留着：把失败刷成一排 0 等于伪造"没人看"
+    expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(true)
+    expect(w.find('[data-testid="perf-flow-error"]').exists()).toBe(false)
+    spy.mockRestore()
   })
 
   it('有作品但全平台不支持回采 → 空态里必须给出归因，不止一句"尚未回采"（FB8 补 T24 第四态）', async () => {

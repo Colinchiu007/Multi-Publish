@@ -210,8 +210,14 @@ async function load () {
       return
     }
     // 取数失败不得把界面刷成 0——保留上一次数据，只出声
-    status.value = overview.value ? 'ready' : 'error'
-    ElMessage.error(t('dashboard.metrics.loadFailed'))
+    const hadData = Boolean(overview.value)
+    status.value = hadData ? 'ready' : 'error'
+    // 首次取数失败**不弹 toast**：那种情况下内联错误行（perf-flow-error）本来就会出现，
+    // 再叠一个带入场动画的瞬时浮层，会让 /dashboard 这一被基线跟踪的视图在 0 px 判据下
+    // 永久不可复现（实测两次 CI run 的同一视图：toast 尺寸/像素数完全相同、只差 1 px 纵向偏移，
+    // 于是差出 487 px / 0.023% —— 见 01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md §十 第 10 条）。
+    // 已有数据时的刷新失败必须弹：那条路径上内联分支不出现，toast 是唯一信号。
+    if (hadData) ElMessage.error(t('dashboard.metrics.loadFailed'))
   } catch (e) {
     // 未登录在真实链路上是**抛错**而不是信封：preload 的权限包装在 invoke 之前就 throw
     // （LicensePermissionError）。只判信封会把「没登录」渲染成「加载失败」（QM-6 后端轴 FB6）。
