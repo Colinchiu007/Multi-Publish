@@ -78,5 +78,10 @@
     "reason": "PR #2824 的登记项随分支提交进入合并，squash 落地后 main 顶层账本无此条（合并链路曾把别条登记误并入本 PR 提交，已按门禁清出）。按「新增未收口行必须带原因登记」补登：回填者＝后续 docs PR，回填时同一次提交删除本条。取证口径：git log origin/main --grep='(#2824)$' --format=%H|%cI；git ls-remote --heads origin publish-history-card-open-link 返回 0 行。",
     "status": "PENDING",
     "line": 24
+  },
+  "本次执行记录：api-publish-engine-w3 波次诚实收口归档（w3-closure，2026-10-04）【docs-only】": {
+    "reason": "W3 收口为纯文档/openspec 变更，PR #2883 合并后回填，取证口径：git log origin/main --grep='(#2883)$' --format=%H|%cI；git ls-remote --heads origin docs/w3-closure 返回 0 行。回填者＝后续 docs PR（本波收口报告同次），回填时同一次提交删除本条。publishMode 回拨 dom-only 属另一运行时代码小波，不在本条范围。",
+    "status": "PENDING",
+    "line": 8525
   }
 }
