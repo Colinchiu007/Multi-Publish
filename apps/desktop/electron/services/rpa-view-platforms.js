@@ -157,6 +157,9 @@ const platformsMixin = {
         }
         await this._sleep(1500); break
       }
+      case 'installToutiaoSaveHook':
+        // 2026-10-03 头条兜底前置：编辑器加载完成即装 XHR hook（捕获自动保存 body 供重放兜底）
+        await require('@multi-publish/rpa-engine/src/toutiao-direct-bridge').installToutiaoSaveHook({ win, log }); break
       default: log.warn('RpaView', 'Unknown hook: ' + hookName)
     }
   },

@@ -115,6 +115,7 @@ import { useTabStore } from '@/stores/tab'
 import { notifySettingsDialogClosed } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
+import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -128,6 +129,9 @@ const { navigation, isHomeTab: isHomeTabFromStore, activeTabId } = storeToRefs(t
 // 因此按 home 壳渲染（隐藏 NavBar、显示模块导航），但不参与主窗口标签系统（见 S4）。
 const isHomeShell = isHomeShellSearch(typeof window !== 'undefined' ? window.location.search : '')
 const isHomeTab = computed(() => isHomeShell || isHomeTabFromStore.value)
+// home-shell 实例的页面标题同步（2026-10-03 Bug 修复）：路由变化 → document.title +
+// IPC 上报主进程，驱动 TabBar 标签标题与 NavBar 地址栏占位符实时跟随当前页面。
+const tabTitleReporter = isHomeShell ? useTabDocumentTitle() : null
 const accountActions = useAccountActions()
 const { t } = useI18n()
 
@@ -283,7 +287,11 @@ async function onCloseTab(tabId) {
 
   async function onCreateTab() {
     // 「+」新标签：内容为应用主页的独立 SPA 实例，与首页固化标签完全解耦（F1/F2）。
-    await tabStore.createTab({ homeShell: true, title: t('tabs.newTabTitle') })
+    // 2026-10-03 Bug 修复：不再传 title——传 title 会置主进程 titleLocked=true，
+    // page-title-updated 从此被忽略，标签标题永远停在「新标签页」。
+    // 初始标题由主进程回退值（'新标签页'，与 tabs.newTabTitle 同语义）承担；
+    // 后续标题跟随 home-shell SPA 上报的 document.title（见 useTabDocumentTitle）。
+    await tabStore.createTab({ homeShell: true })
   }
 
   function onGoBack() {
@@ -345,6 +353,8 @@ function refreshRouteLoad() {
 onMounted(() => {
   licenseStore.load()
   identityStore.load()
+  // home-shell 实例：启动页面标题同步（路由 → document.title → 主进程标签标题）
+  if (tabTitleReporter) tabTitleReporter.start()
   // 内嵌主页实例跳过标签系统初始化与订阅（S4 广播风暴防护）：
   // 它是被标签系统管理的对象，而非管理者，不订阅 tab 事件、不驱动壳态互斥。
   if (!isHomeShell) {
@@ -371,6 +381,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (tabTitleReporter) tabTitleReporter.stop()
   spaNav.dispose()
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null

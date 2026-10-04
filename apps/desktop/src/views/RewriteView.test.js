@@ -701,6 +701,95 @@ describe('RewriteView — hot topics topic query', () => {
   })
 })
 
+// ── 自动改写入口完成后直接定位改写结果区（2026-10-09，PRD-REWRITE-AUTO-JUMP-RESULT）──
+// 判定规则：topic 带入 / from=collection 交接属「自动改写入口」→ 改写成功后视口定位到
+// .rewrite-result-card；手动开始 / titleHint 预填 / 改写失败不滚动。
+// 反证：删掉 startRewrite 成功分支的 focusRewriteResult 调用 → 前两条必须红；
+// 删掉 autoFocusResult 条件（无条件滚动）→ 后三条必须红。
+describe('RewriteView — 自动改写入口完成后定位结果区', () => {
+  let scrollSpy
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+    sessionStorage.clear()
+    scrollSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollSpy
+  })
+
+  /** 刷完自动改写整条 promise 链（onMounted → startRewrite → ensureLogin → aiRewrite → 赋值 → nextTick 滚动） */
+  async function flushRewrite (wrapper) {
+    await nextTick()
+    await nextTick()
+    await new Promise((r) => setTimeout(r, 0))
+    await nextTick()
+    return wrapper
+  }
+
+  it('topic 带入 + 改写成功 → scrollIntoView 定位到改写结果卡片（smooth/start）', async () => {
+    mockRouteQuery.value = { topic: '这是一个足够长的热门选题标题超过二十个字用于测试自动改写触发场景' }
+    const wrapper = factory()
+    await flushRewrite(wrapper)
+    const card = wrapper.find('.rewrite-result-card')
+    expect(card.exists()).toBe(true)
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    // 滚动目标必须是结果卡片本身（mock.instances[0] = scrollIntoView 的 this）
+    expect(scrollSpy.mock.instances[0]).toBe(card.element)
+  })
+
+  it('from=collection 交接 + 改写成功 → 同样定位到改写结果卡片', async () => {
+    mockRouteQuery.value = { from: 'collection' }
+    sessionStorage.setItem('rewrite_handoff_v1', JSON.stringify({
+      content: '从文案库交接过来的正文内容，用于改写。',
+      title: '采集标题',
+      platform: 'douyin',
+      sourceUrl: 'https://example.com/a',
+      fromKey: 'collect:c1',
+      fromTitle: '采集标题',
+    }))
+    const wrapper = factory()
+    await flushRewrite(wrapper)
+    const card = wrapper.find('.rewrite-result-card')
+    expect(card.exists()).toBe(true)
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+    expect(scrollSpy.mock.instances[0]).toBe(card.element)
+  })
+
+  it('无 query 手动改写成功 → 不滚动（用户本就在看着页面）', async () => {
+    const wrapper = factory()
+    await nextTick()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的手动输入文案内容，用于验证手动改写不触发自动滚动。')
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await flushRewrite(wrapper)
+    expect(wrapper.find('.rewrite-result-card').exists()).toBe(true)
+    expect(scrollSpy).not.toHaveBeenCalled()
+  })
+
+  it('titleHint 预填入口手动改写成功 → 不滚动（非自动改写入口）', async () => {
+    mockRouteQuery.value = { titleHint: '爆款参考标题' }
+    const wrapper = factory()
+    await nextTick()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的手动输入文案内容，用于验证 titleHint 入口不自动滚动。')
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await flushRewrite(wrapper)
+    expect(wrapper.find('.rewrite-result-card').exists()).toBe(true)
+    expect(scrollSpy).not.toHaveBeenCalled()
+  })
+
+  it('topic 带入但改写失败 → 不滚动（错误横幅在首屏可见，结果卡片不渲染）', async () => {
+    mockRouteQuery.value = { topic: '这是一个足够长的热门选题标题超过二十个字用于测试自动改写触发场景' }
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockResolvedValueOnce({ code: 0, data: { error: '引擎错误：改写失败' } })
+    const wrapper = factory()
+    await flushRewrite(wrapper)
+    expect(wrapper.find('.rewrite-result-card').exists()).toBe(false)
+    expect(scrollSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe('RewriteView — 策略选择与匹配预览', () => {
   beforeEach(() => {
     vi.clearAllMocks()

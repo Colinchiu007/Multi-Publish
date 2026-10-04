@@ -29,6 +29,15 @@ function createAggregationApi(ipcRenderer) {
     zhihuFavlistBatchCollect: (payload) => ipcRenderer.invoke('zhihu-favlist:batch-collect', payload),
     zhihuFavlistBatchRewrite: (payload) => ipcRenderer.invoke('zhihu-favlist:batch-rewrite', payload),
     zhihuFavlistCancel: (type) => ipcRenderer.invoke('zhihu-favlist:cancel', { type }),
+    // 知乎收藏批量升级（2026-10-03 PRD-ZHIHU-FAV-BATCH）：全部收藏聚合 + 采集并改写编排
+    zhihuFavlistUnifiedContents: (payload) => ipcRenderer.invoke('zhihu-favlist:unified-contents', payload),
+    zhihuFavBatchRun: (payload) => ipcRenderer.invoke('zhihu-fav-batch:run', payload),
+    zhihuFavBatchCancel: () => ipcRenderer.invoke('zhihu-fav-batch:cancel'),
+    onZhihuFavBatchProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress)
+      ipcRenderer.on('zhihu-fav-batch:progress', listener)
+      return () => ipcRenderer.removeListener('zhihu-fav-batch:progress', listener)
+    },
   }
 }
 

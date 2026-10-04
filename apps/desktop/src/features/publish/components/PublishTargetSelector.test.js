@@ -8,6 +8,28 @@ describe('PublishTargetSelector', () => {
     expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索发布平台或账号')
     expect(wrapper.get('.target-selector__list').attributes('role')).toBe('list')
   })
+
+  it('没有可操作分组时不渲染「按组添加」，且 section 的直接子节点仍是改前的两个（视觉中性的 DOM 级证据）', () => {
+    const without = mount(PublishTargetSelector, { props: { groups, accountGroups: [] } })
+    expect(without.find('[data-testid="publish-group-picker"]').exists()).toBe(false)
+
+    // 结构锁断言的是**改前就存在的形态**：section 的直接子节点历来是 [搜索框, 列表]。
+    // 空态下仍必须恰好是这两个，多一个节点就是给 CI 空 profile 制造像素漂移。
+    // ⚠️ 不要退回成 `without.html() === legacy.html()`：那种写法两次挂载跑的是同一份新代码，
+    // 只差"显式传空数组 vs 走默认值"，对本刀声称的"与改前一致"是恒真断言（装饰性门禁）。
+    const children = without.get('section.target-selector').element.children
+    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(['input', 'div'])
+    expect(children[1].className).toBe('target-selector__list')
+  })
+
+  it('accountGroups 会转发为 apply-group（组件不持有选中集）', async () => {
+    const wrapper = mount(PublishTargetSelector, {
+      props: { groups, accountGroups: [{ id: 'g1', name: '主力', applicable: 1, total: 2 }] },
+    })
+    expect(wrapper.find('[data-testid="publish-group-picker"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="group-apply-g1"]').trigger('click')
+    expect(wrapper.emitted('apply-group')).toEqual([['g1']])
+  })
   const groups = [{
     label: '国内平台',
     items: [
