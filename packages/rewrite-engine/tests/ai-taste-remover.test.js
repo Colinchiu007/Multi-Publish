@@ -93,3 +93,82 @@ describe('AITasteRemover 段落结构保留', function() {
     expect(result.endsWith('快')).toBe(true)
   })
 })
+
+// ── 词表注入与强度（ai-taste-ops-center，2026-10-03）──
+// 运营中心词库运营：phraseMap 覆盖层 + disabledWords 禁用表 + severityMap + intensity 参数面。
+// 结构不变量与缺省行为锁（T3）是本 describe 的基石：未注入/空注入必须与现状逐字节一致。
+describe('AITasteRemover 词表注入与强度', function() {
+  test('T1 注入 phraseMap 覆盖内置键（同键覆盖 + 新词生效）', function() {
+    var remover = new AITasteRemover({
+      enabled: true,
+      phraseMap: { '综上所述': '归根结底', '绝对干货': '真材实料' }
+    })
+    var out = remover.process('综上所述，这是绝对干货。')
+    expect(out).toContain('归根结底')
+    expect(out).toContain('真材实料')
+    expect(out).not.toContain('说到底')
+    expect(out).not.toContain('综上所述')
+  })
+
+  test('T2 disabledWords 跳过替换（内置词与注入词均受控）', function() {
+    var remover = new AITasteRemover({
+      enabled: true,
+      disabledWords: ['综上所述', '绝对干货'],
+      phraseMap: { '绝对干货': '真材实料' }
+    })
+    var out = remover.process('综上所述，这是绝对干货。')
+    expect(out).toContain('综上所述')
+    expect(out).toContain('绝对干货')
+    expect(out).not.toContain('归根结底')
+    expect(out).not.toContain('说到底')
+  })
+
+  test('T3 缺省构造行为逐字节不变（回退内置常量锁）', function() {
+    var text = '综上所述，在当今社会，值得注意的是，人工智能正在改变我们的生活。性能很强。续航也很顶。拍照很清晰。'
+    var legacy = new AITasteRemover({ enabled: true, intensity: 2 }).process(text)
+    var emptyInject = new AITasteRemover({ enabled: true, intensity: 2, phraseMap: undefined, disabledWords: undefined, severityMap: undefined }).process(text)
+    var emptyObj = new AITasteRemover({ enabled: true, intensity: 2, phraseMap: {}, disabledWords: [] }).process(text)
+    expect(emptyInject).toBe(legacy)
+    expect(emptyObj).toBe(legacy)
+  })
+
+  test('T4 severityMap 影响评分（S1 词权重高于 S2）', function() {
+    var base = new AITasteRemover({ enabled: true })
+    var withMap = new AITasteRemover({ enabled: true, severityMap: { '绝对干货': 'S1' } })
+    var phraseMap = { '绝对干货': '真材实料' }
+    // 注入自定义词后：severityMap 标 S1 → 分值增量 0.1；无 severityMap → 缺省 S2 → 0.05
+    var low = base.process.bind(base)
+    var levelDefault = new AITasteRemover({ enabled: true, phraseMap: phraseMap }).detectAITasteLevel('这绝对是绝对干货。')
+    var levelS1 = new AITasteRemover({ enabled: true, phraseMap: phraseMap, severityMap: { '绝对干货': 'S1' } }).detectAITasteLevel('这绝对是绝对干货。')
+    expect(levelS1).toBeGreaterThan(levelDefault)
+    expect(low).toBeDefined()
+  })
+
+  test('T5 intensity=1 跳过 Pass 3（等长句保留句号不合并）', function() {
+    var text = '性能很强。续航也很顶。拍照很清晰。充电速度很快。'
+    var i2 = new AITasteRemover({ enabled: true, intensity: 2 }).process(text)
+    var i1 = new AITasteRemover({ enabled: true, intensity: 1 }).process(text)
+    // intensity 2 触发句长合并（等长句变逗号衔接）；intensity 1 不合并
+    expect(i1).toBe(text)
+    expect(i1).not.toBe(i2)
+  })
+
+  test('T6 intensity=3 且 casual 启用口语化', function() {
+    var i3 = new AITasteRemover({ enabled: true, intensity: 3, tone: 'casual' }).process('我们怎么做呢。')
+    expect(i3).toContain('咱')
+    expect(i3).toContain('咋')
+  })
+
+  test('T7 词表遍历键序确定（同输入多次 process 同输出）', function() {
+    var phraseMap = { '甲词': '壹', '乙词': '贰', '丙词': '叁' }
+    var r1 = new AITasteRemover({ enabled: true, phraseMap: phraseMap }).process('甲词和乙词还有丙词。')
+    var r2 = new AITasteRemover({ enabled: true, phraseMap: phraseMap }).process('甲词和乙词还有丙词。')
+    expect(r1).toBe(r2)
+  })
+
+  test('T8 word 大小写不敏感替换（英文条目）', function() {
+    var remover = new AITasteRemover({ enabled: true, phraseMap: { 'Absolutely Great': '真不错' } })
+    var out = remover.process('This is absolutely great stuff.')
+    expect(out).toContain('真不错')
+  })
+})
