@@ -885,3 +885,91 @@ RewriteEngine.rewrite()
 - **回归锁**：段落结构保留 5 例（R1 空行保留 / R2 单换行保留 / R3 单段行为保持 / R4 段尾标点不丢 / R5 无标点不追加）+ 端到端 3 例（P1 多段输出经后处理保留空行 / P2 内置硬约束含分段约束 / P3 三模式指令含分段要求）+ ops-center 种子断言（种子含「空行分隔」）。TDD 先红（5 failed 实跑）后绿（包级 181/181、ops-center 8/8）。
 - **已知边界**：幂等播种按 id 存在即跳过，已部署 ops-center 实例的种子内容不自动升级（运营中心可手动编辑）；口播例外由 LLM 按策略语境判断，保底层结构不变量无例外。
 
+---
+
+## 十五、去 AI 味（AITasteRemover）实现与设置（2026-10-03 补记）
+
+本节回答两个问题：去 AI 味**具体怎么实现**（三 pass 流水线 + 反注入护栏），以及**有哪些设置**（引擎级固定参数 / 策略级开关 / 运营中心级可维护面），以及这些设置目前**对终端用户开放到什么程度**。
+
+### 15.1 定位：去 AI 味是改写引擎的固定后处理，不是独立功能开关
+
+调用位置：`RewriteEngine.rewrite()` 第 6 步 `_postProcess` → LLM 返回结果先送去 AI 味，再做长度截断 → 结构标题剥离。**流程不可跳过**，唯一的作用域开关在策略配置的 `postProcess.removeAITaste`。
+
+```
+LLM 返回原文
+  → Pass 1 杀 AI 词汇（词级替换）
+  → Pass 2 破 AI 结构（开场铺垫移除 + 连接词标点修复）
+  → Pass 3 加人类质感（句长节奏修复；段内重组、换行/标点原样保留）
+  → 反注入护栏（改写后 AI 模式计数 > 原文则整体回滚）
+  → 交给 _postProcess 后续（截断/剥结构标题）
+```
+
+### 15.2 Pass 1：杀 AI 词汇（128 条映射表 + 人类基线保护）
+
+- **词表**：`AI_PHRASE_MAP` 128 条「AI 惯用语 → 人类表达」映射，三级分类：
+  - **S1 AI 标志性结构词**（22 条，单次命中即改）：综上所述→说到底、总而言之→一句话、毋庸置疑→毫无疑问、值得注意的是→有个细节很有意思、随着科技的发展→这些年 等；
+  - **S2 常见 AI 词汇**（密度驱动）：首先→第一、其次→第二、深入分析→细看、至关重要→很关键、核心在于→关键是、提供了有力保障→兜住了底、展现出广阔前景→前景不错 等；
+  - **S3 英文风格偏好**（可选修复）：In conclusion→Bottom line、Moreover→Also、Therefore→So 等。
+- **人类基线保护**：`HUMAN_BASELINE` 表把 6 个人类也常用的中性连接词（此外/然而/与此同时/首先/其次/最后）设为**密度阈值 3**——出现 ≥3 次才触发替换，避免把正常文章改得不像人话（密度驱动，不是无条件替换）。
+- **实现**：`_replaceAIPhrases` 按词构造全局正则（特殊字符转义）做词级替换；替换发生在文本内部，不触碰换行结构。
+
+### 15.3 Pass 2：破 AI 结构
+
+- **禁止开场铺垫**（`FORBIDDEN_OPENING_PATTERNS`，13 条行首正则）：匹配「在当今社会，」「随着…的发展，」「众所周知，」「近年来，」以及 In today's digital age 等 AI 高频开场，命中即整段移除并把首字母大写（英文场景）；S1 级单次命中。
+- **连接词逗号修复**：「但是/而且/然而/因此/所以/同时/此外」后跟逗号的写法（AI 特征）统一去掉逗号。
+- 注：`STRUCTURE_PATTERNS`（33 条，not-x-but-y / 三连排比 / 设问滥用 / 破折号滥用 / 片段行等）在当前版本只用于**检测与评分**（`detect()`/`analyze()`），不参与自动改写——改写动作由 Pass 1/Pass 2/Pass 3 承担。
+
+### 15.4 Pass 3：加人类质感（句长节奏修复，intensity ≥2 启用）
+
+- **检测**：`_detectRhythm` 按终止标点（。！？；!?;）切句测句长，找「3+ 连近似等长句（长度差 ≤20%）」，命中判定节奏过于均匀（AI 文风信号）。
+- **修复**：`_mergeUniformSentences` 在**单个自然段内**把相邻近似等长句合并（前句终止标点改逗号衔接、后句保留原标点、相邻对长度和 <80 字才合并）；合并动作严格限定段内——**换行/分段结构原样保留，终止标点原样保留**（fix-rewrite-paragraph-preserve 修复的结构不变量，见 §十四）。
+- **语气口语化**（intensity 3 且 tone=casual 时）：`COLLOQUIAL_MAP` 6 条（我们→咱、什么→啥、怎么→咋 等）。当前引擎固定 `intensity: 2`，口语化**默认不启用**。
+
+### 15.5 反注入护栏与 AI 味评分
+
+- **反注入护栏**：处理前后各跑一次 `detect()` 模式计数，**改写后计数 > 原文则整体回滚到输入文本**（`_rollbackInjection` 保守策略）——保证去 AI 味永不「越改越 AI」。
+- **AI 味评分**：`detectAITasteLevel()` 按命中模式严重度加权（S1 +0.1 / S2 +0.05 / S3 +0.02，封顶 1.0），随改写结果 `metadata.aiTasteLevel` 返回；改写页结果区显示为「AI味等级：N%」（locale `rewritePage.metaAiTaste`）。
+- **评估语义澄清**：这个分数衡量的是**结果的 AI 痕迹浓度**，与改写质量评估的「改写充分度/语义保持度/原创性」（`RewriteQualityEvaluator`，§13）是两个独立体系——后者评内容质量，前者评文本风格。
+
+### 15.6 设置面：三级结构与现状
+
+| 层级 | 可设置项 | 配置位置 | 现状 |
+|---|---|---|---|
+| **策略级**（唯一作用域开关） | `postProcess.removeAITaste`（true/false） | 运营中心「改写策略」页每条策略的 postProcess JSON（如 `{"removeAITaste":true,"sensitiveCheck":true,"maxLength":2000}`） | 内置 5 套种子策略**全部为 true**；运营中心可对单条策略改 false 或新增关闭项的策略 |
+| **引擎级**（代码固定，无配置面） | intensity=2（口语化不启用）、tone 取策略第一个 tone 值（影响 S3 英文映射与 casual 语气处理） | `rewrite-engine-core.js _postProcess` | 固定，无运行时配置 |
+| **词表/模式级**（代码固定） | AI_PHRASE_MAP 128 条、FORBIDDEN_OPENING 13 条、HUMAN_BASELINE 阈值、COLLOQUIAL_MAP 6 条 | `ai-taste-remover.js` 常量 | 固定，不随运营中心下发 |
+| **终端用户级** | **无**——改写页（/rewrite）没有去 AI 味开关、强度滑杆或词表管理 UI | — | 唯一影响途径是选不同策略（自动推荐或手动指定） |
+
+**结论**：对终端用户，「去 AI 味」当前是**透明运行的固定行为**：无法在改写页关闭或调强度；想关闭只能由运营中心管理员把某条策略的 `postProcess.removeAITaste` 改为 false（该策略下发的改写将跳过整个 AITasteRemover）。
+
+### 15.7 策略级设置的完整传播链
+
+```
+运营中心（:8010）改写策略页（RewriteStrategies.vue）
+  → POST/PUT /api/v1/rewrite-strategies（postProcess 必须是 JSON 对象，校验在 rewrite_strategy_service.validate）
+  → runtime/bootstrap 聚合下发（runtime_service.get_runtime_bootstrap 的 rewrite_strategies 字段，仅 enabled=1 且未删除，按 sort_order 排序）
+  → 桌面端 ops-center-sync 应用（payload.rewrite_strategies → rewriteStrategyManager.applyRemote，REMOTE_KEYS 白名单含 postProcess，字段级自防御 sanitize：类型/长度/格式不符整条跳过）
+  → RewriteEngineService._ensureEngine 把远程策略 merge 进引擎策略管理器（缺席即移除，仿 template-manager）
+  → 改写时 _resolveStrategy 命中该策略 → _postProcess 读 postProcess.removeAITaste 决定是否跑 AITasteRemover
+```
+
+- **策略推荐机制**（改写页的「自动/手动」单选，`RewriteStrategyPicker`）：auto 模式由 `StrategyMatcher` 五维加权打分推荐——行业 30% / 目的 25% / 平台 20% / 风格 15% / 历史评分 10%，取 top3 首位；manual 模式用户新选的策略 ID 原样透传。**推荐分只决定用哪条策略**，去 AI 味行为完全由被命中策略自身的 postProcess 决定。
+- **运行中更新**：运营中心改策略/硬约束后经 sync 下发，`phase1-context.js` 接线了「运行中更新 → 引擎缓存失效」（硬约束审查 M2 同款机制），无需重启应用。
+
+### 15.8 与相邻机制的边界（澄清「改写」一词的多义）
+
+| 机制 | 职责 | 与去 AI 味的关系 |
+|---|---|---|
+| **AITasteRemover（本节）** | 改写结果的**风格后处理**（词汇/结构/节奏去 AI 痕迹） | 同一管线内的下游 |
+| **改写引擎（RewriteEngine）** | 整个改写流程编排（Prompt→LLM→后处理） | 宿主 |
+| **敏感词改写（story2video-image-retry，SensitiveRewriteDemo 页演示）** | 图片提示词被模型拒绝后的**内容安全改写**（模板改写→LLM 升级→自检） | **无关**——是 Story2Video 管线的独立机制，演示页在运营中心，只名称里带「改写」 |
+| **内容质量评估（RewriteQualityEvaluator，§13）** | 结果的内容质量三维评分 | 独立体系，并行运行 |
+| **内容质量 15 维评估（content-quality-eval，运营中心）** | 运营侧的量化评估看板 | 独立体系 |
+
+### 15.9 已知边界与后续增强（登记不落地）
+
+1. 词表/模式/强度为代码常量，调整需发版；若需要运营中心可维护的「去 AI 味词表」（类比改写硬约束 rewrite-hard-constraints 的管理页），需新增种子数据 + 管理页 + 下发字段 + 引擎注入四件套——登记为 P2 增强。
+2. `STRUCTURE_PATTERNS` 33 条结构模式只检测不修复；其中「三连排比」「片段行」等实际是常见 AI 痕迹，若要进入自动修复需设计不破坏语义的改写策略——登记为 P2。
+3. 改写页无「AI 味等级」的阈值提示（如 >30% 显示警示）；该分数已在结果区展示（N%），但无任何分支行为——与 §十一.3「单段检测告警」同属 UX 增强候选。
+4. `intensity` 与 `tone` 由策略字段间接影响（tone 影响语气处理），但策略 UI 未暴露「强度」概念；保持现状，避免把内部参数泄漏为用户配置。
+
