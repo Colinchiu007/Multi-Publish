@@ -75,6 +75,17 @@ class RewriteEngineService {
     this._engine = null
   }
 
+  /**
+   * 设置去 AI 味词库管理器（ai-taste-ops-center，2026-10-03）。
+   * 词库覆盖层/禁用表在引擎构建时一次性注入（setAiTasteCustomization）；
+   * remover 每次改写新建，重建引擎后自然生效。
+   * @param {object} ratm - RewriteAiTasteMapManager 实例
+   */
+  setAiTasteMapManager(ratm) {
+    this._aiTasteMapManager = ratm || null
+    this._engine = null
+  }
+
   _ensureEngine(force) {
     // 首次构建后复用引擎实例，避免每次 rewrite() 重建知识库/评估器
     if (this._engine && !force) return this._engine
@@ -198,6 +209,19 @@ class RewriteEngineService {
         engine.setHardConstraints(this._hardConstraintManager.getContent())
       } catch (e) {
         log.warn("RewriteEngine", "hard constraint inject failed: " + String((e && e.message) || e))
+      }
+    }
+    // 去 AI 味词库注入（ai-taste-ops-center，2026-10-03）：覆盖层/禁用表/严重度表。
+    // 管理器未注入时跳过（引擎回内置词表，行为不变）。
+    if (this._aiTasteMapManager && typeof engine.setAiTasteCustomization === "function") {
+      try {
+        engine.setAiTasteCustomization({
+          phraseMap: this._aiTasteMapManager.getMap(),
+          disabledWords: this._aiTasteMapManager.getDisabled(),
+          severityMap: this._aiTasteMapManager.getSeverityMap(),
+        })
+      } catch (e) {
+        log.warn("RewriteEngine", "ai taste map inject failed: " + String((e && e.message) || e))
       }
     }
     this._engine = engine

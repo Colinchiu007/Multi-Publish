@@ -64,6 +64,7 @@ const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-in
 const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
 const RewriteHardConstraintManager = require('../services/rewrite-hard-constraint-manager');
+const RewriteAiTasteMapManager = require('../services/rewrite-ai-taste-map-manager');
 const RewriteEngineService = require('../services/rewrite-engine');
 const KnowledgeLibraryService = require('../services/knowledge-library-service');
 const AiWriter = require('../services/ai-writer');
@@ -242,10 +243,12 @@ function createContainer(options) {
   container.register("templateManager", function() { return new TemplateManager(); });
   container.register("rewriteStrategyManager", function() { return new RewriteStrategyManager(); });
   container.register("rewriteHardConstraintManager", function() { return new RewriteHardConstraintManager(); });
+  container.register("rewriteAiTasteMapManager", function() { return new RewriteAiTasteMapManager(); });
   container.register("rewriteEngineService", function(c) {
     const svc = new RewriteEngineService({})
     svc.setStrategyManager(c.get("rewriteStrategyManager"))
     svc.setHardConstraintManager(c.get("rewriteHardConstraintManager"))
+    svc.setAiTasteMapManager(c.get("rewriteAiTasteMapManager"))
     svc.setStore(c.get("store"))
     svc.setKnowledgeLibrary(c.get("knowledgeLibraryService"))
     svc.setPerformanceStore(c.get("store"))
