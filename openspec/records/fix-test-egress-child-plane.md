@@ -2,10 +2,6 @@
 record: fix-test-egress-child-plane
 task: 补上 #2783 的另一半——测试期"禁止真实出站"守卫原先只 patch net.Socket.prototype.connect（realm 级），对测试起的 node 子进程结构性无效；新增子进程面并让 Gate 20 要求 setup 同时装两个平面
 date: 2026-10-03
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后取 merge SHA 回填并删除本段三字段）
 ---
 
 ## 本次执行记录：测试期出站守卫的子进程面（fix-test-egress-child-plane，2026-10-03）
@@ -44,7 +40,7 @@ sync_backfill_owner: 下一个会话（合并后取 merge SHA 回填并删除本
 | 14 | ling 命中 | Info | CHANGELOG 与记录里回归跑量口径不一致（424 vs 426 文件） | **已修**：两处统一为同一次实测值（见「消费者并集」行） |
 
 **反证 M14 的额外收获**：我为第 2 条新写的那条"桌面装配锁"第一版是 `toMatch(/installTestChildProcessGuard/)`——把调用注释掉仍留着那行字，锁照绿。M14 实跑 `rc=0` 暴露了它，改成剥注释 + 要求 `setupPath` 后 M14 才按预期变红。**"给防再犯写的锁"自身也要过一遍"把它改成 no-op 必须红"**，这次是驱动替我抓的。
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后取 `git log origin/main --grep='(#NNNN)$'` 的 SHA/时间 + `git ls-remote --heads origin fix-test-egress-child-plane`（期望 0 行，并对 `main` 做正控），回填 PASS 并**同次删除** frontmatter 三个 sync_* 字段 |
+| 远程同步 | PASS | merge SHA `ca64a1ca18a64d16d4ee908f1fd3162346370484`（PR #2854 以 squash 进 main，2026-10-04T07:22:31Z；取证 `gh pr view 2854 --json mergedAt,mergeCommit`）。远端分支已删：`git ls-remote --heads origin fix-test-egress-child-plane main` 只返回 `refs/heads/main` 一行（该分支 0 行，正控 1 行 ⇒ 命令确实取得到东西）。合并前 CI 终态由看守与 `gh pr view` 双源回读：`state=MERGED pending=0 pass=20 fail=0 skip=1`（skip 是 Build & Release 的 release job）。本次回填同时删除 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。 |
 
 ### 遗留（不假装已闭合）
 - **`npm` / `npx` / `pnpm` / `yarn` 这类 node 包装器只登记、不注入**（现场：`render-engine.js:107` 的 `spawn('npm', ['install'], {shell:true})`、`accounts-compile.test.js:119` 的 `execSync('npx vite build')`）。给它们注入的唯一安全面是 `NODE_OPTIONS`，而把 env 注入推广到**所有**子进程会让 Electron 存活测试的 realm 也加载本守卫（`--require` 在 Electron 里语义不确定，正是有意排除的那件事）。终局做法是给 env 注入显式列 npm 系白名单并排除 `electron.exe`，另案。
