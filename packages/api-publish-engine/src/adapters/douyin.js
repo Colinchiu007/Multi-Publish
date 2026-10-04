@@ -9,6 +9,7 @@ const { formatContent } = require("../content-formatter");
 const { errorCode } = require("../error-codes");
 const logger = require("../logger");
 const { DouyinVideoChain } = require("../publish/platforms/douyin-video");
+const { DouyinImageChain } = require("../publish/platforms/douyin-image");
 
 const UA = HttpConfig.userAgent;
 
@@ -35,6 +36,12 @@ class DouyinAdapter extends BasePlatformAdapter {
     return new DouyinVideoChain(Object.assign({ cookie, userAgent: this._ua || UA }, clients || {}));
   }
 
+  // D 方案（publish-throughput-optimization）：图文链构造；_imageChainOverride 供测试注入假链。
+  _imageChain(cookie, clients) {
+    if (this._imageChainOverride) return this._imageChainOverride;
+    return new DouyinImageChain(Object.assign({ cookie, userAgent: this._ua || UA }, clients || {}));
+  }
+
   // buildPostData 委托链模块纯函数（供薄适配器/服务层复用，非主发布路径必经）。
   buildPostData(taskData, uploadResult) {
     return this._chain().buildPostData(taskData, {
@@ -46,15 +53,28 @@ class DouyinAdapter extends BasePlatformAdapter {
 
   // 抖音链为单体 run()（csrf→auth→upload→cover→create_v2 内部编排），
   // 故 override execute 直接委托链，保留 base 的 dryRun/错误归一契约。
+  // D 方案：图文任务（images 非空且无 video）走 DouyinImageChain；视频任务走原视频链；
+  // 两者皆缺 fail-closed（错误信息显式列出两种可接受的媒体形状）。
   async execute(taskData, cookie, opts) {
     opts = opts || {};
     if (opts.dryRun) return { success: true, dryRun: true, platform: "douyin" };
     if (!cookie) return { success: false, error: "douyin: 账号信息缺失，请重新授权此账号再试", code: errorCode.data_error, platform: "douyin" };
-    if (!taskData || !taskData.video || !taskData.video.path) {
-      return { success: false, error: "douyin: taskData.video.path required", code: errorCode.data_error, platform: "douyin" };
+    const hasVideo = Boolean(taskData && taskData.video && taskData.video.path);
+    const hasImages = Boolean(taskData && Array.isArray(taskData.images) && taskData.images.length > 0);
+    if (!hasVideo && !hasImages) {
+      return { success: false, error: "douyin: taskData requires images or video.path", code: errorCode.data_error, platform: "douyin" };
     }
     const td = formatContent(this.name, taskData);
     try {
+      if (hasImages && !hasVideo) {
+        // 图文 API 链：API 失败由上层（rpa-view-manager fallback）自动回退 RPA 图文链
+        const chain = this._imageChain(cookie, opts.clients);
+        const r = await chain.run(td, opts);
+        if (r && typeof r === "object" && !r.platform) r.platform = "douyin";
+        if (r && !r.success && r.code === undefined) r.code = errorCode.request_error;
+        if (r && r.success && r.code === undefined) r.code = errorCode.success;
+        return r;
+      }
       const chain = this._chain(cookie, opts.clients);
       const r = await chain.run(td, opts);
       if (r && typeof r === "object" && !r.platform) r.platform = "douyin";
