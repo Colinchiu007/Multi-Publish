@@ -1,3 +1,10 @@
+# [未发布] fix(ops-center): 追平 weibo 平台种子与回落快照对齐注册表 10000（2026-10-03，fix-weibo-seed-registry-align）
+
+### 根因
+- #2766（微博 contentMax 放宽至 10000，用户确认）只更新了 packages/shared-utils/src/publish-capabilities.json 注册表，漏同步 ops-center 侧两处快照：platform_def_service.py 的 _SEED_FALLBACK_LIMITS.weibo.contentMax 与 SEED_DEFS weibo 行默认值。test_platform_def_seed_limits.py::test_seed_defs_match_registry 漂移即红（种子 5000 ≠ 注册表 10000），该红自 #2766 合并后存在于 main，#2842 CI 红即此因。
+
+### 修复
+- 两处快照同步为 10000（回落快照 + SEED_DEFS 默认值双兜底对齐）；test_platform_def_seed_limits 4/4 绿。PRD 索引与文档链见 01-docs/PRD.md 功能文档条目（同 PR 登记）。
 # [未发布] fix(desktop): 新标签页标题与地址栏占位跟随页面内容（2026-10-03，fix-tab-title-url-placeholder）
 
 ### 根因（QM-5 五步取证）
