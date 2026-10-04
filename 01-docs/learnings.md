@@ -17315,3 +17315,12 @@ DOM 流程失败(verification timeout) →
 - **契约变更纪律**：`usePublishDrafts.saveDraft` boolean→`{ok,draftId}` 前全仓核实消费点（唯一消费方在本 PR 内），失败路径返回 `{ok:false,draftId:null}` 恒对象；`draftSave` 的 `data.draftId` 是创作视频跳转的 id 真源（主进程内容指纹幂等返回既有 id）。
 - **回写分治**：rewrite 按 fromKey 覆盖 / collect 以 `collect:<id>` 写改写库 / video 不回写（story2video 项目渲染层无写通道）/ draft 走草稿箱幂等。回写恒旁路（try/catch 静默）。
 - **工具坑（本会话实证）**：`[IO.File]::WriteAllText` 写平台行尾（CRLF），改 LF 文件必须先 `.Replace("\r\n","\n")`，否则 git diff 假红 7000+ 行（双口径 `git diff --numstat` vs `--ignore-cr-at-eol --numstat` 对账）；ESM 模块私有常量被测试 import 得 `undefined` 不报错，`getItem(undefined)` 恒 null——测试断言存储状态的常量必须 export；标识符争议以 vitest/node 直跑 + 码点对比为裁决，不信显示层。
+
+
+## 请求头逐字对齐仍被 400 拒绝 ⇒ 根因在传输层指纹，别再在 Node 侧修 header（api-publish-engine-w3 6.3 定案，2026-09-29）
+
+- **事故**：快手九步链 `upload/complete` 恒定裸 400（无响应体、缺 `X-KSLOGID`/CORS 头 = 边缘级拒绝，业务层根本没看到请求）。前 10 轮全在 Node 侧修：形状翻译、签名注册表、双模块实例、sessionKey、cookie 装配、Content-Type（axios 对空字符串 body 默认注入 form-urlencoded，是第 ⑦ 层真缺陷，#2612→#2653 四轮才收敛）。第 11 轮把请求头与真实浏览器**逐字节对齐**后仍被拒 ⇒ 前 10 轮的假设（「再对齐一项就能过」）整体作废。
+- **定案**：拒绝判据在传输层——TLS 指纹 / HTTP 版本 / QUIC。Node axios = OpenSSL + HTTP/1.1，复刻不出 Chrome = BoringSSL + HTTP/2-3 的握手指纹；这类差异**不在任何 header 里**，因此 header 对账法对它天然失效。裁决 not-go，DOM 轨（11/11 成功）为当前正确架构。
+- **可复用判据**：平台侧 4xx 且响应体为空/无业务错误码时，先做「header 逐字对齐终验」这一刀——**一次到位**而不是再猜下一项。若对齐后仍拒，根因几乎必在传输层/指纹层，继续修 Node 侧是纯烧钱（本案烧了 11 轮 + 13 个 PR）。
+- **对照经验**：同一批平台里走通的是「借浏览器发请求」（头条 direct bridge 在受信会话内捕获并重放保存请求，见 toutiao-shipped-react-bump 条目）——即 API 轨可行的形态是「浏览器传输 + Node 编排」，不是「Node 直连 + 复刻 header」。后续若要重启快手 API 轨，必须走受信会话内 fetch 并重新活体验收。
+- **收口纪律**：契约层规格成立 ≠ 能力可用。归档前给主规格补「实况补记」，未实现能力（小红书 x-s/x-t）一律不得折进主规格，只留「止步裁决记录」条款并写死重启前置。

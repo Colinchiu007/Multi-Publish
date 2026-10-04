@@ -1,3 +1,14 @@
+# [未发布] docs(收口): api-publish-engine-w3 波次归档——6.3 活体裁决 not-go 定案，未实现能力不折主规格（w3-closure，2026-10-04）
+
+### 做了什么
+- openspec change `api-publish-engine-w3` 经 `validate --strict` 后归档为 `2026-10-04-api-publish-engine-w3`，10 条 Requirement 折入主规格（api-publish-chain / api-publish-kuaishou-chain / api-publish-xiaohongshu-chain / api-publish-signer-page）。
+- spec delta 纠偏：小红书「x-s/x-t 签名页求签」「Adapter 双轨翻转」两条**未实现、未验收**的能力从 delta 剔除，主规格只保留「前置取证硬门槛」+「止步裁决记录（2026-09-26）」两条，重启须以新立 change 双前置为条件；快手 R1/R3 补「实况补记」——契约层成立但活体定案 API 轨当前不可用，本要求不构成「快手可经 API 轨发布成功」的证据。
+- tasks.md 裁决式登记：3.3/5.1/5.2/6.1/6.2/6.3 以带理由、带日期的 [x]+勾选口径注记收口（不做的事记为裁决而非留白）；6.1 QM-1 经 kuaishou-w3-live-fix 归档 tasks 3.2 三件套证实闭环；6.2 销账列出本波全部 PR（#2377/#2388/#2413/#2424/#2432 及活体修复/收敛/定案链至 #2669）。
+- PRD §13.6 新增「活体裁决与定案」节：用户在场 11 轮活体、八层缺陷逐层收敛、`upload/complete` 裸 400 根因定案在传输层（TLS 指纹/HTTP 版本/QUIC，Node axios 无法复刻 Chrome 栈），DOM 轨 11/11 兜底成功；techdoc v2 §2/§4.2/§11 同步终裁口径。
+
+### 遗留（不假装闭合）
+- kuaishou `publishMode: api-then-dom` 自 6.3 定案后成为空转开关（每次必败一轮 API 尝试后降级 DOM，与 dom-only 等效但多一次失败）。是否回拨 dom-only 属收口待决项——运行时代码配置变更，须新隔离 worktree 小波 + publish-mode-config 回归，不随本纯文档 PR 处理。
+- API 轨后续路径「借浏览器传输」（受信会话内 fetch）未立项。
 # [未发布] feat(publish): 发布吞吐优化——去固定等待 + 通道调度 + 窗口池 + 抖音图文 API 链（2026-10-04，publish-throughput-optimization）
 
 > 用户场景：发布 1 个图文到抖音进度面板「排队中」、整链慢。三层慢因取证（文件:行号）与四方案设计、数据校验、取证状态表详见 `01-docs/PRD-PUBLISH-THROUGHPUT-OPTIMIZATION-2026-10-04.md`；OpenSpec 工件见 `openspec/changes/publish-throughput-optimization/`。

@@ -52,7 +52,7 @@
 
 | # | 功能 | 验收标准 | 状态（2026-09-26 W3 回写） |
 |---|------|----------|------|
-| F12 | 签名页基建 + 快手 spike | webpack 模块抽取 + 网络拦截双验证；spike 三步（抽取/比对/活体直发）任一失败即止步，快手保持 dom-rpa | **✅ W3 已交付（2026-09-26，PR #2413/#2388/#2424）**：基建（signer-page-manager + 抽取器 + 拦截双验证 + 白名单 IPC + preload 桥 + locales 成对）已入 main；**M3 裁决 = GO**（S0 公式探针 INCONCLUSIVE→本地签名器路线作废；S2a 静态侦察 Tier-A 方向成立；S2b 活体终判 **Tier-A GO**——页面自带 `$encode` VM 为我方独立构造请求产出的 sig3 被平台接受）。快手链已按 `api-then-dom` 入波（九步链 + caption 合同 + 109/非 JSON 语义），契约面 258 测全绿。**S3 真实直发（三步中的第三步）未单独执行，语义并入 §8 活体验收**，详见 `rpa-api-publish/evidence/api-w3-kuaishou/spike-verdict.md` |
+| F12 | 签名页基建 + 快手 spike | webpack 模块抽取 + 网络拦截双验证；spike 三步（抽取/比对/活体直发）任一失败即止步，快手保持 dom-rpa | **✅ W3 已交付（2026-09-26，PR #2413/#2388/#2424）**：基建（signer-page-manager + 抽取器 + 拦截双验证 + 白名单 IPC + preload 桥 + locales 成对）已入 main；**M3 裁决 = GO**（S0 公式探针 INCONCLUSIVE→本地签名器路线作废；S2a 静态侦察 Tier-A 方向成立；S2b 活体终判 **Tier-A GO**——页面自带 `$encode` VM 为我方独立构造请求产出的 sig3 被平台接受）。快手链已按 `api-then-dom` 入波（九步链 + caption 合同 + 109/非 JSON 语义），契约面 258 测全绿。**S3 真实直发（三步中的第三步）未单独执行，语义并入 §8 活体验收**，详见 `rpa-api-publish/evidence/api-w3-kuaishou/spike-verdict.md`。**⚠️ 2026-09-29 活体终裁（tasks 6.3）= not-go**：M3 的 GO 仅代表签名层可通；11 轮活体中真实链推进到 `upload/complete` 即被平台边缘层裸 400 拒绝（第 11 轮请求头与真实浏览器逐字一致仍被拒，根因收敛到传输层 TLS 指纹/HTTP 协议版本），**API 轨对快手当前不可用、DOM 轨为正确架构**（11/11 轮 DOM 兜底发布成功）。取证见 `rpa-api-publish/evidence/api-w3-kuaishou/api-track-verdict-8layers-network-forensics-20260929.md`，详 §13.6 |
 | F13 | 小红书 API 发布 | 仅当 F12 签名基建验证通过 | **⏸ 止步（未入本波）**：F12 基建虽 GO，但小红书专属前置未满足——`x-s/x-t` 在参考产品 bundle 中经 `getNewSign` 走**外包签名服务**（与快手共用同一服务），无反推本地公式的已知路径，旧 `getXiaohongshuSign` 属未验证近似；**页面内是否存在可抽取的 x-s 签名器尚未经一次快手同型 spike 验证**（Tier-B 待验证）。`xiaohongshu.x-s` 注册表 provider 槽已预留可被签名页基建服务，链实现待该 spike 通过后再启。详见技术方案 v2 §6 止步裁决 |
 | F14 | 头条号文章 | W4 前置取证其链无外包签名，否则并入签名页契约或止步 | ⏳ 未启动（W4） |
 | F15 | 知乎视频+文章 | 复用 zhihuPublishVideo@2119327 / publishZhihuArticle@2106013 链；W4 前置取证自包含性 | ⏳ 未启动（W4） |
@@ -140,7 +140,7 @@
 | M0（已达成） | 逆向取证 + 21 问设计锁定 + 技术方案 v2 | 本文档 §1-§8 齐备 |
 | M1 | W1 上线：F1-F10 全绿 + 3 平台活体证据 | §8 流程走完 |
 | M2 | W2 抖音裁决：通过或回退（二选一，有记录） | F11 判据 |
-| M3 | W3 spike 裁决（止损阀）**已达成 2026-09-26：GO** | F12 三步判据——S0 INCONCLUSIVE / S2a 方向成立 / S2b Tier-A GO；S3 真实直发待活体验收（不阻塞开发） |
+| M3 | W3 spike 裁决（止损阀）**2026-09-26 spike GO → 2026-09-29 活体终裁 not-go（定案）** | F12 三步判据——S0 INCONCLUSIVE / S2a 方向成立 / S2b Tier-A GO；S3 并入 6.3 活体裁决，结果 not-go：签名可通 ≠ API 轨可用，`upload/complete` 协议层被边缘拒绝（详 §13.6） |
 | M4 | W4 长尾 + DOM 退役评估开始 | F14/F15 + §6.4；前置：F13 小红书需一次页面内 x-s 可抽取性 spike 才能解锁 |
 
 ## 10. 风险登记
@@ -933,7 +933,28 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - 新增三测登记 `scripts/run-tests.js` VITEST_FILES：`kuaishou-video-chain.test.js`（链 19 测：全链序列 method/URL/headers/body 逐字段对照切片 + fail-closed 面）、`kuaishou-adapter.test.js`（委托断言）、`kuaishou-legacy-chain-gate.test.js`（grep 门禁）。
 - 基建侧：`browser-page-provider.test.js`（引擎）+ `signer-page-manager.test.js`/`signer-assembly.test.js`（桌面 2 files / 37 测）。
 - **W3 收口门禁复验（2026-09-26，origin/main `f71343a82d`）**：引擎 `run-tests.js` EXIT=0，**31 files / 258 tests 全绿**；Gate12 品牌残留 PASS（6201 tracked 文件）/ Gate3 密钥 PASS / Gate7 成对+键存在 PASS；`openspec validate api-publish-engine-w3 --strict` valid。
-- 未完成的收口项（诚实登记，不得视为已验）：**QM-1 最终包验证**与 **6.3 活体裁决验收**（真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套）同属需用户在场的下一波；W1 §7.5-7.7 / W2 §6.2-6.4 为同形态尾债，建议一次真实账号窗口三波合并验收。
+- 收口更新（2026-10-04）：**QM-1 最终包验证**已随 kuaishou-w3-live-fix 波闭环（归档 tasks 3.2：`pnpm run build:dir` 重打，asar 含 dist/index.html + auth-partition.js、require 链通过、exe 存活 stderr 零输出）；**6.3 活体裁决验收**已于 2026-09-28/29 用户在场完成，结果 **not-go 定案**（详 §13.6），验收事实=11 轮活体 + 网络级取证本身，不再存在「等补活体通过」尾债；W1 §7.5-7.7 / W2 §6.2-6.4 尾债仅剩「API 轨真实成功发布」一项，快手已由 not-go 出局。
+
+### 13.6 活体裁决与定案（tasks 6.3，2026-09-28/29，用户在场 11 轮）
+
+**裁决：not-go（定案）——API 轨对快手当前不可用，DOM 轨为正确架构。**
+
+11 轮活体（真实标题、私密/草稿优先、间隔均 ≥18min、CDP 代操作、风控即停未换号）逐轮暴露并修复八层缺陷：
+
+| 层 | 缺陷 | 收敛 | PR |
+|---|------|------|----|
+| ① | 形状翻译：RpaView API-first 裸传 article，链契约要 `taskData.video.path` | 共享翻译器 `api-task-data.js` | #2578 |
+| ②③ | 链缺省不走注册表 + registry 命令名不匹配 | `_sign` 回退 `registry.sign` + 按注册名透传 | #2580 |
+| ④ | provider require 解析到门面（双模块陷阱，注册日志假绿） | 直指 `src/signer/index` | #2582 |
+| ⑤⑥ | sessionKey 未下传 + `bindSignerCookie` 零调用方 | opts 携带 accountId + API-first 分支求签前预绑 | #2585 |
+| ⑦ | `upload/complete` 裸 400（无响应体、缺 `X-KSLOGID`/CORS 头=边缘级拒绝） | 四轮头部级收敛：Content-Type/Accept（#2612）→ **axios 对 `data:''` 默认注入 form-urlencoded** 根因移除（#2621）→ 上传域无 Cookie+短 Referer（#2630）→ sec-ch-ua×3+捕获 UA（#2653）；**第 11 轮逐字对齐终验仍 400** ⇒ 差异在连接/协议层（TLS 指纹/HTTP 版本/QUIC，Node axios=OpenSSL+HTTP/1.1 无法复刻 Chrome=BoringSSL+HTTP/2-3） | #2594/#2616/#2619 诊断链 |
+| ⑧ | 登录门拦截（第 10 轮 `signed_out`） | 产品决策非缺陷；重启后身份自动恢复 `authenticated`，不构成阻塞 | — |
+
+- **每轮 DOM 轨兜底发布成功**（11/11），末条作品 `3xxqqt4k9xnspcy`；网络级取证捕获真实浏览器 42 条请求原文入档。
+- **与 M3 裁决的关系**：spike GO（S2b 签名层）≠ 平台接受我方 Node 侧独立构造的**上传链请求**；止损阀语义在集成验收层迟到触发，链代码已合并（事实不可逆），design §6「no-go 即止步」以本定案补齐。
+- **收口待决项**：`publishMode: api-then-dom` 现为空转开关（每次必败后降级 DOM，与 dom-only 等效但多一次必败尝试），是否回拨 `dom-only` 待用户裁决（属运行时代码配置变更，须隔离 worktree 小波 + 回归）。
+- **后续路径**（如需继续 API 轨）：① 不再投入头部级取证（已穷尽）；② 改「借浏览器传输」（受信会话内 `fetch` 发上传域请求，用浏览器 TLS/HTTP2-3 栈）；③ DOM 轨保持快手默认。复跑脚本入口见证据文档「终局与后续」节。
+- 全档：`evidence/api-w3-kuaishou/api-track-verdict-8layers-network-forensics-20260929.md`。
 
 ---
 
@@ -941,6 +962,6 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
 |------|------|------|--------|------|------|------|------|
-| W3 | 快手（api-then-dom） | 2026-09-26 | — 待活体 | — | — | 未测 | **链契约 258 测全绿 + M3 裁决 GO**；S3 真实直发与活体回查**未执行**（需用户在场，见 §13.5） |
+| W3 | 快手 | 2026-09-28/29 | API 轨无产物（`upload/complete` 裸 400）；DOM 轨兜底 11 条，末条 `3xxqqt4k9xnspcy` | cp.kuaishou.com 作品管理（回查截图入证据档） | `evidence/api-w3-kuaishou/`（11 轮日志 + 真实浏览器 42 条网络原文） | **是（11/11 轮降级 DOM 成功）** | **6.3 活体裁决 not-go（定案）**：契约 258 测全绿 ≠ 平台接受；传输层根因，API 轨快手当前不可用（§13.6） |
 | W1/W2 | 视频号/B站/百家号/抖音 | — | — | — | — | 未测 | 活体验收与 M2 裁决回查仍开放（W1 §7.5-7.7 / W2 §6.2-6.4） |
 | — | （旧占位：W1 验收后回写） | | | | | | |
