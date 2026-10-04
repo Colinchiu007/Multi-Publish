@@ -1,3 +1,23 @@
+# [未发布] docs(评估): deps.inline:[electron] 不摘——"摘掉它就能根治 #2794"这句写进 main 的推测被两分钟 A/B 否证（evaluate-deps-inline-electron，2026-10-04）
+
+### 为什么要评估
+- `#2797` 的执行记录把"摘掉 `apps/desktop/vitest.config.js` 的 `deps.inline:['electron']`"登记为未评估项（FA A2），并附了一句因果：**摘掉后 banner 根本不会进该 realm 的 logs**。#2864 落地的 `docs/blanket-fs-mock-ratchet.md` 把这句复述成"摘掉它会让这条链从根上消失"，于是**两个会话各写一次、谁都没实测过**的推测在仓库里互相引用为据。
+- 这行配置自 `f3be64a8e`（2026-07-05「Phase 3+4: Electron 测试」）就在，提交信息没写原因。
+
+### 实测（同一支探针跑两种配置）
+- 探针形状 = 现场最坏情况：blanket 谎报 `fs` + **不**启用 electron mock + `require('electron')`。两种配置（`inline:['electron','axios']` 与 `inline:['axios']`）**都打印** `Downloading Electron binary…`，并抛出**逐字相同**的 `Electron failed to install correctly…` ⇒ **`electron/index.js` 进不进测试 realm 不由这个开关决定**：本仓桌面测试是 `jsdom` 下的 CJS 混合加载，被测服务模块 `require('electron')` 走的是 `Module._load` 那条路（与 `test-setup.js` 的 `__registerMock` 同一层），vite 的 inline/external 分流管不到它。
+- 规模判据：桌面全量 `vitest run` 在摘掉 inline 后 = `1 failed / 734 passed / 1 skipped`（736 文件 / 13492 例，1151s），唯一红是既知的 `feedback.test.js` Windows symlink `EPERM`，与保留 inline 时同一格 ⇒ 摘它**既不断链也不带来可测收益**。
+- 诚实标注边界：三条模块身份探针（`vi.doMock` 后的 `app` 可见性 / 未 mock 时 `import('electron')` 的形状 / `__registerMock('electron',…)` 是否命中）两配置**输出逐项相同**，但其中 P1/P2 这种"动态 import + 运行期 doMock"组合本身对该开关**不敏感** ⇒ 它们只能作否证使用（没出现"配置一变行为就变"），**不得**被下一个会话当成"inline 对 `vi.mock` 也无影响"的正面证据；要主张那条需换判据（让 `vi.mock('electron')` 返回可断言哨兵，再看哨兵是否还在），本文写明未跑。
+
+### 处置
+- **不摘**，且 `vitest.config.js` 一行未动（`git diff --exit-code origin/main -- apps/desktop/vitest.config.js` 为空）。第三条理由不是"怕改"：`KNOWN_BLANKET` 12 条"本文件为什么安全"的理由全是在现状配置下逐文件核对出来的（如"`vi.mock('electron')` 已被提升到文件体之前 ⇒ 真 `index.js` 不进本 realm"），换加载分流方式等于要求那 12 条重新核对，而收益是 0。
+- 新增 `docs/deps-inline-electron-evaluation.md`：结论、两分钟可重跑的三条命令、P1/P2/P3 证据的**适用范围边界**、以及刻意不入库探针的理由。
+- 纠正八处同源复述：`docs/blanket-fs-mock-ratchet.md` §1 与 §8、`scripts/check-blanket-fs-mock.js` 头部注释与 `READ_VERBS` 取舍段 ⇒ 不留"改一行配置就有退路"的错觉。**唯一控制点仍是夹具形状本身**。历史快照 `openspec/records/fix-electron-dist-banner-attribution.md` 不改写（记忆是历史事实），由新文档指认其因果方向已被否证。
+ 带进真 electron 入口"）。
+并对**修复前**文本做过正控（必须命中）。本轮实跑：10 处提及、违规 0、正控命中 = true。
+而我那句"行尾与 diff 对账 PASS"当时是照抄期望——真读过一次生成的文件就该第一眼看见。已随本次 follow-up 修复合回。
+- 未做（写进遗留不假装闭合）：这行当初的动机未考古；`axios` 那一半未评估（mock 面与 electron 不同形，不能套用本文结论）；`vi.mock` 适用域的正向判别未跑。
+
 # [未发布] feat(desktop): 数据看板接上作品互动回流，并撤掉页面上写死的假百分比（publish-metrics-dashboard）
 
 ### 根因
