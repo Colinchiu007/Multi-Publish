@@ -12,6 +12,12 @@
       {{ t('dashboard.metrics.loginRequired') }}
     </p>
 
+    <!-- 首次取数失败：必须有出口。此前 error 态没有对应分支，界面只剩一张带标题的空卡，
+         用户无从区分「没数据」和「没拿到数据」 -->
+    <p v-else-if="status === 'error' && !overview" class="perf-flow-empty" data-testid="perf-flow-error">
+      {{ t('dashboard.metrics.loadFailed') }}
+    </p>
+
     <template v-else-if="overview">
       <p v-if="isEmpty" class="perf-flow-empty" data-testid="perf-flow-empty">
         <strong>{{ t('dashboard.metrics.emptyTitle') }}</strong>

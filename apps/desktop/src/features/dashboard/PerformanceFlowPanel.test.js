@@ -191,6 +191,15 @@ describe('PerformanceFlowPanel 空态与失败态', () => {
     expect(w.find('[data-testid="perf-flow-empty"]').exists()).toBe(false)
   })
 
+  it('首次取数失败必须有可见出口（此前 error 态没有模板分支，只剩一张带标题的空卡）', async () => {
+    overviewMock.mockResolvedValue({ code: -1, message: 'boom' })
+    const w = await mountPanel()
+    expect(w.get('[data-testid="perf-flow-error"]').text())
+      .toBe(i18n.global.t('dashboard.metrics.loadFailed'))
+    expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(false)
+    expect(w.find('[data-testid="perf-flow-empty"]').exists()).toBe(false)
+  })
+
   it('取数失败但已有数据 → 保留上一次数字，不得刷成 0', async () => {
     overviewMock.mockResolvedValue({ code: 0, data: overviewFixture() })
     const w = await mountPanel()
