@@ -248,3 +248,93 @@ describe('performance-overview — 截断与平台排序', () => {
     expect(r.byPlatform.map(p => p.platform)).toEqual(['xiaohongshu', 'bilibili', 'zhihu'])
   })
 })
+
+/**
+ * QM-6 后端轴 FB1/FB2/FB4/FB8 的追加判据。
+ * 这一组存在的原因是「按字符串字典序当时间序」在界面上完全正常：
+ * epoch 数字串与带时区偏移的串都混得进去，只有按解析后的时刻比才排得对。
+ */
+describe('performance-overview — 时刻格式与重复主键（FB1/FB2/FB4/FB8）', () => {
+  it('T27 epoch 毫秒数字串与 ISO 混排时按真实时刻取最新（FB1）', () => {
+    // 两个方向都要测：只测"ISO 赢"的话，把 epoch 串判成不可解析（等于永远不赢）也能通过
+    const rNewer = build({
+      trackedRows: [tracked('c1')],
+      snapshotRows: [
+        snap('c1', { likes: 50 }, '2026-10-02T00:00:00.000Z'),
+        snap('c1', { likes: 99 }, '1791072000000'), // = 2026-10-04T08:00:00Z，比上一份新
+      ],
+    })
+    expect(rNewer.totals.likes).toBe(99)
+    expect(rNewer.health.lastCapturedAt).toBe('1791072000000')
+
+    const rOlder = build({
+      trackedRows: [tracked('c2')],
+      snapshotRows: [
+        snap('c2', { likes: 50 }, '2026-10-02T00:00:00.000Z'),
+        snap('c2', { likes: 7 }, '1728000000000'), // = 2024-10-04，比上一份旧
+      ],
+    })
+    expect(rOlder.totals.likes).toBe(50)
+    expect(rOlder.health.lastCapturedAt).toBe('2026-10-02T00:00:00.000Z')
+  })
+
+  it('T28 带时区偏移的采集时间按 UTC 日分桶，不是按字符串前 10 位（FB1）', () => {
+    const r = build({
+      windowDays: 14,
+      nowMs: Date.parse('2026-10-04T00:00:00.000Z'),
+      trackedRows: [tracked('c1')],
+      // 08:00+08:00 的真实时刻是前一天 00:00 UTC
+      snapshotRows: [snap('c1', { likes: 6 }, '2026-10-03T08:00:00+08:00')],
+    })
+    expect(r.trend.find(d => d.date === '2026-10-03').interactions).toBe(6)
+    expect(r.trend.find(d => d.date === '2026-10-04').interactions).toBe(0)
+    expect(r.diagnostics.droppedUndated).toBe(0)
+  })
+
+  it('T29 回落后再涨回：中间那份当基线，量不会被计两次，回落只计数一次（FB2）', () => {
+    const r = build({
+      windowDays: 14,
+      nowMs: Date.parse('2026-10-04T00:00:00.000Z'),
+      trackedRows: [tracked('c1')],
+      snapshotRows: [
+        snap('c1', { likes: 10 }, '2026-10-01T00:00:00.000Z'),
+        snap('c1', { likes: 4 }, '2026-10-02T00:00:00.000Z'),
+        snap('c1', { likes: 12 }, '2026-10-03T00:00:00.000Z'),
+      ],
+    })
+    const byDate = date => r.trend.find(d => d.date === date).interactions
+    expect(byDate('2026-10-01')).toBe(10)
+    expect(byDate('2026-10-02')).toBe(0)
+    expect(byDate('2026-10-03')).toBe(8)
+    expect(r.totals.likes).toBe(12)
+    expect(r.diagnostics.retreats).toBe(1)
+  })
+
+  it('T30 入参倒序（快照由新到旧）也必须算出同样的最新值与日增（FB4 截断保留最新时的形态）', () => {
+    const rows = [
+      snap('c1', { likes: 1 }, '2026-10-01T00:00:00.000Z'),
+      snap('c1', { likes: 6 }, '2026-10-02T00:00:00.000Z'),
+    ].reverse()
+    const r = build({
+      windowDays: 14,
+      nowMs: Date.parse('2026-10-04T00:00:00.000Z'),
+      trackedRows: [tracked('c1')],
+      snapshotRows: rows,
+    })
+    expect(r.totals.likes).toBe(6)
+    expect(r.trend.find(d => d.date === '2026-10-01').interactions).toBe(1)
+    expect(r.trend.find(d => d.date === '2026-10-02').interactions).toBe(5)
+  })
+
+  it('T31 重复主键的作品行整行跳过并计数，不让第一行的平台代表全部快照（FB8）', () => {
+    const r = build({
+      trackedRows: [tracked('c1', 'zhihu'), { id: 'c1', platform: 'bilibili', recrawl_status: 'unsupported' }],
+      snapshotRows: [snap('c1', { likes: 3 })],
+    })
+    expect(r.health.trackedTotal).toBe(1)
+    expect(r.diagnostics.duplicateTrackedRows).toBe(1)
+    // 状态计数也不给重复行留位子（否则 byStatus 之和 > trackedTotal）
+    expect(r.health.byStatus.unsupported).toBe(0)
+    expect(r.byPlatform.map(p => p.platform)).toEqual(['zhihu'])
+  })
+})

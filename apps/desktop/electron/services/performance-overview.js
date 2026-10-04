@@ -34,11 +34,30 @@ function readMetric (raw) {
   return { value: Math.floor(n), invalid: false }
 }
 
-/** V3/V9：日期键只在形如 YYYY-MM-DD 时可用，其余（含空串）返回 null 交给调用方计数 */
-function dateKeyOf (capturedAt) {
-  if (typeof capturedAt !== 'string') return null
-  const head = capturedAt.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
+/**
+ * V3/V9：日期键只在能解析成时刻时可用，其余返回 null 交给调用方计数。
+ * ⚠️ 一律按**解析后的 UTC 日**分桶，不按字符串前 10 位——
+ * `2026-10-04T08:00:00+08:00` 的真实 UTC 日是 10-04 而字典序会把它和 `2026-10-04T…Z` 混在一起比大小
+ * （QM-6 后端轴 FB1：靠字典序既排不对、也分不对桶）。
+ */
+function dateKeyOf (epochMs) {
+  if (!Number.isFinite(epochMs)) return null
+  return new Date(epochMs).toISOString().slice(0, 10)
+}
+
+/**
+ * 时刻解析（FB1）：Date 可解析的字符串（含带时区偏移）优先；
+ * 纯数字串按 epoch 秒/毫秒补处理——V8 的 Date.parse 对 '1728000000000' 返回 NaN（本机实测），
+ * 不补就会把真实存在的旧数据判成"无日期"。无法解析 → NaN，由调用方计入 droppedUndated。
+ */
+function toEpochMs (raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw !== 'string' || !raw.trim()) return NaN
+  const parsed = Date.parse(raw)
+  if (Number.isFinite(parsed)) return parsed
+  if (/^\d{13}$/.test(raw)) return Number(raw)
+  if (/^\d{10}$/.test(raw)) return Number(raw) * 1000
+  return NaN
 }
 
 /** V10：非法回落默认，合法但越界钳到 7..90 */
@@ -102,20 +121,24 @@ function buildPerformanceOverview (input) {
     invalidMetrics: 0,
     droppedUndated: 0,
     invalidTrackedRows: 0,
+    duplicateTrackedRows: 0,
   }
 
   const statusTally = {}
   for (const status of KNOWN_RECRAWL_STATUS) statusTally[status] = 0
   statusTally.other = 0
 
-  /** id → { platform, snapshots: Array<{capturedAt:string, seq:number, metrics:object}> } */
+  /** id → { platform, snapshots: Array<{capturedAt:string, epoch:number, seq:number, metrics:object}> } */
   const contents = new Map()
   for (const row of trackedRows) {
     const id = row && row.id !== null && row.id !== undefined ? String(row.id).trim() : ''
     if (!id) { diagnostics.invalidTrackedRows++; continue }
+    // FB8：id 是主键，重复只可能来自迁移/手工插入。整行跳过并计数——
+    // 若让第一行的 platform 代表该 id 的全部快照，平台分布会静默错位
+    if (contents.has(id)) { diagnostics.duplicateTrackedRows++; continue }
     const status = String((row && row.recrawl_status) || '')
     statusTally[KNOWN_RECRAWL_STATUS.includes(status) ? status : 'other'] += 1
-    if (!contents.has(id)) contents.set(id, { platform: normalizePlatform(row.platform), snapshots: [] })
+    contents.set(id, { platform: normalizePlatform(row.platform), snapshots: [] })
   }
 
   // V4：关联不到作品的快照不参与任何聚合，但必须计数——静默丢弃会让数字难以解释
@@ -132,7 +155,12 @@ function buildPerformanceOverview (input) {
       metrics[field] = read.value
     }
     metrics.interactions = interactionsOf(metrics)
-    content.snapshots.push({ capturedAt: typeof row.captured_at === 'string' ? row.captured_at : '', seq: seq++, metrics })
+    content.snapshots.push({
+      capturedAt: typeof row.captured_at === 'string' ? row.captured_at : '',
+      epoch: toEpochMs(row.captured_at),
+      seq: seq++,
+      metrics,
+    })
   }
 
   const totals = zeroMetrics()
@@ -140,19 +168,25 @@ function buildPerformanceOverview (input) {
   const platformMap = new Map()
   let covered = 0
   let lastCapturedAt = null
+  let lastEpoch = NaN
 
   for (const content of contents.values()) {
     if (content.snapshots.length === 0) continue
     covered++
 
-    // V2：字典序 + 同值时取入参靠后者，与 getLatestSnapshot 的 ORDER BY captured_at DESC, rowid DESC 同口径
+    // V2：按解析后的时刻升序，同值时按入参顺序取靠后者（= 更大 rowid），
+    // 与 getLatestSnapshot 的 ORDER BY captured_at DESC, rowid DESC 同口径。
+    // 不能按 captured_at 字典序：epoch 数字串和带偏移的串会排错序（FB1）。
     const ordered = content.snapshots.slice().sort((a, b) => {
-      if (a.capturedAt === b.capturedAt) return a.seq - b.seq
-      return a.capturedAt < b.capturedAt ? -1 : 1
+      const ea = Number.isFinite(a.epoch) ? a.epoch : Number.NEGATIVE_INFINITY
+      const eb = Number.isFinite(b.epoch) ? b.epoch : Number.NEGATIVE_INFINITY
+      if (ea !== eb) return ea - eb
+      return a.seq - b.seq
     })
     const latest = ordered[ordered.length - 1]
     accumulate(totals, latest.metrics)
-    if (latest.capturedAt && (!lastCapturedAt || latest.capturedAt > lastCapturedAt)) {
+    if (Number.isFinite(latest.epoch) && (!Number.isFinite(lastEpoch) || latest.epoch > lastEpoch)) {
+      lastEpoch = latest.epoch
       lastCapturedAt = latest.capturedAt
     }
 
@@ -164,7 +198,7 @@ function buildPerformanceOverview (input) {
     // V7/V8：日增 = 相邻两份之差；负差按 0 计并计数；首份整份计入其采集日
     let prev = null
     for (const point of ordered) {
-      const key = dateKeyOf(point.capturedAt)
+      const key = dateKeyOf(point.epoch)
       if (key === null) {
         // V3：日期不可信 → 不进趋势，但仍充当后续点的基线（否则下一份会把这段量重复计入）
         diagnostics.droppedUndated++

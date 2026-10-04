@@ -30,7 +30,7 @@
         <div class="stat-card">
           <div class="stat-icon"><el-icon><View /></el-icon></div>
           <div class="stat-value">{{ totalViews > 10000 ? (totalViews / 10000).toFixed(1) + '万' : totalViews }}</div>
-          <div class="stat-label">总阅读</div>
+          <div class="stat-label">{{ t('dashboard.totalViews') }}</div>
         </div>
 
         <!-- 小卡片：评论 -->

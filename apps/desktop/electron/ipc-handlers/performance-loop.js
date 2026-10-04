@@ -71,6 +71,10 @@ function registerHandlers(ipcMain, deps) {
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       const tracked = store.listTrackedForOverview(owner)
       const snapshots = store.listSnapshotsForOverview(owner)
+      // store 的读侧把 SQL 故障吞成空行是既有风格；这里必须把它翻成错误信封，
+      // 否则「查询失败」会被渲染成「从未发布」这块空态（QM-6 后端轴 FB7）
+      const storeError = tracked && tracked.error ? tracked.error : (snapshots && snapshots.error ? snapshots.error : null)
+      if (storeError) return { code: EC.REQUEST_ERROR, message: storeError }
       const overview = buildPerformanceOverview({
         trackedRows: tracked.rows,
         snapshotRows: snapshots.rows,

@@ -61,7 +61,7 @@ afterAll(() => {
 })
 
 describe('listTrackedForOverview / listSnapshotsForOverview', () => {
-  it('T15 返回列最小集，快照按 (作品, 采集时间, rowid) 升序', () => {
+  it('T15 返回列最小集，快照按「最新在前」排（截断时丢最旧的）', () => {
     const store = makeStore()
     insertTracked('c1', 'zhihu', 'ok', 'user-A')
     insertSnapshot('s-old', 'c1', 1, '2026-10-01T00:00:00.000Z')
@@ -71,9 +71,9 @@ describe('listTrackedForOverview / listSnapshotsForOverview', () => {
     expect(Object.keys(tracked.rows[0]).sort()).toEqual(['created_at', 'id', 'last_recrawl_at', 'platform', 'recrawl_status'])
 
     const snaps = store.listSnapshotsForOverview('user-A')
-    expect(snaps.rows.map(r => r.id)).toEqual(['s-old', 's-new'])
+    expect(snaps.rows.map(r => r.id)).toEqual(['s-new', 's-old'])
     expect(Object.keys(snaps.rows[0]).sort()).toEqual(
-      ['captured_at', 'comments', 'favorites', 'id', 'shares', 'tracked_content_id', 'views', 'likes'].sort(),
+      ['captured_at', 'comments', 'favorites', 'id', 'rowid', 'shares', 'tracked_content_id', 'views', 'likes'].sort(),
     )
   })
 
@@ -116,6 +116,19 @@ describe('listTrackedForOverview / listSnapshotsForOverview', () => {
     expect(roomy.truncated).toBe(false)
   })
 
+  it('T17d 快照被上限截断时必须留下最新那份（FB4：旧排序会静默压低总量）', () => {
+    const store = makeStore()
+    insertTracked('cCap', 'bilibili', 'ok', 'user-D')
+    insertSnapshot('d-old', 'cCap', 1, '2026-09-20T00:00:00.000Z')
+    insertSnapshot('d-mid', 'cCap', 2, '2026-09-25T00:00:00.000Z')
+    insertSnapshot('d-new', 'cCap', 9, '2026-10-02T00:00:00.000Z')
+
+    const capped = store.listSnapshotsForOverview('user-D', 1)
+    expect(capped.rows.map(r => r.id)).toEqual(['d-new'])
+    expect(capped.total).toBe(3)
+    expect(capped.truncated).toBe(true)
+  })
+
   it('T17b 孤儿快照单独计数（真孤儿=关联不到任何作品）', () => {
     const store = makeStore()
     insertSnapshot('s-orphan', 'gone-content', 3, '2026-10-02T00:00:00.000Z')
@@ -129,5 +142,22 @@ describe('listTrackedForOverview / listSnapshotsForOverview', () => {
     for (const key of Object.keys(mixin)) broken[key] = mixin[key]
     expect(broken.listTrackedForOverview('user-A')).toEqual({ rows: [], total: 0, truncated: false })
     expect(broken.listSnapshotsForOverview('user-A')).toEqual({ rows: [], total: 0, truncated: false, orphanTotal: 0 })
+  })
+
+  it('T17e 真实 SQL 失败必须带 error 出声，不得伪装成"没有数据"（FB7）', () => {
+    // 用真库真语句：把表改名制造 no such table，这是 mock prepare 测不出来的那一类
+    db.execOrThrow('ALTER TABLE tracked_content RENAME TO tracked_content_hidden')
+    try {
+      const store = makeStore()
+      const tracked = store.listTrackedForOverview('user-A')
+      expect(tracked.rows).toEqual([])
+      expect(tracked.error, '查询失败必须带 error 字段').toBeTruthy()
+      const snaps = store.listSnapshotsForOverview('user-A')
+      expect(snaps.error).toBeTruthy()
+    } finally {
+      db.execOrThrow('ALTER TABLE tracked_content_hidden RENAME TO tracked_content')
+    }
+    // 恢复后必须立刻可用（证明上一步的 error 不是夹具坏了）
+    expect(makeStore().listTrackedForOverview('user-A').error).toBeUndefined()
   })
 })

@@ -141,6 +141,21 @@ describe('performance:overview 看板聚合入口', () => {
     expect(r.message).toBe('db down')
   })
 
+  it('T20c store 以 error 字段报告查询失败 → REQUEST_ERROR，不得返回 code:0 + 空数据', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    registerHandlers(ipcMain, {
+      store: overviewStore({
+        listTrackedForOverview: () => ({ rows: [], total: 0, truncated: false, error: 'no such table: tracked_content' }),
+        listSnapshotsForOverview: () => ({ rows: [], total: 0, truncated: false, orphanTotal: 0 }),
+      }),
+      identityService: identityWith('user-A'),
+    })
+    const r = await handlers['performance:overview'](TRUSTED_EVENT, {})
+    expect(r.code).not.toBe(0)
+    expect(r.message).toBe('no such table: tracked_content')
+    expect(r.data).toBeUndefined()
+  })
+
   it('T20b 孤儿快照数如实透传（真孤儿来自库级计数，不是聚合层的猜测）', async () => {
     const { handlers, ipcMain } = makeIpc()
     registerHandlers(ipcMain, {

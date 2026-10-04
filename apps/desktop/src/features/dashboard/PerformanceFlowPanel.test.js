@@ -200,15 +200,64 @@ describe('PerformanceFlowPanel 空态与失败态', () => {
     expect(w.find('[data-testid="perf-flow-empty"]').exists()).toBe(false)
   })
 
+  it('有作品但全平台不支持回采 → 空态里必须给出归因，不止一句"尚未回采"（FB8 补 T24 第四态）', async () => {
+    const base = overviewFixture()
+    overviewMock.mockResolvedValue({
+      code: 0,
+      data: {
+        ...base,
+        hasData: false,
+        totals: { views: 0, likes: 0, comments: 0, favorites: 0, shares: 0, interactions: 0 },
+        byPlatform: [],
+        health: {
+          trackedTotal: 4, covered: 0, coverage: 0,
+          byStatus: { pending: 0, ok: 0, failed: 0, unsupported: 4, untrackable: 0, manual: 0, other: 0 },
+          lastCapturedAt: null, neverRecrawled: true,
+        },
+        weekChange: null,
+      },
+    })
+    const w = await mountPanel()
+    expect(w.find('[data-testid="perf-flow-empty"]').exists()).toBe(true)
+    expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(false)
+    // 空态下健康度仍要可见，否则"为什么是空"只能去猜
+    expect(w.get('[data-testid="perf-health-unsupported"]').text()).toContain('4')
+    expect(w.get('[data-testid="perf-health-last"]').text()).toBe(i18n.global.t('dashboard.metrics.healthLastNever'))
+    expect(w.get('[data-testid="perf-health-coverage-0-4"]').text())
+      .toBe(i18n.global.t('dashboard.metrics.healthCoverage', { covered: 0, total: 4, percent: 0 }))
+  })
+
+  it('真实 preload 权限拒绝（throw 而非信封）也必须落到登录态（FB6）', async () => {
+    const { createDynamicAccessApi } = require('../../../electron/preload/access-control')
+    // 不手搓错误对象：用生产同一份包装器造出真错误，否则测的是我想象的形状
+    const wrapped = createDynamicAccessApi(
+      { performanceOverview: () => ({ code: 0, data: { hasData: true } }) },
+      () => 'public',
+    )
+    let thrown = null
+    try { wrapped.performanceOverview({}) } catch (e) { thrown = e }
+    expect(thrown, '受限方法在未登录权限档必须抛（这正是本用例要守的路径）').toBeTruthy()
+    expect(thrown.name).toBe('LicensePermissionError')
+
+    overviewMock.mockImplementation(() => { throw thrown })
+    const w = await mountPanel()
+    expect(w.get('[data-testid="perf-flow-auth"]').text())
+      .toBe(i18n.global.t('dashboard.metrics.loginRequired'))
+    expect(w.find('[data-testid="perf-flow-error"]').exists()).toBe(false)
+    expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(false)
+  })
+
   it('取数失败但已有数据 → 保留上一次数字，不得刷成 0', async () => {
     overviewMock.mockResolvedValue({ code: 0, data: overviewFixture() })
-    const w = await mountPanel()
+    const w = await mountPanel({ reloadToken: 0 })
     expect(w.get('[data-testid="perf-metric-views"]').text()).toBe('123')
 
     overviewMock.mockResolvedValue({ code: -1, message: 'boom' })
-    await w.vm.reload()
+    await w.setProps({ reloadToken: 1 })
     await new Promise(r => setTimeout(r, 0))
     await nextTick()
+    expect(overviewMock).toHaveBeenCalledTimes(2)
     expect(w.get('[data-testid="perf-metric-views"]').text()).toBe('123')
+    expect(w.find('[data-testid="perf-flow-error"]').exists()).toBe(false)
   })
 })

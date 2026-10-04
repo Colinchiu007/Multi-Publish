@@ -25,7 +25,7 @@
              { total: health.trackedTotal }) }}
       </p>
 
-      <template v-else>
+      <template v-if="!isEmpty">
         <div class="perf-flow-metrics" data-testid="perf-flow-metrics">
           <div v-for="item in metricItems" :key="item.key" class="perf-flow-metric">
             <div class="perf-flow-metric-value" :data-testid="'perf-metric-' + item.key">{{ item.value }}</div>
@@ -67,7 +67,11 @@
           </div>
         </div>
 
-        <div class="perf-flow-sub" data-testid="perf-flow-health">
+      </template>
+
+      <div class="perf-flow-sub" data-testid="perf-flow-health">
+          <!-- 健康度在空态下也要渲染：全平台不支持/全失败时，用户必须看得到"为什么没有数字"
+               （QM-6 后端轴 FB8：此前健康度藏在指标分支里，空态只剩一句"尚未回采"没有归因） -->
           <div class="perf-flow-sub-title">{{ t('dashboard.metrics.healthTitle') }}</div>
           <ul class="perf-flow-health">
             <li :data-testid="'perf-health-coverage-' + health.covered + '-' + health.trackedTotal">
@@ -88,7 +92,6 @@
           <p v-if="diagText" class="perf-flow-diag" data-testid="perf-flow-diag">{{ diagText }}</p>
           <p v-if="truncatedText" class="perf-flow-diag" data-testid="perf-flow-truncated">{{ truncatedText }}</p>
         </div>
-      </template>
     </template>
   </section>
 </template>
@@ -102,7 +105,7 @@ import { DataLine } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { performanceOverview } from '@/api/knowledge-library'
 import { formatDateTime } from '@/utils/datetime'
-import { isAuthGateResult } from '@/utils/auth-gate'
+import { isAuthGateResult, isAuthGateError } from '@/utils/auth-gate'
 import { usePlatformStore } from '@/stores/platforms'
 
 const props = defineProps({
@@ -210,14 +213,20 @@ async function load () {
     status.value = overview.value ? 'ready' : 'error'
     ElMessage.error(t('dashboard.metrics.loadFailed'))
   } catch (e) {
+    // 未登录在真实链路上是**抛错**而不是信封：preload 的权限包装在 invoke 之前就 throw
+    // （LicensePermissionError）。只判信封会把「没登录」渲染成「加载失败」（QM-6 后端轴 FB6）。
+    if (isAuthGateError(e)) {
+      status.value = 'auth'
+      return
+    }
     status.value = overview.value ? 'ready' : 'error'
     console.warn('perf flow load failed:', e && e.message)
   }
 }
 
-defineExpose({ reload: load })
-
 onMounted(load)
+// 页面「刷新数据」通过 reloadToken 递增驱动——不暴露 reload()：
+// defineExpose 出去而无人调用，只会让下一个会话以为存在外部调用方（QM-6 前端轴 FF4）
 watch(() => props.reloadToken, load)
 </script>
 
