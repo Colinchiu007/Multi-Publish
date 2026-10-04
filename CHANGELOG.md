@@ -44,6 +44,46 @@
 | 10 目标批次 | 4-6 分钟 | ≤3 分钟 |
 
 
+
+# [未发布] chore(deps): axios 余下三面收口——dev 域副本覆写 + ops-center 独立锁域 + 地板锁加固 (2026-10-04, axios-1-20-security-bump)
+
+### 这条 PR 的实际差量（先说清它"不是什么"）
+- 立项时打算做的是"三个 workspace 包升到 `^1.20.0` + 清 12 条 `upgrade-tracked` 挂账"
+- 但那两件事在本 PR re-sync 到 origin/main 时**已经不是差量**：main 上 `apps/desktop` / `packages/ai-writer` / `packages/api-publish-engine` 已是 `^1.20.0`，`scripts/dep-audit-baseline.json` 里 axios 条目为 0，均由 `eeeb3f01e`（PR #2729，主题"头条提交链路取证 + 发布候选收紧"）夹带落地
+- ⇒ 本 PR 只做 #2729 没覆盖的三面：dev 域那份低危副本、npm 独立锁域（ops-center）、以及"审计绿 ≠ 修完"的判据本身
+
+### 为什么"门禁已经绿了"还不够
+- 依赖审计门禁 `scripts/check-dep-audit.js` 的两个扫描域是 `pnpm audit --prod` 与 `pip-audit`
+- prod 侧升完之后实测：`--prod` 审计 24 条 / axios 0、门禁 rc=0；但**去掉 `--prod` 的全量审计仍有 axios 12 条，命中版本 1.18.1** —— 来自 dev 域 `nx@20.8.4`（它自己声明 `axios ^1.8.3`）。"绿"只等于"prod 域干净"
+- 还有两个消费方根本不在任何扫描面上：`ops-center/frontend` 用自己的 `package-lock.json`（里面锁着 **1.19.0**，`src/api/http.js` / `stores/auth.js` / `views/ContentQualityEval.vue` 三处真实 import），以及全仓没有 workflow 安装它
+
+### 改了什么
+- `pnpm-workspace.yaml` 加 `overrides.axios: '^1.20.0'`：覆写 dev 域传递副本。实测 nx 声明 `^1.8.3`、wait-on 声明 `^1.12.1`，`^1.20.0` 落在两者区间内，不属强行覆写；加完 `pnpm-lock.yaml` 只剩 `axios@1.20.0`，全量审计 `113 → 101`、`axios 12 → 0`，prod 侧 24 条不变
+- `ops-center/frontend`：区间 `^1.7.0 → ^1.20.0`，`npm install` 刷新它自己的锁（diff 只有版本行 4/4）
+- override 刻意写 `^` 而不是 `>=`（第一版是 `>=`，与同文件 `undici` / `fast-uri` 一致）：override 整体替换依赖区间，无上界会允许下一次非 `--frozen-lockfile` 的 install 静默把 axios 升到 2.x。改 `^` 后锁里 importers 的 `specifier` 也回到 `^1.20.0`，与 package.json 字面一致
+- 同文件 `undici` / `fast-uri` 仍是 `>=`，属同族未收口，改它们要重新 resolve 那两个包，不在本 PR 夹带
+
+### 回归锁 `production-dependency-security.test.js`
+- 整表地板从 `1.18.1` 抬到 `1.20.0`（只有在 override 存在时才成立，否则会被 nx 的副本判红 —— 这正是"抬地板"与"只升 prod"的分辨器）
+- 断言 override 必须**存在且有上界**：删掉它地板会静默退回"只看 prod"，写成 `>=` 会打开跳大版本的口子
+- 消费方清单不再手写：扫描 `apps/*` 与 `packages/*` 里直接依赖 axios 的包，外加 npm 独立锁域。npm 域**禁止 `require.resolve`** —— 该目录没有 node_modules，向上解析会落到仓库根的 hoisted 副本，等于拿 pnpm 的解析冒充 npm 域的解析；改为读它自己 `package-lock.json` 里 `packages["node_modules/axios"].version`，条目缺失即红
+- 两层反失明断言：扫描到的消费方数量下界 + `MUST_BE_COVERED`（四个已知消费方必须在清单里）——扫描退化成空集时锁变红而不是变绿
+- 反证五格实跑并做 cause-match（既要求 rc≠0，也要求输出含预期的那条断言文案）：摘 override / 退成 `>=` / ops-center 锁回 1.19.0 / 扫描域只留 `apps` / 消费方声明降级；每格先跑基线 rc=0，收尾按字节回读还原与备份全等
+
+### 审计复扫探针踩到的两个口径坑（值得记，否则下次照样误判）
+- 裸跑 `pnpm audit --prod --json` 得到 `ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS`：本机默认 registry 是镜像站、没有 audit 端点，而门禁显式 `--registry=https://registry.npmjs.org`。判"审计说没有 axios"之前，探针必须先与门禁同口径
+- 有命中时该命令以 **rc=1** 退出、JSON 在 `err.stdout`，不接这一路会把"命令失败"读成"没数据"
+
+### 验证
+- `production-dependency-security.test.js` 2 tests 全过；`check-dep-audit` rc=0（`npm=24 命中=24 挂账=25 ✅`）、`check-gate-record-debt` / `check-unwired-tests` / `check-step-failfast` / `check-no-brand-residue` / `check-max-lines` rc=0；`verify-worktree-deps` OK；override 后 `nx` 正常加载（v20.8.4）
+- `ops-center/frontend` 本机 `npm install` 后 `npm test` 10 files / 57 tests 全过、`npm run build` rc=0。**该面在 CI 里没有 workflow 安装**（`.github/workflows/*.yml` grep `ops-center/frontend` = 0 命中），这两条只有本机证据
+- 反证脚本第一版用 `encoding:'latin1'` 读子进程的 utf8 输出，CJK 判据串恒不命中 ⇒ 五格全报 FAIL 而实际每格都按预期变红；改 `utf8` 后 `ALL_PASS` —— 读回自证两侧编码必须一致
+
+### 遗留（如实）
+- **`origin/main` 的 `CHANGELOG.md` 已被整文件复制，非本 PR 引入**：该文件现为 64080 行 / 7,415,327 字节，其直接前身 `4647f21b` 是 15968 行；CR 归一后做行多重集对照，旧行一条不少、但多出的副本行达 **47,747 行**，旧的 270 个一级标题有 **268 个现在出现 ≥2 次**（最多 16 次）。跳变在一次提交 `1dd05b12` 内完成。多重集守恒式检查对这种复制天然免疫（副本本身就在文件里），需要单独排障
+- `ops-center/frontend/package-lock.json` 不在依赖审计门禁的扫描域里，也没有 workflow 装它；纳管进 `check-dep-audit.js` 的域枚举（或显式登记豁免）应另开 change
+- 依赖区间变更夹在功能 PR 里落地（#2729），主题与 CHANGELOG 条目都不提 axios —— 下一个读 CHANGELOG 的人不会知道它动过
+
 # [未发布] feat(publish): 作品发布频率控制机制接线——发布间隔从「从未生效」变为运行时强制（2026-10-02，publish-frequency-control）
 
 ### 根因：机制存在但三条断链使其在生产中从未运行（PRD-PUBLISH-FREQUENCY-CONTROL-2026-10-02）
