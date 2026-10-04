@@ -1,0 +1,38 @@
+{
+  "axis": "frontend",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:8",
+      "claim": "publish_history_id 列名与实际语义（发布任务 id）错位，虽有注释但缺 schema 级说明",
+      "evidence": "注释明确写「这一列存的是发布任务 id（task.id），不是发布历史行自己的 entry.id」，但列名 publish_history_id 字面上易被误解为「发布历史行的 id」。数据库 schema/migration 文件无此说明，下一个消费者直接看 DDL 会按字面写错。",
+      "suggested": "在 store-schema.js 或 migration 文件里加注释说明此列实际存的是 task.id；或考虑重命名为 publish_task_id（需评估迁移成本）"
+    },
+    {
+      "id": "F2",
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/tracked-content-link.js:120",
+      "claim": "编排层直接依赖 store mixin 方法名，方法名变更会静默失效",
+      "evidence": "linkExistingTrackedContent 通过 typeof store.listUnlinkedTrackedForBackfill !== 'function' 做防御，但方法名是硬编码字符串。若 store mixin 重构改名，编排层只会 warn 并返回空结果，不会报错。",
+      "suggested": "考虑定义稳定的 store 接口契约（如 Symbol 或常量键），或在测试里加结构断言确保方法名存在"
+    },
+    {
+      "id": "F3",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/store/performance-loop-store.js:195",
+      "claim": "updateTrackedContent 与 setTrackedPublishHistoryId 两个写者各写一半，publishHistoryId 未进通用更新方法",
+      "evidence": "updateTrackedContent 支持 recrawlStatus/lastRecrawlAt/nextRecrawlAt/rewriteHistoryId，但 publishHistoryId 被单独拆出用 setTrackedPublishHistoryId 写。若将来需同时更新 recrawlStatus 和 publishHistoryId，需调两个方法；且 updateTrackedContent 的 updates 参数里传 publishHistoryId 会被静默忽略。",
+      "suggested": "在 updateTrackedContent 里加 publishHistoryId 支持（与 rewriteHistoryId 同族），或至少加注释说明为何单独拆出；避免两个写者口径分裂"
+    },
+    {
+      "id": "F4",
+      "severity": "Warning",
+      "file": "apps/desktop/electron/bootstrap/phase4-events.js:172",
+      "claim": "listRecords 默认 limit=50，新代码传 5000 但无防再犯锁防止将来被改回默认值",
+      "evidence": "publish-history.js 第 107 行 limit 默认 50；phase4-events.js 第 172 行传 TRACKED_LINK_HISTORY_SCAN_LIMIT=5000。若有人重构时漏掉 limit 参数，会静默只读 50 条历史，导致「存量被当成不存在」。",
+      "suggested": "在 listRecords 调用点加注释强调必须传 limit；或加测试断言 phase4-events.js 里的 limit 参数存在；或考虑在 listRecords 里对 limit 加下限断言"
+    }
+  ],
+  "overall": "分层清楚、注释充分，但列名语义错位、双写者口径分裂、limit 参数无防再犯锁是三个值得关注的集成风险点"
+}

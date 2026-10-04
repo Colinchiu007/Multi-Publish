@@ -15,6 +15,49 @@
 - 不为「本次无渲染」的 22 张新增欠账登记：判据不存在时不得改变结论，只点名。既有 3 张 autonomous 专属基线仍在 `KNOWN_UNCOVERED` 原处。
 - 不提任何阈值、不加忽略区。
 
+# [未发布] fix(desktop): 发布历史与表现数据的关联键打通——publish_history_id 自诞生起全 NULL（2026-10-04，publish-tracked-link-lineage）
+
+### 根因（QM-5 五步取证）
+- 症状：发布历史页表现列（阅读/点赞/评论/收藏/转发）恒空，即使 `performance_snapshot` 已有该作品的回采数据。
+- 第一性引入点：`bootstrap/phase4-events.js` 的 `store.addTrackedContent({...})` 从未传 `publishHistoryId`，
+  而 `performance-loop-store.js` 早已在读 `entry.publishHistoryId || null` ⇒ 每行都落 NULL。
+- 命名陷阱：读侧 `PublishHistory.vue:602-608` 的 join 契约是「这一列存**发布任务 id**」，不是发布历史行的 `entry.id`；
+  顾名思义去存 entry.id 会让修完仍然恒空。该语义现由契约锁 T1/T3 钉住（真库跑完整链路 + 把读侧投影逐字搬进断言）。
+- 逃逸链：`phase4-events.test.js` 对 `addTrackedContent` **零断言**（实测 grep 计数 0）；单元/集成/视觉/审查四层同时沉默。
+
+### 修复（写侧根因 + 存量自愈）
+- 写侧：`publishHistoryId: String(task.id)`（缺 id 留 NULL 并 warn，不写 "undefined"）。
+- 新增 `electron/services/tracked-content-link.js`：纯判据 `planPublishHistoryLinks` + 编排 `linkExistingTrackedContent`。
+  四条边界——只补 NULL 行 / 同归属下 `(platform, postId)` 恰好命中 1 条才补（歧义不猜）/ 空 postId 不参与 / 归属无法判定不写。
+- 存储层两个方法：`listUnlinkedTrackedForBackfill`、`setTrackedPublishHistoryId`（SQL 端再要一次 `IS NULL` 兜底，判据层失手也不覆盖既有值）。
+- 触发点是**本会话首次发布成功**而非启动接线：那时 `owner_subject` 由任务自带，身份未解析时不做配对。
+- 实测可行域（只读，活库为移动靶）：`tracked_content` 73 行中 0 行已关联，28 行可按归属+作品 id 唯一命中，1 行歧义跳过，45 行 postId 为空。
+
+### 测试与反证
+- 新增 `tracked-content-link.test.js` 25 例、`phase4-events-tracked-content.test.js` 14 例（生产同款 sqlite 包装器 + 真迁移 + 真 mixin；`node:sqlite` 只用于活库取证，两件事不混写）
+  消费者并集 6 文件 177 passed（phase4-events / bootstrap / performance-loop-store / store-snapshot 全跑）
+- 反证 **12 条**全部实跑变红并逐条归因到用例名（M1 删透传 / M2 改用 entry.id / M3 去歧义 / M4 去"已有值不动" /
+  M5 去 SQL 兜底 / M6 去归属分桶 / M7 去缺席守卫 / M8 稳态也出声 / M9 允许非 success 历史 / M10 候选不按归属 / M11 latch 提前 / M12 歧义按行数）。
+- 其中 M5 第一版是绿的——补 T9（绕过判据层直接对已关联行再写一次）后才有独占红出口：兜底判据必须自己守住自己。
+
+### 残余（未修，各附证据见 PRD §十）
+- `rewrite_history_id` 仍恒 NULL：改写 id 挂在 `rewrite()` 的 IPC 返回值上，发布载荷从未回传（第二跳，跨层合同，另切片）。
+- 45 行 `post_id` 为空：无从按内容 id 回填。
+- `performance_snapshot` 覆盖仍集中在少数平台，四家零采集属采集面缺口。
+
+
+### QM-6 双模型评审后的追加修复（2026-10-04，三路通道合计 20 条 findings、0 Critical 遗留）
+- **空白关联键**（三个空格在 JS 里是 truthy）会被写进库：它永远 join 不上，又让 `IS NULL` 从此不成立 ⇒ 该行被**永久锁死**在"无数据"。现两参数先 trim 判空。
+- **候选查询改在 SQL 端按归属过滤**：此前只靠判据层分桶，多用户共享库时他人行可占满 LIMIT，而单 owner 机器上**完全不可见**。
+- **回填 latch 移到真的跑完之后**：旧写法先置真再执行，一次读历史抛错就放弃本会话全部存量，现场只剩一条 warn。
+- **歧义按去重后的 taskId 数判**（原按历史行数）：审核回写会让同一任务留多行，旧口径把可回填的误判成"猜不出"。
+- **关联来源限定 status === 'success'**：`task:failed` 也写历史，当前 `result:null` 本不命中，但"当前不会发生"不是判据。
+- **注释曾承诺"如实报截断"而代码没做**：现由 `historyTotal` / `historyTruncated` 实现，并双向钉住（截断要报、未截断不得谎报）。
+- 反证从 8 条扩到 **12 条**（新增 M9–M12 覆盖上述四条判据），全部实测变红并逐条归因到用例名。
+- 评审记录与逐条处置：`01-docs/QM6-FINDINGS-TRACKED-LINK-2026-10-04.md`（含 1 条按证据拒绝、3 条登记不修及理由）。
+
+详见 01-docs/PRD-PUBLISH-TRACKED-LINK-2026-10-04.md。
+
 # [未发布] fix(scripts): 会话隔离工具不再弹控制台窗口——计划任务改非交互主体、任务 shell 改按需（2026-10-04，fix-session-isolation-popups）
 
 ### 根因
@@ -31,7 +74,6 @@
 - write guard 在 S4U 下执法实证：放进 `apps/desktop/` 的未跟踪探针文件约 1 秒被移入隔离区（15→16）并记入 `violations.jsonl`；`mp-worktree-health.ps1 -RequireWriteGuard` 返回 rc=0、`writeGuard.ok=true`。
 - 回归锁三条（`scripts/start-mp-task.test.js`）：入口默认不开窗 / 注册主体顺序与兜底出声 / 存活判定 State 优先。已逐个变异反证（退化成无条件开窗、主体顺序倒回、判定退回只看 CommandLine）各自当场变红，还原后文件逐字节相同。既有 `mp-worktree-health.test.ps1`(22) 与 `install-session-isolation-task.test.ps1`(7) 全绿。
 - 详见 `docs/session-isolation-automation.md`「控制台窗口与运行主体（2026-10-03 实测）」。
-=======
 # [未发布] test(守卫): 测试期禁出站守卫补上子进程面，两个 realm 都必须两面齐全（fix-test-egress-child-plane，2026-10-03）
 
 ### 根因

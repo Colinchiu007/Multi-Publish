@@ -7,6 +7,8 @@
  * 依赖：logger
  */
 const log = require('../logger')
+// 归属桶常量与 publish-history / store-schema 同源，禁止在这里第二份写死字符串
+const { LEGACY_OWNER_SUBJECT } = require('../store-schema')
 
 function _genId () {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
@@ -153,6 +155,74 @@ module.exports = {
     try {
       return this.db.prepare('SELECT * FROM tracked_content WHERE platform = ? ORDER BY created_at DESC').all(String(platform))
     } catch (e) { return [] }
+  },
+
+  /**
+   * 回填候选：`publish_history_id` 仍为 NULL 的 tracked 行，**按归属过滤**。
+   *
+   * 归属过滤放在 SQL 端而不是只靠判据层分桶，是因为候选集有 LIMIT：
+   * 多用户共享同一个库时，他人的行可以把 LIMIT 占满，让我的行永远排不到
+   * （单 owner 的机器上不可见，所以必须在这里就堵死）。QM-6 后端轴 B1/B2。
+   *
+   * `ownerSubject` 为 undefined/null/空 ⇒ 取"无身份服务时代"那一桶
+   * （NULL / 空串 / LEGACY_OWNER_SUBJECT），与 publish-history 侧 matchesOwner 同口径。
+   * @param {number} limit
+   * @param {string|null|undefined} ownerSubject
+   */
+  listUnlinkedTrackedForBackfill (limit, ownerSubject) {
+    if (!this._ready) return []
+    const n = Math.min(Math.max(1, Number(limit) || 0), 5000)
+    const owner = typeof ownerSubject === 'string' ? ownerSubject.trim() : ''
+    try {
+      if (owner) {
+        return this.db.prepare(
+          'SELECT id, platform, post_id, publish_history_id, owner_subject, created_at ' +
+          'FROM tracked_content WHERE publish_history_id IS NULL AND owner_subject = ? ' +
+          'ORDER BY created_at ASC LIMIT ?',
+        ).all(owner, n)
+      }
+      return this.db.prepare(
+        'SELECT id, platform, post_id, publish_history_id, owner_subject, created_at ' +
+        "FROM tracked_content WHERE publish_history_id IS NULL " +
+        '  AND (owner_subject IS NULL OR TRIM(owner_subject) = ? OR owner_subject = ?) ' +
+        'ORDER BY created_at ASC LIMIT ?',
+      ).all('', LEGACY_OWNER_SUBJECT, n)
+    } catch (e) {
+      log.warn('Store', 'listUnlinkedTrackedForBackfill failed: ' + e.message)
+      return []
+    }
+  },
+
+  /**
+   * 写关联键。**WHERE 里再要一次 IS NULL** 是刻意的：判据层已经保证只补空行，
+   * 但两层各守一次才能让"判据层将来被人改错"不至于变成覆盖既有数据。
+   * 语义：值＝发布任务 id（task.id），不是发布历史行的 entry.id。
+   *
+   * 为什么不并进下面的 `updateTrackedContent`（QM-6 前端轴 F3）：那个方法是回采流程的
+   * 通用更新口，允许把 recrawl_status 等字段**改成任意合法值**；关联键的契约恰恰相反——
+   * 只允许"从无到有"，不允许覆盖。把两者合并会连带删掉 `IS NULL` 兜底，
+   * 于是"回填"变成"每次启动都可能改写既有归属"。
+   * 因此 `updateTrackedContent` 收到 `publishHistoryId` 时**必须继续忽略它**，
+   * 这条不对称由 phase4-events-tracked-content.test.js 的 F3 锁钉住，不是遗漏。
+   *
+   * 空白值必须拒（QM-6 替代通道 B4）：`'   '` 是 truthy，旧写法会把它当合法键写进库——
+   * 那种键既永远 join 不上（读侧按 taskId 查），又让 `IS NULL` 从此不成立，
+   * 等于把这一行永久锁死在"无数据"，比留 NULL 更糟。
+   */
+  setTrackedPublishHistoryId (id, publishHistoryId) {
+    if (!this._ready) return false
+    const key = typeof publishHistoryId === 'string' ? publishHistoryId.trim() : ''
+    const rowId = typeof id === 'string' ? id.trim() : ''
+    if (!rowId || !key) return false
+    try {
+      const result = this.db.prepare(
+        'UPDATE tracked_content SET publish_history_id = ? WHERE id = ? AND publish_history_id IS NULL',
+      ).run(key, rowId)
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'setTrackedPublishHistoryId failed: ' + e.message)
+      return false
+    }
   },
 
   updateTrackedContent (id, updates) {
