@@ -147,13 +147,19 @@
 
 提示文字（新增 locale 键，zh/en 成对；面板内不得出现中文字面量——Gate 7 与 CJK 基线扫描）：
 
-`dashboard.metrics.title / subtitle / views / likes / comments / favorites / shares / weekChange / weekChangeInsufficient / trendTitle / trendHintDailyInc / platformDistTitle / healthTitle / healthCoverage / healthUnsupported / healthFailed / healthNeverRecrawled / healthLastAt / emptyNoContent / emptyNoSnapshot / truncatedNote / loadFailed`
+`dashboard.metrics.title / subtitle / views / likes / comments / favorites / shares / trendTitle / trendHint / platformTitle / unknownPlatform / healthTitle / healthCoverage / healthUnsupported / healthFailed / healthLastAt / healthLastNever / weekUp / weekDown / weekFlat / weekInsufficient / emptyTitle / emptyNoContent / emptyNoSnapshot / truncatedNote / diagLine / loginRequired / loadFailed`（共 28 键，与 `locales/zh.js` 实测逐字对齐；`dashboard.totalViews / totalComments / totalFollowers` 另计）
 
 显示项纠偏（对既有元素）：
 
 - 删除 `+8.5%`（`:40`）、`+23%`（`:51`）、`-2.1%`（`:62`）三处硬编码假百分比，以及「总发布」卡片里无数据支撑的 `↑ + weekChange`（`:27-30`）。
 - 替换为真实可支撑的「数据截至 `syncedAt`」（该字段本就来自 `sync:cached`），无同步记录时整行不渲染。
 - 结构锁：新增测试断言 `Dashboard.vue` 模板不再出现「数字 + %」形态的变化量字面量（见 §八 T14），防止下一个会话顺手再写回去。
+
+样式取值（面板 `<style scoped>`）：
+
+- 一律用 `var(--token)`，**不得写 `var(--token, #hex)` 形式的兜底**。两条实测理由：① Gate 14 按字面量计数，`#f472b6` 这类历史品牌色即便只作兜底也计入基线（本 PR 首跑即 130 > 129 变红）；② Gate 15c「未定义 CSS 变量」只拦**无兜底**的引用（`check-css-var-defined.js` 明文「带 fallback 的 `var(--x, ...)` 不拦」），所以兜底会同时掩盖「token 根本不存在」——实测 `--color-bg-secondary` 全仓 0 处定义，靠兜底渲染时深色主题下该卡片会恒为浅色，已改用真实存在的 `--color-bg-inset`（浅色 `#faf6f8` / 深色 `#1e1e23`）。
+- 本面板用到的 token 逐个核过定义位置：`--color-success / --color-danger / --color-text-secondary / --color-border / --color-bg-inset` 在 `src/styles/tokens.css`（深浅两套各一份）；`--lavender-primary / --lavender-accent` 由 `Dashboard.vue` 的 `:global(:root)` 声明并沿 DOM 继承到子组件，与页面既有图表同色，历史字面量仍只留在 `Dashboard.vue` 的声明处（属基线存量，本 PR 不新增）。
+- 尺寸类（`--font-size-*` / `--space-*` / `--radius-*`）保留 px 兜底：它们不是色值、Gate 14 不计，且 px 兜底不会伪装成「另一种主题色」。
 
 ---
 

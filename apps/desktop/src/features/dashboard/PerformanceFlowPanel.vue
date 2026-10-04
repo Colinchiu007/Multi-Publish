@@ -241,11 +241,11 @@ watch(() => props.reloadToken, load)
   margin-left: auto;
   font-size: var(--font-size-sm, 12px);
 }
-.perf-flow-week.positive { color: var(--color-success, #16a34a); }
-.perf-flow-week.negative { color: var(--color-danger, #dc2626); }
-.perf-flow-week.neutral { color: var(--color-text-secondary, #6b7280); }
+.perf-flow-week.positive { color: var(--color-success); }
+.perf-flow-week.negative { color: var(--color-danger); }
+.perf-flow-week.neutral { color: var(--color-text-secondary); }
 .perf-flow-empty {
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   margin: 0;
 }
 .perf-flow-metrics {
@@ -254,7 +254,7 @@ watch(() => props.reloadToken, load)
   gap: var(--space-sm, 8px);
 }
 .perf-flow-metric {
-  background: var(--color-bg-secondary, #f8fafc);
+  background: var(--color-bg-inset);
   border-radius: var(--radius-md, 8px);
   padding: var(--space-sm, 8px);
   text-align: center;
@@ -265,14 +265,14 @@ watch(() => props.reloadToken, load)
 }
 .perf-flow-metric-label {
   font-size: var(--font-size-sm, 12px);
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 .perf-flow-sub {
   margin-top: var(--space-md, 16px);
 }
 .perf-flow-sub-title {
   font-size: var(--font-size-sm, 12px);
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   margin-bottom: var(--space-xs, 4px);
 }
 .perf-flow-sub-hint {
@@ -291,7 +291,7 @@ watch(() => props.reloadToken, load)
 }
 .perf-flow-bar {
   width: 100%;
-  background: var(--lavender-primary, #7c5cbf);
+  background: var(--lavender-primary);
   border-radius: 2px 2px 0 0;
   opacity: 0.75;
 }
@@ -309,13 +309,13 @@ watch(() => props.reloadToken, load)
 .perf-flow-platform-track {
   flex: 1 1 auto;
   height: 8px;
-  background: var(--color-border, #e5e7eb);
+  background: var(--color-border);
   border-radius: 4px;
   overflow: hidden;
 }
 .perf-flow-platform-fill {
   height: 100%;
-  background: var(--lavender-accent, #f472b6);
+  background: var(--lavender-accent);
 }
 .perf-flow-platform-value {
   width: 110px;
@@ -326,11 +326,11 @@ watch(() => props.reloadToken, load)
   margin: 0;
   padding-left: 18px;
   font-size: var(--font-size-sm, 12px);
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 .perf-flow-diag {
   margin: var(--space-xs, 4px) 0 0;
   font-size: var(--font-size-sm, 12px);
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 </style>
