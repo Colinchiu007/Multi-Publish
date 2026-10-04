@@ -533,6 +533,32 @@ class PublishApiServer {
     return true
   }
 
+  // 即时发布与定时发布共用同一授权契约（权益校验 + 激活态复校）。
+  // 二者必须保持对称：本方法对照 _authorizeScheduledEntry 实现，改一处须同步另一处。
+  async _authorizeImmediateEntry(req, amount = 1) {
+    const ownerSubject = req.auth && req.auth.subject
+    if (!this._identityAuthRequired && this._isApiKeyOwnerSubject(ownerSubject)) {
+      return this._authorizeApiKeyScheduledOwner(ownerSubject)
+    }
+    if (!this._logtoVerifier) return true
+    if (typeof ownerSubject !== "string" || !ownerSubject) {
+      throw Object.assign(new Error("SCHEDULE_OWNER_REQUIRED"), { code: "SCHEDULE_OWNER_REQUIRED", status: 403 })
+    }
+    if (!this._businessIdentityRepository || typeof this._businessIdentityRepository.findBySubject !== "function") {
+      throw Object.assign(new Error("BUSINESS_USER_REPOSITORY_NOT_CONFIGURED"), {
+        code: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED",
+        status: 503,
+      })
+    }
+    const user = await this._businessIdentityRepository.findBySubject("logto", ownerSubject)
+    if (!user) throw new BusinessIdentityError("BUSINESS_USER_NOT_FOUND", undefined, 403)
+    assertBusinessUserActive(user)
+    const requestContext = { auth: req.auth, businessUser: user }
+    await this._assertEntitlementFeature(requestContext, "cloud_publish")
+    await this._consumeEntitlementFeature(requestContext, "cloud_publish", Math.max(1, amount))
+    return true
+  }
+
   async _buildEntitlement(req) {
     const user = req.auth.businessUser
     let entitlement = this._entitlementProvider && typeof this._entitlementProvider.getForUser === "function"
@@ -955,7 +981,7 @@ class PublishApiServer {
         }
 
         try {
-          await this._consumeEntitlementFeature(req, "cloud_publish", 1);
+          await this._authorizeImmediateEntry(req, 1);
         } catch (error) {
           this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, this._ctx(req));
           this._json(res, error && error.status ? error.status : 503, {
@@ -991,7 +1017,7 @@ class PublishApiServer {
         var opts = {};
         if (this._opts.dryRun) opts.dryRun = true;
         try {
-          await this._consumeEntitlementFeature(req, "cloud_publish", Math.max(1, platforms.length));
+          await this._authorizeImmediateEntry(req, platforms.length);
         } catch (error) {
           this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, this._ctx(req));
           this._json(res, error && error.status ? error.status : 503, {
