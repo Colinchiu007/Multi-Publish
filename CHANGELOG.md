@@ -1,3 +1,48 @@
+# [未发布] feat(publish): 发布吞吐优化——去固定等待 + 通道调度 + 窗口池 + 抖音图文 API 链（2026-10-04，publish-throughput-optimization）
+
+> 用户场景：发布 1 个图文到抖音进度面板「排队中」、整链慢。三层慢因取证（文件:行号）与四方案设计、数据校验、取证状态表详见 `01-docs/PRD-PUBLISH-THROUGHPUT-OPTIMIZATION-2026-10-04.md`；OpenSpec 工件见 `openspec/changes/publish-throughput-optimization/`。
+
+### A2：抖音图文 RPA 链 4 处固定 sleep 改事件驱动等待（`rpa-view-platforms.js _publish_douyin`）
+
+- 图片上传后 `_sleep(4000)` 删除——下方表单就绪轮询（`_waitForCondition` 30s/1.5s）本就是就绪判定，固定 sleep 是纯叠加。
+- tag 注入后 `_sleep(1000)/tag` → chip 就绪轮询（`[class*="tag"]` 域 innerText 匹配 + 可见性，5s/500ms），超时静默继续下一 tag。
+- 封面注入 `_sleep(1000)+_sleep(2000)` → 缩略图 img 计数**基线递增**判据（头条 `_uploadToutiaoCover` 同款），10s/500ms，超时 warn 降级。
+- 提交兜底 `_sleep(5000)`+单次查 URL → 500ms×10 URL 轮询（最长仍 5s，成功跳转平均提前 ~2.5s 返回）。
+- 回归锁 7 条（`rpa-view-platforms.test.js` 新 describe）：防复发静态锁（4 处 sleep 字面量禁入）+ 探针存在性 + 行为锁 + 超时降级；变异反证实跑（封面轮询退回 sleep → 静态锁红，还原 70/70 绿）。单任务节省 10~15s。
+
+### B：TaskQueue 按 (platform, accountId) 通道调度（`shared-utils/task-queue.js`）
+
+- 通道键 `platform + ':' + (accountId ?? '')`：同通道 FIFO 串行（防同账号并发开窗触发平台风控/双窗竞争），跨通道并行吃满 `maxConcurrent`；`accountId` 缺失归一空串（同平台仍串行——共享登录面）。
+- `MP_QUEUE_MAX_CONCURRENT` 覆盖并发上限（[1,10]，默认 3；非法/越界回落+console.warn 出声，对齐 publish-frequency-policy 纪律）；解析函数导出为 `TaskQueue.resolveQueueMaxConcurrent` 静态方法，`container.setup.js` 消费（显式 options.taskQueue 逃生口保留）。
+- **频控推迟必须释放通道**：`publish:blocked` 分支在 try/finally 之前 return，通道记账在该分支显式释放（与既有 `_running.delete` 同位同因），否则「等 5 分钟间隔」会占死同通道，频控从保护变雪崩。
+- 回归锁 9 条（task-queue.test.js 新 describe）：同账号串行/跨账号并行/无账号同平台串行/总并发上限/env 三态/频控释放通道/重试不占通道；既有 34 条含 #2773 守卫集成 7 条全绿。
+
+### C：RPA 窗口池化复用（`rpa-view-session.js` + `rpa-view-manager.js`）
+
+- 发布成功窗口导航 `about:blank` 后入池（不销毁），失败/抛错/取消立即销毁（状态污染兜底——上传页 `input[type=file]` 残留态历史教训）；同键（平台+账号）复用池内窗口并**跳过三段登录态恢复**（cookie/auth 分区/storage，partition 层本就持久）。
+- 池上限 6（`MP_RPA_POOL_SIZE` [1,10] 覆盖，非法回落+告警）；空闲 TTL 10 分钟（`MP_RPA_POOL_TTL_MS`），60s 周期后台清理且 `unref()` 不阻退出；`cleanup()` 清池。
+- 池键与 `_windowKey` 自增 id 语义分离：池按逻辑会话复用，活动映射保留自增命名（同账号并发会话 CancelToken 独立）。
+- 回归锁 11 条（新文件 `rpa-view-window-pool.test.js`）：归池/复用/不共用/失败销毁/抛错销毁/复用跳过恢复/上限挤出/env 三态/cleanup 清池/unref 结构锁；变异反证实跑（归池判据改恒 true →「失败销毁」红，还原 11/11 绿）。每任务省 3~8s 冷启动。
+
+### D：抖音图文 API 直连链（`api-publish-engine` 新链 DouyinImageChain）
+
+- 六步链与视频链同构（csrf → auth/v5 → 逐图 imagex apply/POST/commit → create_v2 → 裁决），adapter 按 `taskData.images` / `video.path` 分流；双缺 fail-closed（`taskData requires images or video.path`）；API 失败自动回退 RPA 图文链（零新增用户风险面）。
+- **取证纪律（design.md D4）**：图文 create 体字段无真机取证切片（W2 切片只覆盖视频链），`image_ids`/`media_type` 等按同构推断书写、代码注释标 UNVERIFIED、PRD §4.2 逐字段登记；单测 12 条只锁同构+序列+fail-closed+风控口径，**不断言未取证字段业务值**。真机验证步骤 PENDING（PRD §4.2），按「平台侧无法离线证伪」原则不阻塞合入。
+- `scripts/run-tests.js` VITEST_FILES 登记 `douyin-image-chain.test.js`；全量 `node scripts/run-tests.js` exit 0。
+
+### 配套
+
+- `publish-progress-events.js` KNOWN_STAGE_MAP 登记 `reusing browser session...`（C 方案池复用进度串，封闭清单契约）。
+- `container.setup.js` taskQueue 构造接入 env 解析；`shared-utils/index.d.ts` 补 TaskQueue 构造参数 `publishIntervalGuard` 与静态方法声明。
+
+### 预期收益（度量方式见 PRD §7）
+
+| 指标 | 现状 | 目标 |
+|---|---|---|
+| 单条抖音图文 RPA 全链 | 40~90s | ≤30s |
+| 单条抖音图文 API 链 | 不存在 | ≤20s（真机验证后） |
+| 10 目标批次 | 4-6 分钟 | ≤3 分钟 |
+
 # [补记] fix(visual): 重建 publish-form 浅/暗基线收口 #2761 遗留漂移（2026-10-03，refresh-publish-form-baselines / PR #2804）
 
 > 本条为**补记**：该 PR 合并时漏写 CHANGELOG 与执行记录。补写时按 CI 产物重新取证，未留证据的条目如实标「未取证」。
