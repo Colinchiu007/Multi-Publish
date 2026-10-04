@@ -37,8 +37,9 @@ const defaultAuditRequery = {
  * @param {Function} deps.getMainWin
  * @param {object} [deps.riskSuspender] - 风控挂起守卫（desktop-risk-suspender，可选）
  * @param {object} [deps.progressEmitter] - 进度事件发射器（可选，缺省自建；publish-progress-ux）
+ * @param {object} [deps.failureDraftSaver] - 发布失败自动存草稿（publish-fail-draft-guard，可选）
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery, failureDraftSaver }) {
   // publish-progress-ux：四事件统一走富化 emitter（phase/stageKey/percent/batchId/timestamp），
   // 既有字段（platform/taskId/stage/result/error/remainingWait）原样保留，向后兼容加法。
   const emitter = progressEmitter || createPublishProgressEmitter({ getMainWin })
@@ -165,6 +166,19 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       status: 'failed', result: null, error: task.error,
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, task.owner_subject)
+    // publish-fail-draft-guard：媒体内容（视频/图文）发布失败 → 自动回存草稿防丢失。
+    // 旁路红线：saver 内建全量 try/catch（资格判定不过跳过、写入失败只 warn），
+    // 同步/异步失败都不冒泡，绝不影响失败主流程（历史落库/失败通知/风控挂起）。
+    if (failureDraftSaver && typeof failureDraftSaver.saveFailureDraft === 'function') {
+      try {
+        const saved = failureDraftSaver.saveFailureDraft(task)
+        if (saved && typeof saved.catch === 'function') {
+          saved.catch((e) => log.warn('FailureDraftSaver', 'auto draft save rejected: ' + (e && e.message)))
+        }
+      } catch (e) {
+        log.warn('FailureDraftSaver', 'auto draft save failed: ' + (e && e.message))
+      }
+    }
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
       if (isRiskBlocked(task.error) && !isRiskSuspendedMessage(task.error)) {

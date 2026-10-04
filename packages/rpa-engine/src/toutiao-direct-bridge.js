@@ -101,6 +101,9 @@ async function publishToutiao (p) {
     // 「展示封面」必填且默认「单图」但封面为空（真机取证）⇒ 传入封面图；第 52 轮实验证实封面非阻塞点
     prePublishHook: 'uploadCover',
     hookContext: { coverPath: (article.images && article.images[0]) || article.cover_path || null },
+    // 2026-10-03 ⭐ preFill：编辑器加载完成后立刻装 XHR hook（比兜底时重装早整个发布周期，
+    // 捕获填充触发的所有自动保存请求；兜底时 body 早已在手，不再受 60s 后页面关闭影响）
+    preFill: 'installToutiaoSaveHook',
   })
   // 2026-10-03 ⭐ 兜底（在 DOM 流程【之后】执行——页面此时已填充、未关闭）：
   // 1) 重装 XHR hook（导航已重置上下文，之前装的必失效）
@@ -153,62 +156,39 @@ async function publishViaPageXhr ({ win, title, log }) {
       return 'SETUP_OK'
     })()`
     await win.webContents.executeJavaScript(setup)
-    // 等页面自动保存（最长 15s）；同时派发 Ctrl+S 加速（头条支持 Ctrl+S 保存草稿）
-    for (let i = 0; i < 8; i++) {
+    // ⭐ 复刻诊断脚本成功路径：给标题一个【新值】（React 感知变化 → 触发自动保存）。
+    // 应用 RPA 填充后 React state 可能未感知变化（恢复草稿态），从不出保存请求；
+    // 而诊断脚本每次填新标题值，2s 内必触发自动保存（多次真机复现）。
+    const rettle = `(function(){
+      var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
+      if(!ta) return 'NO_TITLE'
+      var s=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set
+      s.call(ta, (ta.value||'').slice(0,26)+' '+Date.now().toString().slice(-4))
+      ta.dispatchEvent(new Event('input',{bubbles:true}))
+      return 'TITLE_BUMPED'
+    })()`
+    await win.webContents.executeJavaScript(rettle)
+    // 等自动保存（最长 12s；诊断脚本实证 2-8s 内必到）
+    for (let i = 0; i < 6; i++) {
       if (await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) break
-      // 每轮都发 Ctrl+S（加速保存触发；连续多发无害）
-      await tcDispatchCtrlS(win)
       await new Promise((r) => setTimeout(r, 2000))
     }
     const js = `(function(){
-      // 编辑器实时内容
-      var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
-      var title=ta?String(ta.value||''):'' + '${JSON.stringify(String(title || '')).slice(1, -1)}'
-      var ed=document.querySelector('.ProseMirror')||document.querySelector('[contenteditable]')
-      var html=ed?ed.innerHTML:''
-      if(!title&&!html) return JSON.stringify({ok:false,reason:'EMPTY_EDITOR'})
-      // pgc_id：页面自动保存链路会在内存里持有；从最近一次 publish 响应缓存读
-      var pgc=window.__pgcIdCache||''
-      var P={}
-      P.source=29
-      P.extra=encodeURIComponent(JSON.stringify({content_source:100000000402,content_word_cnt:html.replace(/<[^>]+>/g,'').length,is_multi_title:0,sub_titles:[],gd_ext:{entrance:'',from_page:'publisher_mp',enter_from:'PC',device_platform:'mp',is_message:0},tuwen_wtt_transfer_switch:'1'}))
-      P.content=encodeURIComponent(html)
-      P.title=encodeURIComponent(title)
-      P.search_creation_info=encodeURIComponent(JSON.stringify({searchTopOne:0,abstract:'',clue_id:''}))
-      P.title_id=window.__titleIdCache||''
-      P.mp_editor_stat='{}'
-      P.is_refute_rumor=0
-      P.save=1
-      P.entrance=''
-      P.timer_status=0
-      P.timer_time=''
-      P.educluecard=''
-      P.draft_form_data=encodeURIComponent(JSON.stringify({coverType:2}))
-      P.pgc_feed_covers=encodeURIComponent('[]')
-      P.article_ad_type=2
-      P.is_fans_article=0
-      P.govern_forward=0
-      P.praise=0
-      P.disable_praise=0
-      P.tree_plan_article=0
-      P.star_order_id=''
-      P.star_order_name=''
-      P.activity_tag=0
-      P.trends_writing_tag=0
-      P.claim_exclusive=1
-      if(pgc) P.pgc_id=pgc
-      var body=Object.keys(P).map(function(k){return k+'='+P[k]}).join('&')
+      // 原样重放页面自己的自动保存 body（含新鲜 pgc_id/title_id/tt-anti-token 上下文），
+      // 仅把 save 改为 1（真发布；save=0 实为存草稿——2026-10-03 后台对照定案）
+      var b=window.__lastSaveBody
+      if(!b||b.length<500) return JSON.stringify({ok:false,reason:'NO_BODY'})
+      var b2=b.replace(/(^|&)save=\\d+/,'$1save=1')
       var x=new XMLHttpRequest()
       x.open('POST','/mp/agw/article/publish?source=mp&type=article&aid=1231&mp_publish_ab_val=0',false)
       x.setRequestHeader('Content-Type','application/x-www-form-urlencoded;charset=UTF-8')
-      x.send(body)
-      try{ var j=JSON.parse(x.responseText); var pid=(j.data&&j.data.pgc_id)||''; if(pid&&pid!=='0') window.__pgcIdCache=String(pid)
-        return JSON.stringify({ok:true,code:j.code,msg:j.message,pgc:pid,timer:tt}) }
+      x.send(b2)
+      try{ var j=JSON.parse(x.responseText); return JSON.stringify({ok:true,code:j.code,msg:j.message,pgc:(j.data&&j.data.pgc_id)||''}) }
       catch(e){ return JSON.stringify({ok:false,reason:'PARSE:'+String(e&&e.message).slice(0,50)}) }
     })()`
     const raw = await win.webContents.executeJavaScript(js)
     const r = JSON.parse(raw)
-    log.info('RpaView', '[toutiao-xhr] code=' + r.code + ' msg=' + r.msg + ' pgcId=' + r.pgc + ' timer=' + (r.timer || ''))
+    log.info('RpaView', '[toutiao-xhr] code=' + r.code + ' msg=' + r.msg + ' pgcId=' + (r.pgc || '') + ' reason=' + (r.reason || '-'))
     if (r.ok && r.code === 0 && r.pgc && r.pgc !== '0') {
       return { success: true, platform: 'toutiao', pgcId: r.pgc }
     }
@@ -219,5 +199,35 @@ async function publishViaPageXhr ({ win, title, log }) {
   }
 }
 
-module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao }
+/**
+ * 安装 XHR 捕获 hook（由 rpa-view-platforms._execHook 在 preFill 阶段调用）：
+ * 在编辑器加载完成后立即挂钩，捕获填充触发的所有 publish 自动保存请求 body。
+ * hook 挂在 window.__lastSaveBody；兜底重放时直接读取（无需再等）。
+ * @param {{win: any, log: any}} p
+ * @returns {Promise<void>}
+ */
+async function installToutiaoSaveHook ({ win, log }) {
+  try {
+    const setup = `(function(){
+      if(window.__lastSaveBody!==undefined) return 'ALREADY'
+      window.__lastSaveBody=''; window.__titleId=''
+      var oo=XMLHttpRequest.prototype.open, os=XMLHttpRequest.prototype.send
+      XMLHttpRequest.prototype.open=function(m,u){this.__u=String(u);return oo.apply(this,arguments)}
+      XMLHttpRequest.prototype.send=function(b){
+        try{ var u=this.__u||''
+          if(u.indexOf('article/publish')>=0&&b){
+            var tb=String(b).match(/title_id=([^&]+)/); if(tb) window.__titleId=tb[1]
+            window.__lastSaveBody=String(b)
+          }
+        }catch(e){}
+        return os.apply(this,arguments)
+      }
+      return 'HOOKED'
+    })()`
+    await win.webContents.executeJavaScript(setup)
+    if (log) log.info('RpaView', '[toutiao] preFill XHR hook 已安装（捕获自动保存 body）')
+  } catch (_e) { /* hook 失败不影响 DOM 流程 */ }
+}
+
+module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao, installToutiaoSaveHook }
 

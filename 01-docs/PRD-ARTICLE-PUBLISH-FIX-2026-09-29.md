@@ -881,3 +881,81 @@ Node 直连（#2781，publishWithSign）
 **⑤ 交互/显示项**：无新增 UI；兜底过程经 `[toutiao-xhr]` 日志记录；
 进度弹窗沿用既有阶段推进（不再因兜底等待而停在 2%——兜底在 verify 超时后立即接管，
 接管结果（成功/失败）都会推动 phase4 终态事件）。
+
+#### 16.8.13 95% 卡死真因与重放定版（2026-10-03 应用日志第二次定案）
+
+**用户实测**：进度推进到 95%（此前 2%）——证明 §16.8.12 的 hook 重装 + Ctrl+S 生效
+（body 已捕获），卡在最后一步：日志 `[toutiao-xhr] code=undefined`。
+
+**两个真 bug**：
+
+1. **`timer:tt` 引用残留**：§16.8.11 移除定时逻辑时删了 `tt` 定义，
+   但 return 里 `timer:tt` 残留 ⇒ 页面内 `ReferenceError: tt is not defined` ⇒
+   被 catch 吞掉 ⇒ 返回 `{ok:false, reason:'PARSE:...'}` ⇒ 日志 `code=undefined`；
+2. **实时构造路径缺 pgc_id**：即使无 bug 1，实时构造的 body 里
+   `pgc_id` 取自 `__pgcIdCache`（无人写入，恒空）⇒ 服务端 7050。
+
+**重放定版（`publishViaPageXhr` 最终形态）**：
+
+```
+setup: 重装 hook + 微调标题 input
+等待: 轮询 __lastSaveBody（每轮派发 CDP Ctrl+S，最长 16s）
+重放: __lastSaveBody.replace(/(^|&)save=\d+/, '$1save=1') → 页面 XHR 原样重放
+判据: code===0 && pgcId!=="0"
+```
+
+**设计取舍**：放弃「编辑器实时构造 body」路径——它无法获得有效 pgc_id
+（pgc_id 只能由页面自动保存链路产生）；改为**完全信任页面自己的请求**：
+捕获它、仅改 save 位、原样重放。字段/上下文/签名 100% 继承页面。
+
+**真机依据**：`diag-toutiao-save1-verify.js`（code=0 提交成功，后台可见）与
+`diag-toutiao-final-replay.js`（捕获 1356B body → 重放 code=0）同款逻辑。
+
+**回归保护**：返回字段只有 ok/code/msg/pgc/reason 五个（无 timer）——
+删除字段必须同步删除全部引用点（本次事故的直接教训）。
+
+#### 16.8.14 ⭐⭐ 标题新值促发——应用全流程真机打通（2026-10-03 终版）
+
+**用户报障 95% 卡死的终局修复**，应用端到端日志：
+
+```
+[INFO] RpaView [toutiao] preFill XHR hook 已安装
+…DOM verification timeout → 页面 XHR 重放兜底…
+[INFO] RpaView [toutiao-xhr] code=0 msg=提交成功 pgcId=7692399425603387955
+```
+
+**最终根因（应用内对照实验定案）**：
+
+在应用内同页面同状态复刻诊断脚本（填新标题 → 等 2s → 捕获 → 重放）**成功**；
+对照应用 RPA 失败的唯一行为差异 = **诊断脚本每次填新标题值**。
+
+头条 ProseMirror 是 React 受控组件，**只在感知到值变化时才触发自动保存**：
+- 应用 RPA 填充后（恢复草稿态）React 未感知变化 ⇒ 整个会话**零** publish 请求
+  ⇒ preFill hook 恒空 ⇒ 兜底 NO_BODY；
+- 兜底时把标题改为**新值**（原值 slice(0,26) + 空格 + 时间戳后缀 4 位）+ input 事件
+  ⇒ React 感知变化 ⇒ 自动保存立即触发（实证 2-8s）⇒ hook 捕获 body ⇒ save=1 重放。
+
+**`publishViaPageXhr` 终版流程**：
+
+| 步骤 | 内容 |
+|------|------|
+| 1 | 兜底重装 XHR hook（setup） |
+| 2 | **标题新值促发**（`rettle`：值变化 + input 事件） |
+| 3 | 轮询 `__lastSaveBody`（最长 12s，2s 步进） |
+| 4 | 捕获后 `save→1` 原样重放（页面 XHR 同步） |
+| 5 | 判据 `code===0 && pgcId!=="0"` ⇒ 成功返回 pgcId |
+
+**数据校验**：标题促发时截断 26 字符再加 5 字符后缀，不超 30 字上限（§16.10.1）；
+捕获判定 `body.length>500`（完整 publish body 规模下界）。
+
+**交互逻辑**：兜底对用户透明；成功时经既有进度链路走 task:success（进度弹窗推进到 100%）。
+
+**此前各版失败原因归档**：§16.8.12（NO_BODY→发现 hook 时机）、§16.8.13（NO_BODY→发现
+timer:tt 残留 + 缺 pgc_id）、本节（NO_BODY→**React 未感知变化**，终极根因）。
+三个都是真因、层层递进：hook 时机 → 引用残留/字段缺失 → 值未变化。
+
+
+**✅ 闭环确认（2026-10-03 用户实测）**：用户通过应用手动发布图文到头条号**成功**，
+头条号后台可正常看到已发布文章。§16.8.14 此前标注的「code=0 受理后是否真发出」
+残余不确定性**消除**——头条正式从「未打通」转为「已支持」。头条单独立项完结：
+PR #2809 / #2821 / #2825 / #2836 / #2837 / #2839 全部合并，PRD §16.8.10–16.8.14 完整记录。

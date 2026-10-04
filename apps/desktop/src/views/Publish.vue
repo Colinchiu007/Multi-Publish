@@ -1,5 +1,7 @@
 <template>
   <div>
+  <!-- 文案详情模式提示条（copy-library-detail-entry） -->
+  <CopyDetailBanner v-if="showCopyDetailBanner" @close="showCopyDetailBanner = false" />
     <template v-if="publishTab === 'drafts'">
       <section class="publish-drafts-page" data-testid="publish-drafts-page" aria-labelledby="publish-drafts-title">
         <header class="publish-drafts-header">
@@ -579,7 +581,8 @@
               />
               <div class="publish-action-controls" data-testid="publish-action-controls">
                 <div class="cohere-divider"></div>
-                <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
+                <UiButton variant="secondary" class="side-button-block" data-testid="publish-save-draft" :disabled="publishing" @click="onSaveDraft">{{ t('publishPage.saveDraft') }}</UiButton>
+                <UiButton variant="secondary" size="sm" class="side-button-block" data-testid="publish-create-video" :disabled="publishing" @click="handleCreateVideo">{{ t('publishPage.createVideo') }}</UiButton>
                 <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
                 <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                   {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
@@ -750,6 +753,8 @@ import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
+import CopyDetailBanner from '@/features/publish/components/CopyDetailBanner.vue'
+import { useCopyDetailMode } from '@/composables/useCopyDetailMode'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
   normalizePublishMentions,
@@ -1227,6 +1232,8 @@ const {
   platformOverrides: diffEdits,
 })
 
+const { copyDetailMeta, showCopyDetailBanner, applyCopyDetailHandoff, syncCopyDetailToLibrary, handleCreateVideo, onSaveDraft } = useCopyDetailMode({ article, activeMode, route, t, notifyInfo, saveDraft, router })
+
 const precheckEnabled = ref(false)
 
 const {
@@ -1251,6 +1258,9 @@ const {
   isAccountAvailable,
   activeMode,
 })
+// 一键发布成功回写（评审 MAJOR：PRD 承诺「保存草稿或发布成功后回写」）：
+// usePublishFlow 的 result.success 置 true 即发布链路完成（单篇/批量共用出口），旁路回写
+watch(result, (r) => { if (r && r.success) void syncCopyDetailToLibrary() })
 
 const {
   batchMode,
@@ -1359,6 +1369,7 @@ function applyHistoryVideoQuery () {
 
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
+  applyCopyDetailHandoff() // 置顶：不依赖前置异步步骤
   if (publishTab.value === 'drafts') {
     showDraftList.value = true
     await loadDrafts()
@@ -1385,10 +1396,13 @@ onMounted(async () => {
 // 非 keep-alive 上下文（内嵌主页实例）onActivated 不触发，仍由上面的 onMounted 覆盖。
 onActivated(() => {
   applyHistoryVideoQuery()
+  applyCopyDetailHandoff()
 })
 
 // 暴露给测试（w.vm.xxx）和外部组件
 defineExpose({
+  onSaveDraft,
+  applyCopyDetailHandoff,
   article,
   batchMode,
   batchPublishing,
@@ -1711,4 +1725,5 @@ defineExpose({
 /* P2-3：AI 视频生成入口 */
 .video-ai-entry { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .video-ai-entry__hint { font-size: var(--font-size-xs); color: var(--muted, #8a8f98); }
+
 </style>
