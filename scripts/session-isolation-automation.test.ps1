@@ -55,12 +55,25 @@ try {
     $primaryKey = $primary.Replace('\','/').TrimEnd('/')
     Assert ($arguments -like "*$primaryKey/scripts/mp-worktree-health.ps1*") 'scheduled task points to stable primary-root health script'
     Assert ($arguments -like "*-Root $([char]34)$primaryKey$([char]34)*") 'scheduled task checks the stable primary root'
+    # Principal contract. Preferred logon type is S4U because that is what actually removes the
+    # console window (measured 2026-10-03, Win11 + Windows Terminal as default console host:
+    # Settings.Hidden=True still produced a visible window ~300ms after a manual trigger, while
+    # S4U produced none and the task still ran). S4U can be refused on some hosts; the installer
+    # then falls back to Interactive and must warn - so an Interactive principal is only
+    # acceptable together with that WARN, which is what this branch pins.
+    $fellBack = $reg.text -match 'registered with an interactive principal'
+    if ($fellBack) {
+        Assert ($task.Principal.LogonType -eq 'Interactive') 'fallback principal is Interactive after a refused S4U registration'
+    } else {
+        Assert ($task.Principal.LogonType -eq 'S4U') "health task must register non-interactive (got $($task.Principal.LogonType))"
+    }
     $guardTask = Get-ScheduledTask -TaskPath $scratch -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
     if ($guardTask) {
         # Elevated host: both tasks register and the installer must exit 0.
         Assert ($reg.rc -eq 0) 'installer exits 0 when both tasks registered (elevated host)'
         $guardArguments = $guardTask.Actions[0].Arguments.Replace('\','/')
         Assert ($guardArguments -like "*$primaryKey/scripts/guard-shared-root-writes.ps1*") 'write guard task points to stable primary-root guard script'
+        Assert ($guardTask.Principal.LogonType -eq $task.Principal.LogonType) 'both tasks share one principal policy'
     } else {
         # Non-elevated host: the OS refuses the AtLogOn trigger (measured PermissionDenied /
         # 0x80070005) and the installer must fail closed with the elevation guidance
