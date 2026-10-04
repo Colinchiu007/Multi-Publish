@@ -99,7 +99,7 @@ describe("PublisherRouter 三条发布轨结构化生命周期日志（QM-3）",
       expect(typeof call[2].params.durationMs).toBe("number");
       expect(call[2].params.durationMs).toBeGreaterThanOrEqual(0);
       // url 不含控制字符（经 sanitizePublishResultUrl 消毒）
-      expect(call[2].params.url).not.toMatch(/[\x00-\x1f]/);
+      expect([...call[2].params.url].every((ch) => ch.charCodeAt(0) >= 32)).toBe(true);
     });
   });
 

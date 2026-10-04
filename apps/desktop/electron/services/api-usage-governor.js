@@ -20,44 +20,26 @@ const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapt
 const { quotaExceededError, reserveRequestsBudget, releaseRequestsBudget } = require('./token-budget-windows')
 const { AsyncLocalStorage } = require('async_hooks')
 const { createLogSampler } = require('./log-sampler')
-
-const WINDOW_MS = 60 * 1000
-const MAX_QUEUE_WAIT_MS = 30 * 1000
-const MAX_PACE_WAIT_MS = 180 * 1000
-const MAX_COOLDOWN_WAIT_MS = 45 * 1000
-const TRANSIENT_RETRIES = 2
-const RATE_ADAPT_FACTOR = 0.75
-const RATE_RECOVER_STEP = 0.05
-
-const DEFAULT_LIMITS = Object.freeze({
-  llm: Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
-  tts: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
-  image: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
-  // 2026-08-13：视频为异步任务制（提交+轮询+下载），服务端任务队列支持多路并行；
-  // 并发默认 2 可将视频串行时长减半（配合 model-call-scheduler 视频并发评估）。rpm 仍约束提交速率。
-  video: Object.freeze({ rpm: 4, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
-  audio: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
-  default: Object.freeze({ rpm: 20, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
-})
+const {
+  WINDOW_MS,
+  MAX_QUEUE_WAIT_MS,
+  MAX_PACE_WAIT_MS,
+  MAX_COOLDOWN_WAIT_MS,
+  TRANSIENT_RETRIES,
+  RATE_ADAPT_FACTOR,
+  RATE_RECOVER_STEP,
+  DEFAULT_LIMITS,
+  sleep,
+  jitter,
+  retryAfterMs,
+} = require('./governor-constants')
+const { createObservabilityTracker } = require('./governor-observability')
 
 /**
  * 重入保护：记录当前 async 调用链已持有调度的 key 集合。
  * AsyncLocalStorage 会随 await 在同一调用链内传播，跨调用链互不影响。
  */
 const _reentrant = new AsyncLocalStorage()
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
-
-function jitter(baseMs) {
-  return baseMs + Math.round(Math.random() * 1500)
-}
-
-function retryAfterMs(error) {
-  const raw = error?.context?.retryAfter ?? error?.response?.headers?.['retry-after']
-  const seconds = Number(raw)
-  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000
-  return 0
-}
 
 class ApiUsageGovernor {
   constructor(options = {}) {
@@ -71,7 +53,7 @@ class ApiUsageGovernor {
     this._state = new Map() // key -> { active, waiters, nextSlotAt, cooldownUntil, rateFactor, tokenWindows }
     // P1 调度可观测性：providerId -> { queuedCount, cooldownCount, queueWaitMs, cooldownWaitMs }
     // 仅计数排队/冷却实际等待，不改调度语义；由用量上报取走并清零（内存计数，重启归零可接受）
-    this._observability = new Map()
+    this._observability = createObservabilityTracker()
     // P1-4 日志风暴护栏：重试循环按 sampleEvery 抽样、maxBurst 硬上限，首末必记
     this._retrySampler = createLogSampler({
       sampleEvery: options.retryLogSampleEvery ?? 10,
@@ -262,20 +244,8 @@ class ApiUsageGovernor {
     } finally {
       st.active -= 1
       this._pump(key, st)
-      this._recordObservability(providerId, obs)
+      this._observability.record(providerId, obs)
     }
-  }
-
-  /** P1：按 providerId 累加调度可观测性（排队/冷却事件与总等待毫秒）。 */
-  _recordObservability(providerId, obs) {
-    if (!providerId || providerId === 'default' || providerId === '') return
-    const prev = this._observability.get(providerId) ||
-      { queuedCount: 0, cooldownCount: 0, queueWaitMs: 0, cooldownWaitMs: 0 }
-    prev.queuedCount += obs.queuedMs > 0 ? 1 : 0
-    prev.cooldownCount += obs.cooldownMs > 0 ? 1 : 0
-    prev.queueWaitMs += obs.queuedMs
-    prev.cooldownWaitMs += obs.cooldownMs
-    this._observability.set(providerId, prev)
   }
 
   /**
@@ -283,11 +253,7 @@ class ApiUsageGovernor {
    * @returns {Record<string, {queuedCount: number, cooldownCount: number, queueWaitMs: number, cooldownWaitMs: number}>}
    */
   takeObservabilitySnapshot() {
-    if (this._observability.size === 0) return {}
-    const snap = {}
-    for (const [pid, v] of this._observability) snap[pid] = { ...v }
-    this._observability.clear()
-    return snap
+    return this._observability.takeSnapshot()
   }
 
   _pump(key, st) {

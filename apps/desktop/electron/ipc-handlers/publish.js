@@ -10,41 +10,14 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
-  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
+  const { withSenderCheck } = require('./helpers')
+  const { createPublishHelpers } = require('./publish-helpers')
   // eslint-disable-next-line no-unused-vars
   // eslint-disable-next-line no-unused-vars
   const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender } = deps
 
-  // 平台和账号标识会进入发布路由及下游 URL，只允许单一路径段。
-  function isSafePathSegment(value) {
-    return typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value)
-  }
-
-  // identityService 存在时，历史记录必须以当前认证用户为唯一归属来源。
-  // 三态判定（undefined=legacy / null=认不出身份 / 非空串=subject）唯一实现在 helpers，
-  // 这里只转发——同一逻辑此前在本文件、account.js、performance-loop 各有一份（QM-6 后端轴 FB5）。
-  function getOwnerSubject () {
-    return resolveIpcOwnerSubject(identityService)
-  }
-
-  // 统一 IPC 日志标准：每个 handler 记录进入/校验/结果/错误，含耗时与关键参数（脱敏由 logger 统一处理）
-  function ipcLog(level, channel, stage, detail) {
-    if (log && typeof log[level] === 'function') {
-      log[level]('PublishIPC', `${channel} ${stage}${detail ? ' :: ' + detail : ''}`)
-    }
-  }
-
-  function summarizeArticle(article) {
-    if (!article || typeof article !== 'object') return 'article=<缺失>'
-    const parts = []
-    if (typeof article.title === 'string' && article.title) parts.push(`title="${article.title.slice(0, 50)}"`)
-    if (typeof article.video_path === 'string' && article.video_path) parts.push(`video="${article.video_path.slice(-60)}"`)
-    if (typeof article.cover_path === 'string' && article.cover_path) parts.push(`cover="${article.cover_path.slice(-60)}"`)
-    if (typeof article.accountId === 'string' && article.accountId) parts.push(`accountId=${article.accountId}`)
-    if (Array.isArray(article.tags) && article.tags.length) parts.push(`tags=${article.tags.length}`)
-    if (!parts.length) parts.push('无关键字段')
-    return parts.join(' | ')
-  }
+  // 发布 IPC 局部工具：路径段校验 / 归属主体 / 统一日志 / 文章摘要（见 publish-helpers.js）
+  const { isSafePathSegment, getOwnerSubject, ipcLog, summarizeArticle } = createPublishHelpers({ log, identityService })
 
   // 封面提取：cover:extract
   ipcMain.handle('cover:extract', withSenderCheck(async (event, videoPath) => {

@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
+// P1-4 本文件只验证「采样器计数/封顶」语义，不验证退避时序（穷尽式 burst 边界由
+// log-storm-guard.test.js 独立覆盖）。为避免 retry 循环里 jitter 的 0~1500ms 随机抖动
+// 叠加 attempt 倍数导致 5 次重试真实 sleep 达 ~15s、偶发击穿 shard 10s 超时，这里把
+// governor-constants 的 jitter 固定为 0（governor 在 require 时绑定该引用，故须先于
+// require governor 前打桩）。仅影响本测试文件模块图，不改主进程行为。
+const governorConstants = require('./governor-constants')
+governorConstants.jitter = () => 0
+
 const { ApiUsageGovernor } = require('./api-usage-governor')
 const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapters/_base/provider-error')
 
@@ -143,5 +151,5 @@ describe('ApiUsageGovernor 观测性埋点（T4.1/T4.2）', () => {
       'retry429-exhausted',
       expect.objectContaining({ params: expect.objectContaining({ key: 'p:llm:m' }) }),
     )
-  })
+  }, 60000)
 })
