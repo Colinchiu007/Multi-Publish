@@ -29,9 +29,10 @@ __registerMock('child_process', {
 })
 
 // 夹具只对**本测试的沙箱目录**谎报文件系统，沙箱外一律委托真实 fs。
-// 原因：__registerMock 经 Module._load 拦截该 realm 里每一个 require('fs')，而 vitest 又按
-// apps/desktop/vitest.config.js 的 deps.inline:['electron'] 把 node_modules/electron/index.js
-// 内联进同一个 realm。一律 existsSync()=>false 会让它以为二进制没备好，于是打出
+// 原因：__registerMock 经 Module._load 拦截该 realm 里每一个 require('fs')，而
+// node_modules/electron/index.js 也在同一 realm 里被真实执行（实测与 vitest.config.js 的
+// deps.inline:['electron'] 无关，摘掉它 banner 照样出现，见 docs/deps-inline-electron-evaluation.md）。
+// 一律 existsSync()=>false 会让它以为二进制没备好，于是打出
 // `Downloading Electron binary...` 并当场 spawn install.js —— 这就是 CI 里那条被记到
 // "当时正在跑的用例"名下的下载 banner（#2783 的日志形状，根因由 #2794 归因）。
 // 委托只覆盖"读"里第三方模块真正会用的两个动词（existsSync / readFileSync）。statSync 保持原来的
@@ -43,9 +44,9 @@ const nodeOs = require('node:os')
 const realFs = require('node:fs')
 const TTS_SANDBOX = require('node:path').join(nodeOs.tmpdir(), 'multi-publish-asset-gen-' + process.pid)
 // 夹具只对**本测试的沙箱目录**谎报文件系统，沙箱外一律委托真实 fs。
-// 原因：__registerMock 经 Module._load 拦截该 realm 里每一个 require(fs)，而 vitest 又按
-// apps/desktop/vitest.config.js 的 deps.inline:[electron] 把 node_modules/electron/index.js
-// 内联进同一个 realm。一律 existsSync()=>false 会让它以为二进制没备好，于是打出
+// 原因：__registerMock 经 Module._load 拦截该 realm 里每一个 require(fs)，而
+// node_modules/electron/index.js 也在同一 realm 里被真实执行（实测与 deps.inline:[electron] 无关，
+// 摘掉它 banner 照样出现，见 docs/deps-inline-electron-evaluation.md）。一律 existsSync()=>false 会让它以为二进制没备好，于是打出
 // Downloading Electron binary... 并当场 spawn install.js —— 这就是 CI 里那条被记到
 // "当时正在跑的用例"名下的下载 banner（#2783 的日志形状，根因由 #2794 归因）。
 // 判定必须按**路径段**比：裸 startsWith 会把 <沙箱>-evil 这种近名目录判进沙箱，
@@ -348,8 +349,8 @@ describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-
 
 
 describe('夹具不得对同 realm 的第三方模块谎报文件系统（#2794 回归锁）', () => {
-  // 本文件顶部把 existsSync 注册成"沙箱内一律 false"，而 vitest 按 deps.inline:[electron]
-  // 把 node_modules/electron/index.js 内联进同一个 realm —— 于是 require(electron) 读到这个假 fs，
+  // 本文件顶部把 existsSync 注册成"沙箱内一律 false"，而 node_modules/electron/index.js
+  // 就在同一 realm 里被执行（实测与 deps.inline:[electron] 无关，摘掉它 banner 照样出现）—— 于是 require(electron) 读到这个假 fs，
   // 以为二进制没备好，打出 Downloading Electron binary...（CI 上有日志无下载，实测距下一条 11ms）。
   // 这三条锁只锁可观察的事：委托边界正确、写不落盘、banner 不出现。
   const nodePath = require('node:path')

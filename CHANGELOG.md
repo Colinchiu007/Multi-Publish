@@ -12,7 +12,10 @@
 ### 处置
 - **不摘**，且 `vitest.config.js` 一行未动（`git diff --exit-code origin/main -- apps/desktop/vitest.config.js` 为空）。第三条理由不是"怕改"：`KNOWN_BLANKET` 12 条"本文件为什么安全"的理由全是在现状配置下逐文件核对出来的（如"`vi.mock('electron')` 已被提升到文件体之前 ⇒ 真 `index.js` 不进本 realm"），换加载分流方式等于要求那 12 条重新核对，而收益是 0。
 - 新增 `docs/deps-inline-electron-evaluation.md`：结论、两分钟可重跑的三条命令、P1/P2/P3 证据的**适用范围边界**、以及刻意不入库探针的理由。
-- 纠正三处同源复述：`docs/blanket-fs-mock-ratchet.md` §1 与 §8、`scripts/check-blanket-fs-mock.js` 头部注释与 `READ_VERBS` 取舍段 ⇒ 不留"改一行配置就有退路"的错觉。**唯一控制点仍是夹具形状本身**。历史快照 `openspec/records/fix-electron-dist-banner-attribution.md` 不改写（记忆是历史事实），由新文档指认其因果方向已被否证。
+- 纠正八处同源复述：`docs/blanket-fs-mock-ratchet.md` §1 与 §8、`scripts/check-blanket-fs-mock.js` 头部注释与 `READ_VERBS` 取舍段 ⇒ 不留"改一行配置就有退路"的错觉。**唯一控制点仍是夹具形状本身**。历史快照 `openspec/records/fix-electron-dist-banner-attribution.md` 不改写（记忆是历史事实），由新文档指认其因果方向已被否证。
+ 带进真 electron 入口"）。
+并对**修复前**文本做过正控（必须命中）。本轮实跑：10 处提及、违规 0、正控命中 = true。
+而我那句"行尾与 diff 对账 PASS"当时是照抄期望——真读过一次生成的文件就该第一眼看见。已随本次 follow-up 修复合回。
 - 未做（写进遗留不假装闭合）：这行当初的动机未考古；`axios` 那一半未评估（mock 面与 electron 不同形，不能套用本文结论）；`vi.mock` 适用域的正向判别未跑。
 
 # [未发布] test(门禁): blanket fs 夹具棘轮接进 Gate 2c，判据按引用链而非文本，21 例回归锁 + 21 条反证（blanket-fs-mock-ratchet，2026-10-04）

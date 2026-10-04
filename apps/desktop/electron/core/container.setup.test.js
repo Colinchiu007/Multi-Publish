@@ -6,7 +6,8 @@ __enableElectronMock()
 // 为什么这个文件必须有牙齿：它 require 全部服务模块，其中 store → sqlite-wrapper → sql.js 会
 // 用 fs.readFileSync 读 .wasm —— 一律返回 "[]" 的谎报正是 BF-TEST-01 那次
 // `WebAssembly.instantiate(): BufferSource argument is empty` 崩溃的成因（下面对 sql.js 的
-// mock 是同一根因的第二处规避）。同 realm 还会经 deps.inline:['electron'] 带进真 electron 入口，
+// mock 是同一根因的第二处规避）。同一 realm 里 node_modules/electron/index.js 也会被真实执行（实测与
+// vitest.config.js 的 deps.inline:['electron'] 无关，摘掉它 banner 照样出现，见 docs/deps-inline-electron-evaluation.md），
 // existsSync()=>false 会让它以为二进制没备好并当场 spawn install.js。
 // 判定按**路径段**比：裸 startsWith 会把 <沙箱>-evil 判进沙箱，对真实存在的目录持续谎报"不存在"。
 const nodeOs = require('node:os')
