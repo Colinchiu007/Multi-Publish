@@ -6,7 +6,7 @@
         <div class="page-subtitle">各平台发布数据与趋势分析</div>
       </div>
       <div class="page-actions">
-        <button class="cohere-btn-secondary" @click="refreshSync" :disabled="syncing">
+        <button class="cohere-btn-secondary" data-testid="dashboard-refresh-btn" @click="refreshSync" :disabled="syncing">
           {{ syncing ? '同步中...' : '⟳ 刷新数据' }}
         </button>
       </div>
@@ -24,10 +24,6 @@
           <div class="stat-icon"><el-icon><Promotion /></el-icon></div>
           <div class="stat-value">{{ totalArticles }}</div>
           <div class="stat-label">{{ t('dashboard.publishedContent') }}</div>
-          <div class="stat-change positive">
-            <span>↑</span>
-            {{ t('dashboard.weekChange') }}
-          </div>
         </div>
 
         <!-- 小卡片：阅读 -->
@@ -35,10 +31,6 @@
           <div class="stat-icon"><el-icon><View /></el-icon></div>
           <div class="stat-value">{{ totalViews > 10000 ? (totalViews / 10000).toFixed(1) + '万' : totalViews }}</div>
           <div class="stat-label">总阅读</div>
-          <div class="stat-change positive">
-            <span>↑</span>
-            +8.5%
-          </div>
         </div>
 
         <!-- 小卡片：评论 -->
@@ -46,10 +38,6 @@
           <div class="stat-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="stat-value">{{ totalComments }}</div>
           <div class="stat-label">{{ t('dashboard.totalComments') }}</div>
-          <div class="stat-change positive">
-            <span>↑</span>
-            +23%
-          </div>
         </div>
 
         <!-- 小卡片：粉丝 -->
@@ -57,10 +45,6 @@
           <div class="stat-icon"><el-icon><UserFilled /></el-icon></div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
           <div class="stat-label">{{ t('dashboard.totalFollowers') }}</div>
-          <div class="stat-change negative">
-            <span>↓</span>
-            -2.1%
-          </div>
         </div>
       </div>
 
@@ -119,6 +103,9 @@
           </div>
         </div>
       </div>
+
+      <!-- 作品互动回流（P2-6c）：数字一律来自 performance_snapshot 聚合 -->
+      <PerformanceFlowPanel class="dash-mt-xl" :reload-token="metricsReloadToken" />
 
       <!-- 平台分布 -->
       <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel platform-panel">
@@ -217,6 +204,7 @@ import { isAuthGateResult } from '@/utils/auth-gate'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatDateTime } from '@/utils/datetime'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
+import PerformanceFlowPanel from '@/features/dashboard/PerformanceFlowPanel.vue'
 import TrialBanner from '@/components/TrialBanner.vue'
 // eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
@@ -228,6 +216,8 @@ const showUpgradeModal = ref(false)
 const platformData = ref([])
 const statsData = ref(null)
 const recentPublishes = ref([])
+// 回流看板与页面共用同一个刷新入口：两个入口各自拉数据会拿到不同时刻的数字
+const metricsReloadToken = ref(0)
 // 未登录门禁态：dashboard:stats / history:list 要求登录（AUTH_REQUIRED），
 // 旧实现静默吞掉导致空数据无引导（2026-09-15，与 publish-history 同范式）。
 const statsLoginRequired = ref(false)
@@ -273,6 +263,7 @@ async function refreshSync () {
   try {
     await syncAll()
     await loadCached()
+    metricsReloadToken.value += 1
   } catch (e) {
     console.warn('Sync failed:', e.message)
     ElMessage.error(t('dashboard.syncFailed'))
@@ -471,27 +462,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .stat-card.large .stat-label {
   color: rgba(255, 255, 255, 0.8);
-}
-
-.stat-change {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  margin-top: var(--space-sm);
-}
-
-.stat-change.positive {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--success);
-}
-
-.stat-change.negative {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--error);
 }
 
 /* === 发布统计面板 === */

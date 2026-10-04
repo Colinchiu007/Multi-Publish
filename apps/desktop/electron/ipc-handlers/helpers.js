@@ -139,4 +139,28 @@ function withSenderCheck(fn) {
   }
 }
 
-module.exports = { wrapIpcHandler, wrapIpcHandlerRaw, withSenderCheck, EC }
+/**
+ * IPC 读侧的归属三态（唯一实现，禁止再抄第四份）：
+ *   - `undefined` → 身份服务缺席（legacy 档）：调用方应取「无归属桶」，不是报错；
+ *   - `null`      → 身份服务在但没有可用 sub：**必须** fail closed，
+ *                    把「认不出是谁」渲染成「0 条数据」会让用户以为功能坏了（与 dashboard:stats 同口径）；
+ *   - 非空串      → 已去空白的 subject。
+ *
+ * 注意 publish.js / account.js 各自还留有一份同逻辑的私有实现（历史欠账，见
+ * 01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md §十），收敛它们属另一个切片。
+ *
+ * @param {{getState: () => any}|null|undefined} identityService
+ * @returns {string|null|undefined}
+ */
+function resolveIpcOwnerSubject (identityService) {
+  if (!identityService) return undefined
+  try {
+    const state = identityService.getState()
+    if (state && typeof state === 'object' && state.user && typeof state.user.sub === 'string' && state.user.sub.trim()) {
+      return state.user.sub.trim()
+    }
+  } catch (_) { /* fail closed below */ }
+  return null
+}
+
+module.exports = { wrapIpcHandler, wrapIpcHandlerRaw, withSenderCheck, resolveIpcOwnerSubject, EC }

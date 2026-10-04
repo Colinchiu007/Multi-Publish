@@ -1,3 +1,22 @@
+# [未发布] feat(desktop): 数据看板接上作品互动回流，并撤掉页面上写死的假百分比（publish-metrics-dashboard）
+
+### 根因
+- 「总阅读 / 总评论 / 总粉丝」卡片的变化量是模板里的字面量 `+8.5%` / `+23%` / `-2.1%`，「已发布内容」卡片的变化量来自 locale 里的 `dashboard.weekChange: '较上周 +12%'`——**四处都没有数据源**。它们的数据来自 `sync:cached`（`packages/shared-utils/src/data-sync.js:116`），该实现只按 TTL 返回每平台**一份最新** SyncResult，没有时间序列，因此周变化在现有数据下根本算不出来；把 Demo 值当数据展示给用户。
+- 作品级互动数据（`performance_snapshot`）自回采链路落地以来渲染层**零消费**（`git grep -ln performance_snapshot origin/main -- apps/desktop/src` = 0 命中）：采到的数字没有任何地方可见。
+
+### 方案
+- 新增主进程聚合唯一实现 `electron/services/performance-overview.js`（纯函数、注入时钟），V1–V13 十三判据逐条钉死：总量一律「每作品取最新一份快照」再求和（累计计数跨快照求和会重复计入数倍）、日增按相邻快照差分并把负差钳到 0 且计数留痕、首份快照整份计入采集日、窗口内缺日补零、孤儿快照与脏指标出声计数、周变化只在有基线时给百分比。
+- 存储层新增 `listTrackedForOverview` / `listSnapshotsForOverview`：归属谓词与发布历史同口径（真实身份只取本人；无身份只取 NULL/空串/`__legacy__` 桶），扫描上限以 `truncated` + `limits` 如实出声，孤儿快照单独计数。
+- IPC 新增 `performance:overview`，门禁与 `dashboard:stats` 同口径：认不出身份返回 AUTH_ERROR，而不是「全零成功信封」（后者会把「没认出来」渲染成「没人看」）；归属三态收敛到 `ipc-handlers/helpers.js` 的 `resolveIpcOwnerSubject` 一处。
+- 渲染层新增 `src/features/dashboard/PerformanceFlowPanel.vue`（总量五卡 / 日增趋势 / 平台分布 / 回采健康度 / 诊断与截断说明 / 四种空态互斥），Dashboard 挂载该面板并删除四处假百分比与 `dashboard.weekChange` 死键。
+
+### 测试与反证
+- 新增 4 个测试文件共 40 例（聚合 18 / 存储 6 真 sqlite+os.tmpdir / 接线 4 / 面板 12），另在 `performance-loop.test.js` +7、`Dashboard.test.js` +5，合计 52 例。
+- 受影响面并集全跑：81 文件 / 1698 例通过（含 `ipc-handlers/index` 真装配路径注册的 `performance:overview`）。
+- 反证 10 条全部实测变红并逐条归因（取最旧快照 3 红 / 趋势不补零 6 红 / 零基线出百分比 2 红 / 摘掉身份门禁 1 红 / 假百分比写回模板 1 红 / 摘掉面板挂载 3 红 / 归属过滤退化成全表 2 红 / 截断不出声 1 红 / preload 不暴露通道 2 红 / 兜底信封变形 1 红），还原后与备份逐字节相同。
+
+详见 01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md。
+
 # [未发布] test(守卫): 测试期禁出站守卫补上子进程面，两个 realm 都必须两面齐全（fix-test-egress-child-plane，2026-10-03）
 
 ### 根因

@@ -7,6 +7,8 @@
  * 依赖：logger
  */
 const log = require('../logger')
+const { LEGACY_OWNER_SUBJECT } = require('../store-schema')
+const { OVERVIEW_TRACKED_LIMIT, OVERVIEW_SNAPSHOT_LIMIT } = require('../performance-overview')
 
 function _genId () {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
@@ -18,6 +20,25 @@ function _parseJson (str, fallback) {
 }
 
 const RECRAWL_STATUSES = new Set(['pending', 'ok', 'failed', 'unsupported', 'untrackable', 'manual'])
+
+/**
+ * 归属过滤谓词（看板读侧）。口径与发布历史侧一致，两份卡片才不会互相打脸：
+ *   - 身份可解析 → 只取该 subject；
+ *   - 无身份服务（legacy 档）→ 只取「无归属桶」（NULL / 空串 / __legacy__），
+ *     绝不把已归属账号的数据端给匿名态。
+ * 三个条件缺一不可：sqlite 迁移写的是 '__legacy__'，旧数据是 NULL，手填可能是 ''。
+ * @param {string|undefined|null} ownerSubject
+ * @param {string} [alias] - 带 JOIN 时给列加前缀（如 't'）
+ */
+function _ownerPredicate (ownerSubject, alias) {
+  const prefix = alias ? alias + '.' : ''
+  const owner = typeof ownerSubject === 'string' && ownerSubject.trim() ? ownerSubject.trim() : null
+  if (owner) return { sql: 'WHERE ' + prefix + 'owner_subject = ?', params: [owner] }
+  return {
+    sql: 'WHERE (' + prefix + 'owner_subject IS NULL OR TRIM(' + prefix + 'owner_subject) = ? OR ' + prefix + 'owner_subject = ?)',
+    params: ['', LEGACY_OWNER_SUBJECT],
+  }
+}
 
 module.exports = {
   // ===================== 改写历史 =====================
@@ -224,6 +245,63 @@ module.exports = {
         'SELECT * FROM performance_snapshot WHERE tracked_content_id = ? ORDER BY captured_at DESC, rowid DESC'
       ).all(String(trackedContentId))
     } catch (e) { return [] }
+  },
+
+  /**
+   * 看板读侧：本归属下的作品行（列取最小集，禁止 SELECT *——宽表会让口径漂移无人察觉）。
+   * 返回 total / truncated 是为了让「统计基于最近 N 条」能如实说出来，
+   * 而不是把截断当全量渲染成一个偏低的数字。
+   * @param {string|undefined} ownerSubject
+   * @param {number} [limit]
+   */
+  listTrackedForOverview (ownerSubject, limit) {
+    const cap = Number(limit) > 0 ? Number(limit) : OVERVIEW_TRACKED_LIMIT
+    if (!this._ready) return { rows: [], total: 0, truncated: false }
+    const { sql, params } = _ownerPredicate(ownerSubject)
+    try {
+      const countRow = this.db.prepare('SELECT COUNT(*) AS n FROM tracked_content ' + sql).get(...params)
+      const total = countRow ? Number(countRow.n) || 0 : 0
+      const rows = this.db.prepare(
+        'SELECT id, platform, recrawl_status, created_at, last_recrawl_at FROM tracked_content ' + sql +
+        ' ORDER BY created_at DESC, rowid DESC LIMIT ?'
+      ).all(...params, cap)
+      return { rows, total, truncated: total > rows.length }
+    } catch (e) {
+      log.warn('Store', 'listTrackedForOverview failed: ' + e.message)
+      return { rows: [], total: 0, truncated: false }
+    }
+  },
+
+  /**
+   * 看板读侧：本归属下作品的全部快照（不按时间过滤——日增需要窗口起点之前的那份做基线，
+   * 截断只在聚合层按窗口做）。排序键与 getLatestSnapshot 同口径：(作品, 采集时间, rowid) 升序。
+   * orphanTotal 单独统计「关联不到任何作品」的快照，那是数据完整性信号，不能和归属过滤混成一谈。
+   * @param {string|undefined} ownerSubject
+   * @param {number} [limit]
+   */
+  listSnapshotsForOverview (ownerSubject, limit) {
+    const cap = Number(limit) > 0 ? Number(limit) : OVERVIEW_SNAPSHOT_LIMIT
+    if (!this._ready) return { rows: [], total: 0, truncated: false, orphanTotal: 0 }
+    const { sql, params } = _ownerPredicate(ownerSubject, 't')
+    try {
+      const countRow = this.db.prepare(
+        'SELECT COUNT(*) AS n FROM performance_snapshot s JOIN tracked_content t ON t.id = s.tracked_content_id ' + sql
+      ).get(...params)
+      const total = countRow ? Number(countRow.n) || 0 : 0
+      const rows = this.db.prepare(
+        'SELECT s.id, s.tracked_content_id, s.views, s.likes, s.comments, s.favorites, s.shares, s.captured_at ' +
+        'FROM performance_snapshot s JOIN tracked_content t ON t.id = s.tracked_content_id ' + sql +
+        ' ORDER BY s.tracked_content_id ASC, s.captured_at ASC, s.rowid ASC LIMIT ?'
+      ).all(...params, cap)
+      const orphanRow = this.db.prepare(
+        'SELECT COUNT(*) AS n FROM performance_snapshot s ' +
+        'WHERE NOT EXISTS (SELECT 1 FROM tracked_content t WHERE t.id = s.tracked_content_id)'
+      ).get()
+      return { rows, total, truncated: total > rows.length, orphanTotal: orphanRow ? Number(orphanRow.n) || 0 : 0 }
+    } catch (e) {
+      log.warn('Store', 'listSnapshotsForOverview failed: ' + e.message)
+      return { rows: [], total: 0, truncated: false, orphanTotal: 0 }
+    }
   },
 
   // ===================== 模式归因聚合 =====================
