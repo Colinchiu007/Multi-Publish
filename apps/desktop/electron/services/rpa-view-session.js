@@ -80,7 +80,7 @@ function startPoolSweeper (manager) {
 /** 归还窗口到池（超限挤出最旧；健康检查失败的窗口直接销毁）。 */
 function releaseToPool (manager, key, win) {
   const pool = manager._pool
-  if (!pool || pool.map.has(key)) { try { if (!win.isDestroyed()) win.destroy() } catch (_) {} return }
+  if (!pool || pool.map.has(key)) { try { if (!win.isDestroyed()) win.destroy() } catch (_) { /* ignore */ } return }
   if (pool.map.size >= pool.size) {
     // 挤出最旧（lastUsedAt 最小）
     let oldestKey = null; let oldestAt = Infinity

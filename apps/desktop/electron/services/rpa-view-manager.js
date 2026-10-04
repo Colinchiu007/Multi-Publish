@@ -57,6 +57,9 @@ class RpaViewManager {
   // ========== Main publish entry ==========
   async publish(platform, article, authData, timeout) {
     timeout = timeout||120000
+    // C 方案：publishHealthy 是 RPA 轨归池判据（API 轨无窗口不涉及）；在 try 外声明供 finally 读。
+    // 不带初始化值——所有执行路径（try 内赋值/catch 赋值）都会在 finally 读取前先赋值。
+    let publishHealthy
     log.info('RpaView','publish start platform='+platform+' hasTitle='+Boolean(article&&article.title)+' hasVideo='+Boolean(article&&article.video_path)+' timeoutMs='+timeout)
     // API-first: if we have an API adapter for this platform, use it (no browser needed)
     const hasAccountProxy = Boolean(authData?.proxy)
@@ -123,7 +126,6 @@ class RpaViewManager {
     // RPA path (existing)
     // C 方案（publish-throughput-optimization）：窗口池化——池键按逻辑会话（平台+账号），
     // 池命中复用（保留持久 partition 登录态，跳过三段恢复）；未命中新建并做全量恢复。
-    const poolKey = this._poolKey(platform, article && article.accountId)
     const { win, reused } = this._acquireWindow(platform, article && article.accountId)
     // 活动会话键保留自增 id（同一账号并发发布时各会话独立命名）
     const key = this._windowKey(platform, article&&article.accountId)
@@ -133,7 +135,6 @@ class RpaViewManager {
     this._emitProgress(platform, reused ? 'reusing browser session...' : 'starting browser...',0)
     this.windows[key] = win
     let removeProxyAuthHandler = function () {}
-    let publishHealthy = false
     try {
       if (hasAccountProxy) removeProxyAuthHandler = await this._configureProxy(win, authData.proxy)
       // 登录态恢复只在新建窗口时执行：池内复用窗口的 cookie/localStorage 已在 partition 层，
@@ -172,7 +173,7 @@ class RpaViewManager {
       try { removeProxyAuthHandler() } catch (e) { /* ignore */ }
       // C 方案：成功归池（导航 about:blank 后复用），失败/取消立即销毁（状态污染兜底）。
       delete this.windows[key]; delete this._activeTokens[key]
-      try { await this._releaseWindow(platform, article && article.accountId, win, publishHealthy) } catch (e) { try { if (!win.isDestroyed()) win.destroy() } catch (_) { /* ignore */ } }
+      try { await this._releaseWindow(platform, article && article.accountId, win, publishHealthy) } catch (_e) { try { if (!win.isDestroyed()) win.destroy() } catch (_) { /* ignore */ } }
     }
   }
 
