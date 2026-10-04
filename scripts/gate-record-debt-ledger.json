@@ -83,5 +83,9 @@
     "reason": "PR #2824 的登记项随分支提交进入合并，squash 落地后 main 顶层账本无此条（合并链路曾把别条登记误并入本 PR 提交，已按门禁清出）。按「新增未收口行必须带原因登记」补登：回填者＝后续 docs PR，回填时同一次提交删除本条。取证口径：git log origin/main --grep='(#2824)$' --format=%H|%cI；git ls-remote --heads origin publish-history-card-open-link 返回 0 行。",
     "status": "PENDING",
     "line": 24
+  },
+  "本次执行记录：基线新鲜度门禁接进 PR 侧（Gate 7b，partial 形态）+ 按同一次 CI 渲染重建 36 张漂移基线（freshness-gate-on-pr，2026-10-03）": {
+    "reason": "本 PR 尚未合并，远程同步只能在合并后取证。回填者＝后续 docs PR，口径：git log origin/main --grep=(#2815)$ 取合并 SHA 与时间、git ls-remote --heads origin freshness-gate-on-pr 返回 0 行证远端分支已随 squash 删除。回填与删除本登记项必须同一次发生。",
+    "status": "PENDING"
   }
 }
