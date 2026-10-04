@@ -2,10 +2,6 @@
 record: fix-gate-2c2-docs-only-hole
 task: 修 #2745 —— 把执行记录存在性门禁（Gate 2c2）从被 docs-only 短路的 static-gates 搬进无条件执行的 changes job，并把「进白名单的路径其门禁必须在 changes」这条前提锁从账本专用泛化为路径→命令清单；同步按分支名放宽"携带记录"判据
 date: 2026-10-03
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep 与 ls-remote 回填并删除本段三字段）
 ---
 
 ## 本次执行记录：Gate 2c2 接线位置与 docs-only 短路前提锁（fix-gate-2c2-docs-only-hole，2026-10-03）
@@ -37,7 +33,7 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep �
 | 7 | 第二路 | Warning | 放宽只按「文件名 == 分支名」，分支名可复用时改一行历史同名记录即满足判据 | **不修，留残余并写明**：判据只拿得到 statuses（脚本前提 1 禁止自拼 diff），要"该记录由本 PR 引入"需 `--diff-filter=A` 语义，会把 A/M 两路重新混成一个判据。风险面限于"复用旧分支名 + 只改自己那篇一行"，而这类 PR 本来就该把证据写进那篇记录。已登记进「遗留」 |
 | 8 | 第一路 | Info | `hits === 1` 统计含注释的全文，将来注释里出现完整命令串会误报且失败文案读不出真因 | **随 #2 一并修**：统计域剥离注释；static-gates 的指针注释因此改写为不复写命令原文 |
 
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后由后续会话取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 的 merge SHA 与时间、`git ls-remote --heads origin fix-gate-2c2-docs-only-hole` 期望 0 行（同次对 `main` 做正控），回填 PASS 并**同次删除** frontmatter 的 sync_status / sync_reason / sync_backfill_owner 三个字段（回填不删字段 = 门禁当场报「已回填却仍留登记字段」） |
+| 远程同步 | PASS | merge SHA `f9f8a9a3c52d8d97c5cf1f735cb1bd2eb42d4cdd`（PR #2820 以 squash 进 main，2026-10-04T06:45:30Z；取证 `git log origin/main --grep='(#2820)$' --format=%H|%cI`）。远端分支 `fix-gate-2c2-docs-only-hole` 已删：`git ls-remote --heads origin fix-gate-2c2-docs-only-hole` 返回 0 行，同一条命令对 `main` 正控返回 1 行（证明命令本身取得到东西）。本次回填同时删除 frontmatter 的三个 `sync_*` 字段 —— 门禁把"回填 PASS"与"登记字段清空"钉成同一次动作，只做一半会当场红。 |
 
 ### 遗留（不假装已闭合）
 - **advisory → enforce 未做**，且这一步不该在本 PR 顺手做。实测窗口（origin/main first-parent 120 个提交）里 59 个纯文档 PR：9 个交 `_exempt`、5 个修订自己那篇记录、31 个只写历史载体 `.quality-gates.md`、14 个在任何记录源里都没有。转阻断的硬前置：① 那 14 个有归属清单；② `.quality-gates.md` 与 `openspec/records/` 两套载体的去留有明确结论（`check-gate-record-debt.js` 目前两源分列统计，说明旧源仍被消费）。
