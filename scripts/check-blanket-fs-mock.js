@@ -138,18 +138,31 @@ function stripComments (text) {
 
 /* ------------------------------------------------------------ 注册点与结构 */
 
-const REGISTER_SITE_RES = [
-  /__registerMock\(\s*['"](?:node:)?fs(?:\/promises)?['"]\s*,/g,
-  /\bvi(?:\.do)?\.mock\(\s*['"](?:node:)?fs(?:\/promises)?['"]/g,
+/**
+ * 注册点的**位置**必须在 skeleton 域找：`__registerMock('fs', {…})` 这件事，
+ * "调用"是代码、`'fs'` 是字符串实参 —— 而 skeleton 只掩字符串的**内容**、留着引号，
+ * 所以真调用一定还能被匹配到，而**写在字符串字面量里的那种**（例如回归夹具自己的
+ * `"__registerMock('fs', {"`）内容已变空格，整条不再出现 ⇒ 不会被当成注册点。
+ * 混用两域的代价本轮实测过：早先按 codeOnly 找点，夹具文件一旦从 untracked 变成 tracked，
+ * 就被自己的测试文本判成 15 条 blanket 违规。
+ * 模块 id 则反过来从 codeOnly 按同一 span 取原文判（skeleton 里它已经是空格）。
+ */
+const SITE_RES = [
+  /__registerMock\(\s*(['"])[^'"]*\1\s*,/g,
+  /\bvi(?:\.do)?\.mock\(\s*(['"])[^'"]*\1/g,
 ];
+const FS_ID_RE = /['"](?:node:)?fs(?:\/promises)?['"]/;
 
 /** 文件里**每一个** fs 注册点都要判（只看第一个 ⇒ 第二个是 blanket 就能整条洗白） */
-function findRegistrationSites (codeOnly) {
+function findRegistrationSites (skeleton, codeOnly) {
   const sites = [];
-  for (const re of REGISTER_SITE_RES) {
+  for (const re of SITE_RES) {
     re.lastIndex = 0;
     let m;
-    while ((m = re.exec(codeOnly)) !== null) sites.push(m.index);
+    while ((m = re.exec(skeleton)) !== null) {
+      const raw = codeOnly.slice(m.index, m.index + m[0].length);
+      if (FS_ID_RE.test(raw)) sites.push(m.index);
+    }
   }
   return sites.sort((a, b) => a - b);
 }
@@ -291,7 +304,7 @@ function delegatesRealFs (code, impl, verb) {
  */
 function classify (text) {
   const { codeOnly, skeleton } = scanMask(text);
-  const sites = findRegistrationSites(codeOnly);
+  const sites = findRegistrationSites(skeleton, codeOnly);
   if (!sites.length) return { verdict: 'NONE' };
 
   const missing = [];

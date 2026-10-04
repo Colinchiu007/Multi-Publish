@@ -1,4 +1,4 @@
-# [未发布] test(门禁): blanket fs 夹具棘轮接进 Gate 2c，判据按引用链而非文本，20 例回归锁 + 20 条反证（blanket-fs-mock-ratchet，2026-10-04）
+# [未发布] test(门禁): blanket fs 夹具棘轮接进 Gate 2c，判据按引用链而非文本，21 例回归锁 + 21 条反证（blanket-fs-mock-ratchet，2026-10-04）
 
 ### 根因
 - #2794 归因的那条链不是一次性 bug，而是**一类夹具形状**：测试文件 `__registerMock('fs', {existsSync: () => false, …})` 经 `Module._load` 拦截的是**整个 realm** 的 `require('fs')`；`apps/desktop/vitest.config.js` 的 `deps.inline:['electron']` 又把 `electron/index.js` 内联进同一 realm，它对 `existsSync(distPath) === false` 的反应是"二进制没备好"⇒ 当场 spawn `install.js`，而 `stdio:'inherit'` 让 vitest 把这段下载**记到当时正在跑的那条用例名下** ⇒ 一条什么都没做的用例随机 15s 超时，且每次红在不同文件。
@@ -13,10 +13,11 @@
 - 收敛 `apps/desktop/electron/core/container.setup.test.js`：`os.tmpdir()` + PID 沙箱、按路径段判定、沙箱外委托真实 fs、写类动词继续空转。这个文件风险最高：它 require 全部服务模块，`store → sqlite-wrapper → sql.js` 要用 `fs.readFileSync` 读 `.wasm`，一律返回 `"[]"` 的谎报正是 BF-TEST-01 那次 `WebAssembly.instantiate(): BufferSource argument is empty` 的成因。
 
 ### 验证
-- 回归锁 `scripts/check-blanket-fs-mock.test.js` **20 例全绿**，其中 11 例是 adversarial 输入（"给一个形状、断言它不被洗白"），把本轮所有绕过样本变成 CI 内的锁。
-- 反证 **20 条**（F1–F20）**逐个实跑**，要求 rc≠0（测试型还要 fail>0）且红因文本命中预期条目名：F1 摘 `stripComments` / F2 只认 `__registerMock` / F3 沙箱判据短路 / F4 空原因不报 / F5 陈旧登记不报 / F6 摘枚举下界 / F7 静默跳过读不动 / F8 把已收敛的塞回清单 / F9 现场收敛退回 blanket / F10 门禁被 gitignore 吞 / F11 正文缺失静默跳过 / F12 不再掩字符串内容 / F13 只判第一个注册点 / F14 取消 tmpdir 追溯 / F15 委托退回文本存在性 / F16 取消同标识符要求 / F17 函数体退给定长窗口 / F18 声明查找放松成前缀匹配 / F19 探针坏了折成"未被忽略" / F20 白名单吞掉判据域。收尾断言 4 个被变异文件与备份**逐字节相同**并复跑基线（rc=0 / fail=0）。
+- 回归锁 `scripts/check-blanket-fs-mock.test.js` **21 例全绿**，其中 12 例是 adversarial 输入（"给一个形状、断言它不被洗白"），把本轮所有绕过样本变成 CI 内的锁。
+- 反证 **21 条**（F1–F21）**逐个实跑**，要求 rc≠0（测试型还要 fail>0）且红因文本命中预期条目名：F1 摘 `stripComments` / F2 只认 `__registerMock` / F3 沙箱判据短路 / F4 空原因不报 / F5 陈旧登记不报 / F6 摘枚举下界 / F7 静默跳过读不动 / F8 把已收敛的塞回清单 / F9 现场收敛退回 blanket / F10 门禁被 gitignore 吞 / F11 正文缺失静默跳过 / F12 不再掩字符串内容 / F13 只判第一个注册点 / F14 取消 tmpdir 追溯 / F15 委托退回文本存在性 / F16 取消同标识符要求 / F17 函数体退给定长窗口 / F18 声明查找放松成前缀匹配 / F19 探针坏了折成"未被忽略" / F20 白名单吞掉判据域 / F21 注册点退回按 codeOnly 定位。收尾断言 4 个被变异文件与备份**逐字节相同**并复跑基线（rc=0 / fail=0）。
 - **F18 首版是一次"等价变异 + 恒真断言"的当场抓获**：我为防"前缀借光"加了 `(?![\w$])` 词界并写了断言，把词界摘掉后 **rc=0 / 全绿** —— 该守卫在 `ident\s*=` 这种后续形态下恒不生效，断言是恒真的。做法：删掉三处死代码，把断言换成可证的「谓词按完整名字解析，前缀名不算」，F18 重定向为"把声明正则放松成 `ident + [\w$]*`"后实测变红。**任何"我加的这道防线"都必须被"拆掉它"验证过。**
 - QM-6：规定通道的 codex 路本轮**实测可用**（`:15721` 为 True，判据是 findings 文件真落盘）；claude 路三次全败（wrapper 报 `completed without agent_message output`，绕开 wrapper 直跑同一 CLI 也是 rc=0 + 空 stdout + 无产物 ⇒ 长任务静默空转），按「3 次全败才跳过」换不同底模的 `opencode/ling-3.1-flash-free`，其 900s 超时未写结论文件但自身 stdout 含 7 个可复现探针。两路合计 3 Critical + 3 Warning + 3 Info，**每条先复现再决定**：C2/W1/probe D-F-G 命中并已修；C1 的确切例子未复现（形参判据先挡住）但同类由 probe E 复现并已修；W2 实测当前不成立，改为把"不会被 docs-only 短路"这条推理变成正向锁；probe A/B/C 是**有意**的判据范围，只补文档不改判据。全部逐条处置见 `.quality-gates` 记录 `openspec/records/blanket-fs-mock-ratchet.md`。
+- **提交之后才暴露的第 4 处缺陷（不在任何评审射程内）**：真实仓库自证在文件还是 untracked 时跑过一次 PASS，而判据域来自 `git ls-files` ⇒ 未跟踪文件对门禁完全隐身。提交后同一份代码从 `1068 / 12 blanket` 变成 `1071 / 13 blanket`，多出来的那一个正是**本门禁自己的回归夹具** —— 它的数组元素 `"__registerMock('fs', {"` 被当成真注册点（当时注册点在 `codeOnly` 域定位，而 `codeOnly` 保留字符串内容）。修法：注册点与括号配对一律在 `skeleton` 域定位，模块 id 与判据内容按同一 offset 从 `codeOnly` 取；另加一条正向锁「判据不得把写在字符串字面量里的注册点当真注册」+ 反证 F21。口径：**现场自证必须在与 CI 相同的 tracked 形态下再跑一次**，否则那句 PASS 测的不是 CI 会看到的域。
 - 消费者并集：`.gitignore` 变更牵动 7 个读它的测试（`check-asar-test-files` 39、`check-test-egress-guard` 11、`classify-docs-only` 22、`e2e-quality-infrastructure`/`setup-electron-install-guard`/`gitignore-docs`/`visual-ci` 与 `electron/core` 合跑 139 例）全绿；改 workflow ⇒ `workflow-contract.test.js` 29 例全绿；桌面 `vitest run electron` 全量 **430 文件 / 8333 passed / 1 failed / 1 skipped**，唯一红是既知的 `feedback.test.js` Windows symlink `EPERM`（pristine main 可复现，与本 PR 无关）；静态门禁 6 条全 PASS。
 - 遗留：12 个登记项里绝大多数同时 `__enableElectronMock()` ⇒ 那颗雷**今天不响**；不响不是不存在，一旦去掉那行 opt-in 就回到 §根因 的形状。逐个收敛另案，本次先钉住"不得新增"。
 

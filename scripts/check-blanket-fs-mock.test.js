@@ -302,6 +302,18 @@ test('判据域必须整体落在 docs-only 白名单之外（否则本门禁会
   }
 });
 
+test('判据不得把"写在字符串字面量里的注册点"当真注册（夹具文件自己被 tracked 后就必须能过）', () => {
+  // 这条锁的由来：本仓真实仓库自证在文件还是 untracked 时跑过一次 PASS，`git ls-files` 看不见它；
+  // 提交后它进入判据域，就被自己的测试文本（"__registerMock('fs', {" 这类数组元素）判成 15 条违规。
+  // 现场自证必须在**与 CI 相同的 tracked 形态**下跑，否则"跑过"不等于"CI 会跑过"。
+  const r = collectProblems();
+  const self = 'scripts/check-blanket-fs-mock.test.js';
+  assert.ok(r.scanned >= mod.MIN_TEST_FILES, '枚举退化，这条自证没有意义：' + r.scanned);
+  assert.ok(!r.blanket.includes(self),
+    '门禁把自己的回归夹具判成 blanket（多半是注册点位置取自未掩码的那一份文本）：\n'
+      + r.problems.filter((p) => p.indexOf(self) >= 0).join('\n'));
+});
+
 test('真实仓库：棘轮必须 0 问题，且欠账清单与现场逐一对上（现场自证）', () => {
   const r = collectProblems();
   assert.deepEqual(r.problems, [], '真实仓库上棘轮报问题：\n' + r.problems.join('\n'));

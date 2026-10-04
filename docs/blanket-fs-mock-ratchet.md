@@ -1,7 +1,7 @@
 # blanket fs 夹具棘轮（Gate 2c-e）
 
 > 单一实现：`scripts/check-blanket-fs-mock.js`；接线：`.github/workflows/quality-gate.yml` 的 `Gate 2c`；
-> 本地同口径：`node scripts/check-blanket-fs-mock.js`（判定）+ `node --test scripts/check-blanket-fs-mock.test.js`（锁自身，20 例）。
+> 本地同口径：`node scripts/check-blanket-fs-mock.js`（判定）+ `node --test scripts/check-blanket-fs-mock.test.js`（锁自身，21 例）。
 
 ## 1. 它防的那条链（#2794 归因）
 
@@ -27,9 +27,9 @@ __registerMock('fs', { existsSync: () => false, readFileSync: () => '' })
 
 | 用途 | 取哪一份 | 为什么不能混用 |
 |------|---------|---------------|
-| 找注册点、读函数体内容、匹配 `require('node:fs')` | `codeOnly` | skeleton 把 `'node:fs'` 掩成空格 ⇒ 拿它匹配"是否委托真实 fs"会对**真夹具**失明（第一版就这么把自己的正控判成违规） |
-| 花括号配对、取函数体**位置** | `skeleton` | 代码字符串里的 `{` `` ` `` 会让纯计数把对象字面量边界数错 ⇒ 已收敛的形状被误报成违规 |
-| 两者之间 | 位置来自 skeleton，切片来自 codeOnly | 等长 ⇒ 同一坐标可用；一旦谁改变了长度，"位置取自一份、内容取自另一份"会静默错位，故 `scanMask` 有保长断言 |
+| 定位**注册点**、花括号配对、函数体**边界** | `skeleton` | 真调用在 skeleton 里只是参数被掩（`__registerMock('  ', {`）⇒ 结构还在；而**写在字符串字面量里的那种**（回归夹具自己的 `"__registerMock('fs', {"`）整段消失 ⇒ 不会被当成注册点。按 codeOnly 找点的后果实测过：夹具文件从 untracked 变成 tracked 的**那一刻**，被自己的测试文本判成 15 条违规（`git ls-files` 看不见未跟踪文件 ⇒ "真实仓库自证"必须在真实跟踪形态下跑） |
+| 读模块 id、读函数体内容、匹配 `require('node:fs')` 与 `startsWith(x + '/')` | `codeOnly` | 这些判据的对象**就是字符串内容**，在 skeleton 里已经是空格 ⇒ 拿 skeleton 去匹配会对**真夹具**失明（第一版就这么把自己的正控判成违规） |
+| 两者之间 | 位置来自 skeleton，内容按同一 offset 从 codeOnly 切 | 等长 ⇒ 同一坐标可用；一旦谁改变了长度，"位置取自一份、内容取自另一份"会静默错位，故 `scanMask` 有保长断言 |
 
 三条由此派生的口径：
 
@@ -39,7 +39,7 @@ __registerMock('fs', { existsSync: () => false, readFileSync: () => '' })
 | 两种形态、**每一个注册点**都判 | `__registerMock` / `vi.mock` / `vi.doMock` × `fs` / `node:fs` / `fs/promises`；同文件多处注册取**最差**结论 | 只认一种 ⇒ 换个写法逃出棘轮；只看第一个注册点 ⇒ "第二个才是 blanket"整条洗白（probe F 实测复现） |
 | 收敛 = 沙箱来自 tmpdir + 按路径段 + 动词真调用句柄 | 见 §3 | 任何一环缺失都退回 `BLANKET`，并在文案里点名缺的是哪一环 |
 
-## 3. "已收敛"的四条链（每条对应一个已复现的绕过）
+## 3. "已收敛"的五条链（每条对应一个已复现的绕过）
 
 1. 从 fs 的 mock **对象字面量**里取出每个"读动词"的实现体（配对在 skeleton 域做，见 §2）。
 2. 该体内引用的谓词，其**声明**必须带至少一个形参 —— `() => true` 这种"名字对、行为恒真"直接否。
@@ -116,8 +116,14 @@ __registerMock('fs', { existsSync: () => false, readFileSync: () => '' })
 
 ## 8. 现场与遗留
 
-现场（本次实测）：1068 个被跟踪测试文件、12 个 blanket（全部已带原因登记）、2 个已收敛、0 个读不动。
+现场（本次实测）：1071 个被跟踪测试文件、12 个 blanket（全部已带原因登记）、2 个已收敛、0 个读不动。
 
+- **⛔ 现场自证必须在"与 CI 相同的 tracked 形态"下跑。** 判据域来自 `git ls-files` ⇒ **未跟踪文件对门禁完全隐身**。
+  本轮实测：提交前跑真实仓库自证得 `1068 / 12 blanket / 2 收敛` 并 PASS；提交后同一份代码变成
+  `1071 / 13 blanket`，多出来的那一个正是**本门禁自己的回归夹具** —— 它的数组元素
+  `"__registerMock('fs', {"` 被当成真注册点（因为当时注册点在 `codeOnly` 域定位）。
+  那句 PASS 当时是真的，只是它测的不是 CI 会看到的域。加一条正向锁：
+  「判据不得把写在字符串字面量里的注册点当真注册」，并把"自己这个文件必须在现场为 0 问题"写成断言。
 - 12 个登记项里绝大多数同时 `__enableElectronMock()`，即 electron 走 mock 而非真 `index.js` ⇒ 那颗雷**今天不响**。
   不响不是不存在：一旦有人去掉那行 opt-in，同一个 realm 就回到 §1 的形状。逐个收敛是后续工作。
 - 判据仍是**静态**的：它看夹具形状，不运行测试。`REGEX_PRECEDERS` 那张表不含关键词结尾（`return /x/`），
