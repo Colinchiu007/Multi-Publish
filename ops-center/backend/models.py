@@ -699,3 +699,23 @@ class RewriteHardConstraint(Base):
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+class RewriteAiTasteEntry(Base):
+    """去 AI 味词库条目（ai-taste-ops-center）— 运营中心可维护的词表覆盖层。
+
+    叠加 + 键覆盖语义（Q2）：引擎内置 128 条词表是安全底线，本表同键覆盖替换方向；
+    enabled=0 表示禁用该词的替换（含禁用内置词，Q7）。单份可编辑表（Q3：无版本化，审计字段随行）。
+    """
+
+    __tablename__ = "rewrite_ai_taste_entries"
+
+    word = Column(String(30), primary_key=True)
+    replacement = Column(String(50), nullable=False)
+    severity = Column(String(2), nullable=False, default="S2")
+    enabled = Column(Integer, default=1)
+    description = Column(Text, default="")
+    deleted_at = Column(String, nullable=True)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")

@@ -751,3 +751,76 @@ describe('RewriteEngine 结果分段保留', function () {
     }
   })
 })
+
+// ── AI 味定制注入（ai-taste-ops-center，2026-10-03）──
+describe('RewriteEngine AI 味定制注入', function () {
+  function wireTaste(engine) {
+    var strategy = {
+      id: 'taste-v1', name: 'taste', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: true, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('C1 setAiTasteCustomization 空对象行为不变', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '综上所述，结果很好。' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r1 = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    engine.setAiTasteCustomization({})
+    var r2 = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r2.result).toBe(r1.result)
+    expect(r2.result).not.toContain('综上所述')
+  })
+
+  test('C2 自定义词端到端生效（覆盖内置替换方向）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '综上所述，结果很好。' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    engine.setAiTasteCustomization({ phraseMap: { '综上所述': '归根结底' } })
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.result).toContain('归根结底')
+    expect(r.result).not.toContain('说到底')
+  })
+
+  test('C3 策略 postProcess.aiTasteIntensity=1 消费（跳 Pass 3）', async function () {
+    var llmOut = '性能很强。续航也很顶。拍照很清晰。充电速度很快。'
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return llmOut } }, knowledgeBase: new KnowledgeBase() })
+    wireTaste(engine)
+    engine._strategyManager._strategies[0].postProcess.aiTasteIntensity = 1
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.result).toBe(llmOut)
+  })
+
+  test('C4 非法 aiTasteIntensity 回 2（0/4/字符串/null）', async function () {
+    var llmOut = '性能很强。续航也很顶。拍照很清晰。充电速度很快。'
+    for (var bad of [0, 4, 'x', null]) {
+      var engine = new RewriteEngine({ llmClient: { chat: async function () { return llmOut } }, knowledgeBase: new KnowledgeBase() })
+      wireTaste(engine)
+      engine._strategyManager._strategies[0].postProcess.aiTasteIntensity = bad
+      var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+      expect(r.result).not.toBe(llmOut)
+    }
+  })
+
+  test('C5 未注入时 getAiTasteCustomization 为空且引擎行为不变', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '综上所述，结果很好。' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    expect(engine.getAiTasteCustomization()).toEqual({})
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.result).toContain('说到底')
+  })
+})
