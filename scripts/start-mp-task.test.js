@@ -197,14 +197,28 @@ test('注册主体合同：先试非交互 S4U，退回 Interactive 必须出声
   assert.match(src, /function New-IsolationPrincipal/, '两个任务必须共用同一主体构造入口，禁止各抄一份');
 });
 
-test('存活判定合同：watcher 是否在跑以任务自身 State 为准，CommandLine 匹配只能是兜底', () => {
-  const src = fs.readFileSync(HEALTH, 'utf8');
-  const stateAt = src.search(/\$guardRunning\s*=\s*\(\[string\]\$guardTask\.State\)\s*-\s*eq\s*'Running'/);
-  assert.ok(stateAt !== -1, "必须先用 $guardTask.State -eq 'Running' 判定 watcher 存活");
-  const cmdAt = src.search(/CommandLine -like '\*guard-shared-root-writes\.ps1\*'/);
-  assert.ok(cmdAt !== -1 && cmdAt > stateAt, 'CommandLine 匹配只能作为 State 判假之后的兜底');
-  const between = src.slice(stateAt, cmdAt);
-  assert.match(between, /if \(\s*-not \$guardRunning\s*\)/, '兜底分支必须由"State 判为未运行"门控');
+test('存活判定合同：凡按守护判活的脚本都必须先看任务 State，清单只能缩小', () => {
+  // 判据是「谁在用 CommandLine 认守护」，不是「我记得哪几个文件写过」。2026-10-03 那次只修了
+  // mp-worktree-health.ps1，而 bootstrap-write-guard.ps1 里同一份瞎探针是外部评审当场点出的——
+  // 它后果更重：看不见就把健康机器判成「watcher 未启动」并 throw，还会重复 Start-ScheduledTask。
+  // 所以这里按特征扫全域，逼下一个改动同族判据的人一起收敛。
+  const STATE_FIRST = /\.State\)?\s*-\s*eq\s*'Running'/;
+  const CMD_MATCH = /CommandLine\s*-like\s*'\*guard-shared-root-writes/;
+  const consumers = fs
+    .readdirSync(__dirname)
+    .filter((f) => /\.(ps1|js|sh)$/.test(f) && !f.startsWith('start-mp-task.test'))
+    .filter((f) => CMD_MATCH.test(fs.readFileSync(path.join(__dirname, f), 'utf8')))
+    .sort();
+  assert.deepEqual(
+    consumers,
+    ['bootstrap-write-guard.ps1', 'mp-worktree-health.ps1'],
+    '用 CommandLine 认守护的文件清单发生变化：新增者必须同时提供 State 主判据，并在 PR 里说明为何清单没有缩小'
+  );
+  for (const f of consumers) {
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    assert.ok(STATE_FIRST.test(src), `${f} 必须先以任务 State -eq 'Running' 判活，CommandLine 只能作兜底`);
+    assert.ok(src.search(STATE_FIRST) < src.search(CMD_MATCH), `${f} 的 State 判据必须排在 CommandLine 匹配之前`);
+  }
   // 为什么不能只读 CommandLine：S4U 实例在另一个 session，非提权调用读不到它的 CommandLine
   // （返回 $null），于是把正在执法的 watcher 判成未运行 —— 这是本案真实发生的误判。
 });

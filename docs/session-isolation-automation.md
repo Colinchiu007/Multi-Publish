@@ -102,3 +102,7 @@ worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store
 ## 边界
 
 Git 没有 pre-checkout hook，Git hooks 不能阻止所有客户端的首次目录选择；--no-verify 也能跳过提交 hook。因此新任务必须从 start-mp-task.ps1 入口创建，Git hooks、实时写保护、健康守护和 GitHub 分支保护分别承担入口、直接落盘拦截、持续发现和远程交付兜底。
+
+### 同一份瞎探针的第二落点（外部评审捞出的观察，2026-10-04）
+
+第一版只修了 `mp-worktree-health.ps1`。codex 侧评审虽然中途截断没出结论，它的一条观察经我自己复核成立：`scripts/bootstrap-write-guard.ps1` 里也有「按 CommandLine 认守护」的判据，而且比报个 `running=false` 更糟——它据此决定是否 `Start-ScheduledTask`，30 秒轮询看不见就直接抛「Write Guard watcher 未在 30 秒内启动」。照旧逻辑，S4U 会把一台健康机器判成装配失败。两处现已统一为「任务 State 优先、CommandLine 只作兜底」，防再犯锁也改成按特征扫全域并钉住文件清单（只能缩小），而不是点名我记得的两个文件。

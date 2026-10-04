@@ -64074,3 +64074,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
+
+### 补充（同 PR，外部评审捞出的第二落点）
+- `scripts/bootstrap-write-guard.ps1` 里还有第二份「按 CommandLine 认守护」的判据，且后果更重：它据此决定是否 Start-ScheduledTask，30 秒轮询看不见就 throw，S4U 下会把健康机器判成装配失败。与 `mp-worktree-health.ps1` 一起改为「任务 State 优先、CommandLine 只作兜底」。
+- 防再犯锁升级为按特征扫全域：`start-mp-task.test.js` 的「存活判定合同」列出所有用 CommandLine 认守护的文件并钉住清单（只能缩小），已对 bootstrap 做摘除 State 主判据的变异反证（实测变红、还原后逐字节相同）。
+- 来源要如实记：这条不是我自审找到的，是 codex 侧评审输出里的一句观察；该评审整体仍属未完成（无 findings 文件、结论中途截断），claude 侧三次全空输出，故 QM-6 记为部分达成而非通过。
+
