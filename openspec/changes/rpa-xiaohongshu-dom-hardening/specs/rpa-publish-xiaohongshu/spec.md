@@ -35,7 +35,7 @@
 
 ### Requirement: DOM 轨错误归一到 outcome 且不越合规红线
 
-发布器 SHALL 将登录过期、风控弹层、上传失败分别归一为对应 outcome 类别；命中 risk / login 类别时 SHALL 停止上报，MUST NOT 自动降级或更换账号；运行时 MUST NOT 请求任何外部签名/求签服务（`*.refpub.cn`、`*.yixiaoer.cn`）。
+发布器 SHALL 将登录过期、风控弹层、上传失败分别归一为对应 outcome 类别；命中 risk / login 类别时 SHALL 停止上报，MUST NOT 自动降级或更换账号；运行时 MUST NOT 请求任何外部签名/求签服务。
 
 #### Scenario: 登录过期归一为 login 类
 - **WHEN** 导航后 URL 落在 /login 或认证恢复失败

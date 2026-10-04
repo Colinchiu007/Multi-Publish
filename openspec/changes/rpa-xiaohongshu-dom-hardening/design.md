@@ -1,7 +1,7 @@
 ## 背景与约束
 
 - 小红书 API 直发链已判 not-go（签名外包 + 传输层墙，见 api-publish-engine-w3 §6.3），本 change 只做 **DOM/RPA 轨加固**。
-- 合规红线：运行时严禁请求 `*.refpub.cn` / `*.yixiaoer.cn` 外包签名服务（既有架构决策 + CI grep 门禁）。本 change 不新增任何外部端点。
+- 合规红线：运行时严禁请求 外包签名农场域名服务（既有架构决策 + CI grep 门禁）。本 change 不新增任何外部端点。
 - 验收目标（用户拍板）：**存入真实草稿箱**，不真实公开发布。
 - 目标文件：`packages/python-backend/src/multi_publish/publishers/xiaohongshu.py`（现 366 行）。基类 `base.py` 已有 `ResponseMonitor`（P0，`page.on("response")` 抗 UI 改版）与 `wait_until`（P4 条件轮询）。
 
