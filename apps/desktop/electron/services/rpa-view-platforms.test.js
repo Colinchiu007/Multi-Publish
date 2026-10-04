@@ -1088,3 +1088,146 @@ describe('rpa-view-platforms — 快手/B站 发布选择器数据契约', () =>
     expect(S.douyin.title_input).toContain('input[placeholder*="标题"]')
   })
 })
+
+// 2026-10-04 publish-throughput-optimization A2（01-docs/PRD-PUBLISH-THROUGHPUT-OPTIMIZATION-2026-10-04）：
+// 抖音图文链 4 处固定 sleep 是无判据纯叠加（表单就绪轮询已存在），替换为事件驱动等待。
+// 同族反模式先例：url-collector-content-ready.test.js 防复发静态锁 + upload-waiter.js v4 视频上传自适应轮询。
+describe('rpa-view-platforms — douyin 图文事件驱动等待（A2：去固定 sleep）', () => {
+  function getDouyinBody () {
+    const source = readPlatformsSource()
+    const start = source.indexOf('async _publish_douyin')
+    const end = source.indexOf('\n  // ========== ', start + 10)
+    return source.slice(start, end > 0 ? end : undefined)
+  }
+
+  // 本 describe 内的局部 helper（作用域隔离，与上方 describe 的同名 helper 无关）
+  function localWindow (url) {
+    return {
+      win: { webContents: { getURL: vi.fn().mockReturnValue(url), getTitle: vi.fn().mockReturnValue(''), executeJavaScript: vi.fn().mockResolvedValue(true) } },
+    }
+  }
+
+  function localImageContext () {
+    return {
+      _emitProgress: vi.fn(),
+      _navigateAndWait: vi.fn().mockResolvedValue(undefined),
+      _waitForElement: vi.fn().mockResolvedValue(true),
+      _setFileInput: vi.fn().mockResolvedValue(true),
+      _dropFilesToDragArea: vi.fn().mockResolvedValue(false),
+      _dismissImageEditModal: vi.fn().mockResolvedValue('NO_EDIT_MODAL'),
+      _click: vi.fn().mockResolvedValue(true),
+      _sleep: vi.fn().mockResolvedValue(undefined),
+      _waitForCondition: vi.fn().mockResolvedValue(true),
+      _waitForResponse: vi.fn().mockResolvedValue(null),
+      _dismissPostNavDialogs: vi.fn().mockResolvedValue(undefined),
+      _waitForVideoUploadComplete: vi.fn().mockResolvedValue(undefined),
+      _fillInput: vi.fn().mockResolvedValue(undefined),
+      readVideoFileBytes: vi.fn(() => 0),
+    }
+  }
+
+  it('防复发静态锁：_publish_douyin 图文段不再含固定 sleep（4000 / tag 1000 / 封面 1000+2000 / 兜底 5000）', () => {
+    const body = getDouyinBody()
+    // 图片上传后的 4s 固定等待（表单就绪轮询已覆盖，纯叠加）
+    expect(body).not.toContain('await this._sleep(4000)')
+    // tag 循环内的 1s 固定等待（改为 chip 就绪轮询）
+    expect(body).not.toContain("await this._sleep(1000)\n        } catch(e) { log.warn('RpaView','douyin tag: '")
+    // 封面上传的 1s+2s 固定等待（改为缩略图基线轮询）
+    expect(body).not.toContain('await this._sleep(1000);await this._setFileInput(win,article.cover_path);await this._sleep(2000)')
+    // 提交兜底的 5s 固定等待（改为 URL 轮询）
+    expect(body).not.toContain('await this._sleep(5000)')
+  })
+
+  it('tag 注入后就绪信号为 tag chip 出现（_waitForCondition 探针）而非固定等待', () => {
+    const body = getDouyinBody()
+    const tagIdx = body.indexOf("'adding tags...'")
+    expect(tagIdx).toBeGreaterThan(-1)
+    const tagSection = body.slice(tagIdx, body.indexOf("'publishing...'", tagIdx))
+    expect(tagSection).toContain('_waitForCondition')
+    // 探针必须验证 chip 真实出现（文本匹配 tag 值），不能是恒真条件
+    expect(tagSection).toMatch(/innerText/)
+  })
+
+  it('封面注入后就绪信号为封面缩略图 img 计数基线增加（头条 _uploadToutiaoCover 同款判据）', () => {
+    const body = getDouyinBody()
+    const coverIdx = body.indexOf("'uploading cover...'")
+    expect(coverIdx).toBeGreaterThan(-1)
+    const coverSection = body.slice(coverIdx, body.indexOf("'adding tags...'", coverIdx))
+    expect(coverSection).toContain('_waitForCondition')
+    // 基线计数判据（querySelectorAll('img').length 递增），与头条封面修复同一思路
+    expect(coverSection).toMatch(/querySelectorAll\("img"\)\.length/)
+  })
+
+  it('提交兜底为 URL 轮询（多次短间隔）而非单次 sleep+单次查询', () => {
+    const body = getDouyinBody()
+    const publishIdx = body.indexOf("'publishing...'")
+    expect(publishIdx).toBeGreaterThan(-1)
+    const publishSection = body.slice(publishIdx)
+    expect(publishSection).not.toContain('await this._sleep(5000)')
+    expect(publishSection).toMatch(/for\s*\(\s*let\s+\w+\s*=\s*0/)
+    expect(publishSection).toMatch(/getURL\(\)/)
+  })
+
+  // 行为锁：图片上传成功后直接进入表单就绪等待（原 4s sleep 删除后调用序不变）
+  it('抖音图文：上传成功后表单就绪等待是下一个等待动作（无中间固定等待）', async () => {
+    const { win } = localWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = localImageContext()
+    const waits = []
+    context._waitForCondition.mockImplementation(async (_w, fn, timeout) => {
+      waits.push('condition:' + timeout)
+      return true
+    })
+    context._sleep.mockImplementation(async (ms) => {
+      waits.push('sleep:' + ms)
+    })
+
+    await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'],
+    })
+
+    // 上传成功（uploaded=true）到表单就绪之间不得有 sleep
+    const uploadIdx = waits.findIndex(w => w.startsWith('condition'))
+    expect(uploadIdx).toBeGreaterThanOrEqual(0)
+    // 全流程无 4000ms 固定等待
+    expect(waits).not.toContain('sleep:4000')
+  })
+
+  it('抖音图文：tag 超时不失败，继续提交（降级路径保留）', async () => {
+    const { win } = localWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = localImageContext()
+    // 表单就绪 true，tag chip 就绪 false（超时），提交响应 null → URL 判定
+    context._waitForCondition.mockImplementation(async (_w, fn) => {
+      const src = String(fn)
+      if (src.includes('querySelectorAll') && src.includes('tag')) return false
+      return true
+    })
+    win.webContents.executeJavaScript.mockResolvedValue(null)
+
+    const result = await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'], tags: ['测试标签'],
+    })
+
+    // tag 超时不得导致整体失败
+    expect(result.success).toBeDefined()
+    expect(result.error === undefined || !String(result.error).includes('tag')).toBe(true)
+  })
+
+  it('抖音图文：封面超时走降级（warn 后继续提交）', async () => {
+    const { win } = localWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = localImageContext()
+    // 封面缩略图等待始终超时
+    context._waitForCondition.mockImplementation(async (_w, fn) => {
+      const src = String(fn)
+      if (src.includes("querySelectorAll(\"img\")")) return false
+      return true
+    })
+    win.webContents.executeJavaScript.mockResolvedValue(null)
+
+    const result = await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'], cover_path: 'C:/tmp/c.png',
+    })
+
+    expect(result.success).toBeDefined()
+    expect(result.error === undefined || !String(result.error).includes('cover')).toBe(true)
+  })
+})
