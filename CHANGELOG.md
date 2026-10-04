@@ -1,3 +1,11 @@
+# [未发布] feat(ai-taste): 去 AI 味词库运营中心化——词库管理与强度参数运行时可配（2026-10-04，ai-taste-ops-center）
+
+### 功能（两刀，PR #2877 + #2884）
+- **词库管理**：运营中心新增「去AI味词库」管理页（adminOnly，/rewrite-ai-taste）：全量表格 + 搜索/级别/状态筛选 + 行内启停 + 新增编辑（编辑态 word 只读）+ JSON 导入导出（整批原子 ≤500 条）。词库语义为叠加 + 键覆盖：引擎内置 117 条词表是安全底线，运营中心同键覆盖替换方向；停用条目使桌面端跳过该词替换（含禁用内置词）。
+- **下发与生效**：bootstrap 新增 `rewrite_ai_taste_map` 字段（含 enabled=0，随整包 Ed25519 签名）；桌面端新增 `rewrite-ai-taste-map-manager`（sanitize 与后端同判据/changed 判定/原子持久化）接入 ops-center-sync 消费块；词库变化重注入引擎（即时生效免重启）；离线回退内置词表（行为与升级前逐字节一致）。
+- **强度参数**：策略 postProcess 新增 `aiTasteIntensity`（1-3）：1=仅词级替换、2=现状、3=追加 casual 口语化；非法回 2。引擎 AITasteRemover 改构造注入（phraseMap/disabledWords/severityMap，缺省回常量），词表遍历键序确定性。
+- **质量与评审**：TDD 先红后绿（引擎 T1-T8/C1-C5、ops-center S1-S8、桌面 M1-M9、sync Y1-Y4）；全量回归引擎 194/194、pytest 478/478、桌面 81/81、前端 57/57；QM-6 外部评审 2W3I 全部处置（W1 重复词去重/W2 toggle 失败回滚+停用确认/I3 码点计数对齐/I4 空导入前置拦截/I5 导出含 description）。AGENTS.md QM-2 新增「词库双端校验同判据」门禁条目。
+- **文档**：01-docs/PRD-REWRITE-AI-TASTE-OPS-CENTER-2026-10-04.md（六维度 + Q1-Q12 决策记录）；PRD-REWRITE-ENGINE.md §十六；openspec change ai-taste-ops-center。
 # [未发布] docs(评估): deps.inline:[electron] 不摘——"摘掉它就能根治 #2794"这句写进 main 的推测被两分钟 A/B 否证（evaluate-deps-inline-electron，2026-10-04）
 
 ### 为什么要评估
