@@ -194,7 +194,7 @@ class TestSelectorFallbackAndRichFill:
     @pytest.mark.asyncio
     async def test_tags_use_type_not_overwrite_fill(self, publisher):
         page = _base_page()
-        tag_sel = publisher.selectors["tag_input"]
+        tag_sel = publisher._candidates_for("tag_input")[0]
         page.visible.add(tag_sel)
         await publisher._add_tags(page, ["标签A", "标签B"])
         typed_tags = [t for _, t in page.typed]

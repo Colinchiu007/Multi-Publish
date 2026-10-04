@@ -8,8 +8,9 @@
 - 草稿意图 fail-closed：找不到草稿入口一律报错并阻止任何公开发布点击。
 - 发布步骤逻辑与真实浏览器启动解耦（_execute_flow 接收注入的 page + monitor），
   可在假对象下单测核心分支。
-- 合规红线：运行时不请求任何外部签名/求签服务（*.refpub.cn / *.yixiaoer.cn）。
+- 合规红线：运行时不请求任何外部远程求签服务（禁引入外包签名农场域名）。
 
+常量见 xiaohongshu_selectors.py；认证持久化见 xiaohongshu_auth.py。
 实现参照 douyin.py 的「先查 API 响应、再 URL、再 DOM」三级回退确认范式。
 """
 
@@ -22,93 +23,31 @@ from loguru import logger
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
 from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor, wait_until
-from multi_publish.publishers.legacy_auth_policy import require_legacy_plaintext_auth
-
-# 逻辑控件 → 主选择器（保持字符串，兼容既有选择器存在性断言）。
-DEFAULT_SELECTORS = {
-    "login_qrcode": '[class*="qrcode"]',
-    "login_success_indicator": '[class*="creator-home"]',
-    "upload_page_url": "https://creator.xiaohongshu.com/publish/publish",
-    "upload_input": 'input[type="file"]',
-    "title_input": '[class*="title"] input, [placeholder*="标题"]',
-    "content_textarea": '[class*="content"] textarea, [class*="desc"] textarea, [placeholder*="正文"]',
-    "publish_button": 'button:has-text("发布"), button:has-text("发布笔记")',
-    "tag_input": '[class*="tag"] input, [placeholder*="标签"]',
-    "cover_upload": '[class*="cover"]',
-    "cover_input": 'input[type="file"]',
-    "upload_progress": '[class*="progress"]',
-    "upload_complete": '[class*="upload-success"]',
-    "draft_button": 'button:has-text("草稿")',
-}
-
-# 逻辑控件 → 多候选回退链（Tier2 取证后回填更稳的具体值）。命中即停止。
-# 与 DEFAULT_SELECTORS 并存：解析时先取回退链，无回退链则回退 DEFAULT_SELECTORS 单值。
-SELECTOR_FALLBACKS: dict[str, list[str]] = {
-    "title_input": [
-        '[placeholder*="标题"]',
-        'input[placeholder*="输入标题"]',
-        '[class*="title"] input',
-        '[class*="title"] [contenteditable="true"]',
-    ],
-    "content_textarea": [
-        '[class*="editor"] [contenteditable="true"]',
-        '[contenteditable="true"][class*="desc"]',
-        '[class*="content"] textarea',
-        '[class*="content"] [contenteditable="true"]',
-        '[placeholder*="正文"]',
-    ],
-    "draft_button": [
-        'button:has-text("存草稿")',
-        'button:has-text("保存草稿")',
-        '[class*="draft"]',
-        'button:has-text("草稿")',
-    ],
-    "publish_button": [
-        'button:has-text("发布笔记")',
-        'div[role="button"]:has-text("发布")',
-        'button:has-text("发布")',
-    ],
-    "upload_complete": [
-        '[class*="upload-success"]',
-        '[class*="upload"] [class*="success"]',
-        '[class*="preview"] img',
-    ],
-}
-
-# Tier2 活体取证回填项（当前为占位，未取证前确认通道保守返回未确认）：
-# 草稿保存成功的 XHR 端点子串（命中后经响应体判定 code==0/success==true）。
-DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = []
-# 草稿保存成功的响应体判定字段（code==0 或 success==true 视为成功）。
-CONFIRM_TIMEOUT_S = 20.0
-# 草稿箱回查兜底：导航地址 + 条目匹配选择器（Tier2 取证回填）。
-DRAFT_BOX_URL = "https://creator.xiaohongshu.com/publish/publish?draft=true"
-DRAFT_BOX_ITEM_SELECTOR = '[class*="draft"] [class*="title"]'
-# 风控/验证弹层选择器（Tier2 取证回填），命中即判 risk_blocked 并停止。
-RISK_OVERLAY_SELECTOR = ""
-
-CREATOR_URL = "https://creator.xiaohongshu.com/"
-
-# 机器可读错误码前缀，便于上层 outcomeOfResult 归一（risk/login 绝不降级换号）。
-CODE_LOGIN_EXPIRED = "XHS_LOGIN_EXPIRED"
-CODE_RISK_BLOCKED = "XHS_RISK_BLOCKED"
-CODE_DRAFT_ENTRY_MISSING = "XHS_DRAFT_ENTRY_MISSING"
-CODE_UPLOAD_FAILED = "XHS_UPLOAD_FAILED"
-CODE_TITLE_FAILED = "XHS_TITLE_FAILED"
-CODE_UNCONFIRMED = "XHS_UNCONFIRMED"
-
-# 脆弱等待改造：固定 sleep 换成条件轮询 + 具名上限。
-NAVIGATE_READY_TIMEOUT_S = 10.0
-NAVIGATE_READY_POLL_INTERVAL_S = 0.5
-UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0
-UPLOAD_FALLBACK_POLL_INTERVAL_S = 0.5
+from multi_publish.publishers.xiaohongshu_auth import XiaohongshuAuthMixin
+from multi_publish.publishers.xiaohongshu_selectors import (
+    CODE_DRAFT_ENTRY_MISSING,
+    CODE_LOGIN_EXPIRED,
+    CODE_RISK_BLOCKED,
+    CODE_TITLE_FAILED,
+    CODE_UNCONFIRMED,
+    CODE_UPLOAD_FAILED,
+    CONFIRM_TIMEOUT_S,
+    CREATOR_URL,
+    DEFAULT_SELECTORS,
+    DRAFT_BOX_ITEM_SELECTOR,
+    DRAFT_BOX_URL,
+    DRAFT_SAVE_RESPONSE_PATTERNS,
+    RISK_OVERLAY_SELECTOR,
+    SELECTOR_FALLBACKS,
+    UPLOAD_FALLBACK_POLL_INTERVAL_S,
+    UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+)
+from multi_publish.publishers.xiaohongshu_selectors import (
+    coded as _coded,
+)
 
 
-def _coded(code: str, message: str) -> str:
-    """把机器可读码拼进 error 字符串，保留人类可读信息。"""
-    return f"[{code}] {message}"
-
-
-class XiaoHongShuPublisher(BasePublisher):
+class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
     """小红书发布器（RPA / DOM 轨）"""
 
     def __init__(self, config: PublisherConfig, account_id: str | None = None):
@@ -263,21 +202,18 @@ class XiaoHongShuPublisher(BasePublisher):
                 error=_coded(CODE_LOGIN_EXPIRED, "认证已过期，请重新登录"),
             )
 
-        # 注册 XHR 监听（草稿保存确认，抗 UI 改版）
         try:
             if DRAFT_SAVE_RESPONSE_PATTERNS:
                 monitor.watch_patterns(list(DRAFT_SAVE_RESPONSE_PATTERNS))
-        except Exception as e:  # 监听失败降级为回查兜底，不阻断
+        except Exception as e:
             logger.warning(f"ResponseMonitor 注册失败（降级为回查兜底）: {e}")
 
-        # 风控弹层：命中即停止，绝不绕过
         if await self._risk_present(page):
             return PublishResult(
                 success=False, platform="xiaohongshu",
                 error=_coded(CODE_RISK_BLOCKED, "检测到风控/验证弹层，已停止"),
             )
 
-        # 上传媒体（若有）
         await self._report_progress(PublishPhase.UPLOADING, "上传媒体文件...", 30)
         if media_paths:
             try:
@@ -291,7 +227,6 @@ class XiaoHongShuPublisher(BasePublisher):
                 )
         await self._await_editor_ready(page)
 
-        # 标题（必填，失败即终止）
         await self._report_progress(PublishPhase.PUBLISHING, "填写标题...", 70)
         if not await self._set_field(page, "title_input", title):
             return PublishResult(
@@ -299,7 +234,6 @@ class XiaoHongShuPublisher(BasePublisher):
                 error=_coded(CODE_TITLE_FAILED, "填写标题失败（选择器未命中或控件不可写）"),
             )
 
-        # 正文 / 标签 / 封面：尽力而为，失败不影响草稿保存
         if content:
             await self._set_field(page, "content_textarea", content)
         if tags:
@@ -307,13 +241,11 @@ class XiaoHongShuPublisher(BasePublisher):
         if cover_path and os.path.exists(cover_path):
             await self._set_cover(page, cover_path)
 
-        # 触发保存 + 确认
         await self._report_progress(PublishPhase.PUBLISHING, "保存草稿...", 90)
         if draft:
             return await self._save_as_draft(page, monitor, title)
         return await self._publish_public(page, monitor, title)
 
-    # ── 保存与确认 ────────────────────────────────────────────
     async def _save_as_draft(self, page, monitor, title: str) -> PublishResult:
         """草稿 fail-closed：找不到草稿入口绝不 fallthrough 到公开发布。"""
         draft_btn, _ = await self._resolve_visible(page, "draft_button")
@@ -337,10 +269,9 @@ class XiaoHongShuPublisher(BasePublisher):
         return await self._confirm_saved(page, monitor, title, kind="发布")
 
     async def _confirm_saved(self, page, monitor, title: str, *, kind: str) -> PublishResult:
-        """确认才成功：优先 XHR 响应，回退 URL 跳转，再回退草稿箱回查；均无 → 未确认失败。"""
+        """确认才成功：优先 XHR 响应，回退 URL 显式跳转，再回退草稿箱回查；均无 → 未确认失败。"""
         confirmed, url = False, None
 
-        # 1) XHR 响应（最稳）
         if DRAFT_SAVE_RESPONSE_PATTERNS:
             data = await monitor.wait_for_response(timeout=CONFIRM_TIMEOUT_S, predicate=self._resp_success)
             if data is not None and self._resp_success(data):
@@ -349,14 +280,12 @@ class XiaoHongShuPublisher(BasePublisher):
             elif data is not None:
                 logger.warning(f"[小红书] 捕获到 {kind} 响应但非成功码: {data}")
 
-        # 2) URL 跳转兜底（仅认显式 success 跳转；存草稿停在 SPA 编辑页不算确认）
         if not confirmed:
             cur = getattr(page, "url", "") or ""
             if "publish/success" in cur or cur.rstrip("/").endswith("/success"):
                 confirmed = True
                 url = url or cur
 
-        # 3) 草稿箱回查兜底
         if not confirmed:
             confirmed = await self._recheck_draft_box(page, title)
             if confirmed:
@@ -379,17 +308,17 @@ class XiaoHongShuPublisher(BasePublisher):
             return False
         if data.get("code") == 0:
             return True
-        if data.get("success") is True:
-            return True
-        return False
+        return data.get("success") is True
 
     @staticmethod
     def _extract_url(data) -> str | None:
         if not isinstance(data, dict):
             return None
         inner = data.get("data") or {}
+        if not isinstance(inner, dict):
+            return None
         for key in ("draft_id", "note_id", "id", "url"):
-            val = inner.get(key) if isinstance(inner, dict) else None
+            val = inner.get(key)
             if val:
                 if key in ("draft_id", "note_id", "id"):
                     return f"{DRAFT_BOX_URL.rstrip('/')}?{key}={val}"
@@ -413,7 +342,6 @@ class XiaoHongShuPublisher(BasePublisher):
             logger.debug(f"草稿箱回查失败: {e}")
             return False
 
-    # ── 选择器 / 填写辅助 ──────────────────────────────────────
     def _candidates_for(self, key: str) -> list[str]:
         chain = self.selector_fallbacks.get(key)
         if chain:
@@ -445,7 +373,6 @@ class XiaoHongShuPublisher(BasePublisher):
             await loc.fill(text)
             return True
         except Exception:
-            # contenteditable div 等非原生输入：直接设值并派发 input/change
             try:
                 await loc.evaluate(
                     "(el, t) => { el.textContent = t;"
@@ -468,7 +395,6 @@ class XiaoHongShuPublisher(BasePublisher):
             try:
                 await loc.click()
                 await loc.type(tag, delay=50)
-                # 尽力接受首个下拉建议（Tier2 取证精确化），失败仅忽略该标签
                 sugg, _ = await self._resolve_visible(page, "tag_suggestion")
                 if sugg is not None:
                     await sugg.click()
@@ -517,67 +443,6 @@ class XiaoHongShuPublisher(BasePublisher):
     @staticmethod
     def _is_login_redirect(url: str) -> bool:
         return isinstance(url, str) and "/login" in url
-
-    # ── 认证持久化 ─────────────────────────────────────────────
-    async def _save_auth_data(self):
-        require_legacy_plaintext_auth()
-        if not self._context or not self._page:
-            return
-        try:
-            cookies = await self._context.cookies()
-            local_storage = await self._page.evaluate("JSON.stringify(localStorage)")
-            import json
-
-            data = {
-                "cookies": cookies,
-                "local_storage": json.loads(local_storage) if local_storage else {},
-                "captured_at": __import__("time").time(),
-            }
-            os.makedirs(os.path.dirname(self._auth_data_path), exist_ok=True)
-            with open(self._auth_data_path, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            logger.info("认证数据已保存")
-        except Exception as e:
-            logger.warning(f"保存认证数据失败: {e}")
-
-    async def _restore_auth_data(self) -> bool:
-        require_legacy_plaintext_auth()
-        import json
-
-        if not os.path.exists(self._auth_data_path):
-            if not os.path.exists(self._cookie_path):
-                return False
-            return await self._restore_cookies_legacy()
-        try:
-            with open(self._auth_data_path, encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("cookies"):
-                await self._context.add_cookies(data["cookies"])
-            if data.get("local_storage") and self._page:
-                for key, value in data["local_storage"].items():
-                    try:
-                        await self._page.evaluate("localStorage.setItem(arguments[0], arguments[1])", key, value)
-                    except Exception:
-                        pass
-            logger.info("认证数据已恢复")
-            return True
-        except Exception as e:
-            logger.warning(f"恢复认证数据失败: {e}")
-            return False
-
-    async def _restore_cookies_legacy(self) -> bool:
-        require_legacy_plaintext_auth()
-        import json
-
-        try:
-            with open(self._cookie_path, encoding="utf-8") as f:
-                cookies = json.load(f)
-            await self._context.add_cookies(cookies)
-            logger.info("Cookie 已恢复（旧格式）")
-            return True
-        except Exception as e:
-            logger.warning(f"恢复 Cookie 失败: {e}")
-            return False
 
     async def close(self):
         try:
