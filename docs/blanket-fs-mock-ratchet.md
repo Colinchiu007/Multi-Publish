@@ -12,8 +12,10 @@ __registerMock('fs', { existsSync: () => false, readFileSync: () => '' })
 ```
 
 经 `test-setup.js` 的 `Module._load` 拦截，作用域是**该 realm 里每一个** `require('fs')`，不是"我这个模块的 fs"。
-而 `apps/desktop/vitest.config.js` 的 `deps.inline:['electron']` 会把 `node_modules/electron/index.js` **内联进同一个 realm**，
-它对 `existsSync(distPath) === false` 的反应是"二进制没备好"⇒ 打印 `Downloading Electron binary…` 并当场 spawn `install.js`。
+而 `node_modules/electron/index.js` **本来就在这个 realm 里被执行**（桌面测试是 CJS 混合加载；实测把
+`vitest.config.js` 的 `deps.inline:['electron']` 摘掉后，`electron/index.js` 照样跑 —— 见
+`docs/deps-inline-electron-evaluation.md`），它对 `existsSync(distPath) === false` 的反应是"二进制没备好"
+⇒ 打印 `Downloading Electron binary…` 并当场 spawn `install.js`。
 
 真正的代价不是那几秒下载，而是 `stdio:'inherit'` 让子进程输出并进父进程，vitest 把这段下载
 **记到当时正在跑的那条用例名下** —— 表现成一条什么都没做的用例随机 15s 超时，且每次红在不同文件。
@@ -35,8 +37,7 @@ __registerMock('fs', { existsSync: () => false, readFileSync: () => '' })
 
 | 口径 | 内容 | 不这样写会怎样 |
 |------|------|---------------|
-| 只认真代码 | 整行注释、块注释、行尾 ` //` 之后的都不算注册点；但**字符串里的 `//` 不是注释** | 反例实测：`const url = 'a // b'; __registerMock('fs', {existsSync: () => false})` 在"按 `//` 切行"的旧实现里被整段吃掉 ⇒ 真 blanket 判成 `NONE`（**静默漏检方向**，QM-6 命中） |
-| 两种形态、**每一个注册点**都判 | `__registerMock` / `vi.mock` / `vi.doMock` × `fs` / `node:fs` / `fs/promises`；同文件多处注册取**最差**结论 | 只认一种 ⇒ 换个写法逃出棘轮；只看第一个注册点 ⇒ "第二个才是 blanket"整条洗白（probe F 实测复现） |
+| 只认真代码 | 整行注释、块注释、行尾 ` //` 之后的都不算注册点；但**字符串里的 `//` 不是注释** | 反例实测：`const url = 'a // b'; __registerMock('fs', {existsSync: () => false})` 在"按 `//` 切行"的旧实现里被整段吃掉 ⇒ 真 blanket 判成 `NONE`（**静默漏检方向**，QM-6 命中） || 两种形态、**每一个注册点**都判 | `__registerMock` / `vi.mock` / `vi.doMock` × `fs` / `node:fs` / `fs/promises`；同文件多处注册取**最差**结论 | 只认一种 ⇒ 换个写法逃出棘轮；只看第一个注册点 ⇒ "第二个才是 blanket"整条洗白（probe F 实测复现） |
 | 收敛 = 沙箱来自 tmpdir + 按路径段 + 动词真调用句柄 | 见 §3 | 任何一环缺失都退回 `BLANKET`，并在文案里点名缺的是哪一环 |
 
 ## 3. "已收敛"的五条链（每条对应一个已复现的绕过）
@@ -131,5 +132,8 @@ __registerMock('fs', { existsSync: () => false, readFileSync: () => '' })
   真正的漏报样本若出现，正解是引 AST 而不是继续叠正则。
 - 沙箱常量"可追溯到 tmpdir"是按**声明链**判的，不校验运行时真的用了这个值；一个把 tmpdir 常量
   取来却拿去比较无关路径的夹具仍会通过（那属"语义错"，由 review 与「文件系统测试隔离」门禁负责）。
-- `deps.inline:['electron']` 是否仍必要属独立评估项（任务 #33）。摘掉它会让这条链从根上消失，
-  但那是运行时代码面的决定，不在本棘轮范围内。
+- `deps.inline:['electron']` 曾被认为是这条链的放大器、"摘掉它就能根治"。**该推测已被实测否证**：
+  同一支探针（blanket 谎报 `fs` + 不启用 electron mock + `require('electron')`）在摘与不摘两种配置下
+  **都打印** `Downloading Electron binary…` 并抛出同一句话 ⇒ 真 `electron/index.js` 进不进测试 realm
+  不由这个开关决定。所以本棘轮就是当前唯一的控制点，不存在"等摘配置就不用管夹具"的退路。
+  评估过程、可重跑命令与未做的部分见 `docs/deps-inline-electron-evaluation.md`。
