@@ -141,14 +141,25 @@ Write-Host ""
 Write-Host "[4/5] Starting Write Guard watcher..."
 $guardTask = Get-ScheduledTask -TaskPath '\Mulpub\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
 if (-not $guardTask) { throw 'Write Guard 计划任务注册失败' }
-$running = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' }).Count -gt 0
+# 守护是否在跑，不得靠读进程 CommandLine 判：主体为 S4U（非交互）时 watcher 在别的 session，
+# 非提权调用取它的 CommandLine 只会拿到 $null，于是把**正在执法**的守护判成未运行——这里原判据
+# 还会据此重复 Start-ScheduledTask，并在 30 秒后 throw「watcher 未启动」，把健康机器判成装配失败。
+# 任务自身的 State 与 session 无关，故取它为主判据；进程命令行匹配只作交互档下的佐证。
+function Test-GuardRunning {
+    param($Task)
+    $cur = Get-ScheduledTask -TaskPath $Task.TaskPath -TaskName $Task.TaskName -ErrorAction SilentlyContinue
+    if ($cur -and ([string]$cur.State) -eq 'Running') { return $true }
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' })
+    return ($procs.Count -gt 0)
+}
+$running = Test-GuardRunning -Task $guardTask
 if (-not $running) {
     Start-ScheduledTask -TaskName $guardTask.TaskName -TaskPath $guardTask.TaskPath | Out-Null
 }
 $deadline = (Get-Date).AddSeconds(30)
 do {
     Start-Sleep -Seconds 2
-    $running = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' }).Count -gt 0
+    $running = Test-GuardRunning -Task $guardTask
 } while (-not $running -and (Get-Date) -lt $deadline)
 if (-not $running) { throw 'Write Guard watcher 未在 30 秒内启动' }
 Write-Host "Write Guard watcher is running"
