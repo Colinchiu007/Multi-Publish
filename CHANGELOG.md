@@ -263,6 +263,10 @@
 - TDD 先红后绿：`zhihu-fav-core.test.js`（15：URL 六分类/合并/去重/排序/截断/全量封顶）、`zhihu-fav-batch.test.js`（21：参数校验/进度双边界/自动改写/回退原文/仅登记类型/去重/互斥/取消/图片本地化回退/unified 聚合——**mock 全部复制真实 IPC 形状**）、`collection-batch.test.js`（17：P0 回归锁「字段不得为空」/取稿规则/封面映射/平台预筛/目标展开）、`useCollectionBatchPublish.test.js`（16）、`Collection.test.js` 扩至 109（P0 逐字段回归锁 + 清单/聚合/新通道用例）等全量相关 **238/238 绿**。
 - `check-locale-sync --keys` PASS（1405 keys）+ `--cjk` PASS（基线 1489→1340，无新增硬编码）；eslint 0 error；`normalizeCollectedItem` 扩展 kind/favTime/images/imageFallbacks/rewrittenContent/rewriteFailed 字段（唯一出口继续收敛）。
 
+# [未发布] docs(rewrite): PRD 补记「去 AI 味实现与设置」专章（2026-10-03，aitaste-implementation-doc）
+
+### 内容
+- 01-docs/PRD-REWRITE-ENGINE.md 新增 §十五（15.1-15.9，88 行）：三 pass 流水线实现（Pass 1 杀 AI 词汇 128 条映射+人类基线密度保护 / Pass 2 破 AI 结构 13 条开场铺垫正则+连接词标点 / Pass 3 句长节奏段内修复）+ 反注入护栏与 AI 味评分语义澄清；设置面三级结构（策略级 removeAITaste 唯一开关 / 引擎级 intensity 固定 / 终端用户级无 UI）与运营中心→桌面端完整传播链；与敏感词改写/内容质量评估的机制边界澄清；词表运营中心化等 4 项 P2 登记不落地。
 # [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
 
 ### 根因（QM-5 五步取证）

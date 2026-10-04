@@ -1,4 +1,9 @@
 {
+  "本次执行记录：PRD 补记去 AI 味实现与设置（aitaste-implementation-doc，2026-10-03）【docs-only】": {
+    "reason": "PR 合并后回填：squash 落地即取证（git log origin/main --grep=aitaste-implementation-doc --format=%H|%cI；git ls-remote --heads origin docs-aitaste-implementation 返回 0 行），回填与销账同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
+    "status": "PENDING",
+    "line": 1
+  },
   "本次执行记录：智能标签建议面板 Tab 化紧凑呈现（compact-tag-suggester-tabs，2026-10-03）": {
     "reason": "PR #2828 合并后回填：squash 落地即取证券（git log origin/main --grep='(#2828)$' --format=%H|%cI；git ls-remote --heads origin tag-suggester-tab-compact 返回 0 行），回填与销账必须同一次发生——回填者＝本 docs PR 同一次提交删除本条。",
     "status": "PENDING",
