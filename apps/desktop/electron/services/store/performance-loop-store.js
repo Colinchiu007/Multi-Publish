@@ -155,6 +155,43 @@ module.exports = {
     } catch (e) { return [] }
   },
 
+  /**
+   * 回填候选：`publish_history_id` 仍为 NULL 的 tracked 行。
+   * 只读投影，不参与渲染层任何既有查询（避免把 LIMIT 语义渗进列表页）。
+   * @param {number} limit
+   */
+  listUnlinkedTrackedForBackfill (limit) {
+    if (!this._ready) return []
+    const n = Math.min(Math.max(1, Number(limit) || 0), 5000)
+    try {
+      return this.db.prepare(
+        'SELECT id, platform, post_id, publish_history_id, owner_subject, created_at ' +
+        'FROM tracked_content WHERE publish_history_id IS NULL ORDER BY created_at ASC LIMIT ?',
+      ).all(n)
+    } catch (e) {
+      log.warn('Store', 'listUnlinkedTrackedForBackfill failed: ' + e.message)
+      return []
+    }
+  },
+
+  /**
+   * 写关联键。**WHERE 里再要一次 IS NULL** 是刻意的：判据层已经保证只补空行，
+   * 但两层各守一次才能让"判据层将来被人改错"不至于变成覆盖既有数据。
+   * 语义：值＝发布任务 id（task.id），不是发布历史行的 entry.id。
+   */
+  setTrackedPublishHistoryId (id, publishHistoryId) {
+    if (!this._ready || !id || !publishHistoryId) return false
+    try {
+      const result = this.db.prepare(
+        'UPDATE tracked_content SET publish_history_id = ? WHERE id = ? AND publish_history_id IS NULL',
+      ).run(String(publishHistoryId), String(id))
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'setTrackedPublishHistoryId failed: ' + e.message)
+      return false
+    }
+  },
+
   updateTrackedContent (id, updates) {
     if (!this._ready || !id || !updates) return false
     const sets = []

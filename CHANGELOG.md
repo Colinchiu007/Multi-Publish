@@ -1,3 +1,35 @@
+# [未发布] fix(desktop): 发布历史与表现数据的关联键打通——publish_history_id 自诞生起全 NULL（2026-10-04，publish-tracked-link-lineage）
+
+### 根因（QM-5 五步取证）
+- 症状：发布历史页表现列（阅读/点赞/评论/收藏/转发）恒空，即使 `performance_snapshot` 已有该作品的回采数据。
+- 第一性引入点：`bootstrap/phase4-events.js` 的 `store.addTrackedContent({...})` 从未传 `publishHistoryId`，
+  而 `performance-loop-store.js` 早已在读 `entry.publishHistoryId || null` ⇒ 每行都落 NULL。
+- 命名陷阱：读侧 `PublishHistory.vue:602-608` 的 join 契约是「这一列存**发布任务 id**」，不是发布历史行的 `entry.id`；
+  顾名思义去存 entry.id 会让修完仍然恒空。该语义现由契约锁 T1/T3 钉住（真库跑完整链路 + 把读侧投影逐字搬进断言）。
+- 逃逸链：`phase4-events.test.js` 对 `addTrackedContent` **零断言**（实测 grep 计数 0）；单元/集成/视觉/审查四层同时沉默。
+
+### 修复（写侧根因 + 存量自愈）
+- 写侧：`publishHistoryId: String(task.id)`（缺 id 留 NULL 并 warn，不写 "undefined"）。
+- 新增 `electron/services/tracked-content-link.js`：纯判据 `planPublishHistoryLinks` + 编排 `linkExistingTrackedContent`。
+  四条边界——只补 NULL 行 / 同归属下 `(platform, postId)` 恰好命中 1 条才补（歧义不猜）/ 空 postId 不参与 / 归属无法判定不写。
+- 存储层两个方法：`listUnlinkedTrackedForBackfill`、`setTrackedPublishHistoryId`（SQL 端再要一次 `IS NULL` 兜底，判据层失手也不覆盖既有值）。
+- 触发点是**本会话首次发布成功**而非启动接线：那时 `owner_subject` 由任务自带，身份未解析时不做配对。
+- 实测可行域（只读，活库为移动靶）：`tracked_content` 73 行中 0 行已关联，28 行可按归属+作品 id 唯一命中，1 行歧义跳过，45 行 postId 为空。
+
+### 测试与反证
+- 新增 `tracked-content-link.test.js` 20 例、`phase4-events-tracked-content.test.js` 8 例（真 sqlite + 真迁移 + 真 mixin）；
+  消费者并集 5 文件 124 passed。
+- 反证 8 条全部实跑变红并逐条归因到用例名（M1 删透传 / M2 改用 entry.id / M3 去歧义 / M4 去"已有值不动" /
+  M5 去 SQL 兜底 / M6 去归属分桶 / M7 去缺席守卫 / M8 稳态也出声）。
+- 其中 M5 第一版是绿的——补 T9（绕过判据层直接对已关联行再写一次）后才有独占红出口：兜底判据必须自己守住自己。
+
+### 残余（未修，各附证据见 PRD §十）
+- `rewrite_history_id` 仍恒 NULL：改写 id 挂在 `rewrite()` 的 IPC 返回值上，发布载荷从未回传（第二跳，跨层合同，另切片）。
+- 45 行 `post_id` 为空：无从按内容 id 回填。
+- `performance_snapshot` 覆盖仍集中在少数平台，四家零采集属采集面缺口。
+
+详见 01-docs/PRD-PUBLISH-TRACKED-LINK-2026-10-04.md。
+
 # [未发布] fix(ops-center): 追平 weibo 平台种子与回落快照对齐注册表 10000（2026-10-03，fix-weibo-seed-registry-align）
 
 ### 根因
