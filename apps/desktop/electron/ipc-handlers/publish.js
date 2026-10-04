@@ -10,14 +10,18 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
-  const { withSenderCheck } = require('./helpers')
+  // 归属主体判定只有一份唯一实现（helpers.resolveIpcOwnerSubject，QM-6 后端轴 FB5）。
+  // 本文件与 publish-helpers.js 都只转发，不得再抄一份（owner-subject-single-source.test.js 结构锁）。
+  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
   const { createPublishHelpers } = require('./publish-helpers')
   // eslint-disable-next-line no-unused-vars
   // eslint-disable-next-line no-unused-vars
   const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender } = deps
 
-  // 发布 IPC 局部工具：路径段校验 / 归属主体 / 统一日志 / 文章摘要（见 publish-helpers.js）
-  const { isSafePathSegment, getOwnerSubject, ipcLog, summarizeArticle } = createPublishHelpers({ log, identityService })
+  // 发布 IPC 局部工具：路径段校验 / 统一日志 / 文章摘要（见 publish-helpers.js）
+  const { isSafePathSegment, ipcLog, summarizeArticle } = createPublishHelpers({ log })
+  // 归属主体转发唯一实现（三态：undefined=legacy / null=认不出身份 / 非空串=subject）
+  const getOwnerSubject = () => resolveIpcOwnerSubject(identityService)
 
   // 封面提取：cover:extract
   ipcMain.handle('cover:extract', withSenderCheck(async (event, videoPath) => {
