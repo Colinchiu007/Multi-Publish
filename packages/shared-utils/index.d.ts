@@ -1,10 +1,11 @@
-﻿/**
+/**
  * @multi-publish/shared-utils — 类型声明
  */
 
 // ---- 任务队列 ----
 export class TaskQueue {
-  constructor(opts?: { maxConcurrent?: number; defaultRetry?: number; defaultTimeout?: number });
+  constructor(opts?: { maxConcurrent?: number; defaultRetry?: number; defaultTimeout?: number; publishIntervalGuard?: any });
+  static resolveQueueMaxConcurrent(): number;
   add(task: any): string;
   addForOwner(task: any, ownerSubject: string): string;
   setOwnerSubjectProvider(provider: (() => string | null | undefined) | null): void;

@@ -337,7 +337,11 @@ function createContainer(options) {
   container.register("oauthManager", function(c) { return new OAuthManager(c.get("store")); });
   container.register("batchManager", function(c) { return new BatchManager(c.get("store")); });
   container.register("dataSync", function(c) { return new DataSyncService(c.get("store")); });
-  container.register("taskQueue", function() { return new TaskQueue(options.taskQueue || { maxConcurrent: 3 }); });
+  // B 方案（publish-throughput-optimization）：并发上限经 MP_QUEUE_MAX_CONCURRENT 覆盖（[1,10]，默认 3），
+  // 非法值回落默认并出声告警；显式 options.taskQueue 仍优先（测试注入逃生口）。
+  container.register("taskQueue", function() {
+    return new TaskQueue(options.taskQueue || { maxConcurrent: TaskQueue.resolveQueueMaxConcurrent() });
+  });
   container.register("aggregatorBridge", function(c) { return new AggregatorBridge(c.get("taskQueue")); });
   container.register("publisherRouter", function() { return new PublisherRouter(); });
   // §5 风控挂起守卫（W1 enforcement）：桌面唯一真源 DI 单例，持久化复用 store.getSetting/setSetting
