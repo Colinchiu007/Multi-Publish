@@ -29,6 +29,16 @@ const PUNCT_ONLY_RE = /^[\s\u2000-\u206f\u2e00-\u2e7f\u3000-\u303f\uff00-\uffef!
 const REGEX_META_SINGLE = new Set(".$*+?()[]{}|\\/".split(""))
 
 /**
+ * 码点计数（评审 I3）：与 Python len() 对齐——JS .length 按 UTF-16 码元，
+ * 含代理对（emoji）的词目两端口径会分叉（后端通过、桌面端静默拒收）。
+ * @param {string} s
+ * @returns {number}
+ */
+function codePointLength (s) {
+  return [...s].length
+}
+
+/**
  * 远程条目类型自防御：类型不符/判据不过返回 null（跳过该条，不影响其他条目）。
  * @param {unknown} item
  * @returns {{word:string, replacement:string, severity:string, enabled:boolean}|null}
@@ -39,12 +49,12 @@ function sanitizeRemoteEntry (item) {
   if (typeof raw.word !== "string") return null
   if (CONTROL_RE.test(raw.word)) return null
   const word = raw.word.trim()
-  if (!word || word.length > MAX_WORD_LENGTH) return null
-  if (PUNCT_ONLY_RE.test(word) || (word.length === 1 && REGEX_META_SINGLE.has(word))) return null
+  if (!word || codePointLength(word) > MAX_WORD_LENGTH) return null
+  if (PUNCT_ONLY_RE.test(word) || (codePointLength(word) === 1 && REGEX_META_SINGLE.has(word))) return null
   if (typeof raw.replacement !== "string") return null
   if (CONTROL_RE.test(raw.replacement)) return null
   const replacement = raw.replacement.trim()
-  if (!replacement || replacement.length > MAX_REPLACEMENT_LENGTH) return null
+  if (!replacement || codePointLength(replacement) > MAX_REPLACEMENT_LENGTH) return null
   // severity 明确下发但非法 → 拒绝（与 ops-center 400 语义一致；缺省才回 S2）
   if (raw.severity !== undefined && !SEVERITY_ENUM.includes(raw.severity)) return null
   const severity = typeof raw.severity === "string" && SEVERITY_ENUM.includes(raw.severity) ? raw.severity : "S2"
@@ -90,15 +100,24 @@ class RewriteAiTasteMapManager {
 
   /**
    * 应用运营中心下发的词库覆盖层（全量替换语义：下发即当前覆盖层全貌）。
+   * word 去重（评审 W1）：逐条 sanitize 后按 word 去重（后者保留，与 getMap 遍历覆盖顺序一致），
+   * 防重复 word 导致 changed 判定失真与 getMap/getSeverityMap 输出顺序依赖。
    * @param {Array|null} payload - bootstrap 的 rewrite_ai_taste_map 字段
    * @returns {boolean} 是否更新（内容变化时 true）
    */
   applyRemote(payload) {
     if (!this._loaded) this.load()
     if (!Array.isArray(payload)) return false
-    const safe = /** @type {any[]} */ (payload)
-      .map((e) => sanitizeRemoteEntry(e))
-      .filter(Boolean)
+    const byWord = new Map()
+    for (const e of payload) {
+      const safe = sanitizeRemoteEntry(e)
+      if (!safe) continue
+      if (byWord.has(safe.word)) {
+        log.warn("RewriteAiTasteMapManager", "duplicate word in payload, keeping last: " + safe.word)
+      }
+      byWord.set(safe.word, safe)
+    }
+    const safe = [...byWord.values()]
     const changed = !this._entriesEqual(this._entries, safe)
     if (changed) {
       this._entries = safe

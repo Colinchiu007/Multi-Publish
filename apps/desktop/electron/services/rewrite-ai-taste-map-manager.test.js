@@ -107,4 +107,29 @@ describe("RewriteAiTasteMapManager applyRemote / getters", () => {
     ])
     expect(Object.keys(m.getMap())).toEqual(["综上所述"])
   })
+
+  test("M8 重复 word 去重（后者保留，getMap 输出确定——评审 W1 回归锁）", () => {
+    const m = new RewriteAiTasteMapManager(tmpFile())
+    m.applyRemote([
+      { word: "重复词", replacement: "第一版", severity: "S2", enabled: true },
+      { word: "重复词", replacement: "第二版", severity: "S2", enabled: true },
+    ])
+    // word 主键语义：同 word 只保留一条（后者与 getMap 遍历覆盖顺序一致）
+    expect(Object.keys(m.getMap())).toEqual(["重复词"])
+    expect(m.getMap()["重复词"]).toBe("第二版")
+    expect(m.getCurrent().length).toBe(1)
+    // 下发完全相同内容（同顺序）→ changed=false（去重后稳定，不再刷写持久化）
+    expect(m.applyRemote([
+      { word: "重复词", replacement: "第一版", severity: "S2", enabled: true },
+      { word: "重复词", replacement: "第二版", severity: "S2", enabled: true },
+    ])).toBe(false)
+  })
+
+  test("M9 代理对词目按码点计数（评审 I3 回归锁：16 emoji 词目与 Python len 对齐）", () => {
+    const emojiWord = "🤖".repeat(16) // UTF-16 length=32，码点=16
+    const m = new RewriteAiTasteMapManager(tmpFile())
+    const changed = m.applyRemote([{ word: emojiWord, replacement: "机器人", severity: "S2", enabled: true }])
+    expect(changed).toBe(true)
+    expect(m.getMap()[emojiWord]).toBe("机器人")
+  })
 })

@@ -43,7 +43,7 @@
         </el-table-column>
         <el-table-column label="启用" width="90" align="center">
           <template #default="{ row }">
-            <el-switch :model-value="row.enabled" @change="() => toggle(row)" />
+            <el-switch :model-value="row.enabled" :before-change="() => confirmToggle(row)" @change="() => toggle(row)" />
           </template>
         </el-table-column>
         <el-table-column prop="updatedBy" label="更新人" width="110" show-overflow-tooltip />
@@ -177,13 +177,27 @@ async function save() {
 }
 
 async function toggle(row) {
+  const prev = row.enabled
   try {
     const item = await toggleAiTasteEntry(row.word)
     row.enabled = item.enabled
     ElMessage.success(item.enabled ? '已启用（恢复该词替换）' : '已停用（桌面端跳过该词替换）')
   } catch (e) {
+    // 评审 W2：失败回滚开关视觉态（el-switch 已先行翻转，失败必须恢复请求前值）
+    row.enabled = prev
     ElMessage.error(e.response?.data?.detail || '操作失败')
   }
+}
+
+// 评审 W2 配套：before-change 阻断式语义说明（点击开关先弹确认，避免误触停用影响桌面端改写）
+function confirmToggle(row) {
+  const turningOff = row.enabled
+  if (!turningOff) return Promise.resolve(true)
+  return ElMessageBox.confirm(
+    `停用「${row.word}」后，桌面端改写将跳过该词的替换（内置词恢复内置行为）。确认？`,
+    '停用确认',
+    { confirmButtonText: '停用', cancelButtonText: '取消', type: 'warning' }
+  ).then(() => true).catch(() => false)
 }
 
 async function remove(row) {
@@ -206,7 +220,8 @@ async function remove(row) {
 }
 
 function exportJson() {
-  const blob = new Blob([JSON.stringify(items.value.map((x) => ({ word: x.word, replacement: x.replacement, severity: x.severity, enabled: x.enabled })), null, 2)], { type: 'application/json' })
+  // 含 description（评审 I5）：导出即全量备份，可再导入还原（import 支持 description 透传）
+  const blob = new Blob([JSON.stringify(items.value.map((x) => ({ word: x.word, replacement: x.replacement, severity: x.severity, enabled: x.enabled, description: x.description || '' })), null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -233,6 +248,11 @@ async function onImportFile(ev) {
   }
   if (!entries) {
     ElMessage.error('文件格式不正确：需要条目数组')
+    return
+  }
+  if (entries.length === 0) {
+    // 评审 I4：空数组前置拦截，免一次无效确认往返
+    ElMessage.warning('导入文件不包含任何词目')
     return
   }
   try {
