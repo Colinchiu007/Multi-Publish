@@ -7,6 +7,33 @@
 - **强度参数**：策略 postProcess 新增 `aiTasteIntensity`（1-3）：1=仅词级替换、2=现状、3=追加 casual 口语化；非法回 2。引擎 AITasteRemover 改构造注入（phraseMap/disabledWords/severityMap，缺省回常量），词表遍历键序确定性。
 - **质量与评审**：TDD 先红后绿（引擎 T1-T8/C1-C5、ops-center S1-S8、桌面 M1-M9、sync Y1-Y4）；全量回归引擎 194/194、pytest 478/478、桌面 81/81、前端 57/57；QM-6 外部评审 2W3I 全部处置（W1 重复词去重/W2 toggle 失败回滚+停用确认/I3 码点计数对齐/I4 空导入前置拦截/I5 导出含 description）。AGENTS.md QM-2 新增「词库双端校验同判据」门禁条目。
 - **文档**：01-docs/PRD-REWRITE-AI-TASTE-OPS-CENTER-2026-10-04.md（六维度 + Q1-Q12 决策记录）；PRD-REWRITE-ENGINE.md §十六；openspec change ai-taste-ops-center。
+# [未发布] feat(api-publish-engine): 即时发布执行前复校权益/激活态——与定时发布对称的纵深防御（2026-10-04，publish-permission-recheck）
+
+> 用户场景：定时发布路径已有「激活态 + 权益」复校契约，即时/批量发布路径却直接内联 `_consumeEntitlementFeature`，缺少同等的激活态复校与测试覆盖。本次补齐对称性，属**纵深防御**（中央预检本就 fail-closed），不宣称修复活跃安全漏洞。数据校验/流程/功能逻辑/提示文字详见 `01-docs/PRD-API-PUBLISH-ENGINE.md` §7A；OpenSpec 工件见 `openspec/changes/publish-permission-recheck/`。
+
+### 做了什么
+- 新增 `_authorizeImmediateEntry(req, amount = 1)`（L536-560），与 `_authorizeScheduledEntry`（L511-534）同构：API Key 分支 → `findBySubject` → `assertBusinessUserActive` → `_assertEntitlementFeature` → `_consumeEntitlementFeature`。
+- 路由收口：`POST /api/v1/publish` 替换为 `_authorizeImmediateEntry(req, 1)`；`POST /api/v1/batch-publish` 替换为 `_authorizeImmediateEntry(req, platforms.length)`（消费量按平台数，`Math.max(1, amount)` 兜底）。
+- **叠加而非替换**：中央预检（L661-673）行为完全不变，本方法是第二道闸；任一层 fail-closed 均返回既有错误码与文案，**不新增错误码、不改文案、不涉及 locale**。
+- 回归锁：`packages/api-publish-engine/test/publish-permission-recheck.test.js` 8 例全绿，含「suspended → 403 + 权益计数 0」「正常态消费恰好 1 次」「脱离中央预检仍 fail-closed」。
+
+### 遗留（不假装闭合）
+- 中央预检与本方法存在**重复校验**（同一请求内权益被 `requireFeature` 两次）。当前为有意的纵深防御；若未来要收敛为单点，须先证明两条路径覆盖等价，属独立 change。
+
+# [未发布] feat(observability): 发布链路日志可观测性 + 日志风暴护栏 + 注入消毒（2026-10-03，publish-logging-observability）
+
+> 用户场景：ApiUsageGovernor 的限流/排队/冷却等待与重试风暴此前不可观测、不可审计；`publish.js` 与 `api-usage-governor.js` 均已顶到 500 行债务熔断线。详见 `01-docs/PRD-API-PUBLISH-ENGINE.md` §7B；OpenSpec 工件见 `openspec/changes/publish-logging-observability/`。
+
+### 做了什么
+- 日志契约治理：IPC handler 统一四阶段日志（`enter`/`validation-failed`/`ok`/`error`），含耗时与脱敏关键参数。
+- 日志风暴护栏：重试日志受 `retryLogMaxBurst` 硬上限约束，超限改汇总条。
+- 日志注入消毒：逐字符 `charCodeAt >= 32` 判定（不用控制字符正则，避免 `no-control-regex`）。
+- 债务线压线抽取：新增 `governor-observability.js`/`governor-constants.js`/`log-sampler.js`/`publish-helpers.js`；`api-usage-governor.js` 504→489、`publish.js` 500→469，均严格 `<500`。
+- 测试可重复性修复：把 jitter 抽成可注入函数 `governorConstants.jitter`，测试在 require 前替换为 `() => 0`（确定性 + 睡眠归零）。
+
+### 关键教训
+- 限流/重试类单测**禁止依赖全局随机源**（jitter），否则 CI 偶发超时（本例 10s shard 超时）。
+- `.lines >= 500` 是**硬熔断（含 500）**，大文件要「压线前先抽」，抽取后必须严格 `<500`。
 
 # [未发布] docs(收口): api-publish-engine-w3 波次归档——6.3 活体裁决 not-go 定案，未实现能力不折主规格（w3-closure，2026-10-04）
 
