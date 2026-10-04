@@ -1,3 +1,20 @@
+# [未发布] fix(scripts): 会话隔离工具不再弹控制台窗口——计划任务改非交互主体、任务 shell 改按需（2026-10-04，fix-session-isolation-popups）
+
+### 根因
+- 两类窗口叠加：① `start-mp-task.ps1` 建完 worktree 默认 `Start-Process -NoExit` 开一个「任务 shell」，父进程随即退出 ⇒ 窗口成为孤儿常驻，每开一个任务多一个（现场 PID 42824，父进程 40692 已不存在）。② `\Mulpub\` 两个计划任务以交互主体（`LogonType=Interactive`）注册，每次运行都创建一个可见控制台窗口；健康巡检每 15 分钟一次，即「开发过程中总闪窗」的节拍源。
+- 想当然的修法是错的：实测把任务设置 `Hidden` 置为 true 后手动触发，300ms 内仍新增一个可见顶层窗口。真正消除窗口的是非交互主体 `LogonType=S4U`（同一探针 `NEW_TOTAL=0`，且任务确实执行：`health.json` 的 `checkedAt` 前进、`LastTaskResult=0`）。
+
+### 方案
+- `scripts/install-session-isolation-task.ps1`：主体按 `S4U → Interactive` 兜底注册，退回交互档必须打 WARN（非提权宿主 S4U 被拒已被实测：一次性 `-TaskPath` 非提权运行后任务落成 `Interactive`）。窗口可见是外观损失，注册不上才是防线缺失，故不硬失败。
+- `scripts/start-mp-task.ps1`：默认不开窗，`-NoShell` 删除、改为显式 `-Shell` 才开；不开窗时打印 cd 提示。
+- `scripts/mp-worktree-health.ps1`：watcher 存活判定改以任务自身 `State -eq 'Running'` 为主判据，`CommandLine` 匹配降为兜底 —— S4U 实例在别的 session，非提权调用读不到它的 `CommandLine`（返回 `$null`），照旧判定会把正在执法的守护报成「未运行」。
+
+### 验证
+- 现场 A/B（本机 Win11 + Windows Terminal 作默认控制台宿主，顶层窗口集合差分探针）：Interactive+Hidden → 新增 1 个可见窗口；S4U → 0 个，任务仍执行。
+- write guard 在 S4U 下执法实证：放进 `apps/desktop/` 的未跟踪探针文件约 1 秒被移入隔离区（15→16）并记入 `violations.jsonl`；`mp-worktree-health.ps1 -RequireWriteGuard` 返回 rc=0、`writeGuard.ok=true`。
+- 回归锁三条（`scripts/start-mp-task.test.js`）：入口默认不开窗 / 注册主体顺序与兜底出声 / 存活判定 State 优先。已逐个变异反证（退化成无条件开窗、主体顺序倒回、判定退回只看 CommandLine）各自当场变红，还原后文件逐字节相同。既有 `mp-worktree-health.test.ps1`(22) 与 `install-session-isolation-task.test.ps1`(7) 全绿。
+- 详见 `docs/session-isolation-automation.md`「控制台窗口与运行主体（2026-10-03 实测）」。
+=======
 # [未发布] test(守卫): 测试期禁出站守卫补上子进程面，两个 realm 都必须两面齐全（fix-test-egress-child-plane，2026-10-03）
 
 ### 根因
@@ -64106,3 +64123,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
+### 补充（同 PR，外部评审捞出的第二落点）
+- `scripts/bootstrap-write-guard.ps1` 里还有第二份「按 CommandLine 认守护」的判据，且后果更重：它据此决定是否 Start-ScheduledTask，30 秒轮询看不见就 throw，S4U 下会把健康机器判成装配失败。与 `mp-worktree-health.ps1` 一起改为「任务 State 优先、CommandLine 只作兜底」。
+- 防再犯锁升级为按特征扫全域：`start-mp-task.test.js` 的「存活判定合同」列出所有用 CommandLine 认守护的文件并钉住清单（只能缩小），已对 bootstrap 做摘除 State 主判据的变异反证（实测变红、还原后逐字节相同）。
+- 来源要如实记：这条不是我自审找到的，是 codex 侧评审输出里的一句观察；该评审整体仍属未完成（无 findings 文件、结论中途截断），claude 侧三次全空输出，故 QM-6 记为部分达成而非通过。

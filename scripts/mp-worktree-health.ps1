@@ -86,8 +86,18 @@ foreach ($name in @('pre-commit','post-checkout')) {
 $guardTask = Get-ScheduledTask -TaskPath '\Mulpub\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
 $guardRunning = $false
 if ($guardTask) {
-    $guardProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' })
-    $guardRunning = $guardProcs.Count -gt 0
+    # The guard now runs under a non-interactive (S4U) principal, i.e. in another session, and a
+    # non-elevated caller cannot read other sessions' CommandLine - the property comes back
+    # $null, so a name match on it reports "not running" for a guard that is in fact enforcing.
+    # Measured 2026-10-03: session-0 powershell (parent = Task Scheduler) with unreadable
+    # CommandLine, task State=Running, and a probe file under apps/ was quarantined within ~1s.
+    # The task's own state is the primary signal; the process match stays as corroboration
+    # because it still works when both live in the caller's session.
+    $guardRunning = ([string]$guardTask.State) -eq 'Running'
+    if (-not $guardRunning) {
+        $guardProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' })
+        $guardRunning = $guardProcs.Count -gt 0
+    }
 }
 $quarantineRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\quarantine'
 $guardFiles = @()
