@@ -30,7 +30,7 @@ _SEED_FALLBACK_LIMITS = {
     # 回落值 = 注册表不可读时的最后快照（2026-10-02），与注册表同步维护
     "wechat_mp": {"titleMax": 64, "contentMax": 20000},
     "zhihu": {"titleMax": 50, "contentMax": 100000},
-    "weibo": {"titleMax": 0, "contentMax": 5000},
+    "weibo": {"titleMax": 0, "contentMax": 10000},
     "douyin": {"titleMax": 55, "contentMax": 5000},
     "xiaohongshu": {"titleMax": 20, "contentMax": 5000},
     "tencent_video": {"titleMax": 0, "contentMax": 5000},
@@ -90,7 +90,7 @@ def _limit(platform_id: str, key: str, default: int | None = None) -> int | None
 
 SEED_DEFS = [
     {"id": "wechat_mp", "name": "微信公众号", "category": "中文", "content_category": "IMAGE_TEXT", "type": "article", "max_title": _limit("wechat_mp", "titleMax", 64), "max_content": _limit("wechat_mp", "contentMax", 20000), "has_api": 0},
-    {"id": "weibo", "name": "微博", "category": "中文", "content_category": "MIXED", "type": "mixed", "max_title": _limit("weibo", "titleMax", 140), "max_content": _limit("weibo", "contentMax", 5000), "has_api": 0},
+    {"id": "weibo", "name": "微博", "category": "中文", "content_category": "MIXED", "type": "mixed", "max_title": _limit("weibo", "titleMax", 140), "max_content": _limit("weibo", "contentMax", 10000), "has_api": 0},
     {"id": "douyin", "name": "抖音", "category": "中文", "content_category": "VIDEO", "type": "mixed", "max_title": _limit("douyin", "titleMax", 55), "max_content": _limit("douyin", "contentMax", 5000), "has_api": 0},
     {"id": "bilibili", "name": "哔哩哔哩", "category": "中文", "content_category": "VIDEO", "type": "mixed", "max_title": _limit("bilibili", "titleMax", 80), "max_content": _limit("bilibili", "contentMax", 2000), "has_api": 1},
     {"id": "toutiao", "name": "今日头条", "category": "中文", "content_category": "IMAGE_TEXT", "type": "article", "max_title": _limit("toutiao", "titleMax", 30), "max_content": _limit("toutiao", "contentMax", 100000), "has_api": 0},
