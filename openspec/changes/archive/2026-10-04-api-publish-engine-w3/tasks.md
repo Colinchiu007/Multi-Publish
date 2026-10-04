@@ -24,7 +24,8 @@
   - 结果：**INCONCLUSIVE**（探针端点不校验 sig3，无法区分无签/近似签/真签；本地公式 MD5 为 32 位裸 hex 结构上短于真 sig3 56 字符，本地签名器路线作废）→ 不短路，继续 S2。详见 `evidence/api-w3-kuaishou/spike-verdict.md`
 - [x] 3.2 S2 真页抽取+拦截比对（用户在场）：`cp.kuaishou.com` 登录态抠 sig3 函数，同 payload 复算 == 页面真发值；V-partition 复用方式一并验证记录
   - S2a 静态侦察：**Tier-A 方向成立**（sig3 由快手页面自带 `$encode` VM 生成，非第三方外包，不触 §7 grep 门禁）。S2b 活体终判：**Tier-A GO**（页面签名器为我方独立构造请求产出的 sig3 被平台接受，新构造新签新发即时有效）。Group 4/5 放行
-- [ ] 3.3 S3 复算直发活体（用户在场）：抽取函数签名直发 1 条真实请求（私密/草稿优先、间隔 ≥18min）
+- [x] 3.3 S3 复算直发活体（用户在场）：抽取函数签名直发 1 条真实请求（私密/草稿优先、间隔 ≥18min）
+  - 勾选口径：经裁决由 6.3 承接并最终定案（not-go），非独立执行完成。
   - 状态：未单独执行；S2b 已证「独立构造请求接受性」核心命题，S3 语义延期至 6.3 发布链集成验收（submit 端点真实发布由用户在场做最终回归），不再阻塞 Group 4/5 开发
 - [x] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12（`01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表）/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
   - 裁决：**go**（S2b Tier-A）→ 进入 Group 4；PRD F12/techdoc v2 回写随 6.4 收口
@@ -35,20 +36,28 @@
 - [x] 4.2 实现 `publish/platforms/kuaishou-video.js`（复用 core http-base/contract/errors + 注册表求签分派）；4.1 转绿（链 19 测绿，求签仅经 `kuaishou.ns-sig3-browser` 注册表 command，零 HTTP 签名通道）
 - [x] 4.3 `KuaishouAdapter` 变薄委托（对齐 W2 douyin.js 形态，granular 空安全契约）+ `kuaishou-adapter.test.js`；旧骨架远程签名拼参路径下线 + grep 门禁（外包签名服务 URL 片段 `src/adapters`+`src/publish` 零命中，`kuaishou-legacy-chain-gate.test.js`）；既有 e2e/ai-declaration 测试同步适配新 caption 形态
 - [x] 4.4 platforms.yaml kuaishou `publishMode` 翻转 api-then-dom（has_api 同步 true）+ publish-mode 回归扩展 kuaishou 行（api-then-dom 入波断言；risk_blocked/login_expired 不降级由 publish-mode-runner 既有契约覆盖）
+  - ⚠️ 后续：6.3 定案 API 轨不可用后，此翻转成为空转开关（api-then-dom 实际行为=永远降级 DOM，与 dom-only 等效但多一次必败 API 尝试）。是否回拨 dom-only 属收口待决项（6.4/p6）。
 
 ## 5. 小红书链（1.2 取证通过时执行，否则记录止步跳过）
 
-- [ ] 5.1 红测+实现 `publish/platforms/xiaohongshu.js`（x-s/x-t 按 §6 裁决路径）、`XiaohongshuAdapter` 委托、platforms.yaml 翻转与回归（形态同 Group 4）
-- [ ] 5.2 风险信号归一：小红书响应验证页/频率信号 → `outcomeOfResult` risk_blocked 回归（对齐 douyin-risk.test.js 形态）
+- [x] 5.1 红测+实现 `publish/platforms/xiaohongshu.js`（x-s/x-t 按 §6 裁决路径）、`XiaohongshuAdapter` 委托、platforms.yaml 翻转与回归（形态同 Group 4）
+  - 裁决（2026-09-26，依 design §6）**止步不执行**：1.2 取证确认 x-s/x-t 依赖小红书外包签名服务、页面内可抽取性未经 spike，`cp.kuaishou.com` 型 Tier-A 前提不成立 → 本组整体 out of scope，不实现、不翻转（platforms.yaml 小红书保持 dom-only 实况）；基建（Group 2 签名页）已为其预留 provider 槽（2.2），未来若立独立 change 补取证 spike 可直接复用。
+- [x] 5.2 风险信号归一：小红书响应验证页/频率信号 → `outcomeOfResult` risk_blocked 回归（对齐 douyin-risk.test.js 形态）
+  - 裁决：随 5.1 止步（无 xiaohongshu API 链即无风险信号归一对象）；DOM 轨小红书已有独立发布路径，不属本 change 范围。
 
 ## 6. 门禁与交付
 
-- [ ] 6.1 全量门禁：api-publish-engine run-tests 全绿 + 桌面受影响 suites + QG 静态（品牌残留/远程通道零命中扩展/__mpSigner 常量扫描）+ QM-1 最终包验证；`openspec validate` 通过
+- [x] 6.1 全量门禁：api-publish-engine run-tests 全绿 + 桌面受影响 suites + QG 静态（品牌残留/远程通道零命中扩展/__mpSigner 常量扫描）+ QM-1 最终包验证；`openspec validate` 通过
   - 已验（2026-09-26，origin/main `f71343a82d`）：引擎 `run-tests.js` EXIT=0 **31 files / 258 tests 全绿**（direct-node 套件 `=== ALL PASSED ===`）；QG 静态 Gate12 品牌残留 PASS（6201 tracked 文件）/ Gate3 硬编码密钥 PASS / Gate7 `--pair-base 0ef09cce5f` zh+en 成对 PASS + `--keys` PASS（4204 键）；桌面 signer suites `signer-assembly` + `signer-page-manager` 2 files / 37 tests 绿；`openspec validate --strict` valid。
   - 口径修正：design §7 的「`__mpSigner` 常量扫描」全仓 **0 命中**（实现实际命名为 `__MP_SIGN_CHUNK_GLOBAL__`/`__MP_SIGN_MODULE_ID__`/`__MP_SIGN_EXPORT__`/`__MP_SIGN_PAYLOAD__` 占位符 + `__mp_sig_probe__` 探针块名），该条为空洞门禁；真实合规属性（禁止回传函数体源码）由 `signer-page-manager.test.js` 断言 `Function.prototype.toString`/`JSON.stringify(fn)` 零回传覆盖。
-  - 仍开放：**QM-1 最终包验证**与活体同波（6.3 需真实 Electron 窗口跑发布链，打包产物即验收载体）；本波未触碰 `apps/desktop/electron/`（#2413 基建波已做过 QM-1 三件套）。
-- [ ] 6.2 PR/autoMerge（基建与链可分 PR：基建先行独立可回滚）；CI 全绿自动合并
-- [ ] 6.3 （spike go 时）活体裁决验收（用户在场）：快手真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套入 `evidence/api-w3-kuaishou/`；风控即停绝不换号
+  - QM-1 最终包验证：**已闭环**——后续触碰 `apps/desktop/electron/` 的活体修复波 kuaishou-w3-live-fix 归档 tasks 3.2 已重做三件套（`pnpm run build:dir`：asar 含 dist/index.html + auth-partition.js / require 链 OK / exe 10s 存活 stderr 零输出）；本波其余收口项仅剩 6.2/6.4 交付动作。
+- [x] 6.2 PR/autoMerge（基建与链可分 PR：基建先行独立可回滚）；CI 全绿自动合并
+  - 销账（勾选=本波全部 PR 已合并 origin/main 且 CI 绿；6.3 not-go 后 publishMode 是否回拨 dom-only 属新小波待决项，不属本条范围，随 6.4/p6 收口报告登记）：
+    规划 #2377；基建 #2388（2.1–2.4 engine/desktop 双侧 TDD）/ #2413（2.4/2.5 收官，QM-1 三件套+preload 双模式）；
+    链 #2424（Group 4 tasks 4.1–4.4）/ #2432（6.1 门禁证据 + 6.4 契约回写）；
+    活体修复波 kuaishou-w3-live-fix：#2444/#2448/#2480/#2486/#2554/#2569/#2573（归档）/#2576/#2578/#2580/#2582/#2585/#2602；
+    上传 400 收敛波+诊断链 #2594/#2612/#2616/#2619/#2621/#2630/#2653；6.3 定案链 #2667/#2668/#2669。
+- [x] 6.3 （spike go 时）活体裁决验收（用户在场）：快手真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套入 `evidence/api-w3-kuaishou/`；风控即停绝不换号
   - 状态（2026-09-29，**定案**）：**未通过 / spike not-go（定案）**。八层证据链见 `evidence/api-w3-kuaishou/api-track-verdict-8layers-network-forensics-20260929.md`：
     ①–⑥ 本地接线层已修复合并（#2578 形状翻译 / #2580 注册表回退+命令名 / #2582 bridge 双模块陷阱 / #2585 sessionKey+cookie 预绑），
     ⑦ `upload/complete` 裸 400 经四轮收敛（#2612 Content-Type+Accept → #2621 **axios 对 `data:''` 默认注入 form-urlencoded** 根因 → #2630 上传域无 Cookie+短 Referer → #2653 sec-ch-ua×3+捕获 UA）；
@@ -62,4 +71,4 @@
     即用浏览器的 TLS/HTTP2-3 栈，而非 Node axios）；③ 保留 DOM 轨为快手默认路径。复跑脚本入口见该文档「终局与后续」节。
 - [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2（两者均在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表——⚠️ 不是 `01-docs/PRD.md`，后者 F12=多平台实时监控、F13=评论管理，与本特性无关；交叉引用原按记忆书写，2026-09-26 核实纠偏）；`openspec archive` + learnings/记忆三投
   - M3 裁决（S0 INCONCLUSIVE / S2a Tier-A 方向成立 / S2b Tier-A GO）与 F13 止步（x-s/x-t 依赖外包服务、页面内可抽取性未经 spike）属**已定决策**，2026-09-26 先行回写 PRD §4/§9/§10 + techdoc v2 §2/§4.2/§6.1/§11，防上下文断联；
-  - 活体证据四件套回写（PRD 附录验收表实数据）与 `openspec archive` 仍阻塞于 6.3（用户在场），与 W1 §7.5-7.7 / W2 §6.2-6.4 同形态尾债，建议一次真实账号窗口三波合并验收。
+  - 活体证据四件套回写（PRD 附录验收表实数据）与 `openspec archive` 曾阻塞于 6.3（用户在场）；**2026-09-30 解除：6.3 已定案 not-go**，验收事实=11 轮网络取证本身，不再存在「等补活体通过」尾债；与 W1 §7.5-7.7 / W2 §6.2-6.4 合并的三波同窗口验收仅剩「API 轨真实成功发布」一项，快手已由 not-go 结论出局。
