@@ -18,7 +18,17 @@ const Module = require('module')
 // 判定被抄成第二份必然漂移，本仓已在登录态三态映射与 Windows 文件锁夹具上各栽过一次。
 // 行为契约（127/8 放行、账本 __mpBlockedEgress、unknown 出声、emit/destroy 语义）
 // 由 apps/desktop/electron/services/network-egress-guard.test.js 锁住。
-require('../../packages/shared-utils/src/network-egress-guard.js').installTestNetworkGuard()
+//
+// 两个平面都必须装：socket 面只管**当前 realm**；#2783 的现场（`require('electron')` 在本 realm
+// `spawnSync(process.execPath,[install.js])` 真下载 4 秒）恰恰发生在**子进程 realm**，
+// 所以桌面 realm 若不装子进程面，这个缺陷的主案发现场就仍然无守卫（QM-6 外部评审独立命中）。
+// 注入目标必须是共享 setup 本身（它同时装两面），而不是本文件 —— 本文件带 electron mock 装配，
+// 用 `--require` 在子进程里加载它会拉起整个桌面测试外壳。
+const egressGuard = require('../../packages/shared-utils/src/network-egress-guard.js')
+egressGuard.installTestNetworkGuard()
+egressGuard.installTestChildProcessGuard({
+  setupPath: require.resolve('../../packages/shared-utils/network-egress-guard.setup.js'),
+})
 
 // ─── 语言确定性 ───
 // 测试环境固定系统语言为 zh-CN（user-facing-messages 规范），保证中文文案断言可复现。

@@ -1,3 +1,31 @@
+# [未发布] test(守卫): 测试期禁出站守卫补上子进程面，两个 realm 都必须两面齐全（fix-test-egress-child-plane，2026-10-03）
+
+### 根因
+- 共享守卫 `packages/shared-utils/src/network-egress-guard.js` 只 patch `net.Socket.prototype.connect`，那是 **realm 级**补丁。测试用 `spawnSync` / `execFileSync` / `execSync` / `fork` 起的**另一个进程**里没有守卫 ⇒ "测试期零真实出站"对这条路径结构性无效。
+- 这正是 #2783 的另一半（其 CI 侧触发条件由 #2793 消掉、测试 realm 内那条由 #2797 的 spawn 守卫拦下，但**能力缺口**一直留在单下没有闭：`require('electron')` 走 `spawnSync(process.execPath, [install.js])`，子进程真下载数秒，`stdio:'inherit'` 让 vitest 把这段下载记到"当时正在跑的那条用例"头上 ⇒ 表现是某条无关用例随机 15s 超时）。
+
+### 修复
+- 新增 `installTestChildProcessGuard`：对 **node 系**子进程注入守卫，覆盖 `spawn` / `spawnSync` / `execFile` / `execFileSync` / `exec` / `execSync` / `fork` **七个入口**。四条实测口径：① `execFileSync`/`execSync` 走 Node 内部绑定，只 patch `spawnSync` 对它们**无效**（第一版因此把 `execSync('node …')` 留成既不注入也不进台账的完全静默出站口）；② `fork` 的第一个参数是**模块路径**不是可执行文件，按命令名判 node 会把每次 fork 误判成 external；③ `fork` 只能改 `options.execArgv`，且回落 `process.execArgv` 时必须剔除 `-e/--eval` 族——显式写 execArgv 会取消 Node 自己的剔除，实测让子进程去跑父脚本、永不退出；④ shell 形态（`exec`/`execSync`）改命令串等于在引号语境上赌，改走 `NODE_OPTIONS`（顺带覆盖 `npx → node` 孙进程）。
+- 会断裂的形态一律不注入：`options.shell` / `windowsVerbatimArguments` 为真、或 `setupPath` 含空白/引号时 **NODE_OPTIONS/argv 注入都会把子进程打崩**，改为跳过并出声；`setupPath` 缺失同样必须出声（静默 no-op 会让"装配漏参数"读起来像"本轮没有子进程"）。
+- 非 node 子进程（git / python / npm / electron.exe）**argv 一字不改**，只进台账 + 每个命令名出声一次（`[TEST-NETWORK-CHILD-UNGUARDED]`）；台账名收敛为"shell 首 token 的路径末段"，不再把整条命令串当命令名。
+- 包装层**必须搬运宿主函数的 own symbols**：`child_process.execFile` 上挂着 Node 内部的 `Symbol(nodejs.util.promisify.custom)`，`util.promisify` 靠它决定决议形状。丢掉它之后 `promisify(包装层)` 解析成裸 stdout 字符串，`const { stdout } = await execFileAsync(...)` 静默变 `undefined` —— 桌面 realm 装上子进程面的那一刻实测把 `_probeMediaDuration` 打成恒 null（真实 ffmpeg 用例红）。同批修：`fork` 的第一参数是模块路径（按命令名判 node 会把每次 fork 误判成 external）、`fork` 显式写 execArgv 会取消 Node 对 `-e/--eval` 的默认剔除。
+- 装配仍只有一份：`network-egress-guard.setup.js` 同时装两个平面，注入目标取 `__filename` ⇒ 孙进程继续被注入且安装幂等。**桌面 realm 也装了子进程面**（`apps/desktop/test-setup.js`，注入目标指共享 setup 而非桌面自己的 setup），因为 #2783 的案发现场就是桌面 realm。
+- Gate 20（`check-test-egress-guard.js`）加两条判据：共享 setup 与桌面 test-setup 都必须**两面齐全**；判据先剥注释再匹配（注释里的调用不算接线），且子进程面必须带 `setupPath`。两个平面各自独立判，不写 `else if` 链——否则"两面都缺"只报一条，补上一面另一面的洞又看不见。
+
+### 明确未做（不是遗漏）
+- 非 node 子进程仍能出网：本层做的是**让它可见**（台账 + 出声），不是拦住；拦它要在传输层做（代理/防火墙），属 CI 基础设施改动。
+- `npm` / `npx` / `pnpm` 这类 node 包装器只登记不注入：给它们注入的唯一安全面是全局 `NODE_OPTIONS`，而那会让 Electron 存活测试的 realm 也加载本守卫（`--require` 在 Electron 里语义不确定，正是有意排除的那件事）。要覆盖 npm 下载需显式列白名单并排除 electron.exe，另案。
+- 台账暂无"必须为空"的 CI 断言：先观察一轮真实数据（哪些命令名会出现）再定阈值，否则第一版就把 python/electron 的合法子进程判红。
+
+### 验证
+- 新增 `packages/shared-utils/src/__tests__/network-egress-guard-child.test.js` 21 例：注入是否生效**一律由子进程自己报告**（打印 `process.execArgv` / 守卫标记 / fork 自己写盘 / `node -e` 父进程端到端），不用"我调用过 spawn"式 mock；对照组显式走未包装的原始 `spawnSync` / `execSync`，且**禁止** `__mpOriginalSpawn || 原始函数` 的回退（装配失效时回退会让对照组也"证明没守卫"）。
+- `fail-open` 那条锁用 `toString()` 即抛的 command 对象**真的走进 catch 分支**，同时断言"真实调用被发起"与"出了声"——只跑正常输入的 fail-open 测试对"把 catch 删掉"完全免疫（两路外部评审独立命中）。
+- 预算：子进程探针超时收敛为 `CHILD_PROBE_TIMEOUT_MS=6000`，由一条用例从 `vitest.config.js` **现场读** `testTimeout` 比对，并扫本文件禁止裸数字 `timeout:`（倒挂的后果是红里只剩 `Test timed out`、stderr 与 JSON 证据全被吃掉）。
+- 红→绿：先实测 9 failed / 1 passed，实现后全绿；`check-test-egress-guard.test.js` 11/11 绿；shared-utils 全量 **532 passed / 0 failed**。
+- **最大风险面回归**：子进程注入会影响 vitest 自己的 worker，且本轮把这一面装进了桌面 realm ⇒ 桌面**全量** `vitest run` 实跑 **719 文件 / 13207 例 = 1 failed / 13203 passed / 3 skipped**（1005s），唯一红是 `feedback.test.js` 的 Windows symlink `EPERM`（pristine main 可复现，与本 PR 无关）；shared-utils 全量 533 passed / 0 failed；`check-test-egress-guard.test.js` 11/11。
+- 反证：第一轮 8 条（C1–C7/G1）+ 第二轮 14 条（M1 摘 exec/execSync、M2 不剔求值旗标、M3 fork 按命令名判 node、M4 去掉 shell 跳过、M5 缺 setupPath 不出声、M6 抹掉异常出声、M7 台账名退化、M8 Gate 判据退回纯文本、M9 桌面分支退回旧判据、M10 注释掉桌面子进程面、M11 注释掉共享 setup、M12 fork 只报成功不真注入、M13 不搬 promisify 符号、M14 摘掉桌面装配）逐个实跑，要求 rc≠0 **且**失败数 >0 **且**红因含预期测试名。M14 第一次跑是 **rc=0** —— 它抓到的是我为第 2 条新写的那条桌面装配锁本身是文本级 `toMatch`，注释掉调用照样绿；改成剥注释判据后才按预期变红。驱动一律用**单行** needle（工作区是 CRLF，带 \n 的多行 find 匹配不到——上一轮就是这么把驱动故障读成结论的），收尾断言 5 个被变异文件与备份逐字节相同，并在还原后复跑确认回到全绿。
+- QM-6 双模型外部评审（替代通道）：1 Critical + 6 Warning + 3 Info，逐条处置见 `openspec/records/fix-test-egress-child-plane.md`。其中 Critical（exec/execSync 静默出站）与"桌面 realm 没装子进程面"两条是**自审漏掉、外部独立命中**的，本轮已修并各配锁。
+
 # [未发布] docs(CI门禁): Gate 2c2 搬出被 docs-only 短路的 job，记录判据按分支名放宽一维（fix-gate-2c2-docs-only-hole，2026-10-03）
 
 ### 根因
