@@ -1,3 +1,12 @@
+## LEDGER_GREW「陈旧账本误杀」的判据与合法处置；rebase 后 PR diff 虚胖的识别；增量门禁的对称性纪律（publish-permission-recheck + publish-logging-observability，2026-10-04）
+
+- **陈旧账本会把「他人的存量漂移」算到本次头上（pitfall + pattern）**：`LEDGER_GREW` 判据是 `当前行数 − 登记值 > growthAllowance`，而登记值是**登记时刻**的行数。当 main 已有机增长把「登记值 vs main 实际」的差额吃到恰好等于容差（本次 1356−1156=200=allowance，main 压线绿），任何分支再增 1 行都会红——红的原因**不是本次改动过大**（本次仅 +26），而是账本陈旧。取证序列：①`git cat-file blob HEAD:<path>` 取权威行数（勿用 PowerShell `Measure-Object -Line`，会少算）；②`git diff --numstat origin/main HEAD -- <path>` 取本次净增；③`git show origin/main:<path>` 取 main 真实行数。**合法处置是「同步到 main 真实已接受大小」**（1156→1356），使本次增量完整暴露在容差内；改成 1382（分支当前值）则是掩盖本次增量，属禁止项。`--update` 因 `blockedRaise` 无法抬高既有登记值，只能手工单键改。
+- **rebase 前先量三点 diff 的假象（pitfall）**：`git diff --stat origin/main HEAD` 在分支落后 main 时，会把 main 上他人的后续改动**全部算成本分支的删除**（本次显示 161 文件/-8147 行，真实仅 42 文件/+1955/-268）。分支落后 45 个提交时 PR 状态是 `DIRTY/CONFLICTING`，自动合并永不触发。判据：先 `git rev-list --count HEAD..origin/main`，落后就先 rebase；评估真实改动一律用 `git merge-base` 做两点 diff。
+- **门禁冲突里「两侧记录都要留」（pattern）**：`.quality-gates.md` 是置顶追加型文件，多会话并发写必冲突。解冲突时两侧的执行记录**都是有效证据**，不能取一舍一——只删冲突标记、保留双方段落。附带发现：该文件曾出现 2 个 NUL 字节（`01-docs/` 的 `01` 被写成 NUL），使编辑工具判定为二进制而拒绝编辑；修法是按字节把 NUL 替换为 `01`，再重读后编辑。
+- **抽取型改动的冲突取我方（pattern）**：rebase 遇到「HEAD 内联函数 vs 我方抽到 helper 文件」的冲突时，取**抽取版**（抽取本身就是本次改动意图），但必须先确认新 helper 模块确实导出了 HEAD 侧那批函数（`module.exports` 逐个比对），否则会静默丢功能。
+- **授权契约的对称性纪律（pattern）**：同一资源有两条入口路径（定时 vs 即时发布）时，授权/校验契约必须**同构**。既有路径有「激活态复校」、新路径直接用裸 `_consumeEntitlementFeature`，就是契约缺口。新增的复校层是**叠加而非替换**——中央预检行为不得改变，改动前后逐行比对确认。文档与源码注释都要写明「改一处须同步另一处」。
+- **随机源是 CI 偶发超时的头号嫌犯（pitfall）**：限流/重试类单测依赖全局随机 jitter，本地快、CI 偶发 10s 超时。正解是把随机点抽成**模块级可注入函数**（`governorConstants.jitter`），测试在 `require` 治理模块**之前**替换为 `() => 0`。同理，`.lines >= 500` 是**硬熔断（含 500）**，抽取后必须严格 `<500`。
+
 ## 行数门禁 LEDGER_GREW 的「容差被 main 预存漂移吃光」处置序列；Electron CJS 测试的仓库级夹具约定；打包启动失败必须 main 对照归因（publish-throughput-optimization，2026-10-04）
 
 - **双人合租容差（pitfall + pattern）**：超大文件行数挂账（check-max-lines baseline）登记的是「登记时刻」的行数，main 上其他 PR 会持续消耗 growthAllowance——新任务开工前必须先比对「登记值 vs main 实际行数」的剩余容差，剩余 < 50 行时**方案期**就要把「判据下沉 helper 文件」写进设计（本次 A2 的三个等待判据 `_waitForThumbnailIncrease`/`_waitForTagChip`/`_waitForSuccessNavigation` 下沉 navigation-helpers），而不是 CI 红了才拆。`--update` 全量重生被脚本故意拒绝（防把别人的漂移登记成新基线），逃生口是**手工单键改 baseline JSON**（git diff 单值可审计），提交信息写审阅依据：main 预存膨胀量 + 本改动净增量 + 已做的最大拆分。

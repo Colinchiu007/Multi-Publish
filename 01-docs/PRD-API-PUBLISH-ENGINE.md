@@ -124,6 +124,118 @@
 - **测试**：契约单测全离线可跑（CI 无网络依赖）；活体验收不进 CI。
 - **版本/打包**：涉及 `packages/rpa-engine`? 否——仅 api-publish-engine + electron 服务层薄接线；若触 electron/ 则执行 QM-1 打包验证三件套。
 
+## 7A. 发布授权契约：执行前复校激活态与权益（change: publish-permission-recheck）
+
+> 本节为 `publish-permission-recheck`（PR #2888）的实现契约。**定位：纵深防御**——定时发布路径（`_authorizeScheduledEntry`）早有同等契约，本次补齐即时/批量发布路径的**对称性**、显式 **fail-closed** 与**测试缺口**。中央预检（L661-673）对 Logto 用户本就 fail-closed，故本次**不宣称修复活跃安全漏洞**，而是「叠加保障 + 契约对称 + 回归锁」。
+
+### 7A.1 数据校验（校验项与判据）
+
+| # | 校验对象 | 判据 | 失败后果 | 是否触发权益消费 |
+|---|---------|------|---------|----------------|
+| V1 | `ownerSubject` 形态 | 非空字符串 | 403 `SCHEDULE_OWNER_REQUIRED` | 否 |
+| V2 | API Key 归属分支 | `_identityAuthRequired === false` 且 `ownerSubject` 命中 `/^api-key:[a-f0-9]{64}$/` | 走 `_authorizeApiKeyScheduledOwner` | 按 API Key 分支语义 |
+| V3 | 业务用户仓库可用性 | `_businessIdentityRepository.findBySubject` 为函数 | 503 `BUSINESS_USER_REPOSITORY_NOT_CONFIGURED` | 否 |
+| V4 | 业务用户存在性 | `findBySubject("logto", subject)` 返回非 null | 403 `BUSINESS_USER_NOT_FOUND` | 否 |
+| V5 | 业务用户激活态 | `assertBusinessUserActive(user)` 通过 | 403 `BUSINESS_USER_SUSPENDED` / `BUSINESS_USER_DELETED` / `BUSINESS_USER_INACTIVE` | **否（关键）** |
+| V6 | 权益可用性 | `_assertEntitlementFeature(ctx, "cloud_publish")` 通过 | 403 无权（`当前账号无权执行此操作`） | 否 |
+| V7 | 权益消费量 | `Math.max(1, amount)`——单条 =1，批量 = `platforms.length` | 403 无权 / 503 服务不可用（`业务用户或权益服务暂时不可用`） | 失败即不计入 |
+
+**校验顺序不可调换**：V1→V2→V3→V4→V5→V6→V7。任一步失败立即中断，后续步骤与发布动作均不执行，权益消费计数保持 0。
+
+### 7A.2 流程（执行前复校时序）
+
+```
+POST /api/v1/publish 或 /api/v1/batch-publish
+  │
+  ├─[1] 中央路由预检（L661-673，行为不变）
+  │      _ensureRequestIdentity + _assertEntitlementFeature
+  │
+  ├─[2] _authorizeImmediateEntry(req, amount)   ← 本次新增（叠加，非替换）
+  │      ├─ 取 ownerSubject = req.auth.subject
+  │      ├─ API Key 分支？→ _authorizeApiKeyScheduledOwner（校验归属与撤销态）
+  │      ├─ 无 Logto 校验器？→ 直接放行（return true）
+  │      ├─ ownerSubject 非法 → 403 SCHEDULE_OWNER_REQUIRED
+  │      ├─ 仓库未配置 → 503 BUSINESS_USER_REPOSITORY_NOT_CONFIGURED
+  │      ├─ findBySubject → null → 403 BUSINESS_USER_NOT_FOUND
+  │      ├─ assertBusinessUserActive → 403 SUSPENDED/DELETED/INACTIVE
+  │      ├─ _assertEntitlementFeature("cloud_publish")
+  │      └─ _consumeEntitlementFeature("cloud_publish", Math.max(1, amount))
+  │
+  └─[3] 校验通过 → 执行实际发布链路
+```
+
+### 7A.3 功能逻辑
+
+- **对称契约**：`_authorizeImmediateEntry` 与 `_authorizeScheduledEntry`（L511-534）同构——API Key 分支 → `findBySubject` → `assertBusinessUserActive` → `_assertEntitlementFeature` → `_consumeEntitlementFeature`。**改一处须同步另一处**（源码注释已标注）。
+- **消费量语义**：单条发布固定消费 1；批量发布按 `platforms.length` 消费，`Math.max(1, amount)` 兜底防 0/负数。
+- **叠加而非替换**：中央预检行为**完全不变**；`_authorizeImmediateEntry` 是第二道闸。任一层 fail-closed 都返回既有契约码，**不新增错误码、不改文案**。
+- **API Key 分支豁免**：API Key owner 走既有 `_authorizeApiKeyScheduledOwner`，**不触发** Logto 业务用户激活态检查，错误码 `API_KEY_STORE_UNAVAILABLE`(503) / `SCHEDULE_OWNER_REVOKED`(403) / `SCHEDULE_OWNER_INVALID`(403) 保持原语义。
+
+### 7A.4 交互逻辑与显示项（API 契约层）
+
+本变更为**服务端契约层**，无新增前端界面。对调用方（桌面端 / ops-center）而言：
+
+- 请求形态不变，响应结构与错误码**全部沿用既有契约**，前端无需适配。
+- 失败响应体形如 `{ success: false, error: "<错误码>", message: "<提示文字>" }`。
+
+### 7A.5 提示文字（错误码 → 文案映射）
+
+| 错误码 | HTTP | 面向调用方/用户的提示文字 | 触发条件 |
+|--------|------|------------------------|---------|
+| `SCHEDULE_OWNER_REQUIRED` | 403 | `当前账号无权执行此操作` | ownerSubject 缺失或非法 |
+| `BUSINESS_USER_NOT_FOUND` | 403 | `当前账号无权执行此操作` | Logto 业务用户不存在 |
+| `BUSINESS_USER_SUSPENDED` | 403 | `当前账号无权执行此操作` | 业务用户已暂停 |
+| `BUSINESS_USER_DELETED` | 403 | `当前账号无权执行此操作` | 业务用户已删除 |
+| `BUSINESS_USER_INACTIVE` | 403 | `当前账号无权执行此操作` | 业务用户非激活 |
+| `BUSINESS_USER_REPOSITORY_NOT_CONFIGURED` | 503 | `业务用户或权益服务暂时不可用` | 业务用户仓库未配置 |
+| 权益不足（透传） | 403 | `当前账号无权执行此操作` | `requireFeature`/`consumeFeature` 抛无权 |
+| 权益服务不可用（透传） | 503 | `业务用户或权益服务暂时不可用` | 权益服务抛不可用 |
+
+> 文案**与现网完全一致**，本变更不引入任何新文案，故不涉及 locale 成对修改。
+
+### 7A.6 回归锁（测试覆盖）
+
+`packages/api-publish-engine/test/publish-permission-recheck.test.js`（8 例全绿）：
+
+1. 业务用户 `suspended` → 即时发布 403 + `requireFeature`/`consumeFeature` 计数为 0
+2. 业务用户 `suspended` → 批量发布 403 + 消费计数 0
+3. `deleted` / `inactive` / `null` → 403 对应错误码 + 消费计数 0
+4. 仓库未配置 → 503
+5. 权益不足 → 透传既有错误码
+6. 正常态 → `consumeFeature("cloud_publish", 1)` **恰好 1 次**（防重复消费）
+7. API Key 分支 → 走 `_authorizeApiKeyScheduledOwner`，不触发激活态检查
+8. **脱离中央预检也能 fail-closed**（证明叠加层独立有效）
+
+## 7B. 发布链路日志可观测性（change: publish-logging-observability）
+
+> 本节为 `publish-logging-observability`（PR #2848）的实现契约。目标：让限流/排队/冷却等待与重试风暴**可观测、可审计**，并把超限大文件压回债务熔断线（500 行）以内。
+
+### 7B.1 日志契约治理（统一标准）
+
+- 每个 IPC handler 记录四阶段：`enter` / `validation-failed` / `ok` / `error`，统一含**耗时**与**脱敏后的关键参数**。
+- 脱敏由 `logger.js` 统一处理（路径类参数只取尾部片段，如 `videoPath.slice(-80)`）。
+- 新增模块：`governor-observability.js`（49 行）、`governor-constants.js`（57 行）、`log-sampler.js`（38 行）、`publish-helpers.js`（65 行）。
+
+### 7B.2 日志风暴护栏（log storm guard）
+
+- **问题**：限流重试风暴会产生海量重复日志，淹没真正有用的信号。
+- **判据**：同一 messageKey 在窗口期内的重试日志条数受 `retryLogMaxBurst` **硬上限**约束。
+- **行为**：超出上限后不再逐条打印，改为汇总条；恢复后正常打印。
+
+### 7B.3 日志注入消毒（log injection sanitization）
+
+- **问题**：外部可控字符串（平台名、账号名、标题）进入日志时，可注入换行/控制字符伪造日志行。
+- **判据**：逐字符 `charCodeAt >= 32` 判定，**不使用控制字符正则**（`[\x00-\x1f]` 会被 ESLint `no-control-regex` 拦截）。
+- **覆盖**：`log-injection-sanitization.test.js`。
+
+### 7B.4 债务线压线抽取
+
+抽取前 `api-usage-governor.js` 504 行、`publish.js` 500 行（均 ≥500 硬熔断）；抽取后分别降至 489 / 469，**严格 <500**。
+
+### 7B.5 关键教训（可复用）
+
+> **限流/重试类单测禁止依赖全局随机源**（本例 jitter）。正确做法：把随机抖动点抽成模块级可注入函数（`governorConstants.jitter`），测试在 `require` 治理模块**之前**替换为 `() => 0`——既保证确定性又把睡眠归零。同时：大文件演进要「压线前先抽」，`.lines >= 500` 是**硬熔断（含 500）**，抽取后必须严格 `<500`。
+
 ## 8. 交付与验收流程（每波）
 
 1. `scripts/session-init.sh api-publish-w<N>` 建独立 worktree（D 盘，`codex/api-publish-w<N>` 分支）。
