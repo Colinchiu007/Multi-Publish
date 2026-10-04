@@ -40,7 +40,7 @@ const ALLOWED_KEYS = new Set([
   'ImpactTracker:impact-tracking-started',
   'ImpactTracker:impact-tracking-start-failed',
   'PerformanceLoop:register-tracked-content-failed',
-  'PerformanceLoop:tracked-content-no-id',
+  'PerformanceLoop:tracked-content-unlinked',
   'PerformanceLoop:tracked-content-backfill-skipped',
   'FailureDraftSaver:auto-draft-save-rejected',
   'FailureDraftSaver:auto-draft-save-failed',
