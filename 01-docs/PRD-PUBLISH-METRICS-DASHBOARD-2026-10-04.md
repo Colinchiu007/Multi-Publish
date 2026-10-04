@@ -289,5 +289,8 @@ cd apps/desktop && pnpm vitest run electron/services/performance-overview.test.j
 1. 账号级（粉丝/主页阅读）无时间序列 ⇒ 周变化只能落在作品级互动上；账号级要做得先加历史留存，本切片不做。
 2. 抖音/小红书/公众号无 parser ⇒ 这三家作品永远进不了总量，靠覆盖率与「不支持」计数如实表达，不补 0。
 3. 周变化的"近 7 天/前 7 天"依赖回采节奏密度；采样稀疏时趋势会呈阶梯状，不是 Bug。
-4. 本机无真实回流数据 ⇒ 数字级验收只能由 §七 取证补，界面级验收用隔离 temp profile 造数据走查。
+4. 本机无真实回流数据 ⇒ 数字级验收只能由 §七 取证补；界面级验收的实际走查方式是 **vite dev server（独占端口 5199）+ Playwright 注入 `window.electronAPI` 桩**，在真实 Chromium 里读 computed style 与文本（不是隔离 temp profile 跑真 IPC，那条路要 Logto 登录态，本切片未走）。
 5. `performance:list-tracked` 是**无归属过滤**的旧入口（本切片不改它，避免连带影响表现数据页），新 `performance:overview` 带归属过滤 ⇒ 两个入口在多用户场景下口径不同，已在此显式记录。
+6. **Gate 17 是全局比例棘轮，不是逐条白名单**：`check-ipc-sender-guard.js` 要求「显式守卫占比 ≥ 65.0%」，新增一个走咽喉点注入的注册点就会把比例拉下去。本 PR 的 `performance:overview` 首跑实测 287/442 = **64.9% 变红**，正解是给该通道补 `withSenderCheck`（→ 288/442 = 65.2%），**不是**调阈值。同文件另外三条 `performance:*` 通道本就带该守卫，漏掉它纯属不一致。
+7. **改了 `/dashboard` 的渲染，就必须同 PR 重建 `dashboard.png` 基线**：Gate 7b（基线新鲜度）判的是「被跟踪基线逐像素 == 本次 CI 渲染」，本 PR 实测漂移 **88116 px / 4.249%**，而像素门禁的 `PIXEL_THRESHOLD=0.06` 是**全页**容差、把这 4.249% 整个吃掉 ⇒ QG Visual 的像素步骤照绿，只有 Gate 7b 看得见。判据域取 views 套件产出的 `screenshots/<name>.png`，**不是**像素套件的 `<name>-current.png`（同一视图的两张图确定但互不相同）。重建一律从**同一次 run** 的 `quality-gate-visual-reports` artifact 取，本机截图不算证据（QM-4 第 7 条）。
+8. 暗色基线是上一条的已知缺口：PR 侧 Gate 7b 带 `--partial`，本次运行没有暗色渲染 ⇒ `dashboard-dark.png` 记为 skipped 不判；但 `visual-test.yml` 的同名门禁**不带** `--partial`，main push 时会判到。因此暗色基线须由该 workflow 在同一 head 上的一次 run 的 artifact 重建，不能留到合并后由别人的 run 变红。

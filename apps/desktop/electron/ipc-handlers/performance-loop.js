@@ -65,7 +65,7 @@ function registerHandlers(ipcMain, deps) {
    * 口径只在 services/performance-overview.js 一处，本 handler 不得自己求和。
    * 门禁与 dashboard:stats 同口径：认不出是谁 = AUTH_ERROR，而不是「0 条数据」。
    */
-  ipcMain.handle('performance:overview', async (_event, params) => {
+  ipcMain.handle('performance:overview', withSenderCheck(async (_event, params) => {
     try {
       const owner = resolveIpcOwnerSubject(identityService)
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
@@ -92,7 +92,7 @@ function registerHandlers(ipcMain, deps) {
         ' truncated=' + (tracked.truncated || snapshots.truncated) + ' orphanDb=' + snapshots.orphanTotal)
       return { code: EC.SUCCESS, data: overview }
     } catch (e) { log.warn('[ipc:performance]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   // 立即回采调试入口：真正触发一轮巡检（此前为空壳只 return supported）。
   // force=true 忽略 T+1h 排期纳入窗口内全部可回采条目，用于当场观测「回采→爆款库写回」闭环。
