@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 # [未发布] fix(scripts): 会话隔离工具不再弹控制台窗口——计划任务改非交互主体、任务 shell 改按需（2026-10-04，fix-session-isolation-popups）
 
 ### 根因
@@ -16,7 +14,6 @@
 - write guard 在 S4U 下执法实证：放进 `apps/desktop/` 的未跟踪探针文件约 1 秒被移入隔离区（15→16）并记入 `violations.jsonl`；`mp-worktree-health.ps1 -RequireWriteGuard` 返回 rc=0、`writeGuard.ok=true`。
 - 回归锁三条（`scripts/start-mp-task.test.js`）：入口默认不开窗 / 注册主体顺序与兜底出声 / 存活判定 State 优先。已逐个变异反证（退化成无条件开窗、主体顺序倒回、判定退回只看 CommandLine）各自当场变红，还原后文件逐字节相同。既有 `mp-worktree-health.test.ps1`(22) 与 `install-session-isolation-task.test.ps1`(7) 全绿。
 - 详见 `docs/session-isolation-automation.md`「控制台窗口与运行主体（2026-10-03 实测）」。
-=======
 =======
 # [未发布] test(守卫): 测试期禁出站守卫补上子进程面，两个 realm 都必须两面齐全（fix-test-egress-child-plane，2026-10-03）
 
@@ -46,7 +43,6 @@
 - 反证：第一轮 8 条（C1–C7/G1）+ 第二轮 14 条（M1 摘 exec/execSync、M2 不剔求值旗标、M3 fork 按命令名判 node、M4 去掉 shell 跳过、M5 缺 setupPath 不出声、M6 抹掉异常出声、M7 台账名退化、M8 Gate 判据退回纯文本、M9 桌面分支退回旧判据、M10 注释掉桌面子进程面、M11 注释掉共享 setup、M12 fork 只报成功不真注入、M13 不搬 promisify 符号、M14 摘掉桌面装配）逐个实跑，要求 rc≠0 **且**失败数 >0 **且**红因含预期测试名。M14 第一次跑是 **rc=0** —— 它抓到的是我为第 2 条新写的那条桌面装配锁本身是文本级 `toMatch`，注释掉调用照样绿；改成剥注释判据后才按预期变红。驱动一律用**单行** needle（工作区是 CRLF，带 \n 的多行 find 匹配不到——上一轮就是这么把驱动故障读成结论的），收尾断言 5 个被变异文件与备份逐字节相同，并在还原后复跑确认回到全绿。
 - QM-6 双模型外部评审（替代通道）：1 Critical + 6 Warning + 3 Info，逐条处置见 `openspec/records/fix-test-egress-child-plane.md`。其中 Critical（exec/execSync 静默出站）与"桌面 realm 没装子进程面"两条是**自审漏掉、外部独立命中**的，本轮已修并各配锁。
 
->>>>>>> origin/main
 # [未发布] docs(CI门禁): Gate 2c2 搬出被 docs-only 短路的 job，记录判据按分支名放宽一维（fix-gate-2c2-docs-only-hole，2026-10-03）
 
 ### 根因
@@ -67,7 +63,6 @@
 - 反证 14 条逐个实跑，要求 rc≠0 且红因文本逐条对上：M1 命令名改错 / M2 用结构 apply 函数把步骤真搬回 classify 之前 / M3 摘 `--mode=advisory` / M4 `EXEC_BASE` 不取 PR base / M5 摘 `--head-branch` 注入 / M6 放宽退回只认 A / M7 放宽过头 / M8 摘保留名守卫 / M9 detached 又当分支名 / M10 结构锁改 no-op / M11 给 changes 加 job 级 if / M12 品牌残留从 changes 摘掉 / M13 把接线行改成注释（封死"注释掉仍算接线"的假绿）/ M14 对账表少登记一项。驱动收尾断言四个被变异文件与备份逐字节相同。
 - QM-6 规定通道（`codeagent-wrapper` → codex/claude，经 CC Switch `:15721`）实测不可用（`Test-NetConnection -Port 15721 -Quiet = False`、`Get-NetTCPConnection -State Listen` 0 条、`app_paths.json = {}`），未擅自启动或改动用户的路由与凭证配置；改走替代双模型 `opencode/big-pickle` + `opencode/fledge-alpha-free`，两路共 8 条发现（1 Critical + 6 Warning + 1 Info），除 1 条按理由留残余外全部在本 PR 内落地。
 - 行尾对账：`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等 ⇒ 无行尾污染（本次替换按行保留 CRLF）。
->>>>>>> origin/main
 
 # [未发布] fix(ops-center): 追平 weibo 平台种子与回落快照对齐注册表 10000（2026-10-03，fix-weibo-seed-registry-align）
 
@@ -64128,9 +64123,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
-
 ### 补充（同 PR，外部评审捞出的第二落点）
 - `scripts/bootstrap-write-guard.ps1` 里还有第二份「按 CommandLine 认守护」的判据，且后果更重：它据此决定是否 Start-ScheduledTask，30 秒轮询看不见就 throw，S4U 下会把健康机器判成装配失败。与 `mp-worktree-health.ps1` 一起改为「任务 State 优先、CommandLine 只作兜底」。
 - 防再犯锁升级为按特征扫全域：`start-mp-task.test.js` 的「存活判定合同」列出所有用 CommandLine 认守护的文件并钉住清单（只能缩小），已对 bootstrap 做摘除 State 主判据的变异反证（实测变红、还原后逐字节相同）。
 - 来源要如实记：这条不是我自审找到的，是 codex 侧评审输出里的一句观察；该评审整体仍属未完成（无 findings 文件、结论中途截断），claude 侧三次全空输出，故 QM-6 记为部分达成而非通过。
-
