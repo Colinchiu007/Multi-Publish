@@ -1,4 +1,13 @@
-## 标签标题的锁定语义只适用于静态标题场景；动态内容标签传 title 等于永锁（fix-tab-title-url-placeholder，2026-10-03）
+## 行数门禁 LEDGER_GREW 的「容差被 main 预存漂移吃光」处置序列；Electron CJS 测试的仓库级夹具约定；打包启动失败必须 main 对照归因（publish-throughput-optimization，2026-10-04）
+
+- **双人合租容差（pitfall + pattern）**：超大文件行数挂账（check-max-lines baseline）登记的是「登记时刻」的行数，main 上其他 PR 会持续消耗 growthAllowance——新任务开工前必须先比对「登记值 vs main 实际行数」的剩余容差，剩余 < 50 行时**方案期**就要把「判据下沉 helper 文件」写进设计（本次 A2 的三个等待判据 `_waitForThumbnailIncrease`/`_waitForTagChip`/`_waitForSuccessNavigation` 下沉 navigation-helpers），而不是 CI 红了才拆。`--update` 全量重生被脚本故意拒绝（防把别人的漂移登记成新基线），逃生口是**手工单键改 baseline JSON**（git diff 单值可审计），提交信息写审阅依据：main 预存膨胀量 + 本改动净增量 + 已做的最大拆分。
+- **Electron CJS 夹具约定（pattern）**：本仓主进程代码 `vi.mock('electron')` 不生效（CJS require 不走 vitest SSR 转换），必须用 `test-setup.js` 全局机制：`__enableElectronMock()` 启用、`__electronMock.BrowserWindow._instances` 取实例、`__resetElectronMock()` 复位。全局 mock 的 `destroy()` 是普通函数非 spy——销毁断言用 `win._destroyed === true` 状态而非调用计数。骨架照 `rpa-view-window-pool.test.js`。
+- **打包启动失败先做 main 对照（pitfall）**：打包 exe 静默退出（exit 0、stderr 空）时，先跑 main 基线的同款启动——本次 main 的 dev electron 同款 electron-updater 崩溃（Node v24 × electron 43 的 `app.getVersion()` undefined），证实是环境预存问题。**环境类失败不做对照实验就不能归因到改动**；CI runner 才是启动测试的权威判定面，本地只判 asar 完整性（entries + package.json main + require 链）。
+- **task-queue 通道调度的三接缝（pattern）**：通道键 `platform + ':' + (accountId ?? '')`（缺失归一空串，同平台仍串行）；`_processNext` 跳过「通道有在跑」的队头继续扫（不是整队停摆）；**频控推迟（publish:blocked）在 try/finally 之前 return，finally 的通道释放不执行——必须在分支内显式释放**（与既有 `_running.delete` 同位同因），漏掉即「等间隔」占死同通道，频控从保护变雪崩。凡是「在跑态记账」的资源，都要盘点所有提前 return 的路径。
+- **CHANGELOG 巨型冲突的确定性解法（pattern）**：置顶插入型文件合并必冲突，手工读 hunks 不可靠。正解：`git diff origin/main...HEAD -- <file>` 提取本分支新增行（验证首行特征）+ `git show origin/main:<file>` 全文，脚本拼接 + 双断言（多重集相等 + main 尾部逐行一致）。坑：git diff 输出行尾 CRLF 残留必须剥掉。脚本沉淀于 %TEMP%（mp-resolve-changelog-freq2.js / mp-resolve-changelog-throughput.js），同型冲突可复用。
+- **mock 契约跟随 rebase（pitfall）**：并行改同一文件时，rebase 后第一件事 grep 自己测试里的 mock 方法名——#2773 把 guard 从 `getRemainingWait()` 升级为 `check()`，旧 mock 在合并后炸出 `check is not a function`。
+
+
 
 - **复合根因（pattern：能力 × 调用方矩阵审计）**：主进程 `createNewTabPage` 的 `titleLocked`（`c3c395570`，为登录/平台标签防止网页标题覆盖）是合理能力；两个月后新标签体系（`f7e93ceba` #2230）让 `App.vue` 的「+」新标签也传了 `title: t('tabs.newTabTitle')`，把**动态内容标签**锁死在初始标题。**一个「标签创建参数」被新增调用方照抄示例传值时，参数的深层语义（锁定 = 永久忽略 page-title-updated）不会自己显形——新增调用方必须审计每个传参的副作用矩阵，而不是抄最近的可工作示例。**
 - **次级缺口（pitfall：内嵌 SPA 无 document.title 源）**：home-shell 内嵌独立 SPA 实例从不更新 `document.title`，即使解锁也没有标题可上报——「解锁」与「有源可发」必须同时补齐，缺一链路仍然静默。显式 IPC 上报（reportTabTitle）比只依赖 Chromium page-title-updated 事件更可靠（不依赖事件时序，非 Electron 环境天然降级）。
@@ -17306,3 +17315,12 @@ DOM 流程失败(verification timeout) →
 - **契约变更纪律**：`usePublishDrafts.saveDraft` boolean→`{ok,draftId}` 前全仓核实消费点（唯一消费方在本 PR 内），失败路径返回 `{ok:false,draftId:null}` 恒对象；`draftSave` 的 `data.draftId` 是创作视频跳转的 id 真源（主进程内容指纹幂等返回既有 id）。
 - **回写分治**：rewrite 按 fromKey 覆盖 / collect 以 `collect:<id>` 写改写库 / video 不回写（story2video 项目渲染层无写通道）/ draft 走草稿箱幂等。回写恒旁路（try/catch 静默）。
 - **工具坑（本会话实证）**：`[IO.File]::WriteAllText` 写平台行尾（CRLF），改 LF 文件必须先 `.Replace("\r\n","\n")`，否则 git diff 假红 7000+ 行（双口径 `git diff --numstat` vs `--ignore-cr-at-eol --numstat` 对账）；ESM 模块私有常量被测试 import 得 `undefined` 不报错，`getItem(undefined)` 恒 null——测试断言存储状态的常量必须 export；标识符争议以 vitest/node 直跑 + 码点对比为裁决，不信显示层。
+
+
+## 请求头逐字对齐仍被 400 拒绝 ⇒ 根因在传输层指纹，别再在 Node 侧修 header（api-publish-engine-w3 6.3 定案，2026-09-29）
+
+- **事故**：快手九步链 `upload/complete` 恒定裸 400（无响应体、缺 `X-KSLOGID`/CORS 头 = 边缘级拒绝，业务层根本没看到请求）。前 10 轮全在 Node 侧修：形状翻译、签名注册表、双模块实例、sessionKey、cookie 装配、Content-Type（axios 对空字符串 body 默认注入 form-urlencoded，是第 ⑦ 层真缺陷，#2612→#2653 四轮才收敛）。第 11 轮把请求头与真实浏览器**逐字节对齐**后仍被拒 ⇒ 前 10 轮的假设（「再对齐一项就能过」）整体作废。
+- **定案**：拒绝判据在传输层——TLS 指纹 / HTTP 版本 / QUIC。Node axios = OpenSSL + HTTP/1.1，复刻不出 Chrome = BoringSSL + HTTP/2-3 的握手指纹；这类差异**不在任何 header 里**，因此 header 对账法对它天然失效。裁决 not-go，DOM 轨（11/11 成功）为当前正确架构。
+- **可复用判据**：平台侧 4xx 且响应体为空/无业务错误码时，先做「header 逐字对齐终验」这一刀——**一次到位**而不是再猜下一项。若对齐后仍拒，根因几乎必在传输层/指纹层，继续修 Node 侧是纯烧钱（本案烧了 11 轮 + 13 个 PR）。
+- **对照经验**：同一批平台里走通的是「借浏览器发请求」（头条 direct bridge 在受信会话内捕获并重放保存请求，见 toutiao-shipped-react-bump 条目）——即 API 轨可行的形态是「浏览器传输 + Node 编排」，不是「Node 直连 + 复刻 header」。后续若要重启快手 API 轨，必须走受信会话内 fetch 并重新活体验收。
+- **收口纪律**：契约层规格成立 ≠ 能力可用。归档前给主规格补「实况补记」，未实现能力（小红书 x-s/x-t）一律不得折进主规格，只留「止步裁决记录」条款并写死重启前置。

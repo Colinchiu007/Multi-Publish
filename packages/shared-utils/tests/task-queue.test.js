@@ -459,3 +459,153 @@ describe('TaskQueue', () => {
   })
 })
 
+describe('TaskQueue 通道调度（publish-throughput-optimization B 方案）', () => {
+  /** 挂起式 executor：记录启动序，手动 resolve */
+  function makeHangingQueue (options) {
+    const queue = new TaskQueue({ defaultRetry: 0, defaultTimeout: 60000, ...options })
+    const started = []
+    const resolvers = new Map()
+    queue.setExecutor(task => new Promise(resolve => {
+      started.push(task.platform + ':' + (task.accountId ?? '') + '#' + started.length)
+      resolvers.set(task.id, resolve)
+    }))
+    return { queue, started, resolvers, resolveAll (result) { for (const r of resolvers.values()) r(result) } }
+  }
+
+  const tick = (ms = 20) => new Promise(r => setTimeout(r, ms))
+
+  test('同平台同账号两任务严格串行（第二任务在第一终态后才开始）', async () => {
+    const { queue, started, resolvers } = makeHangingQueue({ maxConcurrent: 3 })
+    queue.add({ platform: 'douyin', article: { title: '1', accountId: 'acc-1' }, accountId: 'acc-1' })
+    queue.add({ platform: 'douyin', article: { title: '2', accountId: 'acc-1' }, accountId: 'acc-1' })
+    await tick()
+    expect(started).toHaveLength(1)
+
+    // 终态第一任务 → 第二任务才启动
+    const firstId = queue._running.keys().next().value
+    resolvers.get(firstId)({ success: true })
+    await tick()
+    expect(started).toHaveLength(2)
+  })
+
+  test('同平台不同账号在并发槽内并行', async () => {
+    const { queue, started } = makeHangingQueue({ maxConcurrent: 3 })
+    queue.add({ platform: 'douyin', article: { title: '1', accountId: 'acc-1' }, accountId: 'acc-1' })
+    queue.add({ platform: 'douyin', article: { title: '2', accountId: 'acc-2' }, accountId: 'acc-2' })
+    await tick()
+    expect(started).toHaveLength(2)
+  })
+
+  test('不同平台并行', async () => {
+    const { queue, started } = makeHangingQueue({ maxConcurrent: 3 })
+    queue.add({ platform: 'douyin', article: { title: '1', accountId: 'acc-1' }, accountId: 'acc-1' })
+    queue.add({ platform: 'zhihu', article: { title: '2', accountId: 'acc-1' }, accountId: 'acc-1' })
+    await tick()
+    expect(started).toHaveLength(2)
+  })
+
+  test('无账号任务同平台同通道串行（平台登录面共享）', async () => {
+    const { queue, started } = makeHangingQueue({ maxConcurrent: 3 })
+    queue.add({ platform: 'wechat_mp', article: { title: '1' } })
+    queue.add({ platform: 'wechat_mp', article: { title: '2' } })
+    await tick()
+    expect(started).toHaveLength(1)
+    const first = queue._running.keys().next().value
+    expect(first).toBeTruthy()
+  })
+
+  test('总并发上限仍受 maxConcurrent 约束', async () => {
+    const { queue, started } = makeHangingQueue({ maxConcurrent: 2 })
+    for (const [i, p] of ['douyin', 'zhihu', 'weibo', 'xiaohongshu'].entries()) {
+      queue.add({ platform: p, article: { title: String(i), accountId: 'acc-' + i }, accountId: 'acc-' + i })
+    }
+    await tick()
+    expect(started).toHaveLength(2)
+  })
+
+  test('MP_QUEUE_MAX_CONCURRENT 环境变量覆盖默认并发（合法值）', async () => {
+    const env = process.env.MP_QUEUE_MAX_CONCURRENT
+    process.env.MP_QUEUE_MAX_CONCURRENT = '4'
+    try {
+      const { resolveQueueMaxConcurrent } = require('../src/task-queue')
+      expect(resolveQueueMaxConcurrent()).toBe(4)
+    } finally {
+      if (env === undefined) delete process.env.MP_QUEUE_MAX_CONCURRENT
+      else process.env.MP_QUEUE_MAX_CONCURRENT = env
+    }
+  })
+
+  test('MP_QUEUE_MAX_CONCURRENT 非法值回落 3 并出声告警', async () => {
+    const env = process.env.MP_QUEUE_MAX_CONCURRENT
+    process.env.MP_QUEUE_MAX_CONCURRENT = 'abc'
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (...args) => warnings.push(args.join(' '))
+    try {
+      const { resolveQueueMaxConcurrent } = require('../src/task-queue')
+      expect(resolveQueueMaxConcurrent()).toBe(3)
+      expect(warnings.join('\n')).toContain('MP_QUEUE_MAX_CONCURRENT')
+    } finally {
+      console.warn = origWarn
+      if (env === undefined) delete process.env.MP_QUEUE_MAX_CONCURRENT
+      else process.env.MP_QUEUE_MAX_CONCURRENT = env
+    }
+  })
+
+  test('MP_QUEUE_MAX_CONCURRENT 越界值（>10）回落 3 并告警', async () => {
+    const env = process.env.MP_QUEUE_MAX_CONCURRENT
+    process.env.MP_QUEUE_MAX_CONCURRENT = '99'
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (...args) => warnings.push(args.join(' '))
+    try {
+      const { resolveQueueMaxConcurrent } = require('../src/task-queue')
+      expect(resolveQueueMaxConcurrent()).toBe(3)
+      expect(warnings.join('\n')).toContain('MP_QUEUE_MAX_CONCURRENT')
+    } finally {
+      console.warn = origWarn
+      if (env === undefined) delete process.env.MP_QUEUE_MAX_CONCURRENT
+      else process.env.MP_QUEUE_MAX_CONCURRENT = env
+    }
+  })
+
+  test('发布最小间隔推迟（publish:blocked）期间释放通道，同账号后续任务不被堵死', async () => {
+    let guardCalls = 0
+    const guard = {
+      // #2773 两档间隔契约：check() 返回 {allowed, remainingMs, bucket}。
+      // 第一次检查（第一任务）命中 60s 等待；第二次（第二任务）放行。
+      check: () => (guardCalls++ === 0 ? { allowed: false, remainingMs: 60000, bucket: 'douyin:acc-1' } : { allowed: true, remainingMs: 0, bucket: null }),
+      recordPublish: () => {},
+    }
+    const queue = new TaskQueue({ defaultRetry: 0, defaultTimeout: 60000, maxConcurrent: 3, publishIntervalGuard: guard })
+    const started = []
+    queue.setExecutor(task => new Promise(resolve => {
+      started.push(task.platform + ':' + task.accountId)
+      resolve({ success: true })
+    }))
+    // 第一任务被频控推迟（guard 返回 60s wait）
+    queue.add({ platform: 'douyin', article: { title: 'blocked', accountId: 'acc-1' }, accountId: 'acc-1' })
+    // 第二任务同账号——推迟期间通道必须已释放，第二任务应立即启动
+    queue.add({ platform: 'douyin', article: { title: 'after', accountId: 'acc-1' }, accountId: 'acc-1' })
+    await tick(30)
+    expect(started).toEqual(['douyin:acc-1'])
+    expect(queue._delayed.size).toBe(1)
+  })
+
+  test('失败重试回 pending 不占通道（重试任务重新排队等通道）', async () => {
+    const queue = new TaskQueue({ defaultRetry: 1, defaultTimeout: 60000, maxConcurrent: 1 })
+    let attempts = 0
+    const started = []
+    const succeedSecond = new Promise(resolve => queue.on('task:success', resolve))
+    queue.setExecutor(async () => {
+      attempts += 1
+      started.push(attempts)
+      if (attempts === 1) throw new Error('首次失败')
+      return { success: true }
+    })
+    queue.add({ platform: 'douyin', article: { title: '1', accountId: 'acc-1' }, accountId: 'acc-1' })
+    await succeedSecond
+    expect(attempts).toBe(2)
+  })
+})
+

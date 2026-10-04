@@ -927,10 +927,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         uploaded = await tryInjectImage()
       }
       if (uploaded) {
-        await this._sleep(4000)
-        // 图片上传后页面切到发布表单（content/post/image），表单就绪再填字段。
-        // 实测教训：上传后 7ms 即填字段全部落空——页面还在切换，标题/描述填进
-        // 旧 DOM、发布按钮 disabled → 点了没反应 → 65s 超时。
+        // A2：删除原 _sleep(4000)——表单就绪轮询（下）已是就绪判定，固定 sleep 是纯叠加。
+        // 实测教训保留：上传后 7ms 即填字段全部落空——就绪判定必须先行，而不是盲等。
         const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
         if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
         this._emitProgress('douyin','image uploaded',45)
@@ -969,7 +967,15 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
     if (article.cover_path) {
       this._emitProgress('douyin','uploading cover...',75)
-      try { if(await this._click(win,'[class*="cover"]')){await this._sleep(1000);await this._setFileInput(win,article.cover_path);await this._sleep(2000)} } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
+      try {
+        if (await this._click(win,'[class*="cover"]')) {
+          // A2：封面缩略图基线递增判据下沉 navigation-helpers（头条同款）；超时告警降级不失败。
+          const coverReady = await this._waitForThumbnailIncrease(win, '[class*="cover"]', async () => {
+            await this._setFileInput(win, article.cover_path)
+          }, 10000)
+          if (!coverReady) log.warn('RpaView', '[douyin] cover thumbnail not confirmed within 10s (continuing)')
+        }
+      } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
     }
 
     if (article.tags && article.tags.length>0) {
@@ -977,7 +983,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       for (let ti=0;ti<article.tags.length;ti++) {
         try {
           await win.webContents.executeJavaScript('(function(){let ti=document.querySelectorAll(\'[class*="tag"] input,input[placeholder*="tag"],input[placeholder*="标签"]\');if(ti.length>0){let inp=ti[0];inp.value='+JSON.stringify(article.tags[ti])+';inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",keyCode:13}))}})()')
-          await this._sleep(1000)
+          // A2：chip 就绪轮询（判据下沉 navigation-helpers），替代原固定 _sleep(1000)/tag。
+          await this._waitForTagChip(win, article.tags[ti], 5000)
         } catch(e) { log.warn('RpaView','douyin tag: '+e.message) }
       }
     }
@@ -989,9 +996,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
       if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
-      await this._sleep(5000)
+      // A2：提交兜底改 URL 轮询（实现下沉 navigation-helpers），最长仍 5s、成功提前返回。
+      if (await this._waitForSuccessNavigation(win, 5000)) {
+        return { success:true, url:win.webContents.getURL()||'', platform:'douyin' }
+      }
       const fu=win.webContents.getURL()
-      if (fu.includes('success')||fu.includes('publish/success')) return { success:true, url:fu||'', platform:'douyin' }
       log.warn('RpaView', '[douyin] publish timeout url=' + (fu||''))
       return { success:false, error:'publish timeout', platform:'douyin' }
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
