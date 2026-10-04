@@ -198,6 +198,9 @@ jobs:
           # 留在这里等于「纯文档 PR 没人校验账本」。它现在在无条件执行的 changes job 里。
           # docs-only 短路判定单一真源的回归锁（change: docs-only-ci-shortcircuit）
           node --test scripts/classify-docs-only.test.js
+          # 夹具不得对同 realm 的第三方谎报文件系统（#2794 同族）：blanket fs 夹具只能缩小
+          node --test scripts/check-blanket-fs-mock.test.js
+          node scripts/check-blanket-fs-mock.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2c2 已搬出本 job（#2745）---

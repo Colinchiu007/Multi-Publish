@@ -1,3 +1,25 @@
+# [未发布] test(门禁): blanket fs 夹具棘轮接进 Gate 2c，判据按引用链而非文本，20 例回归锁 + 20 条反证（blanket-fs-mock-ratchet，2026-10-04）
+
+### 根因
+- #2794 归因的那条链不是一次性 bug，而是**一类夹具形状**：测试文件 `__registerMock('fs', {existsSync: () => false, …})` 经 `Module._load` 拦截的是**整个 realm** 的 `require('fs')`；`apps/desktop/vitest.config.js` 的 `deps.inline:['electron']` 又把 `electron/index.js` 内联进同一 realm，它对 `existsSync(distPath) === false` 的反应是"二进制没备好"⇒ 当场 spawn `install.js`，而 `stdio:'inherit'` 让 vitest 把这段下载**记到当时正在跑的那条用例名下** ⇒ 一条什么都没做的用例随机 15s 超时，且每次红在不同文件。
+- #2797 只收口了它自己改的那个文件，剩下的 12 个现场 + 未来新增**没有任何东西在看** ⇒ 同类形状会随时被下一个 PR 重新引入。
+
+### 修复
+- 新增 `scripts/check-blanket-fs-mock.js`（接 `quality-gate.yml` 的 `Gate 2c`，与账本/未接线测试同 job）：全仓枚举被跟踪的 `*.test.{js,mjs,cjs,ts}`（实测 1068 个，vendor 前缀排除），对每个 fs 夹具判 `BLANKET` / `SANDBOX_DELEGATED` / `NONE`。blanket 侧要求**现场集合与 `KNOWN_BLANKET` 登记集合相等**：新增即红、空原因即红、收敛了不删登记即红、键漂移即红 ⇒ 清单只能缩小。
+- 扫描器是这套判据的地基：一次线性扫描产出**等长**的 `codeOnly`（掩注释）与 `skeleton`（再掩字符串/正则内容）。找注册点用 `codeOnly`，花括号配对用 `skeleton`，**位置取自后者、内容取自前者**。混用的两个后果都实测过：拿 skeleton 匹配 `require('node:fs')` 会对真夹具失明（把自己的正控判成违规），拿 codeOnly 数花括号会被 `` `{ `` 里的裸括号数错边界。
+- "已收敛"按**引用链**判，不按文本判，五条链各堵一个已复现的绕过：① 读动词实现体里引用的谓词，其声明必须带形参（`() => true` 直接否）；② 只看谓词**自己的函数体**（定长窗口会把邻近函数的合格比较"借"给恒真谓词）；③ `===` 与 `startsWith` 必须比**同一个**标识符；④ 那个标识符必须**可追溯到 `os.tmpdir()`**（`const ALLOW = '/tmp/anything'` 不是沙箱 —— 这条同时是 AGENTS.md「文件系统测试隔离」的机器化）；⑤ 实现体必须**真的调用** `<handle>.<verb>(…)`，"文件里某处 require 过 fs"不算委托。
+- 一个文件里的**每一个** fs 注册点都判、取最差结论（只看第一个 ⇒ "第二个才是 blanket"整条洗白）；`__registerMock` 与 `vi.mock`/`vi.doMock`（含 `node:` 前缀、`fs/promises`）同域。`READ_VERBS` 只含 `existsSync`/`readFileSync` 并写明取舍：`statSync`/`readdirSync` 若纳进来会逼已收敛夹具把固定返回值改成真读，那是本缺陷之外的语义漂移。
+- 三个 fail-closed 出口：测试文件枚举数低于 `MIN_TEST_FILES`(800) 即红（不参与"合规"判定，只保证**不完整遍历不得判全绿**）；读不动或 `readFile` 返回 `null` 即红并计数（旧写法 `continue` 会让"枚举里有它、判据域里没有它"仍计入 scanned）；`git ls-files` 失败以可读 `FAIL:` 出声。门禁自检自身是否被 `.gitignore` 吞掉，`git check-ignore` 退出码按三态如实返回 —— 两处"探针坏了却读成通过"都被修：`-q -v` 恒 128 使自检永久盲，以及 git 取不到时 `err.status` 是 **null** 被 `typeof === 'number' ? … : 1` 折成"未被忽略"。
+- 收敛 `apps/desktop/electron/core/container.setup.test.js`：`os.tmpdir()` + PID 沙箱、按路径段判定、沙箱外委托真实 fs、写类动词继续空转。这个文件风险最高：它 require 全部服务模块，`store → sqlite-wrapper → sql.js` 要用 `fs.readFileSync` 读 `.wasm`，一律返回 `"[]"` 的谎报正是 BF-TEST-01 那次 `WebAssembly.instantiate(): BufferSource argument is empty` 的成因。
+
+### 验证
+- 回归锁 `scripts/check-blanket-fs-mock.test.js` **20 例全绿**，其中 11 例是 adversarial 输入（"给一个形状、断言它不被洗白"），把本轮所有绕过样本变成 CI 内的锁。
+- 反证 **20 条**（F1–F20）**逐个实跑**，要求 rc≠0（测试型还要 fail>0）且红因文本命中预期条目名：F1 摘 `stripComments` / F2 只认 `__registerMock` / F3 沙箱判据短路 / F4 空原因不报 / F5 陈旧登记不报 / F6 摘枚举下界 / F7 静默跳过读不动 / F8 把已收敛的塞回清单 / F9 现场收敛退回 blanket / F10 门禁被 gitignore 吞 / F11 正文缺失静默跳过 / F12 不再掩字符串内容 / F13 只判第一个注册点 / F14 取消 tmpdir 追溯 / F15 委托退回文本存在性 / F16 取消同标识符要求 / F17 函数体退给定长窗口 / F18 声明查找放松成前缀匹配 / F19 探针坏了折成"未被忽略" / F20 白名单吞掉判据域。收尾断言 4 个被变异文件与备份**逐字节相同**并复跑基线（rc=0 / fail=0）。
+- **F18 首版是一次"等价变异 + 恒真断言"的当场抓获**：我为防"前缀借光"加了 `(?![\w$])` 词界并写了断言，把词界摘掉后 **rc=0 / 全绿** —— 该守卫在 `ident\s*=` 这种后续形态下恒不生效，断言是恒真的。做法：删掉三处死代码，把断言换成可证的「谓词按完整名字解析，前缀名不算」，F18 重定向为"把声明正则放松成 `ident + [\w$]*`"后实测变红。**任何"我加的这道防线"都必须被"拆掉它"验证过。**
+- QM-6：规定通道的 codex 路本轮**实测可用**（`:15721` 为 True，判据是 findings 文件真落盘）；claude 路三次全败（wrapper 报 `completed without agent_message output`，绕开 wrapper 直跑同一 CLI 也是 rc=0 + 空 stdout + 无产物 ⇒ 长任务静默空转），按「3 次全败才跳过」换不同底模的 `opencode/ling-3.1-flash-free`，其 900s 超时未写结论文件但自身 stdout 含 7 个可复现探针。两路合计 3 Critical + 3 Warning + 3 Info，**每条先复现再决定**：C2/W1/probe D-F-G 命中并已修；C1 的确切例子未复现（形参判据先挡住）但同类由 probe E 复现并已修；W2 实测当前不成立，改为把"不会被 docs-only 短路"这条推理变成正向锁；probe A/B/C 是**有意**的判据范围，只补文档不改判据。全部逐条处置见 `.quality-gates` 记录 `openspec/records/blanket-fs-mock-ratchet.md`。
+- 消费者并集：`.gitignore` 变更牵动 7 个读它的测试（`check-asar-test-files` 39、`check-test-egress-guard` 11、`classify-docs-only` 22、`e2e-quality-infrastructure`/`setup-electron-install-guard`/`gitignore-docs`/`visual-ci` 与 `electron/core` 合跑 139 例）全绿；改 workflow ⇒ `workflow-contract.test.js` 29 例全绿；桌面 `vitest run electron` 全量 **430 文件 / 8333 passed / 1 failed / 1 skipped**，唯一红是既知的 `feedback.test.js` Windows symlink `EPERM`（pristine main 可复现，与本 PR 无关）；静态门禁 6 条全 PASS。
+- 遗留：12 个登记项里绝大多数同时 `__enableElectronMock()` ⇒ 那颗雷**今天不响**；不响不是不存在，一旦去掉那行 opt-in 就回到 §根因 的形状。逐个收敛另案，本次先钉住"不得新增"。
+
 # [未发布] fix(desktop): 发布历史与表现数据的关联键打通——publish_history_id 自诞生起全 NULL（2026-10-04，publish-tracked-link-lineage）
 
 ### 根因（QM-5 五步取证）
@@ -64169,3 +64191,4 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - `scripts/bootstrap-write-guard.ps1` 里还有第二份「按 CommandLine 认守护」的判据，且后果更重：它据此决定是否 Start-ScheduledTask，30 秒轮询看不见就 throw，S4U 下会把健康机器判成装配失败。与 `mp-worktree-health.ps1` 一起改为「任务 State 优先、CommandLine 只作兜底」。
 - 防再犯锁升级为按特征扫全域：`start-mp-task.test.js` 的「存活判定合同」列出所有用 CommandLine 认守护的文件并钉住清单（只能缩小），已对 bootstrap 做摘除 State 主判据的变异反证（实测变红、还原后逐字节相同）。
 - 来源要如实记：这条不是我自审找到的，是 codex 侧评审输出里的一句观察；该评审整体仍属未完成（无 findings 文件、结论中途截断），claude 侧三次全空输出，故 QM-6 记为部分达成而非通过。
+
