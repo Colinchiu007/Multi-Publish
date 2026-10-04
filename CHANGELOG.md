@@ -57,7 +57,6 @@
 - write guard 在 S4U 下执法实证：放进 `apps/desktop/` 的未跟踪探针文件约 1 秒被移入隔离区（15→16）并记入 `violations.jsonl`；`mp-worktree-health.ps1 -RequireWriteGuard` 返回 rc=0、`writeGuard.ok=true`。
 - 回归锁三条（`scripts/start-mp-task.test.js`）：入口默认不开窗 / 注册主体顺序与兜底出声 / 存活判定 State 优先。已逐个变异反证（退化成无条件开窗、主体顺序倒回、判定退回只看 CommandLine）各自当场变红，还原后文件逐字节相同。既有 `mp-worktree-health.test.ps1`(22) 与 `install-session-isolation-task.test.ps1`(7) 全绿。
 - 详见 `docs/session-isolation-automation.md`「控制台窗口与运行主体（2026-10-03 实测）」。
-=======
 # [未发布] test(守卫): 测试期禁出站守卫补上子进程面，两个 realm 都必须两面齐全（fix-test-egress-child-plane，2026-10-03）
 
 ### 根因
