@@ -375,3 +375,76 @@ describe('phase4-events → tracked_content 关联链（真存储）', () => {
     expect(body.includes('rewriteHistoryId'), '同一段里 rewriteHistoryId 是既有键，删它属越界').toBe(true)
   })
 })
+
+/**
+ * T4：改写关联（rewrite_history_id）——P2-6d 的「主进程那半条链本来就是通的」证明。
+ *
+ * 为什么这一节值得单独写：断链的现场是「渲染层从没供过值」，而不是「主进程读不到」。
+ * 如果只测渲染层，某人把 phase4-events 的读取表达式改坏（比如去读 task.rewrite_history_id）
+ * 也不会有任何东西变红；反过来，只测主进程又恰好是本次的真缺陷所在（渲染层丢弃）。
+ * 所以这里用**真库 + 真事件入口**把主进程侧钉住，渲染层侧由
+ * src/composables/usePublishFlow.test.js + src/utils/rewrite-lineage.test.js 负责。
+ */
+describe('phase4-events → tracked_content.rewrite_history_id（真存储）', () => {
+  beforeEach(() => { vi.resetModules() })
+
+  it('T4a：payload 带 article.rewriteHistoryId ⇒ 落库该列等于它，且归因侧的 WHERE 能捞到这一行', async () => {
+    const store = await makeStore()
+    const history = { addRecord: vi.fn(() => ({ id: 'h1' })), listRecords: () => ({ total: 0, records: [] }) }
+    const taskQueue = wire(store, history)
+
+    // 逐字复刻渲染层的挂载形态（buildArticleData 条件挂载 → publish.js 整体 JSON 化）
+    taskQueue.emit('task:success', {
+      id: 'task_lineage_1',
+      owner_subject: 'user-A',
+      platform: 'kuaishou',
+      article: { title: '归因测试', rewriteHistoryId: 'md0kx9a1b2c3' },
+      result: { postId: 'ks-1', url: 'https://www.kuaishou.com/short-video/ks-1' },
+    })
+
+    const rows = store.db.prepare('SELECT * FROM tracked_content').all()
+    expect(rows).toHaveLength(1)
+    expect(String(rows[0].rewrite_history_id)).toBe('md0kx9a1b2c3')
+
+    // 读侧投影逐字来自 pattern-attribution-service.js:102-108 的 _listAllTracked
+    const attributable = store.db
+      .prepare('SELECT * FROM tracked_content WHERE rewrite_history_id IS NOT NULL')
+      .all()
+    expect(attributable, '归因服务按这一列筛样本，筛不到就是榜单恒空').toHaveLength(1)
+    expect(String(attributable[0].id)).toBe(String(rows[0].id))
+  })
+
+  it('T4b：无关联的发布（未走改写）⇒ 该列留 NULL，不得写空串或 "undefined"', async () => {
+    const store = await makeStore()
+    const history = { addRecord: vi.fn(() => ({ id: 'h2' })), listRecords: () => ({ total: 0, records: [] }) }
+    const taskQueue = wire(store, history)
+
+    taskQueue.emit('task:success', {
+      id: 'task_lineage_2',
+      owner_subject: 'user-A',
+      platform: 'kuaishou',
+      article: { title: '手写正文', rewriteHistoryId: '' },
+      result: { postId: 'ks-2' },
+    })
+
+    const row = store.db.prepare('SELECT * FROM tracked_content').get()
+    expect(row.rewrite_history_id, '空串会被读成"有值"，归因侧去查一个不存在的行').toBeNull()
+    expect(store.db.prepare('SELECT * FROM tracked_content WHERE rewrite_history_id IS NOT NULL').all()).toHaveLength(0)
+  })
+
+  it('T4c：task 顶层也接受该键（phase4-events 的两段读取是 || 关系，不是只读 article）', async () => {
+    const store = await makeStore()
+    const history = { addRecord: vi.fn(() => ({ id: 'h3' })), listRecords: () => ({ total: 0, records: [] }) }
+    const taskQueue = wire(store, history)
+
+    taskQueue.emit('task:success', {
+      id: 'task_lineage_3',
+      owner_subject: 'user-A',
+      platform: 'bilibili',
+      rewriteHistoryId: 'top_level_id',
+      article: { title: 't' },
+      result: { postId: 'bl-3' },
+    })
+    expect(String(store.db.prepare('SELECT * FROM tracked_content').get().rewrite_history_id)).toBe('top_level_id')
+  })
+})

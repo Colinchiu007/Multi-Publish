@@ -53,12 +53,20 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { log.warn('[ipc:performance]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
-  ipcMain.handle('performance:list-pattern-performance', async (_event, params) => {
+  /**
+   * 归因榜读侧：必须按归属筛（P2-6d）。
+   * 门禁与 performance:overview / dashboard:stats 同口径：认不出是谁 = AUTH_ERROR，
+   * 而不是「0 条数据」——把「没验出身份」渲染成空榜单，用户会以为这个功能坏了。
+   * 身份服务缺席（undefined）走 legacy 桶，不是报错。
+   */
+  ipcMain.handle('performance:list-pattern-performance', withSenderCheck(async (_event, params) => {
     try {
-      const rows = store.listPatternPerformance(params || {})
+      const owner = resolveIpcOwnerSubject(identityService)
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const rows = store.listPatternPerformance(params || {}, owner)
       return { code: EC.SUCCESS, data: { items: rows } }
     } catch (e) { log.warn('[ipc:performance]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   /**
    * P2-6c 数据看板：作品互动回流总量 / 日增趋势 / 平台分布 / 回采健康度。

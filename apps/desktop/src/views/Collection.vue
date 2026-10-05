@@ -670,6 +670,7 @@ import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
+import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
@@ -808,6 +809,11 @@ async function recordRewriteToLibrary (content, source) {
   }
 }
 
+// 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）：本页「当前改写结果」对应的 rewrite_history 行 id。
+// 写点只有 rewriteViaEngine 成功分支一处（它是唯一拿得到信封的地方），读点只有 saveDraftAfterRewrite 一处。
+// 改写失败时不更新它——旧的 id 与界面上仍在的旧正文保持配对，比"内容没变但关联丢了"更正确。
+let collectRewriteLineageId = null
+
 async function rewriteViaEngine (content) {
   let res
   try {
@@ -837,6 +843,9 @@ async function rewriteViaEngine (content) {
   }
   // aiRewrite 返回 { code, data: { success, result } }；归一化为旧 aggregationRewrite 的 { result_content } 消费形态
   if (res && res.code === 0 && res.data && res.data.success && res.data.result) {
+    // 归因链：这里是本页唯一能拿到信封的地方，所以「当前改写结果的 rewrite_history 行 id」
+    // 只在此处写一次（由 saveDraftAfterRewrite 读一次）——三个调用点各写一遍必然漂移。
+    collectRewriteLineageId = extractRewriteHistoryId(res)
     return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
   }
   // 失败时透传原始 res（含 errorCode/message），供调用方 formatUserError 映射友好文案
@@ -2119,6 +2128,9 @@ function getDraftFromItem (data) {
 async function saveDraftAfterRewrite () {
   if (!rewriteResult.value) return
   const draft = getDraftFromItem({ ...collectedResult.value, content: rewriteResult.value })
+  // 归因链：草稿是"改写产物"这件事只有在这里能被记下来（getDraftFromItem 本身是通用投影，
+  // 非改写路径也在用它，所以判据挂在这一层而不是那一层）
+  attachRewriteLineage(draft, collectRewriteLineageId)
   drafts.value.unshift(draft)
   await saveDrafts()
   genreDraftId = draft.id

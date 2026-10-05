@@ -287,4 +287,58 @@ describe('usePublishDrafts', () => {
     expect(result).toEqual({ ok: false, draftId: null })
     expect(mockDraftSave).not.toHaveBeenCalled()
   })
+
+  // ── 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）─────────────────────────
+  // 草稿是「改写页 → 发布页」唯一的载体。这一跳漏了，前面接得再好也到不了 payload。
+  describe('归因链：rewriteHistoryId 随草稿存取', () => {
+    it('saveDraft 快照带出关联 id（有值时）', async () => {
+      article.rewriteHistoryId = 'md0kx9a1b2c3'
+      article.publishTime = ''
+      const drafts = createDrafts()
+      await drafts.saveDraft()
+      expect(mockDraftSave.mock.calls[0][0].rewriteHistoryId).toBe('md0kx9a1b2c3')
+    })
+
+    it('无关联时快照写空串，且下游按缺席处理（如实钉住 ARTICLE_FIELDS 的 || 回落形态）', async () => {
+      article.publishTime = ''
+      const drafts = createDrafts()
+      await drafts.saveDraft()
+      // '' 与"键不存在"在 attach/normalize 判据里同为"不挂 payload"；
+      // 这里钉的是"不得凭空造出一个 id"，不是钉字符串形态。
+      const snapshot = mockDraftSave.mock.calls[0][0]
+      expect(snapshot.rewriteHistoryId === '' || snapshot.rewriteHistoryId == null).toBe(true)
+    })
+
+    it('loadDraft 把关联恢复到 article（改写页存的草稿，发布页取出来还能接上）', async () => {
+      mockDraftList.mockResolvedValue({
+        code: 0,
+        data: [{ id: 'd1', title: 'T', content: 'C', rewriteHistoryId: 'md0kx9a1b2c3' }],
+      })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      article.rewriteHistoryId = null
+      expect(await drafts.loadDraft('d1')).toBe(true)
+      expect(article.rewriteHistoryId).toBe('md0kx9a1b2c3')
+    })
+
+    it('载入一份无关联的草稿 ⇒ 必须清掉 article 上的旧关联（跨草稿串关联 = 假归因）', async () => {
+      mockDraftList.mockResolvedValue({
+        code: 0,
+        data: [{ id: 'd2', title: 'T', content: 'C' }],
+      })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      article.rewriteHistoryId = 'stale-from-previous-draft'
+      expect(await drafts.loadDraft('d2')).toBe(true)
+      expect(article.rewriteHistoryId, '旧 id 跟着新正文进 payload 就是假关联').toBe('')
+    })
+
+    it('接线守卫：ARTICLE_FIELDS 必须含该键（漏键即整条链断，且两侧单测都会绿）', async () => {
+      const fs = require('fs')
+      const path = require('path')
+      const src = fs.readFileSync(path.resolve(__dirname, 'usePublishDrafts.js'), 'utf8')
+      const block = src.slice(src.indexOf('const ARTICLE_FIELDS'), src.indexOf(']', src.indexOf('const ARTICLE_FIELDS')))
+      expect(block).toContain("'rewriteHistoryId'")
+    })
+  })
 })

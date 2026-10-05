@@ -73,4 +73,23 @@ describe('draft-fingerprint', () => {
     expect(computeDraftFingerprint(123)).toBe(empty)
     expect(computeDraftFingerprint({})).toBe(empty)
   })
+
+  // 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）：rewriteHistoryId 与 publishTime 同族 ——
+  // 它是「这份内容从哪一次改写来」的元数据，不是内容。参与指纹的后果是
+  // 同一份正文每次改写都堆一条新草稿（草稿幂等契约失效）；不参与又漏挂 payload 的后果是
+  // 关联静默丢失。两条都由本用例的一侧守住。
+  it('rewriteHistoryId 不参与内容指纹（同内容不同关联 ⇒ 复用同一条草稿）', () => {
+    const base = { title: 'T', content: 'C' }
+    expect(computeDraftFingerprint({ ...base, rewriteHistoryId: 'md0kx9a1b2c3' }))
+      .toBe(computeDraftFingerprint(base))
+    expect(computeDraftFingerprint({ ...base, rewriteHistoryId: 'other_id' }))
+      .toBe(computeDraftFingerprint({ ...base, rewriteHistoryId: 'md0kx9a1b2c3' }))
+  })
+
+  it('接线守卫：内容字段白名单不得被顺手加进 rewriteHistoryId（加了即红）', () => {
+    const fs = require('fs')
+    const src = fs.readFileSync(require.resolve('./draft-fingerprint'), 'utf8')
+    const block = src.slice(src.indexOf('const CONTENT_FIELDS'), src.indexOf(']', src.indexOf('const CONTENT_FIELDS')))
+    expect(block.includes('rewriteHistoryId'), '白名单里出现它 = 指纹被元数据污染').toBe(false)
+  })
 })

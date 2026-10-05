@@ -99,6 +99,9 @@ function migratePerformanceLoopSchema(db, execSchemaSql) {
     dimension           TEXT NOT NULL,
     value               TEXT NOT NULL,
     platform            TEXT DEFAULT '',
+    -- 归属维度（P2-6d）：聚合桶按 (归属, 维度, 取值) 分，两个账号的同模式样本
+    -- 不得平均成一行；读侧按归属筛。缺席形态与 tracked_content.owner_subject 一致（NULL = legacy 桶）。
+    owner_subject       TEXT,
     sample_count        INTEGER DEFAULT 0,
     avg_views           REAL DEFAULT 0,
     avg_likes           REAL DEFAULT 0,
@@ -108,6 +111,7 @@ function migratePerformanceLoopSchema(db, execSchemaSql) {
     computed_at         TEXT NOT NULL
   )`)
   execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_perf_dim ON pattern_performance(dimension, engagement_score)")
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_perf_owner_dim ON pattern_performance(owner_subject, dimension, engagement_score)")
 
   // publish_history 加关联列（幂等）
   try {
@@ -117,6 +121,16 @@ function migratePerformanceLoopSchema(db, execSchemaSql) {
       else db.exec('ALTER TABLE publish_history ADD COLUMN rewrite_history_id TEXT')
     }
   } catch (e) { /* publish_history 不存在（全新库由 SCHEMA_SQL 建）时跳过 */ }
+
+  // pattern_performance 加归属列（幂等，P2-6d）：CREATE TABLE IF NOT EXISTS 对**已存在**的表
+  // 不会补列，存量库必须走 ALTER，否则读侧按 owner_subject 筛会直接 no such column。
+  try {
+    const cols = db.prepare("PRAGMA table_info(pattern_performance)").all().map(c => c.name)
+    if (cols.length > 0 && !cols.includes('owner_subject')) {
+      if (typeof db.execOrThrow === 'function') db.execOrThrow('ALTER TABLE pattern_performance ADD COLUMN owner_subject TEXT')
+      else db.exec('ALTER TABLE pattern_performance ADD COLUMN owner_subject TEXT')
+    }
+  } catch (e) { /* 表不存在时由上面的 CREATE 覆盖 */ }
 }
 
 module.exports = { migrateViralPatternSchema, migratePerformanceLoopSchema }

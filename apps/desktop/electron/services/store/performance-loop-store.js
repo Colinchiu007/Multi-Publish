@@ -423,8 +423,8 @@ module.exports = {
     this.db.prepare('DELETE FROM pattern_performance').run()
     const stmt = this.db.prepare(`
       INSERT INTO pattern_performance
-        (id, dimension, value, platform, sample_count, avg_views, avg_likes, avg_comments, avg_favorites, engagement_score, computed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, dimension, value, platform, owner_subject, sample_count, avg_views, avg_likes, avg_comments, avg_favorites, engagement_score, computed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const r of rows) {
       if (!r || !r.dimension || !r.value) continue
@@ -433,18 +433,34 @@ module.exports = {
       const avgComments = Math.max(0, Number(r.avgComments) || 0)
       const avgFavorites = Math.max(0, Number(r.avgFavorites) || 0)
       // engagement_score = avg_likes + avg_comments + avg_favorites × 2（首版启发式，常量区可调）
+      // 归属原样透传（可为 null = legacy 桶）；归一由聚合层的桶负责，这里不做二次判定
       const score = avgLikes + avgComments + avgFavorites * 2
-      stmt.run(_genId(), String(r.dimension), String(r.value), String(r.platform || ''), Math.max(0, Number(r.sampleCount) || 0), avgViews, avgLikes, avgComments, avgFavorites, score, now)
+      stmt.run(_genId(), String(r.dimension), String(r.value), String(r.platform || ''),
+        r.ownerSubject == null ? null : String(r.ownerSubject),
+        Math.max(0, Number(r.sampleCount) || 0), avgViews, avgLikes, avgComments, avgFavorites, score, now)
     }
   },
 
-  listPatternPerformance (opts = {}) {
+  /**
+   * 读归因榜：必须按归属筛（P2-6d）。
+   *
+   * 为什么归属条件要**加括号**：`_ownerPredicate` 的 legacy 档返回
+   * `owner_subject IS NULL OR TRIM(...) = '' OR owner_subject = ?`，
+   * 而 SQL 里 AND 的优先级高于 OR —— 不加括号再拼 `AND dimension = ?`，
+   * 条件就变成了「(NULL) OR (空串 AND 维度) OR (legacy AND 维度)」，
+   * 结果是别的归属的别的维度会被漏进来，而且只在 legacy 档出现（最难复现的那种红）。
+   * @param {{dimension?:string, platform?:string}} [opts]
+   * @param {string|null|undefined} [ownerSubject] null/undefined ⇒ legacy 桶（绝不返回别人的数据）
+   */
+  listPatternPerformance (opts = {}, ownerSubject) {
     if (!this._ready) return []
-    const conditions = []
-    const params = []
+    const owner = _ownerPredicate(ownerSubject)
+    const ownerCond = owner.sql.replace(/^WHERE\s+/, '')
+    const conditions = ['(' + ownerCond + ')']
+    const params = [...owner.params]
     if (opts.dimension) { conditions.push('dimension = ?'); params.push(String(opts.dimension)) }
     if (opts.platform) { conditions.push('platform = ?'); params.push(String(opts.platform)) }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+    const where = 'WHERE ' + conditions.join(' AND ')
     try {
       return this.db.prepare(
         'SELECT * FROM pattern_performance ' + where + ' ORDER BY engagement_score DESC'

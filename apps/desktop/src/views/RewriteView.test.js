@@ -1539,3 +1539,85 @@ describe('RewriteView viral strength (P2-a)', () => {
   })
 })
 
+/**
+ * 归因链：改写页是这条链的**起点**（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）。
+ *
+ * 断链的原始形态就是这里：主进程把 rewriteHistoryId 放进信封返回，
+ * 而本组件读完 result/title/knowledgeRefs/quality/viral 之后从没读过它 ——
+ * 于是草稿没有关联、发布没有关联、归因榜永远恒空，且全程没有任何报错。
+ * 判据一律打在 draftSave 的**入参**上（断言"具体通道与被写对象"，不断言返回码）。
+ */
+describe('RewriteView — 归因链：rewriteHistoryId 随草稿落盘', () => {
+  const LONG_INPUT = '这是一段足够长的测试文案内容，超过二十个字，测试改写功能。'
+
+  const rewriteEnvelope = (over = {}) => ({
+    code: 0,
+    data: {
+      success: true,
+      result: '改写后的正文',
+      strategy: { id: 's1', name: '测试策略' },
+      warnings: [], sensitiveHits: [], knowledgeRefs: [],
+      metadata: { mode: 'imitate', originalLength: 30, resultLength: 6 },
+      ...over,
+    },
+  })
+
+  async function rewriteThenSaveDraft (wrapper, mocks) {
+    await wrapper.find('textarea.rewrite-textarea').setValue(LONG_INPUT)
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    mocks.draftSave.mockClear()
+    const btn = wrapper.findAll('button').find(b => b.text().includes('存入草稿'))
+    expect(btn, '找不到【存入草稿】按钮，测试锚点失效').toBeTruthy()
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+  }
+
+  it('改写返回带 id ⇒ 草稿快照携带同一个 id', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ rewriteHistoryId: 'mdAAAA1111' }))
+    const wrapper = factory()
+    await rewriteThenSaveDraft(wrapper, mocks)
+    expect(mocks.draftSave).toHaveBeenCalledTimes(1)
+    expect(mocks.draftSave.mock.calls[0][0].rewriteHistoryId).toBe('mdAAAA1111')
+  })
+
+  it('第二次改写返回新的 id ⇒ 草稿带第二个，第一个不得残留', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ rewriteHistoryId: 'mdFIRST00001' }))
+    const wrapper = factory()
+    await rewriteThenSaveDraft(wrapper, mocks)
+    expect(mocks.draftSave.mock.calls[0][0].rewriteHistoryId).toBe('mdFIRST00001')
+
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ result: '第二次改写正文', rewriteHistoryId: 'mdSECOND0002' }))
+    await rewriteThenSaveDraft(wrapper, mocks)
+    const last = mocks.draftSave.mock.calls[mocks.draftSave.mock.calls.length - 1][0]
+    expect(last.rewriteHistoryId).toBe('mdSECOND0002')
+  })
+
+  it('第二次改写没给 id（未落库）⇒ 键消失，绝不把上一次的 id 发给这一次的内容', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ rewriteHistoryId: 'mdSTALE99999' }))
+    const wrapper = factory()
+    await rewriteThenSaveDraft(wrapper, mocks)
+
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ result: '无关联的第二次改写' }))
+    await rewriteThenSaveDraft(wrapper, mocks)
+    const last = mocks.draftSave.mock.calls[mocks.draftSave.mock.calls.length - 1][0]
+    expect(Object.prototype.hasOwnProperty.call(last, 'rewriteHistoryId'),
+      '假关联比没关联更糟：归因榜会出现一个看着合理但属于别人的数字').toBe(false)
+  })
+
+  it('脏 id（空串/空白/超长）⇒ 不挂键（判据在 utils/rewrite-lineage，此处只验接线）', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ rewriteHistoryId: '   ' }))
+    const wrapper = factory()
+    await rewriteThenSaveDraft(wrapper, mocks)
+    const snapshot = mocks.draftSave.mock.calls[0][0]
+    expect(Object.prototype.hasOwnProperty.call(snapshot, 'rewriteHistoryId')).toBe(false)
+  })
+})
+

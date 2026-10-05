@@ -21,6 +21,10 @@ const ARTICLE_FIELDS = [
   'topics',
   'mentions',
   'publishTime',
+  // 归因链：改写关联必须与内容一起被存/取，否则「从草稿去发布」这条主路径永远接不上
+  // （buildDraftSnapshot / applyDraft 共用本白名单，加一次两侧同时生效）。
+  // 它不是内容字段：不参与 computeDraftFingerprint（见 services/draft-fingerprint.js）。
+  'rewriteHistoryId',
 ]
 
 // 数组型字段：草稿缺失时必须回退为 [] 而非 ''。

@@ -203,6 +203,7 @@ import {
 } from "@/api/publisher"
 import { useLoginGate } from "@/composables/useLoginGate"
 import { formatUserError } from '@/utils/user-facing-error'
+import { extractRewriteHistoryId } from '@/utils/rewrite-lineage'
 
 const emit = defineEmits(["close", "apply-title", "apply-content", "apply-rewrite"])
 const router = useRouter()
@@ -249,6 +250,10 @@ const rewriteStrategyId = ref("")
 const rewriteContent = ref("")
 const rewriteStrategies = ref([])
 const rewriteResult = ref("")
+// 归因链：本面板内改写结果的 rewrite_history 行 id，随「应用到正文」一起交给父级
+// （emit apply-content 的第二参）。非改写来源的应用（增强/摘要）必须显式传 null 清掉它，
+// 否则旧关联会跟着已被换掉的正文进 payload —— 假关联比 NULL 更糟。
+let panelRewriteLineageId = null
 const rewriteResultMeta = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（应用=采纳 / 再次改写=弃用）
 const rewriteKnowledgeRefs = ref([])
@@ -326,6 +331,8 @@ async function doRewrite() {
   rewriteResult.value = ""
   rewriteResultMeta.value = null
   rewriteKnowledgeRefs.value = []
+  // 归因链：新一轮改写开始前清掉上一轮的 id，成功分支再赋值 —— 旧 id 不可能跟着新正文走
+  panelRewriteLineageId = null
   try {
     const userSettings = {
       industry: rewriteIndustry.value || undefined,
@@ -348,6 +355,8 @@ async function doRewrite() {
     if (res && res.code === 0 && res.data && res.data.success) {
       const data = res.data
       rewriteResult.value = data.result || ""
+      // 归因链：接住主进程给的行 id（未落库/信封异常 ⇒ null）
+      panelRewriteLineageId = extractRewriteHistoryId(res)
       // P2 隐式反馈：记录本次改写引用的知识条目
       rewriteKnowledgeRefs.value = data.knowledgeRefs || []
       rewriteResultMeta.value = {
@@ -372,7 +381,7 @@ async function doRewrite() {
 }
 
 function selectRewriteResult() {
-  emit("apply-content", rewriteResult.value)
+  emit("apply-content", rewriteResult.value, panelRewriteLineageId)
   emit("apply-rewrite", rewriteResult.value)
   // P2 隐式反馈：用户应用改写结果 = 采纳被引用的知识条目
   sendKnowledgeFeedback("adopted", rewriteKnowledgeRefs.value)
@@ -460,7 +469,8 @@ async function enhanceContent() {
 }
 
 function selectEnhanced() {
-  emit("apply-content", enhancedResult.value)
+  // 非改写来源：第二参必须是 null（显式清掉父级可能残留的旧改写关联），不能省略
+  emit("apply-content", enhancedResult.value, null)
 }
 
 async function generateSummary() {
@@ -484,7 +494,8 @@ async function generateSummary() {
 }
 
 function selectSummary() {
-  emit("apply-content", summary.value)
+  // 同 selectEnhanced：摘要不是改写产物，显式传 null 清关联
+  emit("apply-content", summary.value, null)
 }
 
 const props = defineProps({
