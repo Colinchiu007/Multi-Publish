@@ -1,3 +1,9 @@
+## 日志契约迁移的锁扩展次序：先迁调用点再扩 TARGET_FILES 会让「出声断言」集体失明（publish-logging-observability w1，2026-10-05）
+
+- **A 类清单只盘 warn 会漏掉 info/error（pitfall）**：`observability-messagekey.test.js` 的「禁止遗留裸标签调用」锁按 TARGET_FILES 扫 `log.(warn|info|error|debug)('Module', 'bare tag')`。把新域文件加进 TARGET_FILES 后，**info/error 裸标签站点也会被扫出来**——迁移前只按 warn 清单干活，扩展锁当场红了 6 处 info/error。正解：扩锁之前先把新域的 warn/info/error 全量清点（`git grep -n "log\.\(warn\|info\|error\|debug\)("`），一次迁完再扩锁。
+- **固定窗口切片是字符串替换脚本的隐形炸弹（pitfall）**：用 `t.slice(hIdx, hIdx+1200)` 圈定「本记录块」再 replace，NEW 串较长时会把切片边界外的内容切坏（实测把一条执行记录切成两半、标题重复）。正解：按行 split 后**先找标题行、再在块内逐行找目标**（无窗口长度假设），或整体 split/join。**debt checker 的「标题重复」断言当场抓住了这次损坏**——置顶文件的每一道结构锁都在为其他门禁兜底。
+- **notify 断言的 params 嵌套形态要对账真实调用（tool）**：`log.notify('App', 'bridge-started', { params: { bridge: name } })` 的断言必须写 `expect.objectContaining({ params: { bridge: 'X' } })`——`objectContaining` 只做一层浅匹配，漏掉 params 层就恒红。先把源码调用形态固定下来，再写断言。
+- **mock logger 补 notify 键的三种形态（tool）**：`__registerMock(..., {info,warn,error})` 对象加一 endured；`const mockLogger = {...}` 字面量补键时注意逗号（漏逗号 = 整个测试文件 transform 失败，红因在 esbuild 而不是断言，别顺着断言找）。
 ## 持久化"写成功但读不回"的根因常是读写两侧对返回类型的假设不一致，而同构夹具会让它终身不可见（fix-settings-roundtrip-contract，2026-10-05）
 
 - **模式：判据要看存储实际返回什么，不要看它叫什么名。** `getSetting` 听像 getter of setting（字符串），实际返回 `safeJsonParse` 后的对象；9 处消费点按字符串处理，全部静默退化。修复方向不是"各处加类型判断"，而是把归一化收敛到**存储侧唯一入口**。
