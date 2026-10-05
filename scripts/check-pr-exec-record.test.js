@@ -322,8 +322,10 @@ test('#2745：搬过去那一步必须用 step 级 env 声明 PR base，并保�
   assert.ok(stepStart >= 0, '取不到承载门禁的那个 step 的起点 —— 结构解析退化')
   const nextStep = changes.indexOf('\n      - ', from)
   const step = changes.slice(stepStart, nextStep > 0 ? nextStep : undefined)
-  assert.match(step, /EXEC_BASE:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/,
-    'PR base 必须由 step 级 env 声明（run 正文里禁止内联 ${{ }}，字面替换先于 bash 解析）')
+  assert.match(step, /EXEC_BASE:\s*\$\{\{\s*steps\.classify\.outputs\.pr-base\s*\}\}/,
+    'PR base 必须由 step 级 env 声明（run 正文里禁止内联 ${{ }}，字面替换先于 bash 解析）；'
+    + '且真源是 classify step 的产出 —— 同一份取源不得在两个 step 各算一遍，两份 merge-base 口径一旦漂移，'
+    + '就会出现"同一 PR 在 classify 判 docs-only、在本判据判缺记录"这种不可归因的红')
   assert.match(step, /--base="\$\{EXEC_BASE:-\}"/,
     'base 必须可空：push 事件下脚本自己走「非 PR 不适用」分支，不得让每个 push run 被不适用自己的判据判红')
   // 分支名同样必须由 CI 侧注入：runner 上是 detached HEAD，`git rev-parse --abbrev-ref HEAD` 得到字面量

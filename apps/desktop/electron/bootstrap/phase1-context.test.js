@@ -4,6 +4,7 @@ __registerMock('../services/logger', {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
+  notify: vi.fn(),
 })
 const log = require('../services/logger')
 
@@ -134,7 +135,7 @@ describe('phase1-context.extractContext', () => {
     expect(() => extractContext(container)).not.toThrow()
     const ctx = extractContext(container)
     expect(ctx._platformConfig).toBeNull()
-    expect(log.warn).toHaveBeenCalledWith('App', 'Failed to load platform config: load failed')
+    expect(log.notify).toHaveBeenCalledWith('App', 'platform-config-load-failed', expect.objectContaining({ level: 'WARN' }))
   })
 
   it('只构造 ModelProviderManager，等待 Phase 3 的 Store 初始化后再启动', () => {

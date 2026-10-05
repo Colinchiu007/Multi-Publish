@@ -54,6 +54,9 @@ jobs:
       - name: Detect docs-only changes
         id: classify
         shell: bash
+        env:
+          EVT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # 账本 JSON 在 docs-only 白名单里 ⇒ 校验它的门禁不能只待在会被短路的 static-gates。
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
@@ -64,8 +67,20 @@ jobs:
             echo "docs-only=false (non-PR event: full run)"
             exit 0
           fi
-          BASE="${{ github.event.pull_request.base.sha }}"
-          node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
+          # 「该用哪一对 base/head」的决策住在 scripts/ci-pr-changeset.js 里，由真 git 夹具逐形态单测。
+          # 原因（本轮实测）：这段判断原先写在 bash，把 `if git rev-parse -q --verify HEAD^2` 改成
+          # `if false` 之后三条 workflow 结构锁全绿 —— 文本锁锁得住形状，锁不住"支路还走不走"。
+          # 脚本同时把 pr-base/pr-head 写进 GITHUB_OUTPUT，Gate 2c2 只读产出，不自己再算第二遍。
+          node --test scripts/ci-pr-changeset.test.js
+          CHANGESET="$(node scripts/ci-pr-changeset.js --repo="$PWD" --evt-name="${{ github.event_name }}" --evt-base="${EVT_BASE_SHA:-}" --evt-head="${EVT_HEAD_SHA:-}")" || exit 1
+          echo "[classify] $CHANGESET"
+          BASE="$(printf '%s\n' "$CHANGESET" | sed -n 's/^base=//p')"
+          HEAD_SHA="$(printf '%s\n' "$CHANGESET" | sed -n 's/^head=//p')"
+          if [ -z "$BASE" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::取不到本 PR 的 base/head（[${BASE}]/[${HEAD_SHA}]）；宁可乐红也不得静默退回 HEAD=合并提交——那会把期间 main 的他人提交算进本 PR"
+            exit 1
+          fi
+          node scripts/classify-docs-only.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
 
       # --- Gate 2c2（#2745 从 static-gates 搬入本 job）: 执行记录存在性判据 ---
       # 它校验的输入 openspec/records/** 命中 docs-only 白名单（`openspec/**`），而 static-gates
@@ -83,11 +98,21 @@ jobs:
       - name: "Gate 2c2 - Execution-record presence (changes job, #2745)"
         shell: bash
         env:
-          EXEC_BASE: ${{ github.event.pull_request.base.sha }}
+          # 取源必须复用 classify step 的产物（合并提交双亲 > 事件 payload），不在这里再算一遍：
+          # 两份独立取源一旦漂移，就会出现"同一 PR 在 A 判 docs-only、在 B 判缺记录"这种不可归因的红。
+          EXEC_BASE: ${{ steps.classify.outputs.pr-base }}
+          EXEC_HEAD_SHA: ${{ steps.classify.outputs.pr-head }}
           EXEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          # 非 PR 事件下 classify 已早退、两个产出都是空串 ⇒ 交给脚本按 advisory 留痕退出 0（既有行为）。
+          # 但"base 有值而 head 没值"只能意味着取源被破坏，此时 --head 退回 HEAD=合并提交会量错集合，
+          # 而错的方向是**假通过**（别人的记录文件被算进本 PR），所以必须乐红。
+          if [ -n "${EXEC_BASE:-}" ] && [ -z "${EXEC_HEAD_SHA:-}" ]; then
+            echo "::error::classify 未产出 pr-head（取源步骤异常？），不得退回 HEAD=合并提交"
+            exit 1
+          fi
           node --test scripts/check-pr-exec-record.test.js
-          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head=HEAD --mode=advisory
+          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
       # --- Gate 12（同族第三处，本次一并搬入）: 品牌残留门禁 ---
       # AGENTS.md 的 docs-only 快速通道把「品牌残留」列为文档 PR 的**保留门禁**（一条不省），

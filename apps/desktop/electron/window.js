@@ -100,7 +100,7 @@ function isAllowedExternalUrl(rawUrl) {
 }
 
 function reportExternalOpenFailure(error) {
-  log.warn('window', '打开外部链接失败：' + (error instanceof Error ? error.message : String(error)))
+  log.notify('window', 'open-external-failed', { level: 'WARN', error: error instanceof Error ? error.message : String(error) })
 }
 
 function openExternalUrl(rawUrl) {
@@ -118,7 +118,7 @@ function destroyFailedWindow(mainWindow) {
     if (typeof mainWindow.destroy === 'function') mainWindow.destroy()
     else if (typeof mainWindow.close === 'function') mainWindow.close()
   } catch (error) {
-    log.warn('window', '清理失败窗口时出错：' + (error instanceof Error ? error.message : String(error)))
+    log.notify('window', 'failed-window-cleanup-error', { level: 'WARN', error: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -150,7 +150,7 @@ function shouldHideToTray(context, platform = process.platform) {
   try {
     hasRunningPipeline = pipelineEngine.hasRunningOrchestration()
   } catch (error) {
-    log.warn('window', '检测运行中任务失败：' + errorMessage(error))
+    log.notify('window', 'running-task-check-failed', { level: 'WARN', error: errorMessage(error) })
     return false
   }
   // publish-progress-ux：发布任务运行中（含排队）同样转托盘后台继续；
@@ -162,7 +162,7 @@ function shouldHideToTray(context, platform = process.platform) {
     const queuedCount = Array.isArray(status?.queue) ? status.queue.length : 0
     hasRunningPublish = runningCount + queuedCount > 0
   } catch (error) {
-    log.warn('window', '检测运行中发布任务失败：' + errorMessage(error))
+    log.notify('window', 'running-publish-check-failed', { level: 'WARN', error: errorMessage(error) })
   }
   return shouldHideToTrayOnClose({
     platform,
@@ -181,8 +181,7 @@ function clearMainWindowBindings(context) {
     try {
       manager.setMainWindow(null)
     } catch (error) {
-      log.warn('window', `清理 ${name} 窗口引用时出错：` +
-        (error instanceof Error ? error.message : String(error)))
+      log.notify('window', 'window-ref-cleanup-error', { level: 'WARN', error: error instanceof Error ? error.message : String(error) })
     }
   }
 }
@@ -206,7 +205,7 @@ function finishWindowInitialization(context, mainWindow) {
       log.info('auto-updater', JSON.stringify(status))
     })
   } catch (e) {
-    log.warn('window', 'autoUpdater init failed, running without auto-update: ' + (e && e.message))
+    log.notify('window', 'autoupdater-init-failed', { level: 'WARN', error: String(e && e.message) })
   }
   firstRun.runSetup(mainWindow)
   return mainWindow
@@ -247,11 +246,11 @@ function createWindow(context) {
     if (shown || (typeof mainWindow.isDestroyed === 'function' && mainWindow.isDestroyed())) return
     shown = true
     if (showFallbackTimer) clearTimeout(showFallbackTimer)
-    log.info('window', '主窗口已显示')
+    log.notify('window', 'main-window-shown')
     mainWindow.show()
   }
   const reportLoadFailure = (error) => {
-    log.error('window', '加载主窗口失败：' + errorMessage(error))
+    log.notify('window', 'main-window-load-failed', { level: 'ERROR', error: errorMessage(error) })
     // Keep the native error page visible instead of leaving a hidden process behind.
     showMainWindow()
   }
@@ -260,7 +259,7 @@ function createWindow(context) {
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedMainWindowUrl(url)) {
       event.preventDefault()
-      log.warn('window', 'Blocked untrusted main-window navigation: ' + url)
+      log.notify('window', 'untrusted-navigation-blocked', { level: 'WARN', params: { url } })
     }
   })
   if (typeof mainWindow.webContents.setWindowOpenHandler === 'function') {
@@ -273,7 +272,7 @@ function createWindow(context) {
   // 渲染进程崩溃 → 记录 + 通知用户（不静默白屏）；用户可重启应用或用
   // ELECTRON_DISABLE_GPU=1 逃生门。GPU 进程崩溃由 Chromium 自愈（自动重启 GPU 进程）。
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    log.error('window', '渲染进程异常退出: reason=' + details.reason + ' exitCode=' + details.exitCode)
+    log.notify('window', 'renderer-gone', { level: 'ERROR', params: { reason: details.reason, exitCode: details.exitCode } })
     try {
       const { Notification } = require('electron')
       if (typeof Notification === 'function' && Notification.isSupported()) {
@@ -294,7 +293,7 @@ function createWindow(context) {
   mainWindow.once('ready-to-show', showMainWindow)
   mainWindow.webContents.once('did-finish-load', showMainWindow)
   const showFallbackTimer = setTimeout(() => {
-    log.warn('window', '主窗口未触发显示事件，使用可见性兜底')
+    log.notify('window', 'show-event-missing-fallback', { level: 'WARN' })
     showMainWindow()
   }, 5000)
   if (typeof showFallbackTimer.unref === 'function') showFallbackTimer.unref()
@@ -318,9 +317,9 @@ function createWindow(context) {
       } catch { /* getStatus 异常按无发布任务处理（不气泡，走流水线日志分支） */ }
       if (hasRunningPublish && typeof context.systemTray?.showBalloon === 'function') {
         context.systemTray.showBalloon('发布仍在后台进行', '发布任务正在后台继续执行，请勿退出程序。点击托盘图标可恢复窗口。')
-        log.info('window', '发布任务运行中，窗口隐藏到托盘继续后台执行')
+        log.notify('window', 'publish-running-hide-to-tray')
       } else {
-        log.info('window', '运行中有流水线任务，窗口隐藏到托盘继续后台执行')
+        log.notify('window', 'pipeline-running-hide-to-tray')
       }
     }
   })
