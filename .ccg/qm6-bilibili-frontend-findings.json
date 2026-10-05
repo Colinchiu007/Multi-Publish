@@ -1,0 +1,55 @@
+{
+  "model": "ling-3.1-flash-free",
+  "direction": "frontend",
+  "findings": [
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js:5",
+      "desc": "「唯一真源取证」指针悬空：bilibili-audit-check.js:5 与 bilibili-audit-check.test.js:3 都引用 01-docs/AUDIT-REQUERY-EVIDENCE-BILIBILI-2026-10-05.md，但该路径不存在——实际文件在 docs/audit-requery-evidence-bilibili-2026-10-05.md（目录与小写均不同；文档自身「落位说明」已解释因 doc-gate 白名单才放 docs/）。模块头注释声称「改任何一条都必须同步该文档」，维护者按此指针索骥会扑空，同步契约失去锚点。",
+      "fix": "两处引用改为 docs/audit-requery-evidence-bilibili-2026-10-05.md（或同时给出 01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md §九 的二级指针）。"
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/publish-monitor.js:114",
+      "desc": "导出 API 陷阱：checkPublishStatus 第 4 参 pollUrl 在 bilibili 分支被静默忽略（实现用自己的模块常量 BILIBILI_LIST_URL，publish-monitor.js:117-124），而该函数经 module.exports 公开——外部调用者传自定义 URL 不会生效且无任何告警；createMonitorTask 算出的 pollUrl 对 bilibili 是死参数。CHECK_URLS.bilibili 与 BILIBILI_LIST_URL 虽因同一常量绑定而不会取值漂移，但「表项只服务 parity 锁」这一语义仅存在于注释，下一个维护者易误以为改 CHECK_URLS.bilibili 能改变请求目标。",
+      "fix": "二选一：① checkBilibiliAuditStatus 接受可选 listUrl 覆盖（默认 BILIBILI_LIST_URL），checkPublishStatus 把 pollUrl 透传，让参数重新 load-bearing；② 若坚持判据与端点表解耦，在 bilibili 分支对 pollUrl 与 BILIBILI_LIST_URL 做运行时一致性断言（fail fast），并在 JSDoc 写明「pollUrl 对 bilibili 无效」。"
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/publish-monitor.js:81",
+      "desc": "reason 字段在集成缝丢失：bilibili-audit-check 精心区分了 7 种 pending 原因（no-post-id / no-cookies / nav-not-established / envelope-not-ok / no-audit-array / state-unobserved / not-in-list），但 createMonitorTask 的 poll-progress 日志（publish-monitor.js:81）只记 status，timeout/回调载荷也不带 reason。生产环境无法区分「会话未建立」「风控信封」「列表缺字段」——而这正是本模块「无定论不猜」设计的可诊断性核心（对照 auth-partition-reclaim 的三分法日志纪律，同仓已有先例要求把无定论原因写进日志）。",
+      "fix": "poll-progress 的 params 追加 reason: result.reason（与 status 同级）；monitor-timeout 回调可携带最后一次 reason，便于历史记录侧排障。"
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/publish-monitor.js:117",
+      "desc": "分派模式是先例而非既有风格：checkPublishStatus 内 if (platform === 'bilibili') 是全仓首个平台专用分支（zhihu/douyin 目前都走通用路径，无先例可循）；而 CHECK_URLS 的 kuaishou 注释已预告「以专用 POST 查询实现补回」，后续平台取证落地后会形成 if 链。",
+      "fix": "趁分支尚少时引入分派表（const PLATFORM_CHECKERS = { bilibili: checkBilibiliAuditStatus }，按 platform 查表、未命中走通用路径），数据驱动且把「哪些平台已取证」显式化，与 publish-audit-requery 的 verified/candidate 分级天然对齐。"
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js:24",
+      "desc": "常量命名与值语义不符：BILIBILI_LIST_URL 名字像通用列表端点，实际值钉死了 status=pubed&pn=1&ps=20&platform=web（取证文档 §一① 证明 status 还有 not_pubed / is_pubing 两个合法取值）。维护者复用该常量查询「未发布」列表会被静默误导。",
+      "fix": "改名 BILIBILI_PUBED_LIST_URL，或拆成 base URL + 默认 params 两段（保留全量常量给 T11 请求形状锁）。"
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js:37",
+      "desc": "判据两态扩展不对称：state 走可扩展的导出冻结数组 BILIBILI_OBSERVED_ONLINE_STATES，primary_state 却硬编码 === 0。将来按新证据扩展 state 观测集合时，primary_state 的闸门静默保持 0，扩展语义不完整且无提示。",
+      "fix": "抽成同形的第二个观测集合（如 BILIBILI_OBSERVED_ONLINE_PRIMARY_STATES），或至少在常量旁注释「两态必须同步扩展」。"
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "desc": "测试组织三点：① 同目录三种约定并存——本文件 ESM+createRequire（require$(MOD_PATH) 重复 11 处），zhihu-favlist-service.test.js 是 ESM import + 裸 require，publish-audit-requery.test.js 是纯 CJS；注释给了 createRequire 的理由（vite SSR transform 下 import.meta.url 非 file URL），但未记录为何不沿用 zhihu 先例的裸 require，建议补一行对比结论或对齐先例。② T12/T13/T14 测的是 publish-monitor / publish-audit-requery，却挂在 bilibili 的测试文件里（全仓没有 publish-monitor.test.js），T13 这类路由锁在文件拆分时易成孤儿。③ T5 用 expect(st+'⇒'+r.status).toBe(st+'⇒pending') 拼字符串注入失败信息，属非惯用法（vitest 的 expect 第二参数即自定义消息）。",
+      "fix": "新建 publish-monitor.test.js 收编 T12/T13（parity 锁留在 publish-audit-requery.test.js 原位）；T5 改用 expect(r.status, `state=${st}`).toBe('pending')；在文件头注释补「为何用 createRequire 而非 zhihu 先例的裸 require」的结论。"
+    },
+    {
+      "severity": "Info",
+      "file": "docs/audit-requery-evidence-bilibili-2026-10-05.md:88",
+      "desc": "取证文档内部两处口径漂移：① §四 条目编号乱序为 1,2,3,4,6,5（88-89 行「6.」排在「5.」之前）；② §五.1「先 nav 取 mid，再取列表」表述强于实现——代码只校验 nav.data.mid 存在（会话有效），从不使用 mid 值（文档 §一② 自己写明该接口不显式收 mid、由 cookie 会话决定主体）。",
+      "fix": "§四 编号改回 1..6 顺序；§五.1 改为「先 nav 验证会话有效（mid 存在）再取列表」。"
+    }
+  ],
+  "verdict": "pass"
+}

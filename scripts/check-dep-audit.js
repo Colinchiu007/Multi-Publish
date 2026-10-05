@@ -7,13 +7,18 @@
  * 可复现的常驻控制：
  *   - npm 侧：`pnpm audit --prod --json`（必须显式走官方 registry，
  *     npmmirror 镜像没有 audit 端点，会报 ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS）
+ *   - ops-center 侧：`npm audit --omit=dev --json`，cwd 落在 ops-center/frontend
+ *     （该包不在 pnpm workspace 内、自带 package-lock.json ⇒ 与 pnpm 的 --prod 同语义取 --omit=dev）
  *   - python 侧：`pip-audit -r ops-center/backend/requirements.txt --format json`
  *
- * 判定（三条，全部按 advisory id 逐条比对，不做「数量阈值」这种可被抵消的口径）：
+ * 判定（四条，全部按 advisory id 逐条比对，不做「数量阈值」这种可被抵消的口径）：
  *   1. NEW_ADVISORY        —— 出现基线之外的新公告 → 阻断（要么升级，要么登记并给结论）
  *   2. RESOLVED_STILL_BASELINED —— 基线里的公告已不再命中 → 阻断（清账，防基线腐化）
  *   3. BASELINE_META_INVALID —— 条目缺 decision / decision 非法 / reviewBy 已过期 → 阻断
  *      （挂账必须写清「为什么不马上修」和「什么时候回看」，不允许无限期挂账）
+ *   4. DECISION_CONTRADICTS_PATCHED —— decision=upgrade-tracked 却给不出「能逃出漏洞区间」的
+ *      targetVersion → 阻断。动因是 axios 那轮实测：12 条公告被登记成 `upgrade-tracked` 挂账，
+ *      而修复版本 1.20.0 早在 2026-08-26 就发布了 —— 「挂账」与「可修」之间没有任何东西在对账。
  *
  * 扫描器本身跑不起来（离线 / 端点不可达）时**不判失败**，改为 SCANNER_UNAVAILABLE 告警：
  * 让 PR 因网络抖动变红会让门禁被人为关掉，反而更危险。周计划任务是本门禁的权威来源。
@@ -33,8 +38,23 @@ const { spawnSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE_PATH = path.join(__dirname, 'dep-audit-baseline.json');
 const PIP_REQUIREMENTS = 'ops-center/backend/requirements.txt';
+// ops-center/frontend 不在 pnpm workspace 里（pnpm-workspace.yaml 只列 apps/* 与 packages/*），
+// 它自带 package-lock.json 由 npm 管理。上一轮 axios 收口时它是被点名的「遗留」：
+// 既不在本门禁的扫描域内、也没有任何 workflow 装它，却以"看起来受门禁保护"的形态存在。
+// 本域就是把那句话说成真判据。
+const OPS_FRONTEND_REL = 'ops-center/frontend';
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
+
+// 域 → 解析器的显式映射（新增域必须在这里登记，否则该域按 DOMAIN_NOT_WIRED 当场判红）。
+const PARSERS = {
+  'npm': (json) => parseNpmAudit(json),
+  'pip': (json) => parsePipAudit(json),
+  'npm-opscenter': (json, source) => parseNpmAuditV2(json, source),
+};
 const VALID_DECISIONS = ['upgrade-tracked', 'accepted-risk', 'not-exploitable', 'no-fix-available'];
+// 扫描域清单（顺序即输出顺序）。'npm-opscenter' 是独立 source 名，与 pnpm 的 'npm' 不共用基线键 ——
+// 否则同一个 GHSA 在两个域各命中一次会互相冒充"已登记"，且 --update 时后写的会把先写的抹掉。
+const DOMAINS = ['npm', 'npm-opscenter', 'pip'];
 
 function shellRun (cmd, args, opts = {}) {
   try {
@@ -60,12 +80,71 @@ function shellRun (cmd, args, opts = {}) {
   }
 }
 
-/** 默认扫描器：真实调 pnpm / pip-audit（用例注入假实现，避免依赖网络）。 */
+/** 默认扫描器：真实调 pnpm / npm / pip-audit（用例注入假实现，避免依赖网络）。 */
 function createDefaultRunners (registry) {
   return {
     npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry]),
+    // ops-center/frontend 不在 pnpm workspace 内（pnpm-workspace.yaml 只列 apps/* 与 packages/*），
+    // 它自带 package-lock.json 由 npm 管理 ⇒ 上一轮 axios 的「遗留」原文：它既不在本门禁的两个扫描域里，
+    // 也没有任何 workflow 装它，于是以「看起来受门禁保护」的形态存在。这里把它真的扫进来。
+    // --omit=dev 与 pnpm 侧的 --prod 同语义（本机实测：--omit=dev ⇒ 0 条；全量 ⇒ 3 包 / 12 公告，
+    // 全部落在 vitest→@vitest/mocker→undici 这条 dev 链上）。
+    'npm-opscenter': () => shellRun(
+      'npm', ['audit', '--omit=dev', '--json', '--registry=' + registry],
+      { cwd: path.join(ROOT, OPS_FRONTEND_REL) },
+    ),
     pip: () => shellRun('pip-audit', ['-r', PIP_REQUIREMENTS, '--format', 'json', '--progress-spinner', 'off']),
   };
+}
+
+/**
+ * npm audit v2 JSON → 归一化条目（形状与 pnpm 的 `advisories` 完全不同，不能复用 parseNpmAudit）。
+ * 顶层 `vulnerabilities` 按**包名**聚合，`via[]` 里每一项才是一条公告；GHSA id 只出现在 `via[].url`。
+ * `patched` 从 range 的上界反推：`>=7.0.0 <7.29.1` ⇒ `>=7.29.1`；推不出（无 `<` 上界）留空，
+ * 语义就是「没有修复版本」—— 与 parseNpmAudit 的 `<0.0.0` 归一化口径对齐。
+ */
+function parseNpmAuditV2 (report, source) {
+  const vulns = (report && report.vulnerabilities) || {};
+  const out = new Map();
+  for (const [name, v] of Object.entries(vulns)) {
+    const effects = [name].concat(v.effects || []);
+    for (const via of v.via || []) {
+      if (typeof via === 'string') continue; // 字符串项 = 指向另一个受影响包，不是公告
+      const id = ghsaFromUrl(via.url) || ('npm-' + via.source);
+      const patched = patchedFromRange(via.range);
+      const roots = [...new Set(effects.map((e) => String(e).replace(/^node_modules\//, '').split('>').join('>')))].sort();
+      const prev = out.get(id);
+      out.set(id, {
+        source,
+        id,
+        module: prev && prev.module !== name ? prev.module + ',' + name : name,
+        severity: via.severity || v.severity || 'unknown',
+        patched: prev && prev.patched && prev.patched !== patched
+          ? [...new Set([prev.patched, patched].filter(Boolean))].join(', ') : patched,
+        roots: prev ? [...new Set(prev.roots.concat(roots))].sort() : roots,
+      });
+    }
+  }
+  return [...out.values()];
+}
+
+/**
+ * ">=7.0.0 <7.29.1" -> ">=7.29.1"；无上界 / 空串 -> ""（= 无修复版本）。
+ * 多族规格（">=1.0.0 <1.2.3, >=2.0.0 <2.1.5"）必须把**每个** < 上界都收进来 ⇒ ">=1.2.3, >=2.1.5"。
+ * 动因（QM-6 外部评审实测，2026-10-05）：旧实现 .exec 只取第一个上界，第二族被静默丢掉，
+ * 于是 targetVersion 写 2.0.5 也能"逃过下界"却被判通过 —— 而那正是本判据要拦的闭不了账。
+ * 与 parseNpmAuditV2 里同 GHSA 跨包合并时的 ', ' 拼接口径保持一致（同一形状，判据侧只需一种拆法）。
+ */
+function patchedFromRange (range) {
+  const bounds = String(range || '').match(/<\s*(\d+\.\d+\.\d+)/g) || [];
+  const uniq = [...new Set(bounds.map((s) => '>=' + /<\s*(\d+\.\d+\.\d+)/.exec(s)[1]))];
+  return uniq.join(', ');
+}
+
+/** 从公告 URL 里取 GHSA id；取不到返回 null（调用方回退到 npm advisory 数字 id）。 */
+function ghsaFromUrl (url) {
+  const m = /GHSA-[a-z0-9-]+/i.exec(String(url || ''));
+  return m ? m[0].toUpperCase() : null;
 }
 
 /** pnpm/npm audit JSON → 归一化条目。按 GHSA id 去重（同一公告可能命中多个 workspace）。 */
@@ -77,17 +156,26 @@ function parseNpmAudit (report) {
     const findings = raw.findings || [];
     const roots = [...new Set(findings.flatMap((f) => (f.paths || []).map((p) => String(p).split('>')[0])))].sort();
     const prev = out.get(id);
+    // pnpm 对「无修复版本」的公告写 `<0.0.0`；归一成空串，否则它会被下面的自洽判据当成"有修复版可升"。
+    const patched = normalizePatched(raw.patched_versions);
     const entry = {
       source: 'npm',
       id,
       module: raw.module_name || 'unknown',
       severity: raw.severity || 'unknown',
-      patched: raw.patched_versions || '',
+      patched,
       roots: prev ? [...new Set(prev.roots.concat(roots))].sort() : roots,
     };
     out.set(id, entry);
   }
   return [...out.values()];
+}
+
+/** `<0.0.0` / 空 / null 一律归一为空串 —— 空串在门禁里是「没有修复版本」的**唯一**表示法。 */
+function normalizePatched (p) {
+  const s = String(p || '').trim();
+  if (!s || s === '<0.0.0') return '';
+  return s;
 }
 
 /** pip-audit JSON → 归一化条目（pip-audit 不给严重度，统一 unknown，由人工在基线里补注）。 */
@@ -157,6 +245,48 @@ function writeBaseline (found, old, p) {
  * 核心判定（纯函数，用例注入假扫描结果）。
  * @returns {{violations: string[], scannedCount: number}}
  */
+/**
+ * 校验 upgrade-tracked 的目标版本真的逃出了 patched 区间。返回 null = 通过，返回字符串 = 违规描述。
+ * 口径：**不引第三方 semver**（本仓依赖里没有任何测试可用的 semver 单例可依赖，装它属越界），
+ * 只做「>=X 下界」的逐段数值比较 —— 本仓 patched 字段 100% 是这个形状（实测 24/24），
+ * 遇到解析不了的形状一律 fail closed 报违规，而不是放行。
+ */
+function checkTargetEscapes (item) {
+  const key = item.source + '/' + item.id;
+  // 无修复版本 ⇒ 「升级中」这个说法本身不成立，先判这条，再谈目标版本。
+  if (!String(item.patched || '').trim()) {
+    return 'DECISION_CONTRADICTS_PATCHED: ' + key + ' 挂的是 upgrade-tracked，但 patched 为空 —— 没有修复版本就不存在「升级中」，应改判 no-fix-available 并在 note 给出取证';
+  }
+  const tv = String(item.targetVersion || '').trim();
+  if (!tv) {
+    return 'DECISION_CONTRADICTS_PATCHED: ' + key + ' decision=upgrade-tracked 却缺 targetVersion —— 挂账必须写明"升到哪个版本"，否则这笔账无法复核（修复版本 ' + item.patched + '）';
+  }
+  const t = /^(\d+)\.(\d+)\.(\d+)$/.exec(tv);
+  if (!t) return 'DECISION_CONTRADICTS_PATCHED: ' + key + ' 的 targetVersion=' + JSON.stringify(tv) + ' 必须是 x.y.z 字面量（不许写区间/通配，那等于没承诺）';
+  const got = [Number(t[1]), Number(t[2]), Number(t[3])];
+  // patched 可能是**多段**（同 GHSA 跨包合并、或一条公告有 families）—— 必须逐段都逃过。
+  // 取"逐段都过"而不是"任一段过"：两种语义我无法从数据里区分，保守侧只会假红不会假绿
+  // （假红的出路是写一个更高的 targetVersion，那本来就更安全）。
+  const segs = String(item.patched || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!segs.length) {
+    return 'DECISION_CONTRADICTS_PATCHED: ' + key + ' 的 patched 为空却挂着 upgrade-tracked';
+  }
+  for (const seg of segs) {
+    const m = />=\s*(\d+)\.(\d+)\.(\d+)/.exec(seg);
+    if (!m) {
+      return 'DECISION_CONTRADICTS_PATCHED: ' + key + ' 的 patched 段=' + JSON.stringify(seg) + ' 解析不出可比较的下界（本判据只认 ">=x.y.z"，解析不了即拦）';
+    }
+    const want = [Number(m[1]), Number(m[2]), Number(m[3])];
+    for (let i = 0; i < 3; i++) {
+      if (got[i] > want[i]) break;
+      if (got[i] < want[i]) {
+        return 'DECISION_CONTRADICTS_PATCHED: ' + key + ' 的目标版本 ' + tv + ' 低于修复下界 ' + seg + ' —— 升上去仍然命中该公告，这笔账永远闭不了（patched 全段=' + item.patched + '）';
+      }
+    }
+  }
+  return null; // 每一段都逃过 = 承诺的升级确实闭得上账
+}
+
 function evaluate (baseline, found, today, scannedSources) {
   const now = today || new Date().toISOString().slice(0, 10);
   // 只对本轮真的扫过的域判"已不再命中"，否则缺扫描器会被读成基线腐化（假红）。
@@ -178,6 +308,14 @@ function evaluate (baseline, found, today, scannedSources) {
     }
     if (!item.note || !String(item.note).trim()) {
       violations.push('BASELINE_META_INVALID: ' + key + ' 缺 note（挂账必须写清为什么不马上修）');
+    }
+    if (item.decision === 'upgrade-tracked') {
+      // 「挂账待升级」是一个可复核的承诺：必须给出逃出漏洞区间的目标版本；
+      // 没有修复版本就根本不该挂这个 decision。判据全部在 checkTargetEscapes 里，
+      // 这里只调一次 —— 同一条违规的文案不得取决于调用点（用例直接测纯函数时必须拿到同一句话）。
+      // 动因（实测）：axios 的 12 条公告曾被登记成 upgrade-tracked 挂账，而修复版 1.20.0 早已发布。
+      const bad = checkTargetEscapes(item);
+      if (bad) violations.push(bad);
     }
   }
 
@@ -212,29 +350,52 @@ function runCheck (opts = {}) {
   const error = opts.error || ((...a) => console.error(...a));
   const registry = opts.registry || process.env.NPM_AUDIT_REGISTRY || DEFAULT_REGISTRY;
   const runners = opts.runners || createDefaultRunners(registry);
+  const parsers = opts.parsers || PARSERS;
   const bp = opts.baselinePath || BASELINE_PATH;
 
   const results = {};
   const unavailable = [];
+  const notWired = [];   // 域在 DOMAINS 里但没有 runner：接线断了，与"扫描器跑不起来"是两类事
   const scannedSources = [];
-  for (const source of ['npm', 'pip']) {
-    const res = runners[source]();
+  for (const source of DOMAINS) {
+    const run = runners[source];
+    if (typeof run !== 'function') {
+      notWired.push(source + '(缺 runner)');
+      // 域在 DOMAINS 里但没有 runner = 接线断了；不得当成"这个域扫过且干净"。
+      results[source] = [];
+      continue;
+    }
+    if (typeof parsers[source] !== 'function') {
+      notWired.push(source + '(缺解析器)');
+      // 有 runner 却没登记解析器时，旧写法会 else 兜底到 parseNpmAuditV2 ⇒ 拿错形状静默解析，
+      // 覆盖面窄于声明却不吭声 —— 与 DOMAIN_NOT_WIRED 同罪，必须同样 fail closed。
+      results[source] = [];
+      continue;
+    }
+    const res = run();
     if (!res || !res.ok) {
       unavailable.push(source + '(' + ((res && res.error) || 'unknown').slice(0, 160) + ')');
       results[source] = [];
       continue;
     }
     scannedSources.push(source);
-    results[source] = source === 'npm' ? parseNpmAudit(res.json) : parsePipAudit(res.json);
+    results[source] = parsers[source](res.json, source);
+    // 上面一行之所以敢直接索引，是因为循环开头已对 PARSERS[source] 做过函数校验（缺解析器 = 接线断了）。
   }
-  const found = results.npm.concat(results.pip);
-  // 两域都没扫成 ⇒ 本轮没有任何判据，不得报通过（否则扫描器配置坏掉会演化成"全绿"）。
+  const found = DOMAINS.flatMap((s) => results[s] || []);
+  // 接线判据先于一切：漏接一个域 = 本轮判据覆盖面窄于声明，不得用"已扫域照常判"放过
+  // （SCANNER_UNAVAILABLE 的宽容只针对离线/端点抖动；那是部署事实，这是代码事实）。
+  if (notWired.length) {
+    error('DOMAIN_NOT_WIRED: 这些域在 DOMAINS 里却没有 runner ⇒ ' + notWired.join(', ') + '；补 createDefaultRunners，或把域从清单里撤掉并写明理由');
+    return 1;
+  }
+  // 全部声明域都没扫成 ⇒ 本轮没有任何判据，不得报通过（否则扫描器配置坏掉会演化成"全绿"）。
   if (!scannedSources.length) {
     error('扫描器全部不可用，本轮无判据 ⇒ 按失败处理：' + unavailable.join(' '));
     return 1;
   }
 
-  // 写基线必须两域齐全：writeBaseline 按 found 原样落盘，缺域会把另一域的挂账静默抹掉。
+  // 写基线必须全部声明域齐全：writeBaseline 按 found 原样落盘，缺一个域就会把其余域的挂账静默抹掉。
   if (unavailable.length && isUpdate) {
     error('扫描器不可用，拒绝写基线：' + unavailable.join(' '));
     return 1;
@@ -268,9 +429,9 @@ function runCheck (opts = {}) {
     log(JSON.stringify({ scannedCount, ledgerCount, found: sortEntries(found), violations }, null, 2));
   } else {
     log('=== 依赖漏洞审计门禁 ===');
-    log('npm=' + results.npm.length + ' pip=' + results.pip.length + ' 命中=' + scannedCount + ' 挂账=' + ledgerCount);
+    log('命中分布: ' + DOMAINS.map((s) => s + '=' + (results[s] || []).length).join(' ') + ' 命中=' + scannedCount + ' 挂账=' + ledgerCount);
     for (const v of violations) log('❌ ' + v);
-    if (!violations.length) log('✅ 无新增已知漏洞公告，基线与现实一致且结论完整。');
+    if (!violations.length) log('✅ 无新增已知漏洞公告，基线与现实一致且结论完整。' + '（口径：npm 两个域均按 --omit=dev / --prod 扫，dev 依赖不在判据面内）');
   }
   return violations.length ? 1 : 0;
 }
@@ -284,9 +445,18 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   evaluate,
+  PARSERS,
+  patchedFromRange,
   runCheck,
   parseNpmAudit,
   parsePipAudit,
+  parseNpmAuditV2,
+  patchedFromRange,
+  ghsaFromUrl,
+  normalizePatched,
+  checkTargetEscapes,
+  DOMAINS,
+  OPS_FRONTEND_REL,
   readBaseline,
   writeBaseline,
   sortEntries,

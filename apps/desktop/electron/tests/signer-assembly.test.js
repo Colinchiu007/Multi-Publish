@@ -177,7 +177,7 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
       assembly: { sign: async () => 's', prewarm: async () => ({ ok: true }) },
       ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; calls.push(['handle', ch]) } },
       isTrustedSender: () => true,
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     })
     expect(calls).toEqual(expect.arrayContaining([
       ['managerCommand', 'kuaishou.ns-sig3-browser', 'kuaishou'],
@@ -233,7 +233,7 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
       manager: { registerIpcHandlers: () => {}, registerCommand: () => {}, markVerified: () => {}, _setSignFn: () => {} },
       assembly: { sign: async () => 's', prewarm: async () => ({ ok: true }) },
       ipcMain: { handle: () => {} },
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     })).toThrow(/isTrustedSender/)
   })
 

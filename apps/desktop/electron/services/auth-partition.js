@@ -199,10 +199,9 @@ async function collectAuthPartitionCookies (platform, accountId, opts) {
     const sel = await selectAuthPartition(platform, accountId, opts)
     if (!sel.partition) {
       if (sel.reason === 'no-candidate') {
-        log.warn('AuthPartition', '[' + platform + '] no auth partition candidate for accountId=' + (accountId || '(none)'))
+        log.notify('AuthPartition', 'no-partition-candidate', { level: 'WARN', params: { platform, accountId: accountId || '(none)' } })
       } else {
-        log.warn('AuthPartition', '[' + platform + '] auth partition fallback unusable: reason=' + sel.reason
-          + ' probed=' + sel.probed.length + ' [' + sel.probed.join(', ') + ']')
+        log.notify('AuthPartition', 'fallback-unusable', { level: 'WARN', params: { platform, reason: sel.reason, probed: sel.probed.length, probedList: sel.probed.join(', ') } })
       }
       return Object.assign({}, empty, { reason: sel.reason, probed: sel.probed })
     }
@@ -215,12 +214,10 @@ async function collectAuthPartitionCookies (platform, accountId, opts) {
       byName.set(c.name, c.value) // 同名去重：后出现（更具体域）的值优先
     }
     const cookieString = Array.from(byName.entries()).map(([k, v]) => k + '=' + v).join('; ')
-    log.info('AuthPartition', '[' + platform + '] read ' + byName.size + ' cookies from auth partition '
-      + sel.partition + ' (probed=' + sel.probed.length + ')')
+    log.notify('AuthPartition', 'cookies-read', { params: { platform, cookies: byName.size, partition: sel.partition, probed: sel.probed.length } })
     return { cookieString, partition: sel.partition, count: byName.size, reason: sel.reason, probed: sel.probed }
   } catch (e) {
-    log.warn('AuthPartition', '[' + platform + '] auth partition cookie read failed: reason=error '
-      + ((e && e.message) || 'unknown'))
+    log.notify('AuthPartition', 'cookie-read-failed', { level: 'WARN', params: { platform }, error: String((e && e.message) || 'unknown') })
     return Object.assign({}, empty, { reason: 'error' })
   }
 }

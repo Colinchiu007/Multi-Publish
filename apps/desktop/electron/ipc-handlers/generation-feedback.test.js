@@ -16,7 +16,7 @@ function makeRoot () {
 function makeCollector (root) {
   return createSignalCollector({
     logDir: root,
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
   })
 }
 
@@ -123,14 +123,14 @@ describe('generation-feedback: prompt-library 记忆库 IPC', () => {
       libraryRoot: path.join(memRoot, 'prompt-library'),
       config: {},
       statsProvider: () => null,
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     })
     memory.load()
     governance = createGovernance({
       config: {},
       memory,
       statsProvider: () => null,
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     })
   }
 

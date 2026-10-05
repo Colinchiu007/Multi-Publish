@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 __enableElectronMock()
 
-const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 __registerMock('./logger', log)
 
 const supportsApi = vi.fn()

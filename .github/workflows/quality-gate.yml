@@ -23,8 +23,13 @@ on:
 
 # 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
 # main push 不取消（保发布链路完整性）。
+# 注：不取消还不够 —— group 也必须让 push 唯一，否则旧 push 会在"还没排队成功"时被顶掉（见下方 concurrency 注释与 #2642）。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # push（main）按 run_id 唯一分组：GitHub 在同一并发组里只允许一个排队者，
+  # 新 push 一到就把还在排队的旧 push 置为 cancelled，而那条 sha 此后再没有 run ⇒ 主侧证据永久丢失。
+  # 实测（近 1000 条 main push run 按 (sha, workflow) 归集）：被取消过又有后续 run 补回的 = 0 格。
+  # 由 .github/scripts/workflow-contract.test.js 的「2b) main push 的并发组」锁住，详见 #2642。
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-run-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -49,6 +54,9 @@ jobs:
       - name: Detect docs-only changes
         id: classify
         shell: bash
+        env:
+          EVT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # 账本 JSON 在 docs-only 白名单里 ⇒ 校验它的门禁不能只待在会被短路的 static-gates。
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
@@ -59,8 +67,20 @@ jobs:
             echo "docs-only=false (non-PR event: full run)"
             exit 0
           fi
-          BASE="${{ github.event.pull_request.base.sha }}"
-          node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
+          # 「该用哪一对 base/head」的决策住在 scripts/ci-pr-changeset.js 里，由真 git 夹具逐形态单测。
+          # 原因（本轮实测）：这段判断原先写在 bash，把 `if git rev-parse -q --verify HEAD^2` 改成
+          # `if false` 之后三条 workflow 结构锁全绿 —— 文本锁锁得住形状，锁不住"支路还走不走"。
+          # 脚本同时把 pr-base/pr-head 写进 GITHUB_OUTPUT，Gate 2c2 只读产出，不自己再算第二遍。
+          node --test scripts/ci-pr-changeset.test.js
+          CHANGESET="$(node scripts/ci-pr-changeset.js --repo="$PWD" --evt-name="${{ github.event_name }}" --evt-base="${EVT_BASE_SHA:-}" --evt-head="${EVT_HEAD_SHA:-}")" || exit 1
+          echo "[classify] $CHANGESET"
+          BASE="$(printf '%s\n' "$CHANGESET" | sed -n 's/^base=//p')"
+          HEAD_SHA="$(printf '%s\n' "$CHANGESET" | sed -n 's/^head=//p')"
+          if [ -z "$BASE" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::取不到本 PR 的 base/head（[${BASE}]/[${HEAD_SHA}]）；宁可乐红也不得静默退回 HEAD=合并提交——那会把期间 main 的他人提交算进本 PR"
+            exit 1
+          fi
+          node scripts/classify-docs-only.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
 
       # --- Gate 2c2（#2745 从 static-gates 搬入本 job）: 执行记录存在性判据 ---
       # 它校验的输入 openspec/records/** 命中 docs-only 白名单（`openspec/**`），而 static-gates
@@ -78,11 +98,21 @@ jobs:
       - name: "Gate 2c2 - Execution-record presence (changes job, #2745)"
         shell: bash
         env:
-          EXEC_BASE: ${{ github.event.pull_request.base.sha }}
+          # 取源必须复用 classify step 的产物（合并提交双亲 > 事件 payload），不在这里再算一遍：
+          # 两份独立取源一旦漂移，就会出现"同一 PR 在 A 判 docs-only、在 B 判缺记录"这种不可归因的红。
+          EXEC_BASE: ${{ steps.classify.outputs.pr-base }}
+          EXEC_HEAD_SHA: ${{ steps.classify.outputs.pr-head }}
           EXEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          # 非 PR 事件下 classify 已早退、两个产出都是空串 ⇒ 交给脚本按 advisory 留痕退出 0（既有行为）。
+          # 但"base 有值而 head 没值"只能意味着取源被破坏，此时 --head 退回 HEAD=合并提交会量错集合，
+          # 而错的方向是**假通过**（别人的记录文件被算进本 PR），所以必须乐红。
+          if [ -n "${EXEC_BASE:-}" ] && [ -z "${EXEC_HEAD_SHA:-}" ]; then
+            echo "::error::classify 未产出 pr-head（取源步骤异常？），不得退回 HEAD=合并提交"
+            exit 1
+          fi
           node --test scripts/check-pr-exec-record.test.js
-          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head=HEAD --mode=advisory
+          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
       # --- Gate 12（同族第三处，本次一并搬入）: 品牌残留门禁 ---
       # AGENTS.md 的 docs-only 快速通道把「品牌残留」列为文档 PR 的**保留门禁**（一条不省），
@@ -93,6 +123,33 @@ jobs:
         run: |
           node --test scripts/check-no-brand-residue.test.js
           node scripts/check-no-brand-residue.js
+
+      # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
+      # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
+      # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
+      # 之所以没有任何东西拦住：它是 append-only 台账，却无一处判它的单调性 ——
+      # doc-gate 只判「diff 里有没有白名单文档」（删空文档照样满足）、check-max-lines 的
+      # SCAN_DIRS 不含根级 .md、check-gate-record-debt 看执行记录不看 CHANGELOG。
+      # 落点必须是本 job：CHANGELOG.md 命中 CI_IGNORED_PATHS 的根级 *.md（docs-only 白名单），
+      # 放在被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验（AGENTS.md「进白名单前提锁」）。
+      # gate-result 的 rollup 里含 needs.changes.result，且 Gate Result 是必需检查 ⇒ 本条真能拦，不是探测器。
+      # base 必须取 **merge-base**，不能直接取 PR base sha，更不能取 origin/main（2026-10-05 实测）：
+      # 这条棘轮问的是「本 PR 相对自己的起点有没有把条目弄丢」。实测拿 origin/main 当 base 时，
+      # 别人在我上次同步之后并入 main 的 3 种条目会被读成"本 PR 丢了它们"⇒ rc=1 假红；
+      # 同一份 head 用 merge-base 口径是 1145 条 = 1145 条 ⇒ rc=0。
+      # GitHub 的 pull_request.base.sha 是"事件时刻的 main tip"，同样会随 main 前进漂移，所以再对它取一次
+      # merge-base。算不出 merge-base 时回落 base sha，push 事件下再回落 HEAD^（squash 合并 = 单提交，语义正确）；
+      # 回落方向是"更严"而非"更松" —— 宁可假红，不可假绿。
+      - name: "Gate 2c3 - CHANGELOG growth (changes job, 只可增长棘轮)"
+        shell: bash
+        env:
+          CL_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-changelog-growth.test.js
+          BASE_REF="${CL_BASE:-HEAD^}"
+          MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+          echo "[changelog-growth] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
+          node scripts/check-changelog-growth.js --base="${MB:-$BASE_REF}" --head=HEAD
 
   static-gates:
     name: QG Static
@@ -206,6 +263,10 @@ jobs:
           # （见下面 Gate 4 与 Desktop tests shard 两处 `check-test-egress-ledger.js` 调用）。
           # 这里只锁"判定器还能跑、口径没被改松"，与 static-gates 里其它锁同形。
           node --test scripts/check-test-egress-ledger.test.js
+          # Gate 4「本次 PR 有没有受影响的非桌面项目」的三态判据锁。锁的是**判定语义**而不是
+          # workflow 文本：#2902 与 #2596 两次同族假红都出自"空集"被误读，而两版的错误
+          # （$null 摊平 / stdout 被 nx 提示污染）只有真正跑判据才测得出来。
+          node --test scripts/nx-affected-probe.test.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2c2 已搬出本 job（#2745）---
@@ -543,19 +604,35 @@ jobs:
           if ($env:TEST_MODE -eq "affected") {
             # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起 30 分钟超时
             # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
-            $affectedRaw = & pnpm exec nx show projects --affected --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
+            $affectedRaw = & pnpm exec nx show projects --affected --with-target=test --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
             $nxExit = $LASTEXITCODE
-            $affected = $affectedRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-            if ($nxExit -ne 0 -or $null -eq $affected) {
-              Write-Host "::warning::nx affected detection failed (exit $nxExit); running tests:affected normally rather than skipping."
+            # 判据搬进 scripts/nx-affected-probe.js（三态语义由 `node --test
+            # scripts/nx-affected-probe.test.js` 钉住），这里只负责把结论分流。判据为什么不能留在这段里：
+            #
+            #   #2902 修过一次同形问题：pwsh 里 ConvertFrom-Json '[]' 得到的是 $null（同族坑见
+            #   AGENTS.md「@(...) 摊平成 $null」），于是「本轮没有任何受影响项目」被误分类成检测失败。
+            #   当时的口径是**字符串全等** `$t -eq '' -or $t -eq '[]'` —— 全等只对「输出恰好是这两种
+            #   形态」成立，而 nx 会往 stdout 掺自己的提示。CI runner 还原 Nx 缓存后（缓存键只含
+            #   .nx/cache，.nx/workspace-data/d 那个 db 不在键内）就会打出
+            #   `NX   Unrecognized Cache Artifacts`（run 37255412754 实测原文）。
+            #   提示一掺，全等两条全不成立 ⇒ 空集被降级成「检测失败」⇒ 继续跑 test:affected
+            #   ⇒ nx 实跑 0 个任务、不启动任何测试进程 ⇒ 末尾运行时出站台账判定
+            #   （fail-closed：无台账即红）把 PR #2596 判红，Gate Result 连带红。
+            #
+            # 早退必须排在降级判定之前，且只在 kind=empty（**确证**空集）时才早退。
+            $probeJson = $affectedRaw | node scripts/nx-affected-probe.js --exit $nxExit
+            if ($LASTEXITCODE -ne 0) {
+              throw "nx affected 判读脚本执行失败（exit $LASTEXITCODE）—— 判据没跑起来，不得当作空集早退"
+            }
+            $probe = $probeJson | ConvertFrom-Json
+            if ($probe.kind -eq 'empty') {
+              Write-Host "No non-desktop projects with a test target affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
+              exit 0
+            }
+            if ($probe.kind -eq 'non-empty') {
+              Write-Host "Affected non-desktop projects: $($probe.projects -join ', ')"
             } else {
-              $affectedArr = @($affected)
-              if ($affectedArr.Count -gt 0) {
-                Write-Host "Affected non-desktop projects: $($affectedArr -join ', ')"
-              } else {
-                Write-Host "No non-desktop projects affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
-                exit 0
-              }
+              Write-Host "::warning::nx affected detection unusable (kind=$($probe.kind), nx exit $nxExit, reason=$($probe.reason)); running tests:affected normally rather than skipping."
             }
             $testArgs = @("run", "test:affected", "--", "--exclude=@multi-publish/desktop")
           } else {
@@ -878,7 +955,7 @@ jobs:
           }
           Write-Host "[GATE-7] All visual tests passed"
 
-      # Gate 7b：基线新鲜度（PR 侧、partial 形态）。
+      # Gate 7b：基线新鲜度（PR 侧、partial 形态）+ 两轮有界重试终判（#31）。
       # 存在的理由：#2761 改了发布表单 UI 却没刷新基线，而新鲜度检查当时只接在
       # visual-test.yml（2026-09-17 起不再由 PR 触发）里 ⇒ 它全绿合并、main 连红 11 次。
       # 那道门禁是探测器，这一步把它变成防线。
@@ -889,14 +966,69 @@ jobs:
       # 覆盖面以现场打印为准，不在此写死数字（写死就会漂）。
       # 判定域必须与 Gate 7 里补跑的 views 两套一致（见该处注释）：基线的权威渲染是
       # views 套件的 `<name>.png`，不是像素套件的 `<name>-current.png`。
-      - name: "Gate 7b - Baseline freshness (PR-side, partial)"
+      #
+      # 为什么两轮（#31，2026-10-05 实测）：单张视图的采集不可复现会卡住任意 PR ——
+      # PR #2914 run 37267645916 attempt=1 红在 create-history.png 3909 px / 0.189%，
+      # 同 sha 的 attempt=2 与同 sha 的 main push 全绿 ⇒ 采集 flake，不是基线漂移。
+      # 终判 = 违规视图的**两轮交集**：两轮都红是确定性漂移，照旧拦；
+      # 单轮红判定为 flake，放行但逐个留痕；round2 没采到的（skipped）无证据，
+      # 不得当 flake 放行（判据不存在时不得改变结论）。round2 在清空后的渲染目录里重采，
+      # 套件崩溃残留的 round1 渲染不会被误读成 round2 证据。
+      - name: "Gate 7b - Baseline freshness (PR-side, partial, two-round verdict)"
         shell: bash
         run: |
           node --test scripts/check-baseline-freshness.test.js
+
+          mkdir -p apps/desktop/tests/visual-testing/reports
+          R1=apps/desktop/tests/visual-testing/reports/gate7b-round1.json
+          R2=apps/desktop/tests/visual-testing/reports/gate7b-round2.json
+
+          # round 1：现行判定。干净即过（绝大多数 run 走这条路，零额外开销）。
+          if node scripts/check-baseline-freshness.js \
+            --renders=apps/desktop/tests/visual-testing/screenshots \
+            --baselines=apps/desktop/tests/visual-testing/base-screenshots \
+            --partial \
+            --json-out=$R1; then
+            echo "[GATE-7B] round 1 clean"
+            exit 0
+          fi
+
+          echo "[GATE-7B] round 1 reported violations - re-capturing views suites for flake discrimination"
+          mv apps/desktop/tests/visual-testing/screenshots apps/desktop/tests/visual-testing/screenshots-round1
+          mkdir -p apps/desktop/tests/visual-testing/screenshots
+
+          export TEST_URL=http://127.0.0.1:5174
+          export HEADLESS=true
+          export VITE_MP_DEV_FLAG_OVERRIDE=1
+          cd apps/desktop
+          pnpm.cmd exec vite --host 127.0.0.1 --port 5174 >vite-gate7b-round2.stdout.log 2>vite-gate7b-round2.stderr.log &
+          VITE_PID=$!
+          # kill 只打得到 pnpm.cmd 包装进程，杀不掉 vite 的 node 子进程树
+          # （同文件 Gate 7 的 pwsh 块用 taskkill /T /F 杀树，这里对齐）。
+          cleanup() { taskkill //PID $VITE_PID //T //F 2>/dev/null || kill $VITE_PID 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          ready=0
+          for i in $(seq 1 30); do
+            sleep 1
+            if curl -sf http://127.0.0.1:5174/ >/dev/null 2>&1; then ready=1; break; fi
+            if ! kill -0 $VITE_PID 2>/dev/null; then echo "[GATE-7B] round2 vite exited before ready"; exit 1; fi
+          done
+          if [ "$ready" != "1" ]; then echo "[GATE-7B] round2 vite never became ready"; exit 1; fi
+
+          # views 两套的比较结果不另设门禁（Gate 7b 的 0 px 严格强于 6%），
+          # 但退出码必须出声，否则「套件崩了」会伪装成「本次没产图」。
+          pnpm.cmd run test:visual || views_exit=$?
+          pnpm.cmd run test:visual:supplement || views_supp_exit=$?
+          echo "[GATE-7B] round2 suite exits: views=${views_exit:-0} views-supplement=${views_supp_exit:-0}"
+          cd ..
+
           node scripts/check-baseline-freshness.js \
             --renders=apps/desktop/tests/visual-testing/screenshots \
             --baselines=apps/desktop/tests/visual-testing/base-screenshots \
-            --partial
+            --partial \
+            --json-out=$R2 || true
+          node scripts/check-baseline-freshness.js --verdict-rounds=$R1,$R2
 
       - name: "Upload GUI quality artifacts"
         if: always()
@@ -906,7 +1038,9 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/reports/**
             apps/desktop/tests/visual-testing/screenshots/**
+            apps/desktop/tests/visual-testing/screenshots-round1/**
             apps/desktop/vite-visual.*.log
+            apps/desktop/vite-gate7b-round2.*.log
           if-no-files-found: ignore
           retention-days: 5
 

@@ -71,7 +71,7 @@ describe('model-provider IPC handlers', () => {
     ipcMain = createMockIpcMain()
     modelProviderManager = createMockManager()
     store = createMockStore()
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     registerHandlers(ipcMain, { modelProviderManager, store, log })
   })
 
@@ -290,7 +290,7 @@ describe('model-provider IPC handlers', () => {
     it('returns empty array when store is missing', async () => {
       // 重新注册时不传 store
       const ipcMain2 = createMockIpcMain()
-      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
       registerHandlers(ipcMain2, { modelProviderManager, store: null, log })
       const result = await ipcMain2._callHandler('model-provider:logs', {})
       expect(result.code).toBe(0)
@@ -299,7 +299,7 @@ describe('model-provider IPC handlers', () => {
 
     it('returns empty array when store.getProviderLogs is not a function', async () => {
       const ipcMain2 = createMockIpcMain()
-      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
       registerHandlers(ipcMain2, { modelProviderManager, store: {}, log })
       const result = await ipcMain2._callHandler('model-provider:logs', {})
       expect(result.code).toBe(0)
@@ -335,7 +335,7 @@ describe('model-provider IPC handlers', () => {
 
     it('returns 0 when store is missing', async () => {
       const ipcMain2 = createMockIpcMain()
-      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
       registerHandlers(ipcMain2, { modelProviderManager, store: null, log })
       const result = await ipcMain2._callHandler('model-provider:clean-logs', 7)
       expect(result.code).toBe(0)
@@ -344,7 +344,7 @@ describe('model-provider IPC handlers', () => {
 
     it('returns 0 when store.cleanProviderLogs is not a function', async () => {
       const ipcMain2 = createMockIpcMain()
-      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
       registerHandlers(ipcMain2, { modelProviderManager, store: {}, log })
       const result = await ipcMain2._callHandler('model-provider:clean-logs', 7)
       expect(result.code).toBe(0)
@@ -377,7 +377,7 @@ describe('model-provider IPC 写操作 sender 校验', () => {
     ipcMain = createMockIpcMain()
     modelProviderManager = createMockManager()
     store = createMockStore()
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     registerHandlers(ipcMain, { modelProviderManager, store, log })
   })
 
@@ -433,7 +433,7 @@ describe('model-provider IPC 只读操作不校验 sender', () => {
     ipcMain = createMockIpcMain()
     modelProviderManager = createMockManager()
     store = createMockStore()
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     registerHandlers(ipcMain, { modelProviderManager, store, log })
   })
 

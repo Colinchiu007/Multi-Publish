@@ -23,7 +23,7 @@ function makeMemory () {
     libraryRoot: path.join(root, 'prompt-library'),
     config: {},
     statsProvider: () => null,
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
   })
   memory.load()
   return { memory, root }

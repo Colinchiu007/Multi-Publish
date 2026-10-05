@@ -128,27 +128,27 @@ class UrlCollector {
     const budget = this._strategy.checkBudget(platform)
     if (!budget.allowed) {
       this._auditLogger.blocked(platform, 'default', 'budget_exhausted')
-      this._log.warn('url-collect', '采集被拦截：每日预算耗尽', { url, platform, reason: 'budget_exhausted' })
+      this._log.notify('url-collect', 'collect-blocked-budget', { level: 'WARN', params: { url, platform } })
       return { success: false, error: '已达每日采集预算上限', reason: 'budget_exhausted' }
     }
 
     if (this._coolDownPool.isBanned('account', platform)) {
       this._auditLogger.blocked(platform, 'default', 'cooldown')
-      this._log.warn('url-collect', '采集被拦截：平台冷却期', { url, platform, reason: 'cooldown' })
+      this._log.notify('url-collect', 'collect-blocked-cooldown', { level: 'WARN', params: { url, platform } })
       return { success: false, error: '该平台处于冷却期，请稍后再试', reason: 'cooldown' }
     }
 
     const strategy = this._strategy.getStrategy(platform)
     if (this._circuitBreaker.isOpen(platform, 'default', strategy.circuitBreaker)) {
       this._auditLogger.blocked(platform, 'default', 'circuit_open')
-      this._log.warn('url-collect', '采集被拦截：熔断保护', { url, platform, reason: 'circuit_open' })
+      this._log.notify('url-collect', 'collect-blocked-circuit', { level: 'WARN', params: { url, platform } })
       return { success: false, error: '该平台请求已熔断，请稍后再试', reason: 'circuit_open' }
     }
 
     const rateCheck = this._rateLimiter.evaluate({ ...strategy, platform, accountId: 'default', manual: Boolean(opts.manual) })
     if (!rateCheck.allowed) {
       this._auditLogger.blocked(platform, 'default', rateCheck.reason, { waitMs: rateCheck.waitMs })
-      this._log.warn('url-collect', '采集被拦截：频率控制', { url, platform, reason: rateCheck.reason, waitMs: rateCheck.waitMs })
+      this._log.notify('url-collect', 'collect-blocked-rate', { level: 'WARN', params: { url, platform, reason: rateCheck.reason, waitMs: rateCheck.waitMs } })
       // 非活跃时段拦截与频率限流是不同原因，错误消息必须区分：
       // 统一返回「请求频率受限」会让前端 classifyCollectError 误判为 rate_limited
       // （显示「请求过于频繁，被平台限流」，误导用户）。
@@ -159,7 +159,7 @@ class UrlCollector {
     }
 
     if (this._contentCache.hasUrl(url)) {
-      this._log.info('url-collect', '缓存命中（返回空标题/正文为预期行为，内容已缓存）', { url, platform, reason: 'cache_hit' })
+      this._log.notify('url-collect', 'collect-cache-hit', { params: { url, platform, reason: 'cache_hit' } })
       return { success: true, reason: 'cache_hit', title: '', content: '' }
     }
 
@@ -169,10 +169,10 @@ class UrlCollector {
       const collectStart = Date.now()
       let result
       if (this._needsBrowser(hostname)) {
-        this._log.info('url-collect', '启动 stealth 浏览器采集', { url, platform, mode: 'browser' })
+        this._log.notify('url-collect', 'collect-start-browser', { params: { url, platform } })
         result = await this._collectViaBrowser(url)
       } else {
-        this._log.info('url-collect', '启动 HTTP 采集', { url, platform, mode: 'http' })
+        this._log.notify('url-collect', 'collect-start-http', { params: { url, platform } })
         result = await this._collectViaHttp(url)
       }
       const durationMs = Date.now() - collectStart
@@ -181,7 +181,7 @@ class UrlCollector {
         this._circuitBreaker.recordSuccess(platform, 'default')
         this._healthMonitor.record(platform, 'default', { success: true })
         this._auditLogger.request(platform, 'default', url, 200, 0)
-        this._log.info('url-collect', '采集成功', { url, platform, mode: this._needsBrowser(hostname) ? 'browser' : 'http', durationMs, titleLen: (result.title || '').length, contentLen: (result.content || '').length })
+        this._log.notify('url-collect', 'collect-ok', { params: { url, platform, mode: this._needsBrowser(hostname) ? 'browser' : 'http', durationMs, titleLen: (result.title || '').length, contentLen: (result.content || '').length } })
       } else {
         const reason = result && result.error && /登录|验证码|请登录/.test(result.error) ? 'captcha' : 'blocked'
         this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
@@ -202,7 +202,7 @@ class UrlCollector {
       const isNavigationRace = /navigating/.test(errMsg) || /navigation/i.test(errMsg)
       // 回归保护：采集失败必须写应用日志（此前只写 AuditLogger，而 AuditLogger
       // 无目录时静默丢弃，导致「采集失败」在 app-*.log 里完全无痕）
-      this._log.error('url-collect', '采集失败', { url, platform, error: e && e.message ? e.message : String(e) })
+      this._log.notify('url-collect', 'collect-failed', { level: 'ERROR', params: { url, platform }, error: e && e.message ? e.message : String(e) })
       return {
         success: false,
         error: `采集失败: ${e.message}`,

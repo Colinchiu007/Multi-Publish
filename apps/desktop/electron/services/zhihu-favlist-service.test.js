@@ -34,7 +34,7 @@ describe("ZhihuFavlistService", () => {
   let log;
 
   beforeEach(() => {
-    log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
   });
 
   describe("listFavlists", () => {

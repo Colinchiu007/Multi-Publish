@@ -20,7 +20,7 @@ function makeUnavailable (message) {
  * @param {object} [opts.log]
  */
 function createModelProviderEvaluator ({ manager, log }) {
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   if (!manager || typeof manager.getDefault !== 'function' || typeof manager.callAdapter !== 'function') {
     throw makeUnavailable('评估器依赖 ModelProviderManager 未注入')
   }

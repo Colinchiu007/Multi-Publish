@@ -50,6 +50,7 @@ import {
 } from '@/features/publish/publish-contract'
 import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
 import { resolveCoverFields } from '@/features/publish/publish-upload-file'
+import { attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
 // 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
@@ -225,6 +226,11 @@ export function usePublishFlow(options) {
     // P1-5 语义级可见性：通用区档位随 article 流入 payload，由主进程 resolver
     // 按注册表 semanticValues 映射到各平台字段值（平台 override 仍优先）。
     if (article.visibilitySemantic) data.visibilitySemantic = article.visibilitySemantic
+    // 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）：本正文来自哪一次改写。
+    // 只在真有关联时挂键 —— 无条件挂 null/空串会让下游无法区分「没关联」与「关联被抹」，
+    // 而主进程侧（phase4-events 读 task.article?.rewriteHistoryId）从写下起就在等这个键。
+    // 挂载规则与批量侧同一条（utils/rewrite-lineage.attachRewriteLineage）。
+    attachRewriteLineage(data, article.rewriteHistoryId)
     if (imageFiles.length > 0) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles

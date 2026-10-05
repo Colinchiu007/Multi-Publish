@@ -8,6 +8,35 @@
 - **顺带一条症状学**：「登录不上」的用户表述**不能**推断成「密码错」。本仓 ops-center 的登录由自身 :8010 承载，vite 代理在后端缺席时给的是 **500 空 body**，与 401 在界面上完全同形。固定三步：`curl` 直连看有没有 `000`；经代理看是 500 还是 401；只有 401 才轮到核凭据（429 是进程内存限速，重启即清、库里没有表可查）。
 - **另一条同形陷阱**：`ensure_admin_seeded` 只在 `admins` 表为空时创建、**从不更新已有行**，所以 `.env` 里的口令与库里的哈希可以长期脱钩——「改了 .env 登不上」和「删了库重启又能用旧口令」是同一个原因的两面。
 
+---
+
+## 迁移日志出口前必须盘点所有注入型 sink 的键面——fallback 对象缺键会把 TypeError 吞成业务错误码（publish-logging-observability w2-d1 补，2026-10-05）
+
+- **`opts.log || { info, warn, error }` 三键 fallback 是迁移的隐藏爆破点（pitfall）**：把 controller 出口迁到 `notify` 后，凡是「调用方没传 log 就走 fallback」的路径，`this._log.notify` 变成 TypeError——但它总在 try/catch 里，被 handler 吞成 `-99` 这类业务错误码，**表象是业务断言红、栈里没有日志字样**（zhihu-fav-batch 取消测试实测）。main 基线临时 worktree 对照（30/30 绿）才把归因钉到本波改动。正解：迁移某出口前，`git grep "{ info" ` 盘点全部注入型 sink 形态（源码 fallback `()=>{}`、简写 `info(){}`、测试 mock `vi.fn()` 三种），出口迁到哪一级，fallback 的键面就补到哪一级。
+- **test mock 缺 notify 键会让「别人的断言」挂（pitfall + pattern）**：`__registerMock('./logger', { info, warn, error })` 的三键 mock 注入进被测模块后，模块内**其他子域**（如 auth-partition）的 notify 调用也会打到它——缺键即 TypeError，把无关测试文件的断言搞红（rpa-view-manager 实测）。164 文件批修（+369/-369 纯插键）一次清零；迁移 PR 必须含「mock 键面批修」作为独立 commit，review 时单独看。
+## notify 契约的 messageKey 不许复用；注入型 sink 的锁适配要动正则本身（publish-logging-observability w2-d1，2026-10-05）
+
+- **messageKey 复用会卡死「键总数==调用总数」锁（pitfall）**：`collect-blocked` 被 4 个拦截分支复用、`collect-start` 被 2 种模式复用——ALLOWED_KEYS 是 Set 不重复登记，调用点多于键数必红。正解：**reason 差异拆成键的差异**（`collect-blocked-budget/-cooldown/-circuit/-rate`），reason 从 params 挪进键后审计粒度更细；params 只留 url/platform 等现场。契约口径：一个 messageKey = 一种可独立检索的事件。
+- **`this._log.notify` 注入形态会绕过裸标签结构锁（pitfall）**：NOTIFY_RE/LEGACY_RE 的前瞻 `(?:^|[^.\w])log` 要求 log 前是非词字符——`_` 属 `\w`，`this._log` 的 log 前是 `_` 不匹配；改 `(?:_log|log)` 后 `_` 前是 `this.` 的点，点又被 `[^.\w]` 排除，仍不匹配。正解：显式白名单 `(?:this\.)?(?:_log|log)`——`this.` 前缀可枚举，防误匹配语义（排除 `catlog.notify` 类尾巴）保留。
+- **动态消息文本不属 messageKey 契约（boundary）**：NOTIFY_RE 只认单双引号字面量第二参，模板字符串（反引号动态串）天然不匹配裸标签锁——这是锁的边界而非漏洞。迁移时先把它拆成固定 key + params；拒绝给动态串造键。
+## 日志契约迁移的锁扩展次序：先迁调用点再扩 TARGET_FILES 会让「出声断言」集体失明（publish-logging-observability w1，2026-10-05）
+
+- **A 类清单只盘 warn 会漏掉 info/error（pitfall）**：`observability-messagekey.test.js` 的「禁止遗留裸标签调用」锁按 TARGET_FILES 扫 `log.(warn|info|error|debug)('Module', 'bare tag')`。把新域文件加进 TARGET_FILES 后，**info/error 裸标签站点也会被扫出来**——迁移前只按 warn 清单干活，扩展锁当场红了 6 处 info/error。正解：扩锁之前先把新域的 warn/info/error 全量清点（`git grep -n "log\.\(warn\|info\|error\|debug\)("`），一次迁完再扩锁。
+- **固定窗口切片是字符串替换脚本的隐形炸弹（pitfall）**：用 `t.slice(hIdx, hIdx+1200)` 圈定「本记录块」再 replace，NEW 串较长时会把切片边界外的内容切坏（实测把一条执行记录切成两半、标题重复）。正解：按行 split 后**先找标题行、再在块内逐行找目标**（无窗口长度假设），或整体 split/join。**debt checker 的「标题重复」断言当场抓住了这次损坏**——置顶文件的每一道结构锁都在为其他门禁兜底。
+- **notify 断言的 params 嵌套形态要对账真实调用（tool）**：`log.notify('App', 'bridge-started', { params: { bridge: name } })` 的断言必须写 `expect.objectContaining({ params: { bridge: 'X' } })`——`objectContaining` 只做一层浅匹配，漏掉 params 层就恒红。先把源码调用形态固定下来，再写断言。
+- **mock logger 补 notify 键的三种形态（tool）**：`__registerMock(..., {info,warn,error})` 对象加一 endured；`const mockLogger = {...}` 字面量补键时注意逗号（漏逗号 = 整个测试文件 transform 失败，红因在 esbuild 而不是断言，别顺着断言找）。
+## 持久化"写成功但读不回"的根因常是读写两侧对返回类型的假设不一致，而同构夹具会让它终身不可见（fix-settings-roundtrip-contract，2026-10-05）
+
+- **模式：判据要看存储实际返回什么，不要看它叫什么名。** `getSetting` 听像 getter of setting（字符串），实际返回 `safeJsonParse` 后的对象；9 处消费点按字符串处理，全部静默退化。修复方向不是"各处加类型判断"，而是把归一化收敛到**存储侧唯一入口**。
+- **模式（逃逸主因）：契约夹具不得改变被存值类型。** `getSetting: () => data / setSetting: (_k,v)=>{data=v}` 看似"忠实 mock"，实为替被测代码改了契约；同形化后同一误判从 0 红变 21 红。凡"重启后恢复"类要求，必须有一条用真实存储（真库 + 关闭重开）的锁，并做"把夹具退回原样回吐"的成对反证。
+- **教训：绿色套件不等于链路通。** 改动前 4 文件 90 用例全绿，其中一条名字就叫"重启后从 settings 恢复 appMenu" —— 用例名与它实际测量的东西无关。
+- **反证纪律补一条：变异不红先查自己的判据。** 本轮判定式写成 `/Tests\s+\d+ failed/`，被 ANSI 色码插在中间而永不匹配，把 4 条明明变红的变异全报成"锁没抓住"；且 CJK 用 latin1 解码后 `expectHint` 恒假。口径：驱动脚本必须先剥 ANSI、按 UTF-8 解码，并把"未红"当待解释异常而不是结论。
+- **同轮踩到的探针自坏（三次，全部当场否证了自己的结论）**：① 用 `latin1` 读文件再拿 CJK 串找锚点 ⇒ 0 命中被误读成"锚点不存在/文档变了"；② `for (const b of string)` 遍历的是**字符**不是字节 ⇒ 报出 `cr=0 lf=0` 的假行尾结论，必须 `readFileSync` 得 Buffer；③ `@electron/asar` 对深度 ≥2 的条目只认「无前导分隔符 + 平台分隔符」的键，正斜杠形式一律 `not found`，与既有笔记"去掉前导 `\` 即可"只说对一半。
+- **打包 rc=0 不是"启动正常"。** 未构建渲染层时 electron-builder 照样成功，但 stderr 报 `ERR_FILE_NOT_FOUND app.asar/dist/index.html`（白屏）。QM-1 的启动段必须**捕获 stderr 并按特征判**，只看"进程存活 8 秒"会得到假绿。
+
+相关：AGENTS.md「任何「用户输入落盘」的写入口必须先证明它写的是被读取的那份真源」「测试断言不得反向固化错误行为」「跨包响应信封只在一处剥」。
+
+---
 
 ## LEDGER_GREW「陈旧账本误杀」的判据与合法处置；rebase 后 PR diff 虚胖的识别；增量门禁的对称性纪律（publish-permission-recheck + publish-logging-observability，2026-10-04）
 
@@ -67,7 +96,7 @@
 ## 发布失败自动存草稿的去重真源在主进程内容指纹，不在渲染层也不在 draft.id（publish-fail-draft-guard，2026-10-03）
 
 - **第一性根因**：draftSave 原按 draft.id 去重，而「失败自动回存」与「用户手动保存」各自生成新 id——同一份内容必然双条。**去重判据必须在『内容』上而不是『保存动作的 id』上**：引入 sha256 内容指纹（services/draft-fingerprint.js，仅 12 个内容字段白名单），命中即原地更新并保留原 id/createdAt，返回 {draftId, reused}。publishTime/platforms/accounts/platformOverrides 等发布指向性元数据不参与指纹——同一内容多平台失败只产生一条草稿；数组保序（图片顺序即内容）、对象键递归排序、空内容统一 EMPTY 指纹、历史数据无 _fp 时现算比对并回填（读取侧惰性迁移，无需一次性迁移脚本）。
-- **owner 权威来源是任务固化的 	ask.owner_subject，不是实时读 identityService**：identityService 由 Phase 3 在 wireTaskQueueEvents 之后才挂到 ctx（bootstrap.js:258），接线时刻读它拿到 undefined——要么把判据搬到事件触发时惰性读 ctx，要么（本次选择）直接用与 history.addRecord 同源的 	ask.owner_subject，语义更准（发布时刻的登录用户）。Logto 模式缺失 → fail-closed 跳过，绝不写 legacy 全局命名空间。
+- **owner 权威来源是任务固化的 task.owner_subject，不是实时读 identityService**：identityService 由 Phase 3 在 wireTaskQueueEvents 之后才挂到 ctx（bootstrap.js:258），接线时刻读它拿到 undefined——要么把判据搬到事件触发时惰性读 ctx，要么（本次选择）直接用与 history.addRecord 同源的 task.owner_subject，语义更准（发布时刻的登录用户）。Logto 模式缺失 → fail-closed 跳过，绝不写 legacy 全局命名空间。
 - **App 级订阅 publish:progress 不违反「页面级订阅禁令」**：禁令的对象是页面 composable 的页面级订阅（监听器死亡 bug），App 级 main.js 服务（risk-hold-notifier 同位先例）消费失败边界做一次性通知是合法形态——它不承载进度状态（唯一承载仍是 stores/publishProgress.js）。判据是「是否承载状态/是否有生命周期错配风险」，不是「谁订阅了事件」。
 - **自动回存绝不弹确认框、绝不影响失败主流程**：失败场景打断用户是二次伤害；saver 全量 try/catch（同步抛错 + 异步 reject 双路都要兜，.catch 必须挂在 promise 上防 unhandledRejection），失败只 warn。
 - **过程坑①（PS 内联长文案）**：PowerShell here-string 内联中文+反引号（markdown code）会乱码/解析错误——用 write 工具落脚本文件并保存 **UTF8 with BOM**（powershell.exe 无 BOM 按 ANSI 读 ps1，中文全毁）。AGENTS.md/CHANGELOG 头部插入同理。
@@ -1113,7 +1142,7 @@ HTML 通道的对应风险是「页面里 `data-user-id` 不止一个」（评�
 g: ./packages\python-backend\.pytest-tmp-logto-final: IO error ... 拒绝访问 (os error 5)，整体失败（exit 2）。
 - **根因**：packages/python-backend/.pytest-tmp-logto-final 目录被 ACL 锁定（连管理员 icacls 都无法访问），是 2026-07-21 的 pytest 测试残留。DSH glob 工具用 ripgrep 遍历，**不尊重 .gitignore**（该目录已被 .pytest-tmp-logto*/ 覆盖），遇到不可访问目录就整体报错而非跳过。
 - **规避**：用 Get-ChildItem -Recurse -Filter "*.py" -ErrorAction SilentlyContinue（PowerShell）替代 glob，-ErrorAction SilentlyContinue 跳过不可访问目录；或避免搜索该路径。
-- **根治**：需管理员权限删除该目录（	akeown /F <dir> /A + Remove-Item -Recurse -Force）。当前会话无管理员权限，无法删除。
+- **根治**：需管理员权限删除该目录（takeown /F <dir> /A + Remove-Item -Recurse -Force）。当前会话无管理员权限，无法删除。
 - **教训**：DSH glob 工具不尊重 gitignore 且对权限拒绝 fail-closed，遇到 ACL 锁定的 gitignored 残留目录会整体失败。此类残留应定期清理（管理员权限），或搜索时避开。
 
 ---## 提示词引擎自进化记忆库 + 治理层实现复盘（codex/prompt-engine-evolution-p1b-memory，2026-09-13）
@@ -1208,11 +1237,10 @@ g: ./packages\python-backend\.pytest-tmp-logto-final: IO error ... 拒绝访问 
 
 - **背景**：架构重构 Stage -1.3 安全基线 —— prompt-bridge 的 CLI fallback（HTTP 不可用时 spawn prompt-engine CLI 兜底）此前把 LLM API Key 作为 --api-key argparse 参数透传。命令行参数在进程列表可见（任务管理器/ps 可读，Windows 上 CommandLineToArgvW 即可恢复），等同把 Key 暴露给任意同机进程，属凭据暴露面债务。
 - **方案**：
-  - **Key 移出 argv**：prompt-bridge.js 抽出纯函数 uildCliFallbackCommand 返回 { args, apiKey }，argv 只含 provider/model/base-url/caller 等非敏感项，Key 单独经子进程 env 变量 PROMPT_ENGINE_API_KEY 注入（childEnv 在 ...process.env 基础上叠加，不污染父进程环境）。
-  - **prompt-engine 侧配合**：cli.py 新增 _resolve_api_key —— 优先 --api-key（向后兼容手动调用），未提供时回退读 PROMPT_ENGINE_API_KEY，两者皆缺 fail-closed 明确报错；配套 	ests/test_cli_api_key_env.py 覆盖 argv 优先、env 回退、strip 与 fail-closed（PR #75 已合并）。
+  - **Key 移出 argv**：prompt-bridge.js 抽出纯函数 buildCliFallbackCommand 返回 { args, apiKey }，argv 只含 provider/model/base-url/caller 等非敏感项，Key 单独经子进程 env 变量 PROMPT_ENGINE_API_KEY 注入（childEnv 在 ...process.env 基础上叠加，不污染父进程环境）。
+  - **prompt-engine 侧配合**：cli.py 新增 _resolve_api_key —— 优先 --api-key（向后兼容手动调用），未提供时回退读 PROMPT_ENGINE_API_KEY，两者皆缺 fail-closed 明确报错；配套 tests/test_cli_api_key_env.py 覆盖 argv 优先、env 回退、strip 与 fail-closed（PR #75 已合并）。
   - **兼容性**：桌面端不再传 --api-key，引擎侧读 env；手动/脚本调用仍可显式传 --api-key，双向兼容。
-- **教训（测试相关）**：vitest i.mock 只作用于 SSR 转换层，**不拦 CJS 
-equire('child_process')**（test-setup.js 注释早已明示，CJS 拦截走 Module._load 注册表 __registerMock）。本项目既有 i.mock('child_process', ...) 的 fallback 测试实为假测试（mock 从未生效）。本次改用 __registerMock('child_process', { execFile: vi.fn() })，配合纯函数抽取后测试改为：断言 argv 不含 --api-key/明文、env 携带 Key；无需真 spawn、无需 mock 时机谜题。
+- **教训（测试相关）**：vitest vi.mock 只作用于 SSR 转换层，**不拦 CJS require('child_process')**（test-setup.js 注释早已明示，CJS 拦截走 Module._load 注册表 __registerMock）。本项目既有 vi.mock('child_process', ...) 的 fallback 测试实为假测试（mock 从未生效）。本次改用 __registerMock('child_process', { execFile: vi.fn() })，配合纯函数抽取后测试改为：断言 argv 不含 --api-key/明文、env 携带 Key；无需真 spawn、无需 mock 时机谜题。
 - **预防**：新增回归用例如合同断言「argv 无 Key + env 有 Key」；后续新增需给子进程传敏感凭据的路径，一律走 env/stdio 注入并在测试中断言 argv 干净，禁止把 Key 加回命令行。
 
 ---
@@ -2119,9 +2147,9 @@ equire('child_process')**（test-setup.js 注释早已明示，CJS 拦截走 Mod
 ## MiniMax Adapter 无超时 + 多模态模型错配复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：E2E 全流水线真实验证（43 用例）中发现 explainer/documentary 的 assets 阶段偶发永久挂起（25 分钟不收敛），且图片生成被错误传入 TTS 模型。
-- **根因（git blame + 插桩溯源）**：① minimax-image.js / minimax-tts.js 的 _request() 声明了 DEFAULT_TIMEOUT（120s/60s）但从未把超时接入 etch()——共享 API Key 被并发会话占用、上游卡住时请求永久挂起，callAdapter 的 2 分钟兜底在某些路径（python-bridge/legacy）不覆盖；② xplainer-stages.js / documentary-stages.js 的 getDefaultProviderConfig 取 provider.models[0] 作为任意能力模型——对 minimax-multimodal，models[0] 是 TTS 模型 speech-2.8-turbo，导致图片生成被传 image:speech-2.8-turbo（governor key 证实），adapter 虽忽略 model 但这是配置契约错误。
+- **根因（git blame + 插桩溯源）**：① minimax-image.js / minimax-tts.js 的 _request() 声明了 DEFAULT_TIMEOUT（120s/60s）但从未把超时接入 fetch()——共享 API Key 被并发会话占用、上游卡住时请求永久挂起，callAdapter 的 2 分钟兜底在某些路径（python-bridge/legacy）不覆盖；② explainer-stages.js / documentary-stages.js 的 getDefaultProviderConfig 取 provider.models[0] 作为任意能力模型——对 minimax-multimodal，models[0] 是 TTS 模型 speech-2.8-turbo，导致图片生成被传 image:speech-2.8-turbo（governor key 证实），adapter 虽忽略 model 但这是配置契约错误。
 - **逃逸链**：① adapter 单测用 fetch mock 只覆盖正常/HTTP 错误/网络错误，无「fetch 挂起不返回」用例——超时未接入 fetch 的情况下 mock 永远立即返回，测不出挂起；② 多模态复合 provider 的 capability_models 字段已由 _safeRow 解析，但调用方未消费。
-- **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
+- **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 this.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
 - **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
 - **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
 ## Explainer LLM 阶段偶发整线失败复盘 (2026-08-11，质量节拍 Bug 反馈)
@@ -2142,9 +2170,9 @@ equire('child_process')**（test-setup.js 注释早已明示，CJS 拦截走 Mod
 ## clip-factory 选项接线缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：全枚举 E2E 运行器（PR #509 入库脚本）在 main 上跑出 clip-factory 所有选项（sceneThreshold/maxSegments/maxTotalSeconds）产物时长全部相同（45.69s），选项完全无效。
-- **根因（git blame）**：clipfactory-stages.js 的 uildSegments/nalyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 
+- **根因（git blame）**：clipfactory-stages.js 的 buildSegments/analyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 
 esolveRuntimeStageOptions 也未映射 clip-factory 的 analyze 参数 → 用户在 UI/参数传入的选项被丢弃。
-- **修复**：① uildSegments/nalyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② 
+- **修复**：① buildSegments/analyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② 
 esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
 - **回归保护**：clipfactory-stages 单测 +1（options 生效：maxSegments/minSegmentSeconds/maxTotalSeconds）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
 - **预防措施**：① 流水线 stage options 必须经 resolveRuntimeStageOptions 接线；② 阶段执行器必须消费 stage.options，禁止硬编码常量；③ 全枚举 E2E 运行器必须跑在合并后 main 上作为选项接线回归。
@@ -5516,9 +5544,9 @@ Why 4: ��Ϊ��ͼʱ�����⣨Ӧ�������󴰿�δ��
 - commit 5ad345d: docs: ����ʮ���ָ��� �� Remotion �����������
 - commit 6198c8e: docs: ����ʮ���ָ��� �� CreateHistory.vue �﷨�����޸�
 - commit d8167ef: fix: �޸� CreateHistory.vue �﷨����
-- commit c5551b: docs: ����ʮһ�ָ��� �� ����ǰ�˲���
+- commit ac5551b: docs: ����ʮһ�ָ��� �� ����ǰ�˲���
 - commit c6564b0: fix: �Ƴ� CreateHistory.vue BOM
-- commit b89b27: docs: ����ʮ�ָ��� �� �����ܽ�
+- commit bb89b27: docs: ����ʮ�ָ��� �� �����ܽ�
 - commit e312210: docs: ����ʮ���ָ��� �� �汾��·���޸�
 - commit 6129150: fix: �汾��·���޸�
 - commit 765d508: docs: ����ʮ���ָ��� �� ǰ�����ղ���
@@ -5703,7 +5731,7 @@ if (api.getVersion) {
 
 ### ���� GitHub
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
-- commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
+- commit f127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
 - commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
@@ -5763,7 +5791,7 @@ Console errors: None
 - ��Ҫ�ȹر����� Electron ���̣��������µ�
 
 ### �������
-1. �ر����� Electron ���̣�	askkill /IM electron.exe /F
+1. �ر����� Electron ���̣�taskkill /IM electron.exe /F
 2. Ȼ���� Playwright _electron �����������µ� Electron Ӧ��
 3. ���߽������ƣ����û��ֶ���֤
 
@@ -8740,9 +8768,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ## MiniMax Adapter 无超时 + 多模态模型错配复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：E2E 全流水线真实验证（43 用例）中发现 explainer/documentary 的 assets 阶段偶发永久挂起（25 分钟不收敛），且图片生成被错误传入 TTS 模型。
-- **根因（git blame + 插桩溯源）**：① minimax-image.js / minimax-tts.js 的 _request() 声明了 DEFAULT_TIMEOUT（120s/60s）但从未把超时接入 etch()——共享 API Key 被并发会话占用、上游卡住时请求永久挂起，callAdapter 的 2 分钟兜底在某些路径（python-bridge/legacy）不覆盖；② xplainer-stages.js / documentary-stages.js 的 getDefaultProviderConfig 取 provider.models[0] 作为任意能力模型——对 minimax-multimodal，models[0] 是 TTS 模型 speech-2.8-turbo，导致图片生成被传 image:speech-2.8-turbo（governor key 证实），adapter 虽忽略 model 但这是配置契约错误。
+- **根因（git blame + 插桩溯源）**：① minimax-image.js / minimax-tts.js 的 _request() 声明了 DEFAULT_TIMEOUT（120s/60s）但从未把超时接入 fetch()——共享 API Key 被并发会话占用、上游卡住时请求永久挂起，callAdapter 的 2 分钟兜底在某些路径（python-bridge/legacy）不覆盖；② explainer-stages.js / documentary-stages.js 的 getDefaultProviderConfig 取 provider.models[0] 作为任意能力模型——对 minimax-multimodal，models[0] 是 TTS 模型 speech-2.8-turbo，导致图片生成被传 image:speech-2.8-turbo（governor key 证实），adapter 虽忽略 model 但这是配置契约错误。
 - **逃逸链**：① adapter 单测用 fetch mock 只覆盖正常/HTTP 错误/网络错误，无「fetch 挂起不返回」用例——超时未接入 fetch 的情况下 mock 永远立即返回，测不出挂起；② 多模态复合 provider 的 capability_models 字段已由 _safeRow 解析，但调用方未消费。
-- **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
+- **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 this.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
 - **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
 - **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
 ## Explainer LLM 阶段偶发整线失败复盘 (2026-08-11，质量节拍 Bug 反馈)
@@ -8763,9 +8791,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ## clip-factory 选项接线缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：全枚举 E2E 运行器（PR #509 入库脚本）在 main 上跑出 clip-factory 所有选项（sceneThreshold/maxSegments/maxTotalSeconds）产物时长全部相同（45.69s），选项完全无效。
-- **根因（git blame）**：clipfactory-stages.js 的 uildSegments/nalyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 
+- **根因（git blame）**：clipfactory-stages.js 的 buildSegments/analyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 
 esolveRuntimeStageOptions 也未映射 clip-factory 的 analyze 参数 → 用户在 UI/参数传入的选项被丢弃。
-- **修复**：① uildSegments/nalyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② 
+- **修复**：① buildSegments/analyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② 
 esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
 - **回归保护**：clipfactory-stages 单测 +1（options 生效：maxSegments/minSegmentSeconds/maxTotalSeconds）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
 - **预防措施**：① 流水线 stage options 必须经 resolveRuntimeStageOptions 接线；② 阶段执行器必须消费 stage.options，禁止硬编码常量；③ 全枚举 E2E 运行器必须跑在合并后 main 上作为选项接线回归。
@@ -12137,9 +12165,9 @@ Why 4: ��Ϊ��ͼʱ�����⣨Ӧ�������󴰿�δ��
 - commit 5ad345d: docs: ����ʮ���ָ��� �� Remotion �����������
 - commit 6198c8e: docs: ����ʮ���ָ��� �� CreateHistory.vue �﷨�����޸�
 - commit d8167ef: fix: �޸� CreateHistory.vue �﷨����
-- commit c5551b: docs: ����ʮһ�ָ��� �� ����ǰ�˲���
+- commit ac5551b: docs: ����ʮһ�ָ��� �� ����ǰ�˲���
 - commit c6564b0: fix: �Ƴ� CreateHistory.vue BOM
-- commit b89b27: docs: ����ʮ�ָ��� �� �����ܽ�
+- commit bb89b27: docs: ����ʮ�ָ��� �� �����ܽ�
 - commit e312210: docs: ����ʮ���ָ��� �� �汾��·���޸�
 - commit 6129150: fix: �汾��·���޸�
 - commit 765d508: docs: ����ʮ���ָ��� �� ǰ�����ղ���
@@ -12324,7 +12352,7 @@ if (api.getVersion) {
 
 ### ���� GitHub
 - commit 977fb82: docs: ����ʮ���ָ��� �� Playwright ���� Electron ��ȷ�÷�
-- commit 127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
+- commit f127e98: docs: ����ʮ���ָ��� �� �汾����ʾ�������
 - commit 5858c3b: docs: ����ʮ���ָ��� �� �汾����ʾ�޸�
 - commit 063a226: fix: �汾����ʾ�޸�
 - commit 84686fb: docs: ����ʮ���ָ��� �� ��ѭ���������
@@ -12384,7 +12412,7 @@ Console errors: None
 - ��Ҫ�ȹر����� Electron ���̣��������µ�
 
 ### �������
-1. �ر����� Electron ���̣�	askkill /IM electron.exe /F
+1. �ر����� Electron ���̣�taskkill /IM electron.exe /F
 2. Ȼ���� Playwright _electron �����������µ� Electron Ӧ��
 3. ���߽������ƣ����û��ֶ���֤
 
@@ -17350,3 +17378,36 @@ DOM 流程失败(verification timeout) →
 - **可复用判据**：平台侧 4xx 且响应体为空/无业务错误码时，先做「header 逐字对齐终验」这一刀——**一次到位**而不是再猜下一项。若对齐后仍拒，根因几乎必在传输层/指纹层，继续修 Node 侧是纯烧钱（本案烧了 11 轮 + 13 个 PR）。
 - **对照经验**：同一批平台里走通的是「借浏览器发请求」（头条 direct bridge 在受信会话内捕获并重放保存请求，见 toutiao-shipped-react-bump 条目）——即 API 轨可行的形态是「浏览器传输 + Node 编排」，不是「Node 直连 + 复刻 header」。后续若要重启快手 API 轨，必须走受信会话内 fetch 并重新活体验收。
 - **收口纪律**：契约层规格成立 ≠ 能力可用。归档前给主规格补「实况补记」，未实现能力（小红书 x-s/x-t）一律不得折进主规格，只留「止步裁决记录」条款并写死重启前置。
+## 「桩只打了一半」的假绿：消费方在更早的加载时刻就把真实依赖存进了模块级变量（issue-2878，2026-10-05）
+
+- **单跑 `vitest -t` 反而干净、整文件跑才复现 —— 这是判据，不是巧合**：`account-manager.test.js` 两条用例桩了 `tryHttpLoginCheck`，但 `checkLoginStatus` 判有效**之后**还会调 `profileRefresh.refreshProfileFromHttpApi(...)`，而 `account-profile-refresh.js` 内部**直接持有** `require('./http-login-checker')` 的真实模块对象。该模块**只在首次 `require` 时求值**：那一刻若注册表里还没有桩，它把真实模块对象存进模块级 `const` 并终身持有 ⇒ 用例过滤改变了首次 require 的时机，于是过滤跑「干净」。绿灯来自**加载顺序**而非断言。正解：遇到「明明桩了却还有出站」，先查**消费方是不是在更早加载时刻就存了真实依赖**，而不是去怀疑桩写得不够多。
+- **旧注释与实现不符时，先判定哪一边是契约（pitfall）**：`ops-center-sync` 的「未配置时 fail-closed」用例注释写着「不发起网络请求」，但生产实现是**有意的** best-effort 运行时下发（`_syncRuntimeBestEffort` → `/api/v1/runtime/bootstrap`），因为目录无处应用时公告/版本/菜单仍须下发。照着旧注释去改生产逻辑会把一个正确设计改坏；正解是给 `global.fetch` 打桩 + 改注释。**门禁代码里的注释同样是契约**，它比测试注释更可信但同样会过期。
+- **反证必须两条同时成立才算桩承重**：① 摘掉桩后测试变红（`Tests 1 failed | 82 passed`）② 出站台账重新记回 `blocked::channels.weixin.qq.com:443`。只做「桩在时绿」不构成证据。
+- **「门禁绿」与「审计跑过了」是两件事（tool）**：#907 的 `Gate 9` 步骤 conclusion = `success`，但 `AUTONOMOUS_GATE=PROMPT_REVIEW_REQUIRED`、`verdict: NEED_HUMAN, score: 0, items: 0`。判 Gate 的健康度要同时看**步骤结论**和**gate 状态变量**；`agent-review-gate.js` 打出的 `AUDIT_NO_VERDICT` 告警原文是「green here does NOT mean coverage was audited」——这正是「拒绝把『没判』当成『判过了』」的正确形态。
+- **两个不同原因被同一个指标掩盖时，不要按直觉顺序修**：#907 的 `score: 0` 同时可能来自「LLM 端点不可用」与「FeatureDetector 提取噪音」。原单把 FeatureDetector 列为「治本」，但它其实**排在第二** —— 不先把两个原因分开就修 FeatureDetector 是在盲修。正解：先单独打通 LLM 往返做证伪，再谈提取噪音。
+
+## 判据要选对：「单子开着」不是存活判据，「最后一条评论距今多久」才是（issue-2635，2026-10-05）
+
+- **签名去重按标题检索 ⇒ 同因复发表现为在同一张单上追加评论，而不是另开一张**。所以分诊 bot 单时，唯一有效的存活判据是评论时间轴。实测 41 张新签名单：32 张静默且门禁已绿 ⇒ 取证后关闭；9 张近 3 天有评论 ⇒ **仍在复发，保持 OPEN**。按「开着 = 还活着」一刀切关闭，会把那 9 张真实复发信号一起埋掉。
+- **键选错时，任何收敛动作都是自欺**：旧 per-commit 形态的键是 commit sha，同一成因在 `Electron CI` 名下有上百张彼此等价的单，让新签名去「匹配」它们只能任选一张挂复发记录 —— 那是**把随机选择伪装成同因归并，比开着更坏**。诚实的收敛只有两条：按成因折叠（≈1500 次 API 调用，且重跑过的 run 因 `run_attempt` 陷阱可能重算出错误签名），或**封存**（打标签、保持 OPEN、写明「不代表当前状态」）。本轮选后者，742 张零漏打，口径落档 `docs/ci-failure-dedup.md`。
+- **取数要认源（pitfall）**：`gh run list --workflow=quality-gate --branch main --limit 12` 返回的最新运行是 **2026-09-15**、`Doc Sync Gate` 只剩 1 条；而 REST `actions/runs?branch=main&per_page=100` 正确覆盖到 2026-10-05。**用 CLI 结果当「当前是否绿」的证据会得出「这些门禁早就没人跑了」的错误结论**。所有门禁健康度断言一律以 REST 为准。
+- **批量打标的 GraphQL 两个坑**：`addLabelsToLabelable` 只接受**单个** `labelableId`（⇒ 用别名在同一文档发 N 个 mutation）；`gh api graphql` 的 `-f/-F` **只能传标量**，把 `[ID!]!` 喂 JSON 数组会被当成单个 ID 字符串（报 `Could not resolve to a node with the global id of '["LA_..."]'`，⇒ **id 一律内联字面量**）。别名一多会返 **HTTP 504** 且返回 HTML 错误页而非 JSON ⇒ 必须重试 + 退避、批次压到 10。写脚本时**把非 JSON 响应也纳入判据**，否则重试逻辑会被自己骗过。
+
+## 基线类 JSON 的「单键手术」纪律（issue-2610，2026-10-05）
+
+- **「只刷新不偿还」与「接受漂移」是两种不同的动作，必须在 PR 里明写**：`.github/scripts/check-max-lines.js` 的 `--update` 源码把不一致项塞进 `blockedRaise` 后 `continue`（`computeUpdate` 第 193 行）⇒ **它拒绝抬高已挂账项**；`--update --rewrite` 会按实况全量重生 96 个键、重排键序、抬高/删除别人的登记值。两者对本场景都无效，只能**单行替换**。
+- **这类文件是纯 CRLF 且键不是字典序**：`max-lines-baseline.json`、`gate-record-debt-ledger.json` 都如此。用 `JSON.stringify` 整体重排会造出巨量假 diff。正解：单行唯一子串替换或尾部插入 + **两口径对账**（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件一致）自证。
+- **门禁的「远程同步」行只认表行形态**：`.quality-gates.md` 的 `ROW_RE = /^\|\s*远程同步\s*\|/` —— docs-only 模板里的 bullet 形态（`- 保留门禁：… | 远程同步 PENDING`）**不被识别**，于是同 PR 的 ledger 登记会被判「陈旧」。写成 `| 远程同步 | PENDING | … |` 表行才闭环。
+- **登记值领先于实况时不要顺手抬**：#2610 里 `Publish.vue` 实况 1734 / 登记 1730，容差 200 尚余 196 行 —— 抬它就是无谓的基线 churn。只动真正被逼近红线的那两个（locales 净增 157、只剩 43 行）。
+
+## 两侧各自有测试 ≠ 接缝被测：扁平名 vs 命名空间这类错配为什么能一路进主干（fix-ipc-namespace-contract，2026-10-05）
+
+- **逃逸链（四层全漏）**：单元层 `vi.mock('@/api/publisher')` 把整个被测模块 mock 掉，结构上无法发现 preload 缺该方法；集成层无 preload 暴露面契约测试；E2E 层无"重试失败分镜"用例；视觉层该操作失败与"点了没反应"在像素上不可区分；审查层两侧测试各自自洽，读起来完全说得通。
+- **机制性教训**：真正的守卫不是"每侧都测了"，而是**跨侧的接缝**。判据要从「preload 实际暴露面」与「渲染层实际调用名」两侧同时取真源求差集，任何一侧手抄都会让守卫退化成装饰。
+- **手抄真源会立刻漂移（本仓现成活样本）**：`preload.test.js` 只组合 7 个工厂并断言键数 334，而 `preload/index.js` 组合 20+ 个工厂、真实暴露面 411（public）/416（admin）。334 是漂移的子集——**新锁若拿它当基准，开局就是大面积假阳性**，后人会当成噪声把锁删掉。
+- **暴露面不是静态集合，是权限相关的**：`createDynamicAccessApi` 对 `ADMIN_ONLY_METHODS` 的方法在非 admin 等级**整键不暴露**。只对 public 面求差集会把 `paymentSimulate` 这类**故意只给管理员**的方法误报成缺陷；而误报后的直觉修法（去 preload 补暴露）**方向与既有安全设计相反**——它在 `ADMIN_ONLY_METHODS` 里，且主进程另有 `app.isPackaged !== false` 硬守卫。差集必须对 `public ∪ admin` 求。
+- **启发式相似名是线索不是证据**：本次 `paymentSimulate` 的相似名建议把我导向"preload 缺暴露"，差一步就去改 preload。判定必须落到可查事实——分类表成员、调用方计数（且要区分"除自身定义处以外"）、主进程守卫是否存在。
+- **`vi.mock` 拦不住 CJS 源文件的 `require`**：preload/index.js 是 CJS，vitest 注入的 require 走真实 Node loader、绕过 vi.mock 的 ESM 注册表，`require('electron')` 拿到的是该 npm 包导出的**可执行文件路径字符串**，症状是 `TypeError: Cannot read properties of undefined (reading 'on')`。要拦 CJS 依赖得用 `Module._load`。
+- **只做"最后一跳"对账会留下盲区**：把 `invokeWithFallback('flatName')` 改成 `invokeNamespace('ns', 'method')` 之后，若判据不认命名空间形态，这条路径就对契约**完全隐形**了——下一个把 ns 名或 method 名写错的缺陷照样进主干。判据必须同时覆盖扁平与命名空间两种形态。
+- **注释不是绕过路径的终点，是绕过路径本身**：判据若直接扫原文，`// invokeWithFallback("x", null)` 会被算成真实调用点，于是"把坏调用注释掉"就成了一条逃逸。判据须先剥注释。
+- **收尾任务需要「前提失效」这一终态**：`fix-settings-roundtrip-contract` 曾有 9.4/11.3/12.3 三条判据绑定"PR 在途"，PR 合并后它们既无法执行也无法判失效，于是永久挂在 46/54。change 的 tasks 只有"完成/未完成"两态时，**前提消失的条目必然变成永久欠账**。

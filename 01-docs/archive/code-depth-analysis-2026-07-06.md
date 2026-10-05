@@ -21,15 +21,15 @@
 ## 2. 目录结构分析
 
 ### 2.1 Python 后端（packages/python-backend）
-- **大型模块**: ideo_creation/ (8 个子模块，Phase 0-7 OpenMontage 集成)
+- **大型模块**: video_creation/ (8 个子模块，Phase 0-7 OpenMontage 集成)
 - **发布引擎**: publishers/ (15 平台发布器)
 - **核心基础设施**: core/ (错误体系、重试、限流、配置)
-- **测试**: 	ests/ (15 个测试文件, 394 tests ALL GREEN)
+- **测试**: tests/ (15 个测试文件, 394 tests ALL GREEN)
 
 ### 2.2 Electron 桌面端（apps/desktop）
 - **Vue UI**: 37 个组件/视图 (Accounts/CreateView/Dashboard/Publish 等)
-- **RPA 引擎**: pa-engine/ (Playwright 浏览器自动化)
-- **Remotion 合成**: emotion-composer/ (13 种 Composition)
+- **RPA 引擎**: rpa-engine/ (Playwright 浏览器自动化)
+- **Remotion 合成**: remotion-composer/ (13 种 Composition)
 - **IPC 桥接**: electron/ipc-handlers/
 
 ### 2.3 API 发布引擎（packages/api-publish-engine）
@@ -66,7 +66,7 @@
 | P0 | 冗余远程分支 | origin/feat/* 约 20+ 已合并分支 | git branch -d -r origin/feat/* |
 | P0 | .gitignore test_*.py 误伤 | 已修复 | 已修复 ✅ |
 | P0 | data/browser_data/ 165 文件 30MB | 根目录 data/ | 移动到 proper 目录或 gitignore |
-| P1 | Python 测试文件分散 | 	ests/ (根) + 04-tests/ + packages/python-backend/tests/ | 统一到 packages/python-backend/tests/ |
+| P1 | Python 测试文件分散 | tests/ (根) + 04-tests/ + packages/python-backend/tests/ | 统一到 packages/python-backend/tests/ |
 | P1 | 文档碎片化 | 01-docs/ + docs/ + references/ 重复 | 合并为一套文档体系 |
 
 ### 4.2 中优先级

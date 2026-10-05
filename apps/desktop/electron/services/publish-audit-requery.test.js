@@ -129,7 +129,13 @@ describe('publish-audit-requery — 与 publish-monitor 端点表 parity（防�
     const source = require('fs').readFileSync(monitorPath, 'utf8')
     const match = source.match(/const CHECK_URLS = \{([\s\S]*?)\n\}/)
     expect(match, 'publish-monitor 必须保留 CHECK_URLS 字面量表').toBeTruthy()
-    const keys = [...match[1].matchAll(/^\s*(\w+):\s*'/gm)].map(m => m[1]).sort()
+    // 值有两种合法形态：字符串字面量，或指向单一真源的常量标识符（如取证改正后的 BILIBILI_LIST_URL）。
+    // 旧提取只认 `key: '`，一旦某平台把值换成常量就静默少一个键 ⇒ 整条 parity 锁被绕过（实测踩到）。
+    const keys = [...match[1].matchAll(/^\s*(\w+):\s*(?:'|[A-Z][A-Z0-9_]*\b)/gm)].map((m) => m[1]).sort()
+    expect(keys.length, '提取到的键数不得低于候选表规模（提取退化即假绿）').toBeGreaterThanOrEqual(7)
     expect(keys).toEqual([...AUDIT_REQUERY_CANDIDATE_PLATFORMS].sort())
+    // 权威判据：以运行时对象的键集为准（与上面两条互不替代——源码形态锁防"改写成别的结构"，运行时锁防"提取器骗自己"）
+    const runtimeKeys = Object.keys(require('./publish-monitor').CHECK_URLS).sort()
+    expect(runtimeKeys).toEqual([...AUDIT_REQUERY_CANDIDATE_PLATFORMS].sort())
   })
 })

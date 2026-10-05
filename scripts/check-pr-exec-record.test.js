@@ -78,7 +78,7 @@ test('变更集为空 ⇒ fail-closed 判红（"没取到文件"不等于"没改
   assert.match(r.reasons.join('\n'), /变更集为空|取证失败/)
 })
 
-test('只有 M/D 没有 A 不算新增记录（改别人的记录不等于自己写了记录）', () => {
+test('只有 M/D 没有 A 不算新增记录（改别人的记录不等于自己写了记录；含 D 即不是纯回填）', () => {
   const r = mod.evaluate({
     statuses: st([['M', 'openspec/records/other.md'], ['D', 'openspec/records/stale.md']]),
     headBranch: 'x',
@@ -87,6 +87,221 @@ test('只有 M/D 没有 A 不算新增记录（改别人的记录不等于自己
   })
   assert.strictEqual(r.ok, false, JSON.stringify(r))
   assert.deepStrictEqual(r.addedRecords, [])
+})
+
+// ── 出路④：回填型 PR（本 PR 只修订既有记录/台账载体，不新增任何东西）────────────────
+// 动因（#2920 实测，2026-10-05）：出路②要求 M 的文件 == `openspec/records/<headBranch>.md`，
+// 而"回填"的定义恰恰是 M **别的分支**那篇记录 —— 于是三类合法出路对回填 PR 全部不可用：
+// ①新增自己那篇 ⇒ 给一条 meta 变更再造一笔 PENDING 欠账（三阶递归）；
+// ③新增豁免 ⇒ 豁免堆积阈值 3，盘上已 1 条，逼近即红。
+// 实测：`--mode=enforce` 对 #2920 报「本 PR 未携带执行记录」rc=1，CI 传 advisory 才没拦。
+// 判据取"变更集全部是载体文件的 M"这个最窄形态：夹带任何非载体文件（代码/新文档）即不算回填，
+// 因此它不可能是将行为变更藏进回填的通道。
+test('出路④：变更集全是既有记录的 M ⇒ 判为回填型 PR 并放行，且必须点名', () => {
+  const r = mod.evaluate({
+    statuses: st([['M', 'openspec/records/legacy-record-a.md']]),
+    headBranch: 'sync-backfill-2914',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(r.ok, true, JSON.stringify(r))
+  assert.deepStrictEqual(r.addedRecords, [], '回填不算新增记录，计数不得混同')
+  assert.deepStrictEqual(r.backfillRevised, ['openspec/records/legacy-record-a.md'])
+  assert.match(r.summary(), /回填/, '放行理由必须每次打印，否则这条出路会变成无人知晓的暗道')
+})
+
+test('出路④不得夹带非载体文件：M 代码 / A 新文件 / D 删除任一形态都不得白坐', () => {
+  for (const extra of [
+    ['M', 'apps/desktop/electron/main.js'],
+    ['A', 'apps/desktop/src/brand-new.js'],
+    ['D', 'apps/desktop/old.js'],
+  ]) {
+    const r = mod.evaluate({
+      statuses: st([['M', 'openspec/records/other.md'], extra]),
+      headBranch: 'x',
+      exemptOnDisk: [],
+      remoteBranches: new Set(['main']),
+    })
+    assert.strictEqual(r.ok, false, `夹带 ${extra[0]} ${extra[1]} 必须仍然要求执行记录`)
+    assert.strictEqual(r.backfillRevised.length, 0, `夹带形态下 backfillRevised 必须为空（${extra[0]})`)
+    assert.match(r.reasons.join('\n'), /未携带执行记录/)
+    // 定义式措辞（QM-6 前端 C1）：出路④是"长什么样"，不是"你现在的 PR 可以这么做"
+    assert.match(r.reasons.join('\n'), /定义/, '出路④文案必须是定义式，不得读成对当前 PR 的放行指令')
+  }
+})
+
+test('出路④必须伴随至少一篇记录文件的 M：只翻 .quality-gates.md/账本不得白坐（QM-6 前端 C2）', () => {
+  // C2 滥用面向量：改动前「只 M .quality-gates.md 不带记录」是红的；若纯载体 M 一律放行，
+  // 门槛调整/账本收缩就能伪装成回填。收紧判据 = 回填的本质是修订记录，
+  // SOP 里销账与记录更新同次发生，因此无记录文件的载体集一律不构成出路④。
+  const gatesOnly = mod.evaluate({
+    statuses: st([['M', '.quality-gates.md'], ['M', 'scripts/gate-record-debt-ledger.json']]),
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(gatesOnly.ok, false, JSON.stringify(gatesOnly.reasons))
+  assert.match(gatesOnly.reasons.join('\n'), /未携带执行记录/)
+
+  const gatesAlone = mod.evaluate({
+    statuses: st([['M', '.quality-gates.md']]),
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(gatesAlone.ok, false, '单 M 门禁清单同样不得白坐')
+
+  const legacy = mod.evaluate({
+    statuses: st([
+      ['M', 'openspec/records/legacy-record-a.md'],
+      ['M', '.quality-gates.md'],
+      ['M', 'scripts/gate-record-debt-ledger.json'],
+    ]),
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(legacy.ok, true, JSON.stringify(legacy.reasons))
+  assert.deepStrictEqual([...legacy.backfillRevised].sort(),
+    ['.quality-gates.md', 'openspec/records/legacy-record-a.md', 'scripts/gate-record-debt-ledger.json'],
+    '三条载体都必须进 backfillRevised 清单（QM-6 前端 I3）')
+})
+
+test('isPureBackfillChangeSet 判据可直接单测（QM-6 前端 I1）', () => {
+  assert.strictEqual(typeof mod.isPureBackfillChangeSet, 'function', '必须导出判据函数')
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md']])), true)
+  assert.strictEqual(mod.isPureBackfillChangeSet(
+    st([['M', '.quality-gates.md'], ['M', 'scripts/gate-record-debt-ledger.json']])), false,
+    '无记录文件的载体集不构成回填（C2 收紧）')
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['M', 'x.js']])), false)
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['A', 'openspec/records/a.md']])), false)
+  assert.strictEqual(mod.isPureBackfillChangeSet([]), false)
+  // _exempt 边界（QM-6 后端 I3）：载体正则的首字符 [^_] 守卫必须把豁免文件的 M 挡在外面
+  assert.strictEqual(mod.isPureBackfillChangeSet(
+    st([['M', 'openspec/records/_exempt/x.md'], ['M', 'openspec/records/a.md']])), false,
+    'M 豁免文件不是载体 —— 放宽正则时这里必须红')
+  // 重命名形态（QM-6 后端 I2）：changedFileStatuses 对 rename 返回 R100（非 M），
+  // "代码文件改名成记录文件"不得被纯回填吸收
+  const r100Statuses = [{ status: 'R100', file: 'openspec/records/new.md', from: 'apps/desktop/old.js' }]
+  assert.strictEqual(mod.isPureBackfillChangeSet(r100Statuses), false,
+    'R100 复制/重命名形态不算 M，出路④必须拒绝')
+  const r100 = mod.evaluate({
+    statuses: r100Statuses,
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(r100.ok, false, JSON.stringify(r100.reasons))
+  assert.deepStrictEqual(r100.backfillRevised, [])
+})
+
+// ── QM-6 后端 W1：出路④不得吞掉「分支名注入失效」——detached 且无 env 时必须 fail-closed ──
+// resolveHeadBranch 的设计是"宁可判没带记录，也不猜一个不存在的分支"；若出路④不要求分支名，
+// CI 上 --head-branch 注入失效会让纯 M 记录 PR 以 head分支=(空) 判绿，接线失效被静默吞掉。
+test('出路④要求分支名可解析：detached 且无 CI 注入时纯 M 记录必须红并出声', () => {
+  const r = mod.evaluate({
+    statuses: st([['M', 'openspec/records/other.md']]),
+    headBranch: '',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(r.ok, false, JSON.stringify(r.reasons))
+  assert.match(r.reasons.join('\n'), /分支名/, '必须点名"分支名不可解析"这一成因，而非泛泛的"未携带记录"')
+  assert.deepStrictEqual(r.backfillRevised, [], '分支名不可解析时回填清单必须为空')
+})
+
+test('summary 必须始终打印载体 M 计数，回填未成立时作者能看出差在哪（QM-6 前端 W9）', () => {
+  const r = mod.evaluate({
+    statuses: st([['M', 'openspec/records/other.md'], ['M', 'apps/desktop/electron/main.js']]),
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.match(r.summary(), /载体M=1/, 'summary 须含载体 M 计数：' + r.summary())
+})
+
+test('M 自己那篇 + M 别人的记录：两条修订判据并存且互不混同（QM-6 前端 I4）', () => {
+  const r = mod.evaluate({
+    statuses: st([['M', 'openspec/records/my-branch.md'], ['M', 'openspec/records/other.md']]),
+    headBranch: 'my-branch',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main', 'my-branch']),
+  })
+  assert.strictEqual(r.ok, true, JSON.stringify(r.reasons))
+  assert.deepStrictEqual(r.revisedRecords, ['openspec/records/my-branch.md'])
+  assert.deepStrictEqual([...r.backfillRevised].sort(),
+    ['openspec/records/my-branch.md', 'openspec/records/other.md'])
+})
+
+test('出路④与既有判据互不干扰：既交豁免又 M 别人的记录走豁免出路；M+D 混合仍不算回填', () => {
+  const exempt = mod.evaluate({
+    statuses: st([['M', 'openspec/records/other.md'], ['A', 'openspec/records/_exempt/x.md']]),
+    headBranch: 'x',
+    exemptOnDisk: [{ branch: 'x', reason: '只是修订别人的记录，本 PR 无行为变更' }],
+    remoteBranches: new Set(['main', 'x']),
+  })
+  assert.strictEqual(exempt.ok, true, JSON.stringify(exempt.reasons))
+  assert.strictEqual(exempt.backfillRevised.length, 0,
+    '掺进一个 A 就不再是纯回填，此时靠豁免那条出路成立，判据不得重叠')
+  const mixed = mod.evaluate({
+    statuses: st([['M', 'openspec/records/other.md'], ['D', 'openspec/records/stale.md']]),
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(mixed.ok, false, '删除记录（D）必须另交记录，不得被回填判据吸收')
+})
+
+test('CLI 端到端（enforce）：纯回填的 statuses 必须 rc=0，夹带代码必须 rc=1', () => {
+  const cli = (statuses, expectZero) => {
+    const r = (() => {
+      try {
+        const stdout = execFileSync('node', [
+          path.join(__dirname, 'check-pr-exec-record.js'),
+          `--statuses=${JSON.stringify(statuses)}`,
+          '--head-branch=sync-backfill-2914',
+          `--repo=${path.join(__dirname, '..')}`,
+          // 豁免堆积阈值取决于盘上 _exempt/ 与远端分支的实际状态，与本条要测的回填判据无关；
+          // 不隔离它，将来任何人新增一篇豁免都会让这条 CLI 测试莫名变红。
+          '--no-remote',
+          '--mode=enforce',
+        ], { encoding: 'utf8' })
+        return { code: 0, stdout }
+      } catch (e) {
+        return { code: e.status ?? 1, stdout: String(e.stdout ?? '') }
+      }
+    })()
+    if (expectZero) assert.strictEqual(r.code, 0, r.stdout)
+    else assert.strictEqual(r.code, 1, r.stdout)
+    return r
+  }
+  // 文件名一律合成（QM-6 前端 I2）：不得与真实记录同名，避免读者误当夹具真源
+  const okRun = cli([{ status: 'M', file: 'openspec/records/some-legacy-record.md' }], true)
+  assert.match(okRun.stdout, /回填/)
+  cli([
+    { status: 'M', file: 'openspec/records/some-legacy-record.md' },
+    { status: 'M', file: 'packages/shared-utils/src/login-state.js' },
+  ], false)
+})
+
+// #2923 遗留：`args.head || 'HEAD'` 会把显式传来的空串读成默认 HEAD —— 而 HEAD 在 CI 的
+// pull_request 检出下是合并提交，等于把「取证失败」伪装成「取到了」。
+test('显式 --head= 空 ⇒ rc=2 拒绝，不回落 HEAD（运行方守卫不是唯一防线）', () => {
+  let ran = false
+  try {
+    execFileSync('node', [
+      path.join(__dirname, 'check-pr-exec-record.js'),
+      '--base=origin/main',
+      '--head=',
+      `--repo=${path.join(__dirname, '..')}`,
+      '--mode=enforce',
+    ], { encoding: 'utf8' })
+    ran = true
+  } catch (e) {
+    assert.strictEqual(e.status, 2, `期望用法错误 rc=2，实得 ${e.status}\n${String(e.stderr ?? '')}`)
+    assert.match(String(e.stderr ?? ''), /--head/, '拒绝理由必须点名 --head')
+  }
+  assert.strictEqual(ran, false, '显式空 head 必须被拒绝，走到正常路径即失败')
 })
 
 test('模板与豁免模板自身不得算作记录（它们带 PENDING 行，算进去就是恒红/恒绿）', () => {
@@ -322,8 +537,10 @@ test('#2745：搬过去那一步必须用 step 级 env 声明 PR base，并保�
   assert.ok(stepStart >= 0, '取不到承载门禁的那个 step 的起点 —— 结构解析退化')
   const nextStep = changes.indexOf('\n      - ', from)
   const step = changes.slice(stepStart, nextStep > 0 ? nextStep : undefined)
-  assert.match(step, /EXEC_BASE:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/,
-    'PR base 必须由 step 级 env 声明（run 正文里禁止内联 ${{ }}，字面替换先于 bash 解析）')
+  assert.match(step, /EXEC_BASE:\s*\$\{\{\s*steps\.classify\.outputs\.pr-base\s*\}\}/,
+    'PR base 必须由 step 级 env 声明（run 正文里禁止内联 ${{ }}，字面替换先于 bash 解析）；'
+    + '且真源是 classify step 的产出 —— 同一份取源不得在两个 step 各算一遍，两份 merge-base 口径一旦漂移，'
+    + '就会出现"同一 PR 在 classify 判 docs-only、在本判据判缺记录"这种不可归因的红')
   assert.match(step, /--base="\$\{EXEC_BASE:-\}"/,
     'base 必须可空：push 事件下脚本自己走「非 PR 不适用」分支，不得让每个 push run 被不适用自己的判据判红')
   // 分支名同样必须由 CI 侧注入：runner 上是 detached HEAD，`git rev-parse --abbrev-ref HEAD` 得到字面量
@@ -353,8 +570,11 @@ test('M 自己分支那篇记录算「本 PR 携带了记录」；M 别人的记
     exemptOnDisk: [],
     remoteBranches: new Set(['main']),
   })
-  assert.strictEqual(theirs.ok, false, '改别人的记录不等于自己写了记录 —— 放宽只能按分支名放宽')
+  // 出路④后语义更正：M 别人的记录恰好是纯回填形态，走出路④放行（不再是"没带记录"）；
+  // 但它**不算**修订本分支记录（revisedRecords 保持空），两条判据的计数不得混同。
+  assert.strictEqual(theirs.ok, true, JSON.stringify(theirs.reasons))
   assert.deepStrictEqual(theirs.revisedRecords, [])
+  assert.deepStrictEqual(theirs.backfillRevised, ['openspec/records/other.md'])
 })
 
 test('同分支记录被 M 时仍不得与新增豁免并存（矛盾判定不因此放宽）', () => {

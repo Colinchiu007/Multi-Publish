@@ -19,7 +19,7 @@ function makePipeline(aiGenerator, innerExecutor) {
   const pipeline = {
     stageExecutor,
     aiGenerator,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     registerStageExecutor(type, fn) {
       stageExecutor.register(type, fn)
       return { success: true }

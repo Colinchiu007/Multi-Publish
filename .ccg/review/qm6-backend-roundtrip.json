@@ -1,0 +1,155 @@
+[
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/store/settings-store.js",
+    "line": "18-51",
+    "claim": "攻击点1/兼容性与迁移：落盘字节逐字不变成立。9 处写入均由 JSON.stringify(obj) 改为直接传对象，safeJsonStringify 对字符串原样透传、对对象 JSON.stringify，字节级相同；旧行（JSON 文本）经 getSetting 先解析为对象，getSettingObject 的对象分支可直接读回，无需迁移，且没有路径会再读到需二次 JSON.parse 的字符串对象。",
+    "refutation_attempt": "读取 store-schema.js:203-211（safeJsonParse/safeJsonStringify 分支）、settings-store.js:18-51；逐个核对 git diff origin/main...7bbe33e6b 中 ops-center-sync.js 三处写入与三个 reporter 写入；实跑 vitest 5 文件 114/114 通过，含「存量行（修复前 JSON.stringify 写法）无需迁移即可读回」用例；结论与 docs/settings-persistence-contract.md 第2节一致。",
+    "result": "成立",
+    "fix": "无需修改；若未来给 getSetting 传入字符串型值，getSettingObject 会回落默认，建议在文档注明该方法只面向对象形配置。"
+  },
+  {
+    "severity": "Warning",
+    "file": "docs/settings-persistence-contract.md",
+    "line": "67",
+    "claim": "攻击点1/覆盖完整性：全仓同类内联判据逐点判定为「同类正确读法但第二份实现」，无一为 String(getSetting) 同款缺陷——ipc-handlers/store.js:411/436/455（草稿）、automation-scheduler.js:74、hot-topics-service.js:157/185/360、packages/shared-utils/src/data-sync.js:98、src/composables/useCopyLibrary.js:40 与 useCopyLibrarySources.js:43 都是 typeof+JSON.parse 双形态分支；publish-signer.js:111 是 executeJavaScript 结果解析，与 settings 无关。但 docs 第6节只登记 hot-topics 三份，「唯一实现/收敛清单」比实情窄，其余 7 处重复实现未点名，漂移风险仍在。",
+    "refutation_attempt": "rg 全仓扫描 typeof raw === 'string' ? JSON.parse(raw) : raw 得 11 处并按文件逐行阅读确认语义；读 spec.md:11「存量已有的重复归一化点若行为正确，可登记为后续收敛」；读 docs §6 仅列 hot-topics；确认本 PR 未新增任何第二份实现（diff 仅收敛 12 个消费点）。",
+    "result": "成立",
+    "fix": "在 docs/settings-persistence-contract.md §6 把上述 7 处（草稿 3、automation-scheduler 1、data-sync 1、两个 composable 2）全部登记为已知收敛项，或立独立切片统一收敛；同时保留「收敛前不得新增第二份」的检查。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/ipc-handlers/ops-center-sync.js",
+    "line": "1-19",
+    "claim": "攻击点2/明文泄露：不成立。getConfig()（ops-center-sync.js:159-170）只返回 url/apiKeyConfigured/autoSync/lastSyncedAt/runtimePublicKey/autoConnected/autoUrl，不暴露 apiKeyEnc 或明文；IPC get 仅透传 getConfig；getCatalogApiKey 只在主进程出站 header 使用，未发现 Key 值进入任何日志或渲染进程。",
+    "refutation_attempt": "通读 ipc-handlers/ops-center-sync.js 全部 7 个 handler；rg 全仓 getCatalogApiKey 得 phase1-context.js:256/290/311、rate-limit.js:38/66、feedback.js:146/153；逐一读 phase1-context 上报装配、rate-limit、feedback、三个 reporter 的请求构造（diagnostics:222、usage:185、publish:137），均只作 X-Catalog-Key header，无 log/console 含 Key 值。",
+    "result": "不成立",
+    "fix": "无需修改。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/ops-center-sync.js",
+    "line": "179-190, 272",
+    "claim": "攻击点2/Key 抹除残留：成立但非本 PR 引入或放大。getSettingObject 把「键缺失/行损坏/非对象」统一回落 {}，_getStoredKeyEnc() 返回 ''；此时 saveConfig 空 apiKey 会落盘 apiKeyEnc:''（显式语义「保留现有 Key」失效），syncNow 成功回写 updated（272 行）也会把 Key 抹掉。旧实现因读取恒失败本就恒 ''，本 PR 把窗口从「每次」收窄为「仅读取异常/损坏时」，但读失败→写默认→丢 Key 的形态保留。",
+    "refutation_attempt": "读 ops-center-sync.js:154-192（saveConfig）与 260-276（syncNow 回写）；推演存储三态（缺失/正常行/损坏行）下 getSettingObject→'' 的传播；对照旧代码 String(getSetting)+JSON.parse 恒 {} 的行为差异；确认无测试覆盖「损坏行+空 apiKey 不抹 Key」。",
+    "result": "成立",
+    "fix": "让 _readStoredObject 区分「无行」与「行在读失败/损坏」，损坏时 saveConfig 拒绝回写 apiKeyEnc（返回可解释错误），syncNow 回写前若 Key 读取失败则保留原行 apiKeyEnc 或中止回写；并补一条损坏行不抹 Key 的真实存储用例。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/ops-center-sync.js",
+    "line": "118-128, 139-152, 241-247, 651-668",
+    "claim": "攻击点3/状态机与并发：不成立。构造函数中 this._log 在 _loadRuntimeState() 之前赋值（120-121 行），未注入 store / 缺 getSettingObject 时走 _readStoredObject 的警记+{} 分支，不抛 TypeError；_saveRuntimeState 与 syncNow 的 setSetting 未判空但在 try/catch 内只能被记录。useBearer 三组取值（手填URL+有自动发现→catalog-key 需 Key；无Key无URL+有auto→bearer；手填URL+有Key→catalog-key）均未走错认证；autoSyncOnStart 的提前 return 与 syncNow 复检一致。",
+    "refutation_attempt": "逐行读构造函数、_readStoredObject、_syncNowInner（236-276）、autoSyncOnStart（651-668）；读 phase1-context.js:207 确认装配注入完整 store；手工推演三组 useBearer 布尔组合并对照 makeAuth 分支；未发现缺 Key 时误走 bearer 或相反路径。",
+    "result": "不成立",
+    "fix": "无需修改；若产品期望「手填URL+无Key+有auto」回落 bearer，属需求变更而非缺陷。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/ops-center-sync.js",
+    "line": "121, 316-328, 603",
+    "claim": "攻击点4/信任环：成立且是本 PR 首次使其实质可利用。自定义 runtimePublicKey 与受保护的运行时内容分别存于 settings 表 opsCenterSync 与 opsCenterRuntime 两行；构造期 _loadRuntimeState（121 行）直接恢复缓存而不验签，验签只在 _fetchRuntime（603 行）对网络负载执行。能写 settings 表者既可写自己的 PEM（自签）也可绕过签名直接写运行时状态，updatePolicy 重启即被 auto-updater 消费（phase1-context.js:209-214）。修复前读回恒 {} 使缓存不可达，属既有设计缺陷不可利用→本 PR 后可用。",
+    "refutation_attempt": "读构造函数 118-128、_loadRuntimeState 316-328、_fetchRuntime 597-607、verifyRuntimeSignature 定义 85-111、_getRuntimePublicKey 309-313、SETTING_KEY/RUNTIME_SETTING_KEY 定义（24-25 行）；读 phase1-context.js 的 setUpdatePolicyConsumer 与启动 applyPolicy；对比旧代码路径确认恢复恒 {}。严重度定为 Warning：本地 settings 写权限已属较高威胁面，但签名链对持久化状态的保护确被整体架空，若本地写库在威胁模型内应升级为 Critical。",
+    "result": "成立",
+    "fix": "applyRuntime 落盘时保留 signature（存原始签名+canonical 载荷或原 payload），_loadRuntimeState 用存储锚重新验签、失败按无配置 fail-closed；或将 runtimePublicKey 移出可写 settings 表（独立受保护文件/与数据主密钥绑定）；至少把本地写库威胁断言写进 docs 安全节。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/ops-center-sync.js",
+    "line": "316-328",
+    "claim": "攻击点4/fail-open 兜底：成立。键缺失与行损坏统一经 getSettingObject 回落 {}，各字段再归一为安全默认（announcements []、updatePolicy null、contentPolicy null、featureFlags {}、pipelineOptions null、appMenu null、contentCategories 内置目录、syncedAt ''），无把损坏内容当配置应用的路径。",
+    "refutation_attempt": "读 _loadRuntimeState 全文；读 app-menu-config.js normalizeAppMenu（非对象/无 items→null）与 content-categories.js normalizeContentCategories（fail-open 回内置 10 类）；对照 spec.md 损坏行场景，settings-roundtrip-contract.test.js:103-105 损坏行用例实跑通过。",
+    "result": "成立",
+    "fix": "无需修改。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+    "line": "53-82",
+    "claim": "攻击点5/真实 Store：成立。测试用 new Store()（store/index.js:27 聚合 settings-store）+ 真实 sqlite-wrapper（sql.js），库文件位于 os.tmpdir()+pid+随机后缀独立目录；restartStore 关闭并重开同一文件模拟真实重启，BaseStore.close 注释与 sqlite-wrapper.close（194-215 行）确认 close 前 persist；afterEach 显式 close+rmSync，vitest 进程串行（maxWorkers=1）叠加独立目录，无交叉污染。",
+    "refutation_attempt": "读测试 openStore/restartStore/beforeEach/afterEach；读 base-store.js init/close 与 sqlite-wrapper persist/close；实跑 npx vitest run 定向 5 文件：Test Files 5 passed (5)、Tests 114 passed (114)、Duration 9.42s。",
+    "result": "成立",
+    "fix": "无需修改。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+    "line": "24-33",
+    "claim": "攻击点5/crypto mock 同形：成立。真实 encrypt（crypto.js:80）返回 safeStorage Buffer，saveConfig 对其 toString('base64') 后落盘；真实 decrypt（crypto.js:95）经 _toBuffer（61 行）对字符串 base64 解码再 decryptString。测试 mock encrypt 产出 Buffer('enc_'+key) 的 base64、decrypt 按 base64 解码后剥 enc_ 前缀，与真实往返同形；getCatalogApiKey 断言（124-129 行）确实读回明文。",
+    "refutation_attempt": "读 crypto.js 37-105 与测试 24-33、122-129；追踪 saveConfig→crypto.encrypt→toString('base64')→decrypt 全链；实跑该用例绿（含 expected 'catalog-key-abc'）。",
+    "result": "成立",
+    "fix": "无需修改。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+    "line": "188-202",
+    "claim": "攻击点5/结构锁可绕过：成立。FORBIDDEN_SHAPE 正则漏掉本次修复前的历史原形 String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '')，也漏 String(store . getSetting(KEY) || '') 与 String(store['getSetting'](KEY) || '')；只命中直接调用/或空/换行形态。即把四文件改回原缺陷写法之一不会变红，与锁注释声称的语义覆盖不符。",
+    "refutation_attempt": "用 node 实测 7 形态矩阵并记录输出：old-ternary=false、direct=true、or-empty=true、spaced-member=false、bracket-member=false、nullable=true、newline=true；确认测试自带的判据矩阵（197-202 行）未包含历史三元原形。",
+    "result": "成立",
+    "fix": "把结构锁改为 AST/语义校验（scripts/check-settings-read-shape.js 或 eslint 规则），凡四个服务源码中 getSetting 出现在 String() 内即红（含成员内空格、方括号访问、可选链、三元守卫），并把历史原形与两种变异加进测试矩阵。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/vitest.config.js",
+    "line": "21-40",
+    "claim": "攻击点5/CI 接线：成立。include 含 electron/services/**/*.test.{js,ts}（23 行）；quality-gate.yml 桌面 shard 以 pnpm --filter @multi-publish/desktop test -- --shard=... 运行整个 workspace，自动收集本文件；scripts/check-unwired-tests.js 将 workspace 收集域视为已接线，无需逐个点名。",
+    "refutation_attempt": "读 vitest.config.js include/exclude、quality-gate.yml 614-680 分片命令、scripts/check-unwired-tests.js:61 附近 WORKSPACE_COVERED 逻辑；本地 npx vitest run 5 文件被同一 include 自动收集并执行。",
+    "result": "成立",
+    "fix": "无需修改。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/hot-topics-service.js",
+    "line": "157, 185, 360",
+    "claim": "攻击点6/hot-topics 排除：排除事实成立，但漂移/退化风险真实。三处均为 typeof 双形态正确读法（getCache/_readLlmLabels/_readRankConfig），非 String() 缺陷；但注入物 container.setup.js:233 窄包装只转发 getSetting/setSetting，缺 getSettingObject——一旦任一消费者改走新入口，会在窄包装抛 TypeError，随后被各方法 try/catch 静默吞成空缓存/空标签的功能退化，生产运行无显式护栏；测试装配面锁（208-235 行）只看守 KNOWN_LAGGING 清单，不强制转发。",
+    "refutation_attempt": "读 hot-topics 三处前后文确认分支语义相同且正确；读 container.setup.js:229-237 窄包装字面量；读 settings-roundtrip-contract.test.js:208-235 装配锁逻辑与 KNOWN_LAGGING=['getSettingObject']；对照 design.md Non-Goals 的排除理由。",
+    "result": "成立",
+    "fix": "后续切片把窄包装改为转发完整 settings-store 契约（含 getSettingObject）并删除 KNOWN_LAGGING 条目；在合并前可给窄包装加 getSettingObject 缺失时显式抛错/日志，杜绝静默降级；迁移 hot-topics 三处时同步删除原位拷贝。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/changes/fix-settings-roundtrip-contract/specs/desktop/settings-persistence/spec.md",
+    "line": "7-80",
+    "claim": "攻击点6/规格合规总体：成立。三条 Requirement 均被实现与测试覆盖：往返类型对称由 getSettingObject 唯一实现承载（四服务 12 处收敛）、写入传对象且字节不变、零迁移；恢复型状态重启生效（真实 Store 往返锁 + appMenu/水位线探针）；回归锁用真实存储且夹具同形、tmpdir 隔离。diff 范围未越规格（新增方法+消费点+测试+文档+流程资产），hot-topics 排除与 design.md Non-Goals 一致。",
+    "refutation_attempt": "读 spec.md 全文、design.md、proposal.md、tasks.md；核对 git diff origin/main...7bbe33e6b 共 21 文件及每文件归属；实跑 node scripts/verify-worktree-deps.js=OK（消费方解析通过 11 项）与 vitest 5 文件 114/114。",
+    "result": "成立",
+    "fix": "无需修改；Warning 项 2/4/6/10/12 的处置建议见各自条目。"
+  },
+  {
+    "severity": "Info",
+    "file": "(meta)",
+    "line": "-",
+    "claim": "reviewed_commit=7bbe33e6bb7ceeafe22c0349eaefa117fd0a75d1（git rev-parse HEAD 一致）；diff 文件数=21（git diff --stat origin/main...7bbe33e6b）；publish-reporter.js 含 1 个 NUL 字节且 origin/main 亦含 1 个（git show origin/main 实测），非本 PR 引入；总体判定=可合并（无 Critical，附 5 条 Warning 处置建议：重复实现登记、损坏行抹 Key 残留、信任环首次可利用、结构锁可绕过、窄包装缺新入口的静默退化）。",
+    "refutation_attempt": "git rev-parse HEAD=7bbe33e6bb7ceeafe22c0349eaefa117fd0a75d1；git diff --name-only origin/main...7bbe33e6b=21 文件；git show origin/main:apps/desktop/electron/services/publish-reporter.js | node 计 NUL=1；node scripts/verify-worktree-deps.js 输出「消费方解析通过 11 项 / OK」；apps/desktop 下 npx vitest run 5 定向文件输出 5 passed (5) / 114 passed (114) / Duration 9.42s。",
+    "result": "成立",
+    "fix": "-"
+  },
+  {
+    "severity": "Warning",
+    "file": "(session-integrity)",
+    "line": "-",
+    "claim": "【编排侧声明，非外部模型结论】本次派发的 codex 后端模型对 7bbe33e6b 的判定整体可信，但其证据被工作区脏改动污染了两条：条目 #10（FORBIDDEN_SHAPE 结构锁可绕过，行 188-202）与条目 #12（container.setup.js:233 窄包装 / KNOWN_LAGGING 装配锁，行 208-235）所引用的标识符与行号在被审 commit 里根本不存在——commit 版 settings-roundtrip-contract.test.js 只有 190 行、锁是内联的单条正则、无 FORBIDDEN_SHAPE 变量、无判定矩阵、无 KNOWN_LAGGING。这两条实际描述的是评审期间并发会话对同一 worktree 的未提交改动，因此不能作为 PR #2899@7bbe33e6b 的通过/阻断证据，必须在这些改动作为新 commit 推上去后重新评审。同时 origin/main 在评审期间从 fd28e782f 前进到 97b569ea9（三点 diff 按 merge-base 计算，diff 内容未受影响）。",
+    "refutation_attempt": "①`git show 7bbe33e6b:apps/desktop/electron/services/settings-roundtrip-contract.test.js | wc -l` = 190，而工作区 `wc -l` = 236；②`git show 7bbe33e6b:<同一文件> | grep -c \"FORBIDDEN_SHAPE\\\\|KNOWN_LAGGING\"` = 0，工作区 grep 命中 8 处（188/193/197-202/233/234 行）；③`git status --porcelain` 列出 10 个已跟踪文件处于 M 状态（container.setup.js、settings-store.js、ops-center-sync.js/.test.js、diagnostics/usage/publish-reporter.js、settings-roundtrip-contract.test.js、docs/settings-persistence-contract.md、openspec/.../tasks.md），`git diff HEAD --stat` = 197 insertions/50 deletions，均不在 7bbe33e6b 内；④`ls --time-style=+%H:%M:%S` 显示这些文件 mtime 落在 10:36:39–10:49:29 区间，横跨我的 codex 会话（10:12 启动、10:43 产出 JSON）与其结束之后（10:44:31、10:49:29 两次在会话结束后），故判定为另有并发写者；本编排会话自身只写了 .ccg/review/*.json。无法排除被派发的 codex 会话（以 --dangerously-bypass-approvals-and-sandbox 运行）也参与了写盘，需仓库 owner 用 `git diff HEAD` 逐一确认后再决定去留。",
+    "result": "成立",
+    "fix": "①合并前先把 PR head 重新解析并让评审绑定到新的干净 commit：`git -C <worktree> fetch origin fix-settings-roundtrip` + `git rev-parse origin/fix-settings-roundtrip`，若 > 7bbe33e6b 则对新增 commit 重跑一次 #10/#12 两条的核对；②按 AGENTS.md 并发铁律，本 worktree 现有未提交改动必须由写出它的会话自行 commit 或精确 `git stash push -- <路径>`，禁止第二个会话就地编辑同一棵工作树；③共享根/该 worktree 恢复 clean 后再取 CI 证据。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+    "line": "187",
+    "claim": "【编排侧实测，针对 commit 7bbe33e6b 真实存在的结构锁】commit 版判据是 `/String\\(\\s*[\\w.?!]*getSetting/`，它同时犯了两头的错：过宽——`String(store.getSettingObject(KEY, {}).url)` 也会命中（getSettingObject 是 getSetting 的前缀），未来任何合法地把 getSettingObject 结果再 String() 的写法都会被自己的锁判红，等于给正确读法埋一次假红；过窄——绕开只需两个字符的空格或方括号成员访问（`String(store . getSetting(K))`、`String(store[\\'getSetting\\](K))`）即静默通过。它确实能抓住修复前的三元原形（这点比并发会话改成的要求 `getSetting\\s*\\(` 的版本更强，那个版本反而漏掉原形）。因此「禁止第二份归一化实现重新长出来」这条锁在被审 commit 上是可绕过的，且自带一处误报。",
+    "refutation_attempt": "用 node 对 5 种写法同时跑 commit 版与脏版两条正则并打印矩阵：old-ternary(真实 origin/main ops-center-sync.js:204 原文) committed=true/dirty=false；direct committed=true/dirty=true；spaced-member committed=false/dirty=false；bracket-member committed=false/dirty=false；getSettingObject-ok committed=true(误报)/dirty=false。再 `git show 7bbe33e6b:<file> | grep -n not.toMatch` = 第 187 行内联正则，确认无矩阵用例兜住这些形态。",
+    "result": "成立",
+    "fix": "把该锁从「正则扫源码」升级为语义判据（推荐 AST：四个服务源码内任何 `CallExpression: String(...)` 的参数子树中出现 callee.property.name 属于 {getSetting, getUserSetting} 即红；成员访问的 computed / 空格 / 可选链天然被 AST 覆盖），并把 5 种形态（三元原形 / 直接调用 / 空格成员 / 方括号成员 / getSettingObject 必须不红）作为判据矩阵钉进同一文件；`String(store.getSettingObject(...))` 必须为 false 这条也要一起进矩阵，否则过宽误报会诱导下一个会话直接把锁删掉。"
+  },
+  {
+    "severity": "Info",
+    "file": "(process)",
+    "line": "-",
+    "claim": "【编排侧声明】第一次派发的 codex 后端会话（PID 42800，session 01a109d5-ec2a-75b3-95d6-aed030f275e5）跑满约 14 分钟、事件推进到 #144，但最终 stdout 被截断在第一条 finding 的 refutation_attempt 中途（仅 1839 字节），包装器日志在退出时被清理、~/.codex/sessions 下无 rollout 文件，无法恢复。第二次派发（PID 45708，session 01a109e9-8976-7b73-a880-3eb022af5565）已把任务改为「先落盘再摘要」，产出本文件 13 条 + 本会话追加 3 条。本文件前 14 个元素为第二次 codex 会话原文（13 条实质结论 + 1 条 meta），未做任何改写；后 3 个元素带【编排侧…】前缀，属我（编排代理）的取证与纠偏，不得计为外部模型结论。",
+    "refutation_attempt": "`cat` 第一次的 task output（1839 字节，正文在「git diff 确认写侧由 JSON.stringify(cfg) 改为」处断）；`ls C:/Users/to_co/.codex/sessions` 为空、`find ~/.codex -name '*01a109d5*'` 无命中；`ls -l C:/Users/to_co/AppData/Local/Temp | grep codeagent` 无 codeagent-wrapper-42800.log。第二次 task output 尾部为 `DONE 13` + 逐条 severity|file|line|result 摘要，与本文件条目数一致。",
+    "result": "成立",
+    "fix": "沿用第二次做法：向 codex 派长任务时一律要求把结论写入指定产物文件、正文只回摘要与统计，避免 stdout 截断吃掉证据。"
+  }
+]

@@ -83,8 +83,9 @@ class Settings(BaseSettings):
     feedback_max_message_chars: int = 10000
     feedback_max_archive_bytes: int = 25 * 1024 * 1024
     # 允许获取模型ID URL 解析到 198.18.0.0/15（RFC 2544 基准测试段）：该段被 Clash/TUN 类
-    # fake-ip 代理用于接管公网流量，公网模型 API 域名在代理环境下会解析到该段；
-    # 仅在有此类代理的主机开启，默认关闭保持 SSRF fail-closed。
+    # fake-ip 代理用于接管公网流量（本机代理进程或网关/路由器级透明代理均可），
+    # 公网模型 API 域名在 fake-IP DNS 劫持环境下会解析到该段；
+    # 仅在存在此类劫持的主机开启，默认关闭保持 SSRF fail-closed。
     allow_proxy_benchmark_ips: bool = False
     # 启动时对「模型列表仍为目录种子（或为空）」的预设自动拉取官方模型列表（best-effort，失败跳过）；
     # 测试/离线环境可设 OPS_PRESET_SEED_FETCH_ENABLED=0 关闭。

@@ -68,7 +68,7 @@ function createMockDeps ({ accounts, checkLoginStatus, sends }) {
       persistLoginState: vi.fn(async (id, platform, status) => ({ ok: true, status })),
     },
     BACKEND_PLATFORMS: new Set(),
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     BrowserWindow: { getAllWindows: vi.fn(() => [win]) },
     store: { getSetting: vi.fn(), setSetting: vi.fn() },
   }

@@ -191,7 +191,7 @@
 | VT-MATERIAL | 素材库 | 需创建 | P1 |
 
 视觉测试命令（cd apps/desktop）：
-`ash
+`bash
 # 像素对比测试
 npm run test:visual:pixel
 

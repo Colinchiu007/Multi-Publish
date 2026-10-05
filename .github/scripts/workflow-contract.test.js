@@ -217,6 +217,71 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
 
+// 2026-10-05 实测：PR #2596 的 QG Unit Tests 假红，Gate Result 连带红。
+//
+// 成因链：Gate 4 先问 nx「本次 PR 有没有受影响的非桌面项目」。这个空集若被误读成
+// 「探测失败，继续跑」，`nx affected` 会跑 0 个任务、**不启动任何测试进程**，于是末尾
+// 运行时出站台账判定（check-test-egress-ledger.js，fail-closed：无台账即红）把一条完全
+// 正常的 PR 判红。两版判据都在这里栽过：#2902 栽在 pwsh 把 `ConvertFrom-Json '[]'`
+// 摊平成 $null；#2596 栽在 nx 会往 stdout 掺 `NX   Unrecognized Cache Artifacts`
+// （CI runner 还原 Nx 缓存后必现，缓存键只含 .nx/cache、不含 .nx/workspace-data/d 那个 db）。
+//
+// 锁四件事：判据住在可单测脚本里、不得退回字符串全等、判据自身故障必须硬失败、
+// 早退分支必须排在降级 warning 之前。
+test('Gate 4 affected 探测：三态判据在可单测脚本里，早退只认确证空集', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const unitTestStep = workflow.match(
+    /- name: "Gate 4 - Workspace unit tests"[\s\S]*?(?=\n\s*- name: "Gate 4b)/,
+  )?.[0];
+  assert.ok(unitTestStep, 'Gate 4 步骤必须存在');
+
+  // ① 判据必须走可单测脚本（#2923 同族：决策搬进 scripts/ 才轮得到真测试打它）
+  assert.match(
+    unitTestStep,
+    /node scripts\/nx-affected-probe\.js --exit \$nxExit/,
+    'affected 判据必须由 scripts/nx-affected-probe.js 判定，不得留在内联 PowerShell 里',
+  );
+
+  // ② 不得退回 #2902 的字符串全等 —— 那正是被 nx stdout 提示一掺就漏判的写法
+  assert.doesNotMatch(
+    unitTestStep,
+    /\$affectedText\s+-eq\s+'\[\]'|\$affectedText\s+-eq\s+''/,
+    '全等判据已被证明会被 nx 的 stdout 提示污染，不得以任何形式搬回 Gate 4',
+  );
+
+  // ③ 判据脚本自身故障必须硬失败：「判据没跑起来」与「判据跑了但取不到证据」是两件事，
+  //    混成同一条降级路径就等于让判据静默失效。
+  assert.match(
+    unitTestStep,
+    /if \(\$LASTEXITCODE -ne 0\) \{\s*\r?\n\s*throw "nx affected 判读脚本执行失败/,
+    'nx-affected-probe.js 自身非零退出必须 throw，不得静默降级',
+  );
+
+  // ④ 早退必须排在降级判定之前（#2902 确立的顺序约束，至今仍是硬要求），
+  //    且早退的**条件本身**必须是 kind=empty（确证空集）——只判位置不判条件的话，
+  //    把条件换成 `if ($nxExit -eq 0)`（"nx 没报错就当没有受影响项目"）能从位置锁下溜过去，
+  //    那是把 fail-closed 方向又调转回去。
+  assert.match(
+    unitTestStep,
+    /if \(\$probe\.kind -eq 'empty'\) \{/,
+    '早退条件必须是确证空集（$probe.kind -eq empty），不得退化为只看 nx 退出码',
+  );
+  const iEmpty = unitTestStep.indexOf("-eq 'empty'");
+  const iWarn = unitTestStep.indexOf('nx affected detection unusable');
+  assert.notStrictEqual(iEmpty, -1, '必须按 kind 分流，且 empty 分支存在');
+  assert.notStrictEqual(iWarn, -1, '必须保留「判据取不到证据」时的降级 warning');
+  assert.ok(iEmpty < iWarn, '早退分支必须排在降级 warning 之前，否则空集判据形同虚设');
+
+  // ⑤ 判据的语义测试必须真的被 CI 收集（历史上本仓出现过"锁写了但没有任何 workflow 跑它"）
+  const gate2c = workflow.match(/- name: "Gate 2c - Unwired-test ratchet[\s\S]*?(?=\n\s*- name: ")/)?.[0];
+  assert.ok(gate2c, '必须能定位到 Gate 2c 步骤');
+  assert.match(
+    gate2c,
+    /node --test scripts\/nx-affected-probe\.test\.js/,
+    'nx-affected-probe.test.js 必须接进 static-gates，否则语义锁不会被执行',
+  );
+});
+
 test('Agent Judge 在 Windows 下使用 PowerShell 参数数组，并将无模型审计包降级为告警', () => {
   const workflow = fs.readFileSync(agentJudgePath, 'utf8');
   const judgeStep = workflow.match(/- name: Run AI Agent Judge[\s\S]*?(?=\n      # ---- 上传 artifacts)/)?.[0];
@@ -598,6 +663,29 @@ test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线�
     );
   }
 
+  // 2b) main push 的并发组必须**按 run 唯一**（#2642）。
+  //     上面 2) 锁的是 cancel-in-progress，它并没有坏 —— 实测被取消的 25 条 main push run
+  //     连 job 都没派发过（jobs=0），表达式是生效的。坏的是 group：GitHub 在同一并发组里
+  //     只允许一个排队者，新 push 一到就把还在排队的旧 push 置为 cancelled，而那条 sha
+  //     此后再不会出现任何 run ⇒ 主侧执行证据永久丢失。
+  //     近 1000 条 main push run 按 (sha, workflow) 归集实测：「取消过但被后续 run 补回」= **0 格**，
+  //     「该格全部 cancelled」= 51 格，其中 #2642 立案之后仍新增 5 格
+  //     （ecee7649f / 3af9d1114 / 6ddd41c4c）。所以改 group，**不要**改上面那一行。
+  const EXPECT_GROUP = '${{ github.event_name == \'pull_request\' && format(\'{0}-pr-{1}\', github.workflow, github.event.pull_request.number) || format(\'{0}-run-{1}\', github.workflow, github.run_id) }}';
+  // 逐字相等而不是"两个 token 都在"：QM-6 实测三种变异都能同时命中 /run_id/ 与 /pull_request\.number/ 却语义已坏 ——
+  // ① 分支对调（PR 拿到 run 唯一 ⇒ 失去互相取消；非 PR 落到 -pr- 且 number 为空 ⇒ 全部共享一组，本 PR 要修的现象原样复活）；
+  // ② 无条件拼接双 token（PR 每 run 唯一 ⇒ 失去互相取消）；③ 谓词改成 != 'push'（dispatch 落到 -pr- ⇒ 共享一组）。
+  // 所以这里锁整棵分支结构；要改表达式必须连同本行一起改，并在 PR 里写明为什么。
+  for (const name of ['quality-gate.yml', 'electron-ci.yml']) {
+    const wf = readWf(name);
+    const group = String(wf.concurrency && wf.concurrency.group);
+    assert.equal(
+      group,
+      EXPECT_GROUP,
+      `${name} 的 concurrency.group 与唯一真源表达式不一致（期望 PR 走 -pr-<number>、非 PR 走 -run-<run_id>），实测 ${group}`,
+    );
+  }
+
   // 3) visual-test 不得由 pull_request 触发：它与 quality-gate 的 QG Visual（Gate 7）逐行同构，
   //    每次改 apps/desktop/** 会跑两遍。保留 push 以维持「代码默认 readiness 超时」路径的覆盖。
   const vt = readWf('visual-test.yml');
@@ -761,6 +849,21 @@ test('quality-gate 的 visual job 必须含 PR 侧基线新鲜度步骤（Gate 7
   assert.match(body, /--partial\b/, '必须带 --partial：本 job 只跑浅色像素套，无渲染的不得判成过期')
   assert.match(body, /--renders=apps\/desktop\/tests\/visual-testing\/screenshots/, '渲染目录必须指向本次产物')
   assert.doesNotMatch(body, /continue-on-error/, '不得降级为非阻断')
+  // 两轮有界重试（#31）：单张视图采集 flake 不得卡死任意 PR（PR #2914 run 37267645916
+  // attempt=1 红在 create-history 3909px，同 sha attempt=2 全绿）。摘掉任何一段都会
+  // 静默退回「单轮定生死」—— round1 红的视图会因一次采集抖动失败整个 PR。
+  assert.match(body, /--json-out=/, 'round1 必须落盘结构化判定（两轮交集终判的数据源）')
+  assert.match(body, /--verdict-rounds=/, '违规时必须走两轮交集终判，不得单轮定生死')
+  assert.match(body, /--json-out=\$R2 \|\| true/, 'round2 checker 必须也落盘 R2 且容错（缺 R2 时终判按缺文件 fail-closed）')
+  assert.match(body, /exec vite --host 127\.0\.0\.1 --port 5174/, 'round2 必须自起 dev server（Gate 7 的 server 已在其 finally 里被杀）')
+
+  // 审计证据链（QM-6 后端评审 W3）：round1 渲染被 mv 成 screenshots-round1、round2 的
+  // vite 日志名带 gate7b —— noEvidence 失败时它们是唯一渲染证据，必须随 artifact 上传。
+  const upload = steps.find((s) => typeof s.name === 'string' && s.name.includes('Upload GUI quality artifacts'))
+  assert.ok(upload, 'Upload GUI quality artifacts 步骤必须存在')
+  const uploadPaths = String((upload['with'] && upload['with'].path) || '')
+  assert.match(uploadPaths, /screenshots-round1/, 'round1 违规渲染目录必须随 artifact 上传（noEvidence 失败时的唯一渲染证据）')
+  assert.match(uploadPaths, /vite-gate7b-round2/, 'round2 vite 日志必须随 artifact 上传')
 })
 
 // Gate 7b 的判定域锁：基线的权威渲染是 views 套件产出的 `<name>.png`（检查器 findRender 优先取它），

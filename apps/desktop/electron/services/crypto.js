@@ -16,7 +16,7 @@ let log
 try {
   log = require('./logger')
 } catch {
-  log = { info: () => {}, warn: () => {}, error: () => {} }
+  log = { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 }
 
 // 注入的 safeStorage（测试用）；生产环境从 electron 获取

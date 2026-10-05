@@ -13,7 +13,7 @@ function makeStore() {
 function makeEngine(store, governor, maxConcurrentRuns, maxHistoryEntries) {
   const engine = new PipelineEngine({
     serviceBus: {},
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     runStateStore: store,
     governor: governor || null,
     maxConcurrentRuns,
@@ -30,6 +30,20 @@ function makeEngine(store, governor, maxConcurrentRuns, maxHistoryEntries) {
     ],
   })
   return engine
+}
+
+// 并发测试用管线：deps 注入档与环境变量档共用同一套夹具，避免"两份夹具测出两种行为"
+function registerConc (engine) {
+  engine.registerPipeline({
+    name: 'conc-test',
+    description: '并发测试',
+    stages: ['a', 'b'],
+    stageDefs: [
+      { name: 'a', type: 'conc_a' },
+      { name: 'b', type: 'conc_b' },
+    ],
+  })
+  engine.registerStageExecutor('conc_a', async () => ({ success: true, output: {} }))
 }
 
 describe('编排流水线断点恢复', () => {
@@ -283,7 +297,7 @@ describe('编排流水线断点恢复', () => {
     try {
       const sizeEngine = new PipelineEngine({
         serviceBus: {},
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       })
       sizeEngine.registerPipeline({
         name: 'size-test',
@@ -359,19 +373,6 @@ describe('W2：run 结束统一回收 governor 过期 waiter', () => {
 
 
 describe('后台运行：历史含运行中 + 并发上限', () => {
-  function registerConc(engine) {
-    engine.registerPipeline({
-      name: 'conc-test',
-      description: '并发测试',
-      stages: ['a', 'b'],
-      stageDefs: [
-        { name: 'a', type: 'conc_a' },
-        { name: 'b', type: 'conc_b' },
-      ],
-    })
-    engine.registerStageExecutor('conc_a', async () => ({ success: true, output: {} }))
-  }
-
   it('getHistory 包含运行中的编排 run，且无 _name 索引重复', async () => {
     const engine = makeEngine(makeStore())
     registerConc(engine)
@@ -521,6 +522,33 @@ describe('并发上限环境变量开关（STORY2VIDEO_MAX_CONCURRENT_RUNS）', 
     process.env[KEY] = '99'
     const engine = makeEngine(makeStore())
     expect(engine.maxConcurrentRuns).toBe(8)
+  })
+
+  // 最坏主机档：CI 主机永远够强，自适应默认值在 CI 上恒 >1，所以"env 把上限钉成 1"
+  // 这条取值原本只有手工跑 STORY2VIDEO_MAX_CONCURRENT_RUNS=1 才会被走到。
+  // 这里把它钉成常规用例，使该档在每次 CI 都被执行，而不需要额外开一条 lane。
+  it("设 1（最坏主机档）→ 上限为 1 且第 2 条被拒、取消后释放槽位", async () => {
+    // 先取一个与"自适应默认值"不可能重合的档位：本机实测空闲内存 1.03GB ⇒ 自适应就是 1，
+    // 只断言 env=1 会得到一个对本机而言恒真的判据（这正是 #2800 那类主机依赖的镜像形态）。
+    process.env[KEY] = '3'
+    expect(makeEngine(makeStore()).maxConcurrentRuns).toBe(3)
+
+    process.env[KEY] = '1'
+    const engine = makeEngine(makeStore())
+    expect(engine.maxConcurrentRuns).toBe(1)
+    registerConc(engine)
+
+    const r1 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r1.success).toBe(true)
+
+    const r2 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r2.success).toBe(false)
+    expect(r2.errorCode).toBe('PIPELINE_CONCURRENCY_LIMIT')
+    expect(r2.errorParams).toEqual({ count: 1, max: 1 })
+
+    engine.cancel()
+    const r3 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r3.success).toBe(true)
   })
 })
 

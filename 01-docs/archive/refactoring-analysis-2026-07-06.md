@@ -32,7 +32,7 @@
 | remotion-composer 测试 | **0** (35 源文件) |
 
 **关键缺失测试的模块**:
-- ideo_creation/providers/video/ — 19 个大文件，0 测试
+- video_creation/providers/video/ — 19 个大文件，0 测试
 - publishers/ — 7 个发布器，仅基础测试
 - wechat_publisher/client.py — 672 行，0 测试
 
@@ -49,14 +49,14 @@ Chrome BrowserMetrics (.pma) 文件 >50MB，SQLite DB + journal 文件。
 
 | 文件 | 行数 | 建议拆分 |
 |------|------|---------|
-| ideo_compose.py | **2575** | → 4-5 个文件（composer/frame/audio/render） |
+| video_compose.py | **2575** | → 4-5 个文件（composer/frame/audio/render） |
 | hyperframes_compose.py | **1204** | → 2-3 个文件（builder/renderer/validator） |
 | douyin.py | **1202** | → 2 个文件（api + rpa 模式） |
-| ideo_stitch.py | **962** | → 2 个文件（stitcher + transcoder） |
+| video_stitch.py | **962** | → 2 个文件（stitcher + transcoder） |
 | character_animation.py | **895** | → 2 个文件 |
-| ideo_analyzer.py | **798** | → 2 个文件 |
+| video_analyzer.py | **798** | → 2 个文件 |
 | _shared.py | **696** | → Utils 模式 |
-| rchive_org.py | **661** | → 2 个文件 |
+| archive_org.py | **661** | → 2 个文件 |
 | corpus_builder.py | **674** | → 2 个文件 |
 
 ### P1-2: OpenMontage 遗留桩代码（8 个文件）
@@ -149,8 +149,8 @@ __pycache__/
 
 ### P2-4: ESLint 只覆盖 apps/desktop
 
-eslint.config.mjs 只存在于 pps/desktop/，其他包没有 lint。  
-Prettier 同样只覆盖 pps/desktop/。
+eslint.config.mjs 只存在于 apps/desktop/，其他包没有 lint。  
+Prettier 同样只覆盖 apps/desktop/。
 
 ### P2-5: flutter-skill-bridge 未接入
 

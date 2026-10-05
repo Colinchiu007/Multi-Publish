@@ -670,6 +670,7 @@ import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
+import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
@@ -808,6 +809,19 @@ async function recordRewriteToLibrary (content, source) {
   }
 }
 
+// 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）：本页「当前改写结果」对应的 rewrite_history 行 id。
+// 写点只有 rewriteViaEngine 成功分支一处（它是唯一拿得到信封的地方），读点只有 saveDraftAfterRewrite 一处。
+// 改写失败时不更新它——旧的 id 与界面上仍在的旧正文保持配对，比"内容没变但关联丢了"更正确。
+let collectRewriteLineageId = null
+
+// 清空改写结果必须同时清掉关联 id（QM-6 前端轴 F2）：两者是同一个产物的两半，
+// 分头复位就会留下"新正文 + 旧 id"这种假归因。今天读点被 rewriteResult 非空门控挡住，
+// 但那只是巧合——门控一旦改动（例如给空结果也留草稿入口），潜伏的串关联立刻变成事实。
+function clearRewriteResult () {
+  rewriteResult.value = ''
+  collectRewriteLineageId = null
+}
+
 async function rewriteViaEngine (content) {
   let res
   try {
@@ -837,6 +851,9 @@ async function rewriteViaEngine (content) {
   }
   // aiRewrite 返回 { code, data: { success, result } }；归一化为旧 aggregationRewrite 的 { result_content } 消费形态
   if (res && res.code === 0 && res.data && res.data.success && res.data.result) {
+    // 归因链：这里是本页唯一能拿到信封的地方，所以「当前改写结果的 rewrite_history 行 id」
+    // 只在此处写一次（由 saveDraftAfterRewrite 读一次）——三个调用点各写一遍必然漂移。
+    collectRewriteLineageId = extractRewriteHistoryId(res)
     return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
   }
   // 失败时透传原始 res（含 errorCode/message），供调用方 formatUserError 映射友好文案
@@ -1700,7 +1717,7 @@ async function collectUrl () {
   }
   collecting.value = true
   collectedResult.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   collectError.value = null
   try {
     const trimmedUrl = linkUrl.value.trim()
@@ -1869,7 +1886,7 @@ async function collectAndRewrite () {
   collecting.value = true
   rewriteError.value = null
   collectError.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   collectedResult.value = null
   try {
     const trimmedUrl = linkUrl.value.trim()
@@ -1975,6 +1992,10 @@ async function collectAndRewrite () {
         })
         if (rewrite && rewrite.result_content) {
           rewriteResult.value = rewrite.result_content
+          // 归因链（QM-6 后端轴 W-2）：Python 改写链路不写桌面 rewrite_history，
+          // 没有可承载的 id。这里必须显式清掉上一次引擎改写留下的 id ——
+          // 否则"存草稿"会把旧引擎的关联挂到这份 Python 产物上，属于凭空伪造关联。
+          collectRewriteLineageId = null
           recordRewriteToLibrary(rewrite.result_content, stealthItem)
           notifySuccess('collection.rewriteSuccess')
         } else {
@@ -2099,7 +2120,7 @@ function retryRewrite () {
 
 function clearResult () {
   collectedResult.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   rewriteError.value = null
   collectError.value = null
 }
@@ -2119,6 +2140,9 @@ function getDraftFromItem (data) {
 async function saveDraftAfterRewrite () {
   if (!rewriteResult.value) return
   const draft = getDraftFromItem({ ...collectedResult.value, content: rewriteResult.value })
+  // 归因链：草稿是"改写产物"这件事只有在这里能被记下来（getDraftFromItem 本身是通用投影，
+  // 非改写路径也在用它，所以判据挂在这一层而不是那一层）
+  attachRewriteLineage(draft, collectRewriteLineageId)
   drafts.value.unshift(draft)
   await saveDrafts()
   genreDraftId = draft.id
@@ -2274,7 +2298,7 @@ async function deleteRecord (item) {
   collectedItems.value = collectedItems.value.filter(x => x.id !== item.id)
   if (collectedResult.value && collectedResult.value.id === item.id) {
     collectedResult.value = null
-    rewriteResult.value = ''
+    clearRewriteResult()
   }
   await saveCollectedItems()
   notifySuccess('collection.recordsDeleted')
@@ -2286,7 +2310,7 @@ async function clearAllRecords () {
   // 只清 collected_items（采集正文）；改写文案（copy_library_rewrites）保留，需逐条删除
   collectedItems.value = []
   collectedResult.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   await saveCollectedItems()
   notifySuccess('collection.recordsCleared')
 }

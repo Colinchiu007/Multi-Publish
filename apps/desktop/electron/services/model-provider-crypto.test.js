@@ -310,7 +310,7 @@ beforeEach(() => {
   crypto.setSafeStorage(createMockSafeStorage())
 
   // mock logger
-  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
   // mock model-provider-seeds（避免 _seedPresets 污染 mock db）
   __registerMock('./model-provider-seeds', {

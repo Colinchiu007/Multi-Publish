@@ -11,11 +11,13 @@ allowBuilds:
   nx: true
   tesseract.js: true
   better-sqlite3: true
-# 安全修复版下限：GHSA-3wwx-pv8p-q78v (undici) / GHSA-qw65-cvwx-89v3 (fast-uri)
+# 安全修复版下限：GHSA-3wwx-pv8p-q78v 等 10 条 (undici) / GHSA-qw65-cvwx-89v3 (fast-uri)
+# 三条覆写一律带 ^（有上界），由 packages/api-publish-engine/test/production-dependency-security.test.js
+# 的「override 必须全部有上界」棘轮守着 —— 加一条新的无上界覆写会当场红，不再靠读注释自觉。
 # pnpm 11 起 overrides 只从本文件读取；package.json 的 pnpm 字段会被忽略并告警。
 overrides:
-  undici: '>=7.29.1'
-  fast-uri: '>=3.1.7'
+  undici: '^7.29.1'
+  fast-uri: '^3.1.7'
 # GHSA-3pq3/542g/9fr6/c29m/mghh/vh66/x97p 等 12 条 axios 公告的修复版本是 >=1.20.0（2026-10-01 实测）。
 # 必须用 overrides 而不是只升三个 workspace 包的区间：dev 域 nx@20.8.4 自带一份 axios（实测 1.18.1），
 # 而门禁扫描面是 `pnpm audit --prod` —— 只升 prod 会让门禁变绿、锁里那份低危副本一条没少。
@@ -23,7 +25,11 @@ overrides:
 # workspace 内、用自己的 package-lock.json（npm 管理），同批升到 ^1.20.0；四个直接消费方由
 # packages/api-publish-engine/test/production-dependency-security.test.js 一起判，不靠注释自觉。
 # 刻意写 ^1.20.0 而不是 >=1.20.0：override 整体替换依赖区间，无上界的写法允许下一次非
-# --frozen-lockfile 的 install 把 axios 静默 resolve 到 2.x。上面两条 undici/fast-uri 仍是 >=，
-# 属同族隐患，但改它们要重新 resolve 那两个包，本 PR 不夹带。
+# --frozen-lockfile 的 install 把 axios 静默 resolve 到 2.x。undici / fast-uri 两条原也是 >=，
+# 2026-10-05 实测已一并收成 ^：registry 的 undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，
+# 而锁里解析到的是 undici@7.30.0 / fast-uri@3.1.8 ⇒ 保留 >= 就等于允许下一次非 frozen 的
+# install 把它们静默抬到 8.x / 4.x（major 跳变）。两者都是**传递依赖**（undici 由
+# @electron/get@5.0.0 / cheerio@1.2.0 / jsdom@29.1.1 声明；fast-uri 由 ajv@8.18.0 / ajv@8.20.0 声明，
+# workspace 内无人直接声明），^ 后解析结果不变，改的只是"将来允许解析到什么"。
 # nx 声明 axios ^1.8.3、wait-on 声明 ^1.12.1，^1.20.0 落在两者区间内，不属强行覆写。
   axios: '^1.20.0'

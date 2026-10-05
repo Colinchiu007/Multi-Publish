@@ -21,7 +21,7 @@ let accountManager
 let loggerMock
 
 function createLoggerMock () {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 }
 
 function createMonitor (overrides = {}) {

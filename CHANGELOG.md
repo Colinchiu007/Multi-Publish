@@ -18,8 +18,281 @@
 - ops-center 后端全量套件：基线 **456 passed** → 修复后 **462 passed**（456+6，0 failed，193.43s）。
 - 文档同步：AGENTS.md 目录树里「登录经 platform-orchestrator /api/auth」按 `grep -na` 全仓 sweep 纠正（并补一条 MUST：删数据类夹具自身必须 fail-closed 校验目标在仓库外）；`ops-center/docs/PRD.md` §6.4 认证方案整段改为自持口径（PBKDF2-SHA256/200000、HS256 8h、Cookie+CSRF 头、内存限速、fail-closed、`ensure_admin_seeded` 只建不改），并如实标注鉴权分级表里「已登录（任意 role）」一列在当前唯一签发路径下与 admin 等价；`ops-center/docs/OPERATIONS.md` 新增 §11 本地启动/分诊/凭据核对/WAL 不可删。
 - 运维事实留痕：`data/config.db` 主文件可以长期只有 4KB，全部数据压在未落盘的 `config.db-wal`（实测约 0.8MB、37 张表）里——属 SQLite 正常行为，但**删 `-wal` 等于删库**，清理临时文件时 `*-wal`/`*-shm` 不在可删清单内。
+---
+# [未发布] chore(desktop): 删除 publisher.js 三个零引用死 pipeline wrapper，白名单棘轮改为「不得复加」（fix-dead-pipeline-wrappers，2026-10-05）
+
+### 清掉的隐患
+- `pipelinePauseWithCheckpoint` / `pipelineResumeFromCheckpoint` / `pipelineRegisterPipeline` 三个导出的 wrapper 调用的 IPC 方法名在 preload 侧**从未存在**，且全仓**零调用方**。它们由 `2d509abe`（大批量 API 面迁移）引入，而 preload 最终采用了另一套命名与参数形状（`pipelinePause()` 无 runId、`pipelinePauseRun(runId)`、`pipelineResumeOrchestration(runId)`）。
+- 隐患在于：任何人看到导出就会以为可用，一旦接上组件就会得到与 CRITICAL-1 同形的**静默失效**——桥接层 `typeof api[method] !== "function"` 直接 `return undefined`，`invokeWithFallback` 回落 `{ code: -1 }`，调用方 `code === 0` 恒为 false，无异常、无 console、界面零提示。
+
+### 处置的演进
+- 上一轮（`fix-ipc-namespace-contract` design D7）选择「登记进契约测试的 `KNOWN_GAP` 白名单、不删」，理由是删除会牵动 `publisher.js` 导出面与他人分支。相关分支已合并，5937 文件全域扫描确认零功能调用点，故本轮**删除**，并把白名单**收空为「不得复加」的零容忍棘轮**。
+- 白名单清空后，原「只能缩小」的断言会对空数组**空转通过**（判据失效但测试仍绿），与「负例不得误伤否则下个会话把锁删掉」是同形陷阱。已新增「KNOWN_GAP 必须保持为空」断言，并把空表情形显式说明而非空转。对账用例的诊断文案同步改为「若确认是死代码请**删掉它**」——下一个人拿到的是正确指引。
+
+### 证据
+- 变异①：注入一个指向不存在 preload 方法的零引用死 wrapper ⇒ 对账用例判红（1 failed / 18 passed）——**证明清空白名单没有把锁拆掉**，真正承重的是对账用例本身。变异②：把 `KNOWN_GAP` 填回一个条目 ⇒ 「必须保持为空」判红 ⇒ 白名单无法被静默复加。两次均 md5 逐字节还原且还原后 19/19 绿。
+- 回归 **650 passed / 0 failed**（`publisher.test.js` 251 与删除前基线一致、`electron-bridge` 8、契约 19、`preload` 372）。
+- QM-1：`build:dir` 通过；产物 62 chunk / 3.15 MB 内三个名字**各 0 次出现**，而对照组 `pipelineGetRunContext` / `pipelineAdvanceToNextCheckpoint` / `filmEngineering` **均在场**（证明产物构建自本分支源码）；独立临时 userData 启动 8 秒存活、**stderr 0 字节**。
+- QM-2：N/A——本轮只删导出、未新增或修改任何 IPC 调用参数。
+- `openspec-sync-check.js` 归档前后 **14 → 14，零新增违规**。
+
+### 顺带纠正的一个取证方法坑
+用 `Select-String -Path 'apps\**\*.js'` 做「全仓零引用」取证会得到**假阴性**：`**` 在 PowerShell 不是 globstar，路径不匹配即静默返回 0 命中。征兆是连确定含目标名字的文件都没命中。必须用 `Get-ChildItem -Recurse` 枚举并核对扫描文件数。
+
+### 后续影响
+`publisher.js` 其余 250+ 个 wrapper 未做同类审计，但**已无必要**：`KNOWN_GAP` 为空后，对账用例会把任何落在暴露面之外的调用名全部点名判红，这个类别以后不会再静默存在。
+
+---
+# [未发布] fix(desktop): 影视「单镜重试」永久失效——preload 命名空间与渲染层扁平名错配 + 补反向暴露面契约（fix-ipc-namespace-contract，2026-10-05）
+
+### 症状
+- 影视工程画布里点「重试该镜」永远失败，且失败原因此前不可见。渲染层 `src/api/publisher.js` 按**扁平名** `filmEngineeringRetryShot` 调用，而 preload 只在 `filmEngineering` **命名空间**下暴露 `retryShot`（`electron/preload/film-engineering.js`）。`electron-bridge` 的 `invoke` 判 `typeof api[method] !== "function"` 即 `return undefined`，`invokeWithFallback` 随后返回 `{ code: -1 }`，两个生产调用方判 `res.code === 0` 恒为 false。
+
+### 根因（不是那一行写错，是接缝无人测）
+- **preload 侧测得很全**：`preload.test.js` 有转发矩阵、`toHaveProperty` 暴露面断言、键数锁。
+- **渲染层测不到**：`useFilmVideoGen.test.js` / `useFilmProduction.test.js` 用 `vi.mock('@/api/publisher')` **整体 mock 掉本模块**，只断言"调用了 `filmEngineeringRetryShot`"，从不断言 preload 是否真有该方法。
+- ⇒ 两侧各自绿，**没有任何一条断言跨越这两侧**。这才是能一路进主干的机制性原因。
+
+### 修复
+- `electron-bridge.js` 新增通用 `invokeNamespace(ns, method, ...args)`（按 ns→method 两级取，参数经 `toPlainIpcValue` 脱壳）；`publisher.js` 的 `filmEngineeringRetryShot` 改走 `filmEngineering.retryShot`，fallback 形状逐字不变。**未改** preload 暴露面、主进程 handler、IPC channel。
+- 新增 `electron/tests/ipc-exposure-contract.test.js`（18 用例）：拦截 `contextBridge.exposeInMainWorld` 取 preload **真实完整**暴露面，与 `src/api/**` 的调用名对账；差集对 `public ∪ admin` 求（暴露面经权限过滤，只比 public 会把 admin-only 方法误报成缺陷）。
+
+### 存量结论（213 个调用名全量对账）
+- 活的真实缺陷 **1 个**（即本次修的 C-1）；死代码（暴露面无此名且除定义处 0 引用）**3 个**，已登记进测试内 `KNOWN_GAP` 白名单并锁"只能缩小"；权限门控（`ADMIN_ONLY_METHODS`，非 admin 整键不暴露）**1 个**；测试夹具假名 5 个已从扫描域排除。清单见 `docs/ipc-exposure-contract.md`。
+
+### 证据
+- 红证据：修 C-1 之前，契约测试判红并点名 `filmEngineeringRetryShot`（"未登记的暴露面缺口（1）"）。
+- 反证：把判据改成恒返回空数组的 no-op，2.2 判据矩阵判红 ⇒ 矩阵承重、对 no-op 不免疫。
+- 门禁级反证 2/2：① 渲染层新增一处不存在的调用名 ⇒ 对账判红；② preload 移除 `filmEngineering.retryShot` ⇒ 哨兵用例 + 命名空间对账判红。两次均按 md5 逐字节还原且还原后转绿。
+- 回归：`preload.test.js` 372 + `publisher.test.js` 251 等 7 个受影响测试文件共 **669 passed / 0 failed**。
+---
+# [未发布] fix(ci): Gate 4「无受影响项目」判据三态化，修掉被 nx stdout 提示污染引发的假红（gate4-affected-empty-probe，2026-10-05）
+
+- 根因：Gate 4 判断「本次 PR 有没有受影响的非桌面项目」用的是**字符串全等**（`$t -eq '' -or $t -eq '[]'`，#2902 为接住 pwsh 把 `ConvertFrom-Json '[]'` 摊平成 `$null` 而引入）。CI runner 还原 Nx 缓存后（缓存键只含 `.nx/cache`，`.nx/workspace-data/d` 那个 db 不在键内），nx 会往 stdout 掺自己的提示 `NX   Unrecognized Cache Artifacts`；提示一掺，全等两条全不成立 ⇒ 空集被降级成「探测失败」⇒ 继续跑 `test:affected` ⇒ nx 实跑 **0 个任务**、不启动任何测试进程 ⇒ 末尾运行时出站台账判定（fail-closed：无台账即红）把一条正常 PR 判红，`Gate Result` 连带红。
+- 修法：判据搬进可单测的 `scripts/nx-affected-probe.js`，输出 `empty` / `non-empty` / `unparsable` 三态，判定改为**逐行找能独立 parse 成 JSON 数组的那一行**，与提示文本解耦（散文里的方括号也污染不到）。workflow 只负责分流；脚本自身故障 `throw` 硬失败（与 `unparsable` 是两件事，不能混成同一条降级路径）；早退仍只认**确证**空集，且必须排在降级 warning 之前。
+- 门禁侧同步：`.github/scripts/workflow-contract.test.js` 新增 5 条断言（判据必须在脚本里 / 不得退回全等 / 脚本故障必须硬失败 / 早退条件必须是 `kind=empty` / 顺序约束），`scripts/check-test-egress-ledger.test.js` 那条 #2902 留下的顺序锁锚点随之换成本次形态。语义测试接进 static-gates 的 Gate 2c。
+- 同形第三次：`#2902` 修的是「空集被 `$null` 摊平」，本次修的是「空集被 stdout 提示污染」，判据形态连换两次 —— 所以锁的是**判定语义**（真跑纯函数）而不是 workflow 文本。
+- 复现面：任何只改非 Nx 追踪路径（ops-center / docs 等）的 PR 都会撞上，与具体改动无关。
+
+---
+# [未发布] feat(bilibili): 审核回查端点取证落地（bilibili-audit-evidence，2026-10-05）
+
+- publish-monitor 接入 member.bilibili.com 稿件列表端点（Cookie 会话：nav 验证会话 + `data.arc_audits[]` 按 bvid/aid String 匹配），取代取证前的虚构端点。
+- 状态判据从严：仅实测观测的 `state=0 && primary_state=0` 判 published，其余一律 pending 无定论；未观测的 state 取值不外推，bilibili 暂不入 `AUDIT_REQUERY_VERIFIED_PLATFORMS`。
+- 全程只读取证：没有发布、没有删除、没有改动任何稿件，真机「最小一次发布」授权未消耗；证据文档 `docs/audit-requery-evidence-bilibili-2026-10-05.md`，清单指针 `01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md` §九。
+- QM-6 双模型评审通过（0 Critical，Warning 全修，评审产物入库 `.ccg/qm6-bilibili-*`）；仍欠两条观测（审核中/不通过 state 取值 + 真机徽标联动）需真实投稿后补验。
+
+---
+# [未发布] docs(gates): 回填 #2940 远程同步 PASS 并销账（backfill-2940-record，2026-10-05，docs-only）
+
+- PR #2940（前端代码深度审查报告）已合并进 main：`dcc20eae`（merged 2026-10-05T12:40:49Z）。
+- `.quality-gates.md` 对应执行记录的「远程同步」由 `PENDING` 就地改写为 `PASS` + merge SHA 与取证命令，状态列只写当下状态、不留历程。
+- `scripts/gate-record-debt-ledger.json` 中本条登记在**同一次提交**删除（17 → 16 条），欠账不外溢。
+- 取证：`git log origin/main --grep='(#2940)$' --format=%H|%cI`；`git ls-remote --heads origin docs-frontend-deep-review` 返回 0 行。
+- docs-only 快速通道：判定 `docs-only=true`（files=2），跳过 QM-1/2/4 与 TDD、QM-6 评审。
+
+---
+# [未发布] docs(review): 前端代码深度审查报告（1 CRITICAL / 16 MAJOR / 11 MINOR，纯只读审查，2026-10-05）
+
+### 范围
+`apps/desktop/src`（551 文件 / 12.98 万行）+ `ops-center/frontend/src`（75 文件 / 8.8 千行）。4 个并行专项探子（视图层 / 状态管理 / API-IPC 边界 / 性能与测试）+ 主会话量化基线扫描 + 6 条关键结论逐行独立复核。**只读审查，未修改任何运行时代码。**
+
+### 三条最值得优先处理的结论
+
+1. **覆盖率门禁量的不是前端** —— `apps/desktop/vitest.config.js:67-82` 的 `coverage.include` 全为 `*.js` glob，**146 个 Vue SFC 命中 0**；阈值 `statements 55` 实际由 Electron 主进程（484 个命中文件中的 412 个）撑起。13 万行 SFC 逻辑在门禁视野外。
+2. **超大文件治理是无下降的棘轮** —— 500 行上限下 **98 个文件永久挂账豁免**（前端 27 个 / 36586 行 = 前端体量 28%，`CreateView.vue` 挂账 5657 行）；门禁只防「新增」与「膨胀 >200 行」。另有 20 个 >500 行测试文件因在 `EXCLUDE` 列表里连门禁都看不到。
+3. **IPC 契约无任何测试守护** —— 9 份独立 `getApi()`、6 个文件绕过桥接层，直接导致 CRITICAL-1（`filmEngineeringRetryShot` 命名空间错配 → 影视单镜重试永久失效且零报错）能一路进主干。**补一条 preload 契约测试是收益最高的单条投资。**
+
+### 已确认的正确性 Bug（5 条，主会话逐行复核）
+
+| # | 位置 | 后果 |
+|---|---|---|
+| 1 | `usePublishFlow.js:283/285/414` | 守卫与置锁之间隔着 `await ensureLogin()`，未登录用户点两次「发布」→ 平台侧两条内容 |
+| 2 | `Collection.vue:2584` | 轮询异常分支只写注释不做事 → `batchCollecting` 永为 true，按钮永久禁用且无报错 |
+| 3 | `utils/report-error.js:15` | `logError()` 返回的 Promise 既未 await 也未 `.catch`；`:16` 的 `return` 使 console 兜底永不可达 |
+| 4 | `usePublishFlow.js:116-122` | store 重试换新 taskId 后 `activeSession` 变 null，结果卡永久失联 |
+| 5 | `useCopyLibrary.js:132-163` | 读-改-写无串行化，并发下静默丢一条改写文案 |
+
+### 明确不建议动的部分
+
+`Publish.vue`(1659)、`ModelProviders.vue`(1428)、`Dashboard.vue`(679) 行数大但结构健康 —— 分别是 composable 编排、script 仅 98 行的模板+CSS、script 仅 159 行。**按行数重构收益为负、回归风险为正。**
+
+### 证据边界
+
+纯静态审查，**未运行任何测试、构建或打包**。未验证项已在报告第十节逐条列明（含 `stores/tab.js` 两处 `_unsubscribes.push` 是否累积订阅者、IPC 契约以 preload 源文件为准未验证打包产物一致性）。
+
+### 文档
+
+- `docs/frontend-deep-review-2026-10-05.md` —— 完整报告（1 CRITICAL / 16 MAJOR / 11 MINOR、P0-P3 治理路线图、10 个无测试覆盖模块清单、ops-center 对比、未验证项声明）。
 
 
+# [未发布] fix(gate): 执行记录门禁补第四条合法出路——纯回填型 PR 不再被误判未携带记录（2026-10-05，exec-record-backfill-exit / PR #2928）
+
+### 症状（#2920 实测）
+- 回填型 PR（修订**别的分支**那篇 `openspec/records/<分支>.md`）在 `check-pr-exec-record --mode=enforce` 下被报「本 PR 未携带执行记录」：既有三条出路对这类 PR 全部不可用，CI 靠 advisory 观察态掩盖。
+
+### 修复
+- `evaluate()` 新增出路④ `isPureBackfill`：变更集每一条都是载体文件的 M、**且至少含一篇记录文件的 M**（载体自身可承载行为变更，翻门槛/收缩账本不得白坐出路④）、**且分支名可解析**（detached 且无 CI 注入 fail-closed 出专用理由）⇒ 放行并在 summary 打印回填明细。
+- 失败文案补出路④定义式措辞；顺手落 #2923 遗留：显式空 `--head=` 脚本级 rc=2 拒绝，不再经 `|| 'HEAD'` 把「取证失败」伪装成「取到了」。
+- 回归锁 `check-pr-exec-record.test.js` 35/35；7 条变异反证（M1–M7）逐条实测变红，还原后逐字节相同。
+- 详见 `openspec/records/exec-record-backfill-exit.md` 与 `01-docs/PRD-EXEC-RECORD-BACKFILL-EXIT-2026-10-05.md`。
+
+---
+
+# [未发布] test(egress): 三条测试期真实出站补上传输层桩，出站台账基线首次清零欠账（#2878 / egress-stub-gap）
+
+### 现象
+`vitest run`（apps/desktop）跑出的运行时出站台账里有三条 `blocked::`，**不是**「用例故意验证守卫会拦住」，而是被测代码在测试 realm 里**真的发起了连接**，只因守卫在 `net.Socket.prototype.connect` 入口拦住才没外泄（issue #2878 登记的欠账）。
+
+### 根因（三条同形，均非生产逻辑缺陷）
+- `account-manager.test.js` 两条用例（`tencent_video HTTP 检测有效`、`toutiao 分区有 Cookie 时不再走 NO_COOKIE 硬判失效`）只桩了 `tryHttpLoginCheck`。但 `checkLoginStatus` 在 HTTP 判定为有效**之后**还会调 `profileRefresh.refreshProfileFromHttpApi(...)`，该模块内部**直接持有** `require('./http-login-checker')` 的真实模块对象 ⇒ 真实出站。
+  - 机制细节：`account-profile-refresh` 只在首次 `require` 时求值，那一刻若注册表里还没有 checker 的桩，它把真实模块对象存进模块级 `const` 并终身持有 ⇒ **单跑 `-t` 反而「干净」、整文件跑才复现**。绿灯来自加载顺序而非断言，属「夹具在隔离依赖还是在藏缺陷」形状。
+- `ops-center-sync.test.js` 的 `未配置 URL / Key / manager 时 fail-closed` 用例：生产行为是**有意**的 —— `syncNow` 在模型服务未就绪时仍会 best-effort 下发运行时策略（`_syncRuntimeBestEffort` → `/api/v1/runtime/bootstrap`）。旧注释写的「不发起网络请求」与实现不符，于是合成域名 `ops.example.com` 被真打一遍。
+
+### 修复
+- 在**加载消费方之前**把 `./account-profile-refresh` 整层打桩（新增 `stubProfileRefreshTransport()` / `profileRefreshCalls()` 辅助），并**断言它确实被调到** —— 桩必须承重。
+- `ops-center-sync` 用例给 `global.fetch` 打桩，并断言两次调用都命中 `/api/v1/runtime/bootstrap`（未就绪时不取目录）；**不改生产行为、不改断言语义**。
+- `scripts/test-egress-ledger-baseline.json` 删除三条欠账条目 —— 基线首次不含任何「欠账」字样，剩余 `blocked::` 四条全是守卫/sink 自测。
+
+### 反证
+摘掉 `stubProfileRefreshTransport()` 后重跑 → `Tests 1 failed | 82 passed`，且台账重新记回 `blocked::channels.weixin.qq.com:443`。新桩是必要的，不是装饰。
+
+### 验证
+- 三个相关文件整跑：`175 passed / 175`，台账 `blocked::` 归零。
+- `node --test scripts/check-test-egress-ledger.test.js` = 15/15 通过。
+- `check-max-lines`、`check-no-brand-residue` 全绿。
+- 文档：`docs/test-egress-runtime-ledger.md` §6 三类条目表 + 新增 §6.1（三条根因表、加载顺序机制、反证、以及「旧注释与实现不符时先判定哪边是契约」的处置纪律）。
+
+---
+
+# [未发布] fix(ci): docs-only 短路在 CI 取错变更集——改绑检出合并提交的双亲，取源决策搬进可单测的脚本（2026-10-05，docs-only-head-sha / PR #2923）
+
+### 症状（PR #2914 实测）
+- 纯文档 PR 在 CI 上被算成 `docs-only=false`，docs-only 短路整体失效、全量 job 照跑；本地同一条命令却是 `docs-only=true`。
+
+### 根因（两种失效形态）
+- `changes` job 用 `--base=<pull_request.base.sha>` 且**不传 `--head`** ⇒ 判据默认取 `HEAD`，而 PR 事件检出的是 `refs/pull/N/merge`（合并提交）。`base.sha` 冻结在 PR 打开那一刻，此后 main 的提交全落进 `merge-base(base.sha, 合并提交)..合并提交`（形态 A：实测清单多出 46 个别人的文件）。分支 re-sync 过新 main 后，冻结 base + 事件 head 同样误算（形态 B，QM-6 后端评审实测命中）。
+- 为什么逃过：`classify-docs-only.test.js` 全部夹具用分支顶当 head；把 bash 里的支路改成 `if false`，四条文本结构锁全绿 ⇒ 门禁自测住在 bash 里只能被文本锁观察。
+
+### 修复
+- 新增唯一取源实现 `scripts/ci-pr-changeset.js`：优先取检出合并提交自己的双亲（`git rev-list --parents -n 1 HEAD`，单亲/取不全/git 故障一律 fail-closed），回退事件 payload，非 PR 事件空对；每次打印 `source=/base=/head=`。`classify` 与 `Gate 2c2` 都消费它的 `pr-base/pr-head` 产出，不再各自算第二遍。
+- 回归锁 `ci-pr-changeset.test.js` 11 条（双形态正/负控、fail-closed、CLI 契约）；反证 8 条逐条实测变红，见 `docs/ci-changeset-acquisition.md`。
+- 真实 `refs/pull/2923/merge` 对照：双亲取法 `files=10` 与 `gh pr view files` 独立相符；旧取法 `files=20`（多出的 10 个正是期间别人的文件）。
+
+---
+
+# [未发布] fix(publish-loop): 改写→发布→归因关联链打通（渲染层四入口 + 归因自动触发 + 归属按人收口）（2026-10-05，rewrite-lineage-second-hop）
+
+### 修复（PR #2903，P2-6d）
+- 渲染层四个改写产出入口（改写页 / AI 写作面板 / 热点转视频 / 采集）此前**从不读** `rewriteHistoryId`（实测 `apps/desktop/src` 全域 0 命中），于是 `tracked_content.rewrite_history_id` 恒空，「效果洞察」「爆款分析」两页的模式效果排行**自功能诞生起恒空**。新增唯一实现 `src/utils/rewrite-lineage.js`（信封判定 + 64 字符上限 + 控制字符拒绝，非法一律 `null` 而非空串），打通 改写→草稿→article→payload→task→列 这条关联链。
+- 归因重算 `recomputeAll()` 的生产调用点原本只有手动 IPC 一个 ⇒ 新增「回采巡检真实产出快照后」自动触发（`setAfterRound`，挂在 `electron/bootstrap.js` 唯一的 start() 站点之前，顺序颠倒会让 30s 首轮没有回调），并补齐 `stop()` 清首轮定时器。
+- 归属收口：`pattern_performance` 新增 `owner_subject`（存量库走幂等 ALTER，且**先 ALTER 再建 owner 索引**——顺序颠倒会让存量库升级即无法启动，这是 QM-6 外部评审命中的 Critical）；聚合桶加归属这一层，读侧按归属筛并 fail closed（认不出身份返回 `AUTH_ERROR`，不再被渲染成「暂无归因数据」）。
+- **口径变化（用户可见）**：`pattern_performance` 的 `sample_count` / `avg_views` / `avg_likes` / `avg_comments` / `avg_favorites` / `engagement_score` 由「本机全部样本的均值」变为「本归属内样本的均值」；写侧仍是全量重算，行按归属打戳。实测：两个归属混算时曾得到一行 avg=50，收口后是两行 10 / 90。
+- 存量**不可回填**（schema 级理由，不是工程偷懒）：`tracked_content` 表没有任何内容列（`activate-viral-schema.js:63-79`），历史发布记录无法反查出自哪次改写 ⇒ 榜单只对打通后的新发布生效。
+- 质量：TDD 先红后绿；全量 `cd apps/desktop && pnpm vitest run` = 13738 passed / 1 failed（唯一红是既有 Windows 符号链接 EPERM 环境项）；17 次变异反证（含一次「单维度夹具下反证无效、补第二维度才变红」的自我纠正）；QM-6 双模型 16 条逐条处置；QM-1 本地打包 rc=0 + `extractFile` 产物内容判据 + 隔离 profile 真启动见 `performance-recrawl scheduler started`。详见 `01-docs/PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05.md`（六维度；含一处被实测否证的误判，原样保留以免下一个会话重走一遍）。
+
+# [未发布] fix(桌面端): 运营中心配置"写得进读不回"——settings 往返类型不对称令菜单/公告/开关重启即失效（fix-settings-roundtrip-contract，2026-10-05）
+
+### 症状
+- 运营中心「应用菜单」改了显隐/排序并保存，桌面端侧栏**永远不变**；每次重启都回落到应用内置菜单。`openspec/specs/app-menu/spec.md` 里"落入本地缓存，重启后仍可恢复"那条自 2026-08-10 起从未被满足。
+
+### 根因（类型契约误判，不是同步逻辑坏）
+- `store/settings-store.js` 的 `getSetting` 返回**解析后的值**（对象），而 `ops-center-sync` / `diagnostics-reporter` / `publish-reporter` / `usage-reporter` 按字符串读取：`String(obj)` → `[object Object]` → `JSON.parse` 抛 → 静默回落 `{}`。共 9 处读取点。
+- 后果面还包括三类上报水位线恒 0（重复上报）。
+- 为什么 90 条用例全绿：`makeStore` 夹具"存进什么类型就返回什么类型"，与真实存储「字符串进、对象出」不同形 —— 对这类缺陷结构性免疫。
+
+### 修复
+- 读回归一化收敛为存储侧唯一实现 `getSettingObject(key, defaultValue)`；写入一律传对象。因 `safeJsonStringify` 对字符串原样透传，**落盘字节逐字不变 ⇒ 零迁移**；回滚须整体回滚。
+- 夹具改为同形；新增真实 Store 往返锁 `apps/desktop/electron/services/settings-roundtrip-contract.test.js`（真库 + 关闭重开同一文件模拟重启 + 恢复期禁止出站）。
+- 反证：M1 摘对象分支 7 红 / M2 生产误判 + 同形夹具 21 红 / M2′ 退回原样回吐夹具则单元 0 红而真实锁 2 红（逃逸复现）/ M3、M4 各 1 红。
+- Live 取证：真服务打到本机 `127.0.0.1:8010`，重启后 `url`/`apiKeyEnc`/自定义验签锚/`lastSyncedAt` 全部读回、菜单逐项全等且恢复期零出站；换错公钥时 `runtimeApplied=false` 且不覆盖已验签缓存。
+- 详见 `docs/settings-persistence-contract.md`（含运营中心未部署这一半问题：`ops.iart.work` 当前 DNS 不解析）。
+
+---
+
+# [未发布] feat(门禁): 依赖审计补第三扫描域 ops-center/frontend，并强制「挂账必须可闭合」（2026-10-05，dep-audit-opscenter-domain / PR #2904）
+
+### 为什么第三扫描域是必须的
+- `check-dep-audit` 原先只有两个域：npm = `pnpm audit --prod`（`pnpm-workspace.yaml` 只列 `apps/*` 与 `packages/*`）、pip = `ops-center/backend/requirements.txt`。而 `ops-center/frontend/package-lock.json` 由 **npm 独立管理**，两个域都不含它 —— 它既不被扫、也没有 workflow 装它，却以"看起来受门禁保护"的形态存在（上一轮 axios 收口时它就是被点名的遗留）。
+- 新增 `npm-opscenter` 域（`npm audit --omit=dev --json`，cwd 落在 `ops-center/frontend`），与 pnpm 侧 `--prod` 同语义。独立 source 名不可省：共用 `npm` 会让同一 GHSA 在两个域互相冒充"已登记"，`--update` 时后写的覆盖先写的。
+- npm 的 v2 JSON 形状与 pnpm 的 `advisories` 完全不同（顶层按包名聚合、公告在 `via[]`、GHSA 只在 `url` 里、`patched` 要从 range 上界反推），因此新增 `parseNpmAuditV2`。
+
+### 「挂账可闭合」判据
+- 动因：axios 的 12 条公告曾被登记成 `upgrade-tracked`，而修复版 1.20.0 早已发布 —— 旧门禁只校验"有没有 decision/note/到期日"，从不校验"这笔账能不能闭合"。
+- 新增 `DECISION_CONTRADICTS_PATCHED`：`upgrade-tracked` 必须给 `targetVersion`（x.y.z 字面量，不许区间/通配），且该版本必须**逃出** `patched` 的**每一段**下界；`patched` 为空 ⇒ 该 decision 不成立，应改判 `no-fix-available`；形状解析不了 ⇒ fail closed。基线里 24 条 `upgrade-tracked` 据此补齐 `targetVersion`（diff `24/0`，纯插入）。
+- 覆盖面窄于声明必须硬失败：域在 `DOMAINS` 里却没有 runner/解析器 ⇒ `DOMAIN_NOT_WIRED`（rc=1），不得降级成 `SCANNER_UNAVAILABLE` 告警 —— 后者保护的是离线/端点抖动（部署事实），前者是代码事实。
+- 现状实测：新域今日贡献 `npm-opscenter=0` 条挂账（本机 `npm audit --json --omit=dev` 在 ops-center/frontend 得 0 条；去掉 `--omit=dev` 则有 3 包 / 12 条，全在 vitest→@vitest/mocker→undici 这条 dev 链上，属另一条待决策的口径）。
+
+# [未发布] fix(deps): undici / fast-uri 覆写由无上界 `>=` 收成 `^`，并加「整张覆写表都必须有上界」棘轮（2026-10-05，undici-fasturi-bounded / PR #2905）
+
+### 为什么 `>=` 是隐患
+- pnpm 的 override 是**整体替换**依赖区间，不做交集。写 `>=7.29.1` 等于允许下一次不带 `--frozen-lockfile` 的 `pnpm install` 把它静默抬到新 major —— registry 现场：`undici dist-tags.latest=8.11.2`、`fast-uri latest=4.2.1`，而锁里是 7.30.0 / 3.1.8。
+- 这条隐患被**两次**看见、两次写下、两次没修（#2613 建立时；#2856 的注释里明写"上面两条仍是 >=，属同族隐患，但本 PR 不夹带"），存续 6 天，期间没有任何东西在看它。
+
+### 改了什么与为什么它不改变行为
+- `pnpm-workspace.yaml` 与 `pnpm-lock.yaml` 各两行（`>=` → `^7.29.1` / `^3.1.7`）。锁是**按行重放**改的，不是重新 resolve —— 重新 resolve 会夹带无关版本。
+- 两者都是纯传递依赖（`importers` 段无人直接声明，实测 hits=0），改的只是"将来允许解析到什么"：新增用例「收上界不得改变解析结果」钉住锁里仍是 7.30.0 / 3.1.8。
+- 三条新回归锁：①**整表**判据（读到几条判几条 + 规模下界 `>=3`，裸 `>=` 一律红；动因是既有那条只按 `axios:` 单行点名，同形状的其余几条完全不可见）；②两把锁的 `overrides` 段 `deepStrictEqual`（手工重放靠它自证没漂）；③解析结果不得跨 major。
+- `pnpm install --frozen-lockfile` rc=0 —— 这是唯一能证明"手改锁没把 YAML 改成非法"的命令（上一轮 rebase 文本合并造出重复键，CI 报 `ERR_PNPM_BROKEN_LOCKFILE` 把 required 四项一起打红，而地板锁/审计门禁对那种非法文件全部免疫）。
+
+# [未发布] fix(门禁): QM-6 外部评审对三个已合并门禁 PR 的 7 条发现逐条处置（2026-10-05，qm6-gate-hardening / PR #2910）
+
+### 为什么单独一条：一次输掉的竞态
+- 三笔处置原本写在 #2901 / #2904 / #2905 各自分支上并本地跑绿，但那三个 PR 在推送之前被 auto-merge 收走。判据不看时刻表看 main 的内容：当时 `HEADING_RE` 仍是 `/^# \[/`、`PARSERS` 与 `hasUpperBound` 各出现 0 次。**代价如实写**：加固落地前那个窗口内的 PR 不受这四处保护。
+
+### 四条 Warning（实测全部成立，无一条驳回）
+- **#2901 形状盲区（活的）**：`origin/main` 有 1,164 行一级标题，1,140 行是 `# [` 形，另有 **2 种真条目是无括号形**（`# fix(自检门禁): …（#2648，2026-09-30）` 等，各重复 4 次），唯一非条目的一级标题是 `# CHANGELOG` ⇒ 旧判据对这 8 行失明，删掉任何一条棘轮照报 PASS。改为「一级标题 − 节标题」：`/^# (?!CHANGELOG(?:\s|$))\S/i`，真仓条目数 1,140 → **1,148**。
+- **#2901 坐标系错（评审未覆盖，同轮自行实测命中）**：`--base=pull_request.base.sha`（= 事件时刻的 main tip）与 `--base=origin/main` 同错，实测会把别人后并入的 3 条读成本 PR 丢失 ⇒ rc=1 假红；merge-base 口径 1145=1145 rc=0。CI 步骤改为先 `git merge-base`，回落链 merge-base → base sha → `HEAD^`（一律往"更严"回落），并加接线锁（runner 现场：`base_ref=… merge_base=1c98294a8…`、`ok 11 - CI 接线锁`、`PASS：base 1148 条（307 种）`）。
+- **#2905 指引与判据互斥（活的）**：失败文案让人"改成带 `^/~` 的写法"，而同文件两处判据硬编码只认 `^` ⇒ 照文案写 `~` 会被自家门禁判红。收成单一真源 `BOUNDED_PREFIXES` / `hasUpperBound()` / `boundedHint()`，文案由判据集合生成。
+- **#2904 解析器 `else` 兜底 + 多段 `patched` 只比第一段**：新增域会静默按 v2 形状解析（与 `DOMAIN_NOT_WIRED` 纪律冲突）⇒ 改显式 `PARSERS` 表并按域校验接线；`patchedFromRange` 的 `.exec` 对 `">=1.0.0 <1.2.3, >=2.0.0 <2.1.5"` 只取第一个上界 ⇒ 第二族被丢掉，`targetVersion=2.0.5` 会被判"可闭合"而它仍命中漏洞。改为收全部上界 + 逐段要求逃过（取"逐段都过"：语义无法从数据区分时，保守侧只会假红不会假绿）。
+
+### 三条 Info + 反证
+- 「两域」注释改按声明域；测试里对 `DOMAIN_NOT_WIRED` 的同条件重复断言删一条；绿文披露「npm 两个域均按 `--omit=dev` / `--prod` 扫，dev 依赖不在判据面内」。
+- 十一次变异反证（M1/M2/M1b/M2b + M1/M2/M3 + R1–R4）各自命中预期的那条锁，摘掉对应断言后回绿，每档先断言"文本真的变了"、结束按字节还原。
+- 通道实况：codex 路 rc=0 但无产物、claude 路 `completed without agent_message output`，只有 `opencode *-free` 产出真 findings（7 条）；评审用语在 prompt 与 diff 里 `grep -c` 均 0 ⇒ 非回声。三条记录里的 QM-6 由「未执行」更正为「部分执行 + 逐条处置」。
+
+# [未发布] docs(changelog): 回灌被 #2884 整份替换掉的 1,131 条历史 + 立「只可增长」棘轮（2026-10-05，changelog-restore / changelog-growth-gate）
+
+### 为什么不是"补一段旧文案"
+- `b531bdfe7`（PR #2884，一个 ai-taste 功能 PR）把 `CHANGELOG.md` 从 `7,474,293` 字节 / 1,133 条整份替换成 `9,155` 字节 / 2 条，**丢掉 1,131 条**。逐提交量 `git cat-file -s <sha>:CHANGELOG.md` 定位，该提交的 `--name-status` 里没有任何归档文件 ⇒ 是丢失，不是搬家。
+- 由 PR #2898 逐字节回灌：结果尾部与 `b531bdfe7^` **完全相同**，只在顶部保留截断后新增的 4 条条目。H1 条目 6 → 1,137；`git diff --numstat` 两口径一致为 `64368 0`（纯插入，零删除，历史一行未改）。
+
+### 为什么它能全绿合入（这才是重点）
+- 单元测试层：没有任何测试读 CHANGELOG 的规模或条目。
+- 门禁层：`check-docs-sync.sh` 只判「diff 里有没有白名单文档」——**把文档删空也满足**；`check-max-lines` 的 `SCAN_DIRS` 不含根级 `.md`；`check-gate-record-debt` 看执行记录不看 CHANGELOG。
+- 共同点：这是一份 append-only 台账，却没有任何东西在守它的单调性。
+
+### 补上的防线（本条只登记已落地的事实）
+- 新增 `scripts/check-changelog-growth.js`：判据是 **base 的条目标题多重集必须被 head 包含**。用多重集不用集合，因为 main 上 1,137 条标题只有 302 个不同值（267 种重复、最多 4 份），集合口径会把「4 份删到 3 份」读成通过。该门禁本身在 PR #2901 里（写本条时尚未合并，合并后另补条目与记录销账），落点是 `quality-gate.yml` 的 `changes` job 而非被 docs-only 短路的 `static-gates` —— `CHANGELOG.md` 命中 `CI_IGNORED_PATHS` 的根级 `*.md`，校验住在会被短路的位置等于自关校验。
+
+### 遗留（不假装闭合）
+- 台账自身的重复未清：1,137 条里只有 302 种标题（267 种重复、最多 4 份）。这是截断前就存在的缺陷，刻意不在抢救 PR 里顺手改 —— 去重要在同一份 diff 里同时证明"没丢历史"和"去重去对了"，出错无法二分。
+- 新门禁只判「条目不见了」，不判「条目正文被改短 / 字节倒退」：后续修订自己那条是既有习惯，判了会造出一个人人想关掉的红门禁。
+- 在 #2901 合并之前，同类截断仍然可以全绿通过 —— 本条只回灌了数据，判据还没上主。
+
+# [未发布] feat(门禁): 测试期运行时出站台账 → 只可缩小的基线棘轮（2026-10-05，test-egress-runtime-ledger-baseline）
+
+### 门禁（#2491 档3 改判：静态棘轮写不出来 ⇒ 改做运行时台账）
+- 新增落盘 sink `packages/shared-utils/src/network-egress-ledger.js`（守卫在 install / child / blocked 三处挂钩；env 未设时零副作用；写失败打 `[TEST-EGRESS-LEDGER-SINK-FAILED]` 且绝不冒泡；判「写成功」要求文件尺寸真的变大）。
+- 新增判定器 `scripts/check-test-egress-ledger.js` + 基线 `scripts/test-egress-ledger-baseline.json`（17 条，每条带原因；3 条测试期真出站记为欠账 → #2878）。新增键即红；台账不存在 / 0 行 / 无 install 记录 / 坏行 / 未知 type 一律红。
+- CI 接线在 `Gate 4`（required）与 `Desktop tests shard` 两条真的跑完测试的路径末尾，`Gate 4` 显式 `NX_SKIP_NX_CACHE=true`（缓存命中时根本不启动测试进程，fail-closed 会变成误红）。现场：桌面全量 772 行 / 0 坏行 / 599 进程并发 append。
+- 后续（#2902）修掉同一条 fail-closed 的第二个假红落点：`nx affected` 空集在 pwsh 里被 `ConvertFrom-Json` 读成 `$null` ⇒ 误分类成"检测失败" ⇒ 跑 0 个任务 ⇒ 台账不存在即红。
+
+# [未发布] test(story2video): 最坏主机档钉成常规用例，独立 CI 车道经实测否决（2026-10-05，s2v-worst-host-budget-coverage）
+
+### 测试
+- `resume-orchestration.test.js` 补「设 1（最坏主机档）」行为用例：`STORY2VIDEO_MAX_CONCURRENT_RUNS=1` 这一格取值原本只有手工枚举整仓才会构造，现进常规 CI（零增时）。
+- 同一条用例里再取一个不可能与自适应默认值重合的档位（`env=3`）。动因实测：本机 `os.freemem()` 仅 1.03GB ⇒ 自适应默认就是 1，「忽略 env」与「env=1」在本机是同一可观测状态 ⇒ 反证跑绿。口径：给资源自适应类默认值写锁必须补一个不重合档位，禁止条件 skip。
+- 独立车道经实测否决并留测量（一次 main push quality-gate = 27m52s；桌面全量不拆片 ≈47min > job 预算 40min）；全域「必须钉预算」结构锁亦否决（771 文件 → 11 含 `startOrchestrated(` → 标记 5，其中 3 个必须不钉）。
+
+# [未发布] fix(ci): main push 并发组按 run_id 唯一，止住主侧执行证据被排队顶替丢失（2026-10-05，main-push-evidence-loss）
+
+### 修复（#2642）
+- `quality-gate.yml` / `electron-ci.yml` 的 `concurrency.group`：PR 仍按 PR 号分组，非 PR 事件按 `github.run_id` 唯一；`cancel-in-progress` 一行未动。根因不是那句表达式（被取消的 main push run 连 job 都没派发），而是 GitHub 同组只允许一个排队者。
+- 实测（main+push 最近 1000 条 run 按 (sha, workflow) 归集）：全 cancelled 的格 = 51，「取消过又被后续 run 补回」= 0 ⇒ 取消即永久丢证；#2642 立案后仍新增 3 个 sha，满足该单自设的「等被坑第二次」门禁。
+- 新增 `workflow-contract.test.js` 2b) 逐字结构锁（QM-6 命中「只查 token 存在」不够：分支对调会照绿且让现象复活）；分支对调 / 退回旧写法 / 无条件双 token 三条变异均实测变红。
+- 同 PR 修掉 Gate 4 的空受影响集把 #31 台账判成假红（空集早退排在判定之前 + `--with-target=test` + 顺序锁）。
+---
 # [未发布] docs(rewrite): 去 AI 味功能使用手册（2026-10-04，user-manual-rewrite-ai-taste）
 
 ### 内容
@@ -8359,9 +8632,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -8827,9 +9100,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -9008,7 +9281,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -10095,7 +10368,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -12880,9 +13153,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -13348,9 +13621,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -13529,7 +13802,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -14616,7 +14889,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -24265,9 +24538,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -24733,9 +25006,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -24914,7 +25187,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -26001,7 +26274,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -28786,9 +29059,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -29254,9 +29527,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -29435,7 +29708,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -30522,7 +30795,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -40214,9 +40487,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -40682,9 +40955,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -40863,7 +41136,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -41950,7 +42223,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -44735,9 +45008,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -45203,9 +45476,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -45384,7 +45657,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -46471,7 +46744,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -56209,9 +56482,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -56677,9 +56950,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -56858,7 +57131,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -57945,7 +58218,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -60730,9 +61003,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -61198,9 +61471,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -61379,7 +61652,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -62466,7 +62739,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 

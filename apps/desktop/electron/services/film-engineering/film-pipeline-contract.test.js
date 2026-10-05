@@ -10,7 +10,7 @@ const { FILM_VIDEO_STAGE_TYPES } = require('./video-gen')
 describe('film-engineering 流水线阶段契约（六阶段）', () => {
   let engine
   beforeEach(() => {
-    engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
   })
 
   it('PIPELINES 含六个阶段且顺序为 load→adapt→select→export→generate→render', () => {
@@ -51,7 +51,7 @@ describe('film-engineering 流水线阶段契约（六阶段）', () => {
     const os = require('os')
     const path = require('path')
     const { registerFilmVideoStages } = require('./video-gen')
-    const orchestr = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const orchestr = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     // StageExecutor 需存在（编排模式）；构造传 serviceBus 桩
     orchestr.stageExecutor = {
       _customExecutors: new Map(),

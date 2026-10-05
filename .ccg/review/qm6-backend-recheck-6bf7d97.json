@@ -1,0 +1,148 @@
+{
+  "meta": {
+    "reviewed_head": "6bf7d97e939b9c5c843b38ab7f188cf7615e52cc",
+    "git_status": " M apps/desktop/electron/home-shell-preload.bundle.js\n M apps/desktop/electron/preload/index.bundle.js\n?? .ccg/review/",
+    "channel": "codex",
+    "scope": ["A", "B"]
+  },
+  "findings": [
+    {
+      "id": "A1",
+      "severity": "Warning",
+      "item": "A",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "193-211, 221-247",
+      "claim": "括号配对判据只覆盖「getSetting/getUserSetting 字样出现在 String( 实参文本内」这一字面形状；别名、动态键以及「先取 raw 再 String(raw)+JSON.parse」的等价写法可静默绕过，锁保持绿。",
+      "evidence": "实测（从当前文件逐字提取 findStringReadsOfSettings 后运行）：`const g = store.getSetting; String(g(K))` → 0 hits；`String(store[key](K))` → 0 hits；`const raw = this._store.getSetting(SETTING_KEY); const out = JSON.parse(String(raw));` → 0 hits。现行判据第209行 `if (/\\bget(?:User)?Setting\\b/.test(arg)) hits.push(...)` 只查 String( 实参子串。",
+      "why_it_matters": "锁注释自述守护的是「把 getSetting/getUserSetting 的返回值当字符串再处理」这一形状及各类绕行写法；上述等价形态会产生同样的 `[object Object]` → `JSON.parse` 抛错并静默退化成 `{}`，而 CI 不红。",
+      "fix": "矩阵补三条正例：别名调用、`store[key](K)`、`String(raw)` 与另起一行 `JSON.parse(raw)`；长期应升级为语义/AST 判据（getSetting/getUserSetting 返回值流向 String()/JSON.parse），而不是字面子串。",
+      "confidence": "high"
+    },
+    {
+      "id": "A2",
+      "severity": "Warning",
+      "item": "A",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "195-210",
+      "claim": "括号扫描器不识别字符串/模板/正则/注释字面量：字面量里的右括号会把扫描域提前截断造成漏判；注释里的 `String(getSetting(...))` 可造成误判；两者都不报错。",
+      "evidence": "实测：`String(\"x)\") + getSetting(K)` → 0 hits；`String(/x\\)/ + getSetting(K))` → 0 hits；`String(`${x})` + getSetting(K))` → 0 hits；`// TODO String(getSetting(K))` → 1 hit。现行第201-206行只按 `(`/`)` 字符计数，无字面量感知。",
+      "why_it_matters": "回归者只需在 getSetting 前放一个含右括号的字符串/正则/模板字面量即可让括号提前闭合、整句不被检查；函数既不红也不提示 depth 异常，静默失效。",
+      "fix": "用词法扫描跳过字符串/模板/正则/注释后再配对，或直接用 AST 取实参；并把上述漏判/误判四例加入矩阵。",
+      "confidence": "high"
+    },
+    {
+      "id": "A3",
+      "severity": "Info",
+      "item": "A",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "192, 222-231",
+      "claim": "注释「正例逐条取自 origin/main 的修复前原文」不准确：逐字核对 origin/main 后，只有第1条是真实原文（子串），其余正例（含 getUserSetting 条）为构造的形状族变体。",
+      "evidence": "`git grep -F 'raw = String(this._store?.getSetting' origin/main -- apps/desktop/electron/services` 命中 ops-center-sync.js:192/202/292/301/311、usage-reporter.js:62、diagnostics-reporter.js:150；`git grep -F 'getUserSetting' origin/main -- apps/desktop/electron/services` 在被锁 4 文件中 0 命中。真实原文外围还有 `try { ... } catch { raw = '' }`，矩阵未覆盖该外围。",
+      "why_it_matters": "覆盖本身靠第1条已抓到真实原形，但「逐条取自原文」的说法会让后续维护者误信矩阵经过历史逐字验证。",
+      "fix": "改注释为：第1条为修复前原文子串，其余为形状族构造样例。",
+      "confidence": "high"
+    },
+    {
+      "id": "A4",
+      "severity": "Warning",
+      "item": "A",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "177-182",
+      "claim": "锁扫描域是 4 个写死文件名；新增第 5 个消费点或把违规写法放到其他主进程文件时锁完全不知道；files 数组本身无断言钉住。",
+      "evidence": "第177-182行 `const files = ['ops-center-sync.js','diagnostics-reporter.js','publish-reporter.js','usage-reporter.js']`。当前未被扫描的主进程文件仍在直接读 getUserSetting/getSetting：keyword-monitor.js:272-274、tts-voice-service.js:224、story2video-project-service.js:518-519；hot-topics-service.js:154-157/182-185/357-360 为三处手抄归一化。",
+      "why_it_matters": "全域违规会静默逃逸；hot-topics 是已认欠的滞后消费方，一旦新增第五个同类消费点，本锁零感知。",
+      "fix": "把扫描改为 apps/desktop/electron/**/*.js（排除 *.test.* 与 bundle），对已知滞后消费方建显式 allowlist（当前只有 hot-topics-service），并加断言 allowlist 与已知集合精确相等；消费方迁到 getSettingObject 时在同一变更中从 allowlist 移除。",
+      "confidence": "high"
+    },
+    {
+      "id": "A5",
+      "severity": "Warning",
+      "item": "A",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "193-212, 221-247",
+      "claim": "除「恒返回 []」（该变异确实会红，长度断言有效）外，存在多个不红变体：已实测把 `/\\bString\\s*\\(/g` 收窄为 `/\\bString\\(/g` 后 7 条正例全绿，但 `String  (store.getSetting(K))` 漏检；另从 files 数组删掉一行也全绿。",
+      "evidence": "实测 tight 变异下 7 条 mustFlag 全部 PASS、`String  (store.getSetting(K))` 返回 0 hits；`return []` 变异下矩阵红（mutation-noop 用 want=1 got=0 验证）。",
+      "why_it_matters": "矩阵只测函数输入输出，不测函数自身参数化；任何放宽正则或缩 scope 的改动都可静默通过。",
+      "fix": "给判据函数本体加结构锁（例如断言源码中正则含 `\\s*`、files 与全域清单等价），或抽成独立模块跑变异测试。",
+      "confidence": "high"
+    },
+    {
+      "id": "B1",
+      "severity": "Info",
+      "item": "B",
+      "file": "apps/desktop/electron/core/container.setup.js",
+      "lines": "224-235",
+      "claim": "两种 store 形状真实存在：hot-topics 经窄包装拿 settingsStore；OpsCenterSync 与三个 reporter 经 phase1-context 拿完整 Store 实例；hot-topics-service 仍手抄三处归一化。",
+      "evidence": "container.setup.js:233 `settingsStore: { getSetting: (k) => s.getSetting(k), setSetting: (k, v) => s.setSetting(k, v) }`；phase1-context.js:123 `const store = container.get('store')`，:207/:250/:284/:305 分别以完整 store 构造 OpsCenterSync/UsageReporter/PublishReporter/DiagnosticsReporter；hot-topics-service.js:156-157、184-185、359-360 均为 `const raw = this.settingsStore.getSetting(...)` + `typeof raw === 'string' ? JSON.parse(raw) : raw`。",
+      "why_it_matters": "B1 前提成立，装配面锁守护的对象真实存在。",
+      "fix": "无。",
+      "confidence": "high"
+    },
+    {
+      "id": "B2",
+      "severity": "Warning",
+      "item": "B",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "257-262",
+      "claim": "forwardedMethods 用首个 `settingsStore:\\s*\\{([^}]*)\\}` 字面量匹配：嵌套对象、注释、字符串值里的冒号会假红；`settingsStore: s` 与 `settingsStore :` 会经 toBeTruthy 响亮变红；但同一文件更早出现含 `settingsStore:` 的注释会让锁改读注释掩盖真包装，spread 转发则完全不可见。",
+      "evidence": "实测：current-real → [\"getSetting\",\"setSetting\"]；nested-object → [\"getSetting\",\"nested\",\"x\"]；comment-inside → [\"note\",\"getSetting\"]；sample-string-value → [\"getSetting\",\"setSetting\",\"label\",\"foo\"]；comment-before（注释含 settingsStore:）→ 返回注释里的方法名；full-instance/colon-space → null（toBeTruthy 红）；spread → [\"getSetting\"]。当前文件第233行为真代码、其前无同名注释，因此现状未触发。",
+      "why_it_matters": "未来注释编辑或包装形态改动即可让锁读错字面量或假红，且 spread 可让「扩了转发必须当场销账」的契约静默失效。",
+      "fix": "从 AST 取 settingsStore 属性真实值节点，或断言文件里 settingsStore 字面量唯一且非注释；补嵌套/注释/spread 样例。",
+      "confidence": "high"
+    },
+    {
+      "id": "B3",
+      "severity": "Info",
+      "item": "B",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "270-278",
+      "claim": "`expect(lagging).toEqual(KNOWN_LAGGING.slice().sort())` 是双向精确钉死，比单向棘轮更强：删掉/改名 getSettingObject 都会红（objectEntries 空或集合不匹配）；前提是候选集由 `/^get.*Object$/` 圈出。",
+      "evidence": "实测：deleted getSettingObject → objectEntries=[]（`toBeGreaterThan(0)` 红）；renamed getSettingValue → objectEntries=[]；若另加 getUserSettingObject → objectEntries=[\"getSettingObject\",\"getUserSettingObject\"]，lagging 不匹配 KNOWN_LAGGING 红。",
+      "why_it_matters": "该方向守得住；但只守形状筛后集合（见 B4）。",
+      "fix": "无（B4 单独处理形状口径）。",
+      "confidence": "high"
+    },
+    {
+      "id": "B4",
+      "severity": "Warning",
+      "item": "B",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "271-275",
+      "claim": "形态判据 `/^get.*Object$/` 会漏掉非 `get` 前缀的对象读取入口：`readObjectSetting`、`getObjectSetting`、`getSettingsMap` 等不在候选集，新增即整条绕过。",
+      "evidence": "实测 contract 增加 `readObjectSetting` 后 filter 仍只返回 [\"getSettingObject\"]，锁对新增对象读取入口零感知；settings-store 目前除 getSettingObject 外没有其它 *Object 方法，所以暂时无红。",
+      "why_it_matters": "方法名只是约定，不构成语义标签；未来对象读取入口命名为 `readObjectSetting` 或 `getSettingsMap` 时，窄包装是否转发完全没人看。",
+      "fix": "用显式对象语义契约清单（settings-store 内导出标记或类型标注）代替名称形状，并加 `readObjectSetting` 等样例。",
+      "confidence": "high"
+    },
+    {
+      "id": "B5",
+      "severity": "Info",
+      "item": "B",
+      "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+      "lines": "260, 266, 274",
+      "claim": "已有两条反失明断言且 nullish 读法安全：`expect(literal).toBeTruthy()` 在 `literal[1]` 之前抛错；`forwardedMethods().length > 0` 与 `objectEntries.length > 0` 都存在。",
+      "evidence": "第260行 `expect(literal).toBeTruthy()` 后第261行才取 `literal[1]`；第266行 `expect(forwardedMethods().length).toBeGreaterThan(0)`；第274行 `expect(objectEntries.length).toBeGreaterThan(0)`。",
+      "why_it_matters": "这两处不是装饰性断言；真正的装饰风险在 B2/B4 的候选来源与名称形状，而非这里。",
+      "fix": "无。",
+      "confidence": "high"
+    },
+    {
+      "id": "B6",
+      "severity": "Info",
+      "item": "B",
+      "file": "apps/desktop/vitest.config.js",
+      "lines": "23",
+      "claim": "锁确实被 CI 收集并在本机/CI 路径执行：vitest include 覆盖 `electron/services/**/*.test.{js,ts}`，quality-gate desktop shards 与 electron-ci 均跑 `pnpm --filter @multi-publish/desktop test`。",
+      "evidence": "vitest.config.js:23 `'electron/services/**/*.test.{js,ts}'`；apps/desktop/package.json:17 `\"test\": \"vitest run\"`；quality-gate.yml:632-645 Start-Process pnpm.cmd --filter @multi-publish/desktop test -- --shard=...；electron-ci.yml:139-141 同命令（非 pull_request）。本机按指定命令实测 `node .../vitest.mjs run electron/services/settings-roundtrip-contract.test.js` → 17 passed。",
+      "why_it_matters": "「写了但永不执行」不成立。",
+      "fix": "无。",
+      "confidence": "high"
+    }
+  ],
+  "verdict": {
+    "A": "partially_holds",
+    "A_reason": "判据矩阵与长度断言确实抓住历史原形、列举的直接形状和 no-op 变异（本机实测 7 正例全中、5 负例全不中、恒返回 [] 会红）；但等价语义形状（String(raw)+JSON.parse 拆句、别名、动态键）、字面量括号漏判/注释误判、4 文件写死 scope、以及可静默放宽的变异均实测存在，故不能判 holds。",
+    "B": "partially_holds",
+    "B_reason": "两种 store 形状、手抄归一化、CI 接线均已逐字核实（17/17 通过），精确 toEqual 与两条反失明断言有效；但 forwardedMethods 的首个字面量正则可被注释掩盖/嵌套与字符串假红/spread 不可见，`/^get.*Object$/` 形态判据放行 readObjectSetting 类新入口，存在静默失效方向，故不能判 holds。"
+  }
+}

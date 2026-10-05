@@ -8,7 +8,7 @@ This design document describes how the Apple-inspired design language from the s
 
 ### Token-First CSS Approach
 
-1. Create pps/desktop/src/styles/apple-design-tokens.css containing all --apple-* tokens
+1. Create apps/desktop/src/styles/apple-design-tokens.css containing all --apple-* tokens
 2. Import it after cohere-design-system.css so new tokens override old ones where needed
 3. Existing cohere-* tokens remain untouched for backward compatibility
 4. Components gradually adopt new tokens in their defaults
@@ -69,7 +69,7 @@ The Publish.vue (591 lines) is a single-file component with:
 
 - Update default styling to use apple tokens (radius, padding, shadow)
 - Existing props (variant, size, disabled, tag) remain identical
-- New optional prop: pple-style (boolean) - opt-in for new look during migration
+- New optional prop: apple-style (boolean) - opt-in for new look during migration
 - Visual diff: new default has 6px radius (was 4px), slightly larger padding, no border for primary variant
 
 ### UiCard Changes
@@ -126,12 +126,12 @@ New baselines will be captured for:
 | components/UiInput.vue | MODIFY (visual defaults) | Medium |
 | components/UiCard.vue | MODIFY (visual defaults) | Medium |
 | components/UiBadge.vue | MODIFY (visual defaults) | Low |
-| iews/Publish.vue | MODIFY (layout restructure) | High |
+| views/Publish.vue | MODIFY (layout restructure) | High |
 | 	ests/visual-testing/ | ADD baselines | Low |
 
 ## Implementation Order
 
-1. Create pple-design-tokens.css and import in cohere-design-system.css
+1. Create apple-design-tokens.css and import in cohere-design-system.css
 2. Update UiButton visual defaults (most visible component)
 3. Update UiCard visual defaults (most used container)
 4. Update UiInput visual defaults (form experience)
@@ -152,6 +152,6 @@ New baselines will be captured for:
 
 ## Open Questions
 
-1. Should the pple-style opt-in prop be used during migration, or should we update defaults directly?
+1. Should the apple-style opt-in prop be used during migration, or should we update defaults directly?
 2. How to handle the MpSidebar layout (current: 376 lines, complex) - inline or separate task?
 3. Dark mode priority: implement token mapping now or defer to after all pages migrated?

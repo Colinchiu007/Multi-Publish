@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-10-05
+# 删除三个零引用的死 wrapper，不改变任何已规定的行为 ⇒ 无 spec 级变更。
+# 依据 AGENTS.md 流程：纯重构/清理类 change 必须显式声明 skip_specs，
+# 否则 openspec validate 会以「零 delta 的 change」拒绝。
+skip_specs: true

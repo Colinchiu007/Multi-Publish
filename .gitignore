@@ -104,7 +104,14 @@ apps/desktop/tests/e2e/reports/film-engineering-real/
 
 # 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
+!scripts/ci-pr-changeset.js
+!scripts/ci-pr-changeset.test.js
 !scripts/quality-rhythm-wrapper.js
+!scripts/ccg-gate.js
+!scripts/ccg-deep-review.js
+!scripts/ccg-review-decider.js
+!scripts/plan-review.sh
+!scripts/deep-review.sh
 !scripts/openspec-sync-check.js
 !scripts/openspec-sync-check.test.js
 !scripts/affected-report.js
@@ -116,6 +123,7 @@ scripts/*.js
 !scripts/check-dep-audit.test.js
 !scripts/check-blanket-fs-mock.js
 !scripts/check-test-egress-ledger.js
+!scripts/nx-affected-probe.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js
@@ -134,6 +142,7 @@ scripts/*.js
 # 执行记录存在性判据（change: enforce-gate-record-presence）；其 .test.js 由下面
 # !scripts/*.test.js 兜住，但脚本本体必须逐条放行，否则 git add 当场报错、CI 永远看不见它
 !scripts/check-pr-exec-record.js
+!scripts/check-changelog-growth.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.

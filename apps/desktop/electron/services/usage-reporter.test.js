@@ -21,17 +21,23 @@ function makeDb (rows) {
   }
 }
 
+// 与真实 settings-store 同形：落盘是文本，读回是**解析后的值**（原样回吐会替被测代码改契约）
 function makeStore (rows, initial) {
   let data = initial || ''
+  const stored = () => { try { return JSON.parse(data) } catch { return data } }
   return {
     db: makeDb(rows),
-    getSetting: vi.fn(() => data),
-    setSetting: vi.fn((_k, v) => { data = v }),
+    getSetting: vi.fn(() => (data ? stored() : '')),
+    getSettingObject: vi.fn((_k, d = {}) => {
+      const v = data ? stored() : null
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : d
+    }),
+    setSetting: vi.fn((_k, v) => { data = (typeof v === 'string' ? v : JSON.stringify(v)) }),
     _getData: () => data,
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 const AUTH = { url: 'https://ops.example.com', apiKey: 'k' }
 
 describe('classifyStatus', () => {

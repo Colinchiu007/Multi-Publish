@@ -48,7 +48,7 @@ describe("Story2VideoBatchQueue", async () => {
 
   beforeEach(async () => {
     engine = createEngineStub()
-    queue = new Story2VideoBatchQueue({ pipelineEngine: engine, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    queue = new Story2VideoBatchQueue({ pipelineEngine: engine, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
   })
 
   afterEach(async () => {
@@ -126,7 +126,7 @@ describe("Story2VideoBatchQueue", async () => {
     const limited = createEngineStub({
       startOrchestrated: vi.fn(async () => ({ success: false, error: "当前已有 2 条流水线正在运行，最多同时运行 2 条", errorCode: "PIPELINE_CONCURRENCY_LIMIT" })),
     })
-    const q = new Story2VideoBatchQueue({ pipelineEngine: limited, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const q = new Story2VideoBatchQueue({ pipelineEngine: limited, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const result = await q.createBatch({ mode: "text", texts: ["a"], story2videoTextConfigTemplate: TEMPLATE })
     expect(result.items[0].status).toBe("pending")
     // 预算恢复 → 退避到期后启动成功
@@ -236,7 +236,7 @@ describe("Story2VideoBatchQueue", async () => {
         errorParams: { missing: ["video"], providers: {} },
       })),
     })
-    const q = new Story2VideoBatchQueue({ pipelineEngine: requireMissing, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const q = new Story2VideoBatchQueue({ pipelineEngine: requireMissing, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const result = await q.createBatch({ mode: "text", texts: ["a"], story2videoTextConfigTemplate: TEMPLATE })
     await flush()
     const status = q.getBatches()[0]

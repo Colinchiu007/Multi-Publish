@@ -13,7 +13,7 @@ function makeIpcMain () {
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 
 describe('rate-limit IPC handlers', () => {
   let registerHandlers

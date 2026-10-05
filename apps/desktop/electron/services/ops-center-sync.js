@@ -116,7 +116,7 @@ class OpsCenterSync {
   constructor({ store, modelProviderManager, log }) {
     this._store = store
     this._manager = modelProviderManager
-    this._log = log || { info() {}, warn() {}, error() {} }
+    this._log = log || { info() {}, warn() {}, error() {}, notify() {} }
     // 运行时策略状态（公告/版本发布/内容安全），启动时从 settings 恢复
     this._runtime = this._loadRuntimeState()
     this._sensitiveFilter = null
@@ -130,12 +130,33 @@ class OpsCenterSync {
     this._autoOpsCenterUrl = ''
   }
 
+  /**
+   * 读取一份持久化对象（本服务的唯一读取口径）。
+   * `store.getSetting` 返回的是**解析后的值**，历史代码在此再 `JSON.parse` 会把对象
+   * 变成 `[object Object]` 并静默退化为空配置；因此一律走 `getSettingObject`。
+   * 缺失/损坏按"无配置"处理；注入物不符合存储契约必须留痕，不许静默变空。
+   */
+  _readStoredObject (settingKey) {
+    const store = this._store
+    if (!store) {
+      this._log && this._log.warn('OpsCenterSync', `未注入 store，${settingKey} 按空配置处理`)
+      return {}
+    }
+    if (typeof store.getSettingObject !== 'function') {
+      this._log && this._log.warn('OpsCenterSync', `store 缺少 getSettingObject，${settingKey} 按空配置处理`)
+      return {}
+    }
+    try {
+      return store.getSettingObject(settingKey, {})
+    } catch (e) {
+      this._log && this._log.warn('OpsCenterSync', `${settingKey} 读取失败，按空配置处理: ${(e && e.message) || String(e)}`)
+      return {}
+    }
+  }
+
   /** 读取同步配置（apiKey 脱敏，不返回明文） */
   getConfig() {
-    let raw
-    try { raw = this._store?.getSetting ? String(this._store.getSetting(SETTING_KEY) || '') : '' } catch { raw = '' }
-    let cfg = {}
-    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
+    const cfg = this._readStoredObject(SETTING_KEY)
     const auto = this._getAutoContext()
     return {
       url: cfg.url || (auto ? auto.url : ''),
@@ -180,7 +201,7 @@ class OpsCenterSync {
       runtimePublicKey: pubKey,
     }
     try {
-      this._store.setSetting(SETTING_KEY, JSON.stringify(cfg))
+      this._store.setSetting(SETTING_KEY, cfg)
       return { code: 0, config: this.getConfig() }
     } catch (e) {
       return { code: -1, message: '保存同步配置失败: ' + e.message }
@@ -188,21 +209,14 @@ class OpsCenterSync {
   }
 
   _readEncryptedKey() {
-    let raw
-    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
-    let cfg = {}
-    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
+    const cfg = this._readStoredObject(SETTING_KEY)
     if (!cfg.apiKeyEnc) return ''
     try { return crypto.decrypt(cfg.apiKeyEnc) } catch { return '' }
   }
 
   /** 读取用户手动配置的 Ops Center 地址（raw，不含方案C 自动发现回退）。用于区分手动态与零配置态 */
   _getManualUrl() {
-    let raw
-    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
-    let cfg = {}
-    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
-    return cfg.url || ''
+    return this._readStoredObject(SETTING_KEY).url || ''
   }
 
   /** 立即同步：拉取目录 → applyCatalog → 运行时策略 → 更新 lastSyncedAt（in-flight 互斥） */
@@ -256,7 +270,7 @@ class OpsCenterSync {
     // 更新 lastSyncedAt
     const nowIso = new Date().toISOString()
     const updated = { url: manualUrl || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
-    try { this._store.setSetting(SETTING_KEY, JSON.stringify(updated)) } catch { /* 非关键 */ }
+    try { this._store.setSetting(SETTING_KEY, updated) } catch (e) { this._log.warn('OpsCenterSync', 'lastSyncedAt 落盘失败: ' + e.message) }
 
     this._log.info('OpsCenterSync', `catalog synced: ${result.updated} providers (at ${nowIso})`)
     return { code: 0, updated: result.updated, syncedAt: nowIso, ...runtimeResult }
@@ -288,29 +302,19 @@ class OpsCenterSync {
   }
 
   _getStoredKeyEnc() {
-    let raw
-    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
-    let cfg = {}
-    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
-    return cfg.apiKeyEnc || ''
+    return this._readStoredObject(SETTING_KEY).apiKeyEnc || ''
   }
 
   /** 读取自定义 Ed25519 公钥（PEM）；未配置自定义锚返回空串（verify 时回退内置默认锚） */
   _getRuntimePublicKey() {
-    let raw
-    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
-    let cfg = {}
-    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
-    return (cfg.runtimePublicKey && String(cfg.runtimePublicKey).trim()) ? String(cfg.runtimePublicKey).trim() : ''
+    const pem = this._readStoredObject(SETTING_KEY).runtimePublicKey
+    return (pem && String(pem).trim()) ? String(pem).trim() : ''
   }
 
   // ─── 运行时策略（公告 / 版本发布 / 内容安全）────────────────
 
   _loadRuntimeState() {
-    let raw
-    try { raw = String(this._store?.getSetting ? this._store.getSetting(RUNTIME_SETTING_KEY) || '' : '') } catch { raw = '' }
-    let state = {}
-    if (raw) { try { state = JSON.parse(raw) } catch { state = {} } }
+    const state = this._readStoredObject(RUNTIME_SETTING_KEY)
     return {
       announcements: Array.isArray(state.announcements) ? state.announcements : [],
       updatePolicy: state.updatePolicy || null,
@@ -324,7 +328,7 @@ class OpsCenterSync {
   }
 
   _saveRuntimeState() {
-    try { this._store.setSetting(RUNTIME_SETTING_KEY, JSON.stringify(this._runtime)) } catch { /* 非关键 */ }
+    try { this._store.setSetting(RUNTIME_SETTING_KEY, this._runtime) } catch (e) { this._log.warn('OpsCenterSync', '运行时策略落盘失败（重启后将无法恢复菜单/公告/开关）: ' + e.message) }
   }
 
   /** 运行时策略状态（公告/版本/内容安全）——IPC 暴露给渲染进程 */

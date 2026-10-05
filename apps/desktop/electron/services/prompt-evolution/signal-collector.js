@@ -40,7 +40,7 @@ function hashUserId (userId, salt) {
  */
 function createSignalCollector (opts) {
   const logDir = opts.logDir
-  const log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+  const log = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const collection = (opts.config && opts.config.collection) || 'enabled'
   const salt = (opts.config && opts.config.userHashSalt) || 'mp-evolution-default-salt'
 

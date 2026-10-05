@@ -155,7 +155,7 @@ describe('prompt-evolution signal-collector', () => {
   })
 
   it('写入失败不阻断：日志路径为文件时追加抛错返回 write-failed', () => {
-    const bad = createSignalCollector({ logDir: root, log: { info: () => {}, warn: () => {}, error: () => {} } })
+    const bad = createSignalCollector({ logDir: root, log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
     // 制造 generation-log 路径冲突：把父目录占为文件
     fs.mkdirSync(path.join(root, 'generation-log'))
     fs.writeFileSync(path.join(root, 'generation-log', 'conflict'), 'x')
@@ -168,7 +168,7 @@ describe('prompt-evolution signal-collector', () => {
   })
 
   it('muted 模式停写', () => {
-    const muted = createSignalCollector({ logDir: root, config: { collection: 'muted' }, log: { info: () => {}, warn: () => {}, error: () => {} } })
+    const muted = createSignalCollector({ logDir: root, config: { collection: 'muted' }, log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
     expect(muted.isEnabled()).toBe(false)
     const r = muted.recordGeneration(makeEvent())
     expect(r.ok).toBe(false)

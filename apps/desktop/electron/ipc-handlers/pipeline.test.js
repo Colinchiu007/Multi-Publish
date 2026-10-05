@@ -76,7 +76,7 @@ function createMockDeps(overrides = {}) {
       registerStageExecutor: vi.fn(),
     },
     BrowserWindow: { getAllWindows: vi.fn(() => []) },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     ...overrides,
   }
 }

@@ -28,6 +28,18 @@ function isAtLeast(actual, minimum) {
   return true
 }
 
+// 「有上界的写法」清单是单一真源：判据与失败文案都不得各自再写一份。
+// 动因（QM-6 外部评审实测，2026-10-05）：失败文案让人「改成带 ^/~ 的写法」，而两处判据硬编码成
+// /^\^?\d/ —— 照文案写 ~ 会被自家门禁判红，指引与判据互斥。^ 与 ~ 都是有上界（不跨 major / 不跨 minor），
+// 精确版本同样有上界；裸 >= / > 没有。三档各由下面 hasUpperBound 的一条支路守。
+const BOUNDED_PREFIXES = ['^', '~']
+function hasUpperBound(range) {
+  const s = String(range).trim()
+  return /^(?:\^|~)?\d+\.\d+\.\d+$/.test(s) || /^(?:\^|~)x$/.test(s) || /^(?:\^|~)\*\*$/.test(s)
+}
+function boundedHint() {
+  return `改成 ${BOUNDED_PREFIXES.join(' / ')} 开头的写法或精确版本`
+}
 function readJson(absPath) {
   return JSON.parse(fs.readFileSync(absPath, 'utf8'))
 }
@@ -71,8 +83,8 @@ test('生产依赖不允许解析到存在高危公告的 Axios 版本', () => {
   const overrideRange = overrideMatch[1]
   // 无上界的写法（>=x.y.z）会允许下一次非 --frozen-lockfile 的 install 把 axios 静默 resolve 到新大版本。
   assert(
-    /^\^?\d/.test(overrideRange),
-    `axios override 区间 "${overrideRange}" 没有上界：改成带 ^ 的写法，或同步收紧 undici/fast-uri 两条`,
+    hasUpperBound(overrideRange),
+    `axios override 区间 "${overrideRange}" 没有上界：${boundedHint()}（整表判据见本文件末尾的「每条 pnpm override 都必须有上界」）`,
   )
   assert(isAtLeast(overrideRange, AXIOS_FLOOR), `axios override "${overrideRange}" 低于修复版本 ${AXIOS_FLOOR}`)
 })
@@ -120,4 +132,101 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
       `${rel} 锁里的 axios 是 ${entry.version}，低于 ${AXIOS_FLOOR}（npm 域不受 pnpm override 约束）`,
     )
   }
+})
+// ── 「每条 override 都必须有上界」整表棘轮（2026-10-05）──
+// 动因：本文件早就对 axios 单独判过这件事，但判据只覆盖 axios 那一条。pnpm-workspace.yaml 里
+// undici / fast-uri 两条一直写成 `>=`，注释里明写着"属同族隐患，但改它们要重新 resolve 那两个包，
+// 本 PR 不夹带" —— 于是这个隐患挂了整整 6 天（2026-09-29 的 #2613 建立，到本 PR 才收），期间
+// **没有任何东西在看它**。逐条点名式断言只能守住"写它的那个人当时想到的那一条"，所以这里改成
+// 按整张覆写表判：新增一条无上界覆写当场红，不需要有人记得来补注释或记得来抄断言。
+const OVERRIDE_FLOORS = { undici: '7.29.1', 'fast-uri': '3.1.7', axios: AXIOS_FLOOR }
+
+function readOverridesBlock(text, label) {
+  const lines = text.split(/\r?\n/)
+  const starts = lines.reduce((acc, l, i) => (/^overrides:\s*$/.test(l) ? acc.concat(i) : acc), [])
+  assert(starts.length === 1, `${label} 的 overrides: 段应当恰好一个，实际 ${starts.length} 个（重复键会让 YAML 解析器只认一个）`)
+  const out = {}
+  for (let i = starts[0] + 1; i < lines.length; i += 1) {
+    const l = lines[i]
+    // 段里允许出现顶格注释（本仓 pnpm-workspace.yaml 就是：axios 那条 override 前面有 8 行顶格说明）。
+    // 拿 /^[^\s]/ 直接 break 会在第一条注释处停下 —— 这个 bug 由本测试自己抓到过（读到 2 条而不是 3 条）。
+    if (/^#/.test(l) || /^\s*#/.test(l) || l.trim() === '') continue
+    if (/^[^\s]/.test(l)) break
+    const m = /^\s{2}'?([\w./-]+)'?:\s*(.+?)\s*$/.exec(l)
+    assert(m, `${label} overrides 段第 ${i + 1} 行解析不了：${JSON.stringify(l)} —— 解析不了即拦，禁止静默跳过`)
+    out[m[1]] = m[2].replace(/^['"]|['"]$/g, '')
+  }
+  return out
+}
+
+test('每条 pnpm override 都必须有上界（裸 >= 下限一律判红）', () => {
+  const workspace = fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8')
+  const overrides = readOverridesBlock(workspace, 'pnpm-workspace.yaml')
+  const names = Object.keys(overrides)
+  assert(names.length >= 3, `覆写表只读到 ${names.length} 条（${names.join(',')}）—— 规模下界不成立说明解析退化，不得当成"没问题"`)
+  for (const [name, range] of Object.entries(overrides)) {
+    assert(
+      hasUpperBound(range),
+      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.0 / 3.1.8）。${boundedHint()}。`,
+    )
+  }
+  for (const [name, floor] of Object.entries(OVERRIDE_FLOORS)) {
+    assert(Object.prototype.hasOwnProperty.call(overrides, name), `override ${name} 不见了：它守的是已登记公告的修复下限`)
+    assert(isAtLeast(overrides[name], floor), `override ${name}="${overrides[name]}" 低于修复版本 ${floor}`)
+  }
+})
+
+test('lock 的 overrides 段必须与 workspace 逐条一致（手工按行重放后由这条自证）', () => {
+  const workspace = readOverridesBlock(fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8'), 'pnpm-workspace.yaml')
+  const lock = readOverridesBlock(fs.readFileSync(path.join(ROOT, 'pnpm-lock.yaml'), 'utf8'), 'pnpm-lock.yaml')
+  assert.deepStrictEqual(lock, workspace, 'pnpm-lock.yaml 的 overrides 与 pnpm-workspace.yaml 漂移：CI 的 pnpm install --frozen-lockfile 会直接拒绝，本地先在这里拦')
+})
+
+test('收上界不得改变解析结果：锁里 undici / fast-uri 仍落在同一 major 且不低于修复版', () => {
+  const lock = fs.readFileSync(path.join(ROOT, 'pnpm-lock.yaml'), 'utf8')
+  const expectMajor = { undici: '7', 'fast-uri': '3' }
+  for (const [name, major] of Object.entries(expectMajor)) {
+    const versions = [...lock.matchAll(new RegExp(`^\\s{2}${name}@(\\d+\\.\\d+\\.\\d+):`, 'gm'))].map((m) => m[1])
+    assert(versions.length > 0, `pnpm-lock.yaml 里找不到 ${name} 的解析条目（锁形态变更需同步本判据）`)
+    for (const v of versions) {
+      assert(isAtLeast(v, OVERRIDE_FLOORS[name]), `锁里 ${name}@${v} 低于修复下限 ${OVERRIDE_FLOORS[name]}`)
+      assert(String(v).startsWith(`${major}.`), `锁里 ${name}@${v} 跨出了 major ${major} —— 本次改动只收上界、不抬 major，出现跨 major 说明有人在同一次改动里夹带了升级`)
+    }
+  }
+})
+test('失败文案建议的写法必须被判据接受（防「文案让你写 ~、判据把 ~ 判红」互斥）', () => {
+  for (const p of BOUNDED_PREFIXES) {
+    assert(hasUpperBound(p + '1.2.3'), `判据不得只认 ^ —— 文案列出的 ${p} 开头的合法写法必须被接受`)
+  }
+  assert(hasUpperBound('1.2.3'), '精确版本同样有上界')
+  assert(!hasUpperBound('>=1.2.3'), '裸 >= 下限必须判红')
+  assert(!hasUpperBound('>1.2.3'), '裸 > 下限必须判红')
+  // 文案里出现的每个写法前缀，都必须 ∈ BOUNDED_PREFIXES（由真源生成即成立；这条防有人改回硬编码）
+  const hint = boundedHint()
+  for (const tok of hint.split(' ')) {
+    if (tok === '^' || tok === '~') {
+      assert(BOUNDED_PREFIXES.includes(tok) && hasUpperBound(tok + '7.29.1'), `文案列出的 ${tok} 必须被判据接受`)
+    }
+  }
+  assert(hint.includes('^') && hint.includes('~'), '文案必须同时列出 ^ 与 ~，否则读日志的人不知道 ~ 也可')
+})
+
+test('结构锁：判据与文案不得再各自硬编码（两处调用点必须都走真源）', () => {
+  const full = fs.readFileSync(__filename, 'utf8')
+  // 扫描域必须截到本锁之前：needle 写在断言行里，扫全文会命中自己（自指假红，实测踩过）。
+  // 锚点缺失即红 —— 不许让 indexOf 返回 -1 时 slice 把区间静默放大成整份文件。
+  const lockStart = full.indexOf("test('失败文案建议的写法")
+  assert(lockStart > 0, '找不到行为锁的起始锚点：本锁的扫描域无法确定，拒绝在不确定域上判绿')
+  const src = full.slice(0, lockStart)
+  assert(src.includes('hasUpperBound(overrideRange)'), 'axios 单条判据必须走真源')
+  assert(src.includes('hasUpperBound(range)'), '整表棘轮判据必须走真源')
+  // needle 用拼接构造，使被禁字面量不出现在「包含该断言的那一行」里
+  // 只扫代码行：上面的动因注释里原样抄过旧写法（那是给读者的现场证据），扫全文会让注释把锁撞红。
+  const code = src.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const forbiddenRegex = ['/', '^', '\\', '^', '?', '\\', 'd', '/'].join('')
+  assert(!code.includes(forbiddenRegex), '不得再出现硬编码前缀正则 —— 它就是两条互斥语句的源头')
+  const forbiddenHint = '没有上界：改成带 ' + ['^', '/', '~'].join('')
+  assert(!code.includes(forbiddenHint), '失败文案不得再硬写「^/~」，必须由 boundedHint() 生成')
+  const hints = (src.match(/boundedHint\(\)/g) || []).length
+  assert(hints >= 2, `两处失败文案都必须引用 boundedHint()，实到 ${hints}`)
 })

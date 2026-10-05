@@ -22,7 +22,7 @@ function createPromptEvalStore ({ userDataDir, log, fsImpl }) {
   const recordsDir = path.join(rootDir, 'records')
   const reportsDir = path.join(rootDir, 'reports')
   const indexFile = path.join(rootDir, 'index.json')
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
   function ensureDirs () {
     f.mkdirSync(recordsDir, { recursive: true })

@@ -41,12 +41,38 @@ function signRuntimePayload (payload, privPem = DEV_PRIVATE_KEY) {
   return { ...rest, signature: sig.toString('base64') }
 }
 
+/**
+ * 与真实 `settings-store` 同形的夹具 —— 存储侧的契约是「字符串/对象进，解析后的值出」：
+ * `setSetting` 按 `safeJsonStringify` 语义落文本，`getSetting` 按 `safeJsonParse` 语义**返回对象**。
+ * 旧夹具把存入的类型原样回吐，等于替被测代码改了契约，使"按字符串读取"这一类缺陷
+ * 在本文件 68 条用例下结构性免疫（真实往返锁见 settings-roundtrip-contract.test.js）。
+ */
+// 两个 settings 键（与 ops-center-sync.js:24-25 同源）；夹具按键存储，断言必须点名键
+const SYNC_KEY = 'opsCenterSync'
+const RUNTIME_KEY = 'opsCenterRuntime'
+
+/**
+ * 与真实 settings-store 同形的多键夹具：值按**键**分槽落文本，读回**解析后的值**。
+ * 历史教训：旧版是单键夹具（所有键共用一格），使 `store._getData()` 与被断言的键无关，
+ * 任何一次别的键写入都能满足它 —— QM6-W5 判为装饰性断言，故改为按键取行。
+ */
 function makeStore (initial) {
-  let data = initial || ''
+  const rows = {}
+  // 唯一使用 initial 的用例（"恢复路径同样归一化"）预置的是 opsCenterRuntime 行
+  if (initial) rows[RUNTIME_KEY] = initial
+  const readRow = (k) => {
+    if (!(k in rows)) return null
+    try { return JSON.parse(rows[k]) } catch { return rows[k] }
+  }
   return {
-    getSetting: vi.fn(() => data),
-    setSetting: vi.fn((_k, v) => { data = v }),
-    _getData: () => data,
+    getSetting: vi.fn((k) => (k in rows ? (readRow(k) === null ? '' : readRow(k)) : '')),
+    getSettingObject: vi.fn((k, d = {}) => {
+      const v = readRow(k)
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : d
+    }),
+    setSetting: vi.fn((k, v) => { rows[k] = (typeof v === 'string' ? v : JSON.stringify(v)) }),
+    /** 取某一行的落盘文本；必须点名键，否则等于没断言 */
+    _row: (k) => (k in rows ? rows[k] : ''),
   }
 }
 
@@ -62,7 +88,7 @@ function jsonResp ({ status = 200, body = null, ok = null, arrayBuffer }) {
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 
 describe('normalizeUrl', () => {
   it('接受 https URL 并去掉尾部斜杠', () => {
@@ -103,8 +129,8 @@ describe('OpsCenterSync saveConfig/getConfig', () => {
     expect(res.config.autoSync).toBe(true)
     // 明文不出现在任何返回/存储中
     expect(JSON.stringify(res)).not.toContain('secret-key-123')
-    expect(store._getData()).not.toContain('secret-key-123')
-    expect(store._getData()).toContain('apiKeyEnc')
+    expect(store._row(SYNC_KEY)).not.toContain('secret-key-123')
+    expect(store._row(SYNC_KEY)).toContain('apiKeyEnc')
     expect(svc.getConfig().apiKey).toBeUndefined()
   })
 
@@ -116,8 +142,8 @@ describe('OpsCenterSync saveConfig/getConfig', () => {
     const res = svc.saveConfig({ url: 'https://ops.example.com', apiKey: '', autoSync: false })
     expect(res.code).toBe(0)
     expect(res.config.apiKeyConfigured).toBe(true)
-    expect(store._getData()).not.toContain('secret-key-123')
-    expect(store._getData()).not.toContain('secret')
+    expect(store._row(SYNC_KEY)).not.toContain('secret-key-123')
+    expect(store._row(SYNC_KEY)).not.toContain('secret')
   })
 
   it('apiKey 为空时保留已有 Key，不重复加密', () => {
@@ -128,7 +154,7 @@ describe('OpsCenterSync saveConfig/getConfig', () => {
     expect(res.code).toBe(0)
     expect(res.config.autoSync).toBe(false)
     expect(res.config.apiKeyConfigured).toBe(true)
-    expect(store._getData()).toContain('apiKeyEnc')
+    expect(store._row(SYNC_KEY)).toContain('apiKeyEnc')
   })
 
   it('非法 URL 拒绝保存', () => {
@@ -208,11 +234,27 @@ describe('OpsCenterSync syncNow', () => {
     expect((await svc.syncNow()).code).toBe(-1)
     expect((await svc.syncNow()).message).toContain('地址')
 
-    // manager 未提供 applyCatalog → 模型服务未就绪（不发起网络请求）
-    const svc2 = new OpsCenterSync({ store, modelProviderManager: {}, log: LOG })
-    svc2.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
-    expect((await svc2.syncNow()).code).toBe(-1)
-    expect((await svc2.syncNow()).message).toContain('模型服务未就绪')
+    // manager 未提供 applyCatalog → 模型服务未就绪（目录无处应用，不取目录）
+    //
+    // ⚠️ 这里**会**发一次请求，但那是生产契约的有意行为，不是被测缺陷：syncNow 在
+    // 模型服务未就绪时仍会 best-effort 下发运行时策略（公告/版本发布/应用菜单/功能开关），
+    // 见 ops-center-sync.js 的 _syncRuntimeBestEffort。旧注释写的「不发起网络请求」与实现不符，
+    // 于是本用例在测试 realm 里真的向 ops.example.com:443 发起 fetch，只因出站守卫拦住才没外泄
+    // （#2878 登记的第三条欠账）。正确处置是给传输层打桩，而不是改断言或改生产行为。
+    const fetchStub = vi.fn(async () => jsonResp({ status: 200, body: { code: 0, data: {} } }))
+    const originalFetch = global.fetch
+    global.fetch = fetchStub
+    try {
+      const svc2 = new OpsCenterSync({ store, modelProviderManager: {}, log: LOG })
+      svc2.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+      expect((await svc2.syncNow()).code).toBe(-1)
+      expect((await svc2.syncNow()).message).toContain('模型服务未就绪')
+      // 只走运行时策略通道，不取目录（未就绪时目录无处应用）
+      expect(fetchStub).toHaveBeenCalledTimes(2)
+      expect(fetchStub.mock.calls.every(([url]) => String(url).includes('/api/v1/runtime/bootstrap'))).toBe(true)
+    } finally {
+      global.fetch = originalFetch
+    }
   })
 
   it('401/403 → API Key 无效；404 → 未启用目录', async () => {
@@ -280,7 +322,7 @@ describe('OpsCenterSync syncNow', () => {
     expect(res.updated).toBe(2)
     expect(res.syncedAt).toBeTruthy()
     expect(manager.applyCatalog).toHaveBeenCalledWith(items)
-    expect(store._getData()).toContain('lastSyncedAt')
+    expect(store._row(SYNC_KEY)).toContain('lastSyncedAt')
     expect(svc.getConfig().lastSyncedAt).toBeTruthy()
   })
 
@@ -350,8 +392,16 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     expect(filter.check('这里有远程词甲').hasSensitive).toBe(true)
     expect(filter.replace('远程词乙')).toContain('***')
     // 持久化到 settings（值包含运行时状态 JSON）
-    expect(store._getData()).toContain('"announcements"')
-    expect(store.setSetting).toHaveBeenCalledWith('opsCenterRuntime', expect.stringContaining('远程词甲'))
+    expect(store._row(RUNTIME_KEY)).toContain('"announcements"')
+    // 写入侧契约：传的是**对象**（存储侧负责编码），断言仍覆盖"远程词确实进了持久化值"
+    // 写入侧契约：对象进 setSetting，且词库确实落在 opsCenterRuntime **这一行**的这一字段里
+    // （渲染端不下发 word_list，但持久化必须带 —— 否则重启后敏感词只剩内置库）
+    expect(store.setSetting).toHaveBeenCalledWith(RUNTIME_KEY, expect.objectContaining({
+      contentPolicy: expect.objectContaining({
+        word_list: expect.arrayContaining(['远程词甲', '远程词乙']),
+        replacement: '***',
+      }),
+    }))
   })
 
   it('内容安全策略未启用或词为空时，敏感词过滤器仅含内置词库', () => {
@@ -480,7 +530,7 @@ describe('OpsCenterSync featureFlags', () => {
     expect(svc.getFeatureFlag('videoCreation.maxOutputResolution')).toBe('4k')
     expect(svc.getFeatureFlag('missing')).toBeUndefined()
     // 持久化到 settings
-    expect(store._getData()).toContain('videoCreation.maxOutputResolution')
+    expect(store._row(RUNTIME_KEY)).toContain('videoCreation.maxOutputResolution')
   })
 
   it('feature_flags 结构非法（数组/对象嵌套/超限）→ fail-closed 空对象', () => {
@@ -682,7 +732,7 @@ describe('OpsCenterSync 运行时验签 fail-closed', () => {
     const good = svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k', runtimePublicKey: DEFAULT_RUNTIME_PUBLIC_KEY })
     expect(good.code).toBe(0)
     expect(good.config.runtimePublicKey).toBe(DEFAULT_RUNTIME_PUBLIC_KEY)
-    expect(store._getData()).toContain('runtimePublicKey')
+    expect(store._row(SYNC_KEY)).toContain('runtimePublicKey')
   })
 
   it('自定义公钥保存后 _fetchRuntime 用其验签：配对的公钥通过，错误公钥拒绝', async () => {
@@ -758,7 +808,7 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
       syncedAt: '2026-09-15T00:00:00Z',
     })
     expect(svc.getRuntimeState().appMenu).toBeTruthy()
-    expect(store._getData()).toContain('appMenu')
+    expect(store._row(RUNTIME_KEY)).toContain('appMenu')
   })
 
   it('结构非法（缺失/非对象/items 非数组/超限）→ null，且不影响其它策略', () => {
@@ -908,7 +958,19 @@ describe('OpsCenterSync 零配置 Bearer 同步（bearer-fix 回归）', () => {
 
   it('零配置同步成功后不把自动发现地址固化为手填 url（避免下次误走 catalog-key）', async () => {
     const kv = {}
-    const store = { getSetting: vi.fn((k) => kv[k] ?? ''), setSetting: vi.fn((k, v) => { kv[k] = v }) }
+    const readRow = (k) => {
+      if (!(k in kv)) return ''
+      try { return JSON.parse(kv[k]) } catch { return kv[k] }
+    }
+    // 与真实 settings-store 同形的多键夹具（落文本、读回解析值）
+    const store = {
+      getSetting: vi.fn((k) => readRow(k)),
+      getSettingObject: vi.fn((k, d = {}) => {
+        const v = readRow(k)
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : d
+      }),
+      setSetting: vi.fn((k, v) => { kv[k] = (typeof v === 'string' ? v : JSON.stringify(v)) }),
+    }
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc.setOpsCenterUrl('https://ops.iart.work')
     svc.setGetAccessToken(async () => 'jwt-token')
@@ -983,3 +1045,43 @@ describe('OpsCenterSync 去 AI 味词库消费（rewrite_ai_taste_map）', () =>
     expect(svc.getRuntimeState().announcements).toHaveLength(1)
   })
 })
+
+describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
+  it('注入物缺少 getSettingObject 时必须留痕，不许静默变空配置', () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const store = { getSetting: vi.fn(() => ''), setSetting: vi.fn() }
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
+    const cfg = svc.getConfig()
+    expect(cfg.url).toBe('')
+    // getConfig() 会读两次（配置 + 密文），判据是「每次失败读取都留痕」而非恰好一次
+    expect(log.warn.mock.calls.length).toBeGreaterThan(0)
+    expect(String(log.warn.mock.calls[0][1])).toContain('getSettingObject')
+  })
+
+  // QM6-C1：本 PR 要消灭的是「把读回失败伪装成用户没配置」。方法存在但抛异常（例如注入的是
+  // container 那种窄包装的后续变种、或存储层自身故障）同样必须出声——与三个 reporter 的
+  // `catch (e) { this._log.warn(...) }` 保持同一口径，且不得与本文件 JSDoc「必须留痕」自相矛盾。
+  it('注入物的 getSettingObject 抛异常时必须留痕，不许静默返回空对象', () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const store = {
+      getSetting: vi.fn(() => ''),
+      setSetting: vi.fn(),
+      getSettingObject: vi.fn(() => { throw new Error('boom-read') })
+    }
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
+    const cfg = svc.getConfig()
+    expect(cfg.url).toBe('')
+    expect(log.warn.mock.calls.length).toBeGreaterThan(0)
+    expect(String(log.warn.mock.calls[0][1])).toContain('boom-read')
+  })
+
+  it('未注入 store 时必须留痕，不许静默变空配置', () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const svc = new OpsCenterSync({ store: undefined, modelProviderManager: makeManager(), log })
+    const cfg = svc.getConfig()
+    expect(cfg.url).toBe('')
+    expect(log.warn.mock.calls.length).toBeGreaterThan(0)
+    expect(String(log.warn.mock.calls[0][1])).toContain('store')
+  })
+})
+

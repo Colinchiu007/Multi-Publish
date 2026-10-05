@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 __registerMock('./python-bridge', {
   isRunning: vi.fn(() => false),
   requestBackend: vi.fn(async () => ({ content: 'python-bridge response' })),

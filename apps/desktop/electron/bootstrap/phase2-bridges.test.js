@@ -10,6 +10,7 @@ __registerMock('../services/logger', {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
+  notify: vi.fn(),
 })
 
 const log = require('../services/logger')
@@ -41,8 +42,8 @@ describe('phase2-bridges.startBridges', () => {
     expect(mockPythonBridge.startPythonBackend).toHaveBeenCalledTimes(1)
     expect(mockSplitterBridge.start).toHaveBeenCalledTimes(1)
     expect(mockPromptBridge.start).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith('App', 'SplitterBridge started')
-    expect(log.info).toHaveBeenCalledWith('App', 'PromptBridge started')
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-started', expect.objectContaining({ params: { bridge: 'SplitterBridge' } }))
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-started', expect.objectContaining({ params: { bridge: 'PromptBridge' } }))
   })
 
   it('pythonBridge 失败 — 不阻断其他 bridge 启动', async () => {
@@ -53,7 +54,7 @@ describe('phase2-bridges.startBridges', () => {
       splitterBridge: mockSplitterBridge,
       promptBridge: mockPromptBridge,
     })
-    expect(log.error).toHaveBeenCalledWith('App', 'Failed to start Python backend: python down')
+    expect(log.notify).toHaveBeenCalledWith('App', 'python-backend-start-failed', expect.objectContaining({ error: 'python down' }))
     expect(mockSplitterBridge.start).toHaveBeenCalledTimes(1)
     expect(mockPromptBridge.start).toHaveBeenCalledTimes(1)
   })
@@ -66,9 +67,9 @@ describe('phase2-bridges.startBridges', () => {
       splitterBridge: mockSplitterBridge,
       promptBridge: mockPromptBridge,
     })
-    expect(log.warn).toHaveBeenCalledWith('App', 'SplitterBridge failed to start: splitter crash')
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-start-failed', expect.objectContaining({ error: 'splitter crash' }))
     expect(mockPromptBridge.start).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith('App', 'PromptBridge started')
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-started', expect.objectContaining({ params: { bridge: 'PromptBridge' } }))
   })
 
   it('splitterBridge 失败（打包形态）— 发送系统通知提示语义分句不可用（bug 反思 P1 打包契约）', async () => {
@@ -154,7 +155,7 @@ describe('phase2-bridges.startBridges', () => {
       promptBridge: mockPromptBridge,
     })
     await stopBridges()
-    expect(log.warn).toHaveBeenCalledWith('App', 'SplitterBridge stop failed: stop fail')
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-stop-failed', expect.objectContaining({ error: 'stop fail' }))
     expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
     expect(mockPromptBridge.stop).toHaveBeenCalledTimes(1)
   })
@@ -167,8 +168,8 @@ describe('phase2-bridges.startBridges', () => {
       splitterBridge: mockSplitterBridge,
       promptBridge: mockPromptBridge,
     })
-    expect(log.warn).toHaveBeenCalledWith('App', 'PromptBridge failed to start: prompt crash')
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-start-failed', expect.objectContaining({ error: 'prompt crash' }))
     expect(mockSplitterBridge.start).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith('App', 'SplitterBridge started')
+    expect(log.notify).toHaveBeenCalledWith('App', 'bridge-started', expect.objectContaining({ params: { bridge: 'SplitterBridge' } }))
   })
 })

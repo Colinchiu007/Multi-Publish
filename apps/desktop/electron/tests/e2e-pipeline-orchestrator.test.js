@@ -61,18 +61,18 @@ async function buildContainer({ promptBridge = createMockPromptEngine() } = {}) 
         data: { videoPath: '/tmp/e2e_test.mp4', fileSize: 1024, segmentCount: 2, duration: 5.0 },
       }),
     },
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
   });
   const stageExecutor = new StageExecutor({
     serviceBus,
     container: {},
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
   });
   const pipelineEngine = new PipelineEngine({
     serviceBus,
     stageExecutor,
     container: {},
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
   });
 
   registerStory2VideoStages(pipelineEngine);
@@ -81,7 +81,7 @@ async function buildContainer({ promptBridge = createMockPromptEngine() } = {}) 
 }
 
 test('PipelineEngine orchestrator - story2video-compose 流水线稳定排在首位', { timeout: 10000 }, () => {
-  const pe = new PipelineEngine({ log: { info: () => {}, warn: () => {}, error: () => {} } });
+  const pe = new PipelineEngine({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } });
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');
   assert.ok(s2v, 'story2video-compose 应存在于流水线列表');

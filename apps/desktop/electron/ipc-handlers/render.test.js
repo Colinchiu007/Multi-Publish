@@ -66,7 +66,7 @@ function createMockDeps(overrides = {}) {
       fromWebContents: vi.fn(() => null),
       getAllWindows: vi.fn(() => []),
     },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     ...overrides,
   }
 }

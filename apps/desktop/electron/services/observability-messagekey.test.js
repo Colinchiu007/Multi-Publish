@@ -24,10 +24,74 @@ const TARGET_FILES = [
   path.join(SERVICES_DIR, 'publish-impact-tracker.js'),
   path.join(SERVICES_DIR, 'publish-monitor.js'),
   path.join(SERVICES_DIR, 'risk-suspender-store.js'),
+  // 波次-1 新增迁移域
+  path.join(SERVICES_DIR, '..', 'bootstrap', 'phase1-context.js'),
+  path.join(SERVICES_DIR, '..', 'bootstrap', 'phase2-bridges.js'),
+  path.join(SERVICES_DIR, '..', 'bootstrap', 'phase3-services.js'),
+  path.join(SERVICES_DIR, '..', 'window.js'),
+  // 波次-2 刀-1 新增迁移域
+  path.join(SERVICES_DIR, 'url-collector.js'),
+  path.join(SERVICES_DIR, 'auth-partition.js'),
+  path.join(SERVICES_DIR, 'batch-rate-controller.js'),
 ]
 
 // 实际迁移登记的 (module, event) 清单，按紧凑 key "module:event" 锁。
 const ALLOWED_KEYS = new Set([
+  // 波次-1 迁移登记：phase1-context.js / phase2-bridges.js / phase3-services.js / window.js
+  'UsageReporter:get-client-id-failed',
+  'UsageReporter:get-scheduler-metrics-failed',
+  'DiagnosticsReporter:hook-error',
+  'SignalCollector:startup-cleanup-failed',
+  'PromptMemory:memory-load-failed',
+  'App:platform-config-load-failed',
+  'App:bridge-start-failed',
+  'App:bridge-stop-failed',
+  'App:phase3-rollback-failed',
+  'App:callback-server-start-failed',
+  'App:keyword-monitor-persist-error',
+  'App:login-status-monitor-start-failed',
+  'App:analytics-providers-register-failed',
+  'Identity:identity-service-disabled',
+  'BatchManager:scheduled-batches-restore-failed',
+  'Automation:automation-scheduler-start-failed',
+  'CommentManager:comment-polling-stop-failed',
+  'window:open-external-failed',
+  'window:failed-window-cleanup-error',
+  'window:running-task-check-failed',
+  'window:running-publish-check-failed',
+  'window:window-ref-cleanup-error',
+  'window:autoupdater-init-failed',
+  'window:untrusted-navigation-blocked',
+  'window:show-event-missing-fallback',
+  'App:python-backend-start-failed',
+  'App:bridge-started',
+  'App:login-status-monitor-started',
+  'App:analytics-providers-registered',
+  'Scheduler:pending-tasks-restored',
+  'BatchManager:scheduled-batches-restored',
+  'App:tasks-recovered-from-queue',
+  'window:main-window-shown',
+  'window:main-window-load-failed',
+  'window:renderer-gone',
+  'window:publish-running-hide-to-tray',
+  'window:pipeline-running-hide-to-tray',
+  // 波次-2 刀-1 迁移登记：url-collector.js / auth-partition.js / batch-rate-controller.js
+  'url-collect:collect-blocked-budget',
+  'url-collect:collect-blocked-cooldown',
+  'url-collect:collect-blocked-circuit',
+  'url-collect:collect-blocked-rate',
+  'url-collect:collect-cache-hit',
+  'url-collect:collect-start-browser',
+  'url-collect:collect-start-http',
+  'url-collect:collect-ok',
+  'url-collect:collect-failed',
+  'AuthPartition:no-partition-candidate',
+  'AuthPartition:fallback-unusable',
+  'AuthPartition:cookies-read',
+  'AuthPartition:cookie-read-failed',
+  'batch-rate:batch-cancelled',
+  'batch-rate:circuit-open-stop',
+  'batch-rate:retry-backoff',
   // phase4-events.js
   'PublishMonitor:audit-requery-cookie-resolution-failed',
   'PublishMonitor:audit-requery-skipped',
@@ -65,9 +129,10 @@ const ALLOWED_KEYS = new Set([
 ])
 
 // 解析单个文件中的 notify 调用：log.notify('Module', 'subdomain-event', {...})
-const NOTIFY_RE = /(?:^|[^.\w])log\s*\.\s*notify\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]/g
+// 波次-2：扩展支持 this._log.notify（注入型 sink，batch-rate-controller/url-collector 先例）
+const NOTIFY_RE = /(?:^|[^.\w])(?:this\.)?(?:_log|log)\s*\.\s*notify\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]/g
 // 遗留裸标签调用（迁移前形态）：log.{warn,info,error,debug}('Module', 'tag')
-const LEGACY_RE = /(?:^|[^.\w])log\s*\.\s*(?:warn|info|error|debug)\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]/g
+const LEGACY_RE = /(?:^|[^.\w])(?:this\.)?(?:_log|log)\s*\.\s*(?:warn|info|error|debug)\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]/g
 
 function readSource (file) {
   const abs = path.resolve(file)
@@ -107,7 +172,7 @@ describe('T6.1 发布可观测性 notify 契约结构锁', () => {
   }
 
   it('允许清单规模有下界（防止 Set 退化成空集而假绿）', () => {
-    expect(ALLOWED_KEYS.size).toBeGreaterThanOrEqual(26)
+    expect(ALLOWED_KEYS.size).toBeGreaterThanOrEqual(75)
   })
 
   it('全仓登记键总数与四文件 notify 调用总数一致', () => {

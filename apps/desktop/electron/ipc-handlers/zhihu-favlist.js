@@ -54,7 +54,7 @@ function rememberEntryMeta (url, meta) {
  */
 function registerHandlers (ipcMain, deps) {
   const { store, urlCollector, pythonBridge, log, rateControllerFactory } = deps
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const svc = new ZhihuFavlistService({ log: logger })
   // rateControllerFactory：测试注入快速控制器（跳过真实 8s 延迟）；生产用默认参数
   const makeController = (opts) => rateControllerFactory

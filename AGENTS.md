@@ -22,7 +22,7 @@
 
 - **git 提交**：所有变更必须 commit，不允许未跟踪代码
 
-- **分支隔离（分层）**：分层判定只看「是否影响运行行为」——运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）**不需要独立 worktree，可在共享主工作区就地编辑，但同样必须经 PR 落地——不存在「直接提交到 main 并推送」这条路**。原因是远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`（required status checks 在直推路径上无法满足），2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒后确立，见 PR #2411。共享根另有 `[shared-root-guard]` 会把它强制切回 main、禁止离开 main，因此文档类提交的做法是：在本地 main 上 commit → `git branch <name>` 保住该提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
+- **分支隔离（分层）**：分层判定只看「是否影响运行行为」——运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 与 CI 后合并回 main（**合并动作由 agent 自动执行，见下文「PR 自动合并」**）；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）**不需要独立 worktree，可在共享主工作区就地编辑，但同样必须经 PR 落地——不存在「直接提交到 main 并推送」这条路**。原因是远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`（required status checks 在直推路径上无法满足），2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒后确立，见 PR #2411。共享根另有 `[shared-root-guard]` 会把它强制切回 main、禁止离开 main，因此文档类提交的做法是：在本地 main 上 commit → `git branch <name>` 保住该提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
 
 - **⛔ Worktree 隔离（并发会话铁律）**：共享仓库根（例如 `D:/Data/projects/Mulpub`）是 **main-only 协调目录**，必须保持干净并停留在 `main`；不得作为运行时代码任务的 cwd，也不得执行 `git checkout` / `git switch` 到 feature 分支。每个运行时代码任务统一从 Git for Windows Bash 运行 `scripts/session-init.sh <task-name>`，在默认 `<仓库父目录>/mp-worktrees/mp-<task-name>`（可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）与**裸 `<task-name>` 分支**中工作（`scripts/gwm-task.sh` 自 2026-09-15 起默认不加分隔符前缀，因为含斜杠的分支名在本机 ref 写入不可靠；需要前缀时显式设 `MP_BRANCH_PREFIX`，例如设 `MP_BRANCH_PREFIX=team` 才得到 `team/<task-name>`）；同名路径已被其他仓库或错误分支占用时必须 fail closed。隔离 worktree 由 pre-commit 自动声明当前分支；共享主目录仅允许 `powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main`。**已有多个会话绑定同一共享 cwd 时，先暂停所有 Git 写操作，再逐个串行迁移；禁止并行 handoff/stash/checkout，因为 stash、index 与 HEAD 属于同一 Git 状态，会互相竞争。** 新 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`。统一使用 Git for Windows Bash（`start-mp-task.ps1` 自动探测，可经 `-GitBash` / `MP_GIT_BASH` 覆盖）；本机裸 `bash` 可能解析到 WSL，不得用于此流程。
 
@@ -63,6 +63,46 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - **「远程同步」状态列只认闭合词表 `^(PASS|N\/A|✅|已)`（`check-gate-record-debt.js` Gate 2c）**：写复合箭头（如 `PENDING→PASS`）会被判**未收口欠账** → `QG Changes`/`Gate Result` 连带红，哪怕 PR 实际已合并。开 PR 时写 `PENDING`（并同一条 PR 往 `scripts/gate-record-debt-ledger.json` 按记录标题登记），合并后**就地改写成** `PASS` + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证）并在**同一次提交**删除登记项——回填与销账必须同一次发生，状态列不写「历程」，只写「当下状态」。
 - 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
 - 进白名单的前提锁（2026-09-30 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。
+
+### PR 自动合并（2026-10-05 起，branch: agent-automerge-rule）
+
+> 本节把「PR 需人工点合并」松绑为 **agent 自动合并**，但**不动「必须经 PR 落地」这条**。判定标准从「有没有人看过」换成「机械闸门是否全绿 + 证据是否落盘」。
+
+**默认动作**：agent 自己开的 PR，在下列条件全部满足时**自动 squash 合并并删除远端分支**，不等人工点合并（实测先例：PR #2943 → `829f1be6`、回填 PR #2946 → `9f5c264f`，均为 CI 全绿后自动合并）。仓库合并惯例是 squash（`gh pr merge <n> --squash --delete-branch`），不得改成 merge commit 或 rebase-merge。
+
+**允许自动合并的判据（须全部满足）**
+
+1. `mergeable == MERGEABLE`（`gh pr view <n> --json mergeable --jq .mergeable`）。若为 `CONFLICTING`：先 `git fetch` 再 `git rebase origin/main`，冲突按「两侧记录都保留」解决后 `--force-with-lease` 重推；末尾追加型文件（`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）是最常见的冲突点，**不得用「后推覆盖」消解冲突**。
+2. `gh pr checks <n>` 零 pending、零 fail。docs-only 通道的 `skipping` 属预期（重型 job 被 `docs-only=true` 短路），不算失败——但**必须先跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 确认 `docs-only=true`**，否则 skipping 意味着判定失灵。
+3. 变更类型与分层策略一致：运行时代码变更已在隔离 worktree 完成，且 QM-1 打包证据写在 `openspec/records/<分支>.md` 里。
+4. `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 为 OK。
+5. 没有待人工裁决的争议（评审提出的 CRITICAL 未修、任务勾选与证据不符、前置条件已失效但被照抄等）。这一条是 **agent 自查**而非机械闸门，最容易失守，见「残留风险」。
+
+**禁止自动合并的情形（一律停下来报告用户）**
+
+- 任一 required check 红 / pending / 因故障缺失；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
+- 需要改动 `.github/workflows/` **分支保护规则本身**、或改动 `CI_IGNORED_PATHS` 白名单的 PR——这两类是在改「谁来守门」，必须人工过目。
+- 推进需要 `reset --hard`、`git clean` 或任何会覆盖他人未提交改动的操作。
+- 上面第 5 条存在任何拿不准的争议。
+
+**任何情况下都仍然禁止**
+
+- `--no-verify`；
+- 直推 `refs/heads/main`（分支保护以 `GH011` 拒绝，直推路径无法满足 required status checks，见 PR #2411）；
+- 在门禁未绿时合并（「先合了再说」是本条最典型的失守形态）；
+- 合并后不回填远程同步：**回填与销账必须同一次提交**（`.quality-gates.md` 状态列 `PENDING` → `PASS` + merge SHA，删除 frontmatter 的 `sync_*` 三字段，同时删 `scripts/gate-record-debt-ledger.json` 的登记项），回填 PR 同样按本节自动合并。
+
+**合并后收尾清单（缺一不可）**
+
+1. `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间；
+2. `git ls-remote --heads origin <branch>` 返回 0 行，证远端分支已删；
+3. 开回填 PR，一次提交内完成：改写 `.quality-gates.md` 与 `openspec/records/<分支>.md` 的远程同步行、删除 `sync_*` 三字段、删除 ledger 登记项；
+4. 按本节判据合并回填 PR；
+5. worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
+
+**残留风险（不假装已闭合）**
+
+松绑掉的是「第二双眼睛」。本节用**三道机械化闸门**替代人工判断：required status checks（CI）、质量节拍门禁（QM-1~6 + `.quality-gates.md`）、执行记录取证（`openspec/records/` + ledger 销账）。它们挡得住「门禁没过就合」和「合了不销账」，**挡不住「门禁本身写错了」**——例如判据被改宽、变异反证被跳过、任务勾选与真实证据不符。因此判据第 5 条（agent 自查争议）不可省略，且 `openspec-sync-check` / `classify-docs-only` / `check-pr-exec-record` 各自的**基线差分**仍须人工抽查。
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
@@ -547,6 +587,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **任何「用户输入落盘」的写入口必须先证明它写的是被读取的那份真源**：写副本不算完成。本仓存在两份账号存储（python-backend `accounts.json` 为读源；Electron SQLite 仅用于就绪门禁），`renameAccount` 长期走 `accountUpdate` → `store:update-account` 写 SQLite，于是**改名功能自引入起就是空操作**，且既有测试还把这条断链断言成正确行为（`expect(accountUpdate).toHaveBeenCalledWith(id, {name})`）。这是 learnings 记录的「装饰性链路」第四次复发。**判定手法**：给一个写入口收尾时，从「列表/详情读哪张表」反查写入目标，二者不同即缺陷；写入口的测试必须断言**具体通道与被写对象**，而不是断言「返回码为 0」。另注意 mock 陷阱：主进程若在 `require` 期就把依赖函数解构为本地绑定（`account-manager.js:13`），`vi.spyOn(module, 'fn')` 拦不到，须先给被缓存的依赖模块装好 spy 再重新 require 消费方，否则测试静默调用真实实现而**假绿**。
 
+- **落盘读回必须与存储的实际返回类型一致；契约夹具不得改变被存值类型（MUST）**（2026-10-05，fix-settings-roundtrip-contract）：`store/settings-store.js` 的 `getSetting` 返回**解析后的值**（对象），不是字符串。凡按 `String(getSetting(k))` + `JSON.parse` 读取的服务，会把对象读成 `[object Object]` → 解析抛错 → 静默回落 `{}`，即**写路径报成功而恢复路径恒为默认**，且不留任何日志。本仓 `ops-center-sync` / `diagnostics-reporter` / `publish-reporter` / `usage-reporter` 因此令「运营中心下发的应用菜单 / 公告 / 功能开关 / 发布管线选项」与三类上报水位线自 `384b5c8b`（2026-08-10）起从未在重启后生效——`openspec/specs/app-menu/spec.md` 里"落入本地缓存，重启后仍可恢复"那条要求存续约 57 天未被满足。两条硬约束：① 读回归一化由**存储侧唯一实现**持有（`getSettingObject(key, defaultValue)`），消费方 MUST NOT 自带第二份剥壳/类型分支；写入一律**传对象**（`safeJsonStringify` 对字符串原样透传、对对象 `JSON.stringify` ⇒ 落盘字节逐字不变，因此零迁移、回滚须整体回滚，单侧回滚会重新制造不对称）。② **契约夹具不得改变被存值类型**：本仓 `makeStore` 曾以"存进什么类型就返回什么类型"实现，与真实存储「字符串进、对象出」不同形，使 90 条用例对该缺陷结构性免疫（其中一条名字就叫"重启后从 settings 恢复 appMenu"）；同一处生产误判换成同形夹具后立刻 21 红。凡"恢复 / 重启后仍生效"类要求，MUST 至少有一条用**真实存储**（真库 + 关闭再重开同一文件）的往返锁，并做「把夹具退回原样回吐」的成对反证——只断言"我调用过 setSetting"不构成回归锁。详见 `docs/settings-persistence-contract.md`。
+
 - **噪声/合法性类守卫的判据不得用「文本形态猜」，必须记录来源意图**：`isNoiseAccountName` 的作用是藏掉系统抓错的文本，但用户手改的名字也会命中形态规则（含 ` - ` / ` · ` / 省略号、以「服务平台」结尾、括号不闭合），于是用户的命名被永久藏掉，连编辑框回填的都是回落值。更危险的是反向误判：旧的回填保护用「现网名是否非噪声」推断「这是不是手改名」，实测在用户名字恰好长得像噪声时**会直接冲掉改名**。修法必须是显式来源字段（`name_source: auto|manual`），并且该字段要绑定在**界面实际优先读取的那个字段**上 —— 绑错字段会让 `manual` 永远不可见，等于没修。
 
 
@@ -559,6 +601,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Windows 路径身份断言**：生产代码返回 canonical 路径时，测试必须对实际值和期望值同时调用 `fs.realpathSync.native()` 后比较；不得用原始字符串、`path.resolve()` 或 `path.normalize()` 判断 8.3 短路径与长路径是否为同一文件，也不得为消除平台差异而放宽受控根、符号链接或越界检查。
 - **行尾（CRLF）不是噪声：改前先认基线，改后必须保持**（2026-09-27 事故补写）：本仓 `CHANGELOG.md`、`01-docs/learnings.md` 等文档**在 blob 里就是 CRLF**，而新建的 JS/MD 文件多为 LF。用脚本或编辑器把 CRLF 文件整体写成 LF，git 会把**每一行**判为改动：本次 PR 的 diff 从内容级 13k 行膨胀到 42k 行，且此后**任何**并发会话合并这两个文件都会得到"整文件冲突"（两边都像重写了全文）—— 表现为"置顶型文档反复撞车"，真实原因却是行尾被改写。三条纪律：① 动手前先测基线 `git show <ref>:<file> | grep -c $'\r'`（或 `node -e` 数 `\r\n`），脚本改写时**逐行保留各自的行尾**（`split('\n')` 之后不碰任何一行 —— `\r` 本就是行内容的一部分 —— 再 `join('\n')`）；**禁止「探测多数派 eol 后统一回写」**，因为本仓这些 blob 自身就是混行尾，2026-09-28 实测行尾分布：`CHANGELOG.md` 14391 行 = 14365 行单 `\r` + **2 行 LF-only** + **24 行双 `\r`**，`01-docs/learnings.md` 16446 行 = 16437 + 3 + 6（两个数均经「各行类之和=总行数」与「`\r` 加总=文件 CR 总数」双重自洽校验）。统一回写会一次性改写 **26 行**（learnings 为 9 行）—— 即 ② 要抓的幽灵行，量级远超"一行"。**另有第二个独立缺陷**：若写成 `lines.join(eol) + '\n'`，文件**末行**的 `\r` 会被整体吃掉（末行分隔符是 `eol` 而尾部只补了 `'\n'`），实测再叠 1 行 ⇒ 27 / 10；要保留末行就得 `+ eol`，而这正说明"统一回写"没有一处是对的。② 提交前对账 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat`，**两个数差得远就是行尾被改**，别把幽灵行当成果；③ `git status`/commit 输出里的 `warning: in the working copy of 'X', LF will be replaced by CRLF the next time Git touches it` 不是噪声，它就是这件事的即时告警（本轮把它当作风控提示忽略了）。合并这类文件时的正解不是 union 硬合（那会把整份文件复制两遍，且"每行都在"的多重集对账依然通过），而是 `git show origin/main:<file>` 为底 + 只把自己的新增行插回去 + **逐行保留 main 那一行原本的结尾（不得统一成一种）**，并用多重集断言"两边的每一行都至少保留原次数"。
+  - **2026-10-05 前提变更（实测，勿再按旧结论办事）**：上游 `control-bytes-sweep` 之后，origin/main 上 `01-docs/PRD.md`（cr=0 lf=18480 nul=0）、`CHANGELOG.md`（cr=0 lf=64511 nul=0）、`01-docs/learnings.md`（cr=0 lf=17340 nul=0）三份**已是纯 LF blob 且不含 NUL**，而工作副本呈 CRLF（`git ls-files --eol` = `i/lf w/crlf attr/text=auto`）——那是 git 的 checkout EOL 转换，不是内容。三条后果：① 任何「工作副本字节 == 某 ref 的 blob 字节」的等值判据在这三份上**必然假红**（PRD.md 实测 2,645,718 vs 2,627,238，差恰好 18480 个 CR）；要看"会被提交什么"就读**索引 blob** `git show :<path>`。② 下面那些历史行尾分布数字（14391 行等）作为**当时的事实**保留、不改写，但不得再当作现状引用；现状一律以当场 `ls-files --eol` + 计数为准。③ `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账**照旧要跑**（近零成本），只是它现在防的是 `w/crlf` 与 `w/lf` 混存（`.quality-gates.md` 是 `i/lf w/lf`，因它由工具直接写回、没走 checkout），不再是「blob 本身是 CRLF」。
 
 - **文件系统测试隔离**：测试不得把可写状态固定到仓库内共享文件。并行会话或重复 runner 可能同时执行时，必须使用 `os.tmpdir()` 下带 PID/随机标识的独立路径；原子写测试需在 setup/teardown 同时清理 final 与 `.tmp` 文件。
 
@@ -623,7 +666,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **文本结构断言（MUST）**：凡断言**文本结构**（换行 / 分段 / 分隔符 / 字段顺序 / 序列化格式）的测试，必须**至少一条 `toBe` / `toEqual` 精确断言或结构断言**（如 `expect(out.split("\n")).toEqual([...])`），`toContain` 仅可作为补充。原因：纯 `toContain` 子串匹配对结构性回归**完全免疫** —— 正文被压成一整行时每个子串依然命中（2026-09-16 采集页正文换行全丢即由此逃逸，见 `01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`）。新增/修改文本提取、解析、格式化类代码时必须同时补一条精确断言，并用「修复前实现副本」实测确认该断言能抓住 Bug。
 
-- **全仓关键词复扫必须带 `-a`（MUST）**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等历史文档含 NUL 字节，`grep`/`rg` 默认把这类文件判为二进制并**静默跳过**，只输出一行 `Binary file ... matches`，命中数直接归零——于是「全仓扫到 0 命中」这类收口结论对真正有问题的文件完全失明（2026-09-26 实测：`grep -rn 立即同步 01-docs/PRD.md` = 1，`grep -rna` = 10）。凡以「扫到 0」作为完成判据的检查，一律 `grep -na` / `rg -a`，并额外确认**扫描器没有把这些文件当二进制**（`grep -c` 单文件计数对照）。
+- **全仓关键词复扫必须带 `-a`（MUST）**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等历史文档含 NUL 字节，`grep`/`rg` 默认把这类文件判为二进制并**静默跳过**，只输出一行 `Binary file ... matches`，命中数直接归零——于是「全仓扫到 0 命中」这类收口结论对真正有问题的文件完全失明（2026-09-26 实测：`grep -rn 立即同步 01-docs/PRD.md` = 1，`grep -rna` = 10）。凡以「扫到 0」作为完成判据的检查，一律 `grep -na` / `rg -a`，并额外确认**扫描器没有把这些文件当二进制**（`grep -c` 单文件计数对照）。（2026-10-05 更新：本条点名的 `01-docs/PRD.md` / `01-docs/learnings.md` 经 control-bytes-sweep 后实测 **NUL=0**，`-a` 对这两份已不再必要；但纪律本身不变——**凡「扫到 0」当完成判据，一律 `grep -na` / `rg -a`，并且先当场量一次该文件还有没有控制字节，不要凭记忆决定加不加 `-a`，也不要凭记忆决定某份历史文档还含不含 NUL**。）
 
 - **测试库/配置状态必须按模块确定化，不得依赖导入顺序（MUST）**：`config.settings` 这类**导入期单例**会让「模块级设环境变量再 import」的写法只对第一个被收集的测试文件生效——其余文件自设的临时库全部失效，整个 session 共用同一份状态，任一文件 teardown 里的 `drop_all` 都会波及其他文件，表现为「单跑绿、全量红」的假失败。修法：在 `tests/conftest.py` 里做**按模块**的 autouse 重置（幂等补齐 schema + 按外键逆序清空全部行 + 复位 `sqlite_sequence`），并用回归对锁定（制造方推进 rowid 并 `drop_all`，消费方不建表不清库、断言新父行 `id == 1` 且能写外键子行）；把该 fixture 改成 no-op 必须**立刻变红**，否则锁是装饰性的。既有案例：`ops-center/backend/tests/conftest.py::_isolate_database_per_test_module` + `tests/test_zz_conftest_isolation_a_wrecker.py` / `..._b_consumer.py`。归属纪律：全量红而单跑绿时，先在**未改动的 main** 上跑同一条全量做对照，既禁止把既有缺陷认领成本 PR 引入，也禁止反过来以「不是我改的」直接放行。 **但对照只证明「既有缺陷存在」，不证明「本 PR 无关」**：本 PR 自己可能叠加第二颗独立的雷（实测：#2397 清库修好后，本仓一条 5 路 `async_session` 并发的用例仍会让远处模块报外键失败）。所以必须二分到自己身上——用 `--deselect` 逐条摘除本 PR 新增用例跑全量，配合「摘掉修复即变红」的反证定责。规则：**在测试里开并发 session 的用例，必须在 `finally` 里 `await engine.dispose()` 归还连接池**（aiosqlite 池连接绑定事件循环，跨用例复用会读到过期 WAL 快照）。
 - **清库/删数据类测试夹具自身必须 fail-closed 校验目标在仓库外（MUST）**：一条「DELETE 全部表」的 autouse 夹具，其目标来自**导入期单例** `config.settings.db_path`，而该默认值是**相对 cwd** 的 `data/config.db`。整轮套件绑到哪个库，历史上取决于「第一个被收集且设了 `OPS_DB_PATH` 的模块」——所以只要有人**单跑**一个没设该变量的模块（本仓实测：`pytest tests/test_security_config.py`），夹具就会去清空共享开发库的全部行（含 `admins`，症状是运营后台 admin 登录返回 503「未配置管理员账号」）。因此这类夹具必须同时具备两件事：①在 `tests/conftest.py` **导入期**就把 `OPS_DB_PATH`/`OPS_CONFIG_OUTPUT_DIR` 兜底到会话级临时目录（宿主显式设置的仍优先），把「谁先导入谁定绑」这条脆弱前提**收窄**（注意：`setdefault` 只兜住未显式赋值的场景，模块若在 import config 前自己写 `OPS_DB_PATH`，它仍然是定绑者——所以谓词那条一道防线不能省）；②动作**开始之前**用纯谓词（如 `is_safe_reset_target`）断言目标不在仓库内，违反即抛错，禁止「先清完再报」。回归锁见 `ops-center/backend/tests/test_conftest_db_isolation.py`：一条用**真子进程 + 弹掉 `OPS_DB_PATH`** 跑出实际绑定路径，另两条锁谓词与动手前的拒绝。

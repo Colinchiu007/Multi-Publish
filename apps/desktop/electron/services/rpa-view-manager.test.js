@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 __enableElectronMock()
 
 // logger mock：用 __registerMock 拦截 require('./logger')，resetModules 后仍生效
-const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 __registerMock('./logger', log)
 
 const supportsApi = vi.fn()

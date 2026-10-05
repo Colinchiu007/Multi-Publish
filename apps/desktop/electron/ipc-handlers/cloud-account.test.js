@@ -106,7 +106,7 @@ function createDeps (overrides = {}) {
     AccountManager: {},
     credentialStore: { loadCredential: vi.fn(), saveCredential: vi.fn() },
     identityService: { getState: () => ({ user: { sub: 'sub-abc' } }), memberApiService: { request: vi.fn() } },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     ...overrides,
   }
 }

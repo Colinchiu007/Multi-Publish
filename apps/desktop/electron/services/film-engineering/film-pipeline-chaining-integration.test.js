@@ -19,7 +19,7 @@ const { registerFilmEngineeringStages } = require('./film-engineering-stages')
 const { registerFilmVideoStages } = require('./video-gen')
 
 function makeOrchestrator () {
-  const orchestr = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+  const orchestr = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
   orchestr.modelProviderManager = { getDefault: () => null, getProvider: () => null }
   orchestr.stageExecutor = {
     _customExecutors: new Map(),

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { draftDelete, draftList, draftSave } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
+import { normalizeRewriteLineage } from '@/utils/rewrite-lineage'
 import i18n from '@/i18n'
 import { useNotify } from './useNotify'
 
@@ -21,6 +22,10 @@ const ARTICLE_FIELDS = [
   'topics',
   'mentions',
   'publishTime',
+  // 归因链：改写关联必须与内容一起被存/取，否则「从草稿去发布」这条主路径永远接不上
+  // （buildDraftSnapshot / applyDraft 共用本白名单，加一次两侧同时生效）。
+  // 它不是内容字段：不参与 computeDraftFingerprint（见 services/draft-fingerprint.js）。
+  'rewriteHistoryId',
 ]
 
 // 数组型字段：草稿缺失时必须回退为 [] 而非 ''。
@@ -101,6 +106,12 @@ export function usePublishDrafts ({
     }
     // 与 applyDraft 对称：数组字段缺失/异常时保存 [] 而非 ''，防止未来新增数组字段漏配 ARRAY_FIELDS 时写回脏值
     for (const field of ARTICLE_FIELDS) {
+      // 归因关联例外（QM-6 前端轴 F3）：它是 string|null 语义，不能套通用的 `|| ''` 默认值。
+      // 折成空串会让"没关联"与"关联被抹"不可区分，而未来任何 `!= null` 的读法都会把 '' 当成有值。
+      if (field === 'rewriteHistoryId') {
+        snapshot[field] = normalizeRewriteLineage(article[field])
+        continue
+      }
       snapshot[field] = ARRAY_FIELDS.has(field)
         ? (Array.isArray(article[field]) ? toPlainJson(article[field]) : [])
         : toPlainJson(article[field] || '')
@@ -111,6 +122,12 @@ export function usePublishDrafts ({
   function applyDraft (draft) {
     if (!draft || typeof draft !== 'object') return false
     for (const field of ARTICLE_FIELDS) {
+      // 同上：归因关联必须落到 null（含"这份草稿没有关联"时清掉 article 上的旧值），
+      // 不得沿用 `|| ''`，也不得在键缺席时保持现状——否则跨草稿会串关联。
+      if (field === 'rewriteHistoryId') {
+        article[field] = normalizeRewriteLineage(draft[field])
+        continue
+      }
       article[field] = ARRAY_FIELDS.has(field)
         ? (Array.isArray(draft[field]) ? toPlainJson(draft[field]) : [])
         : (draft[field] || '')

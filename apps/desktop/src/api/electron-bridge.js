@@ -79,4 +79,27 @@ export function invokePageManager(method, ...args) {
   return ns[method](...args);
 }
 
+/**
+ * 调用 preload **命名空间**下的 IPC 方法（如 filmEngineering.retryShot）。
+ *
+ * 为什么必须有这条：preload 把影视工程那组能力暴露在 `filmEngineering` 对象下，
+ * 而扁平键访问 `api["filmEngineeringRetryShot"]` 恒为 undefined ⇒ 桥接层直接
+ * return undefined，调用方只拿到 fallback，功能表现为"点了没反应"且界面零提示。
+ * 命名空间形态无法用扁平 invoke 表达，只能按 ns→method 两级取。
+ *
+ * 与 invokePageManager 的关系：后者是本函数的历史特例（pageManager 专用），
+ * 保留以免牵动既有调用方；新代码一律用本函数。
+ *
+ * @param {string} ns 命名空间名（如 filmEngineering）
+ * @param {string} method 命名空间下的方法名
+ * @param {...any} args 参数
+ * @returns {any|undefined} 无 API / 命名空间缺失 / 方法不存在时返回 undefined
+ */
+export function invokeNamespace(ns, method, ...args) {
+  const api = getApi();
+  const scoped = api && api[ns];
+  if (!scoped || typeof scoped[method] !== "function") return undefined;
+  return scoped[method](...args.map(toPlainIpcValue));
+}
+
 export { getApi };

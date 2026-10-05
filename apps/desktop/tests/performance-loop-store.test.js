@@ -3,57 +3,9 @@
  */
 var Database = require('../electron/services/sqlite-wrapper')
 
-var SCHEMA = `
-CREATE TABLE rewrite_history (
-  id TEXT PRIMARY KEY,
-  mode TEXT DEFAULT '',
-  original_excerpt TEXT DEFAULT '',
-  rewritten_content TEXT NOT NULL,
-  strategy_id TEXT DEFAULT '',
-  knowledge_refs TEXT DEFAULT '[]',
-  matched_keywords TEXT DEFAULT '[]',
-  owner_subject TEXT,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE tracked_content (
-  id TEXT PRIMARY KEY,
-  platform TEXT NOT NULL,
-  post_id TEXT DEFAULT '',
-  url TEXT DEFAULT '',
-  publish_history_id TEXT,
-  rewrite_history_id TEXT,
-  recrawl_status TEXT NOT NULL DEFAULT 'pending',
-  last_recrawl_at TEXT,
-  next_recrawl_at TEXT,
-  owner_subject TEXT,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE performance_snapshot (
-  id TEXT PRIMARY KEY,
-  tracked_content_id TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'auto',
-  views INTEGER DEFAULT 0,
-  likes INTEGER DEFAULT 0,
-  comments INTEGER DEFAULT 0,
-  favorites INTEGER DEFAULT 0,
-  shares INTEGER DEFAULT 0,
-  raw TEXT DEFAULT '{}',
-  captured_at TEXT NOT NULL
-);
-CREATE TABLE pattern_performance (
-  id TEXT PRIMARY KEY,
-  dimension TEXT NOT NULL,
-  value TEXT NOT NULL,
-  platform TEXT DEFAULT '',
-  sample_count INTEGER DEFAULT 0,
-  avg_views REAL DEFAULT 0,
-  avg_likes REAL DEFAULT 0,
-  avg_comments REAL DEFAULT 0,
-  avg_favorites REAL DEFAULT 0,
-  engagement_score REAL DEFAULT 0,
-  computed_at TEXT NOT NULL
-);
-`
+// 建表一律走**真迁移**，不在测试里手抄 DDL（手抄的第三份 schema 曾让新增列在
+// pattern_performance 上直接报 no column named —— 见 activate-viral-schema.js）。
+const { migratePerformanceLoopSchema } = require('../electron/services/activate-viral-schema')
 
 describe('performance-loop-store', function () {
   var store
@@ -62,7 +14,7 @@ describe('performance-loop-store', function () {
     var db = new Database(null)
     await Database.ready
     if (!db._db) db._init()
-    db.exec(SCHEMA)
+    migratePerformanceLoopSchema(db, (target, sql) => target.execOrThrow(sql))
     var mixin = require('../electron/services/store/performance-loop-store')
     store = Object.assign({}, mixin)
     store.db = db
@@ -113,7 +65,7 @@ describe('performance-loop-store', function () {
       { dimension: 'hook_type', value: 'suspense', platform: 'zhihu', sampleCount: 5, avgViews: 1000, avgLikes: 100, avgComments: 20, avgFavorites: 30 },
       { dimension: 'hook_type', value: 'conflict', platform: 'zhihu', sampleCount: 3, avgViews: 800, avgLikes: 60, avgComments: 10, avgFavorites: 15 },
     ])
-    var rows = store.listPatternPerformance({ dimension: 'hook_type' })
+    var rows = store.listPatternPerformance({ dimension: 'hook_type' }).items
     expect(rows.length).toBe(2)
     var suspense = rows.find(function (r) { return r.value === 'suspense' })
     expect(suspense.sample_count).toBe(5)
@@ -122,7 +74,34 @@ describe('performance-loop-store', function () {
     store.replacePatternPerformance([
       { dimension: 'hook_type', value: 'question', platform: 'zhihu', sampleCount: 1, avgViews: 500, avgLikes: 50, avgComments: 5, avgFavorites: 5 },
     ])
-    expect(store.listPatternPerformance({ dimension: 'hook_type' }).length).toBe(1)
+    expect(store.listPatternPerformance({ dimension: 'hook_type' }).items.length).toBe(1)
+  })
+
+  // P2-6d 归属筛：写入时打归属、读取时按归属取。
+  // 本用例钉的是"legacy 读档不得看到有归属的行"——它与"有归属读档只看到自己的"
+  // 是两条独立判据（后者由 services/pattern-attribution-service.test.js 钉）。
+  test('pattern_performance 归属筛：有归属的行不落在 legacy 读档里', function () {
+    store.replacePatternPerformance([
+      { dimension: 'hook_type', value: 'mine', platform: '', ownerSubject: 'user-OWNER', sampleCount: 1, avgViews: 1, avgLikes: 1, avgComments: 1, avgFavorites: 1 },
+      { dimension: 'hook_type', value: 'legacy', platform: '', ownerSubject: null, sampleCount: 1, avgViews: 1, avgLikes: 1, avgComments: 1, avgFavorites: 1 },
+    ])
+    const legacy = store.listPatternPerformance({ dimension: 'hook_type' }, undefined).items
+    expect(legacy.map(r => r.value)).toEqual(['legacy'])
+    const owned = store.listPatternPerformance({ dimension: 'hook_type' }, 'user-OWNER').items
+    expect(owned.map(r => r.value)).toEqual(['mine'])
+    // '' 与 '__legacy__' 必须与 NULL 同桶（存储层 _ownerPredicate 的三态语义）
+    store.replacePatternPerformance([
+      { dimension: 'hook_type', value: 'legacy2', platform: '', ownerSubject: '', sampleCount: 1, avgViews: 1, avgLikes: 1, avgComments: 1, avgFavorites: 1 },
+    ])
+    expect(store.listPatternPerformance({}, undefined).items.map(r => r.value)).toEqual(['legacy2'])
+  })
+
+  // 夹具漂移锁：本文件的建表已改为跑真迁移（手抄 DDL 曾让新增列报 no column named）。
+  // 这条断言的作用是：若有人把迁移里的列删了/改名，这里立刻红，而不是让写入静默失败。
+  test('夹具自证：schema 来自真迁移，pattern_performance 含 owner_subject', function () {
+    const cols = store.db.prepare('PRAGMA table_info(pattern_performance)').all().map(c => c.name)
+    expect(cols).toContain('owner_subject')
+    expect(cols).toContain('engagement_score')
   })
 
   test('7 天窗口过滤：过期内容不进回采队列', function () {
@@ -159,5 +138,52 @@ describe('performance-loop-store listDueForRecrawl force（立即回采调试入
     s2.addTrackedContent({ id: 't-old2', platform: 'bilibili', postId: '', url: 'https://x/old', recrawlStatus: 'pending', nextRecrawlAt: new Date().toISOString(), createdAt: old })
     var forced = s2.listDueForRecrawl(Date.now(), { force: true })
     expect(forced.find(function (r) { return r.id === 't-old2' })).toBeUndefined()
+  })
+})
+
+/**
+ * 读侧错误必须出声（QM-6 后端轴 W-4）。
+ * 空数组是**合法结果**（还没有归因数据），所以"读不出来"绝不能长得跟它一样：
+ * 本切片修的 C-1（owner 索引排在 ALTER 之前 ⇒ 存量库迁移直接失败）如果只体现在
+ * "榜单空"上，就没有任何一层会报出来 —— 用户看到的是空态，不是故障。
+ */
+describe('performance-loop-store listPatternPerformance 错误出声', function () {
+  function bareStore (withTable) {
+    const Database = require('../electron/services/sqlite-wrapper')
+    const db = new Database(null)
+    return Database.ready.then(function () {
+      if (!db._db) db._init()
+      if (withTable) {
+        require('../electron/services/activate-viral-schema').migratePerformanceLoopSchema(
+          db, function (target, sql) { target.execOrThrow(sql) })
+      }
+      const mixin = require('../electron/services/store/performance-loop-store')
+      const s = Object.assign({}, mixin)
+      s.db = db
+      s._ready = true
+      return s
+    })
+  }
+
+  test('表不存在 ⇒ items 空但必须带 error（不得伪装成"还没有归因数据"）', async function () {
+    const st = await bareStore(false)
+    const read = st.listPatternPerformance({}, 'user-A')
+    expect(read.items).toEqual([])
+    expect(read.error, '表缺失必须出声').toMatch(/pattern_performance/)
+  })
+
+  test('表存在且无数据 ⇒ items 空且**没有** error（两种空必须可区分）', async function () {
+    const st = await bareStore(true)
+    const read = st.listPatternPerformance({}, 'user-A')
+    expect(read.items).toEqual([])
+    expect(read.error, '合法空态被标成错误，用户就会去报障一个不存在的问题').toBeUndefined()
+  })
+
+  test('store 未就绪 ⇒ 带 error 返回，不抛错也不静默', function () {
+    const mixin = require('../electron/services/store/performance-loop-store')
+    const st = Object.assign({}, mixin, { db: null, _ready: false })
+    const read = st.listPatternPerformance({}, 'user-A')
+    expect(read.items).toEqual([])
+    expect(read.error).toBeTruthy()
   })
 })
