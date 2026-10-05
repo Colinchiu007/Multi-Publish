@@ -36,7 +36,20 @@ const { changedFileStatuses } = require('./classify-docs-only.js')
 
 const RECORDS_RE = /^openspec\/records\/[^_][^/]*\.md$/
 const EXEMPT_RE = /^openspec\/records\/_exempt\/[^_][^/]*\.md$/
+// 记录/台账载体：回填型 PR（出路④）的变更集**全部**落在这些文件上才算纯回填。
+// 与 .quality-gates.md 的「远程同步」行、scripts/gate-record-debt-ledger.json 的账本
+// 是同一组实体。注意：载体文件**可以**承载行为变更（翻门槛/收缩账本），所以出路④
+// 额外要求至少一篇记录文件的 M —— 见 isPureBackfillChangeSet（QM-6 前端 C2 收紧）。
+const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scripts\/gate-record-debt-ledger\.json)$/
 const DEFAULT_THRESHOLD = 3
+
+// 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M、
+// 且至少一篇是记录文件（C2 收紧，理由见 evaluate 内注释）。
+function isPureBackfillChangeSet (statuses) {
+  return Array.isArray(statuses) && statuses.length > 0
+    && statuses.every((e) => e.status === 'M' && CARRIER_RE.test(e.file))
+    && statuses.some((e) => RECORDS_RE.test(e.file))
+}
 
 // 记录/豁免的判据核心：输入全是数据，不碰 git、不碰网络 —— 这样每条规则都能单测，
 // 而"从真实 git 取到 statuses"这一环由一条独立接缝测试守（夹具不得替实现剥壳）。
@@ -69,6 +82,20 @@ function evaluate({
     .filter((e) => e.status === 'M' && ownRecordPath && e.file === ownRecordPath)
     .map((e) => e.file)
 
+  // 出路④（#2920 实测动因）：回填型 PR 的定义恰恰是 M **别的分支**那篇记录 —— 出路①②③对它
+  // 全部不可用。判据取最窄形态：变更集**每一条**都是载体文件的 M（夹带任何 A/D/非载体文件即不算），
+  // 且**至少含一篇记录文件的 M**（QM-6 前端 C2 收紧：载体文件自身可承载行为变更——
+  // .quality-gates.md 可翻门槛、账本可收缩欠账；改动前「只 M 载体不带记录」是红的，
+  // 放行若无此条件就把那扇门重新打开。回填的本质是修订记录，SOP 里销账与记录更新同次发生，
+  // 因此无记录文件的载体集不构成回填）。M+D 混合（删记录）仍必须另交记录。
+  // backfillRevised 只在"确实走出路④放行"时有值 —— 掺进 A（豁免出路）或非载体文件时保持空，
+  // 让两条出路的计数互不重叠（与 revisedRecords 是两条互斥路径的计数，backfillRevised 只在
+  // isPureBackfill 时非空，revisedRecords 只在出路②命中时非空）。
+  const isPureBackfill = isPureBackfillChangeSet(statuses)
+  const backfillRevised = isPureBackfill
+    ? statuses.filter((e) => e.status === 'M').map((e) => e.file)
+    : []
+
   // 变更集为空 = 取不到证据，不等于"这个 PR 没改文件"。判红，不接受空清单当通过。
   if (!Array.isArray(statuses) || statuses.length === 0) {
     reasons.push('变更集为空或取证失败：无法判定本 PR 是否携带执行记录。判据按 fail-closed 处理，'
@@ -91,13 +118,17 @@ function evaluate({
   // 提交性判定与结论判定必须分开：先算"有没有交东西"，把全部违规理由收集完，
   // 最后 ok = 无理由。先前写成 ok = 交了记录就算通过，于是"同时交记录与豁免"和
   // "待清理豁免超阈值"两条都出了理由却仍判通过 —— 那是装饰性门禁。
-  const submitted = hasRecord || addedExempts.length > 0
+  const submitted = hasRecord || addedExempts.length > 0 || isPureBackfill
   if (!submitted && statuses.length > 0) {
-    reasons.push('本 PR 未携带执行记录。三条合法出路任选其一：'
+    reasons.push('本 PR 未携带执行记录。四条合法出路任选其一：'
       + `①新增 openspec/records/<分支名>.md（按 _TEMPLATE.md，含门禁表与「远程同步」行；`
       + '尚无法收口时在该文件 frontmatter 里写 sync_reason 与 sync_backfill_owner）；'
       + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
-      + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因。')
+      + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因；'
+      + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
+      + 'scripts/gate-record-debt-ledger.json）的 M，且至少含一篇 openspec/records/*.md 的 M ⇒ '
+      + '满足此定义者直接放行（夹带任何新增/删除/非载体文件、或只改门禁清单/账本而无记录文件，'
+      + '即不符合此定义）。')
   }
 
   // 已消费的豁免：分支已不在远端（合并即删分支）。要求"同 PR 内自删"在 squash 流程下不可实现，
@@ -118,7 +149,11 @@ function evaluate({
       `本 PR 变更文件 ${statuses.length} 个（A=${statuses.filter((e) => e.status === 'A').length} `
       + `M=${statuses.filter((e) => e.status === 'M').length} `
       + `D=${statuses.filter((e) => e.status === 'D').length}）`,
-      `新增记录 ${addedRecords.length} 篇 / 修订本分支记录 ${revisedRecords.length} 篇 / 新增豁免 ${addedExempts.length} 篇`,
+      `新增记录 ${addedRecords.length} 篇 / 修订本分支记录 ${revisedRecords.length} 篇 / 新增豁免 ${addedExempts.length} 篇`
+        + (isPureBackfill ? ` / 回填型 PR（载体修订 ${backfillRevised.length} 篇）` : ''),
+      // 载体 M 计数必须无条件打印（QM-6 前端 W9）：回填未成立时（载体 M 夹了代码），
+      // 作者只看 "M=3" 无从判断差在哪，这一项让"差一个非载体文件"可见。
+      `载体M=${statuses.filter((e) => e.status === 'M' && CARRIER_RE.test(e.file)).length}`,
       // 分支名与它的来源必须每次打印：detached 与注入的差异不在这里出声，就又会变成
       // "CI 上恒判没带记录、本机永远复现不了"的那类静默失效。
       `head分支=${headBranch || '(空)'} 来源=${ownRecordPath ? branchSource : branchSource + '(未启用修订判据)'}`,
@@ -127,7 +162,7 @@ function evaluate({
     return bits.join(' ｜ ')
   }
 
-  return { ok, reasons, addedRecords, addedExempts, revisedRecords, ownRecordPath, consumedExempts, consumedKnown, summary }
+  return { ok, reasons, addedRecords, addedExempts, revisedRecords, backfillRevised, isPureBackfill, ownRecordPath, consumedExempts, consumedKnown, summary }
 }
 
 function readExemptsOnDisk(repo) {
@@ -194,6 +229,14 @@ function resolveHeadBranch({ argBranch = '', envHeadRef = '', gitBranch = '' } =
 function main(argv) {
   const args = parseArgs(argv)
   const repo = args.repo || process.cwd()
+  // #2923 遗留：显式 `--head=`（空串）必须拒绝，不得经 `|| 'HEAD'` 回落 —— CI 检出下 HEAD 是
+  // 合并提交，回落等于把「取证失败」伪装成「取到了」。（未传 --head 仍默认 HEAD，本机直跑不受影响。）
+  if (typeof args.head === 'string' && args.head.trim() === '') {
+    process.stderr.write('[check-pr-exec-record] --head= 显式为空：取证失败必须显式报错，'
+      + '不得回落 HEAD（pull_request 检出下 HEAD 是合并提交）。请由 CI 注入 PR 的 head SHA'
+      + '（GitHub Actions: pull_request.head.sha）。\n')
+    process.exit(2)
+  }
   const head = args.head || 'HEAD'
   const mode = args.mode === 'advisory' ? 'advisory' : 'enforce'
   const threshold = Number(args.threshold || DEFAULT_THRESHOLD)
@@ -266,6 +309,6 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, RECORDS_RE, EXEMPT_RE, DEFAULT_THRESHOLD }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
 
 if (require.main === module) main(process.argv.slice(2))
