@@ -229,3 +229,12 @@ grep -ao 'mp.toutiao.com/profile_v4/graphic/publish' "$LOG" | wc -l
 而 §一 的判据是**三项证据缺一不可**，其中「作品状态端点形状」与「映射表」一项都没拿到；
 把平台提前写进 `verified` 就是拿「账号信息端点能通」冒充「作品端点形状已知」，
 正是本清单立项要防的那类假声明。
+
+## 八、第二次离线取证（2026-10-05，仍**只读**，不发起任何出站请求、不触碰真实账号）
+
+§七 之后又跑了一次覆盖面更大的离线扫描，问的是「本机历史里到底有没有作品端点的现场」。
+
+- 扫描域：本机两处 userData 的全部 `*.log` —— `C:\Users\to_co\AppData\Roaming\@multi-publish\desktop\logs` 与 `D:\tmp\Multi-Publish-debug-profile\logs`，**实读 52 个文件 / 13,852,392 字节**（脚本先打印实读文件数与字节数，再报命中数；否则「0 命中」无法区分「没有」与「没扫」）。
+- 结果：`archive/space` / `aweme/v1` / `ajax/statuses/mymblog` / `creator/v2` / `web-a-api` / `api/xq/insight` / `bvid` / `aweme_id` / `post_id` / `postId` / `auditStatus` / `audit` / `review` / `draft` / `publishing` **各 0 命中**；`mp.toutiao.com` 仅 1 命中，且是登录检测的**导航 URL**（`checkLoginStatus: start toutiao url=https://mp.toutiao.com/`），不是 JSON 端点。
+- 严格形态复检（`(^|[^A-Za-z])"(aid|bvid|aweme_id|video_id|note_id|item_id)"?\s*[:=]`，用它是为了避免把 `said`/`paid` 这类词算成命中）：3 命中，全部是视频号 `channels.weixin.qq.com/…notification_list?_aid=<uuid>` 里的 **`_aid` 应用实例标识**，语义上不是作品 id ⇒ 作品标识符在本机历史日志里仍是 0 现场。
+- 结论与 §7.3 同：`AUDIT_REQUERY_VERIFIED_PLATFORMS` 保持**空**。这次扫描把「本机没有发布回传现场」从"当日一份日志没看到"升级为"52 份 / 13.8 MB 全量未见"，但**它仍然不能替代真机取证**：证据①（作品状态端点请求形状）与③（状态值→`auditStatus` 映射表）只能来自真实回传或真实创作者中心的现场抓包，而这两者的前置动作是向真实账号发一条内容——属外部可见写操作，须经用户授权。
