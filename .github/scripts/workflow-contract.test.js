@@ -598,6 +598,29 @@ test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线�
     );
   }
 
+  // 2b) main push 的并发组必须**按 run 唯一**（#2642）。
+  //     上面 2) 锁的是 cancel-in-progress，它并没有坏 —— 实测被取消的 25 条 main push run
+  //     连 job 都没派发过（jobs=0），表达式是生效的。坏的是 group：GitHub 在同一并发组里
+  //     只允许一个排队者，新 push 一到就把还在排队的旧 push 置为 cancelled，而那条 sha
+  //     此后再不会出现任何 run ⇒ 主侧执行证据永久丢失。
+  //     近 1000 条 main push run 按 (sha, workflow) 归集实测：「取消过但被后续 run 补回」= **0 格**，
+  //     「该格全部 cancelled」= 51 格，其中 #2642 立案之后仍新增 5 格
+  //     （ecee7649f / 3af9d1114 / 6ddd41c4c）。所以改 group，**不要**改上面那一行。
+  const EXPECT_GROUP = '${{ github.event_name == \'pull_request\' && format(\'{0}-pr-{1}\', github.workflow, github.event.pull_request.number) || format(\'{0}-run-{1}\', github.workflow, github.run_id) }}';
+  // 逐字相等而不是"两个 token 都在"：QM-6 实测三种变异都能同时命中 /run_id/ 与 /pull_request\.number/ 却语义已坏 ——
+  // ① 分支对调（PR 拿到 run 唯一 ⇒ 失去互相取消；非 PR 落到 -pr- 且 number 为空 ⇒ 全部共享一组，本 PR 要修的现象原样复活）；
+  // ② 无条件拼接双 token（PR 每 run 唯一 ⇒ 失去互相取消）；③ 谓词改成 != 'push'（dispatch 落到 -pr- ⇒ 共享一组）。
+  // 所以这里锁整棵分支结构；要改表达式必须连同本行一起改，并在 PR 里写明为什么。
+  for (const name of ['quality-gate.yml', 'electron-ci.yml']) {
+    const wf = readWf(name);
+    const group = String(wf.concurrency && wf.concurrency.group);
+    assert.equal(
+      group,
+      EXPECT_GROUP,
+      `${name} 的 concurrency.group 与唯一真源表达式不一致（期望 PR 走 -pr-<number>、非 PR 走 -run-<run_id>），实测 ${group}`,
+    );
+  }
+
   // 3) visual-test 不得由 pull_request 触发：它与 quality-gate 的 QG Visual（Gate 7）逐行同构，
   //    每次改 apps/desktop/** 会跑两遍。保留 push 以维持「代码默认 readiness 超时」路径的覆盖。
   const vt = readWf('visual-test.yml');

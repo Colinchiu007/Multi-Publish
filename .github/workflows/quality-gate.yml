@@ -23,8 +23,13 @@ on:
 
 # 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
 # main push 不取消（保发布链路完整性）。
+# 注：不取消还不够 —— group 也必须让 push 唯一，否则旧 push 会在"还没排队成功"时被顶掉（见下方 concurrency 注释与 #2642）。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # push（main）按 run_id 唯一分组：GitHub 在同一并发组里只允许一个排队者，
+  # 新 push 一到就把还在排队的旧 push 置为 cancelled，而那条 sha 此后再没有 run ⇒ 主侧证据永久丢失。
+  # 实测（近 1000 条 main push run 按 (sha, workflow) 归集）：被取消过又有后续 run 补回的 = 0 格。
+  # 由 .github/scripts/workflow-contract.test.js 的「2b) main push 的并发组」锁住，详见 #2642。
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-run-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -543,19 +548,23 @@ jobs:
           if ($env:TEST_MODE -eq "affected") {
             # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起 30 分钟超时
             # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
-            $affectedRaw = & pnpm exec nx show projects --affected --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
+            $affectedRaw = & pnpm exec nx show projects --affected --with-target=test --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
             $nxExit = $LASTEXITCODE
+            # 空集必须与"检测失败"分开判：pwsh 里 ConvertFrom-Json '[]' 得到的是 $null（同族坑见
+            # AGENTS.md「@(...) 摊平成 $null」），所以旧写法把"本轮没有任何受影响项目"误分类成检测失败，
+            # 于是继续往下跑 test:affected —— nx 实际跑 0 个任务、根本不启动测试进程 ⇒ 台账文件不存在
+            # ⇒ 末尾的运行时出站台账判定（fail-closed：无台账即红）当场误红。实测 PR #2902 的 QG Unit Tests。
+            # 判据一律先看**原始文本**，且早退必须排在判定之前。
+            $affectedText = ($affectedRaw | Out-String).Trim()
+            if ($affectedText -eq '' -or $affectedText -eq '[]') {
+              Write-Host "No non-desktop projects with a test target affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
+              exit 0
+            }
             $affected = $affectedRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
             if ($nxExit -ne 0 -or $null -eq $affected) {
               Write-Host "::warning::nx affected detection failed (exit $nxExit); running tests:affected normally rather than skipping."
             } else {
-              $affectedArr = @($affected)
-              if ($affectedArr.Count -gt 0) {
-                Write-Host "Affected non-desktop projects: $($affectedArr -join ', ')"
-              } else {
-                Write-Host "No non-desktop projects affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
-                exit 0
-              }
+              Write-Host "Affected non-desktop projects: $(@($affected) -join ', ')"
             }
             $testArgs = @("run", "test:affected", "--", "--exclude=@multi-publish/desktop")
           } else {
