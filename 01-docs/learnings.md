@@ -1,3 +1,8 @@
+## notify 契约的 messageKey 不许复用；注入型 sink 的锁适配要动正则本身（publish-logging-observability w2-d1，2026-10-05）
+
+- **messageKey 复用会卡死「键总数==调用总数」锁（pitfall）**：`collect-blocked` 被 4 个拦截分支复用、`collect-start` 被 2 种模式复用——ALLOWED_KEYS 是 Set 不重复登记，调用点多于键数必红。正解：**reason 差异拆成键的差异**（`collect-blocked-budget/-cooldown/-circuit/-rate`），reason 从 params 挪进键后审计粒度更细；params 只留 url/platform 等现场。契约口径：一个 messageKey = 一种可独立检索的事件。
+- **`this._log.notify` 注入形态会绕过裸标签结构锁（pitfall）**：NOTIFY_RE/LEGACY_RE 的前瞻 `(?:^|[^.\w])log` 要求 log 前是非词字符——`_` 属 `\w`，`this._log` 的 log 前是 `_` 不匹配；改 `(?:_log|log)` 后 `_` 前是 `this.` 的点，点又被 `[^.\w]` 排除，仍不匹配。正解：显式白名单 `(?:this\.)?(?:_log|log)`——`this.` 前缀可枚举，防误匹配语义（排除 `catlog.notify` 类尾巴）保留。
+- **动态消息文本不属 messageKey 契约（boundary）**：NOTIFY_RE 只认单双引号字面量第二参，模板字符串（反引号动态串）天然不匹配裸标签锁——这是锁的边界而非漏洞。迁移时先把它拆成固定 key + params；拒绝给动态串造键。
 ## 日志契约迁移的锁扩展次序：先迁调用点再扩 TARGET_FILES 会让「出声断言」集体失明（publish-logging-observability w1，2026-10-05）
 
 - **A 类清单只盘 warn 会漏掉 info/error（pitfall）**：`observability-messagekey.test.js` 的「禁止遗留裸标签调用」锁按 TARGET_FILES 扫 `log.(warn|info|error|debug)('Module', 'bare tag')`。把新域文件加进 TARGET_FILES 后，**info/error 裸标签站点也会被扫出来**——迁移前只按 warn 清单干活，扩展锁当场红了 6 处 info/error。正解：扩锁之前先把新域的 warn/info/error 全量清点（`git grep -n "log\.\(warn\|info\|error\|debug\)("`），一次迁完再扩锁。
