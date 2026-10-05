@@ -1,3 +1,12 @@
+# [未发布] docs(gates): 回填 #2940 远程同步 PASS 并销账（backfill-2940-record，2026-10-05，docs-only）
+
+- PR #2940（前端代码深度审查报告）已合并进 main：`dcc20eae`（merged 2026-10-05T12:40:49Z）。
+- `.quality-gates.md` 对应执行记录的「远程同步」由 `PENDING` 就地改写为 `PASS` + merge SHA 与取证命令，状态列只写当下状态、不留历程。
+- `scripts/gate-record-debt-ledger.json` 中本条登记在**同一次提交**删除（17 → 16 条），欠账不外溢。
+- 取证：`git log origin/main --grep='(#2940)$' --format=%H|%cI`；`git ls-remote --heads origin docs-frontend-deep-review` 返回 0 行。
+- docs-only 快速通道：判定 `docs-only=true`（files=2），跳过 QM-1/2/4 与 TDD、QM-6 评审。
+
+---
 # [未发布] docs(review): 前端代码深度审查报告（1 CRITICAL / 16 MAJOR / 11 MINOR，纯只读审查，2026-10-05）
 
 ### 范围
