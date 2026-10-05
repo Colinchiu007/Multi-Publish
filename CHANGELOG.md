@@ -1,3 +1,11 @@
+# [未发布] feat(bilibili): 审核回查端点取证落地（bilibili-audit-evidence，2026-10-05）
+
+- publish-monitor 接入 member.bilibili.com 稿件列表端点（Cookie 会话：nav 验证会话 + `data.arc_audits[]` 按 bvid/aid String 匹配），取代取证前的虚构端点。
+- 状态判据从严：仅实测观测的 `state=0 && primary_state=0` 判 published，其余一律 pending 无定论；未观测的 state 取值不外推，bilibili 暂不入 `AUDIT_REQUERY_VERIFIED_PLATFORMS`。
+- 全程只读取证：没有发布、没有删除、没有改动任何稿件，真机「最小一次发布」授权未消耗；证据文档 `docs/audit-requery-evidence-bilibili-2026-10-05.md`，清单指针 `01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md` §九。
+- QM-6 双模型评审通过（0 Critical，Warning 全修，评审产物入库 `.ccg/qm6-bilibili-*`）；仍欠两条观测（审核中/不通过 state 取值 + 真机徽标联动）需真实投稿后补验。
+
+---
 # [未发布] docs(gates): 回填 #2940 远程同步 PASS 并销账（backfill-2940-record，2026-10-05，docs-only）
 
 - PR #2940（前端代码深度审查报告）已合并进 main：`dcc20eae`（merged 2026-10-05T12:40:49Z）。
