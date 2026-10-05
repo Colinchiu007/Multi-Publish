@@ -9,7 +9,8 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 
 // mock 依赖的服务模块（window.js 直接 require 的非 electron 模块）
-const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
+const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), notify: vi.fn(),
+}
 __registerMock('./services/logger', mockLogger)
 
 // 通过 require 加载被测模块（在 mock 注册后）
@@ -238,9 +239,10 @@ describe('window — createWindow', () => {
     expect(handler({ url: 'https://example.com/' })).toEqual({ action: 'deny' })
     await Promise.resolve()
     await Promise.resolve()
-    expect(mockLogger.warn).toHaveBeenCalledWith(
+    expect(mockLogger.notify).toHaveBeenCalledWith(
       'window',
-      '打开外部链接失败：无法打开系统浏览器',
+      'open-external-failed',
+      expect.objectContaining({ error: '无法打开系统浏览器' }),
     )
   })
 
@@ -275,7 +277,7 @@ describe('window — createWindow', () => {
     const win = lastWindow()
     win._handlers['ready-to-show']()
     expect(win.show).toHaveBeenCalledTimes(1)
-    expect(mockLogger.info).toHaveBeenCalledWith('window', '主窗口已显示')
+    expect(mockLogger.notify).toHaveBeenCalledWith('window', 'main-window-shown')
   })
 
   it('did-finish-load 在 ready-to-show 未到达时仍显示主窗口', () => {
@@ -300,7 +302,7 @@ describe('window — createWindow', () => {
       const win = lastWindow()
       vi.advanceTimersByTime(5000)
       expect(win.show).toHaveBeenCalledTimes(1)
-      expect(mockLogger.warn).toHaveBeenCalledWith('window', '主窗口未触发显示事件，使用可见性兜底')
+      expect(mockLogger.notify).toHaveBeenCalledWith('window', 'show-event-missing-fallback', expect.objectContaining({ level: 'WARN' }))
     } finally {
       vi.useRealTimers()
     }

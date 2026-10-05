@@ -52,7 +52,7 @@ async function startBridges({ app, pythonBridge, splitterBridge, promptBridge })
   try {
     await pythonBridge.startPythonBackend()
   } catch (e) {
-    log.error('App', 'Failed to start Python backend: ' + errorMessage(e))
+    log.notify('App', 'python-backend-start-failed', { level: 'ERROR', error: errorMessage(e) })
   }
 
   // 2. SplitterBridge / PromptBridge 并行启动（allSettled 容错）
@@ -64,10 +64,10 @@ async function startBridges({ app, pythonBridge, splitterBridge, promptBridge })
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
       const reason = r.reason instanceof Error ? r.reason.message : String(r.reason)
-      log.warn('App', names[i] + ' failed to start: ' + reason)
+      log.notify('App', 'bridge-start-failed', { level: 'WARN', params: { bridge: names[i] }, error: String(reason) })
       if (names[i] === 'SplitterBridge') notifySplitterUnavailable(reason)
     } else {
-      log.info('App', names[i] + ' started')
+      log.notify('App', 'bridge-started', { params: { bridge: names[i] } })
     }
   })
 
@@ -88,7 +88,7 @@ async function startBridges({ app, pythonBridge, splitterBridge, promptBridge })
         stopResults.forEach((result, index) => {
           if (result.status === 'rejected') {
             const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
-            log.warn('App', bridges[index][0] + ' stop failed: ' + reason)
+            log.notify('App', 'bridge-stop-failed', { level: 'WARN', params: { bridge: bridges[index][0] }, error: String(reason) })
           }
         })
       })

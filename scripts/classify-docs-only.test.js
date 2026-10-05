@@ -231,6 +231,159 @@ test('对账表里每一条 commands 去向：门禁必须接线进 changes job�
 })
 
 // ---------------------------------------------------------------------------
+// CI 取源：PR 事件下 checkout 的是 refs/pull/N/merge（合并提交），不是 PR head 提交
+// ---------------------------------------------------------------------------
+// 实测事故（PR #2914，2026-10-05）：本仓 changes job 传 `--base=<pull_request.base.sha>`
+// 且**不传 --head** ⇒ 判据默认取 `HEAD` = 合并提交。而 `base.sha` 是 PR 打开那一刻记录的
+// 基线，main 之后前进的那些提交（别人的代码文件）同样落在 merge-base(base.sha, 合并提交)..合并提交
+// 这段区间里，于是"本 PR 改了哪些文件"被算成"PR + 期间 main 的全部变化"。
+// 现场两侧对照：本地 `--base=origin/main --head=HEAD`（HEAD 就是分支顶）⇒ docs-only=true files=10；
+// CI 同一条 PR ⇒ docs-only=false，清单里多出 46 个别人的文件 ⇒ 短路整个失效，纯文档 PR 照跑全量。
+// 本文件只锁"这一半"（形态 A：--head 缺席）。把 --head 绑到 pull_request.head.sha 只修掉形态 A；
+// 形态 B（分支 re-sync 过新 main，那些提交就在 head 的历史里、不在冻结 base 一侧）由
+// scripts/ci-pr-changeset.test.js 的两条负控与双亲正控负责 —— 取源决策本身已搬进那个脚本，
+// 因为实测把 bash 里的 `if git rev-parse -q --verify HEAD^2` 改成 `if false` 时，
+// 所有 workflow 结构锁都报绿：文本锁锁不住"支路还走不走"。
+
+function mergeCommitFixture () {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-only-merge-'))
+  const run = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' })
+  run(['init', '--quiet', '-b', 'main'])
+  run(['config', 'user.email', 'test@example.com'])
+  run(['config', 'user.name', 'test'])
+  fs.writeFileSync(path.join(dir, 'README.md'), 'base\n', 'utf8')
+  run(['add', '.'])
+  run(['commit', '--quiet', '-m', 'base'])
+  // PR 打开时的基线快照（GitHub 把它记成 pull_request.base.sha，之后不再更新）
+  const baseSha = run(['rev-parse', 'HEAD']).trim()
+
+  // 本 PR：只碰白名单文档
+  run(['checkout', '--quiet', '-b', 'feature'])
+  fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), 'my docs\n', 'utf8')
+  run(['add', '.'])
+  run(['commit', '--quiet', '-m', 'pr: docs only'])
+  const headSha = run(['rev-parse', 'HEAD']).trim()
+
+  // 并发会话把 main 往前推了一格，而且改的是代码
+  run(['checkout', '--quiet', 'main'])
+  fs.mkdirSync(path.join(dir, 'apps', 'desktop', 'electron'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'apps', 'desktop', 'electron', 'main.js'), 'other session\n', 'utf8')
+  run(['add', '.'])
+  run(['commit', '--quiet', '-m', 'other: code on main'])
+
+  // 复刻 actions/checkout@v4 在 PR 事件下的工作树：HEAD = 合并提交
+  run(['merge', '--quiet', '--no-ff', '-m', 'Merge PR for CI', 'feature'])
+  const mergeSha = run(['rev-parse', 'HEAD']).trim()
+  assert.match(mergeSha, /^[0-9a-f]{40}$/)
+  assert.strictEqual(run(['rev-parse', '--verify', `${mergeSha}^2`]).trim(), headSha,
+    '夹具必须真的产出「第二父 == PR head」的合并提交，否则测的不是 CI 的形态')
+  return { dir, baseSha, headSha, mergeSha }
+}
+
+test('合并提交形态复现：不传 --head 会把期间 main 的他人代码算进本 PR ⇒ docs-only=false', () => {
+  const { dir, baseSha } = mergeCommitFixture()
+  const r = runCli([`--base=${baseSha}`, `--repo=${dir}`])
+  assert.strictEqual(r.code, 0, r.stdout)
+  assert.match(r.stdout, /docs-only=false/, '事故形态必须能被这条夹具真实重现，否则本锁测不到东西')
+  assert.match(r.stdout, /apps\/desktop\/electron\/main\.js/, '误算进来的必须是别人的文件，不是我自己的')
+})
+
+test('形态 A 的修法：显式传 --head=<PR head 提交> ⇒ docs-only=true 且 files=1', () => {
+  const { dir, baseSha, headSha } = mergeCommitFixture()
+  const r = runCli([`--base=${baseSha}`, `--head=${headSha}`, `--repo=${dir}`])
+  assert.strictEqual(r.code, 0, r.stdout)
+  assert.match(r.stdout, /docs-only=true/)
+  assert.match(r.stdout, /files=1/)
+  assert.match(r.stdout, /CHANGELOG\.md/)
+})
+
+test('changes job 的两个取源点必须显式传 --head，且取源决策交给被单测的脚本', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const changesAt = wf.indexOf('\n  changes:')
+  const staticAt = wf.indexOf('\n  static-gates:')
+  assert.ok(changesAt >= 0 && staticAt > changesAt, '未定位到 changes / static-gates 的 job 边界')
+  const job = wf.slice(changesAt, staticAt)
+
+  for (const script of ['classify-docs-only.js', 'check-pr-exec-record.js']) {
+    const call = job.split('\n').find((l) => l.includes(`node scripts/${script}`))
+    assert.ok(call, `changes job 里找不到 node scripts/${script} 的调用点 —— 判据搬家了，本锁须同步`)
+    assert.match(call, /--head=/,
+      `${script} 未显式传 --head ⇒ 取默认 HEAD=合并提交，PR 打开后 main 一前进就会把别人的变更算进本 PR（#2914 事故）`)
+    assert.ok(!/--head=["']?HEAD\b/.test(call),
+      `${script} 的 --head 仍写死 HEAD（合并提交），必须改绑本 PR 自己的 head`)
+  }
+  // 取源决策必须住在被单测的脚本里，不许写在 bash 里。
+  // 实测依据：这段判断原先是 bash 的 `if git rev-parse -q --verify HEAD^2 …`，把它改成 `if false`
+  // （支路整条变死码）后，三条 workflow 结构锁 29/25/31 全绿 —— 文本锁锁得住形状，锁不住语义。
+  // 所以这里只锁"有没有把决策交给那个脚本、有没有把它自己的测试接上"，具体支路由
+  // scripts/ci-pr-changeset.test.js 用真 git 夹具逐形态跑。
+  const classifyStep = stepBody(job, 'Detect docs-only changes')
+  assert.match(classifyStep, /node scripts\/ci-pr-changeset\.js/,
+    'classify 必须把取源交给 scripts/ci-pr-changeset.js（有单测的实现），不得在 bash 里自己拼 merge-base')
+  assert.match(classifyStep, /--evt-base=/, '事件 base 必须作为兜底参数传给取源脚本')
+  assert.match(classifyStep, /--evt-head=/, '事件 head 必须作为兜底参数传给取源脚本')
+  assert.match(classifyStep, /node --test scripts\/ci-pr-changeset\.test\.js/,
+    '取源脚本自己的测试必须在本 step 被执行（否则它不在任何检查域里，等于没写）')
+  assert.match(classifyStep, /\$CHANGESET/, '必须打印脚本给出的取源现场（走了哪条支路、取了哪一对值）')
+})
+
+// 从 job 正文里按 step 名取该 step 的 body（找不到即红，不静默返回空串）
+function stepBody (job, name) {
+  const at = job.indexOf(name)
+  assert.ok(at >= 0, `changes job 里找不到 step「${name}」—— 步骤改名须同步本锁`)
+  const next = job.indexOf('\n      - name:', at)
+  return job.slice(at, next > at ? next : job.length)
+}
+
+test('Gate 2c2 必须复用 classify 的取源产物，并保留非 PR 事件早退的相对顺序', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const job = wf.slice(wf.indexOf('\n  changes:'), wf.indexOf('\n  static-gates:'))
+  const step = stepBody(job, 'Gate 2c2 - Execution-record presence')
+  assert.match(step, /steps\.classify\.outputs\.pr-head/,
+    'EXEC_HEAD_SHA 必须由 classify step 的产出提供 —— 同一份取源不得在两处各写一遍（两处各写必然漂移）')
+  assert.match(step, /steps\.classify\.outputs\.pr-base/, 'EXEC_BASE 同样必须复用 classify 的产出')
+  // 空值不得静默退回 HEAD：只有"确属非 PR 事件（base 也为空）"才允许走到 advisory 早退
+  assert.match(step, /\[ -n "\$\{?EXEC_BASE/, 'Gate 2c2 缺少「base 非空而 head 为空 ⇒ 乐红」的守卫')
+  assert.match(step, /exit 1/, 'Gate 2c2 的空值分支必须真的退出，只 echo 等于把 fail-closed 写成日志')
+
+  // classify 的非 PR 早退必须排在空值守卫之前，否则每个 main push 都会因取不到 PR 字段而全红
+  const classifyStep = stepBody(job, 'Detect docs-only changes')
+  const earlyAt = classifyStep.indexOf('non-PR event')
+  const guardAt = classifyStep.search(/\[\s*-z\s*"\$BASE"\s*\]/)
+  const callAt = classifyStep.indexOf('node scripts/classify-docs-only.js')
+  assert.ok(earlyAt >= 0, 'classify step 里找不到非 PR 早退分支 —— 顺序前提消失，本锁须同步')
+  assert.ok(guardAt > earlyAt && callAt > guardAt,
+    '顺序必须是 非 PR 早退 < 空值守卫 < classify 调用；守卫排到早退之前会让每个 main push 全红')
+})
+
+// 上一条只锁"传了 --head"，没锁"取不到 head 时怎么办"。实测变异 M3：把 `[ -z "$HEAD_SHA" ]`
+// 改成引用一个不存在的变量，结构锁仍 25/25 全绿 —— 于是"空值 fail-closed"这句承诺没有任何东西在看，
+// 而空值路径恰好会静默退回默认 HEAD（=合并提交），把本 PR 修掉的事故原形原地复活。
+test('classify step 必须带「取不到 head sha 就乐红」的 fail-closed 守卫，且守卫排在调用之前', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const stepAt = wf.indexOf('- name: Detect docs-only changes')
+  assert.ok(stepAt >= 0, '未定位到 "Detect docs-only changes" step —— 步骤改名须同步本锁')
+  const nextAt = wf.indexOf('\n      - name:', stepAt)
+  assert.ok(nextAt > stepAt, '未取到该 step 的结束边界（后面没有兄弟 step）')
+  const step = wf.slice(stepAt, nextAt)
+
+  const guardAt = step.search(/\[\s*-z\s*"\$HEAD_SHA"\s*\]/)
+  assert.ok(guardAt >= 0,
+    'classify step 缺少 [ -z "$HEAD_SHA" ] 守卫：GitHub 表达式取不到值时会是空串，'
+    + '而脚本的 args.head || "HEAD" 把空串读成 HEAD=合并提交 ⇒ 静默退回事故原形')
+  const callAt = step.indexOf('node scripts/classify-docs-only.js')
+  assert.ok(callAt > guardAt, '守卫必须排在 classify 调用之前，否则红了也已经被误判')
+  assert.ok(/exit 1/.test(step.slice(guardAt, callAt)),
+    '守卫分支必须显式 exit 1（只 echo 不退出等于把 fail-closed 写成日志）')
+})
+
+// ---------------------------------------------------------------------------
 // CLI (merge-base diff mode)
 // ---------------------------------------------------------------------------
 

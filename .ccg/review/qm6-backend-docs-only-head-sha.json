@@ -1,0 +1,30 @@
+[
+  {
+    "severity": "warning",
+    "file": "scripts/classify-docs-only.js",
+    "line": "83-84",
+    "issue": "merge-base(base.sha, head.sha)..head.sha 并不总是等于本 PR 的变更集。base.sha 是本提交自己也承认的「PR 打开时快照」，一旦 head 后来吸收过更晚的 main 提交（合入 main、rebase 到新 main），那些 main 提交就在 head 的历史里、却不在 base.sha 一侧，三路 diff 会把它们整段算进「本 PR 文件」。实测复现：docs-only PR 在打开后把含 apps/desktop/electron/main.js 的 main 新提交 merge 进 head，classify --base=<打开时 base.sha> --head=<新 head> ⇒ docs-only=false files=2（CHANGELOG.md + main.js）；同一 head 改用当前 main tip 作 base ⇒ docs-only=true files=1。也就是说本提交修掉的假阳性在「head 吸收新 main」这一常见形态下仍然存在，workflow 63 行「才是这个 PR 自己的变更集」的表述过强。",
+    "fix": "取源改用 actions/checkout 实际检出的 refs/pull/N/merge 双亲：classify 与 Gate 2c2 都改用 --base=\"$(git rev-parse HEAD^1)\" --head=\"$(git rev-parse HEAD^2)\"（或 github.sha^1 / github.sha^2），merge-base(HEAD^1, HEAD^2)..HEAD^2 才是相对当前 base 的本 PR 变更集。本仓实测该写法对上例 docs-only=true files=1。若坚持用事件 head.sha，则 base 也必须换成合并 ref 第一亲而不是冻结的 event base.sha。"
+  },
+  {
+    "severity": "info",
+    "file": "scripts/classify-docs-only.test.js",
+    "line": "245-278",
+    "issue": "新夹具只覆盖「head 从未吸收 PR 打开后 main 提交」这一种形态（base.sha == fork point，main 的推进在另一条线上），第 1 条反例（feature 合入或 rebase 新 main 后再触发 CI）没有任何回归保护，当前实现在该形态下仍误判而 26/26 全绿。第 3、4 条结构锁（297-330、335-352）锁的是 YAML 文本形状而非行为：确实能拦住「摘 --head / Gate 2c2 写死 HEAD / 删守卫 / 占位 env」这四类变异（每条都能对应到会红的具体断言，非装饰性），但守不住取源语义本身，不能替代行为级反例用例。",
+    "fix": "补一条行为夹具：feature 在 base.sha 之后把含代码的 main 提交 merge 进 head，断言 --base=<base.sha> --head=<head> 仍判 docs-only=true files=1。在当前实现下该用例会红，逼着取源改到 merge ref 双亲（见第 1 条）后转绿；同时保留原两条合并提交事故复现用例。"
+  },
+  {
+    "severity": "info",
+    "file": ".github/workflows/quality-gate.yml",
+    "line": "103-106",
+    "issue": "Gate 2c2 保留了空值静默退回合并提交的路径：--head=\"${EXEC_HEAD_SHA:-HEAD}\" 在表达式取不到值时把 HEAD（=合并提交）当作 head，与同一文件的 63 行「空值必须 fail-closed，不得静默退回默认 HEAD」声明不一致——classify 加了守卫，Gate 2c2 的默认方向却相反，且没有任何测试锁住 2c2 的空值行为。PR 事件下 head.sha 通常恒非空、该步又处于 advisory，故当前不拦合并；但转阻断那天它会重新引入同一类「量错集合」的误判。",
+    "fix": "与 classify 对齐：把 --head=\"${EXEC_HEAD_SHA:-HEAD}\" 改为 ${EXEC_HEAD_SHA:?}（空值 fail），或在 run 里显式 if [ -z \"$EXEC_HEAD_SHA\" ]; then exit 1; fi；同时给 check-pr-exec-record.js 的 args.head || 'HEAD' 默认加脚本级空 head 拒绝，不要依赖调用方拼 ':-' 兜底。"
+  },
+  {
+    "severity": "info",
+    "file": ".github/workflows/quality-gate.yml",
+    "line": "70-78",
+    "issue": "非 PR 事件的安全性只靠「non-PR 早退先于空值守卫」这一行顺序，没有结构锁或行为测试把它钉住。当前顺序正确：push/dispatch 在第 70-74 行早退，第 75-78 行守卫不会执行；Gate 2c2 在缺 --base 时 advisory 退出 0（check-pr-exec-record.js:207-211，实测空 base 退出码 0）。但谁把守卫挪到早退之前，main push 就会全红，而现有新增测试一条都不会变红——这是相对新增测试面的盲点，不是已发生的回归。",
+    "fix": "在守卫结构锁里追加文本顺序断言：guardAt > nonPrEarlyExitAt（且 classify 调用在两者之后），或直接用行为夹具模拟 HEAD_SHA='' + 非 PR 分支输出 docs-only=false 且不执行 node classify。"
+  }
+]

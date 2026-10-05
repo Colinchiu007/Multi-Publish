@@ -3,6 +3,7 @@ __registerMock('../services/logger', {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
+  notify: vi.fn(),
 })
 const mockLoginStatusMonitor = { start: vi.fn(), stop: vi.fn() }
 const mockCreateLoginStatusMonitor = vi.fn(() => mockLoginStatusMonitor)
@@ -169,7 +170,7 @@ describe('phase3-services.startServices', () => {
       callbackServer: { start: vi.fn(async () => { throw new Error('port in use') }) },
     })
     await startServices(deps)
-    expect(log.warn).toHaveBeenCalledWith('App', 'Callback server failed to start (port may be in use): port in use')
+    expect(log.notify).toHaveBeenCalledWith('App', 'callback-server-start-failed', expect.objectContaining({ error: 'port in use' }))
   })
 
   it('scheduler.restore 被调用', async () => {
@@ -193,9 +194,10 @@ describe('phase3-services.startServices', () => {
     const batchManager = deps.container.get('batchManager')
     batchManager.restoreScheduledBatches.mockImplementation(() => { throw new Error('owner 缺失') })
     await expect(startServices(deps)).resolves.toBeTruthy()
-    expect(log.warn).toHaveBeenCalledWith(
+    expect(log.notify).toHaveBeenCalledWith(
       'BatchManager',
-      expect.stringContaining('owner 缺失'),
+      'scheduled-batches-restore-failed',
+      expect.objectContaining({ error: expect.stringContaining('owner 缺失') }),
     )
   })
 

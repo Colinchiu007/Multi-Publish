@@ -262,7 +262,7 @@ function extractContext(container) {
         const { app: electronApp } = require('electron')
         return crypto.createHash('sha256').update(String(electronApp.getPath('userData') || '')).digest('hex').slice(0, 16)
       } catch (e) {
-        log.warn('UsageReporter', 'getClientId failed: ' + e.message)
+        log.notify('UsageReporter', 'get-client-id-failed', { level: 'WARN', error: String(e.message) })
         return ''
       }
     },
@@ -273,7 +273,7 @@ function extractContext(container) {
           return apiUsageGovernor.takeObservabilitySnapshot()
         }
       } catch (e) {
-        log.warn('UsageReporter', 'getSchedulerMetrics failed: ' + e.message)
+        log.notify('UsageReporter', 'get-scheduler-metrics-failed', { level: 'WARN', error: String(e.message) })
       }
       return {}
     },
@@ -322,7 +322,7 @@ function extractContext(container) {
   diagnosticsReporter.start()
   if (pipelineEngine && typeof pipelineEngine.setRunFinalizedHook === 'function') {
     pipelineEngine.setRunFinalizedHook((run) => {
-      try { diagnosticsReporter.enqueue(run) } catch (e) { log.warn('DiagnosticsReporter', 'hook error: ' + (e && e.message ? e.message : String(e))) }
+      try { diagnosticsReporter.enqueue(run) } catch (e) { log.notify('DiagnosticsReporter', 'hook-error', { level: 'WARN', error: String(e && e.message ? e.message : e) }) }
     })
   }
   // 由 Phase 3 在 SQLite WASM 与 Store 均就绪后初始化，避免重启时读取到空数据库。
@@ -392,7 +392,7 @@ function extractContext(container) {
     try {
       signalCollector.cleanup()
     } catch (e) {
-      log.warn('SignalCollector', '启动清理失败: ' + (e && e.message))
+      log.notify('SignalCollector', 'startup-cleanup-failed', { level: 'WARN', error: String(e && e.message) })
     }
   }
 
@@ -425,7 +425,7 @@ function extractContext(container) {
     try {
       promptMemory.load()
     } catch (e) {
-      log.warn('PromptMemory', '记忆库加载失败: ' + (e && e.message))
+      log.notify('PromptMemory', 'memory-load-failed', { level: 'WARN', error: String(e && e.message) })
     }
     governance = createGovernance({
       config: {},
@@ -449,7 +449,7 @@ function extractContext(container) {
     try {
       return new PlatformConfig(getConfigPath('platforms.yaml'))
     } catch (e) {
-      log.warn('App', 'Failed to load platform config: ' + errorMessage(e))
+      log.notify('App', 'platform-config-load-failed', { level: 'WARN', error: errorMessage(e) })
       return null
     }
   })()
