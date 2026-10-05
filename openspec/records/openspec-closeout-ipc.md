@@ -2,9 +2,6 @@
 record: openspec-closeout-ipc
 task: 归档 4 个已完成 change（3 个发布进度/频率 + fix-settings-roundtrip-contract）、按「#2899 已合并」重评其 8 条收尾任务并补中央技术债台账、新起 change fix-ipc-namespace-contract（CRITICAL-1 命名空间错配 + preload 反向契约测试）
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证
-sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA，并在同一次提交删除本段三个 sync_* 字段与 scripts/gate-record-debt-ledger.json 的本条登记）
 ---
 
 ## 本次执行记录：OpenSpec 收口 + IPC 契约 change 立项（openspec-closeout-ipc，2026-10-05）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA
 | 接线棘轮 | N/A | 本次**未新增任何 `*.test.js`**。新建 change 里规划的 `apps/desktop/electron/tests/ipc-exposure-contract.test.js` 尚未实现，其"必须被 workflow 显式点名"已作为 tasks 5.1 落到 change 里，不在本次交付范围 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面。31 个变更文件全在 `openspec/**` 与 `01-docs/**`；`apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 零改动 |
 | QM-6 CCG 双模型外部评审 | 未执行（docs-only 豁免） | docs-only 快速通道豁免 QM-6；且本机 `codeagent-wrapper` 通道此前实测不干净（前端路两次空转、后端路 stdout 截断且无 rollout）。**不以自审冒充外部评审通过** |
-| 远程同步 | PENDING | 本 PR 在途：合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin openspec-closeout-ipc` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的本条登记 |
+| 远程同步 | PASS | PR #2943 squash 合并 `829f1be6ea422fcf460eab4cfb2bcc795498aba0`（2026-10-05T21:06:04+08:00，取证 `git log origin/main --grep='(#2943)$' --format=%H|%cI`）；`git ls-remote --heads origin openspec-closeout-ipc` 返回 0 行，证远端分支已删；本条由本次 docs-only PR 就地回填，frontmatter 的 sync_* 三字段在同一次提交删除 |
 
 ### 归档明细（本 PR 的实际动作）
 
