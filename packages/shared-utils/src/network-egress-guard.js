@@ -28,6 +28,7 @@
 
 const net = require('net')
 const path = require('path')
+const ledgerStore = require('./network-egress-ledger.js') // sink 本体在隔壁文件（check-max-lines 的 limit=500 拆出来的，别搬回来）
 
 const NETWORK_GUARD_APPLIED = '__mpTestNetworkGuardApplied'
 const GUARD_WARNED = '__mpGuardWarned'
@@ -71,6 +72,7 @@ function readConnectTarget (args) {
  * @returns {{alreadyApplied: boolean}}
  */
 function installTestNetworkGuard () {
+  ledgerStore.recordInstallOnce()
   if (net.Socket.prototype.connect[NETWORK_GUARD_APPLIED]) return { alreadyApplied: true }
   const originalConnect = net.Socket.prototype.connect
   const guardedConnect = function (...args) {
@@ -104,6 +106,8 @@ function installTestNetworkGuard () {
         blocked.seen.add(key)
         console.warn(detail)
       }
+      // 落盘独立于"只出声一次"的去重：写失败时同一 host 的下一次尝试还会重试（见 recordExternalChild 同款注释）
+      ledgerStore.ledgerWriteOnce({ type: 'blocked', host: target.host, port: target.port === undefined ? null : target.port }, 'blocked:' + key)
 
       process.nextTick(() => {
         const hasListener = socket.listenerCount('error') > 0
@@ -160,7 +164,16 @@ function isNodeCommand (command) {
 
 /** exec/execSync 的 argv[0] 是整条命令行，取第一个空白/引号分隔的 token 才是命令名 */
 function shellFirstToken (line) {
-  const s = String(line || '').trim().replace(/^["']/, '')
+  const raw = String(line || '').trim()
+  // 带引号的可执行路径里含空格时，"到第一个空格为止"会把 basename 折成中间那个词
+  // （实测 `ledgerCommandName('"C:/Program Files/evil.exe" --x')` 返回 `Program`），
+  // 于是真实的新命令被一个无意义键盖住、基线也读不出是谁在出网（QM-6 codex 路命中）。
+  const quote = (raw[0] === '"' || raw[0] === "'") ? raw[0] : ''
+  if (quote) {
+    const close = raw.indexOf(quote, 1)
+    if (close > 0) return raw.slice(1, close)
+  }
+  const s = raw.replace(/^["']/, '')
   const m = s.match(/^([^\s"'`|&;<>()]+)/)
   return m ? m[1] : s
 }
@@ -222,16 +235,18 @@ function withNodeOptions (options, setupPath) {
   })
 }
 
-function warnOnce (key, message) {
-  const warned = globalThis[EXTERNAL_WARNED_KEY] || (globalThis[EXTERNAL_WARNED_KEY] = new Set())
+function warnOnce (key, message) {  const warned = globalThis[EXTERNAL_WARNED_KEY] || (globalThis[EXTERNAL_WARNED_KEY] = new Set())
   if (warned.has(key)) return
   warned.add(key)
   console.warn(`${CHILD_WARN_MARK} ${message}`)
 }
 
 function recordExternalChild (command) {
-  const ledger = globalThis[EXTERNAL_LEDGER_KEY] || (globalThis[EXTERNAL_LEDGER_KEY] = [])
   const name = ledgerCommandName(command)
+  // 落盘尝试与 realm 内去重**故意分成两件事**（QM-6 codex 路命中）：
+  // 若先看 realm 台账再写盘，一次写失败就会因为"这个命令已经记过了"而永不重试 —— 台账少记且无声。
+  ledgerStore.ledgerWriteOnce({ type: 'child', command: name }, 'child:' + name)
+  const ledger = globalThis[EXTERNAL_LEDGER_KEY] || (globalThis[EXTERNAL_LEDGER_KEY] = [])
   if (!ledger.some((e) => e.command === name)) {
     ledger.push({ command: name, at: new Date().toISOString() })
     warnOnce(`ext:${name}`, `子进程 ${name} 不是 node，无法注入测试网络守卫；该子进程内的真实出站不受本守卫约束`)
@@ -241,6 +256,7 @@ function recordExternalChild (command) {
 function readExternalChildLedger () {
   return (globalThis[EXTERNAL_LEDGER_KEY] || []).slice()
 }
+
 
 /**
  * 一次子进程调用的守卫决策。返回一个**行为标签**供测试断言（不是为了给人看，
@@ -270,7 +286,7 @@ function applyChildGuard (name, argv, setupPath) {
     // 挂载位：fork(modulePath[, args][, options])。已有对象就改它，否则落在参数位之后
     // （[mod] → 1、[mod,args] → 2、[mod,args,undefined] → 覆盖那个 undefined，而不是追加到 3）。
     const slot = opts.index >= 0 ? opts.index : Math.min(2, argv.length)
-    argv[slot] = Object.assign({}, opts.value, {
+    argv[slot] = Object.assign({}, ledgerStore.withLedgerEnv(opts.value), {
       execArgv: withRequireInjected(baseExecArgv, setupPath),
     })
     return 'injected-fork'
@@ -282,7 +298,7 @@ function applyChildGuard (name, argv, setupPath) {
       warnOnce('env-path-unsafe', `${name} 的 setupPath 含空白/引号，NODE_OPTIONS 会被拆断 ⇒ 跳过注入（该子进程无守卫）`)
       return 'skipped-unsafe-path'
     }
-    argv[opts.index >= 0 ? opts.index : 1] = withNodeOptions(opts.value, setupPath)
+    argv[opts.index >= 0 ? opts.index : 1] = withNodeOptions(ledgerStore.withLedgerEnv(opts.value), setupPath)
     return 'injected-env'
   }
 
@@ -292,6 +308,8 @@ function applyChildGuard (name, argv, setupPath) {
     return 'skipped-shell-opts'
   }
 
+  // env 与 argv 是两个独立的注入面：只补 --require 不补 env，自带 env 的调用方就会"守卫装了、记录丢了"。
+  if (opts.index >= 0) argv[opts.index] = ledgerStore.withLedgerEnv(opts.value)
   const argsIndex = Array.isArray(argv[1]) ? 1 : (Array.isArray(argv[2]) ? 2 : -1)
   if (argsIndex > 0) argv[argsIndex] = withRequireInjected(argv[argsIndex], setupPath)
   else argv.splice(1, 0, withRequireInjected([], setupPath))
@@ -330,6 +348,7 @@ function makeGuardedSpawner (name, original, setupPathRef) {
 }
 
 function installTestChildProcessGuard ({ setupPath } = {}) {
+  ledgerStore.recordInstallOnce()
   const childProcess = require('child_process')
   // 六个导出逐个 patch。exec/execSync 曾因"以为走 execFile"被漏掉：实测 `execSync('node -e …')`
   // 既不注入也不进台账（连可见化都没有），是这条门禁下唯一完全静默的出站口。
