@@ -72,7 +72,7 @@ test('生产依赖不允许解析到存在高危公告的 Axios 版本', () => {
   // 无上界的写法（>=x.y.z）会允许下一次非 --frozen-lockfile 的 install 把 axios 静默 resolve 到新大版本。
   assert(
     /^\^?\d/.test(overrideRange),
-    `axios override 区间 "${overrideRange}" 没有上界：改成带 ^ 的写法，或同步收紧 undici/fast-uri 两条`,
+    `axios override 区间 "${overrideRange}" 没有上界：改成带 ^/~ 的写法或精确版本（整表判据见本文件末尾的「每条 pnpm override 都必须有上界」）`,
   )
   assert(isAtLeast(overrideRange, AXIOS_FLOOR), `axios override "${overrideRange}" 低于修复版本 ${AXIOS_FLOOR}`)
 })
@@ -119,5 +119,66 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
       isAtLeast(entry.version, AXIOS_FLOOR),
       `${rel} 锁里的 axios 是 ${entry.version}，低于 ${AXIOS_FLOOR}（npm 域不受 pnpm override 约束）`,
     )
+  }
+})
+// ── 「每条 override 都必须有上界」整表棘轮（2026-10-05）──
+// 动因：本文件早就对 axios 单独判过这件事，但判据只覆盖 axios 那一条。pnpm-workspace.yaml 里
+// undici / fast-uri 两条一直写成 `>=`，注释里明写着"属同族隐患，但改它们要重新 resolve 那两个包，
+// 本 PR 不夹带" —— 于是这个隐患挂了整整 6 天（2026-09-29 的 #2613 建立，到本 PR 才收），期间
+// **没有任何东西在看它**。逐条点名式断言只能守住"写它的那个人当时想到的那一条"，所以这里改成
+// 按整张覆写表判：新增一条无上界覆写当场红，不需要有人记得来补注释或记得来抄断言。
+const OVERRIDE_FLOORS = { undici: '7.29.1', 'fast-uri': '3.1.7', axios: AXIOS_FLOOR }
+
+function readOverridesBlock(text, label) {
+  const lines = text.split(/\r?\n/)
+  const starts = lines.reduce((acc, l, i) => (/^overrides:\s*$/.test(l) ? acc.concat(i) : acc), [])
+  assert(starts.length === 1, `${label} 的 overrides: 段应当恰好一个，实际 ${starts.length} 个（重复键会让 YAML 解析器只认一个）`)
+  const out = {}
+  for (let i = starts[0] + 1; i < lines.length; i += 1) {
+    const l = lines[i]
+    // 段里允许出现顶格注释（本仓 pnpm-workspace.yaml 就是：axios 那条 override 前面有 8 行顶格说明）。
+    // 拿 /^[^\s]/ 直接 break 会在第一条注释处停下 —— 这个 bug 由本测试自己抓到过（读到 2 条而不是 3 条）。
+    if (/^#/.test(l) || /^\s*#/.test(l) || l.trim() === '') continue
+    if (/^[^\s]/.test(l)) break
+    const m = /^\s{2}'?([\w./-]+)'?:\s*(.+?)\s*$/.exec(l)
+    assert(m, `${label} overrides 段第 ${i + 1} 行解析不了：${JSON.stringify(l)} —— 解析不了即拦，禁止静默跳过`)
+    out[m[1]] = m[2].replace(/^['"]|['"]$/g, '')
+  }
+  return out
+}
+
+test('每条 pnpm override 都必须有上界（裸 >= 下限一律判红）', () => {
+  const workspace = fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8')
+  const overrides = readOverridesBlock(workspace, 'pnpm-workspace.yaml')
+  const names = Object.keys(overrides)
+  assert(names.length >= 3, `覆写表只读到 ${names.length} 条（${names.join(',')}）—— 规模下界不成立说明解析退化，不得当成"没问题"`)
+  for (const [name, range] of Object.entries(overrides)) {
+    assert(
+      /^\^?\d/.test(range),
+      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.0 / 3.1.8）`,
+    )
+  }
+  for (const [name, floor] of Object.entries(OVERRIDE_FLOORS)) {
+    assert(Object.prototype.hasOwnProperty.call(overrides, name), `override ${name} 不见了：它守的是已登记公告的修复下限`)
+    assert(isAtLeast(overrides[name], floor), `override ${name}="${overrides[name]}" 低于修复版本 ${floor}`)
+  }
+})
+
+test('lock 的 overrides 段必须与 workspace 逐条一致（手工按行重放后由这条自证）', () => {
+  const workspace = readOverridesBlock(fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8'), 'pnpm-workspace.yaml')
+  const lock = readOverridesBlock(fs.readFileSync(path.join(ROOT, 'pnpm-lock.yaml'), 'utf8'), 'pnpm-lock.yaml')
+  assert.deepStrictEqual(lock, workspace, 'pnpm-lock.yaml 的 overrides 与 pnpm-workspace.yaml 漂移：CI 的 pnpm install --frozen-lockfile 会直接拒绝，本地先在这里拦')
+})
+
+test('收上界不得改变解析结果：锁里 undici / fast-uri 仍落在同一 major 且不低于修复版', () => {
+  const lock = fs.readFileSync(path.join(ROOT, 'pnpm-lock.yaml'), 'utf8')
+  const expectMajor = { undici: '7', 'fast-uri': '3' }
+  for (const [name, major] of Object.entries(expectMajor)) {
+    const versions = [...lock.matchAll(new RegExp(`^\\s{2}${name}@(\\d+\\.\\d+\\.\\d+):`, 'gm'))].map((m) => m[1])
+    assert(versions.length > 0, `pnpm-lock.yaml 里找不到 ${name} 的解析条目（锁形态变更需同步本判据）`)
+    for (const v of versions) {
+      assert(isAtLeast(v, OVERRIDE_FLOORS[name]), `锁里 ${name}@${v} 低于修复下限 ${OVERRIDE_FLOORS[name]}`)
+      assert(String(v).startsWith(`${major}.`), `锁里 ${name}@${v} 跨出了 major ${major} —— 本次改动只收上界、不抬 major，出现跨 major 说明有人在同一次改动里夹带了升级`)
+    }
   }
 })
