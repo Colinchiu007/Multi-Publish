@@ -2,9 +2,6 @@
 record: main-push-evidence-loss
 task: 修 #2642 —— main push 的并发组改为按 run_id 唯一，止住"排队中的旧 push 被新 push 顶成 cancelled"造成主侧执行证据永久丢失
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（回填 PASS 时整段删除上面三个 sync_* 字段）
 ---
 
 ## 本次执行记录：main push 排队顶替导致主侧证据丢失（main-push-evidence-loss，2026-10-05）
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话（回填 PASS 时整段删除上面三个 s
 | 接线棘轮 | N/A | 未新增测试文件（改的是已接线的 `workflow-contract.test.js`，它跑在 Gate 2c） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触任何运行时代码与 UI |
 | QM-6 CCG 双模型外部评审 | PASS（**单轴**，偏差如实记） | 通道：`codeagent-wrapper --backend codex --lite`，评审对象绑定 head `0de25893e` + 工作区 `qm6-diff.txt`，并要求结论落盘 ⇒ 产物 `qm6-findings.md"（6943 字节；评审 CLI rc=0 不算跑过，产物非空才算；该文件是会话临时工件、**不入库**，其全部结论已逐条誊写进下方「QM-6 发现项处置」表，本记录即其持久副本）。**第二轴未产出**：antigravity 报 `agy command not found in PATH`、claude 后端报 `completed without agent_message output` ⇒ 本轮**不是**双模型交叉评审，不以此冒充。总评 0 Critical / 1 Warning / 1 边界，见「QM-6 发现项处置」 |
-| 远程同步 | PENDING | 合并后按 `openspec/records/_TEMPLATE.md` 口径回填 merge SHA 与时间（`git log origin/main` 按本 PR 号行尾匹配的 `--format=%H|%cI` 唯一命中），并证远端分支已删；回填后删除三个 sync_* 字段 |
+| 远程同步 | PASS | PR #2902 已 squash 合并为 `1d3ba92cb9340b037bb386e4bac86db038e30efb`（2026-10-05T03:07:13Z；取证 `git log origin/main --grep=(#2902)$ --format=%H|%cI` 现场唯一命中，非凭记忆）。`git ls-remote --heads origin main-push-evidence-loss` 返回 **0 行**证远端分支已删。本 PR 的 5 个文件在 origin/main 上 blob 逐字节相同（5/5）；现场另见 workflow 内 `--with-target=test` 与空集早退均在位。CHANGELOG 条目随本回填插回。回填同时整段删除本记录 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。
 
 ### QM-6 发现项处置（逐条）
 
