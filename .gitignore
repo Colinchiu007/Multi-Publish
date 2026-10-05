@@ -133,6 +133,7 @@ scripts/*.js
 # 执行记录存在性判据（change: enforce-gate-record-presence）；其 .test.js 由下面
 # !scripts/*.test.js 兜住，但脚本本体必须逐条放行，否则 git add 当场报错、CI 永远看不见它
 !scripts/check-pr-exec-record.js
+!scripts/check-changelog-growth.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.
