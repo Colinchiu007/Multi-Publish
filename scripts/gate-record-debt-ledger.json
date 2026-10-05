@@ -1,13 +1,8 @@
 {
-  "本次执行记录：去 AI 味词库运营中心化（ai-taste-ops-center，2026-10-04）": {
-    "reason": "PR #2884 合并后回填：squash 落地即取证（git log origin/main --grep=ai-taste-ops-center --format=%H|%cI；git ls-remote --heads origin ai-taste-ops-center 返回 0 行），回填与销账同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
+  "本次执行记录：控制字节与残行清理（control-bytes-cleanup，2026-10-05）【docs-only】": {
+    "reason": "本 PR 自身尚未合并，无法取证 merge SHA；回填者＝后续 docs PR，同一次提交删除本条。",
     "status": "PENDING",
     "line": 1
-  },
-  "本次执行记录：智能标签建议面板 Tab 化紧凑呈现（compact-tag-suggester-tabs，2026-10-03）": {
-    "reason": "PR #2828 合并后回填：squash 落地即取证券（git log origin/main --grep='(#2828)$' --format=%H|%cI；git ls-remote --heads origin tag-suggester-tab-compact 返回 0 行），回填与销账必须同一次发生——回填者＝本 docs PR 同一次提交删除本条。",
-    "status": "PENDING",
-    "line": 20
   },
   "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
@@ -79,14 +74,9 @@
     "status": "PENDING",
     "line": 4654
   },
-  "本次执行记录：发布记录卡片整体点击打开平台作品链接（publish-history-card-open-link，2026-10-03）": {
-    "reason": "PR #2824 的登记项随分支提交进入合并，squash 落地后 main 顶层账本无此条（合并链路曾把别条登记误并入本 PR 提交，已按门禁清出）。按「新增未收口行必须带原因登记」补登：回填者＝后续 docs PR，回填时同一次提交删除本条。取证口径：git log origin/main --grep='(#2824)$' --format=%H|%cI；git ls-remote --heads origin publish-history-card-open-link 返回 0 行。",
-    "status": "PENDING",
-    "line": 24
-  },
   "本次执行记录：settings 往返类型对称化（运营下发配置重启后可恢复）（fix-settings-roundtrip-contract，2026-10-05）": {
     "reason": "本 PR 自登记的待回填项：开 PR 时远程同步只能为 PENDING；合并后由后续 docs 提交就地改写为 PASS + merge SHA，并在同一次提交删除本条（回填与销账必须同一次发生）。",
     "status": "PENDING",
-    "line": 22
+    "line": 23
   }
 }

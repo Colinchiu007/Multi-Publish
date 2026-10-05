@@ -17,6 +17,28 @@
 
 ---
 
+# [未发布] feat(门禁): 测试期运行时出站台账 → 只可缩小的基线棘轮（2026-10-05，test-egress-runtime-ledger-baseline）
+
+### 门禁（#2491 档3 改判：静态棘轮写不出来 ⇒ 改做运行时台账）
+- 新增落盘 sink `packages/shared-utils/src/network-egress-ledger.js`（守卫在 install / child / blocked 三处挂钩；env 未设时零副作用；写失败打 `[TEST-EGRESS-LEDGER-SINK-FAILED]` 且绝不冒泡；判「写成功」要求文件尺寸真的变大）。
+- 新增判定器 `scripts/check-test-egress-ledger.js` + 基线 `scripts/test-egress-ledger-baseline.json`（17 条，每条带原因；3 条测试期真出站记为欠账 → #2878）。新增键即红；台账不存在 / 0 行 / 无 install 记录 / 坏行 / 未知 type 一律红。
+- CI 接线在 `Gate 4`（required）与 `Desktop tests shard` 两条真的跑完测试的路径末尾，`Gate 4` 显式 `NX_SKIP_NX_CACHE=true`（缓存命中时根本不启动测试进程，fail-closed 会变成误红）。现场：桌面全量 772 行 / 0 坏行 / 599 进程并发 append。
+- 后续（#2902）修掉同一条 fail-closed 的第二个假红落点：`nx affected` 空集在 pwsh 里被 `ConvertFrom-Json` 读成 `$null` ⇒ 误分类成"检测失败" ⇒ 跑 0 个任务 ⇒ 台账不存在即红。
+
+# [未发布] test(story2video): 最坏主机档钉成常规用例，独立 CI 车道经实测否决（2026-10-05，s2v-worst-host-budget-coverage）
+
+### 测试
+- `resume-orchestration.test.js` 补「设 1（最坏主机档）」行为用例：`STORY2VIDEO_MAX_CONCURRENT_RUNS=1` 这一格取值原本只有手工枚举整仓才会构造，现进常规 CI（零增时）。
+- 同一条用例里再取一个不可能与自适应默认值重合的档位（`env=3`）。动因实测：本机 `os.freemem()` 仅 1.03GB ⇒ 自适应默认就是 1，「忽略 env」与「env=1」在本机是同一可观测状态 ⇒ 反证跑绿。口径：给资源自适应类默认值写锁必须补一个不重合档位，禁止条件 skip。
+- 独立车道经实测否决并留测量（一次 main push quality-gate = 27m52s；桌面全量不拆片 ≈47min > job 预算 40min）；全域「必须钉预算」结构锁亦否决（771 文件 → 11 含 `startOrchestrated(` → 标记 5，其中 3 个必须不钉）。
+
+# [未发布] fix(ci): main push 并发组按 run_id 唯一，止住主侧执行证据被排队顶替丢失（2026-10-05，main-push-evidence-loss）
+
+### 修复（#2642）
+- `quality-gate.yml` / `electron-ci.yml` 的 `concurrency.group`：PR 仍按 PR 号分组，非 PR 事件按 `github.run_id` 唯一；`cancel-in-progress` 一行未动。根因不是那句表达式（被取消的 main push run 连 job 都没派发），而是 GitHub 同组只允许一个排队者。
+- 实测（main+push 最近 1000 条 run 按 (sha, workflow) 归集）：全 cancelled 的格 = 51，「取消过又被后续 run 补回」= 0 ⇒ 取消即永久丢证；#2642 立案后仍新增 3 个 sha，满足该单自设的「等被坑第二次」门禁。
+- 新增 `workflow-contract.test.js` 2b) 逐字结构锁（QM-6 命中「只查 token 存在」不够：分支对调会照绿且让现象复活）；分支对调 / 退回旧写法 / 无条件双 token 三条变异均实测变红。
+- 同 PR 修掉 Gate 4 的空受影响集把 #31 台账判成假红（空集早退排在判定之前 + `--with-target=test` + 顺序锁）。
 # [未发布] docs(rewrite): 去 AI 味功能使用手册（2026-10-04，user-manual-rewrite-ai-taste）
 
 ### 内容
