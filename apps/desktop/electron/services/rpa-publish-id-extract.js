@@ -15,6 +15,25 @@ const PUBLISH_ID_KEYS = /(?:post|article|media|content|clue|work|video|photo|mat
 const PUBLISH_ID_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/
 const PUBLISH_ID_NAV_WORDS = new Set(['article', 'articles', 'content', 'manage', 'video', 'edit', 'publish', 'list', 'lists', 'page', 'media', 'photo', 'clue', 'builder', 'pcui', 'status', 'create', 'upload', 'works', 'work', 'new', 'draft', 'detail', 'index', 'home'])
 
+// B 站的作品标识既不用通用键名（是 aid/bvid），也常把 id 直接放在 /video/ 之后。
+// 把 'video' 裸加进路径段关键词表会造出假 id：投稿页自身 URL
+// `member.bilibili.com/platform/upload/video/frame` 会被切成 frame（不在 nav 词表里，拦不住），
+// 于是「发布失败」被报成「成功」。因此判据一律落在**值的形态**上，并额外限定主机。
+// 依据与实测现场：docs/PRD-BILIBILI-PUBLISH-ID-EXTRACT-2026-10-06.md §二/§四。
+const BILIBILI_HOST = /(?:^|\.)bilibili\.(?:com|tv)$/i
+const BILIBILI_WORK_ID_SHAPE = /^(?:BV[0-9A-Za-z]{5,20}|av\d{4,})$/
+const BILIBILI_AID_SHAPE = /^\d{4,}$/
+
+/** B 站 aid/bvid 键：只有值合形态才采纳，不按键名盲取 */
+function matchBilibiliWorkIdKey (key, value) {
+  const name = String(key || '').toLowerCase()
+  const raw = typeof value === 'number' ? String(value) : (typeof value === 'string' ? value.trim() : '')
+  if (!raw) return null
+  if (name === 'bvid' && BILIBILI_WORK_ID_SHAPE.test(raw)) return normalizePublishId(raw)
+  if (name === 'aid' && BILIBILI_AID_SHAPE.test(raw)) return normalizePublishId(raw)
+  return null
+}
+
 /** 规范化候选发布 ID：不合法返回 null */
 function normalizePublishId (value) {
   if (value === null || value === undefined) return null
@@ -31,10 +50,14 @@ function collectPublishIds (value, key, ids) {
     return
   }
   if (typeof value !== 'object') {
-    if (PUBLISH_ID_KEYS.test(String(key || ''))) {
+    const keyName = String(key || '')
+    if (PUBLISH_ID_KEYS.test(keyName)) {
       const id = normalizePublishId(value)
       if (id) ids.push(id)
+      return
     }
+    const workId = matchBilibiliWorkIdKey(keyName, value)
+    if (workId) ids.push(workId)
     return
   }
   Object.entries(value).forEach(([childKey, childValue]) => collectPublishIds(childValue, childKey, ids))
@@ -45,8 +68,13 @@ function extractPublishIdFromUrl (url) {
   if (!url) return null
   try {
     const parsed = new URL(url)
+    const isBilibili = BILIBILI_HOST.test(parsed.hostname)
     const params = [...parsed.searchParams.entries()]
     for (const [key, value] of params) {
+      if (isBilibili) {
+        const workId = matchBilibiliWorkIdKey(key, value)
+        if (workId) return workId
+      }
       if (PUBLISH_ID_KEYS.test(key)) {
         const id = normalizePublishId(value)
         if (id) return id
@@ -57,6 +85,11 @@ function extractPublishIdFromUrl (url) {
       if (!/(?:post|article|media|content|clue|work)/i.test(parts[index])) continue
       const id = normalizePublishId(parts[index + 1])
       if (id) return id
+    }
+    // 通用判据之后才按 B 站形态兜底，保证其余平台结论逐字不变
+    if (isBilibili) {
+      const workId = parts.find(part => BILIBILI_WORK_ID_SHAPE.test(part))
+      if (workId) return normalizePublishId(workId)
     }
   } catch (_) { /* 页面 URL 可能暂时不是绝对 URL */ }
   return null
