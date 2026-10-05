@@ -8,7 +8,7 @@
 
 ## What Changes
 
-- **读取侧收敛为单一实现**：在 `store-schema.js` 新增 `toStoredObject(value)`，兼容「对象 / JSON 文本 / null / 垃圾」四种输入，`ops-center-sync.js`（6 处）与三个 reporter（各 1 处）一律改用该实现，禁止再各写一份剥壳逻辑。
+- **读取侧收敛为单一实现**：在 `settings-store.js` 新增存储侧方法 `getSettingObject(key, defaultValue)`（决策与备选见 design.md D1），兼容「对象 / JSON 文本 / null / 垃圾」四种输入，`ops-center-sync.js`（6 处）与三个 reporter（各 1 处）一律改用该方法，禁止再各写一份剥壳逻辑。
 - **写入侧改为直接传对象**：`setSetting(KEY, cfg)` 取代 `setSetting(KEY, JSON.stringify(cfg))`。`safeJsonStringify` 对字符串原样返回、对对象做 `JSON.stringify`，因此**落盘字节与今天逐字相同 ⇒ 无迁移、无兼容层**（旧行经 `getSetting` 解析后即为对象，新读取路径同样能读）。
 - **测试夹具改为与真实依赖同形**：`ops-center-sync.test.js` 等夹具必须实现「字符串进、对象出」，使这类缺陷在单元层就能变红，而不是继续靠真实 store 的运行时行为去暴露。
 - **新增真实 Store 回归锁**：逐文件覆盖 `save → 新建服务实例（模拟重启）→ read` 语义，含 appMenu 与三个 watermark；使用 `os.tmpdir()` 下带 PID/随机后缀的独立目录与仓库内真实 `Store`（sql.js），禁止共享仓库路径与纯 mock。
@@ -26,8 +26,8 @@
 
 ## Impact
 
-- **代码**：`apps/desktop/electron/services/store-schema.js`（新增 1 个导出）；`ops-center-sync.js`（134 / 190 / 200 / 290 / 299 / 309 六处读取 + 181 / 257 / 324 三处写入）；`diagnostics-reporter.js:150,157`、`publish-reporter.js:64,72`、`usage-reporter.js:62,69`。
-- **测试**：`ops-center-sync.test.js`（68）/ `diagnostics-reporter.test.js`（9）/ `publish-reporter.test.js`（5）/ `usage-reporter.test.js`（8）夹具同形化；新增 1 个真实 Store 往返回归锁文件；新测试必须同 PR 接进 `.github/workflows/quality-gate.yml`（本仓无自动收集）。
+- **代码**：`apps/desktop/electron/services/store/settings-store.js`（新增 1 个方法）；`ops-center-sync.js`（134 / 190 / 200 / 290 / 299 / 309 六处读取 + 181 / 257 / 324 三处写入）；`diagnostics-reporter.js:150,157`、`publish-reporter.js:64,72`、`usage-reporter.js:62,69`。
+- **测试**：`ops-center-sync.test.js`（68）/ `diagnostics-reporter.test.js`（9）/ `publish-reporter.test.js`（5）/ `usage-reporter.test.js`（8）夹具同形化；新增 1 个真实 Store 往返回归锁文件，落在 `apps/desktop/electron/services/`——该目录由 vitest workspace 自动收集并进 CI（与 `scripts/`、`.github/scripts/` 必须逐个点名接线不同，见 design.md D4），仍须跑 `node scripts/check-unwired-tests.js` 证明它确实被看见。
 - **不影响**：DB schema 与既有行字节、IPC 通道与 preload 契约、渲染层与 locale、运营中心后端、验签与信任锚逻辑。
 - **并发**：分支 `automation-content-category` 在 `ops-center-sync.js` 有 14 行新增（`contentCategories`），与本次改动同文件但不同区段（其改动落在 runtime 对象字面量与新方法，本次落在读写表达式），预期为可干净合并的小冲突；按既有置顶文档 union 法处理。
 - **风险**：读取侧一旦收敛，原本"静默降级到内置默认"的路径会开始真正生效——运营中心若下发了错误配置，将从"看不见"变为"看得见"。这属于把潜伏缺陷显式化，验收须覆盖 fail-open 语义（`_loadRuntimeState` 对缺失/非法字段仍返回安全默认）。

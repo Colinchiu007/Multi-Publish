@@ -30,11 +30,20 @@ function makeSampleRun (over) {
 function makeStore () {
   const db = new DatabaseSync(':memory:')
   db.exec('CREATE TABLE diagnostics_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT UNIQUE, created_at TEXT, payload TEXT)')
+  // 与真实 settings-store 同形：落盘是文本，读回是**解析后的值**（原样回吐会替被测代码改契约）
   const settings = {}
+  const read = (k) => {
+    if (!(k in settings)) return ''
+    try { return JSON.parse(settings[k]) } catch { return settings[k] }
+  }
   return {
     db,
-    getSetting: (k) => settings[k] || '',
-    setSetting: (k, v) => { settings[k] = v },
+    getSetting: read,
+    getSettingObject: (k, d = {}) => {
+      const v = read(k)
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : d
+    },
+    setSetting: (k, v) => { settings[k] = (typeof v === 'string' ? v : JSON.stringify(v)) },
   }
 }
 
@@ -117,7 +126,7 @@ describe('diagnostics-reporter：枚举归一化与超时重试', () => {
     const result = await r.reportPending()
     delete global.fetch
     expect(result.duplicate).toBe(true)
-    expect(store.getSetting('opsCenterDiagnosticsReport')).toContain('"lastId":1')
+    expect(store.getSettingObject('opsCenterDiagnosticsReport', {})).toEqual({ lastId: 1, reportedAt: expect.any(String) })
     // 队列仅剩 run-b（id=2）
     const remaining = store.db.prepare('SELECT run_id FROM diagnostics_queue ORDER BY id').all()
     expect(remaining.map(x => x.run_id)).toEqual(['run-b'])
@@ -149,7 +158,7 @@ describe('diagnostics-reporter：reportPending', () => {
     expect(captured.body.samples.length).toBe(1) // 仅失败样本
     expect(captured.body.batch_id).toBe('client-hash-1:0:2')
     expect(captured.body.taxonomy_version).toBe(1)
-    expect(store.getSetting('opsCenterDiagnosticsReport')).toContain('"lastId":2')
+    expect(store.getSettingObject('opsCenterDiagnosticsReport')).toEqual({ lastId: 2, reportedAt: expect.any(String) })
     expect(store.db.prepare('SELECT COUNT(*) c FROM diagnostics_queue').get().c).toBe(0)
     delete global.fetch
   })
@@ -161,7 +170,7 @@ describe('diagnostics-reporter：reportPending', () => {
     global.fetch = async () => { throw new Error('network down') }
     const result = await r.reportPending()
     expect(result.code).toBe(-1)
-    expect(store.getSetting('opsCenterDiagnosticsReport') || '').toBe('')
+    expect(store.getSettingObject('opsCenterDiagnosticsReport', {})).toEqual({})
     expect(store.db.prepare('SELECT COUNT(*) c FROM diagnostics_queue').get().c).toBe(1)
     delete global.fetch
   })

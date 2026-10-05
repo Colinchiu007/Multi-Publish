@@ -21,6 +21,7 @@
 - 不重构运营同步链路本身（通道解耦、广播、验签信任锚均不动）。
 - 不处理「运营中心未部署」这一半问题（属 task #19 部署域，另议）。
 - 不顺手清理 `src/composables/useOpsCenterSync.js` 的无消费者状态（撤 UI 的产品后果，需单独决策）。
+- 不收敛 `hot-topics-service.js:157/185/360` 的三处归一化：它们**行为已正确**（`typeof raw === 'string' ? JSON.parse(raw) : raw`），且其注入物是 `container.setup.js` 的窄包装（只转发 `getSetting`/`setSetting`），要走存储侧唯一实现必须先扩那层转发——属独立切片，混进本 PR 会把一个 bugfix 变成跨装配面的重构。
 
 ## Decisions
 

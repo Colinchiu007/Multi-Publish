@@ -58,15 +58,17 @@ class UsageReporter {
   }
 
   _getWatermark () {
-    let raw
-    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
+    // 必须走存储侧 getSettingObject：getSetting 返回的是解析后的值，再 JSON.parse 会把
+    // 对象读成 [object Object] 并静默退化为 0（等价于"每次都从第一条日志重报"）。
     let data = {}
-    if (raw) { try { data = JSON.parse(raw) } catch { data = {} } }
+    try { data = this._store.getSettingObject(SETTING_KEY, {}) } catch (e) {
+      this._log.warn('UsageReporter', 'watermark read failed: ' + e.message)
+    }
     return Number(data.lastId) || 0
   }
 
   _saveWatermark (id) {
-    try { this._store.setSetting(SETTING_KEY, JSON.stringify({ lastId: id, reportedAt: new Date().toISOString() })) } catch { /* 非关键 */ }
+    try { this._store.setSetting(SETTING_KEY, { lastId: id, reportedAt: new Date().toISOString() }) } catch (e) { this._log.warn('UsageReporter', 'watermark 落盘失败（重启后将重复上报）: ' + e.message) }
   }
 
   /** 聚合待上报日志并上报；返回 {code, skipped?, reported?} */

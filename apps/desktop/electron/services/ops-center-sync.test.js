@@ -41,11 +41,23 @@ function signRuntimePayload (payload, privPem = DEV_PRIVATE_KEY) {
   return { ...rest, signature: sig.toString('base64') }
 }
 
+/**
+ * 与真实 `settings-store` 同形的夹具 —— 存储侧的契约是「字符串/对象进，解析后的值出」：
+ * `setSetting` 按 `safeJsonStringify` 语义落文本，`getSetting` 按 `safeJsonParse` 语义**返回对象**。
+ * 旧夹具把存入的类型原样回吐，等于替被测代码改了契约，使"按字符串读取"这一类缺陷
+ * 在本文件 68 条用例下结构性免疫（真实往返锁见 settings-roundtrip-contract.test.js）。
+ */
 function makeStore (initial) {
   let data = initial || ''
+  const stored = () => { try { return JSON.parse(data) } catch { return data } }
+  const asObject = (fallback) => {
+    const v = data ? stored() : null
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : fallback
+  }
   return {
-    getSetting: vi.fn(() => data),
-    setSetting: vi.fn((_k, v) => { data = v }),
+    getSetting: vi.fn(() => (data ? stored() : '')),
+    getSettingObject: vi.fn((_k, d = {}) => asObject(d)),
+    setSetting: vi.fn((_k, v) => { data = (typeof v === 'string' ? v : JSON.stringify(v)) }),
     _getData: () => data,
   }
 }
@@ -351,7 +363,9 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     expect(filter.replace('远程词乙')).toContain('***')
     // 持久化到 settings（值包含运行时状态 JSON）
     expect(store._getData()).toContain('"announcements"')
-    expect(store.setSetting).toHaveBeenCalledWith('opsCenterRuntime', expect.stringContaining('远程词甲'))
+    // 写入侧契约：传的是**对象**（存储侧负责编码），断言仍覆盖"远程词确实进了持久化值"
+    expect(store.setSetting).toHaveBeenCalledWith('opsCenterRuntime', expect.any(Object))
+    expect(store._getData()).toContain('远程词甲')
   })
 
   it('内容安全策略未启用或词为空时，敏感词过滤器仅含内置词库', () => {
@@ -908,7 +922,19 @@ describe('OpsCenterSync 零配置 Bearer 同步（bearer-fix 回归）', () => {
 
   it('零配置同步成功后不把自动发现地址固化为手填 url（避免下次误走 catalog-key）', async () => {
     const kv = {}
-    const store = { getSetting: vi.fn((k) => kv[k] ?? ''), setSetting: vi.fn((k, v) => { kv[k] = v }) }
+    const readRow = (k) => {
+      if (!(k in kv)) return ''
+      try { return JSON.parse(kv[k]) } catch { return kv[k] }
+    }
+    // 与真实 settings-store 同形的多键夹具（落文本、读回解析值）
+    const store = {
+      getSetting: vi.fn((k) => readRow(k)),
+      getSettingObject: vi.fn((k, d = {}) => {
+        const v = readRow(k)
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : d
+      }),
+      setSetting: vi.fn((k, v) => { kv[k] = (typeof v === 'string' ? v : JSON.stringify(v)) }),
+    }
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc.setOpsCenterUrl('https://ops.iart.work')
     svc.setGetAccessToken(async () => 'jwt-token')

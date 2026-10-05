@@ -22,6 +22,26 @@ module.exports = {
     return safeJsonParse(row.value, row.value)
   },
 
+  /**
+   * 按「对象」语义读回设置值 — 消费方的唯一入口。
+   *
+   * `getSetting` 返回的是**解析后的值**（不是字符串），因此"取回来再 JSON.parse"的写法
+   * 会把对象 stringify 成 `[object Object]` 后解析失败，静默退化成空配置。
+   * 存量行（历史上以 JSON 文本写入）经 `getSetting` 已解析为对象，故无需迁移。
+   * 损坏行与非对象值一律回落调用方声明的默认值（缺席/损坏都不是错误）。
+   */
+  getSettingObject (key, defaultValue = {}) {
+    const raw = this.getSetting(key, null)
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+      } catch { /* 非法 JSON 按无配置处理 */ }
+    }
+    return defaultValue
+  },
+
   setSetting (key, value) {
     if (!this._ready) return
     const str = safeJsonStringify(value)
