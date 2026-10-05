@@ -17,7 +17,7 @@
 判据（升级前后各跑一次，看 GHSA id 是否归零）：
 
 ```bash
-HTTPS_PROXY=http://127.0.0.1:7897 \
+# 默认直连；只有本机确实起了代理时才按需前缀 HTTPS_PROXY=...（见 docs/proxy-environment-adaptation.md）
   pnpm audit --prod --json --registry=https://registry.npmjs.org \
   | grep -o 'GHSA-3wwx-pv8p-q78v\|GHSA-qw65-cvwx-89v3' | sort | uniq -c
 ```
