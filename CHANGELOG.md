@@ -1,3 +1,19 @@
+# [未发布] fix(ci): docs-only 短路在 CI 取错变更集——改绑检出合并提交的双亲，取源决策搬进可单测的脚本（2026-10-05，docs-only-head-sha / PR #2923）
+
+### 症状（PR #2914 实测）
+- 纯文档 PR 在 CI 上被算成 `docs-only=false`，docs-only 短路整体失效、全量 job 照跑；本地同一条命令却是 `docs-only=true`。
+
+### 根因（两种失效形态）
+- `changes` job 用 `--base=<pull_request.base.sha>` 且**不传 `--head`** ⇒ 判据默认取 `HEAD`，而 PR 事件检出的是 `refs/pull/N/merge`（合并提交）。`base.sha` 冻结在 PR 打开那一刻，此后 main 的提交全落进 `merge-base(base.sha, 合并提交)..合并提交`（形态 A：实测清单多出 46 个别人的文件）。分支 re-sync 过新 main 后，冻结 base + 事件 head 同样误算（形态 B，QM-6 后端评审实测命中）。
+- 为什么逃过：`classify-docs-only.test.js` 全部夹具用分支顶当 head；把 bash 里的支路改成 `if false`，四条文本结构锁全绿 ⇒ 门禁自测住在 bash 里只能被文本锁观察。
+
+### 修复
+- 新增唯一取源实现 `scripts/ci-pr-changeset.js`：优先取检出合并提交自己的双亲（`git rev-list --parents -n 1 HEAD`，单亲/取不全/git 故障一律 fail-closed），回退事件 payload，非 PR 事件空对；每次打印 `source=/base=/head=`。`classify` 与 `Gate 2c2` 都消费它的 `pr-base/pr-head` 产出，不再各自算第二遍。
+- 回归锁 `ci-pr-changeset.test.js` 11 条（双形态正/负控、fail-closed、CLI 契约）；反证 8 条逐条实测变红，见 `docs/ci-changeset-acquisition.md`。
+- 真实 `refs/pull/2923/merge` 对照：双亲取法 `files=10` 与 `gh pr view files` 独立相符；旧取法 `files=20`（多出的 10 个正是期间别人的文件）。
+
+---
+
 # [未发布] fix(publish-loop): 改写→发布→归因关联链打通（渲染层四入口 + 归因自动触发 + 归属按人收口）（2026-10-05，rewrite-lineage-second-hop）
 
 ### 修复（PR #2903，P2-6d）
