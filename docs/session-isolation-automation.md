@@ -28,7 +28,9 @@
 
     powershell -ExecutionPolicy Bypass -File scripts/mp-worktree-health.ps1 -RequireClean -RequireHooks
 
-检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Mulpub\session-isolation\health.json，不写入仓库。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
+检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Mulpub\session-isolation\health.json，不写入仓库。
+
+**受管外来 worktree 登记制（2026-10-01）**：harness 级工具（如 WorkBuddy 的项目工作区）会向共享仓库注册隔离目录之外的 linked worktree，健康门禁原本一律判红，导致所有新会话的 `start-mp-task.ps1` 被挡死。现在允许把这类 worktree 登记进机器本地注册表 `%LOCALAPPDATA%\Mulpub\session-isolationllowed-worktrees.json`（JSON 字符串数组，整路径精确匹配，不做前缀通配）；也可用环境变量 `MP_ALLOWED_WORKTREES`（分号分隔）临时追加。已登记的路径在报告 `exemptedWorktrees` 留痕；注册表 JSON 损坏时按空表处理（fail-closed），报告置 `allowedRegistry.valid=false`。未登记的外来 worktree 仍然一律红。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
 
 ## 实时写保护
 
@@ -79,6 +81,17 @@ worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store
 
 修复后 `session-write-guard.test.ps1` 应输出 `PASS: 14 session write guard checks`。
 
+## 控制台窗口与运行主体（2026-10-03 实测）
+
+开发过程中桌面反复弹出 PowerShell 窗口，来源有两个，结论都推翻了「想当然的修法」：
+
+- **任务入口**：`start-mp-task.ps1` 过去默认开一个 `-NoExit` 的常驻 shell，父进程一退出它就变成孤儿窗口，每建一个隔离任务就多一个。现在默认不开窗，需要 shell 时显式加 `-Shell`。
+- **计划任务**：两个任务原先以交互主体注册，每次运行都创建一个可见控制台窗口（健康巡检每 15 分钟一次，即「反复闪窗」的节拍源）。判据**不是**「设 Hidden」：实测 `Settings.Hidden=True` 之后手动触发，300ms 内仍新增一个可见顶层窗口；把主体换成非交互（`LogonType=S4U`）后同一探针 `NEW_TOTAL=0`，而任务确实执行（health.json 的 `checkedAt` 前进、`LastTaskResult=0`），write guard 在 S4U 下仍在约 1 秒内把探针文件移入隔离区并记入 `violations.jsonl`。
+- **S4U 必须提权注册**：同一段安装逻辑指向一次性 `-TaskPath` 在非提权下运行，S4U 尝试被拒、任务落成 `Interactive` 并打出 WARN。所以安装脚本按 `S4U → Interactive` 兜底，而不是硬失败——窗口可见只是外观损失，任务注册不上才是防线缺失。要拿到无窗口的主体，就用提权方式跑安装（`bootstrap-write-guard.ps1` 本来也必须提权，因为 AtLogOn 触发器）。
+- **存活判定不得依赖跨会话可读字段**：S4U 实例运行在别的 session，非提权调用读不到它的 `CommandLine`（该属性返回 `$null`），拿名字匹配就会把**正在执法**的 watcher 判成「未运行」。`mp-worktree-health.ps1` 因此改以任务自身 `State -eq 'Running'` 为主判据，`CommandLine` 匹配只保留为兜底佐证。
+
+回归锁：`scripts/start-mp-task.test.js` 的「任务入口默认不得开窗」「注册主体合同」「存活判定合同」三条。三条都做过变异反证：退化成无条件开窗 / 主体顺序倒回 Interactive 优先 / 判定退回只看 `CommandLine`，各自让对应锁当场变红，且还原后文件逐字节相同。
+
 ## 自检
 
     powershell -ExecutionPolicy Bypass -File scripts/session-isolation-automation.test.ps1
@@ -89,3 +102,7 @@ worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store
 ## 边界
 
 Git 没有 pre-checkout hook，Git hooks 不能阻止所有客户端的首次目录选择；--no-verify 也能跳过提交 hook。因此新任务必须从 start-mp-task.ps1 入口创建，Git hooks、实时写保护、健康守护和 GitHub 分支保护分别承担入口、直接落盘拦截、持续发现和远程交付兜底。
+
+### 同一份瞎探针的第二落点（外部评审捞出的观察，2026-10-04）
+
+第一版只修了 `mp-worktree-health.ps1`。codex 侧评审虽然中途截断没出结论，它的一条观察经我自己复核成立：`scripts/bootstrap-write-guard.ps1` 里也有「按 CommandLine 认守护」的判据，而且比报个 `running=false` 更糟——它据此决定是否 `Start-ScheduledTask`，30 秒轮询看不见就直接抛「Write Guard watcher 未在 30 秒内启动」。照旧逻辑，S4U 会把一台健康机器判成装配失败。两处现已统一为「任务 State 优先、CommandLine 只作兜底」，防再犯锁也改成按特征扫全域并钉住文件清单（只能缩小），而不是点名我记得的两个文件。

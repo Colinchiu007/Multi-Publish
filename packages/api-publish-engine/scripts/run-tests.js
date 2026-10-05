@@ -14,6 +14,7 @@ const VITEST_FILES = new Set([
   'bilibili-video-chain.test.js',
   'douyin-client-sign.test.js',
   'douyin-video-chain.test.js',
+  'douyin-image-chain.test.js',
   'douyin-adapter.test.js',
   'douyin-legacy-chain-gate.test.js',
   'douyin-risk.test.js',
@@ -86,7 +87,9 @@ function runAllTests(options = {}) {
   for (const file of groups.direct) {
     const name = path.basename(file)
     report(options, '开始', name)
-    const passed = runProcess(process.execPath, [file], options)
+    // 守卫必须在**每个直跑子进程**里装上：run-tests.js 的 direct 路径是「一个测试文件一个 node 进程」，父进程装一次等于没装。
+    const guardSetup = path.resolve(__dirname, '../../shared-utils/network-egress-guard.setup.js')
+    const passed = runProcess(process.execPath, ['--require', guardSetup, file], options)
     report(options, passed ? '通过' : '失败', name)
     if (!passed) failed.push(name)
   }

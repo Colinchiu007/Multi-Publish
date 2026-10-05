@@ -36,7 +36,9 @@ platforms:
     comment_url: ''
     cover_size: 1280x720
     max_title: 50
-    max_content: 5000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 5000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。知乎为长文平台，未做平台侧实测取证。
+    max_content: 100000
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -49,7 +51,11 @@ platforms:
     category: 中文
     content_category: MIXED
     max_title: 140
-    max_content: 5000
+    # 阈值来源：官方 FAQ 佐证（下述链接）；2026-10-02 用户终裁放宽至 10000。原注释：微博客服中心官方 FAQ（kefu.weibo.com/faqdetail?id=21510，2024-09-04 更新）
+    # 原文「最多可以发布5000汉字」（high 置信）。本文件该值历史在 2000/5000 间摆动：
+    # 2026-10-01 复查曾按注册表回改成 2000，2026-10-02 平台调研（官方 FAQ 佐证）终裁 5000（2026-10-02 用户确认放宽至 10000），
+    # 并同步注册表/引擎表（见 01-docs/PLATFORM-CHAR-LIMITS-RESEARCH-2026-10-02.md）。
+    max_content: 10000
     enabled: true
   douyin:
     has_api: false
@@ -60,7 +66,7 @@ platforms:
     category: 中文
     content_category: VIDEO
     max_title: 55
-    max_content: 1000
+    max_content: 5000
     enabled: true
   xiaohongshu:
     id: 51
@@ -74,7 +80,7 @@ platforms:
     comment_url: https://creator.xiaohongshu.com/creator/comment
     cover_size: 1080x1080
     max_title: 20
-    max_content: 1000
+    max_content: 5000
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -90,7 +96,7 @@ platforms:
     comment_url: ''
     cover_size: 1080x1080
     max_title: 60
-    max_content: 1000
+    max_content: 5000
     has_api: false
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   kuaishou:
@@ -109,7 +115,12 @@ platforms:
     # 没有独立标题输入框，作品标题与描述共用 div#work-description-edit[contenteditable]
     # （placeholder=“作品描述不会写？试试智能文案”）；RPA 因此把标题+正文合并写进
     # 该编辑器（rpa-view-platforms._composeEditorCaption），长度上限即 max_content。
-    max_content: 1000
+    # 2026-09-30 修正：快手图文发布页实测计数器为 **x/500**（截图取证：921 字时表单
+    # 红字「作品描述超过字数限制」并阻断提交）。旧值 1000 会让合并文案（标题+正文）
+    # 远超平台上限而被静默拒绝，故对齐实况。
+    # 取 480 而非 500：实测截断到 500 时平台计数器显示 **505/500**（平台计数与
+    # 本仓按码点截断存在偏差，含换行/标题拼接等），留 20 字安全边距确保不越界。
+    max_content: 480
     has_api: true
     publishMode: api-then-dom   # W3 §5.4 快手 API 发布链入波（签名页未就绪/不支持时可降级 DOM）
     enabled: true
@@ -125,7 +136,9 @@ platforms:
     comment_url: https://mp.toutiao.com/profile_v4/manage/comment/all
     cover_size: 1200x600
     max_title: 30
-    max_content: 5000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 5000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。头条为长文平台，未做平台侧实测取证。
+    max_content: 100000
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -163,7 +176,9 @@ platforms:
     comment_url: ''
     cover_size: 1146x717
     max_title: 80
-    max_content: 3000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=2000）。本文件该值曾为 3000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。未做平台侧实测取证。
+    max_content: 2000
     has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
@@ -179,7 +194,9 @@ platforms:
     comment_url: ''
     cover_size: 1200x675
     max_title: 64
-    max_content: 50000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 50000，
+    # 与注册表漂移（2026-10-01 复查对账修正）。未做平台侧实测取证。
+    max_content: 100000
     has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   twitter:
@@ -191,7 +208,9 @@ platforms:
     category: 海外
     content_category: IMAGE_TEXT
     max_title: 280
-    max_content: 4000
+    # 阈值来源：以 publish-capabilities.json 为准（contentMax=280）。Twitter 单条推文 280 字符
+    # 为**平台真实限制**（官方口径）；本文件该值曾为 4000，与注册表漂移（2026-10-01 复查修正）。
+    max_content: 280
     enabled: true
   instagram:
     id: 103

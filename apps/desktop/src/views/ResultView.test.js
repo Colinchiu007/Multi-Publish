@@ -120,6 +120,19 @@ describe("ResultView", () => {
     expect(router.currentRoute.value.query.view).toBe("history");
   });
 
+  it("返回按钮的箭头是独立装饰字形，不进入可访问名", async () => {
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => (key === "create.story2video.backToHistory" ? "返回" : key) } } });
+    const back = w.find('[data-testid="back-to-pipeline-list"]');
+    const arrow = back.find('[aria-hidden="true"]');
+    // 箭头必须是独立元素：靠字面空格与文字拼接时，两者在行内盒里各按自身字体度量对齐，
+    // ← 在中文回退字体下偏小偏上，视觉上就是「箭头和文字没对齐」。
+    expect(arrow.exists()).toBe(true);
+    expect(arrow.text()).toBe("←");
+    // 摘掉装饰字形后，剩下的可见文案必须恰好等于本地化标签，不得残留拼接用的空白。
+    expect(back.element.textContent.replace(arrow.element.textContent, "").trim()).toBe("返回");
+    w.unmount();
+  });
+
   it("running editor shows pause and sends the exact runId, then refreshes to paused", async () => {
     const api = await import("@/api/publisher");
     api.pipelineGetRunContext
@@ -966,6 +979,9 @@ describe("ResultView", () => {
       messageKey: "story2video.degraded_assets_warning",
       messageParams: { kinds: "占位图片" },
     });
+    // 双次归一化回归锁（2026-10）：resolve 入态 → format 渲染，kinds 不得在第二次归一化中丢失。
+    // 曾退化为「此成片包含离线降级素材（），请在发布前预览确认。」（空括号）。
+    expect(w.vm.story2videoNotificationDialogMessage).toBe("此成片包含离线降级素材（占位图片），请在发布前预览确认。");
     w.unmount();
   });
 

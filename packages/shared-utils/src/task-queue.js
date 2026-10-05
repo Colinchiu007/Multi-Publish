@@ -16,6 +16,23 @@ function normalizeOwnerSubject (ownerSubject) {
   return ownerSubject.trim()
 }
 
+/**
+ * MP_QUEUE_MAX_CONCURRENT 环境变量解析（publish-throughput-optimization B 方案）。
+ * 合法域 [1,10]，默认 3；非法/越界回落默认并出声告警（对齐 publish-frequency-policy 的覆盖纪律）。
+ * @returns {number}
+ */
+function resolveQueueMaxConcurrent () {
+  const DEFAULT = 3
+  const raw = process.env.MP_QUEUE_MAX_CONCURRENT
+  if (raw === undefined || raw === '') return DEFAULT
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1 || n > 10) {
+    console.warn('[task-queue] MP_QUEUE_MAX_CONCURRENT 非法值 ' + JSON.stringify(raw) + '，回落默认 ' + DEFAULT + '（合法域 [1,10]）')
+    return DEFAULT
+  }
+  return n
+}
+
 class TaskQueue extends EventEmitter {
   constructor (options = {}) {
     super()
@@ -29,6 +46,7 @@ class TaskQueue extends EventEmitter {
     this._pendingTimers = new Set()  // R28/R37：跟踪频率控制重排定时器，shutdown 时清理
     this._delayed = new Map() // 频控等待任务 { id -> { task, timer } }
     this._abortControllers = new Map() // 运行中任务的协作式取消信号
+    this._runningByChannel = new Map() // 通道键 -> 在跑计数（B 方案：同通道串行，跨通道并行）
     this._paused = false
     this._shutdown = false
     this._idCounter = 0
@@ -448,8 +466,24 @@ class TaskQueue extends EventEmitter {
         this._queue.push(task)
         continue
       }
+      // B 方案通道调度：同通道（platform:accountId）已有任务在跑时，本任务留队轮候，
+      // 继续扫描后续可启动任务（跨通道不互相阻塞）。轮候计数用 inspected 保证不无限循环。
+      if ((this._runningByChannel.get(this._channelKey(task)) || 0) > 0) {
+        this._queue.push(task)
+        continue
+      }
       this._executeTask(task)
     }
+  }
+
+  /**
+   * 通道键：同平台同账号共享一个串行通道（防同账号并发触发平台风控 / 双窗竞争）。
+   * accountId 缺失归一为空串——同平台无账号维度仍同通道（共享同一登录面）。
+   * @param {object} task
+   * @returns {string}
+   */
+  _channelKey (task) {
+    return task.platform + ':' + (task.accountId ?? '')
   }
 
   async _executeTask (task) {
@@ -457,35 +491,52 @@ class TaskQueue extends EventEmitter {
     task.status = 'running'
     task.startedAt = new Date().toISOString()
     this._running.set(task.id, task)
+    // B 方案：通道占用记账。频控推迟（下文 blocked 分支）与重试回 pending 都走 finally 统一释放。
+    this._runningByChannel.set(this._channelKey(task), (this._runningByChannel.get(this._channelKey(task)) || 0) + 1)
     this.emit('task:start', task)
     this._saveState()
 
-    // ── 发布频率控制检查 ──
+    // ── 发布频率控制：两档间隔检查 + 提交前记账 ──
+    // 记账必须在提交之前：平台侧限流窗口按「请求已发生」计时，若只在成功路径记账，
+    // 「内容已发到平台但应用判超时/报错」就不占窗口，重试会重复发布且下一次不受限。
+    // accountId 缺席时守卫仍生效（跳过账号档、保留平台档），故此处不再以 accountId 为前提。
+    // 守卫的读写全部落在下方 await 之前的同一同步段内 —— store 要求 owner 快照不得在
+    // 回调/定时器中重读，挪到 await 之后就违反该约束。
+    // accountId 取任务级归一字段（add() 已按 task.accountId ?? task.article?.accountId ?? null 落一），
+    // 不得回退到只读 article：调用方只在任务级带账号时，账号档会被整体跳过。
     if (this._publishIntervalGuard) {
-      const accountId = task.article && task.article.accountId
-      if (accountId) {
-        const wait = this._publishIntervalGuard.getRemainingWait(task.platform, accountId)
-        if (wait > 0) {
-          task.status = 'pending'
-          task.startedAt = null
-          this._running.delete(task.id)
-          this.emit('publish:blocked', { task, remainingWait: wait })
-          // 达到等待时间后重新加入队列
-          // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
-          const requeueTimer = setTimeout(() => {
-            this._pendingTimers.delete(requeueTimer)
-            this._delayed.delete(task.id)
-            if (task.cancelRequested || task.status === 'cancelled') return
-            this._queue.unshift(task)
-            this._processNext()
-          }, wait)
-          if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
-          this._pendingTimers.add(requeueTimer)
-          this._delayed.set(task.id, { task, timer: requeueTimer })
-          this._saveState()
-          return
-        }
+      const accountId = task.accountId
+      const verdict = this._publishIntervalGuard.check(task.platform, accountId)
+      if (!verdict.allowed) {
+        task.status = 'pending'
+        task.startedAt = null
+        this._running.delete(task.id)
+        // B 方案：blocked 路径在 try/finally 之前 return，finally 的通道释放不会执行——
+        // 必须在此显式释放（与上行 _running.delete 同理），否则「等间隔」占死通道，
+        // 同账号后续任务被堵死，频控从保护变成雪崩（决策 D2）。
+        const blockedChannelKey = this._channelKey(task)
+        const blockedCount = (this._runningByChannel.get(blockedChannelKey) || 0) - 1
+        if (blockedCount <= 0) this._runningByChannel.delete(blockedChannelKey)
+        else this._runningByChannel.set(blockedChannelKey, blockedCount)
+        this.emit('publish:blocked', {
+          task, remainingWait: verdict.remainingMs, bucket: verdict.bucket,
+        })
+        // 达到等待时间后重新加入队列
+        // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
+        const requeueTimer = setTimeout(() => {
+          this._pendingTimers.delete(requeueTimer)
+          this._delayed.delete(task.id)
+          if (task.cancelRequested || task.status === 'cancelled') return
+          this._queue.unshift(task)
+          this._processNext()
+        }, verdict.remainingMs)
+        if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
+        this._pendingTimers.add(requeueTimer)
+        this._delayed.set(task.id, { task, timer: requeueTimer })
+        this._saveState()
+        return
       }
+      this._publishIntervalGuard.recordPublish(task.platform, accountId)
     }
 
     // 创建超时 Promise
@@ -521,13 +572,6 @@ class TaskQueue extends EventEmitter {
       task.completedAt = new Date().toISOString()
       this.emit('task:success', task)
       this._saveState()
-      // 记录发布到频率控制器
-      if (this._publishIntervalGuard) {
-        const accountId = task.article && task.article.accountId
-        if (accountId) {
-          this._publishIntervalGuard.recordPublish(task.platform, accountId)
-        }
-      }
     } catch (e) {
       if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message
@@ -551,6 +595,12 @@ class TaskQueue extends EventEmitter {
       if (abortHandler) abortController.signal.removeEventListener('abort', abortHandler)
       this._abortControllers.delete(task.id)
       this._running.delete(task.id)
+      // B 方案：释放通道占用。频控推迟分支在置 pending 后 return，同样经过这里——
+      // 保证「等间隔」不占通道（决策 D2：否则同账号第二条任务被堵死，频控变雪崩）。
+      const channelKey = this._channelKey(task)
+      const chCount = (this._runningByChannel.get(channelKey) || 0) - 1
+      if (chCount <= 0) this._runningByChannel.delete(channelKey)
+      else this._runningByChannel.set(channelKey, chCount)
       // 已完成的任务移入历史
       if ((task.status === 'success' || task.status === 'failed' || task.status === 'cancelled') &&
           !this._history.some(item => item.id === task.id)) {
@@ -581,3 +631,4 @@ class TaskQueue extends EventEmitter {
 }
 
 module.exports = TaskQueue
+module.exports.resolveQueueMaxConcurrent = resolveQueueMaxConcurrent

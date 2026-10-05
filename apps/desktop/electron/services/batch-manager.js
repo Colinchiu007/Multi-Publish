@@ -46,6 +46,25 @@ function toIpcError (error) {
  * @property {boolean} [settled]
  */
 
+/**
+ * P2-7：派发层入队任务的 article 形态单一实现——整包透传 + 本次派发目标 accountId。
+ *
+ * 两条约束各自对应一个真实缺陷：
+ * ① 不得手工裁剪键：旧 executeBatch 用 5 键白名单，把渲染层发来的 cover_path / images /
+ *    tags / topics / mentions / aiGenerated / contentFormat / platformOverrides /
+ *    visibilitySemantic 在「立即执行」路径上静默丢弃（排期路径却不丢）。此后主进程不参与
+ *    字段裁剪，字段是否生效由 resolvePlatformArticle（注册表单一真源）单点决定。
+ * ② accountId 必须写进 article：这是**一致性加固，不是缺陷修复**。凭证解析在
+ *    publisher-router 的 loadAuthForTask，读 article.accountId（缺失才回退平台默认账号），
+ *    且 article 优先于 task 顶层的 accountId。排期路径此前靠 buildPublishArticle 的
+ *    `|| task?.accountId` 兜底才恰好取对；本函数改为逐次显式覆盖派发目标，不再依赖兜底顺序。
+ * @param {object} article 批次里持久化的文章
+ * @param {string|null} accountId 本次派发目标
+ */
+function buildEnqueuedArticle (article, accountId) {
+  return { ...(article || {}), accountId: accountId === undefined ? null : accountId }
+}
+
 class BatchManager {
   constructor (store) {
     this.store = store
@@ -324,16 +343,18 @@ class BatchManager {
       }
 
       try {
+        // P2-7：字段面与本文件排期路径（scheduleBatch 的 `{ platform, article, ... }`）
+        // 收口为同一口径——整包透传。旧形态在此手工白名单只取 5 个键（title/content/
+        // author/cover_url/video_path），于是渲染层发出的 cover_path / cover_file /
+        // images / image_files / tags / topics / mentions / aiGenerated / contentFormat /
+        // platformOverrides / visibilitySemantic 在「立即执行」路径上被静默丢弃，而排期
+        // 路径却不丢：同一批文章「设了定时就带封面、立即发布就没封面」。
+        // 手工白名单是逐键维护的第二份真相（每加一个字段就要改一次主进程，本切片实测正是
+        // 这么漏的）。此后主进程不再参与字段裁剪，字段是否生效由 resolvePlatformArticle
+        // （注册表单一真源）单点决定。
         const taskId = await this._enqueueForOwner({
           platform: metadata.platform,
-          article: {
-            title: metadata.article.title,
-            content: metadata.article.content,
-            author: metadata.article.author || '',
-            cover_url: metadata.article.cover_url || '',
-            video_path: metadata.article.video_path || '',
-            accountId: metadata.accountId,
-          },
+          article: buildEnqueuedArticle(metadata.article, metadata.accountId),
           batchId,
           accountId: metadata.accountId,
           retry: 2,
@@ -412,7 +433,7 @@ class BatchManager {
           try {
             // publishMode: 'scheduled' — 排期到点的入队任务标记为定时发布，
             // phase4-events 写入发布历史后历史页可按「定时发布」过滤。
-            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
+            const queued = this._enqueueForOwner({ platform: r.platform, article: buildEnqueuedArticle(article, r.accountId), batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
             Promise.resolve(queued).catch(error => {
               log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
             })
@@ -437,7 +458,7 @@ class BatchManager {
           }
           for (const platform of article.platforms) {
             const r = BatchManager.resolvePlatform(platform)
-            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
+            const queued = this._enqueueForOwner({ platform: r.platform, article: buildEnqueuedArticle(article, r.accountId), batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
             Promise.resolve(queued).catch(error => {
               log.error('BatchManager', 'Failed to schedule batch task for ' + batchId + ': ' + error.message)
             })

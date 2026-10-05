@@ -89,6 +89,27 @@ describe('publishProgress store — 全局承载（publish-progress-ux）', () =
     expect(task.startedAt).toBeGreaterThan(0)
   })
 
+  it('blocked 事件的 remainingWait 与 bucket 归因落到被渲染的那份状态（字段缺席不得猜档）', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({
+      taskId: 't-1', phase: 'blocked', stageKey: 'waiting', stage: '⏳ 发布间隔限制', percent: null, remainingWait: 180000, bucket: 'platform',
+    }))
+    const task = store.sessions[0].tasks['t-1']
+    expect(task.phase).toBe('blocked')
+    expect(task.remainingWait).toBe(180000)
+    expect(task.bucket).toBe('platform')
+
+    // 账号档与平台档必须在界面上可区分；归因缺席时如实为 null
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'blocked', stageKey: 'waiting', remainingWait: 60000, bucket: 'account' }))
+    expect(task.bucket).toBe('account')
+    // 归因缺席 → null（未知 taskId 会自成孤儿会话，故按 taskId 跨会话定位）
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'blocked', stageKey: 'waiting', remainingWait: 60000 }))
+    const t2 = store.sessions.flatMap((s) => Object.values(s.tasks)).find((x) => x.taskId === 't-2')
+    expect(t2).toBeTruthy()
+    expect(t2.bucket).toBe(null)
+  })
+
   it('终态吸收：success 后迟到的 progress 不回退状态', async () => {
     const store = await makeStore()
     store.registerSession({ taskIds: ['t-1'], title: 'x' })
@@ -381,5 +402,127 @@ describe('publishProgress store — cancelled 相位与取消/单任务重试（
     expect(mockRetryTask).not.toHaveBeenCalled()
     const result2 = await store.retryOne('no-such-session', 't-1')
     expect(result2).toMatchObject({ ok: 0, fail: 0 })
+  })
+})
+
+// 2026-10 抖音发布实锤（Bug A）：主进程在 publish:batch 处理器内同步 add() 并立即
+// send 进度事件 ⇒ 渲染端 handleProgressEvent 先于 registerSession 到达。旧实现无条件
+// _createSession ⇒ 同一 taskId 分属两个会话：孤儿会话吃掉全部事件，登记会话的任务
+// 永远 'queued'（幽灵任务）⇒ 面板两个会话、聚合「成功 1/2」、永不结束。
+describe('publishProgress store — registerSession 收养/合并（publish-progress-dup-upload）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockOnProgress.mockReset()
+    mockOnBatchProgress.mockReset()
+    mockGetQueueStatus.mockReset()
+    mockRetryTask.mockReset()
+    mockCancelTask.mockReset()
+    mockOnProgress.mockReturnValue(() => {})
+    mockOnBatchProgress.mockReturnValue(() => {})
+    mockGetQueueStatus.mockResolvedValue({ code: 0, data: { running: [], queue: [] } })
+    mockCancelTask.mockResolvedValue({ code: 0, data: true })
+    window.localStorage.clear()
+  })
+
+  async function makeStore() {
+    const { usePublishProgressStore } = await import('./publishProgress')
+    return usePublishProgressStore()
+  }
+
+  it('事件先到（孤儿会话）→ registerSession 收养同一会话，不产生第二个会话', async () => {
+    const store = await makeStore()
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', stage: 'uploading video...', stageKey: 'upload', percent: 20 }))
+    expect(store.sessions).toHaveLength(1)
+    expect(store.sessions[0].title).toBe('')
+
+    const session = store.registerSession({ taskIds: ['t-1'], title: '总有些想不到的' })
+
+    expect(store.sessions).toHaveLength(1)
+    expect(session.id).toBe(store.sessions[0].id)
+    expect(session.title).toBe('总有些想不到的')
+    // 相位保留：不被 _ensureTask 重置为 queued（幽灵任务的直接成因）
+    expect(session.tasks['t-1'].phase).toBe('progress')
+    expect(session.tasks['t-1'].percent).toBe(20)
+    expect(store.aggregate).toMatchObject({ total: 1 })
+    expect(store.panelVisible).toBe(true)
+    expect(store.panelMinimized).toBe(false)
+  })
+
+  it('登记任务多于孤儿任务 → 补齐缺失 taskId，两个任务同属一个会话', async () => {
+    const store = await makeStore()
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', percent: 20 }))
+
+    const session = store.registerSession({ taskIds: ['t-1', 't-2'], title: 'X' })
+
+    expect(store.sessions).toHaveLength(1)
+    expect(Object.keys(session.tasks).sort()).toEqual(['t-1', 't-2'])
+    expect(session.tasks['t-1'].phase).toBe('progress')
+    expect(session.tasks['t-2'].phase).toBe('queued')
+    // 后续事件仍路由到同一会话（幽灵任务不再出现）
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done' }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', platform: 'weibo', phase: 'success', stageKey: 'done' }))
+    expect(store.sessions).toHaveLength(1)
+    expect(store.sessions[0].status).toBe('done')
+    expect(store.aggregate).toMatchObject({ total: 2, succeeded: 2 })
+  })
+
+  it('同一 ids 两次 registerSession → 仍 1 个会话（不复制）', async () => {
+    const store = await makeStore()
+    const first = store.registerSession({ taskIds: ['t-1', 't-2'], title: 'A' })
+    const second = store.registerSession({ taskIds: ['t-1', 't-2'], title: 'B' })
+    expect(store.sessions).toHaveLength(1)
+    expect(second.id).toBe(first.id)
+    expect(second.id).toBe(store.sessions[0].id)
+    // 已有标题不被后来者覆盖
+    expect(store.sessions[0].title).toBe('A')
+  })
+
+  it('batchId 命中已有会话 → 收养而非新建', async () => {
+    const store = await makeStore()
+    const first = store.registerSession({ batchId: 'batch-1', title: '批量' })
+    const second = store.registerSession({ batchId: 'batch-1', title: '批量2' })
+    expect(store.sessions).toHaveLength(1)
+    expect(second.id).toBe(first.id)
+    expect(store.sessions[0].title).toBe('批量')
+  })
+
+  it('taskId 落在多个孤儿会话 → 合并为一个会话', async () => {
+    const store = await makeStore()
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', platform: 'douyin', phase: 'progress', percent: 10 }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', platform: 'weibo', phase: 'progress', percent: 30 }))
+    expect(store.sessions).toHaveLength(2)
+
+    const session = store.registerSession({ taskIds: ['t-1', 't-2'], title: '合并' })
+
+    expect(store.sessions).toHaveLength(1)
+    expect(Object.keys(session.tasks).sort()).toEqual(['t-1', 't-2'])
+    expect(session.tasks['t-1'].percent).toBe(10)
+    expect(session.tasks['t-2'].percent).toBe(30)
+    expect(session.title).toBe('合并')
+  })
+
+  it('收养恢复会话（init 领养）→ 清除 recovered 标记并补齐标题', async () => {
+    mockGetQueueStatus.mockResolvedValueOnce({
+      code: 0,
+      data: { running: [{ id: 'q-1', platform: 'douyin', status: 'running' }], queue: [] },
+    })
+    const store = await makeStore()
+    await store.init()
+    expect(store.sessions[0].recovered).toBe(true)
+
+    store.registerSession({ taskIds: ['q-1'], title: '恢复后标题' })
+
+    expect(store.sessions).toHaveLength(1)
+    expect(store.sessions[0].recovered).toBeUndefined()
+    expect(store.sessions[0].title).toBe('恢复后标题')
+    expect(store.sessions[0].tasks['q-1'].phase).toBe('progress')
+  })
+
+  it('无命中时行为不变：新建会话并保持排队相位', async () => {
+    const store = await makeStore()
+    const session = store.registerSession({ taskIds: ['t-9'], title: '全新' })
+    expect(store.sessions).toHaveLength(1)
+    expect(session.tasks['t-9'].phase).toBe('queued')
+    expect(session.title).toBe('全新')
   })
 })

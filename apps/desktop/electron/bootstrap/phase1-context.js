@@ -131,6 +131,8 @@ function extractContext(container) {
   const oauthManager = container.get('oauthManager')
   const batchManager = container.get('batchManager')
   const urlCollector = container.get('urlCollector')
+  // 知乎正文图片本地化（2026-10-03 PRD-ZHIHU-FAV-BATCH C1）
+  const zhihuImageLocalizer = container.get('zhihuImageLocalizer')
   const hotTopicsService = container.get('hotTopicsService')
   const viralEngine = container.get('viralEngine')
   const commentManager = container.get('commentManager')
@@ -144,6 +146,7 @@ function extractContext(container) {
   templateManager.seedDefaults()
   const rewriteStrategyManager = container.get('rewriteStrategyManager')
   const rewriteHardConstraintManager = container.get('rewriteHardConstraintManager')
+  const rewriteAiTasteMapManager = container.get('rewriteAiTasteMapManager')
   const rewriteEngineService = container.get('rewriteEngineService')
   const knowledgeLibraryService = container.get('knowledgeLibraryService')
   const patternExtractionService = container.get('patternExtractionService')
@@ -185,6 +188,10 @@ function extractContext(container) {
   const executionRecorder = container.get('executionRecorder')
   const filmEngineeringService = container.get('filmEngineeringService')
   const fullAutoPipeline = container.get('fullAutoPipeline')
+  // 自动化任务调度器（2026-10-03 修复）：必须在此取到并导出进 context.services。
+  // 缺失 → phase5-ipc 解构出 undefined → ipc-handlers/automation.js 静默 return
+  // → 运行时报 No handler registered for 'automation:create'。
+  const automationScheduler = container.get('automationScheduler')
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
@@ -221,6 +228,10 @@ function extractContext(container) {
   // 改写硬约束运行时下发（rewrite-hard-constraints，2026-09-19）→ 默认版本注入引擎
   if (opsCenterSync && typeof opsCenterSync.setRewriteHardConstraintManager === 'function') {
     opsCenterSync.setRewriteHardConstraintManager(rewriteHardConstraintManager)
+  }
+  // 去 AI 味词库运行时下发（ai-taste-ops-center，2026-10-03）→ 词库覆盖层注入引擎
+  if (opsCenterSync && typeof opsCenterSync.setRewriteAiTasteMapManager === 'function') {
+    opsCenterSync.setRewriteAiTasteMapManager(rewriteAiTasteMapManager)
   }
   // 硬约束运行中更新 → 引擎缓存失效（审查 M2：sync 后新约束立即生效，无需重启）
   if (opsCenterSync && typeof opsCenterSync.setRewriteEngineService === 'function') {
@@ -469,7 +480,7 @@ function extractContext(container) {
       AccountManager, history, autoUpdater, hotkeys, firstRun,
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
-      rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
+      rewriteStrategyManager, rewriteHardConstraintManager, rewriteAiTasteMapManager, rewriteEngineService,
       knowledgeLibraryService, patternExtractionService,
       performanceRecrawlService, patternAttributionService,
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,
@@ -481,6 +492,7 @@ function extractContext(container) {
       executionRecorder,
       filmEngineeringService,
       fullAutoPipeline,
+      automationScheduler,
       story2videoProjectService,
       promptEvalService,
       signalCollector,
@@ -490,6 +502,7 @@ function extractContext(container) {
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
       oauthManager, batchManager, urlCollector, proxyPool,
+      zhihuImageLocalizer,
       hotTopicsService,
     },
     pipelines: {

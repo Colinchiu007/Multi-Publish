@@ -58,11 +58,13 @@ const UrlCollector = require('../services/url-collector');
 const ViralEngine = require('../services/viral-engine');
 const CommentManager = require('../services/comment-manager');
 const ProviderManager = require('../services/provider-manager');
-const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require("@multi-publish/shared-utils");
+const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService, publishFrequencyPolicy } = require("@multi-publish/shared-utils");
+const resolvePublishIntervals = publishFrequencyPolicy.resolveIntervals;
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
 const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
 const RewriteHardConstraintManager = require('../services/rewrite-hard-constraint-manager');
+const RewriteAiTasteMapManager = require('../services/rewrite-ai-taste-map-manager');
 const RewriteEngineService = require('../services/rewrite-engine');
 const KnowledgeLibraryService = require('../services/knowledge-library-service');
 const AiWriter = require('../services/ai-writer');
@@ -198,10 +200,26 @@ function createContainer(options) {
       log: c.get("logger"),
     });
   });
+  // 自动化任务调度器（2026-10-03）：定时 / 应用启动触发，后台执行。
+  // 执行器复用 fullAutoPipeline；通知出口由 bootstrap 用 setNotify 注入（容器装配期
+  // 还没有主窗口，这里拿不到 window，硬取会让通知永久静默）。
+  container.register("automationScheduler", function(c) {
+    const { AutomationScheduler } = require('../services/automation-scheduler');
+    return new AutomationScheduler({
+      log: c.get("logger"),
+      store: c.get("store"),
+      pipeline: c.get("fullAutoPipeline"),
+    });
+  });
   // auditDir 显式注入：AuditLogger 无目录时静默丢弃所有防护事件（回归：采集失败无日志）。
   // 注意：目录在装配时快照式定型（与 app-*.log 同源）；若未来支持运行时切换日志目录，
   // 需同步评估审计日志是否跟随（当前生产无 setLogOptions 调用，契约稳定）。
   container.register("urlCollector", function(c) { return new UrlCollector({ auditDir: c.get("logger").getLogsDir() }); });
+  // 知乎正文图片本地化（2026-10-03 PRD-ZHIHU-FAV-BATCH C1）：zhimg 防盗链 → Referer 伪装下载到 userData
+  container.register("zhihuImageLocalizer", function(c) {
+    const ZhihuImageLocalizer = require('../services/zhihu-image-localizer');
+    return new ZhihuImageLocalizer({ log: c.get("logger") });
+  });
   // 热门选题聚合服务（多渠道热搜抓取 + 分类 + 缓存）
   container.register("hotTopicsService", function(c) {
     const { HotTopicsService } = require('../services/hot-topics-service');
@@ -225,10 +243,12 @@ function createContainer(options) {
   container.register("templateManager", function() { return new TemplateManager(); });
   container.register("rewriteStrategyManager", function() { return new RewriteStrategyManager(); });
   container.register("rewriteHardConstraintManager", function() { return new RewriteHardConstraintManager(); });
+  container.register("rewriteAiTasteMapManager", function() { return new RewriteAiTasteMapManager(); });
   container.register("rewriteEngineService", function(c) {
     const svc = new RewriteEngineService({})
     svc.setStrategyManager(c.get("rewriteStrategyManager"))
     svc.setHardConstraintManager(c.get("rewriteHardConstraintManager"))
+    svc.setAiTasteMapManager(c.get("rewriteAiTasteMapManager"))
     svc.setStore(c.get("store"))
     svc.setKnowledgeLibrary(c.get("knowledgeLibraryService"))
     svc.setPerformanceStore(c.get("store"))
@@ -321,7 +341,17 @@ function createContainer(options) {
   container.register("oauthManager", function(c) { return new OAuthManager(c.get("store")); });
   container.register("batchManager", function(c) { return new BatchManager(c.get("store")); });
   container.register("dataSync", function(c) { return new DataSyncService(c.get("store")); });
-  container.register("taskQueue", function() { return new TaskQueue(options.taskQueue || { maxConcurrent: 3 }); });
+  // B 方案（publish-throughput-optimization）：并发上限经 MP_QUEUE_MAX_CONCURRENT 覆盖（[1,10]，默认 3），
+  // 非法值回落默认并出声告警。
+  // 频率守卫必须在此装配路径上注入 TaskQueue（#2773 publish-frequency-control）。
+  // guard 排在展开之后：不允许被 options 覆盖成 undefined 而静默关掉门禁。
+  container.register("taskQueue", function(c) {
+    return new TaskQueue(Object.assign(
+      { maxConcurrent: TaskQueue.resolveQueueMaxConcurrent() },
+      options.taskQueue,
+      { publishIntervalGuard: c.get("publishIntervalGuard") }
+    ));
+  });
   container.register("aggregatorBridge", function(c) { return new AggregatorBridge(c.get("taskQueue")); });
   container.register("publisherRouter", function() { return new PublisherRouter(); });
   // §5 风控挂起守卫（W1 enforcement）：桌面唯一真源 DI 单例，持久化复用 store.getSetting/setSetting
@@ -332,6 +362,9 @@ function createContainer(options) {
   container.register("publishIntervalGuard", function(c) {
     const s = c.get("store");
     return new PublishIntervalGuard({
+      // 间隔值由 publish-frequency-policy 单一持有（含环境变量覆盖）；
+      // 禁止在此硬编码 minInterval，那会让策略表变成摆设。
+      policy: resolvePublishIntervals,
       store: {
         get: (key) => s.getPublishTimeline(key),
         set: (key, value) => s.setPublishTimeline(key, value),
@@ -428,7 +461,7 @@ function createContainer(options) {
     "callbackServer", "qrCodeLogin", "renderEngine",
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
     "oauthManager", "batchManager", "taskQueue", "publisherRouter",
-    "story2videoBatchQueue", "fullAutoPipeline", "knowledgeLibraryService", "patternExtractionService",
+    "story2videoBatchQueue", "fullAutoPipeline", "automationScheduler", "knowledgeLibraryService", "patternExtractionService",
     "performanceRecrawlService", "patternAttributionService"
   ]);
 

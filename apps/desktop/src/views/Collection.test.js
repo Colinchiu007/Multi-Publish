@@ -1385,14 +1385,15 @@ describe("CollectionView 知乎收藏夹批量采集/改写", () => {
     expect(w.vm.zhihuFavlistError).toContain("没有内容");
   });
 
-  it("zhihuFavlistBatchCollect 成功 → 结果入列表", async () => {
+  it("zhihuFavlistBatchCollect 成功 → 结果入列表（P0 回归锁：字段不得丢失）", async () => {
     window.electronAPI = {
       zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [
         { url: "https://zhuanlan.zhihu.com/p/1", title: "文章1" },
       ], totals: 1 } }),
       zhihuFavlistBatchCollect: vi.fn().mockResolvedValue({ code: 0, data: {
         completed: 1, failed: 0, cancelled: false, circuitBroken: false,
-        results: [{ index: 0, ok: true, data: { success: true, title: "文章1", content: "正文" } }],
+        // 真实 handler 形状：{index, ok, data:{采集结果本体}}（与 zhihu-favlist.test.js handler 一致）
+        results: [{ index: 0, ok: true, data: { success: true, title: "文章1", content: "正文内容" } }],
       } }),
       storeGetSetting: vi.fn().mockResolvedValue("[]"),
       storeSetSetting: vi.fn().mockResolvedValue(true),
@@ -1403,6 +1404,129 @@ describe("CollectionView 知乎收藏夹批量采集/改写", () => {
     await w.vm.zhihuFavlistBatchCollect();
     expect(w.vm.zhihuFavlistResults).toHaveLength(1);
     expect(w.vm.zhihuFavlistProgress).toContain("成功 1");
+    // P0 回归锁（2026-10-03）：旧代码 `...x.data.data` 双层展开把条目打成 {id} 空壳，
+    // 既有断言只查 length 未拦截。这里逐字段断言，摘掉修复（改回双层展开）即红。
+    const item = w.vm.collectedItems[0];
+    expect(item.title).toBe("文章1");
+    expect(item.content).toBe("正文内容");
+    expect(item.sourceUrl).toBe("https://zhuanlan.zhihu.com/p/1");
+  });
+
+  it("loadZhihuFavItems 指定收藏夹 → 清单渲染 + 已采集标记（C2）", async () => {
+    window.electronAPI = {
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [
+        { url: "https://zhuanlan.zhihu.com/p/1", title: "甲", contentType: "article", favTime: 1700000000 },
+        { url: "https://www.zhihu.com/pin/2", title: "乙", contentType: "pin", favTime: 1700000001 },
+      ], totals: 2 } }),
+      storeGetSetting: vi.fn().mockResolvedValue(JSON.stringify([
+        { id: "old1", title: "旧条目", content: "x", sourceUrl: "https://zhuanlan.zhihu.com/p/1" },
+      ])),
+      storeSetSetting: vi.fn().mockResolvedValue(true),
+    };
+    const w = mountCollection();
+    await nextTick();
+    await w.vm.loadCollectedItems(); // onMounted 异步链未完成，显式加载保证 collectedUrlSet 就绪
+    w.vm.zhihuFavlists = [{ urlToken: "111", title: "夹" }];
+    w.vm.zhihuSelectedFavlist = "111";
+    await w.vm.loadZhihuFavItems();
+    expect(w.vm.zhihuFavItems).toHaveLength(2);
+    expect(w.vm.zhihuFavItems[0].collected).toBe(true);  // 与 collected_items sourceUrl 比对
+    expect(w.vm.zhihuFavItems[1].collected).toBe(false);
+  });
+
+  it("loadZhihuFavItems 全部收藏 → unified-contents 通道 + favlistsCapped 提示", async () => {
+    window.electronAPI = {
+      zhihuFavlistUnifiedContents: vi.fn().mockResolvedValue({ code: 0, data: {
+        items: [{ url: "https://zhuanlan.zhihu.com/p/9", title: "统", kind: "article", favTime: 5 }],
+        truncated: false, totalBeforeCut: 1, favlistsCapped: true, fullModeCapped: false,
+      } }),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+      storeSetSetting: vi.fn().mockResolvedValue(true),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuFavlists = [{ urlToken: "111", title: "夹" }];
+    w.vm.zhihuFavScope = "all";
+    await w.vm.loadZhihuFavItems();
+    expect(window.electronAPI.zhihuFavlistUnifiedContents).toHaveBeenCalled();
+    expect(w.vm.zhihuFavItems).toHaveLength(1);
+    expect(w.vm.zhihuFavScopeHint).toContain("50");
+  });
+
+  it("runZhihuFavCollectRewrite 成功 → 新通道结果入库（含改写稿/图片字段）", async () => {
+    window.electronAPI = {
+      zhihuFavBatchRun: vi.fn().mockResolvedValue({ code: 0, data: {
+        completed: 1, failed: 0, duplicateSkipped: 0, rewriteFailed: 0,
+        cancelled: false, circuitBroken: false,
+        // QM-6 C1 回归锁：handler 真实返回 data.results=[{index,ok,data:{...}}]，
+        // 渲染端必须消费 results 而非 items——mock 用真实形状，接线断开即红
+        results: [{ index: 0, ok: true, duplicate: false, data: {
+          id: "fb_1", title: "标题甲", content: "正文甲", coverImage: "https://picx.zhimg.com/c.jpg",
+          sourceUrl: "https://zhuanlan.zhihu.com/p/1", kind: "article", favTime: 1,
+          images: ["D:\\img\\a.jpg"], imageFallbacks: [], rewrittenContent: "改写稿甲", rewriteFailed: false,
+        } }],
+      } }),
+      onZhihuFavBatchProgress: vi.fn(() => vi.fn()),
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [
+        { url: "https://zhuanlan.zhihu.com/p/1", title: "甲", kind: "article", favTime: 1 },
+      ], totals: 1 } }),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+      storeSetSetting: vi.fn().mockResolvedValue(true),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuFavlists = [{ urlToken: "111", title: "夹" }];
+    w.vm.zhihuSelectedFavlist = "111";
+    w.vm.zhihuFavItems = [{ url: "https://zhuanlan.zhihu.com/p/1", title: "甲", kind: "article", favTime: 1, collected: false }];
+    w.vm.zhihuFavChecked = new Set(["https://zhuanlan.zhihu.com/p/1"]);
+    await w.vm.runZhihuFavCollectRewrite();
+    const item = w.vm.collectedItems[0];
+    expect(item.title).toBe("标题甲");
+    expect(item.content).toBe("正文甲");
+    expect(item.sourceUrl).toBe("https://zhuanlan.zhihu.com/p/1");
+    expect(item.rewrittenContent).toBe("改写稿甲");
+    expect(item.images).toEqual(["D:\\img\\a.jpg"]);
+    // 清单已采集标记刷新（后台异步，等一轮微任务）
+    await new Promise((r) => setTimeout(r, 0));
+    expect(window.electronAPI.zhihuFavlistContents).toHaveBeenCalled();
+  });
+
+  it("runZhihuFavCollectRewrite 未勾选 → 提示", async () => {
+    window.electronAPI = { onZhihuFavBatchProgress: vi.fn(() => vi.fn()) };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuFavItems = [];
+    await w.vm.runZhihuFavCollectRewrite();
+    expect(w.vm.zhihuFavlistError).toContain("勾选");
+  });
+
+  it("QM-6 M2 回归锁：cancelZhihuFavBatch 必须存在且走 zhihuFavBatchCancel 通道", async () => {
+    const cancelSpy = vi.fn().mockResolvedValue({ code: 0 });
+    window.electronAPI = { onZhihuFavBatchProgress: vi.fn(() => vi.fn()), zhihuFavBatchCancel: cancelSpy };
+    const w = mountCollection();
+    await nextTick();
+    expect(typeof w.vm.cancelZhihuFavBatch).toBe("function");
+    w.vm.cancelZhihuFavBatch();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it("QM-6 M3 回归锁：平台下拉选择必须写入 batchSelection（buildTargets 非空）", async () => {
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn(() => vi.fn()),
+      getPlatformDefinitions: vi.fn().mockResolvedValue({ code: 0, data: { platforms: [
+        { id: "xiaohongshu", label: "小红书", contentCategory: "IMAGE_TEXT" },
+      ] } }),
+      listAccounts: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.batchPlatformScope = "xiaohongshu";
+    await nextTick();
+    // buildTargets 经 composable 暴露：imageText 形态的平台必须已被 watch 同步写入
+    const targets = w.vm.batch.buildTargets("imageText");
+    expect(targets).toEqual([{ platform: "xiaohongshu", accountId: null }]);
   });
 
   it("zhihuFavlistBatchRewrite 无可改写内容 → 提示", async () => {

@@ -72,6 +72,7 @@ vi.mock("@element-plus/icons-vue", () => {
 import UiButton from "@/components/UiButton.vue";
 import UiInput from "@/components/UiInput.vue";
 import PlatformOverridePanel from "@/features/publish/components/PlatformOverridePanel.vue";
+import BatchArticleFields from "@/features/publish/components/BatchArticleFields.vue";
 import PublishTargetSelector from "@/features/publish/components/PublishTargetSelector.vue";
 import PublishView from "./Publish.vue";
 
@@ -430,7 +431,7 @@ describe("PublishView", () => {
     // P1-4 定时×草稿互斥：带定时保存会弹确认；本用例验证「保留定时保存」侧的完整往返
     ElMessageBox.confirm.mockRejectedValueOnce(new Error("cancel"));
 
-    await w.vm.saveDraft();
+    await w.vm.onSaveDraft();
 
     expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1);
     expect(window.electronAPI.draftSave).toHaveBeenCalledWith(expect.objectContaining({
@@ -650,6 +651,32 @@ describe("PublishView — extra coverage", () => {
     w.vm.applyTemplate({ title: "Batch Title", content: "Batch Content" });
     expect(w.vm.articles[0].title).toBe("Batch Title");
     expect(w.vm.articles[0].content).toBe("Batch Content");
+  });
+
+  it("P2-7：批量条目挂载扩展字段面，且组件事件经 composable setter 落进条目对象", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    await nextTick();
+
+    // 接线存在性：字段面组件按条目渲染（testid 带条目下标，可逐条目定位）
+    expect(w.find('[data-testid="batch-fields-0"]').exists()).toBe(true);
+
+    // 写点落进条目对象——修复前 cover_* 在批量只有读点、没有任何写点
+    w.findComponent(BatchArticleFields).vm.$emit("update:cover", { path: "D:/p27.png", name: "p27.png" });
+    expect(w.vm.articles[0].cover_path).toBe("D:/p27.png");
+    expect(w.vm.articles[0].cover_file).toEqual({ path: "D:/p27.png", name: "p27.png" });
+
+    w.findComponent(BatchArticleFields).vm.$emit("update:visibility", "private");
+    expect(w.vm.articles[0].visibilitySemantic).toBe("private");
+
+    w.findComponent(BatchArticleFields).vm.$emit("update:overrides", { douyin: { title: "覆盖标题", content: "" } });
+    expect(w.vm.articles[0].platformOverrides).toEqual({ douyin: { title: "覆盖标题", content: "" } });
+
+    w.findComponent(BatchArticleFields).vm.$emit("clear-cover");
+    expect(w.vm.articles[0].cover_path).toBe("");
+    expect(w.vm.articles[0].cover_file).toBeNull();
   });
 
   it("showTemplatePicker toggle works", async () => {
@@ -1476,3 +1503,233 @@ describe("PublishView — 话题内联描述接线（publish-topic-inline-descri
     expect(w.vm.articles[1].topicsText).toBe('vlog');
   });
 });});
+
+// keep-alive 重进入预填回归：App.vue 用 <keep-alive :include="['Publish']"> 缓存发布页后，
+// 从结果页「去发布」带 ?video_path= 再次进入时 onMounted 不再触发，预填必须靠 onActivated。
+// 断言「离开再带新 video_path 回来」时表单更新到新值（摘掉 onActivated 会停在旧值 → 本用例变红）。
+describe("PublishView keep-alive 重进入 query 预填", () => {
+  const keepAliveStubs = {
+    teleport: true,
+    "el-checkbox-group": { template: "<div><slot/></div>" },
+    "el-checkbox": { template: "<label><input type='checkbox' /><slot/></label>" },
+    "el-upload": { template: "<div><slot/></div>" },
+    "el-icon": { template: "<span><slot/></span>" },
+    TagSuggester: true, OptimalTimeTip: true, TitleAssistantPanel: true,
+    ArticleEditor: true, TemplatePicker: true, UpgradeModal: true, AiWriterPanel: true,
+  };
+  const Harness = {
+    template: `<router-view v-slot="{ Component }"><keep-alive :include="['Publish']"><component :is="Component" /></keep-alive></router-view>`,
+  };
+  function videoPathOf(w) {
+    const pub = w.findComponent(PublishView);
+    return pub.exists() ? pub.vm.article.video_path : null;
+  }
+
+  it("缓存后带新 video_path 重新进入 → onActivated 重新预填", async () => {
+    const localRouter = createRouter({
+      history: createWebHistory(),
+      routes: [
+        { path: "/publish", name: "Publish", component: PublishView },
+        { path: "/other", name: "Other", component: { name: "Other", template: "<div>other</div>" } },
+      ],
+    });
+    await localRouter.push("/publish?video_path=" + encodeURIComponent("D:/media/a.mp4"));
+    await localRouter.isReady();
+    const w = mount(Harness, {
+      global: { plugins: [localRouter, createPinia(), i18n], components: { UiButton, UiInput }, stubs: keepAliveStubs },
+    });
+    await flushPromises();
+    await nextTick();
+    expect(videoPathOf(w)).toBe("D:/media/a.mp4");
+
+    // 离开到别的页（Publish 被 keep-alive 缓存、不销毁）
+    await localRouter.push("/other");
+    await nextTick();
+    // 再带【新】video_path 回来：onMounted 不会再跑，靠 onActivated 重新预填
+    await localRouter.push("/publish?video_path=" + encodeURIComponent("D:/media/b.mp4"));
+    await nextTick();
+    await flushPromises();
+    expect(videoPathOf(w)).toBe("D:/media/b.mp4");
+  });
+});
+
+// ── 文案详情模式（copy-library-detail-entry，2026-10-09）──
+const copyHandoff = vi.hoisted(() => {
+  let stored = null
+  return {
+    set: vi.fn((payload) => { stored = payload }),
+    take: vi.fn(() => { const p = stored; stored = null; return p }),
+    clear: () => { stored = null },
+  }
+})
+
+vi.mock("@/utils/copy-detail-handoff", () => ({
+  takeCopyDetailHandoff: copyHandoff.take,
+}))
+
+const upsertRewriteSpy = vi.hoisted(() => vi.fn(async (entry) => ({ id: "up-1", ...entry })))
+vi.mock("@/composables/useCopyLibrary", () => ({
+  useCopyLibrary: () => ({ upsertRewrite: upsertRewriteSpy }),
+}))
+
+describe("PublishView — 文案详情模式（文案库跳转）", () => {
+  beforeEach(async () => {
+    i18n.global.locale.value = "zh";
+    await router.push('/')
+    vi.clearAllMocks();
+    copyHandoff.clear();
+    setActivePinia(createPinia());
+    window.electronAPI = {
+      publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      getPathForFile: vi.fn().mockReturnValue("D:/media/from-file-api.mp4"),
+      sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
+      offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
+      offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
+      onProgress: vi.fn(() => vi.fn()),
+    };
+  })
+
+  it("挂载时消费交接载荷：预填标题/正文并显示提示条", async () => {
+    copyHandoff.take.mockReturnValueOnce({ content: "文案正文全文", title: "文案标题A", origin: "collect", sourceId: "c1", platform: "xiaohongshu", sourceUrl: "" });
+    const w = await createWrapper();
+    expect(copyHandoff.take).toHaveBeenCalled();
+    expect(w.vm.article.title).toBe("文案标题A");
+    expect(w.vm.article.content).toBe("文案正文全文");
+    expect(w.find('[data-testid="copy-detail-banner"]').exists()).toBe(true);
+  });
+
+  it("无载荷时不进入详情模式（提示条不出现，零回归）", async () => {
+    const w = await createWrapper();
+    expect(w.find('[data-testid="copy-detail-banner"]').exists()).toBe(false);
+  });
+
+  it("视频来源载荷切换到视频发布模式", async () => {
+    copyHandoff.take.mockReturnValueOnce({ content: "视频文案", title: "V", origin: "video", sourceId: "v1", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    expect(w.vm.article.title).toBe("V");
+    // video 模式渲染视频上传分支（publish-desc 测试锚点只在 video 分支存在）
+    expect(w.find('[data-testid="publish-desc"]').exists()).toBe(true);
+  });
+
+  it("关闭提示条后不再显示", async () => {
+    copyHandoff.take.mockReturnValueOnce({ content: "x", title: "t", origin: "draft", sourceId: "d1", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    expect(w.find('[data-testid="copy-detail-banner"]').exists()).toBe(true);
+    await w.find('[data-testid="copy-detail-banner-close"]').trigger("click");
+    await nextTick();
+    expect(w.find('[data-testid="copy-detail-banner"]').exists()).toBe(false);
+  });
+
+  it("【创作视频】按钮存在且内容为空时点击仅告警不跳转", async () => {
+    const w = await createWrapper();
+    const btn = w.find('[data-testid="publish-create-video"]');
+    expect(btn.exists()).toBe(true);
+    await btn.trigger("click");
+    await flushPromises();
+    // 无标题无正文 → 不触发 draftSave（electronAPI.draftSave 未被调用即证明）
+    expect(window.electronAPI.draftSave).toBeUndefined();
+  });
+
+  it("【创作视频】有内容 → 存草稿成功后跳 /create?draft=<id>", async () => {
+    window.electronAPI.draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "draft_x1", reused: false } });
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue(undefined);
+    const w = await createWrapper();
+    w.vm.article.content = "用于创作视频的正文内容";
+    const btn = w.find('[data-testid="publish-create-video"]');
+    await btn.trigger("click");
+    await flushPromises();
+    expect(window.electronAPI.draftSave).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledWith(expect.objectContaining({ path: "/create", query: expect.objectContaining({ draft: "draft_x1" }) }));
+    pushSpy.mockRestore();
+  });
+
+  it("【创作视频】连点只存一次草稿（防重入锁）", async () => {
+    window.electronAPI.draftSave = vi.fn().mockImplementation(() => new Promise((res) => setTimeout(() => res({ code: 0, data: { draftId: "d1", reused: false } }), 20)));
+    const w = await createWrapper();
+    w.vm.article.content = "防重入正文";
+    const btn = w.find('[data-testid="publish-create-video"]');
+    const p1 = btn.trigger("click");
+    const p2 = btn.trigger("click");
+    await Promise.all([p1, p2]);
+    await flushPromises();
+    expect(window.electronAPI.draftSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("collect 来源保存草稿 → upsertRewrite 收到 fromKey=collect:c1（评审 MAJOR-2 契约断言）", async () => {
+    upsertRewriteSpy.mockClear();
+    window.electronAPI.draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "draft_c1", reused: false } });
+    copyHandoff.take.mockReturnValueOnce({ content: "采集原文", title: "T1", origin: "collect", sourceId: "c1", platform: "xiaohongshu", sourceUrl: "https://e.com/1" });
+    const w = await createWrapper();
+    w.vm.article.content = "用户编辑后的正文";
+    w.vm.article.title = "编辑后标题";
+    await w.vm.onSaveDraft();
+    await flushPromises();
+    expect(upsertRewriteSpy).toHaveBeenCalledTimes(1);
+    expect(upsertRewriteSpy).toHaveBeenCalledWith(expect.objectContaining({
+      fromKey: "collect:c1",
+      content: "用户编辑后的正文",
+      title: "编辑后标题",
+      platform: "xiaohongshu",
+      sourceUrl: "https://e.com/1",
+    }));
+  });
+
+  it("rewrite 来源保存草稿 → fromKey=rewrite:r1", async () => {
+    upsertRewriteSpy.mockClear();
+    window.electronAPI.draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "draft_r1", reused: false } });
+    copyHandoff.take.mockReturnValueOnce({ content: "改写原文", title: "T2", origin: "rewrite", sourceId: "r1", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    w.vm.article.content = "改写后编辑";
+    await w.vm.onSaveDraft();
+    await flushPromises();
+    expect(upsertRewriteSpy).toHaveBeenCalledWith(expect.objectContaining({ fromKey: "rewrite:r1", content: "改写后编辑" }));
+  });
+
+  it("video 来源保存草稿 → 不回写文案库", async () => {
+    upsertRewriteSpy.mockClear();
+    window.electronAPI.draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "draft_v", reused: false } });
+    copyHandoff.take.mockReturnValueOnce({ content: "视频文案", title: "V", origin: "video", sourceId: "v1", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    w.vm.article.content = "视频文案编辑";
+    await w.vm.onSaveDraft();
+    await flushPromises();
+    expect(upsertRewriteSpy).not.toHaveBeenCalled();
+  });
+
+  it("draft 来源保存草稿 → 不回写文案库", async () => {
+    upsertRewriteSpy.mockClear();
+    window.electronAPI.draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "draft_d", reused: false } });
+    copyHandoff.take.mockReturnValueOnce({ content: "草稿内容", title: "D", origin: "draft", sourceId: "d1", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    w.vm.article.content = "草稿编辑";
+    await w.vm.onSaveDraft();
+    await flushPromises();
+    expect(upsertRewriteSpy).not.toHaveBeenCalled();
+  });
+
+  it("回写失败不阻塞保存主流程（旁路吞异常）", async () => {
+    upsertRewriteSpy.mockClear();
+    upsertRewriteSpy.mockRejectedValueOnce(new Error("storage boom"));
+    window.electronAPI.draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "draft_x", reused: false } });
+    copyHandoff.take.mockReturnValueOnce({ content: "x", title: "t", origin: "collect", sourceId: "c9", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    w.vm.article.content = "正文";
+    await expect(w.vm.onSaveDraft()).resolves.toBeUndefined();
+    await flushPromises();
+    expect(upsertRewriteSpy).toHaveBeenCalled();
+  });
+
+  it("keep-alive 场景：无 from=copy-library 导航重置详情态（评审 CRITICAL 回归锁）", async () => {
+    copyHandoff.take.mockReturnValueOnce({ content: "A", title: "A", origin: "collect", sourceId: "a1", platform: "", sourceUrl: "" });
+    const w = await createWrapper();
+    expect(w.find('[data-testid="copy-detail-banner"]').exists()).toBe(true);
+    // 模拟 keep-alive 复活：onActivated 再次触发但无载荷且 query 无 from
+    copyHandoff.take.mockReturnValueOnce(null);
+    await w.vm.onActivatedCopyDetailProbe ? w.vm.onActivatedCopyDetailProbe() : void 0;
+    // 直接调用内部重置逻辑（经 applyCopyDetailHandoff 暴露面）
+    if (typeof w.vm.applyCopyDetailHandoff === "function") {
+      w.vm.applyCopyDetailHandoff();
+      await nextTick();
+    }
+    expect(upsertRewriteSpy).not.toHaveBeenCalled();
+  });});

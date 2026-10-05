@@ -139,4 +139,35 @@ function withSenderCheck(fn) {
   }
 }
 
-module.exports = { wrapIpcHandler, wrapIpcHandlerRaw, withSenderCheck, EC }
+/**
+ * IPC 读侧的归属三态（判据的唯一实现；publish.js / account.js / performance-loop.js 里的
+ * `getOwnerSubject()` 只是转发别名，不构成第二份实现）：
+ *   - `undefined` → 身份服务缺席（legacy 档）：调用方应取「无归属桶」，不是报错；
+ *   - `null`      → 身份服务在但没有可用 sub：**必须** fail closed，
+ *                    把「认不出是谁」渲染成「0 条数据」会让用户以为功能坏了（与 dashboard:stats 同口径）；
+ *   - 非空串      → 已去空白的 subject。
+ *
+ * ⛔ 本函数**没有**收敛全仓：另有四份同型的私有取 sub 实现，改这里不会改到它们，
+ * 且其中两份与上面的三态**不一致**（逐文件实测，详见
+ * 01-docs/PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md §十 第 11 条）：
+ *   - `cloud-account.js:31` `ownerSubject()`、`store.js:35` `_getOwnerSubject()` —— 三态与本函数等价，属纯重复；
+ *   - `hot-topics.js:19` `_getOwnerSubject()` —— 身份服务缺席时回 **null** 而不是 `undefined`，
+ *     即 legacy 档在这里被当成「认不出是谁」fail closed，与本函数的口径相反；
+ *   - `scheduler.js:7` `currentOwnerSubject()` —— sub 缺失时 **throw** 而不是回 null（调度器要求必须有身份，属有意设计）。
+ * 收敛成一处（逐个决定 legacy 档语义 + 配回归锁）属独立切片，不在本次范围。
+ *
+ * @param {{getState: () => any}|null|undefined} identityService
+ * @returns {string|null|undefined}
+ */
+function resolveIpcOwnerSubject (identityService) {
+  if (!identityService) return undefined
+  try {
+    const state = identityService.getState()
+    if (state && typeof state === 'object' && state.user && typeof state.user.sub === 'string' && state.user.sub.trim()) {
+      return state.user.sub.trim()
+    }
+  } catch (_) { /* fail closed below */ }
+  return null
+}
+
+module.exports = { wrapIpcHandler, wrapIpcHandlerRaw, withSenderCheck, resolveIpcOwnerSubject, EC }

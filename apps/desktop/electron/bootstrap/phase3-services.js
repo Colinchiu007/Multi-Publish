@@ -3,7 +3,7 @@
  * Phase 3: 服务初始化（app.whenReady 后）
  *
  * 从 bootstrap.js runWhenReady 拆出：
- * - usageTracker / store.init / publishIntervalGuard
+ * - usageTracker / store.init
  * - taskQueue.setStateSaver / callbackServer.start
  * - scheduler.restore / taskQueue.deserialize
  * - keywordMonitor.onAlert + 持久化定时器
@@ -46,7 +46,7 @@ async function runCleanups(cleanups) {
 /**
  * 初始化所有异步服务（app.whenReady 后调用）
  * @param {object} deps
- * @param {object} deps.container - DI 容器（获取 publishIntervalGuard）
+ * @param {object} deps.container - DI 容器（经 getOptionalService 按需取可选服务）
  * @param {object} deps.usageTracker - 使用量统计服务
  * @param {object} deps.store - Store 实例
  * @param {{init?: () => unknown}} deps.modelProviderManager - 模型服务商管理器
@@ -64,7 +64,7 @@ async function runCleanups(cleanups) {
  */
 async function startServices({ container, usageTracker, store, taskQueue, callbackServer, scheduler,
   keywordMonitor, analyticsService, pythonBridge, CloudPublisher, modelProviderManager, getMainWin,
-  createIdentityService, loadIdentityRuntimeEnv, waitForStoreReady, opsCenterSync }) {
+  createIdentityService, loadIdentityRuntimeEnv, waitForStoreReady, opsCenterSync, automationScheduler }) {
   /** @type {Array<() => unknown | Promise<unknown>>} */
   const cleanups = []
   let rollbackPromise = null
@@ -92,8 +92,6 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (modelProviderManager && typeof modelProviderManager.init === 'function') {
       modelProviderManager.init()
     }
-    const _publishIntervalGuard = container.get('publishIntervalGuard')
-
     cleanups.push(() => { if (taskQueue.setStateSaver) taskQueue.setStateSaver(null) })
     taskQueue.setStateSaver((jsonStr) => {
       if (typeof store.setUserSetting === 'function') {
@@ -115,6 +113,8 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     }
 
     cleanups.push(() => { if (scheduler.stopAll) scheduler.stopAll() })
+    // 自动化任务：退出时清干净全部定时器（定时器已 unref，这里保证不残留）
+    cleanups.push(() => { if (automationScheduler && automationScheduler.stopAll) automationScheduler.stopAll() })
 
     const unsubscribeAlert = keywordMonitor.onAlert((keyword, current, previous, ratio) => {
       const win = getMainWin()
@@ -243,6 +243,16 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
           if (restoredBatches > 0) log.info('BatchManager', 'Restored ' + restoredBatches + ' scheduled batch(es)')
         } catch (error) {
           log.warn('BatchManager', 'Failed to restore scheduled batches: ' + errorMessage(error))
+        }
+      }
+      // 自动化任务启动触发（2026-10-03）：排在 scheduler.restore 与批量排期恢复之后
+      // （顺序契约见 phase3-services.test.js）。启动触发是**显式触发器**，不是
+      // 「补跑过期定时任务」——后者会打满平台限流，故意不做。失败不阻断启动。
+      if (automationScheduler && typeof automationScheduler.start === 'function') {
+        try {
+          automationScheduler.start()
+        } catch (error) {
+          log.warn('Automation', 'Failed to start automation scheduler: ' + errorMessage(error))
         }
       }
       return restored

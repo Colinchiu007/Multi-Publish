@@ -113,9 +113,19 @@ module.exports = {
     },
     toutiao: {
       write_btn: ['a:has-text("发表文章")', 'button:has-text("写文章")', '[class*="write"]'],
-      title_input: ['input[placeholder*="标题"]', '.title-input input', '[class*="title"] input'],
-      editor: ['[contenteditable="true"]', '.ql-editor', '.editor-content', '.notranslate'],
-      publish_btn: ['button:has-text("发布")', 'button:has-text("发表")', '.publish-btn', '[class*="submit"]'],
+      // 2026-09-30 真机取证（/profile_v4/graphic/publish）：标题是 **TEXTAREA**
+      // `placeholder="请输入文章标题（2～30个字）"`（w=650,h=36，可见），不是 input——
+      // 旧首选项 `input[placeholder*="标题"]` 永不命中（日志 `no title_input nor editor candidate`）。
+      title_input: ['textarea[placeholder*="文章标题"]', 'textarea[placeholder*="标题"]', 'input[placeholder*="标题"]', '.title-input input'],
+      // 正文是 ProseMirror（`DIV.ProseMirror`，w=854,h=500）；其 contenteditable 值不是字面
+      // "true"，故旧 `[contenteditable="true"]` 落空（日志 `content editor not found among 4 candidates`）。
+      // 显式补 `.ProseMirror` 并把通用 contenteditable 放宽为属性存在选择器。
+      editor: ['.ProseMirror', '[contenteditable="true"]', '[contenteditable]', '.ql-editor', '.editor-content', '.notranslate'],
+      // 2026-09-30 收紧（配合 `:has-text` 根因修复）：解析器择优顺序为
+      // 「精确 → 叶子精确 → 包含 → 任意包含」，故 `button:has-text("发布")` 在本页
+      // **没有精确匹配**时会退化成**包含**匹配 ⇒ 命中「**定时发布**」这类危险控件！
+      // 因此只保留**文本明确**的候选，不再放宽泛的「发布」「发表」。
+      publish_btn: ['button:has-text("预览并发布")', '.publish-btn', 'button:has-text("确认发布")'],
     },
     youtube: {
       create_btn: ['#create-icon', 'ytcp-button#create-icon', 'button[aria-label="创建视频"]'],

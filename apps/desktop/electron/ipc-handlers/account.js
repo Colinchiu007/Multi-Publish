@@ -13,7 +13,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
-  const { withSenderCheck } = require('./helpers')
+  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
   const { toPublicProxyConfig } = require('../services/proxy-config')
   const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
   const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
@@ -36,15 +36,9 @@ function registerHandlers(ipcMain, deps) {
     log,
   })
 
+  // 归属三态唯一实现在 helpers.resolveIpcOwnerSubject，本处只转发（QM-6 后端轴 FB5）
   function getOwnerSubject () {
-    if (!identityService) return undefined
-    try {
-      const state = identityService.getState()
-      if (state && typeof state === 'object' && state.user && typeof state.user.sub === 'string' && state.user.sub.trim()) {
-        return state.user.sub.trim()
-      }
-    } catch (_) { /* fail closed below */ }
-    return null
+    return resolveIpcOwnerSubject(identityService)
   }
 
   // 统一 IPC 日志：账号管理路径（模块 AccountIPC），含平台/账号/耗时，敏感字段经 toPublicErrorValue 脱敏
@@ -384,9 +378,11 @@ function registerHandlers(ipcMain, deps) {
       const expiredCount = data.filter(a => a.status === 'expired').length
       const activeCount = data.filter(a => a.status === 'active' || a.status === 'online').length
       ipcLog('info', 'accounts:list', 'ok', `count=${data.length} active=${activeCount} expired=${expiredCount} platforms=[${data.map((a) => a.platform).filter((v, i, arr) => arr.indexOf(v) === i).join(',')}] 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'accounts-list-ok', { params: { count: data.length, platforms: data.map((a) => a.platform) }, level: 'INFO' })
       return { code: 0, data }
     } catch (e) {
       ipcLog('error', 'accounts:list', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'accounts-list-error', { errorCategory: 'account_list', level: 'ERROR', error: String(e instanceof Error ? e.message : String(e)) })
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [], ...ipcFailureDetail(e) }
     }
   }))
@@ -439,6 +435,7 @@ function registerHandlers(ipcMain, deps) {
         win.webContents.send('auth:completed', { platform, accountId: savedAccountId })
       }
       ipcLog('info', 'auth:open-login', 'ok', `platform=${platform} accountId=${savedAccountId} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'auth-open-login-ok', { params: { platform, accountId: savedAccountId }, level: 'INFO' })
       return {
         code: 0,
         data: toPublicAccount({
@@ -568,6 +565,7 @@ function registerHandlers(ipcMain, deps) {
       }
       await AccountManager.deleteAccount(accountId)
       ipcLog('info', 'account:delete', 'ok', `accountId=${accountId} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'account-delete-ok', { params: { accountId }, level: 'INFO' })
       return { code: 0, data: true, message: '账号已删除' }
     }
     catch (e) { ipcLog('error', 'account:delete', 'error', `accountId=${accountId} message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }

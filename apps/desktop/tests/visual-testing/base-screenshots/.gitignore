@@ -1,4 +1,4 @@
-﻿# Baseline reference images (must be tracked for pixel comparison)
+# Baseline reference images (must be tracked for pixel comparison)
 # Use negation patterns to override parent *.png rule
 !home-baseline.png
 !accounts-list.png
@@ -25,5 +25,27 @@
 !collection.png
 !comments.png
 
+# 暗色基线（批次 1 建立的暗色通道，2026-09-29 首次入库）
+# 逐名登记（与上方浅色白名单同口径，由 visual-ci.test.js 强制）——漏登记的表现是
+# 「基线文件静默不被跟踪」，本仓此前已被同类 gitignore 问题咬过。
+!home-baseline-dark.png
+!accounts-list-dark.png
+!accounts-list-flag-on-dark.png
+!publish-form-dark.png
+!publish-history-dark.png
+!create-editor-dark.png
+!model-providers-dark.png
+!first-run-dark.png
+!dashboard-dark.png
+!calendar-dark.png
+!cloud-publish-dark.png
+!viral-analysis-dark.png
+!create-result-dark.png
+!create-pipeline-dark.png
+!create-history-dark.png
+!create-story2video-detail-dark.png
+!intelligence-dark.png
+!keyword-monitor-dark.png
+!collection-dark.png
 # Current screenshots from test runs (not tracked)
 *-current.png

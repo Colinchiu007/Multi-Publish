@@ -86,8 +86,18 @@ foreach ($name in @('pre-commit','post-checkout')) {
 $guardTask = Get-ScheduledTask -TaskPath '\Mulpub\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
 $guardRunning = $false
 if ($guardTask) {
-    $guardProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' })
-    $guardRunning = $guardProcs.Count -gt 0
+    # The guard now runs under a non-interactive (S4U) principal, i.e. in another session, and a
+    # non-elevated caller cannot read other sessions' CommandLine - the property comes back
+    # $null, so a name match on it reports "not running" for a guard that is in fact enforcing.
+    # Measured 2026-10-03: session-0 powershell (parent = Task Scheduler) with unreadable
+    # CommandLine, task State=Running, and a probe file under apps/ was quarantined within ~1s.
+    # The task's own state is the primary signal; the process match stays as corroboration
+    # because it still works when both live in the caller's session.
+    $guardRunning = ([string]$guardTask.State) -eq 'Running'
+    if (-not $guardRunning) {
+        $guardProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*guard-shared-root-writes.ps1*' })
+        $guardRunning = $guardProcs.Count -gt 0
+    }
 }
 $quarantineRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation\quarantine'
 $guardFiles = @()
@@ -101,14 +111,54 @@ if (Test-Path -LiteralPath $quarantineRoot) {
 $worktreeLines = @(Git @('worktree','list','--porcelain'))
 $paths = @($worktreeLines | Where-Object { $_ -like 'worktree *' } | ForEach-Object { $_.Substring(9) })
 $rootKey = $root.Replace('\','/').TrimEnd('/')
-$outside = @($paths | Where-Object { $pathKey = $_.Replace('\','/').TrimEnd('/'); $pathKey -ne $rootKey -and -not $pathKey.StartsWith(($worktreeKey + '/mp-'), [StringComparison]::OrdinalIgnoreCase) })
+
+# 受管外来 worktree 登记制（2026-10-01）：harness 级工具（如 WorkBuddy 的项目工作区）会向
+# 共享仓库注册隔离目录之外的 linked worktree，这不是会话隔离能消除的进程。登记制把
+# 「未知外来 worktree 一律红」收窄为「未登记的红、已登记的放行并留痕」，fail-closed 保留：
+# 注册表 JSON 解析失败视为空表（未登记仍红），并在报告里置 allowedRegistry.valid=false。
+# 注册表固定在机器本地 %LOCALAPPDATA%\Mulpub\session-isolation\（与 health.json 同目录），
+# 不写入仓库、不随 -ReportPath 漂移 —— 否则换一个报告路径登记就「消失」，测试口径与真实口径分叉。
+# 测试用 MP_ALLOWED_WORKTREES_FILE 指向夹具文件；MP_ALLOWED_WORKTREES（分号分隔）可免落盘临时追加。
+# 判据是整路径精确匹配（大小写/斜杠归一化后），不做前缀通配 —— 白名单一旦可通配，
+# 就离「整目录豁免」的门禁腐化只差一次手滑。
+$allowedRegistryPath = if ($env:MP_ALLOWED_WORKTREES_FILE) { $env:MP_ALLOWED_WORKTREES_FILE } else { Join-Path (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mulpub\session-isolation') 'allowed-worktrees.json' }
+$allowedKeys = @()
+$allowedRegistryValid = $true
+if (Test-Path -LiteralPath $allowedRegistryPath) {
+    try {
+        $parsed = Get-Content -LiteralPath $allowedRegistryPath -Raw | ConvertFrom-Json
+        foreach ($entry in @($parsed)) {
+            if ($entry -is [string] -and $entry.Trim()) {
+                $allowedKeys += $entry.Replace('\','/').TrimEnd('/').ToLowerInvariant()
+            } else {
+                $allowedRegistryValid = $false
+            }
+        }
+    } catch {
+        $allowedRegistryValid = $false
+    }
+}
+if ($env:MP_ALLOWED_WORKTREES) {
+    foreach ($p in $env:MP_ALLOWED_WORKTREES.Split(';')) {
+        if ($p.Trim()) { $allowedKeys += $p.Replace('\','/').TrimEnd('/').ToLowerInvariant() }
+    }
+}
+
+$isOutsidePath = {
+    param([string]$worktreePath)
+    $k = $worktreePath.Replace('\','/').TrimEnd('/')
+    $k -ne $rootKey -and -not $k.StartsWith(($worktreeKey + '/mp-'), [StringComparison]::OrdinalIgnoreCase)
+}
+$outside = @($paths | Where-Object { (& $isOutsidePath $_) -and ($allowedKeys -notcontains $_.Replace('\','/').TrimEnd('/').ToLowerInvariant()) })
+$exempted = @($paths | Where-Object { (& $isOutsidePath $_) -and ($allowedKeys -contains $_.Replace('\','/').TrimEnd('/').ToLowerInvariant()) })
 $hooksBad = @($hookResults | Where-Object { -not $_.match }).Count -gt 0
 $rootAllowed = if ($RequirePrimary) { $isPrimary -and $branch -eq 'main' } else { $isPrimary -or $rootKey.StartsWith(($worktreeKey + '/mp-'), [StringComparison]::OrdinalIgnoreCase) }
 $writeGuardOk = [bool]$guardTask -and $guardRunning
-$ok = $rootAllowed -and -not (Test-Path $marker) -and (($RequireClean -eq $false) -or $status.Count -eq 0) -and (($RequireHooks -eq $false) -or -not $hooksBad) -and $outside.Count -eq 0 -and (($RequireWriteGuard -eq $false) -or $writeGuardOk)
+$ok = $rootAllowed -and -not (Test-Path $marker) -and (($RequireClean -eq $false) -or $status.Count -eq 0) -and (($RequireHooks -eq $false) -or -not $hooksBad) -and $outside.Count -eq 0 -and $allowedRegistryValid -and (($RequireWriteGuard -eq $false) -or $writeGuardOk)
 
 $writeGuard = [ordered]@{ taskRegistered=[bool]$guardTask; running=$guardRunning; quarantineCount=$guardFiles.Count; violations=$violationCount; ok=$writeGuardOk }
-$report = [ordered]@{ checkedAt=(Get-Date).ToUniversalTime().ToString('o'); root=$root; worktreeRoot=$worktreeRoot; primary=$isPrimary; branch=$branch; clean=($status.Count -eq 0); marker=(Test-Path $marker); hooks=$hookResults; writeGuard=$writeGuard; worktreeCount=$paths.Count; outsideWorktrees=$outside; ok=$ok }
+$allowedRegistry = [ordered]@{ path=$allowedRegistryPath; valid=$allowedRegistryValid; count=$allowedKeys.Count }
+$report = [ordered]@{ checkedAt=(Get-Date).ToUniversalTime().ToString('o'); root=$root; worktreeRoot=$worktreeRoot; primary=$isPrimary; branch=$branch; clean=($status.Count -eq 0); marker=(Test-Path $marker); hooks=$hookResults; writeGuard=$writeGuard; worktreeCount=$paths.Count; outsideWorktrees=$outside; exemptedWorktrees=$exempted; allowedRegistry=$allowedRegistry; ok=$ok }
 $parent = Split-Path -Parent $ReportPath
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
 $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding UTF8

@@ -2,6 +2,7 @@
 
 - **日期**：2026-09-28
 - **状态**：实施中（openspec change：`openspec/changes/publish-progress-ux/`）
+- **修订**：2026-10-01 publish-progress-fix（`01-docs/PRD-PUBLISH-PROGRESS-FIX-2026-10-01.md`）——修复 registerSession 与孤儿事件先到的会话登记竞态（重复会话/幽灵排队任务）+ 上传等待真实百分比/自适应预算；本文件 §5.2「registerSession 新建会话」语义自该日起为「收养合并优先，找不到才新建」
 - **修订**：2026-09-29 publish-progress-panel-refine（openspec change：`openspec/changes/publish-progress-panel-refine/`）——面板视觉/UE 精化 + `cancelled` 相位 + 取消入口 + 自动收敛；本文件契约表已同步修订（§5.1/§5.2/§6.1/§7/§8.1-§8.4/§12），专题 PRD 见 `01-docs/PRD-PUBLISH-PROGRESS-PANEL-REFINE-2026-09-29.md`
 - **关联**：`01-docs/PRD.md` §六（发布流程）新增 6.7；`01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md` §5 通查清单补登；先例合同：`01-docs/PRD.md`「视频创作后台运行与并发合同」§3a.2
 - **一句话**：点击发布后，用户在任何页面都能看到「到了什么环节、进展如何」，可以最小化让发布后台继续（明确提示勿关应用），失败可见可重试，关窗转托盘不丢任务。

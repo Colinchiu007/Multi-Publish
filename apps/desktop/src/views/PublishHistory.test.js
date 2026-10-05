@@ -11,6 +11,13 @@ const pushMock = vi.fn()
 const historyGetMock = vi.fn()
 const historyDeleteMock = vi.fn()
 const retryTaskMock = vi.fn()
+// 卡片整体点击打开平台链接（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）：
+// 组件合同测 store.createTab 调用契约；store→pageManager 桥→IPC 的集成由
+// Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖。
+const tabCreateTabMock = vi.fn()
+vi.mock('@/stores/tab', () => ({
+  useTabStore: () => ({ createTab: (...args) => tabCreateTabMock(...args) }),
+}))
 
 // 未登录门禁态测试：用 ref 驱动 isAuthenticated，可模拟「登录成功 → 自动重载」。
 const identityAuthenticatedRef = ref(false)
@@ -781,5 +788,148 @@ describe('PublishHistory 发布方式徽标（§6.1）', () => {
       expect(modal.text()).toContain('平台作品 ID')
       expect(modal.text()).toContain('aweme-777')
     })
+  })
+})
+
+// ── PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03：卡片整体点击打开平台链接 ──
+// 判据单一来源：safeHttpUrl（渲染端 ESM 孪生）；打开通道：tabStore.createTab
+// （page-manager 应用内新标签）→ 失败降级 window.open（主进程 isAllowedExternalUrl 更严判据兜底）。
+describe('PublishHistory 发布记录卡片点击打开平台链接', () => {
+  const CARD_URL = 'https://www.zhihu.com/question/123456'
+
+  // 组件合同测 store.createTab 调用契约（vi.mock('@/stores/tab') 注入 tabCreateTabMock）；
+  // store→pageManager 桥→IPC 的集成由 Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖。
+  async function mountWithRecords (records) {
+    historyListMock.mockReset().mockResolvedValue({ code: 0, data: { total: records.length, records } })
+    const wrapper = mountView()
+    await flushHistory()
+    return wrapper
+  }
+
+  const successRecord = (extra = {}) => ({
+    id: 'card-1', title: '已发布文章', platform: 'zhihu', status: 'success',
+    timestamp: '2026-07-24T08:00:00.000Z', publisher: '秋叔', contentType: 'article',
+    result: { url: CARD_URL }, ...extra,
+  })
+
+  beforeEach(() => {
+    i18n.global.locale.value = 'zh'
+    vi.clearAllMocks()
+    identityAuthenticatedRef.value = false
+    tabCreateTabMock.mockReset().mockResolvedValue('btab-9')
+  })
+
+  it('T1 点击卡片主体在新标签页打开平台链接（应用内 page-manager 标签）', async () => {
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
+    expect(tabCreateTabMock).toHaveBeenCalledWith({
+      url: CARD_URL,
+      platform: 'zhihu',
+      title: '作品 · 已发布文章',
+    })
+  })
+
+  it('T2 点击卡片内「详情」按钮不触发打开（弹窗照常）', async () => {
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.get(`[data-testid="detail-card-1"]`).trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).not.toHaveBeenCalled()
+    expect(wrapper.find('.record-detail-modal').exists()).toBe(true)
+  })
+
+  it('T3 点击卡片内「重试」按钮不触发打开（重试照常）', async () => {
+    const wrapper = await mountWithRecords([successRecord({ status: 'failed', error: '上传超时' })])
+    await wrapper.get(`[data-testid="retry-card-1"]`).trigger('click')
+    await flushHistory()
+    expect(retryTaskMock).toHaveBeenCalledTimes(1)
+    expect(tabCreateTabMock).not.toHaveBeenCalled()
+  })
+
+  it('T4 批量管理模式下点击卡片不打开链接', async () => {
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.get('[data-testid="start-selection"]').trigger('click')
+    await wrapper.find('.record-card').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['无 result', successRecord({ result: undefined })],
+    ['result.url 缺失', successRecord({ result: { mode: 'api' } })],
+    ['javascript: 协议', successRecord({ result: { url: 'javascript:alert(1)' } })],
+    ['缺协议域名', successRecord({ result: { url: 'example.com/xxx' } })],
+    ['协议相对地址', successRecord({ result: { url: '//evil.example.com/x' } })],
+    ['url 非字符串', successRecord({ result: { url: 12345 } })],
+  ])('T5-T7 %s：点击卡片不产出任何打开行为', async (_name, record) => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = await mountWithRecords([record])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).not.toHaveBeenCalled()
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
+  it('T8 创建成功显示提示文案', async () => {
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(wrapper.text()).toContain('已在新标签页打开作品链接')
+  })
+
+  it('T9-T10 createTab 返回空（含桥异常被 store 吞掉的合同形态）降级 window.open', async () => {
+    tabCreateTabMock.mockResolvedValue(null)
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
+    expect(openSpy).toHaveBeenCalledWith(CARD_URL, '_blank')
+    openSpy.mockRestore()
+  })
+
+  it('T10b createTab promise 拒绝（合同外漂移）显示失败提示且无未捕获异常', async () => {
+    tabCreateTabMock.mockRejectedValue(new Error('unexpected store drift'))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(wrapper.text()).toContain('打开作品链接失败，请重试')
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
+  it('T11-T12 可点/不可点卡片的悬浮提示如实呈现', async () => {
+    const wrapper = await mountWithRecords([
+      successRecord(),
+      successRecord({ id: 'card-2', title: '无链接记录', result: undefined }),
+    ])
+    const cards = wrapper.findAll('.record-card')
+    expect(cards[0].attributes('title')).toBe('点击打开平台作品链接')
+    expect(cards[1].attributes('title')).toBe('暂无平台链接')
+  })
+
+  it('T13 同一卡片进行中重复点击不重复发请求', async () => {
+    let resolveCreate
+    tabCreateTabMock.mockImplementation(() => new Promise(resolve => { resolveCreate = resolve }))
+    const wrapper = await mountWithRecords([successRecord()])
+    const card = wrapper.find('.record-card')
+    await card.trigger('click')
+    await card.trigger('click')
+    resolveCreate('btab-9')
+    await flushHistory()
+    expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('T14 详情弹窗作品链接锚点保持 safeHttpUrl 判据与 noopener（回归）', async () => {
+    const wrapper = await mountWithRecords([successRecord()])
+    await wrapper.get(`[data-testid="detail-card-1"]`).trigger('click')
+    await flushHistory()
+    const link = wrapper.get('[data-testid="detail-link"]')
+    expect(link.attributes('href')).toBe(CARD_URL)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toContain('noopener')
   })
 })

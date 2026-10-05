@@ -10,7 +10,7 @@
 | `session-cleanup.sh` | 会话清理 |
 | `pre-code-edit-guard.ps1` | 代码编辑前守卫 |
 | `launch-worktree.js` | Worktree 启动器 |
-| `mp-worktree-health.ps1` | Worktree 健康检查 |
+| `mp-worktree-health.ps1` | Worktree 健康检查 ，隔离目录外 linked worktree 支持机器本地登记制（allowed-worktrees.json，整路径精确匹配、fail-closed）|
 | `safe-worktree-remove.ps1` | 安全删除 worktree |
 | `worktree-fs-longpath.ps1` | worktree 删除的长路径安全原语（`\\?\` 全深度枚举 / 删除 / robocopy 兜底） |
 | `safe-restore-deleted.ps1` | 安全恢复已删除文件 |

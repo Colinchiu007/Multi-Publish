@@ -35,6 +35,7 @@ const KNOWN_STAGE_MAP = {
   // ── 准备（引擎启动/导航/声明准备） ──
   '准备发布...': 'prepare',
   'starting browser...': 'prepare',
+  'reusing browser session...': 'prepare', // C 方案窗口池复用（publish-throughput-optimization）
   'cookies restored': 'prepare',
   'using API publish engine...': 'prepare',
   'navigating...': 'prepare',
@@ -152,13 +153,40 @@ function createPublishProgressEmitter({ getMainWin }) {
     if (extra.error !== undefined) payload.error = extra.error
     if (extra.remainingWait !== undefined) payload.remainingWait = extra.remainingWait
     if (extra.retriesLeft !== undefined) payload.retriesLeft = extra.retriesLeft
+    if (extra.bucket !== undefined) payload.bucket = extra.bucket
     try {
       win.webContents.send('publish:progress', payload)
     } catch (e) {
       log.warn('PublishProgress', 'send failed: ' + (e && e.message))
     }
+    // 关键相位结构化日志（发布进度可观测性）：仅对生命周期边界相位（start/success/
+    // failed/cancelled）落 notify，progress/retry/blocked 为高频心跳，不在此重复落盘
+    // （避免日志风暴，见 P1-4 log-storm-guard）。cancelled 为中性终态（非失败红态）。
+    emitPhaseNotify(platform, taskId, normalizedPhase, payload)
   }
   return { emit }
+}
+
+/**
+ * 关键相位结构化日志（发布进度可观测性，P0-2）。
+ * 仅对生命周期边界相位（start/success/failed/cancelled）落 logger.notify；
+ * progress/retry/blocked 属高频心跳，不在此落盘（防日志风暴）。
+ * @param {string} platform
+ * @param {string} taskId
+ * @param {string} phase 归一后的相位
+ * @param {object} payload 已组装的 publish:progress payload
+ */
+function emitPhaseNotify(platform, taskId, phase, payload) {
+  const terminal = { start: 'INFO', success: 'INFO', failed: 'ERROR', cancelled: 'INFO' }
+  if (!Object.prototype.hasOwnProperty.call(terminal, phase)) return
+  const params = { platform, taskId, stageKey: payload.stageKey, percent: payload.percent }
+  if (phase === 'failed' && payload.error !== undefined) {
+    params.error = typeof payload.error === 'string' ? payload.error : String(payload.error && payload.error.message || payload.error)
+  }
+  if (phase === 'success' && payload.result !== undefined) {
+    params.hasResult = true
+  }
+  log.notify('PublishProgress', 'phase-' + phase, { params, errorCategory: phase === 'failed' ? 'publish_phase_failed' : undefined, level: terminal[phase] })
 }
 
 /**

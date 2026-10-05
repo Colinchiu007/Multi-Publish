@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 
+// settings 面（分组真源）在本测试里是一份内存替身：**与真实 IPC 同形**（返回 {code,data}
+// 信封），不得替被测方提前剥壳 —— 塌成 null 的读法正是 P2-8a 要避免的失效形态。
+const settingsStore = vi.hoisted(() => ({ data: {} }))
+
 vi.mock("@/api/publisher", () => ({
   listAccounts: vi.fn(),
   accountDelete: vi.fn(),
@@ -9,6 +13,11 @@ vi.mock("@/api/publisher", () => ({
   accountSetActive: vi.fn(),
   accountRename: vi.fn(),
   getPlatformDefinitions: vi.fn(),
+  storeGetSettingResult: vi.fn((key) => Promise.resolve({ code: 0, data: settingsStore.data[key] ?? null })),
+  storeSetSetting: vi.fn((key, value) => {
+    settingsStore.data[key] = value
+    return Promise.resolve({ code: 0, data: true })
+  }),
 }));
 
 import { useAccountStore } from "./accounts.js";
@@ -21,7 +30,18 @@ import {
   accountSetDefault,
   accountUpdate,
   listAccounts,
+  storeGetSettingResult,
+  storeSetSetting,
 } from "@/api/publisher";
+
+/** 往分组真源里塞一份记录（测试夹具用） */
+function seedGroups (groups) {
+  settingsStore.data.account_groups = groups
+}
+/** 最近一次写进真源的分组 */
+function savedGroups () {
+  return settingsStore.data.account_groups
+}
 
 // 夹具按**当前数据模型**建模：显示名落在 account_name，`name` 是主进程写入的
 // document.title（真实 accounts.json 8 条里 name 全是页面标题/标语）。
@@ -38,6 +58,14 @@ describe("useAccountStore", () => {
     vi.restoreAllMocks();
     vi.resetAllMocks();
     localStorage.clear();
+    for (const key of Object.keys(settingsStore.data)) delete settingsStore.data[key];
+    // vi.resetAllMocks() 会把工厂里装的默认实现清成"返回 undefined"，
+    // 那等于把所有用例都变成「真源不可读」——必须在每个用例前重装默认行为。
+    storeGetSettingResult.mockImplementation((key) => Promise.resolve({ code: 0, data: settingsStore.data[key] ?? null }));
+    storeSetSetting.mockImplementation((key, value) => {
+      settingsStore.data[key] = value;
+      return Promise.resolve({ code: 0, data: true });
+    });
     delete window.electronAPI;
     listAccounts.mockResolvedValue({ code: 0, data: [] });
   });
@@ -65,7 +93,7 @@ describe("useAccountStore", () => {
     });
 
     it("从标准成功响应加载账号并恢复本地分组", async () => {
-      const groups = [{ id: "grp-1", name: "公众号", platformFilter: null, accountIds: ["wx-1"] }];
+      const groups = [{ id: "grp-1", name: "公众号", platformFilter: null, accountIds: ["wx-1"], categoryTags: [] }];
       localStorage.setItem("mp_account_groups", JSON.stringify(groups));
       listAccounts.mockResolvedValue({ code: 0, data: accountsFixture });
       const store = useAccountStore();
@@ -453,51 +481,80 @@ describe("useAccountStore", () => {
   });
 
   describe("本地分组", () => {
-    it("loadGroups 从 localStorage 恢复分组", () => {
-      const groups = [{ id: "grp-1", name: "知乎组", platformFilter: null, accountIds: ["zh-1"] }];
+    it("真源为空而 localStorage 有旧记录 ⇒ 迁移恢复分组，且**不删**旧键", async () => {
+      const groups = [{ id: "grp-1", name: "知乎组", platformFilter: null, accountIds: ["zh-1"], categoryTags: [] }];
       localStorage.setItem("mp_account_groups", JSON.stringify(groups));
       const store = useAccountStore();
 
-      store.loadGroups();
+      await store.loadGroups();
 
       expect(store.groups).toEqual(groups);
+      await store.flushGroupsSave();
+      expect(savedGroups()).toEqual(groups);
+      // 非破坏迁移：旧键必须还在（删用户数据不是本切片的授权范围）
+      expect(localStorage.getItem("mp_account_groups")).toBe(JSON.stringify(groups));
+    });
+
+    it("真源已有记录 ⇒ 以真源为准，localStorage 旧记录不参与合并", async () => {
+      seedGroups([{ id: "from_store", name: "真源组", platformFilter: null, accountIds: [] }]);
+      localStorage.setItem("mp_account_groups", JSON.stringify([{ id: "from_ls", name: "旧组", platformFilter: null, accountIds: [] }]));
+      const store = useAccountStore();
+
+      await store.loadGroups();
+
+      expect(store.groups.map(g => g.id)).toEqual(["from_store"]);
+    });
+
+    it("读真源失败（未登录 / 存储不可用）⇒ 保持现状，绝不拿空数组覆盖真源", async () => {
+      storeGetSettingResult.mockImplementationOnce(() => Promise.resolve({ code: 401, message: "无法识别当前用户" }));
+      const store = useAccountStore();
+      store.groups = [{ id: "keep", name: "原有组", platformFilter: null, accountIds: [] }];
+
+      await store.loadGroups();
+
+      expect(store.groups.map(g => g.id)).toEqual(["keep"]);
+      expect(store.groupsStatus).toBe("unreadable");
+      expect(storeSetSetting).not.toHaveBeenCalled();
     });
 
     it.each([
       ["没有缓存", null],
       ["缓存 JSON 损坏", "{invalid"],
-    ])("%s 时 loadGroups 回退为空数组", (_label, raw) => {
+    ])("%s 时 loadGroups 回退为空数组", async (_label, raw) => {
       if (raw !== null) localStorage.setItem("mp_account_groups", raw);
       const store = useAccountStore();
       store.groups = [{ id: "stale" }];
 
-      store.loadGroups();
+      await store.loadGroups();
 
       expect(store.groups).toEqual([]);
     });
 
-    it("localStorage 读取异常时 loadGroups 回退为空数组", () => {
-      vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
+    it("写盘失败 ⇒ groupsStatus 变 save-failed（用户必须看得见改动没落盘）", async () => {
+      storeSetSetting.mockImplementationOnce(() => Promise.resolve({ code: 500, message: "db busy" }));
       const store = useAccountStore();
-      store.groups = [{ id: "stale" }];
 
-      expect(() => store.loadGroups()).not.toThrow();
-      expect(store.groups).toEqual([]);
+      store.createGroup("未落盘", "");
+      await store.flushGroupsSave();
+
+      expect(store.groupsStatus).toBe("save-failed");
+      expect(store.groups.map(g => g.name)).toContain("未落盘");
     });
 
-    it("createGroup 创建唯一分组、规范化空平台并持久化", () => {
+    it("createGroup 创建唯一分组、规范化空平台并持久化", async () => {
       vi.spyOn(Date, "now").mockReturnValue(123);
       vi.spyOn(Math, "random").mockReturnValue(0.5);
       const store = useAccountStore();
 
       const group = store.createGroup("常用账号", "");
 
-      expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null, accountIds: [] });
+      expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null, accountIds: [], categoryTags: [] });
       expect(store.groups).toEqual([group]);
-      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual([group]);
+      await store.flushGroupsSave();
+      expect(savedGroups()).toEqual([group]);
     });
 
-    it("renameGroup 更新名称并拒绝重复名称", () => {
+    it("renameGroup 更新名称并拒绝重复名称", async () => {
       const store = useAccountStore();
       store.groups = [{ id: "keep", name: "常用" }, { id: "rename", name: "旧名称" }];
 
@@ -505,27 +562,30 @@ describe("useAccountStore", () => {
       expect(store.groups[1].name).toBe("新名称");
       expect(store.renameGroup("rename", "常用")).toBe(false);
       expect(store.renameGroup("rename", "  ")).toBe(false);
-      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+      await store.flushGroupsSave();
+      expect(savedGroups()).toEqual(store.groups);
     });
 
-    it("setGroupPlatform 更新平台并移除不匹配成员", () => {
+    it("setGroupPlatform 更新平台并移除不匹配成员", async () => {
       const store = useAccountStore();
       store.accounts = accountsFixture;
       store.groups = [{ id: "group", name: "混合", platformFilter: null, accountIds: ["wx-1", "zh-1"] }];
 
       expect(store.setGroupPlatform("group", "wechat_mp")).toBe(true);
       expect(store.groups[0]).toMatchObject({ platformFilter: "wechat_mp", accountIds: ["wx-1"] });
-      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+      await store.flushGroupsSave();
+      expect(savedGroups()).toEqual(store.groups);
     });
 
-    it("deleteGroup 删除目标分组并持久化", () => {
+    it("deleteGroup 删除目标分组并持久化", async () => {
       const store = useAccountStore();
       store.groups = [{ id: "keep" }, { id: "delete" }];
 
       store.deleteGroup("delete");
 
       expect(store.groups).toEqual([{ id: "keep" }]);
-      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual([{ id: "keep" }]);
+      await store.flushGroupsSave();
+      expect(savedGroups()).toEqual([{ id: "keep" }]);
     });
 
     it("重复删除不存在的分组保持状态不变", () => {
@@ -564,7 +624,7 @@ describe("useAccountStore", () => {
       expect(result).not.toBe(store.accounts);
     });
 
-    it("旧分组迁移为显式成员快照并持久化", () => {
+    it("旧分组迁移为显式成员快照并持久化", async () => {
       localStorage.setItem("mp_account_groups", JSON.stringify([
         { id: "wechat", name: "微信组", platformFilter: "wechat_mp" },
         { id: "all", name: "全部", platformFilter: null },
@@ -572,11 +632,12 @@ describe("useAccountStore", () => {
       const store = useAccountStore();
       store.accounts = accountsFixture;
 
-      store.loadGroups();
+      await store.loadGroups();
 
       expect(store.groups[0].accountIds).toEqual(["wx-1", "wx-2"]);
       expect(store.groups[1].accountIds).toEqual(["wx-1", "zh-1", "wx-2"]);
-      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+      await store.flushGroupsSave();
+      expect(savedGroups()).toEqual(store.groups);
     });
 
     it("分组成员可增删并持久化", () => {
@@ -589,7 +650,7 @@ describe("useAccountStore", () => {
       expect(store.getGroupAccounts(group.id).map(account => account.id)).toEqual(["wx-1", "zh-1"]);
       store.toggleAccountInGroup(group.id, "wx-1");
       expect(store.getGroupAccounts(group.id).map(account => account.id)).toEqual(["zh-1"]);
-      expect(JSON.parse(localStorage.getItem("mp_account_groups"))[0].accountIds).toEqual(["zh-1"]);
+      expect(savedGroups()[0].accountIds).toEqual(["zh-1"]);
     });
   });
 

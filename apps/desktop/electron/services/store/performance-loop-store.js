@@ -7,6 +7,9 @@
  * 依赖：logger
  */
 const log = require('../logger')
+// 归属桶常量与 publish-history / store-schema 同源，禁止在这里第二份写死字符串
+const { LEGACY_OWNER_SUBJECT } = require('../store-schema')
+const { OVERVIEW_TRACKED_LIMIT, OVERVIEW_SNAPSHOT_LIMIT } = require('../performance-overview')
 
 function _genId () {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
@@ -18,6 +21,39 @@ function _parseJson (str, fallback) {
 }
 
 const RECRAWL_STATUSES = new Set(['pending', 'ok', 'failed', 'unsupported', 'untrackable', 'manual'])
+
+/**
+ * 表在位性探测（看板读侧专用）。
+ *
+ * 为什么必须显式探而不能靠 try/catch：本仓的 sqlite 包装层对「表不存在」的查询**不抛错**，
+ * `prepare()` 正常返回、`get()` 直接给 `undefined`（本机实测），于是 catch 分支永远走不到，
+ * 查询失败会被渲染成「从未发布」这块空态（QM-6 后端轴 FB7）。探测成本是一次 sqlite_master 查询。
+ * @param {object} db
+ * @param {string} table
+ */
+function _tablePresent (db, table) {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)
+  return Boolean(row)
+}
+
+/**
+ * 归属过滤谓词（看板读侧）。口径与发布历史侧一致，两份卡片才不会互相打脸：
+ *   - 身份可解析 → 只取该 subject；
+ *   - 无身份服务（legacy 档）→ 只取「无归属桶」（NULL / 空串 / __legacy__），
+ *     绝不把已归属账号的数据端给匿名态。
+ * 三个条件缺一不可：sqlite 迁移写的是 '__legacy__'，旧数据是 NULL，手填可能是 ''。
+ * @param {string|undefined|null} ownerSubject
+ * @param {string} [alias] - 带 JOIN 时给列加前缀（如 't'）
+ */
+function _ownerPredicate (ownerSubject, alias) {
+  const prefix = alias ? alias + '.' : ''
+  const owner = typeof ownerSubject === 'string' && ownerSubject.trim() ? ownerSubject.trim() : null
+  if (owner) return { sql: 'WHERE ' + prefix + 'owner_subject = ?', params: [owner] }
+  return {
+    sql: 'WHERE (' + prefix + 'owner_subject IS NULL OR TRIM(' + prefix + 'owner_subject) = ? OR ' + prefix + 'owner_subject = ?)',
+    params: ['', LEGACY_OWNER_SUBJECT],
+  }
+}
 
 module.exports = {
   // ===================== 改写历史 =====================
@@ -155,6 +191,74 @@ module.exports = {
     } catch (e) { return [] }
   },
 
+  /**
+   * 回填候选：`publish_history_id` 仍为 NULL 的 tracked 行，**按归属过滤**。
+   *
+   * 归属过滤放在 SQL 端而不是只靠判据层分桶，是因为候选集有 LIMIT：
+   * 多用户共享同一个库时，他人的行可以把 LIMIT 占满，让我的行永远排不到
+   * （单 owner 的机器上不可见，所以必须在这里就堵死）。QM-6 后端轴 B1/B2。
+   *
+   * `ownerSubject` 为 undefined/null/空 ⇒ 取"无身份服务时代"那一桶
+   * （NULL / 空串 / LEGACY_OWNER_SUBJECT），与 publish-history 侧 matchesOwner 同口径。
+   * @param {number} limit
+   * @param {string|null|undefined} ownerSubject
+   */
+  listUnlinkedTrackedForBackfill (limit, ownerSubject) {
+    if (!this._ready) return []
+    const n = Math.min(Math.max(1, Number(limit) || 0), 5000)
+    const owner = typeof ownerSubject === 'string' ? ownerSubject.trim() : ''
+    try {
+      if (owner) {
+        return this.db.prepare(
+          'SELECT id, platform, post_id, publish_history_id, owner_subject, created_at ' +
+          'FROM tracked_content WHERE publish_history_id IS NULL AND owner_subject = ? ' +
+          'ORDER BY created_at ASC LIMIT ?',
+        ).all(owner, n)
+      }
+      return this.db.prepare(
+        'SELECT id, platform, post_id, publish_history_id, owner_subject, created_at ' +
+        "FROM tracked_content WHERE publish_history_id IS NULL " +
+        '  AND (owner_subject IS NULL OR TRIM(owner_subject) = ? OR owner_subject = ?) ' +
+        'ORDER BY created_at ASC LIMIT ?',
+      ).all('', LEGACY_OWNER_SUBJECT, n)
+    } catch (e) {
+      log.warn('Store', 'listUnlinkedTrackedForBackfill failed: ' + e.message)
+      return []
+    }
+  },
+
+  /**
+   * 写关联键。**WHERE 里再要一次 IS NULL** 是刻意的：判据层已经保证只补空行，
+   * 但两层各守一次才能让"判据层将来被人改错"不至于变成覆盖既有数据。
+   * 语义：值＝发布任务 id（task.id），不是发布历史行的 entry.id。
+   *
+   * 为什么不并进下面的 `updateTrackedContent`（QM-6 前端轴 F3）：那个方法是回采流程的
+   * 通用更新口，允许把 recrawl_status 等字段**改成任意合法值**；关联键的契约恰恰相反——
+   * 只允许"从无到有"，不允许覆盖。把两者合并会连带删掉 `IS NULL` 兜底，
+   * 于是"回填"变成"每次启动都可能改写既有归属"。
+   * 因此 `updateTrackedContent` 收到 `publishHistoryId` 时**必须继续忽略它**，
+   * 这条不对称由 phase4-events-tracked-content.test.js 的 F3 锁钉住，不是遗漏。
+   *
+   * 空白值必须拒（QM-6 替代通道 B4）：`'   '` 是 truthy，旧写法会把它当合法键写进库——
+   * 那种键既永远 join 不上（读侧按 taskId 查），又让 `IS NULL` 从此不成立，
+   * 等于把这一行永久锁死在"无数据"，比留 NULL 更糟。
+   */
+  setTrackedPublishHistoryId (id, publishHistoryId) {
+    if (!this._ready) return false
+    const key = typeof publishHistoryId === 'string' ? publishHistoryId.trim() : ''
+    const rowId = typeof id === 'string' ? id.trim() : ''
+    if (!rowId || !key) return false
+    try {
+      const result = this.db.prepare(
+        'UPDATE tracked_content SET publish_history_id = ? WHERE id = ? AND publish_history_id IS NULL',
+      ).run(key, rowId)
+      return (result.changes || 0) > 0
+    } catch (e) {
+      log.warn('Store', 'setTrackedPublishHistoryId failed: ' + e.message)
+      return false
+    }
+  },
+
   updateTrackedContent (id, updates) {
     if (!this._ready || !id || !updates) return false
     const sets = []
@@ -224,6 +328,73 @@ module.exports = {
         'SELECT * FROM performance_snapshot WHERE tracked_content_id = ? ORDER BY captured_at DESC, rowid DESC'
       ).all(String(trackedContentId))
     } catch (e) { return [] }
+  },
+
+  /**
+   * 看板读侧：本归属下的作品行（列取最小集，禁止 SELECT *——宽表会让口径漂移无人察觉）。
+   * 返回 total / truncated 是为了让「统计基于最近 N 条」能如实说出来，
+   * 而不是把截断当全量渲染成一个偏低的数字。
+   * @param {string|undefined} ownerSubject
+   * @param {number} [limit]
+   */
+  listTrackedForOverview (ownerSubject, limit) {
+    const cap = Number(limit) > 0 ? Number(limit) : OVERVIEW_TRACKED_LIMIT
+    if (!this._ready) return { rows: [], total: 0, truncated: false }
+    const { sql, params } = _ownerPredicate(ownerSubject)
+    try {
+      if (!_tablePresent(this.db, 'tracked_content')) {
+        return { rows: [], total: 0, truncated: false, error: 'table missing: tracked_content' }
+      }
+      const countRow = this.db.prepare('SELECT COUNT(*) AS n FROM tracked_content ' + sql).get(...params)
+      const total = countRow ? Number(countRow.n) || 0 : 0
+      const rows = this.db.prepare(
+        'SELECT id, platform, recrawl_status, created_at, last_recrawl_at FROM tracked_content ' + sql +
+        ' ORDER BY created_at DESC, rowid DESC LIMIT ?'
+      ).all(...params, cap)
+      return { rows, total, truncated: total > rows.length }
+    } catch (e) {
+      log.warn('Store', 'listTrackedForOverview failed: ' + e.message)
+      // 查询失败不得吞成空结果：那会让看板把「没拿到数据」渲染成「从未发布」（QM-6 后端轴 FB7）
+      return { rows: [], total: 0, truncated: false, error: e.message }
+    }
+  },
+
+  /**
+   * 看板读侧：本归属下作品的快照（不按计划窗口过滤——日增需要前一份做基线）。
+   * 排序取「最新在前」：扫描上限命中截断时，被丢掉的必须是**最旧**的快照，
+   * 而不是按作品分组后每组最旧的那批（后者会让聚合层的「取最新一份」拿到旧值、总量静默偏低，
+   * 且界面只看得见 truncated=true，看不出偏低的成因 —— QM-6 后端轴 FB4）。
+   * 聚合层按解析后的时刻自行升序重排，不依赖这里的入参顺序。
+   * orphanTotal 单独统计「关联不到任何作品」的快照，那是数据完整性信号，不能和归属过滤混成一谈。
+   * @param {string|undefined} ownerSubject
+   * @param {number} [limit]
+   */
+  listSnapshotsForOverview (ownerSubject, limit) {
+    const cap = Number(limit) > 0 ? Number(limit) : OVERVIEW_SNAPSHOT_LIMIT
+    if (!this._ready) return { rows: [], total: 0, truncated: false, orphanTotal: 0 }
+    const { sql, params } = _ownerPredicate(ownerSubject, 't')
+    try {
+      if (!_tablePresent(this.db, 'performance_snapshot') || !_tablePresent(this.db, 'tracked_content')) {
+        return { rows: [], total: 0, truncated: false, orphanTotal: 0, error: 'table missing: performance_snapshot/tracked_content' }
+      }
+      const countRow = this.db.prepare(
+        'SELECT COUNT(*) AS n FROM performance_snapshot s JOIN tracked_content t ON t.id = s.tracked_content_id ' + sql
+      ).get(...params)
+      const total = countRow ? Number(countRow.n) || 0 : 0
+      const rows = this.db.prepare(
+        'SELECT s.id, s.tracked_content_id, s.views, s.likes, s.comments, s.favorites, s.shares, s.captured_at, s.rowid ' +
+        'FROM performance_snapshot s JOIN tracked_content t ON t.id = s.tracked_content_id ' + sql +
+        ' ORDER BY s.captured_at DESC, s.rowid DESC LIMIT ?'
+      ).all(...params, cap)
+      const orphanRow = this.db.prepare(
+        'SELECT COUNT(*) AS n FROM performance_snapshot s ' +
+        'WHERE NOT EXISTS (SELECT 1 FROM tracked_content t WHERE t.id = s.tracked_content_id)'
+      ).get()
+      return { rows, total, truncated: total > rows.length, orphanTotal: orphanRow ? Number(orphanRow.n) || 0 : 0 }
+    } catch (e) {
+      log.warn('Store', 'listSnapshotsForOverview failed: ' + e.message)
+      return { rows: [], total: 0, truncated: false, orphanTotal: 0, error: e.message }
+    }
   },
 
   // ===================== 模式归因聚合 =====================

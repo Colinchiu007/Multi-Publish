@@ -17,6 +17,40 @@ const fs = require('fs');
 const path = require('path');
 const { buildInitScript } = require('../e2e/helpers/fixture-loader');
 
+// 采集层固定时钟。这几个视图把墙上时钟渲染进了像素：时段问候（晚上好/下午好）、
+// 日历的「今天」高亮、关键词监测的 ISO 毫秒戳。它们的基线在数学上不可复现 ——
+// 任何跨自然日的两次 run 必然不同（实测同日差 441 px、跨日差 24578 px）。
+// 用 clock 钉死 Date 比给每张图登记「漂移预算」更可取：预算上界取决于两次 run 隔多久，本身不可知。
+// setFixedTime 只改 Date.now/new Date()，计时器照常跑（见 playwright-core d.ts 原文），
+// 因此 settleForCapture 的 rAF/setTimeout 不受影响。
+const DEFAULT_CAPTURE_FIXED_TIME_ISO = '2026-01-01T00:00:00.000Z';
+
+// 跨视图会「活下来」的瞬时浮层：Element Plus 把 ElMessage / ElNotification / MessageBox
+// 挂到 body 上，而本仓是 hash 路由 ⇒ 跨路由 goto **不重载文档**，上一个视图弹的东西
+// 会留在 DOM 里进下一个视图的截图。
+// 清单刻意只收这三类「由代码主动弹出、不属于任何页面结构」的容器：
+// 收 `[role="alert"]` 之类泛化选择器会把页面自身的错误区块一起抹掉，那是被拍对象的真实状态。
+const INHERITED_OVERLAY_SELECTORS = ['.el-message', '.el-notification', '.el-message-box__wrapper'];
+
+/**
+ * 页内执行体：必须是**自包含**函数（Playwright 只序列化它自己的源码，闭包里的模块变量到不了页面），
+ * 同时又要能在 Node 侧直接调用 —— 否则「清除是否真的生效」这件事只能靠读源码字符串断言，
+ * 那是装饰性锁。故导出，测试用假 document 真跑一遍这个函数体。
+ */
+function clearInheritedOverlays(sels) {
+  let removed = 0;
+  for (const sel of sels) {
+    const nodes = document.querySelectorAll(sel);
+    for (let i = 0; i < nodes.length; i += 1) {
+      nodes[i].remove();
+      removed += 1;
+    }
+  }
+  let left = 0;
+  for (const sel of sels) left += document.querySelectorAll(sel).length;
+  return { removed, left };
+}
+
 const DEFAULT_READY_TIMEOUT = 15000;
 const MIN_READY_TIMEOUT = 1000;
 const MAX_READY_TIMEOUT = 30000;
@@ -78,6 +112,7 @@ class VisualTestRunner {
       await this.context.addInitScript({ content: buildInitScript() });
     }
     this.page = await this.context.newPage();
+    await this._installCaptureClock();
     this.page.on('console', (message) => {
       if (message.type() !== 'error') return;
       const text = message.text();
@@ -263,8 +298,39 @@ class VisualTestRunner {
       // 而不是上一条用例留下的组件实例状态。
       await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
     }
+    await this._dismissInheritedOverlays();
     await this._waitForApplicationReady(expectedHash, readySelector);
     await this.settleForCapture();
+  }
+
+  /**
+   * 清除「继承自上一个视图」的瞬时浮层。判据是**清除 + 回读断言**，不是"截图前一律抹掉浮层"：
+   * 它挂在导航缝上（goto 之后、当前页自己的异步之前），所以当前页真出错时它弹出的东西
+   * 照样进图 —— 那是该页的真实状态，本来就该被拍到。
+   *
+   * 动因（实测 CI）：views 套件第 19 位是 hot-topics，它在 CI 里必然取不到外部热搜，
+   * 于是 `HotTopics.vue` 弹「选题获取失败，请稍后重试」；紧随其后拍的 publish-form **浅档**
+   * 带着这条 toast（差 32500 px），而像素套件顺序里没有 hot-topics，同一页**暗档**干净
+   * （差 29734 px，且那部分差异是新增的「创作视频」按钮）。若照此重建基线，
+   * 等于把别人页面的错误态烤成"发布页应该长这样"。
+   */
+  async _dismissInheritedOverlays() {
+    if (!this.page || typeof this.page.evaluate !== 'function') return 0;
+    const verdict = await this.page.evaluate(clearInheritedOverlays, INHERITED_OVERLAY_SELECTORS);
+    const removed = verdict && Number(verdict.removed);
+    const left = verdict && Number(verdict.left);
+    if (!Number.isSafeInteger(removed) || !Number.isSafeInteger(left)) {
+      // 读不到结论时不得当成"没有浮层"放行：那正是把污染静默放过的形状
+      throw new Error(`[visual] 继承浮层清除未取得计数 removed=${verdict && verdict.removed} left=${verdict && verdict.left}`);
+    }
+    if (left > 0) {
+      throw new Error(`[visual] 清除后仍有 ${left} 个瞬时浮层在 DOM 里（remove() 未生效或被重建），本次渲染不可作为基线`);
+    }
+    if (removed > 0) {
+      console.log(`[visual] 导航前清除继承自上一视图的瞬时浮层 ${removed} 个`);
+    }
+    this.inheritedOverlaysRemoved = (this.inheritedOverlaysRemoved || 0) + removed;
+    return removed;
   }
 
   /**
@@ -299,6 +365,36 @@ class VisualTestRunner {
     try {
       await this.page.waitForLoadState('networkidle', { timeout: 5000 });
     } catch (_) { /* 持续轮询的视图（进度等）永不 idle，忽略超时 */ }
+  }
+
+/**
+   * 把页面时钟钉到固定时刻，使含实时值的视图可复现。
+   * VISUAL_CAPTURE_FIXED_TIME_ISO=off 显式关闭；写了非法值一律抛错 ——
+   * 静默退回"不固定"会把基线重新变成跨日必漂，而没人会去查门禁为什么红。
+   */
+  async _installCaptureClock() {
+    const raw = process.env.VISUAL_CAPTURE_FIXED_TIME_ISO;
+    const v = raw === undefined ? DEFAULT_CAPTURE_FIXED_TIME_ISO : String(raw).trim();
+    if (v === '' || v === 'off') {
+      this.captureFixedTime = null;
+      return null;
+    }
+    const t = new Date(v).getTime();
+    if (Number.isNaN(t)) {
+      throw new Error(
+        `VISUAL_CAPTURE_FIXED_TIME_ISO 不是合法时间：${JSON.stringify(raw)}` +
+        `（期望 ISO 串或 off；不得静默退回未固定）`
+      );
+    }
+    if (!this.page || !this.page.clock || typeof this.page.clock.setFixedTime !== 'function') {
+      // 宿主不提供该 API 时必须出声：否则门禁红了没人知道是采集没钉住
+      console.warn('[visual] page.clock.setFixedTime 不可用，采集时间未固定，含实时值的基线不可复现');
+      this.captureFixedTime = null;
+      return null;
+    }
+    await this.page.clock.setFixedTime(new Date(t));
+    this.captureFixedTime = t;
+    return t;
   }
 
   async _resetBrowserState() {
@@ -620,7 +716,7 @@ class VisualTestRunner {
   }
 }
 
-module.exports = { VisualTestRunner };
+module.exports = { VisualTestRunner, clearInheritedOverlays, INHERITED_OVERLAY_SELECTORS };
 
 
 

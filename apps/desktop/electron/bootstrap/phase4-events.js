@@ -20,6 +20,7 @@ const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
 const { buildAuditPatch } = require('@multi-publish/shared-utils/src/publish-audit-status')
 // P0-1 第二切片：审核回查的凭证解析与能力分级（凭证恒空缺陷修复 + 端点未验证的诚实分级）。
 const { resolveAuditRequeryCookies, decideAuditRequery } = require('../services/publish-audit-requery')
+const { linkExistingTrackedContent, TRACKED_LINK_HISTORY_SCAN_LIMIT } = require('../services/tracked-content-link')
 
 const defaultAuditRequery = {
   resolveCookies: (params) => resolveAuditRequeryCookies(params),
@@ -37,13 +38,16 @@ const defaultAuditRequery = {
  * @param {Function} deps.getMainWin
  * @param {object} [deps.riskSuspender] - 风控挂起守卫（desktop-risk-suspender，可选）
  * @param {object} [deps.progressEmitter] - 进度事件发射器（可选，缺省自建；publish-progress-ux）
+ * @param {object} [deps.failureDraftSaver] - 发布失败自动存草稿（publish-fail-draft-guard，可选）
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender, progressEmitter, auditRequery, failureDraftSaver }) {
   // publish-progress-ux：四事件统一走富化 emitter（phase/stageKey/percent/batchId/timestamp），
   // 既有字段（platform/taskId/stage/result/error/remainingWait）原样保留，向后兼容加法。
   const emitter = progressEmitter || createPublishProgressEmitter({ getMainWin })
   // P0-1 第二切片：审核回查的策略层（凭证解析 + 能力分级）；测试可注入替身。
   const requery = auditRequery || defaultAuditRequery
+  // 存量关联回填每次接线只跑一次（成功后候选集为空，再跑也只是零写入，但没必要每次发布都读一遍历史）
+  let backfillRan = false
 
   /**
    * 审核回查启动门：解析凭证 → 能力分级 → 通过才建监控任务。
@@ -59,7 +63,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       })
     } catch (e) {
       // 凭证解析属旁路：失败按「拿不到」处理，绝不冒泡（发布主流程不受影响）
-      log.warn('PublishMonitor', 'audit requery cookie resolution failed: ' + (e && e.message))
+      log.notify('PublishMonitor', 'audit-requery-cookie-resolution-failed', { level: 'WARN', error: String(e && e.message) })
       return
     }
     const cookies = (resolved && typeof resolved.cookies === 'string') ? resolved.cookies : ''
@@ -67,29 +71,29 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     const decision = requery.decide({ platform: task.platform, cookies })
     if (!decision.start) {
       // 凭证缺失/端点未验证/探索开关关闭 —— 一律不建任务，避免「必然失败的重试风暴」
-      log.info('PublishMonitor', '审核回查跳过 [' + task.platform + ']: ' + decision.reason + '（cookie 来源=' + source + '）')
+      log.notify('PublishMonitor', 'audit-requery-skipped', { level: 'INFO', params: { platform: task.platform, reason: decision.reason, source } })
       return
     }
     publishMonitor.createMonitorTask({
       postId, platform: task.platform, cookies,
       callback: (monitorResult) => {
-        log.info('PublishMonitor', 'Monitor result for ' + task.platform + ':' + postId + ': ' + monitorResult.status)
+        log.notify('PublishMonitor', 'monitor-result', { level: 'INFO', params: { platform: task.platform, postId, status: monitorResult.status } })
         // P0-1 第一切片：审核结论**回写原记录**，不再 addRecord 追加第二条
         // （旧形态让同一次发布在历史里出现两行，且原 success 行与审核结论无法关联）。
         // buildAuditPatch 只在平台给出**明确结论**时产出补丁（无定论/error/timeout/
         // skipped 返回 null）——「没拿到新证据」不是反证，不得抹掉既有审核结论。
         const patch = buildAuditPatch(monitorResult)
         if (!patch) {
-          log.info('PublishMonitor', 'Inconclusive audit status for ' + task.platform + ':' + postId + ' (' + monitorResult.status + ')，保持原记录不变')
+          log.notify('PublishMonitor', 'audit-status-inconclusive', { level: 'INFO', params: { platform: task.platform, postId, status: monitorResult.status } })
           return
         }
         try {
           const { updated } = history.updateRecordAudit(task.id, patch, ownerSubject)
           if (!updated) {
-            log.warn('PublishMonitor', 'Audit update skipped (record not found): ' + task.id)
+            log.notify('PublishMonitor', 'audit-update-skipped', { level: 'WARN', params: { taskId: task.id } })
           }
         } catch (e) {
-          log.warn('PublishMonitor', 'Failed to update audit status: ' + e.message)
+          log.notify('PublishMonitor', 'audit-update-failed', { level: 'WARN', error: String(e.message) })
         }
       },
     })
@@ -114,10 +118,10 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
         // 每次发布都发 12 次必然失败的请求后再 timeout。异步门不阻塞发布主流程；
         // `.catch` 必须挂（策略层抛错不得变成 unhandledRejection）。
         void startAuditRequery(task, postId, ownerSubject).catch((e) => {
-          log.warn('PublishMonitor', 'audit requery gating failed: ' + (e && e.message))
+          log.notify('PublishMonitor', 'audit-requery-gating-failed', { level: 'WARN', error: String(e && e.message) })
         })
       }
-    } catch (e) { log.warn('PublishMonitor', 'Failed to start monitor: ' + e.message) }
+    } catch (e) { log.notify('PublishMonitor', 'monitor-start-failed', { level: 'WARN', error: String(e.message) }) }
     try {
       const title = task.article?.title
       const content = task.article?.content || title
@@ -129,11 +133,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           articleId: task.id, title, keywords: task.article?.keywords || [title],
           platform: task.platform,
         })
-        log.info('ImpactTracker', 'Started tracking "' + title + '"')
+        log.notify('ImpactTracker', 'impact-tracking-started', { level: 'INFO', params: { title } })
       }
-    } catch (e) { log.warn('ImpactTracker', 'Failed to start impact tracking: ' + e.message) }
+    } catch (e) { log.notify('ImpactTracker', 'impact-tracking-start-failed', { level: 'WARN', error: String(e.message) }) }
 
-    // P2 效果闭环：发布成功登记 tracked_content（有 postId 或内容 URL → pending 排期回采；都没有 → untrackable 仅手动）
+    // P2 效果闭环：发布成功登记 tracked_content（有 postId 或内容 URL → pending 回采；都没有 → untrackable 仅手动）
     try {
       if (store && typeof store.addTrackedContent === 'function') {
         const result = task.result || {}
@@ -144,13 +148,46 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           platform: task.platform,
           postId: String(postId || ''),
           url,
+          // 关联键的语义＝**发布任务 id**（读侧 PublishHistory.vue 按 record.taskId join 这一列）；
+          // 存 addRecord() 返回的 entry.id 会让历史页表现列继续恒空。缺 id 就留 NULL，不猜。
+          publishHistoryId: typeof task.id === 'string' && task.id.trim() ? task.id.trim() : null,
           rewriteHistoryId: task.rewriteHistoryId || task.article?.rewriteHistoryId || null,
           recrawlStatus: hasAnchor ? 'pending' : 'untrackable',
           nextRecrawlAt: hasAnchor ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null, // T+1h 首采
           ownerSubject,
         })
+        if (!(typeof task.id === 'string' && task.id.trim())) {
+          // messageKey 保留 unlinked 语义：phase4-events-tracked-content.test.js 断言
+          // 「缺 id 必须留下未关联的现场」，靠的就是这个关键字（同时也是可读的日志契约）。
+          log.notify('PerformanceLoop', 'tracked-content-unlinked', { level: 'WARN', params: { platform: task.platform } })
+        }
       }
-    } catch (e) { log.warn('PerformanceLoop', 'Failed to register tracked content: ' + e.message) }
+    } catch (e) {
+      log.notify('PerformanceLoop', 'register-tracked-content-failed', { level: 'WARN', error: String(e.message) })
+    }
+
+    // P2-6b：本会话首次发布成功后补一次存量关联。放在这里而不是启动接线里，
+    // 因为此刻 owner_subject 已由任务给出——启动时身份可能还没解析，拿不到归属就没法安全地配对。
+    // 回填是旁路：幂等、候选空时零写入、任何异常只出声。
+    // latch 只在**这轮真的跑完**之后置真（QM-6 后端轴 B2/W2）：读历史抛错时不 latch，
+    // 否则一次抖动就把本会话剩下的存量全部放弃，而现场只留下一条 warn。
+    if (!backfillRan) {
+      try {
+        const scanned = history && typeof history.listRecords === 'function'
+          ? history.listRecords({ limit: TRACKED_LINK_HISTORY_SCAN_LIMIT }, ownerSubject)
+          : null
+        const outcome = linkExistingTrackedContent({
+          store,
+          historyRecords: (scanned && scanned.records) || [],
+          historyTotal: scanned && scanned.total,
+          ownerSubject,
+          log,
+        })
+        if (outcome && outcome.ok) backfillRan = true
+      } catch (e) {
+        log.notify('PerformanceLoop', 'tracked-content-backfill-skipped', { level: 'WARN', error: String(e && e.message) })
+      }
+    }
   })
 
   taskQueue.on('task:failed', (task) => {
@@ -165,6 +202,19 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       status: 'failed', result: null, error: task.error,
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, task.owner_subject)
+    // publish-fail-draft-guard：媒体内容（视频/图文）发布失败 → 自动回存草稿防丢失。
+    // 旁路红线：saver 内建全量 try/catch（资格判定不过跳过、写入失败只 warn），
+    // 同步/异步失败都不冒泡，绝不影响失败主流程（历史落库/失败通知/风控挂起）。
+    if (failureDraftSaver && typeof failureDraftSaver.saveFailureDraft === 'function') {
+      try {
+        const saved = failureDraftSaver.saveFailureDraft(task)
+        if (saved && typeof saved.catch === 'function') {
+          saved.catch((e) => log.notify('FailureDraftSaver', 'auto-draft-save-rejected', { level: 'WARN', error: String(e && e.message) }))
+        }
+      } catch (e) {
+        log.notify('FailureDraftSaver', 'auto-draft-save-failed', { level: 'WARN', error: String(e && e.message) })
+      }
+    }
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
       if (isRiskBlocked(task.error) && !isRiskSuspendedMessage(task.error)) {
@@ -174,7 +224,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           try {
             riskSuspender.suspend(task.platform, accountId, { reason: 'risk_blocked', error: task.error })
             win.webContents.send('publish:risk-suspended', { suspended: riskSuspender.listSuspended() })
-          } catch (e) { log.warn('RiskSuspender', 'suspend failed: ' + e.message) }
+          } catch (e) { log.notify('RiskSuspender', 'suspend-failed', { level: 'WARN', error: String(e.message) }) }
         }
         win.webContents.send('publish:risk-hold', {
           platform: task.platform, accountId, taskId: task.id, error: task.error,
@@ -183,10 +233,10 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }
   })
 
-  taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
+  taskQueue.on('publish:blocked', ({ task, remainingWait, bucket }) => {
     emitter.emit(task.id, task.platform, 'blocked', {
       stage: '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试',
-      remainingWait, batchId: task.batchId || null,
+      remainingWait, bucket: bucket || null, batchId: task.batchId || null,
     })
   })
 

@@ -72,35 +72,63 @@ $argument = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File $q$health$
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-$task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Multi-Publish session isolation health check'
-function Register-Checked {
-    param([string]$Name, [string]$Path, $InputObject, [string]$TriggerKind)
-    try {
-        Register-ScheduledTask -TaskName $Name -TaskPath $Path -InputObject $InputObject -Force | Out-Null
-    } catch {
-        Write-Host "Register failed for $Name ($TriggerKind): $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    # Same rule here: registration is judged by whether the task actually exists, not by
-    # rc, because the cmdlet's non-terminating error leaves $LASTEXITCODE untouched (0).
-    $got = Get-ScheduledTask -TaskName $Name -TaskPath $Path -ErrorAction SilentlyContinue
-    if (-not $got) {
-                Write-Error ("Task was not registered: $Name ($TriggerKind, path $Path). " +
-                    "An AtLogOn trigger must be registered elevated, e.g. " +
-                    "Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File <this script>'; " +
-                    "tests and self-checks should use a throwaway -TaskPath instead.")
-    }
-    Write-Host "Registered: $Name ($TriggerKind) under $Path"
-}
-
-Register-Checked -Name $taskName -Path $TaskPath -InputObject $task -TriggerKind "every $Minutes minutes"
-
 $guardArgument = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File $q$guardScript$q -Watch -Root $q$primary$q -GitPath $q$git$q -Quiet"
 $guardAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $guardArgument
 $guardTrigger = New-ScheduledTaskTrigger -AtLogOn
 $guardSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Days 3650)
-$guardTask = New-ScheduledTask -Action $guardAction -Trigger $guardTrigger -Settings $guardSettings -Principal $principal -Description 'Multi-Publish shared root real-time write guard'
-Register-Checked -Name $guardTaskName -Path $TaskPath -InputObject $guardTask -TriggerKind 'at logon'
+
+function New-IsolationPrincipal([string]$LogonType) {
+    New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType $LogonType -RunLevel Limited
+}
+
+# Preferred principal is S4U (run whether the user is logged on or not), measured 2026-10-03
+# on Windows 11 with Windows Terminal as the default console host:
+#   - Settings.Hidden alone does NOT suppress the console window. With Hidden=True a visible
+#     top-level window still appeared ~300ms after Start-ScheduledTask.
+#   - S4U does: zero new windows across a full trigger, while the task really ran
+#     (health.json checkedAt advanced, LastTaskResult=0), and the write guard under S4U still
+#     quarantined a probe file under apps/ within ~1s.
+# S4U registration REQUIRES elevation - measured on this host: the same installer aimed at a
+# throwaway -TaskPath ran non-elevated, the S4U attempt was refused, and the task came back
+# registered as LogonType=Interactive. That is why the fallback exists instead of a hard error:
+# a visible window is cosmetic, while refusing to register the health check at all would drop
+# the isolation watchdog. Run this script elevated (bootstrap-write-guard.ps1 already has to,
+# for the AtLogOn trigger) to get the window-free principal.
+function Register-WithPrincipalFallback {
+    param([string]$Name, [string]$Path, [string]$TriggerKind, [scriptblock]$TaskFactory)
+    foreach ($logon in @('S4U', 'Interactive')) {
+        $taskObject = & $TaskFactory (New-IsolationPrincipal $logon)
+        try {
+            Register-ScheduledTask -TaskName $Name -TaskPath $Path -InputObject $taskObject -Force | Out-Null
+        } catch {
+            Write-Host "Register failed for $Name ($TriggerKind, principal=$logon): $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        # Judged by whether the task actually exists, never by rc: the cmdlet's
+        # non-terminating error leaves $LASTEXITCODE at 0, so rc alone would report
+        # "registered nothing" as success.
+        $got = Get-ScheduledTask -TaskName $Name -TaskPath $Path -ErrorAction SilentlyContinue
+        if ($got) {
+            if ($logon -ne 'S4U') {
+                Write-Host "WARN $Name registered with an interactive principal: a console window will be visible for every run on this host (S4U registration was refused)." -ForegroundColor Yellow
+            }
+            Write-Host "Registered: $Name ($TriggerKind, principal=$logon) under $Path"
+            return
+        }
+    }
+    Write-Error ("Task was not registered with either principal: $Name ($TriggerKind, path $Path). " +
+        "An AtLogOn trigger must be registered elevated, e.g. " +
+        "Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File <this script>'; " +
+        "tests and self-checks should point at a throwaway -TaskPath instead.")
+}
+
+Register-WithPrincipalFallback -Name $taskName -Path $TaskPath -TriggerKind "every $Minutes minutes" -TaskFactory {
+    param($principal)
+    New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Multi-Publish session isolation health check'
+}
+Register-WithPrincipalFallback -Name $guardTaskName -Path $TaskPath -TriggerKind 'at logon' -TaskFactory {
+    param($principal)
+    New-ScheduledTask -Action $guardAction -Trigger $guardTrigger -Settings $guardSettings -Principal $principal -Description 'Multi-Publish shared root real-time write guard'
+}
 
 Write-Host "Scheduled tasks ready under $TaskPath : $taskName (every $Minutes minutes), $guardTaskName (at logon)" -ForegroundColor Green
 Write-Host "Report: $report"

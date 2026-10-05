@@ -182,16 +182,18 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     story2videoBatchQueue, runStateStore,
     // rewriteHardConstraintManager：当前无直接 IPC handler 消费（审查 m4），
     // 保留传递为后续桌面端管理入口预留；引擎注入经 container 单例完成
-    opsCenterSync, rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
+    opsCenterSync, rewriteStrategyManager, rewriteHardConstraintManager, rewriteAiTasteMapManager, rewriteEngineService,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, usageTracker, cloudPublisher, identityService,
     filmEngineeringService,
     fullAutoPipeline,
+    automationScheduler,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector, promptMemory, governance,
     knowledgeLibraryService, patternExtractionService,
     performanceRecrawlService, patternAttributionService,
     urlCollector,
+    zhihuImageLocalizer,
     hotTopicsService,
     callbackServer,
     splitterBridge, promptBridge,
@@ -210,16 +212,18 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     story2videoBatchQueue, runStateStore,
     // rewriteHardConstraintManager：当前无直接 IPC handler 消费（审查 m4），
     // 保留传递为后续桌面端管理入口预留；引擎注入经 container 单例完成
-    opsCenterSync, rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
+    opsCenterSync, rewriteStrategyManager, rewriteHardConstraintManager, rewriteAiTasteMapManager, rewriteEngineService,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, identityService, credentialStore, accountStateRestorer,
     filmEngineeringService,
     fullAutoPipeline,
+    automationScheduler,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector, promptMemory, governance,
     knowledgeLibraryService, patternExtractionService,
     performanceRecrawlService, patternAttributionService,
     urlCollector,
+    zhihuImageLocalizer,
     hotTopicsService,
     callbackServer,
     splitterBridge, promptBridge,
@@ -235,6 +239,15 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     // 审计 P2·性能税：preload 侧访问级别改为「推送失效 + TTL 兜底」缓存。广播能力在此绑定一次
     // —— BrowserWindow 只有 bootstrap 持有，业务模块（license.js / identity-service-factory.js）
     // 只调用 emitAccessLevelInvalidated 发信号。绑定失败会让缓存退化为纯 TTL，故不得静默。
+    // 自动化任务通知出口：窗口就绪后才有 webContents 可发，故在此延迟注入
+    // （容器装配期拿不到 BrowserWindow，构造时硬取会让通知永久静默）。
+    if (automationScheduler && typeof automationScheduler.setNotify === 'function') {
+      automationScheduler.setNotify((payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (win && !win.isDestroyed()) win.webContents.send('automation:notification', payload)
+        }
+      })
+    }
     bindAccessLevelInvalidator(createAccessLevelInvalidator(BrowserWindow, log))
     const controlledIpcMain = createAccessControlledIpcMain(
       ipcMain,

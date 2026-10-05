@@ -6,11 +6,13 @@ const fs = require('fs')
 const platformsMixin = require('./rpa-view-platforms')
 
 // 2026-09-29：rpa-view-platforms.js 两次拆分（rpa-publish-id-extract.js / rpa-view-navigation-helpers.js），
+// 2026-10 三次拆分（upload-waiter.js：视频上传等待循环 v4）——
 // 结构锁需读「主文件 + 拆分文件」的合并文本，否则被拆走的方法会断锁。
+// 2026-10-01：artifact 族再拆出 rpa-view-artifacts.js，同样并入。
 function readPlatformsSource () {
   const main = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
   const parts = [main]
-  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers']) {
+  for (const rel of ['./rpa-publish-id-extract', './rpa-view-navigation-helpers', './upload-waiter', './rpa-view-artifacts']) {
     try { parts.push(fs.readFileSync(require.resolve(rel), 'utf-8')) } catch (_) { /* 拆分文件可缺省 */ }
   }
   return parts.join('\n')
@@ -360,6 +362,10 @@ describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图
       _navigateAndWait: vi.fn().mockResolvedValue(undefined),
       _waitForElement: vi.fn().mockResolvedValue(true),
       _setFileInput: vi.fn().mockResolvedValue(true),
+      // 2026-09-30：图片上传通道改为「拖拽区优先，input 回退」；此 context 模拟
+      // **无拖拽容器**的平台（除快手外），故返回 false 让流程走 input 注入。
+      _dropFilesToDragArea: vi.fn().mockResolvedValue(false),
+      _dismissImageEditModal: vi.fn().mockResolvedValue('NO_EDIT_MODAL'),
       _click: vi.fn().mockResolvedValue(true),
       _sleep: vi.fn().mockResolvedValue(undefined),
       _waitForCondition: vi.fn().mockResolvedValue(true),
@@ -436,6 +442,40 @@ describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图
       win, expect.anything(), 'xiaohongshu',
       expect.objectContaining({ preFill: 'switchImageTab' }),
     )
+  })
+
+  // 2026-09-30 快手取证：快手图文的 input[type=file] 两条注入路径都失效（CDP 静默清空 /
+  // DataTransfer 赋值归零），唯一通道是向 dragger-content 派发 DragEvent('drop')。
+  it('快手图文模式：给出 drag_area 选择器（拖拽上传通道）', async () => {
+    const { win } = createWindow('https://cp.kuaishou.com/article/publish/video?tabType=2')
+    const context = createImageContext()
+
+    await platformsMixin._publish_kuaishou.call(context, win, { title: 'T', content: 'C', images: ['C:/img.png'] })
+
+    expect(context._publish_generic).toHaveBeenCalledWith(
+      win, expect.anything(), 'kuaishou',
+      expect.objectContaining({
+        selectors: expect.objectContaining({
+          drag_area: expect.stringContaining('dragger-content'),
+        }),
+      }),
+    )
+  })
+
+  it('有拖拽容器时优先走拖拽注入（不再调 _setFileInput）', async () => {
+    const { win } = createWindow('https://cp.kuaishou.com/article/publish/video?tabType=2')
+    const context = createImageContext()
+    context._dropFilesToDragArea.mockResolvedValueOnce(true) // 模拟拖拽成功
+    // 直接跑 generic 的图片上传分支
+    await platformsMixin._publish_generic.call(
+      { ...context, ...platformsMixin },
+      win,
+      { title: 'T', content: 'C', images: ['C:/img.png'] },
+      'testplatform',
+      { ...context._getPlatformConfig(), selectors: { ...context._getPlatformConfig().selectors, drag_area: 'div[class*="dragger-content"]' } },
+    )
+    expect(context._dropFilesToDragArea).toHaveBeenCalled()
+    expect(context._setFileInput).not.toHaveBeenCalled()
   })
 
   it('小红书视频模式：无 preFill（视频 tab 是默认态）', async () => {
@@ -916,6 +956,15 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     expect(Number((body.match(/timeoutMs \|\| (\d+)/) || [])[1])).toBeGreaterThanOrEqual(900000)
   })
 
+  // 2026-10 三次拆分（upload-waiter.js）：等待循环从 rpa-view-navigation-helpers.js
+  // 下沉后必须仍由 Object.assign 合回 mixin，否则 this._waitForVideoUploadComplete 为 undefined
+  // （抖音/通用链路直接 TypeError）——结构锁只验源码文本，验不到接线，故补此断言。
+  it('三次拆分接线：upload-waiter mixin 已合入 platformsMixin', () => {
+    expect(typeof platformsMixin._waitForVideoUploadComplete).toBe('function')
+    expect(typeof platformsMixin._probeUploadSignal).toBe('function')
+    expect(String(platformsMixin._waitForVideoUploadComplete)).toContain('timeoutMs || 900000')
+  })
+
   it('douyin 专用链路也先清理引导遮罩（实测页面带“我知道了”）', () => {
     const source = readPlatformsSource()
     const start = source.indexOf('async _publish_douyin')
@@ -1037,5 +1086,156 @@ describe('rpa-view-platforms — 快手/B站 发布选择器数据契约', () =>
 
   it('douyin：title_input 末候选兼容 semi-input 的 placeholder 命中', () => {
     expect(S.douyin.title_input).toContain('input[placeholder*="标题"]')
+  })
+})
+
+// 2026-10-04 publish-throughput-optimization A2（01-docs/PRD-PUBLISH-THROUGHPUT-OPTIMIZATION-2026-10-04）：
+// 抖音图文链 4 处固定 sleep 是无判据纯叠加（表单就绪轮询已存在），替换为事件驱动等待。
+// 同族反模式先例：url-collector-content-ready.test.js 防复发静态锁 + upload-waiter.js v4 视频上传自适应轮询。
+describe('rpa-view-platforms — douyin 图文事件驱动等待（A2：去固定 sleep）', () => {
+  function getDouyinBody () {
+    const source = readPlatformsSource()
+    const start = source.indexOf('async _publish_douyin')
+    const end = source.indexOf('\n  // ========== ', start + 10)
+    return source.slice(start, end > 0 ? end : undefined)
+  }
+
+  // 本 describe 内的局部 helper（作用域隔离，与上方 describe 的同名 helper 无关）
+  function localWindow (url) {
+    return {
+      win: { webContents: { getURL: vi.fn().mockReturnValue(url), getTitle: vi.fn().mockReturnValue(''), executeJavaScript: vi.fn().mockResolvedValue(true) } },
+    }
+  }
+
+  function localImageContext () {
+    return {
+      _emitProgress: vi.fn(),
+      _navigateAndWait: vi.fn().mockResolvedValue(undefined),
+      _waitForElement: vi.fn().mockResolvedValue(true),
+      _setFileInput: vi.fn().mockResolvedValue(true),
+      _dropFilesToDragArea: vi.fn().mockResolvedValue(false),
+      _dismissImageEditModal: vi.fn().mockResolvedValue('NO_EDIT_MODAL'),
+      _click: vi.fn().mockResolvedValue(true),
+      _sleep: vi.fn().mockResolvedValue(undefined),
+      _waitForCondition: vi.fn().mockResolvedValue(true),
+      _waitForResponse: vi.fn().mockResolvedValue(null),
+      _dismissPostNavDialogs: vi.fn().mockResolvedValue(undefined),
+      _waitForVideoUploadComplete: vi.fn().mockResolvedValue(undefined),
+      _fillInput: vi.fn().mockResolvedValue(undefined),
+      readVideoFileBytes: vi.fn(() => 0),
+    }
+  }
+
+  it('防复发静态锁：_publish_douyin 图文段不再含固定 sleep（4000 / tag 1000 / 封面 1000+2000 / 兜底 5000）', () => {
+    const body = getDouyinBody()
+    // 图片上传后的 4s 固定等待（表单就绪轮询已覆盖，纯叠加）
+    expect(body).not.toContain('await this._sleep(4000)')
+    // tag 循环内的 1s 固定等待（改为 chip 就绪轮询）
+    expect(body).not.toContain("await this._sleep(1000)\n        } catch(e) { log.warn('RpaView','douyin tag: '")
+    // 封面上传的 1s+2s 固定等待（改为缩略图基线轮询）
+    expect(body).not.toContain('await this._sleep(1000);await this._setFileInput(win,article.cover_path);await this._sleep(2000)')
+    // 提交兜底的 5s 固定等待（改为 URL 轮询）
+    expect(body).not.toContain('await this._sleep(5000)')
+  })
+
+  it('tag 注入后就绪信号为 tag chip 出现（_waitForTagChip helper，判据下沉 navigation-helpers）而非固定等待', () => {
+    const body = getDouyinBody()
+    const tagIdx = body.indexOf("'adding tags...'")
+    expect(tagIdx).toBeGreaterThan(-1)
+    const tagSection = body.slice(tagIdx, body.indexOf("'publishing...'", tagIdx))
+    // 判据实现下沉到 rpa-view-navigation-helpers（行数门禁），调用点锁 helper 名
+    expect(tagSection).toContain('_waitForTagChip')
+    // helper 本体必须含 chip 文本匹配判据（不能是恒真条件）
+    const navSrc = readPlatformsSource()
+    expect(navSrc).toMatch(/_waitForTagChip\s*\(/)
+    expect(navSrc).toMatch(/innerText/)
+  })
+
+  it('封面注入后就绪信号为缩略图基线递增（_waitForThumbnailIncrease helper，头条 _uploadToutiaoCover 同款判据）', () => {
+    const body = getDouyinBody()
+    const coverIdx = body.indexOf("'uploading cover...'")
+    expect(coverIdx).toBeGreaterThan(-1)
+    const coverSection = body.slice(coverIdx, body.indexOf("'adding tags...'", coverIdx))
+    // 判据实现下沉到 rpa-view-navigation-helpers（行数门禁），调用点锁 helper 名
+    expect(coverSection).toContain('_waitForThumbnailIncrease')
+    // helper 本体必须含基线计数判据（querySelectorAll("img").length 递增）
+    const navSrc = readPlatformsSource()
+    expect(navSrc).toMatch(/querySelectorAll\("img"\)\.length/)
+  })
+
+  it('提交兜底为 URL 轮询（_waitForSuccessNavigation helper，多次短间隔）而非单次 sleep+单次查询', () => {
+    const body = getDouyinBody()
+    const publishIdx = body.indexOf("'publishing...'")
+    expect(publishIdx).toBeGreaterThan(-1)
+    const publishSection = body.slice(publishIdx)
+    expect(publishSection).not.toContain('await this._sleep(5000)')
+    // 判据实现下沉 navigation-helpers（行数门禁），调用点锁 helper 名 + 短超时参数
+    expect(publishSection).toContain('_waitForSuccessNavigation')
+    const navSrc = readPlatformsSource()
+    expect(navSrc).toMatch(/_waitForSuccessNavigation\s*\(/)
+    expect(navSrc).toMatch(/getURL\(\)/)
+  })
+
+  // 行为锁：图片上传成功后直接进入表单就绪等待（原 4s sleep 删除后调用序不变）
+  it('抖音图文：上传成功后表单就绪等待是下一个等待动作（无中间固定等待）', async () => {
+    const { win } = localWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = localImageContext()
+    const waits = []
+    context._waitForCondition.mockImplementation(async (_w, fn, timeout) => {
+      waits.push('condition:' + timeout)
+      return true
+    })
+    context._sleep.mockImplementation(async (ms) => {
+      waits.push('sleep:' + ms)
+    })
+
+    await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'],
+    })
+
+    // 上传成功（uploaded=true）到表单就绪之间不得有 sleep
+    const uploadIdx = waits.findIndex(w => w.startsWith('condition'))
+    expect(uploadIdx).toBeGreaterThanOrEqual(0)
+    // 全流程无 4000ms 固定等待
+    expect(waits).not.toContain('sleep:4000')
+  })
+
+  it('抖音图文：tag 超时不失败，继续提交（降级路径保留）', async () => {
+    const { win } = localWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = localImageContext()
+    // 表单就绪 true，tag chip 就绪 false（超时），提交响应 null → URL 判定
+    context._waitForCondition.mockImplementation(async (_w, fn) => {
+      const src = String(fn)
+      if (src.includes('querySelectorAll') && src.includes('tag')) return false
+      return true
+    })
+    win.webContents.executeJavaScript.mockResolvedValue(null)
+
+    const result = await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'], tags: ['测试标签'],
+    })
+
+    // tag 超时不得导致整体失败
+    expect(result.success).toBeDefined()
+    expect(result.error === undefined || !String(result.error).includes('tag')).toBe(true)
+  })
+
+  it('抖音图文：封面超时走降级（warn 后继续提交）', async () => {
+    const { win } = localWindow('https://creator.douyin.com/creator-micro/content/upload?default-tab=3')
+    const context = localImageContext()
+    // 封面缩略图等待始终超时
+    context._waitForCondition.mockImplementation(async (_w, fn) => {
+      const src = String(fn)
+      if (src.includes("querySelectorAll(\"img\")")) return false
+      return true
+    })
+    win.webContents.executeJavaScript.mockResolvedValue(null)
+
+    const result = await platformsMixin._publish_douyin.call(context, win, {
+      title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'], cover_path: 'C:/tmp/c.png',
+    })
+
+    expect(result.success).toBeDefined()
+    expect(result.error === undefined || !String(result.error).includes('cover')).toBe(true)
   })
 })

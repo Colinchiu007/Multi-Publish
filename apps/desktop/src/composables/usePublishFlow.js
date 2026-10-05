@@ -33,30 +33,32 @@ import {
   generateAiCover,
 } from '@/api/publisher'
 import {
+  applyPlatformContentConversion,
+  APP_ARTICLE_CONTENT_MAX,
   buildPublishTargets,
   normalizePublishFile,
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
+  minContentBudget,
+  truncateByChars,
   truncateByUtf8Bytes,
   validatePlatformContent,
   validatePublishMetadata,
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
-import { getPlatformOverrideFields } from '@multi-publish/shared-utils/src/publish-capabilities'
+import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
+import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { usePublishProgressStore } from '@/stores/publishProgress'
-
-const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
-const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
 
 // 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
 // 无图时 handlePublish 自动生成封面兜底——AI 生图优先，cover:generate-ai 内建本地标题卡回退）
-const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin']
-
-function isMarkdownContent(content) {
-  return MARKDOWN_RE.test(content) || MARKDOWN_LINK_RE.test(content)
-}
+// 2026-09-30 追加 toutiao：头条图文（=文章）的发布设置页「展示封面」是**必填项**（标签带 *），
+// 且页面**默认选中「单图」**并强制要求提供封面图（实测：只把 radio 改到「无封面」会被 React
+// 受控状态重置回「单图」，截图复核封面区始终为空）⇒ 不生成封面则发布被静默拦下
+// （症状：publish verification timeout，日志无 uploadCover entry 行即表示 coverPath 为 null）。
+const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']
 
 function nowTimeString() {
   return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -64,75 +66,6 @@ function nowTimeString() {
 
 function toPlainJson(value) {
   return JSON.parse(JSON.stringify(value))
-}
-
-// 注册表字段查询缓存（注册表数据冻结，缓存安全）
-const overrideFieldsCache = new Map()
-
-function platformOverrideFieldsFor (platform) {
-  if (!overrideFieldsCache.has(platform)) {
-    overrideFieldsCache.set(platform, getPlatformOverrideFields(platform, { uiOnly: true }))
-  }
-  return overrideFieldsCache.get(platform)
-}
-
-/**
- * 按注册表字段定义归一化单个覆盖值（与 PlatformOverridePanel.normalizeValue 同口径）。
- * 返回 undefined 表示该字段无有效值（不进 payload）。
- */
-function normalizeOverrideValue (field, raw) {
-  if (field.type === 'checkbox') {
-    return typeof raw === 'boolean' ? raw : undefined
-  }
-  if (field.type === 'select') {
-    const options = Array.isArray(field.options) ? field.options : []
-    const matched = options.find(option => String(option.value) === String(raw))
-    return matched ? matched.value : undefined
-  }
-  if (field.type === 'tags') {
-    if (!Array.isArray(raw)) return undefined
-    const list = [...new Set(raw.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()))]
-    return list.length > 0 ? list : undefined
-  }
-  if (field.type === 'collection') {
-    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
-    if (typeof raw === 'string' && raw.trim()) return raw.trim()
-    return undefined
-  }
-  // text / textarea：非空才透传；maxLen 按码点截断（不切断代理对）
-  if (typeof raw !== 'string' || !raw.trim()) return undefined
-  const text = raw.trim()
-  const maxLen = Number(field.maxLen)
-  if (maxLen > 0) {
-    const chars = Array.from(text)
-    return chars.length > maxLen ? chars.slice(0, maxLen).join('') : text
-  }
-  return text
-}
-
-function normalizePlatformOverrides (overrides) {
-  if (!overrides || typeof overrides !== 'object') return {}
-  return Object.fromEntries(Object.entries(overrides).flatMap(([platform, value]) => {
-    if (!value || typeof value !== 'object') return []
-    const normalized = {
-      title: typeof value.title === 'string' ? value.title : '',
-      content: typeof value.content === 'string' ? value.content : '',
-    }
-    // 注册表驱动的平台特有字段归一化（CCG codex W1 修复，2026-10-08）：
-    // 旧硬编码白名单只保留知乎/抖音/公众号少数字段，B站分区/版权/合集、
-    // YouTube 分类/可见性/播放列表、TikTok 可见性、百家号原创/位置/合集、
-    // 公众号摘要/评论开关等注册表面板字段在 IPC 组装前被静默丢弃——
-    // UI 可编辑但发布不生效。现按注册表字段与类型归一化，与面板同口径。
-    for (const field of platformOverrideFieldsFor(platform)) {
-      const normalizedValue = normalizeOverrideValue(field, value[field.key])
-      if (normalizedValue !== undefined) normalized[field.key] = normalizedValue
-    }
-    // 无任何有效差异内容（标题/正文/任一特有字段）的条目不进 payload
-    const hasPayload = Boolean(normalized.title || normalized.content)
-      || Object.keys(normalized).some(key => key !== 'title' && key !== 'content')
-    if (!hasPayload) return []
-    return [[platform, normalized]]
-  }))
 }
 
 /**
@@ -272,8 +205,7 @@ export function usePublishFlow(options) {
       ...normalizePublishFiles(article.image_files),
       ...normalizePublishFiles(article.images),
     ])
-    const coverFile = normalizePublishFile(article.cover_file || article.cover_path || article.cover_url)
-    const coverPath = coverFile?.path || String(article.cover_path || article.cover_url || '').trim()
+    const cover = resolveCoverFields(article)
     const tags = normalizePublishStringList(article.tags)
     const topics = normalizePublishStringList(article.topics)
     const mentions = normalizePublishMentions(article.mentions)
@@ -282,7 +214,7 @@ export function usePublishFlow(options) {
       content: article.content,
       contentFormat: md ? 'markdown' : 'html',
       author: article.author || '',
-      cover_url: article.cover_url || '',
+      cover_url: cover.cover_url,
       video_path: article.video_path || '',
       precheck: precheckEnabled.value,
       platformOverrides: normalizePlatformOverrides(diffEdits),
@@ -297,8 +229,8 @@ export function usePublishFlow(options) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
     }
-    if (coverPath) data.cover_path = coverPath
-    if (coverFile) data.cover_file = coverFile
+    if (cover.cover_path) data.cover_path = cover.cover_path
+    if (cover.cover_file) data.cover_file = cover.cover_file
     if (tags.length > 0) data.tags = tags
     if (topics.length > 0) data.topics = topics
     if (mentions.length > 0) data.mentions = mentions
@@ -381,6 +313,55 @@ export function usePublishFlow(options) {
       notifyWarning('publishPage.publishFlow.metadataInvalid', { message: metadataCheck.message })
       return
     }
+    // 应用级正文上限（PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）：
+    // 超出 10000 字先截断并提示，再进入平台级校验/转换，两级截断各自出声。
+    // 提示缓冲：handlePublish 在通过全部校验后会重置 progress（publishing 锁开启时），
+    // 截断发生在校验阶段 → 直接 addProgress 会被清空（旧 contentAutoTruncated 同病）。
+    // 故先收集，待 progress 重置后统一发出。
+    const truncationNotices = []
+    const appContentBefore = Array.from(String(article.content || '')).length
+    if (appContentBefore > APP_ARTICLE_CONTENT_MAX) {
+      article.content = truncateByChars(article.content, APP_ARTICLE_CONTENT_MAX)
+      truncationNotices.push({
+        key: 'publishPage.publishFlow.articleContentTruncated',
+        params: { before: appContentBefore, after: APP_ARTICLE_CONTENT_MAX },
+      })
+    }
+
+    // 按平台的提交文本转换（PRD §F3）：超限平台写差异化覆盖（diffEdits 就地更新，
+    // buildArticleData 经 normalizePlatformOverrides 原样进 payload），未超限平台
+    // 保持全文 —— 取代旧「最小预算全局一刀切」（公众号等大限平台不再被误伤）。
+    // 无差异化覆盖通道的旧调用方（diffEdits 为空）：退化回最小预算全局截断，
+    // 保证转换结果仍能进 payload（写入临时对象会被丢弃，导致校验仍失败）。
+    if (diffEdits) {
+      const conversion = applyPlatformContentConversion({
+        platforms: selectedPlatforms.value,
+        article,
+        platformOverrides: diffEdits,
+      })
+      for (const truncation of conversion.truncations) {
+        truncationNotices.push({
+          key: 'publishPage.publishFlow.platformContentTruncated',
+          params: {
+            platform: truncation.label,
+            limit: truncation.limit,
+            before: truncation.before,
+            after: truncation.after,
+          },
+        })
+      }
+    } else {
+      const budget = minContentBudget(selectedPlatforms.value, article.title)
+      const before = Array.from(String(article.content || '')).length
+      if (budget !== null && before > budget) {
+        article.content = truncateByChars(article.content, budget)
+        truncationNotices.push({
+          key: 'publishPage.publishFlow.contentAutoTruncated',
+          params: { platform: '', limit: budget, before, after: Array.from(String(article.content || '')).length },
+        })
+      }
+    }
+
     const contentCheck = validatePlatformContent({
       platforms: selectedPlatforms.value,
       article,
@@ -390,6 +371,9 @@ export function usePublishFlow(options) {
       // 一键发布/历史视频预填场景：百家号标题按 UTF-8 字节数校验（上限 149 字节），
       // 预填文案可能超长。若仅因百家号标题超长失败，自动按字节截断标题后继续，
       // 避免阻断自动一站式流程；其他平台/字段超长仍提示并阻断，让用户手动调整。
+      // 2026-10-02 演进：正文超长已由上方 applyPlatformContentConversion 按**各平台
+      // 自己的上限**生成差异化覆盖（取代 2026-10-01 的最小预算全局截断），此处只剩
+      // 百家号标题的自动截断路径；正文仍失败（理论上罕见）则阻断并给出明确原因。
       const autoTruncatable = contentCheck.platform === 'baijiahao' && contentCheck.field === 'title'
       if (autoTruncatable && Number.isFinite(contentCheck.limit) && contentCheck.limit > 0) {
         // 截断来源：若差异化面板为 baijiahao 单独设置了覆盖标题，则截断覆盖标题；
@@ -404,7 +388,7 @@ export function usePublishFlow(options) {
           article.title = truncateByUtf8Bytes(article.title, contentCheck.limit)
         }
         addProgress(progressText('publishPage.publishFlow.baijiahaoTitleTruncated'), 'warning')
-        // 截断到 149 字节（约 49 中文字符）后重新校验剩余平台：可能仍超过
+        // 截断标题后重新校验剩余平台：可能仍超过
         // xiaohongshu(20字)/toutiao(30字) 等更严格平台的上限，需重新校验并阻断。
         const recheck = validatePlatformContent({
           platforms: selectedPlatforms.value,
@@ -423,6 +407,10 @@ export function usePublishFlow(options) {
 
     publishing.value = true
     progress.value = []
+    // 发出校验阶段缓冲的截断提示（在 progress 重置后，避免被清空）
+    for (const notice of truncationNotices) {
+      addProgress(progressText(notice.key, notice.params), 'warning')
+    }
     result.value = null
     activeTaskIds.value = []
     activeScheduleIds.value = []

@@ -147,8 +147,108 @@ function selectPixelTests() {
   return picked;
 }
 
-async function main() {
-  const theme = resolveTheme();
+/**
+ * 视觉环境前置检查：把"这台机器渲染不了"与"UI 回归了"分成两类结论。
+ *
+ * 为什么必须单独成码：`chromium.launch()` 在缺浏览器的机器上抛的 Playwright 原文会被
+ * `main().catch` 压成一句「像素门禁失败: …」+ exit 1，与真实回归**同形**。两种后果都发生过：
+ * ① 把环境问题当回归去改代码；② 以"我跑了 test:visual:pixel 且它没报回归"当视觉中性证据
+ * —— 而实际上一帧都没渲染。判据一律以 CI 的 `QG Visual` 为准，本机跑前先过这道检查。
+ *
+ * @param {{resolveExecutablePath?: () => string, existsSync?: (p: string) => boolean}} [options]
+ */
+const VISUAL_ENV_MISSING = 'ERR_VISUAL_ENV_MISSING'
+const VISUAL_ENV_REMEDY = 'cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers pnpm exec playwright install chromium'
+
+function preflightVisualEnvironment (options = {}) {
+  const resolveExecutablePath = options.resolveExecutablePath || (() => require('playwright').chromium.executablePath())
+  const existsSync = options.existsSync || require('fs').existsSync
+  const fail = (detail) => {
+    const error = new Error('视觉环境缺失：' + detail
+      + '。这不是 UI 回归；未渲染任何一帧时不得据此声称"视觉无回归"（正解：' + VISUAL_ENV_REMEDY
+      + '，或直接以 CI 的 QG Visual 结论为准）')
+    error.code = VISUAL_ENV_MISSING
+    throw error
+  }
+  let executablePath
+  try {
+    executablePath = String(resolveExecutablePath() || '')
+  } catch (error) {
+    fail('无法解析 Chromium 可执行路径（' + error.message + '）')
+  }
+  if (!existsSync(executablePath)) {
+    fail('Chromium 可执行文件不存在：' + (executablePath || '(空路径)'))
+  }
+  return { executablePath }
+}
+
+const TARGET_REACHABILITY_TIMEOUT_MS = Number(process.env.VISUAL_TARGET_TIMEOUT_MS) || 3000
+
+function defaultOpenConnection (host, port, timeoutMs) {
+  const net = require('net')
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port })
+    const timer = setTimeout(() => {
+      socket.destroy()
+      reject(new Error('connect ETIMEDOUT ' + host + ':' + port))
+    }, timeoutMs)
+    if (timer && typeof timer.unref === 'function') timer.unref()
+    socket.once('connect', () => {
+      clearTimeout(timer)
+      socket.destroy()
+      resolve()
+    })
+    socket.once('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+  })
+}
+
+/**
+ * 目标可达性前置检查：dev server 没起时，每个视图都会死在 `page.goto: ERR_CONNECTION_REFUSED`，
+ * 汇总成「像素视觉门禁存在 N 个失败」—— 与真实回归在退出码与文案上**完全同形**（本机实测过）。
+ * 另一条更隐蔽的后果：TEST_URL 若指向并发会话在跑的 dev server，会**拿到别人构建的截图当自己的证据**，
+ * 那种跑法一帧都不报错却全是假绿，所以文案必须把"是不是本 worktree 的构建"点名出来。
+ *
+ * @param {{url?: string, openConnection?: (host: string, port: number, timeoutMs: number) => Promise<void>}} [options]
+ */
+async function preflightVisualTarget (options = {}) {
+  const rawUrl = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174'
+  let host
+  let port
+  try {
+    const parsed = new URL(rawUrl)
+    host = parsed.hostname
+    port = Number(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80)
+  } catch (error) {
+    const invalid = new Error('视觉环境缺失：TEST_URL 无法解析（' + rawUrl + '）。这不是 UI 回归')
+    invalid.code = VISUAL_ENV_MISSING
+    throw invalid
+  }
+  const openConnection = options.openConnection || defaultOpenConnection
+  try {
+    await openConnection(host, port, TARGET_REACHABILITY_TIMEOUT_MS)
+  } catch (error) {
+    const unreachable = new Error('视觉环境缺失：dev server 不可达 ' + host + ':' + port
+      + '（' + error.message + '）。这不是 UI 回归 —— 缺宿主时每个视图都会死在 page.goto，'
+      + '并被汇总成"N 个失败"，与真实回归同形。先起**本 worktree 自己的** dev server'
+      + '（pnpm exec vite --port <独占端口>），或核对 TEST_URL 指向的是不是本 worktree 的构建'
+      + '（并发会话共用同一端口会把别人的界面当自己的证据）；拿不到正确渲染时不得声称视觉无回归，'
+      + '正解是以 CI 的 QG Visual 结论为准')
+    unreachable.code = VISUAL_ENV_MISSING
+    throw unreachable
+  }
+  return { host, port }
+}
+
+async function main(options = {}) {
+  const envCheck = options.envCheck || preflightVisualEnvironment
+  const targetCheck = options.targetCheck || preflightVisualTarget
+  // 两项都必须前置于 launch：环境缺失时既不该启动浏览器，也不该留下一份"部分产物"被读成结论
+  envCheck()
+  await targetCheck({ url: options.url })
+  const theme = options.theme || resolveTheme();
   console.log('像素视觉门禁');
   console.log('主题: ' + theme + (theme === 'dark' ? '（读 <view>-dark.png 基线）' : ''));
   console.log('目标: ' + (process.env.TEST_URL || 'http://127.0.0.1:5174'));
@@ -156,7 +256,7 @@ async function main() {
   if (tests.length !== pixelTests.length) {
     console.log('子集: ' + tests.map((test) => test.name).join(', '));
   }
-  const summary = await runPixelSuite(tests, { theme });
+  const summary = await runPixelSuite(tests, { theme, runner: options.runner });
   console.log(
     '像素结果[' + theme + ']: '
     + (summary.passed + summary.baselined)
@@ -182,6 +282,12 @@ module.exports = {
   pixelTests,
   runPixelSuite,
   selectPixelTests,
+  main,
+  preflightVisualEnvironment,
+  preflightVisualTarget,
+  TARGET_REACHABILITY_TIMEOUT_MS,
+  VISUAL_ENV_MISSING,
+  VISUAL_ENV_REMEDY,
   resolveTheme,
   main,
 };

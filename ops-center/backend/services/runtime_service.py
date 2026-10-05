@@ -321,6 +321,16 @@ async def _get_app_menu(db: AsyncSession) -> dict:
     from services import app_menu_service
     return await app_menu_service.get_bootstrap_app_menu(db)
 
+async def _get_content_categories(db: AsyncSession) -> dict:
+    """统一内容类别下发（2026-10-03）——只下发 enabled=1。
+
+    与 appMenu 同点位：位于 bootstrap 响应的 Ed25519 签名覆盖范围内，
+    新增字段不会被篡改。
+    """
+    from services import content_category_service
+    return await content_category_service.get_bootstrap_content_categories(db)
+
+
 async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.feature_flag_service import list_runtime_feature_flags
     from services.platform_def_service import list_runtime_platform_defs
@@ -328,6 +338,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.keyword_watchlist_service import list_runtime_watchlist
     from services.rewrite_strategy_service import list_runtime_rewrite_strategies
     from services.rewrite_hard_constraint_service import get_default_runtime as get_default_hard_constraint
+    from services.rewrite_ai_taste_service import list_runtime_entries as list_runtime_ai_taste_entries
 
     return {
         "announcements": await list_active_announcements(db),
@@ -339,8 +350,10 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "keyword_watchlist": await list_runtime_watchlist(db),
         "rewrite_strategies": await list_runtime_rewrite_strategies(db),
         "rewrite_hard_constraints": await get_default_hard_constraint(db),
+        "rewrite_ai_taste_map": await list_runtime_ai_taste_entries(db),
         "pipelineOptions": await _get_pipeline_options(db),
         "appMenu": await _get_app_menu(db),
+        "contentCategories": await _get_content_categories(db),
         "synced_at": _now(),
     }
 

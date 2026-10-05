@@ -125,18 +125,34 @@
         <span class="module-placeholder-state" data-testid="account-share-state" role="status">{{ t('accountsPage.shareNotConnected') }}</span>
         <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>{{ t('accountsPage.createShareLink') }}</button>
       </section>
+      <!-- 分组真源状态必须可见：'unreadable' 与「用户没有分组」是两件事，
+           'save-failed' 若不报就等于告诉用户"改好了"而其实重启即丢。
+           必须放在面板之后：放在前面会抢走面板的 v-else-if 链条，让面板在非 ok 态整个消失。 -->
       <AccountGroupsPanel
         v-else-if="accountTab === 'groups'"
         :groups="accountStore.groups || []"
         :accounts="accountStore.accounts"
         :platforms="allPlatforms"
         :platform-label="platformLabel"
+        :categories="contentCategories"
+        :translate-fn="t"
         @create="createNewGroup"
         @delete="deleteGroup"
         @rename="renameGroup"
         @set-platform="setGroupPlatform"
+        @set-tags="setGroupCategoryTags"
         @toggle-account="toggleAccountInGroup"
       />
+      <p
+        v-if="accountTab === 'groups' && accountStore.groupsStatus !== 'ok'"
+        class="page-hint"
+        role="status"
+        data-testid="account-groups-status"
+      >{{ accountStore.groupsStatus === 'save-failed'
+        ? t('accountsPage.groupsSaveFailed')
+        : (accountStore.groupsStatus === 'pending-migration'
+          ? t('accountsPage.groupsMigrated')
+          : t('accountsPage.groupsUnreadable')) }}</p>
       <AccountFavoritesPanel
         v-else-if="accountTab === 'favorites'"
         :groups="accountStore.groups || []"
@@ -361,9 +377,11 @@ import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/sha
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
+import { needsCleanLoginSession } from '@/utils/account-status'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
+import { contentCategoriesRef, loadContentCategories, watchContentCategories } from '@/composables/useContentCategories'
 
 const filterOptions = computed(() => [
   { value: 'all', label: t('accountsPage.filterAll') },
@@ -418,6 +436,10 @@ const batchCheckAllBusy = ref(false)
 // cloudSyncRunning 由弹窗 running-change 事件回灌：进行中关闭弹窗属「后台继续」，
 // 批次仍在跑，按钮必须保持禁用，并与一键检测互斥（PRD §5.8）。
 const { enabled: cloudSyncFlagEnabled, refresh: refreshCloudSyncFlag } = useFeatureFlag(FEATURE_FLAG_ACCOUNT_CLOUD_SYNC)
+// 统一内容类别（2026-10-03）：账号分组的预设标签与热门选题/采集库共用同一真源；
+// 读不到时 composable 已回退内置 10 类，所以这里不需要再判空。
+const contentCategories = contentCategoriesRef()
+let categoriesUnsubscribe = null
 const cloudSyncDialogVisible = ref(false)
 const cloudSyncRunning = ref(false)
 // 一键检测进度（进度卡顿修复 2026-09-22）：checked 只反映已完成数，
@@ -758,6 +780,14 @@ function renameGroup (groupId, name) {
 
 function setGroupPlatform (groupId, platformFilter) {
   accountStore.setGroupPlatform(groupId, platformFilter)
+}
+
+/** 设置分组的内容类别标签（统一真源；失败必须可见，否则用户以为改好了） */
+async function setGroupCategoryTags (groupId, tags) {
+  const ok = accountStore.setGroupCategoryTags(groupId, tags)
+  if (!ok) { notifyError('accountsPage.groupTagsFailed'); return }
+  await accountStore.flushGroupsSave()
+  notifySuccess('accountsPage.groupTagsSaved')
 }
 
 async function deleteGroup (groupId) {
@@ -1127,7 +1157,16 @@ async function openCreatorCenter(account) {
     notifyWarning('accountsPage.creatorUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
+  // 失效账号以干净会话打开：公众号的创作者中心 URL 就是登录页
+  // （PLATFORM_DASHBOARD_URLS.wechat_mp === PLATFORM_LOGIN_URLS.wechat_mp），
+  // 带旧凭证进去必然撞上「二维码加载失败」，等于点卡片=登不上。
+  await tabStore.createTab({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    cleanSession: needsCleanLoginSession(account, checkedExpiredIds.value),
+    title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }),
+  })
 }
 
 async function openLoginPage (account) {
@@ -1140,10 +1179,13 @@ async function openLoginPage (account) {
     notifyWarning('accountsPage.loginUnsupported')
     return
   }
-  // 失效账号打开登录页必须用干净会话：旧身份 Cookie（如微信 wxuin）会让平台
-  // 在二维码环节静默拒绝（getqrcode 200 空体）；有效账号仍恢复 Cookie 以便免登录
-  const cleanSession = account?.status === 'expired'
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, cleanSession, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
+  await tabStore.createTab({
+    url,
+    platform: account.platform,
+    accountId: account.id,
+    cleanSession: needsCleanLoginSession(account, checkedExpiredIds.value),
+    title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }),
+  })
 }
 
 async function removeAccount (account) {
@@ -1215,11 +1257,15 @@ onMounted(() => {
   refresh()
   // 运营开关只影响入口显隐，读不到即关闭（ADR-0006），因此不阻塞首帧、失败也不提示
   refreshCloudSyncFlag()
+  // 统一类别：全应用单例，这里只需触发一次加载 + 订阅运营变更
+  loadContentCategories().catch(() => {})
+  categoriesUnsubscribe = watchContentCategories()
 })
 
 onUnmounted(() => {
   clearTimeout(searchTimer)
   stopBatchCheckTicker()
+  if (categoriesUnsubscribe) { categoriesUnsubscribe(); categoriesUnsubscribe = null }
   if (resolveAuthorizationGuide) resolveAuthorizationGuide()
   resolveAuthorizationGuide = null
   stopAccountEvents()

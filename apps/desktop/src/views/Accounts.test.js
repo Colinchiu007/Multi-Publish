@@ -1911,3 +1911,118 @@ describe("AccountsView — 【同步云端】入口（feature flag / 登录门 /
     expect(_spies.load).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AccountsView — 失效账号打开平台页必须干净会话", () => {
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+    setActivePinia(createPinia());
+    _testAccounts.length = 0;
+    _identityState.isAuthenticated = false;
+    _ensureLogin.mockClear();
+    _ensureLogin.mockImplementation(async () => false);
+    window.electronAPI = {};
+    localStorage.setItem("account-authorization-guide-seen", "1");
+  });
+
+  /** 拿到组件实际使用的 tabStore，拦截 createTab（组件内 createTab 是 store 实例方法） */
+  async function spyCreateTab () {
+    const { useTabStore } = await import("@/stores/tab");
+    const tabs = useTabStore();
+    return vi.spyOn(tabs, "createTab").mockResolvedValue("btab-1");
+  }
+
+  const expiredWx = { id: "29760847", platform: "wechat_mp", status: "expired", account_name: "数字生命丘丘" };
+  const activeWx = { id: "29760848", platform: "wechat_mp", status: "active", account_name: "数字生命丘丘" };
+
+  it("失效账号点卡片打开创作者中心：cleanSession=true（不恢复旧凭证）", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter(expiredWx);
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    // 公众号创作者中心 URL 就是登录页：带旧身份 Cookie 进去必然出「二维码加载失败」
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
+    expect(createTab.mock.calls[0][0].accountId).toBe("29760847");
+  });
+
+  it("失效账号打开登录页：cleanSession=true", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openLoginPage(expiredWx);
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
+  });
+
+  it("有效账号：不启用干净会话，照常恢复凭证免登录（回归保护）", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter(activeWx);
+    await w.vm.openLoginPage(activeWx);
+
+    expect(createTab).toHaveBeenCalledTimes(2);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(false);
+    expect(createTab.mock.calls[1][0].cleanSession).toBe(false);
+  });
+
+  it("未确认态（unverified）不启用干净会话：凭证可能仍有效，不得强制重新登录", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter({ id: "a1", platform: "wechat_mp", status: "unverified" });
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(false);
+  });
+
+  it("本轮检测刚确认失效但 status 尚未回写：点卡片仍必须干净会话", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+    // 单条 checkLogin 只把 id 写进 checkedExpiredIds，不回写 account.status；
+    // 少了这一路输入，「刚点完验证就点卡片」会带着旧凭证进登录页，事故原地复发。
+    w.vm.checkedExpiredIds = new Set(["29760849"]);
+
+    await w.vm.openCreatorCenter({ id: "29760849", platform: "wechat_mp", status: "active" });
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
+  });
+
+  it("结构锁：src/views 下凡带 accountId 的 createTab 调用点都必须声明 cleanSession", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const viewsDir = path.resolve(process.cwd(), "src/views");
+    const files = fs.readdirSync(viewsDir).filter((f) => f.endsWith(".vue"));
+    // 反失明：目录读空会让本条恒绿
+    expect(files.length).toBeGreaterThan(5);
+    let scoped = 0;
+    for (const f of files) {
+      const text = fs.readFileSync(path.join(viewsDir, f), "utf8");
+      const sites = text.match(/createTab\(\s*\{[\s\S]*?\n\s*\}\)/g) || [];
+      for (const site of sites) {
+        if (!/accountId:/.test(site)) continue; // 非账号身份的标签页不恢复凭证，不在此契约内
+        scoped += 1;
+        expect(site).toMatch(/cleanSession:/);
+      }
+    }
+    // Accounts 两个入口 + Home 批量登录
+    expect(scoped).toBeGreaterThanOrEqual(3);
+  });
+
+  it("结构锁：每个 createTab 调用点都必须经 needsCleanLoginSession 声明 cleanSession（新入口漏写即红）", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(new global.URL("./Accounts.vue", import.meta.url), "utf8");
+    // 反失明：解析退化成空集合会让这条恒绿，规模下界必须与实际调用点数一致
+    const explicit = src.match(/createTab\(/g) || [];
+    expect(explicit.length).toBeGreaterThanOrEqual(2);
+    const callSites = src.match(/createTab\(\s*\{[^]*?\n  \}\)/g) || [];
+    expect(callSites.length).toBe(explicit.length);
+    for (const site of callSites) {
+      expect(site).toMatch(/cleanSession:\s*needsCleanLoginSession\(/);
+    }
+  });
+
+});

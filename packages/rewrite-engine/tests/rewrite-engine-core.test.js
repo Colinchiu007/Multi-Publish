@@ -693,3 +693,134 @@ describe('RewriteEngine hard constraints', function () {
     expect(engine.getHardConstraints()).toBe('规则A')
   })
 })
+
+// ── P: 改写结果分段保留（2026-10-03 Bug 修复，段落压平回归锁）──
+// 用户反馈：改写后文案是一整段没有正常分段。根因是 AITasteRemover Pass 3
+// _mergeUniformSentences 全文切句重组丢换行；本组用例锁死「后处理不改变分段结构」。
+describe('RewriteEngine 结果分段保留', function () {
+  var multiParagraphLlmOutput = [
+    '这台机器性能确实很强。续航表现也让人满意。',
+    '',
+    '外观设计走的是简约路线。价格在同类里也算实惠。',
+    '',
+    '拍照效果属于第一梯队。系统流畅度没什么可挑的。'
+  ].join('\n')
+
+  function wireMultiPara(engine) {
+    var strategy = {
+      id: 'para-keep-v1', name: 'para-keep', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: true, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('P1 多段 LLM 输出经后处理仍保留空行分段（真实策略链）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return multiParagraphLlmOutput } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireMultiPara(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意原文内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).toContain('\n\n')
+  })
+
+  test('P2 内置默认硬约束含分段约束（空行分隔）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireMultiPara(engine)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(captured).toContain('空行分隔')
+  })
+
+  test('P3 模式指令含分段输出要求（三模式）', async function () {
+    for (var mode of ['imitate', 'expand', 'create']) {
+      var captured = null
+      var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+      var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+      wireMultiPara(engine)
+      await engine.rewrite({ mode: mode, content: '原始内容', userSettings: {} })
+      expect(captured).toContain('分段输出要求')
+    }
+  })
+})
+
+// ── AI 味定制注入（ai-taste-ops-center，2026-10-03）──
+describe('RewriteEngine AI 味定制注入', function () {
+  function wireTaste(engine) {
+    var strategy = {
+      id: 'taste-v1', name: 'taste', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: true, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('C1 setAiTasteCustomization 空对象行为不变', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '综上所述，结果很好。' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r1 = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    engine.setAiTasteCustomization({})
+    var r2 = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r2.result).toBe(r1.result)
+    expect(r2.result).not.toContain('综上所述')
+  })
+
+  test('C2 自定义词端到端生效（覆盖内置替换方向）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '综上所述，结果很好。' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    engine.setAiTasteCustomization({ phraseMap: { '综上所述': '归根结底' } })
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.result).toContain('归根结底')
+    expect(r.result).not.toContain('说到底')
+  })
+
+  test('C3 策略 postProcess.aiTasteIntensity=1 消费（跳 Pass 3）', async function () {
+    var llmOut = '性能很强。续航也很顶。拍照很清晰。充电速度很快。'
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return llmOut } }, knowledgeBase: new KnowledgeBase() })
+    wireTaste(engine)
+    engine._strategyManager._strategies[0].postProcess.aiTasteIntensity = 1
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.result).toBe(llmOut)
+  })
+
+  test('C4 非法 aiTasteIntensity 回 2（0/4/字符串/null）', async function () {
+    var llmOut = '性能很强。续航也很顶。拍照很清晰。充电速度很快。'
+    for (var bad of [0, 4, 'x', null]) {
+      var engine = new RewriteEngine({ llmClient: { chat: async function () { return llmOut } }, knowledgeBase: new KnowledgeBase() })
+      wireTaste(engine)
+      engine._strategyManager._strategies[0].postProcess.aiTasteIntensity = bad
+      var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+      expect(r.result).not.toBe(llmOut)
+    }
+  })
+
+  test('C5 未注入时 getAiTasteCustomization 为空且引擎行为不变', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '综上所述，结果很好。' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    expect(engine.getAiTasteCustomization()).toEqual({})
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.result).toContain('说到底')
+  })
+})

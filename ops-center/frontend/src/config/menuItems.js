@@ -1,5 +1,5 @@
 import {
-  Bell, Camera, Connection, Cpu, DataAnalysis, DataLine, Document, Edit, FolderOpened,
+  Bell, Camera, Collection, Connection, Cpu, DataAnalysis, DataLine, Document, Edit, FolderOpened,
   Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, Postcard, Refresh,
   Search, ChatDotRound, Medal, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
 } from '@element-plus/icons-vue'
@@ -28,10 +28,12 @@ export const MENU_ITEMS = [
   { path: '/content-templates', label: '内容模板库', icon: Document },
   { path: '/rewrite-strategies', label: '改写策略管理', icon: Edit },
   { path: '/rewrite-hard-constraints', label: '改写硬约束', icon: Lock, adminOnly: true },
+  { path: '/rewrite-ai-taste', label: '去AI味词库', icon: MagicStick, adminOnly: true },
   { path: '/keyword-watchlist', label: '关键词监测', icon: Search },
   { path: '/pipeline-deps', label: '流水线依赖', icon: Connection },
   { path: '/pipeline-options', label: '选项控制', icon: Operation, adminOnly: true },
   { path: '/app-menu', label: '应用菜单', icon: Grid, adminOnly: true },
+  { path: '/content-categories', label: '内容类别管理', icon: Collection, adminOnly: true },
   { path: '/parameters', label: '项目参数', icon: Operation },
   { path: '/snapshots', label: '配置快照', icon: Camera },
   { path: '/env', label: '环境变量', icon: Monitor },

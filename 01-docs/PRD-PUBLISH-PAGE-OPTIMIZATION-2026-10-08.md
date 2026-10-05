@@ -3,7 +3,7 @@
 > **立项日期**: 2026-10-08
 > **分析对象**: 视频发布页 + 图文发布页（`apps/desktop/src/views/Publish.vue` 两分支 + 批量模式）
 > **对比基准**: 参考产品 4.13.19（本机逆向工程目录取证；主进程 bundle 8.4MB，其发布页 UI 走远程 Web，本地无界面代码，故页面级对比以其**任务结构、状态模型、引擎行为**为基准）
-> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（两切片）已实现（本文档同 PR 链）；P1-3 / P2 待立项
+> **状态**: 分析完成；P1-4 / P0-2 / P1-5 / P0-1（两切片）/ P2-7 / P2-8（a #2756 + b #2817）/ P2-6a（#2807）已合并；P2-6b（关联键，PR #2861）与 P2-6c（作品互动回流看板，分支 publish-metrics-dashboard）在途；**P1-3 平台草稿往返 与 P0-1 端点取证的第 2–4 项仍未完成**（两者都需要真实平台端点，见 `AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md`）
 > **关联**: [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（字段面注册表，已合并）
 
 ---
@@ -38,9 +38,9 @@
 | 3 | **平台原生草稿往返** | per-platform draftId 存平台侧可回取 | 草稿只存本地 | 🟠 P1-3 |
 | 4 | **定时×草稿互斥校验** | 引擎层硬拒绝「定时发布不能存草稿」 | 定时和存草稿独立可组合，无互斥提示 | 🟠 P1-4（**本文档同 PR 已实现**） |
 | 5 | platform-capable 字段补齐 | visibility(5)/location(3)/goods(4)/activity(3)/download(2)/music(2)+独有项 | ~~注册表已收录未实现~~ → **visibility 5 平台已打通**（2026-10-09 第三切片：语义级通用控件 + resolver/adapter 补齐 + 字段转 implemented）；其余语义仍待立项 | 🟠 P1-5 ✅ |
-| 6 | 数据回流看板 | 总转评赞/播放/发布总数 + 趋势图 | 无发布后数据回流 | 🟡 P2-6 |
-| 7 | 批量模式字段面 | 任务结构支持全字段 | 批量缺封面/徽标/无标题提示/差异化面板 | 🟡 P2-7 |
-| 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | 无分组 | 🟡 P2-8 |
+| 6 | 数据回流看板 | 总转评赞/播放/发布总数 + 趋势图 | ~~无发布后数据回流~~ → **现状纠偏（2026-10-09 勘察，见 §六 P2-6/P2-8 纠偏）**：互动数据已在采集并落库（`performance_snapshot` 实测非零），缺的是**看板聚合**与一处归因断链 | 🟡 P2-6 |
+| 7 | 批量模式字段面 | 任务结构支持全字段 | ~~批量缺封面/徽标/无标题提示/差异化面板~~ → **已实现**（2026-10-09 第六切片：三层同时收口——UI 字段面 + payload 键集与单篇同口径 + 主进程 `executeBatch` 白名单砍键修复，详见 §六 与 [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)） | 🟡 P2-7 ✅ |
+| 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | ~~无分组~~ → **现状纠偏（2026-10-09 勘察，见 §六 P2-6/P2-8 纠偏）**：分组 CRUD + 面板 + 筛选**已全部存在**，但只活在渲染层 `localStorage`，未落持久化真源、发布页也不消费 | 🟡 P2-8 |
 
 **核心结论**：字段面已反超；真正差距集中在**发布后的世界**——审核状态跟踪（P0-1）是矩阵工具的核心价值分水岭，参考产品把「发布成功」当起点，我们目前当终点。
 
@@ -377,8 +377,54 @@ task:success（有 postId）
 - 「好友」档对 YouTube 刻意不降级为 `unlisted`（不公开列出 ≠ 好友可见，语义不同），保持不透传
 - 微博 `visible` 生效依赖平台对 `aj/v6/upload/upload_video` 该字段的接受度（参考产品取证同字段，未经真机验收）
 
+### P2-7 批量模式字段面（**2026-10-09 已实现**，publish-page-optimization 第六切片）
+
+> 详写见 [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)（六维度全量）。此处只记结论与差距表纠偏。
+
+- **差距表原判据需纠偏**：原文写「批量缺封面/徽标/无标题提示/差异化面板」，把它当成 UI 缺口。实施时勘察发现是**三层同时断**——主进程 `batch-manager.executeBatch` 用 5 键手工白名单入队（同文件 `scheduleBatch` 却整包透传），渲染层批量 payload 比单篇少 `contentFormat`/`platformOverrides`/`visibilitySemantic` 三键，UI 层 `cover_*` 等字段**只有读点、没有写点**。只补 UI 会得到一组「填了不生效」的装饰性输入框。
+- **parity 锁当场命中第二处口径分裂（经评审纠正，不属用户可见缺陷）**：排期路径整包透传 article 却不写 `article.accountId`，而凭证解析 `publisher-router.js:353` 的 `loadAuthForTask` 读的正是它。此前该路径靠 `buildPublishArticle:247` 的 `|| task?.accountId` 兜底才恰好取对（原记「同平台多账号会拿错凭证」不成立，已撤回）；真实问题是 `article` 压过 `task` 这条隐式优先级。三条派发点现收敛到 `buildEnqueuedArticle(article, accountId)` 逐次显式覆盖。
+- **判据下沉**：单篇字段面判据（支持度徽标 / 无标题提示 / 可见性支持清单 / 差异化面板规格）原内联在 `Publish.vue` 且只认全局 `selectedPlatforms`；现下沉为 `usePublishFieldSurface`（按传入平台清单计算），单篇与批量同一份，两模式不可能口径漂移；同时给 `Publish.vue` 净减 27 行（该文件距 `LEDGER_GREW` 上限原本只剩 4 行）。
+- **交付面**：条目级封面（手选 + 预览 + 清除 + URL）、通用字段支持度徽标、无标题平台首行提示、平台差异化内容面板、可见性语义档位、Markdown 内容格式判定、注册表内容限制校验（批量此前完全不调 `validatePlatformContent`）。
+- **反证四条均已实跑**（整包透传退回白名单 ⇒ 红 2；override 归一 no-op ⇒ 红 1；内容校验恒通过 ⇒ 红 2；无标题提示忽略入参清单 ⇒ 红 3），每条变异后逐字节还原并校验 SHA。
+
+### 后续项现状纠偏（2026-10-09 勘察，未实施 —— 写给下一个会话，省一次重复研究）
+
+做 P2-7 时顺手核实了 P2-6 / P2-8 的「本仓现状」列，两处判定**都过期了**。证据基准是 `origin/main`（本节核对时为 `2452b4a4`）；每条行号都按**内容唯一命中**复核过（不是"该行非空"——后者会让引用漂移而文档不报错，本节初稿就有 5 条这样混过去的）：
+
+- **P2-8 账号分组：不是「无分组」，而是「已有但只活在渲染层」。** 分组状态与全套操作都在 `apps/desktop/src/stores/accounts.js`（`:32` `groups = ref([])`；`:258 createGroup` / `:273 deleteGroup` / `:277 renameGroup` / `:286 setGroupPlatform` / `:298 getGroupAccounts` / `:310 toggleAccountInGroup`；账号删除后还做组内清理），三个 UI 组件也已存在（`features/accounts/components/AccountGroupsPanel.vue` / `AccountGroupManager.vue` / `PlatformAccountGroup.vue`）。但持久化只有 `localStorage`（`:225` 读 / `:252` 写，键 `mp_account_groups`；实现侧全仓仅此一个文件，另见 `stores/accounts.test.js` 的同名夹具）⇒ 换机/重装即丢、多设备不同步；发布页对账号分组**零接入**——`views/Publish.vue` 里 `groups` 唯一命中是 `:556` 的 `:groups="groupedPlatforms"`（平台分组，见下条同名陷阱），且全文 `useAccountsStore` 命中 0 次。⇒ 真实工作量是「落持久化真源 + 接发布页按组勾选」，不是从零做分组。
+- **⚠️ 同名陷阱**：`PublishTargetSelector.vue:81` 的 `groups` prop 是**平台分组**（来自 `usePublishPlatformCatalog` 的 `groupedPlatforms`，运行时计算、不存储），与上面的**账号分组**语义不同却同名。给发布页加「按账号组勾选」时**不得**复用该 prop 名，否则两套语义在同一组件撞车。
+- **P2-6 数据看板：不是「无发布后数据回流」，互动数据已在采集并落库。** 写链完整：`services/platform-metrics/index.js`（文件自注「第一批」只注册了 zhihu / baijiahao / kuaishou / bilibili 四个 parser，返回 `views/likes/comments/favorites/shares`；未注册平台 `recrawl_status = unsupported`）→ `bootstrap/phase4-events.js:136-152` 建 `tracked_content` → `services/performance-recrawl-service.js:86-95` 按采样节奏写快照 → `services/store/performance-loop-store.js:183 addPerformanceSnapshot` 落 `performance_snapshot` 表（DDL：`services/activate-viral-schema.js:79`）。**缺的是三样**：① 没有「总量 + 平台分布 + 趋势」的聚合看板——现有 `views/Dashboard.vue`（`:288`）/ `Home.vue`（`:338`）都走 `api.dashboardStats()` → `ipc-handlers/publish.js:489` → `services/publish-history.js:243 getStats`，口径只有发布数/成功率/平台分布，**无一个互动指标**；② 已有的 `views/PerformanceInsights.vue` 读 `pattern_performance`，而归因 `pattern-attribution-service.js:44` 要求 `rewrite_history_id` 非空、`:48` 要求 `knowledge_refs` 含 `viral_library`，`phase4-events.js:147` 只在任务带 `rewriteHistoryId` 时才填 ⇒ **不经「从爆文库改写」路径发布的内容永远进不了该表**（归因断链，不是缺采集——这就是该页现在空着的根因）；③ 抖音/小红书/公众号**未注册 parser**（`unsupported`），这三家的互动数必须等平台端点取证，与 §四 P0-1 的取证清单是同一条依赖，**不属可离线范围**。⇒ P2-6 的可离线最大子集 = 聚合 `performance_snapshot` 出总览/趋势/Top-N（纯 SQL + 新视图，不需真机）。
+
+**（本节只纠偏现状判定，不代表已实施；两项的六维度规格各随其 PR 落地。）**
+
 ## 五、残余限制
 
 - P1-4 保存侧不判定时时间是否过期（发布链路已有拦截；保存侧只消灭「误解」不管「有效性」——过期定时的草稿加载时会被清除）
 - 互斥确认的取消/关闭（含右上角 X）都映射为「保留定时保存」——无「放弃保存」路径（设计取舍见 §3.4）
 - 批量模式（batchMode）暂未接入本守卫（批量表单无存草稿动作，天然无此误解路径）
+
+
+---
+
+## 十一、roadmap 状态回填与残余依赖（2026-10-04，P2-6c 作品互动回流看板）
+
+本节按「代码为准」逐项核对，合并状态一律给出可复核的 PR 号，不写「大概已完成」：
+
+| 项 | 现状 | 证据 |
+| --- | --- | --- |
+| P2-6a 发布统计成功率恒 100% | 已合并 | #2807（`getStats` 三档共用一次分类结果） |
+| P2-6b 发布历史↔表现数据关联键 | 已合并 | #2861（squash `90bc6f278`，2026-10-04T08:38:38Z）：`tracked_content.publish_history_id` 自诞生起全 NULL 的写侧 + 存量回填 |
+| P2-6c 数据回流看板 | 已合并 | #2866（squash `b267b0aff`，2026-10-04T14:01:15Z）：新增 `electron/services/performance-overview.js`（唯一聚合口径 V1–V15）+ `performance:overview` IPC（带显式 sender 守卫）+ `src/features/dashboard/PerformanceFlowPanel.vue` 挂在数据看板页；同 PR 撤掉看板页写死的假百分比。合并过程中被四条计数/比例型门禁打回四轮，逐条根因与取证见 `PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md` §十 第 6–10 条 |
+| 同页假百分比（原 §六 未列的一项） | 本 PR 一并撤除 | `Dashboard.vue` 模板里的 `+8.5% / +23% / -2.1%` 与 locale 里的 `dashboard.weekChange: 较上周 +12%` 都没有数据源：`getAllCachedData()`（`packages/shared-utils/src/data-sync.js:116`）只按 TTL 返回每平台**一份最新**结果，没有时间序列，周变化在现有数据下算不出来 |
+| P2-8 账号分组 | 已合并两切片 | #2756（落 settings 真源）+ #2817（发布页按组添加） |
+
+### 11.1 P2-6 还剩什么（如实区分「可离线」与「需真机」）
+
+- **需真机端点**：抖音/小红书/公众号的互动 parser 未注册（`platform-metrics/index.js` 只注册了 zhihu/baijiahao/kuaishou/bilibili），这三家作品的互动数拿不到 ⇒ 看板上它们只会以「不支持回采」计数出现，不会被补 0 假装完整。
+- **需真实使用数据才能验收数字**：本机两份真实 userData（`D:\tmp\Multi-Publish-debug-profile` 与 `%APPDATA%\@multi-publish\desktop`）实测 `tracked_content` / `performance_snapshot` 均为 **0 行**，且全盘没有 >500 字节的 `publish-history.jsonl` ⇒ §六 里「performance_snapshot 实测非零」那句在本机不可复现，本 PR 不把它当依据。（此处原写「界面级验收用隔离 temp profile 造数走查」**不实**——实际走查方式是 vite dev server 独占端口 + Playwright 注入 `window.electronAPI` 桩，在真实 Chromium 里读 computed style 与文本；jsdom 单测不做样式层叠，兜不住 token 缺失导致的整条声明失效。数字级验收仍待取证。）
+- **可离线但留给后续切片**：`rewrite_history_id` 二跳（归因断链，现要求「从爆文库改写」才进 `pattern_performance`）、账号级粉丝/阅读趋势（需先给 `data-sync` 加历史留存层）、`unclassified` 发布记录的展示位。
+
+### 11.2 仍未完成的原计划项
+
+- **P1-3 平台草稿往返**：需要各平台草稿箱列表与回取端点的真实取证，与 `AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md` §7.2 是同一批外部依赖（要向真实账号发布一次才能取证，需用户授权）。
+- **P0-1 端点取证第 2–4 项**：同上；`AUDIT_REQUERY_VERIFIED_PLATFORMS` 目前仍为空是**如实状态**，不是遗漏。

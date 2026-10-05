@@ -905,8 +905,9 @@ var require_page_manager = __commonJS({
           goForward: (tabId) => ipcRenderer2.invoke("page-manager:go-forward", tabId),
           reload: (tabId, ignoreCache) => ipcRenderer2.invoke("page-manager:reload", { tabId, ignoreCache }),
           searchOrNavigate: (query, tabId) => ipcRenderer2.invoke("page-manager:search-or-navigate", { query, tabId }),
-          // 共享左侧边栏驱动当前聚焦的 home-shell 标签在其自身 SPA 内导航（主进程定向投递到该标签 webContents）
+          // 共享左侧边栏驱动当前聚焦的 home-shell 标签在其自身 SPA 内导航（主进程定向投递到该标签 webContents）；reportTabTitle：home-shell SPA 上报当前页面标题——主进程按调用方 webContents 定位标签并更新标题
           navigateActiveHomeShell: (path) => ipcRenderer2.invoke("page-manager:navigate-active-home-shell", { path }),
+          reportTabTitle: (title) => ipcRenderer2.invoke("page-manager:report-tab-title", { title }),
           // ── Query ──
           getAllTabs: () => ipcRenderer2.invoke("page-manager:get-all-tabs"),
           getActiveTab: () => ipcRenderer2.invoke("page-manager:get-active-tab"),
@@ -1061,7 +1062,16 @@ var require_aggregation = __commonJS({
         zhihuFavlistContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:contents", payload),
         zhihuFavlistBatchCollect: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-collect", payload),
         zhihuFavlistBatchRewrite: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-rewrite", payload),
-        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type })
+        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type }),
+        // 知乎收藏批量升级（2026-10-03 PRD-ZHIHU-FAV-BATCH）：全部收藏聚合 + 采集并改写编排
+        zhihuFavlistUnifiedContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:unified-contents", payload),
+        zhihuFavBatchRun: (payload) => ipcRenderer2.invoke("zhihu-fav-batch:run", payload),
+        zhihuFavBatchCancel: () => ipcRenderer2.invoke("zhihu-fav-batch:cancel"),
+        onZhihuFavBatchProgress: (callback) => {
+          const listener = (_event, progress) => callback(progress);
+          ipcRenderer2.on("zhihu-fav-batch:progress", listener);
+          return () => ipcRenderer2.removeListener("zhihu-fav-batch:progress", listener);
+        }
       };
     }
     module2.exports = { createAggregationApi: createAggregationApi2 };
@@ -1100,6 +1110,28 @@ var require_auto_pipeline = __commonJS({
   }
 });
 
+// electron/preload/automation.js
+var require_automation = __commonJS({
+  "electron/preload/automation.js"(exports2, module2) {
+    function createAutomationApi2(ipcRenderer2) {
+      return {
+        automationList: () => ipcRenderer2.invoke("automation:list"),
+        automationCreate: (payload) => ipcRenderer2.invoke("automation:create", payload),
+        automationUpdate: (id, payload) => ipcRenderer2.invoke("automation:update", id, payload),
+        automationRemove: (id) => ipcRenderer2.invoke("automation:remove", id),
+        automationRunNow: (id) => ipcRenderer2.invoke("automation:run-now", id),
+        // 后台任务通知（失败 / 从失败恢复）：渲染层转 toast，不打断当前操作
+        onAutomationNotification: (cb) => {
+          const h = (_, payload) => cb(payload);
+          ipcRenderer2.on("automation:notification", h);
+          return () => ipcRenderer2.removeListener("automation:notification", h);
+        }
+      };
+    }
+    module2.exports = { createAutomationApi: createAutomationApi2 };
+  }
+});
+
 // electron/preload/knowledge-library.js
 var require_knowledge_library = __commonJS({
   "electron/preload/knowledge-library.js"(exports2, module2) {
@@ -1122,6 +1154,7 @@ var require_knowledge_library = __commonJS({
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
         recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
+        performanceOverview: (params) => ipcRenderer2.invoke("performance:overview", params),
         triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
@@ -1427,6 +1460,7 @@ var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
 var { createHotTopicsApi } = require_hot_topics();
 var { createAutoPipelineApi } = require_auto_pipeline();
+var { createAutomationApi } = require_automation();
 var { createKnowledgeLibraryApi } = require_knowledge_library();
 var { createSignerApi } = require_signer();
 var {
@@ -1475,6 +1509,7 @@ var fullApi = {
   ...createAggregationApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
+  ...createAutomationApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
   // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
   ...createSignerApi(ipcRenderer),

@@ -534,10 +534,20 @@ test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', 
     gate.indexOf('check-no-brand-residue.test.js') < gate.indexOf('node scripts/check-no-brand-residue.js'),
     '自测必须先于扫描运行（先证明检出能力，再扫当前仓库）',
   );
-  // Gate 12 必须位于 Gate 11 之后（静态门禁序列）
-  const gate11 = workflow.indexOf('Gate 11 - ESLint');
-  const gate12 = workflow.indexOf('Gate 12 - Brand residue');
-  assert.ok(gate11 >= 0 && gate12 > gate11, 'Gate 12 必须在 Gate 11 之后');
+  // Gate 12 的落点契约（#2745 同族第三处，随实现迁移同步改写，不是删断言）：
+  // 旧断言是「Gate 12 必须在 Gate 11 之后」——那是 static-gates 内部的静态序列次序，
+  // 而 *.md / 01-docs/** / docs/** 全在 docs-only 白名单里，整个 static-gates 对纯文档 PR 被短路，
+  // 于是 AGENTS.md 承诺的「文档 PR 的保留门禁：品牌残留」实际一次都不执行。
+  // 现在它住在无条件执行的 changes job，"在 Gate 11 之后"这条次序判据不再适用，
+  // 换成承重得多的位置判据：必须在 changes job 正文里，且不在被门控的 static-gates 里。
+  const changesAt = workflow.indexOf('\n  changes:');
+  const staticAt = workflow.indexOf('\n  static-gates:');
+  assert.ok(changesAt >= 0 && staticAt > changesAt, '未定位到 changes / static-gates 边界 —— 本锁锚点失效');
+  const changesJob = workflow.slice(changesAt, staticAt);
+  assert.ok(changesJob.includes('Gate 12 - Brand residue'),
+    'Gate 12 不在 changes job 里 ⇒ 纯文档 PR 被 docs-only 短路后无人校验品牌残留');
+  assert.ok(!workflow.slice(staticAt).includes('Gate 12 - Brand residue'),
+    'Gate 12 仍留在被 docs-only 门控的 static-gates（接线未搬走）');
   // 契约：门禁脚本与自测必须真实存在
   assert.ok(
     fs.existsSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.js')),
@@ -614,3 +624,168 @@ test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线�
     'electron-ci 的桌面 vitest 步必须限定为非 PR 事件（避免同一批桌面测试在 PR 上重复执行）',
   );
 });
+
+// 基线新鲜度门禁（check-baseline-freshness.js）存在的意义：QM-4 第 7 条禁止本机截图当基线，
+// 但这条纪律在 #2623 之前无人检测、之后不到一天又被 #2685 的本机重捕打破（9 张漂 0.008%–1.573%，
+// CI 全绿）。摘掉这个步骤就等于把唯一的检测关掉，因此它必须与"阻断"形态一起被锁住。
+test('视觉工作流必须有阻断形态的基线新鲜度门禁，且跑自己的单测', () => {
+  const wf = yaml.load(fs.readFileSync(workflowPath, 'utf8'));
+  const steps = wf.jobs['visual-test'].steps;
+  const fresh = steps.find(step => /check-baseline-freshness\.js/.test(String(step.run || '')));
+
+  assert.ok(fresh, 'visual-test.yml 必须有执行 scripts/check-baseline-freshness.js 的步骤');
+  assert.notEqual(fresh['continue-on-error'], true, '基线新鲜度检查必须是阻断形态；降级成告警就等于没有检查');
+  assert.equal(fresh.if, 'always()', '采集步骤红时也要拿到新鲜度结论，不得被前置失败静默跳过');
+  // 两条命令（先跑单测再跑真检查）写在同一个 run 块里 ⇒ 必须 shell: bash：
+  // PowerShell 步骤不会在中间命令非零时中止，只有最后一条决定成败 ⇒ 会造出一条恒绿装饰门禁。
+  assert.equal(fresh.shell, 'bash');
+  assert.match(String(fresh.run), /node --test scripts\/check-baseline-freshness\.test\.js/,
+    '检查器自身的单测必须与真检查同步执行，否则它会静默失修');
+  const idxFresh = steps.indexOf(fresh);
+  const idxCapture = steps.findIndex(step => /run-all-visual\.js/.test(String(step.run || '')));
+  assert.ok(idxCapture >= 0, '前置条件：采集步骤必须存在，否则新鲜度检查拿不到同 run 的渲染');
+  assert.ok(idxFresh > idxCapture, '新鲜度检查必须排在采集步骤之后（判据是同一次 run 的渲染）');
+})
+
+// 加强版判据（由 QM-6 两路外部评审各自命中一条 Critical 逼出来）：
+// ① 准备步骤必须**整条命令就是**该脚本 —— 原写法按"正文里出现过字样"匹配，一个
+//    `run: echo "see node_modules/electron/install.js"` 的假步骤就能让它恒绿；
+// ② SKIP 变量必须查**步骤 / 作业 / workflow 三层** —— 只在步骤层查，作业级 env 一样能
+//    让 ensure-electron.js:35 直接 exit 0，准备步骤集体变成装饰；
+// ③ 被依赖的脚本本体也要验，否则整条锁只是在验"调用过一个 no-op"；
+// ④ 同类作业清单由内容收集后与"要 prep 的 + 有前提可判定的豁免"做 deepEqual，
+//    新增同类作业当场红，而不是看不见它。
+test('跑桌面测试的质量门禁作业必须先备好 Electron 二进制（清单自动收集、判据不得被空步骤糊住）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  assert.ok(wf.jobs && Object.keys(wf.jobs).length > 0, '前置条件：解析不出 jobs 时本判据会在空集合上恒真');
+
+  const isDesktopTestStep = (s) => {
+    const run = String((s && s.run) || '');
+    return /@multi-publish\/desktop|apps\/desktop/.test(run)
+      && /test:coverage|test:startup|--shard=|vitest run|run test/.test(run);
+  };
+  const collected = Object.keys(wf.jobs)
+    .filter((job) => ((wf.jobs[job] && wf.jobs[job].steps) || []).some(isDesktopTestStep))
+    .sort();
+  const NEEDS_PREP = ['coverage', 'desktop-shards', 'unit-tests'];
+  // e2e 与 visual 同类：经 Playwright 打本机 dev server / Chromium，不加载 Electron 模块；
+  // 这条前提由下面的目录扫描钉住 —— 有人往这两个目录里引入 require('electron') 时，豁免当场失效变红。
+  const EXEMPT = ['e2e', 'visual'];
+  assert.deepEqual(collected, NEEDS_PREP.concat(EXEMPT).sort(),
+    '跑到"可能 require(electron)"的桌面测试作业清单漂移了：实际=' + JSON.stringify(collected)
+    + '，预期=' + JSON.stringify(NEEDS_PREP.concat(EXEMPT).sort())
+    + '。新作业要么补准备步骤，要么进 EXEMPT 并给出会被下面钉住的豁免前提');
+
+  // e2e 的豁免前提是一条**可判定的事实**（那批用例经 Playwright 打浏览器，不加载 Electron 模块），
+  // 不是一句注释：一旦有人往 apps/desktop/tests/e2e 里引入 require('electron')，前提失效 ⇒ 本条立刻红。
+  const repoRoot = path.join(__dirname, '..', '..');
+  const SUITES = ['e2e', 'visual-testing'].map((d) => path.join(repoRoot, 'apps', 'desktop', 'tests', d));
+  const offenders = [];
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, ent.name);
+      if (ent.isDirectory()) { walk(f); continue }
+      if (!/\.m?js$/.test(ent.name)) continue;
+      if (/require\(['"]electron['"]\)|from ['"]electron['"]/.test(fs.readFileSync(f, 'utf8'))) {
+        offenders.push(path.relative(repoRoot, f));
+      }
+    }
+  };
+  for (const d of SUITES) if (fs.existsSync(d)) walk(d);
+  assert.deepEqual(offenders, [],
+    'e2e/visual 作业的豁免前提失效（这些文件会加载 Electron 模块）：' + JSON.stringify(offenders)
+    + ' —— 所在作业必须从 EXEMPT 移到 NEEDS_PREP，即补准备步骤');
+
+  const PREP_CMD = /^\s*node scripts\/ensure-electron\.js\s*$/;
+  const SKIP_ENV = /ELECTRON_SKIP_BINARY_DOWNLOAD/;
+  assert.deepEqual(Object.keys(wf.env || {}).filter((k) => SKIP_ENV.test(k)), [],
+    'workflow 顶层 env 不得设 ELECTRON_SKIP_BINARY_DOWNLOAD：那会让所有作业的准备步骤"合法地"集体空转');
+
+  for (const job of NEEDS_PREP) {
+    const steps = (wf.jobs[job] && wf.jobs[job].steps) || [];
+    assert.ok(steps.length > 0, `作业 ${job} 必须存在且有步骤（改名或删掉时保护整条消失）`);
+    const idxOf = (pred) => steps.map(pred).map((hit, i) => (hit ? i : -1)).filter((x) => x >= 0);
+    const testIdxs = idxOf((s) => isDesktopTestStep(s));
+    assert.ok(testIdxs.length >= 1, `作业 ${job} 里找不到桌面测试步骤（判据不得对空集合放行）`);
+    const prepIdxs = idxOf((s) => PREP_CMD.test(String((s && s.run) || '')));
+    assert.equal(prepIdxs.length, 1,
+      `作业 ${job} 必须恰好有一步 "run: node scripts/ensure-electron.js"（实得 ${prepIdxs.length} 步）：`
+      + '0 步 = 回到 #2783 的装配；多步 = 一处缺口会被另一处满足而掩盖');
+    const prep = steps[prepIdxs[0]];
+    assert.notEqual(prep['continue-on-error'], true,
+      `作业 ${job} 的准备步骤不得 continue-on-error：备失败也照跑，随机超时原样复发`);
+    assert.equal(prep.if, undefined, `作业 ${job} 的准备步骤不得带 if: 条件短路`);
+    for (const [where, env] of [['作业级', wf.jobs[job].env], ['准备步骤', prep.env]]) {
+      assert.ok(!Object.keys(env || {}).some((k) => SKIP_ENV.test(k)),
+        `作业 ${job} 的${where} env 不得设 ELECTRON_SKIP_BINARY_DOWNLOAD：ensure-electron.js:35 见它就 exit 0，`
+        + '准备步骤会变成装饰而本锁仍然绿');
+    }
+    const installIdx = steps.findIndex((s) => /pnpm install --frozen-lockfile/.test(String(s.run || '')));
+    assert.ok(installIdx >= 0 && installIdx < prepIdxs[0],
+      `作业 ${job} 必须先 pnpm install 再备二进制（实得 install=${installIdx} prep=${prepIdxs[0]}）：`
+      + 'electron 包本身是装出来的，顺序反了判据测的是空气');
+    assert.notEqual(steps[installIdx]['continue-on-error'], true,
+      `作业 ${job} 的 Install deps 不得 continue-on-error：安装失败还往下跑，缺 dist 会重新变成随机超时`);
+    assert.ok(prepIdxs[0] < testIdxs[0],
+      `作业 ${job} 的准备步骤必须排在首个桌面测试步骤之前（实得 prep=${prepIdxs[0]} test=${testIdxs[0]}）`);
+  }
+
+  // 被这条锁依赖的脚本本体：掏空它必须让锁变红，否则上面全部判据只是在验"调用过一个 no-op"。
+  const ensureSrc = fs.readFileSync(path.join(repoRoot, 'scripts', 'ensure-electron.js'), 'utf8');
+  assert.match(ensureSrc, /function isDistComplete/,
+    'ensure-electron.js 的完整性判据被删：准备步骤会退化成"跑过 install.js 就算好"');
+  assert.match(ensureSrc, /install\.js 执行后 dist 仍不完整[\s\S]{0,80}process\.exit\(1\)/,
+    'ensure-electron.js 必须在装完仍不完整时非零退出，否则"准备步骤会红"这件事本身消失');
+})
+
+// Gate 7b：把基线新鲜度从「只在 main push 上事后报警」变成 PR 侧的阻断防线。
+// 动因（实测）：#2761 改了发布表单 UI 未刷新基线，而检查器当时只接在 visual-test.yml
+// （2026-09-17 起不再由 PR 触发）里 ⇒ 该 PR 全绿合并、main 连红 11 次。
+test('quality-gate 的 visual job 必须含 PR 侧基线新鲜度步骤（Gate 7b，partial 形态）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const steps = wf.jobs.visual.steps;
+  assert.ok(Array.isArray(steps) && steps.length > 0, 'visual job 必须有 steps')
+
+  const idxGate7 = steps.findIndex((s) => typeof s.name === 'string' && s.name.includes('Gate 7 - Visual regression'))
+  const idxFresh = steps.findIndex((s) => typeof s.name === 'string' && /Gate 7b - Baseline freshness/.test(s.name))
+  // 先断言两个坐标都存在：findIndex 返回 -1 会让下面的顺序断言退化成永真
+  assert.notStrictEqual(idxGate7, -1, 'Gate 7 像素步骤必须仍存在（它被改名会静默废掉本条顺序锁）')
+  assert.notStrictEqual(idxFresh, -1, '缺少 Gate 7b 基线新鲜度步骤')
+  assert.ok(idxFresh > idxGate7, '新鲜度必须在像素步骤之后（它判的是本次刚产出的渲染）')
+
+  const fresh = steps[idxFresh]
+  assert.match(String(fresh.name), /partial/, '步骤名必须标明 partial 形态，避免被读成全量判定')
+  assert.strictEqual(fresh.shell, 'bash', '必须 bash：一个 run 块里两条命令，pwsh 不会中途退出（装饰性门禁）')
+  const body = String(fresh.run)
+  assert.match(body, /node --test scripts\/check-baseline-freshness\.test\.js/, '必须先跑检查器自身单测')
+  assert.match(body, /--partial\b/, '必须带 --partial：本 job 只跑浅色像素套，无渲染的不得判成过期')
+  assert.match(body, /--renders=apps\/desktop\/tests\/visual-testing\/screenshots/, '渲染目录必须指向本次产物')
+  assert.doesNotMatch(body, /continue-on-error/, '不得降级为非阻断')
+})
+
+// Gate 7b 的判定域锁：基线的权威渲染是 views 套件产出的 `<name>.png`（检查器 findRender 优先取它），
+// 而像素套件产的 `<name>-current.png` 与它**不是同一张图**。实测（run 37103860559，同一次 run 内两两对照）：
+//   dashboard 差 350 px、intelligence 差 10528 px、collection 差 67870 px、create-result 差 10111 px；
+//   同一差值在两个不同 head（a0e98805 / 94243c2a）上逐字相同 ⇒ 确定性差异，不是抖动。
+// 后果曾真实发生：Gate 7b 对一条**全量新鲜度已报 0 违规**的 head 报了 7 条假违规（collection 1.568% 等）。
+// 所以 PR 侧必须在同一个持有 dev server 的步骤里补跑 views 两套，否则 Gate 7b 是在错的域上判定。
+test('Gate 7b 之前必须在 Gate 7 同一步骤内产出 views 两套渲染（判定域锁）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const steps = wf.jobs.visual.steps;
+  const idxGate7 = steps.findIndex((s) => typeof s.name === 'string' && s.name.includes('Gate 7 - Visual regression'));
+  const idxFresh = steps.findIndex((s) => typeof s.name === 'string' && /Gate 7b - Baseline freshness/.test(s.name));
+  assert.notStrictEqual(idxGate7, -1, 'Gate 7 步骤必须仍存在（改名会静默废掉本条锁）');
+  assert.notStrictEqual(idxFresh, -1, '缺少 Gate 7b 步骤');
+  const body = String(steps[idxGate7].run);
+
+  // 三条采集必须在同一步骤：dev server 在该步骤的 finally 里被杀掉，另起一步就没有可拍的服务了
+  assert.match(body, /run test:visual:pixel/, '像素套仍在');
+  assert.match(body, /pnpm\.cmd run test:visual(?!:)/, '必须补跑 views 核心套（产 <name>.png）');
+  assert.match(body, /pnpm\.cmd run test:visual:supplement/, '必须补跑 views 补充套');
+
+  // views 的比较结果不另设门禁（0 px 严格强于 6%），但退出码必须出声，
+  // 否则「套件崩了」会伪装成「本次没产图」，而 partial 恰好把没产图记成 skipped。
+  assert.match(body, /suite exits:.*pixel=.*views=.*views-supplement=/, '三套退出码必须逐条打印');
+
+  assert.ok(idxFresh > idxGate7, 'views 采集必须在 Gate 7b 判定之前');
+})

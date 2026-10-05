@@ -9,6 +9,13 @@ const { VisualTestRunner } = require('./test-runner')
 // 含内容区的合法 1920x1080 截图：updateBaseline 现在有基线内容下限守卫
 // （拦截「明显未渲染」的空白截图入库，事故原型 PR #2075→#2114），
 // 假 PNG 签名会被拒解码，mock 必须产出真实可渲染内容。
+// 夹具必须与真实宿主同形：evaluate 的返回值由**被求值的页内函数**决定。
+// 对所有输入回同一个值，会让「按输入区分」这一整类缺陷对该测试结构性免疫
+// —— 跨视图浮层清除（clearInheritedOverlays）就是靠这条被真实宿主支持的语义工作的。
+function pageEvaluate(otherwise) {
+  return vi.fn(async (fn) => (fn && fn.name === 'clearInheritedOverlays' ? { removed: 0, left: 0 } : otherwise))
+}
+
 function makeContentPng() {
   const png = new PNG({ width: 1920, height: 1080 })
   for (let y = 0; y < png.height; y++) {
@@ -44,7 +51,9 @@ function createRunner(tempDir) {
       url: vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts'),
       waitForSelector: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
-    evaluate: vi.fn().mockResolvedValue(500),
+    // 夹具必须与真实宿主同形：evaluate 的返回值由**被求值的页内函数**决定。
+    // 对所有输入回同一个数，会让「按输入区分」这一整类缺陷对该测试结构性免疫。
+    evaluate: pageEvaluate(500),
     screenshot: vi.fn().mockImplementation(async ({ path: outputPath }) => {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true })
       fs.writeFileSync(outputPath, makeContentPng())
@@ -265,7 +274,7 @@ describe('视觉视图门禁', () => {
     const runner = createRunner(tempDir)
     const clearCookies = vi.fn().mockResolvedValue(undefined)
     runner.context = { clearCookies }
-    const evaluate = vi.fn().mockResolvedValue(undefined)
+    const evaluate = pageEvaluate(undefined)
     runner.page.evaluate = evaluate
 
     try {
@@ -389,7 +398,7 @@ describe('视觉应用就绪预算', () => {
     timeout.name = 'TimeoutError'
     runner.page.waitForFunction = vi.fn().mockRejectedValue(timeout)
     runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
-    runner.page.evaluate = vi.fn().mockResolvedValue({
+    runner.page.evaluate = pageEvaluate({
       hash: '#/accounts',
       appPresent: true,
       appMounted: false,
@@ -423,7 +432,7 @@ describe('视觉应用就绪预算', () => {
     runner.page.waitForFunction = vi.fn().mockResolvedValue(undefined)
     runner.page.waitForSelector = vi.fn().mockRejectedValue(timeout)
     runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
-    runner.page.evaluate = vi.fn().mockResolvedValue({
+    runner.page.evaluate = pageEvaluate({
       hash: '#/accounts',
       appPresent: true,
       appMounted: true,
@@ -489,5 +498,192 @@ describe('截图前的确定性渲染收口（settleForCapture）', () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('采集时钟合同（含实时值的视图必须可复现）', () => {
+  const FIXED_ISO = '2026-01-01T00:00:00.000Z'
+
+  afterEach(() => {
+    delete process.env.VISUAL_CAPTURE_FIXED_TIME_ISO
+    vi.restoreAllMocks()
+  })
+
+  function clockRunner (page) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-clock-'))
+    const runner = new VisualTestRunner({
+      screenshotDir: path.join(tempDir, 'screenshots'),
+      reportDir: path.join(tempDir, 'reports'),
+      metaDir: path.join(tempDir, 'meta'),
+      baselineDir: path.join(tempDir, 'baselines'),
+    })
+    runner.page = page
+    return runner
+  }
+
+  it('默认钉住：以固定时刻调用 setFixedTime，并把钉住值如实暴露出来', async () => {
+    const setFixedTime = vi.fn().mockResolvedValue(undefined)
+    const runner = clockRunner({ clock: { setFixedTime } })
+    const got = await runner._installCaptureClock()
+    expect(setFixedTime).toHaveBeenCalledTimes(1)
+    const arg = setFixedTime.mock.calls[0][0]
+    expect(arg instanceof Date).toBe(true)
+    expect(arg.toISOString()).toBe(FIXED_ISO)
+    expect(got).toBe(arg.getTime())
+    expect(runner.captureFixedTime).toBe(arg.getTime())
+  })
+
+  it('VISUAL_CAPTURE_FIXED_TIME_ISO=off 显式关闭：不调用宿主 API，且回显 null', async () => {
+    process.env.VISUAL_CAPTURE_FIXED_TIME_ISO = 'off'
+    const setFixedTime = vi.fn()
+    const runner = clockRunner({ clock: { setFixedTime } })
+    expect(await runner._installCaptureClock()).toBe(null)
+    expect(setFixedTime).not.toHaveBeenCalled()
+    expect(runner.captureFixedTime).toBe(null)
+  })
+
+  it('非法时间值一律抛错：静默退回未固定会把基线变回跨日必漂', async () => {
+    process.env.VISUAL_CAPTURE_FIXED_TIME_ISO = '昨天下午三点'
+    const setFixedTime = vi.fn()
+    const runner = clockRunner({ clock: { setFixedTime } })
+    await expect(runner._installCaptureClock()).rejects.toThrow(/VISUAL_CAPTURE_FIXED_TIME_ISO/)
+    expect(setFixedTime).not.toHaveBeenCalled()
+  })
+
+  it('宿主不提供 clock API 时必须出声（观察者要报告自己的失明）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const runner = clockRunner({})
+    expect(await runner._installCaptureClock()).toBe(null)
+    expect(runner.captureFixedTime).toBe(null)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('setFixedTime'))
+  })
+
+  it('接线锁：launch() 必须在建页之后、任何导航之前装时钟', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'test-runner.js'), 'utf8')
+    const iNew = source.indexOf('await this.context.newPage()')
+    const iClock = source.indexOf('await this._installCaptureClock()')
+    const iConsole = source.indexOf("this.page.on('console'")
+    const iGoto = source.indexOf('this.page.goto(')
+    // 先证坐标存在，否则 -1 会让下面的顺序断言退化成永真
+    expect(iNew).toBeGreaterThan(-1)
+    expect(iClock).toBeGreaterThan(-1)
+    expect(iConsole).toBeGreaterThan(-1)
+    expect(iGoto).toBeGreaterThan(-1)
+    // 建页 -> 装时钟 -> 挂监听 -> 才可能导航
+    expect(iNew).toBeLessThan(iClock)
+    expect(iClock).toBeLessThan(iConsole)
+    expect(iConsole).toBeLessThan(iGoto)
+  })
+})
+
+describe('跨视图瞬时浮层清除（错误态不得被烤进下一个视图的基线）', () => {
+  const R = require('./test-runner')
+
+  function overlayRunner(page) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-overlay-'))
+    const runner = new VisualTestRunner({
+      screenshotDir: path.join(tempDir, 'screenshots'),
+      reportDir: path.join(tempDir, 'reports'),
+      metaDir: path.join(tempDir, 'meta'),
+      baselineDir: path.join(tempDir, 'baselines'),
+    })
+    runner.page = page
+    return runner
+  }
+
+  // 夹具必须按选择器区分：对所有输入返回同一份数据，「按输入区分」这一整类缺陷对该测试结构性免疫
+  function makeFakeDoc(bySel) {
+    // 三类选择器一律预置（被清除函数无条件逐个查询），只有登记过的才有节点 ——
+    // 未登记的选择器返回空数组，而**不认识**的选择器抛错，两者不能混为一谈
+    const nodes = {}
+    for (const sel of R.INHERITED_OVERLAY_SELECTORS) nodes[sel] = []
+    for (const sel of Object.keys(bySel)) {
+      if (!(sel in nodes)) throw new Error('夹具收到了不在登记表里的选择器: ' + sel)
+      nodes[sel] = Array.from({ length: bySel[sel] }, () => ({
+        dead: false,
+        remove() { this.dead = true },
+      }))
+    }
+    return {
+      querySelectorAll(sel) {
+        if (!(sel in nodes)) throw new Error('夹具不认识的选择器: ' + sel)
+        return nodes[sel].filter((n) => !n.dead)
+      },
+      _nodes: nodes,
+    }
+  }
+
+  function runClear(bySel) {
+    const doc = makeFakeDoc(bySel)
+    const prev = globalThis.document
+    globalThis.document = doc
+    try {
+      return { verdict: R.clearInheritedOverlays(R.INHERITED_OVERLAY_SELECTORS), doc }
+    } finally {
+      if (prev === undefined) delete globalThis.document; else globalThis.document = prev
+    }
+  }
+
+  it('页内执行体真跑假 DOM：逐类计数、确实摘除、清后归零', () => {
+    const { verdict, doc } = runClear({ '.el-message': 2, '.el-notification': 1, '.el-message-box__wrapper': 0 })
+    expect(verdict).toEqual({ removed: 3, left: 0 })
+    expect(doc._nodes['.el-message'].every((n) => n.dead)).toBe(true)
+    expect(doc._nodes['.el-notification'].every((n) => n.dead)).toBe(true)
+  })
+
+  it('不同选择器不得共享计数：只有某一类有节点时 removed 只能是那一类的数', () => {
+    const a = runClear({ '.el-message': 1, '.el-notification': 0, '.el-message-box__wrapper': 0 }).verdict
+    const b = runClear({ '.el-message': 0, '.el-notification': 0, '.el-message-box__wrapper': 2 }).verdict
+    expect(a).toEqual({ removed: 1, left: 0 })
+    expect(b).toEqual({ removed: 2, left: 0 })
+  })
+
+  it('无浮层时 removed=0 且不算失败（否则每条干净用例都会被判红）', () => {
+    expect(runClear({}).verdict).toEqual({ removed: 0, left: 0 })
+  })
+
+  it('runner：清掉的数量如实回传并打日志', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const runner = overlayRunner({ evaluate: vi.fn().mockResolvedValue({ removed: 2, left: 0 }) })
+    expect(await runner._dismissInheritedOverlays()).toBe(2)
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('2'))
+    log.mockRestore()
+  })
+
+  it('runner：清除后仍有残留必须抛错（remove 未生效不得放行）', async () => {
+    const runner = overlayRunner({ evaluate: vi.fn().mockResolvedValue({ removed: 1, left: 1 }) })
+    await expect(runner._dismissInheritedOverlays()).rejects.toThrow(/仍有 1 个/)
+  })
+
+  it('runner：取不到计数时 fail closed，不得当成没有浮层', async () => {
+    for (const bad of [undefined, null, {}, { removed: 1 }, { removed: NaN, left: 0 }]) {
+      const runner = overlayRunner({ evaluate: vi.fn().mockResolvedValue(bad) })
+      await expect(runner._dismissInheritedOverlays()).rejects.toThrow(/未取得计数/)
+    }
+  })
+
+  it('接线锁：必须在 goto 与可选 reload 之后、应用就绪等待之前清除', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'test-runner.js'), 'utf8')
+    const iGoto = source.indexOf('await this.page.goto(targetUrl')
+    const iReload = source.indexOf('await this.page.reload({ waitUntil')
+    const iDismiss = source.indexOf('await this._dismissInheritedOverlays()')
+    const iReady = source.indexOf('await this._waitForApplicationReady(expectedHash')
+    // 先证坐标存在：indexOf 返回 -1 会让顺序断言退化成永真
+    expect(iGoto).toBeGreaterThan(-1)
+    expect(iReload).toBeGreaterThan(-1)
+    expect(iDismiss).toBeGreaterThan(-1)
+    expect(iReady).toBeGreaterThan(-1)
+    expect(iGoto).toBeLessThan(iDismiss)
+    expect(iReload).toBeLessThan(iDismiss)
+    expect(iDismiss).toBeLessThan(iReady)
+  })
+
+  it('范围锁：调用点恰好一处（搬进 settleForCapture 或给工作流步截图加清除都会变二）', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'test-runner.js'), 'utf8')
+    const calls = source.split('await this._dismissInheritedOverlays()').length - 1
+    expect(calls).toBe(1)
+    const iSettle = source.indexOf('async settleForCapture() {')
+    expect(iSettle).toBeGreaterThan(-1)
+    expect(source.indexOf('await this._dismissInheritedOverlays()')).toBeLessThan(iSettle)
   })
 })

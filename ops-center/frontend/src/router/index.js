@@ -215,6 +215,12 @@ const routes = [
     meta: { requiresAuth: true, adminOnly: true },
   },
   {
+    path: '/rewrite-ai-taste',
+    name: 'RewriteAiTaste',
+    component: () => import('../views/RewriteAiTaste.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/pipeline-options',
     name: 'PipelineOptions',
     component: () => import('../views/PipelineOptions.vue'),
@@ -225,6 +231,13 @@ const routes = [
     name: 'AppMenu',
     component: () => import('../views/AppMenu.vue'),
     // 写操作需管理员权限；页面与「选项控制」同口径限定 adminOnly
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
+    path: '/content-categories',
+    name: 'ContentCategories',
+    component: () => import('../views/ContentCategories.vue'),
+    // 写操作需管理员权限；与「应用菜单」同口径限定 adminOnly
     meta: { requiresAuth: true, adminOnly: true },
   },
   {

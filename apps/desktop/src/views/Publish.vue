@@ -1,5 +1,7 @@
 <template>
   <div>
+  <!-- 文案详情模式提示条（copy-library-detail-entry） -->
+  <CopyDetailBanner v-if="showCopyDetailBanner" @close="showCopyDetailBanner = false" />
     <template v-if="publishTab === 'drafts'">
       <section class="publish-drafts-page" data-testid="publish-drafts-page" aria-labelledby="publish-drafts-title">
         <header class="publish-drafts-header">
@@ -109,6 +111,20 @@
                 <UiInput v-model="a.mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
               </div>
             </div>
+            <!-- P2-7 批量条目扩展字段面：封面 / 无标题提示 / 支持度徽标 / 可见性 / 平台差异化。
+                 写入一律经 useBatchPublish 的 setter，让「UI 写点」与「payload 构造点」同侧，
+                 被同一条键集 parity 回归锁覆盖（修复前 cover_* 只有读点、没有写点，恒为空）。 -->
+            <BatchArticleFields
+              :article="a"
+              :index="idx"
+              :platform-catalog="platforms"
+              @update:cover="descriptor => setBatchArticleCover(a, descriptor)"
+              @update:cover-url="value => setBatchArticleCoverUrl(a, value)"
+              @update:visibility="value => setBatchArticleVisibility(a, value)"
+              @update:overrides="next => setBatchArticleOverrides(a, next)"
+              @clear-cover="clearBatchArticleCover(a)"
+              @open-preview="openBatchCoverPreview"
+            />
             <div class="cohere-form-item">
               <label class="cohere-form-label">{{ t('publishPage.publishTarget') }}</label>
               <div class="batch-platform-targets">
@@ -560,10 +576,13 @@
                 :risk-suspended="riskStore.suspended"
                 @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
+                :account-groups="groupPickerItems"
+                @apply-group="applyGroupById"
               />
               <div class="publish-action-controls" data-testid="publish-action-controls">
                 <div class="cohere-divider"></div>
-                <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
+                <UiButton variant="secondary" class="side-button-block" data-testid="publish-save-draft" :disabled="publishing" @click="onSaveDraft">{{ t('publishPage.saveDraft') }}</UiButton>
+                <UiButton variant="secondary" size="sm" class="side-button-block" data-testid="publish-create-video" :disabled="publishing" @click="handleCreateVideo">{{ t('publishPage.createVideo') }}</UiButton>
                 <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
                 <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                   {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
@@ -651,10 +670,10 @@
        挂起/释放、文件名与原始尺寸都在组件内部，本视图只持有「开合」这一个状态。 -->
   <CoverPreviewDialog
     :visible="showCoverPreview"
-    :data-url="coverPreviewUrl"
-    :error="coverPreviewError"
-    :path="article.cover_path"
-    @close="showCoverPreview = false"
+    :data-url="batchCoverPreview ? batchCoverPreview.dataUrl : coverPreviewUrl"
+    :error="batchCoverPreview ? '' : coverPreviewError"
+    :path="batchCoverPreview ? batchCoverPreview.path : article.cover_path"
+    @close="closeCoverPreview"
   />
   <!-- P2-2：AI 封面生成对话框（复用 asset-generator 生图引擎） -->
   <div v-if="showAiCoverDialog" class="ai-cover-overlay" data-testid="ai-cover-dialog">
@@ -703,7 +722,7 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
@@ -731,18 +750,20 @@ import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
 import { useCoverPreview } from '@/composables/useCoverPreview'
 import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
+import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
+import CopyDetailBanner from '@/features/publish/components/CopyDetailBanner.vue'
+import { useCopyDetailMode } from '@/composables/useCopyDetailMode'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
-  getPlatformContentLimit,
-  getPlatformLabel,
-  normalizePublishFile,
   normalizePublishMentions,
   normalizePublishStringList,
 } from '@/features/publish/publish-contract'
+import { normalizeUploadFile, resolveUploadFilePath } from '@/features/publish/publish-upload-file'
+import { usePublishFieldSurface } from '@/features/publish/usePublishFieldSurface'
 import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
-import { getCommonFormFields, isNoTitlePlatform, PLATFORM_PUBLISH_META, getVisibilityField, getVisibilitySemanticSupport } from '@multi-publish/shared-utils/src/publish-capabilities'
+import BatchArticleFields from '@/features/publish/components/BatchArticleFields.vue'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishVisibilitySelect from '@/features/publish/components/PublishVisibilitySelect.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
@@ -752,6 +773,11 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
 import { formatBytes } from '@/utils/bytes'
 import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
+
+// 组件名显式声明：App.vue 主工作区 <keep-alive :include="['Publish']"> 按组件名匹配，
+// 让发布页在路由切换时保留实例（草稿不丢）。依赖文件名推断的 __name 在构建配置变化时不稳，
+// 故显式声明，避免 keep-alive 静默不命中而退回「每次重挂载丢草稿」。
+defineOptions({ name: 'Publish' })
 
 const route = useRoute()
 const router = useRouter()
@@ -889,32 +915,6 @@ const mentionsText = computed({
   set: value => { article.mentions = normalizePublishMentions(value) },
 })
 
-async function resolveUploadFilePath (file) {
-  const raw = file?.raw || file
-  const directPath = raw?.path || raw?.filePath || raw?.file_path || file?.path
-  if (typeof directPath === 'string' && directPath.trim()) return directPath.trim()
-  try {
-    const resolvedPath = await getApi()?.getPathForFile?.(raw)
-    if (typeof resolvedPath === 'string' && resolvedPath.trim()) return resolvedPath.trim()
-  } catch (_) {
-    // Path resolution is best effort; the caller reports an actionable error.
-  }
-  return ''
-}
-
-async function normalizeUploadFile (file) {
-  const raw = file?.raw || file
-  const path = await resolveUploadFilePath(file)
-  if (!path) return null
-  return normalizePublishFile({
-    path,
-    name: raw?.name || file?.name,
-    type: raw?.type || file?.type,
-    size: raw?.size || file?.size,
-    lastModified: raw?.lastModified || file?.lastModified,
-  })
-}
-
 async function updateImageFiles (fileList) {
   const files = (await Promise.all((Array.isArray(fileList) ? fileList : []).map(normalizeUploadFile)))
     .filter(file => file?.path)
@@ -1041,10 +1041,25 @@ const {
 } = useCoverPreview(() => article.cover_path)
 // 开合状态留在本视图；「换封面即收起」与内嵌视图挂起/释放都在 CoverPreviewDialog 内部按 visible 收敛。
 const showCoverPreview = ref(false)
+// P2-7：批量条目的封面预览复用**同一个**应用级浮层（owner 'publish-cover-preview' 已在
+// overlay-view-suspension 登记）。逐条目各建一个模态会新增多个浮层 owner，违反挂起/成对释放合同。
+const batchCoverPreview = ref(null)
 
 function openCoverPreview () {
   if (!coverPreviewUrl.value) return
+  batchCoverPreview.value = null
   showCoverPreview.value = true
+}
+
+function openBatchCoverPreview (payload) {
+  if (!payload || !payload.dataUrl) return
+  batchCoverPreview.value = payload
+  showCoverPreview.value = true
+}
+
+function closeCoverPreview () {
+  batchCoverPreview.value = null
+  showCoverPreview.value = false
 }
 
 onBeforeUnmount(releaseAiCoverOverlay)
@@ -1169,56 +1184,35 @@ const {
   toggleAccount,
   isAccountSelected,
   isAccountAvailable,
+  selectPlatform,
+  selectAccount,
 } = usePlatformSelection(accountStore, platformStore)
 
-const selectedOverridePlatforms = computed(() => {
-  return platforms.value
-    .filter(platform => selectedPlatforms.value.includes(platform.id))
-    .map(platform => ({ ...platform, ...getPlatformContentLimit(platform.id) }))
+// P2-8b「按组添加」：判据本体在 features/publish/usePublishGroupApply（纯函数、可单测），
+// 这里只做 store ↔ 视图的接线；视图不自己数成员、也不拼播报文案。
+const { groupPickerItems, applyGroupById } = usePublishGroupTargets({
+  accountStore,
+  platforms,
+  selection: { selectedPlatforms, selectPlatform, selectAccount, isAccountSelected, isAccountAvailable },
+  notifyInfo,
+  notifyWarning,
 })
 
-// ── 通用字段支持度标注 + 无标题平台标题提示（publish-capability-registry 单一真源）──
-// 通用 ≠ 全部支持：每个通用字段显示「N/总平台数 支持」徽标（分母取注册表平台
-// 总数，与能力矩阵口径一致）；无标题平台（视频号/快手/微博/X/Instagram/TikTok）
-// 的发布链路会把标题作为描述首行插入，选中任一无标题平台时在标题输入区提示
-// 该行为（openspec/changes/publish-capability-registry）。
-const commonFormFields = getCommonFormFields()
-const registryPlatformCount = Object.keys(PLATFORM_PUBLISH_META).length
-function fieldSupportText (fieldKey) {
-  const field = commonFormFields.find(item => item.key === fieldKey)
-  if (!field) return ''
-  return t('publishPage.fieldSupport', { count: field.platforms.length, total: registryPlatformCount })
-}
-const noTitleHint = computed(() => {
-  const noTitleSelected = selectedPlatforms.value.filter(id => isNoTitlePlatform(id))
-  if (noTitleSelected.length === 0) return ''
-  return t('publishPage.noTitleHint', { platforms: noTitleSelected.map(id => getPlatformLabel(id)).join('、') })
-})
-
-// ── P1-5 语义级可见性通用控件 ─────────────────────────────
-// 5 平台可见性字段名与取值各不相同（youtube privacy / tiktok privacyLevel /
-// douyin visibilityType / kuaishou visibilityType / weibo visible）。通用区只暴露
-// 语义档位（公开/好友/私密），映射真源是注册表 semanticValues，由主进程 resolver
-// 按平台消费；平台差异化面板可对单平台细调（override 优先于本档位）。
-const visibilitySemanticSupport = getVisibilitySemanticSupport()
+// ── 字段面判据（P2-7 下沉为共用实现 usePublishFieldSurface，单篇与批量同一份真源）──
+// 通用 ≠ 全部支持：每个通用字段显示「N/总平台数 支持」徽标（分母取注册表平台总数，
+// 与能力矩阵口径一致）；无标题平台（titleMode=caption）的发布链路会把标题作为描述
+// 首行插入，选中任一无标题平台时在标题输入区提示该行为。可见性「好友」档在部分平台
+// 无对应值，如实告知哪些平台保持默认。
+// 下沉前这些判据内联在本视图、且只认全局 selectedPlatforms，批量条目无从复用。
+const fieldSurface = usePublishFieldSurface()
+const { fieldSupportText } = fieldSurface
+const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
+const selectedOverridePlatforms = computed(() =>
+  fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))
 const visibilitySupportedPlatforms = computed(() =>
-  selectedPlatforms.value.filter(id => !!getVisibilityField(id)))
-const visibilityOptions = computed(() => [
-  { value: '', label: t('publishPage.visibilityDefault') },
-  { value: 'public', label: t('publishPage.visibilityPublic') },
-  { value: 'friends', label: t('publishPage.visibilityFriends') },
-  { value: 'private', label: t('publishPage.visibilityPrivate') },
-])
-// 「好友」档在部分平台无对应值（快手仅公开/仅自己；YouTube 无好友圈）——
-// 如实告知哪些平台会保持默认，不静默丢弃用户选择。
-const visibilityUnsupportedHint = computed(() => {
-  const semantic = article.visibilitySemantic
-  if (!semantic) return ''
-  const unsupported = visibilitySupportedPlatforms.value.filter(
-    id => !(visibilitySemanticSupport[semantic] || []).includes(id))
-  if (unsupported.length === 0) return ''
-  return t('publishPage.visibilityUnsupported', { platforms: unsupported.map(id => getPlatformLabel(id)).join('、') })
-})
+  fieldSurface.visibilitySupportedIdsFor(selectedPlatforms.value))
+const visibilityUnsupportedHint = computed(() =>
+  fieldSurface.visibilityUnsupportedHintFor(selectedPlatforms.value, article.visibilitySemantic))
 
 const {
   showDraftList,
@@ -1237,6 +1231,8 @@ const {
   selectedAccounts,
   platformOverrides: diffEdits,
 })
+
+const { copyDetailMeta, showCopyDetailBanner, applyCopyDetailHandoff, syncCopyDetailToLibrary, handleCreateVideo, onSaveDraft } = useCopyDetailMode({ article, activeMode, route, t, notifyInfo, saveDraft, router })
 
 const precheckEnabled = ref(false)
 
@@ -1262,6 +1258,9 @@ const {
   isAccountAvailable,
   activeMode,
 })
+// 一键发布成功回写（评审 MAJOR：PRD 承诺「保存草稿或发布成功后回写」）：
+// usePublishFlow 的 result.success 置 true 即发布链路完成（单篇/批量共用出口），旁路回写
+watch(result, (r) => { if (r && r.success) void syncCopyDetailToLibrary() })
 
 const {
   batchMode,
@@ -1286,6 +1285,11 @@ const {
   checkBatchAccess,
   toggleBatchAccount,
   isBatchAccountSelected,
+  setBatchArticleCover,
+  setBatchArticleCoverUrl,
+  clearBatchArticleCover,
+  setBatchArticleVisibility,
+  setBatchArticleOverrides,
 } = useBatchPublish({ article, licenseStore, isAccountAvailable })
 
 watch(publishTab, async value => {
@@ -1365,6 +1369,7 @@ function applyHistoryVideoQuery () {
 
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
+  applyCopyDetailHandoff() // 置顶：不依赖前置异步步骤
   if (publishTab.value === 'drafts') {
     showDraftList.value = true
     await loadDrafts()
@@ -1384,8 +1389,20 @@ onMounted(async () => {
   await loadDraft(String(draftId))
 })
 
+// keep-alive 兼容：发布页被 App.vue 的 <keep-alive :include="['Publish']"> 缓存后，
+// 从结果页/历史「去发布」带 ?video_path= 再次进入时 onMounted 不会再跑，预填必须挂在
+// onActivated（每次激活都触发）上，否则 query 预填静默失效。无 video_path query 时
+// applyHistoryVideoQuery 自行早退，不会覆盖用户缓存中的既有草稿。
+// 非 keep-alive 上下文（内嵌主页实例）onActivated 不触发，仍由上面的 onMounted 覆盖。
+onActivated(() => {
+  applyHistoryVideoQuery()
+  applyCopyDetailHandoff()
+})
+
 // 暴露给测试（w.vm.xxx）和外部组件
 defineExpose({
+  onSaveDraft,
+  applyCopyDetailHandoff,
   article,
   batchMode,
   batchPublishing,
@@ -1708,4 +1725,5 @@ defineExpose({
 /* P2-3：AI 视频生成入口 */
 .video-ai-entry { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .video-ai-entry__hint { font-size: var(--font-size-xs); color: var(--muted, #8a8f98); }
+
 </style>

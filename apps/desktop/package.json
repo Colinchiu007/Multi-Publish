@@ -82,7 +82,7 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "^1.5.4",
     "@vueup/vue-quill": "^1.5.3",
-    "axios": "^1.9.0",
+    "axios": "^1.20.0",
     "cheerio": "^1.2.0",
     "electron-updater": "^6.8.9",
     "element-plus": "^2.14.2",
@@ -139,6 +139,12 @@
       "dist/**/*",
       "electron/**/*",
       "node_modules/**/*",
+      "!**/*.test.js",
+      "!**/*.test.mjs",
+      "!**/*.test.cjs",
+      "!**/*.test.ts",
+      "!**/*.test.tsx",
+      "!electron/tests/**",
       "!node_modules/.pnpm/**",
       "!node_modules/ffmpeg-ffprobe-static/ffmpeg*",
       "!node_modules/ffmpeg-ffprobe-static/ffprobe*",
@@ -151,7 +157,15 @@
       },
       {
         "from": "../../config",
-        "to": "config"
+        "to": "config",
+        "filter": [
+          "**/*",
+          "!**/*.test.js",
+          "!**/*.test.mjs",
+          "!**/*.test.cjs",
+          "!**/*.test.ts",
+          "!**/*.test.tsx"
+        ]
       },
       {
         "from": ".playwright-browsers",
@@ -166,7 +180,12 @@
         "to": "packages/remotion-composer",
         "filter": [
           "**/*",
-          "!node_modules/**"
+          "!node_modules/**",
+          "!**/*.test.js",
+          "!**/*.test.mjs",
+          "!**/*.test.cjs",
+          "!**/*.test.ts",
+          "!**/*.test.tsx"
         ]
       },
       {

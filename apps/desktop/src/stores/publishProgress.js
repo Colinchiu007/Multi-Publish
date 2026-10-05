@@ -20,6 +20,8 @@ import {
   retryTask,
   cancelTask,
 } from '@/api/publisher'
+// 会话收养/合并纯逻辑（2026-10 publish-progress-dup-upload：主文件超行数门禁后外置）
+import { findAdoptableSessions, mergeSessionInto } from './publishProgressSessionMerge'
 
 /** 会话列表上限：超出裁剪最旧已完成会话；全 running 不裁剪（宁多勿丢） */
 export const MAX_SESSIONS = 5
@@ -88,6 +90,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
         error: null,
         remainingWait: null,
         retriesLeft: null,
+        bucket: null,
         startedAt: null,
         endedAt: null,
         lastEventAt: null,
@@ -164,6 +167,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     if (data.error !== undefined) task.error = data.error || null
     if (data.remainingWait !== undefined) task.remainingWait = data.remainingWait || null
     if (data.retriesLeft !== undefined) task.retriesLeft = data.retriesLeft
+    if (data.bucket !== undefined) task.bucket = data.bucket || null
     if (phase === 'start' && !task.startedAt) task.startedAt = Date.now()
     if (isTerminalNow && !task.endedAt) task.endedAt = Date.now()
     _appendLog(session, platform + ' · ' + (task.stage || phase), isTerminalNow ? (phase === 'success' ? 'success' : 'danger') : 'primary')
@@ -214,15 +218,38 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     return session
   }
 
+  // 收养/合并纯逻辑外置（主文件超逐文件行数门禁 limit=500，见
+  // publishProgressSessionMerge.js 头注释与 Bug A 取证）
+  function _findAdoptableSessions(ids, batchId) {
+    return findAdoptableSessions(sessions.value, ids, batchId)
+  }
+
   function registerSession({ taskIds, batchId, title } = {}) {
     const ids = Array.isArray(taskIds)
       ? taskIds.filter((id) => typeof id === 'string' && id)
       : []
     const hasBatch = typeof batchId === 'string' && batchId
     if (ids.length === 0 && !hasBatch) return null
-    const session = _createSession({ title, batchId })
-    for (const id of ids) {
-      _ensureTask(session, id, '')
+    const wantBatchId = hasBatch ? batchId : null
+    const hits = _findAdoptableSessions(ids, wantBatchId)
+    let session
+    if (hits.length > 0) {
+      // 收养：事件先到建的孤儿会话（或多个命中会话）收敛为一个，不再新建
+      session = hits[0]
+      for (let i = 1; i < hits.length; i += 1) mergeSessionInto(session, hits[i])
+      if (hits.length > 1) {
+        const dropped = new Set(hits.slice(1).map((s) => s.id))
+        sessions.value = sessions.value.filter((s) => !dropped.has(s.id))
+      }
+      // 补齐登记时声明但尚未到达事件的 taskId（_ensureTask 不覆盖已有任务）
+      for (const id of ids) _ensureTask(session, id, '')
+      if (!session.title && typeof title === 'string' && title) session.title = title // 孤儿无标题则补
+      if (wantBatchId && !session.batchId) session.batchId = wantBatchId
+      if (session.recovered) delete session.recovered // 恢复会话被本次发布接管
+      _recomputeSessionStatus(session)
+    } else {
+      session = _createSession({ title, batchId })
+      for (const id of ids) _ensureTask(session, id, '')
     }
     // 自动展开（用户主动发布才弹；孤儿领养/事件到达不打扰）
     panelVisible.value = true

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick, ref } from "vue";
 import { setActivePinia, createPinia } from "pinia";
+import fs from "node:fs";
+import path from "node:path";
 import i18n from "@/i18n";
 
 vi.mock("@/stores/platforms", () => ({
@@ -202,3 +204,117 @@ describe("Dashboard 未登录门禁（auth-gate 范式）", () => {
     w.unmount();
   });
 });
+
+/**
+ * P2-6c 数据看板：作品互动回流面板接线 + 假数字撤除锁。
+ *
+ * 结构锁的存在理由：本页曾把 +8.5% / +23% / -2.1% / locale 里的「较上周 +12%」当数据展示。
+ * 这些数字没有任何数据源（`sync:cached` 只留每平台一份最新值、没有时间序列），
+ * 组件级断言只能证明「今天这几处删了」，证明不了「不会再写回去」，所以必须扫源码。
+ */
+describe("DashboardView 作品互动回流（P2-6c）", () => {
+  function overviewPayload (overrides = {}) {
+    return {
+      code: 0,
+      data: {
+        hasData: true,
+        windowDays: 30,
+        totals: { views: 123, likes: 45, comments: 7, favorites: 3, shares: 1, interactions: 56 },
+        trend: Array.from({ length: 30 }, (_, i) => ({
+          date: "2026-10-" + String(i + 1).padStart(2, "0"),
+          views: 0, likes: 0, comments: 0, favorites: 0, shares: 0, interactions: 0,
+        })),
+        byPlatform: [{ platform: "zhihu", contents: 1, views: 123, likes: 45, comments: 7, favorites: 3, shares: 1, interactions: 56 }],
+        health: {
+          trackedTotal: 1, covered: 1, coverage: 100,
+          byStatus: { pending: 0, ok: 1, failed: 0, unsupported: 0, untrackable: 0, manual: 0, other: 0 },
+          lastCapturedAt: "2026-10-03T09:12:00.000Z", neverRecrawled: false,
+        },
+        weekChange: null,
+        truncated: { tracked: false, snapshot: false },
+        limits: { tracked: 2000, snapshot: 20000 },
+        diagnostics: { orphanSnapshots: 0, orphanSnapshotsDb: 0, retreats: 0, invalidMetrics: 0, droppedUndated: 0, invalidTrackedRows: 0 },
+        ...overrides,
+      },
+    }
+  }
+
+  async function settle (w) {
+    for (let i = 0; i < 4; i++) {
+      await nextTick()
+      await new Promise(r => setTimeout(r, 5))
+    }
+    await nextTick()
+    return w
+  }
+
+  function mountDashboard () {
+    setActivePinia(createPinia())
+    window.electronAPI = {
+      dashboardStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 4, success: 3, failed: 1, successRate: 75, perPlatform: {}, daily: [] } }),
+      historyList: vi.fn().mockResolvedValue({ code: 0, data: { records: [] } }),
+      syncCached: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      syncAll: vi.fn().mockResolvedValue({ code: 0 }),
+      performanceOverview: vi.fn().mockResolvedValue(overviewPayload()),
+    }
+    return mount(DashboardView, { global: { plugins: [createPinia(), i18n] } })
+  }
+
+  it("回流面板随页面挂载，并把 IPC 数字渲染出来（链未断的证据）", async () => {
+    const w = await settle(mountDashboard())
+    expect(window.electronAPI.performanceOverview).toHaveBeenCalled()
+    expect(w.find('[data-testid="perf-flow-panel"]').exists()).toBe(true)
+    expect(w.get('[data-testid="perf-metric-views"]').text()).toBe("123")
+    expect(w.get('[data-testid="perf-metric-likes"]').text()).toBe("45")
+    w.unmount()
+  })
+
+  it("未登录时面板显示登录引导，而不是渲染一排 0", async () => {
+    setActivePinia(createPinia())
+    window.electronAPI = {
+      dashboardStats: vi.fn().mockResolvedValue({ code: -3, errorCode: "AUTH_REQUIRED" }),
+      historyList: vi.fn().mockResolvedValue({ code: -3, errorCode: "AUTH_REQUIRED" }),
+      syncCached: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      syncAll: vi.fn().mockResolvedValue({ code: 0 }),
+      performanceOverview: vi.fn().mockResolvedValue({ code: -3, errorCode: "AUTH_REQUIRED" }),
+    }
+    const w = await settle(mount(DashboardView, { global: { plugins: [createPinia(), i18n] } }))
+    expect(w.get('[data-testid="perf-flow-auth"]').text()).toBe(i18n.global.t("dashboard.metrics.loginRequired"))
+    expect(w.find('[data-testid="perf-flow-metrics"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it("页面刷新按钮带动面板重新取数（一个刷新入口，两套数字）", async () => {
+    const w = await settle(mountDashboard())
+    const before = window.electronAPI.performanceOverview.mock.calls.length
+    await w.get('[data-testid="dashboard-refresh-btn"]').trigger("click")
+    await settle(w)
+    expect(window.electronAPI.performanceOverview.mock.calls.length).toBeGreaterThan(before)
+    w.unmount()
+  })
+
+  it("模板里不得再出现「±数字%」这类无数据源的变化量，且测量域非空（防自锁失明）", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "Dashboard.vue"), "utf8")
+    const template = src.slice(src.indexOf("<template>"), src.indexOf("</template>"))
+    // 反失明：测量域本身必须有内容，否则"0 命中"可能只是解析退化成了空串
+    expect(template.length).toBeGreaterThan(2000)
+    expect((src.match(/stat-value/g) || []).length).toBeGreaterThanOrEqual(6)
+    const fabricated = template.match(/[+\u2212-]\d+(?:\.\d+)?%/g) || []
+    expect(fabricated, "假百分比字面量: " + fabricated.join(", ")).toEqual([])
+    expect(src).not.toContain("dashboard.weekChange")
+    expect(src).not.toContain("stat-change")
+  })
+
+  it("回流面板的文案全部走 locale（zh/en 成对），模板除注释外不得有中文", () => {
+    const panel = fs.readFileSync(path.resolve(__dirname, "../features/dashboard/PerformanceFlowPanel.vue"), "utf8")
+    expect(panel.length).toBeGreaterThan(1000)
+    const template = panel.slice(0, panel.indexOf("<script"))
+    expect(template.length).toBeGreaterThan(500)
+    // HTML 注释不渲染（本仓 .vue 模板普遍带中文注释），判据只针对会进包体的字面量
+    const visible = template.replace(/<!--[\s\S]*?-->/g, "")
+    expect(visible.match(/[\u4e00-\u9fa5]/g) || [], "模板内残留中文字面量").toEqual([])
+    for (const key of ["title", "views", "likes", "comments", "favorites", "shares", "trendTitle", "platformTitle", "healthTitle", "loginRequired", "emptyTitle"]) {
+      expect(i18n.global.te("dashboard.metrics." + key), "缺键 dashboard.metrics." + key).toBe(true)
+    }
+  })
+})

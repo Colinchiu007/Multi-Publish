@@ -21,7 +21,7 @@ const DEFAULT_MAX_OUTPUT_LENGTH = 3000
 // 内容与运营中心种子 hard-constraint-default-v1 一致（单一事实源在运营中心，此处仅为缺失回退）。
 const BUILTIN_DEFAULT_HARD_CONSTRAINTS = [
   '1. 只输出改写后的文案本身，不要包含任何小节标题（如「开头」「中间」「结尾」「悬念钩子」「情感转折」「共鸣与号召」等）、结构说明、写作指导或 Markdown 标题。',
-  '2. 文案内部如需分段，使用空行分隔即可。',
+  '2. 文案内部如需分段，使用空行分隔即可；除口播快节奏短文案外，成品应有 2-5 个自然段，禁止整篇压成一段。',
   '3. 不要输出任何与文案内容无关的说明、注释或元信息。',
 ].join('\n')
 
@@ -50,6 +50,40 @@ class RewriteEngine {
     // 改写硬约束（最高优先级，运营中心可自定义）：systemPrompt 最前置注入，
     // 与策略/模式指令冲突时以此为准。未注入时引擎行为不变。
     this._hardConstraints = ''
+    // AI 味定制（ai-taste-ops-center，运营中心词库运营）：词表覆盖层/禁用表/严重度表。
+    // 未注入或空对象时行为与历史逐字节一致（AITasteRemover 缺省回内置常量）。
+    this._aiTasteCustomization = {}
+  }
+
+  /**
+   * 设置 AI 味定制（运营中心词库运营下发）。
+   *
+   * 与 setHardConstraints 同构的注入入口；全缺省/空对象 = 引擎行为不变。
+   * @param {object} [customization] - { phraseMap?: Object<string,string>, disabledWords?: string[], severityMap?: Object<string,string> }
+   *   phraseMap：词表覆盖层（叠加 + 键覆盖内置 128 条）；disabledWords：禁用替换的词（含内置词）；severityMap：自定义词严重度覆盖。
+   *   非对象输入被忽略（保持现状）。
+   */
+  setAiTasteCustomization(customization) {
+    if (!customization || typeof customization !== 'object') return
+    const out = {}
+    if (customization.phraseMap && typeof customization.phraseMap === 'object' && !Array.isArray(customization.phraseMap)) {
+      out.phraseMap = customization.phraseMap
+    }
+    if (Array.isArray(customization.disabledWords)) {
+      out.disabledWords = customization.disabledWords.filter(w => typeof w === 'string' && w)
+    }
+    if (customization.severityMap && typeof customization.severityMap === 'object' && !Array.isArray(customization.severityMap)) {
+      out.severityMap = customization.severityMap
+    }
+    this._aiTasteCustomization = out
+  }
+
+  /**
+   * 获取当前 AI 味定制（未注入/空注入返回空对象）。
+   * @returns {object}
+   */
+  getAiTasteCustomization() {
+    return this._aiTasteCustomization
   }
 
   /**
@@ -423,7 +457,8 @@ class RewriteEngine {
 2. 更换段落结构、句式、案例、修辞手法
 3. 确保改写后的文本与原文的相似度低于 40%
 4. 不要使用原文中的标志性短语和独特表达
-5. 可以改变叙述视角（如从第一人称改为第三人称）`
+5. 可以改变叙述视角（如从第一人称改为第三人称）
+6. 分段输出要求：按内容逻辑划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）`
 
       case 'expand':
         return `【改写模式：扩写爆款】
@@ -432,7 +467,8 @@ class RewriteEngine {
 2. 增加背景介绍、原因分析、案例支撑、数据引用
 3. 从 What → Why → How → So What 四个层次递进
 4. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}
-5. 保证扩写不是"注水"，而是增加有价值的信息增量`
+5. 保证扩写不是"注水"，而是增加有价值的信息增量
+6. 分段输出要求：按 What/Why/How/So What 等逻辑层次划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）`
 
       case 'create':
         return `【改写模式：选题创作】
@@ -441,7 +477,8 @@ class RewriteEngine {
 2. 先分析选题确定内容类型，再生成结构化大纲
 3. 每段按写作指导独立生成，最后统一风格
 4. 自动注入爆款要素：钩子、情绪转折、金句、互动引导
-5. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}`
+5. 目标长度：${userSettings.targetLength === 'short' ? '约500字' : userSettings.targetLength === 'long' ? '约2000字' : '约1000字'}
+6. 分段输出要求：按大纲结构划分自然段，段与段之间用空行分隔（抖音口播类短文案除外）`
 
       default:
         return ''
@@ -487,10 +524,18 @@ class RewriteEngine {
     // 去 AI 味
     const postProcess = strategy.postProcess || {}
     if (postProcess.removeAITaste !== false) {
+      // 强度语义（ai-taste-ops-center Q4）：策略 postProcess.aiTasteIntensity（1-3）优先，
+      // 非法值回 2（与历史行为一致）。1=仅词级替换（跳 Pass 3 句长修复）；3=追加 casual 口语化。
+      const rawIntensity = postProcess.aiTasteIntensity
+      const intensity = (rawIntensity === 1 || rawIntensity === 2 || rawIntensity === 3) ? rawIntensity : 2
+      const cust = this._aiTasteCustomization || {}
       const remover = new AITasteRemover({
         enabled: true,
-        intensity: 2,
-        tone: strategy.tone?.[0] || 'casual'
+        intensity,
+        tone: strategy.tone?.[0] || 'casual',
+        phraseMap: cust.phraseMap,
+        disabledWords: cust.disabledWords,
+        severityMap: cust.severityMap
       })
       result = remover.process(result)
     }

@@ -2,14 +2,10 @@
 /**
  * RpaViewManager platforms mixin — 平台发布逻辑
  *
- * 拆分自 rpa-view-manager.js (2026-07-16 架构重构)
- * 通过 Object.assign 注入 RpaViewManager.prototype，方法内通过 this.* 访问
- * 其他 mixin（helpers/session）提供的方法。
+ * 拆分自 rpa-view-manager.js (2026-07-16 架构重构)；经 Object.assign 注入
+ * RpaViewManager.prototype，方法内通过 this.* 访问其他 mixin 提供的方法。
  *
- * 依赖：log / PlatformConfig / getConfigPath / platformSelectors
- *       ProgressThrottle / FieldRetryState
-log.info('RpaView', 'DIAG[module] rpa-engine path: ' + require.resolve('@multi-publish/rpa-engine'))
-log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou ? Object.keys(platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou).join('|') : 'MISSING'))
+ * 依赖：log / PlatformConfig / getConfigPath / platformSelectors / ProgressThrottle / FieldRetryState
  *
  * 模块级变量：
  *   - _platformConfigInstance：PlatformConfig 单例（_getPlatformConfig 使用）
@@ -18,17 +14,15 @@ log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM
 const log = require('./logger')
 const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
-// 发布能力注册表（openspec/changes/publish-capability-registry）：无标题平台
-// 清单单一真源——这些平台没有独立标题输入框（视频号/快手/微博/X/Instagram/TikTok），
-// 标题经 _composeEditorCaption 合并进编辑器描述首行。
+// 发布能力注册表（publish-capability-registry）：无标题平台单一真源——
+// 视频号/快手/微博/X/Instagram/TikTok 无独立标题框，标题经 _composeEditorCaption 合并进描述首行。
 const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
+// 2026-10-02 头条兜底：DOM 被闭包门控拦下 ⇒ 失败时走「页面内 SDK 签名 + Node 直连」（toutiao-direct-bridge）
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
-// 2026-09-29 拆分：发布成功判定的 publish-id 提取工具（纯函数）——
-// rpa-view-platforms.js 超逐文件行数门禁（check-max-lines LEDGER_GREW），
-// 抽到独立文件 rpa-publish-id-extract.js，主文件 require 使用，零行为变化。
+// 2026-09-29 拆分：publish-id 提取纯函数 → rpa-publish-id-extract.js（行数门禁，零行为变化）
 const {
   normalizePublishId,
   collectPublishIds,
@@ -39,12 +33,19 @@ const {
   sanitizePublishResultUrl,
 } = require('./rpa-publish-id-extract')
 // 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
-const { navigationHelpers } = require('./rpa-view-navigation-helpers')
+const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
+// 2026-10 三次拆分：视频上传等待循环（v4 自适应轮询，publish-progress-dup-upload）
+const { uploadWaiterMixin, readVideoFileBytes } = require('./upload-waiter')
+const { artifactsHelpers } = require('./rpa-view-artifacts')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
 
-const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou'])
+// 「严格平台」= 只认**发布产物查询**（而非 URL 变化/通用响应）判定成功。
+// 2026-09-30 追加 toutiao：头条发布后**不跳转**（URL 始终停在 /profile_v4/graphic/publish），
+// 默认 success_mode='url' 必然超时；参考产品同款做法是查**作品列表 API** 并检查
+// ArticleAttr.Status（"2"=已发布、"6"=审核中，均视为提交成功）。
+const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao'])
 
 function summarizePublishDiagnostics (records, artifact) {
   const source = Array.isArray(records) ? records : []
@@ -68,31 +69,6 @@ function parsePublishResponseEvidence (body, response) {
   return publishIds.length > 0 ? { publishIds } : null
 }
 
-function parseKuaishouArtifactEvidence (body, response) {
-  const status = Number(response?.status)
-  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
-  if (!String(response?.endpoint || '').includes('/rest/cp/works/v2/video/pc/photo/list')) return null
-  try {
-    const json = JSON.parse(String(body || ''))
-    const rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : []
-    const kuaishouArtifacts = rows.map(item => {
-      const postId = normalizePublishId(item && (item.workId || item.photoId || item.id))
-      if (!postId) return null
-      const title = String(item.title || item.caption || '').replace(/#g/g, '').replace(/ g/g, '').trim().slice(0, 512)
-      const rawTime = item.publishTime || item.uploadTime || 0
-      const seconds = Number(String(rawTime).substring(0, 10))
-      return {
-        postId,
-        title,
-        publishedAt: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0,
-        url: 'https://m.gifshow.com/fw/photo/' + postId,
-      }
-    }).filter(Boolean).slice(0, 50)
-    return kuaishouArtifacts.length > 0 ? { kuaishouArtifacts } : null
-  } catch (_) {
-    return null
-  }
-}
 
 const platformsMixin = {
   // ========== P2-B: Config loading ==========
@@ -136,6 +112,54 @@ const platformsMixin = {
         }
         await this._sleep(1800); break
       }
+      case 'uploadCover': {
+        // 2026-09-30 头条取证（发布设置页）：「展示封面」必填，页面**默认选中「单图」**
+        // 但封面区为空（只有 + 占位）→ 点「预览并发布」被必填校验挡住（症状：verification timeout）。
+        // 先尝试直接提供封面图（满足「单图」语义，且头条有封面利于推荐）；
+        // 若封面上传入口拿不到，则退而选「无封面」（头条允许无封面发布）。
+        // 注：仅用 executeJavaScript 改 radio 的 checked 会被 React 受控状态覆盖
+        // （实测返回 SELECTED 但页面仍是「单图」），故主路径走上传播入。
+        const coverPath = context && context.coverPath
+        let handled = false
+        if (coverPath) {
+          try {
+            // 封面区是延迟渲染的（实测首次查询 `.article-cover-add` 为 null、回退成 CLICKED_COVER
+            // 后点的是 radio group 容器 → 无 file input）。故先等上传钮出现再点。
+            const coverReady = await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
+            if (!coverReady) log.warn('RpaView', '[uploadCover] 封面区未在 12s 内出现，仍尝试点击')
+            const entry = await win.webContents.executeJavaScript(
+              // 2026-09-30 真机取证：封面「+」的真实元素是 **`.article-cover-add`**
+              // （位于 `.article-cover-images-wrap` 内，图标为 SVG 故无文本；
+              //  此前按 `innerText === "+"` 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
+              '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
+              + 'var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}'
+              + 'var cover=document.querySelector(\'.article-cover-images-wrap\')||document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
+            )
+            log.info('RpaView', '[uploadCover] entry=' + entry)
+            await this._sleep(2000)
+            // 旧实现仅凭 `_setFileInput` 返回值置 handled=true，页面其实未接受；现改为头条专用
+            // 上传（逐个 file input + **以 img 计数增加为判据**），详见 `_uploadToutiaoCover`。
+            const coverResult = await this._uploadToutiaoCover(win, coverPath)
+            handled = (coverResult === 'OK' || String(coverResult).indexOf('OK_') === 0)
+            log.info('RpaView', '[uploadCover] toutiao result=' + coverResult)
+          } catch (e) { log.warn('RpaView', '[uploadCover] ' + e.message) }
+        }
+        if (!handled) {
+          try {
+            // 真机取证（2026-09-30）：封面三选一是 byte-design 的 `LABEL.byte-radio`
+            // （内部 input 为隐藏态，且 `input.closest('label')` 取到的是外层 label）。
+            // 故**直接按文本选 label** 点击，再回读 input.checked 确认 React 已接受。
+            const r = await win.webContents.executeJavaScript(
+              '(function(){var ls=[...document.querySelectorAll(\'label.byte-radio\')].filter(function(l){return /无封面/.test(l.innerText||\'\')});if(!ls.length)return \'NO_LABEL\';ls[0].click();var rs=[...document.querySelectorAll(\'input[type=radio]\')];var picked=rs.filter(function(x){return x.checked}).map(function(x){return (x.closest(\'label\')||x.parentElement||{}).innerText}).join(\'|\');return \'CLICKED picked=\'+picked})()'
+            )
+            log.info('RpaView', '[uploadCover] no-cover fallback=' + r)
+          } catch (e) { log.warn('RpaView', '[uploadCover] no-cover ' + e.message) }
+        }
+        await this._sleep(1500); break
+      }
+      case 'installToutiaoSaveHook':
+        // 2026-10-03 头条兜底前置：编辑器加载完成即装 XHR hook（捕获自动保存 body 供重放兜底）
+        await require('@multi-publish/rpa-engine/src/toutiao-direct-bridge').installToutiaoSaveHook({ win, log }); break
       default: log.warn('RpaView', 'Unknown hook: ' + hookName)
     }
   },
@@ -180,25 +204,30 @@ const platformsMixin = {
     // 小红书/快手/抖音图文要求至少 1 张图片；图片经 article.images（本地文件路径，
     // 渲染层自动生成封面兜底——usePublishFlow IMAGE_TEXT_PLATFORMS）传入。
     // 多图平台（快手支持 31 张）暂传首图：多图需逐张等待上传完成，后续迭代。
+    // 上传通道按平台分流（2026-09-30 快手取证）：**拖拽区优先**——快手图文的
+    // input[type=file] 两条注入路径都失效（CDP 静默清空 / DataTransfer 赋值归零），
+    // 唯一通道是向 dragger-content 派发 DragEvent('drop')；无拖拽容器时回退 input。
     if (!article.video_path && Array.isArray(article.images) && article.images.length > 0 && sel.file_input && sel.file_input.length > 0) {
       retry.addField('image_upload')
       while (!retry.isDone('image_upload')) {
         try {
           this._emitProgress(platform, 'uploading image...', 22)
-          const imgFileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
-          if (imgFileSel) {
+          const dropped = typeof this._dropFilesToDragArea === 'function'
+            ? await this._dropFilesToDragArea(win, article.images[0], sel.drag_area).catch(() => false)
+            : false
+          if (!dropped) {
+            const imgFileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
+            if (!imgFileSel) { if (!retry.retry('image_upload')) break; await this._sleep(2000); continue }
             await this._setFileInput(win, article.images[0], imgFileSel)
-            // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
-            await this._sleep(4000)
-            // 图片上传成功后平台可能自动进入「图片编辑」（裁剪）界面，其模态层遮挡
-            // 发布按钮（2026-09-29 小红书实测：不收起则 button:has-text("发布") 超时）
-            await this._dismissImageEditModal(win, platform)
-            const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
-            if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
-            retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
-          } else {
-            if (!retry.retry('image_upload')) break; await this._sleep(2000)
           }
+          // 图片上传等待：无统一进度条可轮询，固定等待 + 后续表单就绪等待兜底
+          await this._sleep(4000)
+          // 图片上传成功后平台可能自动进入「图片编辑」（裁剪）界面，其模态层遮挡
+          // 发布按钮（2026-09-29 小红书实测：不收起则 button:has-text("发布") 超时）
+          await this._dismissImageEditModal(win, platform)
+          const imgFormReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"],[class*="title"] input\')}', 60000, 1500)
+          if (!imgFormReady) log.warn('RpaView', '[' + platform + '] editor form not ready after image upload (still trying fields)')
+          retry.markDone('image_upload'); this._emitProgress(platform, 'image uploaded', 40)
         } catch(e) {
           log.warn('RpaView', '['+platform+'] image upload: '+e.message)
           if (!retry.retry('image_upload')) break; await this._sleep(2000)
@@ -226,7 +255,7 @@ const platformsMixin = {
               uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
               if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
             } else {
-              await this._waitForVideoUploadComplete(win, platform)
+              await this._waitForVideoUploadComplete(win, platform, 900000, { fileBytes: readVideoFileBytes(article.video_path) })
             }
             // 编辑器表单就绪等待：上传完成后平台 SPA 渲染标题/简介字段有延迟，
             // 不等直接填会全部 timeout（B站/快手上传完成后才切到编辑表单）
@@ -273,6 +302,7 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           const titleTarget = titleSel || captionSel
           const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
+          // 读回校验已内建于 `_fillInput`（读回 0 且待填值非空即抛错）。
           await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
@@ -349,7 +379,8 @@ const platformsMixin = {
       }
     }
 
-    if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
+    // 实验：头条跳过封面 hook，验证封面注入是否占用 defer-publish 的 `_e`（判据：跳过后 appReqN>0）。
+    if (config.prePublishHook && platform !== 'toutiao') await this._execHook(win, config.prePublishHook, config.hookContext)
 
     // 平台专用发布前准备（百家号/快手：关闭引导弹窗 + 选择 AI 创作声明）
     if (platform === 'baijiahao') {
@@ -412,8 +443,12 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
-          await this._click(win,publishSelector)
+          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
+          // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
+          // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
+          await (platform === 'toutiao' && typeof this._clickStable === 'function' ? this._clickStable(win, publishSelector) : this._click(win, publishSelector))
+          if (platform === 'toutiao') { await this._sleep(1500); await this._clickViaCdp(win, publishSelector) }
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)
@@ -422,6 +457,10 @@ const platformsMixin = {
             } catch (_) { /* ignore */ }
             await this._sleep(1000)
           }
+          // 二次确认弹窗（2026-09-30 快手实测：点发布后弹「取 消 / 确 认」确认框，
+          // 不点确认则永不提交 → publish verification timeout）。此处统一处理，
+          // 无弹窗时为 NO_DIALOG 无副作用。
+          if (typeof this._confirmPublishDialog === 'function') await this._confirmPublishDialog(win, platform)
           if (article.draft && sel.draft_btn) await this._click(win,sel.draft_btn)
           retry.markDone('publish')
           if (throttle.shouldReport(95)) this._emitProgress(platform,'verifying...',95)
@@ -439,7 +478,10 @@ const platformsMixin = {
             log.info('RpaView', '[' + platform + '] publish click failure visibleActionCount=' + Number(visibleActionCount || 0))
           } catch (_) { /* ignore */ }
           if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
-          await this._sleep(1500)
+          // 2026-09-30 风控加固：publish 是**副作用字段**——每次重试都是一次真实的提交尝试，
+          // 原先固定 1.5s 间隔过于密集（实测头条曾连续失败 12 轮，用户明确提出风控风险）。
+          // 改用指数退避（5s → 10s → 20s，cap 45s），给平台留出响应与限流恢复窗口。
+          await this._sleep(retry.backoffMs('publish', { sideEffect: true }))
         }
       }
     }
@@ -694,106 +736,6 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 
 
-  async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
-    const title = String(context.title || '').trim()
-    const startedAt = Number(context.publishedAt || Date.now())
-    if (!title) return null
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      try {
-        const js = '(async function(){' +
-          'var title = ' + JSON.stringify(title) + ';' +
-          'var startedAt = ' + JSON.stringify(startedAt) + ';' +
-          'var endpoint = "https://baijiahao.baidu.com/pcui/article/lists";' +
-          'for (var page = 0; page < 3; page++) {' +
-            'var params = new URLSearchParams({currentPage:String(page+1),pageSize:"10",type:"video",collection:"publish",search:"",dynamic:"1"});' +
-            'var resp = await fetch(endpoint + "?" + params.toString(), {credentials:"include",headers:{Accept:"application/json, text/plain, */*","X-Requested-With":"XMLHttpRequest"}});' +
-            'if (!resp.ok) continue;' +
-            'var json = await resp.json();' +
-            'var rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : [];' +
-            'for (var i = 0; i < rows.length; i++) {' +
-              'var item = rows[i] || {};' +
-              'var id = item.article_id || item.id;' +
-              'if (!id) continue;' +
-              'var itemTitle = String(item.title || "").trim();' +
-              'var status = String(item.status || "");' +
-              'var publishAt = item.publish_at ? new Date(item.publish_at).getTime() : 0;' +
-              'var inWindow = Number.isFinite(publishAt) && publishAt > 0 && publishAt >= startedAt - 300000 && publishAt <= startedAt + 900000;' +
-              'if (status === "publish" && inWindow && itemTitle === title) {' +
-                'return {postId:String(id),url:item.share_url || "",title:itemTitle,status:status};' +
-              '}' +
-            '}' +
-          '}' +
-          'return null;' +
-        '})()'
-        const found = await win.webContents.executeJavaScript(js)
-        const postId = normalizePublishId(found && found.postId)
-        if (postId) {
-          log.info('RpaView', '[baijiahao] artifact lookup matched id=' + postId.slice(0, 80))
-          return { ...found, postId, url: sanitizePublishResultUrl(found.url) }
-        }
-      } catch (e) {
-        log.warn('RpaView', '[baijiahao] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
-      }
-      if (attempt + 1 < maxAttempts) await this._sleep(3000)
-    }
-    return null
-  },
-
-  _parseKuaishouArtifact(evidence, context) {
-    const title = String(context.title || '').trim()
-    const startedAt = Number(context.publishedAt || Date.now())
-    if (!title) return null
-    for (const entry of evidence || []) {
-      const artifacts = entry && Array.isArray(entry.kuaishouArtifacts) ? entry.kuaishouArtifacts : []
-      for (const item of artifacts) {
-        const postId = normalizePublishId(item && item.postId)
-        if (!postId) continue
-        const itemTitle = String(item.title || '').trim()
-        const publishedAt = Number(item.publishedAt || 0)
-        const inWindow = Number.isFinite(publishedAt) && publishedAt > 0 && publishedAt >= startedAt - 120000 && publishedAt <= startedAt + 900000
-        if (inWindow && itemTitle === title) {
-          return { postId, url: item.url || 'https://m.gifshow.com/fw/photo/' + postId, title: itemTitle }
-        }
-      }
-    }
-    return null
-  },
-
-  async _findKuaishouArtifact(win, context, maxAttempts = 2) {
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      let capture = null
-      try {
-        capture = await this._startPublishNetworkCapture(win, { parseResponseBody: parseKuaishouArtifactEvidence })
-        const statuses = attempt === 0 ? ['1', '2', '3'] : ['1']
-        for (const status of statuses) {
-          try {
-            await this._navigateAndWait(win, 'https://cp.kuaishou.com/article/manage/video?status=' + status, 2000)
-            await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return /作品管理|发布作品|视频管理|内容管理/.test(t)||document.querySelectorAll("a[href*=photo],[data-photo-id],[class*=work-item],[class*=works-list]").length>0}', 15000, 500)
-          } catch (e) { log.warn('RpaView', 'kuaishou manage page: ' + e.message) }
-          await this._sleep(2500)
-          const artifact = this._parseKuaishouArtifact(capture?.evidence || [], context)
-          if (artifact) {
-            log.info('RpaView', '[kuaishou] artifact lookup matched id=' + String(artifact.postId).slice(0, 80))
-            await capture.stop()
-            capture = null
-            return artifact
-          }
-        }
-      } catch (e) {
-        log.warn('RpaView', '[kuaishou] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
-      } finally {
-        if (capture) { try { await capture.stop() } catch (e) { /* ignore */ } }
-      }
-      if (attempt + 1 < maxAttempts) await this._sleep(3000)
-    }
-    return null
-  },
-
-  async _findPublishedArtifact(win, platform, context = {}) {
-    if (platform === 'baijiahao') return await this._queryBaijiahaoArtifact(win, context)
-    if (platform === 'kuaishou') return await this._findKuaishouArtifact(win, context)
-    return null
-  },
 
 
   // ========== Verify publish success ==========
@@ -830,6 +772,14 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         } catch (error) {
           log.warn('RpaView', '[' + platform + '] artifact lookup failed: ' + error.message)
         }
+      }
+      // 2026-09-30 快手图文实测：发布成功后平台跳转到内容管理页并自带 `from=publish` 标记，
+      // 但**图文的作品列表端点与视频不同**（`/rest/cp/works/v2/video/pc/photo/list` 取不到
+      // 图文 ID），于是「发布已成功却判失败」。此处补一条 URL 级成功信号：命中
+      // `from=publish` + `manage` 路径即视为提交成功，postId 用时间戳派生（仅供历史展示）。
+      if (!postId && strictPlatform && /[?&]from=publish(?:&|$)/.test(currentUrl) && /\/manage\//.test(currentUrl)) {
+        postId = 'published-' + Date.now().toString(36)
+        log.info('RpaView', '[' + platform + '] publish success by URL signal (from=publish): ' + sanitizeDiagnosticEndpoint(currentUrl))
       }
       const diagnostics = summarizePublishDiagnostics(stoppedRequests, artifact)
       if (!postId) {
@@ -895,6 +845,12 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         return await finish({ stage: 'URL fallback', url: url2 })
       }
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
+    // 2026-09-30 严格平台兜底（头条实测）：发布后**既不跳转也不给响应信号**，
+    // 上面所有分支都不会命中 ⇒ 判超时前主动查一次发布产物（作品列表 API，见 helpers）。
+    if (STRICT_PUBLISH_ID_PLATFORMS.has(platform) && typeof this._strictPublishFallback === 'function') {
+      const hit = await this._strictPublishFallback(win, platform, context, stopNetworkCapture)
+      if (hit) return hit
+    }
     const finalUrl = win.webContents.getURL() || ''
     const stoppedRequests = await stopNetworkCapture()
     // 诊断快照：超时前记录页面关键文本与可见弹窗，帮助区分"弹窗拦截/校验失败/静默成功"
@@ -941,28 +897,51 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       if (!(await this._waitForElement(win,'input[type="file"]',15000))) { log.warn('RpaView', '[douyin] no file input url=' + win.webContents.getURL()); return {success:false,error:'no file input',platform:'douyin'} }
       await this._setFileInput(win,article.video_path)
       this._emitProgress('douyin','waiting upload...',30)
-      await this._waitForVideoUploadComplete(win,'douyin')
+      // 909KB 小视频曾停在 30% 白等满 15 分钟（残留 progress 元素让负向信号恒真）：
+      // 传 fileBytes 走自适应预算（小文件 90s）+ 页面百分比真实进度上报（v4 策略）。
+      await this._waitForVideoUploadComplete(win,'douyin',900000,{ fileBytes: readVideoFileBytes(article.video_path) })
       this._emitProgress('douyin','video uploaded',50)
     } else if (isImageMode && Array.isArray(article.images) && article.images.length > 0) {
       // 2026-09-29 图文模式：上传首图（渲染层自动生成封面兜底传入 article.images）
+      // 2026-09-30 实测补强：`default-tab=3` 有时**直接落到 content/post/image 编辑页**
+      // （`enter_from=publish_page&type=new`，RPA 持久分区带历史状态时更常见），此时上传页的
+      // `input[type=file]` 已从 DOM 移除——旧实现等 15s 超时即放弃（日志 `No file input found`）。
+      // 三通道兜底：① 上传页 file input → ② 编辑页「继续添加/添加图片」触发的 input →
+      // ③ 重新导航回上传页再注入。
       this._emitProgress('douyin','uploading image...',20)
-      if (await this._waitForElement(win,'input[type="file"]',15000)) {
-        try {
-          await this._setFileInput(win, article.images[0])
-          await this._sleep(4000)
-          // 图片上传后页面切到发布表单（content/post/image），表单就绪再填字段。
-          // 实测教训：上传后 7ms 即填字段全部落空——页面还在切换，标题/描述填进
-          // 旧 DOM、发布按钮 disabled → 点了没反应 → 65s 超时。
-          const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
-          if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
-          this._emitProgress('douyin','image uploaded',45)
-        } catch (e) { log.warn('RpaView', '[douyin] image upload: ' + e.message) }
+      const tryInjectImage = async () => {
+        if (!(await this._waitForElement(win,'input[type="file"]',8000))) return false
+        try { await this._setFileInput(win, article.images[0]); return true } catch (e) { log.warn('RpaView','[douyin] image inject: '+e.message); return false }
+      }
+      let uploaded = await tryInjectImage()
+      if (!uploaded) {
+        const clicked = await win.webContents.executeJavaScript('(function(){var b=[...document.querySelectorAll("button,div,span")].filter(function(e){var t=(e.innerText||"").trim();return /^(继续添加|添加图片|上传图片|点击上传)$/.test(t)&&e.getClientRects().length>0});if(b.length){b[0].click();return "CLICKED"}return "NO_BUTTON"})()').catch(() => 'ERR')
+        log.info('RpaView', '[douyin] add-image button: ' + clicked)
+        await this._sleep(1500)
+        uploaded = await tryInjectImage()
+      }
+      if (!uploaded) {
+        log.warn('RpaView', '[douyin] all channels failed, re-navigate to upload page url=' + win.webContents.getURL())
+        await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload?default-tab=3', 3000)
+        await this._dismissPostNavDialogs(win, 'douyin')
+        uploaded = await tryInjectImage()
+      }
+      if (uploaded) {
+        // A2：删除原 _sleep(4000)——表单就绪轮询（下）已是就绪判定，固定 sleep 是纯叠加。
+        // 实测教训保留：上传后 7ms 即填字段全部落空——就绪判定必须先行，而不是盲等。
+        const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],[contenteditable="true"],textarea\')}', 30000, 1500)
+        if (!formReady) log.warn('RpaView', '[douyin] post form not ready after image upload (still trying fields)')
+        this._emitProgress('douyin','image uploaded',45)
       } else {
-        log.warn('RpaView', '[douyin] no file input (image mode) url=' + win.webContents.getURL())
+        log.warn('RpaView', '[douyin] image upload failed on all channels url=' + win.webContents.getURL())
       }
     }
 
-    if (article.title) {
+    // 标题：**图文模式没有独立标题输入框**（2026-09-30 实测 content/post/image 编辑页
+    // 只有「作品描述」contenteditable，计数器 0/20 是标题态、0/1000 是描述），旧实现找
+    // `input[placeholder*=标题]` 必然失败并抛 `input not found`。图文模式下标题改为合并进
+    // 描述首行（与快手同口径）；视频模式保持原独立标题填充。
+    if (article.title && !isImageMode) {
       this._emitProgress('douyin','filling title...',55)
       if (await this._waitForElement(win,'[class*="input"], [class*="title"]',10000)) {
         try {
@@ -972,18 +951,31 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
     }
 
-    if (article.content) {
-      this._emitProgress('douyin','filling desc...',65)
-      try {
-        const dj=JSON.stringify(article.content)
-        // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化
-        await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+dj+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
-      } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
+    {
+      const descSource = isImageMode && article.title
+        ? [article.title, article.content].filter((v) => typeof v === 'string' && v.trim()).join('\n')
+        : article.content
+      if (descSource) {
+        this._emitProgress('douyin','filling desc...',65)
+        try {
+          const dj=JSON.stringify(descSource)
+          // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化
+          await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+dj+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
+        } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
+      }
     }
 
     if (article.cover_path) {
       this._emitProgress('douyin','uploading cover...',75)
-      try { if(await this._click(win,'[class*="cover"]')){await this._sleep(1000);await this._setFileInput(win,article.cover_path);await this._sleep(2000)} } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
+      try {
+        if (await this._click(win,'[class*="cover"]')) {
+          // A2：封面缩略图基线递增判据下沉 navigation-helpers（头条同款）；超时告警降级不失败。
+          const coverReady = await this._waitForThumbnailIncrease(win, '[class*="cover"]', async () => {
+            await this._setFileInput(win, article.cover_path)
+          }, 10000)
+          if (!coverReady) log.warn('RpaView', '[douyin] cover thumbnail not confirmed within 10s (continuing)')
+        }
+      } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
     }
 
     if (article.tags && article.tags.length>0) {
@@ -991,7 +983,8 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       for (let ti=0;ti<article.tags.length;ti++) {
         try {
           await win.webContents.executeJavaScript('(function(){let ti=document.querySelectorAll(\'[class*="tag"] input,input[placeholder*="tag"],input[placeholder*="标签"]\');if(ti.length>0){let inp=ti[0];inp.value='+JSON.stringify(article.tags[ti])+';inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",keyCode:13}))}})()')
-          await this._sleep(1000)
+          // A2：chip 就绪轮询（判据下沉 navigation-helpers），替代原固定 _sleep(1000)/tag。
+          await this._waitForTagChip(win, article.tags[ti], 5000)
         } catch(e) { log.warn('RpaView','douyin tag: '+e.message) }
       }
     }
@@ -1003,9 +996,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
       if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
-      await this._sleep(5000)
+      // A2：提交兜底改 URL 轮询（实现下沉 navigation-helpers），最长仍 5s、成功提前返回。
+      if (await this._waitForSuccessNavigation(win, 5000)) {
+        return { success:true, url:win.webContents.getURL()||'', platform:'douyin' }
+      }
       const fu=win.webContents.getURL()
-      if (fu.includes('success')||fu.includes('publish/success')) return { success:true, url:fu||'', platform:'douyin' }
       log.warn('RpaView', '[douyin] publish timeout url=' + (fu||''))
       return { success:false, error:'publish timeout', platform:'douyin' }
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
@@ -1047,7 +1042,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.title) {
       this._emitProgress('wechat_mp','filling title...',20)
       if (await this._waitForElement(win,'#title, input.weui-desktop-input',10000)) {
-        await this._fillInput(win,'#title',article.title)
+        try { await this._fillInput(win,'#title',article.title) } catch (e) { log.warn('RpaView','[wechat_mp] title fill: '+e.message) }
       }
     }
 
@@ -1215,7 +1210,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.title) {
       this._emitProgress('youtube','filling title...',55)
       if (await this._waitForElement(win,'#title-textarea, [class*="title"] input',10000)) {
-        await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title)
+        try { await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title) } catch (e) { log.warn('RpaView','[youtube] title fill: '+e.message) }
       }
     }
 
@@ -1223,7 +1218,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     if (article.content) {
       this._emitProgress('youtube','filling description...',65)
       if (await this._waitForElement(win,'#description-textarea, [class*="description"] textarea',10000)) {
-        await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content)
+        try { await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content) } catch (e) { log.warn('RpaView','[youtube] desc fill: '+e.message) }
       }
     }
 
@@ -1290,6 +1285,9 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
     // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
     // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
+    // 2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被
+    // 清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件
+    // （参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1297,6 +1295,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+          drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
       }
       : config
@@ -1304,6 +1303,28 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       ...effectiveConfig,
       publish_url: publishUrl || config.publish_url,
     })
+  },
+
+  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
+  // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
+  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到
+  // （实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`
+  //  + `publish btn not found`，三次重试后 `publish failed ... url=`）。
+  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
+  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
+  // 2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  async _publish_toutiao (win, article) {
+    return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
+      .publishToutiao({
+        win,
+        article,
+        host: this,
+        sign: require('@multi-publish/rpa-engine/src/publish-signer').sign.bind(
+          require('@multi-publish/rpa-engine/src/publish-signer')),
+        log,
+        getPublishUrl,
+        stripHtml: stripHtmlToPlainText,
+      })
   },
 
   async _publish_zhihu(win, article) {
@@ -1396,5 +1417,5 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
   },
 }
 
-// 合并抽出的导航/等待 helper（Object.assign 保序：本文件同名方法优先）
-module.exports = Object.assign(platformsMixin, navigationHelpers)
+// 合并抽出的 mixin（后写者胜：uploadWaiterMixin v4 须居 navigationHelpers 之后；artifactsHelpers 无键冲突）
+module.exports = Object.assign(platformsMixin, navigationHelpers, uploadWaiterMixin, artifactsHelpers)

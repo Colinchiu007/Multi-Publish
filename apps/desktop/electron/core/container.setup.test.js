@@ -1,16 +1,35 @@
 // container.setup 加载所有服务模块，多数 require electron + fs + path
 __enableElectronMock()
 
+// 夹具只对**本测试的沙箱目录**谎报文件系统，沙箱外一律委托真实 fs（#2794 同族收敛，形状同
+// apps/desktop/electron/services/asset-generator.test.js）。
+// 为什么这个文件必须有牙齿：它 require 全部服务模块，其中 store → sqlite-wrapper → sql.js 会
+// 用 fs.readFileSync 读 .wasm —— 一律返回 "[]" 的谎报正是 BF-TEST-01 那次
+// `WebAssembly.instantiate(): BufferSource argument is empty` 崩溃的成因（下面对 sql.js 的
+// mock 是同一根因的第二处规避）。同一 realm 里 node_modules/electron/index.js 也会被真实执行（实测与
+// vitest.config.js 的 deps.inline:['electron'] 无关，摘掉它 banner 照样出现，见 docs/deps-inline-electron-evaluation.md），
+// existsSync()=>false 会让它以为二进制没备好并当场 spawn install.js。
+// 判定按**路径段**比：裸 startsWith 会把 <沙箱>-evil 判进沙箱，对真实存在的目录持续谎报"不存在"。
+const nodeOs = require('node:os')
+const nodePath = require('node:path')
+const realFs = require('node:fs')
+const CONTAINER_SANDBOX = nodePath.join(nodeOs.tmpdir(), 'multi-publish-container-setup-' + process.pid)
+const isSandboxPath = (target) => {
+  const normalized = String(target).replace(/\\/g, '/')
+  const sandbox = CONTAINER_SANDBOX.replace(/\\/g, '/')
+  return normalized === sandbox || normalized.startsWith(sandbox + '/')
+}
+// 只委托"读"。写类动词继续全部空转：夹具不得因为"委托"而把东西真的写到磁盘上。
 __registerMock("fs", {
-  existsSync: vi.fn().mockReturnValue(false),
-  readFileSync: vi.fn().mockReturnValue("[]"),
+  existsSync: vi.fn((target) => (isSandboxPath(target) ? false : realFs.existsSync(target))),
+  readFileSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? '' : realFs.readFileSync(target, ...rest))),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
-  readdirSync: vi.fn().mockReturnValue([]),
-  statSync: vi.fn().mockReturnValue({ size: 0, mtime: new Date() }),
+  readdirSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? [] : realFs.readdirSync(target, ...rest))),
+  statSync: vi.fn((target, ...rest) => (isSandboxPath(target) ? { size: 0, mtime: new Date() } : realFs.statSync(target, ...rest))),
   unlinkSync: vi.fn(),
   createWriteStream: vi.fn(),
-  createReadStream: vi.fn(),
+  createReadStream: vi.fn((target, ...rest) => (isSandboxPath(target) ? { on: vi.fn() } : realFs.createReadStream(target, ...rest))),
 })
 
 __registerMock("path", {
@@ -92,6 +111,54 @@ describe('Container setup', () => {
     expect(ci).toBeDefined();
     var track = c.get('publishImpactTracker');
     expect(track).toBeDefined();
+  });
+
+  // ── 发布频率控制装配锁（openspec/changes/publish-frequency-control）──────────
+  // 事故形态：PublishIntervalGuard 注册在容器里、TaskQueue 支持注入、两侧 60+ 条单测全绿，
+  // 但生产装配漏了注入 ⇒ _publishIntervalGuard 恒 null ⇒ 发布频率控制在运行时完全不存在
+  // （实测 publish_timeline 表 0 行）。以下三条锁必须打在**真实装配路径**上，
+  // 在测试里手工 new guard 再注入不构成回归保护。
+
+  test('装配锁：publishIntervalGuard 必须注入 taskQueue', () => {
+    var c = createContainer();
+    var queue = c.get('taskQueue');
+    var guard = c.get('publishIntervalGuard');
+
+    expect(guard).toBeTruthy();
+    expect(queue._publishIntervalGuard).toBe(guard);
+  });
+
+  test('装配锁：options.taskQueue 不得把守卫覆盖成 undefined（静默关掉门禁）', () => {
+    var c = createContainer({
+      taskQueue: { maxConcurrent: 1, publishIntervalGuard: null },
+    });
+
+    expect(c.get('taskQueue')._publishIntervalGuard).toBe(c.get('publishIntervalGuard'));
+    expect(c.get('taskQueue').maxConcurrent).toBe(1);
+  });
+
+  test('装配锁：守卫的间隔按平台策略解析，不得回退成硬编码单一值', () => {
+    // 策略模块读 process.env，开发机若恰好设了覆盖值会让精确断言假红 —— 测试自己钉住档位。
+    const ENV_KEYS = ['MP_PUBLISH_MIN_INTERVAL_MS', 'MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS'];
+    const saved = ENV_KEYS.map(function (k) { return process.env[k]; });
+    ENV_KEYS.forEach(function (k) { delete process.env[k]; });
+    try {
+      var guard = createContainer().get('publishIntervalGuard');
+
+      // weibo 属短内容高频容忍档；未登记平台回落最严基线
+      expect(guard._intervals('weibo')).toEqual({
+        accountMinMs: 10 * 60 * 1000, platformMinMs: 60 * 1000,
+      });
+      expect(guard._intervals('wechat_mp')).toEqual({
+        accountMinMs: 60 * 60 * 1000, platformMinMs: 5 * 60 * 1000,
+      });
+      expect(guard._intervals('not_a_registered_platform').accountMinMs)
+        .toBeGreaterThanOrEqual(guard._intervals('weibo').accountMinMs);
+    } finally {
+      ENV_KEYS.forEach(function (k, i) {
+        if (saved[i] !== undefined) process.env[k] = saved[i];
+      });
+    }
   });
 
   test('assertRequired passes', () => {

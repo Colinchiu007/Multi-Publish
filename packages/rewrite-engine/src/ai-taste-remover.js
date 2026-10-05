@@ -455,7 +455,32 @@ function escapeRegex(str) {
 }
 
 /**
- * 按中文标点切分句子。
+ * 按中文标点切分句子，并保留每个句子的终止标点。
+ * 返回元素形如「正文+标点」；无终止标点的尾段原样返回（不追加标点）。
+ * 历史 Bug：旧实现丢弃标点后由调用方统一补「。」，导致「！」「？」等语气标点
+ * 被改写为句号、段尾标点整体丢失（2026-10-03 段落压平修复一并修正）。
+ * @param {string} text 输入文本
+ * @returns {string[]} 句子数组（每个元素含终止标点）
+ */
+function splitSentencesWithPunct(text) {
+  return text
+    .split(/([。！？；!?;]+)/g)
+    .reduce(function (acc, part) {
+      if (!part) return acc
+      // 标点分组（命中终止标点集）追加到前一个正文分组尾部
+      if (/^[。！？；!?;]+$/.test(part) && acc.length > 0) {
+        acc[acc.length - 1] += part
+      } else {
+        acc.push(part)
+      }
+      return acc
+    }, [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * 按中文标点切分句子（兼容旧签名，丢弃标点；仅 rhythm 检测使用）。
  * @param {string} text 输入文本
  * @returns {string[]} 句子数组
  */
@@ -497,12 +522,30 @@ class AITasteRemover {
    * @param {boolean} [options.enabled] 是否启用，默认 true
    * @param {number} [options.intensity] 处理强度 1-3，默认 2
    * @param {string} [options.tone] 语气 casual|formal，默认 casual
+   * @param {Object<string,string>} [options.phraseMap] 运营中心词表覆盖层 {word: replacement}（ai-taste-ops-center）；
+   *        叠加 + 键覆盖语义：同键覆盖内置 AI_PHRASE_MAP，新词追加；缺省/undefined 回内置常量（行为逐字节不变）
+   * @param {string[]} [options.disabledWords] 禁用表：其中的词（含内置词与注入词）跳过替换
+   * @param {Object<string,string>} [options.severityMap] 自定义词的严重度覆盖 {word: 'S1'|'S2'|'S3'}（评分用；缺省自定义词按 S2）
    */
   constructor(options) {
     options = options || {}
     this._enabled = options.enabled !== false
     this._intensity = Math.min(3, Math.max(1, options.intensity || 2))
     this._tone = options.tone || 'casual'
+    // 词表叠加：内置 128 条是安全底线，注入层同键覆盖（ai-taste-ops-center Q2）
+    const inject = (options.phraseMap && typeof options.phraseMap === 'object') ? options.phraseMap : null
+    if (inject) {
+      // 键序确定性：合并后按码点排序重建（同输入多次 process 输出稳定，T7）
+      this._phraseMap = {}
+      for (const k of Object.keys(AI_PHRASE_MAP).concat(Object.keys(inject)).sort()) {
+        // 注入层同键覆盖内置；内置键恒在（叠加语义）
+        this._phraseMap[k] = Object.prototype.hasOwnProperty.call(inject, k) ? inject[k] : AI_PHRASE_MAP[k]
+      }
+    } else {
+      this._phraseMap = AI_PHRASE_MAP
+    }
+    this._disabledWords = new Set(Array.isArray(options.disabledWords) ? options.disabledWords : [])
+    this._severityMap = (options.severityMap && typeof options.severityMap === 'object') ? options.severityMap : null
   }
 
   /**
@@ -548,10 +591,11 @@ class AITasteRemover {
     if (!text) return []
     const findings = []
 
-    // AI 词汇模式
-    const keys = Object.keys(AI_PHRASE_MAP)
+    // AI 词汇模式（读实例词表：内置常量或运营中心覆盖层；禁用词跳过）
+    const keys = Object.keys(this._phraseMap)
     for (let i = 0; i < keys.length; i++) {
       const ai = keys[i]
+      if (this._disabledWords.has(ai)) continue
       const regex = new RegExp(escapeRegex(ai), 'gi')
       const matches = text.match(regex)
       if (matches && matches.length >= this._densityThreshold(ai)) {
@@ -562,7 +606,7 @@ class AITasteRemover {
             severity: this._severityOf(ai),
             span: m,
             pattern: ai,
-            suggestion: AI_PHRASE_MAP[ai],
+            suggestion: this._phraseMap[ai],
             start: idx,
             end: idx + m.length,
           })
@@ -697,10 +741,12 @@ class AITasteRemover {
 
   /**
    * 判断某个 AI 词的严重度。
+   * 运营中心 severityMap 覆盖优先（ai-taste-ops-center）；缺省路径与历史一致。
    * @param {string} word AI 词
    * @returns {string} S1|S2|S3
    */
   _severityOf(word) {
+    if (this._severityMap && this._severityMap[word]) return this._severityMap[word]
     const s1Words = [
       '综上所述', '总而言之', '毋庸置疑', '不言而喻', '显而易见', '众所周知',
       '不可否认', '值得注意的是', '在当今社会', '随着社会的发展', '随着科技的发展',
@@ -726,16 +772,17 @@ class AITasteRemover {
 
   /**
    * Pass 1: 替换 AI 词汇。
-   * 人类基线保护：密度超过阈值才替换。
+   * 人类基线保护：密度超过阈值才替换；禁用词跳过（ai-taste-ops-center）。
    * @param {string} text 输入文本
    * @returns {string} 替换后文本
    */
   _replaceAIPhrases(text) {
     let result = text
-    const keys = Object.keys(AI_PHRASE_MAP)
+    const keys = Object.keys(this._phraseMap)
     for (let i = 0; i < keys.length; i++) {
       const ai = keys[i]
-      const human = AI_PHRASE_MAP[ai]
+      if (this._disabledWords.has(ai)) continue
+      const human = this._phraseMap[ai]
       const regex = new RegExp(escapeRegex(ai), 'gi')
       const matches = text.match(regex)
       if (!matches) continue
@@ -772,15 +819,19 @@ class AITasteRemover {
 
   /**
    * Pass 3: 加人类质感（句长变化、留白、作者观点）。
+   * 段落结构保留（2026-10-03 段落压平修复）：先按换行切分，再仅对单个自然段做句级重组，
+   * 换行/空行结构原样返回。历史缺陷：对全文 splitSentences 后 join('。')，把 LLM 按空行
+   * 分段的改写结果压平成一整段（rewrite-engine-core._postProcess 每次真实改写都经过此路径）。
+   * 结构不变量：任何 pass 不得改变输入的换行/分段结构。
    * @param {string} text 输入文本
    * @returns {string} 处理后的文本
    */
   _addHumanTexture(text) {
     let result = text
-    // 句长变化：检测到句长方差过小（过于均匀）时，合并短句
+    // 句长变化：检测到句长方差过小（过于均匀）时，段内合并短句
     const rhythm = this._detectRhythm(result)
     if (rhythm.signal) {
-      result = this._mergeUniformSentences(result)
+      result = result.split('\n').map((paragraph) => this._mergeUniformSentences(paragraph)).join('\n')
     }
     return result
   }
@@ -816,11 +867,13 @@ class AITasteRemover {
 
   /**
    * 合并连续等长句，增加句长变化。
+   * 标点保留（2026-10-03 修复）：切分保留各句原终止标点，重组按原文标点回填，
+   * 不再统一补「。」；段尾无终止标点时保持无标点。
    * @param {string} text 输入文本
    * @returns {string} 合并后文本
    */
   _mergeUniformSentences(text) {
-    const sentences = splitSentences(text)
+    const sentences = splitSentencesWithPunct(text)
     if (sentences.length < 3) return text
     const lens = sentences.map((s) => s.length)
     const result = []
@@ -829,7 +882,9 @@ class AITasteRemover {
       if (i + 1 < sentences.length) {
         const nearEqual = Math.abs(lens[i + 1] - lens[i]) <= lens[i] * 0.2
         if (nearEqual && lens[i] + lens[i + 1] < 80) {
-          result.push(sentences[i] + '，' + sentences[i + 1])
+          // 段内合并：前句终止标点改逗号衔接，后句保留自身标点
+          const head = sentences[i].replace(/[。！？；!?;]+$/, '')
+          result.push(head + '，' + sentences[i + 1])
           i += 2
           continue
         }
@@ -837,7 +892,7 @@ class AITasteRemover {
       result.push(sentences[i])
       i++
     }
-    return result.join('。')
+    return result.join('')
   }
 
   /**

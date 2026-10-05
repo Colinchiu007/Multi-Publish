@@ -18,6 +18,8 @@ const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与�
 const { normalizeAppMenu } = require('./app-menu-config')
 // P0-1 信任锚：内置 DEV 公钥只对未打包态生效（判据拆独立模块，兼控本文件体量）
 const { resolveTrustAnchor } = require('./runtime-trust-anchor')
+// 统一内容类别（2026-10-03）：热门选题 / 采集库 / 账号标签 共用的单一真源
+const { normalizeContentCategories } = require('./content-categories')
 
 const SETTING_KEY = 'opsCenterSync'
 const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
@@ -316,6 +318,7 @@ class OpsCenterSync {
       featureFlags: normalizeFeatureFlags(state.featureFlags),
       pipelineOptions: (state.pipelineOptions && typeof state.pipelineOptions === 'object') ? state.pipelineOptions : null,
       appMenu: normalizeAppMenu(state.appMenu),
+      contentCategories: normalizeContentCategories(state.contentCategories).items,
       syncedAt: state.syncedAt || '',
     }
   }
@@ -335,6 +338,7 @@ class OpsCenterSync {
       featureFlags: this._runtime.featureFlags || {},
       pipelineOptions: this._runtime.pipelineOptions || null,
       appMenu: this._runtime.appMenu || null,
+      contentCategories: this._runtime.contentCategories || [],
       syncedAt: this._runtime.syncedAt || '',
     }
   }
@@ -361,6 +365,15 @@ class OpsCenterSync {
    */
   getAppMenu() {
     return this._runtime.appMenu || null
+  }
+
+  /**
+   * 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发的类别列表。
+   * 返回空数组表示本轮无有效配置，渲染端据此 fail-open 回退内置 10 类。
+   */
+  getContentCategories() {
+    const list = this._runtime.contentCategories
+    return Array.isArray(list) ? list : []
   }
 
   /** 读取功能开关 typed value（主进程/引擎消费）；不存在返回 undefined */
@@ -410,6 +423,14 @@ class OpsCenterSync {
   }
 
   /**
+   * 注入去 AI 味词库管理器（ai-taste-ops-center，2026-10-03）
+   * bootstrap 下发词库覆盖层；未注入时跳过（引擎回内置词表）。
+   */
+  setRewriteAiTasteMapManager(ratm) {
+    this._rewriteAiTasteMapManager = ratm && typeof ratm.applyRemote === 'function' ? ratm : null
+  }
+
+  /**
    * 注入改写引擎服务（rewrite-hard-constraints 审查 M2）：
    * 硬约束运行中更新时使引擎缓存失效，下次改写按新约束构建 systemPrompt。
    */
@@ -447,6 +468,7 @@ class OpsCenterSync {
       featureFlags: normalizeFeatureFlags(payload.feature_flags),
       pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
       appMenu: normalizeAppMenu(payload.appMenu),
+      contentCategories: normalizeContentCategories(payload.contentCategories).items,
       syncedAt: payload.synced_at || new Date().toISOString(),
     }
     this._runtime = next
@@ -505,6 +527,21 @@ class OpsCenterSync {
         }
       } catch (e) {
         this._log.warn('OpsCenterSync', 'rewrite hard constraints apply error: ' + String((e && e.message) || e))
+      }
+    }
+    // 去 AI 味词库运行时下发（ai-taste-ops-center，2026-10-03）：
+    // bootstrap 携带词库覆盖层时应用；未携带/未注入管理器时跳过（保持本地现状）。
+    // 变化时重注入改写引擎服务（照硬约束 M2 形态；remover 每次改写新建，重建即生效）。
+    if (Array.isArray(payload.rewrite_ai_taste_map) && this._rewriteAiTasteMapManager) {
+      try {
+        const changed = this._rewriteAiTasteMapManager.applyRemote(payload.rewrite_ai_taste_map)
+        this._log.info('OpsCenterSync', 'rewrite ai taste map applied: ' + (changed ? 'updated' : 'unchanged'))
+        if (changed && this._rewriteEngineService && typeof this._rewriteEngineService.setAiTasteMapManager === 'function') {
+          this._rewriteEngineService.setAiTasteMapManager(this._rewriteAiTasteMapManager)
+          this._log.info('OpsCenterSync', 'rewrite engine cache invalidated for new ai taste map')
+        }
+      } catch (e) {
+        this._log.warn('OpsCenterSync', 'rewrite ai taste map apply error: ' + String((e && e.message) || e))
       }
     }
     this._log.info('OpsCenterSync', 'runtime applied: ' + next.announcements.length + ' announcements, policy=' + (next.updatePolicy ? 'set' : 'none'))
