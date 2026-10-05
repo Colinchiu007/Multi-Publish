@@ -52,16 +52,27 @@ const SCAN_DOMAIN = [
 const SCAN_EXCLUDED = ['electron-bridge.js', '*.test.js']
 
 /**
- * 已知缺口白名单（design D7）：暴露面无对应名、且**全仓 0 调用方**的死 wrapper。
- * 处置是登记而非删除（删除会牵动 publisher.js 导出面与他人分支）。
- * 规矩与 settings-roundtrip-contract.test.js 的 KNOWN_LAGGING 一致：**只能缩小**。
- * 任何一处给它们接上调用方，必须当场从这里移除并把调用名改对。
+ * 已知缺口白名单：**必须保持为空**。
+ *
+ * 历史（fix-ipc-namespace-contract 的 D7）曾登记三个死 wrapper
+ * （pipelinePauseWithCheckpoint / pipelineRegisterPipeline / pipelineResumeFromCheckpoint）
+ * ——它们在 preload 侧从未兑现同名方法、全仓零调用方，接上就会静默失效。
+ * 当时选择「登记而非删除」，理由是删除会牵动 publisher.js 导出面与他人分支；
+ * 该分支已合并，5937 文件全域扫描确认零功能调用点，故
+ * `fix-dead-pipeline-wrappers` 把它们**删除**，并把本白名单收空。
+ *
+ * ⚠️ 为什么「只能缩小」在这里必须升级为「不得复加」：
+ * 白名单清空后，若只保留原「只能缩小」断言，它会对空数组**空转通过**——
+ * 与「负例不得误伤，否则下个会话把锁删掉」是同形陷阱。所以：
+ *   - 本常量被下方用例断言**必须为空**；
+ *   - 「只能缩小」用例在空表时**显式说明**而不是空转；
+ *   - 真正承重的是对账用例本身：任何人新写一个指向不存在方法的 wrapper，
+ *     「除已登记的已知缺口外…」会直接判红并点名，无需白名单。
+ *
+ * 若将来确有「暂时不能删」的真实约束（如他人在途分支），必须显式新增条目
+ * 并写明原因与到期条件——那是显式决策，不该是默认路径。
  */
-const KNOWN_GAP = [
-  'pipelinePauseWithCheckpoint',   // publisher.js:398，0 调用方
-  'pipelineRegisterPipeline',      // publisher.js:400，0 调用方
-  'pipelineResumeFromCheckpoint',  // publisher.js:399，0 调用方
-]
+const KNOWN_GAP = []
 
 // ---------------------------------------------------------------------------
 // 暴露面真源（D4）
@@ -441,16 +452,31 @@ describe('对账：渲染层调用的每个方法名都必须真实存在于暴�
     const { names } = collectProductionCalls()
 
     const gaps = names.filter((n) => !union.has(n))
-    // 减去已登记白名单后必须为空；白名单之外多出来的就是新缺陷
+    // 减去已登记白名单后必须为空；白名单之外多出来的就是新缺陷。
+    // KNOWN_GAP 已按 fix-dead-pipeline-wrappers 收空 ⇒ 本用例就是主锁：
+    // 任何新写的、指向不存在 preload 方法的 wrapper 都会在这里被判红并点名。
     const unexpected = gaps.filter((n) => !KNOWN_GAP.includes(n)).sort()
     expect(
       `未登记的暴露面缺口（${unexpected.length}）：${unexpected.join(', ')}\n` +
-      `若确认是「故意只给管理员」请查 ADMIN_ONLY_METHODS；若确认是死代码请登记进 KNOWN_GAP 并写明调用方计数；` +
-      `若确为缺陷请修调用侧。`,
-    ).toBe('未登记的暴露面缺口（0）：\n若确认是「故意只给管理员」请查 ADMIN_ONLY_METHODS；若确认是死代码请登记进 KNOWN_GAP 并写明调用方计数；若确为缺陷请修调用侧。')
+      `若确认是「故意只给管理员」请查 ADMIN_ONLY_METHODS；若确认是死代码请**删掉它**` +
+      `（KNOWN_GAP 已按 fix-dead-pipeline-wrappers 收空，登记不再是出路）；若确为缺陷请修调用侧。`,
+    ).toBe('未登记的暴露面缺口（0）：\n若确认是「故意只给管理员」请查 ADMIN_ONLY_METHODS；若确认是死代码请**删掉它**（KNOWN_GAP 已按 fix-dead-pipeline-wrappers 收空，登记不再是出路）；若确为缺陷请修调用侧。')
   })
 
-  it('KNOWN_GAP 白名单只能缩小：登记项必须仍然「暴露面无此名」且「除自身定义外无调用方」', () => {
+  it('KNOWN_GAP 必须保持为空：登记不再是处理死代码的出路（fix-dead-pipeline-wrappers D2）', () => {
+    // 原来这里是「只能缩小」的棘轮。白名单清空后它会对空数组空转通过——
+    // 与「负例不得误伤，否则下个会话把锁删掉」是同形陷阱，故升级为零容忍。
+    expect(`KNOWN_GAP 现有 ${KNOWN_GAP.length} 项：${KNOWN_GAP.join(', ')}`).toBe('KNOWN_GAP 现有 0 项：')
+  })
+
+  it('「只能缩小」的历史棘轮：仅在白名单非空时才生效，空表时显式说明而非空转', () => {
+    if (KNOWN_GAP.length === 0) {
+      // 空表不是「通过」，而是「已无登记项」——把这件事说出来，
+      // 避免读者以为这条断言还在承重（它对空数组会空转）。
+      expect('KNOWN_GAP 为空：本棘轮无对象可校验，承重由「必须保持为空」与对账用例承担')
+        .toBe('KNOWN_GAP 为空：本棘轮无对象可校验，承重由「必须保持为空」与对账用例承担')
+      return
+    }
     const pub = loadSurfaceAt('public')
     const adm = loadSurfaceAt('admin')
     const union = new Set([...adm.resolvable, ...pub.resolvable])
