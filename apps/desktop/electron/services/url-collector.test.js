@@ -28,7 +28,7 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     // 显式注入审计目录，验证 AuditLogger 落盘合同
     auditDir = path.join(os.tmpdir(), "mp-collect-audit-test-" + Date.now());
     // 依赖注入 logger（vi.mock 拦不住 CJS 模块内部的 require，构造注入是唯一可靠方式）
-    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
     collector = new UrlCollector({ auditDir, log: logger });
   });
 
@@ -45,8 +45,8 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     const result = await collector.collect("https://zhuanlan.zhihu.com/p/2081651053322421603");
     expect(result.success).toBe(false);
     expect(result.error).toContain("采集失败");
-    expect(logger.error).toHaveBeenCalled();
-    const args = logger.error.mock.calls[0];
+    expect(logger.notify).toHaveBeenCalled();
+    const args = logger.notify.mock.calls[0];
     expect(String(args[0])).toContain("url-collect");
     expect(JSON.stringify(args)).toContain("2081651053322421603");
   });
@@ -57,7 +57,7 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     collector._getAxios = () => ({ get: vi.fn().mockRejectedValue(new Error("timeout of 15000ms exceeded")) });
     const result = await collector.collect("https://example.com/post/1");
     expect(result.success).toBe(false);
-    expect(logger.error).toHaveBeenCalled();
+    expect(logger.notify).toHaveBeenCalled();
   });
 
   // 回归保护：知乎采集偶发报「原因未识别」（2026-09-13）。
@@ -70,7 +70,7 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     let logger;
 
     beforeEach(() => {
-      logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
       collector = new UrlCollector({ auditDir: null, log: logger });
     });
 
@@ -264,7 +264,7 @@ describe("UrlCollector url-collect:needs-stealth 路由查询（回归：知乎�
   let handlers;
 
   beforeEach(() => {
-    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {} } });
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
     handlers = {};
     collector.registerIpcHandlers({ handle: (ch, fn) => { handlers[ch] = fn } });
   });
@@ -523,7 +523,7 @@ describe("UrlCollector 百家号平台映射与 IPC 错误契约（回归：超�
   let collector;
 
   beforeEach(() => {
-    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {} } });
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
   });
 
   it("baijiahao.baidu.com 映射到 baijiahao 平台（非 generic）", () => {
@@ -549,7 +549,7 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
   let logger;
 
   beforeEach(() => {
-    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
     collector = new UrlCollector({ auditDir: null, log: logger });
   });
 
@@ -557,23 +557,23 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     collector._strategy.checkBudget = () => ({ allowed: false });
     const r = await collector.collect("https://example.com/a");
     expect(r.reason).toBe("budget_exhausted");
-    expect(logger.warn).toHaveBeenCalled();
-    expect(JSON.stringify(logger.warn.mock.calls)).toContain("budget_exhausted");
+    expect(logger.notify).toHaveBeenCalled();
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("collect-blocked-budget");
   });
 
   it("P0: 熔断拦截写应用日志", async () => {
     collector._circuitBreaker.isOpen = () => true;
     const r = await collector.collect("https://example.com/a");
     expect(r.reason).toBe("circuit_open");
-    expect(JSON.stringify(logger.warn.mock.calls)).toContain("circuit_open");
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("collect-blocked-circuit");
   });
 
   it("P0: 限流拦截写应用日志（含 reason 与 waitMs）", async () => {
     collector._rateLimiter.evaluate = () => ({ allowed: false, reason: "rate-limit", waitMs: 5000 });
     const r = await collector.collect("https://example.com/a");
     expect(r.reason).toBe("rate-limit");
-    expect(JSON.stringify(logger.warn.mock.calls)).toContain("rate-limit");
-    expect(JSON.stringify(logger.warn.mock.calls)).toContain("5000");
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("rate-limit");
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("5000");
   });
 
   // 回归保护：非活跃时段拦截不得误报为「请求过于频繁」（2026-09-13）。
@@ -594,8 +594,8 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     collector._contentCache.hasUrl = () => true;
     const r = await collector.collect("https://example.com/cached");
     expect(r.reason).toBe("cache_hit");
-    expect(logger.info).toHaveBeenCalled();
-    expect(JSON.stringify(logger.info.mock.calls)).toContain("cache_hit");
+    expect(logger.notify).toHaveBeenCalled();
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("cache_hit");
   });
 
   it("P2: 采集成功写 info 日志（含标题/正文长度）", async () => {
@@ -604,8 +604,8 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     collector._getAxios = () => ({ get: vi.fn().mockResolvedValue({ data: "<html><head><title>T</title></head><body><article><p>正文内容足够长</p></article></body></html>" }) });
     const r = await collector.collect("https://example.com/ok");
     expect(r.success).toBe(true);
-    expect(logger.info).toHaveBeenCalled();
-    expect(JSON.stringify(logger.info.mock.calls)).toContain("采集成功");
+    expect(logger.notify).toHaveBeenCalled();
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("collect-ok");
   });
 
   it("P2: 浏览器采集路径写过程日志", async () => {
@@ -613,8 +613,8 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     collector._collectViaBrowser = async () => ({ success: true, title: "T", content: "C".repeat(100) });
     const r = await collector.collect("https://zhuanlan.zhihu.com/p/1");
     expect(r.success).toBe(true);
-    expect(logger.info).toHaveBeenCalled();
-    expect(JSON.stringify(logger.info.mock.calls)).toContain("browser");
+    expect(logger.notify).toHaveBeenCalled();
+    expect(JSON.stringify(logger.notify.mock.calls)).toContain("browser");
   });
 
   it("手动采集（manual）跳过 weekend-throttle 随机拒绝", async () => {
@@ -654,7 +654,7 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
 // ===================== 互动数据解析（viral-library-integration P0 / F-101~F-103） =====================
 // 契约：NULL = 未知（解析失败/页面无数），0 = 真实零互动。绝不猜测填 0，绝不把缺省压平成 0。
 describe("UrlCollector 互动数据解析（engagement）", () => {
-  const collector = new UrlCollector({ auditDir: null, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } });
+  const collector = new UrlCollector({ auditDir: null, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } });
 
   // U-101/U-102 数字格式解析（纯函数）
   describe("_parseEngagementNumber", () => {

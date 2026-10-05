@@ -11,7 +11,7 @@ describe('ModelProviderManager.callAdapter runtime circuit breaker', () => {
 
   beforeEach(() => {
     __enableElectronMock()
-    __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+    __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
     manager = new ModelProviderManager({ _ready: true, addProviderLog: vi.fn() })
     manager._ready = true

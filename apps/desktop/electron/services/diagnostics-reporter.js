@@ -94,7 +94,7 @@ function toDiagnosticsSample (run) {
 class DiagnosticsReporter {
   constructor ({ store, log, getOpsCenterAuth, getClientId }) {
     this._store = store
-    this._log = log || { info() {}, warn() {}, error() {} }
+    this._log = log || { info() {}, warn() {}, error() {}, notify() {} }
     this._getOpsCenterAuth = typeof getOpsCenterAuth === 'function' ? getOpsCenterAuth : () => null
     this._getClientId = typeof getClientId === 'function' ? getClientId : () => ''
     this._timer = null

@@ -18,7 +18,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
 const { PiperAdapter } = require('./piper')
 const { ProviderError, ERROR_CODES } = require('./_base/provider-error')

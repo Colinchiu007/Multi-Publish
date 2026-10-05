@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
 const { AdapterRegistry } = require('./_base/registry')
 const { BaseAdapter, ADAPTER_VERSION } = require('./_base/base')

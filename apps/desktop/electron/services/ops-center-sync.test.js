@@ -88,7 +88,7 @@ function jsonResp ({ status = 200, body = null, ok = null, arrayBuffer }) {
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 
 describe('normalizeUrl', () => {
   it('接受 https URL 并去掉尾部斜杠', () => {
@@ -234,11 +234,27 @@ describe('OpsCenterSync syncNow', () => {
     expect((await svc.syncNow()).code).toBe(-1)
     expect((await svc.syncNow()).message).toContain('地址')
 
-    // manager 未提供 applyCatalog → 模型服务未就绪（不发起网络请求）
-    const svc2 = new OpsCenterSync({ store, modelProviderManager: {}, log: LOG })
-    svc2.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
-    expect((await svc2.syncNow()).code).toBe(-1)
-    expect((await svc2.syncNow()).message).toContain('模型服务未就绪')
+    // manager 未提供 applyCatalog → 模型服务未就绪（目录无处应用，不取目录）
+    //
+    // ⚠️ 这里**会**发一次请求，但那是生产契约的有意行为，不是被测缺陷：syncNow 在
+    // 模型服务未就绪时仍会 best-effort 下发运行时策略（公告/版本发布/应用菜单/功能开关），
+    // 见 ops-center-sync.js 的 _syncRuntimeBestEffort。旧注释写的「不发起网络请求」与实现不符，
+    // 于是本用例在测试 realm 里真的向 ops.example.com:443 发起 fetch，只因出站守卫拦住才没外泄
+    // （#2878 登记的第三条欠账）。正确处置是给传输层打桩，而不是改断言或改生产行为。
+    const fetchStub = vi.fn(async () => jsonResp({ status: 200, body: { code: 0, data: {} } }))
+    const originalFetch = global.fetch
+    global.fetch = fetchStub
+    try {
+      const svc2 = new OpsCenterSync({ store, modelProviderManager: {}, log: LOG })
+      svc2.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+      expect((await svc2.syncNow()).code).toBe(-1)
+      expect((await svc2.syncNow()).message).toContain('模型服务未就绪')
+      // 只走运行时策略通道，不取目录（未就绪时目录无处应用）
+      expect(fetchStub).toHaveBeenCalledTimes(2)
+      expect(fetchStub.mock.calls.every(([url]) => String(url).includes('/api/v1/runtime/bootstrap'))).toBe(true)
+    } finally {
+      global.fetch = originalFetch
+    }
   })
 
   it('401/403 → API Key 无效；404 → 未启用目录', async () => {
@@ -1032,7 +1048,7 @@ describe('OpsCenterSync 去 AI 味词库消费（rewrite_ai_taste_map）', () =>
 
 describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
   it('注入物缺少 getSettingObject 时必须留痕，不许静默变空配置', () => {
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const store = { getSetting: vi.fn(() => ''), setSetting: vi.fn() }
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
@@ -1046,7 +1062,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
   // container 那种窄包装的后续变种、或存储层自身故障）同样必须出声——与三个 reporter 的
   // `catch (e) { this._log.warn(...) }` 保持同一口径，且不得与本文件 JSDoc「必须留痕」自相矛盾。
   it('注入物的 getSettingObject 抛异常时必须留痕，不许静默返回空对象', () => {
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const store = {
       getSetting: vi.fn(() => ''),
       setSetting: vi.fn(),
@@ -1060,7 +1076,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
   })
 
   it('未注入 store 时必须留痕，不许静默变空配置', () => {
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const svc = new OpsCenterSync({ store: undefined, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
     expect(cfg.url).toBe('')

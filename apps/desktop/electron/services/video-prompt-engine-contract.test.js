@@ -26,7 +26,7 @@ const {
 } = require('./video-prompt-engine-contract')
 const PromptBridge = require('./prompt-bridge')
 
-const mockLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const mockLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 
 describe('视频平台/领域归一', () => {
   it('契约枚举直通', () => {

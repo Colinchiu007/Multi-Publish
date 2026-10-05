@@ -6,7 +6,7 @@ const credentialStore = {
   loadCredential: vi.fn(),
 }
 __registerMock('./credential-store', credentialStore)
-__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 __registerMock('@multi-publish/api-publish-engine/src/comment-service', {
   CommentMessageService: class {},
   CommentProvider: class {},

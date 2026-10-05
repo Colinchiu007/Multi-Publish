@@ -42,7 +42,7 @@ function startFakeMp4Server() {
  */
 function makeOrchestrator({ port, calls, storeDir }) {
   const orchestr = new PipelineEngine({
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     runStateStore: new RunStateStore({ dir: storeDir, log: { info() {}, warn() {} } }),
   })
   orchestr.stageExecutor = {

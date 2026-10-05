@@ -30,7 +30,7 @@ describe('ops-center-sync IPC handlers', () => {
       getPipelineOptions: vi.fn(() => ({ visibility: { 'basic.resolution': true }, defaults: { 'basic.resolution': '1920x1080' } })),
       getAppMenu: vi.fn(() => ({ items: [{ key: 'home', visible: false, sort_order: 0 }], syncedAt: 't1' })),
     }
-    registerHandlers(ipcMain, { opsCenterSync, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    registerHandlers(ipcMain, { opsCenterSync, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
 
     expect(Object.keys(handlers).sort()).toEqual(['ops-center-sync:appMenu', 'ops-center-sync:get', 'ops-center-sync:now', 'ops-center-sync:pipelineOptions', 'ops-center-sync:runtime', 'ops-center-sync:save'])
 
@@ -68,7 +68,7 @@ describe('ops-center-sync IPC handlers', () => {
       syncNow: vi.fn(async () => { throw new Error('boom') }),
       getPipelineOptions: vi.fn(() => { throw new Error('boom') }),
     }
-    registerHandlers(ipcMain, { opsCenterSync, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    registerHandlers(ipcMain, { opsCenterSync, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     expect((await call('ops-center-sync:get')).code).toBe(-1)
     expect((await call('ops-center-sync:save', {})).code).toBe(-1)
     expect((await call('ops-center-sync:now')).code).toBe(-1)

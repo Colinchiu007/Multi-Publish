@@ -255,7 +255,7 @@ beforeEach(() => {
   crypto = require('./crypto')
   crypto.setSafeStorage(createMockSafeStorage())
 
-  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
   __registerMock('./model-provider-seeds', {
     PRESET_PROVIDERS: [],
     CATEGORY_LABELS: { llm: 'LLM', tts: 'TTS', image: 'Image', video: 'Video', audio: 'Audio', speech_recognition: 'SR' },

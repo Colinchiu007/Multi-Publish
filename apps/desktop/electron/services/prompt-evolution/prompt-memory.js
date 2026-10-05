@@ -75,7 +75,7 @@ function isPlainObject (v) {
  */
 function createPromptMemory (opts) {
   const libraryRoot = opts.libraryRoot
-  const log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+  const log = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const statsProvider = opts.statsProvider || (() => null)
   const nowFn = opts.now || (() => new Date())
   let gate = typeof opts.gate === 'function' ? opts.gate : null

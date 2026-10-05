@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
 const { ImagenAdapter, IMAGEN_MODELS } = require('./imagen')
 const { PRESET_PROVIDERS } = require('../model-provider-seeds')

@@ -13,7 +13,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const { hotTopicsService, store, identityService, log } = deps
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const FAVORITES_KEY = 'hot_topics_favorites'
 
   function _getOwnerSubject() {

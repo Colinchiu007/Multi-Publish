@@ -26,7 +26,7 @@ function createTestBridge (overrides) {
     port: 9999,
     host: '127.0.0.1',
     workDir: '/tmp/test',
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     requestTimeout: 5000,
     ...overrides,
   }
@@ -60,7 +60,7 @@ describe('BasePythonBridge — 构造函数', () => {
   it('3. 缺少 requestTimeout 时默认 30000', () => {
     const b = new BasePythonBridge({
       name: 'T', pythonModule: 't', port: 1, host: 'h', workDir: '/d',
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     expect(b.requestTimeout).toBe(30000)
   })

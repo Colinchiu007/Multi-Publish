@@ -78,7 +78,7 @@ function sortKeys (obj) {
 function createGovernance (opts) {
   const config = { ...DEFAULT_CONFIG, ...(opts.config || {}) }
   const memory = opts.memory
-  const _log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+  const _log = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const statsProvider = opts.statsProvider || (() => null)
   const nowFn = opts.now || (() => new Date())
 

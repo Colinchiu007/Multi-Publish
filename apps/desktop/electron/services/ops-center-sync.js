@@ -116,7 +116,7 @@ class OpsCenterSync {
   constructor({ store, modelProviderManager, log }) {
     this._store = store
     this._manager = modelProviderManager
-    this._log = log || { info() {}, warn() {}, error() {} }
+    this._log = log || { info() {}, warn() {}, error() {}, notify() {} }
     // 运行时策略状态（公告/版本发布/内容安全），启动时从 settings 恢复
     this._runtime = this._loadRuntimeState()
     this._sensitiveFilter = null

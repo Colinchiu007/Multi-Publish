@@ -54,7 +54,7 @@ async function main () {
   const outDir = args.out ? path.resolve(args.out) : fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-eval-cli-'))
   const { createPromptEvalService } = require('./index')
   const { toMarkdown, aggregate } = require('./report')
-  const service = createPromptEvalService({ userDataDir: outDir, evaluator, log: { info: () => {}, warn: () => {}, error: () => {} } })
+  const service = createPromptEvalService({ userDataDir: outDir, evaluator, log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
 
   if (args.analyze) {
     const result = service.analyze()

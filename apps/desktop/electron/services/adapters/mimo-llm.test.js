@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 
-__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
 const { MimoLlmAdapter } = require('./mimo-llm')
 

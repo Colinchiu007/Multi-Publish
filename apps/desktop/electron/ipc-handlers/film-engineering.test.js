@@ -66,7 +66,7 @@ function makeServiceMock (overrides = {}) {
 
 function makeDeps (overrides = {}) {
   return {
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     filmEngineeringService: makeServiceMock(),
     ...overrides,
   }

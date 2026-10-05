@@ -131,7 +131,7 @@ describe('hot-topics channel parsers', () => {
 // ── Service：缓存 fail-closed / 去重 / 限流 / 熔断 ──
 describe('HotTopicsService', () => {
   function makeService(overrides = {}) {
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, ...overrides })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }, ...overrides })
     // 单测隔离：方案B 定向补拉与方案C LLM 兜底默认不触网（专项行为见 Plan B/D、Plan C 用例）
     svc._collectBoostChannel = async (src) => ({ channel: src.id, items: null, skipped: true, boost: true })
     return svc
@@ -425,7 +425,7 @@ describe('Plan B/D: category boost channels', () => {
 
   it('低于阈值的分类自动触发 _collectBoostChannel，补拉条目直挂分类且 id 含 board 段', async () => {
     const { HotTopicsService } = await import('./hot-topics-service.js')
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id,
       items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: cfg.id + '普通话题', category: 'general', categories: ['general'], hotValue: null, url: null }],
@@ -449,7 +449,7 @@ describe('Plan B/D: category boost channels', () => {
 
   it('显式 boostCategories=[emotion] 时即使计数充足也补拉该分类（空分类补拉按钮契约）', async () => {
     const { HotTopicsService } = await import('./hot-topics-service.js')
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id,
       items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '话题' + cfg.id, category: 'general', categories: ['general'], hotValue: null, url: null }],
@@ -485,7 +485,7 @@ describe('Plan C: LLM classify fallback', () => {
   it('deps.llmClassify 对 general 条目批量分类并应用到结果', async () => {
     const { HotTopicsService } = await import('./hot-topics-service.js')
     const llmClassify = vi.fn().mockResolvedValue({ '普通话题zhihu': 'tech' })
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, llmClassify })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }, llmClassify })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id,
       items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '普通话题' + cfg.id, category: 'general', categories: ['general'], hotValue: null, url: null }],
@@ -504,7 +504,7 @@ describe('Plan C: LLM classify fallback', () => {
     const persisted = { '已缓存选题': 'finance' }
     const store = { getSetting: (k) => (k === LLM_LABELS_KEY ? JSON.stringify(persisted) : null), setSetting: vi.fn() }
     const llmClassify = vi.fn().mockResolvedValue({ '新选题': 'health' })
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, settingsStore: store, llmClassify })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }, settingsStore: store, llmClassify })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id,
       items: [
@@ -529,7 +529,7 @@ describe('Plan C: LLM classify fallback', () => {
 
   it('llmClassify 抛错时静默降级：general 保持不变且不影响返回', async () => {
     const { HotTopicsService } = await import('./hot-topics-service.js')
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, llmClassify: async () => { throw new Error('llm down') } })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }, llmClassify: async () => { throw new Error('llm down') } })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id,
       items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '普通话题X', category: 'general', categories: ['general'], hotValue: null, url: null }],
@@ -542,7 +542,7 @@ describe('Plan C: LLM classify fallback', () => {
 
   it('未注入 llmClassify（未配置模型）时完全跳过，不调用网络', async () => {
     const { HotTopicsService } = await import('./hot-topics-service.js')
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id, items: [], skipped: false,
     }))
@@ -553,7 +553,7 @@ describe('Plan C: LLM classify fallback', () => {
 
   it('llmClassify 返回非法分类被忽略（合同校验）', async () => {
     const { HotTopicsService } = await import('./hot-topics-service.js')
-    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, llmClassify: async () => ({ '话题Y': 'nonsense' }) })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }, llmClassify: async () => ({ '话题Y': 'nonsense' }) })
     vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
       channel: cfg.id,
       items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '话题Y', category: 'general', categories: ['general'], hotValue: null, url: null }],
@@ -567,7 +567,7 @@ describe('Plan C: LLM classify fallback', () => {
 
 // ── 评审回归（MAJOR-1，2026-09-20）：显式补拉不被主渠道限流的 preserve 早退吞掉 ──
 describe('Review regression: explicit boost vs throttled main channels', () => {
-  const silentLog = { info: () => {}, warn: () => {}, error: () => {} }
+  const silentLog = { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
   it('主渠道全被限流跳过时，显式 boostCategories 仍执行补拉并合并结果（不触发 preservedStaleCache）', async () => {
     const svc = new HotTopicsService({ log: silentLog })
@@ -608,7 +608,7 @@ describe('Review regression: explicit boost vs throttled main channels', () => {
 
 // ── Heat ranking integration (P0 sort-before-truncate / P2 config / P3 fields) ──
 describe('Heat ranking integration (P0/P2/P3)', () => {
-  const rankLog = { info: () => {}, warn: () => {}, error: () => {} }
+  const rankLog = { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   function rankSvc(overrides = {}) {
     const svc = new HotTopicsService({ log: rankLog, ...overrides })
     svc._collectBoostChannel = async (src) => ({ channel: src.id, items: null, skipped: true, boost: true })
