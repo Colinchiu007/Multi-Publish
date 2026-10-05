@@ -79,6 +79,11 @@
     "status": "PENDING",
     "line": 4654
   },
+  "本次执行记录：ops-center 开发入口绑全网卡 + 清库夹具可清空共享开发库（ops-dev-bind-loopback，2026-09-29）": {
+    "reason": "本 PR 自己写的行：合并前无法取证 merge SHA 与远端分支删除（这正是 PENDING 的语义）。回填者＝下一个会话，回填后必须删除本条，否则判陈旧登记。",
+    "status": "PENDING",
+    "line": 16
+  },
   "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
   "本次执行记录：#2927 远程同步回填销账 + CHANGELOG 收口（bilibili-audit-backfill，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }
