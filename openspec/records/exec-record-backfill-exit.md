@@ -2,9 +2,7 @@
 record: exec-record-backfill-exit
 task: 执行记录存在性门禁补第四条合法出路——纯回填型 PR（变更集全为记录/台账载体的 M）不再被误判为「未携带执行记录」
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填者把下行改成 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep=(#NNNN)$ --format=%H|%cI）
+sync_status: PASS
 ---
 
 ## 本次执行记录：执行记录门禁补「纯回填」出路④（exec-record-backfill-exit，2026-10-05）
@@ -21,7 +19,7 @@ sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep
 | 接线棘轮 | PASS | `check-pr-exec-record.test.js` 已在既有 workflow 点名清单内（quality-gate.yml classify step `node --test`），本次未新增测试文件；`check-unwired-tests`（57 文件）/ `check-step-failfast`（5 步）/ `check-no-brand-residue` / `check-gate-record-debt` 全部实跑通过 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何渲染面；改动面是门禁脚本 + 测试 |
 | QM-6 CCG 双模型外部评审 | PASS（带通道偏差） | 真源 `~/.claude/.ccg/config.toml`：backend=codex / frontend=claude。**前端 claude 今日已实测 3 次连续静默失败**（rc=0 无 agent_message 无产物）⇒ 按既定替代通道 `opencode run --model opencode/nemotron-3-ultra-free`；两路 findings 均落盘 `.ccg/review/qm6-{backend,frontend}-exec-record-backfill-exit.json`（前端 11 条：2C/5W/4I；后端 5 条：1W/4I），**0 Critical 残留**：C1 出路④定义式文案、C2 至少一篇记录文件 M 均已采纳落地；后端 W1 分支名守卫已采纳落地；W1 计数「重叠」按包含语义修正注释不改码；不采纳项（W1/W2 改名沿用「载体」词汇、I5 真实远端 CLI 夹具）与信任边界（后端 I4-info：出路④不校验 M 内容真实性，依赖人工 review + check-gate-record-debt 结构检查）见 01-docs PRD §4 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin exec-record-backfill-exit` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | merge SHA `e7797789217679626a1c7b9d81f5a2480f1188d0`（2026-10-05T11:24:26Z，PR #2928）：`git log origin/main --grep='(#2928)$' --format=%H\|%cI`；`git ls-remote --heads origin exec-record-backfill-exit` 返回 0 行证远端分支已删；frontmatter 三个 sync_* 字段已删除 |
 
 ### 遗留（不假装已闭合）
 

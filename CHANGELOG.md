@@ -1,3 +1,16 @@
+# [未发布] fix(gate): 执行记录门禁补第四条合法出路——纯回填型 PR 不再被误判未携带记录（2026-10-05，exec-record-backfill-exit / PR #2928）
+
+### 症状（#2920 实测）
+- 回填型 PR（修订**别的分支**那篇 `openspec/records/<分支>.md`）在 `check-pr-exec-record --mode=enforce` 下被报「本 PR 未携带执行记录」：既有三条出路对这类 PR 全部不可用，CI 靠 advisory 观察态掩盖。
+
+### 修复
+- `evaluate()` 新增出路④ `isPureBackfill`：变更集每一条都是载体文件的 M、**且至少含一篇记录文件的 M**（载体自身可承载行为变更，翻门槛/收缩账本不得白坐出路④）、**且分支名可解析**（detached 且无 CI 注入 fail-closed 出专用理由）⇒ 放行并在 summary 打印回填明细。
+- 失败文案补出路④定义式措辞；顺手落 #2923 遗留：显式空 `--head=` 脚本级 rc=2 拒绝，不再经 `|| 'HEAD'` 把「取证失败」伪装成「取到了」。
+- 回归锁 `check-pr-exec-record.test.js` 35/35；7 条变异反证（M1–M7）逐条实测变红，还原后逐字节相同。
+- 详见 `openspec/records/exec-record-backfill-exit.md` 与 `01-docs/PRD-EXEC-RECORD-BACKFILL-EXIT-2026-10-05.md`。
+
+---
+
 # [未发布] fix(ci): docs-only 短路在 CI 取错变更集——改绑检出合并提交的双亲，取源决策搬进可单测的脚本（2026-10-05，docs-only-head-sha / PR #2923）
 
 ### 症状（PR #2914 实测）
