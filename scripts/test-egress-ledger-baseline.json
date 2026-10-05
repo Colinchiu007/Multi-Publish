@@ -1,0 +1,23 @@
+{
+  "$comment": "测试期运行时出站台账的基线（scripts/check-test-egress-ledger.js 比对对象，清单只能缩小）。键来自真实跑出来的现场，不来自源码猜测：桌面全量一次（736 文件 / 13492 例）+ packages 各 workspace 一次，均由 packages/shared-utils/src/network-egress-guard.js 的 sink 落盘。blocked:: 四条带『欠账』字样的条目是**被测代码在测试 realm 里真的发起了出站**、只因守卫拦住才没外泄，桩没覆盖到传输层——修好后必须把它们删掉。",
+  "$measuredAt": "2026-10-04",
+  "entries": {
+    "child::chrome-headless-shell.exe": "Playwright 无头壳：electron/tests/voice-clone-layout-regression.test.js 真起浏览器做布局回归。浏览器内请求不经 node 守卫，属预期的覆盖缺口，靠像素/视觉层另管",
+    "child::esbuild.exe": "electron/tests/build-preload.test.js 真跑 esbuild 打包 preload。纯本地编译工具，不预期出站",
+    "child::ffmpeg": "媒体用例经打包的 ffmpeg 包装层，命令名为 POSIX 形态（apps/desktop/electron/services/video-clone/asset-generator.test.js 等）；本地转码工具",
+    "child::ffmpeg.exe": "story2video / film-engineering / podcast-repurpose / smoketest / videogen / stage-media-tools 等 9 个测试文件真起 ffmpeg.exe 转码；本地工具，不预期出站",
+    "child::ffprobe": "packages 侧媒体工具包装层以 POSIX 命令名调用 ffprobe（探测本地文件）",
+    "child::ffprobe.exe": "桌面侧同一职责的 .exe 形态，只做本地探测；与 ffmpeg.exe 同一批测试文件",
+    "child::git": "e2e-quality-infrastructure / publish-history 及 packages 侧若干用例真调 git 读版本与仓库状态。git 的联网行为不在本守卫范围（测试里只做本地子命令）",
+    "child::powershell.exe": "windows-file-lock / credential-store / account-state-restorer 用 PowerShell 真实持有文件句柄、查进程；本机进程工具，不出网",
+    "child::python": "electron/tests/test_scheduler_parity.test.js 真跑 python -m 与 JS 调度器做 parity 对照；python 的联网不在守卫范围，属已知覆盖缺口",
+    "child::taskkill": "base-python-bridge 收尾时用 taskkill /T /F 清理子进程树；只做进程管理",
+    "blocked::example.com:8099": "守卫自测（network-egress-guard.test.js）：http.get 到非 loopback 必须秒失败并被记账",
+    "blocked::example.org:8099": "守卫自测（同上）：undici fetch 同一路径必须被拦",
+    "blocked::93.184.216.34:8099": "守卫自测（同上）：net.connect 直连 IP 也必须被拦，防止绕过域名判断",
+    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）",
+    "blocked::ops.example.com:443": "欠账：ops-center-sync『未配置时 fail-closed』用例实际发起了 fetch，靠守卫拦住才没外泄 —— 该路径没有传输层桩。桩补好后删除本条（跟进 issue #2878）",
+    "blocked::channels.weixin.qq.com:443": "欠账：account-manager『tencent_video HTTP 检测有效』用例的桩没覆盖真实传输层，测试 realm 里真的向该平台发起连接；用例仍通过＝错误被吞。补桩后删除本条（跟进 issue #2878）",
+    "blocked::mp.toutiao.com:443": "欠账（同一形态的第二落点）：toutiao 分区 Cookie 合并回归用例走同一条未打桩的 HTTP 检测路径。补桩后删除本条（跟进 issue #2878）"
+  }
+}
