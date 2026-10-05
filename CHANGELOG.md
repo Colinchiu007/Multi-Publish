@@ -8378,9 +8378,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -8846,9 +8846,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -9027,7 +9027,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -10114,7 +10114,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -12899,9 +12899,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -13367,9 +13367,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -13548,7 +13548,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -14635,7 +14635,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -24284,9 +24284,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -24752,9 +24752,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -24933,7 +24933,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -26020,7 +26020,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -28805,9 +28805,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -29273,9 +29273,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -29454,7 +29454,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -30541,7 +30541,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -40233,9 +40233,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -40701,9 +40701,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -40882,7 +40882,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -41969,7 +41969,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -44754,9 +44754,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -45222,9 +45222,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -45403,7 +45403,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -46490,7 +46490,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -56228,9 +56228,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -56696,9 +56696,9 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -56877,7 +56877,7 @@ main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败�
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -57964,7 +57964,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 
@@ -60749,9 +60749,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
-- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 el-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
-- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+- 验证：ops-center 前端 vite build 通过；纯布局 CSS，无逻辑变更。
 
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
@@ -61217,9 +61217,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
-- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- 新增 video-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
 - cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
-- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- main.js 新增 video-creation-tokens.css 导入（在 cohere-design-system.css 之后）
 - 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
 
 ### 硬编码颜色消除
@@ -61398,7 +61398,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
 - 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
 - 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
-- 修复（系统根因，真实 Electron 实证）：① lectron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
+- 修复（系统根因，真实 Electron 实证）：① electron-bridge.toPlainIpcValue 曾对 File 做 JSON 序列化（JSON.stringify(File)→{}）导致 webUtils.getPathForFile 拿不到路径——现对 File/Blob 原样透传（contextBridge 原生支持），BGM/旁白/视频素材选择恢复可用；② story2video:import-media 加入主进程 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（本地设备操作不因未登录/未激活许可证被 code:-3 拦截）。
 - 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
 - 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
@@ -62485,7 +62485,7 @@ CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
 - **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
 - **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
 - **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
-- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 npm scripts**：test:autonomous:full / test:autonomous:functional / test:autonomous:multi-doc
 - **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
 - **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
 

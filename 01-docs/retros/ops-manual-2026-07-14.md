@@ -285,8 +285,8 @@ ExecStart=/usr/bin/node /opt/multi-publish/apps/desktop/electron/main.js
 # 启动前设置（PowerShell）
 $env:SPLITTER_DIR = "D:\Data\projects\smart-sentence-splitter"
 $env:PROMPT_DIR = "D:\Data\projects\prompt-engine"
-$env:FFMPEG_PATH = "D:\Projectsfmpeg-7.1infmpeg.exe"
-cd D:\Data\projects\Multi-Publishpps\desktop
+$env:FFMPEG_PATH = "D:\Projectsffmpeg-7.1binffmpeg.exe"
+cd D:\Data\projects\Multi-Publishapps\desktop
 npm run electron:dev
 ```
 

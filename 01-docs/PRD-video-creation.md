@@ -789,7 +789,7 @@ Story2Video 的 50 分钟产品上限与下游 ffmpeg 执行预算是两个独�
 **一、已暂停状态（后端）**
 
 - **触发条件**：PipelineEngine.getHistory() 从 RunStateStore 加载持久化快照时，若 snapshot.status === running，自动将返回的 status 归一化为 paused（因为应用重启后该任务不再处于运行状态）。
-- **暂停环节**：同时从快照的 currentStage 索引计算 pausedStage 字段（阶段名称字符串），记录任务在哪个环节被中断（如 nimate、compose 等）。
+- **暂停环节**：同时从快照的 currentStage 索引计算 pausedStage 字段（阶段名称字符串），记录任务在哪个环节被中断（如 animate、compose 等）。
 - **数据结构**：返回的 persisted 条目新增字段 pausedStage: string | null。
 - **不影响的场景**：内存中真正在运行的 run（_runs Map）保持 status: running 不变；已终态的 _history 条目保持原 status 不变；RunStateStore 中的持久化快照本身不被修改（只读投影）。
 
@@ -1510,7 +1510,7 @@ import '@/styles/history-panel.css'
 
 #### 一、变更背景
 
-视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出（崩溃、看门狗放弃、启动失败）后，业务调用方（如 optimize()、_post()）直接抛出 xxx is not running 错误，用户需要手动重启应用。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出（崩溃、看门狗放弃、启动失败）后，业务调用方（如 optimize()、_post()）直接抛出 xxx is not running 错误，用户需要手动重启应用。本次在 BasePythonBridge 基类中新增 ensureRunning() 方法，实现懒启动自愈。
 
 #### 二、实现方案
 
@@ -1543,7 +1543,7 @@ if (!this.isRunning) {
 
 ##### 3) 子类显式调用
 
-PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额外调用 wait this.ensureRunning()，确保 Bridge 可用。
+PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额外调用 await this.ensureRunning()，确保 Bridge 可用。
 
 #### 三、行为变化
 
@@ -1556,7 +1556,7 @@ PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额�
 #### 四、数据校验
 
 - _starting 字段类型：Promise<void> | null
-- nsureRunning() 返回值：Promise<void>
+- ensureRunning() 返回值：Promise<void>
 - 并发安全：多次调用共享同一个 _starting Promise
 
 #### 五、错误处理
@@ -1569,14 +1569,14 @@ PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额�
 
 | 文件 | 变更类型 |
 |------|----------|
-| ase-python-bridge.js | 新增 nsureRunning() 方法 + _post() 改造 |
+| base-python-bridge.js | 新增 ensureRunning() 方法 + _post() 改造 |
 | prompt-bridge.js | optimize() 和 optimizeBatch() 前置调用 |
 | splitter-bridge.js | 同上模式 |
 
 #### 七、回归验证
 
-- ase-python-bridge.test.js：新增 ensureRunning 懒启动测试（并发调用共享 Promise、启动失败抛出、已运行跳过）
-- 2e-full-pipeline.test.js：E2E 测试自动启动 Splitter Bridge 而非仅 attach
+- base-python-bridge.test.js：新增 ensureRunning 懒启动测试（并发调用共享 Promise、启动失败抛出、已运行跳过）
+- e2e-full-pipeline.test.js：E2E 测试自动启动 Splitter Bridge 而非仅 attach
 
 
 ### 3.1.22 图片轮播模型下拉空白 / 新增模型后不刷新修复（2026-08-12）

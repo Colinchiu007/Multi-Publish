@@ -72,7 +72,7 @@ const  = axios.create({
 - packages/api-publish-engine/src/retry-middleware.js — 已有重试中间件
 - packages/api-publish-engine/src/publish-api-client.js — 已有 HTTP 客户端封装
 
-**复用决定：** 无需重复实现。Multi-Publish 的 etry-middleware.js 功能更完善，但可以引入参考产品的 etryCondition 回调模式以支持条件重试。
+**复用决定：** 无需重复实现。Multi-Publish 的 retry-middleware.js 功能更完善，但可以引入参考产品的 retryCondition 回调模式以支持条件重试。
 
 ---
 
@@ -89,11 +89,11 @@ buildStandardHeaders(cookie, referer, origin)
 `
 
 **Multi-Publish 现有：**
-- pps/desktop/electron/services/cookie-converter.js — Cookie 转换工具
-- pps/desktop/electron/services/credential-store.js — 凭据加密存储
-- pps/desktop/electron/services/account-state-restorer.js — 登录态恢复
+- apps/desktop/electron/services/cookie-converter.js — Cookie 转换工具
+- apps/desktop/electron/services/credential-store.js — 凭据加密存储
+- apps/desktop/electron/services/account-state-restorer.js — 登录态恢复
 
-**复用决定：** cookie-converter.js 已有类似功能。需补充参考产品的 parseSetCookie 和 uildStandardHeaders 工具函数。credential-store.js 的 AES-256-GCM 加密方案可以参考。
+**复用决定：** cookie-converter.js 已有类似功能。需补充参考产品的 parseSetCookie 和 buildStandardHeaders 工具函数。credential-store.js 的 AES-256-GCM 加密方案可以参考。
 
 ---
 
@@ -238,7 +238,7 @@ await view.webContents.executeJavaScript(genBaseCode(code, task.tabId))
 // 5. 轮询状态
 while (true) {
   await wait(1000)
-  await view.webContents.executeJavaScript(ender(...))
+  await view.webContents.executeJavaScript(render(...))
   const isDone = await view.webContents.executeJavaScript('isDone')
   if (isDone) break
 }
@@ -246,13 +246,13 @@ while (true) {
 
 **Multi-Publish 现有（Playwright）：**
 - packages/rpa-engine/src/ — Playwright 方式
-- pps/desktop/electron/services/rpa-view-manager.js — RPA 视图管理
+- apps/desktop/electron/services/rpa-view-manager.js — RPA 视图管理
 
 **复用决定：** 这是**最关键的区别**。建议采纳参考产品的 executeJS 模式替代 Playwright：
 - 移除 Playwright 依赖（节省 ~170MB 浏览器捆绑包）
 - 利用 Electron 自带的 BrowserView 或 webview
 - 需要重写各平台的 DOM 操作脚本
-- 现有 pa-view-manager.js 可保留为视图管理基础
+- 现有 rpa-view-manager.js 可保留为视图管理基础
 
 ---
 
@@ -277,12 +277,12 @@ while (true) {
 
 | 代码片段 | 来源（参考产品） | 目标（Multi-Publish） | 工作量 |
 |---------|--------------|---------------------|--------|
-| HTTP 客户端重试条件模式 | $http 拦截器 | etry-middleware.js | 小（增强） |
+| HTTP 客户端重试条件模式 | $http 拦截器 | retry-middleware.js | 小（增强） |
 | 分片上传引擎 | uploadFileChunked | 新增 chunked-uploader.js | 中 |
 | 进度上报 + 取消令牌 | SetProgressEvent/CancelToken | 已有，可对齐 | 小 |
-| 平台通用发布流程 | PlatformPublisher.execute() | ase-adapter.js | 小（对齐） |
+| 平台通用发布流程 | PlatformPublisher.execute() | base-adapter.js | 小（对齐） |
 | Cookie 解析工具 | extractCookieValue/parseSetCookie/buildStandardHeaders | cookie-converter.js | 小 |
-| HTML 富文本处理 | HtmlDocument 解析 | ich-text-processor.js | 小 |
+| HTML 富文本处理 | HtmlDocument 解析 | rich-text-processor.js | 小 |
 | 时间戳/工具函数 | getTimeStamp/convertToMinuteMultipleOf5 | 新增 utils/time.js | 小 |
 
 ### 4.2 中等价值复用（业务逻辑）
@@ -291,7 +291,7 @@ while (true) {
 |---------|--------------|---------------------|--------|
 | executeJS RPA 注入代码 | genBaseCode() | 新增 js-injection/ 目录 | 大（核心迁移） |
 | 平台特定 DOM 操作 | 各平台 RPA 代码 | 对应平台适配器 | 大 |
-| 账号分组管理 | 分组 CRUD 逻辑 | ccount-manager.js | 中 |
+| 账号分组管理 | 分组 CRUD 逻辑 | account-manager.js | 中 |
 | 数据仪表盘聚合 | 数据统计查询 | 新增 dashboard-service.js | 中 |
 | 敏感词检测 | 内容安全 | 已有 sensitive-filter.js | 小（增强） |
 | 评论自动回复 | 关键词规则引擎 | comment-manager.js | 中 |
