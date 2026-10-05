@@ -1,3 +1,16 @@
+## 持久化"写成功但读不回"的根因常是读写两侧对返回类型的假设不一致，而同构夹具会让它终身不可见（fix-settings-roundtrip-contract，2026-10-05）
+
+- **模式：判据要看存储实际返回什么，不要看它叫什么名。** `getSetting` 听像 getter of setting（字符串），实际返回 `safeJsonParse` 后的对象；9 处消费点按字符串处理，全部静默退化。修复方向不是"各处加类型判断"，而是把归一化收敛到**存储侧唯一入口**。
+- **模式（逃逸主因）：契约夹具不得改变被存值类型。** `getSetting: () => data / setSetting: (_k,v)=>{data=v}` 看似"忠实 mock"，实为替被测代码改了契约；同形化后同一误判从 0 红变 21 红。凡"重启后恢复"类要求，必须有一条用真实存储（真库 + 关闭重开）的锁，并做"把夹具退回原样回吐"的成对反证。
+- **教训：绿色套件不等于链路通。** 改动前 4 文件 90 用例全绿，其中一条名字就叫"重启后从 settings 恢复 appMenu" —— 用例名与它实际测量的东西无关。
+- **反证纪律补一条：变异不红先查自己的判据。** 本轮判定式写成 `/Tests\s+\d+ failed/`，被 ANSI 色码插在中间而永不匹配，把 4 条明明变红的变异全报成"锁没抓住"；且 CJK 用 latin1 解码后 `expectHint` 恒假。口径：驱动脚本必须先剥 ANSI、按 UTF-8 解码，并把"未红"当待解释异常而不是结论。
+- **同轮踩到的探针自坏（三次，全部当场否证了自己的结论）**：① 用 `latin1` 读文件再拿 CJK 串找锚点 ⇒ 0 命中被误读成"锚点不存在/文档变了"；② `for (const b of string)` 遍历的是**字符**不是字节 ⇒ 报出 `cr=0 lf=0` 的假行尾结论，必须 `readFileSync` 得 Buffer；③ `@electron/asar` 对深度 ≥2 的条目只认「无前导分隔符 + 平台分隔符」的键，正斜杠形式一律 `not found`，与既有笔记"去掉前导 `\` 即可"只说对一半。
+- **打包 rc=0 不是"启动正常"。** 未构建渲染层时 electron-builder 照样成功，但 stderr 报 `ERR_FILE_NOT_FOUND app.asar/dist/index.html`（白屏）。QM-1 的启动段必须**捕获 stderr 并按特征判**，只看"进程存活 8 秒"会得到假绿。
+
+相关：AGENTS.md「任何「用户输入落盘」的写入口必须先证明它写的是被读取的那份真源」「测试断言不得反向固化错误行为」「跨包响应信封只在一处剥」。
+
+---
+
 ## LEDGER_GREW「陈旧账本误杀」的判据与合法处置；rebase 后 PR diff 虚胖的识别；增量门禁的对称性纪律（publish-permission-recheck + publish-logging-observability，2026-10-04）
 
 - **「远程同步」状态必须写 `PASS`，写 `PENDING→PASS` 照样判未收口（pitfall）**：`.quality-gates.md` 的远程同步行只要不是纯 `PASS`（含 `PENDING`、`PENDING→PASS`），`check-gate-record-debt.js` 就把它列为**未登记欠账** → `QG Changes`/`Gate Result` 连带红。本次照抄模板写成 `PENDING→PASS`，PR 其实已合并仍被列出两条（L34/L8587）；改成 `PASS` 即时转绿。**收口四步**：①取证（`git log origin/main --grep='(#NNNN)$' --format='%H|%cI'` + `git ls-remote --heads origin <branch>` 返回 0 行）；②记录状态改 `PASS` 并写入 commit hash 与取证命令；③**同一次提交**删除 `gate-record-debt-ledger.json` 对应条目（否则判「陈旧登记项」）；④`node scripts/check-gate-record-debt.js` exit 0。

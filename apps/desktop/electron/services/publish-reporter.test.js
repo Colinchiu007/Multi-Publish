@@ -6,11 +6,17 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 
 const { PublishReporter } = require('./publish-reporter')
 
+// 与真实 settings-store 同形：落盘是文本，读回是**解析后的值**（原样回吐会替被测代码改契约）
 function makeStore (initial) {
   let data = initial || ''
+  const stored = () => { try { return JSON.parse(data) } catch { return data } }
   return {
-    getSetting: vi.fn(() => data),
-    setSetting: vi.fn((_k, v) => { data = v }),
+    getSetting: vi.fn(() => (data ? stored() : '')),
+    getSettingObject: vi.fn((_k, d = {}) => {
+      const v = data ? stored() : null
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : d
+    }),
+    setSetting: vi.fn((_k, v) => { data = (typeof v === 'string' ? v : JSON.stringify(v)) }),
     _getData: () => data,
   }
 }
