@@ -2,9 +2,6 @@
 record: fix-settings-roundtrip
 task: 桌面端 settings 读写往返类型对称化——运营中心下发配置重启后可恢复（getSettingObject 单一实现 + 真实存储回归锁）
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填者把下行改成 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（回填脚本 D:/tmp/mp-backfill-2899.cjs，取证一律离线：git log origin/main --grep=(#2899)$）
 ---
 ## 本次执行记录：settings 往返类型对称化（运营下发配置重启后可恢复）（fix-settings-roundtrip-contract，2026-10-05）
 
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（回填脚本 D:/tmp/mp-backfill-2899.cjs�
 | 行尾对账 | PASS | CHANGELOG `19/0`、learnings `13/0` 两口径一致且删除数为 0；`.quality-gates.md`（含 NUL 的 binary、混行尾）按首行自身行尾插入，未做任何归一；AGENTS.md `2/0` 两口径一致 |
 | 品牌残留 / 文档同步 | PASS | 未出现竞品品牌名（用"运营中心/参考产品"口径）；新增 `docs/settings-persistence-contract.md` 满足 doc-gate 且不与人顶插同一行 |
 | QM-6 双模型评审 | PASS(两路均走降级通道，偏差如实登记) | 指定通道两路都不干净：**前端路** `codeagent-wrapper --backend claude`（真源 `~/.claude/.ccg/config.toml` [routing.frontend]=claude）两次空转（rc=0/1、零 `agent_message`、无产物）；**后端路** 首投 PID 42800 跑满约 14 分钟后 stdout 截断在第一条 finding 中途（1839B）、包装器日志退出时自清、`~/.codex/sessions` 无 rollout ⇒ 不可恢复，改法＝要求"先落盘产物、正文只回摘要"重投才拿到结论。实际结论来源：前端 `opencode/nemotron-3-ultra-free` 的 findings 经本地逐条实测复核（推翻其 2 条子主张、自查拦下 1 条会引入新 Bug 的迁移建议）；后端 codex 第二投 **0 Critical / 5 Warning / 9 Info**。处置合计：前端 1 条 Critical（`_readStoredObject` 三个出口中两个是无声 `return {}`，含"压根没注入 store"这一最极端契约不符形态，与其自身 JSDoc 第 137 行声明及同 PR 三个 reporter 的出声口径相矛盾）已修；W4/W5/W6 已修；W2/W3 以文档纠偏落地。**驳回 2 条并留证据**：① "主进程中文日志会被 CJK 门禁拦"——`check-locale-sync.js:39` 的扫描域只有 `apps/desktop/src`，不覆盖 `electron/`；② "日志统一中文"——三个 reporter 既有约定实测为英文（英/中 = 4/6/9 : 1，唯一那条中文正是本 PR 新引入的），故按**文件自身约定**统一为英文（OpsCenterSync 相反，中 18 : 英 5，保持中文）。后端 5 条 Warning：#2 重复实现登记→已按实测 **13 处**收口（比评审报的 7 处更全）；#3 数组型覆盖缺口→文档 §2 限定为"对象型唯一入口"并写明数组收口方式；#10/#12（结构锁、装配锁）的**证据被本 worktree 未提交改动污染**（其引用的 `FORBIDDEN_SHAPE`/`KNOWN_LAGGING` 在 `7bbe33e6b` 里不存在），须对新 head 重评；#4 损坏行抹 Key、#6 信任锚不重验签→登记为文档 §8 已知残留并写明威胁模型断言。Critical 现为零 |
-| 远程同步 | PENDING | 待 PR 合并后由后续提交就地改写为 PASS + merge SHA，并在同一次提交删除本条台账登记 |
+| 远程同步 | PASS | PR #2899 squash 合并 10d2a8202（2026-10-05，完整 SHA 10d2a8202a83d173d3495652d84c02a9fed7a62d；main 上主题：settings 往返类型对称化，运营下发配置重启后可恢复 (#2899)）；远端分支 已删（git ls-remote --heads origin fix-settings-roundtrip 返回 0 行）；本条记录即由本次 docs-only PR 就地回填，frontmatter 的 sync_* 三字段同一次删除 |
 
 ---
 

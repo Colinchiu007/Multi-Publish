@@ -8,6 +8,25 @@
 - 存量**不可回填**（schema 级理由，不是工程偷懒）：`tracked_content` 表没有任何内容列（`activate-viral-schema.js:63-79`），历史发布记录无法反查出自哪次改写 ⇒ 榜单只对打通后的新发布生效。
 - 质量：TDD 先红后绿；全量 `cd apps/desktop && pnpm vitest run` = 13738 passed / 1 failed（唯一红是既有 Windows 符号链接 EPERM 环境项）；17 次变异反证（含一次「单维度夹具下反证无效、补第二维度才变红」的自我纠正）；QM-6 双模型 16 条逐条处置；QM-1 本地打包 rc=0 + `extractFile` 产物内容判据 + 隔离 profile 真启动见 `performance-recrawl scheduler started`。详见 `01-docs/PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05.md`（六维度；含一处被实测否证的误判，原样保留以免下一个会话重走一遍）。
 
+# [未发布] fix(桌面端): 运营中心配置"写得进读不回"——settings 往返类型不对称令菜单/公告/开关重启即失效（fix-settings-roundtrip-contract，2026-10-05）
+
+### 症状
+- 运营中心「应用菜单」改了显隐/排序并保存，桌面端侧栏**永远不变**；每次重启都回落到应用内置菜单。`openspec/specs/app-menu/spec.md` 里"落入本地缓存，重启后仍可恢复"那条自 2026-08-10 起从未被满足。
+
+### 根因（类型契约误判，不是同步逻辑坏）
+- `store/settings-store.js` 的 `getSetting` 返回**解析后的值**（对象），而 `ops-center-sync` / `diagnostics-reporter` / `publish-reporter` / `usage-reporter` 按字符串读取：`String(obj)` → `[object Object]` → `JSON.parse` 抛 → 静默回落 `{}`。共 9 处读取点。
+- 后果面还包括三类上报水位线恒 0（重复上报）。
+- 为什么 90 条用例全绿：`makeStore` 夹具"存进什么类型就返回什么类型"，与真实存储「字符串进、对象出」不同形 —— 对这类缺陷结构性免疫。
+
+### 修复
+- 读回归一化收敛为存储侧唯一实现 `getSettingObject(key, defaultValue)`；写入一律传对象。因 `safeJsonStringify` 对字符串原样透传，**落盘字节逐字不变 ⇒ 零迁移**；回滚须整体回滚。
+- 夹具改为同形；新增真实 Store 往返锁 `apps/desktop/electron/services/settings-roundtrip-contract.test.js`（真库 + 关闭重开同一文件模拟重启 + 恢复期禁止出站）。
+- 反证：M1 摘对象分支 7 红 / M2 生产误判 + 同形夹具 21 红 / M2′ 退回原样回吐夹具则单元 0 红而真实锁 2 红（逃逸复现）/ M3、M4 各 1 红。
+- Live 取证：真服务打到本机 `127.0.0.1:8010`，重启后 `url`/`apiKeyEnc`/自定义验签锚/`lastSyncedAt` 全部读回、菜单逐项全等且恢复期零出站；换错公钥时 `runtimeApplied=false` 且不覆盖已验签缓存。
+- 详见 `docs/settings-persistence-contract.md`（含运营中心未部署这一半问题：`ops.iart.work` 当前 DNS 不解析）。
+
+---
+
 # [未发布] feat(门禁): 依赖审计补第三扫描域 ops-center/frontend，并强制「挂账必须可闭合」（2026-10-05，dep-audit-opscenter-domain / PR #2904）
 
 ### 为什么第三扫描域是必须的
