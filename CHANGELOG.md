@@ -64763,3 +64763,60 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 防再犯锁升级为按特征扫全域：`start-mp-task.test.js` 的「存活判定合同」列出所有用 CommandLine 认守护的文件并钉住清单（只能缩小），已对 bootstrap 做摘除 State 主判据的变异反证（实测变红、还原后逐字节相同）。
 - 来源要如实记：这条不是我自审找到的，是 codex 侧评审输出里的一句观察；该评审整体仍属未完成（无 findings 文件、结论中途截断），claude 侧三次全空输出，故 QM-6 记为部分达成而非通过。
 
+# [未发布] test(review): P0-1 发布重入窗口首次取得运行实证（基线 1 次 vs 重入 2 次）+ 修复方案反证
+
+### 背景
+`docs/frontend-deep-review-2026-10-05.md` 附录 A 自陈「全部结论来自静态阅读」。本轮按质量节拍 ② 阶段对 P0-1 做**运行实证**，首次把该结论从代码推理升级为运行坐实。
+
+### 实证结果
+- **基线**：单次调用 `handlePublish` → `publishBatch` 恰好 **1 次**（progress 显示「✓ 已添加 1 个任务」）
+- **重入**：登录引导弹窗期间二次点击 → `ensureLogin` 被调 **2 次**（守卫两次都放过）→ `publishBatch` 收到 **2 次**真实发布请求
+- **反证变异**：修复版（锁前置）进入发布体 1 次 / 拦截 1 次；原版对照组 2 次 / 拦截 0 次 ⇒ 方案有效且测试有鉴别力
+
+### 对原报告的修正
+原报告 P0-1 表述为「快速双击」，实际触发条件更窄：`Publish.vue:587` 按钮有 `:disabled="publishing"`，且 `UiButton.vue:5/:30/:39-43` 在 DOM 与 `onClick` 两层都会拦截鼠标点击。**真实触发路径是「登录引导窗口内的二次提交」**（该窗口因 `:48` 确认框 + `:56` OAuth 可达秒级到分钟级），以及 `handlePublish` 的非按钮调用方。**缺陷结论不变，措辞收窄。**
+
+### 装置失败教训（已记录）
+第一版装置注入 20+ 个依赖替身，连**基线用例**都进不了发布体 —— 根因是校验函数读 `.valid` 而非 `.ok`（`usePublishFlow.js:313/:318`）。该版本已废弃删除。**为重入类缺陷写验证，必须先跑基线确认单次路径本身通**，否则会把装置缺陷误报成产品缺陷。
+
+### 证据文件
+- `apps/desktop/src/__p0verify__/p0-reentry-v2.test.js` —— 基线 + 重入实证
+- `apps/desktop/src/__p0verify__/p0-reentry-mutation.test.js` —— 修复版/原版反证
+
+### 隔离
+独立 worktree `mp-verify-p0-reentry`，基线 `770967c0`，`verify-worktree-deps.js` rc=0。未修改任何生产代码。
+
+---
+# [unreleased] test(review): P0-2 / P0-3 / P0-5 取得运行实证（5 条 P0 中 4 条已实证）
+
+### 结果
+- **P0-2**（重试后结果卡失联）：基线 result 正常；重试后会话已 done、新任务 success，
+  但 result 仍为 null；反证（消费侧 id 改为新 id）后正常更新。判据由内部 computed
+  改为用户可见的 result —— activeSession 未导出，用户看不到它。
+- **P0-3**（轮询异常导致 UI 卡死）：连续 20 轮 IPC reject（约 40 秒）后
+  batchCollecting 仍为 true、batchError 为空、轮询不停。附**源码锚点断言**证明
+  提取版与 Collection.vue:2545-2587 逐行一致。补充定性：启动阶段 catch 是正确的
+  （:2539 已复位），唯独轮询阶段 :2584 空着 —— 是「做了一半」而非「整体没做」。
+- **P0-5**（并发保存静默丢数据）：**首次尝试未复现**（落库 2 条）—— 因 storeSetSetting
+  同步生效使读窗口未重叠。改用 gate 让两次读严格同步后，落库仅 1 条，k1 被静默覆盖。
+  **需修正原报告表述**：触发条件应为「两个保存操作的读阶段重叠」，而非泛指的并发。
+
+### 装置失败教训（第二次生效）
+P0-5 第一次跑基线就落库 0 条 —— mock 了错误模块（@/api/settings，真实是 @/api/publisher）。
+**若无基线用例，会把「装置完全失效」误报成「代码丢数据更严重」**。附录 B.6 的教训
+在本轮第二次拦住了错误结论。
+
+### 证据文件
+- apps/desktop/src/__p0verify__/p0-2-session-lost.test.js
+- apps/desktop/src/__p0verify__/p0-3-poll-hang.test.js
+- apps/desktop/src/__p0verify__/p0-5-copy-library-race.test.js
+
+5 个证据文件 / 16 用例全绿，随代码入库为可复现回归锁。
+
+### 现状
+5 条 P0 中 **4 条已有运行证据**（P0-1/2/3/5，每条含基线 + 缺陷复现 + 修复版对照）。
+P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**，需 Electron 主进程环境。
+
+未修改任何生产代码。
+
+---
