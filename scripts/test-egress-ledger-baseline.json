@@ -1,6 +1,6 @@
 {
-  "$comment": "测试期运行时出站台账的基线（scripts/check-test-egress-ledger.js 比对对象，清单只能缩小）。键来自真实跑出来的现场，不来自源码猜测：桌面全量一次（736 文件 / 13492 例）+ packages 各 workspace 一次，均由 packages/shared-utils/src/network-egress-guard.js 的 sink 落盘。blocked:: 四条带『欠账』字样的条目是**被测代码在测试 realm 里真的发起了出站**、只因守卫拦住才没外泄，桩没覆盖到传输层——修好后必须把它们删掉。",
-  "$measuredAt": "2026-10-04",
+  "$comment": "测试期运行时出站台账的基线（scripts/check-test-egress-ledger.js 比对对象，清单只能缩小）。键来自真实跑出来的现场，不来自源码猜测：桌面全量一次（736 文件 / 13492 例）+ packages 各 workspace 一次，均由 packages/shared-utils/src/network-egress-guard.js 的 sink 落盘。2026-10-05 起本基线**不含任何『欠账』条目**：原 blocked::channels.weixin.qq.com:443 / mp.toutiao.com:443 / ops.example.com:443 三条（#2878 —— 被测代码在测试 realm 里真的发起了出站、只因守卫拦住才没外泄）已补上传输层桩并删除，详见 docs/test-egress-runtime-ledger.md §6。剩余 blocked:: 四条全是守卫与 sink 的自测，属『预期内必须被拦』。",
+  "$measuredAt": "2026-10-05",
   "entries": {
     "child::chrome-headless-shell.exe": "Playwright 无头壳：electron/tests/voice-clone-layout-regression.test.js 真起浏览器做布局回归。浏览器内请求不经 node 守卫，属预期的覆盖缺口，靠像素/视觉层另管",
     "child::esbuild.exe": "electron/tests/build-preload.test.js 真跑 esbuild 打包 preload。纯本地编译工具，不预期出站",
@@ -15,9 +15,6 @@
     "blocked::example.com:8099": "守卫自测（network-egress-guard.test.js）：http.get 到非 loopback 必须秒失败并被记账",
     "blocked::example.org:8099": "守卫自测（同上）：undici fetch 同一路径必须被拦",
     "blocked::93.184.216.34:8099": "守卫自测（同上）：net.connect 直连 IP 也必须被拦，防止绕过域名判断",
-    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）",
-    "blocked::ops.example.com:443": "欠账：ops-center-sync『未配置时 fail-closed』用例实际发起了 fetch，靠守卫拦住才没外泄 —— 该路径没有传输层桩。桩补好后删除本条（跟进 issue #2878）",
-    "blocked::channels.weixin.qq.com:443": "欠账：account-manager『tencent_video HTTP 检测有效』用例的桩没覆盖真实传输层，测试 realm 里真的向该平台发起连接；用例仍通过＝错误被吞。补桩后删除本条（跟进 issue #2878）",
-    "blocked::mp.toutiao.com:443": "欠账（同一形态的第二落点）：toutiao 分区 Cookie 合并回归用例走同一条未打桩的 HTTP 检测路径。补桩后删除本条（跟进 issue #2878）"
+    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）"
   }
 }
