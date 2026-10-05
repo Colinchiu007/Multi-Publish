@@ -138,12 +138,20 @@ class OpsCenterSync {
    */
   _readStoredObject (settingKey) {
     const store = this._store
-    if (!store) return {}
+    if (!store) {
+      this._log && this._log.warn('OpsCenterSync', `未注入 store，${settingKey} 按空配置处理`)
+      return {}
+    }
     if (typeof store.getSettingObject !== 'function') {
       this._log && this._log.warn('OpsCenterSync', `store 缺少 getSettingObject，${settingKey} 按空配置处理`)
       return {}
     }
-    try { return store.getSettingObject(settingKey, {}) } catch { return {} }
+    try {
+      return store.getSettingObject(settingKey, {})
+    } catch (e) {
+      this._log && this._log.warn('OpsCenterSync', `${settingKey} 读取失败，按空配置处理: ${(e && e.message) || String(e)}`)
+      return {}
+    }
   }
 
   /** 读取同步配置（apiKey 脱敏，不返回明文） */

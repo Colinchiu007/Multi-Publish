@@ -181,10 +181,98 @@ describe('Settings 真源：禁止第二份归一化实现重新长出来', () =
     'usage-reporter.js',
   ]
 
+  // 单一判据：本锁测的是「把 getSetting/getUserSetting 的返回值当字符串再处理」这一形状，不是禁止 String() 本身。
+  //
+  // 为什么不是字符邻接正则：两位评审各自指出旧写法过宽（String(getSettingObject(K,{}).url) 被误判），
+  // 而后端评审实测出更关键的一半——收窄成 getSetting\s*\( 之后**漏掉了修复前的真实原形**：
+  //   String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '')
+  // （`String(` 后面先遇到 ` ? ` 里的空格，字符类就断了）。即"消误报"顺手把锁改弱了。
+  // 正解是按语义取实参：找到 String( 的配对右括号，再看实参文本里是否引用了读取方法——
+  // 成员空格、方括号访问、可选链、三元守卫、跨行都天然覆盖；getSettingObject 是另一个词，不会命中。
+  // 下方判据矩阵的正例逐条取自 origin/main 的修复前原文（不是转述），把本函数改成恒返回空数组必须立刻变红。
+  function findStringReadsOfSettings (src) {
+    const hits = []
+    const re = /\bString\s*\(/g
+    let m
+    while ((m = re.exec(src))) {
+      const start = m.index + m[0].length
+      let depth = 1
+      let i = start
+      while (i < src.length && depth > 0) {
+        const c = src[i]
+        if (c === '(') depth++
+        else if (c === ')') depth--
+        i++
+      }
+      if (depth !== 0) continue
+      const arg = src.slice(start, i - 1)
+      if (/\bget(?:User)?Setting\b/.test(arg)) hits.push(arg.replace(/\s+/g, ' ').slice(0, 90))
+    }
+    return hits
+  }
+
   for (const f of files) {
     it(f + ' 不得再用 String(getSetting(...)) 的误判口径读配置', () => {
       const src = fs.readFileSync(path.join(__dirname, f), 'utf8')
-      expect(src).not.toMatch(/String\(\s*[\w.?!]*getSetting/)
+      expect(findStringReadsOfSettings(src)).toEqual([])
     })
   }
+
+  it('结构锁判据矩阵：历史原形与各类绕行写法必须全被抓到，新入口不得被误伤', () => {
+    // 正例逐条对齐 origin/main 修复前原文与可达绕行写法
+    const mustFlag = [
+      "raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '')",
+      'String(store.getSetting(K))',
+      'String(store . getSetting(K))',
+      "String(store['getSetting'](K))",
+      'String(this._store?.getSetting(K))',
+      'String(getSetting(\n  K\n))',
+      'String(store.getUserSetting(K, null, owner))',
+    ]
+    for (const s of mustFlag) {
+      expect(findStringReadsOfSettings(s)).toBeTruthy()
+    }
+    // 负例：合法演进不得判红，否则下一个会话会直接把锁删掉
+    const mustNotFlag = [
+      'String(store.getSettingObject(KEY, {}).url)',
+      'String(this._store.getSettingObject(SETTING_KEY, {}).lastSyncedAt)',
+      'String(getSettings())',
+      'String(value)',
+      'String(myObj.settings)',
+    ]
+    for (const s of mustNotFlag) {
+      expect(findStringReadsOfSettings(s)).toEqual([])
+    }
+  })})
+
+// ---------------------------------------------------------------------------
+// 装配面锁（QM6-W6）：窄包装与存储契约的版本差必须有人看守。
+// hot-topics-service 经 container.setup.js 拿到的是只转发部分方法的窄包装；OpsCenterSync 与三个 reporter
+// 经 phase1-context.js 拿到的是完整 Store 实例——同一真源因此存在两种形状。本锁不要求窄包装转发全部方法
+// （那会凭空登记三条无关欠账），只管一件事：存储契约新增「对象语义读取入口」时，窄包装要么转发、要么在此显式认欠。
+// ---------------------------------------------------------------------------
+describe('Settings 真源：窄包装装配面不得静默落后于存储契约', () => {
+  function forwardedMethods () {
+    const src = fs.readFileSync(path.join(__dirname, '../core/container.setup.js'), 'utf8')
+    const literal = src.match(/settingsStore:\s*\{([^}]*)\}/)
+    expect(literal).toBeTruthy()
+    return [...literal[1].matchAll(/([A-Za-z_]\w*)\s*:/g)].map((m) => m[1])
+  }
+
+  it('窄包装转发的每个方法都必须真实存在于 settings-store 契约', () => {
+    const contract = Object.keys(require('./store/settings-store'))
+    expect(forwardedMethods().length).toBeGreaterThan(0)
+    expect(forwardedMethods().filter((k) => !contract.includes(k))).toEqual([])
+  })
+
+  it('对象语义读取入口的未转发清单只能缩小，扩了转发就必须当场销账', () => {
+    const contract = Object.keys(require('./store/settings-store'))
+    // 判据按形态取，不按方法名枚举，避免把无关方法也算成欠账
+    const objectEntries = contract.filter((k) => /^get.*Object$/.test(k))
+    expect(objectEntries.length).toBeGreaterThan(0)
+    const lagging = objectEntries.filter((k) => !forwardedMethods().includes(k)).sort()
+    // 已认欠：hot-topics 仍用自身三处手抄归一化，扩转发属独立切片（docs/settings-persistence-contract.md §6）
+    const KNOWN_LAGGING = ['getSettingObject']
+    expect(lagging).toEqual(KNOWN_LAGGING.slice().sort())
+  })
 })

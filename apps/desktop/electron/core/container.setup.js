@@ -226,6 +226,10 @@ function createContainer(options) {
     const s = c.get('store');
     return new HotTopicsService({
       log: c.get('logger'),
+      // 窄包装：转发面是 settings-store 契约的**子集**，且刻意保持窄。
+      // 新增消费方若需要 getSettingObject，必须同步扩这里并迁走 hot-topics-service 的三处手抄归一化；
+      // 未扩就先照抄「唯一入口」写法会拿到 undefined。版本差由 settings-roundtrip-contract.test.js 的装配面锁看守
+      // （未转发清单只能缩小）。
       settingsStore: { getSetting: (k) => s.getSetting(k), setSetting: (k, v) => s.setSetting(k, v) },
     });
   });

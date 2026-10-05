@@ -68,7 +68,7 @@ class UsageReporter {
   }
 
   _saveWatermark (id) {
-    try { this._store.setSetting(SETTING_KEY, { lastId: id, reportedAt: new Date().toISOString() }) } catch (e) { this._log.warn('UsageReporter', 'watermark 落盘失败（重启后将重复上报）: ' + e.message) }
+    try { this._store.setSetting(SETTING_KEY, { lastId: id, reportedAt: new Date().toISOString() }) } catch (e) { this._log.warn('UsageReporter', 'watermark persist failed (will re-report after restart): ' + e.message) }
   }
 
   /** 聚合待上报日志并上报；返回 {code, skipped?, reported?} */
