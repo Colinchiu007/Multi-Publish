@@ -38,7 +38,7 @@ async function runCleanups(cleanups) {
     try {
       await cleanups[index]()
     } catch (e) {
-      log.warn('App', 'Phase 3 rollback failed: ' + errorMessage(e))
+      log.notify('App', 'phase3-rollback-failed', { level: 'WARN', error: errorMessage(e) })
     }
   }
 }
@@ -109,7 +109,7 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       })
       cleanups.push(() => callbackServer.stop && callbackServer.stop())
     } catch (e) {
-      log.warn('App', 'Callback server failed to start (port may be in use): ' + errorMessage(e))
+      log.notify('App', 'callback-server-start-failed', { level: 'WARN', error: errorMessage(e) })
     }
 
     cleanups.push(() => { if (scheduler.stopAll) scheduler.stopAll() })
@@ -137,7 +137,7 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
           store.setSetting('keyword_monitor_state', JSON.stringify(state))
         }
       } catch (e) {
-        log.warn('App', 'Keyword monitor persist error: ' + errorMessage(e))
+        log.notify('App', 'keyword-monitor-persist-error', { level: 'WARN', error: errorMessage(e) })
       }
     }, 5 * 60 * 1000)
     if (keywordPersistTimer.unref) keywordPersistTimer.unref()
@@ -152,18 +152,18 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       })
       cleanups.push(() => loginStatusMonitor && loginStatusMonitor.stop && loginStatusMonitor.stop())
       loginStatusMonitor.start()
-      log.info('App', 'Login status monitor started (F1.3, 30min interval)')
+      log.notify('App', 'login-status-monitor-started', { params: { interval: '30min' } })
     } catch (e) {
-      log.warn('App', 'Login status monitor failed to start: ' + errorMessage(e))
+      log.notify('App', 'login-status-monitor-start-failed', { level: 'WARN', error: errorMessage(e) })
     }
 
     try {
       const { xiaohongshuProvider, douyinProvider } = require('../services/analytics-providers')
       analyticsService.registerProvider('xiaohongshu', xiaohongshuProvider)
       analyticsService.registerProvider('douyin', douyinProvider)
-      log.info('App', 'Analytics providers registered: xiaohongshu, douyin')
+      log.notify('App', 'analytics-providers-registered', { params: { providers: 'xiaohongshu,douyin' } })
     } catch (e) {
-      log.warn('App', 'Failed to register analytics providers: ' + errorMessage(e))
+      log.notify('App', 'analytics-providers-register-failed', { level: 'WARN', error: errorMessage(e) })
     }
 
     const identityModule = require('../services/identity/identity-service-factory')
@@ -175,7 +175,7 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       identityService = await identityFactory({ env: identityEnv, store, getMainWin })
     } catch (error) {
       if (isIdentityConfigError(error) || identityModule.enabled(identityEnv.IDENTITY_AUTH_REQUIRED)) throw error
-      log.warn('Identity', 'Identity service disabled after initialization failure: ' + errorMessage(error))
+      log.notify('Identity', 'identity-service-disabled', { level: 'WARN', error: errorMessage(error) })
     }
     if (identityService && typeof identityService.dispose === 'function') {
       cleanups.push(() => identityService.dispose())
@@ -233,16 +233,16 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       const subject = state && state.user && state.user.sub
       if (identityService && typeof subject !== 'string') return 0
       const restored = identityService ? scheduler.restore(subject) : scheduler.restore()
-      if (restored > 0) log.info('Scheduler', 'Restored ' + restored + ' pending tasks')
+      if (restored > 0) log.notify('Scheduler', 'pending-tasks-restored', { params: { count: restored } })
       // P1 修复：批量排期批次重启恢复。scheduleBatch 的定时器只在内存，
       // 重启后 scheduled 批次无人重新武装 → 排期文章永不发布（静默数据丢失）。
       // 与 scheduler.restore 同点位、同 owner 语义；恢复属旁路，失败不阻断启动。
       if (batchManager && typeof batchManager.restoreScheduledBatches === 'function') {
         try {
           const restoredBatches = batchManager.restoreScheduledBatches(identityService ? subject : undefined)
-          if (restoredBatches > 0) log.info('BatchManager', 'Restored ' + restoredBatches + ' scheduled batch(es)')
+          if (restoredBatches > 0) log.notify('BatchManager', 'scheduled-batches-restored', { params: { count: restoredBatches } })
         } catch (error) {
-          log.warn('BatchManager', 'Failed to restore scheduled batches: ' + errorMessage(error))
+          log.notify('BatchManager', 'scheduled-batches-restore-failed', { level: 'WARN', error: errorMessage(error) })
         }
       }
       // 自动化任务启动触发（2026-10-03）：排在 scheduler.restore 与批量排期恢复之后
@@ -252,7 +252,7 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
         try {
           automationScheduler.start()
         } catch (error) {
-          log.warn('Automation', 'Failed to start automation scheduler: ' + errorMessage(error))
+          log.notify('Automation', 'automation-scheduler-start-failed', { level: 'WARN', error: errorMessage(error) })
         }
       }
       return restored
@@ -265,7 +265,7 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (savedQueueState && taskQueue && typeof taskQueue.deserialize === 'function') {
       const recovered = taskQueue.deserialize(savedQueueState)
       if (recovered > 0) {
-        log.info('App', 'Recovered ' + recovered + ' tasks from queue state')
+        log.notify('App', 'tasks-recovered-from-queue', { params: { count: recovered } })
         if (typeof store.setUserSetting === 'function') {
           store.setUserSetting('task_queue_state', null)
         } else {
@@ -279,7 +279,7 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
         restoreForOwner(state)
         if (commentManager && typeof commentManager.stopAll === 'function') {
           Promise.resolve(commentManager.stopAll()).catch((error) => {
-            log.warn('CommentManager', '身份切换时停止评论轮询失败: ' + errorMessage(error))
+            log.notify('CommentManager', 'comment-polling-stop-failed', { level: 'WARN', error: errorMessage(error) })
           })
         }
         if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
