@@ -32,7 +32,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # push（main）按 run_id 唯一分组：GitHub 在同一并发组里只允许一个排队者，
+  # 新 push 一到就把还在排队的旧 push 置为 cancelled，而那条 sha 此后再没有 run ⇒ 主侧证据永久丢失。
+  # 实测（近 1000 条 main push run 按 (sha, workflow) 归集）：被取消过又有后续 run 补回的 = 0 格。
+  # 由 .github/scripts/workflow-contract.test.js 的「2b) main push 的并发组」锁住，详见 #2642。
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-run-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
