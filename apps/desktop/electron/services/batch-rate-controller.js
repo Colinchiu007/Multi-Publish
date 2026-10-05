@@ -53,7 +53,7 @@ class BatchRateController {
 
     for (let i = 0; i < items.length; i++) {
       if (signal.cancelled === true) {
-        this._log.info('batch-rate', '批量任务被用户取消', { processed: i, total: items.length })
+        this._log.notify('batch-rate', 'batch-cancelled', { params: { processed: i, total: items.length } })
         return { ...this._stats, cancelled: true, results }
       }
 
@@ -72,16 +72,12 @@ class BatchRateController {
         this._stats.failed++
         if (this._stats.backoffCount > this._maxBackoffs) {
           this._stats.circuitBroken = true
-          this._log.warn('batch-rate', '熔断：连续退避超上限，停止批量', {
-            backoffCount: this._stats.backoffCount, maxBackoffs: this._maxBackoffs, processed: i,
-          })
+          this._log.notify('batch-rate', 'circuit-open-stop', { level: 'WARN', params: { backoffCount: this._stats.backoffCount, maxBackoffs: this._maxBackoffs, processed: i } })
           results.push({ index: i, ...result })
           return { ...this._stats, cancelled: false, results }
         }
         const backoffMs = this._backoffBaseMs * Math.pow(this._backoffFactor, this._stats.backoffCount - 1)
-        this._log.warn('batch-rate', '可重试失败，指数退避', {
-          index: i, backoffMs, backoffCount: this._stats.backoffCount,
-        })
+        this._log.notify('batch-rate', 'retry-backoff', { level: 'WARN', params: { index: i, backoffMs, backoffCount: this._stats.backoffCount } })
         await this._sleepFn(backoffMs)
       } else {
         // 不可重试失败：记录，继续下一条（不退避）

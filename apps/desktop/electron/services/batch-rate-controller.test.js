@@ -12,7 +12,7 @@ const BatchRateController = require("./batch-rate-controller");
 function makeController (overrides = {}) {
   const sleepCalls = [];
   const sleepFn = async (ms) => { sleepCalls.push(ms) };
-  const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
   const ctrl = new BatchRateController({ sleepFn, log, ...overrides });
   return { ctrl, sleepCalls, log };
 }
@@ -63,7 +63,7 @@ describe("BatchRateController", () => {
     expect(r.backoffCount).toBe(1);
     // 退避 500ms + 条间延迟 10ms
     expect(sleepCalls).toContain(500);
-    expect(log.warn).toHaveBeenCalled();
+    expect(log.notify).toHaveBeenCalled();
   });
 
   it("连续 3 次 retryable 失败 → 熔断 circuitBroken:true + 剩余不处理", async () => {
