@@ -450,6 +450,59 @@ test('main --verdict-rounds：round1 违规在 round2 无证据（skipped）⇒ 
   }
 });
 
+test('两轮交集：round1 根本没采到（skipped）而 round2 独红 ⇒ 无证据，不得当 flake 放行（镜像缺口）', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [], skipped: ['a.png'] },
+    { violatedViews: [{ name: 'a.png' }] });
+  assert.deepEqual(v.noEvidence, ['a.png'],
+    'round1 skipped + round2 独红 = 只有一次红证据、没有两轮对照，不得判 flake');
+  assert.deepEqual(v.only2, [], '无证据的 round2 独红不得混进 flake 集合');
+});
+
+test('两轮交集：round2 独红且 round1 确实采到且干净 ⇒ 照旧 flake 放行（镜像收紧不得误伤）', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [] },
+    { violatedViews: [{ name: 'c.png' }], skipped: ['other.png'] });
+  assert.deepEqual(v.only2, ['c.png']);
+  assert.deepEqual(v.noEvidence, []);
+});
+
+test('main --verdict-rounds：round1 skipped 而 round2 独红 ⇒ rc=1', () => {
+  const { dir } = mkDirs();
+  const errs = [];
+  const origErr = console.error;
+  try {
+    const f1 = path.join(dir, 'r1.json');
+    const f2 = path.join(dir, 'r2.json');
+    fs.writeFileSync(f1, JSON.stringify({ checked: 41, violatedViews: [], skipped: ['a.png'] }));
+    fs.writeFileSync(f2, JSON.stringify({ checked: 41, violatedViews: [{ name: 'a.png', kind: 'stale', driftPx: 50, pct: 0.005, from: 'views' }] }));
+    console.error = (...a) => errs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + f1 + ',' + f2]);
+    assert.equal(rc, 1, '唯一一次红证据没有两轮对照，不得放行');
+    assert.ok(errs.some((l) => l.includes('a.png')), '必须点名无证据视图');
+  } finally {
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds：合法 JSON 但 violatedViews 条目畸形 ⇒ rc=1 受控报错（不得裸栈抛出）', () => {
+  const { dir } = mkDirs();
+  const errs = [];
+  const origErr = console.error;
+  try {
+    const bad = path.join(dir, 'bad-entry.json');
+    fs.writeFileSync(bad, JSON.stringify({ checked: 41, violatedViews: [{}] }));
+    console.error = (...a) => errs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + bad + ',' + bad]);
+    assert.equal(rc, 1, '畸形条目必须受控失败');
+    assert.ok(errs.some((l) => l.includes('name')), '必须受控点名错误（缺 name），不得只留未捕获堆栈');
+  } finally {
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('main --verdict-rounds：任一份文件缺失或非法 ⇒ rc=1（fail closed，不得默认通过）', () => {
   const { dir } = mkDirs();
   const origErr = console.error;

@@ -143,10 +143,16 @@ function evaluateVerdictRounds (round1, round2) {
   // round2 的 skipped 是「这轮根本没采到」的盲区名单：round1 红的视图若落在里面，
   // 等于没有第二次证据 —— 不得当 flake 放行（判据不存在时不得改变结论）。
   const skipped2 = new Set(Array.isArray(round2.skipped) ? round2.skipped.filter((s) => typeof s === 'string') : []);
+  // 镜像同判：round2 独红的视图若 round1 根本没采到（skipped1），同样只有一次红证据、
+  // 没有两轮对照，也不得判 flake（QM-6 后端评审 W1）。
+  const skipped1 = new Set(Array.isArray(round1.skipped) ? round1.skipped.filter((s) => typeof s === 'string') : []);
   const stable = [...s1].filter((n) => s2.has(n)).sort();
-  const noEvidence = [...s1].filter((n) => !s2.has(n) && skipped2.has(n)).sort();
+  const noEvidence = [
+    ...[...s1].filter((n) => !s2.has(n) && skipped2.has(n)),
+    ...[...s2].filter((n) => !s1.has(n) && skipped1.has(n)),
+  ].sort();
   const only1 = [...s1].filter((n) => !s2.has(n) && !skipped2.has(n)).sort();
-  const only2 = [...s2].filter((n) => !s1.has(n)).sort();
+  const only2 = [...s2].filter((n) => !s1.has(n) && !skipped1.has(n)).sort();
   return { stable, only1, only2, noEvidence };
 }
 
@@ -182,17 +188,24 @@ function main (argv = process.argv.slice(2)) {
       console.error(`❌ 轮次判定文件不可用：${e.message}`);
       return 1;
     }
-    const { stable, only1, only2, noEvidence } = evaluateVerdictRounds(round1, round2);
+    let rounds;
+    try {
+      rounds = evaluateVerdictRounds(round1, round2);
+    } catch (e) {
+      console.error(`❌ 轮次判定文件结构非法：${e.message}`);
+      return 1;
+    }
+    const { stable, only1, only2, noEvidence } = rounds;
     for (const n of only1) console.log(`  ⚠️ flake-confirmed（仅 round1 红）：${n}`);
     for (const n of only2) console.log(`  ⚠️ flake-confirmed（仅 round2 红）：${n}`);
     if (noEvidence.length) {
-      console.log(`❌ ${noEvidence.length} 张 round1 违规视图在 round2 没有采到（无证据，不得当 flake 放行）：`);
-      for (const n of noEvidence) console.log(`   · ${n}`);
+      console.error(`❌ ${noEvidence.length} 张视图只有单轮红证据且另一轮没采到（无证据，不得当 flake 放行）：`);
+      for (const n of noEvidence) console.error(`   · ${n}`);
       return 1;
     }
     if (stable.length) {
-      console.log(`❌ ${stable.length} 张视图两轮都红（确定性漂移，不因重试放行）：`);
-      for (const n of stable) console.log(`   · ${n}`);
+      console.error(`❌ ${stable.length} 张视图两轮都红（确定性漂移，不因重试放行）：`);
+      for (const n of stable) console.error(`   · ${n}`);
       return 1;
     }
     console.log(`✅ 两轮交集为空：${only1.length + only2.length} 张单轮红视图判定为采集 flake（详见上方留痕），无确定性漂移`);

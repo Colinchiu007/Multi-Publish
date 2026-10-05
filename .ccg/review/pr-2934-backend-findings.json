@@ -1,0 +1,59 @@
+{
+  "review": "PR #2934 Gate 7b 两轮有界重试终判（a668f19f0）",
+  "verification": {
+    "check-baseline-freshness.test.js": "30/30 pass",
+    "workflow-contract.test.js": "31/31 pass",
+    "check-gate-record-debt.js": "OK",
+    "numstat": "6/0, 56/3, 100/7, 239/0 matches record claim"
+  },
+  "findings": [
+    {
+      "severity": "Warning",
+      "title": "round1 无证据（skipped）+ round2 独红会被当 flake 放行，镜像 noEvidence 缺口",
+      "file": "scripts/check-baseline-freshness.js",
+      "lines": [145, 146, 147, 148, 149, 198, 199],
+      "detail": "evaluateVerdictRounds 只用 round2.skipped 构造 noEvidence，only2 不检查 round1.skipped。实测 round1={violatedViews:[], skipped:['a.png']}、round2={violatedViews:[{name:'a.png'}]} 返回 rc=0 并打印 flake-confirmed。这与记录文件「判据不存在时不得改变结论」的 fail-closed 原则不对称：round1 对该视图根本没有第二次证据，只有 round2 一次红，不能据此判定采集 flake，可能是 round1 采集失败掩盖的确定性漂移。",
+      "recommendation": "把 round1.skipped 也纳入 noEvidence 判定（round2 独红且 round1 skipped ⇒ noEvidence，rc=1），并补 round1 skipped + round2 red 的回归用例。"
+    },
+    {
+      "severity": "Warning",
+      "title": "合法 JSON 但 violatedViews 条目畸形时 CLI 抛未捕获异常，缺少 CLI 级 fail-closed 测试",
+      "file": "scripts/check-baseline-freshness.js",
+      "lines": [177, 178, 179, 180, 181, 182, 183, 184, 185],
+      "detail": "readVerdictFile 只校验 violatedViews 是数组，evaluateVerdictRounds 的条目级校验（缺 name）在 main() 的 try/catch 之外。实测 bad.json={violatedViews:[{}]} 以未捕获堆栈终止（进程 rc=1），行为仍 fail-closed，但不符合「畸形结构一律 rc=1」的受控报错预期。测试只在纯函数层断言 throws（test 行 365-369），CLI 层只覆盖缺文件/语法非法 JSON（行 453-468）。",
+      "recommendation": "把 evaluateVerdictRounds 调用纳入 try/catch 并输出点名错误后 return 1；补一条 main --verdict-rounds 吃合法 JSON/畸形条目的 CLI 用例。"
+    },
+    {
+      "severity": "Warning",
+      "title": "round1 渲染目录与 round2 vite 日志未随 artifact 上传，审计/重建证据缺口",
+      "file": ".github/workflows/quality-gate.yml",
+      "lines": [981, 1020, 1021, 1022, 1023],
+      "detail": "round1 渲染在终判前被 mv 成 screenshots-round1，但 Upload GUI quality artifacts 只收集 reports/**、screenshots/** 与 vite-visual.*.log。noEvidence（round2 没采到）失败时，round1 的违规截图是唯一渲染证据却不会上传；round2 的 vite-gate7b-round2.*.log 也不在收集列表。PRD 声称两份轮次 JSON 上传供事后审计，但图片/日志证据链不完整。",
+      "recommendation": "上传路径补 apps/desktop/tests/visual-testing/screenshots-round1/** 与 apps/desktop/vite-gate7b-round2.*.log。"
+    },
+    {
+      "severity": "Info",
+      "title": "记录文件「12+2 条新用例」与实际新增用例数不符",
+      "file": "openspec/records/gate7b-flake-guard.md",
+      "lines": [18],
+      "detail": "check-baseline-freshness.test.js 本次新增 16 条 test（30 条总数 - 旧版 14 条），记录文件写的是 12+2。语义计数应核对后更正，避免后续会话按记录取证时对不上。",
+      "recommendation": "把 TDD 证据行改为「新增 16 条，30/30 通过」或注明 12+2 的口径。"
+    },
+    {
+      "severity": "Info",
+      "title": "round2 vite 清理用 kill 单 PID，Windows 下未必杀掉 pnpm.cmd 子树",
+      "file": ".github/workflows/quality-gate.yml",
+      "lines": [988, 989, 990, 991],
+      "detail": "Gate 7 的 PowerShell 侧对同一类 dev server 用 taskkill /PID /T /F 杀整棵进程树；round2 的 bash cleanup 只 kill $VITE_PID。pnpm.cmd 是 cmd 包装进程，Windows Git Bash 下 kill 包装 PID 不保证终止 vite node 子进程。当前不影响本步结果，但可能在重跑/同 runner 复用场景留下 5174 占用，且与 Gate 7 的清理口径不一致。",
+      "recommendation": "确认 Windows runner 上 kill 是否生效；必要时改为 taskkill /PID /T /F 或等价的整树清理。"
+    },
+    {
+      "severity": "Info",
+      "title": "结构锁只锁字面量，未钉住 round2 checker 的接线与写盘顺序",
+      "file": ".github/scripts/workflow-contract.test.js",
+      "lines": [787, 788, 789, 790, 791, 792],
+      "detail": "新增三条断言是 body 子串匹配：--json-out=、--verdict-rounds=、exec vite。它们不锁 round2 checker 必须携带 --json-out=$R2（round1 的 --json-out= 也能命中）、不锁 || true 语义、不锁 check-baseline-freshness.js 在 return 前写 JSON（行 213-222 vs 248）这一关键实现细节。当前运行时缺 JSON 会 fail-closed，属于可接受兜底，但变异测试面比记录文件声称的更窄。",
+      "recommendation": "补一条针对 round2 checker 调用的结构断言（如 --json-out=$R2 与 || true 同时存在），并考虑给写盘顺序加单测。"
+    }
+  ]
+}

@@ -789,7 +789,16 @@ test('quality-gate 的 visual job 必须含 PR 侧基线新鲜度步骤（Gate 7
   // 静默退回「单轮定生死」—— round1 红的视图会因一次采集抖动失败整个 PR。
   assert.match(body, /--json-out=/, 'round1 必须落盘结构化判定（两轮交集终判的数据源）')
   assert.match(body, /--verdict-rounds=/, '违规时必须走两轮交集终判，不得单轮定生死')
+  assert.match(body, /--json-out=\$R2 \|\| true/, 'round2 checker 必须也落盘 R2 且容错（缺 R2 时终判按缺文件 fail-closed）')
   assert.match(body, /exec vite --host 127\.0\.0\.1 --port 5174/, 'round2 必须自起 dev server（Gate 7 的 server 已在其 finally 里被杀）')
+
+  // 审计证据链（QM-6 后端评审 W3）：round1 渲染被 mv 成 screenshots-round1、round2 的
+  // vite 日志名带 gate7b —— noEvidence 失败时它们是唯一渲染证据，必须随 artifact 上传。
+  const upload = steps.find((s) => typeof s.name === 'string' && s.name.includes('Upload GUI quality artifacts'))
+  assert.ok(upload, 'Upload GUI quality artifacts 步骤必须存在')
+  const uploadPaths = String((upload['with'] && upload['with'].path) || '')
+  assert.match(uploadPaths, /screenshots-round1/, 'round1 违规渲染目录必须随 artifact 上传（noEvidence 失败时的唯一渲染证据）')
+  assert.match(uploadPaths, /vite-gate7b-round2/, 'round2 vite 日志必须随 artifact 上传')
 })
 
 // Gate 7b 的判定域锁：基线的权威渲染是 views 套件产出的 `<name>.png`（检查器 findRender 优先取它），

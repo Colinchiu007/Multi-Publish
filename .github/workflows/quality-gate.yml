@@ -1022,7 +1022,9 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/reports/**
             apps/desktop/tests/visual-testing/screenshots/**
+            apps/desktop/tests/visual-testing/screenshots-round1/**
             apps/desktop/vite-visual.*.log
+            apps/desktop/vite-gate7b-round2.*.log
           if-no-files-found: ignore
           retention-days: 5
 
