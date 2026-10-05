@@ -10,13 +10,17 @@
  * 文件位置: apps/desktop/electron/publish-monitor.js
  */
 const log = require('./logger')
+const { checkBilibiliAuditStatus, BILIBILI_LIST_URL } = require('./bilibili-audit-check')
 
 const POLL_INTERVAL = 10000 // 10秒
 const MAX_RETRIES = 12 // 最大重试次数 = 2分钟
 const CHECK_URLS = {
   weibo: 'https://weibo.com/ajax/statuses/mymblog',
   douyin: 'https://creator.douyin.com/aweme/v1/list/',
-  bilibili: 'https://api.bilibili.com/x/web-interface/archive/space',
+  // bilibili 端点已于 2026-10-05 真机只读取证纠正（旧值 api.bilibili.com/x/web-interface/archive/space
+  // 是从未成立的猜测；真实容器是 member.bilibili.com/x/web/archives 的 data.arc_audits[]）。
+  // 判据不在这张表里，在 bilibili-audit-check.js —— 该表项只为 parity 锁与「端点不再虚构」而存在。
+  bilibili: BILIBILI_LIST_URL,
   zhihu: 'https://www.zhihu.com/api/v4/articles',
   xiaohongshu: 'https://creator.xiaohongshu.com/api/content/list',
   // kuaishou 已移除（2026-09-28 活体残余③）：其状态查询是 cp.kuaishou.com/graphql
@@ -107,9 +111,19 @@ function createMonitorTask (task) {
 /**
  * 检查发布状态
  */
-async function checkPublishStatus (platform, postId, cookies, pollUrl) {
+async function checkPublishStatus (platform, postId, cookies, pollUrl, opts) {
+  // 取证过的平台走专用实现，不再套「GET + params:{id}」的通用猜测
+  // （实测：B 站的未知 status 会被静默忽略并返回默认列表，"请求成功"对判据零信息量）
+  if (platform === 'bilibili') {
+    const o = opts && typeof opts === 'object' ? opts : {}
+    return checkBilibiliAuditStatus({
+      postId,
+      cookies,
+      axios: o.axios
+    })
+  }
   try {
-    const axios = require('axios')
+    const axios = (opts && opts.axios) || require('axios')
     
     const response = await axios.get(pollUrl, {
       params: { id: postId },
@@ -152,6 +166,7 @@ async function checkPublishStatus (platform, postId, cookies, pollUrl) {
 module.exports = {
   createMonitorTask,
   checkPublishStatus,
+  CHECK_URLS,
   POLL_INTERVAL,
   MAX_RETRIES,
 }
