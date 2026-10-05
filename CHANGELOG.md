@@ -11,6 +11,32 @@
 
 ---
 
+# [未发布] test(egress): 三条测试期真实出站补上传输层桩，出站台账基线首次清零欠账（#2878 / egress-stub-gap）
+
+### 现象
+`vitest run`（apps/desktop）跑出的运行时出站台账里有三条 `blocked::`，**不是**「用例故意验证守卫会拦住」，而是被测代码在测试 realm 里**真的发起了连接**，只因守卫在 `net.Socket.prototype.connect` 入口拦住才没外泄（issue #2878 登记的欠账）。
+
+### 根因（三条同形，均非生产逻辑缺陷）
+- `account-manager.test.js` 两条用例（`tencent_video HTTP 检测有效`、`toutiao 分区有 Cookie 时不再走 NO_COOKIE 硬判失效`）只桩了 `tryHttpLoginCheck`。但 `checkLoginStatus` 在 HTTP 判定为有效**之后**还会调 `profileRefresh.refreshProfileFromHttpApi(...)`，该模块内部**直接持有** `require('./http-login-checker')` 的真实模块对象 ⇒ 真实出站。
+  - 机制细节：`account-profile-refresh` 只在首次 `require` 时求值，那一刻若注册表里还没有 checker 的桩，它把真实模块对象存进模块级 `const` 并终身持有 ⇒ **单跑 `-t` 反而「干净」、整文件跑才复现**。绿灯来自加载顺序而非断言，属「夹具在隔离依赖还是在藏缺陷」形状。
+- `ops-center-sync.test.js` 的 `未配置 URL / Key / manager 时 fail-closed` 用例：生产行为是**有意**的 —— `syncNow` 在模型服务未就绪时仍会 best-effort 下发运行时策略（`_syncRuntimeBestEffort` → `/api/v1/runtime/bootstrap`）。旧注释写的「不发起网络请求」与实现不符，于是合成域名 `ops.example.com` 被真打一遍。
+
+### 修复
+- 在**加载消费方之前**把 `./account-profile-refresh` 整层打桩（新增 `stubProfileRefreshTransport()` / `profileRefreshCalls()` 辅助），并**断言它确实被调到** —— 桩必须承重。
+- `ops-center-sync` 用例给 `global.fetch` 打桩，并断言两次调用都命中 `/api/v1/runtime/bootstrap`（未就绪时不取目录）；**不改生产行为、不改断言语义**。
+- `scripts/test-egress-ledger-baseline.json` 删除三条欠账条目 —— 基线首次不含任何「欠账」字样，剩余 `blocked::` 四条全是守卫/sink 自测。
+
+### 反证
+摘掉 `stubProfileRefreshTransport()` 后重跑 → `Tests 1 failed | 82 passed`，且台账重新记回 `blocked::channels.weixin.qq.com:443`。新桩是必要的，不是装饰。
+
+### 验证
+- 三个相关文件整跑：`175 passed / 175`，台账 `blocked::` 归零。
+- `node --test scripts/check-test-egress-ledger.test.js` = 15/15 通过。
+- `check-max-lines`、`check-no-brand-residue` 全绿。
+- 文档：`docs/test-egress-runtime-ledger.md` §6 三类条目表 + 新增 §6.1（三条根因表、加载顺序机制、反证、以及「旧注释与实现不符时先判定哪边是契约」的处置纪律）。
+
+---
+
 # [未发布] fix(ci): docs-only 短路在 CI 取错变更集——改绑检出合并提交的双亲，取源决策搬进可单测的脚本（2026-10-05，docs-only-head-sha / PR #2923）
 
 ### 症状（PR #2914 实测）
