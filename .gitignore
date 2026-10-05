@@ -109,6 +109,8 @@ scripts/*.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js
+!scripts/ccg-review-decider.js
+!scripts/plan-review.sh
 !scripts/deep-review.sh
 !scripts/openspec-sync-check.js
 !scripts/openspec-sync-check.test.js
