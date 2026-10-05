@@ -1,3 +1,37 @@
+# [未发布] docs(review): 前端代码深度审查报告（1 CRITICAL / 16 MAJOR / 11 MINOR，纯只读审查，2026-10-05）
+
+### 范围
+`apps/desktop/src`（551 文件 / 12.98 万行）+ `ops-center/frontend/src`（75 文件 / 8.8 千行）。4 个并行专项探子（视图层 / 状态管理 / API-IPC 边界 / 性能与测试）+ 主会话量化基线扫描 + 6 条关键结论逐行独立复核。**只读审查，未修改任何运行时代码。**
+
+### 三条最值得优先处理的结论
+
+1. **覆盖率门禁量的不是前端** —— `apps/desktop/vitest.config.js:67-82` 的 `coverage.include` 全为 `*.js` glob，**146 个 Vue SFC 命中 0**；阈值 `statements 55` 实际由 Electron 主进程（484 个命中文件中的 412 个）撑起。13 万行 SFC 逻辑在门禁视野外。
+2. **超大文件治理是无下降的棘轮** —— 500 行上限下 **98 个文件永久挂账豁免**（前端 27 个 / 36586 行 = 前端体量 28%，`CreateView.vue` 挂账 5657 行）；门禁只防「新增」与「膨胀 >200 行」。另有 20 个 >500 行测试文件因在 `EXCLUDE` 列表里连门禁都看不到。
+3. **IPC 契约无任何测试守护** —— 9 份独立 `getApi()`、6 个文件绕过桥接层，直接导致 CRITICAL-1（`filmEngineeringRetryShot` 命名空间错配 → 影视单镜重试永久失效且零报错）能一路进主干。**补一条 preload 契约测试是收益最高的单条投资。**
+
+### 已确认的正确性 Bug（5 条，主会话逐行复核）
+
+| # | 位置 | 后果 |
+|---|---|---|
+| 1 | `usePublishFlow.js:283/285/414` | 守卫与置锁之间隔着 `await ensureLogin()`，未登录用户点两次「发布」→ 平台侧两条内容 |
+| 2 | `Collection.vue:2584` | 轮询异常分支只写注释不做事 → `batchCollecting` 永为 true，按钮永久禁用且无报错 |
+| 3 | `utils/report-error.js:15` | `logError()` 返回的 Promise 既未 await 也未 `.catch`；`:16` 的 `return` 使 console 兜底永不可达 |
+| 4 | `usePublishFlow.js:116-122` | store 重试换新 taskId 后 `activeSession` 变 null，结果卡永久失联 |
+| 5 | `useCopyLibrary.js:132-163` | 读-改-写无串行化，并发下静默丢一条改写文案 |
+
+### 明确不建议动的部分
+
+`Publish.vue`(1659)、`ModelProviders.vue`(1428)、`Dashboard.vue`(679) 行数大但结构健康 —— 分别是 composable 编排、script 仅 98 行的模板+CSS、script 仅 159 行。**按行数重构收益为负、回归风险为正。**
+
+### 证据边界
+
+纯静态审查，**未运行任何测试、构建或打包**。未验证项已在报告第十节逐条列明（含 `stores/tab.js` 两处 `_unsubscribes.push` 是否累积订阅者、IPC 契约以 preload 源文件为准未验证打包产物一致性）。
+
+### 文档
+
+- `docs/frontend-deep-review-2026-10-05.md` —— 完整报告（1 CRITICAL / 16 MAJOR / 11 MINOR、P0-P3 治理路线图、10 个无测试覆盖模块清单、ops-center 对比、未验证项声明）。
+
+
 # [未发布] fix(gate): 执行记录门禁补第四条合法出路——纯回填型 PR 不再被误判未携带记录（2026-10-05，exec-record-backfill-exit / PR #2928）
 
 ### 症状（#2920 实测）
