@@ -154,6 +154,14 @@ test('接线锁：CI 里的判定调用必须存在、必须带 --ledger、且�
 // 同一条 fail-closed 的第二种误红成因（实测 PR #2902 的 QG Unit Tests）：
 // nx 的受影响集合为空时，如果步骤不早退，就会跑一次"0 个任务"的 test:affected —— 没有任何测试进程，
 // 台账自然不存在，判定器按 fail-closed 判红。空集早退因此必须**排在判定之前**，这是顺序锁不是存在锁。
+//
+// 早退的判据本身换过两次，两次都是同形假红，所以这里的锚点也换过两次：
+//   #2902 —— pwsh 里 ConvertFrom-Json '[]' 是 $null，于是空集被误分类成"检测失败"。当时的锚点
+//            锁的是"判据必须看原始文本"，实现形态是字符串全等 `$affectedText -eq ''`。
+//   #2596 —— 字符串全等被 nx 的 stdout 提示（`NX   Unrecognized Cache Artifacts`，CI 还原 Nx
+//            缓存后必现）一掺就漏判，空集再次被降级成"检测失败"⇒ 同样 0 个任务 ⇒ 同样台账缺失。
+//            判据搬进 scripts/nx-affected-probe.js 三态化，锚点随之改为 kind=empty。
+//            **不要**把锚点改回任何形式的全等或"只看 nx 退出码"——那两种都已被实测证伪。
 test('Gate 4 的空集早退必须排在台账判定之前，且受影响集合按有 test 目标过滤', () => {
   const wf = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
   const text = fs.readFileSync(wf, 'utf8')
@@ -162,8 +170,8 @@ test('Gate 4 的空集早退必须排在台账判定之前，且受影响集合�
   const step = text.slice(start)
   const judge = step.indexOf('check-test-egress-ledger.js')
   assert.ok(judge > 0, 'Gate 4 步骤内必须有台账判定调用')
-  const emptyExit = step.search(/\$affectedText\s*-eq\s*''/)
-  assert.ok(emptyExit > 0, "空集判定必须按**原始文本**（ConvertFrom-Json '[]' 在 pwsh 里是 \$null，会把空集误分类成检测失败）")
+  const emptyExit = step.search(/\$probe\.kind\s*-eq\s*'empty'/)
+  assert.ok(emptyExit > 0, "空集早退必须由**确证空集**的判据驱动（nx-affected-probe.js 判出的 kind=empty）；不得用字符串全等（会被 nx 的 stdout 提示污染），也不得退化为只看 nx 退出码（那是把 fail-closed 调转回去）")
   assert.ok(emptyExit < judge, '空集早退必须排在判定之前，否则"本轮没跑任何测试"会被 fail-closed 读成假红')
   assert.match(step, /--with-target=test/, '受影响集合必须按「有 test 目标」过滤，否则与 test:affected 实际要跑的任务集口径不同')
 })
