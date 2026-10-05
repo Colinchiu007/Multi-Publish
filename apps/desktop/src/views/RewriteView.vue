@@ -270,6 +270,7 @@ import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
 import { useViralSignalStore } from '@/stores/viral-signal'
 import { takeViralSignalHandoff, hasActionableEngagement } from '@/utils/viral-signal-bridge'
 import { writeClipboard } from '@/utils/clipboard'
+import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
@@ -327,6 +328,9 @@ const previewStrategyName = ref('--')
 // 弹窗
 const showPublishModal = ref(false)
 let savedDraftId = null
+// 本次改写结果对应的 rewrite_history 行 id（归因链第一环，见 utils/rewrite-lineage）。
+// 每次开始新改写先置 null、成功后再赋值，所以"上一次改写结果的 id"不可能残留到下一次发布。
+let rewriteLineageId = null
 
 // ── 文案库交接（合并版「文案库」的【改写】按钮 → 本页）──
 // 载荷含 fromKey：改写成功后把结果回写文案库（同一来源只保留最新一次改写结果）。
@@ -585,6 +589,9 @@ async function startRewrite() {
   // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
   rewriteQuality.value = null
   viralInfo.value = null
+  // 归因链：上一次改写的 id 不得跟着这一次的发布走（置空后由成功分支重新赋值；
+  // 本次改写若没落库成功就是 null，宁缺毋滥）
+  rewriteLineageId = null
 
   try {
     const params = {
@@ -624,6 +631,9 @@ async function startRewrite() {
       invalidateSavedDraft()
       // P2 隐式反馈：记录本次改写引用的知识条目
       rewriteKnowledgeRefs.value = data.knowledgeRefs || []
+      // 归因链第一环：主进程已把本次改写落进 rewrite_history，这里只把它给的 id 接住。
+      // 判据唯一实现在 utils/rewrite-lineage（未落库/信封异常 ⇒ null，不挂键）。
+      rewriteLineageId = extractRewriteHistoryId(res)
       // content-quality-eval：读取改写质量评估报告（RewriteQualityEvaluator 结果）
       // CCG 评审修复：quality 必须为纯对象（非数组）；verdict/method 非法值归一化；suggestions 必须为数组
       const q = data.quality && typeof data.quality === 'object' && !Array.isArray(data.quality) ? data.quality : null
@@ -730,6 +740,8 @@ async function saveToDraft() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
+    // 归因链：改写关联只在这一个地方挂，且只在真有 id 时挂（键缺席 = 下游不挂载）
+    attachRewriteLineage(saved, rewriteLineageId)
     const res = await draftSave(saved)
     if (res && res.code === 0) {
       savedDraftId = saved.id
@@ -771,9 +783,13 @@ async function goToPublish() {
   }
 }
 
-/** 改写结果变化后旧草稿失效：置空 savedDraftId，下次发布/视频创作按当前文案重存 */
+/** 改写结果变化后旧草稿失效：置空 savedDraftId，下次发布/视频创作按当前文案重存。
+ *  归因链必须一起失效（PRD §六.2 / QM-6 后端轴 W-1）：用户手改正文后，界面上那份内容
+ *  已经不是 rewrite_history 行里存的那条改写了 —— 继续带旧 id 进 payload，
+ *  归因榜就把新文案的表现归给旧的爆款引用组合，那是**假归因**，比没关联更糟。 */
 function invalidateSavedDraft() {
   savedDraftId = null
+  rewriteLineageId = null
 }
 
 /** 视频创作 — 先存草稿，再带草稿 id 跳转视频创作页（用户在创作页选择流水线） */

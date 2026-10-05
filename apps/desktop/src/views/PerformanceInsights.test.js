@@ -199,4 +199,33 @@ describe('PerformanceInsights 效果洞察页', () => {
     expect(w.find('[data-testid="pi-empty-state"]').exists()).toBe(true)
     expect(w.get('[data-testid="performance-insights"]').exists()).toBe(true)
   })
+
+  // P2-6d：读侧新增 AUTH_ERROR（认不出是谁 ⇒ fail closed，而不是给空榜单）。
+  // 本页原先只把「IPC 抛错」当失败，业务错误信封（code!==0）被 `|| []` 折成空数组，
+  // 于是"没验出身份"与"确实还没有归因数据"在界面上完全同形 —— 用户会去点【重算归因】
+  // 排障，而真正缺的是登录。判据必须是可重试横幅出现，空态仍在不代表通过。
+  it('业务错误信封（code!==0）必须出现可重试横幅，不得静默渲染成"暂无归因数据"', async () => {
+    listMock.mockResolvedValue({ code: 401, message: '无法识别当前用户', data: undefined })
+    const w = mountView()
+    await flushPromises()
+
+    expect(w.find('[data-testid="pi-error"]').exists(), '错误信封必须有出口').toBe(true)
+    expect(w.get('[data-testid="pi-error"]').text()).toContain(i18n.global.t('perfInsights.loadFailed'))
+  })
+
+  it('code===0 且 items 为空 ⇒ 只有空态、没有错误横幅（两种状态必须可区分）', async () => {
+    listMock.mockResolvedValue({ code: 0, data: { items: [] } })
+    const w = mountView()
+    await flushPromises()
+
+    expect(w.find('[data-testid="pi-error"]').exists()).toBe(false)
+    expect(w.find('[data-testid="pi-empty-state"]').exists()).toBe(true)
+  })
+
+  it('信封缺 data / items 不是数组 ⇒ 视为失败（不得把契约破坏读成"没有数据"）', async () => {
+    listMock.mockResolvedValue({ code: 0 })
+    const w = mountView()
+    await flushPromises()
+    expect(w.find('[data-testid="pi-error"]').exists()).toBe(true)
+  })
 })

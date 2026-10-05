@@ -419,4 +419,78 @@ describe("AiWriterPanel", () => {
       expect.arrayContaining([expect.objectContaining({ table: "viral_library", id: "v1" })])
     );
   });
+
+  // ── 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）─────────────────────────
+  // 发布页 AI 面板的改写产物是**页内应用**（emit apply-content → Publish.vue 直接写 article.content），
+  // 不经过草稿。所以这一路必须在 emit 载荷里把 rewrite_history 行 id 一起交出去，
+  // 否则"在 AI 面板里改写并发布"的作品永远进不了归因榜。
+  async function rewriteAndApply (rewriteDataOver) {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.aiRewrite = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        success: true,
+        result: "这是应用后的改写文案内容",
+        strategy: { id: "strategy-viral", name: "故事化爆款策略", category: "viral" },
+        metadata: { mode: "imitate", originalLength: 50, resultLength: 100, aiTasteLevel: 0.1 },
+        knowledgeRefs: [],
+        warnings: [],
+        sensitiveHits: [],
+        ...rewriteDataOver,
+      },
+    });
+    window.electronAPI.applyKnowledgeFeedback = vi.fn().mockResolvedValue({ code: 0 });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "这是一段需要改写的测试文案内容，长度超过二十个字" }, global: { plugins: [i18n] } });
+    await waitConfig();
+    await w.findAll("button").find(b => b.text().includes("AI 改写")).trigger("click");
+    await nextTick();
+    await w.find("textarea").setValue("这是一段需要改写的测试文案内容，长度超过二十个字");
+    await w.findAll("button").find(b => b.text().includes("开始改写")).trigger("click");
+    await nextTick();
+    await w.findAll("button").find(b => b.text().includes("应用")).trigger("click");
+    await nextTick();
+    return w;
+  }
+
+  it("归因链：应用改写结果时，apply-content 第二参携带 rewrite_history id", async () => {
+    const w = await rewriteAndApply({ rewriteHistoryId: "mdPANEL00001" });
+    const events = w.emitted("apply-content");
+    expect(events).toBeTruthy();
+    // 第一参必须是纯文本（Publish.vue 的绑定靠它拼正文，改成对象会渲染成 [object Object]）
+    expect(events[0][0]).toBe("这是应用后的改写文案内容");
+    expect(events[0][1]).toBe("mdPANEL00001");
+    // 两个"应用"出口必须同口径带 lineage（apply-rewrite 目前无父绑定，但它是同一份产物的第二个出口）
+    const rw = w.emitted("apply-rewrite");
+    expect(rw, "apply-rewrite 必须仍然发出（父绑定缺失是另一件事，记在 PRD §3.4）").toBeTruthy();
+    expect(rw[0][1]).toBe("mdPANEL00001");
+  });
+
+  it("归因链：改写没给 id 时第二参是 null，而不是 undefined 或上一次的残留", async () => {
+    const w = await rewriteAndApply({});
+    const events = w.emitted("apply-content");
+    expect(events[0][1]).toBe(null);
+  });
+
+  it("归因链：非改写来源的应用（摘要）必须显式传 null 清掉父级旧关联", async () => {
+    // 摘要/增强不是改写产物。省略第二参与传 null 在 JS 里等价，
+    // 所以这条量的不是"有没有写"，而是"实现有没有把 null 当成一个必须表达的决定"。
+    const src = require("fs").readFileSync(require.resolve("./AiWriterPanel.vue"), "utf8");
+    expect(src).toMatch(/emit\("apply-content", enhancedResult\.value, null\)/);
+    expect(src).toMatch(/emit\("apply-content", summary\.value, null\)/);
+  });
+
+  it("归因链接线守卫：Publish.vue 的 @apply-content 必须是接收两个参数的函数形态", async () => {
+    // 全仓没有任何测试挂载 Publish.vue（实测 src/views/Publish.vue 只被源码扫描类测试读到），
+    // 所以 emit 的第二参若在此处被丢掉（退回 $event 语句形态），CI 不会有任何东西变红，
+    // 症状是"在 AI 面板里改写并发布的作品永远进不了归因榜" —— 与本次修掉的原始断链同形。
+    const fs = require("fs");
+    const path = require("path");
+    const src = fs.readFileSync(path.resolve(__dirname, "..", "views", "Publish.vue"), "utf8");
+    const binding = /@apply-content="([^"]*)"/.exec(src);
+    expect(binding, "Publish.vue 里找不到 @apply-content 绑定，接线已断").toBeTruthy();
+    expect(binding[1]).toMatch(/^\(text,\s*lineage\)\s*=>/);
+    expect(binding[1]).toMatch(/article\.rewriteHistoryId\s*=\s*lineage\s*\|\|\s*null/);
+    expect(binding[1], "正文赋值必须仍来自第一参").toMatch(/article\.content\s*=\s*text/);
+  });
 });

@@ -1122,4 +1122,77 @@ describe('usePublishFlow — composable setup', () => {
     const data = mockPublishBatch.mock.calls[0][1]
     expect(Array.from(data.content).length).toBe(5000)
   })
+
+  // ── 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）─────────────────────────
+  // 断链的真实形态是"渲染层从没供过值"，所以这一组必须钉 payload 里到底有没有这个键：
+  // 键缺席 → 主进程 phase4-events 读到 undefined → tracked_content.rewrite_history_id 恒 NULL
+  // → pattern-attribution 的 `if (!t.rewrite_history_id) continue` 把每一行都跳过 → 榜单恒空。
+  describe('归因链：buildArticleData 对 rewriteHistoryId 的条件挂载', () => {
+    function publishWithData () {
+      article.title = '标题'
+      article.content = '正文'
+      const r = createFlow()
+      return r.handlePublish().then(() => mockPublishBatch.mock.calls[0][1])
+    }
+
+    it('article 带合法关联 ⇒ payload 原样带出该键', async () => {
+      article.rewriteHistoryId = 'md0kx9a1b2c3'
+      const data = await publishWithData()
+      expect(data.rewriteHistoryId).toBe('md0kx9a1b2c3')
+      // 关联是元数据，不得污染内容字段
+      expect(data.title).toBe('标题')
+      expect(data.content).toBe('正文')
+    })
+
+    it('无关联 ⇒ 键根本不出现（挂 null/空串会让下游无法区分"没关联"与"关联被抹"）', async () => {
+      const data = await publishWithData()
+      expect(Object.prototype.hasOwnProperty.call(data, 'rewriteHistoryId'),
+        '缺席必须表现为键不存在').toBe(false)
+    })
+
+    it.each([
+      ['空串', ''],
+      ['纯空白', '   '],
+      ['数字', 123],
+      ['对象', { id: 'x' }],
+      ['超长（>64）', 'a'.repeat(65)],
+      ['含 NUL', 'ab\u0000cd'],
+    ])('脏值 %s ⇒ 不挂键，而不是把脏值发出去', async (_label, value) => {
+      article.rewriteHistoryId = value
+      const data = await publishWithData()
+      expect(Object.prototype.hasOwnProperty.call(data, 'rewriteHistoryId')).toBe(false)
+    })
+
+    it('正文被应用级上限截断时，关联不得跟着被丢（两条独立语义）', async () => {
+      article.rewriteHistoryId = 'md0kx9a1b2c3'
+      article.title = '标题'
+      article.content = '正'.repeat(10001)
+      const r = createFlow()
+      await r.handlePublish()
+      const data = mockPublishBatch.mock.calls[0][1]
+      expect(Array.from(data.content).length).toBe(10000)
+      expect(data.rewriteHistoryId).toBe('md0kx9a1b2c3')
+    })
+
+    it('接线守卫：单篇与批量两侧必须走同一条挂载规则（漏一侧即红）', async () => {
+      const fs = require('fs')
+      const path = require('path')
+      const root = path.resolve(__dirname, '..', '..')
+      const targets = [
+        ['src/composables/usePublishFlow.js', /attachRewriteLineage\(\s*data,\s*article\.rewriteHistoryId\s*\)/],
+        ['src/composables/useBatchPublish.js', /attachRewriteLineage\(\s*data,\s*a\.rewriteHistoryId\s*\)/],
+      ]
+      for (const [rel, re] of targets) {
+        const src = fs.readFileSync(path.join(root, rel), 'utf8')
+        expect(src, `${rel} 必须经共享实现挂载（禁止各自内联一份判据）`).toMatch(/utils\/rewrite-lineage/)
+        expect(src, `${rel} 的挂载点必须是 attachRewriteLineage(data, …) 形态`).toMatch(re)
+        // 反向锁：不得退回"无条件赋值"，那会让键缺席与键为空串在下游不可区分
+        expect(src, `${rel} 出现裸赋值即口径分裂`).not.toMatch(/data\.rewriteHistoryId\s*=\s*(article|a)\.rewriteHistoryId/)
+      }
+      // 批量 parity 锁看不见这个键（它按 `data.X =` 与字面量键匹配），所以这条守卫就是唯一防线，
+      // 上面两条缺一即静默漂移 —— 这也是本仓 useBatchPublish.js 只剩 1 行行数余量的后果（见 PRD §十一）。
+      const batchSrc = fs.readFileSync(path.join(root, 'src/composables/useBatchPublish.js'), 'utf8')
+      expect(batchSrc).toMatch(/attachRewriteLineage/)
+    })
+  })
 })

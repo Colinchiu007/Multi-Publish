@@ -421,7 +421,7 @@
                   :sourceContent="article.content"
                   @close="showAiWriter = false"
                   @apply-title="article.title = $event; showAiWriter = false"
-                  @apply-content="article.content = $event + '\n'; showAiWriter = false"
+                  @apply-content="(text, lineage) => { article.content = text + '\n'; article.rewriteHistoryId = lineage || null; showAiWriter = false }"
                 />
               </div>
               <div class="cohere-form-item">
@@ -851,6 +851,10 @@ const article = reactive({
   visibilitySemantic: '',
   // AI 生成内容声明：默认勾选（AI 生成内容）。各平台发布时如实声明内容创作方式。
   aiGenerated: true,
+  // 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）：本正文来自哪一次改写。
+  // 空 = 无从关联；有值时随 payload 进 task.article → tracked_content.rewrite_history_id。
+  // 它不是内容字段，故不参与草稿指纹（见 services/draft-fingerprint.js 的白名单）。
+  rewriteHistoryId: null,
 })
 const imageFileList = ref([])
 const coverFileList = ref([])

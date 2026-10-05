@@ -287,4 +287,66 @@ describe('usePublishDrafts', () => {
     expect(result).toEqual({ ok: false, draftId: null })
     expect(mockDraftSave).not.toHaveBeenCalled()
   })
+
+  // ── 归因链（PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05）─────────────────────────
+  // 草稿是「改写页 → 发布页」唯一的载体。这一跳漏了，前面接得再好也到不了 payload。
+  describe('归因链：rewriteHistoryId 随草稿存取', () => {
+    it('saveDraft 快照带出关联 id（有值时）', async () => {
+      article.rewriteHistoryId = 'md0kx9a1b2c3'
+      article.publishTime = ''
+      const drafts = createDrafts()
+      await drafts.saveDraft()
+      expect(mockDraftSave.mock.calls[0][0].rewriteHistoryId).toBe('md0kx9a1b2c3')
+    })
+
+    it('无关联时快照写 null，绝不写空串（string|null 语义，QM-6 前端轴 F3）', async () => {
+      article.publishTime = ''
+      const drafts = createDrafts()
+      await drafts.saveDraft()
+      // 钉三件事：键存在、值是 null、不是 ''/undefined 混用
+      const snapshot = mockDraftSave.mock.calls[0][0]
+      expect(Object.prototype.hasOwnProperty.call(snapshot, 'rewriteHistoryId')).toBe(true)
+      expect(snapshot.rewriteHistoryId).toBe(null)
+    })
+
+    it('article 上被塞进脏值（空串/数字/超长）⇒ 快照落 null，不把脏值带进草稿库', async () => {
+      article.publishTime = ''
+      article.rewriteHistoryId = '   '
+      const drafts = createDrafts()
+      await drafts.saveDraft()
+      expect(mockDraftSave.mock.calls[0][0].rewriteHistoryId).toBe(null)
+    })
+
+    it('loadDraft 把关联恢复到 article（改写页存的草稿，发布页取出来还能接上）', async () => {
+      mockDraftList.mockResolvedValue({
+        code: 0,
+        data: [{ id: 'd1', title: 'T', content: 'C', rewriteHistoryId: 'md0kx9a1b2c3' }],
+      })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      article.rewriteHistoryId = null
+      expect(await drafts.loadDraft('d1')).toBe(true)
+      expect(article.rewriteHistoryId).toBe('md0kx9a1b2c3')
+    })
+
+    it('载入一份无关联的草稿 ⇒ 必须清掉 article 上的旧关联（跨草稿串关联 = 假归因）', async () => {
+      mockDraftList.mockResolvedValue({
+        code: 0,
+        data: [{ id: 'd2', title: 'T', content: 'C' }],
+      })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      article.rewriteHistoryId = 'stale-from-previous-draft'
+      expect(await drafts.loadDraft('d2')).toBe(true)
+      expect(article.rewriteHistoryId, '旧 id 跟着新正文进 payload 就是假关联；且必须是 null 不是 ""（空串会被 != null 的读法当成有关联）').toBe(null)
+    })
+
+    it('接线守卫：ARTICLE_FIELDS 必须含该键（漏键即整条链断，且两侧单测都会绿）', async () => {
+      const fs = require('fs')
+      const path = require('path')
+      const src = fs.readFileSync(path.resolve(__dirname, 'usePublishDrafts.js'), 'utf8')
+      const block = src.slice(src.indexOf('const ARTICLE_FIELDS'), src.indexOf(']', src.indexOf('const ARTICLE_FIELDS')))
+      expect(block).toContain("'rewriteHistoryId'")
+    })
+  })
 })

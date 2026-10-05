@@ -33,6 +33,7 @@ import {
 import { convertBatchArticleItem } from '@/features/publish/platform-content-conversion'
 import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publish/publish-overrides'
 import { resolveCoverFields } from '@/features/publish/publish-upload-file'
+import { attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 
 let _keyCounter = 1
@@ -188,6 +189,7 @@ export function useBatchPublish(options) {
     }
     // P1-5 语义级可见性：只有非空档位才挂键，由主进程 resolver 按注册表映射
     if (a.visibilitySemantic) data.visibilitySemantic = a.visibilitySemantic
+    attachRewriteLineage(data, a.rewriteHistoryId) // 归因链：与单篇同一条挂载规则（判据在 utils/rewrite-lineage）
     if (imageFiles.length > 0) {
       data.images = imageFiles.map(file => file.path)
       data.image_files = imageFiles
