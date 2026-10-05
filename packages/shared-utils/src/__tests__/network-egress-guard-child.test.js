@@ -176,6 +176,10 @@ describe('子进程面：守卫必须传给 node 子进程', () => {
     expect(guard.ledgerCommandName('npx vite build --minify false')).toBe('npx')
     expect(guard.ledgerCommandName('C:\\Windows\\System32\\cmd.exe /c dir')).toBe('cmd.exe')
     expect(guard.ledgerCommandName('node -e "require(\'net\').connect(443,\'example.com\')"')).toBe('node')
+    // 带引号且路径含空格时，"截到第一个空格"会把 basename 折成中间那个词（Program），
+    // 于是真实的新外部命令被一个无意义键盖住；台账的整个意义就是"谁在出网"，这里必须折对。
+    expect(guard.ledgerCommandName('"C:/Program Files/evil.exe" --do-outbound')).toBe('evil.exe')
+    expect(guard.ledgerCommandName('"/usr/local/libexec/evil tool" -x')).toBe('evil tool')
   })
 
   it('fork 走 options.execArgv，不进 argv 位置（由子进程自己写盘报告，不用 mock）', async () => {

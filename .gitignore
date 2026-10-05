@@ -115,6 +115,7 @@ scripts/*.js
 !scripts/check-dep-audit.js
 !scripts/check-dep-audit.test.js
 !scripts/check-blanket-fs-mock.js
+!scripts/check-test-egress-ledger.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js
