@@ -1,4 +1,9 @@
 {
+  "本次执行记录：去 AI 味功能使用手册（user-manual-rewrite-ai-taste，2026-10-04）【docs-only】": {
+    "reason": "PR 合并后回填：squash 落地即取证（git log origin/main --grep=user-manual-rewrite-ai-taste --format=%H|%cI；git ls-remote --heads origin user-manual-rewrite-ai-taste 返回 0 行），回填与销账同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
+    "status": "PENDING",
+    "line": 1
+  },
   "本次执行记录：去 AI 味词库运营中心化（ai-taste-ops-center，2026-10-04）": {
     "reason": "PR #2884 合并后回填：squash 落地即取证（git log origin/main --grep=ai-taste-ops-center --format=%H|%cI；git ls-remote --heads origin ai-taste-ops-center 返回 0 行），回填与销账同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
     "status": "PENDING",

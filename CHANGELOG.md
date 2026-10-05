@@ -1,3 +1,8 @@
+# [未发布] docs(rewrite): 去 AI 味功能使用手册（2026-10-04，user-manual-rewrite-ai-taste）
+
+### 内容
+- 新增 `01-docs/USER-MANUAL-REWRITE-AI-TASTE-2026-10-04.md`（双受众使用手册）：改写页终端用户篇（功能三件事/结果区三信号判读/AI味等级判读表/三个影响手段）+ 运营中心管理员篇（词库语义四条/界面操作表/字段规范/运维四建议）+ 强度参数配置 + 原理与生效机制 + FAQ 7 条。
+- PRD.md 功能文档索引登记；PRD-REWRITE-ENGINE §十五/§十六 与 PRD-REWRITE-AI-TASTE-OPS-CENTER 交叉引用闭环。
 
 # [未发布] feat(ai-taste): 去 AI 味词库运营中心化——词库管理与强度参数运行时可配（2026-10-04，ai-taste-ops-center）
 
