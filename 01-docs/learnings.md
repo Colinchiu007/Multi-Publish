@@ -1,3 +1,7 @@
+## 迁移日志出口前必须盘点所有注入型 sink 的键面——fallback 对象缺键会把 TypeError 吞成业务错误码（publish-logging-observability w2-d1 补，2026-10-05）
+
+- **`opts.log || { info, warn, error }` 三键 fallback 是迁移的隐藏爆破点（pitfall）**：把 controller 出口迁到 `notify` 后，凡是「调用方没传 log 就走 fallback」的路径，`this._log.notify` 变成 TypeError——但它总在 try/catch 里，被 handler 吞成 `-99` 这类业务错误码，**表象是业务断言红、栈里没有日志字样**（zhihu-fav-batch 取消测试实测）。main 基线临时 worktree 对照（30/30 绿）才把归因钉到本波改动。正解：迁移某出口前，`git grep "{ info" ` 盘点全部注入型 sink 形态（源码 fallback `()=>{}`、简写 `info(){}`、测试 mock `vi.fn()` 三种），出口迁到哪一级，fallback 的键面就补到哪一级。
+- **test mock 缺 notify 键会让「别人的断言」挂（pitfall + pattern）**：`__registerMock('./logger', { info, warn, error })` 的三键 mock 注入进被测模块后，模块内**其他子域**（如 auth-partition）的 notify 调用也会打到它——缺键即 TypeError，把无关测试文件的断言搞红（rpa-view-manager 实测）。164 文件批修（+369/-369 纯插键）一次清零；迁移 PR 必须含「mock 键面批修」作为独立 commit，review 时单独看。
 ## notify 契约的 messageKey 不许复用；注入型 sink 的锁适配要动正则本身（publish-logging-observability w2-d1，2026-10-05）
 
 - **messageKey 复用会卡死「键总数==调用总数」锁（pitfall）**：`collect-blocked` 被 4 个拦截分支复用、`collect-start` 被 2 种模式复用——ALLOWED_KEYS 是 Set 不重复登记，调用点多于键数必红。正解：**reason 差异拆成键的差异**（`collect-blocked-budget/-cooldown/-circuit/-rate`），reason 从 params 挪进键后审计粒度更细；params 只留 url/platform 等现场。契约口径：一个 messageKey = 一种可独立检索的事件。
