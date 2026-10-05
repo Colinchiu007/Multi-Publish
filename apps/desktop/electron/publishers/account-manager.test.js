@@ -15,6 +15,47 @@ function loadAccountManager() {
   return require(modulePath)
 }
 
+// ─── #2878：资料回填这条边的传输层桩 ───
+// 根因（实测，不是推测）：checkLoginStatus 在 HTTP 判定为有效后会调
+// `profileRefresh.refreshProfileFromHttpApi(...)`，它内部**直接**持有
+// `require('./http-login-checker')` 的模块对象。本文件里绝大多数用例只 mock 了
+// `tryHttpLoginCheck`，于是资料回填那条边仍走**真实** checker → 测试 realm 里真的
+// 向 channels.weixin.qq.com / mp.toutiao.com 发起连接，只因出站守卫在
+// `net.Socket.prototype.connect` 入口拦住才没外泄，错误又被 refreshProfileFromHttpApi
+// 自己的 catch 吞成 warn —— 于是「HTTP 检测有效」这条用例**通过，却没在测传输层**。
+//
+// 为什么单跑 -t 复现不出来、必须整文件跑：account-profile-refresh 只在本文件第一次
+// require 它的时候求值，那一刻若注册表里还没有 checker 的桩，它就把**真实**模块
+// 对象存进模块级 const 并终身持有；后续用例再注册桩已经晚了。用例过滤改变了首次
+// require 的时机，所以过滤跑反而「干净」—— 这正是「夹具在隔离依赖还是在藏缺陷」
+// 的典型形状。
+//
+// 处置：在**加载消费方之前**把 profile-refresh 这一层整个打桩，让桩承重，
+// 并断言它确实被调到（否则新加的桩只是装饰）。
+let __profileRefreshCalls = []
+function stubProfileRefreshTransport() {
+  __profileRefreshCalls = []
+  const profileRefreshPath = require.resolve('./account-profile-refresh')
+  const actual = require(profileRefreshPath)
+  global.__registerMock(profileRefreshPath, {
+    extractAccountInfo: vi.fn(async () => ({})),
+    extractAccountInfoFromWebContents: vi.fn(async () => ({})),
+    refreshProfileFromPage: vi.fn(async () => false),
+    refreshProfileFromHttpApi: vi.fn(async (platform, accountId) => {
+      __profileRefreshCalls.push({ platform, accountId })
+      return false
+    }),
+  })
+  return () => {
+    __profileRefreshCalls = []
+    global.__registerMock(profileRefreshPath, actual)
+  }
+}
+
+function profileRefreshCalls() {
+  return __profileRefreshCalls
+}
+
 describe('account-manager — userData fallback', () => {
   beforeEach(() => {
     global.__enableElectronMock()
@@ -1007,7 +1048,7 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
     global.__registerMock(httpCheckerPath, {
       tryHttpLoginCheck: vi.fn().mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' }),
     })
-
+    const restoreProfile = stubProfileRefreshTransport()
     try {
       const accountManager = loadAccountManager()
       vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
@@ -1021,7 +1062,11 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
 
       const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-valid')
       expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+      // 桩必须真的承重：资料回填这一段确实走到了传输层，而不是靠守卫把错误吞掉。
+      // 反证见 docs/test-egress-runtime-ledger.md §6（摘桩后 channels.weixin.qq.com 重新记账）。
+      expect(profileRefreshCalls()).toEqual([{ platform: 'tencent_video', accountId: 'acc-tv-valid' }])
     } finally {
+      restoreProfile()
       global.__registerMock(httpCheckerPath, actualHttpChecker)
     }
   })
@@ -1122,6 +1167,7 @@ describe('checkLoginStatus session 分区 Cookie 合并（回归：加密凭证 
     global.__registerMock(httpCheckerPath(), {
       tryHttpLoginCheck: vi.fn().mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' }),
     })
+    const restoreProfile = stubProfileRefreshTransport()
     try {
       const accountManager = loadAccountManager()
       vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
@@ -1131,7 +1177,10 @@ describe('checkLoginStatus session 分区 Cookie 合并（回归：加密凭证 
 
       const result = await accountManager.checkLoginStatus('toutiao', 'acc-tt')
       expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+      // 同上：桩承重的证据（未打桩时这条会向 mp.toutiao.com 真的发起连接）。
+      expect(profileRefreshCalls()).toEqual([{ platform: 'toutiao', accountId: 'acc-tt' }])
     } finally {
+      restoreProfile()
       global.__registerMock(httpCheckerPath(), actual)
     }
   })

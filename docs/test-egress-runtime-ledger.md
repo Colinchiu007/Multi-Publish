@@ -75,7 +75,24 @@ node scripts/check-test-egress-ledger.js --ledger /tmp/l.jsonl --write-baseline 
 |------|-----|------|
 | 守卫自测（故意触发拦截） | `blocked::example.com:8099`、`blocked::198.51.100.7:443` | 常驻，删除等于拆掉自测 |
 | 预期的本地工具 | `child::ffmpeg.exe`、`child::powershell.exe`、`child::git` | 常驻；新增命令名必须先说明它为什么会在测试里被真起 |
-| **欠账（被测代码真的想出网）** | `blocked::channels.weixin.qq.com:443`、`blocked::mp.toutiao.com:443`、`blocked::ops.example.com:443` | 桩没覆盖到传输层，用例现在"靠守卫拦住才没外泄"。补桩后**删除条目**；这三条登记时挂了跟进 issue **#2878** |
+| **欠账（被测代码真的想出网）** | **已清零** —— 原 `blocked::channels.weixin.qq.com:443`、`blocked::mp.toutiao.com:443`、`blocked::ops.example.com:443` 三条 | 2026-10-05 补上传输层桩并删除条目（#2878）。新增欠账按同一处置：补桩 → 删条目；基线里不得再留「欠账」字样 |
+
+### 6.1 #2878 三条欠账的根因与反证（2026-10-05）
+
+三条同形，**都不是守卫的锅，也不是生产逻辑的错**：被测代码的判断是对的，错在测试夹具只桩了「判定」那一层，没桩「判定之后顺带发生的那次真实请求」。
+
+| 条目 | 触发用例 | 真实出站的那条边 | 处置 |
+|---|---|---|---|
+| `blocked::channels.weixin.qq.com:443` | `account-manager.test.js > checkLoginStatus 渲染崩溃平台降级 > tencent_video HTTP 检测有效` | 用例 mock 了 `tryHttpLoginCheck`，但 `checkLoginStatus` 判有效后还会调 `profileRefresh.refreshProfileFromHttpApi(...)`，它内部直接持有 `require('./http-login-checker')` 的**真实**模块对象 | 加载消费方**之前**把 `./account-profile-refresh` 整层打桩，并断言它确实被调到 |
+| `blocked::mp.toutiao.com:443` | `account-manager.test.js > checkLoginStatus session 分区 Cookie 合并 > toutiao 分区有 Cookie 时不再走 NO_COOKIE 硬判失效` | 同上（同一形态的第二落点） | 同上 |
+| `blocked::ops.example.com:443` | `ops-center-sync.test.js > OpsCenterSync syncNow > 未配置 URL / Key / manager 时 fail-closed` | **生产行为是有意的**：`syncNow` 在模型服务未就绪时仍会 best-effort 下发运行时策略（`_syncRuntimeBestEffort` → `/api/v1/runtime/bootstrap`）。旧注释写的「不发起网络请求」与实现不符 | 给 `global.fetch` 打桩并改注释；**不改生产行为、不改断言** |
+
+两个必须记住的机制细节：
+
+1. **为什么单跑 `-t` 复现不出来、必须整文件跑**：`account-profile-refresh` 只在首次 `require` 时求值，那一刻若注册表里还没有 checker 的桩，它就把**真实**模块对象存进模块级 `const` 并终身持有；后续用例再注册桩已经晚了。用例过滤改变了首次 require 的时机，于是过滤跑反而「干净」。**这属于「夹具在隔离依赖还是在藏缺陷」的典型形状**：绿灯来自加载顺序，不来自断言。
+2. **反证（桩必须承重，不能是装饰）**：摘掉 `stubProfileRefreshTransport()` 后重跑该文件 → `Tests 1 failed | 82 passed`，且台账重新记回 `blocked::channels.weixin.qq.com:443`。即新断言会红、新桩是必要的。
+
+第三条尤其值得记住：**当旧注释与实现不符时，先判定哪一边是契约**。这里实现的 best-effort 运行时下发是明确设计（目录无处应用，但公告/版本/菜单仍须下发），所以错的是注释与夹具，不是生产代码——照着旧注释去改生产逻辑会把一个正确设计改坏。
 
 ## 7. 已知不闭合
 
