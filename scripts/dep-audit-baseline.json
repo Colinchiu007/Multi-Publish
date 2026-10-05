@@ -8,6 +8,7 @@
       "module": "js-yaml",
       "severity": "high",
       "patched": ">=4.3.2",
+      "targetVersion": "4.3.2",
       "roots": [
         "apps__desktop",
         "packages__api-publish-engine",
@@ -22,6 +23,7 @@
       "module": "nanoid",
       "severity": "high",
       "patched": ">=3.3.16",
+      "targetVersion": "3.3.16",
       "roots": [
         "apps__desktop",
         "packages__remotion-composer",
@@ -36,6 +38,7 @@
       "module": "nanoid",
       "severity": "high",
       "patched": ">=3.3.18",
+      "targetVersion": "3.3.18",
       "roots": [
         "apps__desktop",
         "packages__remotion-composer",
@@ -50,6 +53,7 @@
       "module": "jszip",
       "severity": "moderate",
       "patched": ">=3.8.0",
+      "targetVersion": "3.8.0",
       "roots": [
         "apps__desktop"
       ],
@@ -62,6 +66,7 @@
       "module": "brace-expansion",
       "severity": "high",
       "patched": ">=1.1.16",
+      "targetVersion": "1.1.16",
       "roots": [
         "apps__desktop"
       ],
@@ -74,6 +79,7 @@
       "module": "qs",
       "severity": "moderate",
       "patched": ">=6.16.0",
+      "targetVersion": "6.16.0",
       "roots": [
         "packages__ai-writer-api"
       ],
@@ -86,6 +92,7 @@
       "module": "js-yaml",
       "severity": "high",
       "patched": ">=4.3.1",
+      "targetVersion": "4.3.1",
       "roots": [
         "apps__desktop",
         "packages__api-publish-engine",
@@ -100,6 +107,7 @@
       "module": "brace-expansion",
       "severity": "high",
       "patched": ">=1.1.19",
+      "targetVersion": "1.1.19",
       "roots": [
         "apps__desktop"
       ],
@@ -112,6 +120,7 @@
       "module": "browserslist",
       "severity": "high",
       "patched": ">=4.28.7",
+      "targetVersion": "4.28.7",
       "roots": [
         "packages__remotion-composer"
       ],
@@ -124,6 +133,7 @@
       "module": "electron",
       "severity": "high",
       "patched": ">=43.4.1",
+      "targetVersion": "43.4.1",
       "roots": [
         ".",
         "packages__rpa-engine",
@@ -138,6 +148,7 @@
       "module": "browserslist",
       "severity": "high",
       "patched": ">=4.28.7",
+      "targetVersion": "4.28.7",
       "roots": [
         "packages__remotion-composer"
       ],
@@ -150,6 +161,7 @@
       "module": "postcss",
       "severity": "moderate",
       "patched": ">=8.5.23",
+      "targetVersion": "8.5.23",
       "roots": [
         "apps__desktop",
         "packages__remotion-composer",
@@ -164,6 +176,7 @@
       "module": "electron",
       "severity": "high",
       "patched": ">=43.4.1",
+      "targetVersion": "43.4.1",
       "roots": [
         ".",
         "packages__rpa-engine",
@@ -178,6 +191,7 @@
       "module": "electron",
       "severity": "high",
       "patched": ">=43.4.1",
+      "targetVersion": "43.4.1",
       "roots": [
         ".",
         "packages__rpa-engine",
@@ -192,6 +206,7 @@
       "module": "brace-expansion",
       "severity": "high",
       "patched": ">=1.1.17",
+      "targetVersion": "1.1.17",
       "roots": [
         "apps__desktop"
       ],
@@ -204,6 +219,7 @@
       "module": "brace-expansion",
       "severity": "moderate",
       "patched": ">=1.1.21",
+      "targetVersion": "1.1.21",
       "roots": [
         "apps__desktop"
       ],
@@ -216,6 +232,7 @@
       "module": "brace-expansion",
       "severity": "high",
       "patched": ">=1.1.20",
+      "targetVersion": "1.1.20",
       "roots": [
         "apps__desktop"
       ],
@@ -228,6 +245,7 @@
       "module": "electron",
       "severity": "high",
       "patched": ">=43.5.0",
+      "targetVersion": "43.5.0",
       "roots": [
         ".",
         "packages__rpa-engine",
@@ -242,6 +260,7 @@
       "module": "postcss",
       "severity": "high",
       "patched": ">=8.5.18",
+      "targetVersion": "8.5.18",
       "roots": [
         "apps__desktop",
         "packages__remotion-composer",
@@ -256,6 +275,7 @@
       "module": "sharp",
       "severity": "high",
       "patched": ">=0.35.4",
+      "targetVersion": "0.35.4",
       "roots": [
         "packages__shared-utils"
       ],
@@ -268,6 +288,7 @@
       "module": "brace-expansion",
       "severity": "high",
       "patched": ">=1.1.18",
+      "targetVersion": "1.1.18",
       "roots": [
         "apps__desktop"
       ],
@@ -280,6 +301,7 @@
       "module": "body-parser",
       "severity": "low",
       "patched": ">=1.20.6",
+      "targetVersion": "1.20.6",
       "roots": [
         "packages__ai-writer-api"
       ],
@@ -292,6 +314,7 @@
       "module": "baseline-browser-mapping",
       "severity": "moderate",
       "patched": ">=2.11.0",
+      "targetVersion": "2.11.0",
       "roots": [
         "packages__remotion-composer"
       ],
@@ -304,6 +327,7 @@
       "module": "qs",
       "severity": "moderate",
       "patched": ">=6.15.4",
+      "targetVersion": "6.15.4",
       "roots": [
         "packages__ai-writer-api"
       ],
