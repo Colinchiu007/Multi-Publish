@@ -987,7 +987,9 @@ jobs:
           cd apps/desktop
           pnpm.cmd exec vite --host 127.0.0.1 --port 5174 >vite-gate7b-round2.stdout.log 2>vite-gate7b-round2.stderr.log &
           VITE_PID=$!
-          cleanup() { kill $VITE_PID 2>/dev/null || true; }
+          # kill 只打得到 pnpm.cmd 包装进程，杀不掉 vite 的 node 子进程树
+          # （同文件 Gate 7 的 pwsh 块用 taskkill /T /F 杀树，这里对齐）。
+          cleanup() { taskkill //PID $VITE_PID //T //F 2>/dev/null || kill $VITE_PID 2>/dev/null || true; }
           trap cleanup EXIT
 
           ready=0
