@@ -784,6 +784,12 @@ test('quality-gate 的 visual job 必须含 PR 侧基线新鲜度步骤（Gate 7
   assert.match(body, /--partial\b/, '必须带 --partial：本 job 只跑浅色像素套，无渲染的不得判成过期')
   assert.match(body, /--renders=apps\/desktop\/tests\/visual-testing\/screenshots/, '渲染目录必须指向本次产物')
   assert.doesNotMatch(body, /continue-on-error/, '不得降级为非阻断')
+  // 两轮有界重试（#31）：单张视图采集 flake 不得卡死任意 PR（PR #2914 run 37267645916
+  // attempt=1 红在 create-history 3909px，同 sha attempt=2 全绿）。摘掉任何一段都会
+  // 静默退回「单轮定生死」—— round1 红的视图会因一次采集抖动失败整个 PR。
+  assert.match(body, /--json-out=/, 'round1 必须落盘结构化判定（两轮交集终判的数据源）')
+  assert.match(body, /--verdict-rounds=/, '违规时必须走两轮交集终判，不得单轮定生死')
+  assert.match(body, /exec vite --host 127\.0\.0\.1 --port 5174/, 'round2 必须自起 dev server（Gate 7 的 server 已在其 finally 里被杀）')
 })
 
 // Gate 7b 的判定域锁：基线的权威渲染是 views 套件产出的 `<name>.png`（检查器 findRender 优先取它），

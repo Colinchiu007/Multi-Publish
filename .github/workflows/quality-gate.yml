@@ -939,7 +939,7 @@ jobs:
           }
           Write-Host "[GATE-7] All visual tests passed"
 
-      # Gate 7b：基线新鲜度（PR 侧、partial 形态）。
+      # Gate 7b：基线新鲜度（PR 侧、partial 形态）+ 两轮有界重试终判（#31）。
       # 存在的理由：#2761 改了发布表单 UI 却没刷新基线，而新鲜度检查当时只接在
       # visual-test.yml（2026-09-17 起不再由 PR 触发）里 ⇒ 它全绿合并、main 连红 11 次。
       # 那道门禁是探测器，这一步把它变成防线。
@@ -950,14 +950,67 @@ jobs:
       # 覆盖面以现场打印为准，不在此写死数字（写死就会漂）。
       # 判定域必须与 Gate 7 里补跑的 views 两套一致（见该处注释）：基线的权威渲染是
       # views 套件的 `<name>.png`，不是像素套件的 `<name>-current.png`。
-      - name: "Gate 7b - Baseline freshness (PR-side, partial)"
+      #
+      # 为什么两轮（#31，2026-10-05 实测）：单张视图的采集不可复现会卡住任意 PR ——
+      # PR #2914 run 37267645916 attempt=1 红在 create-history.png 3909 px / 0.189%，
+      # 同 sha 的 attempt=2 与同 sha 的 main push 全绿 ⇒ 采集 flake，不是基线漂移。
+      # 终判 = 违规视图的**两轮交集**：两轮都红是确定性漂移，照旧拦；
+      # 单轮红判定为 flake，放行但逐个留痕；round2 没采到的（skipped）无证据，
+      # 不得当 flake 放行（判据不存在时不得改变结论）。round2 在清空后的渲染目录里重采，
+      # 套件崩溃残留的 round1 渲染不会被误读成 round2 证据。
+      - name: "Gate 7b - Baseline freshness (PR-side, partial, two-round verdict)"
         shell: bash
         run: |
           node --test scripts/check-baseline-freshness.test.js
+
+          mkdir -p apps/desktop/tests/visual-testing/reports
+          R1=apps/desktop/tests/visual-testing/reports/gate7b-round1.json
+          R2=apps/desktop/tests/visual-testing/reports/gate7b-round2.json
+
+          # round 1：现行判定。干净即过（绝大多数 run 走这条路，零额外开销）。
+          if node scripts/check-baseline-freshness.js \
+            --renders=apps/desktop/tests/visual-testing/screenshots \
+            --baselines=apps/desktop/tests/visual-testing/base-screenshots \
+            --partial \
+            --json-out=$R1; then
+            echo "[GATE-7B] round 1 clean"
+            exit 0
+          fi
+
+          echo "[GATE-7B] round 1 reported violations - re-capturing views suites for flake discrimination"
+          mv apps/desktop/tests/visual-testing/screenshots apps/desktop/tests/visual-testing/screenshots-round1
+          mkdir -p apps/desktop/tests/visual-testing/screenshots
+
+          export TEST_URL=http://127.0.0.1:5174
+          export HEADLESS=true
+          export VITE_MP_DEV_FLAG_OVERRIDE=1
+          cd apps/desktop
+          pnpm.cmd exec vite --host 127.0.0.1 --port 5174 >vite-gate7b-round2.stdout.log 2>vite-gate7b-round2.stderr.log &
+          VITE_PID=$!
+          cleanup() { kill $VITE_PID 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          ready=0
+          for i in $(seq 1 30); do
+            sleep 1
+            if curl -sf http://127.0.0.1:5174/ >/dev/null 2>&1; then ready=1; break; fi
+            if ! kill -0 $VITE_PID 2>/dev/null; then echo "[GATE-7B] round2 vite exited before ready"; exit 1; fi
+          done
+          if [ "$ready" != "1" ]; then echo "[GATE-7B] round2 vite never became ready"; exit 1; fi
+
+          # views 两套的比较结果不另设门禁（Gate 7b 的 0 px 严格强于 6%），
+          # 但退出码必须出声，否则「套件崩了」会伪装成「本次没产图」。
+          pnpm.cmd run test:visual || views_exit=$?
+          pnpm.cmd run test:visual:supplement || views_supp_exit=$?
+          echo "[GATE-7B] round2 suite exits: views=${views_exit:-0} views-supplement=${views_supp_exit:-0}"
+          cd ..
+
           node scripts/check-baseline-freshness.js \
             --renders=apps/desktop/tests/visual-testing/screenshots \
             --baselines=apps/desktop/tests/visual-testing/base-screenshots \
-            --partial
+            --partial \
+            --json-out=$R2 || true
+          node scripts/check-baseline-freshness.js --verdict-rounds=$R1,$R2
 
       - name: "Upload GUI quality artifacts"
         if: always()
