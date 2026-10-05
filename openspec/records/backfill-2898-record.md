@@ -2,9 +2,6 @@
 record: backfill-2898-record
 task: 回填 #2898 的远程同步行并销账，同时把「CHANGELOG 截断抢救」写成一条 CHANGELOG 条目
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：#2898 记录销账 + CHANGELOG 条目（backfill-2898-record，2026-10-05）【docs-only】
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | 接线棘轮 | N/A | 本 PR 不新增任何 `*.test.*` 文件 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 纯文档回填按 AGENTS.md 不强制；且本会话 QM-6 通道实测两路都取不到产物（见下条），不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin backfill-2898-record` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `7dd55937ef05e29670d0a8051fae53245bbea731`（PR #2908，2026-10-05T04:24:01Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2908)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin backfill-2898-record` 返回 **0 行**证远端分支已删。CHANGELOG 条目已由 #2908 自身带入，不重复。 |
 
 ### 顺带取到的一条工具通道实况（⑤，与 QM-6 直接相关）
 本会话对 QM-6 双模型通道的实测，写在这里是为了让下一个人不必重踩：

@@ -2,9 +2,6 @@
 record: dep-audit-opscenter-domain
 task: 把 ops-center/frontend 的 npm 锁纳入依赖审计门禁；给 upgrade-tracked 挂账加"可闭合"判据
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：依赖审计门禁补第三扫描域 + 挂账可闭合判据（dep-audit-opscenter-domain，2026-10-05）
@@ -35,7 +32,7 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | QM-6 处置②（多段 patched 只比第一段，Warning） | 已修并实跑 | 两处都能产出多段 `patched`，其中一处**是本 PR 自己写的**：`parseNpmAuditV2` 合并同 GHSA 跨包时用 `', '.join`；而 `patchedFromRange` 的 `.exec` 对 `">=1.0.0 <1.2.3, >=2.0.0 <2.1.5"` 这种**多族漏洞规格只取第一个 `<` 上界**，第二族被静默丢掉 ⇒ `targetVersion=2.0.5` 会被判"可闭合"，而它仍落在第二族里。修法：`patchedFromRange` 收集并去重**全部** `<` 上界；`checkTargetEscapes` 按 `,` 拆段**逐段**要求逃过，取"逐段都过"而非"任一段过"（两种语义无法从数据区分，保守侧只会假红不会假绿，出路与正确性一致），失败文案点名是**哪一段**没过。真仓现状：基线 25 条里 `patched` 含 `,`/`<` 的 **0 条** ⇒ 这是潜在洞而非今日假绿，但判据面已先于数据收紧 |
 | QM-6 处置③（三条 Info） | 已修 | ①`两域`注释（evaluate 短路、写基线两处）改为「全部声明域」，与三域结构对上；②测试里对 `DOMAIN_NOT_WIRED` 的**同条件重复断言**（两行判据完全相同、只文案不同）删掉一条，删除脚本断言"保留数 = 2（本用例主断言 + 新加的解析器接线用例）"，防止删多；③绿文追加口径披露 `（npm 两个域均按 --omit=dev / --prod 扫，dev 依赖不在判据面内）` —— 此前"结论完整"与 `--omit=dev` 的盲区不对账，CI 读者无从知道 dev 域公告不可见 |
 | QM-6 反证（四条新判据各能红、可归因） | 已实跑 4 档 | **R1** `patchedFromRange` 退回只取第一个上界 ⇒ rc=1，红的正是「多族规格」+「v2 解析跨族 range」**两条**（证明两条都在测同一件事的不同层）；**R2** `checkTargetEscapes` 退回只比第一段 ⇒ rc=1，红「逐段都逃过」；**R3** 退回 `else` 兜底**并**去掉解析器校验（两刀一起，忠实回退旧实现；只删校验会崩成 TypeError，红得不可归因）⇒ rc=1，红「解析器与域一一对应」；**R4** 绿文退回不披露口径 ⇒ rc=1，红「绿文必须披露 prod 口径」。每档先断言"文本真的变了"（`hits=1 / mutated=true / bytes 前后`），四档各自按**字节**还原（`restored=true ×4`），基线 26/26 绿 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin dep-audit-opscenter-domain` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `a565e0f8d8038e356bfda37419f8d099a2942bd0`（PR #2904，2026-10-05T03:54:37Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2904)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin dep-audit-opscenter-domain` 返回 **0 行**证远端分支已删。其 CHANGELOG 条目由本回填 PR 带上。 |
 
 ### 遗留（不假装已闭合）
 - **dev 域仍未纳入判定**：ops-center/frontend 去掉 `--omit=dev` 实测有 3 包 / 12 条公告（`undici <7.29.1` ×10、`@vitest/mocker`/`vitest` 的 `GHSA-82fw-gwwq-j7x9`，range `>=2.1.0 <4.1.11`）。本门禁与 pnpm 侧一样只看生产依赖，所以这些**当前不可见**。这是 axios 那轮「nx 自带低危 axios」的同族形态，只是换了域 —— 要不要把 dev 域收进来，需要单独决策（它会把 12 条一次性变成必须登记或修账的欠账）。

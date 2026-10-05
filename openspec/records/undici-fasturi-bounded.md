@@ -2,9 +2,6 @@
 record: undici-fasturi-bounded
 task: 把 undici / fast-uri 两条 pnpm override 由无上界 >= 收成 ^，并加一条"整张覆写表都必须有上界"的棘轮
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：undici / fast-uri 覆写收上界 + 整表棘轮（undici-fasturi-bounded，2026-10-05）
@@ -27,7 +24,7 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | QM-6 CCG 双模型外部评审 | 部分执行（三路两败一成，7 条已处置） | 通道实况：`codeagent-wrapper --backend codex` rc=0 但只有一句中间话、无 findings 产物；`--backend claude` 报 `completed without agent_message output` rc=1；**替代通道 `opencode run --model opencode/*-free` 产出真产物**（`.qm6-findings-fe2.json`，7 条：0 Critical / 4 Warning / 3 Info）。回声核验：评审用语在我发出的 prompt 与喂入的 diff 里 `grep -c` 均 0（仅 `自相矛盾`/`两域齐全` 各 1 次命中，命中的是被审代码自身注释）⇒ 判为评审产出。**本 PR 相关那条（Warning）实测成立**：`production-dependency-security.test.js:75` 的失败文案让人「改成带 ^/~ 的写法」，而同文件两处判据硬编码成只认 `^`（`:74` `/^\^?\d/`、`:157` 同形）⇒ 照文案写 `~` 会被自家门禁判红，**指引与判据互斥**；且 `:16` 的 `parseVersion` 早就接受 `~`，说明"~ 属合法写法"是本文件自己的既有口径 |
 | QM-6 处置（本 PR） | 已修并实跑 | 把「有上界的写法」收成**单一真源**：`BOUNDED_PREFIXES = ['^','~']` + `hasUpperBound()` + `boundedHint()`；两处判据改调 `hasUpperBound`，两处失败文案改由 `boundedHint()` 生成（文案由判据集合生成，结构上不可能再互斥）。新增 2 例：①行为锁（`^1.2.3`/`~1.2.3`/`1.2.3` 必须接受，`>=1.2.3`/`>1.2.3` 必须判红）；②结构锁（两个调用点必须走真源、代码行里不得再出现内联前缀正则、文案不得再硬写「^/~」）。**修脚本时自己踩到两个新坑并当场纠正**：(a) 起初用 `'^[' + prefixes.join('') + ']'` 拼字符类，`['^','~'].join('')` 得到 `[^~]` 是**取反类** —— 恰好把 `~` 判成不合格，改成显式交替 `/^(?:\^|~)?…/`；(b) 结构锁用 `src.includes(needle)` 扫 `__filename`，而 needle 就写在那行断言里 ⇒ **自指假红**，另加"只扫代码行"（动因注释里原样抄旧写法是给读者的现场证据，不该被撞红） |
 | QM-6 反证（两条新锁各自能红） | 已实跑 3 档，cause-match | **M1** 判据退回只认 `^` ⇒ rc=1，红的正是行为锁那一条；**M2** 调用点改回内联 `/^\^?\d/` ⇒ rc=1，红的正是结构锁；**M3** 文案改回硬写「改成带 ^/~」⇒ rc=1，红的正是结构锁。每档先断言"文本真的变了"（打印 `hits` / bytes 前后 / `mutated`），三档结束后各自**按字节还原**并断言与备份逐字节相同（`restored=true ×3`）。套件由 5 例增至 **7 例全绿** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin undici-fasturi-bounded` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `2296c869b1488fd8070f2253a109d3328ac21e8b`（PR #2905，2026-10-05T04:00:56Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2905)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin undici-fasturi-bounded` 返回 **0 行**证远端分支已删。其 CHANGELOG 条目由本回填 PR 带上。 |
 
 ### 遗留（不假装已闭合）
 - **`^7.29.1` 只是把"静默跨 major"换成"钉在 7.x"**：undici 已有 8.11.2。要不要真升到 8.x 是一次**显式决策**（涉及 jsdom/cheerio/@electron/get 三家对 undici 的区间预期），不属本 PR。本 PR 的效果是"这件事必须有人主动做，而不是被一次 install 顺手做掉"。
