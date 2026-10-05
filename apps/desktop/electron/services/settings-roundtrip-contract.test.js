@@ -190,6 +190,14 @@ describe('Settings 真源：禁止第二份归一化实现重新长出来', () =
   // 正解是按语义取实参：找到 String( 的配对右括号，再看实参文本里是否引用了读取方法——
   // 成员空格、方括号访问、可选链、三元守卫、跨行都天然覆盖；getSettingObject 是另一个词，不会命中。
   // 下方判据矩阵的正例逐条取自 origin/main 的修复前原文（不是转述），把本函数改成恒返回空数组必须立刻变红。
+  //
+  // 本锁的**边界**（后端复核实测，勿当"不可能再长出来"来信任它）：
+  //   1) 拆句等价绕得过 —— `const raw = getSetting(K)` 另起一行再 `String(raw)`／`JSON.parse(raw)`，语义同一个错，本锁看不见；
+  //   2) 别名与方法名动态取 —— `const g = store.getSetting` 后再 String(g(K))，或 `store[key](K)`；
+  //   3) 实参里带字面量右括号会把配对扫描提前收口（如 String(f("a)b"))），属已知欠精确，不是漏判形状；
+  //   4) 扫描域是下面 files 里写死的 4 个文件，新增同用途文件不会自动被守。
+  // 也就是说它守的是"这四个文件里别再出现这种写法"，不是"全仓不可能有第二份归一化"。真要跨面收口得走 AST 判据 + 全仓棘轮清单
+  // （见 docs/settings-persistence-contract.md §6 的 13 处待收敛登记）。
   function findStringReadsOfSettings (src) {
     const hits = []
     const re = /\bString\s*\(/g
