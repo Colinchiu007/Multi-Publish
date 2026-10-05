@@ -238,3 +238,14 @@ grep -ao 'mp.toutiao.com/profile_v4/graphic/publish' "$LOG" | wc -l
 - 结果：`archive/space` / `aweme/v1` / `ajax/statuses/mymblog` / `creator/v2` / `web-a-api` / `api/xq/insight` / `bvid` / `aweme_id` / `post_id` / `postId` / `auditStatus` / `audit` / `review` / `draft` / `publishing` **各 0 命中**；`mp.toutiao.com` 仅 1 命中，且是登录检测的**导航 URL**（`checkLoginStatus: start toutiao url=https://mp.toutiao.com/`），不是 JSON 端点。
 - 严格形态复检（`(^|[^A-Za-z])"(aid|bvid|aweme_id|video_id|note_id|item_id)"?\s*[:=]`，用它是为了避免把 `said`/`paid` 这类词算成命中）：3 命中，全部是视频号 `channels.weixin.qq.com/…notification_list?_aid=<uuid>` 里的 **`_aid` 应用实例标识**，语义上不是作品 id ⇒ 作品标识符在本机历史日志里仍是 0 现场。
 - 结论与 §7.3 同：`AUDIT_REQUERY_VERIFIED_PLATFORMS` 保持**空**。这次扫描把「本机没有发布回传现场」从"当日一份日志没看到"升级为"52 份 / 13.8 MB 全量未见"，但**它仍然不能替代真机取证**：证据①（作品状态端点请求形状）与③（状态值→`auditStatus` 映射表）只能来自真实回传或真实创作者中心的现场抓包，而这两者的前置动作是向真实账号发一条内容——属外部可见写操作，须经用户授权。
+## 九、第三次取证：B 站端点已实测成立（2026-10-05，仍只读）
+
+用应用内账号标签的原生分区（`persist:account-ca681b37`）打开 B 站创作中心，对平台自己的接口做只读 GET，拿到了 §一 的三项证据与 §7.2 的第 4 项反例。完整现场、容器形状与「仍未观测清单」见 `docs/audit-requery-evidence-bilibili-2026-10-05.md`，本文不复制数据（两处各维护一份必然口径分裂）。
+
+三条可直接引用的结论：
+- 真实端点是 `GET member.bilibili.com/x/web/archives?status=pubed&pn=1&ps=20&platform=web`（Cookie 会话即可，无签名/无 OAuth）；本仓原写的 `api.bilibili.com/x/web-interface/archive/space` 属未成立的猜测，已按取证改正。
+- 列表条目在 `data.arc_audits[]`，`data.archives` 实测是**空对象**——按 `archives` 写的解析器会恒得 0 条。
+- 反例实测：未知 `status` 值被**静默忽略并返回默认列表**（HTTP 200、`code:0`、6 条）⇒ 「请求成功」对判据零信息量，命中判据只能是 `bvid`/`aid` 匹配 + 已观测的 `state` 取值；未观测取值一律无定论。
+
+仍未观测：`state` 的「审核中 / 不通过」取值（本机 6 篇稿件全为 `state=0`）与非零 state 下的 `reject_reason`/`problem_detail` 填充形态 ⇒ **`AUDIT_REQUERY_VERIFIED_PLATFORMS` 仍不含 bilibili**（§四 验收要求四类状态的录制片段 + 真机徽标变化，本次只拿到 published 与「无定论」两类）。补齐需要一次真实投稿，属需授权的外部写操作。
+
