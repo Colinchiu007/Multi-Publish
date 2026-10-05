@@ -40,18 +40,22 @@ function parseArgs (argv) {
   return out
 }
 
-// 只认"检出的这个提交确实有两个亲"，不去猜 refs/pull/*：checkout 换 ref 时本判据会自动落到
-// payload 支路并打印出来，而不是拿着一个不存在的双亲报红。
+// 只认"检出的这个提交确实有两个亲"，不去猜 refs/pull/*：单亲（squash 提交、直接检出分支顶）
+// 返回 null，由调用方落到 payload 支路并打印出来。
+// 实现口径（外部评审 nemotron 第 1 条实测指出）：不得用 try/catch 包住整段再返回 null ——
+// 那会把"仓库损坏 / git 不可用 / 权限受限"一并当成"没有第二亲"，静默落回已知会误算的 payload 支路。
+// 所以这里只做一次确定性 plumbing 调用：git rev-list --parents -n 1 HEAD
+// ⇒ "<commit> <父1> <父2>…"，按字段数判亲数；git 自身失败一律原样上抛（fail-closed）。
 function mergeRefParents (repo, git) {
-  try {
-    if (!git(repo, ['rev-parse', '-q', '--verify', 'HEAD^2'])) return null
-    const base = git(repo, ['rev-parse', 'HEAD^1']).trim()
-    const head = git(repo, ['rev-parse', 'HEAD^2']).trim()
-    if (!base || !head) return null
-    return { base, head }
-  } catch {
-    return null
+  const line = git(repo, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim()
+  const ids = line.split(/\s+/)
+  if (ids.length < 3) return null
+  const base = ids[1]
+  const head = ids[2]
+  if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(head)) {
+    throw new Error(`rev-list 返回的双亲字段形状异常（实得 ${JSON.stringify(ids)}）`)
   }
+  return { base, head }
 }
 
 function decide ({ repo = process.cwd(), evtName, evtBase = '', evtHead = '', git } = {}) {

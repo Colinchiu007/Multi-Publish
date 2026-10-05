@@ -141,6 +141,27 @@ test('双亲取不到且事件值也缺 ⇒ 抛错（不得静默退回 HEAD=合
     /取不到本 PR 的 base\/head/)
 })
 
+// 外部评审（nemotron 第 1 条）点名的形态：git 故障曾被 try/catch 当成"没有第二亲"，
+// 于是"仓库损坏 / git 不可用 / 权限受限"会静默落回**已知会误算**的 payload 支路。
+test('git 自身故障必须原样上抛，不得被读成"这个提交没有第二亲"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'changeset-nogit-'))
+  let thrown = null
+  try {
+    mod.decide({ repo: dir, evtName: 'pull_request', evtBase: 'a'.repeat(40), evtHead: 'b'.repeat(40) })
+  } catch (e) { thrown = e }
+  assert.ok(thrown, '非仓库目录下必须抛错；静默返回意味着落到了 payload 支路')
+  assert.match(String(thrown.message), /not a git repository|rev-list/,
+    `抛出的必须是 git 的真故障而不是判据文案，实得：${thrown && thrown.message}`)
+})
+
+test('双亲字段形状异常（rev-list 返回被污染）也必须抛错，不得拼出一个假 sha', () => {
+  assert.throws(() => mod.decide({
+    repo: 'x',
+    evtName: 'pull_request',
+    git: () => 'deadbeef not-a-sha another\n',
+  }), /形状异常/)
+})
+
 test('CLI：stdout 是 KEY=VAL，且 GITHUB_OUTPUT 存在时追加 pr-base/pr-head', () => {
   const f = fixtureStaleBase()
   const out = path.join(f.dir, 'github-output.txt')
