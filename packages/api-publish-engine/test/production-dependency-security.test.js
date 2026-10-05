@@ -28,6 +28,18 @@ function isAtLeast(actual, minimum) {
   return true
 }
 
+// 「有上界的写法」清单是单一真源：判据与失败文案都不得各自再写一份。
+// 动因（QM-6 外部评审实测，2026-10-05）：失败文案让人「改成带 ^/~ 的写法」，而两处判据硬编码成
+// /^\^?\d/ —— 照文案写 ~ 会被自家门禁判红，指引与判据互斥。^ 与 ~ 都是有上界（不跨 major / 不跨 minor），
+// 精确版本同样有上界；裸 >= / > 没有。三档各由下面 hasUpperBound 的一条支路守。
+const BOUNDED_PREFIXES = ['^', '~']
+function hasUpperBound(range) {
+  const s = String(range).trim()
+  return /^(?:\^|~)?\d+\.\d+\.\d+$/.test(s) || /^(?:\^|~)x$/.test(s) || /^(?:\^|~)\*\*$/.test(s)
+}
+function boundedHint() {
+  return `改成 ${BOUNDED_PREFIXES.join(' / ')} 开头的写法或精确版本`
+}
 function readJson(absPath) {
   return JSON.parse(fs.readFileSync(absPath, 'utf8'))
 }
@@ -71,8 +83,8 @@ test('生产依赖不允许解析到存在高危公告的 Axios 版本', () => {
   const overrideRange = overrideMatch[1]
   // 无上界的写法（>=x.y.z）会允许下一次非 --frozen-lockfile 的 install 把 axios 静默 resolve 到新大版本。
   assert(
-    /^\^?\d/.test(overrideRange),
-    `axios override 区间 "${overrideRange}" 没有上界：改成带 ^/~ 的写法或精确版本（整表判据见本文件末尾的「每条 pnpm override 都必须有上界」）`,
+    hasUpperBound(overrideRange),
+    `axios override 区间 "${overrideRange}" 没有上界：${boundedHint()}（整表判据见本文件末尾的「每条 pnpm override 都必须有上界」）`,
   )
   assert(isAtLeast(overrideRange, AXIOS_FLOOR), `axios override "${overrideRange}" 低于修复版本 ${AXIOS_FLOOR}`)
 })
@@ -154,8 +166,8 @@ test('每条 pnpm override 都必须有上界（裸 >= 下限一律判红）', (
   assert(names.length >= 3, `覆写表只读到 ${names.length} 条（${names.join(',')}）—— 规模下界不成立说明解析退化，不得当成"没问题"`)
   for (const [name, range] of Object.entries(overrides)) {
     assert(
-      /^\^?\d/.test(range),
-      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.0 / 3.1.8）`,
+      hasUpperBound(range),
+      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.0 / 3.1.8）。${boundedHint()}。`,
     )
   }
   for (const [name, floor] of Object.entries(OVERRIDE_FLOORS)) {
@@ -181,4 +193,40 @@ test('收上界不得改变解析结果：锁里 undici / fast-uri 仍落在同�
       assert(String(v).startsWith(`${major}.`), `锁里 ${name}@${v} 跨出了 major ${major} —— 本次改动只收上界、不抬 major，出现跨 major 说明有人在同一次改动里夹带了升级`)
     }
   }
+})
+test('失败文案建议的写法必须被判据接受（防「文案让你写 ~、判据把 ~ 判红」互斥）', () => {
+  for (const p of BOUNDED_PREFIXES) {
+    assert(hasUpperBound(p + '1.2.3'), `判据不得只认 ^ —— 文案列出的 ${p} 开头的合法写法必须被接受`)
+  }
+  assert(hasUpperBound('1.2.3'), '精确版本同样有上界')
+  assert(!hasUpperBound('>=1.2.3'), '裸 >= 下限必须判红')
+  assert(!hasUpperBound('>1.2.3'), '裸 > 下限必须判红')
+  // 文案里出现的每个写法前缀，都必须 ∈ BOUNDED_PREFIXES（由真源生成即成立；这条防有人改回硬编码）
+  const hint = boundedHint()
+  for (const tok of hint.split(' ')) {
+    if (tok === '^' || tok === '~') {
+      assert(BOUNDED_PREFIXES.includes(tok) && hasUpperBound(tok + '7.29.1'), `文案列出的 ${tok} 必须被判据接受`)
+    }
+  }
+  assert(hint.includes('^') && hint.includes('~'), '文案必须同时列出 ^ 与 ~，否则读日志的人不知道 ~ 也可')
+})
+
+test('结构锁：判据与文案不得再各自硬编码（两处调用点必须都走真源）', () => {
+  const full = fs.readFileSync(__filename, 'utf8')
+  // 扫描域必须截到本锁之前：needle 写在断言行里，扫全文会命中自己（自指假红，实测踩过）。
+  // 锚点缺失即红 —— 不许让 indexOf 返回 -1 时 slice 把区间静默放大成整份文件。
+  const lockStart = full.indexOf("test('失败文案建议的写法")
+  assert(lockStart > 0, '找不到行为锁的起始锚点：本锁的扫描域无法确定，拒绝在不确定域上判绿')
+  const src = full.slice(0, lockStart)
+  assert(src.includes('hasUpperBound(overrideRange)'), 'axios 单条判据必须走真源')
+  assert(src.includes('hasUpperBound(range)'), '整表棘轮判据必须走真源')
+  // needle 用拼接构造，使被禁字面量不出现在「包含该断言的那一行」里
+  // 只扫代码行：上面的动因注释里原样抄过旧写法（那是给读者的现场证据），扫全文会让注释把锁撞红。
+  const code = src.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const forbiddenRegex = ['/', '^', '\\', '^', '?', '\\', 'd', '/'].join('')
+  assert(!code.includes(forbiddenRegex), '不得再出现硬编码前缀正则 —— 它就是两条互斥语句的源头')
+  const forbiddenHint = '没有上界：改成带 ' + ['^', '/', '~'].join('')
+  assert(!code.includes(forbiddenHint), '失败文案不得再硬写「^/~」，必须由 boundedHint() 生成')
+  const hints = (src.match(/boundedHint\(\)/g) || []).length
+  assert(hints >= 2, `两处失败文案都必须引用 boundedHint()，实到 ${hints}`)
 })
