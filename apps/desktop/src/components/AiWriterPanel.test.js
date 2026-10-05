@@ -475,4 +475,18 @@ describe("AiWriterPanel", () => {
     expect(src).toMatch(/emit\("apply-content", enhancedResult\.value, null\)/);
     expect(src).toMatch(/emit\("apply-content", summary\.value, null\)/);
   });
+
+  it("归因链接线守卫：Publish.vue 的 @apply-content 必须是接收两个参数的函数形态", async () => {
+    // 全仓没有任何测试挂载 Publish.vue（实测 src/views/Publish.vue 只被源码扫描类测试读到），
+    // 所以 emit 的第二参若在此处被丢掉（退回 $event 语句形态），CI 不会有任何东西变红，
+    // 症状是"在 AI 面板里改写并发布的作品永远进不了归因榜" —— 与本次修掉的原始断链同形。
+    const fs = require("fs");
+    const path = require("path");
+    const src = fs.readFileSync(path.resolve(__dirname, "..", "views", "Publish.vue"), "utf8");
+    const binding = /@apply-content="([^"]*)"/.exec(src);
+    expect(binding, "Publish.vue 里找不到 @apply-content 绑定，接线已断").toBeTruthy();
+    expect(binding[1]).toMatch(/^\(text,\s*lineage\)\s*=>/);
+    expect(binding[1]).toMatch(/article\.rewriteHistoryId\s*=\s*lineage\s*\|\|\s*null/);
+    expect(binding[1], "正文赋值必须仍来自第一参").toMatch(/article\.content\s*=\s*text/);
+  });
 });
