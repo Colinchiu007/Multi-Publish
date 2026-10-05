@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }))
 
 const { FullAutoPipeline, RUN_STATUS, STAGE_STATUS } = await import('../services/full-auto-pipeline')
 
@@ -18,7 +18,7 @@ function makeDeps(overrides = {}) {
     runStateStore: { saveRunning: vi.fn(), saveFailed: vi.fn(), load: vi.fn() },
     rpaViewManager: {},
     store: {},
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     ...overrides,
   }
 }

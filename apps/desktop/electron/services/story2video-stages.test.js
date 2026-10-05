@@ -55,7 +55,7 @@ function makePipeline(assetGenerator, aiGenerator, options = {}) {
     aiGenerator,
     container: options.container,
     governor: options.governor,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     registerStageExecutor(type, fn) {
       stageExecutor.register(type, fn)
       return { success: true }
@@ -2175,7 +2175,7 @@ describe('isPromptEngineEmptyReasoningError — 空内容/纯推理判定', () =
       aiGenerator: null,
       governor: { sweepAll: vi.fn(), run: governorRun },
       container: { get: (name) => (name === 'modelProviderManager' ? manager : null) },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       registerStageExecutor(type, fn) {
         executors.set(type, fn)
         return { success: true }
@@ -2244,7 +2244,7 @@ describe('isPromptEngineEmptyReasoningError — 空内容/纯推理判定', () =
       aiGenerator: null,
       governor: { sweepAll: vi.fn() },
       container: { get: (name) => (name === 'modelProviderManager' ? manager : null) },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       registerStageExecutor(type, fn) {
         executors.set(type, fn)
         return { success: true }
@@ -2284,7 +2284,7 @@ describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
       aiGenerator: null,
       governor: { sweepAll: vi.fn(), run: governorRun },
       container: { get: () => null },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       registerStageExecutor(type, fn) {
         executors.set(type, fn)
         return { success: true }
@@ -2357,7 +2357,7 @@ describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
       aiGenerator: aiGeneratorLike,
       governor,
       container: { get: () => null },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       registerStageExecutor(type, fn) {
         executors.set(type, fn)
         return { success: true }
@@ -2507,7 +2507,7 @@ describe('story2video 视频+图片轮播混合模式（2026-08-11）', () => {
         stageExecutor,
         _assetGenerator: null,
         aiGenerator,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
         registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
       }
       registerStory2VideoStages(pipeline)
@@ -2710,7 +2710,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       stageExecutor,
       _assetGenerator: assetGenerator || null,
       aiGenerator,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
     }
     registerStory2VideoStages(pipeline)
@@ -3615,13 +3615,13 @@ describe('提示词翻译与 compose 并行契约', () => {
         },
       })),
     }
-    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {}, notify() {} } })
     const pipeline = {
       stageExecutor,
       aiGenerator: {
         generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"译文0","1":"译文1"}' }),
       },
-      log: { info() {}, warn() {}, error() {} },
+      log: { info() {}, warn() {}, error() {}, notify() {} },
       registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
     }
     registerStory2VideoStages(pipeline)
@@ -3663,13 +3663,13 @@ describe('提示词翻译与 compose 并行契约', () => {
         },
       })),
     }
-    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {}, notify() {} } })
     const pipeline = {
       stageExecutor,
       aiGenerator: {
         generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"手动译文"}' }),
       },
-      log: { info() {}, warn() {}, error() {} },
+      log: { info() {}, warn() {}, error() {}, notify() {} },
       registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
     }
     registerStory2VideoStages(pipeline)
@@ -3730,7 +3730,7 @@ describe('提示词翻译与 compose 并行契约', () => {
         return { code: 0, data: { videoPath: 'overlap.mp4', segments: [{ index: 0, prompt: 'manual-prompt' }] } }
       }),
     }
-    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {}, notify() {} } })
     const pipeline = {
       stageExecutor,
       aiGenerator: {
@@ -3739,7 +3739,7 @@ describe('提示词翻译与 compose 并行契约', () => {
           return translationResponse
         }),
       },
-      log: { info() {}, warn() {}, error() {} },
+      log: { info() {}, warn() {}, error() {}, notify() {} },
       registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
     }
     registerStory2VideoStages(pipeline)
@@ -3763,11 +3763,11 @@ describe('提示词翻译与 compose 并行契约', () => {
         data: { videoPath: 'manual-fail-open.mp4', segments: [{ index: 0, prompt: 'manual-prompt' }] },
       })),
     }
-    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {}, notify() {} } })
     const pipeline = {
       stageExecutor,
       aiGenerator: { generateWithDefault: vi.fn().mockRejectedValue(new Error('translation unavailable')) },
-      log: { info() {}, warn() {}, error() {} },
+      log: { info() {}, warn() {}, error() {}, notify() {} },
       registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
     }
     registerStory2VideoStages(pipeline)
@@ -3808,12 +3808,12 @@ describe('提示词翻译与 compose 并行契约', () => {
     const serviceBus = {
       composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: 'reused.mp4', segments: [{ index: 0, prompt: 'manual-prompt' }] } })),
     }
-    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {}, notify() {} } })
     const aiGenerator = { generateWithDefault: vi.fn() }
     const pipeline = {
       stageExecutor,
       aiGenerator,
-      log: { info() {}, warn() {}, error() {} },
+      log: { info() {}, warn() {}, error() {}, notify() {} },
       registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
     }
     registerStory2VideoStages(pipeline)

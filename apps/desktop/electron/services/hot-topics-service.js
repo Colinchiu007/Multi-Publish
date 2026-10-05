@@ -133,7 +133,7 @@ class HotTopicsService {
    *   可缺省（未配置模型）或抛错 —— 均静默降级保持关键词结果。
    */
   constructor(deps = {}) {
-    this.log = deps.log || { info: () => {}, warn: () => {}, error: () => {} }
+    this.log = deps.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
     this.settingsStore = deps.settingsStore || null
     this.llmClassify = typeof deps.llmClassify === 'function' ? deps.llmClassify : null
     this.throttle = new ChannelThrottle()

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }));
 
 const PublishImpactTracker = require("../services/publish-impact-tracker");
 

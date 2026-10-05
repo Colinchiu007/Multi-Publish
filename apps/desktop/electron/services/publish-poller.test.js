@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }));
 
 const PublishPoller = require("../services/publish-poller");
 

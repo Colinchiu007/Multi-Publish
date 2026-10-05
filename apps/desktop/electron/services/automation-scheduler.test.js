@@ -7,7 +7,7 @@
 const { AutomationScheduler } = require('./automation-scheduler')
 
 function makeLog () {
-  return { info: () => {}, warn: () => {}, error: () => {} }
+  return { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 }
 
 function makeStore (initial = null) {

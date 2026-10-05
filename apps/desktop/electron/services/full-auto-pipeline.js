@@ -80,7 +80,7 @@ class FullAutoPipeline extends EventEmitter {
     this._runStateStore = deps.runStateStore;
     this._rpaViewManager = deps.rpaViewManager;
     this._store = deps.store;
-    this._log = deps.log || { info() {}, warn() {}, error() {} };
+    this._log = deps.log || { info() {}, warn() {}, error() {}, notify() {} };
     this._runs = new Map();
     this._cancelFlags = new Map();
   }

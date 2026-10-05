@@ -52,7 +52,7 @@ function createMockIpcMain () {
 function createMockDeps (overrides = {}) {
   return {
     pythonBridge: { requestBackend: vi.fn() },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     ...overrides,
   }
 }

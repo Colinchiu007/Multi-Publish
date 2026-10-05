@@ -116,7 +116,7 @@ describe('escapeSubtitleText — ffmpeg drawtext 字幕转义', () => {
 describe('Story2VideoComposeEngine 资源与效果契约', () => {
   it('默认成片上限为 50 分钟，旁白总时长上限与成片一致', () => {
     const engine = new Story2VideoComposeEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     expect(engine.maxDurationSeconds).toBe(50 * 60)
     expect(engine.maxAudioDurationSeconds).toBe(50 * 60)
@@ -365,7 +365,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     function makeVideoEngine (videoDuration) {
       const engine = new Story2VideoComposeEngine({
         outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 's2v-short-video-contract-')),
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       })
       engine._probeVideoDuration = vi.fn().mockResolvedValue(videoDuration)
       engine._runFfmpegStage = vi.fn().mockResolvedValue({ stderr: '' })
@@ -523,7 +523,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
       allowedMediaRoots: [root],
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
@@ -581,7 +581,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._probeMediaDuration = vi.fn(async () => 4)
@@ -621,7 +621,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const text = '第一屏字幕内容需要完整呈现，第二屏字幕内容也要连续显示。'
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._probeMediaDuration = vi.fn(async () => 4)
@@ -664,7 +664,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       duration: 1,
       text: '第' + (index + 1) + '段',
     }))
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
     engine._probeMediaDuration = vi.fn(async () => null)
@@ -693,7 +693,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = path.join(root, 'audio.mp3')
     fs.writeFileSync(image, Buffer.from('image'))
     fs.writeFileSync(audio, Buffer.from('audio'))
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
     engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
@@ -729,7 +729,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     // 超过 BGM 单文件上限（15MB）
     const handle = fs.openSync(bgm, 'w')
     try { fs.ftruncateSync(handle, 15 * 1024 * 1024 + 1) } finally { fs.closeSync(handle) }
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
     engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
@@ -759,7 +759,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = path.join(root, 'audio.mp3')
     fs.writeFileSync(image, Buffer.from('image'))
     fs.writeFileSync(audio, Buffer.from('audio'))
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
     engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
@@ -802,7 +802,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     fs.writeFileSync(image, Buffer.from('image'))
     fs.writeFileSync(audio, Buffer.from('audio'))
     fs.writeFileSync(bgm, 'audio')
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
     engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
@@ -834,7 +834,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     fs.writeFileSync(image, Buffer.from('image'))
     fs.writeFileSync(audio, Buffer.from('audio'))
     fs.writeFileSync(bgm, Buffer.from('bgm'))
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
     // 模拟运行中惰性 GC：旁白合并后 BGM 被删除
@@ -872,7 +872,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     fs.writeFileSync(audio, Buffer.from('audio'))
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, Buffer.from('segment')))
     engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
@@ -902,7 +902,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     fs.writeFileSync(audio, Buffer.from('audio'))
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._probeMediaDuration = vi.fn()
@@ -938,7 +938,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     // 音频探测 3s → 补齐后片段探测 6s
@@ -987,7 +987,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._probeMediaDuration = vi.fn().mockResolvedValue(10)
@@ -1023,7 +1023,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image], { maxBuffer: 10 * 1024 * 1024 })
     const audio = path.join(root, 'silence2s.m4a')
     await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', audio], { maxBuffer: 10 * 1024 * 1024 })
-    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const baseOpts = {
       width: 320, height: 180, fps: 24, imageEffect: 'none', transition: 'none',
       subtitleText: '', subtitleStyle: undefined, watermark: false, watermarkText: '', watermarkConfig: undefined,
@@ -1083,7 +1083,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
@@ -1117,7 +1117,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     // 55 段 × 50s = 2750s < 3000（通过音频和校验）；minSceneDuration=60 → 55 × max(50,60) = 3300 > 3000 → 预检拒绝
     const scenes = Array.from({ length: 55 }, () => ({ imagePath: image, audioPath: audio, text: 'x' }))
@@ -1151,7 +1151,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     const segmentCalls = []
     engine._probeMediaDuration = vi.fn().mockResolvedValue(probed)
@@ -1199,7 +1199,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       await genAudio(audio1)
       await genAudio(audio2)
       await genAudio(bgm)
-      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
       const result = await engine.compose({
         scenes: [
           { imagePath: image1, audioPath: audio1, text: '场景一' },
@@ -1233,7 +1233,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     try {
       await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image], { maxBuffer: 10 * 1024 * 1024 })
       await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', audio], { maxBuffer: 10 * 1024 * 1024 })
-      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
       // 场景音频探测 2s → 渲染后片段探测 6s
       engine._probeMediaDuration = vi.fn()
         .mockResolvedValueOnce(2)
@@ -1254,7 +1254,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     if (!findFfprobe()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-invalid-probe-'))
     const invalidMedia = writeFixture(root, 'invalid.mp3', 'not-a-media-file')
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const engine = new Story2VideoComposeEngine({ outputDir: root, log })
 
     try {
@@ -1282,7 +1282,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
@@ -1311,7 +1311,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
     engine._createSegment = vi.fn(async () => fs.writeFileSync(path.join(root, 'out.mp4'), 'seg'))
@@ -1357,7 +1357,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._probeMediaDuration = vi.fn(async () => 1)
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
@@ -1398,7 +1398,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
       allowedMediaRoots: [root],
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
 
     try {
@@ -1420,7 +1420,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     fs.writeFileSync(audio, 'audio')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._createSegment = vi.fn()
 
@@ -1448,7 +1448,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     })
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._probeMediaDuration = vi.fn().mockResolvedValueOnce(181).mockResolvedValueOnce(2)
     engine._createSegment = vi.fn()
@@ -1475,7 +1475,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     })
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       // 旁白总时长上限放宽到 60 分钟：成片检查在前（默认 3000s），确保本用例命中「成片总时长」分支而非旁白分支
       maxAudioDurationSeconds: 60 * 60,
     })
@@ -1505,7 +1505,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     })
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     // 每段 149s × 20 = 2980s ≤ 3000s（50 分钟）
     engine._probeMediaDuration = vi.fn(async () => 149)
@@ -1535,7 +1535,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     })
     const passEngine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     // 20 × 150s = 3000s = 恰好 50 分钟，锁定严格 > 边界（3000 通过）
     passEngine._probeMediaDuration = vi.fn(async () => 150)
@@ -1550,7 +1550,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
 
       const rejectEngine = new Story2VideoComposeEngine({
         outputDir: root,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       })
       // 20 × 150.005s = 3000.1s > 3000s → 成片检查拒绝
       rejectEngine._probeMediaDuration = vi.fn(async () => 150.005)
@@ -1576,7 +1576,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     })
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       maxDurationSeconds: 50 * 60,
       maxAudioDurationSeconds: 40 * 60, // 更严的旁白上限
     })
@@ -1598,7 +1598,7 @@ describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）'
   function makeProgressEngine (root, overrides = {}) {
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._probeMediaDuration = vi.fn(async () => 2)
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
@@ -2124,7 +2124,7 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'compose-chunk-test-'))
-    engine = new Story2VideoComposeEngine({ outputDir: tmp, log: { info() {}, warn() {}, error() {} } })
+    engine = new Story2VideoComposeEngine({ outputDir: tmp, log: { info() {}, warn() {}, error() {}, notify() {} } })
   })
 
   afterEach(() => {
@@ -2358,7 +2358,7 @@ describe('Story2VideoComposeEngine._createSegment — 编码失败降档重试',
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-ladder-'))
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     return { engine, root }
   }
@@ -2434,7 +2434,7 @@ describe('4K 能力开关（maxOutputResolution）', () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-gate-'))
     try {
-      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
       const result = await engine.compose(
         { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
         { resolution: '3840x2160' },
@@ -2452,7 +2452,7 @@ describe('4K 能力开关（maxOutputResolution）', () => {
     try {
       const engine = new Story2VideoComposeEngine({
         outputDir: root,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
         maxOutputResolution: '4k',
       })
       const result = await engine.compose(
@@ -2470,7 +2470,7 @@ describe('4K 能力开关（maxOutputResolution）', () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-seg-'))
     try {
-      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
       const result = await engine.renderSegment(
         { imagePath: 'a.png', audioPath: 'a.mp3' },
         { resolution: '3840x2160' },
@@ -2484,7 +2484,7 @@ describe('4K 能力开关（maxOutputResolution）', () => {
   })
 
   it('_currentMaxOutputResolution：惰性 getter 生效、未知值/异常回退静态值（无 ffmpeg 依赖）', () => {
-    const mk = (opts) => new Story2VideoComposeEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, ...opts })
+    const mk = (opts) => new Story2VideoComposeEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, ...opts })
     expect(mk({ maxOutputResolution: '1080p', getMaxOutputResolution: () => '4k' })._currentMaxOutputResolution()).toBe('4k')
     expect(mk({ maxOutputResolution: '4k', getMaxOutputResolution: () => 'bogus' })._currentMaxOutputResolution()).toBe('4k')
     expect(mk({ maxOutputResolution: '1080p', getMaxOutputResolution: () => { throw new Error('x') } })._currentMaxOutputResolution()).toBe('1080p')
@@ -2497,7 +2497,7 @@ describe('4K 能力开关（maxOutputResolution）', () => {
     try {
       const engine = new Story2VideoComposeEngine({
         outputDir: root,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
         maxOutputResolution: '1080p', // 构造期快照为默认
         getMaxOutputResolution: () => '4k', // 运行时功能开关已开启 4K
       })
@@ -2518,7 +2518,7 @@ describe('4K 能力开关（maxOutputResolution）', () => {
     try {
       const engine = new Story2VideoComposeEngine({
         outputDir: root,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
         maxOutputResolution: '4k',
         getMaxOutputResolution: () => '1080p', // 运营开关已回退
       })
@@ -2547,7 +2547,7 @@ describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，202
       outputDir: root,
       allowedMediaRoots: [root],
       maxInputFileBytes: 100 * 1024 * 1024,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
   }
 
@@ -2707,7 +2707,7 @@ describe('moving 水印后置烧录（成片级时间轴，跨镜头连续漂移
       // CI（SKIP_NATIVE_MEDIA_TOOL_TESTS=1）下模块级 FFMPEG 为 null，compose 成功路径必须注入实例级二进制
 
       ffmpegBinary: 'ffmpeg',
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine._runFfmpegStage = vi.fn(async (_args, _options, details) => {
       // 后置烧录真实语义：写出产物，供 compose 末尾 hasUsableFile(composedPath) 校验；

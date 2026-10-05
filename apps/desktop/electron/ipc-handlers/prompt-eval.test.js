@@ -94,6 +94,6 @@ describe('prompt-eval ipc handlers', () => {
   })
 })
 
-const noopLog = { info: () => {}, warn: () => {}, error: () => {} }
+const noopLog = { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
 

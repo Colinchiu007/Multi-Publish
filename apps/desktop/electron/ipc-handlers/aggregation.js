@@ -74,7 +74,7 @@ function classifyError(e, fallbackMsg) {
  */
 function registerHandlers(ipcMain, deps) {
   const { pythonBridge, log, asrInstaller } = deps
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const installer = asrInstaller || require('../services/asr-installer')
 
   ipcMain.handle('aggregation:collect', async (_event, payload) => {

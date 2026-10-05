@@ -44,7 +44,7 @@ function makeDeps (overrides = {}) {
   const store = { getSetting: vi.fn(() => "test-secret") };
   const urlCollector = { collect: vi.fn(async () => realShapeCollectResult()) };
   const pythonBridge = { requestBackend: vi.fn(async () => ({ result_content: "改写后的正文" })) };
-  const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
   const rateControllerFactory = (opts) => new BatchRateController({ sleepFn: async () => {}, baseIntervalMs: 1, jitterMs: 0, ...opts });
   return { ipcMain, handlers, deps: { store, urlCollector, pythonBridge, log, rateControllerFactory, ...overrides } };
 }

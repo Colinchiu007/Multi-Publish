@@ -27,7 +27,7 @@ describe("UrlCollector._waitForContentReady —— 条件轮询替代固定 slee
 
   beforeEach(() => {
     vi.clearAllMocks();
-    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
     collector = new UrlCollector({ auditDir: null, log: logger });
   });
 

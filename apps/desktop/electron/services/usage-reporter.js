@@ -33,7 +33,7 @@ function classifyStatus (row) {
 class UsageReporter {
   constructor ({ store, log, getOpsCenterAuth, getClientId, getSchedulerMetrics }) {
     this._store = store
-    this._log = log || { info() {}, warn() {}, error() {} }
+    this._log = log || { info() {}, warn() {}, error() {}, notify() {} }
     this._getOpsCenterAuth = typeof getOpsCenterAuth === 'function' ? getOpsCenterAuth : () => null
     this._getClientId = typeof getClientId === 'function' ? getClientId : () => ''
     // P1：governor 调度可观测性提供者（取走并清零排队/冷却计数）；未注入则跳过

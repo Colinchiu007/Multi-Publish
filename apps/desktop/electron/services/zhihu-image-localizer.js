@@ -50,7 +50,7 @@ class ZhihuImageLocalizer {
     this._dirOverride = typeof opts.dir === 'string' ? opts.dir : null
     this._fetchFn = typeof opts.fetchFn === 'function' ? opts.fetchFn : null
     this._timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 20000
-    this._log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+    this._log = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
     this._dir = null
   }
 

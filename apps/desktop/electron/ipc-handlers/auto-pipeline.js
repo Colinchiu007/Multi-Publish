@@ -23,7 +23,7 @@ function classifyError(e, fallbackMsg) {
  */
 function registerHandlers(ipcMain, deps) {
   const { fullAutoPipeline, log } = deps;
-  const logger = log || { info() {}, warn() {}, error() {} };
+  const logger = log || { info() {}, warn() {}, error() {}, notify() {} };
 
   if (!fullAutoPipeline) {
     logger.error('[auto-pipeline] fullAutoPipeline 未注入，IPC handler 不可用');

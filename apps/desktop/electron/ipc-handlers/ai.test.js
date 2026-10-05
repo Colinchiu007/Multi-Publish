@@ -69,7 +69,7 @@ function createMockDeps(overrides = {}) {
       generateSummary: vi.fn(),
     },
     BrowserWindow: { fromWebContents: vi.fn(() => null), getAllWindows: vi.fn(() => []) },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     ...overrides,
   }
 }
@@ -185,7 +185,7 @@ describe('ai:rewrite 改写引擎 IPC', () => {
         getRecommendedStrategies: vi.fn(() => []),
       },
       BrowserWindow: { fromWebContents: vi.fn(() => null), getAllWindows: vi.fn(() => []) },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       ...overrides,
     }
   }
