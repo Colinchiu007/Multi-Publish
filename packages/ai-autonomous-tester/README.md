@@ -113,7 +113,7 @@ node scripts/run-agent-judge.js \
 
 ### 统一端到端命令（v0.12+）
 
-`bash
+```bash
 # 单次检测（默认，像素对比 + 需求审计）
 node scripts/run-autonomous-e2e.js --dev=apps/desktop
 
@@ -126,7 +126,7 @@ node scripts/run-autonomous-e2e.js \
 # CI 模式（跳过 server 和 visual，仅审计）
 node scripts/run-autonomous-e2e.js \
   --skip-server --skip-visual --llm=openai
-`
+```
 
 #### 参数说明
 | 参数 | 默认值 | 说明 |
@@ -141,7 +141,7 @@ node scripts/run-autonomous-e2e.js \
 | --auto-fix-visual | false | 自动更新视觉基线 |
 
 #### npm scripts
-`bash
+```bash
 # 全自主 3 轮循环
 npm run test:autonomous:full
 
@@ -153,9 +153,11 @@ npm run test:autonomous:multi-doc
 
 # CI 模式（需设置 LLM_PROVIDER）
 npm run test:autonomous:e2e:ci
-`
+```
 
----### 作为库使用
+---
+
+### 作为库使用
 
 ```javascript
 const {
@@ -315,12 +317,14 @@ Workflow: autonomous-loop.yml
 - **权限**：PR 使用只读 checkout，不注入模型密钥，也不自动 commit/push
 - **进程隔离**：Vite 固定监听 `127.0.0.1` 且启用 strict port；清理仅终止当前运行创建的 PID 树
 
-`yaml
+```yaml
 # 手动触发
 gh workflow run autonomous-loop.yml -f iterations=3 -f functional=true
-`
+```
 
----## ✅ AI Agent Judge — Coverage Audit
+---
+
+## ✅ AI Agent Judge — Coverage Audit
 
 **Decision**: PASS  **Score**: 0.85  **Coverage**: 100.0%
 
