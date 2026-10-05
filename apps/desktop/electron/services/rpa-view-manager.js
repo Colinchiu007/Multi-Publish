@@ -29,11 +29,17 @@ const sessionMixin = require('./rpa-view-session')
 const platformsMixin = require('./rpa-view-platforms')
 
 class RpaViewManager {
+  // C 方案：池参数解析静态暴露（测试断言默认值/覆盖行为）
+  static resolvePoolSize = sessionMixin.resolvePoolSize
+  static resolvePoolTtlMs = sessionMixin.resolvePoolTtlMs
+
   constructor() {
     this.mainWindow = null; this.windows = {}; this._nextId = 1
     this._progressCallback = null; this._responseListeners = {}
     // 每个发布会话配一个独立的 CancelToken（参考产品模式：阶段级可恢复取消）
     this._activeTokens = {}
+    // C 方案（publish-throughput-optimization）：窗口池（session mixin 提供 acquire/release/drain）
+    this._pool = null
   }
   setMainWindow(win) { this.mainWindow = win }
   onProgress(cb) { this._progressCallback = cb }
@@ -51,6 +57,9 @@ class RpaViewManager {
   // ========== Main publish entry ==========
   async publish(platform, article, authData, timeout) {
     timeout = timeout||120000
+    // C 方案：publishHealthy 是 RPA 轨归池判据（API 轨无窗口不涉及）；在 try 外声明供 finally 读。
+    // 不带初始化值——所有执行路径（try 内赋值/catch 赋值）都会在 finally 读取前先赋值。
+    let publishHealthy
     log.info('RpaView','publish start platform='+platform+' hasTitle='+Boolean(article&&article.title)+' hasVideo='+Boolean(article&&article.video_path)+' timeoutMs='+timeout)
     // API-first: if we have an API adapter for this platform, use it (no browser needed)
     const hasAccountProxy = Boolean(authData?.proxy)
@@ -115,20 +124,26 @@ class RpaViewManager {
       }
     }
     // RPA path (existing)
+    // C 方案（publish-throughput-optimization）：窗口池化——池键按逻辑会话（平台+账号），
+    // 池命中复用（保留持久 partition 登录态，跳过三段恢复）；未命中新建并做全量恢复。
+    const { win, reused } = this._acquireWindow(platform, article && article.accountId)
+    // 活动会话键保留自增 id（同一账号并发发布时各会话独立命名）
     const key = this._windowKey(platform, article&&article.accountId)
-    const partition = 'persist:rpa-'+key
     // 为本次 RPA 会话建立独立的 CancelToken
     const token = new CancelToken()
     this._activeTokens[key] = token
-    this._emitProgress(platform,'starting browser...',0)
-    const win = this._createWindow(partition)
+    this._emitProgress(platform, reused ? 'reusing browser session...' : 'starting browser...',0)
     this.windows[key] = win
     let removeProxyAuthHandler = function () {}
     try {
       if (hasAccountProxy) removeProxyAuthHandler = await this._configureProxy(win, authData.proxy)
-      if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies,platform); this._emitProgress(platform,'cookies restored',2) }
-      await this._restoreAuthPartitionCookies(win, platform, article&&article.accountId)
-      await this._restoreBrowserStorage(win, platform, authData)
+      // 登录态恢复只在新建窗口时执行：池内复用窗口的 cookie/localStorage 已在 partition 层，
+      // 重复恢复是纯浪费（C 方案收益来源之一）。
+      if (!reused) {
+        if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies,platform); this._emitProgress(platform,'cookies restored',2) }
+        await this._restoreAuthPartitionCookies(win, platform, article&&article.accountId)
+        await this._restoreBrowserStorage(win, platform, authData)
+      }
       // 每个操作前检查取消令牌
       token.throwIfCancelled()
       const mn = '_publish_'+platform
@@ -139,7 +154,8 @@ class RpaViewManager {
         publishFn,
         new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})
       ])
-      if (token.isCancelled) { return { success: false, error: 'Cancelled', code: -999, platform: platform } }
+      if (token.isCancelled) { publishHealthy = false; return { success: false, error: 'Cancelled', code: -999, platform: platform } }
+      publishHealthy = Boolean(result && result.success)
       // 统一结果日志：RPA 失败分支此前完全无日志（logging-coverage-audit 根因修复）
       if (result && result.success) {
         log.info('RpaView','publish done platform='+platform+' url='+(result.url||'')+(result.draft?' draft=true':''))
@@ -148,13 +164,16 @@ class RpaViewManager {
       }
       return result
     } catch(e) {
+      publishHealthy = false
       if (e && e.isCanceled) { log.info('RpaView','publish '+platform+': cancelled'); return { success:false, error:'Cancelled', code:-999, platform:platform } }
       log.error('RpaView','publish '+platform+': '+e.message+(e.stack?' | stack='+String(e.stack).split('\n').slice(0,3).join(' <- '):'')); return { success:false, error:e.message, platform:platform }
     }
     // eslint-disable-next-line no-unused-vars
     finally {
-      try { removeProxyAuthHandler() } catch (e) { /* ignore */ }; try { win.destroy() } catch (e) { /* ignore */ }
+      try { removeProxyAuthHandler() } catch (e) { /* ignore */ }
+      // C 方案：成功归池（导航 about:blank 后复用），失败/取消立即销毁（状态污染兜底）。
       delete this.windows[key]; delete this._activeTokens[key]
+      try { await this._releaseWindow(platform, article && article.accountId, win, publishHealthy) } catch (_e) { try { if (!win.isDestroyed()) win.destroy() } catch (_) { /* ignore */ } }
     }
   }
 
@@ -176,6 +195,8 @@ class RpaViewManager {
     // eslint-disable-next-line no-unused-vars
     for (let ki=0;ki<ks.length;ki++) { try { this.windows[ks[ki]].destroy() } catch (e) { /* ignore */ } }
     this.windows = {}; this._activeTokens = {}
+    // C 方案：cleanup 同步清空窗口池（应用退出路径）
+    try { this._drainWindowPool() } catch (e) { /* ignore */ }
     log.info('RpaView','cleaned up')
   }
 }

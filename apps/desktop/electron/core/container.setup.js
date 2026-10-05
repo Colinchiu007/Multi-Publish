@@ -64,6 +64,7 @@ const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-in
 const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
 const RewriteHardConstraintManager = require('../services/rewrite-hard-constraint-manager');
+const RewriteAiTasteMapManager = require('../services/rewrite-ai-taste-map-manager');
 const RewriteEngineService = require('../services/rewrite-engine');
 const KnowledgeLibraryService = require('../services/knowledge-library-service');
 const AiWriter = require('../services/ai-writer');
@@ -242,10 +243,12 @@ function createContainer(options) {
   container.register("templateManager", function() { return new TemplateManager(); });
   container.register("rewriteStrategyManager", function() { return new RewriteStrategyManager(); });
   container.register("rewriteHardConstraintManager", function() { return new RewriteHardConstraintManager(); });
+  container.register("rewriteAiTasteMapManager", function() { return new RewriteAiTasteMapManager(); });
   container.register("rewriteEngineService", function(c) {
     const svc = new RewriteEngineService({})
     svc.setStrategyManager(c.get("rewriteStrategyManager"))
     svc.setHardConstraintManager(c.get("rewriteHardConstraintManager"))
+    svc.setAiTasteMapManager(c.get("rewriteAiTasteMapManager"))
     svc.setStore(c.get("store"))
     svc.setKnowledgeLibrary(c.get("knowledgeLibraryService"))
     svc.setPerformanceStore(c.get("store"))
@@ -338,13 +341,13 @@ function createContainer(options) {
   container.register("oauthManager", function(c) { return new OAuthManager(c.get("store")); });
   container.register("batchManager", function(c) { return new BatchManager(c.get("store")); });
   container.register("dataSync", function(c) { return new DataSyncService(c.get("store")); });
-  // 频率守卫必须在此装配路径上注入 TaskQueue。2026-10-02 之前这里漏注入
-  // （只有 `options.taskQueue || { maxConcurrent: 3 }`），使 PublishIntervalGuard
-  // 全链路注册齐全、60+ 条单测全绿，但生产调用点为 0、publish_timeline 恒 0 行。
+  // B 方案（publish-throughput-optimization）：并发上限经 MP_QUEUE_MAX_CONCURRENT 覆盖（[1,10]，默认 3），
+  // 非法值回落默认并出声告警。
+  // 频率守卫必须在此装配路径上注入 TaskQueue（#2773 publish-frequency-control）。
   // guard 排在展开之后：不允许被 options 覆盖成 undefined 而静默关掉门禁。
   container.register("taskQueue", function(c) {
     return new TaskQueue(Object.assign(
-      { maxConcurrent: 3 },
+      { maxConcurrent: TaskQueue.resolveQueueMaxConcurrent() },
       options.taskQueue,
       { publishIntervalGuard: c.get("publishIntervalGuard") }
     ));

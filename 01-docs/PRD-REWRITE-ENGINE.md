@@ -973,3 +973,18 @@ LLM 返回原文
 3. 改写页无「AI 味等级」的阈值提示（如 >30% 显示警示）；该分数已在结果区展示（N%），但无任何分支行为——与 §十一.3「单段检测告警」同属 UX 增强候选。
 4. `intensity` 与 `tone` 由策略字段间接影响（tone 影响语气处理），但策略 UI 未暴露「强度」概念；保持现状，避免把内部参数泄漏为用户配置。
 
+---
+
+## 十六、去 AI 味运营中心化（ai-taste-ops-center，2026-10-04）
+
+§十五所述「设置面」的落地：词表数据与强度参数从代码常量升级为运营中心可维护的运行时配置。设计决策（grilling Q1-Q12 全按推荐）与六维度详写见 **01-docs/PRD-REWRITE-AI-TASTE-OPS-CENTER-2026-10-04.md**；openspec change `ai-taste-ops-center`（proposal/design/delta-spec/tasks）。
+
+**能力概要**：
+
+- **词库管理**（运营中心 `/rewrite-ai-taste`，adminOnly）：全量表格 + 搜索/级别/状态筛选 + 行内启停（停用=桌面端跳过该词替换，含禁用内置词）+ JSON 导入导出（整批原子，≤500 条）。词库语义为**叠加 + 键覆盖**：引擎内置 117 条是安全底线，运营中心同键覆盖替换方向；管理页/校验/桌面端三层判据逐条一致（QM-2 新增「词库双端校验同判据」门禁条目钉住）。
+- **下发与生效**：bootstrap 新增 `rewrite_ai_taste_map` 字段（全量未删条目含 enabled=0，随整包 Ed25519 签名）；桌面端 `rewrite-ai-taste-map-manager` 持久化（userData JSON 原子写）并注入引擎 `setAiTasteCustomization`；词库变化即重建引擎（remover 每次改写新建）——**即时生效，免重启**；离线/未配置回退内置词表，行为与升级前逐字节一致。
+- **强度参数**（Q4）：策略 `postProcess.aiTasteIntensity`（1-3 整数，随既有策略通道下发）：1=仅词级替换（跳 Pass 3 句长修复与口语化）、2=现状、3=追加 casual 口语化；非法回 2。
+- **终端用户面不变**：改写页零改动（无开关/无滑杆）——词库与强度是运营侧配置，用户仍通过选策略间接影响。
+
+**交付**：两刀 TDD（刀 1 PR #2877 merge `d049bfb3`；刀 2 PR #2884）。测试矩阵：引擎 T1-T8 + C1-C5、ops-center S1-S8、桌面 manager M1-M9、sync 消费 Y1-Y4、前端 adminOnly 清单；全量回归引擎 194/194、pytest 478/478、桌面定向 81/81、前端 57/57。QM-6 外部评审 findings（2W3I）全部处置：W1 重复 word 去重（M8 锁）、W2 toggle 失败回滚+停用确认、I3 码点计数对齐（M9 锁）、I4 空导入前置拦截、I5 导出含 description。
+

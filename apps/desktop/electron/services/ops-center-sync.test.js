@@ -924,3 +924,62 @@ describe('OpsCenterSync 零配置 Bearer 同步（bearer-fix 回归）', () => {
     expect(svc._getManualUrl()).toBe('')
   })
 })
+
+// ── 去 AI 味词库运行时下发消费（ai-taste-ops-center 刀 2，Y1-Y4）──
+// 同步补硬约束先例缺失的同类消费链用例（applyRemote 调用/缺字段跳过/changed 重注入/抛错隔离）
+describe('OpsCenterSync 去 AI 味词库消费（rewrite_ai_taste_map）', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  function makeDeps () {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const manager = { applyRemote: vi.fn(() => true) }
+    svc.setRewriteAiTasteMapManager(manager)
+    const engineService = { setAiTasteMapManager: vi.fn() }
+    svc.setRewriteEngineService(engineService)
+    return { svc, manager, engineService }
+  }
+
+  it('Y1 payload.rewrite_ai_taste_map 数组 → 调 applyRemote', () => {
+    const { svc, manager } = makeDeps()
+    svc.applyRuntime({
+      announcements: [],
+      rewrite_ai_taste_map: [{ word: '综上所述', replacement: '归根结底', severity: 'S1', enabled: true }],
+      synced_at: 't',
+    })
+    expect(manager.applyRemote).toHaveBeenCalledTimes(1)
+    expect(manager.applyRemote).toHaveBeenCalledWith([
+      { word: '综上所述', replacement: '归根结底', severity: 'S1', enabled: true },
+    ])
+  })
+
+  it('Y2 缺字段/非数组 → 不调 applyRemote（保持本地现状）', () => {
+    const { svc, manager } = makeDeps()
+    svc.applyRuntime({ announcements: [], synced_at: 't' })
+    svc.applyRuntime({ announcements: [], rewrite_ai_taste_map: 'bad', synced_at: 't' })
+    expect(manager.applyRemote).not.toHaveBeenCalled()
+  })
+
+  it('Y3 changed=true → 重注入引擎服务（缓存失效）；unchanged → 不重注入', () => {
+    const { svc, manager, engineService } = makeDeps()
+    manager.applyRemote = vi.fn(() => true)
+    svc.applyRuntime({ announcements: [], rewrite_ai_taste_map: [{ word: 'w', replacement: 'r', severity: 'S2', enabled: true }], synced_at: 't' })
+    expect(engineService.setAiTasteMapManager).toHaveBeenCalledTimes(1)
+    manager.applyRemote = vi.fn(() => false)
+    svc.applyRuntime({ announcements: [], rewrite_ai_taste_map: [{ word: 'w', replacement: 'r', severity: 'S2', enabled: true }], synced_at: 't2' })
+    expect(engineService.setAiTasteMapManager).toHaveBeenCalledTimes(1)
+  })
+
+  it('Y4 applyRemote 抛错 → 仅 warn 不影响其他 runtime 字段', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const manager = { applyRemote: vi.fn(() => { throw new Error('boom') }) }
+    svc.setRewriteAiTasteMapManager(manager)
+    svc.applyRuntime({
+      announcements: [{ title: '公告', severity: 'info', content: '' }],
+      rewrite_ai_taste_map: [{ word: 'w', replacement: 'r', severity: 'S2', enabled: true }],
+      synced_at: 't',
+    })
+    expect(svc.getRuntimeState().announcements).toHaveLength(1)
+  })
+})

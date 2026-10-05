@@ -146,6 +146,7 @@ function extractContext(container) {
   templateManager.seedDefaults()
   const rewriteStrategyManager = container.get('rewriteStrategyManager')
   const rewriteHardConstraintManager = container.get('rewriteHardConstraintManager')
+  const rewriteAiTasteMapManager = container.get('rewriteAiTasteMapManager')
   const rewriteEngineService = container.get('rewriteEngineService')
   const knowledgeLibraryService = container.get('knowledgeLibraryService')
   const patternExtractionService = container.get('patternExtractionService')
@@ -227,6 +228,10 @@ function extractContext(container) {
   // 改写硬约束运行时下发（rewrite-hard-constraints，2026-09-19）→ 默认版本注入引擎
   if (opsCenterSync && typeof opsCenterSync.setRewriteHardConstraintManager === 'function') {
     opsCenterSync.setRewriteHardConstraintManager(rewriteHardConstraintManager)
+  }
+  // 去 AI 味词库运行时下发（ai-taste-ops-center，2026-10-03）→ 词库覆盖层注入引擎
+  if (opsCenterSync && typeof opsCenterSync.setRewriteAiTasteMapManager === 'function') {
+    opsCenterSync.setRewriteAiTasteMapManager(rewriteAiTasteMapManager)
   }
   // 硬约束运行中更新 → 引擎缓存失效（审查 M2：sync 后新约束立即生效，无需重启）
   if (opsCenterSync && typeof opsCenterSync.setRewriteEngineService === 'function') {
@@ -475,7 +480,7 @@ function extractContext(container) {
       AccountManager, history, autoUpdater, hotkeys, firstRun,
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
-      rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
+      rewriteStrategyManager, rewriteHardConstraintManager, rewriteAiTasteMapManager, rewriteEngineService,
       knowledgeLibraryService, patternExtractionService,
       performanceRecrawlService, patternAttributionService,
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,

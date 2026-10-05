@@ -215,6 +215,12 @@ const routes = [
     meta: { requiresAuth: true, adminOnly: true },
   },
   {
+    path: '/rewrite-ai-taste',
+    name: 'RewriteAiTaste',
+    component: () => import('../views/RewriteAiTaste.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/pipeline-options',
     name: 'PipelineOptions',
     component: () => import('../views/PipelineOptions.vue'),

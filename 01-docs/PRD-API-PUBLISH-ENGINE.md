@@ -52,7 +52,7 @@
 
 | # | 功能 | 验收标准 | 状态（2026-09-26 W3 回写） |
 |---|------|----------|------|
-| F12 | 签名页基建 + 快手 spike | webpack 模块抽取 + 网络拦截双验证；spike 三步（抽取/比对/活体直发）任一失败即止步，快手保持 dom-rpa | **✅ W3 已交付（2026-09-26，PR #2413/#2388/#2424）**：基建（signer-page-manager + 抽取器 + 拦截双验证 + 白名单 IPC + preload 桥 + locales 成对）已入 main；**M3 裁决 = GO**（S0 公式探针 INCONCLUSIVE→本地签名器路线作废；S2a 静态侦察 Tier-A 方向成立；S2b 活体终判 **Tier-A GO**——页面自带 `$encode` VM 为我方独立构造请求产出的 sig3 被平台接受）。快手链已按 `api-then-dom` 入波（九步链 + caption 合同 + 109/非 JSON 语义），契约面 258 测全绿。**S3 真实直发（三步中的第三步）未单独执行，语义并入 §8 活体验收**，详见 `rpa-api-publish/evidence/api-w3-kuaishou/spike-verdict.md` |
+| F12 | 签名页基建 + 快手 spike | webpack 模块抽取 + 网络拦截双验证；spike 三步（抽取/比对/活体直发）任一失败即止步，快手保持 dom-rpa | **✅ W3 已交付（2026-09-26，PR #2413/#2388/#2424）**：基建（signer-page-manager + 抽取器 + 拦截双验证 + 白名单 IPC + preload 桥 + locales 成对）已入 main；**M3 裁决 = GO**（S0 公式探针 INCONCLUSIVE→本地签名器路线作废；S2a 静态侦察 Tier-A 方向成立；S2b 活体终判 **Tier-A GO**——页面自带 `$encode` VM 为我方独立构造请求产出的 sig3 被平台接受）。快手链已按 `api-then-dom` 入波（九步链 + caption 合同 + 109/非 JSON 语义），契约面 258 测全绿。**S3 真实直发（三步中的第三步）未单独执行，语义并入 §8 活体验收**，详见 `rpa-api-publish/evidence/api-w3-kuaishou/spike-verdict.md`。**⚠️ 2026-09-29 活体终裁（tasks 6.3）= not-go**：M3 的 GO 仅代表签名层可通；11 轮活体中真实链推进到 `upload/complete` 即被平台边缘层裸 400 拒绝（第 11 轮请求头与真实浏览器逐字一致仍被拒，根因收敛到传输层 TLS 指纹/HTTP 协议版本），**API 轨对快手当前不可用、DOM 轨为正确架构**（11/11 轮 DOM 兜底发布成功）。取证见 `rpa-api-publish/evidence/api-w3-kuaishou/api-track-verdict-8layers-network-forensics-20260929.md`，详 §13.6 |
 | F13 | 小红书 API 发布 | 仅当 F12 签名基建验证通过 | **⏸ 止步（未入本波）**：F12 基建虽 GO，但小红书专属前置未满足——`x-s/x-t` 在参考产品 bundle 中经 `getNewSign` 走**外包签名服务**（与快手共用同一服务），无反推本地公式的已知路径，旧 `getXiaohongshuSign` 属未验证近似；**页面内是否存在可抽取的 x-s 签名器尚未经一次快手同型 spike 验证**（Tier-B 待验证）。`xiaohongshu.x-s` 注册表 provider 槽已预留可被签名页基建服务，链实现待该 spike 通过后再启。详见技术方案 v2 §6 止步裁决 |
 | F14 | 头条号文章 | W4 前置取证其链无外包签名，否则并入签名页契约或止步 | ⏳ 未启动（W4） |
 | F15 | 知乎视频+文章 | 复用 zhihuPublishVideo@2119327 / publishZhihuArticle@2106013 链；W4 前置取证自包含性 | ⏳ 未启动（W4） |
@@ -124,6 +124,118 @@
 - **测试**：契约单测全离线可跑（CI 无网络依赖）；活体验收不进 CI。
 - **版本/打包**：涉及 `packages/rpa-engine`? 否——仅 api-publish-engine + electron 服务层薄接线；若触 electron/ 则执行 QM-1 打包验证三件套。
 
+## 7A. 发布授权契约：执行前复校激活态与权益（change: publish-permission-recheck）
+
+> 本节为 `publish-permission-recheck`（PR #2888）的实现契约。**定位：纵深防御**——定时发布路径（`_authorizeScheduledEntry`）早有同等契约，本次补齐即时/批量发布路径的**对称性**、显式 **fail-closed** 与**测试缺口**。中央预检（L661-673）对 Logto 用户本就 fail-closed，故本次**不宣称修复活跃安全漏洞**，而是「叠加保障 + 契约对称 + 回归锁」。
+
+### 7A.1 数据校验（校验项与判据）
+
+| # | 校验对象 | 判据 | 失败后果 | 是否触发权益消费 |
+|---|---------|------|---------|----------------|
+| V1 | `ownerSubject` 形态 | 非空字符串 | 403 `SCHEDULE_OWNER_REQUIRED` | 否 |
+| V2 | API Key 归属分支 | `_identityAuthRequired === false` 且 `ownerSubject` 命中 `/^api-key:[a-f0-9]{64}$/` | 走 `_authorizeApiKeyScheduledOwner` | 按 API Key 分支语义 |
+| V3 | 业务用户仓库可用性 | `_businessIdentityRepository.findBySubject` 为函数 | 503 `BUSINESS_USER_REPOSITORY_NOT_CONFIGURED` | 否 |
+| V4 | 业务用户存在性 | `findBySubject("logto", subject)` 返回非 null | 403 `BUSINESS_USER_NOT_FOUND` | 否 |
+| V5 | 业务用户激活态 | `assertBusinessUserActive(user)` 通过 | 403 `BUSINESS_USER_SUSPENDED` / `BUSINESS_USER_DELETED` / `BUSINESS_USER_INACTIVE` | **否（关键）** |
+| V6 | 权益可用性 | `_assertEntitlementFeature(ctx, "cloud_publish")` 通过 | 403 无权（`当前账号无权执行此操作`） | 否 |
+| V7 | 权益消费量 | `Math.max(1, amount)`——单条 =1，批量 = `platforms.length` | 403 无权 / 503 服务不可用（`业务用户或权益服务暂时不可用`） | 失败即不计入 |
+
+**校验顺序不可调换**：V1→V2→V3→V4→V5→V6→V7。任一步失败立即中断，后续步骤与发布动作均不执行，权益消费计数保持 0。
+
+### 7A.2 流程（执行前复校时序）
+
+```
+POST /api/v1/publish 或 /api/v1/batch-publish
+  │
+  ├─[1] 中央路由预检（L661-673，行为不变）
+  │      _ensureRequestIdentity + _assertEntitlementFeature
+  │
+  ├─[2] _authorizeImmediateEntry(req, amount)   ← 本次新增（叠加，非替换）
+  │      ├─ 取 ownerSubject = req.auth.subject
+  │      ├─ API Key 分支？→ _authorizeApiKeyScheduledOwner（校验归属与撤销态）
+  │      ├─ 无 Logto 校验器？→ 直接放行（return true）
+  │      ├─ ownerSubject 非法 → 403 SCHEDULE_OWNER_REQUIRED
+  │      ├─ 仓库未配置 → 503 BUSINESS_USER_REPOSITORY_NOT_CONFIGURED
+  │      ├─ findBySubject → null → 403 BUSINESS_USER_NOT_FOUND
+  │      ├─ assertBusinessUserActive → 403 SUSPENDED/DELETED/INACTIVE
+  │      ├─ _assertEntitlementFeature("cloud_publish")
+  │      └─ _consumeEntitlementFeature("cloud_publish", Math.max(1, amount))
+  │
+  └─[3] 校验通过 → 执行实际发布链路
+```
+
+### 7A.3 功能逻辑
+
+- **对称契约**：`_authorizeImmediateEntry` 与 `_authorizeScheduledEntry`（L511-534）同构——API Key 分支 → `findBySubject` → `assertBusinessUserActive` → `_assertEntitlementFeature` → `_consumeEntitlementFeature`。**改一处须同步另一处**（源码注释已标注）。
+- **消费量语义**：单条发布固定消费 1；批量发布按 `platforms.length` 消费，`Math.max(1, amount)` 兜底防 0/负数。
+- **叠加而非替换**：中央预检行为**完全不变**；`_authorizeImmediateEntry` 是第二道闸。任一层 fail-closed 都返回既有契约码，**不新增错误码、不改文案**。
+- **API Key 分支豁免**：API Key owner 走既有 `_authorizeApiKeyScheduledOwner`，**不触发** Logto 业务用户激活态检查，错误码 `API_KEY_STORE_UNAVAILABLE`(503) / `SCHEDULE_OWNER_REVOKED`(403) / `SCHEDULE_OWNER_INVALID`(403) 保持原语义。
+
+### 7A.4 交互逻辑与显示项（API 契约层）
+
+本变更为**服务端契约层**，无新增前端界面。对调用方（桌面端 / ops-center）而言：
+
+- 请求形态不变，响应结构与错误码**全部沿用既有契约**，前端无需适配。
+- 失败响应体形如 `{ success: false, error: "<错误码>", message: "<提示文字>" }`。
+
+### 7A.5 提示文字（错误码 → 文案映射）
+
+| 错误码 | HTTP | 面向调用方/用户的提示文字 | 触发条件 |
+|--------|------|------------------------|---------|
+| `SCHEDULE_OWNER_REQUIRED` | 403 | `当前账号无权执行此操作` | ownerSubject 缺失或非法 |
+| `BUSINESS_USER_NOT_FOUND` | 403 | `当前账号无权执行此操作` | Logto 业务用户不存在 |
+| `BUSINESS_USER_SUSPENDED` | 403 | `当前账号无权执行此操作` | 业务用户已暂停 |
+| `BUSINESS_USER_DELETED` | 403 | `当前账号无权执行此操作` | 业务用户已删除 |
+| `BUSINESS_USER_INACTIVE` | 403 | `当前账号无权执行此操作` | 业务用户非激活 |
+| `BUSINESS_USER_REPOSITORY_NOT_CONFIGURED` | 503 | `业务用户或权益服务暂时不可用` | 业务用户仓库未配置 |
+| 权益不足（透传） | 403 | `当前账号无权执行此操作` | `requireFeature`/`consumeFeature` 抛无权 |
+| 权益服务不可用（透传） | 503 | `业务用户或权益服务暂时不可用` | 权益服务抛不可用 |
+
+> 文案**与现网完全一致**，本变更不引入任何新文案，故不涉及 locale 成对修改。
+
+### 7A.6 回归锁（测试覆盖）
+
+`packages/api-publish-engine/test/publish-permission-recheck.test.js`（8 例全绿）：
+
+1. 业务用户 `suspended` → 即时发布 403 + `requireFeature`/`consumeFeature` 计数为 0
+2. 业务用户 `suspended` → 批量发布 403 + 消费计数 0
+3. `deleted` / `inactive` / `null` → 403 对应错误码 + 消费计数 0
+4. 仓库未配置 → 503
+5. 权益不足 → 透传既有错误码
+6. 正常态 → `consumeFeature("cloud_publish", 1)` **恰好 1 次**（防重复消费）
+7. API Key 分支 → 走 `_authorizeApiKeyScheduledOwner`，不触发激活态检查
+8. **脱离中央预检也能 fail-closed**（证明叠加层独立有效）
+
+## 7B. 发布链路日志可观测性（change: publish-logging-observability）
+
+> 本节为 `publish-logging-observability`（PR #2848）的实现契约。目标：让限流/排队/冷却等待与重试风暴**可观测、可审计**，并把超限大文件压回债务熔断线（500 行）以内。
+
+### 7B.1 日志契约治理（统一标准）
+
+- 每个 IPC handler 记录四阶段：`enter` / `validation-failed` / `ok` / `error`，统一含**耗时**与**脱敏后的关键参数**。
+- 脱敏由 `logger.js` 统一处理（路径类参数只取尾部片段，如 `videoPath.slice(-80)`）。
+- 新增模块：`governor-observability.js`（49 行）、`governor-constants.js`（57 行）、`log-sampler.js`（38 行）、`publish-helpers.js`（65 行）。
+
+### 7B.2 日志风暴护栏（log storm guard）
+
+- **问题**：限流重试风暴会产生海量重复日志，淹没真正有用的信号。
+- **判据**：同一 messageKey 在窗口期内的重试日志条数受 `retryLogMaxBurst` **硬上限**约束。
+- **行为**：超出上限后不再逐条打印，改为汇总条；恢复后正常打印。
+
+### 7B.3 日志注入消毒（log injection sanitization）
+
+- **问题**：外部可控字符串（平台名、账号名、标题）进入日志时，可注入换行/控制字符伪造日志行。
+- **判据**：逐字符 `charCodeAt >= 32` 判定，**不使用控制字符正则**（`[\x00-\x1f]` 会被 ESLint `no-control-regex` 拦截）。
+- **覆盖**：`log-injection-sanitization.test.js`。
+
+### 7B.4 债务线压线抽取
+
+抽取前 `api-usage-governor.js` 504 行、`publish.js` 500 行（均 ≥500 硬熔断）；抽取后分别降至 489 / 469，**严格 <500**。
+
+### 7B.5 关键教训（可复用）
+
+> **限流/重试类单测禁止依赖全局随机源**（本例 jitter）。正确做法：把随机抖动点抽成模块级可注入函数（`governorConstants.jitter`），测试在 `require` 治理模块**之前**替换为 `() => 0`——既保证确定性又把睡眠归零。同时：大文件演进要「压线前先抽」，`.lines >= 500` 是**硬熔断（含 500）**，抽取后必须严格 `<500`。
+
 ## 8. 交付与验收流程（每波）
 
 1. `scripts/session-init.sh api-publish-w<N>` 建独立 worktree（D 盘，`codex/api-publish-w<N>` 分支）。
@@ -140,7 +252,7 @@
 | M0（已达成） | 逆向取证 + 21 问设计锁定 + 技术方案 v2 | 本文档 §1-§8 齐备 |
 | M1 | W1 上线：F1-F10 全绿 + 3 平台活体证据 | §8 流程走完 |
 | M2 | W2 抖音裁决：通过或回退（二选一，有记录） | F11 判据 |
-| M3 | W3 spike 裁决（止损阀）**已达成 2026-09-26：GO** | F12 三步判据——S0 INCONCLUSIVE / S2a 方向成立 / S2b Tier-A GO；S3 真实直发待活体验收（不阻塞开发） |
+| M3 | W3 spike 裁决（止损阀）**2026-09-26 spike GO → 2026-09-29 活体终裁 not-go（定案）** | F12 三步判据——S0 INCONCLUSIVE / S2a 方向成立 / S2b Tier-A GO；S3 并入 6.3 活体裁决，结果 not-go：签名可通 ≠ API 轨可用，`upload/complete` 协议层被边缘拒绝（详 §13.6） |
 | M4 | W4 长尾 + DOM 退役评估开始 | F14/F15 + §6.4；前置：F13 小红书需一次页面内 x-s 可抽取性 spike 才能解锁 |
 
 ## 10. 风险登记
@@ -933,7 +1045,28 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - 新增三测登记 `scripts/run-tests.js` VITEST_FILES：`kuaishou-video-chain.test.js`（链 19 测：全链序列 method/URL/headers/body 逐字段对照切片 + fail-closed 面）、`kuaishou-adapter.test.js`（委托断言）、`kuaishou-legacy-chain-gate.test.js`（grep 门禁）。
 - 基建侧：`browser-page-provider.test.js`（引擎）+ `signer-page-manager.test.js`/`signer-assembly.test.js`（桌面 2 files / 37 测）。
 - **W3 收口门禁复验（2026-09-26，origin/main `f71343a82d`）**：引擎 `run-tests.js` EXIT=0，**31 files / 258 tests 全绿**；Gate12 品牌残留 PASS（6201 tracked 文件）/ Gate3 密钥 PASS / Gate7 成对+键存在 PASS；`openspec validate api-publish-engine-w3 --strict` valid。
-- 未完成的收口项（诚实登记，不得视为已验）：**QM-1 最终包验证**与 **6.3 活体裁决验收**（真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套）同属需用户在场的下一波；W1 §7.5-7.7 / W2 §6.2-6.4 为同形态尾债，建议一次真实账号窗口三波合并验收。
+- 收口更新（2026-10-04）：**QM-1 最终包验证**已随 kuaishou-w3-live-fix 波闭环（归档 tasks 3.2：`pnpm run build:dir` 重打，asar 含 dist/index.html + auth-partition.js、require 链通过、exe 存活 stderr 零输出）；**6.3 活体裁决验收**已于 2026-09-28/29 用户在场完成，结果 **not-go 定案**（详 §13.6），验收事实=11 轮活体 + 网络级取证本身，不再存在「等补活体通过」尾债；W1 §7.5-7.7 / W2 §6.2-6.4 尾债仅剩「API 轨真实成功发布」一项，快手已由 not-go 出局。
+
+### 13.6 活体裁决与定案（tasks 6.3，2026-09-28/29，用户在场 11 轮）
+
+**裁决：not-go（定案）——API 轨对快手当前不可用，DOM 轨为正确架构。**
+
+11 轮活体（真实标题、私密/草稿优先、间隔均 ≥18min、CDP 代操作、风控即停未换号）逐轮暴露并修复八层缺陷：
+
+| 层 | 缺陷 | 收敛 | PR |
+|---|------|------|----|
+| ① | 形状翻译：RpaView API-first 裸传 article，链契约要 `taskData.video.path` | 共享翻译器 `api-task-data.js` | #2578 |
+| ②③ | 链缺省不走注册表 + registry 命令名不匹配 | `_sign` 回退 `registry.sign` + 按注册名透传 | #2580 |
+| ④ | provider require 解析到门面（双模块陷阱，注册日志假绿） | 直指 `src/signer/index` | #2582 |
+| ⑤⑥ | sessionKey 未下传 + `bindSignerCookie` 零调用方 | opts 携带 accountId + API-first 分支求签前预绑 | #2585 |
+| ⑦ | `upload/complete` 裸 400（无响应体、缺 `X-KSLOGID`/CORS 头=边缘级拒绝） | 四轮头部级收敛：Content-Type/Accept（#2612）→ **axios 对 `data:''` 默认注入 form-urlencoded** 根因移除（#2621）→ 上传域无 Cookie+短 Referer（#2630）→ sec-ch-ua×3+捕获 UA（#2653）；**第 11 轮逐字对齐终验仍 400** ⇒ 差异在连接/协议层（TLS 指纹/HTTP 版本/QUIC，Node axios=OpenSSL+HTTP/1.1 无法复刻 Chrome=BoringSSL+HTTP/2-3） | #2594/#2616/#2619 诊断链 |
+| ⑧ | 登录门拦截（第 10 轮 `signed_out`） | 产品决策非缺陷；重启后身份自动恢复 `authenticated`，不构成阻塞 | — |
+
+- **每轮 DOM 轨兜底发布成功**（11/11），末条作品 `3xxqqt4k9xnspcy`；网络级取证捕获真实浏览器 42 条请求原文入档。
+- **与 M3 裁决的关系**：spike GO（S2b 签名层）≠ 平台接受我方 Node 侧独立构造的**上传链请求**；止损阀语义在集成验收层迟到触发，链代码已合并（事实不可逆），design §6「no-go 即止步」以本定案补齐。
+- **收口待决项**：`publishMode: api-then-dom` 现为空转开关（每次必败后降级 DOM，与 dom-only 等效但多一次必败尝试），是否回拨 `dom-only` 待用户裁决（属运行时代码配置变更，须隔离 worktree 小波 + 回归）。
+- **后续路径**（如需继续 API 轨）：① 不再投入头部级取证（已穷尽）；② 改「借浏览器传输」（受信会话内 `fetch` 发上传域请求，用浏览器 TLS/HTTP2-3 栈）；③ DOM 轨保持快手默认。复跑脚本入口见证据文档「终局与后续」节。
+- 全档：`evidence/api-w3-kuaishou/api-track-verdict-8layers-network-forensics-20260929.md`。
 
 ---
 
@@ -941,6 +1074,6 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
 |------|------|------|--------|------|------|------|------|
-| W3 | 快手（api-then-dom） | 2026-09-26 | — 待活体 | — | — | 未测 | **链契约 258 测全绿 + M3 裁决 GO**；S3 真实直发与活体回查**未执行**（需用户在场，见 §13.5） |
+| W3 | 快手 | 2026-09-28/29 | API 轨无产物（`upload/complete` 裸 400）；DOM 轨兜底 11 条，末条 `3xxqqt4k9xnspcy` | cp.kuaishou.com 作品管理（回查截图入证据档） | `evidence/api-w3-kuaishou/`（11 轮日志 + 真实浏览器 42 条网络原文） | **是（11/11 轮降级 DOM 成功）** | **6.3 活体裁决 not-go（定案）**：契约 258 测全绿 ≠ 平台接受；传输层根因，API 轨快手当前不可用（§13.6） |
 | W1/W2 | 视频号/B站/百家号/抖音 | — | — | — | — | 未测 | 活体验收与 M2 裁决回查仍开放（W1 §7.5-7.7 / W2 §6.2-6.4） |
 | — | （旧占位：W1 验收后回写） | | | | | | |
