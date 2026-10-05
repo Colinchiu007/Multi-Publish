@@ -2,11 +2,6 @@
 record: gate4-affected-empty-probe
 task: 把 quality-gate Gate 4「本次 PR 有没有受影响的非桌面项目」判据从字符串全等三态化，修掉被 nx stdout 提示污染引发的 CI 假红（#2596 的两个红项根因）
 date: 2026-10-05
-# 这三个字段只在「远程同步尚无法收口」时存在：PR 未合并 → 拿不到 merge SHA 属预期。
-# 合并后必须整段删除（= 状态就地收口成 PASS 并删掉登记），不要留"历程"。
-sync_status: PENDING
-sync_reason: PR #2951 未合并，暂无 merge SHA 可写
-sync_backfill_owner: 下一轮会话（回填与销账必须在同一次提交发生）
 ---
 
 ## 本次执行记录：Gate 4 affected 空集判据三态化（gate4-affected-empty-probe，2026-10-05）
@@ -22,10 +17,10 @@ sync_backfill_owner: 下一轮会话（回填与销账必须在同一次提交�
 | 测试与门禁 | PASS | `nx-affected-probe` 15/15 · `workflow-contract` 32/32 · `check-test-egress-ledger` 15/15 · `check-unwired-tests` 检查域 58 份全接线 rc=0 · `check-step-failfast` rc=0 · `check-gate-record-debt` 232 行/432 篇/18 条登记 rc=0 · `check-changelog-growth` 1160→1161 条 rc=0 · `check-no-brand-residue` 6896 tracked 文件 0 残留 · `check-docs-sync` ✅ · pre-commit 质量节拍 + CCG 门禁通过 |
 | 红→绿对照 | PASS | 受污染输入（提示文本逐字取自 CI 日志）：`OLD -> early-exit? false degraded? true ⇒ 跑 0 个任务 ⇒ 台账缺失 ⇒ 红` / `NEW -> kind=empty projects=[] ⇒ 早退 ⇒ 绿`。**如实说明**：本地 nx 未复现 CI 的缓存提示态（本地 cache/db 自洽，且本机 nx 版本未打出该提示），故红端以「旧全等判据在同一输入上确实漏判」取证，而非本地复现整条 CI 链 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未改动 `apps/desktop/electron/` 与 `packages/rpa-engine/`，无产物与 UI 变化 |
-| QM-6 CCG 双模型或外部评审 | **未执行** | 本会话不具备 codex / claude 双路外部评审能力（无 `codeagent-wrapper` 调用面），**不冒充已跑**。本条属门禁类改动，按 AGENTS.md「改 `.github/workflows/` 的 PR 必须人工过目」**不自动合并**，交人工裁决 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#2951)$' --format=%H\|%cI` 拿 merge SHA 与时间；`git ls-remote --heads origin gate4-affected-empty-probe` 返回 0 行证远端分支已删；然后删除本 frontmatter 的 `sync_*` 三字段、删除 `scripts/gate-record-debt-ledger.json` 的同标题登记项（回填与销账必须同一次提交） |
+| QM-6 CCG 双模型或外部评审 | **未执行（人工过目已完成）** | 本会话不具备 codex / claude 双路外部评审能力（无 `codeagent-wrapper` 调用面），**不冒充已跑**——双模型评审本身至今未执行。本条属门禁类改动，按 AGENTS.md「改 `.github/workflows/` 的 PR 必须人工过目」处理：邱领已人工过目并明确授权合并，满足自动合并判据第 5 条「无待人工裁决的争议」 |
+| 远程同步 | PASS | 已合并：squash 落地提交 `40fa7176a1d33f4a04d1c34e4d7f3948bf0ff425`（committer date 2026-10-06T00:11:23+08:00）。取证：`git log origin/main --grep='(#2951)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin gate4-affected-empty-probe` 返回 0 行（远端分支随合并删除）；期间两次撞上 main 前进（#2939、#2952）导致的冲突均按「两侧记录都保留」处理后 rebase + `--force-with-lease` 重推，最终 `mergeState=CLEAN` 且 0 pending 0 fail 后合并；本条 ledger 登记项与本文件的 `sync_*` 三字段已在**同一次提交**删除 |
 
 ### 残留风险与未闭合项（不假装已闭合）
 
-- **QM-6 未评审**：本 PR 把一条判定由红转绿，方向上是「放松」。fail-closed 由上面 4 条约束守住、且变异验证证明锁会红，但**判据本身写错了它挡不住** —— 这正是 AGENTS.md「PR 自动合并」一节点名的残留风险，需要第二双眼睛，故本 PR 明确不自动合并。
+- **QM-6 未评审**：本 PR 把一条判定由红转绿，方向上是「放松」。fail-closed 由上面 4 条约束守住、且变异验证证明锁会红，但**判据本身写错了它挡不住** —— 这正是 AGENTS.md「PR 自动合并」一节点名的残留风险。该条由邱领人工过目后授权合并（双模型评审本身仍未执行，此处如实保留为未闭合项）。
 - **三态化只覆盖「stdout 被提示污染」这一类**：若将来 nx 改变 `--json` 的**输出结构本身**（而非掺提示），判据会退回 `unparsable` —— 那是**降级跑测试**（安全方向，代价是白跑一遍），不是跳过。属可接受降级，不属未闭合缺陷。
