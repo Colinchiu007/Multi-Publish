@@ -1,0 +1,37 @@
+[
+  {
+    "severity": "WARNING",
+    "file": "scripts/ci-pr-changeset.js",
+    "line": 53,
+    "issue": "mergeRefParents() 使用 try-catch 吞掉所有 git 命令错误并返回 null，导致任何 git 执行异常（权限、损坏仓库、磁盘满等）都会静默落回到 payload 支路，而不报错也不打印原因",
+    "fix": "在 catch 块里打印 stderr 或抛出带上下文的错误，或至少在 decide() 里对 mergeRefParents 返回 null 且非预期情况（如 HEAD 存在但 rev-parse 报错）记录警告日志，防止静默降级"
+  },
+  {
+    "severity": "MINOR",
+    "file": "scripts/ci-pr-changeset.js",
+    "line": 72,
+    "issue": "decide() 中 evtName 为 undefined 且 mergeRefParents 返回 null 时，会走到 payload 分支并因 base/head 为空抛错，错误信息里 evt-name 显示为 '(空)'，但调用方（workflow）总是显式传了 --evt-name，仅作为防御性编程留存",
+    "fix": "可在 decide() 入口处加 assert(evtName, 'evtName 必传') 或在 main() 里校验，把防御性分支收敛为显式前置检查，减少认知负担"
+  },
+  {
+    "severity": "WARNING",
+    "file": "scripts/ci-pr-changeset.test.js",
+    "line": 100,
+    "issue": "夹具 fixtureStaleBase/fixtureResynced 仅构造“双亲正常存在”的合并提交形态，未覆盖 git rev-parse 失败、HEAD^2 不存在、仓库损坏、权限受限等 mergeRefParents 会静默返回 null 的真实故障场景，导致 ci-pr-changeset.js 的 catch 吞错分支无回归保护",
+    "fix": "新增测试用例：在 initRepo 基础上手动破坏 .git/refs 或 chmod 000 使 git 命令失败，验证 decide() 能给出可诊断的错误而非静默落回 payload"
+  },
+  {
+    "severity": "MINOR",
+    "file": "scripts/ci-pr-changeset.test.js",
+    "line": 145,
+    "issue": "CLI 测试用例 '取值不全时 rc=1' 传入了空 evt-base/evt-head，但未模拟 mergeRefParents 返回 null 的前置条件（当前夹具总是创建双亲合并提交），导致该测试实际走的是 payload 分支抛错，而非 mergeRefParents 失败后 payload 也缺失的双重失败路径",
+    "fix": "在该测试前显式删除 .git 使 git 命令失败，或用 git 参数隔离，确保 mergeRefParents 返回 null 后再验证 payload 缺失时的 rc=1"
+  },
+  {
+    "severity": "PASS",
+    "file": ".github/workflows/quality-gate.yml",
+    "line": 67,
+    "issue": "classify step 与 Gate 2c2 已实现单一真源：classify 运行 ci-pr-changeset.js 并写入 GITHUB_OUTPUT (pr-base/pr-head)，Gate 2c2 通过 steps.classify.outputs 读取同一份产出，不再在两处各自计算 merge-base。变异反证 N2/N5/N6 已验证漂移会被拦截",
+    "fix": "维持现状；若后续新增第三个消费取源的 step，必须同样读取 classify outputs 而非重新计算"
+  }
+]
