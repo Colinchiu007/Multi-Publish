@@ -1,3 +1,27 @@
+# [未发布] chore(desktop): 删除 publisher.js 三个零引用死 pipeline wrapper，白名单棘轮改为「不得复加」（fix-dead-pipeline-wrappers，2026-10-05）
+
+### 清掉的隐患
+- `pipelinePauseWithCheckpoint` / `pipelineResumeFromCheckpoint` / `pipelineRegisterPipeline` 三个导出的 wrapper 调用的 IPC 方法名在 preload 侧**从未存在**，且全仓**零调用方**。它们由 `2d509abe`（大批量 API 面迁移）引入，而 preload 最终采用了另一套命名与参数形状（`pipelinePause()` 无 runId、`pipelinePauseRun(runId)`、`pipelineResumeOrchestration(runId)`）。
+- 隐患在于：任何人看到导出就会以为可用，一旦接上组件就会得到与 CRITICAL-1 同形的**静默失效**——桥接层 `typeof api[method] !== "function"` 直接 `return undefined`，`invokeWithFallback` 回落 `{ code: -1 }`，调用方 `code === 0` 恒为 false，无异常、无 console、界面零提示。
+
+### 处置的演进
+- 上一轮（`fix-ipc-namespace-contract` design D7）选择「登记进契约测试的 `KNOWN_GAP` 白名单、不删」，理由是删除会牵动 `publisher.js` 导出面与他人分支。相关分支已合并，5937 文件全域扫描确认零功能调用点，故本轮**删除**，并把白名单**收空为「不得复加」的零容忍棘轮**。
+- 白名单清空后，原「只能缩小」的断言会对空数组**空转通过**（判据失效但测试仍绿），与「负例不得误伤否则下个会话把锁删掉」是同形陷阱。已新增「KNOWN_GAP 必须保持为空」断言，并把空表情形显式说明而非空转。对账用例的诊断文案同步改为「若确认是死代码请**删掉它**」——下一个人拿到的是正确指引。
+
+### 证据
+- 变异①：注入一个指向不存在 preload 方法的零引用死 wrapper ⇒ 对账用例判红（1 failed / 18 passed）——**证明清空白名单没有把锁拆掉**，真正承重的是对账用例本身。变异②：把 `KNOWN_GAP` 填回一个条目 ⇒ 「必须保持为空」判红 ⇒ 白名单无法被静默复加。两次均 md5 逐字节还原且还原后 19/19 绿。
+- 回归 **650 passed / 0 failed**（`publisher.test.js` 251 与删除前基线一致、`electron-bridge` 8、契约 19、`preload` 372）。
+- QM-1：`build:dir` 通过；产物 62 chunk / 3.15 MB 内三个名字**各 0 次出现**，而对照组 `pipelineGetRunContext` / `pipelineAdvanceToNextCheckpoint` / `filmEngineering` **均在场**（证明产物构建自本分支源码）；独立临时 userData 启动 8 秒存活、**stderr 0 字节**。
+- QM-2：N/A——本轮只删导出、未新增或修改任何 IPC 调用参数。
+- `openspec-sync-check.js` 归档前后 **14 → 14，零新增违规**。
+
+### 顺带纠正的一个取证方法坑
+用 `Select-String -Path 'apps\**\*.js'` 做「全仓零引用」取证会得到**假阴性**：`**` 在 PowerShell 不是 globstar，路径不匹配即静默返回 0 命中。征兆是连确定含目标名字的文件都没命中。必须用 `Get-ChildItem -Recurse` 枚举并核对扫描文件数。
+
+### 后续影响
+`publisher.js` 其余 250+ 个 wrapper 未做同类审计，但**已无必要**：`KNOWN_GAP` 为空后，对账用例会把任何落在暴露面之外的调用名全部点名判红，这个类别以后不会再静默存在。
+
+---
 # [未发布] fix(desktop): 影视「单镜重试」永久失效——preload 命名空间与渲染层扁平名错配 + 补反向暴露面契约（fix-ipc-namespace-contract，2026-10-05）
 
 ### 症状
