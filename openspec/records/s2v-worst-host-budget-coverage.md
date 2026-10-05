@@ -2,9 +2,6 @@
 record: s2v-worst-host-budget-coverage
 task: 把「最坏主机档」的独占覆盖钉成常规用例，并以实测为依据正式否决独立 CI 车道
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（回填 PASS 时整段删除上面三个 sync_* 字段）
 ---
 
 ## 本次执行记录：最坏主机档不进车道、改钉常规用例（s2v-worst-host-budget-coverage，2026-10-05）
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话（回填 PASS 时整段删除上面三个 s
 | 接线棘轮 | N/A | 本 PR 不新增测试文件（只往已接线的 `resume-orchestration.test.js` 加用例），`scripts/` 与 `.github/scripts/` 下无新增 `*.test.js` ⇒ `check-unwired-tests` 域不变 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 运行时代码路径与任何 UI 文件（改的是该目录下的 `tests/`，产品模块 `services/pipeline-engine.js` 一行未动，变异驱动收尾断言其逐字节还原） |
 | QM-6 CCG 双模型外部评审 | N/A | 触发条件（M+/跨模块/主进程服务/IPC/引擎包/安全/持久化）均不命中：改动 = 1 个测试文件的 1 条新用例 + 1 段文档 + 本记录。按 AGENTS.md「纯文档/测试面不强制」处理，**未执行**，不以本地自审冒充外部评审 |
-| 远程同步 | PENDING | 合并后按 `openspec/records/_TEMPLATE.md` 的口径回填：merge SHA 与时间取自 `git log origin/main` 按本 PR 号行尾匹配的 `--format=%H|%cI` 唯一命中；`git ls-remote --heads origin s2v-worst-host-budget-coverage` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #2900 已 squash 合并为 `97b569ea92a9297c61f6f291e4c0d3bed32bf828`（2026-10-05T02:41:40Z；取证 `git log origin/main --grep=(#2900)$ --format=%H|%cI` 现场唯一命中，非凭记忆）。`git ls-remote --heads origin s2v-worst-host-budget-coverage` 返回 **0 行**证远端分支已删。本 PR 的 3 个文件在 origin/main 上 blob 逐字节相同（3/3）；CI 21/21 completed、failed=0。CHANGELOG 条目随本回填插回。回填同时整段删除本记录 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。
 
 ### 反证（实跑，判据 = rc≠0 且预期那条在红行内；收尾断言被测文件逐字节还原）
 

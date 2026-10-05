@@ -2,9 +2,6 @@
 record: test-egress-runtime-ledger-baseline
 task: #31 #2491 档3 改判——静态棘轮写不出来（清点实测），改做运行时出站台账的只可缩小基线
 date: 2026-10-04
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：测试期运行时出站台账基线棘轮（test-egress-runtime-ledger-baseline，2026-10-04）
@@ -29,7 +26,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | QM-6 CCG 双模型外部评审 | **一路产出并逐条处置完，另一路未产出（如实登记，不冒充双模型）** | 路由真源 `~/.claude/.ccg/config.toml` 实测 `backend=codex / frontend=claude`。**路 1（规定通道）** `codeagent-wrapper --backend codex --lite` 产出 10.5 KB findings（Q1/Q2/Q3 + 其它，逐条带 `文件:行号` 与"最小探针"建议）⇒ 处置见下节。<br>**路 2（本该是不同底模的第二轴）两次都没产出结论**：`opencode/mimo-v2.6-flash-free` 在 900s 预算内 rc=124 超时，transcript 停在 "OpenAI Chat stream ended without finish_reason"，没写 findings 文件；换 `opencode/longcat-2.5-preview-free` 重试时 rc=0 但**一个字结论都没有** —— 它的 Read/Glob 看不见 `.qm6/`（点目录被它的文件工具跳过），于是报"brief 不存在"。两次失败的现场都在 `D:/tmp/mp-fs34-qm6-frontend*.log`。<br>**因此本轮不声称"双模型交叉评审"**：只有一路外部意见，第二条轴缺位这件事本身登记为遗留。另外路 1 第一次也失败过（提示词里含反斜杠路径 ⇒ wrapper 转 stdin 模式后 codex rc=1 且日志被退出即删），第二次改用无斜杠提示词才跑通。 |
 | 行数门禁与拆分（评审后补的一刀） | PASS | `check-max-lines` 当场拦下：加完 sink 后 `network-egress-guard.js` = **508 行 ≥ limit 500** → `NEW_OVER_LIMIT`。正解是按门禁的意思拆分，不抬阈值也不往挂账清单塞条目：sink 本体（`ledgerFile`/`ledgerAppend`/`ledgerSize`/`ledgerWriteOnce`/`recordInstallOnce`/`withLedgerEnv` + `fs` 捕获 + 5 个常量）搬到新文件 `packages/shared-utils/src/network-egress-ledger.js`（124 行），守卫降到 **389 行**；复跑：判定器夹具 14 pass、两条 guard 测试文件 30 pass、`check-max-lines` rc=0、`node --check` 两文件通过。<br>**拆分手法自己踩了一次，值得记**：第一版按"从匹配行回退到上一个 `/**`"删注释块，用 `out.pop()` 越界把 `isLoopbackHostForTest` 一起删了 —— 症状不是断言失败，是两个测试文件**一个用例都没跑到**（`Tests no tests` + `ReferenceError: isLoopbackHostForTest is not defined`）。改成"显式行区间 + 删之前断言区间内不含任何其它函数定义"才成立。口径：**批量删代码的脚本必须断言"没删到别的东西"**，`node --check` 通过完全看不出漏了函数。
 
-| 远程同步 | PENDING | 本 PR 自身尚未合并 ⇒ merge SHA / 合并时间 / 远端分支删除状态此刻都不存在（这正是 PENDING 的语义）。合并后由下一个会话按既有口径回填：`git log origin/main --grep='(#PR号)' --format=%H\|\%cI` 取 merge SHA 与时间、`git ls-remote --heads origin test-egress-runtime-ledger-baseline` 返回 0 行证远端分支已删（同一条命令要带必然存在的分支当正控）；回填时**同一次**删除本记录 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。<br>另记一句避免下一个人误判：**CHANGELOG 条目不在本 PR 顶插** —— #33 实测两轮全绿都因置顶共享件撞回 DIRTY（CI 时长 ≥ main 前进间隔），本 PR 从一开始就把它交给那次 docs-only 回填一并插回，所以"本 PR 没动 CHANGELOG"是有意的，不是漏了收口。
+| 远程同步 | PASS | PR #2897 已 squash 合并为 `441936b6d9ee9aaaeae3ac74aa0529fbf26a832c`（2026-10-05T02:12:53Z；取证 `git log origin/main --grep=(#2897)$ --format=%H|%cI` 现场唯一命中，非凭记忆）。`git ls-remote --heads origin test-egress-runtime-ledger-baseline` 返回 **0 行**证远端分支已删。本 PR 的 11 个文件在 origin/main 上 blob 逐字节相同（`git rev-parse <head>:<path>` 与 `<origin/main>:<path>` 十一条全等），比行级包含更强；CI 21/21 completed、failed=0。回填同时整段删除本记录 frontmatter 的三个 `sync_*` 字段（门禁要求两件事同次发生）。
 
 ### QM-6 发现项与逐条处置
 
