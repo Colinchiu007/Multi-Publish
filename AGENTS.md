@@ -22,7 +22,7 @@
 
 - **git 提交**：所有变更必须 commit，不允许未跟踪代码
 
-- **分支隔离（分层）**：分层判定只看「是否影响运行行为」——运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）**不需要独立 worktree，可在共享主工作区就地编辑，但同样必须经 PR 落地——不存在「直接提交到 main 并推送」这条路**。原因是远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`（required status checks 在直推路径上无法满足），2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒后确立，见 PR #2411。共享根另有 `[shared-root-guard]` 会把它强制切回 main、禁止离开 main，因此文档类提交的做法是：在本地 main 上 commit → `git branch <name>` 保住该提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
+- **分支隔离（分层）**：分层判定只看「是否影响运行行为」——运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 与 CI 后合并回 main（**合并动作由 agent 自动执行，见下文「PR 自动合并」**）；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）**不需要独立 worktree，可在共享主工作区就地编辑，但同样必须经 PR 落地——不存在「直接提交到 main 并推送」这条路**。原因是远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`（required status checks 在直推路径上无法满足），2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒后确立，见 PR #2411。共享根另有 `[shared-root-guard]` 会把它强制切回 main、禁止离开 main，因此文档类提交的做法是：在本地 main 上 commit → `git branch <name>` 保住该提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
 
 - **⛔ Worktree 隔离（并发会话铁律）**：共享仓库根（例如 `D:/Data/projects/Mulpub`）是 **main-only 协调目录**，必须保持干净并停留在 `main`；不得作为运行时代码任务的 cwd，也不得执行 `git checkout` / `git switch` 到 feature 分支。每个运行时代码任务统一从 Git for Windows Bash 运行 `scripts/session-init.sh <task-name>`，在默认 `<仓库父目录>/mp-worktrees/mp-<task-name>`（可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）与**裸 `<task-name>` 分支**中工作（`scripts/gwm-task.sh` 自 2026-09-15 起默认不加分隔符前缀，因为含斜杠的分支名在本机 ref 写入不可靠；需要前缀时显式设 `MP_BRANCH_PREFIX`，例如设 `MP_BRANCH_PREFIX=team` 才得到 `team/<task-name>`）；同名路径已被其他仓库或错误分支占用时必须 fail closed。隔离 worktree 由 pre-commit 自动声明当前分支；共享主目录仅允许 `powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main`。**已有多个会话绑定同一共享 cwd 时，先暂停所有 Git 写操作，再逐个串行迁移；禁止并行 handoff/stash/checkout，因为 stash、index 与 HEAD 属于同一 Git 状态，会互相竞争。** 新 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`。统一使用 Git for Windows Bash（`start-mp-task.ps1` 自动探测，可经 `-GitBash` / `MP_GIT_BASH` 覆盖）；本机裸 `bash` 可能解析到 WSL，不得用于此流程。
 
@@ -63,6 +63,46 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - **「远程同步」状态列只认闭合词表 `^(PASS|N\/A|✅|已)`（`check-gate-record-debt.js` Gate 2c）**：写复合箭头（如 `PENDING→PASS`）会被判**未收口欠账** → `QG Changes`/`Gate Result` 连带红，哪怕 PR 实际已合并。开 PR 时写 `PENDING`（并同一条 PR 往 `scripts/gate-record-debt-ledger.json` 按记录标题登记），合并后**就地改写成** `PASS` + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证）并在**同一次提交**删除登记项——回填与销账必须同一次发生，状态列不写「历程」，只写「当下状态」。
 - 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
 - 进白名单的前提锁（2026-09-30 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。
+
+### PR 自动合并（2026-10-05 起，branch: agent-automerge-rule）
+
+> 本节把「PR 需人工点合并」松绑为 **agent 自动合并**，但**不动「必须经 PR 落地」这条**。判定标准从「有没有人看过」换成「机械闸门是否全绿 + 证据是否落盘」。
+
+**默认动作**：agent 自己开的 PR，在下列条件全部满足时**自动 squash 合并并删除远端分支**，不等人工点合并（实测先例：PR #2943 → `829f1be6`、回填 PR #2946 → `9f5c264f`，均为 CI 全绿后自动合并）。仓库合并惯例是 squash（`gh pr merge <n> --squash --delete-branch`），不得改成 merge commit 或 rebase-merge。
+
+**允许自动合并的判据（须全部满足）**
+
+1. `mergeable == MERGEABLE`（`gh pr view <n> --json mergeable --jq .mergeable`）。若为 `CONFLICTING`：先 `git fetch` 再 `git rebase origin/main`，冲突按「两侧记录都保留」解决后 `--force-with-lease` 重推；末尾追加型文件（`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）是最常见的冲突点，**不得用「后推覆盖」消解冲突**。
+2. `gh pr checks <n>` 零 pending、零 fail。docs-only 通道的 `skipping` 属预期（重型 job 被 `docs-only=true` 短路），不算失败——但**必须先跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 确认 `docs-only=true`**，否则 skipping 意味着判定失灵。
+3. 变更类型与分层策略一致：运行时代码变更已在隔离 worktree 完成，且 QM-1 打包证据写在 `openspec/records/<分支>.md` 里。
+4. `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 为 OK。
+5. 没有待人工裁决的争议（评审提出的 CRITICAL 未修、任务勾选与证据不符、前置条件已失效但被照抄等）。这一条是 **agent 自查**而非机械闸门，最容易失守，见「残留风险」。
+
+**禁止自动合并的情形（一律停下来报告用户）**
+
+- 任一 required check 红 / pending / 因故障缺失；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
+- 需要改动 `.github/workflows/` **分支保护规则本身**、或改动 `CI_IGNORED_PATHS` 白名单的 PR——这两类是在改「谁来守门」，必须人工过目。
+- 推进需要 `reset --hard`、`git clean` 或任何会覆盖他人未提交改动的操作。
+- 上面第 5 条存在任何拿不准的争议。
+
+**任何情况下都仍然禁止**
+
+- `--no-verify`；
+- 直推 `refs/heads/main`（分支保护以 `GH011` 拒绝，直推路径无法满足 required status checks，见 PR #2411）；
+- 在门禁未绿时合并（「先合了再说」是本条最典型的失守形态）；
+- 合并后不回填远程同步：**回填与销账必须同一次提交**（`.quality-gates.md` 状态列 `PENDING` → `PASS` + merge SHA，删除 frontmatter 的 `sync_*` 三字段，同时删 `scripts/gate-record-debt-ledger.json` 的登记项），回填 PR 同样按本节自动合并。
+
+**合并后收尾清单（缺一不可）**
+
+1. `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间；
+2. `git ls-remote --heads origin <branch>` 返回 0 行，证远端分支已删；
+3. 开回填 PR，一次提交内完成：改写 `.quality-gates.md` 与 `openspec/records/<分支>.md` 的远程同步行、删除 `sync_*` 三字段、删除 ledger 登记项；
+4. 按本节判据合并回填 PR；
+5. worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
+
+**残留风险（不假装已闭合）**
+
+松绑掉的是「第二双眼睛」。本节用**三道机械化闸门**替代人工判断：required status checks（CI）、质量节拍门禁（QM-1~6 + `.quality-gates.md`）、执行记录取证（`openspec/records/` + ledger 销账）。它们挡得住「门禁没过就合」和「合了不销账」，**挡不住「门禁本身写错了」**——例如判据被改宽、变异反证被跳过、任务勾选与真实证据不符。因此判据第 5 条（agent 自查争议）不可省略，且 `openspec-sync-check` / `classify-docs-only` / `check-pr-exec-record` 各自的**基线差分**仍须人工抽查。
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
