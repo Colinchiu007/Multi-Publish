@@ -699,7 +699,6 @@ class Story2VideoComposeEngine {
     this.maxOutputPixels = positiveLimit(opts.maxOutputPixels, DEFAULT_MAX_OUTPUT_PIXELS)
     // 输出分辨率能力开关：'1080p'（默认，禁止 4K）| '4k'。fail-closed——未知值一律按 1080p。
     // 支持惰性读取（运营功能开关运行时下发）：getMaxOutputResolution 优先，静态值兜底
-    // ��� ffmpeg ��6ؤ!W��KӜ	SKIP_NATIVE_MEDIA_TOOL_TESTS=1 � CI/Kկ��>�e
     this.ffmpegBinary = typeof opts.ffmpegBinary === 'string' && opts.ffmpegBinary.trim()
       ? opts.ffmpegBinary.trim()
       : FFMPEG
