@@ -24,8 +24,40 @@ test('条目标题识别：CRLF 工作树与 LF blob 必须读出同一种标题
   assert.deepEqual(headingsOf(crlf.replace(/\r/g, '')), ['# [未发布] A', '# [未发布] B']);
   // 直接喂 CRLF 文本时，trimEnd 必须吃掉 \r，否则两种口径的标题永不相等
   assert.deepEqual(headingsOf(crlf), ['# [未发布] A', '# [未发布] B']);
-  // 只认 "^# ["，正文里的 markdown 二级标题与引用不得算条目
-  assert.deepEqual(headingsOf('## 二级\n# 普通一级\n# [已发布] 真条目\n'), ['# [已发布] 真条目']);
+  // 二级标题与引用不得算条目；但**无括号的一级标题必须算** —— 见下一条用例的取证。
+  assert.deepEqual(headingsOf('## 二级\n# [已发布] 真条目\n'), ['# [已发布] 真条目']);
+});
+
+// QM-6 外部评审实测成立（2026-10-05）：origin/main 的 CHANGELOG.md 有 1,164 行一级标题，其中
+// 1,140 行是 `# [` 形，另有 **2 种真条目走 `# fix(自检门禁): …（#2648，2026-09-30）` 这种无括号形**
+// （各重复 4 次），唯一非条目的一级标题是 `# CHANGELOG`（文档自身标题，重复 16 次）。
+// 原 HEADING_RE=/^# \[/ 对这 8 行完全失明 —— 删掉其中任何一条，棘轮照报 PASS，
+// 而这正是本门禁存在的唯一理由（#2884 截断事故）。所以口径改为「一级标题，排除节标题」。
+test('无括号形条目也必须算：删除 # fix(...) 一条必须报丢（原 /^# \\[/ 判据对它失明）', () => {
+  assert.deepEqual(
+    headingsOf('# fix(自检门禁): fifo 断言（#2648，2026-09-30）\n\n正文\n'),
+    ['# fix(自检门禁): fifo 断言（#2648，2026-09-30）'],
+    '无括号的一级标题就是条目，不得漏算');
+  // 节标题不得算条目：否则它一旦被人改写就会制造假丢失
+  assert.deepEqual(headingsOf('# CHANGELOG\n\n# [未发布] A\n'), ['# [未发布] A']);
+  assert.deepEqual(headingsOf('# changelog\n'), [], '大小写不同的节标题也不算');
+  // 但不能把判据放宽成"任何 # 开头"：`#hashtag` 不是标题
+  assert.deepEqual(headingsOf('#nospace 不是标题\n'), [], '缺空格的 # 不是 markdown 标题');
+});
+
+test('真仓库：删掉一条无括号条目必须报丢（夹具同时含两种形状，防只测括号形）', () => {
+  const repo = makeRepo();
+  const base = '# [未发布] A\n\na\n# fix(自检门禁): fifo 断言（#2648）\n\nb\n# CHANGELOG\n\nt\n';
+  commitChangelog(repo, base, 'base');
+  assert.equal(collect({ base: 'HEAD', head: 'HEAD', root: repo.dir }).headTotal, 2,
+    '两种形状都算上才是 2 条（# CHANGELOG 是节标题，不计）');
+  // 删掉无括号那条，保留括号那条 —— 旧判据在这一档会报 lost=0
+  commitChangelog(repo, '# [未发布] A\n\na\n# CHANGELOG\n\nt\n', 'drop bracketless entry');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length, 1, '无括号条目被删必须报丢');
+  assert.equal(r.lost[0].heading, '# fix(自检门禁): fifo 断言（#2648）');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
 });
 
 test('多重集口径：4 份副本删到 3 份必须报丢（集合口径会读成通过）', () => {
@@ -122,4 +154,25 @@ test('判据文件的扫描域不得为 0（防「解析退化成空集合」式
   const t = fs.readFileSync(path.join(__dirname, 'check-changelog-growth.js'), 'utf8');
   assert.ok(t.includes("Buffer.byteLength"), '必须同时留字节证据');
   assert.ok(/maxBuffer/.test(t), '读 blob 必须带 maxBuffer，否则 7.4MB 的 CHANGELOG 会 ENOBUFS');
+});
+
+// 接线锁（QM-6 之后补，动因是实测）：本门禁的 base 坐标系一旦写成 origin/main，就会把
+// 「别人在我上次同步之后并入 main 的条目」读成本 PR 丢失 —— 本地实测该口径报 3 种丢失 rc=1，
+// merge-base 口径 1145=1145 rc=0。这类"看起来更严格其实错坐标系"的改动，靠人记住是记不住的。
+test('CI 接线锁：Gate 2c3 必须以 merge-base 为坐标系，且不得退回 origin/main', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml');
+  const wf = fs.readFileSync(wfPath, 'utf8');
+  const at = wf.indexOf('Gate 2c3 - CHANGELOG growth');
+  assert.ok(at > 0, 'Gate 2c3 步骤必须存在于 quality-gate.yml');
+  // 区间终点不能靠"下一个步骤名"（改名/搬家会让 indexOf 返回 -1，slice 的负终点被解释成倒数 ⇒ 静默放大到接近整份文件）
+  const body = wf.slice(at);
+  const end = body.search(/\n {6}- name:/);
+  assert.ok(end > 0, '必须能定位本步骤的结束边界（找不到边界即红，不得静默扫全文）');
+  const step = body.slice(0, end);
+  assert.ok(step.includes('shell: bash'), '多命令 run 块必须 fail-fast（AGENTS.md：PowerShell 步骤不在中间命令非零时中止）');
+  assert.ok(/git merge-base/.test(step), 'base 必须由 merge-base 推导，否则坐标系会随 main 前进漂移');
+  assert.ok(!/--base\s*=\s*["']?(origin\/)?main["']?/.test(step), '不得把 base 写成 origin/main —— 那是别的 PR 的进度，不是本 PR 的起点');
+  assert.ok(/\$\{MB:-\$BASE_REF\}/.test(step), 'merge-base 算不出时必须回落到 base_ref（更严方向回落，不许回落成空）');
+  assert.ok(/node scripts\/check-changelog-growth\.js/.test(step) && /node --test/.test(step),
+    '单测与门禁本体都必须接在同一步骤里（只接一个 = 另一半永不执行）');
 });

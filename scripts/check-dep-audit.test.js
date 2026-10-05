@@ -343,7 +343,6 @@ test('域存在但 runner 缺失 ⇒ 必须点名，不得静默当成"该域扫
     const txt = out.join('\n')
     assert.ok(txt.includes('DOMAIN_NOT_WIRED'), '接线断了必须给硬失败码，而不是被 SCANNER_UNAVAILABLE 吸收：\n' + txt.slice(0, 400));
     assert.ok(!txt.includes('SCANNER_UNAVAILABLE'), '接线断了是代码事实，不得伪装成扫描器抖动（两类出口必须可区分）');
-    assert.ok(txt.includes('DOMAIN_NOT_WIRED'), '缺 runner 必须给硬失败码，而不只是 SCANNER_UNAVAILABLE 告警：\n' + txt.slice(0, 400));
     assert.equal(code, 1, '域在清单里却没接线 = 覆盖面窄于声明 ⇒ fail closed（这不同于扫描器抖动）');
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
@@ -379,4 +378,86 @@ test('入库基线自洽：每条 upgrade-tracked 都带可闭合的 targetVersi
   assert.deepEqual(bad, [], '存在闭不了环的挂账：\n' + bad.join('\n'))
   assert.ok(b.advisories.some((e) => e.decision === 'no-fix-available'), '至少要有一条"确无修复版本"的对照，否则上面的边界没被测到')
   assert.ok(!b.advisories.some((e) => e.decision !== 'upgrade-tracked' && e.targetVersion), '非 upgrade-tracked 的条目不该带目标版本承诺')
+})
+// ---- QM-6 外部评审后的补充用例（2026-10-05）：每条都以「旧实现会红」为准绳写。 ----
+
+test('patchedFromRange 多族规格：每个 < 上界都必须收进来（旧实现 .exec 只取第一个，第二族被静默丢掉）', () => {
+  assert.equal(D.patchedFromRange('>=7.0.0 <7.29.1'), '>=7.29.1', '单族照旧')
+  assert.equal(D.patchedFromRange('>=1.0.0 <1.2.3, >=2.0.0 <2.1.5'), '>=1.2.3, >=2.1.5', '两族必须都得')
+  assert.equal(D.patchedFromRange('<1.2.3, <1.2.3, <2.0.0'), '>=1.2.3, >=2.0.0', '重复上界要去重')
+  assert.equal(D.patchedFromRange('>=1.0.0'), '', '没有 < 上界就是没有修复版本，不得凭空造下界')
+  assert.equal(D.patchedFromRange(''), '', '空串照旧返回空')
+})
+
+test('v2 解析跨族 range 时 patched 必须带全两段（否则下游判据看不见第二族）', () => {
+  const rows = D.parseNpmAuditV2({ vulnerabilities: {
+    foo: { severity: 'high', via: [{ source: 11, url: 'https://github.com/advisories/GHSA-TTWW-TTWW-TTWW', severity: 'high', range: '>=1.0.0 <1.2.3, >=2.0.0 <2.1.5' }] },
+  } }, 'npm-opscenter')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].patched, '>=1.2.3, >=2.1.5', 'range 有两族 ⇒ patched 必须有两段')
+})
+
+test('多段 patched 的目标必须逐段都逃过（旧实现只比第一段，2.0.5 会被误判成可闭合）', () => {
+  const mk = (tv) => ({
+    reviewBy: FUTURE,
+    advisories: [Object.assign(entry('npm', 'GHSA-TTWW-TTWW-TTWW'), { decision: 'upgrade-tracked', note: '已排期', patched: '>=1.2.3, >=2.1.5', targetVersion: tv })],
+  })
+  const found = [entry('npm', 'GHSA-TTWW-TTWW-TTWW')]
+  const r1 = D.evaluate(mk('2.0.5'), found, '2026-10-05', ['npm'])
+  assert.equal(r1.violations.length, 1, '2.0.5 高于第一段下界但仍在第二族漏洞区间里 ⇒ 必须判账闭不了：' + JSON.stringify(r1.violations))
+  assert.ok(r1.violations[0].includes('>=2.1.5'), '文案必须点名是哪一段没过，否则读日志的人只会去查第一段：' + r1.violations[0])
+  const r2 = D.evaluate(mk('2.1.5'), found, '2026-10-05', ['npm'])
+  assert.deepEqual(r2.violations, [], '逐段相等 = 恰好落在最高那条修复线上，通过')
+  const r3 = D.evaluate(mk('3.0.0'), found, '2026-10-05', ['npm'])
+  assert.deepEqual(r3.violations, [], '高于所有段 ⇒ 通过')
+})
+
+test('解析器与域一一对应；登记了域却没有解析器 ⇒ 按接线断了 fail closed（不得 else 兜底猜形状）', () => {
+  assert.deepEqual(Object.keys(D.PARSERS).sort(), [...D.DOMAINS].sort(), 'PARSER 集与域集必须相等：多一个少一个都算漂移')
+  const { dir, file } = writeTempBaseline('dep-parser-gap', { reviewBy: FUTURE, advisories: [] })
+  try {
+    const out = []
+    const parsers = Object.assign({}, D.PARSERS)
+    delete parsers['npm-opscenter']
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      parsers,
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: { gotrue: { severity: 'high', via: [{ source: 9, url: 'https://github.com/advisories/GHSA-ZZZZ-ZZZZ-ZZZZ', severity: 'high', range: '>=1.0.0 <2.0.0' }] } } } }),
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    })
+    const txt = out.join('\n')
+    assert.equal(code, 1, '有 runner 却没登记解析器 ⇒ 覆盖面窄于声明，必须红')
+    assert.ok(txt.includes('DOMAIN_NOT_WIRED'), '必须走接线断了的硬失败码：' + txt.slice(0, 300))
+    assert.ok(txt.includes('npm-opscenter(缺解析器)'), '必须点名是「缺解析器」而不是「缺 runner」，两类成因要可区分：' + txt.slice(0, 300))
+    assert.ok(!txt.includes('GHSA-ZZZZ-ZZZZ-ZZZZ'), '该域不得被静默按另一种形状解析后当成「扫过且干净」')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('绿文必须披露 prod 口径（--omit=dev 的盲区对 CI 读者不可见，就是假完整）', () => {
+  const { dir, file } = writeTempBaseline('dep-green-scope', {
+    reviewBy: FUTURE,
+    advisories: [ledger('npm', 'GHSA-KNOWN')],
+  })
+  try {
+    const out = []
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: { 1: { github_advisory_id: 'GHSA-KNOWN', module_name: 'm', severity: 'high', patched_versions: '>=1.2.3', findings: [{ version: '1.0.0', paths: ['apps__desktop>m'] }] } } } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    })
+    assert.equal(code, 0, out.join('\n').slice(0, 400))
+    const green = out.find((l) => l.includes('✅'))
+    assert.ok(green, '零违规必须打绿文')
+    assert.ok(green.includes('--omit=dev'), '绿文必须让 CI 读者知道 dev 依赖不在判据面内：' + green)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

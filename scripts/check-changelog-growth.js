@@ -10,6 +10,7 @@
  *   · check-gate-record-debt 看的是执行记录，不是 CHANGELOG。
  *
  * 判据（一条，blocking）：**base 的条目标题多重集必须被 head 包含**（count_head[t] >= count_base[t]）。
+ * 「条目标题」= 一级标题，仅排除文档节标题 `# CHANGELOG`（见 HEADING_RE 处的实测取证）。
  * 用多重集而不是集合，是因为历史里 1,133 个标题只有 302 个不同值（267 种重复，最多 4 次），
  * 集合口径会把「把 4 份副本删到 3 份」这种真实丢失读成通过。
  *
@@ -33,7 +34,12 @@
 const { execFileSync } = require('child_process');
 
 const FILE = 'CHANGELOG.md';
-const HEADING_RE = /^# \[/;
+// 一级标题即条目，只有文档自身的节标题不算。
+// 为什么不是 /^# \[/：QM-6 外部评审实测 origin/main 有 1,164 行一级标题，1,140 行是 `# [` 形，
+// 另有 2 种**真条目**写作 `# fix(自检门禁): …（#2648，2026-09-30）`（各重复 4 次）。旧判据对这 8 行
+// 失明 —— 删掉其中任何一条，棘轮照报 PASS，而这正是本门禁存在的唯一理由。非条目的一级标题实测只有
+// `# CHANGELOG`（重复 16 次），故用节标题否定式排除，而不是"猜条目长什么样"的正向白名单。
+const HEADING_RE = /^# (?!CHANGELOG(?:\s|$))\S/i;
 
 function parseArgs(argv) {
   const opts = { base: 'HEAD^', head: 'HEAD', json: false, root: process.cwd() };

@@ -108,14 +108,23 @@ jobs:
       # 落点必须是本 job：CHANGELOG.md 命中 CI_IGNORED_PATHS 的根级 *.md（docs-only 白名单），
       # 放在被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验（AGENTS.md「进白名单前提锁」）。
       # gate-result 的 rollup 里含 needs.changes.result，且 Gate Result 是必需检查 ⇒ 本条真能拦，不是探测器。
-      # base 取 PR base sha；push 事件下该值为空，回落 HEAD^（squash 合并 = 单提交，语义正确）。
+      # base 必须取 **merge-base**，不能直接取 PR base sha，更不能取 origin/main（2026-10-05 实测）：
+      # 这条棘轮问的是「本 PR 相对自己的起点有没有把条目弄丢」。实测拿 origin/main 当 base 时，
+      # 别人在我上次同步之后并入 main 的 3 种条目会被读成"本 PR 丢了它们"⇒ rc=1 假红；
+      # 同一份 head 用 merge-base 口径是 1145 条 = 1145 条 ⇒ rc=0。
+      # GitHub 的 pull_request.base.sha 是"事件时刻的 main tip"，同样会随 main 前进漂移，所以再对它取一次
+      # merge-base。算不出 merge-base 时回落 base sha，push 事件下再回落 HEAD^（squash 合并 = 单提交，语义正确）；
+      # 回落方向是"更严"而非"更松" —— 宁可假红，不可假绿。
       - name: "Gate 2c3 - CHANGELOG growth (changes job, 只可增长棘轮)"
         shell: bash
         env:
           CL_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           node --test scripts/check-changelog-growth.test.js
-          node scripts/check-changelog-growth.js --base="${CL_BASE:-HEAD^}" --head=HEAD
+          BASE_REF="${CL_BASE:-HEAD^}"
+          MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+          echo "[changelog-growth] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
+          node scripts/check-changelog-growth.js --base="${MB:-$BASE_REF}" --head=HEAD
 
   static-gates:
     name: QG Static
