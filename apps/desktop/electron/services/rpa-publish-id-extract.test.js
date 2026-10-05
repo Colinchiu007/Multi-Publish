@@ -25,15 +25,34 @@ describe('B 站作品标识按值形态识别', () => {
     expect(extractPublishIdFromUrl('https://www.bilibili.com/video/av170001/')).toBe('av170001')
   })
 
-  it('A3 投稿页把标识放在 query 时提取（bvid 优先于 aid）', () => {
+  it('A3 投稿页把标识放在 query 时提取（bvid 优先于 aid，与参数顺序无关）', () => {
     expect(extractPublishIdFromUrl('https://member.bilibili.com/platform/upload/video/frame?bvid=' + BVID + '&aid=170001')).toBe(BVID)
+    // 反序必须得到同一个答案：判据按形态择优，不是按参数先后
+    expect(extractPublishIdFromUrl('https://member.bilibili.com/platform/upload/video/frame?aid=170001&bvid=' + BVID)).toBe(BVID)
     expect(extractPublishIdFromUrl('https://member.bilibili.com/platform/upload/video/frame?aid=170001')).toBe('170001')
   })
 
-  it('A4 提交响应体里的 aid/bvid 键进入候选集', () => {
-    const ids = extractPublishIdsFromResponseBody(JSON.stringify({ code: 0, data: { aid: 170001, bvid: BVID } }))
+  it('A3b 通用命名表优先于 B 站形态（通用判据落空后才走专属判据）', () => {
+    // B 站 URL 上同时有通用 *id 键与 aid 时，采纳通用键——保持既有语义优先
+    expect(extractPublishIdFromUrl('https://member.bilibili.com/x?aid=170001&video_id=55501')).toBe('55501')
+  })
+
+  it('A4 提交响应体里的 aid/bvid 键进入候选集（须带 B 站端点上下文）', () => {
+    const body = JSON.stringify({ code: 0, data: { aid: 170001, bvid: BVID } })
+    const ids = extractPublishIdsFromResponseBody(body, { endpoint: 'https://member.bilibili.com/x/video/add' })
     expect(ids).toContain(BVID)
     expect(ids).toContain('170001')
+  })
+
+  it('A4b 响应体链与 URL 链同形：无 B 站端点上下文时 aid/bvid 一律不采纳', () => {
+    const body = JSON.stringify({ code: 0, data: { aid: 12345678, bvid: BVID } })
+    // 无 endpoint（调用方没给上下文）
+    expect(extractPublishIdsFromResponseBody(body)).toEqual([])
+    // 非 B 站端点：字节系平台普遍有 aid 类字段，取了就是把失败判成成功
+    expect(extractPublishIdsFromResponseBody(body, { endpoint: 'https://creator.douyin.com/api/submit' })).toEqual([])
+    expect(extractPublishIdsFromResponseBody(body, { endpoint: 'https://cp.kuaishou.com/graphql' })).toEqual([])
+    // 通用命名表的键不受该门影响（既有行为原样）
+    expect(extractPublishIdsFromResponseBody('{"data":{"article_id":"99887766"}}', { endpoint: 'https://mp.toutiao.com/x/publish' })).toEqual(['99887766'])
   })
 
   it('A5 负例：投稿页自身路径 /upload/video/frame 不得把 frame 当成作品 id', () => {

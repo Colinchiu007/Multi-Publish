@@ -81,6 +81,13 @@ B 站走 RPA 投稿时，`rpa-view-platforms.js` 的 `finish()` 需要拿到**�
 3. 键名：`bvid` 取到值必须命中 `BV…` 形态；`aid` 取到值必须是 `\d{4,}$`。
    形态约束把「别的平台恰好也有个叫 `aid` 的字段」的误判面压到形态级别。
 4. 通用 `PUBLISH_ID_KEYS` / `PUBLISH_ID_NAV_WORDS` **不动**，避免影响图文平台既有结论。
+5. **两条链同形（QM-6 双模型同一条 Critical 的修法）**：URL 链与响应体链都必须
+   「host 命中 bilibili」+「值合形态」才采纳。响应体链原本只有形态门没有主机门——
+   `aid` 这类键在字节系接口里普遍存在且语义不是作品 id（本仓实测 `_aid` 是应用实例标识），
+   取错就是把发布失败判成成功。因此 `extractPublishIdsFromResponseBody(body, { endpoint })`
+   新增端点上下文，由 `parsePublishResponseEvidence` 传入；**没有端点上下文时一律不采纳**。
+6. **优先级确定性**：B 站专属判据整体排在通用判据之后（query 命名表 → 路径关键词表 → B 站 query → B 站路径段）；
+   query 里同时存在 `aid` 与 `bvid` 时**按形态择优取 `bvid`，与参数顺序无关**（此前依赖参数先后是偶然正确）。
 
 ### 六维度对照
 
@@ -106,6 +113,8 @@ B 站走 RPA 投稿时，`rpa-view-platforms.js` 的 `finish()` 需要拿到**�
 | A8 | 既有图文/管理页结论逐字不变（`?article_id=`、`/manage/` 等原用例全绿） | 消费者并集 |
 | A9 | 接线：新测试文件必须显式接进 CI（Gate 2b/2c 或 vitest workspace 收集），并以「CI 日志出现该文件名」为证据 | `check-unwired-tests.js` |
 | A10 | 反证：摘掉形态判据 ⇒ A1-A4 变红；把 A5 的规则放宽成「加 video 关键词」⇒ A5 变红 | 变异实跑 |
+| A11 | **装配锁**：`_verifyPublishSuccess` 在作品页 URL / 停在投稿页时由响应体证据 / 两者皆无三种输入下，分别得到 `postId=BV…`、`postId=BV…`、`success:false`（证明新判据真的产出 postId，且不会凭 `/video/frame` 造假 id） | `rpa-view-platforms.test.js` |
+| A12 | **主机门**：`extractPublishIdsFromResponseBody(body)` 无 endpoint、或 endpoint 属抖音/快手时，`aid`/`bvid` 一律不采纳；通用 `article_id` 不受影响 | 同上 A4b |
 
 ## 六、未观测项（不许外推，如实登记）
 
@@ -116,14 +125,46 @@ B 站走 RPA 投稿时，`rpa-view-platforms.js` 的 `finish()` 需要拿到**�
    （`data.arc_audits[]` 同含 `aid` 与 `bvid`）；投稿接口响应体形状未单独取证。
 3. `platform-metrics/index.js:97` 既有契约「B 站 postId 即 bvid、作品页 URL 形如
    `https://www.bilibili.com/video/<postId>`」是本规格路径判据的**仓内既有证据来源**（非本次新假设）。
+4. **抖音 / 快手 / 微博的发布提交端点响应体里是否存在 `aid`（及语义是否为作品 id）未取证**。
+   QM-6 前端轴指出这三家（尤其快手/百家号这两个 strict 平台，其 postId 唯一主来源就是响应体证据链）
+   是「一旦含 `aid` 即可能误判成功」的暴露面。本次的主机门把该面**闭合到只对 bilibili 主机生效**，
+   因此不再依赖这三家的取证；取证本身作为加固项登记，不静默补。
+
+## 六·五、QM-6 双模型评审处置
+
+评审绑 commit `6a534bd82`。**通道偏差声明**：primary 后端 codex 经 codeagent-wrapper 实跑
+（其 `exec` 工具仍报 `missing field cmd`，但结论以 stdout 落档 `D:/Data/projects/.tools/tmp/p33-qm6-backend.log`），
+primary 前端 claude **静默空转**（rc=2、`completed without agent_message output`、无产物）
+⇒ 按既有替代通道降级为 opencode 免费模型两路：后端 nemotron-3-ultra-free、前端 ling-3.1-flash-free，
+产物落 `.ccg/qm6-bvid-{backend,frontend}-findings.json`。三通道独立收敛到**同一条 Critical**：
+响应体链的 `aid`/`bvid` 规则没有主机上下文。
+
+| 发现 | 处置 |
+|---|---|
+| **Critical**：`collectPublishIds` 的 aid/bvid 键无主机门，非 B 站 2xx 发布响应里的 `aid=数字` 会被采成 postId，把失败判成成功（快手/百家号这两个 strict 平台受影响面最重，其 postId 唯一主来源就是该证据链） | **已修**：`extractPublishIdsFromResponseBody(body, { endpoint })` 新增端点上下文，`parsePublishResponseEvidence` 传入 `response.url\|\|endpoint`；无上下文或非 B 站主机 ⇒ 一律不采纳。新增 A4b 负例（douyin/kuaishou 端点 + 无 endpoint 三种输入全部 `[]`）；变异 M3（把门改成恒 true）实测让 A4b 变红 |
+| **Warning**：query 链里 B 站判据排在通用命名表之前，与 PRD §四.2「保持在通用判据之后」相反；且「bvid 优先于 aid」只是依赖参数顺序偶然成立（`?aid=…&bvid=…` 实测返回 aid） | **已修**：判据顺序改为 通用 query → 通用路径 → B 站 query → B 站路径段；新增 `pickBilibiliWorkId` 按形态择优（BV/av 优先于裸数字 aid），与参数顺序无关。补 A3 反序用例与 A3b（`?aid=&video_id=` 必须取通用键）；变异 M4 实测让 A3 变红 |
+| **Warning**：两条链不对称（URL 有主机门、响应体没有）「不可分辨是蓄意还是遗漏」 | **已消解**：修复后两条链同形（都要求 host 命中 + 值合形态），源码注释显式写明「不存在一侧有门一侧没门」 |
+| **Warning**：纯函数级用例证明不了新判据真的变成 `finish()` 的 postId（缺消费者装配锁） | **已修**：`rpa-view-platforms.test.js` 新增 3 条装配用例（作品页 URL 承载 / 投稿页停在 frame 时由证据承载 / 两者皆无必须判失败）；变异 M2、M5c 实测均让对应装配用例变红 |
+| **Warning**：A10 反证没有仓库内留痕（`.quality-gates.md` 未登记） | **已修**：本次执行记录已登记 6 条变异实跑结果 |
+| **Info/Warning（可扩展性）**：建议改为平台规则表驱动，避免下一个平台「再抄一份」 | **评估后不取（本 PR 范围）**：目前仅 1 个平台需要该形态，先建注册表属为假设需求设计。已在模块头部注释登记该性质变化与收敛条件（见 §七 后续项） |
+| **Info**：`BILIBILI_HOST` 锚定正确（`evil-bilibili.com` / `bilibili.com.evil.net` 不误命中）；与 `normalizePublishId` 无双重放行；未把未观测写成已验证；无凭证/日志新增面 | 无需改动，作为既有判据的旁证 |
+
 
 ## 七、预防措施（第 5 步，落地到文件）
-
 - 新建 `apps/desktop/electron/services/rpa-publish-id-extract.test.js`：把「作品标识按值形态识别」
   与「`video` 关键词不得裸加」两条钉成可执行锁（A5/A6 负例是防再犯的核心）。
 - `.quality-gates.md` 增加本次执行记录（含反证清单与远程同步 PENDING）。
 - 记忆/欠账：真机端到端观察（需授权）与「其余视频型平台（抖音/快手/视频号）同样只有图文形态判据」
   两条登记，不静默修。
+
+### 后续项（本 PR 明确不做，逐条给理由）
+
+1. **平台规则表驱动**：当第 2 个平台需要「专属键名 + 值形态」判据时，把
+   `PLATFORM_WORK_ID_RULES = [{ host, keys, shape }]` 抽成表，而不是在
+   `matchBilibiliWorkIdKey` / query 分支 / 路径分支三处各加一份（QM-6 前端轴 Warning）。
+   现在只有 1 个平台，先抽表属为假设需求设计。
+2. **抖音/快手/微博提交端点的响应体键集取证**：主机门已闭合误判面，取证属加固（见 §六.4）。
+3. **真机端到端观察**：投稿后实际落点 + 回查徽标联动（见 §八，需用户授权）。
 
 ## 八、授权边界
 
