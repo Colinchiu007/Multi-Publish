@@ -20,7 +20,9 @@ function entry (source, id, extra) {
 }
 
 function ledger (source, id, decision, note) {
-  return Object.assign(entry(source, id), { decision: decision || 'upgrade-tracked', note: note === undefined ? '已排期升级' : note });
+  // targetVersion 是「挂账可闭合」判据要求的字段（check-dep-audit.js 判定 4）。
+  // 夹具默认取 patched 的下界，使 ledger() 表示一条合规挂账；不合规形态由专门用例显式覆盖。
+  return Object.assign(entry(source, id), { decision: decision || 'upgrade-tracked', note: note === undefined ? '已排期升级' : note, targetVersion: '1.2.3' });
 }
 
 test('npm audit JSON 解析：按 GHSA 去重并汇总 workspace 根', () => {
@@ -168,6 +170,7 @@ test('pip 扫描器缺失时，npm 域的新公告仍必须判红（不得整体
       runners: {
         npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known', 'GHSA-brand-new']) }),
         pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
       },
     });
     assert.equal(code, 1);
@@ -193,6 +196,7 @@ test('缺失域的挂账条目不得被判成「已不再命中」（防假红�
       runners: {
         npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known']) }),
         pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
       },
     });
     assert.equal(code, 0, '实际输出：\n' + out.join('\n'));
@@ -203,7 +207,7 @@ test('缺失域的挂账条目不得被判成「已不再命中」（防假红�
   }
 })
 
-test('两个扫描器都不可用 ⇒ 本轮无判据，按失败处理', () => {
+test('全部扫描域都不可用 ⇒ 本轮无判据，按失败处理', () => {
   const { dir, file } = writeTempBaseline('dep-none', {
     reviewBy: FUTURE,
     advisories: [ledger('npm', 'GHSA-known')],
@@ -217,6 +221,7 @@ test('两个扫描器都不可用 ⇒ 本轮无判据，按失败处理', () => 
       runners: {
         npm: () => ({ ok: false, error: 'audit endpoint 不存在' }),
         pip: () => ({ ok: false, error: 'pip-audit 不存在' }),
+        'npm-opscenter': () => ({ ok: false, error: 'npm audit 端点不可达' }),
       },
     });
     assert.equal(code, 1);
@@ -249,4 +254,129 @@ test('--update 在任一扫描器缺失时拒绝写基线，且基线字节不�
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+})
+
+// ── ops-center 扫描域（①遗留收口）+「挂账必须可闭合」判据（③遗留收口）──
+
+test('npm audit v2 形状解析：按公告逐条展开，GHSA 从 url 取，patched 由 range 上界反推', () => {
+  const rep = {
+    vulnerabilities: {
+      undici: {
+        severity: 'high', isDirect: false, path: 'node_modules/undici', effects: ['vitest'], via: [
+          { source: 1, url: 'https://github.com/advisories/GHSA-rfgv-xxqx-mfg5', severity: 'high', range: '>=7.0.0 <7.29.1', title: 'A' },
+          { source: 2, url: 'https://github.com/advisories/GHSA-w293-vg96-wgc3', severity: 'high', range: '>=7.24.1 <7.29.1', title: 'B' },
+          '@vitest/mocker',
+        ],
+      },
+      'no-fix-pkg': { severity: 'moderate', via: [{ source: 3, url: 'https://github.com/advisories/GHSA-aaaa-bbbb-cccc', severity: 'moderate', range: '>=1.0.0', title: 'C' }] },
+    },
+    metadata: { vulnerabilities: { total: 3 } },
+  }
+  const out = D.parseNpmAuditV2(rep, 'npm-opscenter')
+  assert.equal(out.length, 3, '3 条公告；字符串型 via 项是"指向别的包"，不得算公告')
+  assert.deepEqual(out.map((e) => e.id).sort(), ['GHSA-AAAA-BBBB-CCCC', 'GHSA-RFGV-XXQX-MFG5', 'GHSA-W293-VG96-WGC3'])
+  const a = out.find((e) => e.id === 'GHSA-RFGV-XXQX-MFG5')
+  assert.equal(a.source, 'npm-opscenter', 'source 必须是独立域名，不能借用 pnpm 的 npm 键')
+  assert.equal(a.patched, '>=7.29.1', 'range 的上界必须反推成 >=X，否则判据 4 无从比较')
+  assert.deepEqual(a.roots, ['undici', 'vitest'])
+  assert.equal(out.find((e) => e.id === 'GHSA-AAAA-BBBB-CCCC').patched, '', 'range 没有上界 = 无修复版本 ⇒ 必须是空串')
+  for (const e of out) assert.ok(e.module && e.severity, '每条都得可归因')
+  assert.deepEqual(D.parseNpmAuditV2({}, 'npm-opscenter'), [], '空报告必须是空数组，不是抛错')
+})
+
+test('<0.0.0 归一化：pnpm 的"无修复版本"写法不得被当成可升级目标', () => {
+  assert.equal(D.normalizePatched('<0.0.0'), '')
+  assert.equal(D.normalizePatched(''), '')
+  assert.equal(D.normalizePatched(null), '')
+  assert.equal(D.normalizePatched('>=1.20.0'), '>=1.20.0')
+  const rep = { advisories: { 1: { github_advisory_id: 'GHSA-UNFIXED', module_name: 'x', severity: 'low', patched_versions: '<0.0.0', findings: [{ paths: ['a>x'] }] } } }
+  assert.equal(D.parseNpmAudit(rep)[0].patched, '', 'parseNpmAudit 出口也必须归一')
+})
+
+test('域清单与默认 runner 一一对应（登记了域却没接线＝装饰性门禁）', () => {
+  assert.ok(D.DOMAINS.includes('npm-opscenter'), 'DOMAINS 必须含 ops-center 域')
+  assert.equal(D.OPS_FRONTEND_REL, 'ops-center/frontend')
+  const runners = D.createDefaultRunners('https://registry.npmjs.org')
+  assert.deepEqual(Object.keys(runners).sort(), [...D.DOMAINS].sort(), 'runner 集与域集必须相等：多一个少一个都算漂移')
+  for (const src of D.DOMAINS) assert.equal(typeof runners[src], 'function', '域 ' + src + ' 没有 runner')
+  assert.ok(fs.readFileSync(path.join(__dirname, 'check-dep-audit.js'), 'utf8').includes('--omit=dev'),
+    'ops-center 域必须与 pnpm 侧的 --prod 同语义（--omit=dev）')
+})
+
+test('ops-center 域的新公告必须进判定（证明它被扫到，而不只是被枚举）', () => {
+  const { dir, file } = writeTempBaseline('dep-ops-new', { reviewBy: FUTURE, advisories: [] })
+  try {
+    const out = []
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {
+          gotrue: { severity: 'high', via: [{ source: 9, url: 'https://github.com/advisories/GHSA-ZZZZ-ZZZZ-ZZZZ', severity: 'high', range: '>=1.0.0 <2.0.0' }] },
+        } } }),
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    })
+    assert.equal(code, 1, 'ops-center 域的新公告必须让门禁红')
+    assert.ok(out.some((l) => l.includes('NEW_ADVISORY: npm-opscenter/GHSA-ZZZZ-ZZZZ-ZZZZ')), out.join('\n').slice(0, 400))
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('域存在但 runner 缺失 ⇒ 必须点名，不得静默当成"该域扫过且干净"', () => {
+  const { dir, file } = writeTempBaseline('dep-ops-norunner', {
+    reviewBy: FUTURE,
+    advisories: [ledger('npm', 'GHSA-known')],
+  })
+  try {
+    const out = []
+    const code = D.runCheck({
+      baselinePath: file,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known']) }),
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    })
+    const txt = out.join('\n')
+    assert.ok(txt.includes('DOMAIN_NOT_WIRED'), '接线断了必须给硬失败码，而不是被 SCANNER_UNAVAILABLE 吸收：\n' + txt.slice(0, 400));
+    assert.ok(!txt.includes('SCANNER_UNAVAILABLE'), '接线断了是代码事实，不得伪装成扫描器抖动（两类出口必须可区分）');
+    assert.ok(txt.includes('DOMAIN_NOT_WIRED'), '缺 runner 必须给硬失败码，而不只是 SCANNER_UNAVAILABLE 告警：\n' + txt.slice(0, 400));
+    assert.equal(code, 1, '域在清单里却没接线 = 覆盖面窄于声明 ⇒ fail closed（这不同于扫描器抖动）');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('upgrade-tracked 的账必须能闭合：缺目标版本 / 目标低于修复下界 / 形状不可解析 一律拦', () => {
+  const mk = (over) => Object.assign({ source: 'npm', id: 'GHSA-X', module: 'm', patched: '>=4.3.2', decision: 'upgrade-tracked', note: 'n' }, over)
+  assert.ok(String(D.checkTargetEscapes(mk({ targetVersion: '4.3.1' }))).includes('低于修复下界'), '升到 4.3.1 仍然命中公告')
+  assert.equal(D.checkTargetEscapes(mk({ targetVersion: '4.3.2' })), null, '恰好落在修复版 = 通过')
+  assert.equal(D.checkTargetEscapes(mk({ targetVersion: '5.0.0' })), null, '高于下界 = 通过')
+  assert.ok(String(D.checkTargetEscapes(mk({}))).includes('缺 targetVersion'))
+  assert.ok(String(D.checkTargetEscapes(mk({ targetVersion: 'latest' }))).includes('x.y.z 字面量'), '区间/通配不算承诺')
+  assert.ok(String(D.checkTargetEscapes(mk({ targetVersion: '4.3.2', patched: '' }))).includes('patched 为空'), '无修复版本却挂 upgrade-tracked = 自相矛盾')
+  assert.ok(String(D.checkTargetEscapes(mk({ targetVersion: '4.3.2', patched: '4.x' }))).includes('解析不出'), '解析不了的形状一律 fail closed')
+})
+
+test('判定 4 必须接进 evaluate，而不是只导出一个没人调用的纯函数', () => {
+  const found = [entry('npm', 'GHSA-A', { patched: '>=1.5.0' })]
+  const bad = { reviewBy: FUTURE, advisories: [Object.assign({}, found[0], { decision: 'upgrade-tracked', note: 'n', targetVersion: '1.4.0' })] }
+  const r1 = D.evaluate(bad, found, '2026-10-05', ['npm'])
+  assert.ok(r1.violations.some((v) => v.startsWith('DECISION_CONTRADICTS_PATCHED:')), JSON.stringify(r1.violations))
+  const good = { reviewBy: FUTURE, advisories: [Object.assign({}, found[0], { decision: 'upgrade-tracked', note: 'n', targetVersion: '1.5.0' })] }
+  assert.deepEqual(D.evaluate(good, found, '2026-01-01', ['npm']).violations, [])
+  const noFix = { reviewBy: FUTURE, advisories: [Object.assign({}, found[0], { patched: '', decision: 'no-fix-available', note: 'n' })] }
+  assert.deepEqual(D.evaluate(noFix, [Object.assign({}, found[0], { patched: '' })], '2026-01-01', ['npm']).violations, [],
+    'no-fix-available 允许 patched 为空 —— 判据只约束"待升级"这一类')
+})
+
+test('入库基线自洽：每条 upgrade-tracked 都带可闭合的 targetVersion（防迁移后再次腐化）', () => {
+  const b = JSON.parse(fs.readFileSync(path.join(__dirname, 'dep-audit-baseline.json'), 'utf8'))
+  const ut = b.advisories.filter((e) => e.decision === 'upgrade-tracked')
+  assert.ok(ut.length >= 20, 'upgrade-tracked 不得是空遍历：' + ut.length)
+  const bad = ut.map((e) => D.checkTargetEscapes(e)).filter(Boolean)
+  assert.deepEqual(bad, [], '存在闭不了环的挂账：\n' + bad.join('\n'))
+  assert.ok(b.advisories.some((e) => e.decision === 'no-fix-available'), '至少要有一条"确无修复版本"的对照，否则上面的边界没被测到')
+  assert.ok(!b.advisories.some((e) => e.decision !== 'upgrade-tracked' && e.targetVersion), '非 upgrade-tracked 的条目不该带目标版本承诺')
 })
