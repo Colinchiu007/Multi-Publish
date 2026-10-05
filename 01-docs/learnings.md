@@ -1,3 +1,12 @@
+## 迁移日志出口前必须盘点所有注入型 sink 的键面——fallback 对象缺键会把 TypeError 吞成业务错误码（publish-logging-observability w2-d1 补，2026-10-05）
+
+- **`opts.log || { info, warn, error }` 三键 fallback 是迁移的隐藏爆破点（pitfall）**：把 controller 出口迁到 `notify` 后，凡是「调用方没传 log 就走 fallback」的路径，`this._log.notify` 变成 TypeError——但它总在 try/catch 里，被 handler 吞成 `-99` 这类业务错误码，**表象是业务断言红、栈里没有日志字样**（zhihu-fav-batch 取消测试实测）。main 基线临时 worktree 对照（30/30 绿）才把归因钉到本波改动。正解：迁移某出口前，`git grep "{ info" ` 盘点全部注入型 sink 形态（源码 fallback `()=>{}`、简写 `info(){}`、测试 mock `vi.fn()` 三种），出口迁到哪一级，fallback 的键面就补到哪一级。
+- **test mock 缺 notify 键会让「别人的断言」挂（pitfall + pattern）**：`__registerMock('./logger', { info, warn, error })` 的三键 mock 注入进被测模块后，模块内**其他子域**（如 auth-partition）的 notify 调用也会打到它——缺键即 TypeError，把无关测试文件的断言搞红（rpa-view-manager 实测）。164 文件批修（+369/-369 纯插键）一次清零；迁移 PR 必须含「mock 键面批修」作为独立 commit，review 时单独看。
+## notify 契约的 messageKey 不许复用；注入型 sink 的锁适配要动正则本身（publish-logging-observability w2-d1，2026-10-05）
+
+- **messageKey 复用会卡死「键总数==调用总数」锁（pitfall）**：`collect-blocked` 被 4 个拦截分支复用、`collect-start` 被 2 种模式复用——ALLOWED_KEYS 是 Set 不重复登记，调用点多于键数必红。正解：**reason 差异拆成键的差异**（`collect-blocked-budget/-cooldown/-circuit/-rate`），reason 从 params 挪进键后审计粒度更细；params 只留 url/platform 等现场。契约口径：一个 messageKey = 一种可独立检索的事件。
+- **`this._log.notify` 注入形态会绕过裸标签结构锁（pitfall）**：NOTIFY_RE/LEGACY_RE 的前瞻 `(?:^|[^.\w])log` 要求 log 前是非词字符——`_` 属 `\w`，`this._log` 的 log 前是 `_` 不匹配；改 `(?:_log|log)` 后 `_` 前是 `this.` 的点，点又被 `[^.\w]` 排除，仍不匹配。正解：显式白名单 `(?:this\.)?(?:_log|log)`——`this.` 前缀可枚举，防误匹配语义（排除 `catlog.notify` 类尾巴）保留。
+- **动态消息文本不属 messageKey 契约（boundary）**：NOTIFY_RE 只认单双引号字面量第二参，模板字符串（反引号动态串）天然不匹配裸标签锁——这是锁的边界而非漏洞。迁移时先把它拆成固定 key + params；拒绝给动态串造键。
 ## 日志契约迁移的锁扩展次序：先迁调用点再扩 TARGET_FILES 会让「出声断言」集体失明（publish-logging-observability w1，2026-10-05）
 
 - **A 类清单只盘 warn 会漏掉 info/error（pitfall）**：`observability-messagekey.test.js` 的「禁止遗留裸标签调用」锁按 TARGET_FILES 扫 `log.(warn|info|error|debug)('Module', 'bare tag')`。把新域文件加进 TARGET_FILES 后，**info/error 裸标签站点也会被扫出来**——迁移前只按 warn 清单干活，扩展锁当场红了 6 处 info/error。正解：扩锁之前先把新域的 warn/info/error 全量清点（`git grep -n "log\.\(warn\|info\|error\|debug\)("`），一次迁完再扩锁。
@@ -17357,3 +17366,24 @@ DOM 流程失败(verification timeout) →
 - **可复用判据**：平台侧 4xx 且响应体为空/无业务错误码时，先做「header 逐字对齐终验」这一刀——**一次到位**而不是再猜下一项。若对齐后仍拒，根因几乎必在传输层/指纹层，继续修 Node 侧是纯烧钱（本案烧了 11 轮 + 13 个 PR）。
 - **对照经验**：同一批平台里走通的是「借浏览器发请求」（头条 direct bridge 在受信会话内捕获并重放保存请求，见 toutiao-shipped-react-bump 条目）——即 API 轨可行的形态是「浏览器传输 + Node 编排」，不是「Node 直连 + 复刻 header」。后续若要重启快手 API 轨，必须走受信会话内 fetch 并重新活体验收。
 - **收口纪律**：契约层规格成立 ≠ 能力可用。归档前给主规格补「实况补记」，未实现能力（小红书 x-s/x-t）一律不得折进主规格，只留「止步裁决记录」条款并写死重启前置。
+## 「桩只打了一半」的假绿：消费方在更早的加载时刻就把真实依赖存进了模块级变量（issue-2878，2026-10-05）
+
+- **单跑 `vitest -t` 反而干净、整文件跑才复现 —— 这是判据，不是巧合**：`account-manager.test.js` 两条用例桩了 `tryHttpLoginCheck`，但 `checkLoginStatus` 判有效**之后**还会调 `profileRefresh.refreshProfileFromHttpApi(...)`，而 `account-profile-refresh.js` 内部**直接持有** `require('./http-login-checker')` 的真实模块对象。该模块**只在首次 `require` 时求值**：那一刻若注册表里还没有桩，它把真实模块对象存进模块级 `const` 并终身持有 ⇒ 用例过滤改变了首次 require 的时机，于是过滤跑「干净」。绿灯来自**加载顺序**而非断言。正解：遇到「明明桩了却还有出站」，先查**消费方是不是在更早加载时刻就存了真实依赖**，而不是去怀疑桩写得不够多。
+- **旧注释与实现不符时，先判定哪一边是契约（pitfall）**：`ops-center-sync` 的「未配置时 fail-closed」用例注释写着「不发起网络请求」，但生产实现是**有意的** best-effort 运行时下发（`_syncRuntimeBestEffort` → `/api/v1/runtime/bootstrap`），因为目录无处应用时公告/版本/菜单仍须下发。照着旧注释去改生产逻辑会把一个正确设计改坏；正解是给 `global.fetch` 打桩 + 改注释。**门禁代码里的注释同样是契约**，它比测试注释更可信但同样会过期。
+- **反证必须两条同时成立才算桩承重**：① 摘掉桩后测试变红（`Tests 1 failed | 82 passed`）② 出站台账重新记回 `blocked::channels.weixin.qq.com:443`。只做「桩在时绿」不构成证据。
+- **「门禁绿」与「审计跑过了」是两件事（tool）**：#907 的 `Gate 9` 步骤 conclusion = `success`，但 `AUTONOMOUS_GATE=PROMPT_REVIEW_REQUIRED`、`verdict: NEED_HUMAN, score: 0, items: 0`。判 Gate 的健康度要同时看**步骤结论**和**gate 状态变量**；`agent-review-gate.js` 打出的 `AUDIT_NO_VERDICT` 告警原文是「green here does NOT mean coverage was audited」——这正是「拒绝把『没判』当成『判过了』」的正确形态。
+- **两个不同原因被同一个指标掩盖时，不要按直觉顺序修**：#907 的 `score: 0` 同时可能来自「LLM 端点不可用」与「FeatureDetector 提取噪音」。原单把 FeatureDetector 列为「治本」，但它其实**排在第二** —— 不先把两个原因分开就修 FeatureDetector 是在盲修。正解：先单独打通 LLM 往返做证伪，再谈提取噪音。
+
+## 判据要选对：「单子开着」不是存活判据，「最后一条评论距今多久」才是（issue-2635，2026-10-05）
+
+- **签名去重按标题检索 ⇒ 同因复发表现为在同一张单上追加评论，而不是另开一张**。所以分诊 bot 单时，唯一有效的存活判据是评论时间轴。实测 41 张新签名单：32 张静默且门禁已绿 ⇒ 取证后关闭；9 张近 3 天有评论 ⇒ **仍在复发，保持 OPEN**。按「开着 = 还活着」一刀切关闭，会把那 9 张真实复发信号一起埋掉。
+- **键选错时，任何收敛动作都是自欺**：旧 per-commit 形态的键是 commit sha，同一成因在 `Electron CI` 名下有上百张彼此等价的单，让新签名去「匹配」它们只能任选一张挂复发记录 —— 那是**把随机选择伪装成同因归并，比开着更坏**。诚实的收敛只有两条：按成因折叠（≈1500 次 API 调用，且重跑过的 run 因 `run_attempt` 陷阱可能重算出错误签名），或**封存**（打标签、保持 OPEN、写明「不代表当前状态」）。本轮选后者，742 张零漏打，口径落档 `docs/ci-failure-dedup.md`。
+- **取数要认源（pitfall）**：`gh run list --workflow=quality-gate --branch main --limit 12` 返回的最新运行是 **2026-09-15**、`Doc Sync Gate` 只剩 1 条；而 REST `actions/runs?branch=main&per_page=100` 正确覆盖到 2026-10-05。**用 CLI 结果当「当前是否绿」的证据会得出「这些门禁早就没人跑了」的错误结论**。所有门禁健康度断言一律以 REST 为准。
+- **批量打标的 GraphQL 两个坑**：`addLabelsToLabelable` 只接受**单个** `labelableId`（⇒ 用别名在同一文档发 N 个 mutation）；`gh api graphql` 的 `-f/-F` **只能传标量**，把 `[ID!]!` 喂 JSON 数组会被当成单个 ID 字符串（报 `Could not resolve to a node with the global id of '["LA_..."]'`，⇒ **id 一律内联字面量**）。别名一多会返 **HTTP 504** 且返回 HTML 错误页而非 JSON ⇒ 必须重试 + 退避、批次压到 10。写脚本时**把非 JSON 响应也纳入判据**，否则重试逻辑会被自己骗过。
+
+## 基线类 JSON 的「单键手术」纪律（issue-2610，2026-10-05）
+
+- **「只刷新不偿还」与「接受漂移」是两种不同的动作，必须在 PR 里明写**：`.github/scripts/check-max-lines.js` 的 `--update` 源码把不一致项塞进 `blockedRaise` 后 `continue`（`computeUpdate` 第 193 行）⇒ **它拒绝抬高已挂账项**；`--update --rewrite` 会按实况全量重生 96 个键、重排键序、抬高/删除别人的登记值。两者对本场景都无效，只能**单行替换**。
+- **这类文件是纯 CRLF 且键不是字典序**：`max-lines-baseline.json`、`gate-record-debt-ledger.json` 都如此。用 `JSON.stringify` 整体重排会造出巨量假 diff。正解：单行唯一子串替换或尾部插入 + **两口径对账**（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件一致）自证。
+- **门禁的「远程同步」行只认表行形态**：`.quality-gates.md` 的 `ROW_RE = /^\|\s*远程同步\s*\|/` —— docs-only 模板里的 bullet 形态（`- 保留门禁：… | 远程同步 PENDING`）**不被识别**，于是同 PR 的 ledger 登记会被判「陈旧」。写成 `| 远程同步 | PENDING | … |` 表行才闭环。
+- **登记值领先于实况时不要顺手抬**：#2610 里 `Publish.vue` 实况 1734 / 登记 1730，容差 200 尚余 196 行 —— 抬它就是无谓的基线 churn。只动真正被逼近红线的那两个（locales 净增 157、只剩 43 行）。

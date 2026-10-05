@@ -43,7 +43,7 @@ describeE2E('字幕对齐真实 E2E（stage 接线链路）', () => {
     ].join('\n')
     execFileSync('python', ['-c', script, text, audioPath], { timeout: 120000 })
     // 2) 启动真实 aligner（aligner-bridge workDir 指向 aligner 包）
-    bridge = new AlignerBridge({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    bridge = new AlignerBridge({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
     await bridge.start()
   }, 180000)
 
@@ -59,7 +59,7 @@ describeE2E('字幕对齐真实 E2E（stage 接线链路）', () => {
       duration: null,
       subtitleBlocks: BLOCKS.map((text, i) => ({ displayOrder: i, text })),
     }]
-    await alignScenes(scenes, { alignerBridge: bridge, log: { info: () => {}, warn: () => {}, error: () => {} } })
+    await alignScenes(scenes, { alignerBridge: bridge, log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
 
     const scene = scenes[0]
     expect(scene.subtitleAlign).toBeDefined()

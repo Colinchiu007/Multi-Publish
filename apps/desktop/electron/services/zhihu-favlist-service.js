@@ -25,7 +25,7 @@ class ZhihuFavlistService {
    */
   constructor (opts = {}) {
     this._axios = opts.axios || null
-    this._log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+    this._log = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   }
 
   _getAxios () {

@@ -67,7 +67,7 @@ function runPip (pythonCmd, args, onStdout, onStderr) {
 async function installFasterWhisper (opts = {}) {
   const pythonCmd = opts.pythonCmd || process.env.MP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
   const sendProgress = opts.sendProgress || (() => {})
-  const logger = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
   sendProgress({ stage: 'checking', detail: '检查 Python 环境...' })
   const versionCheck = await runPip(pythonCmd, ['-c', 'import sys; print(sys.version)'], () => {}, () => {})
@@ -121,7 +121,7 @@ async function installFasterWhisper (opts = {}) {
 async function downloadAsrModel (opts = {}) {
   const pythonCmd = opts.pythonCmd || process.env.MP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
   const sendProgress = opts.sendProgress || (() => {})
-  const logger = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
   sendProgress({ stage: 'model-checking', detail: '检查语音模型缓存...' })
   // Python 单行脚本：预检模型 → 未缓存则下载（asr_engine 内置 hf-mirror 镜像选择）

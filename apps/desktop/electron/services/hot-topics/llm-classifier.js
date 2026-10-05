@@ -18,7 +18,7 @@ const TOPIC_TEXT_LIMIT = 200
  * @param {{ modelProviderManager?: object, log?: { info: Function, warn: Function, error: Function } }} opts
  */
 function createLlmTopicClassifier({ modelProviderManager, log } = {}) {
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
   return async function llmClassify(topics) {
     const list = (Array.isArray(topics) ? topics : [])

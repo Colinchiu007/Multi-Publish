@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
 const { ProviderRouter } = require('./_base/router')
 

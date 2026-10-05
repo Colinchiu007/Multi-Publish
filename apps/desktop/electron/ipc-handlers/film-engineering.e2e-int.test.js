@@ -213,7 +213,7 @@ describe.skipIf(!hasTools)('production E2E（任务 9.1/9.2，模拟 provider + 
     }
     const generateCalls = []
     const deps = {
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       filmEngineeringService: service,
       aiGenerator,
       _testGenerateShotVideo: async ({ shot, index, runDir }) => {

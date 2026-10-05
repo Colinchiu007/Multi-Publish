@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }))
 import { Story2VideoProjectService } from '../services/story2video-project-service'
 __enableElectronMock()
 
@@ -39,7 +39,7 @@ function createDeps() {
     shell: { showItemInFolder: vi.fn() },
     clipboard: { writeText: vi.fn() },
     story2videoMediaServer: { createUrl: vi.fn(() => 'http://127.0.0.1:34821/media/aaaaaaaaaaaaaaaa') },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
   }
 }
 

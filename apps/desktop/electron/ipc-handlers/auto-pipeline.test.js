@@ -25,7 +25,7 @@ describe('auto-pipeline IPC handlers', () => {
       cancelRun: vi.fn(),
       listRuns: vi.fn(),
     }
-    registerHandlers(ipcMain, { fullAutoPipeline, log: { info() {}, warn() {}, error() {} } })
+    registerHandlers(ipcMain, { fullAutoPipeline, log: { info() {}, warn() {}, error() {}, notify() {} } })
   })
 
   it('注册 auto-pipeline:start handler', () => {

@@ -49,7 +49,7 @@ describe('Story2VideoComposeEngine — _cleanupSession (P2-7)', () => {
 
   beforeEach(() => {
     outputDir = createTestOutputDir()
-    engine = new Story2VideoComposeEngine({ outputDir, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine = new Story2VideoComposeEngine({ outputDir, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
   })
 
   afterEach(() => {
@@ -102,7 +102,7 @@ describe('Story2VideoComposeEngine — _cleanupOldSessions (P2-7)', () => {
 
   beforeEach(() => {
     outputDir = createTestOutputDir()
-    engine = new Story2VideoComposeEngine({ outputDir, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine = new Story2VideoComposeEngine({ outputDir, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
   })
 
   afterEach(() => {
@@ -170,7 +170,7 @@ describe('Story2VideoComposeEngine — _cleanupOldSessions (P2-7)', () => {
   it('10. outputDir 不存在时不报错', () => {
     const badEngine = new Story2VideoComposeEngine({
       outputDir: '/nonexistent/path/xyz',
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     expect(() => badEngine._cleanupOldSessions()).not.toThrow()
   })
@@ -178,14 +178,14 @@ describe('Story2VideoComposeEngine — _cleanupOldSessions (P2-7)', () => {
 
 describe('Story2VideoComposeEngine — constructor maxSessionAgeMs (P2-7)', () => {
   it('11. 默认 maxSessionAgeMs 为 24h', () => {
-    const e = new Story2VideoComposeEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const e = new Story2VideoComposeEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     expect(e.maxSessionAgeMs).toBe(24 * 60 * 60 * 1000)
   })
 
   it('12. 自定义 maxSessionAgeMs', () => {
     const e = new Story2VideoComposeEngine({
       maxSessionAgeMs: 3600000,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     expect(e.maxSessionAgeMs).toBe(3600000)
   })

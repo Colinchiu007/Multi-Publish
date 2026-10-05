@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-global.__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+global.__registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 
 const { AgnesMultimodalAdapter, AGNES_MULTIMODAL_MODELS, pickAspectRatio, pickSeconds } = require('./agnes-multimodal')
 const { PRESET_PROVIDERS, PRESET_RATE_LIMITS } = require('../model-provider-seeds')

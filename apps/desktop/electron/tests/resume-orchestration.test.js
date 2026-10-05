@@ -13,7 +13,7 @@ function makeStore() {
 function makeEngine(store, governor, maxConcurrentRuns, maxHistoryEntries) {
   const engine = new PipelineEngine({
     serviceBus: {},
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     runStateStore: store,
     governor: governor || null,
     maxConcurrentRuns,
@@ -297,7 +297,7 @@ describe('编排流水线断点恢复', () => {
     try {
       const sizeEngine = new PipelineEngine({
         serviceBus: {},
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       })
       sizeEngine.registerPipeline({
         name: 'size-test',

@@ -9,7 +9,7 @@
  * 创建标准 logger mock（vi.mock 自动封装 spy）
  */
 function createMockLogger() {
-  return { info: () => {}, warn: () => {}, error: () => {} };
+  return { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} };
 }
 
 /**

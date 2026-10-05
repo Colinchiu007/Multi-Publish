@@ -150,7 +150,7 @@ async function callWithRetry (fn, label) {
 }
 
 function createPromptEvalEngine ({ store, log }) {
-  const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
   /**
    * @param {object} request

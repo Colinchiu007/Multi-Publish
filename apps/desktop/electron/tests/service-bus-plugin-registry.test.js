@@ -11,7 +11,7 @@ function ok(value, message) {
   expect(value, message).toBeTruthy()
 }
 
-const mockLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+const mockLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
 
 beforeEach(() => {
   vi.clearAllMocks()

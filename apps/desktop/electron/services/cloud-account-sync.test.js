@@ -60,7 +60,7 @@ function makeFixture (overrides = {}) {
     userDataDir: '/tmp/fake-userdata',
     env: overrides.env || {},
     now: () => 1700000000000,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
   }
   return { deps, calls, events, service: createCloudAccountSync(deps) }
 }

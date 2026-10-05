@@ -29,7 +29,7 @@ function makePipeline(assetGenerator, aiGenerator) {
     stageExecutor,
     _assetGenerator: assetGenerator,
     aiGenerator,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
   }
   registerStory2VideoStages(pipeline)

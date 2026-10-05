@@ -27,7 +27,7 @@ function makePipeline (aiGenerator) {
     stageExecutor,
     aiGenerator,
     serviceBus,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     registerStageExecutor (type, fn) { stageExecutor.register(type, fn); return { success: true } },
   }
   registerVideoGenStages(pipeline)

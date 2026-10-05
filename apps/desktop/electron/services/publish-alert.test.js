@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 
-vi.mock("./logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("./logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }));
 
 describe("publish-alert", () => {
   let pa;

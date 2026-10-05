@@ -11,7 +11,7 @@ function makePipeline() {
   const executors = new Map()
   const pipeline = {
     stageExecutor: { executors, register(type, fn) { executors.set(type, fn) } },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     registerStageExecutor(type, fn) { executors.set(type, fn); return { success: true } },
   }
   const reg = registerTalkingHeadStages(pipeline)

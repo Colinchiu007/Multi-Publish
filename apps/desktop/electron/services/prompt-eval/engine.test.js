@@ -145,6 +145,6 @@ describe('prompt-eval engine', () => {
   })
 })
 
-const noopLog = { info: () => {}, warn: () => {}, error: () => {} }
+const noopLog = { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 
 
