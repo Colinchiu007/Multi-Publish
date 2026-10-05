@@ -1,3 +1,13 @@
+# [未发布] fix(publish-loop): 改写→发布→归因关联链打通（渲染层四入口 + 归因自动触发 + 归属按人收口）（2026-10-05，rewrite-lineage-second-hop）
+
+### 修复（PR #2903，P2-6d）
+- 渲染层四个改写产出入口（改写页 / AI 写作面板 / 热点转视频 / 采集）此前**从不读** `rewriteHistoryId`（实测 `apps/desktop/src` 全域 0 命中），于是 `tracked_content.rewrite_history_id` 恒空，「效果洞察」「爆款分析」两页的模式效果排行**自功能诞生起恒空**。新增唯一实现 `src/utils/rewrite-lineage.js`（信封判定 + 64 字符上限 + 控制字符拒绝，非法一律 `null` 而非空串），打通 改写→草稿→article→payload→task→列 这条关联链。
+- 归因重算 `recomputeAll()` 的生产调用点原本只有手动 IPC 一个 ⇒ 新增「回采巡检真实产出快照后」自动触发（`setAfterRound`，挂在 `electron/bootstrap.js` 唯一的 start() 站点之前，顺序颠倒会让 30s 首轮没有回调），并补齐 `stop()` 清首轮定时器。
+- 归属收口：`pattern_performance` 新增 `owner_subject`（存量库走幂等 ALTER，且**先 ALTER 再建 owner 索引**——顺序颠倒会让存量库升级即无法启动，这是 QM-6 外部评审命中的 Critical）；聚合桶加归属这一层，读侧按归属筛并 fail closed（认不出身份返回 `AUTH_ERROR`，不再被渲染成「暂无归因数据」）。
+- **口径变化（用户可见）**：`pattern_performance` 的 `sample_count` / `avg_views` / `avg_likes` / `avg_comments` / `avg_favorites` / `engagement_score` 由「本机全部样本的均值」变为「本归属内样本的均值」；写侧仍是全量重算，行按归属打戳。实测：两个归属混算时曾得到一行 avg=50，收口后是两行 10 / 90。
+- 存量**不可回填**（schema 级理由，不是工程偷懒）：`tracked_content` 表没有任何内容列（`activate-viral-schema.js:63-79`），历史发布记录无法反查出自哪次改写 ⇒ 榜单只对打通后的新发布生效。
+- 质量：TDD 先红后绿；全量 `cd apps/desktop && pnpm vitest run` = 13738 passed / 1 failed（唯一红是既有 Windows 符号链接 EPERM 环境项）；17 次变异反证（含一次「单维度夹具下反证无效、补第二维度才变红」的自我纠正）；QM-6 双模型 16 条逐条处置；QM-1 本地打包 rc=0 + `extractFile` 产物内容判据 + 隔离 profile 真启动见 `performance-recrawl scheduler started`。详见 `01-docs/PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05.md`（六维度；含一处被实测否证的误判，原样保留以免下一个会话重走一遍）。
+
 # [未发布] feat(门禁): 依赖审计补第三扫描域 ops-center/frontend，并强制「挂账必须可闭合」（2026-10-05，dep-audit-opscenter-domain / PR #2904）
 
 ### 为什么第三扫描域是必须的
