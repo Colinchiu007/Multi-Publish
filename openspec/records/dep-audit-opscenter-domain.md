@@ -2,9 +2,6 @@
 record: dep-audit-opscenter-domain
 task: 把 ops-center/frontend 的 npm 锁纳入依赖审计门禁；给 upgrade-tracked 挂账加"可闭合"判据
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：依赖审计门禁补第三扫描域 + 挂账可闭合判据（dep-audit-opscenter-domain，2026-10-05）
@@ -27,14 +24,19 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | 反证 B（挂账判据） | 已实跑 | 把基线里 `js-yaml / GHSA-2883-xcg3-v3hh` 的 `targetVersion` 从 `4.3.2` 改成 `4.3.1` ⇒ 真门禁 **rc=1**：`❌ DECISION_CONTRADICTS_PATCHED: npm/GHSA-2883-xcg3-v3hh 的目标版本 4.3.1 低于修复下界 4.3.2 —— 升上去仍然命中该公告，这笔账永远闭不了`；基线按字节还原核对 |
 | 反证的过程教训（当场踩到） | 已修 | 第一次做反证 A 时内联脚本自身语法报错，**文件根本没被改**，却得到 `no-runner 命中 0 行` —— 那是一次"反证没红"的假结论，真因是注入静默没发生（同族第四坑）。此后变异脚本必须先打印 `mutated:true / bytes 前后 / 锚点是否消失`。另一处自伤：用**收紧之前**的备份去还原变异文件，把已落地的 `DOMAIN_NOT_WIRED` 覆盖没了 —— 还原凭据必须与当前形态同源，已按幂等重放脚本恢复，并删掉重放产生的死代码块（`typeof run` 出现次数从 2 归 1） |
 | 行尾与 diff 对账 | ✅（且当场抓到一处自造损坏） | 三个被改文件 doubleCR=0；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等：gate `152/8`、test `132/2`、baseline `24/0`。**过程损坏已修**：追加用例时对已是 CRLF 的文本又跑了一遍 `replace(/\n/g,'\r\n')` ⇒ 253 行变成 `\r\r\n`，症状是 `node --test` 栈里报出 594 行而文件只有 379 行（V8 把孤立 `\r` 也算行终止符），已按 `\r\r\n→\r\n` 归一并用两口径对账复验 |
-| 单元测试 | ✅ | `node --test scripts/check-dep-audit.test.js` = **21 tests / 21 pass / 0 fail**。新增 8 例：V2 形状解析、`<0.0.0` 归一、`DOMAINS ↔ createDefaultRunners` 一一对应（装配锁）、ops-center 新公告进判定、缺 runner 硬失败、`checkTargetEscapes` 判定表（低于下界/恰好命中/高于/缺字段/通配/patched 空/patched 不可解析）、`evaluate` 接线、入库基线自洽（含「非 upgrade-tracked 不得带 targetVersion」反向断言）。既有用例迁移 3 处 + 改名 1 处（"两个扫描器都不可用"→"全部扫描域都不可用"），迁移理由见上表「收紧」行 |
+| 单元测试 | ✅ | `node --test scripts/check-dep-audit.test.js` = **26 tests / 26 pass / 0 fail**（原 21 + QM-6 后追加 5 例，见「QM-6 处置①②③」行）。首批 8 例：V2 形状解析、`<0.0.0` 归一、`DOMAINS ↔ createDefaultRunners` 一一对应（装配锁）、ops-center 新公告进判定、缺 runner 硬失败、`checkTargetEscapes` 判定表（低于下界/恰好命中/高于/缺字段/通配/patched 空/patched 不可解析）、`evaluate` 接线、入库基线自洽（含「非 upgrade-tracked 不得带 targetVersion」反向断言）。既有用例迁移 3 处 + 改名 1 处（"两个扫描器都不可用"→"全部扫描域都不可用"） |
 | 接线棘轮 | ✅ | 本 PR **不新增**测试文件（只扩 `scripts/check-dep-audit.test.js`），而它早已被 `.github/workflows/dep-audit.yml:55` 的 `node --test` 显式点名；`check-unwired-tests.js` 实跑 OK |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、未触 UI 文件；改动面 = 1 个门禁脚本 + 它的用例 + 1 个 JSON 数据文件 |
-| QM-6 CCG 双模型外部评审 | 未执行 | 本机 QM-6 通道本会话未验证（`gh` 在 Git Bash 下 rc=0 零输出；CC Switch :15721 存活未测）。**如实写「未执行」，不以自审冒充通过** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin dep-audit-opscenter-domain` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| QM-6 CCG 双模型外部评审 | 部分执行（三路两败一成，7 条已处置） | 通道实况：`codeagent-wrapper --backend codex` rc=0 但只有一句中间话、无 findings 产物；`--backend claude` 报 `completed without agent_message output` rc=1；**替代通道 `opencode run --model opencode/*-free` 产出真产物**（`.qm6-findings-fe2.json`，7 条：0 Critical / 4 Warning / 3 Info）。回声核验：评审用语在我发出的 prompt 与喂入的 diff 里 `grep -c` 均 0（仅 `自相矛盾`/`两域齐全` 各 1 次命中，命中的是被审代码自身的注释文本）⇒ 判为评审产出而非回声。**本 PR 命中 4 条，逐条实测成立**（见下三行处置） |
+| QM-6 处置①（解析器 else 兜底，Warning） | 已修并实跑 | `check-dep-audit.js` 原先 `source === 'npm' ? … : source === 'pip' ? … : parseNpmAuditV2(…)` —— 新增域会**静默按 v2 形状解析**，与本次刚立的 `DOMAIN_NOT_WIRED`「覆盖面窄于声明必须 fail closed」纪律直接冲突。改为显式 `PARSERS` 表 + 可注入（`opts.parsers`），缺解析器与缺 runner 同罪、同码不同因（输出点名 `npm-opscenter(缺解析器)`）。用例既查行为（注入删掉一个解析器 ⇒ rc=1 且该域的公告**不得出现在输出里**），也查结构（`Object.keys(PARSERS)` 与 `DOMAINS` `deepEqual`，只能同步变化） |
+| QM-6 处置②（多段 patched 只比第一段，Warning） | 已修并实跑 | 两处都能产出多段 `patched`，其中一处**是本 PR 自己写的**：`parseNpmAuditV2` 合并同 GHSA 跨包时用 `', '.join`；而 `patchedFromRange` 的 `.exec` 对 `">=1.0.0 <1.2.3, >=2.0.0 <2.1.5"` 这种**多族漏洞规格只取第一个 `<` 上界**，第二族被静默丢掉 ⇒ `targetVersion=2.0.5` 会被判"可闭合"，而它仍落在第二族里。修法：`patchedFromRange` 收集并去重**全部** `<` 上界；`checkTargetEscapes` 按 `,` 拆段**逐段**要求逃过，取"逐段都过"而非"任一段过"（两种语义无法从数据区分，保守侧只会假红不会假绿，出路与正确性一致），失败文案点名是**哪一段**没过。真仓现状：基线 25 条里 `patched` 含 `,`/`<` 的 **0 条** ⇒ 这是潜在洞而非今日假绿，但判据面已先于数据收紧 |
+| QM-6 处置③（三条 Info） | 已修 | ①`两域`注释（evaluate 短路、写基线两处）改为「全部声明域」，与三域结构对上；②测试里对 `DOMAIN_NOT_WIRED` 的**同条件重复断言**（两行判据完全相同、只文案不同）删掉一条，删除脚本断言"保留数 = 2（本用例主断言 + 新加的解析器接线用例）"，防止删多；③绿文追加口径披露 `（npm 两个域均按 --omit=dev / --prod 扫，dev 依赖不在判据面内）` —— 此前"结论完整"与 `--omit=dev` 的盲区不对账，CI 读者无从知道 dev 域公告不可见 |
+| QM-6 反证（四条新判据各能红、可归因） | 已实跑 4 档 | **R1** `patchedFromRange` 退回只取第一个上界 ⇒ rc=1，红的正是「多族规格」+「v2 解析跨族 range」**两条**（证明两条都在测同一件事的不同层）；**R2** `checkTargetEscapes` 退回只比第一段 ⇒ rc=1，红「逐段都逃过」；**R3** 退回 `else` 兜底**并**去掉解析器校验（两刀一起，忠实回退旧实现；只删校验会崩成 TypeError，红得不可归因）⇒ rc=1，红「解析器与域一一对应」；**R4** 绿文退回不披露口径 ⇒ rc=1，红「绿文必须披露 prod 口径」。每档先断言"文本真的变了"（`hits=1 / mutated=true / bytes 前后`），四档各自按**字节**还原（`restored=true ×4`），基线 26/26 绿 |
+| 远程同步 | PASS | 已合并：squash 落地 `a565e0f8d8038e356bfda37419f8d099a2942bd0`（PR #2904，2026-10-05T03:54:37Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2904)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin dep-audit-opscenter-domain` 返回 **0 行**证远端分支已删。其 CHANGELOG 条目由本回填 PR 带上。 |
 
 ### 遗留（不假装已闭合）
 - **dev 域仍未纳入判定**：ops-center/frontend 去掉 `--omit=dev` 实测有 3 包 / 12 条公告（`undici <7.29.1` ×10、`@vitest/mocker`/`vitest` 的 `GHSA-82fw-gwwq-j7x9`，range `>=2.1.0 <4.1.11`）。本门禁与 pnpm 侧一样只看生产依赖，所以这些**当前不可见**。这是 axios 那轮「nx 自带低危 axios」的同族形态，只是换了域 —— 要不要把 dev 域收进来，需要单独决策（它会把 12 条一次性变成必须登记或修账的欠账）。
-- **`undici` / `fast-uri` 的 override 仍是无上界 `>=`**（`pnpm-workspace.yaml:17-18`，任务 #34）：本 PR 没动它，判据面也没管它 —— `check-dep-audit` 看的是公告，不看 override 有没有上界。
+- **`undici` / `fast-uri` 的 override 曾是无上界 `>=`**（`pnpm-workspace.yaml:17-18`）：本 PR 没动它，`check-dep-audit` 也判公告不判覆写区间 —— 这条在**并行 PR #2905** 里收成了 `^` 并加了"整张覆写表都必须有上界"的棘轮（两侧同族但不互相冒充：那个 PR 的红不会替本 PR 的域接线作证，反之亦然）。
+- **`shellRun` 用 `shell: true` 传 args 数组**（`check-dep-audit.js` main 上既有形态，实测 4 处调用点，本 PR 的新 runner 沿用）：Node 会打 `DEP0190` 弃用告警 —— args 不转义只拼接，`NPM_AUDIT_REGISTRY` 这个环境变量的值因此是拼接进命令行的。今天它是本机开发者自设的单一 URL，且 `npm audit` 无写副作用，所以未在本 PR 处理；真要收口应该是把 `shell: true` 换成不带 shell 的调用（Windows 上需另解 `npm.cmd` 问题，见 learnings「可执行名不存在」那条），属独立的工具函数改造，不该夹在本次判据收紧里。
 - **`upgrade-tracked` 的更强判据没做**：真正能挡住 axios 那种"可修却挂着"的规则是「存在可用修复版 ⇒ 不允许挂账」。它会把当前 24 条一次性判红，等于要求同一 PR 修完 24 个依赖，超出范围。本 PR 落的是它的**必要子集**（账必须写明目标版本且该版本真能逃出区间），更强的那条需要独立排期，并逐条核实"为什么现在不修"的真实阻塞点 —— 我不能替那 24 条编造理由。
 - `--update` 仍按"本轮真扫到的域"重建清单：三域下这条风险变大（少一个扫描器就会抹掉那个域的挂账），现由「任一扫描器不可用即拒绝写基线」挡住；写基线的口径改造属独立议题。

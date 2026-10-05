@@ -2,9 +2,6 @@
 record: undici-fasturi-bounded
 task: 把 undici / fast-uri 两条 pnpm override 由无上界 >= 收成 ^，并加一条"整张覆写表都必须有上界"的棘轮
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：undici / fast-uri 覆写收上界 + 整表棘轮（undici-fasturi-bounded，2026-10-05）
@@ -20,12 +17,14 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | 防止再次发生（QM-5 ⑤） | ✅ | 判据从"逐条点名"升级成"整表 + 规模下界"，并写进 `pnpm-workspace.yaml` 的注释指向该测试文件 —— 以后加一条无上界覆写会当场红，不再靠人记得补注释。原断言里那句"或同步收紧 undici/fast-uri 两条"已过期（两条已收紧），一并改掉，不留一条指向不存在出路的话 |
 | 反证（锁必须能红） | 已实跑，cause-match | **M1** 把 `undici` 退回 `'>=7.29.1'` ⇒ 套件 rc=1，红 2 条（整表上界 + 两把锁一致），正是预期那 2 条；**M2** 只改 workspace 让锁漂移（`fast-uri: '^3.9.9'`）⇒ rc=1，**恰好 1 条红**且是漂移锁而非上界锁（证明两条判据互不掩盖）；**M3** 删掉 `axios` 那条 override ⇒ rc=1，红 3 条，其中含既有那条「生产依赖不允许解析到存在高危公告的 Axios 版本」⇒ 新判据没有把旧判据挤掉。三次变异都先断言"文本真的变了"（打印 bytes 前后 + 锚点已消失），全部按**字节**还原，还原后套件 rc=0、0 红 |
 | CI 等价判据 | ✅ | `pnpm install --frozen-lockfile` rc=0（这是唯一能证明"手改锁没有把 YAML 改成非法"的命令；上一轮我因 rebase 文本合并造出重复键，CI 报 `ERR_PNPM_BROKEN_LOCKFILE` 把 required 四项一起打红，地板锁/审计门禁对那种非法文件全都免疫）。另核实 `overrides:` 键在两个文件里各只出现 **1** 次（我第一版迁移脚本会写出第二个 `overrides:` 键，落盘前的重复键检查把它拦下了） |
-| 测试面 | ✅ | `production-dependency-security.test.js` **5/5**；`pnpm --filter @multi-publish/api-publish-engine test` **34 files passed**，rc=0；`node scripts/check-dep-audit.js` rc=0 `✅ 无新增已知漏洞公告` |
+| 测试面 | ✅ | `production-dependency-security.test.js` **7/7**（QM-6 后由 5 例增至 7 例）；`pnpm --filter @multi-publish/api-publish-engine test` **34 files passed**，rc=0；`node scripts/check-dep-audit.js` rc=0 `✅ 无新增已知漏洞公告` |
 | 行尾与 diff 对账 | ✅（过程自伤已当场修） | 三个改动文件最终 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等：test `62/1`、lock `2/2`、workspace `11/5`。**过程中自己造了一次行尾损坏**：追加用例的脚本对已是 CRLF 的文本又跑一遍 `replace(/\n/g,'\r\n')` ⇒ **122 行变成 `\r\r\n`**（症状：工作树 CR=306 而行数只有 185；`git diff` 两口径差 11 行）。由两口径对账暴露，修复脚本带「剥掉 CR 后内容逐行相同」断言（只准动行尾，一个内容字符都不许变），复验 `doubleCR=0` |
 | 另一处当场自纠 | 已修 | 新写的 `readOverridesBlock` 有真 bug：`overrides:` 段里夹着**顶格注释**（本仓 axios 那条前面有 8 行顶格说明），而它按 `/^[^\s]/` 遇顶格即 break ⇒ 只读到 2 条 override、axios 整条隐身。是**我自己的新用例**当场把它判红的（`names.length >= 3` 规模下界）。修法：注释行继续、真顶格才 break，并在注释里写下这条来由 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未改运行时代码语义（只改依赖区间与锁），且解析结果逐字节未变；未触 `apps/desktop/electron/` 与 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 未执行 | 本机 QM-6 通道本会话未验证（`gh` 在 Git Bash 下 rc=0 零输出；CC Switch :15721 存活未测）。如实记「未执行」，不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin undici-fasturi-bounded` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| QM-6 CCG 双模型外部评审 | 部分执行（三路两败一成，7 条已处置） | 通道实况：`codeagent-wrapper --backend codex` rc=0 但只有一句中间话、无 findings 产物；`--backend claude` 报 `completed without agent_message output` rc=1；**替代通道 `opencode run --model opencode/*-free` 产出真产物**（`.qm6-findings-fe2.json`，7 条：0 Critical / 4 Warning / 3 Info）。回声核验：评审用语在我发出的 prompt 与喂入的 diff 里 `grep -c` 均 0（仅 `自相矛盾`/`两域齐全` 各 1 次命中，命中的是被审代码自身注释）⇒ 判为评审产出。**本 PR 相关那条（Warning）实测成立**：`production-dependency-security.test.js:75` 的失败文案让人「改成带 ^/~ 的写法」，而同文件两处判据硬编码成只认 `^`（`:74` `/^\^?\d/`、`:157` 同形）⇒ 照文案写 `~` 会被自家门禁判红，**指引与判据互斥**；且 `:16` 的 `parseVersion` 早就接受 `~`，说明"~ 属合法写法"是本文件自己的既有口径 |
+| QM-6 处置（本 PR） | 已修并实跑 | 把「有上界的写法」收成**单一真源**：`BOUNDED_PREFIXES = ['^','~']` + `hasUpperBound()` + `boundedHint()`；两处判据改调 `hasUpperBound`，两处失败文案改由 `boundedHint()` 生成（文案由判据集合生成，结构上不可能再互斥）。新增 2 例：①行为锁（`^1.2.3`/`~1.2.3`/`1.2.3` 必须接受，`>=1.2.3`/`>1.2.3` 必须判红）；②结构锁（两个调用点必须走真源、代码行里不得再出现内联前缀正则、文案不得再硬写「^/~」）。**修脚本时自己踩到两个新坑并当场纠正**：(a) 起初用 `'^[' + prefixes.join('') + ']'` 拼字符类，`['^','~'].join('')` 得到 `[^~]` 是**取反类** —— 恰好把 `~` 判成不合格，改成显式交替 `/^(?:\^|~)?…/`；(b) 结构锁用 `src.includes(needle)` 扫 `__filename`，而 needle 就写在那行断言里 ⇒ **自指假红**，另加"只扫代码行"（动因注释里原样抄旧写法是给读者的现场证据，不该被撞红） |
+| QM-6 反证（两条新锁各自能红） | 已实跑 3 档，cause-match | **M1** 判据退回只认 `^` ⇒ rc=1，红的正是行为锁那一条；**M2** 调用点改回内联 `/^\^?\d/` ⇒ rc=1，红的正是结构锁；**M3** 文案改回硬写「改成带 ^/~」⇒ rc=1，红的正是结构锁。每档先断言"文本真的变了"（打印 `hits` / bytes 前后 / `mutated`），三档结束后各自**按字节还原**并断言与备份逐字节相同（`restored=true ×3`）。套件由 5 例增至 **7 例全绿** |
+| 远程同步 | PASS | 已合并：squash 落地 `2296c869b1488fd8070f2253a109d3328ac21e8b`（PR #2905，2026-10-05T04:00:56Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2905)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin undici-fasturi-bounded` 返回 **0 行**证远端分支已删。其 CHANGELOG 条目由本回填 PR 带上。 |
 
 ### 遗留（不假装已闭合）
 - **`^7.29.1` 只是把"静默跨 major"换成"钉在 7.x"**：undici 已有 8.11.2。要不要真升到 8.x 是一次**显式决策**（涉及 jsdom/cheerio/@electron/get 三家对 undici 的区间预期），不属本 PR。本 PR 的效果是"这件事必须有人主动做，而不是被一次 install 顺手做掉"。

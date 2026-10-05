@@ -241,7 +241,15 @@ async function loadData() {
   try {
     const params = platform.value ? { platform: platform.value } : {}
     const res = await listPatternPerformance(params)
-    rows.value = (res && res.code === 0 && res.data && res.data.items) || []
+    // 业务错误信封（含 P2-6d 新增的 AUTH_ERROR「认不出是谁」）必须与 IPC 抛错同等对待：
+    // 折成空数组会让「没验出身份」与「确实还没有归因数据」在界面上同形，
+    // 而后者是合法空态 —— 用户会去点【重算归因】排障，真正缺的却是登录（AGENTS.md：不得渲染成 0 条数据）。
+    if (!res || res.code !== 0 || !res.data || !Array.isArray(res.data.items)) {
+      loadError.value = true
+      rows.value = []
+      return
+    }
+    rows.value = res.data.items
   } catch {
     loadError.value = true
     rows.value = []

@@ -15,6 +15,7 @@ import { buildStory2VideoTextConfigFromSnapshot } from '@/story2video/s2v-config
 import { STORY2VIDEO_STAGE_NAMES } from '@/domain/pipeline-constants'
 import { getAppLocale } from '@/i18n'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
+import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 
 const GEN_VIDEO_PIPELINE_NAME = 'story2video-compose'
 const GEN_VIDEO_REWRITE_STAGE = 'rewrite_copy'
@@ -160,6 +161,8 @@ export function useHotTopicsGenVideo({ buildRewriteInput, hotUseViral, isDispose
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
+        // 归因链：这条草稿是改写产物，发布它时应能追回 rewrite_history 行（无 id 则不挂键）
+        attachRewriteLineage(draft, extractRewriteHistoryId(res))
         try {
           const saved = await draftSave(draft)
           if (saved && saved.code === 0) genVideoDraftId.value = draft.id

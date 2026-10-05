@@ -417,12 +417,13 @@ task:success（有 postId）
 | P2-6c 数据回流看板 | 已合并 | #2866（squash `b267b0aff`，2026-10-04T14:01:15Z）：新增 `electron/services/performance-overview.js`（唯一聚合口径 V1–V15）+ `performance:overview` IPC（带显式 sender 守卫）+ `src/features/dashboard/PerformanceFlowPanel.vue` 挂在数据看板页；同 PR 撤掉看板页写死的假百分比。合并过程中被四条计数/比例型门禁打回四轮，逐条根因与取证见 `PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md` §十 第 6–10 条 |
 | 同页假百分比（原 §六 未列的一项） | 本 PR 一并撤除 | `Dashboard.vue` 模板里的 `+8.5% / +23% / -2.1%` 与 locale 里的 `dashboard.weekChange: 较上周 +12%` 都没有数据源：`getAllCachedData()`（`packages/shared-utils/src/data-sync.js:116`）只按 TTL 返回每平台**一份最新**结果，没有时间序列，周变化在现有数据下算不出来 |
 | P2-8 账号分组 | 已合并两切片 | #2756（落 settings 真源）+ #2817（发布页按组添加） |
+| P2-6d 改写→发布→归因关联链 | 在途 PR #2903 | 三处实况：① 渲染层四个改写入口从未读过 `rewriteHistoryId`（实测 `apps/desktop/src` 全域 0 命中），主进程读侧 `phase4-events.js:154` 从写下起没有供值方；② `recomputeAll()` 生产调用点只有手动 IPC 一个；③ 归属——`pattern_performance` 原来不带归属维度。已加 `src/utils/rewrite-lineage.js` 唯一实现打通链路（改写→草稿→article→payload→task→列），归因桶加归属层、读侧按归属筛并 fail closed，业务错误信封不再被渲染成"暂无归因数据"。**曾误判第三处为"自动回采从未启动"**，实测真调用点在 `electron/bootstrap.js:256`（我漏扫该文件），已撤销相应接线并把误判过程写进 `PRD-PUBLISH-REWRITE-LINEAGE-2026-10-05.md` §2.1。QM-6 双模型 16 条处置见同文档 §十三，含 1 条 Critical（存量库先建 owner 索引后 ALTER ⇒ 升级即无法启动） |
 
 ### 11.1 P2-6 还剩什么（如实区分「可离线」与「需真机」）
 
 - **需真机端点**：抖音/小红书/公众号的互动 parser 未注册（`platform-metrics/index.js` 只注册了 zhihu/baijiahao/kuaishou/bilibili），这三家作品的互动数拿不到 ⇒ 看板上它们只会以「不支持回采」计数出现，不会被补 0 假装完整。
 - **需真实使用数据才能验收数字**：本机两份真实 userData（`D:\tmp\Multi-Publish-debug-profile` 与 `%APPDATA%\@multi-publish\desktop`）实测 `tracked_content` / `performance_snapshot` 均为 **0 行**，且全盘没有 >500 字节的 `publish-history.jsonl` ⇒ §六 里「performance_snapshot 实测非零」那句在本机不可复现，本 PR 不把它当依据。（此处原写「界面级验收用隔离 temp profile 造数走查」**不实**——实际走查方式是 vite dev server 独占端口 + Playwright 注入 `window.electronAPI` 桩，在真实 Chromium 里读 computed style 与文本；jsdom 单测不做样式层叠，兜不住 token 缺失导致的整条声明失效。数字级验收仍待取证。）
-- **可离线但留给后续切片**：`rewrite_history_id` 二跳（归因断链，现要求「从爆文库改写」才进 `pattern_performance`）、账号级粉丝/阅读趋势（需先给 `data-sync` 加历史留存层）、`unclassified` 发布记录的展示位。
+- **可离线但留给后续切片**：账号级粉丝/阅读趋势（需先给 `data-sync` 加历史留存层）、`unclassified` 发布记录的展示位、`performance:list-tracked` 的归属筛（同族但判据不同，需连带改分页 total 语义）、改写→视频创作→发布的归因交接（`CreateView._loadDraftForRewrite` 只读 content/title，且视频任务是否承载 `task.article` 未取证）、批量侧 lineage 的生产者（`addArticle()` 字段表不含该键，挂载点目前是前置接线）。`rewrite_history_id` 二跳已在 P2-6d 处理（见 §十一表）。
 
 ### 11.2 仍未完成的原计划项
 

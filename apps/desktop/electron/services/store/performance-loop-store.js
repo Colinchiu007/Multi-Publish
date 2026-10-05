@@ -423,8 +423,8 @@ module.exports = {
     this.db.prepare('DELETE FROM pattern_performance').run()
     const stmt = this.db.prepare(`
       INSERT INTO pattern_performance
-        (id, dimension, value, platform, sample_count, avg_views, avg_likes, avg_comments, avg_favorites, engagement_score, computed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, dimension, value, platform, owner_subject, sample_count, avg_views, avg_likes, avg_comments, avg_favorites, engagement_score, computed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const r of rows) {
       if (!r || !r.dimension || !r.value) continue
@@ -433,22 +433,51 @@ module.exports = {
       const avgComments = Math.max(0, Number(r.avgComments) || 0)
       const avgFavorites = Math.max(0, Number(r.avgFavorites) || 0)
       // engagement_score = avg_likes + avg_comments + avg_favorites × 2（首版启发式，常量区可调）
+      // 归属原样透传（可为 null = legacy 桶）；归一由聚合层的桶负责，这里不做二次判定
       const score = avgLikes + avgComments + avgFavorites * 2
-      stmt.run(_genId(), String(r.dimension), String(r.value), String(r.platform || ''), Math.max(0, Number(r.sampleCount) || 0), avgViews, avgLikes, avgComments, avgFavorites, score, now)
+      stmt.run(_genId(), String(r.dimension), String(r.value), String(r.platform || ''),
+        r.ownerSubject == null ? null : String(r.ownerSubject),
+        Math.max(0, Number(r.sampleCount) || 0), avgViews, avgLikes, avgComments, avgFavorites, score, now)
     }
   },
 
-  listPatternPerformance (opts = {}) {
-    if (!this._ready) return []
+  /**
+   * 读归因榜：必须按归属筛（P2-6d）。
+   *
+   * 归属条件与看板读侧共用 `_ownerPredicate`（本文件 :48），它自身已把三段 OR 包在括号里 ——
+   * 这一层括号**不能少**：本函数把归属条件与 dimension/platform 用 AND 串起来，
+   * 而 SQL 里 AND 的优先级高于 OR，一旦那个谓词退化成不带括号的 OR 链，
+   * 条件就变成「NULL 全放行 OR (空串 AND 维度) OR (legacy AND 维度)」，
+   * 别的归属的行只在 legacy 档 + 维度筛选这一组合下漏进来（主账号路径永远测不出）。
+   * 该风险由 `services/pattern-attribution-service.test.js` 的
+   * 「legacy 档…不得因 OR/AND 优先级漏进别人的行」守住：实测摘掉 `_ownerPredicate` 的括号它即红；
+   * 而在本函数里再包一层同样的括号是冗余的（实测摘掉它行为完全不变），故不加。
+   * @param {{dimension?:string, platform?:string}} [opts]
+   * @param {string|null|undefined} [ownerSubject] null/undefined ⇒ legacy 桶（绝不返回别人的数据）
+   */
+  listPatternPerformance (opts = {}, ownerSubject) {
+    // 返回 { items, error? }：查询失败/表缺失必须带 error 出声（QM-6 后端轴 W-4）。
+    // 只 return [] 的后果正是本切片刚修的那类事故的检测半环：
+    // schema 漂移（例如 owner_subject 的 ALTER 排序错）会让榜单读成空，
+    // 而空在界面上是合法空态 ⇒ 迁移坏了没人知道。口径与 listTrackedForOverview 一致。
+    if (!this._ready) return { items: [], error: 'store not ready' }
+    const owner = _ownerPredicate(ownerSubject)
     const conditions = []
-    const params = []
+    const params = [...owner.params]
     if (opts.dimension) { conditions.push('dimension = ?'); params.push(String(opts.dimension)) }
     if (opts.platform) { conditions.push('platform = ?'); params.push(String(opts.platform)) }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+    // 归属谓词自带 "WHERE "，后续条件用 AND 续在它后面
+    const where = owner.sql + (conditions.length ? ' AND ' + conditions.join(' AND ') : '')
     try {
-      return this.db.prepare(
+      if (!_tablePresent(this.db, 'pattern_performance')) {
+        return { items: [], error: 'table missing: pattern_performance' }
+      }
+      return { items: this.db.prepare(
         'SELECT * FROM pattern_performance ' + where + ' ORDER BY engagement_score DESC'
-      ).all(...params)
-    } catch (e) { return [] }
+      ).all(...params) }
+    } catch (e) {
+      log.warn('Store', 'listPatternPerformance failed: ' + e.message)
+      return { items: [], error: e.message }
+    }
   },
 }
