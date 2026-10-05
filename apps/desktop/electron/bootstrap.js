@@ -253,9 +253,22 @@ servicesResult = await startServices({
       } catch (e) { /* 容器无此服务时静默跳过 */ }
 
       // 启动表现数据回采服务（activate-viral-library P2：启动后 30s + 每日巡检 + 归因重算）
+      // P2-6d B2：归因重算的自动触发挂在这里（真正的 start() 站点，不在 phase3 里重复调一次）。
+      // 此前 recomputeAll() 的生产调用点只有手动 IPC 一个，而本行注释早就写着「+ 归因重算」——
+      // 挂要在 start() 之前，否则 30s 首轮没有回调。
       try {
         var performanceRecrawl = container.get('performanceRecrawlService')
         if (performanceRecrawl && typeof performanceRecrawl.start === 'function') {
+          if (typeof performanceRecrawl.setAfterRound === 'function') {
+            var patternAttribution = container.get('patternAttributionService')
+            performanceRecrawl.setAfterRound(function () {
+              if (patternAttribution && typeof patternAttribution.recomputeAll === 'function') {
+                return patternAttribution.recomputeAll()
+              }
+              log.warn('PerformanceLoop', 'attribution service missing, skip after-round recompute')
+              return null
+            })
+          }
           performanceRecrawl.start()
           log.info('App', 'performance-recrawl scheduler started')
         }

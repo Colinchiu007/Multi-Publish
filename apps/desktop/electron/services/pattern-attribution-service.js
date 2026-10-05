@@ -53,7 +53,8 @@ class PatternAttributionService {
       // 空数据也要清空聚合表（幂等语义：重算后表内容 = 当前事实）
       if (tracked.length === 0) {
         this._store.replacePatternPerformance([])
-        return { code: 0, data: { dimensions: 0, rows: 0 } }
+        // 返回形状必须与有数据那条一致（少一个键会让调用方的诊断分支按 undefined 走）
+        return { code: 0, data: { dimensions: 0, buckets: 0, rows: 0 } }
       }
 
       // 2. 逐条关联：rewrite_history.knowledge_refs → viral_library id → pattern_card
@@ -123,7 +124,12 @@ class PatternAttributionService {
 
       this._store.replacePatternPerformance(rows)
       log.info('PatternAttribution', 'recomputed: ' + rows.length + ' rows from ' + linkedCount + ' links')
-      return { code: 0, data: { dimensions: Object.keys(agg).length, rows: rows.length } }
+      // dimensions 的语义是"有几个维度算出了行"，不是"几个桶"：归属进 agg 的键之后，
+      // Object.keys(agg).length 会被读成维度数（QM-6 后端轴 I-2）。诊断字段说错话比不说更糟。
+      const dimensionCount = new Set(
+        Object.keys(agg).reduce((acc, ownerKey) => acc.concat(Object.keys(agg[ownerKey])), []),
+      ).size
+      return { code: 0, data: { dimensions: dimensionCount, buckets: Object.keys(agg).length, rows: rows.length } }
     } catch (e) {
       log.warn('PatternAttribution', 'recompute failed: ' + e.message)
       return { code: -2, message: e.message }

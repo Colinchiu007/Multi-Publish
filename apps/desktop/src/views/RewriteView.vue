@@ -783,9 +783,13 @@ async function goToPublish() {
   }
 }
 
-/** 改写结果变化后旧草稿失效：置空 savedDraftId，下次发布/视频创作按当前文案重存 */
+/** 改写结果变化后旧草稿失效：置空 savedDraftId，下次发布/视频创作按当前文案重存。
+ *  归因链必须一起失效（PRD §六.2 / QM-6 后端轴 W-1）：用户手改正文后，界面上那份内容
+ *  已经不是 rewrite_history 行里存的那条改写了 —— 继续带旧 id 进 payload，
+ *  归因榜就把新文案的表现归给旧的爆款引用组合，那是**假归因**，比没关联更糟。 */
 function invalidateSavedDraft() {
   savedDraftId = null
+  rewriteLineageId = null
 }
 
 /** 视频创作 — 先存草稿，再带草稿 id 跳转视频创作页（用户在创作页选择流水线） */

@@ -166,33 +166,6 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       log.warn('App', 'Failed to register analytics providers: ' + errorMessage(e))
     }
 
-    // 表现数据自动回采 + 归因重算（P2-6d B2/B3）。这两个服务与 30s/24h 定时器**早就写好了**，
-    // 缺的一直是"有人拧钥匙"：实测 bootstrap 里从未调用过 performanceRecrawlService.start()，
-    // 而 recomputeAll() 的生产调用点只有手动 IPC 一个。所以"最近回采 = 从未""归因榜恒空"
-    // 不是没有数据，是采集与归因从来没有被触发过。
-    try {
-      const performanceRecrawlService = container.get('performanceRecrawlService')
-      const patternAttributionService = container.get('patternAttributionService')
-      if (performanceRecrawlService && typeof performanceRecrawlService.setAfterRound === 'function') {
-        // 采完立刻重算：归因的输入就是回采的产物。让归因自己起定时器会出现
-        // "算的时候还没采完"的空轮；逐条触发又把全量重算扫 N 遍。判据见 processRound 收口。
-        performanceRecrawlService.setAfterRound(() => {
-          if (patternAttributionService && typeof patternAttributionService.recomputeAll === 'function') {
-            return patternAttributionService.recomputeAll()
-          }
-          log.warn('PerformanceLoop', 'attribution service missing, skip after-round recompute')
-          return null
-        })
-        cleanups.push(() => performanceRecrawlService.stop && performanceRecrawlService.stop())
-        performanceRecrawlService.start()
-        log.info('App', 'Performance recrawl patrol started (30s delay + daily; attribution after round)')
-      } else {
-        log.warn('App', 'Performance recrawl patrol unavailable: service or setAfterRound missing')
-      }
-    } catch (e) {
-      log.warn('App', 'Performance recrawl patrol failed to start: ' + errorMessage(e))
-    }
-
     const identityModule = require('../services/identity/identity-service-factory')
     const identityFactory = createIdentityService || identityModule.createIdentityService
     const resolveIdentityEnv = loadIdentityRuntimeEnv || loadDefaultIdentityRuntimeEnv

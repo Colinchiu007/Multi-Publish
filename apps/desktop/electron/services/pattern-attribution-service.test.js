@@ -193,6 +193,18 @@ describe('PatternAttributionService.recomputeAll —— 归因行带归属', () 
   it('四维枚举与存储层同源（改名必须同步，否则归因写进无人读的维度）', () => {
     expect(ATTRIBUTION_DIMENSIONS).toEqual(['hook_type', 'emotion_curve', 'narrative_structure', 'cta_style'])
   })
+
+  it('返回的 dimensions 是"算出了几个维度"，不是桶数（QM-6 后端轴 I-2）', () => {
+    const store = makeStore()
+    // 两个归属 × 同一维度：agg 顶层键数=2，但维度只有 1 个
+    seedAttributable(store, { ownerSubject: 'user-A', viralId: 'v1', postId: 'p1', hookType: 'suspense', views: 10 })
+    seedAttributable(store, { ownerSubject: 'user-B', viralId: 'v2', postId: 'p2', hookType: 'question', views: 20 })
+    const res = new PatternAttributionService({ store }).recomputeAll()
+    expect(res.code).toBe(0)
+    expect(res.data.dimensions, '归属桶数被当成维度数报出去，诊断字段就说谎了').toBe(1)
+    expect(res.data.buckets, '桶数另有一键可看，不必挤进 dimensions').toBe(2)
+    expect(res.data.rows).toBe(2)
+  })
 })
 
 /**
@@ -218,14 +230,14 @@ describe('归因榜读侧按归属筛', () => {
 
   it('A 只能看到自己的行；B、legacy 的行不得出现在 A 的榜上', () => {
     const store = seedTwoOwners()
-    const rows = store.listPatternPerformance({}, 'user-A')
+    const rows = store.listPatternPerformance({}, 'user-A').items
     expect(rows.length).toBeGreaterThan(0)
     expect(new Set(rows.map(r => r.owner_subject))).toEqual(new Set(['user-A']))
   })
 
   it('维度筛选 + 归属筛选必须同时生效', () => {
     const store = seedTwoOwners()
-    const rows = store.listPatternPerformance({ dimension: 'hook_type' }, 'user-B')
+    const rows = store.listPatternPerformance({ dimension: 'hook_type' }, 'user-B').items
     expect(rows.length).toBe(1)
     expect(rows[0].value).toBe('question')
     expect(rows[0].owner_subject).toBe('user-B')
@@ -233,7 +245,7 @@ describe('归因榜读侧按归属筛', () => {
 
   it('legacy 档（身份服务缺席 = undefined）只看无归属桶，且不得因 OR/AND 优先级漏进别的维度/别人的行', () => {
     const store = seedTwoOwners()
-    const legacyAll = store.listPatternPerformance({}, undefined)
+    const legacyAll = store.listPatternPerformance({}, undefined).items
     // 判据自证：legacy 桶必须横跨两种维度，否则下面的维度断言是恒真的空集判断
     expect(legacyAll.length, 'legacy 桶至少两条（两种维度），夹具失效则本锁失去测量对象').toBeGreaterThanOrEqual(2)
     expect(new Set(legacyAll.map(r => r.dimension)).size, 'legacy 桶必须有两种维度').toBeGreaterThanOrEqual(2)
@@ -244,12 +256,12 @@ describe('归因榜读侧按归属筛', () => {
     // 带维度筛 —— 这一步才会暴露缺括号：SQL 里 AND 优先于 OR，
     // `_ownerPredicate` 的三段 OR 一旦失去自己的括号，`AND dimension = ?` 只绑到最后一段，
     // 于是 legacy 桶里另一种维度的行会漏进来。
-    const legacyHook = store.listPatternPerformance({ dimension: 'hook_type' }, undefined)
+    const legacyHook = store.listPatternPerformance({ dimension: 'hook_type' }, undefined).items
     expect(legacyHook.length, '维度筛选必须在 legacy 档也生效').toBe(1)
     expect(legacyHook[0].dimension).toBe('hook_type')
     expect(legacyHook[0].value).toBe('story')
     // 正向对照：另一维度的 legacy 行确实存在（不是被别的条件误删）
-    const legacyCta = store.listPatternPerformance({ dimension: 'cta_style' }, undefined)
+    const legacyCta = store.listPatternPerformance({ dimension: 'cta_style' }, undefined).items
     expect(legacyCta.length).toBe(1)
     expect(legacyCta[0].value).toBe('challenge')
   })

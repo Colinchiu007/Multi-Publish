@@ -814,6 +814,14 @@ async function recordRewriteToLibrary (content, source) {
 // 改写失败时不更新它——旧的 id 与界面上仍在的旧正文保持配对，比"内容没变但关联丢了"更正确。
 let collectRewriteLineageId = null
 
+// 清空改写结果必须同时清掉关联 id（QM-6 前端轴 F2）：两者是同一个产物的两半，
+// 分头复位就会留下"新正文 + 旧 id"这种假归因。今天读点被 rewriteResult 非空门控挡住，
+// 但那只是巧合——门控一旦改动（例如给空结果也留草稿入口），潜伏的串关联立刻变成事实。
+function clearRewriteResult () {
+  rewriteResult.value = ''
+  collectRewriteLineageId = null
+}
+
 async function rewriteViaEngine (content) {
   let res
   try {
@@ -1709,7 +1717,7 @@ async function collectUrl () {
   }
   collecting.value = true
   collectedResult.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   collectError.value = null
   try {
     const trimmedUrl = linkUrl.value.trim()
@@ -1878,7 +1886,7 @@ async function collectAndRewrite () {
   collecting.value = true
   rewriteError.value = null
   collectError.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   collectedResult.value = null
   try {
     const trimmedUrl = linkUrl.value.trim()
@@ -1984,6 +1992,10 @@ async function collectAndRewrite () {
         })
         if (rewrite && rewrite.result_content) {
           rewriteResult.value = rewrite.result_content
+          // 归因链（QM-6 后端轴 W-2）：Python 改写链路不写桌面 rewrite_history，
+          // 没有可承载的 id。这里必须显式清掉上一次引擎改写留下的 id ——
+          // 否则"存草稿"会把旧引擎的关联挂到这份 Python 产物上，属于凭空伪造关联。
+          collectRewriteLineageId = null
           recordRewriteToLibrary(rewrite.result_content, stealthItem)
           notifySuccess('collection.rewriteSuccess')
         } else {
@@ -2108,7 +2120,7 @@ function retryRewrite () {
 
 function clearResult () {
   collectedResult.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   rewriteError.value = null
   collectError.value = null
 }
@@ -2286,7 +2298,7 @@ async function deleteRecord (item) {
   collectedItems.value = collectedItems.value.filter(x => x.id !== item.id)
   if (collectedResult.value && collectedResult.value.id === item.id) {
     collectedResult.value = null
-    rewriteResult.value = ''
+    clearRewriteResult()
   }
   await saveCollectedItems()
   notifySuccess('collection.recordsDeleted')
@@ -2298,7 +2310,7 @@ async function clearAllRecords () {
   // 只清 collected_items（采集正文）；改写文案（copy_library_rewrites）保留，需逐条删除
   collectedItems.value = []
   collectedResult.value = null
-  rewriteResult.value = ''
+  clearRewriteResult()
   await saveCollectedItems()
   notifySuccess('collection.recordsCleared')
 }

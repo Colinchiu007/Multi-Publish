@@ -63,8 +63,11 @@ function registerHandlers(ipcMain, deps) {
     try {
       const owner = resolveIpcOwnerSubject(identityService)
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      const rows = store.listPatternPerformance(params || {}, owner)
-      return { code: EC.SUCCESS, data: { items: rows } }
+      const read = store.listPatternPerformance(params || {}, owner)
+      // 查询失败/表缺失不得翻成空榜单：那会把 schema 漂移伪装成"还没有归因数据"
+      // （前端此时展示合法空态，用户不会报障）。口径与本文件 performance:overview 一致。
+      if (read && read.error) return { code: EC.REQUEST_ERROR, message: read.error }
+      return { code: EC.SUCCESS, data: { items: (read && read.items) || [] } }
     } catch (e) { log.warn('[ipc:performance]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 

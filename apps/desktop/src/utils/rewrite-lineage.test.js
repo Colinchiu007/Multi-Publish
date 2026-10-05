@@ -99,4 +99,22 @@ describe('单一实现结构锁 — 四个改写入口不得各抄一份读法',
       expect(src, `${rel} 禁止自抄读法`).not.toMatch(/data\.rewriteHistoryId\s*\|\|/)
     }
   })
+
+  // QM-6 后端轴 W-2 的锁。Collection 里有两条改写来源：桌面引擎（写 rewrite_history，
+  // 有 id）与 Python aggregationRewrite（不写表，**没有 id**）。它们都往同一个
+  // rewriteResult 上赋值，形状又都是 {result_content}，所以"当前这份正文有没有关联"
+  // 无法从结果本身看出来 —— 只能靠 Python 分支显式清掉引擎残留的 id。
+  // 这条判据在 Collection.vue 的 2800 行里只能做成结构锁（无该分支的行为测试），
+  // 作用是把"清 id"这件事钉在同一个块里：搬走或删除它即红。
+  it('Collection 的 Python 改写分支必须显式清掉引擎残留的 id（无 id 可承载的链路不得伪造关联）', () => {
+    const src = fs.readFileSync(path.join(SRC_ROOT, 'views/Collection.vue'), 'utf8')
+    const atPy = src.indexOf('api.aggregationRewrite(')
+    expect(atPy, 'Python 改写分支被改名/删除：请同步本锁与判据').toBeGreaterThan(-1)
+    const block = src.slice(atPy, atPy + 900)
+    const atClear = block.indexOf('collectRewriteLineageId = null')
+    const atAssign = block.indexOf('rewriteResult.value = rewrite.result_content')
+    expect(atAssign, 'Python 分支不再写 rewriteResult：请复核本锁是否还需要').toBeGreaterThan(-1)
+    expect(atClear, 'Python 分支没清 id ⇒ 上一次引擎改写的 id 会挂到 Python 产物上').toBeGreaterThan(-1)
+    expect(atClear, '清理必须发生在赋值之后（顺序反了就是把新正文配回旧 id）').toBeGreaterThan(atAssign)
+  })
 })

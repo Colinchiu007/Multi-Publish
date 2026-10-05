@@ -1619,5 +1619,30 @@ describe('RewriteView — 归因链：rewriteHistoryId 随草稿落盘', () => {
     const snapshot = mocks.draftSave.mock.calls[0][0]
     expect(Object.prototype.hasOwnProperty.call(snapshot, 'rewriteHistoryId')).toBe(false)
   })
+
+  // QM-6 后端轴 W-1：原位编辑与"再改写一次"是两条不同的失效路径。
+  // 上一条量的是新改写替换旧 id；这条量的是**没有新改写**、只有用户手改正文 ——
+  // 此时 rewrite_history 行里存的已经不是屏幕上这份内容，继续挂旧 id 就是假归因。
+  it('改写后用户手改结果正文 ⇒ 关联必须失效，不得把旧 id 挂到新文案上', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce(rewriteEnvelope({ rewriteHistoryId: 'mdEDIT000001' }))
+    const wrapper = factory()
+    await rewriteThenSaveDraft(wrapper, mocks)
+    expect(mocks.draftSave.mock.calls[0][0].rewriteHistoryId).toBe('mdEDIT000001')
+
+    // 再编辑结果 textarea（v-model=rewriteResult，:219）→ watch(rewriteResult) 触发失效
+    await wrapper.find('textarea.result-textarea').setValue('改完又不满意，手动重写了这一段正文')
+    await nextTick()
+    mocks.draftSave.mockClear()
+    const btn = wrapper.findAll('button').find(b => b.text().includes('存入草稿'))
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+
+    const snapshot = mocks.draftSave.mock.calls[0][0]
+    expect(snapshot.content).toContain('手动重写了这一段')
+    expect(Object.prototype.hasOwnProperty.call(snapshot, 'rewriteHistoryId'),
+      '手改后的正文携带上一次改写的 id ⇒ 归因榜把新文案的表现算给旧的爆款引用组合').toBe(false)
+  })
 })
 

@@ -382,7 +382,10 @@ async function doRewrite() {
 
 function selectRewriteResult() {
   emit("apply-content", rewriteResult.value, panelRewriteLineageId)
-  emit("apply-rewrite", rewriteResult.value)
+  // 同一条 lineage 也必须挂在 apply-rewrite 上：该事件目前在 Publish.vue 里**无绑定**
+  // （R92 类既有观察，登记于 PRD §3.4），但它与 apply-content 是同一份产物的两个出口，
+  // 只给一条挂 id 就是给下一个绑定者留"点了就有正文、没有关联"的静默坑。
+  emit("apply-rewrite", rewriteResult.value, panelRewriteLineageId)
   // P2 隐式反馈：用户应用改写结果 = 采纳被引用的知识条目
   sendKnowledgeFeedback("adopted", rewriteKnowledgeRefs.value)
 }

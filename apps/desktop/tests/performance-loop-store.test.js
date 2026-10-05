@@ -65,7 +65,7 @@ describe('performance-loop-store', function () {
       { dimension: 'hook_type', value: 'suspense', platform: 'zhihu', sampleCount: 5, avgViews: 1000, avgLikes: 100, avgComments: 20, avgFavorites: 30 },
       { dimension: 'hook_type', value: 'conflict', platform: 'zhihu', sampleCount: 3, avgViews: 800, avgLikes: 60, avgComments: 10, avgFavorites: 15 },
     ])
-    var rows = store.listPatternPerformance({ dimension: 'hook_type' })
+    var rows = store.listPatternPerformance({ dimension: 'hook_type' }).items
     expect(rows.length).toBe(2)
     var suspense = rows.find(function (r) { return r.value === 'suspense' })
     expect(suspense.sample_count).toBe(5)
@@ -74,7 +74,7 @@ describe('performance-loop-store', function () {
     store.replacePatternPerformance([
       { dimension: 'hook_type', value: 'question', platform: 'zhihu', sampleCount: 1, avgViews: 500, avgLikes: 50, avgComments: 5, avgFavorites: 5 },
     ])
-    expect(store.listPatternPerformance({ dimension: 'hook_type' }).length).toBe(1)
+    expect(store.listPatternPerformance({ dimension: 'hook_type' }).items.length).toBe(1)
   })
 
   // P2-6d 归属筛：写入时打归属、读取时按归属取。
@@ -85,15 +85,15 @@ describe('performance-loop-store', function () {
       { dimension: 'hook_type', value: 'mine', platform: '', ownerSubject: 'user-OWNER', sampleCount: 1, avgViews: 1, avgLikes: 1, avgComments: 1, avgFavorites: 1 },
       { dimension: 'hook_type', value: 'legacy', platform: '', ownerSubject: null, sampleCount: 1, avgViews: 1, avgLikes: 1, avgComments: 1, avgFavorites: 1 },
     ])
-    const legacy = store.listPatternPerformance({ dimension: 'hook_type' }, undefined)
+    const legacy = store.listPatternPerformance({ dimension: 'hook_type' }, undefined).items
     expect(legacy.map(r => r.value)).toEqual(['legacy'])
-    const owned = store.listPatternPerformance({ dimension: 'hook_type' }, 'user-OWNER')
+    const owned = store.listPatternPerformance({ dimension: 'hook_type' }, 'user-OWNER').items
     expect(owned.map(r => r.value)).toEqual(['mine'])
     // '' 与 '__legacy__' 必须与 NULL 同桶（存储层 _ownerPredicate 的三态语义）
     store.replacePatternPerformance([
       { dimension: 'hook_type', value: 'legacy2', platform: '', ownerSubject: '', sampleCount: 1, avgViews: 1, avgLikes: 1, avgComments: 1, avgFavorites: 1 },
     ])
-    expect(store.listPatternPerformance({}, undefined).map(r => r.value)).toEqual(['legacy2'])
+    expect(store.listPatternPerformance({}, undefined).items.map(r => r.value)).toEqual(['legacy2'])
   })
 
   // 夹具漂移锁：本文件的建表已改为跑真迁移（手抄 DDL 曾让新增列报 no column named）。
@@ -138,5 +138,52 @@ describe('performance-loop-store listDueForRecrawl force（立即回采调试入
     s2.addTrackedContent({ id: 't-old2', platform: 'bilibili', postId: '', url: 'https://x/old', recrawlStatus: 'pending', nextRecrawlAt: new Date().toISOString(), createdAt: old })
     var forced = s2.listDueForRecrawl(Date.now(), { force: true })
     expect(forced.find(function (r) { return r.id === 't-old2' })).toBeUndefined()
+  })
+})
+
+/**
+ * 读侧错误必须出声（QM-6 后端轴 W-4）。
+ * 空数组是**合法结果**（还没有归因数据），所以"读不出来"绝不能长得跟它一样：
+ * 本切片修的 C-1（owner 索引排在 ALTER 之前 ⇒ 存量库迁移直接失败）如果只体现在
+ * "榜单空"上，就没有任何一层会报出来 —— 用户看到的是空态，不是故障。
+ */
+describe('performance-loop-store listPatternPerformance 错误出声', function () {
+  function bareStore (withTable) {
+    const Database = require('../electron/services/sqlite-wrapper')
+    const db = new Database(null)
+    return Database.ready.then(function () {
+      if (!db._db) db._init()
+      if (withTable) {
+        require('../electron/services/activate-viral-schema').migratePerformanceLoopSchema(
+          db, function (target, sql) { target.execOrThrow(sql) })
+      }
+      const mixin = require('../electron/services/store/performance-loop-store')
+      const s = Object.assign({}, mixin)
+      s.db = db
+      s._ready = true
+      return s
+    })
+  }
+
+  test('表不存在 ⇒ items 空但必须带 error（不得伪装成"还没有归因数据"）', async function () {
+    const st = await bareStore(false)
+    const read = st.listPatternPerformance({}, 'user-A')
+    expect(read.items).toEqual([])
+    expect(read.error, '表缺失必须出声').toMatch(/pattern_performance/)
+  })
+
+  test('表存在且无数据 ⇒ items 空且**没有** error（两种空必须可区分）', async function () {
+    const st = await bareStore(true)
+    const read = st.listPatternPerformance({}, 'user-A')
+    expect(read.items).toEqual([])
+    expect(read.error, '合法空态被标成错误，用户就会去报障一个不存在的问题').toBeUndefined()
+  })
+
+  test('store 未就绪 ⇒ 带 error 返回，不抛错也不静默', function () {
+    const mixin = require('../electron/services/store/performance-loop-store')
+    const st = Object.assign({}, mixin, { db: null, _ready: false })
+    const read = st.listPatternPerformance({}, 'user-A')
+    expect(read.items).toEqual([])
+    expect(read.error).toBeTruthy()
   })
 })

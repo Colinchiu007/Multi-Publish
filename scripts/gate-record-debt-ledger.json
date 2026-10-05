@@ -83,5 +83,6 @@
     "reason": "PR #2824 的登记项随分支提交进入合并，squash 落地后 main 顶层账本无此条（合并链路曾把别条登记误并入本 PR 提交，已按门禁清出）。按「新增未收口行必须带原因登记」补登：回填者＝后续 docs PR，回填时同一次提交删除本条。取证口径：git log origin/main --grep='(#2824)$' --format=%H|%cI；git ls-remote --heads origin publish-history-card-open-link 返回 0 行。",
     "status": "PENDING",
     "line": 24
-  }
+  },
+  "本次执行记录：改写→发布→归因关联链打通（rewrite-lineage-second-hop，2026-10-05）": "本 PR 在途：PR #2903 合并后由 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }

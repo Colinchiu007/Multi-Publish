@@ -111,7 +111,10 @@ function migratePerformanceLoopSchema(db, execSchemaSql) {
     computed_at         TEXT NOT NULL
   )`)
   execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_perf_dim ON pattern_performance(dimension, engagement_score)")
-  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_perf_owner_dim ON pattern_performance(owner_subject, dimension, engagement_score)")
+  // ⛔ owner 索引**不能**建在这里：CREATE TABLE IF NOT EXISTS 对存量库是 no-op，那时
+  // owner_subject 还没有这一列，CREATE INDEX 会在 prepare 阶段直接 no such column，
+  // 把整次迁移抛错 ⇒ store.init() 返回 false ⇒ 应用无法启动（QM-6 后端轴 C-1，已实测复现）。
+  // 必须排在下面的 ALTER 之后。
 
   // publish_history 加关联列（幂等）
   try {
@@ -131,6 +134,9 @@ function migratePerformanceLoopSchema(db, execSchemaSql) {
       else db.exec('ALTER TABLE pattern_performance ADD COLUMN owner_subject TEXT')
     }
   } catch (e) { /* 表不存在时由上面的 CREATE 覆盖 */ }
+
+  // 归属索引：必须在 ALTER 之后建（见上面 C-1 注释），存量库与新库两条路径都走得通。
+  execSchemaSql(db, "CREATE INDEX IF NOT EXISTS idx_pattern_perf_owner_dim ON pattern_performance(owner_subject, dimension, engagement_score)")
 }
 
 module.exports = { migrateViralPatternSchema, migratePerformanceLoopSchema }

@@ -460,6 +460,10 @@ describe("AiWriterPanel", () => {
     // 第一参必须是纯文本（Publish.vue 的绑定靠它拼正文，改成对象会渲染成 [object Object]）
     expect(events[0][0]).toBe("这是应用后的改写文案内容");
     expect(events[0][1]).toBe("mdPANEL00001");
+    // 两个"应用"出口必须同口径带 lineage（apply-rewrite 目前无父绑定，但它是同一份产物的第二个出口）
+    const rw = w.emitted("apply-rewrite");
+    expect(rw, "apply-rewrite 必须仍然发出（父绑定缺失是另一件事，记在 PRD §3.4）").toBeTruthy();
+    expect(rw[0][1]).toBe("mdPANEL00001");
   });
 
   it("归因链：改写没给 id 时第二参是 null，而不是 undefined 或上一次的残留", async () => {

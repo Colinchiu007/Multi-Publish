@@ -10,7 +10,9 @@
 
 ## 一、一句话
 
-效果闭环的**第三跳（归因）**此前有三处结构性断路，导致「效果洞察」与「爆款分析」两页的模式效果排行**自功能诞生起恒空**，且数据回流看板的「最近回采」永远是「从未」；本切片把三处接通，让界面上早已存在的承诺文案变成可实现状态。
+效果闭环的第三跳（归因）此前有两处结构性断路，导致「效果洞察」与「爆款分析」两页的模式效果排行**自功能诞生起恒空**。本切片把这两处接通，让界面上早已存在的承诺文案变成可实现状态；并顺带把归因聚合按归属收口（这是**链路接通那一刻才会被激活**的风险）。
+
+> 更正记录（重要，防止下一个会话重走一遍）：本节原写「三处断点」，第三处 B3 是「`PerformanceRecrawlService.start()` 全仓零调用点 ⇒ 自动回采从未运行」。**该前提是错的**。我当时 grep 的坐标是 `bootstrap/*.js` 与 `main.js`，漏了同层的 `electron/bootstrap.js` —— 它在 `:256` 一直调着 `start()`；打包产物实测日志有 `App performance-recrawl scheduler started`（2026-10-05T02:55:11Z）。教训按形态记：**"扫到 0 命中"首先证明的是我的扫描域不全，不是目标不存在**。B3 作为缺陷已撤销，本 PR 也据此**撤掉了在 phase3-services 里重复调 start() 的接线**（幂等会兜住重复，但两处接线本身就是漂移），改挂在真正的 start 站点。
 
 界面文案早就写明了它期望的前提（`src/locales/zh.js:3291`）：
 
@@ -22,7 +24,7 @@
 
 ## 二、症状与实况取证
 
-### 2.1 三处断点（逐跳核实，非推测）
+### 2.1 两处断点 + 一处被撤销的误判（逐跳核实，非推测）
 
 一条归因样本要落地，必须同时满足四件事（判据来自 `services/pattern-attribution-service.js:43-73`）：
 
@@ -30,10 +32,10 @@
 | --- | --- | --- |
 | ① `tracked_content.rewrite_history_id` 非空 | `pattern-attribution-service.js:44` `if (!t.rewrite_history_id) continue` | **恒空**（断点 B1） |
 | ② 该 `rewrite_history` 行的 `knowledge_refs` 含 `table='viral_library'` | `:47-50` | 由改写时是否勾选「爆款库」决定，可达 |
-| ③ 该作品有 `performance_snapshot` | `:53` `getLatestSnapshot(t.id)` | **只能手动产生**（断点 B3） |
+| ③ 该作品有 `performance_snapshot` | `:53` `getLatestSnapshot(t.id)` | 可达（回采服务由 `bootstrap.js:256` 正常启动，本机之所以为 0 是因为 `tracked_content` 本身 0 行 —— 见 §2.2） |
 | ④ 对应 pattern card `status === 'done'` | `:57-58` | 由模式抽取决定，可达 |
 
-而重算本身的触发也缺一半（断点 B2）。
+而重算本身的触发缺一半（断点 B2）。
 
 #### B1 渲染层四处丢弃 `rewriteHistoryId`（核心断链）
 
@@ -68,24 +70,20 @@
 
 `pattern-attribution-service.js:9` 的头注释写着「触发：每日回采巡检结束后 + IPC 手动触发」，但实测生产调用点只有 **1 个**：`ipc-handlers/performance-loop.js:52`（`performance:recompute-attribution`，即「效果洞察」页上的手动按钮）。「巡检结束后」这一半**从来没有实现过**——注释宣称的触发条件里，有一半是不存在的。
 
-#### B3 自动回采巡检从未启动（比 B1/B2 更根本）
+#### B3（已撤销的误判，原样保留以便复核）：「自动回采巡检从未启动」
 
-`services/performance-recrawl-service.js:5` 头注释写着「触发：bootstrap runWhenReady 后延迟 30s + 每 24h 巡检」，`start()`（`:158-168`）也确实实现了 30s 首轮 + 24h 周期定时器并 `unref()`。
+我当时的判据是：`grep -rna "\.start()" bootstrap/*.js main.js` 只命中六个别的监视器，`performanceRecrawlService.start()` 零命中，于是结论「30s 首轮 + 24h 周期从未运行」。
 
-但**生产代码里没有任何地方调用它**。实测（`grep -na "\.start()" bootstrap/*.js main.js`，带 `-a` 因为本仓文档类文件可能被判二进制）全部命中只有：
+**这个坐标是错的**：真正的调用点在 `electron/bootstrap.js:256`（`var performanceRecrawl = container.get('performanceRecrawlService')` → `performanceRecrawl.start()`），它在 `bootstrap/` 目录之外、与 `main.js` 同层，而我没把裸 `electron/bootstrap.js` 纳入扫描域。反证来自我自己要求的运行时取证：打包产物用隔离 profile 启动后，日志出现 `[INFO] App performance-recrawl scheduler started`（2026-10-05T02:55:11.333Z）。
 
-```
-bootstrap/phase1-context.js:281  usageReporter.start()
-bootstrap/phase1-context.js:302  publishReporter.start()
-bootstrap/phase1-context.js:322  diagnosticsReporter.start()
-bootstrap/phase2-bridges.js:60-61 splitterBridge / promptBridge .start()
-bootstrap/phase3-services.js:154 loginStatusMonitor.start()
-bootstrap/phase3-services.js:253 automationScheduler.start()
-```
+因此：
+- 自动回采**本来就跑**；「最近回采 = 从未」的真实原因是本机 `tracked_content` 为 0 行（没有任何已发布作品可采），不是链路断。
+- 本 PR **不含**对 `start()` 的任何新增接线；一度加入的 phase3-services 重复接线已撤除（`start()` 自带幂等 `if (this._dailyTimer) return`，但"两处都调"本身就是新的漂移源，且会多打一条日志）。取而代之，接线锁改为断言**调用点唯一**且**回调挂在 start() 之前**（见 §十 第 7 条）。
+- 这条误判保留在文档里而不是删掉，理由：它是 AGENTS.md「0 命中先证明扫描域不全」的又一现场，且如果不写明，下一个会话会看到 git 历史里那段被撤销的接线而无从解释。
 
-`performanceRecrawlService.start()` **零命中**。`container.setup.js:459-466` 的 `assertRequired([...,'performanceRecrawlService','patternAttributionService'])` 只保证「注册存在」，不启动任何东西——这是 AGENTS.md「注册≠注入≠生效」的同族现场，而且这次卡在第三格：注册了、注入了、**没人拧钥匙**。
+#### 顺带纠正的一条 docs-vs-code 漂移（同一文件，实测）
 
-后果链条：`performance_snapshot` 只能由手动 IPC（`performance-loop.js:105-106` 的 `performance:recrawl-round`）产生，而该 IPC 没有任何界面入口调用它 ⇒ P2-6c 看板里「最近回采 = 从未」「覆盖率 0/N」不是数据没采到，是**采集从未自动跑过**。
+`performance-recrawl-service.js:6` 的文件头写「status ∈ (pending, ok)」，而实现是 `recrawl_status IN ('pending', 'ok', 'failed')`（`performance-loop-store.js:174-176`）。`failed` 必须在集合内，否则一次网络抖动就把作品永久排除在回采之外。头注释已按实现改正。
 
 ### 2.2 本机数据面实测（结论：不可做数字级验收）
 
@@ -142,8 +140,8 @@ extractRewriteHistoryId(res) -> string | null
 | 8 | `src/composables/useBatchPublish.js` | `buildBatchArticlePayload()` 同口径挂键 | **既有 parity 锁会强制**：`useBatchPublish.test.js:1265`「批量 payload 键集必须覆盖单篇 `buildArticleData` 的全部键」，第 7 条一加、这条不同步就当场红 |
 | 9 | `electron/services/pattern-attribution-service.js` | 新增 `setAfterRound` 语义由 recrawl 侧持有（本文件只加 owner 过滤，见 §3.3）；头注释「触发」改为如实描述 | 注释不得再宣称不存在的触发 |
 | 10 | `electron/services/performance-recrawl-service.js` | `processRound` 收口处（`:60` 的 `finally`）在本轮**真的处理过到期条目**时调用注入的 after-round 回调；`start()` 保持幂等 | 回调抛错不得让巡检失败（旁路 try/catch + warn）；本轮 0 条到期 ⇒ 不触发重算（不做无谓全表替换） |
-| 11 | `electron/bootstrap/phase3-services.js` | 调 `performanceRecrawlService.start()` 并把 `patternAttributionService.recomputeAll` 接到 after-round | 启动失败不得冒泡影响其余启动阶段 |
-| 12 | 头注释 `performance-recrawl-service.js:5` | 与代码对齐（本来就想说的事，现在才真的发生） | — |
+| 11 | `electron/bootstrap.js`（真正的 start 站点，`:256` 那块） | 在既有 `performanceRecrawl.start()` **之前**挂 `setAfterRound(() => patternAttribution.recomputeAll())` | 不得新增第二处 `start()` 调用（曾误加在 phase3-services，已撤，理由见 §2.1 B3）；容器取不到服务时保持既有静默跳过语义 |
+| 12 | 头注释 `performance-recrawl-service.js:5-6` | 触发描述按实测改正（含 `failed` 那处漂移） | 注释不得再宣称实现里没有的东西 |
 
 ### 3.3 归属收口（这是本切片**主动激活**的风险，必须同 PR 处理）
 
@@ -176,7 +174,7 @@ extractRewriteHistoryId(res) -> string | null
 | --- | --- | --- |
 | 提取（`extractRewriteHistoryId`） | 非空字符串 ∧ `trim()` 后非空 ∧ 长度 ≤ 64 ∧ 无控制字符 | 返回 `null`（**不是**空串） |
 | 挂载（草稿 / payload） | 只在值合法时挂键；非法/缺席 ⇒ 键**不出现** | 静默不挂（不得 warn 刷屏：这是常态而非异常，未勾选爆款库的改写本来就没有关联需求） |
-| 回填（`applyDraft`） | 键缺席 ⇒ `article` 上该字段保持原值/不写 | **禁止**写空串（空串会被下游当成"有值"） |
+| 回填（`applyDraft`） | 归因字段走 `string|null` 特例，**不套**通用的 `|| ''` 默认值；键缺席时写 `null` 主动清掉 article 上的旧值 | 两个方向都会错：沿用旧值 = 跨草稿串关联；写成空串 = 未来任何 `!= null` 的读法把「没关联」读成「有关联」（QM-6 前端轴 F3） |
 | 主进程入站 | `publish.js:273` 已整体 JSON 化，无需新增字段级校验 | — |
 | 主进程写列 | `phase4-events.js:154` 的 `|| null` 已兜住缺席 | 留 NULL，不猜 |
 | 归因行写入 | `owner_subject` 必填（来自 IPC 解析，不由渲染层传） | 归属解析为 `null` ⇒ `AUTH_ERROR`，不写库 |
@@ -198,9 +196,9 @@ extractRewriteHistoryId(res) -> string | null
 主进程
   └ publish:batch → task.article（整体保留，已就绪）
   └ task:success（phase4-events.js:147-158）→ addTrackedContent({rewriteHistoryId, publishHistoryId})
-回采（本切片起才自动跑）
-  └ recrawl.start()（bootstrap 接线，30s 首轮 + 24h）→ performance_snapshot
-  └ 本轮处理过到期条目 → 触发归因重算
+回采（本来就在跑：bootstrap.js:256 → start()，30s 首轮 + 24h）
+  └ performance_snapshot
+  └ 【本切片新增】本轮处理过 ≥1 条到期项 → 触发归因重算（此前这一半只有注释里有）
 归因
   └ recomputeAll({ownerSubject}) → pattern_performance（按归属分区替换）
 展示
@@ -233,7 +231,7 @@ extractRewriteHistoryId(res) -> string | null
 | 四维模式效果榜（`hook_type / emotion_curve / narrative_structure / cta_style`） | `PerformanceInsights.vue` | 不改模板，只让它有数据 |
 | 空态标题/提示 | `zh.js:3290/3291`、`:3316` | **不改文案**：现有文案已经准确描述了前提，之前是代码做不到而非文案说错。因此本 PR 不新增 locale 键（Gate 7 成对门禁无适用面） |
 | 爆款分析 `narrative_structure` Top10 | `ViralAnalysis.vue:551` | 不改 |
-| 数据回流看板「最近回采 / 覆盖率」 | `PerformanceFlowPanel.vue`（P2-6c 产物） | 不改，仅因 B3 修好而开始反映真实值 |
+| 数据回流看板「最近回采 / 覆盖率」 | `PerformanceFlowPanel.vue`（P2-6c 产物） | **本 PR 不改它，也不宣称修好了它**：自动回采本来就在跑（见 §2.1 B3 撤销记录），本机显示「从未」是因为 `tracked_content` 0 行没有可采的作品，属正确反映 |
 | `pattern_performance` 行内新增的 `owner_subject` | 存储层 | 不进任何 UI，纯内部维度 |
 
 ## 九、提示文字
@@ -246,7 +244,11 @@ extractRewriteHistoryId(res) -> string | null
 
 为什么值得把这三句写进 PRD：它们证明**产品意图早就存在**，缺的只是实现。修完后这三句仍然正确（未满足前提时依旧该这么说），所以不改。
 
-主进程日志（非用户可见，但属可观测契约）：`performance-recrawl-service.js:167` 已有 `'scheduler started (30s delay + daily)'` 的 `log.info`——这条日志**此前从未在生产出现过**（因为 `start()` 没人调）。本切片后它会真的出现，这本身就是 B3 修好的现场证据，验收时按它判。
+主进程日志（非用户可见，但属可观测契约）：
+
+- `PerformanceRecrawl` 的 `'scheduler started (30s delay + daily)'` 由既有 `start()` 打出，**它此前就在生产出现**（实测打包产物隔离 profile 启动：`[INFO] App performance-recrawl scheduler started`，2026-10-05T02:55:11.333Z）—— 这也是 §2.1 撤销 B3 的那条现场证据。
+- 本切片唯一新增的可观测面是 `processRound` 收口后调 `recomputeAll()`，它自带既有日志 `PatternAttribution recomputed: N rows from M links`。**未新增日志键**，也不给 start 站点加重复日志。
+- 因此"归因是否被自动算过"的现场判据是那条 `recomputed:` 日志出现与否，而不是 scheduler started。本机因 `tracked_content` 为 0 轮轮都不满足「处理过到期条目」，所以本机看不到它是**正确行为**（见 §2.2 的 0 行实测）；数字级取证仍待真实数据。
 
 ## 十、验收标准
 
@@ -256,7 +258,7 @@ extractRewriteHistoryId(res) -> string | null
 4. **失效同步**：「改写 → 存草稿 → 再次改写」后，第二次保存的草稿携带第二次的 id，且第一次的 id 不得残留在任何后续 payload。
 5. **指纹隔离**：同内容不同 lineage ⇒ `computeDraftFingerprint` 相同、`draftSave` 返回 `reused: true`。
 6. **触发收口**：`processRound` 处理过 ≥1 条到期项 ⇒ after-round 恰好一次；0 条 ⇒ 0 次；回调抛错 ⇒ 巡检仍成功收口且 `_running` 复位。
-7. **自动巡检接线守卫**：断言 bootstrap 里真的存在 `performanceRecrawlService.start()` 调用（结构锁），且 `start()` 幂等（二次调用不叠定时器）。
+7. **接线唯一性与顺序守卫**：`start()` 的调用点清单必须**恰好等于** `['bootstrap.js']`（扫描域含 `bootstrap.js` / `bootstrap/phase1-context.js` / `bootstrap/phase3-services.js` / `main.js`，且剥掉注释行再判 —— 这一条是 B3 误判之后加的，专防"两处都调"和"注释里提一句当接线"两种形态）；`setAfterRound` 必须挂在同一个文件里且**下标早于** `start()`（否则 30s 首轮没有回调）；`start()` 自身仍幂等（二次调用不叠定时器）。
 8. **批量 parity**：`useBatchPublish.test.js:1265` 既有键集锁必须绿（不得靠改锁来"通过"）。
 9. **反证（每条都要实跑变红，不能只声明）**：
    - 摘掉 `ARTICLE_FIELDS` 里的新键 ⇒ 穿透红 + 接线守卫红；
@@ -279,14 +281,56 @@ extractRewriteHistoryId(res) -> string | null
 - **本次真实踩到的一条（记下来防止复发）：`tests/performance-loop-store.test.js` 不在 diff 里，却断言被我改坏的东西**。它把 `pattern_performance` 的建表 DDL **手抄成第三份**（另两份在 `activate-viral-schema.js` 与……就没了，第三份就是它），于是新列在这份拷贝里不存在，本地定向跑的几个文件全绿、**全量跑到它才红**：`table pattern_performance has no column named owner_subject`。这正是 AGENTS.md「验证范围取消费者并集而不是我改过的文件」的同族现场，而且这里还多一层：消费者的**夹具**自己抄了一份 schema。正解不是把那行 DDL 补个列（补了下次新增列再犯），而是让夹具去跑真迁移 —— 已改为 `migratePerformanceLoopSchema(db, (t, sql) => t.execOrThrow(sql))`，并加一条 `PRAGMA table_info(pattern_performance)` 漂移锁（迁移里删/改列即红）。**残留同族拷贝未清**：该文件第二个 describe（`:143` 附近）仍内联一份 `tracked_content` 的 `CREATE TABLE`，本 PR 没碰它的形状所以不红，登记为后续项（判据应当与上面完全一致）。
 - **反证 M4 首版是无效的**：单维度夹具下，摘掉归属谓词的括号后结果集恰好不变（`NULL OR ='' OR (='__legacy__' AND dim=?)` 与带括号版在这份数据上同解），变异跑出来是绿的，而我差点把「M4 绿」读成"那层括号没用所以可以删"——它其实同时也证明了**我的锁测不到那件事**。补了 `seedLegacySecondDimension`（legacy 桶的第二种维度）后同一变异立刻变红。教训按形态记：**反证报绿时，先问夹具能不能让两种状态产生不同结果**，再决定是删冗余代码还是修夹具。
 - **`performance:list-tracked` 是同源但不同面的一处越权读，本切片不修**：`performance-loop.js:14` 无 `withSenderCheck`，且 `SELECT * FROM tracked_content` 不带归属过滤；消费方实测是 `src/views/PublishHistory.vue:395/600`（`listTrackedContent({page:1,pageSize:100})`）。它与 §3.3 处理的是同一张表、同一个漏法，但属于「发布历史页的回采列表」而非「归因链」，且它返回的是行级内容（含 `url`/`post_id`），风险面比聚合榜更大。登记为独立后续项，理由不是"不改"，而是**改动判据不同**（列表侧要按归属分页并影响 total 语义），塞进本 PR 会让两个口径混在一次提交里难以复核。
+- **批量侧的挂载点今天没有生产者**（前端轴 F4）：实测 `useBatchPublish.js` 只有一条建条目路径 `addArticle()`，其字段表不含 `rewriteHistoryId`，也没有"草稿→批量"导入。所以批量发布的改写产物**不会**带关联 —— 批量侧那一行 `attachRewriteLineage` 是为满足单篇/批量同口径（键集 parity 锁）而存在的前置接线，不是"已生效的功能"。补导入路径时必须同时登记进 `addArticle()` 字段表，否则又是一次"接口在、数据不来"。
+- **改写→视频创作→发布 这条链不在归因范围内**（前端轴 F5）：`RewriteView.goToVideoCreate` 存的草稿带 lineage，但 `CreateView._loadDraftForRewrite` 只读 `content`/`title`，id 在交接缝被丢弃；而视频发布任务是否承载 `task.article`（`phase4-events.js:154` 的读取前提）**尚未取证**。不在本切片硬接：把没验过的通路接进归因，产出的就是看着合理的假数据。
+- **`Collection` 的草稿写入绕过 `draftSave` IPC**（前端轴 F6，既有架构问题）：它直接 `storeSetSetting` 裸写 `drafts` 键，方言已与 IPC 侧漂移（`created_at`/`coverImage` vs `ARTICLE_FIELDS`）。本 PR 的 lineage 在这条路上仍能随行（裸写的就是同一个对象），但它**拿不到 draftId、也不参与指纹幂等**。统一走 `draftSave`/`draftList` 是独立一刀。
 - **模式抽取产物仍可能为空**：归因还要求 pattern card `status === 'done'`（`pattern-attribution-service.js:58`）。若用户从未跑过模式抽取，链通了榜单仍是空——这是**第四个必要条件，不是第三个断点**，界面上「暂无归因数据」的提示对此仍然正确。
-- **重算的归属分区使多设备场景下榜单是"按本机各归属分别累积"**，`sample_count` 语义随之从"全部样本"变为"该归属样本"。这一语义变化必须在 CHANGELOG 收口里写明。
+- **`sample_count` / `avg_*` 的口径变了**：写侧仍是全量重算（所有归属一起算，行按归属打戳），但聚合桶加了归属这一层，所以每个用户看到的是"本归属内的样本与均值"，不再是"本机全部样本"。这一语义变化必须在 CHANGELOG 收口里写明（本 PR 按 §二十一 的做法把 CHANGELOG 条目挪到 docs-only 回填 PR，避免置顶件把 auto-merge 拖成循环）。
+## 十三、QM-6 双模型外部评审：发现与处置
+
+评审绑定的 head：e7abfa4d6（合并 origin/main 之后、本轮处置之前的那个提交）。
+
+两路都必须**看见产物**才算跑过（评审 CLI 的 rc 不构成证据）。实况：
+
+- 后端轴：codeagent-wrapper --backend codex（primary 取自 ~/.claude/.ccg/config.toml 的 [routing.backend]，本文档不复制其值）→ 产出 qm6-findings-backend.md，8 条（1 Critical / 5 Warning / 2 Info）。
+- 前端轴：--backend claude **静默空转**（rc=1，"claude completed without agent_message output"，无产物）。按既有替代通道改走 opencode run --model opencode/ling-3.1-flash-free 并收窄任务书（只审渲染层接线与命名/模式一致性）→ 产出 qm6-findings-frontend.md，8 条（1 Major / 7 Minor）。**偏差声明**：替代通道不是 config.toml 里那个 primary；"双模型"的独立性由「两个不同后端 CLI + 两份不同任务书」成立，不是同一模型跑两遍。
+
+### 13.1 处置表（每条都按当前树复核，不照单全收）
+
+| 编号 | 判定 | 处置 |
+| --- | --- | --- |
+| 后端 C-1 存量库先建 owner 索引、后 ALTER 补列 ⇒ 升级即无法启动 | **成立**（评审方已实测复现 no such column: owner_subject） | 索引移到 ALTER 之后；新增 activate-viral-schema.upgrade.test.js（旧 DDL→迁移成功 + 列与索引齐备 + 存量行不丢、可重复执行、新库同路径、排序结构锁）。N1 变异（把索引挪回去）实测 3 红 |
+| 后端 W-1 用户手改结果正文后旧 lineage 残留 | **成立**，且正是本文 §六.2 自己立的判据没落地 | invalidateSavedDraft() 一并置 null；新增行为锁「改写→手改→存草稿 ⇒ 快照无该键」。N3 变异实测 1 红 |
+| 后端 W-2 Collection 的 Python 改写分支携带引擎残留 id | **成立**（两条来源写同一个 rewriteResult、返回形状又同为 {result_content}，从结果本身无法判来源） | Python 成功分支显式清 id（位置在赋值之后）+ 结构锁。N4 变异实测 1 红 |
+| 后端 W-3 触发判据是"遍历条数"而非"产出快照数" | **成立** | _recrawlOne 返回 Boolean(snapshotId)，收口按 produced 计数；补三条红测（全失败 / 全 unsupported / 快照被 store 吞掉返回 null）+ N2 变异（改成恒 true）实测 1 红 |
+| 后端 W-4 读侧吞错，schema 故障与合法空态同形 | **成立**，且与本文 performance:overview 的既有口径不一致 | listPatternPerformance 返回 {items, error?}（表在位探测 + catch 带 error），IPC 把 error 翻成 REQUEST_ERROR；三条行为锁 + N5 变异实测 1 红 |
+| 后端 W-5 出现两个 start() 站点，且 B3 取证与 base 事实矛盾 | **成立**，与本文 §2.1 自查撤销的 B3 误判同源 | 撤销 phase3 重复接线，after-round 挂到唯一 start 站点之前；接线锁改为「全仓调用点恰好等于 bootstrap.js」+ 顺序判据。M6b 摘掉 start() 实测 2 红 |
+| 后端 I-1 stop() 不取消 30s 首轮 | 成立 | 保存句柄 + clearTimeout；两条对照锁（stop 后 0 次、不 stop 恰好 1 次——只测前者会让"永远不跑"也通过）。N6 变异实测 1 红 |
+| 后端 I-2 返回的 dimensions 实为归属桶数 | 成立 | 按维度去重计数，桶数另出 buckets；空早退分支补齐同形键，防调用方读到 undefined |
+| 前端 F1 apply-rewrite 事件无父绑定且不携带 lineage | 成立（绑定缺失部分已在 §3.4 登记） | 两个应用出口同口径携带 lineage，并在测试里逐个断言。理由：它们是同一份产物的两个出口，只挂一条就是给下一个绑定者留"有正文、没关联"的静默坑 |
+| 前端 F2 三个入口的 lineage 状态命名与复位纪律不一致，Collection 从不清 | 成立 | 不做重命名（纯 churn），但补 clearRewriteResult() 成对出口，五处裸清结果全部改走它。附一条自伤记录见 §13.2 |
+| 前端 F3 草稿白名单把通用 || 空串默认值套在 lineage 上，与 string\|null 契约相悖 | **成立**，与本文 §四 自己写的判据矛盾 | buildDraftSnapshot / applyDraft 对该字段特例走 normalizeRewriteLineage（缺席写 null，主动清旧值）；两条锁（快照必须 null 而非空串 / 脏值不落库） |
+| 前端 F4 批量侧挂载点**没有生产者**（addArticle() 字段表不含该键，也没有草稿→批量导入路径） | **成立**（实测 useBatchPublish.js 只有 addArticle 一条建条目路径） | 不新造导入路径（超出本切片）。如实声明：批量侧今天是**前置接线**，键集 parity 锁要求两侧同口径；**批量发布的改写产物不会带关联**，直到有人补草稿→批量导入。这条与 §十 第 10 项的覆盖度声明并列 |
+| 前端 F5 改写→视频创作→发布 这条链在 CreateView 交接处丢 lineage | **成立**（_loadDraftForRewrite 只读 content/title） | 不在本切片补：视频发布任务是否承载 task.article 尚未取证，把没验过的东西接进归因就是造假数据。登记为后续项，见 §十一 |
+| 前端 F6 Collection 绕过 draftSave 裸写 drafts setting，方言已漂移（created_at/coverImage vs ARTICLE_FIELDS） | 成立（既有架构问题，非本次引入） | 登记后续项：统一走 draftSave/draftList（拿回 draftId 才享受指纹幂等）。本 PR 的 lineage 在该路径上仍能随行，因为裸写的就是同一个对象 |
+| 前端 F7 草稿对象构造配方三处重复（id 生成配方全仓 19 处） | 成立 | 登记后续项（共享 newRewriteDraft() 工厂）。本 PR 不抽：抽工厂要动三个入口的字段集，与"打通一条链"混在一次提交里难以复核 |
+| 前端 F8 单篇/批量 payload 16 键近重复装配 | 成立（P2-7 时代既有） | 不并入本 PR；本 PR 把两侧的 lineage 挂载收敛到**同一个函数**，先消掉一处漂移面 |
+
+### 13.2 本轮新踩的两条（按形态记，防复发）
+
+1. **批量替换脚本把自己刚插入的代码也替换了**：给 Collection.vue 加 clearRewriteResult() 时，先插定义再做 while 替换，于是函数体内的 rewriteResult.value = '' 也被换成 clearRewriteResult() ⇒ 无限递归、Collection 111 例全红。判据：**插入与替换必须互不重叠**（先替换后插定义，或让锚点排除定义体），改完立刻 grep 调用点数 + 跑该文件的测试，别信"操作成功"。
+2. **中文文档必须走 Write/Edit 工具，不要塞进 shell 内联脚本**。本次把 PRD 段落写成 bash 里的 node -e，正文的反引号被 bash 当命令替换执行（现场：command not found: e7abfa4d6，并让一处标题留下空占位）；同一段里我把 join 的结果当数组再 spread，整节被炸成 3410 行单字符。两条口径：正文含反引号一律不进 shell 字符串；插入段落永远传数组、绝不先 join 再展开，且写文件后立刻回读行数与关键标记。
+
+一条方法论回灌：**替代通道的评审抓到了主路径评审没抓的东西**（F3/F4/F5 三条后端侧都没提）。所以"claude 空转 ⇒ 降级为单模型"不是可接受的处理方式，换通道跑通比少一路评审更值得。
+
+---
 
 ## 十二、风险与回滚
 
 | 风险 | 处置 |
 | --- | --- |
-| B3 让应用**自动**向平台发起回采请求（此前只在手动 IPC 时发生） | 巡检范围由 `listDueForRecrawl` 严格限定（实测默认路径：`recrawl_status IN ('pending','ok','failed')` ∧ `next_recrawl_at <= now` ∧ `created_at >= now-7d`，**`LIMIT 50`**）⇒ 无到期项即零请求；请求间保留 2–5s 抖动；任何失败只记 `failed`/连续 3 次转 `manual`，不冒泡。启动点放在 phase3-services，与其他 monitor 同层。附带纠正：`performance-recrawl-service.js:6` 的文件头「筛选」行写的是「status ∈ (pending, ok)」，漏了实现里的 `failed`（实测 `performance-loop-store.js:174-176`），属同批 docs-vs-code 漂移，本 PR 一并改正。 |
+| 本切片是否新增后台自动出站？ | **没有**。自动回采早就在跑（`bootstrap.js:256` 调 `start()`，见 §2.1 的 B3 撤销记录），本 PR 不新增任何定时器或网络行为；新增的只是"采完之后顺手算一次"，而那次算是本机 sqlite 读 + 全表替换，不发任何出站请求。巡检范围仍由 `listDueForRecrawl` 限定（实测默认路径：`recrawl_status IN ('pending','ok','failed')` ∧ `next_recrawl_at <= now` ∧ `created_at >= now-7d`，**`LIMIT 50`**）⇒ 无到期项即零请求、零重算。附带纠正：`performance-recrawl-service.js:6` 的文件头「筛选」行原写「status ∈ (pending, ok)」，漏了实现里的 `failed`（实测 `performance-loop-store.js:174-176`；一次网络抖动若把作品永久排除在回采之外才是真事故），已按实现改正。 |
+| 自动触发让归因从"用户点按钮才有"变成"每轮巡检后可能算一次" | 只在"本轮真的处理过 ≥1 条到期条目"时算；`recomputeAll` 内部已有 try/catch 并返回错误信封，`processRound` 的收口把它当旁路 —— 同步抛错与异步拒绝都就地吃掉（两条 rejection 用例 + M5 无条件化变异实测可红），回调失败绝不改变巡检成败。 |
 | 每 24h 一次全量重算的开销 | 只在"本轮处理过到期条目"时触发；重算本身是单表全扫 + 分区替换，量级与 P2-6c 看板的 `OVERVIEW_TRACKED_LIMIT` 同阶。 |
 | 归属分区是否需要改写 `replacePatternPerformance` 的既有契约 | **不改写**：写侧仍是全表替换，行上新增 `owner_subject`，隔离性由读路径保证（`listPatternPerformance` 按归属筛 + IPC fail closed）。放弃初稿"按归属分区替换"的理由见 §3.3 末段 —— 自动触发点在定时器回调里没有"当前用户"可用，硬取身份会引入身份解析竞态。`replacePatternPerformance` 的生产调用点实测只有 `pattern-attribution-service.js:35/93` 两处，签名保持单参，两侧无需同 PR 改。 |
 | 回滚 | 链路各跳彼此独立：关掉 bootstrap 的 `start()` 即回到"仅手动"；摘掉渲染层挂载点即回到 lineage 缺席（等价于今天的行为）。无 schema 破坏性变更（新增列可留）。 |

@@ -456,7 +456,11 @@ module.exports = {
    * @param {string|null|undefined} [ownerSubject] null/undefined ⇒ legacy 桶（绝不返回别人的数据）
    */
   listPatternPerformance (opts = {}, ownerSubject) {
-    if (!this._ready) return []
+    // 返回 { items, error? }：查询失败/表缺失必须带 error 出声（QM-6 后端轴 W-4）。
+    // 只 return [] 的后果正是本切片刚修的那类事故的检测半环：
+    // schema 漂移（例如 owner_subject 的 ALTER 排序错）会让榜单读成空，
+    // 而空在界面上是合法空态 ⇒ 迁移坏了没人知道。口径与 listTrackedForOverview 一致。
+    if (!this._ready) return { items: [], error: 'store not ready' }
     const owner = _ownerPredicate(ownerSubject)
     const conditions = []
     const params = [...owner.params]
@@ -465,9 +469,15 @@ module.exports = {
     // 归属谓词自带 "WHERE "，后续条件用 AND 续在它后面
     const where = owner.sql + (conditions.length ? ' AND ' + conditions.join(' AND ') : '')
     try {
-      return this.db.prepare(
+      if (!_tablePresent(this.db, 'pattern_performance')) {
+        return { items: [], error: 'table missing: pattern_performance' }
+      }
+      return { items: this.db.prepare(
         'SELECT * FROM pattern_performance ' + where + ' ORDER BY engagement_score DESC'
-      ).all(...params)
-    } catch (e) { return [] }
+      ).all(...params) }
+    } catch (e) {
+      log.warn('Store', 'listPatternPerformance failed: ' + e.message)
+      return { items: [], error: e.message }
+    }
   },
 }

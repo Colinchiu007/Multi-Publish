@@ -2,8 +2,8 @@
 /**
  * PerformanceRecrawlService — 表现数据回采服务
  *
- * 触发：bootstrap phase3-services 调 start() 后延迟 30s 首轮 + 每 24h 巡检（P2-6d 起这条才真的成立；
- *       此前 start() 在全仓零调用点，自动巡检从未运行过，只有手动 IPC 能采）。
+ * 触发：bootstrap.js 的 runWhenReady 里调 start() → 延迟 30s 首轮 + 每 24h 巡检（实测现场证据：
+ *       打包产物日志有 App performance-recrawl scheduler started）。
  * 筛选：next_recrawl_at 到期 + 发布 7 天内 + status ∈ (pending, ok, failed)，单轮上限 50 条。
  *       （此处原写「status ∈ (pending, ok)」，与 listDueForRecrawl 的实现不符 —— failed 必须重试，
  *        否则一次网络抖动就把作品永久排除在回采之外。实测真源 performance-loop-store.js:174-176。）
@@ -32,6 +32,7 @@ class PerformanceRecrawlService {
     this._running = false
     this._dailyTimer = null
     this._afterRound = null
+    this._initialTimer = null
     // 连续失败计数（内存态；应用重启清零可接受——回采是尽力而为）
     this._failureCounts = new Map()
   }
@@ -63,13 +64,12 @@ class PerformanceRecrawlService {
     if (!this._store) return
     if (this._running) return // 防重入
     this._running = true
-    let processed = 0
+    let produced = 0
     try {
       const due = this._store.listDueForRecrawl(Date.now(), opts)
       for (const item of due) {
-        processed++
         try {
-          await this._recrawlOne(item)
+          if (await this._recrawlOne(item) === true) produced++
         } catch (e) {
           this._recordFailure(item, e)
         }
@@ -79,10 +79,10 @@ class PerformanceRecrawlService {
     } finally {
       this._running = false
       // 归因重算的触发点（P2-6d B2）：先复位 _running 再触发，避免回调里再起一轮巡检时自锁。
-      // processed === 0 时不触发：那时库里什么都没变，跑一次只是把 computed_at 刷成
-      // 「刚更新过」的假象（并重写一遍同样的数字）。
+      // 判据是"本轮真的写出了新快照"，不是"本轮遍历过条目"——全失败/全 unsupported 的轮次
+      // 库里没有任何新东西，跑一次只是全表 DELETE+INSERT 并把 computed_at 刷成"刚更新过"的假象。
       // 回调是旁路：同步抛错、异步拒绝都必须就地吃掉 —— 巡检的成败不该由归因决定。
-      if (processed > 0 && this._afterRound) {
+      if (produced > 0 && this._afterRound) {
         try {
           const r = this._afterRound()
           if (r && typeof r.catch === 'function') r.catch(e => log.warn('PerformanceRecrawl', 'after-round rejected: ' + (e && e.message)))
@@ -114,7 +114,7 @@ class PerformanceRecrawlService {
     }
 
     // 写快照
-    this._store.addPerformanceSnapshot({
+    const snapshotId = this._store.addPerformanceSnapshot({
       trackedContentId: item.id,
       source: 'auto',
       views: metrics.views,
@@ -136,6 +136,10 @@ class PerformanceRecrawlService {
 
     // P1-a：爆款库互动数回写（旁路 fail-open，不影响 tracked 域已完成的写入）
     this._writeBackViral(contentUrl || item.url, metrics)
+    // 返回值是"这一条到底产出了新快照没有"——收口的归因触发判据用它，而不是"被遍历过"。
+    // 判据写成快照 id 而不是"没抛错"：addPerformanceSnapshot 失败时自己吞错返回 null，
+    // 那一轮库里没有新数据，重算出来的还是同一份榜单（QM-6 后端轴 W-3）。
+    return Boolean(snapshotId)
   }
 
   /**
@@ -188,9 +192,13 @@ class PerformanceRecrawlService {
 
   start() {
     if (this._dailyTimer) return
-    setTimeout(() => {
+    // 首轮句柄必须存下来：stop() 只清 interval 的话，"停止后进程未立即退出"（测试、
+    // 重复 startServices）时首轮仍会在 30s 后跑 processRound，而那时 store 可能已 close。
+    this._initialTimer = setTimeout(() => {
+      this._initialTimer = null
       this.processRound().catch(e => log.warn('PerformanceRecrawl', 'initial round failed: ' + e.message))
-    }, 30 * 1000).unref?.()
+    }, 30 * 1000)
+    if (this._initialTimer.unref) this._initialTimer.unref()
     this._dailyTimer = setInterval(() => {
       this.processRound().catch(e => log.warn('PerformanceRecrawl', 'daily round failed: ' + e.message))
     }, 24 * 3600 * 1000)
@@ -199,7 +207,12 @@ class PerformanceRecrawlService {
   }
 
   stop() {
-    if (this._dailyTimer) {
+    // 首轮句柄与周期句柄都要收：只清 interval 会让 stop() 之后仍有一轮巡检在路上（I-1）
+    if (this._initialTimer) {
+      clearTimeout(this._initialTimer)
+      this._initialTimer = null
+    }
+if (this._dailyTimer) {
       clearInterval(this._dailyTimer)
       this._dailyTimer = null
     }
