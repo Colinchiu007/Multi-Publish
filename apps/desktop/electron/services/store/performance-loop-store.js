@@ -444,23 +444,26 @@ module.exports = {
   /**
    * 读归因榜：必须按归属筛（P2-6d）。
    *
-   * 为什么归属条件要**加括号**：`_ownerPredicate` 的 legacy 档返回
-   * `owner_subject IS NULL OR TRIM(...) = '' OR owner_subject = ?`，
-   * 而 SQL 里 AND 的优先级高于 OR —— 不加括号再拼 `AND dimension = ?`，
-   * 条件就变成了「(NULL) OR (空串 AND 维度) OR (legacy AND 维度)」，
-   * 结果是别的归属的别的维度会被漏进来，而且只在 legacy 档出现（最难复现的那种红）。
+   * 归属条件与看板读侧共用 `_ownerPredicate`（本文件 :48），它自身已把三段 OR 包在括号里 ——
+   * 这一层括号**不能少**：本函数把归属条件与 dimension/platform 用 AND 串起来，
+   * 而 SQL 里 AND 的优先级高于 OR，一旦那个谓词退化成不带括号的 OR 链，
+   * 条件就变成「NULL 全放行 OR (空串 AND 维度) OR (legacy AND 维度)」，
+   * 别的归属的行只在 legacy 档 + 维度筛选这一组合下漏进来（主账号路径永远测不出）。
+   * 该风险由 `services/pattern-attribution-service.test.js` 的
+   * 「legacy 档…不得因 OR/AND 优先级漏进别人的行」守住：实测摘掉 `_ownerPredicate` 的括号它即红；
+   * 而在本函数里再包一层同样的括号是冗余的（实测摘掉它行为完全不变），故不加。
    * @param {{dimension?:string, platform?:string}} [opts]
    * @param {string|null|undefined} [ownerSubject] null/undefined ⇒ legacy 桶（绝不返回别人的数据）
    */
   listPatternPerformance (opts = {}, ownerSubject) {
     if (!this._ready) return []
     const owner = _ownerPredicate(ownerSubject)
-    const ownerCond = owner.sql.replace(/^WHERE\s+/, '')
-    const conditions = ['(' + ownerCond + ')']
+    const conditions = []
     const params = [...owner.params]
     if (opts.dimension) { conditions.push('dimension = ?'); params.push(String(opts.dimension)) }
     if (opts.platform) { conditions.push('platform = ?'); params.push(String(opts.platform)) }
-    const where = 'WHERE ' + conditions.join(' AND ')
+    // 归属谓词自带 "WHERE "，后续条件用 AND 续在它后面
+    const where = owner.sql + (conditions.length ? ' AND ' + conditions.join(' AND ') : '')
     try {
       return this.db.prepare(
         'SELECT * FROM pattern_performance ' + where + ' ORDER BY engagement_score DESC'

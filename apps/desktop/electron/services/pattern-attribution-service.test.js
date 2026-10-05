@@ -60,6 +60,29 @@ function seedAttributable (store, opts) {
   return { historyId, trackedId }
 }
 
+/**
+ * 造一条「只填 cta_style」的可归因样本（legacy 档）。
+ * 为什么需要第二个维度：只有一种维度时，把归属谓词自己的括号摘掉后结果集恰好不变
+ * （`NULL OR ='' OR (='__legacy__' AND dim=?)` 与带括号版在这一份数据上同解），
+ * 锁就测不出它声称在测的那件事 —— 实测 M4 变异在单维度夹具下仍全绿。
+ * 有了第二种维度，摘掉括号的差集就是「另一条 legacy 行」，可见且可断。
+ */
+function seedLegacySecondDimension (store, { viralId, postId, ctaStyle, views }) {
+  const historyId = store.addRewriteHistory({
+    rewrittenContent: '正文-' + postId,
+    knowledgeRefs: [{ table: 'viral_library', id: viralId }],
+  })
+  const trackedId = store.addTrackedContent({
+    platform: 'kuaishou', postId, rewriteHistoryId: historyId, recrawlStatus: 'ok', ownerSubject: null,
+  })
+  store.addPerformanceSnapshot({ trackedContentId: trackedId, source: 'auto', views, likes: 1, comments: 1, favorites: 1 })
+  store.ensurePatternCard(viralId)
+  if (!store.updatePatternCard(viralId, { status: 'done', cta_style: ctaStyle })) {
+    throw new Error('夹具失效：卡片没落成 done')
+  }
+  return { historyId, trackedId }
+}
+
 describe('PatternAttributionService.recomputeAll —— 归因行带归属', () => {
   it('单归属的一条可归因样本 ⇒ 四维行都落库，且 owner_subject 是该归属', () => {
     const store = makeStore()
@@ -187,6 +210,8 @@ describe('归因榜读侧按归属筛', () => {
     seedAttributable(store, { ownerSubject: 'user-A', viralId: 'vA', postId: 'pA', hookType: 'suspense', views: 10 })
     seedAttributable(store, { ownerSubject: 'user-B', viralId: 'vB', postId: 'pB', hookType: 'question', views: 20 })
     seedAttributable(store, { ownerSubject: null, viralId: 'vL', postId: 'pL', hookType: 'story', views: 30 })
+    // legacy 档的第二种维度：没有它，M4（摘掉 _ownerPredicate 的括号）在数据上不可见
+    seedLegacySecondDimension(store, { viralId: 'vL2', postId: 'pL2', ctaStyle: 'challenge', views: 40 })
     new PatternAttributionService({ store }).recomputeAll()
     return store
   }
@@ -206,19 +231,27 @@ describe('归因榜读侧按归属筛', () => {
     expect(rows[0].owner_subject).toBe('user-B')
   })
 
-  it('legacy 档（身份服务缺席 = undefined）只看无归属桶，且不得因 OR/AND 优先级漏进别人的行', () => {
+  it('legacy 档（身份服务缺席 = undefined）只看无归属桶，且不得因 OR/AND 优先级漏进别的维度/别人的行', () => {
     const store = seedTwoOwners()
-    const legacy = store.listPatternPerformance({}, undefined)
-    expect(legacy.length, '至少要有 legacy 那条').toBeGreaterThanOrEqual(1)
-    for (const r of legacy) {
+    const legacyAll = store.listPatternPerformance({}, undefined)
+    // 判据自证：legacy 桶必须横跨两种维度，否则下面的维度断言是恒真的空集判断
+    expect(legacyAll.length, 'legacy 桶至少两条（两种维度），夹具失效则本锁失去测量对象').toBeGreaterThanOrEqual(2)
+    expect(new Set(legacyAll.map(r => r.dimension)).size, 'legacy 桶必须有两种维度').toBeGreaterThanOrEqual(2)
+    for (const r of legacyAll) {
       expect(r.owner_subject === null || String(r.owner_subject).trim() === '',
         `legacy 档捞到了有归属的行：${String(r.owner_subject)}`).toBe(true)
     }
-    // 带维度筛的同一判据 —— 这一步才会暴露缺括号
+    // 带维度筛 —— 这一步才会暴露缺括号：SQL 里 AND 优先于 OR，
+    // `_ownerPredicate` 的三段 OR 一旦失去自己的括号，`AND dimension = ?` 只绑到最后一段，
+    // 于是 legacy 桶里另一种维度的行会漏进来。
     const legacyHook = store.listPatternPerformance({ dimension: 'hook_type' }, undefined)
-    expect(legacyHook.length).toBeGreaterThanOrEqual(1)
-    expect(legacyHook.every(r => r.owner_subject === null || String(r.owner_subject).trim() === '')).toBe(true)
-    expect(legacyHook.every(r => r.dimension === 'hook_type')).toBe(true)
+    expect(legacyHook.length, '维度筛选必须在 legacy 档也生效').toBe(1)
+    expect(legacyHook[0].dimension).toBe('hook_type')
+    expect(legacyHook[0].value).toBe('story')
+    // 正向对照：另一维度的 legacy 行确实存在（不是被别的条件误删）
+    const legacyCta = store.listPatternPerformance({ dimension: 'cta_style' }, undefined)
+    expect(legacyCta.length).toBe(1)
+    expect(legacyCta[0].value).toBe('challenge')
   })
 
   it('认不出是谁（null）时读侧不得由存储层猜桶：IPC 必须提前 fail closed（判据在 ipc-handlers）', () => {

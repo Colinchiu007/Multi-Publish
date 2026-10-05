@@ -157,7 +157,7 @@ extractRewriteHistoryId(res) -> string | null
 - **聚合桶的键加一层归属**：`归属 → dimension → value → 桶`。这是本切片真正的正确性判据 —— 若仍是全局桶再给行打一个归属，两个账号的同模式样本会被平均成"一行看着合理的数字"，界面上无从发现（实测：改动前该场景产 1 行 avg=50，改动后产 2 行 avg=10/90，锁见 `pattern-attribution-service.test.js`）。
 - legacy 归一与存储层 `_ownerPredicate`（`performance-loop-store.js:48`）同三态语义（NULL / 空串 / `__legacy__` 同桶），归因侧的 `_ownerBucket` 只做这一件事，不再造第二份口径。
 - `replacePatternPerformance` 的行对象新增 `ownerSubject`（可为 `null`），**全表替换的语义保持不变**。
-- `listPatternPerformance(opts, ownerSubject)` 按归属筛。归属谓词必须**加括号**再拼维度条件：legacy 档返回的是三段 OR，而 SQL 里 AND 优先级高于 OR，不加括号会让别的归属的行在"legacy 档 + 维度筛选"这一组合下漏进来 —— 且只在一种身份形态下坏，主账号路径永远测不出（锁见 `pattern-attribution-service.test.js` 的「legacy 档…不得因 OR/AND 优先级漏进别人的行」）。
+- `listPatternPerformance(opts, ownerSubject)` 按归属筛。归属条件与后续维度条件用 AND 串联，而 SQL 里 AND 优先级高于 OR —— 结合性保护在**共享谓词自己那对括号**里（`performance-loop-store.js:53` 返回的 sql 形如 `WHERE (… OR … OR …)`），本函数不重复包一层：实测在本函数里再加括号是冗余的（摘掉行为完全不变，M4 首版因此被证明无效），正解是把判据钉在谓词本身。该风险的**夹具要求**记在这里：legacy 桶必须横跨两种维度，否则摘掉谓词括号后结果集恰好不变，锁测不出它声称在测的东西（首版夹具只有一种维度，M4 全绿即为此坑，已补 `seedLegacySecondDimension` 后 M4 变红）。
 - 读侧 IPC（`performance:list-pattern-performance`）改用 `resolveIpcOwnerSubject(identityService)`：`null` ⇒ `EC.AUTH_ERROR`（与 `:70-71` 的 `performance:overview` 同口径），`undefined` ⇒ legacy 桶；并补 `withSenderCheck`。
 - `performance:recompute-attribution` **不按归属门控**，也保持无参：重算的输入是本机整库，不是某个归属的请求参数。把它做成 per-owner 需要把归属线程进 `processRound` 的回调（那条回调没有身份概念），换来的收益只是"少写别人的分区"，而全量替换本来就把所有归属一起算对。
 
@@ -221,7 +221,10 @@ extractRewriteHistoryId(res) -> string | null
 - 用户侧**没有任何新增操作**。整条链是"改写→存草稿→去发布"这一既有动作序列的后台记账。
 - 唯一的可见变化是**数据出现**：`/performance-insights` 从「暂无归因数据」变为四维榜；看板「最近回采」从「从未」变为时间戳；`ViralAnalysis` 的 `narrative_structure` Top10 开始有柱。
 - 失败不改变任何交互：lineage 缺席 = 今天的行为（空态），归因抛错 = 空态 + 一条 warn。**不得**因为"链路修好了"就把空态改判成错误态——空态在这里仍是合法结果（没发过带爆款库改写的作品就该是空）。
-- 归属不明时（Logto 在但没有可用 sub）：`/performance-insights` 与 `ViralAnalysis` 拿到 `AUTH_ERROR`。当前两页对非 0 码的处理必须**实测确认**它们不会静默渲染成"空 = 没数据"（这正是 P2-6c 里首次取数失败必须有可见出口的同一条判据）；若确认会，需按 P2-6c 的做法给出可见出口。
+- 归属不明时（Logto 在但没有可用 sub）：`/performance-insights` 与 `ViralAnalysis` 拿到 `AUTH_ERROR`。实测两页原本的处理并不等价，本 PR 只改了该改的那一侧：
+  - `PerformanceInsights.vue::loadData` 原实现把 `code !== 0` 用 `|| []` 折成空数组，于是「没验出身份」与「确实还没有归因数据」在界面上**完全同形**（用户会去点【重算归因】排障，而真正缺的是登录）。已改为：非 0 码或 `items` 非数组一律置 `loadError` → 出现既有「加载失败 / 重试」横幅（`pi-error`），空态仍在但不代表成功。**不新增文案**（`perfInsights.loadFailed` / `refresh` 是既有键）。回归锁两条：错误信封必须有出口；`code===0` 且 `items` 为空时只能有空态没有横幅（两种状态必须可区分）。
+  - `ViralAnalysis.vue::loadPatternHits` **保持不动**：它的既有契约就是「渐进增强：失败整块隐藏」（`:545-552` 的注释与实现一致，未登录返回非 0 码即隐藏整块）。那是一个已声明的产品决定，不是漏项，不得顺手改。
+- 附带一条环境事实：浏览器域（dev server 无 `window.electronAPI`）里 `invokeWithFallback` 返回 `code: -1`，所以本页在新实现下会显示错误横幅。该视图**没有像素基线**（实测 `base-screenshots/` 41 张里没有 `performance-insights*`，`git ls-files` 亦无匹配），因此不产生 Gate 7 / 7b 的基线重建义务 —— 这一点是查证过的，不是假设。
 
 ## 八、显示项
 
@@ -273,6 +276,8 @@ extractRewriteHistoryId(res) -> string | null
 - **`apply-rewrite` 无父绑定**（§3.4）：属既有 R92 类观察，登记为后续项，本 PR 不顺手改。
 - **抖音/小红书/公众号的互动 parser 仍未注册**：这三家作品的 `performance_snapshot` 拿不到 ⇒ 它们的样本不会进榜（P2-6c 已把这条如实反映为「不支持回采」）。本切片不改变这一现状。
 - **`useBatchPublish.js` 实测只剩 1 行行数余量**（`debt-baseline.json` 登记 622、容差 200 ⇒ 上限 822；HEAD 的 `split('\n')` 口径已是 822，即 growth=200 贴边）。因此批量侧的挂载被压成**单行** `attachRewriteLineage(data, a.rewriteHistoryId)`，并连带把单篇侧也改成同一形态（否则两侧形态不同，`useBatchPublish.test.js:1265` 那条按 `data.X =` 匹配的 parity 锁对本键失明）。**代价如实写**：这个键从此不在 parity 锁的可见域内，唯一防线是 `usePublishFlow.test.js` 的「单篇与批量两侧必须走同一条挂载规则」——它同时断正向（两侧都有 `attachRewriteLineage(data, …)`）与反向（不得退回裸赋值）。下次触碰本文件的人若把挂载点改回内联两行，会当场撞上 `LEDGER_GREW`；正解是拆文件，不是抬基线（`--update` 等于接受漂移，AGENTS.md 已把这条记为滞后型唯一正解）。
+- **本次真实踩到的一条（记下来防止复发）：`tests/performance-loop-store.test.js` 不在 diff 里，却断言被我改坏的东西**。它把 `pattern_performance` 的建表 DDL **手抄成第三份**（另两份在 `activate-viral-schema.js` 与……就没了，第三份就是它），于是新列在这份拷贝里不存在，本地定向跑的几个文件全绿、**全量跑到它才红**：`table pattern_performance has no column named owner_subject`。这正是 AGENTS.md「验证范围取消费者并集而不是我改过的文件」的同族现场，而且这里还多一层：消费者的**夹具**自己抄了一份 schema。正解不是把那行 DDL 补个列（补了下次新增列再犯），而是让夹具去跑真迁移 —— 已改为 `migratePerformanceLoopSchema(db, (t, sql) => t.execOrThrow(sql))`，并加一条 `PRAGMA table_info(pattern_performance)` 漂移锁（迁移里删/改列即红）。**残留同族拷贝未清**：该文件第二个 describe（`:143` 附近）仍内联一份 `tracked_content` 的 `CREATE TABLE`，本 PR 没碰它的形状所以不红，登记为后续项（判据应当与上面完全一致）。
+- **反证 M4 首版是无效的**：单维度夹具下，摘掉归属谓词的括号后结果集恰好不变（`NULL OR ='' OR (='__legacy__' AND dim=?)` 与带括号版在这份数据上同解），变异跑出来是绿的，而我差点把「M4 绿」读成"那层括号没用所以可以删"——它其实同时也证明了**我的锁测不到那件事**。补了 `seedLegacySecondDimension`（legacy 桶的第二种维度）后同一变异立刻变红。教训按形态记：**反证报绿时，先问夹具能不能让两种状态产生不同结果**，再决定是删冗余代码还是修夹具。
 - **`performance:list-tracked` 是同源但不同面的一处越权读，本切片不修**：`performance-loop.js:14` 无 `withSenderCheck`，且 `SELECT * FROM tracked_content` 不带归属过滤；消费方实测是 `src/views/PublishHistory.vue:395/600`（`listTrackedContent({page:1,pageSize:100})`）。它与 §3.3 处理的是同一张表、同一个漏法，但属于「发布历史页的回采列表」而非「归因链」，且它返回的是行级内容（含 `url`/`post_id`），风险面比聚合榜更大。登记为独立后续项，理由不是"不改"，而是**改动判据不同**（列表侧要按归属分页并影响 total 语义），塞进本 PR 会让两个口径混在一次提交里难以复核。
 - **模式抽取产物仍可能为空**：归因还要求 pattern card `status === 'done'`（`pattern-attribution-service.js:58`）。若用户从未跑过模式抽取，链通了榜单仍是空——这是**第四个必要条件，不是第三个断点**，界面上「暂无归因数据」的提示对此仍然正确。
 - **重算的归属分区使多设备场景下榜单是"按本机各归属分别累积"**，`sample_count` 语义随之从"全部样本"变为"该归属样本"。这一语义变化必须在 CHANGELOG 收口里写明。
