@@ -27,5 +27,5 @@ sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep
 ### 遗留（不假装已闭合）
 
 - `check-pr-exec-record.js` 的 `args.head || 'HEAD'` 仍会把显式传入的空串读成 `HEAD`。调用方守卫已堵住可达路径，脚本级拒绝（`--head=""` ⇒ 判取证失败）另次改动做。
-- 本 PR 的取源改动**尚未在真实 `refs/pull/N/merge` 上验过**（夹具是 `git merge --no-ff` 合成的等价形态）。PR 开出来之后要 fetch 那个 merge ref、以 `--repo` 指向它实跑一次 `ci-pr-changeset.js`，确认 `source=merge-ref-parents` 且 `base/head` 与 GitHub 显示的 base/head 一致；未做这一步之前，"CI 上会取对"只是推断。
+- **真实 `refs/pull/2923/merge` 已实测（本条从"未验证"降级为"已验证"）**：`git fetch origin refs/pull/2923/merge` 得合并提交 `add994192`，`git rev-list --parents -n 1` 给出恰好两个亲 —— `^1=656dbb35`（GitHub `baseRefOid`，即当前 main tip，注意 main 已从 `331883e2` 前进过）、`^2=b585cb38`（本 PR `headRefOid`）。三种取法在真对象上对照：双亲取法 `files=10`（与 `gh pr view --json files` 独立报出的 10 个文件一致）；冻结 base + 默认 HEAD `files=20`（**多出的 10 个正是期间别人的文件**，形态 A 在这条真 PR 上现场复现）；冻结 base + 事件 head `files=10`（本分支没做过 re-sync，所以形态 B 在此不适用 —— 这不否定它，夹具那条负控仍红）。
 - 前端主通道（claude）本轮不可用属机器态，不是代码问题；若下轮恢复，应补一次真·双模型并把偏差行改写。

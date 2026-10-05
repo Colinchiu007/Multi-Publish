@@ -73,7 +73,18 @@ PR 事件下 `actions/checkout@v4` 检出的是 `refs/pull/N/merge` —— 一�
 
 驱动收尾断言两个被改文件与备份**逐字节相同**，且基线全绿后才收口。
 
-## 5. 遗留（不假装已闭合）
+## 5. 真实 PR 对象上的对照（PR #2923 自己）
+
+`git fetch origin refs/pull/2923/merge` ⇒ 合并提交 `add994192`，`git rev-list --parents -n 1` 给出恰好两个亲：
+`^1 = 656dbb35`（GitHub `baseRefOid`，当时 main 已从 `331883e2` 前进过）、`^2 = b585cb38`（本 PR `headRefOid`）。
+
+| 取法 | 实得 `files=` | 说明 |
+|------|---------------|------|
+| 双亲（新逻辑） | **10** | 与 `gh pr view --json files` 独立报出的 10 个文件逐一相符 |
+| 冻结 base + 默认 HEAD（原逻辑） | **20** | 多出的 10 个正是期间别人的文件 —— 形态 A 在真 PR 上现场复现 |
+| 冻结 base + 事件 head（第一版） | 10 | 本分支没做过 re-sync ⇒ 形态 B 在这条 PR 上恰好不发作；**这不否定形态 B**，夹具里的负控 B 才是它的现场 |
+
+## 6. 遗留（不假装已闭合）
 
 - `check-pr-exec-record.js` 自身的 `args.head || 'HEAD'` 仍会把显式传入的**空串**读成 `HEAD`。
   调用方已用守卫堵住，但脚本级拒绝（`--head=""` ⇒ 取证失败）更稳，归入 #2745 后续项单独一次改动。
