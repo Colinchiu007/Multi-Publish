@@ -64765,3 +64765,36 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 独立 worktree `mp-verify-p0-reentry`，基线 `770967c0`，`verify-worktree-deps.js` rc=0。未修改任何生产代码。
 
 ---
+# [unreleased] test(review): P0-2 / P0-3 / P0-5 取得运行实证（5 条 P0 中 4 条已实证）
+
+### 结果
+- **P0-2**（重试后结果卡失联）：基线 result 正常；重试后会话已 done、新任务 success，
+  但 result 仍为 null；反证（消费侧 id 改为新 id）后正常更新。判据由内部 computed
+  改为用户可见的 result —— activeSession 未导出，用户看不到它。
+- **P0-3**（轮询异常导致 UI 卡死）：连续 20 轮 IPC reject（约 40 秒）后
+  batchCollecting 仍为 true、batchError 为空、轮询不停。附**源码锚点断言**证明
+  提取版与 Collection.vue:2545-2587 逐行一致。补充定性：启动阶段 catch 是正确的
+  （:2539 已复位），唯独轮询阶段 :2584 空着 —— 是「做了一半」而非「整体没做」。
+- **P0-5**（并发保存静默丢数据）：**首次尝试未复现**（落库 2 条）—— 因 storeSetSetting
+  同步生效使读窗口未重叠。改用 gate 让两次读严格同步后，落库仅 1 条，k1 被静默覆盖。
+  **需修正原报告表述**：触发条件应为「两个保存操作的读阶段重叠」，而非泛指的并发。
+
+### 装置失败教训（第二次生效）
+P0-5 第一次跑基线就落库 0 条 —— mock 了错误模块（@/api/settings，真实是 @/api/publisher）。
+**若无基线用例，会把「装置完全失效」误报成「代码丢数据更严重」**。附录 B.6 的教训
+在本轮第二次拦住了错误结论。
+
+### 证据文件
+- apps/desktop/src/__p0verify__/p0-2-session-lost.test.js
+- apps/desktop/src/__p0verify__/p0-3-poll-hang.test.js
+- apps/desktop/src/__p0verify__/p0-5-copy-library-race.test.js
+
+5 个证据文件 / 16 用例全绿，随代码入库为可复现回归锁。
+
+### 现状
+5 条 P0 中 **4 条已有运行证据**（P0-1/2/3/5，每条含基线 + 缺陷复现 + 修复版对照）。
+P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**，需 Electron 主进程环境。
+
+未修改任何生产代码。
+
+---
