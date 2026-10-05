@@ -24,10 +24,53 @@ const TARGET_FILES = [
   path.join(SERVICES_DIR, 'publish-impact-tracker.js'),
   path.join(SERVICES_DIR, 'publish-monitor.js'),
   path.join(SERVICES_DIR, 'risk-suspender-store.js'),
+  // 波次-1 新增迁移域
+  path.join(SERVICES_DIR, '..', 'bootstrap', 'phase1-context.js'),
+  path.join(SERVICES_DIR, '..', 'bootstrap', 'phase2-bridges.js'),
+  path.join(SERVICES_DIR, '..', 'bootstrap', 'phase3-services.js'),
+  path.join(SERVICES_DIR, '..', 'window.js'),
 ]
 
 // 实际迁移登记的 (module, event) 清单，按紧凑 key "module:event" 锁。
 const ALLOWED_KEYS = new Set([
+  // 波次-1 迁移登记：phase1-context.js / phase2-bridges.js / phase3-services.js / window.js
+  'UsageReporter:get-client-id-failed',
+  'UsageReporter:get-scheduler-metrics-failed',
+  'DiagnosticsReporter:hook-error',
+  'SignalCollector:startup-cleanup-failed',
+  'PromptMemory:memory-load-failed',
+  'App:platform-config-load-failed',
+  'App:bridge-start-failed',
+  'App:bridge-stop-failed',
+  'App:phase3-rollback-failed',
+  'App:callback-server-start-failed',
+  'App:keyword-monitor-persist-error',
+  'App:login-status-monitor-start-failed',
+  'App:analytics-providers-register-failed',
+  'Identity:identity-service-disabled',
+  'BatchManager:scheduled-batches-restore-failed',
+  'Automation:automation-scheduler-start-failed',
+  'CommentManager:comment-polling-stop-failed',
+  'window:open-external-failed',
+  'window:failed-window-cleanup-error',
+  'window:running-task-check-failed',
+  'window:running-publish-check-failed',
+  'window:window-ref-cleanup-error',
+  'window:autoupdater-init-failed',
+  'window:untrusted-navigation-blocked',
+  'window:show-event-missing-fallback',
+  'App:python-backend-start-failed',
+  'App:bridge-started',
+  'App:login-status-monitor-started',
+  'App:analytics-providers-registered',
+  'Scheduler:pending-tasks-restored',
+  'BatchManager:scheduled-batches-restored',
+  'App:tasks-recovered-from-queue',
+  'window:main-window-shown',
+  'window:main-window-load-failed',
+  'window:renderer-gone',
+  'window:publish-running-hide-to-tray',
+  'window:pipeline-running-hide-to-tray',
   // phase4-events.js
   'PublishMonitor:audit-requery-cookie-resolution-failed',
   'PublishMonitor:audit-requery-skipped',
@@ -107,7 +150,7 @@ describe('T6.1 发布可观测性 notify 契约结构锁', () => {
   }
 
   it('允许清单规模有下界（防止 Set 退化成空集而假绿）', () => {
-    expect(ALLOWED_KEYS.size).toBeGreaterThanOrEqual(26)
+    expect(ALLOWED_KEYS.size).toBeGreaterThanOrEqual(63)
   })
 
   it('全仓登记键总数与四文件 notify 调用总数一致', () => {
