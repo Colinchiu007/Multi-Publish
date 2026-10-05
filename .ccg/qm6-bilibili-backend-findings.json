@@ -1,0 +1,189 @@
+{
+  "model": "nemotron-3-ultra-free",
+  "direction": "backend",
+  "findings": [
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "29",
+      "desc": "BILIBILI_OBSERVED_ONLINE_STATES = [0] correctly reflects evidence. Evidence \u00a7\u4e00\u2003 confirms only state=0 with primary_state=0 observed as \"published\" (state_desc=\"\u5f00\u653e\u6d4f\u89c8\"). No inAudit/deny states observed. Implementation correctly treats all other values as pending (no verdict).",
+      "fix": "No fix needed; this is correct and aligned with evidence."
+    },
+    {
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "45-46",
+      "desc": "aid comparison uses String(archive.aid) === want. aid is 15-digit integer (e.g., 117319246288101 \u2248 1.17e14), which is BELOW Number.MAX_SAFE_INTEGER (9,007,199,254,740,991 \u2248 9e15). So 15-digit integers are safely representable in JS Number. No precision loss occurs at 15 digits. The comment \"15\u4f4d\u5728 Number.MAX_SAFE_INTEGER \u8fb9\u754c\" is slightly misleading but not a bug. String comparison is correct defense-in-depth.",
+      "fix": "Update comment to clarify: 15-digit aid (max ~999 trillion) is well within Number.MAX_SAFE_INTEGER (9 quadrillion). String comparison is still correct defense-in-depth."
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "35-37",
+      "desc": "isObservedOnline requires typeof state === 'number' AND state in observed set AND primary_state === 0. This correctly prevents Number(null)===0 and Number('')===0 false positives. primary_state === 0 without typeof guard: if primary_state is null/undefined/\"\", it evaluates false, correctly returning false. If missing, undefined === 0 is false. This is correct behavior.",
+      "fix": "Consider adding typeof archive.primary_state === 'number' for symmetry and explicitness, though current logic is functionally correct."
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "71-75",
+      "desc": "nav endpoint call: if nav.code !== 0 or nav.data.mid missing, returns pending with reason 'nav-not-established'. This correctly avoids guessing the list owner. nav endpoint is api.bilibili.com while list endpoint is member.bilibili.com. They share cookie domain (.bilibili.com) so cookies work cross-subdomain. This is correct per evidence.",
+      "fix": "No fix needed; cross-subdomain cookie sharing is standard for bilibili."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "77-82",
+      "desc": "list response handling: if body.code !== 0 or !body.data, returns pending 'envelope-not-ok'. Evidence \u00a7\u4e09 confirms unknown status param returns code:0 with default list, so code!==0 correctly catches wind control / auth expiry. Both map to pending (no verdict). Correct per single-evidence rule.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "84-88",
+      "desc": "arc_audits array check: if !Array.isArray(audits), returns pending 'no-audit-array'. Evidence \u00a7\u4e09 shows page overflow (pn=9999) returns code:0, count:6, but arc_audits missing entirely. This correctly prevents using page.count as hit evidence.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "90-96",
+      "desc": "Match loop: on bvid/aid match, if isObservedOnline returns published; else returns pending 'state-unobserved' with raw state values. This correctly implements \"hit but unobserved state => no verdict\". Early return on match is correct (only one entry per bvid/aid expected).",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "98",
+      "desc": "No match in list => pending 'not-in-list'. Evidence \u00a7\u56db notes publish side doesn't capture bvid (URL extractor misses /video/BV...), so this path is expected for historical posts. Returns pending not error. Correct.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "99-101",
+      "desc": "Catch block returns error status with message. Does not bubble to IPC. All thrown errors (network, timeout, parse) caught and mapped to error. This is correct - errors are observable but don't corrupt state.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "67",
+      "desc": "Headers include Cookie and Referer. Cookie value passed directly from parameter. No logging of cookies in this file (good). However, axios instance may log request/response if interceptors configured elsewhere. Need to verify logger.js doesn't log headers.",
+      "fix": "Verify logger.js and axios default config don't log Cookie header. If they do, add request/response interceptor to redact Cookie."
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.js",
+      "line": "67",
+      "desc": "Referer hardcoded to 'https://member.bilibili.com/'. Evidence \u00a7\u4e00\u2003 says Referer included in probe but \"no control group without Referer\" so cannot assert it's required. Sending it is harmless and matches observed browser behavior. Cookie sent to member.bilibili.com (list) and api.bilibili.com (nav) - both *.bilibili.com, so same cookie domain. No cross-domain leak.",
+      "fix": "No fix needed; behavior matches evidence."
+    },
+    {
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/publish-monitor.js",
+      "line": "114-124",
+      "desc": "checkPublishStatus signature changed from 4 params to 5 (added opts). Bilibili branch extracts axios from opts.axios and passes to checkBilibiliAuditStatus. This is correct for test injection. Existing callers (createMonitorTask at line 59) call with 4 args, so opts is undefined, falling back to require('axios') inside bilibili-audit-check. Backward compatible.",
+      "fix": "Verify all internal callers pass opts correctly. createMonitorTask doesn't need axios injection (production), so current call is fine. Tests will pass opts.axios."
+    },
+    {
+      "severity": "Critical",
+      "file": "apps/desktop/electron/services/publish-monitor.js",
+      "line": "125-132",
+      "desc": "General platform branch (non-bilibili) now reads axios from opts.axios || require('axios'). This is a behavior change: previously it always used require('axios'). Now tests can inject axios. createMonitorTask calls without opts, so production uses require('axios') - no change.",
+      "fix": "No fix needed; backward compatible."
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/publish-monitor.js",
+      "line": "130",
+      "desc": "General branch uses headers: { Cookie: cookies || '' }. If cookies is empty string, sends Cookie: '' header. This may cause issues with some platforms. The bilibili branch returns early if no cookies (pending). General branch should probably also return pending early if no cookies, for consistency.",
+      "fix": "Consider adding early return for empty cookies in general branch, or document that empty Cookie header is intentional."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "55-71",
+      "desc": "T5 tests unobserved states: [1,2,-2,5,10001,'0x',null,undefined] all return pending. Includes string '0x' and null/undefined. This correctly locks the \"no implicit conversion\" rule. Good test.",
+      "fix": "No fix needed; test correctly validates strict typing."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "73-79",
+      "desc": "T6 structural lock: checks source contains 'arc_audits' and NOT 'data.archives' followed by iteration. This prevents regression to wrong container. Good.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "81-86",
+      "desc": "T7 state=0 but primary_state=2 => pending. Correctly locks dual-condition requirement.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "88-93",
+      "desc": "T8 nav without mid => no list call. Verifies axios.get not called for archives URL. Correctly locks \"don't guess owner\".",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "95-100",
+      "desc": "T9 no cookies => zero axios calls. Verifies early return before any network. Correct.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "102-106",
+      "desc": "T10 envelope code!=0 => pending. Correctly treats wind control as no-verdict.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "108-115",
+      "desc": "T11 request shape lock: verifies exact URL with query params, Cookie and Referer headers. Good contract test.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "117-124",
+      "desc": "T12 parity lock: CHECK_URLS.bilibili === BILIBILI_LIST_URL and not the old fake endpoint. Prevents drift.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "126-131",
+      "desc": "T13 routing lock: checkPublishStatus('bilibili', ...) routes to bilibili-audit-check and returns published. Verifies integration.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/electron/services/bilibili-audit-check.test.js",
+      "line": "133-137",
+      "desc": "T14 verified platforms lock: bilibili NOT in verified, IN candidate. Evidence \u00a7\u56db explicitly says don't add to verified yet. Correct.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/services/publish-audit-requery.test.js",
+      "line": "124-140",
+      "desc": "Parity test updated to extract keys from CHECK_URLS including constant references (BILIBILI_LIST_URL). Regex /^\\s*(\\w+):\\s*(?:'|[A-Z][A-Z0-9_]*\\b)/gm handles both string literals and constant refs. Also adds runtimeKeys check from actual require. This fixes the earlier bypass where constant refs were silently dropped. Good.",
+      "fix": "No fix needed; test correctly hardened."
+    },
+    {
+      "severity": "Info",
+      "file": "docs/audit-requery-evidence-bilibili-2026-10-05.md",
+      "line": "1-99",
+      "desc": "Evidence document is comprehensive: documents endpoint, response shape, auth, unobserved states, counterexamples, and explicit \"do not add to verified yet\". Implementation matches evidence in all reviewed aspects.",
+      "fix": "No fix needed; evidence quality is high."
+    }
+  ],
+  "verdict": "pass"
+}

@@ -1,3 +1,67 @@
+# [未发布] feat(bilibili): 审核回查端点取证落地（bilibili-audit-evidence，2026-10-05）
+
+- publish-monitor 接入 member.bilibili.com 稿件列表端点（Cookie 会话：nav 验证会话 + `data.arc_audits[]` 按 bvid/aid String 匹配），取代取证前的虚构端点。
+- 状态判据从严：仅实测观测的 `state=0 && primary_state=0` 判 published，其余一律 pending 无定论；未观测的 state 取值不外推，bilibili 暂不入 `AUDIT_REQUERY_VERIFIED_PLATFORMS`。
+- 全程只读取证：没有发布、没有删除、没有改动任何稿件，真机「最小一次发布」授权未消耗；证据文档 `docs/audit-requery-evidence-bilibili-2026-10-05.md`，清单指针 `01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md` §九。
+- QM-6 双模型评审通过（0 Critical，Warning 全修，评审产物入库 `.ccg/qm6-bilibili-*`）；仍欠两条观测（审核中/不通过 state 取值 + 真机徽标联动）需真实投稿后补验。
+
+---
+# [未发布] docs(gates): 回填 #2940 远程同步 PASS 并销账（backfill-2940-record，2026-10-05，docs-only）
+
+- PR #2940（前端代码深度审查报告）已合并进 main：`dcc20eae`（merged 2026-10-05T12:40:49Z）。
+- `.quality-gates.md` 对应执行记录的「远程同步」由 `PENDING` 就地改写为 `PASS` + merge SHA 与取证命令，状态列只写当下状态、不留历程。
+- `scripts/gate-record-debt-ledger.json` 中本条登记在**同一次提交**删除（17 → 16 条），欠账不外溢。
+- 取证：`git log origin/main --grep='(#2940)$' --format=%H|%cI`；`git ls-remote --heads origin docs-frontend-deep-review` 返回 0 行。
+- docs-only 快速通道：判定 `docs-only=true`（files=2），跳过 QM-1/2/4 与 TDD、QM-6 评审。
+
+---
+# [未发布] docs(review): 前端代码深度审查报告（1 CRITICAL / 16 MAJOR / 11 MINOR，纯只读审查，2026-10-05）
+
+### 范围
+`apps/desktop/src`（551 文件 / 12.98 万行）+ `ops-center/frontend/src`（75 文件 / 8.8 千行）。4 个并行专项探子（视图层 / 状态管理 / API-IPC 边界 / 性能与测试）+ 主会话量化基线扫描 + 6 条关键结论逐行独立复核。**只读审查，未修改任何运行时代码。**
+
+### 三条最值得优先处理的结论
+
+1. **覆盖率门禁量的不是前端** —— `apps/desktop/vitest.config.js:67-82` 的 `coverage.include` 全为 `*.js` glob，**146 个 Vue SFC 命中 0**；阈值 `statements 55` 实际由 Electron 主进程（484 个命中文件中的 412 个）撑起。13 万行 SFC 逻辑在门禁视野外。
+2. **超大文件治理是无下降的棘轮** —— 500 行上限下 **98 个文件永久挂账豁免**（前端 27 个 / 36586 行 = 前端体量 28%，`CreateView.vue` 挂账 5657 行）；门禁只防「新增」与「膨胀 >200 行」。另有 20 个 >500 行测试文件因在 `EXCLUDE` 列表里连门禁都看不到。
+3. **IPC 契约无任何测试守护** —— 9 份独立 `getApi()`、6 个文件绕过桥接层，直接导致 CRITICAL-1（`filmEngineeringRetryShot` 命名空间错配 → 影视单镜重试永久失效且零报错）能一路进主干。**补一条 preload 契约测试是收益最高的单条投资。**
+
+### 已确认的正确性 Bug（5 条，主会话逐行复核）
+
+| # | 位置 | 后果 |
+|---|---|---|
+| 1 | `usePublishFlow.js:283/285/414` | 守卫与置锁之间隔着 `await ensureLogin()`，未登录用户点两次「发布」→ 平台侧两条内容 |
+| 2 | `Collection.vue:2584` | 轮询异常分支只写注释不做事 → `batchCollecting` 永为 true，按钮永久禁用且无报错 |
+| 3 | `utils/report-error.js:15` | `logError()` 返回的 Promise 既未 await 也未 `.catch`；`:16` 的 `return` 使 console 兜底永不可达 |
+| 4 | `usePublishFlow.js:116-122` | store 重试换新 taskId 后 `activeSession` 变 null，结果卡永久失联 |
+| 5 | `useCopyLibrary.js:132-163` | 读-改-写无串行化，并发下静默丢一条改写文案 |
+
+### 明确不建议动的部分
+
+`Publish.vue`(1659)、`ModelProviders.vue`(1428)、`Dashboard.vue`(679) 行数大但结构健康 —— 分别是 composable 编排、script 仅 98 行的模板+CSS、script 仅 159 行。**按行数重构收益为负、回归风险为正。**
+
+### 证据边界
+
+纯静态审查，**未运行任何测试、构建或打包**。未验证项已在报告第十节逐条列明（含 `stores/tab.js` 两处 `_unsubscribes.push` 是否累积订阅者、IPC 契约以 preload 源文件为准未验证打包产物一致性）。
+
+### 文档
+
+- `docs/frontend-deep-review-2026-10-05.md` —— 完整报告（1 CRITICAL / 16 MAJOR / 11 MINOR、P0-P3 治理路线图、10 个无测试覆盖模块清单、ops-center 对比、未验证项声明）。
+
+
+# [未发布] fix(gate): 执行记录门禁补第四条合法出路——纯回填型 PR 不再被误判未携带记录（2026-10-05，exec-record-backfill-exit / PR #2928）
+
+### 症状（#2920 实测）
+- 回填型 PR（修订**别的分支**那篇 `openspec/records/<分支>.md`）在 `check-pr-exec-record --mode=enforce` 下被报「本 PR 未携带执行记录」：既有三条出路对这类 PR 全部不可用，CI 靠 advisory 观察态掩盖。
+
+### 修复
+- `evaluate()` 新增出路④ `isPureBackfill`：变更集每一条都是载体文件的 M、**且至少含一篇记录文件的 M**（载体自身可承载行为变更，翻门槛/收缩账本不得白坐出路④）、**且分支名可解析**（detached 且无 CI 注入 fail-closed 出专用理由）⇒ 放行并在 summary 打印回填明细。
+- 失败文案补出路④定义式措辞；顺手落 #2923 遗留：显式空 `--head=` 脚本级 rc=2 拒绝，不再经 `|| 'HEAD'` 把「取证失败」伪装成「取到了」。
+- 回归锁 `check-pr-exec-record.test.js` 35/35；7 条变异反证（M1–M7）逐条实测变红，还原后逐字节相同。
+- 详见 `openspec/records/exec-record-backfill-exit.md` 与 `01-docs/PRD-EXEC-RECORD-BACKFILL-EXIT-2026-10-05.md`。
+
+---
+
 # [未发布] test(egress): 三条测试期真实出站补上传输层桩，出站台账基线首次清零欠账（#2878 / egress-stub-gap）
 
 ### 现象

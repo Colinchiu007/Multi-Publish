@@ -1,0 +1,20 @@
+{
+  "provenance": {
+    "model": "opencode/nemotron-3-ultra-free",
+    "channel": "替代通道（claude 前端 3 连静默失败后按 AGENTS.md 既定替代通道执行）",
+    "sha": "a668f19f0",
+    "note": "模型 stdout 自称已写盘但未落盘；本文件由会话按其 stdout 段逐条转写，内容未增删改写",
+    "date": "2026-10-05"
+  },
+  "findings": [
+    { "id": 1, "severity": "Warning", "file": ".github/workflows/quality-gate.yml", "line": 981, "detail": "Round 2 Vite 启动采用后台进程模式但缺乏健壮的就绪探测" },
+    { "id": 2, "severity": "Warning", "file": ".github/workflows/quality-gate.yml", "line": 1002, "detail": "round 2 views 套件退出码仅出声不判，可能掩盖套件崩溃" },
+    { "id": 3, "severity": "Critical", "file": ".github/workflows/quality-gate.yml", "line": 1012, "detail": "round 2 判定 JSON 缺失/畸形时 fail-closed 但未清理 round1 渲染残留" },
+    { "id": 4, "severity": "Warning", "file": "scripts/check-baseline-freshness.js", "line": 178, "detail": "evaluateVerdictRounds 交集逻辑仅按文件名，忽略漂移形状差异" },
+    { "id": 5, "severity": "Info", "file": "scripts/check-baseline-freshness.js", "line": 107, "detail": "violated 条目 kind 枚举与 violations 字符串前缀耦合，维护成本高" },
+    { "id": 6, "severity": "Warning", "file": ".github/scripts/workflow-contract.test.js", "line": 788, "detail": "结构锁仅断言关键字符串存在，未验证参数值正确性" },
+    { "id": 7, "severity": "Info", "file": "scripts/check-baseline-freshness.test.js", "line": 240, "detail": "新增测试用例 16 条，但缺乏『两轮均红但 drift 形状不一』的边界用例" },
+    { "id": 8, "severity": "Warning", "file": ".github/workflows/quality-gate.yml", "line": 962, "detail": "round 2 依赖 `cd apps/desktop` 相对路径，破坏工作目录隔离假设" },
+    { "id": 9, "severity": "Info", "file": "scripts/check-baseline-freshness.js", "line": 200, "detail": "readVerdictFile 与 evaluateVerdictRounds 重复校验 violatedViews 存在性" }
+  ]
+}

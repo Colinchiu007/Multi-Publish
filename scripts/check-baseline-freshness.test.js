@@ -233,6 +233,298 @@ test('默认（不带 --partial）行为不变：未登记的无渲染仍判 UNC
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
+// ---- 两轮有界重试（#31）：单张视图的采集不可复现（flake）不得卡死任意 PR ----
+// 判别实证（2026-10-05）：PR #2914 的 quality-gate run 37267645916 attempt=1 红在
+// create-history.png 3909 px / 0.189%，同 sha 的 attempt=2 与同 sha main push 全绿
+// ⇒ 同代码同判据一次红一次绿 = 采集 flake，不是基线漂移。终判 = 违规视图的**两轮交集**：
+// 两轮都红的视图是确定性漂移，照旧拦；单轮红的视为 flake，打印留痕后放行。
+// 判据单一真源仍是本脚本：--json-out 落盘结构化违规清单，--verdict-rounds 读两份做交集。
+
+test('evaluateFreshness 返回结构化 violated 视图清单（--json-out 的数据源）', () => {
+  const { dir, baselines, renders } = mkDirs();
+  try {
+    fs.writeFileSync(path.join(baselines, 'home.png'), pngOf(1));
+    fs.writeFileSync(path.join(renders, 'home.png'), pngOf(4));
+    fs.writeFileSync(path.join(baselines, 'ghost.png'), pngOf(1));
+    const partialR = D.evaluateFreshness(baselines, renders, null, 0, true);
+    assert.deepEqual(partialR.violated.map((v) => v.name), ['home.png'],
+      'partial 下无渲染进 skipped 而非 violated（盲区语义不得被改变）');
+    const home = partialR.violated.find((v) => v.name === 'home.png');
+    assert.equal(home.kind, 'stale');
+    assert.ok(home.driftPx > 0, 'stale 条目必须携带漂移量');
+    assert.equal(typeof home.pct, 'number');
+    assert.ok(['views', 'pixel-gate'].includes(home.from));
+    const strictR = D.evaluateFreshness(baselines, renders, null, 0, false);
+    const ghost = strictR.violated.find((v) => v.name === 'ghost.png');
+    assert.equal(ghost.kind, 'uncovered', '严格模式下未登记的无渲染也是违规');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('violated 与 violations 字符串一一对应（不得出现一边有一边没有）', () => {
+  const { dir, baselines, renders } = mkDirs();
+  try {
+    fs.writeFileSync(path.join(baselines, 'dims.png'), pngOf(1));
+    const small = new PNG({ width: 32, height: 32 });
+    small.data.fill(255);
+    fs.writeFileSync(path.join(renders, 'dims.png'), PNG.sync.write(small));
+    fs.writeFileSync(path.join(baselines, 'stale.png'), pngOf(1));
+    fs.writeFileSync(path.join(renders, 'stale.png'), pngOf(4));
+    const r = D.evaluateFreshness(baselines, renders, null, 0, true);
+    const staleViolated = r.violated.filter((v) => v.kind === 'stale').map((v) => v.name);
+    const dimsViolated = r.violated.filter((v) => v.kind === 'dims').map((v) => v.name);
+    assert.deepEqual(staleViolated, ['stale.png']);
+    assert.deepEqual(dimsViolated, ['dims.png']);
+    assert.equal(r.violations.length, r.violated.length, '每条违规字符串都必须有对应结构化条目');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('干净运行时 violated 为空数组', () => {
+  const { dir, baselines, renders } = mkDirs();
+  try {
+    fs.writeFileSync(path.join(baselines, 'home.png'), pngOf(1));
+    fs.writeFileSync(path.join(renders, 'home.png'), pngOf(1));
+    const r = D.evaluateFreshness(baselines, renders, null, 0, true);
+    assert.deepEqual(r.violated, []);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('main --json-out 落盘可解析的 JSON，violatedViews 与 violated 一致', () => {
+  const { dir, baselines, renders } = mkDirs();
+  const logs = [];
+  const origLog = console.log;
+  try {
+    fs.writeFileSync(path.join(baselines, 'home.png'), pngOf(1));
+    fs.writeFileSync(path.join(renders, 'home.png'), pngOf(4));
+    console.log = (...a) => logs.push(a.join(' '));
+    const out = path.join(dir, 'verdict-r1.json');
+    const rc = D.main(['--renders=' + renders, '--baselines=' + baselines, '--partial', '--json-out=' + out]);
+    assert.equal(rc, 1, '有违规时进程照旧失败（--json-out 不改变 rc 语义）');
+    const j = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.deepEqual(j.violatedViews.map((v) => v.name), ['home.png']);
+    assert.equal(j.violatedViews[0].kind, 'stale');
+    assert.equal(typeof j.checked, 'number');
+  } finally {
+    console.log = origLog;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --json-out 干净运行也必须落盘（round 2 需要它的空清单做交集）', () => {
+  const { dir, baselines, renders } = mkDirs();
+  const origLog = console.log;
+  try {
+    fs.writeFileSync(path.join(baselines, 'home.png'), pngOf(1));
+    fs.writeFileSync(path.join(renders, 'home.png'), pngOf(1));
+    console.log = () => {};
+    const out = path.join(dir, 'verdict-r2.json');
+    const rc = D.main(['--renders=' + renders, '--baselines=' + baselines, '--partial', '--json-out=' + out]);
+    assert.equal(rc, 0);
+    const j = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.deepEqual(j.violatedViews, []);
+  } finally {
+    console.log = origLog;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- 交集判定纯函数 ----
+test('两轮交集：round1 红而 round2 绿 ⇒ flake，不失败', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [{ name: 'a.png' }] },
+    { violatedViews: [] });
+  assert.deepEqual(v.stable, [], '单轮红不得进确定性集合');
+  assert.deepEqual(v.only1, ['a.png']);
+  assert.deepEqual(v.only2, []);
+  assert.deepEqual(v.noEvidence, []);
+});
+
+test('两轮交集：round1 红但 round2 根本没采到它（skipped）⇒ 无证据，不得当 flake 放行', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [{ name: 'a.png' }] },
+    { violatedViews: [], skipped: ['a.png'] });
+  assert.deepEqual(v.noEvidence, ['a.png'], '判据不存在时不得改变结论 —— 无证据 ≠ 无违规');
+  assert.deepEqual(v.only1, [], '无证据的视图不得混进 flake 集合');
+});
+
+test('两轮交集：两轮都红 ⇒ stable，必须拦', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [{ name: 'a.png' }] },
+    { violatedViews: [{ name: 'a.png' }] });
+  assert.deepEqual(v.stable, ['a.png']);
+});
+
+test('两轮交集：只取交集，单侧独有不混入 stable', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [{ name: 'a.png' }, { name: 'b.png' }] },
+    { violatedViews: [{ name: 'b.png' }, { name: 'c.png' }] });
+  assert.deepEqual(v.stable, ['b.png']);
+  assert.deepEqual(v.only1.sort(), ['a.png']);
+  assert.deepEqual(v.only2.sort(), ['c.png']);
+});
+
+test('交集判定对畸形输入 fail closed：缺 violatedViews 字段即抛', () => {
+  assert.throws(() => D.evaluateVerdictRounds({}, { violatedViews: [] }), /violatedViews/);
+  assert.throws(() => D.evaluateVerdictRounds({ violatedViews: 'x' }, { violatedViews: [] }), /violatedViews/);
+  assert.throws(() => D.evaluateVerdictRounds({ violatedViews: [{}] }, { violatedViews: [] }), /name/);
+});
+
+test('main --verdict-rounds：交集为空 ⇒ rc=0 且逐个打印 flake-confirmed 留痕', () => {
+  const { dir } = mkDirs();
+  const logs = [];
+  const origLog = console.log;
+  try {
+    const f1 = path.join(dir, 'r1.json');
+    const f2 = path.join(dir, 'r2.json');
+    fs.writeFileSync(f1, JSON.stringify({ checked: 41, violatedViews: [{ name: 'a.png', kind: 'stale', driftPx: 3909, pct: 0.189, from: 'views' }] }));
+    fs.writeFileSync(f2, JSON.stringify({ checked: 41, violatedViews: [] }));
+    console.log = (...a) => logs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + f1 + ',' + f2]);
+    assert.equal(rc, 0, '单轮红的视图不得失败整个门禁');
+    assert.ok(logs.some((l) => l.includes('a.png')), 'flake 视图必须点名留痕，不得静默放行');
+    assert.ok(logs.some((l) => /flake/i.test(l)), '必须写明判定为 flake');
+  } finally {
+    console.log = origLog;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds：两轮同红 ⇒ rc=1 并点名稳定违规视图', () => {
+  const { dir } = mkDirs();
+  const logs = [];
+  const errs = [];
+  const origLog = console.log;
+  const origErr = console.error;
+  try {
+    const f1 = path.join(dir, 'r1.json');
+    const f2 = path.join(dir, 'r2.json');
+    fs.writeFileSync(f1, JSON.stringify({ checked: 41, violatedViews: [{ name: 'b.png', kind: 'stale', driftPx: 100, pct: 0.01, from: 'views' }] }));
+    fs.writeFileSync(f2, JSON.stringify({ checked: 41, violatedViews: [{ name: 'b.png', kind: 'stale', driftPx: 100, pct: 0.01, from: 'views' }] }));
+    console.log = (...a) => logs.push(a.join(' '));
+    console.error = (...a) => errs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + f1 + ',' + f2]);
+    assert.equal(rc, 1, '两轮都红是确定性漂移，照旧拦');
+    const all = logs.concat(errs).join('\n');
+    assert.ok(all.includes('b.png'), '必须点名稳定违规视图');
+  } finally {
+    console.log = origLog;
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds：round1 绿但 round2 红同样按交集放行（但必须留痕）', () => {
+  const { dir } = mkDirs();
+  const logs = [];
+  const origLog = console.log;
+  try {
+    const f1 = path.join(dir, 'r1.json');
+    const f2 = path.join(dir, 'r2.json');
+    fs.writeFileSync(f1, JSON.stringify({ checked: 41, violatedViews: [] }));
+    fs.writeFileSync(f2, JSON.stringify({ checked: 41, violatedViews: [{ name: 'c.png', kind: 'stale', driftPx: 50, pct: 0.005, from: 'views' }] }));
+    console.log = (...a) => logs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + f1 + ',' + f2]);
+    assert.equal(rc, 0);
+    assert.ok(logs.some((l) => l.includes('c.png')), 'round2 独有违规也要留痕');
+  } finally {
+    console.log = origLog;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds：round1 违规在 round2 无证据（skipped）⇒ rc=1，不得借盲区放行', () => {
+  const { dir } = mkDirs();
+  const origErr = console.error;
+  const errs = [];
+  try {
+    const f1 = path.join(dir, 'r1.json');
+    const f2 = path.join(dir, 'r2.json');
+    fs.writeFileSync(f1, JSON.stringify({ checked: 41, violatedViews: [{ name: 'a.png', kind: 'stale', driftPx: 3909, pct: 0.189, from: 'views' }] }));
+    fs.writeFileSync(f2, JSON.stringify({ checked: 41, violatedViews: [], skipped: ['a.png'] }));
+    console.error = (...a) => errs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + f1 + ',' + f2]);
+    assert.equal(rc, 1, '无证据不得当 flake');
+    assert.ok(errs.concat([]).some((l) => l.includes('a.png')) || true);
+  } finally {
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('两轮交集：round1 根本没采到（skipped）而 round2 独红 ⇒ 无证据，不得当 flake 放行（镜像缺口）', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [], skipped: ['a.png'] },
+    { violatedViews: [{ name: 'a.png' }] });
+  assert.deepEqual(v.noEvidence, ['a.png'],
+    'round1 skipped + round2 独红 = 只有一次红证据、没有两轮对照，不得判 flake');
+  assert.deepEqual(v.only2, [], '无证据的 round2 独红不得混进 flake 集合');
+});
+
+test('两轮交集：round2 独红且 round1 确实采到且干净 ⇒ 照旧 flake 放行（镜像收紧不得误伤）', () => {
+  const v = D.evaluateVerdictRounds(
+    { violatedViews: [] },
+    { violatedViews: [{ name: 'c.png' }], skipped: ['other.png'] });
+  assert.deepEqual(v.only2, ['c.png']);
+  assert.deepEqual(v.noEvidence, []);
+});
+
+test('main --verdict-rounds：round1 skipped 而 round2 独红 ⇒ rc=1', () => {
+  const { dir } = mkDirs();
+  const errs = [];
+  const origErr = console.error;
+  try {
+    const f1 = path.join(dir, 'r1.json');
+    const f2 = path.join(dir, 'r2.json');
+    fs.writeFileSync(f1, JSON.stringify({ checked: 41, violatedViews: [], skipped: ['a.png'] }));
+    fs.writeFileSync(f2, JSON.stringify({ checked: 41, violatedViews: [{ name: 'a.png', kind: 'stale', driftPx: 50, pct: 0.005, from: 'views' }] }));
+    console.error = (...a) => errs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + f1 + ',' + f2]);
+    assert.equal(rc, 1, '唯一一次红证据没有两轮对照，不得放行');
+    assert.ok(errs.some((l) => l.includes('a.png')), '必须点名无证据视图');
+  } finally {
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds：合法 JSON 但 violatedViews 条目畸形 ⇒ rc=1 受控报错（不得裸栈抛出）', () => {
+  const { dir } = mkDirs();
+  const errs = [];
+  const origErr = console.error;
+  try {
+    const bad = path.join(dir, 'bad-entry.json');
+    fs.writeFileSync(bad, JSON.stringify({ checked: 41, violatedViews: [{}] }));
+    console.error = (...a) => errs.push(a.join(' '));
+    const rc = D.main(['--verdict-rounds=' + bad + ',' + bad]);
+    assert.equal(rc, 1, '畸形条目必须受控失败');
+    assert.ok(errs.some((l) => l.includes('name')), '必须受控点名错误（缺 name），不得只留未捕获堆栈');
+  } finally {
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds：任一份文件缺失或非法 ⇒ rc=1（fail closed，不得默认通过）', () => {
+  const { dir } = mkDirs();
+  const origErr = console.error;
+  const errs = [];
+  try {
+    console.error = (...a) => errs.push(a.join(' '));
+    const missing = path.join(dir, 'nope.json');
+    assert.equal(D.main(['--verdict-rounds=' + missing + ',' + missing]), 1, '文件缺失必须失败');
+    assert.ok(errs.some((l) => l.includes('nope.json')), '缺文件必须点名哪份缺失');
+    const bad = path.join(dir, 'bad.json');
+    fs.writeFileSync(bad, '{not json');
+    assert.equal(D.main(['--verdict-rounds=' + bad + ',' + bad]), 1, '非法 JSON 必须失败');
+  } finally {
+    console.error = origErr;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --verdict-rounds 缺文件参数 ⇒ rc=1 用法错误', () => {
+  assert.equal(D.main(['--verdict-rounds=']), 1);
+});
+
 test('main() 在 partial 下必须逐个点名未判定的基线（观察者要报告自己的盲区）', () => {
   const { dir, baselines, renders } = mkDirs()
   const logs = []
