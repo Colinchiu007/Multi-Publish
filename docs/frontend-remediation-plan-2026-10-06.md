@@ -28,14 +28,16 @@
 
 ## 1. 证据现状（已实证，非推断）
 
-| 编号 | 缺陷 | 实证结果 | 位置 |
-|---|---|---|---|
-| **C-1** | `filmEngineeringRetryShot` 命名空间错配 | 静态坐实（preload 扁平名命中 0，后端 handler 完好） | `api/publisher.js:396` ↔ `electron/preload/film-engineering.js:26` |
-| **P0-1** | 发布重入窗口 | **运行坐实**：基线 1 次 → 重入 2 次；修复版 1 进 1 拦 | `usePublishFlow.js:283/285/414` |
-| **P0-2** | 重试后结果卡失联 | **运行坐实**：会话已 `done`、任务 `success`，但 `result=null` | `usePublishFlow.js:116-122` + `publishProgress.js:285` |
-| **P0-3** | 轮询异常致 UI 卡死 | **运行坐实**：20 轮 reject 后 `batchCollecting=true`、`batchError=""` | `Collection.vue:2584` |
-| **P0-4** | `reportError` 未处理 Promise 拒绝 | 仅静态，**确认无法在 vitest 覆盖** | `utils/report-error.js:15` |
-| **P0-5** | 并发保存静默丢数据 | **运行坐实**：读阶段重叠时 2 条 → 1 条 | `useCopyLibrary.js:136/151` |
+| 编号 | 别名 | 缺陷 | 实证结果 | 位置 |
+|---|---|---|---|---|
+| **C-1** | — | `filmEngineeringRetryShot` 命名空间错配 | 静态坐实（preload 扁平名命中 0，后端 handler 完好） | `api/publisher.js:396` ↔ `electron/preload/film-engineering.js:26` |
+| **M-1** | P0-1 | 发布重入窗口 | **运行坐实**：基线 1 次 → 重入 2 次；修复版 1 进 1 拦 | `usePublishFlow.js:283/285/414` |
+| **M-2** | P0-2 | 重试后结果卡失联 | **运行坐实**：会话已 `done`、任务 `success`，但 `result=null` | `usePublishFlow.js:116-122` + `publishProgress.js:285` |
+| **M-4** | P0-3 | 轮询异常致 UI 卡死 | **运行坐实**：20 轮 reject 后 `batchCollecting=true`、`batchError=""` | `Collection.vue:2584` |
+| **M-5** | P0-4 | `reportError` 未处理 Promise 拒绝 | 仅静态，**确认无法在 vitest 覆盖** | `utils/report-error.js:15` |
+| **M-3** | P0-5 | 并发保存静默丢数据 | **运行坐实**：读阶段重叠时 2 条 → 1 条 | `useCopyLibrary.js:136/151` |
+
+> **编号约定**：`M-x` 是报告 `docs/frontend-deep-review-2026-10-05.md` 的**正式编号**（权威）；`P0-x` 是本方案早期与行文中的**旧别名**。两者指同一条缺陷。**执行与追踪一律以 `M-x` 为准**；正文中出现的 `P0-x` 若无"别名"标注，视为待纠正的旧写法。
 
 **结构性缺口（非 Bug，但是根因）**：
 
@@ -56,7 +58,7 @@
 
 **工作量**：方法名 1 行 + 契约测试约 60 行。
 
-### 2.2 P0-1 重入窗口
+### 2.2 M-1 重入窗口
 
 **改法**：锁前置到第一个 `await` 之前。
 
@@ -75,35 +77,69 @@ async function handlePublish() {
 
 **触发条件（实证收窄）**：不是"快速双击"——`Publish.vue:587` + `UiButton.vue:5/:30/:39-43` 在 DOM 与 `onClick` 两层均拦截鼠标点击。真实路径是**登录引导窗口内的二次提交**（`:48` 确认框 + `:56` OAuth，可达秒级到分钟级）及 `handlePublish` 的非按钮调用方（`Publish.vue:1250`、`:1462`）。
 
-### 2.3 P0-2 结果卡失联
+### 2.3 M-2 结果卡失联
 
-**改法**（择一）：
-- (a) `registerSession` 把 session 引用回写给调用方，`activeSession` 改持引用而非按 id 反查
-- (b) store 记 `taskIdAliases`，`activeSession` 匹配时一并查
+**改法（已定案：选 (b)）**：
+- (a) ~~`registerSession` 把 session 引用回写给调用方，`activeSession` 改持引用~~ —— **已否决**，见下
+- (b) ✅ store 记 `taskIdAliases`，`activeSession` 匹配时一并查
 
-**倾向 (a)**：`registerSession`（`publishProgress.js:258`）本就返回 session 对象，按 id 反查是引入缺陷的那一步。
+**为何否决 (a)**：(a) 会在调用方引入**与 store 并行的第二真相源** —— `clearFinished`/`dismissSession` 移除 session 后，调用方仍持旧对象引用且不会随 store 更新。本仓纪律是"单一真相源"，(a) 直接违反。完整六维对比见 §11.1。
+
+**(b) 的实现要求**：别名表挂在 session 对象上（`session.taskIdAliases`），**随 session 一起被 `_pruneSessions` 裁剪**，天然有界；不可做成模块级独立 Map（会无界增长）。
 
 **实证定位**：store 侧换 id 完全正常，**断点在消费侧** —— `usePublishFlow.js:116-122` 的 `activeTaskIds` 注册后永不更新。
 
-### 2.4 P0-3 轮询异常致卡死
+### 2.4 M-4 轮询异常致卡死
 
-**改法**：在 `Collection.vue:2584` 的 catch 内加 `consecutiveFailures` 计数，达 3~5 次即 `batchError` + `notifyError` + `stopBatchPolling()` + 复位 `batchCollecting`；另加总时长上限（约 10 分钟）兜底。
+**改法**：在 `Collection.vue:2584` 的 catch 内加 `consecutiveFailures` 计数，**达 10 次（≈20 秒，轮询间隔 2000ms）**即 `batchError` + `notifyError` + `stopBatchPolling()` + 复位 `batchCollecting`；另加总时长上限 **10 分钟**兜底。停止后**不自动重试**（批量采集是写操作，自动重试有重复采集风险），**已收集数据保留**并提示"部分数据获取失败，请重试"。完整参数推导见 §11.4。
 
 **定性修正**：`Collection.vue:2519-2539` 的**启动阶段 catch 是正确的**（`:2539` 已复位）。7 个赋值点中启动阶段 4 个分支全对，**唯独轮询阶段 `:2584` 空着** —— 是"做了一半"，不是"没做"。
 
-### 2.5 P0-4 reportError（无法在 vitest 验证）
+### 2.5 M-5 reportError（无法在 vitest 验证）
 
-**改法**：`api.logError?.(msg)?.catch?.(() => console.error(message, err))`；`main.js:40` 同处理；加模块级 `reporting` 布尔闸门防重入。
+**改法**（v3 修正：不用裸 `console.error`，闸门成功即重置）：
 
-**验证缺口（必须承认）**：需真实 IPC 拒绝场景（handler 未注册 / 窗口销毁），**确认无法在 vitest 覆盖**。要么接受"静态 + 代码评审"作为该条证据，要么投入 Electron 主进程级测试。**我倾向后者，但这是一个独立 change 的成本。**
+```js
+// 兜底走项目 logger + 敏感字段脱敏，不用裸 console.error（见评审 i9）
+const fallbackLog = (message, err) => {
+  logger.error('[reportError 兜底]', { message: String(message), detail: redactSensitive(err) })
+}
 
-### 2.6 P0-5 并发丢数据
+export function reportError (message, err) {
+  const detail = err instanceof Error ? err.message : err
+  const text = detail == null || detail === '' ? String(message ?? '') : `${message}: ${detail}`
+  // 闸门仅用于「同一次失败的自身上报」防自激，不做长期抑制
+  if (reporting) return
+  reporting = true
+  try {
+    const api = getApi()
+    if (api && typeof api.logError === 'function') {
+      const p = api.logError(String(text).slice(0, 2000))
+      // 关键：无论成功失败都立即复位，否则一次瞬时 IPC 失败会永久静默后续上报
+      Promise.resolve(p).catch(() => fallbackLog(message, err)).finally(() => { reporting = false })
+      return
+    }
+  } catch (_) { /* 落到兜底 */ }
+  reporting = false
+  fallbackLog(message, err)
+}
+```
+
+**为什么是"成功即重置"而非"30 秒窗口"**：`reporting` 闸门的作用是防止 §9.3 描述的**自激环**（一次 reject → `unhandledrejection` → 再调 `reportError` → 再 reject）。它是**单次调用的重入锁**，不是速率限制器。用时间窗口会引入"窗口内真实新错误被误吞"的风险；用 `.finally` 复位则精确对应"防自激"这一唯一目的。
+
+**验证缺口（必须承认）**：需真实 IPC 拒绝场景（handler 未注册 / 窗口销毁），**确认无法在 vitest 覆盖**。要么接受"静态 + 代码评审"作为该条证据，要么投入 Electron 主进程级测试。**此项仍待你决策（见 §8 决策表 #3）。**
+
+### 2.6 M-3 并发丢数据
 
 **改法**：`useCopyLibrary.js` 加模块级 `let _writeChain = Promise.resolve()`，把 `upsertRewrite` / `removeRewrite` 的 read-modify-write 整体串行化。
 
+**防链中毒（评审 i6）**：每个链节**内部 catch 后返回固定结果再续链**，保证链**永不进入 rejected 态** —— 否则某次写入 reject 会让后续所有操作被静默跳过。
+
+**多窗口边界（评审 i9）**：Electron 多窗口各有独立渲染进程与模块实例，**模块级队列无法跨进程串行化**。需先确认 `useCopyLibrary` 是否会在多窗口同时实例化：若是，本方案不覆盖跨进程并发（需主进程侧排队）；若否（单窗口假设），在方案中声明该假设及其依据。**此项待核。**
+
 **触发条件（实证收窄）**：只有两个调用的**读阶段真正重叠**才丢失。若写入生效快于第二次读完成则不会丢。真实风险窗口比原报告暗示的窄（手工操作间隔通常 > 一次 IPC 往返），但在程序化/自动保存或 IPC 较慢时命中。
 
-**附加**：`MAX_COPY_REWRITES = 200`（`:29`）超限后静默丢弃最旧的，无任何提示。
+**附加（不属本步）**：`MAX_COPY_REWRITES = 200`（`:29`）超限后静默丢弃最旧的，无任何提示 —— 这是独立于并发竞态的**容量策略**问题，归入 §10.6，本步不动。
 
 ---
 
@@ -111,11 +147,21 @@ async function handlePublish() {
 
 ### 3.1 M-6 覆盖率门禁不含 SFC —— 建议**最先做**
 
-**改法**：`vitest.config.js` 的 `coverage.include` 补 `src/**/*.vue` 与缺失的 `src/{utils,features,api,services}/**`，并按目录拆分阈值。
+**改法**：`vitest.config.js` 的 `coverage.include` 补 `src/**/*.vue` 与缺失的 `src/{utils,features,api,services}/**`。
 
-**必须两步走**：`补 include + 记录基线` 先行，**不得在同一次变更里提阈值** —— 146 个 SFC 从 0 覆盖起步，直接提阈值会立刻变红并阻塞所有其他工作。
+**必须两步走**：`补 include + 记录基线` 先行，**不得在同一次变更里提高任何维度的阈值** —— 146 个 SFC 从 0 覆盖起步。
 
-**为什么优先**：这是**度量失真**。不修它，后续所有测试投入都没有度量依据；而 M-6 正是 P0-2/3/5 这类"逻辑不轻但只有结构锁"的 composable 缺行为测试的直接原因。
+**阈值是三层，不是"保持不变"**（回应评审 i8 —— 补 146 个零覆盖 SFC 后任何非零全局阈值都会跌破，"维持原阈值"与"按目录拆分"无法同时成立）：
+
+| 层 | 范围 | 设定 |
+|---|---|---|
+| 全局兜底 | 全部 include | 真实覆盖率 − 2% |
+| 有测试目录 | `composables` / `stores` / `utils` | **维持现状**（55/40/60/55） |
+| SFC 目录 | `views` / `components` | 低起步阈值 = 首次实测值，本次不预设 |
+
+完整数值与验收口径见 §11.2（vitest 4.1.9 已实测支持该配置形态）。
+
+**为什么优先**：这是**度量失真**。不修它，后续所有测试投入都没有度量依据；而 M-6 正是 M-2/M-4/M-3 这类"逻辑不轻但只有结构锁"的 composable 缺行为测试的直接原因。
 
 ### 3.2 M-7 超大文件棘轮 —— 建议**只加偿还配额，不动存量**
 
@@ -125,10 +171,10 @@ async function handlePublish() {
 
 ### 3.3 测试文件落地位置
 
-P0-1/2/5 的证据测试当前在 `apps/desktop/src/__p0verify__/`。**这是审查产物，不宜长期留在 `src/`**（会进覆盖率分母、可能被误认为产品测试）。建议：
+M-1/M-2/M-3 的证据测试当前在 `apps/desktop/src/__p0verify__/`。**这是审查产物，不宜长期留在 `src/`**（会进覆盖率分母、可能被误认为产品测试）。建议：
 
-- P0-1/2/5 的**回归锁**迁至各被测模块旁（`usePublishFlow.test.js` / `publishProgress.test.js` / `useCopyLibrary.test.js`）
-- P0-3 因是"提取 + 锚点断言"，保留独立文件但改名明确用途（如 `collection-batch-poll.contract.test.js`）
+- M-1/M-2/M-3 的**回归锁**迁至各被测模块旁（`usePublishFlow.test.js` / `publishProgress.test.js` / `useCopyLibrary.test.js`）
+- M-4 因是"提取 + 锚点断言"，保留独立文件但改名明确用途（如 `collection-batch-poll.contract.test.js`）
 - `__p0verify__/` 目录在迁移完成后删除
 
 ---
@@ -136,14 +182,20 @@ P0-1/2/5 的证据测试当前在 `apps/desktop/src/__p0verify__/`。**这是审
 ## 4. 执行顺序与依赖
 
 ```
-第 0 步：M-6 覆盖率 include 补全（只补 include + 记基线，不提阈值）
+第 0 步：M-6 覆盖率 include 补全 + 三层阈值落地（不提高任何维度）
          └─ 理由：先修度量，再谈其他投入是否有回报
-第 1 步：C-1 方法名 + preload 契约测试   ← 收益最高，且契约测试会长期拦住同类缺陷
-第 2 步：P0-1 锁前置（含 try 上移）      ← 实证已验证方案有效
-第 3 步：P0-3 失败计数 + 超时上限        ← 用户可见卡死，改动 <10 行
-第 4 步：P0-5 写串行队列                 ← 用户数据丢失
-第 5 步：P0-2 activeSession 改持引用     ← 需先定 (a)/(b)
-第 6 步：P0-4 reportError .catch         ← 验证方式待定，可能独立成 change
+第 1 步：C-1 方法名 + preload 契约测试（带豁免清单）
+         └─ 收益最高；契约测试会长期拦住同类缺陷。技术路径已实测可行（§12）
+第 2 步：M-1 锁前置 + try 起点上移 + 顺带 m-4（toggleEnabled 防重入）
+         └─ 实证已验证方案有效
+第 3 步：M-4 失败计数（10 次/20 秒）+ 10 分钟上限 + 保留部分数据
+         └─ 用户可见卡死，改动 <10 行
+第 4 步：M-3 写串行队列（防链中毒）
+         └─ 用户数据丢失
+第 5 步：M-2 activeSession 加 taskIdAliases（已定 (b)）+ 顺带 m-6
+         └─ 别名表挂 session 上，随 _pruneSessions 裁剪
+第 6 步：M-5 .catch + 成功即重置闸门 + logger 脱敏 + 顺带 m-5
+         └─ 验证方式待定（见 §8 决策表 #3），可能独立成 change
 第 7 步：回归测试迁移 + 删 __p0verify__
 ```
 
@@ -184,7 +236,7 @@ P0-1/2/5 的证据测试当前在 `apps/desktop/src/__p0verify__/`。**这是审
 每一步的完成判据（全部可机械检查）：
 
 1. **C-1**：契约测试能复现"preload 缺方法"这一失败；改后转绿。**契约测试须带显式豁免清单**（见 §9 评审回应 i5：290 个导出中 17 个是常量/命名空间包装/事件订阅，全量断言会误报）
-2. **P0-1/2/3/5**：各自证据测试的"修复版"用例转绿即通过。**"原版对照"用例是一次性变异验证，不是常驻回归锁** —— 合并前在 pre-fix 代码上跑一次、记录失败证据后即移出常规套件（见 §9 评审回应 i1）
+2. **M-1/M-2/M-3/M-4**：各自证据测试的"修复版"用例转绿即通过。**"原版对照"用例是一次性变异验证，不是常驻回归锁** —— 合并前在 pre-fix 代码上跑一次、记录失败证据后即移出常规套件（见 §9 评审回应 i1）
 3. **M-6**：`vitest run --coverage` 的 include 命中 `.vue` 文件数 > 0；**按目录重设基线，受影响的全局阈值同步下调而非保持不变**（见 §9 评审回应 i4）
 4. **第 7 步**：`src/__p0verify__/` 不存在；回归测试在各自模块旁且被 CI 收集
 5. 全程：`classify-docs-only.js` 判定为 false（改运行时代码）⇒ 走完整门禁，不得走 docs-only 快通道
@@ -205,7 +257,7 @@ P0-1/2/5 的证据测试当前在 `apps/desktop/src/__p0verify__/`。**这是审
 
 **采纳**：验收标准 2 已改写为「修复版转绿即通过；原版对照是一次性变异验证，合并前跑一次留证后移出套件」。
 
-**附带动作**：`__p0verify__/` 下的对照组用例在 P0-1 修复 PR 中必须同步移除或改写，不得原样带入 main。
+**附带动作**：`__p0verify__/` 下的对照组用例在 M-1 修复 PR 中必须同步移除或改写，不得原样带入 main。
 
 ### 9.2 Warning
 
@@ -287,12 +339,18 @@ P0-1/2/5 的证据测试当前在 `apps/desktop/src/__p0verify__/`。**这是审
 
 ## 8. 待决策项（请评审重点挑刺）
 
-1. **M-6 是否真该排最前？** 它的收益是"让度量可信"，但不改任何用户可见行为。是否应该先修用户可见的 P0-1/P0-3？
-2. **P0-2 的 (a) 持引用 vs (b) 别名表**，哪个更契合本仓"单一真相源"纪律？
-3. **P0-4 是否值得为它单独建 Electron 主进程级测试？** 成本 vs 收益
-4. **回归测试迁入各模块 vs 保留独立目录**，哪个对长期维护更好？
-5. **P0-5 的风险窗口比原报告窄**（需读阶段重叠才触发）—— 是否还值得现在修，还是排到 P1/P2 优先级？
-6. 串行执行是否过慢？8 个 worktree 的并发压力下，是否应改为按模块并行？
+> **本节只列「尚未决策、需人来拍」的项。** 已在 §10/§11 定的方案不再列为待决策（评审 i10 曾指出"同时提问又已决"的矛盾，v3 已清理）。M-1/M-3/M-4 三条已定，不再询问优先级。
+
+| # | 待决策 | 状态 | 需要的输入 |
+|---|---|---|---|
+| 1 | **M-6 排在第 0 步是否合适？** 收益是"让度量可信"，但不改任何用户可见行为 | **已定：排第 0 步** | 若评审认为应先修用户可见缺陷，此项需改序 |
+| 2 | **M-2 选 (a) 持引用还是 (b) 别名表？** | **已定：选 (b)**（§11.1 六维对比） | (b) 需补别名清理时机，可接受则无需再问 |
+| 3 | **M-5 是否值得单建 Electron 主进程级测试？** | **未定** | 成本 vs 收益，需你判断是否投独立 change |
+| 4 | **回归测试迁入各模块 vs 保留独立目录？** | **未定** | 影响长期维护与覆盖率分母 |
+| 5 | **M-3 是否仍值得本轮修？** | **已定：修（步 4）** | 风险窗口虽窄（需读阶段重叠），但**用户数据丢失的代价不对齐风险概率**，且改动 <20 行 |
+| 6 | **串行执行是否过慢？** 8 个 worktree 并发压力下是否改为按模块并行 | **未定** | 需你权衡 CI 资源与冲突风险 |
+
+**真正需要你拍板的只有 3 项：#3、#4、#6。** 其余 3 项已由 v3 依据评审结论定案。
 
 ---
 
@@ -456,3 +514,15 @@ function createFilmEngineeringApi (ipcRendererRef = ipcRenderer) {
 4. **豁免清单**（回应 v1 评审 i5，已实测 17 项）：常量（`PERSONAL_CATEGORIES`）、命名空间包装（`getTtsVoiceCatalog`）、事件订阅（`onAutomationNotification`）。逐项注释豁免理由，并规定"新增 API 必须登记或豁免"。
 
 **可行性结论**：契约测试可在 vitest Node 环境运行，无需 Electron 运行时、无需 mock `contextBridge`。预估 60~80 行（含豁免清单）。
+
+**已实测验证（2026-10-06，纯 Node 环境实际执行）**：
+
+```
+$ node -e "const m=require('./electron/preload/film-engineering.js'); ..."
+  模块导出: ["createFilmEngineeringApi"]
+  工厂返回顶层键: ["filmEngineering"]
+  filmEngineering 方法数: 17
+  含 retryShot: true
+```
+
+即：**工厂函数可独立 require，注入假 renderer 后即可枚举暴露面**。评审 i5 担心的可行性障碍已被真实执行排除，不是纸面推演。
