@@ -55,13 +55,8 @@ jobs:
         id: classify
         shell: bash
         env:
-          # PR 事件下 actions/checkout 检出的是 refs/pull/N/merge（合并提交），而
-          # github.event.pull_request.base.sha 停在 PR 打开那一刻、之后不再更新。
-          # 于是 merge-base(base.sha, HEAD)..HEAD 会把「PR 打开后 main 前进的那些提交」整段
-          # 算进本 PR 的变更集 ⇒ 纯文档 PR 被判成混合 PR，短路彻底失效
-          # （#2914 实测：本地按分支顶判 docs-only=true files=10，CI 判 false 且清单多出 46 个别人的文件）。
-          # 正解是把取源绑到 PR 自己的 head 提交；空值必须 fail-closed，不得静默退回默认 HEAD。
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # 账本 JSON 在 docs-only 白名单里 ⇒ 校验它的门禁不能只待在会被短路的 static-gates。
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
@@ -72,11 +67,19 @@ jobs:
             echo "docs-only=false (non-PR event: full run)"
             exit 0
           fi
-          if [ -z "$HEAD_SHA" ]; then
-            echo "::error::github.event.pull_request.head.sha 取不到，无法确定本 PR 自己的变更集；宁可乐红也不得退回 HEAD（=合并提交，会夹带期间 main 的他人提交）"
+          # 「该用哪一对 base/head」的决策住在 scripts/ci-pr-changeset.js 里，由真 git 夹具逐形态单测。
+          # 原因（本轮实测）：这段判断原先写在 bash，把 `if git rev-parse -q --verify HEAD^2` 改成
+          # `if false` 之后三条 workflow 结构锁全绿 —— 文本锁锁得住形状，锁不住"支路还走不走"。
+          # 脚本同时把 pr-base/pr-head 写进 GITHUB_OUTPUT，Gate 2c2 只读产出，不自己再算第二遍。
+          node --test scripts/ci-pr-changeset.test.js
+          CHANGESET="$(node scripts/ci-pr-changeset.js --repo="$PWD" --evt-name="${{ github.event_name }}" --evt-base="${EVT_BASE_SHA:-}" --evt-head="${EVT_HEAD_SHA:-}")" || exit 1
+          echo "[classify] $CHANGESET"
+          BASE="$(printf '%s\n' "$CHANGESET" | sed -n 's/^base=//p')"
+          HEAD_SHA="$(printf '%s\n' "$CHANGESET" | sed -n 's/^head=//p')"
+          if [ -z "$BASE" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::取不到本 PR 的 base/head（[${BASE}]/[${HEAD_SHA}]）；宁可乐红也不得静默退回 HEAD=合并提交——那会把期间 main 的他人提交算进本 PR"
             exit 1
           fi
-          BASE="${{ github.event.pull_request.base.sha }}"
           node scripts/classify-docs-only.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
 
       # --- Gate 2c2（#2745 从 static-gates 搬入本 job）: 执行记录存在性判据 ---
@@ -95,13 +98,19 @@ jobs:
       - name: "Gate 2c2 - Execution-record presence (changes job, #2745)"
         shell: bash
         env:
-          EXEC_BASE: ${{ github.event.pull_request.base.sha }}
+          # 取源必须复用 classify step 的产物（合并提交双亲 > 事件 payload），不在这里再算一遍：
+          # 两份独立取源一旦漂移，就会出现"同一 PR 在 A 判 docs-only、在 B 判缺记录"这种不可归因的红。
+          EXEC_BASE: ${{ steps.classify.outputs.pr-base }}
+          EXEC_HEAD_SHA: ${{ steps.classify.outputs.pr-head }}
           EXEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          # 与上面 classify 同一取源口径：留空则脚本默认 HEAD=合并提交，别人的记录文件会被算进
-          # 「本 PR 变更集」⇒ 存在性判据可能**假通过**（把别人新加的 records/*.md 当成本 PR 携带的记录）。
-          # advisory 模式下这一条不拦合并，但诊断必须测对东西，否则转阻断那天量的是另一个集合。
-          EXEC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # 非 PR 事件下 classify 已早退、两个产出都是空串 ⇒ 交给脚本按 advisory 留痕退出 0（既有行为）。
+          # 但"base 有值而 head 没值"只能意味着取源被破坏，此时 --head 退回 HEAD=合并提交会量错集合，
+          # 而错的方向是**假通过**（别人的记录文件被算进本 PR），所以必须乐红。
+          if [ -n "${EXEC_BASE:-}" ] && [ -z "${EXEC_HEAD_SHA:-}" ]; then
+            echo "::error::classify 未产出 pr-head（取源步骤异常？），不得退回 HEAD=合并提交"
+            exit 1
+          fi
           node --test scripts/check-pr-exec-record.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 

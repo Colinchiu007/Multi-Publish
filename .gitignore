@@ -104,6 +104,8 @@ apps/desktop/tests/e2e/reports/film-engineering-real/
 
 # 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
+!scripts/ci-pr-changeset.js
+!scripts/ci-pr-changeset.test.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/openspec-sync-check.js
 !scripts/openspec-sync-check.test.js

@@ -239,8 +239,11 @@ test('对账表里每一条 commands 去向：门禁必须接线进 changes job�
 // 这段区间里，于是"本 PR 改了哪些文件"被算成"PR + 期间 main 的全部变化"。
 // 现场两侧对照：本地 `--base=origin/main --head=HEAD`（HEAD 就是分支顶）⇒ docs-only=true files=10；
 // CI 同一条 PR ⇒ docs-only=false，清单里多出 46 个别人的文件 ⇒ 短路整个失效，纯文档 PR 照跑全量。
-// 正解是把 `--head` 显式绑到 `pull_request.head.sha`：merge-base(base.sha, head.sha)..head.sha
-// 才是这个 PR 自己的变更集。
+// 本文件只锁"这一半"（形态 A：--head 缺席）。把 --head 绑到 pull_request.head.sha 只修掉形态 A；
+// 形态 B（分支 re-sync 过新 main，那些提交就在 head 的历史里、不在冻结 base 一侧）由
+// scripts/ci-pr-changeset.test.js 的两条负控与双亲正控负责 —— 取源决策本身已搬进那个脚本，
+// 因为实测把 bash 里的 `if git rev-parse -q --verify HEAD^2` 改成 `if false` 时，
+// 所有 workflow 结构锁都报绿：文本锁锁不住"支路还走不走"。
 
 function mergeCommitFixture () {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-only-merge-'))
@@ -285,7 +288,7 @@ test('合并提交形态复现：不传 --head 会把期间 main 的他人代码
   assert.match(r.stdout, /apps\/desktop\/electron\/main\.js/, '误算进来的必须是别人的文件，不是我自己的')
 })
 
-test('同一夹具显式传 --head=<PR head sha> ⇒ docs-only=true 且 files=1（正解）', () => {
+test('形态 A 的修法：显式传 --head=<PR head 提交> ⇒ docs-only=true 且 files=1', () => {
   const { dir, baseSha, headSha } = mergeCommitFixture()
   const r = runCli([`--base=${baseSha}`, `--head=${headSha}`, `--repo=${dir}`])
   assert.strictEqual(r.code, 0, r.stdout)
@@ -294,7 +297,7 @@ test('同一夹具显式传 --head=<PR head sha> ⇒ docs-only=true 且 files=1�
   assert.match(r.stdout, /CHANGELOG\.md/)
 })
 
-test('changes job 的两个取源点必须把 --head 绑到 pull_request.head.sha（不得留给默认 HEAD）', () => {
+test('changes job 的两个取源点必须显式传 --head，且取源决策交给被单测的脚本', () => {
   const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
   const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
     .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
@@ -309,24 +312,52 @@ test('changes job 的两个取源点必须把 --head 绑到 pull_request.head.sh
     assert.match(call, /--head=/,
       `${script} 未显式传 --head ⇒ 取默认 HEAD=合并提交，PR 打开后 main 一前进就会把别人的变更算进本 PR（#2914 事故）`)
     assert.ok(!/--head=["']?HEAD\b/.test(call),
-      `${script} 的 --head 仍写死 HEAD（合并提交），必须改绑 pull_request.head.sha`)
+      `${script} 的 --head 仍写死 HEAD（合并提交），必须改绑本 PR 自己的 head`)
   }
-  // 取值来源必须**按变量名回绑到它自己的 env 声明**。
-  // 这里原本写的是粗判 `/pull_request\.head\.sha/.test(job)`，实测变异 M4（把两处 env 声明
-  // 都换成占位串）仍 26/26 全绿 —— 因为守卫的报错文案里就含有 `github.event.pull_request.head.sha`
-  // 这个字面量，锁把自己的诊断文本当成了被守护的东西。所以判据必须是"这个变量声明成了什么"，
-  // 而不是"这段文本里出现过这个表达式"。
-  const headVars = new Set()
-  for (const m of job.matchAll(/--head="\$\{?([A-Z_][A-Z0-9_]*)(?::-[^}]*)?\}?"/g)) headVars.add(m[1])
-  assert.ok(headVars.size >= 2,
-    `只从 changes job 里解析出 ${headVars.size} 个 --head 引用变量（期望 classify 与 Gate 2c2 两个）—— 调用点写法变了，本锁须同步`)
-  for (const v of headVars) {
-    const decl = job.split('\n').find((l) => new RegExp('^\\s*' + v + ':\\s').test(l))
-    assert.ok(decl,
-      `${v} 没有 job 内 env 声明 ⇒ GitHub 表达式取不到时是空串，脚本 args.head || "HEAD" 会静默退回合并提交`)
-    assert.match(decl, /github\.event\.pull_request\.head\.sha/,
-      `${v} 绑的不是 PR 自己的 head 提交：${decl.trim()}`)
-  }
+  // 取源决策必须住在被单测的脚本里，不许写在 bash 里。
+  // 实测依据：这段判断原先是 bash 的 `if git rev-parse -q --verify HEAD^2 …`，把它改成 `if false`
+  // （支路整条变死码）后，三条 workflow 结构锁 29/25/31 全绿 —— 文本锁锁得住形状，锁不住语义。
+  // 所以这里只锁"有没有把决策交给那个脚本、有没有把它自己的测试接上"，具体支路由
+  // scripts/ci-pr-changeset.test.js 用真 git 夹具逐形态跑。
+  const classifyStep = stepBody(job, 'Detect docs-only changes')
+  assert.match(classifyStep, /node scripts\/ci-pr-changeset\.js/,
+    'classify 必须把取源交给 scripts/ci-pr-changeset.js（有单测的实现），不得在 bash 里自己拼 merge-base')
+  assert.match(classifyStep, /--evt-base=/, '事件 base 必须作为兜底参数传给取源脚本')
+  assert.match(classifyStep, /--evt-head=/, '事件 head 必须作为兜底参数传给取源脚本')
+  assert.match(classifyStep, /node --test scripts\/ci-pr-changeset\.test\.js/,
+    '取源脚本自己的测试必须在本 step 被执行（否则它不在任何检查域里，等于没写）')
+  assert.match(classifyStep, /\$CHANGESET/, '必须打印脚本给出的取源现场（走了哪条支路、取了哪一对值）')
+})
+
+// 从 job 正文里按 step 名取该 step 的 body（找不到即红，不静默返回空串）
+function stepBody (job, name) {
+  const at = job.indexOf(name)
+  assert.ok(at >= 0, `changes job 里找不到 step「${name}」—— 步骤改名须同步本锁`)
+  const next = job.indexOf('\n      - name:', at)
+  return job.slice(at, next > at ? next : job.length)
+}
+
+test('Gate 2c2 必须复用 classify 的取源产物，并保留非 PR 事件早退的相对顺序', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const job = wf.slice(wf.indexOf('\n  changes:'), wf.indexOf('\n  static-gates:'))
+  const step = stepBody(job, 'Gate 2c2 - Execution-record presence')
+  assert.match(step, /steps\.classify\.outputs\.pr-head/,
+    'EXEC_HEAD_SHA 必须由 classify step 的产出提供 —— 同一份取源不得在两处各写一遍（两处各写必然漂移）')
+  assert.match(step, /steps\.classify\.outputs\.pr-base/, 'EXEC_BASE 同样必须复用 classify 的产出')
+  // 空值不得静默退回 HEAD：只有"确属非 PR 事件（base 也为空）"才允许走到 advisory 早退
+  assert.match(step, /\[ -n "\$\{?EXEC_BASE/, 'Gate 2c2 缺少「base 非空而 head 为空 ⇒ 乐红」的守卫')
+  assert.match(step, /exit 1/, 'Gate 2c2 的空值分支必须真的退出，只 echo 等于把 fail-closed 写成日志')
+
+  // classify 的非 PR 早退必须排在空值守卫之前，否则每个 main push 都会因取不到 PR 字段而全红
+  const classifyStep = stepBody(job, 'Detect docs-only changes')
+  const earlyAt = classifyStep.indexOf('non-PR event')
+  const guardAt = classifyStep.search(/\[\s*-z\s*"\$BASE"\s*\]/)
+  const callAt = classifyStep.indexOf('node scripts/classify-docs-only.js')
+  assert.ok(earlyAt >= 0, 'classify step 里找不到非 PR 早退分支 —— 顺序前提消失，本锁须同步')
+  assert.ok(guardAt > earlyAt && callAt > guardAt,
+    '顺序必须是 非 PR 早退 < 空值守卫 < classify 调用；守卫排到早退之前会让每个 main push 全红')
 })
 
 // 上一条只锁"传了 --head"，没锁"取不到 head 时怎么办"。实测变异 M3：把 `[ -z "$HEAD_SHA" ]`
