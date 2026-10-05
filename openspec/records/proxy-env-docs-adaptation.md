@@ -10,7 +10,7 @@ sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep
 ## 本次执行记录：代理环境自适应口径落地（proxy-env-docs-adaptation，2026-10-05）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=true**（终态 files=10，逐提交复跑：3 文件 → 6 文件 → 10 文件；本记录随之更新）
-- 保留门禁：判定 ✅（docs-only=true，files=6）| 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐项相等，见下表）| 品牌残留 ✅（首轮**红在本记录自己身上**：门禁说明里如实写出了名单中的品牌词，被 Gate 12 当场拦下 —— 正是 AGENTS.md 点过的"文档里如实写竞品名会打红，正解写『参考产品』"；改写后复跑 rc=0）| 文档同步 ✅（纯文档，无代码变更）| 远程同步 PENDING
+- 保留门禁：判定 ✅（docs-only=true，终态 files=10，见上行）| 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐项相等，见下表）| 品牌残留 ✅（首轮**红在本记录自己身上**：门禁说明里如实写出了名单中的品牌词，被 Gate 12 当场拦下 —— 正是 AGENTS.md 点过的"文档里如实写竞品名会打红，正解写『参考产品』"；改写后复跑 rc=0）| 文档同步 ✅（纯文档，无代码变更）| 远程同步 PENDING
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -21,6 +21,6 @@ sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep
 | 未一并修改的代码及理由 | PASS | ① `ops-center` fake-IP 拒绝文案的归因拓宽（只点名 Clash/TUN，未含上游网关）——改的是**运行面错误信息**，须独立走代码 PR + 质量节拍 + pytest 回归（`test_model_presets_api.py` 断言该文案关键词），不混进 docs-only；② `scripts/lock-timing-audit.js:22` 注释里"走 7897 时 Actions 日志会失败"保留——它的**行为**（主动清空代理 env 直连）在新旧两种拓扑下都是正解，注释只是历史动因，改掉等于制造无意义 diff；③ `apps/desktop/tests/visual-testing/.env.example` 的注释示例保留（不构成依赖，文中 §5 已点名它不是推荐做法） |
 | 行尾对账 | PASS | 本仓这几份工作树是 CRLF（`git ls-files --eol` 实测 `i/lf w/crlf`），编辑逐行沿用目标文件行尾、未做任何整体归一；`git diff --numstat origin/main..HEAD` 与 `--ignore-cr-at-eol --numstat` 两口径逐项相等 ⇒ 幽灵行为零 |
 | 共享根写保护的放行边界 | PASS（实测撞上一次） | 在共享根编辑根级 `SKILL.md` 被 `[shared-root-guard]` **从 HEAD 恢复**，`git add` 遂无差异、第一笔提交静默漏掉该文件（回读 `git status` 才发现）。放行名单是 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.hermes/` 等，**不含根级 `SKILL.md`**。正解是去隔离工作树里改，而不是放宽守护的放行范围 |
-| 后续登记随锁入仓 | PASS | QM-6 后端复核实测出结构锁的四条精度边界（拆句等价 / 别名与动态方法名 / 字面量与注释不识别（**注释里写旧写法会假红，最危险**）/ 扫描域只 4 个写死文件且无钉），已落在  新增 §9，与锁本体同文件；三份 findings 由会话工作区入仓到 （27839B / 22160B / 13237B，均经 JSON.parse 校验）——评审结论不得只指向会随工作树清理而消失的路径 |
+| 后续登记随锁入仓 | PASS | QM-6 后端复核实测出结构锁的四条精度边界（拆句等价 / 别名与动态方法名 / 字面量与注释不识别（**注释里写旧写法会假红，最危险**）/ 扫描域只 4 个写死文件且无钉），已落在 `docs/settings-persistence-contract.md` 新增 §9，与锁本体同文件；三份 findings 由会话工作区入仓到 `.ccg/review/`（27839B / 22160B / 13237B，均经 JSON.parse 校验后落盘）——评审结论不得只指向会随工作树清理而消失的路径 |
 | 远程同步 | PENDING | 待 PR 合并后由后续提交就地改写为 PASS + merge SHA，并删除本文件 frontmatter 的三个 sync_* 字段 |
 
