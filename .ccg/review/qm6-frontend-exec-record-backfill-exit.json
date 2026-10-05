@@ -1,0 +1,86 @@
+[
+  {
+    "severity": "Warning",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 42,
+    "issue": "CARRIER_RE naming is ambiguous — 'carrier' suggests transport/payload, but this regex matches record/accounting files that are *targets* of backfill edits. A name like BACKFILL_TARGET_RE or RECORD_CARRIER_RE would be clearer about directionality.",
+    "fix": "Rename CARRIER_RE to BACKFILL_TARGET_RE or RECORD_CARRIER_FILES_RE to clarify these are the files that *receive* backfill edits, not files that carry something elsewhere."
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 83,
+    "issue": "backfillRevised is only populated when isPureBackfill=true, but the name suggests 'revised during backfill' which could be confused with revisedRecords (line 72-74). The two variables track mutually exclusive paths but share 'revised' prefix.",
+    "fix": "Rename backfillRevised to backfillTouchedFiles or pureBackfillFiles to distinguish from revisedRecords (which tracks M on *own* branch record). Add a comment explaining mutual exclusivity."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 81,
+    "issue": "isPureBackfill variable name is clear but the condition `statuses.length > 0 && statuses.every(...)` could be extracted to a helper function `isPureBackfillChangeSet(statuses)` for readability and testability.",
+    "fix": "Extract to a pure function `isPureBackfillChangeSet(statuses)` — keeps evaluate() readable and allows direct unit testing of the predicate."
+  },
+  {
+    "severity": "Critical",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 111,
+    "issue": "Failure message lists 4 exits but exit ④ wording '直接放行' (pass through directly) is misleading when the PR *is* red (i.e., not a pure backfill). A failing PR seeing '④纯回填：...直接放行' may think 'I should just make my PR a pure backfill' — but the gate is telling them what a pure backfill *looks like*, not that they qualify. The message should clarify this is a *definition*, not an available action for the current PR.",
+    "fix": "Reword exit ④ in the failure message to: '④纯回填（定义）：变更集全部是既有记录/台账载体的 M ⇒ 满足此定义者直接放行（夹带任何新增/删除/非载体文件即不符合此定义）' — makes it definitional, not prescriptive."
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 217,
+    "issue": "The `--head=` empty string check exits with code 2 and writes to stderr, but the error message says '请由 CI 注入 pull_request.head.sha' — this references a GitHub Actions specific field. The script should be CI-agnostic; the message should say '请由 CI 注入 PR 的 head SHA' or similar.",
+    "fix": "Generalize the error message: '显式 --head= 为空：取证失败必须显式报错，不得回落 HEAD。请由 CI 注入 PR 的 head SHA（GitHub: pull_request.head.sha）。'"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 100,
+    "issue": "Test '出路④：变更集全是既有记录的 M ⇒ 判为回填型 PR 并放行，且必须点名' uses a hardcoded record filename 'proxy-env-docs-adaptation.md' that looks like a real record. Tests should use obviously synthetic names like 'other-branch-record.md' to avoid confusion with real fixtures.",
+    "fix": "Use clearly synthetic filenames in tests (e.g., 'other-branch-record.md', 'legacy-record.md') so readers don't mistake them for real project records."
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 113,
+    "issue": "Test '出路④不得夹带非载体文件' only tests M on a code file. Should also test A (new file) and D (deletion) on non-carrier files to fully verify '任何非载体文件即不算回填'.",
+    "fix": "Add sub-tests for A and D on non-carrier files: `st([['A', 'apps/desktop/new.js']])` and `st([['D', 'apps/desktop/old.js']])` both should fail the backfill path."
+  },
+  {
+    "severity": "Critical",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 81,
+    "issue": "The isPureBackfill predicate allows a PR that *only* modifies carrier files via M to pass without any execution record. This could be abused: a malicious or careless PR could edit .quality-gates.md (e.g., flip a threshold) and openspec/records/other.md (e.g., tweak a date) and bypass the record requirement entirely. The gate assumes 'M on carrier files = backfill', but carrier files *can* carry behavioral changes (e.g., changing a threshold in .quality-gates.md).",
+    "fix": "Add a safeguard: if any modified carrier file is .quality-gates.md or gate-record-debt-ledger.json, require an additional signal (e.g., a 'backfill: true' marker in the commit message, or a separate exempt file). At minimum, document this risk in the code comments and consider whether .quality-gates.md should be a carrier file at all — changing thresholds *is* a behavioral change that deserves a record."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 124,
+    "issue": "Test '出路④覆盖 legacy 载体' tests M on .quality-gates.md and gate-record-debt-ledger.json but doesn't verify that the backfillRevised array includes both. The assertion only checks ok=true.",
+    "fix": "Add assertion: `assert.deepStrictEqual(legacy.backfillRevised.sort(), ['.quality-gates.md', 'scripts/gate-record-debt-ledger.json'].sort())` to verify both legacy carriers are tracked."
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 138,
+    "issue": "Summary line includes '回填型 PR（载体修订 N 篇）' only when isPureBackfill is true. But when isPureBackfill=false, there's no indication that backfill was *attempted* but failed (e.g., mixed M on carrier + code). This makes debugging harder — a PR author sees 'M=3' but no hint that 2 were carrier files and 1 was code.",
+    "fix": "In summary(), always show carrier file M count: `M载体=${statuses.filter(e => e.status==='M' && CARRIER_RE.test(e.file)).length}`. This helps authors understand why backfill path didn't apply."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 141,
+    "issue": "Test '出路④与既有判据互不干扰' covers exempt + M other record, and M+D mixed. Missing: what happens when a PR has M on own record AND M on other record (both revisedRecords and backfillRevised could be non-empty)? The logic says they're mutually exclusive via `submitted` (line 109), but the test doesn't verify this combination.",
+    "fix": "Add test case: statuses = M own-record + M other-record. Verify ok=true, revisedRecords has own, backfillRevised is empty (because not pure backfill), and no contradiction flag."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 160,
+    "issue": "CLI end-to-end test uses `--no-remote` to avoid flakiness from exempt pileup, but this means the remote-branches-dependent logic (consumedExempts threshold) is not exercised in the CLI test. The unit tests cover it, but an integration test without --no-remote would catch wiring issues.",
+    "fix": "Add a second CLI test that runs without --no-remote in a temp git repo with controlled remote branches, verifying the consumedExempts threshold triggers correctly end-to-end."
+  }
+]
