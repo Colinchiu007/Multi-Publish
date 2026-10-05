@@ -542,6 +542,49 @@ describe('rpa-view-platforms — 发布结果验证', () => {
     expect(result.postId).not.toMatch(/^task_/)
   })
 
+  // 2026-10-06 B 站作品标识装配锁（docs/PRD-BILIBILI-PUBLISH-ID-EXTRACT-2026-10-06.md §五 A11）
+  // 纯函数级用例只证明「能提出 id」，证明不了它真的变成 finish() 的 postId。
+  it('B 站：作品页 URL 承载 bvid 时发布判成功且 postId 为 bvid', async () => {
+    const workUrl = 'https://www.bilibili.com/video/BV1xx411c79D/'
+    const executeJavaScript = vi.fn().mockResolvedValue({ url: workUrl, text: '', storage: {}, links: [], buttons: [] })
+    const context = createVerifyContext(executeJavaScript)
+    const networkCapture = { evidence: [], stop: vi.fn().mockResolvedValue([]) }
+    const result = await platformsMixin._verifyPublishSuccess.call(context, {
+      webContents: { getURL: vi.fn().mockReturnValue(workUrl), executeJavaScript },
+    }, 'bilibili', { success_mode: 'url', publish_url: 'https://member.bilibili.com/platform/upload/video/frame' }, null, networkCapture)
+
+    expect(result).toMatchObject({ success: true, postId: 'BV1xx411c79D' })
+  })
+
+  it('B 站：投稿页停在 frame 时由提交响应体证据承载 bvid，不得取成 frame', async () => {
+    const frameUrl = 'https://member.bilibili.com/platform/upload/video/frame'
+    const executeJavaScript = vi.fn().mockResolvedValue({ url: frameUrl, text: '发布成功', storage: {}, links: [], buttons: [] })
+    const context = createVerifyContext(executeJavaScript, { conditionResult: true })
+    const networkCapture = {
+      evidence: [{ publishIds: ['BV1xx411c79D'] }],
+      stop: vi.fn().mockResolvedValue([{ endpoint: 'https://member.bilibili.com/x/video/add', status: 200, mimeType: 'application/json' }]),
+    }
+    const result = await platformsMixin._verifyPublishSuccess.call(context, {
+      webContents: { getURL: vi.fn().mockReturnValue(frameUrl), executeJavaScript },
+    }, 'bilibili', { success_mode: 'dom', success_selector: '.success', publish_url: frameUrl }, null, networkCapture)
+
+    expect(result).toMatchObject({ success: true, postId: 'BV1xx411c79D' })
+    expect(result.postId).not.toBe('frame')
+  })
+
+  it('B 站负控：既无证据也无作品页 URL 时仍判失败（不得凭投稿页造 id）', async () => {
+    const frameUrl = 'https://member.bilibili.com/platform/upload/video/frame?bvid=&aid='
+    const executeJavaScript = vi.fn().mockResolvedValue({ url: frameUrl, text: '发布成功', storage: {}, links: [], buttons: [] })
+    const context = createVerifyContext(executeJavaScript, { conditionResult: true })
+    const networkCapture = { evidence: [], stop: vi.fn().mockResolvedValue([]) }
+    const result = await platformsMixin._verifyPublishSuccess.call(context, {
+      webContents: { getURL: vi.fn().mockReturnValue(frameUrl), executeJavaScript },
+    }, 'bilibili', { success_mode: 'dom', success_selector: '.success', publish_url: 'https://member.bilibili.com/platform/upload/video/frame' }, null, networkCapture)
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('平台作品 ID')
+  })
+
   it('严格平台忽略历史 localStorage、旧链接和当前 URL 中的作品 ID', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({
       url: 'https://baijiahao.baidu.com/builder/rc/clue?mediaId=stale-media-999',

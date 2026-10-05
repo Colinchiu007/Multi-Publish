@@ -1,0 +1,82 @@
+[
+  {
+    "severity": "Critical",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 59,
+    "issue": "Q2：collectPublishIds 新增的 aid/bvid 键规则完全没有主机/平台上下文，会作用于所有平台响应体；消费端 rpa-view-platforms.js 的 parsePublishResponseEvidence 和 finish() 会把证据里的首个 publishIds 直接当作 postId，因此非 B 站平台的 2xx publish/create/submit 响应只要含 aid=\\d{4,} 或 bvid=BV...，就可能把发布失败/未离开投稿页判成成功。具体可利用样例：非 B 站端点返回 {\"code\":0,\"data\":{\"aid\":12345678}}，extractPublishIdsFromResponseBody 实测返回 [\"12345678\"]，随后 _verifyPublishSuccess 在 strict 平台之外优先采纳该 responseId。",
+    "fix": "把平台/主机上下文传入响应体提取，例如 parsePublishResponseEvidence 只对 bilibili 启用 bvid/aid 键，或 collectPublishIds/extractPublishIdsFromResponseBody 增加 host 或 platform 参数；同时补一条非 B 站响应体负例 {\"data\":{\"aid\":12345678}} 必须为 []。",
+    "evidence": "node 实测 extractPublishIdsFromResponseBody(JSON.stringify({code:0,data:{aid:12345678}})) => ['12345678']；rpa-view-platforms.js:64-70 无平台过滤，rpa-view-platforms.js:763-766 对所有非 strict 平台优先采用 responseId。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 74,
+    "issue": "Q3/Q4：PRD §四写的是 B 站形态判据应保持在通用判据之后，但 query 循环里 matchBilibiliWorkIdKey 在 PUBLISH_ID_KEYS 之前执行，B 站 host 下 aid/bvid 会优先于任何通用键；A3 测试标题的 bvid 优先于 aid 也只是依赖查询参数顺序，实测 ?aid=170001&bvid=BV1xx411c79D 返回 170001，未实现真正的 bvid 优先。路径段 parts.find 确实在通用判据之后，未发现通用判据先返回错值而 B 站形态本可纠正的已知真实 URL 形态。",
+    "fix": "明确并锁住优先级：要么按 PRD 把 query 的 B 站形态也放到通用判据之后，要么修改 PRD 说明 B 站 query 优先；A3 增加 aid 在前、bvid 在后的用例，并补一条含通用 article_id 的 B 站 URL 用例防止回归。",
+    "evidence": "rpa-publish-id-extract.js:74-77 先于 78-81；rpa-publish-id-extract.test.js:28-31 只覆盖 bvid 在前的顺序；node 实测 aid 在前时返回 '170001'。"
+  },
+  {
+    "severity": "Warning",
+    "file": "docs/PRD-BILIBILI-PUBLISH-ID-EXTRACT-2026-10-06.md",
+    "line": 108,
+    "issue": "Q5：A10 反证验收没有落地为仓库内证据。PRD 要求摘掉形态判据时 A1-A4 变红、把 A5 放宽为加 video 关键词时 A5 变红，并写入 .quality-gates.md 执行记录；当前 commit 未改 .quality-gates.md，rg 未命中 bilibili-bvid-extract/6a534bd，也没有变异实跑留痕。",
+    "fix": "补 .quality-gates.md 本次执行记录：登记两项变异实跑结果与远程同步 PENDING；后续归档时再改写为 PASS 并删除 ledger 登记。",
+    "evidence": "rg 'bilibili-bvid-extract|6a534bd|rpa-publish-id-extract' .quality-gates.md CHANGELOG.md 无命中；PRD 第 108 行明确 A10 需要变异实跑。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.test.js",
+    "line": 34,
+    "issue": "Q5：A4/A8 目前只测纯函数，没有消费者级接线测试。rpa-view-platforms.test.js 的 70 条用例没有把 bvid/aid 响应体或 BVID 作品页 URL 真正送进 _verifyPublishSuccess/finish()，无法证明新判据在真实网络证据链里能变成 postId。",
+    "fix": "新增一条消费者用例：networkCapture.evidence=[{publishIds:['BV...']}] 且 currentUrl 停在 member.bilibili.com/platform/upload/video/frame 时，finish() 应返回 success:true 且 postId 为 BVID；再补一条仅 URL 命中 BVID 的用例。",
+    "evidence": "rpa-view-platforms.test.js 当前没有 BVID/av170001 作为 postId 的 finish 断言；新测试只直接调用 extractPublishIdFromUrl/extractPublishIdsFromResponseBody。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 23,
+    "issue": "Q1：BILIBILI_HOST 锚定正确，未发现子域/后缀误命中。evil-bilibili.com、bilibili.com.evil.net、notbilibili.com、weibo.com 均不因新规则产出 id，bilibili.com 子域和 bilibili.tv 正常命中。",
+    "fix": "无需修改。",
+    "evidence": "node 实测上述 URL 均返回 null；https://www.bilibili.com/video/BV1xx411c79D/ 与 https://m.bilibili.tv/video/BV1xx411c79D/ 返回 BVID。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 24,
+    "issue": "Q3：BILIBILI_WORK_ID_SHAPE/BILIBILI_AID_SHAPE 与 normalizePublishId 不存在互相矛盾或双重放行。最终采纳仍过 normalizePublishId 的 160 字符/布尔值/nav 词门；BV/av/纯数字形态不会被 nav 词表或长度限制反向放行。",
+    "fix": "无需修改。",
+    "evidence": "代码 32-33 行先过形态再调 normalizePublishId；41 行仍有长度/布尔值/nav 词约束。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 89,
+    "issue": "Q4：路径段 parts.find 放在通用判据之后符合 PRD，且未发现已知真实 URL 形态会让通用判据先返回错值、B 站形态本可纠正。通用路径关键词（post/article/media/content/clue/work）在 B 站作品页不与冲突的前置错段共存；/article/BV... 这类形态通用与 B 站判据都会返回同一个 BVID。",
+    "fix": "无需修改，但应保留上面 Q3/Q4 的 query 优先级 Warning 一并处理。",
+    "evidence": "A1/A2 用例通过；config/platforms.yaml 的 B 站 publish_url 是 /platform/upload/video/frame，无前置通用关键词命中。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.test.js",
+    "line": 39,
+    "issue": "Q5：A5/A6/A7 三条负例确能抓住目标实现。把路径段关键词放宽为含 video 后，/platform/upload/video/frame 实测返回 frame，A5 会变红；摘掉形态判据后 A1 返回 null，A1-A4 会变红；A6/A7 覆盖非 B 主机与非法形态。",
+    "fix": "无需修改；A10 的仓库内证据缺失按上面的 Warning 补登记。",
+    "evidence": "node 变异探针：加 video 关键词 => {r1:'frame'}；替换 BILIBILI_WORK_ID_SHAPE 为 /^nomatch$/ => {r1:null}；vitest 10/10 passed。"
+  },
+  {
+    "severity": "Info",
+    "file": "docs/PRD-BILIBILI-PUBLISH-ID-EXTRACT-2026-10-06.md",
+    "line": 112,
+    "issue": "Q6：未发现实现把未观测事实写成已验证。§六明确登记 B 站投稿提交后实际 URL 未经真机观测、投稿接口响应体形状未单独取证；§二表格标的是修复前后直接调用函数的实测结果，不是真机投稿后的 URL。",
+    "fix": "无需修改。",
+    "evidence": "docs/PRD... 第 112-118 行如实登记未观测项；源码注释仅指向 §二/§四，未声称真机落地。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 18,
+    "issue": "Q7：新增代码未触碰凭证或日志泄漏。新逻辑只做纯值提取，不写日志、不保存响应体/URL 原文；既有 sanitizeDiagnosticEndpoint/sanitizePublishResultUrl 的脱敏路径保持不动，网络证据的原始 body 仍只在局部回调内使用。",
+    "fix": "无需修改。",
+    "evidence": "diff 未新增 console/log 调用；rpa-view-helpers.js:371 注释仍禁止把原始响应体写入 records/日志/IPC 结果。"
+  }
+]

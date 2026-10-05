@@ -65,7 +65,7 @@ function parsePublishResponseEvidence (body, response) {
   const status = Number(response?.status)
   if (!Number.isFinite(status) || status < 200 || status >= 300) return null
   if (!/(?:publish|submit|create|commit|release)/i.test(String(response?.endpoint || ''))) return null
-  const publishIds = extractPublishIdsFromResponseBody(body)
+  const publishIds = extractPublishIdsFromResponseBody(body, { endpoint: String(response?.url || response?.endpoint || '') })
   return publishIds.length > 0 ? { publishIds } : null
 }
 
