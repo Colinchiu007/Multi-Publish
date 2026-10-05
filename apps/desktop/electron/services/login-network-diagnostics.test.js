@@ -15,8 +15,8 @@ beforeEach(async () => {
   vi.clearAllMocks()
   vi.resetModules()
   // logger 为真实模块（无 electron 依赖），直接 spy 拦截输出并断言
-  vi.spyOn(log, 'warn').mockImplementation(function () {})
-  vi.spyOn(log, 'info').mockImplementation(function () {})
+  vi.spyOn(log, 'notify').mockImplementation(function () {})
+
   mod = require('./login-network-diagnostics')
 })
 
@@ -73,14 +73,14 @@ describe('login-network-diagnostics — attachLoginNetworkDiagnostics', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     await flush()
 
-    expect(log.info).toHaveBeenCalledWith('LoginNetDiag', expect.stringContaining('proxy for open.weixin.qq.com → PROXY 127.0.0.1:7892'))
+    expect(log.notify).toHaveBeenCalledWith('LoginNetDiag', 'proxy-resolved', expect.objectContaining({ params: expect.objectContaining({ proxy: 'PROXY 127.0.0.1:7892' }) }))
 
     const failSes = createSession()
     failSes.resolveProxy.mockRejectedValue(new Error('boom'))
     mod.attachLoginNetworkDiagnostics(failSes, { platform: 'wechat_mp', accountId: 'acc1' })
     await flush()
 
-    expect(log.warn).toHaveBeenCalledWith('LoginNetDiag', expect.stringContaining('resolveProxy failed: boom'))
+    expect(log.notify).toHaveBeenCalledWith('LoginNetDiag', 'resolve-proxy-failed', expect.objectContaining({ error: 'boom' }))
   })
 
   it('缺省 ctx 时 tag 使用 unknown', () => {
@@ -89,7 +89,7 @@ describe('login-network-diagnostics — attachLoginNetworkDiagnostics', () => {
     const handler = ses.webRequest.onErrorOccurred.mock.calls[0][1]
     handler({ url: 'https://mp.weixin.qq.com/x', error: 'ERR_CONNECTION_RESET' })
 
-    expect(log.warn).toHaveBeenCalledWith('LoginNetDiag', expect.stringContaining('[unknown/unknown]'))
+    expect(log.notify).toHaveBeenCalledWith('LoginNetDiag', 'request-failed', expect.objectContaining({ params: expect.objectContaining({ tag: expect.stringContaining('[unknown/unknown]') }) }))
   })
 })
 
@@ -103,12 +103,12 @@ describe('login-network-diagnostics — onErrorOccurred handler', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     getErrorHandler(ses)({ url: 'https://open.weixin.qq.com/cgi-bin/mpqrconnect?x=1', error: 'ERR_TUNNEL_CONNECTION_FAILED', ip: '1.2.3.4' })
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
-    const msg = log.warn.mock.calls[0][1]
-    expect(msg).toContain('[wechat_mp/acc1] request failed: https://open.weixin.qq.com/cgi-bin/mpqrconnect')
-    expect(msg).toContain('error=ERR_TUNNEL_CONNECTION_FAILED')
-    expect(msg).toContain('ip=1.2.3.4')
-    expect(msg).toContain('代理不可达或认证失败')
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    const call0 = log.notify.mock.calls[0]; const meta = call0[2] || {}
+    expect(meta.params.url).toContain('https://open.weixin.qq.com/cgi-bin/mpqrconnect')
+    expect(meta.params.error).toBe('ERR_TUNNEL_CONNECTION_FAILED')
+    expect(meta.params.ip).toBe('1.2.3.4')
+    expect(meta.params.classify).toContain('代理不可达或认证失败')
   })
 
   it('ERR_ABORTED 不打日志（正常导航取消，降噪）', () => {
@@ -116,8 +116,8 @@ describe('login-network-diagnostics — onErrorOccurred handler', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     getErrorHandler(ses)({ url: 'https://res.wx.qq.com/a.js', error: 'ERR_ABORTED' })
 
-    expect(log.warn).not.toHaveBeenCalled()
-    expect(log.info).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 
   it('details.ip 缺省时不追加 ip 字段', () => {
@@ -125,9 +125,9 @@ describe('login-network-diagnostics — onErrorOccurred handler', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     getErrorHandler(ses)({ url: 'https://mp.weixin.qq.com/', error: 'ERR_CONNECTION_RESET' })
 
-    const msg = log.warn.mock.calls[0][1]
-    expect(msg).not.toContain('ip=')
-    expect(msg).toContain('连接失败：检查防火墙/代理节点可用性')
+    const meta = (log.notify.mock.calls[0] || [])[2] || {}
+    expect(meta.params.ip).toBeNull()
+    expect(meta.params.classify).toContain('连接失败：检查防火墙/代理节点可用性')
   })
 })
 
@@ -164,9 +164,9 @@ describe('login-network-diagnostics — onCompleted handler', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     getCompletedHandler(ses)({ url: 'https://open.weixin.qq.com/cgi-bin/mpqrconnect', statusCode: 502 })
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
-    expect(log.warn.mock.calls[0][1]).toContain('HTTP 502 https://open.weixin.qq.com/cgi-bin/mpqrconnect')
-    expect(log.info).not.toHaveBeenCalled()
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    expect(log.notify.mock.calls[0][1]).toBe('http-status-warning')
+    expect((log.notify.mock.calls[0][2] || {}).params.msg).toContain('HTTP 502 https://open.weixin.qq.com/cgi-bin/mpqrconnect')
   })
 
   it('其他 URL HTTP 404 → info', () => {
@@ -174,9 +174,9 @@ describe('login-network-diagnostics — onCompleted handler', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     getCompletedHandler(ses)({ url: 'https://res.wx.qq.com/missing.js', statusCode: 404 })
 
-    expect(log.info).toHaveBeenCalledTimes(1)
-    expect(log.info.mock.calls[0][1]).toContain('HTTP 404 https://res.wx.qq.com/missing.js')
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    expect(log.notify.mock.calls[0][1]).toBe('http-status-info')
+    expect((log.notify.mock.calls[0][2] || {}).params.msg).toContain('HTTP 404 https://res.wx.qq.com/missing.js')
   })
 
   it('HTTP 200 → 无日志', () => {
@@ -184,8 +184,8 @@ describe('login-network-diagnostics — onCompleted handler', () => {
     mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
     getCompletedHandler(ses)({ url: 'https://long.open.weixin.qq.com/connect', statusCode: 200 })
 
-    expect(log.warn).not.toHaveBeenCalled()
-    expect(log.info).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 })
 
@@ -217,10 +217,16 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
       responseHeaders: { headers: [{ name: 'Content-Length', value: '7632' }] }
     })
 
-    expect(log.info).toHaveBeenCalledTimes(1)
-    expect(log.info.mock.calls[0][0]).toBe('LoginNetDiag')
-    expect(log.info.mock.calls[0][1]).toMatch(
-      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=7632$/)
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    expect(log.notify.mock.calls[0][0]).toBe('LoginNetDiag')
+    const c0 = log.notify.mock.calls[0]
+    expect(c0[1]).toBe('qr-response')
+    const p0 = (c0[2] || {}).params || {}
+    expect(p0.tag).toBe('[wechat_mp/auth-1] ')
+    expect(p0.count).toBe(1)
+    expect(p0.afterMs).toBeTypeOf('number')
+    expect(p0.status).toBe(200)
+    expect(p0.contentLength).toBe('7632')
   })
 
   it('HTTP 200 + content-length 0（微信静默拒绝特征）→ 如实记录 contentLength=0', () => {
@@ -231,8 +237,9 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
       responseHeaders: { headers: [{ name: 'content-length', value: '0' }] }
     })
 
-    expect(log.info.mock.calls[0][1]).toMatch(
-      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=0$/)
+    const c0 = log.notify.mock.calls[0]
+    expect(c0[1]).toBe('qr-response')
+    expect((c0[2] || {}).params.contentLength).toBe('0')
   })
 
   it('响应头缺失 → 显式记 contentLength=redacted，不留隐式缺口（边界）', () => {
@@ -241,8 +248,9 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
 
     // 跨域 iframe 的 responseHeaders 会被 Chromium 屏蔽，真机实测确实取不到；
     // 若不显式标注，读日志的人会以为"这一行本来就没有该字段"而漏判空体拒绝。
-    expect(log.info.mock.calls[0][1]).toMatch(
-      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=redacted$/)
+    const c0 = log.notify.mock.calls[0]
+    expect(c0[1]).toBe('qr-response')
+    expect((c0[2] || {}).params.contentLength).toBe('redacted')
   })
 
   it('出码尝试逐次编号，超过上限后不再记录（防反复刷新刷屏）', () => {
@@ -251,17 +259,17 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
 
     for (let i = 0; i < 8; i++) handler({ url: QR_URL, statusCode: 200 })
 
-    const seq = log.info.mock.calls
-      .map(function (c) { return String(c[1]) })
-      .filter(function (m) { return m.indexOf('qr response #') !== -1 })
-      .map(function (m) { return m.replace(/after \d+ms/, 'after Xms') })
+    const seq = log.notify.mock.calls
+      .map(function (c) { return (c[2] || {}).params })
+      .filter(function (pp) { return pp && pp.count !== undefined })
+      .map(function (pp) { return pp.count + '|' + pp.contentLength })
     expect(seq).toEqual([
-      '[wechat_mp/auth-1] qr response #1 after Xms status=200 contentLength=redacted',
-      '[wechat_mp/auth-1] qr response #2 after Xms status=200 contentLength=redacted',
-      '[wechat_mp/auth-1] qr response #3 after Xms status=200 contentLength=redacted',
-      '[wechat_mp/auth-1] qr response #4 after Xms status=200 contentLength=redacted',
-      '[wechat_mp/auth-1] qr response #5 after Xms status=200 contentLength=redacted',
-      '[wechat_mp/auth-1] qr response #6 after Xms status=200 contentLength=redacted'
+      '1|redacted',
+      '2|redacted',
+      '3|redacted',
+      '4|redacted',
+      '5|redacted',
+      '6|redacted'
     ])
   })
 
@@ -269,8 +277,8 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
     const ses = attach()
     getCompletedHandler(ses)({ url: 'https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=x', statusCode: 200 })
 
-    expect(log.info).not.toHaveBeenCalled()
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 })
 // ─── attachAuthResponseDiagnostics（登录关键端点响应体诊断，CDP 被动读取）───
@@ -346,7 +354,7 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 挂接面'
 
     expect(attached).toBe(true)
     expect(dbg.__handlers.length).toBe(1)
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 })
 
@@ -359,13 +367,12 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
       requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
     })
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
-    expect(log.warn.mock.calls[0][0]).toBe('LoginRespDiag')
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    expect(log.notify.mock.calls[0][0]).toBe('LoginRespDiag')
     // 精确结构断言（QM-3）：整条摘要逐字符锁定，防止字段顺序/分隔符漂移
-    expect(log.warn.mock.calls[0][1]).toBe(
-      '[zhihu/auth-zhihu-1] 关键端点被拒 url=' + ZHIHU_SMS_URL + ' http=200 code=10001 message=请求参数异常，请升级客户端后重试',
-    )
-    expect(log.info).not.toHaveBeenCalled()
+    const rej = log.notify.mock.calls[0]
+    expect(rej[1]).toBe('key-endpoint-rejected')
+    expect((rej[2] || {}).params).toEqual({ tag: '[zhihu/auth-zhihu-1] ', url: ZHIHU_SMS_URL, http: 200, code: '10001', message: '请求参数异常，请升级客户端后重试' })
   })
 
   it('成功体（无 error）→ 不记任何日志，但确实查过响应体', async () => {
@@ -376,8 +383,8 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
       requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
     })
 
-    expect(log.warn).not.toHaveBeenCalled()
-    expect(log.info).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
     expect(dbg.sendCommand).toHaveBeenCalledWith('Network.getResponseBody', { requestId: 'r1' })
   })
 
@@ -389,10 +396,10 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
       requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 403 },
     })
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
-    expect(log.warn.mock.calls[0][1]).toBe(
-      '[zhihu/a1] 关键端点被拒 url=' + ZHIHU_SMS_URL + ' http=403 code=<none> message=<unparsable>',
-    )
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    const unp = log.notify.mock.calls[0]
+    expect(unp[1]).toBe('key-endpoint-rejected')
+    expect((unp[2] || {}).params).toEqual({ tag: '[zhihu/a1] ', url: ZHIHU_SMS_URL, http: 403, code: '<none>', message: '<unparsable>' })
   })
 
   it('响应体已被网络栈回收（getResponseBody 抛错）→ 记 HTTP 状态且不产生未处理拒绝', async () => {
@@ -403,8 +410,8 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
       requestId: 'missing', response: { url: ZHIHU_SMS_URL, status: 500 },
     })).resolves.toBeUndefined()
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
-    expect(log.warn.mock.calls[0][1]).toContain('http=500')
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    expect((log.notify.mock.calls[0][2] || {}).params.http).toBe(500)
   })
 
   it('非关键端点（静态资源 / 其他域名）→ 不查响应体、不记日志', async () => {
@@ -420,7 +427,7 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
     })
 
     expect(dbg.sendCommand.mock.calls.length).toBe(before)
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 
   it('无关 CDP 事件（Fetch.requestPaused 等）→ 完全忽略', async () => {
@@ -429,8 +436,8 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
 
     await messageHandler(dbg)({}, 'Fetch.requestPaused', { requestId: 'r1' })
 
-    expect(log.warn).not.toHaveBeenCalled()
-    expect(log.info).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 
   // 真实 CDP 的 Network.loadingFailed 事件**不带 url**，只有 requestId，
@@ -447,10 +454,10 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
       requestId: 'r9', type: 'XHR', errorText: 'ERR_PROXY_CONNECTION_FAILED', canceled: false,
     })
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
-    expect(log.warn.mock.calls[0][1]).toBe(
-      '[zhihu/a1] 关键端点请求失败 url=' + ZHIHU_SMS_URL + ' netError=ERR_PROXY_CONNECTION_FAILED → 代理不可达或认证失败：检查系统代理与账号代理设置',
-    )
+    expect(log.notify).toHaveBeenCalledTimes(1)
+    const fail = log.notify.mock.calls[0]
+    expect(fail[1]).toBe('key-endpoint-request-failed')
+    expect((fail[2] || {}).params).toEqual({ tag: '[zhihu/a1] ', url: ZHIHU_SMS_URL, netError: 'ERR_PROXY_CONNECTION_FAILED', classify: '代理不可达或认证失败：检查系统代理与账号代理设置' })
   })
 
   it('requestWillBeSent 对非关键端点不登记、不记日志', async () => {
@@ -463,7 +470,7 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判�
     })
     await handler({}, 'Network.loadingFailed', { requestId: 'r10', errorText: 'ERR_ABORTED' })
 
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 })
 
@@ -474,8 +481,8 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 日志脱�
   const SECRET_PHONE = '13800001111'
   const SECRET_TOKEN = 'Bearer.zhihu.session.token'
 
-  const allLoggedText = () => [log.warn, log.info]
-    .flatMap((fn) => fn.mock.calls.map((c) => c.join(' ')))
+  const allLoggedText = () => [log.notify]
+    .flatMap((fn) => fn.mock.calls.map((c) => c[1] + ' ' + JSON.stringify(c[2] || {})))
     .join('\n')
 
   it('响应体内的手机号 / token 不得出现在任何日志中', async () => {
@@ -489,7 +496,7 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 日志脱�
       requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
     })
 
-    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.notify).toHaveBeenCalledTimes(1)
     expect(allLoggedText()).not.toContain(SECRET_PHONE)
     expect(allLoggedText()).not.toContain(SECRET_TOKEN)
     expect(allLoggedText()).not.toContain('张三')
@@ -506,9 +513,9 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 日志脱�
 
     expect(allLoggedText()).not.toContain(SECRET_PHONE)
     expect(allLoggedText()).not.toContain(SECRET_TOKEN)
-    expect(log.warn.mock.calls[0][1]).toBe(
-      '[zhihu/a1] 关键端点被拒 url=' + ZHIHU_SMS_URL + ' http=200 code=100 message=客户端异常',
-    )
+    const stripped = log.notify.mock.calls[0]
+    expect(stripped[1]).toBe('key-endpoint-rejected')
+    expect((stripped[2] || {}).params).toEqual({ tag: '[zhihu/a1] ', url: ZHIHU_SMS_URL, http: 200, code: '100', message: '客户端异常' })
   })
 
   it('超长 message 截断，不整段回显', async () => {
@@ -520,9 +527,9 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 日志脱�
       requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
     })
 
-    const msg = log.warn.mock.calls[0][1]
-    expect(msg.length).toBeLessThanOrEqual(300)
-    expect(msg).toMatch(/\.\.\.$/)
+    const params = (log.notify.mock.calls[0][2] || {}).params || {}
+    expect(String(params.message).length).toBeLessThanOrEqual(300)
+    expect(String(params.message)).toMatch(/\.\.\.$/)
   })
 
   it('非字符串 error.message（数字 / 对象）→ 归一为字符串表示，不注入对象', async () => {
@@ -553,30 +560,30 @@ describe('login-network-diagnostics — 出码真实字节数（CDP Network.load
     const onMessage = attachWechat()
     await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r1', request: { url: QR_URL } })
     await onMessage(null, 'Network.loadingFinished', { requestId: 'r1', encodedDataLength: 7632 })
-    const line = log.info.mock.calls.map(c => c[1]).filter(s => String(s).indexOf('qr bytes #') >= 0)
+    const line = log.notify.mock.calls.filter(c => c[1] === 'qr-bytes')
     expect(line.length).toBe(1)
-    expect(line[0]).toMatch(/^\[wechat_mp\/a1\] qr bytes #1 after \d+ms encodedDataLength=7632$/)
+    expect((line[0][2] || {}).params.encodedDataLength).toBe(7632)
   })
 
   it('未登记的 requestId 不产出字节数日志（不与 auth 端点混淆）', async () => {
     const onMessage = attachWechat()
     await onMessage(null, 'Network.loadingFinished', { requestId: 'ghost', encodedDataLength: 999 })
-    expect(log.info.mock.calls.filter(c => String(c[1]).indexOf('qr bytes #') >= 0).length).toBe(0)
+    expect(log.notify.mock.calls.filter(c => c[1] === 'qr-bytes').length).toBe(0)
   })
 
   it('缺 encodedDataLength 时显式记 unknown，不静默省略该列', async () => {
     const onMessage = attachWechat()
     await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r2', request: { url: QR_URL } })
     await onMessage(null, 'Network.loadingFinished', { requestId: 'r2' })
-    const line = log.info.mock.calls.map(c => c[1]).filter(s => String(s).indexOf('qr bytes #') >= 0)
-    expect(line[0]).toMatch(/ encodedDataLength=unknown$/)
+    const line = log.notify.mock.calls.filter(c => c[1] === 'qr-bytes')
+    expect((line[0][2] || {}).params.encodedDataLength).toBe('unknown')
   })
 
   it('非二维码端点即便有字节数也不记（只锁 getqrcode 一条路径）', async () => {
     const onMessage = attachWechat()
     await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r3', request: { url: ZHIHU_SMS_URL } })
     await onMessage(null, 'Network.loadingFinished', { requestId: 'r3', encodedDataLength: 42 })
-    expect(log.info.mock.calls.filter(c => String(c[1]).indexOf('qr bytes #') >= 0).length).toBe(0)
+    expect(log.notify.mock.calls.filter(c => String(c[1]).indexOf('qr bytes #') >= 0).length).toBe(0)
   })
 })
 
@@ -591,7 +598,7 @@ describe('login-network-diagnostics — observe-only 档的隐私边界', () => 
     await onMessage(null, 'Network.responseReceived', { requestId: 'b1', response: { url: BIZLOGIN, status: 200 } })
     const bodyCalls = dbg.sendCommand.mock.calls.filter(c => c[0] === 'Network.getResponseBody')
     expect(bodyCalls.length).toBe(0)
-    expect(log.warn.mock.calls.filter(c => String(c[1]).indexOf('被拒') >= 0).length).toBe(0)
+    expect(log.notify.mock.calls.filter(c => String(c[1]).indexOf('被拒') >= 0).length).toBe(0)
   })
 
   it('两档都不命中的平台不 enable Network（douyin 仍为零监听面）', () => {

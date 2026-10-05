@@ -226,17 +226,17 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
   })
 
   it('userDataPath 缺失时不猜路径（fail closed，绝不删当前 profile）', () => {
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const summary = reclaim({ app: { getPath: () => '' }, log })
     expect(summary.removed).toEqual([])
     expect(summary.errors).toBe(0)
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
   })
 
   it('删除失败只计错并继续处理其余对象，函数不抛', () => {
     const g = bigGroup('zhihu', PROBE_LIMIT + 3)
     const base = track(mkProfile(g))
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const boom = new Error('EBUSY: resource busy')
     const fsImpl = Object.assign(Object.create(Object.getPrototypeOf(fs)), fs, {
       rmSync (p, o) {
@@ -247,13 +247,15 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
     const summary = reclaim({ userDataPath: base, fsImpl, log })
     expect(summary.removed).toEqual(g.slice(1, 3))
     expect(summary.errors).toBe(1)
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining(g[0]))
+    const failCall = log.notify.mock.calls.find((c) => c[1] === 'partition-remove-failed')
+    expect(failCall).toBeTruthy()
+    expect((failCall[2] || {}).params.name).toContain(g[0])
   })
 
   it('realpath 逃出分区根的目标拒绝删除（禁止碰父目录之外的路径）', () => {
     const g = bigGroup('wechat_mp', PROBE_LIMIT + 2)
     const base = track(mkProfile(g))
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const escaped = path.join(base, 'session', 'Partitions', g[0])
     const fsImpl = Object.assign(Object.create(Object.getPrototypeOf(fs)), fs, {
       realpathSync (p) {
@@ -265,17 +267,20 @@ describe('auth-partition-reclaim：真实文件系统回收', () => {
     expect(summary.removed).toEqual(g.slice(1, 2))
     expect(summary.errors).toBe(1)
     expect(fs.existsSync(escaped)).toBe(true)
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('outside partition root'))
+    const refusedCall = log.notify.mock.calls.find((c) => c[1] === 'delete-outside-root-refused')
+    expect(refusedCall).toBeTruthy()
   })
 
   it('有产出时留痕一行（静默回收等于没修）', () => {
     const g = bigGroup('xiaohongshu', PROBE_LIMIT + 1)
     const base = track(mkProfile(g))
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     reclaim({ userDataPath: base, log })
-    expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('removed=1'))
+    const scannedCall = log.notify.mock.calls.find((c) => c[1] === 'reclaim-scanned')
+    expect(scannedCall).toBeTruthy()
+    expect((scannedCall[2] || {}).params.removed).toBe(1)
     // pinned= 是「窗口外但本进程在册」的计数：没有它，日志里的 kept 大于 K 会看起来像 bug
-    expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('pinned='))
+    expect((scannedCall[2] || {}).params.pinned).toBe(0)
   })
 })
 
@@ -300,7 +305,7 @@ describe('auth-partition-reclaim：scheduleReclaim', () => {
   })
 
   it('底层抛错只 warn，不外泄给调用方（回收属旁路）', async () => {
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const base = mkTmp()
     cleanups.push(base)
     const fsImpl = {
@@ -313,9 +318,11 @@ describe('auth-partition-reclaim：scheduleReclaim', () => {
     let threw = false
     try { scheduleReclaim({ userDataPath: base, fsImpl, log }) } catch (_e) { threw = true }
     expect(threw).toBe(false)
-    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.notify).not.toHaveBeenCalled()
     await new Promise(function (resolve) { setImmediate(resolve) })
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('permission denied'))
+    const rdFailCall = log.notify.mock.calls.find((c) => c[1] === 'partition-readdir-failed')
+    expect(rdFailCall).toBeTruthy()
+    expect((rdFailCall[2] || {}).error).toContain('permission denied')
   })
 })
 
@@ -336,17 +343,19 @@ describe('auth-partition-reclaim：wipeSessionStorage', () => {
   })
 
   it('清空失败只 warn 并返回 false，不抛', async () => {
-    const log = { warn: vi.fn() }
+    const log = { warn: vi.fn(), notify: vi.fn() }
     const session = { clearStorageData: vi.fn().mockRejectedValue(new Error('boom')) }
     expect(await wipeSessionStorage(session, log)).toBe(false)
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('boom'))
+    const wipeFail = log.notify.mock.calls.find((c) => c[1] === 'session-wipe-failed')
+    expect(wipeFail).toBeTruthy()
+    expect((wipeFail[2] || {}).error).toContain('boom')
   })
 
   it('session 缺失/无该 API 时如实留痕并返回 false', async () => {
-    const log = { warn: vi.fn() }
+    const log = { warn: vi.fn(), notify: vi.fn() }
     expect(await wipeSessionStorage(null, log)).toBe(false)
     expect(await wipeSessionStorage({}, log)).toBe(false)
-    expect(log.warn).toHaveBeenCalledTimes(2)
+    expect(log.notify).toHaveBeenCalledTimes(2)
   })
 
   it('clearStorageData/clearCache 归属核对：必须挂在 Session 而不是 WebContents', () => {
