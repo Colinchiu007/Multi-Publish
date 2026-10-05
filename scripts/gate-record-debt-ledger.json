@@ -1,10 +1,5 @@
 {
-  "本次执行记录：全仓控制字节批量清理（control-bytes-sweep，2026-10-05）【docs-only】": {
-    "reason": "本 PR 自身尚未合并，无法取证 merge SHA；回填者＝后续 docs PR，同一次提交删除本条。",
-    "status": "PENDING",
-    "line": 1
-  },
-  "本次执行记录：control-bytes-cleanup 远程同步回填销账（sync-backfill-2907，2026-10-05）【docs-only】": {
+  "本次执行记录：两条 docs PR 远程同步合并回填（sync-backfill-2911，2026-10-05）【docs-only】": {
     "reason": "本 PR 自身尚未合并，无法取证 merge SHA；回填者＝后续 docs PR，同一次提交删除本条。",
     "status": "PENDING",
     "line": 1
