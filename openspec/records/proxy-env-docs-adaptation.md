@@ -2,15 +2,12 @@
 record: proxy-env-docs-adaptation
 task: 代理环境自适应口径落地——仓库侧代理依赖三层清点 + 纠正两处写死本机代理端口的配方 + 新增 docs/proxy-environment-adaptation.md
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填者把下行改成 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep=(#NNNN)$ --format=%H|%cI）
 ---
 
 ## 本次执行记录：代理环境自适应口径落地（proxy-env-docs-adaptation，2026-10-05）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=true**（终态 files=10，逐提交复跑：3 文件 → 6 文件 → 10 文件；本记录随之更新）
-- 保留门禁：判定 ✅（docs-only=true，终态 files=10，见上行）| 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐项相等，见下表）| 品牌残留 ✅（首轮**红在本记录自己身上**：门禁说明里如实写出了名单中的品牌词，被 Gate 12 当场拦下 —— 正是 AGENTS.md 点过的"文档里如实写竞品名会打红，正解写『参考产品』"；改写后复跑 rc=0）| 文档同步 ✅（纯文档，无代码变更）| 远程同步 PENDING
+- 保留门禁：判定 ✅（docs-only=true，终态 files=10，见上行）| 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐项相等，见下表）| 品牌残留 ✅（首轮**红在本记录自己身上**：门禁说明里如实写出了名单中的品牌词，被 Gate 12 当场拦下 —— 正是 AGENTS.md 点过的"文档里如实写竞品名会打红，正解写『参考产品』"；改写后复跑 rc=0）| 文档同步 ✅（纯文档，无代码变更）| 远程同步 PASS（#2914 已合并 7272536ac）
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -22,5 +19,5 @@ sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep
 | 行尾对账 | PASS | 本仓这几份工作树是 CRLF（`git ls-files --eol` 实测 `i/lf w/crlf`），编辑逐行沿用目标文件行尾、未做任何整体归一；`git diff --numstat origin/main..HEAD` 与 `--ignore-cr-at-eol --numstat` 两口径逐项相等 ⇒ 幽灵行为零 |
 | 共享根写保护的放行边界 | PASS（实测撞上一次） | 在共享根编辑根级 `SKILL.md` 被 `[shared-root-guard]` **从 HEAD 恢复**，`git add` 遂无差异、第一笔提交静默漏掉该文件（回读 `git status` 才发现）。放行名单是 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.hermes/` 等，**不含根级 `SKILL.md`**。正解是去隔离工作树里改，而不是放宽守护的放行范围 |
 | 后续登记随锁入仓 | PASS | QM-6 后端复核实测出结构锁的四条精度边界（拆句等价 / 别名与动态方法名 / 字面量与注释不识别（**注释里写旧写法会假红，最危险**）/ 扫描域只 4 个写死文件且无钉），已落在 `docs/settings-persistence-contract.md` 新增 §9，与锁本体同文件；三份 findings 由会话工作区入仓到 `.ccg/review/`（27839B / 22160B / 13237B，均经 JSON.parse 校验后落盘）——评审结论不得只指向会随工作树清理而消失的路径 |
-| 远程同步 | PENDING | 待 PR 合并后由后续提交就地改写为 PASS + merge SHA，并删除本文件 frontmatter 的三个 sync_* 字段 |
+| 远程同步 | PASS | PR #2914 squash 合并 7272536ac（2026-10-05T06:02:26Z，完整 SHA 7272536acb668826933a3df51a193042fad05b5e；main 上合并提交主题逐字为：docs: 代理环境自适应口径落地 + #2899 记录销账与 CHANGELOG 回填 (#2914)）；远端分支 mp-proxy-env-docs-adaptation 已删（git ls-remote --heads origin mp-proxy-env-docs-adaptation 返回 0 行）；本条记录即由本次 docs-only PR 就地回填，frontmatter 的 sync_* 三字段同一次删除 |
 
