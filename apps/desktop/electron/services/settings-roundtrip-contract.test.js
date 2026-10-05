@@ -230,7 +230,9 @@ describe('Settings 真源：禁止第二份归一化实现重新长出来', () =
       'String(store.getUserSetting(K, null, owner))',
     ]
     for (const s of mustFlag) {
-      expect(findStringReadsOfSettings(s)).toBeTruthy()
+      // 必须长度精确：toBeTruthy() 对空数组同样成立，会让本锁对『恒返回空数组』这种 no-op 完全免疫
+      // （M4' 变异实测抓到并报绿，即上一版本矩阵是装饰性断言）
+      expect(findStringReadsOfSettings(s).length).toBe(1)
     }
     // 负例：合法演进不得判红，否则下一个会话会直接把锁删掉
     const mustNotFlag = [
