@@ -47,7 +47,8 @@ ALLOWED_DOC_KEYS = set(MULTIMODAL_DOC_CAPABILITIES) | {"audio"}
 _HTTP_URL_RE = re.compile(r"^https?://[^\s]+$", re.IGNORECASE)
 
 # 198.18.0.0/15：RFC 2544 基准测试段（Python >=3.12 标记为 is_private=True），
-# Clash/TUN 类 fake-ip 代理用它接管公网流量；仅在显式开启开关时放行。
+# Clash/TUN 类 fake-ip 代理用它接管公网流量（本机代理进程或网关侧透明代理均可）；
+# 仅在显式开启开关时放行。
 _BENCHMARK_V4 = ipaddress.ip_network("198.18.0.0/15", strict=False)
 # CGNAT(100.64.0.0/10)：is_private 在不同 Python 版本覆盖不一致，显式补充
 _CGNAT_V4 = ipaddress.ip_network("100.64.0.0/10", strict=False)
@@ -869,7 +870,8 @@ def _is_private_or_reserved(ip: str) -> bool:
     except ValueError:
         return False
     # 198.18.0.0/15 是 RFC 2544 基准测试段（Python >=3.12 标记为 is_private=True），
-    # Clash/TUN 类 fake-ip 代理用它接管公网流量，公网模型 API 域名在代理环境下会解析到该段；
+    # Clash/TUN 类 fake-ip 代理用它接管公网流量（本机代理进程或网关/路由器级透明代理均可），
+    # 公网模型 API 域名在 fake-IP DNS 劫持环境下会解析到该段；
     # 它不是真实内网目标，但仅在显式开启 OPS_ALLOW_PROXY_BENCHMARK_IPS 时放行（默认 fail-closed）。
     if settings.allow_proxy_benchmark_ips and addr in _BENCHMARK_V4:
         return False
@@ -881,8 +883,10 @@ def _is_benchmark_segment(ip: str) -> bool:
     """是否为 RFC 2544 基准测试段 198.18.0.0/15。
 
     该段被 Clash/TUN 类 fake-ip 代理用于接管公网流量：公网模型 API 域名在代理
-    DNS 劫持下会解析到该段。它不是真实内网目标，仅因代理存在才出现；用于区分
-    「真实私网/保留地址」与「代理基准段」，从而给出可操作的拒绝提示。
+    DNS 劫持下会解析到该段；劫持来源可能是本机代理进程，也可能是网关/路由器级
+    的透明代理（如 OpenClash），本机无代理监听时同样会出现。它不是真实内网目标，
+    仅因 fake-IP DNS 劫持才出现；用于区分「真实私网/保留地址」与「代理基准段」，
+    从而给出可操作的拒绝提示。
     """
     try:
         return ipaddress.ip_address(ip) in _BENCHMARK_V4
@@ -984,10 +988,12 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
                 # 仅因代理 DNS 劫持才解析到 198.18.x.x，给出可操作的指引而非笼统拒绝。
                 if _is_benchmark_segment(ip) and not settings.allow_proxy_benchmark_ips:
                     raise ValueError(
-                        "获取模型ID URL 在 fake-IP 代理环境下解析到 198.18.x.x（RFC 2544 基准测试段），"
-                        "被 SSRF 守卫按保留地址拒绝。这不是真实内网目标，而是 Clash/TUN 类代理接管公网流量的正常现象。"
+                        "获取模型ID URL 在 fake-IP DNS 劫持环境下解析到 198.18.x.x（RFC 2544 基准测试段），"
+                        "被 SSRF 守卫按保留地址拒绝。这不是真实内网目标：公网模型 API 域名在 fake-IP 下会"
+                        "解析到该段，劫持来源可能是本机代理进程（Clash/TUN 类），也可能是网关/路由器级的"
+                        "透明代理（如 OpenClash）——本机没有任何代理监听时也可能出现。"
                         "请二选一解决：① 在运行 ops-center 的环境设置 OPS_ALLOW_PROXY_BENCHMARK_IPS=true 后重启服务；"
-                        "② 关闭代理的 fake-IP / DNS 劫持模式后重试。"
+                        "② 关闭对应代理（本机或网关侧）的 fake-IP / DNS 劫持模式后重试。"
                     )
                 raise ValueError("获取模型ID URL 解析到私网/保留地址，已拒绝（防 SSRF）")
 
