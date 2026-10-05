@@ -279,6 +279,23 @@ function saveRecord(result, sha, layer, plannedFiles) {
     mode: result.mode,
     reason: result.reason,
     stats: result.stats,
+    // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
+    //
+    // 为什么必须这样：pre-commit 阶段新 commit 的 sha 还不存在，
+    // 记录只能写在父 sha 上；提交完深度审查按新 HEAD 找，必然落空。
+    // 试过用 git write-tree 做键，不行——判定器自己的输出文件
+    // 也会被 git add 进同一个 commit，tree 因此移位，键对不上。
+    //
+    // 排除 .ccg 后，pre-commit 的「暂存 diff」与提交后的
+    // 「parent..HEAD diff」逐字节相同，可以稳定对上。
+    // 实测踩过：不加这个字段，验证层在真实流程里一次都跑不起来。
+    stagedDiffHash: (() => {
+      try {
+        const d = String(git(["diff", "--cached", "--", ".", ":(exclude).ccg"]));
+        if (!d.trim()) return undefined;
+        return require("crypto").createHash("sha256").update(d).digest("hex");
+      } catch (_) { return undefined; }
+    })(),
     // 决策层记录方案点名的待改文件，供事后范围漂移比对
     plannedFiles: (layer === "plan" && plannedFiles) || undefined,
     decidedAt: new Date().toISOString(),
