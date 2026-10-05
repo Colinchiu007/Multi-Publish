@@ -2,9 +2,6 @@
 record: changelog-restore
 task: 回灌 CHANGELOG.md 被 PR #2884 截断掉的 1131 条历史条目（逐字节，不改写历史）
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段，否则门禁报「已回填却仍留登记字段」
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：CHANGELOG.md 截断抢救（changelog-restore，2026-10-05）【docs-only】
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | 接线棘轮 | N/A | 本 PR 不新增任何 `*.test.*`；回归锁在下一个 PR 与本 PR 的接线同一次落地（#2718 打通的快速通道不适用于"新增测试"） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、未触 UI 文件 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 纯文档抢救按 AGENTS.md 不强制 QM-6；且本机 QM-6 通道本会话未验证（`gh` 在 Git Bash 下 rc=0 零输出、CC Switch :15721 存活未测）。**如实记「未执行」，不以自审冒充通过** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin changelog-restore` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `fd28e782fe976be03ebbc1d7473c70fe83c20b0c`（PR #2898，2026-10-05T02:03:37Z）；取证 `git log origin/main --grep='(#2898)$' --format=%H|%cI` 唯一命中该 SHA 与提交时间，`git ls-remote --heads origin changelog-restore` 返回 **0 行**证远端分支已随合并删除。另：本次回填同时把「截断抢救」本身写成一条 CHANGELOG 条目（该文件此前被 #2884 整份替换成 2 条，1,131 条历史由 b531bdfe7^ 逐字节回灌）；本记录走 openspec/records 载体，回填同时删除 frontmatter 的三个 sync_* 登记字段。|
 
 ### 差量与归属（别把别人的成果写成我的）
 - 本 PR **只新增** 5,854 字节的顶插块（#2894 / #2884 / #2888 / #2848 四条 CHANGELOG 条目，作者分别是并发会话与我）之外**没有任何内容创作** —— 其余 `7,474,293` 字节是 `b531bdfe7^` 上既有历史的原样回灌。
