@@ -176,6 +176,38 @@ test('isPureBackfillChangeSet 判据可直接单测（QM-6 前端 I1）', () => 
   assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['M', 'x.js']])), false)
   assert.strictEqual(mod.isPureBackfillChangeSet(st([['A', 'openspec/records/a.md']])), false)
   assert.strictEqual(mod.isPureBackfillChangeSet([]), false)
+  // _exempt 边界（QM-6 后端 I3）：载体正则的首字符 [^_] 守卫必须把豁免文件的 M 挡在外面
+  assert.strictEqual(mod.isPureBackfillChangeSet(
+    st([['M', 'openspec/records/_exempt/x.md'], ['M', 'openspec/records/a.md']])), false,
+    'M 豁免文件不是载体 —— 放宽正则时这里必须红')
+  // 重命名形态（QM-6 后端 I2）：changedFileStatuses 对 rename 返回 R100（非 M），
+  // "代码文件改名成记录文件"不得被纯回填吸收
+  const r100Statuses = [{ status: 'R100', file: 'openspec/records/new.md', from: 'apps/desktop/old.js' }]
+  assert.strictEqual(mod.isPureBackfillChangeSet(r100Statuses), false,
+    'R100 复制/重命名形态不算 M，出路④必须拒绝')
+  const r100 = mod.evaluate({
+    statuses: r100Statuses,
+    headBranch: 'x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(r100.ok, false, JSON.stringify(r100.reasons))
+  assert.deepStrictEqual(r100.backfillRevised, [])
+})
+
+// ── QM-6 后端 W1：出路④不得吞掉「分支名注入失效」——detached 且无 env 时必须 fail-closed ──
+// resolveHeadBranch 的设计是"宁可判没带记录，也不猜一个不存在的分支"；若出路④不要求分支名，
+// CI 上 --head-branch 注入失效会让纯 M 记录 PR 以 head分支=(空) 判绿，接线失效被静默吞掉。
+test('出路④要求分支名可解析：detached 且无 CI 注入时纯 M 记录必须红并出声', () => {
+  const r = mod.evaluate({
+    statuses: st([['M', 'openspec/records/other.md']]),
+    headBranch: '',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main']),
+  })
+  assert.strictEqual(r.ok, false, JSON.stringify(r.reasons))
+  assert.match(r.reasons.join('\n'), /分支名/, '必须点名"分支名不可解析"这一成因，而非泛泛的"未携带记录"')
+  assert.deepStrictEqual(r.backfillRevised, [], '分支名不可解析时回填清单必须为空')
 })
 
 test('summary 必须始终打印载体 M 计数，回填未成立时作者能看出差在哪（QM-6 前端 W9）', () => {

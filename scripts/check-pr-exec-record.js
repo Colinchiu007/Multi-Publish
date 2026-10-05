@@ -88,13 +88,29 @@ function evaluate({
   // .quality-gates.md 可翻门槛、账本可收缩欠账；改动前「只 M 载体不带记录」是红的，
   // 放行若无此条件就把那扇门重新打开。回填的本质是修订记录，SOP 里销账与记录更新同次发生，
   // 因此无记录文件的载体集不构成回填）。M+D 混合（删记录）仍必须另交记录。
-  // backfillRevised 只在"确实走出路④放行"时有值 —— 掺进 A（豁免出路）或非载体文件时保持空，
-  // 让两条出路的计数互不重叠（与 revisedRecords 是两条互斥路径的计数，backfillRevised 只在
-  // isPureBackfill 时非空，revisedRecords 只在出路②命中时非空）。
-  const isPureBackfill = isPureBackfillChangeSet(statuses)
+  //
+  // 两条计数是**包含关系而非互斥**（QM-6 后端 W1 修正注释）：isPureBackfill 时
+  // revisedRecords ⊆ backfillRevised（本分支那篇同时出现在两边，归属维度不同）；
+  // 真正互斥的是出路④与豁免出路（掺进 A 豁免即不再纯回填）。
+  //
+  // 分支名必须可解析（QM-6 后端 W1）：出路④若不依赖 headBranch，CI 上 --head-branch 注入
+  // 失效（detached 且无 GITHUB_HEAD_REF）会让纯 M 记录 PR 以 head分支=(空) 判绿 ——
+  // resolveHeadBranch「宁可判没带记录，也不猜分支」的 fail-closed 设计被静默吞掉。
+  // 因此分支名不可解析时出路④不适用，并出专用理由（区别于泛泛的"未携带记录"）。
+  //
+  // 信任边界（QM-6 后端 I4-info，文档化不改码）：出路④只校验文件/状态形态，不校验 M 内容
+  // 是否真是回填凭据 —— PENDING→PASS 的真实性依赖人工 review 与 check-gate-record-debt.js
+  // 的结构检查，这是文档门禁的固有信任边界。
+  const backfillShaped = isPureBackfillChangeSet(statuses)
+  const isPureBackfill = backfillShaped && headBranch !== ''
   const backfillRevised = isPureBackfill
     ? statuses.filter((e) => e.status === 'M').map((e) => e.file)
     : []
+  if (backfillShaped && !isPureBackfill) {
+    reasons.push('变更集形似纯回填，但分支名不可解析（detached 且无 CI 注入）⇒ 判据 fail-closed：'
+      + '出路④需要可解析的分支名来区分「修订本分支记录」与「回填别人的记录」。'
+      + '请由 CI 注入 PR head 分支名（GitHub Actions: GITHUB_HEAD_REF，本地传 --head-branch）。')
+  }
 
   // 变更集为空 = 取不到证据，不等于"这个 PR 没改文件"。判红，不接受空清单当通过。
   if (!Array.isArray(statuses) || statuses.length === 0) {

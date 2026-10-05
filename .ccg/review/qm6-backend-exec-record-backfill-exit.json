@@ -1,0 +1,42 @@
+[
+  {
+    "severity": "Warning",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 48,
+    "issue": "出路④判据与出路②计数重叠，并弱化分支注入失败时的 fail-closed。isPureBackfillChangeSet 不排除 ownRecordPath：M openspec/records/<headBranch>.md 会同时命中 revisedRecords 与 backfillRevised，backfillRevised 把本分支记录也算成\"回填\"（新测试 I4 已钉住此行为，见 test.js:191-196），与第 84-87 行\"两条互斥路径、计数互不重叠\"的注释直接矛盾。更实质的是：出路④不依赖 headBranch，因此 CI 上 --head-branch/GITHUB_HEAD_REF 注入失败（detached 且无 env）时，纯 M 记录型 PR 会以 head分支=(空) 判绿，而此前设计的\"detached 无注入 ⇒ 宁可判没带记录也不猜分支\"（resolveHeadBranch 注释）不再生效，接线失效被静默吞掉。",
+    "fix": "在 backfillRevised 中排除 ownRecordPath（并相应收紧 isPureBackfillChangeSet 或仅保持 submitted 语义不变），或明确接受该重叠并修正注释；同时补一条 detached/headBranch 为空 + 纯 M 记录仍判红的回归测试，避免 CI 分支名注入失效被出路④掩盖。",
+    "confidence": "high"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 170,
+    "issue": "R100/C 复制形态没有回归测试。changedFileStatuses 对重命名返回 {status:'R100', file:newPath, from:oldPath}（实测验证），status!=='M' 使出路④正确拒绝——当前 fail-closed 成立；但没有任何测试钉住 carrier→carrier 或非载体→carrier 的重命名不得走进路④。未来若把 R100 归一化成 M+新路径，重命名（含\"代码文件被改名成记录文件\"）会静默被纯回填吸收。",
+    "fix": "新增一条 evaluate 级测试（如 {status:'R100', file:'openspec/records/new.md', from:'openspec/records/old.md'}）断言 isPureBackfill=false、backfillRevised=[]、ok=false；或在真实 git 夹具里做一次 rename 走真接缝测试。",
+    "confidence": "high"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.test.js",
+    "line": 170,
+    "issue": "M openspec/records/_exempt/*.md 边界未钉。CARRIER_RE 以首字符 [^_] 排除 _exempt/，所以 M 豁免文件不会走进路④（fail-closed），但没有任何测试断言 isPureBackfillChangeSet([{status:'M',file:'openspec/records/_exempt/x.md'}]) === false；未来把载体正则放宽（如去掉首字符守卫或单独加 _exempt 分支）会静默改变该边界。",
+    "fix": "在 isPureBackfillChangeSet 直测中补一条 _exempt 文件的 M 断言；_TEMPLATE.md 已有间接 ok=false 覆盖，可一并补显式 isPureBackfill=false。",
+    "confidence": "high"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 234,
+    "issue": "--head= 空串守卫本身正确（fail-closed、rc=2），但存在三个边界：①守卫在 mode 解析之前执行，--mode=advisory 下同样 rc=2，与本脚本\"advisory 阶段取证失败不拦\"的既有契约不一致（对比 base 不可解析时 advisory 退出 0）；②工作流里 --head=\"${EXEC_HEAD_SHA:-HEAD}\" 永远不会产出空串（空 env 回落到字面 HEAD），且 workflow 已有 base 有值而 head 为空即 exit 1 的守卫，因此脚本层守卫实际只拦直接调用；③裸 --head（无 =）被 parseArgs 解析成布尔 true，绕过该守卫仍回落到 HEAD。",
+    "fix": "可选：把守卫放到 mode 解析之后并补 advisory 用例，或将 args.head===true 也视为显式缺失；至少补一段注释/测试说明裸 --head 与 workflow 回落的边界，避免后人误以为该守卫覆盖 CI 全链路。",
+    "confidence": "high"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-pr-exec-record.js",
+    "line": 43,
+    "issue": "出路④只校验文件/状态形态，不校验 M 内容是否真是回填。C2（至少一篇 openspec/records/*.md 的 M）已正确封死\"只翻 .quality-gates.md/账本\"的滥用；但\"M 一篇旧记录 + M .quality-gates.md/账本\"仍可在\"纯回填\"名义下改动同级门禁（check-gate-record-debt.js）消费的数据（例如把 远程同步 PENDING 改写成 PASS、收缩账本），无需本 PR 自己的执行记录。记录内容删除到零行会被 sibling gate 判红，但伪造收口不被机器识别——这是文档门禁的固有信任边界，建议作为已知限制写进注释/PR 描述，不要求本次修复。",
+    "fix": "在 CARRIER_RE/出路④注释中显式声明：载体内容真实性依赖人工 review 与 check-gate-record-debt.js 的结构检查，出路④不验证 PENDING→PASS 或账本收缩的凭据。",
+    "confidence": "medium"
+  }
+]
