@@ -28,6 +28,9 @@
 
 "use strict";
 
+/** 门禁脚本版本。分发到各项目后用 check-gate-drift.js 比对规范源，防止副本漂移。 */
+const CCG_GATE_VERSION = "1.1.0";
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

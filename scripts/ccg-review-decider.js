@@ -24,6 +24,9 @@
 
 "use strict";
 
+/** 门禁脚本版本。分发到各项目后用 check-gate-drift.js 比对规范源，防止副本漂移。 */
+const CCG_GATE_VERSION = "1.1.0";
+
 const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawnSync } = require("child_process");
@@ -33,9 +36,15 @@ const { execFileSync, spawnSync } = require("child_process");
 // ═══════════════════════════════════════════════════════════════════
 
 const RULES = {
-  // 变更行数阈值
-  dualLineThreshold: 30, // > 此行数 → dual
-  skipLineThreshold: 10, // ≤ 此行数且无敏感命中 → skip
+  // 跨家族对抗的触发阈值。
+  // ⚠️ 必须与 §12.6 Review Army 对齐：Red Team 的触发条件是「>200 行或有 CRITICAL」。
+  //    初版用 30 行会让大量中等改动无谓地起两个外部进程；而用「行数少」当 skip 理由
+  //    更严重——§12.6 明确 Testing / Maintainability 专家「总是触发」。
+  dualLineThreshold: 200,
+
+  // skip 只允许由 docs-only 快通道（§11.2b 文档白名单）触发，不因行数少而触发。
+  docsOnlyExtensions: new Set([".md", ".mdx", ".txt", ".rst", ".adoc"]),
+  docsOnlyDirs: ["docs/", "doc/", ".github/ISSUE_TEMPLATE/"],
 
   // 只统计源码文件的变更行数（文档/资源不计入复杂度）
   codeExtensions: new Set([
@@ -175,6 +184,18 @@ function collectProposal(file) {
 //  判定
 // ═══════════════════════════════════════════════════════════════════
 
+/** 是否全部改动都落在文档白名单内（§11.2b docs-only 快通道的唯一 skip 依据） */
+function isDocsOnly(staged) {
+  if (staged.proposal) return false; // 方案评审不走 docs-only
+  if (!staged.files.length) return false;
+  return staged.files.every((f) => {
+    const ext = path.extname(f.file).toLowerCase();
+    const p = f.file.replace(/\\/g, "/").toLowerCase();
+    if (RULES.docsOnlyDirs.some((d) => p.startsWith(d))) return true;
+    return RULES.docsOnlyExtensions.has(ext);
+  });
+}
+
 function judge(staged) {
   // 决策层：方案本身通常是 .md，不能按源码扩展名过滤（否则规模会被算成 0）
   const isProposal = !!staged.proposal;
@@ -213,7 +234,7 @@ function judge(staged) {
   let mode, reason;
   if (changedLines > RULES.dualLineThreshold) {
     mode = "dual";
-    reason = `变更 ${changedLines} 行 > ${RULES.dualLineThreshold} 行阈值`;
+    reason = `变更 ${changedLines} 行 > ${RULES.dualLineThreshold} 行阈值（对齐 §12.6 Red Team）`;
   } else if (sensitive) {
     mode = "dual";
     const parts = [];
@@ -221,12 +242,13 @@ function judge(staged) {
     if (plannedPathHits.length) parts.push(`方案点名敏感文件 ${plannedPathHits.slice(0, 3).join(", ")}`);
     if (contentHits.length) parts.push(`敏感内容 ${contentHits.length} 处`);
     reason = `变更 ${changedLines} 行（≤ ${RULES.dualLineThreshold}）但命中 auth/数据库/加密：${parts.join("；")}`;
-  } else if (changedLines <= RULES.skipLineThreshold) {
+  } else if (isDocsOnly(staged)) {
+    // 仅 docs-only 快通道允许完全跳过（§11.2b）
     mode = "skip";
-    reason = `变更 ${changedLines} 行 ≤ ${RULES.skipLineThreshold} 行且未命中敏感 → S 复杂度低风险`;
+    reason = "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道";
   } else {
     mode = "single";
-    reason = `变更 ${changedLines} 行（≤ ${RULES.dualLineThreshold}）且低风险`;
+    reason = `变更 ${changedLines} 行（≤ ${RULES.dualLineThreshold}）且无敏感命中 → 走 §12.6 常规专家分派`;
   }
 
   return {
