@@ -1,0 +1,83 @@
+[
+  {
+    "severity": "Critical",
+    "file": "apps/desktop/electron/services/ops-center-sync.js",
+    "line": "139-146（静默出口在 141 与 146 两处）",
+    "claim": "_readStoredObject 的 JSDoc（137 行）自行声明「注入物不符合存储契约必须留痕，不许静默变空」，但方法体内有**两个**无声的 `return {}` 出口违反它：146 行 `try { return store.getSettingObject(settingKey, {}) } catch { return {} }` 把「方法存在却抛异常」吞掉；141 行 `if (!store) return {}` 把「压根没注入 store」——契约不符的最极端形态——也吞掉。只有 142-143 那一档（方法不存在）出了声。同一 PR 的 usage/publish/diagnostics 三个 reporter 的对应 catch 全部是 `catch (e) { this._log.warn(...) }`（有声）。这条不一致把本 PR 要消灭的「把读回失败伪装成用户没配置」留下了活口，且受害面是本 PR 收敛的最大一块（getConfig / _readEncryptedKey / _getManualUrl / _getStoredKeyEnc / _getRuntimePublicKey / _loadRuntimeState 共 6 个调用点）。",
+    "refutation_attempt": "四路反驳：① 试图证明该 catch 实际打不到——真实 Store 在 `_ready=false` 与「行不存在」时是 `return defaultValue`（settings-store.js:19/21），不抛错，所以这两条正常路径确实不经过 catch，主张范围需收窄；② 但 `getSettingObject` 内部 `this.getSetting` 会执行 `this.db.prepare(...).get(key)`，库被关闭/文件损坏/SQL 异常时确实抛出，该路径可达，且 ops-center-sync.js:146 正是它唯一归宿；③ 试图证明它「不算静默」，因为上面 142-144 已有存在性告警——但存在性告警只覆盖「方法不存在」，恰好不覆盖「方法抛错」，两档互补而非重复；④ 试图证明三个 reporter 也同样静默以说明这是既有口径——读源码确认它们都带 `catch (e) { this._log.warn }`，且构造函数 `this._log = log || {info,warn,error}` 有兜底，warn 一定打得出去，故本 PR 内部确实只有 ops-center-sync 这一侧失声。",
+    "result": "主张成立（外部前端模型 opencode/nemotron-3-ultra-free 提出为 Critical，本地复核确认；本地另将其失效方向精确化）。反证 ① 使该条不是「必现」而是「真故障时静默」，但按 AGENTS.md「静默配置失败必须留日志」为 MUST、且该方法 JSDoc 自行声明了相反契约，仍判 Critical。补充一条外部模型没说到、方向相反的事实：三个 reporter 缺少 142-144 那种存在性检查，但因为缺方法会抛 TypeError 并被带声 catch 接住，它们的实际可观测性反而优于 ops-center-sync——即本 PR 内部是「检查了存在性的那一路在真抛错时失声，没检查的那一路始终有声」，两档判据应当互换而非并存。",
+    "fix": "把 146 行改为 `catch (e) { this._log.warn('OpsCenterSync', `getSettingObject(${settingKey}) 读取失败，按空配置处理: ` + e.message); return {} }`；141 行的 `if (!store) return {}` 同样补一条 warn（「未注入 store，${settingKey} 按空配置处理」），使三个出口共用同一出声判据、与方法自身 JSDoc 对齐；同时给三个 reporter 补同款存在性检查以统一判据。回归锁加在 settings-roundtrip-contract.test.js：① 注入 `getSettingObject` 存在但必定 throw 的 store，② 注入 `store` 为 undefined，两档都断言 `log.warn` 被调用恰好一次且仍返回空配置（把对应 warn 摘掉必须变红）。"
+  },
+  {
+    "severity": "Warning",
+    "file": "docs/settings-persistence-contract.md",
+    "line": "29、65-67",
+    "claim": "§2 宣称 `getSettingObject` 是「消费侧唯一入口」，§6 把未收敛的同族归一化清单限定为 hot-topics-service.js 的 157/185/360 三处（称其为「第二、三、四份拷贝」），并给出不收敛的理由是「注入物是 container.setup.js 的窄包装，要先扩转发」。实测：同一 `store.getSetting` 真源上的手工归一化在生产里共有 7 处而非 3 处，漏记 4 处（`ipc-handlers/store.js:411/436/455` 的 drafts、`automation-scheduler.js:74` 的 automation_tasks）；且这 4 处的真实阻塞理由与 §6 写的那个**不是同一个**——automationScheduler 在 container.setup.js:208-212 拿到的是完整 Store 实例（`store: c.get(\"store\")`），根本不受害于「窄包装未扩转发」，它不能迁的原因是值为**数组**、被 `getSettingObject` 的 `!Array.isArray` 判据主动拒绝（见第 3 条）。§6 因此同时犯了两件事：清单不全，且把唯一的阻塞理由写成了对全部漏项通用、实际只对其 3 项成立的理由。",
+    "refutation_attempt": "① 逐条核对 §6 点名的三行，确实在 hot-topics-service.js:157/185/360，且该服务在 container.setup.js:229 收到的确实是 `settingsStore: { getSetting, setSetting }` 两方法窄包装——理由对 hot-topics 成立。② 全仓 grep `typeof raw === 'string' ? JSON.parse(raw) : raw`（排除 *.test.js），额外命中 `ipc-handlers/store.js:411/436/455` 与 `automation-scheduler.js:74` 共 4 处。③ **本条初稿曾断言「automation-scheduler 有完整 store，故本可在零装配面成本下迁入唯一入口」，随即被自己的实测推翻**：读 automation-scheduler.js:82-105 确认 `_persist` 写的是 `this._tasks`、`load()` 走 `normalizeAutomationTasks` 且非法形态时「按空列表处理」、`list()` 做 `.map` ⇒ 值为数组；读 settings-store.js:35/39 确认 `getSettingObject` 对数组返回 `defaultValue` 而非数组本体 ⇒ 若真按初稿建议迁移，会把有数据读成 `{}`，属于**引入新 Bug**。故该断言已从 claim/result/fix 三处删除，改为「阻塞理由是数组排除、不是窄包装」。④ 试图主张「store.js 与 automation-scheduler 不在本 PR 射程内所以不必写进 §6」——但 §6 的标题与措辞是「已知重复项」的**全量清单**，且二者走的是同一个 `getSetting` 出口，清单不全即把「唯一入口」写成了不成立的命题。",
+    "result": "主张成立、且一处子claim被本地实测推翻后已修正（外部模型未覆盖此条；本地实测命中，并在自查中拦下自己一条会导致新 Bug 的建议）。严重性定 Warning 而非 Critical：这 7 处归一化写法本身行为正确、无用户可见缺陷；代价是「唯一入口」这一契约陈述不真，后续按 §6「必须先删这三份」收尾时会剩 4 份无人认领，并且下一个人会拿 §6 那条对其不适用的理由再豁免一轮。",
+    "fix": "① 把 §6 清单补全为实测 7 处，并**按真实阻塞理由分组**标注：hot-topics×3＝窄包装装配面；store.js×3 与 automation-scheduler×1＝值为数组，现有 `getSettingObject` 判据容纳不了（**切勿在这三者被补齐数组入口之前直接迁移，迁移会把有数据读成 `{}`**）。② §2 的「唯一入口」限定为「**对象型**设置的唯一入口」，避免留下一个 repo 内不成立的绝对命题。③ 加一条**只可缩小**的棘轮结构锁（登记这 7 处的文件+行锚），新增第 8 处即红——照本仓 platform-definitions 棘轮先例，判据按形态而非文件名。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/store/settings-store.js",
+    "line": "33-43",
+    "claim": "`getSettingObject` 的判据 `!Array.isArray` 把数组型设置整类排除在外，而真源里存在大量数组型设置：`ipc-handlers/store.js:411/436/455` 的 `drafts`（`|| '[]'`）、`automation-scheduler.js:74` 的 `automation_tasks`（`_persist` 写 `this._tasks`、非法形态「按空列表处理」、`list()` 做 `.map`）、`ipc-handlers/hot-topics.js:31` 的收藏默认 `[]`、`story2video-project-service.js:519` 默认 `[]`、`phase3-services.js:263` 的 `task_queue_state`。于是「消费方唯一入口」实际只覆盖对象型；§6 点名的三份之外、以及它没点名的 4 份里至少 4 份**在现有 API 下无处可迁**——「后续收敛时必须先删这三份」这句话落到数组消费点上就没有入口可用。",
+    "refutation_attempt": "① 读 33-43 行确认 `!Array.isArray(raw)` 与 `!Array.isArray(parsed)` 两处判据都主动拒绝数组，返回的是 `defaultValue`，不是数组本体——排除是有意的。② 试图反驳「那让调用方传 `[]` 作 defaultValue 就行了」——但传 `[]` 进去后 `getSettingObject` 在行存在且为合法数组时仍会走 `return defaultValue`（即空数组），把「有数据」误判成「无数据」，比不迁移更坏，所以这条反驳不成立、反而加深结论；本条不是假想：`automation-scheduler.js` 的 `automation_tasks` 与 `store.js` 的 `drafts` 实测都是数组，正是这个形状。③ 检查是否已有 `getSettingArray`/`getSettingValue` 兄弟方法——grep 确认不存在。④ 检查 `getUserSetting` 是否有 Object 变体——无 `getUserSettingObject`，即用户作用域（Logto 下的主路径）连对象型都还没有入口。",
+    "result": "主张成立，且有**运行时实证**（外部模型 #1 只把它当作「命名不对称」的附带担忧，未识别为 API 覆盖缺口；本地实测把它提升为独立结论）。在真 Store 上注入假 db 后跑：`setSetting('arr',[1,2,3])` ⇒ 落盘 `[1,2,3]` ⇒ `getSetting('arr',null)` 返回 `[1,2,3]` ⇒ **`getSettingObject('arr',{})` 返回 `{}`**，即一份真实存在的数组配置被这个「唯一入口」静默读成空，且不抛、不记日志。同一探针确认 `typeof store.getSettingObject === 'function'` 而 `typeof store.getUserSettingObject === 'undefined'`（mixin 经 store/index.js:39 `Object.assign(Store.prototype, …)` 生效，新入口确实挂到了实例上）。这条同时说明：若有人按 §6「必须先删这三份」的字面指示去迁数组消费点，会把本 PR 修的那一类「写得进读不回」缺陷在数组维度**原样重新引入一次**，只是换到了另一个类型上。据此回答评审关注点 2：「留一手」确实会造成口径分裂，但分裂根因不是「有人抄了第三次」，而是被命名为唯一入口的那一个 API 少覆盖了一整类值形态——后来者手抄是**当时唯一正确选择**，这种结构的收敛压力是自增的，越晚收敛越多。",
+    "fix": "二选一：① 把判据参数化，`getSettingValue(key, defaultValue, { expect: 'object' | 'array' | 'any' })`，令 `getSettingObject` 退为其 `'object'` 语法糖，保持既有调用不变；或 ② 补 `getSettingArray` + `getUserSettingObject`（+ 后续 `getUserSettingArray`）把家族补齐，并同步扩 container.setup.js 的窄包装转发面。任一方案都应在 §2 写明「数组型当前如何收口」，不要让下一位自行推理。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+    "line": "185-189",
+    "claim": "新增的结构锁 `/String\\(\\s*[\\w.?!]*getSetting/` 会误伤合法写法：实测它对 `String(store.getSettingObject(SETTING_KEY))` 返回 true。也就是说，将来若有人在新入口上再套一层 `String(...)`（正是要被消灭的形状，理应变红，但锁此时报的是「该文件不得再用误判口径」而非「你套了 String」），或仓库里出现任何以 `getSetting` 为前缀的其它标识符（`getSettings`），都会被这条锁判红。锁把「禁止旧形状」写成了「禁止出现这串字符」，是「把实现细节钉成契约」这一类过度约束的边界案例。",
+    "refutation_attempt": "① 用 node 直接对四个候选字符串跑现正则与两种改法（见 result 的实测矩阵），确认现正则确实命中 `getSettingObject` 与 `getSettings`。② 试图反驳「本 PR 之后不会有人再写 String(getSettingObject(...))，所以误伤不可达」——但同文件 302 行 `_getRuntimePublicKey` 里就有 `String(pem).trim()` 这种对新返回值再 String 的写法习惯，`String(store.getSettingObject(k, {}).url)` 一类是完全可能出现的合法演进（虽然 String 包对象本身可疑，但它不属于本锁声称要禁的「往返误判」），误伤可达。③ 试图反驳「误伤红掉也无所谓，改写法即可」——可本仓把「挡住合理重构」列为评审项，且此锁一旦误伤，读者无法从文案判断自己踩的是语义禁令还是字符禁令。",
+    "result": "部分成立（外部模型提出为 Info 并建议加 `(?!Object)`；本地实测把结论加强为 Warning 并给出更优改法）。实测三行对照：现行正则——旧形状 Y / `getSettingObject` Y（误伤）/ `getSettings` Y（误伤）；加 `(?!Object)`——旧形状 Y / `getSettingObject` n / `getSettings` **仍 Y**；锚定开括号 `getSetting\\s*\\(`——旧形状 Y / `getSettingObject` n / `getSettings` n。即外部模型建议的 lookahead 只解决一半，`getSetting\\s*\\(` 一次解决两类误伤且不改语义强度。",
+    "fix": "187 行改为 `expect(src).not.toMatch(/String\\(\\s*[\\w.?!]*getSetting\\s*\\(/)`；用例名保留行为描述即可，另在锁上方注释写明「本锁测的是『把 getSetting 的返回当字符串再处理』这一形状，不是禁止 String() 本身」。若要把 §6 的 7 处也纳入防再犯，另起一条只可缩小的棘轮清单，不要把两件事混进同一条正则。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/ops-center-sync.test.js",
+    "line": "365-368",
+    "claim": "夹具同形化过程中这条断言被削弱了：原 `expect(store.setSetting).toHaveBeenCalledWith('opsCenterRuntime', expect.stringContaining('远程词甲'))` 改成 `toHaveBeenCalledWith('opsCenterRuntime', expect.any(Object))` + `expect(store._getData()).toContain('远程词甲')`。而 `makeStore`（51 行 `let data = initial || ''`）是**单键**夹具——`getSetting`/`getSettingObject`/`setSetting` 全部忽略 key，`_getData()` 返回的是「最后一次写入的那一行」，与被断言的键无关。组合结果：既不校验写入值的具体形状（any Object 任何对象都过），也不校验它写到了哪个键（写进别的键、或随后被另一次 setSetting 覆盖 data 前的内容，都照样通过）。这正是 AGENTS.md 禁止的「只看 mock 调用的装饰性断言」。",
+    "refutation_attempt": "① 读 365-368 确认断言文本，读 51-60 确认 makeStore 为单键 `let data`、`getSetting: vi.fn(() => ...)` 完全不用参数 k——键不敏感成立。② 试图反驳「上一行 365 的 `_getData()).toContain('\"announcements\"')` 已经锚定了内容」——但那句同样键不敏感，且只证明「某处有 announcements 字样」。③ 试图反驳「真实落盘已由 settings-roundtrip-contract.test.js 用真 Store 兜住，单元侧弱一点无妨」——该契约文件覆盖的是 `saveConfig`/`applyRuntime` 两条恢复路径，本条断言的是**内容策略词库进入持久化值**这一条独立语义，契约文件没有等价用例，二者不构成替代。④ 检查同文件是否已有更好的夹具可用——922 行附近本 PR 新写的正是**多键** `kv` 夹具（`readRow(k)` 按 key 取），即正确形态在同文件已存在，本处只是没跟上。",
+    "result": "主张成立（外部模型 #6 命中该方向但只给到「建议统一改成真实落盘验证」，未定位到「单键夹具使 _getData() 键不敏感」这一使其论证失效的根因；本地实测补全）。同 PR 另一侧（922 行）刚立了多键夹具的正面样板，同一文件内两种夹具纪律并存，属可维护性问题而非孤立笔误。",
+    "fix": "把 367 行的 `expect.any(Object)` 换成结构断言：`expect(store.setSetting).toHaveBeenCalledWith('opsCenterRuntime', expect.objectContaining({ announcements: expect.arrayContaining([expect.objectContaining({ word: '远程词甲' })]) }))`（按实际词库字段名调整），删掉键不敏感的 368 行；并把 `makeStore` 统一改造为按 key 存储的多键夹具（复用 922 行已有的 `readRow` 写法），使全文件 68 条用例共享同一套同形夹具。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/core/container.setup.js",
+    "line": "229",
+    "claim": "本 PR 给完整 Store 加了 `getSettingObject`，但没有动 container.setup.js:229 的窄包装 `settingsStore: { getSetting, setSetting }`，也没有任何测试断言「窄包装转发的方法集 ⊆ settings-store 导出集」或「窄包装已覆盖消费方需要的读取入口」。生产里从此稳定存在两种 store 形状，且二者承载的是**同一个真源契约的两个不同版本**：下一个经 container 注入 settings 的服务，若照抄 ops-center-sync 的 `getSettingObject` 写法就会拿到 undefined；若照抄 ops-center-sync 的静默 catch 风格，就会把一次装配错误精确地伪装成「用户没配置」——即本 PR 想消灭的那条失效路径，在装配面上原封不动地保留着。",
+    "refutation_attempt": "① 先确认这不会立刻坏：读 phase1-context.js:207/250/284/305，四个被改服务在**生产**里拿到的都是完整 `store` 实例，不经窄包装，所以本 PR 自身功能不受影响——把严重性从 Critical 下调。② grep `settingsStore:` 确认窄包装只有 container.setup.js:229 一处生产实例，其余是 hot-topics-service.test.js 的夹具，即当前爆炸半径确实只有 hot-topics。③ 试图反驳「§6 已把这条写进文档，所以不是遗漏」——§6 只把它当作 hot-topics 不迁移的**一次性理由**，没有把它登记为「窄包装落后于存储契约一个方法」这笔待销的债，也没有任何锁在它继续落后时出声。④ 检查是否有测试读窄包装形状——grep 未发现任何断言 container.setup.js 转发集的用例。",
+    "result": "主张成立（外部模型 #2/#5 提出「窄包装需扩面」方向但未实测注入关系；本地实测补上「四个服务在 phase1-context 拿的是完整 store」这一关键限定，因此这是**前瞻性的装配面漂移风险**，不是本 PR 的现存缺陷）。核心问题是「同一真源的两份契约不同版本且无人看守版本差」，属可维护性/集成风险而非逻辑 bug。",
+    "fix": "① 在 229 行的窄包装旁补一行注释，点名「本转发面是 settings-store 契约的子集；新增消费方需要 getSettingObject 时必须同步扩这里，并同步迁 hot-topics-service 的 3 处手抄归一化」。② 加一条装配锁：从 settings-store.js 解析导出方法名集合，断言 container.setup.js 的 `settingsStore` 字面量所转发的方法名必须是其子集，且当 settings-store 新增 `get*Object/Array` 类读取入口而窄包装未跟进时报红（清单可先以「已知落后一项 + 原因」的形式登记，之后只可缩小）。③ §6 把这条列为独立后续切片的阻塞项，而不只是 hot-topics 的豁免理由。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/store/settings-store.js",
+    "line": "33、42",
+    "claim": "`getSettingObject (key, defaultValue = {})` 在「缺席/损坏/非对象」分支 `return defaultValue`，返回的是**调用方传入那个对象的引用**（JS 默认参数每次调用新建，所以跨调用不共享；但同一次调用内，调用方原地 mutate 返回值即 mutate 自己传进来的对象）。今天 4 个调用点传的都是新鲜字面量（`getSettingObject(K, {})`），无害；一旦有人把默认值提成模块级常量复用（本仓已有 EMPTY/常量表先例），就会污染后续所有读取。加上 JSDoc 已把它定位为「消费方的唯一入口」，该陷阱的作用面是全体未来调用方。另：家族命名只扩了读侧——有 `getSettingObject`，没有 `getUserSettingObject`/`setSettingObject`（后者确实不必要，`setSetting` 已按对象语义收值，safeJsonStringify 对对象 stringify、对字符串透传，实测 store-schema.js:209-212 与 §2「落盘字节不变」一致）。",
+    "refutation_attempt": "① 实测 `safeJsonStringify`：`typeof value === 'string'` 时原样返回、否则 JSON.stringify——所以「改传对象后落盘字节不变」这一 PR 主张**成立**，我原本怀疑写侧由双编码变单编码，反证失败。② 用 node 验证「默认参数是否共享」：默认参数表达式每次调用重新求值，因此跨调用不共享，外部模型 #1 里「共享可变默认值」的担忧被推翻；但「按引用返回入参 defaultValue」仍成立，故本条只保留后者并把 severity 降为 Info。③ 检查现网是否已有把默认值存成常量的调用——4 个调用点均为字面量，无现存受害者。",
+    "result": "主张部分成立、当前无实害（外部模型 #1 判 Warning 并含一条被本地推翻的子claim；本地降为 Info）。命名不对称本身可辩护（写侧无需 Object 变体），真正值得留痕的是「按引用返回默认值」与「用户作用域尚无对象入口」。",
+    "fix": "在 JSDoc 补一句「返回值可能是调用方传入的 defaultValue 本体（原引用），请勿原地修改；不要把模块级常量作默认值传入」；并在补齐数组入口时一并补 `getUserSettingObject`，或明确写明用户作用域对象型设置当前的收口方式。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/usage-reporter.js",
+    "line": "64-70（publish-reporter.js:66-73、diagnostics-reporter.js:152-158 同形）",
+    "claim": "同一 PR、同一语义的日志文案在同一方法族里混用两种语言：读回失败用英文（`'watermark read failed: '`），落盘失败用中文（`'watermark 落盘失败（重启后将重复上报）'`）。需确认两点：其一这是否会被本仓 CJK 字面量门禁与 locale 成对要求拦下；其二这是否属本 PR 引入的不合规。",
+    "refutation_attempt": "① 读 .github/scripts/check-locale-sync.js 确认扫描域：第 10/21 行注释与第 81 行 `localeDir = 'apps/desktop/src/locales'`、第 176 行 `rel.startsWith('apps/desktop/src/locales/')` 表明扫描域是 **apps/desktop/src（渲染端）**，不覆盖 apps/desktop/electron；再核对 locale-cjk-baseline.json 全部条目均以 `apps/desktop/src/` 开头。⇒ 主进程 log 里的中文字符串不会被该门禁拦，本 PR 无 CI 风险（外部模型 #4 先立后自我推翻，此处为实测确认）。② grep 主进程既有 log.warn 确认中英混用是既有口径：account-credential-crypto.js:73 中文、approval-gate-service.js:84/96/107 英文、automation-scheduler.js:76/89 中文、asset-generator.js 全英文 ⇒ 非本 PR 引入。",
+    "result": "主张成立但被降级为风格项（外部模型 #4 判 Critical 的其中半条被本地实测推翻：CJK 门禁不覆盖主进程，且混用是既有口径，不构成违规）。就「同一方法体内两种语言」这一局部一致性而言，是本 PR 新引入的可读性瑕疵，不影响功能与 CI。",
+    "fix": "同一条读/写路径的两条日志统一语言（建议照 AGENTS.md 语言约定用中文，与 automation-scheduler.js:76「读取任务失败」/「保存任务失败」这一对读写作模板对齐），并把 `watermark` 一类字段名保留英文以免丢失可 grep 性。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/settings-roundtrip-contract.test.js",
+    "line": "1-190（全文）",
+    "claim": "确认项（非问题）：本 PR 的收敛彻底性与真实存储锁质量，用于给后续会话留现场证据。",
+    "refutation_attempt": "① 逐文件 grep `getSetting(` 于 ops-center-sync.js / usage-reporter.js / publish-reporter.js / diagnostics-reporter.js，四个生产文件返回 0 命中；`_readStoredObject` 在 ops-center-sync 内 6 个调用点（151/204/211/297/302/309），加三个 reporter 各 1 处 = 9 处读取全部迁到入口，与 §2「9 读 + 3 写 = 12 处」自洽；全仓 `String(...getSetting` 仅剩测试自身那条锁。② 读 contract 文件确认它 require 的是真 `./store` 与真 `./sqlite-wrapper`（无 mock Store），`restartStore()` 通过 close + 同路径重开模拟真重启，`openStore()` 在 `_ready !== true` 时**抛错**而非静默跳过，目录用 `os.tmpdir()` + pid + 随机后缀（符合本仓文件系统测试隔离纪律）。③ 逐条查断言类型：存储侧 4 条与恢复侧均为 `toEqual`/`toBe` 精确断言，无 `toContain` 充数；diagnostics-reporter.test.js:129/161/173 三处由原来的 `getSetting(...).toContain('\"lastId\":1')` 升级为 `toEqual({ lastId: 1, reportedAt: expect.any(String) })`，即把子串断言换成结构断言，方向符合「文本结构断言 MUST 精确」。④ 用例命名核对：「写入对象后，重开库的实例按 getSettingObject 等价读回」「applyRuntime 落盘的应用菜单，重启后无需再同步即可恢复」「三个上报水位线重启后不得归零」均描述行为（重启后是否恢复）而非实现细节；唯一以实现命名的是第 4 条 describe「禁止第二份归一化实现重新长出来」，其主体是结构锁、可接受。⑤ 反证：外部模型 #5 主张「三个 reporter 构造函数不传 log 时 `this._log` 为 undefined，contract 文件里 `new DiagnosticsReporter({ store: s })` 会让 catch 内的 `this._log.warn` 抛 TypeError」——读 usage-reporter.js:36、diagnostics-reporter.js:97、publish-reporter.js:44、ops-center-sync.js:119 确认四者一律 `this._log = log || { info(){}, warn(){}, error(){} }`，该主张**被推翻**，不得作为发现上报。⑥ **接线核实**（AGENTS.md 要求「新增测试文件必须看见它被执行过」，只有文件存在不算）：apps/desktop/vitest.config.js:21-23 的 `include` 含 `electron/services/**/*.test.{js,ts}`，该文件正落在此域内、会被 vitest 自动收集；apps/ 又属 `check-unwired-tests.js` 的 `WORKSPACE_COVERED` 排除表，因此它既不需手工点名、也不会被记成未接线欠账——这条锁确实在跑。⑦ §4 的 M2′「生产误判 + 夹具退回原样回吐 ⇒ 单元 0 红 / 真实锁 2 红」正是对「夹具同形化只是装饰」这一质疑的自证，写法正确。",
+    "result": "全部确认通过，无缺陷；同时把外部模型一条 Critical 级子主张（不传 log 会 TypeError）以构造函数兜底源码实测推翻。附带记录一条夹具纪律残留：makeStore 系列与 contract 文件里的 `getSettingObject` 内联实现（`typeof v === 'object' && !Array.isArray(v)`）合起来已在测试侧复制了 4 份生产判据（diagnostics-reporter.test.js:44、ops-center-sync.test.js:55、ops-center-sync.test.js:934、publish-reporter.test.js:17、usage-reporter.test.js:33），单测侧因此不再检验归一化本身——这是真实存储锁存在的正当理由，但也意味着归一化语义改动只有 contract 文件能抓到，改 `getSettingObject` 时必须跑它，建议在 §3 显式写明这一点。",
+    "fix": "无需修复。建议在 docs/settings-persistence-contract.md §3 追加一句：「测试夹具内联的归一化只用于同形模拟，不构成对 `getSettingObject` 语义的验证；改动其判据一律以 settings-roundtrip-contract.test.js 为证据面」，并同时补齐数组型入口（见第 3 条）后回头收敛这 5 份测试侧拷贝。"
+  }
+]
