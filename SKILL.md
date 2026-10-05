@@ -521,7 +521,7 @@ git sparse-checkout set -- cone <key-dirs>
 - **Windows 路径注意** — 使用 Path 对象或 bash 路径，不要硬编码反斜杠
 - **不要一次性 clone 大仓库** — 用 `--depth 1` + `sparse-checkout` 只拉需要的部分
 - **商业产品分析不要编造** — 能推断的推断，推断不了标明"推测"，不编造不确定的技术细节
-- **GitHub 网络不通时** — 用代理扫描端口：`for port in 7890 7891 7892 10808 10809; do curl --max-time 2 -x http://127.0.0.1:$port https://httpbin.org/ip && break; done`。找到后 `git -c http.proxy=http://127.0.0.1:PORT clone ...`
+- **GitHub 连不上时，先分清是哪一种不通，别一上来就扫本机代理端口** — 路由器/网关级透明代理（如 OpenClash）下本机**没有任何监听端口可扫**，扫不到不等于"需要代理"，盲目加 `-x` 反而把通的链路弄断。三步：① 直连多试几次（同一条命令间隔数十秒重复，可达性是**阵发**的，一次失败不构成结论）；② 看报错指纹——出现 `over proxy` / `proxyconnect refused` 说明**本机代理没人接**，正解是清空代理而不是去启动代理：`git -c http.proxy= -c https.proxy= …`、`gh` 侧置 `HTTPS_PROXY=`（空串）；③ 确实需要本机代理时才探测端口并**只在单条命令上**加 `-c http.proxy=http://127.0.0.1:PORT`，禁止写进全局配置。判据与实测见 `docs/proxy-environment-adaptation.md`。
 - **当前项目上下文很重要** — 评估复用价值时必须结合用户当前项目的技术栈和需求，否则分析是空洞的
 - **「要」之后必须先出计划再动手** — 用户说「要」/「全部复用」/「这些都实现」后，不能直接写代码。必须先出 `PM-PRD-<version>.md` 计划（哪怕只有一行），经用户确认后再进入实现阶段。跳过此步是用户明确纠正过的问题
 - **「已分析过」的处理** — 当用户给出的 URL 是之前分析过的项目，不要重新分析。直接回答：
