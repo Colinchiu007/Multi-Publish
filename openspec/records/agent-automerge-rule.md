@@ -2,9 +2,6 @@
 record: agent-automerge-rule
 task: 在 AGENTS.md 写入「PR 自动合并」规则——把「PR 需人工点合并」松绑为 agent 自动合并，同时保留五类 fail-closed 边界与残留风险声明
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证
-sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA，并在同一次提交删除本段三个 sync_* 字段与 scripts/gate-record-debt-ledger.json 的本条登记）
 ---
 
 ## 本次执行记录：AGENTS.md 写入 PR 自动合并规则（agent-automerge-rule，2026-10-05）
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA
 | 接线棘轮 | N/A | 本次**未新增任何 `*.test.js`**，不涉及 workflow 显式点名 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面。变更集 4 个文件全部在 docs-only 白名单（`AGENTS.md` 属根级 `*.md`，另三个分别命中 `openspec/**`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`） |
 | QM-6 CCG 双模型外部评审 | 未执行（docs-only 豁免） | 快速通道豁免 QM-6；本机 `codeagent-wrapper` 通道此前实测不干净（前端路两次空转、后端路 stdout 截断且无 rollout）。**不以自审冒充外部评审通过** |
-| 远程同步 | PENDING | 本 PR 在途：合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin agent-automerge-rule` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的本条登记 |
+| 远程同步 | PASS | PR #2948 squash 合并 `2531f412978f93be5bdbb196f1740e82b1afdf04`（2026-10-05T21:28:30+08:00，取证 `git log origin/main --grep='(#2948)$' --format=%H|%cI`）；`git ls-remote --heads origin agent-automerge-rule` 返回 0 行，证远端分支已删；本条由 docs-only 回填 PR 就地回填，frontmatter 的 sync_* 三字段在同一次提交删除 |
 
 ### 遗留（不假装已闭合）
 
