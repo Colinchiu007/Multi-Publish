@@ -99,6 +99,24 @@ jobs:
           node --test scripts/check-no-brand-residue.test.js
           node scripts/check-no-brand-residue.js
 
+      # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
+      # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
+      # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
+      # 之所以没有任何东西拦住：它是 append-only 台账，却无一处判它的单调性 ——
+      # doc-gate 只判「diff 里有没有白名单文档」（删空文档照样满足）、check-max-lines 的
+      # SCAN_DIRS 不含根级 .md、check-gate-record-debt 看执行记录不看 CHANGELOG。
+      # 落点必须是本 job：CHANGELOG.md 命中 CI_IGNORED_PATHS 的根级 *.md（docs-only 白名单），
+      # 放在被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验（AGENTS.md「进白名单前提锁」）。
+      # gate-result 的 rollup 里含 needs.changes.result，且 Gate Result 是必需检查 ⇒ 本条真能拦，不是探测器。
+      # base 取 PR base sha；push 事件下该值为空，回落 HEAD^（squash 合并 = 单提交，语义正确）。
+      - name: "Gate 2c3 - CHANGELOG growth (changes job, 只可增长棘轮)"
+        shell: bash
+        env:
+          CL_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-changelog-growth.test.js
+          node scripts/check-changelog-growth.js --base="${CL_BASE:-HEAD^}" --head=HEAD
+
   static-gates:
     name: QG Static
     runs-on: windows-latest
