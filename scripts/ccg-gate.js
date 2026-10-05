@@ -28,6 +28,9 @@
 
 "use strict";
 
+/** 门禁脚本版本。分发到各项目后用 check-gate-drift.js 比对规范源，防止副本漂移。 */
+const CCG_GATE_VERSION = "1.1.0";
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -149,6 +152,88 @@ function runGate(ccgDir, gate, target) {
   };
 }
 
+/**
+ * 决策层兜底检查
+ *
+ * 决策层跑在动手之前，那时没有 git diff，所以它不在 pre-commit 路径上。
+ * 这里补两道兜底（均为告警，不阻断）：
+ *   ① 本次改动需要评审，却找不到任何 layer=plan 的记录 → 提示可能漏跑决策层
+ *   ② 找到决策层记录，但实际改动的文件超出方案声明范围 → 提示范围漂移
+ */
+function readDecisionRecords() {
+  const dir = path.join(process.cwd(), ".ccg", "reviews");
+  const plan = [];
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const rec = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+        if (rec.layer === "plan") plan.push(rec);
+      } catch (_) { /* 跳过损坏记录 */ }
+    }
+  } catch (_) { /* 目录不存在 */ }
+  return plan;
+}
+
+function normPath(p) {
+  return String(p).replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+}
+
+function stagedSourceFiles() {
+  const r = spawnSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0 || !r.stdout) return [];
+  return r.stdout.split("\n").filter(Boolean);
+}
+
+function checkDecisionLayer(mode) {
+  const out = [];
+  const planRecords = readDecisionRecords();
+
+  if (planRecords.length === 0) {
+    out.push(
+      `本次改动判定为 ${mode.toUpperCase()}，按决策矩阵应先跑决策层评审，` +
+        "但未找到任何 layer=plan 的 .ccg/reviews 记录。" +
+        "补跑：sh scripts/plan-review.sh <方案文件>"
+    );
+    return out;
+  }
+
+  const rec = planRecords.sort((a, b) =>
+    String(b.decidedAt || "").localeCompare(String(a.decidedAt || ""))
+  )[0];
+
+  const st = rec.deepReview && rec.deepReview.status;
+  if (rec.mode !== "skip" && st === "pending") {
+    out.push(
+      "决策层方案评审尚未执行（deepReview.status=pending）——" +
+        "动手前的跨家族对抗评审可能被绕过。补跑：sh scripts/plan-review.sh <方案文件>"
+    );
+  }
+
+  if (Array.isArray(rec.plannedFiles) && rec.plannedFiles.length) {
+    const planned = rec.plannedFiles.map(normPath);
+    const base = (s) => s.split("/").pop();
+    const actual = stagedSourceFiles();
+    const uncovered = actual.filter((f) => {
+      const n = normPath(f);
+      if (planned.includes(n)) return false;
+      return !planned.some(
+        (p) => n.startsWith(p + "/") || p.startsWith(n + "/") || base(p) === base(n)
+      );
+    });
+    if (uncovered.length) {
+      out.push(
+        `范围漂移：以下改动文件不在方案声明范围内（${uncovered.length} 个）\n` +
+          uncovered.slice(0, 8).map((f) => `              - ${f}`).join("\n") +
+          "\n              → 可能边做边扩范围，方案需相应更新后重跑决策层"
+      );
+    }
+  }
+  return out;
+}
+
 function main() {
   if (!CONFIG.enabled) {
     console.log("   [CCG] 门禁已在 ccg-gate.js 的 CONFIG.enabled 中关闭。");
@@ -205,6 +290,41 @@ function main() {
     }
   }
 
+  // ── 第 4 道门禁：外部模型审查模式判定（§5.6.1 分层）────────────────
+  // 纯确定性计算，不调外部模型，所以放在提交时是毫秒级的。
+  const decider = path.join(__dirname, "ccg-review-decider.js");
+  let decidedMode = null;
+  if (fs.existsSync(decider)) {
+    if (process.env.SKIP_CCG_GATE === "1") {
+      console.log("   [CCG] 审查模式判定已随 SKIP_CCG_GATE 跳过");
+    } else {
+      const r = spawnSync(process.execPath, [decider], { encoding: "utf8" });
+      const out = `${r.stdout || ""}`.trim();
+      if (r.status === 0 && out) {
+        out.split("\n").forEach((l) => console.log(l));
+        passed++;
+        const m = out.match(/判定 \[[^\]]*\]:\s*(SKIP|SINGLE|DUAL)/);
+        if (m) decidedMode = m[1].toLowerCase();
+      } else if (r.status !== 0) {
+        warnings.push(`审查模式判定器异常退出（${r.status}），已跳过。`);
+      }
+    }
+  } else {
+    warnings.push("未找到 ccg-review-decider.js，审查模式判定已跳过。");
+  }
+
+  // ── 决策层兜底检查 ────────────────────────────────────────────
+  // 决策层（plan-review.sh）跑在动手之前，那时还没有 git diff，
+  // 所以它不在 pre-commit 路径上，只能靠这两道兜底补上：
+  //   ① 本次改动需要评审却找不到决策层记录 → 提示
+  //   ② 实际改动的文件超出方案声明范围     → 提示范围漂移
+  if (decidedMode && decidedMode !== "skip") {
+    const dl = checkDecisionLayer(decidedMode);
+    dl.forEach((w) => warnings.push(`[决策层] ${w}`));
+    if (dl.length) passed++; // 兜底检查已执行（无论是否发现问题）
+  }
+
+  // 告警统一在此打印（必须在决策层兜底检查之后，否则新告警会被漏掉）
   for (const w of warnings) console.log(`   ${w}`);
 
   if (errors.length) {
