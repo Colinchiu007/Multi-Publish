@@ -264,7 +264,7 @@ describe("UrlCollector url-collect:needs-stealth 路由查询（回归：知乎�
   let handlers;
 
   beforeEach(() => {
-    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {} } });
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
     handlers = {};
     collector.registerIpcHandlers({ handle: (ch, fn) => { handlers[ch] = fn } });
   });
@@ -523,7 +523,7 @@ describe("UrlCollector 百家号平台映射与 IPC 错误契约（回归：超�
   let collector;
 
   beforeEach(() => {
-    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {} } });
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
   });
 
   it("baijiahao.baidu.com 映射到 baijiahao 平台（非 generic）", () => {
@@ -654,7 +654,7 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
 // ===================== 互动数据解析（viral-library-integration P0 / F-101~F-103） =====================
 // 契约：NULL = 未知（解析失败/页面无数），0 = 真实零互动。绝不猜测填 0，绝不把缺省压平成 0。
 describe("UrlCollector 互动数据解析（engagement）", () => {
-  const collector = new UrlCollector({ auditDir: null, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } });
+  const collector = new UrlCollector({ auditDir: null, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } });
 
   // U-101/U-102 数字格式解析（纯函数）
   describe("_parseEngagementNumber", () => {

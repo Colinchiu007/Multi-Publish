@@ -11,7 +11,7 @@
 const { saveFailureDraft, FAILURE_DRAFT_SOURCE } = require('./publish-failure-draft')
 
 function makeLogger () {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 }
 
 function makeStoreDeps ({ storeResult } = {}) {

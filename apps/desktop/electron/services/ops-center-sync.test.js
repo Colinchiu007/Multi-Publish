@@ -88,7 +88,7 @@ function jsonResp ({ status = 200, body = null, ok = null, arrayBuffer }) {
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 
 describe('normalizeUrl', () => {
   it('接受 https URL 并去掉尾部斜杠', () => {
@@ -1032,7 +1032,7 @@ describe('OpsCenterSync 去 AI 味词库消费（rewrite_ai_taste_map）', () =>
 
 describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
   it('注入物缺少 getSettingObject 时必须留痕，不许静默变空配置', () => {
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const store = { getSetting: vi.fn(() => ''), setSetting: vi.fn() }
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
@@ -1046,7 +1046,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
   // container 那种窄包装的后续变种、或存储层自身故障）同样必须出声——与三个 reporter 的
   // `catch (e) { this._log.warn(...) }` 保持同一口径，且不得与本文件 JSDoc「必须留痕」自相矛盾。
   it('注入物的 getSettingObject 抛异常时必须留痕，不许静默返回空对象', () => {
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const store = {
       getSetting: vi.fn(() => ''),
       setSetting: vi.fn(),
@@ -1060,7 +1060,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
   })
 
   it('未注入 store 时必须留痕，不许静默变空配置', () => {
-    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const svc = new OpsCenterSync({ store: undefined, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
     expect(cfg.url).toBe('')

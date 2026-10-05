@@ -81,7 +81,7 @@ describe('film_render 成片合成', () => {
   describe('阶段执行器', () => {
     let engine
     beforeEach(() => {
-      engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
       // 测试桩：捕获注册的执行器函数（生产为真实 StageExecutor.register，同签名）
       engine.stageExecutor = { _customExecutors: new Map(), register(type, fn) { this._customExecutors.set(type, fn) } }
       engine._stageExecutors = engine.stageExecutor._customExecutors
@@ -306,7 +306,7 @@ describe('film_render renderManifest（L2 跨 run 合成契约）', () => {
     let engine
     let dir
     beforeEach(() => {
-      engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
       engine.stageExecutor = { _customExecutors: new Map(), register(type, fn) { this._customExecutors.set(type, fn) } }
       engine._stageExecutors = engine.stageExecutor._customExecutors
       registerFilmRenderStage(engine)

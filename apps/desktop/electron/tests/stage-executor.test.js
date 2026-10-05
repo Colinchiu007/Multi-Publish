@@ -63,7 +63,7 @@ it('StageExecutor 无参构造应抛错', function () {
 
 it('SPLIT 阶段调用 serviceBus.splitText', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'split', type: STAGE_TYPES.SPLIT, inputFrom: 'input' },
@@ -79,7 +79,7 @@ it('SPLIT 阶段调用 serviceBus.splitText', async function () {
 it('SPLIT 阶段使用结构化 key 上报开始与完成摘要', async function () {
   const bus = makeMockServiceBus();
   const progress = vi.fn();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'split-progress',
     stage: { name: 'split', type: STAGE_TYPES.SPLIT, inputFrom: 'input' },
@@ -105,7 +105,7 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
       sentences: ['第一幕包含足够长的画面说明，', '随后继续补充细节。'],
     })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'story-service',
     stage: {
@@ -187,7 +187,7 @@ it('Story2Video SPLIT 仅在 8002 不可用时降级到本地双层分句', asyn
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => { throw unavailable; }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const text = '第一句话用于建立场景。第二句话继续补充信息。第三句话切换画面。';
   const result = await exec.execute({
     runId: 'story-fallback',
@@ -219,7 +219,7 @@ it.each([
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => { throw unavailable; }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const text = '第一句话用于建立场景。第二句话继续补充信息。';
   const result = await exec.execute({
     runId: 'story-fallback-' + reason.toLowerCase(),
@@ -251,7 +251,7 @@ it.each([
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => unavailable),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const text = '第一句话用于建立场景。第二句话继续补充信息。';
   const result = await exec.execute({
     runId: 'story-returned-fallback-' + _label,
@@ -283,7 +283,7 @@ it('Story2Video SPLIT 对 8002 业务错误禁止本地降级', async function (
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => { throw businessError; }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'story-business-error',
     stage: {
@@ -304,7 +304,7 @@ it('Story2Video SPLIT 对 8002 返回的业务错误对象禁止本地降级', a
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => ({ code: -1, message: 'splitter service rejected invalid mode' })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'story-returned-business-error',
     stage: {
@@ -325,7 +325,7 @@ it('Story2Video SPLIT 对服务非法响应明确失败，不静默降级', asyn
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => ({ code: 0, data: { unexpected: true } })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'story-malformed',
     stage: {
@@ -343,7 +343,7 @@ it('Story2Video SPLIT 对服务非法响应明确失败，不静默降级', asyn
 
 it('SPLIT 音频模式在无文案时按音频数量生成场景', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'audio-run',
     stage: { name: 'split', type: STAGE_TYPES.SPLIT },
@@ -362,7 +362,7 @@ it('SPLIT 音频模式在无文案时按音频数量生成场景', async functio
 
 it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { quality_baseline: false } },
@@ -397,7 +397,7 @@ it('OPTIMIZE 多候选择优：选择评分最高候选并对胜出候选施加 
       platform: 'generic', model_used: 'mock',
     })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r-w1',
     stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { num_candidates: 2, max_length: 120, quality_baseline: false } },
@@ -420,7 +420,7 @@ it('OPTIMIZE 多候选择优关闭：select_best=false 保持 candidates[0] 现�
       platform: 'generic', model_used: 'mock',
     })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r-w1b',
     stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { num_candidates: 2, select_best: false, quality_baseline: false } },
@@ -433,7 +433,7 @@ it('OPTIMIZE 多候选择优关闭：select_best=false 保持 candidates[0] 现�
 
 it('SPLIT/OPTIMIZE 把 runId 作为 traceId 传给 serviceBus（R2）', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
 
   await exec.execute({
     runId: 'run_42',
@@ -462,7 +462,7 @@ it('SPLIT/OPTIMIZE 把 runId 作为 traceId 传给 serviceBus（R2）', async fu
 
 it('OPTIMIZE_BATCH 阶段需要数组输入', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   // 非数组输入应失败
   const r1 = await exec.execute({
     runId: 'r1',
@@ -490,7 +490,7 @@ it.each([
   const bus = makeMockServiceBus({
     optimizePromptsBatch: vi.fn(async () => response),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'optimize-batch-failure-' + _label,
     stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
@@ -513,7 +513,7 @@ it('OPTIMIZE_BATCH 接受非空字符串及支持的对象 prompt 字段', async
   const bus = makeMockServiceBus({
     optimizePromptsBatch: vi.fn(async () => ({ code: 0, data: { results: response } })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'optimize-batch-valid-shapes',
     stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
@@ -546,7 +546,7 @@ it.each([
     server.listen(0, '127.0.0.1', resolve);
   });
 
-  const promptBridge = new PromptBridge({ log: { info() {}, warn() {}, error() {} } });
+  const promptBridge = new PromptBridge({ log: { info() {}, warn() {}, error() {}, notify() {} } });
   promptBridge.modelProviderManager = {
     getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'] })),
     getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
@@ -559,9 +559,9 @@ it.each([
     splitterBridge: null,
     promptBridge,
     story2videoEngine: null,
-    log: { info() {}, warn() {}, error() {} },
+    log: { info() {}, warn() {}, error() {}, notify() {} },
   });
-  const exec = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {}, notify() {} } });
 
   try {
     const result = await exec.execute({
@@ -589,7 +589,7 @@ it.each([
 
 it('COMPOSE 阶段处理 code === 0 成功', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets' },
@@ -616,7 +616,7 @@ it('COMPOSE 可并行启动注册任务，并按 index 回填结果', async func
       };
     }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('story2video-prompt-translation', async () => {
     parallelStarted = true;
     return {
@@ -664,7 +664,7 @@ it('COMPOSE 在合成未完成时已启动并行任务，并优先使用任务�
       return { code: 0, data: { videoPath: '/tmp/out.mp4', segments: [] } };
     }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('translation-overlap', () => {
     parallelStarted = true;
     return { promise: parallelPromise, timeoutMs: 1, apply: vi.fn() };
@@ -688,7 +688,7 @@ it('COMPOSE 并行任务失败时保持合成成功并记录降级', async funct
   const bus = makeMockServiceBus({
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4', segments: [{ index: 0 }] } })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('translation', async () => ({
     degraded: true,
     reason: 'translation timeout',
@@ -713,7 +713,7 @@ it('COMPOSE 并行任务不掩盖合成失败', async function () {
   const bus = makeMockServiceBus({
     composeVideo: vi.fn(async () => ({ code: -1, message: 'ffmpeg failed' })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('translation', async () => ({ results: [], degraded: false }));
   const result = await exec.execute({
     runId: 'compose-parallel-compose-fail',
@@ -729,7 +729,7 @@ it('COMPOSE 配置了未注册并行任务时记录降级诊断但不阻塞合�
   const bus = makeMockServiceBus({
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const context = {};
   const result = await exec.execute({
     runId: 'compose-parallel-unregistered',
@@ -749,7 +749,7 @@ it('COMPOSE 成功重试后清除上一次并行降级诊断', async function ()
   const bus = makeMockServiceBus({
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('translation-retry', () => ({
     promise: Promise.resolve({ results: [], degraded: false }),
   }));
@@ -771,7 +771,7 @@ it('COMPOSE 合成失败时取消仍在运行的并行任务', async function ()
   const bus = makeMockServiceBus({
     composeVideo: vi.fn(async () => ({ code: -1, message: 'ffmpeg failed' })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('translation-cancel', () => ({
     promise: new Promise(() => {}),
     cancel,
@@ -790,7 +790,7 @@ it('COMPOSE 并行任务超时后仍执行 fail-open 收尾', async function () 
   const bus = makeMockServiceBus({
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4', segments: [{ index: 0 }] } })),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   exec.registerComposeParallelTask('translation-timeout', () => ({
     promise: new Promise(() => {}),
     timeoutMs: 1,
@@ -830,7 +830,7 @@ it('COMPOSE 成功后采集 TTS 时长样本（Batch 5a，best-effort）', async
   const exec = new StageExecutor({
     serviceBus: bus,
     container: { get: (name) => (name === 'store' ? store : null) },
-    log: { info() {}, warn() {}, error() {} },
+    log: { info() {}, warn() {}, error() {}, notify() {} },
   });
   const result = await exec.execute({
     runId: 'compose-collect',
@@ -863,7 +863,7 @@ it('COMPOSE 采集在 store 缺失/异常时静默（不阻断成功返回）', 
   const exec = new StageExecutor({
     serviceBus: bus,
     container: { get: () => { throw new Error('no store') } },
-    log: { info() {}, warn() {}, error() {} },
+    log: { info() {}, warn() {}, error() {}, notify() {} },
   });
   const result = await exec.execute({
     runId: 'compose-collect-fail',
@@ -876,7 +876,7 @@ it('COMPOSE 采集在 store 缺失/异常时静默（不阻断成功返回）', 
 
 it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默认值', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   await exec.execute({
     runId: 'compose-options',
     stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets', options: { transition: 'fade' } },
@@ -901,7 +901,7 @@ it('COMPOSE 阶段处理 code === -1 引擎不可用', async function () {
   const bus = makeMockServiceBus({
     composeVideo: async () => ({ code: -1, message: 'ffmpeg not found' }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'compose', type: STAGE_TYPES.COMPOSE },
@@ -924,7 +924,7 @@ it('COMPOSE 阶段把引擎 onProgress 写入 context.compose_progress（字段�
       return { code: 0, data: { videoPath: '/tmp/out.mp4' } };
     }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const context = { assets: { scenes: [] } };
   const result = await exec.execute({
     runId: 'compose-progress',
@@ -965,7 +965,7 @@ it('COMPOSE 丢弃非法 onProgress 值（fail-closed，不下发 renderer）', 
       return { code: 0, data: { videoPath: '/tmp/out.mp4' } };
     }),
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const context = { assets: {} };
   const result = await exec.execute({
     runId: 'compose-progress-invalid',
@@ -980,7 +980,7 @@ it('COMPOSE 丢弃非法 onProgress 值（fail-closed，不下发 renderer）', 
 
 it('CALL_SKILL 阶段需要 skillName', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   // 缺 skillName 应失败
   const r1 = await exec.execute({
     runId: 'r1',
@@ -1003,7 +1003,7 @@ it('CALL_SKILL 阶段需要 skillName', async function () {
 
 it('MANUAL_CHECKPOINT 阶段返回 checkpoint: true', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'review', type: STAGE_TYPES.MANUAL_CHECKPOINT },
@@ -1017,7 +1017,7 @@ it('MANUAL_CHECKPOINT 阶段返回 checkpoint: true', async function () {
 
 it('未知 stage.type 回退为 MANUAL_CHECKPOINT', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'unknown_stage', type: 'totally_unknown_type' },
@@ -1030,7 +1030,7 @@ it('未知 stage.type 回退为 MANUAL_CHECKPOINT', async function () {
 
 it('无 stage.type 回退为 MANUAL_CHECKPOINT（向后兼容）', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'research' }, // 旧流水线只有 name
@@ -1043,7 +1043,7 @@ it('无 stage.type 回退为 MANUAL_CHECKPOINT（向后兼容）', async functio
 
 it('CUSTOM 阶段调用 stage.executor 函数', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: {
@@ -1061,7 +1061,7 @@ it('CUSTOM 阶段调用 stage.executor 函数', async function () {
 
 it('CUSTOM 阶段缺 executor 函数应失败', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'cs', type: STAGE_TYPES.CUSTOM },
@@ -1076,7 +1076,7 @@ it('执行器抛异常被捕获返回 success:false', async function () {
   const bus = makeMockServiceBus({
     splitText: async () => { throw new Error('mock split failure'); },
   });
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'split', type: STAGE_TYPES.SPLIT, inputFrom: 'text' },
@@ -1093,7 +1093,7 @@ it('执行器抛异常被捕获返回 success:false', async function () {
 
 it('register 注册自定义执行器优先于内置', async function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const customExecutor = vi.fn(async () => ({ success: true, output: 'custom_split_result' }));
   exec.register(STAGE_TYPES.SPLIT, customExecutor);
   const result = await exec.execute({
@@ -1109,7 +1109,7 @@ it('register 注册自定义执行器优先于内置', async function () {
 
 it('register 非函数应抛错', function () {
   const bus = makeMockServiceBus();
-  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   expect(() => exec.register('bad_type', 'not_a_function')).toThrow(/function/);
 });
 
@@ -1128,7 +1128,7 @@ it('PipelineEngine 无参构造仍可工作（向后兼容）', function () {
 
 it('PipelineEngine 注入 serviceBus 后自动构造 StageExecutor', function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   ok(pe.stageExecutor !== null, 'StageExecutor 应已构造');
   ok(pe.stageExecutor instanceof StageExecutor);
 });
@@ -1142,7 +1142,7 @@ it('startOrchestrated 在无 stageExecutor 时返回错误', async function () {
 
 it('startOrchestrated 在未知流水线时返回错误', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const r = await pe.startOrchestrated('nonexistent', {});
   eq(r.success, false);
   ok(/Unknown pipeline/.test(r.error));
@@ -1150,7 +1150,7 @@ it('startOrchestrated 在未知流水线时返回错误', async function () {
 
 it('startOrchestrated 手动模式（autoAdvance=false）只创建 run', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const r = await pe.startOrchestrated('framework-smoke', { autoAdvance: false });
   eq(r.success, true);
   ok(r.runId, '应返回 runId');
@@ -1162,7 +1162,7 @@ it('startOrchestrated 手动模式（autoAdvance=false）只创建 run', async f
 
 it('startOrchestrated + autoAdvance 自动执行全部阶段（旧流水线回退为 checkpoint）', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   // framework-smoke 有 2 个阶段：verify, report（无 stage.type，回退为 MANUAL_CHECKPOINT）
   const r = await pe.startOrchestrated('framework-smoke', { autoAdvance: true });
   eq(r.success, true);
@@ -1173,7 +1173,7 @@ it('startOrchestrated + autoAdvance 自动执行全部阶段（旧流水线回�
 
 it('executeStage 在非编排模式 run 上返回错误', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   pe.start('animated-explainer', {}); // state_machine 模式
   // 获取 runId（通过 status）
   const status = pe.getStatus('animated-explainer');
@@ -1184,7 +1184,7 @@ it('executeStage 在非编排模式 run 上返回错误', async function () {
 
 it('executeStage 执行单个阶段并将输出写入 context', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
 
   // 动态注册带 stageDefs 的测试流水线
   pe.registerPipeline({
@@ -1212,7 +1212,7 @@ it('executeStage 执行单个阶段并将输出写入 context', async function (
 
 it('advanceToNextCheckpoint 推进到检查点', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   pe.registerPipeline({
     name: 'test-advance-checkpoint-pipeline',
     description: '测试 advanceToNextCheckpoint',
@@ -1232,7 +1232,7 @@ it('advanceToNextCheckpoint 推进到检查点', async function () {
 
 it('executeStage 遇到检查点时暂停，不提前推进或重复执行', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   pe.registerPipeline({
     name: 'test-execute-checkpoint-pipeline',
     description: '测试 executeStage 检查点',
@@ -1256,7 +1256,7 @@ it('executeStage 遇到检查点时暂停，不提前推进或重复执行', asy
 
 it('pauseWithCheckpoint 保存 context 快照', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   pe.registerPipeline({
     name: 'test-pause-checkpoint-pipeline',
     description: '测试 pauseWithCheckpoint',
@@ -1278,7 +1278,7 @@ it('pauseWithCheckpoint 保存 context 快照', async function () {
 
 it('resumeFromCheckpoint 恢复 context', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   pe.registerPipeline({
     name: 'test-resume-checkpoint-pipeline',
     description: '测试 resumeFromCheckpoint',
@@ -1303,7 +1303,7 @@ it('resumeFromCheckpoint 恢复 context', async function () {
 
 it('registerStageExecutor 插件扩展点', async function () {
   const bus = makeMockServiceBus();
-  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {}, notify() {} } });
   const pluginExecutor = vi.fn(async ({ params }) => ({
     success: true,
     output: { custom: params.foo },

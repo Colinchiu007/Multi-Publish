@@ -25,7 +25,7 @@ function makeMemory (opts = {}) {
     libraryRoot: path.join(root, 'prompt-library'),
     config: opts.config || {},
     statsProvider: opts.statsProvider || (() => null),
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     now: opts.now,
   })
   memory.load()
@@ -232,7 +232,7 @@ describe('prompt-memory: 写盘原子性与损坏恢复', () => {
       libraryRoot: libDir,
       config: {},
       statsProvider: () => null,
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     })
     expect(() => memory.load()).not.toThrow()
     // 重建后为空库
@@ -320,7 +320,7 @@ describe('prompt-memory: CCG 评审修复', () => {
       libraryRoot: path.join(root, 'prompt-library'),
       config: {},
       statsProvider: () => null,
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
       gate: () => ({ pass: false, results: { structure: 'fail' } }),
     })
     memory.load()
@@ -335,7 +335,7 @@ describe('prompt-memory: CCG 评审修复', () => {
       libraryRoot: path.join(root, 'prompt-library'),
       config: {},
       statsProvider: () => null,
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
       gate: () => ({ pass: true, results: {}, checksum: 'abc' }),
     })
     memory.load()

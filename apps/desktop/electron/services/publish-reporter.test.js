@@ -29,7 +29,7 @@ function jsonResp ({ status = 200, body = null }) {
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 
 function makeAuth () {
   return { url: 'https://ops.example.com', apiKey: 'k' }

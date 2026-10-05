@@ -37,7 +37,7 @@ function makeStore (rows, initial) {
   }
 }
 
-const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+const LOG = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 const AUTH = { url: 'https://ops.example.com', apiKey: 'k' }
 
 describe('classifyStatus', () => {

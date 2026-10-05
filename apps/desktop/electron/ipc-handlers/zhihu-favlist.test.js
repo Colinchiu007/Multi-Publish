@@ -24,7 +24,7 @@ function makeDeps (overrides = {}) {
   const store = { getSetting: vi.fn(() => "test-secret") };
   const urlCollector = { collect: vi.fn(async () => ({ success: true, title: "T" })) };
   const pythonBridge = { requestBackend: vi.fn(async () => ({ result_content: "改写结果" })) };
-  const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() };
   // 快速控制器：跳过真实延迟（否则 8s 条间延迟会让测试超时）
   const BatchRateController = require("../services/batch-rate-controller");
   const rateControllerFactory = (opts) => new BatchRateController({ sleepFn: async () => {}, baseIntervalMs: 1, jitterMs: 0, ...opts });

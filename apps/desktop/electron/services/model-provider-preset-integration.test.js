@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import initSqlJs from 'sql.js'
 
 __enableElectronMock()
-__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() })
 __registerMock('./crypto', {
   isAvailable: () => true,
   encrypt: key => key ? Buffer.from('enc_' + key) : null,
@@ -84,7 +84,7 @@ beforeAll(async () => {
     handle: vi.fn((channel, handler) => { handlers[channel] = handler }),
     call: (channel, ...args) => handlers[channel]({ sender: {}, senderFrame: undefined }, ...args),
   }
-  registerHandlers(ipcMain, { modelProviderManager: manager, store, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+  registerHandlers(ipcMain, { modelProviderManager: manager, store, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
 })
 
 afterAll(() => { if (database) database.close() })

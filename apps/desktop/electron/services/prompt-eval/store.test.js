@@ -14,7 +14,7 @@ describe('prompt-eval store', () => {
   let store
   beforeEach(() => {
     root = makeRoot()
-    store = createPromptEvalStore({ userDataDir: root, log: { info: () => {}, warn: () => {}, error: () => {} } })
+    store = createPromptEvalStore({ userDataDir: root, log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
   })
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true })
@@ -98,5 +98,5 @@ describe('prompt-eval store', () => {
   })
 })
 
-const noopLog = { info: () => {}, warn: () => {}, error: () => {} }
+const noopLog = { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
 

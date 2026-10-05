@@ -22,7 +22,7 @@ function makeEnv (opts = {}) {
     libraryRoot: path.join(root, 'prompt-library'),
     config: {},
     statsProvider: () => null,
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     now: opts.now,
   })
   memory.load()
@@ -30,7 +30,7 @@ function makeEnv (opts = {}) {
     config: opts.config || {},
     memory,
     statsProvider: opts.statsProvider || (() => null),
-    log: { info: () => {}, warn: () => {}, error: () => {} },
+    log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
     now: opts.now,
   })
   return { memory, governance, root }
@@ -248,7 +248,7 @@ describe('governance: 成本配额', () => {
       config: { budget: { image: { daily: 100 } } },
       memory: makeEnv().memory,
       statsProvider: () => ({ todaySpend: 150 }),
-      log: { info: () => {}, warn: () => {}, error: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} },
       now: () => new Date('2026-01-01T00:00:00.000Z'),
     })
     expect(g2.isAutoEvaluationAllowed('image', '2026-01-01')).toBe(false)

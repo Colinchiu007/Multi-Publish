@@ -30,7 +30,7 @@ class BatchRateController {
     this._backoffBaseMs = Number.isFinite(opts.backoffBaseMs) ? opts.backoffBaseMs : 30000
     this._backoffFactor = Number.isFinite(opts.backoffFactor) ? opts.backoffFactor : 2
     this._maxBackoffs = Number.isFinite(opts.maxBackoffs) ? opts.maxBackoffs : 3
-    this._log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
+    this._log = opts.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
     this._sleepFn = opts.sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms)))
     this._stats = { completed: 0, failed: 0, skipped: 0, backoffCount: 0, circuitBroken: false }
   }

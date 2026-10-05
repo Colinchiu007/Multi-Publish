@@ -24,7 +24,7 @@ const { registerFilmRenderStage } = require('./film-render')
 const SPEC = { codec: 'h264', width: 1280, height: 720, fps: '24/1', timebase: '1/12288', hasAudio: true, sampleRate: 44100, channels: 2 }
 
 function makeOrchestrator () {
-  const orchestr = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+  const orchestr = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
   const providerCalls = []
   orchestr.modelProviderManager = { getDefault: () => null, getProvider: () => null }
   orchestr.stageExecutor = {

@@ -7,7 +7,7 @@ describe('PipelineEngine 状态机模式', () => {
 
   beforeEach(() => {
     engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
   })
 
@@ -156,7 +156,7 @@ describe('PipelineEngine 状态机模式', () => {
     const dir = path.join(os.tmpdir(), 'pipeline-engine-history-test-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
     const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
 
-    const engineA = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engineA = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     engineA.runStateStore.saveFailed({
       id: 'run-failed-persisted',
       pipeline: 'story2video-compose',
@@ -172,7 +172,7 @@ describe('PipelineEngine 状态机模式', () => {
     })
 
     // 模拟应用重启：新引擎（内存 _history 为空）复用同一 store
-    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-failed-persisted',
@@ -181,7 +181,7 @@ describe('PipelineEngine 状态机模式', () => {
     }))
 
     // 同会话去重：失败 run 同时在内存 _history 时只出现一次
-    const engineC = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engineC = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     engineC._history.push({ id: 'run-failed-persisted', pipeline: 'story2video-compose', status: 'failed', stages: [], context: {}, createdAt: '2026-08-08T01:00:00.000Z' })
     const ids = engineC.getHistory().map((item) => item.id)
     expect(ids.filter((id) => id === 'run-failed-persisted')).toHaveLength(1)
@@ -219,7 +219,7 @@ describe('PipelineEngine 状态机模式', () => {
     // 运行中快照在重启后不再是运行中状态：归一化为 interrupted（已中断）。
     // 合同（2026-08-20 修订）：「已暂停」仅保留用户手动暂停；应用退出/崩溃导致的中断
     // 不得显示为 paused，否则失败/中断任务会错误出现在「已暂停」标签。
-    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-running-persisted',
@@ -268,7 +268,7 @@ describe('PipelineEngine 状态机模式', () => {
       createdAt: '2026-08-20T01:00:00.000Z',
     })
 
-    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-manual-paused',
@@ -285,7 +285,7 @@ describe('PipelineEngine 状态机模式', () => {
     const { RunStateStore } = require('../services/run-state-store')
     const dir = path.join(os.tmpdir(), 'pipeline-engine-delete-run-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
     const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
 
     // 1) 持久化快照（重启可见的记录）可删除
     store.saveFailed({
@@ -327,7 +327,7 @@ describe('PipelineEngine 状态机模式', () => {
   it('deleteRun 持久化快照删除失败时保留内存 run 与历史', () => {
     const remove = vi.fn(() => false)
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       runStateStore: { load: vi.fn(() => ({ runId: 'run-delete-failure' })), remove },
     })
     const run = {
@@ -358,7 +358,7 @@ describe('PipelineEngine 状态机模式', () => {
     const { RunStateStore } = require('../services/run-state-store')
     const dir = path.join(os.tmpdir(), 'pipeline-engine-pause-run-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
     const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
-    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     engine.registerPipeline({
       name: 'pause-run-test',
       description: '按 runId 暂停测试',
@@ -392,7 +392,7 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('pauseRun 持久化暂停快照失败时回滚内存状态与检查点', () => {
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       runStateStore: { savePaused: vi.fn(() => false) },
     })
     engine.registerPipeline({
@@ -416,7 +416,7 @@ describe('PipelineEngine 状态机模式', () => {
   })
 
   it('cancelRun 按 runId 定向取消运行中任务；非运行中/不存在/非法 runId 拒绝', () => {
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine.registerPipeline({
       name: 'cancel-run-test',
       description: '按 runId 取消测试',
@@ -449,7 +449,7 @@ describe('PipelineEngine 状态机模式', () => {
   })
 
   it('pause/resume 及 pauseRun 拒绝非对象阶段数据', () => {
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const pausedRun = {
       id: 'malformed-paused',
       pipeline: 'story2video-compose',
@@ -488,7 +488,7 @@ describe('PipelineEngine 状态机模式', () => {
     const { RunStateStore } = require('../services/run-state-store')
     const dir = path.join(os.tmpdir(), 'pipeline-engine-save-running-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
     const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
-    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     engine.registerPipeline({
       name: 'running-persist-test',
       description: '退出兜底测试',
@@ -514,7 +514,7 @@ describe('PipelineEngine 状态机模式', () => {
     expect(engine.saveRunningState()).toBe(1)
 
     // 无运行中编排任务时返回 0
-    const idleEngine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const idleEngine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     expect(idleEngine.saveRunningState()).toBe(0)
     fs.rmSync(dir, { recursive: true, force: true })
   })
@@ -523,7 +523,7 @@ describe('PipelineEngine 状态机模式', () => {
     const saveRunning = vi.fn(() => true)
     const engine = new PipelineEngine({
       serviceBus: {},
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       runStateStore: { saveRunning },
     })
     engine.registerPipeline({
@@ -547,7 +547,7 @@ describe('PipelineEngine 状态机模式', () => {
   it('_finalizeRun completed 清理 running 快照（防止已完成任务以运行中重现）', () => {
     const remove = vi.fn()
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       runStateStore: { remove },
     })
     const run = {
@@ -567,7 +567,7 @@ describe('PipelineEngine 状态机模式', () => {
   })
 
   it('hasRunningOrchestration 只在存在运行中编排任务时返回 true', async () => {
-    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine.registerPipeline({
       name: 'running-detect',
       description: '运行检测',
@@ -612,7 +612,7 @@ describe('PipelineEngine 状态机模式', () => {
     const error = '图片生成服务暂时不可用'
     const failingEngine = new PipelineEngine({
       stageExecutor: { execute: vi.fn().mockResolvedValue({ success: false, error }) },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     failingEngine.registerPipeline({
       name: 'terminal-snapshot-failure',
@@ -633,7 +633,7 @@ describe('PipelineEngine 状态机模式', () => {
   })
 
   it('断点续跑复用同 runId：_history 只保留最新一条终态', () => {
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const base = { id: 'run-same-id', pipeline: 'story2video-compose', status: 'running', stages: [], context: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString() }
     engine._runs.set('run-same-id', { ...base })
     engine._finalizeRun(engine._runs.get('run-same-id'), 'failed', 'provider timeout')
@@ -651,7 +651,7 @@ describe('PipelineEngine 状态机模式', () => {
     const { RunStateStore } = require('../services/run-state-store')
     const dir = path.join(os.tmpdir(), 'pipeline-engine-cancel-test-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
     const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     const run = {
       id: 'run-cancelled-persisted', pipeline: 'story2video-compose', status: 'running', currentStage: 2,
       stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'completed' }, { name: 'generate_assets', status: 'running' }],
@@ -661,7 +661,7 @@ describe('PipelineEngine 状态机模式', () => {
     engine._finalizeRun(run, 'cancelled', null)
 
     // 模拟应用重启：新引擎复用同一 store
-    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({ id: 'run-cancelled-persisted', status: 'cancelled' }))
     fs.rmSync(dir, { recursive: true, force: true })
@@ -671,7 +671,7 @@ describe('PipelineEngine 状态机模式', () => {
 describe('PipelineEngine animated-explainer 编排', () => {
   function makeEngine() {
     return new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
   }
 
@@ -702,7 +702,7 @@ describe('PipelineEngine animated-explainer 编排', () => {
         output: { completedStage: stage.name },
       })),
     }
-    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const started = await engine.startOrchestrated('animated-explainer', {
       text: '测试主题',
       autoAdvance: true,
@@ -726,7 +726,7 @@ describe('PipelineEngine animated-explainer 编排', () => {
           : { success: true, output: { completedStage: stage.name } }
       )),
     }
-    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const started = await engine.startOrchestrated('animated-explainer', {
       text: '测试主题',
       autoAdvance: true,
@@ -756,7 +756,7 @@ describe('PipelineEngine animated-explainer 编排', () => {
         output: { completedStage: stage.name },
       })),
     }
-    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const started = await engine.startOrchestrated('animated-explainer', {
       text: '测试主题',
       autoAdvance: true,
@@ -783,7 +783,7 @@ describe('PipelineEngine animated-explainer 编排', () => {
     const stageExecutor = {
       execute: vi.fn(async () => ({ success: true, output: null })),
     }
-    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const started = await engine.startOrchestrated('animated-explainer', {
       text: '',
       autoAdvance: true,
@@ -801,7 +801,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     // 与既有编排测试一致：serviceBus 构造真实 StageExecutor，再用 registerStageExecutor 注入可测执行器
     const engine = new PipelineEngine({
       serviceBus: {},
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     })
     engine.registerPipeline({
       name: 'elapsed-test',
@@ -905,7 +905,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
   })
 
   it('_finalizeRun 附加 run.diagnostics（additive，不改变既有字段）', () => {
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const run = {
       id: 'run-diag-1',
       pipeline: 'story2video-compose',
@@ -930,7 +930,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
   })
 
   it('_finalizeRun failed/cancelled 同步当前 stage 终态（历史卡片不再显示「运行中」假象）', () => {
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const failedRun = {
       id: 'run-stage-failed',
       pipeline: 'story2video-compose',
@@ -974,7 +974,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
       updatedAt: '2026-08-20T00:00:01.000Z',
     }))
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       story2videoProjectService: { syncRunStatus },
     })
     const run = {
@@ -1000,7 +1000,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
   })
 
   it('setRunFinalizedHook 在 _finalizeRun 终态后调用（additive，失败仅 warn）', () => {
-    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     const calls = []
     engine.setRunFinalizedHook((run) => { calls.push(run.id) })
     const run = { id: 'run-hook-1', pipeline: 'story2video-compose', status: 'running', stages: [], context: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString() }
@@ -1010,7 +1010,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(run.diagnostics).toBeTruthy()
 
     // 钩子抛错不影响终态
-    const engine2 = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const engine2 = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() } })
     engine2.setRunFinalizedHook(() => { throw new Error('hook boom') })
     const run2 = { id: 'run-hook-2', pipeline: 'story2video-compose', status: 'running', stages: [], context: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString() }
     engine2._runs.set(run2.id, run2)
@@ -1025,7 +1025,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
       return { projectId: 'project-complete' }
     })
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       story2videoProjectService: { saveRun },
     })
     vi.spyOn(engine, '_emit').mockImplementation((eventName) => { order.push(eventName) })
@@ -1052,7 +1052,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
   it('_advanceRun 项目持久化失败时进入 failed 且不发出 pipeline:complete', () => {
     const events = []
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       story2videoProjectService: { saveRun: vi.fn(() => { throw new Error('disk full') }) },
     })
     vi.spyOn(engine, '_emit').mockImplementation((eventName) => { events.push(eventName) })
@@ -1082,7 +1082,7 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     const saveEditableRun = vi.fn(() => ({ projectId: 'run-editable-project', segments: [{ id: 'segment-0' }] }))
     const syncRunStatus = vi.fn(() => ({ projectId: 'run-editable-project', status: 'paused' }))
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       stageExecutor: { execute: vi.fn(async () => ({ success: true, output: { scenes: [{ index: 0, text: '第一段' }] } })) },
       story2videoProjectService: { saveEditableRun, syncRunStatus },
     })
@@ -1127,7 +1127,7 @@ describe('PipelineEngine 批量创作打标与索引隔离', () => {
 
   beforeEach(() => {
     engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       stageExecutor: {
         execute: vi.fn(async () => ({ success: true, output: {} })),
       },
@@ -1206,7 +1206,7 @@ describe('PipelineEngine 批量创作打标与索引隔离', () => {
     // 隔离引擎：显式注入 maxConcurrentRuns=4，避免低内存 CI 环境下 computeDefaultMaxConcurrentRuns 自适应为 1 导致并发上限误拒（与本次 ID 改动无关）。
     // 同时注入 stageExecutor mock（与本 describe 的 beforeEach 一致），否则 startOrchestrated 会因 StageExecutor 未配置而拒绝。
     const isolatedEngine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       stageExecutor: { execute: vi.fn(async () => ({ success: true, output: {} })) },
       maxConcurrentRuns: 4,
     })
@@ -1337,7 +1337,7 @@ describe('PipelineEngine 启动前模型能力前置校验（pipeline-model-pref
 
   function makeEngine (manager) {
     return new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       stageExecutor: { execute: vi.fn(async () => ({ success: true, output: {} })) },
       modelProviderManager: manager,
       maxConcurrentRuns: 4,
@@ -1400,7 +1400,7 @@ describe('PipelineEngine 启动前模型能力前置校验（pipeline-model-pref
 
   it('未注入 modelProviderManager（旧环境/纯引擎测试）→ 前置校验跳过，行为不变', async () => {
     const engine = new PipelineEngine({
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
       stageExecutor: { execute: vi.fn(async () => ({ success: true, output: {} })) },
       maxConcurrentRuns: 4,
     })

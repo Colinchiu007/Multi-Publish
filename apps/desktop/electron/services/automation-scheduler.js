@@ -49,7 +49,7 @@ class AutomationScheduler {
    * }} deps
    */
   constructor (deps = {}) {
-    this._log = deps.log || { info: () => {}, warn: () => {}, error: () => {} }
+    this._log = deps.log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
     this._store = deps.store || null
     this._pipeline = deps.pipeline || null
     this._notify = typeof deps.notify === 'function' ? deps.notify : () => {}

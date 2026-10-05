@@ -17,7 +17,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }))
 
 __enableElectronMock()
 
@@ -69,7 +69,7 @@ function makeDeps (over = {}) {
     resumeOrchestration: vi.fn(),
   }
   return {
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     filmEngineeringService: {},
     pipelineEngine,
     aiGenerator: { _modelProviderManager: manager },

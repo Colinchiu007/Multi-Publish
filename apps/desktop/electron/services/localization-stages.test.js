@@ -17,7 +17,7 @@ function makePipeline(aiGenerator, inner) {
   const pipeline = {
     stageExecutor,
     aiGenerator,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
   }
   if (inner) stageExecutor.execute = inner
@@ -133,7 +133,7 @@ describe('localization-dub 阶段执行器', () => {
         stageExecutor,
         aiGenerator: ai,
         _assetGenerator: serviceBus._assetGenerator,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
         registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
       }
       registerLocalizationStages(pipeline2)
@@ -165,7 +165,7 @@ describe('localization-dub 阶段执行器', () => {
       const pipeline2 = {
         stageExecutor,
         aiGenerator: ai,
-        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
         registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
       }
       registerLocalizationStages(pipeline2)
