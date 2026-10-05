@@ -11,7 +11,31 @@
 
 ---
 
-## 标签标题的锁定语义只适用于静态标题场景；动态内容标签传 title 等于永锁（fix-tab-title-url-placeholder，2026-10-03）
+## LEDGER_GREW「陈旧账本误杀」的判据与合法处置；rebase 后 PR diff 虚胖的识别；增量门禁的对称性纪律（publish-permission-recheck + publish-logging-observability，2026-10-04）
+
+- **「远程同步」状态必须写 `PASS`，写 `PENDING→PASS` 照样判未收口（pitfall）**：`.quality-gates.md` 的远程同步行只要不是纯 `PASS`（含 `PENDING`、`PENDING→PASS`），`check-gate-record-debt.js` 就把它列为**未登记欠账** → `QG Changes`/`Gate Result` 连带红。本次照抄模板写成 `PENDING→PASS`，PR 其实已合并仍被列出两条（L34/L8587）；改成 `PASS` 即时转绿。**收口四步**：①取证（`git log origin/main --grep='(#NNNN)$' --format='%H|%cI'` + `git ls-remote --heads origin <branch>` 返回 0 行）；②记录状态改 `PASS` 并写入 commit hash 与取证命令；③**同一次提交**删除 `gate-record-debt-ledger.json` 对应条目（否则判「陈旧登记项」）；④`node scripts/check-gate-record-debt.js` exit 0。
+- **`log.notify` 是独立于 warn 的出口，改造会静默打断既有断言（pitfall）**：`log.notify`（logger.js:230）不经过 `warn`，测试用 `vi.spyOn(log,'warn')` 断言「必须出声」时会被误判成「静默」（本次 `phase4-events-tracked-content` T2 因此红）。修法：messageKey 保留原语义关键字（`tracked-content-no-id` → `tracked-content-unlinked`，保住 `unlinked`），测试**两个通道都收集**——锁的语义是「必须出声」不是「必须走 warn」。另：新增/改名 notify messageKey **必须**同步 `observability-messagekey.test.js` 的 `ALLOWED_KEYS`（该锁还要求清单总数 == 实际调用数）。
+- **文档类收尾提交在共享根的姿势（pattern）**：纯文档变更不建 worktree，但同样必须走 PR（直推 main 被 GH011 拒）。流程：本地 main 上 commit → `git branch <name>` 保住提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。提交前先 `scripts/session-guard.ps1 -Branch main` 声明分支。注意 `classify-docs-only.js` 对**已暂存未提交**的改动返回 `files=0`，此时改用 `isDocsOnly([...文件])` 直接判定。
+- **陈旧账本会把「他人的存量漂移」算到本次头上（pitfall + pattern）**：`LEDGER_GREW` 判据是 `当前行数 − 登记值 > growthAllowance`，而登记值是**登记时刻**的行数。当 main 已有机增长把「登记值 vs main 实际」的差额吃到恰好等于容差（本次 1356−1156=200=allowance，main 压线绿），任何分支再增 1 行都会红——红的原因**不是本次改动过大**（本次仅 +26），而是账本陈旧。取证序列：①`git cat-file blob HEAD:<path>` 取权威行数（勿用 PowerShell `Measure-Object -Line`，会少算）；②`git diff --numstat origin/main HEAD -- <path>` 取本次净增；③`git show origin/main:<path>` 取 main 真实行数。**合法处置是「同步到 main 真实已接受大小」**（1156→1356），使本次增量完整暴露在容差内；改成 1382（分支当前值）则是掩盖本次增量，属禁止项。`--update` 因 `blockedRaise` 无法抬高既有登记值，只能手工单键改。
+- **rebase 前先量三点 diff 的假象（pitfall）**：`git diff --stat origin/main HEAD` 在分支落后 main 时，会把 main 上他人的后续改动**全部算成本分支的删除**（本次显示 161 文件/-8147 行，真实仅 42 文件/+1955/-268）。分支落后 45 个提交时 PR 状态是 `DIRTY/CONFLICTING`，自动合并永不触发。判据：先 `git rev-list --count HEAD..origin/main`，落后就先 rebase；评估真实改动一律用 `git merge-base` 做两点 diff。
+- **门禁冲突里「两侧记录都要留」（pattern）**：`.quality-gates.md` 是置顶追加型文件，多会话并发写必冲突。解冲突时两侧的执行记录**都是有效证据**，不能取一舍一——只删冲突标记、保留双方段落。附带发现：该文件曾出现 2 个 NUL 字节（`01-docs/` 的 `01` 被写成 NUL），使编辑工具判定为二进制而拒绝编辑；修法是按字节把 NUL 替换为 `01`，再重读后编辑。
+- **抽取型改动的冲突取我方，但「搬走」不等于「可以重写」（pitfall，本次真实回归）**：rebase 遇到「HEAD 内联函数 vs 我方抽到 helper 文件」的冲突时取**抽取版**（抽取即本次意图），且要先确认新 helper 的 `module.exports` 覆盖 HEAD 侧那批函数。**但更要命的是语义层面**：本次把 `getOwnerSubject` 抽到 `publish-helpers.js` 时，顺手**照原样重写了一份归属三态判定**（`identityService.getState()` 那套），于是唯一实现变成了两份——`owner-subject-single-source.test.js` 的结构锁（`publish.js` 必须 `toContain('resolveIpcOwnerSubject')`）立刻判红，QG Unit Tests/Coverage/Desktop Shards 四项全红。该锁的本意正是「防止第四份拷贝」（此前 publish.js/account.js/performance-loop 各有一份，QM-6 后端轴 FB5）。**正解：抽取只是换位置，判定逻辑必须继续转发唯一实现**（`publish.js` 直接 `resolveIpcOwnerSubject(identityService)` 转发），而不是在 helper 里重写；行数压线不得以引入重复实现为代价。**凡是搬函数，先问「它是不是某个唯一实现的调用点」**——是就必须保留转发痕迹，让结构锁仍成立。
+- **未收口的「远程同步」行必须登记欠账（pitfall）**：在 `.quality-gates.md` 新增执行记录时，若「远程同步」写的是 `PENDING→`（PR 未合并、确实未收口），**必须**同步在 `scripts/gate-record-debt-ledger.json` 登记该条（键＝记录标题，含 `reason`/`status`/`line`），否则 `check-gate-record-debt.js` 判红 → `QG Changes`/`Gate Result` 连带红。本地复现命令：`node scripts/check-gate-record-debt.js`（exit 0 才安全）。`line` 是记录所在真实行号，rebase 后行号会变，须同步更新。
+- **NUL 字节文件禁止整文件重写（pitfall，本次踩过）**：`.quality-gates.md` 含 NUL 字节时编辑工具判为二进制并拒绝编辑。若用「读全文→改→写回」修复，会**全量改行尾**（实测 8403/8403），违反 R2 禁令。正解：**字节级前置插入**（新内容字节 + 原文件字节原样拼接，NUL 一并保留），可做到 23 增 0 删；删冲突标记同理用字节级跳过指定行区间。改用 `git checkout HEAD -- <file>` 撤回有效。
+- **本地跑 vitest 必须从 `apps/desktop` 目录（tool）**：从仓库根跑会得到 `__enableElectronMock is not defined` / "no tests" 的假失败——该全局夹具由 `test-setup.js` 提供，只在 `apps/desktop` 下生效。判红时先确认跑法，别误判成代码回归。
+- **授权契约的对称性纪律（pattern）**：同一资源有两条入口路径（定时 vs 即时发布）时，授权/校验契约必须**同构**。既有路径有「激活态复校」、新路径直接用裸 `_consumeEntitlementFeature`，就是契约缺口。新增的复校层是**叠加而非替换**——中央预检行为不得改变，改动前后逐行比对确认。文档与源码注释都要写明「改一处须同步另一处」。
+- **随机源是 CI 偶发超时的头号嫌犯（pitfall）**：限流/重试类单测依赖全局随机 jitter，本地快、CI 偶发 10s 超时。正解是把随机点抽成**模块级可注入函数**（`governorConstants.jitter`），测试在 `require` 治理模块**之前**替换为 `() => 0`。同理，`.lines >= 500` 是**硬熔断（含 500）**，抽取后必须严格 `<500`。
+
+## 行数门禁 LEDGER_GREW 的「容差被 main 预存漂移吃光」处置序列；Electron CJS 测试的仓库级夹具约定；打包启动失败必须 main 对照归因（publish-throughput-optimization，2026-10-04）
+
+- **双人合租容差（pitfall + pattern）**：超大文件行数挂账（check-max-lines baseline）登记的是「登记时刻」的行数，main 上其他 PR 会持续消耗 growthAllowance——新任务开工前必须先比对「登记值 vs main 实际行数」的剩余容差，剩余 < 50 行时**方案期**就要把「判据下沉 helper 文件」写进设计（本次 A2 的三个等待判据 `_waitForThumbnailIncrease`/`_waitForTagChip`/`_waitForSuccessNavigation` 下沉 navigation-helpers），而不是 CI 红了才拆。`--update` 全量重生被脚本故意拒绝（防把别人的漂移登记成新基线），逃生口是**手工单键改 baseline JSON**（git diff 单值可审计），提交信息写审阅依据：main 预存膨胀量 + 本改动净增量 + 已做的最大拆分。
+- **Electron CJS 夹具约定（pattern）**：本仓主进程代码 `vi.mock('electron')` 不生效（CJS require 不走 vitest SSR 转换），必须用 `test-setup.js` 全局机制：`__enableElectronMock()` 启用、`__electronMock.BrowserWindow._instances` 取实例、`__resetElectronMock()` 复位。全局 mock 的 `destroy()` 是普通函数非 spy——销毁断言用 `win._destroyed === true` 状态而非调用计数。骨架照 `rpa-view-window-pool.test.js`。
+- **打包启动失败先做 main 对照（pitfall）**：打包 exe 静默退出（exit 0、stderr 空）时，先跑 main 基线的同款启动——本次 main 的 dev electron 同款 electron-updater 崩溃（Node v24 × electron 43 的 `app.getVersion()` undefined），证实是环境预存问题。**环境类失败不做对照实验就不能归因到改动**；CI runner 才是启动测试的权威判定面，本地只判 asar 完整性（entries + package.json main + require 链）。
+- **task-queue 通道调度的三接缝（pattern）**：通道键 `platform + ':' + (accountId ?? '')`（缺失归一空串，同平台仍串行）；`_processNext` 跳过「通道有在跑」的队头继续扫（不是整队停摆）；**频控推迟（publish:blocked）在 try/finally 之前 return，finally 的通道释放不执行——必须在分支内显式释放**（与既有 `_running.delete` 同位同因），漏掉即「等间隔」占死同通道，频控从保护变雪崩。凡是「在跑态记账」的资源，都要盘点所有提前 return 的路径。
+- **CHANGELOG 巨型冲突的确定性解法（pattern）**：置顶插入型文件合并必冲突，手工读 hunks 不可靠。正解：`git diff origin/main...HEAD -- <file>` 提取本分支新增行（验证首行特征）+ `git show origin/main:<file>` 全文，脚本拼接 + 双断言（多重集相等 + main 尾部逐行一致）。坑：git diff 输出行尾 CRLF 残留必须剥掉。脚本沉淀于 %TEMP%（mp-resolve-changelog-freq2.js / mp-resolve-changelog-throughput.js），同型冲突可复用。
+- **mock 契约跟随 rebase（pitfall）**：并行改同一文件时，rebase 后第一件事 grep 自己测试里的 mock 方法名——#2773 把 guard 从 `getRemainingWait()` 升级为 `check()`，旧 mock 在合并后炸出 `check is not a function`。
+
+
 
 - **复合根因（pattern：能力 × 调用方矩阵审计）**：主进程 `createNewTabPage` 的 `titleLocked`（`c3c395570`，为登录/平台标签防止网页标题覆盖）是合理能力；两个月后新标签体系（`f7e93ceba` #2230）让 `App.vue` 的「+」新标签也传了 `title: t('tabs.newTabTitle')`，把**动态内容标签**锁死在初始标题。**一个「标签创建参数」被新增调用方照抄示例传值时，参数的深层语义（锁定 = 永久忽略 page-title-updated）不会自己显形——新增调用方必须审计每个传参的副作用矩阵，而不是抄最近的可工作示例。**
 - **次级缺口（pitfall：内嵌 SPA 无 document.title 源）**：home-shell 内嵌独立 SPA 实例从不更新 `document.title`，即使解锁也没有标题可上报——「解锁」与「有源可发」必须同时补齐，缺一链路仍然静默。显式 IPC 上报（reportTabTitle）比只依赖 Chromium page-title-updated 事件更可靠（不依赖事件时序，非 Electron 环境天然降级）。
@@ -17319,3 +17343,12 @@ DOM 流程失败(verification timeout) →
 - **契约变更纪律**：`usePublishDrafts.saveDraft` boolean→`{ok,draftId}` 前全仓核实消费点（唯一消费方在本 PR 内），失败路径返回 `{ok:false,draftId:null}` 恒对象；`draftSave` 的 `data.draftId` 是创作视频跳转的 id 真源（主进程内容指纹幂等返回既有 id）。
 - **回写分治**：rewrite 按 fromKey 覆盖 / collect 以 `collect:<id>` 写改写库 / video 不回写（story2video 项目渲染层无写通道）/ draft 走草稿箱幂等。回写恒旁路（try/catch 静默）。
 - **工具坑（本会话实证）**：`[IO.File]::WriteAllText` 写平台行尾（CRLF），改 LF 文件必须先 `.Replace("\r\n","\n")`，否则 git diff 假红 7000+ 行（双口径 `git diff --numstat` vs `--ignore-cr-at-eol --numstat` 对账）；ESM 模块私有常量被测试 import 得 `undefined` 不报错，`getItem(undefined)` 恒 null——测试断言存储状态的常量必须 export；标识符争议以 vitest/node 直跑 + 码点对比为裁决，不信显示层。
+
+
+## 请求头逐字对齐仍被 400 拒绝 ⇒ 根因在传输层指纹，别再在 Node 侧修 header（api-publish-engine-w3 6.3 定案，2026-09-29）
+
+- **事故**：快手九步链 `upload/complete` 恒定裸 400（无响应体、缺 `X-KSLOGID`/CORS 头 = 边缘级拒绝，业务层根本没看到请求）。前 10 轮全在 Node 侧修：形状翻译、签名注册表、双模块实例、sessionKey、cookie 装配、Content-Type（axios 对空字符串 body 默认注入 form-urlencoded，是第 ⑦ 层真缺陷，#2612→#2653 四轮才收敛）。第 11 轮把请求头与真实浏览器**逐字节对齐**后仍被拒 ⇒ 前 10 轮的假设（「再对齐一项就能过」）整体作废。
+- **定案**：拒绝判据在传输层——TLS 指纹 / HTTP 版本 / QUIC。Node axios = OpenSSL + HTTP/1.1，复刻不出 Chrome = BoringSSL + HTTP/2-3 的握手指纹；这类差异**不在任何 header 里**，因此 header 对账法对它天然失效。裁决 not-go，DOM 轨（11/11 成功）为当前正确架构。
+- **可复用判据**：平台侧 4xx 且响应体为空/无业务错误码时，先做「header 逐字对齐终验」这一刀——**一次到位**而不是再猜下一项。若对齐后仍拒，根因几乎必在传输层/指纹层，继续修 Node 侧是纯烧钱（本案烧了 11 轮 + 13 个 PR）。
+- **对照经验**：同一批平台里走通的是「借浏览器发请求」（头条 direct bridge 在受信会话内捕获并重放保存请求，见 toutiao-shipped-react-bump 条目）——即 API 轨可行的形态是「浏览器传输 + Node 编排」，不是「Node 直连 + 复刻 header」。后续若要重启快手 API 轨，必须走受信会话内 fetch 并重新活体验收。
+- **收口纪律**：契约层规格成立 ≠ 能力可用。归档前给主规格补「实况补记」，未实现能力（小红书 x-s/x-t）一律不得折进主规格，只留「止步裁决记录」条款并写死重启前置。

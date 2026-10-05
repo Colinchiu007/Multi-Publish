@@ -50,6 +50,40 @@ class RewriteEngine {
     // 改写硬约束（最高优先级，运营中心可自定义）：systemPrompt 最前置注入，
     // 与策略/模式指令冲突时以此为准。未注入时引擎行为不变。
     this._hardConstraints = ''
+    // AI 味定制（ai-taste-ops-center，运营中心词库运营）：词表覆盖层/禁用表/严重度表。
+    // 未注入或空对象时行为与历史逐字节一致（AITasteRemover 缺省回内置常量）。
+    this._aiTasteCustomization = {}
+  }
+
+  /**
+   * 设置 AI 味定制（运营中心词库运营下发）。
+   *
+   * 与 setHardConstraints 同构的注入入口；全缺省/空对象 = 引擎行为不变。
+   * @param {object} [customization] - { phraseMap?: Object<string,string>, disabledWords?: string[], severityMap?: Object<string,string> }
+   *   phraseMap：词表覆盖层（叠加 + 键覆盖内置 128 条）；disabledWords：禁用替换的词（含内置词）；severityMap：自定义词严重度覆盖。
+   *   非对象输入被忽略（保持现状）。
+   */
+  setAiTasteCustomization(customization) {
+    if (!customization || typeof customization !== 'object') return
+    const out = {}
+    if (customization.phraseMap && typeof customization.phraseMap === 'object' && !Array.isArray(customization.phraseMap)) {
+      out.phraseMap = customization.phraseMap
+    }
+    if (Array.isArray(customization.disabledWords)) {
+      out.disabledWords = customization.disabledWords.filter(w => typeof w === 'string' && w)
+    }
+    if (customization.severityMap && typeof customization.severityMap === 'object' && !Array.isArray(customization.severityMap)) {
+      out.severityMap = customization.severityMap
+    }
+    this._aiTasteCustomization = out
+  }
+
+  /**
+   * 获取当前 AI 味定制（未注入/空注入返回空对象）。
+   * @returns {object}
+   */
+  getAiTasteCustomization() {
+    return this._aiTasteCustomization
   }
 
   /**
@@ -490,10 +524,18 @@ class RewriteEngine {
     // 去 AI 味
     const postProcess = strategy.postProcess || {}
     if (postProcess.removeAITaste !== false) {
+      // 强度语义（ai-taste-ops-center Q4）：策略 postProcess.aiTasteIntensity（1-3）优先，
+      // 非法值回 2（与历史行为一致）。1=仅词级替换（跳 Pass 3 句长修复）；3=追加 casual 口语化。
+      const rawIntensity = postProcess.aiTasteIntensity
+      const intensity = (rawIntensity === 1 || rawIntensity === 2 || rawIntensity === 3) ? rawIntensity : 2
+      const cust = this._aiTasteCustomization || {}
       const remover = new AITasteRemover({
         enabled: true,
-        intensity: 2,
-        tone: strategy.tone?.[0] || 'casual'
+        intensity,
+        tone: strategy.tone?.[0] || 'casual',
+        phraseMap: cust.phraseMap,
+        disabledWords: cust.disabledWords,
+        severityMap: cust.severityMap
       })
       result = remover.process(result)
     }

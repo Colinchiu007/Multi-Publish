@@ -82,10 +82,16 @@ describe('phase4-events → tracked_content 关联链（真存储）', () => {
     // 真 logger 会往日志目录写文件；这里只留现场给断言用，不落盘。
     // phase4-events 在 require 期拿到的是 logger **模块对象**本身（不是解构出来的函数），
     // 所以 spyOn 拦得住 —— 换成解构本地绑定就拦不住（本仓踩过）。
-    logged = { warn: [], info: [], error: [] }
+    logged = { warn: [], info: [], error: [], notify: [] }
     vi.spyOn(log, 'warn').mockImplementation((tag, msg) => { logged.warn.push(`${tag} ${msg}`) })
     vi.spyOn(log, 'info').mockImplementation((tag, msg) => { logged.info.push(`${tag} ${msg}`) })
     vi.spyOn(log, 'error').mockImplementation((tag, msg) => { logged.error.push(`${tag} ${msg}`) })
+    // 日志契约治理后，「缺 id」这类可观测现场改走结构化 notify 通道（log.notify）。
+    // 它是独立于 warn 的出口，不收集就会把「已出声」误判成「静默」——锁的语义是
+    // 「必须留下未关联现场」，不是「必须走 warn 通道」，所以两个通道都要收集。
+    vi.spyOn(log, 'notify').mockImplementation((tag, key, meta) => {
+      logged.notify.push(`${tag} ${key} ${JSON.stringify(meta && meta.params || {})}`)
+    })
   })
 
   afterEach(() => { vi.restoreAllMocks() })
@@ -130,7 +136,8 @@ describe('phase4-events → tracked_content 关联链（真存储）', () => {
     const rows = store.db.prepare('SELECT * FROM tracked_content').all()
     expect(rows).toHaveLength(1)
     expect(rows[0].publish_history_id).toBeNull()
-    expect(logged.warn.join('|'), '缺 id 必须留下"未关联"的现场，而不是静默写 NULL').toContain('unlinked')
+    const said = [...logged.warn, ...logged.notify].join('|')
+    expect(said, '缺 id 必须留下"未关联"的现场，而不是静默写 NULL').toContain('unlinked')
   })
 
   it('T4/T5：存量未关联行在首次发布成功时被补齐，且第二次不再产生写入（幂等）', async () => {

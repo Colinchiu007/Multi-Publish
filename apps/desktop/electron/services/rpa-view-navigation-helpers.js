@@ -271,6 +271,58 @@ const navigationHelpers = {
     return 'NO_THUMB'
   },
 
+  // ========== A2：发布跳转 URL 轮询（publish-throughput-optimization）==========
+  // 替代「_sleep(5000)+单次查 URL」盲等：500ms 间隔轮询 success 跳转，最长 totalMs。
+  // 命中返回 true（调用方取 URL 组装成功结果），超时 false。
+  async _waitForSuccessNavigation (win, totalMs) {
+    const rounds = Math.max(1, Math.round((totalMs || 5000) / 500))
+    for (let i = 0; i < rounds; i++) {
+      await this._sleep(500)
+      try {
+        const fu = win.webContents.getURL()
+        if (fu.includes('success') || fu.includes('publish/success')) return true
+      } catch (_) { /* 窗口可能已销毁 */ }
+    }
+    return false
+  },
+
+  // ========== A2：tag chip 就绪等待（publish-throughput-optimization）==========
+  // 回车注入 tag 后平台异步建 chip；就绪判据 = 出现含 tag 文本且可见的元素。
+  // 超时返回 false（调用方继续下一个 tag，不失败）。探针内 tag 值经 JSON.stringify
+  // 注入字符串常量（R75：_waitForCondition 的 fn 必须是硬编码字面量）。
+  async _waitForTagChip (win, tag, timeoutMs) {
+    return this._waitForCondition(
+      win,
+      'function(){var t=' + JSON.stringify(tag) + ';var els=[].concat.apply([],document.querySelectorAll(\'[class*="tag"],[class*="Tag"]\'));return els.some(function(e){return (e.innerText||"").indexOf(t)!==-1&&e.getClientRects().length>0})}',
+      timeoutMs || 5000, 500,
+    )
+  },
+
+  // ========== A2：封面缩略图基线计数等待（publish-throughput-optimization）==========
+  // 与 _uploadToutiaoCover 同款「基线递增」判据的通用化：读 selector 域内 img 数作基线，
+  // 注入后轮询计数超过基线即确认平台接受；超时返回 false（调用方降级，不失败）。
+  // 从 rpa-view-platforms.js 抽出（行数门禁 LEDGER_GREW：该文件已贴容差上限）。
+  async _waitForThumbnailIncrease (win, containerSel, injectFn, timeoutMs) {
+    try {
+      let baseline = -1
+      try {
+        baseline = Number(await win.webContents.executeJavaScript(
+          '(function(){var w=document.querySelector(' + JSON.stringify(containerSel) + ');if(!w)return -1;return w.querySelectorAll("img").length})()'
+        ))
+      } catch (_) { /* 读不到按 -1 */ }
+      if (injectFn) await injectFn()
+      const threshold = Number.isFinite(baseline) && baseline >= 0 ? baseline : 0
+      return await this._waitForCondition(
+        win,
+        'function(){var w=document.querySelector(' + JSON.stringify(containerSel) + ');if(!w)return false;return w.querySelectorAll("img").length > ' + threshold + '}',
+        timeoutMs || 10000, 500,
+      )
+    } catch (e) {
+      log.warn('RpaView', '[thumbnail wait] ' + (e && e.message))
+      return false
+    }
+  },
+
 
 }
 

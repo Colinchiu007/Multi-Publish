@@ -37,11 +37,11 @@ describe('menu store - visibleForRole（侧边栏/设置页共用可见性口径
     expect(store.visibleForRole(undefined).map((i) => i.path)).toEqual(expected)
   })
 
-  it('5 个 adminOnly 项对 admin 可见（防配置遗漏回归）', () => {
+  it('6 个 adminOnly 项对 admin 可见（防配置遗漏回归）', () => {
     const store = useMenuStore()
     const adminPaths = store.visibleForRole('admin').map((i) => i.path)
     for (const p of [
-      '/feedback', '/model-keys', '/rewrite-hard-constraints', '/pipeline-options', '/app-menu',
+      '/feedback', '/model-keys', '/rewrite-hard-constraints', '/rewrite-ai-taste', '/pipeline-options', '/app-menu',
     ]) {
       expect(adminPaths).toContain(p)
     }

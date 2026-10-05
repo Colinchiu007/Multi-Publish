@@ -1,8 +1,8 @@
 {
-  "本次执行记录：settings 往返类型对称化（运营下发配置重启后可恢复）（fix-settings-roundtrip-contract，2026-10-05）": {
-    "reason": "本 PR 自登记的待回填项：开 PR 时远程同步只能为 PENDING；合并后由后续 docs 提交就地改写为 PASS + merge SHA，并在同一次提交删除本条（回填与销账必须同一次发生）。",
+  "本次执行记录：去 AI 味词库运营中心化（ai-taste-ops-center，2026-10-04）": {
+    "reason": "PR #2884 合并后回填：squash 落地即取证（git log origin/main --grep=ai-taste-ops-center --format=%H|%cI；git ls-remote --heads origin ai-taste-ops-center 返回 0 行），回填与销账同一次发生——回填者＝后续 docs PR 同一次提交删除本条。",
     "status": "PENDING",
-    "line": 22
+    "line": 1
   },
   "本次执行记录：智能标签建议面板 Tab 化紧凑呈现（compact-tag-suggester-tabs，2026-10-03）": {
     "reason": "PR #2828 合并后回填：squash 落地即取证券（git log origin/main --grep='(#2828)$' --format=%H|%cI；git ls-remote --heads origin tag-suggester-tab-compact 返回 0 行），回填与销账必须同一次发生——回填者＝本 docs PR 同一次提交删除本条。",
@@ -84,9 +84,9 @@
     "status": "PENDING",
     "line": 24
   },
-  "本次执行记录：P2-6c 作品互动回流看板 + 撤除看板页假百分比（publish-metrics-dashboard，2026-10-04）": {
-    "reason": "本 PR 自身尚未合并 ⇒ 顶部记录的 远程同步 停在 PENDING；合并后由后续 docs PR 回填 PASS 并删除本条（回填与销账同一次发生）。回填者＝publish-metrics-dashboard 合并后的会话，按 head 分支名查 PR → merge SHA。",
+  "本次执行记录：settings 往返类型对称化（运营下发配置重启后可恢复）（fix-settings-roundtrip-contract，2026-10-05）": {
+    "reason": "本 PR 自登记的待回填项：开 PR 时远程同步只能为 PENDING；合并后由后续 docs 提交就地改写为 PASS + merge SHA，并在同一次提交删除本条（回填与销账必须同一次发生）。",
     "status": "PENDING",
-    "line": 1
+    "line": 22
   }
 }

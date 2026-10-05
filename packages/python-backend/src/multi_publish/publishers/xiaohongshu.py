@@ -1,7 +1,17 @@
-"""小红书发布器（RPA 模式）
+"""小红书发布器（RPA / DOM 轨）
 
-使用 Playwright 自动化浏览器发布图文/视频到小红书创作平台。
-实现参照 douyin.py 的 _do_publish_legacy RPA 流程。
+使用 Playwright 自动化浏览器把图文/视频保存进小红书创作平台。
+
+设计要点（rpa-xiaohongshu-dom-hardening）：
+- 验收目标为「存入真实草稿箱」，成功判定来自正面确认信号（ResponseMonitor 捕获
+  草稿保存端点响应，或草稿箱回查命中），绝不盲 sleep 后无条件报成功、绝不伪造 url。
+- 草稿意图 fail-closed：找不到草稿入口一律报错并阻止任何公开发布点击。
+- 发布步骤逻辑与真实浏览器启动解耦（_execute_flow 接收注入的 page + monitor），
+  可在假对象下单测核心分支。
+- 合规红线：运行时不请求任何外部远程求签服务（禁引入外包签名农场域名）。
+
+常量见 xiaohongshu_selectors.py；认证持久化见 xiaohongshu_auth.py。
+实现参照 douyin.py 的「先查 API 响应、再 URL、再 DOM」三级回退确认范式。
 """
 
 from __future__ import annotations
@@ -12,38 +22,33 @@ import os
 from loguru import logger
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
-from multi_publish.publishers.base import BasePublisher, PublisherConfig, wait_until
-from multi_publish.publishers.legacy_auth_policy import require_legacy_plaintext_auth
-
-DEFAULT_SELECTORS = {
-    "login_qrcode": '[class*="qrcode"]',
-    "login_success_indicator": '[class*="creator-home"]',
-    "upload_page_url": "https://creator.xiaohongshu.com/publish/publish",
-    "upload_input": 'input[type="file"]',
-    "title_input": '[class*="title"] input, [placeholder*="标题"]',
-    "content_textarea": '[class*="content"] textarea, [class*="desc"] textarea, [placeholder*="正文"]',
-    "publish_button": 'button:has-text("发布"), button:has-text("发布笔记")',
-    "tag_input": '[class*="tag"] input, [placeholder*="标签"]',
-    "cover_upload": '[class*="cover"]',
-    "cover_input": 'input[type="file"]',
-    "upload_progress": '[class*="progress"]',
-    "upload_complete": '[class*="upload-success"]',
-    "draft_button": 'button:has-text("草稿")',
-}
-
-CREATOR_URL = "https://creator.xiaohongshu.com/"
-
-# 脆弱等待改造（体检报告 P2「脆弱等待」）：固定 sleep 换成条件轮询 + 具名上限。
-# 超时原因统一为「站点结构变化 / 上传未完成导致选择器不命中」，因此超时只记日志、
-# 不直接判发布失败（原固定 sleep 也是继续往下走，这里不新增失败路径）。
-NAVIGATE_READY_TIMEOUT_S = 10.0
-NAVIGATE_READY_POLL_INTERVAL_S = 0.5
-UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0
-UPLOAD_FALLBACK_POLL_INTERVAL_S = 0.5
+from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor, wait_until
+from multi_publish.publishers.xiaohongshu_auth import XiaohongshuAuthMixin
+from multi_publish.publishers.xiaohongshu_selectors import (
+    CODE_DRAFT_ENTRY_MISSING,
+    CODE_LOGIN_EXPIRED,
+    CODE_RISK_BLOCKED,
+    CODE_TITLE_FAILED,
+    CODE_UNCONFIRMED,
+    CODE_UPLOAD_FAILED,
+    CONFIRM_TIMEOUT_S,
+    CREATOR_URL,
+    DEFAULT_SELECTORS,
+    DRAFT_BOX_ITEM_SELECTOR,
+    DRAFT_BOX_URL,
+    DRAFT_SAVE_RESPONSE_PATTERNS,
+    RISK_OVERLAY_SELECTOR,
+    SELECTOR_FALLBACKS,
+    UPLOAD_FALLBACK_POLL_INTERVAL_S,
+    UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+)
+from multi_publish.publishers.xiaohongshu_selectors import (
+    coded as _coded,
+)
 
 
-class XiaoHongShuPublisher(BasePublisher):
-    """小红书发布器（RPA 模式）"""
+class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
+    """小红书发布器（RPA / DOM 轨）"""
 
     def __init__(self, config: PublisherConfig, account_id: str | None = None):
         super().__init__(config, account_id=account_id)
@@ -52,7 +57,9 @@ class XiaoHongShuPublisher(BasePublisher):
         self._context = None
         self._page = None
         self._playwright = None
+        self._playwright_app = None
         self.selectors = dict(DEFAULT_SELECTORS)
+        self.selector_fallbacks = dict(SELECTOR_FALLBACKS)
         self.creator_url = CREATOR_URL
         self._login_timeout = 120
         self._publish_timeout = 300
@@ -131,7 +138,7 @@ class XiaoHongShuPublisher(BasePublisher):
             )
         except Exception as e:
             logger.error(f"[小红书] 发布失败: {e}")
-            return PublishResult(success=False, platform="xiaohongshu", error=f"发布失败: {e}")
+            return PublishResult(success=False, platform="xiaohongshu", error=_coded(CODE_UNCONFIRMED, f"发布异常: {e}"))
 
     async def _do_publish_rpa(
         self,
@@ -142,9 +149,8 @@ class XiaoHongShuPublisher(BasePublisher):
         tags: list[str],
         draft: bool,
     ) -> PublishResult:
-        """RPA 发布核心流程"""
+        """启动真实浏览器 + 恢复登录态，再委托可桩的 _execute_flow。"""
         await self._report_progress(PublishPhase.AUTHENTICATING, "启动浏览器...", 10)
-
         from playwright.async_api import async_playwright
 
         self._playwright_app = await async_playwright().start()
@@ -161,192 +167,282 @@ class XiaoHongShuPublisher(BasePublisher):
             return PublishResult(
                 success=False,
                 platform="xiaohongshu",
-                error="认证数据不存在或已过期，请先登录",
+                error=_coded(CODE_LOGIN_EXPIRED, "认证数据不存在或已过期，请先登录"),
             )
-
-        await self._report_progress(PublishPhase.PREPARING, "导航到上传页...", 20)
-        upload_url = self.selectors["upload_page_url"]
-        await self._page.goto(upload_url, wait_until="domcontentloaded")
-        # 上传页是 SPA，原固定 sleep(3)：控件未挂载时 3s 不够、挂载快时白等。
-        # 改为等上传文件控件真正可见。
-        upload_input_ready = await wait_until(
-            lambda: self._page.locator(self.selectors["upload_input"]).first.is_visible(),
-            timeout_s=NAVIGATE_READY_TIMEOUT_S,
-            interval_s=NAVIGATE_READY_POLL_INTERVAL_S,
+        return await self._execute_flow(
+            self._page,
+            ResponseMonitor(self._page),
+            title=title,
+            content=content,
+            media_paths=media_paths,
+            cover_path=cover_path,
+            tags=tags,
+            draft=draft,
         )
-        if not upload_input_ready:
-            logger.warning(
-                "上传控件 %s 在 %ss 内未可见（原因：页面未完成首屏渲染或站点结构变化），继续按当前页面状态执行",
-                self.selectors["upload_input"],
-                NAVIGATE_READY_TIMEOUT_S,
+
+    async def _execute_flow(
+        self,
+        page,
+        monitor,
+        *,
+        title: str,
+        content: str,
+        media_paths: list[str],
+        cover_path: str | None,
+        tags: list[str],
+        draft: bool,
+    ) -> PublishResult:
+        """发布编排核心：接收注入的 page + monitor，无真实浏览器亦可单测。"""
+        await self._report_progress(PublishPhase.PREPARING, "导航到上传页...", 20)
+        await page.goto(self.selectors["upload_page_url"], wait_until="domcontentloaded")
+
+        if self._is_login_redirect(getattr(page, "url", "")):
+            return PublishResult(
+                success=False, platform="xiaohongshu",
+                error=_coded(CODE_LOGIN_EXPIRED, "认证已过期，请重新登录"),
             )
 
-        if "/login" in self._page.url:
+        try:
+            if DRAFT_SAVE_RESPONSE_PATTERNS:
+                monitor.watch_patterns(list(DRAFT_SAVE_RESPONSE_PATTERNS))
+        except Exception as e:
+            logger.warning(f"ResponseMonitor 注册失败（降级为回查兜底）: {e}")
+
+        if await self._risk_present(page):
             return PublishResult(
-                success=False,
-                platform="xiaohongshu",
-                error="认证已过期，请重新登录",
+                success=False, platform="xiaohongshu",
+                error=_coded(CODE_RISK_BLOCKED, "检测到风控/验证弹层，已停止"),
             )
 
         await self._report_progress(PublishPhase.UPLOADING, "上传媒体文件...", 30)
-        try:
-            file_input = self._page.locator(self.selectors["upload_input"]).first
-            if media_paths:
-                await file_input.set_input_files(media_paths)
-        except Exception as e:
-            return PublishResult(
-                success=False,
-                platform="xiaohongshu",
-                error=f"媒体上传失败: {e}",
-            )
-
-        await self._report_progress(PublishPhase.UPLOADING, "等待上传完成...", 50)
-        try:
-            await self._page.wait_for_selector(
-                self.selectors["upload_complete"],
-                timeout=self._upload_wait_timeout * 1000,
-            )
-        except Exception:
-            # 原实现无条件 sleep(30)：不论上传是否已完成都硬等半分钟。
-            # 改为轮询「编辑器就绪」（标题输入框可见即已进入可填写状态），
-            # 上限沿用原 30s，不放宽容忍度，只是让快路径提前返回。
-            logger.warning(
-                "未检测到上传完成标志 %s，改为轮询编辑器就绪（上限 %ss，间隔 %ss）",
-                self.selectors["upload_complete"],
-                UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
-                UPLOAD_FALLBACK_POLL_INTERVAL_S,
-            )
-            editor_ready = await wait_until(
-                lambda: self._page.locator(self.selectors["title_input"]).first.is_visible(),
-                timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
-                interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
-            )
-            if not editor_ready:
-                logger.warning(
-                    "编辑器在 %ss 内未就绪（原因：媒体上传未完成或站点结构变化），继续尝试填写标题",
-                    UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+        if media_paths:
+            try:
+                file_input, _ = await self._resolve_visible(page, "upload_input")
+                if file_input is not None:
+                    await file_input.set_input_files(media_paths)
+            except Exception as e:
+                return PublishResult(
+                    success=False, platform="xiaohongshu",
+                    error=_coded(CODE_UPLOAD_FAILED, f"媒体上传失败: {e}"),
                 )
+        await self._await_editor_ready(page)
 
         await self._report_progress(PublishPhase.PUBLISHING, "填写标题...", 70)
-        try:
-            title_input = self._page.locator(self.selectors["title_input"]).first
-            await title_input.fill(title)
-        except Exception as e:
+        if not await self._set_field(page, "title_input", title):
             return PublishResult(
-                success=False,
-                platform="xiaohongshu",
-                error=f"填写标题失败: {e}",
+                success=False, platform="xiaohongshu",
+                error=_coded(CODE_TITLE_FAILED, "填写标题失败（选择器未命中或控件不可写）"),
             )
 
-        if cover_path and os.path.exists(cover_path):
-            try:
-                cover_btn = self._page.locator(self.selectors["cover_upload"]).first
-                await cover_btn.click()
-                await asyncio.sleep(2)
-                cover_input = self._page.locator(self.selectors["cover_input"]).first
-                await cover_input.set_input_files(cover_path)
-                logger.info("封面图已上传")
-            except Exception as e:
-                logger.warning(f"封面上传失败（不影响发布）: {e}")
-
-        if tags:
-            try:
-                tag_input = self._page.locator(self.selectors["tag_input"]).first
-                for tag in tags[:5]:
-                    await tag_input.fill(tag)
-                    await asyncio.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"标签添加失败（不影响发布）: {e}")
-
         if content:
-            try:
-                content_area = self._page.locator(self.selectors["content_textarea"]).first
-                if await content_area.count() > 0:
-                    await content_area.fill(content)
-            except Exception as e:
-                logger.warning(f"正文填写失败（不影响发布）: {e}")
+            await self._set_field(page, "content_textarea", content)
+        if tags:
+            await self._add_tags(page, tags)
+        if cover_path and os.path.exists(cover_path):
+            await self._set_cover(page, cover_path)
 
-        await self._report_progress(PublishPhase.PUBLISHING, "点击发布...", 90)
+        await self._report_progress(PublishPhase.PUBLISHING, "保存草稿...", 90)
         if draft:
-            draft_btn = self._page.locator(self.selectors["draft_button"])
-            if await draft_btn.count() > 0:
-                await draft_btn.first.click()
-            else:
-                publish_btn = self._page.locator(self.selectors["publish_button"]).first
-                await publish_btn.click()
-        else:
-            publish_btn = self._page.locator(self.selectors["publish_button"]).first
-            await publish_btn.click(timeout=10000)
+            return await self._save_as_draft(page, monitor, title)
+        return await self._publish_public(page, monitor, title)
 
-        await asyncio.sleep(5)
-        await self._report_progress(PublishPhase.DONE, "发布完成", 100)
-        logger.info(f"[小红书] RPA 发布完成: {title}")
+    async def _save_as_draft(self, page, monitor, title: str) -> PublishResult:
+        """草稿 fail-closed：找不到草稿入口绝不 fallthrough 到公开发布。"""
+        draft_btn, _ = await self._resolve_visible(page, "draft_button")
+        if draft_btn is None:
+            return PublishResult(
+                success=False, platform="xiaohongshu",
+                error=_coded(CODE_DRAFT_ENTRY_MISSING, "未找到草稿保存入口，已阻止公开发布"),
+            )
+        await draft_btn.click()
+        return await self._confirm_saved(page, monitor, title, kind="草稿")
 
-        return PublishResult(
-            success=True,
-            platform="xiaohongshu",
-            url="https://creator.xiaohongshu.com/",
-        )
+    async def _publish_public(self, page, monitor, title: str) -> PublishResult:
+        """真实公开发布（非默认验收路径），同样确认才报成功。"""
+        publish_btn, _ = await self._resolve_visible(page, "publish_button")
+        if publish_btn is None:
+            return PublishResult(
+                success=False, platform="xiaohongshu",
+                error=_coded(CODE_UNCONFIRMED, "未找到发布按钮，未执行公开发布"),
+            )
+        await publish_btn.click()
+        return await self._confirm_saved(page, monitor, title, kind="发布")
 
-    async def _save_auth_data(self):
-        require_legacy_plaintext_auth()
-        if not self._context or not self._page:
-            return
+    async def _confirm_saved(self, page, monitor, title: str, *, kind: str) -> PublishResult:
+        """确认才成功：优先 XHR 响应，回退 URL 显式跳转，再回退草稿箱回查；均无 → 未确认失败。"""
+        confirmed, url = False, None
+
+        if DRAFT_SAVE_RESPONSE_PATTERNS:
+            data = await monitor.wait_for_response(timeout=CONFIRM_TIMEOUT_S, predicate=self._resp_success)
+            if data is not None and self._resp_success(data):
+                confirmed = True
+                url = self._extract_url(data)
+            elif data is not None:
+                logger.warning(f"[小红书] 捕获到 {kind} 响应但非成功码: {data}")
+
+        if not confirmed:
+            cur = getattr(page, "url", "") or ""
+            if "publish/success" in cur or cur.rstrip("/").endswith("/success"):
+                confirmed = True
+                url = url or cur
+
+        if not confirmed:
+            confirmed = await self._recheck_draft_box(page, title)
+            if confirmed:
+                url = url or DRAFT_BOX_URL
+
+        await self._report_progress(PublishPhase.DONE, f"{kind}完成" if confirmed else f"{kind}未确认", 100)
+
+        if not confirmed:
+            logger.warning(f"[小红书] {kind} 无正面确认，按失败上报（不伪造成功）: {title}")
+            return PublishResult(
+                success=False, platform="xiaohongshu",
+                error=_coded(CODE_UNCONFIRMED, f"{kind} 未获正面确认（无成功响应/URL 跳转/草稿箱回查命中）"),
+            )
+        logger.success(f"[小红书] {kind} 确认成功: {url}")
+        return PublishResult(success=True, platform="xiaohongshu", url=url or DRAFT_BOX_URL)
+
+    @staticmethod
+    def _resp_success(data) -> bool:
+        if not isinstance(data, dict):
+            return False
+        if data.get("code") == 0:
+            return True
+        return data.get("success") is True
+
+    @staticmethod
+    def _extract_url(data) -> str | None:
+        if not isinstance(data, dict):
+            return None
+        inner = data.get("data") or {}
+        if not isinstance(inner, dict):
+            return None
+        for key in ("draft_id", "note_id", "id", "url"):
+            val = inner.get(key)
+            if val:
+                if key in ("draft_id", "note_id", "id"):
+                    return f"{DRAFT_BOX_URL.rstrip('/')}?{key}={val}"
+                return str(val)
+        return None
+
+    async def _recheck_draft_box(self, page, title: str) -> bool:
+        """导航草稿箱，匹配本次标题。Tier2 取证前 DRAFT_BOX_ITEM_SELECTOR 可能不命中 → False。"""
+        if not title:
+            return False
         try:
-            cookies = await self._context.cookies()
-            local_storage = await self._page.evaluate("JSON.stringify(localStorage)")
-            import json
-
-            data = {
-                "cookies": cookies,
-                "local_storage": json.loads(local_storage) if local_storage else {},
-                "captured_at": __import__("time").time(),
-            }
-            os.makedirs(os.path.dirname(self._auth_data_path), exist_ok=True)
-            with open(self._auth_data_path, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            logger.info("认证数据已保存")
+            await page.goto(DRAFT_BOX_URL, wait_until="domcontentloaded")
+            items = page.locator(DRAFT_BOX_ITEM_SELECTOR)
+            count = await items.count()
+            for i in range(count):
+                txt = await items.nth(i).inner_text()
+                if title[:12] and title[:12] in (txt or ""):
+                    return True
+            return False
         except Exception as e:
-            logger.warning(f"保存认证数据失败: {e}")
+            logger.debug(f"草稿箱回查失败: {e}")
+            return False
 
-    async def _restore_auth_data(self) -> bool:
-        require_legacy_plaintext_auth()
-        import json
+    def _candidates_for(self, key: str) -> list[str]:
+        chain = self.selector_fallbacks.get(key)
+        if chain:
+            return list(chain)
+        single = self.selectors.get(key)
+        return [single] if single else []
 
-        if not os.path.exists(self._auth_data_path):
-            if not os.path.exists(self._cookie_path):
+    async def _resolve_visible(self, page, key: str):
+        """按候选回退链解析首个可见 locator，返回 (locator, selector) 或 (None, None)。"""
+        for sel in self._candidates_for(key):
+            try:
+                loc = page.locator(sel).first
+                if await loc.is_visible():
+                    return loc, sel
+            except Exception:
+                continue
+        return None, None
+
+    async def _set_field(self, page, key: str, text: str) -> bool:
+        """标题/正文填写：优先原生 fill，contenteditable 回退 evaluate + dispatch 事件。"""
+        loc, _ = await self._resolve_visible(page, key)
+        if loc is None:
+            return False
+        try:
+            await loc.click()
+        except Exception:
+            pass
+        try:
+            await loc.fill(text)
+            return True
+        except Exception:
+            try:
+                await loc.evaluate(
+                    "(el, t) => { el.textContent = t;"
+                    " el.dispatchEvent(new Event('input', { bubbles: true }));"
+                    " el.dispatchEvent(new Event('change', { bubbles: true })); }",
+                    text,
+                )
+                return True
+            except Exception as e:
+                logger.warning(f"[小红书] 字段 {key} 填写失败: {e}")
                 return False
-            return await self._restore_cookies_legacy()
+
+    async def _add_tags(self, page, tags: list[str]) -> None:
+        """逐个 type + 尽力选下拉首个候选（修覆盖式 fill 只留最后一个）。"""
+        loc, _ = await self._resolve_visible(page, "tag_input")
+        if loc is None:
+            logger.debug("未找到标签输入框，跳过标签")
+            return
+        for tag in tags[:5]:
+            try:
+                await loc.click()
+                await loc.type(tag, delay=50)
+                sugg, _ = await self._resolve_visible(page, "tag_suggestion")
+                if sugg is not None:
+                    await sugg.click()
+                else:
+                    await loc.press("Enter")
+            except Exception as e:
+                logger.debug(f"[小红书] 标签 {tag} 添加失败（不影响草稿保存）: {e}")
+
+    async def _set_cover(self, page, cover_path: str) -> None:
         try:
-            with open(self._auth_data_path, encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("cookies"):
-                await self._context.add_cookies(data["cookies"])
-            if data.get("local_storage") and self._page:
-                for key, value in data["local_storage"].items():
-                    try:
-                        await self._page.evaluate("localStorage.setItem(arguments[0], arguments[1])", key, value)
-                    except Exception:
-                        pass
-            logger.info("认证数据已恢复")
-            return True
+            btn, _ = await self._resolve_visible(page, "cover_upload")
+            if btn is None:
+                return
+            await btn.click()
+            await asyncio.sleep(2)
+            inp, _ = await self._resolve_visible(page, "cover_input")
+            if inp is not None:
+                await inp.set_input_files(cover_path)
         except Exception as e:
-            logger.warning(f"恢复认证数据失败: {e}")
+            logger.warning(f"封面上传失败（不影响发布）: {e}")
+
+    async def _await_editor_ready(self, page) -> None:
+        """上传完成标志未命中时，轮询编辑器就绪（标题框可见），上限沿用原 30s。"""
+        ready = await wait_until(
+            lambda: self._title_visible(page),
+            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+            interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
+        )
+        if not ready:
+            logger.warning(
+                f"编辑器在 {UPLOAD_FALLBACK_WAIT_TIMEOUT_S}s 内未就绪（站点结构变化或上传未完成），继续尝试填写"
+            )
+
+    async def _title_visible(self, page) -> bool:
+        loc, _ = await self._resolve_visible(page, "title_input")
+        return loc is not None
+
+    async def _risk_present(self, page) -> bool:
+        if not RISK_OVERLAY_SELECTOR:
+            return False
+        try:
+            return await page.locator(RISK_OVERLAY_SELECTOR).count() > 0
+        except Exception:
             return False
 
-    async def _restore_cookies_legacy(self) -> bool:
-        require_legacy_plaintext_auth()
-        import json
-
-        try:
-            with open(self._cookie_path, encoding="utf-8") as f:
-                cookies = json.load(f)
-            await self._context.add_cookies(cookies)
-            logger.info("Cookie 已恢复（旧格式）")
-            return True
-        except Exception as e:
-            logger.warning(f"恢复 Cookie 失败: {e}")
-            return False
+    @staticmethod
+    def _is_login_redirect(url: str) -> bool:
+        return isinstance(url, str) and "/login" in url
 
     async def close(self):
         try:

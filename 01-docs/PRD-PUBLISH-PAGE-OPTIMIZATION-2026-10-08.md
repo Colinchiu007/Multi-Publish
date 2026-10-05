@@ -413,15 +413,15 @@ task:success（有 postId）
 | 项 | 现状 | 证据 |
 | --- | --- | --- |
 | P2-6a 发布统计成功率恒 100% | 已合并 | #2807（`getStats` 三档共用一次分类结果） |
-| P2-6b 发布历史↔表现数据关联键 | 在途 | PR #2861（`tracked_content.publish_history_id` 自诞生起全 NULL 的写侧 + 存量回填） |
-| P2-6c 数据回流看板 | 本 PR | 分支 `publish-metrics-dashboard`；新增 `electron/services/performance-overview.js`（唯一聚合口径 V1–V13）+ `performance:overview` IPC + `src/features/dashboard/PerformanceFlowPanel.vue` 挂载在数据看板页 |
+| P2-6b 发布历史↔表现数据关联键 | 已合并 | #2861（squash `90bc6f278`，2026-10-04T08:38:38Z）：`tracked_content.publish_history_id` 自诞生起全 NULL 的写侧 + 存量回填 |
+| P2-6c 数据回流看板 | 已合并 | #2866（squash `b267b0aff`，2026-10-04T14:01:15Z）：新增 `electron/services/performance-overview.js`（唯一聚合口径 V1–V15）+ `performance:overview` IPC（带显式 sender 守卫）+ `src/features/dashboard/PerformanceFlowPanel.vue` 挂在数据看板页；同 PR 撤掉看板页写死的假百分比。合并过程中被四条计数/比例型门禁打回四轮，逐条根因与取证见 `PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md` §十 第 6–10 条 |
 | 同页假百分比（原 §六 未列的一项） | 本 PR 一并撤除 | `Dashboard.vue` 模板里的 `+8.5% / +23% / -2.1%` 与 locale 里的 `dashboard.weekChange: 较上周 +12%` 都没有数据源：`getAllCachedData()`（`packages/shared-utils/src/data-sync.js:116`）只按 TTL 返回每平台**一份最新**结果，没有时间序列，周变化在现有数据下算不出来 |
 | P2-8 账号分组 | 已合并两切片 | #2756（落 settings 真源）+ #2817（发布页按组添加） |
 
 ### 11.1 P2-6 还剩什么（如实区分「可离线」与「需真机」）
 
 - **需真机端点**：抖音/小红书/公众号的互动 parser 未注册（`platform-metrics/index.js` 只注册了 zhihu/baijiahao/kuaishou/bilibili），这三家作品的互动数拿不到 ⇒ 看板上它们只会以「不支持回采」计数出现，不会被补 0 假装完整。
-- **需真实使用数据才能验收数字**：本机两份真实 userData（`D:\tmp\Multi-Publish-debug-profile` 与 `%APPDATA%\@multi-publish\desktop`）实测 `tracked_content` / `performance_snapshot` 均为 **0 行**，且全盘没有 >500 字节的 `publish-history.jsonl` ⇒ §六 里「performance_snapshot 实测非零」那句在本机不可复现，本 PR 不把它当依据（界面级验收用隔离 temp profile 造数走查，数字级验收待取证）。
+- **需真实使用数据才能验收数字**：本机两份真实 userData（`D:\tmp\Multi-Publish-debug-profile` 与 `%APPDATA%\@multi-publish\desktop`）实测 `tracked_content` / `performance_snapshot` 均为 **0 行**，且全盘没有 >500 字节的 `publish-history.jsonl` ⇒ §六 里「performance_snapshot 实测非零」那句在本机不可复现，本 PR 不把它当依据。（此处原写「界面级验收用隔离 temp profile 造数走查」**不实**——实际走查方式是 vite dev server 独占端口 + Playwright 注入 `window.electronAPI` 桩，在真实 Chromium 里读 computed style 与文本；jsdom 单测不做样式层叠，兜不住 token 缺失导致的整条声明失效。数字级验收仍待取证。）
 - **可离线但留给后续切片**：`rewrite_history_id` 二跳（归因断链，现要求「从爆文库改写」才进 `pattern_performance`）、账号级粉丝/阅读趋势（需先给 `data-sync` 加历史留存层）、`unclassified` 发布记录的展示位。
 
 ### 11.2 仍未完成的原计划项
