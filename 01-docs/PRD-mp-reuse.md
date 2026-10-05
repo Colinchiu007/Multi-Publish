@@ -275,11 +275,11 @@ Multi-Publish v2.3.53 是一个 Electron 多平台内容发布工具，已具备
 - **封面裁剪**：发布表单封面行新增「裁剪封面」按钮（封面已提取/选择后可用），打开 CoverCropDialog。
 - **裁剪交互**：预览图 + 拖拽裁剪框 + 比例预设（16:9 / 1:1 / 4:3 / 自由）；rect 越界自动收敛到图片边界。
 - **体积控制**：主进程 offscreen canvas 裁剪 + JPEG 质量自适应二分压缩，确保输出 ≤ 512KB（快手硬限制）；最低质量仍超限时返回 overLimit 标志供 UI 提示。
-- **预览加载**：渲染层无法直接引用 ile:// 图片，经 cover:read-data 读为 dataURL 展示。
+- **预览加载**：渲染层无法直接引用 file:// 图片，经 cover:read-data 读为 dataURL 展示。
 
 ### 10.2 数据校验
 
-- ect：必须为含 x/y/width/height 的有限数字对象，宽高为正数，越界裁剪到图片边界。
+- rect：必须为含 x/y/width/height 的有限数字对象，宽高为正数，越界裁剪到图片边界。
 - imagePath：非空字符串且文件存在；扩展名限 jpg/jpeg/png/webp。
 
 ### 10.3 交互流程

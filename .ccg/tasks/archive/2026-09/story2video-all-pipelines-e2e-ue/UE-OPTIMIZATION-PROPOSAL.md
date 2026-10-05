@@ -37,7 +37,7 @@
 ## 实施记录（批次 1+2，2026-08-06）
 
 ### 批次 1：可用性徽标 + 未实现流水线禁用启动
-- pipeline-engine.js listPipelines() 新增 vailable 字段：有 stageDefs（真实引擎）为 true，否则 false。
+- pipeline-engine.js listPipelines() 新增 available 字段：有 stageDefs（真实引擎）为 true，否则 false。
 - CreateView.vue 列表卡片：可用/开发中 徽标 + is-unavailable 弱化样式；详情页未实现流水线禁用【启动流水线】并显示提示「该流水线尚未实现执行引擎，暂不能生成视频」。
 - CreateView.vue canStartPipeline/startPipeline 增加可用性守卫（兜底对话框 PIPELINE_NOT_IMPLEMENTED）。
 - PipelineBrowser.vue 同步徽标与禁用样式（组件一致性）。
