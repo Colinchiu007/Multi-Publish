@@ -75,6 +75,5 @@
     "line": 4654
   },
   "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
-  "本次执行记录：CreateView.vue 超大文件治理结项入账（docs-1944-techdebt，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并在同一次提交删除本条登记",
   "本次执行记录：B 站审核回查端点取证与实现（bilibili-audit-evidence，2026-10-05）": "本 PR 在途：合并后由 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }
