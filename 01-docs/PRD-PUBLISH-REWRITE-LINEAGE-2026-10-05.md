@@ -87,13 +87,25 @@
 
 ### 2.2 本机数据面实测（结论：不可做数字级验收）
 
-用 `node:sqlite` 以 **readOnly** 打开本机全部候选库（`/d/tmp` 下 7 份 + `%APPDATA%\@multi-publish\desktop` + `D:\tmp\Multi-Publish-debug-profile`，全部字节数一致为 282624，即 schema-only），逐表计数：
+用 `node:sqlite` 以 **readOnly** 打开本机**全部**候选库并逐表计数。枚举口径（脚本 `D:/Data/projects/.tools/tmp/p26d-allcount.js`，实跑于 2026-10-05T03:36Z）：`D:\tmp` 下 maxdepth 3 内每一份 `multi-publish.db` + `%APPDATA%\@multi-publish\desktop\multi-publish.db` ⇒ 实开 **11 份，0 份读不动**：
 
-```
-rewrite_history=0  tracked_content=0  performance_snapshot=0  pattern_performance=0
-publish_history=0  viral_library=0
-tracked.rewrite_history_id NOT NULL=0   tracked.publish_history_id NOT NULL=0
-```
+| 库（…/multi-publish.db） | 字节数 | rewrite_history | tracked_content | performance_snapshot | pattern_performance | publish_history | viral_library |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `D:\tmp\mp-2626-qm1-profile` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\Multi-Publish-debug-profile` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\Multi-Publish-debug-profile.backups\20260926-010454` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\Multi-Publish-qm1-r2` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\p026c-qm1-profile` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\p26d-qm1-profile` | 286720 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\qm1-packaged-profile-2701` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\qm1-packaged-profile-2702` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\qm1-t44-profile` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `D:\tmp\shared-user-data-pre-merge-20260927-224314` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `%APPDATA%\@multi-publish\desktop` | 282624 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+聚合断言：**11/11 份里这六张表全为 0 行**；`tracked.rewrite_history_id NOT NULL=0`、`tracked.publish_history_id NOT NULL=0`（0 行下 trivially 成立，故不构成独立证据，真正有分量的是上一行）。字节数只有一份是 286720（`p26d-qm1-profile`，本切片自己做 QM-1 打包验证时产生的 profile，效果闭环六表同样 0 行），其余 10 份一致为 282624，即 schema-only。
+
+> 更正记录（防止下一会话把这段当已验证结论复用）：本节初稿写「`/d/tmp` 下 7 份 …… 全部字节数一致为 282624，逐表计数」，**三处不实**——当时只对 2 份真做了逐表计数（debug profile 与 `%APPDATA%`），其余是按字节数比出来的推断；「7 份」没有数过（实为 10 份）；「全部一致为 282624」被那份 286720 否证。上表是重跑一次全量枚举后的实测。教训按形态记：**把「我扫了目录」写成「我测了内容」，是一句读者无法复核的过度声明**；凡「全部 / 都 / 一律」这类全称量词，落笔前必须有一个把整个域跑完并聚合断言的脚本在场。
 
 因此本切片**不能**给出「修完后榜上有 N 条」这类数字级证据（与 §11.1 里 P2-6c 的结论一致，且更彻底：连第一跳的 `rewrite_history` 也是 0 行，说明本机这些 profile 里从未跑过一次走引擎的改写）。可用的验收证据形态只有两种，本 PRD 一律按它们写判据：
 
