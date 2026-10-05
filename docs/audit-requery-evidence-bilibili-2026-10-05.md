@@ -85,14 +85,14 @@ Cookie 会话（账号分区内的 B 站登录态）即可，**无需签名、�
 2. **非零 `state` 下 `reject_reason` / `problem_detail` 的填充形态**：未观测。
 3. **Referer 是否为必需**：未做对照组。
 4. **我们发布回传里能否拿到 `bvid`**：见 §一②，当前 URL 抽取器覆盖不到 `/video/BV…` 形状，属发布侧待办，不是本取证的结论。
-6. **实现期实测补一条硬约束**：状态判据禁止隐式转换——`Number(null)===0`、`Number("")===0` 会把「字段缺失」判成「已上线」。回归 T5 当场抓到（夹具喂 `state=null` 时旧写法判成 `published`）。现口径：`typeof state === "number"` 且落在实测观测集合内，且 `primary_state === 0`。
 5. **`AUDIT_REQUERY_VERIFIED_PLATFORMS` 是否可加入 bilibili**：**本次仍不加**。§四 验收要求「录制的真实响应片段覆盖 published / inAudit / deny / 无定论四类」与「真机发布 → 历史列表审核徽标变化」，本次只拿到 published 一类与「无定论」的反例形态；把平台提前写进 verified 就是拿「已上线能判对」冒充「四类状态都已知」，正是本清单立项要防的那类假声明。
+6. **实现期实测补一条硬约束**：状态判据禁止隐式转换——`Number(null)===0`、`Number("")===0` 会把「字段缺失」判成「已上线」。回归 T5 当场抓到（夹具喂 `state=null` 时旧写法判成 `published`）。现口径：`typeof state === "number"` 且落在实测观测集合内，且 `primary_state === 0`。
 
 ---
 
 ## 五、本轮据取证落地的改动（只改证据支持的部分）
 
-1. `publish-monitor.js`：`CHECK_URLS.bilibili` 由**虚构端点**改为取证到的真实端点，并新增 B 站专用分支（先 `nav` 取 `mid`，再取列表，按 `bvid`/`aid` 命中，`state=0 且 primary_state=0` → `published`；命中不到 / 未知 state / 缺 `arc_audits` → `pending`＝无定论，不改写真源）。
+1. `publish-monitor.js`：`CHECK_URLS.bilibili` 由**虚构端点**改为取证到的真实端点，并新增 B 站专用分支（先 `nav` **验证会话有效**——实现只校验 `mid` 存在、不使用其值，主体由 Cookie 会话决定；再取列表，按 `bvid`/`aid` 命中，`state=0 且 primary_state=0` → `published`；命中不到 / 未知 state / 缺 `arc_audits` → `pending`＝无定论，不改写真源）。
 2. 解析器**必须读 `data.arc_audits[]`**，`data.archives` 为空对象已实测。
 3. 单测夹具用本文件第二节的**真实响应片段**（已脱敏：只保留字段名与本机账号自有值）；另配「未观测 state 不得产出结论」「传错 status 不得被当成生效」两条反例。
 4. 候选表 ↔ `CHECK_URLS` 键集的 parity 锁不受影响（bilibili 本来就在候选表里）。

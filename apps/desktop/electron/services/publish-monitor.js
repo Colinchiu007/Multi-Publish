@@ -73,12 +73,14 @@ function createMonitorTask (task) {
       // still pending
       retries++
       if (retries >= maxRetries) {
-        log.notify('PublishMonitor', 'monitor-timeout', { level: 'WARN', params: { platform, postId, maxRetries } })
-        callback && callback({ status: 'timeout', postId, message: '状态查询超时' })
+        log.notify('PublishMonitor', 'monitor-timeout', { level: 'WARN', params: { platform, postId, maxRetries, lastReason: result.reason || '' } })
+        callback && callback({ status: 'timeout', postId, message: '状态查询超时', reason: result.reason || '' })
         return
       }
       
-      log.notify('PublishMonitor', 'poll-progress', { level: 'INFO', params: { retries, maxRetries, platform, postId, status: result.status } })
+      // pending 无定论：把 reason 带进日志（no-cookies/nav-not-established/envelope-not-ok/state-unobserved…），
+      // 否则「会话未建立 / 风控信封 / 列表缺字段」在排障时无法区分
+      log.notify('PublishMonitor', 'poll-progress', { level: 'INFO', params: { retries, maxRetries, platform, postId, status: result.status, reason: result.reason || '' } })
       timerId = setTimeout(poll, POLL_INTERVAL)
       // R28 修复：unref 让定时器不阻止进程退出
       if (timerId && timerId.unref) timerId.unref()
@@ -119,7 +121,8 @@ async function checkPublishStatus (platform, postId, cookies, pollUrl, opts) {
     return checkBilibiliAuditStatus({
       postId,
       cookies,
-      axios: o.axios
+      axios: o.axios,
+      listUrl: pollUrl
     })
   }
   try {

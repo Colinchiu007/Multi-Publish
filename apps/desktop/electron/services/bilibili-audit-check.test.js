@@ -1,6 +1,6 @@
 'use strict'
 /**
- * B 站审核回查取证回归（01-docs/AUDIT-REQUERY-EVIDENCE-BILIBILI-2026-10-05.md）
+ * B 站审核回查取证回归（docs/audit-requery-evidence-bilibili-2026-10-05.md）
  *
  * 夹具是**真机只读取证的真实响应片段**（字段名与本机账号自有值，未编造）。
  * 纪律：
@@ -186,6 +186,21 @@ describe('B 站审核回查（取证驱动）', () => {
     // 注入 axios：publish-monitor 走 require('axios')，测试用 vi.mock 不便，改为通过参数注入
     const r = await monitor.checkPublishStatus('bilibili', 'BV1y1ht6PEfM', 'SESSDATA=fake', undefined, { axios })
     expect(r.status).toBe('published')
+  })
+
+  it('T15 listUrl 载重锁：pollUrl 透传必须真的改变请求目标（防死参数回归）', async () => {
+    const { checkBilibiliAuditStatus } = require$(MOD_PATH)
+    const custom = 'https://member.bilibili.com/x/web/archives?status=pubed&pn=9&ps=20&platform=web'
+    const seenUrls = []
+    const axios = {
+      get: async (url) => {
+        seenUrls.push(url)
+        return { data: url.startsWith('https://api.bilibili.com') ? NAV_OK.data : LIST_OK.data() }
+      }
+    }
+    const r = await checkBilibiliAuditStatus({ postId: 'BV1y1ht6PEfM', cookies: 'SESSDATA=fake', axios, listUrl: custom })
+    expect(r.status).toBe('published')
+    expect(seenUrls).toContain(custom)
   })
 
   it('T14 已验证名单仍不含 bilibili（§四 验收未凑齐，不许提前进档）', () => {

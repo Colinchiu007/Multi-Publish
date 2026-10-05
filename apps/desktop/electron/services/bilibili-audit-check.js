@@ -2,7 +2,7 @@
 /**
  * bilibili-audit-check.js — B 站发布后审核状态查询（取证驱动的实现）
  *
- * 唯一真源取证：01-docs/AUDIT-REQUERY-EVIDENCE-BILIBILI-2026-10-05.md（2026-10-05，真实已登录账号，全程只读）
+ * 唯一真源取证：docs/audit-requery-evidence-bilibili-2026-10-05.md（2026-10-05，真实已登录账号，全程只读；索引在 01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md §九）
  *
  * 三条由实测决定的硬口径，改任何一条都必须同步该文档：
  *  1. 端点是 `member.bilibili.com/x/web/archives`（创作中心），**不是** `api.bilibili.com/x/web-interface/archive/space`；
@@ -42,7 +42,8 @@ function matchById (archive, postId) {
   const want = String(postId).trim()
   if (!want) return false
   if (archive.bvid && String(archive.bvid) === want) return true
-  // aid 是 15 位整数，响应里是 number，必须按字符串比较，否则精度/类型不一致会漏
+  // aid 是 15 位整数（远小于 Number.MAX_SAFE_INTEGER，无精度丢失），但响应里是 number
+  // 而调用方/历史记录里常存字符串，类型不一致会漏 ⇒ 统一 String 化比较（纵深防御）
   if (archive.aid !== undefined && archive.aid !== null && String(archive.aid) === want) return true
   return false
 }
@@ -52,6 +53,7 @@ function matchById (archive, postId) {
  * @param {string} p.postId 平台作品标识（bvid 或 aid 字符串）
  * @param {string} p.cookies 账号分区解出的 Cookie 串；空则一请求不发
  * @param {object} [p.axios] 注入的传输层（默认 require('axios')）
+ * @param {string} [p.listUrl] 列表端点覆盖（默认 BILIBILI_LIST_URL；由 checkPublishStatus 透传 pollUrl）
  * @returns {Promise<{status: 'published'|'pending'|'error', postId: string, raw?: object, message?: string}>}
  */
 async function checkBilibiliAuditStatus (p) {
@@ -74,7 +76,7 @@ async function checkBilibiliAuditStatus (p) {
       return { status: 'pending', postId, reason: 'nav-not-established' }
     }
 
-    const listRes = await axios.get(BILIBILI_LIST_URL, { headers, timeout: REQUEST_TIMEOUT_MS })
+    const listRes = await axios.get(o.listUrl || BILIBILI_LIST_URL, { headers, timeout: REQUEST_TIMEOUT_MS })
     const body = listRes && listRes.data
     if (!body || body.code !== 0 || !body.data) {
       // 信封错误（风控/失效）与「稿件不存在」同形 ⇒ 只能无定论
