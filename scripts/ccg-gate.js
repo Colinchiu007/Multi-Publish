@@ -207,6 +207,27 @@ function main() {
 
   for (const w of warnings) console.log(`   ${w}`);
 
+  // ── 第 4 道门禁：外部模型审查模式判定（§5.6.1 分层）────────────────
+  // 纯确定性计算，不调外部模型，所以放在提交时是毫秒级的。
+  // 深度双模型审查本身在 PR/CI 层执行；此处只判定模式并落盘可审计记录。
+  const decider = path.join(__dirname, "ccg-review-decider.js");
+  if (fs.existsSync(decider)) {
+    if (process.env.SKIP_CCG_GATE === "1") {
+      console.log("   [CCG] 审查模式判定已随 SKIP_CCG_GATE 跳过");
+    } else {
+      const r = spawnSync(process.execPath, [decider], { encoding: "utf8" });
+      const out = `${r.stdout || ""}`.trim();
+      if (r.status === 0 && out) {
+        out.split("\n").forEach((l) => console.log(l));
+        passed++;
+      } else if (r.status !== 0) {
+        warnings.push(`审查模式判定器异常退出（${r.status}），已跳过。`);
+      }
+    }
+  } else {
+    warnings.push("未找到 ccg-review-decider.js，审查模式判定已跳过。");
+  }
+
   if (errors.length) {
     console.error("\n🔴 CCG 质量门禁未通过：\n");
     errors.forEach((e) => console.error(e));
