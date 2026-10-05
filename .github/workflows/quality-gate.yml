@@ -201,6 +201,11 @@ jobs:
           # 夹具不得对同 realm 的第三方谎报文件系统（#2794 同族）：blanket fs 夹具只能缩小
           node --test scripts/check-blanket-fs-mock.test.js
           node scripts/check-blanket-fs-mock.js
+          # 运行时出站台账基线棘轮的判定器（#2491 档3 改判）。判定本身不在这里做——
+          # 它的输入是一次真实测试跑产出的台账 JSONL，只有跑测试的那些 job 取得到证据
+          # （见下面 Gate 4 与 Desktop tests shard 两处 `check-test-egress-ledger.js` 调用）。
+          # 这里只锁"判定器还能跑、口径没被改松"，与 static-gates 里其它锁同形。
+          node --test scripts/check-test-egress-ledger.test.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2c2 已搬出本 job（#2745）---
@@ -513,6 +518,18 @@ jobs:
 
       - name: "Gate 4 - Workspace unit tests"
         shell: pwsh
+        # 运行时出站台账（#2491 档3）：让守卫把"起了非 node 子进程 / 真的试过出站"逐条落盘，
+        # 跑完在本步骤末尾与 scripts/test-egress-ledger-baseline.json 比对，新增即红。
+        # 判据位置选在这里而不是新开 job：本 job 是 main 的 required context（classic protection
+        # 的 contexts 清单实测含 "QG Unit Tests"），红了真的拦得住合并；新开非 required job 只会"显示为红"。
+        env:
+          MP_TEST_EGRESS_LEDGER: ${{ runner.temp }}\egress-ledger-unit-tests.jsonl
+          MP_TEST_EGRESS_SUITE: unit-tests
+          # 必须绕过 Nx 任务缓存：缓存命中时 nx 只重放上次结果、**不启动测试进程**，
+          # 于是台账里连 install 记录都没有 ⇒ 判定器按 fail-closed 报"装配未经证实"，
+          # 把一条正常 PR 判红（QM-6 codex 路命中的"在取不到证据的位置上 fail-closed"形态）。
+          # 这条门禁的价值就是"真的跑过一遍"，所以这里宁可牺牲缓存。
+          NX_SKIP_NX_CACHE: 'true'
         run: |
           # 进程树遍历收敛到 scripts/get-test-process-tree.ps1：旧的内联版本只按数字 ParentProcessId
           # 递归，根 pnpm 退出后该 PID 会被回收，实测（run 36519025075 attempt 1）把 csrss.exe /
@@ -571,6 +588,13 @@ jobs:
             throw "Gate 4 left child processes alive after pnpm exited."
           }
 
+          # 运行时出站台账判定：必须放在"真的跑过测试"这条路径的末尾。
+          # affected 为空时上面有一支 `exit 0` 早退 —— 那条路径不跑测试也没有台账，
+          # 若把判定做成独立 step 并 always() 执行，就会把"这次没有受影响项目"读成"台账缺失"（假红）。
+          # pwsh 步骤不会因中间命令非零自动中止，所以这里显式判 $LASTEXITCODE（check-step-failfast 同族）。
+          node scripts/check-test-egress-ledger.js --ledger "$env:MP_TEST_EGRESS_LEDGER"
+          if ($LASTEXITCODE -ne 0) { throw "运行时出站台账出现基线之外的新条目，或台账装配未经证实（清单只能缩小）" }
+
       # --- Gate 4b: Startup and require smoke tests ---
       - name: "Gate 4b - Startup and require smoke tests"
         run: pnpm --filter @multi-publish/desktop test:startup
@@ -618,6 +642,12 @@ jobs:
       # 现有实例见 story2video-stages.test.js 的媒体 beforeAll（MEDIA_SETUP_HOOK_TIMEOUT_MS）。
       - name: "Desktop tests shard ${{ matrix.shard }}"
         shell: pwsh
+        # 运行时出站台账（与 Gate 4 同一份基线、同一个判定器）：桌面面是唯一真的会起
+        # ffmpeg/ffprobe/chrome-headless-shell/powershell 这些**非 node 子进程**的地方，
+        # 那些子进程里的出站注不进守卫，只能靠"新命令名一律出声并判红"来兜住。
+        env:
+          MP_TEST_EGRESS_LEDGER: ${{ runner.temp }}\egress-ledger-desktop-shard.jsonl
+          MP_TEST_EGRESS_SUITE: desktop-shard
         run: |
           # 进程树遍历收敛到 scripts/get-test-process-tree.ps1：旧的内联版本只按数字 ParentProcessId
           # 递归，根 pnpm 退出后该 PID 会被回收，实测（run 36519025075 attempt 1）把 csrss.exe /
@@ -666,6 +696,12 @@ jobs:
             }
             throw "Desktop shard left child processes alive after pnpm exited."
           }
+
+          # 运行时出站台账判定（口径同 Gate 4：放在"真的跑完测试"这条路径末尾，显式判 $LASTEXITCODE）。
+          # 两片分片各写自己的 runner.temp 文件、各判同一个基线 —— 键里没有分片维度，
+          # 所以"某条命令只在另一半出现"不会漏检，也不会因为本片没跑到而误判陈旧。
+          node scripts/check-test-egress-ledger.js --ledger "$env:MP_TEST_EGRESS_LEDGER"
+          if ($LASTEXITCODE -ne 0) { throw "运行时出站台账出现基线之外的新条目，或台账装配未经证实（清单只能缩小）" }
 
 
   coverage:
