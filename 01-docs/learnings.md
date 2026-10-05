@@ -17387,3 +17387,15 @@ DOM 流程失败(verification timeout) →
 - **这类文件是纯 CRLF 且键不是字典序**：`max-lines-baseline.json`、`gate-record-debt-ledger.json` 都如此。用 `JSON.stringify` 整体重排会造出巨量假 diff。正解：单行唯一子串替换或尾部插入 + **两口径对账**（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件一致）自证。
 - **门禁的「远程同步」行只认表行形态**：`.quality-gates.md` 的 `ROW_RE = /^\|\s*远程同步\s*\|/` —— docs-only 模板里的 bullet 形态（`- 保留门禁：… | 远程同步 PENDING`）**不被识别**，于是同 PR 的 ledger 登记会被判「陈旧」。写成 `| 远程同步 | PENDING | … |` 表行才闭环。
 - **登记值领先于实况时不要顺手抬**：#2610 里 `Publish.vue` 实况 1734 / 登记 1730，容差 200 尚余 196 行 —— 抬它就是无谓的基线 churn。只动真正被逼近红线的那两个（locales 净增 157、只剩 43 行）。
+
+## 两侧各自有测试 ≠ 接缝被测：扁平名 vs 命名空间这类错配为什么能一路进主干（fix-ipc-namespace-contract，2026-10-05）
+
+- **逃逸链（四层全漏）**：单元层 `vi.mock('@/api/publisher')` 把整个被测模块 mock 掉，结构上无法发现 preload 缺该方法；集成层无 preload 暴露面契约测试；E2E 层无"重试失败分镜"用例；视觉层该操作失败与"点了没反应"在像素上不可区分；审查层两侧测试各自自洽，读起来完全说得通。
+- **机制性教训**：真正的守卫不是"每侧都测了"，而是**跨侧的接缝**。判据要从「preload 实际暴露面」与「渲染层实际调用名」两侧同时取真源求差集，任何一侧手抄都会让守卫退化成装饰。
+- **手抄真源会立刻漂移（本仓现成活样本）**：`preload.test.js` 只组合 7 个工厂并断言键数 334，而 `preload/index.js` 组合 20+ 个工厂、真实暴露面 411（public）/416（admin）。334 是漂移的子集——**新锁若拿它当基准，开局就是大面积假阳性**，后人会当成噪声把锁删掉。
+- **暴露面不是静态集合，是权限相关的**：`createDynamicAccessApi` 对 `ADMIN_ONLY_METHODS` 的方法在非 admin 等级**整键不暴露**。只对 public 面求差集会把 `paymentSimulate` 这类**故意只给管理员**的方法误报成缺陷；而误报后的直觉修法（去 preload 补暴露）**方向与既有安全设计相反**——它在 `ADMIN_ONLY_METHODS` 里，且主进程另有 `app.isPackaged !== false` 硬守卫。差集必须对 `public ∪ admin` 求。
+- **启发式相似名是线索不是证据**：本次 `paymentSimulate` 的相似名建议把我导向"preload 缺暴露"，差一步就去改 preload。判定必须落到可查事实——分类表成员、调用方计数（且要区分"除自身定义处以外"）、主进程守卫是否存在。
+- **`vi.mock` 拦不住 CJS 源文件的 `require`**：preload/index.js 是 CJS，vitest 注入的 require 走真实 Node loader、绕过 vi.mock 的 ESM 注册表，`require('electron')` 拿到的是该 npm 包导出的**可执行文件路径字符串**，症状是 `TypeError: Cannot read properties of undefined (reading 'on')`。要拦 CJS 依赖得用 `Module._load`。
+- **只做"最后一跳"对账会留下盲区**：把 `invokeWithFallback('flatName')` 改成 `invokeNamespace('ns', 'method')` 之后，若判据不认命名空间形态，这条路径就对契约**完全隐形**了——下一个把 ns 名或 method 名写错的缺陷照样进主干。判据必须同时覆盖扁平与命名空间两种形态。
+- **注释不是绕过路径的终点，是绕过路径本身**：判据若直接扫原文，`// invokeWithFallback("x", null)` 会被算成真实调用点，于是"把坏调用注释掉"就成了一条逃逸。判据须先剥注释。
+- **收尾任务需要「前提失效」这一终态**：`fix-settings-roundtrip-contract` 曾有 9.4/11.3/12.3 三条判据绑定"PR 在途"，PR 合并后它们既无法执行也无法判失效，于是永久挂在 46/54。change 的 tasks 只有"完成/未完成"两态时，**前提消失的条目必然变成永久欠账**。
