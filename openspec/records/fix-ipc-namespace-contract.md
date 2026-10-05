@@ -2,9 +2,6 @@
 record: fix-ipc-namespace-contract
 task: 修 CRITICAL-1（影视单镜重试永久失效，preload 命名空间与渲染层扁平名错配）+ 新增渲染层↔preload 暴露面反向契约测试（18 用例，含红证据与两道反证）
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证
-sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA，并在同一次提交删除本段三个 sync_* 字段与 scripts/gate-record-debt-ledger.json 的本条登记）
 ---
 
 ## 本次执行记录：影视单镜重试永久失效修复 + IPC 暴露面契约（fix-ipc-namespace-contract，2026-10-05）
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA
 | QM-2 必检项 | PASS | ① `invokeNamespace` 对参数走 `toPlainIpcValue`（`electron-bridge.js:102`，与 `invoke` 的 `:35` 同口径）；② 两个调用侧 payload 均由 `JSON.parse(JSON.stringify({ runId: runId.value, shotIndex, aspect: chosen.value.aspect, seconds: chosen.value.seconds }))` 显式 `.value` 解包构造，**无 ref/reactive 包装** |
 | QM-4 视觉 | N/A | 本次为纯逻辑与桥接层形态变更，未改任何模板、样式、组件结构；界面呈现（重试按钮与失败 toast）沿用既有实现，未产生像素差异面 |
 | QM-6 CCG 双模型外部评审 | **未执行（如实登记）** | 本机 `codeagent-wrapper` 通道此前实测不干净（前端路两次空转 rc=0/1 且零产物；后端路首投 stdout 截断在第一条 finding 中途、包装器日志退出自清、无 rollout 不可恢复）。**不以自审冒充外部评审通过**。本次的替代证据是上面三道机械反证（红证据 + no-op 反证 + 门禁级双变异），它们能证明「新锁承重、判据不免疫、两侧都咬得住」，但**不能替代对实现本身的多视角评审**——这是本记录的已知缺口 |
-| 远程同步 | PENDING | 本 PR 在途：合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-ipc-namespace-contract` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的本条登记 |
+| 远程同步 | PASS | PR #2952 squash 合并 `6171c6f7d584b62f84e2ba88b9c09433c1e1fb11`（2026-10-05T23:22:27+08:00，取证 `git log origin/main --grep='(#2952)$' --format=%H|%cI`）；`git ls-remote --heads origin fix-ipc-namespace-contract` 返回 0 行，证远端分支已删；本条由 docs-only 回填 PR 就地回填，frontmatter 的 sync_* 三字段在同一次提交删除 |
 
 ### 两次自我纠正（写进记录，不抹掉）
 
