@@ -119,6 +119,7 @@ scripts/*.js
 !scripts/check-dep-audit.test.js
 !scripts/check-blanket-fs-mock.js
 !scripts/check-test-egress-ledger.js
+!scripts/nx-affected-probe.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js

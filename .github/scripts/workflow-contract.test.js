@@ -217,6 +217,71 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
 
+// 2026-10-05 实测：PR #2596 的 QG Unit Tests 假红，Gate Result 连带红。
+//
+// 成因链：Gate 4 先问 nx「本次 PR 有没有受影响的非桌面项目」。这个空集若被误读成
+// 「探测失败，继续跑」，`nx affected` 会跑 0 个任务、**不启动任何测试进程**，于是末尾
+// 运行时出站台账判定（check-test-egress-ledger.js，fail-closed：无台账即红）把一条完全
+// 正常的 PR 判红。两版判据都在这里栽过：#2902 栽在 pwsh 把 `ConvertFrom-Json '[]'`
+// 摊平成 $null；#2596 栽在 nx 会往 stdout 掺 `NX   Unrecognized Cache Artifacts`
+// （CI runner 还原 Nx 缓存后必现，缓存键只含 .nx/cache、不含 .nx/workspace-data/d 那个 db）。
+//
+// 锁四件事：判据住在可单测脚本里、不得退回字符串全等、判据自身故障必须硬失败、
+// 早退分支必须排在降级 warning 之前。
+test('Gate 4 affected 探测：三态判据在可单测脚本里，早退只认确证空集', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const unitTestStep = workflow.match(
+    /- name: "Gate 4 - Workspace unit tests"[\s\S]*?(?=\n\s*- name: "Gate 4b)/,
+  )?.[0];
+  assert.ok(unitTestStep, 'Gate 4 步骤必须存在');
+
+  // ① 判据必须走可单测脚本（#2923 同族：决策搬进 scripts/ 才轮得到真测试打它）
+  assert.match(
+    unitTestStep,
+    /node scripts\/nx-affected-probe\.js --exit \$nxExit/,
+    'affected 判据必须由 scripts/nx-affected-probe.js 判定，不得留在内联 PowerShell 里',
+  );
+
+  // ② 不得退回 #2902 的字符串全等 —— 那正是被 nx stdout 提示一掺就漏判的写法
+  assert.doesNotMatch(
+    unitTestStep,
+    /\$affectedText\s+-eq\s+'\[\]'|\$affectedText\s+-eq\s+''/,
+    '全等判据已被证明会被 nx 的 stdout 提示污染，不得以任何形式搬回 Gate 4',
+  );
+
+  // ③ 判据脚本自身故障必须硬失败：「判据没跑起来」与「判据跑了但取不到证据」是两件事，
+  //    混成同一条降级路径就等于让判据静默失效。
+  assert.match(
+    unitTestStep,
+    /if \(\$LASTEXITCODE -ne 0\) \{\s*\r?\n\s*throw "nx affected 判读脚本执行失败/,
+    'nx-affected-probe.js 自身非零退出必须 throw，不得静默降级',
+  );
+
+  // ④ 早退必须排在降级判定之前（#2902 确立的顺序约束，至今仍是硬要求），
+  //    且早退的**条件本身**必须是 kind=empty（确证空集）——只判位置不判条件的话，
+  //    把条件换成 `if ($nxExit -eq 0)`（"nx 没报错就当没有受影响项目"）能从位置锁下溜过去，
+  //    那是把 fail-closed 方向又调转回去。
+  assert.match(
+    unitTestStep,
+    /if \(\$probe\.kind -eq 'empty'\) \{/,
+    '早退条件必须是确证空集（$probe.kind -eq empty），不得退化为只看 nx 退出码',
+  );
+  const iEmpty = unitTestStep.indexOf("-eq 'empty'");
+  const iWarn = unitTestStep.indexOf('nx affected detection unusable');
+  assert.notStrictEqual(iEmpty, -1, '必须按 kind 分流，且 empty 分支存在');
+  assert.notStrictEqual(iWarn, -1, '必须保留「判据取不到证据」时的降级 warning');
+  assert.ok(iEmpty < iWarn, '早退分支必须排在降级 warning 之前，否则空集判据形同虚设');
+
+  // ⑤ 判据的语义测试必须真的被 CI 收集（历史上本仓出现过"锁写了但没有任何 workflow 跑它"）
+  const gate2c = workflow.match(/- name: "Gate 2c - Unwired-test ratchet[\s\S]*?(?=\n\s*- name: ")/)?.[0];
+  assert.ok(gate2c, '必须能定位到 Gate 2c 步骤');
+  assert.match(
+    gate2c,
+    /node --test scripts\/nx-affected-probe\.test\.js/,
+    'nx-affected-probe.test.js 必须接进 static-gates，否则语义锁不会被执行',
+  );
+});
+
 test('Agent Judge 在 Windows 下使用 PowerShell 参数数组，并将无模型审计包降级为告警', () => {
   const workflow = fs.readFileSync(agentJudgePath, 'utf8');
   const judgeStep = workflow.match(/- name: Run AI Agent Judge[\s\S]*?(?=\n      # ---- 上传 artifacts)/)?.[0];

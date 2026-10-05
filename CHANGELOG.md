@@ -20,6 +20,14 @@
 - 反证：把判据改成恒返回空数组的 no-op，2.2 判据矩阵判红 ⇒ 矩阵承重、对 no-op 不免疫。
 - 门禁级反证 2/2：① 渲染层新增一处不存在的调用名 ⇒ 对账判红；② preload 移除 `filmEngineering.retryShot` ⇒ 哨兵用例 + 命名空间对账判红。两次均按 md5 逐字节还原且还原后转绿。
 - 回归：`preload.test.js` 372 + `publisher.test.js` 251 等 7 个受影响测试文件共 **669 passed / 0 failed**。
+---
+# [未发布] fix(ci): Gate 4「无受影响项目」判据三态化，修掉被 nx stdout 提示污染引发的假红（gate4-affected-empty-probe，2026-10-05）
+
+- 根因：Gate 4 判断「本次 PR 有没有受影响的非桌面项目」用的是**字符串全等**（`$t -eq '' -or $t -eq '[]'`，#2902 为接住 pwsh 把 `ConvertFrom-Json '[]'` 摊平成 `$null` 而引入）。CI runner 还原 Nx 缓存后（缓存键只含 `.nx/cache`，`.nx/workspace-data/d` 那个 db 不在键内），nx 会往 stdout 掺自己的提示 `NX   Unrecognized Cache Artifacts`；提示一掺，全等两条全不成立 ⇒ 空集被降级成「探测失败」⇒ 继续跑 `test:affected` ⇒ nx 实跑 **0 个任务**、不启动任何测试进程 ⇒ 末尾运行时出站台账判定（fail-closed：无台账即红）把一条正常 PR 判红，`Gate Result` 连带红。
+- 修法：判据搬进可单测的 `scripts/nx-affected-probe.js`，输出 `empty` / `non-empty` / `unparsable` 三态，判定改为**逐行找能独立 parse 成 JSON 数组的那一行**，与提示文本解耦（散文里的方括号也污染不到）。workflow 只负责分流；脚本自身故障 `throw` 硬失败（与 `unparsable` 是两件事，不能混成同一条降级路径）；早退仍只认**确证**空集，且必须排在降级 warning 之前。
+- 门禁侧同步：`.github/scripts/workflow-contract.test.js` 新增 5 条断言（判据必须在脚本里 / 不得退回全等 / 脚本故障必须硬失败 / 早退条件必须是 `kind=empty` / 顺序约束），`scripts/check-test-egress-ledger.test.js` 那条 #2902 留下的顺序锁锚点随之换成本次形态。语义测试接进 static-gates 的 Gate 2c。
+- 同形第三次：`#2902` 修的是「空集被 `$null` 摊平」，本次修的是「空集被 stdout 提示污染」，判据形态连换两次 —— 所以锁的是**判定语义**（真跑纯函数）而不是 workflow 文本。
+- 复现面：任何只改非 Nx 追踪路径（ops-center / docs 等）的 PR 都会撞上，与具体改动无关。
 
 ---
 # [未发布] feat(bilibili): 审核回查端点取证落地（bilibili-audit-evidence，2026-10-05）
