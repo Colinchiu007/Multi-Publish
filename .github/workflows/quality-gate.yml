@@ -54,6 +54,14 @@ jobs:
       - name: Detect docs-only changes
         id: classify
         shell: bash
+        env:
+          # PR 事件下 actions/checkout 检出的是 refs/pull/N/merge（合并提交），而
+          # github.event.pull_request.base.sha 停在 PR 打开那一刻、之后不再更新。
+          # 于是 merge-base(base.sha, HEAD)..HEAD 会把「PR 打开后 main 前进的那些提交」整段
+          # 算进本 PR 的变更集 ⇒ 纯文档 PR 被判成混合 PR，短路彻底失效
+          # （#2914 实测：本地按分支顶判 docs-only=true files=10，CI 判 false 且清单多出 46 个别人的文件）。
+          # 正解是把取源绑到 PR 自己的 head 提交；空值必须 fail-closed，不得静默退回默认 HEAD。
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # 账本 JSON 在 docs-only 白名单里 ⇒ 校验它的门禁不能只待在会被短路的 static-gates。
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
@@ -64,8 +72,12 @@ jobs:
             echo "docs-only=false (non-PR event: full run)"
             exit 0
           fi
+          if [ -z "$HEAD_SHA" ]; then
+            echo "::error::github.event.pull_request.head.sha 取不到，无法确定本 PR 自己的变更集；宁可乐红也不得退回 HEAD（=合并提交，会夹带期间 main 的他人提交）"
+            exit 1
+          fi
           BASE="${{ github.event.pull_request.base.sha }}"
-          node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
+          node scripts/classify-docs-only.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
 
       # --- Gate 2c2（#2745 从 static-gates 搬入本 job）: 执行记录存在性判据 ---
       # 它校验的输入 openspec/records/** 命中 docs-only 白名单（`openspec/**`），而 static-gates
@@ -85,9 +97,13 @@ jobs:
         env:
           EXEC_BASE: ${{ github.event.pull_request.base.sha }}
           EXEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # 与上面 classify 同一取源口径：留空则脚本默认 HEAD=合并提交，别人的记录文件会被算进
+          # 「本 PR 变更集」⇒ 存在性判据可能**假通过**（把别人新加的 records/*.md 当成本 PR 携带的记录）。
+          # advisory 模式下这一条不拦合并，但诊断必须测对东西，否则转阻断那天量的是另一个集合。
+          EXEC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           node --test scripts/check-pr-exec-record.test.js
-          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head=HEAD --mode=advisory
+          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
       # --- Gate 12（同族第三处，本次一并搬入）: 品牌残留门禁 ---
       # AGENTS.md 的 docs-only 快速通道把「品牌残留」列为文档 PR 的**保留门禁**（一条不省），

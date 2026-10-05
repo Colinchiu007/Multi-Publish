@@ -231,6 +231,128 @@ test('对账表里每一条 commands 去向：门禁必须接线进 changes job�
 })
 
 // ---------------------------------------------------------------------------
+// CI 取源：PR 事件下 checkout 的是 refs/pull/N/merge（合并提交），不是 PR head 提交
+// ---------------------------------------------------------------------------
+// 实测事故（PR #2914，2026-10-05）：本仓 changes job 传 `--base=<pull_request.base.sha>`
+// 且**不传 --head** ⇒ 判据默认取 `HEAD` = 合并提交。而 `base.sha` 是 PR 打开那一刻记录的
+// 基线，main 之后前进的那些提交（别人的代码文件）同样落在 merge-base(base.sha, 合并提交)..合并提交
+// 这段区间里，于是"本 PR 改了哪些文件"被算成"PR + 期间 main 的全部变化"。
+// 现场两侧对照：本地 `--base=origin/main --head=HEAD`（HEAD 就是分支顶）⇒ docs-only=true files=10；
+// CI 同一条 PR ⇒ docs-only=false，清单里多出 46 个别人的文件 ⇒ 短路整个失效，纯文档 PR 照跑全量。
+// 正解是把 `--head` 显式绑到 `pull_request.head.sha`：merge-base(base.sha, head.sha)..head.sha
+// 才是这个 PR 自己的变更集。
+
+function mergeCommitFixture () {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-only-merge-'))
+  const run = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' })
+  run(['init', '--quiet', '-b', 'main'])
+  run(['config', 'user.email', 'test@example.com'])
+  run(['config', 'user.name', 'test'])
+  fs.writeFileSync(path.join(dir, 'README.md'), 'base\n', 'utf8')
+  run(['add', '.'])
+  run(['commit', '--quiet', '-m', 'base'])
+  // PR 打开时的基线快照（GitHub 把它记成 pull_request.base.sha，之后不再更新）
+  const baseSha = run(['rev-parse', 'HEAD']).trim()
+
+  // 本 PR：只碰白名单文档
+  run(['checkout', '--quiet', '-b', 'feature'])
+  fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), 'my docs\n', 'utf8')
+  run(['add', '.'])
+  run(['commit', '--quiet', '-m', 'pr: docs only'])
+  const headSha = run(['rev-parse', 'HEAD']).trim()
+
+  // 并发会话把 main 往前推了一格，而且改的是代码
+  run(['checkout', '--quiet', 'main'])
+  fs.mkdirSync(path.join(dir, 'apps', 'desktop', 'electron'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'apps', 'desktop', 'electron', 'main.js'), 'other session\n', 'utf8')
+  run(['add', '.'])
+  run(['commit', '--quiet', '-m', 'other: code on main'])
+
+  // 复刻 actions/checkout@v4 在 PR 事件下的工作树：HEAD = 合并提交
+  run(['merge', '--quiet', '--no-ff', '-m', 'Merge PR for CI', 'feature'])
+  const mergeSha = run(['rev-parse', 'HEAD']).trim()
+  assert.match(mergeSha, /^[0-9a-f]{40}$/)
+  assert.strictEqual(run(['rev-parse', '--verify', `${mergeSha}^2`]).trim(), headSha,
+    '夹具必须真的产出「第二父 == PR head」的合并提交，否则测的不是 CI 的形态')
+  return { dir, baseSha, headSha, mergeSha }
+}
+
+test('合并提交形态复现：不传 --head 会把期间 main 的他人代码算进本 PR ⇒ docs-only=false', () => {
+  const { dir, baseSha } = mergeCommitFixture()
+  const r = runCli([`--base=${baseSha}`, `--repo=${dir}`])
+  assert.strictEqual(r.code, 0, r.stdout)
+  assert.match(r.stdout, /docs-only=false/, '事故形态必须能被这条夹具真实重现，否则本锁测不到东西')
+  assert.match(r.stdout, /apps\/desktop\/electron\/main\.js/, '误算进来的必须是别人的文件，不是我自己的')
+})
+
+test('同一夹具显式传 --head=<PR head sha> ⇒ docs-only=true 且 files=1（正解）', () => {
+  const { dir, baseSha, headSha } = mergeCommitFixture()
+  const r = runCli([`--base=${baseSha}`, `--head=${headSha}`, `--repo=${dir}`])
+  assert.strictEqual(r.code, 0, r.stdout)
+  assert.match(r.stdout, /docs-only=true/)
+  assert.match(r.stdout, /files=1/)
+  assert.match(r.stdout, /CHANGELOG\.md/)
+})
+
+test('changes job 的两个取源点必须把 --head 绑到 pull_request.head.sha（不得留给默认 HEAD）', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const changesAt = wf.indexOf('\n  changes:')
+  const staticAt = wf.indexOf('\n  static-gates:')
+  assert.ok(changesAt >= 0 && staticAt > changesAt, '未定位到 changes / static-gates 的 job 边界')
+  const job = wf.slice(changesAt, staticAt)
+
+  for (const script of ['classify-docs-only.js', 'check-pr-exec-record.js']) {
+    const call = job.split('\n').find((l) => l.includes(`node scripts/${script}`))
+    assert.ok(call, `changes job 里找不到 node scripts/${script} 的调用点 —— 判据搬家了，本锁须同步`)
+    assert.match(call, /--head=/,
+      `${script} 未显式传 --head ⇒ 取默认 HEAD=合并提交，PR 打开后 main 一前进就会把别人的变更算进本 PR（#2914 事故）`)
+    assert.ok(!/--head=["']?HEAD\b/.test(call),
+      `${script} 的 --head 仍写死 HEAD（合并提交），必须改绑 pull_request.head.sha`)
+  }
+  // 取值来源必须**按变量名回绑到它自己的 env 声明**。
+  // 这里原本写的是粗判 `/pull_request\.head\.sha/.test(job)`，实测变异 M4（把两处 env 声明
+  // 都换成占位串）仍 26/26 全绿 —— 因为守卫的报错文案里就含有 `github.event.pull_request.head.sha`
+  // 这个字面量，锁把自己的诊断文本当成了被守护的东西。所以判据必须是"这个变量声明成了什么"，
+  // 而不是"这段文本里出现过这个表达式"。
+  const headVars = new Set()
+  for (const m of job.matchAll(/--head="\$\{?([A-Z_][A-Z0-9_]*)(?::-[^}]*)?\}?"/g)) headVars.add(m[1])
+  assert.ok(headVars.size >= 2,
+    `只从 changes job 里解析出 ${headVars.size} 个 --head 引用变量（期望 classify 与 Gate 2c2 两个）—— 调用点写法变了，本锁须同步`)
+  for (const v of headVars) {
+    const decl = job.split('\n').find((l) => new RegExp('^\\s*' + v + ':\\s').test(l))
+    assert.ok(decl,
+      `${v} 没有 job 内 env 声明 ⇒ GitHub 表达式取不到时是空串，脚本 args.head || "HEAD" 会静默退回合并提交`)
+    assert.match(decl, /github\.event\.pull_request\.head\.sha/,
+      `${v} 绑的不是 PR 自己的 head 提交：${decl.trim()}`)
+  }
+})
+
+// 上一条只锁"传了 --head"，没锁"取不到 head 时怎么办"。实测变异 M3：把 `[ -z "$HEAD_SHA" ]`
+// 改成引用一个不存在的变量，结构锁仍 25/25 全绿 —— 于是"空值 fail-closed"这句承诺没有任何东西在看，
+// 而空值路径恰好会静默退回默认 HEAD（=合并提交），把本 PR 修掉的事故原形原地复活。
+test('classify step 必须带「取不到 head sha 就乐红」的 fail-closed 守卫，且守卫排在调用之前', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const stepAt = wf.indexOf('- name: Detect docs-only changes')
+  assert.ok(stepAt >= 0, '未定位到 "Detect docs-only changes" step —— 步骤改名须同步本锁')
+  const nextAt = wf.indexOf('\n      - name:', stepAt)
+  assert.ok(nextAt > stepAt, '未取到该 step 的结束边界（后面没有兄弟 step）')
+  const step = wf.slice(stepAt, nextAt)
+
+  const guardAt = step.search(/\[\s*-z\s*"\$HEAD_SHA"\s*\]/)
+  assert.ok(guardAt >= 0,
+    'classify step 缺少 [ -z "$HEAD_SHA" ] 守卫：GitHub 表达式取不到值时会是空串，'
+    + '而脚本的 args.head || "HEAD" 把空串读成 HEAD=合并提交 ⇒ 静默退回事故原形')
+  const callAt = step.indexOf('node scripts/classify-docs-only.js')
+  assert.ok(callAt > guardAt, '守卫必须排在 classify 调用之前，否则红了也已经被误判')
+  assert.ok(/exit 1/.test(step.slice(guardAt, callAt)),
+    '守卫分支必须显式 exit 1（只 echo 不退出等于把 fail-closed 写成日志）')
+})
+
+// ---------------------------------------------------------------------------
 // CLI (merge-base diff mode)
 // ---------------------------------------------------------------------------
 
