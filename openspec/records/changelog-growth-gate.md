@@ -2,9 +2,6 @@
 record: changelog-growth-gate
 task: 给 CHANGELOG.md 加「条目标题多重集只可增长」棘轮，接进 quality-gate.yml 的 changes job
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$' 的 merge SHA 与时间）
 ---
 
 ## 本次执行记录：CHANGELOG 只可增长棘轮（changelog-growth-gate，2026-10-05）
@@ -26,7 +23,7 @@ sync_backfill_owner: 下一个会话（取 git log origin/main --grep='(#NNNN)$'
 | QM-6 处置①（本 PR，活盲区） | 已修并实跑 | `HEADING_RE` 由「正向猜条目形状（`^# \[`）」改为「一级标题 − 节标题否定式排除」：`/^# (?!CHANGELOG(?:\s|$))\S/i`。TDD 先红后绿：新增 2 例（无括号条目被删必须报丢 / 夹具同时含两种形状）在旧实现下 **2 红 8 绿 rc=1**，改后 **11/11 绿**；真仓重算 `origin/main` 的条目数由 1,140 变为 **1,148**（正是补回那 8 行）。原用例「`# 普通一级` 不算条目」的期望**被推翻并改写** —— 它把盲区钉成了契约，不是我在放宽断言迁就实现 |
 | QM-6 处置②（本 PR，评审未覆盖但同轮实测命中） | 已修并加锁 | **坐标系错**：原步骤 `--base="${CL_BASE}"`（= `pull_request.base.sha`，事件时刻的 main tip）与本地按 `origin/main` 试跑同错 —— 实测 `--base=origin/main` ⇒ **rc=1 假红**，报「少了 3 种条目」，而那 3 条是别人在我上次同步之后并入 main 的；`--base=$(git merge-base …)` ⇒ **rc=0**（base 1145 条 = head 1145 条）。正解：步骤内先 `git merge-base` 再回落 base sha 再回落 `HEAD^`（回落方向一律「更严」，不可回落成空/判过）。新增**接线锁**用例断言该步骤含 `git merge-base`、禁止 `--base=origin/main`、必须含 `${MB:-$BASE_REF}` 回落、且 `shell: bash`；区间终点用 `search(/\n {6}- name:/)` 并**找不到即红**（不用「下一个函数名 indexOf」那种会被搬家静默放大区间的写法） |
 | QM-6 反证（接线锁不得是装饰） | 已实跑 4 档 | `M1` 把 base 改回 `origin/main` ⇒ rc=1 且红的正是「CI 接线锁」；`M1b` = M1 + 摘掉「禁 origin/main」「必须回落」两条断言 ⇒ **回绿**（证明红来自这两条而非别的断言顺带）；`M2` 摘掉 `git merge-base` 推导 ⇒ rc=1 同条红；`M2b` = M2 + 摘掉「必须含 git merge-base」断言 ⇒ **回绿**。每档都打印 `锚点命中数 / 字节前后 / 是否真的变了`（M1 `hits=1 72329->72322`，M2 `hits=1 72329->72275`），四档结束后断言 workflow 与测试文件**均与备份逐字节相同** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin changelog-growth-gate` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `1c98294a87d9fda18b5d455c6d453c5c198aa239`（PR #2901，2026-10-05T04:01:17Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2901)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin changelog-growth-gate` 返回 **0 行**证远端分支已删。其 CHANGELOG 条目由本回填 PR 带上（本 PR 之前三份记录都显式声明"条目挪到后续 docs-only 回填"）。 |
 
 ### 本 PR 不含 CHANGELOG 条目（刻意的）
 本 PR 是混合 PR，CI 实测 25–30 分钟 ≥ main 前进间隔；顶插 `CHANGELOG.md` 会让每次 re-sync 都撞同一个位置（上一轮 axios 就是这个形态连撞三轮）。条目挪到后续 docs-only 回填 PR（实测 0.6–7.2 分钟）。

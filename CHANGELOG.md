@@ -1,3 +1,44 @@
+# [未发布] feat(门禁): 依赖审计补第三扫描域 ops-center/frontend，并强制「挂账必须可闭合」（2026-10-05，dep-audit-opscenter-domain / PR #2904）
+
+### 为什么第三扫描域是必须的
+- `check-dep-audit` 原先只有两个域：npm = `pnpm audit --prod`（`pnpm-workspace.yaml` 只列 `apps/*` 与 `packages/*`）、pip = `ops-center/backend/requirements.txt`。而 `ops-center/frontend/package-lock.json` 由 **npm 独立管理**，两个域都不含它 —— 它既不被扫、也没有 workflow 装它，却以"看起来受门禁保护"的形态存在（上一轮 axios 收口时它就是被点名的遗留）。
+- 新增 `npm-opscenter` 域（`npm audit --omit=dev --json`，cwd 落在 `ops-center/frontend`），与 pnpm 侧 `--prod` 同语义。独立 source 名不可省：共用 `npm` 会让同一 GHSA 在两个域互相冒充"已登记"，`--update` 时后写的覆盖先写的。
+- npm 的 v2 JSON 形状与 pnpm 的 `advisories` 完全不同（顶层按包名聚合、公告在 `via[]`、GHSA 只在 `url` 里、`patched` 要从 range 上界反推），因此新增 `parseNpmAuditV2`。
+
+### 「挂账可闭合」判据
+- 动因：axios 的 12 条公告曾被登记成 `upgrade-tracked`，而修复版 1.20.0 早已发布 —— 旧门禁只校验"有没有 decision/note/到期日"，从不校验"这笔账能不能闭合"。
+- 新增 `DECISION_CONTRADICTS_PATCHED`：`upgrade-tracked` 必须给 `targetVersion`（x.y.z 字面量，不许区间/通配），且该版本必须**逃出** `patched` 的**每一段**下界；`patched` 为空 ⇒ 该 decision 不成立，应改判 `no-fix-available`；形状解析不了 ⇒ fail closed。基线里 24 条 `upgrade-tracked` 据此补齐 `targetVersion`（diff `24/0`，纯插入）。
+- 覆盖面窄于声明必须硬失败：域在 `DOMAINS` 里却没有 runner/解析器 ⇒ `DOMAIN_NOT_WIRED`（rc=1），不得降级成 `SCANNER_UNAVAILABLE` 告警 —— 后者保护的是离线/端点抖动（部署事实），前者是代码事实。
+- 现状实测：新域今日贡献 `npm-opscenter=0` 条挂账（本机 `npm audit --json --omit=dev` 在 ops-center/frontend 得 0 条；去掉 `--omit=dev` 则有 3 包 / 12 条，全在 vitest→@vitest/mocker→undici 这条 dev 链上，属另一条待决策的口径）。
+
+# [未发布] fix(deps): undici / fast-uri 覆写由无上界 `>=` 收成 `^`，并加「整张覆写表都必须有上界」棘轮（2026-10-05，undici-fasturi-bounded / PR #2905）
+
+### 为什么 `>=` 是隐患
+- pnpm 的 override 是**整体替换**依赖区间，不做交集。写 `>=7.29.1` 等于允许下一次不带 `--frozen-lockfile` 的 `pnpm install` 把它静默抬到新 major —— registry 现场：`undici dist-tags.latest=8.11.2`、`fast-uri latest=4.2.1`，而锁里是 7.30.0 / 3.1.8。
+- 这条隐患被**两次**看见、两次写下、两次没修（#2613 建立时；#2856 的注释里明写"上面两条仍是 >=，属同族隐患，但本 PR 不夹带"），存续 6 天，期间没有任何东西在看它。
+
+### 改了什么与为什么它不改变行为
+- `pnpm-workspace.yaml` 与 `pnpm-lock.yaml` 各两行（`>=` → `^7.29.1` / `^3.1.7`）。锁是**按行重放**改的，不是重新 resolve —— 重新 resolve 会夹带无关版本。
+- 两者都是纯传递依赖（`importers` 段无人直接声明，实测 hits=0），改的只是"将来允许解析到什么"：新增用例「收上界不得改变解析结果」钉住锁里仍是 7.30.0 / 3.1.8。
+- 三条新回归锁：①**整表**判据（读到几条判几条 + 规模下界 `>=3`，裸 `>=` 一律红；动因是既有那条只按 `axios:` 单行点名，同形状的其余几条完全不可见）；②两把锁的 `overrides` 段 `deepStrictEqual`（手工重放靠它自证没漂）；③解析结果不得跨 major。
+- `pnpm install --frozen-lockfile` rc=0 —— 这是唯一能证明"手改锁没把 YAML 改成非法"的命令（上一轮 rebase 文本合并造出重复键，CI 报 `ERR_PNPM_BROKEN_LOCKFILE` 把 required 四项一起打红，而地板锁/审计门禁对那种非法文件全部免疫）。
+
+# [未发布] fix(门禁): QM-6 外部评审对三个已合并门禁 PR 的 7 条发现逐条处置（2026-10-05，qm6-gate-hardening / PR #2910）
+
+### 为什么单独一条：一次输掉的竞态
+- 三笔处置原本写在 #2901 / #2904 / #2905 各自分支上并本地跑绿，但那三个 PR 在推送之前被 auto-merge 收走。判据不看时刻表看 main 的内容：当时 `HEADING_RE` 仍是 `/^# \[/`、`PARSERS` 与 `hasUpperBound` 各出现 0 次。**代价如实写**：加固落地前那个窗口内的 PR 不受这四处保护。
+
+### 四条 Warning（实测全部成立，无一条驳回）
+- **#2901 形状盲区（活的）**：`origin/main` 有 1,164 行一级标题，1,140 行是 `# [` 形，另有 **2 种真条目是无括号形**（`# fix(自检门禁): …（#2648，2026-09-30）` 等，各重复 4 次），唯一非条目的一级标题是 `# CHANGELOG` ⇒ 旧判据对这 8 行失明，删掉任何一条棘轮照报 PASS。改为「一级标题 − 节标题」：`/^# (?!CHANGELOG(?:\s|$))\S/i`，真仓条目数 1,140 → **1,148**。
+- **#2901 坐标系错（评审未覆盖，同轮自行实测命中）**：`--base=pull_request.base.sha`（= 事件时刻的 main tip）与 `--base=origin/main` 同错，实测会把别人后并入的 3 条读成本 PR 丢失 ⇒ rc=1 假红；merge-base 口径 1145=1145 rc=0。CI 步骤改为先 `git merge-base`，回落链 merge-base → base sha → `HEAD^`（一律往"更严"回落），并加接线锁（runner 现场：`base_ref=… merge_base=1c98294a8…`、`ok 11 - CI 接线锁`、`PASS：base 1148 条（307 种）`）。
+- **#2905 指引与判据互斥（活的）**：失败文案让人"改成带 `^/~` 的写法"，而同文件两处判据硬编码只认 `^` ⇒ 照文案写 `~` 会被自家门禁判红。收成单一真源 `BOUNDED_PREFIXES` / `hasUpperBound()` / `boundedHint()`，文案由判据集合生成。
+- **#2904 解析器 `else` 兜底 + 多段 `patched` 只比第一段**：新增域会静默按 v2 形状解析（与 `DOMAIN_NOT_WIRED` 纪律冲突）⇒ 改显式 `PARSERS` 表并按域校验接线；`patchedFromRange` 的 `.exec` 对 `">=1.0.0 <1.2.3, >=2.0.0 <2.1.5"` 只取第一个上界 ⇒ 第二族被丢掉，`targetVersion=2.0.5` 会被判"可闭合"而它仍命中漏洞。改为收全部上界 + 逐段要求逃过（取"逐段都过"：语义无法从数据区分时，保守侧只会假红不会假绿）。
+
+### 三条 Info + 反证
+- 「两域」注释改按声明域；测试里对 `DOMAIN_NOT_WIRED` 的同条件重复断言删一条；绿文披露「npm 两个域均按 `--omit=dev` / `--prod` 扫，dev 依赖不在判据面内」。
+- 十一次变异反证（M1/M2/M1b/M2b + M1/M2/M3 + R1–R4）各自命中预期的那条锁，摘掉对应断言后回绿，每档先断言"文本真的变了"、结束按字节还原。
+- 通道实况：codex 路 rc=0 但无产物、claude 路 `completed without agent_message output`，只有 `opencode *-free` 产出真 findings（7 条）；评审用语在 prompt 与 diff 里 `grep -c` 均 0 ⇒ 非回声。三条记录里的 QM-6 由「未执行」更正为「部分执行 + 逐条处置」。
+
 # [未发布] docs(changelog): 回灌被 #2884 整份替换掉的 1,131 条历史 + 立「只可增长」棘轮（2026-10-05，changelog-restore / changelog-growth-gate）
 
 ### 为什么不是"补一段旧文案"

@@ -2,9 +2,6 @@
 record: qm6-gate-hardening
 task: 把 QM-6 评审对三个已合并门禁 PR 的 7 条发现的处置，作为一个后续 PR 落地
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话，回填后必须删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（PR 号开单后回写本行；取 git log origin/main --grep='(#<本 PR 号>)$' 的 merge SHA 与时间；分支名 qm6-gate-hardening）
 ---
 
 ## 本次执行记录：QM-6 三条门禁 PR 的后续加固（qm6-gate-hardening，2026-10-05）
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（PR 号开单后回写本行；取 git log
 | classify-docs-only | false（混合 PR，不得进快速通道） | 改动含 `.github/workflows/quality-gate.yml` 与 `scripts/`、`packages/` 下文件 ⇒ 完整质量节拍，不借道 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未改 `apps/desktop/electron/`、未改运行时依赖区间（本 PR 不动 lock）、未触 UI 文件 |
 | 本 PR 不含 CHANGELOG 条目（刻意的） | ✅ 并在此声明代价 | 代码 PR 顶插 `CHANGELOG.md` 会让每次 re-sync 撞同一位置（上一轮实测连撞三轮）。条目由合并后的 docs-only 回填 PR 带上（实测 0.6–7.2 分钟）。**代价如实写**：main 的 CHANGELOG 暂时读不到这次加固 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin qm6-gate-hardening` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `8600dd214e5481a9b04b9a2a615bb19f7d67b4e9`（PR #2910，2026-10-05T04:56:35Z）。取证（2026-10-05 现取，采集时 origin/main=8600dd214）：`git log origin/main --grep='(#2910)$' --format=%H|%cI` 得该 SHA 与时间；`git ls-remote --heads origin qm6-gate-hardening` 返回 **0 行**证远端分支已删。其 CHANGELOG 条目由本回填 PR 带上。 |
 
 ### 遗留（不假装已闭合）
 
