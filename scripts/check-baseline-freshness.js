@@ -58,12 +58,13 @@ function findRender (rendersDir, name) {
 const KNOWN_DYNAMIC = {};
 
 /**
- * @returns {{violations: string[], uncovered: string[], notes: string[], checked: number, rows: object[]}}
+ * @returns {{violations: string[], violated: {name: string, kind: string, driftPx?: number, pct?: number, from?: string}[], uncovered: string[], notes: string[], checked: number, rows: object[]}}
  */
 function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0, partial = false) {
   const { PNG, pixelmatch } = deps || loadDeps();
   const names = fs.readdirSync(baselinesDir).filter((f) => f.endsWith('.png')).sort();
   const violations = [];
+  const violated = [];
   const uncovered = [];
   const skipped = [];
   const notes = [];
@@ -82,6 +83,7 @@ function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0, part
       }
       if (!KNOWN_UNCOVERED[name]) {
         violations.push(`UNCOVERED_BASELINE: ${name} 在 CI 里没有同名渲染，且未带理由登记（清单只能缩小）`);
+        violated.push({ name, kind: 'uncovered' });
       }
       rows.push({ name, driftPx: null, note: 'no CI render' });
       continue;
@@ -91,10 +93,12 @@ function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0, part
     if (a.width !== b.width || a.height !== b.height) {
       violations.push(`DIMS_MISMATCH: ${name} 基线 ${a.width}x${a.height} vs CI 渲染 ${b.width}x${b.height}`);
       rows.push({ name, driftPx: null, note: 'dims' });
+      violated.push({ name, kind: 'dims' });
       continue;
     }
     const driftPx = pixelmatch(a.data, b.data, null, a.width, a.height, { threshold: 0.1 });
-    rows.push({ name, driftPx, from: hit.from, pct: +((100 * driftPx) / (a.width * a.height)).toFixed(3) });
+    const pct = +((100 * driftPx) / (a.width * a.height)).toFixed(3);
+    rows.push({ name, driftPx, from: hit.from, pct });
     const dynamic = KNOWN_DYNAMIC[name];
     if (driftPx > maxDriftPx) {
       if (dynamic && driftPx <= dynamic.maxDriftPx) {
@@ -102,13 +106,64 @@ function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0, part
       } else if (dynamic) {
         violations.push(`DYNAMIC_BUDGET_EXCEEDED: ${name} 差 ${driftPx} px，超出已登记预算 ${dynamic.maxDriftPx} px`
           + ` —— 登记理由是「${dynamic.reason}」；变这么多说明该处行为已改，须重新取证而非抬预算`);
+        violated.push({ name, kind: 'dynamic-budget', driftPx, pct, from: hit.from });
       } else {
-        violations.push(`BASELINE_STALE: ${name} 与同一次 CI 渲染差 ${driftPx} px（${((100 * driftPx) / (a.width * a.height)).toFixed(3)}%）`
+        violations.push(`BASELINE_STALE: ${name} 与同一次 CI 渲染差 ${driftPx} px（${pct}%）`
           + ` —— 基线必须由 CI artifact 的渲染重建（QM-4 第 7 条），本机 test:visual:update-baseline 的产物不得提交`);
+        violated.push({ name, kind: 'stale', driftPx, pct, from: hit.from });
       }
     }
   }
-  return { violations, uncovered, skipped, notes, checked: names.length, rows };
+  return { violations, violated, uncovered, skipped, notes, checked: names.length, rows };
+}
+
+/**
+ * 两轮有界重试的终判（#31）：单张视图的采集不可复现（flake）不得卡死任意 PR。
+ * 终判 = 违规视图的**两轮交集**：两轮都红是确定性漂移（stable，照旧拦），
+ * 单轮红是采集 flake（only1/only2，放行但必须留痕）。
+ * 判定域按视图文件名，kind 漂移不参与交集（同视图两轮的 kind 理论上一致；
+ * 不一致按「两轮都红」处理——宁可多拦不可漏放）。
+ */
+function evaluateVerdictRounds (round1, round2) {
+  const read = (r, label) => {
+    if (!r || typeof r !== 'object' || Array.isArray(r) || !Array.isArray(r.violatedViews)) {
+      throw new Error(`${label} 缺少 violatedViews 数组 —— 判定文件格式非法`);
+    }
+    const names = [];
+    for (const v of r.violatedViews) {
+      if (!v || typeof v.name !== 'string' || !v.name) {
+        throw new Error(`${label} 的 violatedViews 条目缺少 name 字段`);
+      }
+      names.push(v.name);
+    }
+    return new Set(names);
+  };
+  const s1 = read(round1, 'round1');
+  const s2 = read(round2, 'round2');
+  // round2 的 skipped 是「这轮根本没采到」的盲区名单：round1 红的视图若落在里面，
+  // 等于没有第二次证据 —— 不得当 flake 放行（判据不存在时不得改变结论）。
+  const skipped2 = new Set(Array.isArray(round2.skipped) ? round2.skipped.filter((s) => typeof s === 'string') : []);
+  // 镜像同判：round2 独红的视图若 round1 根本没采到（skipped1），同样只有一次红证据、
+  // 没有两轮对照，也不得判 flake（QM-6 后端评审 W1）。
+  const skipped1 = new Set(Array.isArray(round1.skipped) ? round1.skipped.filter((s) => typeof s === 'string') : []);
+  const stable = [...s1].filter((n) => s2.has(n)).sort();
+  const noEvidence = [
+    ...[...s1].filter((n) => !s2.has(n) && skipped2.has(n)),
+    ...[...s2].filter((n) => !s1.has(n) && skipped1.has(n)),
+  ].sort();
+  const only1 = [...s1].filter((n) => !s2.has(n) && !skipped2.has(n)).sort();
+  const only2 = [...s2].filter((n) => !s1.has(n) && !skipped1.has(n)).sort();
+  return { stable, only1, only2, noEvidence };
+}
+
+/** 把两份轮次 JSON 落盘文件读成判定输入；任何读取/解析失败都抛（调用方 fail closed）。 */
+function readVerdictFile (file) {
+  const raw = fs.readFileSync(file, 'utf8');
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.violatedViews)) {
+    throw new Error(`${file} 缺少 violatedViews 数组`);
+  }
+  return parsed;
 }
 
 function main (argv = process.argv.slice(2)) {
@@ -116,17 +171,68 @@ function main (argv = process.argv.slice(2)) {
     const hit = argv.find((a) => a.startsWith(`--${k}=`));
     return hit ? hit.slice(k.length + 3) : d;
   };
+  // 两轮终判模式：只消费两份 --json-out 产物，不碰基线/渲染目录。
+  const verdictArg = get('verdict-rounds', null);
+  if (verdictArg !== null) {
+    const files = verdictArg.split(',').map((s) => s.trim()).filter(Boolean);
+    if (files.length !== 2) {
+      console.error('用法：--verdict-rounds=<round1.json>,<round2.json>（恰好两份）');
+      console.error('缺两份轮次判定文件时无法终判（不得默认通过）。');
+      return 1;
+    }
+    let round1; let round2;
+    try {
+      round1 = readVerdictFile(files[0]);
+      round2 = readVerdictFile(files[1]);
+    } catch (e) {
+      console.error(`❌ 轮次判定文件不可用：${e.message}`);
+      return 1;
+    }
+    let rounds;
+    try {
+      rounds = evaluateVerdictRounds(round1, round2);
+    } catch (e) {
+      console.error(`❌ 轮次判定文件结构非法：${e.message}`);
+      return 1;
+    }
+    const { stable, only1, only2, noEvidence } = rounds;
+    for (const n of only1) console.log(`  ⚠️ flake-confirmed（仅 round1 红）：${n}`);
+    for (const n of only2) console.log(`  ⚠️ flake-confirmed（仅 round2 红）：${n}`);
+    if (noEvidence.length) {
+      console.error(`❌ ${noEvidence.length} 张视图只有单轮红证据且另一轮没采到（无证据，不得当 flake 放行）：`);
+      for (const n of noEvidence) console.error(`   · ${n}`);
+      return 1;
+    }
+    if (stable.length) {
+      console.error(`❌ ${stable.length} 张视图两轮都红（确定性漂移，不因重试放行）：`);
+      for (const n of stable) console.error(`   · ${n}`);
+      return 1;
+    }
+    console.log(`✅ 两轮交集为空：${only1.length + only2.length} 张单轮红视图判定为采集 flake（详见上方留痕），无确定性漂移`);
+    return 0;
+  }
+
   const DESKTOP = path.resolve(__dirname, '../apps/desktop');
   const baselinesDir = get('baselines', path.join(DESKTOP, 'tests/visual-testing/base-screenshots'));
   const rendersDir = get('renders', '');
   const maxDriftPx = Number(get('max-drift-px', '0'));
   const partial = argv.includes('--partial');
+  const jsonOut = get('json-out', null);
   if (!rendersDir || !fs.existsSync(rendersDir)) {
-    console.error('用法：node scripts/check-baseline-freshness.js --renders=<CI screenshots 目录> [--baselines=...] [--max-drift-px=0] [--partial]');
+    console.error('用法：node scripts/check-baseline-freshness.js --renders=<CI screenshots 目录> [--baselines=...] [--max-drift-px=0] [--partial] [--json-out=<file>] [--verdict-rounds=<r1>,<r2>]');
     console.error('缺 --renders 时无法判定（不得默认通过）。');
     return 1;
   }
-  const { violations, uncovered, skipped = [], notes, checked, rows } = evaluateFreshness(baselinesDir, rendersDir, null, maxDriftPx, partial);
+  const { violations, violated, uncovered, skipped = [], notes, checked, rows } = evaluateFreshness(baselinesDir, rendersDir, null, maxDriftPx, partial);
+  if (jsonOut) {
+    fs.writeFileSync(jsonOut, JSON.stringify({
+      checked,
+      violatedViews: violated,
+      uncovered,
+      skipped,
+      notes,
+    }, null, 2) + '\n');
+  }
   const drifted = rows.filter((r) => typeof r.driftPx === 'number' && r.driftPx > maxDriftPx);
   // 已登记且在预算内的动态漂移只出声、不打 ❌ —— 否则 rc=0 与满屏 ❌ 同时出现，
   // 读日志的人会按 ❌ 计数判断成败，等于把"允许"显示成"失败"。
@@ -157,4 +263,4 @@ function main (argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { evaluateFreshness, findRender, loadDeps, KNOWN_UNCOVERED, KNOWN_DYNAMIC, main };
+module.exports = { evaluateFreshness, evaluateVerdictRounds, readVerdictFile, findRender, loadDeps, KNOWN_UNCOVERED, KNOWN_DYNAMIC, main };
