@@ -46,7 +46,7 @@ describe('AlignerBridge._spawnEnv', () => {
 
   it('基类默认不追加任何变量（其它 bridge 行为不变）', () => {
     const { BasePythonBridge } = require('./base-python-bridge')
-    const base = new BasePythonBridge({ name: 'X', pythonModule: 'x', port: 1, host: '127.0.0.1', workDir: process.cwd(), log: { info () {}, warn () {}, error () {} } })
+    const base = new BasePythonBridge({ name: 'X', pythonModule: 'x', port: 1, host: '127.0.0.1', workDir: process.cwd(), log: { info () {}, warn () {}, error() {}, notify() {} } })
     expect(base._spawnEnv()).toEqual({})
   })
 })

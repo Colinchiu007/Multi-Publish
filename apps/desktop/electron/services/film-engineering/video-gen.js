@@ -229,7 +229,7 @@ function registerFilmVideoStages (pipelineEngine) {
   }
   const log = pipelineEngine.log && typeof pipelineEngine.log.warn === 'function'
     ? pipelineEngine.log
-    : { info () {}, warn () {}, error () {} }
+    : { info () {}, warn () {}, error() {}, notify() {} }
 
   pipelineEngine.registerStageExecutor(
     FILM_VIDEO_STAGE_TYPES.GENERATE_VIDEOS,

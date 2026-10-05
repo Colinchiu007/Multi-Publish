@@ -50,7 +50,7 @@ function makeStore () {
 function makeReporter (store, over = {}) {
   return new DiagnosticsReporter({
     store,
-    log: { info () {}, warn () {}, error () {} },
+    log: { info () {}, warn () {}, error() {}, notify() {} },
     getOpsCenterAuth: () => ({ url: 'https://ops.example.com', apiKey: 'key-1' }),
     getClientId: () => 'client-hash-1',
     ...over,

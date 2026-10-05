@@ -66,7 +66,7 @@ function makeEngine (opts = {}) {
     registerStageExecutor (type, fn) { this.stageExecutor.register(type, fn); return { success: true } },
     container: { get: (k) => (k === 'aiGenerator' ? { _modelProviderManager: manager } : null) },
     aiGenerator: { _modelProviderManager: manager },
-    log: { info () {}, warn () {}, error () {} },
+    log: { info () {}, warn () {}, error() {}, notify() {} },
     serviceBus: {
       // 原文直送合同：film 阶段一旦调用视频优化器即违例
       optimizeVideoPromptsBatch: async (prompts) => {
