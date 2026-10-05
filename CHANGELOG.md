@@ -1,3 +1,27 @@
+# [未发布] fix(desktop): 影视「单镜重试」永久失效——preload 命名空间与渲染层扁平名错配 + 补反向暴露面契约（fix-ipc-namespace-contract，2026-10-05）
+
+### 症状
+- 影视工程画布里点「重试该镜」永远失败，且失败原因此前不可见。渲染层 `src/api/publisher.js` 按**扁平名** `filmEngineeringRetryShot` 调用，而 preload 只在 `filmEngineering` **命名空间**下暴露 `retryShot`（`electron/preload/film-engineering.js`）。`electron-bridge` 的 `invoke` 判 `typeof api[method] !== "function"` 即 `return undefined`，`invokeWithFallback` 随后返回 `{ code: -1 }`，两个生产调用方判 `res.code === 0` 恒为 false。
+
+### 根因（不是那一行写错，是接缝无人测）
+- **preload 侧测得很全**：`preload.test.js` 有转发矩阵、`toHaveProperty` 暴露面断言、键数锁。
+- **渲染层测不到**：`useFilmVideoGen.test.js` / `useFilmProduction.test.js` 用 `vi.mock('@/api/publisher')` **整体 mock 掉本模块**，只断言"调用了 `filmEngineeringRetryShot`"，从不断言 preload 是否真有该方法。
+- ⇒ 两侧各自绿，**没有任何一条断言跨越这两侧**。这才是能一路进主干的机制性原因。
+
+### 修复
+- `electron-bridge.js` 新增通用 `invokeNamespace(ns, method, ...args)`（按 ns→method 两级取，参数经 `toPlainIpcValue` 脱壳）；`publisher.js` 的 `filmEngineeringRetryShot` 改走 `filmEngineering.retryShot`，fallback 形状逐字不变。**未改** preload 暴露面、主进程 handler、IPC channel。
+- 新增 `electron/tests/ipc-exposure-contract.test.js`（18 用例）：拦截 `contextBridge.exposeInMainWorld` 取 preload **真实完整**暴露面，与 `src/api/**` 的调用名对账；差集对 `public ∪ admin` 求（暴露面经权限过滤，只比 public 会把 admin-only 方法误报成缺陷）。
+
+### 存量结论（213 个调用名全量对账）
+- 活的真实缺陷 **1 个**（即本次修的 C-1）；死代码（暴露面无此名且除定义处 0 引用）**3 个**，已登记进测试内 `KNOWN_GAP` 白名单并锁"只能缩小"；权限门控（`ADMIN_ONLY_METHODS`，非 admin 整键不暴露）**1 个**；测试夹具假名 5 个已从扫描域排除。清单见 `docs/ipc-exposure-contract.md`。
+
+### 证据
+- 红证据：修 C-1 之前，契约测试判红并点名 `filmEngineeringRetryShot`（"未登记的暴露面缺口（1）"）。
+- 反证：把判据改成恒返回空数组的 no-op，2.2 判据矩阵判红 ⇒ 矩阵承重、对 no-op 不免疫。
+- 门禁级反证 2/2：① 渲染层新增一处不存在的调用名 ⇒ 对账判红；② preload 移除 `filmEngineering.retryShot` ⇒ 哨兵用例 + 命名空间对账判红。两次均按 md5 逐字节还原且还原后转绿。
+- 回归：`preload.test.js` 372 + `publisher.test.js` 251 等 7 个受影响测试文件共 **669 passed / 0 failed**。
+
+---
 # [未发布] feat(bilibili): 审核回查端点取证落地（bilibili-audit-evidence，2026-10-05）
 
 - publish-monitor 接入 member.bilibili.com 稿件列表端点（Cookie 会话：nav 验证会话 + `data.arc_audits[]` 按 bvid/aid String 匹配），取代取证前的虚构端点。

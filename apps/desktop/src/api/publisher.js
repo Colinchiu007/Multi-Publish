@@ -2,7 +2,7 @@
  * 发布 API 封装 — 调用 Electron IPC
  * 所有 Vue 组件通过此文件访问 Electron IPC，不直接调用 window.electronAPI
  */
-import { invoke, invokeWithFallback, on as bridgeOn } from "./electron-bridge";
+import { invoke, invokeNamespace, invokeWithFallback, on as bridgeOn } from "./electron-bridge";
 
 // ─── 发布 API ─────────────────────────────
 export async function publishWechat(article) { return invoke("publishWechat", article) }
@@ -393,7 +393,7 @@ export async function pipelineExecuteStage(runId) { return invokeWithFallback("p
 export async function pipelineAdvanceToNextCheckpoint(runId) { return invokeWithFallback("pipelineAdvanceToNextCheckpoint", { code: -1 }, runId) }
 export async function pipelineConfirmSceneAssets(runId, selections) { return invokeWithFallback("pipelineConfirmSceneAssets", { code: -1, message: 'electronAPI not available' }, runId, selections) }
 export async function pipelineConfirmStageGate(runId, contextPatch) { return invokeWithFallback("pipelineConfirmStageGate", { code: -1, message: 'electronAPI not available' }, runId, contextPatch) }
-export async function filmEngineeringRetryShot(payload) { return invokeWithFallback("filmEngineeringRetryShot", { code: -1, message: 'electronAPI not available' }, payload) }
+export async function filmEngineeringRetryShot(payload) { const res = await invokeNamespace("filmEngineering", "retryShot", payload); return res === undefined ? { code: -1, message: 'electronAPI not available' } : res }
 export async function pipelineGetRunContext(runId) { return invokeWithFallback("pipelineGetRunContext", null, runId) }
 export async function pipelinePauseWithCheckpoint() { return invokeWithFallback("pipelinePauseWithCheckpoint", { code: -1 }) }
 export async function pipelineResumeFromCheckpoint() { return invokeWithFallback("pipelineResumeFromCheckpoint", { code: -1 }) }
