@@ -108,6 +108,8 @@ scripts/*.js
 !scripts/ci-pr-changeset.test.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/ccg-gate.js
+!scripts/ccg-deep-review.js
+!scripts/deep-review.sh
 !scripts/openspec-sync-check.js
 !scripts/openspec-sync-check.test.js
 !scripts/affected-report.js
