@@ -2,9 +2,6 @@
 record: fix-dead-pipeline-wrappers
 task: 删除 publisher.js 三个零引用死 wrapper（preload 从未兑现同名方法、接上即静默失效），并把契约测试的 KNOWN_GAP 白名单收空为「不得复加」的零容忍棘轮
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证
-sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA，并在同一次提交删除本段三个 sync_* 字段与 scripts/gate-record-debt-ledger.json 的本条登记）
 ---
 
 ## 本次执行记录：删除三个死 pipeline wrapper + 白名单收空（fix-dead-pipeline-wrappers，2026-10-05）
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（合并后就地改写为 PASS + merge SHA
 | QM-2 必检项 | N/A（附依据） | 本次**只删除三个导出，未新增或修改任何 IPC 调用**，不存在需要复核的参数。旁证：契约测试 19/19 绿；`invokeNamespace` 的 `toPlainIpcValue` 脱壳路径（`electron-bridge.js:102`）本轮未触碰 |
 | QM-4 视觉 | N/A | 无模板/样式/组件结构变更 |
 | QM-6 CCG 双模型外部评审 | **未执行（如实登记）** | 本机 `codeagent-wrapper` 通道此前实测不干净（前端路两次空转、后端路 stdout 截断且无 rollout）。**不以自审冒充通过**。本轮的机械反证能证明「新锁承重、白名单不可复加」，**不能替代对实现的多视角评审**——这是连续第二个 PR 的同一缺口 |
-| 远程同步 | PENDING | 本 PR 在途：合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-dead-pipeline-wrappers` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的本条登记 |
+| 远程同步 | PASS | PR #2956 squash 合并 `ab3c5d90fdbb012238431e6dd9f26b4e63529bb6`（2026-10-06T00:46:34+08:00，取证 `git log origin/main --grep='(#2956)$' --format=%H|%cI`）；`git ls-remote --heads origin fix-dead-pipeline-wrappers` 返回 0 行，证远端分支已删；本条由 docs-only 回填 PR 就地回填，frontmatter 的 sync_* 三字段在同一次提交删除 |
 
 ### 与上一轮的关系（决策被推翻，不改写历史）
 
