@@ -20,7 +20,7 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | 行尾与 diff 对账 | PASS | `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径完全相同：`check-coverage-include-sfc.js` 177/0、`check-coverage-include-sfc.test.js` 155/0、`quality-gate.yml` 16/0、`vitest.config.js` 6/0。无 CRLF 噪声 |
 | 接线棘轮 | PASS | 新增的 `check-coverage-include-sfc.test.js` 已被 `quality-gate.yml` 的 Gate 15c 显式 `node --test` 点名（结构锁见测试第 11 条）。既有 `workflow-contract.test.js` 32/32 通过 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面：无 `apps/desktop/electron/` 与 `packages/rpa-engine/` 改动；`check-max-lines.js` 98/98 挂账未变、无新增超大文件 |
-| QM-6 CCG 双模型外部评审 | 未执行 | 见「遗留」 |
+| QM-6 CCG 双模型外部评审 | **未能执行** | pre-commit CCG 门禁判定 **DUAL**（`变更 354 行 > 200 阈值 ⇒ 12.6 Red Team`，`4 个源文件`，要求 `claude + opencode`）。三种后端逐个实测全部失败，详见下节 |
 | 全量实测 | PASS | `vitest run --coverage --maxWorkers=1 --no-file-parallelism`：768 文件 **767 通过 / 1 跳过**，13974 用例 **13971 通过 / 3 跳过**，**零失败**，耗时 2001s |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
 
@@ -47,7 +47,45 @@ SFC 部分的覆盖率与 `.js` 基本持平，于是「先补 include 记基线
 若当时照预设先去调阈值，那就是拿猜测覆盖证据。门禁的价值不在于数字好看，
 而在于它量的对象是对的。
 
-### 一处自曝的失误
+### QM-6：外部双模型评审未能执行（三个后端逐个实测，不以自审冒充）
+
+CCG 门禁要求 `claude + opencode`。`codeagent-wrapper` 只有 `codex` / `gemini` / `claude`
+三个后端 —— `opencode` **根本不在列表里**，跨家族组合在本机无法构造。逐个实测：
+
+| 后端 | 结果 |
+|---|---|
+| `codex` | `Failed to start codex: exec: "codex": cannot run executable found relative to current directory` |
+| `gemini` | `gemini command not found in PATH` |
+| `claude` | 短提示词探针能通（返回 `OK`），完整评审任务 `claude exited with status 1`，wrapper 日志已被删除 |
+
+`claude` 用 `Start-Process -ArgumentList` 传多行 Markdown 时参数被弄坏（探针的
+`Command:` 行里 `--setting-sources` 之后就是空值）；改用 stdin 模式（wrapper 自动切
+`Using stdin mode ... length>800`）后仍 exit 1。
+
+**结论：本次外部评审未执行，不以自审冒充通过。** 这与治理方案 §9 记录的 CCG 后端长期
+不可用是同一状况，不是本变更引入的问题。
+
+补偿措施：按外部评审本应攻击的五个点逐条自查，其中两条自查产出了真实改动（见下）。
+
+### 自查发现的两处真实问题（外部评审缺失下的补偿）
+
+1. **块注释里写 glob 模式会炸文件。** `expandGlob` 上方的 `/* ... */` 注释里写了
+   `src/<递归>/**/*.vue`，其中 `**/` 的 `*/` **提前闭合了块注释**，实测
+   `SyntaxError: Unexpected token '.'`，门禁脚本整个加载失败、`node --test` 只报 1 条
+   失败用例。已改为行注释，并在原地标注这个坑。**这个错误是在自查阶段才暴露的，
+   且它当时已经进了提交 `abdf0f43`** —— 若不是自查，它会直接进主干。
+2. **`fs.globSync` 是宽容的，原先的假设是错的。** 我一度以为「语法非法的 glob 会抛错」，
+   并为此写了区分「语法非法」与「零命中」的两条用例。实测（Node 22.23.1）
+   `src/**/*.vue[`、`src/[.vue` **都不抛错，直接返回空数组** —— catch 分支在实践中不可达。
+   处置：撤掉那个基于错误前提的伪修复，用例改为断言**实测行为**（宽容解析下仍判红），
+   catch 降级为防御性保留（cwd 不可读等真抛错场合），并把「写坏即零命中、两种写法都红」
+   这个事实写进注释。安全属性未受影响，但理由链整个换了一遍。
+
+另有一条自查发现**不构成缺陷但值得记**：`walk()` 只遍历 `src/`，且跳过
+`node_modules` / `dist` / `coverage`。若将来 `.vue` 出现在 `src` 之外的目录（如
+`electron/`），门禁不会要求它进统计范围。`apps/desktop` 当前不存在这种文件，故未处理。
+
+### 一处自曝的失误：漏跑 ensure-electron.js
 
 第一轮全量跑测失败 423 条，根因是 `Electron failed to install correctly` ——
 本 worktree 漏跑 `node scripts/ensure-electron.js`（AGENTS.md 要求 install →
@@ -57,9 +95,10 @@ ensure-electron → verify-worktree-deps 三步，我做了第 1、3 步，跳�
 
 ### 遗留（不假装已闭合）
 
-- **QM-6 CCG 双模型外部评审未执行**：本次改动虽含运行时代码与 CI 配置，但 `pre-commit`
-  的 CCG 门禁判定 `0 个源文件 / S 复杂度低风险`（改动集中在配置 glob 与门禁脚本本身），
-  按决策矩阵不调外部模型。本记录不以自审冒充通过，如实标注未执行。
+- **QM-6 CCG 双模型外部评审未能执行**（详见上文）：门禁判定 DUAL，但 `codex` PATH 失败、
+  `gemini` 未安装、`claude` exit 1，`opencode` 不在 wrapper 后端列表内。**这是本次变更
+  最明确的未闭合项** —— 它意味着 Gate 15c 的判据设计只经过了自审，没有经过第二个家族的
+  独立攻击。
 - **阈值通过是算术判定而非重跑判定**：取数时用 `--coverage.thresholds.*=0` 覆盖了阈值，
   实测值均高于配置中的 55/40/60/55，而 vitest 仅在实际值低于阈值时判红。**未再用真实
   配置重跑一遍复验**，该结论由算术得出。

@@ -32,22 +32,28 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const DESKTOP = path.join(ROOT, 'apps', 'desktop')
 const SRC = path.join(DESKTOP, 'src')
 
-/**
- * 用 fs.globSync 展开一条 glob，返回命中文件的**相对 DESKTOP 的 posix 路径**。
- *
- * 为什么不用 minimatch：它在本仓只是传递依赖（实测被解析到 3.1.5，导出形状是
- * `module.exports = fn`；而 v9+ 改成 `{ minimatch }`），写法一旦照抄另一种形状就会
- * `minimatch is not a function` —— 而那正是本门禁要防的那类「静默失效」的同构形态。
- * fs.globSync 是 Node 22 自带、也是 vitest 解析 include 时底层的同一套 glob 引擎，
- * 口径天然一致，且不引入随 hoisting 漂移的依赖。
- */
+// 用 fs.globSync 展开一条 glob，返回命中文件的**相对 DESKTOP 的 posix 路径**。
+//
+// 为什么不用 minimatch：它在本仓只是传递依赖（实测被解析到 3.1.5，导出形状是
+// `module.exports = fn`；而 v9+ 改成 `{ minimatch }`），写法一旦照抄另一种形状就会
+// `minimatch is not a function` —— 而那正是本门禁要防的那类「静默失效」的同构形态。
+// fs.globSync 是 Node 22 自带、也是 vitest 解析 include 时底层的同一套 glob 引擎，
+// 口径天然一致，且不引入随 hoisting 漂移的依赖。
+//
+// ⚠ 本段刻意用行注释：块注释里写「**/」会被 `*/` 提前闭合，实测直接
+// SyntaxError: Unexpected token '.'。这一点同样反直觉，值得钉在这里。
+//
+// 实测（Node 22.23.1）：glob 是**宽容**的 —— 少一个星号的「假 glob」与方括号写坏
+// 的模式**都不抛错，直接返回空数组**。所以「配置写坏」在本判据里不会走 catch，
+// 而是统一落到「零命中 ⇒ 判红」这条路上。安全性不受影响（两种写法都红），
+// 只是文案统称「实测命中 0 个文件」。catch 保留作防御：cwd 不可读等真正抛错的场合
+// 仍应归入同一条红，而不是让整个门禁崩掉后被当成「通过」。
 function expandGlob(glob, cwd = DESKTOP) {
   try {
     const out = fs.globSync(glob, { cwd, dot: true })
-    return out.map((f) => f.replace(/\\/g, '/'))
-  } catch {
-    // glob 本身非法：按「命中 0 个」处理，交由上层的假-glob 判据出声。
-    return []
+    return { files: out.map((f) => f.replace(/\\/g, '/')), error: null }
+  } catch (e) {
+    return { files: [], error: e && e.message ? String(e.message) : String(e) }
   }
 }
 
@@ -101,8 +107,20 @@ function evaluate(include, srcVueFiles, opts = {}) {
 
   // 断言 2 + 3：用同一次 glob 展开，既算「glob 命中什么」也算「谁没被覆盖」。
   const covered = new Set()
+  const malformed = []
   for (const g of vueGlobs) {
-    for (const f of expand(g)) covered.add(f.replace(/\\/g, '/'))
+    const r = expand(g)
+    if (Array.isArray(r)) {
+      // 兼容测试注入的旧式返回（字符串数组）
+      for (const f of r) covered.add(f.replace(/\\/g, '/'))
+      continue
+    }
+    if (r.error) malformed.push(`${g} → ${r.error}`)
+    for (const f of r.files) covered.add(f)
+  }
+
+  if (malformed.length > 0) {
+    reasons.push(`coverage.include 里有语法非法的 .vue glob（vitest 解析它们时也会直接失败）：${malformed.join('；')}`)
   }
 
   if (vueGlobs.length > 0 && covered.size === 0) {

@@ -74,12 +74,37 @@ test('修复前形态（13 条全为 *.js）必须判红', () => {
 // 直觉上与 `src/**/*.vue` 几乎一样，但在真实 glob 引擎下零命中。
 test('假 glob（src/**.vue，真实引擎下命中 0 个）必须判红 —— 本锁的首要防线', () => {
   // 先证明这个夹具下该 glob 真的零命中，避免这条断言因夹具写错而"假红"
-  assert.deepStrictEqual(expandGlob('src/**.vue', FIXTURE), [], '前提：src/**.vue 确应命中 0 个')
-  assert.ok(expandGlob('src/**/*.vue', FIXTURE).length > 0, '前提：src/**/*.vue 确应命中若干')
+  const zero = expandGlob('src/**.vue', FIXTURE)
+  assert.strictEqual(zero.error, null, '前提：src/**.vue 是语法合法的（不能靠语法错误冒充零命中）')
+  assert.deepStrictEqual(zero.files, [], '前提：src/**.vue 确应命中 0 个')
+  assert.ok(expandGlob('src/**/*.vue', FIXTURE).files.length > 0, '前提：src/**/*.vue 确应命中若干')
 
   const r = check(['src/**/*.js', 'src/**.vue'])
   assert.strictEqual(r.pass, false)
   assert.match(r.reasons.join(' '), /实测命中 0 个文件/)
+})
+
+// ── 3b. 写坏但不歧义的 glob 走「零命中」这条路且必须判红 ────────────────────
+// 实测 Node 22 的 globSync 是宽容的：`src/**/*.vue[` 这类模式**不抛错**，直接返回空。
+// 所以这里断言的是真实行为 —— 它落到「零命中 ⇒ 红」，而不是「抛错 ⇒ 崩」。
+// 写成「必须抛错」是拿一个不存在的行为当需求。
+test('写坏但不歧义的 glob 不抛错，且仍被判红（宽容解析器下安全属性不丢）', () => {
+  const r0 = expandGlob('src/**/*.vue[', FIXTURE)
+  assert.strictEqual(r0.error, null, 'Node glob 对该模式不抛错 —— 断言必须贴合实测行为')
+  assert.deepStrictEqual(r0.files, [], '它落到零命中而不是异常')
+
+  const r = check(['src/**/*.js', 'src/**/*.vue['])
+  assert.strictEqual(r.pass, false, '宽容解析不能导致门禁放行')
+  assert.match(r.reasons.join(' '), /实测命中 0 个文件/)
+})
+
+// ── 3c. expandGlob 抛错时必须归入红，而不是让门禁整体崩掉后被当成通过 ────────
+test('expandGlob 抛错时归入「语法非法」文案，且不让门禁变成非红即崩', () => {
+  const r = check(['src/**/*.js', 'src/**/*.vue'], {
+    expand: (g) => ({ files: [], error: `注入的失败：${g}` }),
+  })
+  assert.strictEqual(r.pass, false)
+  assert.match(r.reasons.join(' '), /语法非法的 \.vue glob/)
 })
 
 // ── 4. 漏一层：`src/views/*.vue` 盖得住 Home，盖不住 views 下的 nested/ ──────
