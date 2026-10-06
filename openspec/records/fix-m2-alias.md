@@ -2,10 +2,6 @@
 record: fix-m2-alias
 task: 撤回报告附录 C.2 对 P0-2「重试后结果卡永不更新」的「运行坐实」结论，并沉淀缺陷复现型测试的三条纪律
 date: 2026-10-07
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 ---
 
 ## 本次执行记录：撤回 M-2「运行坐实」结论 + 沉淀缺陷复现型测试的系统性风险（fix-m2-alias，2026-10-07）
@@ -21,9 +17,9 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | 接线棘轮 | N/A | 本次不新增任何 `*.test.js`（M-2 缺陷复现型测试随修复一并撤回，见「遗留」） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面：diff 内零生产代码，无 `apps/desktop/electron/` 与 `packages/rpa-engine/` 改动 |
 | QM-6 CCG 双模型外部评审 | 未执行 | pre-commit 的 CCG 门禁已跑，判定 `改动全部命中文档白名单（§11.2b docs-only 快通道）…S 复杂度低风险，按 CCG 决策矩阵不调外部模型`（判定落盘 `.ccg/reviews/853a4bd2….json`，2 项通过）。本 PR 的评审对象是**我自己结论的撤回**，证据是一次真实的反证失败，无外部模型可提供的信息增量，故不以自审冒充通过 |
-| docs-only 判定 | PASS | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=true`，files=2。CI 侧 12 个重型 job 全部 `skipping`（含 `QG Coverage` / `QG Desktop Shards` / `QG Static`），`Gate Result` = pass —— skipping 在此是预期短路，但已先跑判定脚本确认不是判定失灵 |
+| docs-only 判定 | PASS | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=true`，合并态 files=3（`CHANGELOG.md`、`docs/frontend-deep-review-2026-10-05.md`、`openspec/records/fix-m2-alias.md`）。CI 侧 19 个 check：8 个 pass（含 `Gate Result`）、11 个 `skipping`（含 `QG Coverage` / `QG Desktop Shards` / `QG Static`）—— skipping 在此是预期短路，但已先跑判定脚本确认不是判定失灵 |
 | 配套门禁 | PASS | `check-changelog-growth.js` PASS；`check-max-lines.js` rc=0 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3001 于 2026-10-07 01:47:35 +08:00 squash 合并，merge SHA `abdb8ce70f32e76d5a87c142db2b698652143abb`，origin/main 已核验；`git ls-remote --heads origin fix-m2-alias` 返回 0 行，远端分支已删 |
 
 ### 遗留（不假装已闭合）
 
