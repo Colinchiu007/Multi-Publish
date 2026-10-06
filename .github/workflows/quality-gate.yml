@@ -431,6 +431,22 @@ jobs:
           node .github/scripts/check-vue-style-parse.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 15c: 覆盖率门禁必须真的覆盖 Vue SFC（M-6 回归保护） ---
+      # apps/desktop/vitest.config.js 的 coverage.include 此前 13 条全是 `*.js`，
+      # 而 src 下有 146 个 `.vue` —— SFC 对覆盖率贡献恒为 0，「55%」是在一个
+      # 刻意排除了界面逻辑的文件集上量出来的。
+      # 这类变更删掉不会让任何门禁变红：include 缩到不含 .vue 的范围、或写成
+      # `src/**.vue` 这种零命中的拼错 glob，vitest 一声不响地按新范围出数，门禁照样绿。
+      # 故判据不止断言「配了 .vue」，还要断言「glob 实测命中到文件」且
+      # 「src 下每个 .vue 都被覆盖」，并顺带守住 thresholds 不被删/不被置 0。
+      # 本地同口径：node .github/scripts/check-coverage-include-sfc.js
+      - name: "Gate 15c - Coverage include covers Vue SFC"
+        run: |
+          node --test .github/scripts/check-coverage-include-sfc.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-coverage-include-sfc.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # --- Gate 15b: scoped 样式块裸 :root 选择器门禁（QM-5 回归保护 · PR #2075/#2114 事故反哺） ---
       # Vue scoped 块中写 :root {} 会编译为 :root[data-v-xxx] 永不匹配 html，
       # 块内 CSS token 静默失效 → 看板 hero 白字白底隐形，单测与 headless 截图均拦不住。
