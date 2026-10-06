@@ -28,6 +28,32 @@
 - **接线也要做**：`packages/api-publish-engine/scripts/run-tests.js` 有显式白名单（`VITEST_FILES`），新测试不进白名单等于永不执行；且 `electron/signer/**` **不在** vitest 的 `include` 内，把测试放那儿等于没接。**放 `electron/tests/`（已接线）而非新建目录。**
 
 ---
+
+---
+
+## 「复现不出失败」时先怀疑自己的复现口径——vitest 手工跑漏 `--globals` 曾被误判成既有环境问题（xhs-draft-publish，2026-10-07）
+
+- **别把「我这边跑不出同样错误」当成「这是既有问题」**（pitfall + pattern）。今日 `packages/api-publish-engine/scripts/run-tests.js` 退出码为 1，我判定为「既有问题 `describe is not defined`，vitest/mocha 混用」并写进了 PR 执行记录。**该结论是错的**：`run-tests.js` 调 vitest 时显式带 `--globals`（`scripts/run-tests.js:105`，参数为 `['run','--globals','--environment','node',...]`），而我手工 `pnpm exec vitest run <file>` **漏了该参数** ⇒ `describe` 未注入 ⇒ 报 `describe is not defined`。改对命令后该报错消失，随即暴露出**真正的失败**：`signer-local.test.js` 5 例红于 `a1 cookie is required (fail-closed)`。
+- **代价**：如果当时就以「既有问题」结案，会把这个真实失败放过去。而它恰恰是 PR #3009 CI 红 5 项的两大根因之一（另一根因是重写 adapter 时删掉 `uploadVideo`/`uploadCover`，破坏统一入口契约）。
+- **判定口诀**：区分「既有问题」与「我的口径不对」的唯一硬证据是**在 CI 的真实命令下复现**。查脚本源码确认它到底传了哪些参数，不要用自己拼的命令下结论。
+- **配套沉淀**：错判已写进 `openspec/records/xhs-draft-publish.md` 的「自我纠错」行，保留而非抹除——避免后续追溯时又把这个假结论当既成事实。
+
+## 改测试还是改实现，先查清被改函数的**生产调用方**（xhs-draft-publish，2026-10-07）
+
+- **fail-closed 让既有测试变红时，默认怀疑测试、而不是急着放宽实现**（pattern）。`getXiaohongshuSign` 从 md5 占位换成真实 XYW_ 算法后，5 条既有用例红于 `a1 cookie is required`。判定依据不是「fail-closed 听起来更安全」，而是**调用链取证**：`xiaohongshu.x-s` 这个 registry 键除测试外**没有任何生产调用方**，生产发布链走的是 `xiaohongshu.x-s-browser` → `buildXiaohongshuSignHeaders`（带真 cookie）。据此确认 fail-closed 无副作用 ⇒ 改测试（显式传 a1 + 补 fail-closed 反证/不同 a1 签名相异/绝对 URL 路径三条），**不动实现**。
+- **反向情形同样成立**：若被改函数确有生产调用方且依赖旧宽松行为，那就该改实现、改调用方、并补契约测试，而不是改测试掩盖。
+- **查证手法**：`grep '<函数名>' --glob '*.js'` 会同时命中定义、registry 注册、测试与调用方。registry 键**只有测试引用**是一个强信号，说明该路径已无生产价值。
+- **判断「要不要为测试放宽安全语义」的红线**：假成功比假失败危险。签名器这类安全/正确性关键路径，宁可让调用方显式提供凭据，也不要在缺凭据时返回占位值。
+
+## CCG 安全扫描器的 high 档含大量误报，先剔测试文件噪音再逐条定性（既有高危治理，2026-10-07）
+
+- **`security_scanner.js` 只接受目录、传单文件会 `files_scanned: 0` 且 `passed: true`**（pitfall）。`node .ccg/skills/tools/verify-security/scripts/security_scanner.js <单个 .js> --json` 会「通过」但实际一个文件都没扫 —— **假绿灯比红灯危险**。必须传目录，并对结果里的 `files_scanned` 数量做 sanity check。
+- **`--json` 必须放在路径之后**：`parseCliArgs` 遇到首个非 flag 参数即停止解析，前置会让 flag 被当成路径。
+- **实测噪音结构**（`apps/desktop/electron/services/`，670 文件 → 2 critical + 14 high + 7 low）：2 个 critical「发现私钥」与多数 high「硬编码密钥/密码」**全部落在 `*.test.js` 的假数据里**（如 `ops-center-sync.test.js:25`、`log-injection-sanitization.test.js:120` 的 `sk-ABCDEF...`）。剔掉测试文件后才剩真问题。
+- **典型误报形态**：`rpa-view-platforms.js:1024` 被判「硬编码密钥」，原文实为 `const editUrl = 'https://mp.weixin.qq.com/cgi-bin/appmsg?...&token=' + tokenMatch[1]`，`token` 来自用户自己会话 URL 的正则捕获 —— 扫描器按 `token=` 关键字命中。**判为误报，不是密钥泄露。**
+- **真实且更值得关注的**：`rpa-view-helpers.js` 4 处 innerHTML（70/73/106/111）+ 1 处 `new Function()`（170），其中动态代码执行风险高于 `rpa-view-platforms.js:963`（后者已剥离 `script/iframe/object/embed` 与 `on*` 属性，属黑名单过滤而非 `textContent` 安全绑定）。
+- **治理顺序**：先给扫描器补 test-fixture 排除规则（把噪音挡在门外），再逐条定性真问题；**不要**在无关 PR 里顺手改 RPA 填词注入路径 —— 抖音/小红书发布成功依赖它，风险外溢到已跑通的产线链路。
+
 ## 注入 mock 的键面盘点要按源码实际排版逐形态扫描——空格差异就能让批修漏网（publish-logging-observability w2-d2，2026-10-05）
 
 - **批修 pattern 的「无空格变体」陷阱（pitfall）**：fallback 批修（#2924）的简写模式是 info() {}，而 settings-roundtrip-contract.test.js 的注入写的是 info () {}（多一个空格）——正则 \s* 没覆盖到吗？覆盖了，但**插入脚本用的是字符串 replace 而非正则**，锚点里写死了无空格形态。正解：批修用正则匹配 + 函数式替换（在 error 项后插 notify），不要用固定字符串锚点。漏网的 5 处让 pplyRuntime 的 notify 调用抛 TypeError，CI Coverage 红了 3 个不在本 PR diff 里的测试文件——表象与日志无关，靠「红文件 require 链反查」才归因到注入 log 的键面。
