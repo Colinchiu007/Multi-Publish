@@ -40,6 +40,79 @@ E2E 实测百家号报「平台 Cookie 缺失」，但账号 `status=active` 且
 
 ---
 
+# [未发布] fix(定时发布): 全链路验证修复——取消失败谎报成功 / JSONL 无界增长 / 休眠漂移 / 派发失败零可见 / 批量排期无取消入口（verify-scheduled-publish，2026-10-06）
+
+### 起因
+- 对「定时发布」做端到端验证（渲染层 UI + IPC + 主进程调度器 + 持久化 + 执行链路），并对标参考产品 4.0 逆向工程实现。
+- 前序修复（#2655 / #2670，2026-10-02）已覆盖批量定时重启丢失、历史定时模式标记、日历取消入口等，
+  本轮聚焦**既有实现中仍然存在的正确性与完整性缺陷**。
+
+### P0：取消失败被谎报成功（连带制造幽灵排期）
+- `scheduler:cancel` 无条件返回 `{ code:0, data:true }`，丢弃 `scheduler.cancel()` 的布尔返回值。
+- 后果一：日历取消的 `res.data === false` 分支**永不可达** → 取消失败提示「已取消定时任务」。
+- 后果二：`usePublishFlow.scheduleTargets` 的回滚失败判定（`rollback.value.data === false`）**永不成立** →
+  部分定时任务取消失败时仍提示已回滚，留下**到点仍会发布的幽灵排期**（#2670 幽灵发布的同族缺陷）。
+- 修复：如实回传布尔；日历区分「无法取消（可能已发布或已取消）」与「失败，请重试」两套文案。
+- 逃逸分析：既有测试**从不断言 `cancel` 的返回值**，只断言 `code===0` 与调用参数 —— 单测层结构性盲区。
+
+### P1：scheduled-tasks.jsonl 无界增长 + 每次状态迁移 O(n) 全量重写
+- `updateStatus` 每次状态迁移都「全量读-改-写」整个 JSONL；且终态记录永不清理 ⇒ 体积随历史线性增长，累计 O(n²)。
+- 修复：终态记录保留策略（超 30 天丢弃 + 最多 200 条），`create()` 成功后旁路剪枝；
+  `pending` / `dispatching` 永不裁剪，非法 JSON 行原样保留，剪枝异常只记 `warn` 不阻断创建。
+
+### P1：休眠 / 时钟跳变后定时器不重算
+- 墙钟目标在武装时一次性换算成相对延时；`restore()` 对已武装任务走 `isTaskTracked` 直接跳过，
+  ⇒ 系统休眠跨越到点时刻、或时钟被 NTP / 人工改动后，定时任务显著迟到且无补偿。
+- 修复：新增 `scheduler.rearm()`（解定时器 + 收束认领重试 + 按新墙钟重武装，幂等不双派发）
+  + `electron/bootstrap/resume-guard.js`（`powerMonitor` resume 守卫，60s 阈值避免短睡触发全量重写，失败仅记 WARN）。
+
+### P1：派发失败零用户可见性
+- 定时任务到点但入队失败时只写日志：状态落 `failed`，既无渲染层提示也不进发布历史，用户无从得知没发出去。
+- 修复：`onDispatchFailed` 钩子 → `scheduler:dispatch-failed` → preload `onSchedulerDispatchFailed`
+  → 日历实时错误提示 + 刷新；认领失败（`stage: claim`）与入队失败（`stage: enqueue`）分别标注。
+
+### P1：批量排期取消仅会话内可做
+- `scheduledBatchId` 是内存态，日历只渲染 `scheduler:*` 任务 ⇒ 离开发布页后批次排期**无法从任何 UI 取消**。
+- 修复：日历接入 `batchList` + `batchCancel`，补持久取消入口（确认弹窗 → 取消 → 刷新）；
+  批次事件时间取最早一篇 `publishTime`，整批立即发布的批次不渲染为待发事件。
+
+### P2：校验提示本地化 + 限制前置
+- `publish-contract.js` 内 5 条校验提示为硬编码中文字面量，en-US 用户在本地化外壳里看到中文。
+- 修复：`validateScheduleEntries` 新增结构化 `{ reason, params }` 与 `translate` 注入，文案入 locales zh/en；
+  未注入 `translate` 时回落中文兜底，既有行为不变。
+- 30 天上限与同账号 5 分钟间隔此前只在被拒时告知用户；现 hint 前置展示，限制值复用
+  `PUBLISH_CONTRACT_LIMITS` 单一真源（避免文案与实际校验漂移）。
+
+### 与参考产品 4.0 的对标结论
+- 参考产品走「服务端下发 + 29 个平台平台侧定时」，**无客户端时间校验、无持久化、无 catch-up**，
+  且对不支持定时发布的 7 个平台**静默忽略定时参数、内容立即发布**（最危险的静默失败形态）。
+- 本项目走统一本地调度，天然不存在「该平台定时被吞」语义，且已有 JSONL 持久化 + 重启 catch-up。
+- 已采纳其三条经验：失败原因必须对用户可见、配额/冲突在提交**前**拦截、排期确认回读平台真实状态。
+
+### 注册表 note 纠错：定时发布的真实语义是「本地调度」，不是平台原生定时
+- `publish-capabilities.json` 的 `schedule.note` 曾写「平台原生定时：抖音 timing、快手 publishTime、B站 dtime；
+  其余经本仓 scheduled-publish 队列」——把**竞品做法**当成了本仓实现。
+- 实测 `electron/publishers` 对 `prePubTime|dtime|timing[:=]` **零命中**：本项目 publisher
+  根本不消费平台侧定时参数，所有平台的定时**统一由本地 scheduler 到点后走普通立即发布链路**。
+- 推论（对真机验证有指导意义）：定时行为在各平台的差异**只可能来自 publisher 自身**（登录态/验证码/风控/内容限制），
+  不可能来自「该平台是否支持定时」，因为定时对平台完全不可见。
+- 已加两条结构锁防止再漂移：note 必须写明「本地调度」且不得出现「平台原生定时：」表述；
+  另有实证锁扫描 `electron/publishers`，一旦出现平台侧定时字段即失败。
+
+### 验证边界声明（重要）
+- 本轮已证明：**调度机制**在全部平台可用（apps/desktop 13957/13957、shared-utils 588 例全绿）。
+- 本轮**未**证明：任一平台的**真机定时发布**。已立项
+  `openspec/changes/real-machine-scheduled-publish-verification`，含 15 平台分批矩阵、
+  A/B/C 三段证据判据、7 个边界场景与前置条件（需各平台登录态 + 每次发布前人工确认）。
+
+### 测试
+- 新增：`packages/shared-utils/src/__tests__/scheduler.test.js`（剪枝 4 例 + rearm 4 例 + 派发失败通知 4 例）、
+  `apps/desktop/electron/bootstrap/resume-guard.test.js`（8 例）、
+  `apps/desktop/electron/ipc-handlers/scheduler.test.js`（cancel 回传 2 例）、
+  `apps/desktop/src/views/Calendar.test.js`（派发失败提示 3 例 + 批量取消 6 例 + data=false 文案 1 例）。
+- 全部 TDD：先红后绿，同步更新四处防漂移锁（preload 键数 123→124、PUBLISH_METHODS 87→88、总键数 334→335、
+  scheduler API 契约新增 `rearm`）。
+
 # [未发布] fix(desktop): 竖屏成片配横图——画幅契约收敛单一真源，全部图片适配器按成片画幅出图（fix-s2v-image-aspect-adapters，2026-10-06）
 
 ### 起因：同一现象的第二次修复

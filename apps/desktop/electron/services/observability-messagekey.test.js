@@ -72,6 +72,11 @@ const ALLOWED_KEYS = new Set([
   'App:login-status-monitor-started',
   'App:analytics-providers-registered',
   'Scheduler:pending-tasks-restored',
+  // 2026-10-06 休眠唤醒守卫接线（phase3-services.js）：resume 后强制重算定时任务。
+  // resume-guard.js 内部那 4 个键不在本测试的 TARGET_FILES 扫描域内，故不在此登记；
+  // 其 messageKey 同样按「子域-事件」命名，与本清单约定一致。
+  'Scheduler:resume-guard-attached',
+  'Scheduler:resume-guard-attach-failed',
   'BatchManager:scheduled-batches-restored',
   'App:tasks-recovered-from-queue',
   'window:main-window-shown',

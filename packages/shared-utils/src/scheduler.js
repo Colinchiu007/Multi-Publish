@@ -5,6 +5,7 @@
  */
 const defaultFs = require('fs')
 const path = require('path')
+const { pruneTerminalEntries } = require('./scheduler-prune')
 const MAX_TIMER_DELAY = 2_147_483_647
 const DISPATCH_CLAIM_MAX_ATTEMPTS = 3
 const DISPATCH_CLAIM_RETRY_DELAY = 100
@@ -31,13 +32,36 @@ function normalizeOwnerSubject (ownerSubject) {
  * 创建隔离的调度器实例。
  * @param {{ app: { getPath: (name: string) => string }, fs?: typeof defaultFs, logger?: { error: Function, warn: Function } }} dependencies
  */
-function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() }) {
+function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(), onDispatchFailed = null }) {
   const timers = Object.create(null)
   const retryWaiters = new Map()
   const activeDispatches = new Map()
   let taskQueue = null
   let stopped = false
   let ownerSubjectProvider = null
+
+  /**
+   * 派发失败通知钩子。派发失败意味着「用户排的定时任务没发出去」——
+   * 这是必须让用户知道的终态，不能只落日志（旧实现零可见性：状态变 failed，
+   * 既无渲染层提示、也进不了发布历史，用户无从得知）。
+   * 钩子缺失时静默降级，向后兼容既有调用方。
+   */
+  function notifyDispatchFailed (entry, reason, stage) {
+    if (typeof onDispatchFailed !== 'function') return
+    try {
+      onDispatchFailed({
+        id: entry.id,
+        platform: entry.platform,
+        accountId: entry.accountId ?? entry.article?.accountId ?? null,
+        publishTime: entry.publishTime,
+        reason: getErrorMessage(reason),
+        stage
+      })
+    } catch (error) {
+      // 通知钩子自身异常不得影响调度器主流程
+      logger.warn('Scheduler', 'onDispatchFailed handler threw: ' + getErrorMessage(error))
+    }
+  }
 
   function getSchedulerPath () {
     return path.join(app.getPath('userData'), 'scheduled-tasks.jsonl')
@@ -148,6 +172,8 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
             'Scheduler',
             `Failed to persist dispatching state for task ${entry.id} after ${attempt} attempts: ${message}`
           )
+          // 放弃认领 = 到点但未能入队，用户必须知情（否则任务静默消失）
+          notifyDispatchFailed(entry, message, 'claim')
           return false
         }
         logger.warn(
@@ -203,6 +229,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       if (!stopped) {
         try { updateStatus(entry.id, 'failed', 'dispatching', entry.owner_subject) } catch { /* 忽略失败路径中的持久化异常 */ }
       }
+      notifyDispatchFailed(entry, error, 'enqueue')
     }
   }
 
@@ -295,6 +322,16 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       try { updateStatus(entry.id, 'failed', 'pending', entry.owner_subject) } catch { /* 保留原始定时器异常 */ }
       throw error
     }
+
+    // 任务已落盘并武装定时器后才剪枝：剪枝是纯维护动作，失败不影响本次创建。
+    try {
+      const removed = pruneTerminalEntries(fs, getSchedulerPath())
+      if (removed > 0) {
+        logger.warn('Scheduler', 'Pruned ' + removed + ' expired scheduled task records')
+      }
+    } catch (error) {
+      logger.warn('Scheduler', 'Failed to prune scheduled task records: ' + getErrorMessage(error))
+    }
     return entry
   }
 
@@ -354,6 +391,32 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return restored
   }
 
+  /**
+   * 强制按当前墙钟重算全部未到点任务的剩余延时。
+   *
+   * 为什么 restore() 不够：定时器在武装时把「墙钟目标」一次性换算成相对延时
+   * （scheduleTimer → armNextSegment），此后只受 setTimeout 推进。系统休眠跨越
+   * 到点时刻、或系统时钟被 NTP / 人工改动后，已武装的定时器不会重算——
+   * 仅当任务跨越 MAX_TIMER_DELAY（≈24.86 天）分片边界才会被动纠正。
+   * 而 restore() 见到 isTaskTracked 为真的任务会直接跳过，同样纠正不了。
+   *
+   * 做法：先解除全部定时器与认领重试等待，再走一次 restore 按新墙钟重新武装。
+   * 已在派发中的任务由 activeDispatches 守卫，不会被重复派发。
+   */
+  function rearm (ownerSubject) {
+    if (stopped) return 0
+    const owner = resolveOwnerSubject(ownerSubject)
+    if (owner === null) throw new Error('登录会话缺少用户标识')
+
+    // 认领重试的等待者必须走 cancelRetry() 正常收束（否则 promise 悬空、永不 resolve）
+    for (const cancelRetry of [...retryWaiters.values()]) cancelRetry()
+    for (const id of Object.keys(timers)) {
+      clearTimeout(timers[id])
+      delete timers[id]
+    }
+    return restore(owner)
+  }
+
   function stopAll () {
     stopped = true
     for (const cancelRetry of retryWaiters.values()) cancelRetry()
@@ -364,7 +427,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return Promise.allSettled([...activeDispatches.values()])
   }
 
-  return { setTaskQueue, setOwnerSubjectProvider, create, list, cancel, restore, stopAll }
+  return { setTaskQueue, setOwnerSubjectProvider, create, list, cancel, restore, rearm, stopAll }
 }
 
 let defaultScheduler = null
@@ -384,6 +447,7 @@ module.exports = {
   list: (...args) => getDefaultScheduler().list(...args),
   cancel: (...args) => getDefaultScheduler().cancel(...args),
   restore: (...args) => getDefaultScheduler().restore(...args),
+  rearm: (...args) => getDefaultScheduler().rearm(...args),
   stopAll: (...args) => getDefaultScheduler().stopAll(...args),
   createScheduler
 }

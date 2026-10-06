@@ -150,7 +150,7 @@
             <div class="cohere-form-item">
               <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
               <UiInput type="datetime-local" v-model="a.publishTime" class="input-max-260" />
-              <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+              <span class="publish-time-hint">{{ scheduleHintText }}</span>
             </div>
           </div>
         </div>
@@ -346,7 +346,7 @@
                     <span v-if="fieldSupportText('schedule')" class="field-support-badge">{{ fieldSupportText('schedule') }}</span>
                   </label>
                   <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
-                  <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+                  <span class="publish-time-hint">{{ scheduleHintText }}</span>
                 </div>
                 <!-- 最佳发布时间：贴邻定时发布字段（openspec optimize-publish-right-rail） -->
                 <div v-if="article.title.length > 2" class="cohere-form-item">
@@ -522,7 +522,7 @@
                   <span v-if="fieldSupportText('schedule')" class="field-support-badge">{{ fieldSupportText('schedule') }}</span>
                 </label>
                 <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
-                <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+                <span class="publish-time-hint">{{ scheduleHintText }}</span>
               </div>
               <!-- 最佳发布时间：贴邻定时发布字段（openspec optimize-publish-right-rail） -->
               <div v-if="article.title.length > 2" class="cohere-form-item">
@@ -759,6 +759,7 @@ import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
   normalizePublishMentions,
   normalizePublishStringList,
+  PUBLISH_CONTRACT_LIMITS,
 } from '@/features/publish/publish-contract'
 import { normalizeUploadFile, resolveUploadFilePath } from '@/features/publish/publish-upload-file'
 import { usePublishFieldSurface } from '@/features/publish/usePublishFieldSurface'
@@ -782,6 +783,13 @@ defineOptions({ name: 'Publish' })
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+// 定时发布 hint 前置展示校验限制（2026-10-06）：30 天上限与同账号 5 分钟间隔此前
+// 只在被拒绝时才告知用户，用户只能靠一次次失败提交反推规则。限制值与
+// validateScheduleEntries 共用同一常量源，避免文案与实际校验漂移。
+const scheduleHintText = computed(() => t('publishPage.scheduleHintWithLimits', {
+  maxDays: PUBLISH_CONTRACT_LIMITS.maxScheduleDays,
+  minMinutes: Math.round(PUBLISH_CONTRACT_LIMITS.minAccountIntervalMs / 60000),
+}))
 const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。

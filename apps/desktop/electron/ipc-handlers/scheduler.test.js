@@ -164,5 +164,23 @@ describe("scheduler IPC handlers", () => {
       expect(result.code).toBe(0);
       expect(scheduler.cancel).toHaveBeenCalledWith("sched-1");
     });
+
+    // P0：cancel() 返回 false（任务不存在 / 已 executed / 已 cancelled）时必须如实回传。
+    // 旧实现无条件返回 data:true，导致两条下游链路同时失效：
+    //   1) Calendar.vue 的 `res.data === false` 失败分支永不可达 → 取消失败谎报成功；
+    //   2) usePublishFlow.scheduleTargets 回滚判定 `rollback.value.data === false` 永不成立
+    //      → 部分定时任务残留却提示「已全部回滚」，形成幽灵排期（到点仍会发布）。
+    it("如实回传 cancel() 的 false：任务不可取消时不得谎报成功", async () => {
+      scheduler.cancel.mockReturnValue(false);
+      const result = await ipcMain._callHandler("scheduler:cancel", "sched-gone");
+      expect(result.code).toBe(0);
+      expect(result.data).toBe(false);
+    });
+
+    it("如实回传 cancel() 的 true", async () => {
+      scheduler.cancel.mockReturnValue(true);
+      const result = await ipcMain._callHandler("scheduler:cancel", "sched-ok");
+      expect(result.data).toBe(true);
+    });
   });
 });

@@ -477,6 +477,8 @@ export function usePublishFlow(options) {
       if (article.publishTime) {
         const scheduleCheck = validateScheduleEntries(
           targets.map(target => ({ ...target, publishTime: article.publishTime })),
+          // 注入 i18n：校验提示走 locales（en 用户不再看到中文硬编码字面量）
+          { translate: (key, params) => progressText(`publishPage.scheduleValidation.${key}`, params) },
         )
         if (!scheduleCheck.valid) {
           addProgress(progressText('publishPage.publishFlow.scheduleInvalidProgress', { message: scheduleCheck.message }), 'danger')

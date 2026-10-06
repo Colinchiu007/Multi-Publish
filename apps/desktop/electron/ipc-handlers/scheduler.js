@@ -34,9 +34,13 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('scheduler:cancel', withSenderCheck(wrapIpcHandlerRaw(async (event, id) => {
     const ownerSubject = currentOwnerSubject()
-    if (ownerSubject === undefined) scheduler.cancel(id)
-    else scheduler.cancel(id, ownerSubject)
-    return { code: 0, data: true, message: '定时任务已取消' }
+    // 如实回传 cancel() 的布尔结果（scheduler.js:321）：任务不存在 / 已 executed /
+    // 已 cancelled 时它返回 false。此前这里无条件返回 data:true，导致
+    //   1) Calendar.vue 的 `res.data === false` 分支永不可达 —— 取消失败被谎报成成功；
+    //   2) usePublishFlow.scheduleTargets 的回滚失败判定（`data === false`）永不成立 ——
+    //      部分定时任务取消失败却提示已回滚，留下到点仍会发布的幽灵排期。
+    const cancelled = ownerSubject === undefined ? scheduler.cancel(id) : scheduler.cancel(id, ownerSubject)
+    return { code: 0, data: cancelled === true, message: cancelled === true ? '定时任务已取消' : '定时任务无法取消（可能已发布或已取消）' }
   }, { label: 'scheduler:cancel' })))
 }
 

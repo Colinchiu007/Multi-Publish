@@ -152,6 +152,8 @@ export interface Scheduler {
   list(ownerSubject?: string): ScheduledTask[];
   cancel(id: string, ownerSubject?: string): boolean;
   restore(ownerSubject?: string): number;
+  /** 强制按当前墙钟重算全部未到点任务的剩余延时（休眠唤醒 / 时钟跳变后调用） */
+  rearm(ownerSubject?: string): number;
   stopAll(): Promise<unknown[]>;
 }
 

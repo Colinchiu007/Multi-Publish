@@ -2,9 +2,9 @@ const sharedScheduler = require('@multi-publish/shared-utils')
 const desktopScheduler = require('./scheduler')
 
 describe('Scheduler 单一实现', () => {
-  it('桌面兼容入口保留全部既有公共 API', () => {
+  it('桌面兼容入口保留全部既有公共 API（含 rearm：休眠/时钟跳变后强制重算）', () => {
     expect(Object.keys(desktopScheduler).sort()).toEqual([
-      'cancel', 'create', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'list', 'rearm', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
     expect(sharedScheduler.createScheduler).toBeTypeOf('function')
   })

@@ -12,10 +12,9 @@ import {
 
 // 平台字数限制转换已拆分至独立模块（逐文件行数门禁），此处 re-export 保持导入路径兼容
 export { applyPlatformContentConversion, APP_ARTICLE_CONTENT_MAX } from './platform-content-conversion'
+// 定时校验已拆分至独立模块（逐文件行数门禁），此处 re-export 保持导入路径兼容
+export { validateScheduleEntries, PUBLISH_CONTRACT_LIMITS } from './publish-schedule-contract'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-const DEFAULT_MAX_SCHEDULE_DAYS = 30
-const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000
 
 const PLATFORM_LABELS = Object.freeze({
   wechat_mp: '微信公众号',
@@ -438,61 +437,3 @@ export function validatePlatformContent ({ platforms, article = {}, platformOver
   }
   return { valid: true }
 }
-
-/**
- * 校验定时发布条目。间隔按 platform + accountId 计算，避免不同账号互相阻塞。
- * @param {Array<{platform: string, accountId?: string | null, publishTime?: string | Date | null}>} entries
- * @param {{ now?: number, maxDays?: number, minIntervalMs?: number }} [options]
- * @returns {{ valid: boolean, message: string }}
- */
-export function validateScheduleEntries (entries, options = {}) {
-  const now = Number.isFinite(options.now) ? options.now : Date.now()
-  const maxDays = Number.isFinite(options.maxDays) ? options.maxDays : DEFAULT_MAX_SCHEDULE_DAYS
-  const minIntervalMs = Number.isFinite(options.minIntervalMs)
-    ? options.minIntervalMs
-    : DEFAULT_MIN_ACCOUNT_INTERVAL_MS
-  const groups = new Map()
-
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    if (!entry || !entry.publishTime) continue
-    const timestamp = new Date(entry.publishTime).getTime()
-    if (!Number.isFinite(timestamp)) {
-      return { valid: false, message: '定时发布时间无效' }
-    }
-    if (timestamp <= now) {
-      return { valid: false, message: '定时发布时间必须晚于当前时间' }
-    }
-    if (timestamp > now + maxDays * DAY_MS) {
-      return { valid: false, message: `定时发布时间不能超过 ${maxDays} 天` }
-    }
-
-    const platform = typeof entry.platform === 'string' ? entry.platform.trim() : ''
-    if (!platform) return { valid: false, message: '定时任务缺少发布平台' }
-    const accountId = typeof entry.accountId === 'string' && entry.accountId.trim()
-      ? entry.accountId.trim()
-      : 'unbound'
-    const key = `${platform}:${accountId}`
-    const list = groups.get(key) || []
-    list.push({ timestamp, platform, accountId })
-    groups.set(key, list)
-  }
-
-  for (const list of groups.values()) {
-    list.sort((a, b) => a.timestamp - b.timestamp)
-    for (let index = 1; index < list.length; index += 1) {
-      if (list[index].timestamp - list[index - 1].timestamp < minIntervalMs) {
-        return {
-          valid: false,
-          message: `${list[index].platform} 账号 ${list[index].accountId === 'unbound' ? '' : list[index].accountId} 的定时任务间隔必须至少 5 分钟`.replace(/账号  的/, '任务的'),
-        }
-      }
-    }
-  }
-
-  return { valid: true, message: '' }
-}
-
-export const PUBLISH_CONTRACT_LIMITS = Object.freeze({
-  maxScheduleDays: DEFAULT_MAX_SCHEDULE_DAYS,
-  minAccountIntervalMs: DEFAULT_MIN_ACCOUNT_INTERVAL_MS,
-})
