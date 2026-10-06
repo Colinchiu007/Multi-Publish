@@ -2,9 +2,7 @@
 record: e2e-hot-topics-crash-and-cookie
 task: 热门选题 E2E 三连修——wechat_mp/baijiahao 隐藏窗口原生崩溃 + API 直连轨 session 分区 cookie 回退
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: "本 PR（#2984）尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入 merge SHA 并删除本字段与 sync_backfill_owner，同时删除 gate-record-debt-ledger.json 的登记项。"
-sync_backfill_owner: "backfill-e2e-hot-topics-record"
+sync_status: PASS
 ---
 
 ## 本次执行记录：热门选题 E2E 三连修（e2e-hot-topics-crash-and-cookie，2026-10-06）
@@ -21,7 +19,7 @@ sync_backfill_owner: "backfill-e2e-hot-topics-record"
 | 测试 | PASS | `electron/publishers` 251/251；`electron/services` 6030 passed / 1 skipped，零失败。修 4 处受行为变更影响的既有断言（均在注释写明原因；两处因 `await` 引入微任务边界改用 `vi.waitFor` 等 publish 真正被调用，不猜微任务次数） |
 | 行尾与 diff 对账 | PASS | 改 `publisher-router.js` 时初次误在非 async 函数内用 `await` 致 SyntaxError，模块加载面 3 个测试文件全红；经 `node -e require` 直读定位并修正为 async 函数声明 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；改的是登录检测与凭证取数逻辑 |
-| 远程同步 | PENDING | 待 PR #2984 合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | squash 合并 `9a8332ad49972ada1d9d2b08983293c343067445`（2026-10-06T11:15:30Z，PR #2984）；CI 20/20 全绿（Gate Result / QG Coverage 28m54s / QG Desktop Shards 1·2 各 20m32s·16m49s / QG Browser E2E 5m17s / QG Visual 2m42s / QG Static 3m1s / QG Unit Tests / QG Autonomous / QG Business API Postgres / QG Changes / build / electron-tests / gui-test / 依赖漏洞审计 / 债务熔断 / 文档同步 / 单元测试+Lint；release 为 skipping）；`git ls-remote --heads origin app-live2` 返回 0 行，远端分支已删 |
 
 ### E2E 实证（非单测替代）
 
