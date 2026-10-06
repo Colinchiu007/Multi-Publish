@@ -2,9 +2,6 @@
 record: fix-stale-repo-paths
 task: 清理共享仓库根由 Multi-Publish 改名为 mulpub 后，运维文档中照抄即失败的旧绝对路径
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；`git log origin/main --grep` 取不到证据。
-sync_backfill_owner: 合并后的下一个 docs-only 回填 PR（与 ledger 销账同一次提交）
 ---
 
 ## 本次执行记录：仓库目录改名后旧路径残留清理（fix-stale-repo-paths，2026-10-07）
@@ -20,7 +17,7 @@ sync_backfill_owner: 合并后的下一个 docs-only 回填 PR（与 ledger 销�
 | 接线棘轮 | N/A | 未新增 `*.test.js`，不涉及 vitest include 接线 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 或 `packages/rpa-engine/`，无运行面变更；无模板/样式/组件结构变更 |
 | QM-6 CCG 双模型外部评审 | ❌ **未执行（如实登记）** | 本机 `codeagent-wrapper` 通道此前实测不干净。**不以自审冒充通过**。本轮机械门禁能证明「路径已改对、行尾无污染、品牌未误伤」，**不能替代**对文档可执行性的多视角复核 |
-| 远程同步 | PENDING | 本 PR 未合并；已在 `scripts/gate-record-debt-ledger.json` 按 `.quality-gates.md` 记录标题登记。合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-stale-repo-paths` 返回 0 行证远端分支已删；回填与**删除 ledger 登记项、删除本文 frontmatter 的三个 sync_* 字段**必须同一次提交 |
+| 远程同步 | PASS | PR #3000 squash 合并 `e577dfa08d19fcdf543d71b180733228c52a0862`（2026-10-07T01:31:17+08:00，取证 `git log origin/main --grep='(#3000)$' --format=%H\|%cI`）；`git ls-remote --heads origin fix-stale-repo-paths` 返回 0 行，证远端分支已删；本文 frontmatter 的三个 `sync_*` 字段与 ledger 登记项已在同一次提交删除 |
 
 ### 保留门禁明细（docs-only 通道）
 
