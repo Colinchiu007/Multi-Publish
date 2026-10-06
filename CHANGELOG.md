@@ -1,3 +1,95 @@
+# [未发布] feat(publish-api): 补齐发布前能力面（user-info / 发布权限预检 / POI / 草稿箱），并修正平台配置自相矛盾与小红书签名缺陷（publish-capabilities，2026-10-06）
+
+### 起因：盘点结论里有 4 项「未找到」，其中 3 项其实有真源
+
+对 `packages/api-publish-engine` 做能力盘点时，「平台 user-info」「发布权限预检查」「位置/POI 服务」「音乐库检索」四项被判为**未找到**。追查后发现前 3 项是**盘点范围太窄**——只搜了 `src/`，而取证切片在 `01-docs/rpa-api-publish/evidence/`。逐条核对后的真实情况：
+
+| 能力 | 取证真源 | 处置 |
+|---|---|---|
+| 平台 user-info | 抖音 `creator/user/info/`、B站 `web-interface/nav`、快手 `authority/account/current`、视频号 `auth/auth_data`、小红书 `galaxy/user/info` | 实现 |
+| 发布权限预检 | 抖音 `life/video_api/post/permission/`、B站 `x/article/is_author` | 实现 |
+| POI / 位置 | 抖音 `poi/recommend/`、百家号 `Brain/CoordRcmd` | 实现 |
+| 草稿箱读取 | 百家号 `pcui/article/lists` | 实现 |
+| 音乐库 | `getShipinhaoMusicList` / `getKuaishouMusicList` **只在导出表里，切片无任何端点 URL** | **不实现** |
+
+### 为什么这三项值得做
+
+它们此前不是「没做」，而是**做在了最贵的时机**：
+
+- **发布权限预检**：抖音链是「失败才知道能不能发」——`status_code 110` 与 `x-tt-verify-passport-decision` 都要在**视频传完、封面传完之后**才暴露。预检把失败点前移到零字节上传。
+- **POI**：`douyin-video.js` 的 `poi_name` 是硬编码 `''`，即「能发但发不出位置」；接上推荐列表才有真值可填。
+- **草稿箱读取**：`baijiahao-article.js` 只会**写**草稿（`save?callback=bjhdraft`），没有任何读回入口 —— 排期任务失败后用户看不到已存的草稿。
+- **B站专栏权限**：B站图文走专栏入口，而 `x/article/is_author` 是「该账号是否为专栏作者」的权威裁定；非专栏账号发专栏会在投稿时被拒，而这个失败点现在可以前移。
+
+### 新增
+
+- `src/publish/capabilities/`：6 个平台能力面模块 + `index.js` 统一出口，与 `publish/platforms/`（发布链）平级 —— 一个回答「怎么发」，一个回答「发之前」。
+- `src/auth/publish-api-capabilities.js`：按本仓既有 mixin 范式挂回原型，不往 1381 行的 `_handle` 里塞。新增 5 条路由：`GET /api/v1/platforms/capabilities` 与 `POST /api/v1/platforms/:platform/{user-info,permission-check,poi,drafts}`。
+- 7 个测试文件、**全绿**，全部指向本机假服务器 + `network-egress-guard` 双重零外发。
+
+### 矩阵纪律（不是每个格子都填满）
+
+`CAPABILITY_MATRIX` 声明每格的真源端点，格子为 `null` 即「无取证来源」，路由层一律 404，即便模块将来加了同名方法也不暴露 —— **「没有这个能力」与「查到了但为空」必须可区分**，否则调用方会以为预检过了而实际从未验证过。据此：
+
+- 视频号 / 快手的 `publishPermission` 如实收窄为**登录态口径**（切片里没有独立的发布权限端点），并在 `reason` 里写明边界。
+- 小红书**刻意不提供** `publishPermission`（有测试断言 `typeof === 'undefined'`）。
+
+### 附带修复（均有自证，非猜测）
+
+1. **`config/platforms.yaml` 自相矛盾**：`douyin` 与 `tencent_video` 在同一文件内写着 `has_api: false` 却同时写着 `publishMode: api-then-dom` —— 而 `api-then-dom` 本身就要求存在 API 轨。`has_api` 正是桌面端 `rpa-view-manager.js` 唯一的 API 闸门，于是**抖音与视频号的完整发布链（各带链级测试）从未被触发，等同死代码**。只改这两个自相矛盾项；`xiaohongshu` 是 `dom-only + has_api:false`、无矛盾，不动。改后语义仍是 `api-then-dom`，失败照旧回退 DOM 轨。
+2. **`adapters/xiaohongshu.js` 签名缺陷**：`getXiaohongshuSign` 返回 `{X-s, X-t}` **对象**，旧代码把整个对象塞进 `params.sign`（axios 序列化成 `[object Object]`），而平台要求的是两个**请求头**。两者都不是 ⇒ 该链此前必然被拒。改为正确落头。
+3. 测试抓到的自身缺陷：`options` 参数用 `encodeURIComponent({})` 实得 `%5Bobject%20Object%5D`，取证是 `%7B%7D`。**修源不修断言** —— 对象入参先 `JSON.stringify`。
+
+### 门禁
+
+- `check-max-lines` ✅：新增 8 个文件最大 193 行（限 500）；`publish-api-server.js` 1420 行 vs 上限 1556（挂账 1356 + growthAllowance 200）。
+- `check-debt-budget` ✅：`5657/5657`、`>=1000 行 32/32`、`>=500 行 98/101`、require fan-out `65/65`、循环依赖 `0/0`。
+- 全量测试：新增 7 文件全绿；`publish-api-server.test.js` 28/28 无回归。存量失败 `cloud-accounts-keyring-hardening`（需真实 Postgres）与 `plugin-loader-runtime-path`（Windows 路径断言）在 main 与本分支退出码一致，非本次引入。
+
+### 不可实现项（勿误认为已完成）
+
+- **视频号 / 快手音乐库检索**：取证切片无任何音乐端点 URL。编一个端点比留空更糟。实现前须先补真机取证切片。
+
+---
+
+# [未发布] fix(publish-api): HTTP 发布接口此前无法表达媒体——补 video/cover/images 契约并把形状翻译收敛为单一实现（publish-api-media，2026-10-06）
+
+### 起因与真实根因
+
+- **对外 HTTP 发布接口只能发纯文本文章。** 实跑复核（非推测）：`packages/api-publish-engine/src/publish-api-server.js:975`（`/api/v1/publish`）与 `:1015`（`/api/v1/batch-publish`）两处硬编码 `var taskData = { title, content, tags }`，请求体解析阶段就把 `video` / `images` 丢掉了；而适配器侧 `adapters/kuaishou.js:63`、`publish/platforms/kuaishou-video.js:394` 对 `taskData.video.path` 是 **fail-closed** 硬校验（缺即 `{success:false, code:data_error}`）。两边一对，结论是硬的：抖音/快手/视频号/B站/百家号的视频与图文发布，**HTTP 入口全部不可达**；桌面端之所以一直能用，是因为 `publisher-router.js:568` 直接调库、绕过了 HTTP 层。
+- **OpenAPI 也在说谎**：`:1339` / `:1340` 的 schema 各只声明 5 个字段，与实现一致地错——契约和实现同源地缺，两边互相印证不出问题。
+
+### 为什么这次不只是「加个字段」
+
+`apps/desktop/electron/services/api-task-data.js` 的注释记着一笔旧账：2026-09-28 活体取证（`live-acceptance-pass-20260928.md` 残余①），RpaView 的 API-first 分支曾把裸 `article` 直接喂给 `publishViaApi`——适配器要嵌套的 `taskData.video.path`，而 `article` 是扁平的 `video_path`，kuaishou/bilibili API 轨**全量 fail-closed 并静默回退 DOM 轨**。
+
+据此判定：HTTP 是**第三条**喂 taskData 的路径。若在服务端另写一份形状映射，等于埋下第三份实现，把那次已经付过学费的漂移事故重新放大一遍。故把 `buildApiTaskData` 的**权威实现下沉**到引擎包 `src/publish/task-data.js`，desktop 侧改为薄转发——引擎不依赖 desktop、desktop 依赖引擎，依赖方向决定了权威实现只可能在引擎侧。
+
+### 修复与证据
+
+- 新增 `src/publish/publish-request.js`：白名单投影 + 类型守卫 + 媒体路径**可解析性**校验。
+  刻意**不复制平台知识**——哪些平台强制要视频由各 adapter 自己 fail-closed 判定，在 HTTP 层维护第二份平台能力表就是新的漂移源。
+- 两个调用点接入，保持既有校验顺序（`platform` 缺失先报）不变；OpenAPI 抽出 `articleProps` 共享字段源，`/publish` 与 `/batch-publish` 共用并补 400 响应说明。
+- 新增回归锁 `test/publish-request.test.js`，**21 例全绿**，覆盖正常路径 7（文章/视频/封面/时长宽高/图文/开关缺省/平台字段透传）、异常路径 6（tags 与 images 非数组、video_path 不存在/指向目录/非字符串、cover_path 不存在 → 400 + `data_error`/`io_error`，**早失败而非走到链路深处**）、边界 6（空串与 null 视为无视频、非数字归零、缺省归一、body 为 null、未声明字段不透传）、幂等 2（两次产出 deepStrictEqual、入参不被就地改写）。
+- 形状下沉的行为等价性由**既有**测试担保，非新写的锁：`apps/desktop/electron/services/api-task-data.test.js` 经薄转发后 **8/8 通过**；被改动的 `test/publish-api-server.test.js` **28/28 通过**；引擎全量 Vitest **34 文件 / 290 用例全通过**。
+- 旧式脚本 `cloud-accounts-keyring-hardening` 与 `plugin-loader-runtime-path` 失败，但 **main 与本分支退出码一致（均 exit=1）**，属既有失败、非本次引入——按证据记录，不按推测背锅。
+- 门禁：max-lines 净增 55/200 额度（新增两个文件 80/126 行，均远低于 500 上限）、debt-budget 65/65 与 0 循环依赖、classify-docs-only 判定 `false`（走完整流程）、check-gate-record-debt OK。
+
+### 决策 D1：媒体来源语义（本条冻结）
+
+- 选**服务端本地路径**语义，未选 URL 拉取。理由两条：① 对标对象同为桌面应用——对标产品是 Electron 桌面端，其「平台 API 调用」本就是主进程用本地文件发起（`kuaishou-video.js` 实测 `fs.readFileSync(taskData.video.path)`），本地路径才是对齐的正确契约，URL 模式属于对标错了层次；② URL 模式需净新增 SSRF 防护 + 体积上限 + 临时文件生命周期 + 失败清理，塞进本次会超载。
+- **URL 模式作为显式独立后续项记录在此，未实现也不假装实现**——传入服务端无法解析的路径会明确返回 400，而不是让请求走到链路深处才失败。
+
+### 本次未做、勿误认为已完成（均已记入门禁记录）
+
+`has_api` 闸门（抖音/视频号/小红书完整链仍被 `config/platforms.yaml` 焊死为 `false`）、URL 拉取模式、`_parseBody` 无体积上限且 JSON 解析失败静默返回 `{}`、`adapters/tiktok.js:30` 拿不到 `upload_url` 时 `return {success:true}` 的静默假成功、`adapters/xiaohongshu.js:39` 把 `{X-s, X-t}` 整个塞进 `params.sign` 导致两个请求头均未设置。
+
+### 隔离与合并
+
+分支 `publish-api-media`（worktree `mp-publish-api-media`，基于 main f3aec57a），main 未被触碰。合并走 squash，CI 全绿后删远端分支。
+
+---
+
 # [未发布] fix(ops-center): 开发入口只绑回环 + 清库夹具不得作用于仓库内库（ops-dev-bind-loopback，2026-09-29）
 
 ### 起因与真实根因

@@ -19,6 +19,8 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
+const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
+const { buildTaskDataFromRequest } = require("./publish/publish-request")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -904,6 +906,13 @@ class PublishApiServer {
         return;
       }
 
+      // 发布前能力面（user-info / permission-check / poi / drafts）：
+      // 排在 /api/v1/publish 之前，与云账号面同为鉴权后的独立分支。
+      if (isCapabilitiesUrl(url)) {
+        await this._handleCapabilities(req, res, method, url);
+        return;
+      }
+
       if (url.indexOf("/api/v1/admin/member/") === 0) {
         // 运营端点会花钱/发权益：只认经 scope 校验的 logto 身份，拒绝静态主密钥（api_key 分支不校验 requiredScope）。
         if (!(req.auth && req.auth.authType === "logto")) { this._json(res, 403, { error: "AUTH_SCOPE_MISSING" }); return; }
@@ -972,13 +981,21 @@ class PublishApiServer {
       if (method === "POST" && url === "/api/v1/publish") {
         var body = await this._parseBody(req);
         var platform = body.platform;
-        var taskData = { title: body.title || "", content: body.content || "", tags: body.tags || [] };
         var cookie = body.cookie || "";
 
         if (!platform) {
           this._json(res, 400, { success: false, error: "platform is required" });
           return;
         }
+
+        // 内容+媒体字段统一走 article→taskData 形状翻译（单一实现 publish/task-data.js），
+        // 与桌面端 publisher-router / rpa-view-manager 共用，杜绝多路映射漂移。
+        var built = buildTaskDataFromRequest(body);
+        if (!built.ok) {
+          this._json(res, built.status, { success: false, error: built.message, code: built.error });
+          return;
+        }
+        var taskData = built.taskData;
 
         try {
           await this._authorizeImmediateEntry(req, 1);
@@ -1012,8 +1029,13 @@ class PublishApiServer {
       if (method === "POST" && url === "/api/v1/batch-publish") {
         var body = await this._parseBody(req);
         var platforms = body.platforms || [];
-        var taskData = { title: body.title || "", content: body.content || "", tags: body.tags || [] };
         var cookie = body.cookie || "";
+        var built = buildTaskDataFromRequest(body);
+        if (!built.ok) {
+          this._json(res, built.status, { success: false, error: built.message, code: built.error });
+          return;
+        }
+        var taskData = built.taskData;
         var opts = {};
         if (this._opts.dryRun) opts.dryRun = true;
         try {
@@ -1317,13 +1339,29 @@ p{color:#6e6e73}
       // --- OpenAPI ---
       if (method === "GET" && url === "/api/v1/openapi.json") {
         var spec = { openapi: "3.0.3", info: { title: "PublishApiServer", version: "1.0.0", description: "多平台一键发布 HTTP API" }, servers: [], paths: {} };
+        // 内容+媒体请求字段：/publish 与 /batch-publish 共用同一形状（单一来源）。
+        // 形状语义与桌面端 article 一致，翻译实现见 publish/task-data.js。
+        var articleProps = {
+          title: { type: "string" },
+          content: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
+          cookie: { type: "string" },
+          video_path: { type: "string", description: "视频文件路径，须在服务端文件系统可解析（URL 拉取暂不支持）" },
+          cover_path: { type: "string", description: "封面文件路径，须在服务端文件系统可解析" },
+          images: { type: "array", items: { type: "string" }, description: "图文模式图片路径列表" },
+          author: { type: "string" },
+          duration: { type: "number", description: "视频时长（秒），缺省 0" },
+          width: { type: "number" }, height: { type: "number" },
+          draft: { type: "boolean", description: "true=存草稿；false 或缺省=直接发布" },
+          aiGenerated: { type: "boolean", description: "AI 生成内容声明，缺省 true" },
+        };
         var pathItems = {
           "/api/v1/health": { get: { summary: "存活检查", responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { status: { type: "string" }, version: { type: "string" } } } } } } } } },
           "/api/v1/ready": { get: { summary: "生产就绪检查", responses: { "200": { description: "所有身份依赖就绪" }, "503": { description: "数据库、迁移或 OIDC/JWKS 未就绪" } } } },
           "/api/v1/me": { get: { summary: "获取当前业务用户和权威权益", parameters: [{ name: "X-Device-ID", in: "header", required: false, schema: { type: "string", minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" } }], responses: { "200": { description: "用户与 entitlement" }, "400": { description: "设备标识无效" }, "503": { description: "业务用户或权益服务不可用" } }, security: [{ bearerAuth: [] }] } },
           "/api/v1/platforms": { get: { summary: "平台列表", responses: { "200": { description: "平台列表" } } } },
-          "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platform: { type: "string" }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platform"] } } } }, responses: { "200": { description: "发布结果" } } } },
-          "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" } } } },
+          "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platform: { type: "string" } }, articleProps), required: ["platform"] } } } }, responses: { "200": { description: "发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
+          "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platforms: { type: "array", items: { type: "string" } } }, articleProps), required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/schedule": { post: { summary: "创建定时发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" }, scheduledAt: { type: "string", format: "date-time" } }, required: ["platforms", "scheduledAt"] } } } }, responses: { "200": { description: "创建成功" } } }, get: { summary: "列出定时任务", responses: { "200": { description: "任务列表" } } } },
           "/api/v1/schedule/cancel": { post: { summary: "取消定时任务", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "取消结果" } } } },
           "/api/v1/webhook": { post: { summary: "注册 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, events: { type: "array", items: { type: "string" } } }, required: ["url"] } } } }, responses: { "200": { description: "注册成功" } } }, get: { summary: "列出 webhook", responses: { "200": { description: "webhook 列表" } } } },
@@ -1367,6 +1405,7 @@ p{color:#6e6e73}
 
 applyCommerceHelpers(PublishApiServer);
 applyCloudAccountHelpers(PublishApiServer);
+applyCapabilitiesHelpers(PublishApiServer);
 
 PublishApiServer.registerShutdownSignals = function(server) {
   var sig = function() { server.stop(); };
