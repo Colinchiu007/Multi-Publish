@@ -184,8 +184,17 @@ class BatchManager {
    */
   cancelBatch (batchId) {
     const ownerSubject = this._requireOwnerSubject()
+    // 平台侧定时（2026-10-07）：排期提交后由**平台**持有并到点发布，本地不再有定时器。
+    // 因此判定依据从「是否清掉本地 timer」改为「记录是否存在且仍处于可取消状态」——
+    // 否则本地无 timer 时恒返回 false，用户点「取消排期」永远失败。
+    // 语义与单篇 scheduler.cancel 对齐：已是终态（done/failed/cancelled）返回 false。
     const cleared = this._clearBatchTimers(batchId)
-    if (cleared === 0) return false
+    const job = typeof this.store.getBatchJob === 'function'
+      ? this.store.getBatchJob(batchId, ownerSubject)
+      : null
+    if (!job) return false
+    if (cleared === 0 && job.status !== 'scheduled') return false
+
     this.store.updateBatchJob(batchId, { status: 'cancelled' }, ownerSubject)
     log.info('BatchManager', `Batch ${batchId} cancelled (${cleared} timer(s) cleared)`)
     return true

@@ -358,6 +358,31 @@ describe('BatchManager.executeBatch 入队与终态合同', () => {
         expect(manager.restoreScheduledBatches()).toBe(0)
         expect(queue.add).not.toHaveBeenCalled()
       })
+
+      // 平台侧定时后本地不再持有定时器，若 cancelBatch 仍以「是否清到 timer」判定成败，
+      // 用户点「取消排期」将永远失败。这条锁防止该回归。
+      it('排期后取消批次成功（不依赖本地定时器是否存在）', () => {
+        const manager = setup([{ platforms: ['toutiao'], publishTime: future(60) }])
+        manager.scheduleBatch('batch-1')
+
+        expect(manager.cancelBatch('batch-1')).toBe(true)
+        expect(store.updateBatchJob).toHaveBeenCalledWith(
+          'batch-1', expect.objectContaining({ status: 'cancelled' }), undefined
+        )
+      })
+
+      it('已是终态的批次取消返回 false（不误报成功）', () => {
+        const manager = setup([{ platforms: ['toutiao'], publishTime: future(60) }])
+        store.batch.status = 'done'
+
+        expect(manager.cancelBatch('batch-1')).toBe(false)
+      })
+
+      it('不存在的批次取消返回 false', () => {
+        const manager = setup([{ platforms: ['toutiao'], publishTime: future(60) }])
+
+        expect(manager.cancelBatch('missing-batch')).toBe(false)
+      })
     })
 
 
