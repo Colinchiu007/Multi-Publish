@@ -12,8 +12,8 @@
  * 签名来源：signer-assembly 的 'xiaohongshu.x-s-browser'（localAlgorithm 形态，
  * 进程内 XYW_ 纯算法，不创建隐藏浏览器窗口）。
  */
-const { BasePlatformAdapter } = require("../../base-adapter")
-const { XiaohongshuDraftChain } = require("../../publish/platforms/xiaohongshu-draft")
+const { BasePlatformAdapter } = require("../base-adapter")
+const { XiaohongshuDraftChain } = require("../publish/platforms/xiaohongshu-draft")
 
 class XiaohongshuAdapter extends BasePlatformAdapter {
   constructor () {
