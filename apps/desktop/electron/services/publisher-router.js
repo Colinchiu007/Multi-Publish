@@ -30,6 +30,12 @@ const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publi
 // mode: 鍙戝竷寮曟搸
 //   'rpa_vm'  鈫?RpaViewManager锛坋xecuteJavaScript 寮曟搸锛屽綋鍓嶅敮涓€妯″紡锛?
 //   'backend' 鈫?Python 鍚庣锛堥鐣欙級
+// 2026-10-06: api 轨**只有视频链**的平台（无图文提交通道）。
+// 图文任务若无 video_path 仍会被路由进去，必然失败且平台报错文案完全指不到根因
+// （B站返回「第(1)个视频可能上传过程出现问题…」，极易被误读成上传损坏）。
+// 前置 fail-closed 见 resolvePlatformArticle 内的 VIDEO_ONLY_API_PLATFORMS 检查。
+const VIDEO_ONLY_API_PLATFORMS = new Set(['bilibili'])
+
 const ROUTE_TABLE = {
   wechat_mp:    { mode: 'rpa_vm', timeout: 120000 },
   zhihu:        { mode: 'rpa_vm', timeout: 120000 },
@@ -230,6 +236,30 @@ function resolvePlatformArticle (task, platform) {
   // P3-2：任务/活动（抖音 hot_sentence/flashMobInfo）— 透传 taskId
   const taskId = String(override.taskId ?? base.taskId ?? '').trim()
   if (/^[A-Za-z0-9_-]{1,64}$/.test(taskId)) resolved.taskId = taskId
+
+  // 2026-10-06：内容形态 × 平台能力的前置 fail-closed（E2E 实证 ha-c 图文批次）
+  //
+  // 现象：bilibili 每篇图文必失败，报 B站接口原文「第(1)个视频可能上传过程出现问题…」，
+  //       该文案完全指不到根因，排障时被误导到「上传损坏」方向。
+  // 真因：ROUTE_TABLE 把 bilibili 固定 { mode:'api' }，而它的 api 轨**只有视频链**
+  //       （upos 分片上传 + /x/vu/web/add/v3），不存在图文提交通道。图文任务没有
+  //       video_path，进链后必然失败 —— 但要真发一次请求才失败。
+  //
+  // 处置：形态不匹配就在**路由前**拒掉，错误文案自解释；视频任务行为不变。
+  // 注意：video_path 不在 resolved 顶层（它在 base 里），故此处从 base + override 读，
+  // 与 buildPublishArticle 的取值口径一致（否则视频任务会被误拦）。
+  if (VIDEO_ONLY_API_PLATFORMS.has(platform)) {
+    const videoPath = String(override.video_path ?? base.video_path ?? '').trim()
+    if (!videoPath) {
+      const err = new Error(
+        `${platform} 仅支持视频发布（api 轨只有视频链），当前任务为图文/无 video_path；` +
+        '请改用该平台的 RPA 图文通道或补齐视频文件'
+      )
+      err.code = 'PUBLISH_UNSUPPORTED_CONTENT_MODE'
+      throw err
+    }
+  }
+
   return resolved
 }
 
