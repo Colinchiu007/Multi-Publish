@@ -321,6 +321,29 @@ selectedPlatforms = { value: ['toutiao'] }
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })
 
+  // 平台侧定时（2026-10-07）：定时创建**不需要 renderer 网络在线**——
+  // 它只是把排期提交给平台（主进程 scheduler + Node 直连 HTTP）。
+  // 若离线时把定时任务落进离线缓存（缓存形状 {targets,data} 不含 publishTime），
+  // 网络恢复后会**立即发布** =「以为已排期、实际已发出」。
+  it('带定时时间时即使离线也不落离线缓存（必须创建排期）', async () => {
+    mockOfflineStatus.mockResolvedValueOnce({ code: 0, data: { offline: true } })
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    article.publishTime = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+    await r.handlePublish()
+    await nextTick()
+
+    // 关键：不得写离线缓存（那会丢排期意图）
+    expect(mockOfflineAddToCache).not.toHaveBeenCalled()
+    // 必须真的创建排期
+    expect(mockSchedulerCreate).toHaveBeenCalledWith(expect.objectContaining({
+      publishTime: article.publishTime
+    }))
+    expect(r.result.value).toMatchObject({ success: true, scheduled: true })
+  })
+
   // ─── 敏感词预检 ───────────────────────────
   it('敏感词检测发现敏感词时弹确认框', async () => {
     mockSensitiveCheck.mockResolvedValueOnce({ code: 0, data: { words: ['badword'] } })
