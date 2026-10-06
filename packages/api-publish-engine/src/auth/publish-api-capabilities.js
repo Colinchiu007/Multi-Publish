@@ -86,7 +86,14 @@ class PublishApiCapabilitiesHelpers {
       return true
     }
     // 矩阵校对：格子为 null 即「无取证来源」，即便模块将来加了同名方法也不暴露。
-    if (CAPABILITY_MATRIX[parsed.platform][parsed.method] === null) {
+    //
+    // 必须 **fail-closed**：同时把 `undefined`（键不存在／登记名与方法名对不上）
+    // 判为不支持。只判 `=== null` 时，拼错或漏登记的键会退化成 `undefined` 而
+    // 穿过本守卫——这正是 poiRecommend 被放行的成因（矩阵键曾写作 `poi`，而
+    // parsed.method 来自 PATH_TO_METHOD，是 `poiRecommend`）。未知即拒绝，
+    // 不能靠「恰好有一个格子是 null」来兜底。
+    const cell = CAPABILITY_MATRIX[parsed.platform][parsed.method]
+    if (cell === null || cell === undefined) {
       this._json(res, 404, {
         error: 'CAPABILITY_NOT_SUPPORTED',
         message: parsed.platform + ' 不支持 ' + parsed.action + '（无平台取证来源）',

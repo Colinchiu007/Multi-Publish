@@ -14,6 +14,8 @@ const {
   isCapabilitiesUrl,
   parseCapabilitiesPath,
   CAPABILITIES_BASE,
+  EXPOSED_CAPABILITIES,
+  PATH_TO_METHOD,
 } = require('../src/auth/publish-api-capabilities')
 const { CAPABILITY_MATRIX } = require('../src/publish/capabilities')
 
@@ -75,7 +77,7 @@ async function main () {
     const out = h.__calls[0]
     assert.strictEqual(out.status, 200)
     assert.deepStrictEqual(out.data.platforms, CAPABILITY_MATRIX)
-    assert.deepStrictEqual(out.data.list.douyin, ['userInfo', 'publishPermission', 'poi'])
+    assert.deepStrictEqual(out.data.list.douyin, ['userInfo', 'publishPermission', 'poiRecommend'])
     assert.deepStrictEqual(out.data.list.xiaohongshu, ['userInfo'], '未取证的格子不得出现在 list 里')
     console.log('  ✅ 矩阵与「实际可调用」列表同源推导，无第二份清单')
   }
@@ -89,6 +91,51 @@ async function main () {
     assert.strictEqual(out.data.error, 'CAPABILITY_NOT_SUPPORTED')
     assert.match(out.data.message, /无平台取证来源/)
     console.log('  ✅ 「没有这个能力」与「查到了但为空」严格区分')
+  }
+
+  // 回归锁：原用例只举证 xiaohongshu/permission-check——那个平台矩阵键名恰好
+  // 等于方法名。poiRecommend 的矩阵键曾写作 `poi`，与 parsed.method（来自
+  // PATH_TO_METHOD）拼不上，读到 undefined 后 `=== null` 守卫形同虚设，
+  // 于是「矩阵标 null」的平台反而回 400 COOKIE_REQUIRED。GREEN 灯下全程无感。
+  //
+  // 这里锁**根因**而非症状：矩阵的键名集合必须与暴露能力名同源。两套词汇并存
+  // 是这个 bug 的成因，只要有人再把键写成 `poi`，下面第一条断言当场红——
+  // 不依赖「恰好枚举到多少个 null 格子」这种会随命名漂移而退化的间接信号。
+  console.log('--- 回归：矩阵键名必须与 EXPOSED_CAPABILITIES 同源（根因锁） ---')
+  {
+    const allowed = new Set(EXPOSED_CAPABILITIES)
+    for (const platform of Object.keys(CAPABILITY_MATRIX)) {
+      for (const key of Object.keys(CAPABILITY_MATRIX[platform])) {
+        assert.ok(
+          allowed.has(key),
+          platform + ' 的矩阵键 "' + key + '" 不在 EXPOSED_CAPABILITIES 内——' +
+          '矩阵键名与暴露能力名必须是同一套词汇，否则路由按 PATH_TO_METHOD 取到 undefined 会穿过 null 守卫'
+        )
+      }
+    }
+    console.log('  ✅ 六个平台矩阵键名与 EXPOSED_CAPABILITIES 完全同源')
+  }
+
+  console.log('--- 回归：矩阵为 null 的格子全平台穷举必 404 ---')
+  {
+    let checked = 0
+    for (const platform of Object.keys(CAPABILITY_MATRIX)) {
+      for (const action of Object.keys(PATH_TO_METHOD)) {
+        const method = PATH_TO_METHOD[action]
+        if (CAPABILITY_MATRIX[platform][method] !== null) continue // 有取证来源，不该 404
+        const h = makeHarness()
+        await h._handleCapabilities({}, {}, 'POST', '/api/v1/platforms/' + platform + '/' + action)
+        const out = h.__calls[0]
+        assert.strictEqual(
+          out.status, 404,
+          platform + '/' + action + ' 矩阵标 null，却没返回 404（实际 ' + out.status + '）'
+        )
+        assert.strictEqual(out.data.error, 'CAPABILITY_NOT_SUPPORTED')
+        checked += 1
+      }
+    }
+    assert.ok(checked > 0, '未枚举到任何 null 格子，样本可能退化')
+    console.log('  ✅ 穷举 ' + checked + ' 个 null 格子全部 404，矩阵纪律对每个动作一致')
   }
 
   console.log('--- 不支持的平台 404 ---')

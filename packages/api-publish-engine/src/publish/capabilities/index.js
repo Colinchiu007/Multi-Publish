@@ -47,37 +47,37 @@ const CAPABILITY_MATRIX = Object.freeze({
   douyin: Object.freeze({
     userInfo: 'GET /aweme/v1/creator/user/info/',
     publishPermission: 'GET /aweme/v1/life/video_api/post/permission/',
-    poi: 'GET /aweme/v1/poi/recommend/',
+    poiRecommend: 'GET /aweme/v1/poi/recommend/',
     drafts: null,
   }),
   tencent_video: Object.freeze({
     userInfo: 'POST /cgi-bin/mmfinderassistant-bin/auth/auth_data',
     publishPermission: 'POST /cgi-bin/mmfinderassistant-bin/auth/auth_data (登录态口径)',
-    poi: null,
+    poiRecommend: null,
     drafts: null,
   }),
   bilibili: Object.freeze({
     userInfo: 'GET /x/web-interface/nav + /x/member/web/account',
     publishPermission: 'GET /x/article/is_author (专栏权限)',
-    poi: null,
+    poiRecommend: null,
     drafts: null,
   }),
   kuaishou: Object.freeze({
     userInfo: 'POST /rest/v2/creator/pc/authority/account/current',
     publishPermission: 'POST /rest/v2/creator/pc/authority/account/current (登录态口径)',
-    poi: null,
+    poiRecommend: null,
     drafts: null,
   }),
   xiaohongshu: Object.freeze({
     userInfo: 'GET /api/galaxy/user/info',
     publishPermission: null,
-    poi: null,
+    poiRecommend: null,
     drafts: null,
   }),
   baijiahao: Object.freeze({
     userInfo: null,
     publishPermission: null,
-    poi: 'POST /pcui/Brain/CoordRcmd',
+    poiRecommend: 'POST /pcui/Brain/CoordRcmd',
     drafts: 'GET /pcui/article/lists',
   }),
 })
