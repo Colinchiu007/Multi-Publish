@@ -95,6 +95,7 @@ M-2 与 M-5 在同一天内以**同一种模式**翻车：
 | R2 | `create()` 未校验平台 `minLeadMinutes`/`maxHorizonDays` | 10 秒 / 365 天排期本地通过、平台必拒，用户零反馈 |
 | R3 | `restore()` 的 `dispatching` 分支永不可达 | 死代码，误导后来者 |
 | R4 | owner 切换回退为 `pending` | `pending` 是 restore 的 legacy 桶 ⇒ 重开本地兜底后门 |
+| **R5（首轮遗漏，已补）** | **批量排期未做任何改造** | `batch-manager.js` 的 `scheduleBatch` 仍用本地 `setTimeout` 且**无能力门禁** ⇒ 批量路径会对不支持的平台**静默到点立即发布**，正是本变更要消灭的形态。已补能力门禁 + 平台窗口校验 + 立即提交携带 `publishTime`，并删除死代码的本地定时器分支 |
 
 ### 安全底线：绝不静默立即发布
 本仓在四层同时阻断：能力注册表（未取证一律 unsupported）→ 渲染层校验（提交前拦截并说明原因）

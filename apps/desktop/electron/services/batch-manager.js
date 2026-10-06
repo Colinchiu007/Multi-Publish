@@ -13,6 +13,13 @@ const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
+// 平台侧定时（2026-10-07）：批量排期与单篇 scheduler.create 共用同一套能力门禁，
+// 杜绝「批量排期对不支持的平台仍到点静默立即发布」——那正是本变更要消灭的形态。
+const {
+  getPlatformScheduleCapability,
+  isPlatformSideScheduleSupported
+} = require('@multi-publish/shared-utils/src/platform-schedule-capability')
+const { assertWithinPlatformWindow } = require('@multi-publish/shared-utils/src/platform-schedule-time')
 
 let _taskQueue = null
 
@@ -415,62 +422,55 @@ class BatchManager {
     for (const article of batch.articles) {
       if (!article.publishTime || !article.platforms) continue
 
+      // 数据损坏优先判定：publishTime 不可解析时跳过该条目并告警，不中断整个批次
+      // （保持原语义；无效日期属脏数据，与「平台不支持」不是一回事）
       const delay = new Date(article.publishTime).getTime() - Date.now()
-      // 安全修复：Invalid Date 导致 NaN，setTimeout(fn, NaN) 会立即执行（原仅检查 <=0，NaN<=0 为 false 漏过）
       if (!Number.isFinite(delay)) {
         log.warn('BatchManager', 'Invalid publishTime in batch ' + batchId + ': ' + article.publishTime)
         continue
       }
-      if (delay <= 0) {
-        // 已过期，立即发布
-        // 边界修复：_taskQueue 可能为 null（与下方 setTimeout 路径的 try/catch 对齐）
-        if (!_taskQueue) {
-          log.warn('BatchManager', 'Task queue not ready, skipping immediate publish for batch ' + batchId)
-          continue
-        }
-        for (const platform of article.platforms) {
-          const r = BatchManager.resolvePlatform(platform)
-          try {
-            // publishMode: 'scheduled' — 排期到点的入队任务标记为定时发布，
-            // phase4-events 写入发布历史后历史页可按「定时发布」过滤。
-            const queued = this._enqueueForOwner({ platform: r.platform, article: buildEnqueuedArticle(article, r.accountId), batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
-            Promise.resolve(queued).catch(error => {
-              log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
-            })
-          } catch (error) {
-            log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
-          }
-        }
+
+      // ── 平台侧定时（2026-10-07）：能力门禁，与单篇 scheduler.create 同语义 ──
+      // 不支持平台侧定时的平台必须在**排期前**阻断，绝不排期后到点静默立即发布。
+      const unsupported = article.platforms.filter(p => !isPlatformSideScheduleSupported(p))
+      if (unsupported.length > 0) {
+        throw new Error(
+          `平台 ${unsupported.join('、')} 不支持平台侧定时，已阻止该批次排期。` +
+          '为避免「以为已排期、实际立即发出」的静默失败，本次排期已阻断。'
+        )
+      }
+      // 平台窗口校验（最小提前量 / 最大跨度），与单篇同源
+      for (const platform of article.platforms) {
+        const r0 = BatchManager.resolvePlatform(platform)
+        assertWithinPlatformWindow(article.publishTime, getPlatformScheduleCapability(r0.platform))
+      }
+      // 平台侧定时：排期立即提交给平台（携带 publishTime），由平台服务器到点发布。
+      // 因此不再区分「已过期 / 未过期」——两者对平台是同一件事：按该时间点排期。
+      if (!_taskQueue) {
+        log.warn('BatchManager', 'Task queue not ready, skipping platform submission for batch ' + batchId)
         continue
       }
-
-      const timer = setTimeout(() => {
-        const registered = this._timers.get(batchId)
-        if (registered) {
-          registered.delete(timer)
-          if (registered.size === 0) this._timers.delete(batchId)
-        }
+      for (const platform of article.platforms) {
+        const r = BatchManager.resolvePlatform(platform)
         try {
-          // 边界修复：_taskQueue 可能为 null（与立即发布路径对齐）
-          if (!_taskQueue) {
-            log.warn('BatchManager', 'Task queue not ready, skipping batch task for batch ' + batchId)
-            return
-          }
-          for (const platform of article.platforms) {
-            const r = BatchManager.resolvePlatform(platform)
-            const queued = this._enqueueForOwner({ platform: r.platform, article: buildEnqueuedArticle(article, r.accountId), batchId, accountId: r.accountId, publishMode: 'scheduled' }, ownerSubject)
-            Promise.resolve(queued).catch(error => {
-              log.error('BatchManager', 'Failed to schedule batch task for ' + batchId + ': ' + error.message)
-            })
-          }
-        } catch (e) {
-          log.error('BatchManager', 'Failed to schedule batch task for batch ' + batchId + ': ' + e.message)
+          // publishMode: 'scheduled' — 定时发布标记，phase4-events 写历史后可过滤。
+          // publishTime: 平台侧定时的核心，publisher 据此装配该平台的定时字段。
+          const queued = this._enqueueForOwner({
+            platform: r.platform,
+            article: buildEnqueuedArticle(article, r.accountId),
+            batchId,
+            accountId: r.accountId,
+            publishMode: 'scheduled',
+            publishTime: article.publishTime
+          }, ownerSubject)
+          Promise.resolve(queued).catch(error => {
+            log.error('BatchManager', 'Failed to submit scheduled batch task for ' + batchId + ': ' + error.message)
+          })
+        } catch (error) {
+          log.error('BatchManager', 'Failed to submit scheduled batch task for ' + batchId + ': ' + error.message)
         }
-      }, delay)
-      // R28 修复：unref 让定时器不阻止进程退出
-      if (timer && timer.unref) timer.unref()
-      if (!this._timers.has(batchId)) this._timers.set(batchId, new Set())
-      this._timers.get(batchId).add(timer)
+      }
+      continue
     }
 
     this.store.updateBatchJob(batchId, { status: 'scheduled' }, ownerSubject)
