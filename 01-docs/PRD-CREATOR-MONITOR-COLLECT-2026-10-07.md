@@ -243,8 +243,10 @@ CREATE TABLE IF NOT EXISTS creator_discoveries (
   thumbnail_url     TEXT DEFAULT '',
   published_at      TEXT,
   discovered_at     TEXT NOT NULL,
-  collect_state     TEXT NOT NULL DEFAULT 'pending',  -- pending|collected|skipped
+  collect_state     TEXT NOT NULL DEFAULT 'pending',  -- pending|collecting|collected|failed|skipped
   collected_at      TEXT,
+  attempt_count     INTEGER NOT NULL DEFAULT 0,       -- 采集尝试次数（CCG i7）
+  last_error        TEXT DEFAULT '',                  -- 最近一次采集失败原因（CCG i7）
   transcript_source TEXT DEFAULT '',         -- subtitle | description
   content_quality  TEXT DEFAULT 'unknown',  -- full | partial | stub | unknown（见 §7.6）
   summary           TEXT DEFAULT '',
@@ -265,22 +267,42 @@ CREATE INDEX IF NOT EXISTS idx_creator_discoveries_list
 
 ```js
 function migrateCreatorLinkageSchema (db) {
-  // SQLite 无 ADD COLUMN IF NOT EXISTS：先查列是否存在，存在则跳过（幂等）
-  const cols = db.exec('PRAGMA table_info(viral_library)')[0].map(c => c.name)
-  for (const [name, ddl] of [
-    ['external_id', "ALTER TABLE viral_library ADD COLUMN external_id TEXT DEFAULT ''"],
-    ['creator_id',  "ALTER TABLE viral_library ADD COLUMN creator_id  TEXT DEFAULT ''"],
-  ]) {
-    if (!cols.includes(name)) db.run(ddl)
+  // 两表都对 (platform, external_id) 有唯一约束，迁移必须原子完成：
+  // 中途失败若留下半迁移状态，会造成「discoveries 已建索引但 viral_library 未加列」
+  // 的分叉——重采集时因缺列抛错，而 CREATE TABLE IF NOT EXISTS 又不会补列，形成死锁。
+  db.run('BEGIN')
+  try {
+    // SQLite 无 ADD COLUMN IF NOT EXISTS：先查列是否存在，存在则跳过（幂等）
+    const cols = db.exec('PRAGMA table_info(viral_library)')[0].map(c => c.name)
+    for (const [name, ddl] of [
+      ['external_id', "ALTER TABLE viral_library ADD COLUMN external_id TEXT DEFAULT ''"],
+      ['creator_id',  "ALTER TABLE viral_library ADD COLUMN creator_id  TEXT DEFAULT ''"],
+    ]) {
+      if (!cols.includes(name)) db.run(ddl)
+    }
+    // ⚠ partial 唯一索引不可用普通 UNIQUE：存量行 external_id 全为 ''，
+    // 普通唯一索引会在创建瞬间因重复键失败。WHERE 子句把存量行排除在外。
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_viral_library_external
+              ON viral_library(platform, external_id) WHERE external_id <> ''`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_viral_library_creator
+              ON viral_library(creator_id) WHERE creator_id <> ''`)
+    db.run('COMMIT')
+  } catch (err) {
+    db.run('ROLLBACK')
+    throw err   // 整次迁移原子失败：启动时报错优于带病运行
   }
-  // ⚠ partial 唯一索引不可用普通 UNIQUE：历史行 external_id 全为 ''，
-  // 普通唯一索引会在创建瞬间因重复键失败。WHERE 子句把历史行排除在外。
-  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_viral_library_external
-            ON viral_library(platform, external_id) WHERE external_id <> ''`)
-  db.run(`CREATE INDEX IF NOT EXISTS idx_viral_library_creator
-            ON viral_library(creator_id) WHERE creator_id <> ''`)
 }
 ```
+
+**迁移前冲突预检**（CCG 评审 i1：两表各有唯一约束，若历史数据已存在重复的 `(platform, external_id)`，建索引会失败）：
+
+```sql
+-- 正常应返回 0 行；非 0 说明历史数据已被外部写入污染
+SELECT platform, external_id, COUNT(*) AS n FROM viral_library
+ WHERE external_id <> '' GROUP BY platform, external_id HAVING n > 1;
+```
+
+冲突非空时**不静默去重**（擅自删行即数据损失）。记录冲突明细并在 UI 提示 `creatorMigrationConflict`：「检测到 {count} 条历史数据冲突，请联系支持」，由人工决定保留哪条。
 
 **为什么必须是 partial index**：`viral_library` 的历史行（以及非博主来源的行）`external_id` 均为默认空串。若建普通 `UNIQUE(platform, external_id)`，迁移执行时会因大量重复键抛错，整个 schema 初始化失败——**这会让应用起不来**。partial index 用 `WHERE external_id <> ''` 把它们排除，保证存量数据零影响。
 
@@ -294,11 +316,22 @@ function migrateCreatorLinkageSchema (db) {
 
 **重采集语义**：`viral_library` 已有行时走 `INSERT OR REPLACE`（沿用 `knowledge-library-store.js:82` 既有写法），`created_at` 保留首次采集时间，`updated_at` 刷新。因存在 partial unique 索引，重采集命中的是**有 `external_id` 的博主来源行**；其他行不受影响。
 
-### 6.2 去重键
+### 6.2 去重键与 canonical ID 规则（CCG 评审 i6 修订）
 
 `(platform, external_id)` 唯一索引即去重机制。探测到重复项时走 `INSERT OR IGNORE`（或先查后插 + 捕获约束冲突），**幂等**。
 
-YouTube 的 `video_id` 是稳定标识；**不使用 URL 作主键**——URL 形态可能变化，ID 不会。
+**为什么不用 URL 作主键**：URL 形态可变（`@handle` ↔ `/c/name` ↔ `UC…` 互为别名），ID 不会。
+
+**canonical ID 规则（必须显式定义，否则同一博主会被拆成多行）**：
+
+| 层 | 规则 |
+|---|---|
+| 博主 `external_id` | **一律为 YouTube API 返回的 `channelId`（`UC…`）**。用户输入的 `@handle` / 频道 URL / `/c/name` / `/user/name` 都必须先经 `channels.list` 解析为 `channelId` 后才落库。**禁止把用户原始输入直接当 `external_id`**——否则同一博主的 4 种 URL 写法会产生 4 个 `creator_accounts` 行 |
+| 作品 `external_id` | **一律为 `videoId`**。不取自 URL 查询串、不取自定义 ID |
+| 归一化 | 落库前统一 `trim()` + 大小写保持原样（YouTube ID 大小写敏感，禁止 toLowerCase） |
+| 频道更名/ID 变更 | YouTube `channelId` 不可变，更名只影响 `display_name`，不影响去重 |
+
+**解析失败的 fail-closed**：`channels.list` 解析不出 `channelId` 时**拒绝写入**并提示 `creatorErrChannelNotFound`，**绝不退化成用用户输入当 ID 兜底**——那正是同一博主被拆成多行的根源。
 
 ### 6.3 关注状态机（CCG 评审 v2-i3 修订：区分「真故障暂停」与「不可自愈暂停」）
 
@@ -330,13 +363,31 @@ YouTube 的 `video_id` 是稳定标识；**不使用 URL 作主键**——URL �
 
 **为什么拆出 `fatal_paused`**：API Key 失效时，重试一万次也不会自愈，让用户看「连续失败 3 次」会误导他去点「立即重试」——那是死路。`fatal_paused` 明确指向「去设置里修 Key」这个唯一有效动作。
 
-### 6.4 发现记录状态机
+### 6.4 发现记录状态机（CCG 评审 i7 修订：补齐失败中间态）
+
+**原设计缺陷**：只有 `pending / collected / skipped` 三态。一旦某条视频采集失败（字幕拉取超时、转写为空、API 抖动），它在库里**既不是 pending 也不是 collected**——用户手动重试时无状态可依，UI 也无法展示"上次为什么失败"，等于没有恢复路径。
 
 ```
-pending ──► collected   （采集成功，collected_at 落时间）
-   │
-   └────► skipped       （用户主动忽略，或超出上限且用户选择跳过）
+pending ──► collecting ──┬──► collected   （成功；collected_at 落时间）
+   ▲                    │
+   │                    └──► failed ──┐   attempt_count += 1
+   │                                  │   last_error 落原因
+   └──── 用户点「重试」 ───────────────┘   （或批量重试把 failed 批量拉回 pending）
+   
+pending ──► skipped       （用户主动忽略）
 ```
+
+| 状态 | 含义 | UI |
+|---|---|---|
+| `pending` | 未采集 | 「采集」按钮可用 |
+| `collecting` | **采集进行中**（进程崩溃/强杀会留在此态） | 显示进度；启动时扫描并复位为 `pending`（带 `attempt_count` 保留） |
+| `collected` | 已入库 | 「已采集 · {time}」，按钮置灰 |
+| `failed` | 采集失败 | 「重试」按钮 + `last_error` 原因文案；计入 `attempt_count` |
+| `skipped` | 用户忽略 | 不再提示 |
+
+**崩溃恢复**：`collecting` 是易失态。应用启动时把滞留的 `collecting` 复位为 `pending`（`attempt_count` 保留并递增），避免"永远转圈"的僵尸记录。
+
+**重复采集走 upsert**：`failed → pending` 重试、`pending/collected` 再次采集，均走 `INSERT OR REPLACE`（见 §6.1 重采集语义），不产生重复行。
 
 ### 6.5 监控调度改造点（必须改动，非新增）
 
@@ -361,20 +412,34 @@ pending ──► collected   （采集成功，collected_at 落时间）
 
 **结论：复用。** 独立调度器虽有零回归优势，但要重复实现一套已验证的触发器与钳制逻辑，长期维护成本更高，且两套调度器并存本身就是新的冲突源。**代价（影响既有 4 类自动化任务）用回归测试对冲，不靠"应该没事"。**
 
-#### 6.5.2 switch 的 default 分支必须 throw（CCG 评审 i3）
+#### 6.5.2 switch 的 default 分支：任务级 fail-closed，不拖垮调度器（CCG 评审 i4 修订）
+
+**原设计错误**：曾直接 `throw`。评审指出这会让**一条脏数据任务炸掉整个 scheduler**——`_executeWithPolicy` 在调度循环里被调用，抛出未捕获异常会导致后续所有任务不再被触发，用户配置的自动化全部静默停摆，且因门禁失败而中断原本可能成功的执行。**这是"为一条坏数据牺牲整个系统"的典型错误设计。**
 
 ```js
 switch (task.action.type) {
   case 'fullAutoPipeline': return this._executeWithPolicy(task)
   case 'creatorMonitor':    return this._executeCreatorMonitor(task)
   default:
-    // 绝不 fallback 到 pipeline：未知类型若被当成 pipeline 执行，
-    // 会静默跑错任务且无任何日志线索。fail-closed 是这里唯一正确的默认。
-    throw new Error(`未知自动化任务类型: ${task.action.type} (task ${task.id})`)
+    // 任务级 fail-closed：把这一条挂起并留痕，绝不 fallback 到 pipeline，
+    // 也绝不 throw —— throw 会中断调度循环，导致其余任务全部停摆。
+    this._markTaskPaused(task.id, 'unknown_type', `未知自动化任务类型: ${task.action.type}`)
+    logger.warn({ taskId: task.id, actionType: task.action.type }, '未知任务类型已挂起，未执行')
+    return { ok: false, skipped: true, reason: 'unknown_type' }
 }
 ```
 
-`fallback 到 pipeline` 的危害：配置损坏 / 未来新增类型未接线时，用户会看到"自动化在跑"但实际跑的是另一条链路，**故障静默且误导**。抛错会在任务列表上显示明确错误。
+**三层防护的取舍**：
+
+| 方案 | 后果 | 取舍 |
+|---|---|---|
+| `throw` | 一条脏任务 → 调度循环中断 → **所有自动化停摆** | ❌ 爆炸半径过大 |
+| fallback 到 pipeline | 静默跑错任务，日志无线索，用户以为"在跑"实则跑错链路 | ❌ 静默失真 |
+| **挂起该任务 + 留痕 + 继续** | 该任务不执行并显示明确错误；**其余任务不受影响** | ✅ **采用** |
+
+fail-closed 的正确边界是**对这条任务**，不是对整个系统。挂起后 `automation:list` 该任务显示 `lastStatus='unknown_paused'` + `lastError`，用户可编辑任务类型后恢复。
+
+**迁移期额外保护**：`automation_tasks` 是单个 JSON 键，schema 或类型迁移若误改了 `action.type` 的合法值集合，历史数据可能含未知类型。因此 `automation-task.js` 的校验**不得**在加载阶段就丢弃未知类型任务（会静默删数据），只能在校验时报错并保留原记录。
 
 #### 6.5.3 回归测试覆盖范围（CCG 评审 i3）
 
@@ -452,16 +517,32 @@ switch (task.action.type) {
 
 YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）。相关调用成本：
 
-| 调用 | units | 本方案用途 |
-|---|---|---|
-| `playlistItems.list` | 1 | 每次探测取该博主的最新作品列表 |
-| `channels.list` | 1 | **仅首次**解析频道 URL → `channelId`（结果落库，之后不再调） |
-| `videos.list` | 1 | 采集时补全时长/观看数等元数据 |
-| 字幕（`youtube-transcript-api`） | **0** | 非 Data API，不消耗配额 |
+| 调用 | units | 单次上限 | 本方案用途 |
+|---|---|---|---|
+| `playlistItems.list` | 1 | 50 条/页 | 每次探测取该博主的最新作品列表 |
+| `channels.list` | 1 | — | **仅首次**解析频道 URL → `channelId`（结果落库，之后不再调） |
+| `videos.list` | 1 | **50 个 id/次** | 采集时批量补全时长、观看数等元数据 |
+| 字幕（`youtube-transcript-api`） | **0** | — | 非 Data API，不消耗配额 |
 
 **稳态单次探测成本 = 1 unit**（首次新增博主那次 = 2 units）。
 
-#### 7.3.2 物理池切分
+#### 7.3.2 采集成本公式与实算
+
+采集时 `videoId` 在**探测阶段就已随 `playlistItems` 拿到**，元数据缺口用 `videos.list` 批量补。因其单次可带 50 个 id，采集成本远低于"每条 1 unit"的直觉：
+
+```
+采集成本(units) = ceil(count / 50) × 1     // videos.list，每批至多 50 个 id
+```
+
+| 场景 | count | units | 说明 |
+|---|---|---|---|
+| 一键采集（默认） | 5 | **1** | 1 批 |
+| 手动批量（默认） | 50 | **1** | 正好 1 批 |
+| 手动批量（上限） | 100 | **2** | 2 批（跨页仅此一处翻页） |
+
+字幕提取消耗 0 units，但**耗时高**（每条视频数秒），故仍走 `BatchRateController` 串行节流。
+
+#### 7.3.3 物理池切分
 
 | 池 | units/天 | 说明 |
 |---|---|---|
@@ -469,7 +550,7 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 | 采集池 | **6,000** | 每次采集 1 unit（`videos.list`），支持 6,000 条/天，远超实际需求 |
 | 安全余量 | **2,500** | 抗重试、抗接口变动、不被任何逻辑消耗 |
 
-#### 7.3.3 求解：预算 × 频率 × 频道数必须自洽
+#### 7.3.4 求解：预算 × 频率 × 频道数必须自洽
 
 三者**不允许各自拍脑袋**，由下式约束并在 UI 上做实时校验：
 
@@ -489,7 +570,7 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 
 **动态降级求解**（当用户把间隔调得更密导致超预算时）：不静默失败，而是**按 `check_interval_min` 从小到大（检查更频繁的优先）保底，剩余博主本轮跳过**，并在 UI 角标显示「因配额限制，N 个博主本轮未检查」。绝不出现"监控看起来在跑但实际饿死一部分博主"的静默失真。
 
-#### 7.3.4 超限行为与告警
+#### 7.3.5 超限行为与告警
 
 | 情形 | 行为 |
 |---|---|
@@ -497,11 +578,11 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 | 采集池耗尽 | 拒绝执行，`creatorErrQuotaExhausted` |
 | 物理池用量 ≥ 80%（8,000 units） | 记 WARN 日志 + UI 配额水位条变琥珀色 |
 
-#### 7.3.5 配额语义澄清（CCG 评审 i4）
+#### 7.3.6 配额语义澄清（CCG 评审 i4）
 
 「探测配额」的单位是 **API units**，不是"次数"也不是"频道数"。三者换算关系固定为：稳态 1 次探测 = 1 unit = 1 次 `playlistItems.list`。
 
-#### 7.3.6 单条采集的配额边界（CCG 评审 i8）
+#### 7.3.7 单条采集的配额边界（CCG 评审 i8）
 
 **单条采集仅豁免「数量上限」，不豁免任何配额**：仍消耗采集池 1 unit（`videos.list`），采集池耗尽时同样拒绝并提示。字幕提取不消耗 Data API 配额。
 
@@ -518,9 +599,12 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 | 加密 | 经 Electron **`safeStorage`** 加密（Linux 需 `safeStorage` 后端可用，否则拒绝保存而非降级明文） |
 | 落点 | 密文存 settings（`credential_youtube_api_key_enc`），**密钥本身永不落 SQLite 明文列** |
 | 禁止 | 不写日志、不进 `violations.jsonl`、不进 `.adversarial/`、不进崩溃报告、不进任何 Git 跟踪文件 |
-| 日志 | 只记 `api_key_present: true/false` 与 `api_key_fingerprint`（后 4 位哈希），**不记原值** |
-| 内存 | 仅在发起请求时短暂解密，用后即弃，不挂全局变量 |
+| **IPC 边界** | **API Key 永不跨 IPC 传给渲染层**。`creator:*` 与 `settings:*` 通道只暴露 `hasApiKey: boolean` 与 `fingerprint: string`（末 4 位哈希）。主进程内部解密后直接用于 HTTP 请求，不经 `ipcMain.handle` 回传 |
+| 内存 | 仅在发起请求时短暂解密，用后即弃，不挂全局变量、不进闭包捕获 |
+| `safeStorage` 不可用 | **fail-closed：整个博主监控功能禁用**（非 YouTube 平台的采集不受影响），UI 明确提示「系统密钥库不可用，无法安全保存 API Key」。**绝不允许降级为明文保存** |
 | 失效 | API 返回 `keyInvalid` / `accessNotConfigured` → `fatal_paused`（见 §6.3），UI 直达设置页 |
+
+**为什么 Key 不能跨 IPC**：渲染层是 XSS 与恶意扩展的高暴露面，且 Electron preload 会把返回值原样暴露给页面。一旦 Key 进入渲染层，它就会被 DOM、devtools、以及任何注入脚本读到——即使 IPC 通道本身"只允许主进程调用"。
 
 **为什么不用明文存 SQLite**：桌面应用的 SQLite 文件位于用户目录，本机任何脚本或恶意软件可直接读取；API Key 泄露意味着配额被他人盗用甚至账号被关联。`safeStorage` 在 Windows 上走 DPAPI、macOS 走 Keychain、Linux 走 libsecret，是本仓既有的正确选择。
 
@@ -667,19 +751,39 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 ```js
 // YouTube Data API 错误体形如：
 // { "error": { "code": 403, "message": "...", "errors": [{ "reason": "quotaExceeded", ... }] } }
-function classifyFailure (httpStatus, body) {
+// ⚠ 实际调用可能拿到：空 body（代理截断）、HTML 错误页、或 errors 数组缺失。
+//    因此必须先处理「reason 缺失」，再按状态码兜底，否则会把节流误判成故障。
+function classifyFailure (httpStatus, body, transportErr) {
+  // 传输层错误优先：根本没拿到 HTTP 响应
+  if (transportErr) {
+    if (['ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'].includes(transportErr.code))
+      return { tier: 'transient', reason: transportErr.code }
+    return { tier: 'unknown', reason: `transport:${transportErr.code || 'unknown'}` }
+  }
   const reason = body?.error?.errors?.[0]?.reason || body?.error?.status || null
-  // Tier A：正常节流 / 瞬时波动 —— 不计入连续失败，指数退避后重试
-  if (['quotaExceeded', 'dailyLimitExceeded', 'rateLimitExceeded'].includes(reason)) return 'throttled'
-  if (reason === null && httpStatus >= 500) return 'transient'          // 5xx 无 reason
-  if (reason === 'backendError' || reason === 'internalError') return 'transient'
-  if (['ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN'].includes(reason)) return 'transient'
-  // Tier C：不可自愈，必须人工介入 —— 立即暂停，不重试
-  if (['keyInvalid', 'keyNotValid', 'accessNotConfigured', 'forbidden'].includes(reason)) return 'fatal'
-  // Tier B：真故障但可自愈 —— 计入连续失败
-  if (['channelNotFound', 'playlistNotFound'].includes(reason)) return 'permanent'
-  return httpStatus >= 500 ? 'transient' : 'permanent'                 // 兜底
+
+  // Tier A：正常节流 / 瞬时波动 —— 不计入连续失败
+  if (['quotaExceeded', 'dailyLimitExceeded', 'rateLimitExceeded'].includes(reason)) return { tier: 'throttled', reason }
+  if (reason === null && httpStatus === 429) return { tier: 'throttled', reason: 'http_429' }  // 无 reason 的 429 仍是节流
+  if (['backendError', 'internalError'].includes(reason)) return { tier: 'transient', reason }
+  if (reason === null && httpStatus >= 500) return { tier: 'transient', reason: `http_${httpStatus}` }
+  // Tier C：不可自愈 —— 立即暂停
+  if (['keyInvalid', 'keyNotValid', 'accessNotConfigured', 'forbidden'].includes(reason)) return { tier: 'fatal', reason }
+  if (httpStatus === 401 || httpStatus === 403 && reason === null) return { tier: 'fatal', reason: `http_${httpStatus}` }
+  // Tier B：真故障
+  if (['channelNotFound', 'playlistNotFound', 'forbidden'].includes(reason)) return { tier: 'permanent', reason }
+  // 兜底：reason 缺失且状态码无法归类 → unknown，按 Tier B 计但保留可诊断摘要
+  return { tier: 'permanent', reason: reason || `unknown_http_${httpStatus}` }
 }
+```
+
+**为什么 429 即使没有 reason 也归 Tier A**：429 的语义就是 Too Many Requests，**无论 body 形状如何都是节流**。若因 body 解析失败而落到兜底分支，会把正常的节流计成连续失败并最终暂停——这正是 v1 设计里"配额耗尽被误判成故障"的同类错误，只是换了条路径。
+
+**`unknown` 分支保留诊断摘要**（不保留原文，避免意外带出 Key 或长文本）：
+
+```js
+const digest = JSON.stringify(body || {}).slice(0, 200).replace(/[A-Za-z0-9_-]{20,}/g, '<redacted>')
+// 落 last_error_message，日志记 rawDigest，便于复现时定位
 ```
 
 | 等级 | 触发条件 | 计入连续失败 | 重试策略 |
