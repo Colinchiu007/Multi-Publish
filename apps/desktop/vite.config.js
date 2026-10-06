@@ -50,6 +50,14 @@ export default defineConfig({
       // 枚举与监控状态映射由 shared-utils 的 parity 回归锁与主进程同源。
       '@multi-publish/shared-utils/src/publish-audit-status':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/publish-audit-status.browser.js'),
+      // 平台侧定时能力注册表（2026-10-07 架构变更）：渲染进程消费 ESM 孪生版，
+      // 数据单一来源 platform-schedule-capability.json（与 publish-capabilities 同形）。
+      // 未登记此 alias 时 /create 与 /publish 会整页渲染失败（详见孪生文件头注释）。
+      // 平台侧定时能力注册表（2026-10-07 架构变更）：渲染进程消费 ESM 孪生版，
+      // 数据单一来源 platform-schedule-capability.json（与 publish-capabilities 同形）。
+      // 未登记此 alias 时 /create 与 /publish 会整页渲染失败（详见孪生文件头注释）。
+      '@multi-publish/shared-utils/src/platform-schedule-capability':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/platform-schedule-capability.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

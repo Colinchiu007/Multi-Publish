@@ -1,6 +1,6 @@
 'use strict'
 /**
- * platform-schedule-capability.js — 平台侧定时能力注册表（单一真源）
+ * platform-schedule-capability.js — 平台侧定时能力注册表（单一真源，主进程 / Node 侧 CommonJS 版）
  *
  * 背景（2026-10-07 架构变更）
  * ------------------------
@@ -13,7 +13,7 @@
  * 参考产品（4.0 逆向实测）34 个 worker 里 27 个走平台侧定时，7 个不支持
  * （皮皮虾 / 搜狐视频 / 豆瓣 / 得物 / 简书号 / WiFi万能钥匙 / 豆包）。
  * 这 7 个平台的 worker 里 `prePubTime` 出现 **0 次** —— 也就是说用户勾了定时、
- * 内容却**立即发布**，属���最危险的静默失败形态。
+ * 内容却**立即发布**，属最危险的静默失败形态。
  *
  * 本仓明令禁止这种行为：`unsupported` 平台在**创建时**就被显式阻断，
  * 绝不静默回落到本地定时、更不静默立即发布。回落到本地定时同样不行 ——
@@ -33,6 +33,16 @@
  * 属于真机取证范畴。本表**不猜测**：未经真机证实的平台一律登记为 `unsupported`
  * 并写明原因，待取证后逐个改写。这样做的代价是「当前只有头条可用」，
  * 换来的是「绝不会静默发出用户以为没发出的内容」。
+ *
+ * 逐平台数据在 platform-schedule-capability.json（**单一来源**，CJS 与 ESM 孪生共同消费）。
+ * 头条取值依据：直连发布接口 mp.toutiao.com/mp/agw/article/publish 的 form-urlencoded
+ * 载荷已实现定时字段（timer_status=1 + timer_time，格式 YYYY-MM-DD HH:mm），
+ * 见 packages/rpa-engine/src/toutiao-direct-publish.js。该能力此前被当作「绕过 DOM
+ * 死锁的手段」硬编码为「+60 秒」，本次变更把它提升为用户可选的真实定时模式。
+ *
+ * ⚠ 渲染进程请勿直接 import 本文件（浏览器无法执行 CommonJS）。
+ *   渲染层经 vite alias 消费 ESM 孪生 platform-schedule-capability.browser.js，
+ *   两侧函数层漂移由 __tests__/platform-schedule-capability.test.js 的 parity 回归拦截。
  */
 
 /**
@@ -48,48 +58,19 @@
  * @property {boolean} [verified] 是否已经真机取证证实
  */
 
-/** @type {Readonly<Record<string, PlatformScheduleCapability>>} */
-const PLATFORM_SCHEDULE_CAPABILITY = Object.freeze({
-  // ── 头条：首个平台侧定时落地平台 ──────────────────────────────
-  // 真机取证：本仓直连发布接口 mp.toutiao.com/mp/agw/article/publish 的
-  // form-urlencoded 载荷已实现定时字段（timer_status=1 + timer_time，
-  // 格式 YYYY-MM-DD HH:mm），见 packages/rpa-engine/src/toutiao-direct-publish.js。
-  // 该能力此前被当作「绕过 DOM 死锁的手段」硬编码为「+60 秒」，
-  // 本次变更把它提升为用户可选的真实定时模式。
-  toutiao: Object.freeze({
-    mode: 'api',
-    reason: '',
-    timeField: 'timer_time',
-    enableField: 'timer_status',
-    enableValueOn: 1,
-    timeFormat: 'YYYY-MM-DD HH:mm',
-    // 头条定时最短提前量按平台侧常见约束取 5 分钟；最大值取 30 天
-    // （与渲染端 PUBLISH_CONTRACT_LIMITS.maxScheduleDays 对齐，避免两处漂移）。
-    minLeadMinutes: 5,
-    maxHorizonDays: 30,
-    verified: true
-  }),
+/** 深冻结：JSON 载入后必须冻结，避免调用方通过返回值改写全局注册表。 */
+function deepFreeze (obj) {
+  if (obj && typeof obj === 'object' && !Object.isFrozen(obj)) {
+    Object.freeze(obj)
+    for (const value of Object.values(obj)) deepFreeze(value)
+  }
+  return obj
+}
 
-  // ── 其余 14 个平台：尚未真机取证，显式阻断 ──────────────────────
-  // 登记为 unsupported 而非 api/rpa，是因为「平台是否支持平台侧定时」
-  // 必须登录该平台查看其发布页或接口才能确定，代码层无法推断。
-  // 逐个平台取证后，把对应项改写为 api 或 rpa 并填齐字段即可启用 ——
-  // 框架、分发链路、渲染层校验都已就位，改数据不改逻辑。
-  wechat_mp: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  zhihu: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  weibo: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  douyin: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  xiaohongshu: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  tencent_video: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  kuaishou: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  bilibili: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  baijiahao: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  youtube: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  tiktok: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  twitter: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  instagram: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false }),
-  facebook: Object.freeze({ mode: 'unsupported', reason: 'notVerified', verified: false })
-})
+/** @type {Readonly<Record<string, PlatformScheduleCapability>>} */
+const PLATFORM_SCHEDULE_CAPABILITY = deepFreeze(
+  require('./platform-schedule-capability.json').platforms
+)
 
 const UNKNOWN_CAPABILITY = Object.freeze({
   mode: 'unsupported',
