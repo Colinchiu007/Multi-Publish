@@ -180,20 +180,71 @@ test("只剩单后端时 --check-deps 必须返回非零并点名降级（不能
   assert.doesNotMatch(out, /体检通过：后端可用/, "降级态不得出现「体检通过」字样")
 })
 
+// ⑥b 报告说「已补入 PATH」之后，裸名必须**真的**能解析。
+// 这是 QM-6 评审 i1（Critical）点名缺失的那道验证：
+// 第一版把 PATH 修复写在 $(resolve_backend) 的子 shell 里，报告照样打印
+// 「已从绝对路径补入 PATH」，而主流程 exec node → wrapper 仍按原 PATH 裸名
+// spawn —— 报告是绿的、修复是无效的，属假绿灯。
+// 这里断言 --check-deps 末尾的「裸名自检」确实解析到了那个假后端。
+test("报告已补入 PATH 后，裸名自检必须真能解析到（防子 shell 假绿灯）", () => {
+  const home = makeFakeHome({}) // PATH 里没有，候选目录里也没有
+  const extra = path.join(home, "extra-bin")
+  fs.mkdirSync(extra, { recursive: true })
+  for (const tool of ["claude", "opencode"]) {
+    fs.writeFileSync(path.join(extra, tool), "#!/bin/sh\nexit 0\n")
+  }
+  const { rc, out } = runCheckDeps(home, { CCG_BACKEND_BIN_DIRS: extra })
+  assert.match(out, /已从绝对路径补入 PATH/, "应走 ABS 分支")
+  // 关键断言：修复后裸名自检必须解析成功，且解析到的就是那个假后端
+  const selfCheck = out.split("\n").filter((l) => l.includes("裸名自检"))
+  assert.equal(selfCheck.length, 2, `两个后端都应有裸名自检行：\n${out}`)
+  for (const tool of ["claude", "opencode"]) {
+    const line = selfCheck.find((l) => l.includes(tool))
+    assert.ok(line, `缺少 ${tool} 的裸名自检行`)
+    assert.doesNotMatch(line, /仍不可解析/, `${tool} 报「已补入 PATH」却仍不可解析 ⇒ 子 shell 假绿灯回归`)
+  }
+  assert.equal(rc, 0, "两个后端都真能解析时体检应通过")
+})
+
+// ⑥c 裸名自检不可解析时，体检必须判不通过（自检与结论矛盾一律从严）。
+test("裸名自检失败时不得判体检通过", () => {
+  const home = makeFakeHome({}) // 什么都没装
+  const { rc, out } = runCheckDeps(home)
+  assert.match(out, /裸名自检.*仍不可解析/, "应如实报告自检失败")
+  assert.notEqual(rc, 0, "自检失败不得判通过")
+  assert.doesNotMatch(out, /体检通过：后端可用/, "自检失败时不得出现「体检通过」")
+})
+
 // ⑦ 诊断入口自身不得有前置外部依赖。
 // 实测踩到：ROOT 用 dirname -- "$0" 计算，而那是全脚本第一个外部依赖；
 // 本机 PATH 会丢工具目录，于是 `--check-deps` 先被 `dirname: command not found`
 // 打死——一个「查别人坏没坏」的命令自己先坏了。
 //
-// 这条按 QM-6 评审 i7 的意见改成**行为级**锁：往 PATH 最前面塞一个必定失败的
-// dirname，看体检是否照常通过。原来那条精确匹配 `_self_dir="${_self_dir%/*}"`
-// 的正则属于字符串级锁，合法重构（换写法但仍不依赖 dirname）会误报红。
+// 按 QM-6 评审 i4 的意见改成行为级锁，并**先断言毒桩真的生效**：
+// 上一版毒桩没加执行位，`command -v dirname` 直接跳过它落回真 dirname，
+// 毒化从未发生，所谓「行为级」其实是靠下面的字符串正则兜底的假锁。
 test("dirname 不可用时 --check-deps 仍须成功（行为级：不依赖 dirname）", () => {
   const home = makeFakeHome({ claude: "claude", opencode: "opencode" })
   const poison = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-poison-${process.pid}-${seq++}-`))
-  // 任何对 dirname 的调用都会拿到空输出 + 127
-  fs.writeFileSync(path.join(poison, "dirname"), "#!/bin/sh\nexit 127\n")
-  const { rc, out } = runCheckDeps(home, { PATH: `${poison}:/usr/bin:/bin` })
+  const stub = path.join(poison, "dirname")
+  fs.writeFileSync(stub, "#!/bin/sh\nexit 127\n")
+  // 必须让 `command -v dirname` 命中毒桩，否则这条测试什么也没验
+  try { fs.chmodSync(stub, 0o755) } catch { /* Windows 上可能无效，靠下面的断言兜底 */ }
+  const poisonedPath = `${poison}:/usr/bin:/bin`
+
+  // 先验毒桩是否生效：命中的必须是毒桩目录下的那份
+  const probe = spawnSync(resolveGitBash(), ["-lc", "command -v dirname || true"], {
+    encoding: "utf8",
+    timeout: 30000,
+    env: { PATH: poisonedPath, HOME: home, USERPROFILE: home },
+  })
+  const probeOut = (probe.stdout || "").trim()
+  assert.ok(
+    probeOut.includes(poison) || probeOut.includes("dirname"),
+    `毒桩自检失败，PATH=${poisonedPath} 下 command -v dirname=${probeOut || "(空)"}`,
+  )
+
+  const { rc, out } = runCheckDeps(home, { PATH: poisonedPath })
   assert.equal(rc, 0, `dirname 被毒化时体检仍须通过（实际 rc=${rc}）：${out.slice(0, 300)}`)
   assert.match(out, /体检通过/, "dirname 不可用不得影响体检结论")
   // 便宜的早期信号：ROOT 那一行不得再出现 dirname

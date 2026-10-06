@@ -92,7 +92,14 @@ posix_dir() {
 #   posix_dir 走 cygpath/sed/cut/tr。PATH 坏到本方案针对的那个程度时，
 #   这两支会静默不生效（此时只剩前三条与 $CCG_BACKEND_BIN_DIRS 可用）。
 #   这正是 QM-6 评审 i5 指出的过度声称，注释按实际能力收窄。
-#   $CCG_BACKEND_BIN_DIRS 还能显式补一条不依赖任何外部命令的路径（冒号或分号分隔）。
+#
+# 所有条目统一经 posix_dir 归一（QM-6 评审 i6）：只有 npm prefix 归一是不够的，
+# Windows 反斜杠/盘符形态混着进 PATH，在非 msys 的 sh 下根本解析不了。
+# 归一后 PATH 与报告里的路径形态也一致，便于人工核对。
+#
+# $CCG_BACKEND_BIN_DIRS：**只按分号分隔**（换行亦可），不要用冒号——
+# Windows 盘符自带冒号，按冒号切会把路径劈成两段。路径形态不限，
+# 内部会逐条过 posix_dir。
 candidate_dirs() {
   # ⚠ 每个变量都必须写成 ${VAR:-}。
   #   本函数在 `set -u` 下运行，`[ -n "$APPDATA" ]` 在 APPDATA 未设时会**直接
@@ -100,52 +107,64 @@ candidate_dirs() {
   #   候选列表被静默截短，后端于是被判成「找不到」。
   #   这就是「告警/保护逻辑自己静默降级」的同一种病，出现在修复本身里。
   #   （本 PR 的「含空格候选目录」回归测试在最小 env 下当场抓到。）
-  if [ -n "${HOME:-}" ]; then
-    printf '%s\n' "$HOME/.local/bin" "$HOME/bin"
-  fi
-  if [ -n "${APPDATA:-}" ]; then
-    printf '%s\n' "$APPDATA/npm"
-  fi
+  _cd_emit() { _cd_q="$(posix_dir "$1" 2>/dev/null)" || _cd_q=""; [ -n "$_cd_q" ] && printf '%s\n' "$_cd_q"; return 0; }
+  [ -n "${HOME:-}" ] && { _cd_emit "$HOME/.local/bin"; _cd_emit "$HOME/bin"; }
+  [ -n "${APPDATA:-}" ] && _cd_emit "$APPDATA/npm"
   if command -v npm >/dev/null 2>&1; then
     _pp="$(npm prefix -g 2>/dev/null)" || _pp=""
-    if [ -n "$_pp" ]; then
-      _pq="$(posix_dir "$_pp" 2>/dev/null)" || _pq=""
-      [ -n "$_pq" ] && printf '%s\n' "$_pq"
-    fi
+    [ -n "$_pp" ] && _cd_emit "$_pp"
   fi
   if [ -n "${CCG_BACKEND_BIN_DIRS:-}" ]; then
-    # ⚠ 只按**分号**切，绝不按冒号切：Windows 盘符自带冒号（`C:\...`），
-    # 按冒号切会把 `C:\Users\x\Program Files\npm-global` 劈成 `C` 和
-    # `\Users\x\Program Files\npm-global` 两个废目录。第一版就是按 `:;` 切的，
-    # 被本 PR 自己的「含空格候选目录」回归测试当场抓住。
-    # 换行也算分隔符（消费方本就按行读），所以多行写法天然可用。
-    # `%s\n` 而不是 `%s`：不带尾换行的话，消费方的 `while read` 会在 EOF
-    # 处把**最后一行整个丢掉**（read 读到内容但返回非零）——最后一个候选
-    # 被静默跳过。本 PR 自己的「含空格候选目录」测试当场抓到了这个。
-    printf '%s\n' "$CCG_BACKEND_BIN_DIRS" | tr ';' '\n'
+    # `%s\n` 而不是 `%s`：不带尾换行的话消费方会丢掉最后一行（见 resolve_backend）。
+    # 这里用 here-doc 而不是 `| while`——形状与 resolve_backend 保持一致，
+    # 免得两处一个走管道一个不走，读者无从判断哪处的副作用出得去。
+    _cd_raw_list="$(printf '%s\n' "$CCG_BACKEND_BIN_DIRS" | tr ';' '\n')"
+    while IFS= read -r _cd_raw || [ -n "$_cd_raw" ]; do
+      [ -n "$_cd_raw" ] && _cd_emit "$_cd_raw"
+    done <<EOF
+$_cd_raw_list
+EOF
   fi
   return 0
 }
 
-# 探一个后端。输出 "<状态>|<说明>"，状态四取一：
-#   PATH  已在 PATH，裸名可解析
-#   ABS   原本不可解析，已按绝对路径补进 PATH（真身可直接 spawn）
-#   CMD   只找到 .cmd/.bat —— CreateProcess 起不来，只能算半个可用
+# 探一个后端。**结果写进全局 _RB_CODE / _RB_MSG，并用 return code 表示成败。**
+#   PATH  已在 PATH，且裸名解析到的东西是 wrapper 能直接 spawn 的
+#   ABS   原本不可解析，已在**当前 shell** 把目录补进 PATH 并导出
+#   CMD   只找到 .cmd/.bat（PATH 里或候选目录里都算）—— CreateProcess 起不来
 #   MISS  彻底找不到
+#
+# ⚠⚠ 这里**绝不能**用 `out="$(resolve_backend ...)"` 收集结果（QM-6 评审 i1，Critical）。
+#   命令替换开的是子 shell，里面 `PATH=…; export PATH` 一退出就丢：
+#   报告照样打印「已从绝对路径补入 PATH」，而主流程 exec node → wrapper 仍按
+#   原 PATH 裸名 spawn，claude 照样找不到 ⇒ 静默降级在目标场景下原样复现。
+#   第一版就是这么写的，报告是绿的、修复是无效的，属典型假绿灯。
+#   已用最小复现实证：`out="$(f)"` 之后父 shell 的 PATH 首段仍是原值。
+#   本函数因此改为写全局变量，调用方**直接调用**，不走命令替换。
 resolve_backend() {
   _rb_tool="$1"
-  if command -v "$_rb_tool" >/dev/null 2>&1; then
-    printf 'PATH|裸名已可解析（无需干预）'
-    return 0
+  if _rb_hit="$(command -v "$_rb_tool" 2>/dev/null)"; then
+    # 光有 `command -v` 命中不够：msys 的 command -v 会把 PATH 里的 npm shim
+    # （.cmd / 无扩展名）也算命中，而 wrapper 走 CreateProcess 起不了它们
+    # （QM-6 评审 i2）。所以要按**文件类型**再判一次。
+    case "$_rb_hit" in
+      *.cmd|*.bat)
+        _RB_CODE=CMD
+        _RB_MSG="PATH 里命中 $_rb_hit，但它是 .cmd/.bat —— wrapper 走 CreateProcess，起不来"
+        return 0 ;;
+      *)
+        _RB_CODE=PATH
+        _RB_MSG="裸名已可解析：$_rb_hit（无需干预）"
+        return 0 ;;
+    esac
   fi
   # ⚠ 不能写成 `for _rb_d in $(candidate_dirs)`。
   # 命令替换的结果会被 shell 按 IFS 拆词，而候选目录**确实含空格**：
-  # 本机 `npm prefix -g` 实测返回 `D:\Program Files\npm-global`，
-  # 拆开后只剩 `D:\Program` 和 `Files\npm-global` 两个废目录 ⇒ 这条候选
-  # 永远命中不了（QM-6 评审 i2，就是本分支自己被评审打回的真实缺陷）。
+  # 本机 npm 全局 bin 实测含空格，拆开后只剩废目录 ⇒ 这条候选永远命中不了
+  # （QM-6 评审 i2，就是本分支自己被评审打回的真实缺陷）。
   #
-  # 也不能用 `candidate_dirs | while ...`：管道会开子 shell，
-  # 里面的 `export PATH` 与 return 都会丢。here-doc 的 while 留在当前 shell。
+  # 也不能用 `candidate_dirs | while ...`：管道同样开子 shell。
+  # here-doc 的 while 留在当前 shell，PATH 改动才出得去。
   _rb_list="$(candidate_dirs)"
   # `|| [ -n "$_rb_d" ]`：EOF 无尾换行时 read 仍读到了内容但返回非零，
   # 只写 `while read` 会把最后一行静默丢掉。候选列表宁可多判一次，
@@ -156,23 +175,24 @@ resolve_backend() {
     for _rb_f in "$_rb_d/$_rb_tool" "$_rb_d/$_rb_tool.exe" "$_rb_d/$_rb_tool.com" \
                   "$_rb_d/$_rb_tool.cmd" "$_rb_d/$_rb_tool.bat"; do
       [ -f "$_rb_f" ] || continue
-      PATH="$_rb_d:$PATH"
-      export PATH
       case "$_rb_f" in
         *.cmd|*.bat)
-          # 实测：wrapper 走 CreateProcess（UseShellExecute=false），它不解析
-          # .cmd/.bat；放个 .cmd 上去只会把失败推迟到引擎深处、错误信息还更难读。
-          printf 'CMD|只找到 %s —— CreateProcess 起不了 .cmd/.bat，wrapper 仍会失败' "$_rb_f"
+          _RB_CODE=CMD
+          _RB_MSG="只找到 $_rb_f —— CreateProcess 起不了 .cmd/.bat，wrapper 仍会失败"
           return 0 ;;
         *)
-          printf 'ABS|已从绝对路径补入 PATH: %s' "$_rb_f"
+          PATH="$_rb_d:$PATH"
+          export PATH
+          _RB_CODE=ABS
+          _RB_MSG="已从绝对路径补入 PATH: $_rb_f"
           return 0 ;;
       esac
     done
   done <<EOF
 $_rb_list
 EOF
-  printf 'MISS|找不到（PATH 与候选目录均未命中）'
+  _RB_CODE=MISS
+  _RB_MSG="找不到（PATH 与候选目录均未命中）"
   return 1
 }
 
@@ -191,14 +211,13 @@ report_backends() {
   _rb_n=0
   for _rb_b in claude opencode; do
     case "$_rb_b" in
-      claude)   _rb_why="评审后端（主力）" ;;
-      opencode) _rb_why="出方案后端 / 跨家族校验" ;;
+      claude)   _rb_why="评审后端（主力）"; _rb_pkg='@anthropic-ai/claude-code' ;;
+      opencode) _rb_why="出方案后端 / 跨家族校验"; _rb_pkg='opencode-ai' ;;
     esac
-    _rb_st="$(resolve_backend "$_rb_b")"
-    _rb_code="${_rb_st%%|*}"
-    _rb_msg="${_rb_st#*|}"
-    say "  · $_rb_b  [$_rb_code] $_rb_msg（$_rb_why）"
-    case "$_rb_code" in
+    # 直接调用，绝不走 $(...)：PATH 的修复必须留在当前 shell（见上）。
+    resolve_backend "$_rb_b" || true
+    say "  · $_rb_b  [$_RB_CODE] $_RB_MSG（$_rb_why）"
+    case "$_RB_CODE" in
       PATH|ABS) _rb_n=$((_rb_n + 1)) ;;
       CMD)
         # 判为不可用：既不计数，也必须置 _rb_rc=2（否则体检会自相矛盾，见上）。
@@ -207,7 +226,7 @@ report_backends() {
         say "        （符号链接 / 硬链接都可以；.cmd 不作数，原因见上）" ;;
       MISS)
         _rb_rc=2
-        say "      ↳ 修法：装一个（npm i -g @anthropic-ai/claude-code），"
+        say "      ↳ 修法：装一个（npm i -g $_rb_pkg），"
         say "        或把它所在目录写进系统 PATH 后重开终端；"
         say "        也可用 CCG_BACKEND_BIN_DIRS 显式指一个目录" ;;
     esac
@@ -243,6 +262,21 @@ if [ "$CHECK_DEPS" -eq 1 ]; then
     _CD_RC=2
   fi
   report_backends || _CD_RC=2
+  # 恢复后的**裸名自检**：报告说「已补入 PATH」只有裸名真能解析才算数。
+  # 这一步必须在当前 shell 做——第一版把 PATH 修复写在 $(resolve_backend) 的
+  # 子 shell 里，报告是绿的、引擎照样按原 PATH 裸名 spawn（QM-6 评审 i1，Critical）。
+  # 自检与体检结论矛盾时，一律按不通过处理：宁可误报红，也不放一个假绿灯过去。
+  for _CD_b in claude opencode; do
+    _CD_hit="$(command -v "$_CD_b" 2>/dev/null)" || _CD_hit=""
+    if [ -n "$_CD_hit" ]; then
+      say "  · 裸名自检 $_CD_b → $_CD_hit"
+      case "$_CD_hit" in
+        *.cmd|*.bat) _CD_RC=2 ;;
+      esac
+    else
+      say "  · 裸名自检 $_CD_b → 仍不可解析"
+    fi
+  done
   say ""
   if [ "$_CD_RC" -eq 0 ]; then
     say "体检通过：后端可用。"
@@ -319,7 +353,6 @@ WRAPPER="${CODEAGENT_WRAPPER:-${HOME:-}/.claude/bin/codeagent-wrapper.exe}"
   exit 2
 }
 # 后端体检**并补 PATH**（旧实现只 say 一句被动告警然后照跑 ⇒ 静默降级）。
-# 这里保持非致命，与旧语义一致：真要 fail-closed 请用 --check-deps。
 # 降级（单后端）保持非致命，与旧语义一致；真要 fail-closed 请用 --check-deps。
 # 但「一个后端都没有」必须早退：继续跑只会在引擎深处抛一个难懂的错误，
 # 而上一行刚打印过「深度审查根本起不来」，再打印「体检通过」是自相矛盾

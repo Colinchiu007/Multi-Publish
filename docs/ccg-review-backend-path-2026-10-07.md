@@ -220,7 +220,101 @@ $ PATH=/usr/bin:/bin sh scripts/deep-review.sh --check-deps
 
 ---
 
-## 六、预防措施
+## 六、第三轮 QM-6：修复第一版其实是假绿灯
+
+第二轮处置完后再审一轮（commit `1091b4e4`），6 条，**最低分从 5 掉到 3**。
+其中 i1 是 Critical，而且直指第一版修复**根本没生效**。
+
+### i1（Critical）：`PATH` 修复写在子 shell 里，报告是绿的、修复是无效的
+
+第一版 `report_backends` 用 `out="$(resolve_backend "$tool")"` 收集结果，
+而 `resolve_backend` 里的 `PATH=…; export PATH` 就发生在**命令替换的子 shell** 中，
+一退出即丢。后果：
+
+- 报告照样打印「已从绝对路径补入 PATH」——**看起来修好了**
+- 主流程 `exec node $DRIVER` → `codeagent-wrapper` 仍按**原 PATH** 裸名 spawn
+- claude 照样找不到 ⇒ **静默降级在目标场景下原样复现**
+
+已用最小复现实证（不是推理）：
+
+```sh
+f() { printf 'X'; PATH="/zzz-marker:$PATH"; export PATH; }
+out="$(f)"
+case "$PATH" in /zzz-marker:*) echo 传出 ;; *) echo "丢在子 shell 里" ;; esac
+# → 结论：PATH 改动丢在子 shell 里 —— 父 shell 未被修改
+```
+
+**为什么第一轮没发现**：测试①只断言了**文案与 rc**，从未验证「恢复之后裸名
+真能解析」。这正是「有测试」与「测到了要测的东西」的区别。
+
+处置：
+1. `resolve_backend` 改为**写全局变量** `_RB_CODE` / `_RB_MSG`，调用方
+   **直接调用**，全程不走命令替换。
+2. `--check-deps` 末尾新增**裸名自检**：在当前 shell 里 `command -v` 每个后端并打印
+   解析结果。自检与体检结论矛盾时一律判不通过——**宁可误报红，也不放假绿灯过去**。
+3. 新增 3 例：⑥b（报「已补入 PATH」后裸名自检必须真能解析）、
+   ⑥c（自检失败不得判通过）、并保留 ⑥ 的三档断言。
+
+### i2（Warning）：健康判据与 spawn 判据错配
+
+msys 的 `command -v` 会把 PATH 里的 **shim**（`.cmd` / 无扩展名）也判为「已可解析」，
+而 wrapper 走 `CreateProcess` 起不了它们 ⇒ `PATH` 分支会误报
+「裸名已可解析（无需干预）」，静默降级仍然无告警。
+原实现只在**候选目录**分支查文件类型，PATH 命中那条路从没查过。
+已修：PATH 分支对 `command -v` 的结果同样做 `.cmd`/`.bat` 判定，命中走 CMD 文案并置 rc=2。
+
+### i3（Warning）：修法文案张冠李戴
+
+`MISS` 分支把包名写死成 `@anthropic-ai/claude-code`，`opencode` 缺失时也让用户装
+claude-code——装完 opencode 仍缺。已修：按后端给包名
+（`claude` → `@anthropic-ai/claude-code`，`opencode` → `opencode-ai`）。
+实测已确认输出变成 `npm i -g opencode-ai`。
+
+### i4（Info）：我那个「行为级锁」本身是假的
+
+⑦ 号测试声称是行为级锁（往 PATH 塞一个必失败的 `dirname`），但**毒桩没加执行位**，
+`command -v dirname` 直接跳过它落回真 `dirname`——毒化从未发生，实际只靠下面那行
+字符串正则兜底。已修：`chmod +x` 后**先断言毒桩真的生效**（`command -v dirname`
+必须指向毒桩目录），再跑被测断言。声称的回归保护必须是真在跑的。
+
+### i5（Info）/ i6（Info）
+
+- step4 有两行内容重复的「保持非致命」注释、测试④上方残留整段旧版注释 → 已清理。
+- 候选目录只有 `npm prefix` 经 `posix_dir` 归一，`$APPDATA/npm` 与
+  `CCG_BACKEND_BIN_DIRS` 以 Windows 反斜杠形态直接进 PATH → 已改为**全部**经
+  `posix_dir` 归一。实测输出已统一为 `/c/hermes-home/bin/claude`、
+  `/d/Program Files/npm-global/opencode` 这种 POSIX 形态。
+
+### 6.1 第三轮之后的端到端取证
+
+不再只看报告，直接用修复后的 PATH **真去 spawn 一次 wrapper**：
+
+```
+# 坏 PATH（/usr/bin:/bin）下跑 --check-deps
+  · claude  [ABS] 已从绝对路径补入 PATH: /c/Users/<user>/.local/bin/claude
+  · 裸名自检 claude → /c/Users/<user>/.local/bin/claude
+
+# 取该目录拼进 PATH，真正 spawn wrapper
+command -v claude -> /c/Users/<user>/.local/bin/claude
+wrapper rc=0
+PONG
+```
+
+这才是「引擎真的能拿到后端」的证据。测试最终 **10/10 绿**。
+
+### 6.2 这一轮最该记住的
+
+同一处修复，第一版能通过自己写的全部测试、报告还能打印成功文案、CI 也是绿的，
+**而它对目标场景完全无效**。真正抓住它的是外部评审对「你验证的是不是要修的东西」
+的质疑，加上一次刻意设计的**端到端取证**。
+
+规律：**「我测了」不等于「我测到了要修的那个性质」**。
+凡是「保护/修复逻辑」，验收标准必须是**被保护对象的可观测行为**，
+而不是修复代码自己的返回值或文案。
+
+---
+
+## 七、预防措施
 
 1. **已落地**：告警改行为（`--check-deps` 三档退出码）+ 绝对路径解析 + 独立诊断入口 +
    防回潮结构锁。
@@ -233,7 +327,7 @@ $ PATH=/usr/bin:/bin sh scripts/deep-review.sh --check-deps
    - QM-6 记录应显式写明**实际参与了几路后端**，而不只是结论。
 4. **未在本 PR 修**：其他脚本对继承 PATH 的依赖（本次只审了 `deep-review.sh` 一条路径）。
 
-## 七、附：一条无害观察
+## 八、附：一条无害观察
 
 wrapper 诊断头打印的命令行里 `--setting-sources` 后面是**空值**：
 
