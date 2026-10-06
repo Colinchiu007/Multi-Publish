@@ -143,7 +143,10 @@ class PublishApiCapabilitiesHelpers {
   /** 能力面失败统一收口：登录失效 401、签名未就绪 503、其余 502/400 按 error.code 夹紧。 */
   _capabilitiesFailure (req, res, error) {
     const code = error && typeof error.code === 'number' ? error.code : null
-    if (error && error.login_expired) {
+    // 登录失效收口。同时认 `login_expired`（当前契约）与 `cookieExpired`
+    // （B站历史字段名，仍可能被外部直接抛）。两个都要认：只认前者会让历史
+    // 抛法静默退化成 400，只认后者则新代码无处对齐——单一口径 + 兼容别名。
+    if (error && (error.login_expired || error.cookieExpired)) {
       this._json(res, 401, { success: false, error: 'LOGIN_EXPIRED', message: error.message })
       return
     }

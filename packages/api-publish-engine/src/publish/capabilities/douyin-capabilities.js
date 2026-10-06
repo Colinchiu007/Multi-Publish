@@ -129,19 +129,36 @@ class DouyinCapabilities {
   async publishPermission () {
     const res = await this._get(POST_PERMISSION_PATH, { is_image_album_style: 0, options: {} })
     const d = res.data || {}
+
+    // **fail-closed**：只有 status_code === 0 这一个肯定分支可以放行。
+    // 此前把「无法识别」（status_code 缺失、风控换壳、平台改字段名、网关兜底返 {}）
+    // 一律落到末尾的 allowed:true —— 与本函数存在的意义正好相反：它的全部价值
+    // 就是把失败点前移到零字节上传，一旦遇到没见过的响应就报「可以发」，
+    // 预检就退化成了摆设。**改动平台语义必须显式承认，不靠默认放行兜底。**
+    if (d.status_code === 0) {
+      return { allowed: true, risk_blocked: false, platform: 'douyin', reason: '', raw: d }
+    }
     if (d.status_code === 110) {
       return {
         allowed: false, risk_blocked: true, platform: 'douyin',
         reason: '抖音安全验证未通过（status_code=110），请在创作者中心手动完成验证后重试',
       }
     }
-    if (d.status_code !== undefined && d.status_code !== 0) {
+    if (d.status_code !== undefined && d.status_code !== null && typeof d.status_code === 'number') {
       return {
         allowed: false, risk_blocked: false, platform: 'douyin',
         reason: '抖音发布权限不可用 status_code=' + d.status_code,
       }
     }
-    return { allowed: true, risk_blocked: false, platform: 'douyin', reason: '', raw: d }
+    // 响应无法识别：status_code 缺失 / 为 null / 非数字（风控换壳、平台改字段名、
+    // 网关兜底返 {}、上游把异常吞成空体）。上面两个肯定分支都判过之后才走到这里，
+    // 说明平台返回了本模块没有取证覆盖的形状——不猜，按拒绝处理。
+    // unrecognized 供调用方区分「平台明说不行」与「我们读不懂」。
+    return {
+      allowed: false, risk_blocked: false, platform: 'douyin', unrecognized: true,
+      reason: '抖音发布权限响应无法识别（缺 status_code），按 fail-closed 拒绝放行；不猜测平台语义',
+      raw: d,
+    }
   }
 
   /**

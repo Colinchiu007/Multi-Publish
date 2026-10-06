@@ -75,7 +75,11 @@ class BilibiliCapabilities {
         new BilibiliCapabilitiesError(
           'bilibili-capabilities: ' + path + ' code=' + d.code + ' msg=' + (d.message || ''),
           loginExpired ? errorCode.data_error : errorCode.request_error),
-        { biliCode: d.code, cookieExpired: loginExpired, message: d.message || '' })
+        // 字段名必须与其他平台一致：能力面收口（_capabilitiesFailure）只认
+        // `login_expired`。此前这里写 `cookieExpired`，收口分支从未命中，
+        // B站未登录被判成普通数据错误返回 400 —— 客户端拿不到「请重新登录」
+        // 这个它最需要的信号。cookieExpired 保留为向后兼容别名。
+        { biliCode: d.code, login_expired: loginExpired, cookieExpired: loginExpired, message: d.message || '' })
     }
     return d.data === undefined ? d : d.data
   }
