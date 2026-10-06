@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "eaa2284991df7311",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "resolve_backend 的 PATH prepend/export 全发生在 `$(...)` 命令替换的子 shell 内，一退出即丢。ABS 分支只是打印了『已补入 PATH』，主流程第5步 wrapper 仍按原 PATH 裸名 spawn，claude 依旧找不到→静默降级在原缺陷目标场景下原样复现。测试①只断言文案与 rc，从未验证恢复后裸名真能解析，属假绿灯。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "健康判据与 spawn 判据错配：msys 的 `command -v` 会把 PATH 里的 npm shim（无扩展名 claude / claude.cmd）判为『已可解析』，而 wrapper 走 CreateProcess 起不了 shim→PATH 分支误报『裸名已可解析（无需干预）』，静默降级仍无告警；CMD 检查只在候选目录分支生效，PATH 命中路径从未查文件类型。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "MISS 分支修法文案写死 `npm i -g @anthropic-ai/claude-code`，对 opencode 同样输出——opencode 缺失时让用户装 claude-code，装完 opencode 仍缺。文档真实取证第二段正是此形态，修法本身误导。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    }
+  ]
+}
