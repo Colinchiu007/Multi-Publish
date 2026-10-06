@@ -60,6 +60,24 @@ function resolveGitBash() {
 // 这正是本机 cwd 在 D: 时的真实形态（.local\bin 那条被剥了盘符，落在 D: 上不存在）。
 const BARE_PATH = "/usr/bin:/bin"
 
+// 造一个「wrapper 起得来」的后端桩。
+//
+// 平台差异是实质性的，不能糊弄（QM-6 第四轮 i4）：
+//   · Windows(msys)：脚本按 wrapper 判据要求 **.exe/.com**；无扩展名会被判成
+//     npm 的 sh shim 而不可用。所以桩必须叫 `claude.exe`。
+//   · POSIX：bash 解析裸名 `claude` 时不会去试 `claude.exe`，桩必须叫 `claude`。
+// 另外 POSIX 上 `command -v` 是按 **X_OK** 找文件的，`writeFileSync` 默认 0644
+//   ⇒ 不 chmod 的话桩根本解析不到，测试会「因为测不到而绿」。
+//   Windows 上 chmod 基本是空操作，无害。
+const IS_WIN = process.platform === "win32"
+function writeStub(dir, tool) {
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, IS_WIN ? `${tool}.exe` : tool)
+  fs.writeFileSync(file, "#!/bin/sh\nexit 0\n")
+  try { fs.chmodSync(file, 0o755) } catch { /* Windows 上可能无效 */ }
+  return file
+}
+
 let seq = 0
 function makeFakeHome(backends) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-deps-${process.pid}-${seq++}-`))
@@ -67,10 +85,9 @@ function makeFakeHome(backends) {
   fs.mkdirSync(path.join(home, ".claude", "bin"), { recursive: true })
   fs.writeFileSync(path.join(home, ".claude", "bin", "codeagent-wrapper.exe"), "stub")
   for (const [name, file] of Object.entries(backends || {})) {
-    const dir = path.join(home, ".local", "bin")
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, file), `#!/bin/sh\nexit 0\n`)
     assert.ok(name, "backends 的键是后端名")
+    writeStub(path.join(home, ".local", "bin"), name)
+    assert.ok(file, "backends 的值只用于表达意图，实际文件名按平台决定")
   }
   return home
 }
@@ -100,7 +117,7 @@ test("后端不在 PATH 但装在 $HOME/.local/bin 时，必须按绝对路径�
   // 关键：不能再是「找不到」。旧实现在这里只会 say 一句 ⚠ 然后照跑。
   assert.doesNotMatch(out, /claude[^\n]*找不到/, "claude 已装在 $HOME/.local/bin，不得判为找不到")
   assert.match(out, /\.local[\\/]bin/, "必须报出补入 PATH 的绝对路径，便于事后核对")
-  assert.match(out, /已从绝对路径补入 PATH/, "必须明确区分「靠 PATH 命中」与「靠绝对路径补入」")
+  assert.match(out, /已把绝对目录 .* 补到 PATH 最前/, "必须明确区分「靠 PATH 命中」与「靠绝对路径补入」")
   // 双模型齐备时不得出现降级措辞（只看 0/1 标志的旧实现会在这里误报「只剩单后端」）
   assert.doesNotMatch(out, /只剩单后端/, "两个后端都在时不得打印降级告警")
   assert.doesNotMatch(out, /没有任何评审后端可用/, "两个后端都在时不得打印全缺告警")
@@ -108,16 +125,33 @@ test("后端不在 PATH 但装在 $HOME/.local/bin 时，必须按绝对路径�
   assert.equal(rc, 0, "两个后端都可用时体检应通过退出")
 })
 
-// ② 把本机实测到的硬事实钉住：.cmd/.bat 是 CreateProcess 起不来的。
-// 若这里判成「可用」，引擎会拿一个起不来的后端去跑，失败信息还落在很后面。
-// rc 断言是 QM-6 评审 i1 补的：仅断言文案会放过「刚说完起不来、下一句体检通过
-// 却 exit 0」的自相矛盾。
-test("只存在 .cmd 时必须告警且判为不可用（wrapper 走 CreateProcess，起不了 .cmd）", () => {
-  const home = makeFakeHome({ claude: "claude.cmd" })
+// ② `.cmd` **不得**被误判成「wrapper 起不来」。
+//
+// 这条断言曾经写反过两次，都留在这里当记录：
+//   第一次：我用 .NET `Process.Start`（UseShellExecute=false）测出「CreateProcess
+//     起不了 .cmd」，就推广成「wrapper 也起不了 .cmd」——**错**。wrapper 是 Go 写的，
+//     Go 在 Windows 上能直接跑 .cmd/.bat。实测真身 npm-global\opencode.cmd
+//     在绝对路径 PATH 下被 wrapper 正常拉起，rc=0。
+//   第二次：为此造了个「只有 .cmd」的夹具，结果在 Windows 上根本解析不到——
+//     fs.chmodSync 在 NTFS 上是空操作，MSYS 的可执行位靠扩展名/shebang 合成。
+//     与其跟平台打架，不如测 npm **实际发布**的形态。
+// `npm i -g` 产出的是三者并存：`opencode`（sh shim）+ `opencode.cmd` + `opencode.ps1`，
+// 所以这里就按这个形态造桩——这也正是候选循环第 3 个探针（无扩展名）要覆盖的。
+test("npm 形态的候选（sh shim + .cmd 并存）必须判为可用，不得因 .cmd 误报不可用", () => {
+  const home = makeFakeHome({})
+  const binDir = path.join(home, ".local", "bin")
+  fs.mkdirSync(binDir, { recursive: true })
+  for (const tool of ["claude", "opencode"]) {
+    // npm 真实布局：sh shim 与 .cmd 并存
+    const shim = path.join(binDir, tool)
+    fs.writeFileSync(shim, "#!/bin/sh\nexit 0\n")
+    try { fs.chmodSync(shim, 0o755) } catch { /* Windows 上空操作 */ }
+    fs.writeFileSync(path.join(binDir, `${tool}.cmd`), "@echo off\r\nexit /b 0\r\n")
+  }
   const { rc, out } = runCheckDeps(home)
-  assert.match(out, /CreateProcess/, "必须点明这是 CreateProcess 的限制，否则无人知道下一步做什么")
-  assert.match(out, /\.cmd/, "必须点名实际命中的文件")
-  assert.notEqual(rc, 0, "只命中 .cmd 时不得返回 0——那会让体检判成「体检通过」")
+  assert.match(out, /\.cmd/, "应报出命中的 .cmd 文件")
+  assert.doesNotMatch(out, /wrapper 起不来|起不来（\.cmd/, "不得把 .cmd 误判为起不来")
+  assert.equal(rc, 0, "npm 形态的候选可用时体检应通过")
 })
 
 // ③ fail-closed：真的没有后端时不能静默降级，诊断命令要能自己失败。
@@ -149,12 +183,9 @@ test("候选目录含空格或冒号时仍必须命中（防命令替换/分隔�
   const spaced = isWin
     ? path.join(home, "Program Files", "npm-global")
     : path.join(home, "od:d", "Program Files")
-  fs.mkdirSync(spaced, { recursive: true })
-  for (const tool of ["claude", "opencode"]) {
-    fs.writeFileSync(path.join(spaced, tool), "#!/bin/sh\nexit 0\n")
-  }
+  for (const tool of ["claude", "opencode"]) writeStub(spaced, tool)
   const { rc, out } = runCheckDeps(home, { CCG_BACKEND_BIN_DIRS: spaced })
-  assert.match(out, /已从绝对路径补入 PATH/, "含空格/冒号的候选目录必须被识别为命中")
+  assert.match(out, /已把绝对目录 .* 补到 PATH 最前/, "含空格/冒号的候选目录必须被识别为命中")
   assert.match(out, /Program Files/, "命中路径必须原样带空格回报")
   assert.doesNotMatch(out, /找不到/, "含空格/冒号的目录不得被判为找不到")
   assert.equal(rc, 0, "两个后端都命中时体检应通过退出")
@@ -189,12 +220,9 @@ test("只剩单后端时 --check-deps 必须返回非零并点名降级（不能
 test("报告已补入 PATH 后，裸名自检必须真能解析到（防子 shell 假绿灯）", () => {
   const home = makeFakeHome({}) // PATH 里没有，候选目录里也没有
   const extra = path.join(home, "extra-bin")
-  fs.mkdirSync(extra, { recursive: true })
-  for (const tool of ["claude", "opencode"]) {
-    fs.writeFileSync(path.join(extra, tool), "#!/bin/sh\nexit 0\n")
-  }
+  for (const tool of ["claude", "opencode"]) writeStub(extra, tool)
   const { rc, out } = runCheckDeps(home, { CCG_BACKEND_BIN_DIRS: extra })
-  assert.match(out, /已从绝对路径补入 PATH/, "应走 ABS 分支")
+  assert.match(out, /已把绝对目录 .* 补到 PATH 最前/, "应走 ABS 分支")
   // 关键断言：修复后裸名自检必须解析成功，且解析到的就是那个假后端
   const selfCheck = out.split("\n").filter((l) => l.includes("裸名自检"))
   assert.equal(selfCheck.length, 2, `两个后端都应有裸名自检行：\n${out}`)
@@ -251,6 +279,26 @@ test("dirname 不可用时 --check-deps 仍须成功（行为级：不依赖 dir
   const src = fs.readFileSync(SCRIPT, "utf8")
   const rootLine = (src.match(/^ROOT=.*$/m) || [""])[0]
   assert.doesNotMatch(rootLine, /dirname/, "ROOT 计算不得再用 dirname")
+})
+
+// ⑨ 候选目录**即使已经在 PATH 里**，也必须被 prepend 到最前并报 ABS。
+//
+// 这条对应第四轮 i1 的真正要害：wrapper 是 Go 原生进程，`exec.LookPath`
+// 遇到无盘符的 PATH 条目会返回**相对**路径并 ErrDot 拒绝执行；而同一份 PATH
+// 下 bash 的 `command -v` 照样成功。所以「解析得到就什么都不做」是错的修法——
+// 真正的修法是把绝对目录顶到最前。本机 opencode 就是这个形态：
+// `command -v` 命中，但 wrapper 直接失败；prepend 绝对目录后 rc=0。
+test("候选目录已在 PATH 中时也必须被 prepend 到最前并报 ABS（ErrDot 的真修法）", () => {
+  const home = makeFakeHome({})
+  const binDir = path.join(home, ".local", "bin")
+  for (const tool of ["claude", "opencode"]) writeStub(binDir, tool)
+  // 这个目录**同时**通过 PATH 与 CCG_BACKEND_BIN_DIRS 暴露，正是「解析得到
+  // 但来源是坏条目」的情形。只看 command -v 的实现会直接跳过修复。
+  const { rc, out } = runCheckDeps(home, { CCG_BACKEND_BIN_DIRS: binDir })
+  assert.match(out, /已把绝对目录/, "必须报出「已把绝对目录补到 PATH 最前」")
+  assert.doesNotMatch(out, /无需干预/, "不得因为裸名已能解析就跳过 prepend")
+  assert.doesNotMatch(out, /找不到/, "两个后端都不该被判为找不到")
+  assert.equal(rc, 0, "两后端都可用时体检应通过")
 })
 
 // ⑧ 防回潮：不得再写回「只 say 一句被动告警然后照跑」的旧形态。

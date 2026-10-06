@@ -314,7 +314,126 @@ PONG
 
 ---
 
-## 七、预防措施
+## 七、第四轮 QM-6：找错了两次机理，才摸到真正的病根
+
+第四轮（commit `da0eb2f3`）7 条，最低分 4。两个 Critical。i1 的**问题是真的**，
+但我一开始**修错了方向**——这一节记的是怎么错的，比记怎么对更有用。
+
+### 7.1 我先后做错的三件事
+
+**错法一（第三版）**：以为 `.cmd`/`.bat` 和 MSYS 下的无扩展名 sh shim
+wrapper 都起不来，于是加了一套「按扩展名判定可 spawn」的分类器。
+依据是我先前用 **.NET `Process.Start`（`UseShellExecute=false`）**测出
+「raw CreateProcess 起不了 `.cmd`」。
+
+**但 wrapper 是 Go 写的。Go 在 Windows 上能直接跑 `.cmd`/`.bat`。**
+实测真身 `npm-global\opencode.cmd` 被 wrapper 正常拉起、`rc=0`。
+把一个只对 raw CreateProcess 成立的结论推广到 Go 进程上，
+就是「我测了」但「我测的不是它」。
+
+**错法二**：以为 bash 的 `command -v` 命中就等于 wrapper 能起，所以只在
+解析失败时才补 PATH。
+
+**错法三**：以为 `posix_dir` 归一出来的 `/d/...` 形态对 Go 是致命的。
+
+### 7.2 真正的病根：Go 的 ErrDot
+
+直接去读 wrapper 的报错，才是决定性的：
+
+```
+Failed to start opencode: exec: "opencode": cannot run executable found
+relative to current directory
+```
+
+这是 Go 的 `ErrDot`：`exec.LookPath` 一旦返回**相对**路径就拒绝执行。
+而那些被剥掉盘符的 PATH 条目（`\Program Files\npm-global`）在 Go 眼里
+正是「相对」的——bash 会按 cwd 盘符补全它们，Go 不会。
+
+于是矛盾解开了：
+
+> **同一份 PATH 下，bash 的 `command -v opencode` 成功，wrapper 却直接失败。**
+
+这正是本条缺陷最隐蔽的形态：**bash 侧一切正常，引擎侧起不来**。
+所以判据必须落在「绝对目录有没有被放到 PATH 最前」，而**不是**
+「裸名能不能解析」。
+
+对照实验（决定性）：
+
+| 变体 | 结果 |
+|---|---|
+| A 原始继承 PATH | `rc=1` ErrDot |
+| B 注入原生形态 `D:\Program Files\npm-global` | `rc=0` 正常返回 |
+| C 注入 MSYS 形态 `/d/Program Files/npm-global` | `rc=0` 正常返回 |
+
+B/C 都通 ⇒ 错法三也被推翻：**MSYS 会翻译，POSIX 形态无害，起决定作用的是
+「绝对 + 排最前」**。
+
+### 7.3 最终实现
+
+`resolve_backend` 改成**总是**把找到后端的绝对目录 prepend 到 PATH 最前
+（而不是只在解析失败时），并用裸名自检确认结果。文件形态不再参与判定。
+
+配套修掉第四轮其余各条：
+
+- i2（Critical）：自检 `else` 分支只打印「仍不可解析」却不置 rc=2 ——
+  我注释里承诺的「矛盾一律判不通过」只实现了 `.cmd` 那一格。已置 rc，
+  并补 ⑥c 覆盖。
+- i3（Warning）：自检只做在 `--check-deps`，主流程没有 → 已下沉到
+  `report_backends` 末尾，两条路径共用。
+- i4（Info）：测试桩从未 `chmod +x`，POSIX 上 `command -v` 按 X_OK 过滤 ⇒
+  「10/10 绿」只在 Windows msys 成立。已改为按平台命名 + 显式 chmod。
+  （注：CI 上 Gate 2b 对 ubuntu 实跑通过，说明 bash 在该环境下的宽松度与
+  我的推断不同；但显式 chmod 仍然是对的，不该依赖平台宽容。）
+- i5 / i6：重复与陈旧注释已清理；候选目录全部经 `posix_dir` 归一。
+
+### 7.4 又一次被自己的测试抓住
+
+新分类器上线后测试直接转红 4 条，暴露了另一个平台陷阱：
+**Git Bash 下 `command -v` 报出的路径会省略 `.exe`**（磁盘上是
+`opencode.exe`，它报 `opencode`）。不先归一就会把真正的 exe 误判。
+
+更阴的是归一本身也踩坑：**MSYS 的文件测试对扩展名不敏感**，
+磁盘上只有 `claude.exe` 时 `[ -f "$d/claude" ]` 依然为真
+（实测 `OSTYPE=cygwin`）。所以只能**先查无歧义的扩展名**、再回落裸名。
+这两条都是靠单点探针脚本测出来的，不是推理出来的。
+
+### 7.5 第四轮之后的完整验收
+
+不再看报告，直接用脚本产出的 PATH 真去 spawn 两个后端：
+
+```
+# 真实环境 --check-deps
+  · claude   [ABS] 已把绝对目录 /c/Users/邱领/.local/bin 补到 PATH 最前
+  · opencode [ABS] 已把绝对目录 /d/Program Files/npm-global 补到 PATH 最前
+体检通过：后端可用。                                              rc=0
+
+# 用该 PATH spawn wrapper
+claude    rc=0
+opencode  rc=0
+```
+
+测试最终 **11/11 绿**。
+
+### 7.6 这一轮真正的教训
+
+前三轮我在修「让报告好看且自洽」，第四轮才发现**报告自洽与引擎可用是两回事**。
+而这一轮我又被自己的两个错误推论带偏（`.cmd` 不可用、`command -v` 命中即等于可用），
+两次都是靠**直接去读真实进程的报错**才纠正。
+
+规律：
+
+1. **先看被保护对象的真实报错，再动手写保护逻辑。**
+   `cannot run executable found relative to current directory` 这一行，
+   比我三轮推理加起来的信息量都大。
+2. **不同运行时的规则不同，不能跨运行时推广结论。**
+   raw CreateProcess 起不了 `.cmd`，不等于 Go 起不了。
+3. **当同一个「可用性」被两套机制判定时，判据必须选跟消费者同一套。**
+   bash 说得通不代表 Go 说得通——这与 §1.2 那个「同一份 PATH，cwd 在 D: 能用、
+   cwd 在 C: 不能用」是同一种病：**环境一致性是假象，只有消费者的真实解析才算数**。
+
+---
+
+## 八、预防措施
 
 1. **已落地**：告警改行为（`--check-deps` 三档退出码）+ 绝对路径解析 + 独立诊断入口 +
    防回潮结构锁。
@@ -327,7 +446,7 @@ PONG
    - QM-6 记录应显式写明**实际参与了几路后端**，而不只是结论。
 4. **未在本 PR 修**：其他脚本对继承 PATH 的依赖（本次只审了 `deep-review.sh` 一条路径）。
 
-## 八、附：一条无害观察
+## 九、附：一条无害观察
 
 wrapper 诊断头打印的命令行里 `--setting-sources` 后面是**空值**：
 

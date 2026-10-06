@@ -128,84 +128,112 @@ EOF
   return 0
 }
 
+# 当前 shell 是不是 MSYS/Cygwin 系（Git Bash）。
+_is_msys_shell() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*|mingw*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# `command -v` 报出的路径**可能省略 .exe** —— Git Bash 搜索时会自动补 .exe，
+# 但回报的字符串里不写回去（实测：磁盘上是 opencode.exe，command -v 报 opencode）。
+#
+# ⚠ 而且**不能**靠 `[ -f "$1" ]` 判断裸名是否存在：MSYS 的文件测试对扩展名
+# 不敏感（实测 OSTYPE=cygwin 时，磁盘上只有 claude.exe，`[ -f "$d/claude" ]`
+# 依然为真）。必须先查无歧义的扩展名，再回落到裸名。
+_resolve_hit() {
+  for _rh_c in "$1.exe" "$1.com" "$1.cmd" "$1.bat"; do
+    if [ -f "$_rh_c" ]; then
+      printf '%s' "$_rh_c"
+      return 0
+    fi
+  done
+  printf '%s' "$1"
+}
+
 # 探一个后端。**结果写进全局 _RB_CODE / _RB_MSG，并用 return code 表示成败。**
-#   PATH  已在 PATH，且裸名解析到的东西是 wrapper 能直接 spawn 的
-#   ABS   原本不可解析，已在**当前 shell** 把目录补进 PATH 并导出
-#   CMD   只找到 .cmd/.bat（PATH 里或候选目录里都算）—— CreateProcess 起不来
+#   PATH  解析到该后端，**且**它来自一个我们主动 prepend 过的绝对目录
+#   ABS   原本解析不到，已在**当前 shell** 把绝对目录补到 PATH 最前并导出
 #   MISS  彻底找不到
 #
-# ⚠⚠ 这里**绝不能**用 `out="$(resolve_backend ...)"` 收集结果（QM-6 评审 i1，Critical）。
-#   命令替换开的是子 shell，里面 `PATH=…; export PATH` 一退出就丢：
-#   报告照样打印「已从绝对路径补入 PATH」，而主流程 exec node → wrapper 仍按
-#   原 PATH 裸名 spawn，claude 照样找不到 ⇒ 静默降级在目标场景下原样复现。
-#   第一版就是这么写的，报告是绿的、修复是无效的，属典型假绿灯。
-#   已用最小复现实证：`out="$(f)"` 之后父 shell 的 PATH 首段仍是原值。
-#   本函数因此改为写全局变量，调用方**直接调用**，不走命令替换。
+# 为什么**总是** prepend 绝对目录、而不是只在 `command -v` 失败时才做
+# （这是第四轮 i1 的真正要害，之前我推错了机制）：
+# wrapper 是 **Go** 写的原生进程，它的 `exec.LookPath` 遇到「无盘符的 PATH 条目」
+# （`\Program Files\npm-global` 这类）会拿到**相对**路径，然后 Go 1.19+ 直接
+# `ErrDot: cannot run executable found relative to current directory` 拒绝执行。
+# 此时 bash 的 `command -v` **照样成功**（bash 会按 cwd 盘符补全），
+# 所以「command -v 命中」根本不能推出「wrapper 能起」。
+# 实测：opencode 在本机 `command -v` 命中，但 wrapper 直接 ErrDot 失败；
+#       把绝对目录 prepend 到 PATH 最前后，同一条命令 rc=0 返回正常内容。
+# ⇒ 判据只能落在「绝对目录是否被放到了最前」，而不是「裸名能不能解析」。
+#
+# ⚠⚠ 绝不能用 `out="$(resolve_backend ...)"` 收集结果（QM-6 评审 i1，Critical）：
+#   命令替换开子 shell，`PATH=…; export PATH` 一退出就丢 ⇒ 报告说补好了、
+#   引擎仍按原 PATH spawn。已用最小复现实证过。改为写全局变量、调用方直接调用。
 resolve_backend() {
   _rb_tool="$1"
-  if _rb_hit="$(command -v "$_rb_tool" 2>/dev/null)"; then
-    # 光有 `command -v` 命中不够：msys 的 command -v 会把 PATH 里的 npm shim
-    # （.cmd / 无扩展名）也算命中，而 wrapper 走 CreateProcess 起不了它们
-    # （QM-6 评审 i2）。所以要按**文件类型**再判一次。
-    case "$_rb_hit" in
-      *.cmd|*.bat)
-        _RB_CODE=CMD
-        _RB_MSG="PATH 里命中 $_rb_hit，但它是 .cmd/.bat —— wrapper 走 CreateProcess，起不来"
-        return 0 ;;
-      *)
-        _RB_CODE=PATH
-        _RB_MSG="裸名已可解析：$_rb_hit（无需干预）"
-        return 0 ;;
-    esac
-  fi
-  # ⚠ 不能写成 `for _rb_d in $(candidate_dirs)`。
-  # 命令替换的结果会被 shell 按 IFS 拆词，而候选目录**确实含空格**：
-  # 本机 npm 全局 bin 实测含空格，拆开后只剩废目录 ⇒ 这条候选永远命中不了
-  # （QM-6 评审 i2，就是本分支自己被评审打回的真实缺陷）。
-  #
-  # 也不能用 `candidate_dirs | while ...`：管道同样开子 shell。
-  # here-doc 的 while 留在当前 shell，PATH 改动才出得去。
+  # 1) 找第一个真正含有该后端的候选目录，把它的绝对路径 prepend 到 PATH 最前。
+  #    顺序上 .exe/.com 优先，避免同目录里 sh shim 把真 exe 抢先。
   _rb_list="$(candidate_dirs)"
-  # `|| [ -n "$_rb_d" ]`：EOF 无尾换行时 read 仍读到了内容但返回非零，
-  # 只写 `while read` 会把最后一行静默丢掉。候选列表宁可多判一次，
-  # 也不能少判一个（少判 = 后端被误判成找不到，正是本条坑的形态）。
   while IFS= read -r _rb_d || [ -n "$_rb_d" ]; do
     [ -n "$_rb_d" ] || continue
     [ -d "$_rb_d" ] || continue
-    for _rb_f in "$_rb_d/$_rb_tool" "$_rb_d/$_rb_tool.exe" "$_rb_d/$_rb_tool.com" \
+    for _rb_f in "$_rb_d/$_rb_tool.exe" "$_rb_d/$_rb_tool.com" \
+                  "$_rb_d/$_rb_tool" \
                   "$_rb_d/$_rb_tool.cmd" "$_rb_d/$_rb_tool.bat"; do
       [ -f "$_rb_f" ] || continue
-      case "$_rb_f" in
-        *.cmd|*.bat)
-          _RB_CODE=CMD
-          _RB_MSG="只找到 $_rb_f —— CreateProcess 起不了 .cmd/.bat，wrapper 仍会失败"
-          return 0 ;;
-        *)
-          PATH="$_rb_d:$PATH"
-          export PATH
-          _RB_CODE=ABS
-          _RB_MSG="已从绝对路径补入 PATH: $_rb_f"
-          return 0 ;;
-      esac
+      PATH="$_rb_d:$PATH"
+      export PATH
+      _rb_prepended="$_rb_d"
+      break 2
     done
   done <<EOF
 $_rb_list
 EOF
+
+  # 2) 裸名能否解析。文件名形态不参与判定：
+  #    wrapper 是 Go，Go 在 Windows 上能直接跑 .cmd/.bat
+  #    （早先我据 .NET CreateProcess 的实验推广成「wrapper 也起不了 .cmd」，是错的，
+  #      已用 wrapper 实测纠正：opencode.cmd 能被正常拉起）
+  if _rb_hit="$(command -v "$_rb_tool" 2>/dev/null)"; then
+    _rb_real="$(_resolve_hit "$_rb_hit")"
+    if [ -n "${_rb_prepended:-}" ]; then
+      _RB_CODE=ABS
+      _RB_MSG="已把绝对目录 $_rb_prepended 补到 PATH 最前；裸名解析到 $_rb_real"
+    else
+      _RB_CODE=PATH
+      _RB_MSG="裸名解析到 $_rb_real（候选目录里没找到可 prepend 的，已按原样使用）"
+    fi
+    return 0
+  fi
   _RB_CODE=MISS
   _RB_MSG="找不到（PATH 与候选目录均未命中）"
   return 1
+}
+
+# 恢复后的**裸名自检**：在当前 shell 里真的解析一遍。
+# 打印形如 "  · 裸名自检 claude → /path/to/claude"
+# 注意它验的是「bash 能解析」；**wrapper 能否 spawn 由 prepend 绝对目录保证**，
+# 两者的差别见 resolve_backend 上方那段 ErrDot 说明。
+self_check_backends() {
+  for _sb_b in claude opencode; do
+    if _sb_hit="$(command -v "$_sb_b" 2>/dev/null)"; then
+      say "  · 裸名自检 $_sb_b → $(_resolve_hit "$_sb_hit")"
+    else
+      say "  · 裸名自检 $_sb_b → 仍不可解析"
+      _RB_SELF_RC=2
+    fi
+  done
 }
 
 # 逐个后端体检并打印。
 # 退出码刻意分三档而不是「有一个能跑就算过」——单后端正是本条坑造成的降级形态，
 # 把它做成 0 会让体检失去意义：
 #   0  两个后端都在（双模型齐备）
-#   2  有后端缺失或只命中不可执行的 .cmd（能跑则降级；两个都不可用时另加硬提示）
+#   2  有后端缺失（能跑则降级；两个都缺时另加硬提示）
 #
 # 副作用：把 _RB_OK / _RB_RC 暴露给调用方，主流程要靠它决定是继续还是早退。
-# 注意 CMD 也必须置 _rb_rc=2：.cmd 明明被判为「wrapper 起不来」，
-# 若不置 rc，就会出现「刚说完深度审查起不来，下一行体检通过、exit 0」
-# 的自相矛盾（QM-6 评审 i1）。
 report_backends() {
   _rb_rc=0
   _rb_n=0
@@ -219,11 +247,6 @@ report_backends() {
     say "  · $_rb_b  [$_RB_CODE] $_RB_MSG（$_rb_why）"
     case "$_RB_CODE" in
       PATH|ABS) _rb_n=$((_rb_n + 1)) ;;
-      CMD)
-        # 判为不可用：既不计数，也必须置 _rb_rc=2（否则体检会自相矛盾，见上）。
-        _rb_rc=2
-        say "      ↳ 修法：让真身以 .exe/.com 形式出现在某个全盘符限定的 PATH 目录下"
-        say "        （符号链接 / 硬链接都可以；.cmd 不作数，原因见上）" ;;
       MISS)
         _rb_rc=2
         say "      ↳ 修法：装一个（npm i -g $_rb_pkg），"
@@ -242,8 +265,18 @@ report_backends() {
       say ""
       say "  ⚠ 只剩单后端可用 —— 评审能跑，但跨家族交叉验证会缺失（这正是本条坑的形态）。" ;;
   esac
+  # 自检放在这里而不是只放在 --check-deps：主流程同样要知道自己修完之后
+  # 裸名到底起不起来（第四轮 i3）。只给诊断入口做验证，等于把 non-diagnostic
+  # 路径留在旧缺陷形态。
+  _RB_SELF_RC=0
+  say ""
+  self_check_backends
+  if [ "$_RB_SELF_RC" -ne 0 ]; then
+    _rb_rc=2
+  fi
   _RB_OK=$([ "$_rb_n" -ge 1 ] && echo 1 || echo 0)
   _RB_RC="$_rb_rc"
+  _RB_SELF="$_RB_SELF_RC"
   return "$_rb_rc"
 }
 
@@ -262,21 +295,11 @@ if [ "$CHECK_DEPS" -eq 1 ]; then
     _CD_RC=2
   fi
   report_backends || _CD_RC=2
-  # 恢复后的**裸名自检**：报告说「已补入 PATH」只有裸名真能解析才算数。
-  # 这一步必须在当前 shell 做——第一版把 PATH 修复写在 $(resolve_backend) 的
-  # 子 shell 里，报告是绿的、引擎照样按原 PATH 裸名 spawn（QM-6 评审 i1，Critical）。
-  # 自检与体检结论矛盾时，一律按不通过处理：宁可误报红，也不放一个假绿灯过去。
-  for _CD_b in claude opencode; do
-    _CD_hit="$(command -v "$_CD_b" 2>/dev/null)" || _CD_hit=""
-    if [ -n "$_CD_hit" ]; then
-      say "  · 裸名自检 $_CD_b → $_CD_hit"
-      case "$_CD_hit" in
-        *.cmd|*.bat) _CD_RC=2 ;;
-      esac
-    else
-      say "  · 裸名自检 $_CD_b → 仍不可解析"
-    fi
-  done
+  # report_backends 末尾已经做过裸名自检（当前 shell 里的真解析 + wrapper 判据），
+  # 这里只看它的结论，不再重复一遍。self_check 的「不可解析」分支必须置 rc=2
+  # ——注释承诺过「矛盾一律判不通过」，只实现 .cmd 那一格等于承诺落空
+  # （第四轮 i2）。
+  [ "${_RB_SELF:-0}" -ne 0 ] && _CD_RC=2
   say ""
   if [ "$_CD_RC" -eq 0 ]; then
     say "体检通过：后端可用。"
