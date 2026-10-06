@@ -77,10 +77,30 @@ function registerHandlers(ipcMain, deps) {
           // 无需加载 sharp 原生模块（CI 高负载下首载 >30s，真实 30s 超时仍被打穿）。生产不注入时
           // 走真实实现；本地渲染的真实性由 local-cover-generator.test.js 覆盖（PNG 尺寸/比例/折行）。
           const localCoverGenerator = (deps && deps.localCoverGenerator) || require('../services/local-cover-generator')
-          const localResult = await localCoverGenerator.generateLocalCover(prompt, { ratio })
+          // 2026-10-06 内容感知封面：标题与正文摘要一并下传，兜底封面才能与文章内容相关
+          // （此前只传用户手输的 prompt，产出恒为同一张蓝红金渐变「平台标识」卡）。
+          // 标题优先取文章标题（内容本身），缺失时退回 prompt；正文截断避免 IPC 传大包。
+          const coverTitle = String(payload.title || prompt).trim().slice(0, 120)
+          const coverContent = String(payload.content || '').slice(0, 2000)
+          const localResult = await localCoverGenerator.generateLocalCover(coverTitle, {
+            ratio,
+            content: coverContent,
+          })
           if (localResult && localResult.code === 0 && localResult.data && localResult.data.path) {
-            ipcLog('info', 'cover:generate-ai', 'local-fallback', `reason=${reason} path=${localResult.data.path.slice(-80)}`)
-            return { code: 0, data: { coverPath: localResult.data.path }, message: '本地封面生成成功（AI 生图不可用，已用标题卡兜底）' }
+            const d = localResult.data
+            ipcLog('info', 'cover:generate-ai', 'local-fallback',
+              `reason=${reason} theme=${d.theme} label=${d.themeLabel} keywords=${(d.keywords || []).join('/')} path=${d.path.slice(-80)}`)
+            return {
+              code: 0,
+              data: {
+                coverPath: d.path,
+                source: 'local-fallback',
+                theme: d.theme,
+                themeLabel: d.themeLabel,
+                keywords: d.keywords || [],
+              },
+              message: '本地封面生成成功（AI 生图不可用，已按文章内容生成封面）',
+            }
           }
           return { code: EC.REQUEST_ERROR, message: (localResult && localResult.message) || 'AI 与本地封面生成均失败' }
         } catch (e) {
@@ -106,7 +126,7 @@ function registerHandlers(ipcMain, deps) {
         return await fallbackLocalCover('ai-generate-failed')
       }
       ipcLog('info', 'cover:generate-ai', 'ok', `path=${result.data.path.slice(-80)} 耗时=${Date.now() - startedAt}ms`)
-      return { code: 0, data: { coverPath: result.data.path }, message: 'AI 封面生成成功' }
+      return { code: 0, data: { coverPath: result.data.path, source: 'ai' }, message: 'AI 封面生成成功' }
     } catch (e) {
       ipcLog('error', 'cover:generate-ai', 'error', `message=${e.message} 耗时=${Date.now() - startedAt}ms`)
       return { code: EC.REQUEST_ERROR, message: e.message }

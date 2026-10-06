@@ -12,7 +12,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { generateLocalCover } = require('./local-cover-generator')
+const { generateLocalCover, buildCoverSvg, wrapTitle, resolveTheme, MOTIFS } = require('./local-cover-generator')
 
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'local-cover-test-'))
 
@@ -95,5 +95,89 @@ describe('local-cover-generator — 本地封面生成（SVG→sharp→PNG）', 
     const r1 = await generateLocalCover('标题A', { outputDir: TMP_DIR })
     const r2 = await generateLocalCover('标题A', { outputDir: TMP_DIR })
     expect(r1.data.path).not.toBe(r2.data.path)
+  }, 60000)
+})
+
+// 2026-10-06 内容感知封面回归锁。设计前提是「AI 生图不可用时的兜底」，
+// 因此这里全部用**纯函数**（不碰 sharp）断言，覆盖旧版被单一场景覆盖不到的分支。
+describe('local-cover-generator — 内容感知封面（纯函数，不依赖 sharp）', () => {
+  it('确定性：同一内容两次构建的 SVG 逐字节相同', () => {
+    expect(buildCoverSvg('大模型推理成本暴跌', { content: 'AI 算力降价' }))
+      .toBe(buildCoverSvg('大模型推理成本暴跌', { content: 'AI 算力降价' }))
+  })
+
+  it('区分性：不同内容产出不同画面', () => {
+    expect(buildCoverSvg('甲文', { content: 'a' })).not.toBe(buildCoverSvg('乙文', { content: 'b' }))
+  })
+
+  it('安全：标题中的 XML 特殊字符全部转义，SVG 中无裸标签', () => {
+    const svg = buildCoverSvg('<script>alert(1)</script> & "x"', {})
+    expect(svg).not.toContain('<script>')
+    expect(svg).toContain('&lt;script&gt;')
+    expect(svg).toContain('&amp;')
+  })
+
+  it('识别：8 条真实标题全部命中预期主题', () => {
+    const cases = [
+      ['大模型推理成本暴跌', 'tech'],
+      ['面试被问「你最大的缺点」', 'career'],
+      ['家常红烧肉这样做', 'food'],
+      ['川西七日自驾', 'travel'],
+      ['每月定投指数基金', 'finance'],
+      ['养了三年的猫', 'pet'],
+      ['一岁半的柯基开始掉毛', 'pet'],
+      ['Steam 新游打折入手', 'game'],
+    ]
+    for (const [t, exp] of cases) expect(resolveTheme(t, '').id).toBe(exp)
+  })
+
+  it('哈希分支：5000 条无主题内容全部映射到合法纹样（JS 有符号位运算回归锁）', () => {
+    for (let i = 0; i < 5000; i++) {
+      expect(MOTIFS).toContain(resolveTheme('标题' + i, '正文' + i).motif)
+    }
+  })
+
+  it('哈希分支：20 条无主题内容的纹样分布够广（低位分布不均回归锁）', () => {
+    const seen = new Set()
+    for (let i = 0; i < 20; i++) seen.add(resolveTheme('无主题随笔' + i, '内容' + i).motif)
+    expect(seen.size).toBeGreaterThanOrEqual(8)
+  })
+
+  it('排版禁则：ASCII 词不拆散、闭合引号不落行首', () => {
+    const ascii = wrapTitle('大模型推理成本暴跌，AI 应用进入平价时代', 11)
+    expect(ascii.every((l) => !/^[A-Za-z]$/.test(l))).toBe(true)
+    expect(ascii.join('')).toContain('AI')
+    expect(wrapTitle('面试被问「你最大的缺点」怎么答', 11).some((l) => l.startsWith('」'))).toBe(false)
+  })
+
+  it('截断：超长标题末行带省略号，不静默丢字', () => {
+    const lines = wrapTitle('超'.repeat(300), 11)
+    expect(lines.length).toBeLessThanOrEqual(4)
+    expect(lines[lines.length - 1].endsWith('…')).toBe(true)
+  })
+
+  it('不截断：短标题不带省略号', () => {
+    expect(wrapTitle('面试被问「你最大的缺点」', 11).some((l) => l.includes('…'))).toBe(false)
+  })
+
+  it('版式：5 种画幅均产出合法 viewBox', () => {    for (const [w, h] of [[1080, 1440], [1920, 1080], [1080, 1080], [1440, 1080], [1080, 1920]]) {
+      expect(buildCoverSvg('比例测试标题', { width: w, height: h })).toContain(`viewBox="0 0 ${w} ${h}"`)
+    }
+  })
+
+  it('版式：横版（16:9）文字块不超过 58% 画高，装饰区不被压没', () => {
+    const svg = buildCoverSvg('秋天的第一杯咖啡，藏在老巷子里的手冲', { width: 1920, height: 1080, content: '探店咖啡馆' })
+    const m = svg.match(/<clipPath id="safe"><rect x="0" y="(\d+)"/)
+    expect(m).not.toBeNull()
+    expect(Number(m[1])).toBeLessThanOrEqual(1080 * 0.84)
+    expect(Number(m[1])).toBeGreaterThan(1080 * 0.5)
+  })
+
+  it('生成结果回传 theme / themeLabel / keywords', async () => {
+    const r = await generateLocalCover('每月定投指数基金', { outputDir: TMP_DIR, content: '基金定投理财复盘' })
+    expect(r.code).toBe(0)
+    expect(r.data.theme).toBe('finance')
+    expect(r.data.themeLabel).toBe('财经')
+    expect(Array.isArray(r.data.keywords)).toBe(true)
   }, 60000)
 })

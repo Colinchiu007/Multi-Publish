@@ -64879,3 +64879,55 @@ P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**�
 未修改任何生产代码。
 
 ---
+
+# [未发布] feat(desktop): 内容感知封面——AI 生图不可用时按文章内容生成兜底封面（content-aware-svg-cover，2026-10-06）
+
+### 问题
+图文发布（小红书/快手/抖音图文）要求至少 1 张图，AI 生图不可用时回退到本地封面生成器。
+但该生成器把渐变硬编码为 `#1a2a6c → #b21f1f → #fdbb2d` 加一条固定黑底条，
+**全平台全文章产出同一张「平台标识」式标题卡**，且兜底链路只拿到用户手输的 prompt、
+没拿到文章标题与正文。根因是「视觉层写死 + 数据层缺上下文」两个独立缺陷。
+
+### 改动
+- **重写** `apps/desktop/electron/services/local-cover-generator.js`：15 主题本地词典
+  （标题命中权重 3 / 正文权重 1，取 argmax，平局取词典声明顺序以保证确定性），
+  每主题绑定双色渐变 + 强调色 + 一种程序化 SVG 纹样（电路/折线/热气/山峦/心跳/清单/
+  书页/像素/光束/爪印/道路/缎带/心形/拱形/阶梯/点阵共 16 种）；未命中词典时用
+  FNV-1a 内容哈希派生色相与纹样。**零模型调用、零新增依赖**（复用 hoisted sharp）——
+  一旦依赖 LLM，「模型挂掉时的兜底」会跟着一起挂掉
+- **排版升级**：主题徽章 + 主标题 + 关键词副标题，取代原来「居中大字 + 黑条」。
+  引入中文排版禁则（ASCII 词不拆散、闭合标点不落行首、开启标点不落行尾，
+  显示宽度 CJK=2 / ASCII=1）；字号按画布**短边**缩放并对整块高度设预算
+  （竖版 62% / 横版 58%），保证装饰区不被压没
+- **装饰安全区**：纹样按 `[safeTop, h]` 自适应布局 + `clipPath` 裁剪 +
+  顶部渐变遮罩软化交界，杜绝装饰横穿标题
+- **上下文打通**：`cover:generate-ai` 兜底分支改传 `title`（优先于 prompt，截 120 字）
+  与 `content`（截 2000 字）；`Publish.vue` 下传 `article.title` / `article.content`
+- **来源可辨**：两条分支都回传 `data.source`（`ai` / `local-fallback`），
+  渲染端据此给差异化提示，如实告知用户「AI 生图不可用」而非谎报「AI 封面已生成」
+- **日志增强**：兜底成功日志新增 `theme` / `label` / `keywords`，为词典回补提供数据
+- **i18n**：zh/en 成对新增 `aiCoverLocalGenerated`，改写 `aiCoverPromptPlaceholder` 说明兜底行为
+
+### 踩坑与修复（均有回归测试钉住）
+- **JS `^` 返回有符号 32 位**：FNV-1a 哈希 >2³¹ 时 `^k` 翻成负数 →
+  `MOTIFS[负下标]` 为 `undefined` → **未命中分支直接崩**。正解：异或后 `>>> 0`
+- **FNV-1a 低 4 位分布不均**：「随笔0/随笔1/…」高度相似串，20 条只落 7 种纹样。
+  正解：纹样索引与色相取高位 `(seed >>> 11)`，恢复到 12 种
+- **ASCII 词被拆散**：按字符数切行把「AI」切成 A / I 两行。正解：ASCII 连续片段
+  作为不可分割排版单元
+- **中文标点落行首**：`」` 单独起行。正解：维护禁则表 NO_LINE_START / NO_LINE_END
+- **横版撑爆**：字号按宽缩放，1920×1080 下文字块吃掉 83% 画高、纹样不可见。
+  正解：按短边缩放 + 高度预算
+- **词典覆盖不足 / 误命中**：「红烧肉」不命中美食（只收了品类词）；
+  「茶」命中「调查」、「笔记」命中「随笔记录」。正解：收具体名词、剔除单字与
+  可被更长词包含的词
+
+### 验证
+- `local-cover-generator.test.js` 6 条既有断言 + 10 条新增用例，
+  `publish.test.js` 3 条新增 IPC 合同用例；两文件 **52 passed**
+- `check-locale-sync.js --pair-base origin/main` / `--cjk` 全 PASS（无新增硬编码中文）
+- `check-no-brand-residue.js` PASS（扫 6933 tracked 文件）
+- 向后兼容：`generateLocalCover` / `wrapTitle` / `buildCoverSvg` / `RATIOS`
+  导出符号与 `RATIOS` 键集合未变；`buildCoverSvg(title, {width, height})`
+  旧调用形态仍可用；未传 `title` 时退回 `prompt`
+- 详细规格见 `01-docs/PRD.md`「内容感知封面生成（AI 生图不可用时的本地兜底）」章节

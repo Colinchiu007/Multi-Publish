@@ -18478,3 +18478,345 @@ feature flag 是权限边界，读不到按关闭；内容类别是**展示资�
 | 自动化任务与手动操作竞争资源 | 界面明示；同任务不并发 |
 | 菜单基线测试红 | 6 处同步改，先跑 `sidebar-menu.test.js` + `test_app_menu_api.py` |
 | 类别 key 改名导致历史引用失效 | key 发布后不得改名（UI 置灰 + 说明）；只允许改 name |
+
+## 内容感知封面生成（AI 生图不可用时的本地兜底）（2026-10-06）
+
+### 一、背景与问题
+
+#### 1.1 现状链路
+
+图文发布（小红书 / 快手 / 抖音图文）要求**至少 1 张图片**。当用户未配置 AI 生图 provider，
+或生图调用失败时，IPC `cover:generate-ai`（`apps/desktop/electron/ipc-handlers/publish.js`）
+回退到本地封面生成器 `apps/desktop/electron/services/local-cover-generator.js`，
+用「SVG → sharp → PNG」产出封面，保证「一键发布图文」链路不因缺图而整体失败。
+
+#### 1.2 问题现象
+
+原实现的视觉输出**与文章内容完全无关**：
+
+- 渐变配色硬编码为 `#1a2a6c → #b21f1f → #fdbb2d`（蓝 → 红 → 金），全平台、全文章、永远相同；
+- 底部固定一条 `rgba(0,0,0,0.35)` 黑条充当「品牌条」；
+- 版式固定为「居中大字标题 + 黑条」，无任何可变量。
+
+结果：无论用户发的是美食、旅行还是代码文章，产出的都是**同一张「平台标识」式标题卡**。
+一批图文发出去，封面在信息流里毫无区分度，等于没有封面。
+
+#### 1.3 根因定位
+
+`buildCoverSvg()` 把配色、装饰、版式全部写死为常量，唯一变量是标题文字；
+且兜底链路只下传了用户手输的 `prompt`，**没有拿到文章标题与正文**——
+即便想按内容生成也无从下手。这是两个独立缺陷：视觉层写死 + 数据层缺上下文。
+
+---
+
+### 二、目标与非目标
+
+| 编号 | 目标 | 可验证判据 |
+|------|------|-----------|
+| G1 | 兜底封面与文章内容相关 | 8 条真实标题各自命中预期主题 |
+| G2 | 不同内容产出不同封面 | 任意两条不同内容，SVG 不逐字节相同 |
+| G3 | 同一内容结果稳定 | 同一输入两次构建，SVG 逐字节相同 |
+| G4 | 零模型、零新增依赖 | 实现内无任何 LLM/HTTP 调用；`package.json` 不变 |
+| G5 | 向后兼容 | 现有 `local-cover-generator.test.js` 6 条断言不改动仍全绿 |
+| G6 | 装饰不压字 | 纹样渲染区域严格位于标题块下方（`clipPath` 裁剪） |
+
+**非目标**
+
+- 不做语义级内容理解（需要模型，与 G4 直接冲突）；
+- 不做真实照片级生成（本模块定位是「零依赖兜底」，不是生图模型的替代品）；
+- 不改动 `packages/shared-utils/src/cover-processor/cover-generator.js`（AI 生图成功路径，本次范围外）；
+- 不做封面风格的手工选择 UI（保留「跟随内容自动判定」）。
+
+---
+
+### 三、功能流程
+
+#### 3.1 主流程
+
+```
+用户点「AI 生成封面」
+        │
+        ▼
+  ┌─────────────────────┐
+  │ 校验 prompt           │──不合法（<2 或 >500 字符）──→ 返回 VALIDATION_ERROR
+  └─────────────────────┘
+        │
+        ▼
+  ┌─────────────────────┐
+  │ 校验 ratio / style   │──非法值静默回落到白名单默认值
+  └─────────────────────┘
+        │
+        ▼
+  assetGenerator 可用？ ──否──┐
+        │是                    │
+        ▼                       │
+  assetGenerator.generateImage │
+        │                       │
+   ┌────┴────┐                  │
+   │成功      │失败              │
+   ▼          ▼                  ▼
+ 返回        ┌──────────────────────────────┐
+ source:ai   │  fallbackLocalCover(reason)  │
+             │  coverTitle = title || prompt│
+             │  content   = content[0:2000]│
+             └──────────────┬───────────────┘
+                            ▼
+              ┌─────────────────────────────┐
+              │ ① 主题识别                    │
+              │   显式 theme > 词典命中 > 哈希 │
+              └──────────────┬──────────────┘
+                             ▼
+              ┌─────────────────────────────┐
+              │ ② SVG 合成                    │
+              │   渐变底 → 纹样(安全区) → 徽章 │
+              │   → 主标题 → 关键词副标题       │
+              └──────────────┬──────────────┘
+                             ▼
+              ┌─────────────────────────────┐
+              │ ③ sharp → PNG                 │
+              └──────────────┬──────────────┘
+                             ▼
+              返回 source:local-fallback
+              + theme / themeLabel / keywords
+```
+
+#### 3.2 降级触发原因（`reason`）
+
+| reason | 触发条件 | 日志级别 |
+|--------|---------|---------|
+| `assetGenerator-unavailable` | `deps.assetGenerator` 未注入，或缺 `generateImage` 方法 | info |
+| `ai-generate-failed` | `assetGenerator.generateImage()` 返回非 0 或无 `data.path` | warn |
+
+---
+
+### 四、功能逻辑
+
+#### 4.1 主题词典
+
+内置 **15 个主题**，每个主题定义 `id` / `label`（徽章文案）/ `motif`（纹样）/
+`from`·`to`（双色渐变）/ `accent`（强调色）/ `kw`（关键词数组）。
+
+| id | 徽章 | 渐变 | 强调色 | 纹样 |
+|----|------|------|--------|------|
+| tech | 科技 | `#0B1F3A → #1E6FDB` | `#35E0FF` | 电路网格 |
+| finance | 财经 | `#102A43 → #0E7C66` | `#F2C94C` | 柱状折线 |
+| food | 美食 | `#7A2E1E → #E08A3C` | `#FFE0A3` | 热气 + 碗 |
+| travel | 旅行 | `#0E4F6B → #2A9D8F` | `#FFD166` | 山峦 + 日轮 |
+| health | 健康 | `#134E4A → #38A169` | `#E6FFFA` | 心跳波 |
+| career | 职场 | `#2D3748 → #4A5568` | `#F6AD55` | 清单勾选 |
+| education | 教育 | `#312E81 → #4C51BF` | `#F6C177` | 书页线 |
+| game | 游戏 | `#3B0764 → #A21CAF` | `#22D3EE` | 像素方块 |
+| media | 影视 | `#18122B → #6D28D9` | `#F472B6` | 光束 + 胶片格 |
+| pet | 宠物 | `#78350F → #F59E0B` | `#FDE68A` | 爪印 |
+| car | 汽车 | `#1E293B → #475569` | `#FB923C` | 道路透视 |
+| fashion | 时尚 | `#4C1D3F → #BE185D` | `#FBCFE8` | 缎带弧线 |
+| family | 情感 | `#7E22CE → #EC4899` | `#FDE68A` | 心形散点 |
+| home | 家居 | `#3F3A34 → #A67B5B` | `#E8D6B3` | 几何拱形 |
+| growth | 成长 | `#1E3A8A → #3B82F6` | `#93C5FD` | 上升阶梯 |
+
+#### 4.2 打分规则
+
+```
+score(theme) = Σ over kw:
+    3  if kw ∈ title
+  + 1  if kw ∈ content[0:400]
+命中主题 = argmax(score)，平局取词典中**声明顺序更靠前**者
+score 全为 0 → 走哈希派生
+```
+
+**关键词设计约束**（两条实测教训）：
+
+1. **必须收具体名词，不只收品类词**。真实标题写的是「红烧肉」「川西」「柯基」，
+   只收「美食」「旅行」会导致大面积漏判 → 全部落回哈希派生。
+2. **禁用单字与易被更长词包含的词**。实测单字「茶」会命中「调查」；
+   「笔记」会命中「随**笔记**录」。这类词已剔除或替换为更具体的写法（「记笔记」）。
+
+#### 4.3 哈希派生（未命中主题时）
+
+```
+seed  = (fnv1a(title + '|' + content[0:200]) ^ imul(variant+1, 2654435761)) >>> 0
+hue   = (seed >>> 11) % 360
+motif = MOTIFS[(seed >>> 11) % 16]
+from = hsl(hue, 62%, 26%)   to = hsl(hue+40, 66%, 44%)   accent = hsl(hue+180, 85%, 66%)
+```
+
+**两个必踩的坑（均有回归测试钉住）**：
+
+| 坑 | 现象 | 正解 |
+|----|------|------|
+| JS `^` 返回**有符号** 32 位 | 哈希 >2³¹ 时 `^k` 翻成负数 → `MOTIFS[负下标]` 为 `undefined` → **未命中分支直接崩** | 异或后 `>>> 0` 收回无符号 |
+| FNV-1a **低 4 位**分布不均 | 「随笔0/随笔1/…」高度相似串，20 条只落 7 种纹样 | 纹样索引与色相都取高位 `>>> 11` |
+
+**契约**：同内容 → 同封面（G3）；不同内容 → 不同封面（G2）。
+
+#### 4.4 纹样安全区
+
+纹样**只允许**在 `[safeTop, h]` 区间内绘制：
+
+```
+blockBottom = 关键词副标题基线 + fs*0.1     （无关键词时 = 末行基线 + fs*0.3）
+safeTop     = blockBottom + fs*0.85
+若 safeTop > h*0.84 → safeTop = max(h*0.60, blockBottom + fs*0.30)
+```
+
+由 `<clipPath id="safe">` 强制裁剪 + 顶部 1.4×fs 高的渐变遮罩（`#fade`，0.5 → 0）软化交界。
+
+#### 4.5 版式与字号
+
+| 参数 | 取值 |
+|------|------|
+| 每行最大显示宽度 | `w≥1400 → 13`，`w≥1000 → 11`，否则 `8`（单位：CJK=2 / ASCII=1） |
+| 最大行数 | 4 |
+| 基础字号 | `round(min(w, h) × 0.072)` |
+| 高度预算 | 竖版 `h×0.62`，横版（`w/h>1.25`）`h×0.58`；超预算则字号按比例收缩（下限 `h×0.032`） |
+| 行高 | `fs × 1.42` |
+| CJK 上伸比例 | `0.86`（用于算行盒高度） |
+| 整块垂直位置 | 垂直居中 |
+
+> 字号按**短边**而非宽度缩放：1920×1080 下按宽缩放会让文字块吃掉 83% 画高、纹样区被压没（实测）。
+
+#### 4.6 中文排版禁则
+
+| 规则 | 说明 |
+|------|------|
+| ASCII 词不拆散 | `[A-Za-z0-9@#.+_-]` 连续片段作为不可分割排版单元（「AI」不被切成 A / I） |
+| 闭合标点不落行首 | `」）》】、。，！？：；·%…—’”` |
+| 开启标点不落行尾 | `「（《【‘“` |
+| 显示宽度 | CJK/全角 = 2，ASCII = 1，不能用字符串长度 |
+
+---
+
+### 五、数据校验
+
+#### 5.1 IPC 入参（`cover:generate-ai`）
+
+| 字段 | 类型 | 约束 | 违规处理 |
+|------|------|------|---------|
+| `payload` | object | 必填 | 非对象 → `VALIDATION_ERROR`「缺少参数对象」 |
+| `prompt` | string | trim 后 ≥2 且 ≤500 字符 | → `VALIDATION_ERROR` |
+| `style` | string | 白名单 7 项 | 非法静默回落 `cinematic` |
+| `ratio` | string | 白名单 5 项 | 非法静默回落 `16:9` |
+| `title` | string | 取前 120 字符 | 缺失/空 → 回落用 `prompt` |
+| `content` | string | 取前 2000 字符 | 缺失 → 空串（仅按标题判定主题） |
+
+> `title` / `content` 是**新增的可选字段**，不传时行为退化为「仅按 prompt 生成」，与旧版兼容。
+
+#### 5.2 生成器入参
+
+| 字段 | 类型 | 默认 | 非法处理 |
+|------|------|------|---------|
+| `title` | string | — | 空/非字符串 → 折行占位文案「图文作品」 |
+| `outputDir` | string | `os.tmpdir()/multi-publish-cover-local` | 目录不存在 → `mkdirSync(recursive)` |
+| `ratio` | string | `'3:4'` | 不在 RATIOS → 回落 `'3:4'` |
+| `content` | string | `''` | 非字符串 → 归一为 `''` |
+| `theme` | string | — | 不在 TOPICS → 忽略，走正常判定 |
+| `variant` | number | `0` | 非法 → 归一为 `0` |
+
+#### 5.3 内容安全
+
+| 项 | 措施 |
+|----|------|
+| SVG 注入 | 标题经 `escapeXml()` 转义 `& < > " '` 五类字符后才进入 `<text>`；测试断言 `<script>` 输入不会在产物 SVG 中出现裸标签 |
+| 文件路径 | 输出目录固定在系统临时目录；文件名由时间戳 + 随机后缀生成，**不使用标题派生文件名**（`packages/shared-utils` 的 `cover-generator.js` 会把标题拼进文件名，存在路径注入面，本次不动它） |
+| 动态执行 | 无 `eval`、无 `new Function`、无动态 `require` |
+
+---
+
+### 六、交互逻辑
+
+#### 6.1 交互流程
+
+```
+点击「AI 生成封面」
+  → 弹出对话框（封面描述 / 风格 / 比例）
+  → 点「生成」
+     → 前端校验 prompt（<2 字符直接 warning）
+     → 调用 cover:generate-ai
+     → 成功：
+         source === 'ai'              → 成功提示「AI 封面已生成」
+         source === 'local-fallback'  → 成功提示「AI 生图不可用，已按文章内容生成封面」
+         两者都写入 article.cover_path / cover_file，刷新封面缩略图
+     → 失败：warning「AI 封面生成失败：<message>」
+  → 关闭对话框
+```
+
+> 区分 `source` 的意义：兜底封面由本地程序生成，如实告知用户，避免「谎报 AI 封面已生成」。
+
+#### 6.2 显示项
+
+| 位置 | 显示项 | 数据来源 |
+|------|--------|---------|
+| 封面缩略图区 | 生成结果缩略图 | `coverFileList[0].path` |
+| 对话框-封面描述 | textarea，`maxlength=500`，占位文案含兜底说明 | `publishPage.aiCoverPromptPlaceholder` |
+| 对话框-风格 | select，7 项 | `publishPage.aiCoverStyle.*` |
+| 对话框-比例 | select，5 项（16:9 / 9:16 / 1:1 / 4:3 / 3:4） | 硬编码枚举 |
+| 封面图内-主题徽章 | 圆角胶囊，主题中文名 | `themeLabel`（如「科技」「美食」） |
+| 封面图内-主标题 | 最多 4 行，左对齐，主题色竖条 | 折行后的 `title` |
+| 封面图内-关键词副标题 | 最多 3 个，`·` 分隔 | `keywords` |
+
+#### 6.3 提示文字
+
+| 场景 | i18n key | 中文 | 英文 |
+|------|----------|------|------|
+| 生成成功（AI） | `publishPage.aiCoverGenerated` | AI 封面已生成 | AI cover generated |
+| 生成成功（兜底） | `publishPage.aiCoverLocalGenerated` | AI 生图不可用，已按文章内容生成封面 | AI image generation unavailable — cover generated from your article content |
+| 生成失败 | `publishPage.aiCoverGenerateFailed` | AI 封面生成失败：{message} | AI cover generation failed: {message} |
+| 输入框占位 | `publishPage.aiCoverPromptPlaceholder` | 描述想要的封面画面，如：科技感城市夜景，霓虹光效。**未配置 AI 生图时，将按文章标题与内容自动生成封面** | Describe the cover you want… **Without an AI image provider, a cover is generated from the article title and content** |
+| 生成中 | `publishPage.aiCoverGenerating` | AI 封面生成中… | Generating AI cover… |
+
+主进程 `message` 文案：
+
+| 分支 | 文案 |
+|------|------|
+| AI 成功 | `AI 封面生成成功` |
+| 兜底成功 | `本地封面生成成功（AI 生图不可用，已按文章内容生成封面）` |
+| 全失败 | `AI 与本地封面生成均失败` / `封面生成失败：{e.message}` |
+
+> **i18n 纪律**：zh / en 必须成对提交（CI Gate 7 `check-locale-sync.js` 拦截）；
+> 渲染端 `src/` 非 locales 文件**禁止**新增中文字面量（CI 基线扫描拦截）。
+
+---
+
+### 七、日志与可观测性
+
+| 事件 | 通道 | 级别 | 字段 |
+|------|------|------|------|
+| 走兜底 | `cover:generate-ai` | info | `reason=assetGenerator-unavailable` |
+| AI 生图失败后兜底 | `cover:generate-ai` | warn | `reason=ai-generate-failed` + 原始错误 |
+| 兜底成功 | `cover:generate-ai` | info | `reason` / `theme` / `label` / `keywords` / `path` |
+
+新增 `theme` / `label` / `keywords` 三个字段，便于事后统计「哪类主题的兜底封面最常被用」，
+为后续扩充词典提供数据依据。
+
+---
+
+### 八、验收标准
+
+| # | 判据 | 验证方式 |
+|---|------|---------|
+| A1 | 8 条真实标题各自命中预期主题 | 单元测试 `resolveTheme` 精确断言 |
+| A2 | 同输入两次构建 SVG 逐字节相同 | 单元测试 `toBe` |
+| A3 | 不同内容 SVG 不同 | 单元测试 `not.toBe` |
+| A4 | 标题特殊字符全转义，SVG 无裸标签 | 单元测试 `not.toContain('<script>')` |
+| A5 | 5000 条无主题内容全部映射到合法纹样 | 单元测试循环断言 |
+| A6 | 20 条无主题内容纹样种类 ≥8 | 单元测试 |
+| A7 | ASCII 词不拆散 / 闭合引号不落行首 | 单元测试 |
+| A8 | 5 种画幅 viewBox 合法 | 单元测试 |
+| A9 | 16:9 文字块不超过 58% 画高 | 单元测试（`clipPath` 下边界断言） |
+| A10 | 现有 6 条断言不改动仍全绿 | 回归 |
+| A11 | 兜底分支把 title/content 透传给生成器 | IPC 合同测试 |
+| A12 | 未传标题时退回 prompt | IPC 合同测试（向后兼容） |
+| A13 | `data.source` 区分 ai / local-fallback | IPC 合同测试 |
+| A14 | zh / en 新增键成对存在 | CI Gate 7 |
+
+---
+
+### 九、风险与缓解
+
+| 风险 | 影响 | 缓解 |
+|------|------|------|
+| 词典覆盖不足，大量文章落回哈希 | 徽章显示「内容封面」，主题感弱 | 已收具体名词；`theme`/`keywords` 进日志，用真实数据回补词典 |
+| 中文子串误命中 | 主题张冠李戴（实测「随笔记录」→「笔记」→「成长」） | 剔除单字与可被更长词包含的词；`score>0` 才认定命中 |
+| 同义/近义主题打架 | 「特斯拉」同属 tech 与 car | 加权打分取最大；同分取词典顺序（确定性优先于「更对」） |
+| sharp 原生模块 CI 首载超时 | 测试红 | 沿用现有做法：IPC 合同测试用依赖注入替身；真实渲染交给 `local-cover-generator.test.js`（已有 180s 预热） |
+| 兜底封面被用户误认为 AI 生图 | 预期落差 | `data.source` + 差异化提示文案，如实告知 |
