@@ -142,6 +142,22 @@ describe('M-5 回归锁：读-改-写已串行化', () => {
     expect(keys).not.toContain('base')
   })
 
+  it('链中毒防护：一次写入失败后，后续写入仍须正常落库', async () => {
+    const lib = useCopyLibrary()
+    // 让第一次写失败（模拟磁盘/设置写入抛错）
+    storeSetSettingMock.mockImplementationOnce(async () => { throw new Error('storage boom') })
+    const r1 = await lib.upsertRewrite({ fromKey: 'bad', title: '会失败', content: 'x'.repeat(10) })
+    await tick()
+    // 失败被吞：返回 null 而不是 reject（调用方 useCopyDetailMode 靠这个不阻塞主流程）
+    expect(r1).toBeNull()
+
+    // 关键：后续写入必须正常 —— 链没有进入 rejected 态
+    const r2 = await lib.upsertRewrite({ fromKey: 'good', title: '会成功', content: 'y'.repeat(10) })
+    await tick()
+    expect(r2).not.toBeNull()
+    expect(keysOf()).toContain('good')
+  })
+
   it('源码锚点：写路径必须走串行队列（防止本文件与实现漂移）', async () => {
     const { readFileSync } = await import('node:fs')
     const { resolve } = await import('node:path')
