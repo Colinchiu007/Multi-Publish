@@ -844,6 +844,9 @@ function registerHandlers(ipcMain, deps) {
     }
     catch (e) { ipcLog('error', 'account:list', 'error', `message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [] } }
   }))
+  // 诊断通道：只输出 cookie 名，供确认发布链硬凭据是否存在（详见同目录说明文件）
+  const { registerCredentialDiagnostics } = require('./account-credential-diagnostics')
+  registerCredentialDiagnostics({ deps, withSenderCheck, EC, ipcLog, ipcMain })
 }
 
 module.exports = registerHandlers
