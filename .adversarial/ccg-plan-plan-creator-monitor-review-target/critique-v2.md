@@ -5,55 +5,62 @@
       "id": "i1",
       "severity": "Critical",
       "dimension": "feasibility",
-      "finding": "配额收敛缺少并发与短期成本口径：并发导入或配置变更可能都通过预检；/c/custom、错误重试和一次性导入成本未预留，可在合法路径突破当日池。",
-      "suggestion": "配置写入串行化或加显式锁；预检纳入当日已用、resolver一次性成本、重试与并发预留，不足整体拒绝。"
+      "finding": "外部 API 调用不是数据库行内变更，无法用 claim token CAS 阻止旧 worker 已发出的请求继续耗配额或在租约过期后入库；「所有副作用都按 token CAS」过强。",
+      "suggestion": "把 token CAS 定义为状态门；外部调用前和入库前重验 lease，入库用唯一键幂等，并尽量取消或忽略过期任务。"
     },
     {
       "id": "i2",
-      "severity": "Critical",
+      "severity": "Warning",
       "dimension": "consistency",
-      "finding": "attempt_count语义冲突：claim时递增且上限3，但又说超限后按1h/6h/24h冷却再入队；未说明节流、真故障、资源错分别是否计入。",
-      "suggestion": "定义仅可重试失败递增；attempt上限为最多执行次数，超限不再入队；B′资源错与一次性错误不计。"
+      "finding": "C 级 fatal 的作用域不清：keyInvalid、accessNotConfigured、ipRefererBlocked 是凭证或应用配置错误，不应只停当前博主，也不应让每个博主重复触发。",
+      "suggestion": "将 C 级绑定到凭证或集成级状态，联动暂停关联任务，明确重验和重输 Key 的恢复流程。"
     },
     {
       "id": "i3",
       "severity": "Warning",
       "dimension": "completeness",
-      "finding": "手动采集指定博主未定义是否创建creator_accounts、follows、discoveries，也未说明配额归属、去重和失败暂停对象；非关注博主可能绕过统一治理。",
-      "suggestion": "手动采集也走同一条creator服务与claim/配额/失败分级；若允许临时采集，需定义生命周期和落库映射。"
+      "finding": "动态配额收缩缺少阈值、观察窗、最小配额、恢复步长和跨重启持久化；「连续触发」定义不明，可能导致振荡或仍然超配。",
+      "suggestion": "定义信号计数、时间窗、级别表、最小值、恢复节奏和重启恢复状态，并在 UI 显示。"
     },
     {
       "id": "i4",
       "severity": "Warning",
-      "dimension": "consistency",
-      "finding": "删除采集库条目把discovery复位pending，与两表非主从存在张力：发现事实源被采集库删除单边改写；取消关注后还可能遗留pending任务。",
-      "suggestion": "改为标记discovery为collected_removed或archived，保留审计与删除原因；unfollow时冻结pending任务。"
+      "dimension": "completeness",
+      "finding": "invalidPageToken 的任务级重试未定义分页断点；已完成页可能重复入库，或重试后丢失先前抓取结果。",
+      "suggestion": "按页入库并保存 next page token checkpoint，重试从 checkpoint 开始，唯一键兜底。"
     },
     {
       "id": "i5",
       "severity": "Warning",
-      "dimension": "feasibility",
-      "finding": "失败分级未定义多reason和errors[]提取规则。YouTube错误可能嵌套details或多reason，也可能与其他错误并存；当前描述无法确定唯一主因。",
-      "suggestion": "规定reason提取顺序、多reason聚合规则、unknown fail-closed行为，并用官方错误fixtures做预检。"
+      "dimension": "clarity",
+      "finding": "90% 硬熔断的分母不明：是采集 60% 额度、全应用估算额度，还是单次运行预算；与动态收缩和暂停的优先级也未说明。",
+      "suggestion": "给出计算公式、重置窗口、与动态收缩的优先级关系及 UI 状态。"
     },
     {
       "id": "i6",
       "severity": "Warning",
-      "dimension": "completeness",
-      "finding": "今日占用与约束公式未定义配额重置时区、持久化计数口径、失败请求是否计费，以及外部工具耗尽后的运行时降级策略。",
-      "suggestion": "使用YouTube配额重置边界；按响应与官方计费规则持久化估算；配额耗尽时明确暂停探测与采集。"
+      "dimension": "feasibility",
+      "finding": "以字幕字节回调作为续租信号可能造成高频数据库写和锁竞争；回调、阶段切换和 deadline 的交错行为缺少节流约束。",
+      "suggestion": "按时间或字节阈值节流续租，所有状态写仍走 token CAS。"
     },
     {
       "id": "i7",
       "severity": "Warning",
-      "dimension": "clarity",
-      "finding": "隔离区容量500条/10MB后，新未知载荷的处理策略缺失；只停止新增会让任务被拒收，覆盖保存则违反既有条目只读保留。",
-      "suggestion": "超限后保存摘要与溢出计数，不存完整载荷；任务保留隔离标记并要求人工清理后恢复。"
+      "dimension": "completeness",
+      "finding": "批量改 interval 与活动 claim 的并发语义缺失；未说明运行中任务是否完成、取消，或新间隔何时生效。",
+      "suggestion": "引入配置版本或 CAS 协调，定义运行中任务的取消或延续规则。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "dimension": "consistency",
+      "finding": "viral_library 与 discovered_item 无外键，但删除复位要求同事务关联；两表关系键和唯一性约束未在方案中明确。",
+      "suggestion": "在 schema 中定义 platform+external_id 关联和唯一约束，并写入统一删除服务契约。"
     }
   ],
   "dimensionScores": {
-    "completeness": 7,
-    "consistency": 6,
+    "completeness": 6,
+    "consistency": 7,
     "clarity": 7,
     "feasibility": 6,
     "security": 8

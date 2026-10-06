@@ -343,6 +343,10 @@ COMMIT   -- 任一失败则 ROLLBACK，两者要么都成、要么都不成
 
 并发防护：条件更新用 `collect_state='collected'` 做前置断言，配合 `(platform, external_id)` 唯一索引，用 **UPSERT 语义**而非「先查后改」，避免与并发的采集提交互相覆盖。
 
+**删除必须收敛到唯一入口（CCG 评审 i8）**：复位逻辑若只做在「采集库页面删除」这一条路径上，用户从**其他入口删 `viral_library` 行**（批量清理、孤儿行清理、导入覆盖）时就会漏掉复位，留下 `collect_state='collected'` 但内容已不存在的幽灵记录——该作品**永远不会被重新发现**。
+
+因此所有对 `viral_library` 的删除 MUST 经 `knowledge-library-service.delete*()` 唯一入口，由它在**同一事务**内联动 `creator_discoveries`。实现时在该 service 内加断言：任何绕过该入口的裸 `DELETE FROM viral_library` 路径在 code review 阶段一律打回。
+
 ### 6.2 去重键与 canonical ID 规则（CCG 评审 i6 修订）
 
 `(platform, external_id)` 唯一索引即去重机制。探测到重复项时走 `INSERT OR IGNORE`（或先查后插 + 捕获约束冲突），**幂等**。
@@ -455,7 +459,8 @@ UPDATE creator_discoveries
 |---|---|
 | **claim 必须原子且可回读** | 用 `UPDATE ... RETURNING claim_token`，一次拿到新 token，避免「先查再改」的竞态 |
 | **所有行内变更与副作用都按 token CAS** | 不只是成功/失败提交——**进度写入、lease 续期、`viral_library` 插入、熔断计数**全部必须带 `AND claim_token = ?`。漏掉任何一处，旧 worker 就能覆盖进度或重复插入（CCG 评审 i2） |
-| **续租必须有进展条件** | 心跳**仅在本轮有实质进展时**才续租。无进展却持续续租 = 挂起的任务永不过期，占着 claim 永不释放。长视频下载/字幕请求卡死时尤其致命 |
+| **跨表副作用必须同事务** | ⚠ `claim_token` 只存在于 `creator_discoveries`，而写入 `viral_library` 是**另一张表**——「先查 token 再插另一表」存在 TOCTOU 竞态（查完到插入之间 token 可能已被新 worker 提升，导致重复插入）。token 校验 + 跨表插入必须在**同一个 `BEGIN IMMEDIATE` 事务**内原子完成（CCG 评审 i6 Critical） |
+| **续租必须有进展条件** | 心跳**仅在本轮有实质进展时**才续租。无进展却持续续租 = 挂起的任务永不过期，占着 claim 永不释放。**「进展」的粒度必须定义**（CCG 评审 i7）：① 字幕/媒体**字节回调**；② 阶段边界跨越（元数据→字幕→入库）；③ 每 5s 一次的阶段内心跳。**只满足其一即续租**，避免长视频字幕下载（单阶段可超 300s）被误判过期而遭抢占 |
 | **总时长 deadline** | 单条采集设总 deadline（如 600s），与 lease 续期解耦：无论心跳如何，deadline 到即强制放弃 |
 | **分阶段超时** | 元数据拉取 30s / 字幕拉取 120s / 入库 30s，逐段独立超时，避免单段挂死拖垮整体 |
 | **提交必须带 token** | 成功/失败的 UPDATE 均加 `AND claim_token = ?`。token 已变 → `changes()===0` → **放弃提交**，绝不覆盖新持有者 |
@@ -521,6 +526,8 @@ switch (task.action.type) {
 | 从不自动删除 | 自动删除 = 静默丢用户配置。**必须保留原始载荷直到用户显式处理** |
 
 隔离区落 settings 单键 `automation_quarantine`（与 `automation_tasks` 同构，不新增表），UI 提供只读查看与显式「恢复 / 删除」两个动作。
+
+**挂起必须主动告知（CCG 评审 i8）**：任务被挂起后若只在列表里静静躺着，用户可能长期不察觉自己的自动化已经停摆——而 UI 上「已启用」的开关还会误导他以为一切正常。因此挂起时 MUST：① 侧边栏/设置页显示**未收口任务徽标**并计数；② 首次挂起弹一次应用内通知；③ 任务卡片的启用开关**视觉上置灰但保持可见**（直接隐藏会让人以为任务不存在）；④ 徽标在用户处理前**持续存在**，不自动消失。
 
 **隔离区的容量与脱敏（CCG 评审 i6：上一版说"从不自动删"却没给上限）**：
 
@@ -641,6 +648,18 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 | 本应用**读得到**自己的用量 | `videos.list`/`playlistItems.list` 响应头无配额信息，需另记本地计数；**读不到** Google 侧真实用量 |
 
 **结论**：本方案的预算模型是**建立在物理池之上的逻辑配额**，是"我们最多用多少"的自律约定，**不是对 Google 配额的独占保证**。必须在 UI 上如实表述为「本应用今日配额占用」，而非「YouTube 剩余配额」。若用户同时用同一 Key 跑其他工具，本应用看到的仍是自己的计数——这是已知的可接受局限，需在设置页注明。
+
+#### 7.3.1.1 外部争用时的动态收缩（CCG 评审 i5）
+
+比例切分（15/60/25）在**外部消费均匀**时才有约束力。若同 Key 被其他程序占满，本应用的本地计数仍显示「才用了 200 units」，实际却已被拒。静态阈值对此完全失明，故需**由外部反馈驱动的收缩**：
+
+| 外部信号 | 动作 |
+|---|---|
+| 收到 `quotaExceeded` / `dailyLimitExceeded` 而本地计数很低 | 判定为**外部争用**，把探测池与采集池同步收缩至当前的 50%（连续 2 次则收缩至 25%），并在 UI 标注「检测到同 Key 被其他程序使用，已自动收紧配额」 |
+| 连续 3 天出现外部争用 | 提示用户「该 API Key 可能被其他工具共用，建议申请独立项目 Key」，并给出跳转 Google Cloud Console 的说明 |
+| 正常响应恢复 | 每日重置时回到基准比例 |
+
+这条的意义：**配额不可用时必须让用户知道是"额度被占"而不是"程序坏了"**——两者的排查方向完全不同。
 
 #### 7.3.2 采集成本公式与实算
 
@@ -1008,8 +1027,12 @@ function classifyFailure (httpStatus, body, transportErr) {
   // ⚠ videoNotFound / invalidPageToken 是**单资源级**错误（某条视频被删、翻页游标过期），
   //   不是博主级故障。若计入，会因一条已删视频把整个博主永久停用 —— 必须单列。
   if (['channelNotFound', 'playlistNotFound'].includes(reason)) return { tier: 'permanent', reason }
-  if (['videoNotFound', 'invalidPageToken'].includes(reason))
-    return { tier: 'item', reason }   // 仅影响该条 discovery，不动 creator 的连续失败计数
+  if (reason === 'videoNotFound') return { tier: 'item', reason }   // 仅该条，不动博主计数
+  // ⚠ invalidPageToken 也**不属于** item 级（CCG 评审 i6 二次纠正）：
+  //   它是分页实现缺陷或游标过期，归 item 会「跳过该条后继续翻页」，
+  //   结果是**静默丢失后续分页的全部作品**——比报错更糟。归 B 级任务级失败，
+  //   触发重试与日志告警，宁可本次探测失败也不能少报作品。
+  if (reason === 'invalidPageToken') return { tier: 'permanent', reason }
   // ⚠ ipRefererBlocked 不属于 item 级（CCG 评审 i5 纠正）：
   //   它是 API Key / IP / referrer 被拒导致的**应用级 403**，会让所有请求持续失败，
   //   归入 item 级会变成「每条都失败但博主永不暂停」，监控静默失效。必须归 C 级。

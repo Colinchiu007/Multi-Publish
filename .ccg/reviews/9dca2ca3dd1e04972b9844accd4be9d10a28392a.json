@@ -1,0 +1,125 @@
+{
+  "sha": "9dca2ca3dd1e04972b9844accd4be9d10a28392a",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "blocked",
+    "performedBy": "codex",
+    "objectType": "plan",
+    "minScore": 6,
+    "dimensionScores": {
+      "completeness": 6,
+      "consistency": 5,
+      "clarity": 6,
+      "feasibility": 5,
+      "security": 8
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": "feasibility",
+        "finding": "配额模型把采集/字幕统一按1单位估算，但 captions.download 等接口配额成本不同；90%熔断与七路径预检都会低估用量。",
+        "suggestion": "按实际调用方法建立配额单价表，未知名单端点 fail-closed，字幕成本单独计入。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "dimension": "consistency",
+        "finding": "invalidPageToken 归为任务级并从 checkpoint 续跑自相矛盾：过期/非法 token 本身不可复用，可能每轮在同一页失败。",
+        "suggestion": "该 reason 不保存失效 token；重启分页从第1页，靠唯一键幂等，保留日志。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "dimension": "consistency",
+        "finding": "删除后复位 discovered_item 为 pending，但未规定清除 claim_token、lease、阶段进度及 attempt_count；旧 worker 可能凭旧 token/lease 继续写。",
+        "suggestion": "统一删除服务同事务清空 token/lease/进度，并定义 attempt_count 重置规则。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "动态收缩把 quotaExceeded 当节流信号，3次才降级，但共享项目额度可被其他消费者耗尽；15%档仍会继续消耗与重试。",
+        "suggestion": "首个 quotaExceeded 即停止当日新增采集/探测，进入显式恢复门槛。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "lease 基础 TTL 未定义，600s 总 deadline 也未说明是单条、单请求还是整轮；过期判定和取消点不可实现。",
+        "suggestion": "分别定义 lease TTL、阶段续租、每条/每轮 deadline 及跨页 checkpoint 语义。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "90%熔断分母写成固定60%，但动态收缩后档位变15/30/45%；分母是否随之变化未定义。",
+        "suggestion": "以当前档位为分母，记录触发时档位与估算值，暂停态需显式恢复。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "预留多账号但 creator_watch 等表无 credential_id；keyInvalid/ipRefererBlocked 无法可靠联动暂停关联任务。",
+        "suggestion": "现在加入 credential_id 或明确单账号全局键，并定义恢复校验边界。"
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "dimension": "clarity",
+        "finding": "discovered_item 的 external_id 未说明用 videoId 还是 playlistItemId，discovery_status 枚举与迁移也未定义。",
+        "suggestion": "固定 videoId，写出状态机：pending/claimed/collected/failed/reset。"
+      }
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 1,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 8
+        }
+      },
+      {
+        "round": 2,
+        "issues": 8,
+        "critical": 1,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 7,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 8
+        }
+      },
+      {
+        "round": 3,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 6,
+          "feasibility": 5,
+          "security": 8
+        }
+      }
+    ],
+    "roundsRun": 3,
+    "roundsMax": 3,
+    "stoppedBy": "regressed",
+    "note": "跑满 3 轮仍有 3 条 Critical 未解决，必须由出方案方逐条回应（可拒绝但须给证据）后才能动手",
+    "artifacts": ".adversarial\\ccg-plan-plan-creator-monitor-review-target",
+    "at": "2026-10-06T18:57:03.648Z"
+  }
+}

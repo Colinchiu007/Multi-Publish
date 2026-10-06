@@ -4,65 +4,65 @@
     {
       "id": "i1",
       "severity": "Critical",
-      "dimension": "feasibility",
-      "finding": "ipRefererBlocked 被列为 item 单资源级错误，但它通常是 API Key/IP/referrer 限制导致的应用级 403，不是单视频故障。",
-      "suggestion": "移到 C 级 fatal；item 级仅保留 videoNotFound 等确实针对单资源的 reason。"
+      "dimension": "consistency",
+      "finding": "viral_library INSERT 无法直接用 discovery 行的 claim_token 做 UPDATE WHERE CAS，若先查 token 再插另一表，仍存在 TOCTOU 竞态导致重复插入。",
+      "suggestion": "将 token 校验与 viral_library 插入放进同一 BEGIN IMMEDIATE 事务，事务内原子完成。"
     },
     {
       "id": "i2",
-      "severity": "Critical",
-      "dimension": "feasibility",
-      "finding": "claim_token 仅约束成功/失败提交不完整。进度写入、采集副作用、lease 续期若未按 token CAS，旧 worker 仍可产生覆盖或重复插入。",
-      "suggestion": "claim 用原子 UPDATE+RETURNING；所有行内变更与副作用都按 claim_token 条件提交。"
+      "severity": "Warning",
+      "dimension": "completeness",
+      "finding": "invalidPageToken 归为 item 级不正确：它通常是分页实现缺陷或 token 过期，非单条视频问题，标记 item 级会静默跳过后续分页内容。",
+      "suggestion": "invalidPageToken 改为 B 级任务级失败，触发重试与日志告警，不静默跳过。"
     },
     {
       "id": "i3",
       "severity": "Warning",
-      "dimension": "completeness",
-      "finding": "配额模型只给探测公式；采集 60% 缺少每日计数和熔断，且公式未计重试、退避和手动 channels 解析成本。",
-      "suggestion": "增加分池日计数器、采集硬熔断、重试预算，超限时阻止操作并明确提示。"
+      "dimension": "clarity",
+      "finding": "数据模型声称 3 张新表但仅详细描述 2 张，第三张表名、字段和用途缺失，影响评审完整性。",
+      "suggestion": "补充第三张表的结构与职责定义。"
     },
     {
       "id": "i4",
       "severity": "Warning",
-      "dimension": "consistency",
-      "finding": "启动存量超限时只写「降级运行」，未定义跳过哪些博主、是否继续消耗配额，与「绝不静默饿死」有解释空间。",
-      "suggestion": "定义确定性排序、跳过集、恢复条件，并在 UI 列出每个被跳过博主及原因。"
+      "dimension": "feasibility",
+      "finding": "「仅有进展时续租」未定义何为进展，字幕下载等长时间阶段可能超 lease 期限而被误判过期。",
+      "suggestion": "定义进展粒度：字节级回调或阶段边界均视为进展并续租。"
     },
     {
       "id": "i5",
       "severity": "Warning",
-      "dimension": "security",
-      "finding": "「永不跨 IPC 传渲染层」与用户在渲染层输入 API Key 的配置流程冲突；首次保存必须经 IPC 到主进程。",
-      "suggestion": "改为：仅允许一次性 set-key 请求，不提供明文回读，保存后立即清除渲染层明文。"
+      "dimension": "feasibility",
+      "finding": "按 15/60/25 比例切配额假设外部消费均匀，若其他应用占满项目配额，本应用比例分配无实际约束力。",
+      "suggestion": "增加外部 429/quotaExceeded 反馈驱动的动态收缩阈值。"
     },
     {
       "id": "i6",
       "severity": "Warning",
-      "dimension": "feasibility",
-      "finding": "lease 300 秒加心跳 60 秒仍未限制总任务时长；长视频下载或字幕请求挂起时，心跳可能无限续租。",
-      "suggestion": "增加每阶段超时、总任务 deadline 和有进展才续租的心跳条件。"
+      "dimension": "completeness",
+      "finding": "删除采集库条目复位 discovery 仅覆盖一条路径，用户通过其他入口删 viral_library 或清理孤儿时未定义同步行为。",
+      "suggestion": "将复位逻辑收敛为 viral_library 表级删除触发器或统一删除 service。"
     },
     {
       "id": "i7",
-      "severity": "Warning",
-      "dimension": "consistency",
-      "finding": "无外键是正确选择，但删除 viral_library 后复位 discovery 若不在同一事务，失败会留下 pending 状态并导致重复采集。",
-      "suggestion": "把删除与批量复位放进一个事务，并用唯一映射和 UPSERT 防并发重复。"
+      "severity": "Info",
+      "dimension": "security",
+      "finding": "safeStorage 加密无恢复路径，OS 密码重置或跨设备迁移后 API Key 不可解密。",
+      "suggestion": "提供重新输入引导提示并标记 keyInvalid 状态。"
     },
     {
       "id": "i8",
       "severity": "Info",
-      "dimension": "clarity",
-      "finding": "失败分级未定义响应包含多个 reason 时的优先级，也未说明空 body 时脱敏摘要的来源字段。",
-      "suggestion": "定义 reason 优先级：quota/rate、auth/config、notFound、unknown；空 body 记录状态码与请求 ID。"
+      "dimension": "completeness",
+      "finding": "未知 action.type 挂起后缺乏主动通知机制，用户可能长期不察觉任务停滞。",
+      "suggestion": "挂起时触发 UI 徽标或通知。"
     }
   ],
   "dimensionScores": {
-    "completeness": 7,
+    "completeness": 6,
     "consistency": 6,
     "clarity": 7,
     "feasibility": 6,
-    "security": 7
+    "security": 8
   }
 }
