@@ -286,7 +286,7 @@ ExecStart=/usr/bin/node /opt/multi-publish/apps/desktop/electron/main.js
 $env:SPLITTER_DIR = "D:\Data\projects\smart-sentence-splitter"
 $env:PROMPT_DIR = "D:\Data\projects\prompt-engine"
 $env:FFMPEG_PATH = "D:\Projectsffmpeg-7.1binffmpeg.exe"
-cd D:\Data\projects\Multi-Publishapps\desktop
+cd D:\Data\projects\mulpub\apps\desktop
 npm run electron:dev
 ```
 
