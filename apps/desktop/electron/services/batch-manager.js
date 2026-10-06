@@ -586,8 +586,12 @@ class BatchManager {
       } catch (e) { return toIpcError(e) }
     }))
 
-    // 取消排期：清定时器 + 状态置 cancelled（记录保留）。与单篇 scheduler:cancel 对齐，
-    // 是渲染层「取消排期」按钮的唯一入口；未登记定时器的批次返回错误而非假装成功。
+    // 取消排期：作废本地记录（记录保留）。与单篇 scheduler:cancel 对齐，
+    // 是渲染层「取消排期」按钮的唯一入口。
+    // ⚠️ 平台侧定时（2026-10-07）：排期已提交给平台、本地无定时器可清；
+    // 判定基准是「记录存在且仍处可取消状态」，不是「有没有清到 timer」。
+    // 平台侧排期是否真正撤销取决于平台是否提供撤销接口（参考产品实测：不提供），
+    // 本地取消只作废本地记录 —— UI 文案须如实说明，不得让用户以为「取消了就不发」。
     ipcMain.handle('batch:cancel', withSenderCheck((_, batchId) => {
       try {
         return this.cancelBatch(batchId)
