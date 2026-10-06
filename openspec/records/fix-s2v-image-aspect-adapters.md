@@ -2,10 +2,6 @@
 record: fix-s2v-image-aspect-adapters
 task: 修掉 Story2Video 竖屏成片配横图的画幅断链——把画幅解析收敛到单一真源，让全部图片适配器（含图库检索型）都按成片画幅出图，并把枚举式契约锁升级为穷举式
 date: 2026-10-06
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填须在合并后由同一次提交完成。
-sync_backfill_owner: 合并后的 docs-only 回填 PR
 ---
 
 ## 本次执行记录：Story2Video 竖屏出图画幅断链修复（fix-s2v-image-aspect-adapters，2026-10-06）
@@ -31,7 +27,7 @@ sync_backfill_owner: 合并后的 docs-only 回填 PR
 | QM-4 视觉 | PASS（判定不触发） | 唯一 UI 侧改动是 `CreateView.vue` 中 `startExplainerPipeline` 的**提交参数新增一个字段**（`aspectRatio`），不触碰任何模板/样式/交互元素，无像素级外观变化 |
 | locale 成对（Gate 7） | PASS | `locales/zh.js` / `en.js` 零改动：本次**不新增任何用户可见文案**（理由见 PRD §7.3：未加「画幅不符」告警是刻意取舍，已登记为缺口） |
 | QM-6 CCG 双模型外部评审 | 未执行（如实登记） | 本会话无 `codeagent-wrapper` / codeagent 通道，不以自审冒充通过。评审需求已写进 PRD 与本记录，供具备通道的后续会话补跑 |
-| 远程同步 | PENDING | 本 PR 合并后由 docs-only 回填 PR 取证 merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI`）+ `git ls-remote --heads origin <branch>` 返回 0 行，并在同一次提交删除本文件 frontmatter 的三个 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 的对应登记项 |
+| 远程同步 | PASS | PR #2980 已 squash 合并：merge SHA `422cee8b6c4250bd1594435f520de792a04e7c4d`，合并时间 `2026-10-06T13:31:13+08:00`；`git ls-remote --heads origin fix-s2v-image-aspect-adapters` 返回 0 行，证远端分支已删；本条与 `.quality-gates.md` 的「远程同步」行、ledger 登记项在同一次提交（backfill-2980-record）内收口 |
 
 ### 遗留（不假装已闭合）
 
