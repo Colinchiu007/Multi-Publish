@@ -1,5 +1,5 @@
 {
-  "//": "超大文件挂账清单（audit-batch-4）。limit 之上的存量文件在此登记；新文件超限一律阻断。还完债用 --prune <路径> 单键清账（会同时在 pruned 立碑）；--update 仅做增量登记，--update --rewrite 才全量重生（会掩盖别人的漂移，需人工审 diff）。",
+  "//": "超大文件挂账清单（audit-batch-4）。limit 之上的存量文件在此登记；新文件超限一律阻断。注释：preload/index.bundle.js 与 home-shell-preload.bundle.js 是 esbuild 构建产物，其行数随 preload 源码 API 增减而变，不是「有人在手写大文件」——对这两个键的容差已被 2026-10-06 的定时发布修复吃满（新增 onSchedulerDispatchFailed 后 delta=204 > 200），故按门禁自述的「经审阅后 --update」语义单键抬到 1538。真正的代码体积治理见 electron/preload/*.js 源码侧的拆分，不应在此处无限抬高生成物基线。还完债用 --prune <路径> 单键清账（会同时在 pruned 立碑）；--update 仅做增量登记，--update --rewrite 才全量重生（会掩盖别人的漂移，需人工审 diff）。",
   "limit": 500,
   "growthAllowance": 200,
   "files": {
@@ -7,7 +7,7 @@
     "apps/desktop/electron/home-shell-preload.bundle.js": 1581,
     "apps/desktop/electron/ipc-handlers/account.js": 781,
     "apps/desktop/electron/ipc-handlers/story2video.js": 608,
-    "apps/desktop/electron/preload/index.bundle.js": 1334,
+    "apps/desktop/electron/preload/index.bundle.js": 1538,
     "apps/desktop/electron/publishers/account-manager.js": 1061,
     "apps/desktop/electron/services/adapters/minimax-tts.js": 594,
     "apps/desktop/electron/services/asset-generator.js": 1369,

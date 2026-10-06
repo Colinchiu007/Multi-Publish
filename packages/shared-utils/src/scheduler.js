@@ -5,19 +5,10 @@
  */
 const defaultFs = require('fs')
 const path = require('path')
+const { pruneTerminalEntries } = require('./scheduler-prune')
 const MAX_TIMER_DELAY = 2_147_483_647
 const DISPATCH_CLAIM_MAX_ATTEMPTS = 3
 const DISPATCH_CLAIM_RETRY_DELAY = 100
-// 终态（executed / cancelled / failed）记录的保留策略。JSONL 是 append-only 且
-// updateStatus 每次状态迁移都全量读-改-写整个文件，若终态条目永不清理，文件体积与
-// 单次改写成本都会随历史线性增长（O(n) 每次迁移，累计 O(n²)）。策略：
-//   - 超过保留天数的终态记录丢弃（pending / dispatching 任何情况下都保留）；
-//   - 即便都是近期终态，也只保留最近 MAX_TERMINAL_ENTRIES 条。
-// 剪枝在每次 create 成功后旁路执行，失败只记 warn，绝不影响任务创建。
-const TERMINAL_STATUSES = new Set(['executed', 'cancelled', 'failed'])
-const TERMINAL_RETENTION_DAYS = 30
-const MAX_TERMINAL_ENTRIES = 200
-const DAY_MS = 24 * 60 * 60 * 1000
 
 function createConsoleLogger () {
   return {
@@ -140,63 +131,6 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
     fs.writeFileSync(temporaryPath, updated.join('\n') + '\n', 'utf-8')
     fs.renameSync(temporaryPath, filePath)
     return true
-  }
-
-  function readEntries () {
-    const filePath = getSchedulerPath()
-    if (!fs.existsSync(filePath)) return []
-    return fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  }
-
-  // 裁剪超龄/超量的终态记录并原子重写数据文件。
-  // 语义：pending / dispatching 永不丢弃；终态按 createdAt（或 publishTime 兜底）
-  // 判定是否超龄，超龄丢弃；再按时间倒序把终态压到 MAX_TERMINAL_ENTRIES 条以内。
-  function pruneTerminalEntries () {
-    const filePath = getSchedulerPath()
-    if (!fs.existsSync(filePath)) return 0
-    const lines = readEntries()
-    if (lines.length === 0) return 0
-
-    const cutoff = Date.now() - TERMINAL_RETENTION_DAYS * DAY_MS
-    const kept = []
-    const terminalKept = []
-    let removed = 0
-
-    for (const line of lines) {
-      let entry
-      try {
-        entry = JSON.parse(line)
-      } catch {
-        // 非法行不属于任何终态语义，按原样保留，避免剪枝吞掉可人工排查的证据
-        kept.push({ line, entry: null })
-        continue
-      }
-      if (!TERMINAL_STATUSES.has(entry.status)) {
-        kept.push({ line, entry })
-        continue
-      }
-      const stamp = new Date(entry.createdAt || entry.publishTime || 0).getTime()
-      if (Number.isFinite(stamp) && stamp < cutoff) {
-        removed += 1
-        continue
-      }
-      terminalKept.push({ line, entry, stamp: Number.isFinite(stamp) ? stamp : 0 })
-    }
-
-    if (terminalKept.length > MAX_TERMINAL_ENTRIES) {
-      terminalKept.sort((a, b) => b.stamp - a.stamp)
-      removed += terminalKept.length - MAX_TERMINAL_ENTRIES
-      kept.push(...terminalKept.slice(0, MAX_TERMINAL_ENTRIES))
-    } else {
-      kept.push(...terminalKept)
-    }
-
-    if (removed === 0) return 0
-
-    const temporaryPath = filePath + '.tmp'
-    fs.writeFileSync(temporaryPath, kept.map(item => item.line).join('\n') + '\n', 'utf-8')
-    fs.renameSync(temporaryPath, filePath)
-    return removed
   }
 
   function isTaskTracked (id) {
@@ -391,7 +325,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
 
     // 任务已落盘并武装定时器后才剪枝：剪枝是纯维护动作，失败不影响本次创建。
     try {
-      const removed = pruneTerminalEntries()
+      const removed = pruneTerminalEntries(fs, getSchedulerPath())
       if (removed > 0) {
         logger.warn('Scheduler', 'Pruned ' + removed + ' expired scheduled task records')
       }

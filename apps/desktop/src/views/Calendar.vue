@@ -83,7 +83,7 @@
                 v-if="e.type === 'scheduled-batch' && e.id"
                 class="cohere-btn-secondary event-cancel-btn"
                 :data-testid="'cancel-schedule-batch-' + e.id"
-                :disabled="cancellingId === e.id"
+                :disabled="cancellingBatchId === e.id"
                 @click.stop="cancelScheduledBatch(e)"
               >{{ t('calendarPage.cancelSchedule') }}</button>
             </div>
@@ -100,6 +100,16 @@ import { getApi } from '@/api/electron-bridge'
 import { usePlatformStore } from "@/stores/platforms"
 import i18n from '@/i18n'
 import { useNotify } from '@/composables/useNotify'
+import { useScheduledBatches } from '@/composables/useScheduledBatches'
+// 日期/时间解析纯函数已抽出：其中「YYYY-MM-DD 是日期键而非 UTC 时刻」与
+// 「非法输入返回空串而不是回退到今天」两条语义必须原样保留，详见模块头注释。
+import {
+  formatCalendarDatePart,
+  parseCalendarDate,
+  toCalendarDateKey,
+  toCalendarTime,
+  calendarTimestamp,
+} from '@/features/publish/calendar-date-utils'
 
 const platformStore = usePlatformStore()
 platformStore.load()
@@ -112,74 +122,11 @@ const { notifyConfirm, notifySuccess, notifyError } = useNotify()
 // 渲染端非 locales 文件新增中文字符串字面量）；页面既有硬编码文案不在本次范围。
 function t(key) { return i18n.global.t(key) }
 
-function formatCalendarDatePart(value) {
-  return String(value).padStart(2, "0")
-}
-
-function hasValidCalendarDate(year, month, day) {
-  const date = new Date(Date.UTC(year, month - 1, day))
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
-}
-
-function parseCalendarDate(value) {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : { date: value, isDateKey: false }
-  }
-
-  if (typeof value === "number") {
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? null : { date, isDateKey: false }
-  }
-
-  if (typeof value !== "string") return null
-
-  const dateKeyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (dateKeyMatch) {
-    const year = Number(dateKeyMatch[1])
-    const month = Number(dateKeyMatch[2])
-    const day = Number(dateKeyMatch[3])
-    if (!hasValidCalendarDate(year, month, day)) return null
-    return { date: new Date(year, month - 1, day), isDateKey: true }
-  }
-
-  const datetimeMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(value)
-  if (!datetimeMatch) return null
-
-  const year = Number(datetimeMatch[1])
-  const month = Number(datetimeMatch[2])
-  const day = Number(datetimeMatch[3])
-  const hours = Number(datetimeMatch[4])
-  const minutes = Number(datetimeMatch[5])
-  const seconds = datetimeMatch[6] ? Number(datetimeMatch[6]) : 0
-  if (!hasValidCalendarDate(year, month, day) || hours >= 24 || minutes >= 60 || seconds >= 60) return null
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : { date, isDateKey: false }
-}
-
-function toCalendarDateKey(value) {
-  const parsed = parseCalendarDate(value)
-  if (!parsed) return ""
-  if (parsed.isDateKey) return value
-
-  const date = parsed.date
-
-  return date.getFullYear() + "-" + formatCalendarDatePart(date.getMonth() + 1) + "-" + formatCalendarDatePart(date.getDate())
-}
-
-function toCalendarTime(value) {
-  const parsed = parseCalendarDate(value)
-  if (!parsed || parsed.isDateKey) return ""
-
-  const date = parsed.date
-
-  return formatCalendarDatePart(date.getHours()) + ":" + formatCalendarDatePart(date.getMinutes())
-}
-
-function calendarTimestamp(value) {
-  const parsed = parseCalendarDate(value)
-  return parsed ? parsed.date.getTime() : Number.POSITIVE_INFINITY
-}
+// 批量排期的数据源与取消动作已拆至 composable（逐文件行数门禁）：
+// 批次筛选 / 最早定时时间计算 / 取消流程与日历日期渲染无关，混在一起会让视图文件膨胀。
+// loadData 为函数声明（提升），composable 仅在调用时引用它，无初始化顺序问题。
+const { cancellingBatchId, batchEventsForDate, loadBatches, cancelScheduledBatch } =
+  useScheduledBatches({ loadData, notifyError, notifySuccess, notifyConfirm, t })
 
 const now = new Date()
 const currentYear = ref(now.getFullYear())
@@ -187,7 +134,6 @@ const currentMonth = ref(now.getMonth())
 const selectedDate = ref(null)
 const scheduledTasks = ref([])
 const publishHistory = ref([])
-const scheduledBatches = ref([])
 const loading = ref(false)
 
 const dayNames = ["日", "一", "二", "三", "四", "五", "六"]
@@ -256,43 +202,10 @@ function getEventsForDate(dateStr) {
       events.push({ ...r, type: r.success !== false ? "success" : "failed" })
     }
   }
-  // 批量排期批次（2026-10-06）：此前唯一取消入口是发布页会话内的 scheduledBatchId
-  // （内存态），离开页面即丢，日历又只渲染 scheduler:* 任务 → 批次排期无法取消。
-  // 这里按批次创建日期渲染为可取消的待发事件，事件时间取批次内最早的文章定时时间，
-  // 没有定时时间的批次（全部立即发布）不渲染。
-  for (const b of scheduledBatches.value) {
-    if (b.status !== 'scheduled') continue
-    const batchTime = earliestBatchPublishTime(b)
-    if (!batchTime || toCalendarDateKey(batchTime) !== dateStr) continue
-    events.push({
-      ...b,
-      publishTime: batchTime,
-      platform: 'batch',
-      title: t('calendarPage.scheduledBatchTitle', { count: batchArticleCount(b) }),
-      type: 'scheduled-batch',
-    })
-  }
+  // 批量排期批次（2026-10-06 拆入 useScheduledBatches）：此前唯一取消入口是发布页会话内的
+  // scheduledBatchId（内存态），离开页面即丢，日历又只渲染 scheduler:* 任务 → 批次排期无法取消。
+  events.push(...batchEventsForDate(dateStr, toCalendarDateKey))
   return events.sort((a, b) => calendarTimestamp(a.publishTime || a.timestamp) - calendarTimestamp(b.publishTime || a.timestamp))
-}
-
-function batchArticles(batch) {
-  return Array.isArray(batch && batch.articles) ? batch.articles : []
-}
-
-function batchArticleCount(batch) {
-  if (batch && typeof batch.article_count === 'number') return batch.article_count
-  return batchArticles(batch).length
-}
-
-// 批次事件时间：取最早一篇带 publishTime 的文章；全部无定时时间则返回 null（不渲染）
-function earliestBatchPublishTime(batch) {
-  const times = batchArticles(batch)
-    .map(a => a && a.publishTime)
-    .filter(Boolean)
-    .map(t => new Date(t).getTime())
-    .filter(Number.isFinite)
-  if (times.length === 0) return null
-  return new Date(Math.min(...times)).toISOString()
 }
 
 // pending / 无 status（历史 JSONL 数据）视为可取消的待发排期。
@@ -347,11 +260,7 @@ async function loadData() {
         const sRes = await api.schedulerList()
         if (sRes && sRes.code === 0) scheduledTasks.value = sRes.data || []
       }
-      // 批量排期批次：batchList 缺席时保持空数组，不影响单篇定时渲染（向后兼容）
-      if (api.batchList) {
-        const bRes = await api.batchList()
-        if (bRes && bRes.code === 0) scheduledBatches.value = bRes.data || []
-      }
+      await loadBatches()
       if (api.historyList) {
         const hRes = await api.historyList({ limit: 500 })
         if (hRes && hRes.code === 0) publishHistory.value = (hRes.data && hRes.data.records) || []
@@ -402,41 +311,6 @@ async function cancelSchedule(event) {
   // eslint-disable-next-line no-unused-vars
   } catch (e) {
     notifyError('calendarPage.cancelScheduleFailed', { fallback: t('calendarPage.cancelScheduleFailed') })
-  } finally {
-    cancellingId.value = null
-  }
-}
-
-// ── 批量排期取消（2026-10-06）────────────────────────────────
-// 与单篇 cancelSchedule 同构，但走 batch:cancel（清批次定时器 + 状态置 cancelled）。
-// 结果以主进程返回为准：渲染层不自标记成功——只改状态不清定时器就是幽灵发布的同族风险。
-async function cancelScheduledBatch(event) {
-  if (!event || event.type !== 'scheduled-batch' || !event.id) return
-  if (cancellingId.value) return
-  const confirmed = await notifyConfirm('calendarPage.cancelBatchScheduleConfirm', {
-    title: t('calendarPage.cancelBatchScheduleTitle'),
-    confirmButtonText: t('calendarPage.cancelScheduleConfirmButton'),
-    cancelButtonText: t('calendarPage.cancelScheduleCancelButton'),
-    type: 'warning',
-  })
-  if (!confirmed) return
-  cancellingId.value = event.id
-  try {
-    const api = getApi()
-    if (!api || typeof api.batchCancel !== 'function') {
-      notifyError('calendarPage.cancelBatchScheduleFailed', { fallback: t('calendarPage.cancelBatchScheduleFailed') })
-      return
-    }
-    const res = await api.batchCancel(event.id)
-    if (!res || res.code !== 0) {
-      notifyError('calendarPage.cancelBatchScheduleFailed', { fallback: t('calendarPage.cancelBatchScheduleFailed') })
-      return
-    }
-    notifySuccess('calendarPage.cancelBatchScheduleSuccess')
-    await loadData()
-  // eslint-disable-next-line no-unused-vars
-  } catch (e) {
-    notifyError('calendarPage.cancelBatchScheduleFailed', { fallback: t('calendarPage.cancelBatchScheduleFailed') })
   } finally {
     cancellingId.value = null
   }

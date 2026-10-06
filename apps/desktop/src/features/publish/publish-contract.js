@@ -12,10 +12,9 @@ import {
 
 // 平台字数限制转换已拆分至独立模块（逐文件行数门禁），此处 re-export 保持导入路径兼容
 export { applyPlatformContentConversion, APP_ARTICLE_CONTENT_MAX } from './platform-content-conversion'
+// 定时校验已拆分至独立模块（逐文件行数门禁），此处 re-export 保持导入路径兼容
+export { validateScheduleEntries, PUBLISH_CONTRACT_LIMITS } from './publish-schedule-contract'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-const DEFAULT_MAX_SCHEDULE_DAYS = 30
-const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000
 
 const PLATFORM_LABELS = Object.freeze({
   wechat_mp: '微信公众号',
@@ -438,100 +437,3 @@ export function validatePlatformContent ({ platforms, article = {}, platformOver
   }
   return { valid: true }
 }
-
-/**
- * 校验定时发布条目。间隔按 platform + accountId 计算，避免不同账号互相阻塞。
- * @param {Array<{platform: string, accountId?: string | null, publishTime?: string | Date | null}>} entries
- * @param {{ now?: number, maxDays?: number, minIntervalMs?: number, translate?: (key: string, params?: Record<string, unknown>) => string }} [options]
- * @returns {{ valid: boolean, message: string, reason?: string, params?: Record<string, unknown> }}
- *
- * reason/params 是给调用方做 i18n 的结构化出口：message 仍然回填中文兜底文案
- * （保证既有调用方与既有测试不受影响），但 en-US 用户走 translate 时拿到的是
- * 本地化文案，而不是被硬编码中文糊脸（旧实现 5 条校验提示全是中文字面量）。
- */
-export function validateScheduleEntries (entries, options = {}) {
-  const now = Number.isFinite(options.now) ? options.now : Date.now()
-  const maxDays = Number.isFinite(options.maxDays) ? options.maxDays : DEFAULT_MAX_SCHEDULE_DAYS
-  const minIntervalMs = Number.isFinite(options.minIntervalMs)
-    ? options.minIntervalMs
-    : DEFAULT_MIN_ACCOUNT_INTERVAL_MS
-  const translate = typeof options.translate === 'function'
-    ? options.translate
-    : (key, params) => defaultScheduleMessage(key, params)
-  const groups = new Map()
-
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    if (!entry || !entry.publishTime) continue
-    const timestamp = new Date(entry.publishTime).getTime()
-    if (!Number.isFinite(timestamp)) {
-      return { valid: false, reason: 'scheduleInvalidTime', params: {}, message: translate('scheduleInvalidTime') }
-    }
-    if (timestamp <= now) {
-      return { valid: false, reason: 'scheduleMustBeFuture', params: {}, message: translate('scheduleMustBeFuture') }
-    }
-    if (timestamp > now + maxDays * DAY_MS) {
-      const params = { maxDays }
-      return { valid: false, reason: 'scheduleExceedsMaxDays', params, message: translate('scheduleExceedsMaxDays', params) }
-    }
-
-    const platform = typeof entry.platform === 'string' ? entry.platform.trim() : ''
-    if (!platform) {
-      return { valid: false, reason: 'scheduleMissingPlatform', params: {}, message: translate('scheduleMissingPlatform') }
-    }
-    const accountId = typeof entry.accountId === 'string' && entry.accountId.trim()
-      ? entry.accountId.trim()
-      : 'unbound'
-    const key = `${platform}:${accountId}`
-    const list = groups.get(key) || []
-    list.push({ timestamp, platform, accountId })
-    groups.set(key, list)
-  }
-
-  for (const list of groups.values()) {
-    list.sort((a, b) => a.timestamp - b.timestamp)
-    for (let index = 1; index < list.length; index += 1) {
-      if (list[index].timestamp - list[index - 1].timestamp < minIntervalMs) {
-        const params = {
-          platform: list[index].platform,
-          accountId: list[index].accountId === 'unbound' ? '' : list[index].accountId,
-          minMinutes: Math.round(minIntervalMs / 60000)
-        }
-        return {
-          valid: false,
-          reason: 'scheduleIntervalTooShort',
-          params,
-          message: translate('scheduleIntervalTooShort', params)
-        }
-      }
-    }
-  }
-
-  return { valid: true, message: '' }
-}
-
-/**
- * 默认兜底翻译器：走 i18n 全局实例查 zh/en 词条。
- * 早期实现把 5 条提示写成中文模板字符串硬编码在业务文件里，
- * en-US 用户在本地化外壳（scheduleInvalidProgress / scheduleInvalid）里看到的是中文；
- * 且新增含变量模板的中文字面量会被 CI locale 基线扫描判为「渲染端新增硬编码中文」。
- * 因此真源只保留在 locales，这里只做查表。
- */
-function defaultScheduleMessage (key, params = {}) {
-  try {
-    // 动态 import 不可用（同步 API），改用已在应用启动时挂载的全局实例
-    const i18n = globalThis.__MP_I18N__
-    if (i18n && typeof i18n.global !== 'undefined' && typeof i18n.global.t === 'function') {
-      const resolved = i18n.global.t(`publishPage.scheduleValidation.${key}`, params)
-      if (typeof resolved === 'string' && resolved && resolved !== `publishPage.scheduleValidation.${key}`) {
-        return resolved
-      }
-    }
-  } catch { /* 查表失败退回无文案 */ }
-  // i18n 不可用（纯逻辑单测 / CLI）：返回结构化键，由调用方决定如何呈现
-  return ''
-}
-
-export const PUBLISH_CONTRACT_LIMITS = Object.freeze({
-  maxScheduleDays: DEFAULT_MAX_SCHEDULE_DAYS,
-  minAccountIntervalMs: DEFAULT_MIN_ACCOUNT_INTERVAL_MS,
-})
