@@ -6520,3 +6520,54 @@ describe("CreateView MiMo TTS 语音模型下拉隐藏（2026-09-18）", () => {
     w.unmount();
   });
 });
+
+/**
+ * 非 story2video 自动流水线的画幅下发回归锁（2026-10-06 fix-s2v-image-aspect-adapters）
+ *
+ * 背景：项目 mur2tzc8_ru1r 报「720x1280 竖屏成片配横图、两侧黑边」。故事讲述流水线
+ * （story2video-compose）走 buildStory2VideoTextConfig，画幅本就随分辨率下发；
+ * 但其余自动流水线（AI 讲解视频 / 纪录片剪辑 / 数字人 / 动画…）走 startExplainerPipeline，
+ * 历史实现只传 resolution 不传 aspectRatio，主进程 generate_assets 阶段于是保留
+ * stageDef 的 aspectRatio:'16:9' 默认值 —— 与本 issue 完全同源的第二个入口。
+ */
+describe("自动流水线（非故事讲述）画幅随分辨率下发（2026-10-06 回归）", () => {
+  it("AI 讲解视频：分辨率 720x1280 时同时下发 aspectRatio=9:16", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-explainer-aspect" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animated-explainer", stages: [] };
+    w.vm.pipelineText = "一只戴帽子的猫在月球上喝茶";
+    // activeOutputConfig 是只读 computed：非故事讲述流水线取自 outputConfig（见 CreateView:1223）
+    w.vm.outputConfig = { ...w.vm.outputConfig, resolution: "720x1280" };
+    await w.vm.startPipeline();
+
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("animated-explainer", expect.objectContaining({
+      resolution: "720x1280",
+      aspectRatio: "9:16",
+    }));
+    w.unmount();
+  });
+
+  it("AI 讲解视频：横屏 1920x1080 时下发 aspectRatio=16:9（横屏行为不变）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-explainer-aspect-land" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animated-explainer", stages: [] };
+    w.vm.pipelineText = "一只戴帽子的猫在月球上喝茶";
+    w.vm.outputConfig = { ...w.vm.outputConfig, resolution: "1920x1080" };
+    await w.vm.startPipeline();
+
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("animated-explainer", expect.objectContaining({
+      aspectRatio: "16:9",
+    }));
+    w.unmount();
+  });
+});

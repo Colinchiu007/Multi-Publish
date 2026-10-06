@@ -23,19 +23,34 @@
 
 const { OpenAIAdapter } = require('./openai')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio, pickClosestSize } = require('./_base/aspect-ratio')
 
 const DEFAULT_MODEL = 'dall-e-3'
 const DEFAULT_SIZE = '1024x1024'
 
+/** DALL·E 官方仅接受这三档尺寸（dall-e-2/3），其余一律 400。 */
+const DALL_E_SUPPORTED_SIZES = Object.freeze(['1024x1024', '1792x1024', '1024x1792'])
+
+/**
+ * 尺寸解析优先级：显式 size > 显式 width/height 的方向 > 统一画幅契约键 > 方图兜底。
+ *
+ * 2026-10-06 fix-s2v-image-aspect-adapters：历史实现只认 size/width/height，
+ * 而 Story2Video 流水线传的是 aspect_ratio（见 _base/aspect-ratio.js），
+ * 于是竖屏（9:16）请求被静默降级为 1024x1024 方图，合成到 720x1280 竖屏成片时
+ * 上下留黑。本函数把画幅接进三档枚举选择。
+ */
 function resolveDallESize (params) {
   if (typeof params?.size === 'string' && /^\d+x\d+$/.test(params.size)) return params.size
   const width = Number(params?.width)
   const height = Number(params?.height)
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    if (width > height) return '1792x1024'
+    if (height > width) return '1024x1792'
     return DEFAULT_SIZE
   }
-  if (width > height) return '1792x1024'
-  if (height > width) return '1024x1792'
+  // 画幅契约键（aspect_ratio / aspectRatio / ratio）
+  const fromAspect = pickClosestSize(DALL_E_SUPPORTED_SIZES, readAspectRatio(params), DEFAULT_SIZE)
+  if (fromAspect !== DEFAULT_SIZE) return fromAspect
   return DEFAULT_SIZE
 }
 
@@ -48,6 +63,7 @@ class OpenAIImageAdapter extends OpenAIAdapter {
    * @param {string} [params.model='dall-e-3'] - 模型 ID（dall-e-3 / dall-e-2）
    * @param {number} [params.n=1] - 生成数量
    * @param {string} [params.size='1024x1024'] - 尺寸（1024x1024/1792x1024/1024x1792）
+   * @param {string} [params.aspect_ratio] - 画幅（流水线统一契约键，如 '9:16'）；size 缺省时按此在 DALL·E 三档里取最接近档位
    * @param {string} [params.response_format] - 响应格式（url / b64_json）
    * @returns {Promise<{images: Array<{url?: string, b64_json?: string}>, model: string, created: number}>}
    */

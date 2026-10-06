@@ -18,6 +18,7 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio, parseAspectRatio } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://api.pexels.com/v1'
 const DEFAULT_TIMEOUT = 30000
@@ -27,6 +28,14 @@ const DEFAULT_PER_PAGE = 3
 const PEXELS_MODELS = [
   { id: 'pexels-search', name: 'Pexels Search', description: 'Pexels 图片搜索（非生成）' },
 ]
+
+/** 画幅 → Pexels orientation（只区分竖/横/方，Pexels 不支持更细的比例） */
+function toPexelsOrientation (aspectRatio) {
+  const parsed = parseAspectRatio(aspectRatio)
+  if (!parsed) return undefined
+  if (parsed.isSquare) return 'square'
+  return parsed.isPortrait ? 'portrait' : 'landscape'
+}
 
 class PexelsAdapter extends BaseAdapter {
   /**
@@ -128,6 +137,13 @@ class PexelsAdapter extends BaseAdapter {
       query: params.prompt,
       per_page: params.per_page || DEFAULT_PER_PAGE,
     }
+
+    // 画幅 → 检索方向（2026-10-06 fix-s2v-image-aspect-adapters）：
+    // Pexels 是图库检索而非生成，唯一能表达画幅的入口就是 orientation。
+    // 历史实现不下发 orientation，Story2Video 竖屏（9:16）取回横构图照片，
+    // 合成到 720x1280 竖屏成片时同样「画面没充满」。画幅缺失时不臆造方向。
+    const orientation = toPexelsOrientation(readAspectRatio(params))
+    if (orientation) queryParams.orientation = orientation
 
     const resp = await this._request('/search', queryParams)
     const data = await resp.json()

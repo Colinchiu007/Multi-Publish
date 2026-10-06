@@ -27,6 +27,7 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio, resolveAspectPixelSize } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://api.bfl.ai'
 const DEFAULT_TIMEOUT = 120000
@@ -41,6 +42,9 @@ const IMAGE_SIZE_PRESETS = {
   landscape_4_3:   { width: 1024, height: 768  },
   landscape_16_9:  { width: 1280, height: 720  },
 }
+
+/** 画幅换算的长边（对齐 square 预设档位，2026-10-06 fix-s2v-image-aspect-adapters） */
+const ASPECT_LONG_EDGE = 1024
 
 // 静态预定义 FLUX 模型列表（避免不必要的 /models HTTP 请求）
 const FLUX_MODELS = [
@@ -159,7 +163,7 @@ class FluxAdapter extends BaseAdapter {
       model,
     }
 
-    // 尺寸处理：优先 width/height 显式值，其次 image_size 预设
+    // 尺寸处理：优先 width/height 显式值，其次 image_size 预设，最后按统一画幅契约键换算
     if (params.width !== undefined && params.height !== undefined) {
       body.width = params.width
       body.height = params.height
@@ -167,6 +171,15 @@ class FluxAdapter extends BaseAdapter {
       const preset = IMAGE_SIZE_PRESETS[params.image_size]
       body.width = preset.width
       body.height = preset.height
+    } else {
+      // 画幅（2026-10-06 fix-s2v-image-aspect-adapters）：历史实现在既无 width/height
+      // 也无 image_size 时**完全不发尺寸**，FLUX 退回自身横图默认值，Story2Video 竖屏
+      // （9:16）成片因此两侧留黑。长边沿用 square 预设的 1024，不额外抬高像素成本。
+      const size = resolveAspectPixelSize(readAspectRatio(params), { longEdge: ASPECT_LONG_EDGE })
+      if (size) {
+        body.width = size.width
+        body.height = size.height
+      }
     }
 
     if (params.num_images !== undefined) body.num_images = params.num_images

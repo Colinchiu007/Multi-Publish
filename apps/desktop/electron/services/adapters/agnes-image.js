@@ -32,6 +32,7 @@ const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider
 
 const DEFAULT_BASE_URL = 'https://apihub.agnes-ai.com/v1'
 const { fetchWithTimeout } = require('./_base/fetch-utils')
+const { readAspectRatio } = require('./_base/aspect-ratio')
 const DEFAULT_TIMEOUT = 120000
 
 const DEFAULT_MODEL = 'agnes-image-2.1-flash'
@@ -177,7 +178,7 @@ class AgnesImageAdapter extends BaseAdapter {
     // aspect_ratio 被静默丢弃，Story2Video 竖屏（9:16）永远回退 16:9 横屏——成片两侧黑边
     // （实测项目 mur2tzc8_ru1r：segment_0000_image.png 2624x1472 vs 成片 720x1280）。
     // 解析优先级：aspect_ratio > aspectRatio > ratio（向后兼容既有直接调用方）> 默认 16:9。
-    const ratio = params.aspect_ratio || params.aspectRatio || params.ratio || DEFAULT_RATIO
+    const ratio = readAspectRatio(params) || DEFAULT_RATIO
     const sizeTier = params.sizeTier || parseSizeTier(params.size) || '2K'
 
     // 2026-08-16 按官方文档（agnes-image-2.1-flash）：请求体顶层 response_format 会被
