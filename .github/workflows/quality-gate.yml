@@ -217,6 +217,10 @@ jobs:
           # openspec-sync-check.test.js 自带「镜像与真源逐字节一致」锁，但历史上从未被任何
           # workflow 收集（CI 只显式挂 scripts 下 5 个测试文件，无通配），锁等于没在跑；在此收编。
           node --test scripts/openspec-sync-check.test.js
+          # CCG 深度双模型审查（QM-6）的后端依赖体检锁：后端 CLI 不在 PATH 时引擎会
+          # **静默降级成单后端**（评审照跑、结论照出，只少一路跨家族交叉验证），
+          # 旧实现只有一句被动 ⚠ 告警。判据与假 HOME 复现方式见该测试头注释。
+          node --test scripts/deep-review-deps.test.js
           # 质量节拍 vendored 契约镜像（.quality-rhythm/）与 openspec 真源的漂移锁
           node --test scripts/quality-rhythm-spec-mirror.test.js
           # Windows PowerShell 5.1 读**无 BOM** 的 .ps1 时按 ANSI 码页解码，中文注释/字符串可让
@@ -429,6 +433,22 @@ jobs:
           node --test .github/scripts/check-vue-style-parse.test.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-vue-style-parse.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # --- Gate 15c: 覆盖率门禁必须真的覆盖 Vue SFC（M-6 回归保护） ---
+      # apps/desktop/vitest.config.js 的 coverage.include 此前 13 条全是 `*.js`，
+      # 而 src 下有 146 个 `.vue` —— SFC 对覆盖率贡献恒为 0，「55%」是在一个
+      # 刻意排除了界面逻辑的文件集上量出来的。
+      # 这类变更删掉不会让任何门禁变红：include 缩到不含 .vue 的范围、或写成
+      # `src/**.vue` 这种零命中的拼错 glob，vitest 一声不响地按新范围出数，门禁照样绿。
+      # 故判据不止断言「配了 .vue」，还要断言「glob 实测命中到文件」且
+      # 「src 下每个 .vue 都被覆盖」，并顺带守住 thresholds 不被删/不被置 0。
+      # 本地同口径：node .github/scripts/check-coverage-include-sfc.js
+      - name: "Gate 15c - Coverage include covers Vue SFC"
+        run: |
+          node --test .github/scripts/check-coverage-include-sfc.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-coverage-include-sfc.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # --- Gate 15b: scoped 样式块裸 :root 选择器门禁（QM-5 回归保护 · PR #2075/#2114 事故反哺） ---
