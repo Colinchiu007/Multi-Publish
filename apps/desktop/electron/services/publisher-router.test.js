@@ -470,6 +470,10 @@ describe("PublisherRouter", () => {
       const controller = new AbortController()
       const pending = publisher.publish({ id: "task-1", platform: "wechat_mp", article: { accountId: "acc-1" } }, { signal: controller.signal })
 
+      // 2026-10-06：publish() 在进入 RPA 前会 await loadAuthForTask（凭证为空时回退读
+      // account session 分区 cookie，真实实现要碰 Electron session），await 链不止一个微任务。
+      // 这里主动等 publish 被调用，避免用固定次数的微任务 yield 去猜时序。
+      await vi.waitFor(() => expect(rpaViewManager.publish).toHaveBeenCalled())
       controller.abort()
       expect(rpaViewManager.cancel).toHaveBeenCalledWith("wechat_mp", "acc-1")
       resolvePublish({ success: false, error: "已取消" })
@@ -549,6 +553,11 @@ describe("PublisherRouter", () => {
       })
       const controller = new AbortController()
       const pending = publisher.publish({ id: "task-2", article: { accountId: "acc-2" } }, { signal: controller.signal })
+
+      // 2026-10-06：同「取消信号会请求 RPA 管理器销毁对应账号窗口」用例 ——
+      // publish() 进入 RPA 前会 await loadAuthForTask（真实实现要碰 Electron session，
+      // await 链不止一个微任务），故等 publish 真正被调用再断言，不猜微任务次数。
+      await vi.waitFor(() => expect(rpaViewManager.publish).toHaveBeenCalled())
 
       expect(rpaViewManager.publish).toHaveBeenCalledWith(
         "wechat_mp",

@@ -349,9 +349,10 @@ function loadCredentialsForTask (accountManager, accountId, platform, ownerSubje
 /**
  * 解析任务指定的账号并加载其平台凭证（cookies/localStorage）。
  * RpaVmPublisher 与 ApiPublisher 共用；accountId 缺失时回退到平台默认账号。
- * @returns {{accountId: string|null, authData: object}}
+ * 凭证为空时会 await session 分区 cookie 回退，故返回 Promise。
+ * @returns {Promise<{accountId: string|null, authData: object}>}
  */
-function loadAuthForTask (deps, platform, article, ownerSubject) {
+async function loadAuthForTask (deps, platform, article, ownerSubject) {
   const store = deps.store
   const accountManager = deps.accountManager
   let accountId = article.accountId
@@ -383,7 +384,41 @@ function loadAuthForTask (deps, platform, article, ownerSubject) {
       }
     }
   }
-  return { accountId, authData }
+  // async：需 await session 分区 cookie 回退（见 backfillPartitionCookies 注释）
+  return {
+    accountId,
+    authData: await backfillPartitionCookies(accountManager, accountId, platform, ownerSubject, authData),
+  }
+}
+
+/**
+ * 凭证回退：加密凭证与 store 记录都拿不到 cookie 时，读账号 session 分区
+ * （persist:account-<id>）的 cookie。
+ *
+ * 2026-10-06 E2E 实测（百家号发布报 auth_missing）：该账号 status=active、
+ * checkLocalCredentials 也 OK，但 cookie 只存在于 session 分区
+ * （日志原文 "session-cookie ... (fallback from missing encrypted file)"），
+ * 加密文件里 cookies 恒为 0。ApiPublisher 直连轨只读加密文件 → 空 cookies → 抛错；
+ * 而 RPA 轨会用同一份分区 cookie 补齐，所以只有 API 轨失败。
+ * 参考产品百家号发布链是纯 HTTP、cookie 直接进请求头，全程不开浏览器，
+ * 印证「拿到 cookie 就能发」——补齐取数即可，无需浏览器。
+ *
+ * 两处都取不到时如实返回空（由调用方判 auth_missing），绝不臆造凭据。
+ */
+async function backfillPartitionCookies (accountManager, accountId, platform, ownerSubject, authData) {
+  if (!accountId || !authData) return authData
+  if (Array.isArray(authData.cookies) && authData.cookies.length > 0) return authData
+  if (!accountManager || typeof accountManager.getAccountPartitionCookies !== 'function') return authData
+  try {
+    // accountManager.getAccountPartitionCookies 内部已绑定 isSafePathSegment 校验，
+    // 第三个参数是 options 而非 ownerSubject；多租户隔离由 partition 名（accountId）保证。
+    const partitionCookies = await accountManager.getAccountPartitionCookies(platform, accountId)
+    if (!Array.isArray(partitionCookies) || partitionCookies.length === 0) return authData
+    return { ...authData, cookies: partitionCookies }
+  } catch (_) {
+    // 分区读取失败不得阻断发布主链路：由调用方按空 cookies 判 auth_missing
+    return authData
+  }
 }
 
 /**
@@ -455,9 +490,9 @@ class RpaVmPublisher {
     const ownerSubject = task && task.owner_subject
     const startedAt = Date.now()
 
-    // 鍔犺浇璐﹀彿 Cookie
+    // 加载账号 Cookie
     const article = buildPublishArticle(task, platform)
-    const { accountId, authData } = loadAuthForTask(
+    const { accountId, authData } = await loadAuthForTask(
       { store: this.store, accountManager: this.accountManager },
       platform, article, ownerSubject,
     )
@@ -527,7 +562,7 @@ class ApiPublisher {
     const platform = this.route.platform
     const ownerSubject = task && task.owner_subject
     const article = buildPublishArticle(task, platform)
-    const { accountId, authData } = loadAuthForTask(
+    const { accountId, authData } = await loadAuthForTask(
       { store: this.store, accountManager: this.accountManager },
       platform, article, ownerSubject,
     )
