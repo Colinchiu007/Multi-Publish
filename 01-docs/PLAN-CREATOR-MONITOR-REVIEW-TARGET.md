@@ -1,78 +1,71 @@
-# 评审提案 v3：博主监控与采集（Creator Monitor & Collect）
+# 评审提案 v4：博主监控与采集（Creator Monitor & Collect）
 
-> CCG 决策层评审目标。完整规格见 `01-docs/PRD-CREATOR-MONITOR-COLLECT-2026-10-07.md`（约 1000 行）。
+> CCG 决策层评审目标。完整规格见 `01-docs/PRD-CREATOR-MONITOR-COLLECT-2026-10-07.md`（1168 行）。
 
-## 1. 背景与根因
+## 1. 背景
 
-长期关注多平台博主，定期监控、发现新作品、一键批量采集（默认量+硬上限）；手动采集指定博主；单条采集体验明确。
+长期关注多平台博主→定期监控→发现新作品→一键批量采集（默认量+硬上限）；手动采集指定博主；单条采集体验明确。
 
-**根因（代码实证）**：本仓无任何「博主」维度概念——`author` 只是字符串，无关注表，无"按账号列作品"能力，无周期内容监控，「已采集」是内存 Set 现算（`Collection.vue:1190`）刷新即丢。`collection-engine` 5 个 adapter 全是死代码一行未接线。**7 平台该能力实测为 0。**
+**根因（实证）**：本仓无任何「博主」维度——`author` 只是字符串，无关注表，无「按账号列作品」能力，「已采集」是内存 Set 现算（`Collection.vue:1190`）刷新即丢。7 平台该能力实测为 0。
 
-**Why YouTube**：外部依赖 `content-aggregator` 的 `YouTubeCollector`（`content_aggregator_shared`，366 行）**已实现完整频道枚举**，返回 `metadata.video_id/channel_id/thumbnails/transcript_source`。唯一能不依赖反爬证明链路成立的平台。**抖音/小红书/视频号反爬是长期军备，不承诺长期稳定可用**——架构只保证其失效不拖垮整体。
+**Why YouTube**：外部依赖 `content-aggregator` 的 `YouTubeCollector`（366 行）**已实现完整频道枚举**。唯一能不依赖反爬证明链路成立的平台。**抖音/小红书/视频号反爬是长期军备，不承诺长期稳定可用。**
 
 ## 2. 锁定决策
 
-D1 MVP=YouTube｜D2 采集库+一键送AI写作（排除搬运发布）｜D3 探测/采集配额独立｜D4 数量双轨：一键5/手动50/上限100，超限必提示禁静默截断｜D5 单条仅豁免数量上限不豁免配额｜D6 去重键 `(platform, external_id)`｜D7 新建独立表｜D8 失败分级降级｜D9 UI 标注能力等级｜D10 凭证单账号预留多账号｜D11 复用 `base-adapter.js` 护栏契约重写 `_doFetch`
+D1 MVP=YouTube｜D2 采集库+送AI写作（排除搬运发布）｜D3 探测/采集配额独立｜D4 一键5/手动50/上限100，超限必提示禁静默截断｜D5 单条仅豁免数量上限｜D6 去重键 `(platform,external_id)`｜D7 新建独立表｜D8 失败分级｜D9 UI 标注能力等级｜D10 凭证单账号预留多账号｜D11 复用 base-adapter 护栏契约
 
 ## 3. 数据模型
 
-新建 3 表：`creator_accounts`(`UNIQUE(platform,external_id)`)、`creator_follows`(监控配置+状态机)、`creator_discoveries`(`UNIQUE`保证探测幂等；`collect_state: pending|collecting|collected|failed|skipped`；`attempt_count`/`last_error`；`content_quality: full|partial|stub`)。
+3 张新表：`creator_accounts`、`creator_follows`、`creator_discoveries`。
 
-**canonical ID 规则**：博主 `external_id` 一律为 API 返回的 `channelId`；`@handle`/`/c/`/`/user/`/`UC…` 四种输入必须先经 `channels.list` 解析再落库，**禁止用用户原始输入当 ID**（否则同一博主 4 个 URL 写法产生 4 行）。作品一律用 `videoId`。解析失败**拒绝写入**，不降级兜底。
+**canonical ID**：博主 `external_id` 一律为 `channels.list` 返回的 `channelId`；4 种 URL 写法必须先解析再落库，**禁止用用户原始输入当 ID**（否则同一博主拆成 4 行）。解析失败拒绝写入，不降级兜底。
 
-**`viral_library` 反向映射**：该表无 `external_id`/`creator_id`，新增幂等迁移。三个关键约束：
-1. 索引**必须 partial**（`WHERE external_id <> ''`）——存量行该字段全为空串，普通 UNIQUE 会在迁移瞬间因重复键抛错，**应用起不来**
-2. 迁移**必须单事务**——半迁移会造成「discoveries 已建索引但 viral_library 未加列」的分叉，而 `CREATE TABLE IF NOT EXISTS` 不会补列，形成死锁
-3. 迁移前跑冲突预检；冲突非空**不静默去重**（删行即数据损失），记录并提示人工处理
-4. **不建外键**（存量行无 `creator_id`，外键会让迁移失败）
+**`viral_library` 反向映射**（该表无 `external_id`/`creator_id`）：单事务迁移 + partial 唯一索引（`WHERE external_id <> ''`，普通 UNIQUE 会因存量空串重复键抛错致**应用起不来**）+ 迁移前冲突预检（冲突非空不静默去重）+ **不建外键**（存量行无 `creator_id`，外键会让迁移失败）。
 
-## 4. 配额模型（从物理池反推，不拍数字）
+**采集并发 claim + lease**：`collecting` 态不足以防重复（手动与自动批量可同时命中、两窗口可撞）。用单条 UPDATE 原子抢占 `pending|failed → collecting`，条件含 `claimed_by IS NULL OR lease_expires_at < now`；未抢到直接返回「正在采集中」；lease 300s 过期可被接管；`attempt_count` 在 claim 时递增。**绝不做先查后改。**
 
-YouTube 物理上限 **10,000 units/day**。`playlistItems.list`=1（50条/页）、`channels.list`=1（仅首次）、`videos.list`=1（**50个id/次**）、字幕=0。
+**两表事实源**：`viral_library` 是采集事实源，`creator_discoveries` 是发现事实源，**非主从**。删除采集库条目 → 级联把 discovery 复位 `pending`；删除发现记录 → 不动已采集内容。取消关注 → 保留内容仅停监控。
 
-- 稳态单次探测 = **1 unit**
-- 采集成本 `ceil(count/50)` → 一键5条=**1 unit**、手动50条=**1 unit**、上限100条=**2 unit**
-- 切分：探测池 1500 / 采集池 6000 / 余量 2500
-- 联立约束 `Σ(1440/interval_min) ≤ 1500` 且 博主数 ≤ **50**（50@1h=1200 units 贴边可行；第 63 个拒绝）
-- 配额不足时**动态降级**：按间隔升序保底、其余跳过并在 UI 提示，**绝不静默饿死部分博主**
-- 物理池 ≥80% 红色告警
+## 4. 配额模型
 
-## 5. 失败分级（按 API reason，不按状态码）
+**配额归属现实**：10,000 units/day 是 **Google Cloud 项目级**配额，非本应用独占；同 Key 用于其他工具会被共享消耗。切分必须是**相对比例**（探测15%/采集60%/余量25%），UI 如实表述为「本应用今日占用」而非「YouTube 剩余」。
 
-**YouTube 的 `quotaExceeded`/`rateLimitExceeded` 返回 HTTP 403**——按状态码分类会把配额耗尽误判为真故障并累计到暂停，与「配额不惩罚」直接矛盾。
+单位成本：`playlistItems.list`=1（50条/页）、`channels.list`=1（仅首次）、`videos.list`=1（**50 id/次**）、字幕=0。稳态单次探测=1 unit。采集成本 `ceil(count/50)`：5/50/100 条 = 1/1/2 unit。
 
-| 级 | 触发 | 计入失败 | 策略 |
-|---|---|---|---|
-| A 节流 | `quotaExceeded`/`rateLimitExceeded`/无 reason 的 **429** | ❌ | 跳过本轮，无警告 |
-| A 瞬时 | 5xx/超时/`ECONNRESET`/传输层错 | ❌ | 指数退避 1→4→16min |
-| B 真故障 | `channelNotFound`/`playlistNotFound`/reason 缺失兜底 | ✅ | 连续 3 次 → `auto_paused` |
-| C 不可自愈 | `keyInvalid`/`accessNotConfigured`/401/403无reason | ✅ | **首次即** `fatal_paused`，UI 直达设置页 |
+**⚠ 约束必须在配置变更时强制执行**（此前 Critical）：公式 `Σ(1440/interval_min) ≤ 探测池` 写了却只按默认 1 小时验证过；而间隔下限 5 分钟，全设 5 分钟即 `1440/5×50=14400 units`，是探测池的 9.6 倍。故每次新增/改间隔/批量调整前实时重算，超限拒绝（批量调整**整体拒绝不做部分应用**）。参考：50 个博主需 ≥60 分钟间隔；51~62 需 ≥1440 分钟；>62 不支持。
 
-兜底保留 200 字脱敏响应摘要供诊断。5xx/网络移出「计入」是因为 1 小时间隔下连续 3 次 5xx 需跨 3 小时才暂停，期间白白损失监控。
+## 5. 失败分级（按 reason，不按状态码）
+
+**YouTube 的 `quotaExceeded` 返回 HTTP 403**——按状态码分类会把配额耗尽误判为故障并累计到暂停。
+
+| 级 | 触发 | 计入失败 |
+|---|---|---|
+| A 节流 | `quotaExceeded`/`dailyLimitExceeded`/`rateLimitExceeded`/`userRateLimitExceeded`/无reason的 **429** | ❌ |
+| A 瞬时 | 5xx/超时/传输层错 | ❌ |
+| B 真故障 | `channelNotFound`/`playlistNotFound`/reason 缺失兜底 | ✅ 连续3次 |
+| C 不可自愈 | `keyInvalid`/`accessNotConfigured`/401/403无reason | ✅ **首次即** `fatal_paused` |
+
+分类**以 reason 为主因、状态码仅兜底**（`keyInvalid` 既可能 400 也可能 403）。兜底 fail-closed 取 B：分类失败本身要暴露，放行会让所有未识别错误无声跳过。
 
 ## 6. 调度改造
 
-复用 `automation-scheduler`（复用触发器匹配/间隔钳制5~1440min/持久化/任务数上限），需改 3 处（`action.type` 硬编码于 `automation-task.js:111,164` + `_executeWithPolicy` 加 switch + `container.setup.js` 装配）。
+复用 `automation-scheduler`，改 3 处（`action.type` 硬编码于 `automation-task.js:111,164` + `_executeWithPolicy` 加 switch）。
 
-**switch default：挂起该任务并留痕，绝不 fallback 也绝不 throw**。`throw` 会中断调度循环导致**所有**自动化停摆；fallback 会静默跑错链路。fail-closed 的正确边界是**对这条任务**，不是对系统。挂起后显示 `unknown_paused` + 可编辑恢复。
-
-回归测试 R1~R5 必覆盖：既有 pipeline 任务正常、未知类型挂起不执行、creatorMonitor 不进 pipeline、持久化格式不变、间隔钳制两类一致。
+**switch default：挂起该任务 + 隔离原始载荷，绝不 fallback 也绝不 throw**。`throw` 会中断调度循环导致**所有**自动化停摆；fallback 会静默跑错链路。fail-closed 的边界是**对这条任务**。隔离区保留原始 JSON + 来源标注，从不自动删除（自动删 = 静默丢用户配置）。
 
 ## 7. 安全
 
-API Key 走 `safeStorage` 加密落 settings，**永不跨 IPC 传给渲染层**（IPC 只暴露 `hasApiKey`/`fingerprint` 末4位）；禁明文/禁日志/禁崩溃报告；`safeStorage` 不可用时**整个监控功能禁用**（fail-closed，不降级明文）。
+API Key 走 `safeStorage` 加密落 settings，**永不跨 IPC 传渲染层**（只暴露 `hasApiKey`/`fingerprint`）；`safeStorage` 不可用时整个监控功能 fail-closed，不降级明文。
 
 ## 8. 风险与验收
 
-风险：反爬（本期不实现）；scheduler 改造回归（靠 R1~R5 对冲）；`content-aggregator`/`youtube-transcript-api` 为软依赖须 QM-1 打包实测。
-
-规模：新增 4,530 行 / 改动 9 文件 / 共 19 文件。验收 A1~A25。
+反爬（本期不实现）｜scheduler 改造回归（回归测试 R1~R5）｜软依赖须 QM-1 打包实测。新增 4,530 行 / 改动 9 文件。验收 A1~A25。
 
 ## 9. 请重点复核
 
-1. 配额反推是否自洽？1500 探测池 + 50 上限是否合理？
-2. 失败分级是否覆盖 YouTube 实际错误形态（含 429/401/空 body）？
-3. partial unique index + 单事务迁移 + 不建外键，是否是存量数据的正确处理？
-4. 「挂起该任务而非 throw」的爆炸半径判断是否正确？
-5. `collecting` 易失态的崩溃复位方案是否充分？
-6. 排除「一键搬运发布」是否削弱本特性价值？
+1. 配额约束改在配置变更时强制执行，是否仍有绕过路径（导入/批量/迁移）？
+2. claim+lease 的 SQL 条件是否真的无竞态？lease 时长取值是否合理？
+3. 两表非主从的事实源划分是否自洽？
+4. 失败分级以 reason 为主因是否覆盖 YouTube 实际返回？
+5. 未知任务类型「隔离不自动删」是否会无限增长？
+6. 排除「一键搬运发布」是否削弱价值？

@@ -247,8 +247,10 @@ CREATE TABLE IF NOT EXISTS creator_discoveries (
   collected_at      TEXT,
   attempt_count     INTEGER NOT NULL DEFAULT 0,       -- 采集尝试次数（CCG i7）
   last_error        TEXT DEFAULT '',                  -- 最近一次采集失败原因（CCG i7）
+  claim_token       INTEGER NOT NULL DEFAULT 0,       -- fencing token，单调递增（CCG i2）
   claimed_by        TEXT DEFAULT '',                  -- claim 持有者（CCG i2）
   lease_expires_at  INTEGER,                          -- claim 租约到期时间戳（CCG i2）
+  retry_after_at    INTEGER,                          -- 失败冷却到期时间戳（CCG i2）
   transcript_source TEXT DEFAULT '',         -- subtitle | description
   content_quality  TEXT DEFAULT 'unknown',  -- full | partial | stub | unknown（见 §7.6）
   summary           TEXT DEFAULT '',
@@ -345,6 +347,23 @@ SELECT platform, external_id, COUNT(*) AS n FROM viral_library
 
 **解析失败的 fail-closed**：`channels.list` 解析不出 `channelId` 时**拒绝写入**并提示 `creatorErrChannelNotFound`，**绝不退化成用用户输入当 ID 兜底**——那正是同一博主被拆成多行的根源。
 
+**URL → channelId 解析矩阵（CCG 评审 i5）**：用户输入形态千差万别，必须逐条定义，否则"能解析但解析错"比"解析不了"更危险。
+
+| 输入形态 | 示例 | 解析路径 | units | 失败表现 |
+|---|---|---|---|---|
+| 频道 ID | `UCxxxx…` | 直接用（正则 `^UC[\w-]{22}$` 校验） | **0** | 格式不符 → `creatorErrInvalidInput` |
+| Handle | `@name` | `channels.list?forHandle=name` | 1 | 404 → `creatorErrChannelNotFound` |
+| Handle（URL 形态） | `youtube.com/@name` | 提取 handle，同上 | 1 | 同上 |
+| 旧式 URL | `youtube.com/c/name` | 提取 `c/xxx` → `channels.list?forUsername=name` | 1 | 旧式用户名可能已失效 → `creatorErrChannelNotFound`（**这是真实高频场景**） |
+| 旧式 URL | `youtube.com/user/name` | 提取 `user/xxx` → `forUsername` | 1 | 同上 |
+| 完整 URL | `youtube.com/channel/UCxxx` | 提取 `UC…` → 直接用 | **0** | — |
+| 观看/播放列表 URL | `watch?v=` / `playlist?list=` | **不支持**（是作品而非频道） | — | `creatorErrNotAChannel`：「这是作品链接，请粘贴博主主页链接」 |
+| 非 YouTube 域名 | 其他平台 URL | 不解析 | — | `creatorErrInvalidInput` |
+
+**成本注意**：`forUsername` 对已停用的旧式用户名会返回 404，而用户手上往往正是这类链接——**不能只支持 handle**。三路（ID / handle / username）都必须实现，且失败文案要区分「格式不对」与「频道不存在」，否则用户会反复重试同一个错误链接。
+
+**预检测试**：上表每行至少一条用例，断言 (a) 解析出的 `channelId` 正确、(b) units 消耗符合预期、(c) 失败文案正确。
+
 ### 6.3 关注状态机（CCG 评审 v2-i3 修订：区分「真故障暂停」与「不可自愈暂停」）
 
 ```
@@ -399,29 +418,37 @@ pending ──► skipped       （用户主动忽略）
 
 **崩溃恢复**：`collecting` 是易失态。应用启动时把滞留的 `collecting` 复位为 `pending`（`attempt_count` 保留并递增），避免"永远转圈"的僵尸记录。
 
-**并发抢占：claim + lease（CCG 评审 i2）**
+**并发抢占：claim + lease + fencing token（CCG 评审 i2）**
 
-`collecting` 这个易失态本身**不足以防重复采集**：用户手动点「采集」的同时，自动批量任务也可能命中同一条记录；两个 Electron 窗口、调度器重入同样会撞上。仅靠先查状态再改是典型 check-then-act 竞态。
+`collecting` 易失态本身**不足以防重复采集**：手动点「采集」与自动批量任务可同时命中同一条；两个窗口、调度器重入同理。仅靠先查状态再改是典型 check-then-act 竞态。
+
+**⚠ 只有 lease 不够（评审 i2 指出）**：lease 超时后新 worker 接管 claim，但**旧 worker 可能仍在跑并随后完成**——若无条件 UPDATE，它会覆盖新持有者的结果（lost update），且两个 worker 都向 `viral_library` 写入。必须用 **fencing token**（单调递增 claim 代次）保证"只有当前代次能提交"。
 
 ```sql
--- claim：单条原子 UPDATE，只有把 pending/failed 成功抢到的人才能继续
+-- claim：单条原子 UPDATE，同时把 claim_token 递增（fencing token）
 UPDATE creator_discoveries
-   SET collect_state = 'collecting',
-       claimed_by    = ?,        -- 采集者标识：'manual:<sessionId>' | 'batch:<runId>' | 'auto:<schedulerTick>'
-       lease_expires_at = ?,     -- now + 单条采集超时（字幕拉取最坏 ~120s，取 300s）
-       attempt_count = attempt_count + 1
- WHERE id = ? AND collect_state IN ('pending','failed')
-   AND (claimed_by IS NULL OR lease_expires_at < ?)   -- 过期 lease 可被抢占
--- changes() === 0 → 未抢到：已被他人采集或状态已变，直接返回「该作品正在采集中」
+   SET collect_state   = 'collecting',
+       claim_token     = claim_token + 1,     -- 单调递增，提交时比对
+       claimed_by      = ?,
+       lease_expires_at= ?,
+       attempt_count   = attempt_count + 1
+ WHERE id = ?
+   AND collect_state IN ('pending','failed')
+   AND (claimed_by IS NULL OR lease_expires_at < ?)
+-- changes() === 0 → 未抢到（他人已持有且租约未过期）
 ```
 
 | 规则 | 说明 |
 |---|---|
-| claim 成功才继续 | 未 claim 到就直接失败返回，**绝不并行采集同一条** |
-| lease 超时可抢占 | 崩溃/强杀留下的 lease 到期后可被新采集者接管，不会永久卡死 |
-| `attempt_count` 在 claim 时递增 | 而非失败时递增——claim 了就是真尝试了 |
-| 释放 | 成功 → `collected` 并清空 `claimed_by`/`lease`；失败 → `failed` 并清空 lease（保留 `last_error`） |
-| 启动清扫 | 应用启动时 `lease_expires_at < now AND collect_state='collecting'` → 复位 `pending` |
+| **心跳续租** | 采集耗时可能超过 300s（长视频字幕），持有者每 60s 更新 `lease_expires_at`；续租同样带 token 条件 |
+| **提交必须带 token** | 成功/失败的 UPDATE 均加 `AND claim_token = ?`。token 已变 → `changes()===0` → **放弃提交**，绝不覆盖新持有者 |
+| 租约过期接管 | 新 worker claim 后 token+1，旧 worker 的任何后续提交都会因 token 不匹配被拒 |
+| `attempt_count` 上限 | 连续失败达 **5 次**后不再自动重试，转 `failed` 需用户显式「重试」，避免坏内容无限消耗配额与时间 |
+| 冷却策略 | 单条采集失败后进入 **10 分钟冷却**（`retry_after_at`），冷却期内批量/自动流程跳过该条 |
+| 释放 | 成功 → `collected` 并清空 `claimed_by`/`lease`；失败 → `failed` + `last_error` + 写 `retry_after_at` |
+| 启动清扫 | `collect_state='collecting' AND lease_expires_at < now` → 复位 `pending`（token 保留，天然递增） |
+
+**为什么 token 不能省**：lease 只能保证"不会有两个活跃租约"，不能保证"旧持有者不会写入"。分布式系统的标准解法就是 fencing——下游拒绝代次过期的请求，这在单机多进程下同样成立（两个 Electron 实例共享同一个 SQLite 文件）。
 
 **重复采集走 upsert**：`failed → pending` 重试、`pending/collected` 再次采集，均走 `INSERT OR REPLACE`（见 §6.1 重采集语义），不产生重复行。
 
@@ -477,6 +504,18 @@ switch (task.action.type) {
 | 从不自动删除 | 自动删除 = 静默丢用户配置。**必须保留原始载荷直到用户显式处理** |
 
 隔离区落 settings 单键 `automation_quarantine`（与 `automation_tasks` 同构，不新增表），UI 提供只读查看与显式「恢复 / 删除」两个动作。
+
+**隔离区的容量与脱敏（CCG 评审 i6：上一版说"从不自动删"却没给上限）**：
+
+| 约束 | 规则 |
+|---|---|
+| **落库前脱敏** | 原始载荷含任务配置，可能带 token / 账号标识。写入前递归替换 `/(token|secret|password|apiKey|cookie)/i` 命中的字段为 `"<redacted>"`，并对所有字符串做 20 字符以上长 token 掩码 |
+| **容量上限** | 最多保留 **50 条**，超出时丢弃最旧的；**丢弃前记日志**（`quarantine_evicted`），保证"数据没了"这件事本身可追溯 |
+| **数量告警** | 达到 30 条时在设置页提示「有 {count} 条无法识别的历史自动化任务待处理」 |
+| **人工清理审计** | 用户显式删除时记录 `deletedBy='user'`、`deletedAt`、`reason`，写入日志。**系统永不超过上限，用户删除永远留痕** |
+| **保留期限** | 无固定期限（用户数据），但提供「清空隔离区」按钮而非自动清空 |
+
+**为什么要有上限又不自动删**：不设上限会无限膨胀（每个损坏备份导入一次就多几条）；自动删则会在用户没注意时销毁自己的配置。**上限 + 日志 + 用户显式删除**三件套同时满足"不膨胀"和"不静默丢失"。
 
 **三层防护的取舍**：
 
@@ -648,6 +687,21 @@ function assertQuotaFits (follows, addingIntervalMin = null) {
 }
 ```
 
+**⚠ 必须做成 DB 层不变量，不能只做入口校验（CCG 评审 i1）**
+
+只在校验入口调用 `assertQuotaFits` 是不够的——**导入、恢复备份、迁移、启动加载、直接写库**都能绕过它，绕过结果是"监控静默饿死一部分博主"，且用户完全不知情。四道防线：
+
+| 防线 | 时机 | 行为 |
+|---|---|---|
+| 1. 单一 service 入口 | 所有 CLI/IPC 写入路径 | **所有** `creator_follows` 写入必须经 `creator-follow-service.upsert()`，该函数内强制调 `assertQuotaFits`；禁止其他模块直连 store 写该表 |
+| 2. 启动预检 | `phase3-services.js` store 初始化后 | 全量重算；超限则**不删数据**，按间隔升序保底运行并置全局 `quota_degraded=true`，UI 显示 `creatorProbeSkipped` |
+| 3. 导入/恢复前 | 导入流程入口 | 先跑冲突预检 + 配额预检，**失败全量拒绝整个导入**（部分导入会留下无法判断来源的混合数据） |
+| 4. 批量操作事务 | 批量改间隔 | 全量校验通过后在**单个 DB 事务**内应用；任一条不满足则 `ROLLBACK`，**不做部分应用**（部分应用会进入不可预测状态） |
+
+**为什么第 2 条不能 fail-closed 拒绝启动**：存量数据已经超限时拒绝启动 = 应用不可用，用户无法自救。正确做法是**降级运行 + 可见告警**——数据是用户的，我们无权替他删；让监控继续但明确告知哪些没被检查。
+
+**关于"部分应用"的说明**：函数式上可以"尽量应用能应用的"，但那会让用户以为自己配了 50 个 1 小时间隔、实际只有 30 个在跑，且 UI 显示的间隔与真实调度不一致。**宁可整体拒绝并让用户调整**。
+
 **「每博主最小可支撑间隔」参考表**（探测池 1,500 下，单博主视角）：
 
 | 关注数 | 保证不超池所需的最小间隔 |
@@ -691,6 +745,17 @@ function assertQuotaFits (follows, addingIntervalMin = null) {
 | 内存 | 仅在发起请求时短暂解密，用后即弃，不挂全局变量、不进闭包捕获 |
 | `safeStorage` 不可用 | **fail-closed：整个博主监控功能禁用**（非 YouTube 平台的采集不受影响），UI 明确提示「系统密钥库不可用，无法安全保存 API Key」。**绝不允许降级为明文保存** |
 | 失效 | API 返回 `keyInvalid` / `accessNotConfigured` → `fatal_paused`（见 §6.3），UI 直达设置页 |
+
+**凭证状态必须可区分（CCG 评审 i7：DPAPI 损坏/换机/升级时用户分不清「没配」还是「配了但读不出来」）**——这三种情况若都报"未配置"，用户会反复重新填 Key 却依然失败：
+
+| 状态 | 判定方式 | UI 文案 |
+|---|---|---|
+| `not_configured` | settings 无该键 | `未配置 YouTube API Key` → 引导填写 |
+| `unavailable` | `safeStorage.isEncryptionAvailable() === false` | `系统密钥库不可用，无法安全保存 API Key` → 引导检查系统环境（Linux 无 keyring） |
+| `decrypt_failed` | 有键但 `safeStorage.decryptString` 抛错（DPAPI 损坏、换机、用户账户变更） | `已保存的 API Key 无法解密，可能因更换系统或账户而失效。请重新填写。` |
+| `ok` | 解密成功 | 显示 `已配置（末四位 {fingerprint}）` |
+
+IPC 只返回 `{ status, fingerprint }`，**任何分支都不回传 Key 原文**；日志同理（仅 `credentialStatus` + `fingerprint`，无明文）。
 
 **为什么 Key 不能跨 IPC**：渲染层是 XSS 与恶意扩展的高暴露面，且 Electron preload 会把返回值原样暴露给页面。一旦 Key 进入渲染层，它就会被 DOM、devtools、以及任何注入脚本读到——即使 IPC 通道本身"只允许主进程调用"。
 
@@ -880,9 +945,12 @@ function classifyFailure (httpStatus, body, transportErr) {
     return { tier: 'fatal', reason }
   if (httpStatus === 401) return { tier: 'fatal', reason: `http_${httpStatus}` }
   if (httpStatus === 403 && reason === null) return { tier: 'fatal', reason: 'http_403_no_reason' }
-  // Tier B：真故障
-  if (['channelNotFound', 'playlistNotFound', 'videoNotFound'].includes(reason))
-    return { tier: 'permanent', reason }
+  // Tier B：真故障（**博主级** —— 会让监控持续无意义，故计入连续失败）
+  // ⚠ videoNotFound / invalidPageToken 是**单资源级**错误（某条视频被删、翻页游标过期），
+  //   不是博主级故障。若计入，会因一条已删视频把整个博主永久停用 —— 必须单列。
+  if (['channelNotFound', 'playlistNotFound'].includes(reason)) return { tier: 'permanent', reason }
+  if (['videoNotFound', 'invalidPageToken', 'ipRefererBlocked'].includes(reason))
+    return { tier: 'item', reason }   // 仅影响该条 discovery，不动 creator 的连续失败计数
   // 兜底：reason 缺失且状态码无法归类 → unknown。
   // ⚠ fail-closed 取 B（计入失败）而非静默放行：分类失败本身是需要暴露的异常，
   //    放行会让所有无法识别的错误都无声跳过。
