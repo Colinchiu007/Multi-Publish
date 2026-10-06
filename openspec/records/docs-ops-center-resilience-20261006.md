@@ -2,9 +2,6 @@
 record: docs-ops-center-resilience-20261006
 task: 输出运营中心远程化韧性方案（断连降级 / 批量告警 / 配置生效验证），纯文档设计产出
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: PR #2977 已开，尚未合并，merge SHA 尚不存在
-sync_backfill_owner: 下一会话
 ---
 
 ## 本次执行记录：运营中心远程化韧性方案（docs-ops-center-resilience-20261006，2026-10-06）【docs-only】
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一会话
 | 门禁脚本 | PASS | `node scripts/classify-docs-only.js --base=origin/main --head=<branch>` → `docs-only=true` files=1；`node scripts/check-no-brand-residue.js` → PASS（6897 tracked 文件）；`bash scripts/check-docs-sync.sh --base=main --head=<branch>` → 通过（rc=0） |
 | QM-1 打包 / QM-4 视觉 | N/A | 纯文档，无运行时路径变更，未触及打包与 UI |
 | QM-6 CCG 双模型外部评审 | 豁免 | docs-only 通道豁免。本任务风险已由主代理自查覆盖：结论逐条附 `文件:行号` 证据（见方案附录 A） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#2977)$' --format=%H|%cI` 拿 merge SHA 与时间；`git ls-remote --heads origin docs-ops-center-resilience-20261006` 返回 0 行证远端分支已删；回填与销账必须同一次提交完成 |
+| 远程同步 | PASS | PR #2977 已 squash 合并。merge SHA `f71d55323ad7dd8e5e677f72d54a7e79c1060f56`，合并时间 `2026-10-06T12:16:17+08:00`（取证：`git log origin/main --grep='(#2977)$' --format=%H\|%cI`）。`git ls-remote --heads origin docs-ops-center-resilience-20261006` 返回 0 行，证远端分支已删 |
 
 ### docs-only 保留门禁逐条
 
