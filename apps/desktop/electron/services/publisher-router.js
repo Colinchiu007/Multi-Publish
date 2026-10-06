@@ -400,7 +400,7 @@ async function loadAuthForTask (deps, platform, article, ownerSubject) {
  * （日志原文 "session-cookie ... (fallback from missing encrypted file)"），
  * 加密文件里 cookies 恒为 0。ApiPublisher 直连轨只读加密文件 → 空 cookies → 抛错；
  * 而 RPA 轨会用同一份分区 cookie 补齐，所以只有 API 轨失败。
- * 参考产品（蚁小二）百家号发布链是纯 HTTP、cookie 直接进请求头，全程不开浏览器，
+ * 参考产品百家号发布链是纯 HTTP、cookie 直接进请求头，全程不开浏览器，
  * 印证「拿到 cookie 就能发」——补齐取数即可，无需浏览器。
  *
  * 两处都取不到时如实返回空（由调用方判 auth_missing），绝不臆造凭据。

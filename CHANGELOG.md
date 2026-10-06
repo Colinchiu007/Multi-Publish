@@ -23,7 +23,7 @@
 **③ API 直连轨补 session 分区 cookie 回退（百家号 `auth_missing` 根因）**
 E2E 实测百家号报「平台 Cookie 缺失」，但账号 `status=active` 且有 23 个 cookie。根因：`ApiPublisher` 的 `loadAuthForTask` **只读加密凭证文件**，不回退账号 session 分区（`persist:account-<id>`）；而百家号 cookie 只在分区里（`checkLocalCredentials` 日志原文 `fallback from missing encrypted file`）。这解释了为何**同一账号走 RPA 轨成功、只有 API 轨失败**（RPA 轨会用 `getAccountPartitionCookies` 补 cookie）。
 
-参考产品印证：蚁小二百家号发布链是**纯 HTTP**（cookie + token 直接进请求头、全程不开浏览器），端点与我方现有实现完全一致（`pcui/article/publish?callback=bjhpublish` 与 `save?callback=bjhdraft`），故缺口在**取数层**而非发布链。修复后凭证为空时回退读分区 cookie；两处皆空则如实返回空由调用方判 `auth_missing`，**绝不臆造凭据**。
+参考产品印证：其百家号发布链是**纯 HTTP**（cookie + token 直接进请求头、全程不开浏览器），端点与我方现有实现完全一致（`pcui/article/publish?callback=bjhpublish` 与 `save?callback=bjhdraft`），故缺口在**取数层**而非发布链。修复后凭证为空时回退读分区 cookie；两处皆空则如实返回空由调用方判 `auth_missing`，**绝不臆造凭据**。
 
 ### E2E 实证效果（非单测替代）
 - 应用存活 165s+（修复前 8~22s 必崩）

@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 // 于是 API 直连轨拿到空 cookies → 抛 auth_missing。
 // 同一账号走 RPA 轨却能成功，因为 RPA 轨会用 getAccountPartitionCookies 补 cookie。
 //
-// 参考产品（蚁小二）做法印证：其百家号发布链是**纯 HTTP**，cookie 由登录态直接注入
+// 参考产品做法印证：其百家号发布链是**纯 HTTP**，cookie 由登录态直接注入
 // 请求头（publish$a($,S,T,N,P) 的 headers {cookie:$, token:S}），全程不开浏览器 ——
 // 所以只要能拿到 cookie 就能发，与浏览器无关。
 //
