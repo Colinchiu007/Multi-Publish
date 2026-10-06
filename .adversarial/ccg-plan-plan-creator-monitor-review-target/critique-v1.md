@@ -5,54 +5,61 @@
       "id": "i1",
       "severity": "Critical",
       "dimension": "feasibility",
-      "finding": "配额约束只在配置变更入口执行；导入/恢复备份/迁移/启动加载/直接写库仍可能产生超限组合，批量拒绝也未绑定数据库事务。",
-      "suggestion": "所有变更走单一 service + DB 事务不变量；启动/导入/迁移先验证，失败全量拒绝并加用例。"
+      "finding": "ipRefererBlocked 被列为 item 单资源级错误，但它通常是 API Key/IP/referrer 限制导致的应用级 403，不是单视频故障。",
+      "suggestion": "移到 C 级 fatal；item 级仅保留 videoNotFound 等确实针对单资源的 reason。"
     },
     {
       "id": "i2",
       "severity": "Critical",
-      "dimension": "consistency",
-      "finding": "claim+lease 未定义接管语义：300s 后旧 worker 仍可能完成并覆盖 collecting，长采集缺少续租，attempt_count 也没有上限和冷却策略。",
-      "suggestion": "用 claim token 加心跳续租；完成/失败 UPDATE 必须匹配 token；attempt_count 加上限、冷却与测试。"
+      "dimension": "feasibility",
+      "finding": "claim_token 仅约束成功/失败提交不完整。进度写入、采集副作用、lease 续期若未按 token CAS，旧 worker 仍可产生覆盖或重复插入。",
+      "suggestion": "claim 用原子 UPDATE+RETURNING；所有行内变更与副作用都按 claim_token 条件提交。"
     },
     {
       "id": "i3",
-      "severity": "Critical",
-      "dimension": "consistency",
-      "finding": "D6 去重键为 (platform, external_id)，但 viral_library 只描述 external_id <> '' 的唯一索引；跨平台同 ID 可撞，存量行与 creator 映射语义未闭合。",
-      "suggestion": "改 (platform, external_id) partial 唯一索引；creator_id 可空；迁移预检按同键执行。"
+      "severity": "Warning",
+      "dimension": "completeness",
+      "finding": "配额模型只给探测公式；采集 60% 缺少每日计数和熔断，且公式未计重试、退避和手动 channels 解析成本。",
+      "suggestion": "增加分池日计数器、采集硬熔断、重试预算，超限时阻止操作并明确提示。"
     },
     {
       "id": "i4",
       "severity": "Warning",
-      "dimension": "feasibility",
-      "finding": "失败分级清单不完整：videoNotFound、forbidden、ipRefererBlocked、invalidPageToken 等未列，B 兜底会把可修复或非频道故障计入连续停用。",
-      "suggestion": "补全官方 reason 测试集；非频道资源错误与配置错误分开，不进停用计数。"
+      "dimension": "consistency",
+      "finding": "启动存量超限时只写「降级运行」，未定义跳过哪些博主、是否继续消耗配额，与「绝不静默饿死」有解释空间。",
+      "suggestion": "定义确定性排序、跳过集、恢复条件，并在 UI 列出每个被跳过博主及原因。"
     },
     {
       "id": "i5",
       "severity": "Warning",
-      "dimension": "feasibility",
-      "finding": "4 种 URL 到 channelId 的解析流程、API 参数与失败原因未定义；handle/legacy URL 可能需额外请求，成本和歧义未计入配额。",
-      "suggestion": "写显式 resolver 矩阵：URL形态、API参数、错误、unit 成本，配预检测试。"
+      "dimension": "security",
+      "finding": "「永不跨 IPC 传渲染层」与用户在渲染层输入 API Key 的配置流程冲突；首次保存必须经 IPC 到主进程。",
+      "suggestion": "改为：仅允许一次性 set-key 请求，不提供明文回读，保存后立即清除渲染层明文。"
     },
     {
       "id": "i6",
       "severity": "Warning",
-      "dimension": "security",
-      "finding": "隔离区从不自动删除可无限增长，且原始载荷可能包含 token/账号等敏感字段，未定义容量、脱敏与人工清理审计。",
-      "suggestion": "落库前脱敏，设容量与数量告警；人工清理记录操作者和原因。"
+      "dimension": "feasibility",
+      "finding": "lease 300 秒加心跳 60 秒仍未限制总任务时长；长视频下载或字幕请求挂起时，心跳可能无限续租。",
+      "suggestion": "增加每阶段超时、总任务 deadline 和有进展才续租的心跳条件。"
     },
     {
       "id": "i7",
+      "severity": "Warning",
+      "dimension": "consistency",
+      "finding": "无外键是正确选择，但删除 viral_library 后复位 discovery 若不在同一事务，失败会留下 pending 状态并导致重复采集。",
+      "suggestion": "把删除与批量复位放进一个事务，并用唯一映射和 UPSERT 防并发重复。"
+    },
+    {
+      "id": "i8",
       "severity": "Info",
-      "dimension": "security",
-      "finding": "safeStorage fail-closed 缺少可观测细节；Windows DPAPI 损坏、换机或升级时用户难以区分未配置与密钥不可恢复。",
-      "suggestion": "区分未配置、解密失败、平台不可用；只暴露 fingerprint/状态，禁止日志输出明文。"
+      "dimension": "clarity",
+      "finding": "失败分级未定义响应包含多个 reason 时的优先级，也未说明空 body 时脱敏摘要的来源字段。",
+      "suggestion": "定义 reason 优先级：quota/rate、auth/config、notFound、unknown；空 body 记录状态码与请求 ID。"
     }
   ],
   "dimensionScores": {
-    "completeness": 6,
+    "completeness": 7,
     "consistency": 6,
     "clarity": 7,
     "feasibility": 6,

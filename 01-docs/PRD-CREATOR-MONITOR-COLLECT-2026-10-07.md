@@ -330,6 +330,19 @@ SELECT platform, external_id, COUNT(*) AS n FROM viral_library
 
 **因此 `viral_library` 是采集事实源、`creator_discoveries` 是发现事实源，两者不是主从关系**——这与 §6.2 的 `collect_state` 注释一致：状态真源在发现表，但**已入库内容的存在性**以 `viral_library` 为准。
 
+**删除与复位的原子性（CCG 评审 i7）**：删除采集库条目并复位 discovery 为 `pending` **必须在同一个数据库事务内完成**。分两次写会在中间崩溃时留下「内容已删、discovery 仍为 collected」的状态——此时那条作品**既不在采集库、也不会被重新发现**，用户等于永久丢失该作品。
+
+```sql
+BEGIN
+  DELETE FROM viral_library WHERE id = ? AND external_id <> '';
+  UPDATE creator_discoveries
+     SET collect_state='pending', collected_at=NULL, claimed_by='', lease_expires_at=NULL
+   WHERE platform=? AND external_id=? AND collect_state='collected';
+COMMIT   -- 任一失败则 ROLLBACK，两者要么都成、要么都不成
+```
+
+并发防护：条件更新用 `collect_state='collected'` 做前置断言，配合 `(platform, external_id)` 唯一索引，用 **UPSERT 语义**而非「先查后改」，避免与并发的采集提交互相覆盖。
+
 ### 6.2 去重键与 canonical ID 规则（CCG 评审 i6 修订）
 
 `(platform, external_id)` 唯一索引即去重机制。探测到重复项时走 `INSERT OR IGNORE`（或先查后插 + 捕获约束冲突），**幂等**。
@@ -440,7 +453,11 @@ UPDATE creator_discoveries
 
 | 规则 | 说明 |
 |---|---|
-| **心跳续租** | 采集耗时可能超过 300s（长视频字幕），持有者每 60s 更新 `lease_expires_at`；续租同样带 token 条件 |
+| **claim 必须原子且可回读** | 用 `UPDATE ... RETURNING claim_token`，一次拿到新 token，避免「先查再改」的竞态 |
+| **所有行内变更与副作用都按 token CAS** | 不只是成功/失败提交——**进度写入、lease 续期、`viral_library` 插入、熔断计数**全部必须带 `AND claim_token = ?`。漏掉任何一处，旧 worker 就能覆盖进度或重复插入（CCG 评审 i2） |
+| **续租必须有进展条件** | 心跳**仅在本轮有实质进展时**才续租。无进展却持续续租 = 挂起的任务永不过期，占着 claim 永不释放。长视频下载/字幕请求卡死时尤其致命 |
+| **总时长 deadline** | 单条采集设总 deadline（如 600s），与 lease 续期解耦：无论心跳如何，deadline 到即强制放弃 |
+| **分阶段超时** | 元数据拉取 30s / 字幕拉取 120s / 入库 30s，逐段独立超时，避免单段挂死拖垮整体 |
 | **提交必须带 token** | 成功/失败的 UPDATE 均加 `AND claim_token = ?`。token 已变 → `changes()===0` → **放弃提交**，绝不覆盖新持有者 |
 | 租约过期接管 | 新 worker claim 后 token+1，旧 worker 的任何后续提交都会因 token 不匹配被拒 |
 | `attempt_count` 上限 | 连续失败达 **5 次**后不再自动重试，转 `failed` 需用户显式「重试」，避免坏内容无限消耗配额与时间 |
@@ -720,6 +737,33 @@ function assertQuotaFits (follows, addingIntervalMin = null) {
 | 采集池耗尽 | 拒绝执行，`creatorErrQuotaExhausted` |
 | 物理池用量 ≥ 80%（8,000 units） | 记 WARN 日志 + UI 配额水位条变琥珀色 |
 
+#### 7.3.5.1 采集侧的日计数与硬熔断（CCG 评审 i3）
+
+上文的配额公式只覆盖了「正常路径」。实际运行还有三处消耗，**必须一并计入，否则采集池会被非预期路径吃光**：
+
+| 消耗源 | 计入方式 |
+|---|---|
+| 手动解析频道（`creator:follow` 时的 `channels.list`） | 计入探测池（1 unit/次） |
+| 失败重试与退避重发 | **每次重试重新计费**，不因「已失败」而免计 |
+| 批次中途失败后的整批回滚重跑 | 整批重跑 = 重新计费，故须有批次幂等键防重复扣 |
+
+**采集硬熔断**：日采集计数 ≥ 采集池的 **90%** 时，**拒绝新的采集请求并立即提示**（不等耗尽）——耗尽后才拒会让用户在最后一刻才发现，且此时已无配额可用。
+
+**重试预算**：单条内容自动重试上限 **2 次**（与 `attempt_count ≤ 5` 区分：后者是跨会话累计，前者是单次运行内）。超预算转 `failed` 等用户显式重试。
+
+#### 7.3.5.2 启动存量超限的确定性跳过集（CCG 评审 i4）
+
+「降级运行」必须**可复现、可解释**，否则用户看到「有的查了有的没查」却不知道为什么。
+
+| 规则 | 定义 |
+|---|---|
+| 排序键 | `check_interval_min ASC, created_at ASC` —— **间隔小（检查更频繁）的优先保底**，同间隔按关注先后 |
+| 跳过集 | 从排序末尾起，逐个放入本轮跳过集，直到累计需求 ≤ 探测池 |
+| 确定性 | 同一份数据 + 同一配额 → **每次启动得到完全相同的跳过集**（不得依赖遍历顺序或随机） |
+| 是否耗配额 | **被跳过的博主不发起任何请求，因此不消耗配额** |
+| 恢复条件 | 用户调大任一被跳过博主的间隔、或减少关注数，使总量回到池内 → **下一轮自动恢复，无需重启** |
+| 可见性 | UI 列出**每一个**被跳过博主及其间隔与被跳原因，不只给总数 |
+
 #### 7.3.6 配额语义澄清（CCG 评审 i4）
 
 「探测配额」的单位是 **API units**，不是"次数"也不是"频道数"。三者换算关系固定为：稳态 1 次探测 = 1 unit = 1 次 `playlistItems.list`。
@@ -741,7 +785,8 @@ function assertQuotaFits (follows, addingIntervalMin = null) {
 | 加密 | 经 Electron **`safeStorage`** 加密（Linux 需 `safeStorage` 后端可用，否则拒绝保存而非降级明文） |
 | 落点 | 密文存 settings（`credential_youtube_api_key_enc`），**密钥本身永不落 SQLite 明文列** |
 | 禁止 | 不写日志、不进 `violations.jsonl`、不进 `.adversarial/`、不进崩溃报告、不进任何 Git 跟踪文件 |
-| **IPC 边界** | **API Key 永不跨 IPC 传给渲染层**。`creator:*` 与 `settings:*` 通道只暴露 `hasApiKey: boolean` 与 `fingerprint: string`（末 4 位哈希）。主进程内部解密后直接用于 HTTP 请求，不经 `ipcMain.handle` 回传 |
+| **IPC 边界（双向不对称）** | **写入方向**：允许一次性 `settings:setYoutubeApiKey({ key })` 把用户输入的明文送入主进程——用户必须在渲染层输入，这条无法回避。**读取方向**：**永不回传明文**，所有查询通道只返回 `status` 与 `fingerprint`（末 4 位哈希） |
+| 保存后清除 | 主进程 `safeStorage.encryptString` 后立即丢弃明文引用；渲染层在 `set` 成功回调后**立刻把输入框清空**，不写入任何 store/pinia 持久化、不进 `localStorage`、不进前端日志 |
 | 内存 | 仅在发起请求时短暂解密，用后即弃，不挂全局变量、不进闭包捕获 |
 | `safeStorage` 不可用 | **fail-closed：整个博主监控功能禁用**（非 YouTube 平台的采集不受影响），UI 明确提示「系统密钥库不可用，无法安全保存 API Key」。**绝不允许降级为明文保存** |
 | 失效 | API 返回 `keyInvalid` / `accessNotConfigured` → `fatal_paused`（见 §6.3），UI 直达设置页 |
@@ -757,7 +802,21 @@ function assertQuotaFits (follows, addingIntervalMin = null) {
 
 IPC 只返回 `{ status, fingerprint }`，**任何分支都不回传 Key 原文**；日志同理（仅 `credentialStatus` + `fingerprint`，无明文）。
 
-**为什么 Key 不能跨 IPC**：渲染层是 XSS 与恶意扩展的高暴露面，且 Electron preload 会把返回值原样暴露给页面。一旦 Key 进入渲染层，它就会被 DOM、devtools、以及任何注入脚本读到——即使 IPC 通道本身"只允许主进程调用"。
+**为什么读取方向绝不能回传明文**：渲染层是 XSS 与恶意扩展的高暴露面，preload 会把返回值原样暴露给页面。一旦 Key 被回读，它就会进 DOM、devtools 以及任何注入脚本——即使通道本身"只允许主进程调用"。**写入方向无法避免，但读取方向是单方面可控的，所以只对读取设禁令。**
+
+#### 7.4.1 reason 优先级（CCG 评审 i8）
+
+响应 `errors` 数组可能含多个 `reason`，取第一条会误判。定义显式优先级，**按此顺序匹配，命中即停**：
+
+| 优先级 | reason | 归类 |
+|---|---|---|
+| 1 | `quotaExceeded` / `dailyLimitExceeded` / `rateLimitExceeded` / `userRateLimitExceeded` | A 节流 |
+| 2 | `keyInvalid` / `accessNotConfigured` / `ipRefererBlocked` / `forbidden` | C 致命 |
+| 3 | `channelNotFound` / `playlistNotFound` | B 真故障 |
+| 4 | `videoNotFound` / `invalidPageToken` | item 单资源 |
+| 5 | 其余 / 无 | B 兜底 |
+
+**空 body 时**：记录 HTTP 状态码 + `x-goog-request-id`（用于向 Google 报障）+ 响应体前 200 字脱敏摘要，三者缺一不可——只有状态码无法定位配额问题。
 
 **为什么不用明文存 SQLite**：桌面应用的 SQLite 文件位于用户目录，本机任何脚本或恶意软件可直接读取；API Key 泄露意味着配额被他人盗用甚至账号被关联。`safeStorage` 在 Windows 上走 DPAPI、macOS 走 Keychain、Linux 走 libsecret，是本仓既有的正确选择。
 
@@ -949,8 +1008,12 @@ function classifyFailure (httpStatus, body, transportErr) {
   // ⚠ videoNotFound / invalidPageToken 是**单资源级**错误（某条视频被删、翻页游标过期），
   //   不是博主级故障。若计入，会因一条已删视频把整个博主永久停用 —— 必须单列。
   if (['channelNotFound', 'playlistNotFound'].includes(reason)) return { tier: 'permanent', reason }
-  if (['videoNotFound', 'invalidPageToken', 'ipRefererBlocked'].includes(reason))
+  if (['videoNotFound', 'invalidPageToken'].includes(reason))
     return { tier: 'item', reason }   // 仅影响该条 discovery，不动 creator 的连续失败计数
+  // ⚠ ipRefererBlocked 不属于 item 级（CCG 评审 i5 纠正）：
+  //   它是 API Key / IP / referrer 被拒导致的**应用级 403**，会让所有请求持续失败，
+  //   归入 item 级会变成「每条都失败但博主永不暂停」，监控静默失效。必须归 C 级。
+  if (reason === 'ipRefererBlocked') return { tier: 'fatal', reason }
   // 兜底：reason 缺失且状态码无法归类 → unknown。
   // ⚠ fail-closed 取 B（计入失败）而非静默放行：分类失败本身是需要暴露的异常，
   //    放行会让所有无法识别的错误都无声跳过。
