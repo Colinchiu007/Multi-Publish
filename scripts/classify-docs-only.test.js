@@ -43,6 +43,8 @@ test('CI_IGNORED_PATHS 清单内容被钉死（与 push paths-ignore 同源同�
     '.hermes/**',
     '.agents/**',
     'openspec/**',
+    // 对抗评审产物：纯 .md + .json，无可执行代码，不需自接线门禁
+    '.adversarial/**',
     // 欠账账本：它是「门禁的数据」，不是运行时代码。前提见下方
     // 「进白名单的路径，它自己的门禁必须在 changes job 里无条件跑」那条锁 ——
     // 没有那条前提，把任何路径放进这份名单都会连带短路掉它自己的检查，
@@ -185,6 +187,7 @@ const GATE_COVERAGE_FOR_WHITELIST = [
   { pattern: '.gitignore', noGate: '忽略规则由 check-unwired-tests 与 git check-ignore 现场判据兜底，没有读这份文件的门禁' },
   { pattern: '.editorconfig', noGate: '无门禁消费；行尾风险由 PR 流程层的两口径 numstat 对账拦' },
   { pattern: '.ccg/**', noGate: '评审工具产物，无仓内门禁消费' },
+  { pattern: '.adversarial/**', noGate: '对抗评审产物（proposal/critique/rebuttal/summary），纯 .md + .json，无可执行代码，无仓内门禁消费其内容' },
   { pattern: '.claude/**', noGate: '工具配置副本，无仓内门禁消费' },
   { pattern: '.hermes/**', noGate: '计划存档目录，内容不做机器判定' },
   { pattern: '.agents/**', noGate: '上游技能制品副本目录，无仓内门禁消费' },

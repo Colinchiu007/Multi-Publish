@@ -18,6 +18,7 @@ on:
       - '.hermes/**'
       - '.agents/**'
       - 'openspec/**'
+      - '.adversarial/**'
       - 'scripts/gate-record-debt-ledger.json'
   pull_request:
     branches: [main]

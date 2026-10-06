@@ -42,6 +42,11 @@ const CI_IGNORED_PATHS = [
   '.hermes/**',
   '.agents/**',
   'openspec/**',
+  // 对抗评审产物（adversarial-review-loop）：proposal / critique / rebuttal / summary，
+  // 实测构成是纯 .md + .json（62 个文件、零可执行代码），与 .ccg/** 同性质。
+  // 不进白名单的后果：只提交评审产物的 docs-only PR 会因 docs-only=false
+  // 触发全量 Desktop Shards + Coverage 门禁（实测 3 项重型 job 跑 15+ 分钟）。
+  '.adversarial/**',
   'scripts/gate-record-debt-ledger.json',
 ]
 
