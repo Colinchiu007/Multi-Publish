@@ -101,16 +101,23 @@ test("后端不在 PATH 但装在 $HOME/.local/bin 时，必须按绝对路径�
   assert.doesNotMatch(out, /claude[^\n]*找不到/, "claude 已装在 $HOME/.local/bin，不得判为找不到")
   assert.match(out, /\.local[\\/]bin/, "必须报出补入 PATH 的绝对路径，便于事后核对")
   assert.match(out, /已从绝对路径补入 PATH/, "必须明确区分「靠 PATH 命中」与「靠绝对路径补入」")
+  // 双模型齐备时不得出现降级措辞（只看 0/1 标志的旧实现会在这里误报「只剩单后端」）
+  assert.doesNotMatch(out, /只剩单后端/, "两个后端都在时不得打印降级告警")
+  assert.doesNotMatch(out, /没有任何评审后端可用/, "两个后端都在时不得打印全缺告警")
+  assert.match(out, /体检通过/, "双模型齐备应判定通过")
   assert.equal(rc, 0, "两个后端都可用时体检应通过退出")
 })
 
 // ② 把本机实测到的硬事实钉住：.cmd/.bat 是 CreateProcess 起不来的。
 // 若这里判成「可用」，引擎会拿一个起不来的后端去跑，失败信息还落在很后面。
-test("只存在 .cmd 时必须告警，不得判为可用（wrapper 走 CreateProcess，起不了 .cmd）", () => {
+// rc 断言是 QM-6 评审 i1 补的：仅断言文案会放过「刚说完起不来、下一句体检通过
+// 却 exit 0」的自相矛盾。
+test("只存在 .cmd 时必须告警且判为不可用（wrapper 走 CreateProcess，起不了 .cmd）", () => {
   const home = makeFakeHome({ claude: "claude.cmd" })
-  const { out } = runCheckDeps(home)
+  const { rc, out } = runCheckDeps(home)
   assert.match(out, /CreateProcess/, "必须点明这是 CreateProcess 的限制，否则无人知道下一步做什么")
   assert.match(out, /\.cmd/, "必须点名实际命中的文件")
+  assert.notEqual(rc, 0, "只命中 .cmd 时不得返回 0——那会让体检判成「体检通过」")
 })
 
 // ③ fail-closed：真的没有后端时不能静默降级，诊断命令要能自己失败。
@@ -123,7 +130,37 @@ test("后端确实不存在时，--check-deps 必须非零退出并给出可操�
   assert.match(out, /npm|安装|装/, "必须给出下一步可操作动作，不能只报错")
 })
 
-// ④ 结构锁：诊断入口必须留在用法说明里，否则真出事时没人知道有这条命令。
+// ④ 候选目录含空格时仍必须能被找到（QM-6 评审 i2 的回归锁）。
+// 起因：`for d in $(candidate_dirs)` 按 IFS 拆词，而本机 `npm prefix -g`
+// 实测返回 `D:\Program Files\npm-global`——含空格，拆开后只剩两个废目录，
+// 于是「救 opencode/codex」那条分支在本机完全失效。
+// ④ 候选目录含空格、或路径自带冒号时，仍必须能被找到。
+// 两个缺陷叠在同一个「拆词/分隔符」选择上：
+//   · 命令替换按 IFS 拆词；本机 npm 全局 bin 实测含空格，
+//     拆开后只剩废目录，于是「救 opencode/codex」那条分支在本机完全失效
+//     （QM-6 评审 i2）。
+//   · 按冒号切 CCG_BACKEND_BIN_DIRS：Windows 盘符自带冒号，一样被劈开。
+//     这条是本 PR 自己的回归测试当场抓出来的，QM-6 评审没命中。
+test("候选目录含空格或冒号时仍必须命中（防命令替换/分隔符拆词回潮）", () => {
+  const home = makeFakeHome({})
+  // Windows 用盘符冒号、POSIX 用「名字里带冒号的目录」，
+  // 两条路径都能让「按冒号切」的实现变红，而不是只在 Windows 上有意义。
+  const isWin = process.platform === "win32"
+  const spaced = isWin
+    ? path.join(home, "Program Files", "npm-global")
+    : path.join(home, "od:d", "Program Files")
+  fs.mkdirSync(spaced, { recursive: true })
+  for (const tool of ["claude", "opencode"]) {
+    fs.writeFileSync(path.join(spaced, tool), "#!/bin/sh\nexit 0\n")
+  }
+  const { rc, out } = runCheckDeps(home, { CCG_BACKEND_BIN_DIRS: spaced })
+  assert.match(out, /已从绝对路径补入 PATH/, "含空格/冒号的候选目录必须被识别为命中")
+  assert.match(out, /Program Files/, "命中路径必须原样带空格回报")
+  assert.doesNotMatch(out, /找不到/, "含空格/冒号的目录不得被判为找不到")
+  assert.equal(rc, 0, "两个后端都命中时体检应通过退出")
+})
+
+// ⑤ 结构锁：诊断入口必须留在用法说明里，否则真出事时没人知道有这条命令。
 test("--check-deps 必须在用法说明中出现（诊断入口要保持可发现）", () => {
   const src = fs.readFileSync(SCRIPT, "utf8")
   assert.match(src, /--check-deps/, "用法块未提及 --check-deps")
@@ -133,7 +170,7 @@ test("--check-deps 必须在用法说明中出现（诊断入口要保持可发�
   assert.ok(usageAt < helpAt, "--check-deps 应出现在 --help 之前的用法说明里")
 })
 
-// ⑥b 退出码分三档：单后端就是本条坑造成的降级形态，不能判 0。
+// ⑥ 退出码分三档：单后端就是本条坑造成的降级形态，不能判 0。
 // 否则体检自己的语义与它要检的缺陷相反。
 test("只剩单后端时 --check-deps 必须返回非零并点名降级（不能判通过）", () => {
   const home = makeFakeHome({ claude: "claude" }) // 故意不给 opencode
@@ -147,17 +184,25 @@ test("只剩单后端时 --check-deps 必须返回非零并点名降级（不能
 // 实测踩到：ROOT 用 dirname -- "$0" 计算，而那是全脚本第一个外部依赖；
 // 本机 PATH 会丢工具目录，于是 `--check-deps` 先被 `dirname: command not found`
 // 打死——一个「查别人坏没坏」的命令自己先坏了。
-test("--check-deps 路径上不得依赖 dirname（诊断入口自身必须无前置外部依赖）", () => {
+//
+// 这条按 QM-6 评审 i7 的意见改成**行为级**锁：往 PATH 最前面塞一个必定失败的
+// dirname，看体检是否照常通过。原来那条精确匹配 `_self_dir="${_self_dir%/*}"`
+// 的正则属于字符串级锁，合法重构（换写法但仍不依赖 dirname）会误报红。
+test("dirname 不可用时 --check-deps 仍须成功（行为级：不依赖 dirname）", () => {
+  const home = makeFakeHome({ claude: "claude", opencode: "opencode" })
+  const poison = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-poison-${process.pid}-${seq++}-`))
+  // 任何对 dirname 的调用都会拿到空输出 + 127
+  fs.writeFileSync(path.join(poison, "dirname"), "#!/bin/sh\nexit 127\n")
+  const { rc, out } = runCheckDeps(home, { PATH: `${poison}:/usr/bin:/bin` })
+  assert.equal(rc, 0, `dirname 被毒化时体检仍须通过（实际 rc=${rc}）：${out.slice(0, 300)}`)
+  assert.match(out, /体检通过/, "dirname 不可用不得影响体检结论")
+  // 便宜的早期信号：ROOT 那一行不得再出现 dirname
   const src = fs.readFileSync(SCRIPT, "utf8")
-  assert.doesNotMatch(
-    src,
-    /ROOT="\$\(cd "\$\(dirname/,
-    "ROOT 计算不得再用 dirname；否则 --check-deps 会被 dirname 缺失打死",
-  )
-  assert.match(src, /_self_dir="\$\{_self_dir%\/\*\}"/, "应改用参数展开剥掉最后一段路径")
+  const rootLine = (src.match(/^ROOT=.*$/m) || [""])[0]
+  assert.doesNotMatch(rootLine, /dirname/, "ROOT 计算不得再用 dirname")
 })
 
-// ⑦ 防回潮：不得再写回「只 say 一句被动告警然后照跑」的旧形态。
+// ⑧ 防回潮：不得再写回「只 say 一句被动告警然后照跑」的旧形态。
 test("不得回潮成被动告警：后端体检必须在补 PATH 之后再判定", () => {
   const src = fs.readFileSync(SCRIPT, "utf8")
   // 旧实现原句：command -v claude >/dev/null 2>&1 || say "⚠ 找不到 claude …"
