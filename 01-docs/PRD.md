@@ -170,6 +170,97 @@
 
 
 
+#### 6.3.15 平台侧定时（2026-10-07 架构变更：本地定时 → 平台到点发布）
+
+> 本节记录从「本地定时器到点触发立即发布」改为「创建时把排期提交给平台，由平台服务器到点发布」的
+> 架构决策、数据校验、交互与提示文字。对标实现见本机参考产品逆向目录（4.0 逆向工程）。
+
+##### 6.3.15.1 架构决策与收益
+
+| 维度 | 旧（本地调度） | 新（平台侧定时） |
+|------|--------------|----------------|
+| 触发方 | 主进程 setTimeout 到点 → 任务队列 → 立即发布 | 创建即把排期提交给平台 → **平台服务器到点发布** |
+| 应用关闭 | 发不出去（错过即丢，除非重启补发） | **照发**（平台已持有排期） |
+| 休眠/时钟跳变 | 本地定时器漂移，需 rearm 纠正 | 与本机无关，平台按自身时钟 |
+| 取消 | 本地原子取消，即时生效 | 平台多无撤销接口（参考产品实测）⇒ 本地取消不等于平台撤销 |
+| 不支持平台 | 统一本地定时，无差别 | **必须显式阻断**，绝不静默立即发布 |
+
+**为什么保留「不支持即阻断」而非降级本地定时**：降级会让用户以为「关掉应用也在发」而实际不会，
+属另一种静默失败；且与「平台侧定时」语义混杂。宁可明确失败，不给假承诺。
+
+##### 6.3.15.2 逐平台能力矩阵（唯一真源：packages/shared-utils/src/platform-schedule-capability.js）
+
+三态模型，unsupported 一律 fail-closed（含未知平台）：
+
+| 模式 | 含义 | 当前平台 |
+|------|------|---------|
+| api | 平台有直连发布接口，时间字段随发布请求提交 | **toutiao**（timer_status=1 + timer_time，格式 YYYY-MM-DD HH:mm） |
+| rpa | 无直连接口，须在发布页勾选「定时发布」并填时间 | 暂无（待取证） |
+| unsupported | 平台不支持平台侧定时，**创建阶段阻断** | 其余 14 个（未取证，一律先阻断） |
+
+**取值纪律**：判定「某平台支持平台侧定时」需登录该平台确认其发布页/接口确有此能力，属真机取证范畴。
+本表**不猜测** —— 未经取证的平台一律 unsupported，逐个取证后改写为 api/rpa 并填齐字段。
+当前只有头条可用，这是刻意的安全取舍：宁可功能少，不可静默发错。
+
+##### 6.3.15.3 数据校验
+
+**渲染层（validateScheduleEntries，提交前拦截，用户当场看到原因）：**
+
+| 校验项 | 规则 | reason | 提示文字（zh） |
+|--------|------|--------|---------------|
+| 平台支持 | 能力非 unsupported | schedulePlatformUnsupported | 「{platform} 暂不支持定时发布，已阻止提交。请选择其他平台或取消定时后立即发布。」 |
+| 最小提前量 | 距今 ≥ capability.minLeadMinutes（头条 5 分钟） | scheduleTooSoon | 「{platform} 的定时发布至少需要提前 {minMinutes} 分钟。」 |
+| 最大跨度 | ≤ min(全局 30 天, capability.maxHorizonDays) | scheduleExceedsMaxDays | 「定时发布时间不能超过 {maxDays} 天」 |
+| 时间格式 | new Date(publishTime) 可解析 | scheduleInvalidTime | 「定时发布时间无效」 |
+| 未来时间 | timestamp > now | scheduleMustBeFuture | 「定时发布时间必须晚于当前时间」 |
+| 同账号间隔 | 同 platform:accountId 两条间隔 ≥ 5 分钟 | scheduleIntervalTooShort | 「{platform} {accountId}的定时任务间隔必须至少 {minMinutes} 分钟」 |
+
+**主进程（scheduler.create，防绕过渲染层）**：不支持平台在**落盘前**抛错（文件不存在，无记录残留）；
+平台窗口再次校验；参数类型校验（platform 非空串、article 为对象、publishTime 有效未来时间）。
+
+##### 6.3.15.4 状态机
+
+| 状态 | 含义 |
+|------|------|
+| pending | **仅 legacy**：迁移前的本地定时任务，restore 时仍走本地定时器（向后兼容） |
+| submitted | 排期已提交、正在向平台投递 |
+| dispatching | 正在入队（认领窗口） |
+| executed | **平台已受理排期** —— 平台服务器会按时发布 |
+| failed | 提交失败（标记写盘失败 / 认领失败 / 队列不可用） |
+| cancelled | 本地记录作废（⚠️ 平台侧排期可能仍会发布） |
+
+##### 6.3.15.5 取消语义（重要边界）
+
+- **已提交平台（executed）不可取消** —— 平台持有排期且无撤销接口，本地改判 cancelled 只会造成
+  「用户以为取消成功、平台照发」。cancel() 返回 false，UI 须如实说明。
+- **提交中（dispatching）不可取消** —— 载荷一旦交给队列无法收回。
+- **legacy pending 仍可取消** —— 迁移前数据的清理路径。
+- 终态（executed/failed/cancelled）取消返回 false。
+
+##### 6.3.15.6 安全底线：绝不静默立即发布
+
+参考产品（4.0 逆向实测）的 34 个 worker 中 7 个不支持平台侧定时，其 prePubTime 出现 **0 次** ——
+即用户勾了定时、内容却**立即发布**。这是最危险的静默失败形态。
+
+本仓在**四个层次**同时阻断：
+
+1. 能力注册表：未取证平台一律 unsupported，未知平台 fail-closed；
+2. 渲染层校验：提交前拦截并显示具体平台与原因；
+3. 主进程 create：落盘**前**阻断，不留任何记录；
+4. 失败反馈：mark-submitted / claim-mismatch / enqueue 三个阶段均回调 onDispatchFailed →
+   preload → 渲染层实时提示（复用既有 scheduler:dispatch-failed 通道）。
+
+##### 6.3.15.7 其余平台的落地步骤
+
+1. 登录该平台，确认其发布页/接口是否支持定时；
+2. 把能力注册表对应项从 unsupported 改为 api（直连）或 rpa（页面选项），填齐
+   timeField / enableField / timeFormat / minLeadMinutes / maxHorizonDays；
+3. 在对应 publisher 的发布载荷中装配定时字段（参考产品各平台字段：抖音 timing、B站 dtime、
+   微博 schedule_timestamp + 配额预检、快手 publishTime(ms)、小红书 postTime、一点号/企鹅号 5 分钟取整）；
+4. 补该平台的真机验证（排期落盘 → 到点触发 → 平台后台可见）。
+
+每接入一个平台需同步更新 §6.3.15.2 表格。
+
 ### 6.4 多平台批量发布（v1.1.0）1. 撰写一篇文章2. 勾选 2-10 个平台3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成4. 发布失败平台不影响其他平台继续执行---### 6.5 发布回滚与降级策略#### 回滚策略| 场景 | 处理方式 | 数据安全 ||------|---------|---------|| **RPA 发布失败**（表单提交时报错） | 标记发布任务为 failed，保留预填草稿截图，返回错误信息 | 内容保留在草稿箱，不自动重试 || **半成功状态**（标题已填但图片未传） | 检测 DOM 中的已填字段，匹配 last_successful_step → 从断点恢复 | SQLite 记录每步状态 {step, status, snapshot} || **API 发布失败**（B站 API 400） | 捕获 HTTP 状态码 + 错误体 → 自动切换 RPA 降级 | 降级标记记录在 task 中 || **平台拒绝**（审核不通过） | 读取审核状态 → denied，原内容保留可编辑重新发布 | 原文不删除，随 task 存档 || **用户取消发布** | 中断当前步骤 → 已提交部分不做回滚（平台侧无撤回 API） | 仅停止当前操作，后续步骤取消 |#### 降级策略1. **API → RPA 降级**：抖音/B站 优先走 API，API 连续失败 3 次后自动切换 RPA 模式2. **RPA → 人工降级**：RPA 连续失败 2 次（相同平台）→ 弹窗提示手动发布，提供预填草稿截图3. **跨平台降级**：批量发布中某个平台失败 → 标记失败，不影响其他平台继续发布#### 状态机（发布任务）`pending → publishing → { success | failed | partial | denied | cancelled }                              ↓                        (partial 可恢复)`## 七、视频创作流程### 7.1 图片轮播（原 Story2Video 文案成片）```进入「视频创作」→ 选择「图片轮播」    │    ├─ 输入完整视频文案    │   └─ 可选：点击「AI 写稿」自动生成脚本    ├─ 8002 smart-sentence-splitter 生成场景边界    │   └─ 仅服务不可用时使用本地 TypeScript 场景降级    ├─ 每个场景在本地二次切分为字幕页    ├─ 逐场景生成图片、TTS，并由 prompt-engine 优化图片提示词    ├─ 选择图片风格、提示词风格、语音模型与音色    ├─ 点击「启动流水线」    │   ├─ Electron StageExecutor 编排六阶段流水线    │   ├─ ffmpeg 合成，ffprobe 真实 TTS 时长驱动字幕时间轴    │   ├─ 以阶段清单显示文案拆分、内容增强、提示词、素材、合成、发布状态    │   └─ 渲染完成 → 预览/保存；发布阶段未启用时明确显示跳过    └─ 仅对明确的图片 Content Policy 拒绝按场景安全化重试（最多 5 次总尝试）；耗尽后进入“需要处理”，用户取消旧运行、修改文案后重新启动```#### 7.1.1 场景、字幕与 TTS 同步合同| 合同 | 要求 ||------|------|| 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 || 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 || 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 || 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 || 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 || 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |Story2Video 的句长、时长、语速、场景字数、句界和单句溢出参数必须映射到 8002 `SplitRequest.config.sentence_tokenizer/scene`，字幕参数只在本地消费。8002 的兼容字段 `min_words/max_words` 在中文场景算法中按字数/字符数计量。当前 TTS Provider 没有统一的词级时间戳，因此字幕同步是“真实总时长 + 文本/标点权重”的分页近似同步，不宣称逐词精准对齐。
 | 视频画面无文字伪影防护 | 三层防护机制防止视频模型在画面中生成文字/字幕/水印伪影：(1) prompt-engine `generic.py` 视频策略新增 "Zero Text Artifacts (HIGHEST PRIORITY)" 强制段落，要求所有输出 prompt 以 "clean frame, no text, no subtitles, no watermarks, no logos" 结尾；(2) `videogen-stages.js` 的 `buildConceptPrompt` 和 `buildStoryboardPrompt` 系统提示注入【最高优先级约束】；(3) `video-prompt-engine-contract.js` 新增 `BUILT_IN_VIDEO_NO_TEXT_NEGATIVE` 内置负面提示词常量，自动合并到所有视频优化请求的 `negative_prompt` 字段。已知受影响模型：MiniMax、Seedance、Kling 等会在画面中随机生成乱码文字/伪字幕。详见 PRD-video-content-fidelity §无文字伪影防护 | ✅ 2026-08-13 |
 | 文化地域/人种锚定 | 防止视频模型生成与文案背景冲突的人种面孔（如中国古代题材出现西方脸）。三层锚定：(1) `videogen-stages.js` 的 `buildConceptPrompt` 强制从原文推断时代/文化/人种并写入角色 visual 标签与 visual_style，明确禁止金发碧眼/西方面孔/西方服饰；(2) `buildStoryboardPrompt` 每个场景 prompt 必须包含时代/文化/人种锚定（如 "ancient Chinese (Eastern Han dynasty), East Asian Han Chinese faces, period-appropriate Hanfu and armor"）；(3) prompt-engine `generic.py` 视频策略 Fact-Fidelity 增加 Cultural & Ethnicity Anchoring 约束。详见 PRD-video-content-fidelity §文化锚定 | ✅ 2026-08-13 |

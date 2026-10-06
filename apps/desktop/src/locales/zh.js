@@ -1428,6 +1428,10 @@ export default {
       scheduleExceedsMaxDays: '定时发布时间不能超过 {maxDays} 天',
       scheduleMissingPlatform: '定时任务缺少发布平台',
       scheduleIntervalTooShort: '{platform} {accountId}的定时任务间隔必须至少 {minMinutes} 分钟',
+      // 平台侧定时（2026-10-07）：不支持的平台必须**提交前**阻断，
+      // 绝不让用户以为已排期而实际立即发出（参考产品的 7 个平台就是这样静默发布的）
+      schedulePlatformUnsupported: '{platform} 暂不支持定时发布，已阻止提交。请选择其他平台或取消定时后立即发布。',
+      scheduleTooSoon: '{platform} 的定时发布至少需要提前 {minMinutes} 分钟。',
     },
     optimalTimeNoData: '数据不足，暂无发布时间建议',
     optimalTimeNoDataDetail: '当前关键词的发布数据样本不足，无法统计最佳时段。发布更多内容积累数据后可自动分析，也可直接用定时发布手动指定时间。',

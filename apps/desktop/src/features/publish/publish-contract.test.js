@@ -72,21 +72,21 @@ describe('publish contract', () => {
   it('拒绝过去时间、无效时间和超过 30 天的排期', () => {
     const now = Date.parse('2026-07-20T10:00:00.000Z')
     expect(validateScheduleEntries([
-      { platform: 'wechat_mp', accountId: 'a', publishTime: '2026-07-20T09:59:00.000Z' },
+      { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T09:59:00.000Z' },
     ], { now })).toMatchObject({ valid: false })
     expect(validateScheduleEntries([
-      { platform: 'wechat_mp', accountId: 'a', publishTime: 'not-a-date' },
+      { platform: 'toutiao', accountId: 'a', publishTime: 'not-a-date' },
     ], { now })).toMatchObject({ valid: false })
     expect(validateScheduleEntries([
-      { platform: 'wechat_mp', accountId: 'a', publishTime: '2026-08-20T10:01:00.000Z' },
+      { platform: 'toutiao', accountId: 'a', publishTime: '2026-08-20T10:01:00.000Z' },
     ], { now })).toMatchObject({ valid: false })
   })
 
   it('同一平台同一账号的排期至少间隔 5 分钟', () => {
     const now = Date.parse('2026-07-20T10:00:00.000Z')
     const entries = [
-      { platform: 'wechat_mp', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
-      { platform: 'wechat_mp', accountId: 'a', publishTime: '2026-07-20T11:04:59.000Z' },
+      { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
+      { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T11:04:59.000Z' },
     ]
     expect(validateScheduleEntries(entries, { now })).toMatchObject({ valid: false })
   })
@@ -94,15 +94,80 @@ describe('publish contract', () => {
   it('不同账号可以在同一时间排期', () => {
     const now = Date.parse('2026-07-20T10:00:00.000Z')
     const entries = [
-      { platform: 'wechat_mp', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
-      { platform: 'wechat_mp', accountId: 'b', publishTime: '2026-07-20T11:00:00.000Z' },
+      { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
+      { platform: 'toutiao', accountId: 'b', publishTime: '2026-07-20T11:00:00.000Z' },
     ]
     expect(validateScheduleEntries(entries, { now })).toEqual({ valid: true, message: '' })
   })
 
+  // ── 平台侧定时能力门禁（2026-10-07）─────────────────────────
+  // 关键安全属性：不支持平台侧定时的平台必须在**提交前**被拦住，
+  // 绝不允许「用户以为已排期、内容实际立即发出」（参考产品的 7 个平台正是如此）。
+  describe('平台侧定时能力门禁', () => {
+    const now = Date.parse('2026-07-20T10:00:00.000Z')
+
+    it('不支持平台侧定时的平台在提交前被阻断', () => {
+      const result = validateScheduleEntries([
+        { platform: 'zhihu', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
+      ], { now })
+      expect(result.valid).toBe(false)
+      expect(result.reason).toBe('schedulePlatformUnsupported')
+      expect(result.params.platform).toBe('zhihu')
+    })
+
+    it('未取证的平台同样被阻断（fail-closed，绝不默认支持）', () => {
+      const result = validateScheduleEntries([
+        { platform: 'totally-unknown-platform', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
+      ], { now })
+      expect(result.valid).toBe(false)
+      expect(result.reason).toBe('schedulePlatformUnsupported')
+    })
+
+    it('批量场景中只要有一个平台不支持就整体阻断', () => {
+      const result = validateScheduleEntries([
+        { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T11:00:00.000Z' },
+        { platform: 'weibo', accountId: 'b', publishTime: '2026-07-20T12:00:00.000Z' },
+      ], { now })
+      expect(result.valid).toBe(false)
+      expect(result.reason).toBe('schedulePlatformUnsupported')
+    })
+
+    it('短于平台最小提前量（头条 5 分钟）时阻断', () => {
+      const result = validateScheduleEntries([
+        { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T10:02:00.000Z' },
+      ], { now })
+      expect(result.valid).toBe(false)
+      expect(result.reason).toBe('scheduleTooSoon')
+      expect(result.params.minMinutes).toBe(5)
+    })
+
+    it('平台跨度上限比全局上限更严时，以平台为准（头条 30 天）', () => {
+      const result = validateScheduleEntries([
+        { platform: 'toutiao', accountId: 'a', publishTime: '2026-09-20T10:01:00.000Z' },
+      ], { now })
+      expect(result.valid).toBe(false)
+      expect(result.reason).toBe('scheduleExceedsMaxDays')
+      expect(result.params.maxDays).toBe(30)
+    })
+
+    it('支持平台在合法窗口内通过', () => {
+      const result = validateScheduleEntries([
+        { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-21T11:00:00.000Z' },
+      ], { now })
+      expect(result.valid).toBe(true)
+    })
+
+    it('立即发布（无 publishTime）不受能力门禁影响', () => {
+      const result = validateScheduleEntries([
+        { platform: 'zhihu', accountId: 'a' },
+      ], { now })
+      expect(result.valid).toBe(true)
+    })
+  })
+
   it('发布目标要求每个平台至少选择一个账号', () => {
     const result = validatePublishTargets([
-      { platform: 'wechat_mp', accountId: 'wx-1' },
+      { platform: 'toutiao', accountId: 'wx-1' },
       { platform: 'zhihu', accountId: null },
     ])
 
@@ -116,8 +181,8 @@ describe('publish contract', () => {
   it('发布目标拒绝空数组并接受多个有效账号', () => {
     expect(validatePublishTargets([])).toMatchObject({ valid: false })
     expect(validatePublishTargets([
-      { platform: 'wechat_mp', accountId: 'wx-1' },
-      { platform: 'wechat_mp', accountId: 'wx-2' },
+      { platform: 'toutiao', accountId: 'wx-1' },
+      { platform: 'toutiao', accountId: 'wx-2' },
     ])).toEqual({ valid: true })
   })
 

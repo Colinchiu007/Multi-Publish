@@ -1,0 +1,30 @@
+{
+  "_comment": "平台侧定时能力注册表 —— 数据单一来源。CJS(platform-schedule-capability.js) 与 ESM 孪生(platform-schedule-capability.browser.js) 共同消费本文件，禁止任何一侧复制数据。三态语义与逐平台取证纪律见文件头注释与 PRD §6.3.15。",
+  "platforms": {
+    "toutiao": {
+      "mode": "api",
+      "reason": "",
+      "timeField": "timer_time",
+      "enableField": "timer_status",
+      "enableValueOn": 1,
+      "timeFormat": "YYYY-MM-DD HH:mm",
+      "minLeadMinutes": 5,
+      "maxHorizonDays": 30,
+      "verified": true
+    },
+    "wechat_mp": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "zhihu": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "weibo": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "douyin": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "xiaohongshu": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "tencent_video": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "kuaishou": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "bilibili": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "baijiahao": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "youtube": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "tiktok": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "twitter": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "instagram": { "mode": "unsupported", "reason": "notVerified", "verified": false },
+    "facebook": { "mode": "unsupported", "reason": "notVerified", "verified": false }
+  }
+}

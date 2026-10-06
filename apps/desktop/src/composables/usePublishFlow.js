@@ -488,15 +488,24 @@ export function usePublishFlow(options) {
       }
 
       // 离线检测
-      const offlineRes = await offlineStatus()
-      if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
-        const cacheRes = await offlineAddToCache(toPlainJson({ targets, data }))
-        if (!cacheRes || cacheRes.code !== 0 || cacheRes.data === false) {
-          throw new Error((cacheRes && cacheRes.message) || progressText('publishPage.publishFlow.offlineCacheFailed'))
+      //
+      // 平台侧定时（2026-10-07）的重要边界：**平台侧定时不需要联网**。
+      // 创建定时任务只是「把排期提交给平台」，而定时分支走的是主进程 scheduler
+      // （本地 JSONL + Node 直连 HTTP），主进程并不依赖 renderer 的网络在线态。
+      // 因此带 publishTime 时**不走离线缓存** —— 旧实现把定时任务落进离线缓存
+      // （缓存形状只有 {targets,data}、不含 publishTime），网络恢复后会**立即发布**，
+      // 用户以为排了期、实际已发出，正是本变更要消灭的形态。
+      if (!article.publishTime) {
+        const offlineRes = await offlineStatus()
+        if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
+          const cacheRes = await offlineAddToCache(toPlainJson({ targets, data }))
+          if (!cacheRes || cacheRes.code !== 0 || cacheRes.data === false) {
+            throw new Error((cacheRes && cacheRes.message) || progressText('publishPage.publishFlow.offlineCacheFailed'))
+          }
+          addProgress(progressText('publishPage.publishFlow.offlineProgress'), 'warning')
+          notifyWarning('publishPage.publishFlow.offlineCached', { message: progressText('publishPage.publishFlow.offlineCached') })
+          return
         }
-        addProgress(progressText('publishPage.publishFlow.offlineProgress'), 'warning')
-        notifyWarning('publishPage.publishFlow.offlineCached', { message: progressText('publishPage.publishFlow.offlineCached') })
-        return
       }
 
       if (article.publishTime) {

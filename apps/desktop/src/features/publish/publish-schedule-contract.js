@@ -12,8 +12,10 @@
  * 中文，又会被 CI locale 基线扫描判为「渲染端新增硬编码中文」。
  */
 
+import { getPlatformScheduleCapability } from '@multi-publish/shared-utils/src/platform-schedule-capability'
+
 const DAY_MS = 24 * 60 * 60 * 1000
-/** 定时发布可排期上限：未来 30 天 */
+/** 定时发布可排期上限：未来 30 天（与各平台自身上限取更严者） */
 export const DEFAULT_MAX_SCHEDULE_DAYS = 30
 /** 同一平台同一账号两次定时发布的最小间隔：5 分钟 */
 export const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000
@@ -72,6 +74,32 @@ export function validateScheduleEntries (entries, options = {}) {
     const platform = typeof entry.platform === 'string' ? entry.platform.trim() : ''
     if (!platform) {
       return { valid: false, reason: 'scheduleMissingPlatform', params: {}, message: translate('scheduleMissingPlatform') }
+    }
+
+    // 平台侧定时能力门禁（2026-10-07）：不支持平台侧定时的平台必须在**提交前**
+    // 就被拦住。放到渲染层是为了让用户当场看到原因，而不是等主进程 create() 抛错
+    // 后只得到一条泛化失败 —— 更重要的是：绝不能让「以为已排期、实际立即发出」。
+    const capability = getPlatformScheduleCapability(platform)
+    if (capability.mode === 'unsupported') {
+      const params = { platform, reason: capability.reason }
+      return { valid: false, reason: 'schedulePlatformUnsupported', params, message: translate('schedulePlatformUnsupported', params) }
+    }
+
+    // 按平台自身的最小提前量 / 最大跨度校验（头条：≥5 分钟、≤30 天）。
+    // 平台必拒的排期不该走到提交那一步才失败。
+    if (capability.minLeadMinutes > 0) {
+      const leadMinutes = (timestamp - now) / 60000
+      if (leadMinutes < capability.minLeadMinutes) {
+        const params = { platform, minMinutes: capability.minLeadMinutes }
+        return { valid: false, reason: 'scheduleTooSoon', params, message: translate('scheduleTooSoon', params) }
+      }
+    }
+    if (capability.maxHorizonDays > 0) {
+      const maxDaysForPlatform = Math.min(maxDays, capability.maxHorizonDays)
+      if (timestamp > now + maxDaysForPlatform * DAY_MS) {
+        const params = { maxDays: maxDaysForPlatform }
+        return { valid: false, reason: 'scheduleExceedsMaxDays', params, message: translate('scheduleExceedsMaxDays', params) }
+      }
     }
     const accountId = typeof entry.accountId === 'string' && entry.accountId.trim()
       ? entry.accountId.trim()

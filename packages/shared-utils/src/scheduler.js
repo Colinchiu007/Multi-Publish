@@ -6,6 +6,7 @@
 const defaultFs = require('fs')
 const path = require('path')
 const { pruneTerminalEntries } = require('./scheduler-prune')
+const { assertSchedulableInput } = require('./platform-schedule-create')
 const MAX_TIMER_DELAY = 2_147_483_647
 const DISPATCH_CLAIM_MAX_ATTEMPTS = 3
 const DISPATCH_CLAIM_RETRY_DELAY = 100
@@ -191,11 +192,25 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
       logger.warn('Scheduler', 'Skipping scheduled task for inactive owner ' + entry.id)
       return
     }
-    if (!await claimForDispatch(entry, expectedStatus) || stopped) return
-    // claimForDispatch 的重试期间登录态可能已切换。此时将状态交还给原 owner，
-    // 等其重新登录时 restore() 再注册，而不是让新用户会话继续派发。
+    // D1 修复：认领失败不得静默 return。CAS 起点（submitted/dispatching）与磁盘状态
+    // 不一致时，claimForDispatch 会在前置判定处短路返回 false —— 记录会停在
+    // pending/submitted，被 restore() 当 legacy 任务本地派发。此处显式置 failed
+    // 并通知，杜绝「以为已排期、实际由本地触发」的静默回落。
+    const claimed = await claimForDispatch(entry, expectedStatus)
+    if (!claimed || stopped) {
+      if (!claimed && !stopped) {
+        try { updateStatus(entry.id, 'failed', expectedStatus, entry.owner_subject) } catch { /* ignore */ }
+        notifyDispatchFailed(entry, '任务认领失败，未提交平台', 'claim-mismatch')
+        logger.error('Scheduler', 'Failed to claim scheduled task ' + entry.id + ' for dispatch')
+      }
+      return
+    }
+    // claimForDispatch 的重试期间登录态可能已切换。此时把状态交还给原 owner，
+    // 等其重新登录后再提交，而不是让新用户会话继续派发。
+    // ⚠️ R4：不得回退成 'pending' —— 那是 legacy「本地派发」桶，等于重开本地兜底后门。
+    // 改为 'submitted'：认领前并未触达平台，重提交是安全的。
     if (!canDispatchEntry(entry)) {
-      try { updateStatus(entry.id, 'pending', 'dispatching', entry.owner_subject) } catch { /* 下次恢复时重试 */ }
+      try { updateStatus(entry.id, 'submitted', 'dispatching', entry.owner_subject) } catch { /* 下次恢复时重试 */ }
       logger.warn('Scheduler', 'Deferred scheduled task after owner switched ' + entry.id)
       return
     }
@@ -205,9 +220,11 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
       const task = {
         platform: entry.platform,
         article: entry.article,
-        // 定时派发的任务带 publishMode 标记：phase4-events 会把它写进发布历史，
-        // 历史页「定时发布」过滤器与详情「发布模式」据此区分定时/立即发布。
         publishMode: 'scheduled',
+        // 平台侧定时（2026-10-07）：把 publishTime 随任务带给 publisher，
+        // 由 publisher 组装成该平台要求的定时字段（头条 timer_status/timer_time、
+        // 抖音 timing、B站 dtime…）。平台服务器到点发布，应用关着也能发。
+        publishTime: entry.publishTime,
         ...(accountId === null ? {} : { accountId }),
         ...(entry.owner_subject === undefined ? {} : { owner_subject: entry.owner_subject }),
       }
@@ -277,26 +294,17 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
   }
 
   function create (schedule) {
-    if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)) {
-      throw new TypeError('任务参数必须是对象')
-    }
-    const { platform, article, publishTime } = schedule
     // 身份模式下 owner 只能来自可信 provider，忽略调用方携带的字段。
     // legacy 模式仍兼容历史调用方显式写入的 owner。
     const ownerSubject = ownerSubjectProvider
       ? resolveOwnerSubject()
-      : resolveOwnerSubject(schedule.owner_subject)
+      : resolveOwnerSubject(schedule && typeof schedule === 'object' ? schedule.owner_subject : undefined)
     if (ownerSubject === null) throw new Error('登录会话缺少用户标识')
-    if (typeof platform !== 'string' || !platform.trim()) {
-      throw new TypeError('platform 必须是非空字符串')
-    }
-    if (!article || typeof article !== 'object' || Array.isArray(article)) {
-      throw new TypeError('article 必须是对象')
-    }
-    const publishTimestamp = new Date(publishTime).getTime()
-    if (!Number.isFinite(publishTimestamp) || publishTimestamp <= Date.now()) {
-      throw new TypeError('publishTime 必须是有效的未来时间')
-    }
+
+    // 入参校验 + 平台能力门禁 + 平台窗口校验（platform-schedule-create.js）。
+    // 阻断必须发生在**落盘之前** —— 否则会留下不会被执行的 pending 记录。
+    const { platform, article, publishTime } = assertSchedulableInput(schedule)
+
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
     const entry = {
       id,
@@ -316,14 +324,39 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
       throw error
     }
 
+    // ── 平台侧定时：创建即把排期提交给平台 ──────────────────────
+    // 旧语义是「武装本地定时器，到点再触发一次普通发布」。新语义下平台服务器
+    // 自己负责到点发布，因此这里**不再武装本地定时器**（应用关着也能发），
+    // 改为立即入队把 publishTime 带给 publisher，由它组装平台的定时字段。
+    // 平台已受理的状态标记：submitted（区别于旧语义的 pending=等待本地定时器）
+
+    // 平台已受理的状态标记：submitted（区别于旧语义的 pending=等待本地定时器）
+    entry.status = 'submitted'
     try {
-      if (!scheduleTimer(entry)) throw new Error('无法注册定时任务')
+      updateStatus(entry.id, 'submitted', 'pending', entry.owner_subject)
     } catch (error) {
-      try { updateStatus(entry.id, 'failed', 'pending', entry.owner_subject) } catch { /* 保留原始定时器异常 */ }
-      throw error
+      // D1 修复：此处写失败不能只 warn。磁盘上仍是 'pending'，而 'pending' 在
+      // restore() 里是「legacy 本地任务」桶 —— 若就此返回，用户以为已排期、
+      // 实际下次启动会被本地定时器派发，正是本次架构变更要消灭的「静默回落本地」。
+      // 因此：置 failed（阻止 restore 捡起）+ 通知失败 + 向上抛错。
+      const message = getErrorMessage(error)
+      logger.error('Scheduler', 'Failed to mark task submitted: ' + message)
+      try { updateStatus(entry.id, 'failed', 'pending', entry.owner_subject) } catch { /* ignore */ }
+      notifyDispatchFailed(entry, error, 'mark-submitted')
+      throw new Error('定时任务状态持久化失败：' + message)
     }
 
-    // 任务已落盘并武装定时器后才剪枝：剪枝是纯维护动作，失败不影响本次创建。
+    // 立即入队提交给平台（携带 publishTime）；失败按「提交失败」处理，
+    // 不降级为本地兜底 —— 降级会让用户以为已排期而实际由本地触发。
+    // CAS 起点必须是 'submitted'：上一行已把状态推进到该值，若仍按旧的
+    // 'pending' 认领，claimForDispatch 会因状态不匹配而静默失败（任务永不提交）。
+    const submission = startDispatch(entry, 'submitted')
+    if (!submission) {
+      try { updateStatus(entry.id, 'failed', 'submitted', entry.owner_subject) } catch { /* ignore */ }
+      throw new Error('定时任务提交失败')
+    }
+
+    // 任务已落盘后才剪枝：剪枝是纯维护动作，失败不影响本次创建。
     try {
       const removed = pruneTerminalEntries(fs, getSchedulerPath())
       if (removed > 0) {
@@ -354,8 +387,21 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
   function cancel (id, ownerSubject) {
     const owner = resolveOwnerSubject(ownerSubject)
     if (owner === null) throw new Error('登录会话缺少用户标识')
-    // 先完成原子持久化，再清定时器；写盘失败时任务仍可执行，不会形成幽灵 pending。
-    if (!updateStatus(id, 'cancelled', 'pending', owner)) return false
+    // D2 修复：正在向平台提交的任务不可取消。载荷一旦交给队列就无法收回，
+    // 本地改判 cancelled 只会造成「本地显示已取消、平台已排期照发」的分裂 ——
+    // 与 D1 同类的静默失败。原子性不变量「派发中的任务不可取消」对新语义同样成立。
+    if (activeDispatches.has(id)) {
+      logger.warn('Scheduler', 'Refusing to cancel in-flight platform submission ' + id)
+      return false
+    }
+    // 平台侧定时（2026-10-07）：submitted / dispatching 都代表「排期已交平台」，
+    // 本地记录作废即可让本系统不再认为它会发布。⚠️ 已提交到平台的排期是否真正撤销
+    // 取决于平台是否提供撤销接口（参考产品实测：不提供）。UI 需如实标注，
+    // 不能让用户以为「取消了就一定不会发」。
+    const cancelled = updateStatus(id, 'cancelled', 'dispatching', owner)
+      || updateStatus(id, 'cancelled', 'submitted', owner)
+      || updateStatus(id, 'cancelled', 'pending', owner)
+    if (!cancelled) return false
     const cancelRetry = retryWaiters.get(id)
     if (cancelRetry) cancelRetry()
     if (timers[id]) {
@@ -368,7 +414,9 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
   function restore (ownerSubject) {
     const owner = resolveOwnerSubject(ownerSubject)
     if (owner === null) throw new Error('登录会话缺少用户标识')
-    const tasks = list(owner).filter(task => task.status === 'pending' || task.status === 'dispatching')
+    // 平台侧定时（2026-10-07）：submitted / dispatching 都代表「排期已提交给平台」，
+    // 本地一律不得重放（否则平台侧出现两条排期）。只恢复 legacy 的 pending。
+    const tasks = list(owner).filter(task => task.status === 'pending')
     let restored = 0
     for (const entry of tasks) {
       if (isTaskTracked(entry.id)) {
@@ -376,17 +424,9 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
         continue
       }
 
-      let expectedStatus = entry.status
-      if (entry.status === 'dispatching') {
-        try {
-          if (!updateStatus(entry.id, 'pending', 'dispatching', entry.owner_subject)) continue
-          expectedStatus = 'pending'
-        } catch (error) {
-          // 若恢复时暂时无法写盘，到期认领仍会按 dispatching 状态进行有界重试。
-          logger.warn('Scheduler', 'Failed to reset interrupted task ' + entry.id + ': ' + getErrorMessage(error))
-        }
-      }
-      if (scheduleTimer(entry, expectedStatus)) restored += 1
+      // R3 清理：过滤条件已收窄为仅 'pending'，原 dispatching 重置分支永不可达
+      // （保留会让人误以为「中断的提交会被重跑」，而新语义恰恰禁止重跑）。
+      if (scheduleTimer(entry, entry.status)) restored += 1
     }
     return restored
   }

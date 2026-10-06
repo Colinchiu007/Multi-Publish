@@ -261,6 +261,11 @@ function buildPublishArticle (task, platform) {
       : processed.images,
     // P1-5：作者字段透传（原仅 wechat_mp RPA 硬编码消费，现全平台透传）
     author: String(resolved.base.author || '').slice(0, 60) || null,
+    // 平台侧定时（2026-10-07）：调度器把 publishTime 挂在 task 顶层（不在 article 内），
+    // 这里显式搬运到 article，供各 publisher 组装平台的定时字段
+    // （头条 timer_status/timer_time、抖音 timing、B站 dtime…）。
+    // 立即发布时为 null，各 publisher 据此走「不带定时字段」分支。
+    publishTime: task?.publishTime || resolved.base.publishTime || null,
   }
   // AI 生成内容声明：默认勾选（AI 生成内容），仅当显式 aiGenerated === false 时取消勾选。
   // 各平台发布时须如实声明内容创作方式，AI 生成内容不勾选会违规。
