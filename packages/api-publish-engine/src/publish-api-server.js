@@ -24,6 +24,24 @@ const { buildTaskDataFromRequest } = require("./publish/publish-request")
 
 const GZIP_MIN_BYTES = 256;
 
+/**
+ * JSON 请求体体积上限（1 MiB）。
+ * 口径依据：本服务的业务请求体只承载 JSON（标题、正文、标签、媒体本地路径、cookie），
+ * 不承载媒体字节本身（上传由各平台链在服务端本地完成），故 1 MiB 远高于任何真实请求；
+ * Logto webhook 另有独立的 256 KiB 上限（DEFAULT_MAX_BODY_BYTES），两者互不覆盖。
+ */
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+
+/** _parseBody 的类型化错误：携带 HTTP 状态与语义码，供外层 catch 直接映射。 */
+class BodyReadError extends Error {
+  constructor(code, status, message) {
+    super(message || code);
+    this.name = "BodyReadError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
 function acceptsGzip(header) {
   if (typeof header !== "string") return false;
   var exactQuality = null;
@@ -204,14 +222,43 @@ class PublishApiServer {
     }
   }
 
+  /**
+   * 读 JSON 请求体。2026-10-06 加固：
+   *  1. **体积上限**：此前无上限，`chunks` 无限累积，任意大 body 可打爆内存。
+   *     超限时立即停止累积并抛 BODY_TOO_LARGE。
+   *  2. **解析失败不再静默返回 {}**：此前 `catch { resolve({}) }`，畸形 JSON 被当成
+   *     「空对象」继续走，随后在 `body.platform` 之类处报出与真实原因无关的错。
+   *     现在抛 INVALID_JSON_BODY，由 _handle 的外层 catch 映射为 400。
+   * 二者都以类型化错误抛出：全部 16 个调用点都在 _handle 的同一个 try 内，
+   * 无需逐点改动即可拿到正确的状态码（见外层 catch 的 _bodyError 分支）。
+   */
   _parseBody(req) {
-    return new Promise(function(resolve) {
+    return new Promise(function(resolve, reject) {
       var chunks = [];
-      req.on("data", function(c) { chunks.push(c); });
+      var total = 0;
+      var rejected = false;
+      req.on("data", function(c) {
+        if (rejected) return;
+        total += c.length;
+        if (total > MAX_JSON_BODY_BYTES) {
+          rejected = true;
+          chunks.length = 0;
+          reject(new BodyReadError("BODY_TOO_LARGE", 413, "Request body exceeds " + MAX_JSON_BODY_BYTES + " bytes"));
+          return;
+        }
+        chunks.push(c);
+      });
+      req.on("error", function(e) {
+        if (rejected) return;
+        rejected = true;
+        reject(new BodyReadError("REQUEST_BODY_READ_FAILED", 400, e.message));
+      });
       req.on("end", function() {
+        if (rejected) return;
         var raw = Buffer.concat(chunks).toString();
+        if (!raw.trim()) { resolve({}); return; }
         try { resolve(JSON.parse(raw)); }
-        catch(e) { resolve({}); }
+        catch(e) { reject(new BodyReadError("INVALID_JSON_BODY", 400, "Request body is not valid JSON")); }
       });
     });
   }
@@ -1397,6 +1444,13 @@ p{color:#6e6e73}
 
       this._json(res, 404, { error: "Not found", path: url });
       } catch (e) {
+        // 请求体读失败是**客户端错误**，不是服务端内部错误：记 warn（不污染 error 日志），
+        // 并按 BodyReadError 自带的状态/语义码应答。
+        if (e instanceof BodyReadError) {
+          this._logWarn(e.code, null, this._ctx(req));
+          this._json(res, e.status, { error: e.code, message: e.message });
+          return;
+        }
         this._logError("INTERNAL_SERVER_ERROR", e, this._ctx(req));
         this._json(res, 500, { error: "INTERNAL_SERVER_ERROR" });
     }

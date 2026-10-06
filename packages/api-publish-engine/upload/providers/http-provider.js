@@ -53,6 +53,20 @@ class HttpUploadProvider {
         return r.data?.data?.fileId ? { fileId: r.data.data.fileId } : null;
       }
 
+      // 2026-10-06：显式区分「已实现分片」与「整文件单次 POST」。
+      // 本仓无这批平台的分片协议取证切片，故不编造分片实现；真正走分片的是
+      // publish/platforms/ 下的新链（视频号 / B站 / 快手 / 抖音），它们不经过本文件。
+      // 这里只对**未知** uploadType 显式拒绝——新增平台若忘记登记实现方式，
+      // 应当当场失败，而不是静默走单次 POST 被误认为「已支持该平台的正确上传方式」。
+      if (cfg.uploadType !== "single-post" && cfg.uploadType !== "form") {
+        throw new Error(
+          `[http] ${td.platform}: unknown uploadType "${cfg.uploadType}" — ` +
+          "在 upload/providers/http-config.js 登记前必须先实现对应上传方式"
+        );
+      }
+
+      // single-post：整文件读入内存后一次性 POST。**没有分片**——
+      // 大文件会整份进内存，且平台侧是否接受非分片直传未经取证。
       const buf = fs.readFileSync(td.filePath);
       const r = await axios.post(url, buf, { headers, params: Object.keys(extra).length ? extra : undefined, validateStatus: () => true });
       const d = r.data?.data || r.data;
