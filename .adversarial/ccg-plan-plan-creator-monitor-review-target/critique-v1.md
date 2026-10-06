@@ -4,65 +4,65 @@
     {
       "id": "i1",
       "severity": "Critical",
-      "dimension": "consistency",
-      "finding": "viral_library INSERT 无法直接用 discovery 行的 claim_token 做 UPDATE WHERE CAS，若先查 token 再插另一表，仍存在 TOCTOU 竞态导致重复插入。",
-      "suggestion": "将 token 校验与 viral_library 插入放进同一 BEGIN IMMEDIATE 事务，事务内原子完成。"
+      "dimension": "feasibility",
+      "finding": "BEGIN IMMEDIATE 只能保证数据库原子性；字幕/媒体/第三方产物写入仍在事务外。崩溃或提交后产物失败会产生已采集状态与实际内容不一致，token CAS 也不能撤销已提交插入。",
+      "suggestion": "定义 outbox/最终化协议：产物幂等键、可重试、失败补偿清理；先落产物或用 staging，再同事务入库。"
     },
     {
       "id": "i2",
-      "severity": "Warning",
+      "severity": "Critical",
       "dimension": "completeness",
-      "finding": "invalidPageToken 归为 item 级不正确：它通常是分页实现缺陷或 token 过期，非单条视频问题，标记 item 级会静默跳过后续分页内容。",
-      "suggestion": "invalidPageToken 改为 B 级任务级失败，触发重试与日志告警，不静默跳过。"
+      "finding": "删除收敛只靠 review，且未定义删除 viral_library 后 creator_discoveries 的状态迁移。若 discovery 仍为 collected，后续探测会因唯一键跳过，作品无法重新采集。",
+      "suggestion": "删除入口原子执行：viral 删除、discovery 置 pending/skipped、token 失效；另加定时完整性巡检。"
     },
     {
       "id": "i3",
       "severity": "Warning",
-      "dimension": "clarity",
-      "finding": "数据模型声称 3 张新表但仅详细描述 2 张，第三张表名、字段和用途缺失，影响评审完整性。",
-      "suggestion": "补充第三张表的结构与职责定义。"
+      "dimension": "consistency",
+      "finding": "“按 token CAS”缺少精确协议：token 如何单调递增、过期抢占是否生成新 token、所有 UPDATE 是否必须带 WHERE claim_token = ?。否则实现易留下过期写覆盖。",
+      "suggestion": "把 token 定义为 generation 序号，列出全量 CAS 语句模板和过期规则。"
     },
     {
       "id": "i4",
       "severity": "Warning",
       "dimension": "feasibility",
-      "finding": "「仅有进展时续租」未定义何为进展，字幕下载等长时间阶段可能超 lease 期限而被误判过期。",
-      "suggestion": "定义进展粒度：字节级回调或阶段边界均视为进展并续租。"
+      "finding": "配额模型只按探测 1、采集 count/50 计费，未覆盖 captions/download、频道解析、分页、重试、失败半批和方法差异；本地分区无法校准共享项目真实消耗。",
+      "suggestion": "建立 API 方法成本表，按请求/子操作计费并暴露明细；周期性对账成功响应和熔断水位。"
     },
     {
       "id": "i5",
       "severity": "Warning",
       "dimension": "feasibility",
-      "finding": "按 15/60/25 比例切配额假设外部消费均匀，若其他应用占满项目配额，本应用比例分配无实际约束力。",
-      "suggestion": "增加外部 429/quotaExceeded 反馈驱动的动态收缩阈值。"
+      "finding": "续租条件中“字节回调”未要求有效增量。下载卡住时事件循环仍可能触发心跳，导致无进展任务持续续租；阶段心跳也可能来自停滞流程。",
+      "suggestion": "心跳必须伴随最小字节/阶段/时间间隔阈值，并保留连续停滞检测。"
     },
     {
       "id": "i6",
       "severity": "Warning",
-      "dimension": "completeness",
-      "finding": "删除采集库条目复位 discovery 仅覆盖一条路径，用户通过其他入口删 viral_library 或清理孤儿时未定义同步行为。",
-      "suggestion": "将复位逻辑收敛为 viral_library 表级删除触发器或统一删除 service。"
+      "dimension": "consistency",
+      "finding": "未知 action.type 隔离后缺少恢复路径。应用升级或补齐处理器后，任务如何重放、payload schema 如何兼容、隔离区与 active 任务如何关联未定义。",
+      "suggestion": "记录 schemaVersion、目标链路和隔离原因；处理器注册后提供显式重放与结果通知。"
     },
     {
       "id": "i7",
-      "severity": "Info",
+      "severity": "Warning",
       "dimension": "security",
-      "finding": "safeStorage 加密无恢复路径，OS 密码重置或跨设备迁移后 API Key 不可解密。",
-      "suggestion": "提供重新输入引导提示并标记 keyInvalid 状态。"
+      "finding": "safeStorage 四态覆盖了解密失败，但未说明密钥轮换、备份导入、多账号与 Key 的绑定关系；渲染层一次性明文仍可被 XSS 在输入期间捕获。",
+      "suggestion": "明确定义凭证绑定/轮换流程；渲染层禁用危险 HTML、限制 IPC 权限并审计 set 调用。"
     },
     {
       "id": "i8",
       "severity": "Info",
       "dimension": "completeness",
-      "finding": "未知 action.type 挂起后缺乏主动通知机制，用户可能长期不察觉任务停滞。",
-      "suggestion": "挂起时触发 UI 徽标或通知。"
+      "finding": "content_quality 与 transcript_source 只有字段名，未给出判定规则、数据保留、失败来源降级和下游 AI 写作可接受性标准。",
+      "suggestion": "补枚举、阈值、来源优先级、保留策略和字段级验收用例。"
     }
   ],
   "dimensionScores": {
-    "completeness": 6,
-    "consistency": 6,
+    "completeness": 7,
+    "consistency": 7,
     "clarity": 7,
     "feasibility": 6,
-    "security": 8
+    "security": 7
   }
 }

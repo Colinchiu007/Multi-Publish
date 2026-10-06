@@ -343,9 +343,31 @@ COMMIT   -- 任一失败则 ROLLBACK，两者要么都成、要么都不成
 
 并发防护：条件更新用 `collect_state='collected'` 做前置断言，配合 `(platform, external_id)` 唯一索引，用 **UPSERT 语义**而非「先查后改」，避免与并发的采集提交互相覆盖。
 
-**删除必须收敛到唯一入口（CCG 评审 i8）**：复位逻辑若只做在「采集库页面删除」这一条路径上，用户从**其他入口删 `viral_library` 行**（批量清理、孤儿行清理、导入覆盖）时就会漏掉复位，留下 `collect_state='collected'` 但内容已不存在的幽灵记录——该作品**永远不会被重新发现**。
+**删除必须收敛到唯一入口 + 状态迁移 + 完整性巡检（CCG 评审 i7 / i8 Critical）**
 
-因此所有对 `viral_library` 的删除 MUST 经 `knowledge-library-service.delete*()` 唯一入口，由它在**同一事务**内联动 `creator_discoveries`。实现时在该 service 内加断言：任何绕过该入口的裸 `DELETE FROM viral_library` 路径在 code review 阶段一律打回。
+只做「统一 service」不够——**代码纪律不是机制**。若删除后 `creator_discoveries.collect_state` 仍是 `collected`，后续探测会因 `(platform, external_id)` 唯一索引**跳过该条**，该作品**永久无法重新采集**（既不在采集库、也不会再被发现）。因此删除入口必须原子完成三件事：
+
+```sql
+BEGIN IMMEDIATE
+  DELETE FROM viral_library WHERE id = ? AND external_id <> '';
+  UPDATE creator_discoveries
+     SET collect_state = 'pending',          -- ← 不是 'collected'，否则永不重现
+         collected_at  = NULL,
+         claim_token   = claim_token + 1,    -- ← 使在途 worker 的 token 立即失效
+         claimed_by    = '', lease_expires_at = NULL,
+         attempt_count = attempt_count + 1
+   WHERE platform = ? AND external_id = ?;
+  DELETE FROM collection_outbox WHERE ref_id = ? AND state <> 'done';  -- 撤掉未完成的最终化任务
+COMMIT
+```
+
+| 机制 | 说明 |
+|---|---|
+| 状态迁移 | 必须落回 **`pending`**（可重新采集）。若产品上要「不再看到这条」，用 `skipped` 而非 `collected` |
+| token 失效 | `claim_token + 1` 让任何在途 worker 的后续提交因 token 不匹配被拒——否则它会在删除后把行改回 `collected` |
+| 撤 outbox | 删除时同步撤掉未 `done` 的最终化任务，否则 worker 稍后会把产物搬回来，形成「已删除却又复活」 |
+| **完整性巡检** | 每日一次全表核对：`collect_state='collected'` 但 `viral_library` 无对应行 → 复位 `pending` + 记日志。这是对「任何未预期路径造成漂移」的兜底，**不能只靠代码纪律** |
+| 孤儿行清理 | `viral_library` 有行但 `creator_discoveries` 无对应行（非博主来源的合法数据）——不清理，仅在巡检报表中计数，避免误伤历史内容 |
 
 ### 6.2 去重键与 canonical ID 规则（CCG 评审 i6 修订）
 
@@ -460,6 +482,7 @@ UPDATE creator_discoveries
 | **claim 必须原子且可回读** | 用 `UPDATE ... RETURNING claim_token`，一次拿到新 token，避免「先查再改」的竞态 |
 | **所有行内变更与副作用都按 token CAS** | 不只是成功/失败提交——**进度写入、lease 续期、`viral_library` 插入、熔断计数**全部必须带 `AND claim_token = ?`。漏掉任何一处，旧 worker 就能覆盖进度或重复插入（CCG 评审 i2） |
 | **跨表副作用必须同事务** | ⚠ `claim_token` 只存在于 `creator_discoveries`，而写入 `viral_library` 是**另一张表**——「先查 token 再插另一表」存在 TOCTOU 竞态（查完到插入之间 token 可能已被新 worker 提升，导致重复插入）。token 校验 + 跨表插入必须在**同一个 `BEGIN IMMEDIATE` 事务**内原子完成（CCG 评审 i6 Critical） |
+| **⚠ 但事务解决不了双写（CCG 评审 i7 Critical）** | `BEGIN IMMEDIATE` 只保证**数据库内**原子。字幕文本、媒体文件、第三方产物都写在**事务外**的文件系统/网络侧——此时仍存在「DB 已提交 `collected`，产物写失败」的不一致，而 **token CAS 无法撤销一条已提交的插入**。必须走 outbox / 最终化协议，见 §8.3.1 |
 | **续租必须有进展条件** | 心跳**仅在本轮有实质进展时**才续租。无进展却持续续租 = 挂起的任务永不过期，占着 claim 永不释放。**「进展」的粒度必须定义**（CCG 评审 i7）：① 字幕/媒体**字节回调**；② 阶段边界跨越（元数据→字幕→入库）；③ 每 5s 一次的阶段内心跳。**只满足其一即续租**，避免长视频字幕下载（单阶段可超 300s）被误判过期而遭抢占 |
 | **总时长 deadline** | 单条采集设总 deadline（如 600s），与 lease 续期解耦：无论心跳如何，deadline 到即强制放弃 |
 | **分阶段超时** | 元数据拉取 30s / 字幕拉取 120s / 入库 30s，逐段独立超时，避免单段挂死拖垮整体 |
@@ -942,6 +965,36 @@ IPC 只返回 `{ status, fingerprint }`，**任何分支都不回传 Key 原文*
 ```
 
 **失败隔离**：单条失败不影响其他条目；失败的发现项保持 `pending`，用户可再次一键采集。
+
+#### 8.3.1 outbox / 最终化协议（CCG 评审 i7 Critical：事务解决不了双写）
+
+**问题**：`BEGIN IMMEDIATE` 只能保证数据库内原子。采集一条作品的真实副作用是**三处**：① `creator_discoveries` 状态、② `viral_library` 行、③ **事务外的产物**（字幕文本、媒体文件、第三方缓存）。若先提交 ①② 再写 ③ 失败，或先写 ③ 再崩溃，都会留下不一致，且 **token CAS 无法撤销已提交的插入**。
+
+**方案：先落产物到 staging，再同事务入库，最后异步最终化。**
+
+```sql
+-- staging 目录：userData/creator-staging/<discovery_id>/
+-- ① 先写产物（可重试、可清理，不污染采集库）
+--    字幕/媒体写完后计算内容指纹，与 claim_token 一起记录
+-- ② BEGIN IMMEDIATE
+--    校验 claim_token 未变 → INSERT/UPSERT viral_library（幂等键 = (platform, external_id)）
+--    → UPDATE creator_discoveries SET collect_state='collected', claim_token 失效
+--    → INSERT INTO collection_outbox (id, kind, ref_id, payload_json, state)  ← 同事务！
+-- COMMIT
+-- ③ 异步 worker 消费 outbox：把 staging 产物搬到最终位置 / 清理 staging
+--    失败则重试；连续失败超限则告警并保留 staging（不丢数据）
+```
+
+| 要素 | 定义 |
+|---|---|
+| **outbox 表** | `collection_outbox(id, kind, ref_id, payload_json, state, retry_count, next_retry_at, created_at)`；与业务写入**同事务**落盘，是「已提交但未最终化」的唯一真源 |
+| **幂等键** | `(platform, external_id)` 唯一索引；重复消费同一条只会覆盖不会重复插入 |
+| **产物幂等** | 产物文件名含内容指纹（`sha256(正文)[:16]`），重复搬运是覆盖而非追加 |
+| **可重试** | outbox 消费失败按指数退避重试（1min→8min→1h），上限 5 次 |
+| **补偿清理** | 崩溃残留的 staging 目录由启动清扫按 `mtime > 24h` 清理；**但 outbox 中仍有未完成记录的不清** |
+| **一致性判据** | `collect_state='collected'` ⟺ `viral_library` 有对应行 ⟺ outbox 中该 `ref_id` 为 `done`。任一不成立即视为不一致，由完整性巡检兜底 |
+
+**为什么不能用「先入库再补产物」**：那正是会产生「已采集但内容为空」的路径——用户看到已采集却拿不到正文，而 `content NOT NULL` 只挡得住 NULL 挡不住空串。**先落产物再入库**把失败暴露在入库之前，此时 discovery 仍是 `failed`，用户重试即可。
 
 ### 8.4 单条采集
 
