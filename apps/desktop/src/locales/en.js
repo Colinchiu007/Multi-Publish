@@ -1423,6 +1423,8 @@ export default {
       scheduleExceedsMaxDays: 'Scheduled publish time cannot exceed {maxDays} days',
       scheduleMissingPlatform: 'Scheduled task is missing a publish platform',
       scheduleIntervalTooShort: 'Scheduled publishes on {platform} {accountId}must be at least {minMinutes} minutes apart',
+      schedulePlatformUnsupported: '{platform} does not support scheduled publishing yet, so the submission was blocked. Choose another platform, or clear the scheduled time to publish now.',
+      scheduleTooSoon: 'Scheduled publishing on {platform} requires at least {minMinutes} minutes of lead time.',
     },
     optimalTimeNoData: 'Not enough data for a posting-time suggestion yet',
     optimalTimeNoDataDetail: 'There is not enough publishing data for this keyword to determine an optimal hour. Publish more content to accumulate data, or set a scheduled time manually.',

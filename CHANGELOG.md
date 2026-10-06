@@ -62,6 +62,60 @@ M-2 与 M-5 在同一天内以**同一种模式**翻车：
 
 ---
 
+# [unreleased] feat(定时发布): 架构变更为平台侧定时——创建即提交平台、平台服务器到点发布（platform-side-schedule，2026-10-07）
+
+### 起因
+原实现是「本地定时器到点触发一次普通立即发布」。改为对标参考产品（4.0 逆向工程）的
+「平台侧定时：由平台服务器到点发布」。
+
+逆向核实（决定性证据）：参考产品 `prePubTime` 出现 **86 次**，其中 **0 次**邻近任何本地延时原语
+（setTimeout/Delay/setInterval/sleep/race）——确实不做本地等待；34 个 worker 中 **27 个**走平台侧定时、
+**7 个不支持**，且这 7 个的 `prePubTime` 出现 0 次 ⇒ 用户勾了定时、内容**立即发布**（最危险的静默失败）。
+本仓 15 个平台与那 7 个平台**零交集**，迁移路径成立。
+
+### 关键发现：本仓头条早已具备平台侧定时能力
+`packages/rpa-engine/src/toutiao-direct-publish.js` 早已实现 `timer_status=1` + `timer_time`
+（`YYYY-MM-DD HH:mm`）并有契约测试，但唯一调用方把时间**硬编码为「当前 +60 秒」**——
+平台定时能力此前被当作「绕过 DOM 死锁的手段」，而非用户可选的定时模式。
+本次把它提升为真实定时模式（去除 `+60s` 硬编码，改用调度器透传的 `publishTime`）。
+
+### 架构变更
+- **新增** `platform-schedule-capability.js`：逐平台能力三态（api / rpa / unsupported），未知平台 fail-closed。
+- **新增** `platform-schedule-time.js`：按平台格式/单位产出提交值，显式注入时区偏移（不依赖运行环境 TZ）。
+- `scheduler.create()`：能力门禁**前置到落盘前** → 落盘 `submitted` → 立即提交给平台（携带 `publishTime`），
+  **不再武装任何本地定时器**；`restore()` 不再重放 `submitted`/`dispatching`（否则平台侧重复排期）。
+- `publisher-router.js` 的 `buildPublishArticle` 搬运 `publishTime` 到 `article`，供各 publisher 装配平台字段。
+- 渲染层 `validateScheduleEntries` 新增能力门禁 + 平台最小提前量/最大跨度校验，提交前拦截并给出具体原因。
+
+### 实施中发现并修复的缺陷
+| # | 缺陷 | 后果 |
+|---|------|------|
+| D1 | `submitted` 标记写盘失败只记 warn | 派发静默丢失、记录停在 `pending` 被 restore 当 legacy 本地任务派发 ⇒ **静默回落本地定时** |
+| D2 | `cancel` 允许取消 in-flight 提交 | 本地显示已取消、平台已排期照发 ⇒ 状态分裂 |
+| R2 | `create()` 未校验平台 `minLeadMinutes`/`maxHorizonDays` | 10 秒 / 365 天排期本地通过、平台必拒，用户零反馈 |
+| R3 | `restore()` 的 `dispatching` 分支永不可达 | 死代码，误导后来者 |
+| R4 | owner 切换回退为 `pending` | `pending` 是 restore 的 legacy 桶 ⇒ 重开本地兜底后门 |
+
+### 安全底线：绝不静默立即发布
+本仓在四层同时阻断：能力注册表（未取证一律 unsupported）→ 渲染层校验（提交前拦截并说明原因）
+→ 主进程 create（落盘前抛错，无记录残留）→ 三阶段失败反馈
+（`mark-submitted` / `claim-mismatch` / `enqueue`）。
+
+### 取证纪律与当前范围
+判定「某平台支持平台侧定时」需登录该平台确认，属真机取证范畴，**不猜测**：未经取证的平台一律
+`unsupported`。**当前只有头条可用** —— 宁可功能少，不可静默发错。其余 14 个平台需逐个登录取证后启用。
+平台侧时间字段形态多样（秒级/毫秒/字符串/表单开关/5 分钟取整），接入步骤见 PRD §6.3.15.7。
+
+### 取消语义的重要边界
+平台侧定时下，内容在创建瞬间已连同时间提交给平台，平台无撤销接口 ⇒
+**已提交平台（executed）与提交中（dispatching）的任务均不可取消**，本地改判 cancelled 只会造成
+「用户以为取消成功、平台照发」。UI 须如实说明，不能让用户以为「取消了就一定不会发」。
+
+### 测试
+- `scheduler.test.js` 重写为平台侧语义（49/49）；新增能力/时间/平台侧语义三个测试文件（13+10+10）。
+- `publish-contract.test.js` 新增能力门禁 7 例（46/46）。
+- shared-utils 全量 **621/621 通过**。
+
 # [unreleased] fix(copy-library): M-5 读-改-写串行化 —— 并发保存不再静默丢数据
 
 ### 缺陷

@@ -542,7 +542,7 @@ describe('useBatchPublish — composable setup', () => {
     await nextTick()
     r.articles.value[0].title = '标题'
     r.articles.value[0].content = '正文'
-    r.articles.value[0].platforms = ['wechat_mp']
+    r.articles.value[0].platforms = ['toutiao']
     r.articles.value[0].publishTime = futurePublishTime()
     await r.handleBatchPublish()
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
@@ -558,7 +558,7 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value = [{
       title: '标题',
       content: '正文',
-      platforms: ['wechat_mp'],
+      platforms: ['toutiao'],
       publishTime: futurePublishTime(),
     }]
 
@@ -624,7 +624,7 @@ describe('useBatchPublish — composable setup', () => {
       _key: 'ui-only',
       title: '标题',
       content: '正文',
-      platforms: ['wechat_mp', 'zhihu'],
+      platforms: ['toutiao'],
       publishTime,
     }]
 
@@ -639,7 +639,7 @@ describe('useBatchPublish — composable setup', () => {
       content: '正文',
       contentFormat: 'html',
       platformOverrides: {},
-      platforms: ['wechat_mp', 'zhihu'],
+      platforms: ['toutiao'],
       publishTime,
       precheck: true,
       author: '',
@@ -657,16 +657,16 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value = [{
       title: '标题',
       content: '正文',
-      platforms: ['wechat_mp'],
-      accounts: { wechat_mp: ['wx-a', 'wx-b'] },
+      platforms: ['toutiao'],
+      accounts: { toutiao: ['wx-a', 'wx-b'] },
       publishTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     }]
 
     await r.handleBatchPublish()
 
     expect(mockBatchCreate.mock.calls[0][0].articles[0].platforms).toEqual([
-      { platform: 'wechat_mp', accountId: 'wx-a' },
-      { platform: 'wechat_mp', accountId: 'wx-b' },
+      { platform: 'toutiao', accountId: 'wx-a' },
+      { platform: 'toutiao', accountId: 'wx-b' },
     ])
   })
 
@@ -679,7 +679,7 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value = [{
       title: '标题',
       content: '正文',
-      platforms: ['wechat_mp', 'zhihu'],
+      platforms: ['toutiao'],
       publishTime: futurePublishTime(),
     }]
 
@@ -1024,7 +1024,7 @@ describe('useBatchPublish — 离线检测与取消排期（与单篇语义对�
   it('排期成功后暴露 scheduledBatchId，取消排期调用 batchCancel 并清除状态', async () => {
     window.electronAPI.batchCancel = vi.fn(function () { return Promise.resolve({ code: 0 }) })
     const r = useBatchPublish({ article, licenseStore })
-    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['wechat_mp'], publishTime: futurePublishTime() }]
+    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['toutiao'], publishTime: futurePublishTime() }]
 
     await r.handleBatchPublish()
     expect(r.scheduledBatchId.value).toBe('batch1')
@@ -1038,7 +1038,7 @@ describe('useBatchPublish — 离线检测与取消排期（与单篇语义对�
   it('取消排期失败时保留 scheduledBatchId 供重试，并提示失败', async () => {
     window.electronAPI.batchCancel = vi.fn(function () { return Promise.resolve({ code: -1, message: '该批次未在排期中' }) })
     const r = useBatchPublish({ article, licenseStore })
-    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['wechat_mp'], publishTime: futurePublishTime() }]
+    r.articles.value = [{ title: '文章A', content: '正文A', platforms: ['toutiao'], publishTime: futurePublishTime() }]
 
     await r.handleBatchPublish()
     await r.cancelScheduledBatch()
@@ -1172,7 +1172,7 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
     const origin = r.articles.value[0]
     origin.title = '原标题'
     origin.content = '正文'
-    origin.platforms = ['wechat_mp']
+    origin.platforms = ['toutiao']
     origin.visibilitySemantic = 'friends'
     origin.platformOverrides = { wechat_mp: { title: '覆盖标题', content: '' } }
     origin.publishTime = futurePublishTime()

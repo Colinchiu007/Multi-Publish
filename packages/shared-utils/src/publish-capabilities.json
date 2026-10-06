@@ -77,7 +77,7 @@
       "semantic": "schedule",
       "label": "定时发布",
       "platforms": ["wechat_mp", "zhihu", "weibo", "douyin", "xiaohongshu", "tencent_video", "kuaishou", "toutiao", "bilibili", "baijiahao", "youtube", "tiktok", "twitter", "instagram", "facebook"],
-      "note": "本项目统一走**本地调度**（@multi-publish/shared-utils scheduler：本地 setTimeout 到点 → 任务队列 → 与立即发布同一条发布链路），不依赖任何平台的原生定时参数。⚠️ 本字段曾错误引用参考产品（4.0 逆向工程）的做法——把该竞品的平台侧排期字段名当作本仓实现；实际 grep electron/publishers 全部命中 0，本仓 publisher 不消费那些参数。保留平台清单的含义是「这些平台的发布链路可被本项目排期」，不是「这些平台支持平台侧定时」。相关权衡见 PRD §6.3.1 与 §6.3.14.5。"
+      "note": "**平台侧定时**（2026-10-07 架构变更）：创建定时任务时把排期提交给平台，由**平台服务器到点发布**，应用关着也能发。逐平台能力（api 直连接参 / rpa 页面定时选项 / 不支持）以 platform-schedule-capability.js 为唯一真源；⚠️ 不支持平台侧定时的平台在创建阶段即被显式阻断，绝不静默立即发布（参考产品 4.0 的 7 个不支持平台正是「守卫不成立就跳过赋值 ⇒ 内容立即发布」的静默失败形态，本仓明令禁止）。⚠️ 本列表的含义是「这些平台的发布链路接入了定时字段」，**不代表当前全部支持** —— 当前仅 toutiao 完成真机取证，其余平台需逐个取证后在该注册表启用。平台清单 ≠ 能力清单，二者不可混用。"
     },
     {
       "key": "aiGenerated",

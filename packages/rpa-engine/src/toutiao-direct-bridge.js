@@ -12,6 +12,8 @@
 'use strict'
 
 const { cookiesFromSession, buildPostData, publishWithSign } = require('./toutiao-direct-publish')
+const { getPlatformScheduleCapability } = require('@multi-publish/shared-utils/src/platform-schedule-capability')
+const { formatForPlatform } = require('@multi-publish/shared-utils/src/platform-schedule-time')
 const PUBLISH_URL = 'https://mp.toutiao.com/mp/agw/article/publish'
 const PUBLISH_QUERY = 'source=mp&type=article&aid=1231&mp_publish_ab_val=0'
 
@@ -33,10 +35,24 @@ async function publishDirect ({ win, article, sign, log }) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .split(/\n+/).filter(Boolean).join('</p><p>') + '</p>'
 
-    // ③ 定时 1 分钟后（用户已确认「定时路径近似立即发布」可接受；立即路径被页面 deferred 死锁）
-    const d = new Date(Date.now() + 60 * 1000)
-    const p2 = (n) => (n < 10 ? '0' : '') + n
-    const timerTime = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+    // ③ 平台侧定时（2026-10-07）
+    // 旧实现硬编码「当前 +60 秒」——把平台定时能力当作「绕过 DOM 死锁的手段」，
+    // 而不是用户可选的定时模式（当时立即路径被页面 deferred 死锁所迫）。
+    // 现改为使用调度器透传的真实用户排期时间：article.publishTime 由
+    // shared-utils scheduler 随任务下发，此处直接提交给头条，由其服务器到点发布。
+    // 未携带 publishTime（立即发布）时才回退到旧的 +60 秒兜底 —— 因为 Node 直连
+    // 路径已验证必须带 timer_status=1（立即路径被页面 deferred 死锁，见本文件历史）。
+    let timerTime = ''
+    if (article && article.publishTime) {
+      const cap = getPlatformScheduleCapability('toutiao')
+      // 显式注入时区偏移：平台按其服务器时区解释本地墙钟时间，
+      // 依赖运行环境 TZ 会让开发机与生产机产出不同结果。
+      timerTime = formatForPlatform(article.publishTime, cap, { timeZoneOffsetMinutes: -new Date().getTimezoneOffset() })
+    } else {
+      const d = new Date(Date.now() + 60 * 1000)
+      const p2 = (n) => (n < 10 ? '0' : '') + n
+      timerTime = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+    }
 
     const body = buildPostData({
       title: String(article && article.title || ''),
