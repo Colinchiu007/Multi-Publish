@@ -1,3 +1,131 @@
+# [未发布] fix(ops-center): 开发入口只绑回环 + 清库夹具不得作用于仓库内库（ops-dev-bind-loopback，2026-09-29）
+
+### 起因与真实根因
+- 用户报「运营中心 admin 密码登录不上」。**凭据本身没错**：实测 `.env` 的 `OPS_ADMIN_PASSWORD` 与 `admins.password_hash`（`pbkdf2_sha256$200000$…`）逐字节 PBKDF2 复算比对为 True（只输出布尔，不打印口令）。
+- 真实原因是**后端进程不在**，而代理层把症状伪装成了「密码错」：`/api/auth` 由 ops-center 自己在 :8010 承载（早就不依赖 platform-orchestrator），vite 代理在后端缺席时返回 **500 空 body**，界面上与 401 无法区分。分诊口径落 `ops-center/docs/OPERATIONS.md` §11：`curl` 直连 8010 得 `000`＋经 5173 得 500＝进程不在；401＝凭据不符；503＝`admins` 为空或未配置；429＝**内存**限速（同 `username|ip` 5 次/60 秒，重启即清，库里没有可查的表）。
+- 机器自 09-25 05:57 未重启、库最后写入停在 09-25 21:13，即后端是那晚之后就没在跑；本机 WSL 未安装，运营中心只可能跑在 Windows 侧。5173 的 vite 经 `/src/views/AppMenu.vue` 内容比对确认服务的是共享主工作区、且已是合入后的「启动时同步一次」文案。
+
+### 排障过程中挖出的两处缺陷
+- ① `ops-center/backend/main.py` 的开发入口写死 `host="0.0.0.0"`。本服务**自签发**管理员会话，绑全网卡等于把 `/api/auth/login` 的爆破面交给局域网内任意机器。生产不经这里：`deploy/ops-center.service` 的 `ExecStart` 早已显式 `--host 127.0.0.1`，`deploy/nginx-ops.conf` 反代的也是 `127.0.0.1:8010`——本次用用例把这条前提钉住，防止后来者把改动误判成会打断部署。
+- ② **我自己上一轮（#2397）引入的**：autouse 清库夹具 `conftest._reset_shared_database()` 无差别 `DELETE` 全部表，目标取自导入期单例 `config.settings.db_path`，而该默认值是**相对 cwd** 的 `data/config.db`。整轮套件绑到哪个库，取决于「第一个被收集且设了 `OPS_DB_PATH` 的模块」；49 个测试模块里有 12 个不设该变量。实跑复现：在 `ops-center/backend` 里单跑 `pytest tests/test_security_config.py`，靶库 `admins` 行 **1 → 0**——也就是把运营中心开发库（含管理员账号）整体清空。全量套件之所以一直无害且全绿，只因恰好 `test_app_menu_api.py` 按字母序排第一并设了临时库。
+
+### 修复与证据
+- 开发入口改为 `host="127.0.0.1"`（端口 8010 保持不动，nginx 与 vite 两侧都写死它）。
+- `tests/conftest.py` 在**导入期**就把 `OPS_DB_PATH`/`OPS_CONFIG_OUTPUT_DIR` 兜底到会话级临时目录（宿主显式设置仍优先），**收窄**「谁先导入谁定绑」这条脆弱前提——`setdefault` 只兜住未显式赋值的模块，自己写 `OPS_DB_PATH` 的模块仍然是定绑者，所以下面那道纯谓词防线不能省；并在清库动作**开始之前**用纯谓词 `is_safe_reset_target()` 拒绝仓库内目标，违反即 `RuntimeError`（不允许「先清完再报」）。
+- 新增回归锁 `tests/test_main_dev_bind.py`（3 例）与 `tests/test_conftest_db_isolation.py`（3 例）。手法要点：前者用 `runpy.run_path(run_name="__main__")` **真跑**入口代码、只把 `uvicorn.run` 换成探针，断言它**实际收到的** host 实参；后者用**真子进程 + 从环境里弹掉 `OPS_DB_PATH`** 跑一次收集，读出 `settings.db_path` 的实际绑定结果——都不是「断言源码里出现了某个字符串」那种记录性锁。
+- 红→绿对照（修复前先跑一次，确认锁真的会红）：4 failed，报错原文含 `把库绑到了仓库内路径 …\ops-center\backend\data\config.db` 与 `'0.0.0.0' not in {'0.0.0.0', '::'}`；实现后同两文件 6 passed。
+- 真场景对照：同一条命令、同一个环境（弹掉 `OPS_DB_PATH` 单跑 `test_security_config.py`），标记行修复前 1→0、修复后 **1→1**。反证只在 worktree 自己的 `data/config.db` 上做，共享根的库全程未被指向。
+- ops-center 后端全量套件：基线 **456 passed** → 修复后 **462 passed**（456+6，0 failed，193.43s）。
+- 文档同步：AGENTS.md 目录树里「登录经 platform-orchestrator /api/auth」按 `grep -na` 全仓 sweep 纠正（并补一条 MUST：删数据类夹具自身必须 fail-closed 校验目标在仓库外）；`ops-center/docs/PRD.md` §6.4 认证方案整段改为自持口径（PBKDF2-SHA256/200000、HS256 8h、Cookie+CSRF 头、内存限速、fail-closed、`ensure_admin_seeded` 只建不改），并如实标注鉴权分级表里「已登录（任意 role）」一列在当前唯一签发路径下与 admin 等价；`ops-center/docs/OPERATIONS.md` 新增 §11 本地启动/分诊/凭据核对/WAL 不可删。
+- 运维事实留痕：`data/config.db` 主文件可以长期只有 4KB，全部数据压在未落盘的 `config.db-wal`（实测约 0.8MB、37 张表）里——属 SQLite 正常行为，但**删 `-wal` 等于删库**，清理临时文件时 `*-wal`/`*-shm` 不在可删清单内。
+---
+# [未发布] chore(desktop): 删除 publisher.js 三个零引用死 pipeline wrapper，白名单棘轮改为「不得复加」（fix-dead-pipeline-wrappers，2026-10-05）
+
+### 清掉的隐患
+- `pipelinePauseWithCheckpoint` / `pipelineResumeFromCheckpoint` / `pipelineRegisterPipeline` 三个导出的 wrapper 调用的 IPC 方法名在 preload 侧**从未存在**，且全仓**零调用方**。它们由 `2d509abe`（大批量 API 面迁移）引入，而 preload 最终采用了另一套命名与参数形状（`pipelinePause()` 无 runId、`pipelinePauseRun(runId)`、`pipelineResumeOrchestration(runId)`）。
+- 隐患在于：任何人看到导出就会以为可用，一旦接上组件就会得到与 CRITICAL-1 同形的**静默失效**——桥接层 `typeof api[method] !== "function"` 直接 `return undefined`，`invokeWithFallback` 回落 `{ code: -1 }`，调用方 `code === 0` 恒为 false，无异常、无 console、界面零提示。
+
+### 处置的演进
+- 上一轮（`fix-ipc-namespace-contract` design D7）选择「登记进契约测试的 `KNOWN_GAP` 白名单、不删」，理由是删除会牵动 `publisher.js` 导出面与他人分支。相关分支已合并，5937 文件全域扫描确认零功能调用点，故本轮**删除**，并把白名单**收空为「不得复加」的零容忍棘轮**。
+- 白名单清空后，原「只能缩小」的断言会对空数组**空转通过**（判据失效但测试仍绿），与「负例不得误伤否则下个会话把锁删掉」是同形陷阱。已新增「KNOWN_GAP 必须保持为空」断言，并把空表情形显式说明而非空转。对账用例的诊断文案同步改为「若确认是死代码请**删掉它**」——下一个人拿到的是正确指引。
+
+### 证据
+- 变异①：注入一个指向不存在 preload 方法的零引用死 wrapper ⇒ 对账用例判红（1 failed / 18 passed）——**证明清空白名单没有把锁拆掉**，真正承重的是对账用例本身。变异②：把 `KNOWN_GAP` 填回一个条目 ⇒ 「必须保持为空」判红 ⇒ 白名单无法被静默复加。两次均 md5 逐字节还原且还原后 19/19 绿。
+- 回归 **650 passed / 0 failed**（`publisher.test.js` 251 与删除前基线一致、`electron-bridge` 8、契约 19、`preload` 372）。
+- QM-1：`build:dir` 通过；产物 62 chunk / 3.15 MB 内三个名字**各 0 次出现**，而对照组 `pipelineGetRunContext` / `pipelineAdvanceToNextCheckpoint` / `filmEngineering` **均在场**（证明产物构建自本分支源码）；独立临时 userData 启动 8 秒存活、**stderr 0 字节**。
+- QM-2：N/A——本轮只删导出、未新增或修改任何 IPC 调用参数。
+- `openspec-sync-check.js` 归档前后 **14 → 14，零新增违规**。
+
+### 顺带纠正的一个取证方法坑
+用 `Select-String -Path 'apps\**\*.js'` 做「全仓零引用」取证会得到**假阴性**：`**` 在 PowerShell 不是 globstar，路径不匹配即静默返回 0 命中。征兆是连确定含目标名字的文件都没命中。必须用 `Get-ChildItem -Recurse` 枚举并核对扫描文件数。
+
+### 后续影响
+`publisher.js` 其余 250+ 个 wrapper 未做同类审计，但**已无必要**：`KNOWN_GAP` 为空后，对账用例会把任何落在暴露面之外的调用名全部点名判红，这个类别以后不会再静默存在。
+
+---
+# [未发布] fix(desktop): 影视「单镜重试」永久失效——preload 命名空间与渲染层扁平名错配 + 补反向暴露面契约（fix-ipc-namespace-contract，2026-10-05）
+
+### 症状
+- 影视工程画布里点「重试该镜」永远失败，且失败原因此前不可见。渲染层 `src/api/publisher.js` 按**扁平名** `filmEngineeringRetryShot` 调用，而 preload 只在 `filmEngineering` **命名空间**下暴露 `retryShot`（`electron/preload/film-engineering.js`）。`electron-bridge` 的 `invoke` 判 `typeof api[method] !== "function"` 即 `return undefined`，`invokeWithFallback` 随后返回 `{ code: -1 }`，两个生产调用方判 `res.code === 0` 恒为 false。
+
+### 根因（不是那一行写错，是接缝无人测）
+- **preload 侧测得很全**：`preload.test.js` 有转发矩阵、`toHaveProperty` 暴露面断言、键数锁。
+- **渲染层测不到**：`useFilmVideoGen.test.js` / `useFilmProduction.test.js` 用 `vi.mock('@/api/publisher')` **整体 mock 掉本模块**，只断言"调用了 `filmEngineeringRetryShot`"，从不断言 preload 是否真有该方法。
+- ⇒ 两侧各自绿，**没有任何一条断言跨越这两侧**。这才是能一路进主干的机制性原因。
+
+### 修复
+- `electron-bridge.js` 新增通用 `invokeNamespace(ns, method, ...args)`（按 ns→method 两级取，参数经 `toPlainIpcValue` 脱壳）；`publisher.js` 的 `filmEngineeringRetryShot` 改走 `filmEngineering.retryShot`，fallback 形状逐字不变。**未改** preload 暴露面、主进程 handler、IPC channel。
+- 新增 `electron/tests/ipc-exposure-contract.test.js`（18 用例）：拦截 `contextBridge.exposeInMainWorld` 取 preload **真实完整**暴露面，与 `src/api/**` 的调用名对账；差集对 `public ∪ admin` 求（暴露面经权限过滤，只比 public 会把 admin-only 方法误报成缺陷）。
+
+### 存量结论（213 个调用名全量对账）
+- 活的真实缺陷 **1 个**（即本次修的 C-1）；死代码（暴露面无此名且除定义处 0 引用）**3 个**，已登记进测试内 `KNOWN_GAP` 白名单并锁"只能缩小"；权限门控（`ADMIN_ONLY_METHODS`，非 admin 整键不暴露）**1 个**；测试夹具假名 5 个已从扫描域排除。清单见 `docs/ipc-exposure-contract.md`。
+
+### 证据
+- 红证据：修 C-1 之前，契约测试判红并点名 `filmEngineeringRetryShot`（"未登记的暴露面缺口（1）"）。
+- 反证：把判据改成恒返回空数组的 no-op，2.2 判据矩阵判红 ⇒ 矩阵承重、对 no-op 不免疫。
+- 门禁级反证 2/2：① 渲染层新增一处不存在的调用名 ⇒ 对账判红；② preload 移除 `filmEngineering.retryShot` ⇒ 哨兵用例 + 命名空间对账判红。两次均按 md5 逐字节还原且还原后转绿。
+- 回归：`preload.test.js` 372 + `publisher.test.js` 251 等 7 个受影响测试文件共 **669 passed / 0 failed**。
+---
+# [未发布] fix(ci): Gate 4「无受影响项目」判据三态化，修掉被 nx stdout 提示污染引发的假红（gate4-affected-empty-probe，2026-10-05）
+
+- 根因：Gate 4 判断「本次 PR 有没有受影响的非桌面项目」用的是**字符串全等**（`$t -eq '' -or $t -eq '[]'`，#2902 为接住 pwsh 把 `ConvertFrom-Json '[]'` 摊平成 `$null` 而引入）。CI runner 还原 Nx 缓存后（缓存键只含 `.nx/cache`，`.nx/workspace-data/d` 那个 db 不在键内），nx 会往 stdout 掺自己的提示 `NX   Unrecognized Cache Artifacts`；提示一掺，全等两条全不成立 ⇒ 空集被降级成「探测失败」⇒ 继续跑 `test:affected` ⇒ nx 实跑 **0 个任务**、不启动任何测试进程 ⇒ 末尾运行时出站台账判定（fail-closed：无台账即红）把一条正常 PR 判红，`Gate Result` 连带红。
+- 修法：判据搬进可单测的 `scripts/nx-affected-probe.js`，输出 `empty` / `non-empty` / `unparsable` 三态，判定改为**逐行找能独立 parse 成 JSON 数组的那一行**，与提示文本解耦（散文里的方括号也污染不到）。workflow 只负责分流；脚本自身故障 `throw` 硬失败（与 `unparsable` 是两件事，不能混成同一条降级路径）；早退仍只认**确证**空集，且必须排在降级 warning 之前。
+- 门禁侧同步：`.github/scripts/workflow-contract.test.js` 新增 5 条断言（判据必须在脚本里 / 不得退回全等 / 脚本故障必须硬失败 / 早退条件必须是 `kind=empty` / 顺序约束），`scripts/check-test-egress-ledger.test.js` 那条 #2902 留下的顺序锁锚点随之换成本次形态。语义测试接进 static-gates 的 Gate 2c。
+- 同形第三次：`#2902` 修的是「空集被 `$null` 摊平」，本次修的是「空集被 stdout 提示污染」，判据形态连换两次 —— 所以锁的是**判定语义**（真跑纯函数）而不是 workflow 文本。
+- 复现面：任何只改非 Nx 追踪路径（ops-center / docs 等）的 PR 都会撞上，与具体改动无关。
+
+---
+# [未发布] feat(bilibili): 审核回查端点取证落地（bilibili-audit-evidence，2026-10-05）
+
+- publish-monitor 接入 member.bilibili.com 稿件列表端点（Cookie 会话：nav 验证会话 + `data.arc_audits[]` 按 bvid/aid String 匹配），取代取证前的虚构端点。
+- 状态判据从严：仅实测观测的 `state=0 && primary_state=0` 判 published，其余一律 pending 无定论；未观测的 state 取值不外推，bilibili 暂不入 `AUDIT_REQUERY_VERIFIED_PLATFORMS`。
+- 全程只读取证：没有发布、没有删除、没有改动任何稿件，真机「最小一次发布」授权未消耗；证据文档 `docs/audit-requery-evidence-bilibili-2026-10-05.md`，清单指针 `01-docs/AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md` §九。
+- QM-6 双模型评审通过（0 Critical，Warning 全修，评审产物入库 `.ccg/qm6-bilibili-*`）；仍欠两条观测（审核中/不通过 state 取值 + 真机徽标联动）需真实投稿后补验。
+
+---
+# [未发布] docs(gates): 回填 #2940 远程同步 PASS 并销账（backfill-2940-record，2026-10-05，docs-only）
+
+- PR #2940（前端代码深度审查报告）已合并进 main：`dcc20eae`（merged 2026-10-05T12:40:49Z）。
+- `.quality-gates.md` 对应执行记录的「远程同步」由 `PENDING` 就地改写为 `PASS` + merge SHA 与取证命令，状态列只写当下状态、不留历程。
+- `scripts/gate-record-debt-ledger.json` 中本条登记在**同一次提交**删除（17 → 16 条），欠账不外溢。
+- 取证：`git log origin/main --grep='(#2940)$' --format=%H|%cI`；`git ls-remote --heads origin docs-frontend-deep-review` 返回 0 行。
+- docs-only 快速通道：判定 `docs-only=true`（files=2），跳过 QM-1/2/4 与 TDD、QM-6 评审。
+
+---
+# [未发布] docs(review): 前端代码深度审查报告（1 CRITICAL / 16 MAJOR / 11 MINOR，纯只读审查，2026-10-05）
+
+### 范围
+`apps/desktop/src`（551 文件 / 12.98 万行）+ `ops-center/frontend/src`（75 文件 / 8.8 千行）。4 个并行专项探子（视图层 / 状态管理 / API-IPC 边界 / 性能与测试）+ 主会话量化基线扫描 + 6 条关键结论逐行独立复核。**只读审查，未修改任何运行时代码。**
+
+### 三条最值得优先处理的结论
+
+1. **覆盖率门禁量的不是前端** —— `apps/desktop/vitest.config.js:67-82` 的 `coverage.include` 全为 `*.js` glob，**146 个 Vue SFC 命中 0**；阈值 `statements 55` 实际由 Electron 主进程（484 个命中文件中的 412 个）撑起。13 万行 SFC 逻辑在门禁视野外。
+2. **超大文件治理是无下降的棘轮** —— 500 行上限下 **98 个文件永久挂账豁免**（前端 27 个 / 36586 行 = 前端体量 28%，`CreateView.vue` 挂账 5657 行）；门禁只防「新增」与「膨胀 >200 行」。另有 20 个 >500 行测试文件因在 `EXCLUDE` 列表里连门禁都看不到。
+3. **IPC 契约无任何测试守护** —— 9 份独立 `getApi()`、6 个文件绕过桥接层，直接导致 CRITICAL-1（`filmEngineeringRetryShot` 命名空间错配 → 影视单镜重试永久失效且零报错）能一路进主干。**补一条 preload 契约测试是收益最高的单条投资。**
+
+### 已确认的正确性 Bug（5 条，主会话逐行复核）
+
+| # | 位置 | 后果 |
+|---|---|---|
+| 1 | `usePublishFlow.js:283/285/414` | 守卫与置锁之间隔着 `await ensureLogin()`，未登录用户点两次「发布」→ 平台侧两条内容 |
+| 2 | `Collection.vue:2584` | 轮询异常分支只写注释不做事 → `batchCollecting` 永为 true，按钮永久禁用且无报错 |
+| 3 | `utils/report-error.js:15` | `logError()` 返回的 Promise 既未 await 也未 `.catch`；`:16` 的 `return` 使 console 兜底永不可达 |
+| 4 | `usePublishFlow.js:116-122` | store 重试换新 taskId 后 `activeSession` 变 null，结果卡永久失联 |
+| 5 | `useCopyLibrary.js:132-163` | 读-改-写无串行化，并发下静默丢一条改写文案 |
+
+### 明确不建议动的部分
+
+`Publish.vue`(1659)、`ModelProviders.vue`(1428)、`Dashboard.vue`(679) 行数大但结构健康 —— 分别是 composable 编排、script 仅 98 行的模板+CSS、script 仅 159 行。**按行数重构收益为负、回归风险为正。**
+
+### 证据边界
+
+纯静态审查，**未运行任何测试、构建或打包**。未验证项已在报告第十节逐条列明（含 `stores/tab.js` 两处 `_unsubscribes.push` 是否累积订阅者、IPC 契约以 preload 源文件为准未验证打包产物一致性）。
+
+### 文档
+
+- `docs/frontend-deep-review-2026-10-05.md` —— 完整报告（1 CRITICAL / 16 MAJOR / 11 MINOR、P0-P3 治理路线图、10 个无测试覆盖模块清单、ops-center 对比、未验证项声明）。
+
+
 # [未发布] fix(gate): 执行记录门禁补第四条合法出路——纯回填型 PR 不再被误判未携带记录（2026-10-05，exec-record-backfill-exit / PR #2928）
 
 ### 症状（#2920 实测）
@@ -164,6 +292,7 @@
 - 实测（main+push 最近 1000 条 run 按 (sha, workflow) 归集）：全 cancelled 的格 = 51，「取消过又被后续 run 补回」= 0 ⇒ 取消即永久丢证；#2642 立案后仍新增 3 个 sha，满足该单自设的「等被坑第二次」门禁。
 - 新增 `workflow-contract.test.js` 2b) 逐字结构锁（QM-6 命中「只查 token 存在」不够：分支对调会照绿且让现象复活）；分支对调 / 退回旧写法 / 无条件双 token 三条变异均实测变红。
 - 同 PR 修掉 Gate 4 的空受影响集把 #31 台账判成假红（空集早退排在判定之前 + `--with-target=test` + 顺序锁）。
+---
 # [未发布] docs(rewrite): 去 AI 味功能使用手册（2026-10-04，user-manual-rewrite-ai-taste）
 
 ### 内容
@@ -64634,3 +64763,60 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 防再犯锁升级为按特征扫全域：`start-mp-task.test.js` 的「存活判定合同」列出所有用 CommandLine 认守护的文件并钉住清单（只能缩小），已对 bootstrap 做摘除 State 主判据的变异反证（实测变红、还原后逐字节相同）。
 - 来源要如实记：这条不是我自审找到的，是 codex 侧评审输出里的一句观察；该评审整体仍属未完成（无 findings 文件、结论中途截断），claude 侧三次全空输出，故 QM-6 记为部分达成而非通过。
 
+# [未发布] test(review): P0-1 发布重入窗口首次取得运行实证（基线 1 次 vs 重入 2 次）+ 修复方案反证
+
+### 背景
+`docs/frontend-deep-review-2026-10-05.md` 附录 A 自陈「全部结论来自静态阅读」。本轮按质量节拍 ② 阶段对 P0-1 做**运行实证**，首次把该结论从代码推理升级为运行坐实。
+
+### 实证结果
+- **基线**：单次调用 `handlePublish` → `publishBatch` 恰好 **1 次**（progress 显示「✓ 已添加 1 个任务」）
+- **重入**：登录引导弹窗期间二次点击 → `ensureLogin` 被调 **2 次**（守卫两次都放过）→ `publishBatch` 收到 **2 次**真实发布请求
+- **反证变异**：修复版（锁前置）进入发布体 1 次 / 拦截 1 次；原版对照组 2 次 / 拦截 0 次 ⇒ 方案有效且测试有鉴别力
+
+### 对原报告的修正
+原报告 P0-1 表述为「快速双击」，实际触发条件更窄：`Publish.vue:587` 按钮有 `:disabled="publishing"`，且 `UiButton.vue:5/:30/:39-43` 在 DOM 与 `onClick` 两层都会拦截鼠标点击。**真实触发路径是「登录引导窗口内的二次提交」**（该窗口因 `:48` 确认框 + `:56` OAuth 可达秒级到分钟级），以及 `handlePublish` 的非按钮调用方。**缺陷结论不变，措辞收窄。**
+
+### 装置失败教训（已记录）
+第一版装置注入 20+ 个依赖替身，连**基线用例**都进不了发布体 —— 根因是校验函数读 `.valid` 而非 `.ok`（`usePublishFlow.js:313/:318`）。该版本已废弃删除。**为重入类缺陷写验证，必须先跑基线确认单次路径本身通**，否则会把装置缺陷误报成产品缺陷。
+
+### 证据文件
+- `apps/desktop/src/__p0verify__/p0-reentry-v2.test.js` —— 基线 + 重入实证
+- `apps/desktop/src/__p0verify__/p0-reentry-mutation.test.js` —— 修复版/原版反证
+
+### 隔离
+独立 worktree `mp-verify-p0-reentry`，基线 `770967c0`，`verify-worktree-deps.js` rc=0。未修改任何生产代码。
+
+---
+# [unreleased] test(review): P0-2 / P0-3 / P0-5 取得运行实证（5 条 P0 中 4 条已实证）
+
+### 结果
+- **P0-2**（重试后结果卡失联）：基线 result 正常；重试后会话已 done、新任务 success，
+  但 result 仍为 null；反证（消费侧 id 改为新 id）后正常更新。判据由内部 computed
+  改为用户可见的 result —— activeSession 未导出，用户看不到它。
+- **P0-3**（轮询异常导致 UI 卡死）：连续 20 轮 IPC reject（约 40 秒）后
+  batchCollecting 仍为 true、batchError 为空、轮询不停。附**源码锚点断言**证明
+  提取版与 Collection.vue:2545-2587 逐行一致。补充定性：启动阶段 catch 是正确的
+  （:2539 已复位），唯独轮询阶段 :2584 空着 —— 是「做了一半」而非「整体没做」。
+- **P0-5**（并发保存静默丢数据）：**首次尝试未复现**（落库 2 条）—— 因 storeSetSetting
+  同步生效使读窗口未重叠。改用 gate 让两次读严格同步后，落库仅 1 条，k1 被静默覆盖。
+  **需修正原报告表述**：触发条件应为「两个保存操作的读阶段重叠」，而非泛指的并发。
+
+### 装置失败教训（第二次生效）
+P0-5 第一次跑基线就落库 0 条 —— mock 了错误模块（@/api/settings，真实是 @/api/publisher）。
+**若无基线用例，会把「装置完全失效」误报成「代码丢数据更严重」**。附录 B.6 的教训
+在本轮第二次拦住了错误结论。
+
+### 证据文件
+- apps/desktop/src/__p0verify__/p0-2-session-lost.test.js
+- apps/desktop/src/__p0verify__/p0-3-poll-hang.test.js
+- apps/desktop/src/__p0verify__/p0-5-copy-library-race.test.js
+
+5 个证据文件 / 16 用例全绿，随代码入库为可复现回归锁。
+
+### 现状
+5 条 P0 中 **4 条已有运行证据**（P0-1/2/3/5，每条含基线 + 缺陷复现 + 修复版对照）。
+P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**，需 Electron 主进程环境。
+
+未修改任何生产代码。
+
+---

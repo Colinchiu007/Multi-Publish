@@ -263,6 +263,10 @@ jobs:
           # （见下面 Gate 4 与 Desktop tests shard 两处 `check-test-egress-ledger.js` 调用）。
           # 这里只锁"判定器还能跑、口径没被改松"，与 static-gates 里其它锁同形。
           node --test scripts/check-test-egress-ledger.test.js
+          # Gate 4「本次 PR 有没有受影响的非桌面项目」的三态判据锁。锁的是**判定语义**而不是
+          # workflow 文本：#2902 与 #2596 两次同族假红都出自"空集"被误读，而两版的错误
+          # （$null 摊平 / stdout 被 nx 提示污染）只有真正跑判据才测得出来。
+          node --test scripts/nx-affected-probe.test.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2c2 已搬出本 job（#2745）---
@@ -602,21 +606,33 @@ jobs:
             # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
             $affectedRaw = & pnpm exec nx show projects --affected --with-target=test --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
             $nxExit = $LASTEXITCODE
-            # 空集必须与"检测失败"分开判：pwsh 里 ConvertFrom-Json '[]' 得到的是 $null（同族坑见
-            # AGENTS.md「@(...) 摊平成 $null」），所以旧写法把"本轮没有任何受影响项目"误分类成检测失败，
-            # 于是继续往下跑 test:affected —— nx 实际跑 0 个任务、根本不启动测试进程 ⇒ 台账文件不存在
-            # ⇒ 末尾的运行时出站台账判定（fail-closed：无台账即红）当场误红。实测 PR #2902 的 QG Unit Tests。
-            # 判据一律先看**原始文本**，且早退必须排在判定之前。
-            $affectedText = ($affectedRaw | Out-String).Trim()
-            if ($affectedText -eq '' -or $affectedText -eq '[]') {
+            # 判据搬进 scripts/nx-affected-probe.js（三态语义由 `node --test
+            # scripts/nx-affected-probe.test.js` 钉住），这里只负责把结论分流。判据为什么不能留在这段里：
+            #
+            #   #2902 修过一次同形问题：pwsh 里 ConvertFrom-Json '[]' 得到的是 $null（同族坑见
+            #   AGENTS.md「@(...) 摊平成 $null」），于是「本轮没有任何受影响项目」被误分类成检测失败。
+            #   当时的口径是**字符串全等** `$t -eq '' -or $t -eq '[]'` —— 全等只对「输出恰好是这两种
+            #   形态」成立，而 nx 会往 stdout 掺自己的提示。CI runner 还原 Nx 缓存后（缓存键只含
+            #   .nx/cache，.nx/workspace-data/d 那个 db 不在键内）就会打出
+            #   `NX   Unrecognized Cache Artifacts`（run 37255412754 实测原文）。
+            #   提示一掺，全等两条全不成立 ⇒ 空集被降级成「检测失败」⇒ 继续跑 test:affected
+            #   ⇒ nx 实跑 0 个任务、不启动任何测试进程 ⇒ 末尾运行时出站台账判定
+            #   （fail-closed：无台账即红）把 PR #2596 判红，Gate Result 连带红。
+            #
+            # 早退必须排在降级判定之前，且只在 kind=empty（**确证**空集）时才早退。
+            $probeJson = $affectedRaw | node scripts/nx-affected-probe.js --exit $nxExit
+            if ($LASTEXITCODE -ne 0) {
+              throw "nx affected 判读脚本执行失败（exit $LASTEXITCODE）—— 判据没跑起来，不得当作空集早退"
+            }
+            $probe = $probeJson | ConvertFrom-Json
+            if ($probe.kind -eq 'empty') {
               Write-Host "No non-desktop projects with a test target affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
               exit 0
             }
-            $affected = $affectedRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-            if ($nxExit -ne 0 -or $null -eq $affected) {
-              Write-Host "::warning::nx affected detection failed (exit $nxExit); running tests:affected normally rather than skipping."
+            if ($probe.kind -eq 'non-empty') {
+              Write-Host "Affected non-desktop projects: $($probe.projects -join ', ')"
             } else {
-              Write-Host "Affected non-desktop projects: $(@($affected) -join ', ')"
+              Write-Host "::warning::nx affected detection unusable (kind=$($probe.kind), nx exit $nxExit, reason=$($probe.reason)); running tests:affected normally rather than skipping."
             }
             $testArgs = @("run", "test:affected", "--", "--exclude=@multi-publish/desktop")
           } else {

@@ -107,6 +107,11 @@ scripts/*.js
 !scripts/ci-pr-changeset.js
 !scripts/ci-pr-changeset.test.js
 !scripts/quality-rhythm-wrapper.js
+!scripts/ccg-gate.js
+!scripts/ccg-deep-review.js
+!scripts/ccg-review-decider.js
+!scripts/plan-review.sh
+!scripts/deep-review.sh
 !scripts/openspec-sync-check.js
 !scripts/openspec-sync-check.test.js
 !scripts/affected-report.js
@@ -118,6 +123,7 @@ scripts/*.js
 !scripts/check-dep-audit.test.js
 !scripts/check-blanket-fs-mock.js
 !scripts/check-test-egress-ledger.js
+!scripts/nx-affected-probe.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js

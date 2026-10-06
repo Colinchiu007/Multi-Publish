@@ -1,8 +1,13 @@
 {
+  "本次执行记录：日志契约迁移波次-1/2（log-notify-migration，2026-10-05）【合并后补写】": {
+    "reason": "三 PR 已合并（#2922/#2924 已取证，#2947 待 CI 后补取证）；本条随下一个 docs PR 同一次提交删除。",
+    "status": "PENDING",
+    "line": 1
+  },
   "本次执行记录：远程同步回填销账（sync-backfill-2917，2026-10-05）【docs-only】": {
     "reason": "本 PR 自身尚未合并，无法取证 merge SHA；回填者＝后续 docs PR，同一次提交删除本条。",
     "status": "PENDING",
-    "line": 1
+    "line": 17
   },
   "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
@@ -74,5 +79,7 @@
     "status": "PENDING",
     "line": 4654
   },
-  "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
+  "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
+  "本次执行记录：#2927 远程同步回填销账 + CHANGELOG 收口（bilibili-audit-backfill，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
+  "本次执行记录：B 站发布侧作品标识（aid/bvid）采集修复（bilibili-bvid-extract，2026-10-06）": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }

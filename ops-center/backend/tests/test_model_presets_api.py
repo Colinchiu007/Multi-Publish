@@ -778,6 +778,33 @@ async def test_fetch_models_proxy_benchmark_segment_rejected_when_disabled():
 
 
 @pytest.mark.asyncio
+async def test_fetch_models_benchmark_message_covers_gateway_level_fakeip():
+    """回归保护：拒绝文案的归因必须覆盖「网关/路由器级透明代理」——fake-IP DNS 劫持
+    不一定来自本机代理进程（实测 OpenClash 透明代理下，本机没有任何代理监听也会解析到
+    198.18.x.x）。只写「Clash/TUN 类代理接管」会误导用户在本机找不到代理而放弃排查。"""
+    import socket
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-bench-gateway", "name": "Fetch Bench Gateway", "category": "llm",
+            "models_url": "https://api.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=200, json_data={"models": ["m1", "m2"]})
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.241", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-bench-gateway/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            detail = resp.json()["detail"]
+            assert "网关" in detail or "路由器" in detail
+            assert "本机" in detail  # 必须点明本机可能根本没有代理
+            assert "OPS_ALLOW_PROXY_BENCHMARK_IPS" in detail
+
+
+@pytest.mark.asyncio
 async def test_fetch_models_benchmark_off_message_distinct_from_real_private():
     """回归保护：198.18.0.0/15（代理基准段，开关关闭）必须给出 fake-IP 指引，
     而真实私网 10.x 必须给出「私网」提示，两者文案必须可区分（Bug #agnes-llm 获取模型误报）。"""

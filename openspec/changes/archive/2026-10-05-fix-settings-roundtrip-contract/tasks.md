@@ -64,26 +64,26 @@
 
 - [x] 9.1 推送前本地跑通：`check-gate-record-debt` / `check-unwired-tests` / `check-step-failfast` / `check-max-lines`（`ops-center-sync.js` 已 629 行，注意行数熔断预算）（本轮已本地复跑四道：max-lines（超限 98 / 挂账 98 / 墓碑 1，无新增）、gate-record-debt、unwired-tests、step-failfast 全 OK）
 - [x] 9.2 分支推送走 PowerShell 原生 `D:\` 路径；`classify-docs-only.js` 判定为混合 PR → 走完整质量节拍；创建 PR 后以产物存在为判据（`gh pr create` 可能 rc=0 而什么都没做）（PR #2899 已创建并以产物（`gh pr view` 回读 number/headRefOid）为判据；判定为混合 PR → 完整门禁）
-- [ ] 9.3 CI 轮询用 `gh pr checks --json`，红项先按「本机可配置维度必须本机复现」归因；`pnpm-lock.yaml` 不得文本合并
-- [ ] 9.4 合并后：回填远程同步行 PASS **并同 PR 删除 ledger 登记项**；`openspec archive` + `active-tasks.json` 销账
-- [ ] 9.5 worktree/分支清理走 `scripts/safe-worktree-remove.ps1`（先 `-WhatIf` 干跑）；`branch -d` 被拒不等于未合并，需行级包含证明
+- [x] 9.3 CI 轮询用 `gh pr checks --json`，红项先按「本机可配置维度必须本机复现」归因；`pnpm-lock.yaml` 不得文本合并 —— **已失效（无待轮询对象）**：#2899 已于 2026-10-05 12:47 squash 合并为 `10d2a8202`，PR 不复存在，CI 无待轮询项。归因纪律本身（红项先按「本机可配置维度必须本机复现」判因、`pnpm-lock.yaml` 禁文本合并）已由 `openspec/records/fix-settings-roundtrip.md` 的 QM-6/全量测试行留痕，无需再执行。
+- [x] 9.4 合并后：回填远程同步行 PASS **并同 PR 删除 ledger 登记项**；`openspec archive` + `active-tasks.json` 销账 —— **已完成（本次收口销账）**：① 远程同步行已 PASS 并载 merge SHA `10d2a8202a83d173d3495652d84c02a9fed7a62d` + 远端分支已删（`openspec/records/fix-settings-roundtrip.md` 末行）；② `scripts/gate-record-debt-ledger.json` 已无 #2899 登记项（实测全文检索 0 命中）；③ `openspec/records/` 载体文件齐备；④ `openspec/active-tasks.json` 本仓从未建立过该文件 ⇒ N/A；⑤ `openspec archive` 由本次收口执行。
+- [x] 9.5 worktree/分支清理走 `scripts/safe-worktree-remove.ps1`（先 `-WhatIf` 干跑）；`branch -d` 被拒不等于未合并，需行级包含证明 —— **N/A（无残留可清）**：`git worktree list` 现存仅 3 个（mulpub 主根 + `mp-issue-2610-locales-baseline` + `mp-issue-2878-egress-stubs`），本 change 的 worktree `mp-fix-settings-roundtrip` 已不存在；`fix-settings-roundtrip` 分支本地与远端均无（squash 合并后已删远端）。故 `safe-worktree-remove.ps1 -WhatIf` 无对象可干跑，行级包含证明亦无对象可证。
 
 ## 10. 记忆与本机现场
 
 - [x] 10.1 内置记忆：更新 [[project-mulpub-verification-seams]] 或新增条目，记「契约夹具不得改变被存值类型」这一落点与判据（内置记忆已写（AGENTS.md 同步一条 MUST；夹具类型不对称落点））
-- [ ] 10.2 项目记忆：本机运营中心三段配置事实（本地 8010 已通 / 应用配置行现指向本地并依赖本 PR 才可读回）。**原判据"ops.iart.work DNS 不解析"已作废**：fake-ip 型代理对本机任何域名都回 `198.18.x.x`，本机 `dns.lookup` 无法区分"未部署"与"链路不通"；改用 DoH（`dns.google/resolve` + `github.com` 正控）复测得 `Status=3 NXDOMAIN`，结论不变、证据替换。同场实测 `auth.iart.work`→`39.105.42.85` 线上 302，即部署主机已存在
+- [x] 10.2 项目记忆：本机运营中心三段配置事实（本地 8010 已通 / 应用配置行现指向本地并依赖本 PR 才可读回）。**原判据"ops.iart.work DNS 不解析"已作废**：fake-ip 型代理对本机任何域名都回 `198.18.x.x`，本机 `dns.lookup` 无法区分"未部署"与"链路不通"；改用 DoH（`dns.google/resolve` + `github.com` 正控）复测得 `Status=3 NXDOMAIN`，结论不变、证据替换。同场实测 `auth.iart.work`→`39.105.42.85` 线上 302，即部署主机已存在 —— **已完成（#2914 落地，实测复核）**：`docs/proxy-environment-adaptation.md` 已载 fake-ip `198.18.0.0/15` 机制、`github.com → 198.18.0.54` 等实测读数、判据改走 DoH（`dns.google/resolve` 读 `Status`，3=NXDOMAIN）并强制配正控，以及本仓实例 `ops.iart.work`=NXDOMAIN / `auth.iart.work`=`39.105.42.85` 线上 302；`docs/settings-persistence-contract.md` 第 94 行另存「取证通道换过一次」的方法论现场。
 - [x] 10.3 EverOS：episode 级沉淀（现象 → 复现手法 → 逃逸原因 → 修法）（EverOS episode 已落盘（`~/.everos/dsh/Mulpub-*/users/to_co/episodes/episode-2026-10-05.md`，以文件为判据，不以工具应答为判据））
-- [ ] 10.4 收尾时明确 `.env` 追加的两行与 `AppData\Local\Mulpub\ops-center-dev\` 私钥文件的归属与删除方式（密钥不落仓库、不贴对话）
+- [x] 10.4 收尾时明确 `.env` 追加的两行与 `AppData\Local\Mulpub\ops-center-dev\` 私钥文件的归属与删除方式（密钥不落仓库、不贴对话） —— **已完成（实测复核）**：`docs/settings-persistence-contract.md:91` 载明 `.env` 补 `OPS_CATALOG_API_KEY` + `OPS_RUNTIME_SIGNING_KEY_PATH`，私钥文件位于仓库外 `%LOCALAPPDATA%\Mulpub\ops-center-dev\`，**不入 git、不入对话**；同文第 98 行给出删除时机（ECS 部署完成后移除手写 `opsCenterSync` 配置行，让应用回落 identity 自动发现）。
 
 ## 11. QM-6 修复轮（第二轮）验证
 
 - [x] 11.1 每条新锁都做了"拆掉它必须红"的变异反证，且**先跑基线**证明该用例在未变异时确实跑过且为绿（vitest 全绿时不打印 `N failed`，判据要把"无 failed 计数"当绿，否则会把绿读成"基线不可信"）：M1 摘「未注入 store」留痕 / M2 摘「缺少方法」留痕 / M3 退回静默 catch / M4 结构锁常量改 no-op / M5 窄包装转发不存在的方法 / M6 扩转发不销账 / M7 运行时策略写错键 —— 7 条全部 `1 failed`，收尾断言三个被改文件与备份**逐字节相同**
 - [x] 11.2 行尾：本轮被改文件行尾**并不统一**（`settings-roundtrip-contract.test.js` 与 `publish-reporter.js` 是 LF，`ops-center-sync.*`、`settings-store.js`、`container.setup.js` 是 CRLF）。先用 `grep -c $'\r'` 探一次得到的是**错答案**（把 LF 文件报成 CRLF），改用 Node 直字节计数才定准；所有补丁按目标文件自身行尾落，并断言"原有每一行都还在 + 行尾类型未变"
-- [ ] 11.3 后端角色重投并绑新 head；两路 Critical 均为零后方可挂 auto-merge
+- [x] 11.3 后端角色重投并绑新 head；两路 Critical 均为零后方可挂 auto-merge —— **已完成（结论已固化，无需再挂 auto-merge）**：后端第二投结论 0 Critical / 5 Warning / 9 Info（见 12.1）；前端路 1 条 Critical（`_readStoredObject` 两处无声 `return {}`）已修、W4/W5/W6 已修、W2/W3 以文档纠偏落地 ⇒ Critical 归零。#2899 后续已实际合并，auto-merge 前提与对象均已消解。
 
 ## 12. QM-6 后端评审（第二轮，绑定 7bbe33e6b）处置
 
 - [x] 12.1 后端 `codeagent-wrapper --backend codex` **重投成功**（首投 PID 42800 跑满 ~14 分钟后 stdout 截断在第一条 finding 中途、包装器日志退出时自清、`~/.codex/sessions` 无 rollout ⇒ 不可恢复；改法＝要求"先落盘产物再回摘要"）。结论 **0 Critical / 5 Warning / 9 Info**，判定可合并
 - [x] 12.2 结构锁被实测出**双向错误**并已在 commit 之外修好：commit 版 `String(...getSetting` 过宽（误伤 `getSettingObject`）；我为消误报收窄成 `getSetting\s*\(` 之后又**漏掉修复前的真实原形** `String(this._store?.getSetting ? this._store.getSetting(K) || '' : '')`（三元里的 ` ? ` 空格断了字符类）⇒ 消误报顺手把锁改弱了。改为**按语义取 `String(` 的配对实参**再判其中是否引用 `get(?:User)?Setting`；判据矩阵正例逐条取自 `git show origin/main:<file>` 的原文（7 条全 FLAGGED），负例 5 条含新入口全部 CLEAN，且四个真身在 origin/main 上命中 6/1/1/1、在修复后为 0
-- [ ] 12.3 后端条目 #10/#12 的证据被本 worktree 的**未提交并发改动**污染（其引用的 `FORBIDDEN_SHAPE`/`KNOWN_LAGGING` 在 `7bbe33e6b` 里不存在）⇒ 新 commit 推上去后须对新 head 重评这两条。编排侧已自查写出方：10 个 M 文件的 mtime 与我自己的脚本运行时刻逐一对得上（10:36–10:49），无第二写者
-- [ ] 12.4 Warning 登记为后续切片：§8.1 行损坏抹 Key（要改 `_readStoredObject` 的三态契约，波及 6 个调用点）；§8.2 信任锚移出可写表（属产品级安全决策，非加验签能了结）；窄包装扩面（本 PR 只加了注释 + 装配锁，未强行转发）
+- [x] 12.3 后端条目 #10/#12 的证据被本 worktree 的**未提交并发改动**污染（其引用的 `FORBIDDEN_SHAPE`/`KNOWN_LAGGING` 在 `7bbe33e6b` 里不存在）⇒ 新 commit 推上去后须对新 head 重评这两条。编排侧已自查写出方：10 个 M 文件的 mtime 与我自己的脚本运行时刻逐一对得上（10:36–10:49），无第二写者 —— **已完成（已在新 head 上重评，两条变异反证均变红）**：`7bbe33e6b` 是 squash 前的 worktree 提交，squash 合并后不再是有效对象（`git cat-file -t` 报 `Not a valid object name`），故以新 head `10d2a8202` 为准重评。基线 `settings-roundtrip-contract.test.js` = **17 passed**；变异 #10（结构锁）向 `ops-center-sync.js` 注入修复前真实原形（`String(` 配对实参里引用 `getSetting` 的三元守卫形态）⇒ 恰「ops-center-sync.js 不得再用 String(getSetting(...)) 的误判口径读配置」1 failed / 16 passed；变异 #12（装配锁）向 `settings-store.js` 注入未转发的 `getProbeObject` ⇒ 恰「对象语义读取入口的未转发清单只能缩小」1 failed / 16 passed。两个被变异文件均按 md5 逐字节还原（`28DF9CC015D9` / `61282D8334C7`），收尾复跑 17 passed 且 `git status --porcelain` 为空。
+- [x] 12.4 Warning 登记为后续切片：§8.1 行损坏抹 Key（要改 `_readStoredObject` 的三态契约，波及 6 个调用点）；§8.2 信任锚移出可写表（属产品级安全决策，非加验签能了结）；窄包装扩面（本 PR 只加了注释 + 装配锁，未强行转发） —— **已完成（本次补齐中央台账）**：`docs/settings-persistence-contract.md` §8.1（行损坏抹 Key）与 §8.2（信任锚不重验签，威胁模型断言）已登记；本次另在 `01-docs/tech-debt.md` 补入这两条与「窄包装未转发 `getSettingObject`」的中央台账条目，使后续切片可被独立检索。

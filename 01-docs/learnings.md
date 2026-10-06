@@ -2,6 +2,21 @@
 
 - **批修 pattern 的「无空格变体」陷阱（pitfall）**：fallback 批修（#2924）的简写模式是 info() {}，而 settings-roundtrip-contract.test.js 的注入写的是 info () {}（多一个空格）——正则 \s* 没覆盖到吗？覆盖了，但**插入脚本用的是字符串 replace 而非正则**，锚点里写死了无空格形态。正解：批修用正则匹配 + 函数式替换（在 error 项后插 notify），不要用固定字符串锚点。漏网的 5 处让 pplyRuntime 的 notify 调用抛 TypeError，CI Coverage 红了 3 个不在本 PR diff 里的测试文件——表象与日志无关，靠「红文件 require 链反查」才归因到注入 log 的键面。
 - **消费方测试也是迁移的适配面（pattern）**：改 auth-partition-reclaim 的日志出口，其**消费方** auth-view-manager-partition-reclaim.test.js 的注入 mock 与断言也同步红。迁移 PR 的适配清单不能只看「被改文件的 .test.js」，要 grep 引用了被改模块的**全部测试**（含间接消费）。
+
+---
+
+## 一条「DELETE 全部表」的 autouse 夹具，目标路径来自相对 cwd 的默认值——单跑一个模块就能清空共享开发库（ops-dev-bind-loopback，2026-09-29）
+
+- **现象（pitfall，本会话自己上一轮引入的）**：用户报「运营中心 admin 登录不上」。排障过程中发现 `ops-center/backend/tests/conftest.py` 的按模块清库夹具（#2397 为根治「单跑绿、全量红」而加）会对 `settings.db_path` 指向的库 `DELETE` 全部表；而该值默认是**相对当前工作目录**的 `data/config.db`。在 `ops-center/backend` 里单跑 `pytest tests/test_security_config.py`，实测靶库 `admins` 行从 1 变 0——清空的是运营中心**开发库**，含管理员账号。
+- **第一性原因**：`config.settings` 是**导入期单例**，各测试模块靠「在自己的模块级先设 `os.environ["OPS_DB_PATH"]` 再 import config」来隔离。这条隔离**只对第一个被收集的模块有效**（pytest 按字母序导入）。49 个模块里 12 个根本不设该变量；全量套件侥幸无害，只因字母序第一的 `test_app_menu_api.py` 恰好设了临时库。也就是说：我把「个别模块各自 drop_all」升级成了「每个模块无条件清库」，却没有管住**清的是哪个库**——把脆弱前提从「行号漂移」扩大成了「数据销毁」。
+- **为什么既有对照没抓到**：① 全量跑（456 passed）永远绑到临时库，破坏只在「单跑一个不设变量的模块」这个组合里显现，而 CI 从不单跑；② #2397 的回归对锁只断言「rowid 从 1 重新计」「外键可写」，没有一条断言「清库目标必须在仓库外」；③ 我在该 PR 里跑过「把 fixture 改成 no-op 必须变红」的反证，**证明了锁会红，没证明目标路径安全**——反证方向选错，等于没做。
+- **规约（任何会删用户/开发数据的夹具或脚本，四条不可省）**：① 动手前把目标解析成**绝对路径**；② 用纯谓词断言它不在仓库内、不在真实数据目录（本仓为 `is_safe_reset_target`）；③ 不满足即**抛错**，禁止 warn 后继续，禁止「先清完再报」；④ 在 `tests/conftest.py` **导入期**就把库路径兜底到会话级临时目录（宿主显式设置的仍优先），从根上取消「谁先导入谁定绑」。配一条**真子进程 + 弹掉环境变量**的锁来验实际绑定结果，而不是读源码字符串。
+- **反证的靶子必须自己造**：本次破坏性反证只在 worktree 自己的 `data/config.db` 上做（先建库、插一条 `marker-admin`、再跑单模块），共享根那份库从未被指向。若要证明的正是「删除动作被拦住」，就不能拿真数据当试验品——先沙箱化副作用，再逐次变异后检查机器状态。
+- **顺带一条症状学**：「登录不上」的用户表述**不能**推断成「密码错」。本仓 ops-center 的登录由自身 :8010 承载，vite 代理在后端缺席时给的是 **500 空 body**，与 401 在界面上完全同形。固定三步：`curl` 直连看有没有 `000`；经代理看是 500 还是 401；只有 401 才轮到核凭据（429 是进程内存限速，重启即清、库里没有表可查）。
+- **另一条同形陷阱**：`ensure_admin_seeded` 只在 `admins` 表为空时创建、**从不更新已有行**，所以 `.env` 里的口令与库里的哈希可以长期脱钩——「改了 .env 登不上」和「删了库重启又能用旧口令」是同一个原因的两面。
+
+---
+
 ## 迁移日志出口前必须盘点所有注入型 sink 的键面——fallback 对象缺键会把 TypeError 吞成业务错误码（publish-logging-observability w2-d1 补，2026-10-05）
 
 - **`opts.log || { info, warn, error }` 三键 fallback 是迁移的隐藏爆破点（pitfall）**：把 controller 出口迁到 `notify` 后，凡是「调用方没传 log 就走 fallback」的路径，`this._log.notify` 变成 TypeError——但它总在 try/catch 里，被 handler 吞成 `-99` 这类业务错误码，**表象是业务断言红、栈里没有日志字样**（zhihu-fav-batch 取消测试实测）。main 基线临时 worktree 对照（30/30 绿）才把归因钉到本波改动。正解：迁移某出口前，`git grep "{ info" ` 盘点全部注入型 sink 形态（源码 fallback `()=>{}`、简写 `info(){}`、测试 mock `vi.fn()` 三种），出口迁到哪一级，fallback 的键面就补到哪一级。
@@ -17391,3 +17406,15 @@ DOM 流程失败(verification timeout) →
 - **这类文件是纯 CRLF 且键不是字典序**：`max-lines-baseline.json`、`gate-record-debt-ledger.json` 都如此。用 `JSON.stringify` 整体重排会造出巨量假 diff。正解：单行唯一子串替换或尾部插入 + **两口径对账**（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件一致）自证。
 - **门禁的「远程同步」行只认表行形态**：`.quality-gates.md` 的 `ROW_RE = /^\|\s*远程同步\s*\|/` —— docs-only 模板里的 bullet 形态（`- 保留门禁：… | 远程同步 PENDING`）**不被识别**，于是同 PR 的 ledger 登记会被判「陈旧」。写成 `| 远程同步 | PENDING | … |` 表行才闭环。
 - **登记值领先于实况时不要顺手抬**：#2610 里 `Publish.vue` 实况 1734 / 登记 1730，容差 200 尚余 196 行 —— 抬它就是无谓的基线 churn。只动真正被逼近红线的那两个（locales 净增 157、只剩 43 行）。
+
+## 两侧各自有测试 ≠ 接缝被测：扁平名 vs 命名空间这类错配为什么能一路进主干（fix-ipc-namespace-contract，2026-10-05）
+
+- **逃逸链（四层全漏）**：单元层 `vi.mock('@/api/publisher')` 把整个被测模块 mock 掉，结构上无法发现 preload 缺该方法；集成层无 preload 暴露面契约测试；E2E 层无"重试失败分镜"用例；视觉层该操作失败与"点了没反应"在像素上不可区分；审查层两侧测试各自自洽，读起来完全说得通。
+- **机制性教训**：真正的守卫不是"每侧都测了"，而是**跨侧的接缝**。判据要从「preload 实际暴露面」与「渲染层实际调用名」两侧同时取真源求差集，任何一侧手抄都会让守卫退化成装饰。
+- **手抄真源会立刻漂移（本仓现成活样本）**：`preload.test.js` 只组合 7 个工厂并断言键数 334，而 `preload/index.js` 组合 20+ 个工厂、真实暴露面 411（public）/416（admin）。334 是漂移的子集——**新锁若拿它当基准，开局就是大面积假阳性**，后人会当成噪声把锁删掉。
+- **暴露面不是静态集合，是权限相关的**：`createDynamicAccessApi` 对 `ADMIN_ONLY_METHODS` 的方法在非 admin 等级**整键不暴露**。只对 public 面求差集会把 `paymentSimulate` 这类**故意只给管理员**的方法误报成缺陷；而误报后的直觉修法（去 preload 补暴露）**方向与既有安全设计相反**——它在 `ADMIN_ONLY_METHODS` 里，且主进程另有 `app.isPackaged !== false` 硬守卫。差集必须对 `public ∪ admin` 求。
+- **启发式相似名是线索不是证据**：本次 `paymentSimulate` 的相似名建议把我导向"preload 缺暴露"，差一步就去改 preload。判定必须落到可查事实——分类表成员、调用方计数（且要区分"除自身定义处以外"）、主进程守卫是否存在。
+- **`vi.mock` 拦不住 CJS 源文件的 `require`**：preload/index.js 是 CJS，vitest 注入的 require 走真实 Node loader、绕过 vi.mock 的 ESM 注册表，`require('electron')` 拿到的是该 npm 包导出的**可执行文件路径字符串**，症状是 `TypeError: Cannot read properties of undefined (reading 'on')`。要拦 CJS 依赖得用 `Module._load`。
+- **只做"最后一跳"对账会留下盲区**：把 `invokeWithFallback('flatName')` 改成 `invokeNamespace('ns', 'method')` 之后，若判据不认命名空间形态，这条路径就对契约**完全隐形**了——下一个把 ns 名或 method 名写错的缺陷照样进主干。判据必须同时覆盖扁平与命名空间两种形态。
+- **注释不是绕过路径的终点，是绕过路径本身**：判据若直接扫原文，`// invokeWithFallback("x", null)` 会被算成真实调用点，于是"把坏调用注释掉"就成了一条逃逸。判据须先剥注释。
+- **收尾任务需要「前提失效」这一终态**：`fix-settings-roundtrip-contract` 曾有 9.4/11.3/12.3 三条判据绑定"PR 在途"，PR 合并后它们既无法执行也无法判失效，于是永久挂在 46/54。change 的 tasks 只有"完成/未完成"两态时，**前提消失的条目必然变成永久欠账**。

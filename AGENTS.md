@@ -22,7 +22,7 @@
 
 - **git 提交**：所有变更必须 commit，不允许未跟踪代码
 
-- **分支隔离（分层）**：分层判定只看「是否影响运行行为」——运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）**不需要独立 worktree，可在共享主工作区就地编辑，但同样必须经 PR 落地——不存在「直接提交到 main 并推送」这条路**。原因是远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`（required status checks 在直推路径上无法满足），2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒后确立，见 PR #2411。共享根另有 `[shared-root-guard]` 会把它强制切回 main、禁止离开 main，因此文档类提交的做法是：在本地 main 上 commit → `git branch <name>` 保住该提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
+- **分支隔离（分层）**：分层判定只看「是否影响运行行为」——运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 与 CI 后合并回 main（**合并动作由 agent 自动执行，见下文「PR 自动合并」**）；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）**不需要独立 worktree，可在共享主工作区就地编辑，但同样必须经 PR 落地——不存在「直接提交到 main 并推送」这条路**。原因是远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`（required status checks 在直推路径上无法满足），2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒后确立，见 PR #2411。共享根另有 `[shared-root-guard]` 会把它强制切回 main、禁止离开 main，因此文档类提交的做法是：在本地 main 上 commit → `git branch <name>` 保住该提交 → `git reset --keep origin/main` → 推 `<name>` 开 PR。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
 
 - **⛔ Worktree 隔离（并发会话铁律）**：共享仓库根（例如 `D:/Data/projects/Mulpub`）是 **main-only 协调目录**，必须保持干净并停留在 `main`；不得作为运行时代码任务的 cwd，也不得执行 `git checkout` / `git switch` 到 feature 分支。每个运行时代码任务统一从 Git for Windows Bash 运行 `scripts/session-init.sh <task-name>`，在默认 `<仓库父目录>/mp-worktrees/mp-<task-name>`（可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）与**裸 `<task-name>` 分支**中工作（`scripts/gwm-task.sh` 自 2026-09-15 起默认不加分隔符前缀，因为含斜杠的分支名在本机 ref 写入不可靠；需要前缀时显式设 `MP_BRANCH_PREFIX`，例如设 `MP_BRANCH_PREFIX=team` 才得到 `team/<task-name>`）；同名路径已被其他仓库或错误分支占用时必须 fail closed。隔离 worktree 由 pre-commit 自动声明当前分支；共享主目录仅允许 `powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main`。**已有多个会话绑定同一共享 cwd 时，先暂停所有 Git 写操作，再逐个串行迁移；禁止并行 handoff/stash/checkout，因为 stash、index 与 HEAD 属于同一 Git 状态，会互相竞争。** 新 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`。统一使用 Git for Windows Bash（`start-mp-task.ps1` 自动探测，可经 `-GitBash` / `MP_GIT_BASH` 覆盖）；本机裸 `bash` 可能解析到 WSL，不得用于此流程。
 
@@ -63,6 +63,46 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - **「远程同步」状态列只认闭合词表 `^(PASS|N\/A|✅|已)`（`check-gate-record-debt.js` Gate 2c）**：写复合箭头（如 `PENDING→PASS`）会被判**未收口欠账** → `QG Changes`/`Gate Result` 连带红，哪怕 PR 实际已合并。开 PR 时写 `PENDING`（并同一条 PR 往 `scripts/gate-record-debt-ledger.json` 按记录标题登记），合并后**就地改写成** `PASS` + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证）并在**同一次提交**删除登记项——回填与销账必须同一次发生，状态列不写「历程」，只写「当下状态」。
 - 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
 - 进白名单的前提锁（2026-09-30 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。
+
+### PR 自动合并（2026-10-05 起，branch: agent-automerge-rule）
+
+> 本节把「PR 需人工点合并」松绑为 **agent 自动合并**，但**不动「必须经 PR 落地」这条**。判定标准从「有没有人看过」换成「机械闸门是否全绿 + 证据是否落盘」。
+
+**默认动作**：agent 自己开的 PR，在下列条件全部满足时**自动 squash 合并并删除远端分支**，不等人工点合并（实测先例：PR #2943 → `829f1be6`、回填 PR #2946 → `9f5c264f`，均为 CI 全绿后自动合并）。仓库合并惯例是 squash（`gh pr merge <n> --squash --delete-branch`），不得改成 merge commit 或 rebase-merge。
+
+**允许自动合并的判据（须全部满足）**
+
+1. `mergeable == MERGEABLE`（`gh pr view <n> --json mergeable --jq .mergeable`）。若为 `CONFLICTING`：先 `git fetch` 再 `git rebase origin/main`，冲突按「两侧记录都保留」解决后 `--force-with-lease` 重推；末尾追加型文件（`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）是最常见的冲突点，**不得用「后推覆盖」消解冲突**。
+2. `gh pr checks <n>` 零 pending、零 fail。docs-only 通道的 `skipping` 属预期（重型 job 被 `docs-only=true` 短路），不算失败——但**必须先跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 确认 `docs-only=true`**，否则 skipping 意味着判定失灵。
+3. 变更类型与分层策略一致：运行时代码变更已在隔离 worktree 完成，且 QM-1 打包证据写在 `openspec/records/<分支>.md` 里。
+4. `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 为 OK。
+5. 没有待人工裁决的争议（评审提出的 CRITICAL 未修、任务勾选与证据不符、前置条件已失效但被照抄等）。这一条是 **agent 自查**而非机械闸门，最容易失守，见「残留风险」。
+
+**禁止自动合并的情形（一律停下来报告用户）**
+
+- 任一 required check 红 / pending / 因故障缺失；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
+- 需要改动 `.github/workflows/` **分支保护规则本身**、或改动 `CI_IGNORED_PATHS` 白名单的 PR——这两类是在改「谁来守门」，必须人工过目。
+- 推进需要 `reset --hard`、`git clean` 或任何会覆盖他人未提交改动的操作。
+- 上面第 5 条存在任何拿不准的争议。
+
+**任何情况下都仍然禁止**
+
+- `--no-verify`；
+- 直推 `refs/heads/main`（分支保护以 `GH011` 拒绝，直推路径无法满足 required status checks，见 PR #2411）；
+- 在门禁未绿时合并（「先合了再说」是本条最典型的失守形态）；
+- 合并后不回填远程同步：**回填与销账必须同一次提交**（`.quality-gates.md` 状态列 `PENDING` → `PASS` + merge SHA，删除 frontmatter 的 `sync_*` 三字段，同时删 `scripts/gate-record-debt-ledger.json` 的登记项），回填 PR 同样按本节自动合并。
+
+**合并后收尾清单（缺一不可）**
+
+1. `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间；
+2. `git ls-remote --heads origin <branch>` 返回 0 行，证远端分支已删；
+3. 开回填 PR，一次提交内完成：改写 `.quality-gates.md` 与 `openspec/records/<分支>.md` 的远程同步行、删除 `sync_*` 三字段、删除 ledger 登记项；
+4. 按本节判据合并回填 PR；
+5. worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
+
+**残留风险（不假装已闭合）**
+
+松绑掉的是「第二双眼睛」。本节用**三道机械化闸门**替代人工判断：required status checks（CI）、质量节拍门禁（QM-1~6 + `.quality-gates.md`）、执行记录取证（`openspec/records/` + ledger 销账）。它们挡得住「门禁没过就合」和「合了不销账」，**挡不住「门禁本身写错了」**——例如判据被改宽、变异反证被跳过、任务勾选与真实证据不符。因此判据第 5 条（agent 自查争议）不可省略，且 `openspec-sync-check` / `classify-docs-only` / `check-pr-exec-record` 各自的**基线差分**仍须人工抽查。
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
 
@@ -330,7 +370,7 @@ CRITICAL 必须修复才能继续。
 │   ├── remotion-composer/ # Remotion 视频合成
 │   ├── rpa-engine/        # RPA 发布引擎
 │   └── shared-utils/      # 共享工具库
-├── ops-center/            # 运营后台（FastAPI :8010 + Vue3 :5173，独立 Python/Node 依赖，登录经 platform-orchestrator /api/auth）
+├── ops-center/            # 运营后台（FastAPI :8010 + Vue3 :5173，独立 Python/Node 依赖；登录与鉴权均由本服务自持——/api/auth 走 :8010 自己签发会话，2026-08-10 起不再经 platform-orchestrator）
 │   ├── backend/           #   FastAPI（pytest 门禁：cd backend && pytest）
 │   └── frontend/          #   Vue 3 + Vite（build 门禁：npm run build；Vite 代理 /api/auth→orchestrator:8000，/api/v1→ops-center:8010）
 ├── 01-docs/               # PRD、架构、设计等文档
@@ -629,6 +669,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **全仓关键词复扫必须带 `-a`（MUST）**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等历史文档含 NUL 字节，`grep`/`rg` 默认把这类文件判为二进制并**静默跳过**，只输出一行 `Binary file ... matches`，命中数直接归零——于是「全仓扫到 0 命中」这类收口结论对真正有问题的文件完全失明（2026-09-26 实测：`grep -rn 立即同步 01-docs/PRD.md` = 1，`grep -rna` = 10）。凡以「扫到 0」作为完成判据的检查，一律 `grep -na` / `rg -a`，并额外确认**扫描器没有把这些文件当二进制**（`grep -c` 单文件计数对照）。（2026-10-05 更新：本条点名的 `01-docs/PRD.md` / `01-docs/learnings.md` 经 control-bytes-sweep 后实测 **NUL=0**，`-a` 对这两份已不再必要；但纪律本身不变——**凡「扫到 0」当完成判据，一律 `grep -na` / `rg -a`，并且先当场量一次该文件还有没有控制字节，不要凭记忆决定加不加 `-a`，也不要凭记忆决定某份历史文档还含不含 NUL**。）
 
 - **测试库/配置状态必须按模块确定化，不得依赖导入顺序（MUST）**：`config.settings` 这类**导入期单例**会让「模块级设环境变量再 import」的写法只对第一个被收集的测试文件生效——其余文件自设的临时库全部失效，整个 session 共用同一份状态，任一文件 teardown 里的 `drop_all` 都会波及其他文件，表现为「单跑绿、全量红」的假失败。修法：在 `tests/conftest.py` 里做**按模块**的 autouse 重置（幂等补齐 schema + 按外键逆序清空全部行 + 复位 `sqlite_sequence`），并用回归对锁定（制造方推进 rowid 并 `drop_all`，消费方不建表不清库、断言新父行 `id == 1` 且能写外键子行）；把该 fixture 改成 no-op 必须**立刻变红**，否则锁是装饰性的。既有案例：`ops-center/backend/tests/conftest.py::_isolate_database_per_test_module` + `tests/test_zz_conftest_isolation_a_wrecker.py` / `..._b_consumer.py`。归属纪律：全量红而单跑绿时，先在**未改动的 main** 上跑同一条全量做对照，既禁止把既有缺陷认领成本 PR 引入，也禁止反过来以「不是我改的」直接放行。 **但对照只证明「既有缺陷存在」，不证明「本 PR 无关」**：本 PR 自己可能叠加第二颗独立的雷（实测：#2397 清库修好后，本仓一条 5 路 `async_session` 并发的用例仍会让远处模块报外键失败）。所以必须二分到自己身上——用 `--deselect` 逐条摘除本 PR 新增用例跑全量，配合「摘掉修复即变红」的反证定责。规则：**在测试里开并发 session 的用例，必须在 `finally` 里 `await engine.dispose()` 归还连接池**（aiosqlite 池连接绑定事件循环，跨用例复用会读到过期 WAL 快照）。
+- **清库/删数据类测试夹具自身必须 fail-closed 校验目标在仓库外（MUST）**：一条「DELETE 全部表」的 autouse 夹具，其目标来自**导入期单例** `config.settings.db_path`，而该默认值是**相对 cwd** 的 `data/config.db`。整轮套件绑到哪个库，历史上取决于「第一个被收集且设了 `OPS_DB_PATH` 的模块」——所以只要有人**单跑**一个没设该变量的模块（本仓实测：`pytest tests/test_security_config.py`），夹具就会去清空共享开发库的全部行（含 `admins`，症状是运营后台 admin 登录返回 503「未配置管理员账号」）。因此这类夹具必须同时具备两件事：①在 `tests/conftest.py` **导入期**就把 `OPS_DB_PATH`/`OPS_CONFIG_OUTPUT_DIR` 兜底到会话级临时目录（宿主显式设置的仍优先），把「谁先导入谁定绑」这条脆弱前提**收窄**（注意：`setdefault` 只兜住未显式赋值的场景，模块若在 import config 前自己写 `OPS_DB_PATH`，它仍然是定绑者——所以谓词那条一道防线不能省）；②动作**开始之前**用纯谓词（如 `is_safe_reset_target`）断言目标不在仓库内，违反即抛错，禁止「先清完再报」。回归锁见 `ops-center/backend/tests/test_conftest_db_isolation.py`：一条用**真子进程 + 弹掉 `OPS_DB_PATH`** 跑出实际绑定路径，另两条锁谓词与动手前的拒绝。
+
 - **文本空白归一化（MUST NOT）**：清理 HTML 源码缩进噪声时**禁止**用 `replace(/\s+/g, ' ')` —— `\s` 含 `\n`/`\r`/`\u2028`/`\u2029`/全角空格 `\u3000`/NBSP `\u00a0`/BOM `\ufeff`，会把**语义换行一起压掉**，正文变成一整行。正确口径：行内空白压缩用 `[^\S\n]+`（显式排除换行）；块级结构（`p`/`h1-h6`/`blockquote` → 段间空行，`div`/`li`/`tr` → 单换行，`td`/`th` → 制表符，`<br>` → 换行，`<pre>` → 原样保留）在 DOM 层转成换行，最后只做「连续 3 个以上换行压成 1 个空行」收口。正文提取统一复用 `apps/desktop/electron/services/readable-text.js`（`extractReadableText` / `normalizeExtractedText`），禁止在采集通道里另写一套。
 
 - **等待/就绪判据必须锚定「只随目标状态出现」的最小出口（MUST）**：E2E/集成测试里 `waitForFunction` 一类的就绪判据，若把「容器有文字」挂在**常驻节点**（应用外壳、侧边栏、导航）上，该条件恒为真 —— 等于没有等待，懒加载 chunk / 异步挂载从未被 await。**症状指纹**：导航后**第一条断言随机红、紧随其后的断言绿**，且落点路由不固定 —— 因为第一条独吞了本应由等待吸收的编译时间，它烧掉的预算又让后面的断言恰好赶上加载完成。修法：判据指向真正的**内容出口**（本项目为 `App.vue` 的 `[data-testid="mp-workspace"]` / `[data-testid="fullscreen-view"]`）并要求其 `textContent` 非空。收紧门禁时**必须带回退**，且回退**只在超时分支**触发（非超时错误原样抛出），否则会把间歇误红变成确定性硬失败。**回归手法（可复用 pattern）**：mock `page.waitForFunction` 把谓词回调**抠出来当纯函数**调用，配最小假 DOM 断言其布尔返回值 —— 不需要浏览器与 dev server 即可进 CI 快速单元阶段。既有案例：`apps/desktop/tests/e2e/helpers/functional-runner.js::waitForAppReady` + 同目录 `functional-runner.test.js`「应用就绪判据合同」。

@@ -140,5 +140,11 @@ if [ -f ".quality-rhythm-pending" ]; then
     exit 1
 fi
 
+# ---------- 3. CCG 质量门禁（质量节拍 §5.6.1）----------
+# CCG 未安装时 scripts/ccg-gate.js 自身告警跳过并返回 0，不会阻断提交。
+# 临时豁免：SKIP_CCG_GATE=1 git commit
+if [ -f "scripts/ccg-gate.js" ]; then
+    node scripts/ccg-gate.js || exit 1
+fi
 echo "=== Pre-commit 检查完成 ==="
 exit 0

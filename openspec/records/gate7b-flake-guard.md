@@ -2,9 +2,7 @@
 record: gate7b-flake-guard
 task: Gate 7b 基线新鲜度门禁补两轮有界重试终判——单张视图采集 flake 不再卡死任意 PR
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填者把下行改成 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep=(#NNNN)$ --format=%H|%cI）
+sync_status: PASS
 ---
 
 ## 本次执行记录：Gate 7b 两轮有界重试终判——采集 flake 不卡 PR（gate7b-flake-guard，2026-10-05）
@@ -21,7 +19,7 @@ sync_backfill_owner: 下一个会话（取证离线：git log origin/main --grep
 | 接线棘轮 | PASS | 无新增测试文件（改的都是已接线文件）；`check-unwired-tests` rc=0 / `check-step-failfast`（5 步全 fail-fast）rc=0 / `check-max-lines`（无新增超大文件）rc=0 / `check-gate-record-debt` rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；本 PR 改的恰恰是视觉门禁的判定编排本身 |
 | QM-6 CCG 双模型外部评审 | PASS（带通道偏差） | 真源 `~/.claude/.ccg/config.toml`：backend=codex / frontend=claude。**前端 claude 静默失败**（rc=0 无 agent_message 无产物）⇒ 按既定替代通道 `opencode run --model opencode/nemotron-3-ultra-free`（其 stdout 自称写盘但 findings 未落盘，已按出处纪律转写落盘并标注）。后端 codex 正常（沙箱拒其 PowerShell 实证探针多次，但完成静态审查并落盘 findings）。两路产物：`.ccg/review/pr-2934-{frontend,backend}-findings.json`。**0 Critical**。采纳并修复 4 条：前端「kill 杀不掉 vite node 子进程树」→ taskkill //PID //T //F 对齐 Gate 7；后端 W1「round1 skipped + round2 独红被当 flake 放行（镜像 noEvidence 缺口）」→ skipped1 对称纳入 noEvidence（TDD：3 红 → 绿）；后端 W2「畸形 violatedViews 条目 CLI 裸栈」→ try/catch 受控 rc=1 + 失败文案落 stderr；后端 W3「round1 渲染目录与 round2 vite 日志不随 artifact 上传」→ 上传路径补 screenshots-round1/** 与 vite-gate7b-round2.*.log + 契约锁。不采纳（留痕）：前端 Critical「round1 残留污染制品」（screenshots-round1 不在原上传 glob 内、残留系刻意留痕、trap 已清 vite）；前端 W1「就绪探测缺失」（yml:993-999 已有 curl 循环 + 双重 fail-closed，与实际代码不符）；前端 W2「套件退出码仅出声掩盖崩溃」（崩溃→无渲染→skipped→noEvidence 拦，checker:147 已锁）；前端 W4 交集按文件名（PRD §7 已声明取舍）；前端 W6/W8、后端 I3 结构锁宽度（部分采纳为 R2 接线断言）；后端 I1 用例计数已更正、I2 与前端杀树条同源已修 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin gate7b-flake-guard` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | squash 合并 `d28cfc6452b3075a94f3f9cdd97511030fb13f03`（2026-10-05T20:31:59+08:00，PR #2934；`git log origin/main --grep='(#2934)$' --format=%H\|%cI` 唯一命中）；`git ls-remote --heads origin gate7b-flake-guard` 返回 0 行，远端分支已删 |
 
 ### 遗留（不假装已闭合）
 

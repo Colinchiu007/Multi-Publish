@@ -351,8 +351,12 @@ CREATE TABLE config_group_items (
 
 ### 6.4 认证方案
 
-- 复用 orchestrator 的 JWT 体系（共享 `PO_SECRET_KEY`）
-- Admin 操作需要 `role: admin`
+- 认证由 ops-center **自持**（2026-08-10 起不再依赖 platform-orchestrator，也不接 Logto）：口令 PBKDF2-SHA256（随机 salt、200000 迭代，存储格式 `pbkdf2_sha256$iterations$salt_hex$hash_hex`）；会话为 HS256 JWT（`OPS_JWT_SECRET`，TTL 8 小时），payload 固定 `role: "admin"`
+- Admin 操作需要 `role: admin`，由 `middleware/auth.py:require_admin` 统一拦截（403「需要管理员权限」）
+- 会话载体：登录成功后 JWT **只**写入 HttpOnly + SameSite=Lax 会话 Cookie（响应体刻意不含 `token`/`access_token`，避免 XSS 外带）；基于 Cookie 的**非安全方法**必须携带自定义头 `X-Ops-Session`（CSRF 第二层，缺头 403）。另有 Bearer 通道供桌面端/脚本机器对机器使用，优先级高于 Cookie
+- 登录限速为**进程内存**计数（键 `username|ip`）：连续 5 次失败锁定 60 秒 → 429，重启即清零、不落库（无 `login_locks` 表，排障时不要去找它）
+- fail-closed：`admins` 表为空且未配置 `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD` → 503「未配置管理员账号」；用户名不存在与密码错误统一返回 401（并做一次 dummy 校验抹平时序侧信道）；`OPS_ADMIN_PASSWORD` 命中弱口令表或长度不足时启动检查直接失败
+- 口令来源单一：`ensure_admin_seeded` **只在 `admins` 表为空时创建，从不更新已有行**——改 `.env` 里的口令不会同步进库，两边可长期脱钩（要么用「修改密码」流程，要么清空 `admins` 后重启让其重新 seed）
 - 查看密钥明文需要额外二次确认（前端输入密码或 OTP）
 - 可选：IP 白名单限制（仅 ECS 内网 + 指定公网 IP 可访问）
 
@@ -367,8 +371,8 @@ CREATE TABLE config_group_items (
 | 配置项读取（项目配置、feature-gates） | ✅ | ✅ |
 | 配置项写入 / 批量 / 密钥写 / 快照写 | ❌ 403 | ✅ |
 
-> 说明：orchestrator 登录签发的 JWT 不含 `role` 字段，因此普通登录用户天然是「只读」角色；
-> 运营管理写操作依赖带 `role: admin` 的 token（由 orchestrator API Key 路径或运营侧签发）。
+> 说明（2026-09-29 按实现纠正）：自持登录后**当前唯一**的签发路径是（截至 2026-09；若将来新增其它签发方，本条与下表口径需同步重评） `auth_service.create_access_token`，其 payload 恒带 `role: "admin"`；
+> 因此下表「已登录（任意 role）」一列在当前实现下**与 admin 列等价**（不存在非 admin 的签发方）。该分级表保留为鉴权合同（`require_admin` 仍实际拦截写面），不是对现状的角色描述。
 
 **环境一致性检查语义（2026-08-09 修订）**：
 - 检查对象是 ops-center 进程内可观察的环境变量（`PO_SECRET_KEY`/`TS_SECRET_KEY` 等）。
@@ -679,15 +683,17 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 **根因**：`198.18.0.0/15` 是 RFC 2544 基准测试段（TEST-NET-2）。Clash/TUN 类代理用该段接管公网流量：开启 fake-IP 后，所有公网域名经系统解析会被改写为 `198.18.x.x`（IANA 保留段，Python ≥3.12 将其标记为 `is_private=True`）。`fetch_models_from_url` 的 `_is_private_or_reserved` 默认（`OPS_ALLOW_PROXY_BENCHMARK_IPS=false`）把该段按保留/私网拒绝，于是报「私网/保留地址」。原报错文案笼统，用户无法判断是真实内网还是代理假象，无法自助解决。
 
+**归因口径拓宽（2026-10-05）**：fake-IP DNS 劫持的来源不止本机代理进程——**网关/路由器级的透明代理**（如 OpenClash 透明代理）同样会把全设备 DNS 解析改写为 `198.18.x.x`，此时运行 ops-center 的主机上没有任何代理监听，按「本机代理」归因会误导用户在本机找不到代理而放弃排查。拒绝文案与本节描述均按「本机代理进程或网关/路由器级透明代理」双源归因。
+
 **修复（代码）**：在 `ops-center/backend/services/model_preset_service.py`：
 - 新增 `_is_benchmark_segment(ip)` 判定 IP 是否落在 `198.18.0.0/15`；
 - `fetch_models_from_url` 的 DNS 解析拒绝循环中，对「命中基准段且开关关闭」单独抛**可操作错误**，与真实私网明确区分：
-  - 基准段（开关关闭）：`ValueError("获取模型ID URL 在 fake-IP 代理环境下解析到 198.18.x.x（RFC 2544 基准测试段），被 SSRF 守卫按保留地址拒绝。这不是真实内网目标，而是 Clash/TUN 类代理接管公网流量的正常现象。请二选一解决：① 在运行 ops-center 的环境设置 OPS_ALLOW_PROXY_BENCHMARK_IPS=true 后重启服务；② 关闭代理的 fake-IP / DNS 劫持模式后重试。")`
+  - 基准段（开关关闭）：`ValueError("获取模型ID URL 在 fake-IP DNS 劫持环境下解析到 198.18.x.x（RFC 2544 基准测试段），被 SSRF 守卫按保留地址拒绝。这不是真实内网目标：公网模型 API 域名在 fake-IP 下会解析到该段，劫持来源可能是本机代理进程（Clash/TUN 类），也可能是网关/路由器级的透明代理（如 OpenClash）——本机没有任何代理监听时也可能出现。请二选一解决：① 在运行 ops-center 的环境设置 OPS_ALLOW_PROXY_BENCHMARK_IPS=true 后重启服务；② 关闭对应代理（本机或网关侧）的 fake-IP / DNS 劫持模式后重试。")`
   - 真实私网/保留地址：`ValueError("获取模型ID URL 解析到私网/保留地址，已拒绝（防 SSRF）")`（保持原样）。
 
 **两条解决路径（运营/用户自助）**：
 1. **放行基准段（推荐，保留 SSRF 默认）**：在运行 ops-center 的环境设置 `OPS_ALLOW_PROXY_BENCHMARK_IPS=true` 并重启服务。该开关仅放行 `198.18.0.0/15`（代理假象段），真实私网（`10.x` / `192.168.x` / `172.16–31.x` / `127.x` / `169.254.x` / CGNAT `100.64–127.x` / 组播 / 未指定）仍严格拒绝，不削弱 SSRF 防护。**生产/ECS 环境请保持关闭。**
-2. **关闭代理 fake-IP / DNS 劫持**：让公网域名解析到真实公网 IP，SSRF 守卫自然放行（前提是域名确为合法公网 HTTPS 端点）。
+2. **关闭代理 fake-IP / DNS 劫持**：让公网域名解析到真实公网 IP，SSRF 守卫自然放行（前提是域名确为合法公网 HTTPS 端点）。**注意确认劫持来源**：先查本机代理进程；本机没有代理时按网关/路由器侧排查（透明代理的 fake-IP 对全设备生效）。
 
 **数据校验 / 流程**：
 - 校验顺序不变：`http(s)`+长度 ≤500 → 环回放行 http 否则强制 https → `socket.getaddrinfo` 解析 → 逐条 IP 判私网/保留（区分基准段）→ `follow_redirects=False` 取响应 → 10s 超时 → ≤512KB → JSON 契约提取。
@@ -702,6 +708,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 **回归保护测试**：`tests/test_model_presets_api.py` 新增/更新断言——
 - `test_fetch_models_proxy_benchmark_segment_rejected_when_disabled`：开关关闭，`198.18.0.241` 仍 400，且 `detail` 含 `198.18` / `fake-IP` / `OPS_ALLOW_PROXY_BENCHMARK_IPS`；
 - 新增 `test_fetch_models_benchmark_off_message_distinct_from_real_private`：验证基准段文案含 `fake-IP`+`OPS_ALLOW_PROXY_BENCHMARK_IPS` 且**不含**「私网」，而真实私网 `10.0.0.1` 文案含「私网」且**不含** `fake-IP`，确保两类提示可区分。
+- 新增 `test_fetch_models_benchmark_message_covers_gateway_level_fakeip`（2026-10-05 归因拓宽回归锁）：基准段文案必须含「网关」或「路由器」及「本机」，防止单一本机代理归因复发。
 
 ### 12A.4 多模态分能力技术文档 URL
 

@@ -1,0 +1,51 @@
+[
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 2,
+    "issue": "【问1·契约】纯函数契约未破坏：BILIBILI_HOST/BILIBILI_WORK_ID_SHAPE/BILIBILI_AID_SHAPE 与 matchBilibiliWorkIdKey 均为确定性纯计算，无副作用、无 this 依赖，模块头部「纯函数」声明仍成立。但模块此前是平台无关的通用启发式（键名表/路径关键词表），本次首次内建具体平台知识，头部注释（2-11 行）未同步声明这一性质变化。",
+    "fix": "在头部注释补一行「2026-10-06 起内建 B 站平台特定判据（见 BILIBILI_* 常量）；接入新平台请扩展平台规则表，勿复制分支」，使文档与事实同步。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 28,
+    "issue": "【问1·可扩展性】现有结构对下一个平台是「再抄一份」而非可扩展：接入抖音/快手/视频号的视频形态需改三处分散分支——①matchBilibiliWorkIdKey（28-35 行）把平台键名 aid/bvid 硬编码进函数体，不可复用于它平台；②extractPublishIdFromUrl query 循环（74-77 行）的 isBilibili 分支；③extractPublishIdFromUrl 路径兜底（89-93 行）的 isBilibili 分支。每加一个平台三处同改，漏一处即两条链口径分裂（正是问3不对称的成因）。",
+    "fix": "改为平台规则表驱动：PLATFORM_ID_RULES=[{platform:'bilibili', host:匹配 bilibili.com/bilibili.tv 及子域, keys:{bvid:BILIBILI_WORK_ID_SHAPE, aid:BILIBILI_AID_SHAPE}, pathValueShape:BILIBILI_WORK_ID_SHAPE}]；query 循环与路径兜底统一 for...of 轮询规则表，并保持「通用判据先行、平台兜底后置」的现有顺序（本 diff 已用此顺序保证其余平台结论逐字不变，规则表天然延续）。键判据由 keys 映射驱动而非硬编码函数。代价约 40-60 行 + 全量回归（rpa-publish-id-extract.test.js 与 rpa-view-platforms.test.js）；此后新平台接入降为「加一行表项」。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 59,
+    "issue": "【问3·不对称】不对称应当显式写出，目前却不可分辨是蓄意还是遗漏：matchBilibiliWorkIdKey 同时服务两条链，但只有 query 链（74-77 行）先做 BILIBILI_HOST 主机限定；响应体链（collectPublishIds 59-60 行）因函数只接收 body 字符串、根本没有 URL 上下文，判据按值形态全局生效。维护者可能「补齐」任一侧而破坏另一平台结论，或复制其中一侧时把不对称一并抄走。",
+    "fix": "最小可维持写法二选一——方案A（文档级）：保留单函数，JSDoc 写明「本函数只做键名+值形态判定、不含主机上下文；URL 链由调用方先做主机限定，响应体链无 URL 上下文按值形态全局生效（蓄意）」，并在 59 行调用处加一行对照注释，同时补一条命名该不对称的回归测试（如「响应体链无主机门：{aid:12345} 亦被收集」）把蓄意行为钉死；方案B（结构级，推荐）：extractPublishIdsFromResponseBody 增可选 host 参数，由消费方 parsePublishResponseEvidence（rpa-view-platforms.js:64）从 response.endpoint 解析主机后传入，让两条链共用同一主机门——同步消除问5的跨平台 aid 误采纳风险，代价约 20-30 行。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 59,
+    "issue": "【问5·抖音】存在意外产出 id 的结构性风险（集中在响应体链）：网络捕获对除头条外所有平台生效（rpa-view-platforms.js:446），parsePublishResponseEvidence（:64-70）把 2xx 且 endpoint 匹配 publish|submit|create|commit|release 的响应体交给 extractPublishIdsFromResponseBody。字节系接口普遍以 aid 作应用标识（如抖音 Web 的 aid=1128/6383 等 4 位数字，恰好通过 /^\\d{4,}$/），改动前 aid 不匹配任何判据（PUBLISH_ID_KEYS 要求 post/article/media 等前缀），改动后会被收进 evidence.publishIds 并可能成为 postId——方向是把发布失败误判为成功、或把应用 ID 当作品 ID。本 PRD 未对抖音发布响应体做键集取证，属未观测即生效的行为变化。",
+    "fix": "①按本仓取证纪律实测抖音 creator 平台发布/提交端点响应体键集（是否含 aid 及其语义）；②代码上采用问3方案B的主机门，使 aid/bvid 判据只对 bilibili 主机响应生效；③在 rpa-publish-id-extract.test.js 补跨平台负例（方案B下断言「非 bilibili 主机语义的 {aid:12345} 不被采纳」；若选方案A则反向钉住当前全局生效行为并记录风险）。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-publish-id-extract.js",
+    "line": 71,
+    "issue": "【问5·URL 链逐平台结论】安全：extractPublishIdFromUrl 的 bilibili 判据（query 74-77 行与路径兜底 89-93 行）均以 BILIBILI_HOST.test(parsed.hostname) 为前提，抖音 creator.douyin.com、小红书 xiaohongshu.com、微博 weibo.com、快手 kuaishou.com、知乎、youtube/twitter/instagram/facebook/tiktok 等所有非 bilibili 主机均不匹配，postId 链中 result.url/currentUrl 两跳行为逐字不变（A6 负例已钉住）。故未取证平台不会经 URL 链意外产出 id；唯一暴露面是响应体链的 aid/bvid 键名（见上条）。",
+    "fix": "无需改动；保持 A6 负例，接入新平台时沿用「主机门+值形态」双判据。"
+  },
+  {
+    "severity": "Warning",
+    "file": "apps/desktop/electron/services/rpa-view-platforms.js",
+    "line": 766,
+    "issue": "【问5·快手/百家号（strict 平台）与微博】快手/百家号受影响面最重、概率低：strict 平台 postId 的唯一主来源是 responseId（761-766 行 strictPlatform ? responseId : ...），即证据链——恰是本次改动且无主机门的那条。一旦其发布响应体出现 4 位以上数字 aid 键（均未经取证），此前恒 null 的 responseId 会产出值并直接判成功（低概率高影响）。微博同理：微博文章体系以 aid 作文章标识，发布类端点响应若含 aid 会被采纳，可能是真 aid 但未经本 PRD 取证，且与通用判据的产出先后由 JSON 键序决定、存在 aid 抢跑风险。小红书键名习惯为 note_id/id，aid/bvid 罕见，低风险。",
+    "fix": "对快手/百家号/微博发布响应体各做一次键集取证（是否含 aid/bvid 及语义）；以问3方案B的主机门统一收口；取证前可在 parsePublishResponseEvidence 加平台白名单（仅 bilibili 启用 bilibili 键判据）作过渡。"
+  },
+  {
+    "severity": "Info",
+    "file": "apps/desktop/electron/services/rpa-view-platforms.js",
+    "line": 446,
+    "issue": "【问5·头条】零影响：:446 明确 platform==='toutiao' 时不启动网络捕获（networkCapture=null），响应体链对头条不生效；URL 链又受主机门保护，头条文章 URL 的 /article/<id> 仍由既有通用路径关键词判据处理（rpa-publish-id-extract.js:84-88），行为不变。",
+    "fix": "无需改动；该结论依赖 :446 的三元判断，日后修改捕获装配逻辑时须对本结论复评。"
+  }
+]
