@@ -158,6 +158,76 @@ E2E 实测百家号报「平台 Cookie 缺失」，但账号 `status=active` 且
 - 全部 TDD：先红后绿，同步更新四处防漂移锁（preload 键数 123→124、PUBLISH_METHODS 87→88、总键数 334→335、
   scheduler API 契约新增 `rearm`）。
 
+# [未发布] fix(deps): electron 43.1.1 → 43.7.7，偿清 4 条 high 公告（upgrade-electron-43-5，2026-10-06）
+
+### 为什么这次不是「顺手升个版本」
+
+对全部 99 个「已关闭未合并 PR」做审计后，判定 **#2707 是其中唯一真实安全债未偿**的一条：
+4 条 electron high 公告早在 2026-09-29 就登记进了 `scripts/dep-audit-baseline.json`
+（`decision: upgrade-tracked`，顶层 `reviewBy: 2026-12-31`），但 `pnpm-lock.yaml` 一直停在 **43.1.1**。
+登记动作落地了，**升级动作零进展** —— 门禁因为「已登记」而恒绿，看起来一切正常。
+
+| 公告 | 修复版本 |
+| --- | --- |
+| `GHSA-9qh4-3jw8-366w` | `>=43.4.1` |
+| `GHSA-gr2m-v5gq-v685` | `>=43.4.1` |
+| `GHSA-j84w-jfhq-vhvj` | `>=43.4.1` |
+| `GHSA-qmv3-fv6v-rmhq` | `>=43.5.0` |
+
+### 根因：只升 devDependency 是**无效**的
+
+`packages/rpa-engine` 声明 `peerDependencies: { electron: '>=33.0.0' }`，
+`packages/shared-utils` 声明 `'>=20.0.0'`，两者都是 `peerDependenciesMeta.optional`。
+
+这两个宽区间**本来就包含** 43.7.7，所以 pnpm 沿用旧解 43.1.1 不动。实测：把根与
+`apps/desktop` 的 devDependency 抬上去之后，根目录的 electron 已是 43.7.7，
+而 `packages/rpa-engine/node_modules/electron` **仍是 43.1.1**。
+
+而门禁扫描面 `pnpm audit --prod` 命中的恰恰是这两条路径
+（`packages__rpa-engine>electron` / `packages__shared-utils>electron`），
+所以 `NEW_ADVISORY` 不会响、门禁不会红 —— 升级看起来「做了」，实际公告一条没少。
+这与本仓 `pnpm-workspace.yaml` 里既有的 axios 段描述的是同一个陷阱。
+
+### 改动
+
+- **`pnpm-workspace.yaml`**：新增 `electron: '^43.7.7'` override —— 真正按住那两条 optional peer 路径的那一步
+- `package.json` / `apps/desktop/package.json`：`electron` → `^43.7.7`
+- `apps/desktop/package.json`：`build.electronVersion` → `43.7.7`
+  （该字段会**覆写** electron-builder 的版本探测；只改 devDependency 而不改它，打包仍会拿旧版）
+- `.github/workflows/electron-ci.yml`：校验和钉 `electron-v43.1.1-win32-x64.zip` → `electron-v43.7.7-win32-x64.zip`
+- `packages/api-publish-engine/test/production-dependency-security.test.js`：`OVERRIDE_FLOORS` 增 `electron: '43.5.0'`
+- `scripts/dep-audit-baseline.json`：`--update` 清账，33 条 → 29 条
+
+**刻意不收窄两个包的 peer 区间**：那是它们对外的兼容契约，收窄等于宣布放弃更老的 electron 消费方。
+override 只改本仓解析结果，不改对外声明。
+
+### 为什么此前没人升级（逃逸链）
+
+四条独立机制叠加，任何一条单独存在都拦不住：
+
+1. **wide-range optional peer 吸收了升级** —— 且全仓没有任何测试断言「锁里的 electron 是几」
+2. **CI 校验和钉是硬编码字面量** —— 版本一动必然红，客观上劝退
+3. **已登记的债门禁恒绿** —— `NEW_ADVISORY` 只管新增，`upgrade-tracked` 之后就不再催
+4. **`reviewBy: 2026-12-31` 制造「还早」错觉** —— 距到期还有近 3 个月
+
+### 验证
+
+- 定向：override 整表棘轮 7/7、`check-dep-audit.test.js` 26/26、`workflow-contract.test.js` 32/32、`gui-ci-exit-contract.test.js` 32/32
+- 全量：`vitest run electron/startup-compat.test.js tests/` → **98 files / 1417 tests passed**
+- QM-1 打包：`electron-builder --win --dir` rc=0，日志 `electron=43.7.7`，产物 exe `FileVersion` 实测 43.7.7，asar 14,695 条目
+- QM-1 启动：**3/3 稳定**存活 10s、窗口句柄非 0、**stderr 0 字节**、收尾无残留进程
+- 清账后 `check-dep-audit.js` rc=0；逐条比对确认 REMOVED 恰为那 4 条 electron，ADDED 0
+
+> 首轮 QM-1 判 **FAIL** 并重做过一次：只跑了 electron-builder 而没先跑 `build:vue`，
+> `dist/index.html` 缺席导致 stderr 出现 `ERR_FILE_NOT_FOUND` —— 进程存活但渲染层从未加载。
+> 「存活不等于通过」，补 `build:vue` 重打包后才取证通过。
+
+### 残余风险（如实登记）
+
+**43.1.1 → 43.7.7 的运行时行为差异未经双模型外部评审**（本会话外部通道未验证可用，未冒充已跑）。
+主进程用到 `WebContentsView` / `contentView` / `userAgentFallback` / `before-input-event` 等跨版本敏感面，
+建议合并后真机跑一轮完整发布链路。UA 净化逻辑按设计版本无关（只按白名单剔除 `Name/x.y.z` token，不硬编码内核版本），
+故补丁版升级无需改动该处代码。
 # [未发布] fix(desktop): 竖屏成片配横图——画幅契约收敛单一真源，全部图片适配器按成片画幅出图（fix-s2v-image-aspect-adapters，2026-10-06）
 
 ### 起因：同一现象的第二次修复

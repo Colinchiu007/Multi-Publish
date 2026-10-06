@@ -262,7 +262,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
 
     const checksumPolicy = checksumSteps[0].run;
-    expect(checksumPolicy).toContain('electron-v43.1.1-win32-x64.zip');
+    expect(checksumPolicy).toContain('electron-v43.7.7-win32-x64.zip');
     expect(checksumPolicy).toContain("require('./node_modules/electron/checksums.json')");
 
     expect(electronSteps[0].run).toContain(
