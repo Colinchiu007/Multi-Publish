@@ -991,7 +991,14 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
     this._emitProgress('douyin','publishing...',90)
     try {
-      const rp = this._waitForResponse(win,['aweme/create','aweme/post'],60000)
+      // 2026-10-06 补 create_v2：同仓 API 直连链的实证端点
+// （douyin-ticket-guard.js CREATE_V2_PATH = '/web/api/media/aweme/create_v2/'，
+// douyin-image.js:224 用它提交图文）。抖音网页端图文提交走的就是这个带 _v2 的路径，
+// 此前只等 ['aweme/create','aweme/post'] —— 后者属已被 legacy gate 判死的旧远程签名链，
+// 于是图文点完发布按钮后 60s 拿不到任何成功信号，报 publish timeout。
+// 注意：抖音走**专用链** `_publish_douyin`，不经过通用链那段 DOM 成功判定，
+// 所以通用链的成功文案词形修复（视频号）对此无效 —— 两处必须分别治理。
+const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/post'],60000)
       if (article.draft) await this._click(win,'button:has-text("草稿"), [class*="draft"]')
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
