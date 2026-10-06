@@ -58,7 +58,13 @@ platforms:
     max_content: 10000
     enabled: true
   douyin:
-    has_api: false
+    # 2026-10-06 修正：此前 has_api=false 与同文件 publishMode=api-then-dom 自相矛盾——
+    # api-then-dom 本身就要求存在 API 轨，而 has_api 正是桌面端 RpaViewManager 唯一的
+    # API 闸门（rpa-view-manager.js shouldUseApi 读的就是本字段），于是抖音的完整发布链
+    # （src/publish/platforms/douyin-video.js + douyin-image.js，带完整链级测试）
+    # 实际从未被触发，等同死代码。
+    # 改 true 后语义仍是 api-then-dom：API 失败照样回退 DOM 轨，不改变失败路径。
+    has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: 抖音
     type: mixed
@@ -97,7 +103,10 @@ platforms:
     cover_size: 1080x1080
     max_title: 60
     max_content: 5000
-    has_api: false
+    # 2026-10-06 修正：同 douyin —— has_api=false 与同文件 publishMode=api-then-dom
+    # 自相矛盾，使视频号完整链（src/publish/platforms/shipinhao-video.js，
+    # 分片 + Content-MD5 + post_draft/post_create 双分支，带链级测试）从未被触发。
+    has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   kuaishou:
     id: 35

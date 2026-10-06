@@ -35,13 +35,13 @@ class XiaohongshuAdapter extends BasePlatformAdapter {
   }
 
   async publish(cookie, postData) {
-    const h = this.getHeaders(cookie, { "Content-Type": "application/json" });
-    const sig = await getXiaohongshuSign("/api/publish", postData);
-    const params = sig ? { sign: sig } : {};
+    // 签名 bug 修复（2026-10-06）：getXiaohongshuSign 返回的是 { X-s, X-t } **对象**，
+    // 旧实现把整个对象塞进 `params.sign`（axios 会把对象序列化成 [object Object]），
+    // 而平台要求的 X-s / X-t 是两个**请求头**。两者都不是，于是这条链此前必然被拒。
+    const sig = getXiaohongshuSign("/api/publish", postData) || {};
+    const h = this.getHeaders(cookie, { "Content-Type": "application/json", "X-s": sig["X-s"], "X-t": sig["X-t"] });
 
-    const resp = await this.http.post(this.apiBase + "/api/publish", postData, {
-      headers: h, params,
-    });
+    const resp = await this.http.post(this.apiBase + "/api/publish", postData, { headers: h });
     if (resp.data?.code === 0 || resp.data?.success) {
       return { success: true, platform: "xiaohongshu", publishId: resp.data?.data?.id || resp.data?.id };
     }
