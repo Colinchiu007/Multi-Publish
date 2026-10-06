@@ -1021,7 +1021,9 @@ jobs:
           pnpm.cmd run test:visual || views_exit=$?
           pnpm.cmd run test:visual:supplement || views_supp_exit=$?
           echo "[GATE-7B] round2 suite exits: views=${views_exit:-0} views-supplement=${views_supp_exit:-0}"
-          cd ..
+          # round2 的两套 suite 在 apps/desktop 里跑；取证脚本在仓库根——必须回两层。
+          # #2934 引入时只回一层（apps/），导致 apps/scripts/... 找不到模块，所有触发 round2 重采的 PR 一律假红。
+          cd ../..
 
           node scripts/check-baseline-freshness.js \
             --renders=apps/desktop/tests/visual-testing/screenshots \
