@@ -18,8 +18,8 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | 修复 + 回归保护（QM-5 汇总） | PASS | 新增测试：`platform-schedule-capability` 13 例、`platform-schedule-time` 10 例、`platform-schedule-create` 13 例、`scheduler-platform-side` 10 例；重写 `scheduler.test.js` 为平台侧语义（49 例）；`publish-contract.test.js` 新增能力门禁 7 例。全部先红后绿 |
 | 批量排期对齐（补漏） | PASS | 首轮实现**遗漏**了 `batch-manager.js`：批量排期仍走本地 `setTimeout`、且**无能力门禁** —— 即批量路径会对不支持的平台静默到点立即发布，正是本变更要消灭的形态。已补：能力门禁前置 + 平台窗口校验 + 立即提交携带 `publishTime`，并删除已成死代码的本地定时器分支；`batch-manager.test.js` 按平台侧语义重写（21 例）。相关 3 文件联跑 **110/110** |
 | 实施中发现的缺陷 | PASS | D1 `submitted` 标记写失败只 warn ⇒ 静默回落本地定时；D2 `cancel` 允许取消 in-flight ⇒ 平台/本地状态分裂；R2 未校验平台窗口；R3 `restore` 死代码；R4 owner 切换回退 `pending` ⇒ 重开本地兜底后门；**R5 批量排期无能力门禁**；**R6 批量 cancelBatch 依赖已消失的本地 timer ⇒ 取消永远失败**；**R7 头条 DOM 主路径静默丢弃定时意图**（内容立即发布）；**R8 跨包硬引 rpa-engine→shared-utils，该包未声明依赖 ⇒ 运行必崩**；**R9 单篇/批量离线分支把定时任务落进不含 publishTime 的离线缓存 ⇒ 恢复后立即发布**。**九个全部修复** |
-| 遗留待办 | 待处理 | `useBatchPublish.js` 较登记基线 622 膨胀 204 行（容差 200）。本 PR 净增 4 行，其余为上游既有漂移 —— **未抬高基线掩盖**（抬高会让别人的漂移永久合法化）。该文件已连续三轮逼近上限，后续应按行数门禁的既有范式拆分（本 PR 已为 `publish-contract.js` / `Calendar.vue` / `scheduler.js` 各做过一次拆分） |
-| 目标测试 | PASS | `packages/shared-utils` 全量 **621/621**；`scheduler.test.js` 49/49；`platform-schedule-*` 36/36；`publish-contract.test.js` 46/46；定时相关 composable + 视图（5 文件）**216/216**。`apps/desktop` 全量由 CI 执行 |
+| 行数债务 | PASS | `useBatchPublish.js` 曾较登记基线 622 膨胀 204 行（容差 200）触发债务熔断。**未抬高基线掩盖**（抬高会让上游既有漂移永久合法化），改为按门禁既有范式拆分：把自成一体的提交编排段（校验 → 确认 → 离线分支 → batchCreate → batchSchedule/batchExecute + 有界轮询）移入 `runBatchPublish.js`，净减 134 行。拆分中另发现一个真实缺陷：`stopBatchProgress` / `batchStatusPollTimer` 是拆分前闭包内的可变 `let`，被编排的写入路径与 `clearBatchTracking` 的清理路径共享——按值注入会得到两份独立状态，清理函数永远清不到编排侧留下的句柄（订阅泄漏 + 轮询定时器泄漏），改为注入共享可变句柄对象 `progressHandles`。`check-max-lines.js` PASS（98 文件） |
+| 目标测试 | PASS | `packages/shared-utils` 全量 **621/621**；`scheduler.test.js` 49/49；`platform-schedule-*` 36/36；`publish-contract.test.js` 46/46；定时相关 composable + 视图（5 文件）**216/216**。拆分 `runBatchPublish.js` 后复跑：`useBatchPublish` + `useCollectionBatchPublish` + `usePublishFlow` **174/174**，`src/features/publish` + `src/utils` **457/457**，`eslint` rc=0。`apps/desktop` 全量由 CI 执行 |
 | locale 配对（Gate 7） | PASS | `check-locale-sync.js --keys` PASS；`--cjk` PASS（无新增硬编码中文）。zh/en 成对新增 `schedulePlatformUnsupported`、`scheduleTooSoon` |
 | 品牌残留 | PASS | `check-no-brand-residue.js` PASS（6960 tracked 文件） |
 | 结构性门禁 | PASS | `check-max-lines.js` PASS（`scheduler.js` 拆出 `platform-schedule-create.js` 后为 494 行）；`check-ipc-sender-guard.js` / `check-ipc-bridge.js` PASS；`check-gate-record-debt.js` OK（记录文件登记字段无残留） |
@@ -27,7 +27,7 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | QM-1 打包 | PASS | `build:vue`（vite build）rc=0 → `electron-builder --win --dir` rc=0。asar 清单 6 项全 PASS（shared-utils scheduler / desktop scheduler service / ipc-handlers scheduler / batch-manager / preload bundle 全部在内）；打包产物内 `resume-guard` 可 require（导出 `createResumeGuard`）、`scheduler` 实例 API 含 `rearm`；**启动 8 秒存活且 stderr 长度 = 0** |
 | QM-4 视觉 | PASS | 本轮渲染层改动为既有设计系统内的提示文案与门禁提示，无新布局/配色/字号；由 `publish-contract.test.js` 7 例能力门禁用例覆盖 |
 | QM-6 CCG 双模型评审 | 见 pre-commit | 提交时由 pre-commit 内 CCG 门禁实际执行并留痕 |
-| 记忆沉淀 | PASS | EverOS：`atomic_fact-2026-10-07-platform-side-schedule.md`（6 条：邻近原语计数法 / 竞品不支持平台的反教材 / 已有能力被当 workaround / 语义切换的测试迁移纪律 / 共享 fixture 默认值的影响面 / 时区必须显式注入） |
+| 记忆沉淀 | PASS | EverOS：`atomic_fact-2026-10-07-platform-side-schedule.md`（9 条：邻近原语计数法 / 竞品不支持平台的反教材 / 已有能力被当 workaround / 语义切换的测试迁移纪律 / 共享 fixture 默认值的影响面 / 语义变更暴露既有缺陷 / 删机制须全局搜索状态消费者 / 时区必须显式注入 / **拆文件降行数时可变 `let` 是头号陷阱**） |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，并删掉本文件 frontmatter 的 `sync_*` 三字段 |
 
 ### 验证边界声明（不可省略）
