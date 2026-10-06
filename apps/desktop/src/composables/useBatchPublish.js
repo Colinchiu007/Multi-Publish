@@ -756,12 +756,9 @@ export function useBatchPublish(options) {
 
   /**
    * 取消当前会话已排期的批次（与单篇日历取消入口对齐）。
-   * 平台侧定时（2026-10-07）：排期已连同时间提交给平台，由平台服务器到点发布；
-   * 主进程 `batch:cancel` 负责把本地记录置 cancelled。取消结果**以主进程返回为准**，
-   * 渲染层不自标记成功 —— 否则用户看到「已取消」而平台照发，正是要消灭的静默失败。
-   * ⚠️ 平台侧排期是否真正撤销取决于平台是否提供撤销接口（参考产品实测：不提供），
-   * 因此本地取消只作废本地记录，UI 文案须如实说明这一点。
-   * 失败时**保留** scheduledBatchId 供用户重试，不自作主张清空。
+   * 平台侧定时（2026-10-07）：排期已连同时间提交给平台，由平台到点发布；
+   * `batch:cancel` 只作废本地记录（平台无撤销接口，参考产品实测）。
+   * 结果以主进程返回为准，不由渲染层自标记；失败时**保留** scheduledBatchId 供重试。
    */
   async function cancelScheduledBatch () {
     if (!scheduledBatchId.value) return
