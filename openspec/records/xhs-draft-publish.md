@@ -19,7 +19,9 @@ sync_backfill_owner: "backfill-xhs-draft-record"
 | 交叉校验（本次关键） | PASS | `signer-local-xyw-crosscheck.js` **刻意不复用**实现内任何常量与函数，照 Python 源码独立复算再比对 ⇒ 首轮即抓到两处隐蔽错误：①填充时机错（参考实现是 base64 **之后**才 PKCS#7）；②`createCipheriv` 默认 `autoPadding=true` 造成**双重填充**，密文多出整块。修复后输出 `OK cross-check passed` |
 | 防止再次发生（QM-5 ⑤） | PASS | `signer-local-xyw.test.js`(7) 钉住：XYW_ 前缀（旧 XYS_ 已被平台 406 拒绝）、确定性、输入敏感性、缺 a1 fail-closed；`xiaohongshu-draft-chain.test.js`(6) 钉住：三步顺序、签名不入 query、draft 语义、无图片/缺凭据 fail-closed、业务码如实抛错；`electron/tests/signer-xhs-local.test.js`(4) 钉住：**绝不创建 BrowserWindow**、未知命令 fail-closed |
 | 接线棘轮 | PASS | 新增测试接入 `packages/api-publish-engine/scripts/run-tests.js` 的 `VITEST_FILES` 白名单；signer 测试置于已接线的 `electron/tests/`（`electron/signer/**` 不在 vitest include 内，放那里等于永不执行） |
-| 测试 | PASS | 新增 17 例全绿（7+6+4）；包内全量 `2 failed / 32 passed`（279 用例）—— 两个失败文件在 **main 上同样失败**（`describe is not defined`，vitest/mocha 混用的既有环境问题），非本次引入 |
+| 测试 | PASS | 新增 17 例全绿（7+6+4）；包内全量 `node scripts/run-tests.js` → **exit=0**，Vitest 34 文件 294 用例全过（首次提交前记录为「2 failed」，根因见下方「CI 回归修复」第 2 条，已修正） |
+| CI 回归修复（提交 `a2c4bf12`） | PASS | 首轮 CI 红 5 项（Gate Result / QG Coverage / QG Desktop Shards 1·2 / QG Unit Tests），两处根因：①重写 `adapters/xiaohongshu.js` 时删掉 `uploadVideo`/`uploadCover`，破坏统一入口契约（`adapters-interface.test.js` 逐平台遍历断言对空输入返回 `null`），已加回；②`signer-local.test.js` 5 例红于 `a1 cookie is required (fail-closed)`——**测试仍在断言旧的 md5 占位实现**（断言 `X-s` 长度 32 hex）。查证调用链：生产走 `xiaohongshu.x-s-browser` → `buildXiaohongshuSignHeaders`（带真 cookie），`getXiaohongshuSign` 仅被 registry 键 `xiaohongshu.x-s` 引用且**除测试外无生产调用方** ⇒ fail-closed 是正确行为，**改测试不改实现**。补 3 条用例锁契约：缺 a1 必抛错、不同 a1 签名相异、绝对 URL 路径 |
+| 自我纠错（今日第 2 次） | PASS | 首轮把 `run-tests.js` 的 exit=1 归因为「既有问题 `describe is not defined`」，**该结论错误**：`run-tests.js` 跑 vitest 时带 `--globals`（`scripts/run-tests.js:105`），而我手工跑 `vitest run` 漏了该参数 ⇒ `describe` 未注入。改对后该报错消失，并顺带暴露了上面第 ② 条真问题。教训：**「复现不出失败」时先怀疑自己的复现口径，而不是先判定为既有问题** |
 | 行尾与 diff 对账 | PASS | CHANGELOG 净 +74/-0，main 侧条目完整保留（65404 行，L1 本次条目 / L75 main M-5 条目）；此前一轮误按首行重建曾把 5 万行压成 27 行，已还原并改为 `edit` 精确插入 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；改的是签名算法与发布链 |
 | 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
@@ -33,7 +35,7 @@ Node 内置 `crypto` 一等公民 ⇒ **算法取自开源实现，载体用 JS*
 
 ### 遗留（不假装已闭合）
 
-- **草稿箱真机写入未验证**：本 PR 完成实现 + 契约测试 + 交叉校验；**未在真机跑通草稿写入前，不得宣称「小红书可发」**。
+- **草稿箱真机写入未验证**：本 PR 完成实现 + 契约测试 + 交叉校验；**未在真机跑通草稿写入前，不得宣称「小红书可发」**。AT 凭据诊断接口（`account:credential-names`，只回 cookie 名、绝不回 value）已随本 PR 实现，但**必须合并后才可用于真机取证**。
 - 平台改签名算法 / `envFlags` 指纹常量需同步维护（已集中单点）。
 - 草稿箱接口无官方公开文档，端点形态依据多个公开实现（`xhs-mcp`、`openclaw-xiaohongshu-skill`、参考产品），真机响应为最终判据。
 - 同类隐患未一并治理：`getCsdnSign` / `getKuaishouSign` 也是简化实现（后者为 `md5(apiPh + "|" + JSON)`），缺少正确性判据；本次只修小红书，其余留待专项。
