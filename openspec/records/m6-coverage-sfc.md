@@ -2,10 +2,6 @@
 record: m6-coverage-sfc
 task: 把 Vue 单文件组件纳入覆盖率门禁的统计范围，并加装防「静默缩范围」的结构门禁
 date: 2026-10-07
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 ---
 
 ## 本次执行记录：覆盖率门禁纳入 Vue SFC（M-6，m6-coverage-sfc，2026-10-07）
@@ -21,8 +17,8 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | 接线棘轮 | PASS | 新增的 `check-coverage-include-sfc.test.js` 已被 `quality-gate.yml` 的 Gate 15c 显式 `node --test` 点名（结构锁见测试第 11 条）。既有 `workflow-contract.test.js` 32/32 通过 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面：无 `apps/desktop/electron/` 与 `packages/rpa-engine/` 改动；`check-max-lines.js` 98/98 挂账未变、无新增超大文件 |
 | QM-6 CCG 双模型外部评审 | **未能执行** | pre-commit CCG 门禁判定 **DUAL**（`变更 354 行 > 200 阈值 ⇒ 12.6 Red Team`，`4 个源文件`，要求 `claude + opencode`）。三种后端逐个实测全部失败，详见下节 |
-| 全量实测 | PASS | `vitest run --coverage --maxWorkers=1 --no-file-parallelism`：768 文件 **767 通过 / 1 跳过**，13974 用例 **13971 通过 / 3 跳过**，**零失败**，耗时 2001s |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 全量实测 | PASS | 本机 `vitest run --coverage`：768 文件 **767 通过 / 1 跳过**，13974 用例 **13971 通过 / 3 跳过**，**零失败**，2001s。CI 侧 `QG Coverage` 用真实阈值实跑 **30m2s pass**，`QG Desktop Shards (1/2)(2/2)` 分别 25m56s / 15m44s pass |
+| 远程同步 | PASS | PR #3012 于 2026-10-07 05:24:48 +08:00 squash 合并，merge SHA `053de7e5d40c8666d7e4e44b17068b4ef48b4d39`，origin/main 已核验；`git ls-remote --heads origin m6-coverage-sfc` 返回 0 行，远端分支已删 |
 
 ### 关键数据：阈值为什么一个都不用改
 
@@ -99,9 +95,10 @@ ensure-electron → verify-worktree-deps 三步，我做了第 1、3 步，跳�
   `gemini` 未安装、`claude` exit 1，`opencode` 不在 wrapper 后端列表内。**这是本次变更
   最明确的未闭合项** —— 它意味着 Gate 15c 的判据设计只经过了自审，没有经过第二个家族的
   独立攻击。
-- **阈值通过是算术判定而非重跑判定**：取数时用 `--coverage.thresholds.*=0` 覆盖了阈值，
-  实测值均高于配置中的 55/40/60/55，而 vitest 仅在实际值低于阈值时判红。**未再用真实
-  配置重跑一遍复验**，该结论由算术得出。
+- ~~**阈值通过是算术判定而非重跑判定**~~ —— **此条已在合并后被 CI 实测推翻**：
+  #3012 的 `QG Coverage` job 用**配置里的真实阈值**（55/40/60/55）真实跑了 **30m2s 并
+  pass**，全 job 20 pass / 1 skipping / 零失败。此前「实测值均高于阈值，故判定会通过」
+  只是算术推论；现在它有了 CI 上带真实阈值的实测背书，不再是推论。
 - **阈值只有下限、没有爬升计划**：本次确认 76.55% 有大量余量，但仓库没有任何机制要求
   覆盖率随时间提高。真正的保护来自 Gate 15c（保证文件集不被静默缩小），而不是数字本身。
 - **M-4（`reportError` 未处理的 Promise 拒绝）** 确认无法在 vitest 覆盖，需要 Electron
