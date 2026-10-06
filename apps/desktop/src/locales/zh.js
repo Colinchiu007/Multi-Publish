@@ -1367,7 +1367,7 @@ export default {
     extractCover: '从视频提取封面',
     aiGenerateCover: 'AI 生成封面',
     aiCoverPromptLabel: '封面描述',
-    aiCoverPromptPlaceholder: '描述想要的封面画面，如：科技感城市夜景，霓虹光效',
+    aiCoverPromptPlaceholder: '描述想要的封面画面，如：科技感城市夜景，霓虹光效。未配置 AI 生图时，将按文章标题与内容自动生成封面',
     aiCoverStyleLabel: '风格',
     aiCoverStyle: {
       cinematic: '电影感',
@@ -1381,6 +1381,7 @@ export default {
     aiCoverRatioLabel: '比例',
     aiCoverGenerating: 'AI 封面生成中…',
     aiCoverGenerated: 'AI 封面已生成',
+    aiCoverLocalGenerated: 'AI 生图不可用，已按文章内容生成封面',
     aiCoverGenerateFailed: (ctx) => 'AI 封面生成失败：' + ctx.named('message'),
     aiCoverCancel: '取消',
     aiVideoEntry: '用 AI 生成视频',

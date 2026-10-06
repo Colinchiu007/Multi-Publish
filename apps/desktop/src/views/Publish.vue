@@ -1132,13 +1132,23 @@ async function handleGenerateAiCover () {
   }
   aiCoverGenerating.value = true
   try {
-    const result = await getApi()?.generateAiCover?.({ prompt, style: aiCoverForm.style, ratio: aiCoverForm.ratio })
+    const result = await getApi()?.generateAiCover?.({
+      prompt,
+      style: aiCoverForm.style,
+      ratio: aiCoverForm.ratio,
+      // 2026-10-06：标题与正文下传主进程，AI 生图不可用时兜底封面才能与内容相关
+      title: article.title,
+      content: article.content,
+    })
     const coverPath = result?.data?.coverPath || ''
     if (coverPath) {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'ai-cover.png' }
       coverFileList.value = [{ name: 'ai-cover.png', path: coverPath }]
-      notifySuccess('publishPage.aiCoverGenerated')
+      // 兜底封面由本地按内容生成，如实告知用户而非谎报「AI 封面已生成」
+      notifySuccess(result?.data?.source === 'local-fallback'
+        ? 'publishPage.aiCoverLocalGenerated'
+        : 'publishPage.aiCoverGenerated')
       showAiCoverDialog.value = false
     } else {
       notifyWarning('publishPage.aiCoverGenerateFailed', {

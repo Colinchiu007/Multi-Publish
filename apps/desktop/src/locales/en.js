@@ -1366,7 +1366,7 @@ export default {
     extractCover: 'Extract from Video',
     aiGenerateCover: 'AI Generate Cover',
     aiCoverPromptLabel: 'Cover prompt',
-    aiCoverPromptPlaceholder: 'Describe the cover you want, e.g. futuristic city night with neon glow',
+    aiCoverPromptPlaceholder: 'Describe the cover you want, e.g. futuristic city night with neon glow. Without an AI image provider, a cover is generated from the article title and content',
     aiCoverStyleLabel: 'Style',
     aiCoverStyle: {
       cinematic: 'Cinematic',
@@ -1380,6 +1380,7 @@ export default {
     aiCoverRatioLabel: 'Ratio',
     aiCoverGenerating: 'Generating AI cover…',
     aiCoverGenerated: 'AI cover generated',
+    aiCoverLocalGenerated: 'AI image generation unavailable — cover generated from your article content',
     aiCoverGenerateFailed: (ctx) => 'AI cover generation failed: ' + ctx.named('message'),
     aiCoverCancel: 'Cancel',
     aiVideoEntry: 'Generate Video with AI',
