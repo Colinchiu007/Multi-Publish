@@ -2,9 +2,6 @@
 record: platform-side-schedule
 task: 把定时发布从「本地定时器到点触发立即发布」改为「创建时把排期提交给平台、由平台服务器到点发布」，并对不支持的平台显式阻断
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: PR 尚未合并，无法取证 merge SHA
-sync_backfill_owner: 本任务作者（合并后的回填 PR）
 ---
 
 # 执行记录：平台侧定时架构变更（platform-side-schedule，2026-10-07）
@@ -31,7 +28,7 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | QM-4 视觉 | PASS | 本轮渲染层改动为既有设计系统内的提示文案与门禁提示，无新布局/配色/字号；由 `publish-contract.test.js` 7 例能力门禁用例覆盖 |
 | QM-6 CCG 双模型评审 | 见 pre-commit | 提交时由 pre-commit 内 CCG 门禁实际执行并留痕 |
 | 记忆沉淀 | PASS | EverOS：`atomic_fact-2026-10-07-platform-side-schedule.md`（9 条：邻近原语计数法 / 竞品不支持平台的反教材 / 已有能力被当 workaround / 语义切换的测试迁移纪律 / 共享 fixture 默认值的影响面 / 语义变更暴露既有缺陷 / 删机制须全局搜索状态消费者 / 时区必须显式注入 / **拆文件降行数时可变 `let` 是头号陷阱**） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，并删掉本文件 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | PR #3011 已 squash 合并入 main：merge SHA `06442aa1ea292bab747a38819a5c9536ee43ceca`（`git log origin/main --grep='(#3011)$'` 取证，提交时间 2026-10-07T07:44:45+08:00）。远端分支 `platform-side-schedule` 已删除（`git ls-remote --heads origin platform-side-schedule` 返回 0 行） |
 
 ### 验证边界声明（不可省略）
 
