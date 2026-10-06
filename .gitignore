@@ -113,6 +113,12 @@ scripts/*.js
 !scripts/plan-review.sh
 !scripts/deep-review.sh
 !scripts/openspec-sync-check.js
+# 渲染层跨包导入边界门禁（PR #3011 事故预防措施）。
+# ⚠ 本条反选是必需的：`scripts/*.js` 会把门禁本体静默忽略掉，而 `*.test.js` 有通用例外，
+# 于是「测试进了仓库、被测门禁没进」——CI 上表现为 `Cannot find module`，
+# 本地却全绿（文件在磁盘上）。2026-10-07 实测踩过一次。
+!scripts/check-renderer-cjs-boundary.js
+!scripts/check-renderer-cjs-boundary.test.js
 !scripts/openspec-sync-check.test.js
 !scripts/affected-report.js
 !scripts/verify-worktree-deps.js
