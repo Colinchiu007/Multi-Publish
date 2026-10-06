@@ -20,7 +20,7 @@ const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
-const { buildTaskDataFromRequest } = require("./publish/publish-request")
+const mediaResolver = require("./publish/resolve-request-media")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -1037,7 +1037,11 @@ class PublishApiServer {
 
         // 内容+媒体字段统一走 article→taskData 形状翻译（单一实现 publish/task-data.js），
         // 与桌面端 publisher-router / rpa-view-manager 共用，杜绝多路映射漂移。
-        var built = buildTaskDataFromRequest(body);
+        // media 同时接受本地路径与 URL：URL 由 media-fetch 落到临时目录，
+        // 清理权由 built.cleanup 持有，**必须在 finally 里调用**。
+        var built = await mediaResolver.resolveRequestMedia(body);
+        var mediaCleanup = built.cleanup || function () {};
+        try {
         if (!built.ok) {
           this._json(res, built.status, { success: false, error: built.message, code: built.error });
           return;
@@ -1069,6 +1073,11 @@ class PublishApiServer {
           this._logError("PUBLISH_FAILED", e, this._ctx(req, { platform: platform }));
           this._json(res, 200, { success: false, platform: platform, error: "PUBLISH_FAILED" });
         }
+        } finally {
+          // 临时媒体必须在**任何**路径下清理：成功、失败、异常、提前 return。
+          // 放在 finally 而非 catch 里，否则前面的 early return 会绕过清理。
+          mediaCleanup();
+        }
         return;
       }
 
@@ -1077,7 +1086,10 @@ class PublishApiServer {
         var body = await this._parseBody(req);
         var platforms = body.platforms || [];
         var cookie = body.cookie || "";
-        var built = buildTaskDataFromRequest(body);
+        // 与 /publish 同一入口：本地路径与 URL 都接受（见 resolve-request-media.js）
+        var built = await mediaResolver.resolveRequestMedia(body);
+        var mediaCleanup = built.cleanup || function () {};
+        try {
         if (!built.ok) {
           this._json(res, built.status, { success: false, error: built.message, code: built.error });
           return;
@@ -1098,6 +1110,10 @@ class PublishApiServer {
         this._auditLog.log({ ownerSubject: this._ownerSubject(req), type: "batch", platform: platforms, title: taskData.title, status: results.every(function(r){return r.success}) ? "success" : "failed", details: results });
         this._json(res, 200, results);
         return;
+        } finally {
+          // 临时媒体必须在任何路径下清理，含上面的 early return（鉴权失败等）
+          mediaCleanup();
+        }
       }
 
       // --- Schedule ---
