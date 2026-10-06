@@ -79,6 +79,12 @@ module.exports = defineConfig({
         'src/views/**/*.js',
         'src/components/**/*.js',
         'src/domain/**/*.js',
+        // M-6：Vue 单文件组件此前完全不在统计范围内 —— 本仓 src 下 146 个 .vue
+        // 对覆盖率的贡献恒为 0，而它们承载了绝大部分界面逻辑（渲染分支、事件处理、
+        // 生命周期、computed 推导）。补上后 coverage 才真正覆盖到 SFC。
+        // 注意：这会显著拉低总覆盖率数字（旧阈值是在「只统计 .js」的更小文件集上
+        // 标定的），阈值按新基线重标，见 openspec/records/m6-coverage-sfc.md。
+        'src/**/*.vue',
       ],
       exclude: [
         '**/*.test.*',
