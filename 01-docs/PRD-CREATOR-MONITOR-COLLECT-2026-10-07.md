@@ -246,6 +246,7 @@ CREATE TABLE IF NOT EXISTS creator_discoveries (
   collect_state     TEXT NOT NULL DEFAULT 'pending',  -- pending|collected|skipped
   collected_at      TEXT,
   transcript_source TEXT DEFAULT '',         -- subtitle | description
+  content_quality  TEXT DEFAULT 'unknown',  -- full | partial | stub | unknown（见 §7.6）
   summary           TEXT DEFAULT '',
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL
@@ -256,36 +257,80 @@ CREATE INDEX IF NOT EXISTS idx_creator_discoveries_list
   ON creator_discoveries(creator_id, collect_state, discovered_at);
 ```
 
-### 6.1 去重键
+### 6.1 采集库反向映射（CCG 评审 i1/v2-i2 修订）
+
+**问题**：`viral_library` 现有字段为 `id/title/cover_url/author/url/content/tags/likes/collections/comments/like_collect_ratio/published_at/platform/source/created_at/updated_at`（`store-schema.js:168-185`），**没有 `external_id` 也没有 `creator_id`**。若不补，采集后的内容无法反查来源博主，也无法在采集库层识别"重复采集同一条"。
+
+**迁移机制**：本仓 `store-schema.js` **无 schema version 字段**（全文件无 `schema_version` / `PRAGMA user_version`），其版本化手段是**一组按顺序串行执行的幂等迁移函数**（`base-store.js:86-89` 依次调 `migrateOwnerIsolationSchema` → `migrateModelProvidersSchema` → …）。因此新增迁移须遵循同一模式，不得自造版本号机制：
+
+```js
+function migrateCreatorLinkageSchema (db) {
+  // SQLite 无 ADD COLUMN IF NOT EXISTS：先查列是否存在，存在则跳过（幂等）
+  const cols = db.exec('PRAGMA table_info(viral_library)')[0].map(c => c.name)
+  for (const [name, ddl] of [
+    ['external_id', "ALTER TABLE viral_library ADD COLUMN external_id TEXT DEFAULT ''"],
+    ['creator_id',  "ALTER TABLE viral_library ADD COLUMN creator_id  TEXT DEFAULT ''"],
+  ]) {
+    if (!cols.includes(name)) db.run(ddl)
+  }
+  // ⚠ partial 唯一索引不可用普通 UNIQUE：历史行 external_id 全为 ''，
+  // 普通唯一索引会在创建瞬间因重复键失败。WHERE 子句把历史行排除在外。
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_viral_library_external
+            ON viral_library(platform, external_id) WHERE external_id <> ''`)
+  db.run(`CREATE INDEX IF NOT EXISTS idx_viral_library_creator
+            ON viral_library(creator_id) WHERE creator_id <> ''`)
+}
+```
+
+**为什么必须是 partial index**：`viral_library` 的历史行（以及非博主来源的行）`external_id` 均为默认空串。若建普通 `UNIQUE(platform, external_id)`，迁移执行时会因大量重复键抛错，整个 schema 初始化失败——**这会让应用起不来**。partial index 用 `WHERE external_id <> ''` 把它们排除，保证存量数据零影响。
+
+**跨表约束边界**：两表**不建外键**（`viral_library` 含大量无 `creator_id` 的历史/其他来源行，外键会让迁移失败）。一致性由 store 层保证，映射关系如下：
+
+| 方向 | 关联键 | 用途 |
+|---|---|---|
+| `viral_library` → `creator_discoveries` | `(platform, external_id)` | 反查该采集内容的来源博主 |
+| `viral_library` → `creator_accounts` | `creator_id` | 按博主聚合已采集内容 |
+| `creator_discoveries.collect_state` | — | 采集状态的真源在发现表；`viral_library` 是**投影**，允许存在孤儿行 |
+
+**重采集语义**：`viral_library` 已有行时走 `INSERT OR REPLACE`（沿用 `knowledge-library-store.js:82` 既有写法），`created_at` 保留首次采集时间，`updated_at` 刷新。因存在 partial unique 索引，重采集命中的是**有 `external_id` 的博主来源行**；其他行不受影响。
+
+### 6.2 去重键
 
 `(platform, external_id)` 唯一索引即去重机制。探测到重复项时走 `INSERT OR IGNORE`（或先查后插 + 捕获约束冲突），**幂等**。
 
 YouTube 的 `video_id` 是稳定标识；**不使用 URL 作主键**——URL 形态可能变化，ID 不会。
 
-### 6.2 关注状态机
+### 6.3 关注状态机（CCG 评审 v2-i3 修订：区分「真故障暂停」与「不可自愈暂停」）
 
 ```
-                  ┌──────────────┐
-        创建 ───► │   active     │ ◄─── 用户点击「恢复监控」
-                  └──────┬───────┘
-                         │ 连续失败 = 3
-                         ▼
-                  ┌──────────────┐
-                  │ auto_paused  │ ──► 用户「立即重试」→ 重置计数 → active
-                  └──────────────┘
-                         ▲
-        用户暂停 ──────────┘ (paused_by_user)
+                    ┌──────────────┐
+          创建 ───► │   active     │ ◄──── 用户「恢复监控」/「立即重试」（重置计数）
+                    └──┬────────┬──┘
+        Tier B 连续失败 3│        │Tier C 不可自愈（keyInvalid/accessNotConfigured）
+                       ▼        ▼
+              ┌────────────┐  ┌──────────────────┐
+              │auto_paused │  │fatal_paused      │ ──► 修复设置后「恢复」→ active
+              │(可自愈失败)│  │(需人工改 API Key)│
+              └────────────┘  └──────────────────┘
+                       ▲
+        用户暂停 ─────────┘ (paused_by_user)
+
+  Tier A（配额节流 / 网络瞬时 5xx）：**不离开 active**，不计入连续失败，
+  仅按指数退避重试；配额节流时本轮直接跳过，UI 不报警。
 ```
 
-| 状态 | 含义 | 调度器行为 |
-|---|---|---|
-| `active` | 正常监控 | 按 `check_interval_min` 调度 |
-| `paused_by_user` | 用户手动暂停 | 不调度 |
-| `auto_paused` | 连续失败 3 次自动暂停 | 不调度，待用户「立即重试」 |
+| 状态 | 含义 | 调度器行为 | 进入条件 |
+|---|---|---|---|
+| `active` | 正常监控 | 按 `check_interval_min` 调度 | 创建 / 恢复 / 成功一次 |
+| `paused_by_user` | 用户手动暂停 | 不调度 | 用户点暂停 |
+| `auto_paused` | 可自愈故障累计 3 次 | 不调度，待「立即重试」 | Tier B 连续 3 次 |
+| `fatal_paused` | 不可自愈（凭证问题） | 不调度，UI 直达设置页 | Tier C **首次即暂停** |
 
-`consecutive_failures` 成功一次即清零。
+`consecutive_failures` 成功一次即清零；Tier A **不累加**该计数（见 §8.6）。
 
-### 6.3 发现记录状态机
+**为什么拆出 `fatal_paused`**：API Key 失效时，重试一万次也不会自愈，让用户看「连续失败 3 次」会误导他去点「立即重试」——那是死路。`fatal_paused` 明确指向「去设置里修 Key」这个唯一有效动作。
+
+### 6.4 发现记录状态机
 
 ```
 pending ──► collected   （采集成功，collected_at 落时间）
@@ -293,7 +338,7 @@ pending ──► collected   （采集成功，collected_at 落时间）
    └────► skipped       （用户主动忽略，或超出上限且用户选择跳过）
 ```
 
-### 6.4 监控调度改造点（必须改动，非新增）
+### 6.5 监控调度改造点（必须改动，非新增）
 
 `automation-scheduler` 的 `action.type` 当前**被硬编码**，新增任务类型需改 3 处：
 
@@ -304,7 +349,46 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | `services/automation-scheduler.js:277-297` | `_executeWithPolicy` 无 switch，恒调 `this._pipeline.startRun()` | 增加 `switch(task.action.type)` 分发 |
 | `core/container.setup.js:206-210` | 执行器装配点 | 注册 creator 探测执行器 |
 
-### 6.5 应用生命周期（必须写入设计，不可含糊）
+#### 6.5.1 为何复用而非新建独立调度器（CCG 评审 i3）
+
+| 维度 | 复用 `automation-scheduler` | 新建独立调度器 |
+|---|---|---|
+| 触发器匹配 | 直接复用（`onAppStart/daily/weekly/interval`） | 需重写，含补触发等边界 |
+| 间隔钳制 | 直接复用（5~1440 分钟硬钳制） | 需重写并自证等价 |
+| 持久化 | 直接复用（`automation_tasks` 单键） | 新增表 + 新迁移 |
+| 任务数上限 | 直接复用（20 个） | 需自定另一套上限 |
+| 改动面 | 3 处 + switch，**但影响既有 4 类任务** | 零回归风险，但重复 ~300 行 |
+
+**结论：复用。** 独立调度器虽有零回归优势，但要重复实现一套已验证的触发器与钳制逻辑，长期维护成本更高，且两套调度器并存本身就是新的冲突源。**代价（影响既有 4 类自动化任务）用回归测试对冲，不靠"应该没事"。**
+
+#### 6.5.2 switch 的 default 分支必须 throw（CCG 评审 i3）
+
+```js
+switch (task.action.type) {
+  case 'fullAutoPipeline': return this._executeWithPolicy(task)
+  case 'creatorMonitor':    return this._executeCreatorMonitor(task)
+  default:
+    // 绝不 fallback 到 pipeline：未知类型若被当成 pipeline 执行，
+    // 会静默跑错任务且无任何日志线索。fail-closed 是这里唯一正确的默认。
+    throw new Error(`未知自动化任务类型: ${task.action.type} (task ${task.id})`)
+}
+```
+
+`fallback 到 pipeline` 的危害：配置损坏 / 未来新增类型未接线时，用户会看到"自动化在跑"但实际跑的是另一条链路，**故障静默且误导**。抛错会在任务列表上显示明确错误。
+
+#### 6.5.3 回归测试覆盖范围（CCG 评审 i3）
+
+改造必须由以下测试覆盖，否则视为未完成：
+
+| 编号 | 回归项 |
+|---|---|
+| R1 | 既有 `fullAutoPipeline` 任务仍能正常创建、触发、执行（4 类触发器各一条） |
+| R2 | 未知 `action.type` 抛错且**不执行**任何 pipeline |
+| R3 | `creatorMonitor` 任务不进入 `pipeline.startRun()` |
+| R4 | 既有任务的持久化数据（`automation_tasks` 单键）格式不变，可回滚 |
+| R5 | 间隔钳制（<5 或 >1440 分钟）对两类任务一致生效 |
+
+### 6.6 应用生命周期（必须写入设计，不可含糊）
 
 | 场景 | 行为 | 实证 |
 |---|---|---|
@@ -340,6 +424,8 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | `CREATOR_COLLECT_MANUAL_DEFAULT` | **50** | 「手动批量采集」弹窗默认数量 |
 | `CREATOR_COLLECT_HARD_LIMIT` | **100** | 全局硬上限，任何路径不可超 |
 | `per_creator_limit` | ≤ 100 | 单博主可设更低的个人上限，不可超过全局 |
+| `CREATOR_MAX_FOLLOWING` | **50** | 最大关注博主数，与探测池（§7.3）联立求解，见 §7.3.3 |
+| `CREATOR_AUTO_PAUSE_THRESHOLD` | **3** | 仅 Tier B 真故障累计到此值才暂停；Tier A 不累加 |
 
 **生效上限计算**：`effective = per_creator_limit ?? CREATOR_COLLECT_HARD_LIMIT`，再 `min(effective, CREATOR_COLLECT_HARD_LIMIT)`。
 
@@ -358,22 +444,85 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | 单条采集 | **不受上限约束** | — |
 | 单条重复采集 | 拒绝（`collect_state != 'pending'`） | `creatorErrAlreadyCollected`：该作品已于 {time} 采集 |
 
-### 7.3 预算校验（双轨配额）
+### 7.3 预算模型（CCG 评审 i2/i4/v2-i1 修订：从物理池反推，不拍数字）
 
-| 轨道 | 计量对象 | YouTube 配额/天 | 超限行为 |
-|---|---|---|---|
-| **探测配额** | `playlistItems` 请求次数 | 200 | 跳过本轮，`status` 不变，记 `CREATOR_PROBE_QUOTA_EXHAUSTED`，UI 角标提示 |
-| **采集配额** | 实际取正文的采集动作 | 沿用 `default-strategies.json` 平台策略（YouTube 新增条目，默认 100） | 拒绝执行，`creatorErrQuotaExhausted` |
+**原始设计是错的**：曾写「探测预算 200 次/天」，但默认 1 小时 × 50 频道 = **1,200 次探测/天**，预算与频率、频道数三者互相矛盾，监控根本跑不满。下表从 YouTube **物理配额**反推逻辑预算，使三者自洽。
 
-探测时 `fetch_transcript=False`，避免字幕拉取消耗配额与时间。
+#### 7.3.1 物理池与单位成本
 
-### 7.4 凭证校验
+YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）。相关调用成本：
 
-| 平台 | 所需凭证 | 缺失时 |
+| 调用 | units | 本方案用途 |
+|---|---|---|
+| `playlistItems.list` | 1 | 每次探测取该博主的最新作品列表 |
+| `channels.list` | 1 | **仅首次**解析频道 URL → `channelId`（结果落库，之后不再调） |
+| `videos.list` | 1 | 采集时补全时长/观看数等元数据 |
+| 字幕（`youtube-transcript-api`） | **0** | 非 Data API，不消耗配额 |
+
+**稳态单次探测成本 = 1 unit**（首次新增博主那次 = 2 units）。
+
+#### 7.3.2 物理池切分
+
+| 池 | units/天 | 说明 |
+|---|---|---|
+| 探测池 | **1,500** | `50 频道 × 24 次/天 = 1,200`，留 25% 余量 |
+| 采集池 | **6,000** | 每次采集 1 unit（`videos.list`），支持 6,000 条/天，远超实际需求 |
+| 安全余量 | **2,500** | 抗重试、抗接口变动、不被任何逻辑消耗 |
+
+#### 7.3.3 求解：预算 × 频率 × 频道数必须自洽
+
+三者**不允许各自拍脑袋**，由下式约束并在 UI 上做实时校验：
+
+```
+日探测需求(units) = Σ_每个博主 (1440 / check_interval_min) × 1 unit
+约束：日探测需求 ≤ 探测池(1500)  且  博主总数 ≤ MAX_FOLLOWING(50)
+```
+
+推论（默认 1 小时间隔下）：
+
+| 关注数 | 日探测需求 | 是否可行 |
+|---|---|---|
+| 10 | 240 units | ✅ 余量充足 |
+| 50 | 1,200 units | ✅ 贴边但不超 |
+| 62 | 1,488 units | ⚠️ 已到上限，**UI 拒绝新增第 63 个** |
+| 63 | 1,512 units | ❌ 拒绝，并提示「调大检查频率或移除博主」 |
+
+**动态降级求解**（当用户把间隔调得更密导致超预算时）：不静默失败，而是**按 `check_interval_min` 从小到大（检查更频繁的优先）保底，剩余博主本轮跳过**，并在 UI 角标显示「因配额限制，N 个博主本轮未检查」。绝不出现"监控看起来在跑但实际饿死一部分博主"的静默失真。
+
+#### 7.3.4 超限行为与告警
+
+| 情形 | 行为 |
+|---|---|
+| 探测池耗尽 | 跳过本轮，`status` 不变（**不计入连续失败**），记 `CREATOR_PROBE_QUOTA_EXHAUSTED` |
+| 采集池耗尽 | 拒绝执行，`creatorErrQuotaExhausted` |
+| 物理池用量 ≥ 80%（8,000 units） | 记 WARN 日志 + UI 配额水位条变琥珀色 |
+
+#### 7.3.5 配额语义澄清（CCG 评审 i4）
+
+「探测配额」的单位是 **API units**，不是"次数"也不是"频道数"。三者换算关系固定为：稳态 1 次探测 = 1 unit = 1 次 `playlistItems.list`。
+
+#### 7.3.6 单条采集的配额边界（CCG 评审 i8）
+
+**单条采集仅豁免「数量上限」，不豁免任何配额**：仍消耗采集池 1 unit（`videos.list`），采集池耗尽时同样拒绝并提示。字幕提取不消耗 Data API 配额。
+
+### 7.4 凭证校验与存储（CCG 评审 i5 修订）
+
+| 平台 | 所需凭证 | 缺失/失效时 |
 |---|---|---|
 | YouTube | Data API v3 `api_key` | `creatorErrCredentialMissing`：未配置 YouTube API Key，无法检查新作品。请在设置 → 服务配置中填写。 |
 
-凭证经 Electron `safeStorage` 加密后落 settings，**不进 Git、不进日志**。日志中只记 `api_key_present: true/false`。
+**存储要求（安全硬约束）**：
+
+| 要求 | 规则 |
+|---|---|
+| 加密 | 经 Electron **`safeStorage`** 加密（Linux 需 `safeStorage` 后端可用，否则拒绝保存而非降级明文） |
+| 落点 | 密文存 settings（`credential_youtube_api_key_enc`），**密钥本身永不落 SQLite 明文列** |
+| 禁止 | 不写日志、不进 `violations.jsonl`、不进 `.adversarial/`、不进崩溃报告、不进任何 Git 跟踪文件 |
+| 日志 | 只记 `api_key_present: true/false` 与 `api_key_fingerprint`（后 4 位哈希），**不记原值** |
+| 内存 | 仅在发起请求时短暂解密，用后即弃，不挂全局变量 |
+| 失效 | API 返回 `keyInvalid` / `accessNotConfigured` → `fatal_paused`（见 §6.3），UI 直达设置页 |
+
+**为什么不用明文存 SQLite**：桌面应用的 SQLite 文件位于用户目录，本机任何脚本或恶意软件可直接读取；API Key 泄露意味着配额被他人盗用甚至账号被关联。`safeStorage` 在 Windows 上走 DPAPI、macOS 走 Keychain、Linux 走 libsecret，是本仓既有的正确选择。
 
 ### 7.5 内容安全校验
 
@@ -383,6 +532,20 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | 正文 | 非空；空则该条判失败（沿用 `normalizeViralItem` 的 fail-closed 约定，`knowledge-library-store.js:19`） |
 | URL | 必须 http/https；其余协议拒绝 |
 | `thumbnail_url` | 仅取 `content-aggregator` 返回的 thumbnails；不发起额外请求 |
+
+### 7.6 内容质量分级（CCG 评审 i6 修订）
+
+`youtube-transcript-api` 是软依赖，缺失时回落到 `description`——而 description 往往只有一两百字，**直接送 AI 写作会产生低质量结果**。因此必须把内容质量作为**一等字段**贯穿全链路，而不是采集后才知道。
+
+| 等级 | 判据（`metadata.transcript_source`） | 正文来源 | 送 AI 写作建议 |
+|---|---|---|---|
+| `full` | `subtitle` | 完整字幕 | ✅ 推荐，正文质量高 |
+| `partial` | `description` 且长度 ≥ 800 字 | 视频描述 | ⚠️ 可用，提示「正文来自视频描述，质量有限」 |
+| `stub` | `description` 且长度 < 800 字 | 视频描述 | ⛔ 默认不推荐，UI 明示「仅标题+简介，AI 写作质量可能不佳」 |
+
+**落库**：`creator_discoveries.transcript_source` 存原始值，`content_quality` 存派生等级（`full`/`partial`/`stub`），两者均在**探测阶段**（`fetch_transcript=False` 时只看 `snippet.description` 长度即可初判）写入，不等到采集时才知道。
+
+**UI**：发现列表每行显示质量徽章（见 §9.3）；`stub` 等级的「送入 AI 写作」按钮**降级为次要样式**并带二次确认。
 
 ---
 
@@ -409,29 +572,36 @@ pending ──► collected   （采集成功，collected_at 落时间）
        └─ 有新作品 → 写 creator_discoveries，角标 +1
 ```
 
-### 8.2 监控探测与增量对比
+### 8.2 监控探测与增量对比（CCG 评审 i2/i7/v2-i1/i3 修订）
 
 ```
 调度器触发（check_interval_min 到期）
   │
-  ├─ 筛选：status='active' AND enabled=1
+  ├─ 筛选：status='active' AND enabled=1，按 check_interval_min 从小到大排序
   │
-  ├─ 扣探测配额；不足 → 跳过本轮（不置失败）
+  ├─ 扣探测配额（units）：剩余 < 所需 → 按 §7.3.3 动态降级跳过剩余博主，
+  │                        status 不变、不计入连续失败，记 CREATOR_PROBE_QUOTA_EXHAUSTED
   │
   ├─ YouTubeCollector(channel_id=…, fetch_transcript=False)
-  │    取 playlistItems，limit = 待采集数 + 已采集数（滚动窗口）
+  │    取 playlistItems，pageSize = min(50, 已采集数 + 10)  ← 滚动窗口，省配额
+  │    ⚠ 探测阶段 fetch_transcript=False：字幕不消耗 Data API 配额，
+  │      但耗时高，不该在每次巡检时拉
   │
   ├─ 逐条 INSERT OR IGNORE creator_discoveries
-  │    └─ 唯一约束冲突 = 已见过 → 跳过（幂等）
+  │    ├─ 唯一约束冲突 = 已见过 → 跳过（幂等）
+  │    └─ 同时写 content_quality（按 description 长度初判，见 §7.6）
+  │
+  ├─ classifyFailure(httpStatus, body) 分级（见 §8.6）
+  │    ├─ Tier A → 不动 consecutive_failures，指数退避；本轮结束
+  │    ├─ Tier B → consecutive_failures += 1；≥3 → status='auto_paused'
+  │    └─ Tier C → 立即 status='fatal_paused' + paused_reason
   │
   ├─ 成功：consecutive_failures=0, last_success_at=now
-  │    失败：consecutive_failures += 1
-  │           ≥3 → status='auto_paused' + paused_reason
   │
-  └─ 推送 UI：角标数字更新
+  └─ 推送 UI：角标数字更新 + 配额水位条刷新
 ```
 
-**滚动窗口**：探测拉取 `playlistItems` 时 pageSize 取 `min(50, 已采集数 + 10)`，避免每次全量拉取浪费配额。
+**滚动窗口的配额意义**：稳态每次探测固定消耗 **1 unit**（`playlistItems.list` 一页），与返回条数无关。`pageSize` 影响的是**首次发现新作品的延迟**而非配额——`pageSize` 过小会导致高频发布博主的作品被挤出窗口。故取 `min(50, 已采集数 + 10)`：50 已是 YouTube 单页上限，再大需翻页（再吃 1 unit）。
 
 ### 8.3 一键批量采集
 
@@ -488,17 +658,47 @@ pending ──► collected   （采集成功，collected_at 落时间）
   └─ 执行（同 §8.3 流程）
 ```
 
-### 8.6 失败降级与恢复
+### 8.6 失败分级与降级（CCG 评审 i7/v2-i3 修订：按 API reason 分类，不按 HTTP 状态码）
 
-| 错误码 | 含义 | 是否计入连续失败 | 处理 |
+**原设计错误**：曾按 HTTP 4xx/5xx 区分「可自愈 / 计入连续失败」。但 YouTube Data API 的 **`quotaExceeded` 与 `rateLimitExceeded` 都返回 403（4xx）**——若按状态码，它们会被判成"真故障"并累计到 `auto_paused`，与「配额耗尽不惩罚连续失败」的设计**直接矛盾**，用户会因配额耗尽被锁进暂停态。
+
+**修订**：分类依据改为 **API 响应体的 `error.errors[].reason`（或 `error.code`）**，HTTP 状态码仅作兜底。
+
+```js
+// YouTube Data API 错误体形如：
+// { "error": { "code": 403, "message": "...", "errors": [{ "reason": "quotaExceeded", ... }] } }
+function classifyFailure (httpStatus, body) {
+  const reason = body?.error?.errors?.[0]?.reason || body?.error?.status || null
+  // Tier A：正常节流 / 瞬时波动 —— 不计入连续失败，指数退避后重试
+  if (['quotaExceeded', 'dailyLimitExceeded', 'rateLimitExceeded'].includes(reason)) return 'throttled'
+  if (reason === null && httpStatus >= 500) return 'transient'          // 5xx 无 reason
+  if (reason === 'backendError' || reason === 'internalError') return 'transient'
+  if (['ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN'].includes(reason)) return 'transient'
+  // Tier C：不可自愈，必须人工介入 —— 立即暂停，不重试
+  if (['keyInvalid', 'keyNotValid', 'accessNotConfigured', 'forbidden'].includes(reason)) return 'fatal'
+  // Tier B：真故障但可自愈 —— 计入连续失败
+  if (['channelNotFound', 'playlistNotFound'].includes(reason)) return 'permanent'
+  return httpStatus >= 500 ? 'transient' : 'permanent'                 // 兜底
+}
+```
+
+| 等级 | 触发条件 | 计入连续失败 | 重试策略 |
 |---|---|---|---|
-| `CREATOR_NET_TIMEOUT` | 网络超时 | ✅ | 重试，连续 3 次 → `auto_paused` |
-| `CREATOR_RATE_LIMITED` | 触发 YouTube 配额/频控 | ❌ **不计入** | 跳过本轮，等待下个周期 |
-| `CREATOR_CREDENTIAL_MISSING` | 未配 API Key | ✅ | 立即 `auto_paused`，UI 明确指向设置页 |
-| `CREATOR_CHANNEL_NOT_FOUND` | 频道不存在/已注销 | ✅ | 立即 `auto_paused`，提示「该频道可能已注销或链接有误」 |
-| `CREATOR_COLLECT_FAILED` | 单条采集失败 | ❌ | 该条保持 `pending`，不影响监控 |
+| **A 正常节流** | `quotaExceeded` / `dailyLimitExceeded` / `rateLimitExceeded`（**HTTP 403**） | ❌ **不计入** | 本轮直接跳过，等下个周期 |
+| **A 瞬时波动** | 网络超时 / `ECONNRESET` / 5xx / `backendError` | ❌ **不计入** | 指数退避（1min→4min→16min），最多 3 次 |
+| **B 真故障** | `channelNotFound` / `playlistNotFound` / 兜底 4xx | ✅ 计入 | 连续 **3 次** → `auto_paused` |
+| **C 不可自愈** | `keyInvalid` / `accessNotConfigured` / `forbidden` | ✅ 计入 | **立即** `auto_paused` |
 
-`CREATOR_RATE_LIMITED` 不计入连续失败是刻意设计：**配额耗尽不是故障，是正常节流**，不应把用户锁进暂停态。
+**为什么把 5xx / 网络抖动移出「计入连续失败」**：默认 1 小时检查一次，连续 3 次瞬时 5xx 需要跨越 3 小时才触发暂停，期间用户白白损失监控；而这类故障几乎都在下一周期自愈。原先的 3 次阈值对瞬时故障**过敏**（CCG 评审 i7）。
+
+**Tier A/B/C 的 UI 表达差异**：
+
+| 等级 | UI 表现 |
+|---|---|
+| A 节流 | 无警告，仅配额水位条变化（这是正常状态，不是故障） |
+| A 瞬时 | 静默重试；连续 3 次仍失败才在列表显示「最近检查不稳定」 |
+| B 真故障 | `creatorAutoPaused`：连续失败 {times} 次，已自动暂停。{reason} + 「立即重试」 |
+| C 不可自愈 | `creatorFatalPaused`：无法检查新作品：{reason}。请在设置中检查 API Key。+ 直达设置页按钮 |
 
 ---
 
@@ -529,11 +729,20 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | 标题 | `title` | 单行省略 |
 | 发布时间 | `published_at` 相对时间 | — |
 | 发现时间 | `discovered_at` | — |
-| 内容质量 | 「有字幕」/「仅描述」徽章 | 由 `transcript_source` 驱动 |
-| 状态 | 未采集 / 已采集·{time} | — |
+| 内容质量 | `full` 有字幕（绿）/ `partial` 描述可用（蓝）/ `stub` 仅标题简介（琥珀） | 三级，见 §7.6；`stub` 时「送入 AI 写作」降级为次要样式并二次确认 |
+| 状态 | 未采集 / 已采集·{time} | 持久态，刷新不丢 |
 | 操作 | **采集** / **送入 AI 写作** / 忽略 | 已采集时置灰 |
 
 排序：默认 `published_at DESC`。
+
+**配额水位条**（博主列表顶部常驻）：
+
+| 水位 | 展示 |
+|---|---|
+| < 60% 探测池 | 细进度条，默认收起 |
+| 60% ~ 80% | 展开显示「今日探测配额已用 {used}/{limit} units」 |
+| ≥ 80% | 变琥珀色 + `creatorQuotaHigh`：今日 YouTube 配额已用 {percent}%。新作品发现可能延迟。 |
+| 物理池 ≥ 80%（8,000 units） | 红色 + `creatorPhysicalQuotaHigh`：接近 YouTube 每日配额上限（10,000 units），部分功能将受限。 |
 
 ### 9.4 能力徽章
 
@@ -570,6 +779,14 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | `creatorSendToWriter` | 送入 AI 写作 | Send to AI Writer |
 | `creatorTranscriptSubtitle` | 有字幕 | Transcript |
 | `creatorTranscriptDescription` | 仅描述 | Description only |
+| `creatorQualityFull` | 字幕正文，质量高 | Transcript (high quality) |
+| `creatorQualityPartial` | 描述正文，质量有限 | Description (limited) |
+| `creatorQualityStub` | 仅标题+简介 | Title only |
+| `creatorQuotaHigh` | 今日 YouTube 配额已用 {percent}%。新作品发现可能延迟。 | {percent}% of today's YouTube quota used. New posts may be detected late. |
+| `creatorPhysicalQuotaHigh` | 接近 YouTube 每日配额上限（10,000 units），部分功能将受限。 | Approaching YouTube's daily quota (10,000 units). Some features will be limited. |
+| `creatorProbeSkipped` | 因配额限制，{count} 个博主本轮未检查 | {count} creators skipped this round due to quota |
+| `creatorMaxFollowing` | 最多关注 {max} 个博主。如需增加，请调大检查频率或移除部分博主。 | You can follow up to {max} creators. Increase the check interval or remove some to add more. |
+| `creatorFatalPaused` | 无法检查新作品：{reason}。请在设置中检查 API Key。 | Cannot check for new posts: {reason}. Check your API Key in Settings. |
 | `creatorPause` | 暂停监控 | Pause |
 | `creatorResume` | 恢复监控 | Resume |
 | `creatorRetryNow` | 立即重试 | Retry now |
@@ -648,6 +865,22 @@ pending ──► collected   （采集成功，collected_at 落时间）
 | A12 | 能力徽章正确显示 `official`；平台选择器中 `best_effort` / `unsupported` 正确置灰 |
 | A13 | 「送入 AI 写作」进入 `collect→rewrite→create` 三段且**不触发 publish** |
 | A14 | 应用完全退出后重启，仅检查增量，**不补跑**关闭期间内容；UI 有 `creatorErrAppClosedNotice` 说明 |
+
+**CCG 评审修订项对应的验收（新增，缺一不可）**：
+
+| 编号 | 验收项 | 对应评审 |
+|---|---|---|
+| A15 | `migrateCreatorLinkageSchema` 在**已有存量数据**的库上执行成功：`viral_library` 存量行 `external_id=''` 不触发唯一索引冲突，应用可正常启动 | i1 / v2-i2 |
+| A16 | 采集后可由 `viral_library.(platform, external_id)` 反查到 `creator_discoveries` 与博主；重采集走 `INSERT OR REPLACE` 且保留原 `created_at` | i1 |
+| A17 | 50 博主 @ 1 小时间隔时，日探测消耗 ≤ 1,500 units；第 63 个博主被拒绝并提示 `creatorMaxFollowing` | i2 / v2-i1 |
+| A18 | 配额不足以覆盖全部博主时，按 `check_interval_min` 升序保底、其余跳过，并在 UI 显示 `creatorProbeSkipped`，**不产生失败状态** | v2-i1 |
+| A19 | API 返回 `quotaExceeded`（HTTP 403）时，`consecutive_failures` **不增加**，状态保持 `active` | v2-i3 |
+| A20 | API 返回 `keyInvalid` 时**首次即**进入 `fatal_paused`（不等 3 次），UI 显示 `creatorFatalPaused` 并提供直达设置页入口 | v2-i3 |
+| A21 | 5xx / 网络超时连续 3 次**不**触发暂停；Tier B 连续 3 次才 `auto_paused` | i7 |
+| A22 | 未知 `action.type` 抛错且**不执行** pipeline；既有 4 类自动化任务回归测试全绿（R1~R5） | i3 |
+| A23 | API Key 不出现在 settings 明文、任一日志文件、崩溃报告中；grep 验证 `api_key_present` 为唯一落盘形态 | i5 |
+| A24 | `stub` 质量等级的作品，「送入 AI 写作」为次要样式且带二次确认；`full` 等级为推荐样式 | i6 |
+| A25 | 单条采集在采集池耗尽时被拒绝并提示，**不豁免配额**（仅豁免数量上限） | i8 |
 
 ---
 
