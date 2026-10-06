@@ -26,7 +26,7 @@ branch: verify-scheduled-publish
 | IPC | 3 条 `scheduler:*` + 2 条 `batch:*` 通道、身份隔离、输入校验、错误码映射 |
 | 主进程 | 调度器状态机、定时器武装与分段、认领 CAS、租户隔离、持久化与恢复 |
 | 执行链路 | dispatch → TaskQueue → publisher → 成功/失败事件 → 发布历史 |
-| 对标 | 参考产品 4.0 逆向工程（`D:\Data\yixiaoer-extracted`）定时发布实现 |
+| 对标 | 参考产品 4.0 逆向工程（本机 `D:\Data\<参考产品逆向目录>`）定时发布实现 |
 
 ## 缺陷清单与修复
 
