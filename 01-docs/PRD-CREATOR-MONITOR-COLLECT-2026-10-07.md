@@ -992,7 +992,7 @@ IPC 只返回 `{ status, fingerprint }`，**任何分支都不回传 Key 原文*
 | **产物幂等** | 产物文件名含内容指纹（`sha256(正文)[:16]`），重复搬运是覆盖而非追加 |
 | **可重试** | outbox 消费失败按指数退避重试（1min→8min→1h），上限 5 次 |
 | **补偿清理** | 崩溃残留的 staging 目录由启动清扫按 `mtime > 24h` 清理；**但 outbox 中仍有未完成记录的不清** |
-| **一致性判据** | `collect_state='collected'` ⟺ `viral_library` 有对应行 ⟺ outbox 中该 `ref_id` 为 `done`。任一不成立即视为不一致，由完整性巡检兜底 |
+| **一致性判据** | ⚠ **终态判据必须与写入时机对齐**（CCG 评审 i8 Critical）：若同事务已写 `viral_library` + `collected`，而 outbox 尚未 `done`，则「三者等价」在**这段窗口内不成立**，删除与巡检会误判。正确做法是**把三者放进同一个最终化事务**：<br>`BEGIN IMMEDIATE` → 校验 token → 搬产物入最终位（文件级 rename，失败即整体回滚）→ UPSERT `viral_library` → `collect_state='collected'` + token 失效 → outbox `done` → `COMMIT`。<br>中间态用 **`collecting` / `ready`** 承载，**不参与终态判据**；只有 `collected` 才是终态。 |
 
 **为什么不能用「先入库再补产物」**：那正是会产生「已采集但内容为空」的路径——用户看到已采集却拿不到正文，而 `content NOT NULL` 只挡得住 NULL 挡不住空串。**先落产物再入库**把失败暴露在入库之前，此时 discovery 仍是 `failed`，用户重试即可。
 
@@ -1366,10 +1366,32 @@ const digest = JSON.stringify(body || {}).slice(0, 200).replace(/[A-Za-z0-9_-]{2
 
 ---
 
-## 16. 待核实项
+## 16. 可行性实测结果（2026-10-07，非推断）
 
-| 项 | 状态 |
+方案早期版本把「YouTube 是否真能跑通」列为待核实项。**已实测**，结论如下：
+
+| 探测项 | 结果 |
 |---|---|
-| `content-aggregator` 的 `YouTubeCollector` 是否已在打包产物中可用 | ⚠️ 需在实现阶段实测打包后 require 链（QM-1 打包门禁） |
-| `default-strategies.json` 中 YouTube 策略键的完整字段结构 | ⚠️ 需在实现时读取确认 |
-| `content-aggregator` 是否需要额外 pip 依赖才能用字幕 | ⚠️ `youtube-transcript-api` 为软依赖，缺失时回落描述（已有降级路径） |
+| `content_aggregator_shared...YouTubeCollector` 导入 | ✅ 成功（类可正常实例化，无 key 也不抛错） |
+| `collect()` 签名 | ✅ 返回 `SourceResult` |
+| 字幕依赖 `youtube_transcript_api` | ✅ **已安装** → 正文质量可达 `full` |
+| 采集端点 | ✅ **仅官方 Data API**（`channels` / `search` / `playlistItems`），确认**非反爬路径** |
+| `yt-dlp`（媒体下载，本方案不依赖） | ✅ 可用 2026.08.19 |
+
+**结论：方案地基假设成立。**「YouTube 非 greenfield」不再只是读代码得出的推断，而是**已执行验证**的事实。
+
+**测试中发现一项此前未知的能力**：`YouTubeCollector.__init__` 带 `llm_config` 参数，源码注释为「LLM 配置（用于**无字幕时 AI 识别**）」。这比 §7.6 原设计的「无字幕 → 质量降级为 `stub`」更优——无字幕视频可通过 ASR/LLM 补正文。
+
+| 情形 | 原设计 | 修正后 |
+|---|---|---|
+| 有字幕 | `full` | `full`（不变） |
+| 无字幕但配了 `llm_config` | `stub`，提示 AI 写作质量有限 | 走 LLM 识别后可得正文，标 `derived`（**与 `full` 区分**，因为它是二手生成内容） |
+| 无字幕且未配 `llm_config` | `stub` | `stub`（不变） |
+
+**仍未核实**（须在实现阶段验证）：
+
+| 项 | 需怎么验 |
+|---|---|
+| 打包产物中能否 `import content_aggregator` | QM-1 打包门禁：`electron-builder --win --dir` 后验证 asar 内 require 链 |
+| `default-strategies.json` 中 YouTube 策略键的字段结构 | 实现时读取确认 |
+| 真实 API Key 下的端到端一次采集 | 需用户配置 Key 后跑一次 P0 冒烟 |

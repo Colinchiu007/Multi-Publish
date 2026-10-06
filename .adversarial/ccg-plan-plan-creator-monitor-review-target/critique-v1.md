@@ -4,65 +4,65 @@
     {
       "id": "i1",
       "severity": "Critical",
-      "dimension": "feasibility",
-      "finding": "BEGIN IMMEDIATE 只能保证数据库原子性；字幕/媒体/第三方产物写入仍在事务外。崩溃或提交后产物失败会产生已采集状态与实际内容不一致，token CAS 也不能撤销已提交插入。",
-      "suggestion": "定义 outbox/最终化协议：产物幂等键、可重试、失败补偿清理；先落产物或用 staging，再同事务入库。"
+      "dimension": "consistency",
+      "finding": "outbox终态判据与写入时机冲突：同事务写viral_library后、outbox done前，collected与viral_library均已存在，不等于done；删除和巡检会误判。",
+      "suggestion": "将viral_library写入与collected统一放到outbox done事务；中间态用collecting/ready，不参与终态判据。"
     },
     {
       "id": "i2",
       "severity": "Critical",
-      "dimension": "completeness",
-      "finding": "删除收敛只靠 review，且未定义删除 viral_library 后 creator_discoveries 的状态迁移。若 discovery 仍为 collected，后续探测会因唯一键跳过，作品无法重新采集。",
-      "suggestion": "删除入口原子执行：viral 删除、discovery 置 pending/skipped、token 失效；另加定时完整性巡检。"
+      "dimension": "feasibility",
+      "finding": "仅用频道枚举不能证明采集链路：字幕、媒体、元数据有可用性、版权与反爬限制，方案缺来源矩阵和端到端验证标准。",
+      "suggestion": "补字幕/媒体来源、可用性与失败矩阵，先用固定频道跑端到端P0。"
     },
     {
       "id": "i3",
       "severity": "Warning",
       "dimension": "consistency",
-      "finding": "“按 token CAS”缺少精确协议：token 如何单调递增、过期抢占是否生成新 token、所有 UPDATE 是否必须带 WHERE claim_token = ?。否则实现易留下过期写覆盖。",
-      "suggestion": "把 token 定义为 generation 序号，列出全量 CAS 语句模板和过期规则。"
+      "finding": "删除事务提升token，但outbox撤销与finalizer CAS未必同事务；stale outbox可能在删除后完成并复插viral_library。",
+      "suggestion": "outbox携带token；done事务校验当前token，删除事务内写入cancellation/tombstone。"
     },
     {
       "id": "i4",
       "severity": "Warning",
       "dimension": "feasibility",
-      "finding": "配额模型只按探测 1、采集 count/50 计费，未覆盖 captions/download、频道解析、分页、重试、失败半批和方法差异；本地分区无法校准共享项目真实消耗。",
-      "suggestion": "建立 API 方法成本表，按请求/子操作计费并暴露明细；周期性对账成功响应和熔断水位。"
+      "finding": "outbox指数退避没有最大尝试、死信和告警；永久失败会无限重试，staging因outbox未done也不清。",
+      "suggestion": "设最大尝试与dead_letter状态，人工恢复；staging按终态清理。"
     },
     {
       "id": "i5",
       "severity": "Warning",
       "dimension": "feasibility",
-      "finding": "续租条件中“字节回调”未要求有效增量。下载卡住时事件循环仍可能触发心跳，导致无进展任务持续续租；阶段心跳也可能来自停滞流程。",
-      "suggestion": "心跳必须伴随最小字节/阶段/时间间隔阈值，并保留连续停滞检测。"
+      "finding": "外部争用收缩到50%/25%后未定义冷却、恢复验证和TTL；瞬时quotaExceeded或外部程序退出会导致长期低水位。",
+      "suggestion": "quotaExceeded立即冷却；收缩带TTL，低流量探测成功后恢复水位。"
     },
     {
       "id": "i6",
       "severity": "Warning",
-      "dimension": "consistency",
-      "finding": "未知 action.type 隔离后缺少恢复路径。应用升级或补齐处理器后，任务如何重放、payload schema 如何兼容、隔离区与 active 任务如何关联未定义。",
-      "suggestion": "记录 schemaVersion、目标链路和隔离原因；处理器注册后提供显式重放与结果通知。"
+      "dimension": "completeness",
+      "finding": "本地预算没有定义跨日重置、时钟漂移与崩溃后的已发请求对账；巡检批量复位pending也产生未列出的配额压力。",
+      "suggestion": "持久quota ledger按日期记账并启动对账；巡检复位也走配额准入。"
     },
     {
       "id": "i7",
       "severity": "Warning",
-      "dimension": "security",
-      "finding": "safeStorage 四态覆盖了解密失败，但未说明密钥轮换、备份导入、多账号与 Key 的绑定关系；渲染层一次性明文仍可被 XSS 在输入期间捕获。",
-      "suggestion": "明确定义凭证绑定/轮换流程；渲染层禁用危险 HTML、限制 IPC 权限并审计 set 调用。"
+      "dimension": "feasibility",
+      "finding": "续租进展把字节回调等同进展，慢速重复回调或重复读取可能续租但无有效推进；阶段边界粒度也可能太粗。",
+      "suggestion": "要求最小字节增量或时间阈值，心跳上报字节与阶段位置。"
     },
     {
       "id": "i8",
-      "severity": "Info",
-      "dimension": "completeness",
-      "finding": "content_quality 与 transcript_source 只有字段名，未给出判定规则、数据保留、失败来源降级和下游 AI 写作可接受性标准。",
-      "suggestion": "补枚举、阈值、来源优先级、保留策略和字段级验收用例。"
+      "severity": "Warning",
+      "dimension": "security",
+      "finding": "送AI写作的外发边界未定义；字幕和媒体可能含创作者内容、个人信息或受版权内容，直接出站缺合规与用户确认。",
+      "suggestion": "列外发字段、模型、留存与脱敏策略，首次外发需明确确认。"
     }
   ],
   "dimensionScores": {
-    "completeness": 7,
-    "consistency": 7,
+    "completeness": 6,
+    "consistency": 5,
     "clarity": 7,
-    "feasibility": 6,
-    "security": 7
+    "feasibility": 5,
+    "security": 6
   }
 }

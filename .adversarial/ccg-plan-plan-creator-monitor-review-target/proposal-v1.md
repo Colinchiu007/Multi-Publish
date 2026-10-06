@@ -11,9 +11,9 @@
 - `creator_follows`：关注关系 + 监控配置 + 状态机（`active`/`paused_by_user`/`auto_paused`/`fatal_paused`）+ `consecutive_failures` + `retry_after_at`
 - `creator_discoveries`：发现的作品（未采集），`UNIQUE(platform, external_id)` 保证探测幂等；`collect_state: pending|collecting|collected|failed|skipped`、`attempt_count`、`claim_token`、`claimed_by`、`lease_expires_at`、`transcript_source`、`content_quality`
 
-`viral_library` 反向映射四约束：① partial 索引（`WHERE external_id <> ''`）——存量行全为空串，普通 UNIQUE 迁移即抛错致**应用起不来**；② 单事务；③ 迁移前冲突预检、不静默去重；④ 不建外键。两表非主从。**删除收敛到唯一入口** `knowledge-library-service.delete*()`，任何绕过它的裸 DELETE 在 review 阶段打回——否则从其他入口删除会留下「已采集但内容不存在」的幽灵记录，该作品永不重新发现。
+`viral_library` 反向映射四约束：① partial 索引（`WHERE external_id <> ''`）——存量行全为空串，普通 UNIQUE 迁移即抛错致**应用起不来**；② 单事务；③ 迁移前冲突预检、不静默去重；④ 不建外键。两表非主从。**删除必须原子完成三件事**：`DELETE viral_library` + discovery 落回 **`pending`**（若仍是 `collected`，后续探测会因唯一键跳过 → 该作品**永久无法重新采集**）+ `claim_token + 1` 使在途 worker 失效 + 撤未 done 的 outbox。所有删除收敛到 `knowledge-library-service.delete*()` 唯一入口；另设**每日完整性巡检**兜底（`collected` 但无对应行 → 复位 `pending` + 记日志）——代码纪律不是机制，巡检才是兜底。
 
-**并发 claim + lease + fencing token**：`UPDATE ... RETURNING claim_token` 原子抢占（先查后改是竞态）。所有行内变更与副作用按 token CAS。**⚠ 跨表副作用必须同事务**：`claim_token` 只存在于 `creator_discoveries`，写入 `viral_library` 是另一张表——「先查 token 再插另一表」有 TOCTOU 竞态（查完到插入之间 token 可能已被新 worker 提升→重复插入），token 校验 + 跨表插入必须同 `BEGIN IMMEDIATE` 事务原子完成。
+**并发 claim + lease + fencing token**：`UPDATE ... RETURNING claim_token` 原子抢占（先查后改是竞态）。所有行内变更与副作用按 token CAS。**⚠ 跨表副作用必须同事务**：`claim_token` 只存在于 `creator_discoveries`，写入 `viral_library` 是另一张表——「先查 token 再插另一表」有 TOCTOU 竞态（查完到插入之间 token 可能已被新 worker 提升→重复插入），token 校验 + 跨表插入必须同 `BEGIN IMMEDIATE` 事务原子完成。**但事务只保证数据库内原子**：字幕/媒体等产物写在事务外，「DB 已提交 collected 而产物写失败」的不一致 **token CAS 无法撤销**。故走 **outbox 最终化协议**：先落 staging 产物（可重试可清理）→ 同事务写业务行 + `collection_outbox` → 异步 worker 最终化（幂等键 `(platform,external_id)`、指数退避重试、staging 24h 清扫但 outbox 未 done 不清）。判据：`collected` ⟺ `viral_library` 有行 ⟺ outbox 为 done。
 
 **续租须有进展且进展有定义**：字节回调 / 阶段边界跨越 / 每 5s 阶段内心跳，满足其一即续租（否则长视频字幕下载超 300s 会被误判过期遭抢占）。另设总 deadline 600s + 分阶段超时，与续租解耦——无进展却续租 = 挂起任务永不过期。`attempt_count` 上限 5、冷却 10 分钟。
 
