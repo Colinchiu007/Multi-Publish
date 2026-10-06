@@ -2,8 +2,6 @@
 record: upgrade-electron-43-5
 task: electron 43.1.1 → 43.7.7，偿清 4 条 high 公告（GHSA-9qh4-3jw8-366w / GHSA-gr2m-v5gq-v685 / GHSA-j84w-jfhq-vhvj / GHSA-qmv3-fv6v-rmhq）；根因是 rpa-engine / shared-utils 的 optional peer 用宽区间把 electron 钉死在 43.1.1
 date: 2026-10-06
-sync_reason: 本 PR 自身尚未合并，无法取证 merge SHA；回填者＝后续 docs-only PR，须在同一次提交删除本 frontmatter 的 sync_reason / sync_backfill_owner 两个字段，并删除 .quality-gates.md 对应 ledger 登记项
-sync_backfill_owner: 后续 docs-only PR
 ---
 
 ## 本次执行记录：electron 升级偿债（upgrade-electron-43-5，2026-10-06）
@@ -31,7 +29,7 @@ sync_backfill_owner: 后续 docs-only PR
 | 基线清账 | PASS | `node scripts/check-dep-audit.js` 升级后先 rc=1 并逐条点名 4 条 `RESOLVED_STILL_BASELINED`（棘轮按设计拦住了「升级了却不清账」）；`--update` 后 33 条 → 29 条，rc=0。**逐条比对确认**：REMOVED 恰为那 4 条 electron，ADDED 0 条，CHANGED 1 条 = `GHSA-68fv-2mgg-jv7q`(source-map-js) 的 `roots` 由 `["apps__desktop"]` 补全为 `["apps__desktop","packages__ui"]` —— 该条 note 原本就写明来源经 packages__ui 的 storybook 链，是此前登记**不完整**被本次审计纠正，非回归 |
 | QM-4 视觉 | N/A | 纯依赖版本 + CI 契约 + 门禁基线变更，**不触碰任何像素**：未改 `.vue` / `.css` / 主题令牌，视觉输出无变化面 |
 | QM-6 双模型 | 未实跑（如实降级） | 本会话外部模型通道未验证可用，未冒充已跑。替代机械闸门已全部实跑：3 组定向测试 + 1417 条全量回归 + 4 个门禁脚本 + QM-1 打包/启动双取证。残余风险：**43.1.1→43.7.7 的运行时行为差异未由双模型独立复核**（本仓主进程用到 `WebContentsView` / `contentView` / `userAgentFallback` / `before-input-event` 等跨版本敏感面，QA 建议真机跑一轮发布链路） |
-| 远程同步 | PENDING | 本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 里本条的登记项 |
+| 远程同步 | PASS | 已合并：squash 落地提交 `ee75d6c286aadca8dd5d2a5ae0202a1c84d3560d`，committer date `2026-10-06T22:20:26+08:00`。三处独立取证：① `git log origin/main --grep='(#2986)$' --format=%H|%cI` 唯一命中；② `gh pr view 2986 --json state,mergedAt,mergeCommit` → `MERGED / 2026-10-06T14:20:26Z / ee75d6c2…`（UTC 与 +08:00 同一时刻）；③ `git ls-remote --heads origin upgrade-electron-43-5` 返回 **0 行**，同次调用 `main` 返回 **1 行** 作正控，证「0 行」是分支确已删除而非命令静默失败。本 frontmatter 的 `sync_reason` / `sync_backfill_owner` 与 `.quality-gates.md` 对应 ledger 登记项已在**同一次提交**删除 |
 
 ### 未收口 / 移交（不在本 PR 范围）
 
