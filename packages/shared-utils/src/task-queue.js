@@ -297,6 +297,27 @@ class TaskQueue extends EventEmitter {
         retryOf: t.retryOf || null,
         createdAt: t.createdAt,
         startedAt: t.startedAt
+      })),
+      // 2026-10-06：频控等待中的任务（_delayed）必须进快照。
+      // 它们既不在 _queue 也不在 _running，此前完全不在持久化范围内 ——
+      // 进程重启/崩溃后这批任务静默消失，用户看到的是「发了一半就没了」。
+      // 恢复到 queue 尾部（而非立刻派发）：原状态是「等频控窗口」，
+      // 而频控窗口是持久化的（PublishIntervalGuard 走 store），重启后
+      // 由 _processNext 的守卫检查重新判定该等还是该发。
+      delayed: this._visibleTasks(Array.from(this._delayed.values()).map(d => d.task)).map(t => ({
+        id: t.id,
+        platform: t.platform,
+        article: t.article,
+        owner_subject: t.owner_subject,
+        batchId: t.batchId || null,
+        accountId: t.accountId || null,
+        publishMode: t.publishMode || null,
+        retry: t.retry,
+        timeout: t.timeout,
+        retriesLeft: t.retriesLeft,
+        retryOf: t.retryOf || null,
+        createdAt: t.createdAt,
+        startedAt: t.startedAt
       }))
     })
   }
@@ -359,6 +380,15 @@ class TaskQueue extends EventEmitter {
           if (restoreEntry({ ...t, retriesLeft: Math.max(t.retriesLeft, 1) }, '进程中断恢复')) count++
         }
       }
+      // 2026-10-06：恢复频控等待中的任务。它们的定时器随进程一并消失，
+      // 不重排就永远等不到「窗口到期」那一刻 —— 直接回 _queue，由
+      // _processNext 的频控检查重新判定：窗口已过则立即发，未到则再次
+      // 进 _delayed 重新计时（等价于原语义的跨进程延续，而非丢任务）。
+      if (Array.isArray(state.delayed)) {
+        for (const t of state.delayed) {
+          if (restoreEntry(t, '频控等待恢复')) count++
+        }
+      }
       if (count > 0) this._processNext()
       return count
     } catch (e) {
@@ -378,12 +408,21 @@ class TaskQueue extends EventEmitter {
 
   /**
    * 获取队列状态
+   *
+   * 2026-10-06：pending 必须**含频控等待中的任务（_delayed）**。
+   * 频控未到窗口时任务被移出 _queue 放进 _delayed，若这里只数 _queue，
+   * 就会出现「pending=0 & running=0 但队列并未排空」的观测盲区 ——
+   * 真实 E2E 里 21 个发布任务只有 5 个执行，其余卡在频控等待却被
+   * 报告成「队列已空」，排障无从下手。故 pending = _queue + _delayed，
+   * 并单列 delayed 便于 UI 区分「排队中」与「等频控窗口中」。
    */
   getStatus () {
     const isVisible = task => this._isTaskOwnedByCurrentUser(task)
+    const delayed = Array.from(this._delayed.values()).filter(d => isVisible(d.task))
     return {
-      pending: this._queue.filter(isVisible).length,
+      pending: this._queue.filter(isVisible).length + delayed.length,
       running: Array.from(this._running.values()).filter(isVisible).length,
+      delayed: delayed.length,
       history: this._history.filter(isVisible).length,
       paused: this._paused
     }
