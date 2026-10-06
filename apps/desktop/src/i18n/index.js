@@ -94,4 +94,8 @@ const i18n = createI18n({
   messages: { zh: toMessageFunctions(zh), en: toMessageFunctions(en) },
 })
 
+// 供非组件模块（如 features/publish/publish-contract.js 的同步校验函数）查词条。
+// 这些模块拿不到 useI18n()，只能走全局实例；不挂载会导致其兜底文案为空。
+globalThis.__MP_I18N__ = i18n
+
 export default i18n

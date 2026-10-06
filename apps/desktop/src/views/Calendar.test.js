@@ -392,5 +392,158 @@ describe("CalendarView — 定时任务取消（排期管理闭环）", () => {
     const buttons = w.findAll('[data-testid^="cancel-schedule-"]');
     expect(buttons.length).toBe(0);
   });
+
+  // 定时任务到点但入队失败时，用户必须在界面上看到——旧实现零可见性。
+  describe("定时派发失败实时提示", () => {
+    it("收到 scheduler 派发失败信号时弹错误提示并刷新日历数据", async () => {
+      let captured = null;
+      window.electronAPI.onSchedulerDispatchFailed = vi.fn((cb) => {
+        captured = cb;
+        return () => {};
+      });
+      const w = await mountWithPendingTask();
+      expect(typeof captured).toBe("function");
+
+      window.electronAPI.schedulerList.mockClear();
+      captured({ id: "sched-x", platform: "weixin", publishTime: "2026-07-15T10:00:00", reason: "队列已暂停", stage: "enqueue" });
+      await nextTick();
+
+      expect(notifyErrorMock).toHaveBeenCalledTimes(1);
+      expect(window.electronAPI.schedulerList).toHaveBeenCalled();
+      w.unmount();
+    });
+
+    it("卸载时解除监听，避免内存泄漏与幽灵提示", async () => {
+      const cleanup = vi.fn();
+      window.electronAPI.onSchedulerDispatchFailed = vi.fn(() => cleanup);
+      const w = await mountWithPendingTask();
+
+      w.unmount();
+      await nextTick();
+
+      expect(cleanup).toHaveBeenCalled();
+    });
+
+    it("preload 未暴露监听能力时不报错（老版本兼容）", async () => {
+      delete window.electronAPI.onSchedulerDispatchFailed;
+      const w = await mountWithPendingTask();
+      expect(w.exists()).toBe(true);
+      w.unmount();
+    });
+
+    // P0：cancel 返回 data=false 表示「没取消掉」，重试无意义，必须区分文案
+    it("取消返回 data=false 时提示「无法取消」而非「失败请重试」，并刷新日历", async () => {
+      const w = await mountWithPendingTask();
+      w.vm.cancelledScheduleResult = undefined;
+      window.electronAPI.schedulerCancel = vi.fn().mockResolvedValue({ code: 0, data: false });
+      window.electronAPI.schedulerList.mockClear();
+
+      await w.vm.cancelSchedule({ type: "scheduled", id: "sched-pending" });
+      await nextTick();
+
+      expect(notifyErrorMock).toHaveBeenCalledWith(
+        "calendarPage.scheduleCancelledUncancellable",
+        expect.objectContaining({ fallback: expect.any(String) })
+      );
+      expect(notifySuccessMock).not.toHaveBeenCalled();
+      expect(window.electronAPI.schedulerList).toHaveBeenCalled();
+      w.unmount();
+    });
+  });
+
+  // 批量排期此前唯一取消入口是发布页会话内的 scheduledBatchId（内存态），
+  // 离开页面即丢，日历也只渲染 scheduler:* 任务 → 排期批次无法取消。
+  describe("批量排期取消入口", () => {
+    const mountWithBatch = async (batches) => {
+      window.electronAPI.batchList = vi.fn().mockResolvedValue({ code: 0, data: batches });
+      const w = mount(CalendarView, { global: { plugins: [createPinia()] } });
+      await vi.runAllTimersAsync();
+      return w;
+    };
+
+    // 批次必须含带 publishTime 的文章才会渲染（全部立即发布的批次不渲染为待发事件）
+    const scheduledBatch = (id, overrides = {}) => ({
+      id,
+      status: "scheduled",
+      created_at: "2026-07-15T08:00:00",
+      article_count: 2,
+      articles: [
+        { publishTime: "2026-07-15T10:00:00", platform: "weixin" },
+        { publishTime: "2026-07-15T18:00:00", platform: "zhihu" },
+      ],
+      ...overrides,
+    });
+
+    it("加载时读取 batchList 并把 scheduled 批次渲染为可取消事件", async () => {
+      const w = await mountWithBatch([scheduledBatch("batch-1")]);
+
+      expect(window.electronAPI.batchList).toHaveBeenCalled();
+      const events = w.vm.getEventsForDate("2026-07-15");
+      expect(events.some(e => e.type === "scheduled-batch" && e.id === "batch-1")).toBe(true);
+      w.unmount();
+    });
+
+    it("点击取消走 batchCancel，成功后提示并刷新", async () => {
+      const w = await mountWithBatch([scheduledBatch("batch-1")]);
+      notifyConfirmMock.mockResolvedValue(true);
+      window.electronAPI.batchCancel = vi.fn().mockResolvedValue({ code: 0 });
+      window.electronAPI.batchList.mockClear();
+
+      await w.vm.cancelScheduledBatch({ type: "scheduled-batch", id: "batch-1" });
+      await nextTick();
+
+      expect(window.electronAPI.batchCancel).toHaveBeenCalledWith("batch-1");
+      expect(notifySuccessMock).toHaveBeenCalled();
+      expect(window.electronAPI.batchList).toHaveBeenCalled();
+      w.unmount();
+    });
+
+    it("batchCancel 失败时保留提示可重试，且不谎报成功", async () => {
+      const w = await mountWithBatch([scheduledBatch("batch-1")]);
+      notifyConfirmMock.mockResolvedValue(true);
+      window.electronAPI.batchCancel = vi.fn().mockResolvedValue({ code: -1, message: "该批次未在排期中" });
+
+      await w.vm.cancelScheduledBatch({ type: "scheduled-batch", id: "batch-1" });
+      await nextTick();
+
+      expect(notifyErrorMock).toHaveBeenCalled();
+      expect(notifySuccessMock).not.toHaveBeenCalled();
+      w.unmount();
+    });
+
+    it("非 scheduled 状态的批次不渲染为待发事件", async () => {
+      const w = await mountWithBatch([
+        scheduledBatch("batch-done", { status: "completed" }),
+        scheduledBatch("batch-cancel", { status: "cancelled" }),
+      ]);
+
+      const events = w.vm.getEventsForDate("2026-07-15");
+      expect(events.some(e => e.type === "scheduled-batch")).toBe(false);
+      w.unmount();
+    });
+
+    it("全部文章都无定时时间的批次不渲染为待发事件", async () => {
+      const w = await mountWithBatch([
+        scheduledBatch("batch-immediate", { articles: [{ platform: "weixin" }], article_count: 1 }),
+      ]);
+
+      expect(w.vm.getEventsForDate("2026-07-15").some(e => e.type === "scheduled-batch")).toBe(false);
+      w.unmount();
+    });
+
+    it("无 batchList 能力时不影响单篇定时渲染（向后兼容）", async () => {
+      delete window.electronAPI.batchList;
+      const w = mount(CalendarView, { global: { plugins: [createPinia()] } });
+      await vi.runAllTimersAsync();
+      w.vm.currentYear = 2026;
+      w.vm.currentMonth = 6;
+      w.vm.scheduledTasks = [{ id: "s1", title: "单篇", publishTime: "2026-07-15T10:00:00", platform: "weixin", status: "pending" }];
+      w.vm.selectedDate = "2026-07-15";
+      await nextTick();
+
+      expect(w.vm.getEventsForDate("2026-07-15").some(e => e.id === "s1")).toBe(true);
+      w.unmount();
+    });
+  });
 });
 

@@ -259,6 +259,27 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     }
     restoreForOwner(identityService && identityService.getState())
 
+    // 休眠/唤醒重算守卫（2026-10-06）：调度器把墙钟目标一次性换算成相对延时 setTimeout，
+    // 系统休眠跨越到点时刻或时钟被 NTP/人工改动后，已武装的定时器不会重算
+    // （restore 也会因 isTaskTracked 直接跳过），导致定时任务显著迟到。
+    // resume 时调用 scheduler.rearm 强制按新墙钟重新武装；旁路容错，失败不阻断启动。
+    try {
+      const { powerMonitor } = require('electron')
+      const { createResumeGuard } = require('./resume-guard')
+      const resumeGuard = createResumeGuard({
+        powerMonitor,
+        scheduler,
+        getOwnerState: () => (identityService ? identityService.getState() : undefined),
+        logger: log,
+      })
+      if (resumeGuard.attach()) {
+        cleanups.push(() => resumeGuard.detach())
+        log.notify('Scheduler', 'resume-guard-attached')
+      }
+    } catch (e) {
+      log.notify('Scheduler', 'resume-guard-attach-failed', { level: 'WARN', error: errorMessage(e) })
+    }
+
     const savedQueueState = typeof store.getUserSetting === 'function'
       ? store.getUserSetting('task_queue_state', null)
       : store.getSetting('task_queue_state')

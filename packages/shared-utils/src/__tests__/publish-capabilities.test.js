@@ -357,6 +357,42 @@ describe('publish-capabilities — 通用主表单字段支持矩阵', () => {
     expect(title.platforms.length).toBe(15)
     expect(title.noTitleBehavior).toBe('caption-first-line')
   })
+
+  // 2026-10-06 定时发布验证发现：注册表 schedule.note 曾声称「平台原生定时：抖音 timing、
+  // 快手 publishTime、B站 dtime」，但那是参考产品（4.0 逆向工程）的做法。
+  // 本项目统一走本地调度（shared-utils scheduler → 任务队列 → 与立即发布同一链路），
+  // electron/publishers 下没有任何平台消费平台侧定时参数。
+  // 这条锁防止 note（或实现）再次漂回「平台原生定时」的误解。
+  it('schedule 字段说明不得声称平台原生定时（本项目统一本地调度）', () => {
+    const schedule = getCommonFormFields().find(f => f.key === 'schedule')
+    expect(schedule).toBeTruthy()
+    expect(schedule.note).toContain('本地调度')
+    expect(schedule.note).not.toMatch(/平台原生定时：/)
+  })
+
+  it('publisher 实现不消费平台侧定时参数（本地调度方案的实证锁）', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const publishersDir = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'desktop', 'electron', 'publishers')
+    expect(fs.existsSync(publishersDir), 'publishers 目录应存在').toBe(true)
+
+    const offenders = []
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) { walk(full); continue }
+        if (!entry.name.endsWith('.js') || entry.name.includes('.test.')) continue
+        const src = fs.readFileSync(full, 'utf8')
+        // 平台侧定时的特征字段：抖音 timing / B站 dtime / prePubTime / publish_time(秒级排期)
+        if (/\bprePubTime\b|\bdtime\b|\btiming\s*[:=]/.test(src)) {
+          offenders.push(path.relative(publishersDir, full))
+        }
+      }
+    }
+    walk(publishersDir)
+
+    expect(offenders, `以下 publisher 疑似消费平台侧定时参数：${offenders.join(', ')}`).toEqual([])
+  })
 })
 
 describe('publish-capabilities — composeNoTitleDescription', () => {

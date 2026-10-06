@@ -497,7 +497,11 @@ export function useBatchPublish(options) {
           return { ...target, publishTime: a.publishTime }
         })
       })
-      const scheduleCheck = validateScheduleEntries(scheduleEntries)
+      const scheduleCheck = validateScheduleEntries(
+        scheduleEntries,
+        // 注入 i18n：校验提示走 locales（en 用户不再看到中文硬编码字面量）
+        { translate: (key, params) => progressText(`publishPage.scheduleValidation.${key}`, params) },
+      )
       if (!scheduleCheck.valid) {
         notifyWarning('publishPage.batchNotify.scheduleInvalid', { params: { message: scheduleCheck.message } })
         return

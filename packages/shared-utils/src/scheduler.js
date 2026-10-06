@@ -8,6 +8,16 @@ const path = require('path')
 const MAX_TIMER_DELAY = 2_147_483_647
 const DISPATCH_CLAIM_MAX_ATTEMPTS = 3
 const DISPATCH_CLAIM_RETRY_DELAY = 100
+// 终态（executed / cancelled / failed）记录的保留策略。JSONL 是 append-only 且
+// updateStatus 每次状态迁移都全量读-改-写整个文件，若终态条目永不清理，文件体积与
+// 单次改写成本都会随历史线性增长（O(n) 每次迁移，累计 O(n²)）。策略：
+//   - 超过保留天数的终态记录丢弃（pending / dispatching 任何情况下都保留）；
+//   - 即便都是近期终态，也只保留最近 MAX_TERMINAL_ENTRIES 条。
+// 剪枝在每次 create 成功后旁路执行，失败只记 warn，绝不影响任务创建。
+const TERMINAL_STATUSES = new Set(['executed', 'cancelled', 'failed'])
+const TERMINAL_RETENTION_DAYS = 30
+const MAX_TERMINAL_ENTRIES = 200
+const DAY_MS = 24 * 60 * 60 * 1000
 
 function createConsoleLogger () {
   return {
@@ -31,13 +41,36 @@ function normalizeOwnerSubject (ownerSubject) {
  * 创建隔离的调度器实例。
  * @param {{ app: { getPath: (name: string) => string }, fs?: typeof defaultFs, logger?: { error: Function, warn: Function } }} dependencies
  */
-function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() }) {
+function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(), onDispatchFailed = null }) {
   const timers = Object.create(null)
   const retryWaiters = new Map()
   const activeDispatches = new Map()
   let taskQueue = null
   let stopped = false
   let ownerSubjectProvider = null
+
+  /**
+   * 派发失败通知钩子。派发失败意味着「用户排的定时任务没发出去」——
+   * 这是必须让用户知道的终态，不能只落日志（旧实现零可见性：状态变 failed，
+   * 既无渲染层提示、也进不了发布历史，用户无从得知）。
+   * 钩子缺失时静默降级，向后兼容既有调用方。
+   */
+  function notifyDispatchFailed (entry, reason, stage) {
+    if (typeof onDispatchFailed !== 'function') return
+    try {
+      onDispatchFailed({
+        id: entry.id,
+        platform: entry.platform,
+        accountId: entry.accountId ?? entry.article?.accountId ?? null,
+        publishTime: entry.publishTime,
+        reason: getErrorMessage(reason),
+        stage
+      })
+    } catch (error) {
+      // 通知钩子自身异常不得影响调度器主流程
+      logger.warn('Scheduler', 'onDispatchFailed handler threw: ' + getErrorMessage(error))
+    }
+  }
 
   function getSchedulerPath () {
     return path.join(app.getPath('userData'), 'scheduled-tasks.jsonl')
@@ -109,6 +142,63 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return true
   }
 
+  function readEntries () {
+    const filePath = getSchedulerPath()
+    if (!fs.existsSync(filePath)) return []
+    return fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
+  }
+
+  // 裁剪超龄/超量的终态记录并原子重写数据文件。
+  // 语义：pending / dispatching 永不丢弃；终态按 createdAt（或 publishTime 兜底）
+  // 判定是否超龄，超龄丢弃；再按时间倒序把终态压到 MAX_TERMINAL_ENTRIES 条以内。
+  function pruneTerminalEntries () {
+    const filePath = getSchedulerPath()
+    if (!fs.existsSync(filePath)) return 0
+    const lines = readEntries()
+    if (lines.length === 0) return 0
+
+    const cutoff = Date.now() - TERMINAL_RETENTION_DAYS * DAY_MS
+    const kept = []
+    const terminalKept = []
+    let removed = 0
+
+    for (const line of lines) {
+      let entry
+      try {
+        entry = JSON.parse(line)
+      } catch {
+        // 非法行不属于任何终态语义，按原样保留，避免剪枝吞掉可人工排查的证据
+        kept.push({ line, entry: null })
+        continue
+      }
+      if (!TERMINAL_STATUSES.has(entry.status)) {
+        kept.push({ line, entry })
+        continue
+      }
+      const stamp = new Date(entry.createdAt || entry.publishTime || 0).getTime()
+      if (Number.isFinite(stamp) && stamp < cutoff) {
+        removed += 1
+        continue
+      }
+      terminalKept.push({ line, entry, stamp: Number.isFinite(stamp) ? stamp : 0 })
+    }
+
+    if (terminalKept.length > MAX_TERMINAL_ENTRIES) {
+      terminalKept.sort((a, b) => b.stamp - a.stamp)
+      removed += terminalKept.length - MAX_TERMINAL_ENTRIES
+      kept.push(...terminalKept.slice(0, MAX_TERMINAL_ENTRIES))
+    } else {
+      kept.push(...terminalKept)
+    }
+
+    if (removed === 0) return 0
+
+    const temporaryPath = filePath + '.tmp'
+    fs.writeFileSync(temporaryPath, kept.map(item => item.line).join('\n') + '\n', 'utf-8')
+    fs.renameSync(temporaryPath, filePath)
+    return removed
+  }
+
   function isTaskTracked (id) {
     return Boolean(timers[id]) || activeDispatches.has(id)
   }
@@ -148,6 +238,8 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
             'Scheduler',
             `Failed to persist dispatching state for task ${entry.id} after ${attempt} attempts: ${message}`
           )
+          // 放弃认领 = 到点但未能入队，用户必须知情（否则任务静默消失）
+          notifyDispatchFailed(entry, message, 'claim')
           return false
         }
         logger.warn(
@@ -203,6 +295,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       if (!stopped) {
         try { updateStatus(entry.id, 'failed', 'dispatching', entry.owner_subject) } catch { /* 忽略失败路径中的持久化异常 */ }
       }
+      notifyDispatchFailed(entry, error, 'enqueue')
     }
   }
 
@@ -295,6 +388,16 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       try { updateStatus(entry.id, 'failed', 'pending', entry.owner_subject) } catch { /* 保留原始定时器异常 */ }
       throw error
     }
+
+    // 任务已落盘并武装定时器后才剪枝：剪枝是纯维护动作，失败不影响本次创建。
+    try {
+      const removed = pruneTerminalEntries()
+      if (removed > 0) {
+        logger.warn('Scheduler', 'Pruned ' + removed + ' expired scheduled task records')
+      }
+    } catch (error) {
+      logger.warn('Scheduler', 'Failed to prune scheduled task records: ' + getErrorMessage(error))
+    }
     return entry
   }
 
@@ -354,6 +457,32 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return restored
   }
 
+  /**
+   * 强制按当前墙钟重算全部未到点任务的剩余延时。
+   *
+   * 为什么 restore() 不够：定时器在武装时把「墙钟目标」一次性换算成相对延时
+   * （scheduleTimer → armNextSegment），此后只受 setTimeout 推进。系统休眠跨越
+   * 到点时刻、或系统时钟被 NTP / 人工改动后，已武装的定时器不会重算——
+   * 仅当任务跨越 MAX_TIMER_DELAY（≈24.86 天）分片边界才会被动纠正。
+   * 而 restore() 见到 isTaskTracked 为真的任务会直接跳过，同样纠正不了。
+   *
+   * 做法：先解除全部定时器与认领重试等待，再走一次 restore 按新墙钟重新武装。
+   * 已在派发中的任务由 activeDispatches 守卫，不会被重复派发。
+   */
+  function rearm (ownerSubject) {
+    if (stopped) return 0
+    const owner = resolveOwnerSubject(ownerSubject)
+    if (owner === null) throw new Error('登录会话缺少用户标识')
+
+    // 认领重试的等待者必须走 cancelRetry() 正常收束（否则 promise 悬空、永不 resolve）
+    for (const cancelRetry of [...retryWaiters.values()]) cancelRetry()
+    for (const id of Object.keys(timers)) {
+      clearTimeout(timers[id])
+      delete timers[id]
+    }
+    return restore(owner)
+  }
+
   function stopAll () {
     stopped = true
     for (const cancelRetry of retryWaiters.values()) cancelRetry()
@@ -364,7 +493,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return Promise.allSettled([...activeDispatches.values()])
   }
 
-  return { setTaskQueue, setOwnerSubjectProvider, create, list, cancel, restore, stopAll }
+  return { setTaskQueue, setOwnerSubjectProvider, create, list, cancel, restore, rearm, stopAll }
 }
 
 let defaultScheduler = null
@@ -384,6 +513,7 @@ module.exports = {
   list: (...args) => getDefaultScheduler().list(...args),
   cancel: (...args) => getDefaultScheduler().cancel(...args),
   restore: (...args) => getDefaultScheduler().restore(...args),
+  rearm: (...args) => getDefaultScheduler().rearm(...args),
   stopAll: (...args) => getDefaultScheduler().stopAll(...args),
   createScheduler
 }

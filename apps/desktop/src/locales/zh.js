@@ -1417,6 +1417,18 @@ export default {
     },
     schedule: '定时发布',
     scheduleHint: '留空 = 立即发布',
+    // 前置展示校验限制（2026-10-06）：此前 30 天上限与 5 分钟同账号间隔只在被拒绝时才
+    // 告知用户，hint 仅写「留空 = 立即发布」。现在提前把规则摆出来，减少无效提交。
+    scheduleHintWithLimits: '留空 = 立即发布；可排期未来 {maxDays} 天内，同一账号两次定时发布至少间隔 {minMinutes} 分钟',
+    // 定时校验提示的本地化出口（原先为 publish-contract.js 内硬编码中文字面量，
+    // en-US 用户在本地化外壳里看到中文）
+    scheduleValidation: {
+      scheduleInvalidTime: '定时发布时间无效',
+      scheduleMustBeFuture: '定时发布时间必须晚于当前时间',
+      scheduleExceedsMaxDays: '定时发布时间不能超过 {maxDays} 天',
+      scheduleMissingPlatform: '定时任务缺少发布平台',
+      scheduleIntervalTooShort: '{platform} {accountId}的定时任务间隔必须至少 {minMinutes} 分钟',
+    },
     optimalTimeNoData: '数据不足，暂无发布时间建议',
     optimalTimeNoDataDetail: '当前关键词的发布数据样本不足，无法统计最佳时段。发布更多内容积累数据后可自动分析，也可直接用定时发布手动指定时间。',
     aiDeclaration: '内容创作声明',
@@ -1796,6 +1808,15 @@ export default {
     cancelScheduleCancelButton: '保留任务',
     cancelScheduleSuccess: '已取消定时任务',
     cancelScheduleFailed: '取消定时任务失败，请重试',
+    // 定时任务到点但未能进入发布队列（2026-10-06）——此前零可见性，用户无从得知没发出去
+    scheduleDispatchFailed: '定时发布未能发出：{platform} {reason}。该任务已标记失败，请重新排期。',
+    scheduleCancelledUncancellable: '该定时任务无法取消（可能已发布或已取消）',
+    // 批量排期批次在日历上的展示与取消（2026-10-06）
+    scheduledBatchTitle: '批量排期（{count} 篇）',
+    cancelBatchScheduleTitle: '取消批量排期',
+    cancelBatchScheduleConfirm: '确定取消该批量排期？取消后该批次到点不会发布。',
+    cancelBatchScheduleSuccess: '已取消批量排期',
+    cancelBatchScheduleFailed: '取消批量排期失败，请重试',
   },
   historyPage: {
     manualEntryTitle: '手动录入表现数据',

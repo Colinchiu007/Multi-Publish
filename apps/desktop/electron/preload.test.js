@@ -62,7 +62,7 @@ const PUBLISH_METHODS = [
   'getQueueStatus', 'getQueueHistory', 'cancelTask',
   'historyList', 'historyGet', 'historyDelete',
   'dashboardStats',
-  'schedulerCreate', 'schedulerList', 'schedulerCancel',
+  'schedulerCreate', 'schedulerList', 'schedulerCancel', 'onSchedulerDispatchFailed',
   'onProgress',
   'onRiskHold',
   'onRiskSuspended', 'listSuspendedRisk', 'resumeRisk', 'isSuspendedRisk',
@@ -196,10 +196,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 123 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk）', () => {
+  it('publish 模块应导出 124 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(123)
+    expect(Object.keys(r).length).toBe(124)
   })
 
   it('account 模块应导出 49 个方法（52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
@@ -225,11 +225,11 @@ describe('preload 子模块方法数', () => {
   })
 
   it('合并后 api 总键数应为 334（337 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理；336 = 上一基线 331 + 账号云同步 5，openspec add-cloud-account-sync；337 = 336 + batchCancel 批量排期取消）', () => {
-    expect(Object.keys(api).length).toBe(334)
+    expect(Object.keys(api).length).toBe(335)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(87)
+    expect(PUBLISH_METHODS.length).toBe(88)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',

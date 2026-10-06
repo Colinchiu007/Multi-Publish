@@ -77,6 +77,15 @@
                 :disabled="cancellingId === e.id"
                 @click.stop="cancelSchedule(e)"
               >{{ t('calendarPage.cancelSchedule') }}</button>
+              <!-- 批量排期取消入口（2026-10-06）：批次排期此前只能在发布页会话内
+                   取消（scheduledBatchId 内存态），离开页面即无法取消。 -->
+              <button
+                v-if="e.type === 'scheduled-batch' && e.id"
+                class="cohere-btn-secondary event-cancel-btn"
+                :data-testid="'cancel-schedule-batch-' + e.id"
+                :disabled="cancellingId === e.id"
+                @click.stop="cancelScheduledBatch(e)"
+              >{{ t('calendarPage.cancelSchedule') }}</button>
             </div>
           </div>
         </div>
@@ -86,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, onBeforeUnmount } from "vue"
 import { getApi } from '@/api/electron-bridge'
 import { usePlatformStore } from "@/stores/platforms"
 import i18n from '@/i18n'
@@ -178,6 +187,7 @@ const currentMonth = ref(now.getMonth())
 const selectedDate = ref(null)
 const scheduledTasks = ref([])
 const publishHistory = ref([])
+const scheduledBatches = ref([])
 const loading = ref(false)
 
 const dayNames = ["日", "一", "二", "三", "四", "五", "六"]
@@ -246,7 +256,43 @@ function getEventsForDate(dateStr) {
       events.push({ ...r, type: r.success !== false ? "success" : "failed" })
     }
   }
-  return events.sort((a, b) => calendarTimestamp(a.publishTime || a.timestamp) - calendarTimestamp(b.publishTime || b.timestamp))
+  // 批量排期批次（2026-10-06）：此前唯一取消入口是发布页会话内的 scheduledBatchId
+  // （内存态），离开页面即丢，日历又只渲染 scheduler:* 任务 → 批次排期无法取消。
+  // 这里按批次创建日期渲染为可取消的待发事件，事件时间取批次内最早的文章定时时间，
+  // 没有定时时间的批次（全部立即发布）不渲染。
+  for (const b of scheduledBatches.value) {
+    if (b.status !== 'scheduled') continue
+    const batchTime = earliestBatchPublishTime(b)
+    if (!batchTime || toCalendarDateKey(batchTime) !== dateStr) continue
+    events.push({
+      ...b,
+      publishTime: batchTime,
+      platform: 'batch',
+      title: t('calendarPage.scheduledBatchTitle', { count: batchArticleCount(b) }),
+      type: 'scheduled-batch',
+    })
+  }
+  return events.sort((a, b) => calendarTimestamp(a.publishTime || a.timestamp) - calendarTimestamp(b.publishTime || a.timestamp))
+}
+
+function batchArticles(batch) {
+  return Array.isArray(batch && batch.articles) ? batch.articles : []
+}
+
+function batchArticleCount(batch) {
+  if (batch && typeof batch.article_count === 'number') return batch.article_count
+  return batchArticles(batch).length
+}
+
+// 批次事件时间：取最早一篇带 publishTime 的文章；全部无定时时间则返回 null（不渲染）
+function earliestBatchPublishTime(batch) {
+  const times = batchArticles(batch)
+    .map(a => a && a.publishTime)
+    .filter(Boolean)
+    .map(t => new Date(t).getTime())
+    .filter(Number.isFinite)
+  if (times.length === 0) return null
+  return new Date(Math.min(...times)).toISOString()
 }
 
 // pending / 无 status（历史 JSONL 数据）视为可取消的待发排期。
@@ -301,6 +347,11 @@ async function loadData() {
         const sRes = await api.schedulerList()
         if (sRes && sRes.code === 0) scheduledTasks.value = sRes.data || []
       }
+      // 批量排期批次：batchList 缺席时保持空数组，不影响单篇定时渲染（向后兼容）
+      if (api.batchList) {
+        const bRes = await api.batchList()
+        if (bRes && bRes.code === 0) scheduledBatches.value = bRes.data || []
+      }
       if (api.historyList) {
         const hRes = await api.historyList({ limit: 500 })
         if (hRes && hRes.code === 0) publishHistory.value = (hRes.data && hRes.data.records) || []
@@ -334,8 +385,16 @@ async function cancelSchedule(event) {
       return
     }
     const res = await api.schedulerCancel(event.id)
-    if (!res || res.code !== 0 || res.data === false) {
+    if (!res || res.code !== 0) {
       notifyError('calendarPage.cancelScheduleFailed', { fallback: t('calendarPage.cancelScheduleFailed') })
+      return
+    }
+    // P0 修复后此分支首次可达：主进程如实回传 data=false 表示「没取消掉」
+    // （任务不存在 / 已 executed / 已 cancelled）。重试无意义，须区分文案，
+    // 否则用户会反复点一个注定失败的重试按钮。
+    if (res.data === false) {
+      notifyError('calendarPage.scheduleCancelledUncancellable', { fallback: t('calendarPage.scheduleCancelledUncancellable') })
+      await loadData()
       return
     }
     notifySuccess('calendarPage.cancelScheduleSuccess')
@@ -348,9 +407,73 @@ async function cancelSchedule(event) {
   }
 }
 
+// ── 批量排期取消（2026-10-06）────────────────────────────────
+// 与单篇 cancelSchedule 同构，但走 batch:cancel（清批次定时器 + 状态置 cancelled）。
+// 结果以主进程返回为准：渲染层不自标记成功——只改状态不清定时器就是幽灵发布的同族风险。
+async function cancelScheduledBatch(event) {
+  if (!event || event.type !== 'scheduled-batch' || !event.id) return
+  if (cancellingId.value) return
+  const confirmed = await notifyConfirm('calendarPage.cancelBatchScheduleConfirm', {
+    title: t('calendarPage.cancelBatchScheduleTitle'),
+    confirmButtonText: t('calendarPage.cancelScheduleConfirmButton'),
+    cancelButtonText: t('calendarPage.cancelScheduleCancelButton'),
+    type: 'warning',
+  })
+  if (!confirmed) return
+  cancellingId.value = event.id
+  try {
+    const api = getApi()
+    if (!api || typeof api.batchCancel !== 'function') {
+      notifyError('calendarPage.cancelBatchScheduleFailed', { fallback: t('calendarPage.cancelBatchScheduleFailed') })
+      return
+    }
+    const res = await api.batchCancel(event.id)
+    if (!res || res.code !== 0) {
+      notifyError('calendarPage.cancelBatchScheduleFailed', { fallback: t('calendarPage.cancelBatchScheduleFailed') })
+      return
+    }
+    notifySuccess('calendarPage.cancelBatchScheduleSuccess')
+    await loadData()
+  // eslint-disable-next-line no-unused-vars
+  } catch (e) {
+    notifyError('calendarPage.cancelBatchScheduleFailed', { fallback: t('calendarPage.cancelBatchScheduleFailed') })
+  } finally {
+    cancellingId.value = null
+  }
+}
+
+// ── 定时派发失败实时提示（2026-10-06）─────────────────────────────
+// 定时任务到点后若入队失败（队列未配置 / 租户隔离入队被拒 / 认领写盘失败），
+// 主进程此前只写日志：状态落为 failed，但既无提示也进不了发布历史，
+// 用户完全无从得知「排的定时任务没发出去」。这里接收主进程推送并即时提示 + 刷新。
+let stopDispatchFailedListener = null
+
+function handleDispatchFailed(failure) {
+  notifyError('calendarPage.scheduleDispatchFailed', {
+    fallback: t('calendarPage.scheduleDispatchFailed'),
+    params: {
+      platform: failure && failure.platform ? failure.platform : '',
+      reason: failure && failure.reason ? failure.reason : '',
+    },
+  })
+  loadData()
+}
+
 onMounted(() => {
   loadData()
   selectedDate.value = toCalendarDateKey(new Date())
+
+  const api = getApi()
+  if (api && typeof api.onSchedulerDispatchFailed === 'function') {
+    stopDispatchFailedListener = api.onSchedulerDispatchFailed(handleDispatchFailed)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof stopDispatchFailedListener === 'function') {
+    try { stopDispatchFailedListener() } catch (e) { /* ignore */ }
+  }
+  stopDispatchFailedListener = null
 })
 </script>
 
