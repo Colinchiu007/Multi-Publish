@@ -36,7 +36,7 @@ function registerFilmEngineeringStages (pipelineEngine) {
   const registered = []
   const log = pipelineEngine.log && typeof pipelineEngine.log.warn === 'function'
     ? pipelineEngine.log
-    : { info () {}, warn () {}, error () {} }
+    : { info () {}, warn () {}, error() {}, notify() {} }
 
   // context 解析兼容：引擎按 stage 名嵌套写入（run.context[stageName]=output）与单测/initialContext 直供的扁平键。
   const ctxFlatOrNested = (context, flatKey, producerStage) => {

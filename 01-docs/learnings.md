@@ -1,3 +1,10 @@
+## 注入 mock 的键面盘点要按源码实际排版逐形态扫描——空格差异就能让批修漏网（publish-logging-observability w2-d2，2026-10-05）
+
+- **批修 pattern 的「无空格变体」陷阱（pitfall）**：fallback 批修（#2924）的简写模式是 info() {}，而 settings-roundtrip-contract.test.js 的注入写的是 info () {}（多一个空格）——正则 \s* 没覆盖到吗？覆盖了，但**插入脚本用的是字符串 replace 而非正则**，锚点里写死了无空格形态。正解：批修用正则匹配 + 函数式替换（在 error 项后插 notify），不要用固定字符串锚点。漏网的 5 处让 pplyRuntime 的 notify 调用抛 TypeError，CI Coverage 红了 3 个不在本 PR diff 里的测试文件——表象与日志无关，靠「红文件 require 链反查」才归因到注入 log 的键面。
+- **消费方测试也是迁移的适配面（pattern）**：改 auth-partition-reclaim 的日志出口，其**消费方** auth-view-manager-partition-reclaim.test.js 的注入 mock 与断言也同步红。迁移 PR 的适配清单不能只看「被改文件的 .test.js」，要 grep 引用了被改模块的**全部测试**（含间接消费）。
+
+---
+
 ## 一条「DELETE 全部表」的 autouse 夹具，目标路径来自相对 cwd 的默认值——单跑一个模块就能清空共享开发库（ops-dev-bind-loopback，2026-09-29）
 
 - **现象（pitfall，本会话自己上一轮引入的）**：用户报「运营中心 admin 登录不上」。排障过程中发现 `ops-center/backend/tests/conftest.py` 的按模块清库夹具（#2397 为根治「单跑绿、全量红」而加）会对 `settings.db_path` 指向的库 `DELETE` 全部表；而该值默认是**相对当前工作目录**的 `data/config.db`。在 `ops-center/backend` 里单跑 `pytest tests/test_security_config.py`，实测靶库 `admins` 行从 1 变 0——清空的是运营中心**开发库**，含管理员账号。

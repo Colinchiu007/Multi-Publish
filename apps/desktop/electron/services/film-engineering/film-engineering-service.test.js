@@ -45,7 +45,7 @@ function makeKitDir () {
   return dir
 }
 
-const log = { info () {}, warn () {}, error () {} }
+const log = { info () {}, warn () {}, error() {}, notify() {} }
 
 describe('FilmEngineeringService', () => {
   it('status: kit 可用时返回元数据与计数', () => {

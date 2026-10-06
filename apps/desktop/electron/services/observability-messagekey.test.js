@@ -33,6 +33,10 @@ const TARGET_FILES = [
   path.join(SERVICES_DIR, 'url-collector.js'),
   path.join(SERVICES_DIR, 'auth-partition.js'),
   path.join(SERVICES_DIR, 'batch-rate-controller.js'),
+  // 波次-2 刀-2 新增迁移域（注入型 sink）
+  path.join(SERVICES_DIR, 'ops-center-sync.js'),
+  path.join(SERVICES_DIR, 'login-network-diagnostics.js'),
+  path.join(SERVICES_DIR, 'auth-partition-reclaim.js'),
 ]
 
 // 实际迁移登记的 (module, event) 清单，按紧凑 key "module:event" 锁。
@@ -92,6 +96,58 @@ const ALLOWED_KEYS = new Set([
   'batch-rate:batch-cancelled',
   'batch-rate:circuit-open-stop',
   'batch-rate:retry-backoff',
+  // 波次-2 刀-2 迁移登记：ops-center-sync.js / login-network-diagnostics.js / auth-partition-reclaim.js
+  'OpsCenterSync:store-missing-empty-config',
+  'OpsCenterSync:get-setting-object-missing',
+  'OpsCenterSync:setting-read-failed',
+  'OpsCenterSync:last-synced-at-persist-failed',
+  'OpsCenterSync:catalog-synced',
+  'OpsCenterSync:runtime-apply-error',
+  'OpsCenterSync:runtime-sync-skipped',
+  'OpsCenterSync:runtime-policy-persist-failed',
+  'OpsCenterSync:update-policy-consumer-error',
+  'OpsCenterSync:platform-defs-applied',
+  'OpsCenterSync:platform-defs-apply-error',
+  'OpsCenterSync:content-templates-applied',
+  'OpsCenterSync:content-templates-apply-error',
+  'OpsCenterSync:keyword-watchlist-applied',
+  'OpsCenterSync:keyword-watchlist-apply-error',
+  'OpsCenterSync:rewrite-strategies-applied',
+  'OpsCenterSync:rewrite-strategies-apply-error',
+  'OpsCenterSync:hard-constraints-applied',
+  'OpsCenterSync:rewrite-cache-invalidated-hard-constraints',
+  'OpsCenterSync:hard-constraints-apply-error',
+  'OpsCenterSync:ai-taste-map-applied',
+  'OpsCenterSync:rewrite-cache-invalidated',
+  'OpsCenterSync:ai-taste-map-apply-error',
+  'OpsCenterSync:runtime-applied',
+  'OpsCenterSync:runtime-updated-callback-error',
+  'OpsCenterSync:auto-sync-skipped',
+  'OpsCenterSync:auto-sync-error',
+  'OpsCenterSync:auto-sync-init-error',
+  'LoginNetDiag:request-failed',
+  'LoginNetDiag:qr-response',
+  'LoginNetDiag:http-status-warning',
+  'LoginNetDiag:http-status-info',
+  'LoginNetDiag:proxy-resolved',
+  'LoginNetDiag:resolve-proxy-failed',
+  'LoginNetDiag:resolve-proxy-failed-outer',
+  'LoginNoise:noise-cancelled',
+  'LoginRespDiag:key-endpoint-request-failed',
+  'LoginRespDiag:qr-bytes',
+  'LoginRespDiag:key-endpoint-rejected',
+  'LoginRespDiag:diag-self-error',
+  'AuthReclaim:partition-readdir-failed',
+  'AuthReclaim:delete-outside-root-refused',
+  'AuthReclaim:partition-remove-failed',
+  'AuthReclaim:reclaim-scanned',
+  'AuthReclaim:reclaim-threw',
+  'AuthReclaim:session-wipe-skipped',
+  'AuthReclaim:session-wipe-failed',
+  'AuthReclaim:session-wipe-skipped-fallback',
+  'AuthReclaim:kept-as-publish-fallback',
+  'AuthReclaim:cookie-probe-failed-kept',
+  'AuthReclaim:no-partition-to-reclaim',
   // phase4-events.js
   'PublishMonitor:audit-requery-cookie-resolution-failed',
   'PublishMonitor:audit-requery-skipped',
@@ -172,7 +228,7 @@ describe('T6.1 发布可观测性 notify 契约结构锁', () => {
   }
 
   it('允许清单规模有下界（防止 Set 退化成空集而假绿）', () => {
-    expect(ALLOWED_KEYS.size).toBeGreaterThanOrEqual(75)
+    expect(ALLOWED_KEYS.size).toBeGreaterThanOrEqual(126)
   })
 
   it('全仓登记键总数与四文件 notify 调用总数一致', () => {

@@ -139,17 +139,17 @@ class OpsCenterSync {
   _readStoredObject (settingKey) {
     const store = this._store
     if (!store) {
-      this._log && this._log.warn('OpsCenterSync', `未注入 store，${settingKey} 按空配置处理`)
+      this._log && this._log.notify('OpsCenterSync', 'store-missing-empty-config', { level: 'WARN', params: { settingKey } })
       return {}
     }
     if (typeof store.getSettingObject !== 'function') {
-      this._log && this._log.warn('OpsCenterSync', `store 缺少 getSettingObject，${settingKey} 按空配置处理`)
+      this._log && this._log.notify('OpsCenterSync', 'get-setting-object-missing', { level: 'WARN', params: { settingKey } })
       return {}
     }
     try {
       return store.getSettingObject(settingKey, {})
     } catch (e) {
-      this._log && this._log.warn('OpsCenterSync', `${settingKey} 读取失败，按空配置处理: ${(e && e.message) || String(e)}`)
+      this._log && this._log.notify('OpsCenterSync', 'setting-read-failed', { level: 'WARN', params: { settingKey }, error: String((e && e.message) || e) })
       return {}
     }
   }
@@ -270,9 +270,9 @@ class OpsCenterSync {
     // 更新 lastSyncedAt
     const nowIso = new Date().toISOString()
     const updated = { url: manualUrl || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
-    try { this._store.setSetting(SETTING_KEY, updated) } catch (e) { this._log.warn('OpsCenterSync', 'lastSyncedAt 落盘失败: ' + e.message) }
+    try { this._store.setSetting(SETTING_KEY, updated) } catch (e) { this._log.notify('OpsCenterSync', 'last-synced-at-persist-failed', { level: 'WARN', error: String(e.message) }) }
 
-    this._log.info('OpsCenterSync', `catalog synced: ${result.updated} providers (at ${nowIso})`)
+    this._log.notify('OpsCenterSync', 'catalog-synced', { params: { updated: result.updated, at: nowIso } })
     return { code: 0, updated: result.updated, syncedAt: nowIso, ...runtimeResult }
   }
 
@@ -293,11 +293,11 @@ class OpsCenterSync {
         this.applyRuntime(settled.value)
         return { runtimeApplied: true, runtimeSyncedAt: settled.value.synced_at || '' }
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'runtime apply error: ' + String((e && e.message) || e))
+        this._log.notify('OpsCenterSync', 'runtime-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
         return { runtimeApplied: false, runtimeSyncedAt: '' }
       }
     }
-    this._log.warn('OpsCenterSync', 'runtime sync skipped: ' + String((settled.reason && settled.reason.message) || settled.reason))
+    this._log.notify('OpsCenterSync', 'runtime-sync-skipped', { level: 'WARN', error: String((settled.reason && settled.reason.message) || settled.reason) })
     return { runtimeApplied: false, runtimeSyncedAt: '' }
   }
 
@@ -328,7 +328,7 @@ class OpsCenterSync {
   }
 
   _saveRuntimeState() {
-    try { this._store.setSetting(RUNTIME_SETTING_KEY, this._runtime) } catch (e) { this._log.warn('OpsCenterSync', '运行时策略落盘失败（重启后将无法恢复菜单/公告/开关）: ' + e.message) }
+    try { this._store.setSetting(RUNTIME_SETTING_KEY, this._runtime) } catch (e) { this._log.notify('OpsCenterSync', 'runtime-policy-persist-failed', { level: 'WARN', error: String(e.message) }) }
   }
 
   /** 运行时策略状态（公告/版本/内容安全）——IPC 暴露给渲染进程 */
@@ -479,42 +479,42 @@ class OpsCenterSync {
     this._sensitiveFilter = null // 触发惰性重建
     this._saveRuntimeState()
     if (this._updatePolicyConsumer) {
-      try { this._updatePolicyConsumer(next.updatePolicy) } catch (e) { this._log.warn('OpsCenterSync', 'update policy consumer error: ' + e.message) }
+      try { this._updatePolicyConsumer(next.updatePolicy) } catch (e) { this._log.notify('OpsCenterSync', 'update-policy-consumer-error', { level: 'WARN', error: String(e.message) }) }
     }
     // 平台发布元数据覆盖：注入 platformConfig 时应用；未注入跳过，不影响其他策略
     if (Array.isArray(payload.platform_defs) && this._platformConfig) {
       try {
         const n = this._platformConfig.applyRemote(payload.platform_defs)
-        this._log.info('OpsCenterSync', `platform defs applied: ${n} platforms`)
+        this._log.notify('OpsCenterSync', 'platform-defs-applied', { params: { platforms: n } })
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'platform defs apply error: ' + e.message)
+        this._log.notify('OpsCenterSync', 'platform-defs-apply-error', { level: 'WARN', error: String(e.message) })
       }
     }
     // 官方内容模板库覆盖：注入 templateManager 时应用；未注入跳过
     if (Array.isArray(payload.content_templates) && this._templateManager) {
       try {
         const n = this._templateManager.applyRemote(payload.content_templates)
-        this._log.info('OpsCenterSync', `content templates applied: ${n} templates`)
+        this._log.notify('OpsCenterSync', 'content-templates-applied', { params: { templates: n } })
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'content templates apply error: ' + String((e && e.message) || e))
+        this._log.notify('OpsCenterSync', 'content-templates-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
       }
     }
     // 关键词监测目录覆盖：注入 keywordMonitor 时应用；未注入跳过
     if (Array.isArray(payload.keyword_watchlist) && this._keywordMonitor) {
       try {
         const n = this._keywordMonitor.applyRemoteWatchlist(payload.keyword_watchlist)
-        this._log.info('OpsCenterSync', `keyword watchlist applied: ${n} entries`)
+        this._log.notify('OpsCenterSync', 'keyword-watchlist-applied', { params: { entries: n } })
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'keyword watchlist apply error: ' + String((e && e.message) || e))
+        this._log.notify('OpsCenterSync', 'keyword-watchlist-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
       }
     }
     // 改写策略运行时下发：注入 rewriteStrategyManager 时应用；未注入跳过
     if (Array.isArray(payload.rewrite_strategies) && this._rewriteStrategyManager) {
       try {
         const n = this._rewriteStrategyManager.applyRemote(payload.rewrite_strategies)
-        this._log.info('OpsCenterSync', 'rewrite strategies applied: ' + n + ' strategies')
+        this._log.notify('OpsCenterSync', 'rewrite-strategies-applied', { params: { strategies: n } })
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'rewrite strategies apply error: ' + String((e && e.message) || e))
+        this._log.notify('OpsCenterSync', 'rewrite-strategies-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
       }
     }
     // 改写硬约束运行时下发（rewrite-hard-constraints，2026-09-19）：
@@ -523,14 +523,14 @@ class OpsCenterSync {
     if (payload.rewrite_hard_constraints && this._rewriteHardConstraintManager) {
       try {
         const changed = this._rewriteHardConstraintManager.applyRemote(payload.rewrite_hard_constraints)
-        this._log.info('OpsCenterSync', 'rewrite hard constraints applied: ' + (changed ? 'updated' : 'unchanged'))
+        this._log.notify('OpsCenterSync', 'hard-constraints-applied', { params: { changed } })
         if (changed && this._rewriteEngineService && typeof this._rewriteEngineService.setHardConstraintManager === 'function') {
           // 重新注入使引擎缓存失效，下次改写按新硬约束构建 systemPrompt
           this._rewriteEngineService.setHardConstraintManager(this._rewriteHardConstraintManager)
-          this._log.info('OpsCenterSync', 'rewrite engine cache invalidated for new hard constraints')
+          this._log.notify('OpsCenterSync', 'rewrite-cache-invalidated-hard-constraints')
         }
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'rewrite hard constraints apply error: ' + String((e && e.message) || e))
+        this._log.notify('OpsCenterSync', 'hard-constraints-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
       }
     }
     // 去 AI 味词库运行时下发（ai-taste-ops-center，2026-10-03）：
@@ -539,21 +539,21 @@ class OpsCenterSync {
     if (Array.isArray(payload.rewrite_ai_taste_map) && this._rewriteAiTasteMapManager) {
       try {
         const changed = this._rewriteAiTasteMapManager.applyRemote(payload.rewrite_ai_taste_map)
-        this._log.info('OpsCenterSync', 'rewrite ai taste map applied: ' + (changed ? 'updated' : 'unchanged'))
+        this._log.notify('OpsCenterSync', 'ai-taste-map-applied', { params: { changed } })
         if (changed && this._rewriteEngineService && typeof this._rewriteEngineService.setAiTasteMapManager === 'function') {
           this._rewriteEngineService.setAiTasteMapManager(this._rewriteAiTasteMapManager)
-          this._log.info('OpsCenterSync', 'rewrite engine cache invalidated for new ai taste map')
+          this._log.notify('OpsCenterSync', 'rewrite-cache-invalidated')
         }
       } catch (e) {
-        this._log.warn('OpsCenterSync', 'rewrite ai taste map apply error: ' + String((e && e.message) || e))
+        this._log.notify('OpsCenterSync', 'ai-taste-map-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
       }
     }
-    this._log.info('OpsCenterSync', 'runtime applied: ' + next.announcements.length + ' announcements, policy=' + (next.updatePolicy ? 'set' : 'none'))
+    this._log.notify('OpsCenterSync', 'runtime-applied', { params: { announcements: next.announcements.length, policy: next.updatePolicy ? 'set' : 'none' } })
     // 通知渲染端重拉运营配置（菜单/公告/功能开关），使「改了没生效」不再依赖重启。
     // 只传时间戳、不传配置内容：配置读取必须继续走受验签保护的 IPC 路径（design D4）。
     // 回调仅负责广播，任何窗口异常都不得影响已应用的运行时状态。
     if (this._onRuntimeUpdated) {
-      try { this._onRuntimeUpdated({ syncedAt: next.syncedAt }) } catch (e) { this._log.warn('OpsCenterSync', 'runtime updated notify error: ' + String((e && e.message) || e)) }
+      try { this._onRuntimeUpdated({ syncedAt: next.syncedAt }) } catch (e) { this._log.notify('OpsCenterSync', 'runtime-updated-callback-error', { level: 'WARN', error: String((e && e.message) || e) }) }
     }
   }
 
@@ -657,11 +657,11 @@ class OpsCenterSync {
       if (cfg.url && !cfg.apiKeyConfigured && !auto) return
       setTimeout(() => {
         this.syncNow().then((r) => {
-          if (r.code !== 0) this._log.warn('OpsCenterSync', 'auto sync skipped: ' + r.message)
-        }).catch((e) => this._log.warn('OpsCenterSync', 'auto sync error: ' + e.message))
+          if (r.code !== 0) this._log.notify('OpsCenterSync', 'auto-sync-skipped', { level: 'WARN', error: String(r.message) })
+        }).catch((e) => this._log.notify('OpsCenterSync', 'auto-sync-error', { level: 'WARN', error: String(e.message) }))
       }, 3000)
     } catch (e) {
-      this._log.warn('OpsCenterSync', 'auto sync init error: ' + e.message)
+      this._log.notify('OpsCenterSync', 'auto-sync-init-error', { level: 'WARN', error: String(e.message) })
     }
   }
 }

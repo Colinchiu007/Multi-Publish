@@ -240,7 +240,7 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
   const reclaimMod = () => reclaimCjs
 
   it('captured=true 时不清存储，但仍调度目录回收', () => {
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const session = { clearStorageData: vi.fn(), clearCache: vi.fn(), cookies: { get: vi.fn().mockResolvedValue([]) } }
     reclaimMod().reclaimLoginSession({ accountId: 'auth-x-1', session, captured: true, log })
     expect(session.clearStorageData).not.toHaveBeenCalled()
@@ -259,7 +259,7 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
   })
 
   it('未取证但分区里有该平台 Cookie ⇒ 一律不清（它是发布兜底唯一可读的那份）', async () => {
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const session = {
       clearStorageData: vi.fn().mockResolvedValue(undefined),
       clearCache: vi.fn().mockResolvedValue(undefined),
@@ -268,11 +268,11 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
     reclaimMod().reclaimLoginSession({ accountId: 'auth-x-3', session, platform: 'wechat_mp', log })
     await flush()
     expect(session.clearStorageData).not.toHaveBeenCalled()
-    expect(log.info).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('publish fallback source'))
+    expect(log.notify).toHaveBeenCalledWith('AuthReclaim', 'kept-as-publish-fallback', expect.objectContaining({ params: expect.objectContaining({ platform: 'wechat_mp' }) }))
   })
 
   it('Cookie 探测失败时**保留**分区（不确定时不销毁可能唯一的凭证副本）', async () => {
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     const boom = {
       clearStorageData: vi.fn(),
       cookies: { get: vi.fn().mockRejectedValue(new Error('probe boom')) },
@@ -283,8 +283,8 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
     await flush()
     expect(boom.clearStorageData).not.toHaveBeenCalled()
     expect(absent.clearStorageData).not.toHaveBeenCalled()
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('probe boom'))
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('cookies.get 不可用'))
+    expect(log.notify).toHaveBeenCalledWith('AuthReclaim', 'cookie-probe-failed-kept', expect.objectContaining({ error: expect.stringContaining('probe boom') }))
+    expect(log.notify).toHaveBeenCalledWith('AuthReclaim', 'cookie-probe-failed-kept', expect.objectContaining({ error: expect.stringContaining('cookies.get 不可用') }))
   })
 
   it('已标记取证的分区名不再被清（跨会话不串）', () => {
@@ -299,10 +299,10 @@ describe('auth-partition-reclaim：登录会话级动作', () => {
   })
 
   it('缺 accountId 时如实留痕，不静默当成「没有要回收的」', () => {
-    const log = { warn: vi.fn(), info: vi.fn() }
+    const log = { warn: vi.fn(), info: vi.fn(), notify: vi.fn() }
     expect(reclaimMod().partitionNameOf(null)).toBe(null)
     reclaimMod().reclaimLoginSession({ accountId: null, session: null, log })
-    expect(log.warn).toHaveBeenCalledWith('AuthReclaim', expect.stringContaining('no partition'))
+    expect(log.notify).toHaveBeenCalledWith('AuthReclaim', 'no-partition-to-reclaim', { level: 'WARN' })
   })
 
   it('分区名单一来源：createSession 与回收端用同一个名字', async () => {

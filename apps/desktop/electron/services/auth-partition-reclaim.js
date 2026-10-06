@@ -189,7 +189,7 @@ function reclaimStaleAuthPartitions (opts) {
       names = fsx.readdirSync(root)
     } catch (e) {
       summary.errors += 1
-      if (log) log.warn('AuthReclaim', 'partition readdir failed: ' + ((e && e.message) || 'unknown'))
+      if (log) log.notify('AuthReclaim', 'partition-readdir-failed', { level: 'WARN', error: String((e && e.message) || 'unknown') })
       continue
     }
     /** @type {string[]} */
@@ -212,7 +212,7 @@ function reclaimStaleAuthPartitions (opts) {
       try { realTarget = fsx.realpathSync(target) } catch (_e) { realTarget = target }
       if (path.dirname(realTarget) !== realRoot || path.basename(realTarget) !== name) {
         summary.errors += 1
-        if (log) log.warn('AuthReclaim', 'refused to delete outside partition root: ' + name)
+        if (log) log.notify('AuthReclaim', 'delete-outside-root-refused', { level: 'WARN', params: { name } })
         continue
       }
       try {
@@ -220,14 +220,12 @@ function reclaimStaleAuthPartitions (opts) {
         summary.removed.push(name)
       } catch (e) {
         summary.errors += 1
-        if (log) log.warn('AuthReclaim', 'partition remove failed ' + name + ': ' + ((e && e.message) || 'unknown'))
+        if (log) log.notify('AuthReclaim', 'partition-remove-failed', { level: 'WARN', params: { name }, error: String((e && e.message) || 'unknown') })
       }
     }
   }
   if (summary.removed.length > 0 || summary.errors > 0) {
-    if (log) log.info('AuthReclaim', 'auth partition reclaim scanned=' + summary.scanned +
-      ' removed=' + summary.removed.length + ' kept=' + summary.kept.length
-      + ' pinned=' + (summary.skippedActive || []).length + ' errors=' + summary.errors)
+    if (log) log.notify('AuthReclaim', 'reclaim-scanned', { params: { scanned: summary.scanned, removed: summary.removed.length, kept: summary.kept.length, pinned: (summary.skippedActive || []).length, errors: summary.errors } })
   }
   return summary
 }
@@ -240,7 +238,7 @@ function scheduleReclaim (opts) {
   setImmediate(function () {
     try { reclaimStaleAuthPartitions(opts) } catch (e) {
       const log = (opts && opts.log) || null
-      if (log) log.warn('AuthReclaim', 'reclaim threw: ' + ((e && e.message) || 'unknown'))
+      if (log) log.notify('AuthReclaim', 'reclaim-threw', { level: 'WARN', error: String((e && e.message) || 'unknown') })
     }
   })
 }
@@ -254,13 +252,13 @@ function scheduleReclaim (opts) {
  */
 function wipeSessionStorage (partitionSession, log) {
   if (!partitionSession || typeof partitionSession.clearStorageData !== 'function') {
-    if (log) log.warn('AuthReclaim', 'session wipe skipped: clearStorageData unavailable')
+    if (log) log.notify('AuthReclaim', 'session-wipe-skipped', { level: 'WARN' })
     return Promise.resolve(false)
   }
   const tasks = [partitionSession.clearStorageData()]
   if (typeof partitionSession.clearCache === 'function') tasks.push(partitionSession.clearCache())
   return Promise.all(tasks).then(function () { return true }).catch(function (e) {
-    if (log) log.warn('AuthReclaim', 'session wipe failed: ' + ((e && e.message) || 'unknown'))
+    if (log) log.notify('AuthReclaim', 'session-wipe-failed', { level: 'WARN', error: String((e && e.message) || 'unknown') })
     return false
   })
 }
@@ -311,7 +309,7 @@ function hasCapturedPartition (accountId) {
  */
 function wipeUnlessUsableAsFallback (partitionSession, platform, log) {
   if (!partitionSession || typeof partitionSession.clearStorageData !== 'function') {
-    if (log) log.warn('AuthReclaim', 'session wipe skipped: clearStorageData unavailable')
+    if (log) log.notify('AuthReclaim', 'session-wipe-skipped-fallback', { level: 'WARN' })
     return Promise.resolve(false)
   }
   const probe = partitionSession.cookies && typeof partitionSession.cookies.get === 'function'
@@ -323,13 +321,12 @@ function wipeUnlessUsableAsFallback (partitionSession, platform, log) {
       ? cookies.filter(function (c) { return isPlatformCookieDomain(platform, c && c.domain) }).length
       : 0
     if (usable > 0) {
-      if (log) log.info('AuthReclaim', 'kept partition as publish fallback source: platform='
-        + platform + ' cookies=' + usable)
+      if (log) log.notify('AuthReclaim', 'kept-as-publish-fallback', { params: { platform, cookies: usable } })
       return false
     }
     return wipeSessionStorage(partitionSession, log)
   }).catch(function (e) {
-    if (log) log.warn('AuthReclaim', 'cookie probe failed, partition kept: ' + ((e && e.message) || 'unknown'))
+    if (log) log.notify('AuthReclaim', 'cookie-probe-failed-kept', { level: 'WARN', error: String((e && e.message) || 'unknown') })
     return false
   })
 }
@@ -344,7 +341,7 @@ function reclaimLoginSession (opts) {
   const log = o.log
   const name = partitionNameOf(o.accountId)
   if (!name) {
-    if (log) log.warn('AuthReclaim', 'no partition to reclaim: accountId missing')
+    if (log) log.notify('AuthReclaim', 'no-partition-to-reclaim', { level: 'WARN' })
     scheduleReclaim({ activePartitionNames: o.activePartitionNames || [] })
     return null
   }

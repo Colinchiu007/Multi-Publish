@@ -112,7 +112,7 @@ describe('Settings 真源：存储侧读回归一化（真实 Store）', () => {
 
 describe('Settings 真源：OpsCenterSync 配置与运营菜单重启后必须恢复（Bug 探针）', () => {
   it('saveConfig 写入的手动地址与 Key，重启后仍读得到', () => {
-    const svc = new OpsCenterSync({ store, log: { info () {}, warn () {}, error () {} } })
+    const svc = new OpsCenterSync({ store, log: { info () {}, warn () {}, error() {}, notify() {} } })
     const saved = svc.saveConfig({ url: 'http://127.0.0.1:8010', apiKey: 'catalog-key-abc', autoSync: true, runtimePublicKey: RUNTIME_PUBLIC_KEY })
     expect(saved.code).toBe(0)
 
@@ -122,7 +122,7 @@ describe('Settings 真源：OpsCenterSync 配置与运营菜单重启后必须�
     expect(JSON.parse(rawRow.value).url).toBe('http://127.0.0.1:8010')
 
     const reopened = restartStore()
-    const afterRestart = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error () {} } })
+    const afterRestart = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error() {}, notify() {} } })
     const cfg = afterRestart.getConfig()
     expect(cfg.url).toBe('http://127.0.0.1:8010')
     expect(cfg.apiKeyConfigured).toBe(true)
@@ -131,13 +131,13 @@ describe('Settings 真源：OpsCenterSync 配置与运营菜单重启后必须�
   })
 
   it('applyRuntime 落盘的应用菜单，重启后无需再同步即可恢复', () => {
-    const svc = new OpsCenterSync({ store, log: { info () {}, warn () {}, error () {} } })
+    const svc = new OpsCenterSync({ store, log: { info () {}, warn () {}, error() {}, notify() {} } })
     const menu = { items: [{ key: 'copy-library', visible: true, sort_order: 1, group: 'more' }] }
     svc.applyRuntime({ announcements: [], appMenu: menu, synced_at: '2026-10-01T00:00:00Z' })
     expect(svc.getAppMenu()).toBeTruthy()
 
     const reopened = restartStore()
-    const afterRestart = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error () {} } })
+    const afterRestart = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error() {}, notify() {} } })
     const restored = afterRestart.getAppMenu()
     expect(restored).toBeTruthy()
     expect(restored.items.map((i) => i.key)).toEqual(['copy-library'])
@@ -145,7 +145,7 @@ describe('Settings 真源：OpsCenterSync 配置与运营菜单重启后必须�
 
   it('从未成功同步过时空库读取不抛，且如实呈现"无配置"（fail-open 语义）', () => {
     const reopened = restartStore()
-    const svc = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error () {} } })
+    const svc = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error() {}, notify() {} } })
     expect(() => svc.getConfig()).not.toThrow()
     expect(svc.getConfig().apiKeyConfigured).toBe(false)
     expect(svc.getAppMenu()).toBeNull()

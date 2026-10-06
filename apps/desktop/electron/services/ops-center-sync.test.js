@@ -716,7 +716,7 @@ describe('OpsCenterSync 运行时验签 fail-closed', () => {
       expect(res.code).toBe(0)
       expect(res.runtimeApplied).toBe(false)
       expect(svc.getRuntimeState().announcements).toEqual([])
-      expect(LOG.warn).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('验签失败'))
+      expect(LOG.notify).toHaveBeenCalledWith('OpsCenterSync', 'runtime-sync-skipped', expect.objectContaining({ error: expect.stringContaining('验签失败') }))
     } finally {
       global.fetch = originalFetch
       LOG.warn.mockClear()
@@ -1054,8 +1054,8 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
     const cfg = svc.getConfig()
     expect(cfg.url).toBe('')
     // getConfig() 会读两次（配置 + 密文），判据是「每次失败读取都留痕」而非恰好一次
-    expect(log.warn.mock.calls.length).toBeGreaterThan(0)
-    expect(String(log.warn.mock.calls[0][1])).toContain('getSettingObject')
+    expect(log.notify.mock.calls.length).toBeGreaterThan(0)
+    expect(log.notify.mock.calls.some((c) => c[1] === 'get-setting-object-missing')).toBe(true)
   })
 
   // QM6-C1：本 PR 要消灭的是「把读回失败伪装成用户没配置」。方法存在但抛异常（例如注入的是
@@ -1071,8 +1071,8 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
     expect(cfg.url).toBe('')
-    expect(log.warn.mock.calls.length).toBeGreaterThan(0)
-    expect(String(log.warn.mock.calls[0][1])).toContain('boom-read')
+    expect(log.notify.mock.calls.length).toBeGreaterThan(0)
+    expect(log.notify.mock.calls.some((c) => String((c[2] || {}).error).includes('boom-read'))).toBe(true)
   })
 
   it('未注入 store 时必须留痕，不许静默变空配置', () => {
@@ -1080,8 +1080,8 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
     const svc = new OpsCenterSync({ store: undefined, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
     expect(cfg.url).toBe('')
-    expect(log.warn.mock.calls.length).toBeGreaterThan(0)
-    expect(String(log.warn.mock.calls[0][1])).toContain('store')
+    expect(log.notify.mock.calls.length).toBeGreaterThan(0)
+    expect(log.notify.mock.calls.some((c) => c[1] === 'store-missing-empty-config')).toBe(true)
   })
 })
 
