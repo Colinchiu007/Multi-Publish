@@ -588,7 +588,13 @@ async function checkLoginStatus (platform, accountId) {
     // ⚠️ 与函数上方 RENDER_CRASH_PRONE_PLATFORMS（前置 HTTP/本地分类，命中 tencent_video）是
     // 不同插入点、不同语义：那个自己走 HTTP 早返回，这个只切断 getContext 前的浏览器降级。
     // 二者切勿合并——并入前置会绕过 toutiao 的无 Cookie 快速路径（回归既有测试）。
-    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao'])
+    //
+    // 2026-10-06 实测追加 wechat_mp：mp.weixin.qq.com 在隐藏 sandbox 窗口加载时同样触发
+    // 原生渲染崩溃（Electron 主进程 exit code 0xC0000005 ACCESS_VIOLATION，日志末行恒为
+    // "checkLoginStatus: start wechat_mp ... url=https://mp.weixin.qq.com/"）。该平台登录态
+    // 只有 24h，HTTP 检测对重定向到 /cgi-bin/home?token= 的形态恒判 inconclusive，
+    // 于是每次启动批量校验都会走到这里开窗口 → 崩 → 整个应用退出（连带所有 CDP E2E 失败）。
+    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp'])
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }

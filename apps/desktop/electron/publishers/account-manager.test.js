@@ -840,10 +840,14 @@ describe('account-manager — 捕获凭证持久化', () => {
       })
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
+      // 2026-10-06 行为变更：wechat_mp 的隐藏窗口路径会触发原生渲染崩溃（0xC0000005），
+      // 已纳入 RENDER_CRASH_PRONE_OPEN_PLATFORMS 守卫（详见
+      // account-manager-wechat-render-crash.test.js）。本用例原断言「仅 localStorage
+      // 凭证 → 开隐藏页判成功」，该前提已随崩溃修复失效；改为断言：不开窗 + 判未确认
+      // （localStorage 单独存在不足以证明 24h 会话仍有效，冒充已登录是已知假阳性）。
       await expect(accountManager.checkLoginStatus('wechat_mp', 'account-storage'))
-        .resolves.toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
-      expect(getContext).toHaveBeenCalledWith({ show: false })
-      expect(page.addInitScript).toHaveBeenCalledTimes(1)
+        .resolves.toMatchObject({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+      expect(getContext).not.toHaveBeenCalled()
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
     }
@@ -951,8 +955,14 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
       })
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
+      // 2026-10-06 行为变更：mp.weixin.qq.com 在隐藏 sandbox 窗口加载时触发原生渲染崩溃
+      // （Electron 主进程 0xC0000005，详见 account-manager-wechat-render-crash.test.js），
+      // 故 wechat_mp 已纳入 RENDER_CRASH_PRONE_OPEN_PLATFORMS，HTTP 不确定时不再开窗。
+      // 本用例原断言「浏览器 URL 含 login 特征 → COOKIE_EXPIRED」，现改为断言新契约：
+      // 绝不开窗，且无 HTTP 证据时判未确认（绝不冒充已登录，避免 24h 会话假阳性）。
       await expect(accountManager.checkLoginStatus('wechat_mp', 'acc-wx'))
-        .resolves.toMatchObject({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+        .resolves.toMatchObject({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+      expect(getContext).not.toHaveBeenCalled()
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
       global.__registerMock(httpCheckerPath, actualHttpChecker)
