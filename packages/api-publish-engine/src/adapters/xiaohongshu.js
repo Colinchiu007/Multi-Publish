@@ -91,6 +91,20 @@ class XiaohongshuAdapter extends BasePlatformAdapter {
     }
   }
 
+  /**
+   * 视频上传占位：统一入口契约要求所有 adapter 对空输入返回 null
+   * （adapters-interface.test.js 的「可处理空上传」用例逐平台遍历）。
+   * 小红书走草稿箱图文链路（permit → ros-upload → note），不暴露独立 video 上传。
+   */
+  async uploadVideo () {
+    return null
+  }
+
+  /** 图片上传占位：同上，小红书图片经 permit/ros-upload 在草稿箱链路内完成 */
+  async uploadCover () {
+    return null
+  }
+
   /** 从 cookie 里找 access-token-creator.xiaohongshu.com 作为 AT 凭据 */
   _authorization (cookie) {
     const read = (name) => {
