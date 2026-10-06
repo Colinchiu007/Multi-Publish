@@ -1,0 +1,23 @@
+{
+  "sha": "ab5af88616d464034caf2472b91b15dbcf718713",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "stagedDiffHash": "efb66dda17d80049a10428714888167b9e0e3e489fe73c5da8fab205852fe06b",
+  "decidedAt": "2026-10-06T22:01:12.564Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
