@@ -1,10 +1,7 @@
 ---
 record: dep-audit-baseline-2026-10
-task: 登记 CVE 库更新后新出的 7 条依赖公告，解除对所有 PR 的 required check 阻塞
+task: 登记 CVE 库更新后新出的 8 条依赖公告，解除对所有 PR 的 required check 阻塞
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 合并后的下一个会话
 ---
 
 ## 本次执行记录：依赖审计基线登记 7 条新公告（dep-audit-baseline-2026-10，2026-10-06）
@@ -25,7 +22,7 @@ sync_backfill_owner: 合并后的下一个会话
 | QM-1 打包 / QM-4 视觉 | N/A | 只改门禁数据文件，未触 `apps/desktop/electron/`、未改依赖区间、未触 UI |
 | classify-docs-only | false（混合 PR） | 改动含 `scripts/` ⇒ 完整质量节拍，不借道快速通道 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 7 条挂账登记，无外部评审通道产物；如实写「未执行」，不以自审冒充 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin dep-audit-baseline-2026-10` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `6566db8912dcaf1497b68af55892a2384b3f07e0`（PR #2972，`2026-10-06T03:44:15Z`）。取证（2026-10-06 现取）：`git log origin/main --grep='(#2972)$' --format='%H\|%cI'` 得该 SHA 与时间；`git ls-remote --heads origin dep-audit-baseline-2026-10` 返回 **0 行**，证远端分支已随 squash 删除。落地抽查：`git show origin/main:scripts/dep-audit-baseline.json` 上 8 条登记全部在位（含 `CVE-2026-85394` 的 pip 域与 `GHSA-G2V6-RQMX-R4W6` 的 npm-opscenter 域）。**合并后效果已实测**：`#2947` 的「依赖漏洞审计」红灯在本 PR 合并后重跑消解，本地 `node scripts/check-dep-audit.js` 亦为 ✅ rc=0（命中 33 = 挂账 33） |
 
 ### 逐条判据（decision 不是一刀切）
 
