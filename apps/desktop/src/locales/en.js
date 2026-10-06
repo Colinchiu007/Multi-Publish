@@ -2785,6 +2785,10 @@ export default {
     batchComplete: 'Batch collection complete',
     batchSuccess: '{count} articles collected',
     batchCollectFailed: 'Batch collection failed',
+    // M-3: polling hit the consecutive-failure threshold (IPC unreachable / main process not ready)
+    batchPollUnreachable: 'Query failed {count} times in a row; stopped waiting (collected items are kept, you can start again)',
+    // M-3: overall polling duration cap (covers the "every poll succeeds but the task never ends" livelock)
+    batchPollTimeout: 'Collection wait timed out; stopped waiting (collected items are kept, you can start again)',
     batchCancelled: 'Batch collection cancelled',
     cancelBatch: 'Cancel',
     enterRss: 'Please enter RSS URL',

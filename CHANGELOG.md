@@ -1,3 +1,48 @@
+# [unreleased] fix(collection): M-3 批量轮询失败兜底 —— 连续失败达阈值即提示并复位发起按钮
+
+### 缺陷
+`Collection.vue` 的 `startBatchPolling` 里 catch 分支是空的 —— 只写了一句注释
+「轮询失败不立即中断，继续下次轮询」，既不计数、也不设总时长上限、也不给用户任何
+提示、也不复位 `batchCollecting`。于是只要 IPC 持续失败（主进程重启 / 任务记录
+丢失 / 鉴权失效），`batchCollecting` 永远为 true：
+- 两个发起按钮被 `:disabled="batchCollecting"` 永久锁死；
+- 进度条停在中间值；
+- 用户看不到任何错误文案，只能靠猜「取消」退出。
+
+已实证（基线 770967c0，报告附录 C）：连续 20 轮 reject（约 40 秒）后
+`batchCollecting` 仍为 true、`batchError` 为空、轮询仍在运行。
+
+### 修复
+1. 抽出 `composables/useBatchPollGuard.js`：连续失败计数（阈值 10 次 ≈ 20 秒，
+   覆盖主进程重启等瞬时故障）+ 总时长上限（10 分钟，兜「每轮成功但任务永不终结」
+   的活锁）+ 统一收口函数。
+2. **成功即清零计数** —— 只统计「连续」失败，间歇性抖动不会被累计到阈值误停
+   正常采集。
+3. 已收集的 `collectedItems` 保留不清空（丢弃已完成的工作是二次伤害）。
+4. i18n 新增 `collection.batchPollUnreachable` / `collection.batchPollTimeout`
+   （zh/en 成对）。
+
+### 为什么抽成 composable
+`Collection.vue` 已在 max-lines 台账上（登记 2721，main 上已漂到 2745）。内联
+修复会触发 `LEDGER_GREW`（实测膨胀 211 行 > 容差 200）。抽出去后不仅过门禁，
+「连续失败计数 + 时长上限 + 统一收口」本身是与视图无关的纯状态机，换页面可直接复用。
+
+### 测试
+- `useBatchPollGuard.test.js`（新增 6 用例）：阈值边界（第 9 次不收、第 10 次收）、
+  成功即清零（20 轮抖动不收口）、时长上限用 `>` 而非 `>=`、未 reset 不计时。
+  写这组测试时发现并修掉一个真 bug：哨兵值用 `0` 会把「时间源恰好返回 0」误判成
+  「未开始计时」而永不超时，已改为 `null`。
+- `p0-3-poll-fallback.test.js`（替换原复现型）：4 用例 + **源码锚点断言**，
+  锁住「组件真的用了守卫」而非自己另实现一套。
+- **反证**：把 catch 体改回空分支后锚点断言转红（`expected -1 to be greater than -1`），
+  证明测试有鉴别力。
+- 删除 `p0-3-poll-hang.test.js`（缺陷复现型，修复后必然失败 —— 与 M-1 同样的处理）。
+
+### 验证
+131 用例全绿（6 文件）| max-lines rc=0 | locale-sync rc=0
+
+---
+
 # [未发布] fix(accounts+publish): 修应用启动即崩（wechat_mp/baijiahao 隐藏窗口原生崩溃）+ API 直连轨补 session 分区 cookie 回退（e2e-hot-topics-crash-and-cookie，2026-10-06）
 
 ### 起因：热门选题 E2E 完全跑不起来

@@ -2785,6 +2785,10 @@ export default {
     batchComplete: '批量采集完成',
     batchSuccess: '已采集 {count} 篇内容',
     batchCollectFailed: '批量采集失败',
+    // M-3：轮询连续失败达阈值（IPC 不可达/主进程未就绪）
+    batchPollUnreachable: '连续 {count} 次查询失败，已停止等待（已收集内容仍保留，可重新发起）',
+    // M-3：轮询总时长上限（每轮成功但任务永不终结的活锁兜底）
+    batchPollTimeout: '采集等待超时，已停止等待（已收集内容仍保留，可重新发起）',
     batchCancelled: '批量采集已取消',
     cancelBatch: '取消',
     enterRss: '请输入 RSS 链接',
