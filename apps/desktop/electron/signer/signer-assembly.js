@@ -176,13 +176,48 @@ function createSignerAssembly (deps) {
   return { sign, prewarm, bindCookie, dispose, pageCount, getOrCreatePage }
 }
 
-// verified 位依据 spike 实证：S2b 仅对 kuaishou 做 Tier-A GO（活体终判），
-// xiaohongshu 止步（design §6：x-s 依赖外包签名服务，本波只留 provider 槽不激活链）。
-// 未实证平台绝不置 verified——否则会被放行触达未取证活页。
+// 第 4 元素 = 求签形态：
+//   'browser'        → 隐藏 sandbox BrowserWindow 注入 EXTRACTOR_SCRIPT 抽签
+//   'localAlgorithm' → 进程内本地算法（不开窗口）
+//
+// verified 位依据 spike 实证：S2b 仅对 kuaishou 做 Tier-A GO（活体终判）。
+// 2026-10-06 更新：xiaohongshu 原为止步态（设计注释「x-s 依赖外包签名服务，
+// 本波只留 provider 槽不激活链」）。实测 XYW_ 形态是纯 AES-128-CBC
+// （对照 Cloxl/xhshow，MIT；Go 版 tamnd/xiaohongshu-cli 独立复现同常量），
+// 不依赖浏览器 VM 环境 —— 故改为 localAlgorithm：不创建窗口即不引入
+// wechat_mp/baijiahao 那种隐藏窗口原生崩溃面，同时不再受 verified 闸门约束。
 const BRIDGE_COMMANDS = [
-  ['kuaishou.ns-sig3-browser', 'kuaishou', true],
-  ['xiaohongshu.x-s-browser', 'xiaohongshu', false],
+  ['kuaishou.ns-sig3-browser', 'kuaishou', true, 'browser'],
+  ['xiaohongshu.x-s-browser', 'xiaohongshu', false, 'localAlgorithm'],
 ]
+
+/**
+ * xiaohongshu 本地算法求签（XYW_ 纯 AES-128-CBC）。
+ *
+ * 对外仍接受与浏览器链一致的 payload（{ accountId, fullUri, cookie, ... }），
+ * 返回裸签名字符串；调用方（publish 链）再自行拼 x-s / x-t / x-s-common 等头。
+ * 缺 a1 直接抛错 fail-closed —— 绝不退回占位签名。
+ */
+function signXiaohongshuLocal (payload) {
+  const { buildXywSignature } = require('@multi-publish/api-publish-engine/src/signer-local')
+  const fullUri = payload && payload.fullUri
+  const cookie = payload && (payload.cookie || payload.cookies)
+  const cookieDict = typeof cookie === 'string'
+    ? cookie.split(';').reduce((acc, pair) => {
+      const t = pair.trim()
+      if (!t) return acc
+      const eq = t.indexOf('=')
+      if (eq <= 0) return acc
+      acc[t.slice(0, eq).trim()] = t.slice(eq + 1).trim()
+      return acc
+    }, {})
+    : (cookie || {})
+  return buildXywSignature({
+    fullUri,
+    a1Value: cookieDict.a1,
+    timestampMs: payload && payload.timestampMs,
+  })
+}
 
 /**
  * 主进程装配入口（bootstrap 在 app ready 后调用）：
@@ -215,22 +250,30 @@ function registerSignerAssembly (deps) {
   if (provider && typeof provider.setBridge === 'function') {
     provider.setBridge((signCommand, payload) => manager.invokeSign(signCommand, payload))
   }
-  for (const [command, platform, verified] of BRIDGE_COMMANDS) {
+  for (const [command, platform, verified, mode] of BRIDGE_COMMANDS) {
     manager.registerCommand(command, platform)
     if (provider && typeof provider.registerCommands === 'function') {
       provider.registerCommands([command], platform)
     }
-    // 仅 spike 实证通过的命令置 verified（manager + provider 两侧同步，路径 A/B 语义一致）；
-    // 未实证（如小红书止步）保持 unverified：manager.invokeSign / provider.sign 均 fail-closed 拒绝，
-    // 不创建隐藏页、不触达未激活平台活页。
+    // 仅 spike 实证通过的命令置 verified（manager + provider 两侧同步，路径 A/B 语义一致）。
+    // localAlgorithm 形态不受此闸门约束（不开窗口、不触达活页），其正确性由
+    // packages/api-publish-engine/tests/signer-local-xyw-crosscheck.js 与
+    // electron/tests/signer-xhs-local.test.js 钉住（与 Python 参考实现逐字节比对）。
     if (verified) {
+      manager.markVerified(command)
+      if (provider && typeof provider.verify === 'function') provider.verify(command)
+    }
+    if (mode === 'localAlgorithm') {
       manager.markVerified(command)
       if (provider && typeof provider.verify === 'function') provider.verify(command)
     }
   }
   manager._setSignFn((command, payload) => {
-    const platform = (BRIDGE_COMMANDS.find(([c]) => c === command) || [])[1]
-    if (!platform) throw new Error(`signer-assembly: signFn received unlisted command "${command}"`)
+    const entry = BRIDGE_COMMANDS.find(([c]) => c === command)
+    if (!entry) throw new Error(`signer-assembly: signFn received unlisted command "${command}"`)
+    const platform = entry[1]
+    const mode = entry[3]
+    if (mode === 'localAlgorithm') return signXiaohongshuLocal(payload)
     const accountId = payload && payload.accountId
     const ctx = { command, platform, sessionKey: accountId, payload }
     return assembly.sign(ctx)
@@ -256,4 +299,4 @@ function registerSignerAssembly (deps) {
   return { manager, provider, assembly }
 }
 
-module.exports = { PROFILES, buildExtractorScript, parseCookieHeader, createSignerAssembly, registerSignerAssembly, BRIDGE_COMMANDS }
+module.exports = { PROFILES, buildExtractorScript, parseCookieHeader, createSignerAssembly, registerSignerAssembly, BRIDGE_COMMANDS, signXiaohongshuLocal }

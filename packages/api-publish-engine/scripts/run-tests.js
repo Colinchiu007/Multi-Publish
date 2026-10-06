@@ -34,6 +34,8 @@ const VITEST_FILES = new Set([
   'risk-suspender.test.js',
   'publish-service.test.js',
   'signer.test.js',
+  'signer-local-xyw.test.js',
+  'xiaohongshu-draft-chain.test.js',
   'signer-default-path.test.js',
   'tiktok.test.js',
   'topic-inline-contract.test.js',
