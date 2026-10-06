@@ -64931,3 +64931,39 @@ P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**�
   导出符号与 `RATIOS` 键集合未变；`buildCoverSvg(title, {width, height})`
   旧调用形态仍可用；未传 `title` 时退回 `prompt`
 - 详细规格见 `01-docs/PRD.md`「内容感知封面生成（AI 生图不可用时的本地兜底）」章节
+# [unreleased] fix(publish): M-1 重入锁前置 + .adversarial 白名单 + 方案时效性核验
+
+### M-1 修复（发布重入窗口）
+handlePublish 的守卫在 :283，但 publishing = true 直到 :414 才置位，中间隔着
+await ensureLogin()（确认框 + OAuth，窗口可达秒级到分钟级）=> 二次调用两次都通过
+守卫，产生两次真实 publishBatch。
+
+锁前置到第一个 await 之前，且 try 起点必须与锁一起上移：只提前置锁而 try 留在
+原处是错的 —— :286-412 之间的 return 会绕过末尾 finally，把锁永久留在 true
+（发布按钮永久禁用）。
+
+验证：官方 usePublishFlow.test.js 全量 79 用例全绿（rc=0），无回归。
+
+### .adversarial/** 补进 docs-only 白名单
+该目录是 adversarial-review-loop 的正式评审留档（main 上 62 个文件：54 md +
+8 json，零可执行代码），但不在白名单 => 只提交评审产物的 docs-only PR 会触发全量
+Desktop Shards + Coverage 门禁（实测 3 项重型 job 跑 15+ 分钟未完成）。
+
+前置锁核查：零可执行代码 => 不触发「进白名单的路径其门禁必须先接线进 changes job」。
+同步 classify-docs-only.js + 三个 workflow 的 push.paths-ignore + 测试的两处登记。
+两道锁在改动后先红过，正是它们该拦的。
+
+### 方案补时效性核验（docs/frontend-remediation-plan-2026-10-06.md §13）
+本方案原以 C-1 为第 1 步，动手前才发现 C-1 早已被 PR #2952 修好（报告基线与
+当时 main 差 41 个提交）。新增 §13 记录逐条实测结果与两条流程纪律：
+
+- 核验必须用 git show origin/main:<file>，不能用工作区检出（本轮实测共享根检出是
+  旧版本，直接 grep 得出「C-1 未修」的反向错误结论）
+- 对抗评审挑不出过期前提 —— codex 三轮 44 条挑刺全在方案内部一致性，没有一条质疑
+  「这些缺陷现在还在吗」。跨家族不等于跨时间
+
+### 诚实记录：M-1 的回归测试未提交
+修复前写了 usePublishFlow.m1-reentry.test.js，但其基线用例在当前装置下跑不通
+（mock 契约问题，非修复问题）。入库一个红的测试比没有测试更糟，故本次不提交。
+
+---
