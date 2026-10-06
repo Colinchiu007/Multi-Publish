@@ -1,9 +1,4 @@
 {
-  "本次执行记录：定时发布全链路验证与修复（verify-scheduled-publish，2026-10-06）": {
-    "reason": "本 PR 自身尚未合并，无法取证 merge SHA；回填者＝本 PR 合并后的回填 PR，同一次提交删除本条并把「远程同步」行改写为 PASS + merge SHA。",
-    "status": "PENDING",
-    "line": 26
-  },
   "本次执行记录：日志契约迁移波次-1/2（log-notify-migration，2026-10-05）【合并后补写】": {
     "reason": "三 PR 已合并（#2922/#2924 已取证，#2947 待 CI 后补取证）；本条随下一个 docs PR 同一次提交删除。",
     "status": "PENDING",
