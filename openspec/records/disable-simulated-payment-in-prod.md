@@ -2,6 +2,8 @@
 record: disable-simulated-payment-in-prod
 task: 正式包不渲染「模拟支付成功（开发模式）」入口——主进程两道拦截本就 fail-closed，这是 UI 层的诚实性修复
 date: 2026-10-07
+sync_reason: "PR #3006 合并后回填：远程同步行改写 PASS + merge SHA、删 sync_reason/sync_backfill_owner 两字段、删除 ledger 登记项，须同一次提交完成。"
+sync_backfill_owner: "agent / Mavis"
 ---
 
 ## 本次执行记录：正式包不渲染模拟支付入口（disable-simulated-payment-in-prod，2026-10-07）
