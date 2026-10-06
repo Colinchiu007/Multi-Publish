@@ -247,6 +247,8 @@ CREATE TABLE IF NOT EXISTS creator_discoveries (
   collected_at      TEXT,
   attempt_count     INTEGER NOT NULL DEFAULT 0,       -- 采集尝试次数（CCG i7）
   last_error        TEXT DEFAULT '',                  -- 最近一次采集失败原因（CCG i7）
+  claimed_by        TEXT DEFAULT '',                  -- claim 持有者（CCG i2）
+  lease_expires_at  INTEGER,                          -- claim 租约到期时间戳（CCG i2）
   transcript_source TEXT DEFAULT '',         -- subtitle | description
   content_quality  TEXT DEFAULT 'unknown',  -- full | partial | stub | unknown（见 §7.6）
   summary           TEXT DEFAULT '',
@@ -315,6 +317,16 @@ SELECT platform, external_id, COUNT(*) AS n FROM viral_library
 | `creator_discoveries.collect_state` | — | 采集状态的真源在发现表；`viral_library` 是**投影**，允许存在孤儿行 |
 
 **重采集语义**：`viral_library` 已有行时走 `INSERT OR REPLACE`（沿用 `knowledge-library-store.js:82` 既有写法），`created_at` 保留首次采集时间，`updated_at` 刷新。因存在 partial unique 索引，重采集命中的是**有 `external_id` 的博主来源行**；其他行不受影响。
+
+**删除与回滚的对齐（CCG 评审 i6）**：两表会漂移，必须定清谁是事实源。
+
+| 操作 | 事实源 | 对齐方式 |
+|---|---|---|
+| 用户删除采集库条目 | **`viral_library`**（采集库是用户资产） | 级联把对应 `creator_discoveries` 复位为 `pending`（清 `collected_at`），使其重新出现在「待采集」列表——**删除采集内容 ≠ 删除发现记录** |
+| 用户删除发现记录 | **`creator_discoveries`** | 不动 `viral_library`（已采集的内容是独立资产，删发现记录不该销毁内容）；下次探测会因唯一索引已释放而**重新发现同一条** |
+| 取消关注博主 | `creator_follows` | **保留** discoveries 与已采集内容（内容是资产）；仅停止监控。若需清理，提供独立的「删除该博主全部内容」操作并二次确认 |
+
+**因此 `viral_library` 是采集事实源、`creator_discoveries` 是发现事实源，两者不是主从关系**——这与 §6.2 的 `collect_state` 注释一致：状态真源在发现表，但**已入库内容的存在性**以 `viral_library` 为准。
 
 ### 6.2 去重键与 canonical ID 规则（CCG 评审 i6 修订）
 
@@ -387,6 +399,30 @@ pending ──► skipped       （用户主动忽略）
 
 **崩溃恢复**：`collecting` 是易失态。应用启动时把滞留的 `collecting` 复位为 `pending`（`attempt_count` 保留并递增），避免"永远转圈"的僵尸记录。
 
+**并发抢占：claim + lease（CCG 评审 i2）**
+
+`collecting` 这个易失态本身**不足以防重复采集**：用户手动点「采集」的同时，自动批量任务也可能命中同一条记录；两个 Electron 窗口、调度器重入同样会撞上。仅靠先查状态再改是典型 check-then-act 竞态。
+
+```sql
+-- claim：单条原子 UPDATE，只有把 pending/failed 成功抢到的人才能继续
+UPDATE creator_discoveries
+   SET collect_state = 'collecting',
+       claimed_by    = ?,        -- 采集者标识：'manual:<sessionId>' | 'batch:<runId>' | 'auto:<schedulerTick>'
+       lease_expires_at = ?,     -- now + 单条采集超时（字幕拉取最坏 ~120s，取 300s）
+       attempt_count = attempt_count + 1
+ WHERE id = ? AND collect_state IN ('pending','failed')
+   AND (claimed_by IS NULL OR lease_expires_at < ?)   -- 过期 lease 可被抢占
+-- changes() === 0 → 未抢到：已被他人采集或状态已变，直接返回「该作品正在采集中」
+```
+
+| 规则 | 说明 |
+|---|---|
+| claim 成功才继续 | 未 claim 到就直接失败返回，**绝不并行采集同一条** |
+| lease 超时可抢占 | 崩溃/强杀留下的 lease 到期后可被新采集者接管，不会永久卡死 |
+| `attempt_count` 在 claim 时递增 | 而非失败时递增——claim 了就是真尝试了 |
+| 释放 | 成功 → `collected` 并清空 `claimed_by`/`lease`；失败 → `failed` 并清空 lease（保留 `last_error`） |
+| 启动清扫 | 应用启动时 `lease_expires_at < now AND collect_state='collecting'` → 复位 `pending` |
+
 **重复采集走 upsert**：`failed → pending` 重试、`pending/collected` 再次采集，均走 `INSERT OR REPLACE`（见 §6.1 重采集语义），不产生重复行。
 
 ### 6.5 监控调度改造点（必须改动，非新增）
@@ -424,10 +460,23 @@ switch (task.action.type) {
     // 任务级 fail-closed：把这一条挂起并留痕，绝不 fallback 到 pipeline，
     // 也绝不 throw —— throw 会中断调度循环，导致其余任务全部停摆。
     this._markTaskPaused(task.id, 'unknown_type', `未知自动化任务类型: ${task.action.type}`)
-    logger.warn({ taskId: task.id, actionType: task.action.type }, '未知任务类型已挂起，未执行')
+    // 保留原始载荷并隔离，供诊断与回滚（CCG 评审 i8）
+    this._quarantineTask(task)   // 写入隔离区：原始 JSON + taskId + 发现时间 + 来源
+    logger.warn({ taskId: task.id, actionType: task.action.type, quarantined: true }, '未知任务类型已隔离，未执行')
     return { ok: false, skipped: true, reason: 'unknown_type' }
 }
 ```
+
+**未知类型的来源与治理**（CCG 评审 i8：不能只"处理"它，得能查它从哪来）：
+
+| 可能来源 | 治理 |
+|---|---|
+| 旧版本残留（该类型在新版本已下线） | 隔离区保留原始载荷，UI 提供「此任务来自旧版本，可删除或转换」 |
+| 导入/备份损坏 | 同上，隔离区标注 `suspect: true` |
+| 未来新增类型未接线 | 开发者补齐 switch 后，隔离区任务可一键恢复 |
+| 从不自动删除 | 自动删除 = 静默丢用户配置。**必须保留原始载荷直到用户显式处理** |
+
+隔离区落 settings 单键 `automation_quarantine`（与 `automation_tasks` 同构，不新增表），UI 提供只读查看与显式「恢复 / 删除」两个动作。
 
 **三层防护的取舍**：
 
@@ -526,6 +575,17 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 
 **稳态单次探测成本 = 1 unit**（首次新增博主那次 = 2 units）。
 
+**配额归属的现实约束（CCG 评审 i5：不可假装 10,000 是我们的）**
+
+| 事实 | 影响 |
+|---|---|
+| 10,000 units/day 是 **Google Cloud 项目级**配额，**不是本应用独占** | 同一个 API Key 若被用户用于其他工具（其他项目、其他本地脚本），配额会被**共享消耗**，本方案的 1,500 探测池可能实际拿不到 |
+| 配额可申请扩容 | 扩容后探测池比例不变（仍按物理池的 15% 切分），无需改配置 |
+| 配额会按 Google 策略调整 | 因此切分**必须是相对比例**（探测 15% / 采集 60% / 余量 25%），不能写死绝对数字 |
+| 本应用**读得到**自己的用量 | `videos.list`/`playlistItems.list` 响应头无配额信息，需另记本地计数；**读不到** Google 侧真实用量 |
+
+**结论**：本方案的预算模型是**建立在物理池之上的逻辑配额**，是"我们最多用多少"的自律约定，**不是对 Google 配额的独占保证**。必须在 UI 上如实表述为「本应用今日配额占用」，而非「YouTube 剩余配额」。若用户同时用同一 Key 跑其他工具，本应用看到的仍是自己的计数——这是已知的可接受局限，需在设置页注明。
+
 #### 7.3.2 采集成本公式与实算
 
 采集时 `videoId` 在**探测阶段就已随 `playlistItems` 拿到**，元数据缺口用 `videos.list` 批量补。因其单次可带 50 个 id，采集成本远低于"每条 1 unit"的直觉：
@@ -561,14 +621,42 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 
 推论（默认 1 小时间隔下）：
 
-| 关注数 | 日探测需求 | 是否可行 |
-|---|---|---|
-| 10 | 240 units | ✅ 余量充足 |
-| 50 | 1,200 units | ✅ 贴边但不超 |
-| 62 | 1,488 units | ⚠️ 已到上限，**UI 拒绝新增第 63 个** |
-| 63 | 1,512 units | ❌ 拒绝，并提示「调大检查频率或移除博主」 |
+| 关注数 | 全部 @1 小时 | 全部 @5 分钟(下限) | 可否全部 @1 小时 |
+|---|---|---|---|
+| 10 | 240 units | 2,880 units | ✅ |
+| 25 | 600 units | 7,200 units | ✅ |
+| 50 | **1,200 units** | **14,400 units** ❌ | ✅ 贴边；**但若有人把间隔调到 5 分钟即超限** |
+| 62 | 1,488 units | 17,856 units | ⚠️ 贴边 |
+| 63 | 1,512 units | 18,144 units | ❌ 拒绝新增 |
 
-**动态降级求解**（当用户把间隔调得更密导致超预算时）：不静默失败，而是**按 `check_interval_min` 从小到大（检查更频繁的优先）保底，剩余博主本轮跳过**，并在 UI 角标显示「因配额限制，N 个博主本轮未检查」。绝不出现"监控看起来在跑但实际饿死一部分博主"的静默失真。
+**⚠ 关键约束（CCG 评审 i1：此条此前缺失，导致 Critical）**：上表「全部 @1 小时」是**默认配置下的结果，不是保证**。间隔是可配的，而最小间隔是 **5 分钟**——若 50 个博主全被设为 5 分钟，日需求 = `1440/5 × 50 = 14,400 units`，**是探测池 1,500 的 9.6 倍**。因此约束**必须在每次配置变更时实时校验并强制执行**，绝不能只按默认值假定：
+
+| 变更动作 | 校验时机 | 不满足时 |
+|---|---|---|
+| 新增关注 | 提交前计算 `Σ(1440/interval_min)` | 拒绝新增，提示 `creatorQuotaWouldExceed` |
+| 修改某博主间隔 | 提交前重算总和 | 拒绝该次修改，提示需先调大其他博主间隔 |
+| 批量调整间隔 | 提交前重算 | 整体拒绝，不做部分应用（避免进入不可预测状态） |
+
+```js
+function assertQuotaFits (follows, addingIntervalMin = null) {
+  const total = follows.reduce((s, f) => s + 1440 / (addingIntervalMin ?? f.check_interval_min), 0)
+  if (total > PROBE_POOL) throw new QuotaExceedError({
+    projected: Math.ceil(total), pool: PROBE_POOL,
+    hint: '请调大部分博主的检查频率，或减少关注数量'   // 注意是「调大间隔」而非「调大频率」
+  })
+  return total
+}
+```
+
+**「每博主最小可支撑间隔」参考表**（探测池 1,500 下，单博主视角）：
+
+| 关注数 | 保证不超池所需的最小间隔 |
+|---|---|
+| 1~50 | ≥ 60 分钟 |
+| 51~62 | ≥ 1440 分钟（一天一次） |
+| > 62 | 不支持（拒绝新增） |
+
+**动态降级求解**（当历史数据/导入导致总和超限）：不静默失败，而是**按 `check_interval_min` 从小到大（检查更频繁的优先）保底，剩余博主本轮跳过**，并在 UI 角标显示 `creatorProbeSkipped`。绝不出现"监控看起来在跑但实际饿死一部分博主"的静默失真。
 
 #### 7.3.5 超限行为与告警
 
@@ -728,6 +816,19 @@ YouTube Data API 物理上限 **10,000 units/day**（项目级，不可协商）
 
 「送入 AI 写作」走既有 DAG：`full-auto-pipeline.startRun({ urls:[单条URL], sourceType:'url' })`，`collect → rewrite → create` 三段执行，**不执行 publish**（发布由用户显式触发，符合非目标 N1）。
 
+**契约细节（CCG 评审 i7）**：
+
+| 项 | 定义 |
+|---|---|
+| 入参 | `{ discoveryId }`。主进程内部先 claim 该 discovery（§6.4），再取 `viral_library` 行组装 `{ urls:[item.url], sourceType:'url' }` |
+| 正文缺失 | 若 `content` 为空或 `content_quality='stub'`，**不静默降级**：`stub` 时二次确认后仍可送，但日志记 `lowQualityInput: true` |
+| 幂等键 | `runId = hash(discoveryId + viralItem.updated_at)`。同一版本内容重复点击返回**同一个 runId** 而非重复起跑，防止重复消耗 LLM 额度 |
+| 失败映射 | 既有 `userErrors` 命名空间复用（`NOT_SIGNED_IN` / `access_denied` 等），不新造错误码 |
+| 取消 | 返回 `runId` 后 UI 可经既有 `automation:*` 取消通道中止 |
+| 产出 | AI 草稿进既有草稿箱，**不回写** `creator_discoveries`（采集状态与写作状态是两回事） |
+
+**幂等性说明**：`viral_library.updated_at` 参与哈希，使「内容更新后重新送 AI」能正常重新生成，而「同一内容反复点」不会重复消耗配额与 LLM 费用——这是该入口最容易被忽略的成本陷阱。
+
 ### 8.5 手动批量采集
 
 ```
@@ -763,16 +864,28 @@ function classifyFailure (httpStatus, body, transportErr) {
   const reason = body?.error?.errors?.[0]?.reason || body?.error?.status || null
 
   // Tier A：正常节流 / 瞬时波动 —— 不计入连续失败
-  if (['quotaExceeded', 'dailyLimitExceeded', 'rateLimitExceeded'].includes(reason)) return { tier: 'throttled', reason }
+  // ⚠ 枚举须覆盖全部官方 reason（CCG 评审 i4 指出遗漏）：
+  //   quotaExceeded / dailyLimitExceeded / rateLimitExceeded / userRateLimitExceeded
+  //   ⚠ keyInvalid 既可能返回 400 也可能 403，故分类**以 reason 为主因、状态码仅兜底**，
+  //     不能写成 "4xx → 可自愈 / 5xx → 瞬时" 这种按状态码的粗判。
+  if (['quotaExceeded', 'dailyLimitExceeded', 'rateLimitExceeded',
+       'userRateLimitExceeded', 'userRateLimitExceededUnreg'].includes(reason))
+    return { tier: 'throttled', reason }
   if (reason === null && httpStatus === 429) return { tier: 'throttled', reason: 'http_429' }  // 无 reason 的 429 仍是节流
   if (['backendError', 'internalError'].includes(reason)) return { tier: 'transient', reason }
   if (reason === null && httpStatus >= 500) return { tier: 'transient', reason: `http_${httpStatus}` }
-  // Tier C：不可自愈 —— 立即暂停
-  if (['keyInvalid', 'keyNotValid', 'accessNotConfigured', 'forbidden'].includes(reason)) return { tier: 'fatal', reason }
-  if (httpStatus === 401 || httpStatus === 403 && reason === null) return { tier: 'fatal', reason: `http_${httpStatus}` }
+  // Tier C：不可自愈 —— 立即暂停（keyInvalid 在此处按 reason 命中，与状态码无关）
+  if (['keyInvalid', 'keyNotValid', 'badRequest', 'accessNotConfigured',
+       'accessForbidden', 'forbidden', 'youtubeSignupRequired'].includes(reason))
+    return { tier: 'fatal', reason }
+  if (httpStatus === 401) return { tier: 'fatal', reason: `http_${httpStatus}` }
+  if (httpStatus === 403 && reason === null) return { tier: 'fatal', reason: 'http_403_no_reason' }
   // Tier B：真故障
-  if (['channelNotFound', 'playlistNotFound', 'forbidden'].includes(reason)) return { tier: 'permanent', reason }
-  // 兜底：reason 缺失且状态码无法归类 → unknown，按 Tier B 计但保留可诊断摘要
+  if (['channelNotFound', 'playlistNotFound', 'videoNotFound'].includes(reason))
+    return { tier: 'permanent', reason }
+  // 兜底：reason 缺失且状态码无法归类 → unknown。
+  // ⚠ fail-closed 取 B（计入失败）而非静默放行：分类失败本身是需要暴露的异常，
+  //    放行会让所有无法识别的错误都无声跳过。
   return { tier: 'permanent', reason: reason || `unknown_http_${httpStatus}` }
 }
 ```
