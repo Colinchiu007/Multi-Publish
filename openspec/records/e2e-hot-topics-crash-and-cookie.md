@@ -3,6 +3,8 @@ record: e2e-hot-topics-crash-and-cookie
 task: 热门选题 E2E 三连修——wechat_mp/baijiahao 隐藏窗口原生崩溃 + API 直连轨 session 分区 cookie 回退
 date: 2026-10-06
 sync_status: PENDING
+sync_reason: "本 PR（#2984）尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入 merge SHA 并删除本字段与 sync_backfill_owner，同时删除 gate-record-debt-ledger.json 的登记项。"
+sync_backfill_owner: "backfill-e2e-hot-topics-record"
 ---
 
 ## 本次执行记录：热门选题 E2E 三连修（e2e-hot-topics-crash-and-cookie，2026-10-06）
