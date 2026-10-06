@@ -2,9 +2,6 @@
 record: fix-gate7b-cd
 task: 修 Gate 7b round2 后 cwd 只回一层导致取证脚本按 apps/scripts 解析、一律假红
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 合并后的下一个会话
 ---
 
 ## 本次执行记录：Gate 7b round2 cwd 回根修复（fix-gate7b-cd，2026-10-05）
@@ -22,7 +19,7 @@ sync_backfill_owner: 合并后的下一个会话
 | QM-1 打包 / QM-4 视觉 | N/A | 未改 `apps/desktop/electron/`、未动依赖区间、未触 UI |
 | classify-docs-only | false（混合 PR） | 改动含 `.github/workflows/quality-gate.yml` ⇒ 完整质量节拍，不借道快速通道 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本 PR 为单字符 CI 路径修复，无外部评审通道产物 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#2966)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-gate7b-cd` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `ff08ec3755b7b252598a3aabd5b1567f8a7fd836`（PR #2966，`2026-10-06T03:21:45Z`）。取证（2026-10-06 现取）：`git log origin/main --grep='(#2966)$' --format='%H\|%cI'` 得该 SHA 与时间；`git ls-remote --heads origin fix-gate7b-cd` 返回 **0 行**，证远端分支已随 squash 删除 |
 
 ### 遗留（不假装已闭合）
 
