@@ -1,0 +1,172 @@
+"use strict"
+
+// CCG 深度双模型审查（QM-6）后端依赖体检的回归保护。
+//
+// 背景（本机 2026-10-07 实测根因）：
+//   codeagent-wrapper 用**裸名** spawn 后端（stderr 诊断头原文：
+//   `Command: claude -p --dangerously-skip-permissions ...`），所以后端 CLI
+//   能否解析完全取决于 PATH。本机进程 PATH 里 C: 盘条目被剥掉了盘符
+//   （`C:\Users\<user>\.local\bin` → `\Users\<user>\.local\bin`），
+//   而 Windows 会把「无盘符的 PATH 条目」按**当前工作目录所在盘符**解析：
+//     cwd 在 D: → claude 不可解析（仓库正好在 D:）
+//     cwd 在 C: → opencode / codex 反而不可解析
+//   没有任何一条条目能同时对两个盘符有效。
+//
+// 为什么这值得一个锁：症状不是报错退出，而是引擎**静默降级成单后端**——
+// 评审照跑、结论照出，只是少了一路跨家族交叉验证。.quality-gates.md 里
+// 那次「通道偏差声明：primary 前端 claude 静默空转 ⇒ 降级 opencode 免费模型」
+// 就是这个坑的产物。旧实现对此只有一句 `⚠ 找不到 claude` 的被动告警，
+// 照跑不误，属典型的「有告警但告警不改变行为」。
+//
+// 本锁用「假 HOME + 最小 PATH」精确复现该条件：PATH 里没有后端，
+// 但后端确实装在 $HOME/.local/bin —— 修复前必红，修复后必须绿。
+
+const assert = require("node:assert/strict")
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const { test } = require("node:test")
+const { spawnSync } = require("node:child_process")
+
+const ROOT = path.join(__dirname, "..")
+const SCRIPT = path.join(ROOT, "scripts", "deep-review.sh")
+
+// 本机跑脚本需要 Git for Windows Bash（裸 bash 可能解析到 WSL，且本机 PATH 无 bash）。
+// 与 start-mp-task.ps1 / branch-naming-contract.test.js 同一探测链：
+// MP_GIT_BASH 覆盖 → git 派生 → 硬编码候选。CI（ubuntu）上系统 bash 在 PATH。
+function resolveGitBash() {
+  if (process.env.MP_GIT_BASH) return process.env.MP_GIT_BASH
+  const candidates = []
+  try {
+    const { execFileSync } = require("node:child_process")
+    const git = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
+    if (git) candidates.push(path.join(git, "..", "..", "usr", "bin", "bash.exe"))
+  } catch {}
+  candidates.push(
+    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+    "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
+    "D:\\Program Files\\Git\\usr\\bin\\bash.exe",
+  )
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      const gitRoot = c.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$|[\\/]bin[\\/]bash\.exe$/, "")
+      if (gitRoot && fs.existsSync(path.join(gitRoot, "usr", "bin", "dirname.exe"))) return c
+    }
+  }
+  return "bash"
+}
+
+// 故意「贫瘠」的 PATH：只留 POSIX 基础工具目录，**不含任何后端安装目录**。
+// 这正是本机 cwd 在 D: 时的真实形态（.local\bin 那条被剥了盘符，落在 D: 上不存在）。
+const BARE_PATH = "/usr/bin:/bin"
+
+let seq = 0
+function makeFakeHome(backends) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-deps-${process.pid}-${seq++}-`))
+  // wrapper 默认在 $HOME/.claude/bin —— 同样按假 HOME 造桩，否则体检会先在 wrapper 上退出。
+  fs.mkdirSync(path.join(home, ".claude", "bin"), { recursive: true })
+  fs.writeFileSync(path.join(home, ".claude", "bin", "codeagent-wrapper.exe"), "stub")
+  for (const [name, file] of Object.entries(backends || {})) {
+    const dir = path.join(home, ".local", "bin")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, file), `#!/bin/sh\nexit 0\n`)
+    assert.ok(name, "backends 的键是后端名")
+  }
+  return home
+}
+
+function runCheckDeps(home, extraEnv) {
+  const res = spawnSync(resolveGitBash(), [SCRIPT, "--check-deps"], {
+    encoding: "utf8",
+    timeout: 60000,
+    env: {
+      PATH: BARE_PATH,
+      HOME: home,
+      USERPROFILE: home,
+      // 显式清空：不能被调用者的环境污染（父进程 PATH 里可能有真 claude）。
+      CCG_BACKEND_BIN_DIRS: "",
+      ...(extraEnv || {}),
+    },
+  })
+  return { rc: res.status, out: `${res.stdout || ""}${res.stderr || ""}` }
+}
+
+// ① 核心回归锁：后端不在 PATH，但装在 $HOME/.local/bin —— 修复前必红。
+test("后端不在 PATH 但装在 $HOME/.local/bin 时，必须按绝对路径恢复为可用", () => {
+  const home = makeFakeHome({ claude: "claude", opencode: "opencode" })
+  const { rc, out } = runCheckDeps(home)
+  assert.match(out, /claude/, "体检输出必须点名 claude")
+  assert.match(out, /opencode/, "体检输出必须点名 opencode")
+  // 关键：不能再是「找不到」。旧实现在这里只会 say 一句 ⚠ 然后照跑。
+  assert.doesNotMatch(out, /claude[^\n]*找不到/, "claude 已装在 $HOME/.local/bin，不得判为找不到")
+  assert.match(out, /\.local[\\/]bin/, "必须报出补入 PATH 的绝对路径，便于事后核对")
+  assert.match(out, /已从绝对路径补入 PATH/, "必须明确区分「靠 PATH 命中」与「靠绝对路径补入」")
+  assert.equal(rc, 0, "两个后端都可用时体检应通过退出")
+})
+
+// ② 把本机实测到的硬事实钉住：.cmd/.bat 是 CreateProcess 起不来的。
+// 若这里判成「可用」，引擎会拿一个起不来的后端去跑，失败信息还落在很后面。
+test("只存在 .cmd 时必须告警，不得判为可用（wrapper 走 CreateProcess，起不了 .cmd）", () => {
+  const home = makeFakeHome({ claude: "claude.cmd" })
+  const { out } = runCheckDeps(home)
+  assert.match(out, /CreateProcess/, "必须点明这是 CreateProcess 的限制，否则无人知道下一步做什么")
+  assert.match(out, /\.cmd/, "必须点名实际命中的文件")
+})
+
+// ③ fail-closed：真的没有后端时不能静默降级，诊断命令要能自己失败。
+test("后端确实不存在时，--check-deps 必须非零退出并给出可操作提示", () => {
+  const home = makeFakeHome({})
+  const { rc, out } = runCheckDeps(home)
+  assert.notEqual(rc, 0, "一个后端都不可用时不得返回 0")
+  assert.match(out, /claude/, "必须点名缺失的后端")
+  assert.match(out, /找不到|不可用/, "必须说清是「找不到」而不是含糊的「失败」")
+  assert.match(out, /npm|安装|装/, "必须给出下一步可操作动作，不能只报错")
+})
+
+// ④ 结构锁：诊断入口必须留在用法说明里，否则真出事时没人知道有这条命令。
+test("--check-deps 必须在用法说明中出现（诊断入口要保持可发现）", () => {
+  const src = fs.readFileSync(SCRIPT, "utf8")
+  assert.match(src, /--check-deps/, "用法块未提及 --check-deps")
+  const usageAt = src.indexOf("--check-deps")
+  const helpAt = src.indexOf("--help")
+  assert.ok(usageAt >= 0 && helpAt >= 0, "用法块与 --help 分支都应存在")
+  assert.ok(usageAt < helpAt, "--check-deps 应出现在 --help 之前的用法说明里")
+})
+
+// ⑥b 退出码分三档：单后端就是本条坑造成的降级形态，不能判 0。
+// 否则体检自己的语义与它要检的缺陷相反。
+test("只剩单后端时 --check-deps 必须返回非零并点名降级（不能判通过）", () => {
+  const home = makeFakeHome({ claude: "claude" }) // 故意不给 opencode
+  const { rc, out } = runCheckDeps(home)
+  assert.notEqual(rc, 0, "只剩一个后端时不得返回 0")
+  assert.match(out, /只剩单后端|跨家族/, "必须明说已降级、且缺的是跨家族交叉验证")
+  assert.doesNotMatch(out, /体检通过：后端可用/, "降级态不得出现「体检通过」字样")
+})
+
+// ⑦ 诊断入口自身不得有前置外部依赖。
+// 实测踩到：ROOT 用 dirname -- "$0" 计算，而那是全脚本第一个外部依赖；
+// 本机 PATH 会丢工具目录，于是 `--check-deps` 先被 `dirname: command not found`
+// 打死——一个「查别人坏没坏」的命令自己先坏了。
+test("--check-deps 路径上不得依赖 dirname（诊断入口自身必须无前置外部依赖）", () => {
+  const src = fs.readFileSync(SCRIPT, "utf8")
+  assert.doesNotMatch(
+    src,
+    /ROOT="\$\(cd "\$\(dirname/,
+    "ROOT 计算不得再用 dirname；否则 --check-deps 会被 dirname 缺失打死",
+  )
+  assert.match(src, /_self_dir="\$\{_self_dir%\/\*\}"/, "应改用参数展开剥掉最后一段路径")
+})
+
+// ⑦ 防回潮：不得再写回「只 say 一句被动告警然后照跑」的旧形态。
+test("不得回潮成被动告警：后端体检必须在补 PATH 之后再判定", () => {
+  const src = fs.readFileSync(SCRIPT, "utf8")
+  // 旧实现原句：command -v claude >/dev/null 2>&1 || say "⚠ 找不到 claude …"
+  assert.doesNotMatch(
+    src,
+    /command -v claude[^\n]*\|\|\s*say/,
+    "claude 的可用性判定不得退化为「不在 PATH 就 say 一句然后继续跑」",
+  )
+  // 真正的恢复动作必须存在：把探测到的目录 prepend 进 PATH 并导出。
+  assert.match(src, /PATH="\$[A-Za-z_]+:\$PATH"/, "必须存在把目录 prepend 进 PATH 的恢复动作")
+  assert.match(src, /export PATH/, "恢复后的 PATH 必须导出，否则子进程（wrapper）看不到")
+})
