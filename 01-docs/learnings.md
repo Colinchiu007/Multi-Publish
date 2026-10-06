@@ -1,3 +1,23 @@
+## 改了 preload 源码就必须重新生成入库的 bundle 产物——`build-preload.test.js` 会直接比对两者（xhs-draft-publish，2026-10-07）
+
+- **`electron/preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 是入库的构建产物**（`git ls-files` 可查到）。`electron/tests/build-preload.test.js:56` 会把**仓库里已提交的** `OUTPUT_FILE` 与源码 `preload/index.js` 暴露的 API 路径做 `toEqual` 深比对。加一个 preload 方法而没跑 `pnpm run build:preload`，该用例报「提交态 bundle 与源码暴露完全相同的 API 路径」失败，并逐条 diff 缺失的键名。
+- **症状极具迷惑性**：同一次 CI 里 `preload.test.js` 说「源码侧方法数多了 1 个」（expected 49 / received 50），`build-preload.test.js` 却说「bundle 侧少了那个方法」——两者**方向相反但同源**。差点误判成两处独立问题。实为：源码改了、产物没重建。
+- **前置动作**：任何改 `apps/desktop/electron/preload/**` 的改动，验证前先 `cd apps/desktop && pnpm run build:preload`，且要确认 `git status` 里两个 bundle 文件真的变了。
+- **配套**：`preload.test.js` 用**硬编码方法数**断言（account 49 / 合并 api 335），新增方法必然连带失配。改这类断言时不要只改数字 —— 一并加 `expect(Object.keys(r)).toContain('newMethodName')`，否则「数字对上但方法没接上」也能过。
+
+## 变异反证必须实跑验证：改实现看它是否真的转红，否则只是一句注释（xhs-draft-publish，2026-10-07）
+
+- **「变异反证」的价值全在它会不会红**。新增一条「若实现回退到 browser 链则失败」的反证用例后，只跑一遍全绿就提交，等于没锁 —— 因为你不知道这条用例是不是恒绿（比如断言写成了 `not.toContain` 恰好与实现同向）。
+- **实跑口径**：把被锁的实现行临时改成错误形态 → 跑该文件 → 必须**恰好目标用例转红**（其余仍绿）→ 还原 → 确认实现文件 `git diff` 为空。本次 `signer-assembly.js:276` 把 `signXiaohongshuLocal(payload)` 改成 `assembly.sign(...)`，19 例中仅新增的那 1 例红，还原后 19/19 全绿。
+- **配套的编辑器坑**：`[System.IO.File]::ReadAllText()` 不指定编码时按 UTF-8 读，含中文的 JS 文件会被读成乱码，导致 `IndexOf`/`Contains` 全部落空 → 误判「目标行不存在」。必须 `[System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)`；写回用 `New-Object System.Text.UTF8Encoding($false)` 避免加 BOM。
+
+## 闸门断言要锁「意图」而不是「当前实现形态」——形态变化不等于红线失守（xhs-draft-publish，2026-10-07）
+
+- **判例**：`signer-assembly.test.js` 原断言「小红书绝不置 verified」，注释写明的红线是「verified 放行后 renderer 会创建隐藏页并导航未激活平台活页，触达未取证域」。本 PR 把小红书改成 `localAlgorithm` 形态（纯 AES-128-CBC，不开窗）后该断言转红。
+- **取证步骤**（三跳，缺一跳就会误改红线）：①`invokeSign`（`signer-page-manager.js:113`）只做 verified 闸门 + 调 `signFn`，**页面创建不在这里**；②页面创建在 `getOrCreatePage`，属 `signFn` 的下游；③`signFn`（`signer-assembly.js:276`）在 `localAlgorithm` 模式**直接 return**，压根不进 `assembly.sign`（第 279 行）。⇒ 原红线担心的副作用面**不存在**，是形态变了而非红线失守。
+- **改法**：断言从「绝不能 verified」改为「localAlgorithm 形态必须 verified」，同时**新增变异反证锁真正的不变量**「求签必须短路、绝不开窗」。这样闸门跟着意图走，且不变量被结构锁钉住。
+- **反面教训**：若只把 `not.toContainEqual` 删掉改成 `toContainEqual` 就收工，闸门就成了「证明实现没被改」而不是「证明危险面不存在」——形态再变一次又会打脸。
+
 ## 6.5 万行 CHANGELOG 的合并冲突：两侧共享巨尾，只能取去重并集，绝不能朴素拼接（queue-delayed / xhs-draft，2026-10-07）
 
 - **现象（pitfall）**：本仓 `CHANGELOG.md` 已达 6.5 万行，两边各自在**文件开头**加新条目 ⇒ 几乎每次 main 前进都会撞冲突。第一次尝试按「ours 全文 + 空行 + theirs 全文」拼接，结果产出 **13 万行**、重复 327 行 —— 因为两侧**共享约 65,000 行公共尾部**，且开头各有若干条**完全相同的条目**。
