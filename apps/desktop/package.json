@@ -107,7 +107,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "@vue/test-utils": "^2.4.11",
     "cross-env": "^10.1.0",
-    "electron": "^43.1.1",
+    "electron": "^43.7.7",
     "electron-builder": "^25.1.8",
     "es-module-lexer": "^3.0.2",
     "esbuild": "^0.25.12",
@@ -133,7 +133,7 @@
     "directories": {
       "output": "dist-electron"
     },
-    "electronVersion": "43.1.1",
+    "electronVersion": "43.7.7",
     "npmRebuild": false,
     "files": [
       "dist/**/*",
