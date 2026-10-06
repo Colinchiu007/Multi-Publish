@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
-const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins } = require('./dev-launcher');
+const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu } = require('./dev-launcher');
 const { resolveDevPorts } = require('./dev-ports');
 const { appendDevExitLog } = require('./dev-exit-log');
 const { buildElectronEnv } = require('./electron-runtime-env');
@@ -107,7 +107,7 @@ function waitForVite(remainingMs) {
       if (stopping) return;
       const electronCommand = process.platform === 'win32' ? electronBinary : process.execPath;
       const allowAllOrigins = resolveAllowAllOrigins(process.env);
-      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort, allowAllOrigins });
+      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort, allowAllOrigins, noSandbox: resolveNoSandbox(), softwareGpu: resolveSoftwareGpu() });
       const electronSpawnArgs = process.platform === 'win32' ? electronArgs : [electronScript, ...electronArgs];
       electron = spawn(electronCommand, electronSpawnArgs, {
         cwd: desktopDir,

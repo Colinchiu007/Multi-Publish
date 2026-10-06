@@ -64,6 +64,39 @@ describe('checkLoginStatus 渲染崩溃保护（wechat_mp 隐藏窗口原生崩�
     }
   })
 
+  it('baijiahao 有 Cookie 但 HTTP 检测不支持时，不开隐藏浏览器（2026-10-06 原生崩溃）', async () => {
+    const playwrightPath = require.resolve('../services/playwright-manager')
+    const httpCheckerPath = require.resolve('./http-login-checker')
+    const actualPlaywrightManager = require(playwrightPath)
+    const actualHttpChecker = require(httpCheckerPath)
+
+    // baijiahao 未注册 HTTP_CHECK_APIS（http-login-checker.js:64-260 无该键），
+    // tryHttpLoginCheck 恒返回 null —— 浏览器降级是它唯一的检测路径，也因此每次
+    // 启动批量校验都开隐藏窗口并触发原生崩溃。
+    const getContext = vi.fn(() => { throw new Error('RENDER_CRASH_PRONE: hidden browser must not be opened for baijiahao') })
+    global.__registerMock(playwrightPath, { getContext })
+    global.__registerMock(httpCheckerPath, { tryHttpLoginCheck: vi.fn().mockResolvedValue(null) })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'baijiahao',
+        cookies: [{ name: 'BAIDUID', value: 's3cr3t', domain: '.baidu.com' }],
+        localStorage: {},
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({ platform: 'baijiahao', status: 'active' })
+
+      const result = await accountManager.checkLoginStatus('baijiahao', 'bjh-crash-acc')
+
+      expect(getContext).not.toHaveBeenCalled()
+      expect(result.code).not.toBe('CHECK_LOGIN_SUCCESS')
+    } finally {
+      global.__registerMock(playwrightPath, actualPlaywrightManager)
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
+    }
+  })
+
   it('wechat_mp 走 HTTP 检测确定有效时，返回 HTTP 结果且不开隐藏浏览器', async () => {
     const playwrightPath = require.resolve('../services/playwright-manager')
     const httpCheckerPath = require.resolve('./http-login-checker')

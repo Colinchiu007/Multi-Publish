@@ -594,7 +594,14 @@ async function checkLoginStatus (platform, accountId) {
     // "checkLoginStatus: start wechat_mp ... url=https://mp.weixin.qq.com/"）。该平台登录态
     // 只有 24h，HTTP 检测对重定向到 /cgi-bin/home?token= 的形态恒判 inconclusive，
     // 于是每次启动批量校验都会走到这里开窗口 → 崩 → 整个应用退出（连带所有 CDP E2E 失败）。
-    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp'])
+    //
+    // 同日追加 baijiahao：受控实验（并发 1/3、--no-sandbox、swiftshader、sandbox:false、
+    // show:true、复用 partition 共 24 次对照）证明以上均非触发条件；真因是 baijiahao
+    // **未注册 HTTP_CHECK_APIS**（http-login-checker.js 的登记表里没有该键），
+    // tryHttpLoginCheck 恒返回 null → 浏览器降级是它唯一检测路径 → 每次启动必开隐藏窗口。
+    // 同配置窗口加载 kuaishou/douyin 均成功返回 CHECK_LOGIN_SUCCESS，故为站点特定。
+    // 与上面两平台同类同机制，按既有白名单处置。
+    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao'])
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
