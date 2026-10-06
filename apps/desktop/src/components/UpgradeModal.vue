@@ -78,7 +78,7 @@
               </button>
             </div>
             <div v-else class="payment-unavailable">
-              付费通道筹备中，暂不支持购买
+              {{ t('memberCenter.paymentChannelUnavailable') }}
             </div>
             <div style="margin-top:var(--space-sm)">
               <button class="cohere-btn-ghost" @click="cancelOrder" style="font-size: var(--font-size-xs)">取消订单</button>
@@ -141,10 +141,12 @@
 import { ref, computed, onMounted } from "vue"
 import { useLicenseStore } from "@/stores/license"
 import { paymentCreateOrder, paymentSimulate, paymentCancel } from "@/api/publisher"
+import { useI18n } from "vue-i18n"
 import { reportError } from "@/utils/report-error"
 import { formatUserError } from "@/utils/user-facing-error"
 
 const emit = defineEmits(["close"])
+const { t } = useI18n()
 
 /**
  * 模拟支付入口的可见性：**构建期常量，默认关闭**。

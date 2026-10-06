@@ -15,6 +15,7 @@ vi.mock("@/stores/license", () => ({
 const mockPayment = { paymentCreateOrder: vi.fn(), paymentSimulate: vi.fn(), paymentCancel: vi.fn() };
 window.electronAPI = mockPayment;
 
+import i18n from "@/i18n"
 import UpgradeModal from "./UpgradeModal.vue";
 
 describe("UpgradeModal", () => {
@@ -31,7 +32,7 @@ describe("UpgradeModal", () => {
   });
 
   it("renders overlay when visible", async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     expect(w.find(".upgrade-overlay").exists()).toBe(true);
     expect(w.find(".plan-card").exists()).toBe(true);
@@ -39,14 +40,14 @@ describe("UpgradeModal", () => {
   });
 
   it("emits close on overlay click", async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     await w.find(".upgrade-overlay").trigger("click");
     expect(w.emitted("close")).toBeTruthy();
   });
 
   it("shows payment flow when upgrade button clicked", async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     await w.find(".upgrade-btn").trigger("click");
     await nextTick();
@@ -54,7 +55,7 @@ describe("UpgradeModal", () => {
   });
 
   it("submits order and shows QR step", async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     await w.find(".upgrade-btn").trigger("click");  // shows payment step 1
     await nextTick();
@@ -69,7 +70,7 @@ describe("UpgradeModal", () => {
 
   it("handles order creation failure", async () => {
     mockPayment.paymentCreateOrder.mockResolvedValue({ code: 1, message: "order failed" });
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     await w.find(".upgrade-btn").trigger("click");
     await nextTick();
@@ -83,7 +84,7 @@ describe("UpgradeModal", () => {
   });
 
   it("cancels order and returns to select", async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     await w.find(".upgrade-btn").trigger("click");
     await nextTick();
@@ -97,7 +98,7 @@ describe("UpgradeModal", () => {
   });
 
   it("calls deactivate when deactivate button clicked", async () => {
-    const w = mount(UpgradeModal, { props: { } });
+    const w = mount(UpgradeModal, { props: { }, global: { plugins: [i18n] } });
     await nextTick();
     const deactivateBtn = w.findAll("button").filter(b => b.text().includes("deactivate"));
     if (deactivateBtn.length > 0) await deactivateBtn[0].trigger("click");
@@ -110,7 +111,7 @@ describe("UpgradeModal", () => {
   });
 
   it("loads license on mount", async () => {
-    mount(UpgradeModal);
+    mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
     expect(mockStore.load).toHaveBeenCalled();
   });
@@ -143,7 +144,7 @@ describe("模拟支付入口的构建期可见性", () => {
   /** 摆出指定构建形态：dev=true 开发包，dev=false 正式包 */
   function mountInBuild({ dev }) {
     vi.stubEnv("DEV", dev);
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     return w;
   }
 

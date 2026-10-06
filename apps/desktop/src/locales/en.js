@@ -3077,6 +3077,9 @@ export default {
     licenseUnlimited: 'Lifetime',
     upgradePro: 'Upgrade to Pro',
     upgradeHint: 'Unlock all-platform publishing, batch scheduling, AI writing and more',
+    // 2026-10-07 disable-simulated-payment-in-prod：正式包无真实支付通道，
+    // 取代此前那个点下去必然被主进程拒收的「模拟支付成功（开发模式）」按钮。
+    paymentChannelUnavailable: 'Payments are not available yet',
     entitlementCardTitle: 'Membership',
     entitlementEmpty: 'No membership data',
     entitlementEmptyHint: 'Your plan and feature list will appear here after signing in.',
