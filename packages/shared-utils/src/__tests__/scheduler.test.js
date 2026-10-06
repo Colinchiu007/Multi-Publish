@@ -40,8 +40,135 @@ describe('Scheduler 共享实现', () => {
 
   it('暴露完整且稳定的实例 API', () => {
     expect(Object.keys(scheduler).sort()).toEqual([
-      'cancel', 'create', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'list', 'rearm', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
+  })
+
+  // 休眠/唤醒与时钟跳变后必须能强制重算剩余延时。
+  // restore() 对已武装任务走 isTaskTracked 分支直接跳过，无法纠正漂移，
+  // 所以需要 rearm()：先解除全部定时器，再按当前墙钟重新武装。
+  describe('rearm 强制重算', () => {
+    it('清除已武装定时器并按新墙钟重新计时，时钟前跳后立即到点派发', async () => {
+      const taskQueue = { add: vi.fn() }
+      scheduler.setTaskQueue(taskQueue)
+      const entry = scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime(10_000) })
+      expect(vi.getTimerCount()).toBe(1)
+
+      // 系统时钟前跳 1 小时：原 setTimeout 仍按相对延时等待，任务会迟到一小时
+      vi.setSystemTime(new Date(BASE_TIME.getTime() + 60 * 60 * 1000))
+      expect(vi.getTimerCount()).toBe(1)
+
+      const rearmed = scheduler.rearm()
+
+      expect(rearmed).toBe(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(taskQueue.add).toHaveBeenCalledOnce()
+      expect(scheduler.list().find(task => task.id === entry.id).status).toBe('executed')
+    })
+
+    it('rearm 不会让同一任务双派发', async () => {
+      const taskQueue = { add: vi.fn() }
+      scheduler.setTaskQueue(taskQueue)
+      scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime(10_000) })
+
+      scheduler.rearm()
+      scheduler.rearm()
+      scheduler.rearm()
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(taskQueue.add).toHaveBeenCalledOnce()
+    })
+
+    it('rearm 保留未到点的 pending 任务，且不影响终态记录', async () => {
+      const taskQueue = { add: vi.fn() }
+      scheduler.setTaskQueue(taskQueue)
+      const pending = scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime(3_600_000) })
+      const cancelled = scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime(3_600_000) })
+      scheduler.cancel(cancelled.id)
+
+      expect(scheduler.rearm()).toBe(1)
+
+      const statuses = new Map(scheduler.list().map(task => [task.id, task.status]))
+      expect(statuses.get(pending.id)).toBe('pending')
+      expect(statuses.get(cancelled.id)).toBe('cancelled')
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(taskQueue.add).not.toHaveBeenCalled()
+    })
+
+    it('stopAll 之后 rearm 不再武装任何定时器', () => {
+      scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime(10_000) })
+      scheduler.stopAll()
+      expect(scheduler.rearm()).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  })
+
+  // 派发失败的用户可见性：旧实现只 logger.error，用户在 UI 上完全看不到
+  // 「我排的定时任务没发出去」——状态变 failed 但既无提示、也进不了发布历史。
+  describe('派发失败通知', () => {
+    it('入队失败时回调 onDispatchFailed，携带任务身份与失败原因', async () => {
+      const onDispatchFailed = vi.fn()
+      const isolated = createScheduler({ app, logger, onDispatchFailed })
+      isolated.setTaskQueue({ add: vi.fn(() => { throw new Error('队列已暂停') }) })
+      const entry = isolated.create({ platform: 'wechat', article: { title: 'A' }, publishTime: futureTime() })
+
+      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(onDispatchFailed).toHaveBeenCalledWith(expect.objectContaining({
+        id: entry.id, platform: 'wechat', reason: '队列已暂停'
+      }))
+      isolated.stopAll()
+    })
+
+    it('认领持久化最终失败（放弃认领）也要通知', async () => {
+      const onDispatchFailed = vi.fn()
+      const failingFs = {
+        ...fs,
+        renameSync: vi.fn(() => { throw new Error('磁盘只读') })
+      }
+      const isolated = createScheduler({ app, fs: failingFs, logger, onDispatchFailed })
+      isolated.setTaskQueue({ add: vi.fn() })
+      isolated.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(2000)
+
+      expect(onDispatchFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: expect.stringContaining('磁盘只读') })
+      )
+      isolated.stopAll()
+    })
+
+    it('成功派发不触发失败回调', async () => {
+      const onDispatchFailed = vi.fn()
+      const isolated = createScheduler({ app, logger, onDispatchFailed })
+      let finishEnqueue
+      const taskQueue = { add: vi.fn(() => new Promise(resolve => { finishEnqueue = resolve })) }
+      isolated.setTaskQueue(taskQueue)
+      isolated.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(taskQueue.add).toHaveBeenCalledOnce()
+      expect(onDispatchFailed).not.toHaveBeenCalled()
+
+      finishEnqueue()
+      await isolated.stopAll()
+    })
+
+    it('未注入回调时派发失败不抛异常（向后兼容）', async () => {
+      const isolated = createScheduler({ app, logger })
+      isolated.setTaskQueue({ add: vi.fn(() => { throw new Error('队列不可用') }) })
+      isolated.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(isolated.list()[0].status).toBe('failed')
+      isolated.stopAll()
+    })
   })
 
   it('按 owner 隔离相同 ID 的任务列表和取消操作', () => {
@@ -521,6 +648,85 @@ describe('Scheduler 共享实现', () => {
     expect(restored.list().find(task => task.id === entry.id).status).toBe('executed')
     await restored.stopAll()
   })
+
+  // P1：无界增长。旧实现没有任何 prune/rotate：executed/cancelled/failed 条目永久留���，
+  // 且 updateStatus 每次状态迁移都「全量读-改-写」整个文件，成本随历史线性增长。
+  describe('终态记录剪枝', () => {
+    const seedTerminal = (id, status, createdAt) => {
+      fs.appendFileSync(filePath, JSON.stringify({
+        id, platform: 'wechat', article: {}, accountId: null,
+        status, publishTime: createdAt, createdAt
+      }) + '\n', 'utf-8')
+    }
+
+    it('create 成功后裁剪超龄终态记录，pending 任务必须保留', () => {
+      seedTerminal('old-executed', 'executed', new Date(BASE_TIME.getTime() - 90 * DAY_MS).toISOString())
+      seedTerminal('old-cancelled', 'cancelled', new Date(BASE_TIME.getTime() - 90 * DAY_MS).toISOString())
+      seedTerminal('old-failed', 'failed', new Date(BASE_TIME.getTime() - 90 * DAY_MS).toISOString())
+      seedTerminal('recent-executed', 'executed', new Date(BASE_TIME.getTime() - 1 * DAY_MS).toISOString())
+      seedTerminal('stale-pending', 'pending', new Date(BASE_TIME.getTime() - 90 * DAY_MS).toISOString())
+
+      scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      const ids = readEntries().map(entry => entry.id)
+      expect(ids).not.toContain('old-executed')
+      expect(ids).not.toContain('old-cancelled')
+      expect(ids).not.toContain('old-failed')
+      expect(ids).toContain('recent-executed')   // 保留期内终态留痕
+      expect(ids).toContain('stale-pending')      // 任何 pending 都不许被裁掉
+      expect(readEntries().length).toBe(3)
+    })
+
+    it('终态记录超过条数上限时只保留最近的 N 条', () => {
+      for (let index = 0; index < 600; index += 1) {
+        seedTerminal(`bulk-${index}`, 'executed', new Date(BASE_TIME.getTime() - index * 1000).toISOString())
+      }
+      const entry = scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      const entries = readEntries()
+      // 上限只约束终态条目；本次新建的 pending 任务必须保留，故总数 = 上限 + 1
+      const terminal = entries.filter(item => item.status === 'executed')
+      expect(terminal.length).toBeLessThanOrEqual(200)
+      expect(entries.length).toBeLessThanOrEqual(201)
+      expect(entries.some(item => item.id === 'bulk-0')).toBe(true)
+      expect(entries.some(item => item.id === entry.id)).toBe(true)
+    })
+
+    it('裁剪只重写一次数据文件，且不产生残留 .tmp', () => {
+      for (let index = 0; index < 300; index += 1) {
+        seedTerminal(`bulk-${index}`, 'executed', new Date(BASE_TIME.getTime() - index * 1000).toISOString())
+      }
+      const before = Date.now()
+      scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      expect(readEntries().filter(item => item.status === 'executed').length).toBeLessThanOrEqual(200)
+      expect(fs.existsSync(filePath + '.tmp')).toBe(false)
+      expect(Date.now() - before).toBeLessThan(5000)
+    })
+
+    it('裁剪异常不得影响 create 成功（旁路容错）', () => {
+      for (let index = 0; index < 300; index += 1) {
+        seedTerminal(`bulk-${index}`, 'executed', new Date(BASE_TIME.getTime() - index * 1000).toISOString())
+      }
+      const realRename = fs.renameSync
+      let renameCalls = 0
+      const flakyFs = {
+        ...fs,
+        renameSync: vi.fn((from, to) => {
+          renameCalls += 1
+          // 第一次（剪枝重写）失败，第二次（create 后的正常路径）放行
+          if (renameCalls === 1) throw new Error('剪枝重写失败')
+          return realRename(from, to)
+        })
+      }
+      const isolated = createScheduler({ app, fs: flakyFs, logger })
+      const entry = isolated.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+      expect(entry.status).toBe('pending')
+      expect(readEntries().some(line => line.id === entry.id)).toBe(true)
+      isolated.stopAll()
+    })
+  })
 })
 
 describe('Scheduler 共享兼容入口', () => {
@@ -530,7 +736,7 @@ describe('Scheduler 共享兼容入口', () => {
     const schedulerModule = require('../scheduler')
     const sharedUtils = require('..')
     expect(Object.keys(schedulerModule).sort()).toEqual([
-      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'createScheduler', 'list', 'rearm', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
     expect(sharedUtils.createScheduler).toBe(schedulerModule.createScheduler)
   })

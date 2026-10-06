@@ -27,6 +27,24 @@ export const ORIGIN_COLLECT = 'collect'
 export const ORIGIN_REWRITE = 'rewrite'
 /** 改写文案上限（超出时丢弃最旧记录，防止 settings 无限膨胀） */
 export const MAX_COPY_REWRITES = 200
+
+/**
+ * M-5 修复：模块级写串行队列。
+ *
+ * 缺陷：upsertRewrite / removeRewrite 都是「读 → 内存构造 → 写」三步，
+ * 中间无互斥。两个调用的读阶段一旦重叠，就会读到同一份 current，
+ * 各自算出一个 next，后写者**静默覆盖**先写者 —— 用户保存的两条文案丢一条，
+ * 界面毫无提示。采集页与文案库面板各持一份 composable 实例
+ * （见 readCurrent 的注释），正是并发写的现实来源。
+ *
+ * 为什么放模块级而不是实例级：两个实例之间才是竞态双方，
+ * 放实例级等于没加防护。
+ *
+ * 防链中毒：链节内部一律 catch 后返回固定结果，
+ * 保证 writeChain 永不进入 rejected 态 —— 否则某次写入失败会让
+ * 后续所有写入被静默跳过。
+ */
+let writeChain = Promise.resolve()
 /** 标题/来源标题截断长度 */
 const TITLE_LIMIT = 200
 
@@ -133,33 +151,51 @@ export function useCopyLibrary () {
     const content = String((entry && entry.content) || '').trim()
     if (!content) return null
     const fromKey = String((entry && entry.fromKey) || '')
-    const current = await readCurrent()
-    const existing = fromKey ? current.find((it) => it && it.fromKey === fromKey) : null
-    const record = {
-      id: (existing && existing.id) || (entry && entry.id) || genId(),
-      fromKey,
-      fromTitle: truncate(entry && entry.fromTitle !== undefined && entry.fromTitle !== null && entry.fromTitle !== "" ? entry.fromTitle : (existing && existing.fromTitle) || "", TITLE_LIMIT),
-      title: truncate(entry && entry.title, TITLE_LIMIT),
-      content,
-      wordCount: content.length,
-      platform: truncate(entry && entry.platform, 50),
-      sourceUrl: truncate(entry && entry.sourceUrl, 2048),
-      createdAt: new Date().toISOString(),
+    // M-5：整段 read-modify-write 挂进写队列，保证两个实例的读不会重叠。
+    // 链节内部 catch 后返回 null —— 失败不阻断后续写入，也不让链进入 rejected 态。
+    const run = async () => {
+      try {
+        const current = await readCurrent()
+        const existing = fromKey ? current.find((it) => it && it.fromKey === fromKey) : null
+        const record = {
+          id: (existing && existing.id) || (entry && entry.id) || genId(),
+          fromKey,
+          fromTitle: truncate(entry && entry.fromTitle !== undefined && entry.fromTitle !== null && entry.fromTitle !== "" ? entry.fromTitle : (existing && existing.fromTitle) || "", TITLE_LIMIT),
+          title: truncate(entry && entry.title, TITLE_LIMIT),
+          content,
+          wordCount: content.length,
+          platform: truncate(entry && entry.platform, 50),
+          sourceUrl: truncate(entry && entry.sourceUrl, 2048),
+          createdAt: new Date().toISOString(),
+        }
+        const kept = fromKey ? current.filter((it) => it && it.fromKey !== fromKey) : current.slice()
+        const next = [record, ...kept].slice(0, MAX_COPY_REWRITES)
+        await storeSetSetting(COPY_REWRITES_KEY, JSON.stringify(next))
+        rewrites.value = next
+        return record
+      } catch (_) {
+        return null
+      }
     }
-    const kept = fromKey ? current.filter((it) => it && it.fromKey !== fromKey) : current.slice()
-    const next = [record, ...kept].slice(0, MAX_COPY_REWRITES)
-    await storeSetSetting(COPY_REWRITES_KEY, JSON.stringify(next))
-    rewrites.value = next
-    return record
+    writeChain = writeChain.then(run, run)
+    return writeChain
   }
 
   /** 删除一条改写文案（按记录 id） */
   async function removeRewrite (id) {
-    const current = await readCurrent()
-    const next = current.filter((it) => !it || it.id !== id)
-    await storeSetSetting(COPY_REWRITES_KEY, JSON.stringify(next))
-    rewrites.value = next
-    return next
+    const run = async () => {
+      try {
+        const current = await readCurrent()
+        const next = current.filter((it) => !it || it.id !== id)
+        await storeSetSetting(COPY_REWRITES_KEY, JSON.stringify(next))
+        rewrites.value = next
+        return next
+      } catch (_) {
+        return rewrites.value
+      }
+    }
+    writeChain = writeChain.then(run, run)
+    return writeChain
   }
 
   /** 重置内存态（测试用） */

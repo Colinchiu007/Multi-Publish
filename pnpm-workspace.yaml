@@ -33,3 +33,15 @@ overrides:
 # workspace 内无人直接声明），^ 后解析结果不变，改的只是"将来允许解析到什么"。
 # nx 声明 axios ^1.8.3、wait-on 声明 ^1.12.1，^1.20.0 落在两者区间内，不属强行覆写。
   axios: '^1.20.0'
+# electron 4 条 high 公告的修复下限是 >=43.5.0（GHSA-9qh4-3jw8-366w / GHSA-gr2m-v5gq-v685 /
+# GHSA-j84w-jfhq-vhvj 三条 >=43.4.1，GHSA-qmv3-fv6v-rmhq >=43.5.0），锁里此前停在 43.1.1。
+# 必须走 overrides 而不是只把 apps/desktop 与根的 devDependency 抬上去：packages/rpa-engine 声明
+# `peerDependencies: { electron: '>=33.0.0' }`、packages/shared-utils 声明 `>=20.0.0`（均为
+# peerDependenciesMeta.optional），两个可选 peer 的区间**本来就包含** 43.7.7，pnpm 因此沿用旧解
+# 43.1.1 不动 —— 只升根与 desktop 的 devDependency，这两条 optional peer 仍各自解析到 43.1.1，
+# 而门禁扫描面 `pnpm audit --prod` 命中的正是 `packages__rpa-engine>electron` / `packages__shared-utils>electron`
+# 这两条路径 ⇒ 门禁不会变绿，正是本文件既有的 axios 那段注释写的同一个陷阱。
+# 刻意不把两个包的 peer 区间收成 >=43.7.7：那是它们对外的兼容契约（收窄等于宣布放弃更老的 electron 消费方），
+# override 只改本仓解析结果，不改对外声明。带 ^ 与同段三条一致（有上界，见下方整表棘轮），
+# 43.x 内不再跨 major；43-x-y 线的最新是 43.7.7（44.x 已发布但属 major 抬升，另议）。
+  electron: '^43.7.7'

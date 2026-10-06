@@ -139,7 +139,12 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
 // 本 PR 不夹带" —— 于是这个隐患挂了整整 6 天（2026-09-29 的 #2613 建立，到本 PR 才收），期间
 // **没有任何东西在看它**。逐条点名式断言只能守住"写它的那个人当时想到的那一条"，所以这里改成
 // 按整张覆写表判：新增一条无上界覆写当场红，不需要有人记得来补注释或记得来抄断言。
-const OVERRIDE_FLOORS = { undici: '7.29.1', 'fast-uri': '3.1.7', axios: AXIOS_FLOOR }
+// electron 的地板取 4 条公告里最高的修复下界（GHSA-9qh4-3jw8-366w / GHSA-gr2m-v5gq-v685 /
+// GHSA-j84w-jfhq-vhvj 是 >=43.4.1，GHSA-qmv3-fv6v-rmhq 是 >=43.5.0 ⇒ 地板 43.5.0）。
+// 它与其他三条形态不同：undici / fast-uri / axios 是**传递依赖**，electron 是 workspace 根与
+// apps/desktop 的 devDependency，同时又是 rpa-engine / shared-utils 的 optional peer —— 后两条的
+// 区间（>=33.0.0 / >=20.0.0）本来就包含修复版，pnpm 会沿用旧解，只有 override 能同时按住这四条路径。
+const OVERRIDE_FLOORS = { undici: '7.29.1', 'fast-uri': '3.1.7', axios: AXIOS_FLOOR, electron: '43.5.0' }
 
 function readOverridesBlock(text, label) {
   const lines = text.split(/\r?\n/)

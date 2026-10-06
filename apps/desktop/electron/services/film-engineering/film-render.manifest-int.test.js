@@ -34,7 +34,7 @@ function probeDuration (p) {
 }
 
 function mkRenderFn () {
-  const engine = new PipelineEngine({ log: { info () {}, warn () {}, error () {} } })
+  const engine = new PipelineEngine({ log: { info () {}, warn () {}, error() {}, notify() {} } })
   engine.stageExecutor = { _customExecutors: new Map(), register (type, fn) { this._customExecutors.set(type, fn) } }
   engine._stageExecutors = engine.stageExecutor._customExecutors
   registerFilmRenderStage(engine)

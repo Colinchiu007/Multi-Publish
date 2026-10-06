@@ -1,7 +1,176 @@
 # PROJECT-003：多平台一键发布 — PRD> **立项日期**: 2026-06-03> **最后更新**: 2026-08-27> **当前版本**: v2.3.60 (2026-08-27) | **上一版本**: v2.3.59 (2026-08-27)> **功能文档**: [PRD-MODEL-PROVIDER-TEST-REAL-CALL.md](./PRD-MODEL-PROVIDER-TEST-REAL-CALL.md)（模型设置测试按钮-真实API调用验证） | [PRD-SERVICE-STATUS-PANEL-2026-09-12.md](./PRD-SERVICE-STATUS-PANEL-2026-09-12.md)（侧边栏服务状态面板：六服务真实状态 + 客户端登录态） | [PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)（侧边栏底部用户菜单：登录区下移为可展开 banner + 设置/升级 Pro 并入菜单 + 服务信息上移 + 模块导航右上角占位入口移除） | [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)（侧边栏「新版本」入口：运行时更新提示 + 点击退出应用并安装 + 全局更新弹窗下线） | [PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md](./PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md)（前端 UI/UE 一致性 P0：危险操作门禁 + 侧边栏 token 化 + 统一空态 + 主页整改 + 路由登记制，PR #1899 已合并） | [PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md](./PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md)（P1 批次：T0-6a 壳态收敛补录 + T1-1 token 结构收敛与 Gate 14 + T1-3 内联样式清零分批规格） | [PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md](./PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md)（全站 emoji 功能图标收敛：41 处功能图标位统一为 Element Plus 线性图标 + EmptyState 图标名白名单 + 守卫 FILES 34 项登记，PR #2249） | [PRD-HOME-DATA-TRUTHFULNESS-2026-09-23.md](./PRD-HOME-DATA-TRUTHFULNESS-2026-09-23.md)（首页统计/账号/近期动态数据源真实性合同 2026-09-23） | [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（发布能力注册表：15 平台发布提交内容项单一真源 + 通用/差异化内容 3+ 阈值分类 + 无标题平台标题入描述首行 + 参考产品取证能力矩阵） | [PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md](./PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md)（发布记录卡片整体点击打开平台作品链接：safeHttpUrl 单一判据 + tabStore.createTab 应用内新标签 + window.open 降级主进程更严判据兜底） | [PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md](./PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md)（发布页优化 Roadmap：对比参考产品的差距分析（审核状态跟踪/账号风险预检/平台草稿往返等 8 项）+ P1-4 定时×草稿互斥已实现） | [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)（P2-7 批量模式字段面：条目级封面/支持度徽标/无标题提示/可见性/平台差异化面板 + 主进程派发层砍键与排期账号凭证修复 + 判据下沉单一真源） | [AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md](./AUDIT-REQUERY-EVIDENCE-CHECKLIST-2026-10-09.md)（平台端点取证清单：审核回查与平台草稿列表的「提升为 verified」三项证据 + 逐平台清单与验收判据） | [PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](./PRD-PUBLISH-PROGRESS-UX-2026-09-28.md)（发布进度全局反馈面板：富化进度事件 + 全局面板可最小化后台运行 + 失败落历史 + 发布运行中关窗转托盘）| [PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-02.md](./PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-02.md)（Story2Video 竖屏成片图片宽高比断链修复：agnes-image 入参 aspect_ratio/aspectRatio/ratio 三键解析，竖屏生图与成片画幅一致，黑边消除） | [PRD-REWRITE-PARAGRAPH-PRESERVE-2026-10-03.md](./PRD-REWRITE-PARAGRAPH-PRESERVE-2026-10-03.md)（改写结果分段保留修复：去 AI 味 Pass 3 压平段落根因 + 结构不变量保底层 + 空行分段提示词上游层，TDD 181/181） | [PRD-REWRITE-AI-TASTE-OPS-CENTER-2026-10-04.md](./PRD-REWRITE-AI-TASTE-OPS-CENTER-2026-10-04.md)（去 AI 味词库运营中心化：词库 CRUD/禁用语义/强度参数/bootstrap 下发/管理页 + Q1-Q12 决策记录，TDD 194+478+81+57 全绿） | [USER-MANUAL-REWRITE-AI-TASTE-2026-10-04.md](./USER-MANUAL-REWRITE-AI-TASTE-2026-10-04.md)（使用手册：去 AI 味——改写页用户信号判读与影响手段 + 管理员词库操作/字段规范/运维建议 + FAQ） | [weibo 平台种子对齐补记](#二平台策略)（fix-weibo-seed-registry-align 2026-10-03：#2766 漏同步 ops-center 回落快照与 SEED_DEFS 默认值，漂移锁 test_platform_def_seed_limits 拦截；#2842 合并时序错位漏带后本 PR 追平） > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）> **需求确认**: ✅ CEO 已签字（见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）> **市场调研**: [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) | **设计评审**: [DESIGN-REVIEW.md](./DESIGN-REVIEW.md)---## 一、产品概述### 1.1 核心价值内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：1. **统一入口**：一个桌面应用管理所有平台的发布2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI3. **异步队列**：后台批量发布，实时追踪状态4. **Cookie 管理**：安全存储各平台登录凭证5. **定时发布**：设定时间自动发布6. **平台分类**：短视频/图文/混合三类，发布策略自动适配7. **单 RPA 引擎**：RpaViewManager（Electron 原生 executeJavaScript）统一引擎### 1.2 产品边界| 范围 | 说明 ||------|------|||| ✅ 微信公众号 | RPA 发布，支持草稿编辑 → 群发 |||| ✅ 知乎 | RPA 文章发布 + 话题标签 |||| ✅ 微博 | RPA 图文发布 |||| ✅ 抖音 | RPA 图文/视频发布 |||| ✅ 小红书 | RPA 标题+正文+标签 |||| ✅ 视频号 | RPA 视频/图文发布 |||| ✅ 快手 | RPA 视频/图文发布 |||| ✅ 今日头条 | RPA 图文/视频发布 |||| ✅ YouTube | RPA 视频发布 |||| ✅ TikTok | RPA 视频发布 |||| ✅ Twitter/X | RPA 图文发布 |||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |||| ✅ Instagram | RPA 图片/视频/Reels 发布 |||| ✅ Facebook | RPA 图文/视频/链接发布 |||| ✅ 包含 | AI 视频/图像/音频创作（OpenMontage 集成）、Pipeline 管线编排、Remotion 渲染 |||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、✅ 内容聚合改写（Phase 1 集成中，PR #1496） |---## 二、平台策略### 2.1 平台支持矩阵| 平台 | 优先级 | 技术路线 | 状态 ||------|--------|----------|------|| **微信公众号** | P0 | RPA | ✅ v1.0.0 || **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 || **知乎** | P1 | RPA | ✅ v1.0.0 || **微博** | P2 | RPA | ✅ v1.0.0 || **B站** | P1 | RPA + API | ✅ v2.0.0 || **小红书** | P1 | RPA | ✅ v2.0.0 || **抖音** | P2 | RPA | ✅ v1.0.0 || **小红书** | P4 | RPA | ✅ v1.0.0 || **视频号** | P1 | RPA | ✅ v1.0.2 || **快手** | P1 | RPA | ✅ v1.0.2 || **今日头条** | P1 | RPA | ✅ v1.0.3 || **YouTube** | P1 | RPA | ✅ v1.0.3 || **TikTok** | P1 | RPA | ✅ v1.0.3 || **Twitter/X** | P2 | RPA | ✅ v1.3.0 || **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 || **Instagram** | P2 | RPA | ✅ v1.3.0 || **Facebook** | P2 | RPA | ✅ v1.3.0 || **百家号** | P1 | RPA | ✅ v1.1.0 |### 2.2 技术路线所有平台支持 **RpaViewManager**（Electron 原生 executeJavaScript）模拟浏览器操作，通过 Cookie 保持登录状态。所有平台统一使用 **RpaViewManager**（隐藏 BrowserWindow + executeJavaScript），无需独立浏览器进程。Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。**统一发布路由：**1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）2. **Python 后端 API** — 预留，B 站 API 模式**三种认证模式：**1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）3. **扫码登录** — 二维码自动检测（QrCodeLogin）### 2.3 用户认证与账号管理 (User Auth & Account Management)用户认证系统管理所有平台的登录凭证，支持 Cookie/Token/OAuth 三种认证模式。| Feature | Description | Priority | Status ||---------|-------------|----------|--------|| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done || Secure Storage | AES-256-GCM encrypted store | P0 | Done || OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done || QR Login | Auto-detect + scan to login | P2 | Done || Multi-account | Multiple accounts per platform | P1 | Done || Expiry Monitor | Auto-detect cookie expiration | P1 | Done || Re-login | One-click re-login flow | P1 | Done |---## 三、功能需求### 3.1 核心功能#### F1：平台账号管理| 子功能 | 描述 | 状态 ||--------|------|------|| 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ || Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ || 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 || 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ || 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ || 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ || OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ || 独立窗口登录 | 独立 BrowserWindow 承载 WebContentsView 登录，凭证捕获能力不变（2026-09-08 由内嵌改为独立窗口） | ✅ |#### F2：内容发布| 子功能 | 描述 | 状态 ||--------|------|------|| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ || 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ || **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ || 定时发布 | 设置发布时间 → 后台定时任务执行（单篇+批量均持久化、重启恢复；历史标记定时模式；日历可取消，详见 §6.3） | ✅ || 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ || 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ || 批量复制 | 复制已有文章作为模板 | ✅ |#### F3：发布任务管理| 子功能 | 描述 | 状态 ||--------|------|------|| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ || 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ || 任务取消 | 取消等待中或执行中的任务 | ✅ || 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ || 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ || 重试机制 | 失败自动重试，通知重试进度 | ✅ |#### F4：分屏监控| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ || 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ || 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |#### F5：内容采集| 子功能 | 描述 | 状态 ||--------|------|------|| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ || URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ || 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ || 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |#### F6：发布历史与统计| 子功能 | 描述 | 状态 ||--------|------|------|| 历史记录 | SQLite 持久化发布历史 | ✅ || 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ || 历史筛选 | 按平台/时间/状态筛选 | ✅ || 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |#### F6：视频创作（v2.0.0 — OpenMontage 集成）| 子功能 | 描述 | 状态 ||--------|------|------|| AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 || AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 || 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） || 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 || 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 || 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 || Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 || Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 || 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
 # PROJECT-003：多平台一键发布 — PRD> **立项日期**: 2026-06-03> **最后更新**: 2026-08-27> **当前版本**: v2.3.60 (2026-08-27) | **上一版本**: v2.3.59 (2026-08-27)> **功能文档**: [PRD-MODEL-PROVIDER-TEST-REAL-CALL.md](./PRD-MODEL-PROVIDER-TEST-REAL-CALL.md)（模型设置测试按钮-真实API调用验证） | [PRD-SERVICE-STATUS-PANEL-2026-09-12.md](./PRD-SERVICE-STATUS-PANEL-2026-09-12.md)（侧边栏服务状态面板：六服务真实状态 + 客户端登录态） | [PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)（侧边栏底部用户菜单：登录区下移为可展开 banner + 设置/升级 Pro 并入菜单 + 服务信息上移 + 模块导航右上角占位入口移除） | [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)（侧边栏「新版本」入口：运行时更新提示 + 点击退出应用并安装 + 全局更新弹窗下线） | [PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md](./PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md)（前端 UI/UE 一致性 P0：危险操作门禁 + 侧边栏 token 化 + 统一空态 + 主页整改 + 路由登记制，PR #1899 已合并） | [PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md](./PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md)（P1 批次：T0-6a 壳态收敛补录 + T1-1 token 结构收敛与 Gate 14 + T1-3 内联样式清零分批规格） | [PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md](./PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md)（全站 emoji 功能图标收敛：41 处功能图标位统一为 Element Plus 线性图标 + EmptyState 图标名白名单 + 守卫 FILES 34 项登记，PR #2249） | [PRD-HOME-DATA-TRUTHFULNESS-2026-09-23.md](./PRD-HOME-DATA-TRUTHFULNESS-2026-09-23.md)（首页统计/账号/近期动态数据源真实性合同 2026-09-23） | [PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md](./PRD-PUBLISH-CAPABILITY-REGISTRY-2026-10-08.md)（发布能力注册表：15 平台发布提交内容项单一真源 + 通用/差异化内容 3+ 阈值分类 + 无标题平台标题入描述首行 + 参考产品取证能力矩阵） | [PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md](./PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md)（发布页优化 Roadmap：对比参考产品的差距分析（审核状态跟踪/账号风险预检/平台草稿往返等 8 项）+ P1-4 定时×草稿互斥已实现） | [PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md](./PRD-PUBLISH-BATCH-FIELD-SURFACE-2026-10-09.md)（P2-7 批量模式字段面：条目级封面/支持度徽标/无标题提示/可见性/平台差异化面板 + 主进程派发层砍键与排期账号凭证修复 + 判据下沉单一真源） | [PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](./PRD-PUBLISH-PROGRESS-UX-2026-09-28.md)（发布进度全局反馈面板：富化进度事件 + 全局面板可最小化后台运行 + 失败落历史 + 发布运行中关窗转托盘） | [PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](./PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md)（话题内联描述：标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复）> **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）> **需求确认**: ✅ CEO 已签字（见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）> **市场调研**: [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) | **设计评审**: [DESIGN-REVIEW.md](./DESIGN-REVIEW.md)---## 一、产品概述### 1.1 核心价值内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：1. **统一入口**：一个桌面应用管理所有平台的发布2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI3. **异步队列**：后台批量发布，实时追踪状态4. **Cookie 管理**：安全存储各平台登录凭证5. **定时发布**：设定时间自动发布6. **平台分类**：短视频/图文/混合三类，发布策略自动适配7. **单 RPA 引擎**：RpaViewManager（Electron 原生 executeJavaScript）统一引擎### 1.2 产品边界| 范围 | 说明 ||------|------|||| ✅ 微信公众号 | RPA 发布，支持草稿编辑 → 群发 |||| ✅ 知乎 | RPA 文章发布 + 话题标签 |||| ✅ 微博 | RPA 图文发布 |||| ✅ 抖音 | RPA 图文/视频发布 |||| ✅ 小红书 | RPA 标题+正文+标签 |||| ✅ 视频号 | RPA 视频/图文发布 |||| ✅ 快手 | RPA 视频/图文发布 |||| ✅ 今日头条 | RPA 图文/视频发布 |||| ✅ YouTube | RPA 视频发布 |||| ✅ TikTok | RPA 视频发布 |||| ✅ Twitter/X | RPA 图文发布 |||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |||| ✅ Instagram | RPA 图片/视频/Reels 发布 |||| ✅ Facebook | RPA 图文/视频/链接发布 |||| ✅ 包含 | AI 视频/图像/音频创作（OpenMontage 集成）、Pipeline 管线编排、Remotion 渲染 |||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、✅ 内容聚合改写（Phase 1 集成中，PR #1496） |---## 二、平台策略### 2.1 平台支持矩阵| 平台 | 优先级 | 技术路线 | 状态 ||------|--------|----------|------|| **微信公众号** | P0 | RPA | ✅ v1.0.0 || **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 || **知乎** | P1 | RPA | ✅ v1.0.0 || **微博** | P2 | RPA | ✅ v1.0.0 || **B站** | P1 | RPA + API | ✅ v2.0.0 || **小红书** | P1 | RPA | ✅ v2.0.0 || **抖音** | P2 | RPA | ✅ v1.0.0 || **小红书** | P4 | RPA | ✅ v1.0.0 || **视频号** | P1 | RPA | ✅ v1.0.2 || **快手** | P1 | RPA | ✅ v1.0.2 || **今日头条** | P1 | RPA | ✅ v1.0.3 || **YouTube** | P1 | RPA | ✅ v1.0.3 || **TikTok** | P1 | RPA | ✅ v1.0.3 || **Twitter/X** | P2 | RPA | ✅ v1.3.0 || **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 || **Instagram** | P2 | RPA | ✅ v1.3.0 || **Facebook** | P2 | RPA | ✅ v1.3.0 || **百家号** | P1 | RPA | ✅ v1.1.0 |### 2.2 技术路线所有平台支持 **RpaViewManager**（Electron 原生 executeJavaScript）模拟浏览器操作，通过 Cookie 保持登录状态。所有平台统一使用 **RpaViewManager**（隐藏 BrowserWindow + executeJavaScript），无需独立浏览器进程。Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。**统一发布路由：**1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）2. **Python 后端 API** — 预留，B 站 API 模式**三种认证模式：**1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）3. **扫码登录** — 二维码自动检测（QrCodeLogin）### 2.3 用户认证与账号管理 (User Auth & Account Management)用户认证系统管理所有平台的登录凭证，支持 Cookie/Token/OAuth 三种认证模式。| Feature | Description | Priority | Status ||---------|-------------|----------|--------|| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done || Secure Storage | AES-256-GCM encrypted store | P0 | Done || OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done || QR Login | Auto-detect + scan to login | P2 | Done || Multi-account | Multiple accounts per platform | P1 | Done || Expiry Monitor | Auto-detect cookie expiration | P1 | Done || Re-login | One-click re-login flow | P1 | Done |---## 三、功能需求### 3.1 核心功能#### F1：平台账号管理| 子功能 | 描述 | 状态 ||--------|------|------|| 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ || Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ || 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 || 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ || 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ || 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ || OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ || 独立窗口登录 | 独立 BrowserWindow 承载 WebContentsView 登录，凭证捕获能力不变（2026-09-08 由内嵌改为独立窗口） | ✅ |#### F2：内容发布| 子功能 | 描述 | 状态 ||--------|------|------|| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ || 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ || **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ || 定时发布 | 设置发布时间 → 后台定时任务执行（持久化，重启恢复） | ✅ || 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ || 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ || 批量复制 | 复制已有文章作为模板 | ✅ |#### F3：发布任务管理| 子功能 | 描述 | 状态 ||--------|------|------|| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ || 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ || 任务取消 | 取消等待中或执行中的任务 | ✅ || 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ || 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ || 重试机制 | 失败自动重试，通知重试进度 | ✅ |#### F4：分屏监控| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ || 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ || 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |#### F5：内容采集| 子功能 | 描述 | 状态 ||--------|------|------|| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ || URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ || 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ || 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |#### F6：发布历史与统计| 子功能 | 描述 | 状态 ||--------|------|------|| 历史记录 | SQLite 持久化发布历史 | ✅ || 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ || 历史筛选 | 按平台/时间/状态筛选 | ✅ || 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |#### F6：视频创作（v2.0.0 — OpenMontage 集成）| 子功能 | 描述 | 状态 ||--------|------|------|| AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 || AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 || 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） || 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 || 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 || 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 || Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 || Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 || 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
 | Python 聚合采集 | 后端 aggregation API（多源采集+AI改写），Phase 1 已集成 | ✅ v2.3.60 (PR #1496) |
-| 视频提示词统一优化 | 所有视频提示词的产出/改写/校验统一经 prompt-engine（8013）`domain=video`：videogen `videogen_generate` 前批量优化（数量/空项 fail-closed，未注入 PromptBridge 明确失败）、Story2Video 混合模式视频场景提示词改写后再提交 `generateVideo`（失败按混合语义回退图片轮播）；结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token）；契约文件 `video-prompt-engine-contract.js` 与图片契约分文件分命名（详见 PRD-video-creation §3.1.2.2） | ✅ 2026-08-12 || 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 || Agnes 视频生成适配 | agnes-video-v2.0：提交 POST /v1/videos；状态查询 GET /agnesapi（域名根，非 /v1/agnesapi，2026-08-10 修复）；callAdapter 以 { videoId, taskId } 对象调用 getVideoStatus；流水线 merge 兼容 generate/merge/animate 上下文键（PR #476） | ✅ 2026-08-10 || videogen 生成选项生效 | animation/character-animation/avatar-spokesperson/hybrid 的生成参数（numFrames/frameRate/width/height + storyboard duration）经 stageOptions 真实作用于最终合成视频；2026-08-10 修复参数契约（num_frames 下划线丢失→双写）+ duration→帧数映射（PR 待合） | ✅ 2026-08-10 |#### F7：数据存储（SQLite）| 子功能 | 描述 | 状态 ||--------|------|------|| 账号存储 | accounts 表（含多账号、默认标记） | ✅ || 发布历史 | publish_history 表 | ✅ || 定时任务 | scheduled_tasks 表 | ✅ || 回调日志 | callback_logs 表 | ✅ || 批量任务 | batch_jobs 表 | ✅ || 设置存储 | settings 键值表（含队列状态持久化） | ✅ |#### F11：内容智能（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 热点趋势 | 实时热点话题追踪与推荐 | ✅ || 标题助手 | AI 生成/优化标题 | ✅ || 标签推荐 | 智能标签生成 | ✅ || 爆款分析 | 分析平台爆款内容特征 | ✅ v2.3.43（orchestrator + 本地 fallback） || AI Writer | AI 辅助写作面板 | ✅ || 关键词监控 | 监控关键词在各平台的表现 | ✅ |#### F12：多平台实时监控（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session | ✅ || 实时回调 | HTTP POST 回调，59s 心跳 | ✅ |#### F13：评论管理（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 评论聚合 | 多平台评论统一管理 | ✅ v2.3.43（webview + IPC comment:list） || 评论回复 | 在应用内直接回复 | ✅ v2.3.43（IPC comment:reply + 后台轮询 comment:start-polling） |#### F14：云端发布（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 远程发布 API | HTTP API 触发发布 | ✅ || 任务队列 | 异步发布队列 | ✅ |#### F15：Pro 版本（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 许可证管理 | 离线验证 + 限时试用 | ✅ || 功能门禁 | Pro 功能按 license 解锁 | ✅ || 支付集成 | 支付宝/微信支付（当前为模拟模式，真实 SDK 预留接口） | ✅ 模拟模式 |#### F16：插件系统（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 插件 manifest | 声明式配置 | ✅ || 动态加载 | 运行时热加载 | ✅ || 生命周期钩子 | beforePublish/afterPublish + onLoad/onEnable/onDisable/onUnload | ✅ v2.3.43 |#### F17：日历与计划（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 发布日历 | 日历视图展示计划 | ✅ || 内容收藏 | 草稿/模板管理 | ✅ || 定时调度 | setTimeout 单次定时 + 持久化队列（非 cron，重启恢复） | ✅ setTimeout 模式 |#### F8：系统功能| 子功能 | 描述 | 状态 ||--------|------|------|| 系统托盘 | 最小化到托盘，后台运行，托盘菜单 | ✅ || 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ || 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ || 首次运行引导 | 自动检测 Python 依赖 | ✅ || 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 || 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |#### F9：平台分类（v1.2.0, v2.3.43 完整实现）| 子功能 | 描述 | 状态 ||--------|------|------|| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED（v2.3.43） | ✅ v2.3.43 || 分类映射 | 15 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=VIDEO） | ✅ v2.3.43 || API 透传 | `/api/platforms` + `platform:definitions` IPC 返回 content_categories 字段 | ✅ v2.3.43 || 前端显示 | platform store 暴露 getContentCategory / getPlatformsByContentCategory | ✅ v2.3.43 |#### F10：Electron 原生 RPA 引擎（v1.2.0）| 子功能 | 描述 | 状态 ||--------|------|------|| RpaViewManager | 隐藏 BrowserWindow + executeJavaScript RPA 引擎（P2-E 统一引擎） | ✅ || CDP 文件上传 | `DOM.setFileInputFiles` 绕过浏览器安全限制上传文件 | ✅ || DOM 操作工具集 | `_waitForElement` / `_fillInput` / `_click` / `_waitForCondition` | ✅ || 网络响应监控 | webRequest.onCompleted 网络响应监听 | ✅ || Playwright → RpaViewManager 全量迁移 | 15 平台从 Playwright 统一迁移到 RpaViewManager | ✅ || 每账号 Session 隔离 | `session.fromPartition()` 独立 Cookie 分区 | ✅ || 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ || CDP/JS 双文件上传 | 大文件走 CDP，CDP 失败回退 JS File API / DataTransfer（v2.3.43） | ✅ v2.3.43 |#### F1a：内容编辑字段规范| 字段 | 最大长度 / 格式 | 说明 ||------|---------------|------|| **标题** | 各平台上限不同（微信 64、抖音 55、B站 80、微博 140） | 发布时按平台自动截断，超出字符弹窗警告 || **正文/HTML** | 30,000 字符 | HTML 白名单：p/br/strong/em/a/img/ul/ol/li/blockquote/h2-h4；自动过滤 script/style/iframe || **标签** | 每平台 2-10 个，每标签 ≤30 字符 | 自动去重、按平台上限截断，无合法标签时生成默认标签 || **封面图** | JPEG/PNG，≤5MB，1920×1080 以内 | sharp 中心裁剪 + 质量 85% 压缩；视频号/快手需 1:1 自动补边 || **视频** | MP4/H.264，≤4GB（平台差异：B站 8GB，抖音 2GB） | 超过平台上限时弹窗提示，不自动压缩 || **多图上传** | 每篇 ≤9 张，格式同封面图 | 按平台顺序上传，失败时跳过不阻塞发布 |**平台标题上限配置（config/platforms.yaml）：**`yamlplatforms:  wechat_mp: { title_max: 64, body_max: 30000, tags_max: 8, tag_length: 30, image_max: 9, video_max_mb: 1024 }  douyin:    { title_max: 55, body_max: 2000,  tags_max: 10, tag_length: 30, image_max: 35, video_max_mb: 2048 }  bilibili:  { title_max: 80, body_max: 20000, tags_max: 10, tag_length: 30, video_max_mb: 8192 }  # ... 其他平台`**发布前校验流程：**1. 读取目标平台配置 platforms.yaml 获取字段上限2. 对标题/正文/标签逐项校验，超限自动截断并记录日志3. 封面图自动压缩（sharp），视频仅检查大小不自动转换4. 校验失败项汇总弹窗，用户确认后继续或取消### 3.2 非功能需求|| 需求 | 指标 | 状态 |||------|------|------|| 并发发布 | 3 任务并发执行（maxConcurrent=3），每 RPA Tab ~80MB 内存，3 并发 + 主进程 < 500MB | ✅ || 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ || 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ ||| 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ ||| 存储引擎 | SQLite（better-sqlite3） | ✅ ||| 跨平台 | Windows + Linux（macOS 待支持） | ✅ ||| 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 ||| 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ ||| 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |#### 错误分类| 分类 | 编码 | 处理策略 ||------|------|---------|| 认证过期 | AUTH_EXPIRED | 检测到过期 -> 弹窗重新登录 || 网络超时 | NETWORK_TIMEOUT | 重试 3 次(指数退避) -> 最终报错 || 平台拒绝 | PLATFORM_REJECT | 不重试，记录原因到 task || RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 || 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |#### 审计日志每次发布操作记录到 SQLite audit_log 表：| 字段 | 说明 ||------|------|| id(UUID), timestamp, user | 操作标识 || platform, account_id, action | 发布/重试/取消/删除 || content_hash(SHA-256), result | 成功/失败/部分 || error_code, duration_ms, metadata(JSON) | 错误分类/耗时/上下文 |保留策略：本地 90 天，超期自动归档。### 3.3 并发与资源约束 (Concurrency & Resource Constraints)系统资源约束定义了并发发布的最大容量，确保在有限硬件资源下稳定运行。| Resource | Limit | Notes ||----------|-------|-------|| Concurrent RPA tabs | Max 6 | 2/3/4/6 layout, ~400MB RAM per tab || Concurrent tasks | Max 3 per run | TaskQueue maxConcurrent=3 || Publish interval | 5 min min | Configurable per platform || Batch queue | No hard limit | Memory-bound, ~1MB per task || Electron main mem | ~200MB idle | Chromium + 25 services || WebSocket port | 16521 | Single instance, fallback on conflict || API timeout | Default 120s | Video platforms 300s |#### Rate Limiting（频率限制）- Per-platform: max 10 publishes/minute- Accounts: max 3 logins/minute per platform- API calls: respect upstream rate limits (TikHub, etc.)- Queue: tasks wait if limit exceeded---## 四、技术架构### 4.1 架构图```┌──────────────────────────────────────────────────┐│              apps/desktop/electron/               ││              Electron Shell + Vue 3 UI            ││  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐│  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │  │ 采集/监控  ││  └─────┬────┘  └────┬─────┘  └─────┬────┘  └──────┬────┘│        │            │              │              ││  ┌─────┴────────────┴──────────────┴─────┐│  │        IPC Bridge (preload.js)        ││  └────────────────┬──────────────────────┘│                   ││  ┌────────────────┼──────────────────────┐│  │    Task Queue  │   Scheduler          ││  │  (并发3,持久化)  │  (定时/恢复)          ││  │  @shared-utils                        ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     Publisher Registry                 ││  │   13 platforms (+B站)                  ││  │   + API+RPA 双模式                     ││  │   + OAuth 2.0 (YT/TT)                 ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     RPA Engine（统一引擎）               ││  │                                       ││  │  ┌─────────────────────────────┐      ││  │  │  RpaViewManager (Electron)  │      ││  │  │  15 platforms + B站         │      ││  │  │  隐藏 BrowserWindow         │      ││  │  │  + executeJavaScript        │      ││  │  │  + CDP 文件上传              │      ││  │  └─────────────────────────────┘      ││  │                                       ││  │  + WebviewManager（分屏）             ││  │  + QrCodeLogin（扫码登录）            ││  │  + CallbackServer（回调 :16521，config.yaml 可配）      ││  └───────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  SQLite (better-sqlite3)             ││  │  ├─ accounts（含多账号）               ││  │  ├─ publish_history                  ││  │  ├─ scheduled_tasks                  ││  │  ├─ batch_jobs                       ││  │  ├─ callback_logs                    ││  │  └─ settings（队列持久化）              ││  └──────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  System / UX                         ││  │  ├─ SystemTray（托盘）                ││  │  ├─ HotKeys（6组快捷键）               ││  │  ├─ AutoUpdater                      ││  │  └─ UrlCollector（URL采集）            ││  └──────────────────────────────────────┘└──────────────────────────────────────────────────┘```### 4.2 Monorepo 目录结构```multi-publish/├── apps/desktop/                # Electron 桌面应用│   ├── electron/                # Electron 主进程 + IPC│   │   ├── main.js              # 入口：窗口管理、IPC 注册│   │   ├── preload.js           # 预加载脚本（contextBridge）│   │   ├── store.js             # SQLite 统一存储（better-sqlite3）│   │   ├── webview-manager.js   # 分屏监控（P0）│   │   ├── auth-view-manager.js # 独立窗口登录（BrowserWindow + WebContentsView）│   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）│   │   ├── callback-server.js   # 实时回调（P1）│   │   ├── qrcode-login.js      # 扫码登录（P2）│   │   ├── oauth-manager.js     # OAuth 2.0 认证│   │   ├── batch-manager.js     # 批量发布管理器│   │   ├── url-collector.js     # URL 内容采集│   │   ├── hotkeys.js           # 全局快捷键│   │   ├── system-tray.js       # 系统托盘│   │   ├── python-bridge.js     # Python 后端子进程管理│   │   ├── task-queue.js → packages/shared-utils│   │   ├── scheduler.js         # 定时发布│   │   ├── publish-history.js   # 发布记录│   │   ├── publish-monitor.js   # 发布后状态监控│   │   ├── account-state-restorer.js  # 账号状态恢复│   │   ├── credential-store.js  # 凭证加密存储│   │   ├── video-uploader.js    # 视频分片上传│   │   ├── content-aggregator-bridge.js  # 001 集成│   │   ├── api-platform-adapter.js  # API 模式适配器│   │   ├── auto-updater.js      # electron-updater│   │   └── first-run.js         # 首次运行引导│   ├── src/                     # Vue 3 前端│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/Collection/Monitor/FirstRun│   │   ├── components/          # 组件：ArticleEditor│   │   ├── api/                 # API 封装（publisher.js）│   │   ├── router/              # Vue Router│   │   ├── styles/              # Cohere 风格 CSS│   │   └── App.vue├── packages/│   ├── rpa-engine/              # RPA 引擎（独立 npm 包）│   │   ├── src/playwright-manager.js  # （已移除，P2-E）│   │   ├── src/cookie-store.js        # Cookie 存储│   │   ├── src/publishers/            # 平台注册（P2-E 简化）│   │   │   └── registry.js            # 平台注册 stub（已迁移到 RpaViewManager）│   │   └── package.json│   ├── shared-utils/          # 共享工具库│   │   ├── src/task-queue.js    # 任务队列（并发3+持久化）│   │   ├── src/aggregator-bridge.js  # 001 集成│   │   ├── src/format-adapter.js     # 格式适配器│   │   ├── src/cover-processor.js    # 封面处理│   │   └── package.json│   │   ├── src/aggregator-bridge.js  # PROJECT-001 集成│   │   └── package.json│   └── python-backend/        # Python 后端（FastAPI）│       ├── src/server.py        # FastAPI 入口│       ├── src/multi_publish/   # 核心模块│       │   ├── core/            # PublisherManager / QueryWorker / TaskScheduler│       │   └── publishers/      # Python 发布器（插件化）│       │       ├── platform_registry.py  # 动态注册表（JSON 驱动发现）│       │       ├── platforms.json        # 外部配置，新增平台只需加一行│       │       ├── base.py              # BasePublisher + async_retry│       │       ├── douyin.py            # 抖音（API+RPA 双模式）│       │       └── wechat_mp.py         # 微信公众号（RPA）│       └── pyproject.toml├── package.json               # 根 workspaces 配置└── .github/workflows/build.yml # CI/CD```### 4.3 发布器接口规范```javascript// 发布结果接口// interface PublishResult { success, error, partialResult, platformData, durationMs }class BaseRpaPublisher {  constructor() { /* 加载 Cookie, 初始化浏览器 Context */ }  async publishArticle({ title, content, coverUrl }) {    /* 登录态检查 → 导航到创作页 → 填写内容 → 发布 → 返回结果 */  }  async checkLoginStatus() { /* 打开平台检查 Cookie 是否有效 */ }  async cleanup() { /* 关闭浏览器 Context */ }  onProgress(callback) { /* 注册进度回调 */ }}// 所有平台发布器继承 BaseRpaPublisher，差异化部分覆盖```### 4.4 内容字段规范 (Content Field Specification)各平台对发布内容有不同字段限制。发布器在发送前自动按目标平台规则校验并截断/转换内容。| Field | Max Length | Format | Per-Platform Notes ||-------|-----------|--------|-------------------|| Title | 64 chars | Plain text, no HTML | WeChat(64), Weibo(140), Bilibili(80) || Content | 10000 chars | Markdown or HTML | WeChat public(20000), Weibo(10000) || Tags | 10 per article | Comma-separated | Douyin(10), Weibo(2), Bilibili(12) || Cover | 10MB max | JPG/PNG/WebP 16:9 | Douyin(9:16), WeChat(16:9) || Video | 500MB max | MP4/H.264 | Douyin(15min), Bilibili(4h) |#### Content Format Rules（内容格式规则）- HTML allowed tags: p, br, strong, em, a, img, blockquote- Script/iframe/object tags stripped before publish- External images auto-download and re-upload to platform CDN- Markdown converted to per-platform format via format-adapter---## 五、首次使用流程首次启动时，系统自动执行以下步骤：### 5.1 环境检测- [自动] 检测 Python 3.12+ → 安装 pip 依赖- [自动] 检测 Remotion 渲染引擎 → 安装缺失的 node_modules 依赖### 5.2 平台账号登录通过独立登录窗口（BrowserWindow 承载 WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。### 5.3 模型服务商配置（必选）在「模型服务商设置」页配置 AI 模型的 API Key。支持 7 类模型：| 类别 | 用途 | 预设服务商 ||------|------|----------|| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek || TTS 语音 | 视频配音、语音合成 | ElevenLabs / OpenAI TTS / 豆包 TTS / Google TTS / Piper || 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper || 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI || 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield || 多模态模型 | 一个 API Key 覆盖文字推理/TTS/生图/视频等多个能力 | MiniMax（能力：文字推理 / TTS语音 / 生图 / 生成视频） |每个类别可添加多个服务商，并选择一个设为默认。### 5.4 模型类别与功能关联| 功能模块 | 依赖模型类别 | 说明 ||----------|------------|------|| AI 写稿 | 推理模型 | 视频脚本、文章改写、标题生成 || 标题助手 | 推理模型 | AI 生成/优化标题 || 内容智能 | 推理模型 | 内容分析、关键词提取、摘要生成 || 视频配音 | TTS 语音 | 文本转语音、多语言配音 || 字幕生成 | 语音识别 | 音频/视频转文字、字幕文件生成 || 封面生成 | 图片生成 | AI 生成封面图、配图 || 视频生成 | 视频模型 | 文本/图片生成视频片段 |### 5.5 开始使用完成引导后进入首页，即可使用发布、视频创作、内容智能等全部功能。> 详细流程见：**第 7-11 节**（视频创作 / 内容采集 / 内容智能 / 发布日历 / 云端发布）## 六、发布流程### 6.1 单平台发布1. 在富文本编辑器撰写文章（标题 + 正文 + 封面图）2. 选择目标平台3. 点击发布 → 任务加入队列 → RpaViewManager 自动化执行 → 结果通知### 6.2 多平台批量发布1. 撰写一篇文章2. 勾选多个平台（如微信+知乎+微博）3. 点击发布 → 每个平台依次执行 → 实时进度推送### 6.3 定时发布**约束：** 最大提前 30 天，同平台间隔 >= 5 分钟，使用本地时区，断网标记 missed。1. 撰写文章 + 选择平台2. 勾选「定时发布」→ 设置时间3. 到点时自动执行，支持 App 关闭后重启恢复4. 任务持久化在 `tasks/scheduled-tasks.jsonl`### 6.4 多平台批量发布（v1.1.0）1. 撰写一篇文章2. 勾选 2-10 个平台3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成4. 发布失败平台不影响其他平台继续执行---### 6.5 发布回滚与降级策略#### 回滚策略| 场景 | 处理方式 | 数据安全 ||------|---------|---------|| **RPA 发布失败**（表单提交时报错） | 标记发布任务为 failed，保留预填草稿截图，返回错误信息 | 内容保留在草稿箱，不自动重试 || **半成功状态**（标题已填但图片未传） | 检测 DOM 中的已填字段，匹配 last_successful_step → 从断点恢复 | SQLite 记录每步状态 {step, status, snapshot} || **API 发布失败**（B站 API 400） | 捕获 HTTP 状态码 + 错误体 → 自动切换 RPA 降级 | 降级标记记录在 task 中 || **平台拒绝**（审核不通过） | 读取审核状态 → denied，原内容保留可编辑重新发布 | 原文不删除，随 task 存档 || **用户取消发布** | 中断当前步骤 → 已提交部分不做回滚（平台侧无撤回 API） | 仅停止当前操作，后续步骤取消 |#### 降级策略1. **API → RPA 降级**：抖音/B站 优先走 API，API 连续失败 3 次后自动切换 RPA 模式2. **RPA → 人工降级**：RPA 连续失败 2 次（相同平台）→ 弹窗提示手动发布，提供预填草稿截图3. **跨平台降级**：批量发布中某个平台失败 → 标记失败，不影响其他平台继续发布#### 状态机（发布任务）`pending → publishing → { success | failed | partial | denied | cancelled }                              ↓                        (partial 可恢复)`## 七、视频创作流程### 7.1 图片轮播（原 Story2Video 文案成片）```进入「视频创作」→ 选择「图片轮播」    │    ├─ 输入完整视频文案    │   └─ 可选：点击「AI 写稿」自动生成脚本    ├─ 8002 smart-sentence-splitter 生成场景边界    │   └─ 仅服务不可用时使用本地 TypeScript 场景降级    ├─ 每个场景在本地二次切分为字幕页    ├─ 逐场景生成图片、TTS，并由 prompt-engine 优化图片提示词    ├─ 选择图片风格、提示词风格、语音模型与音色    ├─ 点击「启动流水线」    │   ├─ Electron StageExecutor 编排六阶段流水线    │   ├─ ffmpeg 合成，ffprobe 真实 TTS 时长驱动字幕时间轴    │   ├─ 以阶段清单显示文案拆分、内容增强、提示词、素材、合成、发布状态    │   └─ 渲染完成 → 预览/保存；发布阶段未启用时明确显示跳过    └─ 仅对明确的图片 Content Policy 拒绝按场景安全化重试（最多 5 次总尝试）；耗尽后进入“需要处理”，用户取消旧运行、修改文案后重新启动```#### 7.1.1 场景、字幕与 TTS 同步合同| 合同 | 要求 ||------|------|| 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 || 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 || 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 || 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 || 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 || 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |Story2Video 的句长、时长、语速、场景字数、句界和单句溢出参数必须映射到 8002 `SplitRequest.config.sentence_tokenizer/scene`，字幕参数只在本地消费。8002 的兼容字段 `min_words/max_words` 在中文场景算法中按字数/字符数计量。当前 TTS Provider 没有统一的词级时间戳，因此字幕同步是“真实总时长 + 文本/标点权重”的分页近似同步，不宣称逐词精准对齐。
+| 视频提示词统一优化 | 所有视频提示词的产出/改写/校验统一经 prompt-engine（8013）`domain=video`：videogen `videogen_generate` 前批量优化（数量/空项 fail-closed，未注入 PromptBridge 明确失败）、Story2Video 混合模式视频场景提示词改写后再提交 `generateVideo`（失败按混合语义回退图片轮播）；结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token）；契约文件 `video-prompt-engine-contract.js` 与图片契约分文件分命名（详见 PRD-video-creation §3.1.2.2） | ✅ 2026-08-12 || 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 || Agnes 视频生成适配 | agnes-video-v2.0：提交 POST /v1/videos；状态查询 GET /agnesapi（域名根，非 /v1/agnesapi，2026-08-10 修复）；callAdapter 以 { videoId, taskId } 对象调用 getVideoStatus；流水线 merge 兼容 generate/merge/animate 上下文键（PR #476） | ✅ 2026-08-10 || videogen 生成选项生效 | animation/character-animation/avatar-spokesperson/hybrid 的生成参数（numFrames/frameRate/width/height + storyboard duration）经 stageOptions 真实作用于最终合成视频；2026-08-10 修复参数契约（num_frames 下划线丢失→双写）+ duration→帧数映射（PR 待合） | ✅ 2026-08-10 |#### F7：数据存储（SQLite）| 子功能 | 描述 | 状态 ||--------|------|------|| 账号存储 | accounts 表（含多账号、默认标记） | ✅ || 发布历史 | publish_history 表 | ✅ || 定时任务 | scheduled_tasks 表 | ✅ || 回调日志 | callback_logs 表 | ✅ || 批量任务 | batch_jobs 表 | ✅ || 设置存储 | settings 键值表（含队列状态持久化） | ✅ |#### F11：内容智能（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 热点趋势 | 实时热点话题追踪与推荐 | ✅ || 标题助手 | AI 生成/优化标题 | ✅ || 标签推荐 | 智能标签生成 | ✅ || 爆款分析 | 分析平台爆款内容特征 | ✅ v2.3.43（orchestrator + 本地 fallback） || AI Writer | AI 辅助写作面板 | ✅ || 关键词监控 | 监控关键词在各平台的表现 | ✅ |#### F12：多平台实时监控（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session | ✅ || 实时回调 | HTTP POST 回调，59s 心跳 | ✅ |#### F13：评论管理（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 评论聚合 | 多平台评论统一管理 | ✅ v2.3.43（webview + IPC comment:list） || 评论回复 | 在应用内直接回复 | ✅ v2.3.43（IPC comment:reply + 后台轮询 comment:start-polling） |#### F14：云端发布（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 远程发布 API | HTTP API 触发发布 | ✅ || 任务队列 | 异步发布队列 | ✅ |#### F15：Pro 版本（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 许可证管理 | 离线验证 + 限时试用 | ✅ || 功能门禁 | Pro 功能按 license 解锁 | ✅ || 支付集成 | 支付宝/微信支付（当前为模拟模式，真实 SDK 预留接口） | ✅ 模拟模式 |#### F16：插件系统（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 插件 manifest | 声明式配置 | ✅ || 动态加载 | 运行时热加载 | ✅ || 生命周期钩子 | beforePublish/afterPublish + onLoad/onEnable/onDisable/onUnload | ✅ v2.3.43 |#### F17：日历与计划（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 发布日历 | 日历视图展示计划 | ✅ || 内容收藏 | 草稿/模板管理 | ✅ || 定时调度 | setTimeout 单次定时 + 持久化队列（非 cron，重启恢复） | ✅ setTimeout 模式 |#### F8：系统功能| 子功能 | 描述 | 状态 ||--------|------|------|| 系统托盘 | 最小化到托盘，后台运行，托盘菜单 | ✅ || 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ || 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ || 首次运行引导 | 自动检测 Python 依赖 | ✅ || 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 || 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |#### F9：平台分类（v1.2.0, v2.3.43 完整实现）| 子功能 | 描述 | 状态 ||--------|------|------|| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED（v2.3.43） | ✅ v2.3.43 || 分类映射 | 15 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=VIDEO） | ✅ v2.3.43 || API 透传 | `/api/platforms` + `platform:definitions` IPC 返回 content_categories 字段 | ✅ v2.3.43 || 前端显示 | platform store 暴露 getContentCategory / getPlatformsByContentCategory | ✅ v2.3.43 |#### F10：Electron 原生 RPA 引擎（v1.2.0）| 子功能 | 描述 | 状态 ||--------|------|------|| RpaViewManager | 隐藏 BrowserWindow + executeJavaScript RPA 引擎（P2-E 统一引擎） | ✅ || CDP 文件上传 | `DOM.setFileInputFiles` 绕过浏览器安全限制上传文件 | ✅ || DOM 操作工具集 | `_waitForElement` / `_fillInput` / `_click` / `_waitForCondition` | ✅ || 网络响应监控 | webRequest.onCompleted 网络响应监听 | ✅ || Playwright → RpaViewManager 全量迁移 | 15 平台从 Playwright 统一迁移到 RpaViewManager | ✅ || 每账号 Session 隔离 | `session.fromPartition()` 独立 Cookie 分区 | ✅ || 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ || CDP/JS 双文件上传 | 大文件走 CDP，CDP 失败回退 JS File API / DataTransfer（v2.3.43） | ✅ v2.3.43 |#### F1a：内容编辑字段规范| 字段 | 最大长度 / 格式 | 说明 ||------|---------------|------|| **标题** | 各平台上限不同（微信 64、抖音 55、B站 80、微博 140） | 发布时按平台自动截断，超出字符弹窗警告 || **正文/HTML** | 30,000 字符 | HTML 白名单：p/br/strong/em/a/img/ul/ol/li/blockquote/h2-h4；自动过滤 script/style/iframe || **标签** | 每平台 2-10 个，每标签 ≤30 字符 | 自动去重、按平台上限截断，无合法标签时生成默认标签 || **封面图** | JPEG/PNG，≤5MB，1920×1080 以内 | sharp 中心裁剪 + 质量 85% 压缩；视频号/快手需 1:1 自动补边 || **视频** | MP4/H.264，≤4GB（平台差异：B站 8GB，抖音 2GB） | 超过平台上限时弹窗提示，不自动压缩 || **多图上传** | 每篇 ≤9 张，格式同封面图 | 按平台顺序上传，失败时跳过不阻塞发布 |**平台标题上限配置（config/platforms.yaml）：**`yamlplatforms:  wechat_mp: { title_max: 64, body_max: 30000, tags_max: 8, tag_length: 30, image_max: 9, video_max_mb: 1024 }  douyin:    { title_max: 55, body_max: 2000,  tags_max: 10, tag_length: 30, image_max: 35, video_max_mb: 2048 }  bilibili:  { title_max: 80, body_max: 20000, tags_max: 10, tag_length: 30, video_max_mb: 8192 }  # ... 其他平台`**发布前校验流程：**1. 读取目标平台配置 platforms.yaml 获取字段上限2. 对标题/正文/标签逐项校验，超限自动截断并记录日志3. 封面图自动压缩（sharp），视频仅检查大小不自动转换4. 校验失败项汇总弹窗，用户确认后继续或取消### 3.2 非功能需求|| 需求 | 指标 | 状态 |||------|------|------|| 并发发布 | 3 任务并发执行（maxConcurrent=3），每 RPA Tab ~80MB 内存，3 并发 + 主进程 < 500MB | ✅ || 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ || 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ ||| 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ ||| 存储引擎 | SQLite（better-sqlite3） | ✅ ||| 跨平台 | Windows + Linux（macOS 待支持） | ✅ ||| 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 ||| 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ ||| 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |#### 错误分类| 分类 | 编码 | 处理策略 ||------|------|---------|| 认证过期 | AUTH_EXPIRED | 检测到过期 -> 弹窗重新登录 || 网络超时 | NETWORK_TIMEOUT | 重试 3 次(指数退避) -> 最终报错 || 平台拒绝 | PLATFORM_REJECT | 不重试，记录原因到 task || RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 || 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |#### 审计日志每次发布操作记录到 SQLite audit_log 表：| 字段 | 说明 ||------|------|| id(UUID), timestamp, user | 操作标识 || platform, account_id, action | 发布/重试/取消/删除 || content_hash(SHA-256), result | 成功/失败/部分 || error_code, duration_ms, metadata(JSON) | 错误分类/耗时/上下文 |保留策略：本地 90 天，超期自动归档。### 3.3 并发与资源约束 (Concurrency & Resource Constraints)系统资源约束定义了并发发布的最大容量，确保在有限硬件资源下稳定运行。| Resource | Limit | Notes ||----------|-------|-------|| Concurrent RPA tabs | Max 6 | 2/3/4/6 layout, ~400MB RAM per tab || Concurrent tasks | Max 3 per run | TaskQueue maxConcurrent=3 || Publish interval | 5 min min | Configurable per platform || Batch queue | No hard limit | Memory-bound, ~1MB per task || Electron main mem | ~200MB idle | Chromium + 25 services || WebSocket port | 16521 | Single instance, fallback on conflict || API timeout | Default 120s | Video platforms 300s |#### Rate Limiting（频率限制）- Per-platform: max 10 publishes/minute- Accounts: max 3 logins/minute per platform- API calls: respect upstream rate limits (TikHub, etc.)- Queue: tasks wait if limit exceeded---## 四、技术架构### 4.1 架构图```┌──────────────────────────────────────────────────┐│              apps/desktop/electron/               ││              Electron Shell + Vue 3 UI            ││  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐│  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │  │ 采集/监控  ││  └─────┬────┘  └────┬─────┘  └─────┬────┘  └──────┬────┘│        │            │              │              ││  ┌─────┴────────────┴──────────────┴─────┐│  │        IPC Bridge (preload.js)        ││  └────────────────┬──────────────────────┘│                   ││  ┌────────────────┼──────────────────────┐│  │    Task Queue  │   Scheduler          ││  │  (并发3,持久化)  │  (定时/恢复)          ││  │  @shared-utils                        ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     Publisher Registry                 ││  │   13 platforms (+B站)                  ││  │   + API+RPA 双模式                     ││  │   + OAuth 2.0 (YT/TT)                 ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     RPA Engine（统一引擎）               ││  │                                       ││  │  ┌─────────────────────────────┐      ││  │  │  RpaViewManager (Electron)  │      ││  │  │  15 platforms + B站         │      ││  │  │  隐藏 BrowserWindow         │      ││  │  │  + executeJavaScript        │      ││  │  │  + CDP 文件上传              │      ││  │  └─────────────────────────────┘      ││  │                                       ││  │  + WebviewManager（分屏）             ││  │  + QrCodeLogin（扫码登录）            ││  │  + CallbackServer（回调 :16521，config.yaml 可配）      ││  └───────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  SQLite (better-sqlite3)             ││  │  ├─ accounts（含多账号）               ││  │  ├─ publish_history                  ││  │  ├─ scheduled_tasks                  ││  │  ├─ batch_jobs                       ││  │  ├─ callback_logs                    ││  │  └─ settings（队列持久化）              ││  └──────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  System / UX                         ││  │  ├─ SystemTray（托盘）                ││  │  ├─ HotKeys（6组快捷键）               ││  │  ├─ AutoUpdater                      ││  │  └─ UrlCollector（URL采集）            ││  └──────────────────────────────────────┘└──────────────────────────────────────────────────┘```### 4.2 Monorepo 目录结构```multi-publish/├── apps/desktop/                # Electron 桌面应用│   ├── electron/                # Electron 主进程 + IPC│   │   ├── main.js              # 入口：窗口管理、IPC 注册│   │   ├── preload.js           # 预加载脚本（contextBridge）│   │   ├── store.js             # SQLite 统一存储（better-sqlite3）│   │   ├── webview-manager.js   # 分屏监控（P0）│   │   ├── auth-view-manager.js # 独立窗口登录（BrowserWindow + WebContentsView）│   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）│   │   ├── callback-server.js   # 实时回调（P1）│   │   ├── qrcode-login.js      # 扫码登录（P2）│   │   ├── oauth-manager.js     # OAuth 2.0 认证│   │   ├── batch-manager.js     # 批量发布管理器│   │   ├── url-collector.js     # URL 内容采集│   │   ├── hotkeys.js           # 全局快捷键│   │   ├── system-tray.js       # 系统托盘│   │   ├── python-bridge.js     # Python 后端子进程管理│   │   ├── task-queue.js → packages/shared-utils│   │   ├── scheduler.js         # 定时发布│   │   ├── publish-history.js   # 发布记录│   │   ├── publish-monitor.js   # 发布后状态监控│   │   ├── account-state-restorer.js  # 账号状态恢复│   │   ├── credential-store.js  # 凭证加密存储│   │   ├── video-uploader.js    # 视频分片上传│   │   ├── content-aggregator-bridge.js  # 001 集成│   │   ├── api-platform-adapter.js  # API 模式适配器│   │   ├── auto-updater.js      # electron-updater│   │   └── first-run.js         # 首次运行引导│   ├── src/                     # Vue 3 前端│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/Collection/Monitor/FirstRun│   │   ├── components/          # 组件：ArticleEditor│   │   ├── api/                 # API 封装（publisher.js）│   │   ├── router/              # Vue Router│   │   ├── styles/              # Cohere 风格 CSS│   │   └── App.vue├── packages/│   ├── rpa-engine/              # RPA 引擎（独立 npm 包）│   │   ├── src/playwright-manager.js  # （已移除，P2-E）│   │   ├── src/cookie-store.js        # Cookie 存储│   │   ├── src/publishers/            # 平台注册（P2-E 简化）│   │   │   └── registry.js            # 平台注册 stub（已迁移到 RpaViewManager）│   │   └── package.json│   ├── shared-utils/          # 共享工具库│   │   ├── src/task-queue.js    # 任务队列（并发3+持久化）│   │   ├── src/aggregator-bridge.js  # 001 集成│   │   ├── src/format-adapter.js     # 格式适配器│   │   ├── src/cover-processor.js    # 封面处理│   │   └── package.json│   │   ├── src/aggregator-bridge.js  # PROJECT-001 集成│   │   └── package.json│   └── python-backend/        # Python 后端（FastAPI）│       ├── src/server.py        # FastAPI 入口│       ├── src/multi_publish/   # 核心模块│       │   ├── core/            # PublisherManager / QueryWorker / TaskScheduler│       │   └── publishers/      # Python 发布器（插件化）│       │       ├── platform_registry.py  # 动态注册表（JSON 驱动发现）│       │       ├── platforms.json        # 外部配置，新增平台只需加一行│       │       ├── base.py              # BasePublisher + async_retry│       │       ├── douyin.py            # 抖音（API+RPA 双模式）│       │       └── wechat_mp.py         # 微信公众号（RPA）│       └── pyproject.toml├── package.json               # 根 workspaces 配置└── .github/workflows/build.yml # CI/CD```### 4.3 发布器接口规范```javascript// 发布结果接口// interface PublishResult { success, error, partialResult, platformData, durationMs }class BaseRpaPublisher {  constructor() { /* 加载 Cookie, 初始化浏览器 Context */ }  async publishArticle({ title, content, coverUrl }) {    /* 登录态检查 → 导航到创作页 → 填写内容 → 发布 → 返回结果 */  }  async checkLoginStatus() { /* 打开平台检查 Cookie 是否有效 */ }  async cleanup() { /* 关闭浏览器 Context */ }  onProgress(callback) { /* 注册进度回调 */ }}// 所有平台发布器继承 BaseRpaPublisher，差异化部分覆盖```### 4.4 内容字段规范 (Content Field Specification)各平台对发布内容有不同字段限制。发布器在发送前自动按目标平台规则校验并截断/转换内容。| Field | Max Length | Format | Per-Platform Notes ||-------|-----------|--------|-------------------|| Title | 64 chars | Plain text, no HTML | WeChat(64), Weibo(140), Bilibili(80) || Content | 10000 chars | Markdown or HTML | WeChat public(20000), Weibo(10000) || Tags | 10 per article | Comma-separated | Douyin(10), Weibo(2), Bilibili(12) || Cover | 10MB max | JPG/PNG/WebP 16:9 | Douyin(9:16), WeChat(16:9) || Video | 500MB max | MP4/H.264 | Douyin(15min), Bilibili(4h) |#### Content Format Rules（内容格式规则）- HTML allowed tags: p, br, strong, em, a, img, blockquote- Script/iframe/object tags stripped before publish- External images auto-download and re-upload to platform CDN- Markdown converted to per-platform format via format-adapter---## 五、首次使用流程首次启动时，系统自动执行以下步骤：### 5.1 环境检测- [自动] 检测 Python 3.12+ → 安装 pip 依赖- [自动] 检测 Remotion 渲染引擎 → 安装缺失的 node_modules 依赖### 5.2 平台账号登录通过独立登录窗口（BrowserWindow 承载 WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。### 5.3 模型服务商配置（必选）在「模型服务商设置」页配置 AI 模型的 API Key。支持 7 类模型：| 类别 | 用途 | 预设服务商 ||------|------|----------|| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek || TTS 语音 | 视频配音、语音合成 | ElevenLabs / OpenAI TTS / 豆包 TTS / Google TTS / Piper || 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper || 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI || 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield || 多模态模型 | 一个 API Key 覆盖文字推理/TTS/生图/视频等多个能力 | MiniMax（能力：文字推理 / TTS语音 / 生图 / 生成视频） |每个类别可添加多个服务商，并选择一个设为默认。### 5.4 模型类别与功能关联| 功能模块 | 依赖模型类别 | 说明 ||----------|------------|------|| AI 写稿 | 推理模型 | 视频脚本、文章改写、标题生成 || 标题助手 | 推理模型 | AI 生成/优化标题 || 内容智能 | 推理模型 | 内容分析、关键词提取、摘要生成 || 视频配音 | TTS 语音 | 文本转语音、多语言配音 || 字幕生成 | 语音识别 | 音频/视频转文字、字幕文件生成 || 封面生成 | 图片生成 | AI 生成封面图、配图 || 视频生成 | 视频模型 | 文本/图片生成视频片段 |### 5.5 开始使用完成引导后进入首页，即可使用发布、视频创作、内容智能等全部功能。> 详细流程见：**第 7-11 节**（视频创作 / 内容采集 / 内容智能 / 发布日历 / 云端发布）## 六、发布流程### 6.1 单平台发布1. 在富文本编辑器撰写文章（标题 + 正文 + 封面图）2. 选择目标平台3. 点击发布 → 任务加入队列 → RpaViewManager 自动化执行 → 结果通知### 6.2 多平台批量发布1. 撰写一篇文章2. 勾选多个平台（如微信+知乎+微博）3. 点击发布 → 每个平台依次执行 → 实时进度推送### 6.3 定时发布**约束：** 最大提前 30 天，同平台间隔 >= 5 分钟，使用本地时区，断网标记 missed。1. 撰写文章 + 选择平台2. 勾选「定时发布」→ 设置时间3. 到点时自动执行，支持 App 关闭后重启恢复4. 任务持久化在 `tasks/scheduled-tasks.jsonl`#### 6.3.14 2026-10-06 全链路验证与修复（分支 verify-scheduled-publish）
+
+
+
+
+**验证范围**：渲染层 UI + IPC + 主进程调度器 + 持久化 + 执行链路 + 平台侧对标（参考产品 4.0 逆向工程）。
+
+
+**修复清单（均 TDD，先红后绿）**：
+
+
+
+
+| # | 级别 | 缺陷 | 根因 | 修复 |
+
+
+|---|------|------|------|------|
+| 1 | **P0** | 取消失败被谎报成功 | `scheduler:cancel` 无条件返回 `data:true`，丢弃 `cancel()` 返回值 | 如实回传布尔；日历区分「无法取消」与「失败可重试」两套文案 |
+| 2 | P1 | JSONL 无界增长 + O(n) 全量重写 | 终态记录永不清理，`updateStatus` 每次全量读-改-写 | 终态记录保留策略（30 天 / 200 条），`create()` 后旁路剪枝 |
+| 3 | P1 | 休眠/时钟跳变后定时器不重算 | 墙钟目标一次性换算成相对延时；`restore()` 对已武装任务走 `isTaskTracked` 直接跳过 | 新增 `scheduler.rearm()` + `powerMonitor` resume 守卫（`bootstrap/resume-guard.js`） |
+| 4 | P1 | 派发失败零用户可见性 | 只 `logger.error`，无渲染层提示、不进发布历史、且不重试 | `onDispatchFailed` 钩子 → preload `scheduler:dispatch-failed` → 日历实时错误提示 + 刷新 |
+| 5 | P1 | 批量排期取消仅会话内可做 | `scheduledBatchId` 内存态，日历只渲染 `scheduler:*` | 日历接入 `batchList` + `batchCancel`，补持久取消入口 |
+| 6 | P2 | 校验提示硬编码中文 | `publish-contract.js` 内 5 条中文字面量，en 用户看到中文 | 新增结构化 `reason`/`params` + `translate` 注入，文案入 locales zh/en |
+| 7 | P2 | 校验限制未前置 | hint 仅「留空 = 立即发布」，30 天/5 分钟只在被拒时告知 | hint 改为带限制文案，限制值复用 `PUBLISH_CONTRACT_LIMITS` 单一真源 |
+
+
+
+
+**6.3.14.1 休眠/唤醒重算契约（新增 `scheduler.rearm`）**
+
+
+
+
+| 场景 | 旧行为 | 新行为 |
+|------|--------|--------|
+| 休眠跨越到点时刻 | 唤醒后触发（等价 catch-up，可接受） | 同上，但经 `rearm` 按新墙钟重算 |
+| 目标在休眠前、机器睡了数小时后才醒 | 唤醒数小时后仍等待原相对延时 | `rearm` 后按新墙钟立即补发 |
+| 时钟前跳（NTP / 人工改表） | 已武装定时器偏移，仅 24.86 天分片边界被动纠正 | resume 时强制重算 |
+| 短睡（锁屏/切用户，< 60s） | — | `minSleepGapMs=60000` 阈值内**不触发**，避免每次唤醒全量重写文件 |
+
+
+
+
+- `rearm()` 实现：解除全部定时器 + 正常收束认领重试等待者（避免 promise 悬空），再走一次 `restore`。
+- 幂等：重复 `rearm()` 不产生双派发（`scheduleTimer` 内 `isTaskTracked` 去重 + 派发中任务由 `activeDispatches` 守卫）。
+- `stopAll()` 之后 `rearm()` 返回 0，不再武装。
+- 身份透传：`rearm(subject)` 由 `powerMonitor` 守卫按当前登录态传入，**租户隔离不被绕过**。
+- 失败语义：旁路容错，只记 `WARN`（`resume-rearm-failed`），不阻断应用运行。
+
+
+
+
+**6.3.14.2 派发失败可见性契约（新增）**
+
+
+
+
+| 阶段 | `stage` | 触发条件 |
+|------|-----------|---------|
+| 认领持久化失败 | `claim` | 3 次有界重试后仍无法写盘（放弃认领） |
+| 入队失败 | `enqueue` | 队列未配置 / `addForOwner` 被拒 / 队列抛错 |
+
+
+
+
+- 回调载荷：`{ id, platform, accountId, publishTime, reason, stage }`。
+- 主进程 → `win.webContents.send('scheduler:dispatch-failed', failure)`；推送异常不影响调度器主流程。
+- 渲染层：`Calendar.vue` 订阅，弹 `calendarPage.scheduleDispatchFailed` 并刷新日历数据；卸载时解除监听。
+- 兼容：`onSchedulerDispatchFailed` 缺席（老 preload）时静默跳过，不影响日历既有功能。
+- 回调自身抛错只记 `warn`，不污染调度流程。
+
+
+
+
+**6.3.14.3 批量排期取消（新增持久入口）**
+
+
+
+
+- 入口：发布日历 → 选中日期 → 批量排期事件行内「取消定时」按钮（`data-testid="cancel-schedule-batch-<batchId>"`）。
+- 确认弹窗：标题「取消批量排期」，正文「确定取消该批量排期？取消后该批次到点不会发布。」，确认钮「取消定时」/ 取消钮「保留任务」。
+- 调用 `batchCancel(batchId)`（主进程 `batch:cancel`：清批次定时器 + 状态置 `cancelled`，记录保留可查）。
+- 成功：toast「已取消批量排期」+ 刷新；失败：toast「取消批量排期失败，请重试」，不刷新。
+- **渲染层不自标记成功**——取消结果以主进程返回为准（只改状态不清定时器即幽灵发布的同族风险）。
+- 事件时间取批次内最早一篇 `publishTime`；全部文章无定时时间则不渲染（非排期）。
+- 文案经 locales zh/en 成对维护（`calendarPage.scheduledBatchTitle` / `cancelBatchSchedule*`）。
+
+
+
+
+**6.3.14.4 定时校验提示的本地化契约**
+
+
+
+
+| reason | 触发条件 | locales key |
+|--------|---------|-------------|
+| `scheduleInvalidTime` | `new Date(publishTime)` 不可解析 | `publishPage.scheduleValidation.scheduleInvalidTime` |
+| `scheduleMustBeFuture` | `timestamp <= now` | `...scheduleMustBeFuture` |
+| `scheduleExceedsMaxDays` | `timestamp > now + maxDays 天` | `...scheduleExceedsMaxDays`（带 `maxDays`） |
+| `scheduleMissingPlatform` | `entry.platform` 为空 | `...scheduleMissingPlatform` |
+| `scheduleIntervalTooShort` | 同 `platform:accountId` 两条间隔 < 5 分钟 | `...scheduleIntervalTooShort`（带 `platform`/`accountId`/`minMinutes`） |
+
+
+
+
+- `validateScheduleEntries(entries, { translate })`：`translate` 注入时返回本地化 `message`；未注入时回落中文兜底（保证纯逻辑调用方与既有测试行为不变）。
+- 同时返回结构化 `{ reason, params }`，供调用方做更细粒度的呈现或埋点。
+- 间隔按 `platform + accountId` 分组；无 `accountId` 归入 `unbound`，文案显示「任务的」。
+
+
+
+
+**6.3.14.5 与参考产品（4.0 逆向）对标结论**
+
+
+
+
+| 维度 | 本项目（本地定时器） | 参考产品 4.0 |
+|------|--------------------|----------------|
+| 触发方 | 主进程 `setTimeout` 到点 → 任务队列 → RPA/API | 服务端 socket 下发 + **29 个平台平台侧定时** |
+| 客户端时间校验 | 有（渲染端 5 项 + 主进程二次） | **无**（`min_timing_hour=6`/`max_timing_day=7` 仅硬编码进 URL，用户可填过去时间） |
+| 持久化 / 重启 | JSONL + 批次 SQLite，重启 `restore` 重臂 | **无持久化**（内存队列，重启即丢） |
+| 错过补偿（catch-up） | 有：过期任务重启后立即补发 | **无**（无 catch-up / misfire 概念） |
+| 休眠/时钟漂移 | `rearm` + powerMonitor resume 重算 | 无本地定时器，不存在该问题 |
+| 取消 | 本地原子取消，即时生效；单篇 + 批量双入口 | 只能撤销**未开始**的推送任务，**无法取消已提交平台的排期** |
+| 配额前置预检 | 发布频率守卫 `PublishIntervalGuard` | 微博调 `getXinlangweiboSchedulePostFrequency` 预检 `residue_num` |
+
+
+
+
+**借鉴并已采纳：** ①失败原因必须对用户可见（§6.3.14.2）；②配额/冲突在提交**前**拦截而非提交后失败；
+③排期确认回读平台真实状态（本项目已有 `publish-monitor` 端点取证，#2927）。
+
+
+**明确不采纳（对本项目是负向）：** 参考产品对不支持平台侧定时的 7 个平台「静默忽略定时参数、内容立即发布」，
+是最危险的静默失败形态；本项目走统一本地调度，天然不存在「该平台定时被吞」的语义。
+
+
+
+
+**注册表 `schedule` 字段说明纠错（2026-10-06）：** `publish-capabilities.json` 曾把参考产品做法写成本项目实现
+（note 原文「平台原生定时：抖音 timing、快手 publishTime、B站 dtime」）。实测 `electron/publishers`
+对 `prePubTime|dtime|timing[:=]` **零命中** —— 本项目 publisher 不消费平台侧定时参数。
+平台清单的含义是「这些平台的发布链路可被本项目排期」，**不是**「这些平台支持平台侧定时」。
+已加结构锁防止再漂移（note 必须写明「本地调度」；另有实证锁扫描 publishers 目录，
+一旦出现平台侧定时字段即测试失败）。
+
+
+
+
+**由上一条推出的重要推论（指导真机验证）：** 定时对平台完全不可见，平台到点只会收到一次
+普通的立即发布请求。因此**定时发布在各平台的行为差异，只可能来自各平台 publisher 自身的差异**
+（登录态、验证码、风控、内容限制），**不可能来自「该平台是否支持定时」**。
+据此设计真机取证：跨平台共用的只有「排期 + 到点入队」这一段（证据 A/B 可复用同一方法论），
+「平台后台真实落地」（证据 C）才是各平台独立取证的部分。
+
+
+
+
+**验证边界声明：** §6.3.14 的全部修复只证明了**调度机制**在所有平台可用
+（`apps/desktop` 13957/13957、`packages/shared-utils` 588 例全绿）。
+**尚未证明**任一平台的真机定时发布。该验证已独立立项：
+`openspec/changes/real-machine-scheduled-publish-verification`（15 平台分批矩阵 + A/B/C 三段证据判据
++ 7 个边界场景 + 前置条件：各平台登录态由用户提供，且每次真实发布前需人工确认）。
+
+
+
+
+### 6.4 多平台批量发布（v1.1.0）1. 撰写一篇文章2. 勾选 2-10 个平台3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成4. 发布失败平台不影响其他平台继续执行---### 6.5 发布回滚与降级策略#### 回滚策略| 场景 | 处理方式 | 数据安全 ||------|---------|---------|| **RPA 发布失败**（表单提交时报错） | 标记发布任务为 failed，保留预填草稿截图，返回错误信息 | 内容保留在草稿箱，不自动重试 || **半成功状态**（标题已填但图片未传） | 检测 DOM 中的已填字段，匹配 last_successful_step → 从断点恢复 | SQLite 记录每步状态 {step, status, snapshot} || **API 发布失败**（B站 API 400） | 捕获 HTTP 状态码 + 错误体 → 自动切换 RPA 降级 | 降级标记记录在 task 中 || **平台拒绝**（审核不通过） | 读取审核状态 → denied，原内容保留可编辑重新发布 | 原文不删除，随 task 存档 || **用户取消发布** | 中断当前步骤 → 已提交部分不做回滚（平台侧无撤回 API） | 仅停止当前操作，后续步骤取消 |#### 降级策略1. **API → RPA 降级**：抖音/B站 优先走 API，API 连续失败 3 次后自动切换 RPA 模式2. **RPA → 人工降级**：RPA 连续失败 2 次（相同平台）→ 弹窗提示手动发布，提供预填草稿截图3. **跨平台降级**：批量发布中某个平台失败 → 标记失败，不影响其他平台继续发布#### 状态机（发布任务）`pending → publishing → { success | failed | partial | denied | cancelled }                              ↓                        (partial 可恢复)`## 七、视频创作流程### 7.1 图片轮播（原 Story2Video 文案成片）```进入「视频创作」→ 选择「图片轮播」    │    ├─ 输入完整视频文案    │   └─ 可选：点击「AI 写稿」自动生成脚本    ├─ 8002 smart-sentence-splitter 生成场景边界    │   └─ 仅服务不可用时使用本地 TypeScript 场景降级    ├─ 每个场景在本地二次切分为字幕页    ├─ 逐场景生成图片、TTS，并由 prompt-engine 优化图片提示词    ├─ 选择图片风格、提示词风格、语音模型与音色    ├─ 点击「启动流水线」    │   ├─ Electron StageExecutor 编排六阶段流水线    │   ├─ ffmpeg 合成，ffprobe 真实 TTS 时长驱动字幕时间轴    │   ├─ 以阶段清单显示文案拆分、内容增强、提示词、素材、合成、发布状态    │   └─ 渲染完成 → 预览/保存；发布阶段未启用时明确显示跳过    └─ 仅对明确的图片 Content Policy 拒绝按场景安全化重试（最多 5 次总尝试）；耗尽后进入“需要处理”，用户取消旧运行、修改文案后重新启动```#### 7.1.1 场景、字幕与 TTS 同步合同| 合同 | 要求 ||------|------|| 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 || 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 || 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 || 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 || 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 || 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |Story2Video 的句长、时长、语速、场景字数、句界和单句溢出参数必须映射到 8002 `SplitRequest.config.sentence_tokenizer/scene`，字幕参数只在本地消费。8002 的兼容字段 `min_words/max_words` 在中文场景算法中按字数/字符数计量。当前 TTS Provider 没有统一的词级时间戳，因此字幕同步是“真实总时长 + 文本/标点权重”的分页近似同步，不宣称逐词精准对齐。
 | 视频画面无文字伪影防护 | 三层防护机制防止视频模型在画面中生成文字/字幕/水印伪影：(1) prompt-engine `generic.py` 视频策略新增 "Zero Text Artifacts (HIGHEST PRIORITY)" 强制段落，要求所有输出 prompt 以 "clean frame, no text, no subtitles, no watermarks, no logos" 结尾；(2) `videogen-stages.js` 的 `buildConceptPrompt` 和 `buildStoryboardPrompt` 系统提示注入【最高优先级约束】；(3) `video-prompt-engine-contract.js` 新增 `BUILT_IN_VIDEO_NO_TEXT_NEGATIVE` 内置负面提示词常量，自动合并到所有视频优化请求的 `negative_prompt` 字段。已知受影响模型：MiniMax、Seedance、Kling 等会在画面中随机生成乱码文字/伪字幕。详见 PRD-video-content-fidelity §无文字伪影防护 | ✅ 2026-08-13 |
 | 文化地域/人种锚定 | 防止视频模型生成与文案背景冲突的人种面孔（如中国古代题材出现西方脸）。三层锚定：(1) `videogen-stages.js` 的 `buildConceptPrompt` 强制从原文推断时代/文化/人种并写入角色 visual 标签与 visual_style，明确禁止金发碧眼/西方面孔/西方服饰；(2) `buildStoryboardPrompt` 每个场景 prompt 必须包含时代/文化/人种锚定（如 "ancient Chinese (Eastern Han dynasty), East Asian Han Chinese faces, period-appropriate Hanfu and armor"）；(3) prompt-engine `generic.py` 视频策略 Fact-Fidelity 增加 Cultural & Ethnicity Anchoring 约束。详见 PRD-video-content-fidelity §文化锚定 | ✅ 2026-08-13 |
 | 视频画面无文字伪影防护 | 三层防护机制防止视频模型在画面中生成文字/字幕/水印伪影：(1) prompt-engine `generic.py` 视频策略新增 "Zero Text Artifacts (HIGHEST PRIORITY)" 强制段落，要求所有输出 prompt 以 "clean frame, no text, no subtitles, no watermarks, no logos" 结尾；(2) `videogen-stages.js` 的 `buildConceptPrompt` 和 `buildStoryboardPrompt` 系统提示注入【最高优先级约束】；(3) `video-prompt-engine-contract.js` 新增 `BUILT_IN_VIDEO_NO_TEXT_NEGATIVE` 内置负面提示词常量，自动合并到所有视频优化请求的 `negative_prompt` 字段。已知受影响模型：MiniMax、Seedance、Kling 等会在画面中随机生成乱码文字/伪字幕。详见 PRD-video-content-fidelity §无文字伪影防护 | ✅ 2026-08-13 |
@@ -1777,16 +1946,45 @@ handlePublish
 **主进程 `scheduler.cancel`：** 先原子写盘（pending → cancelled）再清定时器；
 写盘失败时任务仍可执行（返回 false，不留幽灵 pending）。仅 pending 状态可取消。
 
-#### 6.3.9 日历显示规则（2026-10-02 P2 修复）
+
+
+
+**IPC 回传契约（2026-10-06 P0 修复）：** `scheduler:cancel` 必须**如实回传** `scheduler.cancel()` 的布尔结果，
+`data: false` 表示「没取消掉」（任务不存在 / 已 `executed` / 已 `cancelled`）。
+
+
+
+
+| 返回 | 语义 | 渲染层行为 |
+|------|------|-----------|
+| `{ code: 0, data: true }` | 取消成功 | toast「已取消定时任务」+ 刷新日历 |
+| `{ code: 0, data: false }` | **没取消掉**，重试无意义 | toast「该定时任务无法取消（可能已发布或已取消）」+ 刷新日历 |
+| `{ code: -1 }` / 抛错 | 真正失败（登录态缺失、写盘异常等） | toast「取消定时任务失败，请重试」，保留重试语义 |
+
+
+
+
+> **P0 缺陷背景**：旧实现无条件返回 `{ code: 0, data: true }`，丢弃 `scheduler.cancel()` 的返回值。
+> 后果是两条下游链路同时失效：
+> ① 日历取消的 `res.data === false` 分支**永不可达** → 取消失败被谎报成成功；
+> ② `usePublishFlow.scheduleTargets` 的回滚失败判定（`rollback.value.data === false`）**永不成立** →
+> 部分定时任务取消失败时提示「已全部回滚」，留下**到点仍会发布的幽灵排期**（与 #2670 修的幽灵发布同族）。
+> 反证实测：注入 `cancel: () => false` 后，旧实现仍返回 `data: true`；既有测试从不断言该返回值，故缺陷逃逸。
+
+#### 6.3.9 日历显示规则（2026-10-02 P2 修复；2026-10-06 增补批量批次与失败提示）
 
 | 任务状态 | 日历呈现 |
 |---------|---------|
 | pending / dispatching / 无 status（历史数据） | ⏰ 待发事件（dispatching 不给取消按钮——认领瞬态且 cancel 只认 pending） |
 | executed / failed | 不显示 ⏰（由发布历史承载 ✅/❌） |
 | cancelled | 不显示（避免已取消任务看似还会发布） |
+| 批量批次 status='scheduled' | 批量排期事件（标题「批量排期（N 篇）」，平台显示 `batch`），带取消按钮 |
+| 批量批次其他状态 | 不渲染为待发事件 |
 
 - 事件行显示：时间（HH:MM）、⏰/✅/❌、标题（`title || article.title || (无标题)`）、平台、（待发）取消按钮。
-- 数据源：`schedulerList`（定时）+ `historyList`（历史，limit 500）。
+- 数据源：`schedulerList`（定时）+ `batchList`（批量排期批次）+ `historyList`（历史，limit 500）。
+- **批量批次事件时间取批次内最早一篇带 `publishTime` 的文章**；批次内文章全部无定时时间（即整批立即发布）时**不渲染**为待发事件——那不是排期。
+- `batchList` 能力缺席（老 preload）时保持空数组，单篇定时渲染不受影响。
 
 #### 6.3.10 持久化与权益
 
@@ -1795,6 +1993,31 @@ handlePublish
 - 队列快照：settings `task_queue_state`（publishMode 随快照）。
 - 权益门控：`scheduled-publish` 属 PRO_FEATURES（license-manager）；免费版升级弹窗提示
   「解锁全平台发布、批量发布、定时发布、AI 写作等能力」。
+
+
+
+
+**JSONL 终态记录保留策略（2026-10-06 新增）：**
+
+
+
+
+| 项 | 值 | 理由 |
+|----|----|------|
+| 终态定义 | `executed` / `cancelled` / `failed` | 三者都不再需要定时器与重试 |
+| 保留天数 | 30 天（按 `createdAt`，缺失时回落 `publishTime`） | 留出可审计窗口，同时限制文件体积 |
+| 条数上限 | 200 条（按时间倒序保留最近） | 即使全是近期终态也不无限增长 |
+| 永不裁剪 | `pending` / `dispatching` | 未到点/派发中的任务丢了就是静默数据丢失 |
+| 非法 JSON 行 | 原样保留 | 裁剪是维护动作，不得吞掉人工排查证据 |
+| 触发时机 | 每次 `create()` 成功后旁路执行一次 | 幂等排期 + 单点清理，避免多处清理逻辑漂移 |
+| 失败语义 | 只记 `warn`，不影响任务创建 | 剪枝是纯维护动作，不得阻断主流程 |
+
+
+
+
+> **根因**：`updateStatus` 每次状态迁移都「全量读-改-写」整个 JSONL（tmp + rename），成本 O(n)；
+> 而终态条目永不清理 ⇒ 文件体积随历史线性增长，累计成本 O(n²)。
+> 实测夹具：600 条终态记录下裁剪后稳定在 ≤200 条终态 + 1 条新建 pending。
 
 #### 6.3.11 离线行为（2026-10-02 第二轮修订：缓存形状同源 + 批量对齐）
 
@@ -18478,3 +18701,345 @@ feature flag 是权限边界，读不到按关闭；内容类别是**展示资�
 | 自动化任务与手动操作竞争资源 | 界面明示；同任务不并发 |
 | 菜单基线测试红 | 6 处同步改，先跑 `sidebar-menu.test.js` + `test_app_menu_api.py` |
 | 类别 key 改名导致历史引用失效 | key 发布后不得改名（UI 置灰 + 说明）；只允许改 name |
+
+## 内容感知封面生成（AI 生图不可用时的本地兜底）（2026-10-06）
+
+### 一、背景与问题
+
+#### 1.1 现状链路
+
+图文发布（小红书 / 快手 / 抖音图文）要求**至少 1 张图片**。当用户未配置 AI 生图 provider，
+或生图调用失败时，IPC `cover:generate-ai`（`apps/desktop/electron/ipc-handlers/publish.js`）
+回退到本地封面生成器 `apps/desktop/electron/services/local-cover-generator.js`，
+用「SVG → sharp → PNG」产出封面，保证「一键发布图文」链路不因缺图而整体失败。
+
+#### 1.2 问题现象
+
+原实现的视觉输出**与文章内容完全无关**：
+
+- 渐变配色硬编码为 `#1a2a6c → #b21f1f → #fdbb2d`（蓝 → 红 → 金），全平台、全文章、永远相同；
+- 底部固定一条 `rgba(0,0,0,0.35)` 黑条充当「品牌条」；
+- 版式固定为「居中大字标题 + 黑条」，无任何可变量。
+
+结果：无论用户发的是美食、旅行还是代码文章，产出的都是**同一张「平台标识」式标题卡**。
+一批图文发出去，封面在信息流里毫无区分度，等于没有封面。
+
+#### 1.3 根因定位
+
+`buildCoverSvg()` 把配色、装饰、版式全部写死为常量，唯一变量是标题文字；
+且兜底链路只下传了用户手输的 `prompt`，**没有拿到文章标题与正文**——
+即便想按内容生成也无从下手。这是两个独立缺陷：视觉层写死 + 数据层缺上下文。
+
+---
+
+### 二、目标与非目标
+
+| 编号 | 目标 | 可验证判据 |
+|------|------|-----------|
+| G1 | 兜底封面与文章内容相关 | 8 条真实标题各自命中预期主题 |
+| G2 | 不同内容产出不同封面 | 任意两条不同内容，SVG 不逐字节相同 |
+| G3 | 同一内容结果稳定 | 同一输入两次构建，SVG 逐字节相同 |
+| G4 | 零模型、零新增依赖 | 实现内无任何 LLM/HTTP 调用；`package.json` 不变 |
+| G5 | 向后兼容 | 现有 `local-cover-generator.test.js` 6 条断言不改动仍全绿 |
+| G6 | 装饰不压字 | 纹样渲染区域严格位于标题块下方（`clipPath` 裁剪） |
+
+**非目标**
+
+- 不做语义级内容理解（需要模型，与 G4 直接冲突）；
+- 不做真实照片级生成（本模块定位是「零依赖兜底」，不是生图模型的替代品）；
+- 不改动 `packages/shared-utils/src/cover-processor/cover-generator.js`（AI 生图成功路径，本次范围外）；
+- 不做封面风格的手工选择 UI（保留「跟随内容自动判定」）。
+
+---
+
+### 三、功能流程
+
+#### 3.1 主流程
+
+```
+用户点「AI 生成封面」
+        │
+        ▼
+  ┌─────────────────────┐
+  │ 校验 prompt           │──不合法（<2 或 >500 字符）──→ 返回 VALIDATION_ERROR
+  └─────────────────────┘
+        │
+        ▼
+  ┌─────────────────────┐
+  │ 校验 ratio / style   │──非法值静默回落到白名单默认值
+  └─────────────────────┘
+        │
+        ▼
+  assetGenerator 可用？ ──否──┐
+        │是                    │
+        ▼                       │
+  assetGenerator.generateImage │
+        │                       │
+   ┌────┴────┐                  │
+   │成功      │失败              │
+   ▼          ▼                  ▼
+ 返回        ┌──────────────────────────────┐
+ source:ai   │  fallbackLocalCover(reason)  │
+             │  coverTitle = title || prompt│
+             │  content   = content[0:2000]│
+             └──────────────┬───────────────┘
+                            ▼
+              ┌─────────────────────────────┐
+              │ ① 主题识别                    │
+              │   显式 theme > 词典命中 > 哈希 │
+              └──────────────┬──────────────┘
+                             ▼
+              ┌─────────────────────────────┐
+              │ ② SVG 合成                    │
+              │   渐变底 → 纹样(安全区) → 徽章 │
+              │   → 主标题 → 关键词副标题       │
+              └──────────────┬──────────────┘
+                             ▼
+              ┌─────────────────────────────┐
+              │ ③ sharp → PNG                 │
+              └──────────────┬──────────────┘
+                             ▼
+              返回 source:local-fallback
+              + theme / themeLabel / keywords
+```
+
+#### 3.2 降级触发原因（`reason`）
+
+| reason | 触发条件 | 日志级别 |
+|--------|---------|---------|
+| `assetGenerator-unavailable` | `deps.assetGenerator` 未注入，或缺 `generateImage` 方法 | info |
+| `ai-generate-failed` | `assetGenerator.generateImage()` 返回非 0 或无 `data.path` | warn |
+
+---
+
+### 四、功能逻辑
+
+#### 4.1 主题词典
+
+内置 **15 个主题**，每个主题定义 `id` / `label`（徽章文案）/ `motif`（纹样）/
+`from`·`to`（双色渐变）/ `accent`（强调色）/ `kw`（关键词数组）。
+
+| id | 徽章 | 渐变 | 强调色 | 纹样 |
+|----|------|------|--------|------|
+| tech | 科技 | `#0B1F3A → #1E6FDB` | `#35E0FF` | 电路网格 |
+| finance | 财经 | `#102A43 → #0E7C66` | `#F2C94C` | 柱状折线 |
+| food | 美食 | `#7A2E1E → #E08A3C` | `#FFE0A3` | 热气 + 碗 |
+| travel | 旅行 | `#0E4F6B → #2A9D8F` | `#FFD166` | 山峦 + 日轮 |
+| health | 健康 | `#134E4A → #38A169` | `#E6FFFA` | 心跳波 |
+| career | 职场 | `#2D3748 → #4A5568` | `#F6AD55` | 清单勾选 |
+| education | 教育 | `#312E81 → #4C51BF` | `#F6C177` | 书页线 |
+| game | 游戏 | `#3B0764 → #A21CAF` | `#22D3EE` | 像素方块 |
+| media | 影视 | `#18122B → #6D28D9` | `#F472B6` | 光束 + 胶片格 |
+| pet | 宠物 | `#78350F → #F59E0B` | `#FDE68A` | 爪印 |
+| car | 汽车 | `#1E293B → #475569` | `#FB923C` | 道路透视 |
+| fashion | 时尚 | `#4C1D3F → #BE185D` | `#FBCFE8` | 缎带弧线 |
+| family | 情感 | `#7E22CE → #EC4899` | `#FDE68A` | 心形散点 |
+| home | 家居 | `#3F3A34 → #A67B5B` | `#E8D6B3` | 几何拱形 |
+| growth | 成长 | `#1E3A8A → #3B82F6` | `#93C5FD` | 上升阶梯 |
+
+#### 4.2 打分规则
+
+```
+score(theme) = Σ over kw:
+    3  if kw ∈ title
+  + 1  if kw ∈ content[0:400]
+命中主题 = argmax(score)，平局取词典中**声明顺序更靠前**者
+score 全为 0 → 走哈希派生
+```
+
+**关键词设计约束**（两条实测教训）：
+
+1. **必须收具体名词，不只收品类词**。真实标题写的是「红烧肉」「川西」「柯基」，
+   只收「美食」「旅行」会导致大面积漏判 → 全部落回哈希派生。
+2. **禁用单字与易被更长词包含的词**。实测单字「茶」会命中「调查」；
+   「笔记」会命中「随**笔记**录」。这类词已剔除或替换为更具体的写法（「记笔记」）。
+
+#### 4.3 哈希派生（未命中主题时）
+
+```
+seed  = (fnv1a(title + '|' + content[0:200]) ^ imul(variant+1, 2654435761)) >>> 0
+hue   = (seed >>> 11) % 360
+motif = MOTIFS[(seed >>> 11) % 16]
+from = hsl(hue, 62%, 26%)   to = hsl(hue+40, 66%, 44%)   accent = hsl(hue+180, 85%, 66%)
+```
+
+**两个必踩的坑（均有回归测试钉住）**：
+
+| 坑 | 现象 | 正解 |
+|----|------|------|
+| JS `^` 返回**有符号** 32 位 | 哈希 >2³¹ 时 `^k` 翻成负数 → `MOTIFS[负下标]` 为 `undefined` → **未命中分支直接崩** | 异或后 `>>> 0` 收回无符号 |
+| FNV-1a **低 4 位**分布不均 | 「随笔0/随笔1/…」高度相似串，20 条只落 7 种纹样 | 纹样索引与色相都取高位 `>>> 11` |
+
+**契约**：同内容 → 同封面（G3）；不同内容 → 不同封面（G2）。
+
+#### 4.4 纹样安全区
+
+纹样**只允许**在 `[safeTop, h]` 区间内绘制：
+
+```
+blockBottom = 关键词副标题基线 + fs*0.1     （无关键词时 = 末行基线 + fs*0.3）
+safeTop     = blockBottom + fs*0.85
+若 safeTop > h*0.84 → safeTop = max(h*0.60, blockBottom + fs*0.30)
+```
+
+由 `<clipPath id="safe">` 强制裁剪 + 顶部 1.4×fs 高的渐变遮罩（`#fade`，0.5 → 0）软化交界。
+
+#### 4.5 版式与字号
+
+| 参数 | 取值 |
+|------|------|
+| 每行最大显示宽度 | `w≥1400 → 13`，`w≥1000 → 11`，否则 `8`（单位：CJK=2 / ASCII=1） |
+| 最大行数 | 4 |
+| 基础字号 | `round(min(w, h) × 0.072)` |
+| 高度预算 | 竖版 `h×0.62`，横版（`w/h>1.25`）`h×0.58`；超预算则字号按比例收缩（下限 `h×0.032`） |
+| 行高 | `fs × 1.42` |
+| CJK 上伸比例 | `0.86`（用于算行盒高度） |
+| 整块垂直位置 | 垂直居中 |
+
+> 字号按**短边**而非宽度缩放：1920×1080 下按宽缩放会让文字块吃掉 83% 画高、纹样区被压没（实测）。
+
+#### 4.6 中文排版禁则
+
+| 规则 | 说明 |
+|------|------|
+| ASCII 词不拆散 | `[A-Za-z0-9@#.+_-]` 连续片段作为不可分割排版单元（「AI」不被切成 A / I） |
+| 闭合标点不落行首 | `」）》】、。，！？：；·%…—’”` |
+| 开启标点不落行尾 | `「（《【‘“` |
+| 显示宽度 | CJK/全角 = 2，ASCII = 1，不能用字符串长度 |
+
+---
+
+### 五、数据校验
+
+#### 5.1 IPC 入参（`cover:generate-ai`）
+
+| 字段 | 类型 | 约束 | 违规处理 |
+|------|------|------|---------|
+| `payload` | object | 必填 | 非对象 → `VALIDATION_ERROR`「缺少参数对象」 |
+| `prompt` | string | trim 后 ≥2 且 ≤500 字符 | → `VALIDATION_ERROR` |
+| `style` | string | 白名单 7 项 | 非法静默回落 `cinematic` |
+| `ratio` | string | 白名单 5 项 | 非法静默回落 `16:9` |
+| `title` | string | 取前 120 字符 | 缺失/空 → 回落用 `prompt` |
+| `content` | string | 取前 2000 字符 | 缺失 → 空串（仅按标题判定主题） |
+
+> `title` / `content` 是**新增的可选字段**，不传时行为退化为「仅按 prompt 生成」，与旧版兼容。
+
+#### 5.2 生成器入参
+
+| 字段 | 类型 | 默认 | 非法处理 |
+|------|------|------|---------|
+| `title` | string | — | 空/非字符串 → 折行占位文案「图文作品」 |
+| `outputDir` | string | `os.tmpdir()/multi-publish-cover-local` | 目录不存在 → `mkdirSync(recursive)` |
+| `ratio` | string | `'3:4'` | 不在 RATIOS → 回落 `'3:4'` |
+| `content` | string | `''` | 非字符串 → 归一为 `''` |
+| `theme` | string | — | 不在 TOPICS → 忽略，走正常判定 |
+| `variant` | number | `0` | 非法 → 归一为 `0` |
+
+#### 5.3 内容安全
+
+| 项 | 措施 |
+|----|------|
+| SVG 注入 | 标题经 `escapeXml()` 转义 `& < > " '` 五类字符后才进入 `<text>`；测试断言 `<script>` 输入不会在产物 SVG 中出现裸标签 |
+| 文件路径 | 输出目录固定在系统临时目录；文件名由时间戳 + 随机后缀生成，**不使用标题派生文件名**（`packages/shared-utils` 的 `cover-generator.js` 会把标题拼进文件名，存在路径注入面，本次不动它） |
+| 动态执行 | 无 `eval`、无 `new Function`、无动态 `require` |
+
+---
+
+### 六、交互逻辑
+
+#### 6.1 交互流程
+
+```
+点击「AI 生成封面」
+  → 弹出对话框（封面描述 / 风格 / 比例）
+  → 点「生成」
+     → 前端校验 prompt（<2 字符直接 warning）
+     → 调用 cover:generate-ai
+     → 成功：
+         source === 'ai'              → 成功提示「AI 封面已生成」
+         source === 'local-fallback'  → 成功提示「AI 生图不可用，已按文章内容生成封面」
+         两者都写入 article.cover_path / cover_file，刷新封面缩略图
+     → 失败：warning「AI 封面生成失败：<message>」
+  → 关闭对话框
+```
+
+> 区分 `source` 的意义：兜底封面由本地程序生成，如实告知用户，避免「谎报 AI 封面已生成」。
+
+#### 6.2 显示项
+
+| 位置 | 显示项 | 数据来源 |
+|------|--------|---------|
+| 封面缩略图区 | 生成结果缩略图 | `coverFileList[0].path` |
+| 对话框-封面描述 | textarea，`maxlength=500`，占位文案含兜底说明 | `publishPage.aiCoverPromptPlaceholder` |
+| 对话框-风格 | select，7 项 | `publishPage.aiCoverStyle.*` |
+| 对话框-比例 | select，5 项（16:9 / 9:16 / 1:1 / 4:3 / 3:4） | 硬编码枚举 |
+| 封面图内-主题徽章 | 圆角胶囊，主题中文名 | `themeLabel`（如「科技」「美食」） |
+| 封面图内-主标题 | 最多 4 行，左对齐，主题色竖条 | 折行后的 `title` |
+| 封面图内-关键词副标题 | 最多 3 个，`·` 分隔 | `keywords` |
+
+#### 6.3 提示文字
+
+| 场景 | i18n key | 中文 | 英文 |
+|------|----------|------|------|
+| 生成成功（AI） | `publishPage.aiCoverGenerated` | AI 封面已生成 | AI cover generated |
+| 生成成功（兜底） | `publishPage.aiCoverLocalGenerated` | AI 生图不可用，已按文章内容生成封面 | AI image generation unavailable — cover generated from your article content |
+| 生成失败 | `publishPage.aiCoverGenerateFailed` | AI 封面生成失败：{message} | AI cover generation failed: {message} |
+| 输入框占位 | `publishPage.aiCoverPromptPlaceholder` | 描述想要的封面画面，如：科技感城市夜景，霓虹光效。**未配置 AI 生图时，将按文章标题与内容自动生成封面** | Describe the cover you want… **Without an AI image provider, a cover is generated from the article title and content** |
+| 生成中 | `publishPage.aiCoverGenerating` | AI 封面生成中… | Generating AI cover… |
+
+主进程 `message` 文案：
+
+| 分支 | 文案 |
+|------|------|
+| AI 成功 | `AI 封面生成成功` |
+| 兜底成功 | `本地封面生成成功（AI 生图不可用，已按文章内容生成封面）` |
+| 全失败 | `AI 与本地封面生成均失败` / `封面生成失败：{e.message}` |
+
+> **i18n 纪律**：zh / en 必须成对提交（CI Gate 7 `check-locale-sync.js` 拦截）；
+> 渲染端 `src/` 非 locales 文件**禁止**新增中文字面量（CI 基线扫描拦截）。
+
+---
+
+### 七、日志与可观测性
+
+| 事件 | 通道 | 级别 | 字段 |
+|------|------|------|------|
+| 走兜底 | `cover:generate-ai` | info | `reason=assetGenerator-unavailable` |
+| AI 生图失败后兜底 | `cover:generate-ai` | warn | `reason=ai-generate-failed` + 原始错误 |
+| 兜底成功 | `cover:generate-ai` | info | `reason` / `theme` / `label` / `keywords` / `path` |
+
+新增 `theme` / `label` / `keywords` 三个字段，便于事后统计「哪类主题的兜底封面最常被用」，
+为后续扩充词典提供数据依据。
+
+---
+
+### 八、验收标准
+
+| # | 判据 | 验证方式 |
+|---|------|---------|
+| A1 | 8 条真实标题各自命中预期主题 | 单元测试 `resolveTheme` 精确断言 |
+| A2 | 同输入两次构建 SVG 逐字节相同 | 单元测试 `toBe` |
+| A3 | 不同内容 SVG 不同 | 单元测试 `not.toBe` |
+| A4 | 标题特殊字符全转义，SVG 无裸标签 | 单元测试 `not.toContain('<script>')` |
+| A5 | 5000 条无主题内容全部映射到合法纹样 | 单元测试循环断言 |
+| A6 | 20 条无主题内容纹样种类 ≥8 | 单元测试 |
+| A7 | ASCII 词不拆散 / 闭合引号不落行首 | 单元测试 |
+| A8 | 5 种画幅 viewBox 合法 | 单元测试 |
+| A9 | 16:9 文字块不超过 58% 画高 | 单元测试（`clipPath` 下边界断言） |
+| A10 | 现有 6 条断言不改动仍全绿 | 回归 |
+| A11 | 兜底分支把 title/content 透传给生成器 | IPC 合同测试 |
+| A12 | 未传标题时退回 prompt | IPC 合同测试（向后兼容） |
+| A13 | `data.source` 区分 ai / local-fallback | IPC 合同测试 |
+| A14 | zh / en 新增键成对存在 | CI Gate 7 |
+
+---
+
+### 九、风险与缓解
+
+| 风险 | 影响 | 缓解 |
+|------|------|------|
+| 词典覆盖不足，大量文章落回哈希 | 徽章显示「内容封面」，主题感弱 | 已收具体名词；`theme`/`keywords` 进日志，用真实数据回补词典 |
+| 中文子串误命中 | 主题张冠李戴（实测「随笔记录」→「笔记」→「成长」） | 剔除单字与可被更长词包含的词；`score>0` 才认定命中 |
+| 同义/近义主题打架 | 「特斯拉」同属 tech 与 car | 加权打分取最大；同分取词典顺序（确定性优先于「更对」） |
+| sharp 原生模块 CI 首载超时 | 测试红 | 沿用现有做法：IPC 合同测试用依赖注入替身；真实渲染交给 `local-cover-generator.test.js`（已有 180s 预热） |
+| 兜底封面被用户误认为 AI 生图 | 预期落差 | `data.source` + 差异化提示文案，如实告知 |

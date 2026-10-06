@@ -253,6 +253,21 @@ function deriveAspectRatio(size) {
   return `${width}:${height}`
 }
 
+/**
+ * deriveStory2VideoAspectRatio — 由**输出分辨率**推导画幅（导出供 story2video-stages 复用）
+ *
+ * 2026-10-06 fix-s2v-image-aspect-adapters：原先 deriveAspectRatio 只在本文件内被
+ * normalizeAspectRatio 使用，story2video-stages 的画幅兜底是另一份写死的 '16:9'，
+ * 于是「渲染层漏传 aspectRatio」时竖屏成片会静默按横屏出图。现在两处同源。
+ *
+ * @param {string|undefined|null} size - 输出分辨率，如 '720x1280'
+ * @returns {string|null} 画幅；size 缺失或格式非法时返回 null（由调用方决定兜底）
+ */
+function deriveStory2VideoAspectRatio(size) {
+  if (typeof size !== 'string' || !/^\d{2,4}x\d{2,4}$/.test(size.trim())) return null
+  return deriveAspectRatio(size.trim())
+}
+
 function normalizeAspectRatio(value, size) {
   const derivedRatio = deriveAspectRatio(size)
   const ratio = textValue(value, derivedRatio, 'image.aspectRatio', 32).trim()
@@ -742,5 +757,8 @@ module.exports = {
   MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
   countStory2VideoTextCharacters,
   normalizeStory2VideoTextParams,
+  // 画幅推导规则（单一真源）：normalizeAspectRatio 与 story2video-stages 的兜底推导
+  // 必须同源，否则「校验时判定为合法、运行时却用另一个画幅出图」。
+  deriveStory2VideoAspectRatio,
 }
 

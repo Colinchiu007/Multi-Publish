@@ -1,3 +1,10 @@
+## 注入 mock 的键面盘点要按源码实际排版逐形态扫描——空格差异就能让批修漏网（publish-logging-observability w2-d2，2026-10-05）
+
+- **批修 pattern 的「无空格变体」陷阱（pitfall）**：fallback 批修（#2924）的简写模式是 info() {}，而 settings-roundtrip-contract.test.js 的注入写的是 info () {}（多一个空格）——正则 \s* 没覆盖到吗？覆盖了，但**插入脚本用的是字符串 replace 而非正则**，锚点里写死了无空格形态。正解：批修用正则匹配 + 函数式替换（在 error 项后插 notify），不要用固定字符串锚点。漏网的 5 处让 pplyRuntime 的 notify 调用抛 TypeError，CI Coverage 红了 3 个不在本 PR diff 里的测试文件——表象与日志无关，靠「红文件 require 链反查」才归因到注入 log 的键面。
+- **消费方测试也是迁移的适配面（pattern）**：改 auth-partition-reclaim 的日志出口，其**消费方** auth-view-manager-partition-reclaim.test.js 的注入 mock 与断言也同步红。迁移 PR 的适配清单不能只看「被改文件的 .test.js」，要 grep 引用了被改模块的**全部测试**（含间接消费）。
+
+---
+
 ## 一条「DELETE 全部表」的 autouse 夹具，目标路径来自相对 cwd 的默认值——单跑一个模块就能清空共享开发库（ops-dev-bind-loopback，2026-09-29）
 
 - **现象（pitfall，本会话自己上一轮引入的）**：用户报「运营中心 admin 登录不上」。排障过程中发现 `ops-center/backend/tests/conftest.py` 的按模块清库夹具（#2397 为根治「单跑绿、全量红」而加）会对 `settings.db_path` 指向的库 `DELETE` 全部表；而该值默认是**相对当前工作目录**的 `data/config.db`。在 `ops-center/backend` 里单跑 `pytest tests/test_security_config.py`，实测靶库 `admins` 行从 1 变 0——清空的是运营中心**开发库**，含管理员账号。
@@ -17411,3 +17418,64 @@ DOM 流程失败(verification timeout) →
 - **只做"最后一跳"对账会留下盲区**：把 `invokeWithFallback('flatName')` 改成 `invokeNamespace('ns', 'method')` 之后，若判据不认命名空间形态，这条路径就对契约**完全隐形**了——下一个把 ns 名或 method 名写错的缺陷照样进主干。判据必须同时覆盖扁平与命名空间两种形态。
 - **注释不是绕过路径的终点，是绕过路径本身**：判据若直接扫原文，`// invokeWithFallback("x", null)` 会被算成真实调用点，于是"把坏调用注释掉"就成了一条逃逸。判据须先剥注释。
 - **收尾任务需要「前提失效」这一终态**：`fix-settings-roundtrip-contract` 曾有 9.4/11.3/12.3 三条判据绑定"PR 在途"，PR 合并后它们既无法执行也无法判失效，于是永久挂在 46/54。change 的 tasks 只有"完成/未完成"两态时，**前提消失的条目必然变成永久欠账**。
+
+## 2026-10-06 内容感知封面：三个只有真渲染才暴露的坑（JS 位运算 / 哈希分桶 / 中文排版）
+
+本次把「AI 生图不可用时的本地兜底封面」从固定蓝红金渐变改成按文章内容生成。
+方案本身在纸面上成立，但**只有真跑 sharp 出图才暴露三个缺陷**，
+都属于「所有输入都走 happy path 时永远不会变红」的潜伏 bug。
+
+### 1. JS `^` 返回有符号 32 位 → 兜底分支直接崩
+
+```js
+const seed = fnv1a(title + '|' + content) ^ 0   // fnv1a 返回 0..2^32-1
+const motif = MOTIFS[seed % 16]                // seed 可能为负 → undefined
+```
+
+FNV-1a 返回**无符号** 32 位，但 `^` 会把操作数转成**有符号** int32。
+哈希值只要 >2³¹，`x ^ 0` 的结果就是负数，`MOTIFS[-3]` 为 `undefined`，
+调用即抛 `TypeError`。
+
+**为什么逃过测试**：崩的是「主题未命中 → 走哈希派生」这条**兜底**路径。
+任何一条标题只要命中了词典，就永远走不到这一行。
+
+**正解**：异或后 `>>> 0` 收回无符号。**回归锁**：循环 5000 条无主题内容，
+断言 `MOTIFS` 一定包含 `resolveTheme(...).motif`。
+
+### 2. FNV-1a 低 4 位对相似串分布不均
+
+`seed % 16` 取的是哈希**最低 4 位**。对「无主题随笔0/随笔1/…/无主题随笔19」
+这类只差末尾数字的串，最低 4 位分布严重不均，实测 20 条只落 **7 种**分类
+（期望 16 种）——用户会看到「不同文章封面长得一样」，直接违背 G2 目标。
+
+**正解**：分桶取**高位**，如 `(seed >>> 11) % N`，恢复到 12 种。
+**回归锁**：20 条无主题内容的纹样种类 ≥8。
+
+**通用规律**：哈希低位混合差，**需要分桶时取高位**。
+
+### 3. 中文折行必须做排版禁则
+
+按 `slice(i, i+12)` 粗暴切行会产生两类硬伤：`AI` 被切成 `A` / `I` 两行；
+`」` 单独落到行首。修法两条：把 `[A-Za-z0-9]` 连续片段当作不可分割排版单元；
+维护禁则表 `NO_LINE_START` / `NO_LINE_END`。另：显示宽度必须按
+CJK=2 / ASCII=1 算，不能用字符串长度。
+
+### 附带一条：装饰与文字的空间关系
+
+装饰性图形横穿标题会同时毁掉可读性与美感。有效做法：先按行盒高度
+（`ascent≈0.86em + lineH*(n-1) + descent`）算出文字块底边 → 定 `safeTop` →
+用 `clipPath` 把纹样裁在文字块下方 → 交界处叠渐变遮罩软化硬边。
+另：字号应按画布**短边**缩放并对整块高度设预算，按宽度缩放会让横版
+（1920×1080）文字块吃掉 83% 画高、装饰区被完全压没。
+
+### 附：EverOS 本地记忆服务的调用方式（此前无人记录）
+
+本机 EverOS v1.4.1 跑在 `http://127.0.0.1:8000`，`/metrics` 里
+`everos_http_requests_total{path=...}` 带路由标签，**从指标反查真实路由**
+比盲猜快得多。检索 `POST /api/v2/memory/search` body `{query, user_id}`；
+写入 `POST /api/v2/memory/add` body
+`{user_id, session_id, messages:[{sender_id, role, content, timestamp}]}`，
+`timestamp` 必须整数。
+
+**坑**：这些都是 POST 端点，用 GET 探测全部 404，极易误判「服务不可用」——
+这次就差点误判。已知 `agent_id` 路径还需额外配 `rerank` provider。

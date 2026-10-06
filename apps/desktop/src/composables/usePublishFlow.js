@@ -281,12 +281,20 @@ export function usePublishFlow(options) {
 
   async function handlePublish() {
     if (publishing.value) return
-    // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
-    if (!(await ensureLogin())) return
-    if (!article.title.trim()) {
-      notifyWarning('publishPage.titleRequired', { message: i18n.global.t('publishPage.titleRequired') })
-      return
-    }
+    // M-1 重入锁修复：锁必须前置到第一个 await 之前。
+    // 原实现把 `publishing = true` 放在全部同步校验之后（:414），而 :285 的
+    // `await ensureLogin()` 会弹确认框 + 走 OAuth（可达秒级到分钟级）——
+    // 窗口内二次点击两次都通过 :283 守卫，产生两次真实 publishBatch。
+    // 同时 `try` 起点必须上移到置锁处：否则 :286-412 之间的 return 会绕过
+    // 末尾的 finally，把锁永久留在 true（按钮永久禁用）。
+    publishing.value = true
+    try {
+      // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
+      if (!(await ensureLogin())) return
+      if (!article.title.trim()) {
+        notifyWarning('publishPage.titleRequired', { message: i18n.global.t('publishPage.titleRequired') })
+        return
+      }
     const isVideoMode = activeMode && activeMode.value === 'video'
     if (isVideoMode && !article.video_path) {
       notifyWarning('publishPage.publishFlow.videoFileRequired', { message: progressText('publishPage.publishFlow.videoFileRequired') })
@@ -411,7 +419,7 @@ export function usePublishFlow(options) {
       }
     }
 
-    publishing.value = true
+    // M-1：锁已在前置处置锁，此处不再重复赋值
     progress.value = []
     // 发出校验阶段缓冲的截断提示（在 progress 重置后，避免被清空）
     for (const notice of truncationNotices) {
@@ -421,7 +429,6 @@ export function usePublishFlow(options) {
     activeTaskIds.value = []
     activeScheduleIds.value = []
 
-    try {
       // 敏感词预检
       if (sensitiveCheck) {
       const titleResult = await sensitiveCheck(article.title)
@@ -470,6 +477,8 @@ export function usePublishFlow(options) {
       if (article.publishTime) {
         const scheduleCheck = validateScheduleEntries(
           targets.map(target => ({ ...target, publishTime: article.publishTime })),
+          // 注入 i18n：校验提示走 locales（en 用户不再看到中文硬编码字面量）
+          { translate: (key, params) => progressText(`publishPage.scheduleValidation.${key}`, params) },
         )
         if (!scheduleCheck.valid) {
           addProgress(progressText('publishPage.publishFlow.scheduleInvalidProgress', { message: scheduleCheck.message }), 'danger')

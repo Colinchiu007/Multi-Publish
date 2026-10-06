@@ -18,6 +18,7 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio, parseAspectRatio } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://pixabay.com/api/'
 const DEFAULT_TIMEOUT = 30000
@@ -27,6 +28,13 @@ const DEFAULT_PER_PAGE = 3
 const PIXABAY_MODELS = [
   { id: 'pixabay-search', name: 'Pixabay Search', description: 'Pixabay 图片搜索（非生成）' },
 ]
+
+/** 画幅 → Pixabay orientation（仅 horizontal/vertical；方屏无对应值故不传） */
+function toPixabayOrientation (aspectRatio) {
+  const parsed = parseAspectRatio(aspectRatio)
+  if (!parsed || parsed.isSquare) return undefined
+  return parsed.isPortrait ? 'vertical' : 'horizontal'
+}
 
 class PixabayAdapter extends BaseAdapter {
   /**
@@ -134,6 +142,12 @@ class PixabayAdapter extends BaseAdapter {
       image_type: params.image_type || 'photo',
       per_page: params.per_page || DEFAULT_PER_PAGE,
     }
+
+    // 画幅 → 检索方向（2026-10-06 fix-s2v-image-aspect-adapters）：
+    // 同 pexels，图库检索只能靠 orientation 表达画幅。
+    // Pixabay 只认 horizontal/vertical（无 square），方屏保持不传，走其自身默认。
+    const orientation = toPixabayOrientation(readAspectRatio(params))
+    if (orientation) queryParams.orientation = orientation
 
     const resp = await this._request(queryParams)
     const data = await resp.json()

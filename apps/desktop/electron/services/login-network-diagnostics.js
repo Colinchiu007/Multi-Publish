@@ -113,10 +113,7 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
   // 请求失败：iframe 内部失败也能在此捕获；ERR_ABORTED 属正常导航取消，跳过降噪
   ses.webRequest.onErrorOccurred(filter, function (details) {
     if (!details || details.error === 'ERR_ABORTED') return
-    log.warn('LoginNetDiag', tag + 'request failed: ' + String(details.url).slice(0, 120) +
-      ' error=' + details.error +
-      (details.ip ? ' ip=' + details.ip : '') +
-      ' → ' + classifyNetError(details.error))
+    log.notify('LoginNetDiag', 'request-failed', { level: 'WARN', params: { tag, url: String(details.url).slice(0, 120), error: details.error, ip: details.ip || null, classify: classifyNetError(details.error) } })
   })
 
   // 关键端点 HTTP >= 400：二维码端点告警，其余普通记录
@@ -129,20 +126,18 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
     if (isQrImageUrl(details && details.url) && qrImageCount < QR_IMAGE_LOG_LIMIT) {
       qrImageCount += 1
       const contentLength = readContentLength(details)
-      log.info('LoginNetDiag', tag + 'qr response #' + qrImageCount +
-        ' after ' + (Date.now() - attachedAt) + 'ms' +
-        ' status=' + status +
+      log.notify('LoginNetDiag', 'qr-response', { params: { tag, count: qrImageCount, afterMs: Date.now() - attachedAt, status,
         // 跨域 iframe 的 responseHeaders 会被 Chromium 屏蔽，取不到时显式标 redacted，
         // 否则读日志的人会以为"这行本来没这个字段"，而漏掉 200 空体这一关键特征
-        ' contentLength=' + (contentLength === null ? 'redacted' : contentLength))
+        contentLength: contentLength === null ? 'redacted' : contentLength } })
     }
 
     if (typeof status !== 'number' || status < 400) return
     var msg = tag + 'HTTP ' + status + ' ' + String(details.url).slice(0, 120)
     if (isQrConnectUrl(details.url)) {
-      log.warn('LoginNetDiag', msg)
+      log.notify('LoginNetDiag', 'http-status-warning', { level: 'WARN', params: { msg } })
     } else {
-      log.info('LoginNetDiag', msg)
+      log.notify('LoginNetDiag', 'http-status-info', { params: { msg } })
     }
   })
 
@@ -150,12 +145,12 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
   // 直接回答"二维码请求会走哪个代理"
   try {
     Promise.resolve(ses.resolveProxy('https://open.weixin.qq.com/')).then(function (result) {
-      log.info('LoginNetDiag', tag + 'proxy for open.weixin.qq.com → ' + result)
+      log.notify('LoginNetDiag', 'proxy-resolved', { params: { tag, proxy: result } })
     }).catch(function (e) {
-      log.warn('LoginNetDiag', tag + 'resolveProxy failed: ' + ((e && e.message) || 'unknown'))
+      log.notify('LoginNetDiag', 'resolve-proxy-failed', { level: 'WARN', params: { tag }, error: String((e && e.message) || 'unknown') })
     })
   } catch (e) {
-    log.warn('LoginNetDiag', tag + 'resolveProxy failed: ' + ((e && e.message) || 'unknown'))
+    log.notify('LoginNetDiag', 'resolve-proxy-failed-outer', { level: 'WARN', params: { tag }, error: String((e && e.message) || 'unknown') })
   }
 }
 
@@ -208,7 +203,7 @@ function attachLoginPageNoiseCancel (ses, ctx) {
     var hit = isLoginPageNoiseUrl(details && details.url)
     if (hit && cancelled < QR_IMAGE_LOG_LIMIT) {
       cancelled += 1
-      log.info('LoginNoise', tag + 'cancel 登录页噪音 ' + ((details.url || '').split('?')[0].split('/').pop()))
+      log.notify('LoginNoise', 'noise-cancelled', { params: { tag, url: (details.url || '').split('?')[0].split('/').pop() } })
     }
     callback({ cancel: hit })
   })
@@ -261,8 +256,7 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
         urlByRequestId.delete(requestId)
         var errorText = (params && params.errorText) || '<unknown>'
         if (errorText === 'ERR_ABORTED') return
-        log.warn('LoginRespDiag', tag + '关键端点请求失败 url=' + failedUrl +
-          ' netError=' + errorText + ' → ' + classifyNetError(errorText))
+        log.notify('LoginRespDiag', 'key-endpoint-request-failed', { level: 'WARN', params: { tag, url: failedUrl, netError: errorText, classify: classifyNetError(errorText) } })
         return
       }
 
@@ -273,7 +267,7 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
         if (qrFinished >= QR_IMAGE_LOG_LIMIT) return
         qrFinished += 1
         var bytes = params && typeof params.encodedDataLength === 'number' ? params.encodedDataLength : 'unknown'
-        log.info('LoginRespDiag', tag + 'qr bytes #' + qrFinished + ' after ' + (Date.now() - attachedAtMs) + 'ms encodedDataLength=' + bytes)
+        log.notify('LoginRespDiag', 'qr-bytes', { params: { tag, count: qrFinished, afterMs: Date.now() - attachedAtMs, encodedDataLength: bytes } })
         return
       }
 
@@ -292,13 +286,10 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
 
       var authError = extractAuthError(bodyText)
       if (!authError && status < 400) { urlByRequestId.delete(requestId); return }
-      log.warn('LoginRespDiag', tag + '关键端点被拒 url=' + diagnosticUrl(url) +
-        ' http=' + status +
-        ' code=' + (authError ? authError.code : '<none>') +
-        ' message=' + (authError ? authError.message : '<none>'))
+      log.notify('LoginRespDiag', 'key-endpoint-rejected', { level: 'WARN', params: { tag, url: diagnosticUrl(url), http: status, code: authError ? authError.code : '<none>', message: authError ? authError.message : '<none>' } })
       urlByRequestId.delete(requestId)
     } catch (e) {
-      log.info('LoginRespDiag', tag + '诊断自身异常: ' + ((e && e.message) || 'unknown'))
+      log.notify('LoginRespDiag', 'diag-self-error', { params: { tag }, error: String((e && e.message) || 'unknown') })
     }
   })
 

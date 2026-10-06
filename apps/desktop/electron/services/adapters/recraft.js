@@ -18,14 +18,42 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio, resolveAspectPixelSize } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://external.api.recraft.ai/v1'
 const DEFAULT_TIMEOUT = 120000
 const DEFAULT_MODEL = 'recraft-v3'
 const DEFAULT_SIZE = '1024x1024'
 
+/** 画幅换算的长边（对齐既有 DEFAULT_SIZE 的 1024 档位，2026-10-06 fix-s2v-image-aspect-adapters） */
+const ASPECT_LONG_EDGE = 1024
+
 // 支持的 style 枚举
 const VALID_STYLES = ['realism', 'digital', 'comic', 'anime']
+
+/**
+ * 尺寸解析：显式 size > 显式 width/height > 按统一画幅契约键换算 > 方图兜底。
+ *
+ * 2026-10-06 fix-s2v-image-aspect-adapters：历史实现只认 params.size，而
+ * asset-generator.generateImage 下发的是 `aspect_ratio` + 由它换算出的 `width/height`
+ * （见 asset-generator.js resolveImageSize），**从不带 size**。于是 recraft 恒取
+ * DEFAULT_SIZE（1024x1024 方图）——Story2Video 竖屏（9:16）出方图，合成到
+ * 720x1280 竖屏成片时上下留黑。这与 flux / local-diffusion / openai-image 的症状同源、
+ * 断链点不同（那三个消费 width/height，recraft 不消费）。
+ *
+ * 换算结果沿用本适配器既有的 "WxH" 方言（与 DEFAULT_SIZE 同格式），不改供应商协议面。
+ */
+function resolveRecraftSize (params) {
+  if (typeof params?.size === 'string' && /^\d+x\d+$/.test(params.size)) return params.size
+  // asset-generator 下发的像素尺寸（由 aspect_ratio 换算而来）优先
+  const width = Number(params?.width)
+  const height = Number(params?.height)
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    return `${width}x${height}`
+  }
+  const size = resolveAspectPixelSize(readAspectRatio(params), { longEdge: ASPECT_LONG_EDGE })
+  return size ? `${size.width}x${size.height}` : DEFAULT_SIZE
+}
 
 // 静态预定义 Recraft 模型列表（避免不必要的 /models HTTP 请求）
 const RECRAFT_MODELS = [
@@ -135,8 +163,7 @@ class RecraftAdapter extends BaseAdapter {
     const body = {
       prompt: params.prompt,
       model,
-      size: params.size || DEFAULT_SIZE,
-    }
+      size: params.size || resolveRecraftSize(params),    }
 
     if (params.response_format) body.response_format = params.response_format
     if (params.style) {

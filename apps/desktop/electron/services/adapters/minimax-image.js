@@ -27,6 +27,7 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal } = require('./_base/provider-error')
+const { readAspectRatio } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
@@ -174,7 +175,9 @@ class MinimaxImageAdapter extends BaseAdapter {
     }
 
     const model = DEFAULT_MODEL
-    const aspect_ratio = params.aspect_ratio || parseAspectRatio(params.size)
+    // 画幅键统一走单一真源（2026-10-06 fix-s2v-image-aspect-adapters）；
+    // size → 画幅 的换算是本适配器既有方言（上游给了像素尺寸时的兜底），保留。
+    const aspect_ratio = readAspectRatio(params) || parseAspectRatio(params.size)
 
     const body = {
       model,

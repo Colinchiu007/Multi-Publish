@@ -153,6 +153,13 @@ var require_publish = __commonJS({
         schedulerCreate: (schedule) => ipcRenderer2.invoke("scheduler:create", schedule),
         schedulerList: () => ipcRenderer2.invoke("scheduler:list"),
         schedulerCancel: (id) => ipcRenderer2.invoke("scheduler:cancel", id),
+        // 定时任务到点但入队失败的信号（主进程 scheduler.onDispatchFailed 推送）。
+        // 没有它，用户排的定时任务静默失败且无任何提示。
+        onSchedulerDispatchFailed: (callback) => {
+          const handler = (_, data) => callback(data);
+          ipcRenderer2.on("scheduler:dispatch-failed", handler);
+          return () => ipcRenderer2.removeListener("scheduler:dispatch-failed", handler);
+        },
         // 进度监听
         onProgress: (callback) => {
           const handler = (_, data) => callback(data);

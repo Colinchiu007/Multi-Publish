@@ -7,7 +7,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, DEFAULT_USER_DATA_DIR } = require('./dev-launcher')
+const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu, DEFAULT_USER_DATA_DIR } = require('./dev-launcher')
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -32,6 +32,52 @@ test('buildElectronArgs 透传 userData/cache 并默认 CDP 端口 9222', () => 
   assert.ok(args.includes('--disk-cache-dir=D:\\tmp\\Multi-Publish-debug-profile\\cache'))
   assert.ok(args.includes('--remote-debugging-port=9222'))
   assert.equal(args[args.length - 1], 'D:\\app')
+})
+
+test('buildElectronArgs 默认带 --no-sandbox（保持既有 dev 行为）', () => {
+  const args = buildElectronArgs({
+    electronUserDataDir: 'D:/tmp/profile',
+    electronCacheDir: 'D:/tmp/profile/cache',
+    desktopDir: 'D:/app',
+    platform: 'win32',
+  })
+  assert.ok(args.includes('--no-sandbox'))
+})
+
+test('buildElectronArgs 显式关闭 sandbox 时不得再带 --no-sandbox（2026-10-06 崩溃规避）', () => {
+  const args = buildElectronArgs({
+    electronUserDataDir: 'D:/tmp/profile',
+    electronCacheDir: 'D:/tmp/profile/cache',
+    desktopDir: 'D:/app',
+    platform: 'win32',
+    noSandbox: false,
+  })
+  assert.equal(args.includes('--no-sandbox'), false)
+  // 关闭 sandbox 不得顺带改动其它开关
+  assert.ok(args.includes('--disable-gpu'))
+  assert.equal(args[args.length - 1], 'D:/app')
+})
+
+test('buildElectronArgs 显式关闭 GPU 合成时不得再带 swiftshader 软件光栅化', () => {
+  const args = buildElectronArgs({
+    electronUserDataDir: 'D:/tmp/profile',
+    electronCacheDir: 'D:/tmp/profile/cache',
+    desktopDir: 'D:/app',
+    platform: 'win32',
+    softwareGpu: false,
+  })
+  assert.equal(args.filter(a => a.includes('swiftshader')).length, 0)
+})
+
+test('resolveNoSandbox / resolveSoftwareGpu 严格判据：非 1 一律走默认开启', () => {
+  assert.equal(resolveNoSandbox({ MP_E2E_NO_SANDBOX: '0' }), false)
+  assert.equal(resolveNoSandbox({ MP_E2E_NO_SANDBOX: '1' }), true)
+  assert.equal(resolveNoSandbox({ MP_E2E_NO_SANDBOX: ' true ' }), true, 'trim 后必须是 1')
+  assert.equal(resolveNoSandbox({ MP_E2E_NO_SANDBOX: 'true' }), true)
+  assert.equal(resolveNoSandbox({ MP_E2E_NO_SANDBOX: '' }), true, '未设置走默认开启')
+  assert.equal(resolveNoSandbox({}), true)
+  assert.equal(resolveSoftwareGpu({ MP_E2E_SOFTWARE_GPU: '0' }), false)
+  assert.equal(resolveSoftwareGpu({}), true)
 })
 
 test('buildElectronArgs 支持自定义 CDP 端口（worktree 独立端口）', () => {

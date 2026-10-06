@@ -497,7 +497,7 @@ export function useBatchPublish(options) {
           return { ...target, publishTime: a.publishTime }
         })
       })
-      const scheduleCheck = validateScheduleEntries(scheduleEntries)
+      const scheduleCheck = validateScheduleEntries(scheduleEntries, { translate: (k, p) => progressText(`publishPage.scheduleValidation.${k}`, p) })
       if (!scheduleCheck.valid) {
         notifyWarning('publishPage.batchNotify.scheduleInvalid', { params: { message: scheduleCheck.message } })
         return

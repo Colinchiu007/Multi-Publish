@@ -68,7 +68,7 @@ function makeEngine () {
       return { success: true }
     },
     container: { get: () => null },
-    log: { info () {}, warn () {}, error () {} },
+    log: { info () {}, warn () {}, error() {}, notify() {} },
     _executors: executors,
   }
   return engine

@@ -1366,7 +1366,7 @@ export default {
     extractCover: 'Extract from Video',
     aiGenerateCover: 'AI Generate Cover',
     aiCoverPromptLabel: 'Cover prompt',
-    aiCoverPromptPlaceholder: 'Describe the cover you want, e.g. futuristic city night with neon glow',
+    aiCoverPromptPlaceholder: 'Describe the cover you want, e.g. futuristic city night with neon glow. Without an AI image provider, a cover is generated from the article title and content',
     aiCoverStyleLabel: 'Style',
     aiCoverStyle: {
       cinematic: 'Cinematic',
@@ -1380,6 +1380,7 @@ export default {
     aiCoverRatioLabel: 'Ratio',
     aiCoverGenerating: 'Generating AI cover…',
     aiCoverGenerated: 'AI cover generated',
+    aiCoverLocalGenerated: 'AI image generation unavailable — cover generated from your article content',
     aiCoverGenerateFailed: (ctx) => 'AI cover generation failed: ' + ctx.named('message'),
     aiCoverCancel: 'Cancel',
     aiVideoEntry: 'Generate Video with AI',
@@ -1415,6 +1416,14 @@ export default {
     },
     schedule: 'Schedule',
     scheduleHint: 'Leave empty = publish now',
+    scheduleHintWithLimits: 'Leave empty = publish now; you can schedule up to {maxDays} days ahead, with at least {minMinutes} minutes between two scheduled publishes on the same account',
+    scheduleValidation: {
+      scheduleInvalidTime: 'Invalid scheduled publish time',
+      scheduleMustBeFuture: 'Scheduled publish time must be later than the current time',
+      scheduleExceedsMaxDays: 'Scheduled publish time cannot exceed {maxDays} days',
+      scheduleMissingPlatform: 'Scheduled task is missing a publish platform',
+      scheduleIntervalTooShort: 'Scheduled publishes on {platform} {accountId}must be at least {minMinutes} minutes apart',
+    },
     optimalTimeNoData: 'Not enough data for a posting-time suggestion yet',
     optimalTimeNoDataDetail: 'There is not enough publishing data for this keyword to determine an optimal hour. Publish more content to accumulate data, or set a scheduled time manually.',
     aiDeclaration: 'Content creation declaration',
@@ -1795,6 +1804,15 @@ export default {
     cancelScheduleCancelButton: 'Keep task',
     cancelScheduleSuccess: 'Scheduled task cancelled',
     cancelScheduleFailed: 'Failed to cancel the scheduled task, please retry',
+    // Scheduled task reached its time but could not enter the publish queue (2026-10-06)
+    scheduleDispatchFailed: 'Scheduled publish did not go out: {platform} {reason}. The task is marked failed; please schedule it again.',
+    scheduleCancelledUncancellable: 'This scheduled task cannot be cancelled (it may have been published or already cancelled)',
+    // Scheduled batch display and cancellation on the calendar (2026-10-06)
+    scheduledBatchTitle: 'Scheduled batch ({count} articles)',
+    cancelBatchScheduleTitle: 'Cancel scheduled batch',
+    cancelBatchScheduleConfirm: 'Cancel this scheduled batch? Its articles will not be published at the scheduled time.',
+    cancelBatchScheduleSuccess: 'Scheduled batch cancelled',
+    cancelBatchScheduleFailed: 'Failed to cancel the scheduled batch, please retry',
   },
   historyPage: {
     manualEntryTitle: 'Manual Performance Entry',
@@ -2784,6 +2802,10 @@ export default {
     batchComplete: 'Batch collection complete',
     batchSuccess: '{count} articles collected',
     batchCollectFailed: 'Batch collection failed',
+    // M-3: polling hit the consecutive-failure threshold (IPC unreachable / main process not ready)
+    batchPollUnreachable: 'Query failed {count} times in a row; stopped waiting (collected items are kept, you can start again)',
+    // M-3: overall polling duration cap (covers the "every poll succeeds but the task never ends" livelock)
+    batchPollTimeout: 'Collection wait timed out; stopped waiting (collected items are kept, you can start again)',
     batchCancelled: 'Batch collection cancelled',
     cancelBatch: 'Cancel',
     enterRss: 'Please enter RSS URL',

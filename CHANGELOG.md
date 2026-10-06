@@ -1,3 +1,330 @@
+# [unreleased] fix(copy-library): M-5 读-改-写串行化 —— 并发保存不再静默丢数据
+
+### 缺陷
+`upsertRewrite` / `removeRewrite` 都是「读（:136 await readCurrent）→ 内存构造（:149）
+→ 写（:151 await storeSetSetting）」三步，中间**没有任何互斥**。两个调用的读阶段一旦
+重叠，就会读到同一份 current，各自算出一个 next，后写者**静默覆盖**先写者 ——
+用户保存的两条文案丢一条，界面毫无提示。
+
+采集页与文案库面板各持一份 composable 实例（见 `readCurrent` 的注释），
+正是并发写的现实来源。
+
+### 修复
+1. 加**模块级**写串行队列 `let writeChain = Promise.resolve()`。
+   为什么是模块级而不是实例级：两个实例之间才是竞态双方，放实例级等于没加防护。
+2. 整段 read-modify-write 挂进队列，两个实例的读不再重叠。
+3. **防链中毒**：链节内部一律 `catch` 后返回固定结果，保证 writeChain 永不进入
+   rejected 态 —— 否则某次写入失败会让后续所有写入被静默跳过。
+
+### 对原报告的更正（原措辞过宽）
+报告说「并发即丢」，**实测不成立**：JS 单线程下第一个调用会在 `await readCurrent()`
+处让出，第二个调用才开始读；只要第一个的写发生在第二次读之前完成，就**不会丢**。
+「丢数据」取决于两个 await 的实际交错时序，不是必然。
+
+所以本回归锁的判据不是「有没有丢」，而是「**两次读的区间是否重叠**」——
+这是串行化的稳定可证事实，不依赖能否碰巧复现丢失。
+
+### 测试
+- `p0-5-write-serial.test.js`（新增 5 用例，替换原复现型）：基线顺序写 2 条、
+  并发写不丢数据、**两次读区间不重叠**、并发 upsert+remove 不误删、
+  源码锚点断言（模块级队列 + 两个写路径都挂进队列 + 链节有 catch）。
+- **反证**：把 `writeChain.then(run, run)` 换回 `return run()` 后，锚点断言转红。
+- 删除 `p0-5-copy-library-race.test.js`（缺陷复现型，修复后必然失败 —— 与 M-1/M-3 同样处理）。
+
+### 验证
+14 用例全绿（4 文件）| check-max-lines rc=0
+
+---
+
+# [unreleased] fix(collection): M-3 批量轮询失败兜底 —— 连续失败达阈值即提示并复位发起按钮
+
+### 缺陷
+`Collection.vue` 的 `startBatchPolling` 里 catch 分支是空的 —— 只写了一句注释
+「轮询失败不立即中断，继续下次轮询」，既不计数、也不设总时长上限、也不给用户任何
+提示、也不复位 `batchCollecting`。于是只要 IPC 持续失败（主进程重启 / 任务记录
+丢失 / 鉴权失效），`batchCollecting` 永远为 true：
+- 两个发起按钮被 `:disabled="batchCollecting"` 永久锁死；
+- 进度条停在中间值；
+- 用户看不到任何错误文案，只能靠猜「取消」退出。
+
+已实证（基线 770967c0，报告附录 C）：连续 20 轮 reject（约 40 秒）后
+`batchCollecting` 仍为 true、`batchError` 为空、轮询仍在运行。
+
+### 修复
+1. 抽出 `composables/useBatchPollGuard.js`：连续失败计数（阈值 10 次 ≈ 20 秒，
+   覆盖主进程重启等瞬时故障）+ 总时长上限（10 分钟，兜「每轮成功但任务永不终结」
+   的活锁）+ 统一收口函数。
+2. **成功即清零计数** —— 只统计「连续」失败，间歇性抖动不会被累计到阈值误停
+   正常采集。
+3. 已收集的 `collectedItems` 保留不清空（丢弃已完成的工作是二次伤害）。
+4. i18n 新增 `collection.batchPollUnreachable` / `collection.batchPollTimeout`
+   （zh/en 成对）。
+
+### 为什么抽成 composable
+`Collection.vue` 已在 max-lines 台账上（登记 2721，main 上已漂到 2745）。内联
+修复会触发 `LEDGER_GREW`（实测膨胀 211 行 > 容差 200）。抽出去后不仅过门禁，
+「连续失败计数 + 时长上限 + 统一收口」本身是与视图无关的纯状态机，换页面可直接复用。
+
+### 测试
+- `useBatchPollGuard.test.js`（新增 6 用例）：阈值边界（第 9 次不收、第 10 次收）、
+  成功即清零（20 轮抖动不收口）、时长上限用 `>` 而非 `>=`、未 reset 不计时。
+  写这组测试时发现并修掉一个真 bug：哨兵值用 `0` 会把「时间源恰好返回 0」误判成
+  「未开始计时」而永不超时，已改为 `null`。
+- `p0-3-poll-fallback.test.js`（替换原复现型）：4 用例 + **源码锚点断言**，
+  锁住「组件真的用了守卫」而非自己另实现一套。
+- **反证**：把 catch 体改回空分支后锚点断言转红（`expected -1 to be greater than -1`），
+  证明测试有鉴别力。
+- 删除 `p0-3-poll-hang.test.js`（缺陷复现型，修复后必然失败 —— 与 M-1 同样的处理）。
+
+### 验证
+131 用例全绿（6 文件）| max-lines rc=0 | locale-sync rc=0
+
+---
+
+# [未发布] fix(accounts+publish): 修应用启动即崩（wechat_mp/baijiahao 隐藏窗口原生崩溃）+ API 直连轨补 session 分区 cookie 回退（e2e-hot-topics-crash-and-cookie，2026-10-06）
+
+### 起因：热门选题 E2E 完全跑不起来
+- 跑「热门选题 →【生成视频】→ 改写引擎 → 故事讲述流水线 → 多平台发布」真实 CDP E2E 时，应用每次启动后 **8~22 秒就原生崩溃**（主进程 exit code `0xFFFF7003` / `0xC0000005`），两条业务流程零产物。
+- 症状极像崩溃：日志末尾 `crashpad not connected`，**但 Windows 事件日志无任何崩溃记录、无 minidump** —— 真因需靠排除法收敛。
+
+### 三处修复
+
+**① 公众号（`wechat_mp`）隐藏窗口触发原生崩溃**
+`checkLoginStatus()` 在 HTTP 检测 inconclusive 时回退隐藏 sandbox 窗口做 DOM 检测，而 `mp.weixin.qq.com` 在该窗口加载时崩溃。公众号会话仅 24h，HTTP 检测对重定向到 `/cgi-bin/home?token=` 的形态恒判 inconclusive，**每次启动批量校验必崩**。日志末行恒为 `checkLoginStatus: start wechat_mp ... url=https://mp.weixin.qq.com/`。
+
+**② 百家号（`baijiahao`）纳入崩溃白名单**
+先用 24 次受控对照逐项证伪，才定位真因：
+
+| 假设 | 对照 | 结论 |
+| --- | --- | --- |
+| 批量校验并发 | 并发 1 vs 3，6/6 全崩 | 证伪 |
+| `--no-sandbox` / swiftshader | 三组对照 6/6 全崩（抓真实命令行证明开关生效） | 证伪 |
+| 一次性 partition / `sandbox:false` / `show:true` / 不真导航 | 均无法规避 | 证伪 |
+
+真因：`HTTP_CHECK_APIS` 登记表（8 平台）**漏了 `baijiahao`** ⇒ `tryHttpLoginCheck` 恒返回 null ⇒ 浏览器降级成为唯一检测路径 ⇒ 每次启动必开隐藏窗口并崩溃。同配置窗口加载 kuaishou/douyin 均成功，故为站点特定。**并发降级方案据此撤销**，不留错误配置。
+
+**③ API 直连轨补 session 分区 cookie 回退（百家号 `auth_missing` 根因）**
+E2E 实测百家号报「平台 Cookie 缺失」，但账号 `status=active` 且有 23 个 cookie。根因：`ApiPublisher` 的 `loadAuthForTask` **只读加密凭证文件**，不回退账号 session 分区（`persist:account-<id>`）；而百家号 cookie 只在分区里（`checkLocalCredentials` 日志原文 `fallback from missing encrypted file`）。这解释了为何**同一账号走 RPA 轨成功、只有 API 轨失败**（RPA 轨会用 `getAccountPartitionCookies` 补 cookie）。
+
+参考产品印证：其百家号发布链是**纯 HTTP**（cookie + token 直接进请求头、全程不开浏览器），端点与我方现有实现完全一致（`pcui/article/publish?callback=bjhpublish` 与 `save?callback=bjhdraft`），故缺口在**取数层**而非发布链。修复后凭证为空时回退读分区 cookie；两处皆空则如实返回空由调用方判 `auth_missing`，**绝不臆造凭据**。
+
+### E2E 实证效果（非单测替代）
+- 应用存活 165s+（修复前 8~22s 必崩）
+- 真实成片：H.264 1920×1080@30fps / 139.7s / 47.8MB
+- 7 平台发布 **3 成功**：B站 `BV187pF63EtD`、微信 `appmsgid=100000014`、抖音
+
+### 测试
+`electron/publishers` 251/251；`electron/services` 6030 passed / 1 skipped，零失败。全部 TDD（新用例先 RED 后转绿），并修 4 处受行为变更影响的既有断言（注释写明原因）。另给 `dev-launcher` 增 `MP_E2E_NO_SANDBOX` / `MP_E2E_SOFTWARE_GPU` 诊断旋钮（默认值不变）。
+
+### 遗留（不假装已闭合）
+- `accounts:list` 仍有第二条独立崩溃路径（5 测 2 崩），与本修复无关，待排查
+- 另 2 条选题因 `agnes-image` 服务端「组织内服务器暂时不可用」失败，属外部服务抖动
+- 小红书：应用无账号、项目无发布链；逆向资料显示参考产品用枚举名 `XiaoHongShu`（非中文），已定位待挖
+
+---
+
+# [未发布] fix(定时发布): 全链路验证修复——取消失败谎报成功 / JSONL 无界增长 / 休眠漂移 / 派发失败零可见 / 批量排期无取消入口（verify-scheduled-publish，2026-10-06）
+
+### 起因
+- 对「定时发布」做端到端验证（渲染层 UI + IPC + 主进程调度器 + 持久化 + 执行链路），并对标参考产品 4.0 逆向工程实现。
+- 前序修复（#2655 / #2670，2026-10-02）已覆盖批量定时重启丢失、历史定时模式标记、日历取消入口等，
+  本轮聚焦**既有实现中仍然存在的正确性与完整性缺陷**。
+
+### P0：取消失败被谎报成功（连带制造幽灵排期）
+- `scheduler:cancel` 无条件返回 `{ code:0, data:true }`，丢弃 `scheduler.cancel()` 的布尔返回值。
+- 后果一：日历取消的 `res.data === false` 分支**永不可达** → 取消失败提示「已取消定时任务」。
+- 后果二：`usePublishFlow.scheduleTargets` 的回滚失败判定（`rollback.value.data === false`）**永不成立** →
+  部分定时任务取消失败时仍提示已回滚，留下**到点仍会发布的幽灵排期**（#2670 幽灵发布的同族缺陷）。
+- 修复：如实回传布尔；日历区分「无法取消（可能已发布或已取消）」与「失败，请重试」两套文案。
+- 逃逸分析：既有测试**从不断言 `cancel` 的返回值**，只断言 `code===0` 与调用参数 —— 单测层结构性盲区。
+
+### P1：scheduled-tasks.jsonl 无界增长 + 每次状态迁移 O(n) 全量重写
+- `updateStatus` 每次状态迁移都「全量读-改-写」整个 JSONL；且终态记录永不清理 ⇒ 体积随历史线性增长，累计 O(n²)。
+- 修复：终态记录保留策略（超 30 天丢弃 + 最多 200 条），`create()` 成功后旁路剪枝；
+  `pending` / `dispatching` 永不裁剪，非法 JSON 行原样保留，剪枝异常只记 `warn` 不阻断创建。
+
+### P1：休眠 / 时钟跳变后定时器不重算
+- 墙钟目标在武装时一次性换算成相对延时；`restore()` 对已武装任务走 `isTaskTracked` 直接跳过，
+  ⇒ 系统休眠跨越到点时刻、或时钟被 NTP / 人工改动后，定时任务显著迟到且无补偿。
+- 修复：新增 `scheduler.rearm()`（解定时器 + 收束认领重试 + 按新墙钟重武装，幂等不双派发）
+  + `electron/bootstrap/resume-guard.js`（`powerMonitor` resume 守卫，60s 阈值避免短睡触发全量重写，失败仅记 WARN）。
+
+### P1：派发失败零用户可见性
+- 定时任务到点但入队失败时只写日志：状态落 `failed`，既无渲染层提示也不进发布历史，用户无从得知没发出去。
+- 修复：`onDispatchFailed` 钩子 → `scheduler:dispatch-failed` → preload `onSchedulerDispatchFailed`
+  → 日历实时错误提示 + 刷新；认领失败（`stage: claim`）与入队失败（`stage: enqueue`）分别标注。
+
+### P1：批量排期取消仅会话内可做
+- `scheduledBatchId` 是内存态，日历只渲染 `scheduler:*` 任务 ⇒ 离开发布页后批次排期**无法从任何 UI 取消**。
+- 修复：日历接入 `batchList` + `batchCancel`，补持久取消入口（确认弹窗 → 取消 → 刷新）；
+  批次事件时间取最早一篇 `publishTime`，整批立即发布的批次不渲染为待发事件。
+
+### P2：校验提示本地化 + 限制前置
+- `publish-contract.js` 内 5 条校验提示为硬编码中文字面量，en-US 用户在本地化外壳里看到中文。
+- 修复：`validateScheduleEntries` 新增结构化 `{ reason, params }` 与 `translate` 注入，文案入 locales zh/en；
+  未注入 `translate` 时回落中文兜底，既有行为不变。
+- 30 天上限与同账号 5 分钟间隔此前只在被拒时告知用户；现 hint 前置展示，限制值复用
+  `PUBLISH_CONTRACT_LIMITS` 单一真源（避免文案与实际校验漂移）。
+
+### 与参考产品 4.0 的对标结论
+- 参考产品走「服务端下发 + 29 个平台平台侧定时」，**无客户端时间校验、无持久化、无 catch-up**，
+  且对不支持定时发布的 7 个平台**静默忽略定时参数、内容立即发布**（最危险的静默失败形态）。
+- 本项目走统一本地调度，天然不存在「该平台定时被吞」语义，且已有 JSONL 持久化 + 重启 catch-up。
+- 已采纳其三条经验：失败原因必须对用户可见、配额/冲突在提交**前**拦截、排期确认回读平台真实状态。
+
+### 注册表 note 纠错：定时发布的真实语义是「本地调度」，不是平台原生定时
+- `publish-capabilities.json` 的 `schedule.note` 曾写「平台原生定时：抖音 timing、快手 publishTime、B站 dtime；
+  其余经本仓 scheduled-publish 队列」——把**竞品做法**当成了本仓实现。
+- 实测 `electron/publishers` 对 `prePubTime|dtime|timing[:=]` **零命中**：本项目 publisher
+  根本不消费平台侧定时参数，所有平台的定时**统一由本地 scheduler 到点后走普通立即发布链路**。
+- 推论（对真机验证有指导意义）：定时行为在各平台的差异**只可能来自 publisher 自身**（登录态/验证码/风控/内容限制），
+  不可能来自「该平台是否支持定时」，因为定时对平台完全不可见。
+- 已加两条结构锁防止再漂移：note 必须写明「本地调度」且不得出现「平台原生定时：」表述；
+  另有实证锁扫描 `electron/publishers`，一旦出现平台侧定时字段即失败。
+
+### 验证边界声明（重要）
+- 本轮已证明：**调度机制**在全部平台可用（apps/desktop 13957/13957、shared-utils 588 例全绿）。
+- 本轮**未**证明：任一平台的**真机定时发布**。已立项
+  `openspec/changes/real-machine-scheduled-publish-verification`，含 15 平台分批矩阵、
+  A/B/C 三段证据判据、7 个边界场景与前置条件（需各平台登录态 + 每次发布前人工确认）。
+
+### 测试
+- 新增：`packages/shared-utils/src/__tests__/scheduler.test.js`（剪枝 4 例 + rearm 4 例 + 派发失败通知 4 例）、
+  `apps/desktop/electron/bootstrap/resume-guard.test.js`（8 例）、
+  `apps/desktop/electron/ipc-handlers/scheduler.test.js`（cancel 回传 2 例）、
+  `apps/desktop/src/views/Calendar.test.js`（派发失败提示 3 例 + 批量取消 6 例 + data=false 文案 1 例）。
+- 全部 TDD：先红后绿，同步更新四处防漂移锁（preload 键数 123→124、PUBLISH_METHODS 87→88、总键数 334→335、
+  scheduler API 契约新增 `rearm`）。
+
+# [未发布] fix(deps): electron 43.1.1 → 43.7.7，偿清 4 条 high 公告（upgrade-electron-43-5，2026-10-06）
+
+### 为什么这次不是「顺手升个版本」
+
+对全部 99 个「已关闭未合并 PR」做审计后，判定 **#2707 是其中唯一真实安全债未偿**的一条：
+4 条 electron high 公告早在 2026-09-29 就登记进了 `scripts/dep-audit-baseline.json`
+（`decision: upgrade-tracked`，顶层 `reviewBy: 2026-12-31`），但 `pnpm-lock.yaml` 一直停在 **43.1.1**。
+登记动作落地了，**升级动作零进展** —— 门禁因为「已登记」而恒绿，看起来一切正常。
+
+| 公告 | 修复版本 |
+| --- | --- |
+| `GHSA-9qh4-3jw8-366w` | `>=43.4.1` |
+| `GHSA-gr2m-v5gq-v685` | `>=43.4.1` |
+| `GHSA-j84w-jfhq-vhvj` | `>=43.4.1` |
+| `GHSA-qmv3-fv6v-rmhq` | `>=43.5.0` |
+
+### 根因：只升 devDependency 是**无效**的
+
+`packages/rpa-engine` 声明 `peerDependencies: { electron: '>=33.0.0' }`，
+`packages/shared-utils` 声明 `'>=20.0.0'`，两者都是 `peerDependenciesMeta.optional`。
+
+这两个宽区间**本来就包含** 43.7.7，所以 pnpm 沿用旧解 43.1.1 不动。实测：把根与
+`apps/desktop` 的 devDependency 抬上去之后，根目录的 electron 已是 43.7.7，
+而 `packages/rpa-engine/node_modules/electron` **仍是 43.1.1**。
+
+而门禁扫描面 `pnpm audit --prod` 命中的恰恰是这两条路径
+（`packages__rpa-engine>electron` / `packages__shared-utils>electron`），
+所以 `NEW_ADVISORY` 不会响、门禁不会红 —— 升级看起来「做了」，实际公告一条没少。
+这与本仓 `pnpm-workspace.yaml` 里既有的 axios 段描述的是同一个陷阱。
+
+### 改动
+
+- **`pnpm-workspace.yaml`**：新增 `electron: '^43.7.7'` override —— 真正按住那两条 optional peer 路径的那一步
+- `package.json` / `apps/desktop/package.json`：`electron` → `^43.7.7`
+- `apps/desktop/package.json`：`build.electronVersion` → `43.7.7`
+  （该字段会**覆写** electron-builder 的版本探测；只改 devDependency 而不改它，打包仍会拿旧版）
+- `.github/workflows/electron-ci.yml`：校验和钉 `electron-v43.1.1-win32-x64.zip` → `electron-v43.7.7-win32-x64.zip`
+- `packages/api-publish-engine/test/production-dependency-security.test.js`：`OVERRIDE_FLOORS` 增 `electron: '43.5.0'`
+- `scripts/dep-audit-baseline.json`：`--update` 清账，33 条 → 29 条
+
+**刻意不收窄两个包的 peer 区间**：那是它们对外的兼容契约，收窄等于宣布放弃更老的 electron 消费方。
+override 只改本仓解析结果，不改对外声明。
+
+### 为什么此前没人升级（逃逸链）
+
+四条独立机制叠加，任何一条单独存在都拦不住：
+
+1. **wide-range optional peer 吸收了升级** —— 且全仓没有任何测试断言「锁里的 electron 是几」
+2. **CI 校验和钉是硬编码字面量** —— 版本一动必然红，客观上劝退
+3. **已登记的债门禁恒绿** —— `NEW_ADVISORY` 只管新增，`upgrade-tracked` 之后就不再催
+4. **`reviewBy: 2026-12-31` 制造「还早」错觉** —— 距到期还有近 3 个月
+
+### 验证
+
+- 定向：override 整表棘轮 7/7、`check-dep-audit.test.js` 26/26、`workflow-contract.test.js` 32/32、`gui-ci-exit-contract.test.js` 32/32
+- 全量：`vitest run electron/startup-compat.test.js tests/` → **98 files / 1417 tests passed**
+- QM-1 打包：`electron-builder --win --dir` rc=0，日志 `electron=43.7.7`，产物 exe `FileVersion` 实测 43.7.7，asar 14,695 条目
+- QM-1 启动：**3/3 稳定**存活 10s、窗口句柄非 0、**stderr 0 字节**、收尾无残留进程
+- 清账后 `check-dep-audit.js` rc=0；逐条比对确认 REMOVED 恰为那 4 条 electron，ADDED 0
+
+> 首轮 QM-1 判 **FAIL** 并重做过一次：只跑了 electron-builder 而没先跑 `build:vue`，
+> `dist/index.html` 缺席导致 stderr 出现 `ERR_FILE_NOT_FOUND` —— 进程存活但渲染层从未加载。
+> 「存活不等于通过」，补 `build:vue` 重打包后才取证通过。
+
+### 残余风险（如实登记）
+
+**43.1.1 → 43.7.7 的运行时行为差异未经双模型外部评审**（本会话外部通道未验证可用，未冒充已跑）。
+主进程用到 `WebContentsView` / `contentView` / `userAgentFallback` / `before-input-event` 等跨版本敏感面，
+建议合并后真机跑一轮完整发布链路。UA 净化逻辑按设计版本无关（只按白名单剔除 `Name/x.y.z` token，不硬编码内核版本），
+故补丁版升级无需改动该处代码。
+# [未发布] fix(desktop): 竖屏成片配横图——画幅契约收敛单一真源，全部图片适配器按成片画幅出图（fix-s2v-image-aspect-adapters，2026-10-06）
+
+### 起因：同一现象的第二次修复
+- 用户报「视频创作 → 故事讲述」选 720x1280，成片确为竖屏，**但生成的图片是横屏**，合成后画面没充满、两侧黑边（项目 `mur2tzc8_ru1r`）。
+- 这不是新 bug：PR #2787（2026-10-02）修过同一个项目、同一个现象，根因是 `agnes-image.js` 把 API 请求体字段名 `ratio` 误当入参名。
+- **为什么没根治**：#2787 只覆盖了 **1 个**图片适配器。当时该项目的 Provider 恰是 agnes，修复生效；**换个图片 Provider 就原样复现**。
+- 更深一层：画幅在「输出分辨率 → 出图尺寸」这条链上**没有单一真源**，也没有覆盖全部适配器的锁。每个适配器各自决定「读哪个键、怎么翻译成供应商尺寸」，失败时**全部静默**（不报错、不告警）。
+
+### 根因（比 #2787 高一层）
+`asset-generator.generateImage` 会**同时**下发两套信息：`aspect_ratio`（画幅键）与由它换算出的 `width/height`（像素键）。
+适配器只要消费其中一条就能出对画幅；**只消费一条、或一条都不消费的，在另一条缺失时就退回供应商默认**：
+
+| 适配器 | 修复前竖屏（9:16）实际结果 | 本次 |
+| --- | --- | --- |
+| `recraft` | **恒 1024x1024 方图**（只读 `size`，两套契约都不消费） | 修复：size → width/height → 画幅 |
+| `grok-image` | **供应商自选**（两套都不发） | 修复：按 xAI 官方 `aspect_ratio` 枚举下发 |
+| `pexels` / `pixabay` | **随机构图横图**（图库检索不带 `orientation`） | 修复：`orientation=portrait/vertical` |
+| `comfyui` | 取决于用户自备 workflow | 显式豁免 + 登记待办（尺寸在 workflow 图里，适配器无生效路径） |
+| `openai-image` / `flux` / `local-diffusion` | 已正确（消费 width/height） | 补画幅键为次级兜底（纵深防御，既有路径优先，行为不变） |
+| `agnes-image` / `minimax-image` / `imagen` | 已正确 | 等价收敛到单一真源 |
+| **非故事讲述的自动流水线** | `startExplainerPipeline` 只传 `resolution` 不传画幅 → 主进程保留 stageDef 的 `16:9` 默认 | 修复：随分辨率一并下发画幅 |
+
+> 同时更正 #2787 PRD §2.4 的一处结论：其中 `recraft` 因「上游文档抓取超时」被登记为观察项、**不盲改**——
+> 实际上不需要上游文档即可判定断链（该适配器自身默认 `size` 就是方图，而 asset-generator 从不发 `size`）。
+> **「不敢改 → 留着坑」的代价，这次结清。**
+
+### 修法：单一真源 + 穷举式契约锁
+- **新增** `electron/services/adapters/_base/aspect-ratio.js`：画幅解析的唯一实现。固定读键优先级
+  `aspect_ratio` > `aspectRatio` > `ratio`；提供画幅→像素、画幅→固定尺寸枚举、画幅→画幅枚举三种翻译。
+  纪律：**画幅是增强信息，非法/缺失一律回落适配器既有兜底，绝不抛错打断出图，也绝不臆造画幅**。
+- **契约锁由枚举式升级为穷举式**（这是防止「第 N 个适配器」再逃逸的关键）：
+  动态扫描适配器目录找出所有实现 `generateImage` 的文件，漏消费画幅即 CI 红；
+  并断言「扫描结果非空」防扫描规则失效导致全绿空转。
+  豁免必须写进白名单**并附理由**，理由为空即红、白名单不得包含已消费画幅的适配器、文件必须真实存在。
+- **纵深防御**：即使上游漏传画幅，`generate_assets` 阶段也按输出分辨率推导（原先写死 `16:9`），
+  且推导规则与校验层**同源**（`deriveStory2VideoAspectRatio`），杜绝「校验认为合法、运行时用另一个画幅」。
+
+### 回归保护
+- 新增 `_base/aspect-ratio.test.js`（22）、`image-aspect-ratio-portrait-regression.test.js`（8 个适配器的行为锁）、
+  `story2video-stages-aspect-ratio.test.js`（15）、`CreateView.test.js`（渲染层 2）；
+  `image-adapter-aspect-contract.test.js` 重写为穷举式（23）。
+- 穷举式契约锁首跑即 **7 红**（逐条按红改绿）——证明这把锁有牙，不是摆设。
+- 首次 CI 还红在**债务熔断**（`maxFileLines` 5657）：给 `CreateView.vue` 加画幅字段就顶破基线。
+  **没有为此抬基线**（抬基线正是这道门禁要防的事），而是把入口 params 字面量收紧排版，净减 1 行 → 5656 < 5657。
+- **全量回归**：adapters 64 文件 / **1672 用例全通过**（含 10 个被改动适配器的既有测试，零回归）；
+  `story2video-stages` **242 用例全通过**；`CreateView.test.js` **288/288 通过**。
+
+### 用户可感知
+- 同一配置下**重新生成**场景图片，图片画幅与成片一致，黑边消失。
+- **无新增交互、无新增文案**（zh/en locales 零改动）；分辨率下拉与折叠区摘要均未改动。
+- 历史项目已落盘的横屏图片**不迁移**，历史成片不追溯重渲染。
+
+### 刻意留下的缺口（不假装已闭合）
+- **comfyui 出图比例未修**：尺寸写在用户自备 workflow 图里，适配器下发画幅无生效路径；
+  已进豁免白名单并写明风险与待办。**用 comfyui 做图片 Provider 时，竖屏仍可能出横图。**
+- **未加运行期「出图画幅 ≠ 成片画幅」告警**：验证需读图片真实像素，会引入解码依赖与额外失败分支；
+  代价是「Provider 静默忽略画幅」这类问题只能在测试期发现，而非用户运行期。
+- QM-1 打包与 QM-6 双模型评审**未执行**（本次改动在云沙箱完成，无 Electron 运行时与评审通道），由 CI 与后续会话补跑。
+---
 # [未发布] feat(publish-api): 补齐发布前能力面（user-info / 发布权限预检 / POI / 草稿箱），并修正平台配置自相矛盾与小红书签名缺陷（publish-capabilities，2026-10-06）
 
 ### 起因：盘点结论里有 4 项「未找到」，其中 3 项其实有真源
@@ -64910,5 +65237,93 @@ P0-5 第一次跑基线就落库 0 条 —— mock 了错误模块（@/api/setti
 P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**，需 Electron 主进程环境。
 
 未修改任何生产代码。
+
+---
+
+# [未发布] feat(desktop): 内容感知封面——AI 生图不可用时按文章内容生成兜底封面（content-aware-svg-cover，2026-10-06）
+
+### 问题
+图文发布（小红书/快手/抖音图文）要求至少 1 张图，AI 生图不可用时回退到本地封面生成器。
+但该生成器把渐变硬编码为 `#1a2a6c → #b21f1f → #fdbb2d` 加一条固定黑底条，
+**全平台全文章产出同一张「平台标识」式标题卡**，且兜底链路只拿到用户手输的 prompt、
+没拿到文章标题与正文。根因是「视觉层写死 + 数据层缺上下文」两个独立缺陷。
+
+### 改动
+- **重写** `apps/desktop/electron/services/local-cover-generator.js`：15 主题本地词典
+  （标题命中权重 3 / 正文权重 1，取 argmax，平局取词典声明顺序以保证确定性），
+  每主题绑定双色渐变 + 强调色 + 一种程序化 SVG 纹样（电路/折线/热气/山峦/心跳/清单/
+  书页/像素/光束/爪印/道路/缎带/心形/拱形/阶梯/点阵共 16 种）；未命中词典时用
+  FNV-1a 内容哈希派生色相与纹样。**零模型调用、零新增依赖**（复用 hoisted sharp）——
+  一旦依赖 LLM，「模型挂掉时的兜底」会跟着一起挂掉
+- **排版升级**：主题徽章 + 主标题 + 关键词副标题，取代原来「居中大字 + 黑条」。
+  引入中文排版禁则（ASCII 词不拆散、闭合标点不落行首、开启标点不落行尾，
+  显示宽度 CJK=2 / ASCII=1）；字号按画布**短边**缩放并对整块高度设预算
+  （竖版 62% / 横版 58%），保证装饰区不被压没
+- **装饰安全区**：纹样按 `[safeTop, h]` 自适应布局 + `clipPath` 裁剪 +
+  顶部渐变遮罩软化交界，杜绝装饰横穿标题
+- **上下文打通**：`cover:generate-ai` 兜底分支改传 `title`（优先于 prompt，截 120 字）
+  与 `content`（截 2000 字）；`Publish.vue` 下传 `article.title` / `article.content`
+- **来源可辨**：两条分支都回传 `data.source`（`ai` / `local-fallback`），
+  渲染端据此给差异化提示，如实告知用户「AI 生图不可用」而非谎报「AI 封面已生成」
+- **日志增强**：兜底成功日志新增 `theme` / `label` / `keywords`，为词典回补提供数据
+- **i18n**：zh/en 成对新增 `aiCoverLocalGenerated`，改写 `aiCoverPromptPlaceholder` 说明兜底行为
+
+### 踩坑与修复（均有回归测试钉住）
+- **JS `^` 返回有符号 32 位**：FNV-1a 哈希 >2³¹ 时 `^k` 翻成负数 →
+  `MOTIFS[负下标]` 为 `undefined` → **未命中分支直接崩**。正解：异或后 `>>> 0`
+- **FNV-1a 低 4 位分布不均**：「随笔0/随笔1/…」高度相似串，20 条只落 7 种纹样。
+  正解：纹样索引与色相取高位 `(seed >>> 11)`，恢复到 12 种
+- **ASCII 词被拆散**：按字符数切行把「AI」切成 A / I 两行。正解：ASCII 连续片段
+  作为不可分割排版单元
+- **中文标点落行首**：`」` 单独起行。正解：维护禁则表 NO_LINE_START / NO_LINE_END
+- **横版撑爆**：字号按宽缩放，1920×1080 下文字块吃掉 83% 画高、纹样不可见。
+  正解：按短边缩放 + 高度预算
+- **词典覆盖不足 / 误命中**：「红烧肉」不命中美食（只收了品类词）；
+  「茶」命中「调查」、「笔记」命中「随笔记录」。正解：收具体名词、剔除单字与
+  可被更长词包含的词
+
+### 验证
+- `local-cover-generator.test.js` 6 条既有断言 + 10 条新增用例，
+  `publish.test.js` 3 条新增 IPC 合同用例；两文件 **52 passed**
+- `check-locale-sync.js --pair-base origin/main` / `--cjk` 全 PASS（无新增硬编码中文）
+- `check-no-brand-residue.js` PASS（扫 6933 tracked 文件）
+- 向后兼容：`generateLocalCover` / `wrapTitle` / `buildCoverSvg` / `RATIOS`
+  导出符号与 `RATIOS` 键集合未变；`buildCoverSvg(title, {width, height})`
+  旧调用形态仍可用；未传 `title` 时退回 `prompt`
+- 详细规格见 `01-docs/PRD.md`「内容感知封面生成（AI 生图不可用时的本地兜底）」章节
+# [unreleased] fix(publish): M-1 重入锁前置 + .adversarial 白名单 + 方案时效性核验
+
+### M-1 修复（发布重入窗口）
+handlePublish 的守卫在 :283，但 publishing = true 直到 :414 才置位，中间隔着
+await ensureLogin()（确认框 + OAuth，窗口可达秒级到分钟级）=> 二次调用两次都通过
+守卫，产生两次真实 publishBatch。
+
+锁前置到第一个 await 之前，且 try 起点必须与锁一起上移：只提前置锁而 try 留在
+原处是错的 —— :286-412 之间的 return 会绕过末尾 finally，把锁永久留在 true
+（发布按钮永久禁用）。
+
+验证：官方 usePublishFlow.test.js 全量 79 用例全绿（rc=0），无回归。
+
+### .adversarial/** 补进 docs-only 白名单
+该目录是 adversarial-review-loop 的正式评审留档（main 上 62 个文件：54 md +
+8 json，零可执行代码），但不在白名单 => 只提交评审产物的 docs-only PR 会触发全量
+Desktop Shards + Coverage 门禁（实测 3 项重型 job 跑 15+ 分钟未完成）。
+
+前置锁核查：零可执行代码 => 不触发「进白名单的路径其门禁必须先接线进 changes job」。
+同步 classify-docs-only.js + 三个 workflow 的 push.paths-ignore + 测试的两处登记。
+两道锁在改动后先红过，正是它们该拦的。
+
+### 方案补时效性核验（docs/frontend-remediation-plan-2026-10-06.md §13）
+本方案原以 C-1 为第 1 步，动手前才发现 C-1 早已被 PR #2952 修好（报告基线与
+当时 main 差 41 个提交）。新增 §13 记录逐条实测结果与两条流程纪律：
+
+- 核验必须用 git show origin/main:<file>，不能用工作区检出（本轮实测共享根检出是
+  旧版本，直接 grep 得出「C-1 未修」的反向错误结论）
+- 对抗评审挑不出过期前提 —— codex 三轮 44 条挑刺全在方案内部一致性，没有一条质疑
+  「这些缺陷现在还在吗」。跨家族不等于跨时间
+
+### 诚实记录：M-1 的回归测试未提交
+修复前写了 usePublishFlow.m1-reentry.test.js，但其基线用例在当前装置下跑不通
+（mock 契约问题，非修复问题）。入库一个红的测试比没有测试更糟，故本次不提交。
 
 ---

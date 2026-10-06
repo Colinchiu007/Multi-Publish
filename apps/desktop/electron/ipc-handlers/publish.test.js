@@ -241,6 +241,65 @@ describe('publish IPC 可信来源正常工作', () => {
       expect(assetGenerator.generateImage).toHaveBeenCalled()
       expect(generateLocalCover).toHaveBeenCalled()
     })
+
+    // 2026-10-06 内容感知封面：兜底必须拿到文章标题与正文，否则封面与内容无关
+    it('兜底分支把文章标题与正文透传给本地封面生成器', async () => {
+      const generateLocalCover = vi.fn(async () => ({
+        code: 0,
+        data: {
+          path: 'C:/tmp/multi-publish-cover-local/cover-probe3.png',
+          theme: 'tech',
+          themeLabel: '科技',
+          keywords: ['AI', '大模型'],
+        },
+      }))
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, createMockDeps({ localCoverGenerator: { generateLocalCover } }))
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, {
+        prompt: '科技感封面',
+        title: '大模型推理成本暴跌',
+        content: '人工智能算力降价',
+      })
+
+      expect(result.code).toBe(0)
+      // 标题优先取文章标题（内容本身），而不是用户手输的 prompt
+      expect(generateLocalCover).toHaveBeenCalledWith(
+        '大模型推理成本暴跌',
+        expect.objectContaining({ content: '人工智能算力降价' })
+      )
+      // 回传来源与主题，渲染端据此给差异化提示
+      expect(result.data.source).toBe('local-fallback')
+      expect(result.data.theme).toBe('tech')
+      expect(result.data.themeLabel).toBe('科技')
+      expect(result.data.keywords).toEqual(['AI', '大模型'])
+    })
+
+    it('未传文章标题时退回用 prompt 作封面标题（向后兼容）', async () => {
+      const generateLocalCover = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/x.png' } }))
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, createMockDeps({ localCoverGenerator: { generateLocalCover } }))
+      const handler = ipcMain._get('cover:generate-ai')
+
+      await handler(TRUSTED_EVENT, { prompt: 'city night' })
+
+      expect(generateLocalCover).toHaveBeenCalledWith('city night', expect.objectContaining({ content: '' }))
+    })
+
+    it('AI 生图成功时回传 source=ai（渲染端据此区分提示文案）', async () => {
+      const assetGenerator = {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/multi-publish-cover-ai/img_1.png' } })),
+      }
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, createMockDeps({ assetGenerator }))
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, { prompt: 'city night' })
+
+      expect(result.code).toBe(0)
+      expect(result.data.source).toBe('ai')
+    })
   })
 
   // P3-7：合集列表拉取（collection:list）

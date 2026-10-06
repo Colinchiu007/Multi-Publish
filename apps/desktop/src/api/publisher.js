@@ -74,6 +74,9 @@ export async function schedulerList() { return invokeWithFallback("schedulerList
 
 export async function schedulerCancel(id) { return invokeWithFallback("schedulerCancel", {  code: -1  }, id) }
 
+// 定时任务到点但入队失败的信号。缺失时用户无从得知「排的定时任务没发出去」。
+export function onSchedulerDispatchFailed(callback) { return bridgeOn("SchedulerDispatchFailed", callback) }
+
 // ─── 账号管理 API ─────────────────────────
 export async function listAccounts() { return invokeWithFallback("listAccounts", {  code: 0, data: []  }) }
 
