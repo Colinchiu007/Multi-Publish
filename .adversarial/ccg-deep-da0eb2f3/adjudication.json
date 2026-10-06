@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "baa322ac83274830",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": ".cmd/.bat 判定只堵带扩展名 shim；npm 全局布局是无扩展名脚本+claude.cmd，msys command -v 可命中但 CreateProcess 起不了。候选目录循环先试 $_rb_tool 再试 .exe，真 .exe 被 shim 抢先，ABS/PATH 与自检全放行——即 i2 点名过的『无扩展名 claude』未闭环，假绿灯复现。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "finding": "自检 else 分支只打印『仍不可解析』而不置 _CD_RC=2：ABS 恢复的文件无执行位时（Windows 外 fs 默认 0644）command -v 按 X_OK 解析不到，脚本却仍『体检通过』exit 0——『矛盾一律判不通过』的承诺只有注释没有行为；⑥c 只测零后端，不覆盖 ABS 命中但自检失败的分支。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "主流程（非 --check-deps）没有任何裸名/可执行再验证：ABS 仅凭 [ -f ] 即判可用，随后 exec node→wrapper 仍按裸名 spawn，失败信息留在引擎深处——non-diagnostic 路径回到旧缺陷形态，修复验证只在诊断入口做。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "makeFakeHome 桩从未 chmod +x：bash command -v 按 X_OK 搜索文件，Linux CI 下解析不到假后端→⑥b 的 doesNotMatch(/仍不可解析/) 必红；『10/10 绿』只在 Windows msys 验证，测试语义平台漂移却被接进 ubuntu 的 Gate。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    }
+  ]
+}

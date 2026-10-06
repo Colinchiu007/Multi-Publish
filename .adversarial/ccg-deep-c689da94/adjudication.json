@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "860e346c67ef63bd",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "report_backends 的 CMD 分支不设 _rb_rc 也不计 _rb_ok：两后端都只有 .cmd 时打印『没有任何评审后端可用』却返回 0，--check-deps 跟着 exit 0 并打印『体检通过：后端可用』，与自身文案及 fail-closed 意图相反。测试②只断言输出、不查 rc，拦不住。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "for _rb_d in $(candidate_dirs) 未加引号，含空格的候选目录被按词拆分。文档自己举的真实路径 D:\\Program Files\\npm-global 就含空格，该候选在 shell 里被拆成两段而漏检后端。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "主流程 report_backends || true 之后无条件打印『依赖体检通过，开始深度审查…』并继续跑；后端全 MISS 时上一行刚打印『深度审查根本起不来』，两句自相矛盾，且仍会带着坏环境往下执行到 wrapper 才失败。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    }
+  ]
+}
