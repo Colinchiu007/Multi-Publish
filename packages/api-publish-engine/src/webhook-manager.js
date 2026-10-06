@@ -2,54 +2,28 @@ const http = require("http");
 const https = require("https");
 const dns = require("dns");
 const net = require("net");
+// SSRF 屏蔽清单与出网 URL 校验已抽到 ssrf-guard.js，与媒体拉取共用单一真源。
+const ssrf = require("./ssrf-guard");
 
 var ID_SEQ = 0;
 function genId() { return "wh-" + (++ID_SEQ) + "-" + Date.now().toString(36); }
 
-var BLOCKED_IPV4 = new net.BlockList();
-var BLOCKED_IPV6 = new net.BlockList();
-[
-  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
-  ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.168.0.0", 16],
-  ["198.18.0.0", 15], ["224.0.0.0", 4], ["240.0.0.0", 4],
-].forEach(function(entry) { BLOCKED_IPV4.addSubnet(entry[0], entry[1], "ipv4"); });
-[
-  ["::", 128], ["::1", 128], ["::ffff:0:0", 96], ["64:ff9b::", 96],
-  ["64:ff9b:1::", 48], ["100::", 64], ["2001:db8::", 32], ["fc00::", 7],
-  ["fe80::", 10], ["ff00::", 8],
-].forEach(function(entry) { BLOCKED_IPV6.addSubnet(entry[0], entry[1], "ipv6"); });
+var BLOCKED_IPV4 = ssrf.BLOCKED_IPV4;
+var BLOCKED_IPV6 = ssrf.BLOCKED_IPV6;
+var normalizeHostname = ssrf.normalizeHostname;
+var isBlockedAddress = ssrf.isBlockedAddress;
 
-function normalizeHostname(hostname) {
-  var value = String(hostname || "").toLowerCase();
-  return value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
-}
-
-function isBlockedAddress(address) {
-  var family = net.isIP(address);
-  if (!family) return true;
-  return family === 4
-    ? BLOCKED_IPV4.check(address, "ipv4")
-    : BLOCKED_IPV6.check(address, "ipv6");
-}
-
+// 委托共用实现。label 传小写 "webhook URL"：共用实现的文案模板是
+// `label + " must be ..."`，历史上线文案正是 "Invalid webhook URL"/
+// "Webhook URL must be ..."——大写会与之逐字不符。
 function parseWebhookUrl(value) {
-  if (typeof value !== "string" || value.length > 2048) {
-    throw new Error("Valid webhook URL is required (http:// or https://)");
-  }
-  var parsed;
-  try { parsed = new URL(value); } catch (e) {
-    throw new Error("Invalid webhook URL");
-  }
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname || parsed.username || parsed.password) {
-    throw new Error("Valid webhook URL is required (http:// or https://)");
-  }
-  var host = normalizeHostname(parsed.hostname);
-  var literalFamily = net.isIP(host);
-  if (host === "localhost" || host.endsWith(".localhost") || (literalFamily && isBlockedAddress(host))) {
-    throw new Error("Webhook URL cannot point to internal/private network");
-  }
-  return parsed;
+  return ssrf.parseOutboundUrl(value, {
+    label: "Webhook URL",
+    // 保持抽取前的历史文案（既有测试与下游按此匹配）
+    invalidUrlMessage: "Invalid webhook URL",
+  });
 }
+
 
 class WebhookManager {
   constructor(opts) {
