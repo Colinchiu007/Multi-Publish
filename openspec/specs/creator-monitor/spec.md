@@ -6,6 +6,8 @@
 
 本能力在本仓是**从零引入领域概念**——此前不存在博主实体、关注关系、按账号列举作品的能力，也不存在周期内容监控。首批平台为 YouTube。
 
+本契约已随 CCG 决策层评审同步至第 8 轮（约 78 条意见）。评审未形式收敛，故此处收录的是**每一条 Critical 与 Warning 的最终处置结论**，作为实现期的强制约束。
+
 ## Requirements
 
 ### Requirement: 博主实体与 canonical ID
@@ -30,6 +32,27 @@
 
 - **WHEN** 用户粘贴 `youtube.com/watch?v=xxx`
 - **THEN** 系统提示「这是作品链接，请粘贴博主主页链接」，MUST NOT 尝试按频道解析
+
+### Requirement: 正文来源可��性与端到端前置验证
+
+正文 SHALL 来自字幕、AI 识别补全或视频描述，媒体下载 SHALL NOT 作为正文来源。系统 MUST 在写入运行时代码前，先用真实 API Key 跑通端到端冒烟（E2E-1~E2E-5）。
+
+**正文链路 SHALL NOT 消耗 YouTube Data API 配额**：字幕来自 `youtube-transcript-api`（非 Data API），描述随 `playlistItems` 免费返回。系统 MUST 据此把「发现配额」与「正文获取」当作两件事分别降级——配额耗尽时已发现的条目 MUST 仍可正常采集。
+
+#### Scenario: 依赖不可用时先证伪再开发
+
+- **WHEN** 实现开始前
+- **THEN** MUST 先用真实 API Key 验证频道解析、作品枚举、字幕正文（≥500 字且 `transcript_source='subtitle'`）、探测幂等、单条入库五项；任一失败则先修复该层，MUST NOT 在未验证依赖的前提下写其余代码
+
+#### Scenario: 配额耗尽不影响已发现条目采集
+
+- **WHEN** 探测池耗尽但采集池充足，且已有 `pending` 条目
+- **THEN** 用户仍可正常采集这些条目，提示语 MUST NOT 把「配额问题」说成「内容不可用」
+
+#### Scenario: 正文质量分级
+
+- **WHEN** 视频无字幕但已配置 `llm_config`
+- **THEN** 正文来自 AI 识别，质量标为 `derived`，MUST NOT 与原生字幕的 `full` 混为一谈；未配置时标 `stub` 并在送入 AI 写作前明示
 
 ### Requirement: 定期监控与增量发现
 
@@ -87,9 +110,11 @@
 - **WHEN** 采集配额已耗尽且用户点击单条「采集」
 - **THEN** 系统拒绝并提示配额已用尽，MUST NOT 因为「只有一条」而放行
 
-### Requirement: 探测与采集双轨配额
+### Requirement: 探测与采集双轨配额及其持久化对账
 
-系统 SHALL 将探测与采集计入**相互独立**的两份逻辑配额，且两者 MUST 共用 YouTube 项目级物理池的不同切分比例（探测 15% / 采集 60% / 安全余量 25%）。
+系统 SHALL 将探测与采集计入**相互独立**的两份逻辑配额，且两者 MUST 共用 YouTube 项目级物理池的不同切分比例（探测 15% / 采集 60% / 安全余量 25%）。切分 MUST 按相对比例而非绝对数字，以适配配额可扩容或调整。
+
+配额计数 SHALL 以**持久 ledger**（`collection_quota_ledger(day, kind, units, request_sig, created_at)`）为真源，MUST NOT 以内存累加器为真源。跨日重置 SHALL 依赖 `day` 字段自然分界，MUST NOT 使用定时器清零（应用关闭时定时器不触发，会漏清或重复清）。
 
 系统 SHALL 在**新增关注、修改间隔、批量调整、导入、备份恢复、迁移、启动加载**七条路径上强制校验 `Σ(1440/check_interval_min) ≤ 探测池`。
 
@@ -108,17 +133,25 @@
 #### Scenario: 启动时存量超限降级而非拒绝启动
 
 - **WHEN** 用户从旧备份导入的关注项总需求已超探测池
-- **THEN** 应用正常启动，监控按间隔升序保底运行，UI 明确显示有多少博主本轮未被检查
+- **THEN** 应用正常启动，监控按 `check_interval_min ASC, created_at ASC` 保底运行，UI **逐个列出**被跳过的博主及其原因；被跳过者不发请求因而不消耗配额
+
+#### Scenario: 崩溃后计数不丢
+
+- **WHEN** 应用在当日已发出若干 API 请求后被强制杀死并重启
+- **THEN** 当日已消耗量以 ledger 重算为准，MUST NOT 从零重新计数导致超发
+
+#### Scenario: 外部争用时收缩并可恢复
+
+- **WHEN** 收到 `quotaExceeded` 而本地计数很低
+- **THEN** 判定同 Key 被其他程序占用，池收缩至 50%（连续 2 次至 25%）并进入 30 分钟冷却；收缩带 24 小时 TTL，到点无条件回基准，MUST NOT 永久停在低水位
 
 ### Requirement: 失败分级与降级
 
-系统 SHALL 按平台 API 响应的 `error.errors[].reason` 分类失败，MUST NOT 仅按 HTTP 状态码分类——YouTube 的 `quotaExceeded` 返回 403。
+系统 SHALL 按平台 API 响应的 `error.errors[].reason` 分类，MUST NOT 仅按 HTTP 状态码分类——YouTube 的 `quotaExceeded` 返回 403。响应含多个 `reason` 时 MUST 按固定优先级匹配：quota/rate → auth/config → notFound → item → unknown。
 
-节流类（`quotaExceeded` / `dailyLimitExceeded` / `rateLimitExceeded` / `userRateLimitExceeded` / 无 reason 的 429）与瞬时类（5xx / 超时 / 连接重置）MUST NOT 计入连续失败。博主级真故障（`channelNotFound` / `playlistNotFound`）连续 3 次 MUST 转入 `auto_paused`。凭证类（`keyInvalid` / `accessNotConfigured` / 401）MUST 首次即转入 `fatal_paused` 并在 UI 指向设置页。
+节流类与瞬时类（5xx/超时/连接重置）MUST NOT 计入连续失败。博主级真故障连续 3 次 MUST 转入 `auto_paused`。凭证类 MUST 首次即转入 `fatal_paused` 并在 UI 指向设置页。
 
-单资源级错误（`videoNotFound` / `invalidPageToken` / `ipRefererBlocked`）MUST NOT 影响博主的连续失败计数。
-
-分类无法完成时系统 SHALL fail-closed 计入失败并保留脱敏响应摘要，MUST NOT 静默放行。
+分类无法完成时系统 SHALL fail-closed 计入失败并保留脱敏响应摘要（含 HTTP 状态码与 `x-goog-request-id`），MUST NOT 静默放行。
 
 #### Scenario: 配额耗尽不会被误判为故障
 
@@ -130,18 +163,32 @@
 - **WHEN** 某条作品采集时返回 `videoNotFound`
 - **THEN** 仅该条进入 `failed`，博主的 `consecutive_failures` 不增加，博主不被暂停
 
+#### Scenario: 分页错误不得静默跳过
+
+- **WHEN** 探测翻页时返回 `invalidPageToken`
+- **THEN** 该次探测整体判为任务级失败并触发重试，MUST NOT 归为单条 item 级——否则会「跳过该条继续翻页」，静默丢失后续分页的全部作品
+
+#### Scenario: 应用级 403 不得归为单条
+
+- **WHEN** 返回 `ipRefererBlocked`
+- **THEN** 归为致命级并首次即暂停，MUST NOT 归为 item 级——否则表现为「每条都失败但博主永不暂停」，监控静默失效
+
 #### Scenario: 凭证失效首次即暂停
 
 - **WHEN** API 返回 `keyInvalid`
 - **THEN** 该博主首次失败即进入 `fatal_paused`（不等 3 次），UI 显示凭证原因并提供直达设置页入口
 
-### Requirement: 采集并发安全
+### Requirement: 采集并发安全与最终化原子性
 
-采集 SHALL 通过 `claim + lease + fencing token` 三件套保证同一作品不被并发重复采集。
+采集 SHALL 通过 `claim + lease + fencing token` 保证同一作品不被并发重复采集。claim MUST 为单条原子 UPDATE（`UPDATE ... RETURNING claim_token`）。
 
-claim MUST 为单条原子 UPDATE，且仅当状态为 `pending` 或 `failed`、且租约为空或已过期时才能抢占。持有者 MUST 周期性续租。成功与失败的提交 MUST 携带 `claim_token` 条件；token 不匹配时 MUST 放弃提交，MUST NOT 覆盖新持有者的结果。
+**所有行内变更与副作用**——进度写入、lease 续期、跨表插入、熔断计数——MUST 按 `claim_token` 条件提交。成功/失败提交 token 不匹配时 MUST 放弃提交，MUST NOT 覆盖新持有者。
 
-连续失败达上限后 MUST 停止自动重试并转冷却，等待用户显式重试。
+心跳续租 MUST 以**实质进展**为条件，进展粒度 MUST 明确定义（字节回调 / 阶段边界跨越 / 每 5s 阶段内心跳，满足其一即续租），MUST NOT 因事件循环空转而无进展续租。系统 MUST 另设总 deadline 与分阶段超时，与续租解耦。
+
+产物落在**事务外**的文件系统侧，因此 SHALL 采用 outbox 最终化协议：先落 staging 产物 → 单个最终化事务内完成搬产物 + UPSERT `viral_library` + `collect_state='collected'` + outbox `done` → 异步 worker 消费。中间态用 `collecting`/`ready`，MUST NOT 参与终态判据。
+
+outbox SHALL 设重试上限与**死信状态**，永久失败 MUST 停止自动重试并告警，MUST NOT 无限重试导致 staging 永不清理。
 
 #### Scenario: 并发点击只采集一次
 
@@ -153,25 +200,97 @@ claim MUST 为单条原子 UPDATE，且仅当状态为 `pending` 或 `failed`、
 - **WHEN** 旧 worker 租约过期后新 worker 接管并完成采集，随后旧 worker 才返回结果
 - **THEN** 旧 worker 的提交因 `claim_token` 不匹配被拒绝，新 worker 的结果不被覆盖
 
+#### Scenario: 事务解决不了双写
+
+- **WHEN** 数据库已提交 `collected` 而产物写入失败
+- **THEN** 系统 MUST NOT 留下「已采集但正文为空」——产物先于入库落 staging，失败时 discovery 仍为 `failed` 且用户可重试
+
+#### Scenario: 删除与最终化的竞态
+
+- **WHEN** 删除发生在 outbox 消费之前
+- **THEN** 删除事务写入 tombstone 并递增 `claim_token`，迟到的 finalizer 在校验 token 时必然失败并放弃，MUST NOT 把产物搬回来导致「已删除却又复活」
+
+#### Scenario: 挂起任务不得无限续租
+
+- **WHEN** 采集任务卡死且无任何字节或阶段进展
+- **THEN** 心跳不续租，租约到期后可被其他 worker 抢占；总 deadline 到达时强制放弃
+
+### Requirement: 采集库与发现记录的一致性维护
+
+`viral_library` SHALL 作为采集事实源，`creator_discoveries` 作为发现事实源，两者 MUST NOT 建立外键（存量行无 `creator_id`，外键会导致迁移失败）。
+
+删除采集库条目 MUST 在**单个事务**内完成：删除 `viral_library` 行、将 `creator_discoveries.collect_state` 落回 **`pending`**、递增 `claim_token` 使在途 worker 失效、撤销未 `done` 的 outbox。
+
+系统 SHALL 提供**每日完整性巡检**：`collect_state='collected'` 但 `viral_library` 无对应行者 MUST 复位为 `pending` 并记日志。巡检复位前 MUST 过采集池准入校验。
+
+#### Scenario: 删除后作品可重新采集
+
+- **WHEN** 用户删除某已采集作品
+- **THEN** 对应 discovery 回到 `pending`，后续探测不会因唯一索引跳过，该作品可被重新采集
+
+#### Scenario: 跨入口删除不留幽灵记录
+
+- **WHEN** 用户从批量清理等非主路径删除 `viral_library` 行
+- **THEN** 每日巡检 MUST 发现并复位该 discovery，MUST NOT 依赖「所有删除都走同一入口」这一代码纪律
+
 ### Requirement: 凭证安全
 
 API Key SHALL 经 Electron `safeStorage` 加密后存储，MUST NOT 明文落盘，MUST NOT 写入任何日志、崩溃报告或隔离区载荷。
 
-API Key MUST NOT 跨 IPC 传入渲染层；IPC 只暴露「是否已配置」与末四位指纹。
+IPC 契约 SHALL 为**单向**：MUST 提供一次性写入通道接收用户输入的明文（用户必须在渲染层输入，此项无法回避），但所有查询通道 MUST NOT 回传明文，只返回状态与末四位指纹。保存后主进程 MUST 立即丢弃明文引用，渲染层 MUST 立即清空输入框且 MUST NOT 写入任何持久化存储。
+
+系统 SHALL 区分「未配置」「系统密钥库不可用」「已保存但无法解密」三种状态并给出各自文案。
 
 `safeStorage` 不可用时系统 SHALL fail-closed 禁用该功能，MUST NOT 降级为明文保存。
 
-系统 SHALL 区分「未配置」「系统密钥库不可用」「已保存但无法解密」三种状态并给出各自文案，避免用户在换机或 DPAPI 损坏后反复重填仍失败。
-
 #### Scenario: 渲染层拿不到密钥原文
 
-- **WHEN** 前端读取凭证状态
+- **WHEN** 前端查询凭证状态
 - **THEN** 只得到 `status` 与末四位指纹，MUST NOT 得到密钥原文
+
+#### Scenario: 换机后密钥不可解密
+
+- **WHEN** OS 密码重置或跨设备迁移后 `safeStorage.decryptString` 抛错
+- **THEN** 状态标为「已保存但无法解密」并引导重新输入，MUST NOT 笼统报「未配置」让用户反复重填仍失败
 
 #### Scenario: 密钥库不可用时功能禁用
 
 - **WHEN** `safeStorage.isEncryptionAvailable()` 为 false
 - **THEN** 博主监控功能整体禁用并明示原因，MUST NOT 明文保存密钥
+
+### Requirement: 送入 AI 写作的外发边界
+
+「送入 AI 写作」SHALL 只外发正文与标题，MUST NOT 外传作者标识、频道 ID、链接、缩略图或任何用户标识字段。出站目标 MUST 限于用户已配置的 LLM 供应商，MUST NOT 新增隐式出站通道。
+
+正文中的邮箱、手机号、长数字串 MUST 在出站前做脱敏。首次外发 MUST 一次性说明并取得确认，用户撤回后该入口 MUST 置灰。每次外发 MUST 记录时间与运行 ID 以便追溯来源。
+
+采集内容默认为**本地优先**：MUST NOT 在用户未显式点击时自动外发。
+
+#### Scenario: 外发字段最小化
+
+- **WHEN** 用户点击「送入 AI 写作」
+- **THEN** 出站 payload 仅含标题与脱敏正文，MUST NOT 含 `author` / `channel_id` / `url` / `thumbnails`
+
+#### Scenario: 未确认不外发
+
+- **WHEN** 用户尚未对首次外发说明做出确认
+- **THEN** 系统 MUST 先展示说明并要求确认，MUST NOT 直接把内容发给模型
+
+### Requirement: 自动化任务调度的健壮性
+
+新增博主监控任务类型时，`automation-scheduler` 的 `action.type` 硬编码点 MUST 改为可扩展分发。未知任务类型 MUST **挂起该任务并隔离原始载荷**，MUST NOT `throw`（会中断调度循环，导致所有自动化停摆），MUST NOT fallback 到其他任务类型（会静默跑错链路）。
+
+隔离区 SHALL 在落库前脱敏、设容量上限、记录用户显式删除审计，MUST NOT 自动删除（自动删等于静默丢用户配置）。任务被挂起 MUST 主动告知用户（未收口徽标 + 首次通知 + 卡片开关置灰但保持可见）。
+
+#### Scenario: 未知类型不拖垮调度器
+
+- **WHEN** 存在一条 `action.type` 无法识别的历史任务
+- **THEN** 该任务被挂起并隔离，其余任务照常触发；该任务在 UI 显示明确错误并可编辑恢复
+
+#### Scenario: 用户不会因绿灯误判自动化正常
+
+- **WHEN** 某任务因未知类型被挂起
+- **THEN** UI MUST 显示未收口徽标且卡片启用开关置灰，MUST NOT 仍显示为「已启用」让用户以为自动化在跑
 
 ### Requirement: 平台能力分层与诚实标注
 
