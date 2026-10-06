@@ -1,3 +1,45 @@
+# [未发布] fix(accounts+publish): 修应用启动即崩（wechat_mp/baijiahao 隐藏窗口原生崩溃）+ API 直连轨补 session 分区 cookie 回退（e2e-hot-topics-crash-and-cookie，2026-10-06）
+
+### 起因：热门选题 E2E 完全跑不起来
+- 跑「热门选题 →【生成视频】→ 改写引擎 → 故事讲述流水线 → 多平台发布」真实 CDP E2E 时，应用每次启动后 **8~22 秒就原生崩溃**（主进程 exit code `0xFFFF7003` / `0xC0000005`），两条业务流程零产物。
+- 症状极像崩溃：日志末尾 `crashpad not connected`，**但 Windows 事件日志无任何崩溃记录、无 minidump** —— 真因需靠排除法收敛。
+
+### 三处修复
+
+**① 公众号（`wechat_mp`）隐藏窗口触发原生崩溃**
+`checkLoginStatus()` 在 HTTP 检测 inconclusive 时回退隐藏 sandbox 窗口做 DOM 检测，而 `mp.weixin.qq.com` 在该窗口加载时崩溃。公众号会话仅 24h，HTTP 检测对重定向到 `/cgi-bin/home?token=` 的形态恒判 inconclusive，**每次启动批量校验必崩**。日志末行恒为 `checkLoginStatus: start wechat_mp ... url=https://mp.weixin.qq.com/`。
+
+**② 百家号（`baijiahao`）纳入崩溃白名单**
+先用 24 次受控对照逐项证伪，才定位真因：
+
+| 假设 | 对照 | 结论 |
+| --- | --- | --- |
+| 批量校验并发 | 并发 1 vs 3，6/6 全崩 | 证伪 |
+| `--no-sandbox` / swiftshader | 三组对照 6/6 全崩（抓真实命令行证明开关生效） | 证伪 |
+| 一次性 partition / `sandbox:false` / `show:true` / 不真导航 | 均无法规避 | 证伪 |
+
+真因：`HTTP_CHECK_APIS` 登记表（8 平台）**漏了 `baijiahao`** ⇒ `tryHttpLoginCheck` 恒返回 null ⇒ 浏览器降级成为唯一检测路径 ⇒ 每次启动必开隐藏窗口并崩溃。同配置窗口加载 kuaishou/douyin 均成功，故为站点特定。**并发降级方案据此撤销**，不留错误配置。
+
+**③ API 直连轨补 session 分区 cookie 回退（百家号 `auth_missing` 根因）**
+E2E 实测百家号报「平台 Cookie 缺失」，但账号 `status=active` 且有 23 个 cookie。根因：`ApiPublisher` 的 `loadAuthForTask` **只读加密凭证文件**，不回退账号 session 分区（`persist:account-<id>`）；而百家号 cookie 只在分区里（`checkLocalCredentials` 日志原文 `fallback from missing encrypted file`）。这解释了为何**同一账号走 RPA 轨成功、只有 API 轨失败**（RPA 轨会用 `getAccountPartitionCookies` 补 cookie）。
+
+参考产品印证：蚁小二百家号发布链是**纯 HTTP**（cookie + token 直接进请求头、全程不开浏览器），端点与我方现有实现完全一致（`pcui/article/publish?callback=bjhpublish` 与 `save?callback=bjhdraft`），故缺口在**取数层**而非发布链。修复后凭证为空时回退读分区 cookie；两处皆空则如实返回空由调用方判 `auth_missing`，**绝不臆造凭据**。
+
+### E2E 实证效果（非单测替代）
+- 应用存活 165s+（修复前 8~22s 必崩）
+- 真实成片：H.264 1920×1080@30fps / 139.7s / 47.8MB
+- 7 平台发布 **3 成功**：B站 `BV187pF63EtD`、微信 `appmsgid=100000014`、抖音
+
+### 测试
+`electron/publishers` 251/251；`electron/services` 6030 passed / 1 skipped，零失败。全部 TDD（新用例先 RED 后转绿），并修 4 处受行为变更影响的既有断言（注释写明原因）。另给 `dev-launcher` 增 `MP_E2E_NO_SANDBOX` / `MP_E2E_SOFTWARE_GPU` 诊断旋钮（默认值不变）。
+
+### 遗留（不假装已闭合）
+- `accounts:list` 仍有第二条独立崩溃路径（5 测 2 崩），与本修复无关，待排查
+- 另 2 条选题因 `agnes-image` 服务端「组织内服务器暂时不可用」失败，属外部服务抖动
+- 小红书：应用无账号、项目无发布链；逆向资料显示参考产品用枚举名 `XiaoHongShu`（非中文），已定位待挖
+
+---
+
 # [未发布] fix(desktop): 竖屏成片配横图——画幅契约收敛单一真源，全部图片适配器按成片画幅出图（fix-s2v-image-aspect-adapters，2026-10-06）
 
 ### 起因：同一现象的第二次修复
