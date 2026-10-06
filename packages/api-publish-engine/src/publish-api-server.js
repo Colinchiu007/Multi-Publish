@@ -1387,7 +1387,12 @@ p{color:#6e6e73}
           { m: "POST", p: "/api/v1/webhook/remove", d: "Remove a webhook. Body: { id }" },
           { m: "POST", p: "/api/v1/auth/logto/webhook", d: "Receive Logto user webhook. HMAC: logto-signature-sha-256" },
           { m: "GET", p: "/api/v1/docs", d: "This page - API documentation" },
-          { m: "GET", p: "/api/v1/openapi.json", d: "OpenAPI 3.0 specification (JSON)" }
+          { m: "GET", p: "/api/v1/openapi.json", d: "OpenAPI 3.0 specification (JSON)" },
+          { m: "GET", p: "/api/v1/platforms/capabilities", d: "发布前能力矩阵总览（哪些平台有什么）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/user-info", d: "账号信息（昵称/粉丝数/头像）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/permission-check", d: "发布权限预检（不可用时返回 401 LOGIN_EXPIRED）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/poi", d: "位置推荐（矩阵标 null 的平台返回 404）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/drafts", d: "草稿箱（同上）" },
         ];
         for (var i = 0; i < endpoints.length; i++) {
           var ep = endpoints[i];
@@ -1423,6 +1428,14 @@ p{color:#6e6e73}
           "/api/v1/ready": { get: { summary: "生产就绪检查", responses: { "200": { description: "所有身份依赖就绪" }, "503": { description: "数据库、迁移或 OIDC/JWKS 未就绪" } } } },
           "/api/v1/me": { get: { summary: "获取当前业务用户和权威权益", parameters: [{ name: "X-Device-ID", in: "header", required: false, schema: { type: "string", minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" } }], responses: { "200": { description: "用户与 entitlement" }, "400": { description: "设备标识无效" }, "503": { description: "业务用户或权益服务不可用" } }, security: [{ bearerAuth: [] }] } },
           "/api/v1/platforms": { get: { summary: "平台列表", responses: { "200": { description: "平台列表" } } } },
+          "/api/v1/platforms/capabilities": { get: { summary: "发布前能力矩阵总览", responses: { "200": { description: "能力矩阵（哪些平台有哪些能力，未取证者显式为 null）" } } } },
+          "/api/v1/platforms/{platform}/{action}": { post: {
+            summary: "发布前能力查询（user-info / permission-check / poi / drafts）",
+            parameters: [{ name: "platform", in: "path", required: true, schema: { type: "string" } },
+                         { name: "action", in: "path", required: true, schema: { type: "string", enum: ["user-info", "permission-check", "poi", "drafts"] } }],
+            requestBody: { content: { "application/json": { schema: { type: "object", properties: { cookie: { type: "string" }, page: { type: "integer" }, pageSize: { type: "integer" }, type: { type: "string" }, search: { type: "string" } } } } } },
+            responses: { "200": { description: "能力查询结果" }, "401": { description: "登录失效（仅 loginDetection=true 的平台会走到这里）" }, "404": { description: "平台无能力面，或该能力在矩阵中为 null" }, "400": { description: "请求体非法或媒体不可解析" } },
+          } },
           "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platform: { type: "string" } }, articleProps), required: ["platform"] } } } }, responses: { "200": { description: "发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platforms: { type: "array", items: { type: "string" } } }, articleProps), required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/schedule": { post: { summary: "创建定时发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" }, scheduledAt: { type: "string", format: "date-time" } }, required: ["platforms", "scheduledAt"] } } } }, responses: { "200": { description: "创建成功" } } }, get: { summary: "列出定时任务", responses: { "200": { description: "任务列表" } } } },

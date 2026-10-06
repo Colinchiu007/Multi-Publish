@@ -25,7 +25,12 @@ class XiaohongshuAdapter extends BasePlatformAdapter {
       title: taskData.title || "",
       content: taskData.content || "",
       tags: taskData.tags || [],
-      type: taskData.video_path ? "video" : "dynamic",
+      // 体裁判据必须用**权威形状** taskData.video.path（嵌套，见 publish/task-data.js），
+      // 不能读扁平的 taskData.video_path——后者不在形状契约里，恒为 undefined，
+      // 于是视频任务会被判成 dynamic 而静默发错体裁。
+      // 当前 has_api=false / dom-only，API 轨不可达，故这是**埋雷而非在线故障**；
+      // 但一旦有人给本适配器补 execute() 或翻 has_api 开关，立刻变成实故障。
+      type: (taskData.video && taskData.video.path) ? "video" : "dynamic",
     };
     // P3-1：商品（参考产品映射 shopping_cart）
     if (Array.isArray(taskData.goods) && taskData.goods.length > 0) {

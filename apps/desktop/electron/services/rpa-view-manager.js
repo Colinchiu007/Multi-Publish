@@ -63,9 +63,23 @@ class RpaViewManager {
     log.info('RpaView','publish start platform='+platform+' hasTitle='+Boolean(article&&article.title)+' hasVideo='+Boolean(article&&article.video_path)+' timeoutMs='+timeout)
     // API-first: if we have an API adapter for this platform, use it (no browser needed)
     const hasAccountProxy = Boolean(authData?.proxy)
+    // 闸门须读**三态总闸** publishMode（§5.1），而不是只读 has_api 派生的
+    // shouldUseApi。两者不一致的平台实测存在：youtube / twitter / facebook 配了
+    // publishMode=dom-only 却 has_api=true，此前本路径仍会进 API 轨——配置写的
+    // 「只用 DOM」被完全绕过。getMode 不可用时退回 shouldUseApi（老行为）。
+    const mode = !hasAccountProxy && apiRouter && typeof apiRouter.getPublishMode === 'function'
+      ? apiRouter.getPublishMode(platform)
+      : null
     const apiEnabled = !hasAccountProxy && apiRouter && typeof apiRouter.shouldUseApi === 'function'
-      ? apiRouter.shouldUseApi(platform)
+      ? (mode != null ? mode !== 'dom-only' : apiRouter.shouldUseApi(platform))
       : false
+    if (mode != null && mode === 'dom-only' && apiRouter.shouldUseApi(platform)) {
+      log.warn('RpaView', 'publish-mode-overrides-has-api', {
+        platform,
+        publishMode: mode,
+        note: 'publishMode=dom-only 但 has_api=true，按 publishMode 走 DOM 轨',
+      })
+    }
     if (apiEnabled && supportsApi(platform)) {
       this._emitProgress(platform,'using API publish engine...',5)
       try {

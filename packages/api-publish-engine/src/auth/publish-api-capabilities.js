@@ -26,6 +26,7 @@ const {
   getCapabilities,
   listCapabilities,
 } = require('../publish/capabilities')
+const { safeErrorCode } = require('./safe-error-code')
 
 const CAPABILITIES_PREFIX = '/api/v1/platforms/'
 const CAPABILITIES_BASE = '/api/v1/platforms/capabilities'
@@ -143,6 +144,16 @@ class PublishApiCapabilitiesHelpers {
   /** 能力面失败统一收口：登录失效 401、签名未就绪 503、其余 502/400 按 error.code 夹紧。 */
   _capabilitiesFailure (req, res, error) {
     const code = error && typeof error.code === 'number' ? error.code : null
+    // 排障痕迹：本面此前**一行日志都没有**——能力查询失败（400 CAPABILITY_QUERY_FAILED）
+    // 只在 access log 里留一个 errorCode，平台返回了什么、哪个端点、哪类错误都查不到。
+    // 账号面同理有 _logError，这里补齐，字段与既有一致（不打印 cookie 等凭证）。
+    if (this._logError) {
+      this._logError(
+        safeErrorCode(error, 'CAPABILITY_QUERY_FAILED'),
+        error,
+        this._ctx ? this._ctx(req) : undefined,
+      )
+    }
     // 登录失效收口。同时认 `login_expired`（当前契约）与 `cookieExpired`
     // （B站历史字段名，仍可能被外部直接抛）。两个都要认：只认前者会让历史
     // 抛法静默退化成 400，只认后者则新代码无处对齐——单一口径 + 兼容别名。

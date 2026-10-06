@@ -12,6 +12,11 @@ const { createCloudAccountServices, createKmsFromEnv, CLOUD_ACCOUNTS_ROUTES } = 
 // 手抄过一次真实事故：清单里已登记 `POST /api/v1/me/accounts/tombstones`，而守卫只认三条路径，
 // 于是删除账号时写墓碑的请求在入口就 404 —— 墓碑永远写不上，「已删账号不得在别的设备复活」这条防线
 // 静默失效（桌面端只看到一次 warn，用户毫无感知）。一处真源，两侧同步。
+// 能力面（/api/v1/platforms/**）与云账号面同属「下行带账号明文信息」的路由：
+// user-info 返回昵称/粉丝数/头像等账号 PII，permission-check 会回带登录态结论。
+// 故纳入同一 no-store 集合，而不是另设一份——两份清单必然会漂。
+const CAPABILITIES_NO_STORE_PREFIXES = ['/api/v1/platforms/'];
+
 const CLOUD_ACCOUNT_PATHS = new Set(
   (Array.isArray(CLOUD_ACCOUNTS_ROUTES) ? CLOUD_ACCOUNTS_ROUTES : [])
     .map((entry) => String(entry).split(' ')[1])
@@ -53,7 +58,9 @@ function mergeFaceHeaders(headers, extraHeaders) {
 function applyCloudAccountNoStore(res, url) {
   if (!res || typeof res.setHeader !== 'function' || res.headersSent) return false
   if (typeof url !== 'string') return false
-  if (!CLOUD_ACCOUNT_PATHS.has(url.split('?')[0])) return false
+  const path = url.split('?')[0]
+  if (!CLOUD_ACCOUNT_PATHS.has(path) &&
+      !CAPABILITIES_NO_STORE_PREFIXES.some((prefix) => path.startsWith(prefix))) return false
   res.setHeader('Cache-Control', 'no-store')
   return true
 }
@@ -144,4 +151,5 @@ function applyCloudAccountHelpers(Proto) {
   }
 }
 
-module.exports = { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders, NO_STORE }
+module.exports = {
+  CAPABILITIES_NO_STORE_PREFIXES, applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders, NO_STORE }
