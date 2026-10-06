@@ -668,6 +668,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Document, DocumentCopy, EditPen, FolderAdd, Link, MagicStick, Promotion, Search, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
+// M-3：批量轮询的失败兜底守卫（连续失败计数 + 总时长上限 + 统一收口）
+import { useBatchPollGuard } from '@/composables/useBatchPollGuard'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
@@ -1307,6 +1309,9 @@ const batchProgress = ref(0)
 const batchProgressText = ref('')
 const batchError = ref('')
 let batchPollTimer = null
+// M-3 修复：轮询失败兜底已抽到 useBatchPollGuard。原先 catch 分支为空，
+// IPC 持续失败时 batchCollecting 永久为 true，按钮锁死且用户看不到原因。
+let batchPollGuard = null
 // Lazy getters：推迟 i18n 解析到首次访问，避免模块顶层调用 getAppLocale()
 // 在 Vite dev server 模块变换阶段 i18n 未就绪时抛出异常导致整个懒加载 chunk 失败。
 // 与 c3c395570 (Accounts.vue) 同模式。
@@ -2542,12 +2547,20 @@ async function collectBatch (sourceType) {
 
 function startBatchPolling () {
   stopBatchPolling()
+  batchPollGuard = useBatchPollGuard({ onFail: failBatchPolling })
+  batchPollGuard.reset()
   batchPollTimer = setInterval(async () => {
     if (!batchTaskId.value) return
     const api = getApi()
     if (!api || !api.aggregationTaskStatus) return
+    // M-3：总时长上限，防「每轮都成功但任务永不终结」的活锁
+    if (batchPollGuard.checkDuration()) {
+      failBatchPolling(resolveNotifyText('collection.batchPollTimeout').text)
+      return
+    }
     try {
       const res = await api.aggregationTaskStatus(batchTaskId.value)
+      batchPollGuard.onSuccess()   // 成功即清零：只统计「连续」失败
       const data = res && res.data ? res.data : res
       const status = data.status || res.status
       const total = data.total || 0
@@ -2582,9 +2595,23 @@ function startBatchPolling () {
         }
       }
     } catch (e) {
-      // 轮询失败不立即中断，继续下次轮询
+      // M-3：连续失败达阈值即收口；已收集的 collectedItems 保留不清空。
+      const { failed, count } = batchPollGuard.recordFailure()
+      if (failed) {
+        failBatchPolling(
+          resolveNotifyText('collection.batchPollUnreachable', { params: { count } }).text,
+        )
+      }
     }
   }, 2000)
+}
+
+// M-3：轮询无法继续时的统一收口（超时上限 / 连续失败 / 主进程报 failed 三条路径共用）
+function failBatchPolling (message) {
+  batchError.value = message
+  notifyError('collection.batchCollectFailed', { message: batchError.value })
+  batchCollecting.value = false
+  stopBatchPolling()
 }
 
 function stopBatchPolling () {
