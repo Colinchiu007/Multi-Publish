@@ -2195,16 +2195,15 @@ export default {
         }
         const output = this.cloneForIpc(this.activeOutputConfig)
         const params = {
-          text,
-          inputMode: 'text',
-          checkpointPolicy: 'none',
-          autoAdvance: true,
-          background: true,
-          storyboardMode: this.storyboardMode,
-          style: this.selectedStyle,
+          text, inputMode: 'text', checkpointPolicy: 'none', autoAdvance: true, background: true,
+          storyboardMode: this.storyboardMode, style: this.selectedStyle,
           resolution: output.resolution,
-          fps: output.fps,
-          format: output.format,
+          // 画幅必须随分辨率一起下发（2026-10-06 fix-s2v-image-aspect-adapters）：本入口服务非
+          // story2video 的自动流水线，历史只传 resolution → 主进程 generate_assets 保留 stageDef
+          // 的 aspectRatio:'16:9'，竖屏分辨率(720x1280) 配横图、合成后两侧留黑。详见
+          // 01-docs/PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-06.md §3.4。
+          aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
+          fps: output.fps, format: output.format,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data

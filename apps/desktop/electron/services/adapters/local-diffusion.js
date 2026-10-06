@@ -22,6 +22,7 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio, resolveAspectPixelSize } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'http://localhost:7860'
 const DEFAULT_TIMEOUT = 300000
@@ -30,6 +31,12 @@ const DEFAULT_WIDTH = 512
 const DEFAULT_HEIGHT = 512
 const DEFAULT_SAMPLER = 'Euler a'
 const DEFAULT_DENOISING = 0.75
+
+/**
+ * 出图长边（2026-10-06 fix-s2v-image-aspect-adapters）。
+ * 512 是本适配器既有的默认出图档位，画幅换算沿用同一长边，避免顺带放大既有任务的像素成本。
+ */
+const ASPECT_LONG_EDGE = DEFAULT_WIDTH
 
 class LocalDiffusionAdapter extends BaseAdapter {
   /**
@@ -134,6 +141,17 @@ class LocalDiffusionAdapter extends BaseAdapter {
       width: params.width || DEFAULT_WIDTH,
       height: params.height || DEFAULT_HEIGHT,
       sampler_name: params.sampler_name || DEFAULT_SAMPLER,
+    }
+
+    // 画幅 → 尺寸（2026-10-06 fix-s2v-image-aspect-adapters）：SD WebUI 只认 width/height，
+    // 历史实现两者都缺省 512x512 出方图，Story2Video 竖屏（9:16）成片因此上下留黑。
+    // 显式 width/height 优先，未给时按统一画幅契约键换算。
+    if (!params.width && !params.height) {
+      const size = resolveAspectPixelSize(readAspectRatio(params), { longEdge: ASPECT_LONG_EDGE })
+      if (size) {
+        body.width = size.width
+        body.height = size.height
+      }
     }
 
     if (params.negative_prompt !== undefined) body.negative_prompt = params.negative_prompt

@@ -36,6 +36,7 @@ const {
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
 const { classifyProviderFailure, TRANSIENT_MESSAGE_PATTERN } = require('./adapters/_base/provider-error');
+const { deriveStory2VideoAspectRatio } = require('./story2video-text-config');
 const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
@@ -603,11 +604,35 @@ function parseOutputSize (value) {
   return null
 }
 
+/**
+ * 画幅解析：显式 aspectRatio → stage.options.aspectRatio → 由输出分辨率推导 → 横屏兜底。
+ *
+ * 2026-10-06 fix-s2v-image-aspect-adapters：历史实现在前两者都缺时直接兜底 '16:9'。
+ * 渲染层一旦漏传 aspectRatio（任何调用方升级滞后、快照回放、非文本入口都可能发生），
+ * 竖屏成片（720x1280）就会拿到横图，合成时两侧留黑——正是本 issue 的现象。
+ * 现在中间多一跳「按输出分辨率推导」，与 normalizeAspectRatio 的校验规则同源
+ * （deriveStory2VideoAspectRatio），保证「校验认为合法的画幅」与「实际出图画幅」一致。
+ *
+ * @param {object} params
+ * @param {object} [stage]
+ * @returns {string|undefined} 画幅；三跳都没命中时返回 undefined（调用方决定兜底）
+ */
+function resolveAspectRatio (params, stage) {
+  const input = params || {}
+  const stageOptions = (stage && stage.options) || {}
+  const explicit = input.aspectRatio || stageOptions.aspectRatio
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim()
+  const derived = deriveStory2VideoAspectRatio(
+    input.resolution || input.size || stageOptions.resolution
+  )
+  return derived || undefined
+}
+
 /** 视频生成分辨率：优先输出 size（如 720x1280），否则按宽高比映射默认档位。 */
 function resolveVideoSize (params, stage) {
   const fromSize = parseOutputSize(params.resolution || params.size || (stage && stage.options && stage.options.resolution))
   if (fromSize) return fromSize
-  const ratio = params.aspectRatio || (stage && stage.options && stage.options.aspectRatio) || '9:16'
+  const ratio = resolveAspectRatio(params, stage) || '9:16'
   const map = {
     '16:9': [1280, 720],
     '9:16': [720, 1280],
@@ -2770,7 +2795,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const imageStyle = firstDefined(params.imageStyle, stage.options?.imageStyle, 'cinematic');
       const imageProvider = useCurrentModels ? undefined : firstDefined(params.imageProvider, stage.options?.imageProvider);
       const imageModel = useCurrentModels ? undefined : firstDefined(params.imageModel, stage.options?.imageModel);
-      const aspectRatio = firstDefined(params.aspectRatio, stage.options?.aspectRatio, '16:9');
+      const aspectRatio = resolveAspectRatio(params, stage) || '16:9';
       const voiceId = firstDefined(params.voiceId, stage.options?.voiceId, 'default');
       const voiceProvider = useCurrentModels ? undefined : firstDefined(params.voiceProvider, stage.options?.voiceProvider);
       const voiceModel = useCurrentModels ? undefined : firstDefined(params.voiceModel, stage.options?.voiceModel);

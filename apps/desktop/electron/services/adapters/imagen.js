@@ -18,6 +18,7 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { readAspectRatio } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com'
 const DEFAULT_TIMEOUT = 120000
@@ -44,8 +45,10 @@ function normalizeSampleCount (value) {
 }
 
 function resolveAspectRatio (params) {
-  const explicit = typeof params?.aspectRatio === 'string' ? params.aspectRatio : params?.aspect_ratio
-  if (Object.hasOwn(IMAGEN_ASPECT_RATIOS, explicit)) return explicit
+  // 画幅键统一走单一真源（2026-10-06 fix-s2v-image-aspect-adapters）；
+  // 归一到 Imagen 自己的枚举是供应商方言翻译，仍留在本适配器内。
+  const explicit = readAspectRatio(params)
+  if (explicit && Object.hasOwn(IMAGEN_ASPECT_RATIOS, explicit)) return explicit
 
   const width = Number(params?.width)
   const height = Number(params?.height)

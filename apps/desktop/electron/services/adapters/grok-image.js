@@ -16,14 +16,24 @@
  * - 覆盖构造函数，设置供应商特定默认 baseUrl
  * - generateImage 在 KNOWN_METHODS 中，supports() 自动检测为 true
  * - 返回 { images: [{ url?, b64_json? }], model, created } 统一格式
- * - 不发送 size 字段（Grok API 与 OpenAI DALL-E 不同，不强制要求 size）
+ * - 画幅走 xAI 原生 aspect_ratio 枚举（不臆造 size 字段），见下方 SUPPORTED_ASPECT_RATIOS
  */
 
 const { OpenAICompatibleAdapter } = require('./_base/openai-compatible')
 const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
+const { readAspectRatio, pickClosestAspectRatio } = require('./_base/aspect-ratio')
 
 const DEFAULT_BASE_URL = 'https://api.x.ai/v1'
 const DEFAULT_MODEL = 'grok-image'
+
+/**
+ * xAI 图像生成 aspect_ratio 支持的枚举（2026-10-06 核对官方文档）。
+ * 传枚举外的值会被拒，故必须先归一到最接近的一档。
+ * 'auto' 不参与相似度匹配（语义是「由模型自选」，不是画幅值），仅作最后兜底。
+ */
+const SUPPORTED_ASPECT_RATIOS = Object.freeze([
+  '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '19.5:9', '20:9', 'auto',
+])
 
 class GrokImageAdapter extends OpenAICompatibleAdapter {
   /**
@@ -47,6 +57,7 @@ class GrokImageAdapter extends OpenAICompatibleAdapter {
    * @param {string} params.prompt - 生成提示词（必填）
    * @param {string} [params.model='grok-image'] - 模型 ID
    * @param {number} [params.n=1] - 生成数量
+   * @param {string} [params.aspect_ratio] - 画幅（流水线统一契约键，如 '9:16'）；缺省时不下发该字段，由模型自选
    * @param {string} [params.response_format] - 响应格式（url / b64_json）
    * @returns {Promise<{images: Array<{url?: string, b64_json?: string}>, model: string, created: number}>}
    */
@@ -60,6 +71,13 @@ class GrokImageAdapter extends OpenAICompatibleAdapter {
       model,
       prompt: params.prompt,
       n: params.n || 1,
+    }
+    // 画幅（2026-10-06 fix-s2v-image-aspect-adapters）：历史实现完全不下发画幅，
+    // Story2Video 竖屏（9:16）请求因此被模型按提示词自选成横图，合成到 720x1280
+    // 竖屏成片时两侧留黑。归一到官方枚举后才下发，避免传枚举外值被拒。
+    const aspectRatio = pickClosestAspectRatio(SUPPORTED_ASPECT_RATIOS, readAspectRatio(params))
+    if (aspectRatio && aspectRatio !== 'auto') {
+      body.aspect_ratio = aspectRatio
     }
     if (params.response_format) {
       body.response_format = params.response_format
