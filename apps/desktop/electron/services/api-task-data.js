@@ -1,64 +1,27 @@
 'use strict'
 /**
- * article → API taskData 形状翻译（单一实现）
+ * article → API taskData 形状翻译（薄转发）
  *
- * 消费方：publisher-router（API 直调）与 rpa-view-manager（API-first 分支）。
+ * ⚠️ 权威实现在 @multi-publish/api-publish-engine 的 src/publish/task-data.js，
+ *    本文件只做转发。请勿在此重新实现形状翻译。
  *
- * 根因（2026-09-28 活体取证，live-acceptance-pass-20260928.md 残余①）：
- * RpaView 的 API-first 分支曾把裸 article 直接传给 publishViaApi——适配器
- * 契约要求 taskData.video.path（嵌套对象）而 article 是扁平 video_path 字段，
- * kuaishou/bilibili 等视频平台 API 轨全部 fail-closed
- * （`taskData.video.path required`）并回退 DOM 轨。publisher-router 一直
- * 正确构造 taskData（内联映射），本模块把该映射提取为两路共用的单一实现。
+ * 历史（本文件曾是单一实现，2026-10-06 下沉到引擎包）：
+ *   2026-09-28 活体取证（live-acceptance-pass-20260928.md 残余①）——
+ *   RpaView 的 API-first 分支曾把裸 article 直接传给 publishViaApi。适配器
+ *   契约要求 taskData.video.path（嵌套对象），而 article 是扁平 video_path
+ *   字段，kuaishou/bilibili 等视频平台 API 轨全部 fail-closed
+ *   （`taskData.video.path required`）并回退 DOM 轨。当时把 publisher-router
+ *   的内联映射提取到本文件，供 publisher-router 与 rpa-view-manager 两路共用。
  *
- * 形状契约（与适配器校验对齐）：
- * - 视频模式（article.video_path 存在）：taskData.video.path 必填；
- *   duration/width/height 可选（快手/B站链实测只消费 path），缺省 0。
- * - 图文模式：images/author 透传（百家号/头条文章链消费）。
- * - 平台特有字段透传清单与 publisher-router 既有清单逐项一致。
+ * 为何继续下沉（2026-10-06）：
+ *   HTTP 发布 API（publish-api-server 的 /api/v1/publish 与 /api/v1/batch-publish）
+ *   是**第三条**喂 taskData 的路径。若服务端另写一份映射，就等于埋下第三份实现，
+ *   重复放大上面那次形状漂移事故的风险面。引擎不依赖 desktop、desktop 依赖引擎，
+ *   依赖方向决定了权威实现只可能在引擎侧。
+ *
+ * 保留本文件的原因：publisher-router / rpa-view-manager 及既有测试均按此路径
+ * require（`./api-task-data`），转发可让三路共用同一实现且不扰动调用方。
  */
-function buildApiTaskData (article, videoInfo) {
-  article = article || {}
-  videoInfo = videoInfo || null
-
-  const taskData = {
-    title: article.title,
-    content: article.content,
-    tags: article.tags,
-    draft: article.draft === true,
-    // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选
-    aiGenerated: article.aiGenerated !== false,
-  }
-
-  const videoPath = article.video_path
-  if (videoPath) {
-    taskData.video = {
-      path: videoPath,
-      duration: Number(videoInfo && videoInfo.duration) || 0,
-      width: Number(videoInfo && videoInfo.width) || 0,
-      height: Number(videoInfo && videoInfo.height) || 0,
-    }
-    if (article.cover_path) taskData.cover = article.cover_path
-  } else {
-    // 图文：正文内联图片与作者透传给文章链消费
-    if (Array.isArray(article.images) && article.images.length) taskData.images = article.images
-    if (article.author) taskData.author = article.author
-  }
-
-  // 平台特有字段透传到 API taskData（adapter 按需消费；B站 tid/copyright、
-  // YouTube categoryId/privacy、TikTok privacy_level、百家号 original/location）
-  // P2-1 合集/播放列表、P3-1/P3-2/P3-4 商品/任务透传——清单与 publisher-router 一致
-  const PASSTHROUGH_KEYS = [
-    'category', 'copyright', 'categoryId', 'privacy', 'privacyLevel',
-    'original', 'location',
-    'collectionId', 'playlistId', 'collection',
-    'goods', 'taskId',
-  ]
-  for (const key of PASSTHROUGH_KEYS) {
-    if (article[key] !== undefined) taskData[key] = article[key]
-  }
-
-  return taskData
-}
+const { buildApiTaskData } = require('@multi-publish/api-publish-engine/src/publish/task-data')
 
 module.exports = { buildApiTaskData }

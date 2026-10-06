@@ -19,8 +19,28 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
+const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
+const { buildTaskDataFromRequest } = require("./publish/publish-request")
 
 const GZIP_MIN_BYTES = 256;
+
+/**
+ * JSON 请求体体积上限（1 MiB）。
+ * 口径依据：本服务的业务请求体只承载 JSON（标题、正文、标签、媒体本地路径、cookie），
+ * 不承载媒体字节本身（上传由各平台链在服务端本地完成），故 1 MiB 远高于任何真实请求；
+ * Logto webhook 另有独立的 256 KiB 上限（DEFAULT_MAX_BODY_BYTES），两者互不覆盖。
+ */
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+
+/** _parseBody 的类型化错误：携带 HTTP 状态与语义码，供外层 catch 直接映射。 */
+class BodyReadError extends Error {
+  constructor(code, status, message) {
+    super(message || code);
+    this.name = "BodyReadError";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 function acceptsGzip(header) {
   if (typeof header !== "string") return false;
@@ -202,14 +222,43 @@ class PublishApiServer {
     }
   }
 
+  /**
+   * 读 JSON 请求体。2026-10-06 加固：
+   *  1. **体积上限**：此前无上限，`chunks` 无限累积，任意大 body 可打爆内存。
+   *     超限时立即停止累积并抛 BODY_TOO_LARGE。
+   *  2. **解析失败不再静默返回 {}**：此前 `catch { resolve({}) }`，畸形 JSON 被当成
+   *     「空对象」继续走，随后在 `body.platform` 之类处报出与真实原因无关的错。
+   *     现在抛 INVALID_JSON_BODY，由 _handle 的外层 catch 映射为 400。
+   * 二者都以类型化错误抛出：全部 16 个调用点都在 _handle 的同一个 try 内，
+   * 无需逐点改动即可拿到正确的状态码（见外层 catch 的 _bodyError 分支）。
+   */
   _parseBody(req) {
-    return new Promise(function(resolve) {
+    return new Promise(function(resolve, reject) {
       var chunks = [];
-      req.on("data", function(c) { chunks.push(c); });
+      var total = 0;
+      var rejected = false;
+      req.on("data", function(c) {
+        if (rejected) return;
+        total += c.length;
+        if (total > MAX_JSON_BODY_BYTES) {
+          rejected = true;
+          chunks.length = 0;
+          reject(new BodyReadError("BODY_TOO_LARGE", 413, "Request body exceeds " + MAX_JSON_BODY_BYTES + " bytes"));
+          return;
+        }
+        chunks.push(c);
+      });
+      req.on("error", function(e) {
+        if (rejected) return;
+        rejected = true;
+        reject(new BodyReadError("REQUEST_BODY_READ_FAILED", 400, e.message));
+      });
       req.on("end", function() {
+        if (rejected) return;
         var raw = Buffer.concat(chunks).toString();
+        if (!raw.trim()) { resolve({}); return; }
         try { resolve(JSON.parse(raw)); }
-        catch(e) { resolve({}); }
+        catch(e) { reject(new BodyReadError("INVALID_JSON_BODY", 400, "Request body is not valid JSON")); }
       });
     });
   }
@@ -904,6 +953,13 @@ class PublishApiServer {
         return;
       }
 
+      // 发布前能力面（user-info / permission-check / poi / drafts）：
+      // 排在 /api/v1/publish 之前，与云账号面同为鉴权后的独立分支。
+      if (isCapabilitiesUrl(url)) {
+        await this._handleCapabilities(req, res, method, url);
+        return;
+      }
+
       if (url.indexOf("/api/v1/admin/member/") === 0) {
         // 运营端点会花钱/发权益：只认经 scope 校验的 logto 身份，拒绝静态主密钥（api_key 分支不校验 requiredScope）。
         if (!(req.auth && req.auth.authType === "logto")) { this._json(res, 403, { error: "AUTH_SCOPE_MISSING" }); return; }
@@ -972,13 +1028,21 @@ class PublishApiServer {
       if (method === "POST" && url === "/api/v1/publish") {
         var body = await this._parseBody(req);
         var platform = body.platform;
-        var taskData = { title: body.title || "", content: body.content || "", tags: body.tags || [] };
         var cookie = body.cookie || "";
 
         if (!platform) {
           this._json(res, 400, { success: false, error: "platform is required" });
           return;
         }
+
+        // 内容+媒体字段统一走 article→taskData 形状翻译（单一实现 publish/task-data.js），
+        // 与桌面端 publisher-router / rpa-view-manager 共用，杜绝多路映射漂移。
+        var built = buildTaskDataFromRequest(body);
+        if (!built.ok) {
+          this._json(res, built.status, { success: false, error: built.message, code: built.error });
+          return;
+        }
+        var taskData = built.taskData;
 
         try {
           await this._authorizeImmediateEntry(req, 1);
@@ -1012,8 +1076,13 @@ class PublishApiServer {
       if (method === "POST" && url === "/api/v1/batch-publish") {
         var body = await this._parseBody(req);
         var platforms = body.platforms || [];
-        var taskData = { title: body.title || "", content: body.content || "", tags: body.tags || [] };
         var cookie = body.cookie || "";
+        var built = buildTaskDataFromRequest(body);
+        if (!built.ok) {
+          this._json(res, built.status, { success: false, error: built.message, code: built.error });
+          return;
+        }
+        var taskData = built.taskData;
         var opts = {};
         if (this._opts.dryRun) opts.dryRun = true;
         try {
@@ -1317,13 +1386,29 @@ p{color:#6e6e73}
       // --- OpenAPI ---
       if (method === "GET" && url === "/api/v1/openapi.json") {
         var spec = { openapi: "3.0.3", info: { title: "PublishApiServer", version: "1.0.0", description: "多平台一键发布 HTTP API" }, servers: [], paths: {} };
+        // 内容+媒体请求字段：/publish 与 /batch-publish 共用同一形状（单一来源）。
+        // 形状语义与桌面端 article 一致，翻译实现见 publish/task-data.js。
+        var articleProps = {
+          title: { type: "string" },
+          content: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
+          cookie: { type: "string" },
+          video_path: { type: "string", description: "视频文件路径，须在服务端文件系统可解析（URL 拉取暂不支持）" },
+          cover_path: { type: "string", description: "封面文件路径，须在服务端文件系统可解析" },
+          images: { type: "array", items: { type: "string" }, description: "图文模式图片路径列表" },
+          author: { type: "string" },
+          duration: { type: "number", description: "视频时长（秒），缺省 0" },
+          width: { type: "number" }, height: { type: "number" },
+          draft: { type: "boolean", description: "true=存草稿；false 或缺省=直接发布" },
+          aiGenerated: { type: "boolean", description: "AI 生成内容声明，缺省 true" },
+        };
         var pathItems = {
           "/api/v1/health": { get: { summary: "存活检查", responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { status: { type: "string" }, version: { type: "string" } } } } } } } } },
           "/api/v1/ready": { get: { summary: "生产就绪检查", responses: { "200": { description: "所有身份依赖就绪" }, "503": { description: "数据库、迁移或 OIDC/JWKS 未就绪" } } } },
           "/api/v1/me": { get: { summary: "获取当前业务用户和权威权益", parameters: [{ name: "X-Device-ID", in: "header", required: false, schema: { type: "string", minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" } }], responses: { "200": { description: "用户与 entitlement" }, "400": { description: "设备标识无效" }, "503": { description: "业务用户或权益服务不可用" } }, security: [{ bearerAuth: [] }] } },
           "/api/v1/platforms": { get: { summary: "平台列表", responses: { "200": { description: "平台列表" } } } },
-          "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platform: { type: "string" }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platform"] } } } }, responses: { "200": { description: "发布结果" } } } },
-          "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" } } } },
+          "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platform: { type: "string" } }, articleProps), required: ["platform"] } } } }, responses: { "200": { description: "发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
+          "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platforms: { type: "array", items: { type: "string" } } }, articleProps), required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/schedule": { post: { summary: "创建定时发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" }, scheduledAt: { type: "string", format: "date-time" } }, required: ["platforms", "scheduledAt"] } } } }, responses: { "200": { description: "创建成功" } } }, get: { summary: "列出定时任务", responses: { "200": { description: "任务列表" } } } },
           "/api/v1/schedule/cancel": { post: { summary: "取消定时任务", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "取消结果" } } } },
           "/api/v1/webhook": { post: { summary: "注册 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, events: { type: "array", items: { type: "string" } } }, required: ["url"] } } } }, responses: { "200": { description: "注册成功" } } }, get: { summary: "列出 webhook", responses: { "200": { description: "webhook 列表" } } } },
@@ -1359,6 +1444,13 @@ p{color:#6e6e73}
 
       this._json(res, 404, { error: "Not found", path: url });
       } catch (e) {
+        // 请求体读失败是**客户端错误**，不是服务端内部错误：记 warn（不污染 error 日志），
+        // 并按 BodyReadError 自带的状态/语义码应答。
+        if (e instanceof BodyReadError) {
+          this._logWarn(e.code, null, this._ctx(req));
+          this._json(res, e.status, { error: e.code, message: e.message });
+          return;
+        }
         this._logError("INTERNAL_SERVER_ERROR", e, this._ctx(req));
         this._json(res, 500, { error: "INTERNAL_SERVER_ERROR" });
     }
@@ -1367,6 +1459,7 @@ p{color:#6e6e73}
 
 applyCommerceHelpers(PublishApiServer);
 applyCloudAccountHelpers(PublishApiServer);
+applyCapabilitiesHelpers(PublishApiServer);
 
 PublishApiServer.registerShutdownSignals = function(server) {
   var sig = function() { server.stop(); };

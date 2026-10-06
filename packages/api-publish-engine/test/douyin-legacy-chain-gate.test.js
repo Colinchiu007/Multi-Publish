@@ -37,7 +37,14 @@ describe('§4.2 旧 douyin aweme/post 远程签名链下线（grep 门禁）', (
       fs.readFileSync(f, 'utf8').split(/\r?\n/).forEach((line, i) => {
         if (COMMENT.test(line)) return
         if (/aweme\/post/.test(line)) hits.push(path.relative(srcRoot, f) + ':' + (i + 1) + ' → aweme/post')
-        if (/_signature/.test(line)) hits.push(path.relative(srcRoot, f) + ':' + (i + 1) + ' → _signature')
+        // 静态指纹占位（如 capabilities/douyin-capabilities.js 的 `_signature: '_'`）是
+        // user-info 请求模板里的浏览器指纹字段，与已下线的「远程签名机制」不是一回事——
+        // 旧链是把远程签名结果**计算**出来再发送，静态字面量恰恰证明这条链没被调用。
+        // 故只豁免真正的字符串字面量（单/双引号）。**反引号不在豁免范围**：`` `${...}` ``
+        // 是模板求值，值在运行时计算，与静态占位性质相反，必须照常拦截。
+        if (/_signature/.test(line) && !/^\s*_signature\s*:\s*['"][^'"]*['"]\s*,?\s*$/.test(line)) {
+          hits.push(path.relative(srcRoot, f) + ':' + (i + 1) + ' → _signature')
+        }
       })
     })
     expect(hits).toEqual([])

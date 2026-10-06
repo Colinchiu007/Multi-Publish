@@ -16,6 +16,10 @@ class TikTokAdapter {
   }
 
   async execute(taskData, cookie, opts) {
+    opts = opts || {};
+    // 2026-10-06 修复①：dryRun 此前被完全忽略。基类与全部新链都尊重 dryRun，
+    // 只有本适配器会拿着没有的凭证真去外发。
+    if (opts.dryRun) return { success: true, dryRun: true, platform: "tiktok" };
     try {
       var token = this._getToken();
 
@@ -27,8 +31,21 @@ class TikTokAdapter {
       });
 
       var uploadUrl = initRes && initRes.data && initRes.data.upload_url;
+      // 2026-10-06 修复②：此前在此 `return { success: true }` —— 既没有上传，也没有调用
+      // /video/publish，却告诉调用方「发布成功」。调用方（publish-mode-runner 的
+      // outcomeOfResult）只认 success 字段，于是这条分支会让上层把「什么都没发」
+      // 记成一次成功发布并扣掉发布额度。
+      // 本仓 01-docs/rpa-api-publish/evidence 下**没有任何 TikTok 上传协议切片**，
+      // 无法在不编造端点的前提下补齐分片上传。因此这里如实报 unsupported：
+      // publish-mode 的 api-then-dom 轨道会据此降级到 DOM 轨（RPA 走上传页），
+      // 而不是伪造成功。
       if (!uploadUrl) {
-        return { success: true, platform: "tiktok", publishInit: initRes };
+        return {
+          success: false,
+          unsupported: true,
+          platform: "tiktok",
+          error: "TikTok API 未返回 upload_url，且本仓无 TikTok 上传协议取证，无法走 API 轨（已交由 DOM 轨兜底）",
+        };
       }
 
       // Publish
@@ -48,7 +65,16 @@ class TikTokAdapter {
         },
       });
 
-      return { success: true, platform: "tiktok", publishId: publishRes && publishRes.data && publishRes.data.publish_id };
+      var publishId = publishRes && publishRes.data && publishRes.data.publish_id;
+      // 2026-10-06 修复③：没有 publish_id 就不算发布成功（同②的口径，不能只认 HTTP 200）。
+      if (!publishId) {
+        return {
+          success: false,
+          platform: "tiktok",
+          error: "TikTok /video/publish 未返回 publish_id，不计为发布成功",
+        };
+      }
+      return { success: true, platform: "tiktok", publishId: publishId };
     } catch (e) {
       return { success: false, error: e.message, platform: "tiktok" };
     }
