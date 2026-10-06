@@ -823,7 +823,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     try {
       const domSuccess = await this._waitForCondition(win, 'function(){' +
         'var text=(document.body&&document.body.innerText)||"";' +
-        'var success=/(发布成功|投稿成功|发布完成|提交成功|作品已发布|已发布)/.test(text);' +
+        'var success=/(发布成功|投稿成功|发布完成|提交成功|作品已发布|已发布|发布并登记完成|提交并登记完成|登记完成)/.test(text);' +
         'var failure=/(发布失败|提交失败|上传失败|登录失效|请登录)/.test(text);' +
         'if(failure)return false;' +
         'return success;', 30000, 500)
