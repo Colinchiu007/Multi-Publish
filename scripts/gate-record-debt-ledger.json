@@ -81,10 +81,5 @@
   },
   "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
   "本次执行记录：#2927 远程同步回填销账 + CHANGELOG 收口（bilibili-audit-backfill，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
-  "本次执行记录：B 站发布侧作品标识（aid/bvid）采集修复（bilibili-bvid-extract，2026-10-06）": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
-  "本次执行记录：Story2Video 竖屏出图画幅断链修复（fix-s2v-image-aspect-adapters，2026-10-06）": {
-    "reason": "本 PR 尚未合并，无法取证 merge SHA；回填者＝合并后的 docs-only 回填 PR，同一次提交删除本条。",
-    "status": "PENDING",
-    "line": 1
-  }
+  "本次执行记录：B 站发布侧作品标识（aid/bvid）采集修复（bilibili-bvid-extract，2026-10-06）": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }
