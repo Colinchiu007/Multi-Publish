@@ -22,6 +22,22 @@ const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } =
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
 const mediaResolver = require("./publish/resolve-request-media")
 
+/**
+ * 媒体解析的**可注入点**（默认即真实实现）。
+ *
+ * 为什么需要它：e2e 要验证「URL 真的下载过、且任何响应路径都不留临时文件」，
+ * 而下载通路必须连本机假服务器——这要求替换 fetchMediaToTemp。可
+ * `mediaResolver` 是**解构绑定**（模块加载即固化），改 require.cache 追不上，
+ * 于是「换缓存」这种测试技巧注定失败（作者踩过一次，8/8 全是假绿）。
+ *
+ * 纪律：此槽位**只允许代码注入，绝不从请求体/配置/环境变量取值**——
+ * 否则就成了绕过 SSRF 的后门（校验 cdn.example.com、实连内网）。
+ */
+let mediaRequestResolver = mediaResolver.resolveRequestMedia;
+function setMediaRequestResolver(fn) {
+  mediaRequestResolver = typeof fn === "function" ? fn : mediaResolver.resolveRequestMedia;
+}
+
 const GZIP_MIN_BYTES = 256;
 
 /**
@@ -1039,7 +1055,7 @@ class PublishApiServer {
         // 与桌面端 publisher-router / rpa-view-manager 共用，杜绝多路映射漂移。
         // media 同时接受本地路径与 URL：URL 由 media-fetch 落到临时目录，
         // 清理权由 built.cleanup 持有，**必须在 finally 里调用**。
-        var built = await mediaResolver.resolveRequestMedia(body);
+        var built = await mediaRequestResolver(body);
         var mediaCleanup = built.cleanup || function () {};
         try {
         if (!built.ok) {
@@ -1087,7 +1103,7 @@ class PublishApiServer {
         var platforms = body.platforms || [];
         var cookie = body.cookie || "";
         // 与 /publish 同一入口：本地路径与 URL 都接受（见 resolve-request-media.js）
-        var built = await mediaResolver.resolveRequestMedia(body);
+        var built = await mediaRequestResolver(body);
         var mediaCleanup = built.cleanup || function () {};
         try {
         if (!built.ok) {
@@ -1500,4 +1516,4 @@ PublishApiServer.registerShutdownSignals = function(server) {
   };
 };
 
-module.exports = { PublishApiServer };
+module.exports = { PublishApiServer, setMediaRequestResolver };

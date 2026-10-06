@@ -117,6 +117,37 @@ describe('RpaViewManager API-first 闸门：publishMode 优先于 has_api（D5�
     expect(publishViaApi).toHaveBeenCalledTimes(1)
   })
 
+  it('api-only 下 API 失败必须停报，不得降级 DOM', async () => {
+    // 契约（publish-mode.js:6）：api-only「任何非成功结果都停报，不降级」。
+    // 此前 catch 无条件落 RPA——且降级时后台还挂着一次 API 发布，可能重复发稿。
+    shouldUseApi.mockReturnValue(true)
+    getPublishMode.mockReturnValue('api-only')
+    publishViaApi.mockRejectedValue(new Error('API boom'))
+    const manager = armedManager()
+    const r = await manager.publish('bilibili', { title: 't', accountId: 'a' }, { cookies: 'c=1' }, 1000)
+    expect(r).toMatchObject({ success: false, stoppedBy: 'api-only' })
+    expect(manager._acquireWindow).not.toHaveBeenCalled()
+  })
+
+  it('api-only 下 API 超时同样停报（不得因 Promise.race 超时而降级）', async () => {
+    shouldUseApi.mockReturnValue(true)
+    getPublishMode.mockReturnValue('api-only')
+    publishViaApi.mockImplementation(() => new Promise(() => {})) // 永不 resolve
+    const manager = armedManager()
+    const r = await manager.publish('bilibili', { title: 't', accountId: 'a' }, { cookies: 'c=1' }, 60)
+    expect(r.success).toBe(false)
+    expect(manager._acquireWindow).not.toHaveBeenCalled()
+  })
+
+  it('api-then-dom 下 API 失败仍降级 DOM（既有行为不变）', async () => {
+    shouldUseApi.mockReturnValue(true)
+    getPublishMode.mockReturnValue('api-then-dom')
+    publishViaApi.mockRejectedValue(new Error('API boom'))
+    const manager = armedManager()
+    await manager.publish('kuaishou', { title: 't', accountId: 'a' }, { cookies: 'c=1' }, 1000)
+    expect(manager._acquireWindow).toHaveBeenCalled()
+  })
+
   it('配置矛盾（publishMode 与 has_api 冲突）时必须留痕', async () => {
     shouldUseApi.mockReturnValue(true)
     getPublishMode.mockReturnValue('dom-only')

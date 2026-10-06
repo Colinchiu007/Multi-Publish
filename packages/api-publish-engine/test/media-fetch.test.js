@@ -186,6 +186,100 @@ async function main () {
     } finally { await server.close() }
   })
 
+  console.log("\n--- 防线 1b：重定向跳数上限（防自重定向无限爬）---")
+
+  await t("自重定向（Location 指回自己）必须在跳数上限处失败", async () => {
+    // 假 server 每跳都把自己指回去。此前无跳数限制时实测 6 秒跳 4395 次、
+    // 吐约 900MB（maxBytes=1024 完全失效，因为 3xx 体不计入），永不 settle。
+    let hops = 0
+    const loop = http.createServer((req, res) => {
+      hops++
+      res.writeHead(302, { Location: '/loop' })
+      res.end('redirecting')
+    })
+    await new Promise((r) => loop.listen(0, "127.0.0.1", r))
+    const port = loop.address().port
+    try {
+      await assert.rejects(
+        () => fetchMediaToTemp("http://cdn.example.com:" + port + "/loop", {
+          lookup: fakeLookup("93.184.216.34"), __connectHost: "127.0.0.1", maxBytes: 1024,
+        }),
+        /exceeded max redirects/,
+        "自重定向必须在有限跳数内失败，而不是无限爬")
+      assert.ok(hops <= 10, "实际跳数应受限，实得 " + hops + " 跳")
+    } finally {
+      await new Promise((r) => loop.close(r))
+    }
+  })
+
+  await t("正常重定向链（2 跳）仍可成功", async () => {
+    const hop = http.createServer((req, res) => {
+      if (req.url === "/a") { res.writeHead(302, { Location: '/b' }); res.end(); return }
+      if (req.url === "/b") { res.writeHead(302, { Location: '/c' }); res.end(); return }
+      res.writeHead(200, { "Content-Type": "video/mp4" }); res.end(Buffer.from("redirected"))
+    })
+    await new Promise((r) => hop.listen(0, "127.0.0.1", r))
+    const port = hop.address().port
+    try {
+      const r = await fetchMediaToTemp("http://cdn.example.com:" + port + "/a", {
+        lookup: fakeLookup("93.184.216.34"), __connectHost: "127.0.0.1",
+      })
+      try {
+        assert.ok(fs.readFileSync(r.path).equals(Buffer.from("redirected")))
+      } finally { r.cleanup() }
+    } finally { await new Promise((r) => hop.close(r)) }
+  })
+
+  await t("重定向目标指向私网 → 每一跳都重校验并拒绝", async () => {
+    const evil = http.createServer((req, res) => {
+      res.writeHead(302, { Location: 'http://127.0.0.1:1/internal' }); res.end()
+    })
+    await new Promise((r) => evil.listen(0, "127.0.0.1", r))
+    const port = evil.address().port
+    try {
+      await assert.rejects(
+        () => fetchMediaToTemp("http://cdn.example.com:" + port + "/start", {
+          lookup: fakeLookup("93.184.216.34"), __connectHost: "127.0.0.1",
+        }),
+        /internal\/private network/,
+        "第二跳指私网必须被拒")
+    } finally { await new Promise((r) => evil.close(r)) }
+  })
+
+  console.log("\n--- 防线 1c：DNS rebinding（TOCTOU）---")
+
+  await t("已校验地址被钉到连接上（结构锁）", async () => {
+    // ⚠️ 本条是**结构锁**，不是行为锁：它证明「连接用的 lookup 是
+    // makePinnedLookup 生成的、且它只认 SSRF 已校验过的地址」。
+    //
+    // 为什么不用行为锁：DNS rebinding 要求「第一次解析答公网、第二次答内网」，
+    // 这需要一个可控的双答 DNS 环境。本沙箱无此条件——实测撤掉钉住后
+    // rebind.example.com 直接 ENOTFOUND，内网收到 0 个请求，
+    // 即「未钉住」和「已钉住」在此环境下的可观测结果相同（都没连上），
+    // 行为锁会平凡通过、给出虚假安心。故只锁结构，并在 SSRF 用例里
+    // 继续覆盖「公网域名解析到私网」这一可实测的相邻形态。
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'publish', 'media-fetch.js'), 'utf8')
+    assert.match(src, /lookup: makePinnedLookup\(parsed\.hostname, verifiedAddresses\)/,
+      '连接层必须使用 SSRF 已校验过的地址，不得让 http.request 自行解析')
+    assert.match(src, /const verified = await assertOutboundUrl\(/,
+      '必须接收 assertOutboundUrl 返回的已校验地址')
+    // makePinnedLookup 只能返回被钉住的地址，不得回落到原始 hostname 解析
+    const guard = src.slice(src.indexOf('function makePinnedLookup'))
+    assert.ok(!/dns\.(promises\.)?lookup/.test(guard),
+      'makePinnedLookup 内部不得再调用真实 DNS（否则钉住形同虚设）')
+  })
+
+  await t("相邻形态：公网域名解析到私网 → 拒绝（可实测的同类防线）", async () => {
+    // 这是上面那条结构锁在**本环境可实测**的近邻形态：
+    // 解析结果含私网 → 整条拒绝，不进入连接。
+    await assert.rejects(
+      () => fetchMediaToTemp("http://rebind.example.com/x.mp4", {
+        lookup: fakeLookup("127.0.0.1"),
+        timeoutMs: 3000,
+      }),
+      /internal\/private network/)
+  })
+
   console.log("\n--- 防线 3/4：批量拉取的部分失败不留痕 ---")
 
   await t("批量拉取中第 2 项失败：第 1 项的临时文件被清理", async () => {

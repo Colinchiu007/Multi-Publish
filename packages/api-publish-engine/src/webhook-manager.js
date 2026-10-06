@@ -17,10 +17,15 @@ var isBlockedAddress = ssrf.isBlockedAddress;
 // `label + " must be ..."`，历史上线文案正是 "Invalid webhook URL"/
 // "Webhook URL must be ..."——大写会与之逐字不符。
 function parseWebhookUrl(value) {
+  // 文案逐条对齐抽取前（c762ed81）的原文，不做任何「统一化」——
+  // 抽取共用逻辑顺带改文案 = 悄悄改了对外行为，下游正则会静默失配。
   return ssrf.parseOutboundUrl(value, {
     label: "Webhook URL",
-    // 保持抽取前的历史文案（既有测试与下游按此匹配）
-    invalidUrlMessage: "Invalid webhook URL",
+    messages: {
+      invalidUrl: "Invalid webhook URL",
+      invalidShape: "Valid webhook URL is required (http:// or https://)",
+      badProtocol: "Valid webhook URL is required (http:// or https://)",
+    },
   });
 }
 

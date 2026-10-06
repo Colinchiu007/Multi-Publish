@@ -133,7 +133,14 @@ class RpaViewManager {
         return apiResult;
       } catch(e) {
         log.error('RpaView', 'API publish ' + platform + ': ' + e.message);
-        // Fall back to RPA if API fails
+        // 三态总闸（§5.1）：api-only 的契约是「任何非成功结果都停报，不降级」。
+        // 此前此处**无条件**降级 DOM，与契约相反——更糟的是降级时后台仍挂着
+        // 一次 API 发布（Promise.race 超时后并未取消），可能重复发稿。
+        // api-then-dom 保留原降级行为；dom-only 根本进不到这里。
+        if (mode === 'api-only') {
+          log.error('RpaView', 'API publish failed under api-only, NOT falling back to RPA for ' + platform);
+          return { success: false, error: e.message, code: e.code, platform: platform, stoppedBy: 'api-only' };
+        }
         log.warn('RpaView', 'API failed, falling back to RPA for ' + platform);
       }
     }

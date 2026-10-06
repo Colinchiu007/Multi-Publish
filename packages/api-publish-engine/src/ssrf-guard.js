@@ -66,21 +66,23 @@ function parseOutboundUrl (value, opts) {
   opts = opts || {};
   var label = opts.label || "URL";
   var maxLength = opts.maxLength || 2048;
-  if (typeof value !== "string" || value.length > maxLength) {
-    throw new Error(label + " must be a non-empty string within " + maxLength + " chars");
-  }
   var parsed;
-  // ⚠️ 文案须与抽取前**逐字**一致：既有调用方（webhook-manager 及其测试/下游）
-  // 按 `Invalid webhook URL` 正则匹配 URL 解析失败这一支。抽取时把它改写成
-  // 统一模板就会匹配失败——抽取共用逻辑顺带改文案 = 悄悄改了对外行为。
-  // 故解析失败单独保留历史文案，其余分支才用统一模板。
+  // ⚠️ 抽取到本模块的每一处文案都必须与抽取前**逐字**一致，否则等于在重构
+  // 顺带改了对外行为（抽取前共 4 条，现被模板化后有 4 条不同）。
+  // 调用方可用 messages 逐条覆盖；未覆盖才用下面的默认模板。
+  var messages = opts.messages || {};
+  // 顺序对齐抽取前：先形状（类型/长度），再解析。
+  // 调换会让「超长但语法可解析」的输入落到不同分支、产生不同文案。
+  if (typeof value !== "string" || value.length > maxLength) {
+    throw new Error(messages.invalidShape || label + " must be a non-empty string within " + maxLength + " chars");
+  }
   try {
     parsed = new URL(value);
   } catch (e) {
-    throw new Error(opts.invalidUrlMessage || ("Invalid " + label));
+    throw new Error(messages.invalidUrl || opts.invalidUrlMessage || ("Invalid " + label));
   }
   if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname || parsed.username || parsed.password) {
-    throw new Error(label + " must be http:// or https:// without embedded credentials");
+    throw new Error(messages.badProtocol || label + " must be http:// or https:// without embedded credentials");
   }
   var host = normalizeHostname(parsed.hostname);
   var literalFamily = net.isIP(host);
@@ -107,35 +109,55 @@ async function assertAllResolvedAddresses (hostname, opts) {
   // DNS 解析失败必须同样 fail-closed：查不到目标 ≠ 目标安全。
   // 此前让 ENOTFOUND 原样冒泡，调用方拿不到「host 不可用」这层语义，
   // 只能靠 catch(e.message) 猜——不同的 DNS 库错误文案并不一致。
-  var results;
-  try {
-    results = await lookup(host, { all: true, verbatim: true });
-  } catch (e) {
-    throw new Error(label + " could not be resolved (" + host + "): " + (e && e.code ? e.code : e.message));
-  }
-  if (!Array.isArray(results) || results.length === 0) {
-    throw new Error(label + " could not be resolved (" + host + ")");
-  }
-  for (var i = 0; i < results.length; i++) {
-    var entry = results[i];
-    if (!entry || !entry.family || isBlockedAddress(entry.address)) {
-      throw new Error(label + " resolves to internal/private network (" + host + ")");
-    }
-  }
+  await resolveAndAssertAddresses(host, { lookup: lookup, label: label });
 }
 
 /**
  * 完整的出网 URL 校验：静态部分 + DNS 解析结果。
- * @returns {Promise<URL>}
+ *
+ * @returns {Promise<{url: URL, addresses: string[]}>}
+ *   `addresses` 是**已校验为公网**的解析结果，必须由调用方钉到实际连接上，
+ *   否则校验与连接之间存在 TOCTOU 窗口（DNS rebinding）：校验那次答公网、
+ *   连接那次答内网，SSRF 被完全绕过。丢开这个返回值＝把 SSRF 防护变成摆设。
  */
 async function assertOutboundUrl (value, opts) {
   var parsed = parseOutboundUrl(value, opts);
-  await assertAllResolvedAddresses(parsed.hostname, opts);
-  return parsed;
+  var addresses = await resolveAndAssertAddresses(parsed.hostname, opts);
+  return { url: parsed, addresses: addresses };
+}
+
+/**
+ * 解析并逐个校验，返回通过校验的地址列表。
+ * IP 字面量返回它自身（parseOutboundUrl 已判过私网）。
+ */
+async function resolveAndAssertAddresses (hostname, opts) {
+  opts = opts || {};
+  var host = normalizeHostname(hostname);
+  if (net.isIP(host)) return [host];
+  var lookup = typeof opts.lookup === "function" ? opts.lookup : dns.promises.lookup.bind(dns.promises);
+  var results;
+  try {
+    results = await lookup(host, { all: true, verbatim: true });
+  } catch (e) {
+    throw new Error((opts.label || "URL host") + " could not be resolved (" + host + "): " + (e && e.code ? e.code : e.message));
+  }
+  if (!Array.isArray(results) || results.length === 0) {
+    throw new Error((opts.label || "URL host") + " could not be resolved (" + host + ")");
+  }
+  var addresses = [];
+  for (var i = 0; i < results.length; i++) {
+    var entry = results[i];
+    if (!entry || !entry.family || isBlockedAddress(entry.address)) {
+      throw new Error((opts.label || "URL host") + " resolves to internal/private network (" + host + ")");
+    }
+    addresses.push(entry.address);
+  }
+  return addresses;
 }
 
 module.exports = {
   parseOutboundUrl,
+  resolveAndAssertAddresses,
   assertAllResolvedAddresses,
   assertOutboundUrl,
   isBlockedAddress,

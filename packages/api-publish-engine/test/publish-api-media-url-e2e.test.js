@@ -13,7 +13,8 @@ const fs = require("fs")
 const os = require("os")
 const path = require("path")
 const http = require("http")
-const { PublishApiServer } = require("../src/publish-api-server")
+const serverMod = require("../src/publish-api-server")
+const { PublishApiServer } = serverMod
 
 function mediaDirs () {
   return fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("mp-media-"))
@@ -45,57 +46,34 @@ async function t (name, fn) {
 
 async function main () {
   // 媒体源：裸 server 发真字节（fake-http 会改写二进制）
+  const originHits = { n: 0, paths: [] }
   const raw = http.createServer((req, res) => {
+    originHits.n++
+    originHits.paths.push(req.url)
     res.writeHead(200, { "Content-Type": "video/mp4" })
     res.end(Buffer.from("e2e-media"))
   })
   await new Promise((r) => raw.listen(0, "127.0.0.1", r))
   const mediaUrl = "http://cdn.example.com:" + raw.address().port + "/clip.mp4"
 
-  // 注意：HTTP 面无法注入 fetchOpts（那是测试钩子），故这里用「必然失败」的
-  // URL 路径来验证清理，而非成功路径 —— 成功路径的落盘由
-  // resolve-request-media.test.js 覆盖。这样零外发、也不依赖测试钩子。
-  // ⚠️ 这组用例的清理路径必须真被触发，否则断言只是「碰巧没下载过所以没残留」。
+  // HTTP 面不接受调用方传入 fetchOpts（那会是绕过 SSRF 的后门），
+  // 故下载通路只能靠包装 resolveRequestMedia 注入 —— 见下方钩子段。
+  // ⚠️ 清理路径必须真被触发，否则「零残留」只是「碰巧没下载过」。
   //
-  // 上面那些 URL 全部是**注定失败**的（私网），media-fetch 在下载前就抛错，
-  // 于是 resolveRequestMedia 的 catch 分支自己清了目录——HTTP 层的 finally
-  // 根本没被验证到。要让 finally 有意义，必须让下载**真的成功**过，
-  // 因此这里需要把 fetch 的测试钩子接到 HTTP 面。
+  // 这里踩了**三次**同样的坑，全部表现为 8/8 假绿：
+  // ① 改 require.cache 里的 media-fetch —— 被 resolve-request-media.js:17 的解构绑定挡住
+  // ② 改 require.cache 里的 resolve-request-media —— 被 publish-api-server.js:23 挡住
+  // ③ 自检用例直接调 hookedResolve，绕开了 HTTP 路径，给了「钩子有效」的错觉
   //
-  // 钩子只能从 opts 传入，不能从请求体驱动（否则就成了绕过 SSRF 的后门）。
-  // 故本测试用「包装 media-fetch 模块」的方式：让 HTTP 面内部的
-  // resolveRequestMedia 走真下载，但把 URL 指向本机 server。
-  console.log("--- 真下载后仍必须零残留（验证 HTTP 层 finally 而非 fetch 自身兜底）---")
-
-// ⚠️ 钩子必须作用在 **resolve-request-media 的 exports** 上，不能改 media-fetch。
-  // 原因：resolve-request-media.js:17 用解构赋值在加载时就把 fetchMediaToTemp
-  // 固化成局部变量，此后 require.cache 里的任何替换都追不上它。踩过一次——
-  // 替换 media-fetch 后「真下载」用例其实一次都没下载，7/7 全是假绿。
-  const rrmPath = require.resolve("../src/publish/resolve-request-media")
-  const realResolve = require(rrmPath)
-  const realFetch = require("../src/publish/media-fetch")
-
-  // 代理 resolveRequestMedia：给 fetchMediaToTemp 强制注入测试钩子
-  const hookedResolve = Object.create(realResolve)
-  hookedResolve.resolveRequestMedia = function (body, fetchOpts) {
-    return realResolve.resolveRequestMedia(body, Object.assign({}, fetchOpts, {
+  // 判据：日志里紧挨着断言的 `errorCode: ENOTFOUND` 就是「压根没下载过」的自证。
+  // 结论：改不动 require 时序就别和它搏斗 —— 生产代码加显式注入点
+  // （setMediaRequestResolver），测试从那里注入，并断言 **origin 真收到请求**。
+  const realResolve = require("../src/publish/resolve-request-media")
+  serverMod.setMediaRequestResolver(function (body) {
+    return realResolve.resolveRequestMedia(body, {
       lookup: async () => [{ address: "93.184.216.34", family: 4 }],
       __connectHost: "127.0.0.1",
-    }))
-  }
-  hookedResolve.URL_FIELDS = realResolve.URL_FIELDS
-  require.cache[rrmPath].exports = hookedResolve
-
-  // 自检：钩子未生效时必须当场失败，而不是让后面的断言假绿
-  await t("钩子自检：代理后 URL 路径真的发生了下载", async () => {
-    const before = mediaDirs().length
-    const r = await hookedResolve.resolveRequestMedia({ platform: "kuaishou", video_url: mediaUrl })
-    assert.strictEqual(r.ok, true, "应解析成功，实得 " + JSON.stringify(r).slice(0, 120))
-    assert.ok(r.taskData.video && r.taskData.video.path,
-      "video.path 应被填上真实落盘路径（说明下载真的发生了）")
-    assert.ok(mediaDirs().length > before,
-      "临时目录数未增加 ⇒ 钩子未生效、下载根本没发生，后续断言会假绿")
-    r.cleanup()
+    })
   })
 
   const server = new PublishApiServer({ dryRun: true })
@@ -112,6 +90,7 @@ async function main () {
       assert.strictEqual(mediaDirs().length, before,
         "early return 路径泄漏了 " + (mediaDirs().length - before) +
         " 个临时目录（HTTP 层 finally 清理未生效）")
+      // platform 缺失 ⇒ 校验发生在媒体解析之前，本条验「早失败不留痕」。
     })
 
     await t("真下载成功且 platform 合法 → 正常响应后零残留", async () => {
@@ -120,47 +99,58 @@ async function main () {
       assert.ok(r.status >= 200 && r.status < 500, "意外状态 " + r.status + " body=" + JSON.stringify(r.body).slice(0, 120))
       assert.strictEqual(mediaDirs().length, before,
         "正常路径泄漏了 " + (mediaDirs().length - before) + " 个临时目录")
+      assert.ok(originHits.n > 0, "本条必须真下载过，否则「零残留」是假绿")
     })
 
-    console.log("--- /publish：URL 被拒时不留临时目录 ---")
-    await t("私网 video_url → 400 且零残留", async () => {
+    // 注意：本文件全程注入了固定 lookup，私网/解析失败的防线**不在这里验**
+    // （注入后 URL 会被解析到 93.184.216.34）。那两道防线由
+    // media-fetch.test.js 与 resolve-request-media.test.js（不注入）覆盖。
+    console.log("--- /publish：各种响应路径都不留临时目录 ---")
+    await t("连接失败（端口 1 拒绝）→ 零残留", async () => {
       const before = mediaDirs().length
-      const r = await post(port, "/api/v1/publish", { platform: "kuaishou", video_url: "http://127.0.0.1:1/x.mp4", cookie: "c" })
-      assert.strictEqual(r.status, 400)
+      const r = await post(port, "/api/v1/publish", { platform: "kuaishou", video_url: "http://cdn.example.com:1/x.mp4", cookie: "c" })
+      assert.ok(r.status >= 200 && r.status < 500, "预期 4xx/2xx，实得 " + r.status)
       assert.strictEqual(mediaDirs().length, before, "残留 " + (mediaDirs().length - before) + " 个临时目录")
     })
 
     await t("缺 platform + 带 URL → 400 且零残留（early return 路径）", async () => {
       const before = mediaDirs().length
-      // platform 缺失时在媒体解析**之后**才校验，故 URL 已尝试拉取；
-      // 这条专门盯住「解析成功但后续 early return」这条路径是否仍会清理。
+      // ⚠️ platform 校验（publish-api-server.js:1033）在媒体解析（:1042）**之前**，
+      // 所以这条请求压根没下载过 —— 它验的是「早失败路径不留痕」，
+      // 不能证明 finally 清理（那由下面 origin 自检后的两条承担）。
+      const hitsBefore = originHits.n
       const r = await post(port, "/api/v1/publish", { video_url: mediaUrl, cookie: "c" })
       assert.strictEqual(r.status, 400)
+      assert.strictEqual(originHits.n, hitsBefore, "platform 缺失时应未触发任何下载")
       assert.strictEqual(mediaDirs().length, before,
         "early return 路径泄漏了 " + (mediaDirs().length - before) + " 个临时目录")
     })
 
     console.log("\n--- /batch-publish：同样零残留 ---")
-    await t("私网 video_url → 400 且零残留", async () => {
+    await t("batch 连接失败 → 零残留", async () => {
       const before = mediaDirs().length
-      const r = await post(port, "/api/v1/batch-publish", { platforms: ["zhihu"], video_url: "http://127.0.0.1:1/x.mp4", cookie: "c" })
-      assert.strictEqual(r.status, 400)
+      const r = await post(port, "/api/v1/batch-publish", { platforms: ["zhihu"], video_url: "http://cdn.example.com:1/x.mp4", cookie: "c" })
+      assert.ok(r.status >= 200 && r.status < 500, "预期 4xx/2xx，实得 " + r.status)
       assert.strictEqual(mediaDirs().length, before)
     })
 
     await t("batch 缺 platforms + 带 URL → 400 且零残留", async () => {
       const before = mediaDirs().length
+      // 与 /publish 不同：batch **没有** platforms 缺失的提前校验
+      // （platforms 只在 :1112 的 _authorizeImmediateEntry 里被用到），
+      // 所以媒体确实会被下载。这条正是「下载成功后仍须清理」的关键一例。
       const r = await post(port, "/api/v1/batch-publish", { video_url: mediaUrl, cookie: "c" })
-      assert.strictEqual(r.status, 400)
+      assert.ok(r.status >= 200 && r.status < 500, "预期 4xx/2xx，实得 " + r.status + " body=" + JSON.stringify(r.body).slice(0, 100))
+      assert.ok(originHits.n > 0, "batch 路径本应触发下载，若为 0 说明断言前提变了")
       assert.strictEqual(mediaDirs().length, before,
-        "batch early return 路径泄漏了 " + (mediaDirs().length - before) + " 个临时目录")
+        "batch 路径泄漏了 " + (mediaDirs().length - before) + " 个临时目录")
     })
 
     console.log("\n--- 互斥校验从 HTTP 面可见 ---")
     await t("video_path + video_url 同时给 → 400 且提示互斥", async () => {
       const before = mediaDirs().length
       const r = await post(port, "/api/v1/publish", {
-        platform: "kuaishou", video_path: "/tmp/x.mp4", video_url: "http://127.0.0.1:1/x.mp4", cookie: "c",
+        platform: "kuaishou", video_path: "/tmp/x.mp4", video_url: "http://cdn.example.com:1/x.mp4", cookie: "c",
       })
       assert.strictEqual(r.status, 400)
       assert.match(r.body.error || "", /mutually exclusive/)
@@ -170,7 +160,6 @@ async function main () {
     console.log("\n========== publish-api-media-url-e2e " + pass + "/" + (pass + failCount) + " ==========")
   } finally {
     await server.stop()
-    require.cache[rrmPath].exports = realResolve
     await new Promise((r) => raw.close(r))
   }
   if (failCount) process.exit(1)

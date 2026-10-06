@@ -45,6 +45,9 @@ function assertNoExternalTestHooks (source) {
 /** 单个媒体文件的体积上限（默认 512 MiB）。够覆盖绝大多数短视频，又不至于打死进程。 */
 const DEFAULT_MAX_MEDIA_BYTES = 512 * 1024 * 1024;
 
+/** 单次拉取允许的最大重定向跳数。超过即失败——防自重定向/跳转环导致的无限爬取。 */
+const MAX_REDIRECTS = 5;
+
 /** 从 URL 或 Content-Type 推断扩展名；无法判定时用 .bin（平台链通常不依赖扩展名）。 */
 function extensionFor (contentType, url) {
   var type = String(contentType || "").split(";")[0].trim().toLowerCase();
@@ -59,6 +62,31 @@ function extensionFor (contentType, url) {
     if (/^\.[a-z0-9]{1,5}$/.test(ext)) return ext;
   } catch (e) { /* URL 已校验过，这里只是取扩展名，取不到无所谓 */ }
   return ".bin";
+}
+
+/**
+ * 只认 SSRF 已校验过的地址的 lookup。
+ *
+ * 用途：消除「校验时解析一次、连接时又解析一次」的 TOCTOU 窗口。DNS rebinding
+ * 场景下攻击者让第一次解析答公网（通过校验）、第二次答内网（连接），SSRF 防护
+ * 就被完全绕开——这不是「DNS 层的问题」，而是本模块必须自己钉住的。
+ *
+ * https 时 Node 用 `servername` 做 SNI 与证书校验，与实际连到哪个 IP 无关，
+ * 故钉 IP 不会破坏 TLS。
+ */
+function makePinnedLookup (hostname, addresses) {
+  const list = Array.isArray(addresses) && addresses.length ? addresses : [hostname];
+  let i = 0;
+  return function pinnedLookup (host, options, callback) {
+    const cb = typeof options === "function" ? options : callback;
+    const addr = list[i++ % list.length];
+    const family = require("net").isIP(addr);
+    if (typeof options === "object" && options && options.all) {
+      cb(null, list.map((a) => ({ address: a, family: require("net").isIP(a) })));
+      return;
+    }
+    cb(null, addr, family);
+  };
 }
 
 function mediaError (message, code) {
@@ -84,8 +112,12 @@ async function fetchMediaToTemp (url, opts) {
   const maxBytes = opts.maxBytes || DEFAULT_MAX_MEDIA_BYTES;
   const timeoutMs = opts.timeoutMs || 60000;
 
-  // 防线 1：SSRF（含 DNS 解析结果）
-  const parsed = await assertOutboundUrl(url, { label: label + " URL", lookup: opts.lookup });
+  // 防线 1：SSRF（含 DNS 解析结果）。**必须钉住 addresses**——
+  // 校验与连接之间若各解析一次，中间存在 TOCTOU 窗口（DNS rebinding）：
+  // 校验那次答公网、连接那次答内网，SSRF 被完全绕过（已实测从内网读出数据）。
+  const verified = await assertOutboundUrl(url, { label: label + " URL", lookup: opts.lookup });
+  const parsed = verified.url;
+  const verifiedAddresses = verified.addresses;
 
   const transport = parsed.protocol === "https:" ? https : http;
   const headers = { Accept: "*/*", "User-Agent": "multi-publish-engine/media-fetch" };
@@ -97,6 +129,15 @@ async function fetchMediaToTemp (url, opts) {
     let settled = false;
     let dir = null;
     let req = null;
+    // 重定向跳数上限。此前**没有任何跳数限制**——注释写着「3xx 未给 Location
+    // 直接判失败，不做无限跳」，但那是两回事：自重定向（Location 指回自己）
+    // 每跳都会真实做一次 DNS 查询 + 新建 TCP 连接，永不 settle，finally 永不执行。
+    // 实测 maxBytes=1024 时 6 秒跳 4395 次、服务端吐约 900MB（3xx 体不计入上限）。
+    const hops = Number.isInteger(opts.hops) ? opts.hops : 0;
+    if (hops >= MAX_REDIRECTS) {
+      reject(mediaError(label + " exceeded max redirects (" + MAX_REDIRECTS + ")", errorCode.request_error));
+      return;
+    }
 
     /** 统一出口：无论哪条路径失败，先清临时目录再抛，避免半截文件残留。 */
     const fail = (err) => {
@@ -125,7 +166,11 @@ async function fetchMediaToTemp (url, opts) {
         // **绝不**从请求体/配置读取（见 assertNoTestHookFromBody 的守卫），
         // 生产路径下 opts 只能来自代码常量，调用方无法触达。
         ...(opts.__connectHost ? { host: opts.__connectHost } : {}),
-        // ⚠️ **不要**把 SSRF 的 lookup 注入透传给 http.request。
+        // **把 SSRF 已校验过的地址钉到连接上**，消除 rebinding 窗口。
+        // 实现方式是给 http.request 一个只认这些地址的 lookup：Node 会用它
+        // 决定连哪个 IP（SNI/certificate 仍走原 hostname，不受影响）。
+        lookup: makePinnedLookup(parsed.hostname, verifiedAddresses),
+        // ⚠️ 测试钩子 __connectHost 优先于上面那个（仅本包测试可用）。
         //
         // 注入的 lookup 是给 SSRF 校验用的（回答「这个域名解析到哪」），
         // 而 http.request 拿同一个 lookup 是去**建立连接**的——一旦注入的是
@@ -145,7 +190,11 @@ async function fetchMediaToTemp (url, opts) {
         if (status >= 300 && status < 400 && res.headers.location) {
           res.resume();
           // 跳转目标必须重新过一遍 SSRF：这是最经典的绕过口（首跳合法、二跳内网）
-          fetchMediaToTemp(new URL(res.headers.location, parsed.href).href, opts)
+          // 3xx 的响应体不喂给媒体文件，但仍必须 resume 掉，否则 socket 挂起；
+          // 它不计入 maxBytes —— 本服务只对**最终落盘的文件**设上限，中间跳转体
+          // 由上游服务器自己控制，跳数上限（MAX_REDIRECTS）才是这里的实际防线。
+          const nextUrl = new URL(res.headers.location, parsed.href).href
+          fetchMediaToTemp(nextUrl, Object.assign({}, opts, { hops: hops + 1 }))
             .then(done, fail);
           return;
         }
@@ -251,6 +300,7 @@ async function fetchMediaSetToTemp (urls, opts) {
 }
 
 module.exports = {
+  MAX_REDIRECTS,
   fetchMediaToTemp,
   assertNoExternalTestHooks,
   TEST_HOOK_KEYS,
