@@ -2,9 +2,6 @@
 record: content-aware-svg-cover
 task: 重写本地兜底封面生成器，使图文发布在 AI 生图不可用时产出与文章内容相关的 SVG 封面，并打通标题/正文上下文
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: PR #2982 尚未合并，无法取证 merge SHA；回填者＝本任务后续的 docs 回填 PR
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：内容感知封面：AI 生图不可用时按文章内容生成兜底封面（content-aware-svg-cover，2026-10-06）
@@ -35,7 +32,7 @@ sync_backfill_owner: 下一个会话
 | locale 成对（Gate 7） | PASS | `check-locale-sync.js --pair-base origin/main` PASS；`--cjk` PASS（基线 1489 / 当前 1338，**无新增硬编码中文**）。zh/en 成对新增 `aiCoverLocalGenerated`、成对改写 `aiCoverPromptPlaceholder` 说明兜底行为 |
 | 品牌残留 / 其他门禁 | PASS | `check-no-brand-residue.js` PASS（扫 6933 tracked 文件）；`npx eslint --quiet` 7 个改动文件 **0 error** |
 | QM-6 CCG 双模（外部评审） | **未跑（显式登记）** | pre-commit CCG 判定本次改动 **DUAL**（744 行 > 200 阈值），提示「要求双模 claude + opencode，但 opencode 不可用 → 降级为单后端 + 补一次 agent 自评」；决策层另提示「未找到 `layer=plan` 的 `.ccg/reviews` 记录」。**本轮未跑 `codeagent-wrapper` 外部评审**，也未补跑 `scripts/plan-review.sh`（无独立方案文件，方案已随 PRD 章节交付）。替代证据：本次已执行**本会话内自评**（见下节）+ 反例实测 4 组 + ESLint/门禁全绿。**缺口如实登记，不谎称通过** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#2982)$' --format=%H|%cI` 拿 merge SHA 与时间，`git ls-remote --heads origin content-aware-svg-cover` 返回 0 行证远端分支已删；并在**同一次提交**把本文件 frontmatter 的 `sync_*` 三字段删除、把 `.quality-gates.md` 本行改写为 `PASS` + merge SHA、删除 `scripts/gate-record-debt-ledger.json` 中本条登记 |
+| 远程同步 | PASS | PR #2982 已 squash 合并：merge SHA `a0336074b1066297246f07b76436a223eace99c8`（`2026-10-06T14:39:40+08:00`）；远端分支 `content-aware-svg-cover` 已删（`git ls-remote --heads origin content-aware-svg-cover` 返回 0 行） |
 
 ### 本会话内自评（CCG DUAL 降级路径的替代证据）
 
