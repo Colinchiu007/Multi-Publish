@@ -2,9 +2,7 @@
 record: verify-scheduled-publish
 task: 验证定时发布功能是否正常实现和完整（涵盖所有操作与流程），有问题就修复，并对标参考产品 4.0 逆向工程的实现方式
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: PR #2985 自身尚未合并，无法取证 merge SHA（合并前无法预知）
-sync_backfill_owner: 本任务作者（合并后回填并销账的 docs PR）
+sync_status: PASS
 ---
 
 # 执行记录：定时发布全链路验证与修复（verify-scheduled-publish，2026-10-06）
@@ -19,7 +17,7 @@ sync_backfill_owner: 本任务作者（合并后回填并销账的 docs PR）
 | 回归 diff 分析 | PASS | 首次桌面端全量 13960 例中 **4 例失败**（`build-preload` / `observability-messagekey` / desktop `scheduler` 契约锁）→ 定位为「新增 preload API 键 + 新增 `rearm` + 新增 notify 键」引起的结构锁未同步，逐一同步后复跑 13957/13957 零失败；重基（rebase origin/main）后再验 192/192（usePublishFlow + useBatchPublish + Calendar，含与上游自动合并部分） |
 | QM-1 打包 / QM-4 视觉 | PASS / PASS | QM-1：`vite build` rc=0 → `electron-builder --win --dir` rc=0（asar 145889 KB / exe 220201 KB）；asar 清单 6 项全 PASS；打包产物内 `resume-guard` 可 require（导出 `createResumeGuard`）、`scheduler` 实例 API 含 `rearm`；启动 8 秒存活且 **stderr 长度 0**。QM-4：改动为既有设计系统内的文本/按钮复用（日历批次行 + 失败 toast + hint 加长），无新布局/配色/字号，由 `Calendar.test.js` 10 例覆盖渲染与交互分支 |
 | QM-6 CCG 双模型外部评审 | PASS | pre-commit 内 CCG 门禁三次提交均全过（`[CCG] 门禁已执行：5 项通过` / `2 项通过`），含决策层 DUAL 判定与深度审查记录落盘 `.ccg/reviews/` |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#2985)$' --format=%H|%cI` 取 merge SHA 与时间；`git ls-remote --heads origin verify-scheduled-publish` 返回 0 行证远端分支已删；随后删掉本文件 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | PR #2985 已 squash 合并：merge SHA `da94f55c35fec5107543401121426120161a0d54`（2026-10-06T20:36:34+08:00）；远端分支 `verify-scheduled-publish` 已删（`git ls-remote --heads origin verify-scheduled-publish` 返回 0 行） |
 
 ### 缺陷清单与根因（2026-10-06 全链路验证）
 
