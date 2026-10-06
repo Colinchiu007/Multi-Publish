@@ -356,6 +356,19 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-wq5f-xc86-pv6w",
+      "module": "sharp",
+      "severity": "high",
+      "patched": ">=0.35.5",
+      "roots": [
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "sharp 在 packages/shared-utils 有直接依赖声明 ^0.35.1，caret 范围 0.35.x 已含修复版 >=0.35.5，刷新 lockfile 即可，无需改 manifest。本条沿用基线中 sharp 的既有处置（GHSA-rgj7-g3m4-5g8c：upgrade-tracked → 0.35.4），仅补丁号由 0.35.4 推进到 0.35.5，处置方式未变。前一条的原始依据：sharp 在 packages/shared-utils 有直接依赖声明 ^0.35.1，caret 范围含修复版 >=0.35.4，刷新 lockfile 即可（涉及图片处理，单独一条依赖记录）。",
+      "targetVersion": "0.35.5"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-x5fp-wj9c-mxmx",
       "module": "qs",
       "severity": "moderate",
