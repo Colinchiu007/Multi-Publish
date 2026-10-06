@@ -1009,6 +1009,24 @@ describe('useBatchPublish — 离线检测与取消排期（与单篇语义对�
     )
   })
 
+  // 平台侧定时（2026-10-07）：带 publishTime 的条目创建排期不依赖渲染层在线态，
+  // 而离线缓存形状 {targets, data} **不含 publishTime** ⇒ 网络恢复后立即发布。
+  // 与单篇 usePublishFlow 同构，这条锁防止批量侧回退。
+  it('带定时的批次即使离线也走 batch:schedule，不落离线缓存', async () => {
+    window.electronAPI.offlineStatus.mockResolvedValue({ code: 0, data: { offline: true } })
+    const r = useBatchPublish({ article, licenseStore })
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    r.articles.value = [
+      { title: '文章A', content: '正文A', platforms: ['toutiao'], publishTime: future },
+    ]
+
+    await r.handleBatchPublish()
+
+    expect(window.electronAPI.offlineAddToCache).not.toHaveBeenCalled()
+    expect(mockBatchCreate).toHaveBeenCalled()
+    expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
+  })
+
   it('离线缓存写入失败时提示失败，不静默当作成功', async () => {
     window.electronAPI.offlineStatus.mockResolvedValue({ code: 0, data: { offline: true } })
     window.electronAPI.offlineAddToCache.mockResolvedValue({ code: -1, message: '磁盘写入失败' })

@@ -529,9 +529,13 @@ export function useBatchPublish(options) {
       // 阶段进度由全局 store 的 App 级订阅承载（PublishProgressPanel）；本页保留
       // batch:progress 任务级监听 + batchGet 有界轮询驱动页面进度卡。
 
-      // 离线检测（与单篇 usePublishFlow 对齐）：离线时不硬发，逐篇进离线缓存，
-      // 网络恢复后由 offline-manager 按 `{targets, data}` 形状展开重放。
-      const offlineRes = await offlineStatus()
+      // 离线检测（与单篇 usePublishFlow 对齐）：离线时不硬发，逐篇进离线缓存。
+      // 平台侧定时（2026-10-07）：带 publishTime 的条目**不走离线缓存** ——
+      // 定时创建只是把排期提交给平台（主进程 batch:schedule，不依赖渲染层在线态），
+      // 而离线缓存形状 {targets, data} **不含 publishTime** ⇒ 网络恢复后立即发布。
+      const offlineRes = articles.value.some(a => a.publishTime)
+        ? { code: 0, data: { offline: false } }
+        : await offlineStatus()
       if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
         let cachedCount = 0
         for (const a of articles.value) {
