@@ -53,10 +53,15 @@ describe('§5.1 platforms.yaml publishMode 字段', function () {
 
 describe('§5.1 getPublishMode 读取器', function () {
   test('优先读 publishMode 字段，覆盖 has_api 派生', function () {
-    // tencent_video: has_api=false，但 publishMode=api-then-dom → 应取字段值
-    expect(router.shouldUseApi('tencent_video')).toBe(false)
+    // tencent_video：2026-10-06 起 has_api 由 false 修正为 true——旧值与同文件
+    // publishMode=api-then-dom 自相矛盾（api-then-dom 本身要求存在 API 轨），
+    // 使视频号完整链（shipinhao-video.js，分片 + Content-MD5 + draft/create 双分支）
+    // 从未被触发、等同死代码。修正后该平台两字段一致，**不再构成分歧样本**，
+    // 故优先级改由 youtube 的反向样本证明，断言本身随之更新。
+    expect(router.shouldUseApi('tencent_video')).toBe(true)
     expect(router.getPublishMode('tencent_video')).toBe('api-then-dom')
-    // youtube: has_api=true，但 publishMode=dom-only → 应取字段值
+    // youtube: has_api=true，但 publishMode=dom-only → 应取字段值（反向样本：
+    // 若 getPublishMode 由 has_api 派生，这里会得到 api-then-dom，断言即红）
     expect(router.shouldUseApi('youtube')).toBe(true)
     expect(router.getPublishMode('youtube')).toBe('dom-only')
   })
